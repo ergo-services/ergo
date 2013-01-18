@@ -1,42 +1,41 @@
 package node
 
 import (
-	"fmt"
 	"encoding/binary"
-	"erlang/epmd"
 	"erlang/dist"
+	"erlang/epmd"
+	"fmt"
 	"log"
 	"net"
 	"strconv"
 	"strings"
 )
 
-
 type Node struct {
 	epmd.NodeInfo
 	Cookie string
-	port int32
+	port   int32
 }
 
-func NewNode(name string, cookie string) (n *Node){
+func NewNode(name string, cookie string) (n *Node) {
 	log.Printf("Start with name '%s' and cookie '%s'", name, cookie)
 	// TODO: add fqdn support
 	ns := strings.Split(name, "@")
 	nodeInfo := epmd.NodeInfo{
 		FullName: name,
-		Name: ns[0],
-		Domain: ns[1],
-		Port: 0,
-		Type: 77,				// or 72 if hidden
+		Name:     ns[0],
+		Domain:   ns[1],
+		Port:     0,
+		Type:     77, // or 72 if hidden
 		Protocol: 0,
-		HighVsn: 5,
-		LowVsn: 5,
+		HighVsn:  5,
+		LowVsn:   5,
 		Creation: 0,
 	}
 
 	return &Node{
 		NodeInfo: nodeInfo,
-		Cookie: cookie,
+		Cookie:   cookie,
 	}
 }
 
@@ -53,7 +52,7 @@ func (n *Node) Publish(port int) (err error) {
 	n.Port = uint16(port)
 	aliveResp := make(chan uint16)
 	go epmdC(n, aliveResp)
-	creation := <- aliveResp
+	creation := <-aliveResp
 	switch creation {
 	case 99:
 		return fmt.Errorf("Duplicate name '%s'", n.Name)
@@ -63,7 +62,7 @@ func (n *Node) Publish(port int) (err error) {
 		n.Creation = creation
 	}
 
-	go func () {
+	go func() {
 		for {
 			conn, err := l.Accept()
 			log.Printf("Accept new at ENode")
@@ -77,9 +76,7 @@ func (n *Node) Publish(port int) (err error) {
 	return nil
 }
 
-
 func (currNode *Node) mLoop(c net.Conn) {
-
 
 	currNd := dist.NewNodeDesc(currNode.FullName, currNode.Cookie, false)
 
@@ -89,7 +86,6 @@ func (currNode *Node) mLoop(c net.Conn) {
 			log.Printf("Enode error: %s", err.Error())
 			break
 		}
-
 
 	}
 	c.Close()
@@ -114,7 +110,7 @@ func epmdC(n *Node, resp chan uint16) {
 	for {
 
 		select {
-		case reply := <- epmdFROM:
+		case reply := <-epmdFROM:
 			log.Printf("From EPMD: %v", reply)
 
 			switch epmd.MessageId(reply[0]) {
@@ -145,11 +141,10 @@ func epmdREADER(conn net.Conn, in chan []byte) {
 	}
 }
 
-
 func epmdWRITER(conn net.Conn, in chan []byte, out chan []byte) {
 	for {
 		select {
-		case data := <- out:
+		case data := <-out:
 			buf := make([]byte, 2)
 			binary.BigEndian.PutUint16(buf[0:2], uint16(len(data)))
 			buf = append(buf, data...)
