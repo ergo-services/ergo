@@ -19,7 +19,6 @@ func init() {
 	flag.BoolVar(&nTrace, "erlang.node.trace", false, "trace erlang node")
 }
 
-
 func nLog(f string, a ...interface{}) {
 	if nTrace {
 		log.Printf(f, a...)
@@ -28,11 +27,18 @@ func nLog(f string, a ...interface{}) {
 
 type Node struct {
 	epmd.NodeInfo
-	Cookie string
-	port   int32
+	Cookie     string
+	port       int32
+	channels   map[term.Pid]procChannels
+	registered map[term.Atom]term.Pid
 }
 
-func NewNode(name string, cookie string) (n *Node) {
+type procChannels struct {
+	in chan term.Term
+	inFrom chan term.Tuple
+}
+
+func NewNode(name string, cookie string) (node *Node) {
 	nLog("Start with name '%s' and cookie '%s'", name, cookie)
 	// TODO: add fqdn support
 	ns := strings.Split(name, "@")
@@ -48,10 +54,122 @@ func NewNode(name string, cookie string) (n *Node) {
 		Creation: 0,
 	}
 
-	return &Node{
-		NodeInfo: nodeInfo,
-		Cookie:   cookie,
+	node = &Node{
+		NodeInfo:   nodeInfo,
+		Cookie:     cookie,
+		channels:   make(map[term.Pid]procChannels),
+		registered: make(map[term.Atom]term.Pid),
 	}
+	return node
+}
+
+func (n *Node) prepareProcesses() {
+	nkState := term.Tuple{}
+	nkFun := func(nn *Node, msg term.Term, inState interface{}) (newState interface{}, tr *term.Term) {
+		return net_kernel(nn, msg, inState)
+	}
+	nkPid := n.Spawn(nkFun, nkState)
+	n.Register(term.Atom("net_kernel"), nkPid)
+
+	gnsState := term.Tuple{}
+	gnsFun := func(nn *Node, msg term.Term, inState interface{}) (newState interface{}, tr *term.Term) {
+		return global_name_server(nn, msg, inState)
+	}
+	gnsPid := n.Spawn(gnsFun, gnsState)
+	n.Register(term.Atom("global_name_server"), gnsPid)
+
+
+}
+
+func (n *Node) Spawn(lambda func(*Node, term.Term, interface{}) (interface{}, *term.Term), state interface{}) (pid term.Pid) {
+	in := make(chan term.Term)
+	inFrom := make(chan term.Tuple)
+	pcs := procChannels{
+		in: in,
+		inFrom: inFrom,
+	}
+	pid = n.storeProcess(pcs)
+	go n.erlangProcess(pcs, lambda, state)
+	in <- term.Tuple{term.Atom("go-ctl"), term.Tuple{term.Atom("your-pid"), pid}}
+	return
+}
+
+func (n *Node) Register(name term.Atom, pid term.Pid) {
+	n.registered[name] = pid
+}
+
+func (n *Node) Registered() (pids []term.Atom) {
+	pids = make([]term.Atom, len(n.registered))
+	i := 0
+	for p, _ := range n.registered {
+		pids[i] = p
+		i++
+	}
+	return
+}
+
+func (n *Node) storeProcess(chs procChannels) (pid term.Pid) {
+	pid = n.allocatePid()
+	n.channels[pid] = chs
+	return pid
+}
+
+func (n *Node) allocatePid() (pid term.Pid) {
+	// FIXME: make proper allocation, now it just stub
+	var id uint32 = 0
+	for k, _ := range n.channels {
+		if k.Id >= id {
+			id = k.Id + 1
+		}
+	}
+	pid.Node = term.Atom(n.FullName)
+	pid.Id = id
+	pid.Serial = 0 // FIXME
+	pid.Creation = byte(n.Creation)
+	return
+}
+
+func (n *Node) erlangProcess(pcs procChannels, lambda func(*Node, term.Term, interface{}) (interface{}, *term.Term), initState interface{}) {
+	internalState := initState
+	for {
+		select {
+		case msg := <- pcs.in:
+			switch m := msg.(type) {
+			case term.Tuple:
+				switch mtag := m[0].(type) {
+				case term.Atom:
+					switch mtag {
+					case term.Atom("go-ctl"):
+						nLog("Control message: %#v", msg)
+					default:
+						internalState, _ = lambda(n, msg, internalState)
+					}
+				default:
+					internalState, _ = lambda(n, msg, internalState)
+				}
+			default:
+				internalState, _ = lambda(n, msg, internalState)
+			}
+		case msgFrom := <- pcs.inFrom:
+			var reply *term.Term
+			internalState, reply = lambda(n, msgFrom[1], internalState)
+			if reply != nil {
+				n.Send(msgFrom[0].(term.Pid), *reply)
+			}
+		}
+	}
+}
+
+func net_kernel(n *Node, msg term.Term, state interface{}) (newState interface{}, ts *term.Term) {
+	nLog("NET_KERNEL message: %#v", msg)
+	newState = state
+	return
+}
+
+func global_name_server(n *Node, msg term.Term, state interface{}) (newState interface{}, ts *term.Term) {
+	nLog("GLOBAL_NAME_SERVER message: %#v", msg)
+	newState = state
+	return
 }
 
 func (n *Node) Connect(remote string) {
@@ -88,6 +206,7 @@ func (n *Node) Publish(port int) (err error) {
 			}
 		}
 	}()
+	n.prepareProcesses()
 	return nil
 }
 
@@ -101,13 +220,64 @@ func (currNode *Node) mLoop(c net.Conn) {
 			nLog("Enode error: %s", err.Error())
 			break
 		}
-		handleTerms(c, terms)
+		currNode.handleTerms(c, terms)
 	}
 	c.Close()
 }
 
-func handleTerms(c net.Conn, terms []term.Term) {
+func (currNode *Node) handleTerms(c net.Conn, terms []term.Term) {
 	nLog("Node terms: %#v", terms)
+
+	if len(terms) == 0 {
+		return
+	}
+	switch t := terms[0].(type) {
+	case term.Tuple:
+		if len(t) > 0 {
+			switch act := t.Element(1).(type) {
+			case term.Int:
+				switch act {
+				case REG_SEND:
+					if len(terms) == 2 {
+						currNode.RegSend(t.Element(2), t.Element(4), terms[1])
+					} else {
+						nLog("*** ERROR: bad REG_SEND: %#v", terms)
+					}
+				default:
+					nLog("Unhandled node message: %#v", t)
+				}
+			}
+		}
+	}
+}
+
+func (currNode *Node) RegSend(from, to term.Term, message term.Term) {
+	nLog("REG_SEND: From: %#v, To: %#v, Message: %#v", from, to, message)
+	var toPid term.Pid
+	switch tp := to.(type) {
+	case term.Pid:
+		toPid = tp
+	case term.Atom:
+		toPid = currNode.Whereis(tp)
+	}
+	currNode.SendFrom(from, toPid, message)
+}
+
+func (currNode *Node) Whereis(who term.Atom) (pid term.Pid) {
+	pid, _ = currNode.registered[who]
+	return
+}
+
+func (currNode *Node) SendFrom(from term.Term, to term.Pid, message term.Term) {
+	nLog("SendFrom: %#v, %#v, %#v", from, to, message)
+	pcs := currNode.channels[to]
+	pcs.inFrom <- term.Tuple{from, message}
+}
+
+func (currNode *Node) Send(to term.Pid, message term.Term) {
+	nLog("Send: %#v, %#v", to, message)
+	pcs := currNode.channels[to]
+	pcs.in <- message
 }
 
 func epmdC(n *Node, resp chan uint16) {
