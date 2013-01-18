@@ -34,7 +34,7 @@ type Node struct {
 }
 
 type procChannels struct {
-	in chan term.Term
+	in     chan term.Term
 	inFrom chan term.Tuple
 }
 
@@ -78,14 +78,13 @@ func (n *Node) prepareProcesses() {
 	gnsPid := n.Spawn(gnsFun, gnsState)
 	n.Register(term.Atom("global_name_server"), gnsPid)
 
-
 }
 
 func (n *Node) Spawn(lambda func(*Node, term.Term, interface{}) (interface{}, *term.Term), state interface{}) (pid term.Pid) {
 	in := make(chan term.Term)
 	inFrom := make(chan term.Tuple)
 	pcs := procChannels{
-		in: in,
+		in:     in,
 		inFrom: inFrom,
 	}
 	pid = n.storeProcess(pcs)
@@ -133,7 +132,7 @@ func (n *Node) erlangProcess(pcs procChannels, lambda func(*Node, term.Term, int
 	internalState := initState
 	for {
 		select {
-		case msg := <- pcs.in:
+		case msg := <-pcs.in:
 			switch m := msg.(type) {
 			case term.Tuple:
 				switch mtag := m[0].(type) {
@@ -150,7 +149,7 @@ func (n *Node) erlangProcess(pcs procChannels, lambda func(*Node, term.Term, int
 			default:
 				internalState, _ = lambda(n, msg, internalState)
 			}
-		case msgFrom := <- pcs.inFrom:
+		case msgFrom := <-pcs.inFrom:
 			var reply *term.Term
 			internalState, reply = lambda(n, msgFrom[1], internalState)
 			if reply != nil {
@@ -158,18 +157,6 @@ func (n *Node) erlangProcess(pcs procChannels, lambda func(*Node, term.Term, int
 			}
 		}
 	}
-}
-
-func net_kernel(n *Node, msg term.Term, state interface{}) (newState interface{}, ts *term.Term) {
-	nLog("NET_KERNEL message: %#v", msg)
-	newState = state
-	return
-}
-
-func global_name_server(n *Node, msg term.Term, state interface{}) (newState interface{}, ts *term.Term) {
-	nLog("GLOBAL_NAME_SERVER message: %#v", msg)
-	newState = state
-	return
 }
 
 func (n *Node) Connect(remote string) {
