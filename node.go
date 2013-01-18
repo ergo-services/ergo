@@ -4,12 +4,27 @@ import (
 	"encoding/binary"
 	"erlang/dist"
 	"erlang/epmd"
+	"erlang/term"
+	"flag"
 	"fmt"
 	"log"
 	"net"
 	"strconv"
 	"strings"
 )
+
+var nTrace bool
+
+func init() {
+	flag.BoolVar(&nTrace, "erlang.node.trace", false, "trace erlang node")
+}
+
+
+func nLog(f string, a ...interface{}) {
+	if nTrace {
+		log.Printf(f, a...)
+	}
+}
 
 type Node struct {
 	epmd.NodeInfo
@@ -18,7 +33,7 @@ type Node struct {
 }
 
 func NewNode(name string, cookie string) (n *Node) {
-	log.Printf("Start with name '%s' and cookie '%s'", name, cookie)
+	nLog("Start with name '%s' and cookie '%s'", name, cookie)
 	// TODO: add fqdn support
 	ns := strings.Split(name, "@")
 	nodeInfo := epmd.NodeInfo{
@@ -44,7 +59,7 @@ func (n *Node) Connect(remote string) {
 }
 
 func (n *Node) Publish(port int) (err error) {
-	log.Printf("Publish ENode at %d", port)
+	nLog("Publish ENode at %d", port)
 	l, err := net.Listen("tcp", net.JoinHostPort("", strconv.Itoa(port)))
 	if err != nil {
 		return
@@ -65,9 +80,9 @@ func (n *Node) Publish(port int) (err error) {
 	go func() {
 		for {
 			conn, err := l.Accept()
-			log.Printf("Accept new at ENode")
+			nLog("Accept new at ENode")
 			if err != nil {
-				log.Printf(err.Error())
+				nLog(err.Error())
 			} else {
 				go n.mLoop(conn)
 			}
@@ -81,14 +96,18 @@ func (currNode *Node) mLoop(c net.Conn) {
 	currNd := dist.NewNodeDesc(currNode.FullName, currNode.Cookie, false)
 
 	for {
-		err := currNd.ReadMessage(c)
+		terms, err := currNd.ReadMessage(c)
 		if err != nil {
-			log.Printf("Enode error: %s", err.Error())
+			nLog("Enode error: %s", err.Error())
 			break
 		}
-
+		handleTerms(c, terms)
 	}
 	c.Close()
+}
+
+func handleTerms(c net.Conn, terms []term.Term) {
+	nLog("Node terms: %#v", terms)
 }
 
 func epmdC(n *Node, resp chan uint16) {
@@ -111,7 +130,7 @@ func epmdC(n *Node, resp chan uint16) {
 
 		select {
 		case reply := <-epmdFROM:
-			log.Printf("From EPMD: %v", reply)
+			nLog("From EPMD: %v", reply)
 
 			switch epmd.MessageId(reply[0]) {
 			case epmd.ALIVE2_RESP:
@@ -136,7 +155,7 @@ func epmdREADER(conn net.Conn, in chan []byte) {
 			in <- []byte{}
 			return
 		}
-		log.Printf("Read from EPMD %d: %v", n, buf[:n])
+		nLog("Read from EPMD %d: %v", n, buf[:n])
 		in <- buf[:n]
 	}
 }
