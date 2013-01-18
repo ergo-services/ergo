@@ -83,10 +83,8 @@ func (currNode *Node) mLoop(c net.Conn) {
 
 	currNd := dist.NewNodeDesc(currNode.FullName, currNode.Cookie, false)
 
-
 	for {
-
-		err := currNd.HandleMessage(c)
+		err := currNd.ReadMessage(c)
 		if err != nil {
 			log.Printf("Enode error: %s", err.Error())
 			break
