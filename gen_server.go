@@ -13,12 +13,11 @@ type GenServer interface {
 }
 
 type GenServerImpl struct {
-
 }
 
-func (gs GenServerImpl) Options() (map[string]interface{}) {
+func (gs GenServerImpl) Options() map[string]interface{} {
 	return map[string]interface{}{
-		"chan-size": 100,
+		"chan-size":     100,
 		"ctl-chan-size": 100,
 	}
 }

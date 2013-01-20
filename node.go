@@ -84,15 +84,21 @@ func (n *Node) prepareProcesses() {
 
 func (n *Node) Spawn(pd Process, args ...interface{}) (pid term.Pid) {
 	behaviour, options := pd.Behaviour()
-	chanSize, ok := options["chan-size"].(int); if !ok {chanSize = 100}
-	ctlChanSize, ok := options["chan-size"].(int); if !ok {chanSize = 100}
+	chanSize, ok := options["chan-size"].(int)
+	if !ok {
+		chanSize = 100
+	}
+	ctlChanSize, ok := options["chan-size"].(int)
+	if !ok {
+		chanSize = 100
+	}
 	in := make(chan term.Term, chanSize)
 	inFrom := make(chan term.Tuple, chanSize)
 	ctl := make(chan term.Term, ctlChanSize)
 	pcs := procChannels{
 		in:     in,
 		inFrom: inFrom,
-		ctl: ctl,
+		ctl:    ctl,
 	}
 	pid = n.storeProcess(pcs)
 	go behaviour.ProcessLoop(pid, pcs, pd, args...)
