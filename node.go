@@ -25,10 +25,20 @@ func nLog(f string, a ...interface{}) {
 	}
 }
 
+type regReq struct {
+	replyTo  chan term.Pid
+	channels procChannels
+}
+
+type registryChan struct {
+	storeChan chan regReq
+}
+
 type Node struct {
 	epmd.NodeInfo
 	Cookie     string
 	port       int32
+	registry   *registryChan
 	channels   map[term.Pid]procChannels
 	registered map[term.Atom]term.Pid
 }
@@ -63,9 +73,14 @@ func NewNode(name string, cookie string) (node *Node) {
 		Creation: 0,
 	}
 
+	registry := &registryChan{
+		storeChan: make(chan regReq),
+	}
+
 	node = &Node{
 		NodeInfo:   nodeInfo,
 		Cookie:     cookie,
+		registry:   registry,
 		channels:   make(map[term.Pid]procChannels),
 		registered: make(map[term.Atom]term.Pid),
 	}
@@ -119,25 +134,34 @@ func (n *Node) Registered() (pids []term.Atom) {
 	return
 }
 
-func (n *Node) storeProcess(chs procChannels) (pid term.Pid) {
-	pid = n.allocatePid()
-	n.channels[pid] = chs
-	return pid
-}
+func (n *Node) registrator() {
+	for {
+		select {
+		case req := <-n.registry.storeChan:
+			// FIXME: make proper allocation, now it just stub
+			var id uint32 = 0
+			for k, _ := range n.channels {
+				if k.Id >= id {
+					id = k.Id + 1
+				}
+			}
+			var pid term.Pid
+			pid.Node = term.Atom(n.FullName)
+			pid.Id = id
+			pid.Serial = 0 // FIXME
+			pid.Creation = byte(n.Creation)
 
-func (n *Node) allocatePid() (pid term.Pid) {
-	// FIXME: make proper allocation, now it just stub
-	var id uint32 = 0
-	for k, _ := range n.channels {
-		if k.Id >= id {
-			id = k.Id + 1
+			n.channels[pid] = req.channels
+			req.replyTo <- pid
 		}
 	}
-	pid.Node = term.Atom(n.FullName)
-	pid.Id = id
-	pid.Serial = 0 // FIXME
-	pid.Creation = byte(n.Creation)
-	return
+}
+
+func (n *Node) storeProcess(chs procChannels) (pid term.Pid) {
+	myChan := make(chan term.Pid)
+	n.registry.storeChan <- regReq{replyTo: myChan, channels: chs}
+	pid = <-myChan
+	return pid
 }
 
 func (n *Node) Connect(remote string) {
@@ -174,6 +198,7 @@ func (n *Node) Publish(port int) (err error) {
 			}
 		}
 	}()
+	go n.registrator()
 	n.prepareProcesses()
 	return nil
 }
