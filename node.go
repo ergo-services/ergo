@@ -36,6 +36,15 @@ type Node struct {
 type procChannels struct {
 	in     chan term.Term
 	inFrom chan term.Tuple
+	ctl    chan term.Term
+}
+
+type Behaviour interface {
+	ProcessLoop(pid term.Pid, pcs procChannels, pd Process, args ...interface{})
+}
+
+type Process interface {
+	Behaviour() (behaviour Behaviour, options map[string]interface{})
 }
 
 func NewNode(name string, cookie string) (node *Node) {
@@ -64,32 +73,29 @@ func NewNode(name string, cookie string) (node *Node) {
 }
 
 func (n *Node) prepareProcesses() {
-	nkState := term.Tuple{}
-	nkFun := func(nn *Node, msg term.Term, inState interface{}) (newState interface{}, tr *term.Term) {
-		return net_kernel(nn, msg, inState)
-	}
-	nkPid := n.Spawn(nkFun, nkState)
+	nk := new(netKernel)
+	nkPid := n.Spawn(nk, n)
 	n.Register(term.Atom("net_kernel"), nkPid)
 
-	gnsState := term.Tuple{}
-	gnsFun := func(nn *Node, msg term.Term, inState interface{}) (newState interface{}, tr *term.Term) {
-		return global_name_server(nn, msg, inState)
-	}
-	gnsPid := n.Spawn(gnsFun, gnsState)
+	gns := new(globalNameServer)
+	gnsPid := n.Spawn(gns, n)
 	n.Register(term.Atom("global_name_server"), gnsPid)
-
 }
 
-func (n *Node) Spawn(lambda func(*Node, term.Term, interface{}) (interface{}, *term.Term), state interface{}) (pid term.Pid) {
-	in := make(chan term.Term)
-	inFrom := make(chan term.Tuple)
+func (n *Node) Spawn(pd Process, args ...interface{}) (pid term.Pid) {
+	behaviour, options := pd.Behaviour()
+	chanSize, ok := options["chan-size"].(int); if !ok {chanSize = 100}
+	ctlChanSize, ok := options["chan-size"].(int); if !ok {chanSize = 100}
+	in := make(chan term.Term, chanSize)
+	inFrom := make(chan term.Tuple, chanSize)
+	ctl := make(chan term.Term, ctlChanSize)
 	pcs := procChannels{
 		in:     in,
 		inFrom: inFrom,
+		ctl: ctl,
 	}
 	pid = n.storeProcess(pcs)
-	go n.erlangProcess(pcs, lambda, state)
-	in <- term.Tuple{term.Atom("go-ctl"), term.Tuple{term.Atom("your-pid"), pid}}
+	go behaviour.ProcessLoop(pid, pcs, pd, args...)
 	return
 }
 
@@ -126,37 +132,6 @@ func (n *Node) allocatePid() (pid term.Pid) {
 	pid.Serial = 0 // FIXME
 	pid.Creation = byte(n.Creation)
 	return
-}
-
-func (n *Node) erlangProcess(pcs procChannels, lambda func(*Node, term.Term, interface{}) (interface{}, *term.Term), initState interface{}) {
-	internalState := initState
-	for {
-		select {
-		case msg := <-pcs.in:
-			switch m := msg.(type) {
-			case term.Tuple:
-				switch mtag := m[0].(type) {
-				case term.Atom:
-					switch mtag {
-					case term.Atom("go-ctl"):
-						nLog("Control message: %#v", msg)
-					default:
-						internalState, _ = lambda(n, msg, internalState)
-					}
-				default:
-					internalState, _ = lambda(n, msg, internalState)
-				}
-			default:
-				internalState, _ = lambda(n, msg, internalState)
-			}
-		case msgFrom := <-pcs.inFrom:
-			var reply *term.Term
-			internalState, reply = lambda(n, msgFrom[1], internalState)
-			if reply != nil {
-				n.Send(msgFrom[0].(term.Pid), *reply)
-			}
-		}
-	}
 }
 
 func (n *Node) Connect(remote string) {
