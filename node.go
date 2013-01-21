@@ -35,7 +35,7 @@ type registryChan struct {
 }
 
 type nodeConn struct {
-	conn net.Conn
+	conn  net.Conn
 	wchan chan []term.Term
 }
 
@@ -235,10 +235,10 @@ func (currNode *Node) mLoopReader(c net.Conn, wchan chan []term.Term, ndchan cha
 
 func (currNode *Node) mLoopWriter(c net.Conn, wchan chan []term.Term, ndchan chan *dist.NodeDesc) {
 
-	currNd := <- ndchan
+	currNd := <-ndchan
 
 	for {
-		terms := <- wchan
+		terms := <-wchan
 		err := currNd.WriteMessage(c, terms)
 		if err != nil {
 			nLog("Enode error: %s", err.Error())
