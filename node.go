@@ -34,6 +34,11 @@ type registryChan struct {
 	storeChan chan regReq
 }
 
+type nodeConn struct {
+	conn net.Conn
+	wchan chan []term.Term
+}
+
 type Node struct {
 	epmd.NodeInfo
 	Cookie     string
@@ -41,6 +46,7 @@ type Node struct {
 	registry   *registryChan
 	channels   map[term.Pid]procChannels
 	registered map[term.Atom]term.Pid
+	neighbors  map[term.Atom]nodeConn
 }
 
 type procChannels struct {
@@ -50,7 +56,7 @@ type procChannels struct {
 }
 
 type Behaviour interface {
-	ProcessLoop(pid term.Pid, pcs procChannels, pd Process, args ...interface{})
+	ProcessLoop(n *Node, pid term.Pid, pcs procChannels, pd Process, args ...interface{})
 }
 
 type Process interface {
@@ -83,6 +89,7 @@ func NewNode(name string, cookie string) (node *Node) {
 		registry:   registry,
 		channels:   make(map[term.Pid]procChannels),
 		registered: make(map[term.Atom]term.Pid),
+		neighbors:  make(map[term.Atom]nodeConn),
 	}
 	return node
 }
@@ -95,6 +102,11 @@ func (n *Node) prepareProcesses() {
 	gns := new(globalNameServer)
 	gnsPid := n.Spawn(gns, n)
 	n.Register(term.Atom("global_name_server"), gnsPid)
+
+	rex := new(rexRPC)
+	rexPid := n.Spawn(rex, n)
+	n.Register(term.Atom("rex"), rexPid)
+
 }
 
 func (n *Node) Spawn(pd Process, args ...interface{}) (pid term.Pid) {
@@ -116,7 +128,7 @@ func (n *Node) Spawn(pd Process, args ...interface{}) (pid term.Pid) {
 		ctl:    ctl,
 	}
 	pid = n.storeProcess(pcs)
-	go behaviour.ProcessLoop(pid, pcs, pd, args...)
+	go behaviour.ProcessLoop(n, pid, pcs, pd, args...)
 	return
 }
 
@@ -194,7 +206,10 @@ func (n *Node) Publish(port int) (err error) {
 			if err != nil {
 				nLog(err.Error())
 			} else {
-				go n.mLoop(conn)
+				wchan := make(chan []term.Term, 10)
+				ndchan := make(chan *dist.NodeDesc)
+				go n.mLoopReader(conn, wchan, ndchan)
+				go n.mLoopWriter(conn, wchan, ndchan)
 			}
 		}
 	}()
@@ -203,22 +218,37 @@ func (n *Node) Publish(port int) (err error) {
 	return nil
 }
 
-func (currNode *Node) mLoop(c net.Conn) {
+func (currNode *Node) mLoopReader(c net.Conn, wchan chan []term.Term, ndchan chan *dist.NodeDesc) {
 
 	currNd := dist.NewNodeDesc(currNode.FullName, currNode.Cookie, false)
-
+	ndchan <- currNd
 	for {
 		terms, err := currNd.ReadMessage(c)
 		if err != nil {
 			nLog("Enode error: %s", err.Error())
 			break
 		}
-		currNode.handleTerms(c, terms)
+		currNode.handleTerms(c, wchan, terms)
 	}
 	c.Close()
 }
 
-func (currNode *Node) handleTerms(c net.Conn, terms []term.Term) {
+func (currNode *Node) mLoopWriter(c net.Conn, wchan chan []term.Term, ndchan chan *dist.NodeDesc) {
+
+	currNd := <- ndchan
+
+	for {
+		terms := <- wchan
+		err := currNd.WriteMessage(c, terms)
+		if err != nil {
+			nLog("Enode error: %s", err.Error())
+			break
+		}
+	}
+	c.Close()
+}
+
+func (currNode *Node) handleTerms(c net.Conn, wchan chan []term.Term, terms []term.Term) {
 	nLog("Node terms: %#v", terms)
 
 	if len(terms) == 0 {
@@ -238,6 +268,12 @@ func (currNode *Node) handleTerms(c net.Conn, terms []term.Term) {
 					}
 				default:
 					nLog("Unhandled node message: %#v", t)
+				}
+			case term.Atom:
+				switch act {
+				case term.Atom("$go_set_node"):
+					nLog("SET NODE %#v", t)
+					currNode.neighbors[t[1].(term.Atom)] = nodeConn{conn: c, wchan: wchan}
 				}
 			}
 		}
@@ -269,8 +305,16 @@ func (currNode *Node) SendFrom(from term.Term, to term.Pid, message term.Term) {
 
 func (currNode *Node) Send(to term.Pid, message term.Term) {
 	nLog("Send: %#v, %#v", to, message)
-	pcs := currNode.channels[to]
-	pcs.in <- message
+	if string(to.Node) == currNode.FullName {
+		nLog("Send to local node")
+		pcs := currNode.channels[to]
+		pcs.in <- message
+	} else {
+		nLog("Send to remote node: %#v, %#v", to, currNode.neighbors[to.Node])
+
+		msg := []term.Term{term.Tuple{SEND, term.Atom(""), to}, message}
+		currNode.neighbors[to.Node].wchan <- msg
+	}
 }
 
 func epmdC(n *Node, resp chan uint16) {

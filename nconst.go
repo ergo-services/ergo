@@ -6,18 +6,18 @@ import (
 
 const (
 	LINK           term.Int = 1
-	SEND                    = 2
-	EXIT                    = 3
-	UNLINK                  = 4
-	NODE_LINK               = 5
-	REG_SEND                = 6
-	GROUP_LEADER            = 7
-	EXIT2                   = 8
-	SEND_TT                 = 12
-	EXIT_TT                 = 13
-	REG_SEND_TT             = 16
-	EXIT2_TT                = 18
-	MONITOR_P               = 19
-	DEMONITOR_P             = 20
-	MONITOR_P_EXIT          = 21
+	SEND           term.Int = 2
+	EXIT           term.Int = 3
+	UNLINK         term.Int = 4
+	NODE_LINK      term.Int = 5
+	REG_SEND       term.Int = 6
+	GROUP_LEADER   term.Int = 7
+	EXIT2          term.Int = 8
+	SEND_TT        term.Int = 12
+	EXIT_TT        term.Int = 13
+	REG_SEND_TT    term.Int = 16
+	EXIT2_TT       term.Int = 18
+	MONITOR_P      term.Int = 19
+	DEMONITOR_P    term.Int = 20
+	MONITOR_P_EXIT term.Int = 21
 )

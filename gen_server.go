@@ -7,22 +7,24 @@ import (
 type GenServer interface {
 	Init(args ...interface{})
 	HandleCast(message *term.Term)
-	HandleCall(message *term.Term, from *term.Tuple)
+	HandleCall(message *term.Term, from *term.Tuple) (reply *term.Term)
 	HandleInfo(message *term.Term)
 	Terminate(reason interface{})
 }
 
 type GenServerImpl struct {
+	node *Node
 }
 
-func (gs GenServerImpl) Options() map[string]interface{} {
+func (gs *GenServerImpl) Options() map[string]interface{} {
 	return map[string]interface{}{
 		"chan-size":     100,
 		"ctl-chan-size": 100,
 	}
 }
 
-func (gs GenServerImpl) ProcessLoop(pid term.Pid, pcs procChannels, pd Process, args ...interface{}) {
+func (gs *GenServerImpl) ProcessLoop(node *Node, pid term.Pid, pcs procChannels, pd Process, args ...interface{}) {
+	gs.node = node
 	pd.(GenServer).Init(args...)
 	pcs.ctl <- term.Tuple{term.Atom("$go_ctl"), term.Tuple{term.Atom("your-pid"), pid}}
 	for {
@@ -63,7 +65,10 @@ func (gs GenServerImpl) ProcessLoop(pid term.Pid, pcs procChannels, pd Process, 
 					nLog("Control message: %#v", message)
 				case term.Atom("$gen_call"):
 					fromTuple := m[1].(term.Tuple)
-					pd.(GenServer).HandleCall(&m[2], &fromTuple)
+					reply := pd.(GenServer).HandleCall(&m[2], &fromTuple)
+					if reply != nil {
+						gs.Reply(&fromTuple, reply)
+					}
 				case term.Atom("$gen_cast"):
 					pd.(GenServer).HandleCast(&m[1])
 				default:
@@ -78,4 +83,8 @@ func (gs GenServerImpl) ProcessLoop(pid term.Pid, pcs procChannels, pd Process, 
 			pd.(GenServer).HandleInfo(&message)
 		}
 	}
+}
+
+func (gs *GenServerImpl) Reply(fromTuple *term.Tuple, reply *term.Term) {
+	gs.node.Send((*fromTuple)[0].(term.Pid), term.Tuple{(*fromTuple)[1], *reply})
 }

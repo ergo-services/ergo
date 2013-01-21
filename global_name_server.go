@@ -22,8 +22,11 @@ func (gns *globalNameServer) HandleCast(message *term.Term) {
 	nLog("GLOBAL_NAME_SERVER: HandleCast: %#v", *message)
 }
 
-func (gns *globalNameServer) HandleCall(message *term.Term, from *term.Tuple) {
+func (gns *globalNameServer) HandleCall(message *term.Term, from *term.Tuple) (reply *term.Term) {
 	nLog("GLOBAL_NAME_SERVER: HandleCall: %#v, From: %#v", *message, *from)
+	replyTerm := term.Term(term.Atom("reply"))
+	reply = &replyTerm
+	return
 }
 
 func (gns *globalNameServer) HandleInfo(message *term.Term) {
