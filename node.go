@@ -2,8 +2,8 @@ package node
 
 import (
 	"encoding/binary"
-	"erlang/dist"
-	"erlang/epmd"
+	"github.com/goerlang/dist"
+	"github.com/goerlang/epmd"
 	"flag"
 	"fmt"
 	erl "github.com/goerlang/etf/types"
