@@ -1,7 +1,7 @@
 package node
 
 import (
-	"erlang/term"
+	erl "github.com/goerlang/etf/types"
 )
 
 type rexRPC struct {
@@ -17,33 +17,33 @@ func (nk *rexRPC) Init(args ...interface{}) {
 	nLog("REX: Init: %#v", args)
 }
 
-func (nk *rexRPC) HandleCast(message *term.Term) {
+func (nk *rexRPC) HandleCast(message *erl.Term) {
 	nLog("REX: HandleCast: %#v", *message)
 }
 
-func (nk *rexRPC) HandleCall(message *term.Term, from *term.Tuple) (reply *term.Term) {
+func (nk *rexRPC) HandleCall(message *erl.Term, from *erl.Tuple) (reply *erl.Term) {
 	nLog("REX: HandleCall: %#v, From: %#v", *message, *from)
 	switch req := (*message).(type) {
-	case term.Tuple:
+	case erl.Tuple:
 		if len(req) > 0 {
 			switch act := req[0].(type) {
-			case term.Atom:
+			case erl.Atom:
 				if string(act) == "call" {
 					nLog("RPC CALL: Module: %#v, Function: %#v, Args: %#v, GroupLeader: %#v", req[1], req[2], req[3], req[4])
-					replyTerm := term.Term(term.Tuple{req[1], req[2]})
+					replyTerm := erl.Term(erl.Tuple{req[1], req[2]})
 					reply = &replyTerm
 				}
 			}
 		}
 	}
 	if reply == nil {
-		replyTerm := term.Term(term.Tuple{term.Atom("badrpc"), term.Atom("unknown")})
+		replyTerm := erl.Term(erl.Tuple{erl.Atom("badrpc"), erl.Atom("unknown")})
 		reply = &replyTerm
 	}
 	return
 }
 
-func (nk *rexRPC) HandleInfo(message *term.Term) {
+func (nk *rexRPC) HandleInfo(message *erl.Term) {
 	nLog("REX: HandleInfo: %#v", *message)
 }
 
