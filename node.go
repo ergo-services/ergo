@@ -30,8 +30,19 @@ type regReq struct {
 	channels procChannels
 }
 
+type regNameReq struct {
+	name term.Atom
+	pid term.Pid
+}
+
+type unregNameReq struct {
+	name term.Atom
+}
+
 type registryChan struct {
 	storeChan chan regReq
+	regNameChan chan regNameReq
+	unregNameChan chan unregNameReq
 }
 
 type nodeConn struct {
@@ -81,6 +92,8 @@ func NewNode(name string, cookie string) (node *Node) {
 
 	registry := &registryChan{
 		storeChan: make(chan regReq),
+		regNameChan: make(chan regNameReq),
+		unregNameChan: make(chan unregNameReq),
 	}
 
 	node = &Node{
@@ -133,7 +146,13 @@ func (n *Node) Spawn(pd Process, args ...interface{}) (pid term.Pid) {
 }
 
 func (n *Node) Register(name term.Atom, pid term.Pid) {
-	n.registered[name] = pid
+	r := regNameReq{name: name, pid: pid}
+	n.registry.regNameChan <- r
+}
+
+func (n *Node) Unregister(name term.Atom) {
+	r := unregNameReq{name: name}
+	n.registry.unregNameChan <- r
 }
 
 func (n *Node) Registered() (pids []term.Atom) {
@@ -165,6 +184,10 @@ func (n *Node) registrator() {
 
 			n.channels[pid] = req.channels
 			req.replyTo <- pid
+		case req := <-n.registry.regNameChan:
+			n.registered[req.name] = req.pid
+		case req := <-n.registry.unregNameChan:
+			delete(n.registered, req.name)
 		}
 	}
 }
