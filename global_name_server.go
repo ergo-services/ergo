@@ -5,21 +5,12 @@ import (
 )
 
 type globalNameServer struct {
-	node *Node
-	self term.Pid
+	gsi *GenServerImpl
 }
 
-func (nk *globalNameServer) Behaviour() (behaviour Behaviour, options map[string]interface{}) {
-	gsi := &GenServerImpl{}
-	return gsi, gsi.Options()
-}
-
-func (gns *globalNameServer) setNode(node *Node) {
-	gns.node = node
-}
-
-func (gns *globalNameServer) setPid(pid term.Pid) {
-	gns.self = pid
+func (gns *globalNameServer) Behaviour() (behaviour Behaviour, options map[string]interface{}) {
+	gns.gsi = &GenServerImpl{}
+	return gns.gsi, gns.gsi.Options()
 }
 
 func (gns *globalNameServer) Init(args ...interface{}) {

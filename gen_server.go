@@ -14,6 +14,7 @@ type GenServer interface {
 
 type GenServerImpl struct {
 	node *Node
+	self term.Pid
 }
 
 func (gs *GenServerImpl) Options() map[string]interface{} {
@@ -24,9 +25,8 @@ func (gs *GenServerImpl) Options() map[string]interface{} {
 }
 
 func (gs *GenServerImpl) ProcessLoop(node *Node, pid term.Pid, pcs procChannels, pd Process, args ...interface{}) {
-	gs.node = node
-	pd.setNode(node)
-	pd.setPid(pid)
+	gs.setNode(node)
+	gs.setPid(pid)
 	pd.(GenServer).Init(args...)
 	//pcs.ctl <- term.Tuple{term.Atom("$go_ctl"), term.Tuple{term.Atom("control-message"), term.Atom("example")}}
 	for {
@@ -89,4 +89,12 @@ func (gs *GenServerImpl) ProcessLoop(node *Node, pid term.Pid, pcs procChannels,
 
 func (gs *GenServerImpl) Reply(fromTuple *term.Tuple, reply *term.Term) {
 	gs.node.Send((*fromTuple)[0].(term.Pid), term.Tuple{(*fromTuple)[1], *reply})
+}
+
+func (gs *GenServerImpl) setNode(node *Node) {
+	gs.node = node
+}
+
+func (gs *GenServerImpl) setPid(pid term.Pid) {
+	gs.self = pid
 }

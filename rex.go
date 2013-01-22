@@ -5,21 +5,12 @@ import (
 )
 
 type rexRPC struct {
-	node *Node
-	self term.Pid
+	gsi *GenServerImpl
 }
 
 func (nk *rexRPC) Behaviour() (Behaviour, map[string]interface{}) {
-	gsi := &GenServerImpl{}
-	return gsi, gsi.Options()
-}
-
-func (nk *rexRPC) setNode(node *Node) {
-	nk.node = node
-}
-
-func (nk *rexRPC) setPid(pid term.Pid) {
-	nk.self = pid
+	nk.gsi = &GenServerImpl{}
+	return nk.gsi, nk.gsi.Options()
 }
 
 func (nk *rexRPC) Init(args ...interface{}) {

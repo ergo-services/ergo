@@ -5,21 +5,12 @@ import (
 )
 
 type netKernel struct {
-	node *Node
-	self term.Pid
+	gsi *GenServerImpl
 }
 
 func (nk *netKernel) Behaviour() (Behaviour, map[string]interface{}) {
-	gsi := &GenServerImpl{}
-	return gsi, gsi.Options()
-}
-
-func (nk *netKernel) setNode(node *Node) {
-	nk.node = node
-}
-
-func (nk *netKernel) setPid(pid term.Pid) {
-	nk.self = pid
+	nk.gsi = &GenServerImpl{}
+	return nk.gsi, nk.gsi.Options()
 }
 
 func (nk *netKernel) Init(args ...interface{}) {

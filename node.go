@@ -68,12 +68,12 @@ type procChannels struct {
 
 type Behaviour interface {
 	ProcessLoop(n *Node, pid term.Pid, pcs procChannels, pd Process, args ...interface{})
+	setNode(node *Node)
+	setPid(pid term.Pid)
 }
 
 type Process interface {
 	Behaviour() (behaviour Behaviour, options map[string]interface{})
-	setNode(node *Node)
-	setPid(pid term.Pid)
 }
 
 func NewNode(name string, cookie string) (node *Node) {
