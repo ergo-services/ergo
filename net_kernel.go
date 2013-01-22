@@ -5,17 +5,16 @@ import (
 )
 
 type netKernel struct {
-	gsi *GenServerImpl
+	GenServerImpl
 }
 
 func (nk *netKernel) Behaviour() (Behaviour, map[string]interface{}) {
-	nk.gsi = &GenServerImpl{}
-	return nk.gsi, nk.gsi.Options()
+	return nk, nk.Options()
 }
 
 func (nk *netKernel) Init(args ...interface{}) {
 	nLog("NET_KERNEL: Init: %#v", args)
-	nk.gsi.node.Register(erl.Atom("net_kernel"), nk.gsi.self)
+	nk.node.Register(erl.Atom("net_kernel"), nk.self)
 }
 
 func (nk *netKernel) HandleCast(message *erl.Term) {

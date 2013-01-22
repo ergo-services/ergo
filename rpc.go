@@ -5,17 +5,16 @@ import (
 )
 
 type rpcRex struct {
-	gsi *GenServerImpl
+	GenServerImpl
 }
 
 func (rpcs *rpcRex) Behaviour() (Behaviour, map[string]interface{}) {
-	rpcs.gsi = &GenServerImpl{}
-	return rpcs.gsi, rpcs.gsi.Options()
+	return rpcs, rpcs.Options()
 }
 
 func (rpcs *rpcRex) Init(args ...interface{}) {
 	nLog("REX: Init: %#v", args)
-	rpcs.gsi.node.Register(erl.Atom("rex"), rpcs.gsi.self)
+	rpcs.node.Register(erl.Atom("rex"), rpcs.self)
 }
 
 func (rpcs *rpcRex) HandleCast(message *erl.Term) {

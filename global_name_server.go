@@ -5,17 +5,16 @@ import (
 )
 
 type globalNameServer struct {
-	gsi *GenServerImpl
+	GenServerImpl
 }
 
 func (gns *globalNameServer) Behaviour() (behaviour Behaviour, options map[string]interface{}) {
-	gns.gsi = &GenServerImpl{}
-	return gns.gsi, gns.gsi.Options()
+	return gns, gns.Options()
 }
 
 func (gns *globalNameServer) Init(args ...interface{}) {
 	nLog("GLOBAL_NAME_SERVER: Init: %#v", args)
-	gns.gsi.node.Register(erl.Atom("global_name_server"), gns.gsi.self)
+	gns.node.Register(erl.Atom("global_name_server"), gns.self)
 }
 
 func (gns *globalNameServer) HandleCast(message *erl.Term) {
