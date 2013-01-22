@@ -2,6 +2,7 @@ package node
 
 import (
 	"erlang/term"
+	"log"
 )
 
 type GenServer interface {
@@ -29,6 +30,12 @@ func (gs *GenServerImpl) ProcessLoop(node *Node, pid term.Pid, pcs procChannels,
 	gs.setPid(pid)
 	pd.(GenServer).Init(args...)
 	//pcs.ctl <- term.Tuple{term.Atom("$go_ctl"), term.Tuple{term.Atom("control-message"), term.Atom("example")}}
+	defer func() {
+		if r := recover(); r != nil {
+			// TODO: send message to parent process
+			log.Printf("GenServer recovered: %#v", r)
+		}
+	}()
 	for {
 		var message term.Term
 		var fromPid term.Pid
