@@ -23,7 +23,7 @@ func (nk *rexRPC) HandleCast(message *term.Term) {
 
 func (nk *rexRPC) HandleCall(message *term.Term, from *term.Tuple) (reply *term.Term) {
 	nLog("REX: HandleCall: %#v, From: %#v", *message, *from)
-	replyTerm := term.Term(term.Atom("yes"))
+	replyTerm := term.Term(term.Atom("rpc reply"))
 	reply = &replyTerm
 	return
 }
