@@ -6,6 +6,7 @@ import (
 
 type rexRPC struct {
 	node *Node
+	self term.Pid
 }
 
 func (nk *rexRPC) Behaviour() (Behaviour, map[string]interface{}) {
@@ -13,9 +14,16 @@ func (nk *rexRPC) Behaviour() (Behaviour, map[string]interface{}) {
 	return gsi, gsi.Options()
 }
 
+func (nk *rexRPC) setNode(node *Node) {
+	nk.node = node
+}
+
+func (nk *rexRPC) setPid(pid term.Pid) {
+	nk.self = pid
+}
+
 func (nk *rexRPC) Init(args ...interface{}) {
 	nLog("REX: Init: %#v", args)
-	nk.node = args[0].(*Node)
 }
 
 func (nk *rexRPC) HandleCast(message *term.Term) {

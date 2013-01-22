@@ -25,8 +25,10 @@ func (gs *GenServerImpl) Options() map[string]interface{} {
 
 func (gs *GenServerImpl) ProcessLoop(node *Node, pid term.Pid, pcs procChannels, pd Process, args ...interface{}) {
 	gs.node = node
+	pd.setNode(node)
+	pd.setPid(pid)
 	pd.(GenServer).Init(args...)
-	pcs.ctl <- term.Tuple{term.Atom("$go_ctl"), term.Tuple{term.Atom("your-pid"), pid}}
+	//pcs.ctl <- term.Tuple{term.Atom("$go_ctl"), term.Tuple{term.Atom("control-message"), term.Atom("example")}}
 	for {
 		var message term.Term
 		var fromPid term.Pid

@@ -6,6 +6,7 @@ import (
 
 type netKernel struct {
 	node *Node
+	self term.Pid
 }
 
 func (nk *netKernel) Behaviour() (Behaviour, map[string]interface{}) {
@@ -13,9 +14,16 @@ func (nk *netKernel) Behaviour() (Behaviour, map[string]interface{}) {
 	return gsi, gsi.Options()
 }
 
+func (nk *netKernel) setNode(node *Node) {
+	nk.node = node
+}
+
+func (nk *netKernel) setPid(pid term.Pid) {
+	nk.self = pid
+}
+
 func (nk *netKernel) Init(args ...interface{}) {
 	nLog("NET_KERNEL: Init: %#v", args)
-	nk.node = args[0].(*Node)
 }
 
 func (nk *netKernel) HandleCast(message *term.Term) {

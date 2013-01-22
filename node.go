@@ -72,6 +72,8 @@ type Behaviour interface {
 
 type Process interface {
 	Behaviour() (behaviour Behaviour, options map[string]interface{})
+	setNode(node *Node)
+	setPid(pid term.Pid)
 }
 
 func NewNode(name string, cookie string) (node *Node) {
@@ -109,15 +111,15 @@ func NewNode(name string, cookie string) (node *Node) {
 
 func (n *Node) prepareProcesses() {
 	nk := new(netKernel)
-	nkPid := n.Spawn(nk, n)
+	nkPid := n.Spawn(nk)
 	n.Register(term.Atom("net_kernel"), nkPid)
 
 	gns := new(globalNameServer)
-	gnsPid := n.Spawn(gns, n)
+	gnsPid := n.Spawn(gns)
 	n.Register(term.Atom("global_name_server"), gnsPid)
 
 	rex := new(rexRPC)
-	rexPid := n.Spawn(rex, n)
+	rexPid := n.Spawn(rex)
 	n.Register(term.Atom("rex"), rexPid)
 
 }

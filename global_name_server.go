@@ -6,6 +6,7 @@ import (
 
 type globalNameServer struct {
 	node *Node
+	self term.Pid
 }
 
 func (nk *globalNameServer) Behaviour() (behaviour Behaviour, options map[string]interface{}) {
@@ -13,9 +14,16 @@ func (nk *globalNameServer) Behaviour() (behaviour Behaviour, options map[string
 	return gsi, gsi.Options()
 }
 
+func (gns *globalNameServer) setNode(node *Node) {
+	gns.node = node
+}
+
+func (gns *globalNameServer) setPid(pid term.Pid) {
+	gns.self = pid
+}
+
 func (gns *globalNameServer) Init(args ...interface{}) {
 	nLog("GLOBAL_NAME_SERVER: Init: %#v", args)
-	gns.node = args[0].(*Node)
 }
 
 func (gns *globalNameServer) HandleCast(message *term.Term) {
