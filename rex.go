@@ -23,8 +23,23 @@ func (nk *rexRPC) HandleCast(message *term.Term) {
 
 func (nk *rexRPC) HandleCall(message *term.Term, from *term.Tuple) (reply *term.Term) {
 	nLog("REX: HandleCall: %#v, From: %#v", *message, *from)
-	replyTerm := term.Term(term.Atom("rpc reply"))
-	reply = &replyTerm
+	switch req := (*message).(type) {
+	case term.Tuple:
+		if len(req) > 0 {
+			switch act := req[0].(type) {
+			case term.Atom:
+				if string(act) == "call" {
+					nLog("RPC CALL: Module: %#v, Function: %#v, Args: %#v, GroupLeader: %#v", req[1], req[2], req[3], req[4])
+					replyTerm := term.Term(term.Tuple{req[1], req[2]})
+					reply = &replyTerm
+				}
+			}
+		}
+	}
+	if reply == nil {
+		replyTerm := term.Term(term.Tuple{term.Atom("badrpc"), term.Atom("unknown")})
+		reply = &replyTerm
+	}
 	return
 }
 
