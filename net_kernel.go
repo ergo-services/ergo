@@ -15,6 +15,7 @@ func (nk *netKernel) Behaviour() (Behaviour, map[string]interface{}) {
 
 func (nk *netKernel) Init(args ...interface{}) {
 	nLog("NET_KERNEL: Init: %#v", args)
+	nk.gsi.node.Register(erl.Atom("net_kernel"), nk.gsi.self)
 }
 
 func (nk *netKernel) HandleCast(message *erl.Term) {

@@ -111,16 +111,13 @@ func NewNode(name string, cookie string) (node *Node) {
 
 func (n *Node) prepareProcesses() {
 	nk := new(netKernel)
-	nkPid := n.Spawn(nk)
-	n.Register(erl.Atom("net_kernel"), nkPid)
+	n.Spawn(nk)
 
 	gns := new(globalNameServer)
-	gnsPid := n.Spawn(gns)
-	n.Register(erl.Atom("global_name_server"), gnsPid)
+	n.Spawn(gns)
 
 	rex := new(rpcRex)
-	rexPid := n.Spawn(rex)
-	n.Register(erl.Atom("rex"), rexPid)
+	n.Spawn(rex)
 }
 
 func (n *Node) Spawn(pd Process, args ...interface{}) (pid erl.Pid) {

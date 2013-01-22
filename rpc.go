@@ -15,6 +15,7 @@ func (rpcs *rpcRex) Behaviour() (Behaviour, map[string]interface{}) {
 
 func (rpcs *rpcRex) Init(args ...interface{}) {
 	nLog("REX: Init: %#v", args)
+	rpcs.gsi.node.Register(erl.Atom("rex"), rpcs.gsi.self)
 }
 
 func (rpcs *rpcRex) HandleCast(message *erl.Term) {

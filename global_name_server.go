@@ -15,6 +15,7 @@ func (gns *globalNameServer) Behaviour() (behaviour Behaviour, options map[strin
 
 func (gns *globalNameServer) Init(args ...interface{}) {
 	nLog("GLOBAL_NAME_SERVER: Init: %#v", args)
+	gns.gsi.node.Register(erl.Atom("global_name_server"), gns.gsi.self)
 }
 
 func (gns *globalNameServer) HandleCast(message *erl.Term) {
