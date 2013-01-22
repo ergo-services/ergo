@@ -14,8 +14,8 @@ type GenServer interface {
 }
 
 type GenServerImpl struct {
-	node *Node
-	self erl.Pid
+	Node *Node
+	Self erl.Pid
 }
 
 func (gs *GenServerImpl) Options() map[string]interface{} {
@@ -95,13 +95,13 @@ func (gs *GenServerImpl) ProcessLoop(node *Node, pid erl.Pid, pcs procChannels, 
 }
 
 func (gs *GenServerImpl) Reply(fromTuple *erl.Tuple, reply *erl.Term) {
-	gs.node.Send((*fromTuple)[0].(erl.Pid), erl.Tuple{(*fromTuple)[1], *reply})
+	gs.Node.Send((*fromTuple)[0].(erl.Pid), erl.Tuple{(*fromTuple)[1], *reply})
 }
 
 func (gs *GenServerImpl) setNode(node *Node) {
-	gs.node = node
+	gs.Node = node
 }
 
 func (gs *GenServerImpl) setPid(pid erl.Pid) {
-	gs.self = pid
+	gs.Self = pid
 }
