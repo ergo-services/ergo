@@ -1,14 +1,14 @@
 package node
 
 import (
-	"erlang/term"
+	erl "github.com/goerlang/etf/types"
 )
 
 type GenServer interface {
 	Init(args ...interface{})
-	HandleCast(message *term.Term)
-	HandleCall(message *term.Term, from *term.Tuple) (reply *term.Term)
-	HandleInfo(message *term.Term)
+	HandleCast(message *erl.Term)
+	HandleCall(message *erl.Term, from *erl.Tuple) (reply *erl.Term)
+	HandleInfo(message *erl.Term)
 	Terminate(reason interface{})
 }
 
@@ -23,26 +23,26 @@ func (gs *GenServerImpl) Options() map[string]interface{} {
 	}
 }
 
-func (gs *GenServerImpl) ProcessLoop(node *Node, pid term.Pid, pcs procChannels, pd Process, args ...interface{}) {
+func (gs *GenServerImpl) ProcessLoop(node *Node, pid erl.Pid, pcs procChannels, pd Process, args ...interface{}) {
 	gs.node = node
 	pd.(GenServer).Init(args...)
-	pcs.ctl <- term.Tuple{term.Atom("$go_ctl"), term.Tuple{term.Atom("your-pid"), pid}}
+	pcs.ctl <- erl.Tuple{erl.Atom("$go_ctl"), erl.Tuple{erl.Atom("your-pid"), pid}}
 	for {
-		var message term.Term
-		var fromPid term.Pid
+		var message erl.Term
+		var fromPid erl.Pid
 		select {
 		case msg := <-pcs.in:
 			message = msg
 		case msgFrom := <-pcs.inFrom:
 			message = msgFrom[1]
-			fromPid = msgFrom[0].(term.Pid)
+			fromPid = msgFrom[0].(erl.Pid)
 		case ctlMsg := <-pcs.ctl:
 			switch m := ctlMsg.(type) {
-			case term.Tuple:
+			case erl.Tuple:
 				switch mtag := m[0].(type) {
-				case term.Atom:
+				case erl.Atom:
 					switch mtag {
-					case term.Atom("$go_ctl"):
+					case erl.Atom("$go_ctl"):
 						nLog("Control message: %#v", m)
 					default:
 						nLog("Unknown message: %#v", m)
@@ -57,19 +57,19 @@ func (gs *GenServerImpl) ProcessLoop(node *Node, pid term.Pid, pcs procChannels,
 		}
 		nLog("Message from %#v", fromPid)
 		switch m := message.(type) {
-		case term.Tuple:
+		case erl.Tuple:
 			switch mtag := m[0].(type) {
-			case term.Atom:
+			case erl.Atom:
 				switch mtag {
-				case term.Atom("$go_ctl"):
+				case erl.Atom("$go_ctl"):
 					nLog("Control message: %#v", message)
-				case term.Atom("$gen_call"):
-					fromTuple := m[1].(term.Tuple)
+				case erl.Atom("$gen_call"):
+					fromTuple := m[1].(erl.Tuple)
 					reply := pd.(GenServer).HandleCall(&m[2], &fromTuple)
 					if reply != nil {
 						gs.Reply(&fromTuple, reply)
 					}
-				case term.Atom("$gen_cast"):
+				case erl.Atom("$gen_cast"):
 					pd.(GenServer).HandleCast(&m[1])
 				default:
 					pd.(GenServer).HandleInfo(&message)
@@ -85,6 +85,6 @@ func (gs *GenServerImpl) ProcessLoop(node *Node, pid term.Pid, pcs procChannels,
 	}
 }
 
-func (gs *GenServerImpl) Reply(fromTuple *term.Tuple, reply *term.Term) {
-	gs.node.Send((*fromTuple)[0].(term.Pid), term.Tuple{(*fromTuple)[1], *reply})
+func (gs *GenServerImpl) Reply(fromTuple *erl.Tuple, reply *erl.Term) {
+	gs.node.Send((*fromTuple)[0].(erl.Pid), erl.Tuple{(*fromTuple)[1], *reply})
 }

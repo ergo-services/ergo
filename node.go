@@ -4,9 +4,9 @@ import (
 	"encoding/binary"
 	"erlang/dist"
 	"erlang/epmd"
-	"erlang/term"
 	"flag"
 	"fmt"
+	erl "github.com/goerlang/etf/types"
 	"log"
 	"net"
 	"strconv"
@@ -26,7 +26,7 @@ func nLog(f string, a ...interface{}) {
 }
 
 type regReq struct {
-	replyTo  chan term.Pid
+	replyTo  chan erl.Pid
 	channels procChannels
 }
 
@@ -36,7 +36,7 @@ type registryChan struct {
 
 type nodeConn struct {
 	conn  net.Conn
-	wchan chan []term.Term
+	wchan chan []erl.Term
 }
 
 type Node struct {
@@ -44,19 +44,19 @@ type Node struct {
 	Cookie     string
 	port       int32
 	registry   *registryChan
-	channels   map[term.Pid]procChannels
-	registered map[term.Atom]term.Pid
-	neighbors  map[term.Atom]nodeConn
+	channels   map[erl.Pid]procChannels
+	registered map[erl.Atom]erl.Pid
+	neighbors  map[erl.Atom]nodeConn
 }
 
 type procChannels struct {
-	in     chan term.Term
-	inFrom chan term.Tuple
-	ctl    chan term.Term
+	in     chan erl.Term
+	inFrom chan erl.Tuple
+	ctl    chan erl.Term
 }
 
 type Behaviour interface {
-	ProcessLoop(n *Node, pid term.Pid, pcs procChannels, pd Process, args ...interface{})
+	ProcessLoop(n *Node, pid erl.Pid, pcs procChannels, pd Process, args ...interface{})
 }
 
 type Process interface {
@@ -87,9 +87,9 @@ func NewNode(name string, cookie string) (node *Node) {
 		NodeInfo:   nodeInfo,
 		Cookie:     cookie,
 		registry:   registry,
-		channels:   make(map[term.Pid]procChannels),
-		registered: make(map[term.Atom]term.Pid),
-		neighbors:  make(map[term.Atom]nodeConn),
+		channels:   make(map[erl.Pid]procChannels),
+		registered: make(map[erl.Atom]erl.Pid),
+		neighbors:  make(map[erl.Atom]nodeConn),
 	}
 	return node
 }
@@ -97,19 +97,19 @@ func NewNode(name string, cookie string) (node *Node) {
 func (n *Node) prepareProcesses() {
 	nk := new(netKernel)
 	nkPid := n.Spawn(nk, n)
-	n.Register(term.Atom("net_kernel"), nkPid)
+	n.Register(erl.Atom("net_kernel"), nkPid)
 
 	gns := new(globalNameServer)
 	gnsPid := n.Spawn(gns, n)
-	n.Register(term.Atom("global_name_server"), gnsPid)
+	n.Register(erl.Atom("global_name_server"), gnsPid)
 
 	rex := new(rexRPC)
 	rexPid := n.Spawn(rex, n)
-	n.Register(term.Atom("rex"), rexPid)
+	n.Register(erl.Atom("rex"), rexPid)
 
 }
 
-func (n *Node) Spawn(pd Process, args ...interface{}) (pid term.Pid) {
+func (n *Node) Spawn(pd Process, args ...interface{}) (pid erl.Pid) {
 	behaviour, options := pd.Behaviour()
 	chanSize, ok := options["chan-size"].(int)
 	if !ok {
@@ -119,9 +119,9 @@ func (n *Node) Spawn(pd Process, args ...interface{}) (pid term.Pid) {
 	if !ok {
 		chanSize = 100
 	}
-	in := make(chan term.Term, chanSize)
-	inFrom := make(chan term.Tuple, chanSize)
-	ctl := make(chan term.Term, ctlChanSize)
+	in := make(chan erl.Term, chanSize)
+	inFrom := make(chan erl.Tuple, chanSize)
+	ctl := make(chan erl.Term, ctlChanSize)
 	pcs := procChannels{
 		in:     in,
 		inFrom: inFrom,
@@ -132,12 +132,12 @@ func (n *Node) Spawn(pd Process, args ...interface{}) (pid term.Pid) {
 	return
 }
 
-func (n *Node) Register(name term.Atom, pid term.Pid) {
+func (n *Node) Register(name erl.Atom, pid erl.Pid) {
 	n.registered[name] = pid
 }
 
-func (n *Node) Registered() (pids []term.Atom) {
-	pids = make([]term.Atom, len(n.registered))
+func (n *Node) Registered() (pids []erl.Atom) {
+	pids = make([]erl.Atom, len(n.registered))
 	i := 0
 	for p, _ := range n.registered {
 		pids[i] = p
@@ -157,8 +157,8 @@ func (n *Node) registrator() {
 					id = k.Id + 1
 				}
 			}
-			var pid term.Pid
-			pid.Node = term.Atom(n.FullName)
+			var pid erl.Pid
+			pid.Node = erl.Atom(n.FullName)
 			pid.Id = id
 			pid.Serial = 0 // FIXME
 			pid.Creation = byte(n.Creation)
@@ -169,8 +169,8 @@ func (n *Node) registrator() {
 	}
 }
 
-func (n *Node) storeProcess(chs procChannels) (pid term.Pid) {
-	myChan := make(chan term.Pid)
+func (n *Node) storeProcess(chs procChannels) (pid erl.Pid) {
+	myChan := make(chan erl.Pid)
 	n.registry.storeChan <- regReq{replyTo: myChan, channels: chs}
 	pid = <-myChan
 	return pid
@@ -206,7 +206,7 @@ func (n *Node) Publish(port int) (err error) {
 			if err != nil {
 				nLog(err.Error())
 			} else {
-				wchan := make(chan []term.Term, 10)
+				wchan := make(chan []erl.Term, 10)
 				ndchan := make(chan *dist.NodeDesc)
 				go n.mLoopReader(conn, wchan, ndchan)
 				go n.mLoopWriter(conn, wchan, ndchan)
@@ -218,7 +218,7 @@ func (n *Node) Publish(port int) (err error) {
 	return nil
 }
 
-func (currNode *Node) mLoopReader(c net.Conn, wchan chan []term.Term, ndchan chan *dist.NodeDesc) {
+func (currNode *Node) mLoopReader(c net.Conn, wchan chan []erl.Term, ndchan chan *dist.NodeDesc) {
 
 	currNd := dist.NewNodeDesc(currNode.FullName, currNode.Cookie, false)
 	ndchan <- currNd
@@ -233,7 +233,7 @@ func (currNode *Node) mLoopReader(c net.Conn, wchan chan []term.Term, ndchan cha
 	c.Close()
 }
 
-func (currNode *Node) mLoopWriter(c net.Conn, wchan chan []term.Term, ndchan chan *dist.NodeDesc) {
+func (currNode *Node) mLoopWriter(c net.Conn, wchan chan []erl.Term, ndchan chan *dist.NodeDesc) {
 
 	currNd := <-ndchan
 
@@ -248,62 +248,64 @@ func (currNode *Node) mLoopWriter(c net.Conn, wchan chan []term.Term, ndchan cha
 	c.Close()
 }
 
-func (currNode *Node) handleTerms(c net.Conn, wchan chan []term.Term, terms []term.Term) {
+func (currNode *Node) handleTerms(c net.Conn, wchan chan []erl.Term, terms []erl.Term) {
 	nLog("Node terms: %#v", terms)
 
 	if len(terms) == 0 {
 		return
 	}
 	switch t := terms[0].(type) {
-	case term.Tuple:
+	case erl.Tuple:
 		if len(t) > 0 {
 			switch act := t.Element(1).(type) {
-			case term.Int:
+			case int64:
 				switch act {
-				case REG_SEND:
+				case int64(REG_SEND):
 					if len(terms) == 2 {
 						currNode.RegSend(t.Element(2), t.Element(4), terms[1])
 					} else {
 						nLog("*** ERROR: bad REG_SEND: %#v", terms)
 					}
 				default:
-					nLog("Unhandled node message: %#v", t)
+					nLog("Unhandled node message (act %d): %#v", act, t)
 				}
-			case term.Atom:
+			case erl.Atom:
 				switch act {
-				case term.Atom("$go_set_node"):
+				case erl.Atom("$go_set_node"):
 					nLog("SET NODE %#v", t)
-					currNode.neighbors[t[1].(term.Atom)] = nodeConn{conn: c, wchan: wchan}
+					currNode.neighbors[t[1].(erl.Atom)] = nodeConn{conn: c, wchan: wchan}
 				}
+			default:
+				nLog("UNHANDLED ACT: %#v", t.Element(1))
 			}
 		}
 	}
 }
 
-func (currNode *Node) RegSend(from, to term.Term, message term.Term) {
+func (currNode *Node) RegSend(from, to erl.Term, message erl.Term) {
 	nLog("REG_SEND: From: %#v, To: %#v, Message: %#v", from, to, message)
-	var toPid term.Pid
+	var toPid erl.Pid
 	switch tp := to.(type) {
-	case term.Pid:
+	case erl.Pid:
 		toPid = tp
-	case term.Atom:
+	case erl.Atom:
 		toPid = currNode.Whereis(tp)
 	}
 	currNode.SendFrom(from, toPid, message)
 }
 
-func (currNode *Node) Whereis(who term.Atom) (pid term.Pid) {
+func (currNode *Node) Whereis(who erl.Atom) (pid erl.Pid) {
 	pid, _ = currNode.registered[who]
 	return
 }
 
-func (currNode *Node) SendFrom(from term.Term, to term.Pid, message term.Term) {
+func (currNode *Node) SendFrom(from erl.Term, to erl.Pid, message erl.Term) {
 	nLog("SendFrom: %#v, %#v, %#v", from, to, message)
 	pcs := currNode.channels[to]
-	pcs.inFrom <- term.Tuple{from, message}
+	pcs.inFrom <- erl.Tuple{from, message}
 }
 
-func (currNode *Node) Send(to term.Pid, message term.Term) {
+func (currNode *Node) Send(to erl.Pid, message erl.Term) {
 	nLog("Send: %#v, %#v", to, message)
 	if string(to.Node) == currNode.FullName {
 		nLog("Send to local node")
@@ -312,7 +314,7 @@ func (currNode *Node) Send(to term.Pid, message term.Term) {
 	} else {
 		nLog("Send to remote node: %#v, %#v", to, currNode.neighbors[to.Node])
 
-		msg := []term.Term{term.Tuple{SEND, term.Atom(""), to}, message}
+		msg := []erl.Term{erl.Tuple{SEND, erl.Atom(""), to}, message}
 		currNode.neighbors[to.Node].wchan <- msg
 	}
 }

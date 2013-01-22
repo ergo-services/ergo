@@ -1,7 +1,7 @@
 package node
 
 import (
-	"erlang/term"
+	erl "github.com/goerlang/etf/types"
 )
 
 type rexRPC struct {
@@ -18,18 +18,18 @@ func (nk *rexRPC) Init(args ...interface{}) {
 	nk.node = args[0].(*Node)
 }
 
-func (nk *rexRPC) HandleCast(message *term.Term) {
+func (nk *rexRPC) HandleCast(message *erl.Term) {
 	nLog("REX: HandleCast: %#v", *message)
 }
 
-func (nk *rexRPC) HandleCall(message *term.Term, from *term.Tuple) (reply *term.Term) {
+func (nk *rexRPC) HandleCall(message *erl.Term, from *erl.Tuple) (reply *erl.Term) {
 	nLog("REX: HandleCall: %#v, From: %#v", *message, *from)
-	replyTerm := term.Term(term.Atom("yes"))
+	replyTerm := erl.Term(erl.Atom("yes"))
 	reply = &replyTerm
 	return
 }
 
-func (nk *rexRPC) HandleInfo(message *term.Term) {
+func (nk *rexRPC) HandleInfo(message *erl.Term) {
 	nLog("REX: HandleInfo: %#v", *message)
 }
 

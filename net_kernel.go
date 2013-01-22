@@ -1,7 +1,7 @@
 package node
 
 import (
-	"erlang/term"
+	erl "github.com/goerlang/etf/types"
 )
 
 type netKernel struct {
@@ -18,18 +18,18 @@ func (nk *netKernel) Init(args ...interface{}) {
 	nk.node = args[0].(*Node)
 }
 
-func (nk *netKernel) HandleCast(message *term.Term) {
+func (nk *netKernel) HandleCast(message *erl.Term) {
 	nLog("NET_KERNEL: HandleCast: %#v", *message)
 }
 
-func (nk *netKernel) HandleCall(message *term.Term, from *term.Tuple) (reply *term.Term) {
+func (nk *netKernel) HandleCall(message *erl.Term, from *erl.Tuple) (reply *erl.Term) {
 	nLog("NET_KERNEL: HandleCall: %#v, From: %#v", *message, *from)
-	replyTerm := term.Term(term.Atom("yes"))
+	replyTerm := erl.Term(erl.Atom("yes"))
 	reply = &replyTerm
 	return
 }
 
-func (nk *netKernel) HandleInfo(message *term.Term) {
+func (nk *netKernel) HandleInfo(message *erl.Term) {
 	nLog("NET_KERNEL: HandleInfo: %#v", *message)
 }
 
