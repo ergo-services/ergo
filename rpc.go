@@ -4,24 +4,24 @@ import (
 	erl "github.com/goerlang/etf/types"
 )
 
-type rexRPC struct {
+type rpcRex struct {
 	gsi *GenServerImpl
 }
 
-func (nk *rexRPC) Behaviour() (Behaviour, map[string]interface{}) {
-	nk.gsi = &GenServerImpl{}
-	return nk.gsi, nk.gsi.Options()
+func (rpcs *rpcRex) Behaviour() (Behaviour, map[string]interface{}) {
+	rpcs.gsi = &GenServerImpl{}
+	return rpcs.gsi, rpcs.gsi.Options()
 }
 
-func (nk *rexRPC) Init(args ...interface{}) {
+func (rpcs *rpcRex) Init(args ...interface{}) {
 	nLog("REX: Init: %#v", args)
 }
 
-func (nk *rexRPC) HandleCast(message *erl.Term) {
+func (rpcs *rpcRex) HandleCast(message *erl.Term) {
 	nLog("REX: HandleCast: %#v", *message)
 }
 
-func (nk *rexRPC) HandleCall(message *erl.Term, from *erl.Tuple) (reply *erl.Term) {
+func (rpcs *rpcRex) HandleCall(message *erl.Term, from *erl.Tuple) (reply *erl.Term) {
 	nLog("REX: HandleCall: %#v, From: %#v", *message, *from)
 	switch req := (*message).(type) {
 	case erl.Tuple:
@@ -43,10 +43,10 @@ func (nk *rexRPC) HandleCall(message *erl.Term, from *erl.Tuple) (reply *erl.Ter
 	return
 }
 
-func (nk *rexRPC) HandleInfo(message *erl.Term) {
+func (rpcs *rpcRex) HandleInfo(message *erl.Term) {
 	nLog("REX: HandleInfo: %#v", *message)
 }
 
-func (nk *rexRPC) Terminate(reason interface{}) {
+func (rpcs *rpcRex) Terminate(reason interface{}) {
 	nLog("REX: Terminate: %#v", reason.(int))
 }

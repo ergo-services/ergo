@@ -118,7 +118,7 @@ func (n *Node) prepareProcesses() {
 	gnsPid := n.Spawn(gns)
 	n.Register(erl.Atom("global_name_server"), gnsPid)
 
-	rex := new(rexRPC)
+	rex := new(rpcRex)
 	rexPid := n.Spawn(rex)
 	n.Register(erl.Atom("rex"), rexPid)
 }
