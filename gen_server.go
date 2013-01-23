@@ -5,6 +5,7 @@ import (
 	"log"
 )
 
+// GenServer interface
 type GenServer interface {
 	Init(args ...interface{})
 	HandleCast(message *erl.Term)
@@ -13,18 +14,22 @@ type GenServer interface {
 	Terminate(reason interface{})
 }
 
+// GenServerImpl is implementation of GenServer interface
 type GenServerImpl struct {
-	Node *Node
-	Self erl.Pid
+	Node *Node					// current node of process
+	Self erl.Pid				// Pid of process
 }
 
+// Options returns map of default process-related options
 func (gs *GenServerImpl) Options() map[string]interface{} {
 	return map[string]interface{}{
-		"chan-size":     100,
-		"ctl-chan-size": 100,
+		"chan-size":     100,	// size of channel for regular messages
+		"ctl-chan-size": 100,	// size of channel for control messages
 	}
 }
 
+// ProcessLoop executes during whole time of process life.
+// It receives incoming messages from channels and handle it using methods of behaviour implementation
 func (gs *GenServerImpl) ProcessLoop(node *Node, pid erl.Pid, pcs procChannels, pd Process, args ...interface{}) {
 	gs.setNode(node)
 	gs.setPid(pid)
@@ -94,6 +99,7 @@ func (gs *GenServerImpl) ProcessLoop(node *Node, pid erl.Pid, pcs procChannels, 
 	}
 }
 
+// Reply sends delayed reply at incoming `gen_server:call/2`
 func (gs *GenServerImpl) Reply(fromTuple *erl.Tuple, reply *erl.Term) {
 	gs.Node.Send((*fromTuple)[0].(erl.Pid), erl.Tuple{(*fromTuple)[1], *reply})
 }

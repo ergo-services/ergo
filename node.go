@@ -1,3 +1,33 @@
+// Copyright 2012-2013 Metachord Ltd.
+// All rights reserved.
+// Use of this source code is governed by a MIT license
+// that can be found in the LICENSE file.
+
+/*
+Package node provides interface for creation and publishing node using
+Erlang distribution protocol: http://www.erlang.org/doc/apps/erts/erl_dist_protocol.html
+
+The Publish function allows incoming connection to the current node on 5858 port.
+EPMD will reply with this port on name request for this node name
+
+	enode = node.NewNode(name, cookie)
+	err := enode.Publish(5858)
+	if err != nil {
+		log.Printf("Cannot publish: %s", err)
+		enode = nil
+	}
+
+
+Function Spawn creates new process from struct which implements Process interface:
+
+	eSrv := new(eclusSrv)
+	pid := node.Spawn(eSrv)
+
+Now you can call Register function to store this pid with arbitrary name:
+
+	node.Register(erl.Atom("eclus"), pid)
+
+*/
 package node
 
 import (
@@ -66,16 +96,19 @@ type procChannels struct {
 	ctl    chan erl.Term
 }
 
+// Behaviour interface contains methods you should implement to make own process behaviour
 type Behaviour interface {
-	ProcessLoop(n *Node, pid erl.Pid, pcs procChannels, pd Process, args ...interface{})
-	setNode(node *Node)
-	setPid(pid erl.Pid)
+	ProcessLoop(n *Node, pid erl.Pid, pcs procChannels, pd Process, args ...interface{}) // method which implements control flow of process
+	setNode(node *Node)			// method set pointer to Node structure
+	setPid(pid erl.Pid)			// method set pid of started process
 }
 
+// Process interface contains methods which should be implemented in each process
 type Process interface {
-	Behaviour() (behaviour Behaviour, options map[string]interface{})
+	Behaviour() (behaviour Behaviour, options map[string]interface{}) // method returns Behaviour structure of process and options
 }
 
+// NewNode create new node context with specified name and cookie string
 func NewNode(name string, cookie string) (node *Node) {
 	nLog("Start with name '%s' and cookie '%s'", name, cookie)
 	// TODO: add fqdn support
@@ -120,6 +153,7 @@ func (n *Node) prepareProcesses() {
 	n.Spawn(rex)
 }
 
+// Spawn create new process and store its identificator in table at current node
 func (n *Node) Spawn(pd Process, args ...interface{}) (pid erl.Pid) {
 	behaviour, options := pd.Behaviour()
 	chanSize, ok := options["chan-size"].(int)
@@ -143,16 +177,19 @@ func (n *Node) Spawn(pd Process, args ...interface{}) (pid erl.Pid) {
 	return
 }
 
+// Register associates the name with pid
 func (n *Node) Register(name erl.Atom, pid erl.Pid) {
 	r := regNameReq{name: name, pid: pid}
 	n.registry.regNameChan <- r
 }
 
+// Unregister removes the registered name
 func (n *Node) Unregister(name erl.Atom) {
 	r := unregNameReq{name: name}
 	n.registry.unregNameChan <- r
 }
 
+// Registered returns a list of names which have been registered using Register
 func (n *Node) Registered() (pids []erl.Atom) {
 	pids = make([]erl.Atom, len(n.registered))
 	i := 0
@@ -197,10 +234,7 @@ func (n *Node) storeProcess(chs procChannels) (pid erl.Pid) {
 	return pid
 }
 
-func (n *Node) Connect(remote string) {
-
-}
-
+// Publish allow node be visible to other Erlang nodes via publishing port in EPMD
 func (n *Node) Publish(port int) (err error) {
 	nLog("Publish ENode at %d", port)
 	l, err := net.Listen("tcp", net.JoinHostPort("", strconv.Itoa(port)))
@@ -303,6 +337,7 @@ func (currNode *Node) handleTerms(c net.Conn, wchan chan []erl.Term, terms []erl
 	}
 }
 
+// RegSend sends message from one process to registered
 func (currNode *Node) RegSend(from, to erl.Term, message erl.Term) {
 	nLog("REG_SEND: From: %#v, To: %#v, Message: %#v", from, to, message)
 	var toPid erl.Pid
@@ -315,17 +350,20 @@ func (currNode *Node) RegSend(from, to erl.Term, message erl.Term) {
 	currNode.SendFrom(from, toPid, message)
 }
 
+// Whereis returns pid of registered process
 func (currNode *Node) Whereis(who erl.Atom) (pid erl.Pid) {
 	pid, _ = currNode.registered[who]
 	return
 }
 
+// SendFrom sends message from source to destination
 func (currNode *Node) SendFrom(from erl.Term, to erl.Pid, message erl.Term) {
 	nLog("SendFrom: %#v, %#v, %#v", from, to, message)
 	pcs := currNode.channels[to]
 	pcs.inFrom <- erl.Tuple{from, message}
 }
 
+// Send sends message to destination process withoud source
 func (currNode *Node) Send(to erl.Pid, message erl.Term) {
 	nLog("Send: %#v, %#v", to, message)
 	if string(to.Node) == currNode.FullName {
