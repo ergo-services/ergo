@@ -2,10 +2,10 @@ package node
 
 import (
 	"encoding/binary"
-	"github.com/goerlang/dist"
-	"github.com/goerlang/epmd"
 	"flag"
 	"fmt"
+	"github.com/goerlang/dist"
+	"github.com/goerlang/epmd"
 	erl "github.com/goerlang/etf/types"
 	"log"
 	"net"
@@ -279,9 +279,9 @@ func (currNode *Node) handleTerms(c net.Conn, wchan chan []erl.Term, terms []erl
 	case erl.Tuple:
 		if len(t) > 0 {
 			switch act := t.Element(1).(type) {
-			case int64:
+			case byte:
 				switch act {
-				case int64(REG_SEND):
+				case REG_SEND:
 					if len(terms) == 2 {
 						currNode.RegSend(t.Element(2), t.Element(4), terms[1])
 					} else {
