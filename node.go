@@ -279,7 +279,7 @@ func (currNode *Node) handleTerms(c net.Conn, wchan chan []erl.Term, terms []erl
 	case erl.Tuple:
 		if len(t) > 0 {
 			switch act := t.Element(1).(type) {
-			case byte:
+			case int:
 				switch act {
 				case REG_SEND:
 					if len(terms) == 2 {

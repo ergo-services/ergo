@@ -1,7 +1,7 @@
 package node
 
 const (
-	LINK           byte = 1
+	LINK                = 1
 	SEND                = 2
 	EXIT                = 3
 	UNLINK              = 4
