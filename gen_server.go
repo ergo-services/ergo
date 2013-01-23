@@ -25,9 +25,7 @@ func (gs *GenServerImpl) Options() map[string]interface{} {
 	}
 }
 
-func (gs *GenServerImpl) ProcessLoop(node *Node, pid erl.Pid, pcs procChannels, pd Process, args ...interface{}) {
-	gs.setNode(node)
-	gs.setPid(pid)
+func (gs *GenServerImpl) ProcessLoop(pcs procChannels, pd Process, args ...interface{}) {
 	pd.(GenServer).Init(args...)
 	//pcs.ctl <- erl.Tuple{erl.Atom("$go_ctl"), erl.Tuple{erl.Atom("control-message"), erl.Atom("example")}}
 	defer func() {

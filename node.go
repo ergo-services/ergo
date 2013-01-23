@@ -67,13 +67,13 @@ type procChannels struct {
 }
 
 type Behaviour interface {
-	ProcessLoop(n *Node, pid erl.Pid, pcs procChannels, pd Process, args ...interface{})
-	setNode(node *Node)
-	setPid(pid erl.Pid)
+	ProcessLoop(pcs procChannels, pd Process, args ...interface{})
 }
 
 type Process interface {
 	Behaviour() (behaviour Behaviour, options map[string]interface{})
+	setNode(node *Node)
+	setPid(pid erl.Pid)
 }
 
 func NewNode(name string, cookie string) (node *Node) {
@@ -139,7 +139,9 @@ func (n *Node) Spawn(pd Process, args ...interface{}) (pid erl.Pid) {
 		ctl:    ctl,
 	}
 	pid = n.storeProcess(pcs)
-	go behaviour.ProcessLoop(n, pid, pcs, pd, args...)
+	pd.setNode(n)
+	pd.setPid(pid)
+	go behaviour.ProcessLoop(pcs, pd, args...)
 	return
 }
 
