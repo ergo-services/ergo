@@ -21,11 +21,11 @@ EPMD will reply with this port on name request for this node name
 Function Spawn creates new process from struct which implements Process interface:
 
 	eSrv := new(eclusSrv)
-	pid := node.Spawn(eSrv)
+	pid := enode.Spawn(eSrv)
 
 Now you can call Register function to store this pid with arbitrary name:
 
-	node.Register(erl.Atom("eclus"), pid)
+	enode.Register(erl.Atom("eclus"), pid)
 
 */
 package node
