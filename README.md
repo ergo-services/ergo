@@ -22,3 +22,5 @@ Not supported (but should be):
 ## Examples ##
 
 See `examples/` to see example of go-node and `GenServer` process
+
+Another project which uses this library: Eclus https://github.com/goerlang/eclus
