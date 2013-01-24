@@ -24,6 +24,7 @@ func (gs *gonodeSrv) Init(args ...interface{}) {
 }
 
 // HandleCast handles incoming messages from `gen_server:cast/2`
+// Call `gen_server:cast({go_srv, gonode@localhost}, stop)` at Erlang node to stop this Go-node
 func (gs *gonodeSrv) HandleCast(message *erl.Term) {
 	log.Printf("GO_SRV: HandleCast: %#v", *message)
 
@@ -39,6 +40,7 @@ func (gs *gonodeSrv) HandleCast(message *erl.Term) {
 
 // HandleCall handles incoming messages from `gen_server:call/2`, if returns non-nil term,
 // then calling process have reply
+// Call `gen_server:call({go_srv, gonode@localhost}, Message)` at Erlang node
 func (gs *gonodeSrv) HandleCall(message *erl.Term, from *erl.Tuple) (reply *erl.Term) {
 	log.Printf("GO_SRV: HandleCall: %#v, From: %#v", *message, *from)
 
