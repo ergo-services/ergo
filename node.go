@@ -10,7 +10,7 @@ Erlang distribution protocol: http://www.erlang.org/doc/apps/erts/erl_dist_proto
 The Publish function allows incoming connection to the current node on 5858 port.
 EPMD will reply with this port on name request for this node name
 
-	enode = node.NewNode(name, cookie)
+	enode := node.NewNode(name, cookie)
 	err := enode.Publish(5858)
 	if err != nil {
 		log.Printf("Cannot publish: %s", err)
