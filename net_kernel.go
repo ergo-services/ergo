@@ -8,10 +8,6 @@ type netKernel struct {
 	GenServerImpl
 }
 
-func (nk *netKernel) Behaviour() (Behaviour, map[string]interface{}) {
-	return nk, nk.Options()
-}
-
 func (nk *netKernel) Init(args ...interface{}) {
 	nLog("NET_KERNEL: Init: %#v", args)
 	nk.Node.Register(erl.Atom("net_kernel"), nk.Self)

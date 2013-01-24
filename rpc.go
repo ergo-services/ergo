@@ -8,10 +8,6 @@ type rpcRex struct {
 	GenServerImpl
 }
 
-func (rpcs *rpcRex) Behaviour() (Behaviour, map[string]interface{}) {
-	return rpcs, rpcs.Options()
-}
-
 func (rpcs *rpcRex) Init(args ...interface{}) {
 	nLog("REX: Init: %#v", args)
 	rpcs.Node.Register(erl.Atom("rex"), rpcs.Self)

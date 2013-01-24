@@ -103,7 +103,7 @@ type Behaviour interface {
 
 // Process interface contains methods which should be implemented in each process
 type Process interface {
-	Behaviour() (behaviour Behaviour, options map[string]interface{}) // method returns Behaviour structure of process and options
+	Options() (options map[string]interface{}) // method returns process-related options
 	setNode(node *Node)			// method set pointer to Node structure
 	setPid(pid erl.Pid)			// method set pid of started process
 }
@@ -155,7 +155,7 @@ func (n *Node) prepareProcesses() {
 
 // Spawn create new process and store its identificator in table at current node
 func (n *Node) Spawn(pd Process, args ...interface{}) (pid erl.Pid) {
-	behaviour, options := pd.Behaviour()
+	options := pd.Options()
 	chanSize, ok := options["chan-size"].(int)
 	if !ok {
 		chanSize = 100
@@ -175,7 +175,7 @@ func (n *Node) Spawn(pd Process, args ...interface{}) (pid erl.Pid) {
 	pid = n.storeProcess(pcs)
 	pd.setNode(n)
 	pd.setPid(pid)
-	go behaviour.ProcessLoop(pcs, pd, args...)
+	go pd.(Behaviour).ProcessLoop(pcs, pd, args...)
 	return
 }
 

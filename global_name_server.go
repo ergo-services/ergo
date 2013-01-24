@@ -8,10 +8,6 @@ type globalNameServer struct {
 	GenServerImpl
 }
 
-func (gns *globalNameServer) Behaviour() (behaviour Behaviour, options map[string]interface{}) {
-	return gns, gns.Options()
-}
-
 func (gns *globalNameServer) Init(args ...interface{}) {
 	nLog("GLOBAL_NAME_SERVER: Init: %#v", args)
 	gns.Node.Register(erl.Atom("global_name_server"), gns.Self)
