@@ -382,11 +382,11 @@ func (currNode *Node) Send(to erl.Pid, message erl.Term) {
 
 func epmdC(n *Node, resp chan uint16) {
 	conn, err := net.Dial("tcp", ":4369")
-	defer conn.Close()
 	if err != nil {
 		resp <- 100
 		return
 	}
+	defer conn.Close()
 
 	epmdFROM := make(chan []byte)
 	go epmdREADER(conn, epmdFROM)
