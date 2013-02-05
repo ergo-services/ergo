@@ -25,7 +25,7 @@ Function Spawn creates new process from struct which implements Process interfac
 
 Now you can call Register function to store this pid with arbitrary name:
 
-	enode.Register(erl.Atom("eclus"), pid)
+	enode.Register(etf.Atom("eclus"), pid)
 
 */
 package node
@@ -36,7 +36,7 @@ import (
 	"fmt"
 	"github.com/goerlang/dist"
 	"github.com/goerlang/epmd"
-	erl "github.com/goerlang/etf/types"
+	"github.com/goerlang/etf"
 	"log"
 	"net"
 	"strconv"
@@ -56,17 +56,17 @@ func nLog(f string, a ...interface{}) {
 }
 
 type regReq struct {
-	replyTo  chan erl.Pid
+	replyTo  chan etf.Pid
 	channels procChannels
 }
 
 type regNameReq struct {
-	name erl.Atom
-	pid  erl.Pid
+	name etf.Atom
+	pid  etf.Pid
 }
 
 type unregNameReq struct {
-	name erl.Atom
+	name etf.Atom
 }
 
 type registryChan struct {
@@ -77,7 +77,7 @@ type registryChan struct {
 
 type nodeConn struct {
 	conn  net.Conn
-	wchan chan []erl.Term
+	wchan chan []etf.Term
 }
 
 type Node struct {
@@ -85,15 +85,15 @@ type Node struct {
 	Cookie     string
 	port       int32
 	registry   *registryChan
-	channels   map[erl.Pid]procChannels
-	registered map[erl.Atom]erl.Pid
-	neighbors  map[erl.Atom]nodeConn
+	channels   map[etf.Pid]procChannels
+	registered map[etf.Atom]etf.Pid
+	neighbors  map[etf.Atom]nodeConn
 }
 
 type procChannels struct {
-	in     chan erl.Term
-	inFrom chan erl.Tuple
-	ctl    chan erl.Term
+	in     chan etf.Term
+	inFrom chan etf.Tuple
+	ctl    chan etf.Term
 }
 
 // Behaviour interface contains methods you should implement to make own process behaviour
@@ -104,8 +104,8 @@ type Behaviour interface {
 // Process interface contains methods which should be implemented in each process
 type Process interface {
 	Options() (options map[string]interface{}) // method returns process-related options
-	setNode(node *Node)			// method set pointer to Node structure
-	setPid(pid erl.Pid)			// method set pid of started process
+	setNode(node *Node)                        // method set pointer to Node structure
+	setPid(pid etf.Pid)                        // method set pid of started process
 }
 
 // NewNode create new node context with specified name and cookie string
@@ -135,9 +135,9 @@ func NewNode(name string, cookie string) (node *Node) {
 		NodeInfo:   nodeInfo,
 		Cookie:     cookie,
 		registry:   registry,
-		channels:   make(map[erl.Pid]procChannels),
-		registered: make(map[erl.Atom]erl.Pid),
-		neighbors:  make(map[erl.Atom]nodeConn),
+		channels:   make(map[etf.Pid]procChannels),
+		registered: make(map[etf.Atom]etf.Pid),
+		neighbors:  make(map[etf.Atom]nodeConn),
 	}
 	return node
 }
@@ -154,7 +154,7 @@ func (n *Node) prepareProcesses() {
 }
 
 // Spawn create new process and store its identificator in table at current node
-func (n *Node) Spawn(pd Process, args ...interface{}) (pid erl.Pid) {
+func (n *Node) Spawn(pd Process, args ...interface{}) (pid etf.Pid) {
 	options := pd.Options()
 	chanSize, ok := options["chan-size"].(int)
 	if !ok {
@@ -164,9 +164,9 @@ func (n *Node) Spawn(pd Process, args ...interface{}) (pid erl.Pid) {
 	if !ok {
 		chanSize = 100
 	}
-	in := make(chan erl.Term, chanSize)
-	inFrom := make(chan erl.Tuple, chanSize)
-	ctl := make(chan erl.Term, ctlChanSize)
+	in := make(chan etf.Term, chanSize)
+	inFrom := make(chan etf.Tuple, chanSize)
+	ctl := make(chan etf.Term, ctlChanSize)
 	pcs := procChannels{
 		in:     in,
 		inFrom: inFrom,
@@ -180,20 +180,20 @@ func (n *Node) Spawn(pd Process, args ...interface{}) (pid erl.Pid) {
 }
 
 // Register associates the name with pid
-func (n *Node) Register(name erl.Atom, pid erl.Pid) {
+func (n *Node) Register(name etf.Atom, pid etf.Pid) {
 	r := regNameReq{name: name, pid: pid}
 	n.registry.regNameChan <- r
 }
 
 // Unregister removes the registered name
-func (n *Node) Unregister(name erl.Atom) {
+func (n *Node) Unregister(name etf.Atom) {
 	r := unregNameReq{name: name}
 	n.registry.unregNameChan <- r
 }
 
 // Registered returns a list of names which have been registered using Register
-func (n *Node) Registered() (pids []erl.Atom) {
-	pids = make([]erl.Atom, len(n.registered))
+func (n *Node) Registered() (pids []etf.Atom) {
+	pids = make([]etf.Atom, len(n.registered))
 	i := 0
 	for p, _ := range n.registered {
 		pids[i] = p
@@ -213,8 +213,8 @@ func (n *Node) registrator() {
 					id = k.Id + 1
 				}
 			}
-			var pid erl.Pid
-			pid.Node = erl.Atom(n.FullName)
+			var pid etf.Pid
+			pid.Node = etf.Atom(n.FullName)
 			pid.Id = id
 			pid.Serial = 0 // FIXME
 			pid.Creation = byte(n.Creation)
@@ -229,8 +229,8 @@ func (n *Node) registrator() {
 	}
 }
 
-func (n *Node) storeProcess(chs procChannels) (pid erl.Pid) {
-	myChan := make(chan erl.Pid)
+func (n *Node) storeProcess(chs procChannels) (pid etf.Pid) {
+	myChan := make(chan etf.Pid)
 	n.registry.storeChan <- regReq{replyTo: myChan, channels: chs}
 	pid = <-myChan
 	return pid
@@ -263,7 +263,7 @@ func (n *Node) Publish(port int) (err error) {
 			if err != nil {
 				nLog(err.Error())
 			} else {
-				wchan := make(chan []erl.Term, 10)
+				wchan := make(chan []etf.Term, 10)
 				ndchan := make(chan *dist.NodeDesc)
 				go n.mLoopReader(conn, wchan, ndchan)
 				go n.mLoopWriter(conn, wchan, ndchan)
@@ -275,7 +275,7 @@ func (n *Node) Publish(port int) (err error) {
 	return nil
 }
 
-func (currNode *Node) mLoopReader(c net.Conn, wchan chan []erl.Term, ndchan chan *dist.NodeDesc) {
+func (currNode *Node) mLoopReader(c net.Conn, wchan chan []etf.Term, ndchan chan *dist.NodeDesc) {
 
 	currNd := dist.NewNodeDesc(currNode.FullName, currNode.Cookie, false)
 	ndchan <- currNd
@@ -290,7 +290,7 @@ func (currNode *Node) mLoopReader(c net.Conn, wchan chan []erl.Term, ndchan chan
 	c.Close()
 }
 
-func (currNode *Node) mLoopWriter(c net.Conn, wchan chan []erl.Term, ndchan chan *dist.NodeDesc) {
+func (currNode *Node) mLoopWriter(c net.Conn, wchan chan []etf.Term, ndchan chan *dist.NodeDesc) {
 
 	currNd := <-ndchan
 
@@ -305,14 +305,14 @@ func (currNode *Node) mLoopWriter(c net.Conn, wchan chan []erl.Term, ndchan chan
 	c.Close()
 }
 
-func (currNode *Node) handleTerms(c net.Conn, wchan chan []erl.Term, terms []erl.Term) {
+func (currNode *Node) handleTerms(c net.Conn, wchan chan []etf.Term, terms []etf.Term) {
 	nLog("Node terms: %#v", terms)
 
 	if len(terms) == 0 {
 		return
 	}
 	switch t := terms[0].(type) {
-	case erl.Tuple:
+	case etf.Tuple:
 		if len(t) > 0 {
 			switch act := t.Element(1).(type) {
 			case int:
@@ -326,11 +326,11 @@ func (currNode *Node) handleTerms(c net.Conn, wchan chan []erl.Term, terms []erl
 				default:
 					nLog("Unhandled node message (act %d): %#v", act, t)
 				}
-			case erl.Atom:
+			case etf.Atom:
 				switch act {
-				case erl.Atom("$go_set_node"):
+				case etf.Atom("$go_set_node"):
 					nLog("SET NODE %#v", t)
-					currNode.neighbors[t[1].(erl.Atom)] = nodeConn{conn: c, wchan: wchan}
+					currNode.neighbors[t[1].(etf.Atom)] = nodeConn{conn: c, wchan: wchan}
 				}
 			default:
 				nLog("UNHANDLED ACT: %#v", t.Element(1))
@@ -340,33 +340,33 @@ func (currNode *Node) handleTerms(c net.Conn, wchan chan []erl.Term, terms []erl
 }
 
 // RegSend sends message from one process to registered
-func (currNode *Node) RegSend(from, to erl.Term, message erl.Term) {
+func (currNode *Node) RegSend(from, to etf.Term, message etf.Term) {
 	nLog("REG_SEND: From: %#v, To: %#v, Message: %#v", from, to, message)
-	var toPid erl.Pid
+	var toPid etf.Pid
 	switch tp := to.(type) {
-	case erl.Pid:
+	case etf.Pid:
 		toPid = tp
-	case erl.Atom:
+	case etf.Atom:
 		toPid = currNode.Whereis(tp)
 	}
 	currNode.SendFrom(from, toPid, message)
 }
 
 // Whereis returns pid of registered process
-func (currNode *Node) Whereis(who erl.Atom) (pid erl.Pid) {
+func (currNode *Node) Whereis(who etf.Atom) (pid etf.Pid) {
 	pid, _ = currNode.registered[who]
 	return
 }
 
 // SendFrom sends message from source to destination
-func (currNode *Node) SendFrom(from erl.Term, to erl.Pid, message erl.Term) {
+func (currNode *Node) SendFrom(from etf.Term, to etf.Pid, message etf.Term) {
 	nLog("SendFrom: %#v, %#v, %#v", from, to, message)
 	pcs := currNode.channels[to]
-	pcs.inFrom <- erl.Tuple{from, message}
+	pcs.inFrom <- etf.Tuple{from, message}
 }
 
 // Send sends message to destination process withoud source
-func (currNode *Node) Send(to erl.Pid, message erl.Term) {
+func (currNode *Node) Send(to etf.Pid, message etf.Term) {
 	nLog("Send: %#v, %#v", to, message)
 	if string(to.Node) == currNode.FullName {
 		nLog("Send to local node")
@@ -375,7 +375,7 @@ func (currNode *Node) Send(to erl.Pid, message erl.Term) {
 	} else {
 		nLog("Send to remote node: %#v, %#v", to, currNode.neighbors[to.Node])
 
-		msg := []erl.Term{erl.Tuple{SEND, erl.Atom(""), to}, message}
+		msg := []etf.Term{etf.Tuple{SEND, etf.Atom(""), to}, message}
 		currNode.neighbors[to.Node].wchan <- msg
 	}
 }

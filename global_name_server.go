@@ -1,7 +1,7 @@
 package node
 
 import (
-	erl "github.com/goerlang/etf/types"
+	"github.com/goerlang/etf"
 )
 
 type globalNameServer struct {
@@ -10,21 +10,21 @@ type globalNameServer struct {
 
 func (gns *globalNameServer) Init(args ...interface{}) {
 	nLog("GLOBAL_NAME_SERVER: Init: %#v", args)
-	gns.Node.Register(erl.Atom("global_name_server"), gns.Self)
+	gns.Node.Register(etf.Atom("global_name_server"), gns.Self)
 }
 
-func (gns *globalNameServer) HandleCast(message *erl.Term) {
+func (gns *globalNameServer) HandleCast(message *etf.Term) {
 	nLog("GLOBAL_NAME_SERVER: HandleCast: %#v", *message)
 }
 
-func (gns *globalNameServer) HandleCall(message *erl.Term, from *erl.Tuple) (reply *erl.Term) {
+func (gns *globalNameServer) HandleCall(message *etf.Term, from *etf.Tuple) (reply *etf.Term) {
 	nLog("GLOBAL_NAME_SERVER: HandleCall: %#v, From: %#v", *message, *from)
-	replyTerm := erl.Term(erl.Atom("reply"))
+	replyTerm := etf.Term(etf.Atom("reply"))
 	reply = &replyTerm
 	return
 }
 
-func (gns *globalNameServer) HandleInfo(message *erl.Term) {
+func (gns *globalNameServer) HandleInfo(message *etf.Term) {
 	nLog("GLOBAL_NAME_SERVER: HandleInfo: %#v", *message)
 }
 

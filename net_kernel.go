@@ -1,7 +1,7 @@
 package node
 
 import (
-	erl "github.com/goerlang/etf/types"
+	"github.com/goerlang/etf"
 )
 
 type netKernel struct {
@@ -10,23 +10,23 @@ type netKernel struct {
 
 func (nk *netKernel) Init(args ...interface{}) {
 	nLog("NET_KERNEL: Init: %#v", args)
-	nk.Node.Register(erl.Atom("net_kernel"), nk.Self)
+	nk.Node.Register(etf.Atom("net_kernel"), nk.Self)
 }
 
-func (nk *netKernel) HandleCast(message *erl.Term) {
+func (nk *netKernel) HandleCast(message *etf.Term) {
 	nLog("NET_KERNEL: HandleCast: %#v", *message)
 }
 
-func (nk *netKernel) HandleCall(message *erl.Term, from *erl.Tuple) (reply *erl.Term) {
+func (nk *netKernel) HandleCall(message *etf.Term, from *etf.Tuple) (reply *etf.Term) {
 	nLog("NET_KERNEL: HandleCall: %#v, From: %#v", *message, *from)
 	switch t := (*message).(type) {
-	case erl.Tuple:
+	case etf.Tuple:
 		if len(t) == 2 {
 			switch tag := t[0].(type) {
-			case erl.Atom:
+			case etf.Atom:
 				if string(tag) == "is_auth" {
 					nLog("NET_KERNEL: is_auth: %#v", t[1])
-					replyTerm := erl.Term(erl.Atom("yes"))
+					replyTerm := etf.Term(etf.Atom("yes"))
 					reply = &replyTerm
 				}
 			}
@@ -35,7 +35,7 @@ func (nk *netKernel) HandleCall(message *erl.Term, from *erl.Tuple) (reply *erl.
 	return
 }
 
-func (nk *netKernel) HandleInfo(message *erl.Term) {
+func (nk *netKernel) HandleInfo(message *etf.Term) {
 	nLog("NET_KERNEL: HandleInfo: %#v", *message)
 }
 

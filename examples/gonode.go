@@ -1,7 +1,7 @@
 package main
 
 import (
-	erl "github.com/goerlang/etf/types"
+	"github.com/goerlang/etf"
 	"github.com/goerlang/node"
 	"log"
 )
@@ -17,7 +17,7 @@ func (gs *gonodeSrv) Init(args ...interface{}) {
 	log.Printf("GO_SRV: Init: %#v", args)
 
 	// Self-registration with name go_srv
-	gs.Node.Register(erl.Atom("go_srv"), gs.Self)
+	gs.Node.Register(etf.Atom("go_srv"), gs.Self)
 
 	// Store first argument as channel
 	gs.completeChan = args[0].(chan bool)
@@ -25,12 +25,12 @@ func (gs *gonodeSrv) Init(args ...interface{}) {
 
 // HandleCast handles incoming messages from `gen_server:cast/2`
 // Call `gen_server:cast({go_srv, gonode@localhost}, stop)` at Erlang node to stop this Go-node
-func (gs *gonodeSrv) HandleCast(message *erl.Term) {
+func (gs *gonodeSrv) HandleCast(message *etf.Term) {
 	log.Printf("GO_SRV: HandleCast: %#v", *message)
 
 	// Check type of message
 	switch t := (*message).(type) {
-	case erl.Atom:
+	case etf.Atom:
 		// If message is atom 'stop', we should say it to main process
 		if string(t) == "stop" {
 			gs.completeChan <- true
@@ -41,17 +41,17 @@ func (gs *gonodeSrv) HandleCast(message *erl.Term) {
 // HandleCall handles incoming messages from `gen_server:call/2`, if returns non-nil term,
 // then calling process have reply
 // Call `gen_server:call({go_srv, gonode@localhost}, Message)` at Erlang node
-func (gs *gonodeSrv) HandleCall(message *erl.Term, from *erl.Tuple) (reply *erl.Term) {
+func (gs *gonodeSrv) HandleCall(message *etf.Term, from *etf.Tuple) (reply *etf.Term) {
 	log.Printf("GO_SRV: HandleCall: %#v, From: %#v", *message, *from)
 
 	// Just create new term tuple where first element is atom 'ok', second 'go_reply' and third is original message
-	replyTerm := erl.Term(erl.Tuple{erl.Atom("ok"), erl.Atom("go_reply"), *message})
+	replyTerm := etf.Term(etf.Tuple{etf.Atom("ok"), etf.Atom("go_reply"), *message})
 	reply = &replyTerm
 	return
 }
 
 // HandleInfo handles all another incoming messages
-func (gs *gonodeSrv) HandleInfo(message *erl.Term) {
+func (gs *gonodeSrv) HandleInfo(message *etf.Term) {
 	log.Printf("GO_SRV: HandleInfo: %#v", *message)
 }
 
