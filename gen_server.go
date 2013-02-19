@@ -32,7 +32,7 @@ func (gs *GenServerImpl) Options() map[string]interface{} {
 // It receives incoming messages from channels and handle it using methods of behaviour implementation
 func (gs *GenServerImpl) ProcessLoop(pcs procChannels, pd Process, args ...interface{}) {
 	pd.(GenServer).Init(args...)
-	//pcs.ctl <- etf.Tuple{etf.Atom("$go_ctl"), etf.Tuple{etf.Atom("control-message"), etf.Atom("example")}}
+	pcs.init <- true
 	defer func() {
 		if r := recover(); r != nil {
 			// TODO: send message to parent process

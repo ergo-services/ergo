@@ -94,6 +94,7 @@ type procChannels struct {
 	in     chan etf.Term
 	inFrom chan etf.Tuple
 	ctl    chan etf.Term
+	init   chan bool
 }
 
 // Behaviour interface contains methods you should implement to make own process behaviour
@@ -167,15 +168,18 @@ func (n *Node) Spawn(pd Process, args ...interface{}) (pid etf.Pid) {
 	in := make(chan etf.Term, chanSize)
 	inFrom := make(chan etf.Tuple, chanSize)
 	ctl := make(chan etf.Term, ctlChanSize)
+	initCh := make(chan bool)
 	pcs := procChannels{
 		in:     in,
 		inFrom: inFrom,
 		ctl:    ctl,
+		init:   initCh,
 	}
 	pid = n.storeProcess(pcs)
 	pd.setNode(n)
 	pd.setPid(pid)
 	go pd.(Behaviour).ProcessLoop(pcs, pd, args...)
+	<- initCh
 	return
 }
 
