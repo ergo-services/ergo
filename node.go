@@ -80,6 +80,12 @@ type nodeConn struct {
 	wchan chan []etf.Term
 }
 
+type systemProcs struct {
+	netKernel *netKernel
+	globalNameServer *globalNameServer
+	rpcRex *rpcRex
+}
+
 type Node struct {
 	epmd.NodeInfo
 	Cookie     string
@@ -88,6 +94,7 @@ type Node struct {
 	channels   map[etf.Pid]procChannels
 	registered map[etf.Atom]etf.Pid
 	neighbors  map[etf.Atom]nodeConn
+	sysProcs   systemProcs
 }
 
 type procChannels struct {
@@ -144,14 +151,14 @@ func NewNode(name string, cookie string) (node *Node) {
 }
 
 func (n *Node) prepareProcesses() {
-	nk := new(netKernel)
-	n.Spawn(nk)
+	n.sysProcs.netKernel = new(netKernel)
+	n.Spawn(n.sysProcs.netKernel)
 
-	gns := new(globalNameServer)
-	n.Spawn(gns)
+	n.sysProcs.globalNameServer = new(globalNameServer)
+	n.Spawn(n.sysProcs.globalNameServer)
 
-	rex := new(rpcRex)
-	n.Spawn(rex)
+	n.sysProcs.rpcRex = new(rpcRex)
+	n.Spawn(n.sysProcs.rpcRex)
 }
 
 // Spawn create new process and store its identificator in table at current node
