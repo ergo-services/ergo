@@ -9,3 +9,5 @@ gonode:
 clean:
 	GOPATH=$(GOPATH) go clean
 	${RM} -r pkg/ src/
+
+.PHONY: gonode
