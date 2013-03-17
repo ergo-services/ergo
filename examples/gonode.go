@@ -67,8 +67,7 @@ func main() {
 	// Allow node be available on 5588 port
 	err := enode.Publish(5588)
 	if err != nil {
-		log.Printf("Cannot publish: %s", err)
-		enode = nil
+		log.Fatalf("Cannot publish: %s", err)
 	}
 
 	// Create channel to receive message when main process should be stopped
@@ -79,6 +78,20 @@ func main() {
 
 	// Spawn process with one arguments
 	enode.Spawn(eSrv, completeChan)
+
+	// RPC
+	// Create closure
+	eClos := func(terms etf.List) (r etf.Term) {
+		r = etf.Term(etf.Tuple{etf.Atom("gonode"), etf.Atom("reply"), len(terms)})
+		return
+	}
+
+	// Provide it to call via RPC with `rpc:call(gonode@localhost, go_rpc, call, [as, qwe])`
+	err = enode.RpcProvide("go_rpc", "call", eClos)
+	if err != nil {
+		log.Printf("Cannot provide function to RPC: %s", err)
+	}
+
 
 	// Wait to stop
 	<-completeChan
