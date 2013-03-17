@@ -7,7 +7,7 @@ import (
 type rpcFunction func(etf.List) etf.Term
 
 type modFun struct {
-	module string
+	module   string
 	function string
 }
 
@@ -47,16 +47,16 @@ func (rpcs *rpcRex) HandleCall(message *etf.Term, from *etf.Tuple) (reply *etf.T
 			case etf.Atom:
 				if string(act) == "call" {
 					valid = true
-					if fun, ok := rpcs.callMap[modFun{string(req[1].(etf.Atom)),string(req[2].(etf.Atom))}]; ok {
+					if fun, ok := rpcs.callMap[modFun{string(req[1].(etf.Atom)), string(req[2].(etf.Atom))}]; ok {
 						replyTerm = fun(req[3].(etf.List))
 					} else {
-						replyTerm = etf.Term(etf.Tuple{etf.Atom("badrpc"), etf.Tuple{etf.Atom("EXIT"), etf.Tuple{etf.Atom("undef"), etf.List{etf.Tuple{req[1], req[2], req[3], etf.List{} }}}}})
+						replyTerm = etf.Term(etf.Tuple{etf.Atom("badrpc"), etf.Tuple{etf.Atom("EXIT"), etf.Tuple{etf.Atom("undef"), etf.List{etf.Tuple{req[1], req[2], req[3], etf.List{}}}}}})
 					}
 				}
 			}
 		}
 	}
-	if ! valid {
+	if !valid {
 		replyTerm = etf.Term(etf.Tuple{etf.Atom("badrpc"), etf.Atom("unknown")})
 	}
 	reply = &replyTerm

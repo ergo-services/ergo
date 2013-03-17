@@ -81,9 +81,9 @@ type nodeConn struct {
 }
 
 type systemProcs struct {
-	netKernel *netKernel
+	netKernel        *netKernel
 	globalNameServer *globalNameServer
-	rpcRex *rpcRex
+	rpcRex           *rpcRex
 }
 
 type Node struct {
@@ -186,7 +186,7 @@ func (n *Node) Spawn(pd Process, args ...interface{}) (pid etf.Pid) {
 	pd.setNode(n)
 	pd.setPid(pid)
 	go pd.(Behaviour).ProcessLoop(pcs, pd, args...)
-	<- initCh
+	<-initCh
 	return
 }
 
