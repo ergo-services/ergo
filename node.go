@@ -392,8 +392,9 @@ func (currNode *Node) Send(to etf.Pid, message etf.Term) {
 }
 
 func epmdC(n *Node, resp chan uint16) {
-	conn, err := net.Dial("tcp", ":4369")
+	conn, err := net.Dial("tcp", "127.0.0.1:4369")
 	if err != nil {
+		nLog("Error calling net.Dial : %s", err.Error())
 		resp <- 100
 		return
 	}
