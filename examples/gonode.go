@@ -1,8 +1,8 @@
 package main
 
 import (
-	"github.com/goerlang/etf"
-	"github.com/goerlang/node"
+	"github.com/ergolang/etf"
+	"github.com/ergolang/node"
 	"log"
 )
 
