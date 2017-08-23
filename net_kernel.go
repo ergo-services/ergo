@@ -1,7 +1,7 @@
 package node
 
 import (
-	"github.com/goerlang/etf"
+	"github.com/ergolang/etf"
 )
 
 type netKernel struct {
