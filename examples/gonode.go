@@ -2,9 +2,9 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"github.com/ergolang/etf"
 	"github.com/halturin/node"
-	"log"
 )
 
 // GenServer implementation structure
@@ -24,7 +24,7 @@ var (
 
 // Init initializes process state using arbitrary arguments
 func (gs *gonodeSrv) Init(args ...interface{}) {
-	log.Printf("Init: %#v", args)
+	fmt.Printf("Init: %#v", args)
 
 	// Self-registration with name go_srv
 	gs.Node.Register(etf.Atom(SrvName), gs.Self)
@@ -36,7 +36,7 @@ func (gs *gonodeSrv) Init(args ...interface{}) {
 // HandleCast
 // Call `gen_server:cast({go_srv, gonode@localhost}, stop)` at Erlang node to stop this Go-node
 func (gs *gonodeSrv) HandleCast(message *etf.Term) {
-	log.Printf("HandleCast: %#v", *message)
+	fmt.Printf("HandleCast: %#v", *message)
 
 	// Check type of message
 	switch req := (*message).(type) {
@@ -64,7 +64,13 @@ func (gs *gonodeSrv) HandleCast(message *etf.Term) {
 // then calling process have reply
 // Call `gen_server:call({go_srv, gonode@localhost}, Message)` at Erlang node
 func (gs *gonodeSrv) HandleCall(message *etf.Term, from *etf.Tuple) (reply *etf.Term) {
-	// log.Printf("HandleCall: %#v, From: %#v\n", *message, *from)
+	// fmt.Printf("HandleCall: %#v, From: %#v\n", *message, *from)
+
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Printf("Call recovered: %#v\n", r)
+		}
+	}()
 
 	replyTerm := etf.Term(etf.Tuple{etf.Atom("error"), etf.Atom("unknown_request")})
 	reply = &replyTerm
@@ -77,19 +83,57 @@ func (gs *gonodeSrv) HandleCall(message *etf.Term, from *etf.Tuple) (reply *etf.
 			replyTerm = etf.Term(etf.Pid(gs.Self))
 			reply = &replyTerm
 		}
-	}
+	case etf.Tuple:
+		var cto, cmess etf.Term
+		// {testcall, { {name, node}, message  }}
+		// {testcast, { {name, node}, message  }}
+		if len(req) == 2 {
+			act := req[0].(etf.Atom)
+			c := req[1].(etf.Tuple)
 
+			cmess = req[1]
+
+			switch c[0].(type) {
+			case etf.Tuple:
+				switch ct := c[0].(type) {
+				case etf.Tuple:
+					if ct[0].(etf.Atom) == ct[1].(etf.Atom) {
+					}
+					cto = etf.Term(c[0])
+				default:
+					return
+				}
+			case etf.Pid:
+				cto = etf.Term(c[0])
+			default:
+				return
+			}
+
+			if string(act) == "testcall" {
+				fmt.Println("testcall...")
+				reply = gs.Call(cto, &cmess)
+			} else if string(act) == "testcast" {
+				fmt.Println("testcast...")
+				gs.Cast(cto, &cmess)
+				replyTerm = etf.Term(etf.Atom("ok"))
+				reply = &replyTerm
+			} else {
+				return
+			}
+
+		}
+	}
 	return
 }
 
 // HandleInfo handles all another incoming messages
 func (gs *gonodeSrv) HandleInfo(message *etf.Term) {
-	log.Printf("HandleInfo: %#v", *message)
+	fmt.Printf("HandleInfo: %#v\n", *message)
 }
 
 // Terminate called when process died
 func (gs *gonodeSrv) Terminate(reason interface{}) {
-	log.Printf("Terminate: %#v", reason.(int))
+	fmt.Printf("Terminate: %#v\n", reason.(int))
 }
 
 func init() {
@@ -109,8 +153,7 @@ func main() {
 	// Allow node be available on EpmdPort port
 	err = enode.Publish(EpmdPort)
 	if err != nil {
-		log.Println("PANIC: Cannot publish: %s", err)
-		return
+		panic(fmt.Sprintf("PANIC: Cannot publish: %s", err))
 	}
 
 	// Create channel to receive message when main process should be stopped
@@ -132,13 +175,16 @@ func main() {
 	// Provide it to call via RPC with `rpc:call(gonode@localhost, rpc, call, [as, qwe])`
 	err = enode.RpcProvide("rpc", "call", rpc)
 	if err != nil {
-		log.Printf("Cannot provide function to RPC: %s", err)
+		fmt.Printf("Cannot provide function to RPC: %s\n", err)
 	}
 
-	log.Println("Allowed commands...")
-	log.Printf("gen_server:cast({%s,'%s'}, stop).", SrvName, NodeName)
-	log.Printf("gen_server:call({%s,'%s'}, pid).", SrvName, NodeName)
-	log.Printf("gen_server:cast({%s,'%s'}, {ping, self()}), flush().", SrvName, NodeName)
+	fmt.Println("Allowed commands...")
+	fmt.Printf("gen_server:cast({%s,'%s'}, stop).\n", SrvName, NodeName)
+	fmt.Printf("gen_server:call({%s,'%s'}, pid).\n", SrvName, NodeName)
+	fmt.Printf("gen_server:cast({%s,'%s'}, {ping, self()}), flush().\n", SrvName, NodeName)
+	fmt.Println("make remote call by golang node...")
+	fmt.Printf("gen_server:call({%s,'%s'}, {testcall, {Pid, Message}}).\n", SrvName, NodeName)
+	fmt.Printf("gen_server:call({%s,'%s'}, {testcall, {{pname, remotenode}, Message}}).\n", SrvName, NodeName)
 
 	// Wait to stop
 	<-completeChan

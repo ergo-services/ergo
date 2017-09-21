@@ -79,7 +79,7 @@ func (gs *GenServerImpl) ProcessLoop(pcs procChannels, pd Process, args ...inter
 					fromTuple := m[1].(etf.Tuple)
 					reply := pd.(GenServer).HandleCall(&m[2], &fromTuple)
 					if reply != nil {
-						gs.Reply(&fromTuple, reply)
+						gs.Send(&fromTuple, reply)
 					}
 				case etf.Atom("$gen_cast"):
 					pd.(GenServer).HandleCast(&m[1])
@@ -97,15 +97,27 @@ func (gs *GenServerImpl) ProcessLoop(pcs procChannels, pd Process, args ...inter
 	}
 }
 
-// Reply sends delayed reply at incoming `gen_server:call/2`
-func (gs *GenServerImpl) Reply(fromTuple *etf.Tuple, reply *etf.Term) {
-	gs.Node.Send((*fromTuple)[0].(etf.Pid), etf.Tuple{(*fromTuple)[1], *reply})
-}
-
 func (gs *GenServerImpl) setNode(node *Node) {
 	gs.Node = node
 }
 
 func (gs *GenServerImpl) setPid(pid etf.Pid) {
 	gs.Self = pid
+}
+
+func (gs *GenServerImpl) Call(to interface{}, message *etf.Term) (reply *etf.Term) {
+
+	replyTerm := etf.Term(etf.Atom("ok"))
+	reply = &replyTerm
+
+	return
+}
+
+func (gs *GenServerImpl) Cast(to interface{}, message *etf.Term) error {
+
+	return nil
+}
+
+func (gs *GenServerImpl) Send(fromTuple *etf.Tuple, reply *etf.Term) {
+	gs.Node.Send((*fromTuple)[0].(etf.Pid), etf.Tuple{(*fromTuple)[1], *reply})
 }
