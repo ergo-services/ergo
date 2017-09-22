@@ -339,7 +339,7 @@ func (currNode *Node) handleTerms(c net.Conn, wchan chan []etf.Term, terms []etf
 				}
 			case etf.Atom:
 				switch act {
-				case etf.Atom("$go_set_node"):
+				case etf.Atom("$connection"):
 					nLog("SET NODE %#v", t)
 					currNode.neighbors[t[1].(etf.Atom)] = nodeConn{conn: c, wchan: wchan}
 				}
