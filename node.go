@@ -262,7 +262,7 @@ func (n *Node) mLoopReader(c net.Conn, wchan chan []etf.Term, ndchan chan *dist.
 	for {
 		terms, err := currNd.ReadMessage(c)
 		if err != nil {
-			nLog("Enode error: %s", err.Error())
+			nLog("Enode error (reading): %s", err.Error())
 			break
 		}
 		n.handleTerms(c, wchan, terms)
@@ -278,7 +278,7 @@ func (n *Node) mLoopWriter(c net.Conn, wchan chan []etf.Term, ndchan chan *dist.
 		terms := <-wchan
 		err := currNd.WriteMessage(c, terms)
 		if err != nil {
-			nLog("Enode error: %s", err.Error())
+			nLog("Enode error (writing): %s", err.Error())
 			break
 		}
 	}
