@@ -123,7 +123,10 @@ func Create(name string, port uint16, cookie string) (node *Node) {
 		regNameChan:   make(chan regNameReq),
 		unregNameChan: make(chan unregNameReq),
 	}
+
 	epmd := EPMD{}
+	epmd.Init(name, port)
+
 	node = &Node{
 		EPMD:        epmd,
 		Cookie:      cookie,
@@ -137,8 +140,6 @@ func Create(name string, port uint16, cookie string) (node *Node) {
 	if err != nil {
 		panic(err.Error())
 	}
-
-	epmd.Init(name, port)
 
 	go func() {
 		for {
