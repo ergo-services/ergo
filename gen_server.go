@@ -107,6 +107,10 @@ func (gs *GenServerImpl) setPid(pid etf.Pid) {
 
 func (gs *GenServerImpl) Call(to interface{}, message *etf.Term) (reply *etf.Term) {
 
+	if err := gs.Node.Send(to, etf.Tuple{etf.Atom("$gen_call"), message}); err != nil {
+		panic(err.Error())
+	}
+
 	replyTerm := etf.Term(etf.Atom("ok"))
 	reply = &replyTerm
 

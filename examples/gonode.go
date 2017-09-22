@@ -24,8 +24,6 @@ var (
 
 // Init initializes process state using arbitrary arguments
 func (gs *gonodeSrv) Init(args ...interface{}) {
-	fmt.Printf("Init: %#v", args)
-
 	// Self-registration with name go_srv
 	gs.Node.Register(etf.Atom(SrvName), gs.Self)
 
@@ -110,7 +108,7 @@ func (gs *gonodeSrv) HandleCall(message *etf.Term, from *etf.Tuple) (reply *etf.
 			}
 
 			if string(act) == "testcall" {
-				fmt.Println("testcall...")
+				fmt.Printf("!!!!!!!testcall... %#v \n", cto)
 				reply = gs.Call(cto, &cmess)
 			} else if string(act) == "testcast" {
 				fmt.Println("testcast...")
@@ -148,13 +146,7 @@ func main() {
 	flag.Parse()
 
 	// Initialize new node with given name and cookie
-	enode := node.NewNode(NodeName, Cookie)
-
-	// Allow node be available on EpmdPort port
-	err = enode.Publish(EpmdPort)
-	if err != nil {
-		panic(fmt.Sprintf("PANIC: Cannot publish: %s", err))
-	}
+	n := node.Create(NodeName, uint16(EpmdPort), Cookie)
 
 	// Create channel to receive message when main process should be stopped
 	completeChan := make(chan bool)
@@ -163,7 +155,7 @@ func main() {
 	eSrv := new(gonodeSrv)
 
 	// Spawn process with one arguments
-	enode.Spawn(eSrv, completeChan)
+	n.Spawn(eSrv, completeChan)
 
 	// RPC
 	// Create closure
@@ -173,7 +165,7 @@ func main() {
 	}
 
 	// Provide it to call via RPC with `rpc:call(gonode@localhost, rpc, call, [as, qwe])`
-	err = enode.RpcProvide("rpc", "call", rpc)
+	err = n.RpcProvide("rpc", "call", rpc)
 	if err != nil {
 		fmt.Printf("Cannot provide function to RPC: %s\n", err)
 	}
