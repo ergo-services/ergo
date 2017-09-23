@@ -1,7 +1,7 @@
 package node
 
 import (
-	"github.com/ergolang/etf"
+	"github.com/halturin/node/etf"
 )
 
 type globalNameServer struct {

@@ -83,8 +83,6 @@ func (e *EPMD) Init(name string, port uint16) {
 				switch reply[0] {
 				case EPMD_ALIVE2_RESP:
 					e.response <- read_ALIVE2_RESP(reply)
-				case EPMD_PORT2_RESP:
-					e.response <- read_PORT2_RESP(reply)
 				}
 			}
 		}
@@ -107,10 +105,35 @@ func (e *EPMD) register() {
 	}
 }
 
-func (e *EPMD) ResolvePort(name string) uint16 {
-	e.out <- compose_PORT_PLEASE2_REQ(name)
-	value := <-e.response
-	return value.(uint16)
+func (e *EPMD) ResolvePort(name string) int {
+	var err error
+	ns := strings.Split(name, "@")
+
+	conn, err := net.Dial("tcp", net.JoinHostPort(ns[1], "4369"))
+	if err != nil {
+		return -1
+	}
+
+	defer conn.Close()
+
+	data := compose_PORT_PLEASE2_REQ(ns[0])
+	buf := make([]byte, 2)
+	binary.BigEndian.PutUint16(buf[0:2], uint16(len(data)))
+	buf = append(buf, data...)
+	_, err = conn.Write(buf)
+	if err != nil {
+		return -1
+	}
+
+	buf = make([]byte, 1024)
+	_, err = conn.Read(buf)
+	if err != nil {
+		return -1
+	}
+
+	value := read_PORT2_RESP(buf)
+
+	return int(value)
 }
 
 func epmdREADER(conn net.Conn, in chan []byte) {
@@ -175,8 +198,12 @@ func compose_PORT_PLEASE2_REQ(name string) (buf []byte) {
 	return
 }
 
-func read_PORT2_RESP(reply []byte) (portno uint16) {
-	fmt.Println("URA! %#v", reply)
-	portno = binary.BigEndian.Uint16(reply[0:2])
+func read_PORT2_RESP(reply []byte) (portno int) {
+	if reply[0] == 119 && reply[1] == 0 {
+		p := binary.BigEndian.Uint16(reply[2:4])
+		portno = int(p)
+	} else {
+		portno = -1
+	}
 	return
 }

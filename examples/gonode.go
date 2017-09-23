@@ -3,8 +3,8 @@ package main
 import (
 	"flag"
 	"fmt"
-	"github.com/ergolang/etf"
 	"github.com/halturin/node"
+	"github.com/halturin/node/etf"
 )
 
 // GenServer implementation structure

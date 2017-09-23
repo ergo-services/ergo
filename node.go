@@ -34,11 +34,12 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"github.com/ergolang/dist"
-	"github.com/ergolang/etf"
+	"github.com/halturin/node/dist"
+	"github.com/halturin/node/etf"
 	"log"
 	"net"
 	"strconv"
+	"strings"
 )
 
 var nTrace bool
@@ -402,14 +403,15 @@ func sendTuple(n *Node, to etf.Tuple, message etf.Term) {
 
 func connect(n *Node, to etf.Atom) error {
 
-	var port uint16
-	fmt.Println("111")
+	var port int
 
 	if port = n.ResolvePort(string(to)); port < 0 {
 		return errors.New("Unknown node name")
 	}
+	ns := strings.Split(string(to), "@")
 
-	c, err := net.Dial("tcp", net.JoinHostPort(string(to), strconv.Itoa(int(port))))
+	fmt.Printf("CONNECT TO: %s %d\n", to, port)
+	c, err := net.Dial("tcp", net.JoinHostPort(ns[1], strconv.Itoa(int(port))))
 	if err != nil {
 		nLog("Error calling net.Dial : %s", err.Error())
 		return err
