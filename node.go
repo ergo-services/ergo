@@ -144,15 +144,13 @@ func Create(name string, port uint16, cookie string) (node *Node) {
 
 	go func() {
 		for {
-			conn, err := l.Accept()
+			c, err := l.Accept()
 			nLog("Accept new at ENode")
 			if err != nil {
 				nLog(err.Error())
 			} else {
 				wchan := make(chan []etf.Term, 10)
-				ndchan := make(chan *dist.NodeDesc)
-				go node.mLoopReader(conn, wchan, ndchan, false)
-				go node.mLoopWriter(conn, wchan, ndchan)
+				go node.mainloop(c, wchan, false)
 			}
 		}
 	}()
@@ -257,7 +255,8 @@ func (n *Node) storeProcess(chs procChannels) (pid etf.Pid) {
 	return pid
 }
 
-func (n *Node) mLoopReader(c net.Conn, wchan chan []etf.Term, ndchan chan *dist.NodeDesc, negotiate bool) {
+func (n *Node) mainloop(c net.Conn, wchan chan []etf.Term, negotiate bool) {
+
 	var negc net.Conn
 
 	if negotiate {
@@ -267,7 +266,19 @@ func (n *Node) mLoopReader(c net.Conn, wchan chan []etf.Term, ndchan chan *dist.
 	}
 
 	currNd := dist.NewNodeDesc(n.FullName, n.Cookie, false, negc)
-	ndchan <- currNd
+
+	// run writer routine
+	go func() {
+		for {
+			terms := <-wchan
+			err := currNd.WriteMessage(c, terms)
+			if err != nil {
+				nLog("Enode error (writing): %s", err.Error())
+				break
+			}
+		}
+	}()
+
 	for {
 		terms, err := currNd.ReadMessage(c)
 		if err != nil {
@@ -276,21 +287,7 @@ func (n *Node) mLoopReader(c net.Conn, wchan chan []etf.Term, ndchan chan *dist.
 		}
 		n.handleTerms(c, wchan, terms)
 	}
-	c.Close()
-}
 
-func (n *Node) mLoopWriter(c net.Conn, wchan chan []etf.Term, ndchan chan *dist.NodeDesc) {
-
-	currNd := <-ndchan
-
-	for {
-		terms := <-wchan
-		err := currNd.WriteMessage(c, terms)
-		if err != nil {
-			nLog("Enode error (writing): %s", err.Error())
-			break
-		}
-	}
 	c.Close()
 }
 
@@ -308,7 +305,7 @@ func (n *Node) handleTerms(c net.Conn, wchan chan []etf.Term, terms []etf.Term) 
 				switch act {
 				case REG_SEND:
 					if len(terms) == 2 {
-						n.RegSend(t.Element(2), t.Element(4), terms[1])
+						n.route(t.Element(2), t.Element(4), terms[1])
 					} else {
 						nLog("*** ERROR: bad REG_SEND: %#v", terms)
 					}
@@ -328,32 +325,22 @@ func (n *Node) handleTerms(c net.Conn, wchan chan []etf.Term, terms []etf.Term) 
 	}
 }
 
-// RegSend sends message from one process to registered
-func (n *Node) RegSend(from, to etf.Term, message etf.Term) {
+// route incomming message to registered (with sender 'from' value)
+func (n *Node) route(from, to etf.Term, message etf.Term) {
 	nLog("REG_SEND: From: %#v, To: %#v, Message: %#v", from, to, message)
 	var toPid etf.Pid
 	switch tp := to.(type) {
 	case etf.Pid:
 		toPid = tp
 	case etf.Atom:
-		toPid = n.Whereis(tp)
+		toPid, _ = n.registered[tp]
 	}
-	n.SendFrom(from, toPid, message)
-}
-
-// Whereis returns pid of registered process
-func (n *Node) Whereis(who etf.Atom) (pid etf.Pid) {
-	pid, _ = n.registered[who]
-	return
-}
-
-// SendFrom sends message from source to destination
-func (n *Node) SendFrom(from etf.Term, to etf.Pid, message etf.Term) {
-	nLog("SendFrom: %#v, %#v, %#v", from, to, message)
-	pcs := n.channels[to]
+	pcs := n.channels[toPid]
 	pcs.inFrom <- etf.Tuple{from, message}
+
 }
 
+// Send making outgoing message
 func (n *Node) Send(to interface{}, message etf.Term) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -377,7 +364,6 @@ func (n *Node) Send(to interface{}, message etf.Term) (err error) {
 	return nil
 }
 
-// Send sends message to destination process withoud source
 func sendPid(n *Node, to etf.Pid, message etf.Term) {
 	nLog("Send (via PID): %#v, %#v", to, message)
 	if string(to.Node) == n.FullName {
@@ -425,9 +411,8 @@ func connect(n *Node, to etf.Atom) error {
 	}
 
 	wchan := make(chan []etf.Term, 10)
-	ndchan := make(chan *dist.NodeDesc)
-	go n.mLoopReader(c, wchan, ndchan, true)
-	go n.mLoopWriter(c, wchan, ndchan)
+
+	go n.mainloop(c, wchan, true)
 
 	n.connections[to] = nodeConn{conn: c, wchan: wchan}
 	return nil
