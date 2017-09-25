@@ -79,28 +79,41 @@ const (
 )
 
 type NodeDesc struct {
-	Name      string
-	Cookie    string
-	Hidden    bool
-	remote    *NodeDesc
-	state     nodeState
-	challenge uint32
-	flag      nodeFlag
-	version   uint16
-	term      *etf.Context
+	Name       string
+	Cookie     string
+	Hidden     bool
+	remote     *NodeDesc
+	state      nodeState
+	challenge  uint32
+	flag       nodeFlag
+	version    uint16
+	term       *etf.Context
+	isacceptor bool
 }
 
-func NewNodeDesc(name, cookie string, isHidden bool) (nd *NodeDesc) {
+func NewNodeDesc(name, cookie string, isHidden bool, c net.Conn) (nd *NodeDesc) {
 	nd = &NodeDesc{
-		Name:    name,
-		Cookie:  cookie,
-		Hidden:  isHidden,
-		remote:  nil,
-		state:   HANDSHAKE,
-		flag:    toNodeFlag(PUBLISHED, UNICODE_IO, EXTENDED_PIDS_PORTS, EXTENDED_REFERENCES, DIST_HDR_ATOM_CACHE, HIDDEN_ATOM_CACHE, SMALL_ATOM_TAGS),
-		version: 5,
-		term:    new(etf.Context),
+		Name:       name,
+		Cookie:     cookie,
+		Hidden:     isHidden,
+		remote:     nil,
+		state:      HANDSHAKE,
+		flag:       toNodeFlag(PUBLISHED, UNICODE_IO, EXTENDED_PIDS_PORTS, EXTENDED_REFERENCES, DIST_HDR_ATOM_CACHE, HIDDEN_ATOM_CACHE, SMALL_ATOM_TAGS),
+		version:    5,
+		term:       new(etf.Context),
+		isacceptor: true,
 	}
+
+	// new connection. negotiate
+	if c != nil {
+		nd.isacceptor = false
+		sn := nd.compose_SEND_NAME()
+		negmessage := make([]byte, len(sn)+2)
+		binary.BigEndian.PutUint16(negmessage[0:2], uint16(len(sn)))
+		copy(negmessage[2:], sn)
+		c.Write(negmessage)
+	}
+
 	return nd
 }
 
@@ -132,22 +145,33 @@ func (currNd *NodeDesc) ReadMessage(c net.Conn) (ts []etf.Term, err error) {
 
 		switch msg[0] {
 		case 'n':
-			sn := currNd.read_SEND_NAME(msg)
-			// Statuses: ok, nok, ok_simultaneous, alive, not_allowed
-			sok := currNd.compose_SEND_STATUS(sn, true)
-			_, err = sendData(2, sok)
-			if err != nil {
-				return
-			}
-
 			rand.Seed(time.Now().UTC().UnixNano())
 			currNd.challenge = rand.Uint32()
 
-			// Now send challenge
-			challenge := currNd.compose_SEND_CHALLENGE(sn)
-			sendData(2, challenge)
-			if err != nil {
+			if currNd.isacceptor {
+				sn := currNd.read_SEND_NAME(msg)
+				// Statuses: ok, nok, ok_simultaneous, alive, not_allowed
+				sok := currNd.compose_SEND_STATUS(sn, true)
+				_, err = sendData(2, sok)
+				if err != nil {
+					return
+				}
+
+				// Now send challenge
+				challenge := currNd.compose_SEND_CHALLENGE(sn)
+				sendData(2, challenge)
+				if err != nil {
+					return
+				}
+			} else {
+				//
+				dLog("Doing CHALLENGE (outgoing connection)")
+
+				challenge := currNd.read_SEND_CHALLENGE(msg)
+				challenge_reply := currNd.compose_SEND_CHALENGE_REPLY(challenge)
+				sendData(2, challenge_reply)
 				return
+
 			}
 
 		case 'r':
@@ -165,6 +189,19 @@ func (currNd *NodeDesc) ReadMessage(c net.Conn) (ts []etf.Term, err error) {
 				err = errors.New("bad handshake")
 				return
 			}
+		case 's':
+			r := string(msg[1:len(msg)])
+			if r != "ok" {
+				c.Close()
+				dLog("Can't continue (recv_status: %s). Closing connection", r)
+				panic("recv_status is not ok. Closing connection")
+			}
+
+			return
+
+		case 'a':
+			currNd.read_SEND_CHALLENGE_ACK(msg)
+			return
 		}
 
 	case CONNECTED:
@@ -294,6 +331,12 @@ func (currNd *NodeDesc) compose_SEND_CHALLENGE(nd *NodeDesc) (msg []byte) {
 	return
 }
 
+func (currNd *NodeDesc) read_SEND_CHALLENGE(msg []byte) (challenge uint32) {
+	// version := binary.BigEndian.Uint16(msg[1:3])
+	// flag := binary.BigEndian.Uint32(msg[3:7])
+	return binary.BigEndian.Uint32(msg[7:12])
+}
+
 func (currNd *NodeDesc) read_SEND_CHALLENGE_REPLY(nd *NodeDesc, msg []byte) (isOk bool) {
 	nd.challenge = binary.BigEndian.Uint32(msg[1:5])
 	digestB := msg[5:]
@@ -316,6 +359,21 @@ func (currNd *NodeDesc) compose_SEND_CHALLENGE_ACK(nd *NodeDesc) (msg []byte) {
 	digestB := genDigest(nd.challenge, currNd.Cookie) // FIXME: use his cookie, not mine
 
 	copy(msg[1:], digestB)
+	return
+}
+
+func (currNd *NodeDesc) compose_SEND_CHALENGE_REPLY(challenge uint32) (msg []byte) {
+	msg = make([]byte, 21)
+	msg[0] = byte('r')
+
+	binary.BigEndian.PutUint32(msg[1:5], currNd.challenge)
+	digest := genDigest(challenge, currNd.Cookie)
+	copy(msg[5:], digest)
+	return
+}
+
+func (currNd *NodeDesc) read_SEND_CHALLENGE_ACK(msg []byte) {
+	currNd.state = CONNECTED
 	return
 }
 

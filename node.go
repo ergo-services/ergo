@@ -10,22 +10,22 @@ Erlang distribution protocol: http://www.erlang.org/doc/apps/erts/erl_dist_proto
 The Publish function allows incoming connection to the current node on 5858 port.
 EPMD will reply with this port on name request for this node name
 
-	enode := node.NewNode(name, cookie)
-	err := enode.Publish(5858)
-	if err != nil {
-		log.Printf("Cannot publish: %s", err)
-		enode = nil
-	}
+    enode := node.NewNode(name, cookie)
+    err := enode.Publish(5858)
+    if err != nil {
+        log.Printf("Cannot publish: %s", err)
+        enode = nil
+    }
 
 
 Function Spawn creates new process from struct which implements Process interface:
 
-	eSrv := new(eclusSrv)
-	pid := enode.Spawn(eSrv)
+    eSrv := new(eclusSrv)
+    pid := enode.Spawn(eSrv)
 
 Now you can call Register function to store this pid with arbitrary name:
 
-	enode.Register(etf.Atom("eclus"), pid)
+    enode.Register(etf.Atom("eclus"), pid)
 
 */
 package node
@@ -151,7 +151,7 @@ func Create(name string, port uint16, cookie string) (node *Node) {
 			} else {
 				wchan := make(chan []etf.Term, 10)
 				ndchan := make(chan *dist.NodeDesc)
-				go node.mLoopReader(conn, wchan, ndchan)
+				go node.mLoopReader(conn, wchan, ndchan, false)
 				go node.mLoopWriter(conn, wchan, ndchan)
 			}
 		}
@@ -257,9 +257,16 @@ func (n *Node) storeProcess(chs procChannels) (pid etf.Pid) {
 	return pid
 }
 
-func (n *Node) mLoopReader(c net.Conn, wchan chan []etf.Term, ndchan chan *dist.NodeDesc) {
+func (n *Node) mLoopReader(c net.Conn, wchan chan []etf.Term, ndchan chan *dist.NodeDesc, negotiate bool) {
+	var negc net.Conn
 
-	currNd := dist.NewNodeDesc(n.FullName, n.Cookie, false)
+	if negotiate {
+		negc = c
+	} else {
+		negc = nil
+	}
+
+	currNd := dist.NewNodeDesc(n.FullName, n.Cookie, false, negc)
 	ndchan <- currNd
 	for {
 		terms, err := currNd.ReadMessage(c)
@@ -419,7 +426,7 @@ func connect(n *Node, to etf.Atom) error {
 
 	wchan := make(chan []etf.Term, 10)
 	ndchan := make(chan *dist.NodeDesc)
-	go n.mLoopReader(c, wchan, ndchan)
+	go n.mLoopReader(c, wchan, ndchan, true)
 	go n.mLoopWriter(c, wchan, ndchan)
 
 	n.connections[to] = nodeConn{conn: c, wchan: wchan}
