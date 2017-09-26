@@ -355,7 +355,7 @@ func (n *Node) sendPid(to etf.Pid, message *etf.Term) {
 	} else {
 		nLog("Send to remote node: %#v, %#v", to, n.connections[to.Node])
 
-		msg := []etf.Term{etf.Tuple{SEND, etf.Atom(""), to}, message}
+		msg := []etf.Term{etf.Tuple{SEND, etf.Atom(""), to}, *message}
 		n.connections[to.Node].wchan <- msg
 	}
 }
@@ -375,7 +375,7 @@ func (n *Node) sendTuple(from, to etf.Tuple, message *etf.Term) {
 	}
 
 	nLog("Send (via NAME): use existing connection (%s)", to[1])
-	msg := []etf.Term{etf.Tuple{REG_SEND, from, etf.Atom(""), to[0]}, message}
+	msg := []etf.Term{etf.Tuple{REG_SEND, from, etf.Atom(""), to[0]}, *message}
 	conn.wchan <- msg
 }
 

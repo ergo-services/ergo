@@ -44,6 +44,7 @@ func (gs *goGenServ) HandleCast(message *etf.Term) {
 				if string(act) == "ping" {
 					var self_pid etf.Pid = gs.Self
 					rep := etf.Term(etf.Tuple{etf.Atom("pong"), etf.Pid(self_pid)})
+					fmt.Printf("RERPPPPP: %v", rep)
 					gs.Send(req[1].(etf.Pid), &rep)
 
 				}

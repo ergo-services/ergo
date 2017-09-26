@@ -61,7 +61,7 @@ func (gs *GenServerImpl) ProcessLoop(pcs procChannels, pd Process, args ...inter
 					if reply != nil {
 						pid := fromTuple[0].(etf.Pid)
 						ref := fromTuple[1]
-						rep := etf.Term(etf.Tuple{ref, reply})
+						rep := etf.Term(etf.Tuple{ref, *reply})
 						gs.Send(pid, &rep)
 					}
 				case etf.Atom("$gen_cast"):
