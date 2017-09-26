@@ -1,5 +1,7 @@
-This project based on https://github.com/goerlang but everything has been merged
-and refactored into this project and has no backward capability
+_Notice: this project based on https://github.com/goerlang but everything has been merged
+and refactored._
+
+---
 
 # Node #
 
@@ -60,13 +62,13 @@ gs.Send(Pid, message)
 gs.Self()
 
 /*
- *  Here is simple example how is serving incoming messages.
+ *  Simple example how are handling incoming messages.
  *  Interface implementation
  */
 
 // Init initializes process state using arbitrary arguments
 func (gs *goGenServ) Init(args ...interface{}) {
-    // Self-registration with name go_srv
+    // Self-registration with name SrvName
     gs.Node.Register(etf.Atom(SrvName), gs.Self)
 }
 
