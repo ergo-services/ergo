@@ -3,6 +3,7 @@ package node
 import (
 	"github.com/halturin/node/etf"
 	"log"
+	"time"
 )
 
 // GenServer interface
@@ -124,4 +125,16 @@ func (gs *GenServerImpl) Cast(to interface{}, message *etf.Term) error {
 
 func (gs *GenServerImpl) Send(fromTuple *etf.Tuple, reply *etf.Term) {
 	gs.Node.Send((*fromTuple)[0].(etf.Pid), etf.Tuple{(*fromTuple)[1], *reply})
+}
+
+func (gs *GenServerImpl) MakeRef() (ref etf.Ref) {
+	ref.Node = etf.Atom(gs.Node.FullName)
+	ref.Creation = 1
+
+	nt := time.Now().UnixNano()
+	id1 := uint32(uint64(nt) & ((2 << 17) - 1))
+	id2 := uint32(uint64(nt) >> 46)
+	ref.Id = []uint32{id1, id2, 0}
+
+	return
 }

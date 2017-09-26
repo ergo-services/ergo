@@ -40,6 +40,7 @@ import (
 	"net"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 var nTrace bool
@@ -94,6 +95,8 @@ type Node struct {
 	registered  map[etf.Atom]etf.Pid
 	connections map[etf.Atom]nodeConn
 	sysProcs    systemProcs
+	procID      uint32
+	lock        sync.Mutex
 }
 
 type procChannels struct {
@@ -135,6 +138,7 @@ func Create(name string, port uint16, cookie string) (node *Node) {
 		channels:    make(map[etf.Pid]procChannels),
 		registered:  make(map[etf.Atom]etf.Pid),
 		connections: make(map[etf.Atom]nodeConn),
+		procID:      1,
 	}
 
 	l, err := net.Listen("tcp", net.JoinHostPort("", strconv.Itoa(int(port))))
@@ -225,17 +229,10 @@ func (n *Node) registrator() {
 	for {
 		select {
 		case req := <-n.registry.storeChan:
-			// FIXME: make proper allocation, now it just stub
-			var id uint32 = 0
-			for k, _ := range n.channels {
-				if k.Id >= id {
-					id = k.Id + 1
-				}
-			}
 			var pid etf.Pid
 			pid.Node = etf.Atom(n.FullName)
-			pid.Id = id
-			pid.Serial = 0 // FIXME
+			pid.Id = n.getProcID()
+			pid.Serial = 1
 			pid.Creation = byte(n.Creation)
 
 			n.channels[pid] = req.channels
@@ -253,6 +250,16 @@ func (n *Node) storeProcess(chs procChannels) (pid etf.Pid) {
 	n.registry.storeChan <- regReq{replyTo: myChan, channels: chs}
 	pid = <-myChan
 	return pid
+}
+
+func (n *Node) getProcID() (s uint32) {
+
+	n.lock.Lock()
+	defer n.lock.Unlock()
+
+	s = n.procID
+	n.procID += 1
+	return
 }
 
 func (n *Node) mainloop(c net.Conn, wchan chan []etf.Term, negotiate bool) {
@@ -309,6 +316,8 @@ func (n *Node) handleTerms(c net.Conn, wchan chan []etf.Term, terms []etf.Term) 
 					} else {
 						nLog("*** ERROR: bad REG_SEND: %#v", terms)
 					}
+				case SEND:
+					n.route(nil, t.Element(3), terms[1])
 				default:
 					nLog("Unhandled node message (act %d): %#v", act, t)
 				}
@@ -336,8 +345,11 @@ func (n *Node) route(from, to etf.Term, message etf.Term) {
 		toPid, _ = n.registered[tp]
 	}
 	pcs := n.channels[toPid]
-	pcs.inFrom <- etf.Tuple{from, message}
-
+	if from == nil {
+		pcs.in <- message
+	} else {
+		pcs.inFrom <- etf.Tuple{from, message}
+	}
 }
 
 // Send making outgoing message
@@ -389,7 +401,7 @@ func sendTuple(n *Node, to etf.Tuple, message etf.Term) {
 		}
 	} else {
 		nLog("Send (via NAME): use existing connection (%s)", to[1])
-		msg := []etf.Term{etf.Tuple{SEND, etf.Atom(""), to}, message}
+		msg := []etf.Term{etf.Tuple{REG_SEND, etf.Atom(""), to[0]}, message}
 		conn.wchan <- msg
 	}
 }

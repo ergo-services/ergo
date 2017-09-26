@@ -8,7 +8,7 @@ import (
 )
 
 // GenServer implementation structure
-type gonodeSrv struct {
+type goGenServ struct {
 	node.GenServerImpl
 	completeChan chan bool
 }
@@ -23,7 +23,7 @@ var (
 )
 
 // Init initializes process state using arbitrary arguments
-func (gs *gonodeSrv) Init(args ...interface{}) {
+func (gs *goGenServ) Init(args ...interface{}) {
 	// Self-registration with name go_srv
 	gs.Node.Register(etf.Atom(SrvName), gs.Self)
 
@@ -33,7 +33,7 @@ func (gs *gonodeSrv) Init(args ...interface{}) {
 
 // HandleCast
 // Call `gen_server:cast({go_srv, gonode@localhost}, stop)` at Erlang node to stop this Go-node
-func (gs *gonodeSrv) HandleCast(message *etf.Term) {
+func (gs *goGenServ) HandleCast(message *etf.Term) {
 	fmt.Printf("HandleCast: %#v", *message)
 
 	// Check type of message
@@ -61,7 +61,7 @@ func (gs *gonodeSrv) HandleCast(message *etf.Term) {
 // HandleCall handles incoming messages from `gen_server:call/2`, if returns non-nil term,
 // then calling process have reply
 // Call `gen_server:call({go_srv, gonode@localhost}, Message)` at Erlang node
-func (gs *gonodeSrv) HandleCall(message *etf.Term, from *etf.Tuple) (reply *etf.Term) {
+func (gs *goGenServ) HandleCall(message *etf.Term, from *etf.Tuple) (reply *etf.Term) {
 	// fmt.Printf("HandleCall: %#v, From: %#v\n", *message, *from)
 
 	defer func() {
@@ -125,12 +125,12 @@ func (gs *gonodeSrv) HandleCall(message *etf.Term, from *etf.Tuple) (reply *etf.
 }
 
 // HandleInfo handles all another incoming messages
-func (gs *gonodeSrv) HandleInfo(message *etf.Term) {
+func (gs *goGenServ) HandleInfo(message *etf.Term) {
 	fmt.Printf("HandleInfo: %#v\n", *message)
 }
 
 // Terminate called when process died
-func (gs *gonodeSrv) Terminate(reason interface{}) {
+func (gs *goGenServ) Terminate(reason interface{}) {
 	fmt.Printf("Terminate: %#v\n", reason.(int))
 }
 
@@ -151,11 +151,11 @@ func main() {
 	// Create channel to receive message when main process should be stopped
 	completeChan := make(chan bool)
 
-	// Initialize new instance of gonodeSrv structure which implements Process behaviour
-	eSrv := new(gonodeSrv)
+	// Initialize new instance of goGenServ structure which implements Process behaviour
+	gs := new(goGenServ)
 
 	// Spawn process with one arguments
-	n.Spawn(eSrv, completeChan)
+	n.Spawn(gs, completeChan)
 
 	// RPC
 	// Create closure

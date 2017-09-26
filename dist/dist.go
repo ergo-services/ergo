@@ -287,7 +287,7 @@ func (currNd *NodeDesc) WriteMessage(c net.Conn, ts []etf.Term) (err error) {
 			currNd.term.Write(buf, v)
 		}
 	}
-	dLog("WRITE: %#v: %#v", ts, buf.Bytes())
+	// dLog("WRITE: %#v: %#v", ts, buf.Bytes())
 	sendData(buf.Bytes())
 	return
 }
