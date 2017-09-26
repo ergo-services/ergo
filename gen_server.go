@@ -90,10 +90,13 @@ func (gs *GenServerImpl) setPid(pid etf.Pid) {
 
 func (gs *GenServerImpl) Call(to interface{}, message *etf.Term) (reply *etf.Term) {
 
-	msg := etf.Term(etf.Tuple{etf.Atom("$gen_call"), message})
+	from := etf.Tuple{gs.Self, gs.MakeRef()}
+	msg := etf.Term(etf.Tuple{etf.Atom("$gen_call"), from, *message})
 	if err := gs.Node.Send(gs.Self, to, &msg); err != nil {
 		panic(err.Error())
 	}
+
+	// FIXME. just stub
 
 	replyTerm := etf.Term(etf.Atom("ok"))
 	reply = &replyTerm
@@ -102,8 +105,8 @@ func (gs *GenServerImpl) Call(to interface{}, message *etf.Term) (reply *etf.Ter
 }
 
 func (gs *GenServerImpl) Cast(to interface{}, message *etf.Term) error {
-	msg := etf.Term(etf.Tuple{etf.Atom("$gen_cast"), message})
-	if err := gs.Node.Send(nil, to, &msg); err != nil {
+	msg := etf.Term(etf.Tuple{etf.Atom("$gen_cast"), *message})
+	if err := gs.Node.Send(gs.Self, to, &msg); err != nil {
 		panic(err.Error())
 	}
 

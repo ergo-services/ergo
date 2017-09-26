@@ -128,7 +128,7 @@ func Create(name string, port uint16, cookie string) (node *Node) {
 				nLog(err.Error())
 			} else {
 				wchan := make(chan []etf.Term, 10)
-				go node.mainloop(c, wchan, false)
+				node.run(c, wchan, false)
 			}
 		}
 	}()
@@ -231,7 +231,7 @@ func (n *Node) getProcID() (s uint32) {
 	return
 }
 
-func (n *Node) mainloop(c net.Conn, wchan chan []etf.Term, negotiate bool) {
+func (n *Node) run(c net.Conn, wchan chan []etf.Term, negotiate bool) {
 
 	var negc net.Conn
 
@@ -246,25 +246,33 @@ func (n *Node) mainloop(c net.Conn, wchan chan []etf.Term, negotiate bool) {
 	// run writer routine
 	go func() {
 		for {
+			fmt.Println("WAIT FOR WRITE")
 			terms := <-wchan
+			fmt.Printf("GOT FOR WRITE %#v", terms)
+
 			err := currNd.WriteMessage(c, terms)
 			if err != nil {
 				nLog("Enode error (writing): %s", err.Error())
 				break
 			}
 		}
+		c.Close()
 	}()
 
-	for {
-		terms, err := currNd.ReadMessage(c)
-		if err != nil {
-			nLog("Enode error (reading): %s", err.Error())
-			break
+	go func() {
+		for {
+			terms, err := currNd.ReadMessage(c)
+			if err != nil {
+				nLog("Enode error (reading): %s", err.Error())
+				break
+			}
+			n.handleTerms(c, wchan, terms)
 		}
-		n.handleTerms(c, wchan, terms)
-	}
+		c.Close()
+	}()
 
-	c.Close()
+	<-currNd.Ready
+	return
 }
 
 func (n *Node) handleTerms(c net.Conn, wchan chan []etf.Term, terms []etf.Term) {
@@ -332,21 +340,21 @@ func (n *Node) Send(from interface{}, to interface{}, message *etf.Term) (err er
 
 	switch tto := to.(type) {
 	case etf.Pid:
-		n.sendPid(tto, message)
+		n.sendbyPid(from, tto, message)
 	case etf.Tuple:
 		if len(tto) == 2 {
 			// causes panic if casting to etf.Atom goes wrong
 			if tto[0].(etf.Atom) == tto[1].(etf.Atom) {
 				// just stub.
 			}
-			n.sendTuple(from.(etf.Tuple), tto, message)
+			n.sendbyTuple(from.(etf.Pid), tto, message)
 		}
 	}
 
 	return nil
 }
 
-func (n *Node) sendPid(to etf.Pid, message *etf.Term) {
+func (n *Node) sendbyPid(from interface{}, to etf.Pid, message *etf.Term) {
 	nLog("Send (via PID): %#v, %#v", to, message)
 	if string(to.Node) == n.FullName {
 		nLog("Send to local node")
@@ -355,12 +363,17 @@ func (n *Node) sendPid(to etf.Pid, message *etf.Term) {
 	} else {
 		nLog("Send to remote node: %#v, %#v", to, n.connections[to.Node])
 
-		msg := []etf.Term{etf.Tuple{SEND, etf.Atom(""), to}, *message}
-		n.connections[to.Node].wchan <- msg
+		if from == nil {
+			msg := []etf.Term{etf.Tuple{SEND, etf.Atom(""), to}, *message}
+			n.connections[to.Node].wchan <- msg
+		} else {
+			msg := []etf.Term{etf.Tuple{REG_SEND, from.(etf.Pid), etf.Atom(""), to}, *message}
+			n.connections[to.Node].wchan <- msg
+		}
 	}
 }
 
-func (n *Node) sendTuple(from, to etf.Tuple, message *etf.Term) {
+func (n *Node) sendbyTuple(from etf.Pid, to etf.Tuple, message *etf.Term) {
 	var conn nodeConn
 	var exists bool
 	nLog("Send (via NAME): %#v, %#v", to, message)
@@ -372,11 +385,13 @@ func (n *Node) sendTuple(from, to etf.Tuple, message *etf.Term) {
 		if err := connect(n, to[1].(etf.Atom)); err != nil {
 			panic(err.Error())
 		}
+		conn, _ = n.connections[to[1].(etf.Atom)]
 	}
 
-	nLog("Send (via NAME): use existing connection (%s)", to[1])
 	msg := []etf.Term{etf.Tuple{REG_SEND, from, etf.Atom(""), to[0]}, *message}
 	conn.wchan <- msg
+
+	return
 }
 
 func connect(n *Node, to etf.Atom) error {
@@ -395,10 +410,12 @@ func connect(n *Node, to etf.Atom) error {
 		return err
 	}
 
+	if tcp, ok := c.(*net.TCPConn); ok {
+		tcp.SetKeepAlive(true)
+	}
+
 	wchan := make(chan []etf.Term, 10)
+	n.run(c, wchan, true)
 
-	go n.mainloop(c, wchan, true)
-
-	n.connections[to] = nodeConn{conn: c, wchan: wchan}
 	return nil
 }

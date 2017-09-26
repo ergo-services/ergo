@@ -89,6 +89,8 @@ type NodeDesc struct {
 	version    uint16
 	term       *etf.Context
 	isacceptor bool
+
+	Ready chan bool
 }
 
 func NewNodeDesc(name, cookie string, isHidden bool, c net.Conn) (nd *NodeDesc) {
@@ -102,6 +104,7 @@ func NewNodeDesc(name, cookie string, isHidden bool, c net.Conn) (nd *NodeDesc) 
 		version:    5,
 		term:       new(etf.Context),
 		isacceptor: true,
+		Ready:      make(chan bool),
 	}
 
 	// new connection. negotiate
@@ -201,6 +204,9 @@ func (currNd *NodeDesc) ReadMessage(c net.Conn) (ts []etf.Term, err error) {
 
 		case 'a':
 			currNd.read_SEND_CHALLENGE_ACK(msg)
+			sn := currNd.remote
+			dLog("Remote (outgoing): %#v", sn)
+			ts = []etf.Term{etf.Term(etf.Tuple{etf.Atom("$connection"), etf.Atom(sn.Name)})}
 			return
 		}
 
@@ -210,7 +216,7 @@ func (currNd *NodeDesc) ReadMessage(c net.Conn) (ts []etf.Term, err error) {
 			return
 		}
 		if length == 0 {
-			dLog("Keepalive")
+			dLog("Keepalive (%s)", currNd.remote.Name)
 			sendData(4, []byte{})
 			return
 		}
@@ -332,9 +338,13 @@ func (currNd *NodeDesc) compose_SEND_CHALLENGE(nd *NodeDesc) (msg []byte) {
 }
 
 func (currNd *NodeDesc) read_SEND_CHALLENGE(msg []byte) (challenge uint32) {
-	// version := binary.BigEndian.Uint16(msg[1:3])
-	// flag := binary.BigEndian.Uint32(msg[3:7])
-	return binary.BigEndian.Uint32(msg[7:12])
+	nd := &NodeDesc{
+		Name:    string(msg[11:]),
+		version: binary.BigEndian.Uint16(msg[1:3]),
+		flag:    nodeFlag(binary.BigEndian.Uint32(msg[3:7])),
+	}
+	currNd.remote = nd
+	return binary.BigEndian.Uint32(msg[7:11])
 }
 
 func (currNd *NodeDesc) read_SEND_CHALLENGE_REPLY(nd *NodeDesc, msg []byte) (isOk bool) {
@@ -345,6 +355,7 @@ func (currNd *NodeDesc) read_SEND_CHALLENGE_REPLY(nd *NodeDesc, msg []byte) (isO
 	if bytes.Compare(digestA, digestB) == 0 {
 		isOk = true
 		currNd.state = CONNECTED
+		currNd.Ready <- true
 	} else {
 		dLog("BAD HANDSHAKE: digestA: %+v, digestB: %+v", digestA, digestB)
 		isOk = false
@@ -374,6 +385,7 @@ func (currNd *NodeDesc) compose_SEND_CHALENGE_REPLY(challenge uint32) (msg []byt
 
 func (currNd *NodeDesc) read_SEND_CHALLENGE_ACK(msg []byte) {
 	currNd.state = CONNECTED
+	currNd.Ready <- true
 	return
 }
 

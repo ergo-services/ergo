@@ -87,7 +87,7 @@ func (gs *goGenServ) HandleCall(from *etf.Tuple, message *etf.Term) (reply *etf.
 			act := req[0].(etf.Atom)
 			c := req[1].(etf.Tuple)
 
-			cmess = req[1]
+			cmess = c[1]
 
 			switch c[0].(type) {
 			case etf.Tuple:
@@ -106,13 +106,15 @@ func (gs *goGenServ) HandleCall(from *etf.Tuple, message *etf.Term) (reply *etf.
 			}
 
 			if string(act) == "testcall" {
-				fmt.Printf("!!!!!!!testcall... %#v \n", cto)
+				fmt.Printf("!!!!!!!testcall... %#v : %#v\n", cto, cmess)
 				reply = gs.Call(cto, &cmess)
 			} else if string(act) == "testcast" {
 				fmt.Println("testcast...")
 				gs.Cast(cto, &cmess)
+				fmt.Println("testcast...2222")
 				replyTerm = etf.Term(etf.Atom("ok"))
 				reply = &replyTerm
+				fmt.Println("testcast...3333")
 			} else {
 				return
 			}
