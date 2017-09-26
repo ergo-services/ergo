@@ -1,7 +1,7 @@
-package node
+package ergonode
 
 import (
-	"github.com/halturin/node/etf"
+	"github.com/halturin/ergonode/etf"
 	"log"
 	"time"
 )
@@ -10,7 +10,7 @@ import (
 type GenServer interface {
 	Init(args ...interface{})
 	HandleCast(message *etf.Term)
-	HandleCall(message *etf.Term, from *etf.Tuple) (reply *etf.Term)
+	HandleCall(from *etf.Tuple, message *etf.Term) (reply *etf.Term)
 	HandleInfo(message *etf.Term)
 	Terminate(reason interface{})
 }
@@ -24,8 +24,7 @@ type GenServerImpl struct {
 // Options returns map of default process-related options
 func (gs *GenServerImpl) Options() map[string]interface{} {
 	return map[string]interface{}{
-		"chan-size":     100, // size of channel for regular messages
-		"ctl-chan-size": 100, // size of channel for control messages
+		"chan-size": 100, // size of channel for regular messages
 	}
 }
 
@@ -49,24 +48,6 @@ func (gs *GenServerImpl) ProcessLoop(pcs procChannels, pd Process, args ...inter
 		case msgFrom := <-pcs.inFrom:
 			message = msgFrom[1]
 			fromPid = msgFrom[0].(etf.Pid)
-		case ctlMsg := <-pcs.ctl:
-			switch m := ctlMsg.(type) {
-			case etf.Tuple:
-				switch mtag := m[0].(type) {
-				case etf.Atom:
-					switch mtag {
-					case etf.Atom("$go_ctl"):
-						nLog("Control message: %#v", m)
-					default:
-						nLog("Unknown message: %#v", m)
-					}
-				default:
-					nLog("Unknown message: %#v", m)
-				}
-			default:
-				nLog("Unknown message: %#v", m)
-			}
-			continue
 		}
 		nLog("Message from %#v", fromPid)
 		switch m := message.(type) {
@@ -74,13 +55,14 @@ func (gs *GenServerImpl) ProcessLoop(pcs procChannels, pd Process, args ...inter
 			switch mtag := m[0].(type) {
 			case etf.Atom:
 				switch mtag {
-				case etf.Atom("$go_ctl"):
-					nLog("Control message: %#v", message)
 				case etf.Atom("$gen_call"):
 					fromTuple := m[1].(etf.Tuple)
-					reply := pd.(GenServer).HandleCall(&m[2], &fromTuple)
+					reply := pd.(GenServer).HandleCall(&fromTuple, &m[2])
 					if reply != nil {
-						gs.Send(&fromTuple, reply)
+						pid := fromTuple[0].(etf.Pid)
+						ref := fromTuple[1]
+						rep := etf.Term(etf.Tuple{ref, reply})
+						gs.Send(pid, &rep)
 					}
 				case etf.Atom("$gen_cast"):
 					pd.(GenServer).HandleCast(&m[1])
@@ -108,7 +90,8 @@ func (gs *GenServerImpl) setPid(pid etf.Pid) {
 
 func (gs *GenServerImpl) Call(to interface{}, message *etf.Term) (reply *etf.Term) {
 
-	if err := gs.Node.Send(to, etf.Tuple{etf.Atom("$gen_call"), message}); err != nil {
+	msg := etf.Term(etf.Tuple{etf.Atom("$gen_call"), message})
+	if err := gs.Node.Send(gs.Self, to, &msg); err != nil {
 		panic(err.Error())
 	}
 
@@ -119,12 +102,16 @@ func (gs *GenServerImpl) Call(to interface{}, message *etf.Term) (reply *etf.Ter
 }
 
 func (gs *GenServerImpl) Cast(to interface{}, message *etf.Term) error {
+	msg := etf.Term(etf.Tuple{etf.Atom("$gen_cast"), message})
+	if err := gs.Node.Send(nil, to, &msg); err != nil {
+		panic(err.Error())
+	}
 
 	return nil
 }
 
-func (gs *GenServerImpl) Send(fromTuple *etf.Tuple, reply *etf.Term) {
-	gs.Node.Send((*fromTuple)[0].(etf.Pid), etf.Tuple{(*fromTuple)[1], *reply})
+func (gs *GenServerImpl) Send(to etf.Pid, reply *etf.Term) {
+	gs.Node.Send(nil, to, reply)
 }
 
 func (gs *GenServerImpl) MakeRef() (ref etf.Ref) {

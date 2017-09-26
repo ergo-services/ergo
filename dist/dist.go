@@ -7,7 +7,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"github.com/halturin/node/etf"
+	"github.com/halturin/ergonode/etf"
 	"io"
 	"io/ioutil"
 	"log"

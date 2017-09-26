@@ -3,13 +3,13 @@ package main
 import (
 	"flag"
 	"fmt"
-	"github.com/halturin/node"
-	"github.com/halturin/node/etf"
+	"github.com/halturin/ergonode"
+	"github.com/halturin/ergonode/etf"
 )
 
 // GenServer implementation structure
 type goGenServ struct {
-	node.GenServerImpl
+	ergonode.GenServerImpl
 	completeChan chan bool
 }
 
@@ -31,8 +31,7 @@ func (gs *goGenServ) Init(args ...interface{}) {
 	gs.completeChan = args[0].(chan bool)
 }
 
-// HandleCast
-// Call `gen_server:cast({go_srv, gonode@localhost}, stop)` at Erlang node to stop this Go-node
+// HandleCast serves incoming messages sending via gen_server:cast
 func (gs *goGenServ) HandleCast(message *etf.Term) {
 	fmt.Printf("HandleCast: %#v", *message)
 
@@ -44,8 +43,8 @@ func (gs *goGenServ) HandleCast(message *etf.Term) {
 			case etf.Atom:
 				if string(act) == "ping" {
 					var self_pid etf.Pid = gs.Self
-
-					gs.Node.Send(req[1].(etf.Pid), etf.Tuple{etf.Atom("pong"), etf.Pid(self_pid)})
+					rep := etf.Term(etf.Tuple{etf.Atom("pong"), etf.Pid(self_pid)})
+					gs.Send(req[1].(etf.Pid), &rep)
 
 				}
 			}
@@ -58,10 +57,8 @@ func (gs *goGenServ) HandleCast(message *etf.Term) {
 	}
 }
 
-// HandleCall handles incoming messages from `gen_server:call/2`, if returns non-nil term,
-// then calling process have reply
-// Call `gen_server:call({go_srv, gonode@localhost}, Message)` at Erlang node
-func (gs *goGenServ) HandleCall(message *etf.Term, from *etf.Tuple) (reply *etf.Term) {
+// HandleCall serves incoming messages sending via gen_server:call
+func (gs *goGenServ) HandleCall(from *etf.Tuple, message *etf.Term) (reply *etf.Term) {
 	// fmt.Printf("HandleCall: %#v, From: %#v\n", *message, *from)
 
 	defer func() {
@@ -124,7 +121,7 @@ func (gs *goGenServ) HandleCall(message *etf.Term, from *etf.Tuple) (reply *etf.
 	return
 }
 
-// HandleInfo handles all another incoming messages
+// HandleInfo serves all another incoming messages (Pid ! message)
 func (gs *goGenServ) HandleInfo(message *etf.Term) {
 	fmt.Printf("HandleInfo: %#v\n", *message)
 }
@@ -146,7 +143,7 @@ func main() {
 	flag.Parse()
 
 	// Initialize new node with given name and cookie
-	n := node.Create(NodeName, uint16(EpmdPort), Cookie)
+	n := ergonode.Create(NodeName, uint16(EpmdPort), Cookie)
 
 	// Create channel to receive message when main process should be stopped
 	completeChan := make(chan bool)

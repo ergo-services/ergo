@@ -1,7 +1,7 @@
-package node
+package ergonode
 
 import (
-	"github.com/halturin/node/etf"
+	"github.com/halturin/ergonode/etf"
 )
 
 type rpcFunction func(etf.List) etf.Term
@@ -36,7 +36,7 @@ func (rpcs *rpcRex) HandleCast(message *etf.Term) {
 	nLog("REX: HandleCast: %#v", *message)
 }
 
-func (rpcs *rpcRex) HandleCall(message *etf.Term, from *etf.Tuple) (reply *etf.Term) {
+func (rpcs *rpcRex) HandleCall(from *etf.Tuple, message *etf.Term) (reply *etf.Term) {
 	nLog("REX: HandleCall: %#v, From: %#v", *message, *from)
 	var replyTerm etf.Term
 	valid := false

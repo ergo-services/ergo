@@ -1,7 +1,7 @@
-package node
+package ergonode
 
 import (
-	"github.com/halturin/node/etf"
+	"github.com/halturin/ergonode/etf"
 )
 
 type netKernel struct {
@@ -17,7 +17,7 @@ func (nk *netKernel) HandleCast(message *etf.Term) {
 	nLog("NET_KERNEL: HandleCast: %#v", *message)
 }
 
-func (nk *netKernel) HandleCall(message *etf.Term, from *etf.Tuple) (reply *etf.Term) {
+func (nk *netKernel) HandleCall(from *etf.Tuple, message *etf.Term) (reply *etf.Term) {
 	nLog("NET_KERNEL: HandleCall: %#v, From: %#v", *message, *from)
 	switch t := (*message).(type) {
 	case etf.Tuple:

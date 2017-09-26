@@ -1,7 +1,7 @@
-package node
+package ergonode
 
 import (
-	"github.com/halturin/node/etf"
+	"github.com/halturin/ergonode/etf"
 )
 
 type globalNameServer struct {
@@ -17,7 +17,7 @@ func (gns *globalNameServer) HandleCast(message *etf.Term) {
 	nLog("GLOBAL_NAME_SERVER: HandleCast: %#v", *message)
 }
 
-func (gns *globalNameServer) HandleCall(message *etf.Term, from *etf.Tuple) (reply *etf.Term) {
+func (gns *globalNameServer) HandleCall(from *etf.Tuple, message *etf.Term) (reply *etf.Term) {
 	nLog("GLOBAL_NAME_SERVER: HandleCall: %#v, From: %#v", *message, *from)
 	replyTerm := etf.Term(etf.Atom("reply"))
 	reply = &replyTerm
