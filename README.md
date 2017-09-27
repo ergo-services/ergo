@@ -62,18 +62,24 @@ gs.Self()
  */
 
 // Init initializes process state using arbitrary arguments
-func (gs *goGenServ) Init(args ...interface{}) {
+func (gs *goGenServ) Init(args ...interface{}) (state interface{}) {
     // Self-registration with name SrvName
     gs.Node.Register(etf.Atom(SrvName), gs.Self)
+    return nil
 }
 
 
 // HandleCast serves incoming messages sending via gen_server:cast
-func (gs *goGenServ) HandleCast(message *etf.Term) {
-
+// HandleCast -> (0, state) - noreply
+//               (-1, state) - normal stop (-2, -3 .... custom reasons to stop)
+func (gs *goGenServ) HandleCast(message *etf.Term, state interface{}) (code int, stateout interface{}) {
+    return 0, state
 }
 
 // HandleCall serves incoming messages sending via gen_server:call
+// HandleCall -> (1, reply, state) - reply
+//               (0, _, state) - noreply
+//               (-1, state) - normal stop (-2, -3 .... custom reasons to stop)
 func (gs *goGenServ) HandleCall(from *etf.Tuple, message *etf.Term) (reply *etf.Term) {
     replyTerm = etf.Term(etf.Atom("ok"))
     reply = &replyTerm
@@ -82,13 +88,16 @@ func (gs *goGenServ) HandleCall(from *etf.Tuple, message *etf.Term) (reply *etf.
 }
 
 // HandleInfo serves all another incoming messages (Pid ! message)
-func (gs *goGenServ) HandleInfo(message *etf.Term) {
+// HandleInfo -> (0, state) - noreply
+//               (-1, state) - normal stop (-2, -3 .... custom reasons to stop)
+func (gs *goGenServ) HandleInfo(message *etf.Term, state interface{}) (code int, stateout interface{}) {
     fmt.Printf("HandleInfo: %#v\n", *message)
+    return 0, state
 }
 
 // Terminate called when process died
-func (gs *goGenServ) Terminate(reason interface{}) {
-    fmt.Printf("Terminate: %#v\n", reason.(int))
+func (gs *goGenServ) Terminate(reason int, state interface{}) {
+    fmt.Printf("Terminate: %#v\n", reason)
 }
 
 
