@@ -3,13 +3,13 @@ package main
 import (
 	"flag"
 	"fmt"
-	"github.com/ergolang/etf"
-	"github.com/halturin/node"
+	"github.com/halturin/ergonode"
+	"github.com/halturin/ergonode/etf"
 )
 
 // GenServer implementation structure
-type gonodeSrv struct {
-	node.GenServerImpl
+type goGenServ struct {
+	ergonode.GenServer
 	completeChan chan bool
 }
 
@@ -23,21 +23,21 @@ var (
 )
 
 // Init initializes process state using arbitrary arguments
-func (gs *gonodeSrv) Init(args ...interface{}) {
-	fmt.Printf("Init: %#v", args)
-
+func (gs *goGenServ) Init(args ...interface{}) interface{} {
 	// Self-registration with name go_srv
 	gs.Node.Register(etf.Atom(SrvName), gs.Self)
 
 	// Store first argument as channel
 	gs.completeChan = args[0].(chan bool)
+
+	return nil
 }
 
-// HandleCast
-// Call `gen_server:cast({go_srv, gonode@localhost}, stop)` at Erlang node to stop this Go-node
-func (gs *gonodeSrv) HandleCast(message *etf.Term) {
+// HandleCast serves incoming messages sending via gen_server:cast
+func (gs *goGenServ) HandleCast(message *etf.Term, state interface{}) (code int, stateout interface{}) {
 	fmt.Printf("HandleCast: %#v", *message)
-
+	stateout = state
+	code = 0
 	// Check type of message
 	switch req := (*message).(type) {
 	case etf.Tuple:
@@ -46,8 +46,8 @@ func (gs *gonodeSrv) HandleCast(message *etf.Term) {
 			case etf.Atom:
 				if string(act) == "ping" {
 					var self_pid etf.Pid = gs.Self
-
-					gs.Node.Send(req[1].(etf.Pid), etf.Tuple{etf.Atom("pong"), etf.Pid(self_pid)})
+					rep := etf.Term(etf.Tuple{etf.Atom("pong"), etf.Pid(self_pid)})
+					gs.Send(req[1].(etf.Pid), &rep)
 
 				}
 			}
@@ -58,12 +58,11 @@ func (gs *gonodeSrv) HandleCast(message *etf.Term) {
 			gs.completeChan <- true
 		}
 	}
+	return
 }
 
-// HandleCall handles incoming messages from `gen_server:call/2`, if returns non-nil term,
-// then calling process have reply
-// Call `gen_server:call({go_srv, gonode@localhost}, Message)` at Erlang node
-func (gs *gonodeSrv) HandleCall(message *etf.Term, from *etf.Tuple) (reply *etf.Term) {
+// HandleCall serves incoming messages sending via gen_server:call
+func (gs *goGenServ) HandleCall(from *etf.Tuple, message *etf.Term, state interface{}) (code int, reply *etf.Term, stateout interface{}) {
 	// fmt.Printf("HandleCall: %#v, From: %#v\n", *message, *from)
 
 	defer func() {
@@ -72,6 +71,8 @@ func (gs *gonodeSrv) HandleCall(message *etf.Term, from *etf.Tuple) (reply *etf.
 		}
 	}()
 
+	stateout = state
+	code = 1
 	replyTerm := etf.Term(etf.Tuple{etf.Atom("error"), etf.Atom("unknown_request")})
 	reply = &replyTerm
 
@@ -91,8 +92,6 @@ func (gs *gonodeSrv) HandleCall(message *etf.Term, from *etf.Tuple) (reply *etf.
 			act := req[0].(etf.Atom)
 			c := req[1].(etf.Tuple)
 
-			cmess = req[1]
-
 			switch c[0].(type) {
 			case etf.Tuple:
 				switch ct := c[0].(type) {
@@ -109,14 +108,20 @@ func (gs *gonodeSrv) HandleCall(message *etf.Term, from *etf.Tuple) (reply *etf.
 				return
 			}
 
+			cmess = c[1]
+
 			if string(act) == "testcall" {
-				fmt.Println("testcall...")
-				reply = gs.Call(cto, &cmess)
+				fmt.Printf("!!!!!!!testcall... %#v : %#v\n", cto, cmess)
+				if reply, err = gs.Call(cto, &cmess); err != nil {
+					fmt.Println(err.Error())
+				}
 			} else if string(act) == "testcast" {
 				fmt.Println("testcast...")
 				gs.Cast(cto, &cmess)
+				fmt.Println("testcast...2222")
 				replyTerm = etf.Term(etf.Atom("ok"))
 				reply = &replyTerm
+				fmt.Println("testcast...3333")
 			} else {
 				return
 			}
@@ -126,14 +131,17 @@ func (gs *gonodeSrv) HandleCall(message *etf.Term, from *etf.Tuple) (reply *etf.
 	return
 }
 
-// HandleInfo handles all another incoming messages
-func (gs *gonodeSrv) HandleInfo(message *etf.Term) {
+// HandleInfo serves all another incoming messages (Pid ! message)
+func (gs *goGenServ) HandleInfo(message *etf.Term, state interface{}) (code int, stateout interface{}) {
 	fmt.Printf("HandleInfo: %#v\n", *message)
+	stateout = state
+	code = 0
+	return
 }
 
 // Terminate called when process died
-func (gs *gonodeSrv) Terminate(reason interface{}) {
-	fmt.Printf("Terminate: %#v\n", reason.(int))
+func (gs *goGenServ) Terminate(reason int, state interface{}) {
+	fmt.Printf("Terminate: %#v\n", reason)
 }
 
 func init() {
@@ -148,22 +156,16 @@ func main() {
 	flag.Parse()
 
 	// Initialize new node with given name and cookie
-	enode := node.NewNode(NodeName, Cookie)
-
-	// Allow node be available on EpmdPort port
-	err = enode.Publish(EpmdPort)
-	if err != nil {
-		panic(fmt.Sprintf("PANIC: Cannot publish: %s", err))
-	}
+	n := ergonode.Create(NodeName, uint16(EpmdPort), Cookie)
 
 	// Create channel to receive message when main process should be stopped
 	completeChan := make(chan bool)
 
-	// Initialize new instance of gonodeSrv structure which implements Process behaviour
-	eSrv := new(gonodeSrv)
+	// Initialize new instance of goGenServ structure which implements Process behaviour
+	gs := new(goGenServ)
 
 	// Spawn process with one arguments
-	enode.Spawn(eSrv, completeChan)
+	n.Spawn(gs, completeChan)
 
 	// RPC
 	// Create closure
@@ -173,7 +175,7 @@ func main() {
 	}
 
 	// Provide it to call via RPC with `rpc:call(gonode@localhost, rpc, call, [as, qwe])`
-	err = enode.RpcProvide("rpc", "call", rpc)
+	err = n.RpcProvide("rpc", "call", rpc)
 	if err != nil {
 		fmt.Printf("Cannot provide function to RPC: %s\n", err)
 	}
