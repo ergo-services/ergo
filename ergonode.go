@@ -123,7 +123,7 @@ func Create(name string, port uint16, cookie string) (node *Node) {
 	go func() {
 		for {
 			c, err := l.Accept()
-			nLog("Accept new at ENode")
+			nLog("Accepted new connection from %s", c.RemoteAddr().String())
 			if err != nil {
 				nLog(err.Error())
 			} else {
@@ -245,10 +245,7 @@ func (n *Node) run(c net.Conn, wchan chan []etf.Term, negotiate bool) {
 	// run writer routine
 	go func() {
 		for {
-			fmt.Println("WAIT FOR WRITE")
 			terms := <-wchan
-			fmt.Printf("GOT FOR WRITE %#v", terms)
-
 			err := currNd.WriteMessage(c, terms)
 			if err != nil {
 				nLog("Enode error (writing): %s", err.Error())
@@ -277,6 +274,7 @@ func (n *Node) run(c net.Conn, wchan chan []etf.Term, negotiate bool) {
 	}()
 
 	<-currNd.Ready
+
 	return
 }
 
@@ -310,6 +308,10 @@ func (n *Node) handleTerms(c net.Conn, wchan chan []etf.Term, terms []etf.Term) 
 					n.lock.Lock()
 					n.connections[t[1].(etf.Atom)] = nodeConn{conn: c, wchan: wchan}
 					n.lock.Unlock()
+
+					// currNd.Ready channel waiting for registration of this connection
+					ready := (t[2]).(chan bool)
+					ready <- true
 				}
 			default:
 				nLog("UNHANDLED ACT: %#v", t.Element(1))
@@ -332,7 +334,7 @@ func (n *Node) route(from, to etf.Term, message etf.Term) {
 		nLog("SEND: To: %#v, Message: %#v", to, message)
 		pcs.in <- message
 	} else {
-		nLog("REG_SEND: From: %#v, To: %#v, Message: %#v", from, to, message)
+		nLog("REG_SEND: (%#v )From: %#v, To: %#v, Message: %#v", pcs.inFrom, from, to, message)
 		pcs.inFrom <- etf.Tuple{from, message}
 	}
 }

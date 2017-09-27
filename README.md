@@ -14,6 +14,7 @@ Features:
  * Register and unregister processes with simple atom
  * Send sync and async messages like `erlang:gen_call` and `erlang:gen_cast`
  * Create own process with `GenServer` behaviour (like `gen_server` in Erlang/OTP)
+ * Atomic 'state' of GenServer
  * Initiate connection to other node
  * RPC callbacks
 

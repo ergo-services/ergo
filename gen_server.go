@@ -56,7 +56,6 @@ func (gs *GenServer) ProcessLoop(pcs procChannels, pd Process, args ...interface
 	for {
 		var message etf.Term
 		var fromPid etf.Pid
-
 		select {
 		case reason := <-chstop:
 			pd.(GenServerInt).Terminate(reason, gs.state)
@@ -67,8 +66,7 @@ func (gs *GenServer) ProcessLoop(pcs procChannels, pd Process, args ...interface
 			fromPid = msgFrom[0].(etf.Pid)
 
 		}
-
-		nLog("Message from %#v", fromPid)
+		nLog("[%#v]. Message from %#v\n", gs.Self, fromPid)
 		switch m := message.(type) {
 		case etf.Tuple:
 			switch mtag := m[0].(type) {
@@ -83,7 +81,6 @@ func (gs *GenServer) ProcessLoop(pcs procChannels, pd Process, args ...interface
 
 						gs.state = state1
 						gs.lock.Unlock()
-
 						if code < 0 {
 							chstop <- code
 							return
@@ -166,7 +163,6 @@ func (gs *GenServer) Call(to interface{}, message *etf.Term) (reply *etf.Term, e
 	}
 
 	for {
-		nLog("..........waiting for reply")
 		select {
 		case m := <-gs.chreply:
 			retmsg := *m
@@ -174,8 +170,6 @@ func (gs *GenServer) Call(to interface{}, message *etf.Term) (reply *etf.Term, e
 			val := retmsg[1].(etf.Term)
 
 			//check by id
-			nLog("REF: %#v\n", ref)
-			nLog("REF1: %#v\n", ref1)
 			if ref.Id[0] == ref1.Id[0] && ref.Id[1] == ref1.Id[1] && ref.Id[2] == ref1.Id[2] {
 				reply = &val
 				goto out
@@ -186,7 +180,6 @@ func (gs *GenServer) Call(to interface{}, message *etf.Term) (reply *etf.Term, e
 		}
 	}
 out:
-	nLog("..........got reply")
 	close(gs.chreply)
 	gs.chreply = nil
 

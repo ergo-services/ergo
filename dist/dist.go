@@ -187,7 +187,7 @@ func (currNd *NodeDesc) ReadMessage(c net.Conn) (ts []etf.Term, err error) {
 					return
 				}
 				dLog("Remote: %#v", sn)
-				ts = []etf.Term{etf.Term(etf.Tuple{etf.Atom("$connection"), etf.Atom(sn.Name)})}
+				ts = []etf.Term{etf.Term(etf.Tuple{etf.Atom("$connection"), etf.Atom(sn.Name), currNd.Ready})}
 			} else {
 				err = errors.New("bad handshake")
 				return
@@ -206,7 +206,7 @@ func (currNd *NodeDesc) ReadMessage(c net.Conn) (ts []etf.Term, err error) {
 			currNd.read_SEND_CHALLENGE_ACK(msg)
 			sn := currNd.remote
 			dLog("Remote (outgoing): %#v", sn)
-			ts = []etf.Term{etf.Term(etf.Tuple{etf.Atom("$connection"), etf.Atom(sn.Name)})}
+			ts = []etf.Term{etf.Term(etf.Tuple{etf.Atom("$connection"), etf.Atom(sn.Name), currNd.Ready})}
 			return
 		}
 
@@ -360,7 +360,6 @@ func (currNd *NodeDesc) read_SEND_CHALLENGE_REPLY(nd *NodeDesc, msg []byte) (isO
 	if bytes.Compare(digestA, digestB) == 0 {
 		isOk = true
 		currNd.state = CONNECTED
-		currNd.Ready <- true
 	} else {
 		dLog("BAD HANDSHAKE: digestA: %+v, digestB: %+v", digestA, digestB)
 		isOk = false
@@ -390,7 +389,6 @@ func (currNd *NodeDesc) compose_SEND_CHALENGE_REPLY(challenge uint32) (msg []byt
 
 func (currNd *NodeDesc) read_SEND_CHALLENGE_ACK(msg []byte) {
 	currNd.state = CONNECTED
-	currNd.Ready <- true
 	return
 }
 
