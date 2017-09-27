@@ -5,7 +5,7 @@ import (
 )
 
 type netKernel struct {
-	GenServerImpl
+	GenServer
 }
 
 func (nk *netKernel) Init(args ...interface{}) (state interface{}) {

@@ -7,8 +7,8 @@ import (
 	"time"
 )
 
-// GenServer interface
-type GenServer interface {
+// GenServerInt interface
+type GenServerInt interface {
 	// Init(...) -> state
 	Init(args ...interface{}) (state interface{})
 	// HandleCast -> (0, state) - noreply
@@ -24,8 +24,8 @@ type GenServer interface {
 	Terminate(reason int, state interface{})
 }
 
-// GenServerImpl is implementation of GenServer interface
-type GenServerImpl struct {
+// GenServer is implementation of GenServerInt interface
+type GenServer struct {
 	Node  *Node   // current node of process
 	Self  etf.Pid // Pid of process
 	state interface{}
@@ -33,7 +33,7 @@ type GenServerImpl struct {
 }
 
 // Options returns map of default process-related options
-func (gs *GenServerImpl) Options() map[string]interface{} {
+func (gs *GenServer) Options() map[string]interface{} {
 	return map[string]interface{}{
 		"chan-size": 100, // size of channel for regular messages
 	}
@@ -41,14 +41,14 @@ func (gs *GenServerImpl) Options() map[string]interface{} {
 
 // ProcessLoop executes during whole time of process life.
 // It receives incoming messages from channels and handle it using methods of behaviour implementation
-func (gs *GenServerImpl) ProcessLoop(pcs procChannels, pd Process, args ...interface{}) {
-	pd.(GenServer).Init(args...)
+func (gs *GenServer) ProcessLoop(pcs procChannels, pd Process, args ...interface{}) {
+	pd.(GenServerInt).Init(args...)
 	pcs.init <- true
 	var chstop chan int
 	chstop = make(chan int)
 	defer func() {
 		if r := recover(); r != nil {
-			log.Printf("GenServer recovered: %#v", r)
+			log.Printf("GenServerInt recovered: %#v", r)
 		}
 	}()
 	for {
@@ -57,7 +57,7 @@ func (gs *GenServerImpl) ProcessLoop(pcs procChannels, pd Process, args ...inter
 
 		select {
 		case reason := <-chstop:
-			pd.(GenServer).Terminate(reason, gs.state)
+			pd.(GenServerInt).Terminate(reason, gs.state)
 		case msg := <-pcs.in:
 			message = msg
 		case msgFrom := <-pcs.inFrom:
@@ -77,7 +77,7 @@ func (gs *GenServerImpl) ProcessLoop(pcs procChannels, pd Process, args ...inter
 
 					go func() {
 						fromTuple := m[1].(etf.Tuple)
-						code, reply, state1 := pd.(GenServer).HandleCall(&fromTuple, &m[2], gs.state)
+						code, reply, state1 := pd.(GenServerInt).HandleCall(&fromTuple, &m[2], gs.state)
 
 						gs.state = state1
 						gs.lock.Unlock()
@@ -95,7 +95,7 @@ func (gs *GenServerImpl) ProcessLoop(pcs procChannels, pd Process, args ...inter
 					}()
 				case etf.Atom("$gen_cast"):
 					go func() {
-						code, state1 := pd.(GenServer).HandleCast(&m[1], gs.state)
+						code, state1 := pd.(GenServerInt).HandleCast(&m[1], gs.state)
 						gs.state = state1
 						gs.lock.Unlock()
 						if code < 0 {
@@ -105,7 +105,7 @@ func (gs *GenServerImpl) ProcessLoop(pcs procChannels, pd Process, args ...inter
 					}()
 				default:
 					go func() {
-						code, state1 := pd.(GenServer).HandleInfo(&message, gs.state)
+						code, state1 := pd.(GenServerInt).HandleInfo(&message, gs.state)
 						gs.state = state1
 						gs.lock.Unlock()
 						if code < 0 {
@@ -120,7 +120,7 @@ func (gs *GenServerImpl) ProcessLoop(pcs procChannels, pd Process, args ...inter
 				nLog("mtag: %#v", mtag)
 				gs.lock.Lock()
 				go func() {
-					code, state1 := pd.(GenServer).HandleInfo(&message, gs.state)
+					code, state1 := pd.(GenServerInt).HandleInfo(&message, gs.state)
 					gs.state = state1
 					gs.lock.Unlock()
 					if code < 0 {
@@ -133,7 +133,7 @@ func (gs *GenServerImpl) ProcessLoop(pcs procChannels, pd Process, args ...inter
 			nLog("m: %#v", m)
 			gs.lock.Lock()
 			go func() {
-				code, state1 := pd.(GenServer).HandleInfo(&message, gs.state)
+				code, state1 := pd.(GenServerInt).HandleInfo(&message, gs.state)
 				gs.state = state1
 				gs.lock.Unlock()
 				if code < 0 {
@@ -145,15 +145,15 @@ func (gs *GenServerImpl) ProcessLoop(pcs procChannels, pd Process, args ...inter
 	}
 }
 
-func (gs *GenServerImpl) setNode(node *Node) {
+func (gs *GenServer) setNode(node *Node) {
 	gs.Node = node
 }
 
-func (gs *GenServerImpl) setPid(pid etf.Pid) {
+func (gs *GenServer) setPid(pid etf.Pid) {
 	gs.Self = pid
 }
 
-func (gs *GenServerImpl) Call(to interface{}, message *etf.Term) (reply *etf.Term) {
+func (gs *GenServer) Call(to interface{}, message *etf.Term) (reply *etf.Term) {
 
 	from := etf.Tuple{gs.Self, gs.MakeRef()}
 	msg := etf.Term(etf.Tuple{etf.Atom("$gen_call"), from, *message})
@@ -169,7 +169,7 @@ func (gs *GenServerImpl) Call(to interface{}, message *etf.Term) (reply *etf.Ter
 	return
 }
 
-func (gs *GenServerImpl) Cast(to interface{}, message *etf.Term) error {
+func (gs *GenServer) Cast(to interface{}, message *etf.Term) error {
 	msg := etf.Term(etf.Tuple{etf.Atom("$gen_cast"), *message})
 	if err := gs.Node.Send(gs.Self, to, &msg); err != nil {
 		panic(err.Error())
@@ -178,11 +178,11 @@ func (gs *GenServerImpl) Cast(to interface{}, message *etf.Term) error {
 	return nil
 }
 
-func (gs *GenServerImpl) Send(to etf.Pid, reply *etf.Term) {
+func (gs *GenServer) Send(to etf.Pid, reply *etf.Term) {
 	gs.Node.Send(nil, to, reply)
 }
 
-func (gs *GenServerImpl) MakeRef() (ref etf.Ref) {
+func (gs *GenServer) MakeRef() (ref etf.Ref) {
 	ref.Node = etf.Atom(gs.Node.FullName)
 	ref.Creation = 1
 

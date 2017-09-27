@@ -19,10 +19,11 @@ Features:
 
 
 ## Usage ##
+
 ```golang
 
 type goGenServ struct {
-    ergonode.GenServerImpl
+    ergonode.GenServer
     completeChan chan bool
 }
 

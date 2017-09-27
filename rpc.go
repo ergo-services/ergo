@@ -12,7 +12,7 @@ type modFun struct {
 }
 
 type rpcRex struct {
-	GenServerImpl
+	GenServer
 	callMap map[modFun]rpcFunction
 }
 

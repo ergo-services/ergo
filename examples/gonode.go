@@ -9,7 +9,7 @@ import (
 
 // GenServer implementation structure
 type goGenServ struct {
-	ergonode.GenServerImpl
+	ergonode.GenServer
 	completeChan chan bool
 }
 

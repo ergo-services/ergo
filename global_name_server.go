@@ -5,7 +5,7 @@ import (
 )
 
 type globalNameServer struct {
-	GenServerImpl
+	GenServer
 }
 
 func (gns *globalNameServer) Init(args ...interface{}) (state interface{}) {
