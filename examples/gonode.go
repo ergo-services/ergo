@@ -112,7 +112,9 @@ func (gs *goGenServ) HandleCall(from *etf.Tuple, message *etf.Term, state interf
 
 			if string(act) == "testcall" {
 				fmt.Printf("!!!!!!!testcall... %#v : %#v\n", cto, cmess)
-				reply = gs.Call(cto, &cmess)
+				if reply, err = gs.Call(cto, &cmess); err != nil {
+					fmt.Println(err.Error())
+				}
 			} else if string(act) == "testcast" {
 				fmt.Println("testcast...")
 				gs.Cast(cto, &cmess)

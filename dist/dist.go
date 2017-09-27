@@ -294,8 +294,13 @@ func (currNd *NodeDesc) WriteMessage(c net.Conn, ts []etf.Term) (err error) {
 		}
 	}
 	// dLog("WRITE: %#v: %#v", ts, buf.Bytes())
-	sendData(buf.Bytes())
+	_, err = sendData(buf.Bytes())
 	return
+
+}
+
+func (nd *NodeDesc) GetRemoteName() etf.Atom {
+	return etf.Atom(nd.remote.Name)
 }
 
 func (nd *NodeDesc) compose_SEND_NAME() (msg []byte) {

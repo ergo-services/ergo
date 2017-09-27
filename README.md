@@ -38,11 +38,11 @@ message := etf.Term(etf.Atom("hello"))
 // gen_server:call({pname, 'node@address'} , hello)
 to := etf.Tuple{etf.Atom("pname"), etf.Atom("node@address")}
 
-answer := gs.Call(to, message)
+answer, err := gs.Call(to, message)
 fmt.Printf("Got response: %v\n", answer)
 
 // it's also possible to call using Pid (etf.Pid)
-answer := gs.Call(Pid, message)
+answer, err := gs.Call(Pid, message)
 
 // gen_server:cast({pname, 'node@address'} , hello)
 to := etf.Tuple{etf.Atom("pname"), etf.Atom("node@address")}

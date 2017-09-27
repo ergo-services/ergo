@@ -242,7 +242,6 @@ func (n *Node) run(c net.Conn, wchan chan []etf.Term, negotiate bool) {
 	}
 
 	currNd := dist.NewNodeDesc(n.FullName, n.Cookie, false, negc)
-
 	// run writer routine
 	go func() {
 		for {
@@ -257,6 +256,9 @@ func (n *Node) run(c net.Conn, wchan chan []etf.Term, negotiate bool) {
 			}
 		}
 		c.Close()
+		n.lock.Lock()
+		delete(n.connections, currNd.GetRemoteName())
+		n.lock.Unlock()
 	}()
 
 	go func() {
@@ -269,6 +271,9 @@ func (n *Node) run(c net.Conn, wchan chan []etf.Term, negotiate bool) {
 			n.handleTerms(c, wchan, terms)
 		}
 		c.Close()
+		n.lock.Lock()
+		delete(n.connections, currNd.GetRemoteName())
+		n.lock.Unlock()
 	}()
 
 	<-currNd.Ready
@@ -302,7 +307,9 @@ func (n *Node) handleTerms(c net.Conn, wchan chan []etf.Term, terms []etf.Term) 
 				switch act {
 				case etf.Atom("$connection"):
 					nLog("SET NODE %#v", t)
+					n.lock.Lock()
 					n.connections[t[1].(etf.Atom)] = nodeConn{conn: c, wchan: wchan}
+					n.lock.Unlock()
 				}
 			default:
 				nLog("UNHANDLED ACT: %#v", t.Element(1))

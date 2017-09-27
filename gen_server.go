@@ -1,6 +1,7 @@
 package ergonode
 
 import (
+	"errors"
 	"github.com/halturin/ergonode/etf"
 	"log"
 	"sync"
@@ -26,10 +27,11 @@ type GenServerInt interface {
 
 // GenServer is implementation of GenServerInt interface
 type GenServer struct {
-	Node  *Node   // current node of process
-	Self  etf.Pid // Pid of process
-	state interface{}
-	lock  sync.Mutex
+	Node    *Node   // current node of process
+	Self    etf.Pid // Pid of process
+	state   interface{}
+	lock    sync.Mutex
+	chreply chan *etf.Tuple
 }
 
 // Options returns map of default process-related options
@@ -116,6 +118,7 @@ func (gs *GenServer) ProcessLoop(pcs procChannels, pd Process, args ...interface
 				}
 			case etf.Ref:
 				nLog("got reply: %#v\n%#v", mtag, message)
+				gs.chreply <- &m
 			default:
 				nLog("mtag: %#v", mtag)
 				gs.lock.Lock()
@@ -153,18 +156,39 @@ func (gs *GenServer) setPid(pid etf.Pid) {
 	gs.Self = pid
 }
 
-func (gs *GenServer) Call(to interface{}, message *etf.Term) (reply *etf.Term) {
-
-	from := etf.Tuple{gs.Self, gs.MakeRef()}
+func (gs *GenServer) Call(to interface{}, message *etf.Term) (reply *etf.Term, err error) {
+	gs.chreply = make(chan *etf.Tuple)
+	ref := gs.MakeRef()
+	from := etf.Tuple{gs.Self, ref}
 	msg := etf.Term(etf.Tuple{etf.Atom("$gen_call"), from, *message})
 	if err := gs.Node.Send(gs.Self, to, &msg); err != nil {
 		panic(err.Error())
 	}
 
-	// FIXME. just stub
+	for {
+		nLog("..........waiting for reply")
+		select {
+		case m := <-gs.chreply:
+			retmsg := *m
+			ref1 := retmsg[0].(etf.Ref)
+			val := retmsg[1].(etf.Term)
 
-	replyTerm := etf.Term(etf.Atom("ok"))
-	reply = &replyTerm
+			//check by id
+			nLog("REF: %#v\n", ref)
+			nLog("REF1: %#v\n", ref1)
+			if ref.Id[0] == ref1.Id[0] && ref.Id[1] == ref1.Id[1] && ref.Id[2] == ref1.Id[2] {
+				reply = &val
+				goto out
+			}
+		case <-time.After(time.Second * 5):
+			err = errors.New("timeout")
+			goto out
+		}
+	}
+out:
+	nLog("..........got reply")
+	close(gs.chreply)
+	gs.chreply = nil
 
 	return
 }
