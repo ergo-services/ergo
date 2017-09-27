@@ -1,5 +1,4 @@
-_Notice: this project based on https://github.com/goerlang but everything has been merged
-and refactored._
+_Notice: this project based on https://github.com/goerlang but everything has been merged, refactored and improved._
 
 ---
 
@@ -54,7 +53,7 @@ gs.Cast(Pid, message)
 // simple sending message 'Pid ! hello'
 gs.Send(Pid, message)
 
-// to get pid of itself like it does erlang:self()
+// to get pid like it does erlang:self()
 gs.Self()
 
 /*

@@ -21,7 +21,7 @@ import (
 var dTrace bool
 
 func init() {
-	flag.BoolVar(&dTrace, "erlang.dist.trace", false, "trace erlang distribution protocol")
+	flag.BoolVar(&dTrace, "trace.dist", false, "trace erlang distribution protocol")
 }
 
 func dLog(f string, a ...interface{}) {

@@ -26,19 +26,26 @@ func (currNode *Node) RpcRevoke(modName, funName string) {
 	nLog("Revoke: %s:%s", modName, funName)
 }
 
-func (rpcs *rpcRex) Init(args ...interface{}) {
+func (rpcs *rpcRex) Init(args ...interface{}) interface{} {
 	nLog("REX: Init: %#v", args)
 	rpcs.Node.Register(etf.Atom("rex"), rpcs.Self)
 	rpcs.callMap = make(map[modFun]rpcFunction, 0)
+
+	return nil
 }
 
-func (rpcs *rpcRex) HandleCast(message *etf.Term) {
+func (rpcs *rpcRex) HandleCast(message *etf.Term, state interface{}) (code int, stateout interface{}) {
 	nLog("REX: HandleCast: %#v", *message)
+	stateout = state
+	code = 0
+	return
 }
 
-func (rpcs *rpcRex) HandleCall(from *etf.Tuple, message *etf.Term) (reply *etf.Term) {
+func (rpcs *rpcRex) HandleCall(from *etf.Tuple, message *etf.Term, state interface{}) (code int, reply *etf.Term, stateout interface{}) {
 	nLog("REX: HandleCall: %#v, From: %#v", *message, *from)
 	var replyTerm etf.Term
+	stateout = state
+	code = 1
 	valid := false
 	switch req := (*message).(type) {
 	case etf.Tuple:
@@ -63,10 +70,13 @@ func (rpcs *rpcRex) HandleCall(from *etf.Tuple, message *etf.Term) (reply *etf.T
 	return
 }
 
-func (rpcs *rpcRex) HandleInfo(message *etf.Term) {
+func (rpcs *rpcRex) HandleInfo(message *etf.Term, state interface{}) (code int, stateout interface{}) {
 	nLog("REX: HandleInfo: %#v", *message)
+	stateout = state
+	code = 0
+	return
 }
 
-func (rpcs *rpcRex) Terminate(reason interface{}) {
-	nLog("REX: Terminate: %#v", reason.(int))
+func (rpcs *rpcRex) Terminate(reason int, state interface{}) {
+	nLog("REX: Terminate: %#v", reason)
 }

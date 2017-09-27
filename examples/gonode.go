@@ -23,18 +23,21 @@ var (
 )
 
 // Init initializes process state using arbitrary arguments
-func (gs *goGenServ) Init(args ...interface{}) {
+func (gs *goGenServ) Init(args ...interface{}) interface{} {
 	// Self-registration with name go_srv
 	gs.Node.Register(etf.Atom(SrvName), gs.Self)
 
 	// Store first argument as channel
 	gs.completeChan = args[0].(chan bool)
+
+	return nil
 }
 
 // HandleCast serves incoming messages sending via gen_server:cast
-func (gs *goGenServ) HandleCast(message *etf.Term) {
+func (gs *goGenServ) HandleCast(message *etf.Term, state interface{}) (code int, stateout interface{}) {
 	fmt.Printf("HandleCast: %#v", *message)
-
+	stateout = state
+	code = 0
 	// Check type of message
 	switch req := (*message).(type) {
 	case etf.Tuple:
@@ -44,7 +47,6 @@ func (gs *goGenServ) HandleCast(message *etf.Term) {
 				if string(act) == "ping" {
 					var self_pid etf.Pid = gs.Self
 					rep := etf.Term(etf.Tuple{etf.Atom("pong"), etf.Pid(self_pid)})
-					fmt.Printf("RERPPPPP: %v", rep)
 					gs.Send(req[1].(etf.Pid), &rep)
 
 				}
@@ -56,10 +58,11 @@ func (gs *goGenServ) HandleCast(message *etf.Term) {
 			gs.completeChan <- true
 		}
 	}
+	return
 }
 
 // HandleCall serves incoming messages sending via gen_server:call
-func (gs *goGenServ) HandleCall(from *etf.Tuple, message *etf.Term) (reply *etf.Term) {
+func (gs *goGenServ) HandleCall(from *etf.Tuple, message *etf.Term, state interface{}) (code int, reply *etf.Term, stateout interface{}) {
 	// fmt.Printf("HandleCall: %#v, From: %#v\n", *message, *from)
 
 	defer func() {
@@ -68,6 +71,8 @@ func (gs *goGenServ) HandleCall(from *etf.Tuple, message *etf.Term) (reply *etf.
 		}
 	}()
 
+	stateout = state
+	code = 1
 	replyTerm := etf.Term(etf.Tuple{etf.Atom("error"), etf.Atom("unknown_request")})
 	reply = &replyTerm
 
@@ -87,8 +92,6 @@ func (gs *goGenServ) HandleCall(from *etf.Tuple, message *etf.Term) (reply *etf.
 			act := req[0].(etf.Atom)
 			c := req[1].(etf.Tuple)
 
-			cmess = c[1]
-
 			switch c[0].(type) {
 			case etf.Tuple:
 				switch ct := c[0].(type) {
@@ -104,6 +107,8 @@ func (gs *goGenServ) HandleCall(from *etf.Tuple, message *etf.Term) (reply *etf.
 			default:
 				return
 			}
+
+			cmess = c[1]
 
 			if string(act) == "testcall" {
 				fmt.Printf("!!!!!!!testcall... %#v : %#v\n", cto, cmess)
@@ -125,13 +130,16 @@ func (gs *goGenServ) HandleCall(from *etf.Tuple, message *etf.Term) (reply *etf.
 }
 
 // HandleInfo serves all another incoming messages (Pid ! message)
-func (gs *goGenServ) HandleInfo(message *etf.Term) {
+func (gs *goGenServ) HandleInfo(message *etf.Term, state interface{}) (code int, stateout interface{}) {
 	fmt.Printf("HandleInfo: %#v\n", *message)
+	stateout = state
+	code = 0
+	return
 }
 
 // Terminate called when process died
-func (gs *goGenServ) Terminate(reason interface{}) {
-	fmt.Printf("Terminate: %#v\n", reason.(int))
+func (gs *goGenServ) Terminate(reason int, state interface{}) {
+	fmt.Printf("Terminate: %#v\n", reason)
 }
 
 func init() {

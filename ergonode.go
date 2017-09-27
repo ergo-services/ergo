@@ -21,7 +21,7 @@ import (
 var nTrace bool
 
 func init() {
-	flag.BoolVar(&nTrace, "erlang.node.trace", false, "trace erlang node")
+	flag.BoolVar(&nTrace, "trace.node", false, "trace node")
 }
 
 func nLog(f string, a ...interface{}) {
