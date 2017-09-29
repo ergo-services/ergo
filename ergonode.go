@@ -349,7 +349,7 @@ func (n *Node) Send(from interface{}, to interface{}, message *etf.Term) (err er
 
 	switch tto := to.(type) {
 	case etf.Pid:
-		n.sendbyPid(from, tto, message)
+		n.sendbyPid(tto, message)
 	case etf.Tuple:
 		if len(tto) == 2 {
 			// causes panic if casting to etf.Atom goes wrong
@@ -363,22 +363,28 @@ func (n *Node) Send(from interface{}, to interface{}, message *etf.Term) (err er
 	return nil
 }
 
-func (n *Node) sendbyPid(from interface{}, to etf.Pid, message *etf.Term) {
+func (n *Node) sendbyPid(to etf.Pid, message *etf.Term) {
+	var conn nodeConn
+	var exists bool
 	nLog("Send (via PID): %#v, %#v", to, message)
 	if string(to.Node) == n.FullName {
 		nLog("Send to local node")
 		pcs := n.channels[to]
 		pcs.in <- message
 	} else {
+
 		nLog("Send to remote node: %#v, %#v", to, n.connections[to.Node])
 
-		if from == nil {
-			msg := []etf.Term{etf.Tuple{SEND, etf.Atom(""), to}, *message}
-			n.connections[to.Node].wchan <- msg
-		} else {
-			msg := []etf.Term{etf.Tuple{REG_SEND, from.(etf.Pid), etf.Atom(""), to}, *message}
-			n.connections[to.Node].wchan <- msg
+		if conn, exists = n.connections[to.Node]; !exists {
+			nLog("Send (via PID): create new connection (%s)", to.Node)
+			if err := connect(n, to.Node); err != nil {
+				panic(err.Error())
+			}
+			conn, _ = n.connections[to.Node]
 		}
+
+		msg := []etf.Term{etf.Tuple{SEND, etf.Atom(""), to}, *message}
+		conn.wchan <- msg
 	}
 }
 
