@@ -85,10 +85,8 @@ func (gs *goGenServ) HandleCast(message *etf.Term, state interface{}) (code int,
 func (gs *goGenServ) HandleCall(from *etf.Tuple, message *etf.Term) (code int, reply *etf.Term, stateout interface{}) {
     replyTerm = etf.Term(etf.Atom("ok"))
     reply = &replyTerm
-    code = 1
-    stateout = state
 
-    return
+    return 1, reply, state
 }
 
 // HandleInfo serves all another incoming messages (Pid ! message)
