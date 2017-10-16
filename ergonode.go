@@ -233,15 +233,14 @@ func (n *Node) getProcID() (s uint32) {
 
 func (n *Node) run(c net.Conn, wchan chan []etf.Term, negotiate bool) {
 
-	var negc net.Conn
+	var currNd *dist.NodeDesc
 
 	if negotiate {
-		negc = c
+		currNd = dist.NewNodeDesc(n.FullName, n.Cookie, false, c)
 	} else {
-		negc = nil
+		currNd = dist.NewNodeDesc(n.FullName, n.Cookie, false, nil)
 	}
 
-	currNd := dist.NewNodeDesc(n.FullName, n.Cookie, false, negc)
 	// run writer routine
 	go func() {
 		for {

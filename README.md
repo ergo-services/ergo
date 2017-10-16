@@ -17,6 +17,7 @@ Features:
  * Atomic 'state' of GenServer
  * Initiate connection to other node
  * RPC callbacks
+ * Support Erlang 20.*
 
 
 ## Usage ##
