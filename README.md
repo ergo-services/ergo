@@ -106,4 +106,4 @@ func (gs *goGenServ) Terminate(reason int, state interface{}) {
 
 ## Example ##
 
-See `examples/` to see simple implementation of node and `GenServer` process
+See `examples/` for simple implementation of node and `GenServer` process
