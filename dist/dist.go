@@ -113,6 +113,8 @@ func NewNodeDesc(name, cookie string, isHidden bool, c net.Conn) (nd *NodeDesc) 
 		Ready:      make(chan bool),
 	}
 
+	nd.term.ConvertBinaryToString = true
+
 	// new connection. negotiate
 	if c != nil {
 		nd.isacceptor = false

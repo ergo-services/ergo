@@ -6,6 +6,7 @@ import (
 	"io"
 	"math"
 	"math/big"
+	"unicode/utf8"
 )
 
 type ErrUnknownTerm struct {
@@ -165,8 +166,12 @@ func (d *Decoder) NextTerm() (term Term, err error) {
 			if err != nil {
 				break
 			}
+			if utf8.Valid(b) {
+				term = string(b)
+			} else {
+				term = b
+			}
 
-			term = string(b)
 		} else {
 			if b, err = d.buint32(); err == nil {
 				_, err = io.ReadFull(d.r, b)
