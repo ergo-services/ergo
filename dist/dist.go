@@ -103,7 +103,7 @@ func NewNodeDesc(name, cookie string, isHidden bool, c net.Conn) (nd *NodeDesc) 
 		Hidden: isHidden,
 		remote: nil,
 		state:  HANDSHAKE,
-		flag: toNodeFlag(PUBLISHED, UNICODE_IO,
+		flag: toNodeFlag(PUBLISHED, UNICODE_IO, DIST_MONITOR,
 			EXTENDED_PIDS_PORTS, EXTENDED_REFERENCES,
 			DIST_HDR_ATOM_CACHE, HIDDEN_ATOM_CACHE,
 			SMALL_ATOM_TAGS, UTF8_ATOMS, MAP_TAG, BIG_CREATION),
@@ -220,6 +220,7 @@ func (currNd *NodeDesc) ReadMessage(c net.Conn) (ts []etf.Term, err error) {
 
 	case CONNECTED:
 		var length uint32
+		var err1 error
 		if err = binary.Read(c, binary.BigEndian, &length); err != nil {
 			return
 		}
@@ -240,8 +241,9 @@ func (currNd *NodeDesc) ReadMessage(c net.Conn) (ts []etf.Term, err error) {
 			}
 			dLog("READ CTL: %#v", ctl)
 
-			if message, err = currNd.readMessage(r); err != nil {
-				break
+			if message, err1 = currNd.readMessage(r); err1 != nil {
+				// break
+
 			}
 			dLog("READ MESSAGE: %#v", message)
 			ts = append(ts, ctl, message)

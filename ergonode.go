@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 var nTrace bool
@@ -297,6 +298,32 @@ func (n *Node) handleTerms(c net.Conn, wchan chan []etf.Term, terms []etf.Term) 
 					}
 				case SEND:
 					n.route(nil, t.Element(3), terms[1])
+
+				// Not implemented yet, just stubs. TODO.
+				case LINK:
+					nLog("LINK message (act %d): %#v", act, t)
+				case UNLINK:
+					nLog("UNLINK message (act %d): %#v", act, t)
+				case NODE_LINK:
+					nLog("NODE_LINK message (act %d): %#v", act, t)
+				case EXIT:
+					nLog("EXIT message (act %d): %#v", act, t)
+				case EXIT2:
+					nLog("EXIT2 message (act %d): %#v", act, t)
+				case MONITOR:
+					nLog("MONITOR message (act %d): %#v", act, t)
+				case DEMONITOR:
+					nLog("DEMONITOR message (act %d): %#v", act, t)
+				case MONITOR_EXIT:
+					nLog("MONITOR_EXIT message (act %d): %#v", act, t)
+
+					// {'DOWN',#Ref<0.0.13893633.237772>,process,<26194.4.1>,reason}
+					M := etf.Term(etf.Tuple{etf.Atom("DOWN"),
+						t.Element(3), etf.Atom("process"),
+						t.Element(2), t.Element(5)})
+
+					n.route(t.Element(2), t.Element(3), M)
+
 				default:
 					nLog("Unhandled node message (act %d): %#v", act, t)
 				}
@@ -404,6 +431,36 @@ func (n *Node) sendbyTuple(from etf.Pid, to etf.Tuple, message *etf.Term) {
 
 	msg := []etf.Term{etf.Tuple{REG_SEND, from, etf.Atom(""), to[0]}, *message}
 	conn.wchan <- msg
+
+	return
+}
+
+func (n *Node) Monitor(by etf.Pid, to etf.Pid) {
+	var conn nodeConn
+	var exists bool
+
+	nLog("Monitor remote PID: %#v, %#v", to, n.connections[to.Node])
+
+	if conn, exists = n.connections[to.Node]; !exists {
+		nLog("Send (via PID): create new connection (%s)", to.Node)
+		if err := connect(n, to.Node); err != nil {
+			panic(err.Error())
+		}
+		conn, _ = n.connections[to.Node]
+	}
+
+	msg := []etf.Term{etf.Tuple{MONITOR, by, to, n.MakeRef()}}
+	conn.wchan <- msg
+}
+
+func (n *Node) MakeRef() (ref etf.Ref) {
+	ref.Node = etf.Atom(n.FullName)
+	ref.Creation = 1
+
+	nt := time.Now().UnixNano()
+	id1 := uint32(uint64(nt) & ((2 << 17) - 1))
+	id2 := uint32(uint64(nt) >> 46)
+	ref.Id = []uint32{id1, id2, 0}
 
 	return
 }

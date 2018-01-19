@@ -17,6 +17,7 @@ Features:
  * Atomic 'state' of GenServer
  * Initiate connection to other node
  * RPC callbacks
+ * Monitor processes
  * Support Erlang 20.*
 
 
@@ -58,6 +59,11 @@ gs.Send(Pid, message)
 
 // to get pid like it does erlang:self()
 gs.Self()
+
+// set monitor. this gen_server will recieve the message (via HandleInfo) like
+// {'DOWN',#Ref<0.0.13893633.237772>,process,<26194.4.1>, Reason})
+// in case of remote process went down by some reason
+gs.Monitor(Pid)
 
 /*
  *  Simple example how are handling incoming messages.

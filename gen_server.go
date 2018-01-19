@@ -155,7 +155,7 @@ func (gs *GenServer) setPid(pid etf.Pid) {
 
 func (gs *GenServer) Call(to interface{}, message *etf.Term) (reply *etf.Term, err error) {
 	gs.chreply = make(chan *etf.Tuple)
-	ref := gs.MakeRef()
+	ref := gs.Node.MakeRef()
 	from := etf.Tuple{gs.Self, ref}
 	msg := etf.Term(etf.Tuple{etf.Atom("$gen_call"), from, *message})
 	if err := gs.Node.Send(gs.Self, to, &msg); err != nil {
@@ -199,14 +199,6 @@ func (gs *GenServer) Send(to etf.Pid, reply *etf.Term) {
 	gs.Node.Send(nil, to, reply)
 }
 
-func (gs *GenServer) MakeRef() (ref etf.Ref) {
-	ref.Node = etf.Atom(gs.Node.FullName)
-	ref.Creation = 1
-
-	nt := time.Now().UnixNano()
-	id1 := uint32(uint64(nt) & ((2 << 17) - 1))
-	id2 := uint32(uint64(nt) >> 46)
-	ref.Id = []uint32{id1, id2, 0}
-
-	return
+func (gs *GenServer) Monitor(to etf.Pid) {
+	gs.Node.Monitor(gs.Self, to)
 }
