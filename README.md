@@ -18,6 +18,7 @@ Features:
  * Initiate connection to other node
  * RPC callbacks
  * Monitor processes
+ * Monitor nodes
  * Support Erlang 20.*
 
 
@@ -64,6 +65,15 @@ gs.Self()
 // {'DOWN',#Ref<0.0.13893633.237772>,process,<26194.4.1>, Reason})
 // in case of remote process went down by some reason
 gs.Monitor(Pid)
+
+
+// *** http://erlang.org/doc/man/erlang.html#monitor_node-2
+// *** Making several calls to monitor_node(Node, true) for the same Node is not an error;
+// *** it results in as many independent monitoring instances.
+// seting up node monitor (will recieve {nodedown, Nodename})
+gs.MonitorNode(etf.Atom("node@address"), true)
+// removing monitor
+gs.MonitorNode(etf.Atom("node@address"), false)
 
 /*
  *  Simple example how are handling incoming messages.

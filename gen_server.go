@@ -202,3 +202,7 @@ func (gs *GenServer) Send(to etf.Pid, reply *etf.Term) {
 func (gs *GenServer) Monitor(to etf.Pid) {
 	gs.Node.Monitor(gs.Self, to)
 }
+
+func (gs *GenServer) MonitorNode(to etf.Atom, flag bool) {
+	gs.Node.MonitorNode(gs.Self, to, flag)
+}
