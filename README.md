@@ -1,7 +1,3 @@
-_Notice: this project based on https://github.com/goerlang but everything has been merged, refactored and improved._
-
----
-
 # Node #
 
 Implementation of Erlang/OTP node in Go
