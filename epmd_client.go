@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"net"
+	"strconv"
 	"strings"
 )
 
@@ -24,8 +25,12 @@ type EPMD struct {
 	Name     string
 	Domain   string
 
-	// Listening port for incoming connections
+	// Listening gen_server port for incoming connections
 	Port uint16
+
+	// Listening empd daemon port. This field allows support for custom epmd ports,
+	// and potentially multiple discrete node clusters.
+	EPMDPort uint16
 
 	// http://erlang.org/doc/reference_manual/distributed.html (section 13.5)
 	// // 77 — regular public node, 72 — hidden
@@ -41,7 +46,29 @@ type EPMD struct {
 	out      chan []byte
 }
 
-func (e *EPMD) Init(name string, port uint16) {
+// Init attempts to connect to the local epmd daemon and supply it the server
+// configuration. You must have an epmd daemon running on the same machine that is
+// running the ergonode-powered process. You cannot use an epmd daemon on a remote
+// machine. If nodeArgs are not supplied, Init assumes that the epmd daemon is
+// listening on loopback ip 127.0.0.1 and port 4369.
+// If present, the custom nodeArgs must be of type *EPMDArgs (see NewEPMDArgs)
+func (e *EPMD) Init(name string, port uint16, nodeArgs ...NodeArgs) {
+
+	var epmdPort uint16 = 4369
+	var epmdHost = "127.0.0.1"
+
+	// Attempt to find custom EPMD args
+	if len(nodeArgs) > 0 {
+	epmdLoop:
+		for i := range nodeArgs {
+			switch t := nodeArgs[i].(type) {
+			case *EPMDArgs:
+				epmdPort = t.Port
+				epmdHost = t.Host
+				break epmdLoop
+			}
+		}
+	}
 
 	ns := strings.Split(name, "@")
 	// TODO: add fqdn support
@@ -50,13 +77,14 @@ func (e *EPMD) Init(name string, port uint16) {
 	e.Name = ns[0]
 	e.Domain = ns[1]
 	e.Port = port
+	e.EPMDPort = epmdPort
 	e.Type = 77 // or 72 if hidden
 	e.Protocol = 0
 	e.HighVsn = 5
 	e.LowVsn = 5
 	e.Creation = 0
 
-	conn, err := net.Dial("tcp", "127.0.0.1:4369")
+	conn, err := net.Dial("tcp", net.JoinHostPort(epmdHost, strconv.Itoa(int(epmdPort))))
 	if err != nil {
 		panic(err.Error())
 	}
@@ -93,7 +121,6 @@ func (e *EPMD) Init(name string, port uint16) {
 }
 
 func (e *EPMD) register() {
-
 	e.out <- compose_ALIVE2_REQ(e)
 	creation := <-e.response
 
@@ -109,7 +136,7 @@ func (e *EPMD) ResolvePort(name string) int {
 	var err error
 	ns := strings.Split(name, "@")
 
-	conn, err := net.Dial("tcp", net.JoinHostPort(ns[1], "4369"))
+	conn, err := net.Dial("tcp", net.JoinHostPort(ns[1], strconv.Itoa(int(e.EPMDPort))))
 	if err != nil {
 		return -1
 	}

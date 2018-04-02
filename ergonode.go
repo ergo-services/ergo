@@ -9,14 +9,15 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"github.com/halturin/ergonode/dist"
-	"github.com/halturin/ergonode/etf"
 	"log"
 	"net"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/halturin/ergonode/dist"
+	"github.com/halturin/ergonode/etf"
 )
 
 var nTrace bool
@@ -95,8 +96,33 @@ type Process interface {
 	setPid(pid etf.Pid)                        // method set pid of started process
 }
 
-// Create create new node context with specified name and cookie string
-func Create(name string, port uint16, cookie string) (node *Node) {
+type NodeArgs interface {
+	Type() string
+}
+
+type EPMDArgs struct {
+	Host string
+	Port uint16
+}
+
+func (*EPMDArgs) Type() string { return "EPMDArgs" }
+
+func NewEPMDArgs(host string, port uint16) *EPMDArgs {
+	return &EPMDArgs{Host: host, Port: port}
+}
+
+// Create creates a new node context with specified name, cookie string, and
+// additional (optional) connectivity args. The optional args are useful for cases
+// such as at least one local EPMD daemon listening on a non-standard local ip and port,
+// to allow multiple, discrete node clusters (e.g. one on 4369, another on 4370).
+// When no optional nodeArgs are provided, the empd connectivity defaults to
+// 127.0.0.1 / 4369
+//
+// Example (create a gen_server listening on port 15515, relying on an epmd daemon at 4370):
+//	epmdArgs := ergonode.NewEPMDArgs("192.168.1.10", 4370)
+//	n := ergonode.Create("n1@192.168.1.10, 15515, "123", epmdArgs)
+//
+func Create(name string, port uint16, cookie string, nodeArgs ...NodeArgs) (node *Node) {
 	nLog("Start with name '%s' and cookie '%s'", name, cookie)
 
 	registry := &registryChan{
@@ -106,7 +132,8 @@ func Create(name string, port uint16, cookie string) (node *Node) {
 	}
 
 	epmd := EPMD{}
-	epmd.Init(name, port)
+
+	epmd.Init(name, port, nodeArgs...)
 
 	node = &Node{
 		EPMD:        epmd,
