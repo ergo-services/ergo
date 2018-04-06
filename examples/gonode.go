@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+
 	"github.com/halturin/ergonode"
 	"github.com/halturin/ergonode/etf"
 )
@@ -187,6 +188,11 @@ func main() {
 	fmt.Println("make remote call by golang node...")
 	fmt.Printf("gen_server:call({%s,'%s'}, {testcall, {Pid, Message}}).\n", SrvName, NodeName)
 	fmt.Printf("gen_server:call({%s,'%s'}, {testcall, {{pname, remotenode}, Message}}).\n", SrvName, NodeName)
+
+	fmt.Printf("\n-----Examples that can be tried from Elixir iex-----\n")
+	fmt.Printf("Wake up / validate node: Node.ping :\"%s\"\n", NodeName)
+	fmt.Printf("Obtain the PID: GenServer.call({:%s,:\"%s\"}, :pid)\n", SrvName, NodeName)
+	fmt.Printf("Stop server: GenServer.cast({:%s,:\"%s\"}, :stop)\n", SrvName, NodeName)
 
 	// Wait to stop
 	<-completeChan

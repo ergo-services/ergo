@@ -28,9 +28,14 @@ type EPMD struct {
 	// Listening gen_server port for incoming connections
 	Port uint16
 
-	// Listening empd daemon port. This field allows support for custom epmd ports,
+	// Listening epmd daemon port. This field allows support for custom epmd ports,
 	// and potentially multiple discrete node clusters.
 	EPMDPort uint16
+
+	// The hostname or address of the epmd daemon. This field allows support for custom
+	// hostnames and addresses, but they have to resolve to the same machine as
+	// the gen_server, as per the EPMD protocol.
+	EPMDHost string
 
 	// http://erlang.org/doc/reference_manual/distributed.html (section 13.5)
 	// // 77 — regular public node, 72 — hidden
@@ -78,6 +83,7 @@ func (e *EPMD) Init(name string, port uint16, nodeArgs ...NodeArgs) {
 	e.Domain = ns[1]
 	e.Port = port
 	e.EPMDPort = epmdPort
+	e.EPMDHost = epmdHost
 	e.Type = 77 // or 72 if hidden
 	e.Protocol = 0
 	e.HighVsn = 5

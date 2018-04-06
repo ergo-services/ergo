@@ -61,6 +61,7 @@ type systemProcs struct {
 	netKernel        *netKernel
 	globalNameServer *globalNameServer
 	rpcRex           *rpcRex
+	pg2PubSub        *pg2Server
 }
 
 type Node struct {
@@ -96,10 +97,15 @@ type Process interface {
 	setPid(pid etf.Pid)                        // method set pid of started process
 }
 
+// NodeArgs must be implemented by types that can constitute create-time parameters
+// for a *Node.
 type NodeArgs interface {
 	Type() string
 }
 
+// EPMDArgs allows passing custom host (or ip address) and port number when trying to
+// connect to the EPMD daemon. Please note, that the Erlang specification requires
+// the daemon to reside on the same machine as the actual node.
 type EPMDArgs struct {
 	Host string
 	Port uint16
@@ -175,6 +181,9 @@ func Create(name string, port uint16, cookie string, nodeArgs ...NodeArgs) (node
 
 	node.sysProcs.rpcRex = new(rpcRex)
 	node.Spawn(node.sysProcs.rpcRex)
+
+	node.sysProcs.pg2PubSub = new(pg2Server)
+	node.Spawn(node.sysProcs.pg2PubSub)
 
 	return node
 }
@@ -560,7 +569,7 @@ func connect(n *Node, to etf.Atom) error {
 	}
 	ns := strings.Split(string(to), "@")
 
-	fmt.Printf("CONNECT TO: %s %d\n", to, port)
+	nLog("CONNECT TO: %s %d\n", to, port)
 	c, err := net.Dial("tcp", net.JoinHostPort(ns[1], strconv.Itoa(int(port))))
 	if err != nil {
 		nLog("Error calling net.Dial : %s", err.Error())
