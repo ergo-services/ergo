@@ -119,3 +119,22 @@ func (gs *goGenServ) Terminate(reason int, state interface{}) {
 ## Example ##
 
 See `examples/` for simple implementation of node and `GenServer` process
+
+## Elixir Phoenix Users ##
+
+Users of the Elixir Phoenix framework might encounter timeouts when trying to connect a Phoenix node
+to an ergonode node. The reason is that, in addition to global_name_server and net_kernel,
+Phoenix attemts to broadcast messages to the pg2 PubSub handler: 
+https://hexdocs.pm/phoenix/1.1.0/Phoenix.PubSub.PG2.html
+
+To work with Phoenix nodes, you must create and register a dedicated pg2 GenServer, and
+spawn it inside your node. Take inspiration from the global_name_server.go, but the Init
+must specified the "pg2" atom:
+
+```golang
+func (pg2 *pg2Server) Init(args ...interface{}) (state interface{}) {
+	nLog("PG2_PUBSUB_SERVER: Init: %#v", args)
+	pg2.Node.Register(etf.Atom("pg2"), pg2.Self)
+	return nil
+}
+```

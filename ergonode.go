@@ -61,7 +61,6 @@ type systemProcs struct {
 	netKernel        *netKernel
 	globalNameServer *globalNameServer
 	rpcRex           *rpcRex
-	pg2PubSub        *pg2Server
 }
 
 type Node struct {
@@ -181,9 +180,6 @@ func Create(name string, port uint16, cookie string, nodeArgs ...NodeArgs) (node
 
 	node.sysProcs.rpcRex = new(rpcRex)
 	node.Spawn(node.sysProcs.rpcRex)
-
-	node.sysProcs.pg2PubSub = new(pg2Server)
-	node.Spawn(node.sysProcs.pg2PubSub)
 
 	return node
 }
