@@ -23,6 +23,11 @@ type GenServerInt interface {
 	//		         (-1, state) - normal stop (-2, -3 .... custom reasons to stop)
 	HandleInfo(message *etf.Term, state interface{}) (int, interface{})
 	Terminate(reason int, state interface{})
+
+	// Making outgoing request
+	Call(to interface{}, message *etf.Term) (reply *etf.Term, err error)
+	Cast(to interface{}, message *etf.Term) (err error)
+	//
 }
 
 // GenServer is implementation of GenServerInt interface
