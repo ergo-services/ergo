@@ -27,7 +27,10 @@ type GenServerInt interface {
 	// Making outgoing request
 	Call(to interface{}, message *etf.Term) (reply *etf.Term, err error)
 	Cast(to interface{}, message *etf.Term) (err error)
-	//
+
+	// Monitors
+	Monitor(to etf.Pid)
+	MonitorNode(to etf.Atom, flag bool)
 }
 
 // GenServer is implementation of GenServerInt interface
