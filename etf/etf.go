@@ -312,6 +312,9 @@ func findStructField(fields []reflect.StructField, key string) (index int, struc
 }
 
 func setMapMapField(v Map, field reflect.Value, t reflect.Type) error {
+	if field.IsNil() {
+		field.Set(reflect.MakeMapWithSize(t, len(v)))
+	}
 	for key, val := range v {
 		field.SetMapIndex(reflect.ValueOf(key), reflect.ValueOf(val))
 	}
