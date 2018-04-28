@@ -1,6 +1,7 @@
 package etf
 
 import (
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"strings"
@@ -371,4 +372,13 @@ type InvalidStructKeyError struct {
 
 func (s *InvalidStructKeyError) Error() string {
 	return fmt.Sprintf("Cannot use %s as struct field name", reflect.TypeOf(s.Term).Name())
+}
+
+func (m Map) MarshalJSON() ([]byte, error) {
+	var v map[string]interface{}
+	v = make(map[string]interface{}, len(m))
+	for key, val := range m {
+		v[key.(string)] = val
+	}
+	return json.Marshal(v)
 }
