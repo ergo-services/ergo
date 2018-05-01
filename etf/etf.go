@@ -224,9 +224,23 @@ func intSwitch(term Term, destV reflect.Value, destType reflect.Type) error {
 }
 
 func setStringField(s string, destV reflect.Value, destType reflect.Type) error {
+	if destType.Kind() == reflect.Bool {
+		switch s {
+		case "false":
+			destV.SetBool(false)
+		case "true":
+			destV.SetBool(true)
+		default:
+			return NewInvalidTypesError(destType, Atom(s))
+		}
+
+		return nil
+	}
+
 	if destType.Kind() != reflect.String && (s == "" || s == "nil") {
 		return intSwitch(0, destV, destType)
 	}
+
 	if destType.Kind() != reflect.String {
 		return NewInvalidTypesError(destType, Atom(s))
 	}
