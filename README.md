@@ -35,11 +35,16 @@ n.Spawn(gs, completeChan)
 
 message := etf.Term(etf.Atom("hello"))
 
-// gen_server:call({pname, 'node@address'} , hello)
+// gen_server:call({pname, 'node@address'} , hello) with default timeout 5 seconds
 to := etf.Tuple{etf.Atom("pname"), etf.Atom("node@address")}
 
 answer, err := gs.Call(to, message)
 fmt.Printf("Got response: %v\n", answer)
+
+// specify the custom calling timeout
+// gen_server:call({pname, 'node@address'} , hello, 8)
+answer, err := gs.Call(Pid, message, 12)
+
 
 // it's also possible to call using Pid (etf.Pid)
 answer, err := gs.Call(Pid, message)

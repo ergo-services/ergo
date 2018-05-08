@@ -25,7 +25,7 @@ type GenServerInt interface {
 	Terminate(reason int, state interface{})
 
 	// Making outgoing request
-	Call(to interface{}, message *etf.Term) (reply *etf.Term, err error)
+	Call(to interface{}, message *etf.Term, options ...interface{}) (reply *etf.Term, err error)
 	Cast(to interface{}, message *etf.Term) (err error)
 
 	// Monitors
@@ -161,13 +161,28 @@ func (gs *GenServer) setPid(pid etf.Pid) {
 	gs.Self = pid
 }
 
-func (gs *GenServer) Call(to interface{}, message *etf.Term) (reply *etf.Term, err error) {
+func (gs *GenServer) Call(to interface{}, message *etf.Term, options ...interface{}) (reply *etf.Term, err error) {
+	var (
+		option_timeout int = 5
+	)
+
 	gs.chreply = make(chan *etf.Tuple)
 	ref := gs.Node.MakeRef()
 	from := etf.Tuple{gs.Self, ref}
 	msg := etf.Term(etf.Tuple{etf.Atom("$gen_call"), from, *message})
 	if err := gs.Node.Send(gs.Self, to, &msg); err != nil {
 		panic(err.Error())
+	}
+
+	switch len(options) {
+	case 1:
+		switch options[0].(type) {
+		case int:
+			if options[0].(int) > 0 {
+				option_timeout = options[0].(int)
+			}
+		}
+
 	}
 
 	for {
@@ -182,7 +197,7 @@ func (gs *GenServer) Call(to interface{}, message *etf.Term) (reply *etf.Term, e
 				reply = &val
 				goto out
 			}
-		case <-time.After(time.Second * 5):
+		case <-time.After(time.Second * time.Duration(option_timeout)):
 			err = errors.New("timeout")
 			goto out
 		}
