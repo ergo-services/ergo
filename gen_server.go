@@ -2,10 +2,11 @@ package ergonode
 
 import (
 	"errors"
-	"github.com/halturin/ergonode/etf"
 	"log"
 	"sync"
 	"time"
+
+	"github.com/halturin/ergonode/etf"
 )
 
 // GenServerInt interface
@@ -167,11 +168,13 @@ func (gs *GenServer) Call(to interface{}, message *etf.Term, options ...interfac
 	)
 
 	gs.chreply = make(chan *etf.Tuple)
+	defer close(gs.chreply)
+
 	ref := gs.Node.MakeRef()
 	from := etf.Tuple{gs.Self, ref}
 	msg := etf.Term(etf.Tuple{etf.Atom("$gen_call"), from, *message})
 	if err := gs.Node.Send(gs.Self, to, &msg); err != nil {
-		panic(err.Error())
+		return nil, err
 	}
 
 	switch len(options) {
@@ -203,7 +206,6 @@ func (gs *GenServer) Call(to interface{}, message *etf.Term, options ...interfac
 		}
 	}
 out:
-	close(gs.chreply)
 	gs.chreply = nil
 
 	return
@@ -212,7 +214,7 @@ out:
 func (gs *GenServer) Cast(to interface{}, message *etf.Term) error {
 	msg := etf.Term(etf.Tuple{etf.Atom("$gen_cast"), *message})
 	if err := gs.Node.Send(gs.Self, to, &msg); err != nil {
-		panic(err.Error())
+		return err
 	}
 
 	return nil
