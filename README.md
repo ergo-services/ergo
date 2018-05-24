@@ -2,7 +2,7 @@
 
 Implementation of Erlang/OTP node in Go
 
-Features:
+#### Features ####
 
  * Publish listen port via EPMD
  * Handle incoming connection from other node using Erlang Distribution Protocol
@@ -17,7 +17,9 @@ Features:
  * Monitor nodes
  * Support Erlang 20.*
 
-Requirement: Go 1.9 and above
+#### Requirement ####
+
+ * Go 1.9 and above
 
 ## Usage ##
 
