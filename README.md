@@ -17,6 +17,7 @@ Features:
  * Monitor nodes
  * Support Erlang 20.*
 
+Requirement: Go 1.9 and above
 
 ## Usage ##
 
