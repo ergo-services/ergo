@@ -105,7 +105,7 @@ func NewNodeDesc(name, cookie string, isHidden bool, c net.Conn) (nd *NodeDesc) 
 		state:  HANDSHAKE,
 		flag: toNodeFlag(PUBLISHED, UNICODE_IO, DIST_MONITOR,
 			EXTENDED_PIDS_PORTS, EXTENDED_REFERENCES,
-			DIST_HDR_ATOM_CACHE, HIDDEN_ATOM_CACHE,
+			DIST_HDR_ATOM_CACHE, HIDDEN_ATOM_CACHE, NEW_FUN_TAGS,
 			SMALL_ATOM_TAGS, UTF8_ATOMS, MAP_TAG, BIG_CREATION),
 		version:    5,
 		term:       new(etf.Context),
