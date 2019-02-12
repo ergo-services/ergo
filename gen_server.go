@@ -53,7 +53,8 @@ func (gs *GenServer) Options() map[string]interface{} {
 // ProcessLoop executes during whole time of process life.
 // It receives incoming messages from channels and handle it using methods of behaviour implementation
 func (gs *GenServer) ProcessLoop(pcs procChannels, pd Process, args ...interface{}) {
-	pd.(GenServerInt).Init(args...)
+	state := pd.(GenServerInt).Init(args...)
+	gs.state = state
 	pcs.init <- true
 	var chstop chan int
 	chstop = make(chan int)
