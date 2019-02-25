@@ -1,4 +1,4 @@
-# Node #
+# Ergonode #
 
 Implementation of Erlang/OTP node in Go
 
@@ -22,14 +22,29 @@ Implementation of Erlang/OTP node in Go
 
  * Go 1.10 and above
 
+#### EPMD ####
+Ergonode has embedded EPMD implementation. It allows to run your nodes without erlang's empd dependency. There are two reason to start embedded epmd:
+
+- EPMD port is not taken
+- lost connection to the EPMD server
+
+Current implementation has a bit different behaviour (from the original ones) - ergonode tryes to restore connection to EPMD server in case of its has been lost. At the same time ergonode tryes to start its own EPMD to serve all epmd-requests from the nodes.
+
+You may want to use your empd as a standalone server. There is simple drop-in replacement of [epmd](cmd/empd.go). Just build it:
+
+```
+$ go build cmd/epmd.go
+```
+
+
 ## Changelog ##
 
 Here is the changes of latest release. For more details see the [ChangeLog](ChangeLog)
 
-#### [0.2.0](https://github.com/halturin/ergonode/releases/tag/0.2.0) - 2019-02-23 ####
+#### [0.2.0](https://github.com/halturin/ergonode/releases/tag/0.2.0) - 2019-02-25 ####
 - Now we make versioning releases
 - Improve node creation. Now you can specify the listening port range. See 'Usage' for the details
-- Add embedded EPMD. During the node initialization (ergonode.Create) its trying to start internal epmd service and listen port you have spicified in arguments (or default value: 4369).
+- Add embedded EPMD. 
 
 
 
