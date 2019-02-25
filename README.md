@@ -5,6 +5,7 @@ Implementation of Erlang/OTP node in Go
 #### Features ####
 
  * Publish listen port via EPMD
+ * Embedded EPMD server
  * Handle incoming connection from other node using Erlang Distribution Protocol
  * Spawn Erlang-like processes
  * Register and unregister processes with simple atom
@@ -15,11 +16,22 @@ Implementation of Erlang/OTP node in Go
  * RPC callbacks
  * Monitor processes
  * Monitor nodes
- * Support Erlang 20.*
+ * Support Erlang 21.*
 
 #### Requirement ####
 
- * Go 1.9 and above
+ * Go 1.10 and above
+
+## Changelog ##
+
+Here is the changes of latest release. For more details see the [ChangeLog](ChangeLog)
+
+#### [0.2.0](https://github.com/halturin/ergonode/releases/tag/0.2.0) - 2019-02-23 ####
+- Now we make versioning releases
+- Improve node creation. Now you can specify the listening port range. See 'Usage' for the details
+- Add embedded EPMD. During the node initialization (ergonode.Create) its trying to start internal epmd service and listen port you have spicified in arguments (or default value: 4369).
+
+
 
 ## Usage ##
 
@@ -30,7 +42,18 @@ type goGenServ struct {
     completeChan chan bool
 }
 
-Node := ergonode.Create("examplenode@127.0.0.1", 21234, "SecretCookie")
+
+// listen from ListenRangeBegin ... ListenRangeEnd and use custom EPMD port
+// n := ergonode.Create(NodeName, Cookie, uint16(ListenRangeBegin), uint16(ListenRangeEnd), uint16(EPMDPort))
+//
+// listen from ListenRangeBegin ... ListenRangeEnd with default EPMD port 4369
+// n := ergonode.Create(NodeName, Cookie, uint16(ListenRangeBegin), uint16(ListenRangeEnd))
+//
+// listen from ListenRangeBegin ... 65000 with default EPMD port 4369
+// n := ergonode.Create(NodeName, Cookie, uint16(ListenRangeBegin))
+
+// use default listen port range: 15000...65000 and use default EPMD port 4369
+Node := ergonode.Create("examplenode@127.0.0.1", "SecretCookie")
 completeChan := make(chan bool)
 gs := new(goGenServ)
 
@@ -127,3 +150,21 @@ func (gs *goGenServ) Terminate(reason int, state interface{}) {
 ## Example ##
 
 See `examples/` for simple implementation of node and `GenServer` process
+
+## Elixir Phoenix Users ##
+
+Users of the Elixir Phoenix framework might encounter timeouts when trying to connect a Phoenix node
+to an ergonode node. The reason is that, in addition to global_name_server and net_kernel,
+Phoenix attemts to broadcast messages to the pg2 PubSub handler:
+https://hexdocs.pm/phoenix/1.1.0/Phoenix.PubSub.PG2.html
+
+To work with Phoenix nodes, you must create and register a dedicated pg2 GenServer, and
+spawn it inside your node. Take inspiration from the global_name_server.go for the rest of
+the GenServer methods, but the Init must specify the "pg2" atom:
+
+```golang
+func (pg2 *pg2Server) Init(args ...interface{}) (state interface{}) {
+    pg2.Node.Register(etf.Atom("pg2"), pg2.Self)
+    return nil
+}
+```

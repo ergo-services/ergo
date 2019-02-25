@@ -2,6 +2,7 @@ package ergonode
 
 import (
 	"github.com/halturin/ergonode/etf"
+	"github.com/halturin/ergonode/lib"
 )
 
 type netKernel struct {
@@ -9,20 +10,20 @@ type netKernel struct {
 }
 
 func (nk *netKernel) Init(args ...interface{}) (state interface{}) {
-	nLog("NET_KERNEL: Init: %#v", args)
+	lib.Log("NET_KERNEL: Init: %#v", args)
 	nk.Node.Register(etf.Atom("net_kernel"), nk.Self)
 	return nil
 }
 
 func (nk *netKernel) HandleCast(message *etf.Term, state interface{}) (code int, stateout interface{}) {
-	nLog("NET_KERNEL: HandleCast: %#v", *message)
+	lib.Log("NET_KERNEL: HandleCast: %#v", *message)
 	stateout = state
 	code = 0
 	return
 }
 
 func (nk *netKernel) HandleCall(from *etf.Tuple, message *etf.Term, state interface{}) (code int, reply *etf.Term, stateout interface{}) {
-	nLog("NET_KERNEL: HandleCall: %#v, From: %#v", *message, *from)
+	lib.Log("NET_KERNEL: HandleCall: %#v, From: %#v", *message, *from)
 	stateout = state
 	code = 1
 	switch t := (*message).(type) {
@@ -31,7 +32,7 @@ func (nk *netKernel) HandleCall(from *etf.Tuple, message *etf.Term, state interf
 			switch tag := t[0].(type) {
 			case etf.Atom:
 				if string(tag) == "is_auth" {
-					nLog("NET_KERNEL: is_auth: %#v", t[1])
+					lib.Log("NET_KERNEL: is_auth: %#v", t[1])
 					replyTerm := etf.Term(etf.Atom("yes"))
 					reply = &replyTerm
 				}
@@ -42,12 +43,12 @@ func (nk *netKernel) HandleCall(from *etf.Tuple, message *etf.Term, state interf
 }
 
 func (nk *netKernel) HandleInfo(message *etf.Term, state interface{}) (code int, stateout interface{}) {
-	nLog("NET_KERNEL: HandleInfo: %#v", *message)
+	lib.Log("NET_KERNEL: HandleInfo: %#v", *message)
 	stateout = state
 	code = 0
 	return
 }
 
 func (nk *netKernel) Terminate(reason int, state interface{}) {
-	nLog("NET_KERNEL: Terminate: %#v", reason)
+	lib.Log("NET_KERNEL: Terminate: %#v", reason)
 }

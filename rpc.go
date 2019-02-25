@@ -2,6 +2,7 @@ package ergonode
 
 import (
 	"github.com/halturin/ergonode/etf"
+	"github.com/halturin/ergonode/lib"
 )
 
 type rpcFunction func(etf.List) etf.Term
@@ -17,17 +18,17 @@ type rpcRex struct {
 }
 
 func (currNode *Node) RpcProvide(modName string, funName string, fun rpcFunction) (err error) {
-	nLog("Provide: %s:%s %#v", modName, funName, fun)
+	lib.Log("Provide: %s:%s %#v", modName, funName, fun)
 	currNode.sysProcs.rpcRex.callMap[modFun{modName, funName}] = fun
 	return
 }
 
 func (currNode *Node) RpcRevoke(modName, funName string) {
-	nLog("Revoke: %s:%s", modName, funName)
+	lib.Log("Revoke: %s:%s", modName, funName)
 }
 
 func (rpcs *rpcRex) Init(args ...interface{}) interface{} {
-	nLog("REX: Init: %#v", args)
+	lib.Log("REX: Init: %#v", args)
 	rpcs.Node.Register(etf.Atom("rex"), rpcs.Self)
 	rpcs.callMap = make(map[modFun]rpcFunction, 0)
 
@@ -35,14 +36,14 @@ func (rpcs *rpcRex) Init(args ...interface{}) interface{} {
 }
 
 func (rpcs *rpcRex) HandleCast(message *etf.Term, state interface{}) (code int, stateout interface{}) {
-	nLog("REX: HandleCast: %#v", *message)
+	lib.Log("REX: HandleCast: %#v", *message)
 	stateout = state
 	code = 0
 	return
 }
 
 func (rpcs *rpcRex) HandleCall(from *etf.Tuple, message *etf.Term, state interface{}) (code int, reply *etf.Term, stateout interface{}) {
-	nLog("REX: HandleCall: %#v, From: %#v", *message, *from)
+	lib.Log("REX: HandleCall: %#v, From: %#v", *message, *from)
 	var replyTerm etf.Term
 	stateout = state
 	code = 1
@@ -71,12 +72,12 @@ func (rpcs *rpcRex) HandleCall(from *etf.Tuple, message *etf.Term, state interfa
 }
 
 func (rpcs *rpcRex) HandleInfo(message *etf.Term, state interface{}) (code int, stateout interface{}) {
-	nLog("REX: HandleInfo: %#v", *message)
+	lib.Log("REX: HandleInfo: %#v", *message)
 	stateout = state
 	code = 0
 	return
 }
 
 func (rpcs *rpcRex) Terminate(reason int, state interface{}) {
-	nLog("REX: Terminate: %#v", reason)
+	lib.Log("REX: Terminate: %#v", reason)
 }

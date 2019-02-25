@@ -7,29 +7,17 @@ package ergonode
 
 import (
 	"errors"
-	"flag"
 	"fmt"
 	"github.com/halturin/ergonode/dist"
 	"github.com/halturin/ergonode/etf"
-	"log"
+	"github.com/halturin/ergonode/lib"
+
 	"net"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 )
-
-var nTrace bool
-
-func init() {
-	flag.BoolVar(&nTrace, "trace.node", false, "trace node")
-}
-
-func nLog(f string, a ...interface{}) {
-	if nTrace {
-		log.Printf(f, a...)
-	}
-}
 
 type regReq struct {
 	replyTo  chan etf.Pid
@@ -63,7 +51,7 @@ type systemProcs struct {
 }
 
 type Node struct {
-	EPMD
+	dist.EPMD
 	epmdreply   chan interface{}
 	Cookie      string
 	registry    *registryChan
@@ -96,8 +84,57 @@ type Process interface {
 }
 
 // Create create new node context with specified name and cookie string
-func Create(name string, port uint16, cookie string) (node *Node) {
-	nLog("Start with name '%s' and cookie '%s'", name, cookie)
+func Create(name string, cookie string, ports ...uint16) (node *Node) {
+	var listenRangeBegin uint16 = 15000
+	var listenRangeEnd uint16 = 65000
+	var hidden bool = false
+	var portEPMD uint16 = 4369
+	var listenPort uint16 = 0
+	var listener net.Listener
+
+	lib.Log("Start with name '%s' and cookie '%s'", name, cookie)
+
+	switch len(ports) {
+	case 0:
+		// use defaults
+	case 1:
+		listenRangeBegin = ports[0]
+	case 2:
+		listenRangeBegin = ports[0]
+		listenRangeEnd = ports[1]
+		if listenRangeBegin-listenRangeEnd < 0 {
+			panic("Wrong port arguments")
+		}
+	case 3:
+		listenRangeBegin = ports[0]
+		listenRangeEnd = ports[1]
+		if listenRangeBegin-listenRangeEnd < 0 {
+			panic("Wrong port arguments")
+		}
+		portEPMD = ports[2]
+
+	default:
+		panic("Wrong port arguments")
+	}
+
+	lib.Log("Listening range: %d...%d", listenRangeBegin, listenRangeEnd)
+	if portEPMD != 4369 {
+		lib.Log("Using custom EPMD port: %d", portEPMD)
+	}
+
+	for p := listenRangeBegin; p <= listenRangeEnd; p++ {
+		l, err := net.Listen("tcp", net.JoinHostPort("", strconv.Itoa(int(p))))
+		if err != nil {
+			continue
+		}
+		listenPort = p
+		listener = l
+		break
+	}
+
+	if listenPort == 0 {
+		panic("Can't listen port")
+	}
 
 	registry := &registryChan{
 		storeChan:     make(chan regReq),
@@ -105,8 +142,8 @@ func Create(name string, port uint16, cookie string) (node *Node) {
 		unregNameChan: make(chan unregNameReq),
 	}
 
-	epmd := EPMD{}
-	epmd.Init(name, port)
+	epmd := dist.EPMD{}
+	epmd.Init(name, listenPort, portEPMD, hidden)
 
 	node = &Node{
 		EPMD:        epmd,
@@ -120,20 +157,14 @@ func Create(name string, port uint16, cookie string) (node *Node) {
 		procID:      1,
 	}
 
-	l, err := net.Listen("tcp", net.JoinHostPort("", strconv.Itoa(int(port))))
-	if err != nil {
-		panic(err.Error())
-	}
-
 	go func() {
 		for {
-			c, err := l.Accept()
-			nLog("Accepted new connection from %s", c.RemoteAddr().String())
+			c, err := listener.Accept()
+			lib.Log("Accepted new connection from %s", c.RemoteAddr().String())
 			if err != nil {
-				nLog(err.Error())
+				lib.Log(err.Error())
 			} else {
-				wchan := make(chan []etf.Term, 10)
-				node.run(c, wchan, false)
+				node.run(c, false)
 			}
 		}
 	}()
@@ -236,7 +267,7 @@ func (n *Node) getProcID() (s uint32) {
 	return
 }
 
-func (n *Node) run(c net.Conn, wchan chan []etf.Term, negotiate bool) {
+func (n *Node) run(c net.Conn, negotiate bool) {
 
 	var currNd *dist.NodeDesc
 
@@ -246,13 +277,14 @@ func (n *Node) run(c net.Conn, wchan chan []etf.Term, negotiate bool) {
 		currNd = dist.NewNodeDesc(n.FullName, n.Cookie, false, nil)
 	}
 
+	wchan := make(chan []etf.Term, 10)
 	// run writer routine
 	go func() {
 		for {
 			terms := <-wchan
 			err := currNd.WriteMessage(c, terms)
 			if err != nil {
-				nLog("Enode error (writing): %s", err.Error())
+				lib.Log("Enode error (writing): %s", err.Error())
 				break
 			}
 		}
@@ -267,7 +299,7 @@ func (n *Node) run(c net.Conn, wchan chan []etf.Term, negotiate bool) {
 		for {
 			terms, err := currNd.ReadMessage(c)
 			if err != nil {
-				nLog("Enode error (reading): %s", err.Error())
+				lib.Log("Enode error (reading): %s", err.Error())
 				break
 			}
 			n.handleTerms(c, wchan, terms)
@@ -285,7 +317,7 @@ func (n *Node) run(c net.Conn, wchan chan []etf.Term, negotiate bool) {
 }
 
 func (n *Node) handleTerms(c net.Conn, wchan chan []etf.Term, terms []etf.Term) {
-	nLog("Node terms: %#v", terms)
+	lib.Log("Node terms: %#v", terms)
 
 	if len(terms) == 0 {
 		return
@@ -300,28 +332,28 @@ func (n *Node) handleTerms(c net.Conn, wchan chan []etf.Term, terms []etf.Term) 
 					if len(terms) == 2 {
 						n.route(t.Element(2), t.Element(4), terms[1])
 					} else {
-						nLog("*** ERROR: bad REG_SEND: %#v", terms)
+						lib.Log("*** ERROR: bad REG_SEND: %#v", terms)
 					}
 				case SEND:
 					n.route(nil, t.Element(3), terms[1])
 
 				// Not implemented yet, just stubs. TODO.
 				case LINK:
-					nLog("LINK message (act %d): %#v", act, t)
+					lib.Log("LINK message (act %d): %#v", act, t)
 				case UNLINK:
-					nLog("UNLINK message (act %d): %#v", act, t)
+					lib.Log("UNLINK message (act %d): %#v", act, t)
 				case NODE_LINK:
-					nLog("NODE_LINK message (act %d): %#v", act, t)
+					lib.Log("NODE_LINK message (act %d): %#v", act, t)
 				case EXIT:
-					nLog("EXIT message (act %d): %#v", act, t)
+					lib.Log("EXIT message (act %d): %#v", act, t)
 				case EXIT2:
-					nLog("EXIT2 message (act %d): %#v", act, t)
+					lib.Log("EXIT2 message (act %d): %#v", act, t)
 				case MONITOR:
-					nLog("MONITOR message (act %d): %#v", act, t)
+					lib.Log("MONITOR message (act %d): %#v", act, t)
 				case DEMONITOR:
-					nLog("DEMONITOR message (act %d): %#v", act, t)
+					lib.Log("DEMONITOR message (act %d): %#v", act, t)
 				case MONITOR_EXIT:
-					nLog("MONITOR_EXIT message (act %d): %#v", act, t)
+					lib.Log("MONITOR_EXIT message (act %d): %#v", act, t)
 
 					// {'DOWN',#Ref<0.0.13893633.237772>,process,<26194.4.1>,reason}
 					M := etf.Term(etf.Tuple{etf.Atom("DOWN"),
@@ -331,12 +363,12 @@ func (n *Node) handleTerms(c net.Conn, wchan chan []etf.Term, terms []etf.Term) 
 					n.route(t.Element(2), t.Element(3), M)
 
 				default:
-					nLog("Unhandled node message (act %d): %#v", act, t)
+					lib.Log("Unhandled node message (act %d): %#v", act, t)
 				}
 			case etf.Atom:
 				switch act {
 				case etf.Atom("$connection"):
-					nLog("SET NODE %#v", t)
+					lib.Log("SET NODE %#v", t)
 					n.lock.Lock()
 					n.connections[t[1].(etf.Atom)] = nodeConn{conn: c, wchan: wchan}
 					n.lock.Unlock()
@@ -346,7 +378,7 @@ func (n *Node) handleTerms(c net.Conn, wchan chan []etf.Term, terms []etf.Term) 
 					ready <- true
 				}
 			default:
-				nLog("UNHANDLED ACT: %#v", t.Element(1))
+				lib.Log("UNHANDLED ACT: %#v", t.Element(1))
 			}
 		}
 	}
@@ -363,10 +395,10 @@ func (n *Node) route(from, to etf.Term, message etf.Term) {
 	}
 	pcs := n.channels[toPid]
 	if from == nil {
-		nLog("SEND: To: %#v, Message: %#v", to, message)
+		lib.Log("SEND: To: %#v, Message: %#v", to, message)
 		pcs.in <- message
 	} else {
-		nLog("REG_SEND: (%#v )From: %#v, To: %#v, Message: %#v", pcs.inFrom, from, to, message)
+		lib.Log("REG_SEND: (%#v )From: %#v, To: %#v, Message: %#v", pcs.inFrom, from, to, message)
 		pcs.inFrom <- etf.Tuple{from, message}
 	}
 }
@@ -398,17 +430,17 @@ func (n *Node) Send(from interface{}, to interface{}, message *etf.Term) (err er
 func (n *Node) sendbyPid(to etf.Pid, message *etf.Term) {
 	var conn nodeConn
 	var exists bool
-	nLog("Send (via PID): %#v, %#v", to, message)
+	lib.Log("Send (via PID): %#v, %#v", to, message)
 	if string(to.Node) == n.FullName {
-		nLog("Send to local node")
+		lib.Log("Send to local node")
 		pcs := n.channels[to]
 		pcs.in <- message
 	} else {
 
-		nLog("Send to remote node: %#v, %#v", to, n.connections[to.Node])
+		lib.Log("Send to remote node: %#v, %#v", to, n.connections[to.Node])
 
 		if conn, exists = n.connections[to.Node]; !exists {
-			nLog("Send (via PID): create new connection (%s)", to.Node)
+			lib.Log("Send (via PID): create new connection (%s)", to.Node)
 			if err := connect(n, to.Node); err != nil {
 				panic(err.Error())
 			}
@@ -423,12 +455,12 @@ func (n *Node) sendbyPid(to etf.Pid, message *etf.Term) {
 func (n *Node) sendbyTuple(from etf.Pid, to etf.Tuple, message *etf.Term) {
 	var conn nodeConn
 	var exists bool
-	nLog("Send (via NAME): %#v, %#v", to, message)
+	lib.Log("Send (via NAME): %#v, %#v", to, message)
 
 	// to = {processname, 'nodename@hostname'}
 
 	if conn, exists = n.connections[to[1].(etf.Atom)]; !exists {
-		nLog("Send (via NAME): create new connection (%s)", to[1])
+		lib.Log("Send (via NAME): create new connection (%s)", to[1])
 		if err := connect(n, to[1].(etf.Atom)); err != nil {
 			panic(err.Error())
 		}
@@ -446,7 +478,7 @@ func (n *Node) Monitor(by etf.Pid, to etf.Pid) {
 	var exists bool
 
 	if string(to.Node) == n.FullName {
-		nLog("Monitor local PID: %#v by %#v", to, by)
+		lib.Log("Monitor local PID: %#v by %#v", to, by)
 
 		pcs := n.channels[to]
 		msg := []etf.Term{etf.Tuple{MONITOR, by, to, n.MakeRef()}}
@@ -455,10 +487,10 @@ func (n *Node) Monitor(by etf.Pid, to etf.Pid) {
 		return
 	}
 
-	nLog("Monitor remote PID: %#v by %#v", to, by)
+	lib.Log("Monitor remote PID: %#v by %#v", to, by)
 
 	if conn, exists = n.connections[to.Node]; !exists {
-		nLog("Send (via PID): create new connection (%s)", to.Node)
+		lib.Log("Send (via PID): create new connection (%s)", to.Node)
 		if err := connect(n, to.Node); err != nil {
 			panic(err.Error())
 		}
@@ -473,9 +505,9 @@ func (n *Node) MonitorNode(by etf.Pid, node etf.Atom, flag bool) {
 	var exists bool
 	var monitors []etf.Pid
 
-	nLog("Monitor node: %#v by %#v", node, by)
+	lib.Log("Monitor node: %#v by %#v", node, by)
 	if _, exists = n.connections[node]; !exists {
-		nLog("... connecting to %#v", node)
+		lib.Log("... connecting to %#v", node)
 		if err := connect(n, node); err != nil {
 			panic(err.Error())
 		}
@@ -484,10 +516,10 @@ func (n *Node) MonitorNode(by etf.Pid, node etf.Atom, flag bool) {
 	monitors = n.monitors[node]
 
 	if !flag {
-		nLog("... removing monitor: %#v by %#v", node, by)
+		lib.Log("... removing monitor: %#v by %#v", node, by)
 		monitors = removePid(monitors, by)
 	} else {
-		nLog("... setting up monitor: %#v by %#v", node, by)
+		lib.Log("... setting up monitor: %#v by %#v", node, by)
 		// DUE TO...
 
 		// http://erlang.org/doc/man/erlang.html#monitor_node-2
@@ -499,12 +531,12 @@ func (n *Node) MonitorNode(by etf.Pid, node etf.Atom, flag bool) {
 	}
 
 	n.monitors[node] = monitors
-	nLog("Monitors for node (%#v): %#v", node, monitors)
+	lib.Log("Monitors for node (%#v): %#v", node, monitors)
 
 }
 
 func (n *Node) handle_monitors_node(node etf.Atom) {
-	nLog("Node (%#v) is down. Send it to %#v", node, n.monitors[node])
+	lib.Log("Node (%#v) is down. Send it to %#v", node, n.monitors[node])
 	for _, pid := range n.monitors[node] {
 		pcs := n.channels[pid]
 		msg := etf.Term(etf.Tuple{etf.Atom("nodedown"), node})
@@ -536,7 +568,7 @@ func connect(n *Node, to etf.Atom) error {
 	fmt.Printf("CONNECT TO: %s %d\n", to, port)
 	c, err := net.Dial("tcp", net.JoinHostPort(ns[1], strconv.Itoa(int(port))))
 	if err != nil {
-		nLog("Error calling net.Dial : %s", err.Error())
+		lib.Log("Error calling net.Dial : %s", err.Error())
 		return err
 	}
 
@@ -544,8 +576,7 @@ func connect(n *Node, to etf.Atom) error {
 		tcp.SetKeepAlive(true)
 	}
 
-	wchan := make(chan []etf.Term, 10)
-	n.run(c, wchan, true)
+	n.run(c, true)
 
 	return nil
 }
