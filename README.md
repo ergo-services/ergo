@@ -28,7 +28,7 @@ Ergonode has embedded EPMD implementation. It allows to run your nodes without e
 - EPMD port is not taken
 - lost connection to the EPMD server
 
-Current implementation has a bit different behaviour (from the original ones) - ergonode tryes to restore connection to EPMD server in case of its has been lost. At the same time ergonode tryes to start its own EPMD to serve all epmd-requests from the nodes.
+Current implementation has a bit different behaviour (from the original ones) - ergonode tryes to restore connection to EPMD server in case of its has been lost. At the same time ergonode tryes to start its own EPMD (as embedded set of goroutines) to serve all epmd-requests from the nodes.
 
 There is simple drop-in replacement of [epmd](cmd/empd.go). Just build it:
 
