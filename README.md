@@ -23,9 +23,9 @@ Implementation of Erlang/OTP node in Go
  * Go 1.10 and above
 
 #### EPMD ####
-Ergonode has embedded EPMD implementation. It allows to run your nodes without erlang's empd dependency. There are two reason to start embedded epmd:
+Ergonode has embedded EPMD implementation. It allows to run your nodes without erlang's empd dependency. There are two reason to activate embedded epmd:
 
-- EPMD port is not taken
+- EPMD port is not taken during an ergonode initialization
 - lost connection to the EPMD server
 
 Current implementation has a bit different behaviour (from the original ones) - ergonode tryes to restore connection to EPMD server in case of its has been lost. At the same time ergonode tryes to start its own EPMD (as embedded set of goroutines) to serve all epmd-requests from the nodes.
