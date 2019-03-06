@@ -30,7 +30,7 @@ Ergonode has embedded EPMD implementation. It allows to run your nodes without e
 
 Current implementation has a bit different behaviour (from the original ones) - ergonode tryes to restore connection to EPMD server in case of its has been lost. At the same time ergonode tryes to start its own EPMD (as embedded set of goroutines) to serve all epmd-requests from the nodes.
 
-There is simple drop-in replacement of [epmd](cmd/epmd/):
+You may want to use epmd as standalone application. There is simple drop-in replacement of [epmd](cmd/epmd/):
 
 ```
 go get -u github.com/halturin/ergonode/cmd/epmd
