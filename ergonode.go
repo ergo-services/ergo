@@ -434,7 +434,7 @@ func (n *Node) sendbyPid(to etf.Pid, message *etf.Term) {
 	if string(to.Node) == n.FullName {
 		lib.Log("Send to local node")
 		pcs := n.channels[to]
-		pcs.in <- message
+		pcs.in <- *message
 	} else {
 
 		lib.Log("Send to remote node: %#v, %#v", to, n.connections[to.Node])
