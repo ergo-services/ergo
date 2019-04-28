@@ -132,7 +132,7 @@ func (e *EPMD) ResolvePort(name string) (int, error) {
 
 	buf = make([]byte, 1024)
 	_, err = conn.Read(buf)
-	if err != nil {
+	if err != nil && err != io.EOF {{
 		return -1, err
 	}
 
