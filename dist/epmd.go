@@ -111,13 +111,12 @@ func (e *EPMD) Init(name string, listenport uint16, epmdport uint16, hidden bool
 
 }
 
-func (e *EPMD) ResolvePort(name string) int {
-	var err error
+func (e *EPMD) ResolvePort(name string) (int, error) {
 	ns := strings.Split(name, "@")
 
 	conn, err := net.Dial("tcp", net.JoinHostPort(ns[1], "4369"))
 	if err != nil {
-		return -1
+		return -1, err
 	}
 
 	defer conn.Close()
@@ -128,21 +127,21 @@ func (e *EPMD) ResolvePort(name string) int {
 	buf = append(buf, data...)
 	_, err = conn.Write(buf)
 	if err != nil {
-		return -1
+		return -1, err
 	}
 
 	buf = make([]byte, 1024)
 	_, err = conn.Read(buf)
 	if err != nil {
-		return -1
+		return -1, err
 	}
 
 	if buf[0] == 119 && buf[1] == 0 {
 		p := binary.BigEndian.Uint16(buf[2:4])
 		// we don't use all the extra info for a while. FIXME (do we need it?)
-		return int(p)
+		return int(p), nil
 	} else {
-		return -1
+		return -1, err
 	}
 }
 

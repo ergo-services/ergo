@@ -559,13 +559,13 @@ func (n *Node) MakeRef() (ref etf.Ref) {
 func connect(n *Node, to etf.Atom) error {
 
 	var port int
+	var err error
 
-	if port = n.ResolvePort(string(to)); port < 0 {
-		return errors.New("Unknown node name")
+	if port, err = n.ResolvePort(string(to)); err != nil {
+		return fmt.Errorf("Can't resolve port: %s", err)
 	}
 	ns := strings.Split(string(to), "@")
 
-	fmt.Printf("CONNECT TO: %s %d\n", to, port)
 	c, err := net.Dial("tcp", net.JoinHostPort(ns[1], strconv.Itoa(int(port))))
 	if err != nil {
 		lib.Log("Error calling net.Dial : %s", err.Error())
