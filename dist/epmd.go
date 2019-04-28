@@ -34,6 +34,8 @@ type EPMD struct {
 	// Listening port for incoming connections
 	Port uint16
 
+	// EPMD port for the cluster
+	PortEMPD uint16
 	// http://erlang.org/doc/reference_manual/distributed.html (section 13.5)
 	// // 77 — regular public node, 72 — hidden
 	Type uint8
@@ -57,6 +59,7 @@ func (e *EPMD) Init(name string, listenport uint16, epmdport uint16, hidden bool
 	e.Name = ns[0]
 	e.Domain = ns[1]
 	e.Port = listenport
+	e.PortEMPD = epmdport
 
 	if hidden {
 		e.Type = 72
@@ -115,7 +118,7 @@ func (e *EPMD) Init(name string, listenport uint16, epmdport uint16, hidden bool
 func (e *EPMD) ResolvePort(name string) (int, error) {
 	ns := strings.Split(name, "@")
 
-	conn, err := net.Dial("tcp", net.JoinHostPort(ns[1], "4369"))
+	conn, err := net.Dial("tcp", net.JoinHostPort(ns[1], fmt.Sprint("%d", e.PortEMPD)))
 	if err != nil {
 		return -1, err
 	}
