@@ -122,10 +122,7 @@ func (e *EPMD) ResolvePort(name string) (int, error) {
 
 	defer conn.Close()
 
-	data := compose_PORT_PLEASE2_REQ(ns[0])
-	buf := make([]byte, 2)
-	binary.BigEndian.PutUint16(buf[0:2], uint16(len(data)))
-	buf = append(buf, data...)
+	buf := compose_PORT_PLEASE2_REQ(ns[0])
 	_, err = conn.Write(buf)
 	if err != nil {
 		return -1, fmt.Errorf("initiate connection - %s", err)
@@ -142,7 +139,7 @@ func (e *EPMD) ResolvePort(name string) (int, error) {
 		// we don't use all the extra info for a while. FIXME (do we need it?)
 		return int(p), nil
 	} else {
-		return -1, fmt.Errorf("malformed reply - %s", err)
+		return -1, fmt.Errorf("malformed reply - %#v", buf)
 	}
 }
 
