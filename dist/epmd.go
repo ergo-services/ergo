@@ -128,21 +128,21 @@ func (e *EPMD) ResolvePort(name string) (int, error) {
 	buf = append(buf, data...)
 	_, err = conn.Write(buf)
 	if err != nil {
-		return -1, err
+		return -1, fmt.Errorf("initiate connection - %s", err)
 	}
 
 	buf = make([]byte, 1024)
 	_, err = conn.Read(buf)
 	if err != nil && err != io.EOF {
-		return -1, err
+		return -1, fmt.Errorf("reading from link - %s", err)
 	}
 
-	if buf[0] == 119 && buf[1] == 0 {
+	if buf[0] == EPMD_PORT2_RESP && buf[1] == 0 {
 		p := binary.BigEndian.Uint16(buf[2:4])
 		// we don't use all the extra info for a while. FIXME (do we need it?)
 		return int(p), nil
 	} else {
-		return -1, err
+		return -1, fmt.Errorf("malformed reply - %s", err)
 	}
 }
 

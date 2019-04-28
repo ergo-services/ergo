@@ -561,7 +561,7 @@ func connect(n *Node, to etf.Atom) error {
 	var port int
 	var err error
 
-	if port, err = n.ResolvePort(string(to)); err != nil {
+	if port, err = n.ResolvePort(string(to)); port < 0 {
 		return fmt.Errorf("Can't resolve port: %s", err)
 	}
 	ns := strings.Split(string(to), "@")
