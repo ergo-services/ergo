@@ -26,9 +26,7 @@ type Node struct {
 	listener net.Listener
 	Cookie   string
 
-	registry  *registryChan
-	channels  map[etf.Pid]processChannels
-	registrar registrar
+	registrar *registrar
 	peers     map[etf.Atom]nodepeer
 	system    systemProcesses
 	monitors  map[etf.Atom][]etf.Pid // node monitors
@@ -105,7 +103,7 @@ func CreateNodeWithContext(ctx context.Context, name string, cookie string, opts
 
 	}
 
-	node.registrar = createRegistrar(node.context)
+	node.registrar = createRegistrar(node.context, node.FullName)
 
 	// starting system processes
 	node.system.netKernel = new(netKernel)

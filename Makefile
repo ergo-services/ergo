@@ -11,5 +11,8 @@ clean:
 	go clean
 	$(RM) ./gonode
 
-test:
+test-s:
 	go test -tags supervisor
+
+test-r:
+	go test -tags registrar
