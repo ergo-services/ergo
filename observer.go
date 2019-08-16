@@ -9,35 +9,29 @@ type observer struct {
 	GenServer
 }
 
-func (gns *observer) Init(args ...interface{}) (state interface{}) {
+func (o *observer) Init(args ...interface{}) (state interface{}) {
 	lib.Log("OBSERVER: Init: %#v", args)
-	gns.Node.Register("observer", gns.Self)
+	o.Node.Register("observer", o.self)
 	return nil
 }
 
-func (gns *observer) HandleCast(message *etf.Term, state interface{}) (code int, stateout interface{}) {
+func (o *observer) HandleCast(message *etf.Term, state interface{}) (string, interface{}) {
 	lib.Log("OBSERVER: HandleCast: %#v", *message)
-	stateout = state
-	code = 0
-	return
+	return "noreply", state
 }
 
-func (gns *observer) HandleCall(from *etf.Tuple, message *etf.Term, state interface{}) (code int, reply *etf.Term, stateout interface{}) {
+func (o *observer) HandleCall(from *etf.Tuple, message *etf.Term, state interface{}) (string, *etf.Term, interface{}) {
 	lib.Log("OBSERVER: HandleCall: %#v, From: %#v", *message, *from)
-	stateout = state
-	code = 1
 	replyTerm := etf.Term("reply")
-	reply = &replyTerm
-	return
+	message = &replyTerm
+	return "reply", message, state
 }
 
-func (gns *observer) HandleInfo(message *etf.Term, state interface{}) (code int, stateout interface{}) {
+func (o *observer) HandleInfo(message *etf.Term, state interface{}) (string, interface{}) {
 	lib.Log("OBSERVER: HandleInfo: %#v", *message)
-	stateout = state
-	code = 0
-	return
+	return "noreply", state
 }
 
-func (gns *observer) Terminate(reason int, state interface{}) {
+func (o *observer) Terminate(reason int, state interface{}) {
 	lib.Log("OBSERVER: Terminate: %#v", reason)
 }

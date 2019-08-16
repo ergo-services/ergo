@@ -9,35 +9,29 @@ type globalNameServer struct {
 	GenServer
 }
 
-func (gns *globalNameServer) Init(args ...interface{}) (state interface{}) {
+func (ns *globalNameServer) Init(args ...interface{}) (state interface{}) {
 	lib.Log("GLOBAL_NAME_SERVER: Init: %#v", args)
-	gns.Node.Register(etf.Atom("global_name_server"), gns.Self)
+	ns.Node.Register(etf.Atom("global_name_server"), ns.self)
 	return nil
 }
 
-func (gns *globalNameServer) HandleCast(message *etf.Term, state interface{}) (code int, stateout interface{}) {
+func (ns *globalNameServer) HandleCast(message *etf.Term, state interface{}) (string, interface{}) {
 	lib.Log("GLOBAL_NAME_SERVER: HandleCast: %#v", *message)
-	stateout = state
-	code = 0
-	return
+	return "noreply", state
 }
 
-func (gns *globalNameServer) HandleCall(from *etf.Tuple, message *etf.Term, state interface{}) (code int, reply *etf.Term, stateout interface{}) {
+func (ns *globalNameServer) HandleCall(from *etf.Tuple, message *etf.Term, state interface{}) (string, *etf.Term, interface{}) {
 	lib.Log("GLOBAL_NAME_SERVER: HandleCall: %#v, From: %#v", *message, *from)
-	stateout = state
-	code = 1
 	replyTerm := etf.Term(etf.Atom("reply"))
-	reply = &replyTerm
-	return
+	message = &replyTerm
+	return "reply", message, state
 }
 
-func (gns *globalNameServer) HandleInfo(message *etf.Term, state interface{}) (code int, stateout interface{}) {
+func (ns *globalNameServer) HandleInfo(message *etf.Term, state interface{}) (string, interface{}) {
 	lib.Log("GLOBAL_NAME_SERVER: HandleInfo: %#v", *message)
-	stateout = state
-	code = 0
-	return
+	return "noreply", state
 }
 
-func (gns *globalNameServer) Terminate(reason int, state interface{}) {
+func (ns *globalNameServer) Terminate(reason string, state interface{}) {
 	lib.Log("GLOBAL_NAME_SERVER: Terminate: %#v", reason)
 }

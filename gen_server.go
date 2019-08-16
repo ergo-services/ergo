@@ -45,12 +45,12 @@ func (gs *GenServer) Options() map[string]interface{} {
 
 // ProcessLoop executes during whole time of process life.
 // It receives incoming messages from channels and handle it using methods of behaviour implementation
-func (gs *GenServer) ProcessLoop(pcs processChannels, pd ProcessBehaviour, args ...interface{}) {
-	state := pd.(GenServerBehavior).Init(args...)
+func (gs *GenServer) ProcessLoop(object interface{}, args ...interface{}) {
+	state := object.(GenServerBehavior).Init(args...)
 	gs.state = state
-	pcs.ready <- true
-	var chstop chan string
-	chstop = make(chan string)
+	object.(Process).ready <- true
+	var stop chan string
+	stop = make(chan string)
 	defer func() {
 		if r := recover(); r != nil {
 			log.Printf("GenServerBehavior recovered: %#v", r)
@@ -60,16 +60,16 @@ func (gs *GenServer) ProcessLoop(pcs processChannels, pd ProcessBehaviour, args 
 		var message etf.Term
 		var fromPid etf.Pid
 		select {
-		case reason := <-chstop:
-			pd.(GenServerBehavior).Terminate(reason, gs.state)
-		case msg := <-pcs.local:
+		case reason := <-stop:
+			object.(GenServerBehavior).Terminate(reason, gs.state)
+		case msg := <-object.(Process).local:
 			message = msg
-		case msgFrom := <-pcs.remote:
+		case msgFrom := <-object.(Process).remote:
 			message = msgFrom[1]
 			fromPid = msgFrom[0].(etf.Pid)
 
 		}
-		lib.Log("[%#v]. Message from %#v\n", gs.Self, fromPid)
+		lib.Log("[%#v]. Message from %#v\n", gs.self, fromPid)
 		switch m := message.(type) {
 		case etf.Tuple:
 			switch mtag := m[0].(type) {
@@ -80,15 +80,15 @@ func (gs *GenServer) ProcessLoop(pcs processChannels, pd ProcessBehaviour, args 
 
 					go func() {
 						fromTuple := m[1].(etf.Tuple)
-						code, reply, state1 := pd.(GenServerBehavior).HandleCall(&fromTuple, &m[2], gs.state)
+						code, reply, state1 := object.(GenServerBehavior).HandleCall(&fromTuple, &m[2], gs.state)
 
 						gs.state = state1
 						gs.lock.Unlock()
-						if code < 0 {
-							chstop <- code
+						if code == "stop" {
+							stop <- code
 							return
 						}
-						if reply != nil && code == 1 {
+						if reply != nil && code == "reply" {
 							pid := fromTuple[0].(etf.Pid)
 							ref := fromTuple[1]
 							rep := etf.Term(etf.Tuple{ref, *reply})
@@ -97,21 +97,21 @@ func (gs *GenServer) ProcessLoop(pcs processChannels, pd ProcessBehaviour, args 
 					}()
 				case etf.Atom("$gen_cast"):
 					go func() {
-						code, state1 := pd.(GenServerBehavior).HandleCast(&m[1], gs.state)
+						code, state1 := object.(GenServerBehavior).HandleCast(&m[1], gs.state)
 						gs.state = state1
 						gs.lock.Unlock()
 						if code == "stop" {
-							chstop <- code
+							stop <- code
 							return
 						}
 					}()
 				default:
 					go func() {
-						code, state1 := pd.(GenServerBehavior).HandleInfo(&message, gs.state)
+						code, state1 := object.(GenServerBehavior).HandleInfo(&message, gs.state)
 						gs.state = state1
 						gs.lock.Unlock()
-						if code < 0 {
-							chstop <- code
+						if code == "stop" {
+							stop <- code
 							return
 						}
 					}()
@@ -123,11 +123,11 @@ func (gs *GenServer) ProcessLoop(pcs processChannels, pd ProcessBehaviour, args 
 				lib.Log("mtag: %#v", mtag)
 				gs.lock.Lock()
 				go func() {
-					code, state1 := pd.(GenServerBehavior).HandleInfo(&message, gs.state)
+					code, state1 := object.(GenServerBehavior).HandleInfo(&message, gs.state)
 					gs.state = state1
 					gs.lock.Unlock()
-					if code < 0 {
-						chstop <- code
+					if code == "stop" {
+						stop <- code
 						return
 					}
 				}()
@@ -136,11 +136,11 @@ func (gs *GenServer) ProcessLoop(pcs processChannels, pd ProcessBehaviour, args 
 			lib.Log("m: %#v", m)
 			gs.lock.Lock()
 			go func() {
-				code, state1 := pd.(GenServerBehavior).HandleInfo(&message, gs.state)
+				code, state1 := object.(GenServerBehavior).HandleInfo(&message, gs.state)
 				gs.state = state1
 				gs.lock.Unlock()
-				if code < 0 {
-					chstop <- code
+				if code == "stop" {
+					stop <- code
 					return
 				}
 			}()
@@ -148,26 +148,18 @@ func (gs *GenServer) ProcessLoop(pcs processChannels, pd ProcessBehaviour, args 
 	}
 }
 
-func (gs *GenServer) setNode(node *Node) {
-	gs.Node = node
-}
-
-func (gs *GenServer) setPid(pid etf.Pid) {
-	gs.Self = pid
-}
-
 func (gs *GenServer) Call(to interface{}, message *etf.Term, options ...interface{}) (reply *etf.Term, err error) {
 	var (
 		option_timeout int = 5
 	)
 
-	gs.chreply = make(chan *etf.Tuple)
+	gs.chreply = make(chan etf.Tuple)
 	defer close(gs.chreply)
 
 	ref := gs.Node.MakeRef()
-	from := etf.Tuple{gs.Self, ref}
+	from := etf.Tuple{gs.self, ref}
 	msg := etf.Term(etf.Tuple{etf.Atom("$gen_call"), from, *message})
-	if err := gs.Node.Send(gs.Self, to, &msg); err != nil {
+	if err := gs.Node.Send(gs.self, to, &msg); err != nil {
 		return nil, err
 	}
 
@@ -206,7 +198,7 @@ out:
 
 func (gs *GenServer) Cast(to interface{}, message *etf.Term) error {
 	msg := etf.Term(etf.Tuple{etf.Atom("$gen_cast"), *message})
-	if err := gs.Node.Send(gs.Self, to, &msg); err != nil {
+	if err := gs.Node.Send(gs.self, to, &msg); err != nil {
 		return err
 	}
 
@@ -218,9 +210,9 @@ func (gs *GenServer) Send(to etf.Pid, reply *etf.Term) {
 }
 
 func (gs *GenServer) Monitor(to etf.Pid) {
-	gs.Node.Monitor(gs.Self, to)
+	gs.Node.Monitor(gs.self, to)
 }
 
 func (gs *GenServer) MonitorNode(to etf.Atom, flag bool) {
-	gs.Node.MonitorNode(gs.Self, to, flag)
+	gs.Node.MonitorNode(gs.self, to, flag)
 }

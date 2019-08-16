@@ -11,7 +11,7 @@ type netKernel struct {
 
 func (nk *netKernel) Init(args ...interface{}) (state interface{}) {
 	lib.Log("NET_KERNEL: Init: %#v", args)
-	nk.Node.Register(etf.Atom("net_kernel"), nk.Self)
+	nk.Node.Register(etf.Atom("net_kernel"), nk.self)
 	return nil
 }
 
