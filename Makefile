@@ -10,3 +10,6 @@ epmd:
 clean:
 	go clean
 	$(RM) ./gonode
+
+test:
+	go test -tags supervisor

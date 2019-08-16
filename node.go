@@ -6,6 +6,7 @@
 package ergonode
 
 import (
+	"context"
 	"errors"
 	"fmt"
 
@@ -20,191 +21,113 @@ import (
 	"time"
 )
 
-type regReq struct {
-	replyTo  chan etf.Pid
-	channels procChannels
-}
-
-type regNameReq struct {
-	name etf.Atom
-	pid  etf.Pid
-}
-
-type unregNameReq struct {
-	name etf.Atom
-}
-
-type registryChan struct {
-	storeChan     chan regReq
-	regNameChan   chan regNameReq
-	unregNameChan chan unregNameReq
-}
-
-type nodeConn struct {
-	conn  net.Conn
-	wchan chan []etf.Term
-}
-
-type systemProcs struct {
-	netKernel        *netKernel
-	globalNameServer *globalNameServer
-	rpcRex           *rpcRex
-}
-
 type Node struct {
 	dist.EPMD
-	epmdreply   chan interface{}
-	Cookie      string
-	registry    *registryChan
-	channels    map[etf.Pid]procChannels
-	registered  map[etf.Atom]etf.Pid
-	connections map[etf.Atom]nodeConn
-	sysProcs    systemProcs
-	monitors    map[etf.Atom][]etf.Pid // node monitors
-	monitorsP   map[etf.Pid][]etf.Pid  // process monitors
-	procID      uint32
-	lock        sync.Mutex
+	listener net.Listener
+	Cookie   string
+
+	registry  *registryChan
+	channels  map[etf.Pid]processChannels
+	registrar registrar
+	peers     map[etf.Atom]nodepeer
+	system    systemProcesses
+	monitors  map[etf.Atom][]etf.Pid // node monitors
+	monitorsP map[etf.Pid][]etf.Pid  // process monitors
+	procID    uint64
+	lock      sync.Mutex
+	context   context.Context
+	cancel    context.CancelFunc
 }
 
-type procChannels struct {
-	in     chan etf.Term
-	inFrom chan etf.Tuple
-	init   chan bool
+type NodeOptions struct {
+	ListenRangeBegin uint16
+	ListenRangeEnd   uint16
+	Hidden           bool
+	EPMDPort         uint16
 }
 
-// Behaviour interface contains methods you should implement to make own process behaviour
-type Behaviour interface {
-	ProcessLoop(pcs procChannels, pd Process, args ...interface{}) // method which implements control flow of process
+const (
+	defaultListenRangeBegin uint16 = 15000
+	defaultListenRangeEnd   uint16 = 65000
+	defaultEPMDPort         uint16 = 4369
+)
+
+// CreateNode create new node with name and cookie string
+func CreateNode(name string, cookie string, opts NodeOptions) *Node {
+	return CreateNodeWithContext(context.Background(), name, cookie, opts)
 }
 
-// Process interface contains methods which should be implemented in each process
-type Process interface {
-	Options() (options map[string]interface{}) // method returns process-related options
-	setNode(node *Node)                        // method set pointer to Node structure
-	setPid(pid etf.Pid)                        // method set pid of started process
-}
-
-// Create create new node context with specified name and cookie string
-func CreateNode(name string, cookie string, ports ...uint16) (node *Node) {
-	var listenRangeBegin uint16 = 15000
-	var listenRangeEnd uint16 = 65000
-	var hidden bool = false
-	var portEPMD uint16 = 4369
-	var listenPort uint16 = 0
-	var listener net.Listener
+// CreateNodeWithContext create new node with specified context, name and cookie string
+func CreateNodeWithContext(ctx context.Context, name string, cookie string, opts NodeOptions) *Node {
 
 	lib.Log("Start with name '%s' and cookie '%s'", name, cookie)
 
-	switch len(ports) {
-	case 0:
-		// use defaults
-	case 1:
-		listenRangeBegin = ports[0]
-	case 2:
-		listenRangeBegin = ports[0]
-		listenRangeEnd = ports[1]
-		if listenRangeBegin-listenRangeEnd < 0 {
-			panic("Wrong port arguments")
+	node := Node{
+		Cookie:    cookie,
+		peers:     make(map[etf.Atom]nodepeer),
+		monitors:  make(map[etf.Atom][]etf.Pid),
+		monitorsP: make(map[etf.Pid][]etf.Pid),
+		context:   ctx,
+	}
+
+	// start networking if name is defined
+	if name != "" {
+		// set defaults
+		if opts.ListenRangeBegin == 0 {
+			opts.ListenRangeBegin = defaultListenRangeBegin
 		}
-	case 3:
-		listenRangeBegin = ports[0]
-		listenRangeEnd = ports[1]
-		if listenRangeBegin-listenRangeEnd < 0 {
-			panic("Wrong port arguments")
+		if opts.ListenRangeEnd == 0 {
+			opts.ListenRangeEnd = defaultListenRangeEnd
 		}
-		portEPMD = ports[2]
+		lib.Log("Listening range: %d...%d", opts.ListenRangeBegin, opts.ListenRangeEnd)
 
-	default:
-		panic("Wrong port arguments")
-	}
-
-	lib.Log("Listening range: %d...%d", listenRangeBegin, listenRangeEnd)
-	if portEPMD != 4369 {
-		lib.Log("Using custom EPMD port: %d", portEPMD)
-	}
-
-	for p := listenRangeBegin; p <= listenRangeEnd; p++ {
-		l, err := net.Listen("tcp", net.JoinHostPort("", strconv.Itoa(int(p))))
-		if err != nil {
-			continue
+		if opts.EPMDPort == 0 {
+			opts.EPMDPort = defaultEPMDPort
 		}
-		listenPort = p
-		listener = l
-		break
-	}
-
-	if listenPort == 0 {
-		panic("Can't listen port")
-	}
-
-	registry := &registryChan{
-		storeChan:     make(chan regReq),
-		regNameChan:   make(chan regNameReq),
-		unregNameChan: make(chan unregNameReq),
-	}
-
-	epmd := dist.EPMD{}
-	epmd.Init(name, listenPort, portEPMD, hidden)
-
-	node = &Node{
-		EPMD:        epmd,
-		Cookie:      cookie,
-		registry:    registry,
-		channels:    make(map[etf.Pid]procChannels),
-		registered:  make(map[etf.Atom]etf.Pid),
-		connections: make(map[etf.Atom]nodeConn),
-		monitors:    make(map[etf.Atom][]etf.Pid),
-		monitorsP:   make(map[etf.Pid][]etf.Pid),
-		procID:      1,
-	}
-
-	go func() {
-		for {
-			c, err := listener.Accept()
-			lib.Log("Accepted new connection from %s", c.RemoteAddr().String())
-			if err != nil {
-				lib.Log(err.Error())
-			} else {
-				node.run(c, false)
-			}
+		if opts.EPMDPort != 4369 {
+			lib.Log("Using custom EPMD port: %d", opts.EPMDPort)
 		}
-	}()
 
-	go node.registrator()
+		if opts.Hidden {
+			lib.Log("Running as hidden node")
+		}
+		ns := strings.Split(name, "@")
+		if len(ns) != 2 {
+			panic("FQDN for node name is required (example: node@hostname)")
+		}
 
-	node.sysProcs.netKernel = new(netKernel)
-	node.Spawn(node.sysProcs.netKernel)
+		if listenPort := node.listen(name, opts.ListenRangeBegin, opts.ListenRangeEnd); listenPort == 0 {
+			panic("Can't listen port")
+		} else {
+			// start EPMD
+			node.EPMD.Init(name, listenPort, opts.EPMDPort, opts.Hidden)
+		}
 
-	node.sysProcs.globalNameServer = new(globalNameServer)
-	node.Spawn(node.sysProcs.globalNameServer)
+	}
 
-	node.sysProcs.rpcRex = new(rpcRex)
-	node.Spawn(node.sysProcs.rpcRex)
+	node.registrar = createRegistrar(node.context)
 
-	return node
+	// starting system processes
+	node.system.netKernel = new(netKernel)
+	node.Spawn(node.system.netKernel)
+
+	node.system.globalNameServer = new(globalNameServer)
+	node.Spawn(node.system.globalNameServer)
+
+	node.system.rpc = new(rpc)
+	node.Spawn(node.system.rpc)
+
+	node.system.observer = new(observer)
+	node.Spawn(node.system.observer)
+
+	return &node
 }
 
 // Spawn create new process and store its identificator in table at current node
-func (n *Node) Spawn(pd Process, args ...interface{}) (pid etf.Pid) {
-	options := pd.Options()
-	chanSize, ok := options["chan-size"].(int)
-	if !ok {
-		chanSize = 100
-	}
-
-	in := make(chan etf.Term, chanSize)
-	inFrom := make(chan etf.Tuple, chanSize)
-	initCh := make(chan bool)
-	pcs := procChannels{
-		in:     in,
-		inFrom: inFrom,
-		init:   initCh,
-	}
-	pid = n.storeProcess(pcs)
-	pd.setNode(n)
-	pd.setPid(pid)
-	go pd.(Behaviour).ProcessLoop(pcs, pd, args...)
-	<-initCh
+func (n *Node) Spawn(object interface{}, args ...interface{}) (pid etf.Pid) {
+	n.registrar.RegisterProcess(object)
+	go object.(ProcessBehaviour).ProcessLoop(object, args...)
+	<-object.(Process).ready
 	return
 }
 
@@ -221,54 +144,11 @@ func (n *Node) Unregister(name etf.Atom) {
 }
 
 // Registered returns a list of names which have been registered using Register
-func (n *Node) Registered() (pids []etf.Atom) {
-	pids = make([]etf.Atom, len(n.registered))
-	i := 0
-	for p, _ := range n.registered {
-		pids[i] = p
-		i++
-	}
+func (n *Node) RegisteredNames() (pids []etf.Atom) {
 	return
 }
 
-func (n *Node) registrator() {
-	for {
-		select {
-		case req := <-n.registry.storeChan:
-			var pid etf.Pid
-			pid.Node = etf.Atom(n.FullName)
-			pid.Id = n.getProcID()
-			pid.Serial = 1
-			pid.Creation = byte(n.Creation)
-
-			n.channels[pid] = req.channels
-			req.replyTo <- pid
-		case req := <-n.registry.regNameChan:
-			n.registered[req.name] = req.pid
-		case req := <-n.registry.unregNameChan:
-			delete(n.registered, req.name)
-		}
-	}
-}
-
-func (n *Node) storeProcess(chs procChannels) (pid etf.Pid) {
-	myChan := make(chan etf.Pid)
-	n.registry.storeChan <- regReq{replyTo: myChan, channels: chs}
-	pid = <-myChan
-	return pid
-}
-
-func (n *Node) getProcID() (s uint32) {
-
-	n.lock.Lock()
-	defer n.lock.Unlock()
-
-	s = n.procID
-	n.procID += 1
-	return
-}
-
-func (n *Node) run(c net.Conn, negotiate bool) {
+func (n *Node) serve(c net.Conn, negotiate bool) {
 
 	var currNd *dist.NodeDesc
 
@@ -292,7 +172,7 @@ func (n *Node) run(c net.Conn, negotiate bool) {
 		c.Close()
 		n.lock.Lock()
 		n.handle_monitors_node(currNd.GetRemoteName())
-		delete(n.connections, currNd.GetRemoteName())
+		delete(n.peers, currNd.GetRemoteName())
 		n.lock.Unlock()
 	}()
 
@@ -308,7 +188,7 @@ func (n *Node) run(c net.Conn, negotiate bool) {
 		c.Close()
 		n.lock.Lock()
 		n.handle_monitors_node(currNd.GetRemoteName())
-		delete(n.connections, currNd.GetRemoteName())
+		delete(n.peers, currNd.GetRemoteName())
 		n.lock.Unlock()
 	}()
 
@@ -363,6 +243,22 @@ func (n *Node) handleTerms(c net.Conn, wchan chan []etf.Term, terms []etf.Term) 
 
 					n.route(t.Element(2), t.Element(3), M)
 
+				// Not implemented yet, just stubs. TODO.
+				case SEND_SENDER:
+					lib.Log("SEND_SENDER message (act %d): %#v", act)
+				case SEND_SENDER_TT:
+					lib.Log("SEND_SENDER_TT message (act %d): %#v", act)
+				case PAYLOAD_EXIT:
+					lib.Log("PAYLOAD_EXIT message (act %d): %#v", act)
+				case PAYLOAD_EXIT_TT:
+					lib.Log("PAYLOAD_EXIT_TT message (act %d): %#v", act)
+				case PAYLOAD_EXIT2:
+					lib.Log("PAYLOAD_EXIT2 message (act %d): %#v", act)
+				case PAYLOAD_EXIT2_TT:
+					lib.Log("PAYLOAD_EXIT2_TT message (act %d): %#v", act)
+				case PAYLOAD_MONITOR_P_EXIT:
+					lib.Log("PAYLOAD_MONITOR_P_EXIT message (act %d): %#v", act)
+
 				default:
 					lib.Log("Unhandled node message (act %d): %#v", act, t)
 				}
@@ -371,7 +267,7 @@ func (n *Node) handleTerms(c net.Conn, wchan chan []etf.Term, terms []etf.Term) 
 				case etf.Atom("$connection"):
 					lib.Log("SET NODE %#v", t)
 					n.lock.Lock()
-					n.connections[t[1].(etf.Atom)] = nodeConn{conn: c, wchan: wchan}
+					n.peers[t[1].(etf.Atom)] = peers{conn: c, wchan: wchan}
 					n.lock.Unlock()
 
 					// currNd.Ready channel waiting for registration of this connection
@@ -429,7 +325,7 @@ func (n *Node) Send(from interface{}, to interface{}, message *etf.Term) (err er
 }
 
 func (n *Node) sendbyPid(to etf.Pid, message *etf.Term) {
-	var conn nodeConn
+	var conn nodepeer
 	var exists bool
 	lib.Log("Send (via PID): %#v, %#v", to, message)
 	if string(to.Node) == n.FullName {
@@ -438,14 +334,14 @@ func (n *Node) sendbyPid(to etf.Pid, message *etf.Term) {
 		pcs.in <- *message
 	} else {
 
-		lib.Log("Send to remote node: %#v, %#v", to, n.connections[to.Node])
+		lib.Log("Send to remote node: %#v, %#v", to, n.peers[to.Node])
 
-		if conn, exists = n.connections[to.Node]; !exists {
+		if conn, exists = n.peers[to.Node]; !exists {
 			lib.Log("Send (via PID): create new connection (%s)", to.Node)
 			if err := connect(n, to.Node); err != nil {
 				panic(err.Error())
 			}
-			conn, _ = n.connections[to.Node]
+			conn, _ = n.peers[to.Node]
 		}
 
 		msg := []etf.Term{etf.Tuple{SEND, etf.Atom(""), to}, *message}
@@ -454,18 +350,18 @@ func (n *Node) sendbyPid(to etf.Pid, message *etf.Term) {
 }
 
 func (n *Node) sendbyTuple(from etf.Pid, to etf.Tuple, message *etf.Term) {
-	var conn nodeConn
+	var conn nodepeer
 	var exists bool
 	lib.Log("Send (via NAME): %#v, %#v", to, message)
 
 	// to = {processname, 'nodename@hostname'}
 
-	if conn, exists = n.connections[to[1].(etf.Atom)]; !exists {
+	if conn, exists = n.peers[to[1].(etf.Atom)]; !exists {
 		lib.Log("Send (via NAME): create new connection (%s)", to[1])
 		if err := connect(n, to[1].(etf.Atom)); err != nil {
 			panic(err.Error())
 		}
-		conn, _ = n.connections[to[1].(etf.Atom)]
+		conn, _ = n.peers[to[1].(etf.Atom)]
 	}
 
 	msg := []etf.Term{etf.Tuple{REG_SEND, from, etf.Atom(""), to[0]}, *message}
@@ -475,7 +371,7 @@ func (n *Node) sendbyTuple(from etf.Pid, to etf.Tuple, message *etf.Term) {
 }
 
 func (n *Node) Monitor(by etf.Pid, to etf.Pid) {
-	var conn nodeConn
+	var conn nodepeer
 	var exists bool
 
 	if string(to.Node) == n.FullName {
@@ -490,12 +386,12 @@ func (n *Node) Monitor(by etf.Pid, to etf.Pid) {
 
 	lib.Log("Monitor remote PID: %#v by %#v", to, by)
 
-	if conn, exists = n.connections[to.Node]; !exists {
+	if conn, exists = n.peers[to.Node]; !exists {
 		lib.Log("Send (via PID): create new connection (%s)", to.Node)
 		if err := connect(n, to.Node); err != nil {
 			panic(err.Error())
 		}
-		conn, _ = n.connections[to.Node]
+		conn, _ = n.peers[to.Node]
 	}
 
 	msg := []etf.Term{etf.Tuple{MONITOR, by, to, n.MakeRef()}}
@@ -507,7 +403,7 @@ func (n *Node) MonitorNode(by etf.Pid, node etf.Atom, flag bool) {
 	var monitors []etf.Pid
 
 	lib.Log("Monitor node: %#v by %#v", node, by)
-	if _, exists = n.connections[node]; !exists {
+	if _, exists = n.peers[node]; !exists {
 		lib.Log("... connecting to %#v", node)
 		if err := connect(n, node); err != nil {
 			panic(err.Error())
@@ -589,4 +485,27 @@ func removePid(pids []etf.Pid, pid etf.Pid) []etf.Pid {
 		}
 	}
 	return pids
+}
+
+func (n *Node) listen(name string, listenRangeBegin, listenRangeEnd uint16) uint16 {
+	for p := listenRangeBegin; p <= listenRangeEnd; p++ {
+		l, err := net.Listen("tcp", net.JoinHostPort(name, strconv.Itoa(int(p))))
+		if err != nil {
+			continue
+		}
+		go func() {
+			for {
+				c, err := l.Accept()
+				lib.Log("Accepted new connection from %s", c.RemoteAddr().String())
+				if err != nil {
+					lib.Log(err.Error())
+				} else {
+					n.serve(c, false)
+				}
+			}
+		}()
+		return p
+	}
+
+	return 0
 }

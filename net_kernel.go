@@ -15,17 +15,15 @@ func (nk *netKernel) Init(args ...interface{}) (state interface{}) {
 	return nil
 }
 
-func (nk *netKernel) HandleCast(message *etf.Term, state interface{}) (code int, stateout interface{}) {
+func (nk *netKernel) HandleCast(message *etf.Term, state interface{}) (string, interface{}) {
 	lib.Log("NET_KERNEL: HandleCast: %#v", *message)
-	stateout = state
-	code = 0
-	return
+	return "noreply", state
 }
 
-func (nk *netKernel) HandleCall(from *etf.Tuple, message *etf.Term, state interface{}) (code int, reply *etf.Term, stateout interface{}) {
+func (nk *netKernel) HandleCall(from *etf.Tuple, message *etf.Term, state interface{}) (code string, reply *etf.Term, stateout interface{}) {
 	lib.Log("NET_KERNEL: HandleCall: %#v, From: %#v", *message, *from)
 	stateout = state
-	code = 1
+	code = "reply"
 	switch t := (*message).(type) {
 	case etf.Tuple:
 		if len(t) == 2 {
@@ -42,13 +40,11 @@ func (nk *netKernel) HandleCall(from *etf.Tuple, message *etf.Term, state interf
 	return
 }
 
-func (nk *netKernel) HandleInfo(message *etf.Term, state interface{}) (code int, stateout interface{}) {
+func (nk *netKernel) HandleInfo(message *etf.Term, state interface{}) (string, interface{}) {
 	lib.Log("NET_KERNEL: HandleInfo: %#v", *message)
-	stateout = state
-	code = 0
-	return
+	return "noreply", state
 }
 
-func (nk *netKernel) Terminate(reason int, state interface{}) {
+func (nk *netKernel) Terminate(reason string, state interface{}) {
 	lib.Log("NET_KERNEL: Terminate: %#v", reason)
 }
