@@ -2,7 +2,6 @@ package ergonode
 
 import (
 	"context"
-	"fmt"
 	"sync"
 
 	"github.com/halturin/ergonode/etf"
@@ -74,20 +73,8 @@ func CreateSupervisor(childlist []*GenServer, strategy SupervisorStrategy,
 
 	sv := Supervisor{}
 	sv.context, sv.cancel = context.WithCancel(context.Background())
-	go func() {
-		defer sv.cancel()
-		sv.run()
-	}()
 
 	return &sv
-}
-
-func (s *Supervisor) ProcessLoop() {
-	select {
-	case <-s.context.Done():
-		fmt.Println("got DONE")
-	}
-	s.wg.Wait()
 }
 
 func (s *Supervisor) Stop() {

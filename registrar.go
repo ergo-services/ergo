@@ -118,11 +118,11 @@ func (r *registrar) RegisterProcess(ctx context.Context, object interface{}) etf
 
 }
 
-// // Register associates the name with pid
-// func (n *Node) Register(name etf.Atom, pid etf.Pid) {
-// 	r := regNameReq{name: name, pid: pid}
-// 	n.registry.regNameChan <- r
-// }
+// Register associates the name with pid
+func (r *registrar) RegisterName(name etf.Atom, pid etf.Pid) {
+	req := registerNameRequest{name: name, pid: pid}
+	r.channels.name <- req
+}
 
 // // Unregister removes the registered name
 // func (n *Node) Unregister(name etf.Atom) {

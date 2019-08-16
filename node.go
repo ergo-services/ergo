@@ -123,27 +123,14 @@ func CreateNodeWithContext(ctx context.Context, name string, cookie string, opts
 
 // Spawn create new process and store its identificator in table at current node
 func (n *Node) Spawn(object interface{}, args ...interface{}) (pid etf.Pid) {
-	n.registrar.RegisterProcess(object)
+	n.registrar.RegisterProcess(context.Background(), object)
 	go object.(ProcessBehaviour).ProcessLoop(object, args...)
 	<-object.(Process).ready
 	return
 }
 
-// Register associates the name with pid
 func (n *Node) Register(name etf.Atom, pid etf.Pid) {
-	r := regNameReq{name: name, pid: pid}
-	n.registry.regNameChan <- r
-}
-
-// Unregister removes the registered name
-func (n *Node) Unregister(name etf.Atom) {
-	r := unregNameReq{name: name}
-	n.registry.unregNameChan <- r
-}
-
-// Registered returns a list of names which have been registered using Register
-func (n *Node) RegisteredNames() (pids []etf.Atom) {
-	return
+	n.registrar.RegisterName(name, pid)
 }
 
 func (n *Node) serve(c net.Conn, negotiate bool) {
@@ -169,7 +156,7 @@ func (n *Node) serve(c net.Conn, negotiate bool) {
 		}
 		c.Close()
 		n.lock.Lock()
-		n.handle_monitors_node(currNd.GetRemoteName())
+		// n.handle_monitors_node(currNd.GetRemoteName())
 		delete(n.peers, currNd.GetRemoteName())
 		n.lock.Unlock()
 	}()
@@ -185,7 +172,7 @@ func (n *Node) serve(c net.Conn, negotiate bool) {
 		}
 		c.Close()
 		n.lock.Lock()
-		n.handle_monitors_node(currNd.GetRemoteName())
+		// n.handle_monitors_node(currNd.GetRemoteName())
 		delete(n.peers, currNd.GetRemoteName())
 		n.lock.Unlock()
 	}()
@@ -265,7 +252,7 @@ func (n *Node) handleTerms(c net.Conn, wchan chan []etf.Term, terms []etf.Term) 
 				case etf.Atom("$connection"):
 					lib.Log("SET NODE %#v", t)
 					n.lock.Lock()
-					n.peers[t[1].(etf.Atom)] = peers{conn: c, wchan: wchan}
+					n.peers[t[1].(etf.Atom)] = nodepeer{conn: c, wchan: wchan}
 					n.lock.Unlock()
 
 					// currNd.Ready channel waiting for registration of this connection
@@ -281,21 +268,21 @@ func (n *Node) handleTerms(c net.Conn, wchan chan []etf.Term, terms []etf.Term) 
 
 // route incomming message to registered (with sender 'from' value)
 func (n *Node) route(from, to etf.Term, message etf.Term) {
-	var toPid etf.Pid
-	switch tp := to.(type) {
-	case etf.Pid:
-		toPid = tp
-	case etf.Atom:
-		toPid, _ = n.registered[tp]
-	}
-	pcs := n.channels[toPid]
-	if from == nil {
-		lib.Log("SEND: To: %#v, Message: %#v", to, message)
-		pcs.in <- message
-	} else {
-		lib.Log("REG_SEND: (%#v )From: %#v, To: %#v, Message: %#v", pcs.inFrom, from, to, message)
-		pcs.inFrom <- etf.Tuple{from, message}
-	}
+	// var toPid etf.Pid
+	// switch tp := to.(type) {
+	// case etf.Pid:
+	// 	toPid = tp
+	// case etf.Atom:
+	// 	toPid, _ = n.registered[tp]
+	// }
+	// pcs := n.channels[toPid]
+	// if from == nil {
+	// 	lib.Log("SEND: To: %#v, Message: %#v", to, message)
+	// 	pcs.in <- message
+	// } else {
+	// 	lib.Log("REG_SEND: (%#v )From: %#v, To: %#v, Message: %#v", pcs.inFrom, from, to, message)
+	// 	pcs.inFrom <- etf.Tuple{from, message}
+	// }
 }
 
 // Send making outgoing message
@@ -323,121 +310,119 @@ func (n *Node) Send(from interface{}, to interface{}, message *etf.Term) (err er
 }
 
 func (n *Node) sendbyPid(to etf.Pid, message *etf.Term) {
-	var conn nodepeer
-	var exists bool
-	lib.Log("Send (via PID): %#v, %#v", to, message)
-	if string(to.Node) == n.FullName {
-		lib.Log("Send to local node")
-		pcs := n.channels[to]
-		pcs.in <- *message
-	} else {
+	// var conn nodepeer
+	// var exists bool
+	// lib.Log("Send (via PID): %#v, %#v", to, message)
+	// if string(to.Node) == n.FullName {
+	// 	lib.Log("Send to local node")
+	// 	pcs := n.channels[to]
+	// 	pcs.in <- *message
+	// } else {
 
-		lib.Log("Send to remote node: %#v, %#v", to, n.peers[to.Node])
+	// 	lib.Log("Send to remote node: %#v, %#v", to, n.peers[to.Node])
 
-		if conn, exists = n.peers[to.Node]; !exists {
-			lib.Log("Send (via PID): create new connection (%s)", to.Node)
-			if err := connect(n, to.Node); err != nil {
-				panic(err.Error())
-			}
-			conn, _ = n.peers[to.Node]
-		}
+	// 	if conn, exists = n.peers[to.Node]; !exists {
+	// 		lib.Log("Send (via PID): create new connection (%s)", to.Node)
+	// 		if err := connect(n, to.Node); err != nil {
+	// 			panic(err.Error())
+	// 		}
+	// 		conn, _ = n.peers[to.Node]
+	// 	}
 
-		msg := []etf.Term{etf.Tuple{SEND, etf.Atom(""), to}, *message}
-		conn.wchan <- msg
-	}
+	// 	msg := []etf.Term{etf.Tuple{SEND, etf.Atom(""), to}, *message}
+	// 	conn.wchan <- msg
+	// }
 }
 
 func (n *Node) sendbyTuple(from etf.Pid, to etf.Tuple, message *etf.Term) {
-	var conn nodepeer
-	var exists bool
-	lib.Log("Send (via NAME): %#v, %#v", to, message)
+	// var conn nodepeer
+	// var exists bool
+	// lib.Log("Send (via NAME): %#v, %#v", to, message)
 
-	// to = {processname, 'nodename@hostname'}
+	// // to = {processname, 'nodename@hostname'}
 
-	if conn, exists = n.peers[to[1].(etf.Atom)]; !exists {
-		lib.Log("Send (via NAME): create new connection (%s)", to[1])
-		if err := connect(n, to[1].(etf.Atom)); err != nil {
-			panic(err.Error())
-		}
-		conn, _ = n.peers[to[1].(etf.Atom)]
-	}
+	// if conn, exists = n.peers[to[1].(etf.Atom)]; !exists {
+	// 	lib.Log("Send (via NAME): create new connection (%s)", to[1])
+	// 	if err := connect(n, to[1].(etf.Atom)); err != nil {
+	// 		panic(err.Error())
+	// 	}
+	// 	conn, _ = n.peers[to[1].(etf.Atom)]
+	// }
 
-	msg := []etf.Term{etf.Tuple{REG_SEND, from, etf.Atom(""), to[0]}, *message}
-	conn.wchan <- msg
-
-	return
+	// msg := []etf.Term{etf.Tuple{REG_SEND, from, etf.Atom(""), to[0]}, *message}
+	// conn.wchan <- msg
 }
 
-func (n *Node) Monitor(by etf.Pid, to etf.Pid) {
-	var conn nodepeer
-	var exists bool
+// func (n *Node) Monitor(by etf.Pid, to etf.Pid) {
+// 	var conn nodepeer
+// 	var exists bool
 
-	if string(to.Node) == n.FullName {
-		lib.Log("Monitor local PID: %#v by %#v", to, by)
+// 	if string(to.Node) == n.FullName {
+// 		lib.Log("Monitor local PID: %#v by %#v", to, by)
 
-		pcs := n.channels[to]
-		msg := []etf.Term{etf.Tuple{MONITOR, by, to, n.MakeRef()}}
-		pcs.in <- msg
+// 		pcs := n.channels[to]
+// 		msg := []etf.Term{etf.Tuple{MONITOR, by, to, n.MakeRef()}}
+// 		pcs.in <- msg
 
-		return
-	}
+// 		return
+// 	}
 
-	lib.Log("Monitor remote PID: %#v by %#v", to, by)
+// 	lib.Log("Monitor remote PID: %#v by %#v", to, by)
 
-	if conn, exists = n.peers[to.Node]; !exists {
-		lib.Log("Send (via PID): create new connection (%s)", to.Node)
-		if err := connect(n, to.Node); err != nil {
-			panic(err.Error())
-		}
-		conn, _ = n.peers[to.Node]
-	}
+// 	if conn, exists = n.peers[to.Node]; !exists {
+// 		lib.Log("Send (via PID): create new connection (%s)", to.Node)
+// 		if err := connect(n, to.Node); err != nil {
+// 			panic(err.Error())
+// 		}
+// 		conn, _ = n.peers[to.Node]
+// 	}
 
-	msg := []etf.Term{etf.Tuple{MONITOR, by, to, n.MakeRef()}}
-	conn.wchan <- msg
-}
+// 	msg := []etf.Term{etf.Tuple{MONITOR, by, to, n.MakeRef()}}
+// 	conn.wchan <- msg
+// }
 
-func (n *Node) MonitorNode(by etf.Pid, node etf.Atom, flag bool) {
-	var exists bool
-	var monitors []etf.Pid
+// func (n *Node) MonitorNode(by etf.Pid, node etf.Atom, flag bool) {
+// 	var exists bool
+// 	var monitors []etf.Pid
 
-	lib.Log("Monitor node: %#v by %#v", node, by)
-	if _, exists = n.peers[node]; !exists {
-		lib.Log("... connecting to %#v", node)
-		if err := connect(n, node); err != nil {
-			panic(err.Error())
-		}
-	}
+// 	lib.Log("Monitor node: %#v by %#v", node, by)
+// 	if _, exists = n.peers[node]; !exists {
+// 		lib.Log("... connecting to %#v", node)
+// 		if err := connect(n, node); err != nil {
+// 			panic(err.Error())
+// 		}
+// 	}
 
-	monitors = n.monitors[node]
+// 	monitors = n.monitors[node]
 
-	if !flag {
-		lib.Log("... removing monitor: %#v by %#v", node, by)
-		monitors = removePid(monitors, by)
-	} else {
-		lib.Log("... setting up monitor: %#v by %#v", node, by)
-		// DUE TO...
+// 	if !flag {
+// 		lib.Log("... removing monitor: %#v by %#v", node, by)
+// 		monitors = removePid(monitors, by)
+// 	} else {
+// 		lib.Log("... setting up monitor: %#v by %#v", node, by)
+// 		// DUE TO...
 
-		// http://erlang.org/doc/man/erlang.html#monitor_node-2
-		// Making several calls to monitor_node(Node, true) for the same Node is not an error;
-		// it results in as many independent monitoring instances.
+// 		// http://erlang.org/doc/man/erlang.html#monitor_node-2
+// 		// Making several calls to monitor_node(Node, true) for the same Node is not an error;
+// 		// it results in as many independent monitoring instances.
 
-		// DO NOT CHECK for existing this pid in the list, just add one more
-		monitors = append(monitors, by)
-	}
+// 		// DO NOT CHECK for existing this pid in the list, just add one more
+// 		monitors = append(monitors, by)
+// 	}
 
-	n.monitors[node] = monitors
-	lib.Log("Monitors for node (%#v): %#v", node, monitors)
+// 	n.monitors[node] = monitors
+// 	lib.Log("Monitors for node (%#v): %#v", node, monitors)
 
-}
+// }
 
-func (n *Node) handle_monitors_node(node etf.Atom) {
-	lib.Log("Node (%#v) is down. Send it to %#v", node, n.monitors[node])
-	for _, pid := range n.monitors[node] {
-		pcs := n.channels[pid]
-		msg := etf.Term(etf.Tuple{etf.Atom("nodedown"), node})
-		pcs.in <- msg
-	}
-}
+// func (n *Node) handle_monitors_node(node etf.Atom) {
+// 	lib.Log("Node (%#v) is down. Send it to %#v", node, n.monitors[node])
+// 	for _, pid := range n.monitors[node] {
+// 		pcs := n.channels[pid]
+// 		msg := etf.Term(etf.Tuple{etf.Atom("nodedown"), node})
+// 		pcs.in <- msg
+// 	}
+// }
 
 func (n *Node) MakeRef() (ref etf.Ref) {
 	ref.Node = etf.Atom(n.FullName)
@@ -471,7 +456,7 @@ func connect(n *Node, to etf.Atom) error {
 		tcp.SetKeepAlive(true)
 	}
 
-	n.run(c, true)
+	n.serve(c, true)
 
 	return nil
 }
