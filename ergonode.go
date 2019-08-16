@@ -8,6 +8,7 @@ package ergonode
 import (
 	"errors"
 	"fmt"
+
 	"github.com/halturin/ergonode/dist"
 	"github.com/halturin/ergonode/etf"
 	"github.com/halturin/ergonode/lib"
@@ -84,7 +85,7 @@ type Process interface {
 }
 
 // Create create new node context with specified name and cookie string
-func Create(name string, cookie string, ports ...uint16) (node *Node) {
+func CreateNode(name string, cookie string, ports ...uint16) (node *Node) {
 	var listenRangeBegin uint16 = 15000
 	var listenRangeEnd uint16 = 65000
 	var hidden bool = false
