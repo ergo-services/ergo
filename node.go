@@ -117,11 +117,18 @@ func CreateNodeWithContext(ctx context.Context, name string, cookie string, opts
 }
 
 // Spawn create new process and store its identificator in table at current node
-func (n *Node) Spawn(name string, object interface{}, args ...interface{}) (pid etf.Pid) {
-	n.registrar.RegisterProcess(object)
-	go object.(ProcessBehaviour).ProcessLoop(object, args...)
-	<-object.(Process).ready
-	return
+func (n *Node) Spawn(name string, object interface{}, args ...interface{}) Process {
+	process := n.registrar.RegisterProcessWithName(name, object)
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				lib.Log("Recovered process: %#v with error: %s", object, r)
+			}
+		}()
+		object.(ProcessBehaviour).ProcessLoop(process, object, args...)
+	}()
+	<-process.ready
+	return process
 }
 
 func (n *Node) Register(name string, pid etf.Pid) {

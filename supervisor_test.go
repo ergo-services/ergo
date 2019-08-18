@@ -8,8 +8,10 @@ import (
 ) 
 
 func TestCreateSupervisor(t *testing.T) {
-	lgs := []*GenServer{}
-	sv := CreateSupervisor(lgs, SupervisorStrategyOneForAll, 5, 10)
+	 CreateNode("","", NodeOptions{})
+
+	gs := []*GenServer{}
+	sv := CreateSupervisor(gs, SupervisorStrategyOneForAll, 5, 10)
 	if sv == nil {
 		t.Error("can't create supervisor")
 	}

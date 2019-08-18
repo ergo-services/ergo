@@ -70,6 +70,6 @@ func (r *rpc) HandleInfo(message *etf.Term, state interface{}) (string, interfac
 	return "noreply", state
 }
 
-func (r *rpc) Terminate(reason int, state interface{}) {
+func (r *rpc) Terminate(reason string, state interface{}) {
 	lib.Log("RPC: Terminate: %#v", reason)
 }

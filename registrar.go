@@ -2,7 +2,6 @@ package ergonode
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/halturin/ergonode/etf"
 	"github.com/halturin/ergonode/lib"
@@ -138,7 +137,6 @@ func (r *registrar) RegisterProcess(object interface{}) Process {
 }
 
 func (r *registrar) RegisterProcessWithName(name string, object interface{}) Process {
-	fmt.Printf("%#v\n", object)
 	req := registerProcessRequest{
 		name:   name,
 		object: object,

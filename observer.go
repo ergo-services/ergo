@@ -31,6 +31,6 @@ func (o *observer) HandleInfo(message *etf.Term, state interface{}) (string, int
 	return "noreply", state
 }
 
-func (o *observer) Terminate(reason int, state interface{}) {
+func (o *observer) Terminate(reason string, state interface{}) {
 	lib.Log("OBSERVER: Terminate: %#v", reason)
 }

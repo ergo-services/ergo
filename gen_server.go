@@ -52,10 +52,10 @@ func (gs *GenServer) Options() map[string]interface{} {
 
 // ProcessLoop executes during whole time of process life.
 // It receives incoming messages from channels and handle it using methods of behaviour implementation
-func (gs *GenServer) ProcessLoop(process interface{}, args ...interface{}) {
-	state := process.(GenServerBehavior).Init(args...)
+func (gs *GenServer) ProcessLoop(process Process, object interface{}, args ...interface{}) {
+	state := object.(GenServerBehavior).Init(args...)
 	gs.state = state
-	process.(Process).ready <- true
+	process.ready <- true
 	var stop chan string
 	stop = make(chan string)
 	defer func() {
@@ -68,10 +68,10 @@ func (gs *GenServer) ProcessLoop(process interface{}, args ...interface{}) {
 		var fromPid etf.Pid
 		select {
 		case reason := <-stop:
-			process.(GenServerBehavior).Terminate(reason, gs.state)
-		case msg := <-process.(Process).local:
+			object.(GenServerBehavior).Terminate(reason, gs.state)
+		case msg := <-process.local:
 			message = msg
-		case msgFrom := <-process.(Process).remote:
+		case msgFrom := <-process.remote:
 			message = msgFrom[1]
 			fromPid = msgFrom[0].(etf.Pid)
 
@@ -87,7 +87,7 @@ func (gs *GenServer) ProcessLoop(process interface{}, args ...interface{}) {
 
 					go func() {
 						fromTuple := m[1].(etf.Tuple)
-						code, reply, state1 := process.(GenServerBehavior).HandleCall(&fromTuple, &m[2], gs.state)
+						code, reply, state1 := object.(GenServerBehavior).HandleCall(&fromTuple, &m[2], gs.state)
 
 						gs.state = state1
 						gs.lock.Unlock()
@@ -104,7 +104,7 @@ func (gs *GenServer) ProcessLoop(process interface{}, args ...interface{}) {
 					}()
 				case etf.Atom("$gen_cast"):
 					go func() {
-						code, state1 := process.(GenServerBehavior).HandleCast(&m[1], gs.state)
+						code, state1 := object.(GenServerBehavior).HandleCast(&m[1], gs.state)
 						gs.state = state1
 						gs.lock.Unlock()
 						if code == "stop" {
@@ -114,7 +114,7 @@ func (gs *GenServer) ProcessLoop(process interface{}, args ...interface{}) {
 					}()
 				default:
 					go func() {
-						code, state1 := process.(GenServerBehavior).HandleInfo(&message, gs.state)
+						code, state1 := object.(GenServerBehavior).HandleInfo(&message, gs.state)
 						gs.state = state1
 						gs.lock.Unlock()
 						if code == "stop" {
@@ -130,7 +130,7 @@ func (gs *GenServer) ProcessLoop(process interface{}, args ...interface{}) {
 				lib.Log("mtag: %#v", mtag)
 				gs.lock.Lock()
 				go func() {
-					code, state1 := process.(GenServerBehavior).HandleInfo(&message, gs.state)
+					code, state1 := object.(GenServerBehavior).HandleInfo(&message, gs.state)
 					gs.state = state1
 					gs.lock.Unlock()
 					if code == "stop" {
@@ -143,7 +143,7 @@ func (gs *GenServer) ProcessLoop(process interface{}, args ...interface{}) {
 			lib.Log("m: %#v", m)
 			gs.lock.Lock()
 			go func() {
-				code, state1 := process.(GenServerBehavior).HandleInfo(&message, gs.state)
+				code, state1 := object.(GenServerBehavior).HandleInfo(&message, gs.state)
 				gs.state = state1
 				gs.lock.Unlock()
 				if code == "stop" {

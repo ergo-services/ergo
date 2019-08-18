@@ -22,6 +22,6 @@ const (
 
 // Behaviour interface contains methods you should implement to make own process behaviour
 type ProcessBehaviour interface {
-	ProcessLoop(interface{}, ...interface{}) // method which implements control flow of process
-	Options() map[string]interface{}         // method returns process-related options
+	ProcessLoop(Process, interface{}, ...interface{}) // method which implements control flow of process
+	Options() map[string]interface{}                  // method returns process-related options
 }
