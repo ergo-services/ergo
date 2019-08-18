@@ -43,6 +43,13 @@ func (gs *GenServer) Options() map[string]interface{} {
 	}
 }
 
+// func (gs *GenServer) getProcess() *Process {
+// 	if gs == nil {
+// 		gs = &Process{}
+// 	}
+// 	return gs
+// }
+
 // ProcessLoop executes during whole time of process life.
 // It receives incoming messages from channels and handle it using methods of behaviour implementation
 func (gs *GenServer) ProcessLoop(process interface{}, args ...interface{}) {
@@ -209,10 +216,10 @@ func (gs *GenServer) Send(to etf.Pid, reply *etf.Term) {
 	gs.Node.Send(nil, to, reply)
 }
 
-func (gs *GenServer) Monitor(to etf.Pid) {
-	gs.Node.Monitor(gs.self, to)
-}
+// func (gs *GenServer) Monitor(to etf.Pid) {
+// 	gs.Node.Monitor(gs.self, to)
+// }
 
-func (gs *GenServer) MonitorNode(to etf.Atom, flag bool) {
-	gs.Node.MonitorNode(gs.self, to, flag)
-}
+// func (gs *GenServer) MonitorNode(to etf.Atom, flag bool) {
+// 	gs.Node.MonitorNode(gs.self, to, flag)
+// }

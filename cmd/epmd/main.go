@@ -4,9 +4,10 @@ import (
 	"encoding/binary"
 	"flag"
 	"fmt"
-	"github.com/halturin/ergonode/dist"
 	"net"
 	"strconv"
+
+	"github.com/halturin/ergonode/dist"
 )
 
 var (
@@ -36,7 +37,7 @@ func main() {
 		panic(err)
 	}
 
-	// just sleep forever. until somebody kiil this process
+	// just sleep forever. until somebody kill this process
 	select {}
 }
 

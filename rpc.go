@@ -29,7 +29,6 @@ func (n *Node) RpcRevoke(modName, funName string) {
 
 func (r *rpc) Init(args ...interface{}) interface{} {
 	lib.Log("RPC: Init: %#v", args)
-	r.Node.Register(etf.Atom("rpc"), r.self)
 	r.methods = make(map[modFun]rpcFunction, 0)
 	return nil
 }

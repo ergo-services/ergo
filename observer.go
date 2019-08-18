@@ -11,7 +11,6 @@ type observer struct {
 
 func (o *observer) Init(args ...interface{}) (state interface{}) {
 	lib.Log("OBSERVER: Init: %#v", args)
-	o.Node.Register("observer", o.self)
 	return nil
 }
 

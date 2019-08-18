@@ -1,8 +1,3 @@
-// Copyright 2012-2013 Metachord Ltd.
-// All rights reserved.
-// Use of this source code is governed by a MIT license
-// that can be found in the LICENSE file.
-
 package ergonode
 
 import (
@@ -17,6 +12,8 @@ type Process struct {
 	ready   chan bool
 	self    etf.Pid
 	context context.Context
+	stop    context.CancelFunc
+	name    string
 }
 
 const (
@@ -25,6 +22,6 @@ const (
 
 // Behaviour interface contains methods you should implement to make own process behaviour
 type ProcessBehaviour interface {
-	ProcessLoop(process interface{}, args ...interface{}) // method which implements control flow of process
-	Options() (options map[string]interface{})            // method returns process-related options
+	ProcessLoop(interface{}, ...interface{}) // method which implements control flow of process
+	Options() map[string]interface{}         // method returns process-related options
 }

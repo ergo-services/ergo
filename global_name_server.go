@@ -11,7 +11,6 @@ type globalNameServer struct {
 
 func (ns *globalNameServer) Init(args ...interface{}) (state interface{}) {
 	lib.Log("GLOBAL_NAME_SERVER: Init: %#v", args)
-	ns.Node.Register(etf.Atom("global_name_server"), ns.self)
 	return nil
 }
 

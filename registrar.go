@@ -2,6 +2,7 @@ package ergonode
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/halturin/ergonode/etf"
 	"github.com/halturin/ergonode/lib"
@@ -12,12 +13,13 @@ const (
 )
 
 type registerProcessRequest struct {
-	process interface{}
+	name    string
+	object  interface{}
 	context context.Context
 }
 
 type registerNameRequest struct {
-	name etf.Atom
+	name string
 	pid  etf.Pid
 }
 
@@ -25,37 +27,56 @@ type registrarChannels struct {
 	process           chan registerProcessRequest
 	unregisterProcess chan etf.Pid
 	name              chan registerNameRequest
-	unregisterName    chan etf.Atom
-	reply             chan etf.Pid
+	unregisterName    chan string
+	reply             chan Process
 }
 
 type registrar struct {
-	nextPID     uint32
-	nodeName    string
-	creation    byte
-	nodeContext context.Context
-	channels    registrarChannels
+	nextPID  uint32
+	nodeName string
+	creation byte
 
-	names   map[etf.Atom]etf.Pid
-	process map[etf.Pid]interface{}
+	nodeContext context.Context
+	nodeStop    context.CancelFunc
+
+	channels registrarChannels
+
+	names     map[string]etf.Pid
+	processes map[etf.Pid]Process
 }
 
 func createRegistrar(ctx context.Context, nodename string) *registrar {
+	nodeCtx, nodeStop := context.WithCancel(ctx)
 	r := registrar{
 		nextPID:     startPID,
 		nodeName:    nodename,
 		creation:    byte(1),
-		nodeContext: ctx,
+		nodeContext: nodeCtx,
+		nodeStop:    nodeStop,
 		channels: registrarChannels{
 			process:           make(chan registerProcessRequest),
 			unregisterProcess: make(chan etf.Pid),
 			name:              make(chan registerNameRequest),
-			unregisterName:    make(chan etf.Atom),
-			reply:             make(chan etf.Pid),
+			unregisterName:    make(chan string),
+			reply:             make(chan Process),
 		},
+
+		names:     make(map[string]etf.Pid),
+		processes: make(map[etf.Pid]Process),
 	}
 	go r.run()
 	return &r
+}
+
+func (r *registrar) createNewPID(name string) etf.Pid {
+	r.nextPID++
+	return etf.Pid{
+		Node:     etf.Atom(r.nodeName),
+		Id:       r.nextPID,
+		Serial:   1,
+		Creation: byte(r.creation),
+	}
+
 }
 
 func (r *registrar) run() {
@@ -70,21 +91,28 @@ func (r *registrar) run() {
 	for {
 		select {
 		case p := <-r.channels.process:
-			var pid etf.Pid
-			pid.Node = etf.Atom(r.nodeName)
-			pid.Id = r.nextPID
-			pid.Serial = 1
-			pid.Creation = byte(r.creation)
-			opts := p.process.(ProcessBehaviour).Options()
+
+			opts := p.object.(ProcessBehaviour).Options()
 			mailbox_size := DefaultProcessMailboxSize
 			if size, ok := opts["mailbox-size"]; ok {
 				mailbox_size = size.(int)
 			}
-			p.process.(Process).local = make(chan etf.Term, mailbox_size)
-			p.process.(Process).remote = make(chan etf.Tuple, mailbox_size)
-			p.process.(Process).ready = make(chan bool)
-			p.process.(Process).self = pid
-			r.channels.reply <- pid
+			ctx, stop := context.WithCancel(r.nodeContext)
+			process := Process{
+				local:   make(chan etf.Term, mailbox_size),
+				remote:  make(chan etf.Tuple, mailbox_size),
+				ready:   make(chan bool),
+				self:    r.createNewPID(r.nodeName),
+				context: ctx,
+				stop:    stop,
+				name:    p.name,
+			}
+
+			r.processes[process.self] = process
+			if p.name != "" {
+				r.names[p.name] = process.self
+			}
+			r.channels.reply <- process
 
 			r.nextPID++
 
@@ -99,29 +127,59 @@ func (r *registrar) run() {
 
 		case <-r.nodeContext.Done():
 			lib.Log("Finalizing registrar for %s", r.nodeName)
+			// FIXME: finalize all registered proceses
 			return
 		}
 	}
 }
 
-func (r *registrar) RegisterProcess(ctx context.Context, object interface{}) etf.Pid {
+func (r *registrar) RegisterProcess(object interface{}) Process {
+	return r.RegisterProcessWithName("", object)
+}
+
+func (r *registrar) RegisterProcessWithName(name string, object interface{}) Process {
+	fmt.Printf("%#v\n", object)
 	req := registerProcessRequest{
-		process: object,
-		context: ctx,
+		name:   name,
+		object: object,
 	}
 	r.channels.process <- req
 
 	select {
-	case pid := <-r.channels.reply:
-		return pid
+	case p := <-r.channels.reply:
+		go func() {
+			select {
+			case <-p.context.Done():
+				r.UnregisterProcess(p.self)
+			}
+		}()
+		return p
 	}
 
 }
 
+func (r *registrar) UnregisterProcess(pid etf.Pid) {
+	if p, ok := r.processes[pid]; ok {
+		lib.Log("unregistering process: %#v", p.self)
+		close(p.local)
+		close(p.remote)
+		close(p.ready)
+		delete(r.processes, pid)
+		if (p.name) != "" {
+			lib.Log("unregistering name (%#v): %s", p.self, p.name)
+			delete(r.names, p.name)
+		}
+	}
+}
+
 // Register associates the name with pid
-func (r *registrar) RegisterName(name etf.Atom, pid etf.Pid) {
+func (r *registrar) RegisterName(name string, pid etf.Pid) {
 	req := registerNameRequest{name: name, pid: pid}
 	r.channels.name <- req
+}
+
+func (r *registrar) UnregisterName(name string) {
+	r.channels.unregisterName <- name
 }
 
 // // Unregister removes the registered name
@@ -131,15 +189,15 @@ func (r *registrar) RegisterName(name etf.Atom, pid etf.Pid) {
 // }
 
 // // Registered returns a list of names which have been registered using Register
-// func (n *Node) Registered() (pids []etf.Atom) {
-// 	pids = make([]etf.Atom, len(n.registered))
-// 	i := 0
-// 	for p, _ := range n.registered {
-// 		pids[i] = p
-// 		i++
-// 	}
-// 	return
-// }
+func (r *registrar) Registered() []Process {
+	p := make([]Process, len(r.processes))
+	i := 0
+	for _, process := range r.processes {
+		p[i] = process
+		i++
+	}
+	return p
+}
 
 // func (n *Node) registrator() {
 // 	for {

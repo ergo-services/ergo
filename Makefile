@@ -11,8 +11,8 @@ clean:
 	go clean
 	$(RM) ./gonode
 
-test-s:
-	go test -tags supervisor
-
+test: test-r test-sv
+test-sv:
+	go test -tags supervisor --trace.node --trace.dist
 test-r:
-	go test -tags registrar
+	go test -tags registrar --trace.node --trace.dist

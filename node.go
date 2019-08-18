@@ -1,8 +1,3 @@
-// Copyright 2012-2013 Metachord Ltd.
-// All rights reserved.
-// Use of this source code is governed by a MIT license
-// that can be found in the LICENSE file.
-
 package ergonode
 
 import (
@@ -107,29 +102,29 @@ func CreateNodeWithContext(ctx context.Context, name string, cookie string, opts
 
 	// starting system processes
 	node.system.netKernel = new(netKernel)
-	node.Spawn(node.system.netKernel)
+	node.Spawn("net_kernel", node.system.netKernel)
 
 	node.system.globalNameServer = new(globalNameServer)
-	node.Spawn(node.system.globalNameServer)
+	node.Spawn("global_name_server", node.system.globalNameServer)
 
 	node.system.rpc = new(rpc)
-	node.Spawn(node.system.rpc)
+	node.Spawn("rpc", node.system.rpc)
 
 	node.system.observer = new(observer)
-	node.Spawn(node.system.observer)
+	node.Spawn("observer", node.system.observer)
 
 	return &node
 }
 
 // Spawn create new process and store its identificator in table at current node
-func (n *Node) Spawn(object interface{}, args ...interface{}) (pid etf.Pid) {
-	n.registrar.RegisterProcess(context.Background(), object)
+func (n *Node) Spawn(name string, object interface{}, args ...interface{}) (pid etf.Pid) {
+	n.registrar.RegisterProcess(object)
 	go object.(ProcessBehaviour).ProcessLoop(object, args...)
 	<-object.(Process).ready
 	return
 }
 
-func (n *Node) Register(name etf.Atom, pid etf.Pid) {
+func (n *Node) Register(name string, pid etf.Pid) {
 	n.registrar.RegisterName(name, pid)
 }
 
@@ -230,19 +225,19 @@ func (n *Node) handleTerms(c net.Conn, wchan chan []etf.Term, terms []etf.Term) 
 
 				// Not implemented yet, just stubs. TODO.
 				case SEND_SENDER:
-					lib.Log("SEND_SENDER message (act %d): %#v", act)
+					lib.Log("SEND_SENDER message (act %d): %#v", act, t)
 				case SEND_SENDER_TT:
-					lib.Log("SEND_SENDER_TT message (act %d): %#v", act)
+					lib.Log("SEND_SENDER_TT message (act %d): %#v", act, t)
 				case PAYLOAD_EXIT:
-					lib.Log("PAYLOAD_EXIT message (act %d): %#v", act)
+					lib.Log("PAYLOAD_EXIT message (act %d): %#v", act, t)
 				case PAYLOAD_EXIT_TT:
-					lib.Log("PAYLOAD_EXIT_TT message (act %d): %#v", act)
+					lib.Log("PAYLOAD_EXIT_TT message (act %d): %#v", act, t)
 				case PAYLOAD_EXIT2:
-					lib.Log("PAYLOAD_EXIT2 message (act %d): %#v", act)
+					lib.Log("PAYLOAD_EXIT2 message (act %d): %#v", act, t)
 				case PAYLOAD_EXIT2_TT:
-					lib.Log("PAYLOAD_EXIT2_TT message (act %d): %#v", act)
+					lib.Log("PAYLOAD_EXIT2_TT message (act %d): %#v", act, t)
 				case PAYLOAD_MONITOR_P_EXIT:
-					lib.Log("PAYLOAD_MONITOR_P_EXIT message (act %d): %#v", act)
+					lib.Log("PAYLOAD_MONITOR_P_EXIT message (act %d): %#v", act, t)
 
 				default:
 					lib.Log("Unhandled node message (act %d): %#v", act, t)
