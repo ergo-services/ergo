@@ -6,22 +6,31 @@ import (
 	"github.com/halturin/ergonode/etf"
 )
 
+type ProcessType = string
+
+const (
+	DefaultProcessMailboxSize = 100
+	// Process type
+	ProcessGenServer  = "gen_server"
+	ProcessSupervisor = "supervisor"
+)
+
 type Process struct {
 	local   chan etf.Term
 	remote  chan etf.Tuple
 	ready   chan bool
 	self    etf.Pid
 	context context.Context
-	stop    context.CancelFunc
+	Stop    context.CancelFunc
 	name    string
-}
+	Node    *Node
 
-const (
-	DefaultProcessMailboxSize = 100
-)
+	processType ProcessType
+	object      interface{}
+	state       interface{}
+}
 
 // Behaviour interface contains methods you should implement to make own process behaviour
 type ProcessBehaviour interface {
-	ProcessLoop(Process, interface{}, ...interface{}) // method which implements control flow of process
-	Options() map[string]interface{}                  // method returns process-related options
+	loop(*Process, interface{}, ...interface{}) // method which implements control flow of process
 }

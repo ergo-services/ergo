@@ -1,15 +1,17 @@
 package dist
 
 import (
+	"context"
 	"encoding/binary"
 	"fmt"
-	"github.com/halturin/ergonode/lib"
 	"io"
 	"net"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/halturin/ergonode/lib"
 )
 
 const (
@@ -49,7 +51,7 @@ type EPMD struct {
 	response chan interface{}
 }
 
-func (e *EPMD) Init(name string, listenport uint16, epmdport uint16, hidden bool) {
+func (e *EPMD) Init(ctx context.Context, name string, listenport uint16, epmdport uint16, hidden bool) {
 	ns := strings.Split(name, "@")
 	if len(ns) != 2 {
 		panic("FQDN for node name is required (example: node@hostname)")
@@ -75,7 +77,7 @@ func (e *EPMD) Init(name string, listenport uint16, epmdport uint16, hidden bool
 	go func(e *EPMD) {
 		for {
 			// trying to start embedded EPMD before we go further
-			Server(epmdport)
+			Server(ctx, epmdport)
 
 			dsn := net.JoinHostPort("", strconv.Itoa(int(epmdport)))
 			conn, err := net.Dial("tcp", dsn)
@@ -239,14 +241,14 @@ func (e *epmdsrv) ListAll() map[string]uint16 {
 
 var epmdserver *epmdsrv
 
-func Server(port uint16) error {
+func Server(ctx context.Context, port uint16) error {
 
 	if epmdserver != nil {
 		// already started
 		return fmt.Errorf("Already started")
 	}
-
-	epmd, err := net.Listen("tcp", net.JoinHostPort("", strconv.Itoa(int(port))))
+	lc := net.ListenConfig{}
+	epmd, err := lc.Listen(ctx, "tcp", net.JoinHostPort("", strconv.Itoa(int(port))))
 	if err != nil {
 		lib.Log("Can't start embedded EPMD service: %s", err)
 		return fmt.Errorf("Can't start embedded EPMD service: %s", err)

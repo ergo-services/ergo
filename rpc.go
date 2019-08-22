@@ -27,8 +27,9 @@ func (n *Node) RpcRevoke(modName, funName string) {
 	lib.Log("Revoke: %s:%s", modName, funName)
 }
 
-func (r *rpc) Init(args ...interface{}) interface{} {
+func (r *rpc) Init(p Process, args ...interface{}) interface{} {
 	lib.Log("RPC: Init: %#v", args)
+	r.Process = p
 	r.methods = make(map[modFun]rpcFunction, 0)
 	return nil
 }

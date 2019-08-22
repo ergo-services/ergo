@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/binary"
 	"flag"
 	"fmt"
@@ -33,7 +34,7 @@ func main() {
 		return
 	}
 
-	if err := dist.Server(uint16(Listen)); err != nil {
+	if err := dist.Server(context.TODO(), uint16(Listen)); err != nil {
 		panic(err)
 	}
 

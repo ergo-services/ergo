@@ -9,9 +9,14 @@ type globalNameServer struct {
 	GenServer
 }
 
-func (ns *globalNameServer) Init(args ...interface{}) (state interface{}) {
+type state struct {
+}
+
+func (ns *globalNameServer) Init(p Process, args ...interface{}) interface{} {
 	lib.Log("GLOBAL_NAME_SERVER: Init: %#v", args)
-	return nil
+	ns.Process = p
+
+	return state{}
 }
 
 func (ns *globalNameServer) HandleCast(message *etf.Term, state interface{}) (string, interface{}) {

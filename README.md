@@ -17,6 +17,7 @@ Implementation of Erlang/OTP node in Go
  * Monitor processes
  * Monitor nodes
  * Support Erlang 21.*
+ * Multinode support (new feature)
 
 #### Requirement ####
 
@@ -182,3 +183,7 @@ func (pg2 *pg2Server) Init(args ...interface{}) (state interface{}) {
     return nil
 }
 ```
+
+## Multinode support ##
+
+running multiple nodes at one ergonode instance... allows create bridge between erlang clusters

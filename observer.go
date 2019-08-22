@@ -9,8 +9,9 @@ type observer struct {
 	GenServer
 }
 
-func (o *observer) Init(args ...interface{}) (state interface{}) {
+func (o *observer) Init(p Process, args ...interface{}) (state interface{}) {
 	lib.Log("OBSERVER: Init: %#v", args)
+	o.Process = p
 	return nil
 }
 

@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
+	"syscall"
 
 	"github.com/halturin/ergonode/dist"
 	"github.com/halturin/ergonode/etf"
@@ -29,7 +31,7 @@ type Node struct {
 	procID    uint64
 	lock      sync.Mutex
 	context   context.Context
-	cancel    context.CancelFunc
+	Stop      context.CancelFunc
 }
 
 type NodeOptions struct {
@@ -54,13 +56,15 @@ func CreateNode(name string, cookie string, opts NodeOptions) *Node {
 func CreateNodeWithContext(ctx context.Context, name string, cookie string, opts NodeOptions) *Node {
 
 	lib.Log("Start with name '%s' and cookie '%s'", name, cookie)
+	nodectx, nodestop := context.WithCancel(ctx)
 
 	node := Node{
 		Cookie:    cookie,
 		peers:     make(map[etf.Atom]nodepeer),
 		monitors:  make(map[etf.Atom][]etf.Pid),
 		monitorsP: make(map[etf.Pid][]etf.Pid),
-		context:   ctx,
+		context:   nodectx,
+		Stop:      nodestop,
 	}
 
 	// start networking if name is defined
@@ -89,11 +93,11 @@ func CreateNodeWithContext(ctx context.Context, name string, cookie string, opts
 			panic("FQDN for node name is required (example: node@hostname)")
 		}
 
-		if listenPort := node.listen(name, opts.ListenRangeBegin, opts.ListenRangeEnd); listenPort == 0 {
+		if listenPort := node.listen(ns[1], opts.ListenRangeBegin, opts.ListenRangeEnd); listenPort == 0 {
 			panic("Can't listen port")
 		} else {
 			// start EPMD
-			node.EPMD.Init(name, listenPort, opts.EPMDPort, opts.Hidden)
+			node.EPMD.Init(nodectx, name, listenPort, opts.EPMDPort, opts.Hidden)
 		}
 
 	}
@@ -101,31 +105,34 @@ func CreateNodeWithContext(ctx context.Context, name string, cookie string, opts
 	node.registrar = createRegistrar(node.context, node.FullName)
 
 	// starting system processes
+	process_opts := map[string]interface{}{
+		"mailbox-size": DefaultProcessMailboxSize, // size of channel for regular messages
+	}
 	node.system.netKernel = new(netKernel)
-	node.Spawn("net_kernel", node.system.netKernel)
+	node.Spawn("net_kernel", process_opts, node.system.netKernel)
 
 	node.system.globalNameServer = new(globalNameServer)
-	node.Spawn("global_name_server", node.system.globalNameServer)
+	node.Spawn("global_name_server", process_opts, node.system.globalNameServer)
 
 	node.system.rpc = new(rpc)
-	node.Spawn("rpc", node.system.rpc)
+	node.Spawn("rpc", process_opts, node.system.rpc)
 
 	node.system.observer = new(observer)
-	node.Spawn("observer", node.system.observer)
+	node.Spawn("observer", process_opts, node.system.observer)
 
 	return &node
 }
 
 // Spawn create new process and store its identificator in table at current node
-func (n *Node) Spawn(name string, object interface{}, args ...interface{}) Process {
-	process := n.registrar.RegisterProcessWithName(name, object)
+func (n *Node) Spawn(name string, opts map[string]interface{}, object interface{}, args ...interface{}) *Process {
+	process := n.registrar.RegisterProcessExt(name, object, opts)
 	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				lib.Log("Recovered process: %#v with error: %s", object, r)
-			}
-		}()
-		object.(ProcessBehaviour).ProcessLoop(process, object, args...)
+		// defer func() {
+		// 	if r := recover(); r != nil {
+		// 		lib.Log("Recovered process: %#v with error: %s", object, r)
+		// 	}
+		// }()
+		object.(ProcessBehaviour).loop(process, object, args...)
 	}()
 	<-process.ready
 	return process
@@ -473,9 +480,13 @@ func removePid(pids []etf.Pid, pid etf.Pid) []etf.Pid {
 }
 
 func (n *Node) listen(name string, listenRangeBegin, listenRangeEnd uint16) uint16 {
+
+	lc := net.ListenConfig{Control: setSocketOptions}
+
 	for p := listenRangeBegin; p <= listenRangeEnd; p++ {
-		l, err := net.Listen("tcp", net.JoinHostPort(name, strconv.Itoa(int(p))))
+		l, err := lc.Listen(n.context, "tcp", net.JoinHostPort(name, strconv.Itoa(int(p))))
 		if err != nil {
+			panic(err)
 			continue
 		}
 		go func() {
@@ -493,4 +504,20 @@ func (n *Node) listen(name string, listenRangeBegin, listenRangeEnd uint16) uint
 	}
 
 	return 0
+}
+
+func setSocketOptions(network string, address string, c syscall.RawConn) error {
+	var fn = func(s uintptr) {
+		var setErr error
+		setErr = syscall.SetsockoptInt(int(s), syscall.IPPROTO_TCP, syscall.TCP_KEEPINTVL, 5)
+		if setErr != nil {
+			log.Fatal(setErr)
+		}
+	}
+	if err := c.Control(fn); err != nil {
+		return err
+	}
+
+	return nil
+
 }

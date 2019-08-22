@@ -9,8 +9,10 @@ type netKernel struct {
 	GenServer
 }
 
-func (nk *netKernel) Init(args ...interface{}) (state interface{}) {
+func (nk *netKernel) Init(p Process, args ...interface{}) (state interface{}) {
 	lib.Log("NET_KERNEL: Init: %#v", args)
+	nk.Process = p
+
 	return nil
 }
 

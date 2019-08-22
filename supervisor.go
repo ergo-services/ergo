@@ -2,7 +2,9 @@ package ergonode
 
 import (
 	"context"
-	"sync"
+
+	"github.com/halturin/ergonode/etf"
+	"github.com/halturin/ergonode/lib"
 )
 
 type SupervisorStrategy = string
@@ -47,41 +49,115 @@ const (
 	// it terminates abnormally, that is, with an exit reason other
 	// than normal, shutdown, or {shutdown,Term}.
 	SupervisorRestartTransient = "transient"
-
-	// SupervisorChild
-	SupervisorChildWorker     = "worker"
-	SupervisorChildSupervisor = "supervisor"
 )
 
 // SupervisorBehavior interface
 type SupervisorBehavior interface {
+	Init(process *Process, args ...interface{}) (state interface{})
 	StartChild()
 	StartLink()
+	// RestartChild()
+	// DeleteChild()
+	// TerminateChild()
+	// WhichChildren()
+	// CountChildren()
 }
 
-// Supervisor is implementation of SupervisorBehavior interface
+// Supervisor is implementation of ProcessBehavior interface
 type Supervisor struct {
 	strategy SupervisorStrategy
 	restart  SupervisorRestart
 	children []interface{}
 	process  Process
 
-	Node    *Node // current node of process
 	context context.Context
 	cancel  context.CancelFunc
-	wg      sync.WaitGroup
 }
 
-// CreateSupervisor
-func CreateSupervisor(childlist []*GenServer, strategy SupervisorStrategy,
-	intensity, period int) *Supervisor {
+func (sv *Supervisor) loop(p *Process, object interface{}, args ...interface{}) {
+	state := object.(SupervisorBehavior).Init(p, args...)
+	p.ready <- true
+	var stop chan string
+	stop = make(chan string)
+	for {
+		var message etf.Term
+		var fromPid etf.Pid
+		select {
+		case reason := <-stop:
+			object.(GenServerBehavior).Terminate(reason, state)
+			return
+		case messageLocal := <-p.local:
+			message = messageLocal
+		case messageRemote := <-p.remote:
+			message = messageRemote[1]
+			fromPid = messageRemote[0].(etf.Pid)
+		case <-p.context.Done():
+			object.(GenServerBehavior).Terminate("immediate", p.state)
+			return
+		}
 
-	sv := Supervisor{}
-	sv.context, sv.cancel = context.WithCancel(context.Background())
+		lib.Log("[%#v]. Message from %#v\n", p.self, fromPid)
+		switch m := message.(type) {
+		case etf.Tuple:
+			switch mtag := m[0].(type) {
+			case etf.Atom:
+				switch mtag {
+				case etf.Atom("$gen_call"):
+					fromTuple := m[1].(etf.Tuple)
+					code, reply, state1 := object.(GenServerBehavior).HandleCall(&fromTuple, &m[2], p.state)
 
-	return &sv
-}
+					p.state = state1
+					if code == "stop" {
+						stop <- code
+						continue
+					}
 
-func (s *Supervisor) Stop() {
-	s.cancel()
+					if reply != nil && code == "reply" {
+						// pid := fromTuple[0].(etf.Pid)
+						// ref := fromTuple[1]
+						// rep := etf.Term(etf.Tuple{ref, *reply})
+						// gs.Send(pid, &rep)
+					}
+
+				case etf.Atom("$gen_cast"):
+					code, state1 := object.(GenServerBehavior).HandleCast(&m[1], p.state)
+					p.state = state1
+					if code == "stop" {
+						stop <- code
+						continue
+					}
+				default:
+					code, state1 := object.(GenServerBehavior).HandleInfo(&message, p.state)
+					p.state = state1
+					if code == "stop" {
+						stop <- code
+						return
+					}
+				}
+			case etf.Ref:
+				lib.Log("got reply: %#v\n%#v", mtag, message)
+				// gs.chreply <- m
+			default:
+				lib.Log("mtag: %#v", mtag)
+				go func() {
+					code, state1 := object.(GenServerBehavior).HandleInfo(&message, p.state)
+					p.state = state1
+					if code == "stop" {
+						stop <- code
+						return
+					}
+				}()
+			}
+		default:
+			lib.Log("m: %#v", m)
+			go func() {
+				code, state1 := object.(GenServerBehavior).HandleInfo(&message, p.state)
+				p.state = state1
+				if code == "stop" {
+					stop <- code
+					return
+				}
+			}()
+		}
+	}
 }
