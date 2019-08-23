@@ -17,7 +17,7 @@ Implementation of Erlang/OTP node in Go
  * Monitor processes
  * Monitor nodes
  * Support Erlang 21.*
- * Multinode support (new feature)
+ * [Multinode support](#multinode-support)
 
 #### Requirement ####
 

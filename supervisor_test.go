@@ -7,17 +7,35 @@ import (
 	"time"
 ) 
 
-func TestCreateSupervisor(t *testing.T) {
+type testSupervisor struct {
+	Supervisor
+}
+
+type testGenServer1 struct {
+	GenServer
+}
+
+type testGenServer2 struct {
+	GenServer
+}
+
+func TestSupervisor1(t *testing.T) {
 	 CreateNode("","", NodeOptions{})
 
-	gs := []*GenServer{}
-	sv := CreateSupervisor(gs, SupervisorStrategyOneForAll, 5, 10)
-	if sv == nil {
-		t.Error("can't create supervisor")
-	}
+	 node := CreateNode("node@localhost","cookies", NodeOptions{})
+	 g:=&testSupervisor{}
+	 process_opts := map[string]interface{}{
+		 "mailbox-size": DefaultProcessMailboxSize, // size of channel for regular messages
+	 }
+	 pp := node.Spawn("testSupervisor", process_opts, g)
+	 time.Sleep(1 *time.Second)
+	 pp.Stop()
+	 time.Sleep(1 *time.Second)
+	 node.Stop()
+	 time.Sleep(1 *time.Second)
+}
 
-	time.Sleep(time.Second *3)
-	sv.Stop()
-	time.Sleep(time.Second *1)
 
+func (ts *testSupervisor) Init() {
+	
 }

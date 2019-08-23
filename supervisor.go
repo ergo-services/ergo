@@ -8,7 +8,7 @@ import (
 )
 
 type SupervisorStrategy = string
-type SupervisorRestart = string
+type SupervisorChildRestart = string
 type SupervisorChild = string
 
 const (
@@ -36,24 +36,24 @@ const (
 
 	// Restart types:
 
-	// SupervisorRestartPermanent child process is always restarted
-	SupervisorRestartPermanent = "permanent"
+	// SupervisorChildRestartPermanent child process is always restarted
+	SupervisorChildRestartPermanent = "permanent"
 
-	// SupervisorRestartTemporary child process is never restarted
+	// SupervisorChildRestartTemporary child process is never restarted
 	// (not even when the supervisor restart strategy is rest_for_one
 	// or one_for_all and a sibling death causes the temporary process
 	// to be terminated)
-	SupervisorRestartTemporary = "temporary"
+	SupervisorChildRestartTemporary = "temporary"
 
-	// SupervisorRestartTransient child process is restarted only if
+	// SupervisorChildRestartTransient child process is restarted only if
 	// it terminates abnormally, that is, with an exit reason other
 	// than normal, shutdown, or {shutdown,Term}.
-	SupervisorRestartTransient = "transient"
+	SupervisorChildRestartTransient = "transient"
 )
 
 // SupervisorBehavior interface
 type SupervisorBehavior interface {
-	Init(process *Process, args ...interface{}) (state interface{})
+	Init(process *Process, args ...interface{}) SupervisorSpec
 	StartChild()
 	StartLink()
 	// RestartChild()
@@ -61,6 +61,16 @@ type SupervisorBehavior interface {
 	// TerminateChild()
 	// WhichChildren()
 	// CountChildren()
+}
+
+type SupervisorSpec struct {
+	children []SupervisorChildSpec
+	strategy SupervisorStrategy
+}
+
+type SupervisorChildSpec struct {
+	child   ProcessBehaviour
+	restart SupervisorChildRestart
 }
 
 // Supervisor is implementation of ProcessBehavior interface
@@ -75,7 +85,7 @@ type Supervisor struct {
 }
 
 func (sv *Supervisor) loop(p *Process, object interface{}, args ...interface{}) {
-	state := object.(SupervisorBehavior).Init(p, args...)
+	spec := object.(SupervisorBehavior).Init(p, args...)
 	p.ready <- true
 	var stop chan string
 	stop = make(chan string)
@@ -84,7 +94,7 @@ func (sv *Supervisor) loop(p *Process, object interface{}, args ...interface{}) 
 		var fromPid etf.Pid
 		select {
 		case reason := <-stop:
-			object.(GenServerBehavior).Terminate(reason, state)
+			object.(SupervisorBehavior).Terminate(reason, state)
 			return
 		case messageLocal := <-p.local:
 			message = messageLocal

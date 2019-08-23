@@ -26,8 +26,7 @@ type Node struct {
 	registrar *registrar
 	peers     map[etf.Atom]nodepeer
 	system    systemProcesses
-	monitors  map[etf.Atom][]etf.Pid // node monitors
-	monitorsP map[etf.Pid][]etf.Pid  // process monitors
+	monitor   *monitor
 	procID    uint64
 	lock      sync.Mutex
 	context   context.Context
@@ -59,12 +58,10 @@ func CreateNodeWithContext(ctx context.Context, name string, cookie string, opts
 	nodectx, nodestop := context.WithCancel(ctx)
 
 	node := Node{
-		Cookie:    cookie,
-		peers:     make(map[etf.Atom]nodepeer),
-		monitors:  make(map[etf.Atom][]etf.Pid),
-		monitorsP: make(map[etf.Pid][]etf.Pid),
-		context:   nodectx,
-		Stop:      nodestop,
+		Cookie:  cookie,
+		peers:   make(map[etf.Atom]nodepeer),
+		context: nodectx,
+		Stop:    nodestop,
 	}
 
 	// start networking if name is defined
@@ -103,6 +100,7 @@ func CreateNodeWithContext(ctx context.Context, name string, cookie string, opts
 	}
 
 	node.registrar = createRegistrar(node.context, node.FullName)
+	node.monitor = createMonitor()
 
 	// starting system processes
 	process_opts := map[string]interface{}{
@@ -127,9 +125,11 @@ func CreateNodeWithContext(ctx context.Context, name string, cookie string, opts
 func (n *Node) Spawn(name string, opts map[string]interface{}, object interface{}, args ...interface{}) *Process {
 	process := n.registrar.RegisterProcessExt(name, object, opts)
 	go func() {
+		// FIXME: uncomment this 'defer' before release
 		// defer func() {
 		// 	if r := recover(); r != nil {
 		// 		lib.Log("Recovered process: %#v with error: %s", object, r)
+		// 		n.registrar.UnregisterProcess(process.self)
 		// 	}
 		// }()
 		object.(ProcessBehaviour).loop(process, object, args...)
@@ -144,12 +144,12 @@ func (n *Node) Register(name string, pid etf.Pid) {
 
 func (n *Node) serve(c net.Conn, negotiate bool) {
 
-	var currNd *dist.NodeDesc
+	var node *dist.NodeDesc
 
 	if negotiate {
-		currNd = dist.NewNodeDesc(n.FullName, n.Cookie, false, c)
+		node = dist.NewNodeDesc(n.FullName, n.Cookie, false, c)
 	} else {
-		currNd = dist.NewNodeDesc(n.FullName, n.Cookie, false, nil)
+		node = dist.NewNodeDesc(n.FullName, n.Cookie, false, nil)
 	}
 
 	wchan := make(chan []etf.Term, 10)
@@ -157,7 +157,7 @@ func (n *Node) serve(c net.Conn, negotiate bool) {
 	go func() {
 		for {
 			terms := <-wchan
-			err := currNd.WriteMessage(c, terms)
+			err := node.WriteMessage(c, terms)
 			if err != nil {
 				lib.Log("Enode error (writing): %s", err.Error())
 				break
@@ -165,14 +165,14 @@ func (n *Node) serve(c net.Conn, negotiate bool) {
 		}
 		c.Close()
 		n.lock.Lock()
-		// n.handle_monitors_node(currNd.GetRemoteName())
-		delete(n.peers, currNd.GetRemoteName())
+		// n.handle_monitors_node(node.GetRemoteName())
+		delete(n.peers, node.GetRemoteName())
 		n.lock.Unlock()
 	}()
 
 	go func() {
 		for {
-			terms, err := currNd.ReadMessage(c)
+			terms, err := node.ReadMessage(c)
 			if err != nil {
 				lib.Log("Enode error (reading): %s", err.Error())
 				break
@@ -181,16 +181,17 @@ func (n *Node) serve(c net.Conn, negotiate bool) {
 		}
 		c.Close()
 		n.lock.Lock()
-		// n.handle_monitors_node(currNd.GetRemoteName())
-		delete(n.peers, currNd.GetRemoteName())
+		// n.handle_monitors_node(node.GetRemoteName())
+		delete(n.peers, node.GetRemoteName())
 		n.lock.Unlock()
 	}()
 
-	<-currNd.Ready
+	<-node.Ready
 
 	return
 }
 
+// FIXME: rework it using types like [2]etf.Term
 func (n *Node) handleTerms(c net.Conn, wchan chan []etf.Term, terms []etf.Term) {
 	lib.Log("Node terms: %#v", terms)
 
@@ -445,38 +446,28 @@ func (n *Node) MakeRef() (ref etf.Ref) {
 	return
 }
 
-func connect(n *Node, to etf.Atom) error {
+func (n *Node) connect(to etf.Atom) error {
 
 	var port int
 	var err error
+	var dialer = net.Dialer{
+		Control: setSocketOptions,
+	}
 
 	if port, err = n.ResolvePort(string(to)); port < 0 {
 		return fmt.Errorf("Can't resolve port: %s", err)
 	}
 	ns := strings.Split(string(to), "@")
 
-	c, err := net.Dial("tcp", net.JoinHostPort(ns[1], strconv.Itoa(int(port))))
+	c, err := dialer.DialContext(n.context, "tcp", net.JoinHostPort(ns[1], strconv.Itoa(int(port))))
 	if err != nil {
-		lib.Log("Error calling net.Dial : %s", err.Error())
+		lib.Log("Error calling net.Dialer.DialerContext : %s", err.Error())
 		return err
-	}
-
-	if tcp, ok := c.(*net.TCPConn); ok {
-		tcp.SetKeepAlive(true)
 	}
 
 	n.serve(c, true)
 
 	return nil
-}
-
-func removePid(pids []etf.Pid, pid etf.Pid) []etf.Pid {
-	for i, p := range pids {
-		if p == pid {
-			return append(pids[:i], pids[i+1:]...)
-		}
-	}
-	return pids
 }
 
 func (n *Node) listen(name string, listenRangeBegin, listenRangeEnd uint16) uint16 {

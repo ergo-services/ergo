@@ -1,5 +1,158 @@
 package ergonode
 
+import (
+	"context"
+
+	"github.com/halturin/ergonode/etf"
+)
+
+type monitorProcessRequest struct {
+	process etf.Pid
+	by      etf.Pid
+}
+
+type monitorNodeRequest struct {
+	node string
+	by   etf.Pid
+}
+
+type monitorChannels struct {
+	process          chan monitorProcessRequest
+	demonitorProcess chan monitorProcessRequest
+	node             chan monitorNodeRequest
+	demonitorName    chan monitorNodeRequest
+
+	nodeDown          chan string
+	processTerminated chan etf.Pid
+}
+
+type monitor struct {
+	processes map[etf.Pid][]etf.Pid
+	nodes     map[string][]etf.Pid
+
+	channels monitorChannels
+
+	node    *Node
+	context context.Context
+}
+
+func createMonitor(ctx context.Context, node *Node) *monitor {
+	m := &monitor{
+		processes: make(map[etf.Pid][]etf.Pid),
+		nodes:     make(map[string][]etf.Pid),
+		channels: monitorChannels{
+			process:          make(chan monitorProcessRequest),
+			demonitorProcess: make(chan monitorProcessRequest),
+			node:             make(chan monitorNodeRequest),
+			demonitorName:    make(chan monitorNodeRequest),
+
+			nodeDown:          make(chan string),
+			processTerminated: make(chan etf.Pid),
+		},
+	}
+
+	go m.run()
+
+	return m
+}
+
+func (m *monitor) run() {
+	defer func() {
+		close(m.channels.process)
+		close(m.channels.demonitorProcess)
+		close(m.channels.node)
+		close(m.channels.demonitorName)
+		close(m.channels.nodeDown)
+		close(m.channels.processTerminated)
+	}()
+
+	for {
+		select {
+		case p := <-m.channels.process:
+			l := m.processes[p.process]
+			l = append(l, p.by)
+			m.processes[p.process] = l
+		case dp := <-m.channels.demonitorProcess:
+			l := m.processes[dp.by]
+			// TODO: remove PID from monitoring processes list
+			m.processes[dp.process] = l
+		case n := <-m.channels.node:
+			l := m.nodes[n.node]
+			l = append(l, n.by)
+			m.nodes[n.node] = l
+		case dn := <-m.channels.demonitorName:
+			l := m.nodes[dn.node]
+			// TODO: remove PID from monitoring processes list
+			m.nodes[dn.node] = l
+		case nd := <-m.channels.nodeDown:
+			if pids, ok := m.nodes[nd]; ok {
+				for i := range pids {
+					m.notifyNodeDown(nd, pids[i])
+				}
+			}
+		case pt := <-m.channels.processTerminated:
+			if pids, ok := m.processes[pt]; ok {
+				for i := range pids {
+					m.notifyProcessTerminated(pt, pids[i])
+				}
+			}
+		case <-m.context.Done():
+			return
+		}
+	}
+}
+
+func (m *monitor) MonitorProcess(process, by etf.Pid) {
+	p := monitorProcessRequest{
+		process: process,
+		by:      by,
+	}
+	m.channels.process <- p
+}
+
+func (m *monitor) DemonitorProcess(process, by etf.Pid) {
+	p := monitorProcessRequest{
+		process: process,
+		by:      by,
+	}
+	m.channels.demonitorProcess <- p
+}
+
+func (m *monitor) MonitorNode(node string, by etf.Pid) {
+
+	n := monitorNodeRequest{
+		node: node,
+		by:   by,
+	}
+
+	m.channels.node <- n
+}
+
+func (m *monitor) DemonitorNode(node string, by etf.Pid) {
+	n := monitorNodeRequest{
+		node: node,
+		by:   by,
+	}
+
+	m.channels.node <- n
+}
+
+func (m *monitor) NodeDown(node string) {
+	// TODO:
+}
+
+func (m *monitor) ProcessTerminated(process etf.Pid) {
+	// TODO:
+}
+
+func (m *monitor) notifyNodeDown(node string, to etf.Pid) {
+	// TODO:
+}
+
+func (m *monitor) notifyProcessTerminated(terminated etf.Pid, to etf.Pid) {
+	// TODO:
+}
+
 // func (n *Node) Monitor(by etf.Pid, to etf.Pid) {
 // 	var conn nodepeer
 // 	var exists bool

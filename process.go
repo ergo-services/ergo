@@ -34,3 +34,21 @@ type Process struct {
 type ProcessBehaviour interface {
 	loop(*Process, interface{}, ...interface{}) // method which implements control flow of process
 }
+
+// Self returns self Pid
+func (p *Process) Self() etf.Pid {
+	return p.self
+}
+
+func (p *Process) Call() (error, etf.Term) {
+
+	return nil, nil
+}
+
+func (p *Process) Cast() {
+
+}
+
+func (p *Process) Send() {
+
+}
