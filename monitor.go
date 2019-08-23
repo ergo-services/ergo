@@ -1,8 +1,6 @@
 package ergonode
 
 import (
-	"context"
-
 	"github.com/halturin/ergonode/etf"
 	"github.com/halturin/ergonode/lib"
 )
@@ -33,11 +31,10 @@ type monitor struct {
 
 	channels monitorChannels
 
-	node    *Node
-	context context.Context
+	node *Node
 }
 
-func createMonitor(ctx context.Context, node *Node) *monitor {
+func createMonitor(node *Node) *monitor {
 	m := &monitor{
 		processes: make(map[etf.Pid][]etf.Pid),
 		nodes:     make(map[string][]etf.Pid),
@@ -50,8 +47,7 @@ func createMonitor(ctx context.Context, node *Node) *monitor {
 			nodeDown:          make(chan string),
 			processTerminated: make(chan etf.Pid),
 		},
-		node:    node,
-		context: ctx,
+		node: node,
 	}
 
 	go m.run()
@@ -103,7 +99,7 @@ func (m *monitor) run() {
 					m.notifyProcessTerminated(pt, pids[i])
 				}
 			}
-		case <-m.context.Done():
+		case <-m.node.context.Done():
 			return
 		}
 	}

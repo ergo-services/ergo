@@ -4,20 +4,19 @@ package ergonode
 
 import (
 	"testing"
-	"context"
 	"time"
 )
 
 
 func TestMonitor(t *testing.T) {
+	node := CreateNode("node@localhost","cookies", NodeOptions{})
+
 	g1:=&GenServer{}
 	g2:=&GenServer{}
 	g3:=&GenServer{}
 
-	ctx, cancel := context.WithCancel(context.Background())
-
-	m := createMonitor(ctx, nil)
-	cr := createRegistrar(ctx, "testRegistrar")
+	m := createMonitor(node)
+	cr := createRegistrar(node)
 
 	process1 := cr.RegisterProcess(g1)
 	process2 := cr.RegisterProcess(g2)
@@ -30,7 +29,7 @@ func TestMonitor(t *testing.T) {
 	process1.Stop()
 	process3.Stop()
 	time.Sleep(1 *time.Second)
-	cancel()
+	node.Stop()
 	time.Sleep(1 *time.Second)
 
 }

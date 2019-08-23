@@ -35,8 +35,7 @@ type registrar struct {
 	nodeName string
 	creation byte
 
-	nodeContext context.Context
-	nodeStop    context.CancelFunc
+	node *Node
 
 	channels registrarChannels
 
@@ -44,14 +43,12 @@ type registrar struct {
 	processes map[etf.Pid]*Process
 }
 
-func createRegistrar(ctx context.Context, nodename string) *registrar {
-	nodeCtx, nodeStop := context.WithCancel(ctx)
+func createRegistrar(node *Node) *registrar {
 	r := registrar{
-		nextPID:     startPID,
-		nodeName:    nodename,
-		creation:    byte(1),
-		nodeContext: nodeCtx,
-		nodeStop:    nodeStop,
+		nextPID:  startPID,
+		nodeName: node.FullName,
+		creation: byte(1),
+		node:     node,
 		channels: registrarChannels{
 			process:           make(chan registerProcessRequest),
 			unregisterProcess: make(chan etf.Pid),
@@ -94,14 +91,21 @@ func (r *registrar) run() {
 			if size, ok := p.opts["mailbox-size"]; ok {
 				mailbox_size = size.(int)
 			}
-			ctx, stop := context.WithCancel(r.nodeContext)
+			ctx, stop := context.WithCancel(r.node.context)
+			pid := r.createNewPID(r.nodeName)
+			wrapped_stop := func() {
+				lib.Log("STOPPING: %#v", p.name)
+				stop()
+				r.UnregisterProcess(pid)
+				r.node.monitor.ProcessTerminated(pid)
+			}
 			process := &Process{
 				local:   make(chan etf.Term, mailbox_size),
 				remote:  make(chan etf.Tuple, mailbox_size),
 				ready:   make(chan bool),
-				self:    r.createNewPID(r.nodeName),
+				self:    pid,
 				context: ctx,
-				Stop:    stop,
+				Stop:    wrapped_stop,
 				name:    p.name,
 			}
 
@@ -133,14 +137,13 @@ func (r *registrar) run() {
 		case un := <-r.channels.unregisterName:
 			lib.Log("unregistering name %v", un)
 
-		case <-r.nodeContext.Done():
+		case <-r.node.context.Done():
 			lib.Log("Finalizing registrar for %s (total number of processes: %d)", r.nodeName, len(r.processes))
 			// FIXME: this approach just call cancel function for
 			// everysingle process. should we do that for the gen_servers
 			// are running under supervisor?
 			for _, p := range r.processes {
 				lib.Log("FIN: %#v", p.name)
-
 				p.Stop()
 			}
 			return
@@ -148,14 +151,14 @@ func (r *registrar) run() {
 	}
 }
 
-func (r *registrar) RegisterProcess(object interface{}) *Process {
+func (r *registrar) RegisterProcess(object interface{}) Process {
 	opts := map[string]interface{}{
 		"mailbox-size": DefaultProcessMailboxSize, // size of channel for regular messages
 	}
 	return r.RegisterProcessExt("", object, opts)
 }
 
-func (r *registrar) RegisterProcessExt(name string, object interface{}, opts map[string]interface{}) *Process {
+func (r *registrar) RegisterProcessExt(name string, object interface{}, opts map[string]interface{}) Process {
 	req := registerProcessRequest{
 		name:   name,
 		object: object,
@@ -165,15 +168,7 @@ func (r *registrar) RegisterProcessExt(name string, object interface{}, opts map
 
 	select {
 	case p := <-r.channels.reply:
-		// wrap cancel function with unreginstering process
-		stop := p.Stop
-		p.Stop = func() {
-			lib.Log("STOPPING: %#v", p.name)
-
-			stop()
-			r.UnregisterProcess(p.self)
-		}
-		return p
+		return *p
 	}
 
 }

@@ -27,8 +27,8 @@ type GenServer struct {
 	Process Process
 }
 
-func (gs *GenServer) loop(p *Process, object interface{}, args ...interface{}) {
-	state := object.(GenServerBehavior).Init(*p, args...)
+func (gs *GenServer) loop(p Process, object interface{}, args ...interface{}) {
+	state := object.(GenServerBehavior).Init(p, args...)
 	p.ready <- true
 	var stop chan string
 	stop = make(chan string)

@@ -25,14 +25,13 @@ type Process struct {
 	name    string
 	Node    *Node
 
-	processType ProcessType
-	object      interface{}
-	state       interface{}
+	object interface{}
+	state  interface{}
 }
 
 // Behaviour interface contains methods you should implement to make own process behaviour
 type ProcessBehaviour interface {
-	loop(*Process, interface{}, ...interface{}) // method which implements control flow of process
+	loop(Process, interface{}, ...interface{}) // method which implements control flow of process
 }
 
 // Self returns self Pid
