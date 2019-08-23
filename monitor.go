@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/halturin/ergonode/etf"
+	"github.com/halturin/ergonode/lib"
 )
 
 type monitorProcessRequest struct {
@@ -49,6 +50,8 @@ func createMonitor(ctx context.Context, node *Node) *monitor {
 			nodeDown:          make(chan string),
 			processTerminated: make(chan etf.Pid),
 		},
+		node:    node,
+		context: ctx,
 	}
 
 	go m.run()
@@ -69,6 +72,7 @@ func (m *monitor) run() {
 	for {
 		select {
 		case p := <-m.channels.process:
+			lib.Log("MONITOR process: %#v by %#v", p.process, p.by)
 			l := m.processes[p.process]
 			l = append(l, p.by)
 			m.processes[p.process] = l
@@ -91,7 +95,10 @@ func (m *monitor) run() {
 				}
 			}
 		case pt := <-m.channels.processTerminated:
+			lib.Log("MONITOR process terminated: %#v", pt)
 			if pids, ok := m.processes[pt]; ok {
+				lib.Log("MONITOR process notif send to: %#v", pids)
+
 				for i := range pids {
 					m.notifyProcessTerminated(pt, pids[i])
 				}

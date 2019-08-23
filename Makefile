@@ -20,3 +20,5 @@ test-r:
 	go test -v -tags registrar --trace.node --trace.dist
 test-gs:
 	go test -v -tags genserver --trace.node --trace.dist
+test-m:
+	go test -v -tags monitor --trace.node --trace.dist

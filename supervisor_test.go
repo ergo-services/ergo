@@ -36,6 +36,6 @@ func TestSupervisor1(t *testing.T) {
 }
 
 
-func (ts *testSupervisor) Init() {
-	
+func (ts *testSupervisor) Init() Supervisor{
+
 }

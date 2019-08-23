@@ -100,7 +100,7 @@ func CreateNodeWithContext(ctx context.Context, name string, cookie string, opts
 	}
 
 	node.registrar = createRegistrar(node.context, node.FullName)
-	node.monitor = createMonitor()
+	node.monitor = createMonitor(node.context, &node)
 
 	// starting system processes
 	process_opts := map[string]interface{}{
