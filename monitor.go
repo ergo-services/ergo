@@ -67,47 +67,60 @@ func (m *monitor) run() {
 
 	for {
 		select {
+
 		case p := <-m.channels.process:
 			lib.Log("MONITOR process: %v => %v", p.by, p.process)
 			l := m.processes[p.process]
-			l = append(l, p.by)
-			m.processes[p.process] = l
+			m.processes[p.process] = append(l, p.by)
+
 		case dp := <-m.channels.demonitorProcess:
 			l := m.processes[dp.by]
-			// TODO: remove PID from monitoring processes list
-			if len(l) == 0 {
-				delete(m.processes, dp.process)
-				continue
+			// remove PID from monitoring processes list
+			for i := range l {
+				if l[i] == dp.process {
+					l[i] = l[0]
+					l = l[1:]
+					break
+				}
 			}
 			m.processes[dp.process] = l
+
 		case n := <-m.channels.node:
 			l := m.nodes[n.node]
-			l = append(l, n.by)
-			m.nodes[n.node] = l
+			m.nodes[n.node] = append(l, n.by)
+
 		case dn := <-m.channels.demonitorName:
 			l := m.nodes[dn.node]
-			// TODO: remove PID from monitoring processes list
-			if len(l) == 0 {
-				delete(m.nodes, dn.node)
-				continue
+			// remove PID from monitoring processes list
+			for i := range l {
+				if l[i] == dn.by {
+					l[i] = l[0]
+					l = l[1:]
+					break
+				}
 			}
 			m.nodes[dn.node] = l
+
 		case nd := <-m.channels.nodeDown:
 			lib.Log("MONITOR node down: %v. (%v)", nd, m.nodes)
 			if pids, ok := m.nodes[nd]; ok {
 				for i := range pids {
 					lib.Log("MONITOR node down: %v. send notify to: %v", nd, pids[i])
 					m.notifyNodeDown(pids[i], nd)
+					delete(m.nodes, nd)
 				}
 			}
+
 		case pt := <-m.channels.processTerminated:
 			lib.Log("MONITOR process terminated: %v (%v)", pt, m.processes)
 			if pids, ok := m.processes[pt]; ok {
 				for i := range pids {
 					lib.Log("MONITOR process terminated: %v send notify to: %v", pt, pids[i])
 					m.notifyProcessTerminated(pids[i], pt)
+					delete(m.processes, pt)
 				}
 			}
+
 		case <-m.node.context.Done():
 			return
 		}
