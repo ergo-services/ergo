@@ -15,19 +15,18 @@ func TestMonitor(t *testing.T) {
 	g2:=&GenServer{}
 	g3:=&GenServer{}
 
-	m := createMonitor(node)
-	cr := createRegistrar(node)
+	process1 := node.registrar.RegisterProcess(g1)
+	process2 := node.registrar.RegisterProcess(g2)
+	process3 := node.registrar.RegisterProcess(g3)
 
-	process1 := cr.RegisterProcess(g1)
-	process2 := cr.RegisterProcess(g2)
-	process3 := cr.RegisterProcess(g3)
+	node.monitor.MonitorProcess(process1.Self(), process2.Self())
+	node.monitor.MonitorProcess(process1.Self(), process2.Self())
 
-	m.MonitorProcess(process1.Self(), process2.Self())
-	m.MonitorProcess(process1.Self(), process2.Self())
+	node.monitor.MonitorProcess(process3.Self(), process2.Self())
+	node.monitor.MonitorProcess(process1.Self(), process3.Self())
 
-	m.MonitorProcess(process2.Self(), process1.Self())
-	process1.Stop()
-	process3.Stop()
+	// process2.Stop()
+	// process3.Stop()
 	time.Sleep(1 *time.Second)
 	node.Stop()
 	time.Sleep(1 *time.Second)

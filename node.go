@@ -276,6 +276,10 @@ func (n *Node) handleTerms(c net.Conn, wchan chan []etf.Term, terms []etf.Term) 
 	}
 }
 
+func (n *Node) stop() {
+
+}
+
 // route incomming message to registered (with sender 'from' value)
 func (n *Node) route(from, to etf.Term, message etf.Term) {
 	// var toPid etf.Pid

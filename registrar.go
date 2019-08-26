@@ -120,13 +120,13 @@ func (r *registrar) run() {
 		case up := <-r.channels.unregisterProcess:
 			lib.Log("unregistering process %v", up)
 			if p, ok := r.processes[up]; ok {
-				lib.Log("REGISTRAR unregistering process: %#v", p.self)
+				lib.Log("REGISTRAR unregistering process: %v", p.self)
 				close(p.local)
 				close(p.remote)
 				close(p.ready)
 				delete(r.processes, up)
 				if (p.name) != "" {
-					lib.Log("REGISTRAR unregistering name (%#v): %s", p.self, p.name)
+					lib.Log("REGISTRAR unregistering name (%v): %s", p.self, p.name)
 					delete(r.names, p.name)
 				}
 			}

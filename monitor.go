@@ -68,13 +68,17 @@ func (m *monitor) run() {
 	for {
 		select {
 		case p := <-m.channels.process:
-			lib.Log("MONITOR process: %#v by %#v", p.process, p.by)
+			lib.Log("MONITOR process: %v => %v", p.by, p.process)
 			l := m.processes[p.process]
 			l = append(l, p.by)
 			m.processes[p.process] = l
 		case dp := <-m.channels.demonitorProcess:
 			l := m.processes[dp.by]
 			// TODO: remove PID from monitoring processes list
+			if len(l) == 0 {
+				delete(m.processes, dp.process)
+				continue
+			}
 			m.processes[dp.process] = l
 		case n := <-m.channels.node:
 			l := m.nodes[n.node]
@@ -83,29 +87,39 @@ func (m *monitor) run() {
 		case dn := <-m.channels.demonitorName:
 			l := m.nodes[dn.node]
 			// TODO: remove PID from monitoring processes list
+			if len(l) == 0 {
+				delete(m.nodes, dn.node)
+				continue
+			}
 			m.nodes[dn.node] = l
 		case nd := <-m.channels.nodeDown:
 			if pids, ok := m.nodes[nd]; ok {
 				for i := range pids {
-					m.notifyNodeDown(nd, pids[i])
+					m.notifyNodeDown(pids[i], nd)
 				}
 			}
 		case pt := <-m.channels.processTerminated:
-			lib.Log("MONITOR process terminated: %#v", pt)
+			lib.Log("MONITOR process terminated: %v (%v)", pt, m.processes)
 			if pids, ok := m.processes[pt]; ok {
-				lib.Log("MONITOR process notif send to: %#v", pids)
-
 				for i := range pids {
-					m.notifyProcessTerminated(pt, pids[i])
+					lib.Log("MONITOR process (%v) notif send to: %v", pt, pids[i])
+					m.notifyProcessTerminated(pids[i], pt)
 				}
 			}
 		case <-m.node.context.Done():
+			lib.Log("MONITOR this node terminated: %v (%v)", m.node.FullName, m.nodes)
+			if pids, ok := m.nodes[m.node.FullName]; ok {
+				for i := range pids {
+					lib.Log("MONITOR node (%v) notif send to: %v", m.node.FullName, pids[i])
+					m.notifyNodeDown(pids[i], m.node.FullName)
+				}
+			}
 			return
 		}
 	}
 }
 
-func (m *monitor) MonitorProcess(process, by etf.Pid) {
+func (m *monitor) MonitorProcess(by, process etf.Pid) {
 	p := monitorProcessRequest{
 		process: process,
 		by:      by,
@@ -113,7 +127,7 @@ func (m *monitor) MonitorProcess(process, by etf.Pid) {
 	m.channels.process <- p
 }
 
-func (m *monitor) DemonitorProcess(process, by etf.Pid) {
+func (m *monitor) DemonitorProcess(by, process etf.Pid) {
 	p := monitorProcessRequest{
 		process: process,
 		by:      by,
@@ -121,7 +135,7 @@ func (m *monitor) DemonitorProcess(process, by etf.Pid) {
 	m.channels.demonitorProcess <- p
 }
 
-func (m *monitor) MonitorNode(node string, by etf.Pid) {
+func (m *monitor) MonitorNode(by etf.Pid, node string) {
 
 	n := monitorNodeRequest{
 		node: node,
@@ -131,7 +145,7 @@ func (m *monitor) MonitorNode(node string, by etf.Pid) {
 	m.channels.node <- n
 }
 
-func (m *monitor) DemonitorNode(node string, by etf.Pid) {
+func (m *monitor) DemonitorNode(by etf.Pid, node string) {
 	n := monitorNodeRequest{
 		node: node,
 		by:   by,
@@ -141,19 +155,19 @@ func (m *monitor) DemonitorNode(node string, by etf.Pid) {
 }
 
 func (m *monitor) NodeDown(node string) {
-	// TODO:
+	m.channels.nodeDown <- node
 }
 
 func (m *monitor) ProcessTerminated(process etf.Pid) {
-	// TODO:
+	m.channels.processTerminated <- process
 }
 
-func (m *monitor) notifyNodeDown(node string, to etf.Pid) {
-	// TODO:
+func (m *monitor) notifyNodeDown(to etf.Pid, node string) {
+	// TODO: send event to the watchers
 }
 
-func (m *monitor) notifyProcessTerminated(terminated etf.Pid, to etf.Pid) {
-	// TODO:
+func (m *monitor) notifyProcessTerminated(to etf.Pid, terminated etf.Pid) {
+	// TODO: send event to the watchers
 }
 
 // func (n *Node) Monitor(by etf.Pid, to etf.Pid) {
