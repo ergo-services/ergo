@@ -93,8 +93,10 @@ func (m *monitor) run() {
 			}
 			m.nodes[dn.node] = l
 		case nd := <-m.channels.nodeDown:
+			lib.Log("MONITOR node down: %v. (%v)", nd, m.nodes)
 			if pids, ok := m.nodes[nd]; ok {
 				for i := range pids {
+					lib.Log("MONITOR node down: %v. send notify to: %v", nd, pids[i])
 					m.notifyNodeDown(pids[i], nd)
 				}
 			}
@@ -102,18 +104,11 @@ func (m *monitor) run() {
 			lib.Log("MONITOR process terminated: %v (%v)", pt, m.processes)
 			if pids, ok := m.processes[pt]; ok {
 				for i := range pids {
-					lib.Log("MONITOR process (%v) notif send to: %v", pt, pids[i])
+					lib.Log("MONITOR process terminated: %v send notify to: %v", pt, pids[i])
 					m.notifyProcessTerminated(pids[i], pt)
 				}
 			}
 		case <-m.node.context.Done():
-			lib.Log("MONITOR this node terminated: %v (%v)", m.node.FullName, m.nodes)
-			if pids, ok := m.nodes[m.node.FullName]; ok {
-				for i := range pids {
-					lib.Log("MONITOR node (%v) notif send to: %v", m.node.FullName, pids[i])
-					m.notifyNodeDown(pids[i], m.node.FullName)
-				}
-			}
 			return
 		}
 	}
