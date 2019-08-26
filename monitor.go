@@ -19,6 +19,11 @@ type monitorNodeRequest struct {
 	ref  etf.Ref
 }
 
+type processTerminatedRequest struct {
+	process etf.Pid
+	reason  string
+}
+
 type monitorChannels struct {
 	process          chan monitorProcessRequest
 	demonitorProcess chan monitorProcessRequest
@@ -26,7 +31,7 @@ type monitorChannels struct {
 	demonitorName    chan monitorNodeRequest
 
 	nodeDown          chan string
-	processTerminated chan etf.Pid
+	processTerminated chan processTerminatedRequest
 }
 
 type monitorItem struct {
@@ -61,7 +66,7 @@ func createMonitor(node *Node) *monitor {
 			demonitorName:    make(chan monitorNodeRequest),
 
 			nodeDown:          make(chan string),
-			processTerminated: make(chan etf.Pid),
+			processTerminated: make(chan processTerminatedRequest),
 		},
 		node: node,
 	}
@@ -161,11 +166,11 @@ func (m *monitor) run() {
 
 		case pt := <-m.channels.processTerminated:
 			lib.Log("MONITOR process terminated: %v (%v)", pt, m.processes)
-			if pids, ok := m.processes[pt]; ok {
+			if pids, ok := m.processes[pt.process]; ok {
 				for i := range pids {
 					lib.Log("MONITOR process terminated: %v send notify to: %v", pt, pids[i])
-					m.notifyProcessTerminated(pids[i].pid, pt)
-					delete(m.processes, pt)
+					m.notifyProcessTerminated(pids[i].pid, pt.process, pt.reason)
+					delete(m.processes, pt.process)
 				}
 			}
 
@@ -217,8 +222,12 @@ func (m *monitor) NodeDown(node string) {
 	m.channels.nodeDown <- node
 }
 
-func (m *monitor) ProcessTerminated(process etf.Pid) {
-	m.channels.processTerminated <- process
+func (m *monitor) ProcessTerminated(process etf.Pid, reason string) {
+	p := processTerminatedRequest{
+		process: process,
+		reason:  reason,
+	}
+	m.channels.processTerminated <- p
 }
 
 func (m *monitor) notifyNodeDown(to etf.Pid, node string) {
@@ -228,9 +237,17 @@ func (m *monitor) notifyNodeDown(to etf.Pid, node string) {
 	// m.node.Send
 }
 
-func (m *monitor) notifyProcessTerminated(to etf.Pid, terminated etf.Pid) {
+func (m *monitor) notifyProcessTerminated(to etf.Pid, terminated etf.Pid, reason string) {
 	// TODO: send event to the watchers
 	// {'DOWN', Ref, process, Pid2, Reason}
+
+	// {'DOWN',#Ref<0.0.13893633.237772>,process,<26194.4.1>,reason}
+
+	// M := etf.Term(etf.Tuple{etf.Atom("DOWN"),
+	// t.Element(3), etf.Atom("process"),
+	// t.Element(2), t.Element(5)})
+
+	// n.route(t.Element(2), t.Element(3), M)
 }
 
 func ref2key(ref etf.Ref) string {

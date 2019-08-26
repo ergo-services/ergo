@@ -21,13 +21,15 @@ type Process struct {
 	ready   chan bool
 	self    etf.Pid
 	context context.Context
-	Stop    context.CancelFunc
+	Stop    ProcessStopFunc
 	name    string
 	Node    *Node
 
 	object interface{}
 	state  interface{}
 }
+
+type ProcessStopFunc func(reason string)
 
 // Behaviour interface contains methods you should implement to make own process behaviour
 type ProcessBehaviour interface {

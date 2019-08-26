@@ -25,8 +25,8 @@ func TestMonitor(t *testing.T) {
 	node.monitor.MonitorProcess(process3.Self(), process2.Self())
 	node.monitor.MonitorProcess(process1.Self(), process3.Self())
 
-	process2.Stop()
-	process3.Stop()
+	process2.Stop("normal")
+	process3.Stop("normal")
 	time.Sleep(1 *time.Second)
 	node.Stop()
 	time.Sleep(1 *time.Second)

@@ -225,18 +225,24 @@ func (n *Node) handleTerms(c net.Conn, wchan chan []etf.Term, terms []etf.Term) 
 				case EXIT2:
 					lib.Log("EXIT2 message (act %d): %#v", act, t)
 				case MONITOR:
+					// {19, FromPid, ToProc, Ref}, where FromPid = monitoring process
+					// and ToProc = monitored process pid or name (atom)
 					lib.Log("MONITOR message (act %d): %#v", act, t)
+					// TODO: send Ref to t.Element(2).(etf.Pid)
+					ref := n.monitor.MonitorProcess(t.Element(2).(etf.Pid), t.Element(3).(etf.Pid))
+					lib.Log("MONITOR ref for remote process (%v): %v", t.Element(2).(etf.Pid), ref)
 				case DEMONITOR:
+					// {20, FromPid, ToProc, Ref}, where FromPid = monitoring process
+					// and ToProc = monitored process pid or name (atom)
 					lib.Log("DEMONITOR message (act %d): %#v", act, t)
+					n.monitor.DemonitorProcess(t.Element(4).(etf.Ref))
+					// TODO: send ok to t.Element(1).(etf.Pid)
+
 				case MONITOR_EXIT:
+					// {21, FromProc, ToPid, Ref, Reason}, where FromProc = monitored process
+					// pid or name (atom), ToPid = monitoring process, and Reason = exit reason for the monitored process
 					lib.Log("MONITOR_EXIT message (act %d): %#v", act, t)
-
-					// {'DOWN',#Ref<0.0.13893633.237772>,process,<26194.4.1>,reason}
-					M := etf.Term(etf.Tuple{etf.Atom("DOWN"),
-						t.Element(3), etf.Atom("process"),
-						t.Element(2), t.Element(5)})
-
-					n.route(t.Element(2), t.Element(3), M)
+					n.monitor.ProcessTerminated(t.Element(2).(etf.Pid), t.Element(5).(string))
 
 				// Not implemented yet, just stubs. TODO.
 				case SEND_SENDER:

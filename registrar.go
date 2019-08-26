@@ -93,11 +93,11 @@ func (r *registrar) run() {
 			}
 			ctx, stop := context.WithCancel(r.node.context)
 			pid := r.createNewPID(r.nodeName)
-			wrapped_stop := func() {
+			wrapped_stop := func(reason string) {
 				lib.Log("STOPPING: %#v", p.name)
 				stop()
 				r.UnregisterProcess(pid)
-				r.node.monitor.ProcessTerminated(pid)
+				r.node.monitor.ProcessTerminated(pid, reason)
 			}
 			process := &Process{
 				local:   make(chan etf.Term, mailbox_size),
@@ -139,12 +139,12 @@ func (r *registrar) run() {
 
 		case <-r.node.context.Done():
 			lib.Log("Finalizing registrar for %s (total number of processes: %d)", r.nodeName, len(r.processes))
-			// FIXME: this approach just call cancel function for
-			// everysingle process. should we do that for the gen_servers
+			// FIXME: now its just call Stop function for
+			// every single process. should we do that for the gen_servers
 			// are running under supervisor?
 			for _, p := range r.processes {
 				lib.Log("FIN: %#v", p.name)
-				p.Stop()
+				p.Stop("normal")
 			}
 			return
 		}
