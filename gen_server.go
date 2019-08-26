@@ -1,8 +1,15 @@
 package ergonode
 
 import (
+	"errors"
+	"time"
+
 	"github.com/halturin/ergonode/etf"
 	"github.com/halturin/ergonode/lib"
+)
+
+const (
+	DefaultCallTimeout = 5
 )
 
 // GenServerBehavior interface
@@ -24,14 +31,18 @@ type GenServerBehavior interface {
 
 // GenServer is implementation of ProcessBehavior interface for GenServer objects
 type GenServer struct {
-	Process Process
+	Process  Process
+	reply    chan etf.Tuple
+	replyRef etf.Ref
 }
 
 func (gs *GenServer) loop(p Process, object interface{}, args ...interface{}) {
 	state := object.(GenServerBehavior).Init(p, args...)
 	p.ready <- true
-	var stop chan string
-	stop = make(chan string)
+
+	gs.reply = make(chan etf.Tuple)
+	stop := make(chan string) // graceful stopping
+
 	for {
 		var message etf.Term
 		var fromPid etf.Pid
@@ -57,12 +68,11 @@ func (gs *GenServer) loop(p Process, object interface{}, args ...interface{}) {
 				switch mtag {
 				case etf.Atom("$gen_call"):
 					fromTuple := m[1].(etf.Tuple)
-					code, reply, state1 := object.(GenServerBehavior).HandleCall(&fromTuple, &m[2], p.state)
+					code, reply, result := object.(GenServerBehavior).HandleCall(&fromTuple, &m[2], p.state)
 
-					p.state = state1
+					p.state = result
 					if code == "stop" {
-						stop <- code
-						continue
+						stop <- result.(string)
 					}
 
 					if reply != nil && code == "reply" {
@@ -73,107 +83,79 @@ func (gs *GenServer) loop(p Process, object interface{}, args ...interface{}) {
 					}
 
 				case etf.Atom("$gen_cast"):
-					code, state1 := object.(GenServerBehavior).HandleCast(&m[1], p.state)
-					p.state = state1
+					code, result := object.(GenServerBehavior).HandleCast(&m[1], p.state)
+					p.state = result
 					if code == "stop" {
-						stop <- code
-						continue
+						stop <- result.(string)
 					}
 				default:
-					code, state1 := object.(GenServerBehavior).HandleInfo(&message, p.state)
-					p.state = state1
+					code, result := object.(GenServerBehavior).HandleInfo(&message, p.state)
+					p.state = result
 					if code == "stop" {
-						stop <- code
-						return
+						stop <- result.(string)
 					}
 				}
 			case etf.Ref:
 				lib.Log("got reply: %#v\n%#v", mtag, message)
-				// gs.chreply <- m
+				gs.reply <- m
 			default:
 				lib.Log("mtag: %#v", mtag)
-				go func() {
-					code, state1 := object.(GenServerBehavior).HandleInfo(&message, p.state)
-					p.state = state1
-					if code == "stop" {
-						stop <- code
-						return
-					}
-				}()
+				code, result := object.(GenServerBehavior).HandleInfo(&message, p.state)
+				p.state = result
+				if code == "stop" {
+					stop <- result.(string)
+				}
 			}
 		default:
 			lib.Log("m: %#v", m)
-			go func() {
-				code, state1 := object.(GenServerBehavior).HandleInfo(&message, p.state)
-				p.state = state1
-				if code == "stop" {
-					stop <- code
-					return
-				}
-			}()
+			code, result := object.(GenServerBehavior).HandleInfo(&message, p.state)
+			p.state = result
+			if code == "stop" {
+				stop <- result.(string)
+			}
+		}
+	}
+}
+func (gs *GenServer) Call(to interface{}, message etf.Term) (reply *etf.Term, err error) {
+	return gs.CallWithTimeout(to, message, DefaultCallTimeout)
+}
+
+func (gs *GenServer) CallWithTimeout(to interface{}, message etf.Term, timeout int) (*etf.Term, error) {
+	ref := gs.Process.Node.MakeRef()
+	from := etf.Tuple{gs.Process.self, ref}
+	msg := etf.Term(etf.Tuple{etf.Atom("$gen_call"), from, message})
+	if err := gs.Process.Send(to, &msg); err != nil {
+		return nil, err
+	}
+	for {
+		select {
+		case m := <-gs.reply:
+			ref1 := m[0].(etf.Ref)
+			val := m[1].(etf.Term)
+			// check message Ref
+			if len(ref.Id) == 3 && ref.Id[0] == ref1.Id[0] && ref.Id[1] == ref1.Id[1] && ref.Id[2] == ref1.Id[2] {
+				return &val, nil
+			}
+			// ignore this message. waiting for the next one
+		case <-time.After(time.Second * time.Duration(timeout)):
+			return nil, errors.New("timeout")
+		case <-gs.Process.context.Done():
+			return nil, errors.New("stopped")
 		}
 	}
 }
 
-func (gs *GenServer) Call(to interface{}, message *etf.Term, options ...interface{}) (reply *etf.Term, err error) {
-	var (
-	// option_timeout int = 5
-	)
-
-	// 	gs.chreply = make(chan etf.Tuple)
-	// 	defer close(gs.chreply)
-
-	// 	ref := gs.Process.Node.MakeRef()
-	// 	from := etf.Tuple{gs.Process.self, ref}
-	// 	msg := etf.Term(etf.Tuple{etf.Atom("$gen_call"), from, *message})
-	// 	if err := gs.Process.Node.Send(gs.Process.self, to, &msg); err != nil {
-	// 		return nil, err
-	// 	}
-
-	// 	switch len(options) {
-	// 	case 1:
-	// 		switch options[0].(type) {
-	// 		case int:
-	// 			if options[0].(int) > 0 {
-	// 				option_timeout = options[0].(int)
-	// 			}
-	// 		}
-
-	// 	}
-
-	// 	for {
-	// 		select {
-	// 		case m := <-gs.chreply:
-	// 			ref1 := m[0].(etf.Ref)
-	// 			val := m[1].(etf.Term)
-
-	// 			//check by id
-	// 			if ref.Id[0] == ref1.Id[0] && ref.Id[1] == ref1.Id[1] && ref.Id[2] == ref1.Id[2] {
-	// 				reply = &val
-	// 				goto out
-	// 			}
-	// 		case <-time.After(time.Second * time.Duration(option_timeout)):
-	// 			err = errors.New("timeout")
-	// 			goto out
-	// 		}
-	// 	}
-	// out:
-	// 	gs.chreply = nil
-
-	return
-}
-
-func (gs *GenServer) Cast(to interface{}, message *etf.Term) error {
-	// msg := etf.Term(etf.Tuple{etf.Atom("$gen_cast"), *message})
-	// if err := gs.Process.Node.Send(gs.Process.self, to, &msg); err != nil {
-	// 	return err
-	// }
+func (gs *GenServer) Cast(to interface{}, message etf.Term) error {
+	msg := etf.Term(etf.Tuple{etf.Atom("$gen_cast"), message})
+	if err := gs.Process.Send(to, msg); err != nil {
+		return err
+	}
 
 	return nil
 }
 
-func (gs *GenServer) Send(to etf.Pid, reply *etf.Term) {
-	// gs.Process.Node.Send(nil, to, reply)
+func (gs *GenServer) Send(to etf.Pid, reply etf.Term) {
+	gs.Process.Send(to, reply)
 }
 
 // func (gs *GenServer) Monitor(to etf.Pid) {

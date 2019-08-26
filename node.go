@@ -2,7 +2,6 @@ package ergonode
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log"
 	"syscall"
@@ -14,7 +13,6 @@ import (
 	"net"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -24,11 +22,9 @@ type Node struct {
 	Cookie   string
 
 	registrar *registrar
-	peers     map[etf.Atom]nodepeer
 	system    systemProcesses
 	monitor   *monitor
 	procID    uint64
-	lock      sync.Mutex
 	context   context.Context
 	Stop      context.CancelFunc
 }
@@ -59,7 +55,6 @@ func CreateNodeWithContext(ctx context.Context, name string, cookie string, opts
 
 	node := Node{
 		Cookie:  cookie,
-		peers:   make(map[etf.Atom]nodepeer),
 		context: nodectx,
 		Stop:    nodestop,
 	}
@@ -155,22 +150,27 @@ func (n *Node) serve(c net.Conn, negotiate bool) {
 	wchan := make(chan []etf.Term, 10)
 	// run writer routine
 	go func() {
+		defer c.Close()
+		defer n.registrar.UnregisterPeer(node.GetRemoteName())
+
 		for {
-			terms := <-wchan
-			err := node.WriteMessage(c, terms)
-			if err != nil {
-				lib.Log("Enode error (writing): %s", err.Error())
-				break
+			select {
+			case terms := <-wchan:
+				err := node.WriteMessage(c, terms)
+				if err != nil {
+					lib.Log("Enode error (writing): %s", err.Error())
+					return
+				}
+			case <-n.context.Done():
+				return
 			}
+
 		}
-		c.Close()
-		n.lock.Lock()
-		// n.handle_monitors_node(node.GetRemoteName())
-		delete(n.peers, node.GetRemoteName())
-		n.lock.Unlock()
 	}()
 
 	go func() {
+		defer c.Close()
+		defer n.registrar.UnregisterPeer(node.GetRemoteName())
 		for {
 			terms, err := node.ReadMessage(c)
 			if err != nil {
@@ -179,11 +179,6 @@ func (n *Node) serve(c net.Conn, negotiate bool) {
 			}
 			n.handleTerms(c, wchan, terms)
 		}
-		c.Close()
-		n.lock.Lock()
-		// n.handle_monitors_node(node.GetRemoteName())
-		delete(n.peers, node.GetRemoteName())
-		n.lock.Unlock()
 	}()
 
 	<-node.Ready
@@ -206,12 +201,12 @@ func (n *Node) handleTerms(c net.Conn, wchan chan []etf.Term, terms []etf.Term) 
 				switch act {
 				case REG_SEND:
 					if len(terms) == 2 {
-						n.route(t.Element(2), t.Element(4), terms[1])
+						n.registrar.route(t.Element(2).(etf.Pid), t.Element(4), terms[1])
 					} else {
 						lib.Log("*** ERROR: bad REG_SEND: %#v", terms)
 					}
 				case SEND:
-					n.route(nil, t.Element(3), terms[1])
+					n.registrar.route(t.Element(2).(etf.Pid), t.Element(3), terms[1])
 
 				// Not implemented yet, just stubs. TODO.
 				case LINK:
@@ -266,10 +261,7 @@ func (n *Node) handleTerms(c net.Conn, wchan chan []etf.Term, terms []etf.Term) 
 			case etf.Atom:
 				switch act {
 				case etf.Atom("$connection"):
-					lib.Log("SET NODE %#v", t)
-					n.lock.Lock()
-					n.peers[t[1].(etf.Atom)] = nodepeer{conn: c, wchan: wchan}
-					n.lock.Unlock()
+					n.registrar.RegisterPeer(t[1].(string), peer{conn: c, wchan: wchan})
 
 					// currNd.Ready channel waiting for registration of this connection
 					ready := (t[2]).(chan bool)
@@ -280,97 +272,6 @@ func (n *Node) handleTerms(c net.Conn, wchan chan []etf.Term, terms []etf.Term) 
 			}
 		}
 	}
-}
-
-func (n *Node) stop() {
-
-}
-
-// route incomming message to registered (with sender 'from' value)
-func (n *Node) route(from, to etf.Term, message etf.Term) {
-	// var toPid etf.Pid
-	// switch tp := to.(type) {
-	// case etf.Pid:
-	// 	toPid = tp
-	// case etf.Atom:
-	// 	toPid, _ = n.registered[tp]
-	// }
-	// pcs := n.channels[toPid]
-	// if from == nil {
-	// 	lib.Log("SEND: To: %#v, Message: %#v", to, message)
-	// 	pcs.in <- message
-	// } else {
-	// 	lib.Log("REG_SEND: (%#v )From: %#v, To: %#v, Message: %#v", pcs.inFrom, from, to, message)
-	// 	pcs.inFrom <- etf.Tuple{from, message}
-	// }
-}
-
-// Send making outgoing message
-func (n *Node) Send(from interface{}, to interface{}, message *etf.Term) (err error) {
-	defer func() {
-		if r := recover(); r != nil {
-			err = errors.New(fmt.Sprint(r))
-		}
-	}()
-
-	switch tto := to.(type) {
-	case etf.Pid:
-		n.sendbyPid(tto, message)
-	case etf.Tuple:
-		if len(tto) == 2 {
-			// causes panic if casting to etf.Atom goes wrong
-			if tto[0].(etf.Atom) == tto[1].(etf.Atom) {
-				// just stub.
-			}
-			n.sendbyTuple(from.(etf.Pid), tto, message)
-		}
-	}
-
-	return nil
-}
-
-func (n *Node) sendbyPid(to etf.Pid, message *etf.Term) {
-	// var conn nodepeer
-	// var exists bool
-	// lib.Log("Send (via PID): %#v, %#v", to, message)
-	// if string(to.Node) == n.FullName {
-	// 	lib.Log("Send to local node")
-	// 	pcs := n.channels[to]
-	// 	pcs.in <- *message
-	// } else {
-
-	// 	lib.Log("Send to remote node: %#v, %#v", to, n.peers[to.Node])
-
-	// 	if conn, exists = n.peers[to.Node]; !exists {
-	// 		lib.Log("Send (via PID): create new connection (%s)", to.Node)
-	// 		if err := connect(n, to.Node); err != nil {
-	// 			panic(err.Error())
-	// 		}
-	// 		conn, _ = n.peers[to.Node]
-	// 	}
-
-	// 	msg := []etf.Term{etf.Tuple{SEND, etf.Atom(""), to}, *message}
-	// 	conn.wchan <- msg
-	// }
-}
-
-func (n *Node) sendbyTuple(from etf.Pid, to etf.Tuple, message *etf.Term) {
-	// var conn nodepeer
-	// var exists bool
-	// lib.Log("Send (via NAME): %#v, %#v", to, message)
-
-	// // to = {processname, 'nodename@hostname'}
-
-	// if conn, exists = n.peers[to[1].(etf.Atom)]; !exists {
-	// 	lib.Log("Send (via NAME): create new connection (%s)", to[1])
-	// 	if err := connect(n, to[1].(etf.Atom)); err != nil {
-	// 		panic(err.Error())
-	// 	}
-	// 	conn, _ = n.peers[to[1].(etf.Atom)]
-	// }
-
-	// msg := []etf.Term{etf.Tuple{REG_SEND, from, etf.Atom(""), to[0]}, *message}
-	// conn.wchan <- msg
 }
 
 // func (n *Node) Monitor(by etf.Pid, to etf.Pid) {
@@ -433,15 +334,6 @@ func (n *Node) sendbyTuple(from etf.Pid, to etf.Tuple, message *etf.Term) {
 // 	n.monitors[node] = monitors
 // 	lib.Log("Monitors for node (%#v): %#v", node, monitors)
 
-// }
-
-// func (n *Node) handle_monitors_node(node etf.Atom) {
-// 	lib.Log("Node (%#v) is down. Send it to %#v", node, n.monitors[node])
-// 	for _, pid := range n.monitors[node] {
-// 		pcs := n.channels[pid]
-// 		msg := etf.Term(etf.Tuple{etf.Atom("nodedown"), node})
-// 		pcs.in <- msg
-// 	}
 // }
 
 func (n *Node) MakeRef() (ref etf.Ref) {

@@ -7,7 +7,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"github.com/halturin/ergonode/etf"
 	"io"
 	"io/ioutil"
 	"log"
@@ -16,6 +15,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/halturin/ergonode/etf"
 )
 
 var dTrace bool
@@ -309,8 +310,8 @@ func (currNd *NodeDesc) WriteMessage(c net.Conn, ts []etf.Term) (err error) {
 
 }
 
-func (nd *NodeDesc) GetRemoteName() etf.Atom {
-	return etf.Atom(nd.remote.Name)
+func (nd *NodeDesc) GetRemoteName() string {
+	return nd.remote.Name
 }
 
 func (nd *NodeDesc) compose_SEND_NAME() (msg []byte) {

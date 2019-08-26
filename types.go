@@ -39,7 +39,7 @@ const (
 	PAYLOAD_MONITOR_P_EXIT = 28
 )
 
-type nodepeer struct {
+type peer struct {
 	conn  net.Conn
 	wchan chan []etf.Term
 }

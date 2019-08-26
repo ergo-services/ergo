@@ -22,11 +22,18 @@ type registerNameRequest struct {
 	pid  etf.Pid
 }
 
+type registerPeer struct {
+	name string
+	p    peer
+}
+
 type registrarChannels struct {
 	process           chan registerProcessRequest
 	unregisterProcess chan etf.Pid
 	name              chan registerNameRequest
 	unregisterName    chan string
+	peer              chan registerPeer
+	unregisterPeer    chan string
 	reply             chan *Process
 }
 
@@ -41,6 +48,7 @@ type registrar struct {
 
 	names     map[string]etf.Pid
 	processes map[etf.Pid]*Process
+	peers     map[string]peer
 }
 
 func createRegistrar(node *Node) *registrar {
@@ -54,6 +62,8 @@ func createRegistrar(node *Node) *registrar {
 			unregisterProcess: make(chan etf.Pid),
 			name:              make(chan registerNameRequest),
 			unregisterName:    make(chan string),
+			peer:              make(chan registerPeer),
+			unregisterPeer:    make(chan string),
 			reply:             make(chan *Process),
 		},
 
@@ -81,6 +91,8 @@ func (r *registrar) run() {
 		close(r.channels.unregisterProcess)
 		close(r.channels.name)
 		close(r.channels.unregisterName)
+		close(r.channels.peer)
+		close(r.channels.unregisterPeer)
 		close(r.channels.reply)
 	}()
 
@@ -133,9 +145,19 @@ func (r *registrar) run() {
 
 		case n := <-r.channels.name:
 			lib.Log("registering name %v", n)
+			// TODO: implement it
 
 		case un := <-r.channels.unregisterName:
 			lib.Log("unregistering name %v", un)
+			// TODO: implement it
+
+		case p := <-r.channels.peer:
+			lib.Log("registering peer %v", p)
+			// TODO: implement it
+
+		case up := <-r.channels.unregisterPeer:
+			lib.Log("unregistering name %v", up)
+			// TODO: implement it
 
 		case <-r.node.context.Done():
 			lib.Log("Finalizing registrar for %s (total number of processes: %d)", r.nodeName, len(r.processes))
@@ -189,6 +211,15 @@ func (r *registrar) UnregisterName(name string) {
 	r.channels.unregisterName <- name
 }
 
+func (r *registrar) RegisterPeer(name string, p peer) {
+	req := registerPeer{name: name}
+	r.channels.peer <- req
+}
+
+func (r *registrar) UnregisterPeer(name string) {
+	r.channels.unregisterPeer <- name
+}
+
 // Registered returns a list of names which have been registered using Register
 func (r *registrar) Registered() []Process {
 	p := make([]Process, len(r.processes))
@@ -198,4 +229,23 @@ func (r *registrar) Registered() []Process {
 		i++
 	}
 	return p
+}
+
+// route incomming message to registered process
+func (r *registrar) route(from etf.Pid, to etf.Term, message etf.Term) {
+	// var toPid etf.Pid
+	// switch tp := to.(type) {
+	// case etf.Pid:
+	// 	toPid = tp
+	// case etf.Atom:
+	// 	toPid, _ = n.registered[tp]
+	// }
+	// pcs := n.channels[toPid]
+	// if from == nil {
+	// 	lib.Log("SEND: To: %#v, Message: %#v", to, message)
+	// 	pcs.in <- message
+	// } else {
+	// 	lib.Log("REG_SEND: (%#v )From: %#v, To: %#v, Message: %#v", pcs.inFrom, from, to, message)
+	// 	pcs.inFrom <- etf.Tuple{from, message}
+	// }
 }
