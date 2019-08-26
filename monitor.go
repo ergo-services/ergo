@@ -1,6 +1,8 @@
 package ergonode
 
 import (
+	"fmt"
+
 	"github.com/halturin/ergonode/etf"
 	"github.com/halturin/ergonode/lib"
 )
@@ -8,11 +10,13 @@ import (
 type monitorProcessRequest struct {
 	process etf.Pid
 	by      etf.Pid
+	ref     etf.Ref
 }
 
 type monitorNodeRequest struct {
 	node string
 	by   etf.Pid
+	ref  etf.Ref
 }
 
 type monitorChannels struct {
@@ -25,9 +29,17 @@ type monitorChannels struct {
 	processTerminated chan etf.Pid
 }
 
+type monitorItem struct {
+	pid  etf.Pid
+	ref  etf.Ref
+	refs string
+}
+
 type monitor struct {
-	processes map[etf.Pid][]etf.Pid
-	nodes     map[string][]etf.Pid
+	processes map[etf.Pid][]monitorItem
+	nodes     map[string][]monitorItem
+	ref2pid   map[string]etf.Pid
+	ref2node  map[string]string
 
 	channels monitorChannels
 
@@ -36,8 +48,12 @@ type monitor struct {
 
 func createMonitor(node *Node) *monitor {
 	m := &monitor{
-		processes: make(map[etf.Pid][]etf.Pid),
-		nodes:     make(map[string][]etf.Pid),
+		processes: make(map[etf.Pid][]monitorItem),
+		nodes:     make(map[string][]monitorItem),
+
+		ref2pid:  make(map[string]etf.Pid),
+		ref2node: make(map[string]string),
+
 		channels: monitorChannels{
 			process:          make(chan monitorProcessRequest),
 			demonitorProcess: make(chan monitorProcessRequest),
@@ -71,15 +87,30 @@ func (m *monitor) run() {
 		case p := <-m.channels.process:
 			lib.Log("MONITOR process: %v => %v", p.by, p.process)
 			l := m.processes[p.process]
-			m.processes[p.process] = append(l, p.by)
+			key := ref2key(p.ref)
+			item := monitorItem{
+				pid:  p.by,
+				ref:  p.ref,
+				refs: key,
+			}
+			m.processes[p.process] = append(l, item)
+			m.ref2pid[key] = p.process
 
 		case dp := <-m.channels.demonitorProcess:
+			key := ref2key(dp.ref)
+			if pid, ok := m.ref2pid[key]; ok {
+				dp.by = pid
+			} else {
+				// unknown monitor reference
+				continue
+			}
 			l := m.processes[dp.by]
 			// remove PID from monitoring processes list
 			for i := range l {
-				if l[i] == dp.process {
+				if l[i].pid == dp.process && l[i].refs == key {
 					l[i] = l[0]
 					l = l[1:]
+					delete(m.ref2pid, key)
 					break
 				}
 			}
@@ -87,15 +118,32 @@ func (m *monitor) run() {
 
 		case n := <-m.channels.node:
 			l := m.nodes[n.node]
-			m.nodes[n.node] = append(l, n.by)
+			key := ref2key(n.ref)
+			item := monitorItem{
+				pid:  n.by,
+				ref:  n.ref,
+				refs: key,
+			}
+			m.nodes[n.node] = append(l, item)
+			m.ref2node[key] = n.node
 
 		case dn := <-m.channels.demonitorName:
+			key := ref2key(dn.ref)
+			if name, ok := m.ref2node[key]; ok {
+				dn.node = name
+			} else {
+				// unknown monitor reference
+				continue
+			}
+
 			l := m.nodes[dn.node]
+
 			// remove PID from monitoring processes list
 			for i := range l {
-				if l[i] == dn.by {
+				if l[i].pid == dn.by && l[i].refs == key {
 					l[i] = l[0]
 					l = l[1:]
+					delete(m.ref2pid, key)
 					break
 				}
 			}
@@ -106,7 +154,7 @@ func (m *monitor) run() {
 			if pids, ok := m.nodes[nd]; ok {
 				for i := range pids {
 					lib.Log("MONITOR node down: %v. send notify to: %v", nd, pids[i])
-					m.notifyNodeDown(pids[i], nd)
+					m.notifyNodeDown(pids[i].pid, nd)
 					delete(m.nodes, nd)
 				}
 			}
@@ -116,7 +164,7 @@ func (m *monitor) run() {
 			if pids, ok := m.processes[pt]; ok {
 				for i := range pids {
 					lib.Log("MONITOR process terminated: %v send notify to: %v", pt, pids[i])
-					m.notifyProcessTerminated(pids[i], pt)
+					m.notifyProcessTerminated(pids[i].pid, pt)
 					delete(m.processes, pt)
 				}
 			}
@@ -127,36 +175,39 @@ func (m *monitor) run() {
 	}
 }
 
-func (m *monitor) MonitorProcess(by, process etf.Pid) {
+func (m *monitor) MonitorProcess(by, process etf.Pid) etf.Ref {
+	ref := m.node.MakeRef()
 	p := monitorProcessRequest{
 		process: process,
 		by:      by,
+		ref:     ref,
 	}
 	m.channels.process <- p
+	return ref
 }
 
-func (m *monitor) DemonitorProcess(by, process etf.Pid) {
+func (m *monitor) DemonitorProcess(ref etf.Ref) {
 	p := monitorProcessRequest{
-		process: process,
-		by:      by,
+		ref: ref,
 	}
 	m.channels.demonitorProcess <- p
 }
 
-func (m *monitor) MonitorNode(by etf.Pid, node string) {
-
+func (m *monitor) MonitorNode(by etf.Pid, node string) etf.Ref {
+	ref := m.node.MakeRef()
 	n := monitorNodeRequest{
 		node: node,
 		by:   by,
+		ref:  ref,
 	}
 
 	m.channels.node <- n
+	return ref
 }
 
-func (m *monitor) DemonitorNode(by etf.Pid, node string) {
+func (m *monitor) DemonitorNode(ref etf.Ref) {
 	n := monitorNodeRequest{
-		node: node,
-		by:   by,
+		ref: ref,
 	}
 
 	m.channels.node <- n
@@ -172,10 +223,18 @@ func (m *monitor) ProcessTerminated(process etf.Pid) {
 
 func (m *monitor) notifyNodeDown(to etf.Pid, node string) {
 	// TODO: send event to the watchers
+
+	// msg := etf.Term(etf.Tuple{etf.Atom("nodedown"), node})
+	// m.node.Send
 }
 
 func (m *monitor) notifyProcessTerminated(to etf.Pid, terminated etf.Pid) {
 	// TODO: send event to the watchers
+	// {'DOWN', Ref, process, Pid2, Reason}
+}
+
+func ref2key(ref etf.Ref) string {
+	return fmt.Sprintf("%v", ref)
 }
 
 // func (n *Node) Monitor(by etf.Pid, to etf.Pid) {
