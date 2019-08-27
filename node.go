@@ -130,6 +130,7 @@ func (n *Node) Spawn(name string, opts map[string]interface{}, object interface{
 		object.(ProcessBehaviour).loop(process, object, args...)
 	}()
 	<-process.ready
+
 	return process
 }
 

@@ -31,9 +31,8 @@ type GenServerBehavior interface {
 
 // GenServer is implementation of ProcessBehavior interface for GenServer objects
 type GenServer struct {
-	Process  Process
-	reply    chan etf.Tuple
-	replyRef etf.Ref
+	Process Process
+	reply   chan etf.Tuple
 }
 
 func (gs *GenServer) loop(p Process, object interface{}, args ...interface{}) {
@@ -41,7 +40,7 @@ func (gs *GenServer) loop(p Process, object interface{}, args ...interface{}) {
 	p.ready <- true
 
 	gs.reply = make(chan etf.Tuple)
-	stop := make(chan string) // graceful stopping
+	stop := make(chan string)
 
 	for {
 		var message etf.Term
@@ -50,11 +49,9 @@ func (gs *GenServer) loop(p Process, object interface{}, args ...interface{}) {
 		case reason := <-stop:
 			object.(GenServerBehavior).Terminate(reason, state)
 			return
-		case messageLocal := <-p.local:
-			message = messageLocal
-		case messageRemote := <-p.remote:
-			message = messageRemote[1]
-			fromPid = messageRemote[0].(etf.Pid)
+		case msg := <-p.mailBox:
+			fromPid = msg[0].(etf.Pid)
+			message = msg[1]
 		case <-p.context.Done():
 			object.(GenServerBehavior).Terminate("immediate", p.state)
 			return

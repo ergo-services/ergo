@@ -16,8 +16,7 @@ const (
 )
 
 type Process struct {
-	local   chan etf.Term
-	remote  chan etf.Tuple
+	mailBox chan etf.Tuple
 	ready   chan bool
 	self    etf.Pid
 	context context.Context
