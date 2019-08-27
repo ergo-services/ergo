@@ -2,6 +2,7 @@ package ergonode
 
 import (
 	"context"
+	"errors"
 
 	"github.com/halturin/ergonode/etf"
 	"github.com/halturin/ergonode/lib"
@@ -27,6 +28,21 @@ type registerPeer struct {
 	p    peer
 }
 
+type routeByPidRequest struct {
+	pid     etf.Pid
+	message etf.Term
+}
+
+type routeByNameRequest struct {
+	name    string
+	message etf.Term
+}
+
+type routeByTupleRequest struct {
+	tuple   etf.Tuple
+	message etf.Term
+}
+
 type registrarChannels struct {
 	process           chan registerProcessRequest
 	unregisterProcess chan etf.Pid
@@ -35,6 +51,10 @@ type registrarChannels struct {
 	peer              chan registerPeer
 	unregisterPeer    chan string
 	reply             chan *Process
+
+	routeByPid   chan routeByPidRequest
+	routeByName  chan routeByNameRequest
+	routeByTuple chan routeByTupleRequest
 }
 
 type registrar struct {
@@ -65,6 +85,10 @@ func createRegistrar(node *Node) *registrar {
 			peer:              make(chan registerPeer),
 			unregisterPeer:    make(chan string),
 			reply:             make(chan *Process),
+
+			routeByPid:   make(chan routeByPidRequest),
+			routeByName:  make(chan routeByNameRequest),
+			routeByTuple: make(chan routeByTupleRequest),
 		},
 
 		names:     make(map[string]etf.Pid),
@@ -86,16 +110,6 @@ func (r *registrar) createNewPID(name string) etf.Pid {
 }
 
 func (r *registrar) run() {
-	defer func() {
-		close(r.channels.process)
-		close(r.channels.unregisterProcess)
-		close(r.channels.name)
-		close(r.channels.unregisterName)
-		close(r.channels.peer)
-		close(r.channels.unregisterPeer)
-		close(r.channels.reply)
-	}()
-
 	for {
 		select {
 		case p := <-r.channels.process:
@@ -168,7 +182,56 @@ func (r *registrar) run() {
 				p.Stop("normal")
 			}
 			return
+		case bp := <-r.channels.routeByPid:
+			lib.Log("sending message by pid %v", bp.pid)
+
+			// var conn nodepeer
+			// var exists bool
+			// lib.Log("Send (via PID): %#v, %#v", to, message)
+			// if string(to.Node) == n.FullName {
+			// 	lib.Log("Send to local node")
+			// 	pcs := n.channels[to]
+			// 	pcs.in <- *message
+			// } else {
+
+			// 	lib.Log("Send to remote node: %#v, %#v", to, n.peers[to.Node])
+
+			// 	if conn, exists = n.peers[to.Node]; !exists {
+			// 		lib.Log("Send (via PID): create new connection (%s)", to.Node)
+			// 		if err := connect(n, to.Node); err != nil {
+			// 			panic(err.Error())
+			// 		}
+			// 		conn, _ = n.peers[to.Node]
+			// 	}
+
+			// 	msg := []etf.Term{etf.Tuple{SEND, etf.Atom(""), to}, *message}
+			// 	conn.wchan <- msg
+			// }
+
+		case bn := <-r.channels.routeByName:
+			lib.Log("sending message by name %v", bn.name)
+
+		case bt := <-r.channels.routeByTuple:
+			lib.Log("sending message by tuple %v", bt.tuple)
+
+			// var conn nodepeer
+			// var exists bool
+			// lib.Log("Send (via NAME): %#v, %#v", to, message)
+
+			// // to = {processname, 'nodename@hostname'}
+
+			// if conn, exists = n.peers[to[1].(etf.Atom)]; !exists {
+			// 	lib.Log("Send (via NAME): create new connection (%s)", to[1])
+			// 	if err := connect(n, to[1].(etf.Atom)); err != nil {
+			// 		panic(err.Error())
+			// 	}
+			// 	conn, _ = n.peers[to[1].(etf.Atom)]
+			// }
+
+			// msg := []etf.Term{etf.Tuple{REG_SEND, p.self, etf.Atom(""), to[0]}, *message}
+			// conn.wchan <- msg
 		}
+
 	}
 }
 
@@ -220,7 +283,7 @@ func (r *registrar) UnregisterPeer(name string) {
 }
 
 // Registered returns a list of names which have been registered using Register
-func (r *registrar) Registered() []Process {
+func (r *registrar) RegisteredProcesses() []Process {
 	p := make([]Process, len(r.processes))
 	i := 0
 	for _, process := range r.processes {
@@ -230,8 +293,38 @@ func (r *registrar) Registered() []Process {
 	return p
 }
 
+// WhereIs returns a Pid of regestered process by given name
+func (r *registrar) WhereIs(name string) (etf.Pid, error) {
+	var p etf.Pid
+	// TODO:
+	return p, errors.New("not found")
+}
+
 // route incomming message to registered process
 func (r *registrar) route(from etf.Pid, to etf.Term, message etf.Term) {
+
+	switch tto := to.(type) {
+	case etf.Pid:
+		req := routeByPidRequest{
+			pid:     tto,
+			message: message,
+		}
+		r.channels.routeByPid <- req
+	case etf.Tuple:
+		if len(tto) == 2 {
+			req := routeByTupleRequest{
+				tuple:   tto,
+				message: message,
+			}
+			r.channels.routeByTuple <- req
+		}
+	case string, etf.Atom:
+		req := routeByNameRequest{
+			name:    tto.(string),
+			message: message,
+		}
+		r.channels.routeByName <- req
+	}
 	// var toPid etf.Pid
 	// switch tp := to.(type) {
 	// case etf.Pid:

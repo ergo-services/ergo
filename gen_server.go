@@ -124,9 +124,7 @@ func (gs *GenServer) CallWithTimeout(to interface{}, message etf.Term, timeout i
 	ref := gs.Process.Node.MakeRef()
 	from := etf.Tuple{gs.Process.self, ref}
 	msg := etf.Term(etf.Tuple{etf.Atom("$gen_call"), from, message})
-	if err := gs.Process.Send(to, &msg); err != nil {
-		return nil, err
-	}
+	gs.Process.Send(to, &msg)
 	for {
 		select {
 		case m := <-gs.reply:
@@ -145,23 +143,11 @@ func (gs *GenServer) CallWithTimeout(to interface{}, message etf.Term, timeout i
 	}
 }
 
-func (gs *GenServer) Cast(to interface{}, message etf.Term) error {
+func (gs *GenServer) Cast(to interface{}, message etf.Term) {
 	msg := etf.Term(etf.Tuple{etf.Atom("$gen_cast"), message})
-	if err := gs.Process.Send(to, msg); err != nil {
-		return err
-	}
-
-	return nil
+	gs.Process.Send(to, msg)
 }
 
 func (gs *GenServer) Send(to etf.Pid, reply etf.Term) {
 	gs.Process.Send(to, reply)
 }
-
-// func (gs *GenServer) Monitor(to etf.Pid) {
-// 	gs.Node.Monitor(gs.self, to)
-// }
-
-// func (gs *GenServer) MonitorNode(to etf.Atom, flag bool) {
-// 	gs.Node.MonitorNode(gs.self, to, flag)
-// }

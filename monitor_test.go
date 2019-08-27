@@ -5,14 +5,15 @@ package ergonode
 import (
 	"testing"
 	"time"
+	"github.com/halturin/ergonode/etf"
 )
 
 
 func TestMonitor(t *testing.T) {
 	node := CreateNode("node@localhost","cookies", NodeOptions{})
 
-	g1:=&GenServer{}
-	g2:=&GenServer{}
+	g1:=&observer{}
+	g2:=&observer{}
 	g3:=&GenServer{}
 
 	process1 := node.registrar.RegisterProcess(g1)
@@ -21,6 +22,8 @@ func TestMonitor(t *testing.T) {
 
 	node.monitor.MonitorProcess(process1.Self(), process2.Self())
 	node.monitor.MonitorProcess(process1.Self(), process2.Self())
+
+	process1.Send(process2, etf.Term(etf.Atom("hi")))
 
 	node.monitor.MonitorProcess(process3.Self(), process2.Self())
 	node.monitor.MonitorProcess(process1.Self(), process3.Self())
