@@ -3,6 +3,7 @@ package ergonode
 import (
 	"context"
 	"errors"
+	"sync/atomic"
 
 	"github.com/halturin/ergonode/etf"
 	"github.com/halturin/ergonode/lib"
@@ -13,9 +14,8 @@ const (
 )
 
 type registerProcessRequest struct {
-	name   string
-	object interface{}
-	opts   map[string]interface{}
+	name    string
+	process Process
 }
 
 type registerNameRequest struct {
@@ -56,7 +56,6 @@ type registrarChannels struct {
 	unregisterName    chan string
 	peer              chan registerPeer
 	unregisterPeer    chan string
-	reply             chan *Process
 
 	routeByPid   chan routeByPidRequest
 	routeByName  chan routeByNameRequest
@@ -73,7 +72,7 @@ type registrar struct {
 	channels registrarChannels
 
 	names     map[string]etf.Pid
-	processes map[etf.Pid]*Process
+	processes map[etf.Pid]Process
 	peers     map[string]peer
 }
 
@@ -90,7 +89,6 @@ func createRegistrar(node *Node) *registrar {
 			unregisterName:    make(chan string),
 			peer:              make(chan registerPeer, 10),
 			unregisterPeer:    make(chan string),
-			reply:             make(chan *Process),
 
 			routeByPid:   make(chan routeByPidRequest, 100),
 			routeByName:  make(chan routeByNameRequest, 100),
@@ -98,7 +96,7 @@ func createRegistrar(node *Node) *registrar {
 		},
 
 		names:     make(map[string]etf.Pid),
-		processes: make(map[etf.Pid]*Process),
+		processes: make(map[etf.Pid]Process),
 		peers:     make(map[string]peer),
 	}
 	go r.run()
@@ -106,10 +104,10 @@ func createRegistrar(node *Node) *registrar {
 }
 
 func (r *registrar) createNewPID(name string) etf.Pid {
-	r.nextPID++
+	i := atomic.AddUint32(&r.nextPID, 1)
 	return etf.Pid{
 		Node:     etf.Atom(r.nodeName),
-		Id:       r.nextPID,
+		Id:       i,
 		Serial:   1,
 		Creation: byte(r.creation),
 	}
@@ -120,35 +118,11 @@ func (r *registrar) run() {
 	for {
 		select {
 		case p := <-r.channels.process:
-			mailbox_size := DefaultProcessMailboxSize
-			if size, ok := p.opts["mailbox-size"]; ok {
-				mailbox_size = size.(int)
-			}
-			ctx, stop := context.WithCancel(r.node.context)
-			pid := r.createNewPID(r.nodeName)
-			wrapped_stop := func(reason string) {
-				lib.Log("STOPPING: %#v with reason: %s", pid, reason)
-				stop()
-				r.UnregisterProcess(pid)
-				r.node.monitor.ProcessTerminated(pid, reason)
-			}
-			process := &Process{
-				mailBox: make(chan etf.Tuple, mailbox_size),
-				ready:   make(chan bool),
-				self:    pid,
-				context: ctx,
-				Stop:    wrapped_stop,
-				name:    p.name,
-				Node:    r.node,
-			}
 
-			r.processes[process.self] = process
+			r.processes[p.process.self] = p.process
 			if p.name != "" {
-				r.names[p.name] = process.self
+				r.names[p.name] = p.process.self
 			}
-			r.channels.reply <- process
-
-			r.nextPID++
 
 		case up := <-r.channels.unregisterProcess:
 			if p, ok := r.processes[up]; ok {
@@ -219,31 +193,6 @@ func (r *registrar) run() {
 			}
 			peer.send <- []etf.Term{etf.Tuple{SEND, etf.Atom(""), bp.pid}, bp.message}
 
-			// remote route
-
-			// var conn nodepeer
-			// var exists bool
-			// lib.Log("Send (via PID): %#v, %#v", to, message)
-			// if string(to.Node) == n.FullName {
-			// 	lib.Log("Send to local node")
-			// 	pcs := n.channels[to]
-			// 	pcs.in <- *message
-			// } else {
-
-			// 	lib.Log("Send to remote node: %#v, %#v", to, n.peers[to.Node])
-
-			// 	if conn, exists = n.peers[to.Node]; !exists {
-			// 		lib.Log("Send (via PID): create new connection (%s)", to.Node)
-			// 		if err := connect(n, to.Node); err != nil {
-			// 			panic(err.Error())
-			// 		}
-			// 		conn, _ = n.peers[to.Node]
-			// 	}
-
-			// 	msg := []etf.Term{etf.Tuple{SEND, etf.Atom(""), to}, *message}
-			// 	conn.wchan <- msg
-			// }
-
 		case bn := <-r.channels.routeByName:
 			lib.Log("sending message by name %v", bn.name)
 			if pid, ok := r.names[bn.name]; ok {
@@ -285,18 +234,35 @@ func (r *registrar) RegisterProcess(object interface{}) Process {
 }
 
 func (r *registrar) RegisterProcessExt(name string, object interface{}, opts map[string]interface{}) Process {
+
+	mailbox_size := DefaultProcessMailboxSize
+	if size, ok := opts["mailbox-size"]; ok {
+		mailbox_size = size.(int)
+	}
+	ctx, stop := context.WithCancel(r.node.context)
+	pid := r.createNewPID(r.nodeName)
+	wrapped_stop := func(reason string) {
+		lib.Log("STOPPING: %#v with reason: %s", pid, reason)
+		stop()
+		r.UnregisterProcess(pid)
+		r.node.monitor.ProcessTerminated(pid, reason)
+	}
+	process := Process{
+		mailBox: make(chan etf.Tuple, mailbox_size),
+		ready:   make(chan bool),
+		self:    pid,
+		context: ctx,
+		Stop:    wrapped_stop,
+		name:    name,
+		Node:    r.node,
+	}
 	req := registerProcessRequest{
-		name:   name,
-		object: object,
-		opts:   opts,
+		name:    name,
+		process: process,
 	}
 	r.channels.process <- req
 
-	select {
-	case p := <-r.channels.reply:
-		return *p
-	}
-
+	return process
 }
 
 // UnregisterProcess unregister process by Pid
@@ -329,7 +295,7 @@ func (r *registrar) RegisteredProcesses() []Process {
 	p := make([]Process, len(r.processes))
 	i := 0
 	for _, process := range r.processes {
-		p[i] = *process
+		p[i] = process
 		i++
 	}
 	return p
@@ -353,6 +319,7 @@ func (r *registrar) route(from etf.Pid, to etf.Term, message etf.Term) {
 			message: message,
 		}
 		r.channels.routeByPid <- req
+
 	case etf.Tuple:
 		if len(tto) == 2 {
 			req := routeByTupleRequest{
@@ -362,6 +329,7 @@ func (r *registrar) route(from etf.Pid, to etf.Term, message etf.Term) {
 			}
 			r.channels.routeByTuple <- req
 		}
+
 	case string:
 		req := routeByNameRequest{
 			from:    from,
@@ -369,6 +337,7 @@ func (r *registrar) route(from etf.Pid, to etf.Term, message etf.Term) {
 			message: message,
 		}
 		r.channels.routeByName <- req
+
 	case etf.Atom:
 		req := routeByNameRequest{
 			from:    from,
@@ -379,19 +348,4 @@ func (r *registrar) route(from etf.Pid, to etf.Term, message etf.Term) {
 	default:
 		lib.Log("unknow sender type %#v", tto)
 	}
-	// var toPid etf.Pid
-	// switch tp := to.(type) {
-	// case etf.Pid:
-	// 	toPid = tp
-	// case etf.Atom:
-	// 	toPid, _ = n.registered[tp]
-	// }
-	// pcs := n.channels[toPid]
-	// if from == nil {
-	// 	lib.Log("SEND: To: %#v, Message: %#v", to, message)
-	// 	pcs.in <- message
-	// } else {
-	// 	lib.Log("REG_SEND: (%#v )From: %#v, To: %#v, Message: %#v", pcs.inFrom, from, to, message)
-	// 	pcs.inFrom <- etf.Tuple{from, message}
-	// }
 }
