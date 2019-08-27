@@ -116,7 +116,7 @@ func CreateNodeWithContext(ctx context.Context, name string, cookie string, opts
 	return &node
 }
 
-// Spawn create new process and store its identificator in table at current node
+// Spawn create new process
 func (n *Node) Spawn(name string, opts map[string]interface{}, object interface{}, args ...interface{}) Process {
 	process := n.registrar.RegisterProcessExt(name, object, opts)
 	go func() {

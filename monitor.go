@@ -155,7 +155,7 @@ func (m *monitor) run() {
 			m.nodes[dn.node] = l
 
 		case nd := <-m.channels.nodeDown:
-			lib.Log("MONITOR node down: %v. (%v)", nd, m.nodes)
+			lib.Log("MONITOR node down: %v", nd)
 			if pids, ok := m.nodes[nd]; ok {
 				for i := range pids {
 					lib.Log("MONITOR node down: %v. send notify to: %v", nd, pids[i])
@@ -165,10 +165,10 @@ func (m *monitor) run() {
 			}
 
 		case pt := <-m.channels.processTerminated:
-			lib.Log("MONITOR process terminated: %v (%v)", pt, m.processes)
+			lib.Log("MONITOR process terminated: %v", pt)
 			if pids, ok := m.processes[pt.process]; ok {
 				for i := range pids {
-					lib.Log("MONITOR process terminated: %v send notify to: %v", pt, pids[i])
+					lib.Log("MONITOR process terminated: %v send notify to: %v", pt, pids[i].pid)
 					m.notifyProcessTerminated(pids[i].pid, pt.process, pt.reason)
 					delete(m.processes, pt.process)
 				}

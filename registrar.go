@@ -106,7 +106,7 @@ func (r *registrar) run() {
 			ctx, stop := context.WithCancel(r.node.context)
 			pid := r.createNewPID(r.nodeName)
 			wrapped_stop := func(reason string) {
-				lib.Log("STOPPING: %#v", p.name)
+				lib.Log("STOPPING: %#v with reason: %s", pid, reason)
 				stop()
 				r.UnregisterProcess(pid)
 				r.node.monitor.ProcessTerminated(pid, reason)
@@ -130,7 +130,6 @@ func (r *registrar) run() {
 			r.nextPID++
 
 		case up := <-r.channels.unregisterProcess:
-			lib.Log("unregistering process %v", up)
 			if p, ok := r.processes[up]; ok {
 				lib.Log("REGISTRAR unregistering process: %v", p.self)
 				close(p.local)
