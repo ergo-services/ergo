@@ -32,18 +32,21 @@ type routeByPidRequest struct {
 	from    etf.Pid
 	pid     etf.Pid
 	message etf.Term
+	retries int
 }
 
 type routeByNameRequest struct {
 	from    etf.Pid
 	name    string
 	message etf.Term
+	retries int
 }
 
 type routeByTupleRequest struct {
 	from    etf.Pid
 	tuple   etf.Tuple
 	message etf.Term
+	retries int
 }
 
 type registrarChannels struct {
@@ -89,9 +92,9 @@ func createRegistrar(node *Node) *registrar {
 			unregisterPeer:    make(chan string),
 			reply:             make(chan *Process),
 
-			routeByPid:   make(chan routeByPidRequest),
-			routeByName:  make(chan routeByNameRequest),
-			routeByTuple: make(chan routeByTupleRequest),
+			routeByPid:   make(chan routeByPidRequest, 100),
+			routeByName:  make(chan routeByNameRequest, 100),
+			routeByTuple: make(chan routeByTupleRequest, 100),
 		},
 
 		names:     make(map[string]etf.Pid),
@@ -160,15 +163,23 @@ func (r *registrar) run() {
 
 		case n := <-r.channels.name:
 			lib.Log("registering name %v", n)
-			// TODO: implement it
+			if _, ok := r.names[n.name]; ok {
+				// already registered
+				continue
+			}
+			r.names[n.name] = n.pid
 
 		case un := <-r.channels.unregisterName:
 			lib.Log("unregistering name %v", un)
-			// TODO: implement it
+			delete(r.names, un)
 
 		case p := <-r.channels.peer:
 			lib.Log("registering peer %v", p)
-			// TODO: implement it
+			if _, ok := r.peers[p.name]; ok {
+				// already registered
+				continue
+			}
+			r.peers[p.name] = p.p
 
 		case up := <-r.channels.unregisterPeer:
 			lib.Log("unregistering name %v", up)
@@ -186,13 +197,26 @@ func (r *registrar) run() {
 			return
 		case bp := <-r.channels.routeByPid:
 			lib.Log("sending message by pid %v", bp.pid)
-
+			if bp.retries > 2 {
+				// drop this message after 3 attempts to deliver this message
+				continue
+			}
 			if string(bp.pid.Node) == r.nodeName {
 				// local route
 				p := r.processes[bp.pid]
 				p.mailBox <- etf.Tuple{bp.from, bp.message}
 				continue
 			}
+
+			peer, ok := r.peers[string(bp.pid.Node)]
+			if !ok {
+				// initiate connection and make yet another attempt to deliver this message
+				bp.retries++
+				r.channels.routeByPid <- bp
+				r.node.connect(bp.pid.Node)
+				continue
+			}
+			peer.send <- []etf.Term{etf.Tuple{SEND, etf.Atom(""), bp.pid}, bp.message}
 
 			// remote route
 
@@ -222,29 +246,31 @@ func (r *registrar) run() {
 		case bn := <-r.channels.routeByName:
 			lib.Log("sending message by name %v", bn.name)
 			if pid, ok := r.names[bn.name]; ok {
-				p := r.processes[pid]
-				p.mailBox <- etf.Tuple{bn.from, bn.message}
+				r.route(bn.from, pid, bn.message)
 			}
 
 		case bt := <-r.channels.routeByTuple:
 			lib.Log("sending message by tuple %v", bt.tuple)
+			if bt.retries > 2 {
+				// drop this message after 3 attempts to deliver this message
+				continue
+			}
+			to_node := bt.tuple.Element(2).(string)
+			to_process_name := bt.tuple.Element(1).(string)
+			if to_node == r.nodeName {
+				r.route(bt.from, to_process_name, bt.message)
+				continue
+			}
 
-			// var conn nodepeer
-			// var exists bool
-			// lib.Log("Send (via NAME): %#v, %#v", to, message)
-
-			// // to = {processname, 'nodename@hostname'}
-
-			// if conn, exists = n.peers[to[1].(etf.Atom)]; !exists {
-			// 	lib.Log("Send (via NAME): create new connection (%s)", to[1])
-			// 	if err := connect(n, to[1].(etf.Atom)); err != nil {
-			// 		panic(err.Error())
-			// 	}
-			// 	conn, _ = n.peers[to[1].(etf.Atom)]
-			// }
-
-			// msg := []etf.Term{etf.Tuple{REG_SEND, p.self, etf.Atom(""), to[0]}, *message}
-			// conn.wchan <- msg
+			peer, ok := r.peers[to_node]
+			if !ok {
+				// initiate connection and make yet another attempt to deliver this message
+				bt.retries++
+				r.channels.routeByTuple <- bt
+				r.node.connect(etf.Atom(to_node))
+				continue
+			}
+			peer.send <- []etf.Term{etf.Tuple{REG_SEND, bt.from, etf.Atom(""), to_process_name}, bt.message}
 		}
 
 	}
@@ -289,7 +315,7 @@ func (r *registrar) UnregisterName(name string) {
 }
 
 func (r *registrar) RegisterPeer(name string, p peer) {
-	req := registerPeer{name: name}
+	req := registerPeer{name: name, p: p}
 	r.channels.peer <- req
 }
 

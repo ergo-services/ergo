@@ -148,7 +148,7 @@ func (n *Node) serve(c net.Conn, negotiate bool) {
 		node = dist.NewNodeDesc(n.FullName, n.Cookie, false, nil)
 	}
 
-	wchan := make(chan []etf.Term, 10)
+	send := make(chan []etf.Term, 10)
 	// run writer routine
 	go func() {
 		defer c.Close()
@@ -156,7 +156,7 @@ func (n *Node) serve(c net.Conn, negotiate bool) {
 
 		for {
 			select {
-			case terms := <-wchan:
+			case terms := <-send:
 				err := node.WriteMessage(c, terms)
 				if err != nil {
 					lib.Log("Enode error (writing): %s", err.Error())
@@ -178,22 +178,27 @@ func (n *Node) serve(c net.Conn, negotiate bool) {
 				lib.Log("Enode error (reading): %s", err.Error())
 				break
 			}
-			n.handleTerms(c, wchan, terms)
+			n.handleTerms(terms)
 		}
 	}()
 
 	<-node.Ready
 
-	return
+	p := peer{
+		conn: c,
+		send: send,
+	}
+	n.registrar.RegisterPeer(node.GetRemoteName(), p)
 }
 
 // FIXME: rework it using types like [2]etf.Term
-func (n *Node) handleTerms(c net.Conn, wchan chan []etf.Term, terms []etf.Term) {
+func (n *Node) handleTerms(terms []etf.Term) {
 	lib.Log("Node terms: %#v", terms)
 
 	if len(terms) == 0 {
 		return
 	}
+
 	switch t := terms[0].(type) {
 	case etf.Tuple:
 		if len(t) > 0 {
@@ -262,9 +267,7 @@ func (n *Node) handleTerms(c net.Conn, wchan chan []etf.Term, terms []etf.Term) 
 			case etf.Atom:
 				switch act {
 				case etf.Atom("$connection"):
-					n.registrar.RegisterPeer(t[1].(string), peer{conn: c, wchan: wchan})
-
-					// currNd.Ready channel waiting for registration of this connection
+					// .Ready channel waiting for registration of this connection
 					ready := (t[2]).(chan bool)
 					ready <- true
 				}
@@ -381,7 +384,6 @@ func (n *Node) listen(name string, listenRangeBegin, listenRangeEnd uint16) uint
 		l, err := lc.Listen(n.context, "tcp", net.JoinHostPort(name, strconv.Itoa(int(p))))
 		if err != nil {
 			panic(err)
-			continue
 		}
 		go func() {
 			for {

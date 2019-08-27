@@ -40,6 +40,6 @@ const (
 )
 
 type peer struct {
-	conn  net.Conn
-	wchan chan []etf.Term
+	conn net.Conn
+	send chan []etf.Term
 }
