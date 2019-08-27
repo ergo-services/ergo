@@ -83,12 +83,12 @@ func createRegistrar(node *Node) *registrar {
 		creation: byte(1),
 		node:     node,
 		channels: registrarChannels{
-			process:           make(chan registerProcessRequest),
-			unregisterProcess: make(chan etf.Pid),
-			name:              make(chan registerNameRequest),
-			unregisterName:    make(chan string),
+			process:           make(chan registerProcessRequest, 10),
+			unregisterProcess: make(chan etf.Pid, 10),
+			name:              make(chan registerNameRequest, 10),
+			unregisterName:    make(chan string, 10),
 			peer:              make(chan registerPeer, 10),
-			unregisterPeer:    make(chan string),
+			unregisterPeer:    make(chan string, 10),
 
 			routeByPid:   make(chan routeByPidRequest, 100),
 			routeByName:  make(chan routeByNameRequest, 100),

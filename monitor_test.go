@@ -33,7 +33,7 @@ func TestMonitor(t *testing.T) {
 	process1.Send(etf.Tuple{"net_kernel", "node@localhost"}, etf.Term(etf.Atom("hi kernel")))
 	fmt.Println(222)
 
-	process1.Send(etf.Tuple{"net_kernel", "node01@localhost"}, etf.Term(etf.Atom("hi remote kernel")))
+	process1.Send(etf.Tuple{"abc", "node01@localhost"}, etf.Term(etf.Atom("hi remote kernel")))
 
 	fmt.Println(333)
 

@@ -77,15 +77,6 @@ func createMonitor(node *Node) *monitor {
 }
 
 func (m *monitor) run() {
-	defer func() {
-		close(m.channels.process)
-		close(m.channels.demonitorProcess)
-		close(m.channels.node)
-		close(m.channels.demonitorName)
-		close(m.channels.nodeDown)
-		close(m.channels.processTerminated)
-	}()
-
 	for {
 		select {
 
