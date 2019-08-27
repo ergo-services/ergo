@@ -88,7 +88,7 @@ func createRegistrar(node *Node) *registrar {
 			unregisterProcess: make(chan etf.Pid),
 			name:              make(chan registerNameRequest),
 			unregisterName:    make(chan string),
-			peer:              make(chan registerPeer),
+			peer:              make(chan registerPeer, 10),
 			unregisterPeer:    make(chan string),
 			reply:             make(chan *Process),
 
@@ -99,6 +99,7 @@ func createRegistrar(node *Node) *registrar {
 
 		names:     make(map[string]etf.Pid),
 		processes: make(map[etf.Pid]*Process),
+		peers:     make(map[string]peer),
 	}
 	go r.run()
 	return &r
@@ -361,10 +362,17 @@ func (r *registrar) route(from etf.Pid, to etf.Term, message etf.Term) {
 			}
 			r.channels.routeByTuple <- req
 		}
-	case string, etf.Atom:
+	case string:
 		req := routeByNameRequest{
 			from:    from,
-			name:    tto.(string),
+			name:    tto,
+			message: message,
+		}
+		r.channels.routeByName <- req
+	case etf.Atom:
+		req := routeByNameRequest{
+			from:    from,
+			name:    string(tto),
 			message: message,
 		}
 		r.channels.routeByName <- req
