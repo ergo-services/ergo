@@ -98,8 +98,8 @@ func CreateNodeWithContext(ctx context.Context, name string, cookie string, opts
 	node.monitor = createMonitor(&node)
 
 	// starting system processes
-	process_opts := map[string]interface{}{
-		"mailbox-size": DefaultProcessMailboxSize, // size of channel for regular messages
+	process_opts := ProcessOptions{
+		MailboxSize: DefaultProcessMailboxSize, // size of channel for regular messages
 	}
 	node.system.netKernel = new(netKernel)
 	node.Spawn("net_kernel", process_opts, node.system.netKernel)
@@ -117,7 +117,7 @@ func CreateNodeWithContext(ctx context.Context, name string, cookie string, opts
 }
 
 // Spawn create new process
-func (n *Node) Spawn(name string, opts map[string]interface{}, object interface{}, args ...interface{}) Process {
+func (n *Node) Spawn(name string, opts ProcessOptions, object interface{}, args ...interface{}) Process {
 	process := n.registrar.RegisterProcessExt(name, object, opts)
 	go func() {
 		// FIXME: uncomment this 'defer' before release

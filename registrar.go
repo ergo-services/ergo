@@ -227,17 +227,17 @@ func (r *registrar) run() {
 }
 
 func (r *registrar) RegisterProcess(object interface{}) Process {
-	opts := map[string]interface{}{
-		"mailbox-size": DefaultProcessMailboxSize, // size of channel for regular messages
+	opts := ProcessOptions{
+		MailboxSize: DefaultProcessMailboxSize, // size of channel for regular messages
 	}
 	return r.RegisterProcessExt("", object, opts)
 }
 
-func (r *registrar) RegisterProcessExt(name string, object interface{}, opts map[string]interface{}) Process {
+func (r *registrar) RegisterProcessExt(name string, object interface{}, opts ProcessOptions) Process {
 
 	mailbox_size := DefaultProcessMailboxSize
-	if size, ok := opts["mailbox-size"]; ok {
-		mailbox_size = size.(int)
+	if opts.MailboxSize > 0 {
+		mailbox_size = int(opts.MailboxSize)
 	}
 	ctx, stop := context.WithCancel(r.node.context)
 	pid := r.createNewPID(r.nodeName)

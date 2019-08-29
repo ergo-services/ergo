@@ -28,6 +28,10 @@ type Process struct {
 	state  interface{}
 }
 
+type ProcessOptions struct {
+	MailboxSize uint16
+}
+
 type ProcessStopFunc func(reason string)
 
 // Behaviour interface contains methods you should implement to make own process behaviour

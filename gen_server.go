@@ -17,15 +17,15 @@ type GenServerBehavior interface {
 	// Init(...) -> state
 	Init(process Process, args ...interface{}) (state interface{})
 	// HandleCast -> ("noreply", state) - noreply
-	//		         ("stop", state) - normal stop
-	HandleCast(message *etf.Term, state interface{}) (string, interface{})
+	//		         ("stop", reason) - stop with reason
+	HandleCast(message etf.Term, state interface{}) (string, interface{})
 	// HandleCall -> ("reply", message, state) - reply
 	//				 ("noreply", _, state) - noreply
-	//		         ("stop", state) - normal stop
-	HandleCall(from *etf.Tuple, message *etf.Term, state interface{}) (string, *etf.Term, interface{})
+	//		         ("stop", reason, _) - normal stop
+	HandleCall(from etf.Tuple, message etf.Term, state interface{}) (string, etf.Term, interface{})
 	// HandleInfo -> ("noreply", state) - noreply
-	//		         ("stop", state) - normal stop
-	HandleInfo(message *etf.Term, state interface{}) (string, interface{})
+	//		         ("stop", reason) - normal stop
+	HandleInfo(message etf.Term, state interface{}) (string, interface{})
 	Terminate(reason string, state interface{})
 }
 
@@ -65,7 +65,7 @@ func (gs *GenServer) loop(p Process, object interface{}, args ...interface{}) {
 				switch mtag {
 				case etf.Atom("$gen_call"):
 					fromTuple := m[1].(etf.Tuple)
-					code, reply, result := object.(GenServerBehavior).HandleCall(&fromTuple, &m[2], p.state)
+					code, reply, result := object.(GenServerBehavior).HandleCall(fromTuple, &m[2], p.state)
 
 					p.state = result
 					if code == "stop" {
@@ -80,13 +80,13 @@ func (gs *GenServer) loop(p Process, object interface{}, args ...interface{}) {
 					}
 
 				case etf.Atom("$gen_cast"):
-					code, result := object.(GenServerBehavior).HandleCast(&m[1], p.state)
+					code, result := object.(GenServerBehavior).HandleCast(m[1], p.state)
 					p.state = result
 					if code == "stop" {
 						stop <- result.(string)
 					}
 				default:
-					code, result := object.(GenServerBehavior).HandleInfo(&message, p.state)
+					code, result := object.(GenServerBehavior).HandleInfo(message, p.state)
 					p.state = result
 					if code == "stop" {
 						stop <- result.(string)
@@ -97,7 +97,7 @@ func (gs *GenServer) loop(p Process, object interface{}, args ...interface{}) {
 				gs.reply <- m
 			default:
 				lib.Log("mtag: %#v", mtag)
-				code, result := object.(GenServerBehavior).HandleInfo(&message, p.state)
+				code, result := object.(GenServerBehavior).HandleInfo(message, p.state)
 				p.state = result
 				if code == "stop" {
 					stop <- result.(string)
@@ -105,7 +105,7 @@ func (gs *GenServer) loop(p Process, object interface{}, args ...interface{}) {
 			}
 		default:
 			lib.Log("m: %#v", m)
-			code, result := object.(GenServerBehavior).HandleInfo(&message, p.state)
+			code, result := object.(GenServerBehavior).HandleInfo(message, p.state)
 			p.state = result
 			if code == "stop" {
 				stop <- result.(string)
@@ -113,15 +113,15 @@ func (gs *GenServer) loop(p Process, object interface{}, args ...interface{}) {
 		}
 	}
 }
-func (gs *GenServer) Call(to interface{}, message etf.Term) (reply *etf.Term, err error) {
+func (gs *GenServer) Call(to interface{}, message etf.Term) (etf.Term, error) {
 	return gs.CallWithTimeout(to, message, DefaultCallTimeout)
 }
 
-func (gs *GenServer) CallWithTimeout(to interface{}, message etf.Term, timeout int) (*etf.Term, error) {
+func (gs *GenServer) CallWithTimeout(to interface{}, message etf.Term, timeout int) (etf.Term, error) {
 	ref := gs.Process.Node.MakeRef()
 	from := etf.Tuple{gs.Process.self, ref}
 	msg := etf.Term(etf.Tuple{etf.Atom("$gen_call"), from, message})
-	gs.Process.Send(to, &msg)
+	gs.Process.Send(to, msg)
 	for {
 		select {
 		case m := <-gs.reply:
@@ -129,7 +129,7 @@ func (gs *GenServer) CallWithTimeout(to interface{}, message etf.Term, timeout i
 			val := m[1].(etf.Term)
 			// check message Ref
 			if len(ref.Id) == 3 && ref.Id[0] == ref1.Id[0] && ref.Id[1] == ref1.Id[1] && ref.Id[2] == ref1.Id[2] {
-				return &val, nil
+				return val, nil
 			}
 			// ignore this message. waiting for the next one
 		case <-time.After(time.Second * time.Duration(timeout)):
