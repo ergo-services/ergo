@@ -127,7 +127,8 @@ func (n *Node) Spawn(name string, opts ProcessOptions, object interface{}, args 
 		// 		n.registrar.UnregisterProcess(process.self)
 		// 	}
 		// }()
-		object.(ProcessBehaviour).loop(process, object, args...)
+		reason := object.(ProcessBehaviour).loop(process, object, args...)
+		process.Stop(reason)
 	}()
 	<-process.ready
 

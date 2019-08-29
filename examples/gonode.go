@@ -13,7 +13,6 @@ import (
 // GenServer implementation structure
 type demoGenServ struct {
 	ergonode.GenServer
-	process ergonode.Process
 }
 
 type state struct {
@@ -36,7 +35,7 @@ var (
 // Init initializes process state using arbitrary arguments
 // Init(...) -> state
 func (dgs *demoGenServ) Init(p ergonode.Process, args ...interface{}) interface{} {
-
+	dgs.Process = p
 	return state{i: 12345}
 }
 
@@ -44,7 +43,7 @@ func (dgs *demoGenServ) Init(p ergonode.Process, args ...interface{}) interface{
 // HandleCast -> ("noreply", state) - noreply
 //		         ("stop", reason) - stop with reason
 func (dgs *demoGenServ) HandleCast(message etf.Term, state interface{}) (string, interface{}) {
-	fmt.Printf("HandleCast: %#v", message)
+	fmt.Printf("HandleCast: %#v\n", message)
 	// Check type of message
 	switch req := (message).(type) {
 	case etf.Tuple:
@@ -53,7 +52,7 @@ func (dgs *demoGenServ) HandleCast(message etf.Term, state interface{}) (string,
 			case etf.Atom:
 				if string(act) == "ping" {
 					to := req.Element(2).(etf.Pid)
-					self := dgs.process.Self()
+					self := dgs.Process.Self()
 					rep := etf.Term(etf.Tuple{etf.Atom("pong"), self})
 					dgs.Send(to, rep)
 				}
@@ -82,7 +81,7 @@ func (dgs *demoGenServ) HandleCall(from etf.Tuple, message etf.Term, state inter
 		// If message is atom 'stop', we should say it to main process
 		switch string(req) {
 		case "pid":
-			reply = etf.Term(dgs.process.Self())
+			reply = etf.Term(dgs.Process.Self())
 		}
 	case etf.Tuple:
 		var to, msg etf.Term
@@ -187,9 +186,9 @@ func main() {
 	demoGS := new(demoGenServ)
 
 	// Spawn process with one arguments
-	node.Spawn("demoGenServer", ergonode.ProcessOptions{}, demoGS)
+	node.Spawn(SrvName, ergonode.ProcessOptions{}, demoGS)
 	fmt.Println("Run erl shell:")
-	fmt.Println("erl -name %s -setcookie %s", "erl-"+node.FullName, Cookie)
+	fmt.Printf("erl -name %s -setcookie %s\n", "erl-"+node.FullName, Cookie)
 
 	fmt.Println("Allowed commands...")
 	fmt.Printf("gen_server:cast({%s,'%s'}, stop).\n", SrvName, NodeName)

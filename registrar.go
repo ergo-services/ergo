@@ -176,6 +176,7 @@ func (r *registrar) run() {
 				// drop this message after 3 attempts to deliver this message
 				continue
 			}
+
 			if string(bp.pid.Node) == r.nodeName {
 				// local route
 				p := r.processes[bp.pid]

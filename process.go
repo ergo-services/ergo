@@ -36,7 +36,7 @@ type ProcessStopFunc func(reason string)
 
 // Behaviour interface contains methods you should implement to make own process behaviour
 type ProcessBehaviour interface {
-	loop(Process, interface{}, ...interface{}) // method which implements control flow of process
+	loop(Process, interface{}, ...interface{}) string // method which implements control flow of process
 }
 
 // Self returns self Pid

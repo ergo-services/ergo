@@ -35,12 +35,12 @@ type GenServer struct {
 	reply   chan etf.Tuple
 }
 
-func (gs *GenServer) loop(p Process, object interface{}, args ...interface{}) {
+func (gs *GenServer) loop(p Process, object interface{}, args ...interface{}) string {
 	state := object.(GenServerBehavior).Init(p, args...)
 	p.ready <- true
 
 	gs.reply = make(chan etf.Tuple)
-	stop := make(chan string)
+	stop := make(chan string, 2)
 
 	for {
 		var message etf.Term
@@ -48,24 +48,24 @@ func (gs *GenServer) loop(p Process, object interface{}, args ...interface{}) {
 		select {
 		case reason := <-stop:
 			object.(GenServerBehavior).Terminate(reason, state)
-			return
+			return reason
 		case msg := <-p.mailBox:
-			fromPid = msg[0].(etf.Pid)
-			message = msg[1]
+			fromPid = msg.Element(1).(etf.Pid)
+			message = msg.Element(2)
 		case <-p.context.Done():
 			object.(GenServerBehavior).Terminate("immediate", p.state)
-			return
+			return "immediate"
 		}
 
 		lib.Log("[%#v]. Message from %#v\n", p.self, fromPid)
 		switch m := message.(type) {
 		case etf.Tuple:
-			switch mtag := m[0].(type) {
+			switch mtag := m.Element(1).(type) {
 			case etf.Atom:
 				switch mtag {
 				case etf.Atom("$gen_call"):
-					fromTuple := m[1].(etf.Tuple)
-					code, reply, result := object.(GenServerBehavior).HandleCall(fromTuple, &m[2], p.state)
+					fromTuple := m.Element(2).(etf.Tuple)
+					code, reply, result := object.(GenServerBehavior).HandleCall(fromTuple, m.Element(3), p.state)
 
 					p.state = result
 					if code == "stop" {
@@ -73,18 +73,20 @@ func (gs *GenServer) loop(p Process, object interface{}, args ...interface{}) {
 					}
 
 					if reply != nil && code == "reply" {
-						// pid := fromTuple[0].(etf.Pid)
-						// ref := fromTuple[1]
-						// rep := etf.Term(etf.Tuple{ref, *reply})
-						// gs.Send(pid, &rep)
+						pid := fromTuple.Element(1).(etf.Pid)
+						ref := fromTuple.Element(2)
+						rep := etf.Term(etf.Tuple{ref, reply})
+						p.Send(pid, rep)
 					}
 
 				case etf.Atom("$gen_cast"):
-					code, result := object.(GenServerBehavior).HandleCast(m[1], p.state)
+					code, result := object.(GenServerBehavior).HandleCast(m.Element(2), p.state)
 					p.state = result
 					if code == "stop" {
+
 						stop <- result.(string)
 					}
+
 				default:
 					code, result := object.(GenServerBehavior).HandleInfo(message, p.state)
 					p.state = result
