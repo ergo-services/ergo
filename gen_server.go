@@ -69,7 +69,8 @@ func (gs *GenServer) loop(p Process, object interface{}, args ...interface{}) st
 
 					p.state = result
 					if code == "stop" {
-						stop <- result.(string)
+						stop <- reply.(string)
+						continue
 					}
 
 					if reply != nil && code == "reply" {

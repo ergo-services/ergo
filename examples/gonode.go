@@ -78,11 +78,13 @@ func (dgs *demoGenServ) HandleCall(from etf.Tuple, message etf.Term, state inter
 
 	switch req := (message).(type) {
 	case etf.Atom:
-		// If message is atom 'stop', we should say it to main process
 		switch string(req) {
 		case "pid":
 			reply = etf.Term(dgs.Process.Self())
+		case "stop":
+			return "stop", "they said stop", state
 		}
+
 	case etf.Tuple:
 		var to, msg etf.Term
 		// {testcall, { {name, node}, message  }}
