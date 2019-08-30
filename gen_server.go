@@ -30,7 +30,7 @@ type GenServerBehavior interface {
 type GenServer struct{}
 
 func (gs *GenServer) loop(p Process, object interface{}, args ...interface{}) string {
-	state := object.(GenServerBehavior).Init(p, args...)
+	p.state = object.(GenServerBehavior).Init(p, args...)
 	p.ready <- true
 
 	stop := make(chan string, 2)
@@ -40,7 +40,7 @@ func (gs *GenServer) loop(p Process, object interface{}, args ...interface{}) st
 		var fromPid etf.Pid
 		select {
 		case reason := <-stop:
-			object.(GenServerBehavior).Terminate(reason, state)
+			object.(GenServerBehavior).Terminate(reason, p.state)
 			return reason
 		case msg := <-p.mailBox:
 			fromPid = msg.Element(1).(etf.Pid)
@@ -58,13 +58,13 @@ func (gs *GenServer) loop(p Process, object interface{}, args ...interface{}) st
 				switch mtag {
 				case etf.Atom("$gen_call"):
 					fromTuple := m.Element(2).(etf.Tuple)
-					code, reply, result := object.(GenServerBehavior).HandleCall(fromTuple, m.Element(3), p.state)
+					code, reply, state := object.(GenServerBehavior).HandleCall(fromTuple, m.Element(3), p.state)
 
-					p.state = result
 					if code == "stop" {
 						stop <- reply.(string)
 						continue
 					}
+					p.state = state
 
 					if reply != nil && code == "reply" {
 						pid := fromTuple.Element(1).(etf.Pid)
@@ -74,38 +74,42 @@ func (gs *GenServer) loop(p Process, object interface{}, args ...interface{}) st
 					}
 
 				case etf.Atom("$gen_cast"):
-					code, result := object.(GenServerBehavior).HandleCast(m.Element(2), p.state)
-					p.state = result
+					code, state := object.(GenServerBehavior).HandleCast(m.Element(2), p.state)
 					if code == "stop" {
-
-						stop <- result.(string)
+						stop <- state.(string)
+						continue
 					}
+					p.state = state
 
 				default:
-					code, result := object.(GenServerBehavior).HandleInfo(message, p.state)
-					p.state = result
+					code, state := object.(GenServerBehavior).HandleInfo(message, p.state)
 					if code == "stop" {
-						stop <- result.(string)
+						stop <- state.(string)
+						continue
 					}
+					p.state = state
+
 				}
 			case etf.Ref:
 				lib.Log("got reply: %#v\n%#v", mtag, message)
 				p.reply <- m
 			default:
 				lib.Log("mtag: %#v", mtag)
-				code, result := object.(GenServerBehavior).HandleInfo(message, p.state)
-				p.state = result
+				code, state := object.(GenServerBehavior).HandleInfo(message, p.state)
 				if code == "stop" {
-					stop <- result.(string)
+					stop <- state.(string)
+					continue
 				}
+				p.state = state
 			}
 		default:
 			lib.Log("m: %#v", m)
-			code, result := object.(GenServerBehavior).HandleInfo(message, p.state)
-			p.state = result
+			code, state := object.(GenServerBehavior).HandleInfo(message, p.state)
 			if code == "stop" {
-				stop <- result.(string)
+				stop <- state.(string)
+				continue
 			}
+			p.state = state
 		}
 	}
 }
