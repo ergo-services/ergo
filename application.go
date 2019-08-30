@@ -72,7 +72,7 @@ func (sv *Application) loop(p *Process, object interface{}, args ...interface{})
 		// case messageRemote := <-p.remote:
 		// 	message = messageRemote[1]
 		// 	fromPid = messageRemote[0].(etf.Pid)
-		case <-p.context.Done():
+		case <-p.Context.Done():
 			// object.(GenServerBehavior).Terminate("immediate", p.state)
 			return
 		}

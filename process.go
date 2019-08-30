@@ -21,7 +21,7 @@ type Process struct {
 	mailBox chan etf.Tuple
 	ready   chan bool
 	self    etf.Pid
-	context context.Context
+	Context context.Context
 	Stop    ProcessStopFunc
 	name    string
 	Node    *Node
@@ -68,7 +68,7 @@ func (p *Process) CallWithTimeout(to interface{}, message etf.Term, timeout int)
 			// ignore this message. waiting for the next one
 		case <-time.After(time.Second * time.Duration(timeout)):
 			return nil, errors.New("timeout")
-		case <-p.context.Done():
+		case <-p.Context.Done():
 			return nil, errors.New("stopped")
 		}
 	}

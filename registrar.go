@@ -252,7 +252,7 @@ func (r *registrar) RegisterProcessExt(name string, object interface{}, opts Pro
 		mailBox: make(chan etf.Tuple, mailbox_size),
 		ready:   make(chan bool),
 		self:    pid,
-		context: ctx,
+		Context: ctx,
 		Stop:    wrapped_stop,
 		name:    name,
 		Node:    r.node,

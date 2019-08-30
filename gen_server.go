@@ -45,7 +45,7 @@ func (gs *GenServer) loop(p Process, object interface{}, args ...interface{}) st
 		case msg := <-p.mailBox:
 			fromPid = msg.Element(1).(etf.Pid)
 			message = msg.Element(2)
-		case <-p.context.Done():
+		case <-p.Context.Done():
 			object.(GenServerBehavior).Terminate("immediate", p.state)
 			return "immediate"
 		}
