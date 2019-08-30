@@ -9,6 +9,7 @@ import (
 
 type globalNameServer struct {
 	GenServer
+	process Process
 }
 
 type state struct {
@@ -18,7 +19,7 @@ type state struct {
 // Init(...) -> state
 func (ns *globalNameServer) Init(p Process, args ...interface{}) interface{} {
 	lib.Log("GLOBAL_NAME_SERVER: Init: %#v", args)
-	ns.Process = p
+	ns.process = p
 
 	return state{}
 }

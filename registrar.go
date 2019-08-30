@@ -256,6 +256,7 @@ func (r *registrar) RegisterProcessExt(name string, object interface{}, opts Pro
 		Stop:    wrapped_stop,
 		name:    name,
 		Node:    r.node,
+		reply:   make(chan etf.Tuple),
 	}
 	req := registerProcessRequest{
 		name:    name,

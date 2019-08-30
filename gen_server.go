@@ -1,9 +1,6 @@
 package ergonode
 
 import (
-	"errors"
-	"time"
-
 	"github.com/halturin/ergonode/etf"
 	"github.com/halturin/ergonode/lib"
 )
@@ -30,16 +27,12 @@ type GenServerBehavior interface {
 }
 
 // GenServer is implementation of ProcessBehavior interface for GenServer objects
-type GenServer struct {
-	Process Process
-	reply   chan etf.Tuple
-}
+type GenServer struct{}
 
 func (gs *GenServer) loop(p Process, object interface{}, args ...interface{}) string {
 	state := object.(GenServerBehavior).Init(p, args...)
 	p.ready <- true
 
-	gs.reply = make(chan etf.Tuple)
 	stop := make(chan string, 2)
 
 	for {
@@ -97,7 +90,7 @@ func (gs *GenServer) loop(p Process, object interface{}, args ...interface{}) st
 				}
 			case etf.Ref:
 				lib.Log("got reply: %#v\n%#v", mtag, message)
-				gs.reply <- m
+				p.reply <- m
 			default:
 				lib.Log("mtag: %#v", mtag)
 				code, result := object.(GenServerBehavior).HandleInfo(message, p.state)
@@ -115,39 +108,4 @@ func (gs *GenServer) loop(p Process, object interface{}, args ...interface{}) st
 			}
 		}
 	}
-}
-func (gs *GenServer) Call(to interface{}, message etf.Term) (etf.Term, error) {
-	return gs.CallWithTimeout(to, message, DefaultCallTimeout)
-}
-
-func (gs *GenServer) CallWithTimeout(to interface{}, message etf.Term, timeout int) (etf.Term, error) {
-	ref := gs.Process.Node.MakeRef()
-	from := etf.Tuple{gs.Process.self, ref}
-	msg := etf.Term(etf.Tuple{etf.Atom("$gen_call"), from, message})
-	gs.Process.Send(to, msg)
-	for {
-		select {
-		case m := <-gs.reply:
-			ref1 := m[0].(etf.Ref)
-			val := m[1].(etf.Term)
-			// check message Ref
-			if len(ref.Id) == 3 && ref.Id[0] == ref1.Id[0] && ref.Id[1] == ref1.Id[1] && ref.Id[2] == ref1.Id[2] {
-				return val, nil
-			}
-			// ignore this message. waiting for the next one
-		case <-time.After(time.Second * time.Duration(timeout)):
-			return nil, errors.New("timeout")
-		case <-gs.Process.context.Done():
-			return nil, errors.New("stopped")
-		}
-	}
-}
-
-func (gs *GenServer) Cast(to interface{}, message etf.Term) {
-	msg := etf.Term(etf.Tuple{etf.Atom("$gen_cast"), message})
-	gs.Process.Send(to, msg)
-}
-
-func (gs *GenServer) Send(to etf.Pid, reply etf.Term) {
-	gs.Process.Send(to, reply)
 }

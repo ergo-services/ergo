@@ -9,13 +9,14 @@ import (
 
 type observer struct {
 	GenServer
+	process Process
 }
 
 // Init initializes process state using arbitrary arguments
 // Init(...) -> state
 func (o *observer) Init(p Process, args ...interface{}) (state interface{}) {
 	lib.Log("OBSERVER: Init: %#v", args)
-	o.Process = p
+	o.process = p
 	return nil
 }
 

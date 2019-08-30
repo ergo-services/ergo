@@ -9,13 +9,14 @@ import (
 
 type netKernel struct {
 	GenServer
+	process Process
 }
 
 // Init initializes process state using arbitrary arguments
 // Init(...) -> state
 func (nk *netKernel) Init(p Process, args ...interface{}) (state interface{}) {
 	lib.Log("NET_KERNEL: Init: %#v", args)
-	nk.Process = p
+	nk.process = p
 
 	return nil
 }

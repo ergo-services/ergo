@@ -14,6 +14,7 @@ type modFun struct {
 
 type rpc struct {
 	GenServer
+	process Process
 	methods map[modFun]rpcFunction
 }
 
@@ -31,7 +32,7 @@ func (n *Node) RpcRevoke(modName, funName string) {
 // Init(...) -> state
 func (r *rpc) Init(p Process, args ...interface{}) interface{} {
 	lib.Log("RPC: Init: %#v", args)
-	r.Process = p
+	r.process = p
 	r.methods = make(map[modFun]rpcFunction, 0)
 	return nil
 }

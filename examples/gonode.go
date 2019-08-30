@@ -13,6 +13,7 @@ import (
 // GenServer implementation structure
 type demoGenServ struct {
 	ergonode.GenServer
+	process ergonode.Process
 }
 
 type state struct {
@@ -35,7 +36,7 @@ var (
 // Init initializes process state using arbitrary arguments
 // Init(...) -> state
 func (dgs *demoGenServ) Init(p ergonode.Process, args ...interface{}) interface{} {
-	dgs.Process = p
+	dgs.process = p
 	return state{i: 12345}
 }
 
@@ -52,9 +53,9 @@ func (dgs *demoGenServ) HandleCast(message etf.Term, state interface{}) (string,
 			case etf.Atom:
 				if string(act) == "ping" {
 					to := req.Element(2).(etf.Pid)
-					self := dgs.Process.Self()
+					self := dgs.process.Self()
 					rep := etf.Term(etf.Tuple{etf.Atom("pong"), self})
-					dgs.Send(to, rep)
+					dgs.process.Send(to, rep)
 				}
 			}
 		}
@@ -80,7 +81,7 @@ func (dgs *demoGenServ) HandleCall(from etf.Tuple, message etf.Term, state inter
 	case etf.Atom:
 		switch string(req) {
 		case "pid":
-			reply = etf.Term(dgs.Process.Self())
+			reply = etf.Term(dgs.process.Self())
 		case "stop":
 			return "stop", "they said stop", state
 		}
@@ -113,12 +114,12 @@ func (dgs *demoGenServ) HandleCall(from etf.Tuple, message etf.Term, state inter
 
 			if string(act) == "testcall" {
 				fmt.Printf("doing test call... %#v : %#v\n", to, msg)
-				if reply, err = dgs.Call(to, msg); err != nil {
+				if reply, err = dgs.process.Call(to, msg); err != nil {
 					fmt.Println(err.Error())
 				}
 			} else if string(act) == "testcast" {
 				fmt.Println("doing test cast...")
-				dgs.Cast(to, msg)
+				dgs.process.Cast(to, msg)
 			}
 
 		}
