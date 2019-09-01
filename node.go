@@ -192,7 +192,6 @@ func (n *Node) serve(c net.Conn, negotiate bool) {
 	n.registrar.RegisterPeer(node.GetRemoteName(), p)
 }
 
-// FIXME: rework it using types like [2]etf.Term
 func (n *Node) handleTerms(terms []etf.Term) {
 	lib.Log("Node terms: %#v", terms)
 
@@ -230,15 +229,12 @@ func (n *Node) handleTerms(terms []etf.Term) {
 					// {19, FromPid, ToProc, Ref}, where FromPid = monitoring process
 					// and ToProc = monitored process pid or name (atom)
 					lib.Log("MONITOR message (act %d): %#v", act, t)
-					// TODO: send Ref to t.Element(2).(etf.Pid)
 					n.monitor.MonitorProcessWithRef(t.Element(2).(etf.Pid), t.Element(3), t.Element(4).(etf.Ref))
-					lib.Log("MONITOR ref for remote process (%v): %v", t.Element(2).(etf.Pid), t.Element(4).(etf.Ref))
 				case DEMONITOR:
 					// {20, FromPid, ToProc, Ref}, where FromPid = monitoring process
 					// and ToProc = monitored process pid or name (atom)
 					lib.Log("DEMONITOR message (act %d): %#v", act, t)
 					n.monitor.DemonitorProcess(t.Element(4).(etf.Ref))
-					// TODO: send ok to t.Element(1).(etf.Pid)
 
 				case MONITOR_EXIT:
 					// {21, FromProc, ToPid, Ref, Reason}, where FromProc = monitored process
