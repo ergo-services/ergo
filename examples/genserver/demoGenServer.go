@@ -84,6 +84,9 @@ func (dgs *demoGenServ) HandleCall(from etf.Tuple, message etf.Term, state inter
 			reply = etf.Term(dgs.process.Self())
 		case "stop":
 			return "stop", "they said stop", state
+		case "monitor":
+			dgs.process.MonitorProcess(from.Element(1).(etf.Pid))
+			reply = etf.Term(etf.Atom("ok"))
 		}
 
 	case etf.Tuple:

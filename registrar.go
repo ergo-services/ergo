@@ -49,6 +49,12 @@ type routeByTupleRequest struct {
 	retries int
 }
 
+type routeRawRequest struct {
+	nodename string
+	message  etf.Term
+	retries  int
+}
+
 type registrarChannels struct {
 	process           chan registerProcessRequest
 	unregisterProcess chan etf.Pid
@@ -60,6 +66,7 @@ type registrarChannels struct {
 	routeByPid   chan routeByPidRequest
 	routeByName  chan routeByNameRequest
 	routeByTuple chan routeByTupleRequest
+	routeRaw     chan routeRawRequest
 }
 
 type registrar struct {
@@ -93,6 +100,7 @@ func createRegistrar(node *Node) *registrar {
 			routeByPid:   make(chan routeByPidRequest, 100),
 			routeByName:  make(chan routeByNameRequest, 100),
 			routeByTuple: make(chan routeByTupleRequest, 100),
+			routeRaw:     make(chan routeRawRequest, 100),
 		},
 
 		names:     make(map[string]etf.Pid),
@@ -222,6 +230,22 @@ func (r *registrar) run() {
 				continue
 			}
 			peer.send <- []etf.Term{etf.Tuple{REG_SEND, bt.from, etf.Atom(""), to_process_name}, bt.message}
+
+		case rw := <-r.channels.routeRaw:
+			if rw.retries > 2 {
+				// drop this message after 3 attempts to deliver this message
+				continue
+			}
+			peer, ok := r.peers[rw.nodename]
+			if !ok {
+				// initiate connection and make yet another attempt to deliver this message
+				rw.retries++
+				r.channels.routeRaw <- rw
+				r.node.connect(etf.Atom(rw.nodename))
+				continue
+			}
+			peer.send <- []etf.Term{rw.message}
+
 		}
 
 	}
@@ -351,4 +375,12 @@ func (r *registrar) route(from etf.Pid, to etf.Term, message etf.Term) {
 	default:
 		lib.Log("unknow sender type %#v", tto)
 	}
+}
+
+func (r *registrar) routeRaw(nodename etf.Atom, message etf.Term) {
+	req := routeRawRequest{
+		nodename: string(nodename),
+		message:  message,
+	}
+	r.channels.routeRaw <- req
 }
