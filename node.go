@@ -231,8 +231,8 @@ func (n *Node) handleTerms(terms []etf.Term) {
 					// and ToProc = monitored process pid or name (atom)
 					lib.Log("MONITOR message (act %d): %#v", act, t)
 					// TODO: send Ref to t.Element(2).(etf.Pid)
-					ref := n.monitor.MonitorProcess(t.Element(2).(etf.Pid), t.Element(3).(etf.Pid))
-					lib.Log("MONITOR ref for remote process (%v): %v", t.Element(2).(etf.Pid), ref)
+					n.monitor.MonitorProcessWithRef(t.Element(2).(etf.Pid), t.Element(3), t.Element(4).(etf.Ref))
+					lib.Log("MONITOR ref for remote process (%v): %v", t.Element(2).(etf.Pid), t.Element(4).(etf.Ref))
 				case DEMONITOR:
 					// {20, FromPid, ToProc, Ref}, where FromPid = monitoring process
 					// and ToProc = monitored process pid or name (atom)
@@ -244,7 +244,7 @@ func (n *Node) handleTerms(terms []etf.Term) {
 					// {21, FromProc, ToPid, Ref, Reason}, where FromProc = monitored process
 					// pid or name (atom), ToPid = monitoring process, and Reason = exit reason for the monitored process
 					lib.Log("MONITOR_EXIT message (act %d): %#v", act, t)
-					n.monitor.ProcessTerminated(t.Element(2).(etf.Pid), t.Element(5).(string))
+					n.monitor.ProcessTerminated(t.Element(2).(etf.Pid), etf.Atom(""), t.Element(5).(string))
 
 				// Not implemented yet, just stubs. TODO.
 				case SEND_SENDER:

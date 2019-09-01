@@ -246,7 +246,7 @@ func (r *registrar) RegisterProcessExt(name string, object interface{}, opts Pro
 		lib.Log("STOPPING: %#v with reason: %s", pid, reason)
 		stop()
 		r.UnregisterProcess(pid)
-		r.node.monitor.ProcessTerminated(pid, reason)
+		r.node.monitor.ProcessTerminated(pid, etf.Atom(name), reason)
 	}
 	process := Process{
 		mailBox: make(chan etf.Tuple, mailbox_size),
@@ -257,6 +257,7 @@ func (r *registrar) RegisterProcessExt(name string, object interface{}, opts Pro
 		name:    name,
 		Node:    r.node,
 		reply:   make(chan etf.Tuple),
+		object:  object,
 	}
 	req := registerProcessRequest{
 		name:    name,
