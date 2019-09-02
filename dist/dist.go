@@ -311,9 +311,7 @@ func (currNd *NodeDesc) WriteMessage(c net.Conn, ts []etf.Term) (err error) {
 }
 
 func (nd *NodeDesc) GetRemoteName() string {
-	if nd.remote == nil {
-		return "$undefined"
-	}
+	// nd.remote MUST not be nil otherwise is a bug. let it panic then
 	return nd.remote.Name
 }
 

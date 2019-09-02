@@ -160,6 +160,15 @@ func (m *monitor) run() {
 					delete(m.nodes, nd)
 				}
 			}
+			// notify process monitors
+			for pid, ps := range m.processes {
+				if pid.Node == etf.Atom(nd) {
+					for i := range ps {
+						m.notifyProcessTerminated(ps[i].ref, ps[i].pid, pid, "noconnection")
+					}
+					delete(m.processes, pid)
+				}
+			}
 
 		case pt := <-m.channels.processTerminated:
 			lib.Log("MONITOR process terminated: %v", pt)

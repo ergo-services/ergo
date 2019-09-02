@@ -153,7 +153,7 @@ func (n *Node) serve(c net.Conn, negotiate bool) {
 	// run writer routine
 	go func() {
 		defer c.Close()
-		defer n.registrar.UnregisterPeer(node.GetRemoteName())
+		defer func() { n.registrar.UnregisterPeer(node.GetRemoteName()) }()
 
 		for {
 			select {
@@ -172,7 +172,7 @@ func (n *Node) serve(c net.Conn, negotiate bool) {
 
 	go func() {
 		defer c.Close()
-		defer n.registrar.UnregisterPeer(node.GetRemoteName())
+		defer func() { n.registrar.UnregisterPeer(node.GetRemoteName()) }()
 		for {
 			terms, err := node.ReadMessage(c)
 			if err != nil {
