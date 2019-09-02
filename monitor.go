@@ -207,7 +207,6 @@ func (m *monitor) MonitorProcessWithRef(by etf.Pid, process interface{}, ref etf
 		m.channels.process <- p
 
 	case etf.Tuple: // requesting monitor remote process by local process using registered process name
-		// FIXME: register node name to handle closing link
 		message := etf.Tuple{MONITOR, by, t.Element(1).(etf.Atom), ref}
 		m.node.registrar.route(by, t, message)
 
