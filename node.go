@@ -27,6 +27,9 @@ type Node struct {
 	procID    uint64
 	context   context.Context
 	Stop      context.CancelFunc
+
+	StartedAt  time.Time
+	VersionOTP int
 }
 
 type NodeOptions struct {
@@ -40,6 +43,7 @@ const (
 	defaultListenRangeBegin uint16 = 15000
 	defaultListenRangeEnd   uint16 = 65000
 	defaultEPMDPort         uint16 = 4369
+	versionOTP              int    = 21
 )
 
 // CreateNode create new node with name and cookie string
@@ -54,9 +58,11 @@ func CreateNodeWithContext(ctx context.Context, name string, cookie string, opts
 	nodectx, nodestop := context.WithCancel(ctx)
 
 	node := Node{
-		Cookie:  cookie,
-		context: nodectx,
-		Stop:    nodestop,
+		Cookie:     cookie,
+		context:    nodectx,
+		Stop:       nodestop,
+		StartedAt:  time.Now(),
+		VersionOTP: versionOTP,
 	}
 
 	// start networking if name is defined
@@ -111,7 +117,7 @@ func CreateNodeWithContext(ctx context.Context, name string, cookie string, opts
 	node.Spawn("rpc", process_opts, node.system.rpc)
 
 	node.system.observer = new(observer)
-	node.Spawn("observer", process_opts, node.system.observer)
+	node.Spawn("rex", process_opts, node.system.observer)
 
 	return &node
 }
