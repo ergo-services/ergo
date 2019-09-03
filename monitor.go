@@ -28,6 +28,8 @@ type processTerminatedRequest struct {
 type monitorChannels struct {
 	process          chan monitorProcessRequest
 	demonitorProcess chan monitorProcessRequest
+	link             chan linkedProcessesRequest
+	unlink           chan linkedProcessesRequest
 	node             chan monitorNodeRequest
 	demonitorName    chan monitorNodeRequest
 
@@ -41,8 +43,14 @@ type monitorItem struct {
 	refs string
 }
 
+type linkedProcessesRequest struct {
+	pidA etf.Pid
+	pidB etf.Pid
+}
+
 type monitor struct {
 	processes map[etf.Pid][]monitorItem
+	links     map[etf.Pid][]etf.Pid
 	nodes     map[string][]monitorItem
 	ref2pid   map[string]etf.Pid
 	ref2node  map[string]string
@@ -55,6 +63,7 @@ type monitor struct {
 func createMonitor(node *Node) *monitor {
 	m := &monitor{
 		processes: make(map[etf.Pid][]monitorItem),
+		links:     make(map[etf.Pid][]etf.Pid),
 		nodes:     make(map[string][]monitorItem),
 
 		ref2pid:  make(map[string]etf.Pid),
@@ -63,6 +72,8 @@ func createMonitor(node *Node) *monitor {
 		channels: monitorChannels{
 			process:          make(chan monitorProcessRequest, 10),
 			demonitorProcess: make(chan monitorProcessRequest, 10),
+			link:             make(chan linkedProcessesRequest, 10),
+			unlink:           make(chan linkedProcessesRequest, 10),
 			node:             make(chan monitorNodeRequest, 10),
 			demonitorName:    make(chan monitorNodeRequest, 10),
 
@@ -82,6 +93,9 @@ func (m *monitor) run() {
 		select {
 		case p := <-m.channels.process:
 			lib.Log("MONITOR process: %v => %v", p.by, p.process)
+			// http://erlang.org/doc/reference_manual/processes.html#monitors
+			// FIXME: If Pid2 does not exist, the 'DOWN' message is
+			// sent immediately with Reason set to noproc.
 			l := m.processes[p.process]
 			key := ref2key(p.ref)
 			item := monitorItem{
@@ -116,6 +130,55 @@ func (m *monitor) run() {
 				delete(m.processes, dp.process)
 			} else {
 				m.processes[dp.process] = l
+			}
+
+		case l := <-m.channels.link:
+			// http://erlang.org/doc/reference_manual/processes.html#links
+			// Links are bidirectional and there can only be one link between
+			// two processes. Repeated calls to link(Pid) have no effect.
+			linksA := m.links[l.pidA]
+			for i := range linksA {
+				if linksA[i] == l.pidB {
+					goto doneAl
+				}
+			}
+
+			linksA = append(linksA, l.pidB)
+			m.links[l.pidA] = linksA
+
+		doneAl:
+			linksB := m.links[l.pidB]
+			for i := range linksB {
+				if linksB[i] == l.pidA {
+					goto doneBl
+				}
+			}
+
+			linksB = append(linksB, l.pidA)
+			m.links[l.pidB] = linksB
+
+		doneBl:
+			continue
+
+		case ul := <-m.channels.unlink:
+			linksA := m.links[ul.pidA]
+			for i := range linksA {
+				if linksA[i] == ul.pidB {
+					linksA[i] = linksA[0]
+					linksA = linksA[1:]
+					m.links[ul.pidA] = linksA
+					break
+				}
+			}
+
+			linksB := m.links[ul.pidB]
+			for i := range linksB {
+				if linksB[i] == ul.pidA {
+					linksB[i] = linksB[0]
+					linksB = linksB[1:]
+					m.links[ul.pidB] = linksB
+					break
+				}
 			}
 
 		case n := <-m.channels.node:
@@ -170,6 +233,17 @@ func (m *monitor) run() {
 				}
 			}
 
+			// notify linked processes
+			for link := range m.links {
+				if link.Node == etf.Atom(nd) {
+					pids := m.links[link]
+					for i := range pids {
+						m.notifyProcessExit(pids[i], link, "noconnection")
+					}
+					delete(m.links, link)
+				}
+			}
+
 		case pt := <-m.channels.processTerminated:
 			lib.Log("MONITOR process terminated: %v", pt)
 			if pids, ok := m.processes[pt.process]; ok {
@@ -179,6 +253,27 @@ func (m *monitor) run() {
 					delete(m.processes, pt.process)
 				}
 			}
+
+			if pidLinks, ok := m.links[pt.process]; ok {
+				for i := range pidLinks {
+					lib.Log("MONITOR (LINK) process exited: %v send notify to: %v", pt, pidLinks[i])
+					m.notifyProcessExit(pidLinks[i], pt.process, pt.reason)
+
+					// remove link
+					if pids, ok := m.links[pidLinks[i]]; ok {
+						for k := range pids {
+							if pids[k] == pt.process {
+								pids[k] = pids[0]
+								pids = pids[1:]
+								break
+							}
+						}
+						m.links[pidLinks[i]] = pids
+					}
+				}
+				delete(m.links, pt.process)
+			}
+
 			if pt.name != "" {
 				fakePid := fakeMonitorPidFromName(string(pt.name))
 				m.ProcessTerminated(fakePid, "", pt.reason)
@@ -189,6 +284,7 @@ func (m *monitor) run() {
 		}
 	}
 }
+
 func (m *monitor) MonitorProcess(by etf.Pid, process interface{}) etf.Ref {
 	ref := m.node.MakeRef()
 	m.MonitorProcessWithRef(by, process, ref)
@@ -229,6 +325,22 @@ func (m *monitor) DemonitorProcess(ref etf.Ref) {
 		ref: ref,
 	}
 	m.channels.demonitorProcess <- p
+}
+
+func (m *monitor) Link(pidA, pidB etf.Pid) {
+	p := linkedProcessesRequest{
+		pidA: pidA,
+		pidB: pidB,
+	}
+	m.channels.link <- p
+}
+
+func (m *monitor) Unink(pidA, pidB etf.Pid) {
+	p := linkedProcessesRequest{
+		pidA: pidA,
+		pidB: pidB,
+	}
+	m.channels.link <- p
 }
 
 func (m *monitor) MonitorNode(by etf.Pid, node string) etf.Ref {
@@ -281,6 +393,11 @@ func (m *monitor) notifyProcessTerminated(ref etf.Ref, to etf.Pid, terminated et
 	}
 
 	message := etf.Term(etf.Tuple{etf.Atom("DOWN"), ref, etf.Atom("process"), terminated, reason})
+	m.node.registrar.route(etf.Pid{}, to, message)
+}
+
+func (m *monitor) notifyProcessExit(to etf.Pid, terminated etf.Pid, reason string) {
+	message := etf.Term(etf.Tuple{etf.Atom("EXIT"), terminated, reason})
 	m.node.registrar.route(etf.Pid{}, to, message)
 }
 

@@ -88,6 +88,14 @@ func (p *Process) MonitorProcess(to etf.Pid) etf.Ref {
 	return p.Node.monitor.MonitorProcess(p.self, to)
 }
 
+func (p *Process) Link(with etf.Pid) {
+	p.Node.monitor.Link(p.self, with)
+}
+
+func (p *Process) Unlink(with etf.Pid) {
+	p.Node.monitor.Link(p.self, with)
+}
+
 func (p *Process) MonitorNode(name string) etf.Ref {
 	return p.Node.monitor.MonitorNode(p.self, name)
 }
