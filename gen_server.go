@@ -40,7 +40,7 @@ func (gs *GenServer) loop(p Process, object interface{}, args ...interface{}) st
 	for {
 		var message etf.Term
 		var fromPid etf.Pid
-		var lockState sync.Mutex
+		var lockState = &sync.Mutex{}
 
 		select {
 		case reason := <-stop:
