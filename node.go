@@ -116,8 +116,11 @@ func CreateNodeWithContext(ctx context.Context, name string, cookie string, opts
 	node.system.rpc = new(rpc)
 	node.Spawn("rpc", process_opts, node.system.rpc)
 
-	node.system.observer = new(observer)
-	node.Spawn("rex", process_opts, node.system.observer)
+	node.system.rex = new(rex)
+	node.Spawn("rex", process_opts, node.system.rex)
+
+	node.system.observerBackend = new(observerBackend)
+	node.Spawn("observer_backend", process_opts, node.system.observerBackend)
 
 	return &node
 }

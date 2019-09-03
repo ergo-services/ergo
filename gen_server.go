@@ -1,6 +1,8 @@
 package ergonode
 
 import (
+	"sync"
+
 	"github.com/halturin/ergonode/etf"
 	"github.com/halturin/ergonode/lib"
 )
@@ -38,6 +40,8 @@ func (gs *GenServer) loop(p Process, object interface{}, args ...interface{}) st
 	for {
 		var message etf.Term
 		var fromPid etf.Pid
+		var lockState sync.Mutex
+
 		select {
 		case reason := <-stop:
 			object.(GenServerBehavior).Terminate(reason, p.state)
@@ -57,59 +61,88 @@ func (gs *GenServer) loop(p Process, object interface{}, args ...interface{}) st
 			case etf.Atom:
 				switch mtag {
 				case etf.Atom("$gen_call"):
-					fromTuple := m.Element(2).(etf.Tuple)
-					code, reply, state := object.(GenServerBehavior).HandleCall(fromTuple, m.Element(3), p.state)
+					// We need to wrap it out using goroutine in order to serve
+					// sync-requests (like 'process.Call') within callback execution
+					// since reply (etf.Ref) comes through the same mailBox channel
+					go func() {
+						fromTuple := m.Element(2).(etf.Tuple)
 
-					if code == "stop" {
-						stop <- reply.(string)
-						continue
-					}
-					p.state = state
+						lockState.Lock()
 
-					if reply != nil && code == "reply" {
-						pid := fromTuple.Element(1).(etf.Pid)
-						ref := fromTuple.Element(2)
-						rep := etf.Term(etf.Tuple{ref, reply})
-						p.Send(pid, rep)
-					}
+						code, reply, state := object.(GenServerBehavior).HandleCall(fromTuple, m.Element(3), p.state)
+
+						if code == "stop" {
+							stop <- reply.(string)
+							// do not unlock, coz we have to keep this state unchanged for Terminate handler
+							return
+						}
+
+						p.state = state
+						lockState.Unlock()
+
+						if reply != nil && code == "reply" {
+							pid := fromTuple.Element(1).(etf.Pid)
+							ref := fromTuple.Element(2)
+							rep := etf.Term(etf.Tuple{ref, reply})
+							p.Send(pid, rep)
+						}
+					}()
 
 				case etf.Atom("$gen_cast"):
-					code, state := object.(GenServerBehavior).HandleCast(m.Element(2), p.state)
-					if code == "stop" {
-						stop <- state.(string)
-						continue
-					}
-					p.state = state
+					go func() {
+						lockState.Lock()
+						code, state := object.(GenServerBehavior).HandleCast(m.Element(2), p.state)
+						if code == "stop" {
+							stop <- state.(string)
+							return
+						}
+						p.state = state
+						lockState.Unlock()
+					}()
 
 				default:
-					code, state := object.(GenServerBehavior).HandleInfo(message, p.state)
-					if code == "stop" {
-						stop <- state.(string)
-						continue
-					}
-					p.state = state
+					go func() {
+						lockState.Lock()
+						code, state := object.(GenServerBehavior).HandleInfo(message, p.state)
+						if code == "stop" {
+							stop <- state.(string)
+							return
+						}
+						p.state = state
+						lockState.Unlock()
+					}()
 
 				}
+
 			case etf.Ref:
 				lib.Log("got reply: %#v\n%#v", mtag, message)
 				p.reply <- m
+
 			default:
 				lib.Log("mtag: %#v", mtag)
+				go func() {
+					lockState.Lock()
+					code, state := object.(GenServerBehavior).HandleInfo(message, p.state)
+					if code == "stop" {
+						stop <- state.(string)
+					}
+					p.state = state
+					lockState.Unlock()
+				}()
+			}
+
+		default:
+			lib.Log("m: %#v", m)
+			go func() {
+				lockState.Lock()
 				code, state := object.(GenServerBehavior).HandleInfo(message, p.state)
 				if code == "stop" {
 					stop <- state.(string)
-					continue
+					return
 				}
 				p.state = state
-			}
-		default:
-			lib.Log("m: %#v", m)
-			code, state := object.(GenServerBehavior).HandleInfo(message, p.state)
-			if code == "stop" {
-				stop <- state.(string)
-				continue
-			}
-			p.state = state
+				lockState.Unlock()
+			}()
 		}
 	}
 }

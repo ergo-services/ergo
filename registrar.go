@@ -179,6 +179,7 @@ func (r *registrar) run() {
 				p.Stop("normal")
 			}
 			return
+
 		case bp := <-r.channels.routeByPid:
 			lib.Log("sending message by pid %v", bp.pid)
 			if bp.retries > 2 {
@@ -215,6 +216,7 @@ func (r *registrar) run() {
 				// drop this message after 3 attempts to deliver this message
 				continue
 			}
+
 			to_node := bt.tuple.Element(2).(string)
 			to_process_name := bt.tuple.Element(1).(string)
 			if to_node == r.nodeName {
@@ -237,6 +239,7 @@ func (r *registrar) run() {
 				// drop this message after 3 attempts to deliver this message
 				continue
 			}
+
 			peer, ok := r.peers[rw.nodename]
 			if !ok {
 				// initiate connection and make yet another attempt to deliver this message
@@ -245,10 +248,9 @@ func (r *registrar) run() {
 				r.node.connect(etf.Atom(rw.nodename))
 				continue
 			}
+
 			peer.send <- []etf.Term{rw.message}
-
 		}
-
 	}
 }
 
@@ -265,14 +267,17 @@ func (r *registrar) RegisterProcessExt(name string, object interface{}, opts Pro
 	if opts.MailboxSize > 0 {
 		mailbox_size = int(opts.MailboxSize)
 	}
+
 	ctx, stop := context.WithCancel(r.node.context)
 	pid := r.createNewPID(r.nodeName)
+
 	wrapped_stop := func(reason string) {
 		lib.Log("STOPPING: %#v with reason: %s", pid, reason)
 		stop()
 		r.UnregisterProcess(pid)
 		r.node.monitor.ProcessTerminated(pid, etf.Atom(name), reason)
 	}
+
 	process := Process{
 		mailBox: make(chan etf.Tuple, mailbox_size),
 		ready:   make(chan bool),
@@ -281,13 +286,15 @@ func (r *registrar) RegisterProcessExt(name string, object interface{}, opts Pro
 		Stop:    wrapped_stop,
 		name:    name,
 		Node:    r.node,
-		reply:   make(chan etf.Tuple),
+		reply:   make(chan etf.Tuple, 2),
 		object:  object,
 	}
+
 	req := registerProcessRequest{
 		name:    name,
 		process: process,
 	}
+
 	r.channels.process <- req
 
 	return process

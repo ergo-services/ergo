@@ -11,14 +11,14 @@ import (
 	"github.com/halturin/ergonode/lib"
 )
 
-type observer struct {
+type observerBackend struct {
 	GenServer
 	process Process
 }
 
 // Init initializes process state using arbitrary arguments
 // Init(...) -> state
-func (o *observer) Init(p Process, args ...interface{}) (state interface{}) {
+func (o *observerBackend) Init(p Process, args ...interface{}) (state interface{}) {
 	lib.Log("OBSERVER: Init: %#v", args)
 	o.process = p
 	return nil
@@ -26,7 +26,7 @@ func (o *observer) Init(p Process, args ...interface{}) (state interface{}) {
 
 // HandleCast -> ("noreply", state) - noreply
 //		         ("stop", reason) - stop with reason
-func (o *observer) HandleCast(message etf.Term, state interface{}) (string, interface{}) {
+func (o *observerBackend) HandleCast(message etf.Term, state interface{}) (string, interface{}) {
 	lib.Log("OBSERVER: HandleCast: %#v", message)
 	return "noreply", state
 }
@@ -35,20 +35,16 @@ func (o *observer) HandleCast(message etf.Term, state interface{}) (string, inte
 // HandleCall -> ("reply", message, state) - reply
 //				 ("noreply", _, state) - noreply
 //		         ("stop", reason, _) - normal stop
-func (o *observer) HandleCall(from etf.Tuple, message etf.Term, state interface{}) (string, etf.Term, interface{}) {
-	lib.Log("OBSERVER: HandleCall: %#v, From: %#v", message, from)
-	switch m := message.(type) {
-	case etf.Tuple:
+func (o *observerBackend) HandleCall(from etf.Tuple, message etf.Term, state interface{}) (string, etf.Term, interface{}) {
+	lib.Log("OBSERVER: HandleCall: %v, From: %#v", message, from)
+	switch message {
+	case etf.Atom("sys_info"):
 		//etf.Tuple{"call", "observer_backend", "sys_info",
 		//           etf.List{}, etf.Pid{Node:"erl-examplenode@127.0.0.1", Id:0x46, Serial:0x0, Creation:0x2}}
-		if m.Element(1) == etf.Atom("call") &&
-			m.Element(2) == etf.Atom("observer_backend") &&
-			m.Element(3) == etf.Atom("sys_info") {
-
-			reply := etf.Term(o.sys_info())
-			return "reply", reply, state
-		}
+		reply := etf.Term(o.sys_info())
+		return "reply", reply, state
 	}
+
 	reply := etf.Term("ok")
 	return "reply", reply, state
 }
@@ -56,13 +52,13 @@ func (o *observer) HandleCall(from etf.Tuple, message etf.Term, state interface{
 // HandleInfo serves all another incoming messages (Pid ! message)
 // HandleInfo -> ("noreply", state) - noreply
 //		         ("stop", reason) - normal stop
-func (o *observer) HandleInfo(message etf.Term, state interface{}) (string, interface{}) {
+func (o *observerBackend) HandleInfo(message etf.Term, state interface{}) (string, interface{}) {
 	lib.Log("OBSERVER: HandleInfo: %#v", message)
 	return "noreply", state
 }
 
 // Terminate called when process died
-func (o *observer) Terminate(reason string, state interface{}) {
+func (o *observerBackend) Terminate(reason string, state interface{}) {
 	lib.Log("OBSERVER: Terminate: %#v", reason)
 }
 
@@ -105,7 +101,7 @@ func (o *observer) Terminate(reason string, state interface{}) {
 //      {alloc_info, alloc_info()}
 //      | MemInfo].
 
-func (o *observer) sys_info() etf.List {
+func (o *observerBackend) sys_info() etf.List {
 
 	process_count := etf.Tuple{etf.Atom("process_count"), 123}
 	process_limit := etf.Tuple{etf.Atom("process_limit"), 123}

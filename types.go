@@ -10,7 +10,8 @@ type systemProcesses struct {
 	netKernel        *netKernel
 	globalNameServer *globalNameServer
 	rpc              *rpc
-	observer         *observer
+	observerBackend  *observerBackend
+	rex              *rex
 }
 
 // Distributed operations codes (http://www.erlang.org/doc/apps/erts/erl_dist_protocol.html)
