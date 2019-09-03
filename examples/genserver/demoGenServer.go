@@ -21,7 +21,7 @@ type state struct {
 }
 
 var (
-	SrvName          string
+	ServerName       string
 	NodeName         string
 	Cookie           string
 	err              error
@@ -145,7 +145,7 @@ func (dgs *demoGenServ) Terminate(reason string, state interface{}) {
 
 func init() {
 	flag.StringVar(&Listen, "listen", "15151-20151", "listen port range")
-	flag.StringVar(&SrvName, "gen_server", "example", "gen_server name")
+	flag.StringVar(&ServerName, "gen_server", "example", "gen_server name")
 	flag.StringVar(&NodeName, "name", "examplenode@127.0.0.1", "node name")
 	flag.IntVar(&ListenEPMD, "epmd", 4369, "EPMD port")
 	flag.StringVar(&Cookie, "cookie", "123", "cookie for interaction with erlang cluster")
@@ -192,17 +192,17 @@ func main() {
 	demoGS := new(demoGenServ)
 
 	// Spawn process with one arguments
-	node.Spawn(SrvName, ergonode.ProcessOptions{}, demoGS)
+	node.Spawn(ServerName, ergonode.ProcessOptions{}, demoGS)
 	fmt.Println("Run erl shell:")
 	fmt.Printf("erl -name %s -setcookie %s\n", "erl-"+node.FullName, Cookie)
 
 	fmt.Println("Allowed commands...")
-	fmt.Printf("gen_server:cast({%s,'%s'}, stop).\n", SrvName, NodeName)
-	fmt.Printf("gen_server:call({%s,'%s'}, pid).\n", SrvName, NodeName)
-	fmt.Printf("gen_server:cast({%s,'%s'}, {ping, self()}), flush().\n", SrvName, NodeName)
+	fmt.Printf("gen_server:cast({%s,'%s'}, stop).\n", ServerName, NodeName)
+	fmt.Printf("gen_server:call({%s,'%s'}, pid).\n", ServerName, NodeName)
+	fmt.Printf("gen_server:cast({%s,'%s'}, {ping, self()}), flush().\n", ServerName, NodeName)
 	fmt.Println("make remote call by golang node...")
-	fmt.Printf("gen_server:call({%s,'%s'}, {testcall, {Pid, Message}}).\n", SrvName, NodeName)
-	fmt.Printf("gen_server:call({%s,'%s'}, {testcall, {{pname, remotenode}, Message}}).\n", SrvName, NodeName)
+	fmt.Printf("gen_server:call({%s,'%s'}, {testcall, {Pid, Message}}).\n", ServerName, NodeName)
+	fmt.Printf("gen_server:call({%s,'%s'}, {testcall, {{pname, remotenode}, Message}}).\n", ServerName, NodeName)
 
 	// Ctrl+C to stop it
 	select {}

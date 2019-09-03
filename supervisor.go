@@ -72,9 +72,7 @@ type SupervisorChildSpec struct {
 }
 
 // Supervisor is implementation of ProcessBehavior interface
-type Supervisor struct {
-	process Process
-}
+type Supervisor struct{}
 
 func (sv *Supervisor) loop(p *Process, object interface{}, args ...interface{}) {
 	spec := object.(SupervisorBehavior).Init(p, args...)
