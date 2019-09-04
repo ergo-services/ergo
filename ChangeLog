@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 This format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+#### [1.0.0](https://github.com/halturin/ergo/releases/tag/1.0.0) - 2019-11-30 ####
+There is a bunch of changes we deliver with this release
+- Completely reworked (almost from scratch) architecture whole project
+- Implemented linking process feature (in order to support Application/Supervisor behaviors)
+- Reworked Monitor-feature. Now it has full-featured support with remote process/nodes
+- Added multinode support
+- Added basic observer support
+- Improved code structure and readability
+- Among the new features we have added new bugs that still uncovered :). So, any feedback/bugreport/contribution is highly appreciated
+
 #### [0.2.0](https://github.com/halturin/ergonode/releases/tag/0.2.0) - 2019-02-23 ####
 - Now we make versioning releases
 - Improve node creation. Now you can specify the listening port range. See 'Usage' for details

@@ -61,7 +61,7 @@ blablabal
 
 ### Changelog ###
 
-Here is the changes of latest release. For more details see the ChangeLog
+Here is the changes of latest release. For more details see the [ChangeLog](ChangeLog)
 
 #### [1.0.0](https://github.com/halturin/ergo/releases/tag/1.0.0) - 2019-11-30 ####
  There is a bunch of changes we deliver with this release
