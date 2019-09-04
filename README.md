@@ -37,9 +37,9 @@ The goal of this project is leverage Erlang/OTP experience by Golang performance
 
 *Ergo Framework* has embedded EPMD implementation in order to run your node without external epmd process needs. But it works as a client with erlang' epmd daemon or others ergo's nodes either.
 
-The one thing makes embedded EPMD different is behavior of handling connection hangs - if ergo' node is running as a epmd client and lost connection it tryes to run its own embedded EPMD service
+The one thing that makes embedded EPMD different is behavior of handling connection hangs - if ergo' node is running as a epmd client and lost connection it tries to run its own embedded EPMD service
 
-As an extra option we provide EPMD service as a standalone application. There is simple drop-in replacement of the original Erlang' epmd daemon.
+As an extra option we provide EPMD service as a standalone application. There is a simple drop-in replacement of the original Erlang' epmd daemon.
 
 `go get -u github.com/halturin/ergo/cmd/epmd`
 
@@ -55,7 +55,7 @@ blablabal
 
 ### Observer ###
 
- Allows you to see the most of metrics using standard tool of Erlang distribution. Example below shows this feature in action using one of example:
+ Allows you to see the most of metrics using standard tool of Erlang distribution. Example below shows this feature in action using one of examples:
 
  ... put here gif-ed video demonstrating it us
 
@@ -65,8 +65,8 @@ Here is the changes of latest release. For more details see the ChangeLog
 
 #### [1.0.0](https://github.com/halturin/ergo/releases/tag/1.0.0) - 2019-11-30 ####
  There is a bunch of changes we deliver with this release
- * Completelly reworked (almost from scratch) architecture whole project
- * Implemented linking process feature (in order to support Aplication/Supervisor behaviors)
+ * Completely reworked (almost from scratch) architecture whole project
+ * Implemented linking process feature (in order to support Application/Supervisor behaviors)
  * Reworked Monitor-feature. Now it has full-featured support with remote process/nodes
  * Added multinode support
  * Added basic observer support
@@ -87,8 +87,8 @@ See examples/ for more details
 ### Elixir Phoenix Users ###
 
 Users of the Elixir Phoenix framework might encounter timeouts when trying to connect a Phoenix node
-to an ergonode node. The reason is that, in addition to global_name_server and net_kernel,
-Phoenix attemts to broadcast messages to the pg2 PubSub handler:
+to an ergo node. The reason is that, in addition to global_name_server and net_kernel,
+Phoenix attempts to broadcast messages to the pg2 PubSub handler:
 https://hexdocs.pm/phoenix/1.1.0/Phoenix.PubSub.PG2.html
 
 To work with Phoenix nodes, you must create and register a dedicated pg2 GenServer, and
