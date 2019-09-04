@@ -1,16 +1,30 @@
 package ergonode
 
 import (
+	"fmt"
+
 	"github.com/halturin/ergonode/etf"
 	"github.com/halturin/ergonode/lib"
 )
 
-type SupervisorStrategy = string
+type SupervisorStrategy struct {
+	Type      SupervisorStrategyType
+	Intensity uint16
+	Period    uint16
+}
+
+type SupervisorStrategyType = string
 type SupervisorChildRestart = string
 type SupervisorChild = string
 
 const (
 	// Restart strategies:
+
+	// SupervisorRestartIntensity
+	SupervisorRestartIntensity = uint16(10)
+
+	// SupervisorRestartPeriod
+	SupervisorRestartPeriod = uint16(10)
 
 	// SupervisorStrategyOneForOne If one child process terminates and is to be restarted, only
 	// that child process is affected. This is the default restart strategy.
@@ -52,13 +66,6 @@ const (
 // SupervisorBehavior interface
 type SupervisorBehavior interface {
 	Init(process *Process, args ...interface{}) SupervisorSpec
-	StartChild()
-	StartLink()
-	// RestartChild()
-	// DeleteChild()
-	// TerminateChild()
-	// WhichChildren()
-	// CountChildren()
 }
 
 type SupervisorSpec struct {
@@ -67,98 +74,80 @@ type SupervisorSpec struct {
 }
 
 type SupervisorChildSpec struct {
+	name    string
 	child   ProcessBehaviour
+	args    []interface{}
 	restart SupervisorChildRestart
 }
 
 // Supervisor is implementation of ProcessBehavior interface
 type Supervisor struct{}
 
-func (sv *Supervisor) loop(p *Process, object interface{}, args ...interface{}) {
+func (sv *Supervisor) loop(p *Process, object interface{}, args ...interface{}) string {
 	spec := object.(SupervisorBehavior).Init(p, args...)
 	lib.Log("Supervisor spec %#v\n", spec)
 	p.ready <- true
-	// var stop chan string
-	// stop = make(chan string)
+
+	children := sv.InitChildren(p, spec.children)
+	fmt.Println("CHILDREN", children)
+	stop := make(chan string, 2)
+
 	for {
-		// var message etf.Term
+		var message etf.Term
 		var fromPid etf.Pid
+
 		select {
-		// case reason := <-stop:
-		// 	object.(SupervisorBehavior).Terminate(reason, state)
-		// 	return
-		// case messageLocal := <-p.local:
-		// 	message = messageLocal
-		// case messageRemote := <-p.remote:
-		// 	message = messageRemote[1]
-		// 	fromPid = messageRemote[0].(etf.Pid)
+		case reason := <-stop:
+			return reason
+		case msg := <-p.mailBox:
+			fromPid = msg.Element(1).(etf.Pid)
+			message = msg.Element(2)
 		case <-p.Context.Done():
-			// object.(GenServerBehavior).Terminate("immediate", p.state)
-			return
+			return "immediate"
 		}
 
 		lib.Log("[%#v]. Message from %#v\n", p.self, fromPid)
-		// switch m := message.(type) {
-		// case etf.Tuple:
-		// 	switch mtag := m[0].(type) {
-		// 	case etf.Atom:
-		// 		switch mtag {
-		// 		case etf.Atom("$gen_call"):
-		// 			fromTuple := m[1].(etf.Tuple)
-		// 			code, reply, state1 := object.(GenServerBehavior).HandleCall(&fromTuple, &m[2], p.state)
+		switch m := message.(type) {
+		case etf.Tuple:
+			switch m.Element(1) {
+			case etf.Atom("EXIT"):
+				terminated := m.Element(2).(etf.Pid)
+				fmt.Println("CHILDREN TERMINATED", terminated)
+				switch spec.strategy.Type {
+				case SupervisorStrategyOneForAll:
 
-		// 			p.state = state1
-		// 			if code == "stop" {
-		// 				stop <- code
-		// 				continue
-		// 			}
+				case SupervisorStrategyRestForOne:
 
-		// 			if reply != nil && code == "reply" {
-		// 				// pid := fromTuple[0].(etf.Pid)
-		// 				// ref := fromTuple[1]
-		// 				// rep := etf.Term(etf.Tuple{ref, *reply})
-		// 				// gs.Send(pid, &rep)
-		// 			}
+				default: // SupervisorStrategySimpleOneForOne, SupervisorStrategyOneForOne
 
-		// 		case etf.Atom("$gen_cast"):
-		// 			code, state1 := object.(GenServerBehavior).HandleCast(&m[1], p.state)
-		// 			p.state = state1
-		// 			if code == "stop" {
-		// 				stop <- code
-		// 				continue
-		// 			}
-		// 		default:
-		// 			code, state1 := object.(GenServerBehavior).HandleInfo(&message, p.state)
-		// 			p.state = state1
-		// 			if code == "stop" {
-		// 				stop <- code
-		// 				return
-		// 			}
-		// 		}
-		// 	case etf.Ref:
-		// 		lib.Log("got reply: %#v\n%#v", mtag, message)
-		// 		// gs.chreply <- m
-		// 	default:
-		// 		lib.Log("mtag: %#v", mtag)
-		// 		go func() {
-		// 			code, state1 := object.(GenServerBehavior).HandleInfo(&message, p.state)
-		// 			p.state = state1
-		// 			if code == "stop" {
-		// 				stop <- code
-		// 				return
-		// 			}
-		// 		}()
-		// 	}
-		// default:
-		// 	lib.Log("m: %#v", m)
-		// 	go func() {
-		// 		code, state1 := object.(GenServerBehavior).HandleInfo(&message, p.state)
-		// 		p.state = state1
-		// 		if code == "stop" {
-		// 			stop <- code
-		// 			return
-		// 		}
-		// 	}()
-		// }
+				}
+
+			default:
+				lib.Log("m: %#v", m)
+			}
+
+		default:
+			lib.Log("m: %#v", m)
+		}
 	}
+}
+
+func (sv *Supervisor) InitChildren(parent *Process, specs []SupervisorChildSpec) []Process {
+	children := make([]Process, len(specs))
+	for i := range specs {
+		spec := specs[i]
+		opts := ProcessOptions{}
+		emptyPid := etf.Pid{}
+		if parent.groupLeader == emptyPid {
+			// leader is not set
+			opts.GroupLeader = parent.self
+		} else {
+			opts.GroupLeader = parent.groupLeader
+		}
+		process := parent.Node.Spawn(spec.name, opts, spec.child, spec.args...)
+		parent.Link(process.self)
+		children[i] = process
+	}
+
+	return children
 }

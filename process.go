@@ -18,13 +18,14 @@ const (
 )
 
 type Process struct {
-	mailBox chan etf.Tuple
-	ready   chan bool
-	self    etf.Pid
-	Context context.Context
-	Stop    ProcessStopFunc
-	name    string
-	Node    *Node
+	mailBox     chan etf.Tuple
+	ready       chan bool
+	self        etf.Pid
+	groupLeader etf.Pid
+	Context     context.Context
+	Stop        ProcessStopFunc
+	name        string
+	Node        *Node
 
 	object interface{}
 	state  interface{}
@@ -33,6 +34,7 @@ type Process struct {
 
 type ProcessOptions struct {
 	MailboxSize uint16
+	GroupLeader etf.Pid
 }
 
 type ProcessStopFunc func(reason string)
