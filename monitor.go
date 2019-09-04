@@ -94,7 +94,7 @@ func (m *monitor) run() {
 		case p := <-m.channels.process:
 			lib.Log("MONITOR process: %v => %v", p.by, p.process)
 			// http://erlang.org/doc/reference_manual/processes.html#monitors
-			// FIXME: If Pid2 does not exist, the 'DOWN' message is
+			// FIXME: If Pid does not exist, the 'DOWN' message is
 			// sent immediately with Reason set to noproc.
 			l := m.processes[p.process]
 			key := ref2key(p.ref)
@@ -136,7 +136,6 @@ func (m *monitor) run() {
 			// http://erlang.org/doc/reference_manual/processes.html#links
 			// Links are bidirectional and there can only be one link between
 			// two processes. Repeated calls to link(Pid) have no effect.
-			fmt.Println("UUUUUUUUUUUUUUUU", m.links)
 
 			linksA := m.links[l.pidA]
 			for i := range linksA {
@@ -160,13 +159,9 @@ func (m *monitor) run() {
 			m.links[l.pidB] = linksB
 
 		doneBl:
-			fmt.Println("UUUUUUUUUUUUUUUU11111111", m.links)
-
 			continue
 
 		case ul := <-m.channels.unlink:
-			fmt.Println("KKKKKKKKKKKKKKKKKK", m.links)
-
 			linksA := m.links[ul.pidA]
 			for i := range linksA {
 				if linksA[i] == ul.pidB {
@@ -186,8 +181,6 @@ func (m *monitor) run() {
 					break
 				}
 			}
-
-			fmt.Println("KKKKKKKKKKKKKKKKKK11111111111", m.links)
 
 		case n := <-m.channels.node:
 			l := m.nodes[n.node]
@@ -224,7 +217,6 @@ func (m *monitor) run() {
 
 		case nd := <-m.channels.nodeDown:
 			lib.Log("MONITOR node down: %v", nd)
-			fmt.Println("DDDDDDDDDDDDDDDD", m.links)
 
 			if pids, ok := m.nodes[nd]; ok {
 				for i := range pids {
@@ -254,8 +246,6 @@ func (m *monitor) run() {
 				}
 			}
 
-			fmt.Println("DDDDDDDDDDDDDDDD111", m.links)
-
 		case pt := <-m.channels.processTerminated:
 			lib.Log("MONITOR process terminated: %v", pt)
 			if pids, ok := m.processes[pt.process]; ok {
@@ -265,7 +255,6 @@ func (m *monitor) run() {
 					delete(m.processes, pt.process)
 				}
 			}
-			fmt.Println("JJJJJJJJJJJJJJJ", m.links)
 
 			if pidLinks, ok := m.links[pt.process]; ok {
 				for i := range pidLinks {
@@ -281,13 +270,18 @@ func (m *monitor) run() {
 								break
 							}
 						}
-						m.links[pidLinks[i]] = pids
+
+						if len(pids) > 0 {
+							m.links[pidLinks[i]] = pids
+						} else {
+							delete(m.links, pidLinks[i])
+						}
 					}
 				}
 				delete(m.links, pt.process)
 			}
-			fmt.Println("JJJJJJJJJJJJJJJ111111111", m.links)
 
+			// handling termination monitors that have setted up by name.
 			if pt.name != "" {
 				fakePid := fakeMonitorPidFromName(string(pt.name))
 				m.ProcessTerminated(fakePid, "", pt.reason)

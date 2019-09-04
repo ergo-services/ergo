@@ -234,7 +234,9 @@ func (n *Node) handleTerms(terms []etf.Term) {
 					lib.Log("NODE_LINK message (act %d): %#v", act, t)
 				case EXIT:
 					lib.Log("EXIT message (act %d): %#v", act, t)
-					//FIXME: n.monitor.ProcessTerminated()
+					terminated := t.Element(2).(etf.Pid)
+					reason := t.Element(4).(etf.Atom)
+					n.monitor.ProcessTerminated(terminated, etf.Atom(""), string(reason))
 				case EXIT2:
 					lib.Log("EXIT2 message (act %d): %#v", act, t)
 				case MONITOR:
