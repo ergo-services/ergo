@@ -37,7 +37,7 @@ The goal of this project is leverage Erlang/OTP experience by Golang performance
 
 *Ergo Framework* has embedded EPMD implementation in order to run your node without external epmd process needs. But it works as a client with erlang' epmd daemon or others ergo's nodes either.
 
-The one thing that makes embedded EPMD different is behavior of handling connection hangs - if ergo' node is running as a epmd client and lost connection it tries to run its own embedded EPMD service
+The one thing that makes embedded EPMD different is behavior of handling connection hangs - if ergo' node is running as a epmd client and lost connection it tries to run its own embedded EPMD service or to restore lost connection.
 
 As an extra option we provide EPMD service as a standalone application. There is a simple drop-in replacement of the original Erlang' epmd daemon.
 
