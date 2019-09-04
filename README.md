@@ -9,7 +9,7 @@ The goal of this project is leverage Erlang/OTP experience with Golang performan
 ### Features ###
 
  * Erlang node (run single/[multinode](#multinode))
- * [embedded EPMD](#epmd) (in order to rid erlang' dependencies)
+ * [embedded EPMD](#epmd) (in order to get rid of erlang' dependencies)
  * Spawn Erlang-like processes
  * Register/unregister processes with simple atom
  * `GenServer` behavior support (with atomic state)
