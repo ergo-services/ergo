@@ -80,9 +80,9 @@ Here is the changes of latest release. For more details see the ChangeLog
 
 See examples/ for more details
 
-  * [demoGenServer](examples/demoGenServer)
-  * [demoSupervisor](examples/demoSupervisor)
-  * [demoApplication](examples/demoApplication)
+  * [demoGenServer](examples/genserver)
+  * [demoSupervisor](examples/supervisor)
+  * [demoApplication](examples/application)
 
 ### Elixir Phoenix Users ###
 
