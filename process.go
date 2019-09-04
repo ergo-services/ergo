@@ -93,7 +93,7 @@ func (p *Process) Link(with etf.Pid) {
 }
 
 func (p *Process) Unlink(with etf.Pid) {
-	p.Node.monitor.Link(p.self, with)
+	p.Node.monitor.Unink(p.self, with)
 }
 
 func (p *Process) MonitorNode(name string) etf.Ref {

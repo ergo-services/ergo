@@ -229,12 +229,12 @@ func (n *Node) handleTerms(terms []etf.Term) {
 					n.monitor.Link(t.Element(2).(etf.Pid), t.Element(3).(etf.Pid))
 				case UNLINK:
 					lib.Log("UNLINK message (act %d): %#v", act, t)
-					n.monitor.Link(t.Element(2).(etf.Pid), t.Element(3).(etf.Pid))
+					n.monitor.Unink(t.Element(2).(etf.Pid), t.Element(3).(etf.Pid))
 				case NODE_LINK:
 					lib.Log("NODE_LINK message (act %d): %#v", act, t)
 				case EXIT:
 					lib.Log("EXIT message (act %d): %#v", act, t)
-					// FIXME:
+					//FIXME: n.monitor.ProcessTerminated()
 				case EXIT2:
 					lib.Log("EXIT2 message (act %d): %#v", act, t)
 				case MONITOR:

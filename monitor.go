@@ -136,6 +136,8 @@ func (m *monitor) run() {
 			// http://erlang.org/doc/reference_manual/processes.html#links
 			// Links are bidirectional and there can only be one link between
 			// two processes. Repeated calls to link(Pid) have no effect.
+			fmt.Println("UUUUUUUUUUUUUUUU", m.links)
+
 			linksA := m.links[l.pidA]
 			for i := range linksA {
 				if linksA[i] == l.pidB {
@@ -158,9 +160,13 @@ func (m *monitor) run() {
 			m.links[l.pidB] = linksB
 
 		doneBl:
+			fmt.Println("UUUUUUUUUUUUUUUU11111111", m.links)
+
 			continue
 
 		case ul := <-m.channels.unlink:
+			fmt.Println("KKKKKKKKKKKKKKKKKK", m.links)
+
 			linksA := m.links[ul.pidA]
 			for i := range linksA {
 				if linksA[i] == ul.pidB {
@@ -180,6 +186,8 @@ func (m *monitor) run() {
 					break
 				}
 			}
+
+			fmt.Println("KKKKKKKKKKKKKKKKKK11111111111", m.links)
 
 		case n := <-m.channels.node:
 			l := m.nodes[n.node]
@@ -216,6 +224,8 @@ func (m *monitor) run() {
 
 		case nd := <-m.channels.nodeDown:
 			lib.Log("MONITOR node down: %v", nd)
+			fmt.Println("DDDDDDDDDDDDDDDD", m.links)
+
 			if pids, ok := m.nodes[nd]; ok {
 				for i := range pids {
 					lib.Log("MONITOR node down: %v. send notify to: %v", nd, pids[i])
@@ -244,6 +254,8 @@ func (m *monitor) run() {
 				}
 			}
 
+			fmt.Println("DDDDDDDDDDDDDDDD111", m.links)
+
 		case pt := <-m.channels.processTerminated:
 			lib.Log("MONITOR process terminated: %v", pt)
 			if pids, ok := m.processes[pt.process]; ok {
@@ -253,6 +265,7 @@ func (m *monitor) run() {
 					delete(m.processes, pt.process)
 				}
 			}
+			fmt.Println("JJJJJJJJJJJJJJJ", m.links)
 
 			if pidLinks, ok := m.links[pt.process]; ok {
 				for i := range pidLinks {
@@ -273,6 +286,7 @@ func (m *monitor) run() {
 				}
 				delete(m.links, pt.process)
 			}
+			fmt.Println("JJJJJJJJJJJJJJJ111111111", m.links)
 
 			if pt.name != "" {
 				fakePid := fakeMonitorPidFromName(string(pt.name))
@@ -302,7 +316,14 @@ func (m *monitor) MonitorProcessWithRef(by etf.Pid, process interface{}, ref etf
 		}
 		m.channels.process <- p
 
-	case etf.Tuple: // requesting monitor remote process by local process using registered process name
+	case etf.Tuple:
+		// requesting monitor remote process by local process using registered process name
+		if t.Element(2).(etf.Atom) != etf.Atom(m.node.FullName) {
+			message := etf.Tuple{MONITOR, by, t, ref}
+			m.node.registrar.routeRaw(t.Element(1).(etf.Atom), message)
+			return
+		}
+		// registering monitor for local process
 		message := etf.Tuple{MONITOR, by, t.Element(1).(etf.Atom), ref}
 		m.node.registrar.route(by, t, message)
 
@@ -310,6 +331,7 @@ func (m *monitor) MonitorProcessWithRef(by etf.Pid, process interface{}, ref etf
 		if string(t.Node) != m.node.FullName { // request monitor remote process using Pid
 			message := etf.Tuple{MONITOR, by, t, ref}
 			m.node.registrar.routeRaw(t.Node, message)
+			return
 		}
 		p := monitorProcessRequest{
 			process: t,
@@ -340,7 +362,7 @@ func (m *monitor) Unink(pidA, pidB etf.Pid) {
 		pidA: pidA,
 		pidB: pidB,
 	}
-	m.channels.link <- p
+	m.channels.unlink <- p
 }
 
 func (m *monitor) MonitorNode(by etf.Pid, node string) etf.Ref {
