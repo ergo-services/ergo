@@ -30,6 +30,10 @@ type Process struct {
 	object interface{}
 	state  interface{}
 	reply  chan etf.Tuple
+
+	children        []*Process
+	reductions      uint64 // we use this term to count total number of processed messages from mailBox
+	currentFunction string
 }
 
 type ProcessOptions struct {
@@ -41,7 +45,7 @@ type ProcessStopFunc func(reason string)
 
 // Behaviour interface contains methods you should implement to make own process behaviour
 type ProcessBehaviour interface {
-	loop(Process, interface{}, ...interface{}) string // method which implements control flow of process
+	loop(*Process, interface{}, ...interface{}) string // method which implements control flow of process
 }
 
 // Self returns self Pid

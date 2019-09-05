@@ -126,7 +126,7 @@ func CreateNodeWithContext(ctx context.Context, name string, cookie string, opts
 }
 
 // Spawn create new process
-func (n *Node) Spawn(name string, opts ProcessOptions, object interface{}, args ...interface{}) Process {
+func (n *Node) Spawn(name string, opts ProcessOptions, object interface{}, args ...interface{}) *Process {
 	process := n.registrar.RegisterProcessExt(name, object, opts)
 	go func() {
 		// FIXME: uncomment this 'defer' before release

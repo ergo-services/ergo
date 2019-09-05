@@ -31,11 +31,15 @@ type GenServerBehavior interface {
 // GenServer is implementation of ProcessBehavior interface for GenServer objects
 type GenServer struct{}
 
-func (gs *GenServer) loop(p Process, object interface{}, args ...interface{}) string {
-	p.state = object.(GenServerBehavior).Init(p, args...)
+func (gs *GenServer) loop(p *Process, object interface{}, args ...interface{}) string {
+	// its not allowed to give access to the original Process structure. All callback
+	// functions is only have to use the copy
+	p.state = object.(GenServerBehavior).Init(*p, args...)
 	p.ready <- true
 
 	stop := make(chan string, 2)
+
+	p.currentFunction = "GenServer:loop"
 
 	for {
 		var message etf.Term
@@ -50,11 +54,14 @@ func (gs *GenServer) loop(p Process, object interface{}, args ...interface{}) st
 			fromPid = msg.Element(1).(etf.Pid)
 			message = msg.Element(2)
 		case <-p.Context.Done():
-			object.(GenServerBehavior).Terminate("immediate", p.state)
-			return "immediate"
+			object.(GenServerBehavior).Terminate("shutdown", p.state)
+			return "shutdown"
 		}
 
 		lib.Log("[%#v]. Message from %#v\n", p.self, fromPid)
+
+		p.reductions++
+
 		switch m := message.(type) {
 		case etf.Tuple:
 			switch mtag := m.Element(1).(type) {
@@ -66,10 +73,12 @@ func (gs *GenServer) loop(p Process, object interface{}, args ...interface{}) st
 					// since reply (etf.Ref) comes through the same mailBox channel
 					go func() {
 						fromTuple := m.Element(2).(etf.Tuple)
-
 						lockState.Lock()
 
+						cf := p.currentFunction
+						p.currentFunction = "GenServer:HandleCall"
 						code, reply, state := object.(GenServerBehavior).HandleCall(fromTuple, m.Element(3), p.state)
+						p.currentFunction = cf
 
 						if code == "stop" {
 							stop <- reply.(string)
@@ -91,7 +100,12 @@ func (gs *GenServer) loop(p Process, object interface{}, args ...interface{}) st
 				case etf.Atom("$gen_cast"):
 					go func() {
 						lockState.Lock()
+
+						cf := p.currentFunction
+						p.currentFunction = "GenServer:HandleCast"
 						code, state := object.(GenServerBehavior).HandleCast(m.Element(2), p.state)
+						p.currentFunction = cf
+
 						if code == "stop" {
 							stop <- state.(string)
 							return
@@ -103,7 +117,12 @@ func (gs *GenServer) loop(p Process, object interface{}, args ...interface{}) st
 				default:
 					go func() {
 						lockState.Lock()
+
+						cf := p.currentFunction
+						p.currentFunction = "GenServer:HandleInfo"
 						code, state := object.(GenServerBehavior).HandleInfo(message, p.state)
+						p.currentFunction = cf
+
 						if code == "stop" {
 							stop <- state.(string)
 							return
@@ -122,7 +141,12 @@ func (gs *GenServer) loop(p Process, object interface{}, args ...interface{}) st
 				lib.Log("mtag: %#v", mtag)
 				go func() {
 					lockState.Lock()
+
+					cf := p.currentFunction
+					p.currentFunction = "GenServer:HandleInfo"
 					code, state := object.(GenServerBehavior).HandleInfo(message, p.state)
+					p.currentFunction = cf
+
 					if code == "stop" {
 						stop <- state.(string)
 					}
@@ -135,7 +159,12 @@ func (gs *GenServer) loop(p Process, object interface{}, args ...interface{}) st
 			lib.Log("m: %#v", m)
 			go func() {
 				lockState.Lock()
+
+				cf := p.currentFunction
+				p.currentFunction = "GenServer:HandleInfo"
 				code, state := object.(GenServerBehavior).HandleInfo(message, p.state)
+				p.currentFunction = cf
+
 				if code == "stop" {
 					stop <- state.(string)
 					return

@@ -2,7 +2,6 @@ package ergonode
 
 import (
 	"context"
-	"errors"
 	"sync/atomic"
 
 	"github.com/halturin/ergonode/etf"
@@ -15,7 +14,7 @@ const (
 
 type registerProcessRequest struct {
 	name    string
-	process Process
+	process *Process
 }
 
 type registerNameRequest struct {
@@ -79,7 +78,7 @@ type registrar struct {
 	channels registrarChannels
 
 	names     map[string]etf.Pid
-	processes map[etf.Pid]Process
+	processes map[etf.Pid]*Process
 	peers     map[string]peer
 }
 
@@ -104,7 +103,7 @@ func createRegistrar(node *Node) *registrar {
 		},
 
 		names:     make(map[string]etf.Pid),
-		processes: make(map[etf.Pid]Process),
+		processes: make(map[etf.Pid]*Process),
 		peers:     make(map[string]peer),
 	}
 	go r.run()
@@ -254,14 +253,14 @@ func (r *registrar) run() {
 	}
 }
 
-func (r *registrar) RegisterProcess(object interface{}) Process {
+func (r *registrar) RegisterProcess(object interface{}) *Process {
 	opts := ProcessOptions{
 		MailboxSize: DefaultProcessMailboxSize, // size of channel for regular messages
 	}
 	return r.RegisterProcessExt("", object, opts)
 }
 
-func (r *registrar) RegisterProcessExt(name string, object interface{}, opts ProcessOptions) Process {
+func (r *registrar) RegisterProcessExt(name string, object interface{}, opts ProcessOptions) *Process {
 
 	mailbox_size := DefaultProcessMailboxSize
 	if opts.MailboxSize > 0 {
@@ -278,7 +277,7 @@ func (r *registrar) RegisterProcessExt(name string, object interface{}, opts Pro
 		r.node.monitor.ProcessTerminated(pid, etf.Atom(name), reason)
 	}
 
-	process := Process{
+	process := &Process{
 		mailBox: make(chan etf.Tuple, mailbox_size),
 		ready:   make(chan bool),
 		self:    pid,
@@ -323,24 +322,6 @@ func (r *registrar) RegisterPeer(name string, p peer) {
 
 func (r *registrar) UnregisterPeer(name string) {
 	r.channels.unregisterPeer <- name
-}
-
-// Registered returns a list of names which have been registered using Register
-func (r *registrar) RegisteredProcesses() []Process {
-	p := make([]Process, len(r.processes))
-	i := 0
-	for _, process := range r.processes {
-		p[i] = process
-		i++
-	}
-	return p
-}
-
-// WhereIs returns a Pid of regestered process by given name
-func (r *registrar) WhereIs(name string) (etf.Pid, error) {
-	var p etf.Pid
-	// TODO:
-	return p, errors.New("not found")
 }
 
 // route incomming message to registered process
