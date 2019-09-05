@@ -65,7 +65,7 @@ const (
 
 // SupervisorBehavior interface
 type SupervisorBehavior interface {
-	Init(process Process, args ...interface{}) SupervisorSpec
+	Init(args ...interface{}) SupervisorSpec
 }
 
 type SupervisorSpec struct {
@@ -75,7 +75,7 @@ type SupervisorSpec struct {
 
 type SupervisorChildSpec struct {
 	name     string
-	child    ProcessBehaviour
+	child    interface{}
 	args     []interface{}
 	restart  SupervisorChildRestart
 	disabled bool
@@ -85,7 +85,7 @@ type SupervisorChildSpec struct {
 type Supervisor struct{}
 
 func (sv *Supervisor) loop(p *Process, object interface{}, args ...interface{}) string {
-	spec := object.(SupervisorBehavior).Init(*p, args...)
+	spec := object.(SupervisorBehavior).Init(args...)
 	lib.Log("Supervisor spec %#v\n", spec)
 	p.ready <- true
 

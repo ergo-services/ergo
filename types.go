@@ -7,7 +7,7 @@ import (
 )
 
 type systemProcesses struct {
-	netKernel        *netKernel
+	netKernelSup     *netKernelSup
 	globalNameServer *globalNameServer
 	rpc              *rpc
 	observerBackend  *observerBackend

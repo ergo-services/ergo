@@ -107,8 +107,8 @@ func CreateNodeWithContext(ctx context.Context, name string, cookie string, opts
 	process_opts := ProcessOptions{
 		MailboxSize: DefaultProcessMailboxSize, // size of channel for regular messages
 	}
-	node.system.netKernel = new(netKernel)
-	node.Spawn("net_kernel", process_opts, node.system.netKernel)
+	node.system.netKernelSup = new(netKernelSup)
+	node.Spawn("net_kernel", process_opts, node.system.netKernelSup)
 
 	node.system.globalNameServer = new(globalNameServer)
 	node.Spawn("global_name_server", process_opts, node.system.globalNameServer)

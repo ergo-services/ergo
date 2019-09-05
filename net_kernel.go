@@ -7,6 +7,27 @@ import (
 	"github.com/halturin/ergonode/lib"
 )
 
+type netKernelSup struct {
+	Supervisor
+}
+
+func (nks *netKernelSup) Init(args ...interface{}) SupervisorSpec {
+	return SupervisorSpec{
+		children: []SupervisorChildSpec{
+			SupervisorChildSpec{
+				name:    "net_kernel",
+				child:   &netKernel{},
+				restart: SupervisorChildRestartPermanent,
+			},
+		},
+		strategy: SupervisorStrategy{
+			Type:      SupervisorStrategyOneForOne,
+			Intensity: 10,
+			Period:    5,
+		},
+	}
+}
+
 type netKernel struct {
 	GenServer
 	process Process
