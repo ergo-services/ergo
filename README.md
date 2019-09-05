@@ -1,3 +1,7 @@
+[![GitHub release](https://img.shields.io/github/release/halturin/ergonode.svg)](https://github.com/halturin/ergonode/releases/latest)
+[![Go Report Card](https://goreportcard.com/badge/github.com/halturin/ergonode)](https://goreportcard.com/report/github.com/halturin/ergonode)
+[![GoDoc](https://godoc.org/code.gitea.io/gitea?status.svg)](https://godoc.org/github.com/halturin/ergonode)
+
 # Ergo Framework #
 
 Implementation of Erlang/OTP node in Go
