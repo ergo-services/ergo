@@ -202,93 +202,98 @@ func (n *Node) serve(c net.Conn, negotiate bool) {
 }
 
 func (n *Node) handleTerms(terms []etf.Term) {
-	lib.Log("Node terms: %#v", terms)
+	defer func() {
+		if r := recover(); r != nil {
+			lib.Log("Recovered node.handleTerms: %s", r)
+		}
+	}()
 
 	if len(terms) == 0 {
+		// keep alive
 		return
 	}
 
+	lib.Log("Node terms: %#v", terms)
+
 	switch t := terms[0].(type) {
 	case etf.Tuple:
-		if len(t) > 0 {
-			switch act := t.Element(1).(type) {
-			case int:
-				switch act {
-				case REG_SEND:
-					if len(terms) == 2 {
-						n.registrar.route(t.Element(2).(etf.Pid), t.Element(4), terms[1])
-					} else {
-						lib.Log("*** ERROR: bad REG_SEND: %#v", terms)
-					}
-				case SEND:
-					n.registrar.route(t.Element(2).(etf.Pid), t.Element(3), terms[1])
-
-				// Not implemented yet, just stubs. TODO.
-				case LINK:
-					lib.Log("LINK message (act %d): %#v", act, t)
-					n.monitor.Link(t.Element(2).(etf.Pid), t.Element(3).(etf.Pid))
-				case UNLINK:
-					lib.Log("UNLINK message (act %d): %#v", act, t)
-					n.monitor.Unink(t.Element(2).(etf.Pid), t.Element(3).(etf.Pid))
-				case NODE_LINK:
-					lib.Log("NODE_LINK message (act %d): %#v", act, t)
-				case EXIT:
-					lib.Log("EXIT message (act %d): %#v", act, t)
-					terminated := t.Element(2).(etf.Pid)
-					reason := t.Element(4).(etf.Atom)
-					n.monitor.ProcessTerminated(terminated, etf.Atom(""), string(reason))
-				case EXIT2:
-					lib.Log("EXIT2 message (act %d): %#v", act, t)
-				case MONITOR:
-					// {19, FromPid, ToProc, Ref}, where FromPid = monitoring process
-					// and ToProc = monitored process pid or name (atom)
-					lib.Log("MONITOR message (act %d): %#v", act, t)
-					n.monitor.MonitorProcessWithRef(t.Element(2).(etf.Pid), t.Element(3), t.Element(4).(etf.Ref))
-				case DEMONITOR:
-					// {20, FromPid, ToProc, Ref}, where FromPid = monitoring process
-					// and ToProc = monitored process pid or name (atom)
-					lib.Log("DEMONITOR message (act %d): %#v", act, t)
-					n.monitor.DemonitorProcess(t.Element(4).(etf.Ref))
-
-				case MONITOR_EXIT:
-					// {21, FromProc, ToPid, Ref, Reason}, where FromProc = monitored process
-					// pid or name (atom), ToPid = monitoring process, and Reason = exit reason for the monitored process
-					lib.Log("MONITOR_EXIT message (act %d): %#v", act, t)
-					ref := t.Element(4).(etf.Ref)
-					to := t.Element(3).(etf.Pid)
-					terminated := t.Element(2).(etf.Pid)
-					reason := t.Element(5).(etf.Atom)
-					n.monitor.notifyProcessTerminated(ref, to, terminated, string(reason))
-
-				// Not implemented yet, just stubs. TODO.
-				case SEND_SENDER:
-					lib.Log("SEND_SENDER message (act %d): %#v", act, t)
-				case SEND_SENDER_TT:
-					lib.Log("SEND_SENDER_TT message (act %d): %#v", act, t)
-				case PAYLOAD_EXIT:
-					lib.Log("PAYLOAD_EXIT message (act %d): %#v", act, t)
-				case PAYLOAD_EXIT_TT:
-					lib.Log("PAYLOAD_EXIT_TT message (act %d): %#v", act, t)
-				case PAYLOAD_EXIT2:
-					lib.Log("PAYLOAD_EXIT2 message (act %d): %#v", act, t)
-				case PAYLOAD_EXIT2_TT:
-					lib.Log("PAYLOAD_EXIT2_TT message (act %d): %#v", act, t)
-				case PAYLOAD_MONITOR_P_EXIT:
-					lib.Log("PAYLOAD_MONITOR_P_EXIT message (act %d): %#v", act, t)
-
-				default:
-					lib.Log("Unhandled node message (act %d): %#v", act, t)
+		switch act := t.Element(1).(type) {
+		case int:
+			switch act {
+			case REG_SEND:
+				if len(terms) == 2 {
+					n.registrar.route(t.Element(2).(etf.Pid), t.Element(4), terms[1])
+				} else {
+					lib.Log("*** ERROR: bad REG_SEND: %#v", terms)
 				}
-			case etf.Atom:
-				switch act {
-				case etf.Atom("$connection"):
-					// .Ready channel waiting for registration of this connection
-					ready := (t[2]).(chan bool)
-					ready <- true
-				}
+			case SEND:
+				n.registrar.route(t.Element(2).(etf.Pid), t.Element(3), terms[1])
+
+			// Not implemented yet, just stubs. TODO.
+			case LINK:
+				lib.Log("LINK message (act %d): %#v", act, t)
+				n.monitor.Link(t.Element(2).(etf.Pid), t.Element(3).(etf.Pid))
+			case UNLINK:
+				lib.Log("UNLINK message (act %d): %#v", act, t)
+				n.monitor.Unink(t.Element(2).(etf.Pid), t.Element(3).(etf.Pid))
+			case NODE_LINK:
+				lib.Log("NODE_LINK message (act %d): %#v", act, t)
+			case EXIT:
+				lib.Log("EXIT message (act %d): %#v", act, t)
+				terminated := t.Element(2).(etf.Pid)
+				reason := t.Element(4).(etf.Atom)
+				n.monitor.ProcessTerminated(terminated, etf.Atom(""), string(reason))
+			case EXIT2:
+				lib.Log("EXIT2 message (act %d): %#v", act, t)
+			case MONITOR:
+				// {19, FromPid, ToProc, Ref}, where FromPid = monitoring process
+				// and ToProc = monitored process pid or name (atom)
+				lib.Log("MONITOR message (act %d): %#v", act, t)
+				n.monitor.MonitorProcessWithRef(t.Element(2).(etf.Pid), t.Element(3), t.Element(4).(etf.Ref))
+			case DEMONITOR:
+				// {20, FromPid, ToProc, Ref}, where FromPid = monitoring process
+				// and ToProc = monitored process pid or name (atom)
+				lib.Log("DEMONITOR message (act %d): %#v", act, t)
+				n.monitor.DemonitorProcess(t.Element(4).(etf.Ref))
+
+			case MONITOR_EXIT:
+				// {21, FromProc, ToPid, Ref, Reason}, where FromProc = monitored process
+				// pid or name (atom), ToPid = monitoring process, and Reason = exit reason for the monitored process
+				lib.Log("MONITOR_EXIT message (act %d): %#v", act, t)
+				ref := t.Element(4).(etf.Ref)
+				to := t.Element(3).(etf.Pid)
+				terminated := t.Element(2).(etf.Pid)
+				reason := t.Element(5).(etf.Atom)
+				n.monitor.notifyProcessTerminated(ref, to, terminated, string(reason))
+
+			// Not implemented yet, just stubs. TODO.
+			case SEND_SENDER:
+				lib.Log("SEND_SENDER message (act %d): %#v", act, t)
+			case SEND_SENDER_TT:
+				lib.Log("SEND_SENDER_TT message (act %d): %#v", act, t)
+			case PAYLOAD_EXIT:
+				lib.Log("PAYLOAD_EXIT message (act %d): %#v", act, t)
+			case PAYLOAD_EXIT_TT:
+				lib.Log("PAYLOAD_EXIT_TT message (act %d): %#v", act, t)
+			case PAYLOAD_EXIT2:
+				lib.Log("PAYLOAD_EXIT2 message (act %d): %#v", act, t)
+			case PAYLOAD_EXIT2_TT:
+				lib.Log("PAYLOAD_EXIT2_TT message (act %d): %#v", act, t)
+			case PAYLOAD_MONITOR_P_EXIT:
+				lib.Log("PAYLOAD_MONITOR_P_EXIT message (act %d): %#v", act, t)
+
 			default:
-				lib.Log("UNHANDLED ACT: %#v", t.Element(1))
+				lib.Log("Unhandled node message (act %d): %#v", act, t)
 			}
+		case etf.Atom:
+			switch act {
+			case etf.Atom("$connection"):
+				// .Ready channel waiting for registration of this connection
+				ready := (t[2]).(chan bool)
+				ready <- true
+			}
+		default:
+			lib.Log("UNHANDLED ACT: %#v", t.Element(1))
 		}
 	}
 }
