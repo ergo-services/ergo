@@ -19,7 +19,7 @@ The goal of this project is leverage Erlang/OTP experience with Golang performan
  * `GenServer` behavior support (with atomic state)
  * `Supervisor` behavior support (with all known restart strategies support)
  * `Application` behavior support
- * Connect to (accept connection from) any Erlang node within a cluster (or clusters, for running as multinode)
+ * Connect to (accept connection from) any Erlang node within a cluster (or clusters, if running as multinode)
  * Making sync/async request in fashion of `gen_server:call` or `gen_server:cast`
  * Monitor processes/nodes
     - local -> local
@@ -52,9 +52,6 @@ As an extra option we provide EPMD service as a standalone application. There is
  This feature allows create two or more nodes within single running instance. The only needs is specify the different set of options for creating nodes (such as: node name, empd port number, secret cookie). You may also want to use this feature to create 'proxy'-node between some clusters. 
  See [Quick examples](#quick-examples) for more details
  
- ```golang
-blablabal
- ```
 
 ### Observer ###
 
