@@ -50,8 +50,7 @@ As an extra option we provide EPMD service as a standalone application. There is
 ### Multinode ###
 
  This feature allows create two or more nodes within single running instance. The only needs is specify the different set of options for creating nodes (such as: node name, empd port number, secret cookie). You may also want to use this feature to create 'proxy'-node between some clusters. 
- 
- Here is a short example how to create two nodes:
+ See [Quick examples](#quick-examples) for more details
  
  ```golang
 blablabal
@@ -88,6 +87,7 @@ See examples/ for more details
   * [demoGenServer](examples/genserver)
   * [demoSupervisor](examples/supervisor)
   * [demoApplication](examples/application)
+  * [demoMultinode](examples/multinode)
 
 ### Elixir Phoenix Users ###
 
