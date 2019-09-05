@@ -5,11 +5,11 @@ import (
 	"github.com/halturin/ergonode/lib"
 )
 
-type rpcFunction func(etf.List) etf.Term
+type rpcFunction func(...etf.Term) etf.Term
 
 type modFun struct {
-	module   string
-	function string
+	module   etf.Atom
+	function etf.Atom
 }
 
 type rpc struct {
@@ -18,14 +18,22 @@ type rpc struct {
 	methods map[modFun]rpcFunction
 }
 
-func (n *Node) RpcProvide(modName string, funName string, fun rpcFunction) (err error) {
-	lib.Log("Provide: %s:%s %#v", modName, funName, fun)
-	n.system.rpc.methods[modFun{modName, funName}] = fun
-	return
+func (n *Node) RpcProvide(module string, function string, fun rpcFunction) {
+	lib.Log("Provide: %s:%s %#v", module, function, fun)
+	mf := modFun{
+		module:   etf.Atom(module),
+		function: etf.Atom(function),
+	}
+	n.system.rpc.methods[mf] = fun
 }
 
-func (n *Node) RpcRevoke(modName, funName string) {
-	lib.Log("Revoke: %s:%s", modName, funName)
+func (n *Node) RpcRevoke(module, function string) {
+	lib.Log("Revoke: %s:%s", module, function)
+	mf := modFun{
+		module:   etf.Atom(module),
+		function: etf.Atom(function),
+	}
+	delete(n.system.rpc.methods, mf)
 }
 
 // Init initializes process state using arbitrary arguments
@@ -51,26 +59,50 @@ func (r *rpc) HandleCast(message etf.Term, state interface{}) (string, interface
 func (r *rpc) HandleCall(from etf.Tuple, message etf.Term, state interface{}) (string, etf.Term, interface{}) {
 	lib.Log("RPC: HandleCall: %#v, From: %#v", message, from)
 	var reply etf.Term
-	valid := false
 	switch req := (message).(type) {
 	case etf.Tuple:
-		if len(req) > 0 {
-			switch act := req[0].(type) {
-			case etf.Atom:
-				if string(act) == "call" {
-					valid = true
-					if fun, ok := r.methods[modFun{string(req[1].(etf.Atom)), string(req[2].(etf.Atom))}]; ok {
-						reply = fun(req[3].(etf.List))
-					} else {
-						reply = etf.Term(etf.Tuple{etf.Atom("badrpc"), etf.Tuple{etf.Atom("EXIT"), etf.Tuple{etf.Atom("undef"), etf.List{etf.Tuple{req[1], req[2], req[3], etf.List{}}}}}})
-					}
+		switch act := req.Element(1).(type) {
+		case etf.Atom:
+			if act == etf.Atom("call") {
+				module := req.Element(2).(etf.Atom)
+				function := req.Element(3).(etf.Atom)
+				args := req.Element(4).(etf.List)
+
+				mf := modFun{
+					module:   module,
+					function: function,
 				}
+
+				if function, ok := r.methods[mf]; ok {
+					reply = function(args...)
+					return "reply", reply, state
+				}
+
+				// unknown request. return error
+				reply = etf.Tuple{
+					etf.Atom("badrpc"),
+					etf.Tuple{
+						etf.Atom("EXIT"),
+						etf.Tuple{
+							etf.Atom("undef"),
+							etf.List{
+								etf.Tuple{
+									req.Element(2),
+									req.Element(3),
+									req.Element(4),
+									etf.List{},
+								},
+							},
+						},
+					},
+				}
+
+				return "reply", reply, state
 			}
 		}
 	}
-	if !valid {
-		reply = etf.Term(etf.Tuple{etf.Atom("badrpc"), etf.Atom("unknown")})
-	}
+
+	reply = etf.Term(etf.Tuple{etf.Atom("badrpc"), etf.Atom("unknown")})
 	return "reply", reply, state
 }
 
