@@ -1,6 +1,7 @@
 package ergonode
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/halturin/ergonode/etf"
@@ -153,7 +154,7 @@ func (sv *Supervisor) loop(p *Process, object interface{}, args ...interface{}) 
 
 					if len(waitTerminatingProcesses) == 0 {
 						// it was the last one. lets restart all terminated children
-						p.mailBox <- etf.Tuple{etf.Pid{}, etf.Atom("$restart")}
+						sv.startChildren(p, spec.children[:])
 					}
 
 					continue
@@ -205,7 +206,7 @@ func (sv *Supervisor) loop(p *Process, object interface{}, args ...interface{}) 
 								spec.children[i].state = SupervisorChildStateStart
 							}
 
-							p.mailBox <- etf.Tuple{etf.Pid{}, etf.Atom("$restart")}
+							sv.startChildren(p, spec.children[:])
 							break
 						}
 					}
@@ -218,24 +219,53 @@ func (sv *Supervisor) loop(p *Process, object interface{}, args ...interface{}) 
 
 							if s, ok := dynamicChildren[terminated]; ok {
 								delete(dynamicChildren, terminated)
-								// TODO:
-								fmt.Println(s)
-								p.mailBox <- etf.Tuple{etf.Pid{}, etf.Atom("$start")}
+
+								if haveToDisableChild(s.restart, reason) {
+									// wont be restarted due to restart strategy
+									break
+								}
+
+								sv.StartChild(*p, s.name, s.args)
 							}
 							break
 						}
 					}
 				}
-			case etf.Atom("$start"):
-				// handle start child
+			case etf.Atom("$startByName"):
+				var s *SupervisorChildSpec
+				// dynamically start child process
+				specName := m.Element(2).(string)
+				args := m.Element(3)
+				reply := m.Element(4).(chan etf.Tuple)
+
+				s = lookupSpecByName(specName, spec.children[:])
+				if s == nil {
+					reply <- etf.Tuple{etf.Atom("error"), "unknown_spec"}
+				}
+
+				m := etf.Tuple{
+					etf.Atom("$startBySpec"),
+					*s,
+					args,
+					reply,
+				}
+				p.mailBox <- etf.Tuple{etf.Pid{}, m}
+
+			case etf.Atom("$startBySpec"):
+				spec := m.Element(2).(SupervisorChildSpec)
+				args := m.Element(3).([]interface{})
+				reply := m.Element(4).(chan etf.Tuple)
+
+				process := startChild(p, "", spec.child, args)
+				p.children = append(p.children, process)
+				spec.args = args
+				dynamicChildren[process.self] = spec
+
+				reply <- etf.Tuple{etf.Atom("ok"), process.self}
 			default:
 				lib.Log("m: %#v", m)
 			}
-		case etf.Atom:
-			switch m {
-			case etf.Atom("$restart"):
-				sv.startChildren(p, spec.children[:])
-			}
+
 		default:
 			lib.Log("m: %#v", m)
 		}
@@ -243,16 +273,42 @@ func (sv *Supervisor) loop(p *Process, object interface{}, args ...interface{}) 
 }
 
 // StartChlid dynamically starts a child process with given name of child spec
-// which is defined by Init call
-func (sv *Supervisor) StartChild(parent Process, specName string, args ...interface{}) {
-	// TODO:
-	parent.mailBox <- etf.Tuple{etf.Pid{}, etf.Atom("$start")}
+// which is defined by Init call.
+func (sv *Supervisor) StartChild(parent Process, specName string, args ...interface{}) (etf.Pid, error) {
+	reply := make(chan etf.Tuple)
+	m := etf.Tuple{
+		etf.Atom("$startByName"),
+		specName,
+		args,
+		reply,
+	}
+	parent.mailBox <- etf.Tuple{etf.Pid{}, m}
+	r := <-reply
+	switch r.Element(0) {
+	case etf.Atom("ok"):
+		return r.Element(1).(etf.Pid), nil
+	default:
+		return etf.Pid{}, errors.New(r.Element(1).(string))
+	}
 }
 
 // StartChlidWithSpec dynamically starts a child process with given child spec
-func (sv *Supervisor) StartChildWithSpec(parent Process, spec SupervisorChildSpec, args ...interface{}) {
-	// TODO:
-	parent.mailBox <- etf.Tuple{etf.Pid{}, etf.Atom("$start")}
+func (sv *Supervisor) StartChildWithSpec(parent Process, spec SupervisorChildSpec, args ...interface{}) (etf.Pid, error) {
+	reply := make(chan etf.Tuple)
+	m := etf.Tuple{
+		etf.Atom("$startBySpec"),
+		spec,
+		args,
+		reply,
+	}
+	parent.mailBox <- etf.Tuple{etf.Pid{}, m}
+	r := <-reply
+	switch r.Element(0) {
+	case etf.Atom("ok"):
+		return r.Element(1).(etf.Pid), nil
+	default:
+		return etf.Pid{}, errors.New(r.Element(1).(string))
+	}
 }
 
 func (sv *Supervisor) startChildren(parent *Process, specs []SupervisorChildSpec) {
@@ -263,22 +319,28 @@ func (sv *Supervisor) startChildren(parent *Process, specs []SupervisorChildSpec
 			continue
 		}
 
-		opts := ProcessOptions{}
-		emptyPid := etf.Pid{}
-
-		if parent.groupLeader == emptyPid {
-			// leader is not set
-			opts.GroupLeader = parent.self
-		} else {
-			opts.GroupLeader = parent.groupLeader
-		}
-
-		process := parent.Node.Spawn(specs[i].name, opts, specs[i].child, specs[i].args...)
-		process.parent = parent
-		parent.Link(process.self)
-		parent.children[i] = process
 		specs[i].state = SupervisorChildStateRunning
+		process := startChild(parent, specs[i].name, specs[i].child, specs[i].args)
+		parent.children[i] = process
 	}
+}
+
+func startChild(parent *Process, name string, child interface{}, args ...interface{}) *Process {
+	opts := ProcessOptions{}
+	emptyPid := etf.Pid{}
+
+	if parent.groupLeader == emptyPid {
+		// leader is not set
+		opts.GroupLeader = parent.self
+	} else {
+		opts.GroupLeader = parent.groupLeader
+	}
+
+	process := parent.Node.Spawn(name, opts, child, args...)
+	process.parent = parent
+	parent.Link(process.self)
+
+	return process
 }
 
 func haveToDisableChild(restart SupervisorChildRestart, reason etf.Atom) bool {
@@ -293,4 +355,13 @@ func haveToDisableChild(restart SupervisorChildRestart, reason etf.Atom) bool {
 	}
 
 	return false
+}
+
+func lookupSpecByName(specName string, spec []SupervisorChildSpec) *SupervisorChildSpec {
+	for i := range spec {
+		if spec[i].name == specName {
+			return &spec[i]
+		}
+	}
+	return nil
 }
