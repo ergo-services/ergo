@@ -91,6 +91,8 @@ type SupervisorChildSpec struct {
 type Supervisor struct{}
 
 func (sv *Supervisor) loop(p *Process, object interface{}, args ...interface{}) string {
+	var dynamicChildren map[etf.Pid]SupervisorChildSpec
+
 	spec := object.(SupervisorBehavior).Init(args...)
 	lib.Log("Supervisor spec %#v\n", spec)
 	p.ready <- true
@@ -99,6 +101,8 @@ func (sv *Supervisor) loop(p *Process, object interface{}, args ...interface{}) 
 		p.children = make([]*Process, len(spec.children))
 		sv.startChildren(p, spec.children[:])
 		fmt.Println("CHILDREN", p.children)
+	} else {
+		dynamicChildren = make(map[etf.Pid]SupervisorChildSpec)
 	}
 
 	stop := make(chan string, 2)
@@ -208,7 +212,16 @@ func (sv *Supervisor) loop(p *Process, object interface{}, args ...interface{}) 
 				case SupervisorStrategySimpleOneForOne:
 					for i := range p.children {
 						if p.children[i].self == terminated {
-							// TODO: how to find a spec for this process?
+							// remove child from list
+							p.children[0] = p.children[i]
+							p.children = p.children[1:]
+
+							if s, ok := dynamicChildren[terminated]; ok {
+								delete(dynamicChildren, terminated)
+								// TODO:
+								fmt.Println(s)
+								p.mailBox <- etf.Tuple{etf.Pid{}, etf.Atom("$start")}
+							}
 							break
 						}
 					}
@@ -229,21 +242,15 @@ func (sv *Supervisor) loop(p *Process, object interface{}, args ...interface{}) 
 	}
 }
 
-func haveToDisableChild(restart SupervisorChildRestart, reason etf.Atom) bool {
-	switch restart {
-	case SupervisorChildRestartTransient:
-		if reason == etf.Atom("shutdown") || reason == etf.Atom("normal") {
-			return true
-		}
-
-	case SupervisorChildRestartTemporary:
-		return true
-	}
-
-	return false
+// StartChlid dynamically starts a child process with given name of child spec
+// which is defined by Init call
+func (sv *Supervisor) StartChild(parent Process, specName string, args ...interface{}) {
+	// TODO:
+	parent.mailBox <- etf.Tuple{etf.Pid{}, etf.Atom("$start")}
 }
 
-func (sv *Supervisor) StartChild(parent Process, name string, args ...interface{}) {
+// StartChlidWithSpec dynamically starts a child process with given child spec
+func (sv *Supervisor) StartChildWithSpec(parent Process, spec SupervisorChildSpec, args ...interface{}) {
 	// TODO:
 	parent.mailBox <- etf.Tuple{etf.Pid{}, etf.Atom("$start")}
 }
@@ -272,4 +279,18 @@ func (sv *Supervisor) startChildren(parent *Process, specs []SupervisorChildSpec
 		parent.children[i] = process
 		specs[i].state = SupervisorChildStateRunning
 	}
+}
+
+func haveToDisableChild(restart SupervisorChildRestart, reason etf.Atom) bool {
+	switch restart {
+	case SupervisorChildRestartTransient:
+		if reason == etf.Atom("shutdown") || reason == etf.Atom("normal") {
+			return true
+		}
+
+	case SupervisorChildRestartTemporary:
+		return true
+	}
+
+	return false
 }
