@@ -98,7 +98,6 @@ func (sv *Supervisor) loop(p *Process, object interface{}, args ...interface{}) 
 	p.currentFunction = "Supervisor:loop"
 
 	waitTerminatingProcesses := []etf.Pid{}
-	restartingProcesses := false
 
 	for {
 		var message etf.Term
@@ -147,72 +146,50 @@ func (sv *Supervisor) loop(p *Process, object interface{}, args ...interface{}) 
 						restart := etf.Tuple{etf.Pid{}, etf.Atom("$restart")}
 						p.mailBox <- restart
 					}
+
+					continue
 				}
 
 				switch spec.strategy.Type {
 
 				case SupervisorStrategyOneForAll:
-
 					for i := range p.children {
-
 						if p.children[i].self == terminated {
-
-							p.children[i] = nil
-
-							switch spec.children[i].restart {
-							case SupervisorChildRestartTransient:
-								if reason == etf.Atom("shutdown") || reason == etf.Atom("normal") {
-									spec.children[i].disabled = true
-								}
-
-							case SupervisorChildRestartTemporary:
-								spec.children[i].disabled = true
-
-							}
-
+							disable := haveToDisableChild(spec.children[i].restart, reason)
+							spec.children[i].disabled = disable
 							continue
 						}
-						if !restartingProcesses {
-							p.children[i].Stop("shutdown")
-							waitTerminatingProcesses = append(waitTerminatingProcesses, p.children[i].self)
-						}
+						p.children[i].Stop("shutdown")
+						waitTerminatingProcesses = append(waitTerminatingProcesses, p.children[i].self)
 					}
-
-					restartingProcesses = true
 
 				case SupervisorStrategyRestForOne:
 					isRest := false
 					for i := range p.children {
-
 						if p.children[i].self == terminated {
 							isRest = true
-							p.children[i] = nil
-
-							switch spec.children[i].restart {
-							case SupervisorChildRestartTransient:
-								if reason == etf.Atom("shutdown") || reason == etf.Atom("normal") {
-									spec.children[i].disabled = true
-								}
-
-							case SupervisorChildRestartTemporary:
-								spec.children[i].disabled = true
-
-							}
-
+							disable := haveToDisableChild(spec.children[i].restart, reason)
+							spec.children[i].disabled = disable
 							continue
 						}
 
-						if !restartingProcesses && isRest {
+						if isRest {
 							p.children[i].Stop("shutdown")
 							waitTerminatingProcesses = append(waitTerminatingProcesses, p.children[i].self)
 						}
 					}
 
-					restartingProcesses = true
-
 				case SupervisorStrategyOneForOne:
-
-				default: // SupervisorStrategySimpleOneForOne
+					for i := range p.children {
+						if p.children[i].self == terminated {
+							// haveToDisableChild(spec.children[i].restart, reason)
+							// spec.children[i].state = restart
+							// restart := etf.Tuple{etf.Pid{}, etf.Atom("$restart")}
+							// p.mailBox <- restart
+							// continue
+						}
+					}
+				case SupervisorStrategySimpleOneForOne:
 
 				}
 
@@ -223,12 +200,26 @@ func (sv *Supervisor) loop(p *Process, object interface{}, args ...interface{}) 
 			switch m {
 			case etf.Atom("$restart"):
 				sv.initChildren(p, spec.children)
-				restartingProcesses = false
 			}
 		default:
 			lib.Log("m: %#v", m)
 		}
 	}
+}
+
+func haveToDisableChild(restart SupervisorChildRestart, reason etf.Atom) bool {
+	switch restart {
+	case SupervisorChildRestartTransient:
+		if reason == etf.Atom("shutdown") || reason == etf.Atom("normal") {
+			return true
+		}
+
+	case SupervisorChildRestartTemporary:
+		return true
+
+	}
+
+	return false
 }
 
 func (sv *Supervisor) initChildren(parent *Process, specs []SupervisorChildSpec) {
@@ -255,7 +246,8 @@ func (sv *Supervisor) initChildren(parent *Process, specs []SupervisorChildSpec)
 		} else {
 			opts.GroupLeader = parent.groupLeader
 		}
-
+		// if simple_one_for_one -> spec.name have to be omitted (process shouldn't have
+		// to be registered with name)
 		process := parent.Node.Spawn(spec.name, opts, spec.child, spec.args...)
 		parent.Link(process.self)
 		parent.children[i] = process
