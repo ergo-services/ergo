@@ -61,7 +61,13 @@ const (
 	// it terminates abnormally, that is, with an exit reason other
 	// than normal, shutdown, or {shutdown,Term}.
 	SupervisorChildRestartTransient = "transient"
+
+	SupervisorChildStateStart    = 0
+	SupervisorChildStateRunning  = 1
+	SupervisorChildStateDisabled = -1
 )
+
+type SupervisorChildState int
 
 // SupervisorBehavior interface
 type SupervisorBehavior interface {
@@ -74,11 +80,11 @@ type SupervisorSpec struct {
 }
 
 type SupervisorChildSpec struct {
-	name     string
-	child    interface{}
-	args     []interface{}
-	restart  SupervisorChildRestart
-	disabled bool
+	name    string
+	child   interface{}
+	args    []interface{}
+	restart SupervisorChildRestart
+	state   SupervisorChildState // for internal usage
 }
 
 // Supervisor is implementation of ProcessBehavior interface
@@ -89,14 +95,14 @@ func (sv *Supervisor) loop(p *Process, object interface{}, args ...interface{}) 
 	lib.Log("Supervisor spec %#v\n", spec)
 	p.ready <- true
 
-	p.children = make([]*Process, len(spec.children))
-	sv.initChildren(p, spec.children)
+	if spec.strategy.Type != SupervisorStrategySimpleOneForOne {
+		p.children = make([]*Process, len(spec.children))
+		sv.startChildren(p, spec.children[:])
+		fmt.Println("CHILDREN", p.children)
+	}
 
-	fmt.Println("CHILDREN", p.children)
 	stop := make(chan string, 2)
-
 	p.currentFunction = "Supervisor:loop"
-
 	waitTerminatingProcesses := []etf.Pid{}
 
 	for {
@@ -143,8 +149,7 @@ func (sv *Supervisor) loop(p *Process, object interface{}, args ...interface{}) 
 
 					if len(waitTerminatingProcesses) == 0 {
 						// it was the last one. lets restart all terminated children
-						restart := etf.Tuple{etf.Pid{}, etf.Atom("$restart")}
-						p.mailBox <- restart
+						p.mailBox <- etf.Tuple{etf.Pid{}, etf.Atom("$restart")}
 					}
 
 					continue
@@ -155,8 +160,12 @@ func (sv *Supervisor) loop(p *Process, object interface{}, args ...interface{}) 
 				case SupervisorStrategyOneForAll:
 					for i := range p.children {
 						if p.children[i].self == terminated {
-							disable := haveToDisableChild(spec.children[i].restart, reason)
-							spec.children[i].disabled = disable
+							if haveToDisableChild(spec.children[i].restart, reason) {
+								spec.children[i].state = SupervisorChildStateDisabled
+							} else {
+								spec.children[i].state = SupervisorChildStateStart
+							}
+
 							continue
 						}
 						p.children[i].Stop("shutdown")
@@ -168,38 +177,51 @@ func (sv *Supervisor) loop(p *Process, object interface{}, args ...interface{}) 
 					for i := range p.children {
 						if p.children[i].self == terminated {
 							isRest = true
-							disable := haveToDisableChild(spec.children[i].restart, reason)
-							spec.children[i].disabled = disable
+							if haveToDisableChild(spec.children[i].restart, reason) {
+								spec.children[i].state = SupervisorChildStateDisabled
+							} else {
+								spec.children[i].state = SupervisorChildStateStart
+							}
 							continue
 						}
 
 						if isRest {
 							p.children[i].Stop("shutdown")
 							waitTerminatingProcesses = append(waitTerminatingProcesses, p.children[i].self)
+							spec.children[i].state = SupervisorChildStateStart
 						}
 					}
 
 				case SupervisorStrategyOneForOne:
 					for i := range p.children {
 						if p.children[i].self == terminated {
-							// haveToDisableChild(spec.children[i].restart, reason)
-							// spec.children[i].state = restart
-							// restart := etf.Tuple{etf.Pid{}, etf.Atom("$restart")}
-							// p.mailBox <- restart
-							// continue
+							if haveToDisableChild(spec.children[i].restart, reason) {
+								spec.children[i].state = SupervisorChildStateDisabled
+							} else {
+								spec.children[i].state = SupervisorChildStateStart
+							}
+
+							p.mailBox <- etf.Tuple{etf.Pid{}, etf.Atom("$restart")}
+							break
 						}
 					}
 				case SupervisorStrategySimpleOneForOne:
-
+					for i := range p.children {
+						if p.children[i].self == terminated {
+							// TODO: how to find a spec for this process?
+							break
+						}
+					}
 				}
-
+			case etf.Atom("$start"):
+				// handle start child
 			default:
 				lib.Log("m: %#v", m)
 			}
 		case etf.Atom:
 			switch m {
 			case etf.Atom("$restart"):
-				sv.initChildren(p, spec.children)
+				sv.startChildren(p, spec.children[:])
 			}
 		default:
 			lib.Log("m: %#v", m)
@@ -216,24 +238,21 @@ func haveToDisableChild(restart SupervisorChildRestart, reason etf.Atom) bool {
 
 	case SupervisorChildRestartTemporary:
 		return true
-
 	}
 
 	return false
 }
 
-func (sv *Supervisor) initChildren(parent *Process, specs []SupervisorChildSpec) {
+func (sv *Supervisor) StartChild(parent Process, name string, args ...interface{}) {
+	// TODO:
+	parent.mailBox <- etf.Tuple{etf.Pid{}, etf.Atom("$start")}
+}
+
+func (sv *Supervisor) startChildren(parent *Process, specs []SupervisorChildSpec) {
 
 	for i := range specs {
-
-		if parent.children[i] != nil {
-			// its already running
-			continue
-		}
-
-		spec := specs[i]
-		if spec.disabled {
-			// its been disabled due to restart strategy
+		if specs[i].state != SupervisorChildStateStart {
+			// its already running or has been disabled due to restart strategy
 			continue
 		}
 
@@ -246,10 +265,11 @@ func (sv *Supervisor) initChildren(parent *Process, specs []SupervisorChildSpec)
 		} else {
 			opts.GroupLeader = parent.groupLeader
 		}
-		// if simple_one_for_one -> spec.name have to be omitted (process shouldn't have
-		// to be registered with name)
-		process := parent.Node.Spawn(spec.name, opts, spec.child, spec.args...)
+
+		process := parent.Node.Spawn(specs[i].name, opts, specs[i].child, specs[i].args...)
+		process.parent = parent
 		parent.Link(process.self)
 		parent.children[i] = process
+		specs[i].state = SupervisorChildStateRunning
 	}
 }
