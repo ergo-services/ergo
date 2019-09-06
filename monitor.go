@@ -1,5 +1,7 @@
 package ergonode
 
+// http://erlang.org/doc/reference_manual/processes.html
+
 import (
 	"fmt"
 
