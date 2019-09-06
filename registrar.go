@@ -324,6 +324,11 @@ func (r *registrar) UnregisterPeer(name string) {
 	r.channels.unregisterPeer <- name
 }
 
+func (r *registrar) GetProcessByPid(pid etf.Pid) *Process {
+	// TODO: implement it
+	return nil
+}
+
 // route incomming message to registered process
 func (r *registrar) route(from etf.Pid, to etf.Term, message etf.Term) {
 

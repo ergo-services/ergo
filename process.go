@@ -36,6 +36,17 @@ type Process struct {
 	currentFunction string
 }
 
+type ProcessInfo struct {
+	CurrentFunction string
+	Status          string
+	MessageQueueLen int
+	Links           []etf.Pid
+	Dictionary      etf.Map
+	TrapExit        bool
+	GroupLeader     etf.Pid
+	Reductions      uint64
+}
+
 type ProcessOptions struct {
 	MailboxSize uint16
 	GroupLeader etf.Pid

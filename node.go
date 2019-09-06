@@ -2,6 +2,7 @@ package ergonode
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"syscall"
@@ -129,13 +130,12 @@ func CreateNodeWithContext(ctx context.Context, name string, cookie string, opts
 func (n *Node) Spawn(name string, opts ProcessOptions, object interface{}, args ...interface{}) *Process {
 	process := n.registrar.RegisterProcessExt(name, object, opts)
 	go func() {
-		// FIXME: uncomment this 'defer' before release
-		// defer func() {
-		// 	if r := recover(); r != nil {
-		// 		lib.Log("Recovered process: %#v with error: %s", object, r)
-		// 		n.registrar.UnregisterProcess(process.self)
-		// 	}
-		// }()
+		defer func() {
+			if r := recover(); r != nil {
+				lib.Log("Recovered process: %v %#v ", process.self, r)
+				process.Stop("panic")
+			}
+		}()
 		reason := object.(ProcessBehaviour).loop(process, object, args...)
 		process.Stop(reason)
 	}()
@@ -146,6 +146,34 @@ func (n *Node) Spawn(name string, opts ProcessOptions, object interface{}, args 
 
 func (n *Node) Register(name string, pid etf.Pid) {
 	n.registrar.RegisterName(name, pid)
+}
+
+func (n *Node) IsProcessAlive(pid etf.Pid) bool {
+	if pid.Node != etf.Atom(n.FullName) {
+		return false
+	}
+	if n.registrar.GetProcessByPid(pid) == nil {
+		return false
+	}
+	return true
+}
+
+func (n *Node) ProcessInfo(pid etf.Pid) (ProcessInfo, error) {
+	p := n.registrar.GetProcessByPid(pid)
+	if p == nil {
+		return ProcessInfo{}, errors.New("undefined")
+	}
+	info := ProcessInfo{
+		CurrentFunction: p.currentFunction,
+		Status:          "running",
+		MessageQueueLen: len(p.mailBox),
+		// Links:
+		// Dictionary
+		TrapExit:    true,
+		GroupLeader: p.groupLeader,
+		Reductions:  p.reductions,
+	}
+	return info, nil
 }
 
 func (n *Node) serve(c net.Conn, negotiate bool) {
