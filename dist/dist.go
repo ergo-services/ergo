@@ -312,7 +312,10 @@ func (currNd *NodeDesc) WriteMessage(c net.Conn, ts []etf.Term) (err error) {
 
 func (nd *NodeDesc) GetRemoteName() string {
 	// nd.remote MUST not be nil otherwise is a bug. let it panic then
-	return nd.remote.Name
+	if nd.state == CONNECTED {
+		return nd.remote.Name
+	}
+	return ""
 }
 
 func (nd *NodeDesc) compose_SEND_NAME() (msg []byte) {

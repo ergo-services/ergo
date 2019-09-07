@@ -101,7 +101,6 @@ func (sv *Supervisor) loop(p *Process, object interface{}, args ...interface{}) 
 	if spec.strategy.Type != SupervisorStrategySimpleOneForOne {
 		p.children = make([]*Process, len(spec.children))
 		sv.startChildren(p, spec.children[:])
-		fmt.Println("CHILDREN", p.children)
 	} else {
 		dynamicChildren = make(map[etf.Pid]SupervisorChildSpec)
 	}
