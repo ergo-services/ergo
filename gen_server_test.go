@@ -40,12 +40,12 @@ func TestGenServer(t *testing.T) {
 	gs1 := &testGenServer{}
 	gs2 := &testGenServer{}
 	gs3 := &testGenServer{}
-	// gs4 := &testGenServer{}
+	gs4 := &testGenServer{}
 
 	node1p1, _ := node1.Spawn("gs1", ProcessOptions{}, gs1, nil)
 	node1p2, _ := node1.Spawn("gs2", ProcessOptions{}, gs2, nil)
 	node2p1, _ := node2.Spawn("gs3", ProcessOptions{}, gs3, nil)
-	// node2p2, _ := node2.Spawn("gs4", ProcessOptions{}, gs4, nil)
+	node2p2, _ := node2.Spawn("gs4", ProcessOptions{}, gs4, nil)
 
 	fmt.Println("Testing GenServer process:")
 	node1p1.Send(node1p2.Self(), etf.Atom("hi"))
@@ -62,6 +62,7 @@ func TestGenServer(t *testing.T) {
 	}
 
 	node1p1.Call(node2p1.Self(), etf.Atom("hi remote"))
+	node2p2.Call(node1p1.Self(), etf.Atom("remote hi"))
 	// fmt.Println("    process.Send local -> remote: ok")
 
 	// node1p1.Cast(node2p2.Self(), etf.Atom("hi cast"))
