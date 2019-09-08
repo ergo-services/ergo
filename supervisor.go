@@ -335,7 +335,12 @@ func startChild(parent *Process, name string, child interface{}, args ...interfa
 		opts.GroupLeader = parent.groupLeader
 	}
 
-	process := parent.Node.Spawn(name, opts, child, args...)
+	process, err := parent.Node.Spawn(name, opts, child, args...)
+
+	if err != nil {
+		panic(err)
+	}
+
 	process.parent = parent
 	parent.Link(process.self)
 

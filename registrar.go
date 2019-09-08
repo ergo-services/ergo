@@ -2,6 +2,7 @@ package ergonode
 
 import (
 	"context"
+	"fmt"
 	"sync/atomic"
 
 	"github.com/halturin/ergonode/etf"
@@ -15,6 +16,7 @@ const (
 type registerProcessRequest struct {
 	name    string
 	process *Process
+	err     chan error
 }
 
 type registerNameRequest struct {
@@ -125,11 +127,16 @@ func (r *registrar) run() {
 	for {
 		select {
 		case p := <-r.channels.process:
-
-			r.processes[p.process.self] = p.process
 			if p.name != "" {
+				if _, exist := r.names[p.name]; exist {
+					p.err <- fmt.Errorf("name is taken")
+					continue
+				}
 				r.names[p.name] = p.process.self
 			}
+
+			r.processes[p.process.self] = p.process
+			p.err <- nil
 
 		case up := <-r.channels.unregisterProcess:
 			if p, ok := r.processes[up]; ok {
@@ -188,8 +195,11 @@ func (r *registrar) run() {
 
 			if string(bp.pid.Node) == r.nodeName {
 				// local route
-				p := r.processes[bp.pid]
-				p.mailBox <- etf.Tuple{bp.from, bp.message}
+
+				if p, ok := r.processes[bp.pid]; ok {
+					p.mailBox <- etf.Tuple{bp.from, bp.message}
+				}
+
 				continue
 			}
 
@@ -253,14 +263,14 @@ func (r *registrar) run() {
 	}
 }
 
-func (r *registrar) RegisterProcess(object interface{}) *Process {
+func (r *registrar) RegisterProcess(object interface{}) (*Process, error) {
 	opts := ProcessOptions{
 		MailboxSize: DefaultProcessMailboxSize, // size of channel for regular messages
 	}
 	return r.RegisterProcessExt("", object, opts)
 }
 
-func (r *registrar) RegisterProcessExt(name string, object interface{}, opts ProcessOptions) *Process {
+func (r *registrar) RegisterProcessExt(name string, object interface{}, opts ProcessOptions) (*Process, error) {
 
 	mailbox_size := DefaultProcessMailboxSize
 	if opts.MailboxSize > 0 {
@@ -292,11 +302,15 @@ func (r *registrar) RegisterProcessExt(name string, object interface{}, opts Pro
 	req := registerProcessRequest{
 		name:    name,
 		process: process,
+		err:     make(chan error),
 	}
 
 	r.channels.process <- req
+	if err := <-req.err; err != nil {
+		return nil, err
+	}
 
-	return process
+	return process, nil
 }
 
 // UnregisterProcess unregister process by Pid

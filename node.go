@@ -109,7 +109,7 @@ func CreateNodeWithContext(ctx context.Context, name string, cookie string, opts
 		MailboxSize: DefaultProcessMailboxSize, // size of channel for regular messages
 	}
 	node.system.netKernelSup = new(netKernelSup)
-	node.Spawn("net_kernel", process_opts, node.system.netKernelSup)
+	node.Spawn("net_kernel_sup", process_opts, node.system.netKernelSup)
 
 	node.system.globalNameServer = new(globalNameServer)
 	node.Spawn("global_name_server", process_opts, node.system.globalNameServer)
@@ -127,8 +127,11 @@ func CreateNodeWithContext(ctx context.Context, name string, cookie string, opts
 }
 
 // Spawn create new process
-func (n *Node) Spawn(name string, opts ProcessOptions, object interface{}, args ...interface{}) *Process {
-	process := n.registrar.RegisterProcessExt(name, object, opts)
+func (n *Node) Spawn(name string, opts ProcessOptions, object interface{}, args ...interface{}) (*Process, error) {
+	process, err := n.registrar.RegisterProcessExt(name, object, opts)
+	if err != nil {
+		return nil, err
+	}
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
@@ -141,7 +144,7 @@ func (n *Node) Spawn(name string, opts ProcessOptions, object interface{}, args 
 	}()
 	<-process.ready
 
-	return process
+	return process, nil
 }
 
 func (n *Node) Register(name string, pid etf.Pid) {
