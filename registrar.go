@@ -26,7 +26,8 @@ type registerNameRequest struct {
 
 type registerPeer struct {
 	name string
-	p    peer
+	peer peer
+	err  chan error
 }
 
 type routeByPidRequest struct {
@@ -166,9 +167,11 @@ func (r *registrar) run() {
 			lib.Log("registering peer %v", p)
 			if _, ok := r.peers[p.name]; ok {
 				// already registered
+				p.err <- fmt.Errorf("name is taken")
 				continue
 			}
-			r.peers[p.name] = p.p
+			r.peers[p.name] = p.peer
+			p.err <- nil
 
 		case up := <-r.channels.unregisterPeer:
 			lib.Log("unregistering peer %v", up)
@@ -195,23 +198,27 @@ func (r *registrar) run() {
 
 			if string(bp.pid.Node) == r.nodeName {
 				// local route
-
 				if p, ok := r.processes[bp.pid]; ok {
 					p.mailBox <- etf.Tuple{bp.from, bp.message}
 				}
-
 				continue
 			}
 
 			peer, ok := r.peers[string(bp.pid.Node)]
 			if !ok {
 				// initiate connection and make yet another attempt to deliver this message
-				bp.retries++
-				r.channels.routeByPid <- bp
-				r.node.connect(bp.pid.Node)
+				go func() {
+					if err := r.node.connect(bp.pid.Node); err != nil {
+						fmt.Println("NNNNNNNNNNNN", bp.pid.Node, err)
+						lib.Log("can't connect to %v: %s", bp.pid.Node, err)
+					}
+
+					bp.retries++
+					r.channels.routeByPid <- bp
+				}()
 				continue
 			}
-			peer.send <- []etf.Term{etf.Tuple{SEND, etf.Atom(""), bp.pid}, bp.message}
+			peer.send <- []etf.Term{etf.Tuple{REG_SEND, bp.from, etf.Atom(""), bp.pid}, bp.message}
 
 		case bn := <-r.channels.routeByName:
 			lib.Log("sending message by name %v", bn.name)
@@ -329,9 +336,14 @@ func (r *registrar) UnregisterName(name string) {
 	r.channels.unregisterName <- name
 }
 
-func (r *registrar) RegisterPeer(name string, p peer) {
-	req := registerPeer{name: name, p: p}
+func (r *registrar) RegisterPeer(name string, p peer) error {
+	req := registerPeer{
+		name: name,
+		peer: p,
+		err:  make(chan error),
+	}
 	r.channels.peer <- req
+	return <-req.err
 }
 
 func (r *registrar) UnregisterPeer(name string) {
@@ -345,7 +357,6 @@ func (r *registrar) GetProcessByPid(pid etf.Pid) *Process {
 
 // route incomming message to registered process
 func (r *registrar) route(from etf.Pid, to etf.Term, message etf.Term) {
-
 	switch tto := to.(type) {
 	case etf.Pid:
 		req := routeByPidRequest{

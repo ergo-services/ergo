@@ -223,21 +223,22 @@ func (n *Node) serve(c net.Conn, negotiate bool) {
 		}
 	}()
 
-	<-node.Ready
-
 	p := peer{
 		conn: c,
 		send: send,
 	}
+
+	<-node.Ready
 	n.registrar.RegisterPeer(node.GetRemoteName(), p)
+
 }
 
 func (n *Node) handleTerms(terms []etf.Term) {
-	defer func() {
-		if r := recover(); r != nil {
-			lib.Log("Recovered node.handleTerms: %s", r)
-		}
-	}()
+	// defer func() {
+	// 	if r := recover(); r != nil {
+	// 		lib.Log("Recovered node.handleTerms: %s", r)
+	// 	}
+	// }()
 
 	if len(terms) == 0 {
 		// keep alive
@@ -361,7 +362,6 @@ func (n *Node) connect(to etf.Atom) error {
 	}
 
 	n.serve(c, true)
-
 	return nil
 }
 
@@ -372,11 +372,12 @@ func (n *Node) listen(name string, listenRangeBegin, listenRangeEnd uint16) uint
 	for p := listenRangeBegin; p <= listenRangeEnd; p++ {
 		l, err := lc.Listen(n.context, "tcp", net.JoinHostPort(name, strconv.Itoa(int(p))))
 		if err != nil {
-			panic(err)
+			continue
 		}
 		go func() {
 			for {
 				c, err := l.Accept()
+
 				lib.Log("Accepted new connection from %s", c.RemoteAddr().String())
 				if err != nil {
 					lib.Log(err.Error())
