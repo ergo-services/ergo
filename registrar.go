@@ -234,7 +234,7 @@ func (r *registrar) run() {
 			}
 
 			to_node := bt.tuple.Element(2).(string)
-			to_process_name := bt.tuple.Element(1).(string)
+			to_process_name := bt.tuple.Element(1)
 			if to_node == r.nodeName {
 				r.route(bt.from, to_process_name, bt.message)
 				continue
