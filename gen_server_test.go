@@ -29,12 +29,10 @@ import (
 
 type testGenServer struct {
 	GenServer
-	process Process
-	err     chan error
+	err chan error
 }
 
 func (tgs *testGenServer) Init(p Process, args ...interface{}) (state interface{}) {
-	tgs.process = p
 	tgs.err <- nil
 	return nil
 }
