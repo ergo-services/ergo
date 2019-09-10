@@ -198,3 +198,18 @@ func waitForResult(t *testing.T, w chan error) {
 		t.Fatal("result timeout")
 	}
 }
+
+func waitForResultWithValue(t *testing.T, w chan interface{}, value interface{}) {
+	select {
+	case v := <-w:
+		if v == value {
+			fmt.Println("OK")
+		} else {
+			e := fmt.Errorf("expected: %#v , got: %#v", value, v)
+			t.Fatal(e)
+		}
+
+	case <-time.After(time.Second * time.Duration(1)):
+		t.Fatal("result timeout")
+	}
+}
