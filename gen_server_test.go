@@ -2,6 +2,7 @@ package ergonode
 
 import (
 	"fmt"
+	"reflect"
 	"testing"
 	"time"
 
@@ -200,7 +201,7 @@ func waitForResult(t *testing.T, w chan error) {
 func waitForResultWithValue(t *testing.T, w chan interface{}, value interface{}) {
 	select {
 	case v := <-w:
-		if v == value {
+		if reflect.DeepEqual(v, value) {
 			fmt.Println("OK")
 		} else {
 			e := fmt.Errorf("expected: %#v , got: %#v", value, v)

@@ -26,7 +26,7 @@ import (
 //  * node1.gs1 (by Pid) link -> node2 gs5
 //  * call gs5.Stop (node1.gs1 should receive 'exit')
 //  * call gs4.Stop (node1.gs1 should receive 'down')
-//  ... start gs3 on node1 and gs4,gs5 on node2 again
+//  ... start gs2 on node1 and gs4,gs5 on node2 again
 //  * node1.gs1 (by Pid) monitor -> node2 gs4
 //  * node1.gs1 (by Pid) link -> node2.gs5
 //  ... add monitor node ...
@@ -66,7 +66,7 @@ func (tgs *testMonitorGenServer) Init(p Process, args ...interface{}) (state int
 }
 func (tgs *testMonitorGenServer) HandleCast(message etf.Term, state interface{}) (string, interface{}) {
 	// fmt.Printf("testMonitorGenServer ({%s, %s}): HandleCast: %#v\n", tgs.process.name, tgs.process.Node.FullName, message)
-	tgs.v <- nil
+	tgs.v <- message
 	return "noreply", state
 }
 func (tgs *testMonitorGenServer) HandleCall(from etf.Tuple, message etf.Term, state interface{}) (string, etf.Term, interface{}) {
@@ -75,7 +75,7 @@ func (tgs *testMonitorGenServer) HandleCall(from etf.Tuple, message etf.Term, st
 }
 func (tgs *testMonitorGenServer) HandleInfo(message etf.Term, state interface{}) (string, interface{}) {
 	// fmt.Printf("testMonitorGenServer ({%s, %s}): HandleInfo: %#v\n", tgs.process.name, tgs.process.Node.FullName, message)
-	tgs.v <- nil
+	tgs.v <- message
 	return "noreply", state
 }
 func (tgs *testMonitorGenServer) Terminate(reason string, state interface{}) {
@@ -102,12 +102,12 @@ func TestMonitor(t *testing.T) {
 	gs3 := &testMonitorGenServer{
 		v: make(chan interface{}, 2),
 	}
-	// gs4 := &testMonitorGenServer{
-	// 	v: make(chan interface{}, 2),
-	// }
-	// gs5 := &testMonitorGenServer{
-	// 	v: make(chan interface{}, 2),
-	// }
+	gs4 := &testMonitorGenServer{
+		v: make(chan interface{}, 2),
+	}
+	gs5 := &testMonitorGenServer{
+		v: make(chan interface{}, 2),
+	}
 
 	fmt.Printf("    wait for start of gs1 on %#v: ", node1.FullName)
 	node1gs1, _ := node1.Spawn("gs1", ProcessOptions{}, gs1, nil)
@@ -121,27 +121,65 @@ func TestMonitor(t *testing.T) {
 	node1gs3, _ := node1.Spawn("gs3", ProcessOptions{}, gs3, nil)
 	waitForResultWithValue(t, gs3.v, nil)
 
-	// fmt.Printf("    wait for start of gs4 on %#v: ", node2.FullName)
-	// node2gs4, _ := node2.Spawn("gs4", ProcessOptions{}, gs4, nil)
-	// waitForResultWithValue(t, gs3.v, nil)
+	fmt.Printf("    wait for start of gs4 on %#v: ", node2.FullName)
+	node2gs4, _ := node2.Spawn("gs4", ProcessOptions{}, gs4, nil)
+	waitForResultWithValue(t, gs4.v, nil)
 
-	// fmt.Printf("    wait for start of gs5 on %#v: ", node2.FullName)
-	// node2gs5, _ := node2.Spawn("gs5", ProcessOptions{}, gs5, nil)
-	// waitForResultWithValue(t, gs3.v, nil)
+	fmt.Printf("    wait for start of gs5 on %#v: ", node2.FullName)
+	node2gs5, _ := node2.Spawn("gs5", ProcessOptions{}, gs5, nil)
+	waitForResultWithValue(t, gs5.v, nil)
 
-	fmt.Println("Testing Monitor process:")
+	fmt.Println("Testing Monitor/Link process by Pid:")
 
-	node1gs1.MonitorProcess(node1gs2.Self())
+	ref := node1gs1.MonitorProcess(node1gs2.Self())
 	node1gs2.Stop("normal")
-	waitFor := etf.Tuple{}
-	waitForResultWithValue(t, gs3.v, waitFor)
+	fmt.Printf("    wait for 'DOWN' message of gs2 by gs1: ")
+	waitFor := etf.Tuple{etf.Atom("DOWN"), ref, etf.Atom("process"), node1gs2.Self(), "normal"}
+	waitForResultWithValue(t, gs1.v, waitFor)
 
 	node1gs1.Link(node1gs3.Self())
 	node1gs3.Stop("normal")
-	waitFor = etf.Tuple{}
-	waitForResultWithValue(t, gs3.v, waitFor)
+	fmt.Printf("    wait for 'EXIT' message of gs3 by gs1: ")
+	waitFor = etf.Tuple{etf.Atom("EXIT"), node1gs3.Self(), "normal"}
+	waitForResultWithValue(t, gs1.v, waitFor)
+
+	ref = node1gs1.MonitorProcess(node2gs4.Self())
+	node2gs4.Stop("normal")
+	fmt.Printf("    wait for 'DOWN' message of node2.gs4 by gs1: ")
+	waitFor = etf.Tuple{etf.Atom("DOWN"), ref, etf.Atom("process"), node2gs4.Self(), "normal"}
+	waitForResultWithValue(t, gs1.v, waitFor)
+
+	node1gs1.Link(node2gs5.Self())
+	node2gs5.Stop("normal")
+	fmt.Printf("    wait for 'EXIT' message of node2.gs5 on gs1: ")
+	waitFor = etf.Tuple{etf.Atom("EXIT"), node2gs5.Self(), "normal"}
+	waitForResultWithValue(t, gs1.v, waitFor)
+
+	// starting gs2,gs4,gs5
+	fmt.Printf("    wait for start of gs2 on %#v: ", node1.FullName)
+	node1gs2, _ = node1.Spawn("gs2", ProcessOptions{}, gs2, nil)
+	waitForResultWithValue(t, gs2.v, nil)
+
+	fmt.Printf("    wait for start of gs4 on %#v: ", node2.FullName)
+	node2gs4, _ = node2.Spawn("gs4", ProcessOptions{}, gs4, nil)
+	waitForResultWithValue(t, gs4.v, nil)
+
+	fmt.Printf("    wait for start of gs5 on %#v: ", node2.FullName)
+	node2gs5, _ = node2.Spawn("gs5", ProcessOptions{}, gs5, nil)
+	waitForResultWithValue(t, gs5.v, nil)
+
+	ref = node1gs1.MonitorProcess(node2gs4.Self())
+	node1gs1.Link(node2gs5.Self())
+	node1gs2.MonitorNode(node2.FullName)
+
+	node2.Stop()
+	waitFor = etf.Tuple{etf.Atom("DOWN"), ref, etf.Atom("process"), node2gs4.Self(), "noconnection"}
+	waitForResultWithValue(t, gs1.v, waitFor)
+	waitFor = etf.Tuple{etf.Atom("EXIT"), node2gs5.Self(), "noconnection"}
+	waitForResultWithValue(t, gs1.v, waitFor)
+	waitFor = etf.Tuple{etf.Atom("nodedown"), node2.FullName}
+	waitForResultWithValue(t, gs2.v, waitFor)
 
 	fmt.Printf("Stopping nodes: %v, %v\n", node1.FullName, node2.FullName)
 	node1.Stop()
-	node2.Stop()
 }
