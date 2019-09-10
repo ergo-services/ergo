@@ -1,48 +1,75 @@
-//+build monitor
-
 package ergonode
 
 import (
-	"testing"
-	"time"
 	"fmt"
-	"github.com/halturin/ergonode/etf"
+	"testing"
 )
 
-type TestServer struct {
-	GenServer
-
-}
+// This test is checking the cases below:
+//
+// initiation:
+// - starting 2 nodes (node1, node2)
+// - starting 4 GenServers
+//	 * 2 on node1 - gs1, gs2
+// 	 * 2 on node2 - gs3, gs4
+//
+// checking:
+// - local sending
+//  * send: node1 (gs1) -> node1 (gs2). in fashion of erlang sending `erlang:send`
+//  * cast: node1 (gs1) -> node1 (gs2). like `gen_server:cast` does
+//  * call: node1 (gs1) -> node1 (gs2). like `gen_server:call` does
+//
+// - remote sending
+//  * send: node1 (gs1) -> node2 (gs3)
+//  * cast: node1 (gs1) -> node2 (gs3)
+//  * call: node1 (gs1) -> node2 (gs3)
 
 func TestMonitor(t *testing.T) {
-	node := CreateNode("node@localhost","cookies", NodeOptions{})
+	fmt.Printf("\n== Test Monitor/Link\n")
+	fmt.Printf("Starting nodes: nodeM1@localhost, nodeM2@localhost: ")
+	node1 := CreateNode("nodeM1@localhost", "cookies", NodeOptions{})
+	node2 := CreateNode("nodeM2@localhost", "cookies", NodeOptions{})
+	if node1 == nil || node2 == nil {
+		t.Fatal("can't start nodes")
+	} else {
+		fmt.Println("OK")
+	}
 
-	g1:=&observer{}
-	g2:=&observer{}
-	g3:=&GenServer{}
+	gs1 := &testGenServer{
+		err: make(chan error, 2),
+	}
+	gs2 := &testGenServer{
+		err: make(chan error, 2),
+	}
+	gs3 := &testGenServer{
+		err: make(chan error, 2),
+	}
 
-	process1 := node.registrar.RegisterProcess(g1)
-	process2 := node.registrar.RegisterProcess(g2)
-	process3 := node.registrar.RegisterProcess(g3)
+	fmt.Printf("    wait for start of gs1 on %#v: ", node1.FullName)
+	node1gs1, _ := node1.Spawn("gs1", ProcessOptions{}, gs1, nil)
+	waitForResult(t, gs1.err)
 
-	node.monitor.MonitorProcess(process1.Self(), process2.Self())
-	node.monitor.MonitorProcess(process1.Self(), process2.Self())
+	fmt.Printf("    wait for start of gs2 on %#v: ", node1.FullName)
+	node1gs2, _ := node1.Spawn("gs2", ProcessOptions{}, gs2, nil)
+	waitForResult(t, gs2.err)
 
-	process1.Send(process2.Self(), etf.Term(etf.Atom("hi")))
-	process1.Send("observer", etf.Term(etf.Atom("hi observer")))
-	process1.Send(etf.Tuple{"net_kernel", "node@localhost"}, etf.Term(etf.Atom("hi kernel")))
+	fmt.Printf("    wait for start of gs3 on %#v: ", node2.FullName)
+	node2gs3, _ := node2.Spawn("gs3", ProcessOptions{}, gs3, nil)
+	waitForResult(t, gs3.err)
 
-	process1.Send(etf.Tuple{"abc", "node01@localhost"}, etf.Term(etf.Atom("hi remote kernel")))
+	fmt.Println("Testing Monitor process:")
 
+	fmt.Printf("aaaa %v %v %v", node1gs1, node1gs2, node2gs3)
 
-	node.monitor.MonitorProcess(process3.Self(), process2.Self())
-	node.monitor.MonitorProcess(process1.Self(), process3.Self())
+	fmt.Printf("Stopping nodes: %v, %v\n", node1.FullName, node2.FullName)
+	node1.Stop()
+	node2.Stop()
 
-	process2.Stop("normal")
-	process3.Stop("normal")
-
-	time.Sleep(1 *time.Second)
-	node.Stop()
-	time.Sleep(1 *time.Second)
+	fmt.Printf("    waiting for termination of gs1: ")
+	waitForResult(t, gs1.err)
+	fmt.Printf("    waiting for termination of gs2: ")
+	waitForResult(t, gs2.err)
+	fmt.Printf("    waiting for termination of gs3: ")
+	waitForResult(t, gs3.err)
 
 }

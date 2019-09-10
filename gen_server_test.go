@@ -58,9 +58,10 @@ func (tgs *testGenServer) Terminate(reason string, state interface{}) {
 }
 
 func TestGenServer(t *testing.T) {
-	fmt.Printf("Starting nodes: node1@localhost, node1@localhost: ")
-	node1 := CreateNode("node1@localhost", "cookies", NodeOptions{})
-	node2 := CreateNode("node2@localhost", "cookies", NodeOptions{})
+	fmt.Printf("\n== Test GenServer\n")
+	fmt.Printf("Starting nodes: nodeGS1@localhost, nodeGS2@localhost: ")
+	node1 := CreateNode("nodeGS1@localhost", "cookies", NodeOptions{})
+	node2 := CreateNode("nodeGS2@localhost", "cookies", NodeOptions{})
 	if node1 == nil || node2 == nil {
 		t.Fatal("can't start nodes")
 	} else {
