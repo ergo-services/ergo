@@ -133,12 +133,12 @@ func (n *Node) Spawn(name string, opts ProcessOptions, object interface{}, args 
 		return nil, err
 	}
 	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				lib.Log("Recovered process: %v %#v ", process.self, r)
-				process.Stop("panic")
-			}
-		}()
+		// defer func() {
+		// 	if r := recover(); r != nil {
+		// 		lib.Log("Recovered process: %v %#v ", process.self, r)
+		// 		process.Stop("panic")
+		// 	}
+		// }()
 		reason := object.(ProcessBehaviour).loop(process, object, args...)
 		process.Stop(reason)
 	}()
@@ -230,7 +230,6 @@ func (n *Node) serve(c net.Conn, negotiate bool) {
 
 	<-node.Ready
 	n.registrar.RegisterPeer(node.GetRemoteName(), p)
-
 }
 
 func (n *Node) handleTerms(terms []etf.Term) {

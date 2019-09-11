@@ -208,7 +208,7 @@ func waitForResultWithValue(t *testing.T, w chan interface{}, value interface{})
 			t.Fatal(e)
 		}
 
-	case <-time.After(time.Second * time.Duration(1)):
+	case <-time.After(time.Second * time.Duration(2)):
 		t.Fatal("result timeout")
 	}
 }

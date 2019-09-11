@@ -142,8 +142,6 @@ func (r *registrar) run() {
 		case up := <-r.channels.unregisterProcess:
 			if p, ok := r.processes[up]; ok {
 				lib.Log("REGISTRAR unregistering process: %v", p.self)
-				close(p.mailBox)
-				close(p.ready)
 				delete(r.processes, up)
 				if (p.name) != "" {
 					lib.Log("REGISTRAR unregistering name (%v): %s", p.self, p.name)
@@ -209,7 +207,6 @@ func (r *registrar) run() {
 				// initiate connection and make yet another attempt to deliver this message
 				go func() {
 					if err := r.node.connect(bp.pid.Node); err != nil {
-						fmt.Println("NNNNNNNNNNNN", bp.pid.Node, err)
 						lib.Log("can't connect to %v: %s", bp.pid.Node, err)
 					}
 
@@ -243,9 +240,12 @@ func (r *registrar) run() {
 			peer, ok := r.peers[to_node]
 			if !ok {
 				// initiate connection and make yet another attempt to deliver this message
-				bt.retries++
-				r.channels.routeByTuple <- bt
-				r.node.connect(etf.Atom(to_node))
+				go func() {
+					r.node.connect(etf.Atom(to_node))
+					bt.retries++
+					r.channels.routeByTuple <- bt
+				}()
+
 				continue
 			}
 			peer.send <- []etf.Term{etf.Tuple{REG_SEND, bt.from, etf.Atom(""), to_process_name}, bt.message}
@@ -259,9 +259,15 @@ func (r *registrar) run() {
 			peer, ok := r.peers[rw.nodename]
 			if !ok {
 				// initiate connection and make yet another attempt to deliver this message
-				rw.retries++
-				r.channels.routeRaw <- rw
-				r.node.connect(etf.Atom(rw.nodename))
+				go func() {
+					if err := r.node.connect(etf.Atom(rw.nodename)); err != nil {
+						lib.Log("can't connect to %v: %s", rw.nodename, err)
+					}
+
+					rw.retries++
+					r.channels.routeRaw <- rw
+				}()
+
 				continue
 			}
 
@@ -357,6 +363,7 @@ func (r *registrar) GetProcessByPid(pid etf.Pid) *Process {
 
 // route incomming message to registered process
 func (r *registrar) route(from etf.Pid, to etf.Term, message etf.Term) {
+
 	switch tto := to.(type) {
 	case etf.Pid:
 		req := routeByPidRequest{

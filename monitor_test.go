@@ -3,6 +3,7 @@ package ergonode
 import (
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/halturin/ergonode/etf"
 )
@@ -57,15 +58,23 @@ import (
 
 type testMonitorGenServer struct {
 	GenServer
-	v chan interface{}
+	process Process
+	v       chan interface{}
 }
 
 func (tgs *testMonitorGenServer) Init(p Process, args ...interface{}) (state interface{}) {
 	tgs.v <- nil
+	tgs.process = p
 	return nil
 }
 func (tgs *testMonitorGenServer) HandleCast(message etf.Term, state interface{}) (string, interface{}) {
-	// fmt.Printf("testMonitorGenServer ({%s, %s}): HandleCast: %#v\n", tgs.process.name, tgs.process.Node.FullName, message)
+	fmt.Printf("testMonitorGenServer ({%s, %s}): HandleCast: %#v\n", tgs.process.name, tgs.process.Node.FullName, message)
+	switch m := message.(type) {
+	case etf.Atom:
+		if m == etf.Atom("stop") {
+			return "stop", "normal"
+		}
+	}
 	tgs.v <- message
 	return "noreply", state
 }
@@ -79,7 +88,7 @@ func (tgs *testMonitorGenServer) HandleInfo(message etf.Term, state interface{})
 	return "noreply", state
 }
 func (tgs *testMonitorGenServer) Terminate(reason string, state interface{}) {
-	// fmt.Printf("testMonitorGenServer ({%s, %s}): Terminate: %#v\n", tgs.process.name, tgs.process.Node.FullName, reason)
+	fmt.Printf("\ntestMonitorGenServer ({%s, %s}): Terminate: %#v\n", tgs.process.name, tgs.process.Node.FullName, reason)
 }
 
 func TestMonitor(t *testing.T) {
@@ -109,6 +118,7 @@ func TestMonitor(t *testing.T) {
 		v: make(chan interface{}, 2),
 	}
 
+	// starting gen servers
 	fmt.Printf("    wait for start of gs1 on %#v: ", node1.FullName)
 	node1gs1, _ := node1.Spawn("gs1", ProcessOptions{}, gs1, nil)
 	waitForResultWithValue(t, gs1.v, nil)
@@ -129,6 +139,7 @@ func TestMonitor(t *testing.T) {
 	node2gs5, _ := node2.Spawn("gs5", ProcessOptions{}, gs5, nil)
 	waitForResultWithValue(t, gs5.v, nil)
 
+	// start testing
 	fmt.Println("Testing Monitor/Link process by Pid:")
 
 	ref := node1gs1.MonitorProcess(node1gs2.Self())
@@ -142,23 +153,32 @@ func TestMonitor(t *testing.T) {
 	fmt.Printf("    wait for 'EXIT' message of gs3 by gs1: ")
 	waitFor = etf.Tuple{etf.Atom("EXIT"), node1gs3.Self(), "normal"}
 	waitForResultWithValue(t, gs1.v, waitFor)
-
+	fmt.Println("-------------------------------")
 	ref = node1gs1.MonitorProcess(node2gs4.Self())
-	node2gs4.Stop("normal")
+	node1gs1.Cast(node2gs4.Self(), etf.Atom("stop"))
 	fmt.Printf("    wait for 'DOWN' message of node2.gs4 by gs1: ")
+
 	waitFor = etf.Tuple{etf.Atom("DOWN"), ref, etf.Atom("process"), node2gs4.Self(), "normal"}
 	waitForResultWithValue(t, gs1.v, waitFor)
 
+	return
+
 	node1gs1.Link(node2gs5.Self())
+	time.Sleep(1 * time.Second)
+
 	node2gs5.Stop("normal")
-	fmt.Printf("    wait for 'EXIT' message of node2.gs5 on gs1: ")
+	fmt.Printf("    wait for 'EXIT' message of node2.gs5 by gs1: ")
 	waitFor = etf.Tuple{etf.Atom("EXIT"), node2gs5.Self(), "normal"}
 	waitForResultWithValue(t, gs1.v, waitFor)
 
-	// starting gs2,gs4,gs5
+	// starting gs2,gs3,gs4,gs5
 	fmt.Printf("    wait for start of gs2 on %#v: ", node1.FullName)
 	node1gs2, _ = node1.Spawn("gs2", ProcessOptions{}, gs2, nil)
 	waitForResultWithValue(t, gs2.v, nil)
+
+	fmt.Printf("    wait for start of gs3 on %#v: ", node1.FullName)
+	node1gs3, _ = node1.Spawn("gs3", ProcessOptions{}, gs3, nil)
+	waitForResultWithValue(t, gs3.v, nil)
 
 	fmt.Printf("    wait for start of gs4 on %#v: ", node2.FullName)
 	node2gs4, _ = node2.Spawn("gs4", ProcessOptions{}, gs4, nil)
@@ -169,14 +189,14 @@ func TestMonitor(t *testing.T) {
 	waitForResultWithValue(t, gs5.v, nil)
 
 	ref = node1gs1.MonitorProcess(node2gs4.Self())
-	node1gs1.Link(node2gs5.Self())
+	node1gs3.Link(node2gs5.Self())
 	node1gs2.MonitorNode(node2.FullName)
 
 	node2.Stop()
 	waitFor = etf.Tuple{etf.Atom("DOWN"), ref, etf.Atom("process"), node2gs4.Self(), "noconnection"}
 	waitForResultWithValue(t, gs1.v, waitFor)
 	waitFor = etf.Tuple{etf.Atom("EXIT"), node2gs5.Self(), "noconnection"}
-	waitForResultWithValue(t, gs1.v, waitFor)
+	waitForResultWithValue(t, gs3.v, waitFor)
 	waitFor = etf.Tuple{etf.Atom("nodedown"), node2.FullName}
 	waitForResultWithValue(t, gs2.v, waitFor)
 
