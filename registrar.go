@@ -404,7 +404,6 @@ func (r *registrar) route(from etf.Pid, to etf.Term, message etf.Term) {
 }
 
 func (r *registrar) routeRaw(nodename etf.Atom, message etf.Term) {
-	fmt.Println("RAAAAAAAAAW")
 	req := routeRawRequest{
 		nodename: string(nodename),
 		message:  message,

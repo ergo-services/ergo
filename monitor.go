@@ -139,7 +139,14 @@ func (m *monitor) run() {
 			// Links are bidirectional and there can only be one link between
 			// two processes. Repeated calls to link(Pid) have no effect.
 
-			linksA := m.links[l.pidA]
+			var linksA, linksB []etf.Pid
+
+			// remote makes link to local
+			if l.pidA.Node != etf.Atom(m.node.FullName) {
+				goto doneAl
+			}
+
+			linksA = m.links[l.pidA]
 			for i := range linksA {
 				if linksA[i] == l.pidB {
 					goto doneAl
@@ -150,7 +157,14 @@ func (m *monitor) run() {
 			m.links[l.pidA] = linksA
 
 		doneAl:
-			linksB := m.links[l.pidB]
+			// local makes link to remote
+			if l.pidB.Node != etf.Atom(m.node.FullName) {
+				message := etf.Tuple{LINK, l.pidA, l.pidB}
+				m.node.registrar.routeRaw(l.pidB.Node, message)
+				goto doneBl
+			}
+
+			linksB = m.links[l.pidB]
 			for i := range linksB {
 				if linksB[i] == l.pidA {
 					goto doneBl
@@ -164,6 +178,7 @@ func (m *monitor) run() {
 			continue
 
 		case ul := <-m.channels.unlink:
+
 			linksA := m.links[ul.pidA]
 			for i := range linksA {
 				if linksA[i] == ul.pidB {
@@ -173,6 +188,12 @@ func (m *monitor) run() {
 					break
 				}
 			}
+
+			// if ul.pidA.Node != ul.pidB.Node {
+			// 	message := etf.Tuple{LINK, ul.pidA, ul.pidB}
+			// 	m.node.registrar.routeRaw(ul.pidB.Node, message)
+			// 	continue
+			// }
 
 			linksB := m.links[ul.pidB]
 			for i := range linksB {
@@ -324,8 +345,6 @@ func (m *monitor) MonitorProcessWithRef(by etf.Pid, process interface{}, ref etf
 		m.node.registrar.route(by, t, message)
 
 	case etf.Pid:
-		fmt.Println("GGGGGGGGGGGG", t.Node, m.node.FullName)
-
 		if string(t.Node) != m.node.FullName { // request monitor remote process using Pid
 			message := etf.Tuple{MONITOR, by, t, ref}
 			m.node.registrar.routeRaw(t.Node, message)
