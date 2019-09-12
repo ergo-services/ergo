@@ -142,38 +142,60 @@ func TestMonitor(t *testing.T) {
 	// start testing
 	fmt.Println("Testing Monitor/Link process by Pid:")
 
+	fmt.Println("... gs1 -local monitor-> gs2")
 	ref := node1gs1.MonitorProcess(node1gs2.Self())
+	fmt.Println("... stop gs2")
 	node1gs2.Stop("normal")
 	fmt.Printf("    wait for 'DOWN' message of gs2 by gs1: ")
 	waitFor := etf.Tuple{etf.Atom("DOWN"), ref, etf.Atom("process"), node1gs2.Self(), "normal"}
 	waitForResultWithValue(t, gs1.v, waitFor)
 
+	fmt.Println("... gs1 -local link-> gs3")
 	node1gs1.Link(node1gs3.Self())
+	fmt.Println("... stop gs3")
 	node1gs3.Stop("normal")
 	fmt.Printf("    wait for 'EXIT' message of gs3 by gs1: ")
 	waitFor = etf.Tuple{etf.Atom("EXIT"), node1gs3.Self(), "normal"}
 	waitForResultWithValue(t, gs1.v, waitFor)
 
+	fmt.Println("... restarting gs2:")
 
+	fmt.Printf("    wait for start of gs2 on %#v: ", node1.FullName)
+	node1gs2, _ = node1.Spawn("gs2", ProcessOptions{}, gs2, nil)
+	waitForResultWithValue(t, gs2.v, nil)
+
+	fmt.Println("... gs2 -local link-> gs1")
+	node1gs2.Link(node1gs1.Self())
+	fmt.Println("... stop gs2")
+	node1gs2.Stop("normal")
+	fmt.Printf("    wait for 'EXIT' message of gs2 by gs1: ")
+	waitFor = etf.Tuple{etf.Atom("EXIT"), node1gs2.Self(), "normal"}
+	waitForResultWithValue(t, gs1.v, waitFor)
+
+	fmt.Println("... gs1 -remote monitor-> gs4")
 	ref = node1gs1.MonitorProcess(node2gs4.Self())
 	// since MonitorProcess is asynchronous for remote calls
-	// we have to put some sleep to make sure the next cast-message
-	// will arrive after setting the monitor
+	// we have to put some sleep to make sure the stop calling
+	// will handle after monitor
 	time.Sleep(100 * time.Millisecond)
-	node1gs1.Cast(node2gs4.Self(), etf.Atom("stop"))
+	fmt.Println("... stop gs4")
+	node2gs4.Stop("normal")
 	fmt.Printf("    wait for 'DOWN' message of node2.gs4 by gs1: ")
 	waitFor = etf.Tuple{etf.Atom("DOWN"), ref, etf.Atom("process"), node2gs4.Self(), "normal"}
 	waitForResultWithValue(t, gs1.v, waitFor)
 
+	fmt.Println("... gs1 -remote link-> gs5")
 	node1gs1.Link(node2gs5.Self())
 	time.Sleep(100 * time.Millisecond)
-	node1gs1.Cast(node2gs5.Self(), etf.Atom("stop"))
+	fmt.Println("... stop gs5")
+	node2gs5.Stop("normal")
 	fmt.Printf("    wait for 'EXIT' message of node2.gs5 by gs1: ")
 	waitFor = etf.Tuple{etf.Atom("EXIT"), node2gs5.Self(), "normal"}
 	waitForResultWithValue(t, gs1.v, waitFor)
-	return
 
 	// starting gs2,gs3,gs4,gs5
+	fmt.Println("... restarting gs2, gs3, gs4, gs5:")
+
 	fmt.Printf("    wait for start of gs2 on %#v: ", node1.FullName)
 	node1gs2, _ = node1.Spawn("gs2", ProcessOptions{}, gs2, nil)
 	waitForResultWithValue(t, gs2.v, nil)
@@ -190,16 +212,25 @@ func TestMonitor(t *testing.T) {
 	node2gs5, _ = node2.Spawn("gs5", ProcessOptions{}, gs5, nil)
 	waitForResultWithValue(t, gs5.v, nil)
 
+	fmt.Println("... gs1 -remote monitor-> gs4")
+	fmt.Println("... gs3 -remote link-> gs5")
+	fmt.Println("... gs2 -monitor node-> node2")
+
 	ref = node1gs1.MonitorProcess(node2gs4.Self())
 	node1gs3.Link(node2gs5.Self())
 	node1gs2.MonitorNode(node2.FullName)
 
+	fmt.Println("... stop node2")
 	node2.Stop()
+
 	waitFor = etf.Tuple{etf.Atom("DOWN"), ref, etf.Atom("process"), node2gs4.Self(), "noconnection"}
-	waitForResultWithValue(t, gs1.v, waitFor)
+	// fmt.Printf("    wait for 'DOWN' with reason 'noconnection' by gs1: ")
+	// waitForResultWithValue(t, gs1.v, waitFor)
 	waitFor = etf.Tuple{etf.Atom("EXIT"), node2gs5.Self(), "noconnection"}
-	waitForResultWithValue(t, gs3.v, waitFor)
+	// fmt.Printf("    wait for 'EXIT' with reason 'noconnection' by gs3: ")
+	// waitForResultWithValue(t, gs3.v, waitFor)
 	waitFor = etf.Tuple{etf.Atom("nodedown"), node2.FullName}
+	fmt.Printf("    wait for 'nodedown' by gs2: ")
 	waitForResultWithValue(t, gs2.v, waitFor)
 
 	fmt.Printf("Stopping nodes: %v, %v\n", node1.FullName, node2.FullName)
