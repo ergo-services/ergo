@@ -324,6 +324,8 @@ func (m *monitor) MonitorProcessWithRef(by etf.Pid, process interface{}, ref etf
 		m.node.registrar.route(by, t, message)
 
 	case etf.Pid:
+		fmt.Println("GGGGGGGGGGGG", t.Node, m.node.FullName)
+
 		if string(t.Node) != m.node.FullName { // request monitor remote process using Pid
 			message := etf.Tuple{MONITOR, by, t, ref}
 			m.node.registrar.routeRaw(t.Node, message)

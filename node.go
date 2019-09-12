@@ -140,7 +140,9 @@ func (n *Node) Spawn(name string, opts ProcessOptions, object interface{}, args 
 		// 	}
 		// }()
 		reason := object.(ProcessBehaviour).loop(process, object, args...)
-		process.Stop(reason)
+		if reason != "shutdown" {
+			process.Stop(reason)
+		}
 	}()
 	<-process.ready
 

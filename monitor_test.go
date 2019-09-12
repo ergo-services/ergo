@@ -143,17 +143,19 @@ func TestMonitor(t *testing.T) {
 	fmt.Println("Testing Monitor/Link process by Pid:")
 
 	ref := node1gs1.MonitorProcess(node1gs2.Self())
-	node1gs2.Stop("normal")
-	fmt.Printf("    wait for 'DOWN' message of gs2 by gs1: ")
+	// node1gs2.Stop("normal")
+	// fmt.Printf("    wait for 'DOWN' message of gs2 by gs1: ")
 	waitFor := etf.Tuple{etf.Atom("DOWN"), ref, etf.Atom("process"), node1gs2.Self(), "normal"}
-	waitForResultWithValue(t, gs1.v, waitFor)
+	// waitForResultWithValue(t, gs1.v, waitFor)
 
-	node1gs1.Link(node1gs3.Self())
-	node1gs3.Stop("normal")
-	fmt.Printf("    wait for 'EXIT' message of gs3 by gs1: ")
-	waitFor = etf.Tuple{etf.Atom("EXIT"), node1gs3.Self(), "normal"}
-	waitForResultWithValue(t, gs1.v, waitFor)
+	// node1gs1.Link(node1gs3.Self())
+	// node1gs3.Stop("normal")
+	// fmt.Printf("    wait for 'EXIT' message of gs3 by gs1: ")
+	// waitFor = etf.Tuple{etf.Atom("EXIT"), node1gs3.Self(), "normal"}
+	// waitForResultWithValue(t, gs1.v, waitFor)
+
 	fmt.Println("-------------------------------")
+
 	ref = node1gs1.MonitorProcess(node2gs4.Self())
 	node1gs1.Cast(node2gs4.Self(), etf.Atom("stop"))
 	fmt.Printf("    wait for 'DOWN' message of node2.gs4 by gs1: ")

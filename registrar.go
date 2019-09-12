@@ -162,7 +162,7 @@ func (r *registrar) run() {
 			delete(r.names, un)
 
 		case p := <-r.channels.peer:
-			lib.Log("registering peer %v", p)
+			lib.Log("[%s] registering peer %v", r.node.FullName, p)
 			if _, ok := r.peers[p.name]; ok {
 				// already registered
 				p.err <- fmt.Errorf("name is taken")
@@ -404,6 +404,7 @@ func (r *registrar) route(from etf.Pid, to etf.Term, message etf.Term) {
 }
 
 func (r *registrar) routeRaw(nodename etf.Atom, message etf.Term) {
+	fmt.Println("RAAAAAAAAAW")
 	req := routeRawRequest{
 		nodename: string(nodename),
 		message:  message,
