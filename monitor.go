@@ -333,20 +333,32 @@ func (m *monitor) MonitorProcessWithRef(by etf.Pid, process interface{}, ref etf
 
 	case etf.Tuple:
 		// requesting monitor of remote process by the local one using registered process name
-		if t.Element(2).(etf.Atom) != etf.Atom(m.node.FullName) {
+		nodeName := t.Element(2).(etf.Atom)
+		if nodeName != etf.Atom(m.node.FullName) {
 			message := etf.Tuple{MONITOR, by, t, ref}
-			m.node.registrar.routeRaw(t.Element(1).(etf.Atom), message)
-			return
+			m.node.registrar.routeRaw(nodeName, message)
+
+			// make fake pid with remote nodename and keep it
+			// in order to handle 'nodedown' event
+			// fakePid := fakeMonitorPidFromName(string(nodeName))
+			// p := monitorProcessRequest{
+			// 	process: fakePid,
+			// 	by:      by,
+			// 	ref:     ref,
+			// }
+			// m.channels.process <- p
+			// return
 		}
+
 		// registering monitor of local process
-		message := etf.Tuple{MONITOR, by, t.Element(1).(etf.Atom), ref}
-		m.node.registrar.route(by, t, message)
+		local := t.Element(1).(etf.Atom)
+		message := etf.Tuple{MONITOR, by, local, ref}
+		m.node.registrar.route(by, local, message)
 
 	case etf.Pid:
 		if string(t.Node) != m.node.FullName { // request monitor remote process using Pid
 			message := etf.Tuple{MONITOR, by, t, ref}
 			m.node.registrar.routeRaw(t.Node, message)
-			return
 		}
 		p := monitorProcessRequest{
 			process: t,
