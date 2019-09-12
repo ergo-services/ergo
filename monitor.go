@@ -161,7 +161,11 @@ func (m *monitor) run() {
 			if l.pidB.Node != etf.Atom(m.node.FullName) {
 				message := etf.Tuple{LINK, l.pidA, l.pidB}
 				m.node.registrar.routeRaw(l.pidB.Node, message)
-				goto doneBl
+
+				// goto doneBl
+				// we do not jump to doneBl in order to be able to handle
+				// 'nodedown' event and notify that kind of links
+				// with 'EXIT' messages and 'noconnection' as a reason
 			}
 
 			linksB = m.links[l.pidB]
@@ -188,12 +192,6 @@ func (m *monitor) run() {
 					break
 				}
 			}
-
-			// if ul.pidA.Node != ul.pidB.Node {
-			// 	message := etf.Tuple{LINK, ul.pidA, ul.pidB}
-			// 	m.node.registrar.routeRaw(ul.pidB.Node, message)
-			// 	continue
-			// }
 
 			linksB := m.links[ul.pidB]
 			for i := range linksB {

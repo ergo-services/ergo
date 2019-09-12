@@ -227,8 +227,8 @@ func TestMonitor(t *testing.T) {
 	// fmt.Printf("    wait for 'DOWN' with reason 'noconnection' by gs1: ")
 	// waitForResultWithValue(t, gs1.v, waitFor)
 	waitFor = etf.Tuple{etf.Atom("EXIT"), node2gs5.Self(), "noconnection"}
-	// fmt.Printf("    wait for 'EXIT' with reason 'noconnection' by gs3: ")
-	// waitForResultWithValue(t, gs3.v, waitFor)
+	fmt.Printf("    wait for 'EXIT' with reason 'noconnection' by gs3: ")
+	waitForResultWithValue(t, gs3.v, waitFor)
 	waitFor = etf.Tuple{etf.Atom("nodedown"), node2.FullName}
 	fmt.Printf("    wait for 'nodedown' by gs2: ")
 	waitForResultWithValue(t, gs2.v, waitFor)
