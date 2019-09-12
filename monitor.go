@@ -322,7 +322,7 @@ func (m *monitor) MonitorProcess(by etf.Pid, process interface{}) etf.Ref {
 
 func (m *monitor) MonitorProcessWithRef(by etf.Pid, process interface{}, ref etf.Ref) {
 	switch t := process.(type) {
-	case etf.Atom: // requesting monitor local process by remote process using registered process name
+	case etf.Atom: // requesting monitor of local process
 		fakePid := fakeMonitorPidFromName(string(t))
 		p := monitorProcessRequest{
 			process: fakePid,
@@ -332,13 +332,13 @@ func (m *monitor) MonitorProcessWithRef(by etf.Pid, process interface{}, ref etf
 		m.channels.process <- p
 
 	case etf.Tuple:
-		// requesting monitor remote process by local process using registered process name
+		// requesting monitor of remote process by the local one using registered process name
 		if t.Element(2).(etf.Atom) != etf.Atom(m.node.FullName) {
 			message := etf.Tuple{MONITOR, by, t, ref}
 			m.node.registrar.routeRaw(t.Element(1).(etf.Atom), message)
 			return
 		}
-		// registering monitor for local process
+		// registering monitor of local process
 		message := etf.Tuple{MONITOR, by, t.Element(1).(etf.Atom), ref}
 		m.node.registrar.route(by, t, message)
 
