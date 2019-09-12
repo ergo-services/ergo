@@ -246,6 +246,8 @@ func (m *monitor) run() {
 					delete(m.nodes, nd)
 				}
 			}
+			fmt.Printf("\nHHHHHHHHHHPPPP %#v %#v\n", m.node.FullName, m.processes)
+
 			// notify process monitors
 			for pid, ps := range m.processes {
 				if pid.Node == etf.Atom(nd) {
@@ -255,6 +257,8 @@ func (m *monitor) run() {
 					delete(m.processes, pid)
 				}
 			}
+
+			fmt.Printf("\nHHHHHHHHHLLLL %#v %#v\n", m.node.FullName, m.links)
 
 			// notify linked processes
 			for link := range m.links {
@@ -337,7 +341,7 @@ func (m *monitor) MonitorProcessWithRef(by etf.Pid, process interface{}, ref etf
 		if nodeName != etf.Atom(m.node.FullName) {
 			message := etf.Tuple{MONITOR, by, t, ref}
 			m.node.registrar.routeRaw(nodeName, message)
-
+			// FIXME:
 			// make fake pid with remote nodename and keep it
 			// in order to handle 'nodedown' event
 			// fakePid := fakeMonitorPidFromName(string(nodeName))

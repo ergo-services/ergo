@@ -173,8 +173,10 @@ func (r *registrar) run() {
 
 		case up := <-r.channels.unregisterPeer:
 			lib.Log("unregistering peer %v", up)
-			r.node.monitor.NodeDown(up)
-			delete(r.peers, up)
+			if _, ok := r.peers[up]; ok {
+				r.node.monitor.NodeDown(up)
+				delete(r.peers, up)
+			}
 
 		case <-r.node.context.Done():
 			lib.Log("Finalizing registrar for %s (total number of processes: %d)", r.nodeName, len(r.processes))
