@@ -261,9 +261,8 @@ func (m *monitor) run() {
 			fmt.Printf("\nHHHHHHHHHLLLL %#v %#v\n", m.node.FullName, m.links)
 
 			// notify linked processes
-			for link := range m.links {
+			for link, pids := range m.links {
 				if link.Node == etf.Atom(nd) {
-					pids := m.links[link]
 					for i := range pids {
 						m.notifyProcessExit(pids[i], link, "noconnection")
 					}
