@@ -202,12 +202,15 @@ func termIntoStruct(term Term, destV reflect.Value) error {
 		return setMapField(x, destV, destType)
 	case List:
 		return setListField(x, destV, destType)
+	case Tuple:
+		return setTupleField(x, destV, destType)
 	default:
 		return intSwitch(term, destV, destType)
 	}
 
 	return nil
 }
+
 func intSwitch(term Term, destV reflect.Value, destType reflect.Type) error {
 	switch x := term.(type) {
 	case int:
@@ -250,6 +253,23 @@ func setStringField(s string, destV reflect.Value, destType reflect.Type) error 
 }
 
 func setListField(v List, field reflect.Value, t reflect.Type) error {
+	if t.Kind() != reflect.Slice {
+		return NewInvalidTypesError(t, v)
+	}
+
+	sliceV := reflect.MakeSlice(t, len(v), len(v))
+	for i, elem := range v {
+		sliceElement := sliceV.Index(i)
+		err := termIntoStruct(elem, sliceElement)
+		if err != nil {
+			return err
+		}
+	}
+	field.Set(sliceV)
+	return nil
+}
+
+func setTupleField(v Tuple, field reflect.Value, t reflect.Type) error {
 	if t.Kind() != reflect.Slice {
 		return NewInvalidTypesError(t, v)
 	}
