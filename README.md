@@ -49,7 +49,7 @@ As an extra option we provide EPMD service as a standalone application. There is
 
 ### Multinode ###
 
- This feature allows create two or more nodes within single running instance. The only needs is specify the different set of options for creating nodes (such as: node name, empd port number, secret cookie). You may also want to use this feature to create 'proxy'-node between some clusters. 
+ This feature allows create two or more nodes within a single running instance. The only needs is specify the different set of options for creating nodes (such as: node name, empd port number, secret cookie). You may also want to use this feature to create 'proxy'-node between some clusters. 
  See [Quick examples](#quick-examples) for more details
  
 
@@ -72,7 +72,7 @@ Here is the changes of latest release. For more details see the [ChangeLog](Chan
  * Added multinode support
  * Added basic observer support
  * Improved code structure and readability
- * Among the new features we have added new bugs that still uncovered :). So, any feedback/bugreport/contribution is highly appreciated
+ * Among the new features we have added new bugs that are still uncovered :). So, any feedback/bugreport/contribution is highly appreciated
 
  ### Quick examples ###
 
@@ -95,11 +95,19 @@ https://hexdocs.pm/phoenix/1.1.0/Phoenix.PubSub.PG2.html
 
 To work with Phoenix nodes, you must create and register a dedicated pg2 GenServer, and
 spawn it inside your node. Take inspiration from the global_name_server.go for the rest of
-the GenServer methods, but the Init must specify the "pg2" atom:
+the GenServer methods, but the Spawn must have "pg2" as a process name:
 
 ```golang
-func (pg2 *pg2Server) Init(args ...interface{}) (state interface{}) {
-    pg2.Node.Register(etf.Atom("pg2"), pg2.Self)
-    return nil
+type Pg2GenServer struct {
+	GenServer
 }
 
+func main() {
+   // ...
+   pg2 := &Pg2GenServer{}
+	node1 := CreateNode("node1@localhost", "cookies", NodeOptions{})
+	process, _ := node1.Spawn("pg2", ProcessOptions{}, pg2, nil)
+   // ...
+}
+
+```
