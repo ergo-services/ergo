@@ -246,7 +246,6 @@ func (m *monitor) run() {
 					delete(m.nodes, nd)
 				}
 			}
-			fmt.Printf("\nHHHHHHHHHHPPPP %#v %#v\n", m.node.FullName, m.processes)
 
 			// notify process monitors
 			for pid, ps := range m.processes {
@@ -258,7 +257,7 @@ func (m *monitor) run() {
 				}
 			}
 
-			fmt.Printf("\nHHHHHHHHHLLLL %#v %#v\n", m.node.FullName, m.links)
+			fmt.Printf("\nHHHHHHHHHLLLL %v %v\n", m.node.FullName, m.links)
 
 			// notify linked processes
 			for link, pids := range m.links {
@@ -276,16 +275,18 @@ func (m *monitor) run() {
 				for i := range pids {
 					lib.Log("MONITOR process terminated: %v send notify to: %v", pt, pids[i].pid)
 					m.notifyProcessTerminated(pids[i].ref, pids[i].pid, pt.process, pt.reason)
-					delete(m.processes, pt.process)
 				}
+				delete(m.processes, pt.process)
 			}
+
+			fmt.Println("LLLLLLLLLLLLLLLL", m.node.FullName, m.links)
 
 			if pidLinks, ok := m.links[pt.process]; ok {
 				for i := range pidLinks {
 					lib.Log("MONITOR (LINK) process exited: %v send notify to: %v", pt, pidLinks[i])
 					m.notifyProcessExit(pidLinks[i], pt.process, pt.reason)
 
-					// remove link
+					// remove A link
 					if pids, ok := m.links[pidLinks[i]]; ok {
 						for k := range pids {
 							if pids[k] == pt.process {
@@ -302,8 +303,11 @@ func (m *monitor) run() {
 						}
 					}
 				}
+				// remove link
 				delete(m.links, pt.process)
 			}
+
+			fmt.Println("LLLLLLLLLLLLLLLL11", m.node.FullName, m.links)
 
 			// handling termination monitors that have setted up by name.
 			if pt.name != "" {

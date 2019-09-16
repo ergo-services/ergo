@@ -293,11 +293,10 @@ func (n *Node) handleTerms(terms []etf.Term) {
 				// {21, FromProc, ToPid, Ref, Reason}, where FromProc = monitored process
 				// pid or name (atom), ToPid = monitoring process, and Reason = exit reason for the monitored process
 				lib.Log("MONITOR_EXIT message (act %d): %#v", act, t)
-				ref := t.Element(4).(etf.Ref)
-				to := t.Element(3).(etf.Pid)
 				terminated := t.Element(2).(etf.Pid)
 				reason := t.Element(5).(etf.Atom)
-				n.monitor.notifyProcessTerminated(ref, to, terminated, string(reason))
+				// FIXME: we must handle case when 'terminated' is atom
+				n.monitor.ProcessTerminated(terminated, etf.Atom(""), string(reason))
 
 			// Not implemented yet, just stubs. TODO.
 			case SEND_SENDER:
