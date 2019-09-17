@@ -108,6 +108,11 @@ func (m *monitor) run() {
 			m.processes[p.process] = append(l, item)
 			m.ref2pid[key] = p.process
 
+			if string(p.process.Node) != m.node.FullName { // request monitor remote process
+				message := etf.Tuple{MONITOR, p.by, p.process, p.ref}
+				m.node.registrar.routeRaw(p.process.Node, message)
+			}
+
 		case dp := <-m.channels.demonitorProcess:
 			key := ref2key(dp.ref)
 			if pid, ok := m.ref2pid[key]; ok {
@@ -116,6 +121,12 @@ func (m *monitor) run() {
 				// unknown monitor reference
 				continue
 			}
+
+			if string(dp.process.Node) != m.node.FullName { // request demonitor remote process
+				message := etf.Tuple{DEMONITOR, dp.by, dp.process, dp.ref}
+				m.node.registrar.routeRaw(dp.process.Node, message)
+			}
+
 			l := m.processes[dp.process]
 
 			// remove PID from monitoring processes list
@@ -184,6 +195,10 @@ func (m *monitor) run() {
 			continue
 
 		case ul := <-m.channels.unlink:
+			if ul.pidB.Node != etf.Atom(m.node.FullName) {
+				message := etf.Tuple{UNLINK, ul.pidA, ul.pidB}
+				m.node.registrar.routeRaw(ul.pidB.Node, message)
+			}
 
 			linksA := m.links[ul.pidA]
 			for i := range linksA {
@@ -362,10 +377,6 @@ func (m *monitor) MonitorProcessWithRef(by etf.Pid, process interface{}, ref etf
 		m.node.registrar.route(by, local, message)
 
 	case etf.Pid:
-		if string(t.Node) != m.node.FullName { // request monitor remote process using Pid
-			message := etf.Tuple{MONITOR, by, t, ref}
-			m.node.registrar.routeRaw(t.Node, message)
-		}
 		p := monitorProcessRequest{
 			process: t,
 			by:      by,
