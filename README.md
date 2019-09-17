@@ -99,14 +99,14 @@ the GenServer methods, but the Spawn must have "pg2" as a process name:
 
 ```golang
 type Pg2GenServer struct {
-	GenServer
+   GenServer
 }
 
 func main() {
    // ...
    pg2 := &Pg2GenServer{}
-	node1 := CreateNode("node1@localhost", "cookies", NodeOptions{})
-	process, _ := node1.Spawn("pg2", ProcessOptions{}, pg2, nil)
+   node1 := CreateNode("node1@localhost", "cookies", NodeOptions{})
+   process, _ := node1.Spawn("pg2", ProcessOptions{}, pg2, nil)
    // ...
 }
 
