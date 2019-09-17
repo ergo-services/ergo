@@ -94,7 +94,7 @@ func (m *monitor) run() {
 	for {
 		select {
 		case p := <-m.channels.process:
-			lib.Log("MONITOR process: %v => %v", p.by, p.process)
+			lib.Log("[%s] MONITOR process: %v => %v", m.node.FullName, p.by, p.process)
 			// http://erlang.org/doc/reference_manual/processes.html#monitors
 			// FIXME: If Pid does not exist, the 'DOWN' message is
 			// sent immediately with Reason set to noproc.
@@ -135,6 +135,8 @@ func (m *monitor) run() {
 			}
 
 		case l := <-m.channels.link:
+			lib.Log("[%s] LINK process: %v => %v", m.node.FullName, l.pidA, l.pidB)
+
 			// http://erlang.org/doc/reference_manual/processes.html#links
 			// Links are bidirectional and there can only be one link between
 			// two processes. Repeated calls to link(Pid) have no effect.
@@ -204,6 +206,8 @@ func (m *monitor) run() {
 			}
 
 		case n := <-m.channels.node:
+			lib.Log("[%s] MONITOR NODE : %v => %s", m.node.FullName, n.by, n.node)
+
 			l := m.nodes[n.node]
 			key := ref2key(n.ref)
 			item := monitorItem{
@@ -237,11 +241,11 @@ func (m *monitor) run() {
 			m.nodes[dn.node] = l
 
 		case nd := <-m.channels.nodeDown:
-			lib.Log("MONITOR node down: %v", nd)
+			lib.Log("[%s] MONITOR NODE  down: %v", m.node.FullName, nd)
 
 			if pids, ok := m.nodes[nd]; ok {
 				for i := range pids {
-					lib.Log("MONITOR node down: %v. send notify to: %v", nd, pids[i])
+					lib.Log("[%s] MONITOR node down: %v. send notify to: %v", m.node.FullName, nd, pids[i])
 					m.notifyNodeDown(pids[i].pid, nd)
 					delete(m.nodes, nd)
 				}
@@ -257,8 +261,6 @@ func (m *monitor) run() {
 				}
 			}
 
-			fmt.Printf("\nHHHHHHHHHLLLL %v %v\n", m.node.FullName, m.links)
-
 			// notify linked processes
 			for link, pids := range m.links {
 				if link.Node == etf.Atom(nd) {
@@ -270,20 +272,19 @@ func (m *monitor) run() {
 			}
 
 		case pt := <-m.channels.processTerminated:
-			lib.Log("MONITOR process terminated: %v", pt)
+			lib.Log("[%s] MONITOR process terminated: %v", m.node.FullName, pt)
+
 			if pids, ok := m.processes[pt.process]; ok {
 				for i := range pids {
-					lib.Log("MONITOR process terminated: %v send notify to: %v", pt, pids[i].pid)
+					lib.Log("[%s] MONITOR process terminated: %v send notify to: %v", m.node.FullName, pt, pids[i].pid)
 					m.notifyProcessTerminated(pids[i].ref, pids[i].pid, pt.process, pt.reason)
 				}
 				delete(m.processes, pt.process)
 			}
 
-			fmt.Println("LLLLLLLLLLLLLLLL", m.node.FullName, m.links)
-
 			if pidLinks, ok := m.links[pt.process]; ok {
 				for i := range pidLinks {
-					lib.Log("MONITOR (LINK) process exited: %v send notify to: %v", pt, pidLinks[i])
+					lib.Log("[%s] LINK process exited: %v send notify to: %v", m.node.FullName, pt, pidLinks[i])
 					m.notifyProcessExit(pidLinks[i], pt.process, pt.reason)
 
 					// remove A link
@@ -306,8 +307,6 @@ func (m *monitor) run() {
 				// remove link
 				delete(m.links, pt.process)
 			}
-
-			fmt.Println("LLLLLLLLLLLLLLLL11", m.node.FullName, m.links)
 
 			// handling termination monitors that have setted up by name.
 			if pt.name != "" {
@@ -438,23 +437,37 @@ func (m *monitor) notifyNodeDown(to etf.Pid, node string) {
 }
 
 func (m *monitor) notifyProcessTerminated(ref etf.Ref, to etf.Pid, terminated etf.Pid, reason string) {
+
+	// for remote {21, FromProc, ToPid, Ref, Reason}, where FromProc = monitored process
+	if to.Node != etf.Atom(m.node.FullName) {
+		message := etf.Tuple{MONITOR_EXIT, terminated, to, ref, etf.Atom(reason)}
+		m.node.registrar.routeRaw(to.Node, message)
+		return
+	}
+
 	// {'DOWN', Ref, process, Pid, Reason}
 	// {'DOWN',#Ref<0.0.13893633.237772>,process,<26194.4.1>,reason}
 	fakePid := fakeMonitorPidFromName(string(terminated.Node))
 	if terminated == fakePid {
 		p := etf.Tuple{terminated.Node, m.node.FullName}
 		message := etf.Term(etf.Tuple{etf.Atom("DOWN"), ref, etf.Atom("process"), p, reason})
-		m.node.registrar.route(etf.Pid{}, to, message)
+		m.node.registrar.route(terminated, to, message)
 		return
 	}
 
 	message := etf.Term(etf.Tuple{etf.Atom("DOWN"), ref, etf.Atom("process"), terminated, reason})
-	m.node.registrar.route(etf.Pid{}, to, message)
+	m.node.registrar.route(terminated, to, message)
 }
 
 func (m *monitor) notifyProcessExit(to etf.Pid, terminated etf.Pid, reason string) {
+	// for remote: {3, FromPid, ToPid, Reason}
+	if to.Node != etf.Atom(m.node.FullName) {
+		message := etf.Tuple{EXIT, terminated, to, etf.Atom(reason)}
+		m.node.registrar.routeRaw(to.Node, message)
+		return
+	}
 	message := etf.Term(etf.Tuple{etf.Atom("EXIT"), terminated, reason})
-	m.node.registrar.route(etf.Pid{}, to, message)
+	m.node.registrar.route(terminated, to, message)
 }
 
 func ref2key(ref etf.Ref) string {

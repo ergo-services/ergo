@@ -141,16 +141,16 @@ func (r *registrar) run() {
 
 		case up := <-r.channels.unregisterProcess:
 			if p, ok := r.processes[up]; ok {
-				lib.Log("REGISTRAR unregistering process: %v", p.self)
+				lib.Log("[%s] REGISTRAR unregistering process: %v", r.node.FullName, p.self)
 				delete(r.processes, up)
 				if (p.name) != "" {
-					lib.Log("REGISTRAR unregistering name (%v): %s", p.self, p.name)
+					lib.Log("[%s] REGISTRAR unregistering name (%v): %s", r.node.FullName, p.self, p.name)
 					delete(r.names, p.name)
 				}
 			}
 
 		case n := <-r.channels.name:
-			lib.Log("registering name %v", n)
+			lib.Log("[%s] registering name %v", r.node.FullName, n)
 			if _, ok := r.names[n.name]; ok {
 				// already registered
 				continue
@@ -158,7 +158,7 @@ func (r *registrar) run() {
 			r.names[n.name] = n.pid
 
 		case un := <-r.channels.unregisterName:
-			lib.Log("unregistering name %v", un)
+			lib.Log("[%s] unregistering name %v", r.node.FullName, un)
 			delete(r.names, un)
 
 		case p := <-r.channels.peer:
@@ -172,25 +172,24 @@ func (r *registrar) run() {
 			p.err <- nil
 
 		case up := <-r.channels.unregisterPeer:
-			lib.Log("unregistering peer %v", up)
+			lib.Log("[%s] unregistering peer %v", r.node.FullName, up)
 			if _, ok := r.peers[up]; ok {
 				r.node.monitor.NodeDown(up)
 				delete(r.peers, up)
 			}
 
 		case <-r.node.context.Done():
-			lib.Log("Finalizing registrar for %s (total number of processes: %d)", r.nodeName, len(r.processes))
+			lib.Log("[%s] Finalizing registrar (total number of processes: %d)", r.node.FullName, len(r.processes))
 			// FIXME: now its just call Stop function for
 			// every single process. should we do that for the gen_servers
 			// are running under supervisor?
 			for _, p := range r.processes {
-				lib.Log("FIN: %#v", p.name)
 				p.Stop("normal")
 			}
 			return
 
 		case bp := <-r.channels.routeByPid:
-			lib.Log("sending message by pid %v", bp.pid)
+			lib.Log("[%s] sending message by pid %v", r.node.FullName, bp.pid)
 			if bp.retries > 2 {
 				// drop this message after 3 attempts to deliver this message
 				continue
@@ -209,7 +208,7 @@ func (r *registrar) run() {
 				// initiate connection and make yet another attempt to deliver this message
 				go func() {
 					if err := r.node.connect(bp.pid.Node); err != nil {
-						lib.Log("can't connect to %v: %s", bp.pid.Node, err)
+						lib.Log("[%s] can't connect to %v: %s", r.node.FullName, bp.pid.Node, err)
 					}
 
 					bp.retries++
@@ -220,13 +219,13 @@ func (r *registrar) run() {
 			peer.send <- []etf.Term{etf.Tuple{REG_SEND, bp.from, etf.Atom(""), bp.pid}, bp.message}
 
 		case bn := <-r.channels.routeByName:
-			lib.Log("sending message by name %v", bn.name)
+			lib.Log("[%s] sending message by name %v", r.node.FullName, bn.name)
 			if pid, ok := r.names[bn.name]; ok {
 				r.route(bn.from, pid, bn.message)
 			}
 
 		case bt := <-r.channels.routeByTuple:
-			lib.Log("sending message by tuple %v", bt.tuple)
+			lib.Log("[%s] sending message by tuple %v", r.node.FullName, bt.tuple)
 			if bt.retries > 2 {
 				// drop this message after 3 attempts to deliver this message
 				continue
@@ -263,7 +262,7 @@ func (r *registrar) run() {
 				// initiate connection and make yet another attempt to deliver this message
 				go func() {
 					if err := r.node.connect(etf.Atom(rw.nodename)); err != nil {
-						lib.Log("can't connect to %v: %s", rw.nodename, err)
+						lib.Log("[%s] can't connect to %v: %s", r.node.FullName, rw.nodename, err)
 					}
 
 					rw.retries++
@@ -296,7 +295,7 @@ func (r *registrar) RegisterProcessExt(name string, object interface{}, opts Pro
 	pid := r.createNewPID(r.nodeName)
 
 	wrapped_stop := func(reason string) {
-		lib.Log("STOPPING: %#v with reason: %s", pid, reason)
+		lib.Log("[%s] STOPPING: %#v with reason: %s", r.node.FullName, pid, reason)
 		stop()
 		r.UnregisterProcess(pid)
 		r.node.monitor.ProcessTerminated(pid, etf.Atom(name), reason)
@@ -401,7 +400,7 @@ func (r *registrar) route(from etf.Pid, to etf.Term, message etf.Term) {
 		}
 		r.channels.routeByName <- req
 	default:
-		lib.Log("unknow sender type %#v", tto)
+		lib.Log("[%s] unknow sender type %#v", r.node.FullName, tto)
 	}
 }
 

@@ -58,7 +58,7 @@ func (gs *GenServer) loop(p *Process, object interface{}, args ...interface{}) s
 			return "shutdown"
 		}
 
-		lib.Log("[%#v]. Message from %#v\n", p.self, fromPid)
+		lib.Log("[%s]. %v got message from %#v\n", p.Node.FullName, p.self, fromPid)
 
 		p.reductions++
 
