@@ -210,11 +210,6 @@ func TestMonitor(t *testing.T) {
 	fmt.Println("... gs3 -remote link-> gs5")
 	fmt.Println("... gs2 -monitor node-> node2")
 
-	fmt.Printf("PPP node1gs2: %#v\n", node1gs2.Self())
-	fmt.Printf("PPP node1gs3: %#v\n", node1gs3.Self())
-	fmt.Printf("PPP node2gs4: %#v\n", node2gs4.Self())
-	fmt.Printf("PPP node2gs5: %#v\n", node2gs5.Self())
-
 	ref = node1gs1.MonitorProcess(node2gs4.Self())
 	node1gs3.Link(node2gs5.Self())
 	node1gs2.MonitorNode(node2.FullName)
