@@ -461,12 +461,12 @@ func (m *monitor) notifyProcessTerminated(ref etf.Ref, to etf.Pid, terminated et
 	fakePid := fakeMonitorPidFromName(string(terminated.Node))
 	if terminated == fakePid {
 		p := etf.Tuple{terminated.Node, m.node.FullName}
-		message := etf.Term(etf.Tuple{etf.Atom("DOWN"), ref, etf.Atom("process"), p, reason})
+		message := etf.Term(etf.Tuple{etf.Atom("DOWN"), ref, etf.Atom("process"), p, etf.Atom(reason)})
 		m.node.registrar.route(terminated, to, message)
 		return
 	}
 
-	message := etf.Term(etf.Tuple{etf.Atom("DOWN"), ref, etf.Atom("process"), terminated, reason})
+	message := etf.Term(etf.Tuple{etf.Atom("DOWN"), ref, etf.Atom("process"), terminated, etf.Atom(reason)})
 	m.node.registrar.route(terminated, to, message)
 }
 
@@ -477,7 +477,7 @@ func (m *monitor) notifyProcessExit(to etf.Pid, terminated etf.Pid, reason strin
 		m.node.registrar.routeRaw(to.Node, message)
 		return
 	}
-	message := etf.Term(etf.Tuple{etf.Atom("EXIT"), terminated, reason})
+	message := etf.Term(etf.Tuple{etf.Atom("EXIT"), terminated, etf.Atom(reason)})
 	m.node.registrar.route(terminated, to, message)
 }
 
