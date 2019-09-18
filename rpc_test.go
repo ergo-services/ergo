@@ -55,7 +55,7 @@ func TestRPC(t *testing.T) {
 	node1gs1, _ := node1.Spawn("gs1", ProcessOptions{}, gs1, nil)
 
 	testFun1 := func(a ...etf.Term) etf.Term {
-		return a[0]
+		return a[len(a)-1]
 	}
 
 	fmt.Printf("Registering RPC method 'testMod.testFun' on %s: ", node1.FullName)
@@ -66,8 +66,15 @@ func TestRPC(t *testing.T) {
 	}
 	fmt.Println("OK")
 
-	fmt.Printf("Call RPC method 'testMod.testFun' on %s: ", node1.FullName)
+	fmt.Printf("Call RPC method 'testMod.testFun' with 1 arg on %s: ", node1.FullName)
 	if v, e := node1gs1.CallRPC("node@localhost", "testMod", "testFun", 12345); e != nil || v != 12345 {
+		message := fmt.Sprintf("%s %#v", e, v)
+		t.Fatal(message)
+	}
+	fmt.Println("OK")
+
+	fmt.Printf("Call RPC method 'testMod.testFun' with 3 arg on %s: ", node1.FullName)
+	if v, e := node1gs1.CallRPC("node@localhost", "testMod", "testFun", 12345, 5.678, node1gs1.Self()); e != nil || v != node1gs1.Self() {
 		message := fmt.Sprintf("%s %#v", e, v)
 		t.Fatal(message)
 	}
