@@ -334,7 +334,7 @@ func startChild(parent *Process, name string, child interface{}, args ...interfa
 	} else {
 		opts.GroupLeader = parent.groupLeader
 	}
-
+	opts.parent = parent
 	process, err := parent.Node.Spawn(name, opts, child, args...)
 
 	if err != nil {

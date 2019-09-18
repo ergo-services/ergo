@@ -299,6 +299,9 @@ func (r *registrar) RegisterProcessExt(name string, object interface{}, opts Pro
 	}
 
 	ctx, stop := context.WithCancel(r.node.context)
+	if opts.parent != nil {
+		ctx, stop = context.WithCancel(opts.parent.Context)
+	}
 	pid := r.createNewPID(r.nodeName)
 
 	wrapped_stop := func(reason string) {

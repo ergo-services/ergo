@@ -26,6 +26,7 @@ package ergonode
 import (
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/halturin/ergonode/etf"
 )
@@ -62,34 +63,54 @@ func (tsv *testSupervisorGenServer) HandleInfo(message etf.Term, state interface
 	return "noreply", state
 }
 func (tsv *testSupervisorGenServer) Terminate(reason string, state interface{}) {
-	// fmt.Printf("\ntestSupervisorGenServer ({%s, %s}): Terminate: %#v\n", tsv.process.name, tsv.process.Node.FullName, reason)
+	fmt.Printf("\ntestSupervisorGenServer ({%s, %s}): Terminate: %#v\n", tsv.process.name, tsv.process.Node.FullName, reason)
 }
 
 func TestSupervisorOneForOne(t *testing.T) {
 	node := CreateNode("nodeSvOneForOne@localhost", "cookies", NodeOptions{})
 
 	sv := &testSupervisorOneForOne{}
-	processSV, _ := node.Spawn("testSupervisor", ProcessOptions{}, sv)
-	fmt.Printf("Started supervisor: %v\n", processSV.Self())
+	processSV, _ := node.Spawn("testSupervisorPermanent", ProcessOptions{}, sv, SupervisorChildRestartPermanent)
+	fmt.Printf("Started supervisor (%s): %v\n", SupervisorChildRestartPermanent, processSV.Self())
+
+	time.Sleep(100 * time.Millisecond)
+	processSV.Stop("normal")
+	time.Sleep(100 * time.Millisecond)
+
+	processSV, _ = node.Spawn("testSupervisorTransient", ProcessOptions{}, sv, SupervisorChildRestartTransient)
+	fmt.Printf("Started supervisor (%s): %v\n", SupervisorChildRestartTransient, processSV.Self())
+
+	time.Sleep(100 * time.Millisecond)
+	processSV.Stop("normal")
+	time.Sleep(100 * time.Millisecond)
+
+	processSV, _ = node.Spawn("testSupervisorTemporary", ProcessOptions{}, sv, SupervisorChildRestartTemporary)
+	fmt.Printf("Started supervisor (%s): %v\n", SupervisorChildRestartTemporary, processSV.Self())
+
+	time.Sleep(100 * time.Millisecond)
+	processSV.Stop("normal")
+	time.Sleep(100 * time.Millisecond)
+
 }
 
 func (ts *testSupervisorOneForOne) Init(args ...interface{}) SupervisorSpec {
+	restart := args[0].(string)
 	return SupervisorSpec{
 		children: []SupervisorChildSpec{
 			SupervisorChildSpec{
 				name:    "testGS1",
 				child:   &testSupervisorGenServer{},
-				restart: SupervisorChildRestartPermanent,
+				restart: restart,
 			},
 			SupervisorChildSpec{
 				name:    "testGS2",
 				child:   &testSupervisorGenServer{},
-				restart: SupervisorChildRestartPermanent,
+				restart: restart,
 			},
 			SupervisorChildSpec{
 				name:    "testGS3",
 				child:   &testSupervisorGenServer{},
-				restart: SupervisorChildRestartPermanent,
+				restart: restart,
 			},
 		},
 		strategy: SupervisorStrategy{

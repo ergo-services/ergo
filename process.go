@@ -52,6 +52,7 @@ type ProcessInfo struct {
 type ProcessOptions struct {
 	MailboxSize uint16
 	GroupLeader etf.Pid
+	parent      *Process
 }
 
 type ProcessStopFunc func(reason string)
