@@ -13,6 +13,7 @@ package ergonode
 
 import (
 	"fmt"
+	"reflect"
 	"testing"
 
 	"github.com/halturin/ergonode/etf"
@@ -77,6 +78,27 @@ func TestRPC(t *testing.T) {
 	if v, e := node1gs1.CallRPC("node@localhost", "testMod", "testFun", 12345, 5.678, node1gs1.Self()); e != nil || v != node1gs1.Self() {
 		message := fmt.Sprintf("%s %#v", e, v)
 		t.Fatal(message)
+	}
+	fmt.Println("OK")
+
+	fmt.Printf("Call RPC unknown method 'xxx.xxx' on %s: ", node1.FullName)
+	expected := etf.Tuple{etf.Atom("badrpc"),
+		etf.Tuple{etf.Atom("EXIT"),
+			etf.Tuple{etf.Atom("undef"),
+				etf.List{
+					etf.Tuple{
+						etf.Atom("xxx"),
+						etf.Atom("xxx"),
+						etf.List{12345}, etf.List{}}}}}}
+
+	if v, e := node1gs1.CallRPC("node@localhost", "xxx", "xxx", 12345); e != nil {
+		message := fmt.Sprintf("%s %#v", e, v)
+		t.Fatal(message)
+	} else {
+		if !reflect.DeepEqual(v, expected) {
+			message := fmt.Sprintf("expected: %#v got: %#v", expected, v)
+			t.Fatal(message)
+		}
 	}
 	fmt.Println("OK")
 
