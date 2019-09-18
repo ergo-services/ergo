@@ -184,7 +184,7 @@ func (r *registrar) run() {
 			// every single process. should we do that for the gen_servers
 			// are running under supervisor?
 			for _, p := range r.processes {
-				p.Stop("normal")
+				p.Stop()
 			}
 			return
 
@@ -304,19 +304,12 @@ func (r *registrar) RegisterProcessExt(name string, object interface{}, opts Pro
 	}
 	pid := r.createNewPID(r.nodeName)
 
-	wrapped_stop := func(reason string) {
-		lib.Log("[%s] STOPPING: %#v with reason: %s", r.node.FullName, pid, reason)
-		stop()
-		r.UnregisterProcess(pid)
-		r.node.monitor.ProcessTerminated(pid, etf.Atom(name), reason)
-	}
-
 	process := &Process{
 		mailBox: make(chan etf.Tuple, mailbox_size),
 		ready:   make(chan bool),
 		self:    pid,
 		Context: ctx,
-		Stop:    wrapped_stop,
+		Stop:    stop,
 		name:    name,
 		Node:    r.node,
 		reply:   make(chan etf.Tuple, 2),

@@ -82,21 +82,21 @@ func TestSupervisorOneForOne(t *testing.T) {
 	fmt.Println("OK")
 
 	time.Sleep(100 * time.Millisecond)
-	processSV.Stop("normal")
+	processSV.Stop()
 	time.Sleep(100 * time.Millisecond)
 
 	processSV, _ = node.Spawn("testSupervisorTransient", ProcessOptions{}, sv, SupervisorChildRestartTransient)
 	fmt.Printf("Started supervisor (%s): %v\n", SupervisorChildRestartTransient, processSV.Self())
 
 	time.Sleep(100 * time.Millisecond)
-	processSV.Stop("normal")
+	processSV.Stop()
 	time.Sleep(100 * time.Millisecond)
 
 	processSV, _ = node.Spawn("testSupervisorTemporary", ProcessOptions{}, sv, SupervisorChildRestartTemporary)
 	fmt.Printf("Started supervisor (%s): %v\n", SupervisorChildRestartTemporary, processSV.Self())
 
 	time.Sleep(100 * time.Millisecond)
-	processSV.Stop("normal")
+	processSV.Stop()
 	time.Sleep(100 * time.Millisecond)
 
 }

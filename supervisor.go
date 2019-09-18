@@ -172,7 +172,7 @@ func (sv *Supervisor) loop(p *Process, object interface{}, args ...interface{}) 
 
 							continue
 						}
-						p.children[i].Stop("shutdown")
+						p.children[i].Stop()
 						waitTerminatingProcesses = append(waitTerminatingProcesses, p.children[i].self)
 					}
 
@@ -190,7 +190,7 @@ func (sv *Supervisor) loop(p *Process, object interface{}, args ...interface{}) 
 						}
 
 						if isRest {
-							p.children[i].Stop("shutdown")
+							p.children[i].Stop()
 							waitTerminatingProcesses = append(waitTerminatingProcesses, p.children[i].self)
 							spec.children[i].state = SupervisorChildStateStart
 						}
@@ -338,6 +338,7 @@ func startChild(parent *Process, name string, child interface{}, args ...interfa
 	process, err := parent.Node.Spawn(name, opts, child, args...)
 
 	if err != nil {
+		fmt.Printf("DDDDD %s\n", name)
 		panic(err)
 	}
 

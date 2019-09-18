@@ -24,7 +24,7 @@ type Process struct {
 	self        etf.Pid
 	groupLeader etf.Pid
 	Context     context.Context
-	Stop        ProcessStopFunc
+	Stop        context.CancelFunc
 	name        string
 	Node        *Node
 
@@ -54,8 +54,6 @@ type ProcessOptions struct {
 	GroupLeader etf.Pid
 	parent      *Process
 }
-
-type ProcessStopFunc func(reason string)
 
 // Behaviour interface contains methods you should implement to make own process behaviour
 type ProcessBehaviour interface {

@@ -136,10 +136,11 @@ func (n *Node) Spawn(name string, opts ProcessOptions, object interface{}, args 
 		// 		process.Stop("panic")
 		// 	}
 		// }()
+		pid := process.Self()
 		reason := object.(ProcessBehaviour).loop(process, object, args...)
-		if reason != "shutdown" {
-			process.Stop(reason)
-		}
+		n.registrar.UnregisterProcess(pid)
+		n.monitor.ProcessTerminated(pid, etf.Atom(name), reason)
+		process.Stop()
 	}()
 	<-process.ready
 
