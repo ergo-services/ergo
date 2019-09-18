@@ -1,5 +1,3 @@
-//+build supervisor
-
 package ergonode
 
 // - Supervisor
@@ -25,90 +23,79 @@ package ergonode
 //    gs2.stop(shutdown) (sv1 wont restart gs2)
 //    gs3.stop(panic) (sv1 wont gs3 only)
 
-
-// - one for all (permanent)
-//    start node1
-//    start supevisor sv1 with genservers gs1,gs2,gs3
-//    gs1.stop(normal) (sv1 stoping gs1)
-//                     (sv1 stoping gs2,gs3)
-//                     (sv1 starting gs1,gs2,gs3)
-//    gs2.stop(shutdown) (sv1 stoping gs2)
-//                     (sv1 stoping gs1,gs3)
-//                     (sv1 starting gs1,gs2,gs3)
-//    gs3.stop(panic) (sv1 stoping gs3)
-//                     (sv1 stoping gs1,gs2)
-//                     (sv1 starting gs1,gs2,gs3)
-
-// - one for all (transient)
-//    start node1
-//    start supevisor sv1 with genservers gs1,gs2,gs3
-//    gs3.stop(panic) (sv1 stoping gs3)
-//                     (sv1 stopping gs1, gs2)
-//                     (sv1 starting gs1, gs2, gs3)
-
-//    gs1.stop(normal) (sv1 stoping gs1)
-//                     ( gs2, gs3 - still working)
-//    gs2.stop(shutdown) (sv1 stoping gs2)
-//                     (gs3 - still working)
-
-// - one for all (temoporary)
-//   start node1
-//    start supevisor sv1 with genservers gs1,gs2,gs3
-
-//    gs3.stop(panic) (sv1 stoping gs3)
-//                     (sv1 stopping gs1, gs2)
-
-//    start again gs1, gs2, gs3 via sv1
-//    gs1.stop(normal) (sv1 stopping gs1)
-//                     (gs2, gs3 are still running)
-//    gs2.stop(shutdown) (sv1 stopping gs2)
-//                     (gs3 are still running)
-
-// - one for rest (permanent)
-//     start node1
-//    start supevisor sv1 with genservers gs1,gs2,gs3
-
-//    gs2.stop(panic) (sv1 stopping gs2, gs3)
-//               (sv1 starting gs2,gs3)
-//    gs1.stop(panic) (sv1 stopping gs1, gs2, gs3)
-//               (sv1 starting gs1, gs2,gs3)
-//    gs3.stop(panic) (sv1 stopping gs3)
-//               (sv1 starting gs3)
-
 import (
+	"fmt"
 	"testing"
-	"time"
-) 
 
-type testSupervisor struct {
+	"github.com/halturin/ergonode/etf"
+)
+
+type testSupervisorOneForOne struct {
 	Supervisor
 }
 
-type testGenServer1 struct {
+type testSupervisorGenServer struct {
 	GenServer
+	process Process
+	v       chan interface{}
 }
 
-type testGenServer2 struct {
-	GenServer
+func (tsv *testSupervisorGenServer) Init(p Process, args ...interface{}) (state interface{}) {
+	tsv.process = p
+	fmt.Printf("\ntestSupervisorGenServer ({%s, %s}): Init\n", tsv.process.name, tsv.process.Node.FullName)
+	// tsv.v <- p.Self()
+
+	return nil
+}
+func (tsv *testSupervisorGenServer) HandleCast(message etf.Term, state interface{}) (string, interface{}) {
+	// fmt.Printf("testSupervisorGenServer ({%s, %s}): HandleCast: %#v\n", tsv.process.name, tsv.process.Node.FullName, message)
+	// tsv.v <- message
+	return "noreply", state
+}
+func (tsv *testSupervisorGenServer) HandleCall(from etf.Tuple, message etf.Term, state interface{}) (string, etf.Term, interface{}) {
+	// fmt.Printf("testSupervisorGenServer ({%s, %s}): HandleCall: %#v, From: %#v\n", tsv.process.name, tsv.process.Node.FullName, message, from)
+	return "reply", message, state
+}
+func (tsv *testSupervisorGenServer) HandleInfo(message etf.Term, state interface{}) (string, interface{}) {
+	// fmt.Printf("testSupervisorGenServer ({%s, %s}): HandleInfo: %#v\n", tsv.process.name, tsv.process.Node.FullName, message)
+	// tsv.v <- message
+	return "noreply", state
+}
+func (tsv *testSupervisorGenServer) Terminate(reason string, state interface{}) {
+	// fmt.Printf("\ntestSupervisorGenServer ({%s, %s}): Terminate: %#v\n", tsv.process.name, tsv.process.Node.FullName, reason)
 }
 
-func TestSupervisor1(t *testing.T) {
-	 CreateNode("","", NodeOptions{})
+func TestSupervisorOneForOne(t *testing.T) {
+	node := CreateNode("nodeSvOneForOne@localhost", "cookies", NodeOptions{})
 
-	 node := CreateNode("node@localhost","cookies", NodeOptions{})
-	 g:=&testSupervisor{}
-	 process_opts := map[string]interface{}{
-		 "mailbox-size": DefaultProcessMailboxSize, // size of channel for regular messages
-	 }
-	 pp := node.Spawn("testSupervisor", process_opts, g)
-	 time.Sleep(1 *time.Second)
-	 pp.Stop()
-	 time.Sleep(1 *time.Second)
-	 node.Stop()
-	 time.Sleep(1 *time.Second)
+	sv := &testSupervisorOneForOne{}
+	processSV, _ := node.Spawn("testSupervisor", ProcessOptions{}, sv)
+	fmt.Printf("Started supervisor: %v\n", processSV.Self())
 }
 
-
-func (ts *testSupervisor) Init() Supervisor{
-
+func (ts *testSupervisorOneForOne) Init(args ...interface{}) SupervisorSpec {
+	return SupervisorSpec{
+		children: []SupervisorChildSpec{
+			SupervisorChildSpec{
+				name:    "testGS1",
+				child:   &testSupervisorGenServer{},
+				restart: SupervisorChildRestartPermanent,
+			},
+			SupervisorChildSpec{
+				name:    "testGS2",
+				child:   &testSupervisorGenServer{},
+				restart: SupervisorChildRestartPermanent,
+			},
+			SupervisorChildSpec{
+				name:    "testGS3",
+				child:   &testSupervisorGenServer{},
+				restart: SupervisorChildRestartPermanent,
+			},
+		},
+		strategy: SupervisorStrategy{
+			Type:      SupervisorStrategyOneForOne,
+			Intensity: 10,
+			Period:    5,
+		},
+	}
 }
