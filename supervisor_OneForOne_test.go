@@ -43,7 +43,7 @@ type testSupervisorGenServer struct {
 
 func (tsv *testSupervisorGenServer) Init(p Process, args ...interface{}) (state interface{}) {
 	tsv.process = p
-	fmt.Printf("\ntestSupervisorGenServer ({%s, %s}): Init\n", tsv.process.name, tsv.process.Node.FullName)
+	// fmt.Printf("\ntestSupervisorGenServer ({%s, %s}): Init\n", tsv.process.name, tsv.process.Node.FullName)
 	// tsv.v <- p.Self()
 
 	return nil
@@ -67,11 +67,19 @@ func (tsv *testSupervisorGenServer) Terminate(reason string, state interface{}) 
 }
 
 func TestSupervisorOneForOne(t *testing.T) {
+	fmt.Printf("\n== Test Supervisor - one for one\n")
+	fmt.Printf("Starting node nodeSvOneForOne@localhost: ")
 	node := CreateNode("nodeSvOneForOne@localhost", "cookies", NodeOptions{})
+	if node == nil {
+		t.Fatal("can't start node")
+	} else {
+		fmt.Println("OK")
+	}
 
+	fmt.Printf("Starting supervisor 'testSupervisorPermanent' (%s)... ", SupervisorChildRestartPermanent)
 	sv := &testSupervisorOneForOne{}
 	processSV, _ := node.Spawn("testSupervisorPermanent", ProcessOptions{}, sv, SupervisorChildRestartPermanent)
-	fmt.Printf("Started supervisor (%s): %v\n", SupervisorChildRestartPermanent, processSV.Self())
+	fmt.Println("OK")
 
 	time.Sleep(100 * time.Millisecond)
 	processSV.Stop("normal")
