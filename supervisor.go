@@ -140,7 +140,7 @@ func (sv *Supervisor) loop(p *Process, object interface{}, args ...interface{}) 
 				terminated := m.Element(2).(etf.Pid)
 				reason := m.Element(3).(etf.Atom)
 
-				fmt.Println("CHILD TERMINATED:", terminated, "with reason:", reason)
+				fmt.Println("CHILD TERMINATED:", p.name, terminated, "with reason:", reason, m)
 
 				if len(waitTerminatingProcesses) > 0 {
 
