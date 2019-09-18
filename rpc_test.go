@@ -21,17 +21,17 @@ import (
 type testRPCGenServer struct {
 	GenServer
 	process Process
-	v       chan interface{}
+	// v       chan interface{}
 }
 
 func (trpc *testRPCGenServer) Init(p Process, args ...interface{}) (state interface{}) {
-	trpc.v <- p.Self()
+	// trpc.v <- p.Self()
 	trpc.process = p
 	return nil
 }
 func (trpc *testRPCGenServer) HandleCast(message etf.Term, state interface{}) (string, interface{}) {
 	// fmt.Printf("testRPCGenServer ({%s, %s}): HandleCast: %#v\n", trpc.process.name, trpc.process.Node.FullName, message)
-	trpc.v <- message
+	// trpc.v <- message
 	return "noreply", state
 }
 func (trpc *testRPCGenServer) HandleCall(from etf.Tuple, message etf.Term, state interface{}) (string, etf.Term, interface{}) {
@@ -40,7 +40,7 @@ func (trpc *testRPCGenServer) HandleCall(from etf.Tuple, message etf.Term, state
 }
 func (trpc *testRPCGenServer) HandleInfo(message etf.Term, state interface{}) (string, interface{}) {
 	// fmt.Printf("testRPCGenServer ({%s, %s}): HandleInfo: %#v\n", trpc.process.name, trpc.process.Node.FullName, message)
-	trpc.v <- message
+	// trpc.v <- message
 	return "noreply", state
 }
 func (trpc *testRPCGenServer) Terminate(reason string, state interface{}) {

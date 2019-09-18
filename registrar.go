@@ -231,18 +231,25 @@ func (r *registrar) run() {
 				continue
 			}
 
-			to_node := bt.tuple.Element(2).(string)
+			to_node := etf.Atom("")
+			switch x := bt.tuple.Element(2).(type) {
+			case etf.Atom:
+				to_node = x
+			default:
+				to_node = etf.Atom(bt.tuple.Element(2).(string))
+			}
+
 			to_process_name := bt.tuple.Element(1)
-			if to_node == r.nodeName {
+			if to_node == etf.Atom(r.nodeName) {
 				r.route(bt.from, to_process_name, bt.message)
 				continue
 			}
 
-			peer, ok := r.peers[to_node]
+			peer, ok := r.peers[string(to_node)]
 			if !ok {
 				// initiate connection and make yet another attempt to deliver this message
 				go func() {
-					r.node.connect(etf.Atom(to_node))
+					r.node.connect(to_node)
 					bt.retries++
 					r.channels.routeByTuple <- bt
 				}()

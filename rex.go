@@ -12,8 +12,8 @@ import (
 type rpcFunction func(...etf.Term) etf.Term
 
 type modFun struct {
-	module   etf.Atom
-	function etf.Atom
+	module   string
+	function string
 }
 
 var (
@@ -37,8 +37,8 @@ func (r *rex) Init(p Process, args ...interface{}) (state interface{}) {
 
 	for i := range allowedModFun {
 		mf := modFun{
-			etf.Atom(allowedModFun[i]),
-			etf.Atom("*"),
+			allowedModFun[i],
+			"*",
 		}
 		r.methods[mf] = nil
 	}
@@ -74,7 +74,7 @@ func (r *rex) HandleCall(from etf.Tuple, message etf.Term, state interface{}) (s
 				return "reply", reply, state1
 			}
 
-			to := etf.Tuple{module, r.process.Node.FullName}
+			to := etf.Tuple{string(module), r.process.Node.FullName}
 			reply, err := r.process.Call(to, m.Element(3))
 
 			if err != nil {
@@ -87,8 +87,8 @@ func (r *rex) HandleCall(from etf.Tuple, message etf.Term, state interface{}) (s
 			function := m.Element(3).(etf.Atom)
 			fun := m.Element(4).(rpcFunction)
 			mf := modFun{
-				module:   etf.Atom(module),
-				function: etf.Atom(function),
+				module:   string(module),
+				function: string(function),
 			}
 			if _, ok := r.methods[mf]; ok {
 				return "reply", etf.Atom("taken"), state
@@ -101,8 +101,8 @@ func (r *rex) HandleCall(from etf.Tuple, message etf.Term, state interface{}) (s
 			module := m.Element(2).(etf.Atom)
 			function := m.Element(3).(etf.Atom)
 			mf := modFun{
-				module:   etf.Atom(module),
-				function: etf.Atom(function),
+				module:   string(module),
+				function: string(function),
 			}
 
 			if _, ok := r.methods[mf]; ok {
@@ -153,8 +153,8 @@ func (r *rex) handleRPC(module, function etf.Atom, args etf.List, state interfac
 	}()
 	state1 = state
 	mf := modFun{
-		module:   module,
-		function: function,
+		module:   string(module),
+		function: string(function),
 	}
 	// calling dynamically declared rpc method
 	if function, ok := r.methods[mf]; ok {
@@ -163,7 +163,7 @@ func (r *rex) handleRPC(module, function etf.Atom, args etf.List, state interfac
 	}
 
 	// calling local module (where module is the registered process name)
-	mf.function = etf.Atom("*")
+	mf.function = "*"
 	if _, ok := r.methods[mf]; ok {
 		return nil, state
 	}
