@@ -48,6 +48,8 @@ func (trpc *testRPCGenServer) Terminate(reason string, state interface{}) {
 }
 
 func TestRPC(t *testing.T) {
+	fmt.Printf("\n== Test RPC\n")
+
 	node1 := CreateNode("node@localhost", "cookies", NodeOptions{})
 	gs1 := &testRPCGenServer{}
 	node1gs1, _ := node1.Spawn("gs1", ProcessOptions{}, gs1, nil)
@@ -56,13 +58,19 @@ func TestRPC(t *testing.T) {
 		return a[0]
 	}
 
+	fmt.Printf("Registering RPC method 'testMod.testFun' on %s: ", node1.FullName)
+
 	if e := node1.ProvideRPC("testMod", "testFun", testFun1); e != nil {
 		message := fmt.Sprintf("%s", e)
 		t.Fatal(message)
 	}
+	fmt.Println("OK")
 
+	fmt.Printf("Call RPC method 'testMod.testFun' on %s: ", node1.FullName)
 	if v, e := node1gs1.CallRPC("node@localhost", "testMod", "testFun", 12345); e != nil || v != 12345 {
 		message := fmt.Sprintf("%s %#v", e, v)
 		t.Fatal(message)
 	}
+	fmt.Println("OK")
+
 }
