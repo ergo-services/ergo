@@ -1,14 +1,5 @@
 package ergonode
 
-// start node1
-// start n1gs1
-
-// check node1.registrar for pid and 'n1gs1' name
-// start node2
-// monitor n1gs1 -> node2
-// check node1.registrar for peer node2
-// check node2.registrar for peer node1
-
 import (
 	"fmt"
 	"testing"
@@ -52,7 +43,7 @@ func TestRegistrar(t *testing.T) {
 	}
 
 	gs := &TestRegistrarGenserver{}
-	fmt.Printf("Starting TestRegistrarGenserver and registering as 'gs1': ")
+	fmt.Printf("Starting TestRegistrarGenserver and registering as 'gs1' on %s: ", node1.FullName)
 	node1gs1, _ := node1.Spawn("gs1", ProcessOptions{}, gs, nil)
 	if _, ok := node1.registrar.processes[node1gs1.Self()]; !ok {
 		message := fmt.Sprintf("missing process %v on %s", node1gs1.Self(), node1.FullName)
@@ -60,7 +51,7 @@ func TestRegistrar(t *testing.T) {
 	}
 	fmt.Println("OK")
 
-	fmt.Printf("Starting TestRegistrarGenserver and registering as 'gs2': ")
+	fmt.Printf("Starting TestRegistrarGenserver and registering as 'gs2' on %s: ", node2.FullName)
 	node2gs2, _ := node2.Spawn("gs2", ProcessOptions{}, gs, nil)
 	if _, ok := node2.registrar.processes[node2gs2.Self()]; !ok {
 		message := fmt.Sprintf("missing process %v on %s", node2gs2.Self(), node2.FullName)
@@ -68,7 +59,7 @@ func TestRegistrar(t *testing.T) {
 	}
 	fmt.Println("OK")
 
-	// tests below are about monitor/link, tbh :). let't it be here for a whilt
+	// tests below are about monitor/link, tbh :). let't it be here for a while
 
 	ref := node1gs1.MonitorProcess(node2gs2.Self())
 	// setting remote monitor is async.

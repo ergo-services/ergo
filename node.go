@@ -114,9 +114,6 @@ func CreateNodeWithContext(ctx context.Context, name string, cookie string, opts
 	node.system.globalNameServer = new(globalNameServer)
 	node.Spawn("global_name_server", process_opts, node.system.globalNameServer)
 
-	node.system.rpc = new(rpc)
-	node.Spawn("rpc", process_opts, node.system.rpc)
-
 	node.system.rex = new(rex)
 	node.Spawn("rex", process_opts, node.system.rex)
 
@@ -328,6 +325,47 @@ func (n *Node) handleTerms(terms []etf.Term) {
 			lib.Log("UNHANDLED ACT: %#v", t.Element(1))
 		}
 	}
+}
+
+// ProvideRPC register given module/function
+func (n *Node) ProvideRPC(module string, function string, fun rpcFunction) error {
+	lib.Log("RPC provide: %s:%s %#v", module, function, fun)
+	message := etf.Tuple{
+		etf.Atom("$provide"),
+		etf.Atom(module),
+		etf.Atom(function),
+		fun,
+	}
+
+	if n.system.rex == nil {
+		return fmt.Errorf("RPC module is disabled")
+	}
+
+	if v, err := n.system.rex.process.Call(n.system.rex.process.Self(), message); v != etf.Atom("ok") || err != nil {
+		return fmt.Errorf("value: %s err: %s", v, err)
+	}
+
+	return nil
+}
+
+// RevokeRPC unregister given module/function
+func (n *Node) RevokeRPC(module, function string) error {
+	lib.Log("RPC revoke: %s:%s", module, function)
+	if n.system.rex == nil {
+		return fmt.Errorf("RPC module is disabled")
+	}
+
+	message := etf.Tuple{
+		etf.Atom("$revoke"),
+		etf.Atom(module),
+		etf.Atom(function),
+	}
+
+	if v, err := n.system.rex.process.Call(n.system.rex.process.Self(), message); v != etf.Atom("ok") || err != nil {
+		return fmt.Errorf("value: %s err: %s", v, err)
+	}
+
+	return nil
 }
 
 func (n *Node) MakeRef() (ref etf.Ref) {

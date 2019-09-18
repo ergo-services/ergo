@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/halturin/ergonode/etf"
+	"github.com/halturin/ergonode/lib"
 )
 
 type ProcessType = string
@@ -90,6 +91,37 @@ func (p *Process) CallWithTimeout(to interface{}, message etf.Term, timeout int)
 			return nil, errors.New("stopped")
 		}
 	}
+}
+
+// CallRPC evaluate rpc call with given node/MFA
+func (p *Process) CallRPC(node, module, function string, args ...etf.Term) (etf.Term, error) {
+	return p.CallRPCWithTimeout(DefaultCallTimeout, node, module, function, args...)
+}
+
+// CallRPCWithTimeout evaluate rpc call with given node/MFA and timeout
+func (p *Process) CallRPCWithTimeout(timeout int, node, module, function string, args ...etf.Term) (etf.Term, error) {
+	lib.Log("[%s] RPC calling: %s:%s:%s", p.Node.FullName, node, module, function)
+	message := etf.Tuple{
+		etf.Atom("call"),
+		etf.Atom(module),
+		etf.Atom(function),
+		etf.List(args),
+	}
+	to := etf.Tuple{etf.Atom("rex"), etf.Atom(node)}
+	return p.CallWithTimeout(to, message, timeout)
+}
+
+// CallRPC evaluate rpc cast with given node/MFA
+func (p *Process) CastRPC(node, module, function string, args ...etf.Term) {
+	lib.Log("[%s] RPC casting: %s:%s:%s", p.Node.FullName, node, module, function)
+	message := etf.Tuple{
+		etf.Atom("cast"),
+		etf.Atom(module),
+		etf.Atom(function),
+		etf.List(args),
+	}
+	to := etf.Tuple{etf.Atom("rex"), etf.Atom(node)}
+	p.Cast(to, message)
 }
 
 // Send making outgoing message

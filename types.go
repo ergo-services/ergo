@@ -9,7 +9,6 @@ import (
 type systemProcesses struct {
 	netKernelSup     *netKernelSup
 	globalNameServer *globalNameServer
-	rpc              *rpc
 	observerBackend  *observerBackend
 	rex              *rex
 }
