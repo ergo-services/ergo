@@ -1,30 +1,8 @@
-//+build supervisor
 
 package ergonode
 
+
 // - Supervisor
-
-//  - one for one (permanent)
-//    start node1
-//    start supevisor sv1 with genservers gs1,gs2,gs3
-//    gs1.stop(normal) (sv1 restarting gs1)
-//    gs2.stop(shutdown) (sv1 restarting gs2)
-//    gs3.stop(panic) (sv1 restarting gs3)
-
-//  - one for one (transient)
-//    start node1
-//    start supevisor sv1 with genservers gs1,gs2,gs3
-//    gs1.stop(normal) (sv1 wont restart gs1)
-//    gs2.stop(shutdown) (sv1 wont restart gs2)
-//    gs3.stop(panic) (sv1 restarting gs3 only)
-
-//  - one for one (temporary)
-//    start node1
-//    start supevisor sv1 with genservers gs1,gs2,gs3
-//    gs1.stop(normal) (sv1 wont restart gs1)
-//    gs2.stop(shutdown) (sv1 wont restart gs2)
-//    gs3.stop(panic) (sv1 wont gs3 only)
-
 
 // - one for all (permanent)
 //    start node1
@@ -64,51 +42,78 @@ package ergonode
 //    gs2.stop(shutdown) (sv1 stopping gs2)
 //                     (gs3 are still running)
 
-// - one for rest (permanent)
-//     start node1
-//    start supevisor sv1 with genservers gs1,gs2,gs3
-
-//    gs2.stop(panic) (sv1 stopping gs2, gs3)
-//               (sv1 starting gs2,gs3)
-//    gs1.stop(panic) (sv1 stopping gs1, gs2, gs3)
-//               (sv1 starting gs1, gs2,gs3)
-//    gs3.stop(panic) (sv1 stopping gs3)
-//               (sv1 starting gs3)
-
 import (
+	"fmt"
 	"testing"
 	"time"
-) 
 
-type testSupervisor struct {
+	"github.com/halturin/ergonode/etf"
+)
+
+type testSupervisorOneForAll struct {
 	Supervisor
 }
 
-type testGenServer1 struct {
-	GenServer
+
+func TestSupervisorOneForAll(t *testing.T) {
+	fmt.Printf("\n== Test Supervisor - one for all\n")
+	fmt.Printf("Starting node nodeSvOneForAll@localhost: ")
+	node := CreateNode("nodeSvOneForAll@localhost", "cookies", NodeOptions{})
+	if node == nil {
+		t.Fatal("can't start node")
+	} else {
+		fmt.Println("OK")
+	}
+
+	fmt.Printf("Starting supervisor 'testSupervisorPermanent' (%s)... ", SupervisorChildRestartPermanent)
+	sv := &testSupervisorOneForAll{}
+	processSV, _ := node.Spawn("testSupervisorPermanent", ProcessOptions{}, sv, SupervisorChildRestartPermanent)
+	fmt.Println("OK")
+
+	processSV.Cast(etf.Tuple{"testGS2", "nodeSvOneForAll@localhost"}, "ok")
+	time.Sleep(5 * time.Second)
+
+	processSV.Stop()
+	time.Sleep(100 * time.Millisecond)
+
+	processSV, _ = node.Spawn("testSupervisorTransient", ProcessOptions{}, sv, SupervisorChildRestartTransient)
+	fmt.Printf("Started supervisor (%s): %v\n", SupervisorChildRestartTransient, processSV.Self())
+
+	processSV.Stop()
+	time.Sleep(100 * time.Millisecond)
+
+	processSV, _ = node.Spawn("testSupervisorTemporary", ProcessOptions{}, sv, SupervisorChildRestartTemporary)
+	fmt.Printf("Started supervisor (%s): %v\n", SupervisorChildRestartTemporary, processSV.Self())
+
+	processSV.Stop()
+	time.Sleep(100 * time.Millisecond)
+
 }
 
-type testGenServer2 struct {
-	GenServer
-}
-
-func TestSupervisor1(t *testing.T) {
-	 CreateNode("","", NodeOptions{})
-
-	 node := CreateNode("node@localhost","cookies", NodeOptions{})
-	 g:=&testSupervisor{}
-	 process_opts := map[string]interface{}{
-		 "mailbox-size": DefaultProcessMailboxSize, // size of channel for regular messages
-	 }
-	 pp := node.Spawn("testSupervisor", process_opts, g)
-	 time.Sleep(1 *time.Second)
-	 pp.Stop()
-	 time.Sleep(1 *time.Second)
-	 node.Stop()
-	 time.Sleep(1 *time.Second)
-}
-
-
-func (ts *testSupervisor) Init() Supervisor{
-
+func (ts *testSupervisorOneForAll) Init(args ...interface{}) SupervisorSpec {
+	restart := args[0].(string)
+	return SupervisorSpec{
+		children: []SupervisorChildSpec{
+			SupervisorChildSpec{
+				name:    "testGS1",
+				child:   &testSupervisorGenServer{},
+				restart: restart,
+			},
+			SupervisorChildSpec{
+				name:    "testGS2",
+				child:   &testSupervisorGenServer{},
+				restart: restart,
+			},
+			SupervisorChildSpec{
+				name:    "testGS3",
+				child:   &testSupervisorGenServer{},
+				restart: restart,
+			},
+		},
+		strategy: SupervisorStrategy{
+			Type:      SupervisorStrategyOneForAll,
+			Intensity: 10,
+			Period:    5,
+		},
+	}
 }

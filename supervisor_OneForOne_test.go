@@ -43,15 +43,16 @@ type testSupervisorGenServer struct {
 
 func (tsv *testSupervisorGenServer) Init(p Process, args ...interface{}) (state interface{}) {
 	tsv.process = p
-	// fmt.Printf("\ntestSupervisorGenServer ({%s, %s}): Init\n", tsv.process.name, tsv.process.Node.FullName)
+	fmt.Printf("\ntestSupervisorGenServer ({%s, %s}): Init\n", tsv.process.name, tsv.process.Node.FullName)
 	// tsv.v <- p.Self()
 
 	return nil
 }
 func (tsv *testSupervisorGenServer) HandleCast(message etf.Term, state interface{}) (string, interface{}) {
-	// fmt.Printf("testSupervisorGenServer ({%s, %s}): HandleCast: %#v\n", tsv.process.name, tsv.process.Node.FullName, message)
+	fmt.Printf("testSupervisorGenServer ({%s, %s}): HandleCast: %#v\n", tsv.process.name, tsv.process.Node.FullName, message)
 	// tsv.v <- message
-	return "noreply", state
+	return "stop", "test"
+	// return "noreply", state
 }
 func (tsv *testSupervisorGenServer) HandleCall(from etf.Tuple, message etf.Term, state interface{}) (string, etf.Term, interface{}) {
 	// fmt.Printf("testSupervisorGenServer ({%s, %s}): HandleCall: %#v, From: %#v\n", tsv.process.name, tsv.process.Node.FullName, message, from)
@@ -80,6 +81,9 @@ func TestSupervisorOneForOne(t *testing.T) {
 	sv := &testSupervisorOneForOne{}
 	processSV, _ := node.Spawn("testSupervisorPermanent", ProcessOptions{}, sv, SupervisorChildRestartPermanent)
 	fmt.Println("OK")
+
+	processSV.Cast(etf.Tuple{"testGS1", "nodeSvOneForOne@localhost"}, "ok")
+	time.Sleep(100 * time.Millisecond)
 
 	processSV.Stop()
 	time.Sleep(100 * time.Millisecond)
