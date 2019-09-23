@@ -36,6 +36,8 @@ type Process struct {
 	parent          *Process
 	reductions      uint64 // we use this term to count total number of processed messages from mailBox
 	currentFunction string
+
+	trapExit bool
 }
 
 type ProcessInfo struct {

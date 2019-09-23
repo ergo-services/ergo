@@ -66,9 +66,29 @@ const (
 	SupervisorChildStateStart    = 0
 	SupervisorChildStateRunning  = 1
 	SupervisorChildStateDisabled = -1
+
+	// shutdown defines how a child process must be terminated.
+
+	// SupervisorShutdownBrutal means that the child process is
+	// unconditionally terminated using process' Kill method
+	SupervisorShutdownBrutal = -1
+
+	// SupervisorShutdownInfinity means that the supervisor will
+	// wait for an exit signal as long as child takes
+	SupervisorShutdownInfinity = 0 // default shutdown behavior
+
+	// An integer time-out value means that the supervisor tells
+	// the child process to terminate by calling Stop method and then
+	// wait for an exit signal with reason shutdown back from the
+	// child process. If no exit signal is received within the
+	// specified number of seconds, the child process is unconditionally
+	// terminated using Kill method.
+	SupervisorShutdownTimeout = 5
 )
 
 type SupervisorChildState int
+
+type SupervisorShutdown int
 
 // SupervisorBehavior interface
 type SupervisorBehavior interface {
@@ -81,11 +101,12 @@ type SupervisorSpec struct {
 }
 
 type SupervisorChildSpec struct {
-	name    string
-	child   interface{}
-	args    []interface{}
-	restart SupervisorChildRestart
-	state   SupervisorChildState // for internal usage
+	name     string
+	child    interface{}
+	args     []interface{}
+	restart  SupervisorChildRestart
+	shutdown SupervisorShutdown
+	state    SupervisorChildState // for internal usage
 }
 
 // Supervisor is implementation of ProcessBehavior interface
