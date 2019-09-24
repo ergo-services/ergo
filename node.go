@@ -181,7 +181,7 @@ func (n *Node) ProcessInfo(pid etf.Pid) (ProcessInfo, error) {
 		MessageQueueLen: len(p.mailBox),
 		// Links:
 		// Dictionary
-		TrapExit:    true,
+		TrapExit:    p.trapExit,
 		GroupLeader: p.groupLeader,
 		Reductions:  p.reductions,
 	}
