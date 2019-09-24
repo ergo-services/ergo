@@ -126,7 +126,6 @@ func (sv *Supervisor) loop(p *Process, object interface{}, args ...interface{}) 
 		dynamicChildren = make(map[etf.Pid]SupervisorChildSpec)
 	}
 
-	stop := make(chan string, 2)
 	p.currentFunction = "Supervisor:loop"
 	waitTerminatingProcesses := []etf.Pid{}
 
@@ -135,15 +134,18 @@ func (sv *Supervisor) loop(p *Process, object interface{}, args ...interface{}) 
 		var fromPid etf.Pid
 
 		select {
-		case reason := <-stop:
-			return reason
+		case ex := <-p.gracefulExit:
+			for i := range p.children {
+				p.children[i].Exit(p.Self(), ex.reason)
+			}
+			return ex.reason
 
 		case msg := <-p.mailBox:
 			fromPid = msg.Element(1).(etf.Pid)
 			message = msg.Element(2)
 
 		case <-p.Context.Done():
-			return "shutdown"
+			return "kill"
 		}
 
 		p.reductions++
@@ -193,7 +195,7 @@ func (sv *Supervisor) loop(p *Process, object interface{}, args ...interface{}) 
 
 							continue
 						}
-						p.children[i].Stop()
+						p.children[i].Exit(p.Self(), "normal")
 						waitTerminatingProcesses = append(waitTerminatingProcesses, p.children[i].self)
 					}
 
@@ -211,7 +213,7 @@ func (sv *Supervisor) loop(p *Process, object interface{}, args ...interface{}) 
 						}
 
 						if isRest {
-							p.children[i].Stop()
+							p.children[i].Exit(p.Self(), "normal")
 							waitTerminatingProcesses = append(waitTerminatingProcesses, p.children[i].self)
 							spec.children[i].state = SupervisorChildStateStart
 						}

@@ -70,19 +70,19 @@ func TestSupervisorRestForOne(t *testing.T) {
 	processSV.Cast(etf.Tuple{"testGS2", "nodeSvRestForOne@localhost"}, "ok")
 	time.Sleep(5 * time.Second)
 
-	processSV.Stop()
+	processSV.Exit(etf.Pid{}, "normal")
 	time.Sleep(100 * time.Millisecond)
 
 	processSV, _ = node.Spawn("testSupervisorTransient", ProcessOptions{}, sv, SupervisorChildRestartTransient)
 	fmt.Printf("Started supervisor (%s): %v\n", SupervisorChildRestartTransient, processSV.Self())
 
-	processSV.Stop()
+	processSV.Exit(etf.Pid{}, "normal")
 	time.Sleep(100 * time.Millisecond)
 
 	processSV, _ = node.Spawn("testSupervisorTemporary", ProcessOptions{}, sv, SupervisorChildRestartTemporary)
 	fmt.Printf("Started supervisor (%s): %v\n", SupervisorChildRestartTemporary, processSV.Self())
 
-	processSV.Stop()
+	processSV.Exit(etf.Pid{}, "normal")
 	time.Sleep(100 * time.Millisecond)
 
 }

@@ -19,14 +19,16 @@ const (
 )
 
 type Process struct {
-	mailBox     chan etf.Tuple
-	ready       chan bool
-	self        etf.Pid
-	groupLeader etf.Pid
-	Context     context.Context
-	Stop        context.CancelFunc
-	name        string
-	Node        *Node
+	mailBox      chan etf.Tuple
+	ready        chan bool
+	gracefulExit chan gracefulExitRequest
+	self         etf.Pid
+	groupLeader  etf.Pid
+	Context      context.Context
+	Kill         context.CancelFunc
+	Exit         ProcessExitFunc
+	name         string
+	Node         *Node
 
 	object interface{}
 	state  interface{}
@@ -40,6 +42,10 @@ type Process struct {
 	trapExit bool
 }
 
+type gracefulExitRequest struct {
+	from   etf.Pid
+	reason string
+}
 type ProcessInfo struct {
 	CurrentFunction string
 	Status          string
@@ -56,6 +62,8 @@ type ProcessOptions struct {
 	GroupLeader etf.Pid
 	parent      *Process
 }
+
+type ProcessExitFunc func(from etf.Pid, reason string)
 
 // Behaviour interface contains methods you should implement to make own process behaviour
 type ProcessBehaviour interface {

@@ -140,7 +140,10 @@ func (n *Node) Spawn(name string, opts ProcessOptions, object interface{}, args 
 		reason := object.(ProcessBehaviour).loop(process, object, args...)
 		n.registrar.UnregisterProcess(pid)
 		n.monitor.ProcessTerminated(pid, etf.Atom(name), reason)
-		process.Stop()
+		if reason != "kill" {
+			process.Kill()
+		}
+
 	}()
 	<-process.ready
 

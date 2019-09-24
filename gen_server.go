@@ -33,7 +33,7 @@ type GenServer struct{}
 
 func (gs *GenServer) loop(p *Process, object interface{}, args ...interface{}) string {
 	// its not allowed to give access to the original Process structure. All callback
-	// functions is only have to use the copy
+	// functions is only permitted to use the copy of it (*p)
 	p.state = object.(GenServerBehavior).Init(*p, args...)
 	p.ready <- true
 
@@ -47,6 +47,17 @@ func (gs *GenServer) loop(p *Process, object interface{}, args ...interface{}) s
 		var lockState = &sync.Mutex{}
 
 		select {
+		case ex := <-p.gracefulExit:
+			if p.trapExit {
+				message = etf.Tuple{
+					etf.Atom("EXIT"),
+					ex.from,
+					etf.Atom(ex.reason),
+				}
+			} else {
+				object.(GenServerBehavior).Terminate(ex.reason, p.state)
+				return ex.reason
+			}
 		case reason := <-stop:
 			object.(GenServerBehavior).Terminate(reason, p.state)
 			return reason
@@ -54,8 +65,7 @@ func (gs *GenServer) loop(p *Process, object interface{}, args ...interface{}) s
 			fromPid = msg.Element(1).(etf.Pid)
 			message = msg.Element(2)
 		case <-p.Context.Done():
-			object.(GenServerBehavior).Terminate("shutdown", p.state)
-			return "shutdown"
+			return "kill"
 		}
 
 		lib.Log("[%s]. %v got message from %#v\n", p.Node.FullName, p.self, fromPid)

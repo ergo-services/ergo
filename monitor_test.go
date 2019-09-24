@@ -139,17 +139,17 @@ func TestMonitor(t *testing.T) {
 	fmt.Println("... gs1 -local monitor-> gs2")
 	ref := node1gs1.MonitorProcess(node1gs2.Self())
 	fmt.Println("... stop gs2")
-	node1gs2.Stop()
+	node1gs2.Exit(etf.Pid{}, "normal")
 	fmt.Printf("    wait for 'DOWN' message of gs2 by gs1: ")
-	waitFor := etf.Tuple{etf.Atom("DOWN"), ref, etf.Atom("process"), node1gs2.Self(), etf.Atom("shutdown")}
+	waitFor := etf.Tuple{etf.Atom("DOWN"), ref, etf.Atom("process"), node1gs2.Self(), etf.Atom("normal")}
 	waitForResultWithValue(t, gs1.v, waitFor)
 
 	fmt.Println("... gs1 -local link-> gs3")
 	node1gs1.Link(node1gs3.Self())
 	fmt.Println("... stop gs3")
-	node1gs3.Stop()
+	node1gs3.Exit(etf.Pid{}, "normal")
 	fmt.Printf("    wait for 'EXIT' message of gs3 by gs1: ")
-	waitFor = etf.Tuple{etf.Atom("EXIT"), node1gs3.Self(), etf.Atom("shutdown")}
+	waitFor = etf.Tuple{etf.Atom("EXIT"), node1gs3.Self(), etf.Atom("normal")}
 	waitForResultWithValue(t, gs1.v, waitFor)
 
 	fmt.Println("... restarting gs2:")
@@ -161,9 +161,9 @@ func TestMonitor(t *testing.T) {
 	fmt.Println("... gs2 -local link-> gs1")
 	node1gs2.Link(node1gs1.Self())
 	fmt.Println("... stop gs2")
-	node1gs2.Stop()
+	node1gs2.Exit(etf.Pid{}, "normal")
 	fmt.Printf("    wait for 'EXIT' message of gs2 by gs1: ")
-	waitFor = etf.Tuple{etf.Atom("EXIT"), node1gs2.Self(), etf.Atom("shutdown")}
+	waitFor = etf.Tuple{etf.Atom("EXIT"), node1gs2.Self(), etf.Atom("normal")}
 	waitForResultWithValue(t, gs1.v, waitFor)
 
 	fmt.Println("... gs1 -remote monitor-> gs4")
@@ -173,18 +173,18 @@ func TestMonitor(t *testing.T) {
 	// will handle after monitor
 	time.Sleep(100 * time.Millisecond)
 	fmt.Println("... stop gs4")
-	node2gs4.Stop()
+	node2gs4.Exit(etf.Pid{}, "normal")
 	fmt.Printf("    wait for 'DOWN' message of node2.gs4 by gs1: ")
-	waitFor = etf.Tuple{etf.Atom("DOWN"), ref, etf.Atom("process"), node2gs4.Self(), etf.Atom("shutdown")}
+	waitFor = etf.Tuple{etf.Atom("DOWN"), ref, etf.Atom("process"), node2gs4.Self(), etf.Atom("normal")}
 	waitForResultWithValue(t, gs1.v, waitFor)
 
 	fmt.Println("... gs1 -remote link-> gs5")
 	node1gs1.Link(node2gs5.Self())
 	time.Sleep(100 * time.Millisecond)
 	fmt.Println("... stop gs5")
-	node2gs5.Stop()
+	node2gs5.Exit(etf.Pid{}, "normal")
 	fmt.Printf("    wait for 'EXIT' message of node2.gs5 by gs1: ")
-	waitFor = etf.Tuple{etf.Atom("EXIT"), node2gs5.Self(), etf.Atom("shutdown")}
+	waitFor = etf.Tuple{etf.Atom("EXIT"), node2gs5.Self(), etf.Atom("normal")}
 	waitForResultWithValue(t, gs1.v, waitFor)
 
 	// starting gs2,gs3,gs4,gs5

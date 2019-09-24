@@ -179,12 +179,9 @@ func (r *registrar) run() {
 			}
 
 		case <-r.node.context.Done():
-			lib.Log("[%s] Finalizing registrar (total number of processes: %d)", r.node.FullName, len(r.processes))
-			// FIXME: now its just call Stop function for
-			// every single process. should we do that for the gen_servers
-			// are running under supervisor?
+			lib.Log("[%s] Finalizing (KILL) registrar (total number of processes: %d)", r.node.FullName, len(r.processes))
 			for _, p := range r.processes {
-				p.Stop()
+				p.Kill()
 			}
 			return
 
@@ -298,22 +295,33 @@ func (r *registrar) RegisterProcessExt(name string, object interface{}, opts Pro
 		mailbox_size = int(opts.MailboxSize)
 	}
 
-	ctx, stop := context.WithCancel(r.node.context)
+	ctx, kill := context.WithCancel(r.node.context)
 	if opts.parent != nil {
-		ctx, stop = context.WithCancel(opts.parent.Context)
+		ctx, kill = context.WithCancel(opts.parent.Context)
 	}
 	pid := r.createNewPID(r.nodeName)
+	exitChannel := make(chan gracefulExitRequest)
+	exit := func(from etf.Pid, reason string) {
+		lib.Log("[%s] EXIT: %#v with reason: %s", r.node.FullName, pid, reason)
+		ex := gracefulExitRequest{
+			from:   from,
+			reason: reason,
+		}
+		exitChannel <- ex
+	}
 
 	process := &Process{
-		mailBox: make(chan etf.Tuple, mailbox_size),
-		ready:   make(chan bool),
-		self:    pid,
-		Context: ctx,
-		Stop:    stop,
-		name:    name,
-		Node:    r.node,
-		reply:   make(chan etf.Tuple, 2),
-		object:  object,
+		mailBox:      make(chan etf.Tuple, mailbox_size),
+		ready:        make(chan bool),
+		gracefulExit: exitChannel,
+		self:         pid,
+		Context:      ctx,
+		Kill:         kill,
+		Exit:         exit,
+		name:         name,
+		Node:         r.node,
+		reply:        make(chan etf.Tuple, 2),
+		object:       object,
 	}
 
 	req := registerProcessRequest{
