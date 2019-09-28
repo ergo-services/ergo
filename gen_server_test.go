@@ -176,14 +176,6 @@ func TestGenServer(t *testing.T) {
 	fmt.Printf("Stopping nodes: %v, %v\n", node1.FullName, node2.FullName)
 	node1.Stop()
 	node2.Stop()
-
-	fmt.Printf("    waiting for termination of gs1: ")
-	waitForResult(t, gs1.err)
-	fmt.Printf("    waiting for termination of gs2: ")
-	waitForResult(t, gs2.err)
-	fmt.Printf("    waiting for termination of gs3: ")
-	waitForResult(t, gs3.err)
-
 }
 
 func waitForResult(t *testing.T, w chan error) {
