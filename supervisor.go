@@ -67,28 +67,33 @@ const (
 	SupervisorChildStateRunning  = 1
 	SupervisorChildStateDisabled = -1
 
-	// shutdown defines how a child process must be terminated.
+	// shutdown defines how a child process must be terminated. (TODO: not implemented yet)
 
-	// SupervisorShutdownBrutal means that the child process is
+	// SupervisorChildShutdownBrutal means that the child process is
 	// unconditionally terminated using process' Kill method
-	SupervisorShutdownBrutal = -1
+	SupervisorChildShutdownBrutal = -1
 
-	// SupervisorShutdownInfinity means that the supervisor will
+	// SupervisorChildShutdownInfinity means that the supervisor will
 	// wait for an exit signal as long as child takes
-	SupervisorShutdownInfinity = 0 // default shutdown behavior
+	SupervisorChildShutdownInfinity = 0 // default shutdown behavior
 
-	// An integer time-out value means that the supervisor tells
-	// the child process to terminate by calling Stop method and then
-	// wait for an exit signal with reason shutdown back from the
-	// child process. If no exit signal is received within the
-	// specified number of seconds, the child process is unconditionally
-	// terminated using Kill method.
-	SupervisorShutdownTimeout = 5
+	// SupervisorChildShutdownTimeout5sec predefined timeout value
+	SupervisorChildShutdownTimeout5sec = 5
 )
 
 type SupervisorChildState int
 
-type SupervisorShutdown int
+// SupervisorChildShutdown is an integer time-out value means that the supervisor tells
+// the child process to terminate by calling Stop method and then
+// wait for an exit signal with reason shutdown back from the
+// child process. If no exit signal is received within the
+// specified number of seconds, the child process is unconditionally
+// terminated using Kill method.
+// There are predefined values:
+//   SupervisorChildShutdownBrutal (-1)
+//   SupervisorChildShutdownInfinity (0) - default value
+//   SupervisorChildShutdownTimeout5sec (5)
+type SupervisorChildShutdown int
 
 // SupervisorBehavior interface
 type SupervisorBehavior interface {
@@ -105,7 +110,7 @@ type SupervisorChildSpec struct {
 	child    interface{}
 	args     []interface{}
 	restart  SupervisorChildRestart
-	shutdown SupervisorShutdown
+	shutdown SupervisorChildShutdown
 	state    SupervisorChildState // for internal usage
 }
 
