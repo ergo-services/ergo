@@ -160,7 +160,7 @@ func main() {
 here is output of this code
 
 ```shell
-$ go run ./simple.Implementation.GenServer.go
+$ go run ./examples/simple/GenServer.go
 Init: args [100] 
 HandleCast: "hey" (state value 100) 
 HandleCast: "hi" (state value 101) 
