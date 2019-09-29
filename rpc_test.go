@@ -53,8 +53,9 @@ func TestRPC(t *testing.T) {
 	if e := node1.ProvideRPC("testMod", "testFun", testFun1); e != nil {
 		message := fmt.Sprintf("%s", e)
 		t.Fatal(message)
+	} else {
+		fmt.Println("OK")
 	}
-	fmt.Println("OK")
 
 	fmt.Printf("Call RPC method 'testMod.testFun' with 1 arg on %s: ", node1.FullName)
 	if v, e := node1gs1.CallRPC("node@localhost", "testMod", "testFun", 12345); e != nil || v != 12345 {
@@ -70,8 +71,36 @@ func TestRPC(t *testing.T) {
 	}
 	fmt.Println("OK")
 
+	fmt.Printf("Revoking RPC method 'testMod.testFun' on %s: ", node1.FullName)
+	if e := node1.RevokeRPC("testMod", "testFun"); e != nil {
+		message := fmt.Sprintf("%s", e)
+		t.Fatal(message)
+	} else {
+		fmt.Println("OK")
+	}
+
+	fmt.Printf("Call revoked RPC method 'testMod.testFun' with 1 arg on %s: ", node1.FullName)
+	expected1 := etf.Tuple{etf.Atom("badrpc"),
+		etf.Tuple{etf.Atom("EXIT"),
+			etf.Tuple{etf.Atom("undef"),
+				etf.List{
+					etf.Tuple{
+						etf.Atom("testMod"),
+						etf.Atom("testFun"),
+						etf.List{12345}, etf.List{}}}}}}
+	if v, e := node1gs1.CallRPC("node@localhost", "testMod", "testFun", 12345); e != nil {
+		message := fmt.Sprintf("%s %#v", e, v)
+		t.Fatal(message)
+	} else {
+		if !reflect.DeepEqual(v, expected1) {
+			message := fmt.Sprintf("expected: %#v got: %#v", expected1, v)
+			t.Fatal(message)
+		}
+	}
+	fmt.Println("OK")
+
 	fmt.Printf("Call RPC unknown method 'xxx.xxx' on %s: ", node1.FullName)
-	expected := etf.Tuple{etf.Atom("badrpc"),
+	expected2 := etf.Tuple{etf.Atom("badrpc"),
 		etf.Tuple{etf.Atom("EXIT"),
 			etf.Tuple{etf.Atom("undef"),
 				etf.List{
@@ -84,8 +113,8 @@ func TestRPC(t *testing.T) {
 		message := fmt.Sprintf("%s %#v", e, v)
 		t.Fatal(message)
 	} else {
-		if !reflect.DeepEqual(v, expected) {
-			message := fmt.Sprintf("expected: %#v got: %#v", expected, v)
+		if !reflect.DeepEqual(v, expected2) {
+			message := fmt.Sprintf("expected: %#v got: %#v", expected2, v)
 			t.Fatal(message)
 		}
 	}
