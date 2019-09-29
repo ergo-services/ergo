@@ -6,13 +6,6 @@ import (
 	"github.com/halturin/ergonode/etf"
 )
 
-type systemProcesses struct {
-	netKernelSup     *netKernelSup
-	globalNameServer *globalNameServer
-	observerBackend  *observerBackend
-	rex              *rex
-}
-
 // Distributed operations codes (http://www.erlang.org/doc/apps/erts/erl_dist_protocol.html)
 const (
 	LINK                   = 1

@@ -23,7 +23,6 @@ type Node struct {
 	Cookie   string
 
 	registrar *registrar
-	system    systemProcesses
 	monitor   *monitor
 	procID    uint64
 	context   context.Context
@@ -104,21 +103,8 @@ func CreateNodeWithContext(ctx context.Context, name string, cookie string, opts
 	node.registrar = createRegistrar(&node)
 	node.monitor = createMonitor(&node)
 
-	// starting system processes
-	process_opts := ProcessOptions{
-		MailboxSize: DefaultProcessMailboxSize, // size of channel for regular messages
-	}
-	node.system.netKernelSup = new(netKernelSup)
-	node.Spawn("net_kernel_sup", process_opts, node.system.netKernelSup)
-
-	node.system.globalNameServer = new(globalNameServer)
-	node.Spawn("global_name_server", process_opts, node.system.globalNameServer)
-
-	node.system.rex = new(rex)
-	node.Spawn("rex", process_opts, node.system.rex)
-
-	node.system.observerBackend = new(observerBackend)
-	node.Spawn("observer_backend", process_opts, node.system.observerBackend)
+	netKernelSup := &netKernelSup{}
+	node.Spawn("net_kernel_sup", ProcessOptions{}, netKernelSup)
 
 	return &node
 }
@@ -327,7 +313,7 @@ func (n *Node) handleTerms(terms []etf.Term) {
 		case etf.Atom:
 			switch act {
 			case etf.Atom("$connection"):
-				// .Ready channel waiting for registration of this connection
+				// Ready channel waiting for registration of this connection
 				ready := (t[2]).(chan bool)
 				ready <- true
 			}
@@ -346,12 +332,12 @@ func (n *Node) ProvideRPC(module string, function string, fun rpcFunction) error
 		etf.Atom(function),
 		fun,
 	}
-
-	if n.system.rex == nil {
+	rex := n.registrar.GetProcessByName("rex")
+	if rex == nil {
 		return fmt.Errorf("RPC module is disabled")
 	}
 
-	if v, err := n.system.rex.process.Call(n.system.rex.process.Self(), message); v != etf.Atom("ok") || err != nil {
+	if v, err := rex.Call(rex.Self(), message); v != etf.Atom("ok") || err != nil {
 		return fmt.Errorf("value: %s err: %s", v, err)
 	}
 
@@ -361,7 +347,9 @@ func (n *Node) ProvideRPC(module string, function string, fun rpcFunction) error
 // RevokeRPC unregister given module/function
 func (n *Node) RevokeRPC(module, function string) error {
 	lib.Log("RPC revoke: %s:%s", module, function)
-	if n.system.rex == nil {
+
+	rex := n.registrar.GetProcessByName("rex")
+	if rex == nil {
 		return fmt.Errorf("RPC module is disabled")
 	}
 
@@ -371,7 +359,7 @@ func (n *Node) RevokeRPC(module, function string) error {
 		etf.Atom(function),
 	}
 
-	if v, err := n.system.rex.process.Call(n.system.rex.process.Self(), message); v != etf.Atom("ok") || err != nil {
+	if v, err := rex.Call(rex.Self(), message); v != etf.Atom("ok") || err != nil {
 		return fmt.Errorf("value: %s err: %s", v, err)
 	}
 

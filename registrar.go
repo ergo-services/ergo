@@ -238,36 +238,36 @@ func (r *registrar) run() {
 				continue
 			}
 
-			to_node := etf.Atom("")
+			toNode := etf.Atom("")
 			switch x := bt.tuple.Element(2).(type) {
 			case etf.Atom:
-				to_node = x
+				toNode = x
 			default:
-				to_node = etf.Atom(bt.tuple.Element(2).(string))
+				toNode = etf.Atom(bt.tuple.Element(2).(string))
 			}
 
-			to_process_name := bt.tuple.Element(1)
-			if to_node == etf.Atom(r.nodeName) {
-				r.route(bt.from, to_process_name, bt.message)
+			toProcessName := bt.tuple.Element(1)
+			if toNode == etf.Atom(r.nodeName) {
+				r.route(bt.from, toProcessName, bt.message)
 				continue
 			}
 
-			peer, ok := r.peers[string(to_node)]
+			peer, ok := r.peers[string(toNode)]
 			if !ok {
 				// initiate connection and make yet another attempt to deliver this message
 				go func() {
-					r.node.connect(to_node)
+					r.node.connect(toNode)
 					bt.retries++
 					r.channels.routeByTuple <- bt
 				}()
 
 				continue
 			}
-			peer.send <- []etf.Term{etf.Tuple{REG_SEND, bt.from, etf.Atom(""), to_process_name}, bt.message}
+			peer.send <- []etf.Term{etf.Tuple{REG_SEND, bt.from, etf.Atom(""), toProcessName}, bt.message}
 
 		case rw := <-r.channels.routeRaw:
 			if rw.retries > 2 {
-				// drop this message after 3 attempts to deliver this message
+				// drop this message after 3 attempts of delivering
 				continue
 			}
 
@@ -302,9 +302,9 @@ func (r *registrar) RegisterProcess(object interface{}) (*Process, error) {
 
 func (r *registrar) RegisterProcessExt(name string, object interface{}, opts ProcessOptions) (*Process, error) {
 
-	mailbox_size := DefaultProcessMailboxSize
+	mailboxSize := DefaultProcessMailboxSize
 	if opts.MailboxSize > 0 {
-		mailbox_size = int(opts.MailboxSize)
+		mailboxSize = int(opts.MailboxSize)
 	}
 
 	ctx, kill := context.WithCancel(r.node.context)
@@ -323,7 +323,7 @@ func (r *registrar) RegisterProcessExt(name string, object interface{}, opts Pro
 	}
 
 	process := &Process{
-		mailBox:      make(chan etf.Tuple, mailbox_size),
+		mailBox:      make(chan etf.Tuple, mailboxSize),
 		ready:        make(chan bool),
 		gracefulExit: exitChannel,
 		self:         pid,
@@ -469,7 +469,7 @@ func (r *registrar) handleCommand(cmd interface{}) {
 	case requestProcessDetails:
 		pid := c.pid
 		if c.name != "" {
-			// requesting Process by Pid
+			// requesting Process by name
 			if p, ok := r.names[c.name]; ok {
 				pid = p
 			}
