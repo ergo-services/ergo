@@ -76,7 +76,7 @@ Here is the changes of latest release. For more details see the [ChangeLog](Chan
 
  ### Examples ###
 
-Code below is a simple implementation of GenServer pattern
+Code below is a simple implementation of GenServer pattern `examples/simple/GenServer.go`
 
 ```golang
 package main
