@@ -74,9 +74,87 @@ Here is the changes of latest release. For more details see the [ChangeLog](Chan
  * Improved code structure and readability
  * Among the new features we have added new bugs that are still uncovered :). So, any feedback/bugreport/contribution is highly appreciated
 
- ### Quick examples ###
+ ### Quick example ###
 
-  ... put here the set of examples
+Code below a simple implementation of GenServer pattern
+
+```golang
+package main
+
+import (
+	"fmt"
+	"time"
+
+	"github.com/halturin/ergo"
+	"github.com/halturin/ergo/etf"
+)
+
+type ExampleGenServer struct {
+	ergo.GenServer
+	process ergo.Process
+}
+
+type State struct {
+	value int
+}
+
+func (egs *ExampleGenServer) Init(p ergo.Process, args ...interface{}) (state interface{}) {
+	egs.process = p
+	InitialState := &State{
+		value: args[0].(int), // 100
+	}
+	return InitialState
+}
+
+func (egs *ExampleGenServer) HandleCast(message etf.Term, state interface{}) (string, interface{}) {
+	fmt.Printf("ExampleGenServer HandleCast: %#v (state value %d) \n", message, state.(*State).value)
+	time.Sleep(1 * time.Second)
+	state.(*State).value++
+
+	if state.(*State).value > 103 {
+		egs.process.Send(egs.process.Self(), "hello")
+	} else {
+		egs.process.Cast(egs.process.Self(), "hi")
+	}
+
+	return "noreply", state
+}
+
+func (egs *ExampleGenServer) HandleCall(from etf.Tuple, message etf.Term, state interface{}) (string, etf.Term, interface{}) {
+	fmt.Printf("ExampleGenServer HandleCall: %#v, From: %#v\n", message, from)
+	return "reply", message, state
+}
+
+func (egs *ExampleGenServer) HandleInfo(message etf.Term, state interface{}) (string, interface{}) {
+	fmt.Printf("ExampleGenServer HandleInfo: %#v (state value %d) \n", message, state.(*State).value)
+	time.Sleep(1 * time.Second)
+	state.(*State).value++
+	if state.(*State).value > 106 {
+		egs.process.Exit(egs.process.Self(), "normal")
+	} else {
+		egs.process.Send(egs.process.Self(), "hello")
+	}
+	return "noreply", state
+}
+func (egs *ExampleGenServer) Terminate(reason string, state interface{}) {
+	fmt.Printf("ExampleGenServer Terminate: %s \n", reason)
+}
+
+func main() {
+
+	node := ergo.CreateNode("nodeGS1@localhost", "cookies", ergo.NodeOptions{})
+	gs1 := &ExampleGenServer{}
+	process, _ := node.Spawn("gs1", ergo.ProcessOptions{}, gs1, 100)
+
+	process.Cast(process.Self(), "hey")
+
+	select {
+	case <-process.Context.Done():
+		fmt.Println("exited")
+	}
+}
+
+```
 
 
 See examples/ for more details
