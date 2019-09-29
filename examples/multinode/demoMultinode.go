@@ -18,6 +18,7 @@ type State struct {
 }
 
 func (egs *ExampleGenServer) Init(p ergo.Process, args ...interface{}) (state interface{}) {
+	fmt.Printf("Init: args %v \n", args)
 	egs.process = p
 	InitialState := &State{
 		value: args[0].(int), // 100
@@ -26,7 +27,7 @@ func (egs *ExampleGenServer) Init(p ergo.Process, args ...interface{}) (state in
 }
 
 func (egs *ExampleGenServer) HandleCast(message etf.Term, state interface{}) (string, interface{}) {
-	fmt.Printf("ExampleGenServer HandleCast: %#v (state value %d) \n", message, state.(*State).value)
+	fmt.Printf("HandleCast: %#v (state value %d) \n", message, state.(*State).value)
 	time.Sleep(1 * time.Second)
 	state.(*State).value++
 
@@ -40,12 +41,12 @@ func (egs *ExampleGenServer) HandleCast(message etf.Term, state interface{}) (st
 }
 
 func (egs *ExampleGenServer) HandleCall(from etf.Tuple, message etf.Term, state interface{}) (string, etf.Term, interface{}) {
-	fmt.Printf("ExampleGenServer HandleCall: %#v, From: %#v\n", message, from)
+	fmt.Printf("HandleCall: %#v, From: %#v\n", message, from)
 	return "reply", message, state
 }
 
 func (egs *ExampleGenServer) HandleInfo(message etf.Term, state interface{}) (string, interface{}) {
-	fmt.Printf("ExampleGenServer HandleInfo: %#v (state value %d) \n", message, state.(*State).value)
+	fmt.Printf("HandleInfo: %#v (state value %d) \n", message, state.(*State).value)
 	time.Sleep(1 * time.Second)
 	state.(*State).value++
 	if state.(*State).value > 106 {
@@ -56,12 +57,12 @@ func (egs *ExampleGenServer) HandleInfo(message etf.Term, state interface{}) (st
 	return "noreply", state
 }
 func (egs *ExampleGenServer) Terminate(reason string, state interface{}) {
-	fmt.Printf("ExampleGenServer Terminate: %s \n", reason)
+	fmt.Printf("Terminate: %s \n", reason)
 }
 
 func main() {
 
-	node := ergo.CreateNode("nodeGS1@localhost", "cookies", ergo.NodeOptions{})
+	node := ergo.CreateNode("node@localhost", "cookies", ergo.NodeOptions{})
 	gs1 := &ExampleGenServer{}
 	process, _ := node.Spawn("gs1", ergo.ProcessOptions{}, gs1, 100)
 
