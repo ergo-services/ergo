@@ -57,7 +57,7 @@ func (egs *ExampleGenServer) HandleInfo(message etf.Term, state interface{}) (st
 	return "noreply", state
 }
 func (egs *ExampleGenServer) Terminate(reason string, state interface{}) {
-	fmt.Printf("Terminate: %s \n", reason)
+	fmt.Printf("Terminate: %#v \n", reason)
 }
 
 func main() {

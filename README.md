@@ -138,7 +138,7 @@ func (egs *ExampleGenServer) HandleInfo(message etf.Term, state interface{}) (st
 	return "noreply", state
 }
 func (egs *ExampleGenServer) Terminate(reason string, state interface{}) {
-	fmt.Printf("Terminate: %s \n", reason)
+	fmt.Printf("Terminate: %#v \n", reason)
 }
 
 func main() {
@@ -161,15 +161,15 @@ here is output of this code
 
 ```shell
 $ go run ./examples/simple/GenServer.go
-Init: args [100] 
-HandleCast: "hey" (state value 100) 
-HandleCast: "hi" (state value 101) 
-HandleCast: "hi" (state value 102) 
-HandleCast: "hi" (state value 103) 
-HandleInfo: "hello" (state value 104) 
-HandleInfo: "hello" (state value 105) 
-HandleInfo: "hello" (state value 106) 
-Terminate: normal 
+Init: args [100]
+HandleCast: "hey" (state value 100)
+HandleCast: "hi" (state value 101)
+HandleCast: "hi" (state value 102)
+HandleCast: "hi" (state value 103)
+HandleInfo: "hello" (state value 104)
+HandleInfo: "hello" (state value 105)
+HandleInfo: "hello" (state value 106)
+Terminate: "normal"
 exited
 ```
 
