@@ -157,7 +157,7 @@ func main() {
 ```
 
 
-See examples/ for more details
+See `examples/` for more details
 
   * [demoGenServer](examples/genserver)
   * [demoSupervisor](examples/supervisor)
