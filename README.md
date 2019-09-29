@@ -130,7 +130,7 @@ func (egs *ExampleGenServer) HandleInfo(message etf.Term, state interface{}) (st
 	time.Sleep(1 * time.Second)
 	state.(*State).value++
 	if state.(*State).value > 106 {
-		egs.process.Exit(egs.process.Self(), "normal")
+		return "stop", "normal"
 	} else {
 		egs.process.Send(egs.process.Self(), "hello")
 	}
