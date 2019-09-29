@@ -50,7 +50,7 @@ As an extra option we provide EPMD service as a standalone application. There is
 ### Multinode ###
 
  This feature allows create two or more nodes within a single running instance. The only needs is specify the different set of options for creating nodes (such as: node name, empd port number, secret cookie). You may also want to use this feature to create 'proxy'-node between some clusters. 
- See [Quick examples](#quick-examples) for more details
+ See [Quick examples](#quick-example) for more details
  
 
 ### Observer ###
@@ -76,7 +76,7 @@ Here is the changes of latest release. For more details see the [ChangeLog](Chan
 
  ### Quick example ###
 
-Code below a simple implementation of GenServer pattern
+Code below is a simple implementation of GenServer pattern
 
 ```golang
 package main
