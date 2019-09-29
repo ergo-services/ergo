@@ -183,8 +183,8 @@ type Pg2GenServer struct {
 func main() {
    // ...
    pg2 := &Pg2GenServer{}
-   node1 := CreateNode("node1@localhost", "cookies", NodeOptions{})
-   process, _ := node1.Spawn("pg2", ProcessOptions{}, pg2, nil)
+   node1 := ergo.CreateNode("node1@localhost", "cookies", ergo.NodeOptions{})
+   process, _ := node1.Spawn("pg2", ergo.ProcessOptions{}, pg2, nil)
    // ...
 }
 
