@@ -30,7 +30,7 @@ const (
 
 // SupervisorBehavior interface
 type ApplicationBehavior interface {
-	Init(process *Process, args ...interface{}) ApplicationSpec
+	Init(process Process, args ...interface{}) ApplicationSpec
 }
 
 type ApplicationSpec struct {
@@ -55,26 +55,55 @@ type Application struct {
 	process Process
 }
 
+type requestSetEnv struct {
+	name  string
+	value interface{}
+}
+
+type requestGetEnv struct {
+	name  string
+	reply chan interface{}
+}
+
+type requsetListEnv struct {
+	reply chan map[string]interface{}
+}
+
 func (sv *Application) loop(p *Process, object interface{}, args ...interface{}) {
-	spec := object.(ApplicationBehavior).Init(p, args...)
+	env := make(map[string]interface{})
+	spec := object.(ApplicationBehavior).Init(*p, args...)
 	lib.Log("Application spec %#v\n", spec)
 	p.ready <- true
-
-	stop := make(chan struct{}, 2)
-
+	if spec.MaxTime == 0 {
+		spec.MaxTime = time.Second * 31536000 * 100 // let's define default lifespan 100 years :)
+	}
 	for {
-		// var message etf.Term
 		select {
-		case <-stop:
-			// object.(SupervisorBehavior).Terminate(reason, state)
-			return
-
 		case <-p.Context.Done():
-			// object.(GenServerBehavior).Terminate("immediate", p.state)
+			// node is down or killed using p.Kill()
 			return
+		case <-time.After(spec.MaxTime):
+			// time to die
+			p.Kill()
+			return
+		case msg := <-p.mailBox:
+			if len(msg) == 0 {
+				continue // ignore
+			}
+			switch r := msg[0].(type) {
+			case requestSetEnv:
+				env[r.name] = r.value
+			case requestGetEnv:
+				r.reply <- env[r.name]
+			case requsetListEnv:
+				// make a copy of the original env
+				newEnv := make(map[string]interface{})
+				for key, value := range env {
+					newEnv[key] = value
+				}
+				r.reply <- newEnv
+			}
 		}
-
-		// lib.Log("[%#v]. Message from %#v\n", p.self, fromPid)
 
 	}
 }
