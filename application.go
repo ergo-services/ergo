@@ -72,6 +72,7 @@ type requsetListEnv struct {
 func (sv *Application) loop(p *Process, object interface{}, args ...interface{}) {
 	env := make(map[string]interface{})
 	spec := object.(ApplicationBehavior).Init(*p, args...)
+	children := []Process{}
 	lib.Log("Application spec %#v\n", spec)
 	p.ready <- true
 	if spec.MaxTime == 0 {
@@ -79,12 +80,17 @@ func (sv *Application) loop(p *Process, object interface{}, args ...interface{})
 	}
 	for {
 		select {
+		case ex := <-p.gracefulExit:
+			for i := range children {
+				children[i].Exit(p.Self(), ex.reason)
+			}
+			// TODO: wait for all children' EXITs
 		case <-p.Context.Done():
 			// node is down or killed using p.Kill()
 			return
 		case <-time.After(spec.MaxTime):
 			// time to die
-			p.Kill()
+			p.Exit(p.Self(), "normal")
 			return
 		case msg := <-p.mailBox:
 			if len(msg) == 0 {

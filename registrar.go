@@ -57,6 +57,12 @@ type routeRawRequest struct {
 	retries  int
 }
 
+type requestProcessDetails struct {
+	name  string
+	pid   etf.Pid
+	reply chan *Process
+}
+
 type registrarChannels struct {
 	process           chan registerProcessRequest
 	unregisterProcess chan etf.Pid
@@ -69,6 +75,8 @@ type registrarChannels struct {
 	routeByName  chan routeByNameRequest
 	routeByTuple chan routeByTupleRequest
 	routeRaw     chan routeRawRequest
+
+	commands chan interface{}
 }
 
 type registrar struct {
@@ -103,6 +111,8 @@ func createRegistrar(node *Node) *registrar {
 			routeByName:  make(chan routeByNameRequest, 100),
 			routeByTuple: make(chan routeByTupleRequest, 100),
 			routeRaw:     make(chan routeRawRequest, 100),
+
+			commands: make(chan interface{}, 100),
 		},
 
 		names:     make(map[string]etf.Pid),
@@ -277,6 +287,8 @@ func (r *registrar) run() {
 			}
 
 			peer.send <- []etf.Term{rw.message}
+		case cmd := <-r.channels.commands:
+			r.handleCommand(cmd)
 		}
 	}
 }
@@ -368,8 +380,37 @@ func (r *registrar) UnregisterPeer(name string) {
 	r.channels.unregisterPeer <- name
 }
 
+// GetProcessByPid returns Process struct for the given Pid. Returns nil if it doesn't exist (not found)
 func (r *registrar) GetProcessByPid(pid etf.Pid) *Process {
-	// TODO: implement it
+	reply := make(chan *Process)
+	req := requestProcessDetails{
+		pid:   pid,
+		reply: reply,
+	}
+	r.channels.commands <- req
+	if p := <-reply; p != nil {
+		// make a copy of the Process struct in order to keep it safe
+		unrefP := *p
+		return &unrefP
+	}
+	// unknown process
+	return nil
+}
+
+// GetProcessByPid returns Process struct for the given name. Returns nil if it doesn't exist (not found)
+func (r *registrar) GetProcessByName(name string) *Process {
+	reply := make(chan *Process)
+	req := requestProcessDetails{
+		name:  name,
+		reply: reply,
+	}
+	r.channels.commands <- req
+	if p := <-reply; p != nil {
+		// make a copy of the Process struct in order to keep it safe
+		unrefP := *p
+		return &unrefP
+	}
+	// unknown process
 	return nil
 }
 
@@ -421,4 +462,24 @@ func (r *registrar) routeRaw(nodename etf.Atom, message etf.Term) {
 		message:  message,
 	}
 	r.channels.routeRaw <- req
+}
+
+func (r *registrar) handleCommand(cmd interface{}) {
+	switch c := cmd.(type) {
+	case requestProcessDetails:
+		pid := c.pid
+		if c.name != "" {
+			// requesting Process by Pid
+			if p, ok := r.names[c.name]; ok {
+				pid = p
+			}
+		}
+
+		if p, ok := r.processes[pid]; ok {
+			c.reply <- p
+		} else {
+			c.reply <- nil
+		}
+
+	}
 }
