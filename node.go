@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"sync/atomic"
 	"syscall"
 
 	"github.com/halturin/ergonode/dist"
@@ -24,12 +25,13 @@ type Node struct {
 
 	registrar *registrar
 	monitor   *monitor
-	procID    uint64
 	context   context.Context
 	Stop      context.CancelFunc
 
 	StartedAt  time.Time
 	VersionOTP int
+
+	uniqID int64
 }
 
 type NodeOptions struct {
@@ -63,6 +65,7 @@ func CreateNodeWithContext(ctx context.Context, name string, cookie string, opts
 		Stop:       nodestop,
 		StartedAt:  time.Now(),
 		VersionOTP: versionOTP,
+		uniqID:     time.Now().UnixNano(),
 	}
 
 	// start networking if name is defined
@@ -366,11 +369,11 @@ func (n *Node) RevokeRPC(module, function string) error {
 	return nil
 }
 
+// MakeRef returns atomic reference etf.Ref within this node
 func (n *Node) MakeRef() (ref etf.Ref) {
 	ref.Node = etf.Atom(n.FullName)
 	ref.Creation = 1
-
-	nt := time.Now().UnixNano()
+	nt := atomic.AddInt64(&n.uniqID, 1)
 	id1 := uint32(uint64(nt) & ((2 << 17) - 1))
 	id2 := uint32(uint64(nt) >> 46)
 	ref.Id = []uint32{id1, id2, 0}
