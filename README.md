@@ -177,7 +177,7 @@ the GenServer methods, but the Spawn must have "pg2" as a process name:
 
 ```golang
 type Pg2GenServer struct {
-   GenServer
+   ergo.GenServer
 }
 
 func main() {
