@@ -16,7 +16,7 @@ type state struct {
 }
 
 // Init initializes process state using arbitrary arguments
-// Init(...) -> state
+// Init -> state
 func (ns *globalNameServer) Init(p Process, args ...interface{}) interface{} {
 	lib.Log("GLOBAL_NAME_SERVER: Init: %#v", args)
 	ns.process = p
