@@ -3,17 +3,15 @@ package main
 import (
 	"flag"
 	"fmt"
-	"strconv"
-	"strings"
 
-	"github.com/halturin/ergonode"
+	ergo "github.com/halturin/ergonode"
 	"github.com/halturin/ergonode/etf"
 )
 
 // GenServer implementation structure
 type demoGenServ struct {
-	ergonode.GenServer
-	process ergonode.Process
+	ergo.GenServer
+	process ergo.Process
 }
 
 type state struct {
@@ -21,12 +19,12 @@ type state struct {
 }
 
 var (
-	ServerName       string
+	GenServerName    string
 	NodeName         string
 	Cookie           string
 	err              error
-	ListenRangeBegin uint16
-	ListenRangeEnd   uint16 = 35000
+	ListenRangeBegin int
+	ListenRangeEnd   int = 35000
 	Listen           string
 	ListenEPMD       int
 
@@ -35,7 +33,7 @@ var (
 
 // Init initializes process state using arbitrary arguments
 // Init(...) -> state
-func (dgs *demoGenServ) Init(p ergonode.Process, args ...interface{}) interface{} {
+func (dgs *demoGenServ) Init(p ergo.Process, args ...interface{}) interface{} {
 	dgs.process = p
 	return state{i: 12345}
 }
@@ -144,67 +142,46 @@ func (dgs *demoGenServ) Terminate(reason string, state interface{}) {
 }
 
 func init() {
-	flag.StringVar(&Listen, "listen", "15151-20151", "listen port range")
-	flag.StringVar(&ServerName, "gen_server", "example", "gen_server name")
-	flag.StringVar(&NodeName, "name", "examplenode@127.0.0.1", "node name")
+	flag.IntVar(&ListenRangeBegin, "listen_begin", 15151, "listen port range")
+	flag.IntVar(&ListenRangeEnd, "listen_end", 25151, "listen port range")
+	flag.StringVar(&GenServerName, "gen_server_name", "example", "gen_server name")
+	flag.StringVar(&NodeName, "name", "demo@127.0.0.1", "node name")
 	flag.IntVar(&ListenEPMD, "epmd", 4369, "EPMD port")
 	flag.StringVar(&Cookie, "cookie", "123", "cookie for interaction with erlang cluster")
-	flag.BoolVar(&EnableRPC, "rpc", false, "enable RPC")
-
 }
 
 func main() {
-
-	opts := ergonode.NodeOptions{}
-
 	flag.Parse()
 
-	// parse listen range port
-	l := strings.Split(Listen, "-")
-	switch len(l) {
-	case 1:
-		if i, err := strconv.ParseUint(l[0], 10, 16); err != nil {
-			panic(err)
-		} else {
-			opts.ListenRangeBegin = uint16(i)
-		}
-	case 2:
-		if i, err := strconv.ParseUint(l[0], 10, 16); err != nil {
-			panic(err)
-		} else {
-			opts.ListenRangeBegin = uint16(i)
-		}
-		if i, err := strconv.ParseUint(l[1], 10, 16); err != nil {
-			panic(err)
-		} else {
-			opts.ListenRangeEnd = uint16(i)
-		}
-	default:
-		panic("wrong port range arg")
+	opts := ergo.NodeOptions{
+		ListenRangeBegin: uint16(ListenRangeBegin),
+		ListenRangeEnd:   uint16(ListenRangeEnd),
+		EPMDPort:         uint16(ListenEPMD),
 	}
 
-	opts.EPMDPort = uint16(ListenEPMD)
-
 	// Initialize new node with given name, cookie, listening port range and epmd port
-	node := ergonode.CreateNode(NodeName, Cookie, opts)
+	node := ergo.CreateNode(NodeName, Cookie, opts)
 
 	// Initialize new instance of demoGenServ structure which implements Process behaviour
 	demoGS := new(demoGenServ)
 
 	// Spawn process with one arguments
-	node.Spawn(ServerName, ergonode.ProcessOptions{}, demoGS)
+	process, _ := node.Spawn(GenServerName, ergo.ProcessOptions{}, demoGS)
 	fmt.Println("Run erl shell:")
 	fmt.Printf("erl -name %s -setcookie %s\n", "erl-"+node.FullName, Cookie)
 
 	fmt.Println("Allowed commands...")
-	fmt.Printf("gen_server:cast({%s,'%s'}, stop).\n", ServerName, NodeName)
-	fmt.Printf("gen_server:call({%s,'%s'}, pid).\n", ServerName, NodeName)
-	fmt.Printf("gen_server:cast({%s,'%s'}, {ping, self()}), flush().\n", ServerName, NodeName)
+	fmt.Printf("gen_server:cast({%s,'%s'}, stop).\n", GenServerName, NodeName)
+	fmt.Printf("gen_server:call({%s,'%s'}, pid).\n", GenServerName, NodeName)
+	fmt.Printf("gen_server:cast({%s,'%s'}, {ping, self()}), flush().\n", GenServerName, NodeName)
 	fmt.Println("make remote call by golang node...")
-	fmt.Printf("gen_server:call({%s,'%s'}, {testcall, {Pid, Message}}).\n", ServerName, NodeName)
-	fmt.Printf("gen_server:call({%s,'%s'}, {testcall, {{pname, remotenode}, Message}}).\n", ServerName, NodeName)
+	fmt.Printf("gen_server:call({%s,'%s'}, {testcall, {Pid, Message}}).\n", GenServerName, NodeName)
+	fmt.Printf("gen_server:call({%s,'%s'}, {testcall, {{pname, remotenode}, Message}}).\n", GenServerName, NodeName)
 
 	// Ctrl+C to stop it
-	select {}
+	select {
+	case <-process.Context.Done():
 
+	}
+	node.Stop()
 }
