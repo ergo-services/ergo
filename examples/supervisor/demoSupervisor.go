@@ -39,7 +39,7 @@ func (ds *demoSup) Init(args ...interface{}) ergo.SupervisorSpec {
 			Type: ergo.SupervisorStrategyOneForAll,
 			// Type:      ergo.SupervisorStrategyRestForOne,
 			// Type:      ergo.SupervisorStrategyOneForOne,
-			Intensity: 10,
+			Intensity: 2,
 			Period:    5,
 		},
 	}

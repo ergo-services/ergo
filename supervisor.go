@@ -2,6 +2,8 @@ package ergonode
 
 import (
 	"errors"
+	"fmt"
+	"time"
 
 	"github.com/halturin/ergonode/etf"
 	"github.com/halturin/ergonode/lib"
@@ -102,6 +104,7 @@ type SupervisorBehavior interface {
 type SupervisorSpec struct {
 	Children []SupervisorChildSpec
 	Strategy SupervisorStrategy
+	restarts []int64
 }
 
 type SupervisorChildSpec struct {
@@ -125,7 +128,7 @@ func (sv *Supervisor) loop(p *Process, object interface{}, args ...interface{}) 
 
 	if spec.Strategy.Type != SupervisorStrategySimpleOneForOne {
 		p.children = make([]*Process, len(spec.Children))
-		sv.startChildren(p, spec.Children[:])
+		startChildren(p, &spec)
 	} else {
 		dynamicChildren = make(map[etf.Pid]SupervisorChildSpec)
 	}
@@ -176,7 +179,7 @@ func (sv *Supervisor) loop(p *Process, object interface{}, args ...interface{}) 
 
 					if len(waitTerminatingProcesses) == 0 {
 						// it was the last one. lets start again all terminated children
-						sv.startChildren(p, spec.Children[:])
+						startChildren(p, &spec)
 					}
 
 					continue
@@ -186,6 +189,10 @@ func (sv *Supervisor) loop(p *Process, object interface{}, args ...interface{}) 
 
 				case SupervisorStrategyOneForAll:
 					for i := range p.children {
+						if spec.Children[i].state != SupervisorChildStateRunning {
+							continue
+						}
+
 						if haveToDisableChild(spec.Children[i].Restart, reason) {
 							spec.Children[i].state = SupervisorChildStateDisabled
 						} else {
@@ -195,7 +202,7 @@ func (sv *Supervisor) loop(p *Process, object interface{}, args ...interface{}) 
 						if p.children[i].self == terminated {
 							if len(p.children) == i+1 && len(waitTerminatingProcesses) == 0 {
 								// it was the last one. nothing to waiting for
-								sv.startChildren(p, spec.Children[:])
+								startChildren(p, &spec)
 							}
 							continue
 						}
@@ -216,13 +223,13 @@ func (sv *Supervisor) loop(p *Process, object interface{}, args ...interface{}) 
 
 							if len(p.children) == i+1 && len(waitTerminatingProcesses) == 0 {
 								// it was the last one. nothing to waiting for
-								sv.startChildren(p, spec.Children[:])
+								startChildren(p, &spec)
 							}
 
 							continue
 						}
 
-						if isRest {
+						if isRest && spec.Children[i].state == SupervisorChildStateRunning {
 							p.children[i].Exit(p.Self(), "restart")
 							waitTerminatingProcesses = append(waitTerminatingProcesses, p.children[i].self)
 							if haveToDisableChild(spec.Children[i].Restart, reason) {
@@ -242,7 +249,7 @@ func (sv *Supervisor) loop(p *Process, object interface{}, args ...interface{}) 
 								spec.Children[i].state = SupervisorChildStateStart
 							}
 
-							sv.startChildren(p, spec.Children[:])
+							startChildren(p, &spec)
 							break
 						}
 					}
@@ -348,15 +355,26 @@ func (sv *Supervisor) StartChildWithSpec(parent Process, spec SupervisorChildSpe
 	}
 }
 
-func (sv *Supervisor) startChildren(parent *Process, specs []SupervisorChildSpec) {
-	for i := range specs {
-		if specs[i].state != SupervisorChildStateStart {
+func startChildren(parent *Process, spec *SupervisorSpec) {
+	spec.restarts = append(spec.restarts, time.Now().Unix())
+	if len(spec.restarts) > int(spec.Strategy.Intensity) {
+		period := time.Now().Unix() - spec.restarts[0]
+		if period <= int64(spec.Strategy.Period) {
+			fmt.Printf("ERROR: Restart intensity is exceeded (%d restarts for %d seconds)\n",
+				spec.Strategy.Intensity, spec.Strategy.Period)
+			parent.Kill()
+		}
+		spec.restarts = spec.restarts[1:]
+	}
+
+	for i := range spec.Children {
+		if spec.Children[i].state != SupervisorChildStateStart {
 			// its already running or has been disabled due to restart strategy
 			continue
 		}
 
-		specs[i].state = SupervisorChildStateRunning
-		process := startChild(parent, specs[i].Name, specs[i].Child, specs[i].Args...)
+		spec.Children[i].state = SupervisorChildStateRunning
+		process := startChild(parent, spec.Children[i].Name, spec.Children[i].Child, spec.Children[i].Args...)
 		parent.children[i] = process
 	}
 }
