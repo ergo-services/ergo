@@ -75,6 +75,10 @@ func (p *Process) Self() etf.Pid {
 	return p.self
 }
 
+func (p *Process) Name() string {
+	return p.name
+}
+
 func (p *Process) Call(to interface{}, message etf.Term) (etf.Term, error) {
 	return p.CallWithTimeout(to, message, DefaultCallTimeout)
 }

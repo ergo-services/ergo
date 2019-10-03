@@ -93,24 +93,24 @@ func TestSupervisorOneForAll(t *testing.T) {
 func (ts *testSupervisorOneForAll) Init(args ...interface{}) SupervisorSpec {
 	restart := args[0].(string)
 	return SupervisorSpec{
-		children: []SupervisorChildSpec{
+		Children: []SupervisorChildSpec{
 			SupervisorChildSpec{
-				name:    "testGS1",
-				child:   &testSupervisorGenServer{},
-				restart: restart,
+				Name:    "testGS1",
+				Child:   &testSupervisorGenServer{},
+				Restart: restart,
 			},
 			SupervisorChildSpec{
-				name:    "testGS2",
-				child:   &testSupervisorGenServer{},
-				restart: restart,
+				Name:    "testGS2",
+				Child:   &testSupervisorGenServer{},
+				Restart: restart,
 			},
 			SupervisorChildSpec{
-				name:    "testGS3",
-				child:   &testSupervisorGenServer{},
-				restart: restart,
+				Name:    "testGS3",
+				Child:   &testSupervisorGenServer{},
+				Restart: restart,
 			},
 		},
-		strategy: SupervisorStrategy{
+		Strategy: SupervisorStrategy{
 			Type:      SupervisorStrategyOneForAll,
 			Intensity: 10,
 			Period:    5,

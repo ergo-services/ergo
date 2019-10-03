@@ -13,24 +13,24 @@ type netKernelSup struct {
 
 func (nks *netKernelSup) Init(args ...interface{}) SupervisorSpec {
 	return SupervisorSpec{
-		children: []SupervisorChildSpec{
+		Children: []SupervisorChildSpec{
 			SupervisorChildSpec{
-				name:    "net_kernel",
-				child:   &netKernel{},
-				restart: SupervisorChildRestartPermanent,
+				Name:    "net_kernel",
+				Child:   &netKernel{},
+				Restart: SupervisorChildRestartPermanent,
 			},
 			SupervisorChildSpec{
-				name:    "global_name_server",
-				child:   &globalNameServer{},
-				restart: SupervisorChildRestartPermanent,
+				Name:    "global_name_server",
+				Child:   &globalNameServer{},
+				Restart: SupervisorChildRestartPermanent,
 			},
 			SupervisorChildSpec{
-				name:    "rex",
-				child:   &rex{},
-				restart: SupervisorChildRestartPermanent,
+				Name:    "rex",
+				Child:   &rex{},
+				Restart: SupervisorChildRestartPermanent,
 			},
 		},
-		strategy: SupervisorStrategy{
+		Strategy: SupervisorStrategy{
 			Type:      SupervisorStrategyOneForOne,
 			Intensity: 10,
 			Period:    5,

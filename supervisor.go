@@ -2,7 +2,6 @@ package ergonode
 
 import (
 	"errors"
-	"fmt"
 
 	"github.com/halturin/ergonode/etf"
 	"github.com/halturin/ergonode/lib"
@@ -101,16 +100,16 @@ type SupervisorBehavior interface {
 }
 
 type SupervisorSpec struct {
-	children []SupervisorChildSpec
-	strategy SupervisorStrategy
+	Children []SupervisorChildSpec
+	Strategy SupervisorStrategy
 }
 
 type SupervisorChildSpec struct {
-	name     string
-	child    interface{}
-	args     []interface{}
-	restart  SupervisorChildRestart
-	shutdown SupervisorChildShutdown
+	Name     string
+	Child    interface{}
+	Args     []interface{}
+	Restart  SupervisorChildRestart
+	Shutdown SupervisorChildShutdown
 	state    SupervisorChildState // for internal usage
 }
 
@@ -124,9 +123,9 @@ func (sv *Supervisor) loop(p *Process, object interface{}, args ...interface{}) 
 	lib.Log("Supervisor spec %#v\n", spec)
 	p.ready <- true
 
-	if spec.strategy.Type != SupervisorStrategySimpleOneForOne {
-		p.children = make([]*Process, len(spec.children))
-		sv.startChildren(p, spec.children[:])
+	if spec.Strategy.Type != SupervisorStrategySimpleOneForOne {
+		p.children = make([]*Process, len(spec.Children))
+		sv.startChildren(p, spec.Children[:])
 	} else {
 		dynamicChildren = make(map[etf.Pid]SupervisorChildSpec)
 	}
@@ -164,11 +163,8 @@ func (sv *Supervisor) loop(p *Process, object interface{}, args ...interface{}) 
 			switch m.Element(1) {
 
 			case etf.Atom("EXIT"):
-
 				terminated := m.Element(2).(etf.Pid)
 				reason := m.Element(3).(etf.Atom)
-
-				fmt.Println("CHILD TERMINATED:", p.name, terminated, "with reason:", reason, m)
 
 				if len(waitTerminatingProcesses) > 0 {
 
@@ -181,21 +177,21 @@ func (sv *Supervisor) loop(p *Process, object interface{}, args ...interface{}) 
 
 					if len(waitTerminatingProcesses) == 0 {
 						// it was the last one. lets restart all terminated children
-						sv.startChildren(p, spec.children[:])
+						sv.startChildren(p, spec.Children[:])
 					}
 
 					continue
 				}
 
-				switch spec.strategy.Type {
+				switch spec.Strategy.Type {
 
 				case SupervisorStrategyOneForAll:
 					for i := range p.children {
 						if p.children[i].self == terminated {
-							if haveToDisableChild(spec.children[i].restart, reason) {
-								spec.children[i].state = SupervisorChildStateDisabled
+							if haveToDisableChild(spec.Children[i].Restart, reason) {
+								spec.Children[i].state = SupervisorChildStateDisabled
 							} else {
-								spec.children[i].state = SupervisorChildStateStart
+								spec.Children[i].state = SupervisorChildStateStart
 							}
 
 							continue
@@ -209,10 +205,10 @@ func (sv *Supervisor) loop(p *Process, object interface{}, args ...interface{}) 
 					for i := range p.children {
 						if p.children[i].self == terminated {
 							isRest = true
-							if haveToDisableChild(spec.children[i].restart, reason) {
-								spec.children[i].state = SupervisorChildStateDisabled
+							if haveToDisableChild(spec.Children[i].Restart, reason) {
+								spec.Children[i].state = SupervisorChildStateDisabled
 							} else {
-								spec.children[i].state = SupervisorChildStateStart
+								spec.Children[i].state = SupervisorChildStateStart
 							}
 							continue
 						}
@@ -220,23 +216,24 @@ func (sv *Supervisor) loop(p *Process, object interface{}, args ...interface{}) 
 						if isRest {
 							p.children[i].Exit(p.Self(), "normal")
 							waitTerminatingProcesses = append(waitTerminatingProcesses, p.children[i].self)
-							spec.children[i].state = SupervisorChildStateStart
+							spec.Children[i].state = SupervisorChildStateStart
 						}
 					}
 
 				case SupervisorStrategyOneForOne:
 					for i := range p.children {
 						if p.children[i].self == terminated {
-							if haveToDisableChild(spec.children[i].restart, reason) {
-								spec.children[i].state = SupervisorChildStateDisabled
+							if haveToDisableChild(spec.Children[i].Restart, reason) {
+								spec.Children[i].state = SupervisorChildStateDisabled
 							} else {
-								spec.children[i].state = SupervisorChildStateStart
+								spec.Children[i].state = SupervisorChildStateStart
 							}
 
-							sv.startChildren(p, spec.children[:])
+							sv.startChildren(p, spec.Children[:])
 							break
 						}
 					}
+
 				case SupervisorStrategySimpleOneForOne:
 					for i := range p.children {
 						if p.children[i].self == terminated {
@@ -247,17 +244,18 @@ func (sv *Supervisor) loop(p *Process, object interface{}, args ...interface{}) 
 							if s, ok := dynamicChildren[terminated]; ok {
 								delete(dynamicChildren, terminated)
 
-								if haveToDisableChild(s.restart, reason) {
+								if haveToDisableChild(s.Restart, reason) {
 									// wont be restarted due to restart strategy
 									break
 								}
 
-								sv.StartChild(*p, s.name, s.args)
+								sv.StartChild(*p, s.Name, s.Args)
 							}
 							break
 						}
 					}
 				}
+
 			case etf.Atom("$startByName"):
 				var s *SupervisorChildSpec
 				// dynamically start child process
@@ -265,7 +263,7 @@ func (sv *Supervisor) loop(p *Process, object interface{}, args ...interface{}) 
 				args := m.Element(3)
 				reply := m.Element(4).(chan etf.Tuple)
 
-				s = lookupSpecByName(specName, spec.children[:])
+				s = lookupSpecByName(specName, spec.Children[:])
 				if s == nil {
 					reply <- etf.Tuple{etf.Atom("error"), "unknown_spec"}
 				}
@@ -283,9 +281,9 @@ func (sv *Supervisor) loop(p *Process, object interface{}, args ...interface{}) 
 				args := m.Element(3).([]interface{})
 				reply := m.Element(4).(chan etf.Tuple)
 
-				process := startChild(p, "", spec.child, args)
+				process := startChild(p, "", spec.Child, args)
 				p.children = append(p.children, process)
-				spec.args = args
+				spec.Args = args
 				dynamicChildren[process.self] = spec
 
 				reply <- etf.Tuple{etf.Atom("ok"), process.self}
@@ -299,8 +297,7 @@ func (sv *Supervisor) loop(p *Process, object interface{}, args ...interface{}) 
 	}
 }
 
-// StartChlid dynamically starts a child process with given name of child spec
-// which is defined by Init call.
+// StartChlid dynamically starts a child process with given name of child spec which is defined by Init call.
 func (sv *Supervisor) StartChild(parent Process, specName string, args ...interface{}) (etf.Pid, error) {
 	reply := make(chan etf.Tuple)
 	m := etf.Tuple{
@@ -347,7 +344,7 @@ func (sv *Supervisor) startChildren(parent *Process, specs []SupervisorChildSpec
 		}
 
 		specs[i].state = SupervisorChildStateRunning
-		process := startChild(parent, specs[i].name, specs[i].child, specs[i].args)
+		process := startChild(parent, specs[i].Name, specs[i].Child, specs[i].Args...)
 		parent.children[i] = process
 	}
 }
@@ -366,7 +363,6 @@ func startChild(parent *Process, name string, child interface{}, args ...interfa
 	process, err := parent.Node.Spawn(name, opts, child, args...)
 
 	if err != nil {
-		fmt.Printf("DDDDD %s\n", name)
 		panic(err)
 	}
 
@@ -392,7 +388,7 @@ func haveToDisableChild(restart SupervisorChildRestart, reason etf.Atom) bool {
 
 func lookupSpecByName(specName string, spec []SupervisorChildSpec) *SupervisorChildSpec {
 	for i := range spec {
-		if spec[i].name == specName {
+		if spec[i].Name == specName {
 			return &spec[i]
 		}
 	}

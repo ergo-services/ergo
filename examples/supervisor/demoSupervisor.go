@@ -3,17 +3,42 @@ package main
 import (
 	"flag"
 	"fmt"
-	"strconv"
-	"strings"
 
-	"github.com/halturin/ergonode"
+	ergo "github.com/halturin/ergonode"
 	"github.com/halturin/ergonode/etf"
 )
 
+type demoSup struct {
+	ergo.Supervisor
+}
+
+func (ds *demoSup) Init(args ...interface{}) ergo.SupervisorSpec {
+	return ergo.SupervisorSpec{
+		Children: []ergo.SupervisorChildSpec{
+			ergo.SupervisorChildSpec{
+				Name:    "demoServer01",
+				Child:   &demoGenServ{},
+				Restart: ergo.SupervisorChildRestartPermanent,
+			},
+			ergo.SupervisorChildSpec{
+				Name:    "demoServer02",
+				Child:   &demoGenServ{},
+				Restart: ergo.SupervisorChildRestartPermanent,
+				Args:    []interface{}{12345},
+			},
+		},
+		Strategy: ergo.SupervisorStrategy{
+			Type:      ergo.SupervisorStrategyOneForAll,
+			Intensity: 10,
+			Period:    5,
+		},
+	}
+}
+
 // GenServer implementation structure
 type demoGenServ struct {
-	ergonode.GenServer
-	process ergonode.Process
+	ergo.GenServer
+	process ergo.Process
 }
 
 type state struct {
@@ -21,12 +46,12 @@ type state struct {
 }
 
 var (
-	ServerName       string
+	GenServerName    string
 	NodeName         string
 	Cookie           string
 	err              error
-	ListenRangeBegin uint16
-	ListenRangeEnd   uint16 = 35000
+	ListenRangeBegin int
+	ListenRangeEnd   int = 35000
 	Listen           string
 	ListenEPMD       int
 
@@ -35,7 +60,8 @@ var (
 
 // Init initializes process state using arbitrary arguments
 // Init(...) -> state
-func (dgs *demoGenServ) Init(p ergonode.Process, args ...interface{}) interface{} {
+func (dgs *demoGenServ) Init(p ergo.Process, args ...interface{}) interface{} {
+	fmt.Printf("Init (%s): args %v \n", p.Name(), args)
 	dgs.process = p
 	return state{i: 12345}
 }
@@ -44,27 +70,12 @@ func (dgs *demoGenServ) Init(p ergonode.Process, args ...interface{}) interface{
 // HandleCast -> ("noreply", state) - noreply
 //		         ("stop", reason) - stop with reason
 func (dgs *demoGenServ) HandleCast(message etf.Term, state interface{}) (string, interface{}) {
-	fmt.Printf("HandleCast: %#v\n", message)
-	// Check type of message
-	switch req := (message).(type) {
-	case etf.Tuple:
-		if len(req) == 2 {
-			switch act := req[0].(type) {
-			case etf.Atom:
-				if string(act) == "ping" {
-					to := req.Element(2).(etf.Pid)
-					self := dgs.process.Self()
-					rep := etf.Term(etf.Tuple{etf.Atom("pong"), self})
-					dgs.process.Send(to, rep)
-				}
-			}
-		}
-	case etf.Atom:
-		if string(req) == "stop" {
-			return "stop", "reason: they asked"
-		}
+	fmt.Printf("HandleCast (%s): %#v\n", dgs.process.Name(), message)
+	switch message {
+	case etf.Atom("stop"):
+		return "stop", "they said"
 	}
-	return "ok", state
+	return "noreply", state
 }
 
 // HandleCall serves incoming messages sending via gen_server:call
@@ -72,136 +83,66 @@ func (dgs *demoGenServ) HandleCast(message etf.Term, state interface{}) (string,
 //				 ("noreply", _, state) - noreply
 //		         ("stop", reason, _) - normal stop
 func (dgs *demoGenServ) HandleCall(from etf.Tuple, message etf.Term, state interface{}) (string, etf.Term, interface{}) {
-	fmt.Printf("HandleCall: %#v, From: %#v\n", message, from)
+	fmt.Printf("HandleCall (%s): %#v, From: %#v\n", dgs.process.Name(), message, from)
 
-	code := "reply"
 	reply := etf.Term(etf.Tuple{etf.Atom("error"), etf.Atom("unknown_request")})
 
-	switch req := (message).(type) {
-	case etf.Atom:
-		switch string(req) {
-		case "pid":
-			reply = etf.Term(dgs.process.Self())
-		case "stop":
-			return "stop", "they said stop", state
-		}
-
-	case etf.Tuple:
-		var to, msg etf.Term
-		// {testcall, { {name, node}, message  }}
-		// {testcast, { {name, node}, message  }}
-		if len(req) == 2 {
-			act := req[0].(etf.Atom)
-			c := req[1].(etf.Tuple)
-
-			switch c[0].(type) {
-			case etf.Tuple:
-				switch ct := c[0].(type) {
-				case etf.Tuple:
-					if ct[0].(etf.Atom) == ct[1].(etf.Atom) {
-					}
-					to = etf.Term(c[0])
-				default:
-					return code, reply, state
-				}
-			case etf.Pid:
-				to = etf.Term(c[0])
-			default:
-				return code, reply, state
-			}
-
-			msg = c.Element(2)
-
-			if string(act) == "testcall" {
-				fmt.Printf("doing test call... %#v : %#v\n", to, msg)
-				if reply, err = dgs.process.Call(to, msg); err != nil {
-					fmt.Println(err.Error())
-				}
-			} else if string(act) == "testcast" {
-				fmt.Println("doing test cast...")
-				dgs.process.Cast(to, msg)
-			}
-
-		}
+	switch message {
+	case etf.Atom("hello"):
+		reply = etf.Term(etf.Atom("hi"))
 	}
-	return code, reply, state
+	return "reply", reply, state
 }
 
 // HandleInfo serves all another incoming messages (Pid ! message)
 // HandleInfo -> ("noreply", state) - noreply
 //		         ("stop", reason) - normal stop
 func (dgs *demoGenServ) HandleInfo(message etf.Term, state interface{}) (string, interface{}) {
-	fmt.Printf("HandleInfo: %#v\n", message)
+	fmt.Printf("HandleInfo (%s): %#v\n", dgs.process.Name(), message)
 	return "noreply", state
 }
 
 // Terminate called when process died
 func (dgs *demoGenServ) Terminate(reason string, state interface{}) {
-	fmt.Printf("Terminate: %#v\n", reason)
+	fmt.Printf("Terminate (%s): %#v\n", dgs.process.Name(), reason)
 }
 
 func init() {
-	flag.StringVar(&Listen, "listen", "15151-20151", "listen port range")
-	flag.StringVar(&ServerName, "gen_server", "example", "gen_server name")
-	flag.StringVar(&NodeName, "name", "examplenode@127.0.0.1", "node name")
+	flag.IntVar(&ListenRangeBegin, "listen_begin", 15151, "listen port range")
+	flag.IntVar(&ListenRangeEnd, "listen_end", 25151, "listen port range")
+	flag.StringVar(&GenServerName, "gen_server_name", "example", "gen_server name")
+	flag.StringVar(&NodeName, "name", "demo@127.0.0.1", "node name")
 	flag.IntVar(&ListenEPMD, "epmd", 4369, "EPMD port")
 	flag.StringVar(&Cookie, "cookie", "123", "cookie for interaction with erlang cluster")
-	flag.BoolVar(&EnableRPC, "rpc", false, "enable RPC")
-
 }
 
 func main() {
-
-	opts := ergonode.NodeOptions{}
-
 	flag.Parse()
 
-	// parse listen range port
-	l := strings.Split(Listen, "-")
-	switch len(l) {
-	case 1:
-		if i, err := strconv.ParseUint(l[0], 10, 16); err != nil {
-			panic(err)
-		} else {
-			opts.ListenRangeBegin = uint16(i)
-		}
-	case 2:
-		if i, err := strconv.ParseUint(l[0], 10, 16); err != nil {
-			panic(err)
-		} else {
-			opts.ListenRangeBegin = uint16(i)
-		}
-		if i, err := strconv.ParseUint(l[1], 10, 16); err != nil {
-			panic(err)
-		} else {
-			opts.ListenRangeEnd = uint16(i)
-		}
-	default:
-		panic("wrong port range arg")
+	opts := ergo.NodeOptions{
+		ListenRangeBegin: uint16(ListenRangeBegin),
+		ListenRangeEnd:   uint16(ListenRangeEnd),
+		EPMDPort:         uint16(ListenEPMD),
 	}
 
-	opts.EPMDPort = uint16(ListenEPMD)
-
 	// Initialize new node with given name, cookie, listening port range and epmd port
-	node := ergonode.CreateNode(NodeName, Cookie, opts)
+	node := ergo.CreateNode(NodeName, Cookie, opts)
 
-	// Initialize new instance of demoGenServ structure which implements Process behaviour
-	demoGS := new(demoGenServ)
+	// Spawn supervisor process
+	process, _ := node.Spawn("demo_sup", ergo.ProcessOptions{}, &demoSup{})
 
-	// Spawn process with one arguments
-	node.Spawn(ServerName, ergonode.ProcessOptions{}, demoGS)
 	fmt.Println("Run erl shell:")
 	fmt.Printf("erl -name %s -setcookie %s\n", "erl-"+node.FullName, Cookie)
 
 	fmt.Println("Allowed commands...")
-	fmt.Printf("gen_server:cast({%s,'%s'}, stop).\n", ServerName, NodeName)
-	fmt.Printf("gen_server:call({%s,'%s'}, pid).\n", ServerName, NodeName)
-	fmt.Printf("gen_server:cast({%s,'%s'}, {ping, self()}), flush().\n", ServerName, NodeName)
-	fmt.Println("make remote call by golang node...")
-	fmt.Printf("gen_server:call({%s,'%s'}, {testcall, {Pid, Message}}).\n", ServerName, NodeName)
-	fmt.Printf("gen_server:call({%s,'%s'}, {testcall, {{pname, remotenode}, Message}}).\n", ServerName, NodeName)
+	fmt.Printf("gen_server:cast({%s,'%s'}, stop).\n", "demoServer01", NodeName)
+	fmt.Printf("gen_server:call({%s,'%s'}, hello).\n", "demoServer01", NodeName)
+	fmt.Println("or...")
+	fmt.Printf("gen_server:cast({%s,'%s'}, stop).\n", "demoServer02", NodeName)
+	fmt.Printf("gen_server:call({%s,'%s'}, hello).\n", "demoServer02", NodeName)
+	select {
+	case <-process.Context.Done():
 
-	// Ctrl+C to stop it
-	select {}
-
+	}
+	node.Stop()
 }
