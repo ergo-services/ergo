@@ -34,6 +34,7 @@ var (
 // Init initializes process state using arbitrary arguments
 // Init(...) -> state
 func (dgs *demoGenServ) Init(p ergo.Process, args ...interface{}) interface{} {
+	fmt.Printf("Init: args %v \n", args)
 	dgs.process = p
 	return state{i: 12345}
 }
@@ -43,26 +44,7 @@ func (dgs *demoGenServ) Init(p ergo.Process, args ...interface{}) interface{} {
 //		         ("stop", reason) - stop with reason
 func (dgs *demoGenServ) HandleCast(message etf.Term, state interface{}) (string, interface{}) {
 	fmt.Printf("HandleCast: %#v\n", message)
-	// Check type of message
-	switch req := (message).(type) {
-	case etf.Tuple:
-		if len(req) == 2 {
-			switch act := req[0].(type) {
-			case etf.Atom:
-				if string(act) == "ping" {
-					to := req.Element(2).(etf.Pid)
-					self := dgs.process.Self()
-					rep := etf.Term(etf.Tuple{etf.Atom("pong"), self})
-					dgs.process.Send(to, rep)
-				}
-			}
-		}
-	case etf.Atom:
-		if string(req) == "stop" {
-			return "stop", "reason: they asked"
-		}
-	}
-	return "ok", state
+	return "noreply", state
 }
 
 // HandleCall serves incoming messages sending via gen_server:call
@@ -72,60 +54,18 @@ func (dgs *demoGenServ) HandleCast(message etf.Term, state interface{}) (string,
 func (dgs *demoGenServ) HandleCall(from etf.Tuple, message etf.Term, state interface{}) (string, etf.Term, interface{}) {
 	fmt.Printf("HandleCall: %#v, From: %#v\n", message, from)
 
-	code := "reply"
 	reply := etf.Term(etf.Tuple{etf.Atom("error"), etf.Atom("unknown_request")})
 
 	switch req := (message).(type) {
 	case etf.Atom:
 		switch string(req) {
-		case "pid":
-			reply = etf.Term(dgs.process.Self())
+		case "hello":
+			reply = etf.Term(etf.Atom("hi"))
 		case "stop":
 			return "stop", "they said stop", state
-		case "monitor":
-			dgs.process.MonitorProcess(from.Element(1).(etf.Pid))
-			reply = etf.Term(etf.Atom("ok"))
-		}
-
-	case etf.Tuple:
-		var to, msg etf.Term
-		// {testcall, { {name, node}, message  }}
-		// {testcast, { {name, node}, message  }}
-		if len(req) == 2 {
-			act := req[0].(etf.Atom)
-			c := req[1].(etf.Tuple)
-
-			switch c[0].(type) {
-			case etf.Tuple:
-				switch ct := c[0].(type) {
-				case etf.Tuple:
-					if ct[0].(etf.Atom) == ct[1].(etf.Atom) {
-					}
-					to = etf.Term(c[0])
-				default:
-					return code, reply, state
-				}
-			case etf.Pid:
-				to = etf.Term(c[0])
-			default:
-				return code, reply, state
-			}
-
-			msg = c.Element(2)
-
-			if string(act) == "testcall" {
-				fmt.Printf("doing test call... %#v : %#v\n", to, msg)
-				if reply, err = dgs.process.Call(to, msg); err != nil {
-					fmt.Println(err.Error())
-				}
-			} else if string(act) == "testcast" {
-				fmt.Println("doing test cast...")
-				dgs.process.Cast(to, msg)
-			}
-
 		}
 	}
-	return code, reply, state
+	return "reply", reply, state
 }
 
 // HandleInfo serves all another incoming messages (Pid ! message)
@@ -172,13 +112,8 @@ func main() {
 
 	fmt.Println("Allowed commands...")
 	fmt.Printf("gen_server:cast({%s,'%s'}, stop).\n", GenServerName, NodeName)
-	fmt.Printf("gen_server:call({%s,'%s'}, pid).\n", GenServerName, NodeName)
-	fmt.Printf("gen_server:cast({%s,'%s'}, {ping, self()}), flush().\n", GenServerName, NodeName)
-	fmt.Println("make remote call by golang node...")
-	fmt.Printf("gen_server:call({%s,'%s'}, {testcall, {Pid, Message}}).\n", GenServerName, NodeName)
-	fmt.Printf("gen_server:call({%s,'%s'}, {testcall, {{pname, remotenode}, Message}}).\n", GenServerName, NodeName)
+	fmt.Printf("gen_server:call({%s,'%s'}, hello).\n", GenServerName, NodeName)
 
-	// Ctrl+C to stop it
 	select {
 	case <-process.Context.Done():
 

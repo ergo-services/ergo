@@ -108,7 +108,7 @@ func (m *monitor) run() {
 			m.processes[p.process] = append(l, item)
 			m.ref2pid[key] = p.process
 
-			if string(p.process.Node) != m.node.FullName { // request monitor remote process
+			if !isFakePid(p.process) && string(p.process.Node) != m.node.FullName { // request monitor remote process
 				message := etf.Tuple{MONITOR, p.by, p.process, p.ref}
 				m.node.registrar.routeRaw(p.process.Node, message)
 			}
@@ -492,4 +492,11 @@ func fakeMonitorPidFromName(name string) etf.Pid {
 	fakePid.Serial = 4294967295   // 2^32 - 1
 	fakePid.Creation = 255        // 2^8 - 1
 	return fakePid
+}
+
+func isFakePid(pid etf.Pid) bool {
+	if pid.Id == 4294967295 && pid.Serial == 4294967295 && pid.Creation == 255 {
+		return true
+	}
+	return false
 }

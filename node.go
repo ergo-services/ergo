@@ -388,7 +388,6 @@ func (n *Node) connect(to etf.Atom) error {
 	var dialer = net.Dialer{
 		Control: setSocketOptions,
 	}
-
 	if port, err = n.ResolvePort(string(to)); port < 0 {
 		return fmt.Errorf("Can't resolve port: %s", err)
 	}

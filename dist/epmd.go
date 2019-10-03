@@ -119,7 +119,6 @@ func (e *EPMD) Init(ctx context.Context, name string, listenport uint16, epmdpor
 
 func (e *EPMD) ResolvePort(name string) (int, error) {
 	ns := strings.Split(name, "@")
-
 	conn, err := net.Dial("tcp", net.JoinHostPort(ns[1], fmt.Sprintf("%d", e.PortEMPD)))
 	if err != nil {
 		return -1, err

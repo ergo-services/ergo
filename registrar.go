@@ -209,7 +209,6 @@ func (r *registrar) run() {
 				}
 				continue
 			}
-
 			peer, ok := r.peers[string(bp.pid.Node)]
 			if !ok {
 				// initiate connection and make yet another attempt to deliver this message
@@ -223,7 +222,7 @@ func (r *registrar) run() {
 				}()
 				continue
 			}
-			peer.send <- []etf.Term{etf.Tuple{REG_SEND, bp.from, etf.Atom(""), bp.pid}, bp.message}
+			peer.send <- []etf.Term{etf.Tuple{SEND, bp.from, etf.Atom(""), bp.pid}, bp.message}
 
 		case bn := <-r.channels.routeByName:
 			lib.Log("[%s] sending message by name %v", r.node.FullName, bn.name)
@@ -270,7 +269,6 @@ func (r *registrar) run() {
 				// drop this message after 3 attempts of delivering
 				continue
 			}
-
 			peer, ok := r.peers[rw.nodename]
 			if !ok {
 				// initiate connection and make yet another attempt to deliver this message
@@ -416,7 +414,6 @@ func (r *registrar) GetProcessByName(name string) *Process {
 
 // route incomming message to registered process
 func (r *registrar) route(from etf.Pid, to etf.Term, message etf.Term) {
-
 	switch tto := to.(type) {
 	case etf.Pid:
 		req := routeByPidRequest{
