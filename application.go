@@ -55,17 +55,17 @@ type Application struct {
 	process Process
 }
 
-type requestSetEnv struct {
+type requestAppSetEnv struct {
 	name  string
 	value interface{}
 }
 
-type requestGetEnv struct {
+type requestAppGetEnv struct {
 	name  string
 	reply chan interface{}
 }
 
-type requsetListEnv struct {
+type requsetAppListEnv struct {
 	reply chan map[string]interface{}
 }
 
@@ -97,11 +97,11 @@ func (sv *Application) loop(p *Process, object interface{}, args ...interface{})
 				continue // ignore
 			}
 			switch r := msg[0].(type) {
-			case requestSetEnv:
+			case requestAppSetEnv:
 				env[r.name] = r.value
-			case requestGetEnv:
+			case requestAppGetEnv:
 				r.reply <- env[r.name]
-			case requsetListEnv:
+			case requsetAppListEnv:
 				// make a copy of the original env
 				newEnv := make(map[string]interface{})
 				for key, value := range env {

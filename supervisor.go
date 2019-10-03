@@ -64,9 +64,9 @@ const (
 	// than normal, shutdown, or {shutdown,Term}.
 	SupervisorChildRestartTransient = "transient"
 
-	SupervisorChildStateStart    = 0
-	SupervisorChildStateRunning  = 1
-	SupervisorChildStateDisabled = -1
+	supervisorChildStateStart    = 0
+	supervisorChildStateRunning  = 1
+	supervisorChildStateDisabled = -1
 
 	// shutdown defines how a child process must be terminated. (TODO: not implemented yet)
 
@@ -82,7 +82,7 @@ const (
 	SupervisorChildShutdownTimeout5sec = 5
 )
 
-type SupervisorChildState int
+type supervisorChildState int
 
 // SupervisorChildShutdown is an integer time-out value means that the supervisor tells
 // the child process to terminate by calling Stop method and then
@@ -113,7 +113,7 @@ type SupervisorChildSpec struct {
 	Args     []interface{}
 	Restart  SupervisorChildRestart
 	Shutdown SupervisorChildShutdown
-	state    SupervisorChildState // for internal usage
+	state    supervisorChildState // for internal usage
 }
 
 // Supervisor is implementation of ProcessBehavior interface
@@ -189,14 +189,14 @@ func (sv *Supervisor) loop(p *Process, object interface{}, args ...interface{}) 
 
 				case SupervisorStrategyOneForAll:
 					for i := range p.children {
-						if spec.Children[i].state != SupervisorChildStateRunning {
+						if spec.Children[i].state != supervisorChildStateRunning {
 							continue
 						}
 
 						if haveToDisableChild(spec.Children[i].Restart, reason) {
-							spec.Children[i].state = SupervisorChildStateDisabled
+							spec.Children[i].state = supervisorChildStateDisabled
 						} else {
-							spec.Children[i].state = SupervisorChildStateStart
+							spec.Children[i].state = supervisorChildStateStart
 						}
 
 						if p.children[i].self == terminated {
@@ -216,9 +216,9 @@ func (sv *Supervisor) loop(p *Process, object interface{}, args ...interface{}) 
 						if p.children[i].self == terminated {
 							isRest = true
 							if haveToDisableChild(spec.Children[i].Restart, reason) {
-								spec.Children[i].state = SupervisorChildStateDisabled
+								spec.Children[i].state = supervisorChildStateDisabled
 							} else {
-								spec.Children[i].state = SupervisorChildStateStart
+								spec.Children[i].state = supervisorChildStateStart
 							}
 
 							if len(p.children) == i+1 && len(waitTerminatingProcesses) == 0 {
@@ -229,13 +229,13 @@ func (sv *Supervisor) loop(p *Process, object interface{}, args ...interface{}) 
 							continue
 						}
 
-						if isRest && spec.Children[i].state == SupervisorChildStateRunning {
+						if isRest && spec.Children[i].state == supervisorChildStateRunning {
 							p.children[i].Exit(p.Self(), "restart")
 							waitTerminatingProcesses = append(waitTerminatingProcesses, p.children[i].self)
 							if haveToDisableChild(spec.Children[i].Restart, reason) {
-								spec.Children[i].state = SupervisorChildStateDisabled
+								spec.Children[i].state = supervisorChildStateDisabled
 							} else {
-								spec.Children[i].state = SupervisorChildStateStart
+								spec.Children[i].state = supervisorChildStateStart
 							}
 						}
 					}
@@ -244,9 +244,9 @@ func (sv *Supervisor) loop(p *Process, object interface{}, args ...interface{}) 
 					for i := range p.children {
 						if p.children[i].self == terminated {
 							if haveToDisableChild(spec.Children[i].Restart, reason) {
-								spec.Children[i].state = SupervisorChildStateDisabled
+								spec.Children[i].state = supervisorChildStateDisabled
 							} else {
-								spec.Children[i].state = SupervisorChildStateStart
+								spec.Children[i].state = supervisorChildStateStart
 							}
 
 							startChildren(p, &spec)
@@ -368,12 +368,12 @@ func startChildren(parent *Process, spec *SupervisorSpec) {
 	}
 
 	for i := range spec.Children {
-		if spec.Children[i].state != SupervisorChildStateStart {
+		if spec.Children[i].state != supervisorChildStateStart {
 			// its already running or has been disabled due to restart strategy
 			continue
 		}
 
-		spec.Children[i].state = SupervisorChildStateRunning
+		spec.Children[i].state = supervisorChildStateRunning
 		process := startChild(parent, spec.Children[i].Name, spec.Children[i].Child, spec.Children[i].Args...)
 		parent.children[i] = process
 	}
