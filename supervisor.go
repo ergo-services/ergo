@@ -196,8 +196,9 @@ func (sv *Supervisor) loop(p *Process, object interface{}, args ...interface{}) 
 
 							continue
 						}
-						p.children[i].Exit(p.Self(), "normal")
+						p.children[i].Exit(p.Self(), "restart")
 						waitTerminatingProcesses = append(waitTerminatingProcesses, p.children[i].self)
+						spec.Children[i].state = SupervisorChildStateStart
 					}
 
 				case SupervisorStrategyRestForOne:
@@ -214,7 +215,7 @@ func (sv *Supervisor) loop(p *Process, object interface{}, args ...interface{}) 
 						}
 
 						if isRest {
-							p.children[i].Exit(p.Self(), "normal")
+							p.children[i].Exit(p.Self(), "restart")
 							waitTerminatingProcesses = append(waitTerminatingProcesses, p.children[i].self)
 							spec.Children[i].state = SupervisorChildStateStart
 						}
@@ -336,7 +337,6 @@ func (sv *Supervisor) StartChildWithSpec(parent Process, spec SupervisorChildSpe
 }
 
 func (sv *Supervisor) startChildren(parent *Process, specs []SupervisorChildSpec) {
-
 	for i := range specs {
 		if specs[i].state != SupervisorChildStateStart {
 			// its already running or has been disabled due to restart strategy
