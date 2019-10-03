@@ -122,7 +122,7 @@ func (m *monitor) run() {
 				continue
 			}
 
-			if string(dp.process.Node) != m.node.FullName { // request demonitor remote process
+			if !isFakePid(dp.process) && string(dp.process.Node) != m.node.FullName { // request demonitor remote process
 				message := etf.Tuple{DEMONITOR, dp.by, dp.process, dp.ref}
 				m.node.registrar.routeRaw(dp.process.Node, message)
 			}

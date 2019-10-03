@@ -44,6 +44,10 @@ func (dgs *demoGenServ) Init(p ergo.Process, args ...interface{}) interface{} {
 //		         ("stop", reason) - stop with reason
 func (dgs *demoGenServ) HandleCast(message etf.Term, state interface{}) (string, interface{}) {
 	fmt.Printf("HandleCast: %#v\n", message)
+	switch message {
+	case etf.Atom("stop"):
+		return "stop", "they said"
+	}
 	return "noreply", state
 }
 
@@ -56,14 +60,9 @@ func (dgs *demoGenServ) HandleCall(from etf.Tuple, message etf.Term, state inter
 
 	reply := etf.Term(etf.Tuple{etf.Atom("error"), etf.Atom("unknown_request")})
 
-	switch req := (message).(type) {
-	case etf.Atom:
-		switch string(req) {
-		case "hello":
-			reply = etf.Term(etf.Atom("hi"))
-		case "stop":
-			return "stop", "they said stop", state
-		}
+	switch message {
+	case etf.Atom("hello"):
+		reply = etf.Term(etf.Atom("hi"))
 	}
 	return "reply", reply, state
 }

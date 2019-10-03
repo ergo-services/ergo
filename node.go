@@ -382,7 +382,6 @@ func (n *Node) MakeRef() (ref etf.Ref) {
 }
 
 func (n *Node) connect(to etf.Atom) error {
-
 	var port int
 	var err error
 	var dialer = net.Dialer{
