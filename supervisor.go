@@ -165,18 +165,17 @@ func (sv *Supervisor) loop(p *Process, object interface{}, args ...interface{}) 
 			case etf.Atom("EXIT"):
 				terminated := m.Element(2).(etf.Pid)
 				reason := m.Element(3).(etf.Atom)
-
 				if len(waitTerminatingProcesses) > 0 {
 
 					for i := range waitTerminatingProcesses {
 						if waitTerminatingProcesses[i] == terminated {
-							waitTerminatingProcesses[0] = waitTerminatingProcesses[i]
+							waitTerminatingProcesses[i] = waitTerminatingProcesses[0]
 							waitTerminatingProcesses = waitTerminatingProcesses[1:]
 						}
 					}
 
 					if len(waitTerminatingProcesses) == 0 {
-						// it was the last one. lets restart all terminated children
+						// it was the last one. lets start again all terminated children
 						sv.startChildren(p, spec.Children[:])
 					}
 
@@ -192,6 +191,11 @@ func (sv *Supervisor) loop(p *Process, object interface{}, args ...interface{}) 
 								spec.Children[i].state = SupervisorChildStateDisabled
 							} else {
 								spec.Children[i].state = SupervisorChildStateStart
+							}
+
+							if len(p.children) == i+1 && len(waitTerminatingProcesses) == 0 {
+								// it was the last one. nothing to waiting for
+								sv.startChildren(p, spec.Children[:])
 							}
 
 							continue
@@ -211,6 +215,12 @@ func (sv *Supervisor) loop(p *Process, object interface{}, args ...interface{}) 
 							} else {
 								spec.Children[i].state = SupervisorChildStateStart
 							}
+
+							if len(p.children) == i+1 && len(waitTerminatingProcesses) == 0 {
+								// it was the last one. nothing to waiting for
+								sv.startChildren(p, spec.Children[:])
+							}
+
 							continue
 						}
 

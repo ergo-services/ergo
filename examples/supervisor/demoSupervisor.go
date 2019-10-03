@@ -26,9 +26,17 @@ func (ds *demoSup) Init(args ...interface{}) ergo.SupervisorSpec {
 				Restart: ergo.SupervisorChildRestartPermanent,
 				Args:    []interface{}{12345},
 			},
+			ergo.SupervisorChildSpec{
+				Name:    "demoServer03",
+				Child:   &demoGenServ{},
+				Restart: ergo.SupervisorChildRestartPermanent,
+				Args:    []interface{}{"abc", 67890},
+			},
 		},
 		Strategy: ergo.SupervisorStrategy{
-			Type:      ergo.SupervisorStrategyOneForAll,
+			Type: ergo.SupervisorStrategyOneForAll,
+			// Type:      ergo.SupervisorStrategyRestForOne,
+			// Type:      ergo.SupervisorStrategyOneForOne,
 			Intensity: 10,
 			Period:    5,
 		},
@@ -140,6 +148,9 @@ func main() {
 	fmt.Println("or...")
 	fmt.Printf("gen_server:cast({%s,'%s'}, stop).\n", "demoServer02", NodeName)
 	fmt.Printf("gen_server:call({%s,'%s'}, hello).\n", "demoServer02", NodeName)
+	fmt.Println("or...")
+	fmt.Printf("gen_server:cast({%s,'%s'}, stop).\n", "demoServer03", NodeName)
+	fmt.Printf("gen_server:call({%s,'%s'}, hello).\n", "demoServer03", NodeName)
 	select {
 	case <-process.Context.Done():
 
