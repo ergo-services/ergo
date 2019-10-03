@@ -18,7 +18,9 @@ func (ds *demoSup) Init(args ...interface{}) ergo.SupervisorSpec {
 			ergo.SupervisorChildSpec{
 				Name:    "demoServer01",
 				Child:   &demoGenServ{},
-				Restart: ergo.SupervisorChildRestartPermanent,
+				Restart: ergo.SupervisorChildRestartTemporary,
+				// Restart: ergo.SupervisorChildRestartTransient,
+				// Restart: ergo.SupervisorChildRestartPermanent,
 			},
 			ergo.SupervisorChildSpec{
 				Name:    "demoServer02",

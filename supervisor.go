@@ -186,23 +186,21 @@ func (sv *Supervisor) loop(p *Process, object interface{}, args ...interface{}) 
 
 				case SupervisorStrategyOneForAll:
 					for i := range p.children {
-						if p.children[i].self == terminated {
-							if haveToDisableChild(spec.Children[i].Restart, reason) {
-								spec.Children[i].state = SupervisorChildStateDisabled
-							} else {
-								spec.Children[i].state = SupervisorChildStateStart
-							}
+						if haveToDisableChild(spec.Children[i].Restart, reason) {
+							spec.Children[i].state = SupervisorChildStateDisabled
+						} else {
+							spec.Children[i].state = SupervisorChildStateStart
+						}
 
+						if p.children[i].self == terminated {
 							if len(p.children) == i+1 && len(waitTerminatingProcesses) == 0 {
 								// it was the last one. nothing to waiting for
 								sv.startChildren(p, spec.Children[:])
 							}
-
 							continue
 						}
 						p.children[i].Exit(p.Self(), "restart")
 						waitTerminatingProcesses = append(waitTerminatingProcesses, p.children[i].self)
-						spec.Children[i].state = SupervisorChildStateStart
 					}
 
 				case SupervisorStrategyRestForOne:
@@ -227,7 +225,11 @@ func (sv *Supervisor) loop(p *Process, object interface{}, args ...interface{}) 
 						if isRest {
 							p.children[i].Exit(p.Self(), "restart")
 							waitTerminatingProcesses = append(waitTerminatingProcesses, p.children[i].self)
-							spec.Children[i].state = SupervisorChildStateStart
+							if haveToDisableChild(spec.Children[i].Restart, reason) {
+								spec.Children[i].state = SupervisorChildStateDisabled
+							} else {
+								spec.Children[i].state = SupervisorChildStateStart
+							}
 						}
 					}
 
@@ -249,7 +251,7 @@ func (sv *Supervisor) loop(p *Process, object interface{}, args ...interface{}) 
 					for i := range p.children {
 						if p.children[i].self == terminated {
 							// remove child from list
-							p.children[0] = p.children[i]
+							p.children[i] = p.children[0]
 							p.children = p.children[1:]
 
 							if s, ok := dynamicChildren[terminated]; ok {
