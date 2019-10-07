@@ -78,7 +78,6 @@ func (e *EPMD) Init(ctx context.Context, name string, listenport uint16, epmdpor
 		for {
 			// trying to start embedded EPMD before we go further
 			Server(ctx, epmdport)
-
 			dsn := net.JoinHostPort("", strconv.Itoa(int(epmdport)))
 			conn, err := net.Dial("tcp", dsn)
 			if err != nil {
@@ -192,12 +191,12 @@ type nodeinfo struct {
 	Extra     []byte
 }
 
-type epmdsrv struct {
+type embeddedEPMDserver struct {
 	portmap map[string]*nodeinfo
 	mtx     sync.RWMutex
 }
 
-func (e *epmdsrv) Join(name string, info *nodeinfo) bool {
+func (e *embeddedEPMDserver) Join(name string, info *nodeinfo) bool {
 
 	e.mtx.Lock()
 	defer e.mtx.Unlock()
@@ -211,7 +210,7 @@ func (e *epmdsrv) Join(name string, info *nodeinfo) bool {
 	return true
 }
 
-func (e *epmdsrv) Get(name string) *nodeinfo {
+func (e *embeddedEPMDserver) Get(name string) *nodeinfo {
 	e.mtx.RLock()
 	defer e.mtx.RUnlock()
 	if info, ok := e.portmap[name]; ok {
@@ -220,7 +219,7 @@ func (e *epmdsrv) Get(name string) *nodeinfo {
 	return nil
 }
 
-func (e *epmdsrv) Leave(name string) {
+func (e *embeddedEPMDserver) Leave(name string) {
 	lib.Log("EPMD unregistering node: '%s'", name)
 
 	e.mtx.Lock()
@@ -228,7 +227,7 @@ func (e *epmdsrv) Leave(name string) {
 	e.mtx.Unlock()
 }
 
-func (e *epmdsrv) ListAll() map[string]uint16 {
+func (e *embeddedEPMDserver) ListAll() map[string]uint16 {
 	e.mtx.Lock()
 	lst := make(map[string]uint16)
 	for k, v := range e.portmap {
@@ -238,14 +237,8 @@ func (e *epmdsrv) ListAll() map[string]uint16 {
 	return lst
 }
 
-var epmdserver *epmdsrv
-
 func Server(ctx context.Context, port uint16) error {
 
-	if epmdserver != nil {
-		// already started
-		return fmt.Errorf("Already started")
-	}
 	lc := net.ListenConfig{}
 	epmd, err := lc.Listen(ctx, "tcp", net.JoinHostPort("", strconv.Itoa(int(port))))
 	if err != nil {
@@ -254,7 +247,7 @@ func Server(ctx context.Context, port uint16) error {
 
 	}
 
-	epmdserver = &epmdsrv{
+	epmdServer := &embeddedEPMDserver{
 		portmap: make(map[string]*nodeinfo),
 	}
 
@@ -280,7 +273,7 @@ func Server(ctx context.Context, port uint16) error {
 					lib.Log("Request from EPMD client: %v", buf[:n])
 					if err != nil {
 						if name != "" {
-							epmdserver.Leave(name)
+							epmdServer.Leave(name)
 						}
 						return
 					}
@@ -291,7 +284,7 @@ func Server(ctx context.Context, port uint16) error {
 
 					switch buf[2] {
 					case EPMD_ALIVE2_REQ:
-						reply, registered := compose_ALIVE2_RESP(buf[3:n])
+						reply, registered := epmdServer.compose_ALIVE2_RESP(buf[3:n])
 						c.Write(reply)
 						if registered == "" {
 							return
@@ -304,10 +297,10 @@ func Server(ctx context.Context, port uint16) error {
 						}
 						continue
 					case EPMD_PORT_PLEASE2_REQ:
-						c.Write(compose_EPMD_PORT2_RESP(buf[3:n]))
+						c.Write(epmdServer.compose_EPMD_PORT2_RESP(buf[3:n]))
 						return
 					case EPMD_NAMES_REQ:
-						c.Write(compose_EPMD_NAMES_RESP(port, buf[3:n]))
+						c.Write(epmdServer.compose_EPMD_NAMES_RESP(port, buf[3:n]))
 						return
 					default:
 						lib.Log("unknown EPMD request")
@@ -323,7 +316,7 @@ func Server(ctx context.Context, port uint16) error {
 	return nil
 }
 
-func compose_ALIVE2_RESP(req []byte) ([]byte, string) {
+func (e *embeddedEPMDserver) compose_ALIVE2_RESP(req []byte) ([]byte, string) {
 
 	hidden := false //
 	if req[2] == 72 {
@@ -344,7 +337,7 @@ func compose_ALIVE2_RESP(req []byte) ([]byte, string) {
 	reply[0] = EPMD_ALIVE2_RESP
 
 	registered := ""
-	if epmdserver.Join(name, &info) {
+	if e.Join(name, &info) {
 		reply[1] = 0
 		registered = name
 	} else {
@@ -356,9 +349,9 @@ func compose_ALIVE2_RESP(req []byte) ([]byte, string) {
 	return reply, registered
 }
 
-func compose_EPMD_PORT2_RESP(req []byte) []byte {
+func (e *embeddedEPMDserver) compose_EPMD_PORT2_RESP(req []byte) []byte {
 	name := string(req)
-	info := epmdserver.Get(name)
+	info := e.Get(name)
 
 	if info == nil {
 		// not found
@@ -390,14 +383,14 @@ func compose_EPMD_PORT2_RESP(req []byte) []byte {
 	return reply
 }
 
-func compose_EPMD_NAMES_RESP(port uint16, req []byte) []byte {
+func (e *embeddedEPMDserver) compose_EPMD_NAMES_RESP(port uint16, req []byte) []byte {
 	// io:format("name ~ts at port ~p~n", [NodeName, Port]).
 	var str strings.Builder
 	var s string
 	var portbuf [4]byte
 	binary.BigEndian.PutUint32(portbuf[0:4], uint32(port))
 	str.WriteString(string(portbuf[0:]))
-	for h, p := range epmdserver.ListAll() {
+	for h, p := range e.ListAll() {
 		s = fmt.Sprintf("name %s at port %d\n", h, p)
 		str.WriteString(s)
 	}
