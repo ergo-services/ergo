@@ -35,36 +35,51 @@ type testSupervisorOneForOne struct {
 	Supervisor
 }
 
-type testSupervisorGenServer struct {
+type testSupervisorOneForOneGenServer struct {
 	GenServer
 	process Process
-	v       chan interface{}
+	ch      chan interface{}
 }
 
-func (tsv *testSupervisorGenServer) Init(p Process, args ...interface{}) (state interface{}) {
-	tsv.process = p
-	fmt.Printf("\ntestSupervisorGenServer ({%s, %s}): Init\n", tsv.process.name, tsv.process.Node.FullName)
-	// tsv.v <- p.Self()
+type testMessageStarted struct {
+	pid  etf.Pid
+	name string
+}
 
+type testMessageTerminated struct {
+	name string
+}
+
+func (tsv *testSupervisorOneForOneGenServer) Init(p Process, args ...interface{}) (state interface{}) {
+	tsv.process = p
+	tsv.ch = args[0].(chan interface{})
+	// fmt.Printf("\ntestSupervisorOneForOneGenServer ({%s, %s}): Init\n", tsv.process.name, tsv.process.Node.FullName)
+	tsv.ch <- testMessageStarted{
+		pid:  p.Self(),
+		name: p.Name(),
+	}
 	return nil
 }
-func (tsv *testSupervisorGenServer) HandleCast(message etf.Term, state interface{}) (string, interface{}) {
-	fmt.Printf("testSupervisorGenServer ({%s, %s}): HandleCast: %#v\n", tsv.process.name, tsv.process.Node.FullName, message)
+func (tsv *testSupervisorOneForOneGenServer) HandleCast(message etf.Term, state interface{}) (string, interface{}) {
+	fmt.Printf("testSupervisorOneForOneGenServer ({%s, %s}): HandleCast: %#v\n", tsv.process.name, tsv.process.Node.FullName, message)
 	// tsv.v <- message
 	return "stop", "test"
 	// return "noreply", state
 }
-func (tsv *testSupervisorGenServer) HandleCall(from etf.Tuple, message etf.Term, state interface{}) (string, etf.Term, interface{}) {
-	// fmt.Printf("testSupervisorGenServer ({%s, %s}): HandleCall: %#v, From: %#v\n", tsv.process.name, tsv.process.Node.FullName, message, from)
+func (tsv *testSupervisorOneForOneGenServer) HandleCall(from etf.Tuple, message etf.Term, state interface{}) (string, etf.Term, interface{}) {
+	// fmt.Printf("testSupervisorOneForOneGenServer ({%s, %s}): HandleCall: %#v, From: %#v\n", tsv.process.name, tsv.process.Node.FullName, message, from)
 	return "reply", message, state
 }
-func (tsv *testSupervisorGenServer) HandleInfo(message etf.Term, state interface{}) (string, interface{}) {
-	// fmt.Printf("testSupervisorGenServer ({%s, %s}): HandleInfo: %#v\n", tsv.process.name, tsv.process.Node.FullName, message)
+func (tsv *testSupervisorOneForOneGenServer) HandleInfo(message etf.Term, state interface{}) (string, interface{}) {
+	// fmt.Printf("testSupervisorOneForOneGenServer ({%s, %s}): HandleInfo: %#v\n", tsv.process.name, tsv.process.Node.FullName, message)
 	// tsv.v <- message
 	return "noreply", state
 }
-func (tsv *testSupervisorGenServer) Terminate(reason string, state interface{}) {
-	fmt.Printf("\ntestSupervisorGenServer ({%s, %s}): Terminate: %#v\n", tsv.process.name, tsv.process.Node.FullName, reason)
+func (tsv *testSupervisorOneForOneGenServer) Terminate(reason string, state interface{}) {
+	// fmt.Printf("\ntestSupervisorOneForOneGenServer ({%s, %s}): Terminate: %#v\n", tsv.process.name, tsv.process.Node.FullName, reason)
+	tsv.ch <- testMessageTerminated{
+		name: tsv.process.Name(),
+	}
 }
 
 func TestSupervisorOneForOne(t *testing.T) {
@@ -76,50 +91,91 @@ func TestSupervisorOneForOne(t *testing.T) {
 	} else {
 		fmt.Println("OK")
 	}
-
-	fmt.Printf("Starting supervisor 'testSupervisorPermanent' (%s)... ", SupervisorChildRestartPermanent)
 	sv := &testSupervisorOneForOne{}
-	processSV, _ := node.Spawn("testSupervisorPermanent", ProcessOptions{}, sv, SupervisorChildRestartPermanent)
-	fmt.Println("OK")
+	ch := make(chan interface{}, 3)
+	children := make(map[string]etf.Pid)
 
-	processSV.Cast(etf.Tuple{"testGS1", "nodeSvOneForOne@localhost"}, "ok")
-	time.Sleep(100 * time.Millisecond)
+	// test SupervisorChildRestartPermanent
+	fmt.Printf("Starting supervisor 'testSupervisorPermanent' (%s)... ", SupervisorChildRestartPermanent)
+	processSV, _ := node.Spawn("testSupervisorPermanent", ProcessOptions{}, sv, SupervisorChildRestartPermanent, ch)
+	if err := waitForStartSupervisor(ch, children); err != nil {
+		t.Fatal(err)
+	} else {
+		fmt.Println("OK")
+	}
 
-	processSV.Exit(etf.Pid{}, "normal")
-	time.Sleep(100 * time.Millisecond)
+	// do some tests
 
-	processSV, _ = node.Spawn("testSupervisorTransient", ProcessOptions{}, sv, SupervisorChildRestartTransient)
-	fmt.Printf("Started supervisor (%s): %v\n", SupervisorChildRestartTransient, processSV.Self())
+	fmt.Printf("Stopping supervisor 'testSupervisorPermanent' (%s)... ", SupervisorChildRestartPermanent)
+	processSV.Exit(processSV.Self(), "x")
+	if err := waitForStopSupervisor(ch, children); err != nil {
+		t.Fatal(err)
+	} else {
+		fmt.Println("OK")
+	}
 
-	processSV.Exit(etf.Pid{}, "normal")
-	time.Sleep(100 * time.Millisecond)
+	// test SupervisorChildRestartTransient
+	fmt.Printf("Starting supervisor 'testSupervisorTransient' (%s)... ", SupervisorChildRestartTransient)
+	processSV, _ = node.Spawn("testSupervisorTransient", ProcessOptions{}, sv, SupervisorChildRestartTransient, ch)
+	if err := waitForStartSupervisor(ch, children); err != nil {
+		t.Fatal(err)
+	} else {
+		fmt.Println("OK")
+	}
 
-	processSV, _ = node.Spawn("testSupervisorTemporary", ProcessOptions{}, sv, SupervisorChildRestartTemporary)
-	fmt.Printf("Started supervisor (%s): %v\n", SupervisorChildRestartTemporary, processSV.Self())
+	// do some tests
 
-	processSV.Exit(etf.Pid{}, "normal")
-	time.Sleep(100 * time.Millisecond)
+	fmt.Printf("Stopping supervisor 'testSupervisorTransient' (%s)... ", SupervisorChildRestartTransient)
+	processSV.Exit(processSV.Self(), "x")
+	if err := waitForStopSupervisor(ch, children); err != nil {
+		t.Fatal(err)
+	} else {
+		fmt.Println("OK")
+	}
+
+	// test SupervisorChildRestartTemporary
+	fmt.Printf("Starting supervisor 'testSupervisorTemporary' (%s)... ", SupervisorChildRestartTemporary)
+	processSV, _ = node.Spawn("testSupervisorTemporary", ProcessOptions{}, sv, SupervisorChildRestartTemporary, ch)
+	if err := waitForStartSupervisor(ch, children); err != nil {
+		t.Fatal(err)
+	} else {
+		fmt.Println("OK")
+	}
+
+	// do some tests
+
+	fmt.Printf("Stopping supervisor 'testSupervisorTemporary' (%s)... ", SupervisorChildRestartTemporary)
+	processSV.Exit(processSV.Self(), "x")
+	if err := waitForStopSupervisor(ch, children); err != nil {
+		t.Fatal(err)
+	} else {
+		fmt.Println("OK")
+	}
 
 }
 
 func (ts *testSupervisorOneForOne) Init(args ...interface{}) SupervisorSpec {
 	restart := args[0].(string)
+	ch := args[1].(chan interface{})
 	return SupervisorSpec{
 		Children: []SupervisorChildSpec{
 			SupervisorChildSpec{
 				Name:    "testGS1",
-				Child:   &testSupervisorGenServer{},
+				Child:   &testSupervisorOneForOneGenServer{},
 				Restart: restart,
+				Args:    []interface{}{ch},
 			},
 			SupervisorChildSpec{
 				Name:    "testGS2",
-				Child:   &testSupervisorGenServer{},
+				Child:   &testSupervisorOneForOneGenServer{},
 				Restart: restart,
+				Args:    []interface{}{ch},
 			},
 			SupervisorChildSpec{
 				Name:    "testGS3",
-				Child:   &testSupervisorGenServer{},
+				Child:   &testSupervisorOneForOneGenServer{},
 				Restart: restart,
+				Args:    []interface{}{ch},
 			},
 		},
 		Strategy: SupervisorStrategy{
@@ -128,4 +184,34 @@ func (ts *testSupervisorOneForOne) Init(args ...interface{}) SupervisorSpec {
 			Period:    5,
 		},
 	}
+}
+
+func waitForStopSupervisor(ch chan interface{}, children map[string]etf.Pid) error {
+	for i := 0; i < 3; i++ {
+		select {
+		case c := <-ch:
+			delete(children, c.(testMessageTerminated).name)
+		case <-time.After(100 * time.Millisecond):
+			return fmt.Errorf("stopping child timeout")
+		}
+	}
+	if len(children) != 0 {
+		fmt.Errorf("there are children that are not stopped: %v", children)
+	}
+	return nil
+}
+
+func waitForStartSupervisor(ch chan interface{}, children map[string]etf.Pid) error {
+	for i := 0; i < 3; i++ {
+		select {
+		case c := <-ch:
+			children[c.(testMessageStarted).name] = c.(testMessageStarted).pid
+		case <-time.After(100 * time.Millisecond):
+			return fmt.Errorf("starting child timeout")
+		}
+	}
+	if len(children) != 0 {
+		fmt.Errorf("there are children that are not stopped: %v", children)
+	}
+	return nil
 }

@@ -43,9 +43,8 @@ package ergonode
 import (
 	"fmt"
 	"testing"
-	"time"
-
-	"github.com/halturin/ergonode/etf"
+	// "time"
+	// "github.com/halturin/ergonode/etf"
 )
 
 type testSupervisorRestForOne struct {
@@ -62,55 +61,55 @@ func TestSupervisorRestForOne(t *testing.T) {
 		fmt.Println("OK")
 	}
 
-	fmt.Printf("Starting supervisor 'testSupervisorPermanent' (%s)... ", SupervisorChildRestartPermanent)
-	sv := &testSupervisorRestForOne{}
-	processSV, _ := node.Spawn("testSupervisorPermanent", ProcessOptions{}, sv, SupervisorChildRestartPermanent)
-	fmt.Println("OK")
+	// fmt.Printf("Starting supervisor 'testSupervisorPermanent' (%s)... ", SupervisorChildRestartPermanent)
+	// sv := &testSupervisorRestForOne{}
+	// processSV, _ := node.Spawn("testSupervisorPermanent", ProcessOptions{}, sv, SupervisorChildRestartPermanent)
+	// fmt.Println("OK")
 
-	processSV.Cast(etf.Tuple{"testGS2", "nodeSvRestForOne@localhost"}, "ok")
-	time.Sleep(5 * time.Second)
+	// processSV.Cast(etf.Tuple{"testGS2", "nodeSvRestForOne@localhost"}, "ok")
+	// time.Sleep(5 * time.Second)
 
-	processSV.Exit(etf.Pid{}, "normal")
-	time.Sleep(100 * time.Millisecond)
+	// processSV.Exit(etf.Pid{}, "normal")
+	// time.Sleep(100 * time.Millisecond)
 
-	processSV, _ = node.Spawn("testSupervisorTransient", ProcessOptions{}, sv, SupervisorChildRestartTransient)
-	fmt.Printf("Started supervisor (%s): %v\n", SupervisorChildRestartTransient, processSV.Self())
+	// processSV, _ = node.Spawn("testSupervisorTransient", ProcessOptions{}, sv, SupervisorChildRestartTransient)
+	// fmt.Printf("Started supervisor (%s): %v\n", SupervisorChildRestartTransient, processSV.Self())
 
-	processSV.Exit(etf.Pid{}, "normal")
-	time.Sleep(100 * time.Millisecond)
+	// processSV.Exit(etf.Pid{}, "normal")
+	// time.Sleep(100 * time.Millisecond)
 
-	processSV, _ = node.Spawn("testSupervisorTemporary", ProcessOptions{}, sv, SupervisorChildRestartTemporary)
-	fmt.Printf("Started supervisor (%s): %v\n", SupervisorChildRestartTemporary, processSV.Self())
+	// processSV, _ = node.Spawn("testSupervisorTemporary", ProcessOptions{}, sv, SupervisorChildRestartTemporary)
+	// fmt.Printf("Started supervisor (%s): %v\n", SupervisorChildRestartTemporary, processSV.Self())
 
-	processSV.Exit(etf.Pid{}, "normal")
-	time.Sleep(100 * time.Millisecond)
+	// processSV.Exit(etf.Pid{}, "normal")
+	// time.Sleep(100 * time.Millisecond)
 
 }
 
 func (ts *testSupervisorRestForOne) Init(args ...interface{}) SupervisorSpec {
-	restart := args[0].(string)
+	// restart := args[0].(string)
 	return SupervisorSpec{
-		Children: []SupervisorChildSpec{
-			SupervisorChildSpec{
-				Name:    "testGS1",
-				Child:   &testSupervisorGenServer{},
-				Restart: restart,
-			},
-			SupervisorChildSpec{
-				Name:    "testGS2",
-				Child:   &testSupervisorGenServer{},
-				Restart: restart,
-			},
-			SupervisorChildSpec{
-				Name:    "testGS3",
-				Child:   &testSupervisorGenServer{},
-				Restart: restart,
-			},
-		},
-		Strategy: SupervisorStrategy{
-			Type:      SupervisorStrategyRestForOne,
-			Intensity: 10,
-			Period:    5,
-		},
+		// Children: []SupervisorChildSpec{
+		// 	SupervisorChildSpec{
+		// 		Name:    "testGS1",
+		// 		Child:   &testSupervisorGenServer{},
+		// 		Restart: restart,
+		// 	},
+		// 	SupervisorChildSpec{
+		// 		Name:    "testGS2",
+		// 		Child:   &testSupervisorGenServer{},
+		// 		Restart: restart,
+		// 	},
+		// 	SupervisorChildSpec{
+		// 		Name:    "testGS3",
+		// 		Child:   &testSupervisorGenServer{},
+		// 		Restart: restart,
+		// 	},
+		// },
+		// Strategy: SupervisorStrategy{
+		// 	Type:      SupervisorStrategyRestForOne,
+		// 	Intensity: 10,
+		// 	Period:    5,
+		// },
 	}
 }
