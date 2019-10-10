@@ -250,35 +250,47 @@ func (n *Node) handleTerms(terms []etf.Term) {
 		case int:
 			switch act {
 			case REG_SEND:
+				// {6, FromPid, Unused, ToName}
 				if len(terms) == 2 {
 					n.registrar.route(t.Element(2).(etf.Pid), t.Element(4), terms[1])
 				} else {
 					lib.Log("*** ERROR: bad REG_SEND: %#v", terms)
 				}
+
 			case SEND:
+				// {2, Unused, ToPid}
 				// SEND has no sender pid
 				n.registrar.route(etf.Pid{}, t.Element(3), terms[1])
 
 			case LINK:
+				// {1, FromPid, ToPid}
 				lib.Log("LINK message (act %d): %#v", act, t)
 				n.monitor.Link(t.Element(2).(etf.Pid), t.Element(3).(etf.Pid))
+
 			case UNLINK:
+				// {4, FromPid, ToPid}
 				lib.Log("UNLINK message (act %d): %#v", act, t)
 				n.monitor.Unink(t.Element(2).(etf.Pid), t.Element(3).(etf.Pid))
+
 			case NODE_LINK:
 				lib.Log("NODE_LINK message (act %d): %#v", act, t)
+
 			case EXIT:
+				// {3, FromPid, ToPid, Reason}
 				lib.Log("EXIT message (act %d): %#v", act, t)
 				terminated := t.Element(2).(etf.Pid)
 				reason := t.Element(4).(etf.Atom)
 				n.monitor.ProcessTerminated(terminated, etf.Atom(""), string(reason))
+
 			case EXIT2:
 				lib.Log("EXIT2 message (act %d): %#v", act, t)
+
 			case MONITOR:
 				// {19, FromPid, ToProc, Ref}, where FromPid = monitoring process
 				// and ToProc = monitored process pid or name (atom)
 				lib.Log("MONITOR message (act %d): %#v", act, t)
 				n.monitor.MonitorProcessWithRef(t.Element(2).(etf.Pid), t.Element(3), t.Element(4).(etf.Ref))
+
 			case DEMONITOR:
 				// {20, FromPid, ToProc, Ref}, where FromPid = monitoring process
 				// and ToProc = monitored process pid or name (atom)
