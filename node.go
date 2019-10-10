@@ -256,9 +256,9 @@ func (n *Node) handleTerms(terms []etf.Term) {
 					lib.Log("*** ERROR: bad REG_SEND: %#v", terms)
 				}
 			case SEND:
-				n.registrar.route(t.Element(2).(etf.Pid), t.Element(3), terms[1])
+				// SEND has no sender pid
+				n.registrar.route(etf.Pid{}, t.Element(3), terms[1])
 
-			// Not implemented yet, just stubs. TODO.
 			case LINK:
 				lib.Log("LINK message (act %d): %#v", act, t)
 				n.monitor.Link(t.Element(2).(etf.Pid), t.Element(3).(etf.Pid))
