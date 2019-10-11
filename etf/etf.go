@@ -210,9 +210,9 @@ func termIntoStruct(term Term, destV reflect.Value) error {
 	case Map:
 		return setMapField(x, destV, destType)
 	case List:
-		return setListField(x, destV, destType)
+		return setListOrTupleField([]Term(x), destV, destType)
 	case Tuple:
-		return setTupleField(x, destV, destType)
+		return setListOrTupleField([]Term(x), destV, destType)
 	default:
 		return intSwitch(term, destV, destType)
 	}
@@ -261,37 +261,28 @@ func setStringField(s string, destV reflect.Value, destType reflect.Type) error 
 	return nil
 }
 
-func setListField(v List, field reflect.Value, t reflect.Type) error {
-	if t.Kind() != reflect.Slice {
+func setListOrTupleField(v []Term, field reflect.Value, t reflect.Type) error {
+	var value reflect.Value
+
+	switch {
+	case t.Kind() == reflect.Slice:
+		value = reflect.MakeSlice(t, len(v), len(v))
+	case t.Kind() == reflect.Array && t.Len() == len(v):
+		value = field
+	default:
 		return NewInvalidTypesError(t, v)
 	}
 
-	sliceV := reflect.MakeSlice(t, len(v), len(v))
 	for i, elem := range v {
-		sliceElement := sliceV.Index(i)
-		err := termIntoStruct(elem, sliceElement)
-		if err != nil {
+		if err := termIntoStruct(elem, value.Index(i)); err != nil {
 			return err
 		}
 	}
-	field.Set(sliceV)
-	return nil
-}
 
-func setTupleField(v Tuple, field reflect.Value, t reflect.Type) error {
-	if t.Kind() != reflect.Slice {
-		return NewInvalidTypesError(t, v)
+	if t.Kind() == reflect.Slice {
+		field.Set(value)
 	}
 
-	sliceV := reflect.MakeSlice(t, len(v), len(v))
-	for i, elem := range v {
-		sliceElement := sliceV.Index(i)
-		err := termIntoStruct(elem, sliceElement)
-		if err != nil {
-			return err
-		}
-	}
-	field.Set(sliceV)
 	return nil
 }
 

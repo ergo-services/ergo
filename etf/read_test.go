@@ -251,7 +251,7 @@ func TestReadInt(t *testing.T) {
 	// error (bad length)
 	for _, b := range []byte{97, 98, 110, 111} {
 		if _, err := c.Read(bytes.NewBuffer([]byte{b})); err == nil {
-			t.Error("err == nil (%d)", b)
+			t.Errorf("err == nil (%d)", b)
 		}
 	}
 
@@ -401,7 +401,7 @@ func TestReadString(t *testing.T) {
 	// error (bad length)
 	for _, b := range []byte{107, 108, 109} {
 		if _, err := c.Read(bytes.NewBuffer([]byte{b})); err == nil {
-			t.Error("err == nil (%d)", b)
+			t.Errorf("err == nil (%d)", b)
 		}
 	}
 }
