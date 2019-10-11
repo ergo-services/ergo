@@ -17,7 +17,7 @@ func TestWriteAtom(t *testing.T) {
 				t.Error(in, err)
 			}
 		} else if shouldFail {
-			t.Error("err == nil (%v)", in)
+			t.Errorf("err == nil (%v)", in)
 		} else if v, err := c.Read(w); err != nil {
 			t.Error(in, err)
 		} else if l := w.Len(); l != 0 {
@@ -183,7 +183,7 @@ func TestWriteString(t *testing.T) {
 				t.Error(in, err)
 			}
 		} else if shouldFail {
-			t.Error("err == nil (%v)", in)
+			t.Errorf("err == nil (%v)", in)
 		} else if v, err := c.Read(w); err != nil {
 			t.Error(in, err)
 		} else if l := w.Len(); l != 0 {
