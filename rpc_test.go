@@ -40,7 +40,7 @@ func (trpc *testRPCGenServer) Terminate(reason string, state interface{}) {
 func TestRPC(t *testing.T) {
 	fmt.Printf("\n== Test RPC\n")
 
-	node1 := CreateNode("node@localhost", "cookies", NodeOptions{})
+	node1 := CreateNode("nodeRPC@localhost", "cookies", NodeOptions{})
 	gs1 := &testRPCGenServer{}
 	node1gs1, _ := node1.Spawn("gs1", ProcessOptions{}, gs1, nil)
 
@@ -58,14 +58,14 @@ func TestRPC(t *testing.T) {
 	}
 
 	fmt.Printf("Call RPC method 'testMod.testFun' with 1 arg on %s: ", node1.FullName)
-	if v, e := node1gs1.CallRPC("node@localhost", "testMod", "testFun", 12345); e != nil || v != 12345 {
+	if v, e := node1gs1.CallRPC("nodeRPC@localhost", "testMod", "testFun", 12345); e != nil || v != 12345 {
 		message := fmt.Sprintf("%s %#v", e, v)
 		t.Fatal(message)
 	}
 	fmt.Println("OK")
 
 	fmt.Printf("Call RPC method 'testMod.testFun' with 3 arg on %s: ", node1.FullName)
-	if v, e := node1gs1.CallRPC("node@localhost", "testMod", "testFun", 12345, 5.678, node1gs1.Self()); e != nil || v != node1gs1.Self() {
+	if v, e := node1gs1.CallRPC("nodeRPC@localhost", "testMod", "testFun", 12345, 5.678, node1gs1.Self()); e != nil || v != node1gs1.Self() {
 		message := fmt.Sprintf("%s %#v", e, v)
 		t.Fatal(message)
 	}
@@ -88,7 +88,7 @@ func TestRPC(t *testing.T) {
 						etf.Atom("testMod"),
 						etf.Atom("testFun"),
 						etf.List{12345}, etf.List{}}}}}}
-	if v, e := node1gs1.CallRPC("node@localhost", "testMod", "testFun", 12345); e != nil {
+	if v, e := node1gs1.CallRPC("nodeRPC@localhost", "testMod", "testFun", 12345); e != nil {
 		message := fmt.Sprintf("%s %#v", e, v)
 		t.Fatal(message)
 	} else {
@@ -109,7 +109,7 @@ func TestRPC(t *testing.T) {
 						etf.Atom("xxx"),
 						etf.List{12345}, etf.List{}}}}}}
 
-	if v, e := node1gs1.CallRPC("node@localhost", "xxx", "xxx", 12345); e != nil {
+	if v, e := node1gs1.CallRPC("nodeRPC@localhost", "xxx", "xxx", 12345); e != nil {
 		message := fmt.Sprintf("%s %#v", e, v)
 		t.Fatal(message)
 	} else {
