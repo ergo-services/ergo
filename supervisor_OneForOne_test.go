@@ -273,8 +273,8 @@ func (ts *testSupervisorOneForOne) Init(args ...interface{}) SupervisorSpec {
 }
 
 func waitNeventsSupervisorChildren(ch chan interface{}, n int, children [3]etf.Pid) ([3]etf.Pid, error) {
-	// n - is the number events have to be waiting for
-	// start for-loop with 'n+1' to handle exceeded number of events we are waiting for
+	// n - number of events that have to be awaited
+	// start for-loop with 'n+1' to handle exceeded number of events
 	for i := 0; i < n+1; i++ {
 		select {
 		case c := <-ch:
