@@ -232,7 +232,7 @@ func (sv *Supervisor) loop(p *Process, object interface{}, args ...interface{}) 
 						if isRest && spec.Children[i].state == supervisorChildStateRunning {
 							p.children[i].Exit(p.Self(), "restart")
 							waitTerminatingProcesses = append(waitTerminatingProcesses, p.children[i].self)
-							if haveToDisableChild(spec.Children[i].Restart, reason) {
+							if haveToDisableChild(spec.Children[i].Restart, "restart") {
 								spec.Children[i].state = supervisorChildStateDisabled
 							} else {
 								spec.Children[i].state = supervisorChildStateStart

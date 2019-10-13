@@ -36,7 +36,7 @@ type testSupervisorOneForOne struct {
 	ch chan interface{}
 }
 
-type testSupervisorOneForOneGenServer struct {
+type testSupervisorGenServer struct {
 	GenServer
 	process Process
 	ch      chan interface{}
@@ -54,11 +54,11 @@ type testMessageTerminated struct {
 	order int
 }
 
-func (tsv *testSupervisorOneForOneGenServer) Init(p Process, args ...interface{}) (state interface{}) {
+func (tsv *testSupervisorGenServer) Init(p Process, args ...interface{}) (state interface{}) {
 	tsv.process = p
 	tsv.ch = args[0].(chan interface{})
 	tsv.order = args[1].(int)
-	// fmt.Printf("\ntestSupervisorOneForOneGenServer ({%s, %s}): Init\n", tsv.process.name, tsv.process.Node.FullName)
+	// fmt.Printf("\ntestSupervisorGenServer ({%s, %s}): Init\n", tsv.process.name, tsv.process.Node.FullName)
 	tsv.ch <- testMessageStarted{
 		pid:   p.Self(),
 		name:  p.Name(),
@@ -66,23 +66,23 @@ func (tsv *testSupervisorOneForOneGenServer) Init(p Process, args ...interface{}
 	}
 	return nil
 }
-func (tsv *testSupervisorOneForOneGenServer) HandleCast(message etf.Term, state interface{}) (string, interface{}) {
-	// fmt.Printf("testSupervisorOneForOneGenServer ({%s, %s}): HandleCast: %#v\n", tsv.process.name, tsv.process.Node.FullName, message)
+func (tsv *testSupervisorGenServer) HandleCast(message etf.Term, state interface{}) (string, interface{}) {
+	// fmt.Printf("testSupervisorGenServer ({%s, %s}): HandleCast: %#v\n", tsv.process.name, tsv.process.Node.FullName, message)
 	// tsv.v <- message
 	return "stop", message
 	// return "noreply", state
 }
-func (tsv *testSupervisorOneForOneGenServer) HandleCall(from etf.Tuple, message etf.Term, state interface{}) (string, etf.Term, interface{}) {
-	// fmt.Printf("testSupervisorOneForOneGenServer ({%s, %s}): HandleCall: %#v, From: %#v\n", tsv.process.name, tsv.process.Node.FullName, message, from)
+func (tsv *testSupervisorGenServer) HandleCall(from etf.Tuple, message etf.Term, state interface{}) (string, etf.Term, interface{}) {
+	// fmt.Printf("testSupervisorGenServer ({%s, %s}): HandleCall: %#v, From: %#v\n", tsv.process.name, tsv.process.Node.FullName, message, from)
 	return "reply", message, state
 }
-func (tsv *testSupervisorOneForOneGenServer) HandleInfo(message etf.Term, state interface{}) (string, interface{}) {
-	// fmt.Printf("testSupervisorOneForOneGenServer ({%s, %s}): HandleInfo: %#v\n", tsv.process.name, tsv.process.Node.FullName, message)
+func (tsv *testSupervisorGenServer) HandleInfo(message etf.Term, state interface{}) (string, interface{}) {
+	// fmt.Printf("testSupervisorGenServer ({%s, %s}): HandleInfo: %#v\n", tsv.process.name, tsv.process.Node.FullName, message)
 	// tsv.v <- message
 	return "noreply", state
 }
-func (tsv *testSupervisorOneForOneGenServer) Terminate(reason string, state interface{}) {
-	// fmt.Printf("\ntestSupervisorOneForOneGenServer ({%s, %s}): Terminate: %#v\n", tsv.process.name, tsv.process.Node.FullName, reason)
+func (tsv *testSupervisorGenServer) Terminate(reason string, state interface{}) {
+	fmt.Printf("\ntestSupervisorGenServer ({%s, %s}): Terminate: %#v\n", tsv.process.name, tsv.process.Node.FullName, reason)
 	tsv.ch <- testMessageTerminated{
 		name:  tsv.process.Name(),
 		order: tsv.order,
@@ -102,6 +102,7 @@ func TestSupervisorOneForOne(t *testing.T) {
 		fmt.Println("OK")
 	}
 
+	// ===================================================================================================
 	// test SupervisorChildRestartPermanent
 	fmt.Printf("Starting supervisor 'testSupervisorPermanent' (%s)... ", SupervisorChildRestartPermanent)
 	sv := &testSupervisorOneForOne{
@@ -247,19 +248,19 @@ func (ts *testSupervisorOneForOne) Init(args ...interface{}) SupervisorSpec {
 		Children: []SupervisorChildSpec{
 			SupervisorChildSpec{
 				Name:    "testGS1",
-				Child:   &testSupervisorOneForOneGenServer{},
+				Child:   &testSupervisorGenServer{},
 				Restart: restart,
 				Args:    []interface{}{ch, 0},
 			},
 			SupervisorChildSpec{
 				Name:    "testGS2",
-				Child:   &testSupervisorOneForOneGenServer{},
+				Child:   &testSupervisorGenServer{},
 				Restart: restart,
 				Args:    []interface{}{ch, 1},
 			},
 			SupervisorChildSpec{
 				Name:    "testGS3",
-				Child:   &testSupervisorOneForOneGenServer{},
+				Child:   &testSupervisorGenServer{},
 				Restart: restart,
 				Args:    []interface{}{ch, 2},
 			},
@@ -280,8 +281,10 @@ func waitNeventsSupervisorChildren(ch chan interface{}, n int, children [3]etf.P
 		case c := <-ch:
 			switch child := c.(type) {
 			case testMessageTerminated:
+				fmt.Println("TERM", child)
 				children[child.order] = etf.Pid{} // set empty pid
 			case testMessageStarted:
+				fmt.Println("START", child)
 				children[child.order] = child.pid
 			}
 
@@ -290,7 +293,7 @@ func waitNeventsSupervisorChildren(ch chan interface{}, n int, children [3]etf.P
 				return children, nil
 			}
 			if i < n {
-				return children, fmt.Errorf("expected %d events, but got %d. timeout", n, i)
+				return children, fmt.Errorf("expected %d events, but got %d. timeout", n, i+1)
 			}
 
 		}
