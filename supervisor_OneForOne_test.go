@@ -115,7 +115,7 @@ func TestSupervisorOneForOne(t *testing.T) {
 		fmt.Println("OK")
 	}
 
-	fmt.Printf("  stopping children with 'normal' reason and waiting for their starting ... ")
+	fmt.Printf("... stopping children with 'normal' reason and waiting for their starting ... ")
 	for i := range children {
 		processSV.Cast(children[i], "normal") // stopping child
 	}
@@ -162,7 +162,7 @@ func TestSupervisorOneForOne(t *testing.T) {
 	} else {
 		fmt.Println("OK")
 	}
-	fmt.Printf("  stopping children with 'abnormal' reason and waiting for their starting ... ")
+	fmt.Printf("... stopping children with 'abnormal' reason and waiting for their starting ... ")
 	for i := range children {
 		processSV.Cast(children[i], "abnormal") // stopping child
 	}
@@ -180,7 +180,7 @@ func TestSupervisorOneForOne(t *testing.T) {
 		}
 	}
 
-	fmt.Printf("  stopping children with 'normal' reason and they are haven't be restarted ... ")
+	fmt.Printf("... stopping children with 'normal' reason and they are haven't be restarted ... ")
 	for i := range children {
 		processSV.Cast(children[i], "normal") // stopping child
 	}
@@ -217,7 +217,7 @@ func TestSupervisorOneForOne(t *testing.T) {
 		fmt.Println("OK")
 	}
 
-	fmt.Printf("  stopping children with 'normal', 'abnornal','shutdown' reasons and they are haven't be restarted ... ")
+	fmt.Printf("... stopping children with 'normal', 'abnornal','shutdown' reasons and they are haven't be restarted ... ")
 	processSV.Cast(children[0], "normal")   // stopping child
 	processSV.Cast(children[1], "abnormal") // stopping child
 	processSV.Cast(children[2], "shutdown") // stopping child
