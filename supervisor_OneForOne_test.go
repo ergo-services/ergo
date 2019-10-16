@@ -82,7 +82,7 @@ func (tsv *testSupervisorGenServer) HandleInfo(message etf.Term, state interface
 	return "noreply", state
 }
 func (tsv *testSupervisorGenServer) Terminate(reason string, state interface{}) {
-	// fmt.Printf("\ntestSupervisorGenServer ({%s, %s}): Terminate: %#v\n", tsv.process.name, tsv.process.Node.FullName, reason)
+	fmt.Printf("\ntestSupervisorGenServer ({%s, %s}): Terminate: %#v\n", tsv.process.name, tsv.process.Node.FullName, reason)
 	tsv.ch <- testMessageTerminated{
 		name:  tsv.process.Name(),
 		order: tsv.order,
@@ -288,12 +288,12 @@ func waitNeventsSupervisorChildren(ch chan interface{}, n int, children [3]etf.P
 				children[child.order] = child.pid
 			}
 
-		case <-time.After(100 * time.Millisecond):
+		case <-time.After(200 * time.Millisecond):
 			if i == n {
 				return children, nil
 			}
 			if i < n {
-				return children, fmt.Errorf("expected %d events, but got %d. timeout", n, i+1)
+				return children, fmt.Errorf("expected %d events, but got %d. timeout", n, i)
 			}
 
 		}

@@ -142,9 +142,13 @@ func (sv *Supervisor) loop(p *Process, object interface{}, args ...interface{}) 
 
 		select {
 		case ex := <-p.gracefulExit:
-			for i := range p.children {
+			fmt.Println("GRACE--", p.children, len(p.children))
+			i := 0
+			for i = range p.children {
+				fmt.Println("GRACE", p.children[i].Self())
 				p.children[i].Exit(p.Self(), ex.reason)
 			}
+			fmt.Println("GRACE++", i)
 			return ex.reason
 
 		case msg := <-p.mailBox:
@@ -193,18 +197,24 @@ func (sv *Supervisor) loop(p *Process, object interface{}, args ...interface{}) 
 							continue
 						}
 
-						if haveToDisableChild(spec.Children[i].Restart, reason) {
-							spec.Children[i].state = supervisorChildStateDisabled
-						} else {
-							spec.Children[i].state = supervisorChildStateStart
-						}
-
 						if p.children[i].self == terminated {
+							if haveToDisableChild(spec.Children[i].Restart, reason) {
+								spec.Children[i].state = supervisorChildStateDisabled
+							} else {
+								spec.Children[i].state = supervisorChildStateStart
+							}
+
 							if len(p.children) == i+1 && len(waitTerminatingProcesses) == 0 {
 								// it was the last one. nothing to waiting for
 								startChildren(p, &spec)
 							}
 							continue
+						}
+
+						if haveToDisableChild(spec.Children[i].Restart, "restart") {
+							spec.Children[i].state = supervisorChildStateDisabled
+						} else {
+							spec.Children[i].state = supervisorChildStateStart
 						}
 						p.children[i].Exit(p.Self(), "restart")
 						waitTerminatingProcesses = append(waitTerminatingProcesses, p.children[i].self)
@@ -363,19 +373,24 @@ func startChildren(parent *Process, spec *SupervisorSpec) {
 			fmt.Printf("ERROR: Restart intensity is exceeded (%d restarts for %d seconds)\n",
 				spec.Strategy.Intensity, spec.Strategy.Period)
 			parent.Kill()
+			return
 		}
 		spec.restarts = spec.restarts[1:]
 	}
 
 	for i := range spec.Children {
-		if spec.Children[i].state != supervisorChildStateStart {
-			// its already running or has been disabled due to restart strategy
+		switch spec.Children[i].state {
+		case supervisorChildStateDisabled:
+			parent.children[i] = nil
+		case supervisorChildStateRunning:
 			continue
+		case supervisorChildStateStart:
+			spec.Children[i].state = supervisorChildStateRunning
+			process := startChild(parent, spec.Children[i].Name, spec.Children[i].Child, spec.Children[i].Args...)
+			parent.children[i] = process
+		default:
+			fmt.Println("GGGGGGGGGG", spec.Children[i].state)
 		}
-
-		spec.Children[i].state = supervisorChildStateRunning
-		process := startChild(parent, spec.Children[i].Name, spec.Children[i].Child, spec.Children[i].Args...)
-		parent.children[i] = process
 	}
 }
 
