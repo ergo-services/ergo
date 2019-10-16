@@ -54,6 +54,12 @@ type testSupervisorOneForAll struct {
 	ch chan interface{}
 }
 
+type ChildrenTestCase struct {
+	reason   string
+	statuses []string
+	events   int
+}
+
 func TestSupervisorOneForAll(t *testing.T) {
 	var children [3]etf.Pid
 	var err error
@@ -81,51 +87,38 @@ func TestSupervisorOneForAll(t *testing.T) {
 		fmt.Println("OK")
 	}
 
-	fmt.Printf("... stopping child 1 with 'normal' reason and waiting for restarting all of them ... ")
-	processSV.Cast(children[0], "normal") // stopping child
-
-	if children1, err := waitNeventsSupervisorChildren(sv.ch, 6, children); err != nil { // waiting for 3 terminates and 3 starts
-		t.Fatal(err)
-	} else {
-		statuses := []string{"new", "new", "new"}
-		if checkExpectedChildrenStatus(children, children1, statuses) {
-			fmt.Println("OK")
-			children = children1
-		} else {
-			e := fmt.Errorf("got something else except we expected (%v). old: %v new: %v", statuses, children, children1)
-			t.Fatal(e)
-		}
+	// testing permanent
+	testCases := []ChildrenTestCase{
+		ChildrenTestCase{
+			reason:   "normal",
+			statuses: []string{"new", "new", "new"},
+			events:   6, // waiting for 3 terminates and 3 starts
+		},
+		ChildrenTestCase{
+			reason:   "abnormal",
+			statuses: []string{"new", "new", "new"},
+			events:   6,
+		},
+		ChildrenTestCase{
+			reason:   "shutdown",
+			statuses: []string{"new", "new", "new"},
+			events:   6,
+		},
 	}
+	for i := range children {
+		fmt.Printf("... stopping child %d with 'normal' reason and waiting for restarting all of them ... ", i+1)
+		processSV.Cast(children[i], testCases[i].reason) // stopping child
 
-	fmt.Printf("... stopping child 2 with 'normal' reason and waiting for restarting all of them ... ")
-	processSV.Cast(children[1], "normal") // stopping child
-
-	if children1, err := waitNeventsSupervisorChildren(sv.ch, 6, children); err != nil { // waiting for 3 terminates and 3 starts
-		t.Fatal(err)
-	} else {
-		statuses := []string{"new", "new", "new"}
-		if checkExpectedChildrenStatus(children, children1, statuses) {
-			fmt.Println("OK")
-			children = children1
+		if children1, err := waitNeventsSupervisorChildren(sv.ch, testCases[i].events, children); err != nil {
+			t.Fatal(err)
 		} else {
-			e := fmt.Errorf("got something else except we expected (%v). old: %v new: %v", statuses, children, children1)
-			t.Fatal(e)
-		}
-	}
-
-	fmt.Printf("... stopping child 3 with 'normal' reason and waiting for restarting all of them ... ")
-	processSV.Cast(children[2], "normal") // stopping child
-
-	if children1, err := waitNeventsSupervisorChildren(sv.ch, 6, children); err != nil { // waiting for 3 terminates and 3 starts
-		t.Fatal(err)
-	} else {
-		statuses := []string{"new", "new", "new"}
-		if checkExpectedChildrenStatus(children, children1, statuses) {
-			fmt.Println("OK")
-			children = children1
-		} else {
-			e := fmt.Errorf("got something else except we expected (%v). old: %v new: %v", statuses, children, children1)
-			t.Fatal(e)
+			if checkExpectedChildrenStatus(children, children1, testCases[i].statuses) {
+				fmt.Println("OK")
+				children = children1
+			} else {
+				e := fmt.Errorf("got something else except we expected (%v). old: %v new: %v", testCases[i].statuses, children, children1)
+				t.Fatal(e)
+			}
 		}
 	}
 
@@ -158,38 +151,40 @@ func TestSupervisorOneForAll(t *testing.T) {
 		fmt.Println("OK")
 	}
 
-	fmt.Printf("... stopping child 1 with 'abnormal' reason and waiting for restarting all of them ... ")
-	processSV.Cast(children[0], "abnormal") // stopping child
+	// testing transient
+	testCases = []ChildrenTestCase{
+		ChildrenTestCase{
+			reason:   "normal",
+			statuses: []string{"empty", "new", "new"},
+			events:   5, // waiting for 3 terminates and 2 starts
+		},
+		ChildrenTestCase{
+			reason:   "abnormal",
+			statuses: []string{"empty", "new", "new"},
+			events:   4, // waiting for 2 terminates and 2 starts
+		},
+		ChildrenTestCase{
+			reason:   "shutdown",
+			statuses: []string{"empty", "new", "empty"},
+			events:   3,
+		},
+	}
+	for i := range children {
+		fmt.Printf("... stopping child %d with 'normal' reason and waiting for restarting all of them ... ", i+1)
+		processSV.Cast(children[i], testCases[i].reason) // stopping child
 
-	if children1, err := waitNeventsSupervisorChildren(sv.ch, 6, children); err != nil { // waiting for 3 terminates and 3 starts
-		t.Fatal(err)
-	} else {
-		statuses := []string{"new", "new", "new"}
-		if checkExpectedChildrenStatus(children, children1, statuses) {
-			fmt.Println("OK")
-			children = children1
+		if children1, err := waitNeventsSupervisorChildren(sv.ch, testCases[i].events, children); err != nil {
+			t.Fatal(err)
 		} else {
-			e := fmt.Errorf("got something else except we expected (%v). old: %v new: %v", statuses, children, children1)
-			t.Fatal(e)
+			if checkExpectedChildrenStatus(children, children1, testCases[i].statuses) {
+				fmt.Println("OK")
+				children = children1
+			} else {
+				e := fmt.Errorf("got something else except we expected (%v). old: %v new: %v", testCases[i].statuses, children, children1)
+				t.Fatal(e)
+			}
 		}
 	}
-
-	fmt.Printf("... stopping child 1 with 'normal' reason and waiting for restarting children 2,3 ... ")
-	processSV.Cast(children[0], "normal") // stopping child
-
-	if children1, err := waitNeventsSupervisorChildren(sv.ch, 5, children); err != nil { // waiting for 3 terminates and 2 starts
-		t.Fatal(err)
-	} else {
-		statuses := []string{"empty", "new", "new"}
-		if checkExpectedChildrenStatus(children, children1, statuses) {
-			fmt.Println("OK")
-			children = children1
-		} else {
-			e := fmt.Errorf("got something else except we expected (%v). old: %v new: %v", statuses, children, children1)
-			t.Fatal(e)
-		}
-	}
-
 }
 
 func (ts *testSupervisorOneForAll) Init(args ...interface{}) SupervisorSpec {

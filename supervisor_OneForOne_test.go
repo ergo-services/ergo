@@ -82,7 +82,7 @@ func (tsv *testSupervisorGenServer) HandleInfo(message etf.Term, state interface
 	return "noreply", state
 }
 func (tsv *testSupervisorGenServer) Terminate(reason string, state interface{}) {
-	fmt.Printf("\ntestSupervisorGenServer ({%s, %s}): Terminate: %#v\n", tsv.process.name, tsv.process.Node.FullName, reason)
+	// fmt.Printf("\ntestSupervisorGenServer ({%s, %s}): Terminate: %#v\n", tsv.process.name, tsv.process.Node.FullName, reason)
 	tsv.ch <- testMessageTerminated{
 		name:  tsv.process.Name(),
 		order: tsv.order,

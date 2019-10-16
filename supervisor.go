@@ -178,7 +178,7 @@ func (sv *Supervisor) loop(p *Process, object interface{}, args ...interface{}) 
 					}
 
 					if len(waitTerminatingProcesses) == 0 {
-						// it was the last one. lets start again all terminated children
+						// it was the last one. lets restart all terminated children
 						startChildren(p, &spec)
 					}
 
