@@ -1,7 +1,6 @@
 package ergonode
 
 import (
-	"fmt"
 	"sync"
 
 	"github.com/halturin/ergonode/etf"
@@ -49,7 +48,6 @@ func (gs *GenServer) loop(p *Process, object interface{}, args ...interface{}) s
 
 		select {
 		case ex := <-p.gracefulExit:
-			fmt.Println("\nGENSERV GOT GRACEFULEXIT", p.Self())
 			if p.trapExit {
 				message = etf.Tuple{
 					etf.Atom("EXIT"),

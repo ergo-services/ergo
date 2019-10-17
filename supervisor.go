@@ -133,23 +133,11 @@ func (sv *Supervisor) loop(svp *Process, object interface{}, args ...interface{}
 	svp.currentFunction = "Supervisor:loop"
 	waitTerminatingProcesses := []etf.Pid{}
 
-	fmt.Println("===start super", svp.Name())
-	for i := range spec.Children {
-		fmt.Printf("CH %p\n", spec.Children[i].process)
-	}
-	fmt.Println("===", svp.Name())
-
 	for {
 		var message etf.Term
 		var fromPid etf.Pid
 		select {
 		case ex := <-svp.gracefulExit:
-			fmt.Println("\nSUPERVISOR GOT GRACEFULEXIT", svp.Self())
-			fmt.Println("=== stop super", svp.Name())
-			for i := range spec.Children {
-				fmt.Printf("CH %p\n", spec.Children[i].process)
-			}
-			fmt.Println("===", svp.Name())
 			for i := range spec.Children {
 				if spec.Children[i].process != nil {
 					p := spec.Children[i].process
@@ -186,6 +174,7 @@ func (sv *Supervisor) loop(svp *Process, object interface{}, args ...interface{}
 						if waitTerminatingProcesses[i] == terminated {
 							waitTerminatingProcesses[i] = waitTerminatingProcesses[0]
 							waitTerminatingProcesses = waitTerminatingProcesses[1:]
+							break
 						}
 					}
 
@@ -405,12 +394,6 @@ func startChildren(parent *Process, spec *SupervisorSpec) {
 			panic("Incorrect supervisorChildState")
 		}
 	}
-
-	fmt.Println("===start child", parent.Name())
-	for i := range spec.Children {
-		fmt.Printf("CH %p\n", spec.Children[i].process)
-	}
-	fmt.Println("===", parent.Name())
 }
 
 func startChild(parent *Process, name string, child interface{}, args ...interface{}) *Process {

@@ -216,25 +216,28 @@ func TestSupervisorOneForAll(t *testing.T) {
 	}
 
 	// testing temporary
+	// A temporary child process is never restarted (even when the supervisor's
+	// restart strategy is rest_for_one or one_for_all and a sibling's death
+	// causes the temporary process to be terminated).
 	testCases = []ChildrenTestCase{
 		ChildrenTestCase{
 			reason:   "normal",
-			statuses: []string{"empty", "new", "new"},
-			events:   5, // waiting for 3 terminates and 2 starts
+			statuses: []string{"empty", "empty", "empty"},
+			events:   3, // waiting for 3 terminates
 		},
 		ChildrenTestCase{
 			reason:   "abnormal",
-			statuses: []string{"empty", "empty", "new"},
-			events:   3, // waiting for 2 terminates and 1 starts
+			statuses: []string{"empty", "empty", "empty"},
+			events:   3, // waiting for 3 terminates
 		},
 		ChildrenTestCase{
 			reason:   "shutdown",
 			statuses: []string{"empty", "empty", "empty"},
-			events:   1, // waiting for only 1 terminate
+			events:   3, // waiting for 3 terminate
 		},
 	}
 
-	for i := range children {
+	for i := range testCases {
 		fmt.Printf("... stopping child %d with '%s' reason and waiting for restarting all of them ... ", i+1, testCases[i].reason)
 		processSV.Cast(children[i], testCases[i].reason) // stopping child
 
