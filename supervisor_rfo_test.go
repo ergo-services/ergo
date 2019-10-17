@@ -99,7 +99,7 @@ func TestSupervisorRestForOne(t *testing.T) {
 		},
 	}
 	for i := range children {
-		fmt.Printf("... stopping child %d with '%s' reason and waiting for restarting all of them ... ", i+1, testCases[i].reason)
+		fmt.Printf("... stopping child %d with '%s' reason and waiting for restarting rest of them ... ", i+1, testCases[i].reason)
 		processSV.Cast(children[i], testCases[i].reason) // stopping child
 
 		if children1, err := waitNeventsSupervisorChildren(sv.ch, testCases[i].events, children); err != nil {
@@ -163,7 +163,7 @@ func TestSupervisorRestForOne(t *testing.T) {
 		},
 	}
 	for i := range children {
-		fmt.Printf("... stopping child %d with '%s' reason and waiting for restarting all of them ... ", i+1, testCases[i].reason)
+		fmt.Printf("... stopping child %d with '%s' reason and waiting for restarting rest of them ... ", i+1, testCases[i].reason)
 		processSV.Cast(children[i], testCases[i].reason) // stopping child
 
 		if children1, err := waitNeventsSupervisorChildren(sv.ch, testCases[i].events, children); err != nil {
@@ -232,7 +232,7 @@ func TestSupervisorRestForOne(t *testing.T) {
 			fmt.Println("OK")
 		}
 
-		fmt.Printf("... stopping child %d with '%s' reason and waiting for restarting all of them ... ", i+1, testCases[i].reason)
+		fmt.Printf("... stopping child %d with '%s' reason and waiting for restarting rest of them ... ", i+1, testCases[i].reason)
 		processSV.Cast(children[i], testCases[i].reason) // stopping child
 
 		if children1, err := waitNeventsSupervisorChildren(sv.ch, testCases[i].events, children); err != nil {

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/halturin/ergonode/etf"
 )
@@ -49,7 +50,7 @@ func TestRPC(t *testing.T) {
 	}
 
 	fmt.Printf("Registering RPC method 'testMod.testFun' on %s: ", node1.FullName)
-
+	time.Sleep(100 * time.Millisecond) // waiting for start 'rex' gen_server
 	if e := node1.ProvideRPC("testMod", "testFun", testFun1); e != nil {
 		message := fmt.Sprintf("%s", e)
 		t.Fatal(message)
