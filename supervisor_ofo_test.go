@@ -38,9 +38,9 @@ type testSupervisorOneForOne struct {
 
 type testSupervisorGenServer struct {
 	GenServer
-	process Process
-	ch      chan interface{}
-	order   int
+	// process Process
+	// ch      chan interface{}
+	// order   int
 }
 
 type testMessageStarted struct {
@@ -52,19 +52,30 @@ type testMessageStarted struct {
 type testMessageTerminated struct {
 	name  string
 	order int
+	pid   etf.Pid
+}
+
+type testSupervisorGenServerState struct {
+	process Process
+	ch      chan interface{}
+	order   int
 }
 
 func (tsv *testSupervisorGenServer) Init(p Process, args ...interface{}) (state interface{}) {
-	tsv.process = p
-	tsv.ch = args[0].(chan interface{})
-	tsv.order = args[1].(int)
+	st := testSupervisorGenServerState{
+		process: p,
+		ch:      args[0].(chan interface{}),
+		order:   args[1].(int),
+	}
+
 	// fmt.Printf("\ntestSupervisorGenServer ({%s, %s}): Init\n", tsv.process.name, tsv.process.Node.FullName)
-	tsv.ch <- testMessageStarted{
+	st.ch <- testMessageStarted{
 		pid:   p.Self(),
 		name:  p.Name(),
-		order: tsv.order,
+		order: st.order,
 	}
-	return nil
+
+	return &st
 }
 func (tsv *testSupervisorGenServer) HandleCast(message etf.Term, state interface{}) (string, interface{}) {
 	// fmt.Printf("testSupervisorGenServer ({%s, %s}): HandleCast: %#v\n", tsv.process.name, tsv.process.Node.FullName, message)
@@ -83,14 +94,15 @@ func (tsv *testSupervisorGenServer) HandleInfo(message etf.Term, state interface
 }
 func (tsv *testSupervisorGenServer) Terminate(reason string, state interface{}) {
 	// fmt.Printf("\ntestSupervisorGenServer ({%s, %s}): Terminate: %#v\n", tsv.process.name, tsv.process.Node.FullName, reason)
-	tsv.ch <- testMessageTerminated{
-		name:  tsv.process.Name(),
-		order: tsv.order,
+	st := state.(*testSupervisorGenServerState)
+	st.ch <- testMessageTerminated{
+		name:  st.process.Name(),
+		pid:   st.process.Self(),
+		order: st.order,
 	}
 }
 
 func TestSupervisorOneForOne(t *testing.T) {
-	var children [3]etf.Pid
 	var err error
 
 	fmt.Printf("\n== Test Supervisor - one for one\n")
@@ -109,7 +121,9 @@ func TestSupervisorOneForOne(t *testing.T) {
 		ch: make(chan interface{}, 10),
 	}
 	processSV, _ := node.Spawn("testSupervisorPermanent", ProcessOptions{}, sv, SupervisorChildRestartPermanent, sv.ch)
-	children, err = waitNeventsSupervisorChildren(sv.ch, 3, [3]etf.Pid{})
+	children := make([]etf.Pid, 3)
+
+	children, err = waitNeventsSupervisorChildren(sv.ch, 3, children)
 	if err != nil {
 		t.Fatal(err)
 	} else {
@@ -125,7 +139,7 @@ func TestSupervisorOneForOne(t *testing.T) {
 		t.Fatal(err)
 	} else {
 		statuses := []string{"new", "new", "new"}
-		if checkExpectedChildrenStatus(children, children1, statuses) {
+		if checkExpectedChildrenStatus(children[:], children1[:], statuses) {
 			fmt.Println("OK")
 			children = children1
 		} else {
@@ -140,7 +154,7 @@ func TestSupervisorOneForOne(t *testing.T) {
 		t.Fatal(err)
 	} else {
 		statuses := []string{"empty", "empty", "empty"}
-		if checkExpectedChildrenStatus(children, children1, statuses) {
+		if checkExpectedChildrenStatus(children[:], children1[:], statuses) {
 			fmt.Println("OK")
 			children = children1
 		} else {
@@ -156,7 +170,9 @@ func TestSupervisorOneForOne(t *testing.T) {
 		ch: make(chan interface{}, 10),
 	}
 	processSV, _ = node.Spawn("testSupervisorTransient", ProcessOptions{}, sv, SupervisorChildRestartTransient, sv.ch)
-	children, err = waitNeventsSupervisorChildren(sv.ch, 3, [3]etf.Pid{})
+	children = make([]etf.Pid, 3)
+
+	children, err = waitNeventsSupervisorChildren(sv.ch, 3, children)
 	if err != nil {
 		t.Fatal(err)
 	} else {
@@ -171,7 +187,7 @@ func TestSupervisorOneForOne(t *testing.T) {
 		t.Fatal(err)
 	} else {
 		statuses := []string{"new", "new", "new"}
-		if checkExpectedChildrenStatus(children, children1, statuses) {
+		if checkExpectedChildrenStatus(children[:], children1[:], statuses) {
 			fmt.Println("OK")
 			children = children1
 		} else {
@@ -189,7 +205,7 @@ func TestSupervisorOneForOne(t *testing.T) {
 		t.Fatal(err)
 	} else {
 		statuses := []string{"empty", "empty", "empty"}
-		if checkExpectedChildrenStatus(children, children1, statuses) {
+		if checkExpectedChildrenStatus(children[:], children1[:], statuses) {
 			fmt.Println("OK")
 			children = children1
 		} else {
@@ -209,7 +225,9 @@ func TestSupervisorOneForOne(t *testing.T) {
 		ch: make(chan interface{}, 10),
 	}
 	processSV, _ = node.Spawn("testSupervisorTemporary", ProcessOptions{}, sv, SupervisorChildRestartTemporary, sv.ch)
-	children, err = waitNeventsSupervisorChildren(sv.ch, 3, [3]etf.Pid{})
+	children = make([]etf.Pid, 3)
+
+	children, err = waitNeventsSupervisorChildren(sv.ch, 3, children)
 	if err != nil {
 		t.Fatal(err)
 	} else {
@@ -225,7 +243,7 @@ func TestSupervisorOneForOne(t *testing.T) {
 		t.Fatal(err)
 	} else {
 		statuses := []string{"empty", "empty", "empty"}
-		if checkExpectedChildrenStatus(children, children1, statuses) {
+		if checkExpectedChildrenStatus(children[:], children1[:], statuses) {
 			fmt.Println("OK")
 			children = children1
 		} else {
@@ -271,35 +289,37 @@ func (ts *testSupervisorOneForOne) Init(args ...interface{}) SupervisorSpec {
 	}
 }
 
-func waitNeventsSupervisorChildren(ch chan interface{}, n int, children [3]etf.Pid) ([3]etf.Pid, error) {
+func waitNeventsSupervisorChildren(ch chan interface{}, n int, children []etf.Pid) ([]etf.Pid, error) {
 	// n - number of events that have to be awaited
 	// start for-loop with 'n+1' to handle exceeded number of events
+	children_new := make([]etf.Pid, len(children))
+	copy(children_new, children)
 	for i := 0; i < n+1; i++ {
 		select {
 		case c := <-ch:
 			switch child := c.(type) {
 			case testMessageTerminated:
 				// fmt.Println("TERM", child)
-				children[child.order] = etf.Pid{} // set empty pid
+				children_new[child.order] = etf.Pid{} // set empty pid
 			case testMessageStarted:
 				// fmt.Println("START", child)
-				children[child.order] = child.pid
+				children_new[child.order] = child.pid
 			}
 
 		case <-time.After(100 * time.Millisecond):
 			if i == n {
-				return children, nil
+				return children_new, nil
 			}
 			if i < n {
-				return children, fmt.Errorf("expected %d events, but got %d. TIMEOUT", n, i)
+				return children_new, fmt.Errorf("expected %d events, but got %d. TIMEOUT", n, i)
 			}
 
 		}
 	}
-	return children, fmt.Errorf("expected %d events, but got %d. ", n, n+1)
+	return children_new, fmt.Errorf("expected %d events, but got %d. ", n, n+1)
 }
 
-func checkExpectedChildrenStatus(children, children1 [3]etf.Pid, statuses []string) bool {
+func checkExpectedChildrenStatus(children, children1 []etf.Pid, statuses []string) bool {
 	empty := etf.Pid{}
 	for i := 0; i < len(statuses); i++ {
 		switch statuses[i] {

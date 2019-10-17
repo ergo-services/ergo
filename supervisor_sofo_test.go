@@ -20,8 +20,7 @@ type testSupervisorSimpleOneForOne struct {
 }
 
 func TestSupervisorSimpleOneForOne(t *testing.T) {
-	var children [3]etf.Pid
-	var err error
+	return
 
 	fmt.Printf("\n== Test Supervisor - simple one for one\n")
 	fmt.Printf("Starting node nodeSvSimpleOneForOne@localhost: ")
@@ -32,68 +31,127 @@ func TestSupervisorSimpleOneForOne(t *testing.T) {
 		fmt.Println("OK")
 	}
 
-	// ===================================================================================================
-	// test SupervisorChildRestartPermanent
-	fmt.Printf("Starting supervisor 'testSupervisorPermanent' (%s)... ", SupervisorChildRestartPermanent)
-	sv := &testSupervisorSimpleOneForOne{
-		ch: make(chan interface{}, 10),
+	testCases := []ChildrenTestCase{
+		ChildrenTestCase{
+			reason:   "abnormal",
+			statuses: []string{"new", "new", "new", "new", "empty", "empty"},
+			events:   10, // waiting for 6 terminates and 4 starts
+		},
+		ChildrenTestCase{
+			reason:   "normal",
+			statuses: []string{"new", "new", "empty", "empty", "empty", "empty"},
+			events:   8, // waiting for 6 terminates and 2 starts
+		},
+		ChildrenTestCase{
+			reason:   "shutdown",
+			statuses: []string{"new", "new", "empty", "empty", "empty", "empty"},
+			events:   8, // the same as 'normal' reason
+		},
 	}
-	processSV, _ := node.Spawn("testSupervisorPermanent", ProcessOptions{}, sv, SupervisorChildRestartPermanent, sv.ch)
-	children, err = waitNeventsSupervisorChildren(sv.ch, 0, [3]etf.Pid{})
-	if err != nil {
-		t.Fatal(err)
-	} else {
-		statuses := []string{"empty", "empty", "empty"}
-		if checkExpectedChildrenStatus(children, [3]etf.Pid{}, statuses) {
-			fmt.Println("OK")
-		} else {
-			e := fmt.Errorf("got something else except we expected (%v). old: %v new: %v", statuses, children, [3]etf.Pid{})
-			t.Fatal(e)
+
+	for c := range testCases {
+		fmt.Printf("Starting supervisor 'testSupervisor' (reason: %s)... ", testCases[c].reason)
+		sv := &testSupervisorSimpleOneForOne{
+			ch: make(chan interface{}, 15),
 		}
+		processSV, _ := node.Spawn("testSupervisor", ProcessOptions{}, sv, sv.ch)
+		children := make([]etf.Pid, 6)
+		children1, err := waitNeventsSupervisorChildren(sv.ch, 0, children)
+		if err != nil {
+			t.Fatal(err)
+		} else {
+			// they should be equal after start
+			statuses := []string{"empty", "empty", "empty", "empty", "empty", "empty"}
+			if checkExpectedChildrenStatus(children, children1, statuses) {
+				fmt.Println("OK")
+				children = children1
+			} else {
+				e := fmt.Errorf("got something else except we expected (%v). old: %v new: %v", statuses, children, children1)
+				t.Fatal(e)
+			}
+		}
+
+		// start children
+		for i := 1; i < 4; i++ {
+			p, _ := sv.StartChild(*processSV, fmt.Sprintf("testGS%d", i), sv.ch, i)
+			children = append(children, p)
+			// start twice
+			p, _ = sv.StartChild(*processSV, fmt.Sprintf("testGS%d", i), sv.ch, i+1)
+			children = append(children, p)
+		}
+
+		if children1, err := waitNeventsSupervisorChildren(sv.ch, 6, children); err != nil {
+			t.Fatal(err)
+		} else {
+			// they should be equal after start
+			statuses := []string{"old", "old", "old", "old", "old", "old"}
+			if checkExpectedChildrenStatus(children, children1, statuses) {
+				fmt.Println("OK")
+			} else {
+				e := fmt.Errorf("got something else except we expected (%v). old: %v new: %v", statuses, children, children1)
+				t.Fatal(e)
+			}
+		}
+
+		// kill them all with reason = testCases[c].reason
+		fmt.Printf("... stopping children with '%s' reason and waiting for restarting some of them ... ", testCases[c].reason)
+
+		for k := range children {
+			processSV.Cast(children[k], testCases[c].reason)
+		}
+
+		if children1, err := waitNeventsSupervisorChildren(sv.ch, testCases[c].events, children); err != nil {
+			t.Fatal(err)
+		} else {
+			if checkExpectedChildrenStatus(children, children1, testCases[c].statuses) {
+				fmt.Println("OK")
+				children = children1
+			} else {
+				e := fmt.Errorf("got something else except we expected (%v). old: %v new: %v", testCases[c].statuses, children, children1)
+				t.Fatal(e)
+			}
+		}
+
+		fmt.Printf("Stopping supervisor 'testSupervisor' (reason: %s)... ", testCases[c].reason)
+		processSV.Exit(processSV.Self(), "x")
+		if children1, err := waitNeventsSupervisorChildren(sv.ch, testCases[c].events-len(children), children); err != nil {
+			t.Fatal(err)
+		} else {
+			statuses := []string{"empty", "empty", "empty", "empty", "empty", "empty"}
+			if checkExpectedChildrenStatus(children, children1, statuses) {
+				fmt.Println("OK")
+				children = children1
+			} else {
+				e := fmt.Errorf("got something else except we expected (%v). old: %v new: %v", statuses, children, children1)
+				t.Fatal(e)
+			}
+		}
+
+		panic("111")
 	}
-
-	sv.StartChild(*processSV, "testGS2")
-	sv.StartChild(*processSV, "testGS2")
-	// sv.StartChild(*processSV, "testGS2")
-
-	fmt.Printf("Stopping supervisor 'testSupervisorPermanent' (%s)... ", SupervisorChildRestartPermanent)
-	processSV.Exit(processSV.Self(), "x")
-	// if children1, err := waitNeventsSupervisorChildren(sv.ch, 0, children); err != nil {
-	// 	t.Fatal(err)
-	// } else {
-	// 	statuses := []string{"empty", "empty", "empty"}
-	// 	if checkExpectedChildrenStatus(children, children1, statuses) {
-	fmt.Println("OK")
-	// 		children = children1
-	// 	} else {
-	// 		e := fmt.Errorf("got something else except we expected (%v). old: %v new: %v", statuses, children, children1)
-	// 		t.Fatal(e)
-	// 	}
-	// }
 
 }
 
 func (ts *testSupervisorSimpleOneForOne) Init(args ...interface{}) SupervisorSpec {
-	restart := args[0].(string)
-	ch := args[1].(chan interface{})
+	ch := args[0].(chan interface{})
 	return SupervisorSpec{
 		Children: []SupervisorChildSpec{
 			SupervisorChildSpec{
 				Name:    "testGS1",
 				Child:   &testSupervisorGenServer{},
-				Restart: restart,
+				Restart: SupervisorChildRestartPermanent,
 				Args:    []interface{}{ch, 0},
 			},
 			SupervisorChildSpec{
 				Name:    "testGS2",
 				Child:   &testSupervisorGenServer{},
-				Restart: restart,
+				Restart: SupervisorChildRestartTransient,
 				Args:    []interface{}{ch, 1},
 			},
 			SupervisorChildSpec{
 				Name:    "testGS3",
 				Child:   &testSupervisorGenServer{},
-				Restart: restart,
+				Restart: SupervisorChildRestartTemporary,
 				Args:    []interface{}{ch, 2},
 			},
 		},
@@ -104,3 +162,41 @@ func (ts *testSupervisorSimpleOneForOne) Init(args ...interface{}) SupervisorSpe
 		},
 	}
 }
+
+// func waitNeventsSupervisorSimpleOneForOneChildren(ch chan interface{}, n int, children []etf.Pid) ([]etf.Pid, error) {
+// 	// n - number of events that have to be awaited
+// 	// start for-loop with 'n+1' to handle exceeded number of events
+// 	for i := 0; i < n+1; i++ {
+// 		select {
+// 		case c := <-ch:
+// 			switch child := c.(type) {
+// 			case testMessageTerminated:
+// 				for n := range children {
+// 					if children[n] == child.pid {
+// 						children[n] = etf.Pid{}
+// 						break
+// 					}
+// 				}
+// 				fmt.Println("TERM", child)
+// 			case testMessageStarted:
+// 				fmt.Println("START", child)
+// 				for n := range children {
+// 					if children[n] == child.pid {
+// 						panic("pid already exist")
+// 					}
+// 				}
+// 				children = append(children, child.pid)
+// 			}
+
+// 		case <-time.After(100 * time.Millisecond):
+// 			if i == n {
+// 				return children, nil
+// 			}
+// 			if i < n {
+// 				return children, fmt.Errorf("expected %d events, but got %d. TIMEOUT", n, i)
+// 			}
+
+// 		}
+// 	}
+// 	return children, fmt.Errorf("expected %d events, but got %d. ", n, n+1)
+// }

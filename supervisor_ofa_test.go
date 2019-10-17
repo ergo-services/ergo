@@ -61,9 +61,6 @@ type ChildrenTestCase struct {
 }
 
 func TestSupervisorOneForAll(t *testing.T) {
-	var children [3]etf.Pid
-	var err error
-
 	fmt.Printf("\n== Test Supervisor - one for all\n")
 	fmt.Printf("Starting node nodeSvOneForAll@localhost: ")
 	node := CreateNode("nodeSvOneForAll@localhost", "cookies", NodeOptions{})
@@ -80,7 +77,8 @@ func TestSupervisorOneForAll(t *testing.T) {
 		ch: make(chan interface{}, 10),
 	}
 	processSV, _ := node.Spawn("testSupervisorPermanent", ProcessOptions{}, sv, SupervisorChildRestartPermanent, sv.ch)
-	children, err = waitNeventsSupervisorChildren(sv.ch, 3, [3]etf.Pid{})
+	children := make([]etf.Pid, 3)
+	children, err := waitNeventsSupervisorChildren(sv.ch, 3, children)
 	if err != nil {
 		t.Fatal(err)
 	} else {
@@ -128,7 +126,7 @@ func TestSupervisorOneForAll(t *testing.T) {
 		t.Fatal(err)
 	} else {
 		statuses := []string{"empty", "empty", "empty"}
-		if checkExpectedChildrenStatus(children, children1, statuses) {
+		if checkExpectedChildrenStatus(children[:], children1[:], statuses) {
 			fmt.Println("OK")
 			children = children1
 		} else {
@@ -144,7 +142,7 @@ func TestSupervisorOneForAll(t *testing.T) {
 		ch: make(chan interface{}, 10),
 	}
 	processSV, _ = node.Spawn("testSupervisorTransient", ProcessOptions{}, sv, SupervisorChildRestartTransient, sv.ch)
-	children, err = waitNeventsSupervisorChildren(sv.ch, 3, [3]etf.Pid{})
+	children, err = waitNeventsSupervisorChildren(sv.ch, 3, children)
 	if err != nil {
 		t.Fatal(err)
 	} else {
@@ -176,7 +174,7 @@ func TestSupervisorOneForAll(t *testing.T) {
 		if children1, err := waitNeventsSupervisorChildren(sv.ch, testCases[i].events, children); err != nil {
 			t.Fatal(err)
 		} else {
-			if checkExpectedChildrenStatus(children, children1, testCases[i].statuses) {
+			if checkExpectedChildrenStatus(children[:], children1[:], testCases[i].statuses) {
 				fmt.Println("OK")
 				children = children1
 			} else {
@@ -192,7 +190,7 @@ func TestSupervisorOneForAll(t *testing.T) {
 		t.Fatal(err)
 	} else {
 		statuses := []string{"empty", "empty", "empty"}
-		if checkExpectedChildrenStatus(children, children1, statuses) {
+		if checkExpectedChildrenStatus(children[:], children1[:], statuses) {
 			fmt.Println("OK")
 			children = children1
 		} else {
@@ -232,7 +230,7 @@ func TestSupervisorOneForAll(t *testing.T) {
 			ch: make(chan interface{}, 10),
 		}
 		processSV, _ = node.Spawn("testSupervisorTemporary", ProcessOptions{}, sv, SupervisorChildRestartTemporary, sv.ch)
-		children, err = waitNeventsSupervisorChildren(sv.ch, 3, [3]etf.Pid{})
+		children, err = waitNeventsSupervisorChildren(sv.ch, 3, children)
 		if err != nil {
 			t.Fatal(err)
 		} else {
@@ -245,7 +243,7 @@ func TestSupervisorOneForAll(t *testing.T) {
 		if children1, err := waitNeventsSupervisorChildren(sv.ch, testCases[i].events, children); err != nil {
 			t.Fatal(err)
 		} else {
-			if checkExpectedChildrenStatus(children, children1, testCases[i].statuses) {
+			if checkExpectedChildrenStatus(children[:], children1[:], testCases[i].statuses) {
 				fmt.Println("OK")
 				children = children1
 			} else {
@@ -260,7 +258,7 @@ func TestSupervisorOneForAll(t *testing.T) {
 			t.Fatal(err)
 		} else {
 			statuses := []string{"empty", "empty", "empty"}
-			if checkExpectedChildrenStatus(children, children1, statuses) {
+			if checkExpectedChildrenStatus(children[:], children1[:], statuses) {
 				fmt.Println("OK")
 				children = children1
 			} else {

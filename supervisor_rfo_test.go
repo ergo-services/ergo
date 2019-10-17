@@ -55,7 +55,6 @@ type testSupervisorRestForOne struct {
 }
 
 func TestSupervisorRestForOne(t *testing.T) {
-	var children [3]etf.Pid
 	var err error
 	fmt.Printf("\n== Test Supervisor - rest for one\n")
 	fmt.Printf("Starting node nodeSvRestForOne@localhost: ")
@@ -73,7 +72,9 @@ func TestSupervisorRestForOne(t *testing.T) {
 		ch: make(chan interface{}, 10),
 	}
 	processSV, _ := node.Spawn("testSupervisorPermanent", ProcessOptions{}, sv, SupervisorChildRestartPermanent, sv.ch)
-	children, err = waitNeventsSupervisorChildren(sv.ch, 3, [3]etf.Pid{})
+	children := make([]etf.Pid, 3)
+
+	children, err = waitNeventsSupervisorChildren(sv.ch, 3, children)
 	if err != nil {
 		t.Fatal(err)
 	} else {
@@ -105,7 +106,7 @@ func TestSupervisorRestForOne(t *testing.T) {
 		if children1, err := waitNeventsSupervisorChildren(sv.ch, testCases[i].events, children); err != nil {
 			t.Fatal(err)
 		} else {
-			if checkExpectedChildrenStatus(children, children1, testCases[i].statuses) {
+			if checkExpectedChildrenStatus(children[:], children1[:], testCases[i].statuses) {
 				fmt.Println("OK")
 				children = children1
 			} else {
@@ -121,7 +122,7 @@ func TestSupervisorRestForOne(t *testing.T) {
 		t.Fatal(err)
 	} else {
 		statuses := []string{"empty", "empty", "empty"}
-		if checkExpectedChildrenStatus(children, children1, statuses) {
+		if checkExpectedChildrenStatus(children[:], children1[:], statuses) {
 			fmt.Println("OK")
 			children = children1
 		} else {
@@ -137,7 +138,9 @@ func TestSupervisorRestForOne(t *testing.T) {
 		ch: make(chan interface{}, 10),
 	}
 	processSV, _ = node.Spawn("testSupervisorTransient", ProcessOptions{}, sv, SupervisorChildRestartTransient, sv.ch)
-	children, err = waitNeventsSupervisorChildren(sv.ch, 3, [3]etf.Pid{})
+	children = make([]etf.Pid, 3)
+
+	children, err = waitNeventsSupervisorChildren(sv.ch, 3, children)
 	if err != nil {
 		t.Fatal(err)
 	} else {
@@ -169,7 +172,7 @@ func TestSupervisorRestForOne(t *testing.T) {
 		if children1, err := waitNeventsSupervisorChildren(sv.ch, testCases[i].events, children); err != nil {
 			t.Fatal(err)
 		} else {
-			if checkExpectedChildrenStatus(children, children1, testCases[i].statuses) {
+			if checkExpectedChildrenStatus(children[:], children1[:], testCases[i].statuses) {
 				fmt.Println("OK")
 				children = children1
 			} else {
@@ -185,7 +188,7 @@ func TestSupervisorRestForOne(t *testing.T) {
 		t.Fatal(err)
 	} else {
 		statuses := []string{"empty", "empty", "empty"}
-		if checkExpectedChildrenStatus(children, children1, statuses) {
+		if checkExpectedChildrenStatus(children[:], children1[:], statuses) {
 			fmt.Println("OK")
 			children = children1
 		} else {
@@ -225,20 +228,22 @@ func TestSupervisorRestForOne(t *testing.T) {
 			ch: make(chan interface{}, 10),
 		}
 		processSV, _ = node.Spawn("testSupervisorTemporary", ProcessOptions{}, sv, SupervisorChildRestartTemporary, sv.ch)
-		children, err = waitNeventsSupervisorChildren(sv.ch, 3, [3]etf.Pid{})
+		children = make([]etf.Pid, 3)
+
+		children, err = waitNeventsSupervisorChildren(sv.ch, 3, children)
 		if err != nil {
 			t.Fatal(err)
 		} else {
 			fmt.Println("OK")
 		}
 
-		fmt.Printf("... stopping child %d with '%s' reason and waiting for restarting rest of them ... ", i+1, testCases[i].reason)
+		fmt.Printf("... stopping child %d with '%s' reason and without restarting  ... ", i+1, testCases[i].reason)
 		processSV.Cast(children[i], testCases[i].reason) // stopping child
 
 		if children1, err := waitNeventsSupervisorChildren(sv.ch, testCases[i].events, children); err != nil {
 			t.Fatal(err)
 		} else {
-			if checkExpectedChildrenStatus(children, children1, testCases[i].statuses) {
+			if checkExpectedChildrenStatus(children[:], children1[:], testCases[i].statuses) {
 				fmt.Println("OK")
 				children = children1
 			} else {
@@ -253,7 +258,7 @@ func TestSupervisorRestForOne(t *testing.T) {
 			t.Fatal(err)
 		} else {
 			statuses := []string{"empty", "empty", "empty"}
-			if checkExpectedChildrenStatus(children, children1, statuses) {
+			if checkExpectedChildrenStatus(children[:], children1[:], statuses) {
 				fmt.Println("OK")
 				children = children1
 			} else {

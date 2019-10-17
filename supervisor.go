@@ -348,6 +348,8 @@ func (sv *Supervisor) loop(svp *Process, object interface{}, args ...interface{}
 }
 
 // StartChlid dynamically starts a child process with given name of child spec which is defined by Init call.
+// Created process will use the same object (GenServer/Supervisor) you have defined in spec as a Child since it
+// keeps pointer. You might use this object as a shared among the process you will create using this spec.
 func (sv *Supervisor) StartChild(parent Process, specName string, args ...interface{}) (etf.Pid, error) {
 	reply := make(chan etf.Tuple)
 	m := etf.Tuple{
