@@ -80,7 +80,7 @@ func TestSupervisorOneForAll(t *testing.T) {
 		ch: make(chan interface{}, 10),
 	}
 	processSV, _ := node.Spawn("testSupervisorPermanent", ProcessOptions{}, sv, SupervisorChildRestartPermanent, sv.ch)
-	children, err = waitNeventsSupervisorChildren(sv.ch, 3, children)
+	children, err = waitNeventsSupervisorChildren(sv.ch, 3, [3]etf.Pid{})
 	if err != nil {
 		t.Fatal(err)
 	} else {
@@ -144,7 +144,7 @@ func TestSupervisorOneForAll(t *testing.T) {
 		ch: make(chan interface{}, 10),
 	}
 	processSV, _ = node.Spawn("testSupervisorTransient", ProcessOptions{}, sv, SupervisorChildRestartTransient, sv.ch)
-	children, err = waitNeventsSupervisorChildren(sv.ch, 3, children)
+	children, err = waitNeventsSupervisorChildren(sv.ch, 3, [3]etf.Pid{})
 	if err != nil {
 		t.Fatal(err)
 	} else {
@@ -203,17 +203,6 @@ func TestSupervisorOneForAll(t *testing.T) {
 
 	// ===================================================================================================
 	// test SupervisorChildRestartTemporary
-	fmt.Printf("Starting supervisor 'testSupervisorTemporary' (%s)... ", SupervisorChildRestartTemporary)
-	sv = &testSupervisorOneForAll{
-		ch: make(chan interface{}, 10),
-	}
-	processSV, _ = node.Spawn("testSupervisorTemporary", ProcessOptions{}, sv, SupervisorChildRestartTemporary, sv.ch)
-	children, err = waitNeventsSupervisorChildren(sv.ch, 3, children)
-	if err != nil {
-		t.Fatal(err)
-	} else {
-		fmt.Println("OK")
-	}
 
 	// testing temporary
 	// A temporary child process is never restarted (even when the supervisor's
@@ -238,6 +227,18 @@ func TestSupervisorOneForAll(t *testing.T) {
 	}
 
 	for i := range testCases {
+		fmt.Printf("Starting supervisor 'testSupervisorTemporary' (%s)... ", SupervisorChildRestartTemporary)
+		sv = &testSupervisorOneForAll{
+			ch: make(chan interface{}, 10),
+		}
+		processSV, _ = node.Spawn("testSupervisorTemporary", ProcessOptions{}, sv, SupervisorChildRestartTemporary, sv.ch)
+		children, err = waitNeventsSupervisorChildren(sv.ch, 3, [3]etf.Pid{})
+		if err != nil {
+			t.Fatal(err)
+		} else {
+			fmt.Println("OK")
+		}
+
 		fmt.Printf("... stopping child %d with '%s' reason and waiting for restarting all of them ... ", i+1, testCases[i].reason)
 		processSV.Cast(children[i], testCases[i].reason) // stopping child
 
@@ -252,22 +253,23 @@ func TestSupervisorOneForAll(t *testing.T) {
 				t.Fatal(e)
 			}
 		}
-	}
 
-	fmt.Printf("Stopping supervisor 'testSupervisorTemporary' (%s)... ", SupervisorChildRestartTemporary)
-	processSV.Exit(processSV.Self(), "x")
-	if children1, err := waitNeventsSupervisorChildren(sv.ch, 0, children); err != nil {
-		t.Fatal(err)
-	} else {
-		statuses := []string{"empty", "empty", "empty"}
-		if checkExpectedChildrenStatus(children, children1, statuses) {
-			fmt.Println("OK")
-			children = children1
+		fmt.Printf("Stopping supervisor 'testSupervisorTemporary' (%s)... ", SupervisorChildRestartTemporary)
+		processSV.Exit(processSV.Self(), "x")
+		if children1, err := waitNeventsSupervisorChildren(sv.ch, 0, children); err != nil {
+			t.Fatal(err)
 		} else {
-			e := fmt.Errorf("got something else except we expected (%v). old: %v new: %v", statuses, children, children1)
-			t.Fatal(e)
+			statuses := []string{"empty", "empty", "empty"}
+			if checkExpectedChildrenStatus(children, children1, statuses) {
+				fmt.Println("OK")
+				children = children1
+			} else {
+				e := fmt.Errorf("got something else except we expected (%v). old: %v new: %v", statuses, children, children1)
+				t.Fatal(e)
+			}
 		}
 	}
+
 }
 
 func (ts *testSupervisorOneForAll) Init(args ...interface{}) SupervisorSpec {
