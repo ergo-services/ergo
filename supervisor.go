@@ -302,20 +302,22 @@ func (sv *Supervisor) loop(svp *Process, object interface{}, args ...interface{}
 				}
 
 			case etf.Atom("$startByName"):
-				var s *SupervisorChildSpec
 				// dynamically start child process
 				specName := m.Element(2).(string)
 				args := m.Element(3)
 				reply := m.Element(4).(chan etf.Tuple)
 
-				s = lookupSpecByName(specName, spec.Children[:])
+				s := lookupSpecByName(specName, spec.Children)
 				if s == nil {
 					reply <- etf.Tuple{etf.Atom("error"), "unknown_spec"}
 				}
+				specChild := *s
+				specChild.process = nil
+				specChild.state = supervisorChildStateStart
 
 				m := etf.Tuple{
 					etf.Atom("$startBySpec"),
-					*s,
+					specChild,
 					args,
 					reply,
 				}
@@ -325,10 +327,17 @@ func (sv *Supervisor) loop(svp *Process, object interface{}, args ...interface{}
 				specChild := m.Element(2).(SupervisorChildSpec)
 				args := m.Element(3).([]interface{})
 				reply := m.Element(4).(chan etf.Tuple)
+				if len(args) > 0 {
+					specChild.Args = args
+				}
 
-				process := startChild(svp, "", specChild.Child, args)
+				s := lookupSpecByName(specChild.Name, spec.Children)
+				if s != nil {
+					reply <- etf.Tuple{etf.Atom("error"), "duplicate_spec"}
+				}
+
+				process := startChild(svp, "", specChild.Child, specChild.Args...)
 				specChild.process = process
-				specChild.Args = args
 				spec.Children = append(spec.Children, specChild)
 
 				reply <- etf.Tuple{etf.Atom("ok"), process.self}
@@ -353,11 +362,13 @@ func (sv *Supervisor) StartChild(parent Process, specName string, args ...interf
 	}
 	parent.mailBox <- etf.Tuple{etf.Pid{}, m}
 	r := <-reply
-	switch r.Element(0) {
+	switch r.Element(1) {
 	case etf.Atom("ok"):
 		return r.Element(1).(etf.Pid), nil
+	case etf.Atom("error"):
+		return etf.Pid{}, fmt.Errorf("%s", r.Element(2).(string))
 	default:
-		return etf.Pid{}, errors.New(r.Element(1).(string))
+		panic("internal error at Supervisor.StartChild")
 	}
 }
 
@@ -372,7 +383,7 @@ func (sv *Supervisor) StartChildWithSpec(parent Process, spec SupervisorChildSpe
 	}
 	parent.mailBox <- etf.Tuple{etf.Pid{}, m}
 	r := <-reply
-	switch r.Element(0) {
+	switch r.Element(1) {
 	case etf.Atom("ok"):
 		return r.Element(1).(etf.Pid), nil
 	default:
