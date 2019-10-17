@@ -109,7 +109,7 @@ func TestSupervisorOneForOne(t *testing.T) {
 		ch: make(chan interface{}, 10),
 	}
 	processSV, _ := node.Spawn("testSupervisorPermanent", ProcessOptions{}, sv, SupervisorChildRestartPermanent, sv.ch)
-	children, err = waitNeventsSupervisorChildren(sv.ch, 3, children)
+	children, err = waitNeventsSupervisorChildren(sv.ch, 3, [3]etf.Pid{})
 	if err != nil {
 		t.Fatal(err)
 	} else {
@@ -156,8 +156,7 @@ func TestSupervisorOneForOne(t *testing.T) {
 		ch: make(chan interface{}, 10),
 	}
 	processSV, _ = node.Spawn("testSupervisorTransient", ProcessOptions{}, sv, SupervisorChildRestartTransient, sv.ch)
-	children = [3]etf.Pid{}
-	children, err = waitNeventsSupervisorChildren(sv.ch, 3, children)
+	children, err = waitNeventsSupervisorChildren(sv.ch, 3, [3]etf.Pid{})
 	if err != nil {
 		t.Fatal(err)
 	} else {
@@ -210,8 +209,7 @@ func TestSupervisorOneForOne(t *testing.T) {
 		ch: make(chan interface{}, 10),
 	}
 	processSV, _ = node.Spawn("testSupervisorTemporary", ProcessOptions{}, sv, SupervisorChildRestartTemporary, sv.ch)
-	children = [3]etf.Pid{}
-	children, err = waitNeventsSupervisorChildren(sv.ch, 3, children)
+	children, err = waitNeventsSupervisorChildren(sv.ch, 3, [3]etf.Pid{})
 	if err != nil {
 		t.Fatal(err)
 	} else {

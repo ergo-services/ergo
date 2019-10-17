@@ -25,7 +25,6 @@ package ergonode
 //    gs2.stop(shutdown) (sv1 wont restart gs2)
 //    gs3.stop(panic) (sv1 wont gs3 only)
 
-
 // - one for all (permanent)
 //    start node1
 //    start supevisor sv1 with genservers gs1,gs2,gs3
@@ -76,39 +75,89 @@ package ergonode
 //               (sv1 starting gs3)
 
 import (
+	"fmt"
 	"testing"
-	"time"
-) 
 
-type testSupervisor struct {
+	"github.com/halturin/ergonode/etf"
+)
+
+type testSupervisorSimpleOneForOne struct {
 	Supervisor
+	ch chan interface{}
 }
 
-type testGenServer1 struct {
-	GenServer
+func TestSupervisorSimpleOneForOne(t *testing.T) {
+	var children [3]etf.Pid
+	var err error
+
+	fmt.Printf("\n== Test Supervisor - one for one\n")
+	fmt.Printf("Starting node nodeSvOneForOne@localhost: ")
+	node := CreateNode("nodeSvOneForOne@localhost", "cookies", NodeOptions{})
+	if node == nil {
+		t.Fatal("can't start node")
+	} else {
+		fmt.Println("OK")
+	}
+
+	// ===================================================================================================
+	// test SupervisorChildRestartPermanent
+	fmt.Printf("Starting supervisor 'testSupervisorPermanent' (%s)... ", SupervisorChildRestartPermanent)
+	sv := &testSupervisorOneForOne{
+		ch: make(chan interface{}, 10),
+	}
+	processSV, _ := node.Spawn("testSupervisorPermanent", ProcessOptions{}, sv, SupervisorChildRestartPermanent, sv.ch)
+	children, err = waitNeventsSupervisorChildren(sv.ch, 0, [3]etf.Pid{})
+	if err != nil {
+		t.Fatal(err)
+	} else {
+		fmt.Println("OK")
+	}
+
+	fmt.Printf("Stopping supervisor 'testSupervisorPermanent' (%s)... ", SupervisorChildRestartPermanent)
+	processSV.Exit(processSV.Self(), "x")
+	if children1, err := waitNeventsSupervisorChildren(sv.ch, 3, children); err != nil {
+		t.Fatal(err)
+	} else {
+		statuses := []string{"empty", "empty", "empty"}
+		if checkExpectedChildrenStatus(children, children1, statuses) {
+			fmt.Println("OK")
+			children = children1
+		} else {
+			e := fmt.Errorf("got something else except we expected (%v). old: %v new: %v", statuses, children, children1)
+			t.Fatal(e)
+		}
+	}
+
 }
 
-type testGenServer2 struct {
-	GenServer
-}
-
-func TestSupervisor1(t *testing.T) {
-	 CreateNode("","", NodeOptions{})
-
-	 node := CreateNode("node@localhost","cookies", NodeOptions{})
-	 g:=&testSupervisor{}
-	 process_opts := map[string]interface{}{
-		 "mailbox-size": DefaultProcessMailboxSize, // size of channel for regular messages
-	 }
-	 pp := node.Spawn("testSupervisor", process_opts, g)
-	 time.Sleep(1 *time.Second)
-	 pp.Stop()
-	 time.Sleep(1 *time.Second)
-	 node.Stop()
-	 time.Sleep(1 *time.Second)
-}
-
-
-func (ts *testSupervisor) Init() Supervisor{
-
+func (ts *testSupervisorSimpleOneForOne) Init(args ...interface{}) SupervisorSpec {
+	restart := args[0].(string)
+	ch := args[1].(chan interface{})
+	return SupervisorSpec{
+		Children: []SupervisorChildSpec{
+			SupervisorChildSpec{
+				Name:    "testGS1",
+				Child:   &testSupervisorGenServer{},
+				Restart: restart,
+				Args:    []interface{}{ch, 0},
+			},
+			SupervisorChildSpec{
+				Name:    "testGS2",
+				Child:   &testSupervisorGenServer{},
+				Restart: restart,
+				Args:    []interface{}{ch, 1},
+			},
+			SupervisorChildSpec{
+				Name:    "testGS3",
+				Child:   &testSupervisorGenServer{},
+				Restart: restart,
+				Args:    []interface{}{ch, 2},
+			},
+		},
+		Strategy: SupervisorStrategy{
+			Type:      SupervisorStrategySimpleOneForOne,
+			Intensity: 10,
+			Period:    5,
+		},
+	}
 }
