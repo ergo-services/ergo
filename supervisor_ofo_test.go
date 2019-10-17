@@ -68,7 +68,7 @@ func (tsv *testSupervisorGenServer) Init(p Process, args ...interface{}) (state 
 		order:   args[1].(int),
 	}
 
-	// fmt.Printf("\ntestSupervisorGenServer ({%s, %s}): Init\n", tsv.process.name, tsv.process.Node.FullName)
+	// fmt.Printf("\ntestSupervisorGenServer ({%s, %s}) %d: Init\n", st.process.name, st.process.Node.FullName, st.order)
 	st.ch <- testMessageStarted{
 		pid:   p.Self(),
 		name:  p.Name(),

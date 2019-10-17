@@ -309,6 +309,7 @@ func (sv *Supervisor) loop(svp *Process, object interface{}, args ...interface{}
 				s := lookupSpecByName(specName, spec.Children)
 				if s == nil {
 					reply <- etf.Tuple{etf.Atom("error"), "unknown_spec"}
+					continue
 				}
 				specChild := *s
 				specChild.process = nil

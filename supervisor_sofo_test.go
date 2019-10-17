@@ -20,8 +20,6 @@ type testSupervisorSimpleOneForOne struct {
 }
 
 func TestSupervisorSimpleOneForOne(t *testing.T) {
-	return
-
 	fmt.Printf("\n== Test Supervisor - simple one for one\n")
 	fmt.Printf("Starting node nodeSvSimpleOneForOne@localhost: ")
 	node := CreateNode("nodeSvSimpleOneForOne@localhost", "cookies", NodeOptions{})
@@ -71,15 +69,16 @@ func TestSupervisorSimpleOneForOne(t *testing.T) {
 			}
 		}
 
-		// start children
-		for i := 1; i < 4; i++ {
-			p, _ := sv.StartChild(*processSV, fmt.Sprintf("testGS%d", i), sv.ch, i)
-			children = append(children, p)
-			// start twice
-			p, _ = sv.StartChild(*processSV, fmt.Sprintf("testGS%d", i), sv.ch, i+1)
-			children = append(children, p)
-		}
+		fmt.Printf("... starting 6 children  ... ")
 
+		// start children
+		for i := 0; i < 6; i = i + 2 {
+			p, _ := sv.StartChild(*processSV, fmt.Sprintf("testGS%d", i/2+1), sv.ch, i)
+			children[i] = p
+			// start twice
+			p, _ = sv.StartChild(*processSV, fmt.Sprintf("testGS%d", i/2+1), sv.ch, i+1)
+			children[i+1] = p
+		}
 		if children1, err := waitNeventsSupervisorChildren(sv.ch, 6, children); err != nil {
 			t.Fatal(err)
 		} else {
@@ -127,7 +126,6 @@ func TestSupervisorSimpleOneForOne(t *testing.T) {
 			}
 		}
 
-		panic("111")
 	}
 
 }
