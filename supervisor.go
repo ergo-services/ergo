@@ -133,13 +133,23 @@ func (sv *Supervisor) loop(svp *Process, object interface{}, args ...interface{}
 	svp.currentFunction = "Supervisor:loop"
 	waitTerminatingProcesses := []etf.Pid{}
 
+	fmt.Println("===start super", svp.Name())
+	for i := range spec.Children {
+		fmt.Printf("CH %p\n", spec.Children[i].process)
+	}
+	fmt.Println("===", svp.Name())
+
 	for {
 		var message etf.Term
 		var fromPid etf.Pid
 		select {
 		case ex := <-svp.gracefulExit:
 			fmt.Println("\nSUPERVISOR GOT GRACEFULEXIT", svp.Self())
-
+			fmt.Println("=== stop super", svp.Name())
+			for i := range spec.Children {
+				fmt.Printf("CH %p\n", spec.Children[i].process)
+			}
+			fmt.Println("===", svp.Name())
 			for i := range spec.Children {
 				if spec.Children[i].process != nil {
 					p := spec.Children[i].process
@@ -206,7 +216,7 @@ func (sv *Supervisor) loop(svp *Process, object interface{}, args ...interface{}
 
 							if len(spec.Children) == i+1 && len(waitTerminatingProcesses) == 0 {
 								// it was the last one. nothing to waiting for
-								startChildren(p, &spec)
+								startChildren(svp, &spec)
 							}
 							continue
 						}
@@ -236,7 +246,7 @@ func (sv *Supervisor) loop(svp *Process, object interface{}, args ...interface{}
 
 							if len(spec.Children) == i+1 && len(waitTerminatingProcesses) == 0 {
 								// it was the last one. nothing to waiting for
-								startChildren(p, &spec)
+								startChildren(svp, &spec)
 							}
 
 							continue
@@ -265,7 +275,7 @@ func (sv *Supervisor) loop(svp *Process, object interface{}, args ...interface{}
 								spec.Children[i].state = supervisorChildStateStart
 							}
 
-							startChildren(p, &spec)
+							startChildren(svp, &spec)
 							break
 						}
 					}
@@ -395,6 +405,12 @@ func startChildren(parent *Process, spec *SupervisorSpec) {
 			panic("Incorrect supervisorChildState")
 		}
 	}
+
+	fmt.Println("===start child", parent.Name())
+	for i := range spec.Children {
+		fmt.Printf("CH %p\n", spec.Children[i].process)
+	}
+	fmt.Println("===", parent.Name())
 }
 
 func startChild(parent *Process, name string, child interface{}, args ...interface{}) *Process {

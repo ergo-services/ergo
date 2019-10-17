@@ -118,7 +118,6 @@ func (n *Node) Spawn(name string, opts ProcessOptions, object interface{}, args 
 	if err != nil {
 		return nil, err
 	}
-
 	go func() {
 		pid := process.Self()
 
