@@ -193,7 +193,12 @@ func (sv *Supervisor) loop(svp *Process, object interface{}, args ...interface{}
 						if spec.Children[i].state != supervisorChildStateRunning {
 							continue
 						}
+
 						p := spec.Children[i].process
+						if p == nil {
+							continue
+						}
+
 						spec.Children[i].process = nil
 						if p.Self() == terminated {
 							// spec.Children[i].process = nil
@@ -224,6 +229,9 @@ func (sv *Supervisor) loop(svp *Process, object interface{}, args ...interface{}
 					isRest := false
 					for i := range spec.Children {
 						p := spec.Children[i].process
+						if p == nil {
+							continue
+						}
 						if p.Self() == terminated {
 							isRest = true
 							// spec.Children[i].process = nil
@@ -256,6 +264,9 @@ func (sv *Supervisor) loop(svp *Process, object interface{}, args ...interface{}
 				case SupervisorStrategyOneForOne:
 					for i := range spec.Children {
 						p := spec.Children[i].process
+						if p == nil {
+							continue
+						}
 						if p.Self() == terminated {
 							spec.Children[i].process = nil
 							if haveToDisableChild(spec.Children[i].Restart, reason) {
@@ -272,6 +283,9 @@ func (sv *Supervisor) loop(svp *Process, object interface{}, args ...interface{}
 				case SupervisorStrategySimpleOneForOne:
 					for i := range spec.Children {
 						p := spec.Children[i].process
+						if p == nil {
+							continue
+						}
 						if p.Self() == terminated {
 
 							if haveToDisableChild(spec.Children[i].Restart, reason) {

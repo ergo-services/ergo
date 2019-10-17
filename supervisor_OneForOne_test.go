@@ -151,93 +151,93 @@ func TestSupervisorOneForOne(t *testing.T) {
 
 	// ===================================================================================================
 	// test SupervisorChildRestartTransient
-	// fmt.Printf("Starting supervisor 'testSupervisorTransient' (%s)... ", SupervisorChildRestartTransient)
-	// sv = &testSupervisorOneForOne{
-	// 	ch: make(chan interface{}, 10),
-	// }
-	// processSV, _ = node.Spawn("testSupervisorTransient", ProcessOptions{}, sv, SupervisorChildRestartTransient, sv.ch)
-	// children = [3]etf.Pid{}
-	// children, err = waitNeventsSupervisorChildren(sv.ch, 3, children)
-	// if err != nil {
-	// 	t.Fatal(err)
-	// } else {
-	// 	fmt.Println("OK")
-	// }
-	// fmt.Printf("... stopping children with 'abnormal' reason and waiting for their starting ... ")
-	// for i := range children {
-	// 	processSV.Cast(children[i], "abnormal") // stopping child
-	// }
+	fmt.Printf("Starting supervisor 'testSupervisorTransient' (%s)... ", SupervisorChildRestartTransient)
+	sv = &testSupervisorOneForOne{
+		ch: make(chan interface{}, 10),
+	}
+	processSV, _ = node.Spawn("testSupervisorTransient", ProcessOptions{}, sv, SupervisorChildRestartTransient, sv.ch)
+	children = [3]etf.Pid{}
+	children, err = waitNeventsSupervisorChildren(sv.ch, 3, children)
+	if err != nil {
+		t.Fatal(err)
+	} else {
+		fmt.Println("OK")
+	}
+	fmt.Printf("... stopping children with 'abnormal' reason and waiting for their starting ... ")
+	for i := range children {
+		processSV.Cast(children[i], "abnormal") // stopping child
+	}
 
-	// if children1, err := waitNeventsSupervisorChildren(sv.ch, 6, children); err != nil { // waiting for 3 terminates and 3 starts
-	// 	t.Fatal(err)
-	// } else {
-	// 	statuses := []string{"new", "new", "new"}
-	// 	if checkExpectedChildrenStatus(children, children1, statuses) {
-	// 		fmt.Println("OK")
-	// 		children = children1
-	// 	} else {
-	// 		e := fmt.Errorf("got something else except we expected (%v). old: %v new: %v", statuses, children, children1)
-	// 		t.Fatal(e)
-	// 	}
-	// }
+	if children1, err := waitNeventsSupervisorChildren(sv.ch, 6, children); err != nil { // waiting for 3 terminates and 3 starts
+		t.Fatal(err)
+	} else {
+		statuses := []string{"new", "new", "new"}
+		if checkExpectedChildrenStatus(children, children1, statuses) {
+			fmt.Println("OK")
+			children = children1
+		} else {
+			e := fmt.Errorf("got something else except we expected (%v). old: %v new: %v", statuses, children, children1)
+			t.Fatal(e)
+		}
+	}
 
-	// fmt.Printf("... stopping children with 'normal' reason and they are haven't be restarted ... ")
-	// for i := range children {
-	// 	processSV.Cast(children[i], "normal") // stopping child
-	// }
+	fmt.Printf("... stopping children with 'normal' reason and they are haven't be restarted ... ")
+	for i := range children {
+		processSV.Cast(children[i], "normal") // stopping child
+	}
 
-	// if children1, err := waitNeventsSupervisorChildren(sv.ch, 3, children); err != nil {
-	// 	t.Fatal(err)
-	// } else {
-	// 	statuses := []string{"empty", "empty", "empty"}
-	// 	if checkExpectedChildrenStatus(children, children1, statuses) {
-	// 		fmt.Println("OK")
-	// 		children = children1
-	// 	} else {
-	// 		e := fmt.Errorf("got something else except we expected (%v). old: %v new: %v", statuses, children, children1)
-	// 		t.Fatal(e)
-	// 	}
-	// }
-	// fmt.Printf("Stopping supervisor 'testSupervisorTransient' (%s)... ", SupervisorChildRestartTransient)
-	// processSV.Exit(processSV.Self(), "x")
-	// fmt.Println("OK")
+	if children1, err := waitNeventsSupervisorChildren(sv.ch, 3, children); err != nil {
+		t.Fatal(err)
+	} else {
+		statuses := []string{"empty", "empty", "empty"}
+		if checkExpectedChildrenStatus(children, children1, statuses) {
+			fmt.Println("OK")
+			children = children1
+		} else {
+			e := fmt.Errorf("got something else except we expected (%v). old: %v new: %v", statuses, children, children1)
+			t.Fatal(e)
+		}
+	}
+	fmt.Printf("Stopping supervisor 'testSupervisorTransient' (%s)... ", SupervisorChildRestartTransient)
+	processSV.Exit(processSV.Self(), "x")
+	fmt.Println("OK")
 
 	// ===================================================================================================
 	// test SupervisorChildRestartTemporary
 
-	// fmt.Printf("Starting supervisor 'testSupervisorTemporary' (%s)... ", SupervisorChildRestartTemporary)
-	// sv = &testSupervisorOneForOne{
-	// 	ch: make(chan interface{}, 10),
-	// }
-	// processSV, _ = node.Spawn("testSupervisorTemporary", ProcessOptions{}, sv, SupervisorChildRestartTemporary, sv.ch)
-	// children = [3]etf.Pid{}
-	// children, err = waitNeventsSupervisorChildren(sv.ch, 3, children)
-	// if err != nil {
-	// 	t.Fatal(err)
-	// } else {
-	// 	fmt.Println("OK")
-	// }
+	fmt.Printf("Starting supervisor 'testSupervisorTemporary' (%s)... ", SupervisorChildRestartTemporary)
+	sv = &testSupervisorOneForOne{
+		ch: make(chan interface{}, 10),
+	}
+	processSV, _ = node.Spawn("testSupervisorTemporary", ProcessOptions{}, sv, SupervisorChildRestartTemporary, sv.ch)
+	children = [3]etf.Pid{}
+	children, err = waitNeventsSupervisorChildren(sv.ch, 3, children)
+	if err != nil {
+		t.Fatal(err)
+	} else {
+		fmt.Println("OK")
+	}
 
-	// fmt.Printf("... stopping children with 'normal', 'abnornal','shutdown' reasons and they are haven't be restarted ... ")
-	// processSV.Cast(children[0], "normal")   // stopping child
-	// processSV.Cast(children[1], "abnormal") // stopping child
-	// processSV.Cast(children[2], "shutdown") // stopping child
+	fmt.Printf("... stopping children with 'normal', 'abnornal','shutdown' reasons and they are haven't be restarted ... ")
+	processSV.Cast(children[0], "normal")   // stopping child
+	processSV.Cast(children[1], "abnormal") // stopping child
+	processSV.Cast(children[2], "shutdown") // stopping child
 
-	// if children1, err := waitNeventsSupervisorChildren(sv.ch, 3, children); err != nil {
-	// 	t.Fatal(err)
-	// } else {
-	// 	statuses := []string{"empty", "empty", "empty"}
-	// 	if checkExpectedChildrenStatus(children, children1, statuses) {
-	// 		fmt.Println("OK")
-	// 		children = children1
-	// 	} else {
-	// 		e := fmt.Errorf("got something else except we expected (%v). old: %v new: %v", statuses, children, children1)
-	// 		t.Fatal(e)
-	// 	}
-	// }
-	// fmt.Printf("Stopping supervisor 'testSupervisorTemporary' (%s)... ", SupervisorChildRestartTemporary)
-	// processSV.Exit(processSV.Self(), "x")
-	// fmt.Println("OK")
+	if children1, err := waitNeventsSupervisorChildren(sv.ch, 3, children); err != nil {
+		t.Fatal(err)
+	} else {
+		statuses := []string{"empty", "empty", "empty"}
+		if checkExpectedChildrenStatus(children, children1, statuses) {
+			fmt.Println("OK")
+			children = children1
+		} else {
+			e := fmt.Errorf("got something else except we expected (%v). old: %v new: %v", statuses, children, children1)
+			t.Fatal(e)
+		}
+	}
+	fmt.Printf("Stopping supervisor 'testSupervisorTemporary' (%s)... ", SupervisorChildRestartTemporary)
+	processSV.Exit(processSV.Self(), "x")
+	fmt.Println("OK")
 
 }
 
