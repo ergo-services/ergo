@@ -320,7 +320,7 @@ func checkExpectedChildrenStatus(children, children1 [3]etf.Pid, statuses []stri
 
 		case "old":
 			if children[i] == children1[i] {
-				return false
+				return true
 			}
 		}
 

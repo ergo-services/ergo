@@ -201,7 +201,6 @@ func (sv *Supervisor) loop(svp *Process, object interface{}, args ...interface{}
 
 						spec.Children[i].process = nil
 						if p.Self() == terminated {
-							// spec.Children[i].process = nil
 							if haveToDisableChild(spec.Children[i].Restart, reason) {
 								spec.Children[i].state = supervisorChildStateDisabled
 							} else {
@@ -234,7 +233,7 @@ func (sv *Supervisor) loop(svp *Process, object interface{}, args ...interface{}
 						}
 						if p.Self() == terminated {
 							isRest = true
-							// spec.Children[i].process = nil
+							spec.Children[i].process = nil
 							if haveToDisableChild(spec.Children[i].Restart, reason) {
 								spec.Children[i].state = supervisorChildStateDisabled
 							} else {
