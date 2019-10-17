@@ -34,7 +34,7 @@ type Process struct {
 	state  interface{}
 	reply  chan etf.Tuple
 
-	children        []*Process
+	// children        []*Process
 	parent          *Process
 	reductions      uint64 // we use this term to count total number of processed messages from mailBox
 	currentFunction string

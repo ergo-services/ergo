@@ -122,14 +122,14 @@ func (n *Node) Spawn(name string, opts ProcessOptions, object interface{}, args 
 	go func() {
 		pid := process.Self()
 
-		defer func() {
-			if r := recover(); r != nil {
-				lib.Log("Recovered process: %v %#v ", process.self, r)
-				n.registrar.UnregisterProcess(pid)
-				n.monitor.ProcessTerminated(pid, etf.Atom(name), "panic")
-				process.Kill()
-			}
-		}()
+		// defer func() {
+		// 	if r := recover(); r != nil {
+		// 		lib.Log("Recovered process: %v %#v ", process.self, r)
+		// 		n.registrar.UnregisterProcess(pid)
+		// 		n.monitor.ProcessTerminated(pid, etf.Atom(name), "panic")
+		// 		process.Kill()
+		// 	}
+		// }()
 
 		reason := object.(ProcessBehaviour).loop(process, object, args...)
 		n.registrar.UnregisterProcess(pid)

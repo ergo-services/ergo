@@ -288,12 +288,12 @@ func waitNeventsSupervisorChildren(ch chan interface{}, n int, children [3]etf.P
 				children[child.order] = child.pid
 			}
 
-		case <-time.After(200 * time.Millisecond):
+		case <-time.After(100 * time.Millisecond):
 			if i == n {
 				return children, nil
 			}
 			if i < n {
-				return children, fmt.Errorf("expected %d events, but got %d. timeout", n, i)
+				return children, fmt.Errorf("expected %d events, but got %d. TIMEOUT", n, i)
 			}
 
 		}

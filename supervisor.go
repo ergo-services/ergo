@@ -114,54 +114,52 @@ type SupervisorChildSpec struct {
 	Restart  SupervisorChildRestart
 	Shutdown SupervisorChildShutdown
 	state    supervisorChildState // for internal usage
+	process  *Process
 }
 
 // Supervisor is implementation of ProcessBehavior interface
 type Supervisor struct{}
 
-func (sv *Supervisor) loop(p *Process, object interface{}, args ...interface{}) string {
-	var dynamicChildren map[etf.Pid]SupervisorChildSpec
+func (sv *Supervisor) loop(svp *Process, object interface{}, args ...interface{}) string {
 
 	spec := object.(SupervisorBehavior).Init(args...)
 	lib.Log("Supervisor spec %#v\n", spec)
-	p.ready <- true
+	svp.ready <- true
 
 	if spec.Strategy.Type != SupervisorStrategySimpleOneForOne {
-		p.children = make([]*Process, len(spec.Children))
-		startChildren(p, &spec)
-	} else {
-		dynamicChildren = make(map[etf.Pid]SupervisorChildSpec)
+		startChildren(svp, &spec)
 	}
 
-	p.currentFunction = "Supervisor:loop"
+	svp.currentFunction = "Supervisor:loop"
 	waitTerminatingProcesses := []etf.Pid{}
 
 	for {
 		var message etf.Term
 		var fromPid etf.Pid
-
 		select {
-		case ex := <-p.gracefulExit:
-			fmt.Println("GRACE--", p.children, len(p.children))
-			i := 0
-			for i = range p.children {
-				fmt.Println("GRACE", p.children[i].Self())
-				p.children[i].Exit(p.Self(), ex.reason)
+		case ex := <-svp.gracefulExit:
+			fmt.Println("\nSUPERVISOR GOT GRACEFULEXIT", svp.Self())
+
+			for i := range spec.Children {
+				if spec.Children[i].process != nil {
+					p := spec.Children[i].process
+					fmt.Printf("\nVVVV #%v\n", p.currentFunction)
+					p.Exit(svp.Self(), ex.reason)
+				}
 			}
-			fmt.Println("GRACE++", i)
 			return ex.reason
 
-		case msg := <-p.mailBox:
+		case msg := <-svp.mailBox:
 			fromPid = msg.Element(1).(etf.Pid)
 			message = msg.Element(2)
 
-		case <-p.Context.Done():
+		case <-svp.Context.Done():
 			return "kill"
 		}
 
-		p.reductions++
+		svp.reductions++
 
-		lib.Log("[%#v]. Message from %#v\n", p.self, fromPid)
+		lib.Log("[%#v]. Message from %#v\n", svp.self, fromPid)
 
 		switch m := message.(type) {
 
@@ -183,7 +181,7 @@ func (sv *Supervisor) loop(p *Process, object interface{}, args ...interface{}) 
 
 					if len(waitTerminatingProcesses) == 0 {
 						// it was the last one. lets restart all terminated children
-						startChildren(p, &spec)
+						startChildren(svp, &spec)
 					}
 
 					continue
@@ -192,19 +190,21 @@ func (sv *Supervisor) loop(p *Process, object interface{}, args ...interface{}) 
 				switch spec.Strategy.Type {
 
 				case SupervisorStrategyOneForAll:
-					for i := range p.children {
+					for i := range spec.Children {
 						if spec.Children[i].state != supervisorChildStateRunning {
 							continue
 						}
-
-						if p.children[i].self == terminated {
+						p := spec.Children[i].process
+						spec.Children[i].process = nil
+						if p.Self() == terminated {
+							// spec.Children[i].process = nil
 							if haveToDisableChild(spec.Children[i].Restart, reason) {
 								spec.Children[i].state = supervisorChildStateDisabled
 							} else {
 								spec.Children[i].state = supervisorChildStateStart
 							}
 
-							if len(p.children) == i+1 && len(waitTerminatingProcesses) == 0 {
+							if len(spec.Children) == i+1 && len(waitTerminatingProcesses) == 0 {
 								// it was the last one. nothing to waiting for
 								startChildren(p, &spec)
 							}
@@ -216,22 +216,25 @@ func (sv *Supervisor) loop(p *Process, object interface{}, args ...interface{}) 
 						} else {
 							spec.Children[i].state = supervisorChildStateStart
 						}
-						p.children[i].Exit(p.Self(), "restart")
-						waitTerminatingProcesses = append(waitTerminatingProcesses, p.children[i].self)
+						p.Exit(p.Self(), "restart")
+
+						waitTerminatingProcesses = append(waitTerminatingProcesses, p.Self())
 					}
 
 				case SupervisorStrategyRestForOne:
 					isRest := false
-					for i := range p.children {
-						if p.children[i].self == terminated {
+					for i := range spec.Children {
+						p := spec.Children[i].process
+						if p.Self() == terminated {
 							isRest = true
+							// spec.Children[i].process = nil
 							if haveToDisableChild(spec.Children[i].Restart, reason) {
 								spec.Children[i].state = supervisorChildStateDisabled
 							} else {
 								spec.Children[i].state = supervisorChildStateStart
 							}
 
-							if len(p.children) == i+1 && len(waitTerminatingProcesses) == 0 {
+							if len(spec.Children) == i+1 && len(waitTerminatingProcesses) == 0 {
 								// it was the last one. nothing to waiting for
 								startChildren(p, &spec)
 							}
@@ -240,8 +243,9 @@ func (sv *Supervisor) loop(p *Process, object interface{}, args ...interface{}) 
 						}
 
 						if isRest && spec.Children[i].state == supervisorChildStateRunning {
-							p.children[i].Exit(p.Self(), "restart")
-							waitTerminatingProcesses = append(waitTerminatingProcesses, p.children[i].self)
+							p.Exit(p.Self(), "restart")
+							spec.Children[i].process = nil
+							waitTerminatingProcesses = append(waitTerminatingProcesses, p.Self())
 							if haveToDisableChild(spec.Children[i].Restart, "restart") {
 								spec.Children[i].state = supervisorChildStateDisabled
 							} else {
@@ -251,8 +255,10 @@ func (sv *Supervisor) loop(p *Process, object interface{}, args ...interface{}) 
 					}
 
 				case SupervisorStrategyOneForOne:
-					for i := range p.children {
-						if p.children[i].self == terminated {
+					for i := range spec.Children {
+						p := spec.Children[i].process
+						if p.Self() == terminated {
+							spec.Children[i].process = nil
 							if haveToDisableChild(spec.Children[i].Restart, reason) {
 								spec.Children[i].state = supervisorChildStateDisabled
 							} else {
@@ -265,22 +271,19 @@ func (sv *Supervisor) loop(p *Process, object interface{}, args ...interface{}) 
 					}
 
 				case SupervisorStrategySimpleOneForOne:
-					for i := range p.children {
-						if p.children[i].self == terminated {
-							// remove child from list
-							p.children[i] = p.children[0]
-							p.children = p.children[1:]
+					for i := range spec.Children {
+						p := spec.Children[i].process
+						if p.Self() == terminated {
 
-							if s, ok := dynamicChildren[terminated]; ok {
-								delete(dynamicChildren, terminated)
-
-								if haveToDisableChild(s.Restart, reason) {
-									// wont be restarted due to restart strategy
-									break
-								}
-
-								sv.StartChild(*p, s.Name, s.Args)
+							if haveToDisableChild(spec.Children[i].Restart, reason) {
+								// wont be restarted due to restart strategy
+								spec.Children[i] = spec.Children[0]
+								spec.Children = spec.Children[1:]
+								break
 							}
+
+							process := startChild(svp, spec.Children[i].Name, spec.Children[i].Child, spec.Children[i].Args...)
+							spec.Children[i].process = process
 							break
 						}
 					}
@@ -304,17 +307,17 @@ func (sv *Supervisor) loop(p *Process, object interface{}, args ...interface{}) 
 					args,
 					reply,
 				}
-				p.mailBox <- etf.Tuple{etf.Pid{}, m}
+				svp.mailBox <- etf.Tuple{etf.Pid{}, m}
 
 			case etf.Atom("$startBySpec"):
-				spec := m.Element(2).(SupervisorChildSpec)
+				specChild := m.Element(2).(SupervisorChildSpec)
 				args := m.Element(3).([]interface{})
 				reply := m.Element(4).(chan etf.Tuple)
 
-				process := startChild(p, "", spec.Child, args)
-				p.children = append(p.children, process)
-				spec.Args = args
-				dynamicChildren[process.self] = spec
+				process := startChild(svp, "", specChild.Child, args)
+				specChild.process = process
+				specChild.Args = args
+				spec.Children = append(spec.Children, specChild)
 
 				reply <- etf.Tuple{etf.Atom("ok"), process.self}
 			default:
@@ -381,15 +384,15 @@ func startChildren(parent *Process, spec *SupervisorSpec) {
 	for i := range spec.Children {
 		switch spec.Children[i].state {
 		case supervisorChildStateDisabled:
-			parent.children[i] = nil
+			spec.Children[i].process = nil
 		case supervisorChildStateRunning:
 			continue
 		case supervisorChildStateStart:
 			spec.Children[i].state = supervisorChildStateRunning
 			process := startChild(parent, spec.Children[i].Name, spec.Children[i].Child, spec.Children[i].Args...)
-			parent.children[i] = process
+			spec.Children[i].process = process
 		default:
-			fmt.Println("GGGGGGGGGG", spec.Children[i].state)
+			panic("Incorrect supervisorChildState")
 		}
 	}
 }
