@@ -141,7 +141,6 @@ func (sv *Supervisor) loop(svp *Process, object interface{}, args ...interface{}
 			for i := range spec.Children {
 				if spec.Children[i].process != nil {
 					p := spec.Children[i].process
-					fmt.Printf("\nVVVV #%v\n", p.currentFunction)
 					p.Exit(svp.Self(), ex.reason)
 				}
 			}
@@ -327,17 +326,14 @@ func (sv *Supervisor) loop(svp *Process, object interface{}, args ...interface{}
 				specChild := m.Element(2).(SupervisorChildSpec)
 				args := m.Element(3).([]interface{})
 				reply := m.Element(4).(chan etf.Tuple)
+
 				if len(args) > 0 {
 					specChild.Args = args
 				}
 
-				s := lookupSpecByName(specChild.Name, spec.Children)
-				if s != nil {
-					reply <- etf.Tuple{etf.Atom("error"), "duplicate_spec"}
-				}
-
 				process := startChild(svp, "", specChild.Child, specChild.Args...)
 				specChild.process = process
+				specChild.Name = ""
 				spec.Children = append(spec.Children, specChild)
 
 				reply <- etf.Tuple{etf.Atom("ok"), process.self}
@@ -364,7 +360,7 @@ func (sv *Supervisor) StartChild(parent Process, specName string, args ...interf
 	r := <-reply
 	switch r.Element(1) {
 	case etf.Atom("ok"):
-		return r.Element(1).(etf.Pid), nil
+		return r.Element(2).(etf.Pid), nil
 	case etf.Atom("error"):
 		return etf.Pid{}, fmt.Errorf("%s", r.Element(2).(string))
 	default:
@@ -385,7 +381,7 @@ func (sv *Supervisor) StartChildWithSpec(parent Process, spec SupervisorChildSpe
 	r := <-reply
 	switch r.Element(1) {
 	case etf.Atom("ok"):
-		return r.Element(1).(etf.Pid), nil
+		return r.Element(2).(etf.Pid), nil
 	default:
 		return etf.Pid{}, errors.New(r.Element(1).(string))
 	}

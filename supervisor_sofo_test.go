@@ -53,7 +53,7 @@ func TestSupervisorSimpleOneForOne(t *testing.T) {
 	}
 
 	sv.StartChild(*processSV, "testGS2")
-	// sv.StartChild(*processSV, "testGS2")
+	sv.StartChild(*processSV, "testGS2")
 	// sv.StartChild(*processSV, "testGS2")
 
 	fmt.Printf("Stopping supervisor 'testSupervisorPermanent' (%s)... ", SupervisorChildRestartPermanent)
