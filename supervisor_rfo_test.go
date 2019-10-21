@@ -56,7 +56,7 @@ type testSupervisorRestForOne struct {
 
 func TestSupervisorRestForOne(t *testing.T) {
 	var err error
-	fmt.Printf("\n== Test Supervisor - rest for one\n")
+	fmt.Printf("\n=== Test Supervisor - rest for one\n")
 	fmt.Printf("Starting node nodeSvRestForOne@localhost: ")
 	node := CreateNode("nodeSvRestForOne@localhost", "cookies", NodeOptions{})
 	if node == nil {

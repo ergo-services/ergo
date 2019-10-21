@@ -32,7 +32,7 @@ func (trg *TestRegistrarGenserver) Terminate(reason string, state interface{}) {
 }
 
 func TestRegistrar(t *testing.T) {
-	fmt.Printf("\n== Test Registrar\n")
+	fmt.Printf("\n=== Test Registrar\n")
 	fmt.Printf("Starting nodes: nodeR1@localhost, nodeR2@localhost: ")
 	node1 := CreateNode("nodeR1@localhost", "cookies", NodeOptions{})
 	node2 := CreateNode("nodeR2@localhost", "cookies", NodeOptions{})

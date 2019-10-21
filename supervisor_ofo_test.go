@@ -105,7 +105,7 @@ func (tsv *testSupervisorGenServer) Terminate(reason string, state interface{}) 
 func TestSupervisorOneForOne(t *testing.T) {
 	var err error
 
-	fmt.Printf("\n== Test Supervisor - one for one\n")
+	fmt.Printf("\n=== Test Supervisor - one for one\n")
 	fmt.Printf("Starting node nodeSvOneForOne@localhost: ")
 	node := CreateNode("nodeSvOneForOne@localhost", "cookies", NodeOptions{})
 	if node == nil {

@@ -86,7 +86,7 @@ func (tgs *testMonitorGenServer) Terminate(reason string, state interface{}) {
 }
 
 func TestMonitor(t *testing.T) {
-	fmt.Printf("\n== Test Monitor/Link\n")
+	fmt.Printf("\n=== Test Monitor/Link\n")
 	fmt.Printf("Starting nodes: nodeM1@localhost, nodeM2@localhost: ")
 	node1 := CreateNode("nodeM1@localhost", "cookies", NodeOptions{})
 	node2 := CreateNode("nodeM2@localhost", "cookies", NodeOptions{})

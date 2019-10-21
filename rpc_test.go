@@ -39,7 +39,7 @@ func (trpc *testRPCGenServer) Terminate(reason string, state interface{}) {
 }
 
 func TestRPC(t *testing.T) {
-	fmt.Printf("\n== Test RPC\n")
+	fmt.Printf("\n=== Test RPC\n")
 
 	node1 := CreateNode("nodeRPC@localhost", "cookies", NodeOptions{})
 	gs1 := &testRPCGenServer{}

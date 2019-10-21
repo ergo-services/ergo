@@ -11,14 +11,6 @@ clean:
 	go clean
 	$(RM) ./gonode
 
-test: test-n test-r test-sv
-test-n:
-	go test -v -tags node --trace.node --trace.dist
-test-sv:
-	go test -v -tags supervisor --trace.node --trace.dist
-test-r:
-	go test -v -tags registrar --trace.node --trace.dist
-test-gs:
-	go test -v -tags genserver --trace.node --trace.dist
-test-m:
-	go test -v -tags monitor --trace.node --trace.dist
+test:
+	go vet
+	go test ./...
