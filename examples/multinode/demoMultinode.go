@@ -123,7 +123,7 @@ func main() {
 	fmt.Println("Run erl shell (cluster with cookie123):")
 	fmt.Printf("ERL_EPMD_PORT=7878 erl -name %s -setcookie cookie123\n", "erl-demoNode-cookie123@127.0.0.1")
 
-	fmt.Println("\nAllowed commands...\n")
+	fmt.Println("\nAllowed commands...")
 	fmt.Println("gen_server:cast({example,'demoNode7878@127.0.0.1'}, stop).")
 	fmt.Println("gen_server:call({example,'demoNode7878@127.0.0.1'}, hello).")
 	fmt.Println("gen_server:cast({example,'demoNode7878@127.0.0.1'}, forward).")
@@ -131,7 +131,7 @@ func main() {
 
 	fmt.Println("Run erl shell (cluster with cookie456):")
 	fmt.Printf("ERL_EPMD_PORT=8787 erl -name %s -setcookie cookie456\n", "erl-demoNode-cookie456@127.0.0.1")
-	fmt.Println("\nAllowed commands...\n")
+	fmt.Println("\nAllowed commands...")
 	fmt.Println("gen_server:cast({example,'demoNode8787@127.0.0.1'}, stop).")
 	fmt.Println("gen_server:call({example,'demoNode8787@127.0.0.1'}, hello).")
 	fmt.Println("gen_server:cast({example,'demoNode8787@127.0.0.1'}, forward).")

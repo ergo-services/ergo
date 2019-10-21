@@ -30,7 +30,7 @@ const (
 
 // SupervisorBehavior interface
 type ApplicationBehavior interface {
-	Init(process Process, args ...interface{}) ApplicationSpec
+	Start(process Process, args ...interface{}) ApplicationSpec
 }
 
 type ApplicationSpec struct {
@@ -50,7 +50,7 @@ type ApplicationChildSpec struct {
 	child ProcessBehaviour
 }
 
-// Supervisor is implementation of ProcessBehavior interface
+// Application is implementation of ProcessBehavior interface
 type Application struct {
 	process Process
 }
@@ -65,13 +65,13 @@ type requestAppGetEnv struct {
 	reply chan interface{}
 }
 
-type requsetAppListEnv struct {
+type requestAppListEnv struct {
 	reply chan map[string]interface{}
 }
 
 func (sv *Application) loop(p *Process, object interface{}, args ...interface{}) {
 	env := make(map[string]interface{})
-	spec := object.(ApplicationBehavior).Init(*p, args...)
+	spec := object.(ApplicationBehavior).Start(*p, args...)
 	children := []Process{}
 	lib.Log("Application spec %#v\n", spec)
 	p.ready <- true
@@ -101,7 +101,7 @@ func (sv *Application) loop(p *Process, object interface{}, args ...interface{})
 				env[r.name] = r.value
 			case requestAppGetEnv:
 				r.reply <- env[r.name]
-			case requsetAppListEnv:
+			case requestAppListEnv:
 				// make a copy of the original env
 				newEnv := make(map[string]interface{})
 				for key, value := range env {
