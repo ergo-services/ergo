@@ -1,6 +1,9 @@
 [![GitHub release](https://img.shields.io/github/release/halturin/ergonode.svg)](https://github.com/halturin/ergonode/releases/latest)
 [![Go Report Card](https://goreportcard.com/badge/github.com/halturin/ergonode)](https://goreportcard.com/report/github.com/halturin/ergonode)
 [![GoDoc](https://godoc.org/code.gitea.io/gitea?status.svg)](https://godoc.org/github.com/halturin/ergonode)
+[![MIT license](https://img.shields.io/badge/license-MIT-brightgreen.svg)](https://opensource.org/licenses/MIT)
+[![codecov](https://codecov.io/gh/halturin/ergonode/branch/supervisor/graph/badge.svg)](https://codecov.io/gh/halturin/ergonode)
+
 
 # Ergo Framework #
 
