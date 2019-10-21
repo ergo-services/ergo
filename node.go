@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"runtime"
 	"sync/atomic"
 	"syscall"
 
@@ -28,10 +29,8 @@ type Node struct {
 	context   context.Context
 	Stop      context.CancelFunc
 
-	StartedAt  time.Time
-	VersionOTP int
-
-	uniqID int64
+	StartedAt time.Time
+	uniqID    int64
 }
 
 type NodeOptions struct {
@@ -46,6 +45,7 @@ const (
 	defaultListenRangeEnd   uint16 = 65000
 	defaultEPMDPort         uint16 = 4369
 	versionOTP              int    = 21
+	versionERTSprefix              = "ergo"
 )
 
 // CreateNode create new node with name and cookie string
@@ -60,12 +60,11 @@ func CreateNodeWithContext(ctx context.Context, name string, cookie string, opts
 	nodectx, nodestop := context.WithCancel(ctx)
 
 	node := Node{
-		Cookie:     cookie,
-		context:    nodectx,
-		Stop:       nodestop,
-		StartedAt:  time.Now(),
-		VersionOTP: versionOTP,
-		uniqID:     time.Now().UnixNano(),
+		Cookie:    cookie,
+		context:   nodectx,
+		Stop:      nodestop,
+		StartedAt: time.Now(),
+		uniqID:    time.Now().UnixNano(),
 	}
 
 	// start networking if name is defined
@@ -438,6 +437,14 @@ func (n *Node) listen(name string, listenRangeBegin, listenRangeEnd uint16) uint
 	}
 
 	return 0
+}
+
+func (n *Node) VersionERTS() string {
+	return fmt.Sprintf("%s-%s", versionERTSprefix, runtime.Version())
+}
+
+func (n *Node) VersionOTP() int {
+	return versionOTP
 }
 
 func setSocketOptions(network string, address string, c syscall.RawConn) error {

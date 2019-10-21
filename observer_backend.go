@@ -116,8 +116,8 @@ func (o *observerBackend) sys_info() etf.List {
 	schedulers := etf.Tuple{etf.Atom("schedulers"), 1}
 	schedulers_online := etf.Tuple{etf.Atom("schedulers_online"), 1}
 	schedulers_available := etf.Tuple{etf.Atom("schedulers_available"), 1}
-	otp_release := etf.Tuple{etf.Atom("otp_release"), o.process.Node.VersionOTP}
-	version := etf.Tuple{etf.Atom("version"), etf.Atom(runtime.Version())}
+	otp_release := etf.Tuple{etf.Atom("otp_release"), o.process.Node.VersionOTP()}
+	version := etf.Tuple{etf.Atom("version"), etf.Atom(o.process.Node.VersionERTS())}
 	system_architecture := etf.Tuple{etf.Atom("system_architecture"), etf.Atom(runtime.GOARCH)}
 	kernel_poll := etf.Tuple{etf.Atom("kernel_poll"), true}
 	smp_support := etf.Tuple{etf.Atom("smp_support"), true}
