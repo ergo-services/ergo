@@ -494,6 +494,5 @@ func (r *registrar) handleCommand(cmd interface{}) {
 		} else {
 			c.reply <- nil
 		}
-
 	}
 }

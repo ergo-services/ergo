@@ -113,10 +113,12 @@ func CreateNodeWithContext(ctx context.Context, name string, cookie string, opts
 
 // Spawn create new process
 func (n *Node) Spawn(name string, opts ProcessOptions, object interface{}, args ...interface{}) (*Process, error) {
+
 	process, err := n.registrar.RegisterProcessExt(name, object, opts)
 	if err != nil {
 		return nil, err
 	}
+
 	go func() {
 		pid := process.Self()
 
@@ -127,6 +129,7 @@ func (n *Node) Spawn(name string, opts ProcessOptions, object interface{}, args 
 				n.monitor.ProcessTerminated(pid, etf.Atom(name), "panic")
 				process.Kill()
 			}
+			close(process.ready)
 		}()
 
 		reason := object.(ProcessBehaviour).loop(process, object, args...)
