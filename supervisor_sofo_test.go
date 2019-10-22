@@ -119,7 +119,6 @@ func TestSupervisorSimpleOneForOne(t *testing.T) {
 			statuses := []string{"empty", "empty", "empty", "empty", "empty", "empty"}
 			if checkExpectedChildrenStatus(children, children1, statuses) {
 				fmt.Println("OK")
-				children = children1
 			} else {
 				e := fmt.Errorf("got something else except we expected (%v). old: %v new: %v", statuses, children, children1)
 				t.Fatal(e)
