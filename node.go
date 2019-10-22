@@ -143,8 +143,9 @@ func (n *Node) Spawn(name string, opts ProcessOptions, object interface{}, args 
 	return process, nil
 }
 
-func (n *Node) Register(name string, pid etf.Pid) {
-	n.registrar.RegisterName(name, pid)
+// Register register name related to pid
+func (n *Node) Register(name string, pid etf.Pid) error {
+	return n.registrar.RegisterName(name, pid)
 }
 
 func (n *Node) IsProcessAlive(pid etf.Pid) bool {

@@ -22,6 +22,7 @@ type registerProcessRequest struct {
 type registerNameRequest struct {
 	name string
 	pid  etf.Pid
+	err  chan error
 }
 
 type registerPeer struct {
@@ -157,15 +158,23 @@ func (r *registrar) run() {
 					lib.Log("[%s] REGISTRAR unregistering name (%v): %s", r.node.FullName, p.self, p.name)
 					delete(r.names, p.name)
 				}
+				// delete names registered with this pid
+				for name, pid := range r.names {
+					if p.self == pid {
+						delete(r.names, name)
+					}
+				}
 			}
 
 		case n := <-r.channels.name:
 			lib.Log("[%s] registering name %v", r.node.FullName, n)
 			if _, ok := r.names[n.name]; ok {
 				// already registered
+				n.err <- fmt.Errorf("name is taken")
 				continue
 			}
 			r.names[n.name] = n.pid
+			n.err <- nil
 
 		case un := <-r.channels.unregisterName:
 			lib.Log("[%s] unregistering name %v", r.node.FullName, un)
@@ -355,9 +364,15 @@ func (r *registrar) UnregisterProcess(pid etf.Pid) {
 }
 
 // RegisterName register associates the name with pid
-func (r *registrar) RegisterName(name string, pid etf.Pid) {
-	req := registerNameRequest{name: name, pid: pid}
+func (r *registrar) RegisterName(name string, pid etf.Pid) error {
+	req := registerNameRequest{
+		name: name,
+		pid:  pid,
+		err:  make(chan error),
+	}
+	defer close(req.err)
 	r.channels.name <- req
+	return <-req.err
 }
 
 // UnregisterName unregister named process
@@ -371,6 +386,7 @@ func (r *registrar) RegisterPeer(name string, p peer) error {
 		peer: p,
 		err:  make(chan error),
 	}
+	defer close(req.err)
 	r.channels.peer <- req
 	return <-req.err
 }
