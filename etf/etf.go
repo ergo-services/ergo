@@ -158,7 +158,6 @@ var tagNames = map[byte]string{
 	ettString:        "STRING_EXT",
 }
 
-
 func (m Map) Element(k Term) Term {
 	return m[k]
 }
