@@ -51,6 +51,22 @@ func TestRegistrar(t *testing.T) {
 	}
 	fmt.Println("OK")
 
+	fmt.Printf("...registering name 'test' related to %v: ", node1gs1.Self())
+	if e := node1.Register("test", node1gs1.Self()); e != nil {
+		t.Fatal(e)
+	} else {
+		if e := node1.Register("test", node1gs1.Self()); e == nil {
+			t.Fatal("registered duplicate name")
+		}
+	}
+	fmt.Println("OK")
+	fmt.Printf("...unregistering name 'test' related to %v: ", node1gs1.Self())
+	node1.Unregister("test")
+	if e := node1.Register("test", node1gs1.Self()); e != nil {
+		t.Fatal(e)
+	}
+	fmt.Println("OK")
+
 	fmt.Printf("Starting TestRegistrarGenserver and registering as 'gs2' on %s: ", node2.FullName)
 	node2gs2, _ := node2.Spawn("gs2", ProcessOptions{}, gs, nil)
 	if _, ok := node2.registrar.processes[node2gs2.Self()]; !ok {
