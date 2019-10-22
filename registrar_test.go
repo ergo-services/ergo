@@ -150,4 +150,13 @@ func TestRegistrar(t *testing.T) {
 		}
 	}
 
+	x := node1.registrar.createNewPID()
+	xId := x.Id
+	for i := xId; i < xId+10; i++ {
+		x = node1.registrar.createNewPID()
+	}
+	if xId+10 != x.Id {
+		t.Fatalf("malformed PID creation sequence")
+	}
+
 }

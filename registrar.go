@@ -124,7 +124,7 @@ func createRegistrar(node *Node) *registrar {
 	return &r
 }
 
-func (r *registrar) createNewPID(name string) etf.Pid {
+func (r *registrar) createNewPID() etf.Pid {
 	i := atomic.AddUint32(&r.nextPID, 1)
 	return etf.Pid{
 		Node:     etf.Atom(r.nodeName),
@@ -319,7 +319,7 @@ func (r *registrar) RegisterProcessExt(name string, object interface{}, opts Pro
 	if opts.parent != nil {
 		ctx, kill = context.WithCancel(opts.parent.Context)
 	}
-	pid := r.createNewPID(r.nodeName)
+	pid := r.createNewPID()
 	exitChannel := make(chan gracefulExitRequest)
 	exit := func(from etf.Pid, reason string) {
 		lib.Log("[%s] EXIT: %#v with reason: %s", r.node.FullName, pid, reason)
