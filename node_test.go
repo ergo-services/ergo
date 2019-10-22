@@ -34,7 +34,7 @@ func TestNode(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	// empty GenServer{} should gonna die immediately
+	// empty GenServer{} should die immediately
 	if node.IsProcessAlive(p.Self()) {
 		t.Fatal("IsProcessAlive: expect 'false', but got 'true'")
 	}
