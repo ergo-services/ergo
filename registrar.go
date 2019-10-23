@@ -125,6 +125,7 @@ func createRegistrar(node *Node) *registrar {
 }
 
 func (r *registrar) createNewPID() etf.Pid {
+	// http://erlang.org/doc/apps/erts/erl_ext_dist.html#pid_ext
 	i := atomic.AddUint32(&r.nextPID, 1)
 	return etf.Pid{
 		Node:     etf.Atom(r.nodeName),

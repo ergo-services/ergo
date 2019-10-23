@@ -146,7 +146,7 @@ func (n *Node) Spawn(name string, opts ProcessOptions, object interface{}, args 
 	return process, nil
 }
 
-// Register register name related to pid
+// Register register associates the name with pid
 func (n *Node) Register(name string, pid etf.Pid) error {
 	return n.registrar.RegisterName(name, pid)
 }
@@ -344,7 +344,7 @@ func (n *Node) handleTerms(terms []etf.Term) {
 	}
 }
 
-// ProvideRPC register given module/function
+// ProvideRPC register given module/function as RPC method
 func (n *Node) ProvideRPC(module string, function string, fun rpcFunction) error {
 	lib.Log("RPC provide: %s:%s %#v", module, function, fun)
 	message := etf.Tuple{
