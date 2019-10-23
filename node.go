@@ -236,6 +236,10 @@ func (n *Node) serve(c net.Conn, negotiate bool) {
 	n.registrar.RegisterPeer(node.GetRemoteName(), p)
 }
 
+func (n *Node) ApplicationStart(app ApplicationBehavior, args ...interface{}) (*Process, error) {
+	return n.Spawn("", ProcessOptions{}, app, args...)
+}
+
 func (n *Node) handleTerms(terms []etf.Term) {
 	// defer func() {
 	// 	if r := recover(); r != nil {
@@ -399,6 +403,14 @@ func (n *Node) MakeRef() (ref etf.Ref) {
 	return
 }
 
+func (n *Node) VersionERTS() string {
+	return fmt.Sprintf("%s-%s", versionERTSprefix, runtime.Version())
+}
+
+func (n *Node) VersionOTP() int {
+	return versionOTP
+}
+
 func (n *Node) connect(to etf.Atom) error {
 	var port int
 	var err error
@@ -445,14 +457,6 @@ func (n *Node) listen(name string, listenRangeBegin, listenRangeEnd uint16) uint
 	}
 
 	return 0
-}
-
-func (n *Node) VersionERTS() string {
-	return fmt.Sprintf("%s-%s", versionERTSprefix, runtime.Version())
-}
-
-func (n *Node) VersionOTP() int {
-	return versionOTP
 }
 
 func setSocketOptions(network string, address string, c syscall.RawConn) error {

@@ -3,29 +3,32 @@ package ergonode
 // http://erlang.org/doc/apps/kernel/application.html
 
 import (
+	"fmt"
 	"time"
 
+	"github.com/halturin/ergonode/etf"
 	"github.com/halturin/ergonode/lib"
 )
 
-type ApplicationRestart = string
+type ApplicationStrategy = string
 
 const (
 	// Restart types:
 
-	// ApplicationRestartPermanent child process is always restarted
-	ApplicationRestartPermanent = "permanent"
+	// ApplicationStrategyPermanent If a permanent application terminates,
+	// all other applications and the runtime system (node) are also terminated.
+	ApplicationStrategyPermanent = "permanent"
 
-	// ApplicationRestartTemporary child process is never restarted
-	// (not even when the supervisor restart strategy is rest_for_one
-	// or one_for_all and a sibling death causes the temporary process
-	// to be terminated)
-	ApplicationRestartTemporary = "temporary"
+	// ApplicationStrategyTemporary If a temporary application terminates,
+	// this is reported but no other applications are terminated.
+	ApplicationStrategyTemporary = "temporary"
 
-	// ApplicationRestartTransient child process is restarted only if
-	// it terminates abnormally, that is, with an exit reason other
-	// than normal, shutdown, or {shutdown,Term}.
-	ApplicationRestartTransient = "transient"
+	// ApplicationStrategyTransient If a transient application terminates
+	// with reason normal, this is reported but no other applications are
+	// terminated. If a transient application terminates abnormally, that
+	// is with any other reason than normal, all other applications and
+	// the runtime system (node) are also terminated.
+	ApplicationStrategyTransient = "transient"
 )
 
 // SupervisorBehavior interface
@@ -43,11 +46,12 @@ type ApplicationSpec struct {
 	Environment  map[string]interface{}
 	// Depends		[]
 	children []ApplicationChildSpec
-	strategy ApplicationRestart
+	Strategy ApplicationStrategy
 }
 
 type ApplicationChildSpec struct {
-	child ProcessBehaviour
+	child   ProcessBehaviour
+	process *Process
 }
 
 // Application is implementation of ProcessBehavior interface
@@ -69,7 +73,7 @@ type requestAppListEnv struct {
 	reply chan map[string]interface{}
 }
 
-func (sv *Application) loop(p *Process, object interface{}, args ...interface{}) {
+func (sv *Application) loop(p *Process, object interface{}, args ...interface{}) string {
 	env := make(map[string]interface{})
 	spec := object.(ApplicationBehavior).Start(*p, args...)
 	children := []Process{}
@@ -84,14 +88,13 @@ func (sv *Application) loop(p *Process, object interface{}, args ...interface{})
 			for i := range children {
 				children[i].Exit(p.Self(), ex.reason)
 			}
-			// TODO: wait for all children' EXITs
 		case <-p.Context.Done():
 			// node is down or killed using p.Kill()
-			return
+			return "kill"
 		case <-time.After(spec.MaxTime):
 			// time to die
 			p.Exit(p.Self(), "normal")
-			return
+			return "shutdown"
 		case msg := <-p.mailBox:
 			if len(msg) == 0 {
 				continue // ignore
@@ -108,8 +111,54 @@ func (sv *Application) loop(p *Process, object interface{}, args ...interface{})
 					newEnv[key] = value
 				}
 				r.reply <- newEnv
+			case etf.Tuple:
+				var terminatedProcess *Process
+				// waiting for {'EXIT', Pid, Reason}
+				if len(r) != 3 || r.Element(1) != etf.Atom("EXIT") {
+					// unknown. ignoring
+					continue
+				}
+				terminated := r.Element(2).(etf.Pid)
+				reason := r.Element(3).(etf.Atom)
+
+				for i := range spec.children {
+					child := spec.children[i].process
+					if child.Self() == terminated {
+						terminatedProcess = child
+						spec.children[i] = spec.children[0]
+						spec.children = spec.children[1:]
+						break
+					}
+				}
+
+				switch spec.Strategy {
+				case ApplicationStrategyPermanent:
+					stopChildren(terminated, spec.children, string(reason))
+					p.Node.Stop()
+					return "shutdown"
+
+				case ApplicationStrategyTransient:
+					if reason == etf.Atom("normal") || reason == etf.Atom("shutdown") {
+						continue
+					}
+					stopChildren(terminated, spec.children, "normal")
+					fmt.Printf("Application (process) %s stopped with reason %s. Node %s is shutting down",
+						terminatedProcess.Name(), reason, p.Node.FullName)
+					p.Node.Stop()
+					return string(reason)
+
+				case ApplicationStrategyTemporary:
+					fmt.Printf("Application (process) %s stopped with reason %s", terminatedProcess.Name(), reason)
+				}
+
 			}
 		}
 
+	}
+}
+
+func stopChildren(from etf.Pid, children []ApplicationChildSpec, reason string) {
+	for i := range children {
+		children[i].process.Exit(from, reason)
 	}
 }
