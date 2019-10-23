@@ -44,7 +44,7 @@ The goal of this project is leverage Erlang/OTP experience with Golang performan
 
 *Ergo Framework* has embedded EPMD implementation in order to run your node without external epmd process needs. By default it works as a client with erlang' epmd daemon or others ergo's nodes either.
 
-The one thing that makes embedded EPMD different is behavior of handling connection hangs - if ergo' node is running as a epmd client and lost connection it tries to run its own embedded EPMD service or to restore lost connection.
+The one thing that makes embedded EPMD different is behavior of handling connection hangs - if ergo' node is running as a epmd client and lost connection it tries to run its own embedded EPMD service or tries to restore lost connection.
 
 As an extra option we provide EPMD service as a standalone application. There is a simple drop-in replacement of the original Erlang' epmd daemon.
 
@@ -52,9 +52,9 @@ As an extra option we provide EPMD service as a standalone application. There is
 
 ### Multinode ###
 
- This feature allows create two or more nodes within a single running instance. The only needs is specify the different set of options for creating nodes (such as: node name, empd port number, secret cookie). You may also want to use this feature to create 'proxy'-node between some clusters. 
+ This feature allows create two or more nodes within a single running instance. The only needs is specify the different set of options for creating nodes (such as: node name, empd port number, secret cookie). You may also want to use this feature to create 'proxy'-node between some clusters.
  See [Examples](#examples) for more details
- 
+
 
 ### Observer ###
 
