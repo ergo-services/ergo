@@ -58,7 +58,7 @@ As an extra option we provide EPMD service as a standalone application. There is
 
 ### Observer ###
 
- Allows you to see the most of metrics using standard tool of Erlang distribution. Example below shows this feature in action using one of examples:
+ It allows you to see the most metrics using standard tool of Erlang distribution. The example below shows this feature in action using one of the examples::
 
  ... put here gif-ed video demonstrating it us
 
