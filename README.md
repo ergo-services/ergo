@@ -3,6 +3,7 @@
 [![GoDoc](https://godoc.org/code.gitea.io/gitea?status.svg)](https://godoc.org/github.com/halturin/ergonode)
 [![MIT license](https://img.shields.io/badge/license-MIT-brightgreen.svg)](https://opensource.org/licenses/MIT)
 [![codecov](https://codecov.io/gh/halturin/ergonode/branch/supervisor/graph/badge.svg)](https://codecov.io/gh/halturin/ergonode)
+[![Build Status](https://travis-ci.org/halturin/ergonode.svg?branch=supervisor)](https://travis-ci.org/halturin/ergonode)
 
 
 # Ergo Framework #
