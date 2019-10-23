@@ -11,7 +11,7 @@ Implementation of Erlang/OTP node in Go
 
 ### Purpose ###
 
-The goal of this project is leverage Erlang/OTP experience with Golang performance. *Ergo Framework* implements OTP design patterns such as `GenServer`/`Supervisor`/`Application` and makes you able to create high performance and reliable application having native integration with Erlang infrastructure
+The goal of this project is to leverage Erlang/OTP experience with Golang performance. *Ergo Framework* implements OTP design patterns such as `GenServer`/`Supervisor`/`Application` and makes you able to create high performance and reliable application having native integration with Erlang infrastructure
 
 ### Features ###
 
