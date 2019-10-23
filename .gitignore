@@ -2,4 +2,6 @@
 gonode
 ./epmd
 coverage.txt
+coverage.html
+
 
