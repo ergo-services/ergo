@@ -72,7 +72,6 @@ type ApplicationInfo struct {
 func (a *Application) loop(p *Process, object interface{}, args ...interface{}) string {
 	spec := args[0].(ApplicationSpec)
 	object.(ApplicationBehavior).Start(*p, args[1:]...)
-	children := []Process{}
 	lib.Log("Application spec %#v\n", spec)
 	p.ready <- true
 
@@ -93,12 +92,9 @@ func (a *Application) loop(p *Process, object interface{}, args ...interface{}) 
 	for {
 		select {
 		case ex := <-p.gracefulExit:
-			if len(children) == 0 {
-				return ex.reason
-			}
-			for i := range children {
-				children[i].Exit(p.Self(), ex.reason)
-			}
+			a.stopChildren(ex.from, spec.Children, string(ex.reason))
+			return ex.reason
+
 		case <-p.Context.Done():
 			// node is down or killed using p.Kill()
 			return "kill"
@@ -122,32 +118,32 @@ func (a *Application) loop(p *Process, object interface{}, args ...interface{}) 
 
 				for i := range spec.Children {
 					child := spec.Children[i].process
-					if child.Self() == terminated {
+					if child != nil && child.Self() == terminated {
 						terminatedProcess = child
-						spec.Children[i] = spec.Children[0]
-						spec.Children = spec.Children[1:]
 						break
 					}
 				}
 
 				switch spec.Strategy {
 				case ApplicationStrategyPermanent:
-					stopChildren(terminated, spec.Children, string(reason))
+					a.stopChildren(terminated, spec.Children, string(reason))
+					fmt.Printf("Application (process) %s stopped with reason %s (permanent)", terminatedProcess.Name(), reason)
 					p.Node.Stop()
 					return "shutdown"
 
 				case ApplicationStrategyTransient:
 					if reason == etf.Atom("normal") || reason == etf.Atom("shutdown") {
+						fmt.Printf("Application (process) %s stopped with reason %s (transient)", terminatedProcess.Name(), reason)
 						continue
 					}
-					stopChildren(terminated, spec.Children, "normal")
+					a.stopChildren(terminated, spec.Children, "normal")
 					fmt.Printf("Application (process) %s stopped with reason %s. Node %s is shutting down",
 						terminatedProcess.Name(), reason, p.Node.FullName)
 					p.Node.Stop()
 					return string(reason)
 
 				case ApplicationStrategyTemporary:
-					fmt.Printf("Application (process) %s stopped with reason %s", terminatedProcess.Name(), reason)
+					fmt.Printf("Application (process) %s stopped with reason %s (temporary)", terminatedProcess.Name(), reason)
 				}
 
 			}
@@ -181,8 +177,11 @@ func (a *Application) GenEnv(name string) interface{} {
 	return nil
 }
 
-func stopChildren(from etf.Pid, children []ApplicationChildSpec, reason string) {
+func (a *Application) stopChildren(from etf.Pid, children []ApplicationChildSpec, reason string) {
 	for i := range children {
-		children[i].process.Exit(from, reason)
+		child := children[i].process
+		if child != nil && child.self != from {
+			children[i].process.Exit(from, reason)
+		}
 	}
 }
