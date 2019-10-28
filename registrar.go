@@ -2,7 +2,6 @@ package ergonode
 
 import (
 	"context"
-	"fmt"
 	"sync/atomic"
 
 	"github.com/halturin/ergonode/etf"
@@ -25,9 +24,15 @@ type registerNameRequest struct {
 	err  chan error
 }
 
-type registerPeer struct {
+type registerPeerRequest struct {
 	name string
 	peer peer
+	err  chan error
+}
+
+type registerAppRequest struct {
+	name string
+	spec *ApplicationSpec
 	err  chan error
 }
 
@@ -64,13 +69,20 @@ type requestProcessDetails struct {
 	reply chan *Process
 }
 
+type requestApplicationSpec struct {
+	name  string
+	reply chan *ApplicationSpec
+}
+
 type registrarChannels struct {
 	process           chan registerProcessRequest
 	unregisterProcess chan etf.Pid
 	name              chan registerNameRequest
 	unregisterName    chan string
-	peer              chan registerPeer
+	peer              chan registerPeerRequest
 	unregisterPeer    chan string
+	app               chan registerAppRequest
+	unregisterApp     chan string
 
 	routeByPid   chan routeByPidRequest
 	routeByName  chan routeByNameRequest
@@ -92,6 +104,7 @@ type registrar struct {
 	names     map[string]etf.Pid
 	processes map[etf.Pid]*Process
 	peers     map[string]peer
+	apps      map[string]*ApplicationSpec
 }
 
 func createRegistrar(node *Node) *registrar {
@@ -105,8 +118,10 @@ func createRegistrar(node *Node) *registrar {
 			unregisterProcess: make(chan etf.Pid, 10),
 			name:              make(chan registerNameRequest, 10),
 			unregisterName:    make(chan string, 10),
-			peer:              make(chan registerPeer, 10),
+			peer:              make(chan registerPeerRequest, 10),
 			unregisterPeer:    make(chan string, 10),
+			app:               make(chan registerAppRequest, 10),
+			unregisterApp:     make(chan string, 10),
 
 			routeByPid:   make(chan routeByPidRequest, 100),
 			routeByName:  make(chan routeByNameRequest, 100),
@@ -143,7 +158,7 @@ func (r *registrar) run() {
 		case p := <-r.channels.process:
 			if p.name != "" {
 				if _, exist := r.names[p.name]; exist {
-					p.err <- fmt.Errorf("name is taken")
+					p.err <- ErrNameIsTaken
 					continue
 				}
 				r.names[p.name] = p.process.self
@@ -160,10 +175,18 @@ func (r *registrar) run() {
 					lib.Log("[%s] REGISTRAR unregistering name (%v): %s", r.node.FullName, p.self, p.name)
 					delete(r.names, p.name)
 				}
+
 				// delete names registered with this pid
 				for name, pid := range r.names {
 					if p.self == pid {
 						delete(r.names, name)
+					}
+				}
+
+				// delete associated app spec with this pid
+				for name, spec := range r.apps {
+					if spec.process != nil && spec.process.self == p.self {
+						delete(r.apps, name)
 					}
 				}
 			}
@@ -172,7 +195,7 @@ func (r *registrar) run() {
 			lib.Log("[%s] registering name %v", r.node.FullName, n)
 			if _, ok := r.names[n.name]; ok {
 				// already registered
-				n.err <- fmt.Errorf("name is taken")
+				n.err <- ErrNameIsTaken
 				continue
 			}
 			r.names[n.name] = n.pid
@@ -186,7 +209,7 @@ func (r *registrar) run() {
 			lib.Log("[%s] registering peer %v", r.node.FullName, p)
 			if _, ok := r.peers[p.name]; ok {
 				// already registered
-				p.err <- fmt.Errorf("name is taken")
+				p.err <- ErrNameIsTaken
 				continue
 			}
 			r.peers[p.name] = p.peer
@@ -198,6 +221,20 @@ func (r *registrar) run() {
 				r.node.monitor.NodeDown(up)
 				delete(r.peers, up)
 			}
+
+		case a := <-r.channels.app:
+			lib.Log("[%s] registering app %v", r.node.FullName, a)
+			if _, ok := r.apps[a.name]; ok {
+				// already loaded
+				a.err <- ErrAppAlreadyLoaded
+				continue
+			}
+			r.apps[a.name] = a.spec
+			a.err <- nil
+
+		case ua := <-r.channels.unregisterApp:
+			lib.Log("[%s] unregistering app %v", r.node.FullName, ua)
+			delete(r.apps, ua)
 
 		case <-r.node.context.Done():
 			lib.Log("[%s] Finalizing (KILL) registrar (total number of processes: %d)", r.node.FullName, len(r.processes))
@@ -383,7 +420,7 @@ func (r *registrar) UnregisterName(name string) {
 }
 
 func (r *registrar) RegisterPeer(name string, p peer) error {
-	req := registerPeer{
+	req := registerPeerRequest{
 		name: name,
 		peer: p,
 		err:  make(chan error),
@@ -395,6 +432,21 @@ func (r *registrar) RegisterPeer(name string, p peer) error {
 
 func (r *registrar) UnregisterPeer(name string) {
 	r.channels.unregisterPeer <- name
+}
+
+func (r *registrar) RegisterApp(name string, spec *ApplicationSpec) error {
+	req := registerAppRequest{
+		name: name,
+		spec: spec,
+		err:  make(chan error),
+	}
+	defer close(req.err)
+	r.channels.app <- req
+	return <-req.err
+}
+
+func (r *registrar) UnregisterApp(name string) {
+	r.channels.unregisterApp <- name
 }
 
 // GetProcessByPid returns Process struct for the given Pid. Returns nil if it doesn't exist (not found)
@@ -429,6 +481,16 @@ func (r *registrar) GetProcessByName(name string) *Process {
 	}
 	// unknown process
 	return nil
+}
+
+func (r *registrar) GetApplicationSpecByName(name string) *ApplicationSpec {
+	reply := make(chan *ApplicationSpec)
+	req := requestApplicationSpec{
+		name:  name,
+		reply: reply,
+	}
+	r.channels.commands <- req
+	return <-reply
 }
 
 // route incomming message to registered process
@@ -496,5 +558,11 @@ func (r *registrar) handleCommand(cmd interface{}) {
 		} else {
 			c.reply <- nil
 		}
+	case requestApplicationSpec:
+		if spec, ok := r.apps[c.name]; ok {
+			c.reply <- spec
+			return
+		}
+		c.reply <- nil
 	}
 }

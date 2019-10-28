@@ -1,9 +1,15 @@
 package ergonode
 
 import (
+	"fmt"
 	"net"
 
 	"github.com/halturin/ergonode/etf"
+)
+
+var (
+	ErrAppAlreadyLoaded = fmt.Errorf("Application is already loaded")
+	ErrNameIsTaken      = fmt.Errorf("Name is taken")
 )
 
 // Distributed operations codes (http://www.erlang.org/doc/apps/erts/erl_dist_protocol.html)

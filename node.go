@@ -236,7 +236,28 @@ func (n *Node) serve(c net.Conn, negotiate bool) {
 	n.registrar.RegisterPeer(node.GetRemoteName(), p)
 }
 
-func (n *Node) ApplicationStart(app ApplicationBehavior, args ...interface{}) (*Process, error) {
+func (n *Node) LoadedApplications() []ApplicationInfo {
+	return nil
+}
+
+func (n *Node) ApplicationLoad(app ApplicationBehavior, args ...interface{}) error {
+
+	spec, err := app.Load(args...)
+	if err != nil {
+		return err
+	}
+
+	return n.registrar.RegisterApp(spec.Name, &spec)
+}
+
+func (n *Node) ApplicationUnload() bool {
+	return true
+}
+
+func (n *Node) ApplicationStart(app interface{}, args ...interface{}) (*Process, error) {
+
+	// r.registrar.GetApplicationSpecByName()
+
 	return n.Spawn("", ProcessOptions{}, app, args...)
 }
 

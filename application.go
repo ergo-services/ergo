@@ -4,6 +4,7 @@ package ergonode
 
 import (
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/halturin/ergonode/etf"
@@ -33,58 +34,68 @@ const (
 
 // SupervisorBehavior interface
 type ApplicationBehavior interface {
-	Start(process Process, args ...interface{}) ApplicationSpec
+	Load(args ...interface{}) (ApplicationSpec, error)
+	Start(process Process, args ...interface{})
 }
 
 type ApplicationSpec struct {
 	Name         string
 	Description  string
-	ID           string
 	Version      string
 	MaxTime      time.Duration
-	Applications []Application
+	Applications []string
 	Environment  map[string]interface{}
 	// Depends		[]
-	children []ApplicationChildSpec
+	Children []ApplicationChildSpec
 	Strategy ApplicationStrategy
+	process  *Process
 }
 
 type ApplicationChildSpec struct {
-	child   ProcessBehaviour
+	Child   interface{}
+	Args    []interface{}
 	process *Process
 }
 
 // Application is implementation of ProcessBehavior interface
 type Application struct {
-	process Process
+	sync.RWMutex
+	env map[string]interface{}
 }
 
-type requestAppSetEnv struct {
-	name  string
-	value interface{}
+type ApplicationInfo struct {
+	Name        string
+	Description string
+	Version     string
 }
 
-type requestAppGetEnv struct {
-	name  string
-	reply chan interface{}
-}
-
-type requestAppListEnv struct {
-	reply chan map[string]interface{}
-}
-
-func (sv *Application) loop(p *Process, object interface{}, args ...interface{}) string {
-	env := make(map[string]interface{})
-	spec := object.(ApplicationBehavior).Start(*p, args...)
+func (a *Application) loop(p *Process, object interface{}, args ...interface{}) string {
+	spec := args[0].(ApplicationSpec)
+	object.(ApplicationBehavior).Start(*p, args[1:]...)
 	children := []Process{}
 	lib.Log("Application spec %#v\n", spec)
 	p.ready <- true
+
+	if a.env == nil {
+		a.env = make(map[string]interface{})
+	}
+
+	if spec.Environment != nil {
+		for k, v := range spec.Environment {
+			a.SetEnv(k, v)
+		}
+	}
+
 	if spec.MaxTime == 0 {
 		spec.MaxTime = time.Second * 31536000 * 100 // let's define default lifespan 100 years :)
 	}
+
 	for {
 		select {
 		case ex := <-p.gracefulExit:
+			if len(children) == 0 {
+				return ex.reason
+			}
 			for i := range children {
 				children[i].Exit(p.Self(), ex.reason)
 			}
@@ -94,23 +105,11 @@ func (sv *Application) loop(p *Process, object interface{}, args ...interface{})
 		case <-time.After(spec.MaxTime):
 			// time to die
 			p.Exit(p.Self(), "normal")
-			return "shutdown"
 		case msg := <-p.mailBox:
 			if len(msg) == 0 {
 				continue // ignore
 			}
 			switch r := msg[0].(type) {
-			case requestAppSetEnv:
-				env[r.name] = r.value
-			case requestAppGetEnv:
-				r.reply <- env[r.name]
-			case requestAppListEnv:
-				// make a copy of the original env
-				newEnv := make(map[string]interface{})
-				for key, value := range env {
-					newEnv[key] = value
-				}
-				r.reply <- newEnv
 			case etf.Tuple:
 				var terminatedProcess *Process
 				// waiting for {'EXIT', Pid, Reason}
@@ -121,19 +120,19 @@ func (sv *Application) loop(p *Process, object interface{}, args ...interface{})
 				terminated := r.Element(2).(etf.Pid)
 				reason := r.Element(3).(etf.Atom)
 
-				for i := range spec.children {
-					child := spec.children[i].process
+				for i := range spec.Children {
+					child := spec.Children[i].process
 					if child.Self() == terminated {
 						terminatedProcess = child
-						spec.children[i] = spec.children[0]
-						spec.children = spec.children[1:]
+						spec.Children[i] = spec.Children[0]
+						spec.Children = spec.Children[1:]
 						break
 					}
 				}
 
 				switch spec.Strategy {
 				case ApplicationStrategyPermanent:
-					stopChildren(terminated, spec.children, string(reason))
+					stopChildren(terminated, spec.Children, string(reason))
 					p.Node.Stop()
 					return "shutdown"
 
@@ -141,7 +140,7 @@ func (sv *Application) loop(p *Process, object interface{}, args ...interface{})
 					if reason == etf.Atom("normal") || reason == etf.Atom("shutdown") {
 						continue
 					}
-					stopChildren(terminated, spec.children, "normal")
+					stopChildren(terminated, spec.Children, "normal")
 					fmt.Printf("Application (process) %s stopped with reason %s. Node %s is shutting down",
 						terminatedProcess.Name(), reason, p.Node.FullName)
 					p.Node.Stop()
@@ -155,6 +154,31 @@ func (sv *Application) loop(p *Process, object interface{}, args ...interface{})
 		}
 
 	}
+}
+
+func (a *Application) ListEnv() map[string]interface{} {
+	e := make(map[string]interface{})
+	a.RLock()
+	defer a.RUnlock()
+	for key, value := range a.env {
+		e[key] = value
+	}
+	return e
+}
+
+func (a *Application) SetEnv(name string, value interface{}) {
+	a.Lock()
+	defer a.Unlock()
+	a.env[name] = value
+}
+
+func (a *Application) GenEnv(name string) interface{} {
+	a.RLock()
+	defer a.RUnlock()
+	if value, ok := a.env[name]; ok {
+		return value
+	}
+	return nil
 }
 
 func stopChildren(from etf.Pid, children []ApplicationChildSpec, reason string) {
