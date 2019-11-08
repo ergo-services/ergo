@@ -17,7 +17,7 @@ const (
 )
 
 type Process struct {
-	mutex sync.RWMutex
+	sync.RWMutex
 
 	mailBox      chan etf.Tuple
 	ready        chan bool
@@ -174,8 +174,8 @@ func (p *Process) DemonitorNode(ref etf.Ref) {
 
 func (p *Process) ListEnv() map[string]interface{} {
 	e := make(map[string]interface{})
-	p.mutex.RLock()
-	defer p.mutex.RUnlock()
+	p.RLock()
+	defer p.RUnlock()
 	for key, value := range p.env {
 		e[key] = value
 	}
@@ -183,8 +183,8 @@ func (p *Process) ListEnv() map[string]interface{} {
 }
 
 func (p *Process) SetEnv(name string, value interface{}) {
-	p.mutex.Lock()
-	defer p.mutex.Unlock()
+	p.Lock()
+	defer p.Unlock()
 	if p.env == nil {
 		p.env = make(map[string]interface{})
 	}
@@ -192,8 +192,8 @@ func (p *Process) SetEnv(name string, value interface{}) {
 }
 
 func (p *Process) GenEnv(name string) interface{} {
-	p.mutex.RLock()
-	defer p.mutex.RUnlock()
+	p.RLock()
+	defer p.RUnlock()
 	if value, ok := p.env[name]; ok {
 		return value
 	}
