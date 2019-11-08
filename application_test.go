@@ -19,6 +19,7 @@ func (a *MyApplication) Load(args ...interface{}) (ApplicationSpec, error) {
 	return ApplicationSpec{
 		Name:        "testapp",
 		Description: "My Test Applicatoin",
+		Version:     "v.0.1",
 		Environment: map[string]interface{}{
 			"envName1": 123,
 			"envName2": "Hello world",
@@ -48,6 +49,10 @@ func TestApplication(t *testing.T) {
 	maxTime := 100 * time.Millisecond
 
 	node.ApplicationLoad(app, maxTime, ApplicationStrategyPermanent)
+
+	fmt.Println("LOADED APP", node.LoadedApplications())
+	fmt.Println("RUNNING APP", node.WhichApplications())
+
 	p, e := node.ApplicationStart("testapp")
 	if e != nil {
 		fmt.Println("ERR", e)
@@ -59,7 +64,8 @@ func TestApplication(t *testing.T) {
 	p.SetEnv("CDF", 567)
 	p.SetEnv("GHJ", "890")
 
-	fmt.Println("XXX", p.ListEnv())
+	fmt.Println("LOADED APP", node.LoadedApplications())
+	fmt.Println("RUNNING APP", node.WhichApplications())
 
 	// node.ApplicationStart(app, maxTime, ApplicationStrategyTemporary)
 	// node.ApplicationStart(app, maxTime, ApplicationStrategyTransient)
