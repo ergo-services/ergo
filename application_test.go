@@ -11,7 +11,7 @@ type MyApplication struct {
 	Application
 }
 
-func (a *MyApplication) Start(p Process, args ...interface{}) ApplicationSpec {
+func (a *MyApplication) Load(args ...interface{}) (ApplicationSpec, error) {
 	maxTime := args[0].(time.Duration)
 	strategy := args[1].(string)
 	return ApplicationSpec{
@@ -26,7 +26,11 @@ func (a *MyApplication) Start(p Process, args ...interface{}) ApplicationSpec {
 		},
 		MaxTime:  maxTime,
 		Strategy: strategy,
-	}
+	}, nil
+}
+
+func (a *MyApplication) Start(p Process, args ...interface{}) {
+	fmt.Println("STARTED!!!")
 }
 func TestApplication(t *testing.T) {
 
@@ -37,11 +41,10 @@ func TestApplication(t *testing.T) {
 	} else {
 		fmt.Println("OK")
 	}
-	app := &MyApplication{
-		Application{},
-	}
+	app := &MyApplication{}
 	maxTime := 100 * time.Millisecond
-	node.ApplicationStart(app, maxTime, ApplicationStrategyPermanent)
+	node.ApplicationLoad(app, maxTime, ApplicationStrategyPermanent)
+	node.ApplicationStart("testapp")
 
 	x := app.ListEnv()
 	fmt.Println("XXX", x)

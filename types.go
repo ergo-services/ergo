@@ -8,8 +8,10 @@ import (
 )
 
 var (
-	ErrAppAlreadyLoaded = fmt.Errorf("Application is already loaded")
-	ErrNameIsTaken      = fmt.Errorf("Name is taken")
+	ErrAppAlreadyLoaded  = fmt.Errorf("Application is already loaded")
+	ErrAppAlreadyStarted = fmt.Errorf("Application is already started")
+
+	ErrNameIsTaken = fmt.Errorf("Name is taken")
 )
 
 // Distributed operations codes (http://www.erlang.org/doc/apps/erts/erl_dist_protocol.html)

@@ -43,11 +43,12 @@ type ApplicationSpec struct {
 	Description  string
 	Version      string
 	MaxTime      time.Duration
-	Applications []string
+	Applications []ApplicationBehavior
 	Environment  map[string]interface{}
 	// Depends		[]
 	Children []ApplicationChildSpec
 	Strategy ApplicationStrategy
+	app      ApplicationBehavior
 	process  *Process
 }
 

@@ -74,6 +74,14 @@ type requestApplicationSpec struct {
 	reply chan *ApplicationSpec
 }
 
+type requestProcessList struct {
+	reply chan []Process
+}
+
+type requestApplicationList struct {
+	reply chan []ApplicationSpec
+}
+
 type registrarChannels struct {
 	process           chan registerProcessRequest
 	unregisterProcess chan etf.Pid
@@ -134,6 +142,7 @@ func createRegistrar(node *Node) *registrar {
 		names:     make(map[string]etf.Pid),
 		processes: make(map[etf.Pid]*Process),
 		peers:     make(map[string]peer),
+		apps:      make(map[string]*ApplicationSpec),
 	}
 	go r.run()
 	return &r
@@ -449,6 +458,16 @@ func (r *registrar) UnregisterApp(name string) {
 	r.channels.unregisterApp <- name
 }
 
+func (r *registrar) GetApplicationSpecByName(name string) *ApplicationSpec {
+	reply := make(chan *ApplicationSpec)
+	req := requestApplicationSpec{
+		name:  name,
+		reply: reply,
+	}
+	r.channels.commands <- req
+	return <-reply
+}
+
 // GetProcessByPid returns Process struct for the given Pid. Returns nil if it doesn't exist (not found)
 func (r *registrar) GetProcessByPid(pid etf.Pid) *Process {
 	reply := make(chan *Process)
@@ -483,14 +502,20 @@ func (r *registrar) GetProcessByName(name string) *Process {
 	return nil
 }
 
-func (r *registrar) GetApplicationSpecByName(name string) *ApplicationSpec {
-	reply := make(chan *ApplicationSpec)
-	req := requestApplicationSpec{
-		name:  name,
-		reply: reply,
+func (r registrar) ProcessList() []Process {
+	req := requestProcessList{
+		reply: make(chan []Process),
 	}
 	r.channels.commands <- req
-	return <-reply
+	return <-req.reply
+}
+
+func (r registrar) ApplicationList() []ApplicationSpec {
+	req := requestApplicationList{
+		reply: make(chan []ApplicationSpec),
+	}
+	r.channels.commands <- req
+	return <-req.reply
 }
 
 // route incomming message to registered process
@@ -558,11 +583,29 @@ func (r *registrar) handleCommand(cmd interface{}) {
 		} else {
 			c.reply <- nil
 		}
+
+	case requestProcessList:
+		list := []Process{}
+		for _, p := range r.processes {
+			unrefProcess := *p
+			list = append(list, unrefProcess)
+		}
+		c.reply <- list
+
 	case requestApplicationSpec:
 		if spec, ok := r.apps[c.name]; ok {
 			c.reply <- spec
 			return
 		}
 		c.reply <- nil
+
+	case requestApplicationList:
+		list := []ApplicationSpec{}
+		for _, a := range r.apps {
+			unrefApplication := *a
+			list = append(list, unrefApplication)
+		}
+		c.reply <- list
 	}
+
 }

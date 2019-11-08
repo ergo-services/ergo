@@ -236,29 +236,93 @@ func (n *Node) serve(c net.Conn, negotiate bool) {
 	n.registrar.RegisterPeer(node.GetRemoteName(), p)
 }
 
+// LoadedApplications returns a list with information about the
+// applications, which are loaded using ApplicatoinLoad
 func (n *Node) LoadedApplications() []ApplicationInfo {
-	return nil
+	info := []ApplicationInfo{}
+	for _, a := range n.registrar.ApplicationList() {
+		if a.process != nil {
+			// list only loaded and not started apps
+			continue
+		}
+		appInfo := ApplicationInfo{
+			Name:        a.Name,
+			Description: a.Description,
+			Version:     a.Version,
+		}
+		info = append(info, appInfo)
+	}
+	return info
 }
 
-func (n *Node) ApplicationLoad(app ApplicationBehavior, args ...interface{}) error {
+// WhichApplications returns a list with information about the applications that are currently running.
+func (n *Node) WhichApplications() []ApplicationInfo {
+	info := []ApplicationInfo{}
+	for _, a := range n.registrar.ApplicationList() {
+		if a.process == nil {
+			// list only started apps
+			continue
+		}
+		appInfo := ApplicationInfo{
+			Name:        a.Name,
+			Description: a.Description,
+			Version:     a.Version,
+		}
+		info = append(info, appInfo)
+	}
+	return info
+}
 
-	spec, err := app.Load(args...)
+// ApplicationLoad loads the application specification for an application
+// into the node. It also loads the application specifications for any included applications
+func (n *Node) ApplicationLoad(app interface{}, args ...interface{}) error {
+
+	spec, err := app.(ApplicationBehavior).Load(args...)
 	if err != nil {
 		return err
+	}
+	spec.app = app.(ApplicationBehavior)
+	for i := range spec.Applications {
+		if e := n.ApplicationLoad(spec.Applications[i], args...); e != nil && e != ErrAppAlreadyLoaded {
+			return e
+		}
 	}
 
 	return n.registrar.RegisterApp(spec.Name, &spec)
 }
 
-func (n *Node) ApplicationUnload() bool {
-	return true
+// ApplicationUnload unloads the application specification for Application from the
+// node. It also unloads the application specifications for any included applications.
+func (n *Node) ApplicationUnload(appName string) (bool, error) {
+	spec := n.registrar.GetApplicationSpecByName(appName)
+	if spec == nil {
+		return false, fmt.Errorf("Unknown application name")
+	}
+	if spec.process != nil {
+		if spec == nil {
+			return false, fmt.Errorf("Application is running")
+		}
+	}
+
+	n.registrar.UnregisterApp(appName)
+	return true, nil
 }
 
-func (n *Node) ApplicationStart(app interface{}, args ...interface{}) (*Process, error) {
+// ApplicationStart starts Application
+func (n *Node) ApplicationStart(appName string, args ...interface{}) (*Process, error) {
 
-	// r.registrar.GetApplicationSpecByName()
+	spec := n.registrar.GetApplicationSpecByName(appName)
+	if spec == nil {
+		return nil, fmt.Errorf("Unknown application name")
+	}
 
-	return n.Spawn("", ProcessOptions{}, app, args...)
+	for i := range spec.Applications {
+		if _, e := n.Spawn("", ProcessOptions{}, spec.Applications[i]); e != nil && e != ErrAppAlreadyStarted {
+			return nil, e
+		}
+	}
+
+	return n.Spawn("", ProcessOptions{}, spec.app, args...)
 }
 
 func (n *Node) handleTerms(terms []etf.Term) {
