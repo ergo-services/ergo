@@ -12,7 +12,7 @@ type TestRegistrarGenserver struct {
 	GenServer
 }
 
-func (trg *TestRegistrarGenserver) Init(p Process, args ...interface{}) (state interface{}) {
+func (trg *TestRegistrarGenserver) Init(p *Process, args ...interface{}) (state interface{}) {
 	return nil
 }
 func (trg *TestRegistrarGenserver) HandleCast(message etf.Term, state interface{}) (string, interface{}) {

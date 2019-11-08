@@ -73,10 +73,10 @@ func TestSupervisorSimpleOneForOne(t *testing.T) {
 
 		// start children
 		for i := 0; i < 6; i = i + 2 {
-			p, _ := sv.StartChild(*processSV, fmt.Sprintf("testGS%d", i/2+1), sv.ch, i)
+			p, _ := sv.StartChild(processSV, fmt.Sprintf("testGS%d", i/2+1), sv.ch, i)
 			children[i] = p
 			// start twice
-			p, _ = sv.StartChild(*processSV, fmt.Sprintf("testGS%d", i/2+1), sv.ch, i+1)
+			p, _ = sv.StartChild(processSV, fmt.Sprintf("testGS%d", i/2+1), sv.ch, i+1)
 			children[i+1] = p
 		}
 		if children1, err := waitNeventsSupervisorChildren(sv.ch, 6, children); err != nil {

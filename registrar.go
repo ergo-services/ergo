@@ -75,7 +75,7 @@ type requestApplicationSpec struct {
 }
 
 type requestProcessList struct {
-	reply chan []Process
+	reply chan []*Process
 }
 
 type requestApplicationList struct {
@@ -477,9 +477,7 @@ func (r *registrar) GetProcessByPid(pid etf.Pid) *Process {
 	}
 	r.channels.commands <- req
 	if p := <-reply; p != nil {
-		// make a copy of the Process struct in order to keep it safe
-		unrefP := *p
-		return &unrefP
+		return p
 	}
 	// unknown process
 	return nil
@@ -494,17 +492,15 @@ func (r *registrar) GetProcessByName(name string) *Process {
 	}
 	r.channels.commands <- req
 	if p := <-reply; p != nil {
-		// make a copy of the Process struct in order to keep it safe
-		unrefP := *p
-		return &unrefP
+		return p
 	}
 	// unknown process
 	return nil
 }
 
-func (r registrar) ProcessList() []Process {
+func (r registrar) ProcessList() []*Process {
 	req := requestProcessList{
-		reply: make(chan []Process),
+		reply: make(chan []*Process),
 	}
 	r.channels.commands <- req
 	return <-req.reply
@@ -585,10 +581,9 @@ func (r *registrar) handleCommand(cmd interface{}) {
 		}
 
 	case requestProcessList:
-		list := []Process{}
+		list := []*Process{}
 		for _, p := range r.processes {
-			unrefProcess := *p
-			list = append(list, unrefProcess)
+			list = append(list, p)
 		}
 		c.reply <- list
 
