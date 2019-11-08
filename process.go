@@ -3,6 +3,7 @@ package ergonode
 import (
 	"context"
 	"errors"
+	"sync"
 	"time"
 
 	"github.com/halturin/ergonode/etf"
@@ -19,11 +20,13 @@ const (
 )
 
 type Process struct {
+	sync.RWMutex
+
 	mailBox      chan etf.Tuple
 	ready        chan bool
 	gracefulExit chan gracefulExitRequest
 	self         etf.Pid
-	groupLeader  etf.Pid
+	groupLeader  *Process
 	Context      context.Context
 	Kill         context.CancelFunc
 	Exit         ProcessExitFunc
@@ -34,7 +37,8 @@ type Process struct {
 	state  interface{}
 	reply  chan etf.Tuple
 
-	// children        []*Process
+	env map[string]interface{}
+
 	parent          *Process
 	reductions      uint64 // we use this term to count total number of processed messages from mailBox
 	currentFunction string
@@ -59,7 +63,7 @@ type ProcessInfo struct {
 
 type ProcessOptions struct {
 	MailboxSize uint16
-	GroupLeader etf.Pid
+	GroupLeader *Process
 	parent      *Process
 }
 
@@ -169,4 +173,32 @@ func (p *Process) DemonitorProcess(ref etf.Ref) {
 
 func (p *Process) DemonitorNode(ref etf.Ref) {
 	p.Node.monitor.DemonitorNode(ref)
+}
+
+func (p *Process) ListEnv() map[string]interface{} {
+	e := make(map[string]interface{})
+	p.RLock()
+	defer p.RUnlock()
+	for key, value := range p.env {
+		e[key] = value
+	}
+	return e
+}
+
+func (p *Process) SetEnv(name string, value interface{}) {
+	p.Lock()
+	defer p.Unlock()
+	if p.env == nil {
+		p.env = make(map[string]interface{})
+	}
+	p.env[name] = value
+}
+
+func (p *Process) GenEnv(name string) interface{} {
+	p.RLock()
+	defer p.RUnlock()
+	if value, ok := p.env[name]; ok {
+		return value
+	}
+	return nil
 }

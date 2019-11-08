@@ -12,6 +12,8 @@ type MyApplication struct {
 }
 
 func (a *MyApplication) Load(args ...interface{}) (ApplicationSpec, error) {
+	fmt.Println("Loading!!!")
+
 	maxTime := args[0].(time.Duration)
 	strategy := args[1].(string)
 	return ApplicationSpec{
@@ -30,7 +32,7 @@ func (a *MyApplication) Load(args ...interface{}) (ApplicationSpec, error) {
 }
 
 func (a *MyApplication) Start(p Process, args ...interface{}) {
-	fmt.Println("STARTED!!!")
+	fmt.Println("STARTED!!!", p.ListEnv())
 }
 func TestApplication(t *testing.T) {
 
@@ -43,11 +45,20 @@ func TestApplication(t *testing.T) {
 	}
 	app := &MyApplication{}
 	maxTime := 100 * time.Millisecond
-	node.ApplicationLoad(app, maxTime, ApplicationStrategyPermanent)
-	node.ApplicationStart("testapp")
 
-	x := app.ListEnv()
-	fmt.Println("XXX", x)
+	node.ApplicationLoad(app, maxTime, ApplicationStrategyPermanent)
+	p, e := node.ApplicationStart("testapp")
+	if e != nil {
+		fmt.Println("ERR", e)
+	}
+	fmt.Println("PROC", p.Self())
+	fmt.Println("XXX", p.ListEnv())
+
+	p.SetEnv("ABB", 1.234)
+	p.SetEnv("CDF", 567)
+	p.SetEnv("GHJ", "890")
+
+	fmt.Println("XXX", p.ListEnv())
 
 	// node.ApplicationStart(app, maxTime, ApplicationStrategyTemporary)
 	// node.ApplicationStart(app, maxTime, ApplicationStrategyTransient)

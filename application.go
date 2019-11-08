@@ -4,7 +4,6 @@ package ergonode
 
 import (
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/halturin/ergonode/etf"
@@ -43,7 +42,7 @@ type ApplicationSpec struct {
 	Description  string
 	Version      string
 	MaxTime      time.Duration
-	Applications []ApplicationBehavior
+	Applications []string
 	Environment  map[string]interface{}
 	// Depends		[]
 	Children []ApplicationChildSpec
@@ -59,10 +58,7 @@ type ApplicationChildSpec struct {
 }
 
 // Application is implementation of ProcessBehavior interface
-type Application struct {
-	sync.RWMutex
-	env map[string]interface{}
-}
+type Application struct{}
 
 type ApplicationInfo struct {
 	Name        string
@@ -72,19 +68,16 @@ type ApplicationInfo struct {
 
 func (a *Application) loop(p *Process, object interface{}, args ...interface{}) string {
 	spec := args[0].(ApplicationSpec)
-	object.(ApplicationBehavior).Start(*p, args[1:]...)
-	lib.Log("Application spec %#v\n", spec)
-	p.ready <- true
-
-	if a.env == nil {
-		a.env = make(map[string]interface{})
-	}
 
 	if spec.Environment != nil {
 		for k, v := range spec.Environment {
-			a.SetEnv(k, v)
+			p.SetEnv(k, v)
 		}
 	}
+
+	object.(ApplicationBehavior).Start(*p, args[1:]...)
+	lib.Log("Application spec %#v\n", spec)
+	p.ready <- true
 
 	if spec.MaxTime == 0 {
 		spec.MaxTime = time.Second * 31536000 * 100 // let's define default lifespan 100 years :)
@@ -152,32 +145,6 @@ func (a *Application) loop(p *Process, object interface{}, args ...interface{}) 
 
 	}
 }
-
-func (a *Application) ListEnv() map[string]interface{} {
-	e := make(map[string]interface{})
-	a.RLock()
-	defer a.RUnlock()
-	for key, value := range a.env {
-		e[key] = value
-	}
-	return e
-}
-
-func (a *Application) SetEnv(name string, value interface{}) {
-	a.Lock()
-	defer a.Unlock()
-	a.env[name] = value
-}
-
-func (a *Application) GenEnv(name string) interface{} {
-	a.RLock()
-	defer a.RUnlock()
-	if value, ok := a.env[name]; ok {
-		return value
-	}
-	return nil
-}
-
 func (a *Application) stopChildren(from etf.Pid, children []ApplicationChildSpec, reason string) {
 	for i := range children {
 		child := children[i].process

@@ -421,11 +421,10 @@ func startChildren(parent *Process, spec *SupervisorSpec) {
 
 func startChild(parent *Process, name string, child interface{}, args ...interface{}) *Process {
 	opts := ProcessOptions{}
-	emptyPid := etf.Pid{}
 
-	if parent.groupLeader == emptyPid {
+	if parent.groupLeader == nil {
 		// leader is not set
-		opts.GroupLeader = parent.self
+		opts.GroupLeader = parent
 	} else {
 		opts.GroupLeader = parent.groupLeader
 	}

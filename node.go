@@ -122,15 +122,15 @@ func (n *Node) Spawn(name string, opts ProcessOptions, object interface{}, args 
 	go func() {
 		pid := process.Self()
 
-		defer func() {
-			if r := recover(); r != nil {
-				lib.Log("Recovered process: %v %#v ", process.self, r)
-				n.registrar.UnregisterProcess(pid)
-				n.monitor.ProcessTerminated(pid, etf.Atom(name), "panic")
-				process.Kill()
-			}
-			close(process.ready)
-		}()
+		// defer func() {
+		// 	if r := recover(); r != nil {
+		// 		lib.Log("Recovered process: %v %#v ", process.self, r)
+		// 		n.registrar.UnregisterProcess(pid)
+		// 		n.monitor.ProcessTerminated(pid, etf.Atom(name), "panic")
+		// 		process.Kill()
+		// 	}
+		// 	close(process.ready)
+		// }()
 
 		reason := object.(ProcessBehaviour).loop(process, object, args...)
 		n.registrar.UnregisterProcess(pid)
@@ -177,7 +177,7 @@ func (n *Node) ProcessInfo(pid etf.Pid) (ProcessInfo, error) {
 		// Links:
 		// Dictionary
 		TrapExit:    p.trapExit,
-		GroupLeader: p.groupLeader,
+		GroupLeader: p.groupLeader.Self(),
 		Reductions:  p.reductions,
 	}
 	return info, nil
@@ -313,16 +313,28 @@ func (n *Node) ApplicationStart(appName string, args ...interface{}) (*Process, 
 
 	spec := n.registrar.GetApplicationSpecByName(appName)
 	if spec == nil {
-		return nil, fmt.Errorf("Unknown application name")
+		return nil, fmt.Errorf("Unknown application name: %s", appName)
 	}
 
-	for i := range spec.Applications {
-		if _, e := n.Spawn("", ProcessOptions{}, spec.Applications[i]); e != nil && e != ErrAppAlreadyStarted {
+	if spec.process != nil {
+		return nil, ErrAppAlreadyStarted
+	}
+
+	for _, depAppName := range spec.Applications {
+		if _, e := n.ApplicationStart(depAppName); e != nil && e != ErrAppAlreadyStarted {
 			return nil, e
 		}
 	}
 
-	return n.Spawn("", ProcessOptions{}, spec.app, args...)
+	unrefSpec := *spec
+	args = append([]interface{}{unrefSpec}, args)
+	appProcess, e := n.Spawn("", ProcessOptions{}, spec.app, args...)
+	if e != nil {
+		return nil, e
+	}
+
+	spec.process = appProcess
+	return appProcess, nil
 }
 
 func (n *Node) handleTerms(terms []etf.Term) {
