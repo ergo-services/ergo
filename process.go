@@ -76,6 +76,7 @@ func (p *Process) Self() etf.Pid {
 	return p.self
 }
 
+// Name returns registered name of the process
 func (p *Process) Name() string {
 	return p.name
 }

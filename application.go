@@ -83,6 +83,11 @@ func (a *Application) loop(p *Process, object interface{}, args ...interface{}) 
 		spec.MaxTime = time.Second * 31536000 * 100 // let's define default lifespan 100 years :)
 	}
 
+	if !a.startChildren(p, spec.Children[:]) {
+		a.stopChildren(p.Self(), spec.Children[:], "failed")
+		return "failed"
+	}
+
 	for {
 		select {
 		case ex := <-p.gracefulExit:
@@ -154,30 +159,13 @@ func (a *Application) stopChildren(from etf.Pid, children []ApplicationChildSpec
 	}
 }
 
-// func (p *Process) ListEnv() map[string]interface{} {
-// 	e := make(map[string]interface{})
-// 	p.mutex.RLock()
-// 	defer p.mutex.RUnlock()
-// 	for key, value := range p.env {
-// 		e[key] = value
-// 	}
-// 	return e
-// }
-
-// func (p *Process) SetEnv(name string, value interface{}) {
-// 	p.mutex.Lock()
-// 	defer p.mutex.Unlock()
-// 	if p.env == nil {
-// 		p.env = make(map[string]interface{})
-// 	}
-// 	p.env[name] = value
-// }
-
-// func (p *Process) GenEnv(name string) interface{} {
-// 	p.mutex.RLock()
-// 	defer p.mutex.RUnlock()
-// 	if value, ok := p.env[name]; ok {
-// 		return value
-// 	}
-// 	return nil
-// }
+func (a *Application) startChildren(parent *Process, children []ApplicationChildSpec) bool {
+	for i := range children {
+		p := startChild(parent, "", children[i].Child, children[i].Args...)
+		if p == nil {
+			return false
+		}
+		children[i].process = p
+	}
+	return true
+}
