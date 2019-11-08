@@ -24,13 +24,13 @@ var (
 
 type rex struct {
 	GenServer
-	process Process
+	process *Process
 	methods map[modFun]rpcFunction
 }
 
 // Init initializes process state using arbitrary arguments
 // Init(...) -> state
-func (r *rex) Init(p Process, args ...interface{}) (state interface{}) {
+func (r *rex) Init(p *Process, args ...interface{}) (state interface{}) {
 	lib.Log("REX: Init: %#v", args)
 	r.process = p
 	r.methods = make(map[modFun]rpcFunction, 0)

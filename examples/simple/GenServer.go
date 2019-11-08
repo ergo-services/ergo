@@ -11,7 +11,7 @@ import (
 // ExampleGenServer simple implementation of GenServer
 type ExampleGenServer struct {
 	ergo.GenServer
-	process ergo.Process
+	process *ergo.Process
 }
 
 type State struct {
@@ -20,7 +20,7 @@ type State struct {
 
 // Init initializes process state using arbitrary arguments
 // Init -> state
-func (egs *ExampleGenServer) Init(p ergo.Process, args ...interface{}) (state interface{}) {
+func (egs *ExampleGenServer) Init(p *ergo.Process, args ...interface{}) (state interface{}) {
 	fmt.Printf("Init: args %v \n", args)
 	egs.process = p
 	InitialState := &State{

@@ -11,11 +11,11 @@ import (
 
 type testRPCGenServer struct {
 	GenServer
-	process Process
+	process *Process
 	// v       chan interface{}
 }
 
-func (trpc *testRPCGenServer) Init(p Process, args ...interface{}) (state interface{}) {
+func (trpc *testRPCGenServer) Init(p *Process, args ...interface{}) (state interface{}) {
 	// trpc.v <- p.Self()
 	trpc.process = p
 	return nil

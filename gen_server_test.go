@@ -33,7 +33,7 @@ type testGenServer struct {
 	err chan error
 }
 
-func (tgs *testGenServer) Init(p Process, args ...interface{}) (state interface{}) {
+func (tgs *testGenServer) Init(p *Process, args ...interface{}) (state interface{}) {
 	tgs.err <- nil
 	return nil
 }

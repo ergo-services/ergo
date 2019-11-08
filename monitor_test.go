@@ -58,11 +58,11 @@ import (
 
 type testMonitorGenServer struct {
 	GenServer
-	process Process
+	process *Process
 	v       chan interface{}
 }
 
-func (tgs *testMonitorGenServer) Init(p Process, args ...interface{}) (state interface{}) {
+func (tgs *testMonitorGenServer) Init(p *Process, args ...interface{}) (state interface{}) {
 	tgs.v <- p.Self()
 	tgs.process = p
 	return nil
@@ -229,4 +229,5 @@ func TestMonitor(t *testing.T) {
 
 	fmt.Printf("Stopping nodes: %v, %v\n", node1.FullName, node2.FullName)
 	node1.Stop()
+	node2.Stop()
 }

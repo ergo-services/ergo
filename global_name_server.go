@@ -9,7 +9,7 @@ import (
 
 type globalNameServer struct {
 	GenServer
-	process Process
+	process *Process
 }
 
 type state struct {
@@ -17,7 +17,7 @@ type state struct {
 
 // Init initializes process state using arbitrary arguments
 // Init -> state
-func (ns *globalNameServer) Init(p Process, args ...interface{}) interface{} {
+func (ns *globalNameServer) Init(p *Process, args ...interface{}) interface{} {
 	lib.Log("GLOBAL_NAME_SERVER: Init: %#v", args)
 	ns.process = p
 

@@ -56,12 +56,12 @@ type testMessageTerminated struct {
 }
 
 type testSupervisorGenServerState struct {
-	process Process
+	process *Process
 	ch      chan interface{}
 	order   int
 }
 
-func (tsv *testSupervisorGenServer) Init(p Process, args ...interface{}) (state interface{}) {
+func (tsv *testSupervisorGenServer) Init(p *Process, args ...interface{}) (state interface{}) {
 	st := testSupervisorGenServerState{
 		process: p,
 		ch:      args[0].(chan interface{}),

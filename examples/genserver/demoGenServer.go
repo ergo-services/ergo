@@ -11,7 +11,7 @@ import (
 // GenServer implementation structure
 type demoGenServ struct {
 	ergo.GenServer
-	process ergo.Process
+	process *ergo.Process
 }
 
 type state struct {
@@ -33,7 +33,7 @@ var (
 
 // Init initializes process state using arbitrary arguments
 // Init(...) -> state
-func (dgs *demoGenServ) Init(p ergo.Process, args ...interface{}) interface{} {
+func (dgs *demoGenServ) Init(p *ergo.Process, args ...interface{}) interface{} {
 	fmt.Printf("Init: args %v \n", args)
 	dgs.process = p
 	return state{i: 12345}

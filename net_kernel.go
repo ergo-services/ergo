@@ -40,12 +40,12 @@ func (nks *netKernelSup) Init(args ...interface{}) SupervisorSpec {
 
 type netKernel struct {
 	GenServer
-	process Process
+	process *Process
 }
 
 // Init initializes process state using arbitrary arguments
 // Init(...) -> state
-func (nk *netKernel) Init(p Process, args ...interface{}) (state interface{}) {
+func (nk *netKernel) Init(p *Process, args ...interface{}) (state interface{}) {
 	lib.Log("NET_KERNEL: Init: %#v", args)
 	nk.process = p
 

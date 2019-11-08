@@ -14,13 +14,10 @@ type ProcessType = string
 
 const (
 	DefaultProcessMailboxSize = 100
-	// Process type
-	ProcessGenServer  = "gen_server"
-	ProcessSupervisor = "supervisor"
 )
 
 type Process struct {
-	sync.RWMutex
+	mutex sync.RWMutex
 
 	mailBox      chan etf.Tuple
 	ready        chan bool
@@ -177,8 +174,8 @@ func (p *Process) DemonitorNode(ref etf.Ref) {
 
 func (p *Process) ListEnv() map[string]interface{} {
 	e := make(map[string]interface{})
-	p.RLock()
-	defer p.RUnlock()
+	p.mutex.RLock()
+	defer p.mutex.RUnlock()
 	for key, value := range p.env {
 		e[key] = value
 	}
@@ -186,8 +183,8 @@ func (p *Process) ListEnv() map[string]interface{} {
 }
 
 func (p *Process) SetEnv(name string, value interface{}) {
-	p.Lock()
-	defer p.Unlock()
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
 	if p.env == nil {
 		p.env = make(map[string]interface{})
 	}
@@ -195,8 +192,8 @@ func (p *Process) SetEnv(name string, value interface{}) {
 }
 
 func (p *Process) GenEnv(name string) interface{} {
-	p.RLock()
-	defer p.RUnlock()
+	p.mutex.RLock()
+	defer p.mutex.RUnlock()
 	if value, ok := p.env[name]; ok {
 		return value
 	}

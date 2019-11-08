@@ -13,12 +13,12 @@ import (
 
 type observerBackend struct {
 	GenServer
-	process Process
+	process *Process
 }
 
 // Init initializes process state using arbitrary arguments
 // Init(...) -> state
-func (o *observerBackend) Init(p Process, args ...interface{}) (state interface{}) {
+func (o *observerBackend) Init(p *Process, args ...interface{}) (state interface{}) {
 	lib.Log("OBSERVER: Init: %#v", args)
 	o.process = p
 	return nil

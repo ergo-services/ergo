@@ -34,7 +34,7 @@ const (
 // SupervisorBehavior interface
 type ApplicationBehavior interface {
 	Load(args ...interface{}) (ApplicationSpec, error)
-	Start(process Process, args ...interface{})
+	Start(process *Process, args ...interface{})
 }
 
 type ApplicationSpec struct {
@@ -75,7 +75,7 @@ func (a *Application) loop(p *Process, object interface{}, args ...interface{}) 
 		}
 	}
 
-	object.(ApplicationBehavior).Start(*p, args[1:]...)
+	object.(ApplicationBehavior).Start(p, args[1:]...)
 	lib.Log("Application spec %#v\n", spec)
 	p.ready <- true
 
@@ -153,3 +153,31 @@ func (a *Application) stopChildren(from etf.Pid, children []ApplicationChildSpec
 		}
 	}
 }
+
+// func (p *Process) ListEnv() map[string]interface{} {
+// 	e := make(map[string]interface{})
+// 	p.mutex.RLock()
+// 	defer p.mutex.RUnlock()
+// 	for key, value := range p.env {
+// 		e[key] = value
+// 	}
+// 	return e
+// }
+
+// func (p *Process) SetEnv(name string, value interface{}) {
+// 	p.mutex.Lock()
+// 	defer p.mutex.Unlock()
+// 	if p.env == nil {
+// 		p.env = make(map[string]interface{})
+// 	}
+// 	p.env[name] = value
+// }
+
+// func (p *Process) GenEnv(name string) interface{} {
+// 	p.mutex.RLock()
+// 	defer p.mutex.RUnlock()
+// 	if value, ok := p.env[name]; ok {
+// 		return value
+// 	}
+// 	return nil
+// }

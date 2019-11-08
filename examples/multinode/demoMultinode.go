@@ -12,7 +12,7 @@ import (
 // GenServer implementation structure
 type demoGenServ struct {
 	ergo.GenServer
-	process ergo.Process
+	process *ergo.Process
 	wg      *sync.WaitGroup
 	bridge  chan interface{}
 }
@@ -27,7 +27,7 @@ var (
 
 // Init initializes process state using arbitrary arguments
 // Init(...) -> state
-func (dgs *demoGenServ) Init(p ergo.Process, args ...interface{}) interface{} {
+func (dgs *demoGenServ) Init(p *ergo.Process, args ...interface{}) interface{} {
 	// fmt.Printf("Init: args %v \n", args)
 	dgs.process = p
 	dgs.wg = args[0].(*sync.WaitGroup)

@@ -14,7 +14,7 @@ const (
 // GenServerBehavior interface
 type GenServerBehavior interface {
 	// Init(...) -> state
-	Init(process Process, args ...interface{}) (state interface{})
+	Init(process *Process, args ...interface{}) (state interface{})
 	// HandleCast -> ("noreply", state) - noreply
 	//		         ("stop", reason) - stop with reason
 	HandleCast(message etf.Term, state interface{}) (string, interface{})
@@ -32,9 +32,7 @@ type GenServerBehavior interface {
 type GenServer struct{}
 
 func (gs *GenServer) loop(p *Process, object interface{}, args ...interface{}) string {
-	// its not allowed to give access to the original Process structure. All callback
-	// functions is only permitted to use the copy of it (*p)
-	p.state = object.(GenServerBehavior).Init(*p, args...)
+	p.state = object.(GenServerBehavior).Init(p, args...)
 	p.ready <- true
 
 	stop := make(chan string, 2)
