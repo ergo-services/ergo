@@ -8,6 +8,19 @@ import (
 	"github.com/halturin/ergonode/etf"
 )
 
+var (
+	GenServerName    string
+	NodeName         string
+	Cookie           string
+	err              error
+	ListenRangeBegin int
+	ListenRangeEnd   int = 35000
+	Listen           string
+	ListenEPMD       int
+
+	EnableRPC bool
+)
+
 type demoSup struct {
 	ergo.Supervisor
 }
@@ -54,19 +67,6 @@ type demoGenServ struct {
 type state struct {
 	i int
 }
-
-var (
-	GenServerName    string
-	NodeName         string
-	Cookie           string
-	err              error
-	ListenRangeBegin int
-	ListenRangeEnd   int = 35000
-	Listen           string
-	ListenEPMD       int
-
-	EnableRPC bool
-)
 
 // Init initializes process state using arbitrary arguments
 // Init(...) -> state
