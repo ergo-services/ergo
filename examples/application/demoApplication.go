@@ -13,7 +13,7 @@ import (
 // GenServer implementation structure
 type demoApplication struct {
 	ergonode.GenServer
-	process ergonode.Process
+	process *ergonode.Process
 }
 
 type state struct {
@@ -35,7 +35,7 @@ var (
 
 // Init initializes process state using arbitrary arguments
 // Init(...) -> state
-func (dgs *demoApplication) Init(p ergonode.Process, args ...interface{}) interface{} {
+func (dgs *demoApplication) Init(p *ergonode.Process, args ...interface{}) interface{} {
 	dgs.process = p
 	return state{i: 12345}
 }
