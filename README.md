@@ -8,7 +8,7 @@
 
 # Ergo Framework #
 
-Implementation of Erlang/OTP in Go
+Implementation of Erlang/OTP in Golang
 
 ### Purpose ###
 
