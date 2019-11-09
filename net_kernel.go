@@ -29,6 +29,11 @@ func (nks *netKernelSup) Init(args ...interface{}) SupervisorSpec {
 				Child:   &rex{},
 				Restart: SupervisorChildRestartPermanent,
 			},
+			SupervisorChildSpec{
+				Name:    "observer_backend",
+				Child:   &observerBackend{},
+				Restart: SupervisorChildRestartPermanent,
+			},
 		},
 		Strategy: SupervisorStrategy{
 			Type:      SupervisorStrategyOneForOne,

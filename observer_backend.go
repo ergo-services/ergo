@@ -41,7 +41,7 @@ func (o *observerBackend) HandleCall(from etf.Tuple, message etf.Term, state int
 	case etf.Atom("sys_info"):
 		//etf.Tuple{"call", "observer_backend", "sys_info",
 		//           etf.List{}, etf.Pid{Node:"erl-examplenode@127.0.0.1", Id:0x46, Serial:0x0, Creation:0x2}}
-		reply := etf.Term(o.sys_info())
+		reply := etf.Term(o.sysInfo())
 		return "reply", reply, state
 	}
 
@@ -101,32 +101,32 @@ func (o *observerBackend) Terminate(reason string, state interface{}) {
 //      {alloc_info, alloc_info()}
 //      | MemInfo].
 
-func (o *observerBackend) sys_info() etf.List {
+func (o *observerBackend) sysInfo() etf.List {
 
-	process_count := etf.Tuple{etf.Atom("process_count"), 123}
-	process_limit := etf.Tuple{etf.Atom("process_limit"), 123}
+	processCount := etf.Tuple{etf.Atom("process_count"), 123}
+	processLimit := etf.Tuple{etf.Atom("process_limit"), 123}
 	ut := int(time.Since(o.process.Node.StartedAt).Seconds())
 	uptime := etf.Tuple{etf.Atom("uptime"), ut}
-	run_queue := etf.Tuple{etf.Atom("run_queue"), 0}
-	io_input := etf.Tuple{etf.Atom("io_input"), 0}
-	io_output := etf.Tuple{etf.Atom("io_output"), 0}
-	logical_processors := etf.Tuple{etf.Atom("logical_processors"), runtime.NumCPU()}
-	logical_processors_online := etf.Tuple{etf.Atom("logical_processors_online"), runtime.NumCPU()}
-	logical_processors_available := etf.Tuple{etf.Atom("logical_processors_available"), runtime.NumCPU()}
+	runQueue := etf.Tuple{etf.Atom("run_queue"), 0}
+	ioInput := etf.Tuple{etf.Atom("io_input"), 0}
+	ioOutput := etf.Tuple{etf.Atom("io_output"), 0}
+	logicalProcessors := etf.Tuple{etf.Atom("logical_processors"), runtime.NumCPU()}
+	logicalProcessorsOnline := etf.Tuple{etf.Atom("logical_processors_online"), runtime.NumCPU()}
+	logicalProcessorsAvailable := etf.Tuple{etf.Atom("logical_processors_available"), runtime.NumCPU()}
 	schedulers := etf.Tuple{etf.Atom("schedulers"), 1}
-	schedulers_online := etf.Tuple{etf.Atom("schedulers_online"), 1}
-	schedulers_available := etf.Tuple{etf.Atom("schedulers_available"), 1}
-	otp_release := etf.Tuple{etf.Atom("otp_release"), o.process.Node.VersionOTP()}
+	schedulersOnline := etf.Tuple{etf.Atom("schedulers_online"), 1}
+	schedulersAvailable := etf.Tuple{etf.Atom("schedulers_available"), 1}
+	otpRelease := etf.Tuple{etf.Atom("otp_release"), o.process.Node.VersionOTP()}
 	version := etf.Tuple{etf.Atom("version"), etf.Atom(o.process.Node.VersionERTS())}
-	system_architecture := etf.Tuple{etf.Atom("system_architecture"), etf.Atom(runtime.GOARCH)}
-	kernel_poll := etf.Tuple{etf.Atom("kernel_poll"), true}
-	smp_support := etf.Tuple{etf.Atom("smp_support"), true}
+	systemArchitecture := etf.Tuple{etf.Atom("system_architecture"), etf.Atom(runtime.GOARCH)}
+	kernelPoll := etf.Tuple{etf.Atom("kernel_poll"), true}
+	smpSupport := etf.Tuple{etf.Atom("smp_support"), true}
 	threads := etf.Tuple{etf.Atom("threads"), true}
-	threads_pool_size := etf.Tuple{etf.Atom("threads_pool_size"), 1}
+	threadsPoolSize := etf.Tuple{etf.Atom("threads_pool_size"), 1}
 	i := int(1)
-	wordsize_internal := etf.Tuple{etf.Atom("wordsize_internal"), unsafe.Sizeof(i)}
-	wordsize_external := etf.Tuple{etf.Atom("wordsize_external"), unsafe.Sizeof(i)}
-	alloc_info := etf.Tuple{etf.Atom("alloc_info"), etf.List{}}
+	wordsizeInternal := etf.Tuple{etf.Atom("wordsize_internal"), unsafe.Sizeof(i)}
+	wordsizeExternal := etf.Tuple{etf.Atom("wordsize_external"), unsafe.Sizeof(i)}
+	allocInfo := etf.Tuple{etf.Atom("alloc_info"), etf.List{}}
 
 	// meminfo
 	// > erlang:memory().
@@ -146,36 +146,36 @@ func (o *observerBackend) sys_info() etf.List {
 	total := etf.Tuple{etf.Atom("total"), m.TotalAlloc}
 	system := etf.Tuple{etf.Atom("system"), m.HeapSys}
 	processes := etf.Tuple{etf.Atom("processes"), m.Alloc}
-	processes_used := etf.Tuple{etf.Atom("processes_used"), m.HeapInuse}
+	processesUsed := etf.Tuple{etf.Atom("processes_used"), m.HeapInuse}
 
 	info := etf.List{
-		process_count,
-		process_limit,
+		processCount,
+		processLimit,
 		uptime,
-		run_queue,
-		io_input,
-		io_output,
-		logical_processors,
-		logical_processors_online,
-		logical_processors_available,
+		runQueue,
+		ioInput,
+		ioOutput,
+		logicalProcessors,
+		logicalProcessorsOnline,
+		logicalProcessorsAvailable,
 		schedulers,
-		schedulers_online,
-		schedulers_available,
-		otp_release,
+		schedulersOnline,
+		schedulersAvailable,
+		otpRelease,
 		version,
-		system_architecture,
-		kernel_poll,
-		smp_support,
+		systemArchitecture,
+		kernelPoll,
+		smpSupport,
 		threads,
-		threads_pool_size,
-		wordsize_internal,
-		wordsize_external,
-		alloc_info,
+		threadsPoolSize,
+		wordsizeInternal,
+		wordsizeExternal,
+		allocInfo,
 
 		total,
 		system,
 		processes,
-		processes_used,
+		processesUsed,
 	}
 	return info
 }
