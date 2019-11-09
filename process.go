@@ -81,10 +81,13 @@ func (p *Process) Name() string {
 	return p.name
 }
 
+// Call makes outgoing sync request in fashion of 'gen_call'.
+// 'to' can be Pid, registered local name or a tuple {RegisteredName, NodeName}
 func (p *Process) Call(to interface{}, message etf.Term) (etf.Term, error) {
 	return p.CallWithTimeout(to, message, DefaultCallTimeout)
 }
 
+// CallWithTimeout makes outgoing sync request in fashiod of 'gen_call' with given timeout
 func (p *Process) CallWithTimeout(to interface{}, message etf.Term, timeout int) (etf.Term, error) {
 	ref := p.Node.MakeRef()
 	from := etf.Tuple{p.self, ref}
@@ -126,7 +129,7 @@ func (p *Process) CallRPCWithTimeout(timeout int, node, module, function string,
 	return p.CallWithTimeout(to, message, timeout)
 }
 
-// CallRPC evaluate rpc cast with given node/MFA
+// CastRPC evaluate rpc cast with given node/MFA
 func (p *Process) CastRPC(node, module, function string, args ...etf.Term) {
 	lib.Log("[%s] RPC casting: %s:%s:%s", p.Node.FullName, node, module, function)
 	message := etf.Tuple{
@@ -139,11 +142,15 @@ func (p *Process) CastRPC(node, module, function string, args ...etf.Term) {
 	p.Cast(to, message)
 }
 
-// Send making outgoing message
+// Send sends a message. 'to' can be Pid, registered local name
+// or a tuple {RegisteredName, NodeName}
 func (p *Process) Send(to interface{}, message etf.Term) {
 	p.Node.registrar.route(p.self, to, message)
 }
 
+// Cast sends a message in fashion of 'gen_cast'.
+// 'to' can be Pid, registered local name
+// or a tuple {RegisteredName, NodeName}
 func (p *Process) Cast(to interface{}, message etf.Term) {
 	msg := etf.Term(etf.Tuple{etf.Atom("$gen_cast"), message})
 	p.Node.registrar.route(p.self, to, msg)
