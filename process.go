@@ -149,40 +149,59 @@ func (p *Process) Cast(to interface{}, message etf.Term) {
 	p.Node.registrar.route(p.self, to, msg)
 }
 
+// MonitorProcess creates monitor between the processes. When a process monitor
+// is triggered, a 'DOWN' message is sent that has the following
+// pattern: {'DOWN', MonitorRef, Type, Object, Info}
 func (p *Process) MonitorProcess(to etf.Pid) etf.Ref {
 	return p.Node.monitor.MonitorProcess(p.self, to)
 }
 
+// Link creates a link between the calling process and another process
 func (p *Process) Link(with etf.Pid) {
 	p.Node.monitor.Link(p.self, with)
 }
 
+// Unlink removes the link, if there is one, between the calling process and the process referred to by Pid.
 func (p *Process) Unlink(with etf.Pid) {
 	p.Node.monitor.Unink(p.self, with)
 }
 
+// MonitorNode creates monitor between the current process and node. If Node fails or does not exist,
+// the message {nodedown, Node} is delivered to the process.
 func (p *Process) MonitorNode(name string) etf.Ref {
 	return p.Node.monitor.MonitorNode(p.self, name)
 }
 
+// DemonitorProcess removes monitor
 func (p *Process) DemonitorProcess(ref etf.Ref) {
 	p.Node.monitor.DemonitorProcess(ref)
 }
 
+// DemonitorNode removes monitor
 func (p *Process) DemonitorNode(ref etf.Ref) {
 	p.Node.monitor.DemonitorNode(ref)
 }
 
+// ListEnv returns map of configured environment variables.
+// Process' environment is also inherited from environment variables
+// of groupLeader (if its started as a child of Application/Supervisor)
 func (p *Process) ListEnv() map[string]interface{} {
-	e := make(map[string]interface{})
+	var env map[string]interface{}
+	if p.groupLeader == nil {
+		env = make(map[string]interface{})
+	} else {
+		env = p.groupLeader.ListEnv()
+	}
+
 	p.RLock()
 	defer p.RUnlock()
 	for key, value := range p.env {
-		e[key] = value
+		env[key] = value
 	}
-	return e
+	return env
 }
 
+// SetEnv set environment variable with given name
 func (p *Process) SetEnv(name string, value interface{}) {
 	p.Lock()
 	defer p.Unlock()
@@ -192,11 +211,18 @@ func (p *Process) SetEnv(name string, value interface{}) {
 	p.env[name] = value
 }
 
+// GenEnv returns value associated with given environment name.
 func (p *Process) GenEnv(name string) interface{} {
 	p.RLock()
 	defer p.RUnlock()
+
 	if value, ok := p.env[name]; ok {
 		return value
 	}
+
+	if p.groupLeader != nil {
+		return p.groupLeader.GenEnv(name)
+	}
+
 	return nil
 }
