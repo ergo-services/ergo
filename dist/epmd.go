@@ -51,7 +51,7 @@ type EPMD struct {
 	response chan interface{}
 }
 
-func (e *EPMD) Init(ctx context.Context, name string, listenport uint16, epmdport uint16, hidden bool) {
+func (e *EPMD) Init(ctx context.Context, name string, listenport uint16, epmdport uint16, hidden bool, disableServer bool) {
 	ns := strings.Split(name, "@")
 	if len(ns) != 2 {
 		panic("FQDN for node name is required (example: node@hostname)")
@@ -76,8 +76,10 @@ func (e *EPMD) Init(ctx context.Context, name string, listenport uint16, epmdpor
 
 	go func(e *EPMD) {
 		for {
-			// trying to start embedded EPMD before we go further
-			Server(ctx, epmdport)
+			if !disableServer {
+				// trying to start embedded EPMD before we go further
+				Server(ctx, epmdport)
+			}
 			dsn := net.JoinHostPort("", strconv.Itoa(int(epmdport)))
 			conn, err := net.Dial("tcp", dsn)
 			if err != nil {

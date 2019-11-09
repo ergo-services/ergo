@@ -34,10 +34,11 @@ type Node struct {
 }
 
 type NodeOptions struct {
-	ListenRangeBegin uint16
-	ListenRangeEnd   uint16
-	Hidden           bool
-	EPMDPort         uint16
+	ListenRangeBegin  uint16
+	ListenRangeEnd    uint16
+	Hidden            bool
+	EPMDPort          uint16
+	DisableEPMDServer bool
 }
 
 const (
@@ -97,7 +98,7 @@ func CreateNodeWithContext(ctx context.Context, name string, cookie string, opts
 			panic("Can't listen port")
 		} else {
 			// start EPMD
-			node.EPMD.Init(nodectx, name, listenPort, opts.EPMDPort, opts.Hidden)
+			node.EPMD.Init(nodectx, name, listenPort, opts.EPMDPort, opts.Hidden, opts.DisableEPMDServer)
 		}
 
 	}
