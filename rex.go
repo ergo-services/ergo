@@ -75,7 +75,8 @@ func (r *rex) HandleCall(from etf.Tuple, message etf.Term, state interface{}) (s
 			}
 
 			to := etf.Tuple{string(module), r.process.Node.FullName}
-			reply, err := r.process.Call(to, m.Element(3))
+			m := etf.Tuple{m.Element(3), m.Element(4)}
+			reply, err := r.process.Call(to, m)
 
 			if err != nil {
 				reply = etf.Term(etf.Tuple{etf.Atom("error"), err})

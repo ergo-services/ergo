@@ -21,6 +21,23 @@ type observerBackend struct {
 func (o *observerBackend) Init(p *Process, args ...interface{}) (state interface{}) {
 	lib.Log("OBSERVER: Init: %#v", args)
 	o.process = p
+
+	//
+	funExportedTrue := func(a ...etf.Term) etf.Term {
+		return true
+	}
+	p.Node.ProvideRPC("erlang", "function_exported", funExportedTrue)
+
+	funAppmonInfo := func(a ...etf.Term) etf.Term {
+		from := a[0] // pid
+		am, e := p.Node.Spawn("", ProcessOptions{}, &appMon{}, from)
+		if e != nil {
+			return etf.Tuple{etf.Atom("error")}
+		}
+		return etf.Tuple{etf.Atom("ok"), am.Self()}
+	}
+	p.Node.ProvideRPC("appmon_info", "start_link2", funAppmonInfo)
+
 	return nil
 }
 
@@ -37,11 +54,22 @@ func (o *observerBackend) HandleCast(message etf.Term, state interface{}) (strin
 //		         ("stop", reason, _) - normal stop
 func (o *observerBackend) HandleCall(from etf.Tuple, message etf.Term, state interface{}) (string, etf.Term, interface{}) {
 	lib.Log("OBSERVER: HandleCall: %v, From: %#v", message, from)
-	switch message {
+	function := message.(etf.Tuple).Element(1).(etf.Atom)
+	// args := message.(etf.Tuple).Element(2).(etf.List)
+	switch function {
 	case etf.Atom("sys_info"):
 		//etf.Tuple{"call", "observer_backend", "sys_info",
 		//           etf.List{}, etf.Pid{Node:"erl-examplenode@127.0.0.1", Id:0x46, Serial:0x0, Creation:0x2}}
 		reply := etf.Term(o.sysInfo())
+		return "reply", reply, state
+	case etf.Atom("get_table_list"):
+		// TODO: add here implementation if we decide support ETS tables
+		// args should be like:
+		// etf.List{"ets", etf.List{etf.Tuple{"sys_hidden", "true"}, etf.Tuple{"unread_hidden", "true"}}}
+		reply := etf.Term(etf.List{})
+		return "reply", reply, state
+	case etf.Atom("get_port_list"):
+		reply := etf.Term(etf.List{})
 		return "reply", reply, state
 	}
 

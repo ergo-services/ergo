@@ -393,7 +393,7 @@ func (n *Node) handleTerms(terms []etf.Term) {
 				// {3, FromPid, ToPid, Reason}
 				lib.Log("EXIT message (act %d): %#v", act, t)
 				terminated := t.Element(2).(etf.Pid)
-				reason := t.Element(4).(etf.Atom)
+				reason := fmt.Sprint(t.Element(4))
 				n.monitor.ProcessTerminated(terminated, etf.Atom(""), string(reason))
 
 			case EXIT2:
