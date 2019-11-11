@@ -1,6 +1,6 @@
 package ergonode
 
-// TODO: https://github.com/erlang/otp/blob/master/lib/kernel/src/global.erl
+// TODO: https://github.com/erlang/otp/blob/master/lib/runtime_tools-1.13.1/src/appmon_info.erl
 
 import (
 	"fmt"
@@ -16,10 +16,13 @@ type appMon struct {
 
 type appMonState struct {
 	process *Process
-	running bool
-	sendTo  etf.Pid
-	aux     etf.Atom
-	cmd     etf.Atom
+	jobs    map[etf.Atom][]jobDetails
+}
+
+type jobDetails struct {
+	name   etf.Atom
+	args   etf.List
+	sendTo etf.Pid
 }
 
 // Init initializes process state using arbitrary arguments
@@ -30,11 +33,14 @@ func (am *appMon) Init(p *Process, args ...interface{}) interface{} {
 	p.Link(from.(etf.Pid))
 
 	go func() {
-		time.Sleep(3 * time.Second)
-		p.Cast(p.Self(), "check")
+		time.Sleep(2 * time.Second)
+		p.Cast(p.Self(), "sendStat")
 	}()
 
-	return appMonState{process: p}
+	return appMonState{
+		process: p,
+		jobs:    make(map[etf.Atom][]jobDetails),
+	}
 }
 
 // HandleCast -> ("noreply", state) - noreply
@@ -43,16 +49,40 @@ func (am *appMon) HandleCast(message etf.Term, state interface{}) (string, inter
 	var newState appMonState = state.(appMonState)
 	lib.Log("APP_MON: HandleCast: %#v", message)
 	switch message {
-	case "check":
-		if state.(appMonState).running {
-			return "noreply", state
-		}
-		return "stor", "normal" //
 	case "sendStat":
-		// From ! {delivery, self(), Cmd, Aux, Result}
-		appList := etf.List{etf.Tuple{etf.Atom("kernel"), "my app", "version 01.01"}}
-		delivery := etf.Tuple{etf.Atom("delivery"), newState.process.Self(), newState.cmd, newState.aux, appList}
-		newState.process.Send(newState.sendTo, delivery)
+		if len(state.(appMonState).jobs) == 0 {
+			return "stop", "normal"
+		}
+
+		for cmd, jobs := range state.(appMonState).jobs {
+			switch cmd {
+			case "app_ctrl":
+				// From ! {delivery, self(), Cmd, Aux, Result}
+				// appList := newState.process.Node.WhichApplications()
+				for i := range jobs {
+					appInfo := etf.Tuple{etf.Atom("firstApp"), "my app", "version 01.01"}
+					appList := etf.List{etf.Tuple{jobs[i].sendTo, appInfo.Element(1), appInfo}}
+					delivery := etf.Tuple{etf.Atom("delivery"), newState.process.Self(), cmd, jobs[i].name, appList}
+					fmt.Println("DELIVERY", delivery)
+					newState.process.Send(jobs[i].sendTo, delivery)
+				}
+
+			case "app":
+				for i := range jobs {
+					fmt.Println("DO JOB for ", jobs[i])
+					appTree := etf.Tuple{
+						"a1",
+						etf.List{etf.Tuple{newState.process.Self(), "a1"}, etf.Tuple{newState.process.Self(), "a2"}},
+						etf.List{},
+						etf.List{},
+					}
+					delivery := etf.Tuple{etf.Atom("delivery"), newState.process.Self(), cmd, jobs[i].name, appTree}
+					newState.process.Send(jobs[i].sendTo, delivery)
+				}
+
+			}
+		}
+
 		go func() {
 			time.Sleep(2 * time.Second)
 			newState.process.Cast(newState.process.Self(), "sendStat")
@@ -64,20 +94,46 @@ func (am *appMon) HandleCast(message etf.Term, state interface{}) (string, inter
 		case etf.Tuple:
 			if len(m) == 5 {
 				// etf.Tuple{etf.Pid{Node:"erl-demo@127.0.0.1", Id:0x7c, Serial:0x0, Creation:0x1}, "app_ctrl", "demo@127.0.0.1", "true", etf.List{}}
-				if m.Element(4) == etf.Atom("true") {
-					newState.sendTo = m.Element(1).(etf.Pid)
-					newState.running = true
-					newState.aux = m.Element(3).(etf.Atom)
-					newState.cmd = m.Element(2).(etf.Atom)
-
-					go func() {
-						time.Sleep(2 * time.Second)
-						newState.process.Cast(newState.process.Self(), "sendStat")
-					}()
-
-					return "noreply", newState
+				job := jobDetails{
+					name:   m.Element(3).(etf.Atom),
+					args:   m.Element(5).(etf.List),
+					sendTo: m.Element(1).(etf.Pid),
 				}
-				fmt.Println("YYYY2")
+
+				if m.Element(4) == etf.Atom("true") {
+					// add new job
+
+					if jobList, ok := state.(appMonState).jobs[m.Element(2).(etf.Atom)]; ok {
+						for i := range jobList {
+							if jobList[i].name == job.name {
+								return "noreply", newState
+							}
+						}
+						jobList = append(jobList, job)
+						state.(appMonState).jobs[m.Element(2).(etf.Atom)] = jobList
+					} else {
+						state.(appMonState).jobs[m.Element(2).(etf.Atom)] = []jobDetails{job}
+					}
+
+				} else {
+					// remove a job
+					if jobList, ok := state.(appMonState).jobs[m.Element(2).(etf.Atom)]; ok {
+						for i := range jobList {
+							if jobList[i].name == job.name {
+								jobList[i] = jobList[0]
+								jobList = jobList[1:]
+
+								if len(jobList) > 0 {
+									state.(appMonState).jobs[m.Element(2).(etf.Atom)] = jobList
+								} else {
+									delete(state.(appMonState).jobs, m.Element(2).(etf.Atom))
+								}
+								break
+							}
+						}
+					}
+				}
+				return "noreply", newState
 			}
 
 			// etf.Tuple{etf.Atom("EXIT"), Pid, reason}
@@ -94,8 +150,8 @@ func (am *appMon) HandleCast(message etf.Term, state interface{}) (string, inter
 //		         ("stop", reason, _) - normal stop
 func (am *appMon) HandleCall(from etf.Tuple, message etf.Term, state interface{}) (string, etf.Term, interface{}) {
 	lib.Log("APP_MON: HandleCall: %#v, From: %#v", message, from)
-	reply := etf.Term(etf.Atom("reply"))
-	return "reply", reply, state
+	// return "reply", reply, state
+	return "stop", "normal", state
 }
 
 // HandleInfo serves all another incoming messages (Pid ! message)
