@@ -75,6 +75,8 @@ Here is the changes of latest release. For more details see the [ChangeLog](Chan
  * Reworked Monitor-feature. Now it has full-featured support with remote process/nodes
  * Added multinode support
  * Added basic observer support
+ * Fixed incorrect ETF string encoding (it was encoded as binary instead of string)
+ * Improved ETF TermIntoStruct decoder
  * Improved code structure and readability
  * Among the new features we have added new bugs that are still uncovered :). So, any feedback/bugreport/contribution is highly appreciated
 
