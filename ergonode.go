@@ -278,14 +278,20 @@ func (n *Node) run(c net.Conn, negotiate bool) {
 	}
 
 	wchan := make(chan []etf.Term, 10)
+	quit := make(chan bool)
 	// run writer routine
 	go func() {
 		for {
-			terms := <-wchan
-			err := currNd.WriteMessage(c, terms)
-			if err != nil {
-				lib.Log("Enode error (writing): %s", err.Error())
-				break
+			select {
+			case terms := <-wchan:
+				err := currNd.WriteMessage(c, terms)
+				if err != nil {
+					lib.Log("Enode error (writing): %s", err.Error())
+					break
+				}
+			case <-quit:
+				lib.Log("Connection was closed, stop writer routine")
+				return
 			}
 		}
 		c.Close()
@@ -309,6 +315,7 @@ func (n *Node) run(c net.Conn, negotiate bool) {
 		n.handle_monitors_node(currNd.GetRemoteName())
 		delete(n.connections, currNd.GetRemoteName())
 		n.lock.Unlock()
+		quit <- true
 	}()
 
 	<-currNd.Ready
