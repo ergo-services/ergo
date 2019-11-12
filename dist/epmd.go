@@ -143,6 +143,8 @@ func (e *EPMD) ResolvePort(name string) (int, error) {
 		p := binary.BigEndian.Uint16(buf[2:4])
 		// we don't use all the extra info for a while. FIXME (do we need it?)
 		return int(p), nil
+	} else if buf[1] > 0 {
+		return -1, fmt.Errorf("desired node not found")
 	} else {
 		return -1, fmt.Errorf("malformed reply - %#v", buf)
 	}
