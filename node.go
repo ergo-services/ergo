@@ -190,28 +190,28 @@ func (n *Node) ProcessInfo(pid etf.Pid) (ProcessInfo, error) {
 	return info, nil
 }
 
-func (n *Node) serve(c net.Conn, negotiate bool) {
+func (n *Node) serve(c net.Conn, negotiate bool) error {
 
-	var node *dist.NodeDesc
+	var nodeDesc *dist.NodeDesc
 
 	if negotiate {
-		node = dist.NewNodeDesc(n.FullName, n.Cookie, false, c)
+		nodeDesc = dist.NewNodeDesc(n.FullName, n.Cookie, false, c)
 	} else {
-		node = dist.NewNodeDesc(n.FullName, n.Cookie, false, nil)
+		nodeDesc = dist.NewNodeDesc(n.FullName, n.Cookie, false, nil)
 	}
 
 	send := make(chan []etf.Term, 10)
 	// run writer routine
 	go func() {
 		defer c.Close()
-		defer func() { n.registrar.UnregisterPeer(node.GetRemoteName()) }()
+		defer func() { n.registrar.UnregisterPeer(nodeDesc.GetRemoteName()) }()
 
 		for {
 			select {
 			case terms := <-send:
-				err := node.WriteMessage(c, terms)
+				err := nodeDesc.WriteMessage(c, terms)
 				if err != nil {
-					lib.Log("Enode error (writing): %s", err.Error())
+					lib.Log("node error (writing): %s", err.Error())
 					return
 				}
 			case <-n.context.Done():
@@ -223,11 +223,11 @@ func (n *Node) serve(c net.Conn, negotiate bool) {
 
 	go func() {
 		defer c.Close()
-		defer func() { n.registrar.UnregisterPeer(node.GetRemoteName()) }()
+		defer func() { n.registrar.UnregisterPeer(nodeDesc.GetRemoteName()) }()
 		for {
-			terms, err := node.ReadMessage(c)
+			terms, err := nodeDesc.ReadMessage(c)
 			if err != nil {
-				lib.Log("Enode error (reading): %s", err.Error())
+				lib.Log("node error (reading): %s", err.Error())
 				break
 			}
 			n.handleTerms(terms)
@@ -239,8 +239,16 @@ func (n *Node) serve(c net.Conn, negotiate bool) {
 		send: send,
 	}
 
-	<-node.Ready
-	n.registrar.RegisterPeer(node.GetRemoteName(), p)
+	err := <-nodeDesc.Error
+	if err != nil {
+		return err
+	}
+
+	if err := n.registrar.RegisterPeer(nodeDesc.GetRemoteName(), p); err != nil {
+		c.Close()
+		return err
+	}
+	return nil
 }
 
 // LoadedApplications returns a list with information about the
@@ -443,8 +451,8 @@ func (n *Node) handleTerms(terms []etf.Term) {
 			switch act {
 			case etf.Atom("$connection"):
 				// Ready channel waiting for registration of this connection
-				ready := (t[2]).(chan bool)
-				ready <- true
+				err := (t[2]).(chan error)
+				err <- nil
 			}
 		default:
 			lib.Log("UNHANDLED ACT: %#v", t.Element(1))
@@ -542,7 +550,10 @@ func (n *Node) connect(to etf.Atom) error {
 		return err
 	}
 
-	n.serve(c, true)
+	if err := n.serve(c, true); err != nil {
+		c.Close()
+		return err
+	}
 	return nil
 }
 
@@ -563,7 +574,10 @@ func (n *Node) listen(name string, listenRangeBegin, listenRangeEnd uint16) uint
 				if err != nil {
 					lib.Log(err.Error())
 				} else {
-					n.serve(c, false)
+					if err := n.serve(c, false); err != nil {
+						lib.Log("Can't server connection due to: %s", err)
+						c.Close()
+					}
 				}
 			}
 		}()

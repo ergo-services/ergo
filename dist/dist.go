@@ -94,7 +94,7 @@ type NodeDesc struct {
 	term       *etf.Context
 	isacceptor bool
 
-	Ready chan bool
+	Error chan error
 }
 
 func NewNodeDesc(name, cookie string, isHidden bool, c net.Conn) (nd *NodeDesc) {
@@ -111,7 +111,7 @@ func NewNodeDesc(name, cookie string, isHidden bool, c net.Conn) (nd *NodeDesc) 
 		version:    5,
 		term:       new(etf.Context),
 		isacceptor: true,
-		Ready:      make(chan bool),
+		Error:      make(chan error),
 	}
 
 	nd.term.ConvertBinaryToString = true
@@ -196,7 +196,7 @@ func (currNd *NodeDesc) ReadMessage(c net.Conn) (ts []etf.Term, err error) {
 					return
 				}
 				dLog("Remote: %#v", sn)
-				ts = []etf.Term{etf.Term(etf.Tuple{etf.Atom("$connection"), etf.Atom(sn.Name), currNd.Ready})}
+				ts = []etf.Term{etf.Term(etf.Tuple{etf.Atom("$connection"), etf.Atom(sn.Name), currNd.Error})}
 			} else {
 				err = errors.New("bad handshake")
 				return
@@ -215,7 +215,7 @@ func (currNd *NodeDesc) ReadMessage(c net.Conn) (ts []etf.Term, err error) {
 			currNd.read_SEND_CHALLENGE_ACK(msg)
 			sn := currNd.remote
 			dLog("Remote (outgoing): %#v", sn)
-			ts = []etf.Term{etf.Term(etf.Tuple{etf.Atom("$connection"), etf.Atom(sn.Name), currNd.Ready})}
+			ts = []etf.Term{etf.Term(etf.Tuple{etf.Atom("$connection"), etf.Atom(sn.Name), currNd.Error})}
 			return
 		}
 
