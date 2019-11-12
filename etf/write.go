@@ -31,7 +31,7 @@ func (c *Context) Write(w io.Writer, term interface{}) (err error) {
 	case *big.Int:
 		err = c.writeBigInt(w, v)
 	case string:
-		err = c.writeBinary(w, []byte(v))
+		err = c.writeString(w, v)
 	case []byte:
 		err = c.writeBinary(w, v)
 	case float64:
@@ -230,19 +230,17 @@ func (c *Context) writePid(w io.Writer, p Pid) (err error) {
 }
 
 func (c *Context) writeString(w io.Writer, s string) (err error) {
-	switch size := len(s); {
-	case size <= math.MaxUint16:
+	if size := len(s); size <= math.MaxUint16 {
 		// $kLL…
 		_, err = w.Write([]byte{ettString, byte(size >> 8), byte(size)})
 		if err == nil {
 			_, err = w.Write([]byte(s))
 		}
 
-	default:
-		err = fmt.Errorf("string is too big (%d bytes)", size)
+		return
 	}
 
-	return
+	return c.writeList(w, []byte(s))
 }
 
 func (c *Context) writeList(w io.Writer, l interface{}) (err error) {

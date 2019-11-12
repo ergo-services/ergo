@@ -62,7 +62,7 @@ func (dgs *demoGenServ) HandleCall(from etf.Tuple, message etf.Term, state inter
 
 	switch message {
 	case etf.Atom("hello"):
-		reply = etf.Term(etf.Atom("hi"))
+		reply = etf.Term("hi")
 	}
 	return "reply", reply, state
 }
