@@ -267,8 +267,7 @@ func (n *Node) getProcID() (s uint32) {
 	return
 }
 
-func (n *Node) run(c net.Conn, negotiate bool) {
-
+func (n *Node) run(c net.Conn, negotiate bool) error {
 	var currNd *dist.NodeDesc
 
 	if negotiate {
@@ -311,9 +310,9 @@ func (n *Node) run(c net.Conn, negotiate bool) {
 		n.lock.Unlock()
 	}()
 
-	<-currNd.Ready
-
-	return
+	// connected to node successfully if get nil
+	err := <-currNd.Errors
+	return err
 }
 
 func (n *Node) handleTerms(c net.Conn, wchan chan []etf.Term, terms []etf.Term) {
@@ -373,9 +372,9 @@ func (n *Node) handleTerms(c net.Conn, wchan chan []etf.Term, terms []etf.Term) 
 					n.connections[t[1].(etf.Atom)] = nodeConn{conn: c, wchan: wchan}
 					n.lock.Unlock()
 
-					// currNd.Ready channel waiting for registration of this connection
-					ready := (t[2]).(chan bool)
-					ready <- true
+					// currNd.Errors channel waiting for registration of this connection
+					errors := (t[2]).(chan error)
+					errors <- nil
 				}
 			default:
 				lib.Log("UNHANDLED ACT: %#v", t.Element(1))
@@ -557,7 +556,6 @@ func (n *Node) MakeRef() (ref etf.Ref) {
 }
 
 func connect(n *Node, to etf.Atom) error {
-
 	var port int
 	var err error
 
@@ -576,9 +574,7 @@ func connect(n *Node, to etf.Atom) error {
 		tcp.SetKeepAlive(true)
 	}
 
-	n.run(c, true)
-
-	return nil
+	return n.run(c, true)
 }
 
 func removePid(pids []etf.Pid, pid etf.Pid) []etf.Pid {

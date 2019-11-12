@@ -93,7 +93,7 @@ type NodeDesc struct {
 	term       *etf.Context
 	isacceptor bool
 
-	Ready chan bool
+	Errors chan error
 }
 
 func NewNodeDesc(name, cookie string, isHidden bool, c net.Conn) (nd *NodeDesc) {
@@ -110,7 +110,7 @@ func NewNodeDesc(name, cookie string, isHidden bool, c net.Conn) (nd *NodeDesc) 
 		version:    5,
 		term:       new(etf.Context),
 		isacceptor: true,
-		Ready:      make(chan bool),
+		Errors:     make(chan error),
 	}
 
 	nd.term.ConvertBinaryToString = true
@@ -146,10 +146,12 @@ func (currNd *NodeDesc) ReadMessage(c net.Conn) (ts []etf.Term, err error) {
 	case HANDSHAKE:
 		var length uint16
 		if err = binary.Read(c, binary.BigEndian, &length); err != nil {
+			currNd.Errors <- err
 			return
 		}
 		msg := make([]byte, length)
 		if _, err = io.ReadFull(c, msg); err != nil {
+			currNd.Errors <- err
 			return
 		}
 		dLog("Read from enode %d: %v", length, msg)
@@ -165,6 +167,7 @@ func (currNd *NodeDesc) ReadMessage(c net.Conn) (ts []etf.Term, err error) {
 				sok := currNd.compose_SEND_STATUS(sn, true)
 				_, err = sendData(2, sok)
 				if err != nil {
+					currNd.Errors <- err
 					return
 				}
 
@@ -172,6 +175,7 @@ func (currNd *NodeDesc) ReadMessage(c net.Conn) (ts []etf.Term, err error) {
 				challenge := currNd.compose_SEND_CHALLENGE(sn)
 				sendData(2, challenge)
 				if err != nil {
+					currNd.Errors <- err
 					return
 				}
 			} else {
@@ -192,12 +196,14 @@ func (currNd *NodeDesc) ReadMessage(c net.Conn) (ts []etf.Term, err error) {
 				challengeAck := currNd.compose_SEND_CHALLENGE_ACK(sn)
 				sendData(2, challengeAck)
 				if err != nil {
+					currNd.Errors <- err
 					return
 				}
 				dLog("Remote: %#v", sn)
-				ts = []etf.Term{etf.Term(etf.Tuple{etf.Atom("$connection"), etf.Atom(sn.Name), currNd.Ready})}
+				ts = []etf.Term{etf.Term(etf.Tuple{etf.Atom("$connection"), etf.Atom(sn.Name), currNd.Errors})}
 			} else {
 				err = errors.New("bad handshake")
+				currNd.Errors <- err
 				return
 			}
 		case 's':
@@ -214,7 +220,7 @@ func (currNd *NodeDesc) ReadMessage(c net.Conn) (ts []etf.Term, err error) {
 			currNd.read_SEND_CHALLENGE_ACK(msg)
 			sn := currNd.remote
 			dLog("Remote (outgoing): %#v", sn)
-			ts = []etf.Term{etf.Term(etf.Tuple{etf.Atom("$connection"), etf.Atom(sn.Name), currNd.Ready})}
+			ts = []etf.Term{etf.Term(etf.Tuple{etf.Atom("$connection"), etf.Atom(sn.Name), currNd.Errors})}
 			return
 		}
 
