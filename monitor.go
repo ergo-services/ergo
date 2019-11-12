@@ -109,7 +109,7 @@ func (m *monitor) run() {
 			m.ref2pid[key] = p.process
 
 			if !isFakePid(p.process) && string(p.process.Node) != m.node.FullName { // request monitor remote process
-				message := etf.Tuple{MONITOR, p.by, p.process, p.ref}
+				message := etf.Tuple{distProtoMONITOR, p.by, p.process, p.ref}
 				m.node.registrar.routeRaw(p.process.Node, message)
 			}
 
@@ -123,7 +123,7 @@ func (m *monitor) run() {
 			}
 
 			if !isFakePid(dp.process) && string(dp.process.Node) != m.node.FullName { // request demonitor remote process
-				message := etf.Tuple{DEMONITOR, dp.by, dp.process, dp.ref}
+				message := etf.Tuple{distProtoDEMONITOR, dp.by, dp.process, dp.ref}
 				m.node.registrar.routeRaw(dp.process.Node, message)
 			}
 
@@ -172,7 +172,7 @@ func (m *monitor) run() {
 		doneAl:
 			// local makes link to remote
 			if l.pidB.Node != etf.Atom(m.node.FullName) {
-				message := etf.Tuple{LINK, l.pidA, l.pidB}
+				message := etf.Tuple{distProtoLINK, l.pidA, l.pidB}
 				m.node.registrar.routeRaw(l.pidB.Node, message)
 
 				// goto doneBl
@@ -196,7 +196,7 @@ func (m *monitor) run() {
 
 		case ul := <-m.channels.unlink:
 			if ul.pidB.Node != etf.Atom(m.node.FullName) {
-				message := etf.Tuple{UNLINK, ul.pidA, ul.pidB}
+				message := etf.Tuple{distProtoUNLINK, ul.pidA, ul.pidB}
 				m.node.registrar.routeRaw(ul.pidB.Node, message)
 			}
 
@@ -356,7 +356,7 @@ func (m *monitor) MonitorProcessWithRef(by etf.Pid, process interface{}, ref etf
 		// requesting monitor of remote process by the local one using registered process name
 		nodeName := t.Element(2).(etf.Atom)
 		if nodeName != etf.Atom(m.node.FullName) {
-			message := etf.Tuple{MONITOR, by, t, ref}
+			message := etf.Tuple{distProtoMONITOR, by, t, ref}
 			m.node.registrar.routeRaw(nodeName, message)
 			// FIXME:
 			// make fake pid with remote nodename and keep it
@@ -373,7 +373,7 @@ func (m *monitor) MonitorProcessWithRef(by etf.Pid, process interface{}, ref etf
 
 		// registering monitor of local process
 		local := t.Element(1).(etf.Atom)
-		message := etf.Tuple{MONITOR, by, local, ref}
+		message := etf.Tuple{distProtoMONITOR, by, local, ref}
 		m.node.registrar.route(by, local, message)
 
 	case etf.Pid:
@@ -451,7 +451,7 @@ func (m *monitor) notifyProcessTerminated(ref etf.Ref, to etf.Pid, terminated et
 
 	// for remote {21, FromProc, ToPid, Ref, Reason}, where FromProc = monitored process
 	if to.Node != etf.Atom(m.node.FullName) {
-		message := etf.Tuple{MONITOR_EXIT, terminated, to, ref, etf.Atom(reason)}
+		message := etf.Tuple{distProtoMONITOR_EXIT, terminated, to, ref, etf.Atom(reason)}
 		m.node.registrar.routeRaw(to.Node, message)
 		return
 	}
@@ -473,7 +473,7 @@ func (m *monitor) notifyProcessTerminated(ref etf.Ref, to etf.Pid, terminated et
 func (m *monitor) notifyProcessExit(to etf.Pid, terminated etf.Pid, reason string) {
 	// for remote: {3, FromPid, ToPid, Reason}
 	if to.Node != etf.Atom(m.node.FullName) {
-		message := etf.Tuple{EXIT, terminated, to, etf.Atom(reason)}
+		message := etf.Tuple{distProtoEXIT, terminated, to, etf.Atom(reason)}
 		m.node.registrar.routeRaw(to.Node, message)
 		return
 	}

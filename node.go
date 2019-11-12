@@ -378,7 +378,7 @@ func (n *Node) handleTerms(terms []etf.Term) {
 		switch act := t.Element(1).(type) {
 		case int:
 			switch act {
-			case REG_SEND:
+			case distProtoREG_SEND:
 				// {6, FromPid, Unused, ToName}
 				if len(terms) == 2 {
 					n.registrar.route(t.Element(2).(etf.Pid), t.Element(4), terms[1])
@@ -386,47 +386,47 @@ func (n *Node) handleTerms(terms []etf.Term) {
 					lib.Log("*** ERROR: bad REG_SEND: %#v", terms)
 				}
 
-			case SEND:
+			case distProtoSEND:
 				// {2, Unused, ToPid}
 				// SEND has no sender pid
 				n.registrar.route(etf.Pid{}, t.Element(3), terms[1])
 
-			case LINK:
+			case distProtoLINK:
 				// {1, FromPid, ToPid}
 				lib.Log("LINK message (act %d): %#v", act, t)
 				n.monitor.Link(t.Element(2).(etf.Pid), t.Element(3).(etf.Pid))
 
-			case UNLINK:
+			case distProtoUNLINK:
 				// {4, FromPid, ToPid}
 				lib.Log("UNLINK message (act %d): %#v", act, t)
 				n.monitor.Unink(t.Element(2).(etf.Pid), t.Element(3).(etf.Pid))
 
-			case NODE_LINK:
+			case distProtoNODE_LINK:
 				lib.Log("NODE_LINK message (act %d): %#v", act, t)
 
-			case EXIT:
+			case distProtoEXIT:
 				// {3, FromPid, ToPid, Reason}
 				lib.Log("EXIT message (act %d): %#v", act, t)
 				terminated := t.Element(2).(etf.Pid)
 				reason := fmt.Sprint(t.Element(4))
 				n.monitor.ProcessTerminated(terminated, etf.Atom(""), string(reason))
 
-			case EXIT2:
+			case distProtoEXIT2:
 				lib.Log("EXIT2 message (act %d): %#v", act, t)
 
-			case MONITOR:
+			case distProtoMONITOR:
 				// {19, FromPid, ToProc, Ref}, where FromPid = monitoring process
 				// and ToProc = monitored process pid or name (atom)
 				lib.Log("MONITOR message (act %d): %#v", act, t)
 				n.monitor.MonitorProcessWithRef(t.Element(2).(etf.Pid), t.Element(3), t.Element(4).(etf.Ref))
 
-			case DEMONITOR:
+			case distProtoDEMONITOR:
 				// {20, FromPid, ToProc, Ref}, where FromPid = monitoring process
 				// and ToProc = monitored process pid or name (atom)
 				lib.Log("DEMONITOR message (act %d): %#v", act, t)
 				n.monitor.DemonitorProcess(t.Element(4).(etf.Ref))
 
-			case MONITOR_EXIT:
+			case distProtoMONITOR_EXIT:
 				// {21, FromProc, ToPid, Ref, Reason}, where FromProc = monitored process
 				// pid or name (atom), ToPid = monitoring process, and Reason = exit reason for the monitored process
 				lib.Log("MONITOR_EXIT message (act %d): %#v", act, t)
@@ -436,19 +436,19 @@ func (n *Node) handleTerms(terms []etf.Term) {
 				n.monitor.ProcessTerminated(terminated, etf.Atom(""), string(reason))
 
 			// Not implemented yet, just stubs. TODO.
-			case SEND_SENDER:
+			case distProtoSEND_SENDER:
 				lib.Log("SEND_SENDER message (act %d): %#v", act, t)
-			case SEND_SENDER_TT:
+			case distProtoSEND_SENDER_TT:
 				lib.Log("SEND_SENDER_TT message (act %d): %#v", act, t)
-			case PAYLOAD_EXIT:
+			case distProtoPAYLOAD_EXIT:
 				lib.Log("PAYLOAD_EXIT message (act %d): %#v", act, t)
-			case PAYLOAD_EXIT_TT:
+			case distProtoPAYLOAD_EXIT_TT:
 				lib.Log("PAYLOAD_EXIT_TT message (act %d): %#v", act, t)
-			case PAYLOAD_EXIT2:
+			case distProtoPAYLOAD_EXIT2:
 				lib.Log("PAYLOAD_EXIT2 message (act %d): %#v", act, t)
-			case PAYLOAD_EXIT2_TT:
+			case distProtoPAYLOAD_EXIT2_TT:
 				lib.Log("PAYLOAD_EXIT2_TT message (act %d): %#v", act, t)
-			case PAYLOAD_MONITOR_P_EXIT:
+			case distProtoPAYLOAD_MONITOR_P_EXIT:
 				lib.Log("PAYLOAD_MONITOR_P_EXIT message (act %d): %#v", act, t)
 
 			default:

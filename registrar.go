@@ -280,7 +280,7 @@ func (r *registrar) run() {
 				continue
 			}
 			// peer.send <- []etf.Term{etf.Tuple{REG_SEND, bp.from, etf.Atom(""), bp.pid}, bp.message}
-			peer.send <- []etf.Term{etf.Tuple{SEND, etf.Atom(""), bp.pid}, bp.message}
+			peer.send <- []etf.Term{etf.Tuple{distProtoSEND, etf.Atom(""), bp.pid}, bp.message}
 
 		case bn := <-r.channels.routeByName:
 			lib.Log("[%s] sending message by name %v", r.node.FullName, bn.name)
@@ -320,7 +320,7 @@ func (r *registrar) run() {
 
 				continue
 			}
-			peer.send <- []etf.Term{etf.Tuple{REG_SEND, bt.from, etf.Atom(""), toProcessName}, bt.message}
+			peer.send <- []etf.Term{etf.Tuple{distProtoREG_SEND, bt.from, etf.Atom(""), toProcessName}, bt.message}
 
 		case rw := <-r.channels.routeRaw:
 			if rw.retries > 2 {
