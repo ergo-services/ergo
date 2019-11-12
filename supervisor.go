@@ -1,7 +1,6 @@
 package ergonode
 
 import (
-	"errors"
 	"fmt"
 	"time"
 
@@ -386,7 +385,7 @@ func (sv *Supervisor) StartChildWithSpec(parent *Process, spec SupervisorChildSp
 	case etf.Atom("ok"):
 		return r.Element(2).(etf.Pid), nil
 	default:
-		return etf.Pid{}, errors.New(r.Element(1).(string))
+		return etf.Pid{}, fmt.Errorf(r.Element(1).(string))
 	}
 }
 

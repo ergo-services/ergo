@@ -2,7 +2,7 @@ package ergonode
 
 import (
 	"context"
-	"errors"
+	"fmt"
 	"sync"
 	"time"
 
@@ -120,9 +120,9 @@ func (p *Process) CallWithTimeout(to interface{}, message etf.Term, timeout int)
 			}
 			// ignore this message. waiting for the next one
 		case <-time.After(time.Second * time.Duration(timeout)):
-			return nil, errors.New("timeout")
+			return nil, fmt.Errorf("timeout")
 		case <-p.Context.Done():
-			return nil, errors.New("stopped")
+			return nil, fmt.Errorf("stopped")
 		}
 	}
 }

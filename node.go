@@ -2,7 +2,6 @@ package ergonode
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log"
 	"runtime"
@@ -169,7 +168,7 @@ func (n *Node) IsProcessAlive(pid etf.Pid) bool {
 func (n *Node) ProcessInfo(pid etf.Pid) (ProcessInfo, error) {
 	p := n.registrar.GetProcessByPid(pid)
 	if p == nil {
-		return ProcessInfo{}, errors.New("undefined")
+		return ProcessInfo{}, fmt.Errorf("undefined")
 	}
 
 	gl := etf.Pid{}
