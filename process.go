@@ -83,7 +83,7 @@ func (p *Process) Name() string {
 }
 
 func (p *Process) Info() ProcessInfo {
-	gl := etf.Pid{}
+	gl := p.self
 	if p.groupLeader != nil {
 		gl = p.groupLeader.Self()
 	}
