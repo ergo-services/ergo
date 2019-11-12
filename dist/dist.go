@@ -93,7 +93,7 @@ type NodeDesc struct {
 	term       *etf.Context
 	isacceptor bool
 
-	Error chan error
+	HandshakeError chan error
 }
 
 func NewNodeDesc(name, cookie string, isHidden bool, c net.Conn) (nd *NodeDesc) {
@@ -107,10 +107,10 @@ func NewNodeDesc(name, cookie string, isHidden bool, c net.Conn) (nd *NodeDesc) 
 			EXTENDED_PIDS_PORTS, EXTENDED_REFERENCES,
 			DIST_HDR_ATOM_CACHE, HIDDEN_ATOM_CACHE, NEW_FUN_TAGS,
 			SMALL_ATOM_TAGS, UTF8_ATOMS, MAP_TAG, BIG_CREATION),
-		version:    5,
-		term:       new(etf.Context),
-		isacceptor: true,
-		Error:      make(chan error),
+		version:        5,
+		term:           new(etf.Context),
+		isacceptor:     true,
+		HandshakeError: make(chan error),
 	}
 
 	nd.term.ConvertBinaryToString = true
@@ -146,12 +146,12 @@ func (currentND *NodeDesc) ReadMessage(c net.Conn) (ts []etf.Term, err error) {
 	case HANDSHAKE:
 		var length uint16
 		if err = binary.Read(c, binary.BigEndian, &length); err != nil {
-			currentND.Error <- err
+			currentND.HandshakeError <- err
 			return
 		}
 		msg := make([]byte, length)
 		if _, err = io.ReadFull(c, msg); err != nil {
-			currentND.Error <- err
+			currentND.HandshakeError <- err
 			return
 		}
 		dLog("Read from enode %d: %v", length, msg)
@@ -167,7 +167,7 @@ func (currentND *NodeDesc) ReadMessage(c net.Conn) (ts []etf.Term, err error) {
 				sok := currentND.compose_SEND_STATUS(sn, true)
 				_, err = sendData(2, sok)
 				if err != nil {
-					currentND.Error <- err
+					currentND.HandshakeError <- err
 					return
 				}
 
@@ -175,7 +175,7 @@ func (currentND *NodeDesc) ReadMessage(c net.Conn) (ts []etf.Term, err error) {
 				challenge := currentND.compose_SEND_CHALLENGE(sn)
 				sendData(2, challenge)
 				if err != nil {
-					currentND.Error <- err
+					currentND.HandshakeError <- err
 					return
 				}
 			} else {
@@ -196,21 +196,21 @@ func (currentND *NodeDesc) ReadMessage(c net.Conn) (ts []etf.Term, err error) {
 				challengeAck := currentND.compose_SEND_CHALLENGE_ACK(sn)
 				sendData(2, challengeAck)
 				if err != nil {
-					currentND.Error <- err
+					currentND.HandshakeError <- err
 					return
 				}
 				dLog("Remote: %#v", sn)
-				ts = []etf.Term{etf.Term(etf.Tuple{etf.Atom("$connection"), etf.Atom(sn.Name), currentND.Error})}
+				ts = []etf.Term{etf.Term(etf.Tuple{etf.Atom("$connection"), etf.Atom(sn.Name), currentND.HandshakeError})}
 			} else {
 				err = fmt.Errorf("bad handshake")
-				currentND.Error <- err
+				currentND.HandshakeError <- err
 				return
 			}
 		case 's':
 			r := string(msg[1:len(msg)])
 			if r != "ok" {
 				err = fmt.Errorf("Can't continue (recv_status: %s). Closing connection", r)
-				currentND.Error <- err
+				currentND.HandshakeError <- err
 			}
 
 			return
@@ -219,7 +219,7 @@ func (currentND *NodeDesc) ReadMessage(c net.Conn) (ts []etf.Term, err error) {
 			currentND.read_SEND_CHALLENGE_ACK(msg)
 			sn := currentND.remote
 			dLog("Remote (outgoing): %#v", sn)
-			ts = []etf.Term{etf.Term(etf.Tuple{etf.Atom("$connection"), etf.Atom(sn.Name), currentND.Error})}
+			ts = []etf.Term{etf.Term(etf.Tuple{etf.Atom("$connection"), etf.Atom(sn.Name), currentND.HandshakeError})}
 			return
 		}
 

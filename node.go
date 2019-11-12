@@ -200,6 +200,7 @@ func (n *Node) serve(c net.Conn, negotiate bool) error {
 	}
 
 	send := make(chan []etf.Term, 10)
+	stop := make(chan bool)
 	// run writer routine
 	go func() {
 		defer c.Close()
@@ -215,11 +216,14 @@ func (n *Node) serve(c net.Conn, negotiate bool) error {
 				}
 			case <-n.context.Done():
 				return
+			case <-stop:
+				return
 			}
 
 		}
 	}()
 
+	// run reader routine
 	go func() {
 		defer c.Close()
 		defer func() { n.registrar.UnregisterPeer(nodeDesc.GetRemoteName()) }()
@@ -238,15 +242,19 @@ func (n *Node) serve(c net.Conn, negotiate bool) error {
 		send: send,
 	}
 
-	err := <-nodeDesc.Error
+	// waiting for handshaking process.
+	err := <-nodeDesc.HandshakeError
 	if err != nil {
+		stop <- true
 		return err
 	}
 
+	// close this connection if we cant register this node for some reason (duplicate?)
 	if err := n.registrar.RegisterPeer(nodeDesc.GetRemoteName(), p); err != nil {
-		c.Close()
+		stop <- true
 		return err
 	}
+
 	return nil
 }
 
