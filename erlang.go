@@ -3,8 +3,6 @@ package ergonode
 // TODO: https://github.com/erlang/otp/blob/master/lib/runtime_tools-1.13.1/src/erlang_info.erl
 
 import (
-	"fmt"
-
 	"github.com/halturin/ergonode/etf"
 	"github.com/halturin/ergonode/lib"
 )
@@ -48,10 +46,12 @@ func (e *erlang) HandleCall(from etf.Tuple, message etf.Term, state interface{})
 		case etf.Atom("process_info"):
 			args := m.Element(2).(etf.List)
 			reply := process_info(newState.process, args[0].(etf.Pid), args[1])
-			fmt.Printf("====REPLY %#v", reply)
 			return "reply", reply, state
 
+		case etf.Atom("function_exported"):
+			return "reply", true, state
 		}
+
 	}
 	return "reply", etf.Atom("ok"), state
 }

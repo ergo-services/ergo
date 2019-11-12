@@ -22,12 +22,6 @@ func (o *observerBackend) Init(p *Process, args ...interface{}) (state interface
 	lib.Log("OBSERVER: Init: %#v", args)
 	o.process = p
 
-	//
-	funExportedTrue := func(a ...etf.Term) etf.Term {
-		return true
-	}
-	p.Node.ProvideRPC("erlang", "function_exported", funExportedTrue)
-
 	funProcLibInitialCall := func(a ...etf.Term) etf.Term {
 		return etf.Tuple{etf.Atom("proc_lib"), etf.Atom("init_p"), 5}
 	}

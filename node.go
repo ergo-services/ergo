@@ -520,6 +520,11 @@ func (n *Node) GetProcessByPid(pid etf.Pid) *Process {
 	return n.registrar.GetProcessByPid(pid)
 }
 
+// GetProcessList returns array of running process
+func (n *Node) GetProcessList() []*Process {
+	return n.registrar.ProcessList()
+}
+
 // MakeRef returns atomic reference etf.Ref within this node
 func (n *Node) MakeRef() (ref etf.Ref) {
 	ref.Node = etf.Atom(n.FullName)
