@@ -52,6 +52,7 @@ type ProcessInfo struct {
 	Status          string
 	MessageQueueLen int
 	Links           []etf.Pid
+	Monitors        []etf.Pid
 	Dictionary      etf.Map
 	TrapExit        bool
 	GroupLeader     etf.Pid
@@ -79,6 +80,21 @@ func (p *Process) Self() etf.Pid {
 // Name returns registered name of the process
 func (p *Process) Name() string {
 	return p.name
+}
+
+func (p *Process) Info() ProcessInfo {
+	gl := etf.Pid{}
+	if p.groupLeader != nil {
+		gl = p.groupLeader.Self()
+	}
+	return ProcessInfo{
+		CurrentFunction: p.currentFunction,
+		GroupLeader:     gl,
+		Status:          "running",
+		MessageQueueLen: len(p.mailBox),
+		TrapExit:        p.trapExit,
+		Reductions:      p.reductions,
+	}
 }
 
 // Call makes outgoing sync request in fashion of 'gen_call'.

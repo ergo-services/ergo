@@ -28,6 +28,11 @@ func (o *observerBackend) Init(p *Process, args ...interface{}) (state interface
 	}
 	p.Node.ProvideRPC("erlang", "function_exported", funExportedTrue)
 
+	funProcLibInitialCall := func(a ...etf.Term) etf.Term {
+		return etf.Tuple{etf.Atom("proc_lib"), etf.Atom("init_p"), 5}
+	}
+	p.Node.ProvideRPC("proc_lib", "translate_initial_call", funProcLibInitialCall)
+
 	funAppmonInfo := func(a ...etf.Term) etf.Term {
 		from := a[0] // pid
 		am, e := p.Node.Spawn("", ProcessOptions{}, &appMon{}, from)

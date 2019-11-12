@@ -495,6 +495,16 @@ func (n *Node) RevokeRPC(module, function string) error {
 	return nil
 }
 
+// GetProcessByName returns Process associated with given name
+func (n *Node) GetProcessByName(name string) *Process {
+	return n.registrar.GetProcessByName(name)
+}
+
+// GetProcessByPid returns Process by given pid
+func (n *Node) GetProcessByPid(pid etf.Pid) *Process {
+	return n.registrar.GetProcessByPid(pid)
+}
+
 // MakeRef returns atomic reference etf.Ref within this node
 func (n *Node) MakeRef() (ref etf.Ref) {
 	ref.Node = etf.Atom(n.FullName)

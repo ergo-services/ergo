@@ -68,7 +68,6 @@ func (r *rex) HandleCall(from etf.Tuple, message etf.Term, state interface{}) (s
 			module := m.Element(2).(etf.Atom)
 			function := m.Element(3).(etf.Atom)
 			args := m.Element(4).(etf.List)
-
 			reply, state1 := r.handleRPC(module, function, args, state)
 			if reply != nil {
 				return "reply", reply, state1
@@ -77,7 +76,6 @@ func (r *rex) HandleCall(from etf.Tuple, message etf.Term, state interface{}) (s
 			to := etf.Tuple{string(module), r.process.Node.FullName}
 			m := etf.Tuple{m.Element(3), m.Element(4)}
 			reply, err := r.process.Call(to, m)
-
 			if err != nil {
 				reply = etf.Term(etf.Tuple{etf.Atom("error"), err})
 			}
@@ -163,9 +161,8 @@ func (r *rex) handleRPC(module, function etf.Atom, args etf.List, state interfac
 		return
 	}
 
-	// calling local module (where module is the registered process name)
-	mf.function = "*"
-	if _, ok := r.methods[mf]; ok {
+	// calling a local module if its been registered as a process)
+	if r.process.Node.GetProcessByName(mf.module) != nil {
 		return nil, state
 	}
 
