@@ -234,7 +234,10 @@ func (currentND *NodeDesc) ReadMessage(c net.Conn) (ts []etf.Term, err error) {
 			sendData(4, []byte{})
 			return
 		}
-		r := &io.LimitedReader{c, int64(length)}
+		r := &io.LimitedReader{
+			R: c,
+			N: int64(length),
+		}
 
 		if currentND.flag.isSet(DIST_HDR_ATOM_CACHE) {
 			var ctl, message etf.Term

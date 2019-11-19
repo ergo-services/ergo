@@ -34,7 +34,8 @@ func (dgs *demoGenServ) Init(p *ergo.Process, args ...interface{}) interface{} {
 	dgs.bridge = args[2].(chan interface{})
 
 	go func() {
-		ctx, _ := context.WithCancel(p.Context)
+		ctx, cancel := context.WithCancel(p.Context)
+		defer cancel()
 		for {
 			select {
 			case msg := <-args[1].(chan interface{}):
