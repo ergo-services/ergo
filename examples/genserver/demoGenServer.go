@@ -59,7 +59,7 @@ func (dgs *demoGenServ) HandleCall(from etf.Tuple, message etf.Term, state inter
 	fmt.Printf("HandleCall: %#v, From: %#v\n", message, from)
 
 	reply := etf.Term(etf.Tuple{etf.Atom("error"), etf.Atom("unknown_request")})
-
+	fmt.Printf("GGGGGG %#v\n", message)
 	switch message {
 	case etf.Atom("hello"):
 		reply = etf.Term("hi")

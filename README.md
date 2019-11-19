@@ -34,7 +34,8 @@ The goal of this project is to leverage Erlang/OTP experience with Golang perfor
     - local <-> remote
     - remote <-> local
  * RPC callbacks support
- * basic [Observer support](#observer)
+ * Basic [observer support](#observer)
+ * Unmarshalling terms into the struct using etf.TermIntoStruct
  * Support Erlang 21.*
 
 ### Requirements ###

@@ -158,14 +158,31 @@ func (p *Process) CastRPC(node, module, function string, args ...etf.Term) {
 	p.Cast(to, message)
 }
 
-// Send sends a message. 'to' can be Pid, registered local name
+// Send sends a message. 'to' can be a Pid, registered local name
 // or a tuple {RegisteredName, NodeName}
 func (p *Process) Send(to interface{}, message etf.Term) {
 	p.Node.registrar.route(p.self, to, message)
 }
 
+// SendAfter starts a timer. When the timer expires, the message sends to the process identified by 'to'.
+// 'to' can be a Pid, registered local name or a tuple {RegisteredName, NodeName}.
+// Returns cancel function in order to discard sending a message
+func (p *Process) SendAfter(to interface{}, message etf.Term, after time.Duration) context.CancelFunc {
+	//TODO: should we control the number of timers/goroutines have been created this way?
+	ctx, cancel := context.WithCancel(p.Context)
+	go func() {
+		select {
+		case <-time.After(after):
+			p.Node.registrar.route(p.self, to, message)
+		case <-ctx.Done():
+			return
+		}
+	}()
+	return cancel
+}
+
 // Cast sends a message in fashion of 'gen_cast'.
-// 'to' can be Pid, registered local name
+// 'to' can be a Pid, registered local name
 // or a tuple {RegisteredName, NodeName}
 func (p *Process) Cast(to interface{}, message etf.Term) {
 	msg := etf.Term(etf.Tuple{etf.Atom("$gen_cast"), message})
@@ -173,7 +190,7 @@ func (p *Process) Cast(to interface{}, message etf.Term) {
 }
 
 // MonitorProcess creates monitor between the processes. When a process monitor
-// is triggered, a 'DOWN' message is sent that has the following
+// is triggered, a 'DOWN' message sends that has the following
 // pattern: {'DOWN', MonitorRef, Type, Object, Info}
 func (p *Process) MonitorProcess(to etf.Pid) etf.Ref {
 	return p.Node.monitor.MonitorProcess(p.self, to)

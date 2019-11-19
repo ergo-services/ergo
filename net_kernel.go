@@ -3,8 +3,6 @@ package ergonode
 // https://github.com/erlang/otp/blob/master/lib/kernel/src/net_kernel.erl
 
 import (
-	"fmt"
-
 	"github.com/halturin/ergonode/etf"
 	"github.com/halturin/ergonode/lib"
 )
@@ -87,16 +85,15 @@ func (nk *netKernel) HandleCall(from etf.Tuple, message etf.Term, state interfac
 			case etf.Atom:
 				if string(tag) == "is_auth" {
 					lib.Log("NET_KERNEL: is_auth: %#v", t[1])
-					reply = etf.Term(etf.Atom("yes"))
+					reply = etf.Atom("yes")
 				}
 			}
 		}
-		fmt.Println("TTTT", len(t), t)
 		if len(t) == 5 {
-			// etf.Tuple{"spawn_link", "observer_backend", "procs_info", etf.List{etf.Pid{Node:"erl-demo@127.0.0.1", Id:0x747, Serial:0x0, Creation:0x1}}
-			sendTo := t.Element(5).(etf.Pid)
+			// etf.Tuple{"spawn_link", "observer_backend", "procs_info", etf.List{etf.Pid{}}, etf.Pid{}}
+			sendTo := t.Element(4).(etf.List).Element(1).(etf.Pid)
 			go sendProcInfo(nk.process, sendTo)
-			reply = etf.Term(nk.process.Self())
+			reply = nk.process.Self()
 		}
 	}
 	return
@@ -120,27 +117,28 @@ func sendProcInfo(p *Process, to etf.Pid) {
 	procsInfoList := etf.List{}
 	for i := range list {
 		info := list[i].Info()
-		// {procs_info, self(), etop_collect(First, [])}
+		// {procs_info, self(), etop_collect(Pids, [])}
 		procsInfoList = append(procsInfoList,
 			etf.Tuple{
-				list[i].Self(),       // pid
-				0,                    // mem
-				info.Reductions,      // reds
-				list[i].Name(),       // name
-				info.CurrentFunction, // cf
-				info.MessageQueueLen, // mq
+				etf.Atom("etop_proc_info"), // record name #etop_proc_info
+				list[i].Self(),             // pid
+				0,                          // mem
+				info.Reductions,            // reds
+				etf.Atom(list[i].Name()),   // etf.Tuple{etf.Atom("ergo"), etf.Atom(list[i].Name()), 0}, // name
+				0,                          // runtime
+				info.CurrentFunction,       // etf.Tuple{etf.Atom("ergo"), etf.Atom(info.CurrentFunction), 0}, // cf
+				info.MessageQueueLen,       // mq
 			},
 		)
 
 	}
 
 	procsInfo := etf.Tuple{
-		etf.Atom("proc_info"),
+		etf.Atom("procs_info"),
 		p.Self(),
 		procsInfoList,
 	}
-
-	fmt.Println("SEEEEEEEEEEEEEND", procsInfo)
-
 	p.Send(to, procsInfo)
+	// observer waits for the EXIT message since this function was executed via spawn
+	p.Send(to, etf.Tuple{etf.Atom("EXIT"), p.Self(), etf.Atom("normal")})
 }

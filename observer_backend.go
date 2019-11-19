@@ -11,6 +11,8 @@ import (
 	"github.com/halturin/ergonode/lib"
 )
 
+var m runtime.MemStats
+
 type observerBackend struct {
 	GenServer
 	process *Process
@@ -167,7 +169,6 @@ func (o *observerBackend) sysInfo() etf.List {
 	//  {code,7768539},
 	//  {ets,846496}]
 
-	var m runtime.MemStats
 	runtime.ReadMemStats(&m)
 
 	total := etf.Tuple{etf.Atom("total"), m.TotalAlloc}
