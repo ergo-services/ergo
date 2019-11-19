@@ -132,10 +132,16 @@ func (o *observerBackend) Terminate(reason string, state interface{}) {
 
 func (o *observerBackend) sysInfo() etf.List {
 
-	processCount := etf.Tuple{etf.Atom("process_count"), 123}
-	processLimit := etf.Tuple{etf.Atom("process_limit"), 123}
-	ut := int(time.Since(o.process.Node.StartedAt).Seconds())
-	uptime := etf.Tuple{etf.Atom("uptime"), ut}
+	processCount := etf.Tuple{etf.Atom("process_count"), len(o.process.Node.GetProcessList())}
+	processLimit := etf.Tuple{etf.Atom("process_limit"), 262144}
+	atomCount := etf.Tuple{etf.Atom("atom_count"), 0}
+	atomLimit := etf.Tuple{etf.Atom("atom_limit"), 1}
+	etsCount := etf.Tuple{etf.Atom("ets_count"), 0}
+	etsLimit := etf.Tuple{etf.Atom("ets_limit"), 1}
+	portCount := etf.Tuple{etf.Atom("port_count"), 0}
+	portLimit := etf.Tuple{etf.Atom("port_limit"), 1}
+	ut := time.Now().Unix() - o.process.Node.StartedAt.Unix()
+	uptime := etf.Tuple{etf.Atom("uptime"), ut * 1000}
 	runQueue := etf.Tuple{etf.Atom("run_queue"), 0}
 	ioInput := etf.Tuple{etf.Atom("io_input"), 0}
 	ioOutput := etf.Tuple{etf.Atom("io_output"), 0}
@@ -175,10 +181,21 @@ func (o *observerBackend) sysInfo() etf.List {
 	system := etf.Tuple{etf.Atom("system"), m.HeapSys}
 	processes := etf.Tuple{etf.Atom("processes"), m.Alloc}
 	processesUsed := etf.Tuple{etf.Atom("processes_used"), m.HeapInuse}
+	atom := etf.Tuple{etf.Atom("atom"), 0}
+	atomUsed := etf.Tuple{etf.Atom("atom_used"), 0}
+	binary := etf.Tuple{etf.Atom("binary"), 0}
+	code := etf.Tuple{etf.Atom("code"), 0}
+	ets := etf.Tuple{etf.Atom("ets"), 0}
 
 	info := etf.List{
 		processCount,
 		processLimit,
+		atomCount,
+		atomLimit,
+		etsCount,
+		etsLimit,
+		portCount,
+		portLimit,
 		uptime,
 		runQueue,
 		ioInput,
@@ -204,6 +221,11 @@ func (o *observerBackend) sysInfo() etf.List {
 		system,
 		processes,
 		processesUsed,
+		atom,
+		atomUsed,
+		binary,
+		code,
+		ets,
 	}
 	return info
 }

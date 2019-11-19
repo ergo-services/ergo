@@ -3,6 +3,9 @@ package ergonode
 // https://github.com/erlang/otp/blob/master/lib/kernel/src/net_kernel.erl
 
 import (
+	"fmt"
+	"syscall"
+
 	"github.com/halturin/ergonode/etf"
 	"github.com/halturin/ergonode/lib"
 )
@@ -95,6 +98,45 @@ func (nk *netKernel) HandleCall(from etf.Tuple, message etf.Term, state interfac
 			go sendProcInfo(nk.process, sendTo)
 			reply = nk.process.Self()
 		}
+
+		usg := syscall.Rusage{}
+		if err := syscall.Getrusage(syscall.RUSAGE_SELF, &usg); err != nil {
+			fmt.Println("CANT GET RUSAGE for", syscall.Getpid(), err)
+		} else {
+			fmt.Printf("RES USAGE: %#v\n", usg)
+		}
+
+		// etf.Tuple{"spawn_link", "observer_backend", "fetch_stats", etf.List{etf.Pid{}, 500}, etf.Pid{}}
+		// https://godoc.org/golang.org/x/sys/unix#Getrusage - for unix
+
+		// {stats,1,
+		// 	[{8,1235478,2009146206},
+		// 	 {4,1642253,2008966955},
+		// 	 {6,1612731,2009166131},
+		// 	 {7,1534032,2009125109},
+		// 	 {1,1906006,2009181936},
+		// 	 {5,1371164,2009112859},
+		// 	 {3,1109390,2009100239},
+		// 	 {2,7498692,2009133735},
+		// 	 {9,242304,14978295546},
+		// 	 {10,246047,14978296186},
+		// 	 {11,69425,14978296753},
+		// 	 {12,120835,14978297087},
+		// 	 {13,68511,14978297487},
+		// 	 {14,51743,14978298867},
+		// 	 {15,131861,14978299200},
+		// 	 {16,69327,14978299556}],
+		// 	{{input,9207},{output,10528}},
+		// 	[{total,17544800},
+		// 	 {processes,4835608},
+		// 	 {processes_used,4835608},
+		// 	 {system,12709192},
+		// 	 {atom,256337},
+		// 	 {atom_used,232702},
+		// 	 {binary,149336},
+		// 	 {code,4955622},
+		// 	 {ets,356568}]}
+
 	}
 	return
 }
