@@ -3,8 +3,11 @@ package ergonode
 // https://github.com/erlang/otp/blob/master/lib/kernel/src/net_kernel.erl
 
 import (
+	"context"
 	"fmt"
+	"runtime"
 	"syscall"
+	"time"
 
 	"github.com/halturin/ergonode/etf"
 	"github.com/halturin/ergonode/lib"
@@ -53,7 +56,8 @@ func (nks *netKernelSup) Init(args ...interface{}) SupervisorSpec {
 
 type netKernel struct {
 	GenServer
-	process *Process
+	process     *Process
+	routinesCtx map[etf.Pid]context.CancelFunc
 }
 
 // Init initializes process state using arbitrary arguments
@@ -61,7 +65,7 @@ type netKernel struct {
 func (nk *netKernel) Init(p *Process, args ...interface{}) (state interface{}) {
 	lib.Log("NET_KERNEL: Init: %#v", args)
 	nk.process = p
-
+	nk.routinesCtx = make(map[etf.Pid]context.CancelFunc)
 	return nil
 }
 
@@ -93,49 +97,28 @@ func (nk *netKernel) HandleCall(from etf.Tuple, message etf.Term, state interfac
 			}
 		}
 		if len(t) == 5 {
-			// etf.Tuple{"spawn_link", "observer_backend", "procs_info", etf.List{etf.Pid{}}, etf.Pid{}}
-			sendTo := t.Element(4).(etf.List).Element(1).(etf.Pid)
-			go sendProcInfo(nk.process, sendTo)
-			reply = nk.process.Self()
+			switch t.Element(3) {
+			case etf.Atom("procs_info"):
+				// etf.Tuple{"spawn_link", "observer_backend", "procs_info", etf.List{etf.Pid{}}, etf.Pid{}}
+				sendTo := t.Element(4).(etf.List).Element(1).(etf.Pid)
+				go sendProcInfo(nk.process, sendTo)
+				reply = nk.process.Self()
+			case etf.Atom("fetch_stats"):
+				// etf.Tuple{"spawn_link", "observer_backend", "fetch_stats", etf.List{etf.Pid{}, 500}, etf.Pid{}}
+				sendTo := t.Element(4).(etf.List).Element(1).(etf.Pid)
+				period := t.Element(4).(etf.List).Element(2).(int)
+				if _, ok := nk.routinesCtx[sendTo]; ok {
+					reply = etf.Atom("error")
+					return
+				}
+
+				nk.process.MonitorProcess(sendTo)
+				ctx, cancel := context.WithCancel(nk.process.Context)
+				nk.routinesCtx[sendTo] = cancel
+				go sendStats(nk.process, sendTo, period, ctx, cancel)
+				reply = nk.process.Self()
+			}
 		}
-
-		usg := syscall.Rusage{}
-		if err := syscall.Getrusage(syscall.RUSAGE_SELF, &usg); err != nil {
-			fmt.Println("CANT GET RUSAGE for", syscall.Getpid(), err)
-		} else {
-			fmt.Printf("RES USAGE: %#v\n", usg)
-		}
-
-		// etf.Tuple{"spawn_link", "observer_backend", "fetch_stats", etf.List{etf.Pid{}, 500}, etf.Pid{}}
-		// https://godoc.org/golang.org/x/sys/unix#Getrusage - for unix
-
-		// {stats,1,
-		// 	[{8,1235478,2009146206},
-		// 	 {4,1642253,2008966955},
-		// 	 {6,1612731,2009166131},
-		// 	 {7,1534032,2009125109},
-		// 	 {1,1906006,2009181936},
-		// 	 {5,1371164,2009112859},
-		// 	 {3,1109390,2009100239},
-		// 	 {2,7498692,2009133735},
-		// 	 {9,242304,14978295546},
-		// 	 {10,246047,14978296186},
-		// 	 {11,69425,14978296753},
-		// 	 {12,120835,14978297087},
-		// 	 {13,68511,14978297487},
-		// 	 {14,51743,14978298867},
-		// 	 {15,131861,14978299200},
-		// 	 {16,69327,14978299556}],
-		// 	{{input,9207},{output,10528}},
-		// 	[{total,17544800},
-		// 	 {processes,4835608},
-		// 	 {processes_used,4835608},
-		// 	 {system,12709192},
-		// 	 {atom,256337},
-		// 	 {atom_used,232702},
-		// 	 {binary,149336},
-		// 	 {code,4955622},
-		// 	 {ets,356568}]}
 
 	}
 	return
@@ -146,6 +129,19 @@ func (nk *netKernel) HandleCall(from etf.Tuple, message etf.Term, state interfac
 //		         ("stop", reason) - normal stop
 func (nk *netKernel) HandleInfo(message etf.Term, state interface{}) (string, interface{}) {
 	lib.Log("NET_KERNEL: HandleInfo: %#v", message)
+	// {"DOWN", etf.Ref{Node:"demo@127.0.0.1", Creation:0x1, Id:[]uint32{0x27715, 0x5762, 0x0}}, "process",
+	// etf.Pid{Node:"erl-demo@127.0.0.1", Id:0x460, Serial:0x0, Creation:0x1}, "normal"}
+	switch m := message.(type) {
+	case etf.Tuple:
+		if m.Element(1) == etf.Atom("DOWN") {
+			pid := m.Element(4).(etf.Pid)
+			if cancel, ok := nk.routinesCtx[pid]; ok {
+				cancel()
+				delete(nk.routinesCtx, pid)
+			}
+		}
+
+	}
 	return "noreply", state
 }
 
@@ -183,4 +179,64 @@ func sendProcInfo(p *Process, to etf.Pid) {
 	p.Send(to, procsInfo)
 	// observer waits for the EXIT message since this function was executed via spawn
 	p.Send(to, etf.Tuple{etf.Atom("EXIT"), p.Self(), etf.Atom("normal")})
+}
+
+func sendStats(p *Process, to etf.Pid, period int, ctx context.Context, cancel context.CancelFunc) {
+	var usage syscall.Rusage
+	var utime, utimetotal, stime, stimetotal int64
+	defer cancel()
+	for {
+
+		select {
+		case <-time.After(time.Duration(period) * time.Millisecond):
+
+			runtime.ReadMemStats(&m)
+
+			total := etf.Tuple{etf.Atom("total"), m.TotalAlloc}
+			system := etf.Tuple{etf.Atom("system"), m.HeapSys}
+			processes := etf.Tuple{etf.Atom("processes"), m.Alloc}
+			processesUsed := etf.Tuple{etf.Atom("processes_used"), m.HeapInuse}
+			atom := etf.Tuple{etf.Atom("atom"), 0}
+			atomUsed := etf.Tuple{etf.Atom("atom_used"), 0}
+			binary := etf.Tuple{etf.Atom("binary"), 0}
+			code := etf.Tuple{etf.Atom("code"), 0}
+			ets := etf.Tuple{etf.Atom("ets"), 0}
+
+			if err := syscall.Getrusage(syscall.RUSAGE_SELF, &usage); err != nil {
+				fmt.Println("CANT GET RUSAGE for", syscall.Getpid(), err)
+				continue
+			} else {
+			}
+			utime = usage.Utime.Sec*1000000000 + usage.Utime.Nano()
+			stime = usage.Stime.Sec*1000000000 + usage.Stime.Nano()
+			utimetotal += utime
+			stimetotal += stime
+			stats := etf.Tuple{
+				etf.Atom("stats"),
+				1,
+				etf.List{
+					etf.Tuple{1, utime, utimetotal},
+					etf.Tuple{2, stime, stimetotal},
+				},
+				etf.Tuple{
+					etf.Tuple{etf.Atom("input"), 0},
+					etf.Tuple{etf.Atom("output"), 0},
+				},
+				etf.List{
+					total,
+					system,
+					processes,
+					processesUsed,
+					atom,
+					atomUsed,
+					binary,
+					code,
+					ets,
+				},
+			}
+			p.Send(to, stats)
+		case <-ctx.Done():
+			return
+		}
+	}
 }

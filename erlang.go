@@ -47,6 +47,10 @@ func (e *erlang) HandleCall(from etf.Tuple, message etf.Term, state interface{})
 			args := m.Element(2).(etf.List)
 			reply := process_info(newState.process, args[0].(etf.Pid), args[1])
 			return "reply", reply, state
+		case etf.Atom("system_info"):
+			args := m.Element(2).(etf.List)
+			reply := system_info(newState.process, args[0].(etf.Atom))
+			return "reply", reply, state
 
 		case etf.Atom("function_exported"):
 			return "reply", true, state
@@ -152,4 +156,12 @@ func process_info(p *Process, pid etf.Pid, property etf.Term) etf.Term {
 		return values
 	}
 	return nil
+}
+
+func system_info(p *Process, name etf.Atom) etf.Term {
+	switch name {
+	case etf.Atom("dirty_cpu_schedulers"):
+		return 1
+	}
+	return etf.Atom("unknown")
 }
