@@ -1,15 +1,8 @@
-all:
-	go build examples/gonode.go
-
-run:
-	./gonode -cookie d3vc00k -listen 12321 -trace.node -trace.dist
+rungs:
+	go run --tags debug ./examples/genserver/demoGenServer.go -trace.node
 
 epmd:
-	go build cmd/epmd.go
-
-clean:
-	go clean
-	$(RM) ./gonode
+	go build cmd/epmd/epmd.go
 
 test:
 	go vet

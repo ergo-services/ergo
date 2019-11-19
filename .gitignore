@@ -1,6 +1,5 @@
 *~
-gonode
-./epmd
+./cmd/epmd/epmd
 coverage.txt
 coverage.html
 

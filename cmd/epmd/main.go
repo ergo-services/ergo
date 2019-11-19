@@ -51,16 +51,25 @@ func getNames() {
 
 	defer conn.Close()
 
-	buf := make([]byte, 1024)
+	buf := make([]byte, 2048)
 	buf[1] = 1
 	buf[2] = dist.EPMD_NAMES_REQ
 	conn.Write(buf[0:3])
-	if n, err := conn.Read(buf); n == 0 {
-		panic(err)
+	if n, err := conn.Read(buf); n < 4 {
+		panic("malformed response from epmd")
 	} else {
 		fmt.Printf("epmd: up and running on port %d with data:\n", binary.BigEndian.Uint32(buf[0:4]))
-		if len(buf[4:n]) > 0 {
-			fmt.Printf("%s\n", string(buf[4:n]))
+		fmt.Printf("%s", string(buf[4:]))
+		buf = buf[n:]
+
+		for {
+			n, err = conn.Read(buf)
+			if err != nil || n == 0 {
+				break
+			}
+			fmt.Printf("%s", string(buf))
+			buf = buf[len(buf):]
 		}
+
 	}
 }
