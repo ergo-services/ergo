@@ -213,3 +213,16 @@ func main() {
 }
 
 ```
+
+### Development and debugging ###
+
+There is a couple of options are already defined you might want to use
+
+  * -trace.node
+  * -trace.dist
+
+To enable Golang profiler just add `--tag debug` in your `go run` or `go build` like this:
+
+`go run --tags debug ./examples/genserver/demoGenServer.go`
+
+Now golang' profiler is available at `http://localhost:9009/debug/pprof`
