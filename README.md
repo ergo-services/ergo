@@ -216,7 +216,7 @@ func main() {
 
 ### Development and debugging ###
 
-There is a couple of options are already defined you might want to use
+There is a couple of options are already defined that you might want to use
 
   * -trace.node
   * -trace.dist
