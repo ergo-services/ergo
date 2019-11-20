@@ -161,7 +161,30 @@ func (o *observerBackend) sysInfo() etf.List {
 	i := int(1)
 	wordsizeInternal := etf.Tuple{etf.Atom("wordsize_internal"), unsafe.Sizeof(i)}
 	wordsizeExternal := etf.Tuple{etf.Atom("wordsize_external"), unsafe.Sizeof(i)}
-	allocInfo := etf.Tuple{etf.Atom("alloc_info"), etf.List{}}
+	tmp := etf.Tuple{etf.Atom("instance"), 0,
+		etf.List{
+			etf.Tuple{etf.Atom("mbcs"), etf.List{
+				etf.Tuple{etf.Atom("blocks_size"), 1, 1, 1},
+				etf.Tuple{etf.Atom("carriers_size"), 1, 1, 1},
+			}},
+			etf.Tuple{etf.Atom("sbcs"), etf.List{
+				etf.Tuple{etf.Atom("blocks_size"), 0, 0, 0},
+				etf.Tuple{etf.Atom("carriers_size"), 0, 0, 0},
+			}},
+		}}
+
+	allocInfo := etf.Tuple{etf.Atom("alloc_info"), etf.List{
+		etf.Tuple{etf.Atom("temp_alloc"), etf.List{tmp}},
+		etf.Tuple{etf.Atom("sl_alloc"), etf.List{tmp}},
+		etf.Tuple{etf.Atom("std_alloc"), etf.List{tmp}},
+		etf.Tuple{etf.Atom("ll_alloc"), etf.List{tmp}},
+		etf.Tuple{etf.Atom("eheap_alloc"), etf.List{tmp}},
+		etf.Tuple{etf.Atom("ets_alloc"), etf.List{tmp}},
+		etf.Tuple{etf.Atom("fix_alloc"), etf.List{tmp}},
+		etf.Tuple{etf.Atom("literal_alloc"), etf.List{tmp}},
+		etf.Tuple{etf.Atom("binary_alloc"), etf.List{tmp}},
+		etf.Tuple{etf.Atom("driver_alloc"), etf.List{tmp}},
+	}}
 
 	// meminfo
 	// > erlang:memory().
