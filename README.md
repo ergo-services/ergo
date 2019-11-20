@@ -62,7 +62,7 @@ As an extra option, we provide EPMD service as a standalone application. There i
 
  It allows you to see the most metrics/information using standard tool of Erlang distribution. The example below shows this feature in action using one of the examples::
 
- ... put here gif-ed video demonstrating it us
+ ![](observer.gif)
 
 ### Changelog ###
 
