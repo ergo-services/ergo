@@ -3,7 +3,6 @@
 package ergonode
 
 import (
-	_ "expvar"
 	"net/http"
 	_ "net/http/pprof"
 )

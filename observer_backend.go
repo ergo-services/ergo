@@ -91,47 +91,8 @@ func (o *observerBackend) Terminate(reason string, state interface{}) {
 	lib.Log("OBSERVER: Terminate: %#v", reason)
 }
 
-// sys_info() ->
-//     MemInfo = try erlang:memory() of
-//                   Mem -> Mem
-//               catch _:_ -> []
-//               end,
-
-//     SchedulersOnline = erlang:system_info(schedulers_online),
-//     SchedulersAvailable = case erlang:system_info(multi_scheduling) of
-//                               enabled -> SchedulersOnline;
-//                               _ -> 1
-//                           end,
-
-//     {{_,Input},{_,Output}} = erlang:statistics(io),
-//     [{process_count, erlang:system_info(process_count)},
-//      {process_limit, erlang:system_info(process_limit)},
-//      {uptime, element(1, erlang:statistics(wall_clock))},
-//      {run_queue, erlang:statistics(run_queue)},
-//      {io_input, Input},
-//      {io_output,  Output},
-
-//      {logical_processors, erlang:system_info(logical_processors)},
-//      {logical_processors_online, erlang:system_info(logical_processors_online)},
-//      {logical_processors_available, erlang:system_info(logical_processors_available)},
-//      {schedulers, erlang:system_info(schedulers)},
-//      {schedulers_online, SchedulersOnline},
-//      {schedulers_available, SchedulersAvailable},
-
-//      {otp_release, erlang:system_info(otp_release)},
-//      {version, erlang:system_info(version)},
-//      {system_architecture, erlang:system_info(system_architecture)},
-//      {kernel_poll, erlang:system_info(kernel_poll)},
-//      {smp_support, erlang:system_info(smp_support)},
-//      {threads, erlang:system_info(threads)},
-//      {thread_pool_size, erlang:system_info(thread_pool_size)},
-//      {wordsize_internal, erlang:system_info({wordsize, internal})},
-//      {wordsize_external, erlang:system_info({wordsize, external})},
-//      {alloc_info, alloc_info()}
-//      | MemInfo].
-
 func (o *observerBackend) sysInfo() etf.List {
-
+	// observer_backend:sys_info()
 	processCount := etf.Tuple{etf.Atom("process_count"), len(o.process.Node.GetProcessList())}
 	processLimit := etf.Tuple{etf.Atom("process_limit"), 262144}
 	atomCount := etf.Tuple{etf.Atom("atom_count"), 0}
@@ -186,24 +147,13 @@ func (o *observerBackend) sysInfo() etf.List {
 		etf.Tuple{etf.Atom("driver_alloc"), etf.List{tmp}},
 	}}
 
-	// meminfo
-	// > erlang:memory().
-	// [{total,23254256},
-	//  {processes,5792512},
-	//  {processes_used,5791328},
-	//  {system,17461744},
-	//  {atom,380433},
-	//  {atom_used,349728},
-	//  {binary,239800},
-	//  {code,7768539},
-	//  {ets,846496}]
-
+	// Meminfo = erlang:memory().
 	runtime.ReadMemStats(&m)
 
-	total := etf.Tuple{etf.Atom("total"), m.TotalAlloc}
-	system := etf.Tuple{etf.Atom("system"), m.HeapSys}
-	processes := etf.Tuple{etf.Atom("processes"), m.Alloc}
-	processesUsed := etf.Tuple{etf.Atom("processes_used"), m.HeapInuse}
+	total := etf.Tuple{etf.Atom("total"), m.HeapAlloc}
+	system := etf.Tuple{etf.Atom("system"), m.HeapAlloc}
+	processes := etf.Tuple{etf.Atom("processes"), m.HeapAlloc}
+	processesUsed := etf.Tuple{etf.Atom("processes_used"), m.HeapAlloc}
 	atom := etf.Tuple{etf.Atom("atom"), 0}
 	atomUsed := etf.Tuple{etf.Atom("atom_used"), 0}
 	binary := etf.Tuple{etf.Atom("binary"), 0}
@@ -239,7 +189,7 @@ func (o *observerBackend) sysInfo() etf.List {
 		wordsizeInternal,
 		wordsizeExternal,
 		allocInfo,
-
+		// Meminfo
 		total,
 		system,
 		processes,
