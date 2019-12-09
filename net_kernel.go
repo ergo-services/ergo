@@ -203,7 +203,7 @@ func sendStats(p *Process, to etf.Pid, period int, ctx context.Context, cancel c
 			ets := etf.Tuple{etf.Atom("ets"), 0}
 
 			if err := syscall.Getrusage(syscall.RUSAGE_SELF, &usage); err != nil {
-				fmt.Println("CANT GET RUSAGE for", syscall.Getpid(), err)
+				fmt.Println("cannot get rusage for", syscall.Getpid(), err)
 				continue
 			} else {
 			}

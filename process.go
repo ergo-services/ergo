@@ -67,7 +67,7 @@ type ProcessOptions struct {
 
 type ProcessExitFunc func(from etf.Pid, reason string)
 
-// Behaviour interface contains methods you should implement to make own process behaviour
+// ProcessBehaviour interface contains methods you should implement to make own process behaviour
 type ProcessBehaviour interface {
 	loop(*Process, interface{}, ...interface{}) string // method which implements control flow of process
 }

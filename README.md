@@ -62,7 +62,7 @@ As an extra option, we provide EPMD service as a standalone application. There i
 
  It allows you to see the most metrics/information using standard tool of Erlang distribution. The example below shows this feature in action using one of the examples::
 
- ![](observer.gif)
+ ![](./.images/observer.gif)
 
 ### Changelog ###
 
@@ -226,3 +226,7 @@ To enable Golang profiler just add `--tag debug` in your `go run` or `go build` 
 `go run --tags debug ./examples/genserver/demoGenServer.go`
 
 Now golang' profiler is available at `http://localhost:9009/debug/pprof`
+
+### Companies Using Artillery
+
+![](./.images/kaspersky.png) ![](./.images/ringcentral.png)
