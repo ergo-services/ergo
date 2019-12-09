@@ -227,7 +227,7 @@ To enable Golang profiler just add `--tag debug` in your `go run` or `go build` 
 
 Now golang' profiler is available at `http://localhost:9009/debug/pprof`
 
-### Companies Using Ergo Framework
+### Companies are using Ergo Framework
 
 ![](./.images/kaspersky.png) ![](./.images/ringcentral.png)
 
