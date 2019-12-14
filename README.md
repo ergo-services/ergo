@@ -7,6 +7,7 @@
 [![MIT license](https://img.shields.io/badge/license-MIT-brightgreen.svg)](https://opensource.org/licenses/MIT)
 [![codecov](https://codecov.io/gh/halturin/ergonode/branch/supervisor/graph/badge.svg)](https://codecov.io/gh/halturin/ergonode)
 [![Build Status](https://travis-ci.org/halturin/ergonode.svg?branch=supervisor)](https://travis-ci.org/halturin/ergonode)
+
 Implementation of Erlang/OTP in Golang
 
 ### Purpose ###
@@ -58,7 +59,7 @@ As an extra option, we provide EPMD service as a standalone application. There i
 
 ### Observer ###
 
- It allows you to see the most metrics/information using standard tool of Erlang distribution. The example below shows this feature in action using one of the examples::
+ It allows you to see the most metrics/information using standard tool of Erlang distribution. The example below shows this feature in action using one of the examples:
 
 ![observer demo](./.images/observer.gif)
 
