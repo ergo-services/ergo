@@ -190,7 +190,7 @@ See `examples/` for more details
 
 Users of the Elixir Phoenix framework might encounter timeouts when trying to connect a Phoenix node
 to an ergo node. The reason is that, in addition to global_name_server and net_kernel,
-Phoenix attempts to broadcast messages to the ![pg2 PubSub handler](https://hexdocs.pm/phoenix/1.1.0/Phoenix.PubSub.PG2.html)
+Phoenix attempts to broadcast messages to the [pg2 PubSub handler](https://hexdocs.pm/phoenix/1.1.0/Phoenix.PubSub.PG2.html)
 
 To work with Phoenix nodes, you must create and register a dedicated pg2 GenServer, and
 spawn it inside your node. Take inspiration from the global_name_server.go for the rest of
