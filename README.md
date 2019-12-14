@@ -229,6 +229,6 @@ Now golang' profiler is available at `http://localhost:9009/debug/pprof`
 
 ### Companies are using Ergo Framework
 
-![](./.images/kaspersky.png) ![](./.images/ringcentral.png)
+![https://kaspersky.com](./.images/kaspersky.png) ![https://www.ringcentral.com](./.images/ringcentral.png)
 
 is your company using Ergo? add your company logo/name here
