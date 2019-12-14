@@ -26,13 +26,13 @@ The goal of this project is to leverage Erlang/OTP experience with Golang perfor
 * Connect to (accept connection from) any Erlang node within a cluster (or clusters, if running as multinode)
 * Making sync/async request in fashion of `gen_server:call` or `gen_server:cast`
 * Monitor processes/nodes
-    local -> local
-    local -> remote
-    remote -> local
+  * local -> local
+  * local -> remote
+  * remote -> local
 * Link processes
-    local <-> local
-    local <-> remote
-    remote <-> local
+  * local <-> local
+  * local <-> remote
+  * remote <-> local
 * RPC callbacks support
 * Basic [observer support](#observer)
 * Unmarshalling terms into the struct using etf.TermIntoStruct
