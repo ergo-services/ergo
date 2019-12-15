@@ -155,6 +155,7 @@ func (n *Node) Unregister(name string) {
 	n.registrar.UnregisterName(name)
 }
 
+// IsProcessAlive returns true if given process is alive
 func (n *Node) IsProcessAlive(pid etf.Pid) bool {
 	if pid.Node != etf.Atom(n.FullName) {
 		return false
