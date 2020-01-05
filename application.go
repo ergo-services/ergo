@@ -31,7 +31,7 @@ const (
 	ApplicationStrategyTransient = "transient"
 )
 
-// SupervisorBehavior interface
+// ApplicationBehavior interface
 type ApplicationBehavior interface {
 	Load(args ...interface{}) (ApplicationSpec, error)
 	Start(process *Process, args ...interface{})

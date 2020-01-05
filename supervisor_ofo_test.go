@@ -292,31 +292,31 @@ func (ts *testSupervisorOneForOne) Init(args ...interface{}) SupervisorSpec {
 func waitNeventsSupervisorChildren(ch chan interface{}, n int, children []etf.Pid) ([]etf.Pid, error) {
 	// n - number of events that have to be awaited
 	// start for-loop with 'n+1' to handle exceeded number of events
-	children_new := make([]etf.Pid, len(children))
-	copy(children_new, children)
+	childrenNew := make([]etf.Pid, len(children))
+	copy(childrenNew, children)
 	for i := 0; i < n+1; i++ {
 		select {
 		case c := <-ch:
 			switch child := c.(type) {
 			case testMessageTerminated:
 				// fmt.Println("TERM", child)
-				children_new[child.order] = etf.Pid{} // set empty pid
+				childrenNew[child.order] = etf.Pid{} // set empty pid
 			case testMessageStarted:
 				// fmt.Println("START", child)
-				children_new[child.order] = child.pid
+				childrenNew[child.order] = child.pid
 			}
 
 		case <-time.After(100 * time.Millisecond):
 			if i == n {
-				return children_new, nil
+				return childrenNew, nil
 			}
 			if i < n {
-				return children_new, fmt.Errorf("expected %d events, but got %d. TIMEOUT", n, i)
+				return childrenNew, fmt.Errorf("expected %d events, but got %d. TIMEOUT", n, i)
 			}
 
 		}
 	}
-	return children_new, fmt.Errorf("expected %d events, but got %d. ", n, n+1)
+	return childrenNew, fmt.Errorf("expected %d events, but got %d. ", n, n+1)
 }
 
 func checkExpectedChildrenStatus(children, children1 []etf.Pid, statuses []string) bool {

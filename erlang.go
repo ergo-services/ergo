@@ -45,11 +45,11 @@ func (e *erlang) HandleCall(from etf.Tuple, message etf.Term, state interface{})
 		switch m.Element(1) {
 		case etf.Atom("process_info"):
 			args := m.Element(2).(etf.List)
-			reply := process_info(newState.process, args[0].(etf.Pid), args[1])
+			reply := processInfo(newState.process, args[0].(etf.Pid), args[1])
 			return "reply", reply, state
 		case etf.Atom("system_info"):
 			args := m.Element(2).(etf.List)
-			reply := system_info(newState.process, args[0].(etf.Atom))
+			reply := systemInfo(newState.process, args[0].(etf.Atom))
 			return "reply", reply, state
 
 		case etf.Atom("function_exported"):
@@ -73,7 +73,7 @@ func (e *erlang) Terminate(reason string, state interface{}) {
 	lib.Log("ERLANG: Terminate: %#v", reason)
 }
 
-func process_info(p *Process, pid etf.Pid, property etf.Term) etf.Term {
+func processInfo(p *Process, pid etf.Pid, property etf.Term) etf.Term {
 	process := p.Node.GetProcessByPid(pid)
 	if process == nil {
 		return etf.Atom("undefined")
@@ -158,7 +158,7 @@ func process_info(p *Process, pid etf.Pid, property etf.Term) etf.Term {
 	return nil
 }
 
-func system_info(p *Process, name etf.Atom) etf.Term {
+func systemInfo(p *Process, name etf.Atom) etf.Term {
 	switch name {
 	case etf.Atom("dirty_cpu_schedulers"):
 		return 1

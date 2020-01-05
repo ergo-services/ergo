@@ -115,7 +115,7 @@ func (nk *netKernel) HandleCall(from etf.Tuple, message etf.Term, state interfac
 				nk.process.MonitorProcess(sendTo)
 				ctx, cancel := context.WithCancel(nk.process.Context)
 				nk.routinesCtx[sendTo] = cancel
-				go sendStats(nk.process, sendTo, period, ctx, cancel)
+				go sendStats(ctx, nk.process, sendTo, period, cancel)
 				reply = nk.process.Self()
 			}
 		}
@@ -181,7 +181,7 @@ func sendProcInfo(p *Process, to etf.Pid) {
 	p.Send(to, etf.Tuple{etf.Atom("EXIT"), p.Self(), etf.Atom("normal")})
 }
 
-func sendStats(p *Process, to etf.Pid, period int, ctx context.Context, cancel context.CancelFunc) {
+func sendStats(ctx context.Context, p *Process, to etf.Pid, period int, cancel context.CancelFunc) {
 	var usage syscall.Rusage
 	var utime, utimetotal, stime, stimetotal int64
 	defer cancel()

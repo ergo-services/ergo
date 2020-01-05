@@ -36,6 +36,7 @@ func (a *MyApplication) Start(p *Process, args ...interface{}) {
 	fmt.Println("STARTED!!!")
 	p.SetEnv("MMM", 888)
 }
+
 func TestApplication(t *testing.T) {
 
 	ctx := context.Background()
