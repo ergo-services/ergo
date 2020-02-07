@@ -58,12 +58,19 @@ func (am *appMon) HandleCast(message etf.Term, state interface{}) (string, inter
 			switch cmd {
 			case "app_ctrl":
 				// From ! {delivery, self(), Cmd, Aux, Result}
-				// appList := newState.process.Node.WhichApplications()
+				apps := newState.process.Node.WhichApplications()
+				fmt.Println("APPS: ", apps)
 				for i := range jobs {
-					appInfo := etf.Tuple{etf.Atom("firstApp"), "my app", "version 01.01"}
-					appList := etf.List{etf.Tuple{jobs[i].sendTo, appInfo.Element(1), appInfo}}
+					// appInfo := etf.Tuple{etf.Atom("firstApp"), "my app", "version 01.01"}
+					appList := make(etf.List, len(apps))
+					for ai, a := range apps {
+						appList[ai] = etf.Tuple{jobs[i].sendTo, a.Name,
+							etf.Tuple{etf.Atom(a.Name), a.Description, a.Version},
+						}
+					}
+
+					// appList := etf.List{etf.Tuple{jobs[i].sendTo, appInfo.Element(1), appInfo}}
 					delivery := etf.Tuple{etf.Atom("delivery"), newState.process.Self(), cmd, jobs[i].name, appList}
-					fmt.Println("DELIVERY", delivery)
 					newState.process.Send(jobs[i].sendTo, delivery)
 				}
 
@@ -72,7 +79,7 @@ func (am *appMon) HandleCast(message etf.Term, state interface{}) (string, inter
 					fmt.Println("DO JOB for ", jobs[i])
 					appTree := etf.Tuple{
 						"a1",
-						etf.List{etf.Tuple{newState.process.Self(), "a1"}, etf.Tuple{newState.process.Self(), "a2"}},
+						etf.List{etf.Tuple{newState.process.Self(), "a3"}, etf.Tuple{newState.process.Self(), "a2"}},
 						etf.List{},
 						etf.List{},
 					}

@@ -46,6 +46,7 @@ const (
 	defaultEPMDPort         uint16 = 4369
 	versionOTP              int    = 21
 	versionERTSprefix              = "ergo"
+	version                        = "1.0.0"
 )
 
 // CreateNode create new node with name and cookie string
@@ -539,7 +540,7 @@ func (n *Node) MakeRef() (ref etf.Ref) {
 }
 
 func (n *Node) VersionERTS() string {
-	return fmt.Sprintf("%s-%s", versionERTSprefix, runtime.Version())
+	return fmt.Sprintf("%s-%s-%s", versionERTSprefix, version, runtime.Version())
 }
 
 func (n *Node) VersionOTP() int {

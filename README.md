@@ -64,7 +64,7 @@ As an extra option, we provide EPMD service as a standalone application. There i
 
 ### Changelog ###
 
-Here is the changes of latest release. For more details see the [ChangeLog](ChangeLog)
+Here are the changes of latest release. For more details see the [ChangeLog](ChangeLog)
 
 #### [1.0.0](https://github.com/halturin/ergo/releases/tag/1.0.0) - 2019-11-30 ####
 
@@ -230,3 +230,7 @@ Now golang' profiler is available at `http://localhost:9009/debug/pprof`
 [![RingCentral](./.images/ringcentral.png)](https://www.ringcentral.com)
 
 is your company using Ergo? add your company logo/name here
+
+### Commercial support
+
+if you are looking for commercial support feel free to contact me via email (halturin at gmail dot com)

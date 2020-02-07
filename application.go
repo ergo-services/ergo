@@ -88,6 +88,10 @@ func (a *Application) loop(p *Process, object interface{}, args ...interface{}) 
 		return "failed"
 	}
 
+	// to prevent of timer leaks due to its not GCed until the timer fires
+	timer := time.NewTimer(spec.MaxTime)
+	defer timer.Stop()
+
 	for {
 		select {
 		case ex := <-p.gracefulExit:
@@ -97,7 +101,7 @@ func (a *Application) loop(p *Process, object interface{}, args ...interface{}) 
 		case <-p.Context.Done():
 			// node is down or killed using p.Kill()
 			return "kill"
-		case <-time.After(spec.MaxTime):
+		case <-timer.C:
 			// time to die
 			p.Exit(p.Self(), "normal")
 		case msg := <-p.mailBox:

@@ -109,6 +109,11 @@ func (p *Process) CallWithTimeout(to interface{}, message etf.Term, timeout int)
 	from := etf.Tuple{p.self, ref}
 	msg := etf.Term(etf.Tuple{etf.Atom("$gen_call"), from, message})
 	p.Send(to, msg)
+
+	// to prevent of timer leaks due to its not GCed until the timer fires
+	timer := time.NewTimer(time.Second * time.Duration(timeout))
+	defer timer.Stop()
+
 	for {
 		select {
 		case m := <-p.reply:
@@ -119,7 +124,7 @@ func (p *Process) CallWithTimeout(to interface{}, message etf.Term, timeout int)
 				return val, nil
 			}
 			// ignore this message. waiting for the next one
-		case <-time.After(time.Second * time.Duration(timeout)):
+		case <-timer.C:
 			return nil, fmt.Errorf("timeout")
 		case <-p.Context.Done():
 			return nil, fmt.Errorf("stopped")
@@ -171,8 +176,13 @@ func (p *Process) SendAfter(to interface{}, message etf.Term, after time.Duratio
 	//TODO: should we control the number of timers/goroutines have been created this way?
 	ctx, cancel := context.WithCancel(p.Context)
 	go func() {
+
+		// to prevent of timer leaks due to its not GCed until the timer fires
+		timer := time.NewTimer(time.Second * time.Duration(after))
+		defer timer.Stop()
+
 		select {
-		case <-time.After(after):
+		case <-timer.C:
 			p.Node.registrar.route(p.self, to, message)
 		case <-ctx.Done():
 			return
