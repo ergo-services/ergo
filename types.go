@@ -10,6 +10,7 @@ import (
 var (
 	ErrAppAlreadyLoaded  = fmt.Errorf("Application is already loaded")
 	ErrAppAlreadyStarted = fmt.Errorf("Application is already started")
+	ErrAppUnknown        = fmt.Errorf("Unknown application name")
 
 	ErrNameIsTaken = fmt.Errorf("Name is taken")
 )

@@ -32,10 +32,7 @@ func (am *appMon) Init(p *Process, args ...interface{}) interface{} {
 	from := args[0]
 	p.Link(from.(etf.Pid))
 
-	go func() {
-		time.Sleep(2 * time.Second)
-		p.Cast(p.Self(), "sendStat")
-	}()
+	p.CastAfter(p.Self(), "sendStat", 2*time.Second)
 
 	return appMonState{
 		process: p,
@@ -64,11 +61,11 @@ func (am *appMon) HandleCast(message etf.Term, state interface{}) (string, inter
 					// appInfo := etf.Tuple{etf.Atom("firstApp"), "my app", "version 01.01"}
 					appList := make(etf.List, len(apps))
 					for ai, a := range apps {
-						appList[ai] = etf.Tuple{jobs[i].sendTo, a.Name,
+						appList[ai] = etf.Tuple{jobs[i].sendTo, etf.Atom(a.Name),
 							etf.Tuple{etf.Atom(a.Name), a.Description, a.Version},
 						}
 					}
-
+					fmt.Printf("AppLIST: %#v\n", appList)
 					// appList := etf.List{etf.Tuple{jobs[i].sendTo, appInfo.Element(1), appInfo}}
 					delivery := etf.Tuple{etf.Atom("delivery"), newState.process.Self(), cmd, jobs[i].name, appList}
 					newState.process.Send(jobs[i].sendTo, delivery)
@@ -78,10 +75,10 @@ func (am *appMon) HandleCast(message etf.Term, state interface{}) (string, inter
 				for i := range jobs {
 					fmt.Println("DO JOB for ", jobs[i])
 					appTree := etf.Tuple{
-						"a1",
-						etf.List{etf.Tuple{newState.process.Self(), "a3"}, etf.Tuple{newState.process.Self(), "a2"}},
-						etf.List{},
-						etf.List{},
+						jobs[i].name, // pid
+						etf.List{etf.Tuple{111, "a3"}, etf.Tuple{222, "a2"}},     // children
+						etf.List{etf.Tuple{newState.process.Self(), "appppppp"}}, // links
+						etf.List{}, // remote links
 					}
 					delivery := etf.Tuple{etf.Atom("delivery"), newState.process.Self(), cmd, jobs[i].name, appTree}
 					newState.process.Send(jobs[i].sendTo, delivery)
@@ -90,10 +87,7 @@ func (am *appMon) HandleCast(message etf.Term, state interface{}) (string, inter
 			}
 		}
 
-		go func() {
-			time.Sleep(2 * time.Second)
-			newState.process.Cast(newState.process.Self(), "sendStat")
-		}()
+		newState.process.CastAfter(newState.process.Self(), "sendStat", 2*time.Second)
 		return "noreply", state
 
 	default:

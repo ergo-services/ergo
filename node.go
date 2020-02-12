@@ -167,6 +167,12 @@ func (n *Node) IsProcessAlive(pid etf.Pid) bool {
 	return true
 }
 
+// IsALive returns true if node is running
+func (n *Node) IsAlive() bool {
+	return n.context.Err() == nil
+}
+
+// ProcessInfo returns the details about given Pid
 func (n *Node) ProcessInfo(pid etf.Pid) (ProcessInfo, error) {
 	p := n.registrar.GetProcessByPid(pid)
 	if p == nil {
@@ -265,10 +271,15 @@ func (n *Node) serve(c net.Conn, negotiate bool) error {
 func (n *Node) LoadedApplications() []ApplicationInfo {
 	info := []ApplicationInfo{}
 	for _, a := range n.registrar.ApplicationList() {
-		if a.process != nil {
+		a.mutex.Lock()
+		started := a.process != nil
+		a.mutex.Unlock()
+
+		if started {
 			// list only loaded and not started apps
 			continue
 		}
+
 		appInfo := ApplicationInfo{
 			Name:        a.Name,
 			Description: a.Description,
@@ -320,11 +331,11 @@ func (n *Node) ApplicationLoad(app interface{}, args ...interface{}) error {
 func (n *Node) ApplicationUnload(appName string) (bool, error) {
 	spec := n.registrar.GetApplicationSpecByName(appName)
 	if spec == nil {
-		return false, fmt.Errorf("Unknown application name")
+		return false, ErrAppUnknown
 	}
 	if spec.process != nil {
 		if spec == nil {
-			return false, fmt.Errorf("Application is running")
+			return false, ErrAppAlreadyStarted
 		}
 	}
 
@@ -337,8 +348,13 @@ func (n *Node) ApplicationStart(appName string, args ...interface{}) (*Process, 
 
 	spec := n.registrar.GetApplicationSpecByName(appName)
 	if spec == nil {
-		return nil, fmt.Errorf("Unknown application name: %s", appName)
+		return nil, ErrAppUnknown
 	}
+
+	// to prevent race condition on starting application we should
+	// make sure that nobodyelse starting it
+	spec.mutex.Lock()
+	defer spec.mutex.Unlock()
 
 	if spec.process != nil {
 		return nil, ErrAppAlreadyStarted
@@ -350,8 +366,8 @@ func (n *Node) ApplicationStart(appName string, args ...interface{}) (*Process, 
 		}
 	}
 
-	unrefSpec := *spec
-	args = append([]interface{}{unrefSpec}, args)
+	// passing 'spec' to the process loop in order to handle children's startup.
+	args = append([]interface{}{spec}, args)
 	appProcess, e := n.Spawn("", ProcessOptions{}, spec.app, args...)
 	if e != nil {
 		return nil, e

@@ -79,7 +79,7 @@ type requestProcessList struct {
 }
 
 type requestApplicationList struct {
-	reply chan []ApplicationSpec
+	reply chan []*ApplicationSpec
 }
 
 type registrarChannels struct {
@@ -506,15 +506,15 @@ func (r registrar) ProcessList() []*Process {
 	return <-req.reply
 }
 
-func (r registrar) ApplicationList() []ApplicationSpec {
+func (r registrar) ApplicationList() []*ApplicationSpec {
 	req := requestApplicationList{
-		reply: make(chan []ApplicationSpec),
+		reply: make(chan []*ApplicationSpec),
 	}
 	r.channels.commands <- req
 	return <-req.reply
 }
 
-// route incomming message to registered process
+// route routes message to a local/remote process
 func (r *registrar) route(from etf.Pid, to etf.Term, message etf.Term) {
 	switch tto := to.(type) {
 	case etf.Pid:
@@ -595,10 +595,9 @@ func (r *registrar) handleCommand(cmd interface{}) {
 		c.reply <- nil
 
 	case requestApplicationList:
-		list := []ApplicationSpec{}
+		list := []*ApplicationSpec{}
 		for _, a := range r.apps {
-			unrefApplication := *a
-			list = append(list, unrefApplication)
+			list = append(list, a)
 		}
 		c.reply <- list
 	}

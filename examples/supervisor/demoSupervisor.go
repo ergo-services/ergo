@@ -9,7 +9,6 @@ import (
 )
 
 var (
-	GenServerName    string
 	NodeName         string
 	Cookie           string
 	err              error
@@ -27,6 +26,7 @@ type demoSup struct {
 
 func (ds *demoSup) Init(args ...interface{}) ergo.SupervisorSpec {
 	return ergo.SupervisorSpec{
+		Name: "demoSupervisorSup",
 		Children: []ergo.SupervisorChildSpec{
 			ergo.SupervisorChildSpec{
 				Name:    "demoServer01",
@@ -120,7 +120,6 @@ func (dgs *demoGenServ) Terminate(reason string, state interface{}) {
 func init() {
 	flag.IntVar(&ListenRangeBegin, "listen_begin", 15151, "listen port range")
 	flag.IntVar(&ListenRangeEnd, "listen_end", 25151, "listen port range")
-	flag.StringVar(&GenServerName, "gen_server_name", "example", "gen_server name")
 	flag.StringVar(&NodeName, "name", "demo@127.0.0.1", "node name")
 	flag.IntVar(&ListenEPMD, "epmd", 4369, "EPMD port")
 	flag.StringVar(&Cookie, "cookie", "123", "cookie for interaction with erlang cluster")

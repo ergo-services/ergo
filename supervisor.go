@@ -101,6 +101,7 @@ type SupervisorBehavior interface {
 }
 
 type SupervisorSpec struct {
+	Name     string
 	Children []SupervisorChildSpec
 	Strategy SupervisorStrategy
 	restarts []int64

@@ -3,4 +3,5 @@ cmd/epmd/epmd
 coverage.txt
 coverage.html
 *.swp
+tags
 

@@ -176,9 +176,8 @@ func (p *Process) SendAfter(to interface{}, message etf.Term, after time.Duratio
 	//TODO: should we control the number of timers/goroutines have been created this way?
 	ctx, cancel := context.WithCancel(p.Context)
 	go func() {
-
 		// to prevent of timer leaks due to its not GCed until the timer fires
-		timer := time.NewTimer(time.Second * time.Duration(after))
+		timer := time.NewTimer(after)
 		defer timer.Stop()
 
 		select {
@@ -189,6 +188,12 @@ func (p *Process) SendAfter(to interface{}, message etf.Term, after time.Duratio
 		}
 	}()
 	return cancel
+}
+
+// CastAfter simple wrapper for SendAfter to send '$gen_cast' message
+func (p *Process) CastAfter(to interface{}, message etf.Term, after time.Duration) context.CancelFunc {
+	msg := etf.Term(etf.Tuple{etf.Atom("$gen_cast"), message})
+	return p.SendAfter(to, msg, after)
 }
 
 // Cast sends a message in fashion of 'gen_cast'.

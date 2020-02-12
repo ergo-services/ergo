@@ -4,6 +4,7 @@ package ergonode
 
 import (
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/halturin/ergonode/etf"
@@ -49,6 +50,7 @@ type ApplicationSpec struct {
 	Strategy ApplicationStrategy
 	app      ApplicationBehavior
 	process  *Process
+	mutex    sync.Mutex
 }
 
 type ApplicationChildSpec struct {
@@ -67,12 +69,19 @@ type ApplicationInfo struct {
 }
 
 func (a *Application) loop(p *Process, object interface{}, args ...interface{}) string {
-	spec := args[0].(ApplicationSpec)
+	// some internal agreement that the first argument should be a spec of this application
+	// (see ApplicatoinStart for the details)
+	spec := args[0].(*ApplicationSpec)
 
 	if spec.Environment != nil {
 		for k, v := range spec.Environment {
 			p.SetEnv(k, v)
 		}
+	}
+
+	if !a.startChildren(p, spec.Children[:]) {
+		a.stopChildren(p.Self(), spec.Children[:], "failed")
+		return "failed"
 	}
 
 	object.(ApplicationBehavior).Start(p, args[1:]...)
@@ -81,11 +90,6 @@ func (a *Application) loop(p *Process, object interface{}, args ...interface{}) 
 
 	if spec.MaxTime == 0 {
 		spec.MaxTime = time.Second * 31536000 * 100 // let's define default lifespan 100 years :)
-	}
-
-	if !a.startChildren(p, spec.Children[:]) {
-		a.stopChildren(p.Self(), spec.Children[:], "failed")
-		return "failed"
 	}
 
 	// to prevent of timer leaks due to its not GCed until the timer fires
@@ -165,6 +169,8 @@ func (a *Application) stopChildren(from etf.Pid, children []ApplicationChildSpec
 
 func (a *Application) startChildren(parent *Process, children []ApplicationChildSpec) bool {
 	for i := range children {
+		// i know, it looks weird to use the funcion from supervisor file.
+		// will move it to somewhere else, but let it be there for a while.
 		p := startChild(parent, "", children[i].Child, children[i].Args...)
 		if p == nil {
 			return false
