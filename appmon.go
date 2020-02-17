@@ -3,7 +3,6 @@ package ergonode
 // TODO: https://github.com/erlang/otp/blob/master/lib/runtime_tools-1.13.1/src/appmon_info.erl
 
 import (
-	"fmt"
 	"time"
 
 	"github.com/halturin/ergonode/etf"
@@ -32,8 +31,6 @@ func (am *appMon) Init(p *Process, args ...interface{}) interface{} {
 	from := args[0]
 	p.Link(from.(etf.Pid))
 
-	p.CastAfter(p.Self(), "sendStat", 2*time.Second)
-
 	return appMonState{
 		process: p,
 		jobs:    make(map[etf.Atom][]jobDetails),
@@ -43,51 +40,41 @@ func (am *appMon) Init(p *Process, args ...interface{}) interface{} {
 // HandleCast -> ("noreply", state) - noreply
 //		         ("stop", reason) - stop with reason
 func (am *appMon) HandleCast(message etf.Term, state interface{}) (string, interface{}) {
-	var newState appMonState = state.(appMonState)
+	var appState appMonState = state.(appMonState)
 	lib.Log("APP_MON: HandleCast: %#v", message)
 	switch message {
 	case "sendStat":
-		if len(state.(appMonState).jobs) == 0 {
-			return "stop", "normal"
-		}
 
 		for cmd, jobs := range state.(appMonState).jobs {
 			switch cmd {
 			case "app_ctrl":
 				// From ! {delivery, self(), Cmd, Aux, Result}
-				apps := newState.process.Node.WhichApplications()
-				fmt.Println("APPS: ", apps)
+				apps := appState.process.Node.WhichApplications()
 				for i := range jobs {
-					// appInfo := etf.Tuple{etf.Atom("firstApp"), "my app", "version 01.01"}
 					appList := make(etf.List, len(apps))
 					for ai, a := range apps {
-						appList[ai] = etf.Tuple{jobs[i].sendTo, etf.Atom(a.Name),
+						appList[ai] = etf.Tuple{a.PID, etf.Atom(a.Name),
 							etf.Tuple{etf.Atom(a.Name), a.Description, a.Version},
 						}
 					}
-					fmt.Printf("AppLIST: %#v\n", appList)
-					// appList := etf.List{etf.Tuple{jobs[i].sendTo, appInfo.Element(1), appInfo}}
-					delivery := etf.Tuple{etf.Atom("delivery"), newState.process.Self(), cmd, jobs[i].name, appList}
-					newState.process.Send(jobs[i].sendTo, delivery)
+					delivery := etf.Tuple{etf.Atom("delivery"), appState.process.Self(), cmd, jobs[i].name, appList}
+					appState.process.Send(jobs[i].sendTo, delivery)
 				}
 
 			case "app":
 				for i := range jobs {
-					fmt.Println("DO JOB for ", jobs[i])
-					appTree := etf.Tuple{
-						jobs[i].name, // pid
-						etf.List{etf.Tuple{111, "a3"}, etf.Tuple{222, "a2"}},     // children
-						etf.List{etf.Tuple{newState.process.Self(), "appppppp"}}, // links
-						etf.List{}, // remote links
+					appTree := am.makeAppTree(appState.process, jobs[i].name)
+					if appTree == nil {
+						continue
 					}
-					delivery := etf.Tuple{etf.Atom("delivery"), newState.process.Self(), cmd, jobs[i].name, appTree}
-					newState.process.Send(jobs[i].sendTo, delivery)
+					delivery := etf.Tuple{etf.Atom("delivery"), appState.process.Self(), cmd, jobs[i].name, appTree}
+					appState.process.Send(jobs[i].sendTo, delivery)
 				}
 
 			}
 		}
 
-		newState.process.CastAfter(newState.process.Self(), "sendStat", 2*time.Second)
+		appState.process.CastAfter(appState.process.Self(), "sendStat", 2*time.Second)
 		return "noreply", state
 
 	default:
@@ -103,11 +90,14 @@ func (am *appMon) HandleCast(message etf.Term, state interface{}) (string, inter
 
 				if m.Element(4) == etf.Atom("true") {
 					// add new job
+					if len(state.(appMonState).jobs) == 0 {
+						appState.process.Cast(appState.process.Self(), "sendStat")
+					}
 
 					if jobList, ok := state.(appMonState).jobs[m.Element(2).(etf.Atom)]; ok {
 						for i := range jobList {
 							if jobList[i].name == job.name {
-								return "noreply", newState
+								return "noreply", appState
 							}
 						}
 						jobList = append(jobList, job)
@@ -133,8 +123,13 @@ func (am *appMon) HandleCast(message etf.Term, state interface{}) (string, inter
 							}
 						}
 					}
+
+					if len(state.(appMonState).jobs) == 0 {
+						return "stop", "normal"
+					}
+
 				}
-				return "noreply", newState
+				return "noreply", appState
 			}
 
 			// etf.Tuple{etf.Atom("EXIT"), Pid, reason}
@@ -166,4 +161,56 @@ func (am *appMon) HandleInfo(message etf.Term, state interface{}) (string, inter
 // Terminate called when process died
 func (am *appMon) Terminate(reason string, state interface{}) {
 	lib.Log("APP_MON: Terminate: %#v", reason)
+}
+
+func (am *appMon) makeAppTree(p *Process, app etf.Atom) etf.Tuple {
+	appInfo, err := p.Node.GetApplicationInfo(string(app))
+	if err != nil {
+		return nil
+	}
+
+	resolver := make(map[etf.Pid]interface{})
+
+	tree := makeTree(p, resolver, appInfo.PID)
+	children := etf.List{etf.Tuple{appInfo.PID, appInfo.PID.Str()}}
+	for p, n := range resolver {
+		children = append(children, etf.Tuple{p, n})
+	}
+
+	appTree := etf.Tuple{
+		appInfo.PID.Str(), // pid or registered name
+		children,
+		tree,
+		etf.List{}, // TODO: links
+	}
+
+	return appTree
+}
+
+func makeTree(p *Process, resolver map[etf.Pid]interface{}, pid etf.Pid) etf.List {
+
+	pidProcess := p.Node.GetProcessByPid(pid)
+	if pidProcess == nil {
+		return etf.List{}
+	}
+	if pidProcess.name != "" {
+		resolver[pid] = pidProcess.name
+	} else {
+		resolver[pid] = pid.Str()
+	}
+
+	tree := etf.List{}
+	c, err := pidProcess.directRequest("getChildren", nil)
+	if err != nil {
+		return tree
+	}
+
+	for _, cp := range c.([]etf.Pid) {
+		children := makeTree(p, resolver, cp)
+		child := etf.Tuple{resolver[pid], resolver[cp]}
+		tree = append(tree, child)
+		tree = append(tree, children...)
+	}
+
+	return tree
 }

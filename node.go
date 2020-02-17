@@ -18,6 +18,7 @@ import (
 	"time"
 )
 
+// Node instance of created node using CreateNode
 type Node struct {
 	dist.EPMD
 	listener net.Listener
@@ -32,6 +33,7 @@ type Node struct {
 	uniqID    int64
 }
 
+// NodeOptions struct with bootstrapping options for CreateNode
 type NodeOptions struct {
 	ListenRangeBegin  uint16
 	ListenRangeEnd    uint16
@@ -167,9 +169,14 @@ func (n *Node) IsProcessAlive(pid etf.Pid) bool {
 	return true
 }
 
-// IsALive returns true if node is running
+// IsAlive returns true if node is running
 func (n *Node) IsAlive() bool {
 	return n.context.Err() == nil
+}
+
+// Wait waits until node stopped
+func (n *Node) Wait() {
+	<-n.context.Done()
 }
 
 // ProcessInfo returns the details about given Pid
@@ -179,22 +186,7 @@ func (n *Node) ProcessInfo(pid etf.Pid) (ProcessInfo, error) {
 		return ProcessInfo{}, fmt.Errorf("undefined")
 	}
 
-	gl := etf.Pid{}
-	if p.groupLeader != nil {
-		gl = p.groupLeader.Self()
-	}
-
-	info := ProcessInfo{
-		CurrentFunction: p.currentFunction,
-		Status:          "running",
-		MessageQueueLen: len(p.mailBox),
-		// Links:
-		// Dictionary
-		TrapExit:    p.trapExit,
-		GroupLeader: gl,
-		Reductions:  p.reductions,
-	}
-	return info, nil
+	return p.Info(), nil
 }
 
 func (n *Node) serve(c net.Conn, negotiate bool) error {
@@ -271,11 +263,7 @@ func (n *Node) serve(c net.Conn, negotiate bool) error {
 func (n *Node) LoadedApplications() []ApplicationInfo {
 	info := []ApplicationInfo{}
 	for _, a := range n.registrar.ApplicationList() {
-		a.mutex.Lock()
-		started := a.process != nil
-		a.mutex.Unlock()
-
-		if started {
+		if a.process != nil {
 			// list only loaded and not started apps
 			continue
 		}
@@ -302,10 +290,31 @@ func (n *Node) WhichApplications() []ApplicationInfo {
 			Name:        a.Name,
 			Description: a.Description,
 			Version:     a.Version,
+			PID:         a.process.self,
 		}
 		info = append(info, appInfo)
 	}
 	return info
+}
+
+// GetApplicationInfo returns information about application
+func (n *Node) GetApplicationInfo(name string) (ApplicationInfo, error) {
+	spec := n.registrar.GetApplicationSpecByName(name)
+	if spec == nil {
+		return ApplicationInfo{}, ErrAppUnknown
+	}
+
+	pid := etf.Pid{}
+	if spec.process != nil {
+		pid = spec.process.self
+	}
+
+	return ApplicationInfo{
+		Name:        name,
+		Description: spec.Description,
+		Version:     spec.Version,
+		PID:         pid,
+	}, nil
 }
 
 // ApplicationLoad loads the application specification for an application

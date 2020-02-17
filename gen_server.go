@@ -64,6 +64,9 @@ func (gs *GenServer) loop(p *Process, object interface{}, args ...interface{}) s
 			message = msg.Element(2)
 		case <-p.Context.Done():
 			return "kill"
+		case direct := <-p.direct:
+			gs.handleDirect(direct)
+			continue
 		}
 
 		lib.Log("[%s]. %v got message from %#v\n", p.Node.FullName, p.self, fromPid)
@@ -181,5 +184,13 @@ func (gs *GenServer) loop(p *Process, object interface{}, args ...interface{}) s
 				lockState.Unlock()
 			}()
 		}
+	}
+}
+
+func (gs *GenServer) handleDirect(m directMessage) {
+
+	if m.reply != nil {
+		m.err = ErrUnsupportedRequest
+		m.reply <- m
 	}
 }

@@ -22,6 +22,7 @@ type Process struct {
 	mailBox      chan etf.Tuple
 	ready        chan bool
 	gracefulExit chan gracefulExitRequest
+	direct       chan directMessage
 	self         etf.Pid
 	groupLeader  *Process
 	Context      context.Context
@@ -43,16 +44,28 @@ type Process struct {
 	trapExit bool
 }
 
+type directMessage struct {
+	id      string
+	message interface{}
+	err     error
+	reply   chan directMessage
+}
+
 type gracefulExitRequest struct {
 	from   etf.Pid
 	reason string
 }
+
+// ProcessInfo struct with process details
 type ProcessInfo struct {
+	PID             etf.Pid
+	Name            string
 	CurrentFunction string
 	Status          string
 	MessageQueueLen int
 	Links           []etf.Pid
 	Monitors        []etf.Pid
+	MonitoredBy     []etf.Pid
 	Dictionary      etf.Map
 	TrapExit        bool
 	GroupLeader     etf.Pid
@@ -82,14 +95,23 @@ func (p *Process) Name() string {
 	return p.name
 }
 
+// Info returns detailed information about the process
 func (p *Process) Info() ProcessInfo {
 	gl := p.self
 	if p.groupLeader != nil {
 		gl = p.groupLeader.Self()
 	}
+	links := p.Node.monitor.GetLinks(p.self)
+	monitors := p.Node.monitor.GetMonitors(p.self)
+	monitoredBy := p.Node.monitor.GetMonitoredBy(p.self)
 	return ProcessInfo{
+		PID:             p.self,
+		Name:            p.name,
 		CurrentFunction: p.currentFunction,
 		GroupLeader:     gl,
+		Links:           links,
+		Monitors:        monitors,
+		MonitoredBy:     monitoredBy,
 		Status:          "running",
 		MessageQueueLen: len(p.mailBox),
 		TrapExit:        p.trapExit,
@@ -280,4 +302,35 @@ func (p *Process) GenEnv(name string) interface{} {
 	}
 
 	return nil
+}
+
+func (p *Process) directRequest(id string, request interface{}) (interface{}, error) {
+	reply := make(chan directMessage)
+	t := time.Second * time.Duration(5)
+	m := directMessage{
+		id:      id,
+		message: request,
+		reply:   reply,
+	}
+	timer := time.NewTimer(t)
+	defer timer.Stop()
+	// sending request
+	select {
+	case p.direct <- m:
+		timer.Reset(t)
+	case <-timer.C:
+		return nil, ErrProcessBusy
+	}
+
+	// receiving response
+	select {
+	case response := <-reply:
+		if response.err != nil {
+			return nil, response.err
+		}
+
+		return response.message, nil
+	case <-timer.C:
+		return nil, ErrTimeout
+	}
 }

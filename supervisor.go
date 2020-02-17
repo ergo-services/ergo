@@ -118,13 +118,17 @@ type SupervisorChildSpec struct {
 }
 
 // Supervisor is implementation of ProcessBehavior interface
-type Supervisor struct{}
+type Supervisor struct {
+	spec *SupervisorSpec
+}
 
 func (sv *Supervisor) loop(svp *Process, object interface{}, args ...interface{}) string {
 
 	spec := object.(SupervisorBehavior).Init(args...)
 	lib.Log("Supervisor spec %#v\n", spec)
 	svp.ready <- true
+
+	sv.spec = &spec
 
 	if spec.Strategy.Type != SupervisorStrategySimpleOneForOne {
 		startChildren(svp, &spec)
@@ -152,6 +156,9 @@ func (sv *Supervisor) loop(svp *Process, object interface{}, args ...interface{}
 
 		case <-svp.Context.Done():
 			return "kill"
+		case direct := <-svp.direct:
+			sv.handleDirect(direct)
+			continue
 		}
 
 		svp.reductions++
@@ -387,6 +394,28 @@ func (sv *Supervisor) StartChildWithSpec(parent *Process, spec SupervisorChildSp
 		return r.Element(2).(etf.Pid), nil
 	default:
 		return etf.Pid{}, fmt.Errorf(r.Element(1).(string))
+	}
+}
+
+func (sv *Supervisor) handleDirect(m directMessage) {
+	switch m.id {
+	case "getChildren":
+		children := []etf.Pid{}
+		for i := range sv.spec.Children {
+			if sv.spec.Children[i].process == nil {
+				continue
+			}
+			children = append(children, sv.spec.Children[i].process.self)
+		}
+
+		m.message = children
+		m.reply <- m
+
+	default:
+		if m.reply != nil {
+			m.message = ErrUnsupportedRequest
+			m.reply <- m
+		}
 	}
 }
 

@@ -12,7 +12,12 @@ var (
 	ErrAppAlreadyStarted = fmt.Errorf("Application is already started")
 	ErrAppUnknown        = fmt.Errorf("Unknown application name")
 
+	ErrProcessBusy = fmt.Errorf("Process is busy")
+
 	ErrNameIsTaken = fmt.Errorf("Name is taken")
+
+	ErrUnsupportedRequest = fmt.Errorf("Unsupported request")
+	ErrTimeout            = fmt.Errorf("Timed out")
 )
 
 // Distributed operations codes (http://www.erlang.org/doc/apps/erts/erl_dist_protocol.html)

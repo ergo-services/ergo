@@ -120,15 +120,15 @@ func processInfo(p *Process, pid etf.Pid, property etf.Term) etf.Term {
 			case etf.Atom("last_calls"):
 				// values = append(values, etf.Tuple{p[i], })
 			case etf.Atom("links"):
-				values = append(values, etf.Tuple{p[i], etf.List{}})
+				values = append(values, etf.Tuple{p[i], info.Links})
 			case etf.Atom("memory"):
 				values = append(values, etf.Tuple{p[i], 0})
 			case etf.Atom("message_queue_len"):
 				values = append(values, etf.Tuple{p[i], info.MessageQueueLen})
 			case etf.Atom("monitored_by"):
-				values = append(values, etf.Tuple{p[i], etf.List{}})
+				values = append(values, etf.Tuple{p[i], info.MonitoredBy})
 			case etf.Atom("monitors"):
-				values = append(values, etf.Tuple{p[i], etf.List{}})
+				values = append(values, etf.Tuple{p[i], info.Monitors})
 			case etf.Atom("priority"):
 				// values = append(values, etf.Tuple{p[i], 0})
 			case etf.Atom("reductions"):

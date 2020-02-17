@@ -28,12 +28,14 @@ type processTerminatedRequest struct {
 }
 
 type monitorChannels struct {
-	process          chan monitorProcessRequest
+	monitorProcess   chan monitorProcessRequest
 	demonitorProcess chan monitorProcessRequest
-	link             chan linkedProcessesRequest
-	unlink           chan linkedProcessesRequest
+	link             chan linkProcessRequest
+	unlink           chan linkProcessRequest
 	node             chan monitorNodeRequest
 	demonitorName    chan monitorNodeRequest
+
+	request chan Request
 
 	nodeDown          chan string
 	processTerminated chan processTerminatedRequest
@@ -45,9 +47,15 @@ type monitorItem struct {
 	refs string
 }
 
-type linkedProcessesRequest struct {
+type linkProcessRequest struct {
 	pidA etf.Pid
 	pidB etf.Pid
+}
+
+type Request struct {
+	name  string
+	pid   etf.Pid
+	reply chan []etf.Pid
 }
 
 type monitor struct {
@@ -72,12 +80,14 @@ func createMonitor(node *Node) *monitor {
 		ref2node: make(map[string]string),
 
 		channels: monitorChannels{
-			process:          make(chan monitorProcessRequest, 10),
+			monitorProcess:   make(chan monitorProcessRequest, 10),
 			demonitorProcess: make(chan monitorProcessRequest, 10),
-			link:             make(chan linkedProcessesRequest, 10),
-			unlink:           make(chan linkedProcessesRequest, 10),
+			link:             make(chan linkProcessRequest, 10),
+			unlink:           make(chan linkProcessRequest, 10),
 			node:             make(chan monitorNodeRequest, 10),
 			demonitorName:    make(chan monitorNodeRequest, 10),
+
+			request: make(chan Request),
 
 			nodeDown:          make(chan string, 10),
 			processTerminated: make(chan processTerminatedRequest, 10),
@@ -93,11 +103,11 @@ func createMonitor(node *Node) *monitor {
 func (m *monitor) run() {
 	for {
 		select {
-		case p := <-m.channels.process:
+		case p := <-m.channels.monitorProcess:
 			lib.Log("[%s] MONITOR process: %v => %v", m.node.FullName, p.by, p.process)
 			// http://erlang.org/doc/reference_manual/processes.html#monitors
-			// FIXME: If Pid does not exist, the 'DOWN' message is
-			// sent immediately with Reason set to noproc.
+			// FIXME: If Pid does not exist, the 'DOWN' message should be
+			// send immediately with Reason set to noproc.
 			l := m.processes[p.process]
 			key := ref2key(p.ref)
 			item := monitorItem{
@@ -329,6 +339,8 @@ func (m *monitor) run() {
 				m.ProcessTerminated(fakePid, "", pt.reason)
 			}
 
+		case r := <-m.channels.request:
+			r.reply <- m.handleRequest(r.name, r.pid)
 		case <-m.node.context.Done():
 			return
 		}
@@ -350,7 +362,7 @@ func (m *monitor) MonitorProcessWithRef(by etf.Pid, process interface{}, ref etf
 			by:      by,
 			ref:     ref,
 		}
-		m.channels.process <- p
+		m.channels.monitorProcess <- p
 
 	case etf.Tuple:
 		// requesting monitor of remote process by the local one using registered process name
@@ -382,7 +394,7 @@ func (m *monitor) MonitorProcessWithRef(by etf.Pid, process interface{}, ref etf
 			by:      by,
 			ref:     ref,
 		}
-		m.channels.process <- p
+		m.channels.monitorProcess <- p
 	}
 }
 
@@ -394,7 +406,7 @@ func (m *monitor) DemonitorProcess(ref etf.Ref) {
 }
 
 func (m *monitor) Link(pidA, pidB etf.Pid) {
-	p := linkedProcessesRequest{
+	p := linkProcessRequest{
 		pidA: pidA,
 		pidB: pidB,
 	}
@@ -402,7 +414,7 @@ func (m *monitor) Link(pidA, pidB etf.Pid) {
 }
 
 func (m *monitor) Unink(pidA, pidB etf.Pid) {
-	p := linkedProcessesRequest{
+	p := linkProcessRequest{
 		pidA: pidA,
 		pidB: pidB,
 	}
@@ -442,6 +454,40 @@ func (m *monitor) ProcessTerminated(process etf.Pid, name etf.Atom, reason strin
 	m.channels.processTerminated <- p
 }
 
+func (m *monitor) GetLinks(process etf.Pid) []etf.Pid {
+	reply := make(chan []etf.Pid)
+	r := Request{
+		name:  "getLinks",
+		pid:   process,
+		reply: reply,
+	}
+	m.channels.request <- r
+
+	return <-reply
+}
+
+func (m *monitor) GetMonitors(process etf.Pid) []etf.Pid {
+	reply := make(chan []etf.Pid)
+	r := Request{
+		name:  "getMonitors",
+		pid:   process,
+		reply: reply,
+	}
+	m.channels.request <- r
+	return <-reply
+}
+
+func (m *monitor) GetMonitoredBy(process etf.Pid) []etf.Pid {
+	reply := make(chan []etf.Pid)
+	r := Request{
+		name:  "getMonitoredBy",
+		pid:   process,
+		reply: reply,
+	}
+	m.channels.request <- r
+	return <-reply
+}
+
 func (m *monitor) notifyNodeDown(to etf.Pid, node string) {
 	message := etf.Term(etf.Tuple{etf.Atom("nodedown"), node})
 	m.node.registrar.route(etf.Pid{}, to, message)
@@ -479,6 +525,36 @@ func (m *monitor) notifyProcessExit(to etf.Pid, terminated etf.Pid, reason strin
 	}
 	message := etf.Term(etf.Tuple{etf.Atom("EXIT"), terminated, etf.Atom(reason)})
 	m.node.registrar.route(terminated, to, message)
+}
+
+func (m *monitor) handleRequest(name string, pid etf.Pid) []etf.Pid {
+	switch name {
+	case "getLinks":
+		if links, ok := m.links[pid]; ok {
+			return links
+		}
+	case "getMonitors":
+		monitors := []etf.Pid{}
+		for p, by := range m.processes {
+			for b := range by {
+				if by[b].pid == pid {
+					monitors = append(monitors, p)
+				}
+			}
+		}
+		return monitors
+
+	case "getMonitoredBy":
+		if m, ok := m.processes[pid]; ok {
+			monitors := []etf.Pid{}
+			for i := range m {
+				monitors = append(monitors, m[i].pid)
+			}
+			return monitors
+		}
+
+	}
+	return []etf.Pid{}
 }
 
 func ref2key(ref etf.Ref) string {

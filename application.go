@@ -66,6 +66,7 @@ type ApplicationInfo struct {
 	Name        string
 	Description string
 	Version     string
+	PID         etf.Pid
 }
 
 func (a *Application) loop(p *Process, object interface{}, args ...interface{}) string {
@@ -83,10 +84,13 @@ func (a *Application) loop(p *Process, object interface{}, args ...interface{}) 
 		a.stopChildren(p.Self(), spec.Children[:], "failed")
 		return "failed"
 	}
+	p.currentFunction = "Application:Start"
 
 	object.(ApplicationBehavior).Start(p, args[1:]...)
 	lib.Log("Application spec %#v\n", spec)
 	p.ready <- true
+
+	p.currentFunction = "Application:loop"
 
 	if spec.MaxTime == 0 {
 		spec.MaxTime = time.Second * 31536000 * 100 // let's define default lifespan 100 years :)
@@ -101,6 +105,10 @@ func (a *Application) loop(p *Process, object interface{}, args ...interface{}) 
 		case ex := <-p.gracefulExit:
 			a.stopChildren(ex.from, spec.Children, string(ex.reason))
 			return ex.reason
+
+		case direct := <-p.direct:
+			a.handleDirect(direct, spec.Children)
+			continue
 
 		case <-p.Context.Done():
 			// node is down or killed using p.Kill()
@@ -163,6 +171,7 @@ func (a *Application) stopChildren(from etf.Pid, children []ApplicationChildSpec
 		child := children[i].process
 		if child != nil && child.self != from {
 			children[i].process.Exit(from, reason)
+			children[i].process = nil
 		}
 	}
 }
@@ -178,4 +187,26 @@ func (a *Application) startChildren(parent *Process, children []ApplicationChild
 		children[i].process = p
 	}
 	return true
+}
+
+func (a *Application) handleDirect(m directMessage, children []ApplicationChildSpec) {
+	switch m.id {
+	case "getChildren":
+		pids := []etf.Pid{}
+		for i := range children {
+			if children[i].process == nil {
+				continue
+			}
+			pids = append(pids, children[i].process.self)
+		}
+
+		m.message = pids
+		m.reply <- m
+
+	default:
+		if m.reply != nil {
+			m.message = ErrUnsupportedRequest
+			m.reply <- m
+		}
+	}
 }

@@ -2,6 +2,7 @@ package etf
 
 import (
 	"fmt"
+	"hash/fnv"
 	"reflect"
 	"strings"
 )
@@ -62,6 +63,7 @@ type Function struct {
 
 var (
 	MapType = reflect.TypeOf(Map{})
+	hasher  = fnv.New32a()
 )
 
 func StringTerm(t Term) (s string, ok bool) {
@@ -170,6 +172,11 @@ func (t Tuple) Element(i int) Term {
 	return t[i-1]
 }
 
+func (p Pid) Str() string {
+	hasher.Write([]byte(p.Node))
+	defer hasher.Reset()
+	return fmt.Sprintf("<%X.%d.%d>", hasher.Sum32(), p.Id, p.Serial)
+}
 func tagName(t byte) (name string) {
 	name = tagNames[t]
 	if name == "" {
