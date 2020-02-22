@@ -4,4 +4,6 @@ coverage.txt
 coverage.html
 *.swp
 tags
+.session
+
 

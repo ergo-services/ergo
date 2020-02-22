@@ -11,6 +11,7 @@ var (
 	ErrAppAlreadyLoaded  = fmt.Errorf("Application is already loaded")
 	ErrAppAlreadyStarted = fmt.Errorf("Application is already started")
 	ErrAppUnknown        = fmt.Errorf("Unknown application name")
+	ErrAppIsNotRunning   = fmt.Errorf("Application is not running")
 
 	ErrProcessBusy = fmt.Errorf("Process is busy")
 

@@ -42,7 +42,7 @@ type ApplicationSpec struct {
 	Name         string
 	Description  string
 	Version      string
-	MaxTime      time.Duration
+	Lifespan     time.Duration
 	Applications []string
 	Environment  map[string]interface{}
 	// Depends		[]
@@ -92,8 +92,8 @@ func (a *Application) loop(p *Process, object interface{}, args ...interface{}) 
 
 	p.currentFunction = "Application:loop"
 
-	if spec.MaxTime == 0 {
-		spec.MaxTime = time.Second * 31536000 * 100 // let's define default lifespan 100 years :)
+	if spec.Lifespan == 0 {
+		spec.Lifespan = time.Second * 31536000 * 100 // let's define default lifespan 100 years :)
 	}
 
 	// to prevent of timer leaks due to its not GCed until the timer fires

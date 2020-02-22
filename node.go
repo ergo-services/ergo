@@ -337,19 +337,17 @@ func (n *Node) ApplicationLoad(app interface{}, args ...interface{}) error {
 
 // ApplicationUnload unloads the application specification for Application from the
 // node. It also unloads the application specifications for any included applications.
-func (n *Node) ApplicationUnload(appName string) (bool, error) {
+func (n *Node) ApplicationUnload(appName string) error {
 	spec := n.registrar.GetApplicationSpecByName(appName)
 	if spec == nil {
-		return false, ErrAppUnknown
+		return ErrAppUnknown
 	}
 	if spec.process != nil {
-		if spec == nil {
-			return false, ErrAppAlreadyStarted
-		}
+		return ErrAppAlreadyStarted
 	}
 
 	n.registrar.UnregisterApp(appName)
-	return true, nil
+	return nil
 }
 
 // ApplicationStart starts Application
@@ -384,6 +382,21 @@ func (n *Node) ApplicationStart(appName string, args ...interface{}) (*Process, 
 
 	spec.process = appProcess
 	return appProcess, nil
+}
+
+// ApplicationStop stop running application
+func (n *Node) ApplicationStop(name string) error {
+	spec := n.registrar.GetApplicationSpecByName(name)
+	if spec == nil {
+		return ErrAppUnknown
+	}
+
+	if spec.process == nil {
+		return ErrAppIsNotRunning
+	}
+
+	spec.process.Exit(spec.process.Self(), "normal")
+	return nil
 }
 
 func (n *Node) handleTerms(terms []etf.Term) {

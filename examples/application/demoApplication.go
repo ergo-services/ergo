@@ -26,9 +26,9 @@ type demoApp struct {
 
 func (da *demoApp) Load(args ...interface{}) (ergo.ApplicationSpec, error) {
 	return ergo.ApplicationSpec{
-		Name:        "testapp",
-		Description: "My Test Applicatoin",
-		Version:     "v.0.1",
+		Name:        "demoApp",
+		Description: "Demo Applicatoin",
+		Version:     "v.1.0",
 		Environment: map[string]interface{}{
 			"envName1": 123,
 			"envName2": "Hello world",
@@ -36,6 +36,9 @@ func (da *demoApp) Load(args ...interface{}) (ergo.ApplicationSpec, error) {
 		Children: []ergo.ApplicationChildSpec{
 			ergo.ApplicationChildSpec{
 				Child: &demoSup{},
+			},
+			ergo.ApplicationChildSpec{
+				Child: &demoGenServ{},
 			},
 		},
 		Strategy: ergo.ApplicationStrategyPermanent,
@@ -168,19 +171,13 @@ func main() {
 		panic(err)
 	}
 
-	process, _ := node.ApplicationStart("testapp")
+	process, _ := node.ApplicationStart("demoApp")
 	fmt.Println("Run erl shell:")
 	fmt.Printf("erl -name %s -setcookie %s\n", "erl-"+node.FullName, Cookie)
 
 	fmt.Println("-----Examples that can be tried from 'erl'-shell")
 	fmt.Printf("gen_server:cast({%s,'%s'}, stop).\n", "demoServer01", NodeName)
 	fmt.Printf("gen_server:call({%s,'%s'}, hello).\n", "demoServer01", NodeName)
-	fmt.Println("or...")
-	fmt.Printf("gen_server:cast({%s,'%s'}, stop).\n", "demoServer02", NodeName)
-	fmt.Printf("gen_server:call({%s,'%s'}, hello).\n", "demoServer02", NodeName)
-	fmt.Println("or...")
-	fmt.Printf("gen_server:cast({%s,'%s'}, stop).\n", "demoServer03", NodeName)
-	fmt.Printf("gen_server:call({%s,'%s'}, hello).\n", "demoServer03", NodeName)
 	select {
 	case <-process.Context.Done():
 
