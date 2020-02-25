@@ -127,7 +127,7 @@ func (n *Node) Spawn(name string, opts ProcessOptions, object interface{}, args 
 
 		defer func() {
 			if r := recover(); r != nil {
-				lib.Log("Recovered process: %v %#v ", process.self, r)
+				fmt.Printf("Warning: recovered process: %v %#v\n", process.self, r)
 				n.registrar.UnregisterProcess(pid)
 				n.monitor.ProcessTerminated(pid, etf.Atom(name), "panic")
 				process.Kill()
@@ -158,15 +158,18 @@ func (n *Node) Unregister(name string) {
 	n.registrar.UnregisterName(name)
 }
 
-// IsProcessAlive returns true if given process is alive
+// IsProcessAlive returns true if the process with given pid is alive
 func (n *Node) IsProcessAlive(pid etf.Pid) bool {
 	if pid.Node != etf.Atom(n.FullName) {
 		return false
 	}
-	if n.registrar.GetProcessByPid(pid) == nil {
+
+	p := n.registrar.GetProcessByPid(pid)
+	if p == nil {
 		return false
 	}
-	return true
+
+	return p.IsAlive()
 }
 
 // IsAlive returns true if node is running
@@ -263,11 +266,6 @@ func (n *Node) serve(c net.Conn, negotiate bool) error {
 func (n *Node) LoadedApplications() []ApplicationInfo {
 	info := []ApplicationInfo{}
 	for _, a := range n.registrar.ApplicationList() {
-		if a.process != nil {
-			// list only loaded and not started apps
-			continue
-		}
-
 		appInfo := ApplicationInfo{
 			Name:        a.Name,
 			Description: a.Description,
@@ -400,11 +398,11 @@ func (n *Node) ApplicationStop(name string) error {
 }
 
 func (n *Node) handleTerms(terms []etf.Term) {
-	// defer func() {
-	// 	if r := recover(); r != nil {
-	// 		lib.Log("Recovered node.handleTerms: %s", r)
-	// 	}
-	// }()
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Printf("Warning: recovered node.handleTerms: %s\n", r)
+		}
+	}()
 
 	if len(terms) == 0 {
 		// keep alive
@@ -627,7 +625,7 @@ func (n *Node) listen(name string, listenRangeBegin, listenRangeEnd uint16) uint
 					lib.Log(err.Error())
 				} else {
 					if err := n.serve(c, false); err != nil {
-						lib.Log("Can't server connection due to: %s", err)
+						lib.Log("Can't serve connection due to: %s", err)
 						c.Close()
 					}
 				}

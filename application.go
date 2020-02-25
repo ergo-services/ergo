@@ -84,6 +84,7 @@ func (a *Application) loop(p *Process, object interface{}, args ...interface{}) 
 		a.stopChildren(p.Self(), spec.Children[:], "failed")
 		return "failed"
 	}
+
 	p.currentFunction = "Application:Start"
 
 	object.(ApplicationBehavior).Start(p, args[1:]...)
@@ -97,7 +98,7 @@ func (a *Application) loop(p *Process, object interface{}, args ...interface{}) 
 	}
 
 	// to prevent of timer leaks due to its not GCed until the timer fires
-	timer := time.NewTimer(spec.MaxTime)
+	timer := time.NewTimer(spec.Lifespan)
 	defer timer.Stop()
 
 	for {
@@ -112,10 +113,11 @@ func (a *Application) loop(p *Process, object interface{}, args ...interface{}) 
 
 		case <-p.Context.Done():
 			// node is down or killed using p.Kill()
+			fmt.Printf("Warning: application %s has been killed\n", spec.Name)
 			return "kill"
 		case <-timer.C:
 			// time to die
-			p.Exit(p.Self(), "normal")
+			go p.Exit(p.Self(), "normal")
 		case msg := <-p.mailBox:
 			if len(msg) == 0 {
 				continue // ignore

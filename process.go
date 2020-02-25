@@ -78,6 +78,7 @@ type ProcessOptions struct {
 	parent      *Process
 }
 
+// ProcessExitFunc initiate a graceful stopping process
 type ProcessExitFunc func(from etf.Pid, reason string)
 
 // ProcessBehaviour interface contains methods you should implement to make own process behaviour
@@ -302,6 +303,16 @@ func (p *Process) GenEnv(name string) interface{} {
 	}
 
 	return nil
+}
+
+// Wait waits until process stopped
+func (p *Process) Wait() {
+	<-p.Context.Done() // closed once context canceled
+}
+
+// IsAlive returns whether the process is alive
+func (p *Process) IsAlive() bool {
+	return p.Context.Err() == nil
 }
 
 func (p *Process) directRequest(id string, request interface{}) (interface{}, error) {

@@ -33,7 +33,7 @@ The goal of this project is to leverage Erlang/OTP experience with Golang perfor
   * local <-> remote
   * remote <-> local
 * RPC callbacks support
-* Basic [observer support](#observer)
+* Experimental [observer support](#observer)
 * Unmarshalling terms into the struct using etf.TermIntoStruct
 * Support Erlang 21.*
 
@@ -75,7 +75,7 @@ Here are the changes of latest release. For more details see the [ChangeLog](Cha
 * Implemented linking process feature (in order to support Application/Supervisor behaviors)
 * Reworked Monitor-feature. Now it has full-featured support with remote process/nodes
 * Added multinode support
-* Added basic observer support
+* Added experimental observer support
 * Fixed incorrect ETF string encoding (it was encoded as binary instead of string)
 * Improved ETF TermIntoStruct decoder
 * Improved code structure and readability

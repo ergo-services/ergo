@@ -178,9 +178,7 @@ func main() {
 	fmt.Println("-----Examples that can be tried from 'erl'-shell")
 	fmt.Printf("gen_server:cast({%s,'%s'}, stop).\n", "demoServer01", NodeName)
 	fmt.Printf("gen_server:call({%s,'%s'}, hello).\n", "demoServer01", NodeName)
-	select {
-	case <-process.Context.Done():
 
-	}
+	process.Wait()
 	node.Stop()
 }

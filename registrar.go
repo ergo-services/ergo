@@ -192,10 +192,10 @@ func (r *registrar) run() {
 					}
 				}
 
-				// delete associated app spec with this pid
-				for name, spec := range r.apps {
+				// delete associated process with this app
+				for _, spec := range r.apps {
 					if spec.process != nil && spec.process.self == p.self {
-						delete(r.apps, name)
+						spec.process = nil
 					}
 				}
 			}
@@ -363,11 +363,14 @@ func (r *registrar) RegisterProcessExt(name string, object interface{}, opts Pro
 		mailboxSize = int(opts.MailboxSize)
 	}
 
-	ctx, kill := context.WithCancel(r.node.context)
+	parentContext := r.node.context
 	if opts.parent != nil {
-		ctx, kill = context.WithCancel(opts.parent.Context)
+		parentContext = opts.parent.Context
 	}
+	ctx, kill := context.WithCancel(parentContext)
+
 	pid := r.createNewPID()
+
 	exitChannel := make(chan gracefulExitRequest)
 	exit := func(from etf.Pid, reason string) {
 		lib.Log("[%s] EXIT: %#v with reason: %s", r.node.FullName, pid, reason)
