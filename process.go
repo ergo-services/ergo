@@ -315,6 +315,22 @@ func (p *Process) IsAlive() bool {
 	return p.Context.Err() == nil
 }
 
+// GetChildren returns list of children pid (Application, Supervisor)
+func (p *Process) GetChildren() []etf.Pid {
+	c, err := p.directRequest("getChildren", nil)
+	if err == nil {
+		return c.([]etf.Pid)
+	}
+	return []etf.Pid{}
+}
+
+// GetState returns string representation of the process state (GenServer)
+func (p *Process) GetState() string {
+	p.RLock()
+	defer p.RUnlock()
+	return fmt.Sprintf("%#v", p.state)
+}
+
 func (p *Process) directRequest(id string, request interface{}) (interface{}, error) {
 	reply := make(chan directMessage)
 	t := time.Second * time.Duration(5)

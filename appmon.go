@@ -200,12 +200,8 @@ func makeTree(p *Process, resolver map[etf.Pid]interface{}, pid etf.Pid) etf.Lis
 	}
 
 	tree := etf.List{}
-	c, err := pidProcess.directRequest("getChildren", nil)
-	if err != nil {
-		return tree
-	}
 
-	for _, cp := range c.([]etf.Pid) {
+	for _, cp := range pidProcess.GetChildren() {
 		children := makeTree(p, resolver, cp)
 		child := etf.Tuple{resolver[pid], resolver[cp]}
 		tree = append(tree, child)

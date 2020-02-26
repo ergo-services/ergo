@@ -176,43 +176,47 @@ func TestApplication(t *testing.T) {
 
 	node.ApplicationUnload("testapp1")
 
+	//
+	// case 4: start with limited lifespan
+	//
 	fmt.Printf("Starting application with lifespan 150ms...")
 	lifeSpan = 150 * time.Millisecond
 	if err := node.ApplicationLoad(app, lifeSpan, ApplicationStrategyPermanent, "testapp2"); err != nil {
 		t.Fatal(err)
 	}
+	tStart := time.Now()
 	p, e = node.ApplicationStart("testapp2")
 	if e != nil {
 		t.Fatal(e)
 	}
 	p.Wait()
+	tLifeSpan := time.Since(tStart)
 
 	if node.IsProcessAlive(p.Self()) {
 		t.Fatal("application still alive")
 	}
-	fmt.Println("OK")
 
-	//	node.ApplicationLoad(app, lifeSpan, ApplicationStrategyPermanent)
-	//
-	//	fmt.Println("LOADED APP", node.LoadedApplications())
-	//	fmt.Println("RUNNING APP", node.WhichApplications())
-	//
-	//	p, e := node.ApplicationStart("testapp")
-	//	if e != nil {
-	//		fmt.Println("ERR", e)
-	//	}
+	if tLifeSpan < lifeSpan {
+		t.Fatal("application lifespan was shorter than 150ms")
+	}
+
+	if tLifeSpan > 160*time.Millisecond {
+		t.Fatal("application lifespan was much longer than 150ms")
+	}
+
+	fmt.Println("OK. lifespan:", tLifeSpan)
+
 	//	fmt.Println("PROC", p.Self())
 	//	fmt.Println("XXX", p.ListEnv())
 	//
 	//	p.SetEnv("ABB", 1.234)
 	//	p.SetEnv("CDF", 567)
 	//	p.SetEnv("GHJ", "890")
-	//
-	//	fmt.Println("LOADED APP", node.LoadedApplications())
-	//	fmt.Println("RUNNING APP", node.WhichApplications())
-	//
-	//	// node.ApplicationStart(app, lifeSpan, ApplicationStrategyTemporary)
-	//	// node.ApplicationStart(app, lifeSpan, ApplicationStrategyTransient)
-	//
-	//	node.Stop()
+
+	node.Stop()
+}
+
+func TestApplicationStrategies(t *testing.T) {
+
+	// Permanent
 }
