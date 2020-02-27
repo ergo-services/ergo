@@ -348,13 +348,36 @@ func (n *Node) ApplicationUnload(appName string) error {
 	return nil
 }
 
-// ApplicationStart starts Application
+// ApplicationStartPermanent start Application with start type ApplicationStartPermanent
+// If this application terminates, all other applications and the entire node are also
+// terminated
+func (n *Node) ApplicationStartPermanent(appName string, args ...interface{}) (*Process, error) {
+	return n.applicationStart(ApplicationStartPermanent, appName, args...)
+}
+
+// ApplicationStartTransient start Application with start type ApplicationStartTransient
+// If transient application terminates with reason 'normal', this is reported and no
+// other applications are terminated. Otherwise, all other applications and node
+// are terminated
+func (n *Node) ApplicationStartTransient(appName string, args ...interface{}) (*Process, error) {
+	return n.applicationStart(ApplicationStartTransient, appName, args...)
+}
+
+// ApplicationStart start Application with start type ApplicationStartTemporary
+// If an application terminates, this is reported but no other applications
+// are terminated
 func (n *Node) ApplicationStart(appName string, args ...interface{}) (*Process, error) {
+	return n.applicationStart(ApplicationStartTemporary, appName, args...)
+}
+
+func (n *Node) applicationStart(startType, appName string, args ...interface{}) (*Process, error) {
 
 	spec := n.registrar.GetApplicationSpecByName(appName)
 	if spec == nil {
 		return nil, ErrAppUnknown
 	}
+
+	spec.startType = startType
 
 	// to prevent race condition on starting application we should
 	// make sure that nobodyelse starting it

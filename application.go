@@ -11,25 +11,25 @@ import (
 	"github.com/halturin/ergonode/lib"
 )
 
-type ApplicationStrategy = string
+type ApplicationStartType = string
 
 const (
-	// Restart types:
+	// start types:
 
-	// ApplicationStrategyPermanent If a permanent application terminates,
+	// ApplicationStartPermanent If a permanent application terminates,
 	// all other applications and the runtime system (node) are also terminated.
-	ApplicationStrategyPermanent = "permanent"
+	ApplicationStartPermanent = "permanent"
 
-	// ApplicationStrategyTemporary If a temporary application terminates,
+	// ApplicationStartTemporary If a temporary application terminates,
 	// this is reported but no other applications are terminated.
-	ApplicationStrategyTemporary = "temporary"
+	ApplicationStartTemporary = "temporary"
 
-	// ApplicationStrategyTransient If a transient application terminates
+	// ApplicationStartTransient If a transient application terminates
 	// with reason normal, this is reported but no other applications are
 	// terminated. If a transient application terminates abnormally, that
 	// is with any other reason than normal, all other applications and
 	// the runtime system (node) are also terminated.
-	ApplicationStrategyTransient = "transient"
+	ApplicationStartTransient = "transient"
 )
 
 // ApplicationBehavior interface
@@ -46,11 +46,11 @@ type ApplicationSpec struct {
 	Applications []string
 	Environment  map[string]interface{}
 	// Depends		[]
-	Children []ApplicationChildSpec
-	Strategy ApplicationStrategy
-	app      ApplicationBehavior
-	process  *Process
-	mutex    sync.Mutex
+	Children  []ApplicationChildSpec
+	startType ApplicationStartType
+	app       ApplicationBehavior
+	process   *Process
+	mutex     sync.Mutex
 }
 
 type ApplicationChildSpec struct {
@@ -142,14 +142,14 @@ func (a *Application) loop(p *Process, object interface{}, args ...interface{}) 
 					}
 				}
 
-				switch spec.Strategy {
-				case ApplicationStrategyPermanent:
+				switch spec.startType {
+				case ApplicationStartPermanent:
 					a.stopChildren(terminated, spec.Children, string(reason))
 					fmt.Printf("Application (process) %s stopped with reason %s (permanent)", terminatedProcess.Name(), reason)
 					p.Node.Stop()
 					return "shutdown"
 
-				case ApplicationStrategyTransient:
+				case ApplicationStartTransient:
 					if reason == etf.Atom("normal") || reason == etf.Atom("shutdown") {
 						fmt.Printf("Application (process) %s stopped with reason %s (transient)", terminatedProcess.Name(), reason)
 						continue
@@ -160,7 +160,7 @@ func (a *Application) loop(p *Process, object interface{}, args ...interface{}) 
 					p.Node.Stop()
 					return string(reason)
 
-				case ApplicationStrategyTemporary:
+				case ApplicationStartTemporary:
 					fmt.Printf("Application (process) %s stopped with reason %s (temporary)", terminatedProcess.Name(), reason)
 				}
 

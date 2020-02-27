@@ -43,7 +43,6 @@ func (da *demoApp) Load(args ...interface{}) (ergo.ApplicationSpec, error) {
 				Name:  "justDemoGS",
 			},
 		},
-		Strategy: ergo.ApplicationStrategyPermanent,
 	}, nil
 }
 

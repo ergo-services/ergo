@@ -15,8 +15,7 @@ type testApplication struct {
 
 func (a *testApplication) Load(args ...interface{}) (ApplicationSpec, error) {
 	lifeSpan := args[0].(time.Duration)
-	strategy := args[1].(string)
-	name := args[2].(string)
+	name := args[1].(string)
 	return ApplicationSpec{
 		Name:        name,
 		Description: "My Test Applicatoin",
@@ -32,7 +31,6 @@ func (a *testApplication) Load(args ...interface{}) (ApplicationSpec, error) {
 			},
 		},
 		Lifespan: lifeSpan,
-		Strategy: strategy,
 	}, nil
 }
 
@@ -86,7 +84,7 @@ func TestApplication(t *testing.T) {
 	// case 1: loading/unloading app
 	//
 	fmt.Printf("Loading application... ")
-	err := node.ApplicationLoad(app, lifeSpan, ApplicationStrategyPermanent, "testapp")
+	err := node.ApplicationLoad(app, lifeSpan, "testapp")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,7 +122,7 @@ func TestApplication(t *testing.T) {
 	//
 	fmt.Printf("Starting application... ")
 	// use the new app name because the unloading takes some time
-	if err := node.ApplicationLoad(app, lifeSpan, ApplicationStrategyPermanent, "testapp1"); err != nil {
+	if err := node.ApplicationLoad(app, lifeSpan, "testapp1"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -182,7 +180,7 @@ func TestApplication(t *testing.T) {
 	//
 	fmt.Printf("Starting application with lifespan 150ms...")
 	lifeSpan = 150 * time.Millisecond
-	if err := node.ApplicationLoad(app, lifeSpan, ApplicationStrategyPermanent, "testapp2"); err != nil {
+	if err := node.ApplicationLoad(app, lifeSpan, "testapp2"); err != nil {
 		t.Fatal(err)
 	}
 	tStart := time.Now()
@@ -217,11 +215,11 @@ func TestApplication(t *testing.T) {
 	node.Stop()
 }
 
-func TestApplicationStrategiesPermanent(t *testing.T) {
-	fmt.Printf("\n=== Test Application strategies. Permanent\n")
-	fmt.Printf("\nStarting node nodeTestAplicationStrategiesPermanent@localhost:")
+func TestApplicationTypePermanent(t *testing.T) {
+	fmt.Printf("\n=== Test Application type Permanent\n")
+	fmt.Printf("\nStarting node nodeTestAplicationPermanent@localhost:")
 	ctx := context.Background()
-	node := CreateNodeWithContext(ctx, "nodeTestApplicationStrategiesPermanent@localhost", "cookies", NodeOptions{})
+	node := CreateNodeWithContext(ctx, "nodeTestApplicationPermanent@localhost", "cookies", NodeOptions{})
 	if node == nil {
 		t.Fatal("can't start node")
 	} else {
@@ -231,11 +229,11 @@ func TestApplicationStrategiesPermanent(t *testing.T) {
 	fmt.Printf("Starting application... ")
 	app := &testApplication{}
 	lifeSpan := time.Duration(0)
-	if err := node.ApplicationLoad(app, lifeSpan, ApplicationStrategyPermanent, "testapp"); err != nil {
+	if err := node.ApplicationLoad(app, lifeSpan, "testapp"); err != nil {
 		t.Fatal(err)
 	}
 
-	p, e := node.ApplicationStart("testapp")
+	p, e := node.ApplicationStartPermanent("testapp")
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -248,11 +246,11 @@ func TestApplicationStrategiesPermanent(t *testing.T) {
 
 }
 
-func TestApplicationStrategiesTransient(t *testing.T) {
-	fmt.Printf("\n=== Test Application strategies. Transient\n")
-	fmt.Printf("\nStarting node nodeTestAplicationStrategiesTransient@localhost:")
+func TestApplicationTypeTransient(t *testing.T) {
+	fmt.Printf("\n=== Test Application type Transient\n")
+	fmt.Printf("\nStarting node nodeTestAplicationTypeTransient@localhost:")
 	ctx := context.Background()
-	node := CreateNodeWithContext(ctx, "nodeTestApplicationStrategiesTransient@localhost", "cookies", NodeOptions{})
+	node := CreateNodeWithContext(ctx, "nodeTestApplicationTypeTransient@localhost", "cookies", NodeOptions{})
 	if node == nil {
 		t.Fatal("can't start node")
 	} else {
@@ -261,11 +259,11 @@ func TestApplicationStrategiesTransient(t *testing.T) {
 
 }
 
-func TestApplicationStrategiesTemporary(t *testing.T) {
-	fmt.Printf("\n=== Test Application strategies. Temporary\n")
-	fmt.Printf("\nStarting node nodeTestAplicationStrategiesTemporary@localhost:")
+func TestApplicationTypeTemporary(t *testing.T) {
+	fmt.Printf("\n=== Test Application type Temporary\n")
+	fmt.Printf("\nStarting node nodeTestAplicationTypeTemporary@localhost:")
 	ctx := context.Background()
-	node := CreateNodeWithContext(ctx, "nodeTestApplicationStrategiesTemporary@localhost", "cookies", NodeOptions{})
+	node := CreateNodeWithContext(ctx, "nodeTestApplicationTypeTemporary@localhost", "cookies", NodeOptions{})
 	if node == nil {
 		t.Fatal("can't start node")
 	} else {
