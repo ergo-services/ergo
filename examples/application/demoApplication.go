@@ -36,9 +36,11 @@ func (da *demoApp) Load(args ...interface{}) (ergo.ApplicationSpec, error) {
 		Children: []ergo.ApplicationChildSpec{
 			ergo.ApplicationChildSpec{
 				Child: &demoSup{},
+				Name:  "demoSup",
 			},
 			ergo.ApplicationChildSpec{
 				Child: &demoGenServ{},
+				Name:  "justDemoGS",
 			},
 		},
 		Strategy: ergo.ApplicationStrategyPermanent,

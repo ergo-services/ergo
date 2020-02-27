@@ -55,6 +55,7 @@ type ApplicationSpec struct {
 
 type ApplicationChildSpec struct {
 	Child   interface{}
+	Name    string
 	Args    []interface{}
 	process *Process
 }
@@ -182,7 +183,7 @@ func (a *Application) startChildren(parent *Process, children []ApplicationChild
 	for i := range children {
 		// i know, it looks weird to use the funcion from supervisor file.
 		// will move it to somewhere else, but let it be there for a while.
-		p := startChild(parent, "", children[i].Child, children[i].Args...)
+		p := startChild(parent, children[i].Name, children[i].Child, children[i].Args...)
 		if p == nil {
 			return false
 		}

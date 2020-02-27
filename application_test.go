@@ -28,6 +28,7 @@ func (a *testApplication) Load(args ...interface{}) (ApplicationSpec, error) {
 		Children: []ApplicationChildSpec{
 			ApplicationChildSpec{
 				Child: &testAppGenServer{},
+				Name:  "testGS",
 			},
 		},
 		Lifespan: lifeSpan,
@@ -216,7 +217,59 @@ func TestApplication(t *testing.T) {
 	node.Stop()
 }
 
-func TestApplicationStrategies(t *testing.T) {
+func TestApplicationStrategiesPermanent(t *testing.T) {
+	fmt.Printf("\n=== Test Application strategies. Permanent\n")
+	fmt.Printf("\nStarting node nodeTestAplicationStrategiesPermanent@localhost:")
+	ctx := context.Background()
+	node := CreateNodeWithContext(ctx, "nodeTestApplicationStrategiesPermanent@localhost", "cookies", NodeOptions{})
+	if node == nil {
+		t.Fatal("can't start node")
+	} else {
+		fmt.Println("OK")
+	}
 
-	// Permanent
+	fmt.Printf("Starting application... ")
+	app := &testApplication{}
+	lifeSpan := time.Duration(0)
+	if err := node.ApplicationLoad(app, lifeSpan, ApplicationStrategyPermanent, "testapp"); err != nil {
+		t.Fatal(err)
+	}
+
+	p, e := node.ApplicationStart("testapp")
+	if e != nil {
+		t.Fatal(e)
+	}
+
+	p.Exit(p.Self(), "normal")
+	p.Wait()
+	if node.IsAlive() {
+		t.Fatal("node is still alive")
+	}
+
+}
+
+func TestApplicationStrategiesTransient(t *testing.T) {
+	fmt.Printf("\n=== Test Application strategies. Transient\n")
+	fmt.Printf("\nStarting node nodeTestAplicationStrategiesTransient@localhost:")
+	ctx := context.Background()
+	node := CreateNodeWithContext(ctx, "nodeTestApplicationStrategiesTransient@localhost", "cookies", NodeOptions{})
+	if node == nil {
+		t.Fatal("can't start node")
+	} else {
+		fmt.Println("OK")
+	}
+
+}
+
+func TestApplicationStrategiesTemporary(t *testing.T) {
+	fmt.Printf("\n=== Test Application strategies. Temporary\n")
+	fmt.Printf("\nStarting node nodeTestAplicationStrategiesTemporary@localhost:")
+	ctx := context.Background()
+	node := CreateNodeWithContext(ctx, "nodeTestApplicationStrategiesTemporary@localhost", "cookies", NodeOptions{})
+	if node == nil {
+		t.Fatal("can't start node")
+	} else {
+		fmt.Println("OK")
+	}
+
 }
