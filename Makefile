@@ -6,6 +6,7 @@ epmd:
 
 test:
 	go vet
+	go clean -testcache
 	go test ./...
 
 cover:
