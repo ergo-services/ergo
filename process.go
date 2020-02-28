@@ -289,8 +289,8 @@ func (p *Process) SetEnv(name string, value interface{}) {
 	p.env[name] = value
 }
 
-// GenEnv returns value associated with given environment name.
-func (p *Process) GenEnv(name string) interface{} {
+// GetEnv returns value associated with given environment name.
+func (p *Process) GetEnv(name string) interface{} {
 	p.RLock()
 	defer p.RUnlock()
 
@@ -299,7 +299,7 @@ func (p *Process) GenEnv(name string) interface{} {
 	}
 
 	if p.groupLeader != nil {
-		return p.groupLeader.GenEnv(name)
+		return p.groupLeader.GetEnv(name)
 	}
 
 	return nil

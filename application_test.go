@@ -39,7 +39,7 @@ func (a *testApplication) Load(args ...interface{}) (ApplicationSpec, error) {
 }
 
 func (a *testApplication) Start(p *Process, args ...interface{}) {
-	//p.SetEnv("MMM", 888)
+	//p.SetEnv("env123", 456)
 }
 
 // test GenServer
@@ -49,6 +49,7 @@ type testAppGenServer struct {
 
 func (gs *testAppGenServer) Init(p *Process, args ...interface{}) interface{} {
 	//fmt.Println("STARTING TEST GS IN APP")
+	p.SetEnv("env123", 456)
 	return nil
 }
 
@@ -122,7 +123,7 @@ func TestApplication(t *testing.T) {
 	fmt.Println("OK")
 
 	//
-	// case 2: start(try to unload running app)/stop(normal) application
+	// case 2: start(and try to unload running app)/stop(normal) application
 	//
 	fmt.Printf("Starting application... ")
 	// use the new app name because the unloading takes some time
@@ -150,6 +151,45 @@ func TestApplication(t *testing.T) {
 	}
 
 	fmt.Println("OK")
+
+	// case 2.1: test env vars
+	fmt.Printf("testing application' environment variables...")
+	p.SetEnv("env123", 123)
+	p.SetEnv("envStr", "123")
+
+	gs := node.GetProcessByName("testAppGS1")
+	env := gs.GetEnv("env123")
+	if env == nil {
+		t.Fatal("incorrect environment variable: not found")
+	}
+
+	if env.(int) != 456 {
+		t.Fatal("incorrect environment variable: value should be overrided by child process")
+	}
+
+	if envUnknown := gs.GetEnv("unknown"); envUnknown != nil {
+		t.Fatal("incorrect environment variable: undefined variable should have nil value")
+	}
+
+	envs := gs.ListEnv()
+	if x, ok := envs["env123"]; !ok || x != 456 {
+		t.Fatal("incorrect environment variable: list of variables has no env123 value or its wrong")
+	}
+
+	if x, ok := envs["envStr"]; !ok || x != "123" {
+		t.Fatal("incorrect environment variable: list of variables has no envStr value or its wrong")
+	}
+
+	fmt.Println("OK")
+
+	// case 2.2: get list of children' pid
+	fmt.Printf("testing application' children list...")
+	list := p.GetChildren()
+	if len(list) != 1 || list[0] != gs.Self() {
+		t.Fatal("incorrect children list")
+	}
+	fmt.Println("OK")
+
 	fmt.Printf("Stopping application ...")
 	if e := node.ApplicationStop("testapp1"); e != nil {
 		t.Fatal(e)
@@ -211,13 +251,6 @@ func TestApplication(t *testing.T) {
 
 	fmt.Println("OK. lifespan:", tLifeSpan)
 
-	//	fmt.Println("PROC", p.Self())
-	//	fmt.Println("XXX", p.ListEnv())
-	//
-	//	p.SetEnv("ABB", 1.234)
-	//	p.SetEnv("CDF", 567)
-	//	p.SetEnv("GHJ", "890")
-
 	node.Stop()
 }
 
@@ -249,6 +282,10 @@ func TestApplicationTypePermanent(t *testing.T) {
 	gs.Exit(p.Self(), "abnormal")
 	if e := gs.WaitWithTimeout(100 * time.Millisecond); e != nil {
 		t.Fatal("timeout on waiting child")
+	}
+
+	if e := p.WaitWithTimeout(100 * time.Millisecond); e != nil {
+		t.Fatal("timeout on waiting application stopping")
 	}
 
 	if e := node.WaitWithTimeout(1 * time.Second); e != nil {
