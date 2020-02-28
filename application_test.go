@@ -251,7 +251,7 @@ func TestApplicationTypePermanent(t *testing.T) {
 		t.Fatal("timeout on waiting child")
 	}
 
-	if e := node.WaitWithTimeout(200 * time.Millisecond); e != nil {
+	if e := node.WaitWithTimeout(1 * time.Second); e != nil {
 		t.Fatal("node shouldn't be alive here")
 	}
 
