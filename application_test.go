@@ -284,7 +284,7 @@ func TestApplicationTypePermanent(t *testing.T) {
 		t.Fatal("timeout on waiting child")
 	}
 
-	if e := p.WaitWithTimeout(100 * time.Millisecond); e != nil {
+	if e := p.WaitWithTimeout(1 * time.Second); e != nil {
 		t.Fatal("timeout on waiting application stopping")
 	}
 
