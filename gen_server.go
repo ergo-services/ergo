@@ -125,15 +125,6 @@ func (gs *GenServer) loop(p *Process, object interface{}, args ...interface{}) s
 						lockState.Unlock()
 					}()
 
-				case etf.Atom("EXIT"):
-					// handling linked process termination
-					// {'EXIT', <pid>, reason}
-					ex := gracefulExitRequest{
-						from:   m.Element(2).(etf.Pid),
-						reason: m.Element(3).(string),
-					}
-					go func() { p.gracefulExit <- ex }()
-
 				default:
 					go func() {
 						lockState.Lock()
