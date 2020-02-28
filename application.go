@@ -144,24 +144,26 @@ func (a *Application) loop(p *Process, object interface{}, args ...interface{}) 
 				switch spec.startType {
 				case ApplicationStartPermanent:
 					a.stopChildren(terminated, spec.Children, string(reason))
-					fmt.Printf("Application child %s stopped with reason %s (permanent: node %s is shutting down)",
-						terminatedName, reason, p.Node.FullName)
+					fmt.Printf("Application child %s (at %s) stopped with reason %s (permanent: node is shutting down)\n",
+						terminatedName, p.Node.FullName, reason)
 					p.Node.Stop()
 					return "shutdown"
 
 				case ApplicationStartTransient:
 					if reason == etf.Atom("normal") || reason == etf.Atom("shutdown") {
-						fmt.Printf("Application child %s stopped with reason %s (transient)", terminatedName, reason)
+						fmt.Printf("Application child %s (at %s) stopped with reason %s (transient)\n",
+							terminatedName, p.Node.FullName, reason)
 						continue
 					}
 					a.stopChildren(terminated, spec.Children, "normal")
-					fmt.Printf("Application child %s stopped with reason %s. (transient: node %s is shutting down)",
-						terminatedName, reason, p.Node.FullName)
+					fmt.Printf("Application child %s (at %s) stopped with reason %s. (transient: node is shutting down)\n",
+						terminatedName, p.Node.FullName, reason)
 					p.Node.Stop()
 					return string(reason)
 
 				case ApplicationStartTemporary:
-					fmt.Printf("Application child %s stopped with reason %s (temporary)", terminatedName, reason)
+					fmt.Printf("Application child %s (at %s) stopped with reason %s (temporary)\n",
+						terminatedName, p.Node.FullName, reason)
 				}
 
 			}

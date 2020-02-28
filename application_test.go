@@ -16,6 +16,10 @@ type testApplication struct {
 func (a *testApplication) Load(args ...interface{}) (ApplicationSpec, error) {
 	lifeSpan := args[0].(time.Duration)
 	name := args[1].(string)
+	nameGS := "testAppGS"
+	if len(args) == 3 {
+		nameGS = args[2].(string)
+	}
 	return ApplicationSpec{
 		Name:        name,
 		Description: "My Test Applicatoin",
@@ -27,7 +31,7 @@ func (a *testApplication) Load(args ...interface{}) (ApplicationSpec, error) {
 		Children: []ApplicationChildSpec{
 			ApplicationChildSpec{
 				Child: &testAppGenServer{},
-				Name:  "testAppGS",
+				Name:  nameGS,
 			},
 		},
 		Lifespan: lifeSpan,
@@ -268,6 +272,32 @@ func TestApplicationTypeTransient(t *testing.T) {
 		fmt.Println("OK")
 	}
 
+	fmt.Printf("Starting application...")
+	app := &testApplication{}
+	lifeSpan := time.Duration(0)
+	if err := node.ApplicationLoad(app, lifeSpan, "testapp"); err != nil {
+		t.Fatal(err)
+	}
+
+	p, e := node.ApplicationStart("testapp")
+	if e != nil {
+		t.Fatal(e)
+	}
+
+	gs := node.GetProcessByName("testAppGS")
+	gs.Exit(gs.Self(), "normal")
+	if e := gs.WaitWithTimeout(100 * time.Millisecond); e != nil {
+		t.Fatal(e)
+	}
+
+	if p.IsAlive() {
+
+	}
+
+	if !node.IsAlive() {
+		t.Fatal("node should be alive here")
+	}
+
 }
 
 func TestApplicationTypeTemporary(t *testing.T) {
@@ -279,6 +309,127 @@ func TestApplicationTypeTemporary(t *testing.T) {
 		t.Fatal("can't start node")
 	} else {
 		fmt.Println("OK")
+	}
+	fmt.Printf("Starting application...")
+	app := &testApplication{}
+	lifeSpan := time.Duration(0)
+	if err := node.ApplicationLoad(app, lifeSpan, "testapp"); err != nil {
+		t.Fatal(err)
+	}
+
+	p, e := node.ApplicationStart("testapp") // default start type is Temporary
+	if e != nil {
+		t.Fatal(e)
+	}
+
+	gs := node.GetProcessByName("testAppGS")
+	gs.Exit(p.Self(), "normal")
+	if e := gs.WaitWithTimeout(100 * time.Millisecond); e != nil {
+		t.Fatal(e)
+	}
+
+	if e := node.WaitWithTimeout(100 * time.Millisecond); e != ErrTimeout {
+		t.Fatal("node should be alive here")
+	}
+
+	if !node.IsAlive() {
+		t.Fatal("node should be alive here")
+	}
+
+	node.Stop()
+}
+
+func TestApplicationStop(t *testing.T) {
+	fmt.Printf("\n=== Test Application stopping\n")
+	fmt.Printf("\nStarting node nodeTestAplicationTypeTemporary@localhost:")
+	ctx := context.Background()
+	node := CreateNodeWithContext(ctx, "nodeTestApplicationTypeTemporary@localhost", "cookies", NodeOptions{})
+	if node == nil {
+		t.Fatal("can't start node")
+	} else {
+		fmt.Println("OK")
+	}
+	fmt.Printf("Starting applications testapp1, testapp2...")
+	lifeSpan := time.Duration(0)
+	app := &testApplication{}
+	if e := node.ApplicationLoad(app, lifeSpan, "testapp1", "testAppGS1"); e != nil {
+		t.Fatal(e)
+	}
+
+	app1 := &testApplication{}
+	if e := node.ApplicationLoad(app1, lifeSpan, "testapp2", "testAppGS2"); e != nil {
+		t.Fatal(e)
+	}
+
+	p1, e1 := node.ApplicationStartPermanent("testapp1")
+	if e1 != nil {
+		t.Fatal(e1)
+	}
+	p2, e2 := node.ApplicationStartPermanent("testapp2")
+	if e2 != nil {
+		t.Fatal(e2)
+	}
+	fmt.Println("OK")
+
+	// case 1: stopping via node.ApplicatoinStop
+	fmt.Printf("stopping testapp1 via node.ApplicationStop (shouldn't affect testapp2) ...")
+	node.ApplicationStop("testapp1")
+	if e := p1.WaitWithTimeout(100 * time.Millisecond); e != nil {
+		t.Fatal("can't stop application via node.ApplicationStop")
+	}
+
+	if !p2.IsAlive() {
+		t.Fatal("testapp2 should be alive here")
+	}
+
+	if !node.IsAlive() {
+		t.Fatal("node should be alive here")
+	}
+
+	fmt.Println("OK")
+
+	// case 2: stopping via process.Exit
+	fmt.Printf("starting application testapp1 ...")
+	p1, e1 = node.ApplicationStartPermanent("testapp1")
+	if e1 != nil {
+		t.Fatal(e1)
+	}
+	fmt.Println("OK")
+
+	fmt.Printf("stopping testapp1 via process.Exit (shouldn't affect testapp2)...")
+	p1.Exit(p1.Self(), "normal")
+	if e := p1.WaitWithTimeout(100 * time.Millisecond); e != nil {
+		t.Fatal(e)
+	}
+	if !p2.IsAlive() {
+		t.Fatal("testapp2 should be alive here")
+	}
+
+	if !node.IsAlive() {
+		t.Fatal("node should be alive here")
+	}
+	fmt.Println("OK")
+
+	// case 3: stopping via process.Kill
+	fmt.Printf("starting application testapp1 ...")
+	p1, e1 = node.ApplicationStartPermanent("testapp1")
+	if e1 != nil {
+		t.Fatal(e1)
+	}
+	fmt.Println("OK")
+
+	fmt.Printf("stopping testapp1 via process.Kill (shouldn't affect testapp2)...")
+	p1.Kill()
+	if e := p1.WaitWithTimeout(100 * time.Millisecond); e != nil {
+		t.Fatal(e)
+	}
+
+	if !p2.IsAlive() {
+		t.Fatal("testapp2 should be alive here")
+	}
+
+	if !node.IsAlive() {
+		t.Fatal("node should be alive here")
 	}
 
 }
