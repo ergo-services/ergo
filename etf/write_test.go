@@ -176,26 +176,24 @@ func TestWritePid(t *testing.T) {
 
 func TestWriteString(t *testing.T) {
 	c := new(Context)
-	test := func(in string, shouldFail bool) {
+	test := func(in string, identical bool) {
 		w := new(bytes.Buffer)
 		if err := c.writeString(w, in); err != nil {
-			if !shouldFail {
-				t.Error(in, err)
-			}
-		} else if shouldFail {
-			t.Errorf("err == nil (%v)", in)
+			t.Error(in, err)
 		} else if v, err := c.Read(w); err != nil {
 			t.Error(in, err)
 		} else if l := w.Len(); l != 0 {
 			t.Errorf("%v: buffer len %d", in, l)
 		} else if v != in {
-			t.Errorf("expected %v, got %v", in, v)
+			if identical {
+				t.Errorf("expected %v, got %v", in, v)
+			}
 		}
 	}
 
-	test(string(bytes.Repeat([]byte{'a'}, math.MaxUint16)), false)
+	test(string(bytes.Repeat([]byte{'a'}, math.MaxUint16)), true)
 	test("", false)
-	test(string(bytes.Repeat([]byte{'a'}, math.MaxUint16+1)), true)
+	test(string(bytes.Repeat([]byte{'a'}, math.MaxUint16+1)), false)
 }
 
 func TestWriteTerm(t *testing.T) {

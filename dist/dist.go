@@ -4,10 +4,8 @@ import (
 	"bytes"
 	"crypto/md5"
 	"encoding/binary"
-	"errors"
 	"flag"
 	"fmt"
-	"github.com/halturin/ergonode/etf"
 	"io"
 	"io/ioutil"
 	"log"
@@ -16,6 +14,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/halturin/ergonode/etf"
 )
 
 var dTrace bool
@@ -93,7 +93,7 @@ type NodeDesc struct {
 	term       *etf.Context
 	isacceptor bool
 
-	Ready chan bool
+	HandshakeError chan error
 }
 
 func NewNodeDesc(name, cookie string, isHidden bool, c net.Conn) (nd *NodeDesc) {
@@ -103,14 +103,14 @@ func NewNodeDesc(name, cookie string, isHidden bool, c net.Conn) (nd *NodeDesc) 
 		Hidden: isHidden,
 		remote: nil,
 		state:  HANDSHAKE,
-		flag: toNodeFlag(PUBLISHED, UNICODE_IO, DIST_MONITOR,
+		flag: toNodeFlag(PUBLISHED, UNICODE_IO, DIST_MONITOR, DIST_MONITOR_NAME,
 			EXTENDED_PIDS_PORTS, EXTENDED_REFERENCES,
 			DIST_HDR_ATOM_CACHE, HIDDEN_ATOM_CACHE, NEW_FUN_TAGS,
 			SMALL_ATOM_TAGS, UTF8_ATOMS, MAP_TAG, BIG_CREATION),
-		version:    5,
-		term:       new(etf.Context),
-		isacceptor: true,
-		Ready:      make(chan bool),
+		version:        5,
+		term:           new(etf.Context),
+		isacceptor:     true,
+		HandshakeError: make(chan error),
 	}
 
 	nd.term.ConvertBinaryToString = true
@@ -128,7 +128,7 @@ func NewNodeDesc(name, cookie string, isHidden bool, c net.Conn) (nd *NodeDesc) 
 	return nd
 }
 
-func (currNd *NodeDesc) ReadMessage(c net.Conn) (ts []etf.Term, err error) {
+func (currentND *NodeDesc) ReadMessage(c net.Conn) (ts []etf.Term, err error) {
 
 	sendData := func(headerLen int, data []byte) (int, error) {
 		reply := make([]byte, len(data)+headerLen)
@@ -142,14 +142,16 @@ func (currNd *NodeDesc) ReadMessage(c net.Conn) (ts []etf.Term, err error) {
 		return c.Write(reply)
 	}
 
-	switch currNd.state {
+	switch currentND.state {
 	case HANDSHAKE:
 		var length uint16
 		if err = binary.Read(c, binary.BigEndian, &length); err != nil {
+			currentND.HandshakeError <- err
 			return
 		}
 		msg := make([]byte, length)
 		if _, err = io.ReadFull(c, msg); err != nil {
+			currentND.HandshakeError <- err
 			return
 		}
 		dLog("Read from enode %d: %v", length, msg)
@@ -157,64 +159,67 @@ func (currNd *NodeDesc) ReadMessage(c net.Conn) (ts []etf.Term, err error) {
 		switch msg[0] {
 		case 'n':
 			rand.Seed(time.Now().UTC().UnixNano())
-			currNd.challenge = rand.Uint32()
+			currentND.challenge = rand.Uint32()
 
-			if currNd.isacceptor {
-				sn := currNd.read_SEND_NAME(msg)
+			if currentND.isacceptor {
+				sn := currentND.read_SEND_NAME(msg)
 				// Statuses: ok, nok, ok_simultaneous, alive, not_allowed
-				sok := currNd.compose_SEND_STATUS(sn, true)
+				sok := currentND.compose_SEND_STATUS(sn, true)
 				_, err = sendData(2, sok)
 				if err != nil {
+					currentND.HandshakeError <- err
 					return
 				}
 
 				// Now send challenge
-				challenge := currNd.compose_SEND_CHALLENGE(sn)
+				challenge := currentND.compose_SEND_CHALLENGE(sn)
 				sendData(2, challenge)
 				if err != nil {
+					currentND.HandshakeError <- err
 					return
 				}
 			} else {
 				//
 				dLog("Doing CHALLENGE (outgoing connection)")
 
-				challenge := currNd.read_SEND_CHALLENGE(msg)
-				challenge_reply := currNd.compose_SEND_CHALENGE_REPLY(challenge)
-				sendData(2, challenge_reply)
+				challenge := currentND.read_SEND_CHALLENGE(msg)
+				challengeReply := currentND.compose_SEND_CHALENGE_REPLY(challenge)
+				sendData(2, challengeReply)
 				return
 
 			}
 
 		case 'r':
-			sn := currNd.remote
-			ok := currNd.read_SEND_CHALLENGE_REPLY(sn, msg)
+			sn := currentND.remote
+			ok := currentND.read_SEND_CHALLENGE_REPLY(sn, msg)
 			if ok {
-				challengeAck := currNd.compose_SEND_CHALLENGE_ACK(sn)
+				challengeAck := currentND.compose_SEND_CHALLENGE_ACK(sn)
 				sendData(2, challengeAck)
 				if err != nil {
+					currentND.HandshakeError <- err
 					return
 				}
 				dLog("Remote: %#v", sn)
-				ts = []etf.Term{etf.Term(etf.Tuple{etf.Atom("$connection"), etf.Atom(sn.Name), currNd.Ready})}
+				ts = []etf.Term{etf.Term(etf.Tuple{etf.Atom("$connection"), etf.Atom(sn.Name), currentND.HandshakeError})}
 			} else {
-				err = errors.New("bad handshake")
+				err = fmt.Errorf("bad handshake")
+				currentND.HandshakeError <- err
 				return
 			}
 		case 's':
 			r := string(msg[1:len(msg)])
 			if r != "ok" {
-				c.Close()
-				dLog("Can't continue (recv_status: %s). Closing connection", r)
-				panic("recv_status is not ok. Closing connection")
+				err = fmt.Errorf("Can't continue (recv_status: %s). Closing connection", r)
+				currentND.HandshakeError <- err
 			}
 
 			return
 
 		case 'a':
-			currNd.read_SEND_CHALLENGE_ACK(msg)
-			sn := currNd.remote
+			currentND.read_SEND_CHALLENGE_ACK(msg)
+			sn := currentND.remote
 			dLog("Remote (outgoing): %#v", sn)
-			ts = []etf.Term{etf.Term(etf.Tuple{etf.Atom("$connection"), etf.Atom(sn.Name), currNd.Ready})}
+			ts = []etf.Term{etf.Term(etf.Tuple{etf.Atom("$connection"), etf.Atom(sn.Name), currentND.HandshakeError})}
 			return
 		}
 
@@ -225,23 +230,26 @@ func (currNd *NodeDesc) ReadMessage(c net.Conn) (ts []etf.Term, err error) {
 			return
 		}
 		if length == 0 {
-			dLog("Keepalive (%s)", currNd.remote.Name)
+			dLog("Keepalive (%s)", currentND.remote.Name)
 			sendData(4, []byte{})
 			return
 		}
-		r := &io.LimitedReader{c, int64(length)}
+		r := &io.LimitedReader{
+			R: c,
+			N: int64(length),
+		}
 
-		if currNd.flag.isSet(DIST_HDR_ATOM_CACHE) {
+		if currentND.flag.isSet(DIST_HDR_ATOM_CACHE) {
 			var ctl, message etf.Term
-			if err = currNd.readDist(r); err != nil {
+			if err = currentND.readDist(r); err != nil {
 				break
 			}
-			if ctl, err = currNd.readCtl(r); err != nil {
+			if ctl, err = currentND.readCtl(r); err != nil {
 				break
 			}
 			dLog("READ CTL: %#v", ctl)
 
-			if message, err1 = currNd.readMessage(r); err1 != nil {
+			if message, err1 = currentND.readMessage(r); err1 != nil {
 				// break
 
 			}
@@ -260,7 +268,7 @@ func (currNd *NodeDesc) ReadMessage(c net.Conn) (ts []etf.Term, err error) {
 				ts = make([]etf.Term, 0)
 				for {
 					var res etf.Term
-					if res, err = currNd.readTerm(r); err != nil {
+					if res, err = currentND.readTerm(r); err != nil {
 						break
 					}
 					ts = append(ts, res)
@@ -280,7 +288,7 @@ func (currNd *NodeDesc) ReadMessage(c net.Conn) (ts []etf.Term, err error) {
 	return
 }
 
-func (currNd *NodeDesc) WriteMessage(c net.Conn, ts []etf.Term) (err error) {
+func (currentND *NodeDesc) WriteMessage(c net.Conn, ts []etf.Term) (err error) {
 	sendData := func(data []byte) (int, error) {
 		reply := make([]byte, len(data)+4)
 		binary.BigEndian.PutUint32(reply[0:4], uint32(len(data)))
@@ -290,17 +298,17 @@ func (currNd *NodeDesc) WriteMessage(c net.Conn, ts []etf.Term) (err error) {
 	}
 
 	buf := new(bytes.Buffer)
-	if currNd.flag.isSet(DIST_HDR_ATOM_CACHE) {
+	if currentND.flag.isSet(DIST_HDR_ATOM_CACHE) {
 		buf.Write([]byte{etf.EtVersion})
-		currNd.term.WriteDist(buf, ts)
+		currentND.term.WriteDist(buf, ts)
 		for _, v := range ts {
-			currNd.term.Write(buf, v)
+			currentND.term.Write(buf, v)
 		}
 	} else {
 		buf.Write([]byte{'p'})
 		for _, v := range ts {
 			buf.Write([]byte{etf.EtVersion})
-			currNd.term.Write(buf, v)
+			currentND.term.Write(buf, v)
 		}
 	}
 	// dLog("WRITE: %#v: %#v", ts, buf.Bytes())
@@ -309,8 +317,12 @@ func (currNd *NodeDesc) WriteMessage(c net.Conn, ts []etf.Term) (err error) {
 
 }
 
-func (nd *NodeDesc) GetRemoteName() etf.Atom {
-	return etf.Atom(nd.remote.Name)
+func (nd *NodeDesc) GetRemoteName() string {
+	// nd.remote MUST not be nil otherwise is a bug. let it panic then
+	if nd.state == CONNECTED {
+		return nd.remote.Name
+	}
+	return ""
 }
 
 func (nd *NodeDesc) compose_SEND_NAME() (msg []byte) {
@@ -322,7 +334,7 @@ func (nd *NodeDesc) compose_SEND_NAME() (msg []byte) {
 	return
 }
 
-func (currNd *NodeDesc) read_SEND_NAME(msg []byte) (nd *NodeDesc) {
+func (currentND *NodeDesc) read_SEND_NAME(msg []byte) (nd *NodeDesc) {
 	version := binary.BigEndian.Uint16(msg[1:3])
 	flag := nodeFlag(binary.BigEndian.Uint32(msg[3:7]))
 	name := string(msg[7:])
@@ -331,45 +343,45 @@ func (currNd *NodeDesc) read_SEND_NAME(msg []byte) (nd *NodeDesc) {
 		version: version,
 		flag:    flag,
 	}
-	currNd.remote = nd
+	currentND.remote = nd
 	return
 }
 
-func (currNd *NodeDesc) compose_SEND_STATUS(nd *NodeDesc, isOk bool) (msg []byte) {
+func (currentND *NodeDesc) compose_SEND_STATUS(nd *NodeDesc, isOk bool) (msg []byte) {
 	msg = make([]byte, 3)
 	msg[0] = byte('s')
 	copy(msg[1:], "ok")
 	return
 }
 
-func (currNd *NodeDesc) compose_SEND_CHALLENGE(nd *NodeDesc) (msg []byte) {
-	msg = make([]byte, 11+len(currNd.Name))
+func (currentND *NodeDesc) compose_SEND_CHALLENGE(nd *NodeDesc) (msg []byte) {
+	msg = make([]byte, 11+len(currentND.Name))
 	msg[0] = byte('n')
-	binary.BigEndian.PutUint16(msg[1:3], currNd.version)
-	binary.BigEndian.PutUint32(msg[3:7], currNd.flag.toUint32())
-	binary.BigEndian.PutUint32(msg[7:11], currNd.challenge)
-	copy(msg[11:], currNd.Name)
+	binary.BigEndian.PutUint16(msg[1:3], currentND.version)
+	binary.BigEndian.PutUint32(msg[3:7], currentND.flag.toUint32())
+	binary.BigEndian.PutUint32(msg[7:11], currentND.challenge)
+	copy(msg[11:], currentND.Name)
 	return
 }
 
-func (currNd *NodeDesc) read_SEND_CHALLENGE(msg []byte) (challenge uint32) {
+func (currentND *NodeDesc) read_SEND_CHALLENGE(msg []byte) (challenge uint32) {
 	nd := &NodeDesc{
 		Name:    string(msg[11:]),
 		version: binary.BigEndian.Uint16(msg[1:3]),
 		flag:    nodeFlag(binary.BigEndian.Uint32(msg[3:7])),
 	}
-	currNd.remote = nd
+	currentND.remote = nd
 	return binary.BigEndian.Uint32(msg[7:11])
 }
 
-func (currNd *NodeDesc) read_SEND_CHALLENGE_REPLY(nd *NodeDesc, msg []byte) (isOk bool) {
+func (currentND *NodeDesc) read_SEND_CHALLENGE_REPLY(nd *NodeDesc, msg []byte) (isOk bool) {
 	nd.challenge = binary.BigEndian.Uint32(msg[1:5])
 	digestB := msg[5:]
 
-	digestA := genDigest(currNd.challenge, currNd.Cookie)
+	digestA := genDigest(currentND.challenge, currentND.Cookie)
 	if bytes.Compare(digestA, digestB) == 0 {
 		isOk = true
-		currNd.state = CONNECTED
+		currentND.state = CONNECTED
 	} else {
 		dLog("BAD HANDSHAKE: digestA: %+v, digestB: %+v", digestA, digestB)
 		isOk = false
@@ -377,28 +389,28 @@ func (currNd *NodeDesc) read_SEND_CHALLENGE_REPLY(nd *NodeDesc, msg []byte) (isO
 	return
 }
 
-func (currNd *NodeDesc) compose_SEND_CHALLENGE_ACK(nd *NodeDesc) (msg []byte) {
+func (currentND *NodeDesc) compose_SEND_CHALLENGE_ACK(nd *NodeDesc) (msg []byte) {
 	msg = make([]byte, 17)
 	msg[0] = byte('a')
 
-	digestB := genDigest(nd.challenge, currNd.Cookie) // FIXME: use his cookie, not mine
+	digestB := genDigest(nd.challenge, currentND.Cookie) // FIXME: use his cookie, not mine
 
 	copy(msg[1:], digestB)
 	return
 }
 
-func (currNd *NodeDesc) compose_SEND_CHALENGE_REPLY(challenge uint32) (msg []byte) {
+func (currentND *NodeDesc) compose_SEND_CHALENGE_REPLY(challenge uint32) (msg []byte) {
 	msg = make([]byte, 21)
 	msg[0] = byte('r')
 
-	binary.BigEndian.PutUint32(msg[1:5], currNd.challenge)
-	digest := genDigest(challenge, currNd.Cookie)
+	binary.BigEndian.PutUint32(msg[1:5], currentND.challenge)
+	digest := genDigest(challenge, currentND.Cookie)
 	copy(msg[5:], digest)
 	return
 }
 
-func (currNd *NodeDesc) read_SEND_CHALLENGE_ACK(msg []byte) {
-	currNd.state = CONNECTED
+func (currentND *NodeDesc) read_SEND_CHALLENGE_ACK(msg []byte) {
+	currentND.state = CONNECTED
 	return
 }
 
@@ -440,7 +452,7 @@ func (nd NodeDesc) Flags() (flags []string) {
 	return
 }
 
-func (currNd *NodeDesc) readTerm(r io.Reader) (t etf.Term, err error) {
+func (currentND *NodeDesc) readTerm(r io.Reader) (t etf.Term, err error) {
 	b := make([]byte, 1)
 	_, err = io.ReadFull(r, b)
 
@@ -451,11 +463,11 @@ func (currNd *NodeDesc) readTerm(r io.Reader) (t etf.Term, err error) {
 		err = fmt.Errorf("Not ETF: %d", b[0])
 		return
 	}
-	t, err = currNd.term.Read(r)
+	t, err = currentND.term.Read(r)
 	return
 }
 
-func (currNd *NodeDesc) readDist(r io.Reader) (err error) {
+func (currentND *NodeDesc) readDist(r io.Reader) (err error) {
 	b := make([]byte, 1)
 	_, err = io.ReadFull(r, b)
 
@@ -466,15 +478,15 @@ func (currNd *NodeDesc) readDist(r io.Reader) (err error) {
 		err = fmt.Errorf("Not dist header: %d", b[0])
 		return
 	}
-	return currNd.term.ReadDist(r)
+	return currentND.term.ReadDist(r)
 }
 
-func (currNd *NodeDesc) readCtl(r io.Reader) (t etf.Term, err error) {
-	t, err = currNd.term.Read(r)
+func (currentND *NodeDesc) readCtl(r io.Reader) (t etf.Term, err error) {
+	t, err = currentND.term.Read(r)
 	return
 }
 
-func (currNd *NodeDesc) readMessage(r io.Reader) (t etf.Term, err error) {
-	t, err = currNd.term.Read(r)
+func (currentND *NodeDesc) readMessage(r io.Reader) (t etf.Term, err error) {
+	t, err = currentND.term.Read(r)
 	return
 }

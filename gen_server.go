@@ -1,235 +1,196 @@
 package ergonode
 
 import (
-	"errors"
-	"log"
 	"sync"
-	"time"
 
 	"github.com/halturin/ergonode/etf"
 	"github.com/halturin/ergonode/lib"
 )
 
-// GenServerInt interface
-type GenServerInt interface {
+const (
+	DefaultCallTimeout = 5
+)
+
+// GenServerBehavior interface
+type GenServerBehavior interface {
 	// Init(...) -> state
-	Init(args ...interface{}) (state interface{})
-	// HandleCast -> (0, state) - noreply
-	//		         (-1, state) - normal stop
-	HandleCast(message *etf.Term, state interface{}) (int, interface{})
-	// HandleCall -> (1, reply, state) - reply
-	//				 (0, _, state) - noreply
-	//		         (-1, state) - normal stop
-	HandleCall(from *etf.Tuple, message *etf.Term, state interface{}) (int, *etf.Term, interface{})
-	// HandleInfo -> (0, state) - noreply
-	//		         (-1, state) - normal stop (-2, -3 .... custom reasons to stop)
-	HandleInfo(message *etf.Term, state interface{}) (int, interface{})
-	Terminate(reason int, state interface{})
-
-	// Making outgoing request
-	Call(to interface{}, message *etf.Term, options ...interface{}) (reply *etf.Term, err error)
-	Cast(to interface{}, message *etf.Term) (err error)
-
-	// Monitors
-	Monitor(to etf.Pid)
-	MonitorNode(to etf.Atom, flag bool)
+	Init(process *Process, args ...interface{}) (state interface{})
+	// HandleCast -> ("noreply", state) - noreply
+	//		         ("stop", reason) - stop with reason
+	HandleCast(message etf.Term, state interface{}) (string, interface{})
+	// HandleCall -> ("reply", message, state) - reply
+	//				 ("noreply", _, state) - noreply
+	//		         ("stop", reason, _) - normal stop
+	HandleCall(from etf.Tuple, message etf.Term, state interface{}) (string, etf.Term, interface{})
+	// HandleInfo -> ("noreply", state) - noreply
+	//		         ("stop", reason) - normal stop
+	HandleInfo(message etf.Term, state interface{}) (string, interface{})
+	Terminate(reason string, state interface{})
 }
 
-// GenServer is implementation of GenServerInt interface
-type GenServer struct {
-	Node    *Node   // current node of process
-	Self    etf.Pid // Pid of process
-	state   interface{}
-	lock    sync.Mutex
-	chreply chan *etf.Tuple
-}
+// GenServer is implementation of ProcessBehavior interface for GenServer objects
+type GenServer struct{}
 
-// Options returns map of default process-related options
-func (gs *GenServer) Options() map[string]interface{} {
-	return map[string]interface{}{
-		"chan-size": 100, // size of channel for regular messages
-	}
-}
+func (gs *GenServer) loop(p *Process, object interface{}, args ...interface{}) string {
+	p.state = object.(GenServerBehavior).Init(p, args...)
+	p.ready <- true
 
-// ProcessLoop executes during whole time of process life.
-// It receives incoming messages from channels and handle it using methods of behaviour implementation
-func (gs *GenServer) ProcessLoop(pcs procChannels, pd Process, args ...interface{}) {
-	state := pd.(GenServerInt).Init(args...)
-	gs.state = state
-	pcs.init <- true
-	var chstop chan int
-	chstop = make(chan int)
-	defer func() {
-		if r := recover(); r != nil {
-			log.Printf("GenServerInt recovered: %#v", r)
-		}
-	}()
+	stop := make(chan string, 2)
+
+	p.currentFunction = "GenServer:loop"
+
 	for {
 		var message etf.Term
 		var fromPid etf.Pid
-		select {
-		case reason := <-chstop:
-			pd.(GenServerInt).Terminate(reason, gs.state)
-		case msg := <-pcs.in:
-			message = msg
-		case msgFrom := <-pcs.inFrom:
-			message = msgFrom[1]
-			fromPid = msgFrom[0].(etf.Pid)
+		var lockState = &sync.Mutex{}
 
+		select {
+		case ex := <-p.gracefulExit:
+			if p.trapExit {
+				message = etf.Tuple{
+					etf.Atom("EXIT"),
+					ex.from,
+					etf.Atom(ex.reason),
+				}
+			} else {
+				object.(GenServerBehavior).Terminate(ex.reason, p.state)
+				return ex.reason
+			}
+		case reason := <-stop:
+			object.(GenServerBehavior).Terminate(reason, p.state)
+			return reason
+		case msg := <-p.mailBox:
+			fromPid = msg.Element(1).(etf.Pid)
+			message = msg.Element(2)
+		case <-p.Context.Done():
+			return "kill"
+		case direct := <-p.direct:
+			gs.handleDirect(direct)
+			continue
 		}
-		lib.Log("[%#v]. Message from %#v\n", gs.Self, fromPid)
+
+		lib.Log("[%s]. %v got message from %#v\n", p.Node.FullName, p.self, fromPid)
+
+		p.reductions++
+
 		switch m := message.(type) {
 		case etf.Tuple:
-			switch mtag := m[0].(type) {
+			switch mtag := m.Element(1).(type) {
 			case etf.Atom:
-				gs.lock.Lock()
 				switch mtag {
 				case etf.Atom("$gen_call"):
-
+					// We need to wrap it out using goroutine in order to serve
+					// sync-requests (like 'process.Call') within callback execution
+					// since reply (etf.Ref) comes through the same mailBox channel
 					go func() {
-						fromTuple := m[1].(etf.Tuple)
-						code, reply, state1 := pd.(GenServerInt).HandleCall(&fromTuple, &m[2], gs.state)
+						fromTuple := m.Element(2).(etf.Tuple)
+						lockState.Lock()
 
-						gs.state = state1
-						gs.lock.Unlock()
-						if code < 0 {
-							chstop <- code
+						cf := p.currentFunction
+						p.currentFunction = "GenServer:HandleCall"
+						code, reply, state := object.(GenServerBehavior).HandleCall(fromTuple, m.Element(3), p.state)
+						p.currentFunction = cf
+
+						if code == "stop" {
+							stop <- reply.(string)
+							// do not unlock, coz we have to keep this state unchanged for Terminate handler
 							return
 						}
-						if reply != nil && code == 1 {
-							pid := fromTuple[0].(etf.Pid)
-							ref := fromTuple[1]
-							rep := etf.Term(etf.Tuple{ref, *reply})
-							gs.Send(pid, &rep)
+
+						p.state = state
+						lockState.Unlock()
+
+						if reply != nil && code == "reply" {
+							pid := fromTuple.Element(1).(etf.Pid)
+							ref := fromTuple.Element(2)
+							rep := etf.Term(etf.Tuple{ref, reply})
+							p.Send(pid, rep)
 						}
 					}()
+
 				case etf.Atom("$gen_cast"):
 					go func() {
-						code, state1 := pd.(GenServerInt).HandleCast(&m[1], gs.state)
-						gs.state = state1
-						gs.lock.Unlock()
-						if code < 0 {
-							chstop <- code
+						lockState.Lock()
+
+						cf := p.currentFunction
+						p.currentFunction = "GenServer:HandleCast"
+						code, state := object.(GenServerBehavior).HandleCast(m.Element(2), p.state)
+						p.currentFunction = cf
+
+						if code == "stop" {
+							stop <- state.(string)
 							return
 						}
+						p.state = state
+						lockState.Unlock()
 					}()
+
 				default:
 					go func() {
-						code, state1 := pd.(GenServerInt).HandleInfo(&message, gs.state)
-						gs.state = state1
-						gs.lock.Unlock()
-						if code < 0 {
-							chstop <- code
+						lockState.Lock()
+
+						cf := p.currentFunction
+						p.currentFunction = "GenServer:HandleInfo"
+						code, state := object.(GenServerBehavior).HandleInfo(message, p.state)
+						p.currentFunction = cf
+
+						if code == "stop" {
+							stop <- state.(string)
 							return
 						}
+						p.state = state
+						lockState.Unlock()
 					}()
+
 				}
+
 			case etf.Ref:
 				lib.Log("got reply: %#v\n%#v", mtag, message)
-				gs.chreply <- &m
+				p.reply <- m
+
 			default:
 				lib.Log("mtag: %#v", mtag)
-				gs.lock.Lock()
 				go func() {
-					code, state1 := pd.(GenServerInt).HandleInfo(&message, gs.state)
-					gs.state = state1
-					gs.lock.Unlock()
-					if code < 0 {
-						chstop <- code
-						return
+					lockState.Lock()
+
+					cf := p.currentFunction
+					p.currentFunction = "GenServer:HandleInfo"
+					code, state := object.(GenServerBehavior).HandleInfo(message, p.state)
+					p.currentFunction = cf
+
+					if code == "stop" {
+						stop <- state.(string)
 					}
+					p.state = state
+					lockState.Unlock()
 				}()
 			}
+
 		default:
 			lib.Log("m: %#v", m)
-			gs.lock.Lock()
 			go func() {
-				code, state1 := pd.(GenServerInt).HandleInfo(&message, gs.state)
-				gs.state = state1
-				gs.lock.Unlock()
-				if code < 0 {
-					chstop <- code
+				lockState.Lock()
+
+				cf := p.currentFunction
+				p.currentFunction = "GenServer:HandleInfo"
+				code, state := object.(GenServerBehavior).HandleInfo(message, p.state)
+				p.currentFunction = cf
+
+				if code == "stop" {
+					stop <- state.(string)
 					return
 				}
+				p.state = state
+				lockState.Unlock()
 			}()
 		}
 	}
 }
 
-func (gs *GenServer) setNode(node *Node) {
-	gs.Node = node
-}
+func (gs *GenServer) handleDirect(m directMessage) {
 
-func (gs *GenServer) setPid(pid etf.Pid) {
-	gs.Self = pid
-}
-
-func (gs *GenServer) Call(to interface{}, message *etf.Term, options ...interface{}) (reply *etf.Term, err error) {
-	var (
-		option_timeout int = 5
-	)
-
-	gs.chreply = make(chan *etf.Tuple)
-	defer close(gs.chreply)
-
-	ref := gs.Node.MakeRef()
-	from := etf.Tuple{gs.Self, ref}
-	msg := etf.Term(etf.Tuple{etf.Atom("$gen_call"), from, *message})
-	if err := gs.Node.Send(gs.Self, to, &msg); err != nil {
-		return nil, err
+	if m.reply != nil {
+		m.err = ErrUnsupportedRequest
+		m.reply <- m
 	}
-
-	switch len(options) {
-	case 1:
-		switch options[0].(type) {
-		case int:
-			if options[0].(int) > 0 {
-				option_timeout = options[0].(int)
-			}
-		}
-
-	}
-
-	for {
-		select {
-		case m := <-gs.chreply:
-			retmsg := *m
-			ref1 := retmsg[0].(etf.Ref)
-			val := retmsg[1].(etf.Term)
-
-			//check by id
-			if ref.Id[0] == ref1.Id[0] && ref.Id[1] == ref1.Id[1] && ref.Id[2] == ref1.Id[2] {
-				reply = &val
-				goto out
-			}
-		case <-time.After(time.Second * time.Duration(option_timeout)):
-			err = errors.New("timeout")
-			goto out
-		}
-	}
-out:
-	gs.chreply = nil
-
-	return
-}
-
-func (gs *GenServer) Cast(to interface{}, message *etf.Term) error {
-	msg := etf.Term(etf.Tuple{etf.Atom("$gen_cast"), *message})
-	if err := gs.Node.Send(gs.Self, to, &msg); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func (gs *GenServer) Send(to etf.Pid, reply *etf.Term) {
-	gs.Node.Send(nil, to, reply)
-}
-
-func (gs *GenServer) Monitor(to etf.Pid) {
-	gs.Node.Monitor(gs.Self, to)
-}
-
-func (gs *GenServer) MonitorNode(to etf.Atom, flag bool) {
-	gs.Node.MonitorNode(gs.Self, to, flag)
 }

@@ -1,184 +1,235 @@
-# Ergonode #
+# Ergo Framework #
 
-Implementation of Erlang/OTP node in Go
+[![GitHub release](https://img.shields.io/github/release/halturin/ergonode.svg)](https://github.com/halturin/ergonode/releases/latest)
+[![Go Report Card](https://goreportcard.com/badge/github.com/halturin/ergonode)](https://goreportcard.com/report/github.com/halturin/ergonode)
+[![GoDoc](https://godoc.org/code.gitea.io/gitea?status.svg)](https://godoc.org/github.com/halturin/ergonode)
+[![MIT license](https://img.shields.io/badge/license-MIT-brightgreen.svg)](https://opensource.org/licenses/MIT)
+[![codecov](https://codecov.io/gh/halturin/ergonode/branch/supervisor/graph/badge.svg)](https://codecov.io/gh/halturin/ergonode)
+[![Build Status](https://travis-ci.org/halturin/ergonode.svg?branch=supervisor)](https://travis-ci.org/halturin/ergonode)
 
-#### Features ####
+Implementation of Erlang/OTP in Golang
 
- * Publish listen port via EPMD
- * Embedded EPMD server
- * Handle incoming connection from other node using Erlang Distribution Protocol
- * Spawn Erlang-like processes
- * Register and unregister processes with simple atom
- * Send sync and async messages like `erlang:gen_call` and `erlang:gen_cast`
- * Create own process with `GenServer` behaviour (like `gen_server` in Erlang/OTP)
- * Atomic 'state' of GenServer
- * Initiate connection to other node
- * RPC callbacks
- * Monitor processes
- * Monitor nodes
- * Support Erlang 21.*
+### Purpose ###
 
-#### Requirement ####
+The goal of this project is to leverage Erlang/OTP experience with Golang performance. *Ergo Framework* implements OTP design patterns such as `GenServer`/`Supervisor`/`Application` and makes you able to create high performance and reliable application having native integration with Erlang infrastructure
 
- * Go 1.10 and above
+### Features ###
 
-#### EPMD ####
-Ergonode has embedded EPMD implementation. It allows to run your nodes without erlang's empd dependency. There are two reason to activate embedded epmd:
+* Erlang node (run single/[multinode](#multinode))
+* [embedded EPMD](#epmd) (in order to get rid of erlang' dependencies)
+* Spawn Erlang-like processes
+* Register/unregister processes with simple atom
+* `GenServer` behavior support (with atomic state)
+* `Supervisor` behavior support (with all known restart strategies support)
+* `Application` behavior support
+* Connect to (accept connection from) any Erlang node within a cluster (or clusters, if running as multinode)
+* Making sync/async request in fashion of `gen_server:call` or `gen_server:cast`
+* Monitor processes/nodes
+  * local -> local
+  * local -> remote
+  * remote -> local
+* Link processes
+  * local <-> local
+  * local <-> remote
+  * remote <-> local
+* RPC callbacks support
+* Experimental [observer support](#observer)
+* Unmarshalling terms into the struct using etf.TermIntoStruct
+* Support Erlang 21.*
 
-- EPMD port is not taken during an ergonode initialization
-- lost connection to the EPMD server
+### Requirements ###
 
-Current implementation has a bit different behaviour (from the original ones) - ergonode tryes to restore connection to EPMD server in case of its has been lost. At the same time ergonode tryes to start its own EPMD (as embedded set of goroutines) to serve all epmd-requests from the nodes.
+* Go 1.10 and above
 
-You may want to use epmd as standalone application. There is simple drop-in replacement of [epmd](http://erlang.org/doc/man/epmd.html):
+### EPMD ###
 
-```
-go get -u github.com/halturin/ergonode/cmd/epmd
-```
+*Ergo Framework* has embedded EPMD implementation in order to run your node without external epmd process needs. By default it works as a client with erlang' epmd daemon or others ergo's nodes either.
 
-## Changelog ##
+The one thing that makes embedded EPMD different is the behavior of handling connection hangs - if ergo' node is running as an EPMD client and lost connection it tries either to run its own embedded EPMD service or to restore the lost connection.
 
-Here is the changes of latest release. For more details see the [ChangeLog](ChangeLog)
+As an extra option, we provide EPMD service as a standalone application. There is a simple drop-in replacement of the original Erlang' epmd daemon.
 
-#### [0.2.0](https://github.com/halturin/ergonode/releases/tag/0.2.0) - 2019-02-25 ####
-- Now we make versioning releases
-- Improve node creation. Now you can specify the listening port range. See 'Usage' for the details
-- Add embedded EPMD. 
+`go get -u github.com/halturin/ergo/cmd/epmd`
 
+### Multinode ###
 
+ This feature allows create two or more nodes within a single running instance. The only needs is specify the different set of options for creating nodes (such as: node name, empd port number, secret cookie). You may also want to use this feature to create 'proxy'-node between some clusters.
+ See [Examples](#examples) for more details
 
-## Usage ##
+### Observer ###
+
+ It allows you to see the most metrics/information using standard tool of Erlang distribution. The example below shows this feature in action using one of the [examples](examples/):
+
+![observer demo](./.images/observer.gif)
+
+### Changelog ###
+
+Here are the changes of latest release. For more details see the [ChangeLog](ChangeLog)
+
+#### [1.0.0](https://github.com/halturin/ergo/releases/tag/1.0.0) - 2020-03-03 ####
+
+ There is a bunch of changes we deliver with this release
+
+* We have changed the name - Ergo (or Ergo Framework). GitHub's repo has been renamed as well. We also have created cloned repo `ergonode` to support users of the old version of this project. So, its still available at [https://github.com/halturin/ergonode](https://github.com/halturin/ergonode). But it's strongly recommend to use the new one.
+* Completely reworked (almost from scratch) architecture whole project
+* Implemented linking process feature (in order to support Application/Supervisor behaviors)
+* Reworked Monitor-feature. Now it has full-featured support with remote process/nodes
+* Added multinode support
+* Added experimental observer support
+* Fixed incorrect ETF string encoding (it was encoded as binary instead of string)
+* Improved ETF TermIntoStruct decoder
+* Improved code structure and readability
+
+### Examples ###
+
+Code below is a simple implementation of GenServer pattern `examples/simple/GenServer.go`
 
 ```golang
+package main
 
-type goGenServ struct {
-    ergonode.GenServer
-    completeChan chan bool
+import (
+    "fmt"
+    "time"
+
+    ergo "github.com/halturin/ergonode"
+    "github.com/halturin/ergonode/etf"
+)
+
+type ExampleGenServer struct {
+    ergo.GenServer
+    process ergo.Process
 }
 
-
-// listen from ListenRangeBegin ... ListenRangeEnd and use custom EPMD port
-// n := ergonode.Create(NodeName, Cookie, uint16(ListenRangeBegin), uint16(ListenRangeEnd), uint16(EPMDPort))
-//
-// listen from ListenRangeBegin ... ListenRangeEnd with default EPMD port 4369
-// n := ergonode.Create(NodeName, Cookie, uint16(ListenRangeBegin), uint16(ListenRangeEnd))
-//
-// listen from ListenRangeBegin ... 65000 with default EPMD port 4369
-// n := ergonode.Create(NodeName, Cookie, uint16(ListenRangeBegin))
-
-// use default listen port range: 15000...65000 and use default EPMD port 4369
-Node := ergonode.Create("examplenode@127.0.0.1", "SecretCookie")
-completeChan := make(chan bool)
-gs := new(goGenServ)
-
-n.Spawn(gs, completeChan)
-
-message := etf.Term(etf.Atom("hello"))
-
-// gen_server:call({pname, 'node@address'} , hello) with default timeout 5 seconds
-to := etf.Tuple{etf.Atom("pname"), etf.Atom("node@address")}
-
-answer, err := gs.Call(to, message)
-fmt.Printf("Got response: %v\n", answer)
-
-// specify the custom calling timeout
-// gen_server:call({pname, 'node@address'} , hello, 8)
-answer, err := gs.Call(Pid, message, 12)
-
-
-// it's also possible to call using Pid (etf.Pid)
-answer, err := gs.Call(Pid, message)
-
-// gen_server:cast({pname, 'node@address'} , hello)
-to := etf.Tuple{etf.Atom("pname"), etf.Atom("node@address")}
-gs.Cast(to, message)
-
-// the same way using Pid
-gs.Cast(Pid, message)
-
-// simple sending message 'Pid ! hello'
-gs.Send(Pid, message)
-
-// to get pid like it does erlang:self()
-gs.Self()
-
-// set monitor. this gen_server will recieve the message (via HandleInfo) like
-// {'DOWN',#Ref<0.0.13893633.237772>,process,<26194.4.1>, Reason})
-// in case of remote process went down by some reason
-gs.Monitor(Pid)
-
-
-// *** http://erlang.org/doc/man/erlang.html#monitor_node-2
-// *** Making several calls to monitor_node(Node, true) for the same Node is not an error;
-// *** it results in as many independent monitoring instances.
-// seting up node monitor (will recieve {nodedown, Nodename})
-gs.MonitorNode(etf.Atom("node@address"), true)
-// removing monitor
-gs.MonitorNode(etf.Atom("node@address"), false)
-
-/*
- *  Simple example how are handling incoming messages.
- *  Interface implementation
- */
-
-// Init initializes process state using arbitrary arguments
-func (gs *goGenServ) Init(args ...interface{}) (state interface{}) {
-    // Self-registration with name SrvName
-    gs.Node.Register(etf.Atom(SrvName), gs.Self)
-    return nil
+type State struct {
+    value int
 }
 
-
-// HandleCast serves incoming messages sending via gen_server:cast
-// HandleCast -> (0, state) - noreply
-//               (-1, state) - normal stop (-2, -3 .... custom reasons to stop)
-func (gs *goGenServ) HandleCast(message *etf.Term, state interface{}) (code int, stateout interface{}) {
-    return 0, state
+func (egs *ExampleGenServer) Init(p ergo.Process, args ...interface{}) (state interface{}) {
+    fmt.Printf("Init: args %v \n", args)
+    egs.process = p
+    InitialState := &State{
+        value: args[0].(int), // 100
+    }
+    return InitialState
 }
 
-// HandleCall serves incoming messages sending via gen_server:call
-// HandleCall -> (1, reply, state) - reply
-//               (0, _, state) - noreply
-//               (-1, _, state) - normal stop (-2, -3 .... custom reasons to stop)
-func (gs *goGenServ) HandleCall(from *etf.Tuple, message *etf.Term) (code int, reply *etf.Term, stateout interface{}) {
-    reply = etf.Term(etf.Atom("ok"))
-    return 1, &reply, state
+func (egs *ExampleGenServer) HandleCast(message etf.Term, state interface{}) (string, interface{}) {
+    fmt.Printf("HandleCast: %#v (state value %d) \n", message, state.(*State).value)
+    time.Sleep(1 * time.Second)
+    state.(*State).value++
+
+    if state.(*State).value > 103 {
+        egs.process.Send(egs.process.Self(), "hello")
+    } else {
+        egs.process.Cast(egs.process.Self(), "hi")
+    }
+
+    return "noreply", state
 }
 
-// HandleInfo serves all another incoming messages (Pid ! message)
-// HandleInfo -> (0, state) - noreply
-//               (-1, state) - normal stop (-2, -3 .... custom reasons to stop)
-func (gs *goGenServ) HandleInfo(message *etf.Term, state interface{}) (code int, stateout interface{}) {
-    fmt.Printf("HandleInfo: %#v\n", *message)
-    return 0, state
+func (egs *ExampleGenServer) HandleCall(from etf.Tuple, message etf.Term, state interface{}) (string, etf.Term, interface{}) {
+    fmt.Printf("HandleCall: %#v, From: %#v\n", message, from)
+    return "reply", message, state
 }
 
-// Terminate called when process died
-func (gs *goGenServ) Terminate(reason int, state interface{}) {
-    fmt.Printf("Terminate: %#v\n", reason)
+func (egs *ExampleGenServer) HandleInfo(message etf.Term, state interface{}) (string, interface{}) {
+    fmt.Printf("HandleInfo: %#v (state value %d) \n", message, state.(*State).value)
+    time.Sleep(1 * time.Second)
+    state.(*State).value++
+    if state.(*State).value > 106 {
+        return "stop", "normal"
+    } else {
+        egs.process.Send(egs.process.Self(), "hello")
+    }
+    return "noreply", state
+}
+func (egs *ExampleGenServer) Terminate(reason string, state interface{}) {
+    fmt.Printf("Terminate: %#v \n", reason)
 }
 
+func main() {
+    node := ergo.CreateNode("node@localhost", "cookies", ergo.NodeOptions{})
+    gs1 := &ExampleGenServer{}
+    process, _ := node.Spawn("gs1", ergo.ProcessOptions{}, gs1, 100)
+
+    process.Cast(process.Self(), "hey")
+
+    select {
+    case <-process.Context.Done():
+        fmt.Println("exited")
+    }
+}
 
 ```
 
-## Example ##
+here is output of this code
 
-See `examples/` for simple implementation of node and `GenServer` process
+```shell
+$ go run ./examples/simple/GenServer.go
+Init: args [100]
+HandleCast: "hey" (state value 100)
+HandleCast: "hi" (state value 101)
+HandleCast: "hi" (state value 102)
+HandleCast: "hi" (state value 103)
+HandleInfo: "hello" (state value 104)
+HandleInfo: "hello" (state value 105)
+HandleInfo: "hello" (state value 106)
+Terminate: "normal"
+exited
+```
 
-## Elixir Phoenix Users ##
+See `examples/` for more details
+
+* [demoGenServer](examples/genserver)
+* [demoSupervisor](examples/supervisor)
+* [demoApplication](examples/application)
+* [demoMultinode](examples/multinode)
+
+### Elixir Phoenix Users ###
 
 Users of the Elixir Phoenix framework might encounter timeouts when trying to connect a Phoenix node
-to an ergonode node. The reason is that, in addition to global_name_server and net_kernel,
-Phoenix attemts to broadcast messages to the pg2 PubSub handler:
-https://hexdocs.pm/phoenix/1.1.0/Phoenix.PubSub.PG2.html
+to an ergo node. The reason is that, in addition to global_name_server and net_kernel,
+Phoenix attempts to broadcast messages to the [pg2 PubSub handler](https://hexdocs.pm/phoenix/1.1.0/Phoenix.PubSub.PG2.html)
 
 To work with Phoenix nodes, you must create and register a dedicated pg2 GenServer, and
 spawn it inside your node. Take inspiration from the global_name_server.go for the rest of
-the GenServer methods, but the Init must specify the "pg2" atom:
+the GenServer methods, but the Spawn must have "pg2" as a process name:
 
 ```golang
-func (pg2 *pg2Server) Init(args ...interface{}) (state interface{}) {
-    pg2.Node.Register(etf.Atom("pg2"), pg2.Self)
-    return nil
+type Pg2GenServer struct {
+    ergo.GenServer
 }
+
+func main() {
+    // ...
+    pg2 := &Pg2GenServer{}
+    node1 := ergo.CreateNode("node1@localhost", "cookies", ergo.NodeOptions{})
+    process, _ := node1.Spawn("pg2", ergo.ProcessOptions{}, pg2, nil)
+    // ...
+}
+
 ```
+
+### Development and debugging ###
+
+There is a couple of options are already defined that you might want to use
+
+* -trace.node
+* -trace.dist
+
+To enable Golang profiler just add `--tag debug` in your `go run` or `go build` like this:
+
+`go run --tags debug ./examples/genserver/demoGenServer.go`
+
+Now golang' profiler is available at `http://localhost:9009/debug/pprof`
+
+### Companies are using Ergo Framework ###
+
+[![Kaspersky](./.images/kaspersky.png)](https://kaspersky.com)
+[![RingCentral](./.images/ringcentral.png)](https://www.ringcentral.com)
+
+is your company using Ergo? add your company logo/name here
+
+### Commercial support
+
+if you are looking for commercial support feel free to contact me via email (halturin at gmail dot com)

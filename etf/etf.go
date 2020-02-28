@@ -1,8 +1,8 @@
 package etf
 
 import (
-	"encoding/json"
 	"fmt"
+	"hash/fnv"
 	"reflect"
 	"strings"
 )
@@ -63,6 +63,7 @@ type Function struct {
 
 var (
 	MapType = reflect.TypeOf(Map{})
+	hasher  = fnv.New32a()
 )
 
 func StringTerm(t Term) (s string, ok bool) {
@@ -159,7 +160,6 @@ var tagNames = map[byte]string{
 	ettString:        "STRING_EXT",
 }
 
-
 func (m Map) Element(k Term) Term {
 	return m[k]
 }
@@ -172,6 +172,11 @@ func (t Tuple) Element(i int) Term {
 	return t[i-1]
 }
 
+func (p Pid) Str() string {
+	hasher.Write([]byte(p.Node))
+	defer hasher.Reset()
+	return fmt.Sprintf("<%X.%d.%d>", hasher.Sum32(), p.Id, p.Serial)
+}
 func tagName(t byte) (name string) {
 	name = tagNames[t]
 	if name == "" {
@@ -406,13 +411,4 @@ type InvalidStructKeyError struct {
 
 func (s *InvalidStructKeyError) Error() string {
 	return fmt.Sprintf("Cannot use %s as struct field name", reflect.TypeOf(s.Term).Name())
-}
-
-func (m Map) MarshalJSON() ([]byte, error) {
-	var v map[string]interface{}
-	v = make(map[string]interface{}, len(m))
-	for key, val := range m {
-		v[key.(string)] = val
-	}
-	return json.Marshal(v)
 }

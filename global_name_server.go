@@ -1,5 +1,7 @@
 package ergonode
 
+// TODO: https://github.com/erlang/otp/blob/master/lib/kernel/src/global.erl
+
 import (
 	"github.com/halturin/ergonode/etf"
 	"github.com/halturin/ergonode/lib"
@@ -7,37 +9,47 @@ import (
 
 type globalNameServer struct {
 	GenServer
+	process *Process
 }
 
-func (gns *globalNameServer) Init(args ...interface{}) (state interface{}) {
+type state struct {
+}
+
+// Init initializes process state using arbitrary arguments
+// Init -> state
+func (ns *globalNameServer) Init(p *Process, args ...interface{}) interface{} {
 	lib.Log("GLOBAL_NAME_SERVER: Init: %#v", args)
-	gns.Node.Register(etf.Atom("global_name_server"), gns.Self)
-	return nil
+	ns.process = p
+
+	return state{}
 }
 
-func (gns *globalNameServer) HandleCast(message *etf.Term, state interface{}) (code int, stateout interface{}) {
-	lib.Log("GLOBAL_NAME_SERVER: HandleCast: %#v", *message)
-	stateout = state
-	code = 0
-	return
+// HandleCast -> ("noreply", state) - noreply
+//		         ("stop", reason) - stop with reason
+func (ns *globalNameServer) HandleCast(message etf.Term, state interface{}) (string, interface{}) {
+	lib.Log("GLOBAL_NAME_SERVER: HandleCast: %#v", message)
+	return "noreply", state
 }
 
-func (gns *globalNameServer) HandleCall(from *etf.Tuple, message *etf.Term, state interface{}) (code int, reply *etf.Term, stateout interface{}) {
-	lib.Log("GLOBAL_NAME_SERVER: HandleCall: %#v, From: %#v", *message, *from)
-	stateout = state
-	code = 1
-	replyTerm := etf.Term(etf.Atom("reply"))
-	reply = &replyTerm
-	return
+// HandleCall serves incoming messages sending via gen_server:call
+// HandleCall -> ("reply", message, state) - reply
+//				 ("noreply", _, state) - noreply
+//		         ("stop", reason, _) - normal stop
+func (ns *globalNameServer) HandleCall(from etf.Tuple, message etf.Term, state interface{}) (string, etf.Term, interface{}) {
+	lib.Log("GLOBAL_NAME_SERVER: HandleCall: %#v, From: %#v", message, from)
+	reply := etf.Term(etf.Atom("reply"))
+	return "reply", reply, state
 }
 
-func (gns *globalNameServer) HandleInfo(message *etf.Term, state interface{}) (code int, stateout interface{}) {
-	lib.Log("GLOBAL_NAME_SERVER: HandleInfo: %#v", *message)
-	stateout = state
-	code = 0
-	return
+// HandleInfo serves all another incoming messages (Pid ! message)
+// HandleInfo -> ("noreply", state) - noreply
+//		         ("stop", reason) - normal stop
+func (ns *globalNameServer) HandleInfo(message etf.Term, state interface{}) (string, interface{}) {
+	lib.Log("GLOBAL_NAME_SERVER: HandleInfo: %#v", message)
+	return "noreply", state
 }
 
-func (gns *globalNameServer) Terminate(reason int, state interface{}) {
+// Terminate called when process died
+func (ns *globalNameServer) Terminate(reason string, state interface{}) {
 	lib.Log("GLOBAL_NAME_SERVER: Terminate: %#v", reason)
 }
