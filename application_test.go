@@ -302,9 +302,9 @@ func TestApplicationTypeTransient(t *testing.T) {
 
 func TestApplicationTypeTemporary(t *testing.T) {
 	fmt.Printf("\n=== Test Application type Temporary\n")
-	fmt.Printf("\nStarting node nodeTestAplicationTypeTemporary@localhost:")
+	fmt.Printf("\nStarting node nodeTestAplicationStop@localhost:")
 	ctx := context.Background()
-	node := CreateNodeWithContext(ctx, "nodeTestApplicationTypeTemporary@localhost", "cookies", NodeOptions{})
+	node := CreateNodeWithContext(ctx, "nodeTestApplicationStop@localhost", "cookies", NodeOptions{})
 	if node == nil {
 		t.Fatal("can't start node")
 	} else {
