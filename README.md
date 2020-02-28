@@ -66,7 +66,7 @@ As an extra option, we provide EPMD service as a standalone application. There i
 
 Here are the changes of latest release. For more details see the [ChangeLog](ChangeLog)
 
-#### [1.0.0](https://github.com/halturin/ergo/releases/tag/1.0.0) - 2019-11-30 ####
+#### [1.0.0](https://github.com/halturin/ergo/releases/tag/1.0.0) - 2020-03-03 ####
 
  There is a bunch of changes we deliver with this release
 
@@ -79,7 +79,6 @@ Here are the changes of latest release. For more details see the [ChangeLog](Cha
 * Fixed incorrect ETF string encoding (it was encoded as binary instead of string)
 * Improved ETF TermIntoStruct decoder
 * Improved code structure and readability
-* Among the new features we have added new bugs that are still uncovered :). So, any feedback/bugreport/contribution is highly appreciated
 
 ### Examples ###
 

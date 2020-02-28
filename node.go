@@ -182,6 +182,21 @@ func (n *Node) Wait() {
 	<-n.context.Done()
 }
 
+// WaitWithTimeout waits until node stopped. Return ErrTimeout
+// if given timeout is exceeded
+func (n *Node) WaitWithTimeout(d time.Duration) error {
+
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+
+	select {
+	case <-timer.C:
+		return ErrTimeout
+	case <-n.context.Done():
+		return nil
+	}
+}
+
 // ProcessInfo returns the details about given Pid
 func (n *Node) ProcessInfo(pid etf.Pid) (ProcessInfo, error) {
 	p := n.registrar.GetProcessByPid(pid)

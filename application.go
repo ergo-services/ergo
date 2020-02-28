@@ -120,24 +120,23 @@ func (a *Application) loop(p *Process, object interface{}, args ...interface{}) 
 			// time to die
 			go p.Exit(p.Self(), "normal")
 		case msg := <-p.mailBox:
-			if len(msg) == 0 {
-				continue // ignore
-			}
-			switch r := msg[0].(type) {
+			//fromPid := msg.Element(1).(etf.Pid)
+			message := msg.Element(2)
+			switch r := message.(type) {
 			case etf.Tuple:
-				var terminatedProcess *Process
 				// waiting for {'EXIT', Pid, Reason}
 				if len(r) != 3 || r.Element(1) != etf.Atom("EXIT") {
 					// unknown. ignoring
 					continue
 				}
 				terminated := r.Element(2).(etf.Pid)
+				terminatedName := terminated.Str()
 				reason := r.Element(3).(etf.Atom)
 
 				for i := range spec.Children {
 					child := spec.Children[i].process
 					if child != nil && child.Self() == terminated {
-						terminatedProcess = child
+						terminatedName = child.Name()
 						break
 					}
 				}
@@ -145,23 +144,24 @@ func (a *Application) loop(p *Process, object interface{}, args ...interface{}) 
 				switch spec.startType {
 				case ApplicationStartPermanent:
 					a.stopChildren(terminated, spec.Children, string(reason))
-					fmt.Printf("Application (process) %s stopped with reason %s (permanent)", terminatedProcess.Name(), reason)
+					fmt.Printf("Application child %s stopped with reason %s (permanent: node %s is shutting down)",
+						terminatedName, reason, p.Node.FullName)
 					p.Node.Stop()
 					return "shutdown"
 
 				case ApplicationStartTransient:
 					if reason == etf.Atom("normal") || reason == etf.Atom("shutdown") {
-						fmt.Printf("Application (process) %s stopped with reason %s (transient)", terminatedProcess.Name(), reason)
+						fmt.Printf("Application child %s stopped with reason %s (transient)", terminatedName, reason)
 						continue
 					}
 					a.stopChildren(terminated, spec.Children, "normal")
-					fmt.Printf("Application (process) %s stopped with reason %s. Node %s is shutting down",
-						terminatedProcess.Name(), reason, p.Node.FullName)
+					fmt.Printf("Application child %s stopped with reason %s. (transient: node %s is shutting down)",
+						terminatedName, reason, p.Node.FullName)
 					p.Node.Stop()
 					return string(reason)
 
 				case ApplicationStartTemporary:
-					fmt.Printf("Application (process) %s stopped with reason %s (temporary)", terminatedProcess.Name(), reason)
+					fmt.Printf("Application child %s stopped with reason %s (temporary)", terminatedName, reason)
 				}
 
 			}

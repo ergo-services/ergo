@@ -172,6 +172,11 @@ func (sv *Supervisor) loop(svp *Process, object interface{}, args ...interface{}
 			switch m.Element(1) {
 
 			case etf.Atom("EXIT"):
+
+				// TODO: implement handling termination by linked process which is
+				// not a child of this supervision tree. See implementation
+				// this case in gen_server.go
+
 				terminated := m.Element(2).(etf.Pid)
 				reason := m.Element(3).(etf.Atom)
 				if len(waitTerminatingProcesses) > 0 {

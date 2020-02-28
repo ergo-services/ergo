@@ -53,7 +53,7 @@ func (gs *testAppGenServer) HandleCast(message etf.Term, state interface{}) (str
 }
 
 func (gs *testAppGenServer) HandleCall(from etf.Tuple, message etf.Term, state interface{}) (string, etf.Term, interface{}) {
-	return "reply", etf.Atom("ok"), nil
+	return "stop", message, nil
 }
 
 func (gs *testAppGenServer) HandleInfo(message etf.Term, state interface{}) (string, interface{}) {
@@ -61,7 +61,7 @@ func (gs *testAppGenServer) HandleInfo(message etf.Term, state interface{}) (str
 }
 
 func (gs *testAppGenServer) Terminate(reason string, state interface{}) {
-	//fmt.Println("TERMINATING TEST GS IN APP with reason:", reason)
+	fmt.Println("TERMINATING TEST GS IN APP with reason:", reason)
 }
 
 // testing application
@@ -152,7 +152,9 @@ func TestApplication(t *testing.T) {
 	}
 	fmt.Println("OK")
 
-	p.Wait()
+	if e := p.WaitWithTimeout(100 * time.Millisecond); e != nil {
+		t.Fatal("timed out")
+	}
 	wa = node.WhichApplications()
 	if len(wa) != 0 {
 		fmt.Println("waa: ", wa)
@@ -170,7 +172,9 @@ func TestApplication(t *testing.T) {
 	fmt.Println("OK")
 	fmt.Printf("Kill application...")
 	p.Kill()
-	p.Wait()
+	if e := p.WaitWithTimeout(100 * time.Millisecond); e != nil {
+		t.Fatal("timed out")
+	}
 	fmt.Println("OK")
 
 	node.ApplicationUnload("testapp1")
@@ -188,7 +192,9 @@ func TestApplication(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	p.Wait()
+	if e := p.WaitWithTimeout(160 * time.Millisecond); e != nil {
+		t.Fatal("application lifespan was longer than 150m")
+	}
 	tLifeSpan := time.Since(tStart)
 
 	if node.IsProcessAlive(p.Self()) {
@@ -197,10 +203,6 @@ func TestApplication(t *testing.T) {
 
 	if tLifeSpan < lifeSpan {
 		t.Fatal("application lifespan was shorter than 150ms")
-	}
-
-	if tLifeSpan > 160*time.Millisecond {
-		t.Fatal("application lifespan was much longer than 150ms")
 	}
 
 	fmt.Println("OK. lifespan:", tLifeSpan)
@@ -238,10 +240,19 @@ func TestApplicationTypePermanent(t *testing.T) {
 		t.Fatal(e)
 	}
 
-	p.Exit(p.Self(), "normal")
-	p.Wait()
+	gs := node.GetProcessByName("testGS")
+
+	gs.Exit(p.Self(), "abnormal")
+	if e := gs.WaitWithTimeout(100 * time.Millisecond); e != nil {
+		t.Fatal("timeout on waiting child")
+	}
+
+	if e := node.WaitWithTimeout(100 * time.Millisecond); e != nil {
+		t.Fatal("node shouldn't be alive here")
+	}
+
 	if node.IsAlive() {
-		t.Fatal("node is still alive")
+		t.Fatal("node shouldn't be alive here")
 	}
 
 }

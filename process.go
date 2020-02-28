@@ -310,6 +310,20 @@ func (p *Process) Wait() {
 	<-p.Context.Done() // closed once context canceled
 }
 
+// WaitWithTimeout waits until process stopped. Return ErrTimeout
+// if given timeout is exceeded
+func (p *Process) WaitWithTimeout(d time.Duration) error {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+
+	select {
+	case <-timer.C:
+		return ErrTimeout
+	case <-p.Context.Done():
+		return nil
+	}
+}
+
 // IsAlive returns whether the process is alive
 func (p *Process) IsAlive() bool {
 	return p.Context.Err() == nil
