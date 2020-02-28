@@ -1,12 +1,12 @@
-package ergonode
+package ergo
 
 // http://erlang.org/doc/reference_manual/processes.html
 
 import (
 	"fmt"
 
-	"github.com/halturin/ergonode/etf"
-	"github.com/halturin/ergonode/lib"
+	"github.com/halturin/ergo/etf"
+	"github.com/halturin/ergo/lib"
 )
 
 type monitorProcessRequest struct {

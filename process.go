@@ -1,4 +1,4 @@
-package ergonode
+package ergo
 
 import (
 	"context"
@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/halturin/ergonode/etf"
-	"github.com/halturin/ergonode/lib"
+	"github.com/halturin/ergo/etf"
+	"github.com/halturin/ergo/lib"
 )
 
 type ProcessType = string

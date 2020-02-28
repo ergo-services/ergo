@@ -1,11 +1,11 @@
 # Ergo Framework #
 
-[![GitHub release](https://img.shields.io/github/release/halturin/ergonode.svg)](https://github.com/halturin/ergonode/releases/latest)
-[![Go Report Card](https://goreportcard.com/badge/github.com/halturin/ergonode)](https://goreportcard.com/report/github.com/halturin/ergonode)
-[![GoDoc](https://godoc.org/code.gitea.io/gitea?status.svg)](https://godoc.org/github.com/halturin/ergonode)
+[![GitHub release](https://img.shields.io/github/release/halturin/ergo.svg)](https://github.com/halturin/ergo/releases/latest)
+[![Go Report Card](https://goreportcard.com/badge/github.com/halturin/ergo)](https://goreportcard.com/report/github.com/halturin/ergo)
+[![GoDoc](https://godoc.org/halturin/ergo?status.svg)](https://godoc.org/github.com/halturin/ergo)
 [![MIT license](https://img.shields.io/badge/license-MIT-brightgreen.svg)](https://opensource.org/licenses/MIT)
-[![codecov](https://codecov.io/gh/halturin/ergonode/branch/supervisor/graph/badge.svg)](https://codecov.io/gh/halturin/ergonode)
-[![Build Status](https://travis-ci.org/halturin/ergonode.svg?branch=supervisor)](https://travis-ci.org/halturin/ergonode)
+[![codecov](https://codecov.io/gh/halturin/ergo/graph/badge.svg)](https://codecov.io/gh/halturin/ergo)
+[![Build Status](https://travis-ci.org/halturin/ergo.svg)](https://travis-ci.org/halturin/ergo)
 
 Implementation of Erlang/OTP in Golang
 
@@ -91,8 +91,8 @@ import (
     "fmt"
     "time"
 
-    ergo "github.com/halturin/ergonode"
-    "github.com/halturin/ergonode/etf"
+    "github.com/halturin/ergo"
+    "github.com/halturin/ergo/etf"
 )
 
 type ExampleGenServer struct {

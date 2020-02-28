@@ -1,10 +1,10 @@
-package ergonode
+package ergo
 
 // TODO: https://github.com/erlang/otp/blob/master/lib/runtime_tools-1.13.1/src/erlang_info.erl
 
 import (
-	"github.com/halturin/ergonode/etf"
-	"github.com/halturin/ergonode/lib"
+	"github.com/halturin/ergo/etf"
+	"github.com/halturin/ergo/lib"
 )
 
 type erlang struct {

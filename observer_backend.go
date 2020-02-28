@@ -1,4 +1,4 @@
-package ergonode
+package ergo
 
 // https://github.com/erlang/otp/blob/master/lib/observer/src/observer_procinfo.erl
 
@@ -7,8 +7,8 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/halturin/ergonode/etf"
-	"github.com/halturin/ergonode/lib"
+	"github.com/halturin/ergo/etf"
+	"github.com/halturin/ergo/lib"
 )
 
 var m runtime.MemStats

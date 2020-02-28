@@ -1,10 +1,10 @@
-package ergonode
+package ergo
 
 // TODO: https://github.com/erlang/otp/blob/master/lib/kernel/src/global.erl
 
 import (
-	"github.com/halturin/ergonode/etf"
-	"github.com/halturin/ergonode/lib"
+	"github.com/halturin/ergo/etf"
+	"github.com/halturin/ergo/lib"
 )
 
 type globalNameServer struct {

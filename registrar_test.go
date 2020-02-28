@@ -1,11 +1,11 @@
-package ergonode
+package ergo
 
 import (
 	"fmt"
 	"testing"
 	"time"
 
-	"github.com/halturin/ergonode/etf"
+	"github.com/halturin/ergo/etf"
 )
 
 type TestRegistrarGenserver struct {

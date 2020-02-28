@@ -15,7 +15,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/halturin/ergonode/etf"
+	"github.com/halturin/ergo/etf"
 )
 
 var dTrace bool

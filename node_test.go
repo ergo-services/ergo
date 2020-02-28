@@ -1,4 +1,4 @@
-package ergonode
+package ergo
 
 import (
 	"fmt"

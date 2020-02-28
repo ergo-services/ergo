@@ -1,4 +1,4 @@
-package ergonode
+package ergo
 
 // http://erlang.org/doc/apps/kernel/application.html
 
@@ -7,8 +7,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/halturin/ergonode/etf"
-	"github.com/halturin/ergonode/lib"
+	"github.com/halturin/ergo/etf"
+	"github.com/halturin/ergo/lib"
 )
 
 type ApplicationStartType = string

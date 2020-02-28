@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"time"
 
-	ergo "github.com/halturin/ergonode"
-	"github.com/halturin/ergonode/etf"
+	"github.com/halturin/ergo"
+	"github.com/halturin/ergo/etf"
 )
 
 // ExampleGenServer simple implementation of GenServer

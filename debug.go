@@ -1,6 +1,6 @@
 //+build debug
 
-package ergonode
+package ergo
 
 import (
 	"net/http"

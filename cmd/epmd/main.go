@@ -8,7 +8,7 @@ import (
 	"net"
 	"strconv"
 
-	"github.com/halturin/ergonode/dist"
+	"github.com/halturin/ergo/dist"
 )
 
 var (

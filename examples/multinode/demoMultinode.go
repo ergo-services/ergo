@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"sync"
 
-	ergo "github.com/halturin/ergonode"
-	"github.com/halturin/ergonode/etf"
+	"github.com/halturin/ergo"
+	"github.com/halturin/ergo/etf"
 )
 
 // GenServer implementation structure

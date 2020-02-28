@@ -1,10 +1,10 @@
-package ergonode
+package ergo
 
 import (
 	"fmt"
 	"net"
 
-	"github.com/halturin/ergonode/etf"
+	"github.com/halturin/ergo/etf"
 )
 
 var (

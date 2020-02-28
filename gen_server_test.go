@@ -1,4 +1,4 @@
-package ergonode
+package ergo
 
 import (
 	"fmt"
@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/halturin/ergonode/etf"
+	"github.com/halturin/ergo/etf"
 )
 
 // This test is checking the cases below:

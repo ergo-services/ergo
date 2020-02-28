@@ -1,10 +1,10 @@
-package ergonode
+package ergo
 
 import (
 	"sync"
 
-	"github.com/halturin/ergonode/etf"
-	"github.com/halturin/ergonode/lib"
+	"github.com/halturin/ergo/etf"
+	"github.com/halturin/ergo/lib"
 )
 
 const (

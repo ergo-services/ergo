@@ -1,12 +1,12 @@
-package ergonode
+package ergo
 
 // https://github.com/erlang/otp/blob/master/lib/kernel/src/rpc.erl
 
 import (
 	"fmt"
 
-	"github.com/halturin/ergonode/etf"
-	"github.com/halturin/ergonode/lib"
+	"github.com/halturin/ergo/etf"
+	"github.com/halturin/ergo/lib"
 )
 
 type rpcFunction func(...etf.Term) etf.Term

@@ -1,4 +1,4 @@
-package ergonode
+package ergo
 
 import (
 	"context"
@@ -8,9 +8,9 @@ import (
 	"sync/atomic"
 	"syscall"
 
-	"github.com/halturin/ergonode/dist"
-	"github.com/halturin/ergonode/etf"
-	"github.com/halturin/ergonode/lib"
+	"github.com/halturin/ergo/dist"
+	"github.com/halturin/ergo/etf"
+	"github.com/halturin/ergo/lib"
 
 	"net"
 	"strconv"

@@ -1,4 +1,4 @@
-package ergonode
+package ergo
 
 // - Supervisor
 
@@ -44,9 +44,9 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/halturin/ergonode/etf"
+	"github.com/halturin/ergo/etf"
 	// "time"
-	// "github.com/halturin/ergonode/etf"
+	// "github.com/halturin/ergo/etf"
 )
 
 type testSupervisorRestForOne struct {
