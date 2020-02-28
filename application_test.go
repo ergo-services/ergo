@@ -27,7 +27,7 @@ func (a *testApplication) Load(args ...interface{}) (ApplicationSpec, error) {
 		Children: []ApplicationChildSpec{
 			ApplicationChildSpec{
 				Child: &testAppGenServer{},
-				Name:  "testGS",
+				Name:  "testAppGS",
 			},
 		},
 		Lifespan: lifeSpan,
@@ -240,7 +240,7 @@ func TestApplicationTypePermanent(t *testing.T) {
 		t.Fatal(e)
 	}
 
-	gs := node.GetProcessByName("testGS")
+	gs := node.GetProcessByName("testAppGS")
 
 	gs.Exit(p.Self(), "abnormal")
 	if e := gs.WaitWithTimeout(100 * time.Millisecond); e != nil {
