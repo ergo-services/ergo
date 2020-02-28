@@ -310,31 +310,80 @@ func TestApplicationTypeTransient(t *testing.T) {
 	}
 
 	fmt.Printf("Starting application...")
-	app := &testApplication{}
+	app1 := &testApplication{}
+	app2 := &testApplication{}
 	lifeSpan := time.Duration(0)
-	if err := node.ApplicationLoad(app, lifeSpan, "testapp"); err != nil {
+
+	if err := node.ApplicationLoad(app1, lifeSpan, "testapp1", "testAppGS1"); err != nil {
 		t.Fatal(err)
 	}
 
-	p, e := node.ApplicationStart("testapp")
-	if e != nil {
-		t.Fatal(e)
+	if err := node.ApplicationLoad(app2, lifeSpan, "testapp2", "testAppGS2"); err != nil {
+		t.Fatal(err)
 	}
 
-	gs := node.GetProcessByName("testAppGS")
+	p1, e1 := node.ApplicationStartTransient("testapp1")
+	if e1 != nil {
+		t.Fatal(e1)
+	}
+
+	p2, e2 := node.ApplicationStartTransient("testapp2")
+	if e2 != nil {
+		t.Fatal(e2)
+	}
+
+	fmt.Println("OK")
+
+	fmt.Printf("stopping testAppGS1 with 'normal' reason (shouldn't affect testAppGS2)...")
+	gs := node.GetProcessByName("testAppGS1")
 	gs.Exit(gs.Self(), "normal")
 	if e := gs.WaitWithTimeout(100 * time.Millisecond); e != nil {
 		t.Fatal(e)
 	}
 
-	if p.IsAlive() {
+	if e := p1.WaitWithTimeout(100 * time.Millisecond); e != ErrTimeout {
+		t.Fatal("application testapp1 should be alive here")
+	}
 
+	p1.Kill()
+
+	p2.WaitWithTimeout(100 * time.Millisecond)
+	if !p2.IsAlive() {
+		t.Fatal("testAppGS2 should be alive here")
 	}
 
 	if !node.IsAlive() {
 		t.Fatal("node should be alive here")
 	}
 
+	fmt.Println("OK")
+
+	fmt.Println("starting application testapp1")
+	p1, e1 = node.ApplicationStartTransient("testapp1")
+	if e1 != nil {
+		t.Fatal(e1)
+	}
+	fmt.Println("OK")
+
+	fmt.Printf("stopping testAppGS1 with 'abnormal' reason (node will shotdown)...")
+	gs = node.GetProcessByName("testAppGS1")
+	gs.Exit(gs.Self(), "abnormal")
+
+	if e := gs.WaitWithTimeout(100 * time.Millisecond); e != nil {
+		t.Fatal(e)
+	}
+
+	if e := p1.WaitWithTimeout(100 * time.Millisecond); e != nil {
+		t.Fatal("testapp1 shouldn't be alive here")
+	}
+
+	if e := p2.WaitWithTimeout(100 * time.Millisecond); e != nil {
+		t.Fatal("testapp2 shouldn't be alive here")
+	}
+
+	if e := node.WaitWithTimeout(100 * time.Millisecond); e != nil {
+		t.Fatal("node shouldn't be alive here")
+	}
 }
 
 func TestApplicationTypeTemporary(t *testing.T) {
