@@ -126,7 +126,7 @@ func TestApplication(t *testing.T) {
 	//
 	fmt.Printf("Starting application... ")
 	// use the new app name because the unloading takes some time
-	if err := node.ApplicationLoad(app, lifeSpan, "testapp1"); err != nil {
+	if err := node.ApplicationLoad(app, lifeSpan, "testapp1", "testAppGS1"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -188,7 +188,7 @@ func TestApplication(t *testing.T) {
 	//
 	fmt.Printf("Starting application with lifespan 150ms...")
 	lifeSpan = 150 * time.Millisecond
-	if err := node.ApplicationLoad(app, lifeSpan, "testapp2"); err != nil {
+	if err := node.ApplicationLoad(app, lifeSpan, "testapp2", "testAppGS2"); err != nil {
 		t.Fatal(err)
 	}
 	tStart := time.Now()
