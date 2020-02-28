@@ -190,6 +190,18 @@ func TestApplication(t *testing.T) {
 	}
 	fmt.Println("OK")
 
+	// case 2.3: get application info
+
+	fmt.Printf("get application info for testapp1...")
+	info, errInfo := node.GetApplicationInfo("testapp1")
+	if errInfo != nil {
+		t.Fatal(errInfo)
+	}
+	if p.Self() != info.PID {
+		t.Fatal("incorrect pid in application info")
+	}
+	fmt.Println("OK")
+
 	fmt.Printf("Stopping application ...")
 	if e := node.ApplicationStop("testapp1"); e != nil {
 		t.Fatal(e)
