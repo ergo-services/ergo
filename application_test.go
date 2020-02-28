@@ -202,7 +202,7 @@ func TestApplication(t *testing.T) {
 	}
 
 	if tLifeSpan < lifeSpan {
-		t.Fatal("application lifespan was shorter than 150ms")
+		t.Fatal("application lifespan was shorter(", tLifeSpan, ") than ", lifeSpan)
 	}
 
 	fmt.Println("OK. lifespan:", tLifeSpan)
