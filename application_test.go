@@ -66,7 +66,7 @@ func (gs *testAppGenServer) HandleInfo(message etf.Term, state interface{}) (str
 }
 
 func (gs *testAppGenServer) Terminate(reason string, state interface{}) {
-	fmt.Println("TERMINATING TEST GS IN APP with reason:", reason)
+	//fmt.Println("TERMINATING TEST GS IN APP with reason:", reason)
 }
 
 // testing application

@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 This format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-#### [1.0.0](https://github.com/halturin/ergo/releases/tag/1.0.0) - 2019-11-30 ####
+#### [1.0.0](https://github.com/halturin/ergo/releases/tag/1.0.0) - 2020-03-03 ####
 ## There is a bunch of changes we deliver with this release
 - We have changed the name - Ergo (or Ergo Framework). GitHub's repo has been 
 renamed as well. We also created cloned repo `ergonode` to support users of 
