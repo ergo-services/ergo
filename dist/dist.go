@@ -55,14 +55,12 @@ const (
 
 type nodeFlag flagId
 
-func (nf nodeFlag) toUint32() (flag uint32) {
-	flag = uint32(nf)
-	return
+func (nf nodeFlag) toUint32() uint32 {
+	return uint32(nf)
 }
 
-func (nf nodeFlag) isSet(f flagId) (is bool) {
-	is = (uint32(nf) & uint32(f)) != 0
-	return
+func (nf nodeFlag) isSet(f flagId) bool {
+	return (uint32(nf) & uint32(f)) != 0
 }
 
 func toNodeFlag(f ...flagId) (nf nodeFlag) {
