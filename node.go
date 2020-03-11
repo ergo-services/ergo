@@ -62,12 +62,13 @@ func CreateNodeWithContext(ctx context.Context, name string, cookie string, opts
 	lib.Log("Start with name '%s' and cookie '%s'", name, cookie)
 	nodectx, nodestop := context.WithCancel(ctx)
 
-	node := Node{
+	node := &Node{
 		Cookie:    cookie,
 		context:   nodectx,
 		Stop:      nodestop,
 		StartedAt: time.Now(),
-		uniqID:    time.Now().UnixNano(),
+		uniqID:    time.Now().UnixNano(), // (*uint64)(unsafe.Pointer(node)) ?
+
 	}
 
 	// start networking if name is defined
@@ -96,7 +97,7 @@ func CreateNodeWithContext(ctx context.Context, name string, cookie string, opts
 			panic("FQDN for node name is required (example: node@hostname)")
 		}
 
-		if listenPort := node.listen(ns[1], opts.ListenRangeBegin, opts.ListenRangeEnd); listenPort == 0 {
+		if listenPort := node.listen(ns[1], opts.ListenRangeBegin, opts.ListenRangeEnd, opts.Hidden); listenPort == 0 {
 			panic("Can't listen port")
 		} else {
 			// start EPMD
@@ -105,13 +106,13 @@ func CreateNodeWithContext(ctx context.Context, name string, cookie string, opts
 
 	}
 
-	node.registrar = createRegistrar(&node)
-	node.monitor = createMonitor(&node)
+	node.registrar = createRegistrar(node)
+	node.monitor = createMonitor(node)
 
 	netKernelSup := &netKernelSup{}
 	node.Spawn("net_kernel_sup", ProcessOptions{}, netKernelSup)
 
-	return &node
+	return node
 }
 
 // Spawn create new process
@@ -247,7 +248,12 @@ func (n *Node) serve(c net.Conn, negotiate bool) error {
 		defer func() { n.registrar.UnregisterPeer(nodeDesc.GetRemoteName()) }()
 		for {
 			terms, err := nodeDesc.ReadMessage(c)
+
 			if err != nil {
+				if err == ErrFragmented {
+					continue
+				}
+
 				lib.Log("node error (reading): %s", err.Error())
 				break
 			}
@@ -638,14 +644,19 @@ func (n *Node) connect(to etf.Atom) error {
 		return err
 	}
 
-	if err := n.serve(c, true); err != nil {
+	link, e := dist.Handshake(c, n.FullName, n.Cookie, hidden)
+	if e != nil {
+		return e
+	}
+
+	if err := n.serve(link); err != nil {
 		c.Close()
 		return err
 	}
 	return nil
 }
 
-func (n *Node) listen(name string, listenRangeBegin, listenRangeEnd uint16) uint16 {
+func (n *Node) listen(name string, listenRangeBegin, listenRangeEnd uint16, hidden bool) uint16 {
 
 	lc := net.ListenConfig{Control: setSocketOptions}
 
@@ -660,13 +671,21 @@ func (n *Node) listen(name string, listenRangeBegin, listenRangeEnd uint16) uint
 
 				lib.Log("Accepted new connection from %s", c.RemoteAddr().String())
 				if err != nil {
+					//FIXME: handle canceled context
 					lib.Log(err.Error())
-				} else {
-					if err := n.serve(c, false); err != nil {
-						lib.Log("Can't serve connection due to: %s", err)
-						c.Close()
-					}
+					continue
 				}
+
+				link, e := dist.HandshakeAccept(c, n.FullName, n.Cookie, hidden)
+				if e != nil {
+					lib.Log("Can't handshake with %s: %s", c.RemoteAddr().String(), e)
+				}
+
+				if err := n.serve(link); err != nil {
+					lib.Log("Can't serve connection link due to: %s", err)
+					c.Close()
+				}
+
 			}
 		}()
 		return p

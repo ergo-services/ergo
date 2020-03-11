@@ -19,6 +19,7 @@ var (
 
 	ErrUnsupportedRequest = fmt.Errorf("Unsupported request")
 	ErrTimeout            = fmt.Errorf("Timed out")
+	ErrFragmented         = fmt.Errorf("Fragmented data")
 )
 
 // Distributed operations codes (http://www.erlang.org/doc/apps/erts/erl_dist_protocol.html)

@@ -4,7 +4,14 @@ import (
 	"fmt"
 	"net"
 	"testing"
+
+	"github.com/halturin/ergo/etf"
 )
+
+type benchCase struct {
+	name  string
+	value etf.Term
+}
 
 func TestNode(t *testing.T) {
 	opts := NodeOptions{
@@ -57,4 +64,71 @@ func TestNode(t *testing.T) {
 	}
 
 	node.Stop()
+}
+
+type benchGS struct {
+	GenServer
+}
+
+func (b *benchGS) Init(p *Process, args ...interface{}) interface{} {
+	return nil
+}
+
+func (b *benchGS) HandleCall(from etf.Tuple, message etf.Term, state interface{}) (string, etf.Term, interface{}) {
+	return "reply", etf.Atom("ok"), state
+}
+
+func (b *benchGS) HandleCast(message etf.Term, state interface{}) (string, interface{}) {
+	return "noreply", state
+}
+
+func (b *benchGS) HandleInfo(message etf.Term, state interface{}) (string, interface{}) {
+	return "noreply", state
+}
+
+func (b *benchGS) Terminate(reason string, state interface{}) {
+
+}
+
+func BenchmarkNode(b *testing.B) {
+
+	node1name := fmt.Sprintf("nodeB1_%d@localhost", b.N)
+	node2name := fmt.Sprintf("nodeB2_%d@localhost", b.N)
+	node1 := CreateNode(node1name, "bench", NodeOptions{})
+	node2 := CreateNode(node2name, "bench", NodeOptions{})
+
+	bgs := &benchGS{}
+
+	p1, e1 := node1.Spawn("", ProcessOptions{}, bgs)
+	p2, e2 := node2.Spawn("", ProcessOptions{}, bgs)
+
+	fmt.Println("pids: ", p1.Self(), p2.Self())
+
+	if e1 != nil {
+		b.Fatal(e1)
+	}
+	if e2 != nil {
+		b.Fatal(e2)
+	}
+
+	b.ResetTimer()
+	for _, c := range benchCases() {
+		b.Run(c.name, func(b *testing.B) {
+			for i := 0; i < b.N; i++ {
+				_, e := p1.Call(p2.Self(), c.value)
+				if e != nil {
+					b.Fatal(e)
+				}
+			}
+		})
+	}
+}
+
+func benchCases() []benchCase {
+	return []benchCase{
+		benchCase{"number", 12345},
+		benchCase{"string", "hello world"},
+		benchCase{"tuple (PID)", etf.Pid{"node@localhost", 1, 1000, byte(0)}},
+		benchCase{"binary 1MB", make([]byte, 1024*1024)},
+	}
 }
