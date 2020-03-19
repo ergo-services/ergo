@@ -2,6 +2,7 @@ package ergo
 
 import (
 	"context"
+	"fmt"
 	"sync/atomic"
 
 	"github.com/halturin/ergo/etf"
@@ -279,8 +280,11 @@ func (r *registrar) run() {
 				}()
 				continue
 			}
-			// peer.send <- []etf.Term{etf.Tuple{REG_SEND, bp.from, etf.Atom(""), bp.pid}, bp.message}
-			peer.send <- []etf.Term{etf.Tuple{distProtoSEND, etf.Atom(""), bp.pid}, bp.message}
+			select {
+			case peer.send <- []etf.Term{etf.Tuple{distProtoSEND, etf.Atom(""), bp.pid}, bp.message}:
+			default:
+				fmt.Printf("Congession detected on link with %s. Packet dropped\n", peer.name)
+			}
 
 		case bn := <-r.channels.routeByName:
 			lib.Log("[%s] sending message by name %v", r.node.FullName, bn.name)
@@ -320,7 +324,11 @@ func (r *registrar) run() {
 
 				continue
 			}
-			peer.send <- []etf.Term{etf.Tuple{distProtoREG_SEND, bt.from, etf.Atom(""), toProcessName}, bt.message}
+			select {
+			case peer.send <- []etf.Term{etf.Tuple{distProtoREG_SEND, bt.from, etf.Atom(""), toProcessName}, bt.message}:
+			default:
+				fmt.Printf("Congession detected on link with %s. Packet dropped\n", peer.name)
+			}
 
 		case rw := <-r.channels.routeRaw:
 			if rw.retries > 2 {
@@ -433,9 +441,9 @@ func (r *registrar) UnregisterName(name string) {
 	r.channels.unregisterName <- name
 }
 
-func (r *registrar) RegisterPeer(name string, p peer) error {
+func (r *registrar) RegisterPeer(p peer) error {
 	req := registerPeerRequest{
-		name: name,
+		name: p.name,
 		peer: p,
 		err:  make(chan error),
 	}

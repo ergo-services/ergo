@@ -31,6 +31,8 @@ type Node struct {
 
 	StartedAt time.Time
 	uniqID    int64
+
+	opts NodeOptions
 }
 
 // NodeOptions struct with bootstrapping options for CreateNode
@@ -40,15 +42,21 @@ type NodeOptions struct {
 	Hidden            bool
 	EPMDPort          uint16
 	DisableEPMDServer bool
+	SendQueueLength   int
+	FragmentationUnit int
 }
 
 const (
 	defaultListenRangeBegin uint16 = 15000
 	defaultListenRangeEnd   uint16 = 65000
 	defaultEPMDPort         uint16 = 4369
-	versionOTP              int    = 21
-	versionERTSprefix              = "ergo"
-	version                        = "1.0.0"
+
+	defaultSendQueueLength   int = 100
+	defaultFragmentationUnit     = 65000
+
+	versionOTP        int = 21
+	versionERTSprefix     = "ergo"
+	version               = "1.0.0"
 )
 
 // CreateNode create new node with name and cookie string
@@ -89,6 +97,14 @@ func CreateNodeWithContext(ctx context.Context, name string, cookie string, opts
 			lib.Log("Using custom EPMD port: %d", opts.EPMDPort)
 		}
 
+		if opts.SendQueueLength == 0 {
+			opts.SendQueueLength = defaultSendQueueLength
+		}
+
+		if opts.FragmentationUnit < 1500 {
+			opts.FragmentationUnit = defaultFragmentationUnit
+		}
+
 		if opts.Hidden {
 			lib.Log("Running as hidden node")
 		}
@@ -97,7 +113,7 @@ func CreateNodeWithContext(ctx context.Context, name string, cookie string, opts
 			panic("FQDN for node name is required (example: node@hostname)")
 		}
 
-		if listenPort := node.listen(ns[1], opts.ListenRangeBegin, opts.ListenRangeEnd, opts.Hidden); listenPort == 0 {
+		if listenPort := node.listen(ns[1], opts); listenPort == 0 {
 			panic("Can't listen port")
 		} else {
 			// start EPMD
@@ -105,6 +121,8 @@ func CreateNodeWithContext(ctx context.Context, name string, cookie string, opts
 		}
 
 	}
+
+	node.opts = opts
 
 	node.registrar = createRegistrar(node)
 	node.monitor = createMonitor(node)
@@ -208,34 +226,33 @@ func (n *Node) ProcessInfo(pid etf.Pid) (ProcessInfo, error) {
 	return p.Info(), nil
 }
 
-func (n *Node) serve(c net.Conn, negotiate bool) error {
+func (n *Node) serve(link *dist.Link, opts NodeOptions) error {
 
-	var nodeDesc *dist.NodeDesc
-
-	if negotiate {
-		nodeDesc = dist.NewNodeDesc(n.FullName, n.Cookie, false, c)
-	} else {
-		nodeDesc = dist.NewNodeDesc(n.FullName, n.Cookie, false, nil)
+	send := make(chan []etf.Term, opts.SendQueueLength)
+	p := peer{
+		name: link.GetRemoteName(),
+		send: send,
 	}
 
-	send := make(chan []etf.Term, 10)
-	stop := make(chan bool)
+	if err := n.registrar.RegisterPeer(p); err != nil {
+		// duplicate link?
+		return err
+	}
+
 	// run writer routine
 	go func() {
-		defer c.Close()
-		defer func() { n.registrar.UnregisterPeer(nodeDesc.GetRemoteName()) }()
+		defer link.Close()
+		defer func() { n.registrar.UnregisterPeer(link.GetRemoteName()) }()
 
 		for {
 			select {
 			case terms := <-send:
-				err := nodeDesc.WriteMessage(c, terms)
+				err := link.WriteMessage(terms)
 				if err != nil {
 					lib.Log("node error (writing): %s", err.Error())
 					return
 				}
 			case <-n.context.Done():
-				return
-			case <-stop:
 				return
 			}
 
@@ -244,10 +261,10 @@ func (n *Node) serve(c net.Conn, negotiate bool) error {
 
 	// run reader routine
 	go func() {
-		defer c.Close()
-		defer func() { n.registrar.UnregisterPeer(nodeDesc.GetRemoteName()) }()
+		defer link.Close()
+		defer func() { n.registrar.UnregisterPeer(link.GetRemoteName()) }()
 		for {
-			terms, err := nodeDesc.ReadMessage(c)
+			terms, err := link.ReadMessage()
 
 			if err != nil {
 				if err == ErrFragmented {
@@ -260,24 +277,6 @@ func (n *Node) serve(c net.Conn, negotiate bool) error {
 			n.handleTerms(terms)
 		}
 	}()
-
-	p := peer{
-		conn: c,
-		send: send,
-	}
-
-	// waiting for handshaking process.
-	err := <-nodeDesc.HandshakeError
-	if err != nil {
-		stop <- true
-		return err
-	}
-
-	// close this connection if we cant register this node for some reason (duplicate?)
-	if err := n.registrar.RegisterPeer(nodeDesc.GetRemoteName(), p); err != nil {
-		stop <- true
-		return err
-	}
 
 	return nil
 }
@@ -536,13 +535,6 @@ func (n *Node) handleTerms(terms []etf.Term) {
 			default:
 				lib.Log("Unhandled node message (act %d): %#v", act, t)
 			}
-		case etf.Atom:
-			switch act {
-			case etf.Atom("$connection"):
-				// Ready channel waiting for registration of this connection
-				err := (t[2]).(chan error)
-				err <- nil
-			}
 		default:
 			lib.Log("UNHANDLED ACT: %#v", t.Element(1))
 		}
@@ -644,23 +636,22 @@ func (n *Node) connect(to etf.Atom) error {
 		return err
 	}
 
-	link, e := dist.Handshake(c, n.FullName, n.Cookie, hidden)
+	link, e := dist.Handshake(c, n.FullName, n.Cookie, false)
 	if e != nil {
 		return e
 	}
 
-	if err := n.serve(link); err != nil {
+	if err := n.serve(link, n.opts); err != nil {
 		c.Close()
 		return err
 	}
 	return nil
 }
 
-func (n *Node) listen(name string, listenRangeBegin, listenRangeEnd uint16, hidden bool) uint16 {
+func (n *Node) listen(name string, opts NodeOptions) uint16 {
 
 	lc := net.ListenConfig{Control: setSocketOptions}
-
-	for p := listenRangeBegin; p <= listenRangeEnd; p++ {
+	for p := opts.ListenRangeBegin; p <= opts.ListenRangeEnd; p++ {
 		l, err := lc.Listen(n.context, "tcp", net.JoinHostPort(name, strconv.Itoa(int(p))))
 		if err != nil {
 			continue
@@ -671,26 +662,34 @@ func (n *Node) listen(name string, listenRangeBegin, listenRangeEnd uint16, hidd
 
 				lib.Log("Accepted new connection from %s", c.RemoteAddr().String())
 				if err != nil {
-					//FIXME: handle canceled context
+					if err == context.Canceled {
+						return
+					}
 					lib.Log(err.Error())
 					continue
 				}
 
-				link, e := dist.HandshakeAccept(c, n.FullName, n.Cookie, hidden)
+				link, e := dist.HandshakeAccept(c, n.FullName, n.Cookie, opts.Hidden)
 				if e != nil {
 					lib.Log("Can't handshake with %s: %s", c.RemoteAddr().String(), e)
+					c.Close()
+					continue
 				}
 
-				if err := n.serve(link); err != nil {
+				// start serving this link
+				if err := n.serve(link, opts); err != nil {
 					lib.Log("Can't serve connection link due to: %s", err)
 					c.Close()
 				}
 
 			}
 		}()
+
+		// return port number this node listenig on for the incoming connections
 		return p
 	}
 
+	// all the ports within a given range are taken
 	return 0
 }
 

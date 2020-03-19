@@ -33,6 +33,7 @@ func dLog(f string, a ...interface{}) {
 type flagId uint32
 
 const (
+	// distribution flags are defined here https://erlang.org/doc/apps/erts/erl_dist_protocol.html#distribution-flags
 	PUBLISHED           flagId = 0x1
 	ATOM_CACHE                 = 0x2
 	EXTENDED_REFERENCES        = 0x4
@@ -67,13 +68,12 @@ func (nf nodeFlag) isSet(f flagId) bool {
 	return (uint32(nf) & uint32(f)) != 0
 }
 
-func toNodeFlag(f ...flagId) (nf nodeFlag) {
+func toNodeFlag(f ...flagId) nodeFlag {
 	var flags uint32
 	for _, v := range f {
 		flags |= uint32(v)
 	}
-	nf = nodeFlag(flags)
-	return
+	return nodeFlag(flags)
 }
 
 type Link struct {
@@ -81,14 +81,11 @@ type Link struct {
 	Cookie    string
 	Hidden    bool
 	peer      *Link
+	conn      net.Conn
 	challenge uint32
 	flags     nodeFlag
 	version   uint16
 	term      *etf.Context
-
-	Read func(net.Conn) ([]etf.Term, error)
-
-	HandshakeError chan error
 }
 
 func Handshake(conn net.Conn, name, cookie string, hidden bool) (*Link, error) {
@@ -105,14 +102,15 @@ func Handshake(conn net.Conn, name, cookie string, hidden bool) (*Link, error) {
 			FRAGMENTS,
 		),
 
-		challenge: rand.Uint32(),
-		version:   5,
+		conn: conn,
+
+		version: 5,
 	}
 
 	b := lib.TakeBuffer()
 	defer lib.ReleaseBuffer(b)
 	link.composeName(b)
-	if _, e := b.WriteTo(conn); e != nil {
+	if e := b.WriteTo(conn); e != nil {
 		return nil, e
 	}
 	b.Reset()
@@ -143,29 +141,28 @@ func Handshake(conn net.Conn, name, cookie string, hidden bool) (*Link, error) {
 			if e != nil {
 				return nil, e
 			}
-			m := b.Bytes()
-			switch m[0] {
+			switch b.B[0] {
 			case 'n':
 				// 'n' + 2 (version) + 4 (flags) + 4 (challenge) + name...
-				if len(m) < 12 {
+				if len(b.B) < 12 {
 					return nil, fmt.Errorf("malformed handshake ('n')")
 				}
 
-				challenge := link.readChallenge(m)
+				challenge := link.readChallenge(b.B)
 				b.Reset()
 				link.composeChallengeReply(challenge, b)
-				if _, e := b.WriteTo(conn); e != nil {
+				if e := b.WriteTo(conn); e != nil {
 					return nil, e
 				}
 				b.Reset()
 				continue
 			case 'a':
 				// 'a' + 16 (digest)
-				if len(m) != 17 {
+				if len(b.B) != 17 {
 					return nil, fmt.Errorf("malformed handshake ('a' length of digest)")
 				}
 
-				if !link.validateChallengeAck(m) {
+				if !link.validateChallengeAck(b) {
 					return nil, fmt.Errorf("malformed handshake ('a' digest)")
 				}
 
@@ -211,7 +208,8 @@ func HandshakeAccept(conn net.Conn, name, cookie string, hidden bool) (*Link, er
 				asyncReadChannel <- fmt.Errorf("malformed handshake (too large packet)")
 			}
 		}()
-		_, e := b.ReadFrom(conn)
+		n, e := b.ReadFrom(conn)
+		fmt.Println("READ", n, e, b.B)
 		asyncReadChannel <- e
 	}
 	for {
@@ -224,39 +222,47 @@ func HandshakeAccept(conn net.Conn, name, cookie string, hidden bool) (*Link, er
 			if e != nil {
 				return nil, e
 			}
-			m := b.Bytes()
-			switch m[0] {
+
+			switch b.B[2] {
 			case 'n':
-				if len(m) < 9 {
+				if len(b.B) < 9 {
 					return nil, fmt.Errorf("malformed handshake ('n' length)")
 				}
 
-				link.peer = link.readName(m)
+				link.peer = link.readName(b.B[3:])
+				b.Reset()
 				link.composeStatus(b)
-				if _, e := b.WriteTo(conn); e != nil {
+				if e := b.WriteTo(conn); e != nil {
 					return nil, fmt.Errorf("malformed handshake ('n' accept name)")
 				}
 
 				b.Reset()
 				link.composeChallenge(b)
-				if _, e := b.WriteTo(conn); e != nil {
+				if e := b.WriteTo(conn); e != nil {
 					return nil, e
 				}
+				b.Reset()
 				continue
 			case 'r':
-				if !link.validateChallengeReply(m) {
+				if len(b.B) < 21 {
 					return nil, fmt.Errorf("malformed handshake ('r')")
 				}
 
+				if !link.validateChallengeReply(b.B[3:]) {
+					return nil, fmt.Errorf("malformed handshake ('r1')")
+				}
 				b.Reset()
+
 				link.composeChallengeAck(b)
-				if _, e := b.WriteTo(conn); e != nil {
+				if e := b.WriteTo(conn); e != nil {
 					return nil, e
 				}
-
+				b.Reset()
 				// handshaked
 				return link, nil
 
+			default:
+				fmt.Println("KKKK", b.B[3])
 			}
 
 		}
@@ -264,7 +270,13 @@ func HandshakeAccept(conn net.Conn, name, cookie string, hidden bool) (*Link, er
 	}
 }
 
-func (currentND *Link) ReadMessage(c net.Conn) (ts []etf.Term, err error) {
+func (l *Link) Close() {
+	if l.conn != nil {
+		l.conn.Close()
+	}
+}
+
+func (l *Link) ReadMessage() (ts []etf.Term, err error) {
 
 	sendData := func(headerLen int, data []byte) (int, error) {
 		reply := make([]byte, len(data)+headerLen)
@@ -275,35 +287,35 @@ func (currentND *Link) ReadMessage(c net.Conn) (ts []etf.Term, err error) {
 		}
 		copy(reply[headerLen:], data)
 		dLog("Write to enode: %v", reply)
-		return c.Write(reply)
+		return l.conn.Write(reply)
 	}
 
 	var length uint32
 	var err1 error
-	if err = binary.Read(c, binary.BigEndian, &length); err != nil {
+	if err = binary.Read(l.conn, binary.BigEndian, &length); err != nil {
 		return
 	}
 	if length == 0 {
-		dLog("Keepalive (%s)", currentND.peer.Name)
+		dLog("Keepalive (%s)", l.peer.Name)
 		sendData(4, []byte{})
 		return
 	}
 	r := &io.LimitedReader{
-		R: c,
+		R: l.conn,
 		N: int64(length),
 	}
 
-	if currentND.flags.isSet(DIST_HDR_ATOM_CACHE) {
+	if l.flags.isSet(DIST_HDR_ATOM_CACHE) {
 		var ctl, message etf.Term
-		if err = currentND.readDist(r); err != nil {
+		if err = l.readDist(r); err != nil {
 			return //break
 		}
-		if ctl, err = currentND.readCtl(r); err != nil {
+		if ctl, err = l.readCtl(r); err != nil {
 			return //break
 		}
 		dLog("READ CTL: %#v", ctl)
 
-		if message, err1 = currentND.readMessage(r); err1 != nil {
+		if message, err1 = l.readMessage(r); err1 != nil {
 			// break
 
 		}
@@ -322,7 +334,7 @@ func (currentND *Link) ReadMessage(c net.Conn) (ts []etf.Term, err error) {
 			ts = make([]etf.Term, 0)
 			for {
 				var res etf.Term
-				if res, err = currentND.readTerm(r); err != nil {
+				if res, err = l.readTerm(r); err != nil {
 					break
 				}
 				ts = append(ts, res)
@@ -340,27 +352,27 @@ func (currentND *Link) ReadMessage(c net.Conn) (ts []etf.Term, err error) {
 	return
 }
 
-func (currentND *Link) WriteMessage(c net.Conn, ts []etf.Term) (err error) {
+func (l *Link) WriteMessage(ts []etf.Term) (err error) {
 	sendData := func(data []byte) (int, error) {
 		reply := make([]byte, len(data)+4)
 		binary.BigEndian.PutUint32(reply[0:4], uint32(len(data)))
 		copy(reply[4:], data)
 		dLog("Write to enode: %v", reply)
-		return c.Write(reply)
+		return l.conn.Write(reply)
 	}
 
 	buf := new(bytes.Buffer)
-	if currentND.flags.isSet(DIST_HDR_ATOM_CACHE) {
+	if l.flags.isSet(DIST_HDR_ATOM_CACHE) {
 		buf.Write([]byte{etf.EtVersion})
-		currentND.term.WriteDist(buf, ts)
+		l.term.WriteDist(buf, ts)
 		for _, v := range ts {
-			currentND.term.Write(buf, v)
+			l.term.Write(buf, v)
 		}
 	} else {
 		buf.Write([]byte{'p'})
 		for _, v := range ts {
 			buf.Write([]byte{etf.EtVersion})
-			currentND.term.Write(buf, v)
+			l.term.Write(buf, v)
 		}
 	}
 	// dLog("WRITE: %#v: %#v", ts, buf.Bytes())
@@ -373,40 +385,43 @@ func (l *Link) GetRemoteName() string {
 	return l.peer.Name
 }
 
-func (l *Link) composeName(b *bytes.Buffer) {
+func (l *Link) composeName(b *lib.Buffer) {
 	dataLength := uint16(7 + len(l.Name)) // byte + uint16 + uint32 + len(l.Name)
-	binary.Write(b, binary.BigEndian, dataLength)
-	b.WriteByte('n')                                      // byte
-	binary.Write(b, binary.BigEndian, l.version)          // uint16
-	binary.Write(b, binary.BigEndian, l.flags.toUint32()) // uint32
+	binary.BigEndian.PutUint16(b.B[0:2], dataLength)
+	b.B[2] = 'n'
+	binary.BigEndian.PutUint16(b.B[3:5], l.version)          // uint16
+	binary.BigEndian.PutUint32(b.B[5:9], l.flags.toUint32()) // uint32
+	b.Append([]byte(l.Name))
 }
 
-func (l *Link) readName(msg []byte) *Link {
+func (l *Link) readName(b []byte) *Link {
 	peer := &Link{
-		Name:    fmt.Sprintf("%s", msg[7:]),
-		version: binary.BigEndian.Uint16(msg[1:3]),
-		flags:   nodeFlag(binary.BigEndian.Uint32(msg[3:7])),
+		Name:    fmt.Sprintf("%s", b[6:]),
+		version: binary.BigEndian.Uint16(b[0:2]),
+		flags:   nodeFlag(binary.BigEndian.Uint32(b[2:6])),
 	}
 	return peer
 }
 
-func (currentND *Link) composeStatus(b *bytes.Buffer) {
+func (l *Link) composeStatus(b *lib.Buffer) {
 	//FIXME: there are few options for the status:
 	// 	   ok, ok_simultaneous, nok, not_allowed, alive
 	// More details here: https://erlang.org/doc/apps/erts/erl_dist_protocol.html#the-handshake-in-detail
+	b.Allocate(2)
 	dataLength := uint16(3) // 's' + "ok"
-	binary.Write(b, binary.BigEndian, dataLength)
-	b.WriteByte('s')
-	b.WriteString("ok")
+	binary.BigEndian.PutUint16(b.B[0:2], dataLength)
+	b.Append([]byte("sok"))
 }
 
-func (l *Link) composeChallenge(b *bytes.Buffer) {
+func (l *Link) composeChallenge(b *lib.Buffer) {
+	b.Allocate(13)
 	dataLength := uint16(11 + len(l.Name))
-	binary.Write(b, binary.BigEndian, dataLength)
-	b.WriteByte('n')
-	binary.Write(b, binary.BigEndian, l.version)
-	binary.Write(b, binary.BigEndian, l.flags.toUint32())
-	binary.Write(b, binary.BigEndian, l.challenge)
+	binary.BigEndian.PutUint16(b.B[0:2], dataLength)
+	b.B[2] = 'n'
+	binary.BigEndian.PutUint16(b.B[3:5], l.version)          // uint16
+	binary.BigEndian.PutUint32(b.B[5:9], l.flags.toUint32()) // uint32
+	binary.BigEndian.PutUint32(b.B[9:13], l.challenge)       // uint32
+	b.Append([]byte(l.Name))
 }
 
 func (l *Link) readChallenge(msg []byte) (challenge uint32) {
@@ -419,32 +434,36 @@ func (l *Link) readChallenge(msg []byte) (challenge uint32) {
 	return binary.BigEndian.Uint32(msg[7:11])
 }
 
-func (l *Link) validateChallengeReply(msg []byte) bool {
-	l.peer.challenge = binary.BigEndian.Uint32(msg[1:5])
-	digestB := msg[5:]
+func (l *Link) validateChallengeReply(b []byte) bool {
+	l.peer.challenge = binary.BigEndian.Uint32(b[:4])
+	digestB := b[4:]
 
-	digestA := genDigest(l.peer.challenge, l.Cookie)
+	digestA := genDigest(l.challenge, l.Cookie)
+	fmt.Println("DIGEST A:", digestA, l.peer.challenge, l.challenge)
+	fmt.Println("DIGEST B:", digestB)
 	return bytes.Equal(digestA[:], digestB)
 }
 
-func (l *Link) composeChallengeAck(b *bytes.Buffer) {
+func (l *Link) composeChallengeAck(b *lib.Buffer) {
+
+	b.Allocate(3)
 	dataLength := uint16(17) // 'a' + 16 (digest)
-	binary.Write(b, binary.BigEndian, dataLength)
-	b.WriteByte('a')
+	binary.BigEndian.PutUint16(b.B[0:2], dataLength)
+	b.B[2] = 'a'
 	digest := genDigest(l.peer.challenge, l.Cookie)
-	b.Write(digest[:])
+	b.Append(digest[:])
 }
 
-func (l *Link) composeChallengeReply(challenge uint32, b *bytes.Buffer) {
+func (l *Link) composeChallengeReply(challenge uint32, b *lib.Buffer) {
 	digest := genDigest(challenge, l.Cookie)
 	dataLength := uint16(21) // 1 (byte) + 4 (challenge) + 16 (digest)
-	binary.Write(b, binary.BigEndian, dataLength)
-	b.WriteByte('r')
-	binary.Write(b, binary.BigEndian, l.challenge) // uint32
-	b.Write(digest[:])
+	binary.BigEndian.PutUint16(b.B[0:2], dataLength)
+	b.B[2] = 'r'
+	binary.BigEndian.PutUint32(b.B[3:7], l.challenge) // uint32
+	b.Append(digest[:])
 }
 
-func (l *Link) validateChallengeAck(msg []byte) bool {
+func (l *Link) validateChallengeAck(b *lib.Buffer) bool {
 	//digest := msg[1:]
 	//FIXME
 	return true

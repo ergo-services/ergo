@@ -2,7 +2,6 @@ package ergo
 
 import (
 	"fmt"
-	"net"
 
 	"github.com/halturin/ergo/etf"
 )
@@ -49,6 +48,6 @@ const (
 )
 
 type peer struct {
-	conn net.Conn
+	name string
 	send chan []etf.Term
 }

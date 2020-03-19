@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func Test_compose_SEND_NAME(t *testing.T) {
+func TestComposeName(t *testing.T) {
 	var b bytes.Buffer
 	link := &Link{
 		Name:   "testName",
@@ -30,6 +30,34 @@ func Test_compose_SEND_NAME(t *testing.T) {
 
 }
 
-func Test_compose_SEND_CHALLENGE_REPLY(t *testing.T) {
+func TestReadName(t *testing.T) {
+
+}
+
+func TestComposeStatus(t *testing.T) {
+
+}
+
+func TestComposeChallenge(t *testing.T) {
+
+}
+
+func TestReadChallenge(t *testing.T) {
+
+}
+
+func TestValidateChallengeReply(t *testing.T) {
+
+}
+
+func TestComposeChallengeAck(t *testing.T) {
+
+}
+
+func TestComposeChalleneReply(t *testing.T) {
+
+}
+
+func TestValidateChallengeAck(t *testing.T) {
 
 }
