@@ -189,6 +189,7 @@ func HandshakeAccept(conn net.Conn, name, cookie string, hidden bool) (*Link, er
 			FRAGMENTS,
 		),
 
+		conn:      conn,
 		challenge: rand.Uint32(),
 		version:   5,
 	}
@@ -262,7 +263,7 @@ func HandshakeAccept(conn net.Conn, name, cookie string, hidden bool) (*Link, er
 				return link, nil
 
 			default:
-				fmt.Println("KKKK", b.B[3])
+				return nil, fmt.Errorf("malformed handshake (unknown code %d)", b.B[2])
 			}
 
 		}
@@ -274,6 +275,43 @@ func (l *Link) Close() {
 	if l.conn != nil {
 		l.conn.Close()
 	}
+}
+
+func (l *Link) Read(b *lib.Buffer) (int, error) {
+	// http://erlang.org/doc/apps/erts/erl_dist_protocol.html#protocol-between-connected-nodes
+	expectingBytes := 4
+	for {
+
+		n, e := b.ReadFrom(l.conn)
+		if n == 0 {
+			// link is closed
+			return 0, nil
+		}
+
+		if e != nil && e != io.EOF {
+			return 0, e
+		}
+
+		if b.Len() < expectingBytes {
+			continue
+		}
+
+		packetLength := binary.BigEndian.Uint32(b.B[:4])
+		if packetLength == 0 {
+			// keepalive
+			l.conn.Write(b.B)
+			b.Reset()
+			continue
+		}
+
+		if b.Len() < int(packetLength)+4 {
+			expectingBytes += int(packetLength)
+			continue
+		}
+
+		return int(packetLength) + 4, nil
+	}
+
 }
 
 func (l *Link) ReadMessage() (ts []etf.Term, err error) {

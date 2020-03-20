@@ -261,20 +261,34 @@ func (n *Node) serve(link *dist.Link, opts NodeOptions) error {
 
 	// run reader routine
 	go func() {
+		var b *lib.Buffer
+		var err error
+		var packetLength int
+
 		defer link.Close()
 		defer func() { n.registrar.UnregisterPeer(link.GetRemoteName()) }()
+
+		parallelHandlers := make(chan error, runtime.NumCPU())
+		b = lib.TakeBuffer()
+
 		for {
-			terms, err := link.ReadMessage()
-
-			if err != nil {
-				if err == ErrFragmented {
-					continue
-				}
-
-				lib.Log("node error (reading): %s", err.Error())
-				break
+			packetLength, err = link.Read(b)
+			if err != nil || packetLength == 0 {
+				return
 			}
-			n.handleTerms(terms)
+
+			// do not run more than the total number of cores
+			parallelHandlers <- nil
+			go func(buf *lib.Buffer) {
+				defer lib.ReleaseBuffer(b)
+				defer func() { <-parallelHandlers }()
+
+			}(b)
+
+			// append the tail (part of the next packet)
+			b1 := lib.TakeBuffer()
+			b1.Append(b.B[packetLength:])
+			b = b1
 		}
 	}()
 
