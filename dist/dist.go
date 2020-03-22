@@ -331,7 +331,7 @@ func (l *Link) ReadPacket(packet []byte) {
 	// [:3] length
 	switch packet[4] {
 	case protoDist:
-		return l.ReadDist(packet[5:])
+		l.ReadDist(packet[5:])
 	default:
 		fmt.Printf("unknown proto")
 	}
@@ -348,15 +348,16 @@ func (l *Link) ReadDist(packet []byte) {
 		// return l.ReadDist(b)
 
 	case protoDistMessage:
-		var control, message etf.Term
-		var buf []byte
-		var cache []string
+		//var control, message etf.Term
+		//var buf []byte
+		//var cache []string
 
-		cache, packet = l.readDistHeaderAtomCache(packet[1:])
-		control, packet = l.readDistControl(packet, cache)
-		if len(packet) > 0 {
-			message = l.readDistMessage(packet, cache)
-		}
+		//	cache, packet =
+		l.readDistHeaderAtomCache(packet[1:])
+		//control, packet = l.readDistControl(packet, cache)
+		//if len(packet) > 0 {
+		//	message = l.readDistMessage(packet, cache)
+		//}
 
 	case protoDistFragment1:
 
@@ -376,7 +377,12 @@ func (l *Link) readDistHeaderAtomCache(packet []byte) ([]string, []byte) {
 	}
 
 	cache := make([]string, references)
-	flags := packet[1 : references/2+1]
+	flagsLen := references/2 + 1
+	if len(packet) < 1+flagsLen {
+		// malformed
+		return nil, nil
+	}
+	flags := packet[1 : flagsLen+1]
 
 	// The least significant bit in a half byte is flag LongAtoms.
 	// If it is set, 2 bytes are used for atom lengths instead of 1 byte
@@ -385,29 +391,35 @@ func (l *Link) readDistHeaderAtomCache(packet []byte) ([]string, []byte) {
 
 	// extract this bit. just increase headereAtomLength if this flag is set
 	lastByte := flags[len(flags)-1]
-	if (references & 0x01) == 0 { // even or odd?
-
-	}
+	shift := uint((references & 0x01) * 4)
+	headerAtomLength += int((lastByte >> shift) & 0x01)
 
 	// 1 (number of references) + references/2+1 (length of flags)
-	packet = packet[1+references/2+1:]
+	packet = packet[1+flagsLen:]
 
 	for i := 0; i < references; i++ {
-		shift := uint((i & 0x01) * 4)
-		flag := (flags[i] >> shift) & 0x0F
-
+		if len(packet) < 1+headerAtomLength {
+			// malformed
+			return nil, nil
+		}
+		shift = uint((i & 0x01) * 4)
+		flag := (flags[i/2] >> shift) & 0x0F
 		isNewReference := flag&0x08 == 0x08
-		idxReference := flag & 0x07
-		idxInternal := packet[0]
+		idxReference := uint16(flag & 0x07)
+		idxInternal := uint16(packet[0])
 		idx := (idxReference << 8) | idxInternal
 
 		if isNewReference {
 			atomLen := uint16(packet[1])
 			if headerAtomLength == 2 {
-				atomLen = binary.BigEndian.Uint16(packet[i+1 : i+3])
+				atomLen = binary.BigEndian.Uint16(packet[1:3])
 			}
 			// extract atom
-			packet = packet[i+1+headerAtomLength:]
+			packet = packet[1+headerAtomLength:]
+			if len(packet) < int(atomLen) {
+				// malformed
+				return nil, nil
+			}
 			atom := string(packet[:atomLen])
 			// store in temporary cache for encoding
 			cache[i] = atom
@@ -445,16 +457,16 @@ func (l *Link) WriteMessage(ts []etf.Term) (err error) {
 	buf := new(bytes.Buffer)
 	if l.flags.isSet(DIST_HDR_ATOM_CACHE) {
 		buf.Write([]byte{etf.EtVersion})
-		l.term.WriteDist(buf, ts)
-		for _, v := range ts {
-			l.term.Write(buf, v)
-		}
+		//l.term.WriteDist(buf, ts)
+		//for _, v := range ts {
+		//	l.term.Write(buf, v)
+		//}
 	} else {
 		buf.Write([]byte{'p'})
-		for _, v := range ts {
-			buf.Write([]byte{etf.EtVersion})
-			l.term.Write(buf, v)
-		}
+		//for _, v := range ts {
+		//	buf.Write([]byte{etf.EtVersion})
+		//	l.term.Write(buf, v)
+		//}
 	}
 	// dLog("WRITE: %#v: %#v", ts, buf.Bytes())
 	_, err = sendData(buf.Bytes())
