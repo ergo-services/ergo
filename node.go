@@ -268,26 +268,33 @@ func (n *Node) serve(link *dist.Link, opts NodeOptions) error {
 		defer link.Close()
 		defer func() { n.registrar.UnregisterPeer(link.GetRemoteName()) }()
 
+		// do not run more than the total number of cores
 		parallelHandlers := make(chan error, runtime.NumCPU())
 		b = lib.TakeBuffer()
 
 		for {
 			packetLength, err = link.Read(b)
 			if err != nil || packetLength == 0 {
+				lib.ReleaseBuffer(b)
 				return
 			}
 
-			// do not run more than the total number of cores
+			// block if exceed the limits (number of HandlePacket goroutines)
 			parallelHandlers <- nil
-			go func(buf *lib.Buffer) {
-				defer lib.ReleaseBuffer(b)
-				defer func() { <-parallelHandlers }()
-
-			}(b)
 
 			// append the tail (part of the next packet)
 			b1 := lib.TakeBuffer()
-			b1.Append(b.B[packetLength:])
+			b1.Set(b.B[packetLength:])
+
+			go func(buf *lib.Buffer) {
+				defer func() {
+					lib.ReleaseBuffer(buf)
+					<-parallelHandlers
+				}()
+				link.HandlePacket(buf.B[:packetLength])
+			}(b)
+
+			// set new buffer as a current for the next reading
 			b = b1
 		}
 	}()

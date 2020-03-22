@@ -9,7 +9,8 @@ import (
 )
 
 type Buffer struct {
-	B []byte
+	B        []byte
+	original []byte
 }
 
 var (
@@ -17,9 +18,11 @@ var (
 	DefaultBufferLength = 1024
 	buffers             = &sync.Pool{
 		New: func() interface{} {
-			return &Buffer{
+			b := &Buffer{
 				B: make([]byte, 0, DefaultBufferLength),
 			}
+			b.original = b.B
+			return b
 		},
 	}
 
@@ -41,17 +44,18 @@ func TakeBuffer() *Buffer {
 }
 
 func ReleaseBuffer(b *Buffer) {
+	b.Reset()
 	// do not return it to the pool if its grew up too big
 	if cap(b.B) > 65536 {
 		b.B = nil // for GC
 		return
 	}
-	b.Reset()
 	buffers.Put(b)
 }
 
 func (b *Buffer) Reset() {
-	b.B = b.B[:0]
+	// use the original start point of the slice
+	b.B = b.original[:0]
 }
 
 func (b *Buffer) Set(v []byte) {

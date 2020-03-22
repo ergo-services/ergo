@@ -2,11 +2,54 @@ package dist
 
 import (
 	"bytes"
+	"fmt"
+	"github.com/halturin/ergo/lib"
+	"net"
 	"testing"
+	"time"
 )
 
+func TestLinkRead(t *testing.T) {
+
+	server, client := net.Pipe()
+	defer func() {
+		server.Close()
+		client.Close()
+	}()
+
+	link := Link{
+		conn: server,
+	}
+
+	go client.Write([]byte{0, 0, 0, 0, 0, 0, 0, 1, 0})
+
+	// read keepalive answer on a client side
+	go func() {
+		bb := make([]byte, 10)
+		for {
+			_, e := client.Read(bb)
+			if e != nil {
+				return
+			}
+		}
+	}()
+
+	c := make(chan bool)
+	b := lib.TakeBuffer()
+	go func() {
+		link.Read(b)
+		close(c)
+	}()
+	select {
+	case <-c:
+		fmt.Println("OK", b.B)
+	case <-time.After(1000 * time.Millisecond):
+		t.Fatal("incorrect")
+	}
+
+}
+
 func TestComposeName(t *testing.T) {
-	var b bytes.Buffer
 	link := &Link{
 		Name:   "testName",
 		Cookie: "testCookie",
@@ -21,10 +64,12 @@ func TestComposeName(t *testing.T) {
 
 		version: 5,
 	}
-	link.composeName(&b)
+	b := lib.TakeBuffer()
+	defer lib.ReleaseBuffer(b)
+	link.composeName(b)
 	shouldBe := []byte{}
 
-	if !bytes.Equal(b.Bytes(), shouldBe) {
+	if !bytes.Equal(b.B, shouldBe) {
 		t.Fatal("malform value")
 	}
 

@@ -7,7 +7,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"log"
 	"math/rand"
 	"net"
@@ -33,6 +32,13 @@ func dLog(f string, a ...interface{}) {
 type flagId uint32
 
 const (
+	// http://erlang.org/doc/apps/erts/erl_ext_dist.html#distribution_header
+	protoDist           = 131
+	protoDistCompressed = 80
+	protoDistMessage    = 68
+	protoDistFragment1  = 69
+	protoDistFragmentN  = 70
+
 	// distribution flags are defined here https://erlang.org/doc/apps/erts/erl_dist_protocol.html#distribution-flags
 	PUBLISHED           flagId = 0x1
 	ATOM_CACHE                 = 0x2
@@ -85,7 +91,10 @@ type Link struct {
 	challenge uint32
 	flags     nodeFlag
 	version   uint16
-	term      *etf.Context
+
+	// atom cache for incomming messages
+	cacheIn [2048]string
+	//cacheOut map[string]int
 }
 
 func Handshake(conn net.Conn, name, cookie string, hidden bool) (*Link, error) {
@@ -281,7 +290,6 @@ func (l *Link) Read(b *lib.Buffer) (int, error) {
 	// http://erlang.org/doc/apps/erts/erl_dist_protocol.html#protocol-between-connected-nodes
 	expectingBytes := 4
 	for {
-
 		n, e := b.ReadFrom(l.conn)
 		if n == 0 {
 			// link is closed
@@ -298,10 +306,15 @@ func (l *Link) Read(b *lib.Buffer) (int, error) {
 
 		packetLength := binary.BigEndian.Uint32(b.B[:4])
 		if packetLength == 0 {
-			// keepalive
-			l.conn.Write(b.B)
-			b.Reset()
-			continue
+			// this is keepalive
+			l.conn.Write(b.B[:4])
+			b.Set(b.B[4:])
+
+			// check the tail if it has enough data to go further
+			if b.Len() < 4 {
+				continue
+			}
+			packetLength = binary.BigEndian.Uint32(b.B[:4])
 		}
 
 		if b.Len() < int(packetLength)+4 {
@@ -314,80 +327,110 @@ func (l *Link) Read(b *lib.Buffer) (int, error) {
 
 }
 
-func (l *Link) ReadMessage() (ts []etf.Term, err error) {
-
-	sendData := func(headerLen int, data []byte) (int, error) {
-		reply := make([]byte, len(data)+headerLen)
-		if headerLen == 2 {
-			binary.BigEndian.PutUint16(reply[0:headerLen], uint16(len(data)))
-		} else {
-			binary.BigEndian.PutUint32(reply[0:headerLen], uint32(len(data)))
-		}
-		copy(reply[headerLen:], data)
-		dLog("Write to enode: %v", reply)
-		return l.conn.Write(reply)
+func (l *Link) ReadPacket(packet []byte) {
+	// [:3] length
+	switch packet[4] {
+	case protoDist:
+		return l.ReadDist(packet[5:])
+	default:
+		fmt.Printf("unknown proto")
 	}
 
-	var length uint32
-	var err1 error
-	if err = binary.Read(l.conn, binary.BigEndian, &length); err != nil {
-		return
+}
+
+func (l *Link) ReadDist(packet []byte) {
+	switch packet[0] {
+	case protoDistCompressed:
+		// do we need it?
+		// zip.NewReader(...)
+		// ...unzipping to the new buffer b (lib.TakeBuffer)
+		// just in case: if b[0] == protoDistCompressed return error
+		// return l.ReadDist(b)
+
+	case protoDistMessage:
+		var control, message etf.Term
+		var buf []byte
+		var cache []string
+
+		cache, packet = l.readDistHeaderAtomCache(packet[1:])
+		control, packet = l.readDistControl(packet, cache)
+		if len(packet) > 0 {
+			message = l.readDistMessage(packet, cache)
+		}
+
+	case protoDistFragment1:
+
+	case protoDistFragmentN:
+
 	}
-	if length == 0 {
-		dLog("Keepalive (%s)", l.peer.Name)
-		sendData(4, []byte{})
-		return
+
+}
+
+func (l *Link) readDistHeaderAtomCache(packet []byte) ([]string, []byte) {
+	// all the details are here https://erlang.org/doc/apps/erts/erl_ext_dist.html#normal-distribution-header
+
+	// number of atom references are present in package
+	references := int(packet[0])
+	if references == 0 {
+		return nil, packet[1:]
 	}
-	r := &io.LimitedReader{
-		R: l.conn,
-		N: int64(length),
+
+	cache := make([]string, references)
+	flags := packet[1 : references/2+1]
+
+	// The least significant bit in a half byte is flag LongAtoms.
+	// If it is set, 2 bytes are used for atom lengths instead of 1 byte
+	// in the distribution header.
+	headerAtomLength := 1 // if 'LongAtom' is not set
+
+	// extract this bit. just increase headereAtomLength if this flag is set
+	lastByte := flags[len(flags)-1]
+	if (references & 0x01) == 0 { // even or odd?
+
 	}
 
-	if l.flags.isSet(DIST_HDR_ATOM_CACHE) {
-		var ctl, message etf.Term
-		if err = l.readDist(r); err != nil {
-			return //break
-		}
-		if ctl, err = l.readCtl(r); err != nil {
-			return //break
-		}
-		dLog("READ CTL: %#v", ctl)
+	// 1 (number of references) + references/2+1 (length of flags)
+	packet = packet[1+references/2+1:]
 
-		if message, err1 = l.readMessage(r); err1 != nil {
-			// break
+	for i := 0; i < references; i++ {
+		shift := uint((i & 0x01) * 4)
+		flag := (flags[i] >> shift) & 0x0F
 
-		}
-		dLog("READ MESSAGE: %#v", message)
-		ts = append(ts, ctl, message)
+		isNewReference := flag&0x08 == 0x08
+		idxReference := flag & 0x07
+		idxInternal := packet[0]
+		idx := (idxReference << 8) | idxInternal
 
-	} else {
-		msg := make([]byte, 1)
-		if _, err = io.ReadFull(r, msg); err != nil {
-			return
-		}
-		dLog("Read from enode %d: %#v", length, msg)
-
-		switch msg[0] {
-		case 'p':
-			ts = make([]etf.Term, 0)
-			for {
-				var res etf.Term
-				if res, err = l.readTerm(r); err != nil {
-					break
-				}
-				ts = append(ts, res)
-				dLog("READ TERM: %#v", res)
+		if isNewReference {
+			atomLen := uint16(packet[1])
+			if headerAtomLength == 2 {
+				atomLen = binary.BigEndian.Uint16(packet[i+1 : i+3])
 			}
-			if err == io.EOF {
-				err = nil
-			}
+			// extract atom
+			packet = packet[i+1+headerAtomLength:]
+			atom := string(packet[:atomLen])
+			// store in temporary cache for encoding
+			cache[i] = atom
 
-		default:
-			_, err = ioutil.ReadAll(r)
+			// store in link' cache
+			l.cacheIn[idx] = atom
+			packet = packet[atomLen:]
+			continue
 		}
+
+		cache[i] = l.cacheIn[idx]
+		packet = packet[1:]
 	}
 
-	return
+	return cache, packet
+}
+
+func (l *Link) readDistControl(packet []byte) etf.Term {
+	return nil
+}
+
+func (l *Link) readDistMessage(packet []byte) etf.Term {
+	return nil
 }
 
 func (l *Link) WriteMessage(ts []etf.Term) (err error) {
@@ -510,44 +553,4 @@ func (l *Link) validateChallengeAck(b *lib.Buffer) bool {
 func genDigest(challenge uint32, cookie string) [16]byte {
 	s := fmt.Sprintf("%s%d", cookie, challenge)
 	return md5.Sum([]byte(s))
-}
-
-func (currentND *Link) readTerm(r io.Reader) (t etf.Term, err error) {
-	b := make([]byte, 1)
-	_, err = io.ReadFull(r, b)
-
-	if err != nil {
-		return
-	}
-	if b[0] != etf.EtVersion {
-		err = fmt.Errorf("Not ETF: %d", b[0])
-		return
-	}
-
-	t, err = currentND.term.Read(r)
-	return
-}
-
-func (currentND *Link) readDist(r io.Reader) (err error) {
-	b := make([]byte, 1)
-	_, err = io.ReadFull(r, b)
-
-	if err != nil {
-		return
-	}
-	if b[0] != etf.EtVersion {
-		err = fmt.Errorf("Not dist header: %d", b[0])
-		return
-	}
-	return currentND.term.ReadDist(r)
-}
-
-func (currentND *Link) readCtl(r io.Reader) (t etf.Term, err error) {
-	t, err = currentND.term.Read(r)
-	return
-}
-
-func (currentND *Link) readMessage(r io.Reader) (t etf.Term, err error) {
-	t, err = currentND.term.Read(r)
-	return
 }
