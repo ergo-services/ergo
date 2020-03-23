@@ -291,7 +291,13 @@ func (n *Node) serve(link *dist.Link, opts NodeOptions) error {
 					lib.ReleaseBuffer(buf)
 					<-parallelHandlers
 				}()
-				link.HandlePacket(buf.B[:packetLength])
+				control, message := link.ReadPacket(buf.B[:packetLength])
+				if control == nil {
+					fmt.Println("Malformed Dist proto at link with", link.PeerName())
+					link.Close()
+					return
+				}
+				n.handleMessage(control, message)
 			}(b)
 
 			// set new buffer as a current for the next reading
@@ -461,37 +467,28 @@ func (n *Node) ApplicationStop(name string) error {
 	return nil
 }
 
-func (n *Node) handleTerms(terms []etf.Term) {
+func (n *Node) handleMessage(control, message etf.Term) {
 	defer func() {
 		if r := recover(); r != nil {
-			fmt.Printf("Warning: recovered node.handleTerms: %s\n", r)
+			fmt.Printf("Warning: recovered node.handleMessage: %s\n", r)
 		}
 	}()
 
-	if len(terms) == 0 {
-		// keep alive
-		return
-	}
+	lib.Log("Node control: %#v", control)
 
-	lib.Log("Node terms: %#v", terms)
-
-	switch t := terms[0].(type) {
+	switch t := control.(type) {
 	case etf.Tuple:
 		switch act := t.Element(1).(type) {
 		case int:
 			switch act {
 			case distProtoREG_SEND:
 				// {6, FromPid, Unused, ToName}
-				if len(terms) == 2 {
-					n.registrar.route(t.Element(2).(etf.Pid), t.Element(4), terms[1])
-				} else {
-					lib.Log("*** ERROR: bad REG_SEND: %#v", terms)
-				}
+				n.registrar.route(t.Element(2).(etf.Pid), t.Element(4), message)
 
 			case distProtoSEND:
 				// {2, Unused, ToPid}
 				// SEND has no sender pid
-				n.registrar.route(etf.Pid{}, t.Element(3), terms[1])
+				n.registrar.route(etf.Pid{}, t.Element(3), message)
 
 			case distProtoLINK:
 				// {1, FromPid, ToPid}
@@ -540,16 +537,10 @@ func (n *Node) handleTerms(terms []etf.Term) {
 			// Not implemented yet, just stubs. TODO.
 			case distProtoSEND_SENDER:
 				lib.Log("SEND_SENDER message (act %d): %#v", act, t)
-			case distProtoSEND_SENDER_TT:
-				lib.Log("SEND_SENDER_TT message (act %d): %#v", act, t)
 			case distProtoPAYLOAD_EXIT:
 				lib.Log("PAYLOAD_EXIT message (act %d): %#v", act, t)
-			case distProtoPAYLOAD_EXIT_TT:
-				lib.Log("PAYLOAD_EXIT_TT message (act %d): %#v", act, t)
 			case distProtoPAYLOAD_EXIT2:
 				lib.Log("PAYLOAD_EXIT2 message (act %d): %#v", act, t)
-			case distProtoPAYLOAD_EXIT2_TT:
-				lib.Log("PAYLOAD_EXIT2_TT message (act %d): %#v", act, t)
 			case distProtoPAYLOAD_MONITOR_P_EXIT:
 				lib.Log("PAYLOAD_MONITOR_P_EXIT message (act %d): %#v", act, t)
 

@@ -3,6 +3,7 @@ package dist
 import (
 	"bytes"
 	"fmt"
+	"github.com/halturin/ergo/etf"
 	"github.com/halturin/ergo/lib"
 	"net"
 	"reflect"
@@ -128,7 +129,7 @@ func TestReadDistHeaderAtomCache(t *testing.T) {
 		0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 	}
 
-	cacheExpected := []string{"atom1", "atom2", "reg", "call", "set_get_state"}
+	cacheExpected := []etf.Atom{"atom1", "atom2", "reg", "call", "set_get_state"}
 	cacheInExpected := link.cacheIn
 	cacheInExpected[492] = "reg"
 	cacheInExpected[9] = "call"

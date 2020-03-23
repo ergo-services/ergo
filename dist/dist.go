@@ -93,8 +93,10 @@ type Link struct {
 	version   uint16
 
 	// atom cache for incomming messages
-	cacheIn [2048]string
-	//cacheOut map[string]int
+	cacheIn [2048]etf.Atom
+
+	// atom cache for outgoing messages
+	//cacheOut map[etf.Atom]int
 }
 
 func Handshake(conn net.Conn, name, cookie string, hidden bool) (*Link, error) {
@@ -286,6 +288,13 @@ func (l *Link) Close() {
 	}
 }
 
+func (l *Link) PeerName() string {
+	if l.peer != nil {
+		return l.peer.Name
+	}
+	return ""
+}
+
 func (l *Link) Read(b *lib.Buffer) (int, error) {
 	// http://erlang.org/doc/apps/erts/erl_dist_protocol.html#protocol-between-connected-nodes
 	expectingBytes := 4
@@ -327,18 +336,19 @@ func (l *Link) Read(b *lib.Buffer) (int, error) {
 
 }
 
-func (l *Link) ReadPacket(packet []byte) {
+func (l *Link) ReadPacket(packet []byte) (etf.Term, etf.Term) {
 	// [:3] length
 	switch packet[4] {
 	case protoDist:
-		l.ReadDist(packet[5:])
+		return l.ReadDist(packet[5:])
 	default:
 		fmt.Printf("unknown proto")
+		return nil, nil
 	}
 
 }
 
-func (l *Link) ReadDist(packet []byte) {
+func (l *Link) ReadDist(packet []byte) (etf.Term, etf.Term) {
 	switch packet[0] {
 	case protoDistCompressed:
 		// do we need it?
@@ -348,16 +358,18 @@ func (l *Link) ReadDist(packet []byte) {
 		// return l.ReadDist(b)
 
 	case protoDistMessage:
-		//var control, message etf.Term
-		//var buf []byte
-		//var cache []string
+		var control, message etf.Term
+		var cache []etf.Atom
 
-		//	cache, packet =
-		l.readDistHeaderAtomCache(packet[1:])
-		//control, packet = l.readDistControl(packet, cache)
-		//if len(packet) > 0 {
-		//	message = l.readDistMessage(packet, cache)
-		//}
+		cache, packet = l.readDistHeaderAtomCache(packet[1:])
+		if packet == nil {
+			return nil, nil
+		}
+		control, packet = l.readDistControl(packet, cache)
+		if len(packet) > 0 {
+			message = l.readDistMessage(packet, cache)
+		}
+		return control, message
 
 	case protoDistFragment1:
 
@@ -365,9 +377,10 @@ func (l *Link) ReadDist(packet []byte) {
 
 	}
 
+	return nil, nil
 }
 
-func (l *Link) readDistHeaderAtomCache(packet []byte) ([]string, []byte) {
+func (l *Link) readDistHeaderAtomCache(packet []byte) ([]etf.Atom, []byte) {
 	// all the details are here https://erlang.org/doc/apps/erts/erl_ext_dist.html#normal-distribution-header
 
 	// number of atom references are present in package
@@ -376,7 +389,7 @@ func (l *Link) readDistHeaderAtomCache(packet []byte) ([]string, []byte) {
 		return nil, packet[1:]
 	}
 
-	cache := make([]string, references)
+	cache := make([]etf.Atom, references)
 	flagsLen := references/2 + 1
 	if len(packet) < 1+flagsLen {
 		// malformed
@@ -422,10 +435,10 @@ func (l *Link) readDistHeaderAtomCache(packet []byte) ([]string, []byte) {
 			}
 			atom := string(packet[:atomLen])
 			// store in temporary cache for encoding
-			cache[i] = atom
+			cache[i] = etf.Atom(atom)
 
 			// store in link' cache
-			l.cacheIn[idx] = atom
+			l.cacheIn[idx] = etf.Atom(atom)
 			packet = packet[atomLen:]
 			continue
 		}
@@ -437,11 +450,12 @@ func (l *Link) readDistHeaderAtomCache(packet []byte) ([]string, []byte) {
 	return cache, packet
 }
 
-func (l *Link) readDistControl(packet []byte) etf.Term {
-	return nil
+func (l *Link) readDistControl(packet []byte, cache []etf.Atom) (etf.Term, []byte) {
+
+	return nil, nil
 }
 
-func (l *Link) readDistMessage(packet []byte) etf.Term {
+func (l *Link) readDistMessage(packet []byte, cache []etf.Atom) etf.Term {
 	return nil
 }
 

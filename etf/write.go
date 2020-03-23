@@ -39,11 +39,7 @@ func (c *Context) Write(w io.Writer, term interface{}) (err error) {
 	case float32:
 		err = c.writeFloat(w, float64(v))
 	case Atom:
-		if c.ConvertAtomsToBinary {
-			err = c.writeBinary(w, []byte(v))
-		} else {
-			err = c.writeAtom(w, v)
-		}
+		err = c.writeAtom(w, v)
 	case Pid:
 		err = c.writePid(w, v)
 	case Tuple:
@@ -84,7 +80,7 @@ func (c *Context) writeAtom(w io.Writer, atom Atom) (err error) {
 
 	case size <= math.MaxUint16:
 		// $dLL…
-		_, err = w.Write([]byte{ettAtom, byte(size >> 8), byte(size)})
+		_, err = w.Write([]byte{ettAtomUTF8, byte(size >> 8), byte(size)})
 		if err == nil {
 			_, err = io.WriteString(w, string(atom))
 		}
@@ -150,9 +146,9 @@ func (c *Context) writeBinary(w io.Writer, bytes []byte) (err error) {
 func (c *Context) writeBool(w io.Writer, b bool) (err error) {
 	// $sL…
 	if b {
-		_, err = w.Write([]byte{ettAtom, 0, 4, 't', 'r', 'u', 'e'})
+		_, err = w.Write([]byte{ettAtomUTF8, 0, 4, 't', 'r', 'u', 'e'})
 	} else {
-		_, err = w.Write([]byte{ettAtom, 0, 5, 'f', 'a', 'l', 's', 'e'})
+		_, err = w.Write([]byte{ettAtomUTF8, 0, 5, 'f', 'a', 'l', 's', 'e'})
 	}
 
 	return

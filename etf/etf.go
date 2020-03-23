@@ -7,23 +7,6 @@ import (
 	"strings"
 )
 
-type cacheFlag struct {
-	isNew      bool
-	segmentIdx uint8
-}
-
-type atomCacheRef struct {
-	idx  uint8
-	text *string
-}
-
-type Context struct {
-	atomCache             [2048]*string
-	currentCache          []*string
-	ConvertBinaryToString bool
-	ConvertAtomsToBinary  bool
-}
-
 type Term interface{}
 type Tuple []Term
 type List []Term
@@ -62,8 +45,7 @@ type Function struct {
 }
 
 var (
-	MapType = reflect.TypeOf(Map{})
-	hasher  = fnv.New32a()
+	hasher = fnv.New32a()
 )
 
 func StringTerm(t Term) (s string, ok bool) {
@@ -90,34 +72,44 @@ type Export struct {
 
 // Erlang external term tags.
 const (
-	ettAtom          = byte(100)
-	ettAtomUTF8      = byte(118) // this is beyond retarded
-	ettBinary        = byte(109)
-	ettBitBinary     = byte(77)
-	ettCachedAtom    = byte(67)
-	ettCacheRef      = byte(82)
-	ettExport        = byte(113)
-	ettFloat         = byte(99)
-	ettFun           = byte(117)
-	ettInteger       = byte(98)
-	ettLargeBig      = byte(111)
-	ettLargeTuple    = byte(105)
-	ettList          = byte(108)
-	ettNewCache      = byte(78)
-	ettNewFloat      = byte(70)
-	ettNewFun        = byte(112)
-	ettNewRef        = byte(114)
-	ettNil           = byte(106)
-	ettPid           = byte(103)
-	ettPort          = byte(102)
-	ettRef           = byte(101)
-	ettSmallAtom     = byte(115)
-	ettSmallAtomUTF8 = byte(119) // this is beyond retarded
-	ettSmallBig      = byte(110)
-	ettSmallInteger  = byte(97)
-	ettSmallTuple    = byte(104)
+	// ettAtom          = byte(100) deprecated
+	ettAtomUTF8 = byte(118)
+	// ettSmallAtom     = byte(115) deprecated
+	ettSmallAtomUTF8 = byte(119)
 	ettString        = byte(107)
-	ettMap           = byte(116)
+
+	ettCacheRef = byte(82)
+
+	ettNewFloat = byte(70)
+
+	ettSmallInteger = byte(97)
+	ettInteger      = byte(98)
+	ettLargeBig     = byte(111)
+	ettSmallBig     = byte(110)
+
+	ettList       = byte(108)
+	ettSmallTuple = byte(104)
+	ettLargeTuple = byte(105)
+
+	ettMap = byte(116)
+
+	ettBinary    = byte(109)
+	ettBitBinary = byte(77)
+
+	ettNil = byte(106)
+
+	ettPid      = byte(103)
+	ettNewRef   = byte(114)
+	ettNewerRef = byte(90) // since OTP 21, only when BIG_CREATION flag is set
+
+	ettExport = byte(113)
+	ettFun    = byte(117)
+	ettNewFun = byte(112)
+
+	ettPort = byte(102)
+	// ettRef        = byte(101) deprecated
+
+	ettFloat = byte(99) // almost unusable
 )
 
 const (
@@ -129,36 +121,6 @@ const (
 	// Erlang distribution header
 	EtDist = byte('D')
 )
-
-var tagNames = map[byte]string{
-	ettAtom:          "ATOM_EXT",
-	ettAtomUTF8:      "ATOM_UTF8_EXT",
-	ettBinary:        "BINARY_EXT",
-	ettBitBinary:     "BIT_BINARY_EXT",
-	ettCachedAtom:    "ATOM_CACHE_REF",
-	ettExport:        "EXPORT_EXT",
-	ettFloat:         "FLOAT_EXT",
-	ettFun:           "FUN_EXT",
-	ettInteger:       "INTEGER_EXT",
-	ettLargeBig:      "LARGE_BIG_EXT",
-	ettLargeTuple:    "LARGE_TUPLE_EXT",
-	ettList:          "LIST_EXT",
-	ettMap:           "MAP_EXT",
-	ettNewCache:      "NEW_CACHE_EXT",
-	ettNewFloat:      "NEW_FLOAT_EXT",
-	ettNewFun:        "NEW_FUN_EXT",
-	ettNewRef:        "NEW_REFERENCE_EXT",
-	ettNil:           "NIL_EXT",
-	ettPid:           "PID_EXT",
-	ettPort:          "PORT_EXT",
-	ettRef:           "REFERENCE_EXT",
-	ettSmallAtom:     "SMALL_ATOM_EXT",
-	ettSmallAtomUTF8: "SMALL_ATOM_UTF8_EXT",
-	ettSmallBig:      "SMALL_BIG_EXT",
-	ettSmallInteger:  "SMALL_INTEGER_EXT",
-	ettSmallTuple:    "SMALL_TUPLE_EXT",
-	ettString:        "STRING_EXT",
-}
 
 func (m Map) Element(k Term) Term {
 	return m[k]
@@ -176,13 +138,6 @@ func (p Pid) Str() string {
 	hasher.Write([]byte(p.Node))
 	defer hasher.Reset()
 	return fmt.Sprintf("<%X.%d.%d>", hasher.Sum32(), p.Id, p.Serial)
-}
-func tagName(t byte) (name string) {
-	name = tagNames[t]
-	if name == "" {
-		name = fmt.Sprintf("%d", t)
-	}
-	return
 }
 
 func TermIntoStruct(term Term, dest interface{}) error {
