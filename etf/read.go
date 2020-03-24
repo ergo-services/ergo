@@ -14,60 +14,71 @@ var (
 
 	biggestInt = big.NewInt(0xfffffffffffffff)
 	lowestInt  = big.NewInt(-0xfffffffffffffff)
+
+	ErrMalformedAtomUTF8      = fmt.Errorf("Malformed ETF. ettAtomUTF8")
+	ErrMalformedSmallAtomUTF8 = fmt.Errorf("Malformed ETF. ettSmallAtomUTF8")
+	ErrMalformedPacketLength  = fmt.Errorf("Malformed ETF. incorrect length of packet")
+	ErrMalformedString        = fmt.Errorf("Malformed ETF. ettString")
+	ErrMalformedCacheRef      = fmt.Errorf("Malformed ETF. ettCacheRef")
+	ErrMalformedNewFloat      = fmt.Errorf("Malformed ETF. ettNewFloat")
 )
 
 func Decode(packet []byte, cache []Atom) (Term, error) {
 
-	return nil, nil
+	term, rest, err := decodeTerm(packet[0], packet[1:], []Atom{})
+	if len(rest) > 0 {
+		return nil, ErrMalformedPacketLength
+	}
+	return term, err
 }
 
 func decodeTerm(t byte, packet []byte, cache []Atom) (Term, []byte, error) {
 	switch t {
 	case ettAtomUTF8:
 		if len(packet) < 2 {
-			return nil, nil, fmt.Errorf("Malformed ETF. ettAtomUTF8")
+			return nil, nil, ErrMalformedAtomUTF8
 		}
 
 		n := binary.BigEndian.Uint16(packet)
 		if len(packet) < int(n+2) {
-			return nil, nil, fmt.Errorf("Malformed ETF. ettAtomUTF8")
+			return nil, nil, ErrMalformedAtomUTF8
 		}
 
 		return Atom(packet[2 : n+2]), packet[n+2:], nil
 
 	case ettSmallAtomUTF8:
 		if len(packet) == 0 {
-			return nil, nil, fmt.Errorf("Malformed ETF. ettSmallAtomUTF8")
+			return nil, nil, ErrMalformedSmallAtomUTF8
 		}
 
 		n := int(packet[0])
 		if len(packet) < n+1 {
-			return nil, nil, fmt.Errorf("Malformed ETF. ettSmallAtomUTF8")
+			return nil, nil, ErrMalformedSmallAtomUTF8
 		}
 
 		return Atom(packet[1 : n+1]), packet[n+1:], nil
 
 	case ettString:
 		if len(packet) < 2 {
-			return nil, nil, fmt.Errorf("Malformed ETF. ettString")
+			return nil, nil, ErrMalformedString
 		}
 
 		n := binary.BigEndian.Uint16(packet)
 		if len(packet) < int(n+2) {
-			return nil, nil, fmt.Errorf("Malformed ETF. ettString")
+			return nil, nil, ErrMalformedString
 		}
 
 		return string(packet[2 : n+2]), packet[n+2:], nil
 
 	case ettCacheRef:
 		if len(packet) == 0 {
-			return nil, nil, fmt.Errorf("Malformed ETF. ettCacheRef")
+			return nil, nil, ErrMalformedCacheRef
 		}
 		return cache[int(packet[0])], packet[1:], nil
 
 	case ettNewFloat:
 		if len(packet) < 8 {
-			return nil, nil, fmt.Errorf("Malformed ETF. ettNewFloat")
+			return nil, nil, ErrMalformedNewFloat
 		}
 		bits := binary.BigEndian.Uint64(packet[:8])
 		return math.Float64frombits(bits), packet[8:], nil
@@ -176,7 +187,7 @@ func decodeTerm(t byte, packet []byte, cache []Atom) (Term, []byte, error) {
 		return f, packet[32:], nil
 	}
 
-	return nil, packet, fmt.Errorf("Malformed ETF. unsupported type", t)
+	return nil, packet, fmt.Errorf("Malformed ETF. unsupported type %d", t)
 }
 
 type Context struct{}
