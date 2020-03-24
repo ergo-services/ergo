@@ -5,12 +5,10 @@ import (
 	"fmt"
 	"math"
 	"math/big"
-	"unicode/utf8"
 )
 
 var (
-	ConvertBinaryToString bool
-	UseTypeRegistrar      bool
+	UseTypeRegistrar bool
 
 	biggestInt = big.NewInt(0xfffffffffffffff)
 	lowestInt  = big.NewInt(-0xfffffffffffffff)
@@ -21,6 +19,10 @@ var (
 	ErrMalformedString        = fmt.Errorf("Malformed ETF. ettString")
 	ErrMalformedCacheRef      = fmt.Errorf("Malformed ETF. ettCacheRef")
 	ErrMalformedNewFloat      = fmt.Errorf("Malformed ETF. ettNewFloat")
+	ErrMalformedSmallInteger  = fmt.Errorf("Malformed ETF. ettSmallInteger")
+	ErrMalformedInteger       = fmt.Errorf("Malformed ETF. ettInteger")
+	ErrMalformedSmallBig      = fmt.Errorf("Malformed ETF. ettSmallBig")
+	ErrMalformedLargeBig      = fmt.Errorf("Malformed ETF. ettLargeBig")
 )
 
 func Decode(packet []byte, cache []Atom) (Term, error) {
@@ -85,22 +87,43 @@ func decodeTerm(t byte, packet []byte, cache []Atom) (Term, []byte, error) {
 
 	case ettSmallInteger:
 		if len(packet) == 0 {
-			return nil, nil, fmt.Errorf("Malformed ETF. ettSmallInteger")
+			return nil, nil, ErrMalformedSmallInteger
 		}
 		return uint8(packet[0]), packet[1:], nil
 
 	case ettInteger:
 		if len(packet) < 4 {
-			return nil, nil, fmt.Errorf("Malformed ETF. ettInteger")
+			return nil, nil, ErrMalformedInteger
 		}
-		return int(binary.BigEndian.Uint32(packet[:4])), packet[4:], nil
+		return int32(binary.BigEndian.Uint32(packet[:4])), packet[4:], nil
 
 	case ettSmallBig:
+		if len(packet) == 0 {
+			return nil, nil, ErrMalformedSmallBig
+		}
+
 		n := packet[0]
-		negative := packet[1] // sign
+		negative := packet[1] == 1 // sign
+
+		///// this block improve the performance at least 4 times
+		// see details in benchmarks
+		if n < 8 { // treat as an int64
+			le8 := make([]byte, 8)
+			copy(le8, packet[2:n+2])
+			smallBig := binary.LittleEndian.Uint64(le8)
+			if negative {
+				smallBig = -smallBig
+			}
+			return int64(smallBig), packet[n+2:], nil
+		}
+		/////
+
+		if len(packet) < int(n+2) {
+			return nil, nil, ErrMalformedSmallBig
+		}
 		bytes := packet[2 : n+2]
 
-		// encoded as little endian. convert it to big endian order
+		// encoded as a little endian. convert it to the big endian order
 		l := len(bytes)
 		for i := 0; i < l/2; i++ {
 			bytes[i], bytes[l-1-i] = bytes[l-1-i], bytes[i]
@@ -108,7 +131,7 @@ func decodeTerm(t byte, packet []byte, cache []Atom) (Term, []byte, error) {
 
 		bigInt := &big.Int{}
 		bigInt.SetBytes(bytes)
-		if negative == 1 {
+		if negative {
 			bigInt = bigInt.Neg(bigInt)
 		}
 
@@ -119,7 +142,32 @@ func decodeTerm(t byte, packet []byte, cache []Atom) (Term, []byte, error) {
 
 		return bigInt, packet[n+2:], nil
 
-	//case ettLargeBig:
+	case ettLargeBig:
+		if len(packet) < 4 {
+			return nil, nil, ErrMalformedLargeBig
+		}
+
+		n := binary.BigEndian.Uint32(packet[:4])
+		negative := packet[4] == 1 // sign
+
+		if len(packet) < int(n+5) {
+			return nil, nil, ErrMalformedLargeBig
+		}
+		bytes := packet[5 : n+5]
+
+		// encoded as a little endian. convert it to the big endian order
+		l := len(bytes)
+		for i := 0; i < l/2; i++ {
+			bytes[i], bytes[l-1-i] = bytes[l-1-i], bytes[i]
+		}
+
+		bigInt := &big.Int{}
+		bigInt.SetBytes(bytes)
+		if negative {
+			bigInt = bigInt.Neg(bigInt)
+		}
+
+		return bigInt, packet[n+5:], nil
 
 	//case ettList:
 	//case ettSmallTuple:
@@ -134,10 +182,6 @@ func decodeTerm(t byte, packet []byte, cache []Atom) (Term, []byte, error) {
 		n := binary.BigEndian.Uint32(packet)
 		if len(packet) < int(n+4) {
 			return nil, packet, fmt.Errorf("Malformed ETF. ettBinary")
-		}
-
-		if ConvertBinaryToString && utf8.Valid(packet[4:n]) {
-			return string(packet[4 : n+4]), packet[n+4:], nil
 		}
 
 		b := make([]byte, n)
@@ -172,7 +216,7 @@ func decodeTerm(t byte, packet []byte, cache []Atom) (Term, []byte, error) {
 
 	//case ettPort:
 
-	case ettFloat:
+	case ettFloat: // legacy. wont test and bench this shit
 		var f float64
 
 		if len(packet) < 32 {
