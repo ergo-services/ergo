@@ -39,6 +39,7 @@ var (
 	ErrMalformedUnknownType   = fmt.Errorf("Malformed ETF. unknown type")
 	ErrMalformedList          = fmt.Errorf("Malformed ETF. ettList")
 	ErrInternal               = fmt.Errorf("Internal error")
+	ErrMalformed              = fmt.Errorf("Malformed ETF.")
 )
 
 func Decode(packet []byte, cache []Atom) (Term, error) {
@@ -61,8 +62,11 @@ func decodeTerm(packet []byte, cache []Atom) (Term, []byte, error) {
 	var t byte
 
 	for {
-
 		child = nil
+		if len(packet) == 0 {
+			return nil, nil, ErrMalformed
+		}
+
 		t = packet[0]
 		packet = packet[1:]
 
@@ -135,7 +139,7 @@ func decodeTerm(packet []byte, cache []Atom) (Term, []byte, error) {
 				return nil, nil, ErrMalformedInteger
 			}
 
-			term = int(binary.BigEndian.Uint32(packet[:4]))
+			term = int32(binary.BigEndian.Uint32(packet[:4]))
 			packet = packet[4:]
 
 		case ettSmallBig:

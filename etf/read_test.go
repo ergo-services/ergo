@@ -165,7 +165,7 @@ func TestReadInteger(t *testing.T) {
 }
 
 func TestReadList(t *testing.T) {
-	expected := List{3.14, Atom("abc"), 987654321}
+	expected := List{3.14, Atom("abc"), int32(987654321)}
 	packet := []byte{ettList, 0, 0, 0, 3, 70, 64, 9, 30, 184, 81, 235, 133, 31, 100, 0, 3, 97,
 		98, 99, 98, 58, 222, 104, 177, 106}
 	term, err := Decode(packet, []Atom{})
@@ -237,4 +237,27 @@ func BenchmarkReadSmallBigIntegerWithinInt64Range(b *testing.B) {
 			b.Fatal(err)
 		}
 	}
+}
+
+func BenchmarkReadList100Integer(b *testing.B) {
+	packet := []byte{}
+	packetInt := []byte{ettInteger, 182, 105, 253, 46}
+	packetList := []byte{ettList, 0, 0, 0, 100}
+
+	packet = append(packet, packetList...)
+	packet = append(packet, byte(106))
+
+	for i := 0; i < 100; i++ {
+		packet = append(packet, packetInt...)
+	}
+
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		_, err := Decode(packet, []Atom{})
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+
 }
