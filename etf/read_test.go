@@ -2,6 +2,7 @@ package etf
 
 import (
 	"math/big"
+	"reflect"
 	"testing"
 )
 
@@ -161,6 +162,21 @@ func TestReadInteger(t *testing.T) {
 	if err != nil || term != expectedInt64 {
 		t.Fatal(err, term, expectedInt64)
 	}
+}
+
+func TestReadList(t *testing.T) {
+	expected := List{3.14, Atom("abc"), 987654321}
+	packet := []byte{ettList, 0, 0, 0, 3, 70, 64, 9, 30, 184, 81, 235, 133, 31, 100, 0, 3, 97,
+		98, 99, 98, 58, 222, 104, 177, 106}
+	term, err := Decode(packet, []Atom{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := term.(List)
+	if !reflect.DeepEqual(expected, result) {
+		t.Fatal("result != expected")
+	}
+
 }
 
 func BenchmarkReadAtom(b *testing.B) {

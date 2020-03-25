@@ -72,9 +72,9 @@ type Export struct {
 
 // Erlang external term tags.
 const (
-	// ettAtom          = byte(100) deprecated
-	ettAtomUTF8 = byte(118)
-	// ettSmallAtom     = byte(115) deprecated
+	ettAtom          = byte(100) //deprecated
+	ettAtomUTF8      = byte(118)
+	ettSmallAtom     = byte(115) //deprecated
 	ettSmallAtomUTF8 = byte(119)
 	ettString        = byte(107)
 
@@ -109,7 +109,7 @@ const (
 	ettPort = byte(102)
 	// ettRef        = byte(101) deprecated
 
-	ettFloat = byte(99) // almost unusable
+	// ettFloat = byte(99) legacy
 )
 
 const (
