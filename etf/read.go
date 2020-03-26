@@ -34,7 +34,6 @@ var (
 	ErrMalformedInteger       = fmt.Errorf("Malformed ETF. ettInteger")
 	ErrMalformedSmallBig      = fmt.Errorf("Malformed ETF. ettSmallBig")
 	ErrMalformedLargeBig      = fmt.Errorf("Malformed ETF. ettLargeBig")
-	ErrMalformedUnknownType   = fmt.Errorf("Malformed ETF. unknown type")
 	ErrMalformedList          = fmt.Errorf("Malformed ETF. ettList")
 	ErrMalformedSmallTuple    = fmt.Errorf("Malformed ETF. ettSmallTuple")
 	ErrMalformedLargeTuple    = fmt.Errorf("Malformed ETF. ettLargeTuple")
@@ -47,33 +46,24 @@ var (
 	ErrMalformedNewRef        = fmt.Errorf("Malformed ETF. ettNewerRef")
 	ErrMalformedPort          = fmt.Errorf("Malformed ETF. ettPort")
 	ErrMalformedNewPort       = fmt.Errorf("Malformed ETF. ettNewPort")
+	ErrMalformedUnknownType   = fmt.Errorf("Malformed ETF. unknown type")
 	ErrMalformedPacketLength  = fmt.Errorf("Malformed ETF. incorrect length of packet")
 
 	ErrMalformed = fmt.Errorf("Malformed ETF")
 	ErrInternal  = fmt.Errorf("Internal error")
 )
 
-func Decode(packet []byte, cache []Atom) (Term, error) {
+// it might looks super hard to understand the logic, but
+// using iterative way is speeding up it up to x25 times
 
-	term, rest, err := decodeTerm(packet, []Atom{})
-	if len(rest) > 0 {
-		return nil, ErrMalformedPacketLength
-	}
-	return term, err
-}
-
-// i know it looks super hard to understand the logic, but there are only 3 stages
+// There are only 3 stages
 // 1) Stage1: decoding basic types (long list of type we have to support)
 // 2) Stage2: decoding list/tuples/maps and complex types like Port/Pid/Ref using stack
 // 3) Stage3: handling nested types like Tuple{List{Map}}
 //
 // see comments within this function
 
-func decodeTerm(packet []byte, cache []Atom) (Term, []byte, error) {
-	// could be a naive implementation with recursion but its too expensive.
-	// using iterative way is speeding up it up to x25 times
-	// as an example https://medium.com/@felipedutratine/iterative-vs-recursive-vs-tail-recursive-in-golang-c196ca5fd489
-
+func Decode(packet []byte, cache []Atom) (Term, error) {
 	var term Term
 	var stack *stackElement
 	var child *stackElement
@@ -82,7 +72,7 @@ func decodeTerm(packet []byte, cache []Atom) (Term, []byte, error) {
 	for {
 		child = nil
 		if len(packet) == 0 {
-			return nil, nil, ErrMalformed
+			return nil, ErrMalformed
 		}
 
 		t = packet[0]
@@ -97,12 +87,12 @@ func decodeTerm(packet []byte, cache []Atom) (Term, []byte, error) {
 		switch t {
 		case ettAtomUTF8, ettAtom:
 			if len(packet) < 2 {
-				return nil, nil, ErrMalformedAtomUTF8
+				return nil, ErrMalformedAtomUTF8
 			}
 
 			n := binary.BigEndian.Uint16(packet)
 			if len(packet) < int(n+2) {
-				return nil, nil, ErrMalformedAtomUTF8
+				return nil, ErrMalformedAtomUTF8
 			}
 
 			term = Atom(packet[2 : n+2])
@@ -110,12 +100,12 @@ func decodeTerm(packet []byte, cache []Atom) (Term, []byte, error) {
 
 		case ettSmallAtomUTF8, ettSmallAtom:
 			if len(packet) == 0 {
-				return nil, nil, ErrMalformedSmallAtomUTF8
+				return nil, ErrMalformedSmallAtomUTF8
 			}
 
 			n := int(packet[0])
 			if len(packet) < n+1 {
-				return nil, nil, ErrMalformedSmallAtomUTF8
+				return nil, ErrMalformedSmallAtomUTF8
 			}
 
 			term = Atom(packet[1 : n+1])
@@ -123,12 +113,12 @@ func decodeTerm(packet []byte, cache []Atom) (Term, []byte, error) {
 
 		case ettString:
 			if len(packet) < 2 {
-				return nil, nil, ErrMalformedString
+				return nil, ErrMalformedString
 			}
 
 			n := binary.BigEndian.Uint16(packet)
 			if len(packet) < int(n+2) {
-				return nil, nil, ErrMalformedString
+				return nil, ErrMalformedString
 			}
 
 			term = string(packet[2 : n+2])
@@ -136,14 +126,14 @@ func decodeTerm(packet []byte, cache []Atom) (Term, []byte, error) {
 
 		case ettCacheRef:
 			if len(packet) == 0 {
-				return nil, nil, ErrMalformedCacheRef
+				return nil, ErrMalformedCacheRef
 			}
 			term = cache[int(packet[0])]
 			packet = packet[1:]
 
 		case ettNewFloat:
 			if len(packet) < 8 {
-				return nil, nil, ErrMalformedNewFloat
+				return nil, ErrMalformedNewFloat
 			}
 			bits := binary.BigEndian.Uint64(packet[:8])
 
@@ -152,7 +142,7 @@ func decodeTerm(packet []byte, cache []Atom) (Term, []byte, error) {
 
 		case ettSmallInteger:
 			if len(packet) == 0 {
-				return nil, nil, ErrMalformedSmallInteger
+				return nil, ErrMalformedSmallInteger
 			}
 
 			term = int(packet[0])
@@ -160,7 +150,7 @@ func decodeTerm(packet []byte, cache []Atom) (Term, []byte, error) {
 
 		case ettInteger:
 			if len(packet) < 4 {
-				return nil, nil, ErrMalformedInteger
+				return nil, ErrMalformedInteger
 			}
 
 			term = int64(int32(binary.BigEndian.Uint32(packet[:4])))
@@ -168,7 +158,7 @@ func decodeTerm(packet []byte, cache []Atom) (Term, []byte, error) {
 
 		case ettSmallBig:
 			if len(packet) == 0 {
-				return nil, nil, ErrMalformedSmallBig
+				return nil, ErrMalformedSmallBig
 			}
 
 			n := packet[0]
@@ -191,7 +181,7 @@ func decodeTerm(packet []byte, cache []Atom) (Term, []byte, error) {
 			/////
 
 			if len(packet) < int(n+2) {
-				return nil, nil, ErrMalformedSmallBig
+				return nil, ErrMalformedSmallBig
 			}
 			bytes := packet[2 : n+2]
 
@@ -219,14 +209,14 @@ func decodeTerm(packet []byte, cache []Atom) (Term, []byte, error) {
 
 		case ettLargeBig:
 			if len(packet) < 256 { // must be longer than ettSmallBig
-				return nil, nil, ErrMalformedLargeBig
+				return nil, ErrMalformedLargeBig
 			}
 
 			n := binary.BigEndian.Uint32(packet[:4])
 			negative := packet[4] == 1 // sign
 
 			if len(packet) < int(n+5) {
-				return nil, nil, ErrMalformedLargeBig
+				return nil, ErrMalformedLargeBig
 			}
 			bytes := packet[5 : n+5]
 
@@ -247,13 +237,13 @@ func decodeTerm(packet []byte, cache []Atom) (Term, []byte, error) {
 
 		case ettList:
 			if len(packet) < 4 {
-				return nil, nil, ErrMalformedList
+				return nil, ErrMalformedList
 			}
 
 			n := binary.BigEndian.Uint32(packet[:4])
 			if n == 0 {
 				// must be encoded as ettNil
-				return nil, nil, ErrMalformedList
+				return nil, ErrMalformedList
 			}
 
 			term = make(List, n+1)
@@ -267,7 +257,7 @@ func decodeTerm(packet []byte, cache []Atom) (Term, []byte, error) {
 
 		case ettSmallTuple:
 			if len(packet) == 0 {
-				return nil, nil, ErrMalformedSmallTuple
+				return nil, ErrMalformedSmallTuple
 			}
 
 			n := packet[0]
@@ -287,7 +277,7 @@ func decodeTerm(packet []byte, cache []Atom) (Term, []byte, error) {
 
 		case ettLargeTuple:
 			if len(packet) < 4 {
-				return nil, nil, ErrMalformedLargeTuple
+				return nil, ErrMalformedLargeTuple
 			}
 
 			n := binary.BigEndian.Uint32(packet[:4])
@@ -307,7 +297,7 @@ func decodeTerm(packet []byte, cache []Atom) (Term, []byte, error) {
 
 		case ettMap:
 			if len(packet) < 4 {
-				return nil, nil, ErrMalformedMap
+				return nil, ErrMalformedMap
 			}
 
 			n := binary.BigEndian.Uint32(packet[:4])
@@ -327,12 +317,12 @@ func decodeTerm(packet []byte, cache []Atom) (Term, []byte, error) {
 
 		case ettBinary:
 			if len(packet) < 4 {
-				return nil, packet, ErrMalformedBinary
+				return nil, ErrMalformedBinary
 			}
 
 			n := binary.BigEndian.Uint32(packet)
 			if len(packet) < int(n+4) {
-				return nil, packet, ErrMalformedBinary
+				return nil, ErrMalformedBinary
 			}
 
 			b := make([]byte, n)
@@ -353,7 +343,7 @@ func decodeTerm(packet []byte, cache []Atom) (Term, []byte, error) {
 
 		case ettNewRef, ettNewerRef:
 			if len(packet) < 2 {
-				return nil, nil, ErrMalformedRef
+				return nil, ErrMalformedRef
 			}
 
 			l := binary.BigEndian.Uint16(packet[:2])
@@ -379,7 +369,7 @@ func decodeTerm(packet []byte, cache []Atom) (Term, []byte, error) {
 
 		case ettBitBinary:
 			if len(packet) < 6 {
-				return nil, packet, ErrMalformedBitBinary
+				return nil, ErrMalformedBitBinary
 			}
 
 			n := binary.BigEndian.Uint32(packet)
@@ -394,7 +384,7 @@ func decodeTerm(packet []byte, cache []Atom) (Term, []byte, error) {
 
 		default:
 			term = nil
-			return nil, nil, ErrMalformedUnknownType
+			return nil, ErrMalformedUnknownType
 		}
 
 		// it was a single element
@@ -433,12 +423,12 @@ func decodeTerm(packet []byte, cache []Atom) (Term, []byte, error) {
 
 			case ettPid:
 				if len(packet) != 9 {
-					return nil, nil, ErrMalformedPid
+					return nil, ErrMalformedPid
 				}
 
 				name, ok := term.(Atom)
 				if !ok {
-					return nil, nil, ErrMalformedPid
+					return nil, ErrMalformedPid
 				}
 
 				pid := Pid{
@@ -454,12 +444,12 @@ func decodeTerm(packet []byte, cache []Atom) (Term, []byte, error) {
 
 			case ettNewPid:
 				if len(packet) != 12 {
-					return nil, nil, ErrMalformedNewPid
+					return nil, ErrMalformedNewPid
 				}
 
 				name, ok := term.(Atom)
 				if !ok {
-					return nil, nil, ErrMalformedPid
+					return nil, ErrMalformedPid
 				}
 
 				pid := Pid{
@@ -479,7 +469,7 @@ func decodeTerm(packet []byte, cache []Atom) (Term, []byte, error) {
 				var id uint32
 				name, ok := term.(Atom)
 				if !ok {
-					return nil, nil, ErrMalformedRef
+					return nil, ErrMalformedRef
 				}
 
 				l := stack.tmp.(uint16)
@@ -487,7 +477,7 @@ func decodeTerm(packet []byte, cache []Atom) (Term, []byte, error) {
 				expectedLength := int(1 + l*4)
 
 				if len(packet) < expectedLength {
-					return nil, nil, ErrMalformedRef
+					return nil, ErrMalformedRef
 				}
 
 				ref := Ref{
@@ -510,7 +500,7 @@ func decodeTerm(packet []byte, cache []Atom) (Term, []byte, error) {
 				var id uint32
 				name, ok := term.(Atom)
 				if !ok {
-					return nil, nil, ErrMalformedRef
+					return nil, ErrMalformedRef
 				}
 
 				l := stack.tmp.(uint16)
@@ -518,14 +508,14 @@ func decodeTerm(packet []byte, cache []Atom) (Term, []byte, error) {
 				expectedLength := int(4 + l*4)
 
 				if len(packet) < expectedLength {
-					return nil, nil, ErrMalformedRef
+					return nil, ErrMalformedRef
 				}
 
 				ref := Ref{
 					Node: name,
 					Id:   make([]uint32, l),
 					// FIXME: we must upgrade this type to uint32
-					// ref.Creation = binary.BigEndian.Uint32(packet[:4])
+					// Creation: binary.BigEndian.Uint32(packet[:4])
 					Creation: packet[3],
 				}
 				packet = packet[4:]
@@ -541,12 +531,12 @@ func decodeTerm(packet []byte, cache []Atom) (Term, []byte, error) {
 
 			case ettPort:
 				if len(packet) != 5 {
-					return nil, nil, ErrMalformedPort
+					return nil, ErrMalformedPort
 				}
 
 				name, ok := term.(Atom)
 				if !ok {
-					return nil, nil, ErrMalformedPort
+					return nil, ErrMalformedPort
 				}
 
 				port := Port{
@@ -561,12 +551,12 @@ func decodeTerm(packet []byte, cache []Atom) (Term, []byte, error) {
 
 			case ettNewPort:
 				if len(packet) != 8 {
-					return nil, nil, ErrMalformedNewPort
+					return nil, ErrMalformedNewPort
 				}
 
 				name, ok := term.(Atom)
 				if !ok {
-					return nil, nil, ErrMalformedNewPort
+					return nil, ErrMalformedNewPort
 				}
 
 				port := Port{
@@ -582,7 +572,7 @@ func decodeTerm(packet []byte, cache []Atom) (Term, []byte, error) {
 				stack.i++
 
 			default:
-				return nil, nil, ErrInternal
+				return nil, ErrInternal
 			}
 		}
 
@@ -622,7 +612,7 @@ func decodeTerm(packet []byte, cache []Atom) (Term, []byte, error) {
 			stack.term.(Map)[stack.tmp] = term
 
 		default:
-			return nil, nil, ErrInternal
+			return nil, ErrInternal
 		}
 
 		// since we switched to the parent stack item we have to make the same
@@ -639,7 +629,11 @@ func decodeTerm(packet []byte, cache []Atom) (Term, []byte, error) {
 		}
 	}
 
-	return term, packet, nil
+	if len(packet) > 0 {
+		return nil, ErrMalformedPacketLength
+	}
+
+	return term, nil
 }
 
 type Context struct{}
