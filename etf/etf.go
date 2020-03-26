@@ -99,6 +99,7 @@ const (
 	ettNil = byte(106)
 
 	ettPid      = byte(103)
+	ettNewPid   = byte(88) // since OTP 23, only when BIG_CREATION flag is set
 	ettNewRef   = byte(114)
 	ettNewerRef = byte(90) // since OTP 21, only when BIG_CREATION flag is set
 
@@ -106,7 +107,9 @@ const (
 	ettFun    = byte(117)
 	ettNewFun = byte(112)
 
-	ettPort = byte(102)
+	ettPort    = byte(102)
+	ettNewPort = byte(89) // since OTP 23, only when BIG_CREATION flag is set
+
 	// ettRef        = byte(101) deprecated
 
 	// ettFloat = byte(99) legacy

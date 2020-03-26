@@ -16,11 +16,10 @@ type stackElement struct {
 	term     Term //value
 	i        int  // current
 	children int
+	tmp      Term // temporary value. uses as a temporary storage for a key of map
 }
 
 var (
-	UseTypeRegistrar bool
-
 	termNil = make(List, 0)
 
 	biggestInt = big.NewInt(0xfffffffffffffff)
@@ -28,7 +27,6 @@ var (
 
 	ErrMalformedAtomUTF8      = fmt.Errorf("Malformed ETF. ettAtomUTF8")
 	ErrMalformedSmallAtomUTF8 = fmt.Errorf("Malformed ETF. ettSmallAtomUTF8")
-	ErrMalformedPacketLength  = fmt.Errorf("Malformed ETF. incorrect length of packet")
 	ErrMalformedString        = fmt.Errorf("Malformed ETF. ettString")
 	ErrMalformedCacheRef      = fmt.Errorf("Malformed ETF. ettCacheRef")
 	ErrMalformedNewFloat      = fmt.Errorf("Malformed ETF. ettNewFloat")
@@ -38,8 +36,21 @@ var (
 	ErrMalformedLargeBig      = fmt.Errorf("Malformed ETF. ettLargeBig")
 	ErrMalformedUnknownType   = fmt.Errorf("Malformed ETF. unknown type")
 	ErrMalformedList          = fmt.Errorf("Malformed ETF. ettList")
-	ErrInternal               = fmt.Errorf("Internal error")
-	ErrMalformed              = fmt.Errorf("Malformed ETF.")
+	ErrMalformedSmallTuple    = fmt.Errorf("Malformed ETF. ettSmallTuple")
+	ErrMalformedLargeTuple    = fmt.Errorf("Malformed ETF. ettLargeTuple")
+	ErrMalformedMap           = fmt.Errorf("Malformed ETF. ettMap")
+	ErrMalformedBinary        = fmt.Errorf("Malformed ETF. ettBinary")
+	ErrMalformedBitBinary     = fmt.Errorf("Malformed ETF. ettBitBinary")
+	ErrMalformedPid           = fmt.Errorf("Malformed ETF. ettPid")
+	ErrMalformedNewPid        = fmt.Errorf("Malformed ETF. ettNewPid")
+	ErrMalformedRef           = fmt.Errorf("Malformed ETF. ettNewRef")
+	ErrMalformedNewRef        = fmt.Errorf("Malformed ETF. ettNewerRef")
+	ErrMalformedPort          = fmt.Errorf("Malformed ETF. ettPort")
+	ErrMalformedNewPort       = fmt.Errorf("Malformed ETF. ettNewPort")
+	ErrMalformedPacketLength  = fmt.Errorf("Malformed ETF. incorrect length of packet")
+
+	ErrMalformed = fmt.Errorf("Malformed ETF")
+	ErrInternal  = fmt.Errorf("Internal error")
 )
 
 func Decode(packet []byte, cache []Atom) (Term, error) {
@@ -131,7 +142,7 @@ func decodeTerm(packet []byte, cache []Atom) (Term, []byte, error) {
 				return nil, nil, ErrMalformedSmallInteger
 			}
 
-			term = uint8(packet[0])
+			term = int(packet[0])
 			packet = packet[1:]
 
 		case ettInteger:
@@ -139,7 +150,7 @@ func decodeTerm(packet []byte, cache []Atom) (Term, []byte, error) {
 				return nil, nil, ErrMalformedInteger
 			}
 
-			term = int32(binary.BigEndian.Uint32(packet[:4]))
+			term = int64(int32(binary.BigEndian.Uint32(packet[:4])))
 			packet = packet[4:]
 
 		case ettSmallBig:
@@ -194,8 +205,7 @@ func decodeTerm(packet []byte, cache []Atom) (Term, []byte, error) {
 			packet = packet[n+2:]
 
 		case ettLargeBig:
-			fmt.Println("large big")
-			if len(packet) < 4 {
+			if len(packet) < 256 { // must be longer than ettSmallBig
 				return nil, nil, ErrMalformedLargeBig
 			}
 
@@ -242,18 +252,74 @@ func decodeTerm(packet []byte, cache []Atom) (Term, []byte, error) {
 				children: int(n + 1),
 			}
 
-		//case ettSmallTuple:
-		//case ettLargeTuple:
-		//case ettMap:
+		case ettSmallTuple:
+			if len(packet) == 0 {
+				return nil, nil, ErrMalformedSmallTuple
+			}
+
+			n := packet[0]
+			packet = packet[1:]
+			term = make(Tuple, n)
+
+			if n == 0 {
+				break
+			}
+
+			child = &stackElement{
+				parent:   stack,
+				termType: ettSmallTuple,
+				term:     term,
+				children: int(n),
+			}
+
+		case ettLargeTuple:
+			if len(packet) < 4 {
+				return nil, nil, ErrMalformedLargeTuple
+			}
+
+			n := binary.BigEndian.Uint32(packet[:4])
+			packet = packet[4:]
+			term = make(Tuple, n)
+
+			if n == 0 {
+				break
+			}
+
+			child = &stackElement{
+				parent:   stack,
+				termType: ettLargeTuple,
+				term:     term,
+				children: int(n),
+			}
+
+		case ettMap:
+			if len(packet) < 4 {
+				return nil, nil, ErrMalformedMap
+			}
+
+			n := binary.BigEndian.Uint32(packet[:4])
+			packet = packet[4:]
+			term = make(Map)
+
+			if n == 0 {
+				break
+			}
+
+			child = &stackElement{
+				parent:   stack,
+				termType: ettMap,
+				term:     term,
+				children: int(n) * 2,
+			}
 
 		case ettBinary:
 			if len(packet) < 4 {
-				return nil, packet, fmt.Errorf("Malformed ETF. ettBinary")
+				return nil, packet, ErrMalformedBinary
 			}
 
 			n := binary.BigEndian.Uint32(packet)
 			if len(packet) < int(n+4) {
-				return nil, packet, fmt.Errorf("Malformed ETF. ettBinary")
+				return nil, packet, ErrMalformedBinary
 			}
 
 			b := make([]byte, n)
@@ -265,19 +331,42 @@ func decodeTerm(packet []byte, cache []Atom) (Term, []byte, error) {
 		case ettNil:
 			term = termNil
 
-			//case ettPid:
-			//case ettNewRef:
-			//case ettNewerRef:
+		case ettPid, ettNewPid:
+			child = &stackElement{
+				parent:   stack,
+				termType: t,
+				children: 1,
+			}
+
+		case ettNewRef, ettNewerRef:
+			if len(packet) < 2 {
+				return nil, nil, ErrMalformedRef
+			}
+
+			l := binary.BigEndian.Uint16(packet[:2])
+			packet = packet[2:]
+
+			child = &stackElement{
+				parent:   stack,
+				termType: t,
+				children: 1,
+				tmp:      l, // save length in temporary place of the stack element
+			}
 
 			//case ettExport:
 			//case ettFun:
 			//case ettNewFun:
 
-			//case ettPort:
+		case ettPort, ettNewPort:
+			child = &stackElement{
+				parent:   stack,
+				termType: t,
+				children: 1,
+			}
 
 		case ettBitBinary:
 			if len(packet) < 6 {
-				return nil, packet, fmt.Errorf("Malformed ETF. ettBitBinary")
+				return nil, packet, ErrMalformedBitBinary
 			}
 
 			n := binary.BigEndian.Uint32(packet)
@@ -295,20 +384,189 @@ func decodeTerm(packet []byte, cache []Atom) (Term, []byte, error) {
 			return nil, nil, ErrMalformedUnknownType
 		}
 
-		// it was single element
+		// it was a single element
 		if stack == nil && child == nil {
 			break
 		}
 
+		fmt.Printf("term = %#v\n", term)
+		fmt.Printf("packet = %+v\n", packet)
 		if stack != nil {
 			switch stack.termType {
-			case ettList, ettSmallTuple, ettLargeTuple:
+			case ettList:
 				stack.term.(List)[stack.i] = term
 				stack.i++
 				// remove the last element for proper list (its ettNil)
 				if stack.i == stack.children && t == ettNil {
 					stack.term = stack.term.(List)[:stack.i-1]
 				}
+
+			case ettSmallTuple, ettLargeTuple:
+				stack.term.(Tuple)[stack.i] = term
+				stack.i++
+
+			case ettMap:
+				if stack.i&0x01 == 0x01 { // value
+					stack.term.(Map)[stack.tmp] = term
+					stack.tmp = nil
+					stack.i++
+					break
+				}
+
+				// a key
+				stack.tmp = term
+				stack.i++
+
+			case ettPid:
+				if len(packet) != 9 {
+					return nil, nil, ErrMalformedPid
+				}
+
+				name, ok := term.(Atom)
+				if !ok {
+					return nil, nil, ErrMalformedPid
+				}
+
+				pid := Pid{
+					Node:     name,
+					Id:       binary.BigEndian.Uint32(packet[:4]),
+					Serial:   binary.BigEndian.Uint32(packet[4:8]),
+					Creation: packet[8] & 3, // only two bits are significant, rest are to be 0
+				}
+
+				packet = packet[9:]
+				stack.term = pid
+				stack.i++
+
+			case ettNewPid:
+				if len(packet) != 12 {
+					return nil, nil, ErrMalformedNewPid
+				}
+
+				name, ok := term.(Atom)
+				if !ok {
+					return nil, nil, ErrMalformedPid
+				}
+
+				pid := Pid{
+					Node:   name,
+					Id:     binary.BigEndian.Uint32(packet[:4]),
+					Serial: binary.BigEndian.Uint32(packet[4:8]),
+					// FIXME: we must upgrade this type to uint32
+					// Creation: binary.BigEndian.Uint32(packet[8:12])
+					Creation: packet[11], // use the last byte for a while
+				}
+
+				packet = packet[12:]
+				stack.term = pid
+				stack.i++
+
+			case ettNewRef:
+				var id uint32
+				name, ok := term.(Atom)
+				if !ok {
+					return nil, nil, ErrMalformedRef
+				}
+
+				l := stack.tmp.(uint16)
+				stack.tmp = nil
+				expectedLength := int(1 + l*4)
+
+				if len(packet) < expectedLength {
+					return nil, nil, ErrMalformedRef
+				}
+
+				ref := Ref{
+					Node:     name,
+					Id:       make([]uint32, l),
+					Creation: packet[0],
+				}
+				packet = packet[1:]
+
+				for i := 0; i < int(l); i++ {
+					id = binary.BigEndian.Uint32(packet[:4])
+					ref.Id[i] = id
+					packet = packet[4:]
+				}
+
+				stack.term = ref
+				stack.i++
+
+			case ettNewerRef:
+				var id uint32
+				name, ok := term.(Atom)
+				if !ok {
+					return nil, nil, ErrMalformedRef
+				}
+
+				l := stack.tmp.(uint16)
+				stack.tmp = nil
+				expectedLength := int(4 + l*4)
+
+				if len(packet) < expectedLength {
+					return nil, nil, ErrMalformedRef
+				}
+
+				ref := Ref{
+					Node: name,
+					Id:   make([]uint32, l),
+					// FIXME: we must upgrade this type to uint32
+					// ref.Creation = binary.BigEndian.Uint32(packet[:4])
+					Creation: packet[3],
+				}
+				packet = packet[4:]
+
+				for i := 0; i < int(l); i++ {
+					id = binary.BigEndian.Uint32(packet[:4])
+					ref.Id[i] = id
+					packet = packet[4:]
+				}
+
+				stack.term = ref
+				stack.i++
+
+			case ettPort:
+				if len(packet) != 5 {
+					return nil, nil, ErrMalformedPort
+				}
+
+				name, ok := term.(Atom)
+				if !ok {
+					return nil, nil, ErrMalformedPort
+				}
+
+				port := Port{
+					Node:     name,
+					Id:       binary.BigEndian.Uint32(packet[:4]),
+					Creation: packet[4],
+				}
+
+				packet = packet[5:]
+				stack.term = port
+				stack.i++
+
+			case ettNewPort:
+				if len(packet) != 8 {
+					return nil, nil, ErrMalformedNewPort
+				}
+
+				name, ok := term.(Atom)
+				if !ok {
+					return nil, nil, ErrMalformedNewPort
+				}
+
+				port := Port{
+					Node: name,
+					Id:   binary.BigEndian.Uint32(packet[:4]),
+					// FIXME: we must upgrade this type to uint32
+					// Creation: binary.BigEndian.Uint32(packet[4:8])
+					Creation: packet[7],
+				}
+
+				packet = packet[8:]
+				stack.term = port
+				stack.i++
+
 			default:
 				return nil, nil, ErrInternal
 			}
@@ -323,6 +581,7 @@ func decodeTerm(packet []byte, cache []Atom) (Term, []byte, error) {
 			continue
 		}
 
+		fmt.Println("child", stack.term)
 		// this term was the last element of List/Map/Tuple
 		// pop from the stack
 		if stack.parent == nil {
