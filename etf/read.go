@@ -62,6 +62,13 @@ func Decode(packet []byte, cache []Atom) (Term, error) {
 	return term, err
 }
 
+// i know it looks super hard to understand the logic, but there are only 3 stages
+// 1) Stage1: decoding basic types (long list of type we have to support)
+// 2) Stage2: decoding list/tuples/maps and complex types like Port/Pid/Ref using stack
+// 3) Stage3: handling nested types like Tuple{List{Map}}
+//
+// see comments within this function
+
 func decodeTerm(packet []byte, cache []Atom) (Term, []byte, error) {
 	// could be a naive implementation with recursion but its too expensive.
 	// using iterative way is speeding up it up to x25 times
@@ -80,6 +87,12 @@ func decodeTerm(packet []byte, cache []Atom) (Term, []byte, error) {
 
 		t = packet[0]
 		packet = packet[1:]
+
+		// Stage 1: decoding base type. if have encountered List/Map/Tuple
+		// or complex type like Pid/Ref/Port:
+		//  save the state in stackElement and push it to the stack (basically,
+		//  we just append the new item to the linked list)
+		//
 
 		switch t {
 		case ettAtomUTF8, ettAtom:
@@ -389,8 +402,10 @@ func decodeTerm(packet []byte, cache []Atom) (Term, []byte, error) {
 			break
 		}
 
-		fmt.Printf("term = %#v\n", term)
-		fmt.Printf("packet = %+v\n", packet)
+		// Stage 2:
+		// decoded item is an item of List/Map/Tuple
+		// or
+		// we decoding complex type like Pid/Port/Ref
 		if stack != nil {
 			switch stack.termType {
 			case ettList:
@@ -408,7 +423,6 @@ func decodeTerm(packet []byte, cache []Atom) (Term, []byte, error) {
 			case ettMap:
 				if stack.i&0x01 == 0x01 { // value
 					stack.term.(Map)[stack.tmp] = term
-					stack.tmp = nil
 					stack.i++
 					break
 				}
@@ -572,25 +586,57 @@ func decodeTerm(packet []byte, cache []Atom) (Term, []byte, error) {
 			}
 		}
 
+		// decoded child item is List/Map/Tuple. Going deeper
 		if child != nil {
 			stack = child
 			continue
 		}
 
+		// we are still decoding children of Lis/Map/Tuple
 		if stack.i < stack.children {
 			continue
 		}
 
-		fmt.Println("child", stack.term)
-		// this term was the last element of List/Map/Tuple
+		term = stack.term
+
+		// this term was the last element of List/Map/Tuple (single level)
 		// pop from the stack
 		if stack.parent == nil {
-			term = stack.term
 			break
 		}
 
+		// stage 3: parent is List/Tuple/Map and we need to place
+		// decoded term into the right place
+
 		stack, stack.parent = stack.parent, nil // nil here is just a little help for GC
 
+		switch stack.termType {
+		case ettSmallTuple, ettLargeTuple:
+			stack.term.(Tuple)[stack.i-1] = term
+
+		case ettList:
+			stack.term.(List)[stack.i-1] = term
+
+		case ettMap:
+			// stack.tmp has a key we stored earlier
+			stack.term.(Map)[stack.tmp] = term
+
+		default:
+			return nil, nil, ErrInternal
+		}
+
+		// since we switched to the parent stack item we have to make the same
+		// checks we have done before the stage 3 (at the end of stage 2)
+
+		if stack.i < stack.children {
+			continue
+		}
+
+		term = stack.term
+
+		if stack.parent == nil {
+			break
+		}
 	}
 
 	return term, packet, nil

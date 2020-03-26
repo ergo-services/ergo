@@ -1,7 +1,6 @@
 package etf
 
 import (
-	"fmt"
 	"math/big"
 	"reflect"
 	"testing"
@@ -180,6 +179,23 @@ func TestReadList(t *testing.T) {
 
 }
 
+func TestReadListNested(t *testing.T) {
+	// [1,[2,3,[4,5],6]]
+	expected := List{1, List{2, 3, List{4, 5}, 6}}
+	packet := []byte{108, 0, 0, 0, 2, 97, 1, 108, 0, 0, 0, 4, 97, 2, 97, 3, 108, 0, 0, 0, 2, 97, 4, 97, 5, 106,
+		97, 6, 106, 106}
+
+	term, err := Decode(packet, []Atom{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result := term.(List)
+	if !reflect.DeepEqual(expected, result) {
+		t.Fatal("result != expected")
+	}
+}
+
 func TestReadTuple(t *testing.T) {
 	expected := Tuple{3.14, Atom("abc"), int64(987654321)}
 	packet := []byte{ettSmallTuple, 3, 70, 64, 9, 30, 184, 81, 235, 133, 31, 100, 0, 3, 97, 98, 99,
@@ -287,6 +303,16 @@ func TestReadRef(t *testing.T) {
 }
 
 func TestReadTupleRefPid(t *testing.T) {
+	expected := Tuple{
+		Ref{
+			Node:     Atom("erl-demo@127.0.0.1"),
+			Creation: 2,
+			Id:       []uint32{0x11f1c, 0xb7c00001, 0x8d7acb23}},
+		Pid{
+			Node:     Atom("erl-demo@127.0.0.1"),
+			Id:       0x8e,
+			Serial:   0x0,
+			Creation: 0x2}}
 	packet := []byte{ettSmallTuple, 2, ettNewRef, 0, 3, ettAtom, 0, 18, 101, 114, 108, 45, 100, 101, 109,
 		111, 64, 49, 50, 55, 46, 48, 46, 48, 46, 49, 2, 0, 1, 31, 28, 183, 192, 0,
 		1, 141, 122, 203, 35, 103, 100, 0, 18, 101, 114, 108, 45, 100, 101,
@@ -297,7 +323,10 @@ func TestReadTupleRefPid(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	fmt.Printf("term = %+v\n", term)
+	result := term.(Tuple)
+	if !reflect.DeepEqual(expected, result) {
+		t.Fatal("result != expected")
+	}
 }
 
 func TestReadPort(t *testing.T) {
@@ -315,6 +344,26 @@ func TestReadPort(t *testing.T) {
 	}
 
 	result := term.(Port)
+	if !reflect.DeepEqual(expected, result) {
+		t.Fatal("result != expected")
+	}
+}
+
+func TestReadComplex(t *testing.T) {
+	//{"hello",[], #{v1 => [{3,13,3.13}, {abc, "abc"}], v2 => 12345}}.
+	expected := Tuple{"hello", List{},
+		Map{Atom("v1"): List{Tuple{3, 13, 3.13}, Tuple{Atom("abc"), "abc"}},
+			Atom("v2"): int64(12345)}}
+	packet := []byte{104, 3, 107, 0, 5, 104, 101, 108, 108, 111, 106, 116, 0, 0, 0, 2,
+		100, 0, 2, 118, 49, 108, 0, 0, 0, 2, 104, 3, 97, 3, 97, 13, 70, 64, 9, 10,
+		61, 112, 163, 215, 10, 104, 2, 100, 0, 3, 97, 98, 99, 107, 0, 3, 97, 98,
+		99, 106, 100, 0, 2, 118, 50, 98, 0, 0, 48, 57}
+	term, err := Decode(packet, []Atom{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result := term.(Tuple)
 	if !reflect.DeepEqual(expected, result) {
 		t.Fatal("result != expected")
 	}
@@ -444,6 +493,21 @@ func BenchmarkReadRef(b *testing.B) {
 func BenchmarkReadPort(b *testing.B) {
 	packet := []byte{102, 100, 0, 18, 101, 114, 108, 45, 100, 101, 109, 111, 64, 49,
 		50, 55, 46, 48, 46, 48, 46, 49, 0, 0, 0, 32, 2}
+	for i := 0; i < b.N; i++ {
+		_, err := Decode(packet, []Atom{})
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkReadTupleRefPid(b *testing.B) {
+
+	packet := []byte{ettSmallTuple, 2, ettNewRef, 0, 3, ettAtom, 0, 18, 101, 114, 108, 45, 100, 101, 109,
+		111, 64, 49, 50, 55, 46, 48, 46, 48, 46, 49, 2, 0, 1, 31, 28, 183, 192, 0,
+		1, 141, 122, 203, 35, 103, 100, 0, 18, 101, 114, 108, 45, 100, 101,
+		109, 111, 64, 49, 50, 55, 46, 48, 46, 48, 46, 49, 0, 0, 0, 142, 0, 0, 0, 0,
+		2}
 	for i := 0; i < b.N; i++ {
 		_, err := Decode(packet, []Atom{})
 		if err != nil {
