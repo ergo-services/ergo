@@ -104,7 +104,7 @@ const (
 	ettNewerRef = byte(90) // since OTP 21, only when BIG_CREATION flag is set
 
 	ettExport = byte(113)
-	ettFun    = byte(117)
+	ettFun    = byte(117) // legacy, wont support it here
 	ettNewFun = byte(112)
 
 	ettPort    = byte(102)

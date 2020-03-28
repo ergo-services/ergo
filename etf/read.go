@@ -47,19 +47,19 @@ var (
 	ErrMalformedPort          = fmt.Errorf("Malformed ETF. ettPort")
 	ErrMalformedNewPort       = fmt.Errorf("Malformed ETF. ettNewPort")
 	ErrMalformedUnknownType   = fmt.Errorf("Malformed ETF. unknown type")
+	ErrMalformedFun           = fmt.Errorf("Malformed ETF. ettNewFun")
 	ErrMalformedPacketLength  = fmt.Errorf("Malformed ETF. incorrect length of packet")
-
-	ErrMalformed = fmt.Errorf("Malformed ETF")
-	ErrInternal  = fmt.Errorf("Internal error")
+	ErrMalformed              = fmt.Errorf("Malformed ETF")
+	ErrInternal               = fmt.Errorf("Internal error")
 )
 
-// it might looks super hard to understand the logic, but
 // using iterative way is speeding up it up to x25 times
+// so this implementation has no recursion calls at all
 
-// There are only 3 stages
+// it might looks super hard to understand the logic, but
+// there are only two stages
 // 1) Stage1: decoding basic types (long list of type we have to support)
 // 2) Stage2: decoding list/tuples/maps and complex types like Port/Pid/Ref using stack
-// 3) Stage3: handling nested types like Tuple{List{Map}}
 //
 // see comments within this function
 
@@ -357,8 +357,30 @@ func Decode(packet []byte, cache []Atom) (Term, error) {
 			}
 
 			//case ettExport:
-			//case ettFun:
-			//case ettNewFun:
+		case ettNewFun:
+			var unique [16]byte
+
+			if len(packet) < 32 {
+				return nil, ErrMalformedFun
+			}
+
+			copy(unique[:], packet[5:21])
+			l := binary.BigEndian.Uint32(packet[25:29])
+
+			fun := Function{
+				Arity:    packet[4],
+				Unique:   unique,
+				Index:    binary.BigEndian.Uint32(packet[21:25]),
+				FreeVars: make([]Term, l),
+			}
+
+			child = &stackElement{
+				parent:   stack,
+				termType: t,
+				term:     fun,
+				children: 4 + int(l),
+			}
+			packet = packet[29:]
 
 		case ettPort, ettNewPort:
 			child = &stackElement{
@@ -392,10 +414,14 @@ func Decode(packet []byte, cache []Atom) (Term, error) {
 			break
 		}
 
-		// Stage 2:
-		// decoded item is an item of List/Map/Tuple
-		// or
-		// we decoding complex type like Pid/Port/Ref
+		// decoded child item is List/Map/Tuple/Pid/Ref/Port/... going deeper
+		if child != nil {
+			stack = child
+			continue
+		}
+
+		// Stage 2
+	processStack:
 		if stack != nil {
 			switch stack.termType {
 			case ettList:
@@ -422,7 +448,7 @@ func Decode(packet []byte, cache []Atom) (Term, error) {
 				stack.i++
 
 			case ettPid:
-				if len(packet) != 9 {
+				if len(packet) < 9 {
 					return nil, ErrMalformedPid
 				}
 
@@ -443,7 +469,7 @@ func Decode(packet []byte, cache []Atom) (Term, error) {
 				stack.i++
 
 			case ettNewPid:
-				if len(packet) != 12 {
+				if len(packet) < 12 {
 					return nil, ErrMalformedNewPid
 				}
 
@@ -530,7 +556,7 @@ func Decode(packet []byte, cache []Atom) (Term, error) {
 				stack.i++
 
 			case ettPort:
-				if len(packet) != 5 {
+				if len(packet) < 5 {
 					return nil, ErrMalformedPort
 				}
 
@@ -550,7 +576,7 @@ func Decode(packet []byte, cache []Atom) (Term, error) {
 				stack.i++
 
 			case ettNewPort:
-				if len(packet) != 8 {
+				if len(packet) < 8 {
 					return nil, ErrMalformedNewPort
 				}
 
@@ -571,15 +597,54 @@ func Decode(packet []byte, cache []Atom) (Term, error) {
 				stack.term = port
 				stack.i++
 
+			case ettNewFun:
+				fun := stack.term.(Function)
+				switch stack.i {
+				case 0:
+					// Module
+					module, ok := term.(Atom)
+					if !ok {
+						return nil, ErrMalformedFun
+					}
+					fun.Module = module
+
+				case 1:
+					// OldIndex
+					oldindex, ok := term.(int)
+					if !ok {
+						return nil, ErrMalformedFun
+					}
+					fun.OldIndex = uint32(oldindex)
+
+				case 2:
+					// OldUnique
+					olduniq, ok := term.(int64)
+					if !ok {
+						return nil, ErrMalformedFun
+					}
+					fun.OldUnique = uint32(olduniq)
+
+				case 3:
+					// Pid
+					pid, ok := term.(Pid)
+					if !ok {
+						return nil, ErrMalformedFun
+					}
+					fun.Pid = pid
+
+				default:
+					if len(fun.FreeVars) < (stack.i-4)+1 {
+						return nil, ErrMalformedFun
+					}
+					fun.FreeVars[stack.i-4] = term
+				}
+
+				stack.term = fun
+				stack.i++
+
 			default:
 				return nil, ErrInternal
 			}
-		}
-
-		// decoded child item is List/Map/Tuple. Going deeper
-		if child != nil {
-			stack = child
-			continue
 		}
 
 		// we are still decoding children of Lis/Map/Tuple
@@ -599,36 +664,11 @@ func Decode(packet []byte, cache []Atom) (Term, error) {
 		// decoded term into the right place
 
 		stack, stack.parent = stack.parent, nil // nil here is just a little help for GC
+		goto processStack
 
-		switch stack.termType {
-		case ettSmallTuple, ettLargeTuple:
-			stack.term.(Tuple)[stack.i-1] = term
-
-		case ettList:
-			stack.term.(List)[stack.i-1] = term
-
-		case ettMap:
-			// stack.tmp has a key we stored earlier
-			stack.term.(Map)[stack.tmp] = term
-
-		default:
-			return nil, ErrInternal
-		}
-
-		// since we switched to the parent stack item we have to make the same
-		// checks we have done before the stage 3 (at the end of stage 2)
-
-		if stack.i < stack.children {
-			continue
-		}
-
-		term = stack.term
-
-		if stack.parent == nil {
-			break
-		}
 	}
 
+	// packet must have strict data length
 	if len(packet) > 0 {
 		return nil, ErrMalformedPacketLength
 	}
