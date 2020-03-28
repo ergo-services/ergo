@@ -25,32 +25,34 @@ var (
 	biggestInt = big.NewInt(0xfffffffffffffff)
 	lowestInt  = big.NewInt(-0xfffffffffffffff)
 
-	ErrMalformedAtomUTF8      = fmt.Errorf("Malformed ETF. ettAtomUTF8")
-	ErrMalformedSmallAtomUTF8 = fmt.Errorf("Malformed ETF. ettSmallAtomUTF8")
-	ErrMalformedString        = fmt.Errorf("Malformed ETF. ettString")
-	ErrMalformedCacheRef      = fmt.Errorf("Malformed ETF. ettCacheRef")
-	ErrMalformedNewFloat      = fmt.Errorf("Malformed ETF. ettNewFloat")
-	ErrMalformedSmallInteger  = fmt.Errorf("Malformed ETF. ettSmallInteger")
-	ErrMalformedInteger       = fmt.Errorf("Malformed ETF. ettInteger")
-	ErrMalformedSmallBig      = fmt.Errorf("Malformed ETF. ettSmallBig")
-	ErrMalformedLargeBig      = fmt.Errorf("Malformed ETF. ettLargeBig")
-	ErrMalformedList          = fmt.Errorf("Malformed ETF. ettList")
-	ErrMalformedSmallTuple    = fmt.Errorf("Malformed ETF. ettSmallTuple")
-	ErrMalformedLargeTuple    = fmt.Errorf("Malformed ETF. ettLargeTuple")
-	ErrMalformedMap           = fmt.Errorf("Malformed ETF. ettMap")
-	ErrMalformedBinary        = fmt.Errorf("Malformed ETF. ettBinary")
-	ErrMalformedBitBinary     = fmt.Errorf("Malformed ETF. ettBitBinary")
-	ErrMalformedPid           = fmt.Errorf("Malformed ETF. ettPid")
-	ErrMalformedNewPid        = fmt.Errorf("Malformed ETF. ettNewPid")
-	ErrMalformedRef           = fmt.Errorf("Malformed ETF. ettNewRef")
-	ErrMalformedNewRef        = fmt.Errorf("Malformed ETF. ettNewerRef")
-	ErrMalformedPort          = fmt.Errorf("Malformed ETF. ettPort")
-	ErrMalformedNewPort       = fmt.Errorf("Malformed ETF. ettNewPort")
-	ErrMalformedUnknownType   = fmt.Errorf("Malformed ETF. unknown type")
-	ErrMalformedFun           = fmt.Errorf("Malformed ETF. ettNewFun")
-	ErrMalformedPacketLength  = fmt.Errorf("Malformed ETF. incorrect length of packet")
-	ErrMalformed              = fmt.Errorf("Malformed ETF")
-	ErrInternal               = fmt.Errorf("Internal error")
+	errMalformedAtomUTF8      = fmt.Errorf("Malformed ETF. ettAtomUTF8")
+	errMalformedSmallAtomUTF8 = fmt.Errorf("Malformed ETF. ettSmallAtomUTF8")
+	errMalformedString        = fmt.Errorf("Malformed ETF. ettString")
+	errMalformedCacheRef      = fmt.Errorf("Malformed ETF. ettCacheRef")
+	errMalformedNewFloat      = fmt.Errorf("Malformed ETF. ettNewFloat")
+	errMalformedSmallInteger  = fmt.Errorf("Malformed ETF. ettSmallInteger")
+	errMalformedInteger       = fmt.Errorf("Malformed ETF. ettInteger")
+	errMalformedSmallBig      = fmt.Errorf("Malformed ETF. ettSmallBig")
+	errMalformedLargeBig      = fmt.Errorf("Malformed ETF. ettLargeBig")
+	errMalformedList          = fmt.Errorf("Malformed ETF. ettList")
+	errMalformedSmallTuple    = fmt.Errorf("Malformed ETF. ettSmallTuple")
+	errMalformedLargeTuple    = fmt.Errorf("Malformed ETF. ettLargeTuple")
+	errMalformedMap           = fmt.Errorf("Malformed ETF. ettMap")
+	errMalformedBinary        = fmt.Errorf("Malformed ETF. ettBinary")
+	errMalformedBitBinary     = fmt.Errorf("Malformed ETF. ettBitBinary")
+	errMalformedPid           = fmt.Errorf("Malformed ETF. ettPid")
+	errMalformedNewPid        = fmt.Errorf("Malformed ETF. ettNewPid")
+	errMalformedRef           = fmt.Errorf("Malformed ETF. ettNewRef")
+	errMalformedNewRef        = fmt.Errorf("Malformed ETF. ettNewerRef")
+	errMalformedPort          = fmt.Errorf("Malformed ETF. ettPort")
+	errMalformedNewPort       = fmt.Errorf("Malformed ETF. ettNewPort")
+	errMalformedFun           = fmt.Errorf("Malformed ETF. ettNewFun")
+	errMalformedExport        = fmt.Errorf("Malformed ETF. ettExport")
+	errMalformedUnknownType   = fmt.Errorf("Malformed ETF. unknown type")
+	errMalformedPacketLength  = fmt.Errorf("Malformed ETF. incorrect length of packet")
+
+	errMalformed = fmt.Errorf("Malformed ETF")
+	errInternal  = fmt.Errorf("Internal error")
 )
 
 // using iterative way is speeding up it up to x25 times
@@ -72,7 +74,7 @@ func Decode(packet []byte, cache []Atom) (Term, error) {
 	for {
 		child = nil
 		if len(packet) == 0 {
-			return nil, ErrMalformed
+			return nil, errMalformed
 		}
 
 		t = packet[0]
@@ -87,12 +89,12 @@ func Decode(packet []byte, cache []Atom) (Term, error) {
 		switch t {
 		case ettAtomUTF8, ettAtom:
 			if len(packet) < 2 {
-				return nil, ErrMalformedAtomUTF8
+				return nil, errMalformedAtomUTF8
 			}
 
 			n := binary.BigEndian.Uint16(packet)
 			if len(packet) < int(n+2) {
-				return nil, ErrMalformedAtomUTF8
+				return nil, errMalformedAtomUTF8
 			}
 
 			term = Atom(packet[2 : n+2])
@@ -100,12 +102,12 @@ func Decode(packet []byte, cache []Atom) (Term, error) {
 
 		case ettSmallAtomUTF8, ettSmallAtom:
 			if len(packet) == 0 {
-				return nil, ErrMalformedSmallAtomUTF8
+				return nil, errMalformedSmallAtomUTF8
 			}
 
 			n := int(packet[0])
 			if len(packet) < n+1 {
-				return nil, ErrMalformedSmallAtomUTF8
+				return nil, errMalformedSmallAtomUTF8
 			}
 
 			term = Atom(packet[1 : n+1])
@@ -113,12 +115,12 @@ func Decode(packet []byte, cache []Atom) (Term, error) {
 
 		case ettString:
 			if len(packet) < 2 {
-				return nil, ErrMalformedString
+				return nil, errMalformedString
 			}
 
 			n := binary.BigEndian.Uint16(packet)
 			if len(packet) < int(n+2) {
-				return nil, ErrMalformedString
+				return nil, errMalformedString
 			}
 
 			term = string(packet[2 : n+2])
@@ -126,14 +128,14 @@ func Decode(packet []byte, cache []Atom) (Term, error) {
 
 		case ettCacheRef:
 			if len(packet) == 0 {
-				return nil, ErrMalformedCacheRef
+				return nil, errMalformedCacheRef
 			}
 			term = cache[int(packet[0])]
 			packet = packet[1:]
 
 		case ettNewFloat:
 			if len(packet) < 8 {
-				return nil, ErrMalformedNewFloat
+				return nil, errMalformedNewFloat
 			}
 			bits := binary.BigEndian.Uint64(packet[:8])
 
@@ -142,7 +144,7 @@ func Decode(packet []byte, cache []Atom) (Term, error) {
 
 		case ettSmallInteger:
 			if len(packet) == 0 {
-				return nil, ErrMalformedSmallInteger
+				return nil, errMalformedSmallInteger
 			}
 
 			term = int(packet[0])
@@ -150,7 +152,7 @@ func Decode(packet []byte, cache []Atom) (Term, error) {
 
 		case ettInteger:
 			if len(packet) < 4 {
-				return nil, ErrMalformedInteger
+				return nil, errMalformedInteger
 			}
 
 			term = int64(int32(binary.BigEndian.Uint32(packet[:4])))
@@ -158,7 +160,7 @@ func Decode(packet []byte, cache []Atom) (Term, error) {
 
 		case ettSmallBig:
 			if len(packet) == 0 {
-				return nil, ErrMalformedSmallBig
+				return nil, errMalformedSmallBig
 			}
 
 			n := packet[0]
@@ -181,7 +183,7 @@ func Decode(packet []byte, cache []Atom) (Term, error) {
 			/////
 
 			if len(packet) < int(n+2) {
-				return nil, ErrMalformedSmallBig
+				return nil, errMalformedSmallBig
 			}
 			bytes := packet[2 : n+2]
 
@@ -209,14 +211,14 @@ func Decode(packet []byte, cache []Atom) (Term, error) {
 
 		case ettLargeBig:
 			if len(packet) < 256 { // must be longer than ettSmallBig
-				return nil, ErrMalformedLargeBig
+				return nil, errMalformedLargeBig
 			}
 
 			n := binary.BigEndian.Uint32(packet[:4])
 			negative := packet[4] == 1 // sign
 
 			if len(packet) < int(n+5) {
-				return nil, ErrMalformedLargeBig
+				return nil, errMalformedLargeBig
 			}
 			bytes := packet[5 : n+5]
 
@@ -237,13 +239,13 @@ func Decode(packet []byte, cache []Atom) (Term, error) {
 
 		case ettList:
 			if len(packet) < 4 {
-				return nil, ErrMalformedList
+				return nil, errMalformedList
 			}
 
 			n := binary.BigEndian.Uint32(packet[:4])
 			if n == 0 {
 				// must be encoded as ettNil
-				return nil, ErrMalformedList
+				return nil, errMalformedList
 			}
 
 			term = make(List, n+1)
@@ -257,7 +259,7 @@ func Decode(packet []byte, cache []Atom) (Term, error) {
 
 		case ettSmallTuple:
 			if len(packet) == 0 {
-				return nil, ErrMalformedSmallTuple
+				return nil, errMalformedSmallTuple
 			}
 
 			n := packet[0]
@@ -277,7 +279,7 @@ func Decode(packet []byte, cache []Atom) (Term, error) {
 
 		case ettLargeTuple:
 			if len(packet) < 4 {
-				return nil, ErrMalformedLargeTuple
+				return nil, errMalformedLargeTuple
 			}
 
 			n := binary.BigEndian.Uint32(packet[:4])
@@ -297,7 +299,7 @@ func Decode(packet []byte, cache []Atom) (Term, error) {
 
 		case ettMap:
 			if len(packet) < 4 {
-				return nil, ErrMalformedMap
+				return nil, errMalformedMap
 			}
 
 			n := binary.BigEndian.Uint32(packet[:4])
@@ -317,12 +319,12 @@ func Decode(packet []byte, cache []Atom) (Term, error) {
 
 		case ettBinary:
 			if len(packet) < 4 {
-				return nil, ErrMalformedBinary
+				return nil, errMalformedBinary
 			}
 
 			n := binary.BigEndian.Uint32(packet)
 			if len(packet) < int(n+4) {
-				return nil, ErrMalformedBinary
+				return nil, errMalformedBinary
 			}
 
 			b := make([]byte, n)
@@ -343,7 +345,7 @@ func Decode(packet []byte, cache []Atom) (Term, error) {
 
 		case ettNewRef, ettNewerRef:
 			if len(packet) < 2 {
-				return nil, ErrMalformedRef
+				return nil, errMalformedRef
 			}
 
 			l := binary.BigEndian.Uint16(packet[:2])
@@ -356,12 +358,19 @@ func Decode(packet []byte, cache []Atom) (Term, error) {
 				tmp:      l, // save length in temporary place of the stack element
 			}
 
-			//case ettExport:
+		case ettExport:
+			child = &stackElement{
+				parent:   stack,
+				termType: t,
+				term:     Export{},
+				children: 3,
+			}
+
 		case ettNewFun:
 			var unique [16]byte
 
 			if len(packet) < 32 {
-				return nil, ErrMalformedFun
+				return nil, errMalformedFun
 			}
 
 			copy(unique[:], packet[5:21])
@@ -391,7 +400,7 @@ func Decode(packet []byte, cache []Atom) (Term, error) {
 
 		case ettBitBinary:
 			if len(packet) < 6 {
-				return nil, ErrMalformedBitBinary
+				return nil, errMalformedBitBinary
 			}
 
 			n := binary.BigEndian.Uint32(packet)
@@ -406,7 +415,7 @@ func Decode(packet []byte, cache []Atom) (Term, error) {
 
 		default:
 			term = nil
-			return nil, ErrMalformedUnknownType
+			return nil, errMalformedUnknownType
 		}
 
 		// it was a single element
@@ -449,12 +458,12 @@ func Decode(packet []byte, cache []Atom) (Term, error) {
 
 			case ettPid:
 				if len(packet) < 9 {
-					return nil, ErrMalformedPid
+					return nil, errMalformedPid
 				}
 
 				name, ok := term.(Atom)
 				if !ok {
-					return nil, ErrMalformedPid
+					return nil, errMalformedPid
 				}
 
 				pid := Pid{
@@ -470,12 +479,12 @@ func Decode(packet []byte, cache []Atom) (Term, error) {
 
 			case ettNewPid:
 				if len(packet) < 12 {
-					return nil, ErrMalformedNewPid
+					return nil, errMalformedNewPid
 				}
 
 				name, ok := term.(Atom)
 				if !ok {
-					return nil, ErrMalformedPid
+					return nil, errMalformedPid
 				}
 
 				pid := Pid{
@@ -495,7 +504,7 @@ func Decode(packet []byte, cache []Atom) (Term, error) {
 				var id uint32
 				name, ok := term.(Atom)
 				if !ok {
-					return nil, ErrMalformedRef
+					return nil, errMalformedRef
 				}
 
 				l := stack.tmp.(uint16)
@@ -503,7 +512,7 @@ func Decode(packet []byte, cache []Atom) (Term, error) {
 				expectedLength := int(1 + l*4)
 
 				if len(packet) < expectedLength {
-					return nil, ErrMalformedRef
+					return nil, errMalformedRef
 				}
 
 				ref := Ref{
@@ -526,7 +535,7 @@ func Decode(packet []byte, cache []Atom) (Term, error) {
 				var id uint32
 				name, ok := term.(Atom)
 				if !ok {
-					return nil, ErrMalformedRef
+					return nil, errMalformedRef
 				}
 
 				l := stack.tmp.(uint16)
@@ -534,7 +543,7 @@ func Decode(packet []byte, cache []Atom) (Term, error) {
 				expectedLength := int(4 + l*4)
 
 				if len(packet) < expectedLength {
-					return nil, ErrMalformedRef
+					return nil, errMalformedRef
 				}
 
 				ref := Ref{
@@ -557,12 +566,12 @@ func Decode(packet []byte, cache []Atom) (Term, error) {
 
 			case ettPort:
 				if len(packet) < 5 {
-					return nil, ErrMalformedPort
+					return nil, errMalformedPort
 				}
 
 				name, ok := term.(Atom)
 				if !ok {
-					return nil, ErrMalformedPort
+					return nil, errMalformedPort
 				}
 
 				port := Port{
@@ -577,12 +586,12 @@ func Decode(packet []byte, cache []Atom) (Term, error) {
 
 			case ettNewPort:
 				if len(packet) < 8 {
-					return nil, ErrMalformedNewPort
+					return nil, errMalformedNewPort
 				}
 
 				name, ok := term.(Atom)
 				if !ok {
-					return nil, ErrMalformedNewPort
+					return nil, errMalformedNewPort
 				}
 
 				port := Port{
@@ -604,7 +613,7 @@ func Decode(packet []byte, cache []Atom) (Term, error) {
 					// Module
 					module, ok := term.(Atom)
 					if !ok {
-						return nil, ErrMalformedFun
+						return nil, errMalformedFun
 					}
 					fun.Module = module
 
@@ -612,7 +621,7 @@ func Decode(packet []byte, cache []Atom) (Term, error) {
 					// OldIndex
 					oldindex, ok := term.(int)
 					if !ok {
-						return nil, ErrMalformedFun
+						return nil, errMalformedFun
 					}
 					fun.OldIndex = uint32(oldindex)
 
@@ -620,7 +629,7 @@ func Decode(packet []byte, cache []Atom) (Term, error) {
 					// OldUnique
 					olduniq, ok := term.(int64)
 					if !ok {
-						return nil, ErrMalformedFun
+						return nil, errMalformedFun
 					}
 					fun.OldUnique = uint32(olduniq)
 
@@ -628,22 +637,50 @@ func Decode(packet []byte, cache []Atom) (Term, error) {
 					// Pid
 					pid, ok := term.(Pid)
 					if !ok {
-						return nil, ErrMalformedFun
+						return nil, errMalformedFun
 					}
 					fun.Pid = pid
 
 				default:
 					if len(fun.FreeVars) < (stack.i-4)+1 {
-						return nil, ErrMalformedFun
+						return nil, errMalformedFun
 					}
 					fun.FreeVars[stack.i-4] = term
 				}
 
 				stack.term = fun
 				stack.i++
+			case ettExport:
+				exp := stack.term.(Export)
+				switch stack.i {
+				case 0:
+					module, ok := term.(Atom)
+					if !ok {
+						return nil, errMalformedExport
+					}
+					exp.Module = module
+
+				case 1:
+					function, ok := term.(Atom)
+					if !ok {
+						return nil, errMalformedExport
+					}
+					exp.Function = function
+
+				case 2:
+					arity, ok := term.(int)
+					if !ok {
+						return nil, errMalformedExport
+					}
+					exp.Arity = arity
+
+				default:
+					return nil, errMalformedExport
+
+				}
 
 			default:
-				return nil, ErrInternal
+				return nil, errInternal
 			}
 		}
 
@@ -670,7 +707,7 @@ func Decode(packet []byte, cache []Atom) (Term, error) {
 
 	// packet must have strict data length
 	if len(packet) > 0 {
-		return nil, ErrMalformedPacketLength
+		return nil, errMalformedPacketLength
 	}
 
 	return term, nil

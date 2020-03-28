@@ -1,13 +1,12 @@
 package etf
 
 import (
-	"fmt"
 	"math/big"
 	"reflect"
 	"testing"
 )
 
-func TestReadAtom(t *testing.T) {
+func TestDecodeAtom(t *testing.T) {
 	expected := Atom("abc")
 	packet := []byte{ettAtomUTF8, 0, 3, 97, 98, 99}
 	term, err := Decode(packet, []Atom{})
@@ -23,24 +22,24 @@ func TestReadAtom(t *testing.T) {
 
 	packet = []byte{ettSmallAtomUTF8, 4, 97, 98, 99}
 	term, err = Decode(packet, []Atom{})
-	if err != ErrMalformedSmallAtomUTF8 {
+	if err != errMalformedSmallAtomUTF8 {
 		t.Fatal(err)
 	}
 
 	packet = []byte{119}
 	term, err = Decode(packet, []Atom{})
-	if err != ErrMalformedSmallAtomUTF8 {
+	if err != errMalformedSmallAtomUTF8 {
 		t.Fatal(err)
 	}
 
 	packet = []byte{ettSmallAtomUTF8, 3, 97, 98, 99, 0, 0}
 	term, err = Decode(packet, []Atom{})
-	if err != ErrMalformedPacketLength {
+	if err != errMalformedPacketLength {
 		t.Fatal(err)
 	}
 }
 
-func TestReadString(t *testing.T) {
+func TestDecodeString(t *testing.T) {
 	expected := "abc"
 	packet := []byte{ettString, 0, 3, 97, 98, 99}
 	term, err := Decode(packet, []Atom{})
@@ -50,19 +49,19 @@ func TestReadString(t *testing.T) {
 
 	packet = []byte{ettString, 3, 97, 98, 99}
 	term, err = Decode(packet, []Atom{})
-	if err != ErrMalformedString {
+	if err != errMalformedString {
 		t.Fatal(err)
 	}
 
 	packet = []byte{ettString, 0, 3, 97, 98, 99, 0, 0}
 	term, err = Decode(packet, []Atom{})
-	if err != ErrMalformedPacketLength {
+	if err != errMalformedPacketLength {
 		t.Fatal(err)
 	}
 
 }
 
-func TestReadNewFloat(t *testing.T) {
+func TestDecodeNewFloat(t *testing.T) {
 	expected := float64(2.1)
 	packet := []byte{ettNewFloat, 64, 0, 204, 204, 204, 204, 204, 205}
 	term, err := Decode(packet, []Atom{})
@@ -72,18 +71,18 @@ func TestReadNewFloat(t *testing.T) {
 
 	packet = []byte{ettNewFloat, 64, 0, 204, 204, 204, 204, 204}
 	term, err = Decode(packet, []Atom{})
-	if err != ErrMalformedNewFloat {
+	if err != errMalformedNewFloat {
 		t.Fatal(err)
 	}
 
 	packet = []byte{ettNewFloat, 64, 0, 204, 204, 204, 204, 204, 205, 0, 0}
 	term, err = Decode(packet, []Atom{})
-	if err != ErrMalformedPacketLength {
+	if err != errMalformedPacketLength {
 		t.Fatal(err)
 	}
 }
 
-func TestReadInteger(t *testing.T) {
+func TestDecodeInteger(t *testing.T) {
 	expected := int(88)
 	packet := []byte{ettSmallInteger, 88}
 
@@ -94,7 +93,7 @@ func TestReadInteger(t *testing.T) {
 
 	packet = []byte{ettSmallInteger}
 	term, err = Decode(packet, []Atom{})
-	if err != ErrMalformedSmallInteger {
+	if err != errMalformedSmallInteger {
 		t.Fatal(err)
 	}
 
@@ -107,7 +106,7 @@ func TestReadInteger(t *testing.T) {
 
 	packet = []byte{ettInteger, 182, 105, 253}
 	term, err = Decode(packet, []Atom{})
-	if err != ErrMalformedInteger {
+	if err != errMalformedInteger {
 		t.Fatal(err)
 	}
 
@@ -165,7 +164,7 @@ func TestReadInteger(t *testing.T) {
 	}
 }
 
-func TestReadList(t *testing.T) {
+func TestDecodeList(t *testing.T) {
 	expected := List{3.14, Atom("abc"), int64(987654321)}
 	packet := []byte{ettList, 0, 0, 0, 3, 70, 64, 9, 30, 184, 81, 235, 133, 31, 100, 0, 3, 97,
 		98, 99, 98, 58, 222, 104, 177, 106}
@@ -180,7 +179,7 @@ func TestReadList(t *testing.T) {
 
 }
 
-func TestReadListNested(t *testing.T) {
+func TestDecodeListNested(t *testing.T) {
 	// [1,[2,3,[4,5],6]]
 	expected := List{1, List{2, 3, List{4, 5}, 6}}
 	packet := []byte{108, 0, 0, 0, 2, 97, 1, 108, 0, 0, 0, 4, 97, 2, 97, 3, 108, 0, 0, 0, 2, 97, 4, 97, 5, 106,
@@ -197,7 +196,7 @@ func TestReadListNested(t *testing.T) {
 	}
 }
 
-func TestReadTuple(t *testing.T) {
+func TestDecodeTuple(t *testing.T) {
 	expected := Tuple{3.14, Atom("abc"), int64(987654321)}
 	packet := []byte{ettSmallTuple, 3, 70, 64, 9, 30, 184, 81, 235, 133, 31, 100, 0, 3, 97, 98, 99,
 		98, 58, 222, 104, 177}
@@ -212,7 +211,7 @@ func TestReadTuple(t *testing.T) {
 	}
 }
 
-func TestReadMap(t *testing.T) {
+func TestDecodeMap(t *testing.T) {
 	expected := Map{
 		Atom("abc"): 123,
 		"abc":       4.56,
@@ -232,7 +231,7 @@ func TestReadMap(t *testing.T) {
 
 }
 
-func TestReadBinary(t *testing.T) {
+func TestDecodeBinary(t *testing.T) {
 	expected := []byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 0}
 	packet := []byte{ettBinary, 0, 0, 0, 10, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0}
 
@@ -247,7 +246,7 @@ func TestReadBinary(t *testing.T) {
 	}
 }
 
-func TestReadBitBinary(t *testing.T) {
+func TestDecodeBitBinary(t *testing.T) {
 	expected := []byte{1, 2, 3, 4, 5}
 	packet := []byte{77, 0, 0, 0, 5, 3, 1, 2, 3, 4, 160}
 
@@ -263,7 +262,7 @@ func TestReadBitBinary(t *testing.T) {
 
 }
 
-func TestReadPid(t *testing.T) {
+func TestDecodePid(t *testing.T) {
 	expected := Pid{
 		Node:     Atom("erl-demo@127.0.0.1"),
 		Id:       142,
@@ -283,7 +282,7 @@ func TestReadPid(t *testing.T) {
 	}
 }
 
-func TestReadRef(t *testing.T) {
+func TestDecodeRef(t *testing.T) {
 	expected := Ref{
 		Node:     Atom("erl-demo@127.0.0.1"),
 		Creation: 2,
@@ -303,7 +302,7 @@ func TestReadRef(t *testing.T) {
 	}
 }
 
-func TestReadTupleRefPid(t *testing.T) {
+func TestDecodeTupleRefPid(t *testing.T) {
 	expected := Tuple{
 		Ref{
 			Node:     Atom("erl-demo@127.0.0.1"),
@@ -330,7 +329,7 @@ func TestReadTupleRefPid(t *testing.T) {
 	}
 }
 
-func TestReadPort(t *testing.T) {
+func TestDecodePort(t *testing.T) {
 	expected := Port{
 		Node:     Atom("erl-demo@127.0.0.1"),
 		Creation: 2,
@@ -350,7 +349,7 @@ func TestReadPort(t *testing.T) {
 	}
 }
 
-func TestReadComplex(t *testing.T) {
+func TestDecodeComplex(t *testing.T) {
 	//{"hello",[], #{v1 => [{3,13,3.13}, {abc, "abc"}], v2 => 12345}}.
 	expected := Tuple{"hello", List{},
 		Map{Atom("v1"): List{Tuple{3, 13, 3.13}, Tuple{Atom("abc"), "abc"}},
@@ -435,7 +434,7 @@ func TestDecodeFunction(t *testing.T) {
 // benchmarks
 //
 
-func BenchmarkReadAtom(b *testing.B) {
+func BenchmarkDecodeAtom(b *testing.B) {
 	packet := []byte{ettAtomUTF8, 0, 3, 97, 98, 99}
 	for i := 0; i < b.N; i++ {
 		_, err := Decode(packet, []Atom{})
@@ -445,7 +444,7 @@ func BenchmarkReadAtom(b *testing.B) {
 	}
 }
 
-func BenchmarkReadString(b *testing.B) {
+func BenchmarkDecodeString(b *testing.B) {
 	packet := []byte{ettString, 0, 3, 97, 98, 99}
 	for i := 0; i < b.N; i++ {
 		_, err := Decode(packet, []Atom{})
@@ -455,7 +454,7 @@ func BenchmarkReadString(b *testing.B) {
 	}
 }
 
-func BenchmarkReadNewFloat(b *testing.B) {
+func BenchmarkDecodeNewFloat(b *testing.B) {
 	packet := []byte{ettNewFloat, 64, 0, 204, 204, 204, 204, 204, 205}
 	for i := 0; i < b.N; i++ {
 		_, err := Decode(packet, []Atom{})
@@ -465,7 +464,7 @@ func BenchmarkReadNewFloat(b *testing.B) {
 	}
 }
 
-func BenchmarkReadInteger(b *testing.B) {
+func BenchmarkDecodeInteger(b *testing.B) {
 	packet := []byte{ettInteger, 182, 105, 253, 46}
 	for i := 0; i < b.N; i++ {
 		_, err := Decode(packet, []Atom{})
@@ -475,7 +474,7 @@ func BenchmarkReadInteger(b *testing.B) {
 	}
 }
 
-func BenchmarkReadSmallBigInteger(b *testing.B) {
+func BenchmarkDecodeSmallBigInteger(b *testing.B) {
 	packet := []byte{ettSmallBig, 8, 1, 177, 28, 108, 177, 244, 16, 34, 17}
 	for i := 0; i < b.N; i++ {
 		_, err := Decode(packet, []Atom{})
@@ -485,7 +484,7 @@ func BenchmarkReadSmallBigInteger(b *testing.B) {
 	}
 }
 
-func BenchmarkReadSmallBigIntegerWithinInt64Range(b *testing.B) {
+func BenchmarkDecodeSmallBigIntegerWithinInt64Range(b *testing.B) {
 	packet := []byte{ettSmallBig, 5, 1, 106, 26, 153, 190, 28}
 	for i := 0; i < b.N; i++ {
 		_, err := Decode(packet, []Atom{})
@@ -495,7 +494,7 @@ func BenchmarkReadSmallBigIntegerWithinInt64Range(b *testing.B) {
 	}
 }
 
-func BenchmarkReadList100Integer(b *testing.B) {
+func BenchmarkDecodeList100Integer(b *testing.B) {
 	packet := []byte{}
 	packetInt := []byte{ettInteger, 182, 105, 253, 46}
 	packetList := []byte{ettList, 0, 0, 0, 100}
@@ -518,7 +517,7 @@ func BenchmarkReadList100Integer(b *testing.B) {
 
 }
 
-func BenchmarkReadTuple(b *testing.B) {
+func BenchmarkDecodeTuple(b *testing.B) {
 	packet := []byte{ettSmallTuple, 3, 70, 64, 9, 30, 184, 81, 235, 133, 31, 100, 0, 3, 97, 98, 99,
 		98, 58, 222, 104, 177}
 	for i := 0; i < b.N; i++ {
@@ -529,7 +528,7 @@ func BenchmarkReadTuple(b *testing.B) {
 	}
 }
 
-func BenchmarkReadPid(b *testing.B) {
+func BenchmarkDecodePid(b *testing.B) {
 	packet := []byte{103, 100, 0, 18, 101, 114, 108, 45, 100, 101, 109, 111, 64, 49,
 		50, 55, 46, 48, 46, 48, 46, 49, 0, 0, 0, 142, 0, 0, 0, 0, 2}
 	for i := 0; i < b.N; i++ {
@@ -540,7 +539,7 @@ func BenchmarkReadPid(b *testing.B) {
 	}
 }
 
-func BenchmarkReadRef(b *testing.B) {
+func BenchmarkDecodeRef(b *testing.B) {
 	packet := []byte{114, 0, 3, 100, 0, 18, 101, 114, 108, 45, 100, 101, 109, 111, 64,
 		49, 50, 55, 46, 48, 46, 48, 46, 49, 2, 0, 1, 30, 228, 183, 192, 0, 1, 141,
 		122, 203, 35}
@@ -552,7 +551,7 @@ func BenchmarkReadRef(b *testing.B) {
 	}
 }
 
-func BenchmarkReadPort(b *testing.B) {
+func BenchmarkDecodePort(b *testing.B) {
 	packet := []byte{102, 100, 0, 18, 101, 114, 108, 45, 100, 101, 109, 111, 64, 49,
 		50, 55, 46, 48, 46, 48, 46, 49, 0, 0, 0, 32, 2}
 	for i := 0; i < b.N; i++ {
@@ -563,7 +562,7 @@ func BenchmarkReadPort(b *testing.B) {
 	}
 }
 
-func BenchmarkReadTupleRefPid(b *testing.B) {
+func BenchmarkDecodeTupleRefPid(b *testing.B) {
 
 	packet := []byte{ettSmallTuple, 2, ettNewRef, 0, 3, ettAtom, 0, 18, 101, 114, 108, 45, 100, 101, 109,
 		111, 64, 49, 50, 55, 46, 48, 46, 48, 46, 49, 2, 0, 1, 31, 28, 183, 192, 0,
@@ -578,7 +577,7 @@ func BenchmarkReadTupleRefPid(b *testing.B) {
 	}
 }
 
-func BenchmarkReadFunction(b *testing.B) {
+func BenchmarkDecodeFunction(b *testing.B) {
 	packet := packetFunction
 	for i := 0; i < b.N; i++ {
 		_, err := Decode(packet, []Atom{})

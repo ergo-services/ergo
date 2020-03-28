@@ -33,10 +33,10 @@ type Ref struct {
 }
 
 type Function struct {
-	Arity     byte
-	Unique    [16]byte
-	Index     uint32
-	Free      uint32
+	Arity  byte
+	Unique [16]byte
+	Index  uint32
+	//	Free      uint32
 	Module    Atom
 	OldIndex  uint32
 	OldUnique uint32
@@ -67,7 +67,7 @@ func StringTerm(t Term) (s string, ok bool) {
 type Export struct {
 	Module   Atom
 	Function Atom
-	Arity    byte
+	Arity    int
 }
 
 // Erlang external term tags.
