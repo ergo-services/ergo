@@ -10,6 +10,10 @@ import (
 	"strings"
 )
 
+func Encode() {
+
+}
+
 type ErrUnknownType struct {
 	t reflect.Type
 }

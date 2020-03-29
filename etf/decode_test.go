@@ -9,31 +9,31 @@ import (
 func TestDecodeAtom(t *testing.T) {
 	expected := Atom("abc")
 	packet := []byte{ettAtomUTF8, 0, 3, 97, 98, 99}
-	term, err := Decode(packet, []Atom{})
+	term, _, err := Decode(packet, []Atom{})
 	if err != nil || term != expected {
 		t.Fatal(err)
 	}
 
 	packet = []byte{ettSmallAtomUTF8, 3, 97, 98, 99}
-	term, err = Decode(packet, []Atom{})
+	term, _, err = Decode(packet, []Atom{})
 	if err != nil || term != expected {
 		t.Fatal(err)
 	}
 
 	packet = []byte{ettSmallAtomUTF8, 4, 97, 98, 99}
-	term, err = Decode(packet, []Atom{})
+	term, _, err = Decode(packet, []Atom{})
 	if err != errMalformedSmallAtomUTF8 {
 		t.Fatal(err)
 	}
 
 	packet = []byte{119}
-	term, err = Decode(packet, []Atom{})
+	term, _, err = Decode(packet, []Atom{})
 	if err != errMalformedSmallAtomUTF8 {
 		t.Fatal(err)
 	}
 
 	packet = []byte{ettSmallAtomUTF8, 3, 97, 98, 99, 0, 0}
-	term, err = Decode(packet, []Atom{})
+	term, _, err = Decode(packet, []Atom{})
 	if err != errMalformedPacketLength {
 		t.Fatal(err)
 	}
@@ -42,19 +42,19 @@ func TestDecodeAtom(t *testing.T) {
 func TestDecodeString(t *testing.T) {
 	expected := "abc"
 	packet := []byte{ettString, 0, 3, 97, 98, 99}
-	term, err := Decode(packet, []Atom{})
+	term, _, err := Decode(packet, []Atom{})
 	if err != nil || term != expected {
 		t.Fatal(err)
 	}
 
 	packet = []byte{ettString, 3, 97, 98, 99}
-	term, err = Decode(packet, []Atom{})
+	term, _, err = Decode(packet, []Atom{})
 	if err != errMalformedString {
 		t.Fatal(err)
 	}
 
 	packet = []byte{ettString, 0, 3, 97, 98, 99, 0, 0}
-	term, err = Decode(packet, []Atom{})
+	term, _, err = Decode(packet, []Atom{})
 	if err != errMalformedPacketLength {
 		t.Fatal(err)
 	}
@@ -64,19 +64,19 @@ func TestDecodeString(t *testing.T) {
 func TestDecodeNewFloat(t *testing.T) {
 	expected := float64(2.1)
 	packet := []byte{ettNewFloat, 64, 0, 204, 204, 204, 204, 204, 205}
-	term, err := Decode(packet, []Atom{})
+	term, _, err := Decode(packet, []Atom{})
 	if err != nil || term != expected {
 		t.Fatal(err)
 	}
 
 	packet = []byte{ettNewFloat, 64, 0, 204, 204, 204, 204, 204}
-	term, err = Decode(packet, []Atom{})
+	term, _, err = Decode(packet, []Atom{})
 	if err != errMalformedNewFloat {
 		t.Fatal(err)
 	}
 
 	packet = []byte{ettNewFloat, 64, 0, 204, 204, 204, 204, 204, 205, 0, 0}
-	term, err = Decode(packet, []Atom{})
+	term, _, err = Decode(packet, []Atom{})
 	if err != errMalformedPacketLength {
 		t.Fatal(err)
 	}
@@ -86,26 +86,26 @@ func TestDecodeInteger(t *testing.T) {
 	expected := int(88)
 	packet := []byte{ettSmallInteger, 88}
 
-	term, err := Decode(packet, []Atom{})
+	term, _, err := Decode(packet, []Atom{})
 	if err != nil || term != expected {
 		t.Fatal(err)
 	}
 
 	packet = []byte{ettSmallInteger}
-	term, err = Decode(packet, []Atom{})
+	term, _, err = Decode(packet, []Atom{})
 	if err != errMalformedSmallInteger {
 		t.Fatal(err)
 	}
 
 	expectedInteger := int64(-1234567890)
 	packet = []byte{ettInteger, 182, 105, 253, 46}
-	term, err = Decode(packet, []Atom{})
+	term, _, err = Decode(packet, []Atom{})
 	if err != nil || term != expectedInteger {
 		t.Fatal(err, expectedInteger, term)
 	}
 
 	packet = []byte{ettInteger, 182, 105, 253}
-	term, err = Decode(packet, []Atom{})
+	term, _, err = Decode(packet, []Atom{})
 	if err != errMalformedInteger {
 		t.Fatal(err)
 	}
@@ -114,7 +114,7 @@ func TestDecodeInteger(t *testing.T) {
 	bigInt := new(big.Int)
 	bigInt.SetString("-1234567890987654321", 10)
 	packet = []byte{ettSmallBig, 8, 1, 177, 28, 108, 177, 244, 16, 34, 17}
-	term, err = Decode(packet, []Atom{})
+	term, _, err = Decode(packet, []Atom{})
 	if err != nil || bigInt.Cmp(term.(*big.Int)) != 0 {
 		t.Fatal(err, term, bigInt)
 	}
@@ -150,7 +150,7 @@ func TestDecodeInteger(t *testing.T) {
 		185, 133, 186, 46, 81, 244, 139, 188, 171, 206, 52, 225, 160, 232,
 		246, 254, 193, 1}
 
-	term, err = Decode(packet, []Atom{})
+	term, _, err = Decode(packet, []Atom{})
 	if err != nil || bigInt.Cmp(term.(*big.Int)) != 0 {
 		t.Fatal(err, term, bigInt)
 	}
@@ -158,7 +158,7 @@ func TestDecodeInteger(t *testing.T) {
 	//-123456789098 should be treated as int64
 	expectedInt64 := int64(-123456789098)
 	packet = []byte{ettSmallBig, 5, 1, 106, 26, 153, 190, 28}
-	term, err = Decode(packet, []Atom{})
+	term, _, err = Decode(packet, []Atom{})
 	if err != nil || term != expectedInt64 {
 		t.Fatal(err, term, expectedInt64)
 	}
@@ -168,7 +168,7 @@ func TestDecodeList(t *testing.T) {
 	expected := List{3.14, Atom("abc"), int64(987654321)}
 	packet := []byte{ettList, 0, 0, 0, 3, 70, 64, 9, 30, 184, 81, 235, 133, 31, 100, 0, 3, 97,
 		98, 99, 98, 58, 222, 104, 177, 106}
-	term, err := Decode(packet, []Atom{})
+	term, _, err := Decode(packet, []Atom{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -185,7 +185,7 @@ func TestDecodeListNested(t *testing.T) {
 	packet := []byte{108, 0, 0, 0, 2, 97, 1, 108, 0, 0, 0, 4, 97, 2, 97, 3, 108, 0, 0, 0, 2, 97, 4, 97, 5, 106,
 		97, 6, 106, 106}
 
-	term, err := Decode(packet, []Atom{})
+	term, _, err := Decode(packet, []Atom{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -201,7 +201,7 @@ func TestDecodeTuple(t *testing.T) {
 	packet := []byte{ettSmallTuple, 3, 70, 64, 9, 30, 184, 81, 235, 133, 31, 100, 0, 3, 97, 98, 99,
 		98, 58, 222, 104, 177}
 
-	term, err := Decode(packet, []Atom{})
+	term, _, err := Decode(packet, []Atom{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -219,7 +219,7 @@ func TestDecodeMap(t *testing.T) {
 	packet := []byte{116, 0, 0, 0, 2, 100, 0, 3, 97, 98, 99, 97, 123, 107, 0, 3, 97, 98,
 		99, 70, 64, 18, 61, 112, 163, 215, 10, 61}
 
-	term, err := Decode(packet, []Atom{})
+	term, _, err := Decode(packet, []Atom{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -235,7 +235,7 @@ func TestDecodeBinary(t *testing.T) {
 	expected := []byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 0}
 	packet := []byte{ettBinary, 0, 0, 0, 10, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0}
 
-	term, err := Decode(packet, []Atom{})
+	term, _, err := Decode(packet, []Atom{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -250,7 +250,7 @@ func TestDecodeBitBinary(t *testing.T) {
 	expected := []byte{1, 2, 3, 4, 5}
 	packet := []byte{77, 0, 0, 0, 5, 3, 1, 2, 3, 4, 160}
 
-	term, err := Decode(packet, []Atom{})
+	term, _, err := Decode(packet, []Atom{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -271,7 +271,7 @@ func TestDecodePid(t *testing.T) {
 	}
 	packet := []byte{103, 100, 0, 18, 101, 114, 108, 45, 100, 101, 109, 111, 64, 49,
 		50, 55, 46, 48, 46, 48, 46, 49, 0, 0, 0, 142, 0, 0, 0, 0, 2}
-	term, err := Decode(packet, []Atom{})
+	term, _, err := Decode(packet, []Atom{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -291,7 +291,7 @@ func TestDecodeRef(t *testing.T) {
 	packet := []byte{114, 0, 3, 100, 0, 18, 101, 114, 108, 45, 100, 101, 109, 111, 64,
 		49, 50, 55, 46, 48, 46, 48, 46, 49, 2, 0, 1, 30, 228, 183, 192, 0, 1, 141,
 		122, 203, 35}
-	term, err := Decode(packet, []Atom{})
+	term, _, err := Decode(packet, []Atom{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -318,7 +318,7 @@ func TestDecodeTupleRefPid(t *testing.T) {
 		1, 141, 122, 203, 35, 103, 100, 0, 18, 101, 114, 108, 45, 100, 101,
 		109, 111, 64, 49, 50, 55, 46, 48, 46, 48, 46, 49, 0, 0, 0, 142, 0, 0, 0, 0,
 		2}
-	term, err := Decode(packet, []Atom{})
+	term, _, err := Decode(packet, []Atom{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -338,7 +338,7 @@ func TestDecodePort(t *testing.T) {
 	packet := []byte{102, 100, 0, 18, 101, 114, 108, 45, 100, 101, 109, 111, 64, 49,
 		50, 55, 46, 48, 46, 48, 46, 49, 0, 0, 0, 32, 2}
 
-	term, err := Decode(packet, []Atom{})
+	term, _, err := Decode(packet, []Atom{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -358,7 +358,7 @@ func TestDecodeComplex(t *testing.T) {
 		100, 0, 2, 118, 49, 108, 0, 0, 0, 2, 104, 3, 97, 3, 97, 13, 70, 64, 9, 10,
 		61, 112, 163, 215, 10, 104, 2, 100, 0, 3, 97, 98, 99, 107, 0, 3, 97, 98,
 		99, 106, 100, 0, 2, 118, 50, 98, 0, 0, 48, 57}
-	term, err := Decode(packet, []Atom{})
+	term, _, err := Decode(packet, []Atom{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -423,7 +423,7 @@ func TestDecodeFunction(t *testing.T) {
 		110, 116, 101, 103, 101, 114, 97, 1, 97, 2, 106, 106}
 
 	packetFunction = packet // save for benchmark
-	_, err := Decode(packet, []Atom{})
+	_, _, err := Decode(packet, []Atom{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -437,7 +437,7 @@ func TestDecodeFunction(t *testing.T) {
 func BenchmarkDecodeAtom(b *testing.B) {
 	packet := []byte{ettAtomUTF8, 0, 3, 97, 98, 99}
 	for i := 0; i < b.N; i++ {
-		_, err := Decode(packet, []Atom{})
+		_, _, err := Decode(packet, []Atom{})
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -447,7 +447,7 @@ func BenchmarkDecodeAtom(b *testing.B) {
 func BenchmarkDecodeString(b *testing.B) {
 	packet := []byte{ettString, 0, 3, 97, 98, 99}
 	for i := 0; i < b.N; i++ {
-		_, err := Decode(packet, []Atom{})
+		_, _, err := Decode(packet, []Atom{})
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -457,7 +457,7 @@ func BenchmarkDecodeString(b *testing.B) {
 func BenchmarkDecodeNewFloat(b *testing.B) {
 	packet := []byte{ettNewFloat, 64, 0, 204, 204, 204, 204, 204, 205}
 	for i := 0; i < b.N; i++ {
-		_, err := Decode(packet, []Atom{})
+		_, _, err := Decode(packet, []Atom{})
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -467,7 +467,7 @@ func BenchmarkDecodeNewFloat(b *testing.B) {
 func BenchmarkDecodeInteger(b *testing.B) {
 	packet := []byte{ettInteger, 182, 105, 253, 46}
 	for i := 0; i < b.N; i++ {
-		_, err := Decode(packet, []Atom{})
+		_, _, err := Decode(packet, []Atom{})
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -477,7 +477,7 @@ func BenchmarkDecodeInteger(b *testing.B) {
 func BenchmarkDecodeSmallBigInteger(b *testing.B) {
 	packet := []byte{ettSmallBig, 8, 1, 177, 28, 108, 177, 244, 16, 34, 17}
 	for i := 0; i < b.N; i++ {
-		_, err := Decode(packet, []Atom{})
+		_, _, err := Decode(packet, []Atom{})
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -487,7 +487,7 @@ func BenchmarkDecodeSmallBigInteger(b *testing.B) {
 func BenchmarkDecodeSmallBigIntegerWithinInt64Range(b *testing.B) {
 	packet := []byte{ettSmallBig, 5, 1, 106, 26, 153, 190, 28}
 	for i := 0; i < b.N; i++ {
-		_, err := Decode(packet, []Atom{})
+		_, _, err := Decode(packet, []Atom{})
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -509,7 +509,7 @@ func BenchmarkDecodeList100Integer(b *testing.B) {
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		_, err := Decode(packet, []Atom{})
+		_, _, err := Decode(packet, []Atom{})
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -521,7 +521,7 @@ func BenchmarkDecodeTuple(b *testing.B) {
 	packet := []byte{ettSmallTuple, 3, 70, 64, 9, 30, 184, 81, 235, 133, 31, 100, 0, 3, 97, 98, 99,
 		98, 58, 222, 104, 177}
 	for i := 0; i < b.N; i++ {
-		_, err := Decode(packet, []Atom{})
+		_, _, err := Decode(packet, []Atom{})
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -532,7 +532,7 @@ func BenchmarkDecodePid(b *testing.B) {
 	packet := []byte{103, 100, 0, 18, 101, 114, 108, 45, 100, 101, 109, 111, 64, 49,
 		50, 55, 46, 48, 46, 48, 46, 49, 0, 0, 0, 142, 0, 0, 0, 0, 2}
 	for i := 0; i < b.N; i++ {
-		_, err := Decode(packet, []Atom{})
+		_, _, err := Decode(packet, []Atom{})
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -544,7 +544,7 @@ func BenchmarkDecodeRef(b *testing.B) {
 		49, 50, 55, 46, 48, 46, 48, 46, 49, 2, 0, 1, 30, 228, 183, 192, 0, 1, 141,
 		122, 203, 35}
 	for i := 0; i < b.N; i++ {
-		_, err := Decode(packet, []Atom{})
+		_, _, err := Decode(packet, []Atom{})
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -555,7 +555,7 @@ func BenchmarkDecodePort(b *testing.B) {
 	packet := []byte{102, 100, 0, 18, 101, 114, 108, 45, 100, 101, 109, 111, 64, 49,
 		50, 55, 46, 48, 46, 48, 46, 49, 0, 0, 0, 32, 2}
 	for i := 0; i < b.N; i++ {
-		_, err := Decode(packet, []Atom{})
+		_, _, err := Decode(packet, []Atom{})
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -570,7 +570,7 @@ func BenchmarkDecodeTupleRefPid(b *testing.B) {
 		109, 111, 64, 49, 50, 55, 46, 48, 46, 48, 46, 49, 0, 0, 0, 142, 0, 0, 0, 0,
 		2}
 	for i := 0; i < b.N; i++ {
-		_, err := Decode(packet, []Atom{})
+		_, _, err := Decode(packet, []Atom{})
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -580,7 +580,7 @@ func BenchmarkDecodeTupleRefPid(b *testing.B) {
 func BenchmarkDecodeFunction(b *testing.B) {
 	packet := packetFunction
 	for i := 0; i < b.N; i++ {
-		_, err := Decode(packet, []Atom{})
+		_, _, err := Decode(packet, []Atom{})
 		if err != nil {
 			b.Fatal(err)
 		}
