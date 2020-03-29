@@ -32,11 +32,6 @@ func TestDecodeAtom(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	packet = []byte{ettSmallAtomUTF8, 3, 97, 98, 99, 0, 0}
-	term, _, err = Decode(packet, []Atom{})
-	if err != errMalformedPacketLength {
-		t.Fatal(err)
-	}
 }
 
 func TestDecodeString(t *testing.T) {
@@ -52,13 +47,6 @@ func TestDecodeString(t *testing.T) {
 	if err != errMalformedString {
 		t.Fatal(err)
 	}
-
-	packet = []byte{ettString, 0, 3, 97, 98, 99, 0, 0}
-	term, _, err = Decode(packet, []Atom{})
-	if err != errMalformedPacketLength {
-		t.Fatal(err)
-	}
-
 }
 
 func TestDecodeNewFloat(t *testing.T) {
@@ -72,12 +60,6 @@ func TestDecodeNewFloat(t *testing.T) {
 	packet = []byte{ettNewFloat, 64, 0, 204, 204, 204, 204, 204}
 	term, _, err = Decode(packet, []Atom{})
 	if err != errMalformedNewFloat {
-		t.Fatal(err)
-	}
-
-	packet = []byte{ettNewFloat, 64, 0, 204, 204, 204, 204, 204, 205, 0, 0}
-	term, _, err = Decode(packet, []Atom{})
-	if err != errMalformedPacketLength {
 		t.Fatal(err)
 	}
 }

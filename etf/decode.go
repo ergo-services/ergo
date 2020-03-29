@@ -49,7 +49,6 @@ var (
 	errMalformedFun           = fmt.Errorf("Malformed ETF. ettNewFun")
 	errMalformedExport        = fmt.Errorf("Malformed ETF. ettExport")
 	errMalformedUnknownType   = fmt.Errorf("Malformed ETF. unknown type")
-	errMalformedPacketLength  = fmt.Errorf("Malformed ETF. incorrect length of packet")
 
 	errMalformed = fmt.Errorf("Malformed ETF")
 	errInternal  = fmt.Errorf("Internal error")
