@@ -244,14 +244,26 @@ func (n *Node) serve(link *dist.Link, opts NodeOptions) error {
 		defer link.Close()
 		defer func() { n.registrar.UnregisterPeer(link.GetRemoteName()) }()
 
+		parallelWriters := make(chan error, runtime.NumCPU())
+
 		for {
 			select {
 			case terms := <-send:
-				err := link.WriteMessage(terms)
-				if err != nil {
-					lib.Log("node error (writing): %s", err.Error())
-					return
-				}
+				parallelWriters <- nil
+				go func() {
+					b := lib.TakeBuffer()
+					defer func() {
+						<-parallelWriters
+						lib.ReleaseBuffer(b)
+					}()
+
+					err := link.Write(terms)
+					if err != nil {
+						fmt.Println("Can't write message:", err)
+						link.Close()
+					}
+				}()
+
 			case <-n.context.Done():
 				return
 			}

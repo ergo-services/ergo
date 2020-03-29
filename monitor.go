@@ -413,7 +413,7 @@ func (m *monitor) Link(pidA, pidB etf.Pid) {
 	m.channels.link <- p
 }
 
-func (m *monitor) Unink(pidA, pidB etf.Pid) {
+func (m *monitor) Unlink(pidA, pidB etf.Pid) {
 	p := linkProcessRequest{
 		pidA: pidA,
 		pidB: pidB,

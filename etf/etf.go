@@ -115,16 +115,6 @@ const (
 	// ettFloat = byte(99) legacy
 )
 
-const (
-	// Erlang external term format version
-	EtVersion = byte(131)
-)
-
-const (
-	// Erlang distribution header
-	EtDist = byte('D')
-)
-
 func (m Map) Element(k Term) Term {
 	return m[k]
 }

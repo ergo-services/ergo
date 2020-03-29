@@ -465,7 +465,7 @@ func (l *Link) readDistHeaderAtomCache(packet []byte) ([]etf.Atom, []byte) {
 	return cache, packet
 }
 
-func (l *Link) WriteMessage(ts []etf.Term) (err error) {
+func (l *Link) Write(ts []etf.Term) (err error) {
 	sendData := func(data []byte) (int, error) {
 		reply := make([]byte, len(data)+4)
 		binary.BigEndian.PutUint32(reply[0:4], uint32(len(data)))
@@ -476,7 +476,7 @@ func (l *Link) WriteMessage(ts []etf.Term) (err error) {
 
 	buf := new(bytes.Buffer)
 	if l.flags.isSet(DIST_HDR_ATOM_CACHE) {
-		buf.Write([]byte{etf.EtVersion})
+		//buf.Write([]byte{etf.EtVersion})
 		//l.term.WriteDist(buf, ts)
 		//for _, v := range ts {
 		//	l.term.Write(buf, v)

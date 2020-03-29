@@ -241,7 +241,7 @@ func (p *Process) Link(with etf.Pid) {
 
 // Unlink removes the link, if there is one, between the calling process and the process referred to by Pid.
 func (p *Process) Unlink(with etf.Pid) {
-	p.Node.monitor.Unink(p.self, with)
+	p.Node.monitor.Unlink(p.self, with)
 }
 
 // MonitorNode creates monitor between the current process and node. If Node fails or does not exist,
