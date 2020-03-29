@@ -5,5 +5,5 @@ coverage.html
 *.swp
 tags
 .session
-
+cover.out
 
