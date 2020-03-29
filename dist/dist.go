@@ -336,19 +336,19 @@ func (l *Link) Read(b *lib.Buffer) (int, error) {
 
 }
 
-func (l *Link) ReadPacket(packet []byte) (etf.Term, etf.Term) {
+func (l *Link) ReadPacket(packet []byte) (etf.Term, etf.Term, error) {
 	// [:3] length
 	switch packet[4] {
 	case protoDist:
 		return l.ReadDist(packet[5:])
 	default:
-		fmt.Printf("unknown proto")
-		return nil, nil
+		// unknown proto
+		return nil, nil, fmt.Errorf("unknown/unsupported proto")
 	}
 
 }
 
-func (l *Link) ReadDist(packet []byte) (etf.Term, etf.Term) {
+func (l *Link) ReadDist(packet []byte) (etf.Term, etf.Term, error) {
 	switch packet[0] {
 	case protoDistCompressed:
 		// do we need it?
@@ -360,16 +360,31 @@ func (l *Link) ReadDist(packet []byte) (etf.Term, etf.Term) {
 	case protoDistMessage:
 		var control, message etf.Term
 		var cache []etf.Atom
+		var err error
 
 		cache, packet = l.readDistHeaderAtomCache(packet[1:])
 		if packet == nil {
-			return nil, nil
+			return nil, nil, fmt.Errorf("incorrect dist header atom cache")
 		}
-		control, packet = l.readDistControl(packet, cache)
-		if len(packet) > 0 {
-			message = l.readDistMessage(packet, cache)
+		control, packet, err = etf.Decode(packet, cache)
+		if err != nil {
+			return nil, nil, err
 		}
-		return control, message
+
+		if len(packet) == 0 {
+			return control, nil, nil
+		}
+
+		message, packet, err = etf.Decode(packet, cache)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		if len(packet) != 0 {
+			return nil, nil, fmt.Errorf("packet has extra %d byte(s)", len(packet))
+		}
+
+		return control, message, nil
 
 	case protoDistFragment1:
 
@@ -377,7 +392,7 @@ func (l *Link) ReadDist(packet []byte) (etf.Term, etf.Term) {
 
 	}
 
-	return nil, nil
+	return nil, nil, fmt.Errorf("unknown packet type %d", packet[0])
 }
 
 func (l *Link) readDistHeaderAtomCache(packet []byte) ([]etf.Atom, []byte) {
@@ -448,15 +463,6 @@ func (l *Link) readDistHeaderAtomCache(packet []byte) ([]etf.Atom, []byte) {
 	}
 
 	return cache, packet
-}
-
-func (l *Link) readDistControl(packet []byte, cache []etf.Atom) (etf.Term, []byte) {
-
-	return nil, nil
-}
-
-func (l *Link) readDistMessage(packet []byte, cache []etf.Atom) etf.Term {
-	return nil
 }
 
 func (l *Link) WriteMessage(ts []etf.Term) (err error) {

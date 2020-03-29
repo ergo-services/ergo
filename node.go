@@ -291,12 +291,19 @@ func (n *Node) serve(link *dist.Link, opts NodeOptions) error {
 					lib.ReleaseBuffer(buf)
 					<-parallelHandlers
 				}()
-				control, message := link.ReadPacket(buf.B[:packetLength])
-				if control == nil {
+
+				control, message, err := link.ReadPacket(buf.B[:packetLength])
+				if err != nil {
 					fmt.Println("Malformed Dist proto at link with", link.PeerName())
 					link.Close()
 					return
 				}
+
+				if control == nil {
+					// fragment
+					return
+				}
+
 				n.handleMessage(control, message)
 			}(b)
 
