@@ -15,6 +15,12 @@ type AtomCache struct {
 	cacheList [maxCacheItems]Atom
 }
 
+type CacheItem struct {
+	ID      uint16
+	Encoded bool
+	Name    Atom
+}
+
 func (a *AtomCache) Append(atom Atom) {
 	if a.lastID < maxCacheItems {
 		a.update <- atom

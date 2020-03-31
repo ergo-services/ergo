@@ -33,11 +33,6 @@ func dLog(f string, a ...interface{}) {
 type flagId uint32
 type nodeFlag flagId
 
-type cacheItem struct {
-	id      uint16
-	encoded bool
-}
-
 const (
 	// http://erlang.org/doc/apps/erts/erl_ext_dist.html#distribution_header
 	protoDist           = 131
@@ -345,6 +340,37 @@ func (l *Link) Read(b *lib.Buffer) (int, error) {
 
 }
 
+func (l *Link) ReadHandlePacket(ctx context.Context, recv <-chan *lib.Buffer,
+	handler func(etf.Term, etf.Term)) {
+	for {
+		select {
+		case b := <-recv:
+			// read and decode recieved packet
+			control, message, err := l.ReadPacket(b.B)
+			if err != nil {
+				fmt.Println("Malformed Dist proto at link with", l.PeerName())
+				l.Close()
+				return
+			}
+
+			if control == nil {
+				// fragment
+				continue
+			}
+
+			// handle message
+			handler(control, message)
+
+			// we have to release this buffer
+			lib.ReleaseBuffer(b)
+
+		case <-ctx.Done():
+			return
+
+		}
+	}
+}
+
 func (l *Link) ReadPacket(packet []byte) (etf.Term, etf.Term, error) {
 	// [:3] length
 	switch packet[4] {
@@ -364,6 +390,7 @@ func (l *Link) ReadDist(packet []byte) (etf.Term, etf.Term, error) {
 		// zip.NewReader(...)
 		// ...unzipping to the new buffer b (lib.TakeBuffer)
 		// just in case: if b[0] == protoDistCompressed return error
+		// otherwise it will cause recursive call and im not sure if its ok
 		// return l.ReadDist(b)
 
 	case protoDistMessage:
@@ -478,14 +505,17 @@ func (l *Link) SetAtomCache(cache *etf.AtomCache) {
 	l.cacheOut = cache
 }
 
-func (l *Link) encodeDistHeaderAtomCache(packet []byte, cache map[etf.Atom]cacheItem, currentCache []uint16) {
+func (l *Link) encodeDistHeaderAtomCache(packet []byte, cache map[etf.Atom]etf.CacheItem, currentCache []etf.CacheItem) {
 }
 
 func (l *Link) Writer(ctx context.Context, send <-chan []etf.Term, fragmentationUnit int) {
 	var terms []etf.Term
-	var currentAtomCache []uint16
-	var atomCache map[etf.Atom]cacheItem
+
+	var encodingAtomCache []etf.CacheItem
+	var writerAtomCache map[etf.Atom]etf.CacheItem
+	var linkAtomCache *etf.AtomCache
 	var lastCacheID uint16
+
 	var lenControl, lenMessage, lenAtomCache, lenPacket int
 	var buffer []byte
 	var atomBuffer, packetBuffer *lib.Buffer
@@ -495,8 +525,9 @@ func (l *Link) Writer(ctx context.Context, send <-chan []etf.Term, fragmentation
 	fragmentationEnabled := l.peer.flags.isSet(FRAGMENTS)
 
 	if cacheEnabled {
-		currentAtomCache = make([]uint16, 0, 256)
-		atomCache = make(map[etf.Atom]cacheItem)
+		encodingAtomCache = make([]etf.CacheItem, 0, 256)
+		writerAtomCache = make(map[etf.Atom]etf.CacheItem)
+		linkAtomCache = l.cacheOut
 	}
 
 	for {
@@ -509,12 +540,12 @@ func (l *Link) Writer(ctx context.Context, send <-chan []etf.Term, fragmentation
 
 		packetBuffer = lib.TakeBuffer()
 		if cacheEnabled {
-			currentAtomCache = currentAtomCache[:0]
+			encodingAtomCache = encodingAtomCache[:0]
 		}
 		lenControl, lenMessage, lenAtomCache, lenPacket = 0, 0, 0, 0
 
 		// encode Control
-		//buffer, err = etf.Encode(terms[0], packetBuffer.B, atomCache, currentAtomCache)
+		err = etf.Encode(terms[0], packetBuffer, linkAtomCache, writerAtomCache, encodingAtomCache)
 		if err != nil {
 			fmt.Println(err)
 			lib.ReleaseBuffer(packetBuffer)
@@ -524,7 +555,7 @@ func (l *Link) Writer(ctx context.Context, send <-chan []etf.Term, fragmentation
 
 		// encode Message if present
 		if len(terms) == 2 {
-			//	buffer, err = etf.Encode(terms[1], buffer, atomCache, currentAtomCache)
+			err = etf.Encode(terms[1], packetBuffer, linkAtomCache, writerAtomCache, encodingAtomCache)
 			if err != nil {
 				fmt.Println(err)
 				lib.ReleaseBuffer(packetBuffer)
@@ -533,9 +564,9 @@ func (l *Link) Writer(ctx context.Context, send <-chan []etf.Term, fragmentation
 		}
 		lenMessage = len(buffer)
 
-		if cacheEnabled && len(currentAtomCache) > 0 {
+		if cacheEnabled && len(encodingAtomCache) > 0 {
 			atomBuffer = lib.TakeBuffer()
-			l.encodeDistHeaderAtomCache(atomBuffer.B, atomCache, currentAtomCache)
+			l.encodeDistHeaderAtomCache(atomBuffer.B, writerAtomCache, encodingAtomCache)
 			lenAtomCache = atomBuffer.Len()
 
 			lib.ReleaseBuffer(atomBuffer)
@@ -547,6 +578,8 @@ func (l *Link) Writer(ctx context.Context, send <-chan []etf.Term, fragmentation
 
 			if !fragmentationEnabled || lenPacket < fragmentationUnit {
 				// send as a single packet
+
+				packetBuffer.WriteTo(l.conn)
 				break
 
 			}
@@ -564,11 +597,11 @@ func (l *Link) Writer(ctx context.Context, send <-chan []etf.Term, fragmentation
 			continue
 		}
 
-		// update atomCache
-		id := l.cacheOut.GetLastID()
+		// get updates from link AtomCache and update the local one (map)
+		id := linkAtomCache.GetLastID()
 		if lastCacheID < id {
-			for i, a := range l.cacheOut.ListSince(lastCacheID + 1) {
-				atomCache[a] = cacheItem{id: lastCacheID + uint16(i) + 1}
+			for i, a := range linkAtomCache.ListSince(lastCacheID + 1) {
+				writerAtomCache[a] = etf.CacheItem{ID: lastCacheID + uint16(i) + 1}
 			}
 		}
 
@@ -634,8 +667,6 @@ func (l *Link) validateChallengeReply(b []byte) bool {
 	digestB := b[4:]
 
 	digestA := genDigest(l.challenge, l.Cookie)
-	fmt.Println("DIGEST A:", digestA, l.peer.challenge, l.challenge)
-	fmt.Println("DIGEST B:", digestB)
 	return bytes.Equal(digestA[:], digestB)
 }
 

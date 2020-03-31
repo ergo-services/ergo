@@ -43,6 +43,7 @@ type NodeOptions struct {
 	EPMDPort               uint16
 	DisableEPMDServer      bool
 	SendQueueLength        int
+	RecvQueueLength        int
 	FragmentationUnit      int
 	DisableHeaderAtomCache bool
 }
@@ -53,6 +54,7 @@ const (
 	defaultEPMDPort         uint16 = 4369
 
 	defaultSendQueueLength   int = 100
+	defaultRecvQueueLength   int = 100
 	defaultFragmentationUnit     = 65000
 
 	versionOTP        int = 21
@@ -100,6 +102,10 @@ func CreateNodeWithContext(ctx context.Context, name string, cookie string, opts
 
 		if opts.SendQueueLength == 0 {
 			opts.SendQueueLength = defaultSendQueueLength
+		}
+
+		if opts.RecvQueueLength == 0 {
+			opts.RecvQueueLength = defaultRecvQueueLength
 		}
 
 		if opts.FragmentationUnit < 1500 {
@@ -230,6 +236,7 @@ func (n *Node) ProcessInfo(pid etf.Pid) (ProcessInfo, error) {
 func (n *Node) serve(link *dist.Link, opts NodeOptions) error {
 
 	send := make(chan []etf.Term, opts.SendQueueLength)
+	recv := make(chan *lib.Buffer, opts.RecvQueueLength)
 	p := peer{
 		name: link.GetRemoteName(),
 		send: send,
@@ -240,72 +247,49 @@ func (n *Node) serve(link *dist.Link, opts NodeOptions) error {
 		return err
 	}
 
-	if !opts.DisableHeaderAtomCache {
-		link.SetAtomCache(etf.NewAtomCache(n.context))
+	// run readers/writers for incoming/outgoing messages
+	for i := 0; i < runtime.NumCPU(); i++ {
+		// run writer routines (encoder)
+		go link.Writer(n.context, send, opts.FragmentationUnit)
+
+		// run packet reader/handler routines (decoder)
+		go link.ReadHandlePacket(n.context, recv, n.handleMessage)
 	}
 
-	initOnceDone := false
-	// run writer routines
-	for w := 0; w < runtime.NumCPU(); w++ {
-		go func() {
-			if !initOnceDone {
-				defer link.Close()
-				defer func() { n.registrar.UnregisterPeer(link.GetRemoteName()) }()
-				initOnceDone = true
-			}
-
-			link.Writer(n.context, send, opts.FragmentationUnit)
-
-		}()
-	}
-
-	// run reader routine
+	// run link reader routine
 	go func() {
-		var b *lib.Buffer
 		var err error
 		var packetLength int
+
+		// initializing atom cache if its enabled
+		if !opts.DisableHeaderAtomCache {
+			ctx, cancel := context.WithCancel(n.context)
+			link.SetAtomCache(etf.NewAtomCache(ctx))
+			defer cancel()
+		}
 
 		defer link.Close()
 		defer func() { n.registrar.UnregisterPeer(link.GetRemoteName()) }()
 
-		// do not run more than the total number of cores
-		parallelHandlers := make(chan error, runtime.NumCPU())
-		b = lib.TakeBuffer()
+		b := lib.TakeBuffer()
 
 		for {
 			packetLength, err = link.Read(b)
 			if err != nil || packetLength == 0 {
+				// link was closed or got malformed data
 				lib.ReleaseBuffer(b)
 				return
 			}
 
-			// block if exceed the limits (number of HandlePacket goroutines)
-			parallelHandlers <- nil
-
-			// append the tail (part of the next packet)
+			// take new buffer for the next reading and append the tail (part of the next packet)
 			b1 := lib.TakeBuffer()
 			b1.Set(b.B[packetLength:])
 
-			go func(buf *lib.Buffer) {
-				defer func() {
-					lib.ReleaseBuffer(buf)
-					<-parallelHandlers
-				}()
-
-				control, message, err := link.ReadPacket(buf.B[:packetLength])
-				if err != nil {
-					fmt.Println("Malformed Dist proto at link with", link.PeerName())
-					link.Close()
-					return
-				}
-
-				if control == nil {
-					// fragment
-					return
-				}
-
-				n.handleMessage(control, message)
-			}(b)
+			// cut the tail and send it further for handling.
+			// buffer b have to be released by the reader of
+			// recv channel (link.ReadHandlePacket)
+			b.B = b.B[:packetLength]
+			recv <- b
 
 			// set new buffer as a current for the next reading
 			b = b1
