@@ -2,6 +2,7 @@ package dist
 
 import (
 	"bytes"
+	"context"
 	"crypto/md5"
 	"encoding/binary"
 	"flag"
@@ -30,6 +31,12 @@ func dLog(f string, a ...interface{}) {
 }
 
 type flagId uint32
+type nodeFlag flagId
+
+type cacheItem struct {
+	id      uint16
+	encoded bool
+}
 
 const (
 	// http://erlang.org/doc/apps/erts/erl_ext_dist.html#distribution_header
@@ -64,8 +71,6 @@ const (
 	FRAGMENTS                  = 0x800000
 )
 
-type nodeFlag flagId
-
 func (nf nodeFlag) toUint32() uint32 {
 	return uint32(nf)
 }
@@ -96,7 +101,10 @@ type Link struct {
 	cacheIn [2048]etf.Atom
 
 	// atom cache for outgoing messages
-	//cacheOut map[etf.Atom]int
+	cacheOut *etf.AtomCache
+
+	// fragmentation sequence ID
+	sequenceID int64
 }
 
 func Handshake(conn net.Conn, name, cookie string, hidden bool) (*Link, error) {
@@ -113,9 +121,9 @@ func Handshake(conn net.Conn, name, cookie string, hidden bool) (*Link, error) {
 			FRAGMENTS,
 		),
 
-		conn: conn,
-
-		version: 5,
+		conn:       conn,
+		sequenceID: time.Now().UnixNano(),
+		version:    5,
 	}
 
 	b := lib.TakeBuffer()
@@ -200,9 +208,10 @@ func HandshakeAccept(conn net.Conn, name, cookie string, hidden bool) (*Link, er
 			FRAGMENTS,
 		),
 
-		conn:      conn,
-		challenge: rand.Uint32(),
-		version:   5,
+		conn:       conn,
+		sequenceID: time.Now().UnixNano(),
+		challenge:  rand.Uint32(),
+		version:    5,
 	}
 
 	b := lib.TakeBuffer()
@@ -362,7 +371,7 @@ func (l *Link) ReadDist(packet []byte) (etf.Term, etf.Term, error) {
 		var cache []etf.Atom
 		var err error
 
-		cache, packet = l.readDistHeaderAtomCache(packet[1:])
+		cache, packet = l.decodeDistHeaderAtomCache(packet[1:])
 		if packet == nil {
 			return nil, nil, fmt.Errorf("incorrect dist header atom cache")
 		}
@@ -395,7 +404,7 @@ func (l *Link) ReadDist(packet []byte) (etf.Term, etf.Term, error) {
 	return nil, nil, fmt.Errorf("unknown packet type %d", packet[0])
 }
 
-func (l *Link) readDistHeaderAtomCache(packet []byte) ([]etf.Atom, []byte) {
+func (l *Link) decodeDistHeaderAtomCache(packet []byte) ([]etf.Atom, []byte) {
 	// all the details are here https://erlang.org/doc/apps/erts/erl_ext_dist.html#normal-distribution-header
 
 	// number of atom references are present in package
@@ -465,32 +474,105 @@ func (l *Link) readDistHeaderAtomCache(packet []byte) ([]etf.Atom, []byte) {
 	return cache, packet
 }
 
-func (l *Link) Write(ts []etf.Term) (err error) {
-	sendData := func(data []byte) (int, error) {
-		reply := make([]byte, len(data)+4)
-		binary.BigEndian.PutUint32(reply[0:4], uint32(len(data)))
-		copy(reply[4:], data)
-		dLog("Write to enode: %v", reply)
-		return l.conn.Write(reply)
+func (l *Link) SetAtomCache(cache *etf.AtomCache) {
+	l.cacheOut = cache
+}
+
+func (l *Link) encodeDistHeaderAtomCache(packet []byte, cache map[etf.Atom]cacheItem, currentCache []uint16) {
+}
+
+func (l *Link) Writer(ctx context.Context, send <-chan []etf.Term, fragmentationUnit int) {
+	var terms []etf.Term
+	var currentAtomCache []uint16
+	var atomCache map[etf.Atom]cacheItem
+	var lastCacheID uint16
+	var lenControl, lenMessage, lenAtomCache, lenPacket int
+	var buffer []byte
+	var atomBuffer, packetBuffer *lib.Buffer
+	var err error
+
+	cacheEnabled := l.peer.flags.isSet(DIST_HDR_ATOM_CACHE) && l.cacheOut != nil
+	fragmentationEnabled := l.peer.flags.isSet(FRAGMENTS)
+
+	if cacheEnabled {
+		currentAtomCache = make([]uint16, 0, 256)
+		atomCache = make(map[etf.Atom]cacheItem)
 	}
 
-	buf := new(bytes.Buffer)
-	if l.flags.isSet(DIST_HDR_ATOM_CACHE) {
-		//buf.Write([]byte{etf.EtVersion})
-		//l.term.WriteDist(buf, ts)
-		//for _, v := range ts {
-		//	l.term.Write(buf, v)
-		//}
-	} else {
-		buf.Write([]byte{'p'})
-		//for _, v := range ts {
-		//	buf.Write([]byte{etf.EtVersion})
-		//	l.term.Write(buf, v)
-		//}
+	for {
+
+		select {
+		case terms = <-send:
+		case <-ctx.Done():
+			return
+		}
+
+		packetBuffer = lib.TakeBuffer()
+		if cacheEnabled {
+			currentAtomCache = currentAtomCache[:0]
+		}
+		lenControl, lenMessage, lenAtomCache, lenPacket = 0, 0, 0, 0
+
+		// encode Control
+		//buffer, err = etf.Encode(terms[0], packetBuffer.B, atomCache, currentAtomCache)
+		if err != nil {
+			fmt.Println(err)
+			lib.ReleaseBuffer(packetBuffer)
+			continue
+		}
+		lenControl = len(buffer)
+
+		// encode Message if present
+		if len(terms) == 2 {
+			//	buffer, err = etf.Encode(terms[1], buffer, atomCache, currentAtomCache)
+			if err != nil {
+				fmt.Println(err)
+				lib.ReleaseBuffer(packetBuffer)
+				continue
+			}
+		}
+		lenMessage = len(buffer)
+
+		if cacheEnabled && len(currentAtomCache) > 0 {
+			atomBuffer = lib.TakeBuffer()
+			l.encodeDistHeaderAtomCache(atomBuffer.B, atomCache, currentAtomCache)
+			lenAtomCache = atomBuffer.Len()
+
+			lib.ReleaseBuffer(atomBuffer)
+		}
+
+		lenPacket = lenControl + lenMessage + lenAtomCache
+
+		for {
+
+			if !fragmentationEnabled || lenPacket < fragmentationUnit {
+				// send as a single packet
+				break
+
+			}
+
+			// https://erlang.org/doc/apps/erts/erl_ext_dist.html#distribution-header-for-fragmented-messages
+
+			// sequenceID = atomic.AddInt64(&l.sequenceID, 1)
+			//
+			break
+		}
+
+		lib.ReleaseBuffer(packetBuffer)
+
+		if !cacheEnabled {
+			continue
+		}
+
+		// update atomCache
+		id := l.cacheOut.GetLastID()
+		if lastCacheID < id {
+			for i, a := range l.cacheOut.ListSince(lastCacheID + 1) {
+				atomCache[a] = cacheItem{id: lastCacheID + uint16(i) + 1}
+			}
+		}
+
 	}
-	// dLog("WRITE: %#v: %#v", ts, buf.Bytes())
-	_, err = sendData(buf.Bytes())
-	return
 
 }
 

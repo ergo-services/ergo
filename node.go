@@ -37,13 +37,14 @@ type Node struct {
 
 // NodeOptions struct with bootstrapping options for CreateNode
 type NodeOptions struct {
-	ListenRangeBegin  uint16
-	ListenRangeEnd    uint16
-	Hidden            bool
-	EPMDPort          uint16
-	DisableEPMDServer bool
-	SendQueueLength   int
-	FragmentationUnit int
+	ListenRangeBegin       uint16
+	ListenRangeEnd         uint16
+	Hidden                 bool
+	EPMDPort               uint16
+	DisableEPMDServer      bool
+	SendQueueLength        int
+	FragmentationUnit      int
+	DisableHeaderAtomCache bool
 }
 
 const (
@@ -239,37 +240,24 @@ func (n *Node) serve(link *dist.Link, opts NodeOptions) error {
 		return err
 	}
 
-	// run writer routine
-	go func() {
-		defer link.Close()
-		defer func() { n.registrar.UnregisterPeer(link.GetRemoteName()) }()
+	if !opts.DisableHeaderAtomCache {
+		link.SetAtomCache(etf.NewAtomCache(n.context))
+	}
 
-		parallelWriters := make(chan error, runtime.NumCPU())
-
-		for {
-			select {
-			case terms := <-send:
-				parallelWriters <- nil
-				go func() {
-					b := lib.TakeBuffer()
-					defer func() {
-						<-parallelWriters
-						lib.ReleaseBuffer(b)
-					}()
-
-					err := link.Write(terms)
-					if err != nil {
-						fmt.Println("Can't write message:", err)
-						link.Close()
-					}
-				}()
-
-			case <-n.context.Done():
-				return
+	initOnceDone := false
+	// run writer routines
+	for w := 0; w < runtime.NumCPU(); w++ {
+		go func() {
+			if !initOnceDone {
+				defer link.Close()
+				defer func() { n.registrar.UnregisterPeer(link.GetRemoteName()) }()
+				initOnceDone = true
 			}
 
-		}
-	}()
+			link.Writer(n.context, send, opts.FragmentationUnit)
+
+		}()
+	}
 
 	// run reader routine
 	go func() {
@@ -517,7 +505,7 @@ func (n *Node) handleMessage(control, message etf.Term) {
 			case distProtoUNLINK:
 				// {4, FromPid, ToPid}
 				lib.Log("UNLINK message (act %d): %#v", act, t)
-				n.monitor.Unink(t.Element(2).(etf.Pid), t.Element(3).(etf.Pid))
+				n.monitor.Unlink(t.Element(2).(etf.Pid), t.Element(3).(etf.Pid))
 
 			case distProtoNODE_LINK:
 				lib.Log("NODE_LINK message (act %d): %#v", act, t)

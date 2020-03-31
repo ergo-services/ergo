@@ -351,6 +351,7 @@ func (r *registrar) run() {
 			}
 
 			peer.send <- []etf.Term{rw.message}
+
 		case cmd := <-r.channels.commands:
 			r.handleCommand(cmd)
 		}
