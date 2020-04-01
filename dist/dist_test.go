@@ -109,7 +109,7 @@ func TestValidateChallengeAck(t *testing.T) {
 
 }
 
-func TestReadDistHeaderAtomCache(t *testing.T) {
+func TestDecodeDistHeaderAtomCache(t *testing.T) {
 	link := Link{}
 	link.cacheIn[1034] = "atom1"
 	link.cacheIn[5] = "atom2"
@@ -136,7 +136,7 @@ func TestReadDistHeaderAtomCache(t *testing.T) {
 	cacheInExpected[494] = "set_get_state"
 
 	packetExpected := packet[34:]
-	cache, packet1 := link.readDistHeaderAtomCache(packet[2:])
+	cache, packet1 := link.decodeDistHeaderAtomCache(packet[2:])
 
 	if !bytes.Equal(packet1, packetExpected) {
 		t.Fatal("incorrect packet")
@@ -149,6 +149,69 @@ func TestReadDistHeaderAtomCache(t *testing.T) {
 	if !reflect.DeepEqual(cache, cacheExpected) {
 		t.Fatal("incorrect cache", cache)
 	}
+
+}
+
+func TestEncodeDistHeaderAtomCache(t *testing.T) {
+
+	b := lib.TakeBuffer()
+	defer lib.ReleaseBuffer(b)
+
+	writerAtomCache := make(map[etf.Atom]etf.CacheItem)
+	encodingAtomCache := make([]etf.CacheItem, 0, 100)
+
+	writerAtomCache["reg"] = etf.CacheItem{
+		ID:      1000,
+		Encoded: false,
+		Name:    "reg",
+	}
+
+	writerAtomCache["call"] = etf.CacheItem{
+		ID:      499,
+		Encoded: false,
+		Name:    "call",
+	}
+
+	writerAtomCache["call"] = etf.CacheItem{
+		ID:      499,
+		Encoded: false,
+		Name:    "call",
+	}
+
+	writerAtomCache["call"] = etf.CacheItem{
+		ID:      499,
+		Encoded: false,
+		Name:    "call",
+	}
+
+	writerAtomCache["call"] = etf.CacheItem{
+		ID:      499,
+		Encoded: false,
+		Name:    "call",
+	}
+
+	encodingAtomCache = append(encodingAtomCache,
+		etf.CacheItem{
+			ID:      499,
+			Encoded: false,
+			Name:    "call",
+		},
+		etf.CacheItem{
+			ID:      1000,
+			Encoded: false,
+			Name:    "reg",
+		},
+		etf.CacheItem{
+			ID:      199,
+			Encoded: true,
+			Name:    "one_more_atom",
+		},
+	)
+
+	l := &Link{}
+	l.encodeDistHeaderAtomCache(b, writerAtomCache, encodingAtomCache)
+	fmt.Println("bytes", b.B)
+
 }
 
 func BenchmarkReadDistHeaderAtomCache(b *testing.B) {
@@ -170,6 +233,6 @@ func BenchmarkReadDistHeaderAtomCache(b *testing.B) {
 	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		link.readDistHeaderAtomCache(packet[2:])
+		link.decodeDistHeaderAtomCache(packet[2:])
 	}
 }

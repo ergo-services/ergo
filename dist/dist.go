@@ -505,7 +505,55 @@ func (l *Link) SetAtomCache(cache *etf.AtomCache) {
 	l.cacheOut = cache
 }
 
-func (l *Link) encodeDistHeaderAtomCache(packet []byte, cache map[etf.Atom]etf.CacheItem, currentCache []etf.CacheItem) {
+func (l *Link) encodeDistHeaderAtomCache(b *lib.Buffer,
+	writerAtomCache map[etf.Atom]etf.CacheItem,
+	encodingAtomCache []etf.CacheItem) {
+	// will encode atoms with LongAtom flag set to 1.
+	// its not so expensive for the payload instead of running one more loop
+
+	// allocate space: 1 (number of elements) + X (num of el /2 + 1)
+	n := len(encodingAtomCache)
+	lenFlags := n/2 + 1
+	b.Allocate(1 + lenFlags)
+	buffer := b.B
+	buffer[0] = byte(n) // NumberOfAtomCacheRefs
+
+	if n == 0 {
+		b.B = b.B[:1]
+		return
+	}
+
+	flags := buffer[1 : lenFlags+1]
+	references := buffer[lenFlags+1:]
+
+	for i := range encodingAtomCache {
+		shift := uint((i & 0x01) * 4)
+		idxReference := byte(encodingAtomCache[i].ID >> 12) // SegmentIndex
+		idxInternal := byte(encodingAtomCache[i].ID & 255)  // InternalSegmentIndex
+
+		if !encodingAtomCache[i].Encoded {
+			idxReference |= 8 // set NewCacheEntryFlag
+		}
+
+		flags[i/2] = idxReference << shift
+		if encodingAtomCache[i].Encoded {
+			b.Allocate(1)
+			references[0] = idxInternal
+			references = references[1:]
+			continue
+		}
+
+		// 1 (InternalSegmentIndex) + 2 (length) + name
+		allocLen := 1 + 2 + len(encodingAtomCache[i].Name)
+		b.Allocate(allocLen)
+		references[0] = idxInternal
+		binary.BigEndian.PutUint16(references[1:3], uint16(len(encodingAtomCache[i].Name)))
+		copy(references[3:], encodingAtomCache[i].Name)
+		references = references[allocLen:]
+	}
+
+	shift := uint((n & 0x01) * 4)
+	flags[lenFlags-1] |= 1 << shift // set LongAtom = 1
 }
 
 func (l *Link) Writer(ctx context.Context, send <-chan []etf.Term, fragmentationUnit int) {
@@ -514,7 +562,7 @@ func (l *Link) Writer(ctx context.Context, send <-chan []etf.Term, fragmentation
 	var encodingAtomCache []etf.CacheItem
 	var writerAtomCache map[etf.Atom]etf.CacheItem
 	var linkAtomCache *etf.AtomCache
-	var lastCacheID uint16
+	var lastCacheID int16 = -1
 
 	var lenControl, lenMessage, lenAtomCache, lenPacket int
 	var buffer []byte
@@ -544,6 +592,9 @@ func (l *Link) Writer(ctx context.Context, send <-chan []etf.Term, fragmentation
 		}
 		lenControl, lenMessage, lenAtomCache, lenPacket = 0, 0, 0, 0
 
+		// do reserve for the header 8K, should be enough
+		packetBuffer.Allocate(8192)
+
 		// encode Control
 		err = etf.Encode(terms[0], packetBuffer, linkAtomCache, writerAtomCache, encodingAtomCache)
 		if err != nil {
@@ -564,15 +615,15 @@ func (l *Link) Writer(ctx context.Context, send <-chan []etf.Term, fragmentation
 		}
 		lenMessage = len(buffer)
 
+		// encode Header Atom Cache if its enabled
 		if cacheEnabled && len(encodingAtomCache) > 0 {
 			atomBuffer = lib.TakeBuffer()
-			l.encodeDistHeaderAtomCache(atomBuffer.B, writerAtomCache, encodingAtomCache)
+			l.encodeDistHeaderAtomCache(atomBuffer, writerAtomCache, encodingAtomCache)
 			lenAtomCache = atomBuffer.Len()
-
 			lib.ReleaseBuffer(atomBuffer)
 		}
 
-		lenPacket = lenControl + lenMessage + lenAtomCache
+		lenPacket = lenAtomCache + lenControl + lenMessage
 
 		for {
 
@@ -585,7 +636,9 @@ func (l *Link) Writer(ctx context.Context, send <-chan []etf.Term, fragmentation
 			}
 
 			// https://erlang.org/doc/apps/erts/erl_ext_dist.html#distribution-header-for-fragmented-messages
+			// "The entire atom cache and control message has to be part of the starting fragment"
 
+			// fragment numbering should be like
 			// sequenceID = atomic.AddInt64(&l.sequenceID, 1)
 			//
 			break
@@ -597,11 +650,12 @@ func (l *Link) Writer(ctx context.Context, send <-chan []etf.Term, fragmentation
 			continue
 		}
 
-		// get updates from link AtomCache and update the local one (map)
+		// get updates from link AtomCache and update the local one (map writerAtomCache)
 		id := linkAtomCache.GetLastID()
 		if lastCacheID < id {
-			for i, a := range linkAtomCache.ListSince(lastCacheID + 1) {
-				writerAtomCache[a] = etf.CacheItem{ID: lastCacheID + uint16(i) + 1}
+			for _, a := range linkAtomCache.ListSince(lastCacheID + 1) {
+				writerAtomCache[a] = etf.CacheItem{ID: lastCacheID + 1, Name: a, Encoded: false}
+				lastCacheID++
 			}
 		}
 
