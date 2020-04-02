@@ -560,21 +560,22 @@ func (l *Link) encodeDistHeaderAtomCache(b *lib.Buffer,
 func (l *Link) Writer(ctx context.Context, send <-chan []etf.Term, fragmentationUnit int) {
 	var terms []etf.Term
 
-	var encodingAtomCache []etf.CacheItem
+	var encodingAtomCache *etf.ListAtomCache
 	var writerAtomCache map[etf.Atom]etf.CacheItem
 	var linkAtomCache *etf.AtomCache
 	var lastCacheID int16 = -1
 
 	var lenControl, lenMessage, lenAtomCache, lenPacket int
 	var buffer []byte
-	var atomBuffer, packetBuffer *lib.Buffer
+	var atomCacheBuffer, packetBuffer *lib.Buffer
 	var err error
 
 	cacheEnabled := l.peer.flags.isSet(DIST_HDR_ATOM_CACHE) && l.cacheOut != nil
 	fragmentationEnabled := l.peer.flags.isSet(FRAGMENTS)
 
 	if cacheEnabled {
-		encodingAtomCache = make([]etf.CacheItem, 0, 256)
+		encodingAtomCache = etf.TakeListAtomCache()
+		defer etf.ReleaseListAtomCache(encodingAtomCache)
 		writerAtomCache = make(map[etf.Atom]etf.CacheItem)
 		linkAtomCache = l.cacheOut
 	}
@@ -588,9 +589,6 @@ func (l *Link) Writer(ctx context.Context, send <-chan []etf.Term, fragmentation
 		}
 
 		packetBuffer = lib.TakeBuffer()
-		if cacheEnabled {
-			encodingAtomCache = encodingAtomCache[:0]
-		}
 		lenControl, lenMessage, lenAtomCache, lenPacket = 0, 0, 0, 0
 
 		// do reserve for the header 8K, should be enough
@@ -617,11 +615,11 @@ func (l *Link) Writer(ctx context.Context, send <-chan []etf.Term, fragmentation
 		lenMessage = len(buffer)
 
 		// encode Header Atom Cache if its enabled
-		if cacheEnabled && len(encodingAtomCache) > 0 {
-			atomBuffer = lib.TakeBuffer()
-			l.encodeDistHeaderAtomCache(atomBuffer, writerAtomCache, encodingAtomCache)
-			lenAtomCache = atomBuffer.Len()
-			lib.ReleaseBuffer(atomBuffer)
+		if cacheEnabled && encodingAtomCache.Len() > 0 {
+			atomCacheBuffer = lib.TakeBuffer()
+			l.encodeDistHeaderAtomCache(atomCacheBuffer, writerAtomCache, encodingAtomCache.L)
+			lenAtomCache = atomCacheBuffer.Len()
+			lib.ReleaseBuffer(atomCacheBuffer)
 		}
 
 		lenPacket = lenAtomCache + lenControl + lenMessage

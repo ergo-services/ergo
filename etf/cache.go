@@ -2,6 +2,7 @@ package etf
 
 import (
 	"context"
+	"sync"
 )
 
 const (
@@ -20,6 +21,23 @@ type CacheItem struct {
 	Encoded bool
 	Name    Atom
 }
+
+type ListAtomCache struct {
+	L        []CacheItem
+	original []CacheItem
+}
+
+var (
+	listAtomCachePool = &sync.Pool{
+		New: func() interface{} {
+			l := &ListAtomCache{
+				L: make([]CacheItem, 0, 256),
+			}
+			l.original = l.L
+			return l
+		},
+	}
+)
 
 func (a *AtomCache) Append(atom Atom) {
 	if a.lastID < maxCacheItems {
@@ -71,4 +89,23 @@ func (a *AtomCache) List() [maxCacheItems]Atom {
 
 func (a *AtomCache) ListSince(id int16) []Atom {
 	return a.cacheList[id:]
+}
+
+func TakeListAtomCache() *ListAtomCache {
+	return listAtomCachePool.Get().(*ListAtomCache)
+}
+
+func ReleaseListAtomCache(l *ListAtomCache) {
+	l.L = l.original[:0]
+	listAtomCachePool.Put(l)
+}
+func (l *ListAtomCache) Reset() {
+	l.L = l.original[:0]
+}
+func (l *ListAtomCache) Append(a CacheItem) {
+	l.L = append(l.L, a)
+}
+
+func (l *ListAtomCache) Len() int {
+	return len(l.L)
 }

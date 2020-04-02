@@ -16,15 +16,15 @@ func TestAtomCache(t *testing.T) {
 	a.Append(Atom("test1"))
 	time.Sleep(100 * time.Millisecond)
 
-	if a.GetLastID() != 1 {
-		t.Fatal("LastID != 1")
+	if a.GetLastID() != 0 {
+		t.Fatal("LastID != 0", a.GetLastID())
 	}
 
 	a.Append(Atom("test1"))
 	time.Sleep(100 * time.Millisecond)
 
-	if a.GetLastID() != 1 {
-		t.Fatal("LastID != 1")
+	if a.GetLastID() != 0 {
+		t.Fatalf("LastID != 0")
 	}
 
 	a.Append(Atom("test2"))
