@@ -511,45 +511,46 @@ func (l *Link) encodeDistHeaderAtomCache(b *lib.Buffer,
 	// will encode atoms with LongAtom flag set to 1.
 	// its not so expensive for the payload instead of running one more loop
 
-	// allocate space: 1 (number of elements) + X (num of el /2 + 1)
 	n := len(encodingAtomCache)
-	lenFlags := n/2 + 1
-	b.Allocate(1 + lenFlags)
-	buffer := b.B
-	buffer[0] = byte(n) // NumberOfAtomCacheRefs
-
 	if n == 0 {
-		b.B = b.B[:1]
+		b.AppendByte(0)
 		return
 	}
 
-	flags := buffer[1 : lenFlags+1]
-	references := buffer[lenFlags+1:]
+	b.AppendByte(byte(n)) // write NumberOfAtomCache
 
-	for i := range encodingAtomCache {
+	lenFlags := n/2 + 1
+	b.Extend(lenFlags)
+
+	flags := b.B[1 : lenFlags+1]
+
+	for i := 0; i < len(encodingAtomCache); i++ {
 		shift := uint((i & 0x01) * 4)
-		idxReference := byte(encodingAtomCache[i].ID >> 12) // SegmentIndex
-		idxInternal := byte(encodingAtomCache[i].ID & 255)  // InternalSegmentIndex
+		idxReference := byte(encodingAtomCache[i].ID >> 8) // SegmentIndex
+		idxInternal := byte(encodingAtomCache[i].ID & 255) // InternalSegmentIndex
 
-		if !encodingAtomCache[i].Encoded {
+		encoded := writerAtomCache[encodingAtomCache[i].Name].Encoded
+		if !encoded {
 			idxReference |= 8 // set NewCacheEntryFlag
 		}
 
-		flags[i/2] = idxReference << shift
-		if encodingAtomCache[i].Encoded {
-			b.Allocate(1)
-			references[0] = idxInternal
-			references = references[1:]
+		// we have to clear before reuse
+		if shift == 0 {
+			flags[i/2] = 0
+		}
+		flags[i/2] |= idxReference << shift
+
+		if encoded {
+			b.AppendByte(idxInternal)
 			continue
 		}
 
 		// 1 (InternalSegmentIndex) + 2 (length) + name
 		allocLen := 1 + 2 + len(encodingAtomCache[i].Name)
-		b.Allocate(allocLen)
-		references[0] = idxInternal
-		binary.BigEndian.PutUint16(references[1:3], uint16(len(encodingAtomCache[i].Name)))
-		copy(references[3:], encodingAtomCache[i].Name)
-		references = references[allocLen:]
+		buf := b.Extend(allocLen)
+		buf[0] = idxInternal
+		binary.BigEndian.PutUint16(buf[1:3], uint16(len(encodingAtomCache[i].Name)))
+		copy(buf[3:], encodingAtomCache[i].Name)
 	}
 
 	shift := uint((n & 0x01) * 4)

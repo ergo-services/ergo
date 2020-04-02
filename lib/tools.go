@@ -131,3 +131,15 @@ func (b *Buffer) Allocate(n int) {
 		return
 	}
 }
+
+func (b *Buffer) Extend(n int) []byte {
+	l := len(b.B)
+	e := l + n
+	for {
+		if e > cap(b.B) {
+			b.increase()
+		}
+		b.B = b.B[:e]
+		return b.B[l:e]
+	}
+}
