@@ -23,8 +23,9 @@ type CacheItem struct {
 }
 
 type ListAtomCache struct {
-	L        []CacheItem
-	original []CacheItem
+	L           []CacheItem
+	original    []CacheItem
+	HasLongAtom bool
 }
 
 var (
@@ -101,9 +102,13 @@ func ReleaseListAtomCache(l *ListAtomCache) {
 }
 func (l *ListAtomCache) Reset() {
 	l.L = l.original[:0]
+	l.HasLongAtom = false
 }
 func (l *ListAtomCache) Append(a CacheItem) {
 	l.L = append(l.L, a)
+	if !a.Encoded && len(a.Name) > 255 {
+		l.HasLongAtom = true
+	}
 }
 
 func (l *ListAtomCache) Len() int {

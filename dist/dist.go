@@ -507,11 +507,9 @@ func (l *Link) SetAtomCache(cache *etf.AtomCache) {
 
 func (l *Link) encodeDistHeaderAtomCache(b *lib.Buffer,
 	writerAtomCache map[etf.Atom]etf.CacheItem,
-	encodingAtomCache []etf.CacheItem) {
-	// will encode atoms with LongAtom flag set to 1.
-	// its not so expensive for the payload instead of running one more loop
+	encodingAtomCache *etf.ListAtomCache) {
 
-	n := len(encodingAtomCache)
+	n := encodingAtomCache.Len()
 	if n == 0 {
 		b.AppendByte(0)
 		return
@@ -523,14 +521,15 @@ func (l *Link) encodeDistHeaderAtomCache(b *lib.Buffer,
 	b.Extend(lenFlags)
 
 	flags := b.B[1 : lenFlags+1]
+	flags[lenFlags-1] = 0 // clear last byte to make sure we have valid LongAtom flag
 
-	for i := 0; i < len(encodingAtomCache); i++ {
+	for i := 0; i < len(encodingAtomCache.L); i++ {
 		shift := uint((i & 0x01) * 4)
-		idxReference := byte(encodingAtomCache[i].ID >> 8) // SegmentIndex
-		idxInternal := byte(encodingAtomCache[i].ID & 255) // InternalSegmentIndex
+		idxReference := byte(encodingAtomCache.L[i].ID >> 8) // SegmentIndex
+		idxInternal := byte(encodingAtomCache.L[i].ID & 255) // InternalSegmentIndex
 
-		encoded := writerAtomCache[encodingAtomCache[i].Name].Encoded
-		if !encoded {
+		cachedItem := writerAtomCache[encodingAtomCache.L[i].Name]
+		if !cachedItem.Encoded {
 			idxReference |= 8 // set NewCacheEntryFlag
 		}
 
@@ -540,21 +539,36 @@ func (l *Link) encodeDistHeaderAtomCache(b *lib.Buffer,
 		}
 		flags[i/2] |= idxReference << shift
 
-		if encoded {
+		if cachedItem.Encoded {
 			b.AppendByte(idxInternal)
 			continue
 		}
 
-		// 1 (InternalSegmentIndex) + 2 (length) + name
-		allocLen := 1 + 2 + len(encodingAtomCache[i].Name)
-		buf := b.Extend(allocLen)
-		buf[0] = idxInternal
-		binary.BigEndian.PutUint16(buf[1:3], uint16(len(encodingAtomCache[i].Name)))
-		copy(buf[3:], encodingAtomCache[i].Name)
+		if encodingAtomCache.HasLongAtom {
+			// 1 (InternalSegmentIndex) + 2 (length) + name
+			allocLen := 1 + 2 + len(encodingAtomCache.L[i].Name)
+			buf := b.Extend(allocLen)
+			buf[0] = idxInternal
+			binary.BigEndian.PutUint16(buf[1:3], uint16(len(encodingAtomCache.L[i].Name)))
+			copy(buf[3:], encodingAtomCache.L[i].Name)
+		} else {
+
+			// 1 (InternalSegmentIndex) + 1 (length) + name
+			allocLen := 1 + 1 + len(encodingAtomCache.L[i].Name)
+			buf := b.Extend(allocLen)
+			buf[0] = idxInternal
+			buf[1] = byte(len(encodingAtomCache.L[i].Name))
+			copy(buf[2:], encodingAtomCache.L[i].Name)
+		}
+
+		cachedItem.Encoded = true
+		writerAtomCache[encodingAtomCache.L[i].Name] = cachedItem
 	}
 
-	shift := uint((n & 0x01) * 4)
-	flags[lenFlags-1] |= 1 << shift // set LongAtom = 1
+	if encodingAtomCache.HasLongAtom {
+		shift := uint((n & 0x01) * 4)
+		flags[lenFlags-1] |= 1 << shift // set LongAtom = 1
+	}
 }
 
 func (l *Link) Writer(ctx context.Context, send <-chan []etf.Term, fragmentationUnit int) {
@@ -617,7 +631,7 @@ func (l *Link) Writer(ctx context.Context, send <-chan []etf.Term, fragmentation
 		// encode Header Atom Cache if its enabled
 		if cacheEnabled && encodingAtomCache.Len() > 0 {
 			atomCacheBuffer = lib.TakeBuffer()
-			l.encodeDistHeaderAtomCache(atomCacheBuffer, writerAtomCache, encodingAtomCache.L)
+			l.encodeDistHeaderAtomCache(atomCacheBuffer, writerAtomCache, encodingAtomCache)
 			lenAtomCache = atomCacheBuffer.Len()
 			lib.ReleaseBuffer(atomCacheBuffer)
 		}

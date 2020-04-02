@@ -158,7 +158,8 @@ func TestEncodeDistHeaderAtomCache(t *testing.T) {
 	defer lib.ReleaseBuffer(b)
 
 	writerAtomCache := make(map[etf.Atom]etf.CacheItem)
-	encodingAtomCache := make([]etf.CacheItem, 0, 100)
+	encodingAtomCache := etf.TakeListAtomCache()
+	defer etf.ReleaseListAtomCache(encodingAtomCache)
 
 	writerAtomCache["reg"] = etf.CacheItem{ID: 1000, Encoded: false, Name: "reg"}
 	writerAtomCache["call"] = etf.CacheItem{ID: 499, Encoded: false, Name: "call"}
@@ -168,17 +169,15 @@ func TestEncodeDistHeaderAtomCache(t *testing.T) {
 	writerAtomCache["potato"] = etf.CacheItem{ID: 2017, Encoded: true, Name: "potato"}
 
 	// Encoded field is ignored here
-	encodingAtomCache = append(encodingAtomCache,
-		etf.CacheItem{ID: 499, Name: "call"},
-		etf.CacheItem{ID: 1000, Name: "reg"},
-		etf.CacheItem{ID: 199, Name: "one_more_atom"},
-		etf.CacheItem{ID: 2017, Name: "potato"},
-	)
+	encodingAtomCache.Append(etf.CacheItem{ID: 499, Name: "call"})
+	encodingAtomCache.Append(etf.CacheItem{ID: 1000, Name: "reg"})
+	encodingAtomCache.Append(etf.CacheItem{ID: 199, Name: "one_more_atom"})
+	encodingAtomCache.Append(etf.CacheItem{ID: 2017, Name: "potato"})
 
 	expected := []byte{
-		4, 185, 112, 1, // 4 atoms and theirs flags
-		243, 0, 4, 99, 97, 108, 108, // atom call
-		232, 0, 3, 114, 101, 103, // atom reg
+		4, 185, 112, 0, // 4 atoms and theirs flags
+		243, 4, 99, 97, 108, 108, // atom call
+		232, 3, 114, 101, 103, // atom reg
 		199, // atom one_more_atom, already encoded
 		225, // atom potato, already encoded
 
@@ -192,24 +191,22 @@ func TestEncodeDistHeaderAtomCache(t *testing.T) {
 	}
 
 	b.Reset()
-	encodingAtomCache = append(encodingAtomCache,
-		etf.CacheItem{ID: 2, Name: "yet_another_atom"},
-	)
+	encodingAtomCache.Append(etf.CacheItem{ID: 2, Name: "yet_another_atom"})
 
 	expected = []byte{
-		5, 185, 112, 24, // 4 atoms and theirs flags
-		243, 0, 4, 99, 97, 108, 108, // atom call
-		232, 0, 3, 114, 101, 103, // atom reg
-		199,                         // atom one_more_atom, already encoded
-		225,                         // atom potato, already encoded
-		2, 0, 16, 121, 101, 116, 95, // atom yet_another_atom
+		5, 49, 112, 8, // 5 atoms and theirs flags
+		243,                      // atom call. already encoded
+		232,                      // atom reg. already encoded
+		199,                      // atom one_more_atom. already encoded
+		225,                      // atom potato. already encoded
+		2, 16, 121, 101, 116, 95, // atom yet_another_atom
 		97, 110, 111, 116, 104, 101,
 		114, 95, 97, 116, 111, 109,
 	}
 	l.encodeDistHeaderAtomCache(b, writerAtomCache, encodingAtomCache)
 
 	if !reflect.DeepEqual(b.B, expected) {
-		t.Fatal("incorrect value")
+		t.Fatal("incorrect value", b.B)
 	}
 }
 
@@ -242,7 +239,8 @@ func BenchmarkEncodeDistHeaderAtomCache(b *testing.B) {
 	defer lib.ReleaseBuffer(buf)
 
 	writerAtomCache := make(map[etf.Atom]etf.CacheItem)
-	encodingAtomCache := make([]etf.CacheItem, 0, 100)
+	encodingAtomCache := etf.TakeListAtomCache()
+	defer etf.ReleaseListAtomCache(encodingAtomCache)
 
 	writerAtomCache["reg"] = etf.CacheItem{ID: 1000, Encoded: false, Name: "reg"}
 	writerAtomCache["call"] = etf.CacheItem{ID: 499, Encoded: false, Name: "call"}
@@ -252,12 +250,10 @@ func BenchmarkEncodeDistHeaderAtomCache(b *testing.B) {
 	writerAtomCache["potato"] = etf.CacheItem{ID: 2017, Encoded: true, Name: "potato"}
 
 	// Encoded field is ignored here
-	encodingAtomCache = append(encodingAtomCache,
-		etf.CacheItem{ID: 499, Name: "call"},
-		etf.CacheItem{ID: 1000, Name: "reg"},
-		etf.CacheItem{ID: 199, Name: "one_more_atom"},
-		etf.CacheItem{ID: 2017, Name: "potato"},
-	)
+	encodingAtomCache.Append(etf.CacheItem{ID: 499, Name: "call"})
+	encodingAtomCache.Append(etf.CacheItem{ID: 1000, Name: "reg"})
+	encodingAtomCache.Append(etf.CacheItem{ID: 199, Name: "one_more_atom"})
+	encodingAtomCache.Append(etf.CacheItem{ID: 2017, Name: "potato"})
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		link.encodeDistHeaderAtomCache(buf, writerAtomCache, encodingAtomCache)
