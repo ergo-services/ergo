@@ -63,38 +63,139 @@ func Encode(term Term, b *lib.Buffer,
 
 			b.Append([]byte{ettSmallAtom, 5, 'f', 'a', 'l', 's', 'e'})
 
+		// do not use reflect.ValueOf(t) because its too expensive
 		case uint8:
 			b.Append([]byte{ettSmallInteger, t})
 
-		case int8, int16, int32, uint16, uint32:
+		case int8:
+			if t < 0 {
+				term = int32(t)
+				continue
+			}
+
+			b.Append([]byte{ettSmallInteger, uint8(t)})
+			break
+
+		case uint16:
+			if t <= math.MaxUint8 {
+				b.Append([]byte{ettSmallInteger, byte(t)})
+				break
+			}
+			term = int32(t)
+			continue
+
+		case int16:
+			term = int32(t)
+			continue
+
+		case uint32:
+			if t <= math.MaxUint8 {
+				b.Append([]byte{ettSmallInteger, byte(t)})
+				break
+			}
+
+			if t > math.MaxInt32 {
+				term = int64(t)
+				continue
+			}
+
+			term = int32(t)
+			continue
+
+		case int32:
+			if t >= 0 && t <= math.MaxUint8 {
+				b.Append([]byte{ettSmallInteger, byte(t)})
+				break
+			}
+
 			// 1 (ettInteger) + 4 (32bit integer)
 			buf := b.Extend(1 + 4)
 			buf[0] = ettInteger
-			binary.BigEndian.PutUint32(buf[1:5], t.(uint32))
+			binary.BigEndian.PutUint32(buf[1:5], uint32(t))
 
-		case int, int64:
-			if t.(uint64) < math.MaxInt32 {
-				term = t.(int32)
+		case uint:
+			if t <= math.MaxUint8 {
+				b.Append([]byte{ettSmallInteger, byte(t)})
+				break
+			}
+
+			if t > math.MaxInt32 {
+				term = int64(t)
 				continue
 			}
 
-			term = new(big.Int).SetInt64(t.(int64))
+			term = int32(t)
 			continue
 
-		case uint, uint64:
-			if t.(uint64) < math.MaxInt32 {
-				term = t.(int32)
+		case int:
+			if t > math.MaxInt32 || t < math.MinInt32 {
+				term = int64(t)
 				continue
 			}
 
-			term = new(big.Int).SetUint64(t.(uint64))
+			term = int32(t)
 			continue
+
+		case uint64:
+			if t <= math.MaxUint8 {
+				b.Append([]byte{ettSmallInteger, byte(t)})
+				break
+			}
+
+			if t <= math.MaxInt32 {
+				term = int32(t)
+				continue
+			}
+
+			if t <= math.MaxInt64 {
+				term = int64(t)
+				continue
+			}
+
+			term = new(big.Int).SetUint64(t)
+			continue
+
+		case int64:
+			buf := []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+
+			if t >= math.MinInt32 && t <= math.MaxInt32 {
+				term = int32(t)
+				continue
+			}
+
+			negative := byte(0)
+			if t < 0 {
+				negative = 1
+				t = -t
+			}
+
+			buf[0] = ettSmallBig
+			buf[2] = negative
+			binary.LittleEndian.PutUint64(buf[3:], uint64(t))
+
+			switch {
+			case t < 4294967296:
+				buf[1] = 4
+				b.Append(buf[:7])
+
+			case t < 1099511627776:
+				buf[1] = 5
+				b.Append(buf[:8])
+
+			case t < 281474976710656:
+				buf[1] = 6
+				b.Append(buf[:9])
+
+			case t < 72057594037927936:
+				buf[1] = 7
+				b.Append(buf[:10])
+
+			default:
+				buf[1] = 8
+				b.Append(buf)
+			}
 
 		case *big.Int:
-			if t.BitLen() < 33 {
-				term = int32(t.Int64())
-				continue
-			}
 			bytes := t.Bytes()
 			negative := t.Sign() < 0
 			l := len(bytes)
@@ -120,7 +221,7 @@ func Encode(term Term, b *lib.Buffer,
 				break
 			}
 
-			// 1 (ettLargeBig) + 4 (len) + 1(sing) + bytes
+			// 1 (ettLargeBig) + 4 (len) + 1(sign) + bytes
 			buf := b.Extend(1 + 4 + 1 + l)
 			buf[0] = ettLargeBig
 			binary.BigEndian.PutUint32(buf[1:5], uint32(l))

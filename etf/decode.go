@@ -166,7 +166,6 @@ func Decode(packet []byte, cache []Atom) (Term, []byte, error) {
 			negative := packet[1] == 1 // sign
 
 			///// this block improve the performance at least 4 times
-			// see details in benchmarks
 			if n < 8 { // treat as an int64
 				le8 := make([]byte, 8)
 				copy(le8, packet[2:n+2])
