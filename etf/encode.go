@@ -1,9 +1,16 @@
 package etf
 
 import (
+	"encoding/binary"
+	"fmt"
 	"github.com/halturin/ergo/lib"
+	"math"
 	"math/big"
 	"reflect"
+)
+
+var (
+	ErrStringTooLong = fmt.Errorf("Encoding error. String too long")
 )
 
 func Encode(term Term, b *lib.Buffer,
@@ -57,18 +64,104 @@ func Encode(term Term, b *lib.Buffer,
 			b.Append([]byte{ettSmallAtom, 5, 'f', 'a', 'l', 's', 'e'})
 
 		case uint8:
-			b.AppendByte(byte(t))
-		case int16, int32:
+			b.Append([]byte{ettSmallInteger, t})
 
-		case int, int64:
+		case int8, int16, int32, uint16, uint32:
+			// 1 (ettInteger) + 4 (32bit integer)
+			buf := b.Extend(1 + 4)
+			buf[0] = ettInteger
+			binary.BigEndian.PutUint32(buf[1:5], t.(uint32))
+
+		case int, int64, uint, uint64:
+			if t.(uint64) < math.MaxInt32 {
+				term = t.(int32)
+				continue
+			}
 
 		case *big.Int:
+			if t.BitLen() < 33 {
+				term = int32(t.Int64())
+				continue
+			}
+			bytes := t.Bytes()
+			negative := t.Sign() < 0
+			l := len(bytes)
+
+			for i := 0; i < l/2; i++ {
+				bytes[i], bytes[l-1-i] = bytes[l-1-i], bytes[i]
+			}
+
+			if l < 256 {
+				// 1 (ettSmallBig) + 1 (len) + 1 (sign) + bytes
+				buf := b.Extend(1 + 1 + 1 + l)
+				buf[0] = ettSmallBig
+				buf[1] = byte(l)
+
+				if negative {
+					buf[2] = 1
+				} else {
+					buf[2] = 0
+				}
+
+				break
+			}
+
+			// 1 (ettLargeBig) + 4 (len) + 1(sing) + bytes
+			buf := b.Extend(1 + 4 + 1 + l)
+			buf[0] = ettLargeBig
+			binary.BigEndian.PutUint32(buf[1:5], uint32(l))
+			if negative {
+				buf[5] = 1
+			} else {
+				buf[5] = 0
+			}
 
 		case string:
+			lenString := len(t)
+
+			if lenString > 65535 {
+				return ErrStringTooLong
+			}
+
+			// 1 (ettString) + 2 (len) + string
+			buf := b.Extend(1 + 2 + lenString)
+			buf[0] = ettString
+			binary.BigEndian.PutUint16(buf[1:3], uint16(lenString))
+			copy(buf[3:], t)
 
 		case Atom:
+			if cacheEnabled && cacheIndex < 256 {
+				// looking for CacheItem
+				ci, found := writerAtomCache[t]
+				if found {
+					encodingAtomCache.Append(ci)
+					b.Append([]byte{ettCacheRef, byte(cacheIndex)})
+					cacheIndex++
+					break
+				}
+				// add it to the cache and encode as usual Atom
+				linkAtomCache.Append(t)
+			}
+
+			lenAtom := len(t)
+			if lenAtom < 256 {
+				b.Append([]byte{ettSmallAtomUTF8, byte(lenAtom)})
+				b.Append([]byte(t))
+				break
+			}
+
+			// 1 (ettAtomUTF8) + 2 (len) + atom
+			buf := b.Extend(1 + 2 + lenAtom)
+			buf[0] = ettAtomUTF8
+			binary.BigEndian.PutUint16(buf[1:3], uint16(lenAtom))
+			copy(b.B[3:], t)
 
 		case float32, float64:
+			// 1 (ettNewFloat) + 8 (float)
+			buf := b.Extend(1 + 8)
+			buf[0] = ettNewFloat
+			bits := math.Float64bits(t.(float64))
+			binary.BigEndian.PutUint64(buf[1:9], uint64(bits))
 
 		case Tuple:
 

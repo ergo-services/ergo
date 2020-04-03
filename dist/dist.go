@@ -608,6 +608,9 @@ func (l *Link) Writer(ctx context.Context, send <-chan []etf.Term, fragmentation
 		// do reserve for the header 8K, should be enough
 		packetBuffer.Allocate(8192)
 
+		// clear encoding cache
+		encodingAtomCache.Reset()
+
 		// encode Control
 		err = etf.Encode(terms[0], packetBuffer, linkAtomCache, writerAtomCache, encodingAtomCache)
 		if err != nil {
