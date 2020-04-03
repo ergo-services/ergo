@@ -115,6 +115,8 @@ func Encode(term Term, b *lib.Buffer,
 					buf[2] = 0
 				}
 
+				copy(buf[3:], bytes)
+
 				break
 			}
 
@@ -122,11 +124,14 @@ func Encode(term Term, b *lib.Buffer,
 			buf := b.Extend(1 + 4 + 1 + l)
 			buf[0] = ettLargeBig
 			binary.BigEndian.PutUint32(buf[1:5], uint32(l))
+
 			if negative {
 				buf[5] = 1
 			} else {
 				buf[5] = 0
 			}
+
+			copy(buf[6:], bytes)
 
 		case string:
 			lenString := len(t)
