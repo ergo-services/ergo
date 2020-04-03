@@ -72,11 +72,23 @@ func Encode(term Term, b *lib.Buffer,
 			buf[0] = ettInteger
 			binary.BigEndian.PutUint32(buf[1:5], t.(uint32))
 
-		case int, int64, uint, uint64:
+		case int, int64:
 			if t.(uint64) < math.MaxInt32 {
 				term = t.(int32)
 				continue
 			}
+
+			term = new(big.Int).SetInt64(t.(int64))
+			continue
+
+		case uint, uint64:
+			if t.(uint64) < math.MaxInt32 {
+				term = t.(int32)
+				continue
+			}
+
+			term = new(big.Int).SetUint64(t.(uint64))
+			continue
 
 		case *big.Int:
 			if t.BitLen() < 33 {
