@@ -152,8 +152,9 @@ func Encode(term Term, b *lib.Buffer,
 				continue
 			}
 
-			term = new(big.Int).SetUint64(t)
-			continue
+			buf := []byte{ettSmallBig, 8, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+			binary.LittleEndian.PutUint64(buf[3:], uint64(t))
+			b.Append(buf)
 
 		case int64:
 			buf := []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}

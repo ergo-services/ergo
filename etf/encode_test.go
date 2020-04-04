@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/halturin/ergo/lib"
+	"math/big"
 	"reflect"
 	"testing"
 )
@@ -58,6 +59,8 @@ type integerCase struct {
 }
 
 func integerCases() []integerCase {
+	bigInt := &big.Int{}
+	bigInt.SetString("9223372036854775807123456789", 10)
 	return []integerCase{
 		integerCase{"uint8: 255", uint8(255), []byte{ettSmallInteger, 255}},
 		integerCase{"uint16: 255", uint16(255), []byte{ettSmallInteger, 255}},
@@ -77,6 +80,9 @@ func integerCases() []integerCase {
 		integerCase{"uint64: 4294967295", uint64(4294967295), []byte{ettSmallBig, 4, 0, 255, 255, 255, 255}},
 
 		integerCase{"uint64: 4294967296", uint64(4294967296), []byte{ettSmallBig, 5, 0, 0, 0, 0, 0, 1}},
+		integerCase{"uint64: 9223372036854775808", uint64(9223372036854775808), []byte{ettSmallBig, 8, 0, 0, 0, 0, 0, 0, 0, 0, 128}},
+
+		integerCase{"big int: 9223372036854775807123456789", bigInt, []byte{ettSmallBig, 12, 0, 21, 3, 193, 203, 255, 255, 255, 255, 255, 100, 205, 29}},
 
 		integerCase{"int8: -127", int8(-127), []byte{ettInteger, 255, 255, 255, 129}},
 	}
