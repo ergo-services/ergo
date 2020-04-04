@@ -59,9 +59,9 @@ type integerCase struct {
 }
 
 func integerCases() []integerCase {
-	bigInt := &big.Int{}
+	bigInt := big.Int{}
 	bigInt.SetString("9223372036854775807123456789", 10)
-	bigIntNegative := &big.Int{}
+	bigIntNegative := big.Int{}
 	bigIntNegative.SetString("-9223372036854775807123456789", 10)
 
 	return []integerCase{
@@ -110,7 +110,7 @@ func integerCases() []integerCase {
 		integerCase{"int32::127", int32(127), []byte{ettSmallInteger, 127}},
 		integerCase{"int64::127", int64(127), []byte{ettSmallInteger, 127}},
 
-		// a positive int[16,32,64] value within the range of uint8 is treating as an uint8
+		// a positive int[16,32,64] value within the range of uint8 treats as an uint8
 		integerCase{"int16::128", int16(128), []byte{ettSmallInteger, 128}},
 		integerCase{"int32::128", int32(128), []byte{ettSmallInteger, 128}},
 		integerCase{"int64::128", int64(128), []byte{ettSmallInteger, 128}},
@@ -128,7 +128,7 @@ func integerCases() []integerCase {
 
 		integerCase{"int64::2147483648", int64(2147483648), []byte{ettSmallBig, 4, 0, 0, 0, 0, 128}},
 
-		// int64 treats as ettSmallBig wheter its positive or negative
+		// int64 treats as ettSmallBig whether its positive or negative
 		integerCase{"int64::9223372036854775807", int64(9223372036854775807), []byte{ettSmallBig, 8, 0, 255, 255, 255, 255, 255, 255, 255, 127}},
 		integerCase{"int64::-9223372036854775808", int64(-9223372036854775808), []byte{ettSmallBig, 8, 1, 0, 0, 0, 0, 0, 0, 0, 128}},
 
@@ -154,6 +154,158 @@ func TestEncodeInteger(t *testing.T) {
 				t.Fatal("incorrect value")
 			}
 		})
+	}
+}
+
+func TestEncodeFloat(t *testing.T) {
+	b := lib.TakeBuffer()
+	defer lib.ReleaseBuffer(b)
+
+	expected := []byte{ettNewFloat, 64, 9, 30, 184, 81, 235, 133, 31}
+
+	err := Encode(float64(3.14), b, nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !reflect.DeepEqual(b.B, expected) {
+		fmt.Println("exp", expected)
+		fmt.Println("got", b.B)
+		t.Fatal("incorrect value")
+	}
+
+	b.Reset()
+	err = Encode(float32(3.14), b, nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// float32 to float64 casting makes some changes, thats why 'expected'
+	// has different set of bytes
+	expected = []byte{ettNewFloat, 64, 9, 30, 184, 96, 0, 0, 0}
+	if !reflect.DeepEqual(b.B, expected) {
+		fmt.Println("exp", expected)
+		fmt.Println("got", b.B)
+		t.Fatal("incorrect value")
+	}
+
+}
+
+func TestEncodeString(t *testing.T) {
+	b := lib.TakeBuffer()
+	defer lib.ReleaseBuffer(b)
+
+	expected := []byte{ettString, 0, 14, 69, 114, 103, 111, 32, 70, 114, 97, 109, 101, 119,
+		111, 114, 107}
+
+	err := Encode("Ergo Framework", b, nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !reflect.DeepEqual(b.B, expected) {
+		fmt.Println("exp", expected)
+		fmt.Println("got", b.B)
+		t.Fatal("incorrect value")
+	}
+}
+
+func TestEncodeAtom(t *testing.T) {
+	b := lib.TakeBuffer()
+	defer lib.ReleaseBuffer(b)
+
+	expected := []byte{ettSmallAtomUTF8, 14, 69, 114, 103, 111, 32, 70, 114, 97, 109, 101, 119,
+		111, 114, 107}
+
+	err := Encode(Atom("Ergo Framework"), b, nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !reflect.DeepEqual(b.B, expected) {
+		fmt.Println("exp", expected)
+		fmt.Println("got", b.B)
+		t.Fatal("incorrect value")
+	}
+
+	b.Reset()
+
+	longAtom := Atom("Ergo Framework Ergo Framework Ergo Framework Ergo Framework Ergo Framework Ergo Framework Ergo Framework Ergo Framework Ergo Framework Ergo Framework Ergo Framework Ergo Framework Ergo Framework Ergo Framework Ergo Framework Ergo Framework Ergo Framework Ergo Framework Ergo Framework Ergo Framework")
+	expected = []byte{ettAtomUTF8, 1, 43, 69, 114, 103, 111, 32, 70, 114, 97, 109, 101, 119,
+		111, 114, 107, 32, 69, 114, 103, 111, 32, 70, 114, 97, 109, 101, 119,
+		111, 114, 107, 32, 69, 114, 103, 111, 32, 70, 114, 97, 109, 101, 119,
+		111, 114, 107, 32, 69, 114, 103, 111, 32, 70, 114, 97, 109, 101, 119,
+		111, 114, 107, 32, 69, 114, 103, 111, 32, 70, 114, 97, 109, 101, 119,
+		111, 114, 107, 32, 69, 114, 103, 111, 32, 70, 114, 97, 109, 101, 119,
+		111, 114, 107, 32, 69, 114, 103, 111, 32, 70, 114, 97, 109, 101, 119,
+		111, 114, 107, 32, 69, 114, 103, 111, 32, 70, 114, 97, 109, 101, 119,
+		111, 114, 107, 32, 69, 114, 103, 111, 32, 70, 114, 97, 109, 101, 119,
+		111, 114, 107, 32, 69, 114, 103, 111, 32, 70, 114, 97, 109, 101, 119,
+		111, 114, 107, 32, 69, 114, 103, 111, 32, 70, 114, 97, 109, 101, 119,
+		111, 114, 107, 32, 69, 114, 103, 111, 32, 70, 114, 97, 109, 101, 119,
+		111, 114, 107, 32, 69, 114, 103, 111, 32, 70, 114, 97, 109, 101, 119,
+		111, 114, 107, 32, 69, 114, 103, 111, 32, 70, 114, 97, 109, 101, 119,
+		111, 114, 107, 32, 69, 114, 103, 111, 32, 70, 114, 97, 109, 101, 119,
+		111, 114, 107, 32, 69, 114, 103, 111, 32, 70, 114, 97, 109, 101, 119,
+		111, 114, 107, 32, 69, 114, 103, 111, 32, 70, 114, 97, 109, 101, 119,
+		111, 114, 107, 32, 69, 114, 103, 111, 32, 70, 114, 97, 109, 101, 119,
+		111, 114, 107, 32, 69, 114, 103, 111, 32, 70, 114, 97, 109, 101, 119,
+		111, 114, 107, 32, 69, 114, 103, 111, 32, 70, 114, 97, 109, 101, 119,
+		111, 114, 107}
+	err = Encode(longAtom, b, nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !reflect.DeepEqual(b.B, expected) {
+		fmt.Println("exp", expected)
+		fmt.Println("got", b.B)
+		t.Fatal("incorrect value")
+	}
+}
+
+func TestEncodeAtomWithCache(t *testing.T) {
+	b := lib.TakeBuffer()
+	defer lib.ReleaseBuffer(b)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	writerAtomCache := make(map[Atom]CacheItem)
+	encodingAtomCache := TakeListAtomCache()
+	defer ReleaseListAtomCache(encodingAtomCache)
+	linkAtomCache := NewAtomCache(ctx)
+
+	ci := CacheItem{ID: 2020, Encoded: true, Name: "cached atom"}
+	writerAtomCache["cached atom"] = ci
+
+	err := Encode(Atom("cached atom"), b, linkAtomCache, writerAtomCache, encodingAtomCache)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if encodingAtomCache.Len() != 1 || encodingAtomCache.L[0] != ci {
+		t.Fatal("incorrect cache value")
+	}
+
+	if !reflect.DeepEqual(b.B, []byte{ettCacheRef, 0}) {
+		t.Fatal("incorrect value")
+	}
+
+	b.Reset()
+
+	err = Encode(Atom("not cached atom"), b, linkAtomCache, writerAtomCache, encodingAtomCache)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if encodingAtomCache.Len() != 1 || encodingAtomCache.L[0] != ci {
+		t.Fatal("incorrect cache value")
+	}
+
+	expected := []byte{ettSmallAtomUTF8, 15, 110, 111, 116, 32, 99, 97, 99, 104, 101, 100, 32, 97, 116, 111, 109}
+	if !reflect.DeepEqual(b.B, expected) {
+		t.Fatal("incorrect value")
 	}
 }
 
@@ -190,6 +342,7 @@ func BenchmarkEncodeBoolWithAtomCache(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		err := Encode(false, buf, linkAtomCache, writerAtomCache, encodingAtomCache)
 		encodingAtomCache.Reset()
+		buf.Reset()
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -210,4 +363,83 @@ func BenchmarkEncodeInteger(b *testing.B) {
 			}
 		})
 	}
+}
+
+func BenchmarkEncodeFloat32(b *testing.B) {
+	buf := lib.TakeBuffer()
+	defer lib.ReleaseBuffer(buf)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		err := Encode(float32(3.14), buf, nil, nil, nil)
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkEncodeFloat64(b *testing.B) {
+	buf := lib.TakeBuffer()
+	defer lib.ReleaseBuffer(buf)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		err := Encode(float64(3.14), buf, nil, nil, nil)
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkEncodeString(b *testing.B) {
+	buf := lib.TakeBuffer()
+	defer lib.ReleaseBuffer(buf)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		err := Encode("Ergo Framework", buf, nil, nil, nil)
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkEncodeAtom(b *testing.B) {
+	buf := lib.TakeBuffer()
+	defer lib.ReleaseBuffer(buf)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		err := Encode(Atom("Ergo Framework"), buf, nil, nil, nil)
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkEncodeAtomWithCache(b *testing.B) {
+	buf := lib.TakeBuffer()
+	defer lib.ReleaseBuffer(buf)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	writerAtomCache := make(map[Atom]CacheItem)
+	encodingAtomCache := TakeListAtomCache()
+	defer ReleaseListAtomCache(encodingAtomCache)
+	linkAtomCache := NewAtomCache(ctx)
+
+	ci := CacheItem{ID: 2020, Encoded: true, Name: "cached atom"}
+	writerAtomCache["cached atom"] = ci
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		err := Encode(Atom("cached atom"), buf, linkAtomCache, writerAtomCache, encodingAtomCache)
+		buf.Reset()
+		encodingAtomCache.Reset()
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+
 }

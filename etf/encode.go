@@ -217,7 +217,7 @@ func Encode(term Term, b *lib.Buffer,
 				b.Append(buf)
 			}
 
-		case *big.Int:
+		case big.Int:
 			bytes := t.Bytes()
 			negative := t.Sign() < 0
 			l := len(bytes)
@@ -285,8 +285,10 @@ func Encode(term Term, b *lib.Buffer,
 
 			lenAtom := len(t)
 			if lenAtom < 256 {
-				b.Append([]byte{ettSmallAtomUTF8, byte(lenAtom)})
-				b.Append([]byte(t))
+				buf := b.Extend(1 + 1 + lenAtom)
+				buf[0] = ettSmallAtomUTF8
+				buf[1] = byte(lenAtom)
+				copy(buf[2:], t)
 				break
 			}
 
@@ -296,26 +298,40 @@ func Encode(term Term, b *lib.Buffer,
 			binary.BigEndian.PutUint16(buf[1:3], uint16(lenAtom))
 			copy(b.B[3:], t)
 
-		case float32, float64:
+		case float32:
+			term = float64(t)
+			continue
+
+		case float64:
 			// 1 (ettNewFloat) + 8 (float)
 			buf := b.Extend(1 + 8)
 			buf[0] = ettNewFloat
-			bits := math.Float64bits(t.(float64))
+			bits := math.Float64bits(t)
 			binary.BigEndian.PutUint64(buf[1:9], uint64(bits))
 
 		case Tuple:
 
 		case Pid:
+
 		case Ref:
+
 		case Map:
+
+		case List:
+
 		default:
 			v := reflect.ValueOf(t)
 			switch v.Kind() {
 			case reflect.Struct:
+				term = transformToMap(t)
+				continue
 			case reflect.Array, reflect.Slice:
 			case reflect.Map:
+				term = v.Interface()
+				continue
 			case reflect.Ptr:
-				term = v.Elem()
+				// dereference value
+				term = v.Elem().Interface()
 				continue
 			default:
 				// unknown
@@ -328,4 +344,11 @@ func Encode(term Term, b *lib.Buffer,
 		}
 	}
 
+}
+
+func transformToMap(interface{}) map[Atom]interface{} {
+	//	a := &A{Foo: "afoo"}
+	//  val := reflect.Indirect(reflect.ValueOf(a))
+	//  fmt.Println(val.Type().Field(0).Name)
+	return nil
 }
