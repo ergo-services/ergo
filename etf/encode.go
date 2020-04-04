@@ -172,10 +172,18 @@ func Encode(term Term, b *lib.Buffer,
 				break
 			}
 
-			buf := []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
 			if t >= math.MinInt32 && t <= math.MaxInt32 {
 				term = int32(t)
 				continue
+			}
+
+			if t == math.MinInt64 {
+				// corner case:
+				// if t = -9223372036854775808 (which is math.MinInt64)
+				// we can't just revert the sign because it overflows math.MaxInt64 value
+				buf := []byte{ettSmallBig, 8, 1, 0, 0, 0, 0, 0, 0, 0, 128}
+				b.Append(buf)
+				break
 			}
 
 			negative := byte(0)
@@ -184,8 +192,7 @@ func Encode(term Term, b *lib.Buffer,
 				t = -t
 			}
 
-			buf[0] = ettSmallBig
-			buf[2] = negative
+			buf := []byte{ettSmallBig, 0, negative, 0, 0, 0, 0, 0, 0, 0, 0}
 			binary.LittleEndian.PutUint64(buf[3:], uint64(t))
 
 			switch {

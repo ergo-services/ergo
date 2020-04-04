@@ -61,7 +61,13 @@ type integerCase struct {
 func integerCases() []integerCase {
 	bigInt := &big.Int{}
 	bigInt.SetString("9223372036854775807123456789", 10)
+	bigIntNegative := &big.Int{}
+	bigIntNegative.SetString("-9223372036854775807123456789", 10)
+
 	return []integerCase{
+		//
+		// unsigned integers
+		//
 		integerCase{"uint8: 255", uint8(255), []byte{ettSmallInteger, 255}},
 		integerCase{"uint16: 255", uint16(255), []byte{ettSmallInteger, 255}},
 		integerCase{"uint32: 255", uint32(255), []byte{ettSmallInteger, 255}},
@@ -76,13 +82,20 @@ func integerCases() []integerCase {
 
 		integerCase{"uint64: 65536", uint64(65536), []byte{ettInteger, 0, 1, 0, 0}},
 
+		// treat as an int32
+		integerCase{"uint32: 2147483647", uint32(2147483647), []byte{ettInteger, 127, 255, 255, 255}},
+		integerCase{"uint64: 2147483647", uint64(2147483647), []byte{ettInteger, 127, 255, 255, 255}},
+		integerCase{"uint64: 2147483648", uint64(2147483648), []byte{ettSmallBig, 4, 0, 0, 0, 0, 128}},
+
 		integerCase{"uint32: 4294967295", uint32(4294967295), []byte{ettSmallBig, 4, 0, 255, 255, 255, 255}},
 		integerCase{"uint64: 4294967295", uint64(4294967295), []byte{ettSmallBig, 4, 0, 255, 255, 255, 255}},
-
 		integerCase{"uint64: 4294967296", uint64(4294967296), []byte{ettSmallBig, 5, 0, 0, 0, 0, 0, 1}},
-		integerCase{"uint64: 9223372036854775808", uint64(9223372036854775808), []byte{ettSmallBig, 8, 0, 0, 0, 0, 0, 0, 0, 0, 128}},
 
-		integerCase{"big int: 9223372036854775807123456789", bigInt, []byte{ettSmallBig, 12, 0, 21, 3, 193, 203, 255, 255, 255, 255, 255, 100, 205, 29}},
+		integerCase{"uint64: 18446744073709551615", uint64(18446744073709551615), []byte{ettSmallBig, 8, 0, 255, 255, 255, 255, 255, 255, 255, 255}},
+
+		//
+		// signed integers
+		//
 
 		// negative is always ettInteger for the numbers within the range of int32
 		integerCase{"int8: -127", int8(-127), []byte{ettInteger, 255, 255, 255, 129}},
@@ -102,6 +115,24 @@ func integerCases() []integerCase {
 		integerCase{"int32: 128", int32(128), []byte{ettSmallInteger, 128}},
 		integerCase{"int64: 128", int64(128), []byte{ettSmallInteger, 128}},
 		integerCase{"int: 128", int(128), []byte{ettSmallInteger, 128}},
+
+		// whether its positive or negative value within the range of int16 its treating as an int32
+		integerCase{"int16: -32767", int16(-32767), []byte{ettInteger, 255, 255, 128, 1}},
+		integerCase{"int16: 32767", int16(32767), []byte{ettInteger, 0, 0, 127, 255}},
+
+		// treat as an int32
+		integerCase{"int32: 2147483647", int32(2147483647), []byte{ettInteger, 127, 255, 255, 255}},
+		integerCase{"int32: -2147483648", int32(-2147483648), []byte{ettInteger, 128, 0, 0, 0}},
+		integerCase{"int64: 2147483647", int64(2147483647), []byte{ettInteger, 127, 255, 255, 255}},
+		integerCase{"int64: -2147483648", int64(-2147483648), []byte{ettInteger, 128, 0, 0, 0}},
+
+		integerCase{"int64: 2147483648", int64(2147483648), []byte{ettSmallBig, 4, 0, 0, 0, 0, 128}},
+
+		// int64 treats as ettSmallBig wheter its positive or negative
+		integerCase{"int64: 9223372036854775807", int64(9223372036854775807), []byte{ettSmallBig, 8, 0, 255, 255, 255, 255, 255, 255, 255, 127}},
+		integerCase{"int64: -9223372036854775808", int64(-9223372036854775808), []byte{ettSmallBig, 8, 1, 0, 0, 0, 0, 0, 0, 0, 128}},
+
+		integerCase{"big int: -9223372036854775807123456789", bigIntNegative, []byte{ettSmallBig, 12, 1, 21, 3, 193, 203, 255, 255, 255, 255, 255, 100, 205, 29}},
 	}
 }
 
