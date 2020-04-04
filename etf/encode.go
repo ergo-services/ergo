@@ -85,6 +85,11 @@ func Encode(term Term, b *lib.Buffer,
 			continue
 
 		case int16:
+			if t >= 0 && t <= math.MaxUint8 {
+				b.Append([]byte{ettSmallInteger, byte(t)})
+				break
+			}
+
 			term = int32(t)
 			continue
 
@@ -128,6 +133,11 @@ func Encode(term Term, b *lib.Buffer,
 			continue
 
 		case int:
+			if t >= 0 && t <= math.MaxUint8 {
+				b.Append([]byte{ettSmallInteger, byte(t)})
+				break
+			}
+
 			if t > math.MaxInt32 || t < math.MinInt32 {
 				term = int64(t)
 				continue
@@ -157,8 +167,12 @@ func Encode(term Term, b *lib.Buffer,
 			b.Append(buf)
 
 		case int64:
-			buf := []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+			if t >= 0 && t <= math.MaxUint8 {
+				b.Append([]byte{ettSmallInteger, byte(t)})
+				break
+			}
 
+			buf := []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
 			if t >= math.MinInt32 && t <= math.MaxInt32 {
 				term = int32(t)
 				continue
@@ -286,6 +300,7 @@ func Encode(term Term, b *lib.Buffer,
 
 		case Pid:
 		case Ref:
+		case Map:
 		default:
 			v := reflect.ValueOf(t)
 			switch v.Kind() {

@@ -84,7 +84,24 @@ func integerCases() []integerCase {
 
 		integerCase{"big int: 9223372036854775807123456789", bigInt, []byte{ettSmallBig, 12, 0, 21, 3, 193, 203, 255, 255, 255, 255, 255, 100, 205, 29}},
 
+		// negative is always ettInteger for the numbers within the range of int32
 		integerCase{"int8: -127", int8(-127), []byte{ettInteger, 255, 255, 255, 129}},
+		integerCase{"int16: -127", int16(-127), []byte{ettInteger, 255, 255, 255, 129}},
+		integerCase{"int32: -127", int32(-127), []byte{ettInteger, 255, 255, 255, 129}},
+		integerCase{"int64: -127", int64(-127), []byte{ettInteger, 255, 255, 255, 129}},
+		integerCase{"int: -127", int(-127), []byte{ettInteger, 255, 255, 255, 129}},
+
+		// positive within range of int8 treats as ettSmallInteger
+		integerCase{"int8: 127", int8(127), []byte{ettSmallInteger, 127}},
+		integerCase{"int16: 127", int16(127), []byte{ettSmallInteger, 127}},
+		integerCase{"int32: 127", int32(127), []byte{ettSmallInteger, 127}},
+		integerCase{"int64: 127", int64(127), []byte{ettSmallInteger, 127}},
+
+		// a positive int[16,32,64] value within the range of uint8 is treating as an uint8
+		integerCase{"int16: 128", int16(128), []byte{ettSmallInteger, 128}},
+		integerCase{"int32: 128", int32(128), []byte{ettSmallInteger, 128}},
+		integerCase{"int64: 128", int64(128), []byte{ettSmallInteger, 128}},
+		integerCase{"int: 128", int(128), []byte{ettSmallInteger, 128}},
 	}
 }
 
