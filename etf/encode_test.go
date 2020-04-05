@@ -309,6 +309,112 @@ func TestEncodeAtomWithCache(t *testing.T) {
 	}
 }
 
+func TestEncodeBinary(t *testing.T) {
+	b := lib.TakeBuffer()
+	defer lib.ReleaseBuffer(b)
+
+	err := Encode([]byte{1, 2, 3, 4, 5}, b, nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	expected := []byte{ettBinary, 0, 0, 0, 5, 1, 2, 3, 4, 5}
+	if !reflect.DeepEqual(b.B, expected) {
+		t.Fatal("incorrect value")
+	}
+}
+
+func TestEncodeList(t *testing.T) {
+	b := lib.TakeBuffer()
+	defer lib.ReleaseBuffer(b)
+
+	expected := []byte{ettList, 0, 0, 0, 3, ettSmallAtomUTF8, 1, 97, ettSmallInteger, 2, ettSmallInteger, 3, ettNil}
+	term := List{Atom("a"), 2, 3}
+	err := Encode(term, b, nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !reflect.DeepEqual(b.B, expected) {
+		fmt.Println("exp", expected)
+		fmt.Println("got", b.B)
+		t.Fatal("incorrect value")
+	}
+}
+
+func TestEncodeSlice(t *testing.T) {
+	b := lib.TakeBuffer()
+	defer lib.ReleaseBuffer(b)
+	expected := []byte{108, 0, 0, 0, 4, 98, 0, 0, 48, 57, 98, 0, 1, 9, 50, 98, 0, 0, 48, 57,
+		98, 0, 1, 9, 50, 106}
+	//expected := []byte{ettList, 0, 0, 0, 3, ettSmallAtomUTF8, 1, 97, ettSmallInteger, 2, ettSmallInteger, 3, ettNil}
+	term := []int{12345, 67890, 12345, 67890}
+	err := Encode(term, b, nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !reflect.DeepEqual(b.B, expected) {
+		fmt.Println("exp", expected)
+		fmt.Println("got", b.B)
+		t.Fatal("incorrect value")
+	}
+}
+func TestEncodeListNested(t *testing.T) {
+	b := lib.TakeBuffer()
+	defer lib.ReleaseBuffer(b)
+	expected := []byte{108, 0, 0, 0, 2, 119, 1, 97, 108, 0, 0, 0, 4, 119, 1, 98, 97, 2, 108,
+		0, 0, 0, 2, 119, 1, 99, 97, 3, 106, 97, 4, 106, 106}
+
+	term := List{Atom("a"), List{Atom("b"), 2, List{Atom("c"), 3}, 4}}
+	err := Encode(term, b, nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !reflect.DeepEqual(b.B, expected) {
+		fmt.Println("exp", expected)
+		fmt.Println("got", b.B)
+		t.Fatal("incorrect value")
+	}
+}
+
+func TestEncodeTupleNested(t *testing.T) {
+	b := lib.TakeBuffer()
+	defer lib.ReleaseBuffer(b)
+	expected := []byte{104, 2, 119, 1, 97, 104, 4, 119, 1, 98, 97, 2, 104, 2, 119, 1, 99,
+		97, 3, 97, 4}
+
+	term := Tuple{Atom("a"), Tuple{Atom("b"), 2, Tuple{Atom("c"), 3}, 4}}
+	err := Encode(term, b, nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !reflect.DeepEqual(b.B, expected) {
+		fmt.Println("exp", expected)
+		fmt.Println("got", b.B)
+		t.Fatal("incorrect value")
+	}
+}
+
+func TestEncodeTuple(t *testing.T) {
+	b := lib.TakeBuffer()
+	defer lib.ReleaseBuffer(b)
+
+	expected := []byte{ettSmallTuple, 3, ettSmallAtomUTF8, 1, 97, ettSmallInteger, 2, ettSmallInteger, 3}
+	term := Tuple{Atom("a"), 2, 3}
+	err := Encode(term, b, nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !reflect.DeepEqual(b.B, expected) {
+		fmt.Println("exp", expected)
+		fmt.Println("got", b.B)
+		t.Fatal("incorrect value")
+	}
+}
 func BenchmarkEncodeBool(b *testing.B) {
 
 	buf := lib.TakeBuffer()
@@ -437,6 +543,122 @@ func BenchmarkEncodeAtomWithCache(b *testing.B) {
 		err := Encode(Atom("cached atom"), buf, linkAtomCache, writerAtomCache, encodingAtomCache)
 		buf.Reset()
 		encodingAtomCache.Reset()
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+
+}
+
+func BenchmarkEncodeBinary(b *testing.B) {
+	buf := lib.TakeBuffer()
+	defer lib.ReleaseBuffer(buf)
+	bytes := []byte{1, 2, 3, 4, 5}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		err := Encode(bytes, buf, nil, nil, nil)
+		buf.Reset()
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkEncodeList(b *testing.B) {
+	buf := lib.TakeBuffer()
+	defer lib.ReleaseBuffer(buf)
+
+	term := List{Atom("a"), 2, 3}
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		err := Encode(term, buf, nil, nil, nil)
+		buf.Reset()
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+
+}
+
+func BenchmarkEncodeListNested(b *testing.B) {
+	buf := lib.TakeBuffer()
+	defer lib.ReleaseBuffer(buf)
+
+	term := List{Atom("a"), List{Atom("b"), 2, List{Atom("c"), 3}, 4}}
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		err := Encode(term, buf, nil, nil, nil)
+		buf.Reset()
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+
+}
+
+func BenchmarkEncodeTuple(b *testing.B) {
+	buf := lib.TakeBuffer()
+	defer lib.ReleaseBuffer(buf)
+
+	term := Tuple{Atom("a"), 2, 3}
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		err := Encode(term, buf, nil, nil, nil)
+		buf.Reset()
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+
+}
+
+func BenchmarkEncodeTupleNested(b *testing.B) {
+	buf := lib.TakeBuffer()
+	defer lib.ReleaseBuffer(buf)
+
+	term := Tuple{Atom("a"), Tuple{Atom("b"), 2, Tuple{Atom("c"), 3}, 4}}
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		err := Encode(term, buf, nil, nil, nil)
+		buf.Reset()
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+
+}
+
+func BenchmarkEncodeSlice(b *testing.B) {
+	buf := lib.TakeBuffer()
+	defer lib.ReleaseBuffer(buf)
+
+	term := []int{12345, 67890, 12345, 67890}
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		err := Encode(term, buf, nil, nil, nil)
+		buf.Reset()
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+
+}
+
+func BenchmarkEncodeArray(b *testing.B) {
+	buf := lib.TakeBuffer()
+	defer lib.ReleaseBuffer(buf)
+
+	term := [4]int{12345, 67890, 12345, 67890}
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		err := Encode(term, buf, nil, nil, nil)
+		buf.Reset()
 		if err != nil {
 			b.Fatal(err)
 		}
