@@ -604,10 +604,6 @@ func TestEncodeTupleRefPid(t *testing.T) {
 			Serial:   0,
 			Creation: 2}}
 
-	if b.Len() > 0 {
-		fmt.Println("aaaaaaaa", b.Len())
-	}
-
 	err := Encode(term, b, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
