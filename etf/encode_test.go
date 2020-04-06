@@ -420,9 +420,13 @@ func TestEncodeMap(t *testing.T) {
 	b := lib.TakeBuffer()
 	defer lib.ReleaseBuffer(b)
 
+	// map has no guarantee of key order, so the result could be different
 	expected := []byte{116, 0, 0, 0, 2, 119, 4, 107, 101, 121, 49, 98, 0, 0, 48, 57, 119, 4,
 		107, 101, 121, 50, 107, 0, 11, 104, 101, 108, 108, 111, 32, 119, 111,
 		114, 108, 100}
+	expected1 := []byte{116, 0, 0, 0, 2, 119, 4, 107, 101, 121, 50, 107, 0, 11, 104, 101,
+		108, 108, 111, 32, 119, 111, 114, 108, 100, 119, 4, 107, 101, 121, 49, 98, 0, 0,
+		48, 57}
 	term := Map{
 		Atom("key1"): 12345,
 		Atom("key2"): "hello world",
@@ -433,7 +437,7 @@ func TestEncodeMap(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if !reflect.DeepEqual(b.B, expected) {
+	if !reflect.DeepEqual(b.B, expected) && !reflect.DeepEqual(b.B, expected1) {
 		fmt.Println("exp", expected)
 		fmt.Println("got", b.B)
 		t.Fatal("incorrect value")
@@ -444,9 +448,13 @@ func TestEncodeGoMap(t *testing.T) {
 	b := lib.TakeBuffer()
 	defer lib.ReleaseBuffer(b)
 
+	// map has no guarantee of key order, so the result could be different
 	expected := []byte{116, 0, 0, 0, 2, 119, 4, 107, 101, 121, 49, 98, 0, 0, 48, 57, 119, 4,
 		107, 101, 121, 50, 107, 0, 11, 104, 101, 108, 108, 111, 32, 119, 111,
 		114, 108, 100}
+	expected1 := []byte{116, 0, 0, 0, 2, 119, 4, 107, 101, 121, 50, 107, 0, 11, 104, 101,
+		108, 108, 111, 32, 119, 111, 114, 108, 100, 119, 4, 107, 101, 121, 49, 98, 0, 0,
+		48, 57}
 	term := map[Atom]interface{}{
 		Atom("key1"): 12345,
 		Atom("key2"): "hello world",
@@ -457,7 +465,7 @@ func TestEncodeGoMap(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if !reflect.DeepEqual(b.B, expected) {
+	if !reflect.DeepEqual(b.B, expected) && !reflect.DeepEqual(b.B, expected1) {
 		fmt.Println("exp", expected)
 		fmt.Println("got", b.B)
 		t.Fatal("incorrect value")
@@ -491,6 +499,123 @@ func TestEncodeGoStruct(t *testing.T) {
 		t.Fatal("incorrect value")
 	}
 }
+
+func TestEncodePid(t *testing.T) {
+	b := lib.TakeBuffer()
+	lib.ReleaseBuffer(b)
+
+	expected := []byte{103, 119, 18, 101, 114, 108, 45, 100, 101, 109, 111, 64, 49, 50,
+		55, 46, 48, 46, 48, 46, 49, 0, 0, 1, 56, 0, 0, 0, 0, 2}
+	term := Pid{Node: "erl-demo@127.0.0.1", ID: 312, Serial: 0, Creation: 2}
+
+	err := Encode(term, b, nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !reflect.DeepEqual(b.B, expected) {
+		fmt.Println("exp", expected)
+		fmt.Println("got", b.B)
+		t.Fatal("incorrect value")
+	}
+
+}
+
+func TestEncodePidWithAtomCache(t *testing.T) {
+	b := lib.TakeBuffer()
+	lib.ReleaseBuffer(b)
+
+	expected := []byte{103, 82, 0, 0, 0, 1, 56, 0, 0, 0, 0, 2}
+	term := Pid{Node: "erl-demo@127.0.0.1", ID: 312, Serial: 0, Creation: 2}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	writerAtomCache := make(map[Atom]CacheItem)
+	encodingAtomCache := TakeListAtomCache()
+	defer ReleaseListAtomCache(encodingAtomCache)
+	linkAtomCache := NewAtomCache(ctx)
+
+	ci := CacheItem{ID: 2020, Encoded: true, Name: "erl-demo@127.0.0.1"}
+	writerAtomCache["erl-demo@127.0.0.1"] = ci
+
+	err := Encode(term, b, linkAtomCache, writerAtomCache, encodingAtomCache)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if encodingAtomCache.Len() != 1 || encodingAtomCache.L[0] != ci {
+		t.Fatal("incorrect cache value")
+	}
+
+	if !reflect.DeepEqual(b.B, expected) {
+		fmt.Println("exp", expected)
+		fmt.Println("got", b.B)
+		t.Fatal("incorrect value")
+	}
+
+}
+
+func TestEncodeRef(t *testing.T) {
+	b := lib.TakeBuffer()
+	lib.ReleaseBuffer(b)
+
+	expected := []byte{114, 0, 3, 119, 18, 101, 114, 108, 45, 100, 101, 109, 111, 64,
+		49, 50, 55, 46, 48, 46, 48, 46, 49, 2, 0, 1, 30, 228, 183, 192, 0, 1, 141,
+		122, 203, 35}
+
+	term := Ref{
+		Node:     Atom("erl-demo@127.0.0.1"),
+		Creation: 2,
+		ID:       []uint32{73444, 3082813441, 2373634851},
+	}
+
+	err := Encode(term, b, nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !reflect.DeepEqual(b.B, expected) {
+		fmt.Println("exp", expected)
+		fmt.Println("got", b.B)
+		t.Fatal("incorrect value")
+	}
+
+}
+
+func TestEncodeTupleRefPid(t *testing.T) {
+	b := lib.TakeBuffer()
+	defer lib.ReleaseBuffer(b)
+
+	expected := []byte{ettSmallTuple, 2, ettNewRef, 0, 3, ettSmallAtomUTF8, 18, 101, 114, 108, 45, 100, 101, 109,
+		111, 64, 49, 50, 55, 46, 48, 46, 48, 46, 49, 2, 0, 1, 31, 28, 183, 192, 0,
+		1, 141, 122, 203, 35, 103, ettSmallAtomUTF8, 18, 101, 114, 108, 45, 100, 101,
+		109, 111, 64, 49, 50, 55, 46, 48, 46, 48, 46, 49, 0, 0, 1, 56, 0, 0, 0, 0,
+		2}
+
+	term := Tuple{
+		Ref{
+			Node:     Atom("erl-demo@127.0.0.1"),
+			Creation: 2,
+			ID:       []uint32{0x11f1c, 0xb7c00001, 0x8d7acb23}},
+		Pid{
+			Node:     Atom("erl-demo@127.0.0.1"),
+			ID:       312,
+			Serial:   0,
+			Creation: 2}}
+
+	err := Encode(term, b, nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !reflect.DeepEqual(b.B, expected) {
+		fmt.Println("exp", expected)
+		fmt.Println("got", b.B)
+		t.Fatal("incorrect value")
+	}
+}
+
 func BenchmarkEncodeBool(b *testing.B) {
 
 	buf := lib.TakeBuffer()
@@ -790,6 +915,125 @@ func BenchmarkEncodeGoStruct(b *testing.B) {
 		StructToMapKey2: "hello world",
 	}
 	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		err := Encode(term, buf, nil, nil, nil)
+		buf.Reset()
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkEncodePid(b *testing.B) {
+	buf := lib.TakeBuffer()
+	lib.ReleaseBuffer(buf)
+
+	term := Pid{Node: "erl-demo@127.0.0.1", ID: 312, Serial: 0, Creation: 2}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		err := Encode(term, buf, nil, nil, nil)
+		buf.Reset()
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkEncodePidWithAtomCache(b *testing.B) {
+	buf := lib.TakeBuffer()
+	lib.ReleaseBuffer(buf)
+
+	term := Pid{Node: "erl-demo@127.0.0.1", ID: 312, Serial: 0, Creation: 2}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	writerAtomCache := make(map[Atom]CacheItem)
+	encodingAtomCache := TakeListAtomCache()
+	defer ReleaseListAtomCache(encodingAtomCache)
+	linkAtomCache := NewAtomCache(ctx)
+
+	ci := CacheItem{ID: 2020, Encoded: true, Name: "erl-demo@127.0.0.1"}
+	writerAtomCache["erl-demo@127.0.0.1"] = ci
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		err := Encode(term, buf, linkAtomCache, writerAtomCache, encodingAtomCache)
+		buf.Reset()
+		encodingAtomCache.Reset()
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkEncodeRef(b *testing.B) {
+	buf := lib.TakeBuffer()
+	defer lib.ReleaseBuffer(buf)
+
+	term := Ref{
+		Node:     Atom("erl-demo@127.0.0.1"),
+		Creation: 2,
+		ID:       []uint32{73444, 3082813441, 2373634851},
+	}
+
+	for i := 0; i < b.N; i++ {
+		err := Encode(term, buf, nil, nil, nil)
+		buf.Reset()
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkEncodeRefWithAtomCache(b *testing.B) {
+	buf := lib.TakeBuffer()
+	lib.ReleaseBuffer(buf)
+
+	term := Ref{
+		Node:     Atom("erl-demo@127.0.0.1"),
+		Creation: 2,
+		ID:       []uint32{73444, 3082813441, 2373634851},
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	writerAtomCache := make(map[Atom]CacheItem)
+	encodingAtomCache := TakeListAtomCache()
+	defer ReleaseListAtomCache(encodingAtomCache)
+	linkAtomCache := NewAtomCache(ctx)
+
+	ci := CacheItem{ID: 2020, Encoded: true, Name: "erl-demo@127.0.0.1"}
+	writerAtomCache["erl-demo@127.0.0.1"] = ci
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		err := Encode(term, buf, linkAtomCache, writerAtomCache, encodingAtomCache)
+		buf.Reset()
+		encodingAtomCache.Reset()
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkEncodeTupleRefPid(b *testing.B) {
+	buf := lib.TakeBuffer()
+	defer lib.ReleaseBuffer(buf)
+
+	term := Tuple{
+		Ref{
+			Node:     Atom("erl-demo@127.0.0.1"),
+			Creation: 2,
+			ID:       []uint32{0x11f1c, 0xb7c00001, 0x8d7acb23}},
+		Pid{
+			Node:     Atom("erl-demo@127.0.0.1"),
+			ID:       312,
+			Serial:   0,
+			Creation: 2}}
 
 	for i := 0; i < b.N; i++ {
 		err := Encode(term, buf, nil, nil, nil)

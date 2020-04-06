@@ -143,7 +143,7 @@ func (p *Process) CallWithTimeout(to interface{}, message etf.Term, timeout int)
 			ref1 := m[0].(etf.Ref)
 			val := m[1].(etf.Term)
 			// check message Ref
-			if len(ref.Id) == 3 && ref.Id[0] == ref1.Id[0] && ref.Id[1] == ref1.Id[1] && ref.Id[2] == ref1.Id[2] {
+			if len(ref.ID) == 3 && ref.ID[0] == ref1.ID[0] && ref.ID[1] == ref1.ID[1] && ref.ID[2] == ref1.ID[2] {
 				return val, nil
 			}
 			// ignore this message. waiting for the next one

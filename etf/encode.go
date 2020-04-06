@@ -62,6 +62,40 @@ func Encode(term Term, b *lib.Buffer,
 			case ettSmallTuple:
 				term = stack.term.(Tuple)[stack.i]
 
+			case ettPid:
+				p := stack.term.(Pid)
+				if stack.i == 0 {
+					term = p.Node
+					break
+				}
+
+				buf := b.Extend(9)
+				binary.BigEndian.PutUint32(buf[:4], p.ID)
+				binary.BigEndian.PutUint32(buf[4:8], p.Serial)
+				buf[8] = p.Creation
+
+				stack.i++
+				continue
+
+			case ettNewRef:
+				r := stack.term.(Ref)
+				if stack.i == 0 {
+					term = stack.term.(Ref).Node
+					break
+				}
+
+				lenID := len(r.ID)
+				buf := b.Extend(1 + lenID*4)
+				buf[0] = r.Creation
+				buf = buf[1:]
+				for i := 0; i < lenID; i++ {
+					binary.BigEndian.PutUint32(buf[:4], r.ID[i])
+					buf = buf[4:]
+				}
+
+				stack.i++
+				continue
+
 			case ettMap:
 				key := stack.tmp.(List)[stack.i/2]
 				if stack.i&0x01 == 0x01 { // a value
@@ -399,8 +433,25 @@ func Encode(term Term, b *lib.Buffer,
 			}
 
 		case Pid:
+			b.AppendByte(ettPid)
+			child = &stackElement{
+				parent:   stack,
+				termType: ettPid,
+				term:     t,
+				children: 2,
+			}
 
 		case Ref:
+			buf := b.Extend(3)
+			buf[0] = ettNewRef
+			binary.BigEndian.PutUint16(buf[1:3], uint16(len(t.ID)))
+
+			child = &stackElement{
+				parent:   stack,
+				termType: ettNewRef,
+				term:     t,
+				children: 2,
+			}
 
 		case Map:
 			lenMap := len(t)
@@ -502,12 +553,4 @@ func Encode(term Term, b *lib.Buffer,
 		}
 
 	}
-
-}
-
-func transformStructToMap(interface{}) Map {
-	//	a := &A{Foo: "afoo"}
-	//  val := reflect.Indirect(reflect.ValueOf(a))
-	//  fmt.Println(val.Type().Field(0).Name)
-	return nil
 }

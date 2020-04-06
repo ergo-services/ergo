@@ -564,14 +564,14 @@ func ref2key(ref etf.Ref) string {
 func fakeMonitorPidFromName(name string) etf.Pid {
 	fakePid := etf.Pid{}
 	fakePid.Node = etf.Atom(name) // registered process name
-	fakePid.Id = 4294967295       // 2^32 - 1
+	fakePid.ID = 4294967295       // 2^32 - 1
 	fakePid.Serial = 4294967295   // 2^32 - 1
 	fakePid.Creation = 255        // 2^8 - 1
 	return fakePid
 }
 
 func isFakePid(pid etf.Pid) bool {
-	if pid.Id == 4294967295 && pid.Serial == 4294967295 && pid.Creation == 255 {
+	if pid.ID == 4294967295 && pid.Serial == 4294967295 && pid.Creation == 255 {
 		return true
 	}
 	return false

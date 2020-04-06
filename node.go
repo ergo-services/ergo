@@ -609,7 +609,7 @@ func (n *Node) MakeRef() (ref etf.Ref) {
 	nt := atomic.AddInt64(&n.uniqID, 1)
 	id1 := uint32(uint64(nt) & ((2 << 17) - 1))
 	id2 := uint32(uint64(nt) >> 46)
-	ref.Id = []uint32{id1, id2, 0}
+	ref.ID = []uint32{id1, id2, 0}
 
 	return
 }

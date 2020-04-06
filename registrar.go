@@ -155,7 +155,7 @@ func (r *registrar) createNewPID() etf.Pid {
 	i := atomic.AddUint32(&r.nextPID, 1)
 	return etf.Pid{
 		Node:     etf.Atom(r.nodeName),
-		Id:       i,
+		ID:       i,
 		Serial:   1,
 		Creation: byte(r.creation),
 	}

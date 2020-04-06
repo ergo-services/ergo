@@ -15,21 +15,21 @@ type Map map[Term]Term
 
 type Pid struct {
 	Node     Atom
-	Id       uint32
+	ID       uint32
 	Serial   uint32
 	Creation byte
 }
 
 type Port struct {
 	Node     Atom
-	Id       uint32
+	ID       uint32
 	Creation byte
 }
 
 type Ref struct {
 	Node     Atom
 	Creation byte
-	Id       []uint32
+	ID       []uint32
 }
 
 type Function struct {
@@ -130,7 +130,7 @@ func (t Tuple) Element(i int) Term {
 func (p Pid) Str() string {
 	hasher.Write([]byte(p.Node))
 	defer hasher.Reset()
-	return fmt.Sprintf("<%X.%d.%d>", hasher.Sum32(), p.Id, p.Serial)
+	return fmt.Sprintf("<%X.%d.%d>", hasher.Sum32(), p.ID, p.Serial)
 }
 
 func TermIntoStruct(term Term, dest interface{}) error {
