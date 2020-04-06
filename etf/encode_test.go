@@ -464,6 +464,33 @@ func TestEncodeGoMap(t *testing.T) {
 	}
 }
 
+func TestEncodeGoStruct(t *testing.T) {
+	b := lib.TakeBuffer()
+	defer lib.ReleaseBuffer(b)
+
+	expected := []byte{116, 0, 0, 0, 2, 119, 15, 83, 116, 114, 117, 99, 116, 84, 111, 77,
+		97, 112, 75, 101, 121, 49, 98, 0, 0, 48, 57, 119, 15, 83, 116, 114, 117,
+		99, 116, 84, 111, 77, 97, 112, 75, 101, 121, 50, 107, 0, 11, 104, 101,
+		108, 108, 111, 32, 119, 111, 114, 108, 100}
+	term := struct {
+		StructToMapKey1 int
+		StructToMapKey2 string
+	}{
+		StructToMapKey1: 12345,
+		StructToMapKey2: "hello world",
+	}
+
+	err := Encode(term, b, nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !reflect.DeepEqual(b.B, expected) {
+		fmt.Println("exp", expected)
+		fmt.Println("got", b.B)
+		t.Fatal("incorrect value")
+	}
+}
 func BenchmarkEncodeBool(b *testing.B) {
 
 	buf := lib.TakeBuffer()
@@ -739,6 +766,28 @@ func BenchmarkEncodeGoMap(b *testing.B) {
 	term := map[Atom]interface{}{
 		Atom("key1"): 12345,
 		Atom("key2"): "hello world",
+	}
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		err := Encode(term, buf, nil, nil, nil)
+		buf.Reset()
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkEncodeGoStruct(b *testing.B) {
+	buf := lib.TakeBuffer()
+	defer lib.ReleaseBuffer(buf)
+
+	term := struct {
+		StructToMapKey1 int
+		StructToMapKey2 string
+	}{
+		StructToMapKey1: 12345,
+		StructToMapKey2: "hello world",
 	}
 	b.ResetTimer()
 

@@ -12,8 +12,9 @@ import (
 var (
 	ErrStringTooLong = fmt.Errorf("Encoding error. String too long")
 
-	goSlice = byte(240) // internal type
-	goMap   = byte(241) // internal type
+	goSlice  = byte(240) // internal type
+	goMap    = byte(241) // internal type
+	goStruct = byte(242) // internal type
 )
 
 func Encode(term Term, b *lib.Buffer,
@@ -84,6 +85,15 @@ func Encode(term Term, b *lib.Buffer,
 					break
 				}
 				term = key.Interface()
+
+			case goStruct:
+				if stack.i&0x01 == 0x01 { // a value
+					term = stack.term.(func(int) reflect.Value)(stack.i / 2).Interface()
+					break
+				}
+
+				// a key (field name)
+				term = Atom(stack.tmp.(func(int) reflect.StructField)(stack.i / 2).Name)
 
 			default:
 
@@ -434,8 +444,18 @@ func Encode(term Term, b *lib.Buffer,
 			v := reflect.ValueOf(t)
 			switch v.Kind() {
 			case reflect.Struct:
-				term = transformStructToMap(t)
-				continue
+				lenStruct := v.NumField()
+				buf := b.Extend(5)
+				buf[0] = ettMap
+				binary.BigEndian.PutUint32(buf[1:], uint32(lenStruct))
+
+				child = &stackElement{
+					parent:   stack,
+					termType: goStruct,
+					term:     v.Field,
+					children: lenStruct * 2,
+					tmp:      v.Type().Field,
+				}
 
 			case reflect.Array, reflect.Slice:
 				lenList := v.Len()
