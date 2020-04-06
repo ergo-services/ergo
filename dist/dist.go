@@ -124,7 +124,7 @@ func Handshake(conn net.Conn, name, cookie string, hidden bool) (*Link, error) {
 	b := lib.TakeBuffer()
 	defer lib.ReleaseBuffer(b)
 	link.composeName(b)
-	if e := b.WriteTo(conn); e != nil {
+	if e := b.WriteDataTo(conn); e != nil {
 		return nil, e
 	}
 	b.Reset()
@@ -135,13 +135,13 @@ func Handshake(conn net.Conn, name, cookie string, hidden bool) (*Link, error) {
 
 	asyncReadChannel := make(chan error, 2)
 	asyncRead := func() {
-		//  If the buffer becomes too large, ReadFrom will panic with ErrTooLarge.
+		//  If the buffer becomes too large, ReadDataFrom will panic with ErrTooLarge.
 		defer func() {
 			if r := recover(); r != nil {
 				asyncReadChannel <- fmt.Errorf("malformed handshake (too large packet)")
 			}
 		}()
-		_, e := b.ReadFrom(conn)
+		_, e := b.ReadDataFrom(conn)
 		asyncReadChannel <- e
 	}
 	for {
@@ -165,7 +165,7 @@ func Handshake(conn net.Conn, name, cookie string, hidden bool) (*Link, error) {
 				challenge := link.readChallenge(b.B)
 				b.Reset()
 				link.composeChallengeReply(challenge, b)
-				if e := b.WriteTo(conn); e != nil {
+				if e := b.WriteDataTo(conn); e != nil {
 					return nil, e
 				}
 				b.Reset()
@@ -218,13 +218,13 @@ func HandshakeAccept(conn net.Conn, name, cookie string, hidden bool) (*Link, er
 
 	asyncReadChannel := make(chan error, 2)
 	asyncRead := func() {
-		//  If the buffer becomes too large, ReadFrom will panic with ErrTooLarge.
+		//  If the buffer becomes too large, ReadDataFrom will panic with ErrTooLarge.
 		defer func() {
 			if r := recover(); r != nil {
 				asyncReadChannel <- fmt.Errorf("malformed handshake (too large packet)")
 			}
 		}()
-		n, e := b.ReadFrom(conn)
+		n, e := b.ReadDataFrom(conn)
 		fmt.Println("READ", n, e, b.B)
 		asyncReadChannel <- e
 	}
@@ -248,13 +248,13 @@ func HandshakeAccept(conn net.Conn, name, cookie string, hidden bool) (*Link, er
 				link.peer = link.readName(b.B[3:])
 				b.Reset()
 				link.composeStatus(b)
-				if e := b.WriteTo(conn); e != nil {
+				if e := b.WriteDataTo(conn); e != nil {
 					return nil, fmt.Errorf("malformed handshake ('n' accept name)")
 				}
 
 				b.Reset()
 				link.composeChallenge(b)
-				if e := b.WriteTo(conn); e != nil {
+				if e := b.WriteDataTo(conn); e != nil {
 					return nil, e
 				}
 				b.Reset()
@@ -270,7 +270,7 @@ func HandshakeAccept(conn net.Conn, name, cookie string, hidden bool) (*Link, er
 				b.Reset()
 
 				link.composeChallengeAck(b)
-				if e := b.WriteTo(conn); e != nil {
+				if e := b.WriteDataTo(conn); e != nil {
 					return nil, e
 				}
 				b.Reset()
@@ -303,7 +303,7 @@ func (l *Link) Read(b *lib.Buffer) (int, error) {
 	// http://erlang.org/doc/apps/erts/erl_dist_protocol.html#protocol-between-connected-nodes
 	expectingBytes := 4
 	for {
-		n, e := b.ReadFrom(l.conn)
+		n, e := b.ReadDataFrom(l.conn)
 		if n == 0 {
 			// link is closed
 			return 0, nil
@@ -646,7 +646,7 @@ func (l *Link) Writer(ctx context.Context, send <-chan []etf.Term, fragmentation
 			if !fragmentationEnabled || lenPacket < fragmentationUnit {
 				// send as a single packet
 
-				packetBuffer.WriteTo(l.conn)
+				packetBuffer.WriteDataTo(l.conn)
 				break
 
 			}

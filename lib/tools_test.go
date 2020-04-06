@@ -7,7 +7,7 @@ import (
 func TestBuffer(t *testing.T) {
 	b := TakeBuffer()
 
-	if cap(b.B) != DefaultBufferCapacity {
+	if cap(b.B) != DefaultBufferLength {
 		t.Fatal("incorrect capacity")
 	}
 

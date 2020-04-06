@@ -604,6 +604,10 @@ func TestEncodeTupleRefPid(t *testing.T) {
 			Serial:   0,
 			Creation: 2}}
 
+	if b.Len() > 0 {
+		fmt.Println("aaaaaaaa", b.Len())
+	}
+
 	err := Encode(term, b, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -1035,9 +1039,47 @@ func BenchmarkEncodeTupleRefPid(b *testing.B) {
 			Serial:   0,
 			Creation: 2}}
 
+	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		err := Encode(term, buf, nil, nil, nil)
 		buf.Reset()
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkEncodeTupleRefPidWithAtomCache(b *testing.B) {
+	buf := lib.TakeBuffer()
+	defer lib.ReleaseBuffer(buf)
+
+	term := Tuple{
+		Ref{
+			Node:     Atom("erl-demo@127.0.0.1"),
+			Creation: 2,
+			ID:       []uint32{0x11f1c, 0xb7c00001, 0x8d7acb23}},
+		Pid{
+			Node:     Atom("erl-demo@127.0.0.1"),
+			ID:       312,
+			Serial:   0,
+			Creation: 2}}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	writerAtomCache := make(map[Atom]CacheItem)
+	encodingAtomCache := TakeListAtomCache()
+	defer ReleaseListAtomCache(encodingAtomCache)
+	linkAtomCache := NewAtomCache(ctx)
+
+	ci := CacheItem{ID: 2020, Encoded: true, Name: "erl-demo@127.0.0.1"}
+	writerAtomCache["erl-demo@127.0.0.1"] = ci
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		err := Encode(term, buf, linkAtomCache, writerAtomCache, encodingAtomCache)
+		buf.Reset()
+		encodingAtomCache.Reset()
 		if err != nil {
 			b.Fatal(err)
 		}

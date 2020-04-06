@@ -40,16 +40,19 @@ func Log(f string, a ...interface{}) {
 }
 
 func TakeBuffer() *Buffer {
-	return buffers.Get().(*Buffer)
+	b := buffers.Get().(*Buffer)
+	b.B = b.original[:0]
+	return b
 }
 
 func ReleaseBuffer(b *Buffer) {
-	b.Reset()
 	// do not return it to the pool if its grew up too big
 	if cap(b.B) > 65536 {
 		b.B = nil // for GC
+		b.original = nil
 		return
 	}
+	b.B = b.original[:0]
 	buffers.Put(b)
 }
 
@@ -78,7 +81,7 @@ func (b *Buffer) Len() int {
 	return len(b.B)
 }
 
-func (b *Buffer) WriteTo(w io.Writer) error {
+func (b *Buffer) WriteDataTo(w io.Writer) error {
 	l := len(b.B)
 	if l == 0 {
 		return nil
@@ -97,7 +100,7 @@ func (b *Buffer) WriteTo(w io.Writer) error {
 	return nil
 }
 
-func (b *Buffer) ReadFrom(r io.Reader) (int, error) {
+func (b *Buffer) ReadDataFrom(r io.Reader) (int, error) {
 	capB := cap(b.B)
 	lenB := len(b.B)
 	// do panic if buffer becomes too large
