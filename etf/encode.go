@@ -13,6 +13,7 @@ var (
 	ErrStringTooLong = fmt.Errorf("Encoding error. String too long")
 
 	goSlice = byte(240) // internal type
+	goMap   = byte(241) // internal type
 )
 
 func Encode(term Term, b *lib.Buffer,
@@ -60,14 +61,29 @@ func Encode(term Term, b *lib.Buffer,
 			case ettSmallTuple:
 				term = stack.term.(Tuple)[stack.i]
 
+			case ettMap:
+				key := stack.tmp.(List)[stack.i/2]
+				if stack.i&0x01 == 0x01 { // a value
+					term = stack.term.(Map)[key]
+					break
+				}
+				term = key
+
 			case goSlice:
 				if stack.i == stack.children-1 {
 					// last item of list should be ettNil
 					term = nil
 					break
 				}
-
 				term = stack.term.(func(int) reflect.Value)(stack.i).Interface()
+
+			case goMap:
+				key := stack.tmp.([]reflect.Value)[stack.i/2]
+				if stack.i&0x01 == 0x01 { // a value
+					term = stack.term.(func(reflect.Value) reflect.Value)(key).Interface()
+					break
+				}
+				term = key.Interface()
 
 			default:
 
@@ -377,6 +393,23 @@ func Encode(term Term, b *lib.Buffer,
 		case Ref:
 
 		case Map:
+			lenMap := len(t)
+			buf := b.Extend(5)
+			buf[0] = ettMap
+			binary.BigEndian.PutUint32(buf[1:], uint32(lenMap))
+
+			keys := make(List, 0, lenMap)
+			for key := range t {
+				keys = append(keys, key)
+			}
+
+			child = &stackElement{
+				parent:   stack,
+				termType: ettMap,
+				term:     t,
+				children: lenMap * 2,
+				tmp:      keys,
+			}
 
 		case List:
 			lenList := len(t)
@@ -417,8 +450,18 @@ func Encode(term Term, b *lib.Buffer,
 				}
 
 			case reflect.Map:
-				term = v.Interface().(Map)
-				continue
+				lenMap := v.Len()
+				buf := b.Extend(5)
+				buf[0] = ettMap
+				binary.BigEndian.PutUint32(buf[1:], uint32(lenMap))
+
+				child = &stackElement{
+					parent:   stack,
+					termType: goMap,
+					term:     v.MapIndex,
+					children: lenMap * 2,
+					tmp:      v.MapKeys(),
+				}
 
 			case reflect.Ptr:
 				// dereference value
