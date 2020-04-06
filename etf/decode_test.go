@@ -264,6 +264,26 @@ func TestDecodePid(t *testing.T) {
 	}
 }
 
+func TestDecodePidWithCacheAtom(t *testing.T) {
+	expected := Pid{
+		Node:     Atom("erl-demo@127.0.0.1"),
+		ID:       142,
+		Serial:   0,
+		Creation: 2,
+	}
+	packet := []byte{103, ettCacheRef, 0, 0, 0, 0, 142, 0, 0, 0, 0, 2}
+	cache := []Atom{Atom("erl-demo@127.0.0.1")}
+	term, _, err := Decode(packet, cache)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result := term.(Pid)
+	if !reflect.DeepEqual(expected, result) {
+		t.Fatal("result != expected")
+	}
+}
+
 func TestDecodeRef(t *testing.T) {
 	expected := Ref{
 		Node:     Atom("erl-demo@127.0.0.1"),
@@ -284,6 +304,26 @@ func TestDecodeRef(t *testing.T) {
 	}
 }
 
+func TestDecodeRefWithAtomCache(t *testing.T) {
+	expected := Ref{
+		Node:     Atom("erl-demo@127.0.0.1"),
+		Creation: 2,
+		ID:       []uint32{73444, 3082813441, 2373634851},
+	}
+	packet := []byte{114, 0, 3, ettCacheRef, 0, 2, 0, 1, 30, 228, 183, 192, 0, 1, 141,
+		122, 203, 35}
+	cache := []Atom{Atom("erl-demo@127.0.0.1")}
+
+	term, _, err := Decode(packet, cache)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result := term.(Ref)
+	if !reflect.DeepEqual(expected, result) {
+		t.Fatal("result != expected")
+	}
+}
 func TestDecodeTupleRefPid(t *testing.T) {
 	expected := Tuple{
 		Ref{
@@ -311,6 +351,31 @@ func TestDecodeTupleRefPid(t *testing.T) {
 	}
 }
 
+func TestDecodeTupleRefPidWithAtomCache(t *testing.T) {
+	expected := Tuple{
+		Ref{
+			Node:     Atom("erl-demo@127.0.0.1"),
+			Creation: 2,
+			ID:       []uint32{0x11f1c, 0xb7c00001, 0x8d7acb23}},
+		Pid{
+			Node:     Atom("erl-demo@127.0.0.1"),
+			ID:       0x8e,
+			Serial:   0x0,
+			Creation: 0x2}}
+	packet := []byte{ettSmallTuple, 2, ettNewRef, 0, 3, ettCacheRef, 0,
+		2, 0, 1, 31, 28, 183, 192, 0, 1, 141, 122, 203, 35, 103, ettCacheRef, 0,
+		0, 0, 0, 142, 0, 0, 0, 0, 2}
+	cache := []Atom{Atom("erl-demo@127.0.0.1")}
+	term, _, err := Decode(packet, cache)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result := term.(Tuple)
+	if !reflect.DeepEqual(expected, result) {
+		t.Fatal("result != expected")
+	}
+}
 func TestDecodePort(t *testing.T) {
 	expected := Port{
 		Node:     Atom("erl-demo@127.0.0.1"),
@@ -521,6 +586,17 @@ func BenchmarkDecodePid(b *testing.B) {
 	}
 }
 
+func BenchmarkDecodePidWithAtomCache(b *testing.B) {
+	packet := []byte{103, ettCacheRef, 0, 0, 0, 0, 142, 0, 0, 0, 0, 2}
+	cache := []Atom{Atom("erl-demo@127.0.0.1")}
+	for i := 0; i < b.N; i++ {
+		_, _, err := Decode(packet, cache)
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
 func BenchmarkDecodeRef(b *testing.B) {
 	packet := []byte{114, 0, 3, 100, 0, 18, 101, 114, 108, 45, 100, 101, 109, 111, 64,
 		49, 50, 55, 46, 48, 46, 48, 46, 49, 2, 0, 1, 30, 228, 183, 192, 0, 1, 141,
@@ -533,6 +609,17 @@ func BenchmarkDecodeRef(b *testing.B) {
 	}
 }
 
+func BenchmarkDecodeRefWithAtomCache(b *testing.B) {
+	packet := []byte{114, 0, 3, ettCacheRef, 0, 2, 0, 1, 30, 228, 183, 192, 0, 1, 141,
+		122, 203, 35}
+	cache := []Atom{Atom("erl-demo@127.0.0.1")}
+	for i := 0; i < b.N; i++ {
+		_, _, err := Decode(packet, cache)
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
 func BenchmarkDecodePort(b *testing.B) {
 	packet := []byte{102, 100, 0, 18, 101, 114, 108, 45, 100, 101, 109, 111, 64, 49,
 		50, 55, 46, 48, 46, 48, 46, 49, 0, 0, 0, 32, 2}
@@ -559,6 +646,19 @@ func BenchmarkDecodeTupleRefPid(b *testing.B) {
 	}
 }
 
+func BenchmarkDecodeTupleRefPidWithAtomCache(b *testing.B) {
+
+	packet := []byte{ettSmallTuple, 2, ettNewRef, 0, 3, ettCacheRef, 0,
+		2, 0, 1, 31, 28, 183, 192, 0, 1, 141, 122, 203, 35, 103, ettCacheRef, 0,
+		0, 0, 0, 142, 0, 0, 0, 0, 2}
+	cache := []Atom{Atom("erl-demo@127.0.0.1")}
+	for i := 0; i < b.N; i++ {
+		_, _, err := Decode(packet, cache)
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
 func BenchmarkDecodeFunction(b *testing.B) {
 	packet := packetFunction
 	for i := 0; i < b.N; i++ {

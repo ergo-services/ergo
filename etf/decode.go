@@ -703,5 +703,3 @@ func Decode(packet []byte, cache []Atom) (Term, []byte, error) {
 
 	return term, packet, nil
 }
-
-type Context struct{}
