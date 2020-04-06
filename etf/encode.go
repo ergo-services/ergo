@@ -536,6 +536,9 @@ func Encode(term Term, b *lib.Buffer,
 
 			case reflect.Ptr:
 				// dereference value
+				if v.IsNil() {
+					return fmt.Errorf("unsupported nil value")
+				}
 				term = v.Elem().Interface()
 				continue
 

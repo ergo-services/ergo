@@ -616,6 +616,17 @@ func TestEncodeTupleRefPid(t *testing.T) {
 	}
 }
 
+func TestEncodeGoPtrNil(t *testing.T) {
+	var x *int
+	b := lib.TakeBuffer()
+	defer lib.ReleaseBuffer(b)
+
+	err := Encode(x, b, nil, nil, nil)
+	if err == nil {
+		t.Fatal("incorrect value")
+	}
+}
+
 func BenchmarkEncodeBool(b *testing.B) {
 
 	buf := lib.TakeBuffer()
