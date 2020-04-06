@@ -40,9 +40,7 @@ func Log(f string, a ...interface{}) {
 }
 
 func TakeBuffer() *Buffer {
-	b := buffers.Get().(*Buffer)
-	b.B = b.original[:0]
-	return b
+	return buffers.Get().(*Buffer)
 }
 
 func ReleaseBuffer(b *Buffer) {

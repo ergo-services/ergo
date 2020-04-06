@@ -502,7 +502,7 @@ func TestEncodeGoStruct(t *testing.T) {
 
 func TestEncodePid(t *testing.T) {
 	b := lib.TakeBuffer()
-	lib.ReleaseBuffer(b)
+	defer lib.ReleaseBuffer(b)
 
 	expected := []byte{103, 119, 18, 101, 114, 108, 45, 100, 101, 109, 111, 64, 49, 50,
 		55, 46, 48, 46, 48, 46, 49, 0, 0, 1, 56, 0, 0, 0, 0, 2}
@@ -523,7 +523,7 @@ func TestEncodePid(t *testing.T) {
 
 func TestEncodePidWithAtomCache(t *testing.T) {
 	b := lib.TakeBuffer()
-	lib.ReleaseBuffer(b)
+	defer lib.ReleaseBuffer(b)
 
 	expected := []byte{103, 82, 0, 0, 0, 1, 56, 0, 0, 0, 0, 2}
 	term := Pid{Node: "erl-demo@127.0.0.1", ID: 312, Serial: 0, Creation: 2}
@@ -558,7 +558,7 @@ func TestEncodePidWithAtomCache(t *testing.T) {
 
 func TestEncodeRef(t *testing.T) {
 	b := lib.TakeBuffer()
-	lib.ReleaseBuffer(b)
+	defer lib.ReleaseBuffer(b)
 
 	expected := []byte{114, 0, 3, 119, 18, 101, 114, 108, 45, 100, 101, 109, 111, 64,
 		49, 50, 55, 46, 48, 46, 48, 46, 49, 2, 0, 1, 30, 228, 183, 192, 0, 1, 141,
@@ -927,7 +927,7 @@ func BenchmarkEncodeGoStruct(b *testing.B) {
 
 func BenchmarkEncodePid(b *testing.B) {
 	buf := lib.TakeBuffer()
-	lib.ReleaseBuffer(buf)
+	defer lib.ReleaseBuffer(buf)
 
 	term := Pid{Node: "erl-demo@127.0.0.1", ID: 312, Serial: 0, Creation: 2}
 
@@ -943,7 +943,7 @@ func BenchmarkEncodePid(b *testing.B) {
 
 func BenchmarkEncodePidWithAtomCache(b *testing.B) {
 	buf := lib.TakeBuffer()
-	lib.ReleaseBuffer(buf)
+	defer lib.ReleaseBuffer(buf)
 
 	term := Pid{Node: "erl-demo@127.0.0.1", ID: 312, Serial: 0, Creation: 2}
 
@@ -990,7 +990,7 @@ func BenchmarkEncodeRef(b *testing.B) {
 
 func BenchmarkEncodeRefWithAtomCache(b *testing.B) {
 	buf := lib.TakeBuffer()
-	lib.ReleaseBuffer(buf)
+	defer lib.ReleaseBuffer(buf)
 
 	term := Ref{
 		Node:     Atom("erl-demo@127.0.0.1"),
