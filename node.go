@@ -254,11 +254,20 @@ func (n *Node) serve(link *dist.Link, opts NodeOptions) error {
 		var err error
 		var packetLength int
 
+		ctx, cancel := context.WithCancel(n.context)
+		defer cancel()
+
+		go func() {
+			select {
+			case <-ctx.Done():
+				// if node's context is done
+				link.Close()
+			}
+		}()
+
 		// initializing atom cache if its enabled
 		if !opts.DisableHeaderAtomCache {
-			ctx, cancel := context.WithCancel(n.context)
 			link.SetAtomCache(etf.NewAtomCache(ctx))
-			defer cancel()
 		}
 		cacheIsReady <- true
 
