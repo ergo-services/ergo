@@ -123,6 +123,7 @@ func Handshake(conn net.Conn, name, cookie string, hidden bool) (*Link, error) {
 
 	b := lib.TakeBuffer()
 	defer lib.ReleaseBuffer(b)
+
 	link.composeName(b)
 	if e := b.WriteDataTo(conn); e != nil {
 		return nil, e
@@ -155,7 +156,7 @@ func Handshake(conn net.Conn, name, cookie string, hidden bool) (*Link, error) {
 			if e != nil {
 				return nil, e
 			}
-			switch b.B[0] {
+			switch b.B[2] {
 			case 'n':
 				// 'n' + 2 (version) + 4 (flags) + 4 (challenge) + name...
 				if len(b.B) < 12 {
@@ -172,7 +173,7 @@ func Handshake(conn net.Conn, name, cookie string, hidden bool) (*Link, error) {
 				continue
 			case 'a':
 				// 'a' + 16 (digest)
-				if len(b.B) != 17 {
+				if len(b.B) != 19 {
 					return nil, fmt.Errorf("malformed handshake ('a' length of digest)")
 				}
 
@@ -182,6 +183,10 @@ func Handshake(conn net.Conn, name, cookie string, hidden bool) (*Link, error) {
 
 				// handshaked
 				return link, nil
+			case 's':
+				b.Reset()
+			default:
+				return nil, fmt.Errorf("malformed handshake ('%c' digest)", b.B[2])
 			}
 
 		}
@@ -680,15 +685,15 @@ func (l *Link) Writer(ctx context.Context, send <-chan []etf.Term, fragmentation
 
 			}
 
-			fmt.Println("FIXME Write Data1", packetBuffer.B)
-			packetBuffer.WriteDataTo(l.conn)
+			panic("FIXME Write Data. fragmentation")
 			// https://erlang.org/doc/apps/erts/erl_ext_dist.html#distribution-header-for-fragmented-messages
 			// "The entire atom cache and control message has to be part of the starting fragment"
 
 			// fragment numbering should be like
 			// sequenceID = atomic.AddInt64(&l.sequenceID, 1)
 			//
-			break
+
+			// break
 		}
 
 		lib.ReleaseBuffer(packetBuffer)
@@ -756,12 +761,12 @@ func (l *Link) composeChallenge(b *lib.Buffer) {
 
 func (l *Link) readChallenge(msg []byte) (challenge uint32) {
 	link := &Link{
-		Name:    fmt.Sprintf("%s", msg[11:]),
-		version: binary.BigEndian.Uint16(msg[1:3]),
-		flags:   nodeFlag(binary.BigEndian.Uint32(msg[3:7])),
+		Name:    fmt.Sprintf("%s", msg[13:]),
+		version: binary.BigEndian.Uint16(msg[3:5]),
+		flags:   nodeFlag(binary.BigEndian.Uint32(msg[5:9])),
 	}
 	l.peer = link
-	return binary.BigEndian.Uint32(msg[7:11])
+	return binary.BigEndian.Uint32(msg[9:13])
 }
 
 func (l *Link) validateChallengeReply(b []byte) bool {
