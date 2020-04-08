@@ -110,7 +110,7 @@ func Handshake(conn net.Conn, name, cookie string, hidden bool) (*Link, error) {
 		Hidden: hidden,
 
 		flags: toNodeFlag(PUBLISHED, UNICODE_IO, DIST_MONITOR, DIST_MONITOR_NAME,
-			EXTENDED_PIDS_PORTS, EXTENDED_REFERENCES,
+			EXTENDED_PIDS_PORTS, EXTENDED_REFERENCES, ATOM_CACHE,
 			DIST_HDR_ATOM_CACHE, HIDDEN_ATOM_CACHE, NEW_FUN_TAGS,
 			SMALL_ATOM_TAGS, UTF8_ATOMS, MAP_TAG, BIG_CREATION,
 			FRAGMENTS,
@@ -197,7 +197,7 @@ func HandshakeAccept(conn net.Conn, name, cookie string, hidden bool) (*Link, er
 		Hidden: hidden,
 
 		flags: toNodeFlag(PUBLISHED, UNICODE_IO, DIST_MONITOR, DIST_MONITOR_NAME,
-			EXTENDED_PIDS_PORTS, EXTENDED_REFERENCES,
+			EXTENDED_PIDS_PORTS, EXTENDED_REFERENCES, ATOM_CACHE,
 			DIST_HDR_ATOM_CACHE, HIDDEN_ATOM_CACHE, NEW_FUN_TAGS,
 			SMALL_ATOM_TAGS, UTF8_ATOMS, MAP_TAG, BIG_CREATION,
 			FRAGMENTS,
@@ -224,8 +224,7 @@ func HandshakeAccept(conn net.Conn, name, cookie string, hidden bool) (*Link, er
 				asyncReadChannel <- fmt.Errorf("malformed handshake (too large packet)")
 			}
 		}()
-		n, e := b.ReadDataFrom(conn)
-		fmt.Println("READ", n, e, b.B)
+		_, e := b.ReadDataFrom(conn)
 		asyncReadChannel <- e
 	}
 	for {
@@ -303,18 +302,18 @@ func (l *Link) Read(b *lib.Buffer) (int, error) {
 	// http://erlang.org/doc/apps/erts/erl_dist_protocol.html#protocol-between-connected-nodes
 	expectingBytes := 4
 	for {
-		n, e := b.ReadDataFrom(l.conn)
-		if n == 0 {
-			// link is closed
-			return 0, nil
-		}
-
-		if e != nil && e != io.EOF {
-			return 0, e
-		}
 
 		if b.Len() < expectingBytes {
-			continue
+			n, e := b.ReadDataFrom(l.conn)
+			if n == 0 {
+				// link is closed
+				return 0, nil
+			}
+
+			if e != nil && e != io.EOF {
+				return 0, e
+			}
+
 		}
 
 		packetLength := binary.BigEndian.Uint32(b.B[:4])
@@ -331,7 +330,7 @@ func (l *Link) Read(b *lib.Buffer) (int, error) {
 		}
 
 		if b.Len() < int(packetLength)+4 {
-			expectingBytes += int(packetLength)
+			expectingBytes = int(packetLength) + 4
 			continue
 		}
 
@@ -348,7 +347,7 @@ func (l *Link) ReadHandlePacket(ctx context.Context, recv <-chan *lib.Buffer,
 			// read and decode recieved packet
 			control, message, err := l.ReadPacket(b.B)
 			if err != nil {
-				fmt.Println("Malformed Dist proto at link with", l.PeerName())
+				fmt.Println("Malformed Dist proto at link with", l.PeerName(), err)
 				l.Close()
 				return
 			}
@@ -372,6 +371,10 @@ func (l *Link) ReadHandlePacket(ctx context.Context, recv <-chan *lib.Buffer,
 }
 
 func (l *Link) ReadPacket(packet []byte) (etf.Term, etf.Term, error) {
+	if len(packet) < 5 {
+		return nil, nil, fmt.Errorf("malformed packet")
+	}
+
 	// [:3] length
 	switch packet[4] {
 	case protoDist:
@@ -579,13 +582,18 @@ func (l *Link) Writer(ctx context.Context, send <-chan []etf.Term, fragmentation
 	var linkAtomCache *etf.AtomCache
 	var lastCacheID int16 = -1
 
-	var lenControl, lenMessage, lenAtomCache, lenPacket int
-	var buffer []byte
+	var lenControl, lenMessage, lenAtomCache, lenPacket, startDataPosition int
 	var atomCacheBuffer, packetBuffer *lib.Buffer
 	var err error
 
 	cacheEnabled := l.peer.flags.isSet(DIST_HDR_ATOM_CACHE) && l.cacheOut != nil
 	fragmentationEnabled := l.peer.flags.isSet(FRAGMENTS)
+
+	// Header atom cache is encoded right after control/message encoding
+	// but stored before.
+	// Thats why we do reserve some space for it in order to get rid
+	// of reallocation packetBuffer data
+	reserveHeaderAtomCache := 8192
 
 	if cacheEnabled {
 		encodingAtomCache = etf.TakeListAtomCache()
@@ -603,13 +611,15 @@ func (l *Link) Writer(ctx context.Context, send <-chan []etf.Term, fragmentation
 		}
 
 		packetBuffer = lib.TakeBuffer()
-		lenControl, lenMessage, lenAtomCache, lenPacket = 0, 0, 0, 0
+		lenControl, lenMessage, lenAtomCache, lenPacket, startDataPosition = 0, 0, 0, 0, 0
 
 		// do reserve for the header 8K, should be enough
-		packetBuffer.Allocate(8192)
+		packetBuffer.Allocate(reserveHeaderAtomCache)
 
 		// clear encoding cache
-		encodingAtomCache.Reset()
+		if cacheEnabled {
+			encodingAtomCache.Reset()
+		}
 
 		// encode Control
 		err = etf.Encode(terms[0], packetBuffer, linkAtomCache, writerAtomCache, encodingAtomCache)
@@ -618,7 +628,7 @@ func (l *Link) Writer(ctx context.Context, send <-chan []etf.Term, fragmentation
 			lib.ReleaseBuffer(packetBuffer)
 			continue
 		}
-		lenControl = len(buffer)
+		lenControl = packetBuffer.Len() - reserveHeaderAtomCache
 
 		// encode Message if present
 		if len(terms) == 2 {
@@ -629,28 +639,49 @@ func (l *Link) Writer(ctx context.Context, send <-chan []etf.Term, fragmentation
 				continue
 			}
 		}
-		lenMessage = len(buffer)
+		lenMessage = packetBuffer.Len() - reserveHeaderAtomCache - lenControl
 
 		// encode Header Atom Cache if its enabled
 		if cacheEnabled && encodingAtomCache.Len() > 0 {
 			atomCacheBuffer = lib.TakeBuffer()
 			l.encodeDistHeaderAtomCache(atomCacheBuffer, writerAtomCache, encodingAtomCache)
 			lenAtomCache = atomCacheBuffer.Len()
+
+			// 4 (packet len) + 1 (dist header: 131) + 1 (dist header: protoDistX) + lenAtomCache
+			// where protoDistX is protoDist[Message|Fragment1|FragmentN]
+			startDataPosition = reserveHeaderAtomCache - 4 + 1 + 1 + lenAtomCache
+			packetBuffer.B = packetBuffer.B[startDataPosition:]
+			packetBuffer.B[4] = protoDist // 131
+			copy(packetBuffer.B[6:], atomCacheBuffer.B)
+
 			lib.ReleaseBuffer(atomCacheBuffer)
+		} else {
+			// 4 (packet len) + 1 (dist header: 131) + 1 (dist header: protoDistX) + 1 (byte(0) - empty cache)
+			// where protoDistX is protoDist[Message|Fragment1|FragmentN]
+			lenAtomCache = 1
+			startDataPosition = reserveHeaderAtomCache - 7
+			packetBuffer.B = packetBuffer.B[startDataPosition:]
+			packetBuffer.B[4] = protoDist // 131
+			packetBuffer.B[6] = byte(0)
+
 		}
 
-		lenPacket = lenAtomCache + lenControl + lenMessage
+		// 1 (dist header: 131) + 1 (protoDistX) + ...
+		lenPacket = 1 + 1 + lenAtomCache + lenControl + lenMessage
 
 		for {
 
 			if !fragmentationEnabled || lenPacket < fragmentationUnit {
 				// send as a single packet
-
+				binary.BigEndian.PutUint32(packetBuffer.B[:4], uint32(lenPacket))
+				packetBuffer.B[5] = protoDistMessage // 68
 				packetBuffer.WriteDataTo(l.conn)
 				break
 
 			}
 
+			fmt.Println("FIXME Write Data1", packetBuffer.B)
+			packetBuffer.WriteDataTo(l.conn)
 			// https://erlang.org/doc/apps/erts/erl_ext_dist.html#distribution-header-for-fragmented-messages
 			// "The entire atom cache and control message has to be part of the starting fragment"
 
@@ -685,6 +716,7 @@ func (l *Link) GetRemoteName() string {
 
 func (l *Link) composeName(b *lib.Buffer) {
 	dataLength := uint16(7 + len(l.Name)) // byte + uint16 + uint32 + len(l.Name)
+	b.Allocate(9)
 	binary.BigEndian.PutUint16(b.B[0:2], dataLength)
 	b.B[2] = 'n'
 	binary.BigEndian.PutUint16(b.B[3:5], l.version)          // uint16
@@ -753,6 +785,7 @@ func (l *Link) composeChallengeAck(b *lib.Buffer) {
 func (l *Link) composeChallengeReply(challenge uint32, b *lib.Buffer) {
 	digest := genDigest(challenge, l.Cookie)
 	dataLength := uint16(21) // 1 (byte) + 4 (challenge) + 16 (digest)
+	b.Allocate(7)
 	binary.BigEndian.PutUint16(b.B[0:2], dataLength)
 	b.B[2] = 'r'
 	binary.BigEndian.PutUint32(b.B[3:7], l.challenge) // uint32

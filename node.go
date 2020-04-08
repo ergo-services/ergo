@@ -247,14 +247,7 @@ func (n *Node) serve(link *dist.Link, opts NodeOptions) error {
 		return err
 	}
 
-	// run readers/writers for incoming/outgoing messages
-	for i := 0; i < runtime.NumCPU(); i++ {
-		// run writer routines (encoder)
-		go link.Writer(n.context, send, opts.FragmentationUnit)
-
-		// run packet reader/handler routines (decoder)
-		go link.ReadHandlePacket(n.context, recv, n.handleMessage)
-	}
+	cacheIsReady := make(chan bool)
 
 	// run link reader routine
 	go func() {
@@ -267,12 +260,12 @@ func (n *Node) serve(link *dist.Link, opts NodeOptions) error {
 			link.SetAtomCache(etf.NewAtomCache(ctx))
 			defer cancel()
 		}
+		cacheIsReady <- true
 
 		defer link.Close()
 		defer func() { n.registrar.UnregisterPeer(link.GetRemoteName()) }()
 
 		b := lib.TakeBuffer()
-
 		for {
 			packetLength, err = link.Read(b)
 			if err != nil || packetLength == 0 {
@@ -280,11 +273,9 @@ func (n *Node) serve(link *dist.Link, opts NodeOptions) error {
 				lib.ReleaseBuffer(b)
 				return
 			}
-
 			// take new buffer for the next reading and append the tail (part of the next packet)
 			b1 := lib.TakeBuffer()
 			b1.Set(b.B[packetLength:])
-
 			// cut the tail and send it further for handling.
 			// buffer b have to be released by the reader of
 			// recv channel (link.ReadHandlePacket)
@@ -295,6 +286,18 @@ func (n *Node) serve(link *dist.Link, opts NodeOptions) error {
 			b = b1
 		}
 	}()
+
+	// we should make sure if the cache is ready before we start writers
+	<-cacheIsReady
+
+	// run readers/writers for incoming/outgoing messages
+	for i := 0; i < runtime.NumCPU(); i++ {
+		// run writer routines (encoder)
+		go link.Writer(n.context, send, opts.FragmentationUnit)
+
+		// run packet reader/handler routines (decoder)
+		go link.ReadHandlePacket(n.context, recv, n.handleMessage)
+	}
 
 	return nil
 }
