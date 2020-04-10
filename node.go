@@ -651,7 +651,7 @@ func (n *Node) connect(to etf.Atom) error {
 		return err
 	}
 
-	link, e := dist.Handshake(c, n.FullName, n.Cookie, false)
+	link, e := dist.Handshake(n.context, c, n.FullName, n.Cookie, false)
 	if e != nil {
 		return e
 	}
@@ -684,7 +684,7 @@ func (n *Node) listen(name string, opts NodeOptions) uint16 {
 					continue
 				}
 
-				link, e := dist.HandshakeAccept(c, n.FullName, n.Cookie, opts.Hidden)
+				link, e := dist.HandshakeAccept(n.context, c, n.FullName, n.Cookie, opts.Hidden)
 				if e != nil {
 					lib.Log("Can't handshake with %s: %s", c.RemoteAddr().String(), e)
 					c.Close()

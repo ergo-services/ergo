@@ -12,6 +12,7 @@ import (
 	"log"
 	"math/rand"
 	"net"
+	"sync"
 	"time"
 
 	"github.com/halturin/ergo/etf"
@@ -35,6 +36,8 @@ type flagId uint32
 type nodeFlag flagId
 
 const (
+	defaultLatency = 100 * time.Nanosecond
+
 	// http://erlang.org/doc/apps/erts/erl_ext_dist.html#distribution_header
 	protoDist           = 131
 	protoDistCompressed = 80
@@ -89,10 +92,12 @@ type Link struct {
 	Hidden    bool
 	peer      *Link
 	conn      net.Conn
-	writer    *bufio.Writer
 	challenge uint32
 	flags     nodeFlag
 	version   uint16
+
+	// writer
+	flusher *linkFlusher
 
 	// atom cache for incomming messages
 	cacheIn [2048]etf.Atom
@@ -104,7 +109,41 @@ type Link struct {
 	sequenceID int64
 }
 
-func Handshake(conn net.Conn, name, cookie string, hidden bool) (*Link, error) {
+func newLinkFlusher(w io.Writer, latency time.Duration) *linkFlusher {
+	return &linkFlusher{
+		latency: latency,
+		writer:  bufio.NewWriter(w),
+	}
+}
+
+type linkFlusher struct {
+	mutex   sync.Mutex
+	latency time.Duration
+	writer  *bufio.Writer
+}
+
+func (lf *linkFlusher) Write(b []byte) (int, error) {
+	lf.mutex.Lock()
+	defer lf.mutex.Unlock()
+	return lf.writer.Write(b)
+}
+
+func (lf *linkFlusher) loop(ctx context.Context) {
+	t := time.NewTicker(lf.latency)
+	for {
+		select {
+		case <-t.C:
+			lf.mutex.Lock()
+			lf.writer.Flush()
+			lf.mutex.Unlock()
+
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
+func Handshake(ctx context.Context, conn net.Conn, name, cookie string, hidden bool) (*Link, error) {
 
 	link := &Link{
 		Name:   name,
@@ -119,7 +158,6 @@ func Handshake(conn net.Conn, name, cookie string, hidden bool) (*Link, error) {
 		),
 
 		conn:       conn,
-		writer:     bufio.NewWriter(conn),
 		sequenceID: time.Now().UnixNano(),
 		version:    5,
 	}
@@ -188,6 +226,10 @@ func Handshake(conn net.Conn, name, cookie string, hidden bool) (*Link, error) {
 				}
 
 				// handshaked
+				link.flusher = newLinkFlusher(link.conn, defaultLatency)
+
+				go link.flusher.loop(ctx)
+
 				return link, nil
 			case 's':
 				if !link.readStatus(b) {
@@ -211,7 +253,7 @@ func Handshake(conn net.Conn, name, cookie string, hidden bool) (*Link, error) {
 
 }
 
-func HandshakeAccept(conn net.Conn, name, cookie string, hidden bool) (*Link, error) {
+func HandshakeAccept(ctx context.Context, conn net.Conn, name, cookie string, hidden bool) (*Link, error) {
 	link := &Link{
 		Name:   name,
 		Cookie: cookie,
@@ -225,7 +267,6 @@ func HandshakeAccept(conn net.Conn, name, cookie string, hidden bool) (*Link, er
 		),
 
 		conn:       conn,
-		writer:     bufio.NewWriter(conn),
 		sequenceID: time.Now().UnixNano(),
 		challenge:  rand.Uint32(),
 		version:    5,
@@ -295,7 +336,11 @@ func HandshakeAccept(conn net.Conn, name, cookie string, hidden bool) (*Link, er
 					return nil, e
 				}
 				b.Reset()
+
 				// handshaked
+				link.flusher = newLinkFlusher(conn, defaultLatency)
+				go link.flusher.loop(ctx)
+
 				return link, nil
 
 			default:
@@ -696,8 +741,7 @@ func (l *Link) Writer(ctx context.Context, send <-chan []etf.Term, fragmentation
 		// send as a single packet
 		binary.BigEndian.PutUint32(packetBuffer.B[:4], uint32(lenPacket))
 		packetBuffer.B[5] = protoDistMessage // 68
-		packetBuffer.WriteDataTo(l.conn)
-		//l.writer.Flush()
+		packetBuffer.WriteDataTo(l.flusher)
 		//	break
 
 		//}
