@@ -94,7 +94,7 @@ func BenchmarkNode(b *testing.B) {
 
 	node1name := fmt.Sprintf("nodeB1_%d@localhost", b.N)
 	node2name := fmt.Sprintf("nodeB2_%d@localhost", b.N)
-	node1 := CreateNode(node1name, "bench", NodeOptions{})
+	node1 := CreateNode(node1name, "bench", NodeOptions{DisableHeaderAtomCache: true})
 	node2 := CreateNode(node2name, "bench", NodeOptions{})
 
 	bgs := &benchGS{}
@@ -111,13 +111,19 @@ func BenchmarkNode(b *testing.B) {
 		b.Fatal(e2)
 	}
 
+	for i := 0; i < 10000; i++ {
+		if _, e := p1.Call(p2.Self(), "hi"); e != nil {
+			b.Fatal("single loop", e, i)
+		}
+	}
+	fmt.Println("ok")
 	b.ResetTimer()
 	for _, c := range benchCases() {
 		b.Run(c.name, func(b *testing.B) {
 			for i := 0; i < b.N; i++ {
 				_, e := p1.Call(p2.Self(), c.value)
 				if e != nil {
-					b.Fatal(e)
+					b.Fatal(e, i)
 				}
 			}
 		})
@@ -129,6 +135,6 @@ func benchCases() []benchCase {
 		benchCase{"number", 12345},
 		benchCase{"string", "hello world"},
 		benchCase{"tuple (PID)", etf.Pid{Node: "node@localhost", ID: 1, Serial: 1000, Creation: byte(0)}},
-		benchCase{"binary 1MB", make([]byte, 1024*1024)},
+		//		benchCase{"binary 1MB", make([]byte, 1024*1024)},
 	}
 }

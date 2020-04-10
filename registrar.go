@@ -165,6 +165,105 @@ func (r *registrar) createNewPID() etf.Pid {
 func (r *registrar) run() {
 	for {
 		select {
+		case bp := <-r.channels.routeByPid:
+			lib.Log("[%s] sending message by pid %v", r.node.FullName, bp.pid)
+			if bp.retries > 2 {
+				// drop this message after 3 attempts to deliver this message
+				continue
+			}
+			if string(bp.pid.Node) == r.nodeName {
+				// local route
+				if p, ok := r.processes[bp.pid]; ok {
+					p.mailBox <- etf.Tuple{bp.from, bp.message}
+				}
+				continue
+			}
+			peer, ok := r.peers[string(bp.pid.Node)]
+			if !ok {
+				// initiate connection and make yet another attempt to deliver this message
+				go func() {
+					if err := r.node.connect(bp.pid.Node); err != nil {
+						lib.Log("[%s] can't connect to %v: %s", r.node.FullName, bp.pid.Node, err)
+					}
+
+					bp.retries++
+					r.channels.routeByPid <- bp
+				}()
+				continue
+			}
+
+			select {
+			case peer.send <- []etf.Term{etf.Tuple{distProtoSEND, etf.Atom(""), bp.pid}, bp.message}:
+			default:
+				fmt.Printf("Congession detected on link with %s. Packet dropped\n", peer.name)
+			}
+
+		case bn := <-r.channels.routeByName:
+			lib.Log("[%s] sending message by name %v", r.node.FullName, bn.name)
+			if pid, ok := r.names[bn.name]; ok {
+				r.route(bn.from, pid, bn.message)
+			}
+
+		case bt := <-r.channels.routeByTuple:
+			lib.Log("[%s] sending message by tuple %v", r.node.FullName, bt.tuple)
+			if bt.retries > 2 {
+				// drop this message after 3 attempts to deliver this message
+				continue
+			}
+
+			toNode := etf.Atom("")
+			switch x := bt.tuple.Element(2).(type) {
+			case etf.Atom:
+				toNode = x
+			default:
+				toNode = etf.Atom(bt.tuple.Element(2).(string))
+			}
+
+			toProcessName := bt.tuple.Element(1)
+			if toNode == etf.Atom(r.nodeName) {
+				r.route(bt.from, toProcessName, bt.message)
+				continue
+			}
+
+			peer, ok := r.peers[string(toNode)]
+			if !ok {
+				// initiate connection and make yet another attempt to deliver this message
+				go func() {
+					r.node.connect(toNode)
+					bt.retries++
+					r.channels.routeByTuple <- bt
+				}()
+
+				continue
+			}
+			select {
+			case peer.send <- []etf.Term{etf.Tuple{distProtoREG_SEND, bt.from, etf.Atom(""), toProcessName}, bt.message}:
+			default:
+				fmt.Printf("Congession detected on link with %s. Packet dropped\n", peer.name)
+			}
+
+		case rw := <-r.channels.routeRaw:
+			if rw.retries > 2 {
+				// drop this message after 3 attempts of delivering
+				continue
+			}
+			peer, ok := r.peers[rw.nodename]
+			if !ok {
+				// initiate connection and make yet another attempt to deliver this message
+				go func() {
+					if err := r.node.connect(etf.Atom(rw.nodename)); err != nil {
+						lib.Log("[%s] can't connect to %v: %s", r.node.FullName, rw.nodename, err)
+					}
+
+					rw.retries++
+					r.channels.routeRaw <- rw
+				}()
+
+				continue
+			}
+
+			peer.send <- []etf.Term{rw.message}
+
 		case p := <-r.channels.process:
 			if p.name != "" {
 				if _, exist := r.names[p.name]; exist {
@@ -252,105 +351,6 @@ func (r *registrar) run() {
 				p.Kill()
 			}
 			return
-
-		case bp := <-r.channels.routeByPid:
-			lib.Log("[%s] sending message by pid %v", r.node.FullName, bp.pid)
-			if bp.retries > 2 {
-				// drop this message after 3 attempts to deliver this message
-				continue
-			}
-
-			if string(bp.pid.Node) == r.nodeName {
-				// local route
-				if p, ok := r.processes[bp.pid]; ok {
-					p.mailBox <- etf.Tuple{bp.from, bp.message}
-				}
-				continue
-			}
-			peer, ok := r.peers[string(bp.pid.Node)]
-			if !ok {
-				// initiate connection and make yet another attempt to deliver this message
-				go func() {
-					if err := r.node.connect(bp.pid.Node); err != nil {
-						lib.Log("[%s] can't connect to %v: %s", r.node.FullName, bp.pid.Node, err)
-					}
-
-					bp.retries++
-					r.channels.routeByPid <- bp
-				}()
-				continue
-			}
-			select {
-			case peer.send <- []etf.Term{etf.Tuple{distProtoSEND, etf.Atom(""), bp.pid}, bp.message}:
-			default:
-				fmt.Printf("Congession detected on link with %s. Packet dropped\n", peer.name)
-			}
-
-		case bn := <-r.channels.routeByName:
-			lib.Log("[%s] sending message by name %v", r.node.FullName, bn.name)
-			if pid, ok := r.names[bn.name]; ok {
-				r.route(bn.from, pid, bn.message)
-			}
-
-		case bt := <-r.channels.routeByTuple:
-			lib.Log("[%s] sending message by tuple %v", r.node.FullName, bt.tuple)
-			if bt.retries > 2 {
-				// drop this message after 3 attempts to deliver this message
-				continue
-			}
-
-			toNode := etf.Atom("")
-			switch x := bt.tuple.Element(2).(type) {
-			case etf.Atom:
-				toNode = x
-			default:
-				toNode = etf.Atom(bt.tuple.Element(2).(string))
-			}
-
-			toProcessName := bt.tuple.Element(1)
-			if toNode == etf.Atom(r.nodeName) {
-				r.route(bt.from, toProcessName, bt.message)
-				continue
-			}
-
-			peer, ok := r.peers[string(toNode)]
-			if !ok {
-				// initiate connection and make yet another attempt to deliver this message
-				go func() {
-					r.node.connect(toNode)
-					bt.retries++
-					r.channels.routeByTuple <- bt
-				}()
-
-				continue
-			}
-			select {
-			case peer.send <- []etf.Term{etf.Tuple{distProtoREG_SEND, bt.from, etf.Atom(""), toProcessName}, bt.message}:
-			default:
-				fmt.Printf("Congession detected on link with %s. Packet dropped\n", peer.name)
-			}
-
-		case rw := <-r.channels.routeRaw:
-			if rw.retries > 2 {
-				// drop this message after 3 attempts of delivering
-				continue
-			}
-			peer, ok := r.peers[rw.nodename]
-			if !ok {
-				// initiate connection and make yet another attempt to deliver this message
-				go func() {
-					if err := r.node.connect(etf.Atom(rw.nodename)); err != nil {
-						lib.Log("[%s] can't connect to %v: %s", r.node.FullName, rw.nodename, err)
-					}
-
-					rw.retries++
-					r.channels.routeRaw <- rw
-				}()
-
-				continue
-			}
-
-			peer.send <- []etf.Term{rw.message}
 
 		case cmd := <-r.channels.commands:
 			r.handleCommand(cmd)

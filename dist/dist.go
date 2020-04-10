@@ -1,6 +1,7 @@
 package dist
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/md5"
@@ -88,6 +89,7 @@ type Link struct {
 	Hidden    bool
 	peer      *Link
 	conn      net.Conn
+	writer    *bufio.Writer
 	challenge uint32
 	flags     nodeFlag
 	version   uint16
@@ -117,6 +119,7 @@ func Handshake(conn net.Conn, name, cookie string, hidden bool) (*Link, error) {
 		),
 
 		conn:       conn,
+		writer:     bufio.NewWriter(conn),
 		sequenceID: time.Now().UnixNano(),
 		version:    5,
 	}
@@ -150,12 +153,14 @@ func Handshake(conn net.Conn, name, cookie string, hidden bool) (*Link, error) {
 
 		select {
 		case <-timer.C:
+
 			return nil, fmt.Errorf("timeout")
 
 		case e := <-asyncReadChannel:
 			if e != nil {
 				return nil, e
 			}
+		next:
 			switch b.B[2] {
 			case 'n':
 				// 'n' + 2 (version) + 4 (flags) + 4 (challenge) + name...
@@ -166,6 +171,7 @@ func Handshake(conn net.Conn, name, cookie string, hidden bool) (*Link, error) {
 				challenge := link.readChallenge(b.B)
 				b.Reset()
 				link.composeChallengeReply(challenge, b)
+
 				if e := b.WriteDataTo(conn); e != nil {
 					return nil, e
 				}
@@ -184,7 +190,17 @@ func Handshake(conn net.Conn, name, cookie string, hidden bool) (*Link, error) {
 				// handshaked
 				return link, nil
 			case 's':
-				b.Reset()
+				if !link.readStatus(b) {
+					return nil, fmt.Errorf("handshake negotiation failed")
+				}
+				if b.Len() > 1 {
+					lenNext := binary.BigEndian.Uint16(b.B[0:2])
+					if int(lenNext)+2 < b.Len() {
+						// read from socket the rest of this packet
+						continue
+					}
+					goto next
+				}
 			default:
 				return nil, fmt.Errorf("malformed handshake ('%c' digest)", b.B[2])
 			}
@@ -209,6 +225,7 @@ func HandshakeAccept(conn net.Conn, name, cookie string, hidden bool) (*Link, er
 		),
 
 		conn:       conn,
+		writer:     bufio.NewWriter(conn),
 		sequenceID: time.Now().UnixNano(),
 		challenge:  rand.Uint32(),
 		version:    5,
@@ -323,15 +340,12 @@ func (l *Link) Read(b *lib.Buffer) (int, error) {
 
 		packetLength := binary.BigEndian.Uint32(b.B[:4])
 		if packetLength == 0 {
-			// this is keepalive
+			// keepalive
 			l.conn.Write(b.B[:4])
 			b.Set(b.B[4:])
 
-			// check the tail if it has enough data to go further
-			if b.Len() < 4 {
-				continue
-			}
-			packetLength = binary.BigEndian.Uint32(b.B[:4])
+			expectingBytes = 4
+			continue
 		}
 
 		if b.Len() < int(packetLength)+4 {
@@ -591,8 +605,9 @@ func (l *Link) Writer(ctx context.Context, send <-chan []etf.Term, fragmentation
 	var atomCacheBuffer, packetBuffer *lib.Buffer
 	var err error
 
-	cacheEnabled := l.peer.flags.isSet(DIST_HDR_ATOM_CACHE) && l.cacheOut != nil
-	fragmentationEnabled := l.peer.flags.isSet(FRAGMENTS)
+	//cacheEnabled := l.peer.flags.isSet(DIST_HDR_ATOM_CACHE) && l.cacheOut != nil
+	cacheEnabled := false
+	//fragmentationEnabled := l.peer.flags.isSet(FRAGMENTS)
 
 	// Header atom cache is encoded right after control/message encoding
 	// but stored before.
@@ -643,6 +658,7 @@ func (l *Link) Writer(ctx context.Context, send <-chan []etf.Term, fragmentation
 				lib.ReleaseBuffer(packetBuffer)
 				continue
 			}
+
 		}
 		lenMessage = packetBuffer.Len() - reserveHeaderAtomCache - lenControl
 
@@ -674,27 +690,27 @@ func (l *Link) Writer(ctx context.Context, send <-chan []etf.Term, fragmentation
 		// 1 (dist header: 131) + 1 (protoDistX) + ...
 		lenPacket = 1 + 1 + lenAtomCache + lenControl + lenMessage
 
-		for {
+		//for {
 
-			if !fragmentationEnabled || lenPacket < fragmentationUnit {
-				// send as a single packet
-				binary.BigEndian.PutUint32(packetBuffer.B[:4], uint32(lenPacket))
-				packetBuffer.B[5] = protoDistMessage // 68
-				packetBuffer.WriteDataTo(l.conn)
-				break
+		//if !fragmentationEnabled || lenPacket < fragmentationUnit {
+		// send as a single packet
+		binary.BigEndian.PutUint32(packetBuffer.B[:4], uint32(lenPacket))
+		packetBuffer.B[5] = protoDistMessage // 68
+		packetBuffer.WriteDataTo(l.conn)
+		//l.writer.Flush()
+		//	break
 
-			}
+		//}
 
-			panic("FIXME Write Data. fragmentation")
-			// https://erlang.org/doc/apps/erts/erl_ext_dist.html#distribution-header-for-fragmented-messages
-			// "The entire atom cache and control message has to be part of the starting fragment"
+		// https://erlang.org/doc/apps/erts/erl_ext_dist.html#distribution-header-for-fragmented-messages
+		// "The entire atom cache and control message has to be part of the starting fragment"
 
-			// fragment numbering should be like
-			// sequenceID = atomic.AddInt64(&l.sequenceID, 1)
-			//
+		// fragment numbering should be like
+		// sequenceID = atomic.AddInt64(&l.sequenceID, 1)
+		//
 
-			// break
-		}
+		// break
+		//}
 
 		lib.ReleaseBuffer(packetBuffer)
 
@@ -746,6 +762,26 @@ func (l *Link) composeStatus(b *lib.Buffer) {
 	dataLength := uint16(3) // 's' + "ok"
 	binary.BigEndian.PutUint16(b.B[0:2], dataLength)
 	b.Append([]byte("sok"))
+}
+
+func (l *Link) readStatus(b *lib.Buffer) bool {
+	if b.Len() < 5 {
+		// malformed
+		return false
+	}
+	lenStatus := int(binary.BigEndian.Uint16(b.B[0:2]))
+	if b.Len() < 2+lenStatus {
+		// malformed
+		return false
+	}
+	s := fmt.Sprintf("%s", b.B[2:2+lenStatus])
+	if s == "sok" {
+		b.B = b.B[2+lenStatus:]
+		return true
+	}
+
+	return false
+
 }
 
 func (l *Link) composeChallenge(b *lib.Buffer) {

@@ -15,7 +15,7 @@ type Buffer struct {
 
 var (
 	nTrace              = false
-	DefaultBufferLength = 1024
+	DefaultBufferLength = 16384
 	buffers             = &sync.Pool{
 		New: func() interface{} {
 			b := &Buffer{
@@ -84,7 +84,6 @@ func (b *Buffer) WriteDataTo(w io.Writer) error {
 	if l == 0 {
 		return nil
 	}
-
 	n, e := w.Write(b.B)
 	if l != n {
 		return fmt.Errorf("invalid write count")
