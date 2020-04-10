@@ -36,7 +36,7 @@ type flagId uint32
 type nodeFlag flagId
 
 const (
-	defaultLatency = 100 * time.Nanosecond
+	defaultLatency = 150 * time.Nanosecond
 
 	// http://erlang.org/doc/apps/erts/erl_ext_dist.html#distribution_header
 	protoDist           = 131
@@ -140,6 +140,7 @@ func (lf *linkFlusher) loop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		}
+
 	}
 }
 

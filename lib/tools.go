@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"sync"
+	"time"
 )
 
 type Buffer struct {
@@ -26,6 +27,12 @@ var (
 		},
 	}
 
+	timers = &sync.Pool{
+		New: func() interface{} {
+			return time.NewTimer(time.Second * 5)
+		},
+	}
+
 	ErrTooLarge = fmt.Errorf("Too large")
 )
 
@@ -37,6 +44,14 @@ func Log(f string, a ...interface{}) {
 	if nTrace {
 		log.Printf(f, a...)
 	}
+}
+
+func TakeTimer() *time.Timer {
+	return timers.Get().(*time.Timer)
+}
+
+func ReleaseTimer(t *time.Timer) {
+	timers.Put(t)
 }
 
 func TakeBuffer() *Buffer {

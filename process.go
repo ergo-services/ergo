@@ -128,14 +128,16 @@ func (p *Process) Call(to interface{}, message etf.Term) (etf.Term, error) {
 
 // CallWithTimeout makes outgoing sync request in fashiod of 'gen_call' with given timeout
 func (p *Process) CallWithTimeout(to interface{}, message etf.Term, timeout int) (etf.Term, error) {
+	var timer *time.Timer
+
 	ref := p.Node.MakeRef()
 	from := etf.Tuple{p.self, ref}
 	msg := etf.Term(etf.Tuple{etf.Atom("$gen_call"), from, message})
 	p.Send(to, msg)
 
-	// to prevent of timer leaks due to its not GCed until the timer fires
-	timer := time.NewTimer(time.Second * time.Duration(timeout))
-	defer timer.Stop()
+	timer = lib.TakeTimer()
+	defer lib.ReleaseTimer(timer)
+	timer.Reset(time.Second * time.Duration(timeout))
 
 	for {
 		select {
