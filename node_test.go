@@ -129,6 +129,46 @@ func BenchmarkNode(b *testing.B) {
 		})
 	}
 }
+func BenchmarkNodeParallel(b *testing.B) {
+
+	node1name := fmt.Sprintf("nodeB1Parallel_%d@localhost", b.N)
+	node2name := fmt.Sprintf("nodeB2Parallel_%d@localhost", b.N)
+	node1 := CreateNode(node1name, "bench", NodeOptions{DisableHeaderAtomCache: true})
+	node2 := CreateNode(node2name, "bench", NodeOptions{})
+
+	bgs := &benchGS{}
+
+	p1, e1 := node1.Spawn("", ProcessOptions{}, bgs)
+	if e1 != nil {
+		b.Fatal(e1)
+	}
+	p2, e2 := node2.Spawn("", ProcessOptions{}, bgs)
+	if e2 != nil {
+		b.Fatal(e2)
+	}
+
+	if _, e := p1.Call(p2.Self(), "hi"); e != nil {
+		b.Fatal("single ping", e)
+	}
+	b.RunParallel(func(pb *testing.PB) {
+		p1, e1 := node1.Spawn("", ProcessOptions{}, bgs)
+		if e1 != nil {
+			b.Fatal(e1)
+		}
+		p2, e2 := node2.Spawn("", ProcessOptions{}, bgs)
+		if e2 != nil {
+			b.Fatal(e2)
+		}
+		b.ResetTimer()
+		for pb.Next() {
+			_, e := p1.Call(p2.Self(), etf.Atom("ping"))
+			if e != nil {
+				b.Fatal(e)
+			}
+		}
+
+	})
+}
 
 func benchCases() []benchCase {
 	return []benchCase{

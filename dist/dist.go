@@ -122,6 +122,47 @@ type linkFlusher struct {
 	writer  *bufio.Writer
 }
 
+//func newLinkFlusherNoLoop(w io.Writer, latency time.Duration) *linkFlusherNoLoop {
+//	return &linkFlusherNoLoop{
+//		latency: latency,
+//		writer:  bufio.NewWriter(w),
+//	}
+//}
+//
+//type linkFlusherNoLoop struct {
+//	mutex   sync.Mutex
+//	latency time.Duration
+//	writer  *bufio.Writer
+//
+//	timer   *time.Timer
+//	pending bool
+//}
+//
+//func (lf *linkFlusherNoLoop) Write(b []byte) (int, error) {
+//	lf.mutex.Lock()
+//	defer lf.mutex.Unlock()
+//	n, e := lf.writer.Write(b)
+//
+//	if lf.pending {
+//		return n, e
+//	}
+//
+//	if lf.timer != nil {
+//		lf.timer.Reset(lf.latency)
+//	} else {
+//		lf.timer = time.AfterFunc(lf.latency, func() {
+//			lf.mutex.Lock()
+//			defer lf.mutex.Unlock()
+//			lf.writer.Flush()
+//			lf.pending = false
+//		})
+//	}
+//
+//	lf.pending = true
+//	return n, e
+//
+//}
+
 func (lf *linkFlusher) Write(b []byte) (int, error) {
 	lf.mutex.Lock()
 	defer lf.mutex.Unlock()
@@ -227,9 +268,11 @@ func Handshake(ctx context.Context, conn net.Conn, name, cookie string, hidden b
 				}
 
 				// handshaked
-				link.flusher = newLinkFlusher(link.conn, defaultLatency)
 
+				link.flusher = newLinkFlusher(link.conn, defaultLatency)
 				go link.flusher.loop(ctx)
+
+				//link.flusher = newLinkFlusherNoLoop(link.conn, defaultLatency)
 
 				return link, nil
 			case 's':
@@ -339,9 +382,11 @@ func HandshakeAccept(ctx context.Context, conn net.Conn, name, cookie string, hi
 				b.Reset()
 
 				// handshaked
+
 				link.flusher = newLinkFlusher(conn, defaultLatency)
 				go link.flusher.loop(ctx)
 
+				//link.flusher = newLinkFlusherNoLoop(link.conn, defaultLatency)
 				return link, nil
 
 			default:
