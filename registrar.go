@@ -3,6 +3,7 @@ package ergo
 import (
 	"context"
 	"fmt"
+	"sync"
 	"sync/atomic"
 
 	"github.com/halturin/ergo/etf"
@@ -27,7 +28,7 @@ type registerNameRequest struct {
 
 type registerPeerRequest struct {
 	name string
-	peer peer
+	peer *peer
 	err  chan error
 }
 
@@ -112,8 +113,11 @@ type registrar struct {
 
 	names     map[string]etf.Pid
 	processes map[etf.Pid]*Process
-	peers     map[string]peer
-	apps      map[string]*ApplicationSpec
+
+	peers      map[string]*peer
+	mutexPeers sync.Mutex
+
+	apps map[string]*ApplicationSpec
 }
 
 func createRegistrar(node *Node) *registrar {
@@ -142,7 +146,7 @@ func createRegistrar(node *Node) *registrar {
 
 		names:     make(map[string]etf.Pid),
 		processes: make(map[etf.Pid]*Process),
-		peers:     make(map[string]peer),
+		peers:     make(map[string]*peer),
 		apps:      make(map[string]*ApplicationSpec),
 	}
 	go r.run()
@@ -165,38 +169,6 @@ func (r *registrar) createNewPID() etf.Pid {
 func (r *registrar) run() {
 	for {
 		select {
-		case bp := <-r.channels.routeByPid:
-			lib.Log("[%s] sending message by pid %v", r.node.FullName, bp.pid)
-			if bp.retries > 2 {
-				// drop this message after 3 attempts to deliver this message
-				continue
-			}
-			if string(bp.pid.Node) == r.nodeName {
-				// local route
-				if p, ok := r.processes[bp.pid]; ok {
-					p.mailBox <- etf.Tuple{bp.from, bp.message}
-				}
-				continue
-			}
-			peer, ok := r.peers[string(bp.pid.Node)]
-			if !ok {
-				// initiate connection and make yet another attempt to deliver this message
-				go func() {
-					if err := r.node.connect(bp.pid.Node); err != nil {
-						lib.Log("[%s] can't connect to %v: %s", r.node.FullName, bp.pid.Node, err)
-					}
-
-					bp.retries++
-					r.channels.routeByPid <- bp
-				}()
-				continue
-			}
-
-			select {
-			case peer.send <- []etf.Term{etf.Tuple{distProtoSEND, etf.Atom(""), bp.pid}, bp.message}:
-			default:
-				fmt.Printf("Congession detected on link with %s. Packet dropped\n", peer.name)
-			}
 
 		case bn := <-r.channels.routeByName:
 			lib.Log("[%s] sending message by name %v", r.node.FullName, bn.name)
@@ -236,8 +208,9 @@ func (r *registrar) run() {
 
 				continue
 			}
+			send := peer.GetChannel()
 			select {
-			case peer.send <- []etf.Term{etf.Tuple{distProtoREG_SEND, bt.from, etf.Atom(""), toProcessName}, bt.message}:
+			case send <- []etf.Term{etf.Tuple{distProtoREG_SEND, bt.from, etf.Atom(""), toProcessName}, bt.message}:
 			default:
 				fmt.Printf("Congession detected on link with %s. Packet dropped\n", peer.name)
 			}
@@ -261,8 +234,8 @@ func (r *registrar) run() {
 
 				continue
 			}
-
-			peer.send <- []etf.Term{rw.message}
+			send := peer.GetChannel()
+			send <- []etf.Term{rw.message}
 
 		case p := <-r.channels.process:
 			if p.name != "" {
@@ -442,7 +415,7 @@ func (r *registrar) UnregisterName(name string) {
 	r.channels.unregisterName <- name
 }
 
-func (r *registrar) RegisterPeer(p peer) error {
+func (r *registrar) RegisterPeer(p *peer) error {
 	req := registerPeerRequest{
 		name: p.name,
 		peer: p,
@@ -532,12 +505,32 @@ func (r registrar) ApplicationList() []*ApplicationSpec {
 func (r *registrar) route(from etf.Pid, to etf.Term, message etf.Term) {
 	switch tto := to.(type) {
 	case etf.Pid:
-		req := routeByPidRequest{
-			from:    from,
-			pid:     tto,
-			message: message,
+		lib.Log("[%s] sending message by pid %v", r.node.FullName, tto)
+		if string(tto.Node) == r.nodeName {
+			// local route
+			if p, ok := r.processes[tto]; ok {
+				p.mailBox <- etf.Tuple{from, message}
+			}
+			return
 		}
-		r.channels.routeByPid <- req
+
+		r.mutexPeers.Lock()
+		peer, ok := r.peers[string(tto.Node)]
+		r.mutexPeers.Unlock()
+		if !ok {
+			if err := r.node.connect(tto.Node); err != nil {
+				fmt.Println("ERRR", err)
+				lib.Log("[%s] can't connect to %v: %s", r.node.FullName, tto.Node, err)
+				return
+			}
+
+			r.mutexPeers.Lock()
+			peer, _ = r.peers[string(tto.Node)]
+			r.mutexPeers.Unlock()
+		}
+
+		send := peer.GetChannel()
+		send <- []etf.Term{etf.Tuple{distProtoSEND, etf.Atom(""), tto}, message}
 
 	case etf.Tuple:
 		if len(tto) == 2 {

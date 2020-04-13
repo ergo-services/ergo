@@ -90,7 +90,7 @@ func (b *benchGS) Terminate(reason string, state interface{}) {
 
 }
 
-func BenchmarkNode(b *testing.B) {
+func BenchmarkNodeSequental(b *testing.B) {
 
 	node1name := fmt.Sprintf("nodeB1_%d@localhost", b.N)
 	node2name := fmt.Sprintf("nodeB2_%d@localhost", b.N)

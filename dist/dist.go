@@ -36,7 +36,7 @@ type flagId uint32
 type nodeFlag flagId
 
 const (
-	defaultLatency = 150 * time.Nanosecond
+	defaultLatency = 200 * time.Nanosecond
 
 	// http://erlang.org/doc/apps/erts/erl_ext_dist.html#distribution_header
 	protoDist           = 131
@@ -178,8 +178,8 @@ func (lf *linkFlusher) loop(ctx context.Context) {
 			lf.writer.Flush()
 			lf.mutex.Unlock()
 
-		case <-ctx.Done():
-			return
+			//	case <-ctx.Done():
+			//		return
 		}
 
 	}
@@ -234,7 +234,7 @@ func Handshake(ctx context.Context, conn net.Conn, name, cookie string, hidden b
 		select {
 		case <-timer.C:
 
-			return nil, fmt.Errorf("timeout")
+			return nil, fmt.Errorf("handshake timeout")
 
 		case e := <-asyncReadChannel:
 			if e != nil {
@@ -339,7 +339,7 @@ func HandshakeAccept(ctx context.Context, conn net.Conn, name, cookie string, hi
 
 		select {
 		case <-timer.C:
-			return nil, fmt.Errorf("timeout")
+			return nil, fmt.Errorf("handshake accept timeout")
 		case e := <-asyncReadChannel:
 			if e != nil {
 				return nil, e
@@ -451,32 +451,35 @@ func (l *Link) Read(b *lib.Buffer) (int, error) {
 
 func (l *Link) ReadHandlePacket(ctx context.Context, recv <-chan *lib.Buffer,
 	handler func(etf.Term, etf.Term)) {
+	var b *lib.Buffer
+
 	for {
-		select {
-		case b := <-recv:
-			// read and decode recieved packet
-			control, message, err := l.ReadPacket(b.B)
-			if err != nil {
-				fmt.Println("Malformed Dist proto at link with", l.PeerName(), err)
-				l.Close()
-				return
-			}
-
-			if control == nil {
-				// fragment
-				continue
-			}
-
-			// handle message
-			handler(control, message)
-
-			// we have to release this buffer
-			lib.ReleaseBuffer(b)
-
-		case <-ctx.Done():
+		b = nil
+		b = <-recv
+		if b == nil {
+			// channel was closed
 			return
-
 		}
+
+		// read and decode recieved packet
+		control, message, err := l.ReadPacket(b.B)
+		if err != nil {
+			fmt.Println("Malformed Dist proto at link with", l.PeerName(), err)
+			l.Close()
+			return
+		}
+
+		if control == nil {
+			// fragment
+			continue
+		}
+
+		// handle message
+		handler(control, message)
+
+		// we have to release this buffer
+		lib.ReleaseBuffer(b)
+
 	}
 }
 
@@ -714,10 +717,11 @@ func (l *Link) Writer(ctx context.Context, send <-chan []etf.Term, fragmentation
 	}
 
 	for {
+		terms = nil
+		terms = <-send
 
-		select {
-		case terms = <-send:
-		case <-ctx.Done():
+		if terms == nil {
+			// channel was closed
 			return
 		}
 

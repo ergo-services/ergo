@@ -234,12 +234,21 @@ func (n *Node) ProcessInfo(pid etf.Pid) (ProcessInfo, error) {
 }
 
 func (n *Node) serve(link *dist.Link, opts NodeOptions) error {
+	// define the total number of reader/writer goroutines
+	numHandlers := runtime.GOMAXPROCS(-1)
+	receivers := struct {
+		recv []chan *lib.Buffer
+		n    int
+		i    int
+	}{
+		recv: make([]chan *lib.Buffer, opts.RecvQueueLength),
+		n:    numHandlers,
+	}
 
-	send := make(chan []etf.Term, opts.SendQueueLength)
-	recv := make(chan *lib.Buffer, opts.RecvQueueLength)
-	p := peer{
+	p := &peer{
 		name: link.GetRemoteName(),
-		send: send,
+		send: make([]chan []etf.Term, numHandlers),
+		n:    numHandlers,
 	}
 
 	if err := n.registrar.RegisterPeer(p); err != nil {
@@ -253,6 +262,7 @@ func (n *Node) serve(link *dist.Link, opts NodeOptions) error {
 	go func() {
 		var err error
 		var packetLength int
+		var recv chan *lib.Buffer
 
 		ctx, cancel := context.WithCancel(n.context)
 		defer cancel()
@@ -289,10 +299,17 @@ func (n *Node) serve(link *dist.Link, opts NodeOptions) error {
 			// buffer b have to be released by the reader of
 			// recv channel (link.ReadHandlePacket)
 			b.B = b.B[:packetLength]
+			recv = receivers.recv[receivers.i]
 			recv <- b
+			b = b1
+
+			receivers.i++
+			if receivers.i < receivers.n {
+				continue
+			}
+			receivers.i = 0
 
 			// set new buffer as a current for the next reading
-			b = b1
 		}
 	}()
 
@@ -300,11 +317,15 @@ func (n *Node) serve(link *dist.Link, opts NodeOptions) error {
 	<-cacheIsReady
 
 	// run readers/writers for incoming/outgoing messages
-	for i := 0; i < runtime.NumCPU(); i++ {
+	for i := 0; i < numHandlers; i++ {
 		// run writer routines (encoder)
+		send := make(chan []etf.Term, opts.SendQueueLength)
+		p.send[i] = send
 		go link.Writer(n.context, send, opts.FragmentationUnit)
 
 		// run packet reader/handler routines (decoder)
+		recv := make(chan *lib.Buffer, opts.RecvQueueLength)
+		receivers.recv[i] = recv
 		go link.ReadHandlePacket(n.context, recv, n.handleMessage)
 	}
 
@@ -641,7 +662,7 @@ func (n *Node) connect(to etf.Atom) error {
 		Control: setSocketOptions,
 	}
 	if port, err = n.ResolvePort(string(to)); port < 0 {
-		return fmt.Errorf("Can't resolve port: %s", err)
+		return fmt.Errorf("Can't resolve port for %s: %s", to, err)
 	}
 	ns := strings.Split(string(to), "@")
 
@@ -711,10 +732,16 @@ func (n *Node) listen(name string, opts NodeOptions) uint16 {
 func setSocketOptions(network string, address string, c syscall.RawConn) error {
 	var fn = func(s uintptr) {
 		var setErr error
+
+		// set KeepAlive
 		setErr = syscall.SetsockoptInt(int(s), syscall.IPPROTO_TCP, syscall.TCP_KEEPINTVL, 5)
 		if setErr != nil {
 			log.Fatal(setErr)
 		}
+
+		// set buffers
+		//syscall.SetsockoptInt(int(s), syscall.SOL_SOCKET, syscall.SO_RCVBUF, 164000)
+		//syscall.SetsockoptInt(int(s), syscall.SOL_SOCKET, syscall.SO_RCVBUF, 164000)
 	}
 	if err := c.Control(fn); err != nil {
 		return err
