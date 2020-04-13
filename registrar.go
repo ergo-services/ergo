@@ -284,7 +284,6 @@ func (r *registrar) ApplicationList() []*ApplicationSpec {
 
 // route routes message to a local/remote process
 func (r *registrar) route(from etf.Pid, to etf.Term, message etf.Term) {
-	fmt.Println("Route", to, message)
 next:
 	switch tto := to.(type) {
 	case etf.Pid:
@@ -315,7 +314,11 @@ next:
 		}
 
 		send := peer.GetChannel()
-		send <- []etf.Term{etf.Tuple{distProtoSEND, etf.Atom(""), tto}, message}
+		select {
+		case send <- []etf.Term{etf.Tuple{distProtoSEND, etf.Atom(""), tto}, message}:
+		default:
+			fmt.Println("SSSSSSSSSSSSSSS")
+		}
 
 	case etf.Tuple:
 		lib.Log("[%s] sending message by tuple %v", r.node.FullName, tto)

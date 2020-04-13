@@ -236,7 +236,6 @@ func (n *Node) ProcessInfo(pid etf.Pid) (ProcessInfo, error) {
 func (n *Node) serve(link *dist.Link, opts NodeOptions) error {
 	// define the total number of reader/writer goroutines
 	numHandlers := runtime.GOMAXPROCS(-1)
-	fmt.Println("NUM HANDLER", numHandlers)
 
 	// do not use shared channels within intencive code parts, impacts on a performance
 	receivers := struct {

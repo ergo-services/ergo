@@ -130,7 +130,6 @@ func (p *Process) Call(to interface{}, message etf.Term) (etf.Term, error) {
 func (p *Process) CallWithTimeout(to interface{}, message etf.Term, timeout int) (etf.Term, error) {
 	var timer *time.Timer
 
-	fmt.Println("CALL W TO")
 	ref := p.Node.MakeRef()
 	from := etf.Tuple{p.self, ref}
 	msg := etf.Term(etf.Tuple{etf.Atom("$gen_call"), from, message})
@@ -147,7 +146,6 @@ func (p *Process) CallWithTimeout(to interface{}, message etf.Term, timeout int)
 			val := m[1].(etf.Term)
 			// check message Ref
 			if len(ref.ID) == 3 && ref.ID[0] == ref1.ID[0] && ref.ID[1] == ref1.ID[1] && ref.ID[2] == ref1.ID[2] {
-				fmt.Println("GOT ANSW")
 				return val, nil
 			}
 			// ignore this message. waiting for the next one
