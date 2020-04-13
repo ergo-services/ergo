@@ -228,7 +228,6 @@ func Handshake(ctx context.Context, conn net.Conn, name, cookie string, hidden b
 			}
 		}()
 
-		conn.(*net.TCPConn).SetReadDeadline(time.Now().Add(100 * time.Millisecond))
 		_, e := b.ReadDataFrom(conn)
 		asyncReadChannel <- e
 	}
