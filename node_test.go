@@ -112,7 +112,8 @@ func BenchmarkNodeSequental(b *testing.B) {
 	}
 
 	for i := 0; i < 10000; i++ {
-		if _, e := p1.Call(p2.Self(), "hi"); e != nil {
+		fmt.Println("iii", i)
+		if _, e := p1.Call(p2.Self(), i); e != nil {
 			b.Fatal("single loop", e, i)
 		}
 	}

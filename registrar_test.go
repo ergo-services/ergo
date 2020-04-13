@@ -45,7 +45,7 @@ func TestRegistrar(t *testing.T) {
 	gs := &TestRegistrarGenserver{}
 	fmt.Printf("Starting TestRegistrarGenserver and registering as 'gs1' on %s: ", node1.FullName)
 	node1gs1, _ := node1.Spawn("gs1", ProcessOptions{}, gs, nil)
-	if _, ok := node1.registrar.processes[node1gs1.Self()]; !ok {
+	if _, ok := node1.registrar.processes[node1gs1.Self().ID]; !ok {
 		message := fmt.Sprintf("missing process %v on %s", node1gs1.Self(), node1.FullName)
 		t.Fatal(message)
 	}
@@ -69,7 +69,7 @@ func TestRegistrar(t *testing.T) {
 
 	fmt.Printf("Starting TestRegistrarGenserver and registering as 'gs2' on %s: ", node2.FullName)
 	node2gs2, _ := node2.Spawn("gs2", ProcessOptions{}, gs, nil)
-	if _, ok := node2.registrar.processes[node2gs2.Self()]; !ok {
+	if _, ok := node2.registrar.processes[node2gs2.Self().ID]; !ok {
 		message := fmt.Sprintf("missing process %v on %s", node2gs2.Self(), node2.FullName)
 		t.Fatal(message)
 	}

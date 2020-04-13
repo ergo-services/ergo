@@ -236,6 +236,9 @@ func (n *Node) ProcessInfo(pid etf.Pid) (ProcessInfo, error) {
 func (n *Node) serve(link *dist.Link, opts NodeOptions) error {
 	// define the total number of reader/writer goroutines
 	numHandlers := runtime.GOMAXPROCS(-1)
+	fmt.Println("NUM HANDLER", numHandlers)
+
+	// do not use shared channels within intencive code parts, impacts on a performance
 	receivers := struct {
 		recv []chan *lib.Buffer
 		n    int
@@ -281,8 +284,20 @@ func (n *Node) serve(link *dist.Link, opts NodeOptions) error {
 		}
 		cacheIsReady <- true
 
-		defer link.Close()
-		defer func() { n.registrar.UnregisterPeer(link.GetRemoteName()) }()
+		defer func() {
+			link.Close()
+			n.registrar.UnregisterPeer(link.GetRemoteName())
+
+			// close handlers channel
+			for i := 0; i < numHandlers; i++ {
+				if p.send[i] != nil {
+					close(p.send[i])
+				}
+				if receivers.recv[i] != nil {
+					close(receivers.recv[i])
+				}
+			}
+		}()
 
 		b := lib.TakeBuffer()
 		for {
@@ -301,15 +316,17 @@ func (n *Node) serve(link *dist.Link, opts NodeOptions) error {
 			b.B = b.B[:packetLength]
 			recv = receivers.recv[receivers.i]
 			recv <- b
+
+			// set new buffer as a current for the next reading
 			b = b1
 
+			// round-robin switch to the next receiver
 			receivers.i++
 			if receivers.i < receivers.n {
 				continue
 			}
 			receivers.i = 0
 
-			// set new buffer as a current for the next reading
 		}
 	}()
 
@@ -740,8 +757,14 @@ func setSocketOptions(network string, address string, c syscall.RawConn) error {
 		}
 
 		// set buffers
-		//syscall.SetsockoptInt(int(s), syscall.SOL_SOCKET, syscall.SO_RCVBUF, 164000)
-		//syscall.SetsockoptInt(int(s), syscall.SOL_SOCKET, syscall.SO_RCVBUF, 164000)
+		setErr = syscall.SetsockoptInt(int(s), syscall.SOL_SOCKET, syscall.SO_RCVBUF, 64000)
+		if setErr != nil {
+			log.Fatal(setErr)
+		}
+		setErr = syscall.SetsockoptInt(int(s), syscall.SOL_SOCKET, syscall.SO_SNDBUF, 64000)
+		if setErr != nil {
+			log.Fatal(setErr)
+		}
 	}
 	if err := c.Control(fn); err != nil {
 		return err

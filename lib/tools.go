@@ -100,6 +100,7 @@ func (b *Buffer) WriteDataTo(w io.Writer) error {
 		return nil
 	}
 	n, e := w.Write(b.B)
+	fmt.Println("wrote", n, "bytes", e)
 	if l != n {
 		return fmt.Errorf("invalid write count")
 	}

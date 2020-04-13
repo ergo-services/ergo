@@ -14,94 +14,6 @@ const (
 	startPID = 1000
 )
 
-type registerProcessRequest struct {
-	name    string
-	process *Process
-	err     chan error
-}
-
-type registerNameRequest struct {
-	name string
-	pid  etf.Pid
-	err  chan error
-}
-
-type registerPeerRequest struct {
-	name string
-	peer *peer
-	err  chan error
-}
-
-type registerAppRequest struct {
-	name string
-	spec *ApplicationSpec
-	err  chan error
-}
-
-type routeByPidRequest struct {
-	from    etf.Pid
-	pid     etf.Pid
-	message etf.Term
-	retries int
-}
-
-type routeByNameRequest struct {
-	from    etf.Pid
-	name    string
-	message etf.Term
-	retries int
-}
-
-type routeByTupleRequest struct {
-	from    etf.Pid
-	tuple   etf.Tuple
-	message etf.Term
-	retries int
-}
-
-type routeRawRequest struct {
-	nodename string
-	message  etf.Term
-	retries  int
-}
-
-type requestProcessDetails struct {
-	name  string
-	pid   etf.Pid
-	reply chan *Process
-}
-
-type requestApplicationSpec struct {
-	name  string
-	reply chan *ApplicationSpec
-}
-
-type requestProcessList struct {
-	reply chan []*Process
-}
-
-type requestApplicationList struct {
-	reply chan []*ApplicationSpec
-}
-
-type registrarChannels struct {
-	process           chan registerProcessRequest
-	unregisterProcess chan etf.Pid
-	name              chan registerNameRequest
-	unregisterName    chan string
-	peer              chan registerPeerRequest
-	unregisterPeer    chan string
-	app               chan registerAppRequest
-	unregisterApp     chan string
-
-	routeByPid   chan routeByPidRequest
-	routeByName  chan routeByNameRequest
-	routeByTuple chan routeByTupleRequest
-	routeRaw     chan routeRawRequest
-
-	commands chan interface{}
-}
-
 type registrar struct {
 	nextPID  uint32
 	nodeName string
@@ -109,11 +21,9 @@ type registrar struct {
 
 	node *Node
 
-	channels registrarChannels
-
 	names          map[string]etf.Pid
 	mutexNames     sync.Mutex
-	processes      map[etf.Pid]*Process
+	processes      map[uint32]*Process
 	mutexProcesses sync.Mutex
 	peers          map[string]*peer
 	mutexPeers     sync.Mutex
@@ -123,34 +33,15 @@ type registrar struct {
 
 func createRegistrar(node *Node) *registrar {
 	r := registrar{
-		nextPID:  startPID,
-		nodeName: node.FullName,
-		creation: byte(1),
-		node:     node,
-		channels: registrarChannels{
-			process:           make(chan registerProcessRequest, 10),
-			unregisterProcess: make(chan etf.Pid, 10),
-			name:              make(chan registerNameRequest, 10),
-			unregisterName:    make(chan string, 10),
-			peer:              make(chan registerPeerRequest, 10),
-			unregisterPeer:    make(chan string, 10),
-			app:               make(chan registerAppRequest, 10),
-			unregisterApp:     make(chan string, 10),
-
-			routeByPid:   make(chan routeByPidRequest, 100),
-			routeByName:  make(chan routeByNameRequest, 100),
-			routeByTuple: make(chan routeByTupleRequest, 100),
-			routeRaw:     make(chan routeRawRequest, 100),
-
-			commands: make(chan interface{}, 100),
-		},
-
+		nextPID:   startPID,
+		nodeName:  node.FullName,
+		creation:  byte(1),
+		node:      node,
 		names:     make(map[string]etf.Pid),
-		processes: make(map[etf.Pid]*Process),
+		processes: make(map[uint32]*Process),
 		peers:     make(map[string]*peer),
 		apps:      make(map[string]*ApplicationSpec),
 	}
-	go r.run()
 	return &r
 }
 
@@ -165,22 +56,6 @@ func (r *registrar) createNewPID() etf.Pid {
 		Creation: byte(r.creation),
 	}
 
-}
-
-func (r *registrar) run() {
-	for {
-		select {
-
-		case bn := <-r.channels.routeByName:
-			lib.Log("[%s] sending message by name %v", r.node.FullName, bn.name)
-			if pid, ok := r.names[bn.name]; ok {
-				r.route(bn.from, pid, bn.message)
-			}
-
-		case cmd := <-r.channels.commands:
-			r.handleCommand(cmd)
-		}
-	}
 }
 
 func (r *registrar) RegisterProcess(object interface{}) (*Process, error) {
@@ -242,7 +117,7 @@ func (r *registrar) RegisterProcessExt(name string, object interface{}, opts Pro
 	}
 
 	r.mutexProcesses.Lock()
-	r.processes[process.self] = process
+	r.processes[process.self.ID] = process
 	r.mutexProcesses.Unlock()
 
 	return process, nil
@@ -251,9 +126,9 @@ func (r *registrar) RegisterProcessExt(name string, object interface{}, opts Pro
 // UnregisterProcess unregister process by Pid
 func (r *registrar) UnregisterProcess(pid etf.Pid) {
 	r.mutexProcesses.Lock()
-	if p, ok := r.processes[pid]; ok {
+	if p, ok := r.processes[pid.ID]; ok {
 		lib.Log("[%s] REGISTRAR unregistering process: %v", r.node.FullName, p.self)
-		delete(r.processes, pid)
+		delete(r.processes, pid.ID)
 		r.mutexProcesses.Unlock()
 
 		r.mutexNames.Lock()
@@ -349,43 +224,42 @@ func (r *registrar) UnregisterApp(name string) {
 }
 
 func (r *registrar) GetApplicationSpecByName(name string) *ApplicationSpec {
-	reply := make(chan *ApplicationSpec)
-	req := requestApplicationSpec{
-		name:  name,
-		reply: reply,
+	r.mutexApps.Lock()
+	defer r.mutexApps.Unlock()
+	if spec, ok := r.apps[name]; ok {
+		return spec
 	}
-	r.channels.commands <- req
-	return <-reply
+	return nil
 }
 
 // GetProcessByPid returns Process struct for the given Pid. Returns nil if it doesn't exist (not found)
 func (r *registrar) GetProcessByPid(pid etf.Pid) *Process {
-	reply := make(chan *Process)
-	req := requestProcessDetails{
-		pid:   pid,
-		reply: reply,
-	}
-	r.channels.commands <- req
-	if p := <-reply; p != nil {
+	r.mutexProcesses.Lock()
+	defer r.mutexProcesses.Unlock()
+	if p, ok := r.processes[pid.ID]; ok {
 		return p
+	} else {
+		// unknown process
+		return nil
 	}
-	// unknown process
-	return nil
 }
 
 // GetProcessByPid returns Process struct for the given name. Returns nil if it doesn't exist (not found)
 func (r *registrar) GetProcessByName(name string) *Process {
-	reply := make(chan *Process)
-	req := requestProcessDetails{
-		name:  name,
-		reply: reply,
+	var pid etf.Pid
+	if name != "" {
+		// requesting Process by name
+		r.mutexNames.Lock()
+		if p, ok := r.names[name]; ok {
+			r.mutexNames.Unlock()
+			pid = p
+		} else {
+			r.mutexNames.Unlock()
+			return nil
+		}
 	}
-	r.channels.commands <- req
-	if p := <-reply; p != nil {
-		return p
-	}
-	// unknown process
-	return nil
+
+	return r.GetProcessByPid(pid)
 }
 
 func (r *registrar) ProcessList() []*Process {
@@ -410,13 +284,15 @@ func (r *registrar) ApplicationList() []*ApplicationSpec {
 
 // route routes message to a local/remote process
 func (r *registrar) route(from etf.Pid, to etf.Term, message etf.Term) {
+	fmt.Println("Route", to, message)
+next:
 	switch tto := to.(type) {
 	case etf.Pid:
 		lib.Log("[%s] sending message by pid %v", r.node.FullName, tto)
 		if string(tto.Node) == r.nodeName {
 			// local route
 			r.mutexProcesses.Lock()
-			if p, ok := r.processes[tto]; ok {
+			if p, ok := r.processes[tto.ID]; ok {
 				p.mailBox <- etf.Tuple{from, message}
 			}
 			r.mutexProcesses.Unlock()
@@ -442,15 +318,6 @@ func (r *registrar) route(from etf.Pid, to etf.Term, message etf.Term) {
 		send <- []etf.Term{etf.Tuple{distProtoSEND, etf.Atom(""), tto}, message}
 
 	case etf.Tuple:
-		if len(tto) == 2 {
-			req := routeByTupleRequest{
-				from:    from,
-				tuple:   tto,
-				message: message,
-			}
-			r.channels.routeByTuple <- req
-		}
-
 		lib.Log("[%s] sending message by tuple %v", r.node.FullName, tto)
 
 		toNode := etf.Atom("")
@@ -487,32 +354,30 @@ func (r *registrar) route(from etf.Pid, to etf.Term, message etf.Term) {
 		send <- []etf.Term{etf.Tuple{distProtoREG_SEND, from, etf.Atom(""), toProcessName}, message}
 
 	case string:
-		req := routeByNameRequest{
-			from:    from,
-			name:    tto,
-			message: message,
+		lib.Log("[%s] sending message by name %v", r.node.FullName, tto)
+		r.mutexNames.Lock()
+		if pid, ok := r.names[tto]; ok {
+			to = pid
+			r.mutexNames.Unlock()
+			goto next
 		}
-		r.channels.routeByName <- req
+		r.mutexNames.Unlock()
 
 	case etf.Atom:
-		req := routeByNameRequest{
-			from:    from,
-			name:    string(tto),
-			message: message,
+		lib.Log("[%s] sending message by name %v", r.node.FullName, tto)
+		r.mutexNames.Lock()
+		if pid, ok := r.names[string(tto)]; ok {
+			to = pid
+			r.mutexNames.Unlock()
+			goto next
 		}
-		r.channels.routeByName <- req
+		r.mutexNames.Unlock()
 	default:
 		lib.Log("[%s] unknow sender type %#v", r.node.FullName, tto)
 	}
 }
 
 func (r *registrar) routeRaw(nodename etf.Atom, message etf.Term) {
-	req := routeRawRequest{
-		nodename: string(nodename),
-		message:  message,
-	}
-	r.channels.routeRaw <- req
-
 	r.mutexPeers.Lock()
 	peer, ok := r.peers[string(nodename)]
 	r.mutexPeers.Unlock()
@@ -531,35 +396,4 @@ func (r *registrar) routeRaw(nodename etf.Atom, message etf.Term) {
 
 	send := peer.GetChannel()
 	send <- []etf.Term{message}
-}
-
-func (r *registrar) handleCommand(cmd interface{}) {
-	switch c := cmd.(type) {
-	case requestProcessDetails:
-		pid := c.pid
-		if c.name != "" {
-			// requesting Process by name
-			if p, ok := r.names[c.name]; ok {
-				pid = p
-			}
-		}
-
-		if p, ok := r.processes[pid]; ok {
-			c.reply <- p
-		} else {
-			c.reply <- nil
-		}
-
-	case requestProcessList:
-
-	case requestApplicationSpec:
-		if spec, ok := r.apps[c.name]; ok {
-			c.reply <- spec
-			return
-		}
-		c.reply <- nil
-
-	case requestApplicationList:
-	}
-
 }

@@ -45,7 +45,7 @@ type Function struct {
 }
 
 var (
-	hasher = fnv.New32a()
+	hasher32 = fnv.New32a()
 )
 
 func StringTerm(t Term) (s string, ok bool) {
@@ -128,9 +128,9 @@ func (t Tuple) Element(i int) Term {
 }
 
 func (p Pid) Str() string {
-	hasher.Write([]byte(p.Node))
-	defer hasher.Reset()
-	return fmt.Sprintf("<%X.%d.%d>", hasher.Sum32(), p.ID, p.Serial)
+	hasher32.Write([]byte(p.Node))
+	defer hasher32.Reset()
+	return fmt.Sprintf("<%X.%d.%d>", hasher32.Sum32(), p.ID, p.Serial)
 }
 
 func TermIntoStruct(term Term, dest interface{}) error {

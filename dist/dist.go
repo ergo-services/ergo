@@ -175,7 +175,9 @@ func (lf *linkFlusher) loop(ctx context.Context) {
 		select {
 		case <-t.C:
 			lf.mutex.Lock()
-			lf.writer.Flush()
+			if lf.writer.Buffered() > 0 {
+				lf.writer.Flush()
+			}
 			lf.mutex.Unlock()
 
 			//	case <-ctx.Done():
@@ -225,24 +227,29 @@ func Handshake(ctx context.Context, conn net.Conn, name, cookie string, hidden b
 				asyncReadChannel <- fmt.Errorf("malformed handshake (too large packet)")
 			}
 		}()
+
+		conn.(*net.TCPConn).SetReadDeadline(time.Now().Add(100 * time.Millisecond))
+		fmt.Println("READING.......")
 		_, e := b.ReadDataFrom(conn)
 		asyncReadChannel <- e
 	}
 	for {
+		fmt.Println("START LOOP111")
 		go asyncRead()
 
 		select {
 		case <-timer.C:
-
 			return nil, fmt.Errorf("handshake timeout")
 
 		case e := <-asyncReadChannel:
 			if e != nil {
+				fmt.Println("GOT ERR")
 				return nil, e
 			}
 		next:
 			switch b.B[2] {
 			case 'n':
+				fmt.Println("AAAA")
 				// 'n' + 2 (version) + 4 (flags) + 4 (challenge) + name...
 				if len(b.B) < 12 {
 					return nil, fmt.Errorf("malformed handshake ('n')")
@@ -258,15 +265,20 @@ func Handshake(ctx context.Context, conn net.Conn, name, cookie string, hidden b
 				b.Reset()
 				continue
 			case 'a':
+				fmt.Println("BBBB")
 				// 'a' + 16 (digest)
 				if len(b.B) != 19 {
 					return nil, fmt.Errorf("malformed handshake ('a' length of digest)")
 				}
 
+				fmt.Println("BBBB1")
+				// 'a' + 16 (digest)
 				if !link.validateChallengeAck(b) {
 					return nil, fmt.Errorf("malformed handshake ('a' digest)")
 				}
 
+				fmt.Println("HANDSHAKED")
+				// 'a' + 16 (digest)
 				// handshaked
 
 				link.flusher = newLinkFlusher(link.conn, defaultLatency)
@@ -276,17 +288,22 @@ func Handshake(ctx context.Context, conn net.Conn, name, cookie string, hidden b
 
 				return link, nil
 			case 's':
+				fmt.Println("CCCC")
 				if !link.readStatus(b) {
 					return nil, fmt.Errorf("handshake negotiation failed")
 				}
+				fmt.Println("DDDD")
 				if b.Len() > 1 {
 					lenNext := binary.BigEndian.Uint16(b.B[0:2])
 					if int(lenNext)+2 < b.Len() {
 						// read from socket the rest of this packet
+						fmt.Println("DDDD1")
 						continue
 					}
+					fmt.Println("DDDD2", b.B)
 					goto next
 				}
+				fmt.Println("DDDD3")
 			default:
 				return nil, fmt.Errorf("malformed handshake ('%c' digest)", b.B[2])
 			}
@@ -358,7 +375,6 @@ func HandshakeAccept(ctx context.Context, conn net.Conn, name, cookie string, hi
 					return nil, fmt.Errorf("malformed handshake ('n' accept name)")
 				}
 
-				b.Reset()
 				link.composeChallenge(b)
 				if e := b.WriteDataTo(conn); e != nil {
 					return nil, e
@@ -366,21 +382,24 @@ func HandshakeAccept(ctx context.Context, conn net.Conn, name, cookie string, hi
 				b.Reset()
 				continue
 			case 'r':
+				fmt.Println("ACPT AAA1")
 				if len(b.B) < 21 {
 					return nil, fmt.Errorf("malformed handshake ('r')")
 				}
 
+				fmt.Println("ACPT AAA2")
 				if !link.validateChallengeReply(b.B[3:]) {
 					return nil, fmt.Errorf("malformed handshake ('r1')")
 				}
 				b.Reset()
 
 				link.composeChallengeAck(b)
+				fmt.Println("ACPT AAA3", b.B)
 				if e := b.WriteDataTo(conn); e != nil {
 					return nil, e
 				}
-				b.Reset()
 
+				fmt.Println("ACPT HANDSHAKED")
 				// handshaked
 
 				link.flusher = newLinkFlusher(conn, defaultLatency)
@@ -416,6 +435,7 @@ func (l *Link) Read(b *lib.Buffer) (int, error) {
 	expectingBytes := 4
 	for {
 
+		fmt.Println(l.Name, "reading...")
 		if b.Len() < expectingBytes {
 			n, e := b.ReadDataFrom(l.conn)
 			if n == 0 {
@@ -429,6 +449,7 @@ func (l *Link) Read(b *lib.Buffer) (int, error) {
 
 		}
 
+		fmt.Println(l.Name, "reading... got", b.Len(), "bytes")
 		packetLength := binary.BigEndian.Uint32(b.B[:4])
 		if packetLength == 0 {
 			// keepalive
@@ -440,10 +461,12 @@ func (l *Link) Read(b *lib.Buffer) (int, error) {
 		}
 
 		if b.Len() < int(packetLength)+4 {
+			fmt.Println(l.Name, "...not enought. keep reading")
 			expectingBytes = int(packetLength) + 4
 			continue
 		}
 
+		fmt.Println(l.Name, "got packet")
 		return int(packetLength) + 4, nil
 	}
 
