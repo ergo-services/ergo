@@ -111,13 +111,14 @@ type registrar struct {
 
 	channels registrarChannels
 
-	names     map[string]etf.Pid
-	processes map[etf.Pid]*Process
-
-	peers      map[string]*peer
-	mutexPeers sync.Mutex
-
-	apps map[string]*ApplicationSpec
+	names          map[string]etf.Pid
+	mutexNames     sync.Mutex
+	processes      map[etf.Pid]*Process
+	mutexProcesses sync.Mutex
+	peers          map[string]*peer
+	mutexPeers     sync.Mutex
+	apps           map[string]*ApplicationSpec
+	mutexApps      sync.Mutex
 }
 
 func createRegistrar(node *Node) *registrar {
@@ -176,158 +177,6 @@ func (r *registrar) run() {
 				r.route(bn.from, pid, bn.message)
 			}
 
-		case bt := <-r.channels.routeByTuple:
-			lib.Log("[%s] sending message by tuple %v", r.node.FullName, bt.tuple)
-			if bt.retries > 2 {
-				// drop this message after 3 attempts to deliver this message
-				continue
-			}
-
-			toNode := etf.Atom("")
-			switch x := bt.tuple.Element(2).(type) {
-			case etf.Atom:
-				toNode = x
-			default:
-				toNode = etf.Atom(bt.tuple.Element(2).(string))
-			}
-
-			toProcessName := bt.tuple.Element(1)
-			if toNode == etf.Atom(r.nodeName) {
-				r.route(bt.from, toProcessName, bt.message)
-				continue
-			}
-
-			peer, ok := r.peers[string(toNode)]
-			if !ok {
-				// initiate connection and make yet another attempt to deliver this message
-				go func() {
-					r.node.connect(toNode)
-					bt.retries++
-					r.channels.routeByTuple <- bt
-				}()
-
-				continue
-			}
-			send := peer.GetChannel()
-			select {
-			case send <- []etf.Term{etf.Tuple{distProtoREG_SEND, bt.from, etf.Atom(""), toProcessName}, bt.message}:
-			default:
-				fmt.Printf("Congession detected on link with %s. Packet dropped\n", peer.name)
-			}
-
-		case rw := <-r.channels.routeRaw:
-			if rw.retries > 2 {
-				// drop this message after 3 attempts of delivering
-				continue
-			}
-			peer, ok := r.peers[rw.nodename]
-			if !ok {
-				// initiate connection and make yet another attempt to deliver this message
-				go func() {
-					if err := r.node.connect(etf.Atom(rw.nodename)); err != nil {
-						lib.Log("[%s] can't connect to %v: %s", r.node.FullName, rw.nodename, err)
-					}
-
-					rw.retries++
-					r.channels.routeRaw <- rw
-				}()
-
-				continue
-			}
-			send := peer.GetChannel()
-			send <- []etf.Term{rw.message}
-
-		case p := <-r.channels.process:
-			if p.name != "" {
-				if _, exist := r.names[p.name]; exist {
-					p.err <- ErrNameIsTaken
-					continue
-				}
-				r.names[p.name] = p.process.self
-			}
-
-			r.processes[p.process.self] = p.process
-			p.err <- nil
-
-		case up := <-r.channels.unregisterProcess:
-			if p, ok := r.processes[up]; ok {
-				lib.Log("[%s] REGISTRAR unregistering process: %v", r.node.FullName, p.self)
-				delete(r.processes, up)
-				if (p.name) != "" {
-					lib.Log("[%s] REGISTRAR unregistering name (%v): %s", r.node.FullName, p.self, p.name)
-					delete(r.names, p.name)
-				}
-
-				// delete names registered with this pid
-				for name, pid := range r.names {
-					if p.self == pid {
-						delete(r.names, name)
-					}
-				}
-
-				// delete associated process with this app
-				for _, spec := range r.apps {
-					if spec.process != nil && spec.process.self == p.self {
-						spec.process = nil
-					}
-				}
-			}
-
-		case n := <-r.channels.name:
-			lib.Log("[%s] registering name %v", r.node.FullName, n)
-			if _, ok := r.names[n.name]; ok {
-				// already registered
-				n.err <- ErrNameIsTaken
-				continue
-			}
-			r.names[n.name] = n.pid
-			n.err <- nil
-
-		case un := <-r.channels.unregisterName:
-			lib.Log("[%s] unregistering name %v", r.node.FullName, un)
-			delete(r.names, un)
-
-		case p := <-r.channels.peer:
-			lib.Log("[%s] registering peer %v", r.node.FullName, p)
-			r.mutexPeers.Lock()
-			if _, ok := r.peers[p.name]; ok {
-				// already registered
-				p.err <- ErrNameIsTaken
-				r.mutexPeers.Unlock()
-				continue
-			}
-			r.peers[p.name] = p.peer
-			r.mutexPeers.Unlock()
-			p.err <- nil
-
-		case up := <-r.channels.unregisterPeer:
-			lib.Log("[%s] unregistering peer %v", r.node.FullName, up)
-			if _, ok := r.peers[up]; ok {
-				r.node.monitor.NodeDown(up)
-				delete(r.peers, up)
-			}
-
-		case a := <-r.channels.app:
-			lib.Log("[%s] registering app %v", r.node.FullName, a)
-			if _, ok := r.apps[a.name]; ok {
-				// already loaded
-				a.err <- ErrAppAlreadyLoaded
-				continue
-			}
-			r.apps[a.name] = a.spec
-			a.err <- nil
-
-		case ua := <-r.channels.unregisterApp:
-			lib.Log("[%s] unregistering app %v", r.node.FullName, ua)
-			delete(r.apps, ua)
-
-		case <-r.node.context.Done():
-			lib.Log("[%s] Finalizing (KILL) registrar (total number of processes: %d)", r.node.FullName, len(r.processes))
-			for _, p := range r.processes {
-				p.Kill()
-			}
-			return
-
 		case cmd := <-r.channels.commands:
 			r.handleCommand(cmd)
 		}
@@ -382,70 +231,121 @@ func (r *registrar) RegisterProcessExt(name string, object interface{}, opts Pro
 		object:       object,
 	}
 
-	req := registerProcessRequest{
-		name:    name,
-		process: process,
-		err:     make(chan error),
+	if name != "" {
+		r.mutexNames.Lock()
+		if _, exist := r.names[name]; exist {
+			r.mutexNames.Unlock()
+			return nil, ErrNameIsTaken
+		}
+		r.names[name] = process.self
+		r.mutexNames.Unlock()
 	}
 
-	r.channels.process <- req
-	if err := <-req.err; err != nil {
-		return nil, err
-	}
+	r.mutexProcesses.Lock()
+	r.processes[process.self] = process
+	r.mutexProcesses.Unlock()
 
 	return process, nil
 }
 
 // UnregisterProcess unregister process by Pid
 func (r *registrar) UnregisterProcess(pid etf.Pid) {
-	r.channels.unregisterProcess <- pid
+	r.mutexProcesses.Lock()
+	if p, ok := r.processes[pid]; ok {
+		lib.Log("[%s] REGISTRAR unregistering process: %v", r.node.FullName, p.self)
+		delete(r.processes, pid)
+		r.mutexProcesses.Unlock()
+
+		r.mutexNames.Lock()
+		if (p.name) != "" {
+			lib.Log("[%s] REGISTRAR unregistering name (%v): %s", r.node.FullName, p.self, p.name)
+			delete(r.names, p.name)
+		}
+
+		// delete names registered with this pid
+		for name, pid := range r.names {
+			if p.self == pid {
+				delete(r.names, name)
+			}
+		}
+		r.mutexNames.Unlock()
+
+		// delete associated process with this app
+		r.mutexProcesses.Lock()
+		for _, spec := range r.apps {
+			if spec.process != nil && spec.process.self == p.self {
+				spec.process = nil
+			}
+		}
+		r.mutexProcesses.Unlock()
+		return
+	}
+	r.mutexProcesses.Unlock()
 }
 
 // RegisterName register associates the name with pid
 func (r *registrar) RegisterName(name string, pid etf.Pid) error {
-	req := registerNameRequest{
-		name: name,
-		pid:  pid,
-		err:  make(chan error),
+	lib.Log("[%s] registering name %v", r.node.FullName, name)
+	r.mutexNames.Lock()
+	if _, ok := r.names[name]; ok {
+		// already registered
+		r.mutexNames.Unlock()
+		return ErrNameIsTaken
 	}
-	defer close(req.err)
-	r.channels.name <- req
-	return <-req.err
+	r.names[name] = pid
+	r.mutexNames.Unlock()
+	return nil
 }
 
 // UnregisterName unregister named process
 func (r *registrar) UnregisterName(name string) {
-	r.channels.unregisterName <- name
+	lib.Log("[%s] unregistering name %v", r.node.FullName, name)
+	r.mutexNames.Lock()
+	delete(r.names, name)
+	r.mutexNames.Unlock()
 }
 
 func (r *registrar) RegisterPeer(p *peer) error {
-	req := registerPeerRequest{
-		name: p.name,
-		peer: p,
-		err:  make(chan error),
+	lib.Log("[%s] registering peer %v", r.node.FullName, p)
+	r.mutexPeers.Lock()
+	if _, ok := r.peers[p.name]; ok {
+		// already registered
+		r.mutexPeers.Unlock()
+		return ErrNameIsTaken
 	}
-	defer close(req.err)
-	r.channels.peer <- req
-	return <-req.err
+	r.peers[p.name] = p
+	r.mutexPeers.Unlock()
+	return nil
 }
 
 func (r *registrar) UnregisterPeer(name string) {
-	r.channels.unregisterPeer <- name
+	lib.Log("[%s] unregistering peer %v", r.node.FullName, name)
+	r.mutexPeers.Lock()
+	if _, ok := r.peers[name]; ok {
+		r.node.monitor.NodeDown(name)
+		delete(r.peers, name)
+	}
+	r.mutexPeers.Unlock()
 }
 
 func (r *registrar) RegisterApp(name string, spec *ApplicationSpec) error {
-	req := registerAppRequest{
-		name: name,
-		spec: spec,
-		err:  make(chan error),
+	lib.Log("[%s] registering app %v", r.node.FullName, name)
+	r.mutexApps.Lock()
+	if _, ok := r.apps[name]; ok {
+		// already loaded
+		r.mutexApps.Unlock()
+		return ErrAppAlreadyLoaded
 	}
-	defer close(req.err)
-	r.channels.app <- req
-	return <-req.err
+	r.apps[name] = spec
+	r.mutexApps.Unlock()
+	return nil
 }
 
 func (r *registrar) UnregisterApp(name string) {
-	r.channels.unregisterApp <- name
+	lib.Log("[%s] unregistering app %v", r.node.FullName, name)
+	r.mutexApps.Lock()
+	delete(r.apps, name)
+	r.mutexApps.Unlock()
 }
 
 func (r *registrar) GetApplicationSpecByName(name string) *ApplicationSpec {
@@ -488,20 +388,24 @@ func (r *registrar) GetProcessByName(name string) *Process {
 	return nil
 }
 
-func (r registrar) ProcessList() []*Process {
-	req := requestProcessList{
-		reply: make(chan []*Process),
+func (r *registrar) ProcessList() []*Process {
+	list := []*Process{}
+	r.mutexProcesses.Lock()
+	for _, p := range r.processes {
+		list = append(list, p)
 	}
-	r.channels.commands <- req
-	return <-req.reply
+	r.mutexProcesses.Unlock()
+	return list
 }
 
-func (r registrar) ApplicationList() []*ApplicationSpec {
-	req := requestApplicationList{
-		reply: make(chan []*ApplicationSpec),
+func (r *registrar) ApplicationList() []*ApplicationSpec {
+	list := []*ApplicationSpec{}
+	r.mutexApps.Lock()
+	for _, a := range r.apps {
+		list = append(list, a)
 	}
-	r.channels.commands <- req
-	return <-req.reply
+	r.mutexApps.Unlock()
+	return list
 }
 
 // route routes message to a local/remote process
@@ -511,9 +415,11 @@ func (r *registrar) route(from etf.Pid, to etf.Term, message etf.Term) {
 		lib.Log("[%s] sending message by pid %v", r.node.FullName, tto)
 		if string(tto.Node) == r.nodeName {
 			// local route
+			r.mutexProcesses.Lock()
 			if p, ok := r.processes[tto]; ok {
 				p.mailBox <- etf.Tuple{from, message}
 			}
+			r.mutexProcesses.Unlock()
 			return
 		}
 
@@ -545,6 +451,41 @@ func (r *registrar) route(from etf.Pid, to etf.Term, message etf.Term) {
 			r.channels.routeByTuple <- req
 		}
 
+		lib.Log("[%s] sending message by tuple %v", r.node.FullName, tto)
+
+		toNode := etf.Atom("")
+		switch x := tto.Element(2).(type) {
+		case etf.Atom:
+			toNode = x
+		default:
+			toNode = etf.Atom(tto.Element(2).(string))
+		}
+
+		toProcessName := tto.Element(1)
+		if toNode == etf.Atom(r.nodeName) {
+			// local route
+			r.route(from, toProcessName, message)
+			return
+		}
+
+		r.mutexPeers.Lock()
+		peer, ok := r.peers[string(toNode)]
+		r.mutexPeers.Unlock()
+		if !ok {
+			// initiate connection and make yet another attempt to deliver this message
+			if err := r.node.connect(toNode); err != nil {
+				lib.Log("[%s] can't connect to %v: %s", r.node.FullName, toNode, err)
+				return
+			}
+
+			r.mutexPeers.Lock()
+			peer, _ = r.peers[string(toNode)]
+			r.mutexPeers.Unlock()
+		}
+
+		send := peer.GetChannel()
+		send <- []etf.Term{etf.Tuple{distProtoREG_SEND, from, etf.Atom(""), toProcessName}, message}
+
 	case string:
 		req := routeByNameRequest{
 			from:    from,
@@ -571,6 +512,25 @@ func (r *registrar) routeRaw(nodename etf.Atom, message etf.Term) {
 		message:  message,
 	}
 	r.channels.routeRaw <- req
+
+	r.mutexPeers.Lock()
+	peer, ok := r.peers[string(nodename)]
+	r.mutexPeers.Unlock()
+
+	if !ok {
+		// initiate connection and make yet another attempt to deliver this message
+		if err := r.node.connect(nodename); err != nil {
+			lib.Log("[%s] can't connect to %v: %s", r.node.FullName, nodename, err)
+			return
+		}
+
+		r.mutexPeers.Lock()
+		peer, _ = r.peers[string(nodename)]
+		r.mutexPeers.Unlock()
+	}
+
+	send := peer.GetChannel()
+	send <- []etf.Term{message}
 }
 
 func (r *registrar) handleCommand(cmd interface{}) {
@@ -591,11 +551,6 @@ func (r *registrar) handleCommand(cmd interface{}) {
 		}
 
 	case requestProcessList:
-		list := []*Process{}
-		for _, p := range r.processes {
-			list = append(list, p)
-		}
-		c.reply <- list
 
 	case requestApplicationSpec:
 		if spec, ok := r.apps[c.name]; ok {
@@ -605,11 +560,6 @@ func (r *registrar) handleCommand(cmd interface{}) {
 		c.reply <- nil
 
 	case requestApplicationList:
-		list := []*ApplicationSpec{}
-		for _, a := range r.apps {
-			list = append(list, a)
-		}
-		c.reply <- list
 	}
 
 }
