@@ -289,12 +289,15 @@ func (r *registrar) run() {
 
 		case p := <-r.channels.peer:
 			lib.Log("[%s] registering peer %v", r.node.FullName, p)
+			r.mutexPeers.Lock()
 			if _, ok := r.peers[p.name]; ok {
 				// already registered
 				p.err <- ErrNameIsTaken
+				r.mutexPeers.Unlock()
 				continue
 			}
 			r.peers[p.name] = p.peer
+			r.mutexPeers.Unlock()
 			p.err <- nil
 
 		case up := <-r.channels.unregisterPeer:
