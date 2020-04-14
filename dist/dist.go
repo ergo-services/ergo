@@ -97,8 +97,8 @@ type Link struct {
 	version   uint16
 
 	// writer
-	flusher *linkFlusher
-	//flusher *linkFlusherNoLoop
+	//flusher *linkFlusher
+	flusher *linkFlusherNoLoop
 
 	// atom cache for incomming messages
 	cacheIn [2048]etf.Atom
@@ -280,10 +280,10 @@ func Handshake(ctx context.Context, conn net.Conn, name, cookie string, hidden b
 				// 'a' + 16 (digest)
 				// handshaked
 
-				link.flusher = newLinkFlusher(link.conn, defaultLatency)
-				go link.flusher.loop(ctx)
+				//link.flusher = newLinkFlusher(link.conn, defaultLatency)
+				//go link.flusher.loop(ctx)
 
-				//link.flusher = newLinkFlusherNoLoop(link.conn, defaultLatency)
+				link.flusher = newLinkFlusherNoLoop(link.conn, defaultLatency)
 
 				return link, nil
 			case 's':
@@ -392,10 +392,10 @@ func HandshakeAccept(ctx context.Context, conn net.Conn, name, cookie string, hi
 				}
 
 				// handshaked
-				link.flusher = newLinkFlusher(conn, defaultLatency)
-				go link.flusher.loop(ctx)
+				//link.flusher = newLinkFlusher(conn, defaultLatency)
+				//go link.flusher.loop(ctx)
 
-				//link.flusher = newLinkFlusherNoLoop(link.conn, defaultLatency)
+				link.flusher = newLinkFlusherNoLoop(link.conn, defaultLatency)
 				return link, nil
 
 			default:
