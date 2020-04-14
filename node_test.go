@@ -102,8 +102,6 @@ func BenchmarkNodeSequential(b *testing.B) {
 	p1, e1 := node1.Spawn("", ProcessOptions{}, bgs)
 	p2, e2 := node2.Spawn("", ProcessOptions{}, bgs)
 
-	fmt.Println("pids: ", p1.Self(), p2.Self())
-
 	if e1 != nil {
 		b.Fatal(e1)
 	}
@@ -111,12 +109,9 @@ func BenchmarkNodeSequential(b *testing.B) {
 		b.Fatal(e2)
 	}
 
-	// warming up
-	//for i := 0; i < 1000; i++ {
-	//	if _, e := p1.Call(p2.Self(), i); e != nil {
-	//		b.Fatal("single loop", e, i)
-	//	}
-	//}
+	if _, e := p1.Call(p2.Self(), 1); e != nil {
+		b.Fatal("single ping", e)
+	}
 
 	b.ResetTimer()
 	for _, c := range benchCases() {
@@ -130,6 +125,41 @@ func BenchmarkNodeSequential(b *testing.B) {
 		})
 	}
 }
+
+func BenchmarkNodeSequentialLocal(b *testing.B) {
+
+	node1name := fmt.Sprintf("nodeB1Local_%d@localhost", b.N)
+	node1 := CreateNode(node1name, "bench", NodeOptions{DisableHeaderAtomCache: true})
+
+	bgs := &benchGS{}
+
+	p1, e1 := node1.Spawn("", ProcessOptions{}, bgs)
+	p2, e2 := node1.Spawn("", ProcessOptions{}, bgs)
+
+	if e1 != nil {
+		b.Fatal(e1)
+	}
+	if e2 != nil {
+		b.Fatal(e2)
+	}
+
+	if _, e := p1.Call(p2.Self(), 1); e != nil {
+		b.Fatal("single ping", e)
+	}
+
+	b.ResetTimer()
+	for _, c := range benchCases() {
+		b.Run(c.name, func(b *testing.B) {
+			for i := 0; i < b.N; i++ {
+				_, e := p1.Call(p2.Self(), c.value)
+				if e != nil {
+					b.Fatal(e, i)
+				}
+			}
+		})
+	}
+}
+
 func BenchmarkNodeParallel(b *testing.B) {
 
 	node1name := fmt.Sprintf("nodeB1Parallel_%d@localhost", b.N)
@@ -151,6 +181,7 @@ func BenchmarkNodeParallel(b *testing.B) {
 	if _, e := p1.Call(p2.Self(), "hi"); e != nil {
 		b.Fatal("single ping", e)
 	}
+
 	b.SetParallelism(15)
 	b.RunParallel(func(pb *testing.PB) {
 		p1, e1 := node1.Spawn("", ProcessOptions{}, bgs)

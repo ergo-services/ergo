@@ -152,7 +152,7 @@ func (lf *linkFlusherNoLoop) Write(b []byte) (int, error) {
 	// 64000 - socket buffer size (via syscall.SO_RCVBUF/syscall.SO_SNDBUF)
 	if l > 64000 {
 		for {
-			n, e := lf.w.Write(b)
+			n, e := lf.w.Write(b[lenB-l:])
 			if e != nil {
 				return n, e
 			}
