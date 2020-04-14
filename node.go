@@ -693,6 +693,8 @@ func (n *Node) connect(to etf.Atom) error {
 		return e
 	}
 
+	fmt.Println("serving connect", link.Name)
+
 	if err := n.serve(link, n.opts); err != nil {
 		c.Close()
 		return err
@@ -728,6 +730,7 @@ func (n *Node) listen(name string, opts NodeOptions) uint16 {
 					continue
 				}
 
+				fmt.Println("serving listen", link.Name)
 				// start serving this link
 				if err := n.serve(link, opts); err != nil {
 					lib.Log("Can't serve connection link due to: %s", err)

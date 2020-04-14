@@ -98,6 +98,7 @@ type Link struct {
 
 	// writer
 	flusher *linkFlusher
+	//flusher *linkFlusherNoLoop
 
 	// atom cache for incomming messages
 	cacheIn [2048]etf.Atom
@@ -122,46 +123,52 @@ type linkFlusher struct {
 	writer  *bufio.Writer
 }
 
-//func newLinkFlusherNoLoop(w io.Writer, latency time.Duration) *linkFlusherNoLoop {
-//	return &linkFlusherNoLoop{
-//		latency: latency,
-//		writer:  bufio.NewWriter(w),
-//	}
-//}
-//
-//type linkFlusherNoLoop struct {
-//	mutex   sync.Mutex
-//	latency time.Duration
-//	writer  *bufio.Writer
-//
-//	timer   *time.Timer
-//	pending bool
-//}
-//
-//func (lf *linkFlusherNoLoop) Write(b []byte) (int, error) {
-//	lf.mutex.Lock()
-//	defer lf.mutex.Unlock()
-//	n, e := lf.writer.Write(b)
-//
-//	if lf.pending {
-//		return n, e
-//	}
-//
-//	if lf.timer != nil {
-//		lf.timer.Reset(lf.latency)
-//	} else {
-//		lf.timer = time.AfterFunc(lf.latency, func() {
-//			lf.mutex.Lock()
-//			defer lf.mutex.Unlock()
-//			lf.writer.Flush()
-//			lf.pending = false
-//		})
-//	}
-//
-//	lf.pending = true
-//	return n, e
-//
-//}
+func newLinkFlusherNoLoop(w io.Writer, latency time.Duration) *linkFlusherNoLoop {
+	return &linkFlusherNoLoop{
+		latency: latency,
+		writer:  bufio.NewWriter(w),
+	}
+}
+
+type linkFlusherNoLoop struct {
+	mutex   sync.Mutex
+	latency time.Duration
+	writer  *bufio.Writer
+
+	timer   *time.Timer
+	pending bool
+}
+
+func (lf *linkFlusherNoLoop) Write(b []byte) (int, error) {
+	lf.mutex.Lock()
+	defer lf.mutex.Unlock()
+	n, e := lf.writer.Write(b)
+
+	if lf.pending {
+		return n, e
+	}
+
+	lf.pending = true
+
+	if lf.timer != nil {
+		// f*ck. i spent few hours due to this bug
+		// https://github.com/golang/go/issues/38070
+		// TL;DR - you have to upgrade/downgrade you golang runtime
+		// in case of using 1.14 or 1.14.1
+		lf.timer.Reset(lf.latency)
+		return n, e
+	}
+
+	lf.timer = time.AfterFunc(lf.latency, func() {
+		lf.mutex.Lock()
+		lf.writer.Flush()
+		lf.pending = false
+		lf.mutex.Unlock()
+	})
+
+	return n, e
+
+}
 
 func (lf *linkFlusher) Write(b []byte) (int, error) {
 	lf.mutex.Lock()
@@ -434,6 +441,7 @@ func (l *Link) Read(b *lib.Buffer) (int, error) {
 		packetLength := binary.BigEndian.Uint32(b.B[:4])
 		if packetLength == 0 {
 			// keepalive
+			fmt.Println("KEEPALIVE")
 			l.conn.Write(b.B[:4])
 			b.Set(b.B[4:])
 
@@ -700,6 +708,8 @@ func (l *Link) Writer(ctx context.Context, send <-chan []etf.Term, fragmentation
 	var lenControl, lenMessage, lenAtomCache, lenPacket, startDataPosition int
 	var atomCacheBuffer, packetBuffer *lib.Buffer
 	var err error
+
+	defer fmt.Println("WRITER QUIT")
 
 	//cacheEnabled := l.peer.flags.isSet(DIST_HDR_ATOM_CACHE) && l.cacheOut != nil
 	cacheEnabled := false
