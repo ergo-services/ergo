@@ -99,13 +99,19 @@ func (b *Buffer) WriteDataTo(w io.Writer) error {
 	if l == 0 {
 		return nil
 	}
-	n, e := w.Write(b.B)
-	if l != n {
-		return fmt.Errorf("invalid write count")
-	}
 
-	if e != nil {
-		return e
+	for {
+		n, e := w.Write(b.B)
+		if e != nil {
+			return e
+		}
+
+		l -= n
+		if l > 0 {
+			continue
+		}
+
+		break
 	}
 
 	b.Reset()
@@ -122,6 +128,7 @@ func (b *Buffer) ReadDataFrom(r io.Reader) (int, error) {
 	if capB-lenB < capB>>1 {
 		// less than (almost) 50% space left. increase capacity
 		b.increase()
+		capB = cap(b.B)
 	}
 	n, e := r.Read(b.B[lenB:capB])
 	l := lenB + n
@@ -131,7 +138,7 @@ func (b *Buffer) ReadDataFrom(r io.Reader) (int, error) {
 
 func (b *Buffer) increase() {
 	cap1 := cap(b.B) * 8
-	b1 := make([]byte, 0, cap1)
+	b1 := make([]byte, cap(b.B), cap1)
 	copy(b1, b.B)
 	b.B = b1
 }
@@ -153,6 +160,7 @@ func (b *Buffer) Extend(n int) []byte {
 	for {
 		if e > cap(b.B) {
 			b.increase()
+			continue
 		}
 		b.B = b.B[:e]
 		return b.B[l:e]

@@ -303,6 +303,7 @@ func (n *Node) serve(link *dist.Link, opts NodeOptions) error {
 			packetLength, err = link.Read(b)
 			if err != nil || packetLength == 0 {
 				// link was closed or got malformed data
+				fmt.Println("eeeee", link.Name, err, packetLength)
 				lib.ReleaseBuffer(b)
 				return
 			}
@@ -693,8 +694,6 @@ func (n *Node) connect(to etf.Atom) error {
 		return e
 	}
 
-	fmt.Println("serving connect", link.Name)
-
 	if err := n.serve(link, n.opts); err != nil {
 		c.Close()
 		return err
@@ -713,8 +712,8 @@ func (n *Node) listen(name string, opts NodeOptions) uint16 {
 		go func() {
 			for {
 				c, err := l.Accept()
-
 				lib.Log("Accepted new connection from %s", c.RemoteAddr().String())
+
 				if err != nil {
 					if err == context.Canceled {
 						return
@@ -730,7 +729,6 @@ func (n *Node) listen(name string, opts NodeOptions) uint16 {
 					continue
 				}
 
-				fmt.Println("serving listen", link.Name)
 				// start serving this link
 				if err := n.serve(link, opts); err != nil {
 					lib.Log("Can't serve connection link due to: %s", err)

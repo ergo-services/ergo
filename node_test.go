@@ -3,7 +3,6 @@ package ergo
 import (
 	"fmt"
 	"net"
-	"sync"
 	"testing"
 
 	"github.com/halturin/ergo/etf"
@@ -91,7 +90,7 @@ func (b *benchGS) Terminate(reason string, state interface{}) {
 
 }
 
-func BenchmarkNodeSequental(b *testing.B) {
+func BenchmarkNodeSequential(b *testing.B) {
 
 	node1name := fmt.Sprintf("nodeB1_%d@localhost", b.N)
 	node2name := fmt.Sprintf("nodeB2_%d@localhost", b.N)
@@ -112,12 +111,13 @@ func BenchmarkNodeSequental(b *testing.B) {
 		b.Fatal(e2)
 	}
 
-	for i := 0; i < 10000; i++ {
-		if _, e := p1.Call(p2.Self(), i); e != nil {
-			b.Fatal("single loop", e, i)
-		}
-	}
-	fmt.Println("ok")
+	// warming up
+	//for i := 0; i < 1000; i++ {
+	//	if _, e := p1.Call(p2.Self(), i); e != nil {
+	//		b.Fatal("single loop", e, i)
+	//	}
+	//}
+
 	b.ResetTimer()
 	for _, c := range benchCases() {
 		b.Run(c.name, func(b *testing.B) {
@@ -151,6 +151,7 @@ func BenchmarkNodeParallel(b *testing.B) {
 	if _, e := p1.Call(p2.Self(), "hi"); e != nil {
 		b.Fatal("single ping", e)
 	}
+	b.SetParallelism(15)
 	b.RunParallel(func(pb *testing.PB) {
 		p1, e1 := node1.Spawn("", ProcessOptions{}, bgs)
 		if e1 != nil {
@@ -171,30 +172,50 @@ func BenchmarkNodeParallel(b *testing.B) {
 	})
 }
 
+func BenchmarkNodeParallelLocal(b *testing.B) {
+
+	node1name := fmt.Sprintf("nodeB1ParallelLocal_%d@localhost", b.N)
+	node1 := CreateNode(node1name, "bench", NodeOptions{DisableHeaderAtomCache: true})
+
+	bgs := &benchGS{}
+
+	p1, e1 := node1.Spawn("", ProcessOptions{}, bgs)
+	if e1 != nil {
+		b.Fatal(e1)
+	}
+	p2, e2 := node1.Spawn("", ProcessOptions{}, bgs)
+	if e2 != nil {
+		b.Fatal(e2)
+	}
+
+	if _, e := p1.Call(p2.Self(), "hi"); e != nil {
+		b.Fatal("single ping", e)
+	}
+	b.SetParallelism(15)
+	b.RunParallel(func(pb *testing.PB) {
+		p1, e1 := node1.Spawn("", ProcessOptions{}, bgs)
+		if e1 != nil {
+			b.Fatal(e1)
+		}
+		p2, e2 := node1.Spawn("", ProcessOptions{}, bgs)
+		if e2 != nil {
+			b.Fatal(e2)
+		}
+		b.ResetTimer()
+		for pb.Next() {
+			_, e := p1.Call(p2.Self(), etf.Atom("ping"))
+			if e != nil {
+				b.Fatal(e)
+			}
+		}
+
+	})
+}
 func benchCases() []benchCase {
 	return []benchCase{
 		benchCase{"number", 12345},
 		benchCase{"string", "hello world"},
 		benchCase{"tuple (PID)", etf.Pid{Node: "node@localhost", ID: 1, Serial: 1000, Creation: byte(0)}},
-		//		benchCase{"binary 1MB", make([]byte, 1024*1024)},
+		benchCase{"binary 1MB", make([]byte, 1024*1024)},
 	}
-}
-
-func BenchmarkChannelOneByte(b *testing.B) {
-	ch := make(chan byte, 4096)
-	wg := sync.WaitGroup{}
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		for range ch {
-		}
-	}()
-	b.SetBytes(1)
-	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		ch <- byte(i)
-	}
-	close(ch)
-	wg.Wait()
 }

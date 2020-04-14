@@ -127,6 +127,7 @@ func newLinkFlusherNoLoop(w io.Writer, latency time.Duration) *linkFlusherNoLoop
 	return &linkFlusherNoLoop{
 		latency: latency,
 		writer:  bufio.NewWriter(w),
+		w:       w, // in case if we skip buffering
 	}
 }
 
@@ -134,6 +135,7 @@ type linkFlusherNoLoop struct {
 	mutex   sync.Mutex
 	latency time.Duration
 	writer  *bufio.Writer
+	w       io.Writer
 
 	timer   *time.Timer
 	pending bool
@@ -142,21 +144,54 @@ type linkFlusherNoLoop struct {
 func (lf *linkFlusherNoLoop) Write(b []byte) (int, error) {
 	lf.mutex.Lock()
 	defer lf.mutex.Unlock()
-	n, e := lf.writer.Write(b)
+
+	l := len(b)
+	lenB := l
+
+	// long data write directly to the socket.
+	// 64000 - socket buffer size (via syscall.SO_RCVBUF/syscall.SO_SNDBUF)
+	if l > 64000 {
+		for {
+			n, e := lf.w.Write(b)
+			if e != nil {
+				return n, e
+			}
+			// check if something left
+			l -= n
+			if l > 0 {
+				continue
+			}
+			return lenB, nil
+		}
+	}
+
+	// write data to the buffer
+	for {
+		n, e := lf.writer.Write(b)
+		if e != nil {
+			return n, e
+		}
+		// check if something left
+		l -= n
+		if l > 0 {
+			continue
+		}
+		break
+	}
 
 	if lf.pending {
-		return n, e
+		return lenB, nil
 	}
 
 	lf.pending = true
 
 	if lf.timer != nil {
-		// f*ck. i spent few hours due to this bug
+		// spent few hours due to this bug :(
 		// https://github.com/golang/go/issues/38070
 		// TL;DR - you have to upgrade/downgrade you golang runtime
 		// in case of using 1.14 or 1.14.1
 		lf.timer.Reset(lf.latency)
-		return n, e
+		return lenB, nil
 	}
 
 	lf.timer = time.AfterFunc(lf.latency, func() {
@@ -166,7 +201,7 @@ func (lf *linkFlusherNoLoop) Write(b []byte) (int, error) {
 		lf.mutex.Unlock()
 	})
 
-	return n, e
+	return lenB, nil
 
 }
 
@@ -277,12 +312,7 @@ func Handshake(ctx context.Context, conn net.Conn, name, cookie string, hidden b
 					return nil, fmt.Errorf("malformed handshake ('a' digest)")
 				}
 
-				// 'a' + 16 (digest)
 				// handshaked
-
-				//link.flusher = newLinkFlusher(link.conn, defaultLatency)
-				//go link.flusher.loop(ctx)
-
 				link.flusher = newLinkFlusherNoLoop(link.conn, defaultLatency)
 
 				return link, nil
@@ -392,10 +422,8 @@ func HandshakeAccept(ctx context.Context, conn net.Conn, name, cookie string, hi
 				}
 
 				// handshaked
-				//link.flusher = newLinkFlusher(conn, defaultLatency)
-				//go link.flusher.loop(ctx)
-
 				link.flusher = newLinkFlusherNoLoop(link.conn, defaultLatency)
+
 				return link, nil
 
 			default:
@@ -423,25 +451,27 @@ func (l *Link) PeerName() string {
 func (l *Link) Read(b *lib.Buffer) (int, error) {
 	// http://erlang.org/doc/apps/erts/erl_dist_protocol.html#protocol-between-connected-nodes
 	expectingBytes := 4
-	for {
 
+	for {
 		if b.Len() < expectingBytes {
 			n, e := b.ReadDataFrom(l.conn)
 			if n == 0 {
-				// link is closed
+				// link was closed
 				return 0, nil
 			}
 
 			if e != nil && e != io.EOF {
+				// something went wrong
 				return 0, e
 			}
 
+			// check onemore time if we should read more data
+			continue
 		}
 
 		packetLength := binary.BigEndian.Uint32(b.B[:4])
 		if packetLength == 0 {
 			// keepalive
-			fmt.Println("KEEPALIVE")
 			l.conn.Write(b.B[:4])
 			b.Set(b.B[4:])
 
@@ -733,6 +763,7 @@ func (l *Link) Writer(ctx context.Context, send <-chan []etf.Term, fragmentation
 		terms = <-send
 
 		if terms == nil {
+			fmt.Println("channel was closed")
 			// channel was closed
 			return
 		}
@@ -803,7 +834,9 @@ func (l *Link) Writer(ctx context.Context, send <-chan []etf.Term, fragmentation
 		// send as a single packet
 		binary.BigEndian.PutUint32(packetBuffer.B[:4], uint32(lenPacket))
 		packetBuffer.B[5] = protoDistMessage // 68
-		packetBuffer.WriteDataTo(l.flusher)
+		if err := packetBuffer.WriteDataTo(l.flusher); err != nil {
+			fmt.Println("AAAAAA", err)
+		}
 		//	break
 
 		//}
