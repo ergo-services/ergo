@@ -67,6 +67,8 @@ PASS
 ok  	github.com/halturin/ergo	120.720s
 ```
 
+it means we have around 25000 sync rps via localhost for simple data and around 4Gbit/sec for 1Mb messages
+
 #### Parallel GenServer.Call using 120 pairs of processes running on a single and two nodes
 
 ```
@@ -80,6 +82,7 @@ PASS
 ok  	github.com/halturin/ergo	34.145s
 ```
 
+these numbers shows around 260000 sync rps via localhost using simple data for messaging
 
 ### EPMD ###
 
