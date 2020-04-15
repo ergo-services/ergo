@@ -35,11 +35,51 @@ The goal of this project is to leverage Erlang/OTP experience with Golang perfor
 * RPC callbacks support
 * Experimental [observer support](#observer)
 * Unmarshalling terms into the struct using etf.TermIntoStruct
-* Support Erlang 21.*
+* Support Erlang 22.* (with [fragmentation](http://blog.erlang.org/OTP-22-Highlights/))
 
 ### Requirements ###
 
 * Go 1.10 and above
+* Highly recommend using 1.14.2 and above since it has significant performance improvements
+
+### Benchmarks ###
+
+Here is simple EndToEnd test demonstrates performance of messaging subsystem
+
+Hardware: laptop with Intel(R) Core(TM) i5-8265U (4 cores. 8 with HT)
+
+#### Sequential GenServer.Call using two processes running on single and two nodes
+
+```
+❯❯❯❯ go test -bench=NodeSequential -run=XXX -benchtime=10s
+goos: linux
+goarch: amd64
+pkg: github.com/halturin/ergo
+BenchmarkNodeSequential/number-8 	  256108	     48578 ns/op
+BenchmarkNodeSequential/string-8 	  266906	     51531 ns/op
+BenchmarkNodeSequential/tuple_(PID)-8         	  233700	     58192 ns/op
+BenchmarkNodeSequential/binary_1MB-8          	    5617	   2092495 ns/op
+BenchmarkNodeSequentialLocal/number-8         	 2527580	      4857 ns/op
+BenchmarkNodeSequentialLocal/string-8         	 2519410	      4760 ns/op
+BenchmarkNodeSequentialLocal/tuple_(PID)-8    	 2524701	      4757 ns/op
+BenchmarkNodeSequentialLocal/binary_1MB-8     	 2521370	      4758 ns/op
+PASS
+ok  	github.com/halturin/ergo	120.720s
+```
+
+#### Parallel GenServer.Call using 120 pairs of processes running on a single and two nodes
+
+```
+❯❯❯❯ go test -bench=NodeParallel -run=XXX -benchtime=10s
+goos: linux
+goarch: amd64
+pkg: github.com/halturin/ergo
+BenchmarkNodeParallel-8        	 2652494	      5246 ns/op
+BenchmarkNodeParallelLocal-8   	 6100352	      2226 ns/op
+PASS
+ok  	github.com/halturin/ergo	34.145s
+```
+
 
 ### EPMD ###
 
