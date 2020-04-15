@@ -757,11 +757,11 @@ func setSocketOptions(network string, address string, c syscall.RawConn) error {
 		}
 
 		// set buffers
-		setErr = syscall.SetsockoptInt(int(s), syscall.SOL_SOCKET, syscall.SO_RCVBUF, 64000)
+		setErr = syscall.SetsockoptInt(int(s), syscall.SOL_SOCKET, syscall.SO_RCVBUF, 65536)
 		if setErr != nil {
 			log.Fatal(setErr)
 		}
-		setErr = syscall.SetsockoptInt(int(s), syscall.SOL_SOCKET, syscall.SO_SNDBUF, 64000)
+		setErr = syscall.SetsockoptInt(int(s), syscall.SOL_SOCKET, syscall.SO_SNDBUF, 65536)
 		if setErr != nil {
 			log.Fatal(setErr)
 		}

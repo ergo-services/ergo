@@ -13,6 +13,7 @@ import (
 	"math/rand"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/halturin/ergo/etf"
@@ -36,7 +37,10 @@ type flagId uint32
 type nodeFlag flagId
 
 const (
-	defaultLatency = 200 * time.Nanosecond
+	defaultLatency = 200 * time.Nanosecond // for linkFlusher
+
+	defaultCleanTimeout  = 5 * time.Second  // for checkClean
+	defaultCleanDeadline = 30 * time.Second // for checkClean
 
 	// http://erlang.org/doc/apps/erts/erl_ext_dist.html#distribution_header
 	protoDist           = 131
@@ -86,6 +90,11 @@ func toNodeFlag(f ...flagId) nodeFlag {
 	return nodeFlag(flags)
 }
 
+type fragmentedPacket struct {
+	buffer     *lib.Buffer
+	lastUpdate time.Time
+}
+
 type Link struct {
 	Name      string
 	Cookie    string
@@ -97,7 +106,6 @@ type Link struct {
 	version   uint16
 
 	// writer
-	//flusher *linkFlusher
 	flusher *linkFlusherNoLoop
 
 	// atom cache for incomming messages
@@ -107,20 +115,13 @@ type Link struct {
 	cacheOut *etf.AtomCache
 
 	// fragmentation sequence ID
-	sequenceID int64
-}
-
-func newLinkFlusher(w io.Writer, latency time.Duration) *linkFlusher {
-	return &linkFlusher{
-		latency: latency,
-		writer:  bufio.NewWriter(w),
-	}
-}
-
-type linkFlusher struct {
-	mutex   sync.Mutex
-	latency time.Duration
-	writer  *bufio.Writer
+	sequenceID         int64
+	fragments          map[uint64]*fragmentedPacket
+	checkCleanPending  bool
+	checkCleanTimer    *time.Timer
+	checkCleanTimeout  time.Duration // default is 5 seconds
+	checkCleanDeadline time.Duration // how long we wait for the next fragment of the certain sequenceID. Default is 30 seconds
+	checkCleanMutex    sync.Mutex
 }
 
 func newLinkFlusherNoLoop(w io.Writer, latency time.Duration) *linkFlusherNoLoop {
@@ -203,30 +204,6 @@ func (lf *linkFlusherNoLoop) Write(b []byte) (int, error) {
 
 	return lenB, nil
 
-}
-
-func (lf *linkFlusher) Write(b []byte) (int, error) {
-	lf.mutex.Lock()
-	defer lf.mutex.Unlock()
-	return lf.writer.Write(b)
-}
-
-func (lf *linkFlusher) loop(ctx context.Context) {
-	t := time.NewTicker(lf.latency)
-	for {
-		select {
-		case <-t.C:
-			lf.mutex.Lock()
-			if lf.writer.Buffered() > 0 {
-				lf.writer.Flush()
-			}
-			lf.mutex.Unlock()
-
-			//	case <-ctx.Done():
-			//		return
-		}
-
-	}
 }
 
 func Handshake(ctx context.Context, conn net.Conn, name, cookie string, hidden bool) (*Link, error) {
@@ -578,13 +555,73 @@ func (l *Link) ReadDist(packet []byte) (etf.Term, etf.Term, error) {
 
 		return control, message, nil
 
-	case protoDistFragment1:
+	case protoDistFragment1, protoDistFragmentN:
+		if assembled := l.decodeFragment(packet[1:]); assembled != nil {
+			defer lib.ReleaseBuffer(assembled)
+			return l.ReadDist(assembled.B)
+		}
 
-	case protoDistFragmentN:
-
+		return nil, nil, nil
 	}
 
 	return nil, nil, fmt.Errorf("unknown packet type %d", packet[0])
+}
+
+func (l *Link) decodeFragment(packet []byte) *lib.Buffer {
+	l.checkCleanMutex.Lock()
+	defer l.checkCleanMutex.Unlock()
+
+	if l.fragments == nil {
+		l.fragments = make(map[uint64]*fragmentedPacket)
+	}
+
+	sequenceID := binary.BigEndian.Uint64(packet)
+	fragmentID := binary.BigEndian.Uint64(packet[8:])
+
+	fragmented, ok := l.fragments[sequenceID]
+	if !ok {
+		fragmented = &fragmentedPacket{
+			buffer:     lib.TakeBuffer(),
+			lastUpdate: time.Now(),
+		}
+		fragmented.buffer.AppendByte(protoDistMessage)
+		l.fragments[sequenceID] = fragmented
+	}
+
+	fragmented.buffer.Append(packet[16:])
+	fragmented.lastUpdate = time.Now()
+
+	if fragmentID == 1 {
+		// it was the last fragment
+		delete(l.fragments, sequenceID)
+		return fragmented.buffer
+	}
+
+	if l.checkCleanPending {
+		return nil
+	}
+
+	if l.checkCleanTimer != nil {
+		l.checkCleanTimer.Reset(l.checkCleanTimeout)
+		return nil
+	}
+
+	l.checkCleanTimer = time.AfterFunc(l.checkCleanTimeout, func() {
+		l.checkCleanMutex.Lock()
+		defer l.checkCleanMutex.Unlock()
+
+		l.checkCleanPending = true
+		//	deadline := time.Now().Before(l.checkCleanDeadline)
+		//	for sequenceID, fragmented := range l.fragments {
+		//		if fragmented.lastUpdate.After(deadline) {
+		//			// dropping  due to excided deadline
+		//			delete(l.fragments, sequenceID)
+		//		}
+		//	}
+
+	})
+
+	return nil
 }
 
 func (l *Link) decodeDistHeaderAtomCache(packet []byte) ([]etf.Atom, []byte) {
@@ -739,11 +776,10 @@ func (l *Link) Writer(ctx context.Context, send <-chan []etf.Term, fragmentation
 	var atomCacheBuffer, packetBuffer *lib.Buffer
 	var err error
 
-	defer fmt.Println("WRITER QUIT")
-
 	//cacheEnabled := l.peer.flags.isSet(DIST_HDR_ATOM_CACHE) && l.cacheOut != nil
 	cacheEnabled := false
-	//fragmentationEnabled := l.peer.flags.isSet(FRAGMENTS)
+	//fragmentationEnabled := l.peer.flags.isSet(FRAGMENTS) && fragmentationUnit > 0
+	fragmentationEnabled := false
 
 	// Header atom cache is encoded right after control/message encoding
 	// but stored before.
@@ -763,13 +799,12 @@ func (l *Link) Writer(ctx context.Context, send <-chan []etf.Term, fragmentation
 		terms = <-send
 
 		if terms == nil {
-			fmt.Println("channel was closed")
 			// channel was closed
 			return
 		}
 
 		packetBuffer = lib.TakeBuffer()
-		lenControl, lenMessage, lenAtomCache, lenPacket, startDataPosition = 0, 0, 0, 0, 0
+		lenControl, lenMessage, lenAtomCache, lenPacket, startDataPosition = 0, 0, 0, 0, reserveHeaderAtomCache
 
 		// do reserve for the header 8K, should be enough
 		packetBuffer.Allocate(reserveHeaderAtomCache)
@@ -806,50 +841,97 @@ func (l *Link) Writer(ctx context.Context, send <-chan []etf.Term, fragmentation
 			l.encodeDistHeaderAtomCache(atomCacheBuffer, writerAtomCache, encodingAtomCache)
 			lenAtomCache = atomCacheBuffer.Len()
 
-			// 4 (packet len) + 1 (dist header: 131) + 1 (dist header: protoDistX) + lenAtomCache
-			// where protoDistX is protoDist[Message|Fragment1|FragmentN]
-			startDataPosition = reserveHeaderAtomCache - 4 + 1 + 1 + lenAtomCache
-			packetBuffer.B = packetBuffer.B[startDataPosition:]
-			packetBuffer.B[4] = protoDist // 131
-			copy(packetBuffer.B[6:], atomCacheBuffer.B)
+			if lenAtomCache > reserveHeaderAtomCache-22 {
+				// are you serious? ))) what da hell you just sent?
+				// FIXME i'm gonna fix it once someone report about this issue :)
+				panic("exceed atom header cache size limit. please report about this issue")
+			}
 
+			startDataPosition -= lenAtomCache
+			copy(packetBuffer.B[startDataPosition:], atomCacheBuffer.B)
 			lib.ReleaseBuffer(atomCacheBuffer)
+
 		} else {
-			// 4 (packet len) + 1 (dist header: 131) + 1 (dist header: protoDistX) + 1 (byte(0) - empty cache)
-			// where protoDistX is protoDist[Message|Fragment1|FragmentN]
 			lenAtomCache = 1
-			startDataPosition = reserveHeaderAtomCache - 7
-			packetBuffer.B = packetBuffer.B[startDataPosition:]
-			packetBuffer.B[4] = protoDist // 131
-			packetBuffer.B[6] = byte(0)
-
+			startDataPosition -= lenAtomCache
+			packetBuffer.B[startDataPosition] = byte(0)
 		}
 
-		// 1 (dist header: 131) + 1 (protoDistX) + ...
-		lenPacket = 1 + 1 + lenAtomCache + lenControl + lenMessage
+		for {
 
-		//for {
+			// 4 (packet len) + 1 (dist header: 131) + 1 (dist header: protoDistMessage) + lenAtomCache
+			lenPacket = 1 + 1 + lenAtomCache + lenControl + lenMessage
 
-		//if !fragmentationEnabled || lenPacket < fragmentationUnit {
-		// send as a single packet
-		binary.BigEndian.PutUint32(packetBuffer.B[:4], uint32(lenPacket))
-		packetBuffer.B[5] = protoDistMessage // 68
-		if err := packetBuffer.WriteDataTo(l.flusher); err != nil {
-			fmt.Println("AAAAAA", err)
+			if !fragmentationEnabled || lenPacket < fragmentationUnit {
+				// send as a single packet
+				startDataPosition -= 6
+
+				binary.BigEndian.PutUint32(packetBuffer.B[startDataPosition:], uint32(lenPacket))
+				packetBuffer.B[startDataPosition+4] = protoDist        // 131
+				packetBuffer.B[startDataPosition+5] = protoDistMessage // 68
+				if _, err := l.flusher.Write(packetBuffer.B[startDataPosition:]); err != nil {
+					return
+				}
+				//fmt.Println("buf", packetBuffer.B[startDataPosition:startDataPosition+100])
+				//panic("111")
+				break
+			}
+
+			// Message should be fragmented
+
+			// https://erlang.org/doc/apps/erts/erl_ext_dist.html#distribution-header-for-fragmented-messages
+			// "The entire atom cache and control message has to be part of the starting fragment"
+
+			sequenceID := uint64(atomic.AddInt64(&l.sequenceID, 1))
+			totalFrames := lenMessage/fragmentationUnit + 1
+
+			// 1 (dist header: 131) + 1 (protoDistX) + ...
+			lenPacket = 1 + 1 + lenAtomCache + lenControl + fragmentationUnit
+
+			// 4 (packet len) + 1 (dist header: 131) + 1 (dist header: protoDistFragment) + 8 (sequenceID) + 8 (fragmentID)
+			startDataPosition -= 22
+
+			binary.BigEndian.PutUint32(packetBuffer.B[startDataPosition:], uint32(lenPacket))
+			packetBuffer.B[startDataPosition+4] = protoDist          // 131
+			packetBuffer.B[startDataPosition+5] = protoDistFragment1 // 69
+
+			binary.BigEndian.PutUint64(packetBuffer.B[startDataPosition+6:], uint64(sequenceID))
+			binary.BigEndian.PutUint64(packetBuffer.B[startDataPosition+14:], uint64(totalFrames))
+			if _, err := l.flusher.Write(packetBuffer.B[startDataPosition : startDataPosition+lenPacket]); err != nil {
+				return
+			}
+
+			startDataPosition += lenPacket
+			totalFrames--
+
+		nextFrame:
+			if len(packetBuffer.B[startDataPosition:]) > fragmentationUnit {
+				lenPacket = 1 + 1 + fragmentationUnit
+				// reuse the previous 22 bytes for the next frame header
+				startDataPosition -= 22
+
+			} else {
+				// the last one
+				lenPacket = 1 + 1 + len(packetBuffer.B[startDataPosition:])
+				startDataPosition -= 22
+			}
+
+			binary.BigEndian.PutUint32(packetBuffer.B[startDataPosition:], uint32(lenPacket))
+			packetBuffer.B[startDataPosition+4] = protoDist          // 131
+			packetBuffer.B[startDataPosition+5] = protoDistFragmentN // 70
+
+			binary.BigEndian.PutUint64(packetBuffer.B[startDataPosition+6:], uint64(sequenceID))
+			binary.BigEndian.PutUint64(packetBuffer.B[startDataPosition+14:], uint64(totalFrames))
+
+			startDataPosition += lenPacket
+			totalFrames--
+			if totalFrames > 0 {
+				goto nextFrame
+			}
+
+			// done
+			break
 		}
-		//	break
-
-		//}
-
-		// https://erlang.org/doc/apps/erts/erl_ext_dist.html#distribution-header-for-fragmented-messages
-		// "The entire atom cache and control message has to be part of the starting fragment"
-
-		// fragment numbering should be like
-		// sequenceID = atomic.AddInt64(&l.sequenceID, 1)
-		//
-
-		// break
-		//}
 
 		lib.ReleaseBuffer(packetBuffer)
 
