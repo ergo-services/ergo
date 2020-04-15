@@ -107,7 +107,7 @@ type Link struct {
 	version   uint16
 
 	// writer
-	flusher *linkFlusherNoLoop
+	flusher *linkFlusher
 
 	// atom cache for incomming messages
 	cacheIn [2048]etf.Atom
@@ -127,15 +127,15 @@ type Link struct {
 	checkCleanMutex    sync.Mutex
 }
 
-func newLinkFlusherNoLoop(w io.Writer, latency time.Duration) *linkFlusherNoLoop {
-	return &linkFlusherNoLoop{
+func newLinkFlusher(w io.Writer, latency time.Duration) *linkFlusher {
+	return &linkFlusher{
 		latency: latency,
 		writer:  bufio.NewWriter(w),
 		w:       w, // in case if we skip buffering
 	}
 }
 
-type linkFlusherNoLoop struct {
+type linkFlusher struct {
 	mutex   sync.Mutex
 	latency time.Duration
 	writer  *bufio.Writer
@@ -145,7 +145,7 @@ type linkFlusherNoLoop struct {
 	pending bool
 }
 
-func (lf *linkFlusherNoLoop) Write(b []byte) (int, error) {
+func (lf *linkFlusher) Write(b []byte) (int, error) {
 	lf.mutex.Lock()
 	defer lf.mutex.Unlock()
 
@@ -293,7 +293,7 @@ func Handshake(ctx context.Context, conn net.Conn, name, cookie string, hidden b
 				}
 
 				// handshaked
-				link.flusher = newLinkFlusherNoLoop(link.conn, defaultLatency)
+				link.flusher = newLinkFlusher(link.conn, defaultLatency)
 
 				return link, nil
 			case 's':
@@ -402,7 +402,7 @@ func HandshakeAccept(ctx context.Context, conn net.Conn, name, cookie string, hi
 				}
 
 				// handshaked
-				link.flusher = newLinkFlusherNoLoop(link.conn, defaultLatency)
+				link.flusher = newLinkFlusher(link.conn, defaultLatency)
 
 				return link, nil
 
