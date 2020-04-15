@@ -92,6 +92,7 @@ func toNodeFlag(f ...flagId) nodeFlag {
 
 type fragmentedPacket struct {
 	buffer     *lib.Buffer
+	fragmentID uint64
 	lastUpdate time.Time
 }
 
@@ -115,8 +116,10 @@ type Link struct {
 	cacheOut *etf.AtomCache
 
 	// fragmentation sequence ID
-	sequenceID         int64
-	fragments          map[uint64]*fragmentedPacket
+	sequenceID int64
+	fragments  map[uint64]*fragmentedPacket
+
+	// check and clean lost fragments
 	checkCleanPending  bool
 	checkCleanTimer    *time.Timer
 	checkCleanTimeout  time.Duration // default is 5 seconds
@@ -556,7 +559,14 @@ func (l *Link) ReadDist(packet []byte) (etf.Term, etf.Term, error) {
 		return control, message, nil
 
 	case protoDistFragment1, protoDistFragmentN:
-		if assembled := l.decodeFragment(packet[1:]); assembled != nil {
+		if len(packet) < 18 {
+			return nil, nil, fmt.Errorf("malformed fragment")
+		}
+
+		if assembled, err := l.decodeFragment(packet[1:]); assembled != nil {
+			if err != nil {
+				return nil, nil, err
+			}
 			defer lib.ReleaseBuffer(assembled)
 			return l.ReadDist(assembled.B)
 		}
@@ -567,7 +577,7 @@ func (l *Link) ReadDist(packet []byte) (etf.Term, etf.Term, error) {
 	return nil, nil, fmt.Errorf("unknown packet type %d", packet[0])
 }
 
-func (l *Link) decodeFragment(packet []byte) *lib.Buffer {
+func (l *Link) decodeFragment(packet []byte) (*lib.Buffer, error) {
 	l.checkCleanMutex.Lock()
 	defer l.checkCleanMutex.Unlock()
 
@@ -578,50 +588,69 @@ func (l *Link) decodeFragment(packet []byte) *lib.Buffer {
 	sequenceID := binary.BigEndian.Uint64(packet)
 	fragmentID := binary.BigEndian.Uint64(packet[8:])
 
+	if fragmentID == 0 {
+		return nil, fmt.Errorf("fragmentID can't be 0")
+	}
+
 	fragmented, ok := l.fragments[sequenceID]
 	if !ok {
+		if fragmentID == 1 {
+			return nil, fmt.Errorf("fragmented message should have >1 fragments")
+		}
 		fragmented = &fragmentedPacket{
 			buffer:     lib.TakeBuffer(),
+			fragmentID: fragmentID + 1,
 			lastUpdate: time.Now(),
 		}
 		fragmented.buffer.AppendByte(protoDistMessage)
 		l.fragments[sequenceID] = fragmented
 	}
 
+	if fragmented.fragmentID-fragmentID != 1 {
+		delete(l.fragments, sequenceID)
+		return nil, fmt.Errorf("disordered fragment")
+	}
+
 	fragmented.buffer.Append(packet[16:])
 	fragmented.lastUpdate = time.Now()
+	fragmented.fragmentID = fragmentID
 
 	if fragmentID == 1 {
 		// it was the last fragment
 		delete(l.fragments, sequenceID)
-		return fragmented.buffer
+		return fragmented.buffer, nil
 	}
 
 	if l.checkCleanPending {
-		return nil
+		return nil, nil
 	}
 
 	if l.checkCleanTimer != nil {
 		l.checkCleanTimer.Reset(l.checkCleanTimeout)
-		return nil
+		return nil, nil
 	}
 
 	l.checkCleanTimer = time.AfterFunc(l.checkCleanTimeout, func() {
 		l.checkCleanMutex.Lock()
 		defer l.checkCleanMutex.Unlock()
 
-		l.checkCleanPending = true
-		//	deadline := time.Now().Before(l.checkCleanDeadline)
-		//	for sequenceID, fragmented := range l.fragments {
-		//		if fragmented.lastUpdate.After(deadline) {
-		//			// dropping  due to excided deadline
-		//			delete(l.fragments, sequenceID)
-		//		}
-		//	}
+		valid := time.Now().Add(-l.checkCleanDeadline)
+		for sequenceID, fragmented := range l.fragments {
+			if fragmented.lastUpdate.Before(valid) {
+				// dropping  due to excided deadline
+				delete(l.fragments, sequenceID)
+			}
+		}
+		if len(l.fragments) == 0 {
+			l.checkCleanPending = false
+			return
+		}
 
+		l.checkCleanPending = true
+		l.checkCleanTimer.Reset(l.checkCleanTimeout)
 	})
 
-	return nil
+	return nil, nil
 }
 
 func (l *Link) decodeDistHeaderAtomCache(packet []byte) ([]etf.Atom, []byte) {

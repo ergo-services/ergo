@@ -259,3 +259,81 @@ func BenchmarkEncodeDistHeaderAtomCache(b *testing.B) {
 		link.encodeDistHeaderAtomCache(buf, writerAtomCache, encodingAtomCache)
 	}
 }
+
+func TestDecodeFragment(t *testing.T) {
+	link := &Link{}
+
+	link.checkCleanTimeout = 50 * time.Millisecond
+	link.checkCleanDeadline = 150 * time.Millisecond
+
+	// decode fragment with fragmentID=0 should return error
+	fragment0 := []byte{0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3}
+	if _, e := link.decodeFragment(fragment0); e == nil {
+		t.Fatal("should be error here")
+	}
+
+	fragment1 := []byte{0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 3, 1, 2, 3}
+	fragment2 := []byte{0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 2, 4, 5, 6}
+	fragment3 := []byte{0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 1, 7, 8, 9}
+
+	expected := []byte{68, 1, 2, 3, 4, 5, 6, 7, 8, 9}
+
+	// add first fragment
+	if x, e := link.decodeFragment(fragment1); x != nil || e != nil {
+		t.Fatal("should be nil here", e)
+	}
+	// add second one
+	if x, e := link.decodeFragment(fragment2); x != nil || e != nil {
+		t.Fatal("should be nil here", e)
+	}
+	// add the last one. should return *lib.Buffer with assembled packet
+	if x, e := link.decodeFragment(fragment3); x == nil || e != nil {
+		t.Fatal("shouldn't be nil here", e)
+	} else {
+		// x should be *lib.Buffer
+		if !reflect.DeepEqual(expected, x.B) {
+			t.Fatal("exp:", expected, "got:", x.B)
+		}
+		lib.ReleaseBuffer(x)
+
+		// map of the fragments should be empty here
+		if len(link.fragments) > 0 {
+			t.Fatal("fragments should be empty")
+		}
+	}
+
+	// test disordering
+	if x, e := link.decodeFragment(fragment1); x != nil || e != nil {
+		t.Fatal("should be nil here", e)
+	}
+	// skip second one
+	// add the last one. should return error
+	if _, e := link.decodeFragment(fragment3); e == nil {
+		t.Fatal("should be error here")
+	}
+	// map of the fragments should be empty here
+	if len(link.fragments) > 0 {
+		t.Fatal("fragments should be empty")
+	}
+
+	// test fragmented with single fragment. should return error
+	if _, e := link.decodeFragment(fragment3); e == nil {
+		t.Fatal("should be error here")
+	}
+
+	// test lost fragment
+	// add the first fragment and wait 160ms
+	if x, e := link.decodeFragment(fragment1); x != nil || e != nil {
+		t.Fatal("should be nil here", e)
+	}
+	if len(link.fragments) == 0 {
+		t.Fatal("fragments should have a record ")
+	}
+	// check and clean process should remove this record
+	time.Sleep(160 * time.Millisecond)
+
+	// map of the fragments should be empty here
+	if len(link.fragments) > 0 {
+		t.Fatal("fragments should be empty")
+	}
+}
