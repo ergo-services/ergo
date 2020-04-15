@@ -126,7 +126,7 @@ func BenchmarkNodeSequential(b *testing.B) {
 	}
 }
 
-func BenchmarkNodeSequentialLocal(b *testing.B) {
+func BenchmarkNodeSequentialSingleNode(b *testing.B) {
 
 	node1name := fmt.Sprintf("nodeB1Local_%d@localhost", b.N)
 	node1 := CreateNode(node1name, "bench", NodeOptions{DisableHeaderAtomCache: true})
@@ -203,7 +203,7 @@ func BenchmarkNodeParallel(b *testing.B) {
 	})
 }
 
-func BenchmarkNodeParallelLocal(b *testing.B) {
+func BenchmarkNodeParallelSingleNode(b *testing.B) {
 
 	node1name := fmt.Sprintf("nodeB1ParallelLocal_%d@localhost", b.N)
 	node1 := CreateNode(node1name, "bench", NodeOptions{DisableHeaderAtomCache: true})
