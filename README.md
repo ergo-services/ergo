@@ -59,10 +59,10 @@ BenchmarkNodeSequential/number-8 	  256108	     48578 ns/op
 BenchmarkNodeSequential/string-8 	  266906	     51531 ns/op
 BenchmarkNodeSequential/tuple_(PID)-8         	  233700	     58192 ns/op
 BenchmarkNodeSequential/binary_1MB-8          	    5617	   2092495 ns/op
-BenchmarkNodeSequentialLocal/number-8         	 2527580	      4857 ns/op
-BenchmarkNodeSequentialLocal/string-8         	 2519410	      4760 ns/op
-BenchmarkNodeSequentialLocal/tuple_(PID)-8    	 2524701	      4757 ns/op
-BenchmarkNodeSequentialLocal/binary_1MB-8     	 2521370	      4758 ns/op
+BenchmarkNodeSequentialSingleNode/number-8         	 2527580	      4857 ns/op
+BenchmarkNodeSequentialSingleNode/string-8         	 2519410	      4760 ns/op
+BenchmarkNodeSequentialSingleNode/tuple_(PID)-8    	 2524701	      4757 ns/op
+BenchmarkNodeSequentialSingleNode/binary_1MB-8     	 2521370	      4758 ns/op
 PASS
 ok  	github.com/halturin/ergo	120.720s
 ```
@@ -74,8 +74,8 @@ ok  	github.com/halturin/ergo	120.720s
 goos: linux
 goarch: amd64
 pkg: github.com/halturin/ergo
-BenchmarkNodeParallel-8        	 2652494	      5246 ns/op
-BenchmarkNodeParallelLocal-8   	 6100352	      2226 ns/op
+BenchmarkNodeParallel-8        	         2652494	      5246 ns/op
+BenchmarkNodeParallelSingleNode-8   	 6100352	      2226 ns/op
 PASS
 ok  	github.com/halturin/ergo	34.145s
 ```
