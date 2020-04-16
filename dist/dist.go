@@ -157,7 +157,6 @@ func (lf *linkFlusher) Write(b []byte) (int, error) {
 	// long data write directly to the socket.
 	// 64000 - socket buffer size (via syscall.SO_RCVBUF/syscall.SO_SNDBUF)
 	if l > 64000 {
-		fmt.Println("write direct", lenB, b[:40])
 		for {
 			n, e := lf.w.Write(b[lenB-l:])
 			if e != nil {
@@ -571,7 +570,6 @@ func (l *Link) ReadDist(packet []byte) (etf.Term, etf.Term, error) {
 			if err != nil {
 				return nil, nil, err
 			}
-			fmt.Println("assembled", assembled.Len(), assembled.B[:100])
 			defer lib.ReleaseBuffer(assembled)
 			return l.ReadDist(assembled.B)
 		} else {
@@ -612,6 +610,8 @@ func (l *Link) decodeFragment(packet []byte, first bool) (*lib.Buffer, error) {
 		l.fragments[sequenceID] = fragmented
 	}
 
+	// until we get the first item everything will be treated as disordered
+	// fragments
 	if first {
 		fragmented.fragmentID = fragmentID + 1
 	}
@@ -947,7 +947,6 @@ func (l *Link) Writer(send <-chan []etf.Term, fragmentationUnit int) {
 
 			sequenceID := uint64(atomic.AddInt64(&l.sequenceID, 1))
 			totalFrames := lenMessage/fragmentationUnit + 1
-			fmt.Println("Frag", sequenceID, totalFrames)
 
 			// 1 (dist header: 131) + 1 (protoDist) + ...
 			lenPacket = 1 + 1 + 8 + 8 + lenAtomCache + lenControl + fragmentationUnit
@@ -965,12 +964,11 @@ func (l *Link) Writer(send <-chan []etf.Term, fragmentationUnit int) {
 				return
 			}
 
-			startDataPosition += 22 + lenPacket
+			startDataPosition += 4 + lenPacket
 			totalFrames--
 
 		nextFrame:
 
-			fmt.Println("Frag", sequenceID, totalFrames)
 			if len(packetBuffer.B[startDataPosition:]) > fragmentationUnit {
 				lenPacket = 1 + 1 + 8 + 8 + fragmentationUnit
 				// reuse the previous 22 bytes for the next frame header
@@ -993,7 +991,7 @@ func (l *Link) Writer(send <-chan []etf.Term, fragmentationUnit int) {
 				return
 			}
 
-			startDataPosition += lenPacket
+			startDataPosition += 4 + lenPacket
 			totalFrames--
 			if totalFrames > 0 {
 				goto nextFrame

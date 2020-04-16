@@ -109,13 +109,6 @@ func BenchmarkNodeSequential(b *testing.B) {
 		b.Fatal(e2)
 	}
 
-	bbb := benchCases()
-
-	if _, e := p1.Call(p2.Self(), bbb[3].value); e != nil {
-		b.Fatal("single ping 1MB", e)
-	}
-	return
-
 	if _, e := p1.Call(p2.Self(), 1); e != nil {
 		b.Fatal("single ping", e)
 	}
