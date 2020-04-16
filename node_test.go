@@ -1,8 +1,12 @@
 package ergo
 
 import (
+	"crypto/md5"
 	"fmt"
+	"math/rand"
 	"net"
+	"reflect"
+	"sync"
 	"testing"
 
 	"github.com/halturin/ergo/etf"
@@ -64,6 +68,91 @@ func TestNode(t *testing.T) {
 	}
 
 	node.Stop()
+}
+
+type testFragmentationGS struct {
+	GenServer
+}
+
+func (f *testFragmentationGS) Init(p *Process, args ...interface{}) interface{} {
+	return nil
+}
+
+func (f *testFragmentationGS) HandleCall(from etf.Tuple, message etf.Term, state interface{}) (string, etf.Term, interface{}) {
+	md5original := message.(etf.Tuple)[0].(string)
+	blob := message.(etf.Tuple)[1].([]byte)
+
+	result := etf.Atom("ok")
+	md5 := fmt.Sprint(md5.Sum(blob))
+	if !reflect.DeepEqual(md5original, md5) {
+		result = etf.Atom("mismatch")
+	}
+
+	return "reply", result, state
+}
+
+func (f *testFragmentationGS) HandleCast(message etf.Term, state interface{}) (string, interface{}) {
+	return "noreply", state
+}
+
+func (f *testFragmentationGS) HandleInfo(message etf.Term, state interface{}) (string, interface{}) {
+	return "noreply", state
+}
+
+func (f *testFragmentationGS) Terminate(reason string, state interface{}) {
+
+}
+
+func TestNodeFragmentation(t *testing.T) {
+	var wg sync.WaitGroup
+
+	node1 := CreateNode("nodeT1Fragmentation@localhost", "secret", NodeOptions{})
+	node2 := CreateNode("nodeT2Fragmentation@localhost", "secret", NodeOptions{})
+
+	tgs := &testFragmentationGS{}
+	p1, e1 := node1.Spawn("", ProcessOptions{}, tgs)
+	p2, e2 := node2.Spawn("", ProcessOptions{}, tgs)
+
+	if e1 != nil {
+		t.Fatal(e1)
+	}
+	if e2 != nil {
+		t.Fatal(e2)
+	}
+
+	blob := make([]byte, 1024*1024)
+	rand.Read(blob)
+	md5 := fmt.Sprint(md5.Sum(blob))
+	message := etf.Tuple{md5, blob}
+
+	// check single call
+	check, e := p1.Call(p2.Self(), message)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if check != etf.Atom("ok") {
+		t.Fatal("md5sum mismatch")
+	}
+
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func() {
+			p1, _ := node1.Spawn("", ProcessOptions{}, tgs)
+			p2, _ := node2.Spawn("", ProcessOptions{}, tgs)
+			defer wg.Done()
+			for k := 0; k < 100; k++ {
+				check, e := p1.Call(p2.Self(), message)
+				if e != nil {
+					t.Fatal(e)
+				}
+				if check != etf.Atom("ok") {
+					t.Fatal("md5sum mismatch")
+				}
+			}
+
+		}()
+	}
+	wg.Wait()
 }
 
 type benchGS struct {

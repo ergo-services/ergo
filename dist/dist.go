@@ -221,7 +221,7 @@ func Handshake(ctx context.Context, conn net.Conn, name, cookie string, hidden b
 		flags: toNodeFlag(PUBLISHED, UNICODE_IO, DIST_MONITOR, DIST_MONITOR_NAME,
 			EXTENDED_PIDS_PORTS, EXTENDED_REFERENCES, ATOM_CACHE,
 			DIST_HDR_ATOM_CACHE, HIDDEN_ATOM_CACHE, NEW_FUN_TAGS,
-			SMALL_ATOM_TAGS, UTF8_ATOMS, MAP_TAG, BIG_CREATION,
+			SMALL_ATOM_TAGS, UTF8_ATOMS, MAP_TAG,
 			FRAGMENTS,
 		),
 
@@ -330,7 +330,7 @@ func HandshakeAccept(ctx context.Context, conn net.Conn, name, cookie string, hi
 		flags: toNodeFlag(PUBLISHED, UNICODE_IO, DIST_MONITOR, DIST_MONITOR_NAME,
 			EXTENDED_PIDS_PORTS, EXTENDED_REFERENCES, ATOM_CACHE,
 			DIST_HDR_ATOM_CACHE, HIDDEN_ATOM_CACHE, NEW_FUN_TAGS,
-			SMALL_ATOM_TAGS, UTF8_ATOMS, MAP_TAG, BIG_CREATION,
+			SMALL_ATOM_TAGS, UTF8_ATOMS, MAP_TAG,
 			FRAGMENTS,
 		),
 
@@ -611,7 +611,6 @@ func (l *Link) decodeFragment(packet []byte, first bool) (*lib.Buffer, error) {
 	}
 
 	// until we get the first item everything will be treated as disordered
-	// fragments
 	if first {
 		fragmented.fragmentID = fragmentID + 1
 	}
@@ -674,7 +673,6 @@ func (l *Link) decodeFragment(packet []byte, first bool) (*lib.Buffer, error) {
 		for sequenceID, fragmented := range l.fragments {
 			if fragmented.lastUpdate.Before(valid) {
 				// dropping  due to excided deadline
-				fmt.Println("drop", sequenceID, l.checkCleanTimeout, l.checkCleanDeadline)
 				delete(l.fragments, sequenceID)
 			}
 		}
@@ -946,9 +944,9 @@ func (l *Link) Writer(send <-chan []etf.Term, fragmentationUnit int) {
 			// "The entire atom cache and control message has to be part of the starting fragment"
 
 			sequenceID := uint64(atomic.AddInt64(&l.sequenceID, 1))
-			totalFrames := lenMessage/fragmentationUnit + 1
+			numFragments := lenMessage/fragmentationUnit + 1
 
-			// 1 (dist header: 131) + 1 (protoDist) + ...
+			// 1 (dist header: 131) + 1 (dist header: protoDistFragment) + 8 (sequenceID) + 8 (fragmentID) + ...
 			lenPacket = 1 + 1 + 8 + 8 + lenAtomCache + lenControl + fragmentationUnit
 
 			// 4 (packet len) + 1 (dist header: 131) + 1 (dist header: protoDistFragment) + 8 (sequenceID) + 8 (fragmentID)
@@ -959,15 +957,15 @@ func (l *Link) Writer(send <-chan []etf.Term, fragmentationUnit int) {
 			packetBuffer.B[startDataPosition+5] = protoDistFragment1 // 69
 
 			binary.BigEndian.PutUint64(packetBuffer.B[startDataPosition+6:], uint64(sequenceID))
-			binary.BigEndian.PutUint64(packetBuffer.B[startDataPosition+14:], uint64(totalFrames))
+			binary.BigEndian.PutUint64(packetBuffer.B[startDataPosition+14:], uint64(numFragments))
 			if _, err := l.flusher.Write(packetBuffer.B[startDataPosition : startDataPosition+4+lenPacket]); err != nil {
 				return
 			}
 
 			startDataPosition += 4 + lenPacket
-			totalFrames--
+			numFragments--
 
-		nextFrame:
+		nextFragment:
 
 			if len(packetBuffer.B[startDataPosition:]) > fragmentationUnit {
 				lenPacket = 1 + 1 + 8 + 8 + fragmentationUnit
@@ -985,16 +983,16 @@ func (l *Link) Writer(send <-chan []etf.Term, fragmentationUnit int) {
 			packetBuffer.B[startDataPosition+5] = protoDistFragmentN // 70
 
 			binary.BigEndian.PutUint64(packetBuffer.B[startDataPosition+6:], uint64(sequenceID))
-			binary.BigEndian.PutUint64(packetBuffer.B[startDataPosition+14:], uint64(totalFrames))
+			binary.BigEndian.PutUint64(packetBuffer.B[startDataPosition+14:], uint64(numFragments))
 
 			if _, err := l.flusher.Write(packetBuffer.B[startDataPosition : startDataPosition+4+lenPacket]); err != nil {
 				return
 			}
 
 			startDataPosition += 4 + lenPacket
-			totalFrames--
-			if totalFrames > 0 {
-				goto nextFrame
+			numFragments--
+			if numFragments > 0 {
+				goto nextFragment
 			}
 
 			// done

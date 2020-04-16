@@ -2,7 +2,6 @@ package ergo
 
 import (
 	"context"
-	"fmt"
 	"sync"
 	"sync/atomic"
 
@@ -303,7 +302,6 @@ next:
 		r.mutexPeers.Unlock()
 		if !ok {
 			if err := r.node.connect(tto.Node); err != nil {
-				fmt.Println("ERRR", err)
 				lib.Log("[%s] can't connect to %v: %s", r.node.FullName, tto.Node, err)
 				return
 			}
@@ -314,11 +312,7 @@ next:
 		}
 
 		send := peer.GetChannel()
-		select {
-		case send <- []etf.Term{etf.Tuple{distProtoSEND, etf.Atom(""), tto}, message}:
-		default:
-			fmt.Println("SSSSSSSSSSSSSSS")
-		}
+		send <- []etf.Term{etf.Tuple{distProtoSEND, etf.Atom(""), tto}, message}
 
 	case etf.Tuple:
 		lib.Log("[%s] sending message by tuple %v", r.node.FullName, tto)
