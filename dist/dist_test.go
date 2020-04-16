@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/halturin/ergo/etf"
 	"github.com/halturin/ergo/lib"
+	"math/rand"
 	"net"
 	"reflect"
 	"testing"
@@ -268,7 +269,7 @@ func TestDecodeFragment(t *testing.T) {
 
 	// decode fragment with fragmentID=0 should return error
 	fragment0 := []byte{0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3}
-	if _, e := link.decodeFragment(fragment0); e == nil {
+	if _, e := link.decodeFragment(fragment0, true); e == nil {
 		t.Fatal("should be error here")
 	}
 
@@ -279,15 +280,15 @@ func TestDecodeFragment(t *testing.T) {
 	expected := []byte{68, 1, 2, 3, 4, 5, 6, 7, 8, 9}
 
 	// add first fragment
-	if x, e := link.decodeFragment(fragment1); x != nil || e != nil {
+	if x, e := link.decodeFragment(fragment1, true); x != nil || e != nil {
 		t.Fatal("should be nil here", e)
 	}
 	// add second one
-	if x, e := link.decodeFragment(fragment2); x != nil || e != nil {
+	if x, e := link.decodeFragment(fragment2, false); x != nil || e != nil {
 		t.Fatal("should be nil here", e)
 	}
 	// add the last one. should return *lib.Buffer with assembled packet
-	if x, e := link.decodeFragment(fragment3); x == nil || e != nil {
+	if x, e := link.decodeFragment(fragment3, false); x == nil || e != nil {
 		t.Fatal("shouldn't be nil here", e)
 	} else {
 		// x should be *lib.Buffer
@@ -302,28 +303,11 @@ func TestDecodeFragment(t *testing.T) {
 		}
 	}
 
-	// test disordering
-	if x, e := link.decodeFragment(fragment1); x != nil || e != nil {
-		t.Fatal("should be nil here", e)
-	}
-	// skip second one
-	// add the last one. should return error
-	if _, e := link.decodeFragment(fragment3); e == nil {
-		t.Fatal("should be error here")
-	}
-	// map of the fragments should be empty here
-	if len(link.fragments) > 0 {
-		t.Fatal("fragments should be empty")
-	}
-
-	// test fragmented with single fragment. should return error
-	if _, e := link.decodeFragment(fragment3); e == nil {
-		t.Fatal("should be error here")
-	}
-
+	link.checkCleanTimeout = 50 * time.Millisecond
+	link.checkCleanDeadline = 150 * time.Millisecond
 	// test lost fragment
 	// add the first fragment and wait 160ms
-	if x, e := link.decodeFragment(fragment1); x != nil || e != nil {
+	if x, e := link.decodeFragment(fragment1, true); x != nil || e != nil {
 		t.Fatal("should be nil here", e)
 	}
 	if len(link.fragments) == 0 {
@@ -335,5 +319,77 @@ func TestDecodeFragment(t *testing.T) {
 	// map of the fragments should be empty here
 	if len(link.fragments) > 0 {
 		t.Fatal("fragments should be empty")
+	}
+
+	link.checkCleanTimeout = 0
+	link.checkCleanDeadline = 0
+	fragments := [][]byte{
+		[]byte{0, 0, 0, 0, 0, 0, 0, 6, 0, 0, 0, 0, 0, 0, 0, 9, 1, 2, 3},
+		[]byte{0, 0, 0, 0, 0, 0, 0, 6, 0, 0, 0, 0, 0, 0, 0, 8, 4, 5, 6},
+		[]byte{0, 0, 0, 0, 0, 0, 0, 6, 0, 0, 0, 0, 0, 0, 0, 7, 7, 8, 9},
+		[]byte{0, 0, 0, 0, 0, 0, 0, 6, 0, 0, 0, 0, 0, 0, 0, 6, 10, 11, 12},
+		[]byte{0, 0, 0, 0, 0, 0, 0, 6, 0, 0, 0, 0, 0, 0, 0, 5, 13, 14, 15},
+		[]byte{0, 0, 0, 0, 0, 0, 0, 6, 0, 0, 0, 0, 0, 0, 0, 4, 16, 17, 18},
+		[]byte{0, 0, 0, 0, 0, 0, 0, 6, 0, 0, 0, 0, 0, 0, 0, 3, 19, 20, 21},
+		[]byte{0, 0, 0, 0, 0, 0, 0, 6, 0, 0, 0, 0, 0, 0, 0, 2, 22, 23, 24},
+		[]byte{0, 0, 0, 0, 0, 0, 0, 6, 0, 0, 0, 0, 0, 0, 0, 1, 25, 26, 27},
+	}
+	expected = []byte{68, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27}
+
+	fragmentsReverse := make([][]byte, len(fragments))
+	l := len(fragments)
+	for i := 0; i < l; i++ {
+		fragmentsReverse[l-i-1] = fragments[i]
+	}
+
+	var result *lib.Buffer
+	var e error
+	var first bool
+	for i := range fragmentsReverse {
+		first = false
+		if fragmentsReverse[i][15] == byte(l) {
+			first = true
+		}
+		if result, e = link.decodeFragment(fragmentsReverse[i], first); e != nil {
+			t.Fatal(e)
+		}
+
+	}
+	if result == nil {
+		t.Fatal("got nil result")
+	}
+	if !reflect.DeepEqual(expected, result.B) {
+		t.Fatal("exp:", expected, "got:", result.B[:len(expected)])
+	}
+	// map of the fragments should be empty here
+	if len(link.fragments) > 0 {
+		t.Fatal("fragments should be empty")
+	}
+
+	// reshuffling 100 times
+	for k := 0; k < 100; k++ {
+		result = nil
+		fragmentsShuffle := make([][]byte, l)
+		rand.Seed(time.Now().UnixNano())
+		for i, v := range rand.Perm(l) {
+			fragmentsShuffle[v] = fragments[i]
+		}
+
+		for i := range fragmentsShuffle {
+			first = false
+			if fragmentsShuffle[i][15] == byte(l) {
+				first = true
+			}
+			if result, e = link.decodeFragment(fragmentsShuffle[i], first); e != nil {
+				t.Fatal(e)
+			}
+
+		}
+		if result == nil {
+			t.Fatal("got nil result")
+		}
+		if !reflect.DeepEqual(expected, result.B) {
+			t.Fatal("exp:", expected, "got:", result.B[:len(expected)])
+		}
 	}
 }

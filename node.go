@@ -338,7 +338,7 @@ func (n *Node) serve(link *dist.Link, opts NodeOptions) error {
 		// run writer routines (encoder)
 		send := make(chan []etf.Term, opts.SendQueueLength)
 		p.send[i] = send
-		go link.Writer(n.context, send, opts.FragmentationUnit)
+		go link.Writer(send, opts.FragmentationUnit)
 
 		// run packet reader/handler routines (decoder)
 		recv := make(chan *lib.Buffer, opts.RecvQueueLength)
