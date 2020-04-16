@@ -57,9 +57,9 @@ const (
 	defaultRecvQueueLength   int = 100
 	defaultFragmentationUnit     = 65000
 
-	versionOTP        int = 21
+	versionOTP        int = 22
 	versionERTSprefix     = "ergo"
-	version               = "1.0.0"
+	version               = "1.1.0"
 )
 
 // CreateNode create new node with name and cookie string
