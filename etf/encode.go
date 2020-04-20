@@ -25,7 +25,7 @@ func Encode(term Term, b *lib.Buffer,
 	var stack, child *stackElement
 
 	cacheEnabled := linkAtomCache != nil
-	cacheIndex := uint16(0)
+	cacheIndex := uint16(len(encodingAtomCache.L))
 
 	// Atom cache: (if its enabled: linkAtomCache != nil)
 	// 1. check for an atom in writerAtomCache (map)
@@ -35,7 +35,6 @@ func Encode(term Term, b *lib.Buffer,
 	//    add encodingAtomCache[i] = CacheItem, where i is just a counter
 	//    within this encoding process.
 	//    encode atom as ettCacheRef with value = i
-
 	for {
 
 		child = nil
@@ -383,7 +382,7 @@ func Encode(term Term, b *lib.Buffer,
 					cacheIndex++
 					break
 				}
-				// add it to the cache and encode as usual Atom
+
 				linkAtomCache.Append(t)
 			}
 

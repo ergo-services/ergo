@@ -6,6 +6,7 @@ import (
 	"math/rand"
 	"net"
 	"reflect"
+	"runtime"
 	"sync"
 	"testing"
 
@@ -153,6 +154,36 @@ func TestNodeFragmentation(t *testing.T) {
 		}()
 	}
 	wg.Wait()
+}
+
+func TestNodeAtomCache(t *testing.T) {
+
+	node1 := CreateNode("nodeT1AtomCache@localhost", "secret", NodeOptions{})
+	node2 := CreateNode("nodeT2AtomCache@localhost", "secret", NodeOptions{})
+
+	tgs := &benchGS{}
+	p1, e1 := node1.Spawn("", ProcessOptions{}, tgs)
+	p2, e2 := node2.Spawn("", ProcessOptions{}, tgs)
+
+	if e1 != nil {
+		t.Fatal(e1)
+	}
+	if e2 != nil {
+		t.Fatal(e2)
+	}
+
+	message := etf.Tuple{
+		etf.Atom("a1"),
+		etf.Atom("a2"),
+		etf.Atom("a3"),
+		etf.Atom("a4"),
+		etf.Atom("a5"),
+	}
+	for i := 0; i < 2*runtime.GOMAXPROCS(-1); i++ {
+		if _, e := p1.Call(p2.Self(), message); e != nil {
+			t.Fatal(e)
+		}
+	}
 }
 
 type benchGS struct {

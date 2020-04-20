@@ -7,7 +7,7 @@
 [![codecov](https://codecov.io/gh/halturin/ergo/graph/badge.svg)](https://codecov.io/gh/halturin/ergo)
 [![Build Status](https://travis-ci.org/halturin/ergo.svg)](https://travis-ci.org/halturin/ergo)
 
-Implementation of Erlang/OTP in Golang
+Implementation of Erlang/OTP in Golang. Up to x10 times faster than original Erlang/OTP. The easiest drop-in replacement for your hot nodes in the cluster. 
 
 ### Purpose ###
 
@@ -35,7 +35,7 @@ The goal of this project is to leverage Erlang/OTP experience with Golang perfor
 * RPC callbacks support
 * Experimental [observer support](#observer)
 * Unmarshalling terms into the struct using etf.TermIntoStruct
-* Support Erlang 22.* (with [fragmentation](http://blog.erlang.org/OTP-22-Highlights/))
+* Support Erlang 22. (with [fragmentation](http://blog.erlang.org/OTP-22-Highlights/))
 
 ### Requirements ###
 

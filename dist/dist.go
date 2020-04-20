@@ -540,6 +540,7 @@ func (l *Link) ReadDist(packet []byte) (etf.Term, etf.Term, error) {
 		if packet == nil {
 			return nil, nil, fmt.Errorf("incorrect dist header atom cache")
 		}
+
 		control, packet, err = etf.Decode(packet, cache)
 		if err != nil {
 			return nil, nil, err
@@ -742,7 +743,7 @@ func (l *Link) decodeDistHeaderAtomCache(packet []byte) ([]etf.Atom, []byte) {
 				return nil, nil
 			}
 			atom := string(packet[:atomLen])
-			// store in temporary cache for encoding
+			// store in temporary cache for decoding
 			cache[i] = etf.Atom(atom)
 
 			// store in link' cache
@@ -840,8 +841,7 @@ func (l *Link) Writer(send <-chan []etf.Term, fragmentationUnit int) {
 	var atomCacheBuffer, packetBuffer *lib.Buffer
 	var err error
 
-	//cacheEnabled := l.peer.flags.isSet(DIST_HDR_ATOM_CACHE) && l.cacheOut != nil
-	cacheEnabled := false
+	cacheEnabled := l.peer.flags.isSet(DIST_HDR_ATOM_CACHE) && l.cacheOut != nil
 	fragmentationEnabled := l.peer.flags.isSet(FRAGMENTS) && fragmentationUnit > 0
 
 	// Header atom cache is encoded right after control/message encoding
