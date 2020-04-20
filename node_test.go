@@ -214,7 +214,7 @@ func BenchmarkNodeSequential(b *testing.B) {
 
 	node1name := fmt.Sprintf("nodeB1_%d@localhost", b.N)
 	node2name := fmt.Sprintf("nodeB2_%d@localhost", b.N)
-	node1 := CreateNode(node1name, "bench", NodeOptions{DisableHeaderAtomCache: true})
+	node1 := CreateNode(node1name, "bench", NodeOptions{DisableHeaderAtomCache: false})
 	node2 := CreateNode(node2name, "bench", NodeOptions{})
 
 	bgs := &benchGS{}

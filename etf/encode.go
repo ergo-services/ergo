@@ -25,7 +25,11 @@ func Encode(term Term, b *lib.Buffer,
 	var stack, child *stackElement
 
 	cacheEnabled := linkAtomCache != nil
-	cacheIndex := uint16(len(encodingAtomCache.L))
+
+	cacheIndex := uint16(0)
+	if encodingAtomCache != nil {
+		cacheIndex = uint16(len(encodingAtomCache.L))
+	}
 
 	// Atom cache: (if its enabled: linkAtomCache != nil)
 	// 1. check for an atom in writerAtomCache (map)
