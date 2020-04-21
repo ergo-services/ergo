@@ -652,6 +652,11 @@ func (n *Node) GetProcessList() []*Process {
 	return n.registrar.ProcessList()
 }
 
+// GetPeerList returns list of connected nodes
+func (n *Node) GetPeerList() []string {
+	return n.registrar.PeerList()
+}
+
 // MakeRef returns atomic reference etf.Ref within this node
 func (n *Node) MakeRef() (ref etf.Ref) {
 	ref.Node = etf.Atom(n.FullName)

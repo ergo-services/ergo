@@ -271,6 +271,14 @@ func (r *registrar) ProcessList() []*Process {
 	return list
 }
 
+func (r *registrar) PeerList() []string {
+	list := []string{}
+	for n, _ := range r.peers {
+		list = append(list, n)
+	}
+	return list
+}
+
 func (r *registrar) ApplicationList() []*ApplicationSpec {
 	list := []*ApplicationSpec{}
 	r.mutexApps.Lock()
