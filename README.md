@@ -119,7 +119,7 @@ Here are the changes of latest release. For more details see the [ChangeLog](Cha
 #### [1.1.0](https://github.com/halturin/ergo/releases/tag/1.1.0) - 2020-04-23 ####
 
 * Fragmentation support (which was introduced in Erlang/OTP 22)
-* Completelly rewriten network subsystem (DIST/ETF).
+* Completely rewritten network subsystem (DIST/ETF).
 * Improved performance in terms of network messaging (outperforms original Erlang/OTP up to x5 times. See [Benchmarks](#benchmarks))
 
 
