@@ -30,6 +30,7 @@ var (
 	errMalformedString        = fmt.Errorf("Malformed ETF. ettString")
 	errMalformedCacheRef      = fmt.Errorf("Malformed ETF. ettCacheRef")
 	errMalformedNewFloat      = fmt.Errorf("Malformed ETF. ettNewFloat")
+	errMalformedFloat         = fmt.Errorf("Malformed ETF. ettFloat")
 	errMalformedSmallInteger  = fmt.Errorf("Malformed ETF. ettSmallInteger")
 	errMalformedInteger       = fmt.Errorf("Malformed ETF. ettInteger")
 	errMalformedSmallBig      = fmt.Errorf("Malformed ETF. ettSmallBig")
@@ -409,6 +410,18 @@ func Decode(packet []byte, cache []Atom) (Term, []byte, error) {
 
 			term = b
 			packet = packet[n+5:]
+
+		case ettFloat:
+			if len(packet) < 31 {
+				return nil, nil, errMalformedFloat
+			}
+
+			var f float64
+			if r, err := fmt.Sscanf(string(packet[:31]), "%f", &f); err != nil || r != 1 {
+				return nil, nil, errMalformedFloat
+			}
+			term = f
+			packet = packet[31:]
 
 		default:
 			term = nil

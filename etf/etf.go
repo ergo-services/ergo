@@ -112,7 +112,7 @@ const (
 
 	// ettRef        = byte(101) deprecated
 
-	// ettFloat = byte(99) legacy
+	ettFloat = byte(99) // legacy
 )
 
 func (m Map) Element(k Term) Term {
