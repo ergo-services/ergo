@@ -54,13 +54,12 @@ var (
 	errInternal  = fmt.Errorf("Internal error")
 )
 
-// using iterative way is speeding up it up to x25 times
-// so this implementation has no recursion calls at all
+// stackless implementaion is speeding up it up to x25 times
 
 // it might looks hard to understand the logic, but
 // there are only two stages
 // 1) Stage1: decoding basic types (atoms, strings, numbers...)
-// 2) Stage2: decoding list/tuples/maps and complex types like Port/Pid/Ref using stack
+// 2) Stage2: decoding list/tuples/maps and complex types like Port/Pid/Ref using linked list named 'stack'
 //
 // see comments within this function
 

@@ -7,7 +7,7 @@
 [![codecov](https://codecov.io/gh/halturin/ergo/graph/badge.svg)](https://codecov.io/gh/halturin/ergo)
 [![Build Status](https://travis-ci.org/halturin/ergo.svg)](https://travis-ci.org/halturin/ergo)
 
-Implementation of Erlang/OTP in Golang. Up to x10 times faster than original Erlang/OTP. The easiest drop-in replacement for your hot nodes in the cluster. 
+Implementation of Erlang/OTP in Golang. Up to x5 times faster than original Erlang/OTP. The easiest drop-in replacement for your hot nodes in the cluster. 
 
 ### Purpose ###
 
@@ -83,6 +83,12 @@ ok  	github.com/halturin/ergo	34.145s
 ```
 
 these numbers shows around 260000 sync rps via localhost using simple data for messaging
+
+![benchmarks](https://raw.githubusercontent.com/halturin/ergobenchmarks/master/ergobenchmark.png)
+
+sources of these benchmarks are [here](https://github.com/halturin/ergobenchmarks)
+
+
 
 ### EPMD ###
 
