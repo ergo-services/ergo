@@ -7,9 +7,13 @@ epmd:
 test:
 	go vet
 	go clean -testcache
-	go test ./...
+	go test -v ./...
 
 cover:
 	go test -coverprofile=cover.out ./...
 	go tool cover -html=cover.out -o coverage.html
 	rm cover.out
+
+bench:
+	go test -bench=Node -run=X -benchmem
+

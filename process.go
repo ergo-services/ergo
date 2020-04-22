@@ -128,14 +128,16 @@ func (p *Process) Call(to interface{}, message etf.Term) (etf.Term, error) {
 
 // CallWithTimeout makes outgoing sync request in fashiod of 'gen_call' with given timeout
 func (p *Process) CallWithTimeout(to interface{}, message etf.Term, timeout int) (etf.Term, error) {
+	var timer *time.Timer
+
 	ref := p.Node.MakeRef()
 	from := etf.Tuple{p.self, ref}
 	msg := etf.Term(etf.Tuple{etf.Atom("$gen_call"), from, message})
 	p.Send(to, msg)
 
-	// to prevent of timer leaks due to its not GCed until the timer fires
-	timer := time.NewTimer(time.Second * time.Duration(timeout))
-	defer timer.Stop()
+	timer = lib.TakeTimer()
+	defer lib.ReleaseTimer(timer)
+	timer.Reset(time.Second * time.Duration(timeout))
 
 	for {
 		select {
@@ -143,7 +145,7 @@ func (p *Process) CallWithTimeout(to interface{}, message etf.Term, timeout int)
 			ref1 := m[0].(etf.Ref)
 			val := m[1].(etf.Term)
 			// check message Ref
-			if len(ref.Id) == 3 && ref.Id[0] == ref1.Id[0] && ref.Id[1] == ref1.Id[1] && ref.Id[2] == ref1.Id[2] {
+			if len(ref.ID) == 3 && ref.ID[0] == ref1.ID[0] && ref.ID[1] == ref1.ID[1] && ref.ID[2] == ref1.ID[2] {
 				return val, nil
 			}
 			// ignore this message. waiting for the next one
@@ -241,7 +243,7 @@ func (p *Process) Link(with etf.Pid) {
 
 // Unlink removes the link, if there is one, between the calling process and the process referred to by Pid.
 func (p *Process) Unlink(with etf.Pid) {
-	p.Node.monitor.Unink(p.self, with)
+	p.Node.monitor.Unlink(p.self, with)
 }
 
 // MonitorNode creates monitor between the current process and node. If Node fails or does not exist,

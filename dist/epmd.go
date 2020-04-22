@@ -74,7 +74,10 @@ func (e *EPMD) Init(ctx context.Context, name string, listenport uint16, epmdpor
 	e.LowVsn = 5
 	e.Creation = 0
 
+	ready := make(chan bool)
+
 	go func(e *EPMD) {
+		defer close(ready)
 		for {
 			if !disableServer {
 				// trying to start embedded EPMD before we go further
@@ -106,6 +109,7 @@ func (e *EPMD) Init(ctx context.Context, name string, listenport uint16, epmdpor
 					default:
 						e.Creation = creation.(uint16)
 					}
+					ready <- true
 				} else {
 					lib.Log("Malformed EPMD reply")
 					conn.Close()
@@ -116,6 +120,7 @@ func (e *EPMD) Init(ctx context.Context, name string, listenport uint16, epmdpor
 		}
 	}(e)
 
+	<-ready
 }
 
 func (e *EPMD) ResolvePort(name string) (int, error) {

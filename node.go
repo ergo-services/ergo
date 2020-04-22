@@ -31,24 +31,35 @@ type Node struct {
 
 	StartedAt time.Time
 	uniqID    int64
+
+	opts NodeOptions
 }
 
 // NodeOptions struct with bootstrapping options for CreateNode
 type NodeOptions struct {
-	ListenRangeBegin  uint16
-	ListenRangeEnd    uint16
-	Hidden            bool
-	EPMDPort          uint16
-	DisableEPMDServer bool
+	ListenRangeBegin       uint16
+	ListenRangeEnd         uint16
+	Hidden                 bool
+	EPMDPort               uint16
+	DisableEPMDServer      bool
+	SendQueueLength        int
+	RecvQueueLength        int
+	FragmentationUnit      int
+	DisableHeaderAtomCache bool
 }
 
 const (
 	defaultListenRangeBegin uint16 = 15000
 	defaultListenRangeEnd   uint16 = 65000
 	defaultEPMDPort         uint16 = 4369
-	versionOTP              int    = 21
-	versionERTSprefix              = "ergo"
-	version                        = "1.0.0"
+
+	defaultSendQueueLength   int = 100
+	defaultRecvQueueLength   int = 100
+	defaultFragmentationUnit     = 65000
+
+	versionOTP        int = 22
+	versionERTSprefix     = "ergo"
+	version               = "1.1.0"
 )
 
 // CreateNode create new node with name and cookie string
@@ -62,12 +73,13 @@ func CreateNodeWithContext(ctx context.Context, name string, cookie string, opts
 	lib.Log("Start with name '%s' and cookie '%s'", name, cookie)
 	nodectx, nodestop := context.WithCancel(ctx)
 
-	node := Node{
+	node := &Node{
 		Cookie:    cookie,
 		context:   nodectx,
 		Stop:      nodestop,
 		StartedAt: time.Now(),
-		uniqID:    time.Now().UnixNano(),
+		uniqID:    time.Now().UnixNano(), // (*uint64)(unsafe.Pointer(node)) ?
+
 	}
 
 	// start networking if name is defined
@@ -88,6 +100,18 @@ func CreateNodeWithContext(ctx context.Context, name string, cookie string, opts
 			lib.Log("Using custom EPMD port: %d", opts.EPMDPort)
 		}
 
+		if opts.SendQueueLength == 0 {
+			opts.SendQueueLength = defaultSendQueueLength
+		}
+
+		if opts.RecvQueueLength == 0 {
+			opts.RecvQueueLength = defaultRecvQueueLength
+		}
+
+		if opts.FragmentationUnit < 1500 {
+			opts.FragmentationUnit = defaultFragmentationUnit
+		}
+
 		if opts.Hidden {
 			lib.Log("Running as hidden node")
 		}
@@ -96,7 +120,7 @@ func CreateNodeWithContext(ctx context.Context, name string, cookie string, opts
 			panic("FQDN for node name is required (example: node@hostname)")
 		}
 
-		if listenPort := node.listen(ns[1], opts.ListenRangeBegin, opts.ListenRangeEnd); listenPort == 0 {
+		if listenPort := node.listen(ns[1], opts); listenPort == 0 {
 			panic("Can't listen port")
 		} else {
 			// start EPMD
@@ -105,13 +129,15 @@ func CreateNodeWithContext(ctx context.Context, name string, cookie string, opts
 
 	}
 
-	node.registrar = createRegistrar(&node)
-	node.monitor = createMonitor(&node)
+	node.opts = opts
+
+	node.registrar = createRegistrar(node)
+	node.monitor = createMonitor(node)
 
 	netKernelSup := &netKernelSup{}
 	node.Spawn("net_kernel_sup", ProcessOptions{}, netKernelSup)
 
-	return &node
+	return node
 }
 
 // Spawn create new process
@@ -207,70 +233,117 @@ func (n *Node) ProcessInfo(pid etf.Pid) (ProcessInfo, error) {
 	return p.Info(), nil
 }
 
-func (n *Node) serve(c net.Conn, negotiate bool) error {
+func (n *Node) serve(link *dist.Link, opts NodeOptions) error {
+	// define the total number of reader/writer goroutines
+	numHandlers := runtime.GOMAXPROCS(-1)
 
-	var nodeDesc *dist.NodeDesc
-
-	if negotiate {
-		nodeDesc = dist.NewNodeDesc(n.FullName, n.Cookie, false, c)
-	} else {
-		nodeDesc = dist.NewNodeDesc(n.FullName, n.Cookie, false, nil)
+	// do not use shared channels within intencive code parts, impacts on a performance
+	receivers := struct {
+		recv []chan *lib.Buffer
+		n    int
+		i    int
+	}{
+		recv: make([]chan *lib.Buffer, opts.RecvQueueLength),
+		n:    numHandlers,
 	}
 
-	send := make(chan []etf.Term, 10)
-	stop := make(chan bool)
-	// run writer routine
-	go func() {
-		defer c.Close()
-		defer func() { n.registrar.UnregisterPeer(nodeDesc.GetRemoteName()) }()
+	p := &peer{
+		name: link.GetRemoteName(),
+		send: make([]chan []etf.Term, numHandlers),
+		n:    numHandlers,
+	}
 
-		for {
+	if err := n.registrar.RegisterPeer(p); err != nil {
+		// duplicate link?
+		return err
+	}
+
+	cacheIsReady := make(chan bool)
+
+	// run link reader routine
+	go func() {
+		var err error
+		var packetLength int
+		var recv chan *lib.Buffer
+
+		ctx, cancel := context.WithCancel(n.context)
+		defer cancel()
+
+		go func() {
 			select {
-			case terms := <-send:
-				err := nodeDesc.WriteMessage(c, terms)
-				if err != nil {
-					lib.Log("node error (writing): %s", err.Error())
-					return
+			case <-ctx.Done():
+				// if node's context is done
+				link.Close()
+			}
+		}()
+
+		// initializing atom cache if its enabled
+		if !opts.DisableHeaderAtomCache {
+			link.SetAtomCache(etf.NewAtomCache(ctx))
+		}
+		cacheIsReady <- true
+
+		defer func() {
+			link.Close()
+			n.registrar.UnregisterPeer(link.GetRemoteName())
+
+			// close handlers channel
+			for i := 0; i < numHandlers; i++ {
+				if p.send[i] != nil {
+					close(p.send[i])
 				}
-			case <-n.context.Done():
-				return
-			case <-stop:
-				return
+				if receivers.recv[i] != nil {
+					close(receivers.recv[i])
+				}
 			}
+		}()
 
-		}
-	}()
-
-	// run reader routine
-	go func() {
-		defer c.Close()
-		defer func() { n.registrar.UnregisterPeer(nodeDesc.GetRemoteName()) }()
+		b := lib.TakeBuffer()
 		for {
-			terms, err := nodeDesc.ReadMessage(c)
-			if err != nil {
-				lib.Log("node error (reading): %s", err.Error())
-				break
+			packetLength, err = link.Read(b)
+			if err != nil || packetLength == 0 {
+				// link was closed or got malformed data
+				fmt.Println("eeeee", link.Name, err, packetLength)
+				lib.ReleaseBuffer(b)
+				return
 			}
-			n.handleTerms(terms)
+			// take new buffer for the next reading and append the tail (part of the next packet)
+			b1 := lib.TakeBuffer()
+			b1.Set(b.B[packetLength:])
+			// cut the tail and send it further for handling.
+			// buffer b have to be released by the reader of
+			// recv channel (link.ReadHandlePacket)
+			b.B = b.B[:packetLength]
+			recv = receivers.recv[receivers.i]
+			recv <- b
+
+			// set new buffer as a current for the next reading
+			b = b1
+
+			// round-robin switch to the next receiver
+			receivers.i++
+			if receivers.i < receivers.n {
+				continue
+			}
+			receivers.i = 0
+
 		}
 	}()
 
-	p := peer{
-		conn: c,
-		send: send,
-	}
+	// we should make sure if the cache is ready before we start writers
+	<-cacheIsReady
 
-	// waiting for handshaking process.
-	err := <-nodeDesc.HandshakeError
-	if err != nil {
-		stop <- true
-		return err
-	}
+	// run readers/writers for incoming/outgoing messages
+	for i := 0; i < numHandlers; i++ {
+		// run writer routines (encoder)
+		send := make(chan []etf.Term, opts.SendQueueLength)
+		p.send[i] = send
+		go link.Writer(send, opts.FragmentationUnit)
 
-	// close this connection if we cant register this node for some reason (duplicate?)
-	if err := n.registrar.RegisterPeer(nodeDesc.GetRemoteName(), p); err != nil {
-		stop <- true
-		return err
+		// run packet reader/handler routines (decoder)
+		recv := make(chan *lib.Buffer, opts.RecvQueueLength)
+		receivers.recv[i] = recv
+		go link.ReadHandlePacket(n.context, recv, n.handleMessage)
 	}
 
 	return nil
@@ -435,37 +508,28 @@ func (n *Node) ApplicationStop(name string) error {
 	return nil
 }
 
-func (n *Node) handleTerms(terms []etf.Term) {
+func (n *Node) handleMessage(control, message etf.Term) {
 	defer func() {
 		if r := recover(); r != nil {
-			fmt.Printf("Warning: recovered node.handleTerms: %s\n", r)
+			fmt.Printf("Warning: recovered node.handleMessage: %s\n", r)
 		}
 	}()
 
-	if len(terms) == 0 {
-		// keep alive
-		return
-	}
+	lib.Log("Node control: %#v", control)
 
-	lib.Log("Node terms: %#v", terms)
-
-	switch t := terms[0].(type) {
+	switch t := control.(type) {
 	case etf.Tuple:
 		switch act := t.Element(1).(type) {
 		case int:
 			switch act {
 			case distProtoREG_SEND:
 				// {6, FromPid, Unused, ToName}
-				if len(terms) == 2 {
-					n.registrar.route(t.Element(2).(etf.Pid), t.Element(4), terms[1])
-				} else {
-					lib.Log("*** ERROR: bad REG_SEND: %#v", terms)
-				}
+				n.registrar.route(t.Element(2).(etf.Pid), t.Element(4), message)
 
 			case distProtoSEND:
 				// {2, Unused, ToPid}
 				// SEND has no sender pid
-				n.registrar.route(etf.Pid{}, t.Element(3), terms[1])
+				n.registrar.route(etf.Pid{}, t.Element(3), message)
 
 			case distProtoLINK:
 				// {1, FromPid, ToPid}
@@ -475,7 +539,7 @@ func (n *Node) handleTerms(terms []etf.Term) {
 			case distProtoUNLINK:
 				// {4, FromPid, ToPid}
 				lib.Log("UNLINK message (act %d): %#v", act, t)
-				n.monitor.Unink(t.Element(2).(etf.Pid), t.Element(3).(etf.Pid))
+				n.monitor.Unlink(t.Element(2).(etf.Pid), t.Element(3).(etf.Pid))
 
 			case distProtoNODE_LINK:
 				lib.Log("NODE_LINK message (act %d): %#v", act, t)
@@ -514,28 +578,15 @@ func (n *Node) handleTerms(terms []etf.Term) {
 			// Not implemented yet, just stubs. TODO.
 			case distProtoSEND_SENDER:
 				lib.Log("SEND_SENDER message (act %d): %#v", act, t)
-			case distProtoSEND_SENDER_TT:
-				lib.Log("SEND_SENDER_TT message (act %d): %#v", act, t)
 			case distProtoPAYLOAD_EXIT:
 				lib.Log("PAYLOAD_EXIT message (act %d): %#v", act, t)
-			case distProtoPAYLOAD_EXIT_TT:
-				lib.Log("PAYLOAD_EXIT_TT message (act %d): %#v", act, t)
 			case distProtoPAYLOAD_EXIT2:
 				lib.Log("PAYLOAD_EXIT2 message (act %d): %#v", act, t)
-			case distProtoPAYLOAD_EXIT2_TT:
-				lib.Log("PAYLOAD_EXIT2_TT message (act %d): %#v", act, t)
 			case distProtoPAYLOAD_MONITOR_P_EXIT:
 				lib.Log("PAYLOAD_MONITOR_P_EXIT message (act %d): %#v", act, t)
 
 			default:
 				lib.Log("Unhandled node message (act %d): %#v", act, t)
-			}
-		case etf.Atom:
-			switch act {
-			case etf.Atom("$connection"):
-				// Ready channel waiting for registration of this connection
-				err := (t[2]).(chan error)
-				err <- nil
 			}
 		default:
 			lib.Log("UNHANDLED ACT: %#v", t.Element(1))
@@ -601,6 +652,11 @@ func (n *Node) GetProcessList() []*Process {
 	return n.registrar.ProcessList()
 }
 
+// GetPeerList returns list of connected nodes
+func (n *Node) GetPeerList() []string {
+	return n.registrar.PeerList()
+}
+
 // MakeRef returns atomic reference etf.Ref within this node
 func (n *Node) MakeRef() (ref etf.Ref) {
 	ref.Node = etf.Atom(n.FullName)
@@ -608,7 +664,7 @@ func (n *Node) MakeRef() (ref etf.Ref) {
 	nt := atomic.AddInt64(&n.uniqID, 1)
 	id1 := uint32(uint64(nt) & ((2 << 17) - 1))
 	id2 := uint32(uint64(nt) >> 46)
-	ref.Id = []uint32{id1, id2, 0}
+	ref.ID = []uint32{id1, id2, 0}
 
 	return
 }
@@ -628,7 +684,7 @@ func (n *Node) connect(to etf.Atom) error {
 		Control: setSocketOptions,
 	}
 	if port, err = n.ResolvePort(string(to)); port < 0 {
-		return fmt.Errorf("Can't resolve port: %s", err)
+		return fmt.Errorf("Can't resolve port for %s: %s", to, err)
 	}
 	ns := strings.Split(string(to), "@")
 
@@ -638,18 +694,22 @@ func (n *Node) connect(to etf.Atom) error {
 		return err
 	}
 
-	if err := n.serve(c, true); err != nil {
+	link, e := dist.Handshake(n.context, c, n.FullName, n.Cookie, false)
+	if e != nil {
+		return e
+	}
+
+	if err := n.serve(link, n.opts); err != nil {
 		c.Close()
 		return err
 	}
 	return nil
 }
 
-func (n *Node) listen(name string, listenRangeBegin, listenRangeEnd uint16) uint16 {
+func (n *Node) listen(name string, opts NodeOptions) uint16 {
 
 	lc := net.ListenConfig{Control: setSocketOptions}
-
-	for p := listenRangeBegin; p <= listenRangeEnd; p++ {
+	for p := opts.ListenRangeBegin; p <= opts.ListenRangeEnd; p++ {
 		l, err := lc.Listen(n.context, "tcp", net.JoinHostPort(name, strconv.Itoa(int(p))))
 		if err != nil {
 			continue
@@ -657,28 +717,56 @@ func (n *Node) listen(name string, listenRangeBegin, listenRangeEnd uint16) uint
 		go func() {
 			for {
 				c, err := l.Accept()
-
 				lib.Log("Accepted new connection from %s", c.RemoteAddr().String())
+
 				if err != nil {
-					lib.Log(err.Error())
-				} else {
-					if err := n.serve(c, false); err != nil {
-						lib.Log("Can't serve connection due to: %s", err)
-						c.Close()
+					if err == context.Canceled {
+						return
 					}
+					lib.Log(err.Error())
+					continue
 				}
+
+				link, e := dist.HandshakeAccept(n.context, c, n.FullName, n.Cookie, opts.Hidden)
+				if e != nil {
+					lib.Log("Can't handshake with %s: %s", c.RemoteAddr().String(), e)
+					c.Close()
+					continue
+				}
+
+				// start serving this link
+				if err := n.serve(link, opts); err != nil {
+					lib.Log("Can't serve connection link due to: %s", err)
+					c.Close()
+				}
+
 			}
 		}()
+
+		// return port number this node listenig on for the incoming connections
 		return p
 	}
 
+	// all the ports within a given range are taken
 	return 0
 }
 
 func setSocketOptions(network string, address string, c syscall.RawConn) error {
 	var fn = func(s uintptr) {
 		var setErr error
+
+		// set KeepAlive
 		setErr = syscall.SetsockoptInt(int(s), syscall.IPPROTO_TCP, syscall.TCP_KEEPINTVL, 5)
+		if setErr != nil {
+			log.Fatal(setErr)
+		}
+
+		// set buffers
+		setErr = syscall.SetsockoptInt(int(s), syscall.SOL_SOCKET, syscall.SO_RCVBUF, 65536)
+		if setErr != nil {
+			log.Fatal(setErr)
+		}
+		setErr = syscall.SetsockoptInt(int(s), syscall.SOL_SOCKET, syscall.SO_SNDBUF, 65536)
 		if setErr != nil {
 			log.Fatal(setErr)
 		}

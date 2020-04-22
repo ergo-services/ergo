@@ -2,9 +2,8 @@ package ergo
 
 import (
 	"fmt"
-	"net"
-
 	"github.com/halturin/ergo/etf"
+	"sync"
 )
 
 var (
@@ -19,6 +18,7 @@ var (
 
 	ErrUnsupportedRequest = fmt.Errorf("Unsupported request")
 	ErrTimeout            = fmt.Errorf("Timed out")
+	ErrFragmented         = fmt.Errorf("Fragmented data")
 )
 
 // Distributed operations codes (http://www.erlang.org/doc/apps/erts/erl_dist_protocol.html)
@@ -48,6 +48,25 @@ const (
 )
 
 type peer struct {
-	conn net.Conn
-	send chan []etf.Term
+	name string
+	send []chan []etf.Term
+	i    int
+	n    int
+
+	mutex sync.Mutex
+}
+
+func (p *peer) GetChannel() chan []etf.Term {
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
+
+	c := p.send[p.i]
+
+	p.i++
+	if p.i < p.n {
+		return c
+	}
+
+	p.i = 0
+	return c
 }

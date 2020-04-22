@@ -172,6 +172,7 @@ func (a *Application) loop(p *Process, object interface{}, args ...interface{}) 
 	}
 }
 func (a *Application) stopChildren(from etf.Pid, children []ApplicationChildSpec, reason string) {
+
 	for i := range children {
 		child := children[i].process
 		if child != nil && child.self != from {
