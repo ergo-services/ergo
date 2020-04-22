@@ -116,19 +116,12 @@ As an extra option, we provide EPMD service as a standalone application. There i
 
 Here are the changes of latest release. For more details see the [ChangeLog](ChangeLog)
 
-#### [1.0.0](https://github.com/halturin/ergo/releases/tag/1.0.0) - 2020-03-03 ####
+#### [1.1.0](https://github.com/halturin/ergo/releases/tag/1.1.0) - 2020-04-23 ####
 
- There is a bunch of changes we deliver with this release
+* Fragmentation support (which was introduced in Erlang/OTP 22)
+* Completelly rewriten network subsystem (DIST/ETF).
+* Improved performance in terms of network messaging (outperforms original Erlang/OTP up to x5 times. See [Benchmarks](#benchmarks))
 
-* We have changed the name - Ergo (or Ergo Framework). GitHub's repo has been renamed as well. We also have created cloned repo `ergonode` to support users of the old version of this project. So, its still available at [https://github.com/halturin/ergonode](https://github.com/halturin/ergonode). But it's strongly recommend to use the new one.
-* Completely reworked (almost from scratch) architecture whole project
-* Implemented linking process feature (in order to support Application/Supervisor behaviors)
-* Reworked Monitor-feature. Now it has full-featured support with remote process/nodes
-* Added multinode support
-* Added experimental observer support
-* Fixed incorrect ETF string encoding (it was encoded as binary instead of string)
-* Improved ETF TermIntoStruct decoder
-* Improved code structure and readability
 
 ### Examples ###
 
