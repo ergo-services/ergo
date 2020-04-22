@@ -87,6 +87,7 @@ these numbers shows around 260000 sync rps via localhost using simple data for m
 #### vs original Erlang/OTP
 
 ![benchmarks](https://raw.githubusercontent.com/halturin/ergobenchmarks/master/ergobenchmark.png)
+
 sources of these benchmarks are [here](https://github.com/halturin/ergobenchmarks)
 
 
