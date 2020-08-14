@@ -11,28 +11,33 @@ const (
 	DefaultCallTimeout = 5
 )
 
-// GenServerBehavior interface
-type GenServerBehavior interface {
+// GenServerBehaviour interface
+type GenServerBehaviour interface {
 	// Init(...) -> state
 	Init(process *Process, args ...interface{}) (state interface{})
+
 	// HandleCast -> ("noreply", state) - noreply
 	//		         ("stop", reason) - stop with reason
 	HandleCast(message etf.Term, state interface{}) (string, interface{})
+
 	// HandleCall -> ("reply", message, state) - reply
 	//				 ("noreply", _, state) - noreply
 	//		         ("stop", reason, _) - normal stop
 	HandleCall(from etf.Tuple, message etf.Term, state interface{}) (string, etf.Term, interface{})
+
 	// HandleInfo -> ("noreply", state) - noreply
 	//		         ("stop", reason) - normal stop
 	HandleInfo(message etf.Term, state interface{}) (string, interface{})
+
 	Terminate(reason string, state interface{})
 }
 
-// GenServer is implementation of ProcessBehavior interface for GenServer objects
+// GenServer is implementation of ProcessBehaviour interface for GenServer objects
 type GenServer struct{}
 
-func (gs *GenServer) loop(p *Process, object interface{}, args ...interface{}) string {
-	p.state = object.(GenServerBehavior).Init(p, args...)
+func (gs *GenServer) Loop(p *Process, args ...interface{}) string {
+	object := p.object
+	p.state = object.(GenServerBehaviour).Init(p, args...)
 	p.ready <- nil
 
 	stop := make(chan string, 2)
@@ -46,24 +51,20 @@ func (gs *GenServer) loop(p *Process, object interface{}, args ...interface{}) s
 
 		select {
 		case ex := <-p.gracefulExit:
-			if p.trapExit {
-				message = etf.Tuple{
-					etf.Atom("EXIT"),
-					ex.from,
-					etf.Atom(ex.reason),
-				}
-			} else {
-				object.(GenServerBehavior).Terminate(ex.reason, p.state)
-				return ex.reason
-			}
+			object.(GenServerBehaviour).Terminate(ex.reason, p.state)
+			return ex.reason
+
 		case reason := <-stop:
-			object.(GenServerBehavior).Terminate(reason, p.state)
+			object.(GenServerBehaviour).Terminate(reason, p.state)
 			return reason
+
 		case msg := <-p.mailBox:
 			fromPid = msg.Element(1).(etf.Pid)
 			message = msg.Element(2)
+
 		case <-p.Context.Done():
 			return "kill"
+
 		case direct := <-p.direct:
 			gs.handleDirect(direct)
 			continue
@@ -88,7 +89,7 @@ func (gs *GenServer) loop(p *Process, object interface{}, args ...interface{}) s
 
 						cf := p.currentFunction
 						p.currentFunction = "GenServer:HandleCall"
-						code, reply, state := object.(GenServerBehavior).HandleCall(fromTuple, m.Element(3), p.state)
+						code, reply, state := object.(GenServerBehaviour).HandleCall(fromTuple, m.Element(3), p.state)
 						p.currentFunction = cf
 
 						if code == "stop" {
@@ -114,7 +115,7 @@ func (gs *GenServer) loop(p *Process, object interface{}, args ...interface{}) s
 
 						cf := p.currentFunction
 						p.currentFunction = "GenServer:HandleCast"
-						code, state := object.(GenServerBehavior).HandleCast(m.Element(2), p.state)
+						code, state := object.(GenServerBehaviour).HandleCast(m.Element(2), p.state)
 						p.currentFunction = cf
 
 						if code == "stop" {
@@ -131,7 +132,7 @@ func (gs *GenServer) loop(p *Process, object interface{}, args ...interface{}) s
 
 						cf := p.currentFunction
 						p.currentFunction = "GenServer:HandleInfo"
-						code, state := object.(GenServerBehavior).HandleInfo(message, p.state)
+						code, state := object.(GenServerBehaviour).HandleInfo(message, p.state)
 						p.currentFunction = cf
 
 						if code == "stop" {
@@ -155,7 +156,7 @@ func (gs *GenServer) loop(p *Process, object interface{}, args ...interface{}) s
 
 					cf := p.currentFunction
 					p.currentFunction = "GenServer:HandleInfo"
-					code, state := object.(GenServerBehavior).HandleInfo(message, p.state)
+					code, state := object.(GenServerBehaviour).HandleInfo(message, p.state)
 					p.currentFunction = cf
 
 					if code == "stop" {
@@ -173,7 +174,7 @@ func (gs *GenServer) loop(p *Process, object interface{}, args ...interface{}) s
 
 				cf := p.currentFunction
 				p.currentFunction = "GenServer:HandleInfo"
-				code, state := object.(GenServerBehavior).HandleInfo(message, p.state)
+				code, state := object.(GenServerBehaviour).HandleInfo(message, p.state)
 				p.currentFunction = cf
 
 				if code == "stop" {

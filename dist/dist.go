@@ -536,7 +536,7 @@ func (l *Link) Read(b *lib.Buffer) (int, error) {
 }
 
 func (l *Link) ReadHandlePacket(ctx context.Context, recv <-chan *lib.Buffer,
-	handler func(etf.Term, etf.Term)) {
+	handler func(string, etf.Term, etf.Term)) {
 	var b *lib.Buffer
 
 	for {
@@ -561,7 +561,7 @@ func (l *Link) ReadHandlePacket(ctx context.Context, recv <-chan *lib.Buffer,
 		}
 
 		// handle message
-		handler(control, message)
+		handler(l.peer.Name, control, message)
 
 		// we have to release this buffer
 		lib.ReleaseBuffer(b)

@@ -183,6 +183,34 @@ func TestNodeAtomCache(t *testing.T) {
 	}
 }
 
+func TestNodeStaticRoute(t *testing.T) {
+	nodeName := "nodeT1StaticRoute@localhost"
+	nodeStaticPort := 9876
+
+	node1 := CreateNode(nodeName, "secret", NodeOptions{})
+	port1 := node1.ResolvePort(nodeName)
+	if port1 == -1 {
+		t.Fatal("Can't resolve port number for ", nodeName)
+	}
+
+	e := node1.AddStaticRoute(nodeName, uint16(nodeStaticPort))
+	if e != nil {
+		t.Fatal(e)
+	}
+	port2 := node1.ResolvePort(nodeName)
+	// should be overrided by the new value of nodeStaticPort
+	if port2 != nodeStaticPort {
+		t.Fatal("Wrong port number after adding static route. Got", port2, "Expected", nodeStaticPort)
+	}
+
+	node1.RemoveStaticRoute(nodeName)
+	port2 = node1.ResolvePort(nodeName)
+	// should be resolved into the original port number
+	if port1 != port2 {
+		t.Fatal("Wrong port number after removing static route")
+	}
+}
+
 type benchGS struct {
 	GenServer
 }

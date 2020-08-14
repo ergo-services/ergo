@@ -84,7 +84,7 @@ type ProcessExitFunc func(from etf.Pid, reason string)
 
 // ProcessBehaviour interface contains methods you should implement to make own process behaviour
 type ProcessBehaviour interface {
-	loop(*Process, interface{}, ...interface{}) string // method which implements control flow of process
+	Loop(*Process, ...interface{}) string // method which implements control flow of process
 }
 
 // Self returns self Pid
@@ -230,11 +230,18 @@ func (p *Process) Cast(to interface{}, message etf.Term) {
 	p.Node.registrar.route(p.self, to, msg)
 }
 
-// MonitorProcess creates monitor between the processes. When a process monitor
-// is triggered, a 'DOWN' message sends that has the following
-// pattern: {'DOWN', MonitorRef, Type, Object, Info}
-func (p *Process) MonitorProcess(to etf.Pid) etf.Ref {
-	return p.Node.monitor.MonitorProcess(p.self, to)
+// MonitorProcess creates monitor between the processes.
+// 'process' value can be: etf.Pid, registered local name etf.Atom or
+// remote registered name etf.Tuple{Name etf.Atom, Node etf.Atom}
+// When a process monitor is triggered, a 'DOWN' message sends that has the following
+// pattern: {'DOWN', MonitorRef, Type, Object, Info} where
+// Info has following values:
+//  - the exit reason of the process
+//  - 'noproc' (process did not exist at the time of monitor creation)
+//  - 'noconnection' (no connection to the node where the monitored process resides)
+// Note: The monitor request is an asynchronous signal. That is, it takes time before the signal reaches its destination.
+func (p *Process) MonitorProcess(process interface{}) etf.Ref {
+	return p.Node.monitor.MonitorProcess(p.self, process)
 }
 
 // Link creates a link between the calling process and another process
@@ -253,9 +260,9 @@ func (p *Process) MonitorNode(name string) etf.Ref {
 	return p.Node.monitor.MonitorNode(p.self, name)
 }
 
-// DemonitorProcess removes monitor
-func (p *Process) DemonitorProcess(ref etf.Ref) {
-	p.Node.monitor.DemonitorProcess(ref)
+// DemonitorProcess removes monitor. Returns false if the given reference 'ref' wasn't found
+func (p *Process) DemonitorProcess(ref etf.Ref) bool {
+	return p.Node.monitor.DemonitorProcess(ref)
 }
 
 // DemonitorNode removes monitor
@@ -350,6 +357,16 @@ func (p *Process) GetState() string {
 	p.RLock()
 	defer p.RUnlock()
 	return fmt.Sprintf("%#v", p.state)
+}
+
+// SetTrapExit enables/disables the trap on terminate process
+func (p *Process) SetTrapExit(trap bool) {
+	p.trapExit = trap
+}
+
+// GetTrapExit returns whether the trap was enabled on this process
+func (p *Process) GetTrapExit() bool {
+	return p.trapExit
 }
 
 func (p *Process) directRequest(id string, request interface{}) (interface{}, error) {

@@ -81,14 +81,6 @@ func (r *registrar) RegisterProcessExt(name string, object interface{}, opts Pro
 	pid := r.createNewPID()
 
 	exitChannel := make(chan gracefulExitRequest)
-	exit := func(from etf.Pid, reason string) {
-		lib.Log("[%s] EXIT: %#v with reason: %s", r.node.FullName, pid, reason)
-		ex := gracefulExitRequest{
-			from:   from,
-			reason: reason,
-		}
-		exitChannel <- ex
-	}
 
 	process := &Process{
 		mailBox:      make(chan etf.Tuple, mailboxSize),
@@ -100,12 +92,41 @@ func (r *registrar) RegisterProcessExt(name string, object interface{}, opts Pro
 		groupLeader:  opts.GroupLeader,
 		Context:      ctx,
 		Kill:         kill,
-		Exit:         exit,
 		name:         name,
 		Node:         r.node,
 		reply:        make(chan etf.Tuple, 2),
 		object:       object,
 	}
+
+	exit := func(from etf.Pid, reason string) {
+		lib.Log("[%s] EXIT: %#v with reason: %s", r.node.FullName, pid, reason)
+		ex := gracefulExitRequest{
+			from:   from,
+			reason: reason,
+		}
+		if ctx.Err() != nil {
+			// process is already died
+			return
+		}
+		if process.trapExit {
+			message := etf.Tuple{from, etf.Tuple{
+				etf.Atom("EXIT"),
+				from,
+				etf.Atom(reason),
+			}}
+			process.mailBox <- message
+			return
+		}
+		// the reason why we use 'select':
+		// if it was called earlier and this process is on the way of exiting
+		// there is nobody to read from the exitChannel and it locks the calling
+		// process foreveer
+		select {
+		case exitChannel <- ex:
+		default:
+		}
+	}
+	process.Exit = exit
 
 	if name != "" {
 		r.mutexNames.Lock()
@@ -198,8 +219,8 @@ func (r *registrar) UnregisterPeer(name string) {
 	lib.Log("[%s] unregistering peer %v", r.node.FullName, name)
 	r.mutexPeers.Lock()
 	if _, ok := r.peers[name]; ok {
-		r.node.monitor.NodeDown(name)
 		delete(r.peers, name)
+		r.node.monitor.NodeDown(name)
 	}
 	r.mutexPeers.Unlock()
 }
@@ -239,10 +260,9 @@ func (r *registrar) GetProcessByPid(pid etf.Pid) *Process {
 	defer r.mutexProcesses.Unlock()
 	if p, ok := r.processes[pid.ID]; ok {
 		return p
-	} else {
-		// unknown process
-		return nil
 	}
+	// unknown process
+	return nil
 }
 
 // GetProcessByPid returns Process struct for the given name. Returns nil if it doesn't exist (not found)
@@ -404,16 +424,15 @@ next:
 	}
 }
 
-func (r *registrar) routeRaw(nodename etf.Atom, message etf.Term) {
+func (r *registrar) routeRaw(nodename etf.Atom, message etf.Term) error {
 	r.mutexPeers.Lock()
 	peer, ok := r.peers[string(nodename)]
 	r.mutexPeers.Unlock()
-
 	if !ok {
 		// initiate connection and make yet another attempt to deliver this message
 		if err := r.node.connect(nodename); err != nil {
 			lib.Log("[%s] can't connect to %v: %s", r.node.FullName, nodename, err)
-			return
+			return err
 		}
 
 		r.mutexPeers.Lock()
@@ -423,4 +442,5 @@ func (r *registrar) routeRaw(nodename etf.Atom, message etf.Term) {
 
 	send := peer.GetChannel()
 	send <- []etf.Term{message}
+	return nil
 }
