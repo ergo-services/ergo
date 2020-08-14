@@ -15,16 +15,20 @@ const (
 type GenServerBehavior interface {
 	// Init(...) -> state
 	Init(process *Process, args ...interface{}) (state interface{})
+
 	// HandleCast -> ("noreply", state) - noreply
 	//		         ("stop", reason) - stop with reason
 	HandleCast(message etf.Term, state interface{}) (string, interface{})
+
 	// HandleCall -> ("reply", message, state) - reply
 	//				 ("noreply", _, state) - noreply
 	//		         ("stop", reason, _) - normal stop
 	HandleCall(from etf.Tuple, message etf.Term, state interface{}) (string, etf.Term, interface{})
+
 	// HandleInfo -> ("noreply", state) - noreply
 	//		         ("stop", reason) - normal stop
 	HandleInfo(message etf.Term, state interface{}) (string, interface{})
+
 	Terminate(reason string, state interface{})
 }
 
