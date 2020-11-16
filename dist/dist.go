@@ -193,7 +193,7 @@ func (lf *linkFlusher) Write(b []byte) (int, error) {
 	if lf.timer != nil {
 		// spent few hours due to this bug :(
 		// https://github.com/golang/go/issues/38070
-		// TL;DR - you have to upgrade/downgrade you golang runtime
+		// TL;DR - you have to upgrade/downgrade your golang runtime
 		// in case of using 1.14 or 1.14.1
 		lf.timer.Reset(lf.latency)
 		return lenB, nil
@@ -204,11 +204,12 @@ func (lf *linkFlusher) Write(b []byte) (int, error) {
 		var keepAlivePacket = []byte{0, 0, 0, 0}
 		var keepAliveTimeout = time.Duration(5 * time.Second)
 
+		lf.timer.Reset(keepAliveTimeout)
+
 		// if we have no pending data to send we should
 		// send a KeepAlive packet
 		if !lf.pending {
 			lf.w.Write(keepAlivePacket)
-			lf.timer.Reset(keepAliveTimeout)
 			return
 		}
 

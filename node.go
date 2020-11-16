@@ -3,7 +3,6 @@ package ergo
 import (
 	"context"
 	"fmt"
-	"log"
 	"runtime"
 	"sync/atomic"
 
