@@ -2,6 +2,7 @@ package ergo
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"sync/atomic"
 
@@ -299,7 +300,12 @@ next:
 			// local route
 			r.mutexProcesses.Lock()
 			if p, ok := r.processes[tto.ID]; ok {
-				p.mailBox <- etf.Tuple{from, message}
+				select {
+				case p.mailBox <- etf.Tuple{from, message}:
+
+				default:
+					fmt.Println("WARNING! mailbox of", p.Self(), "is full. dropped message from", from)
+				}
 			}
 			r.mutexProcesses.Unlock()
 			return
