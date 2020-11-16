@@ -129,6 +129,14 @@ type Link struct {
 	checkCleanDeadline time.Duration // how long we wait for the next fragment of the certain sequenceID. Default is 30 seconds
 }
 
+func (l *Link) GetPeerName() string {
+	if l.peer == nil {
+		return ""
+	}
+
+	return l.peer.Name
+}
+
 func newLinkFlusher(w io.Writer, latency time.Duration) *linkFlusher {
 	return &linkFlusher{
 		latency: latency,

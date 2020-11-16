@@ -309,7 +309,7 @@ func (n *Node) serve(link *dist.Link, opts NodeOptions) error {
 			packetLength, err = link.Read(b)
 			if err != nil || packetLength == 0 {
 				// link was closed or got malformed data
-				fmt.Println("link was closed %s (error: %s). Packet len %d", link.Name, err, packetLength)
+				fmt.Println("link was closed", link.GetPeerName(), "error:", err)
 				lib.ReleaseBuffer(b)
 				return
 			}
