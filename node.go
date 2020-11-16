@@ -6,7 +6,6 @@ import (
 	"log"
 	"runtime"
 	"sync/atomic"
-	"syscall"
 
 	"github.com/halturin/ergo/dist"
 	"github.com/halturin/ergo/etf"
@@ -680,9 +679,7 @@ func (n *Node) VersionOTP() int {
 func (n *Node) connect(to etf.Atom) error {
 	var port int
 	var err error
-	var dialer = net.Dialer{
-		Control: setSocketOptions,
-	}
+	var dialer = net.Dialer{}
 	if port, err = n.ResolvePort(string(to)); port < 0 {
 		return fmt.Errorf("Can't resolve port for %s: %s", to, err)
 	}
@@ -708,7 +705,7 @@ func (n *Node) connect(to etf.Atom) error {
 
 func (n *Node) listen(name string, opts NodeOptions) uint16 {
 
-	lc := net.ListenConfig{Control: setSocketOptions}
+	lc := net.ListenConfig{}
 	for p := opts.ListenRangeBegin; p <= opts.ListenRangeEnd; p++ {
 		l, err := lc.Listen(n.context, "tcp", net.JoinHostPort(name, strconv.Itoa(int(p))))
 		if err != nil {
@@ -749,32 +746,4 @@ func (n *Node) listen(name string, opts NodeOptions) uint16 {
 
 	// all the ports within a given range are taken
 	return 0
-}
-
-func setSocketOptions(network string, address string, c syscall.RawConn) error {
-	var fn = func(s uintptr) {
-		var setErr error
-
-		// set KeepAlive
-		setErr = syscall.SetsockoptInt(int(s), syscall.IPPROTO_TCP, syscall.TCP_KEEPINTVL, 5)
-		if setErr != nil {
-			log.Fatal(setErr)
-		}
-
-		// set buffers
-		setErr = syscall.SetsockoptInt(int(s), syscall.SOL_SOCKET, syscall.SO_RCVBUF, 65536)
-		if setErr != nil {
-			log.Fatal(setErr)
-		}
-		setErr = syscall.SetsockoptInt(int(s), syscall.SOL_SOCKET, syscall.SO_SNDBUF, 65536)
-		if setErr != nil {
-			log.Fatal(setErr)
-		}
-	}
-	if err := c.Control(fn); err != nil {
-		return err
-	}
-
-	return nil
-
 }

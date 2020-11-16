@@ -155,7 +155,6 @@ func (lf *linkFlusher) Write(b []byte) (int, error) {
 	lenB := l
 
 	// long data write directly to the socket.
-	// 64000 - socket buffer size (via syscall.SO_RCVBUF/syscall.SO_SNDBUF)
 	if l > 64000 {
 		for {
 			n, e := lf.w.Write(b[lenB-l:])
@@ -201,6 +200,18 @@ func (lf *linkFlusher) Write(b []byte) (int, error) {
 	}
 
 	lf.timer = time.AfterFunc(lf.latency, func() {
+		// KeepAlive packet is just 4 bytes with zero value
+		var keepAlivePacket = []byte{0, 0, 0, 0}
+		var keepAliveTimeout = time.Duration(5 * time.Second)
+
+		// if we have no pending data to send we should
+		// send a KeepAlive packet
+		if !lf.pending {
+			lf.w.Write(keepAlivePacket)
+			lf.timer.Reset(keepAliveTimeout)
+			return
+		}
+
 		lf.mutex.Lock()
 		lf.writer.Flush()
 		lf.pending = false
@@ -844,8 +855,8 @@ func (l *Link) Writer(send <-chan []etf.Term, fragmentationUnit int) {
 	cacheEnabled := l.peer.flags.isSet(DIST_HDR_ATOM_CACHE) && l.cacheOut != nil
 	fragmentationEnabled := l.peer.flags.isSet(FRAGMENTS) && fragmentationUnit > 0
 
-	// Header atom cache is encoded right after control/message encoding
-	// but stored before.
+	// Header atom cache is encoded right after the control/message encoding process
+	// but should be stored as a first item in the packet.
 	// Thats why we do reserve some space for it in order to get rid
 	// of reallocation packetBuffer data
 	reserveHeaderAtomCache := 8192
@@ -1043,7 +1054,7 @@ func (l *Link) readName(b []byte) *Link {
 
 func (l *Link) composeStatus(b *lib.Buffer) {
 	//FIXME: there are few options for the status:
-	// 	   ok, ok_simultaneous, nok, not_allowed, alive
+	//	   ok, ok_simultaneous, nok, not_allowed, alive
 	// More details here: https://erlang.org/doc/apps/erts/erl_dist_protocol.html#the-handshake-in-detail
 	b.Allocate(2)
 	dataLength := uint16(3) // 's' + "ok"
