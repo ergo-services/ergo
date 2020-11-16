@@ -256,6 +256,14 @@ func (n *Node) serve(link *dist.Link, opts NodeOptions) error {
 		return err
 	}
 
+	// run readers for incoming messages
+	for i := 0; i < numHandlers; i++ {
+		// run packet reader/handler routines (decoder)
+		recv := make(chan *lib.Buffer, opts.RecvQueueLength)
+		receivers.recv[i] = recv
+		go link.ReadHandlePacket(n.context, recv, n.handleMessage)
+	}
+
 	cacheIsReady := make(chan bool)
 
 	// run link reader routine
@@ -301,10 +309,11 @@ func (n *Node) serve(link *dist.Link, opts NodeOptions) error {
 			packetLength, err = link.Read(b)
 			if err != nil || packetLength == 0 {
 				// link was closed or got malformed data
-				fmt.Println("eeeee", link.Name, err, packetLength)
+				fmt.Println("link was closed %s (error: %s). Packet len %d", link.Name, err, packetLength)
 				lib.ReleaseBuffer(b)
 				return
 			}
+
 			// take new buffer for the next reading and append the tail (part of the next packet)
 			b1 := lib.TakeBuffer()
 			b1.Set(b.B[packetLength:])
@@ -337,11 +346,6 @@ func (n *Node) serve(link *dist.Link, opts NodeOptions) error {
 		send := make(chan []etf.Term, opts.SendQueueLength)
 		p.send[i] = send
 		go link.Writer(send, opts.FragmentationUnit)
-
-		// run packet reader/handler routines (decoder)
-		recv := make(chan *lib.Buffer, opts.RecvQueueLength)
-		receivers.recv[i] = recv
-		go link.ReadHandlePacket(n.context, recv, n.handleMessage)
 	}
 
 	return nil

@@ -182,13 +182,13 @@ func (r *registrar) UnregisterName(name string) {
 func (r *registrar) RegisterPeer(p *peer) error {
 	lib.Log("[%s] registering peer %v", r.node.FullName, p)
 	r.mutexPeers.Lock()
+	defer r.mutexPeers.Unlock()
+
 	if _, ok := r.peers[p.name]; ok {
 		// already registered
-		r.mutexPeers.Unlock()
 		return ErrNameIsTaken
 	}
 	r.peers[p.name] = p
-	r.mutexPeers.Unlock()
 	return nil
 }
 
