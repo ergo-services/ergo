@@ -205,6 +205,8 @@ func (lf *linkFlusher) Write(b []byte) (int, error) {
 		var keepAliveTimeout = time.Duration(5 * time.Second)
 
 		lf.timer.Reset(keepAliveTimeout)
+		lf.mutex.Lock()
+		defer lf.mutex.Unlock()
 
 		// if we have no pending data to send we should
 		// send a KeepAlive packet
@@ -213,10 +215,8 @@ func (lf *linkFlusher) Write(b []byte) (int, error) {
 			return
 		}
 
-		lf.mutex.Lock()
 		lf.writer.Flush()
 		lf.pending = false
-		lf.mutex.Unlock()
 	})
 
 	return lenB, nil
