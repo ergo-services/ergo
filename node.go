@@ -1,7 +1,16 @@
 package ergo
 
 import (
+	"bytes"
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	//"crypto/rsa"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
 	"fmt"
 	"runtime"
 	"sync/atomic"
@@ -10,7 +19,11 @@ import (
 	"github.com/halturin/ergo/etf"
 	"github.com/halturin/ergo/lib"
 
+	"math/big"
+
+	"log"
 	"net"
+	//	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -30,6 +43,9 @@ type Node struct {
 	StartedAt time.Time
 	uniqID    int64
 
+	tlscertServer tls.Certificate
+	tlscertClient tls.Certificate
+
 	opts NodeOptions
 }
 
@@ -44,7 +60,15 @@ type NodeOptions struct {
 	RecvQueueLength        int
 	FragmentationUnit      int
 	DisableHeaderAtomCache bool
+	TLSmode                TLSmodeType
+	TLScrtServer           string
+	TLSkeyServer           string
+	TLScrtClient           string
+	TLSkeyClient           string
 }
+
+// TLSmodeType should be one of TLSmodeDisabled (default), TLSmodeAuto or TLSmodeStrict
+type TLSmodeType string
 
 const (
 	defaultListenRangeBegin uint16 = 15000
@@ -58,6 +82,13 @@ const (
 	versionOTP        int = 22
 	versionERTSprefix     = "ergo"
 	version               = "1.1.0"
+
+	// TLSmodeDisabled no TLS encryption
+	TLSmodeDisabled TLSmodeType = ""
+	// TLSmodeAuto generate self-signed certificate
+	TLSmodeAuto TLSmodeType = "auto"
+	// TLSmodeStrict with validation certificate
+	TLSmodeStrict TLSmodeType = "strict"
 )
 
 // CreateNode create new node with name and cookie string
@@ -682,19 +713,45 @@ func (n *Node) VersionOTP() int {
 func (n *Node) connect(to etf.Atom) error {
 	var port int
 	var err error
-	var dialer = net.Dialer{}
+	var c net.Conn
 	if port, err = n.ResolvePort(string(to)); port < 0 {
 		return fmt.Errorf("Can't resolve port for %s: %s", to, err)
 	}
 	ns := strings.Split(string(to), "@")
 
-	c, err := dialer.DialContext(n.context, "tcp", net.JoinHostPort(ns[1], strconv.Itoa(int(port))))
+	TLSenabled := false
+
+	switch n.opts.TLSmode {
+	case TLSmodeAuto:
+		tlsdialer := tls.Dialer{
+			Config: &tls.Config{
+				Certificates:       []tls.Certificate{n.tlscertClient},
+				InsecureSkipVerify: true,
+			},
+		}
+		c, err = tlsdialer.DialContext(n.context, "tcp", net.JoinHostPort(ns[1], strconv.Itoa(int(port))))
+		TLSenabled = true
+
+	case TLSmodeStrict:
+		tlsdialer := tls.Dialer{
+			Config: &tls.Config{
+				Certificates: []tls.Certificate{n.tlscertClient},
+			},
+		}
+		c, err = tlsdialer.DialContext(n.context, "tcp", net.JoinHostPort(ns[1], strconv.Itoa(int(port))))
+		TLSenabled = true
+
+	default:
+		dialer := net.Dialer{}
+		c, err = dialer.DialContext(n.context, "tcp", net.JoinHostPort(ns[1], strconv.Itoa(int(port))))
+	}
+
 	if err != nil {
 		lib.Log("Error calling net.Dialer.DialerContext : %s", err.Error())
 		return err
 	}
 
-	link, e := dist.Handshake(n.context, c, n.FullName, n.Cookie, false)
+	link, e := dist.Handshake(c, TLSenabled, n.FullName, n.Cookie, false)
 	if e != nil {
 		return e
 	}
@@ -707,6 +764,7 @@ func (n *Node) connect(to etf.Atom) error {
 }
 
 func (n *Node) listen(name string, opts NodeOptions) uint16 {
+	var TLSenabled bool = true
 
 	lc := net.ListenConfig{}
 	for p := opts.ListenRangeBegin; p <= opts.ListenRangeEnd; p++ {
@@ -714,6 +772,47 @@ func (n *Node) listen(name string, opts NodeOptions) uint16 {
 		if err != nil {
 			continue
 		}
+
+		switch opts.TLSmode {
+		case TLSmodeAuto:
+			cert, err := generateSelfSignedCert()
+			if err != nil {
+				log.Fatalf("Can't generate certificate: %s\n", err)
+			}
+
+			n.tlscertServer = cert
+			n.tlscertClient = cert
+
+			TLSconfig := &tls.Config{
+				Certificates:       []tls.Certificate{cert},
+				InsecureSkipVerify: true,
+			}
+			log.Println("wrapped by self signed")
+			l = tls.NewListener(l, TLSconfig)
+
+		case TLSmodeStrict:
+			certServer, err := tls.LoadX509KeyPair(opts.TLScrtServer, opts.TLSkeyServer)
+			if err != nil {
+				log.Fatalf("Can't load server certificate: %s\n", err)
+			}
+			certClient, err := tls.LoadX509KeyPair(opts.TLScrtServer, opts.TLSkeyServer)
+			if err != nil {
+				log.Fatalf("Can't load client certificate: %s\n", err)
+			}
+
+			n.tlscertServer = certServer
+			n.tlscertClient = certClient
+
+			TLSconfig := &tls.Config{
+				Certificates: []tls.Certificate{certServer},
+				ServerName:   "localhost",
+			}
+			l = tls.NewListener(l, TLSconfig)
+
+		default:
+			TLSenabled = false
+		}
+
 		go func() {
 			for {
 				c, err := l.Accept()
@@ -727,7 +826,7 @@ func (n *Node) listen(name string, opts NodeOptions) uint16 {
 					continue
 				}
 
-				link, e := dist.HandshakeAccept(n.context, c, n.FullName, n.Cookie, opts.Hidden)
+				link, e := dist.HandshakeAccept(c, TLSenabled, n.FullName, n.Cookie, opts.Hidden)
 				if e != nil {
 					lib.Log("Can't handshake with %s: %s", c.RemoteAddr().String(), e)
 					c.Close()
@@ -749,4 +848,52 @@ func (n *Node) listen(name string, opts NodeOptions) uint16 {
 
 	// all the ports within a given range are taken
 	return 0
+}
+
+func generateSelfSignedCert() (tls.Certificate, error) {
+	var cert = tls.Certificate{}
+
+	certPrivKey, err := ecdsa.GenerateKey(elliptic.P521(), rand.Reader)
+	if err != nil {
+		return cert, err
+	}
+	serialNumberLimit := new(big.Int).Lsh(big.NewInt(1), 128)
+	serialNumber, err := rand.Int(rand.Reader, serialNumberLimit)
+
+	template := x509.Certificate{
+		SerialNumber: serialNumber,
+		Subject: pkix.Name{
+			Organization: []string{versionERTSprefix},
+		},
+		NotBefore: time.Now(),
+		NotAfter:  time.Now().Add(time.Hour * 24 * 365),
+		//IsCA:        true,
+
+		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		BasicConstraintsValid: true,
+	}
+
+	template.IPAddresses = append(template.IPAddresses, net.ParseIP("127.0.0.1"))
+
+	certBytes, err1 := x509.CreateCertificate(rand.Reader, &template, &template,
+		&certPrivKey.PublicKey, certPrivKey)
+	if err1 != nil {
+		return cert, err1
+	}
+
+	certPEM := new(bytes.Buffer)
+	pem.Encode(certPEM, &pem.Block{
+		Type:  "CERTIFICATE",
+		Bytes: certBytes,
+	})
+
+	certPrivKeyPEM := new(bytes.Buffer)
+	x509Encoded, _ := x509.MarshalECPrivateKey(certPrivKey)
+	pem.Encode(certPrivKeyPEM, &pem.Block{
+		Type:  "RSA PRIVATE KEY",
+		Bytes: x509Encoded,
+	})
+
+	return tls.X509KeyPair(certPEM.Bytes(), certPrivKeyPEM.Bytes())
 }
