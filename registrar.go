@@ -331,15 +331,30 @@ next:
 	case etf.Tuple:
 		lib.Log("[%s] sending message by tuple %v", r.node.FullName, tto)
 
+		if len(tto) != 2 {
+			lib.Log("[%s] can't send message. wrong type. must be etf.Tuple{string, string} or etf.Tuple{etf.Atom, etf.Atom}", r.node.FullName)
+		}
+
 		toNode := etf.Atom("")
 		switch x := tto.Element(2).(type) {
 		case etf.Atom:
 			toNode = x
-		default:
+		case string:
 			toNode = etf.Atom(tto.Element(2).(string))
+		default:
+			lib.Log("[%s] can't send message. wrong type of node name. must be etf.Atom or string", r.node.FullName)
 		}
 
-		toProcessName := tto.Element(1)
+		toProcessName := etf.Atom("")
+		switch x := tto.Element(1).(type) {
+		case etf.Atom:
+			toProcessName = x
+		case string:
+			toProcessName = etf.Atom(tto.Element(1).(string))
+		default:
+			lib.Log("[%s] can't send message. wrong type of process name. must be etf.Atom or string", r.node.FullName)
+		}
+
 		if toNode == etf.Atom(r.nodeName) {
 			// local route
 			r.route(from, toProcessName, message)

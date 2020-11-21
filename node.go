@@ -787,7 +787,6 @@ func (n *Node) listen(name string, opts NodeOptions) uint16 {
 				Certificates:       []tls.Certificate{cert},
 				InsecureSkipVerify: true,
 			}
-			log.Println("wrapped by self signed")
 			l = tls.NewListener(l, TLSconfig)
 
 		case TLSmodeStrict:

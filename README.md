@@ -36,11 +36,11 @@ The goal of this project is to leverage Erlang/OTP experience with Golang perfor
 * Experimental [observer support](#observer)
 * Unmarshalling terms into the struct using etf.TermIntoStruct
 * Support Erlang 22. (with [fragmentation](http://blog.erlang.org/OTP-22-Highlights/))
+* Encryption (TLS 1.3) support
 
 ### Requirements ###
 
-* Go 1.10 and above
-* Highly recommend using 1.14.2 and above since it has significant performance improvements
+* Go 1.15.x and above
 
 ### Benchmarks ###
 
@@ -223,10 +223,11 @@ exited
 
 See `examples/` for more details
 
-* [demoGenServer](examples/genserver)
-* [demoSupervisor](examples/supervisor)
-* [demoApplication](examples/application)
-* [demoMultinode](examples/multinode)
+* [GenServer](examples/genserver)
+* [Supervisor](examples/supervisor)
+* [Application](examples/application)
+* [Multinode](examples/multinode)
+* [NodeWithTLS](examples/nodetls)
 
 ### Elixir Phoenix Users ###
 

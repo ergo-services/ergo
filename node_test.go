@@ -107,6 +107,11 @@ func (f *testFragmentationGS) Terminate(reason string, state interface{}) {
 func TestNodeFragmentation(t *testing.T) {
 	var wg sync.WaitGroup
 
+	blob := make([]byte, 1024*1024)
+	rand.Read(blob)
+	md5 := fmt.Sprint(md5.Sum(blob))
+	message := etf.Tuple{md5, blob}
+
 	node1 := CreateNode("nodeT1Fragmentation@localhost", "secret", NodeOptions{})
 	node2 := CreateNode("nodeT2Fragmentation@localhost", "secret", NodeOptions{})
 
@@ -120,11 +125,6 @@ func TestNodeFragmentation(t *testing.T) {
 	if e2 != nil {
 		t.Fatal(e2)
 	}
-
-	blob := make([]byte, 1024*1024)
-	rand.Read(blob)
-	md5 := fmt.Sprint(md5.Sum(blob))
-	message := etf.Tuple{md5, blob}
 
 	// check single call
 	check, e := p1.Call(p2.Self(), message)

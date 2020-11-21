@@ -293,14 +293,16 @@ func Handshake(conn net.Conn, tls bool, name, cookie string, hidden bool) (*Link
 				return nil, e
 			}
 
-			l := binary.BigEndian.Uint16(b.B[expectingBytes-2 : expectingBytes])
-			buffer := b.B[expectingBytes:]
+			buffer := b.B
 
-			if len(buffer) != int(l) {
+		next:
+			l := binary.BigEndian.Uint16(buffer[expectingBytes-2 : expectingBytes])
+			buffer = buffer[expectingBytes:]
+
+			if len(buffer) < int(l) {
 				return nil, fmt.Errorf("malformed handshake (wrong packet length)")
 			}
 
-		next:
 			switch buffer[0] {
 			case 'n':
 				// 'n' + 2 (version) + 4 (flags) + 4 (challenge) + name...
@@ -344,7 +346,7 @@ func Handshake(conn net.Conn, tls bool, name, cookie string, hidden bool) (*Link
 				b.Reset()
 
 			default:
-				return nil, fmt.Errorf("malformed handshake ('%c' digest)", b.B[2])
+				return nil, fmt.Errorf("malformed handshake ('%c' digest)", buffer[0])
 			}
 
 		}
@@ -421,7 +423,7 @@ func HandshakeAccept(conn net.Conn, tls bool, name, cookie string, hidden bool) 
 			l := binary.BigEndian.Uint16(b.B[expectingBytes-2 : expectingBytes])
 			buffer := b.B[expectingBytes:]
 
-			if len(buffer) != int(l) {
+			if len(buffer) < int(l) {
 				return nil, fmt.Errorf("malformed handshake (wrong packet length)")
 			}
 
@@ -1128,7 +1130,7 @@ func (l *Link) composeStatus(b *lib.Buffer, tls bool) {
 }
 
 func (l *Link) readStatus(msg []byte) bool {
-	if string(msg) == "ok" {
+	if string(msg[:2]) == "ok" {
 		return true
 	}
 
