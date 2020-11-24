@@ -68,7 +68,7 @@ type GenStageBehavior interface {
 	// Init(...) -> (GenStageOptions, state)
 	Init(process *Process, args ...interface{}) (GenStageOptions, interface{})
 
-	// HandleSubscribe()
+	// HandleSubscribe
 	// HandleSubscribe -> (SubscriptionAuto | SubscriptionManual, State)
 
 	// Invoked when a consumer is no longer subscribed to a producer.
@@ -83,14 +83,16 @@ type GenStageBehavior interface {
 	// Return values are the same as HandleCast.
 	HandleCancel(cancelReason etf.Term, from etf.Term, state interface{}) (string, etf.Term, interface{})
 
-	// invoked on GenStageTypeProducer
+	// HandleDemand
 	// HandleDemand -> ("noreply", event, state)
 	//                 ("stop", reason, _)
+	// invoked on GenStageTypeProducer
 	HandleDemand(demand uint64, state interface{}) (string, etf.Term, interface{})
 
+	// HandleEvents
 	HandleEvents(events interface{}, from etf.Term, state interface{}) (string, interface{})
 
-	// This callback is invoked in both producers and consumers.
+	// HandleSubscribe This callback is invoked in both producers and consumers.
 	// stageType will be GenStageTypeProducer if this callback is invoked on a consumer
 	// and GenStageTypeConsumer if when this callback is invoked on producers a consumer subscribed to.
 	// For consumers,  successful subscriptions must return one of:
@@ -103,190 +105,46 @@ type GenStageBehavior interface {
 	// For producers, successful subscriptions must always return GenStageSubscriptionAuto.
 	// Manual mode is not supported.
 	HandleSubscribe(stageType GenStageType, options etf.List) (GenStageSubscriptionMode, interface{})
-
-	// ----
-	// GenStage has the same set of callback methods as a GenServer (except the Init one
-	// since it a bit differs from the GenServer' Init method in returning value)
-	// ----
-
-	// HandleCast -> ("noreply", state) - noreply
-	//		         ("stop", reason) - stop with reason
-	HandleCast(message etf.Term, state interface{}) (string, interface{})
-	// HandleCall -> ("reply", message, state) - reply
-	//				 ("noreply", _, state) - noreply
-	//		         ("stop", reason, _) - normal stop
-	HandleCall(from etf.Tuple, message etf.Term, state interface{}) (string, etf.Term, interface{})
-	// HandleInfo -> ("noreply", state) - noreply
-	//		         ("stop", reason) - normal stop
-	HandleInfo(message etf.Term, state interface{}) (string, interface{})
-	Terminate(reason string, state interface{})
 }
 
-type GenStage struct{}
+type GenStage struct{
+	GenServer
+}
+
+type state {
+	p *Process
+}
+
+func (gs *GenStage) Init(p *Process, args ...interface{}) interface{} {
+	//var stageOptions GenStageOptions
+
+	//etf.Atom("$info"):
+	//etf.Atom("$demand"):
+	//etf.Atom("$subscribe"):
+	//etf.Atom("$gen_consumer"):
+	//etf.Atom("$gen_producer"):
+
+	return state{p: p}
+}
+
+func (gs *GenStage) HandleCall(from etf.Tuple, message *etf.Term, state interface{}) (string, etf.Term, interface{}) {
+	return "reply", "ok", state
+}
+
+func (gs *GenStage) HandleCast(message *etf.Term, state interface{}) (string, interface{}) {
+	return "noreply", state
+}
+
+func (gs *GenStage) HandleInfo(message *etf.Term, state interface{}) (string, interface{}) {
+	return "noreply", state
+}
+
+func (gs *GenStage) Terminate(reason string, state interface{}) {
+	
+}
 
 func (gst *GenStage) loop(p *Process, object interface{}, args ...interface{}) string {
-	var stageOptions GenStageOptions
 
-	stageOptions, p.state = object.(GenStageBehavior).Init(p, args...)
-	p.ready <- true
-
-	stop := make(chan string, 2)
-
-	p.currentFunction = "GenStage:loop"
-
-	for {
-		var message etf.Term
-		var fromPid etf.Pid
-		var lockState = &sync.Mutex{}
-
-		select {
-		case ex := <-p.gracefulExit:
-			if p.trapExit {
-				message = etf.Tuple{
-					etf.Atom("EXIT"),
-					ex.from,
-					etf.Atom(ex.reason),
-				}
-			} else {
-				object.(GenStageBehavior).Terminate(ex.reason, p.state)
-				return ex.reason
-			}
-		case reason := <-stop:
-			object.(GenStageBehavior).Terminate(reason, p.state)
-			return reason
-		case msg := <-p.mailBox:
-			fromPid = msg.Element(1).(etf.Pid)
-			message = msg.Element(2)
-		case <-p.Context.Done():
-			return "kill"
-		case direct := <-p.direct:
-			gst.handleDirect(direct)
-			continue
-		}
-
-		lib.Log("[%s]. %v got message from %#v\n", p.Node.FullName, p.self, fromPid)
-
-		p.reductions++
-
-		switch m := message.(type) {
-		case etf.Tuple:
-			switch mtag := m.Element(1).(type) {
-			case etf.Atom:
-				switch mtag {
-				case etf.Atom("$info"):
-
-				case etf.Atom("$demand"):
-
-				case etf.Atom("$subscribe"):
-
-				case etf.Atom("$gen_consumer"):
-
-				case etf.Atom("$gen_producer"):
-
-				case etf.Atom("$gen_call"):
-					go func() {
-						fromTuple := m.Element(2).(etf.Tuple)
-						lockState.Lock()
-
-						cf := p.currentFunction
-						p.currentFunction = "GenStage:HandleCall"
-						code, reply, state := object.(GenStageBehavior).HandleCall(fromTuple, m.Element(3), p.state)
-						p.currentFunction = cf
-
-						if code == "stop" {
-							stop <- reply.(string)
-							// do not unlock, coz we have to keep this state unchanged for Terminate handler
-							return
-						}
-
-						p.state = state
-						lockState.Unlock()
-
-						if reply != nil && code == "reply" {
-							pid := fromTuple.Element(1).(etf.Pid)
-							ref := fromTuple.Element(2)
-							rep := etf.Term(etf.Tuple{ref, reply})
-							p.Send(pid, rep)
-						}
-					}()
-
-				case etf.Atom("$gen_cast"):
-					go func() {
-						lockState.Lock()
-
-						cf := p.currentFunction
-						p.currentFunction = "GenStage:HandleCast"
-						code, state := object.(GenStageBehavior).HandleCast(m.Element(2), p.state)
-						p.currentFunction = cf
-
-						if code == "stop" {
-							stop <- state.(string)
-							return
-						}
-						p.state = state
-						lockState.Unlock()
-					}()
-
-				default:
-					go func() {
-						lockState.Lock()
-
-						cf := p.currentFunction
-						p.currentFunction = "GenStage:HandleInfo"
-						code, state := object.(GenStageBehavior).HandleInfo(message, p.state)
-						p.currentFunction = cf
-
-						if code == "stop" {
-							stop <- state.(string)
-							return
-						}
-						p.state = state
-						lockState.Unlock()
-					}()
-
-				}
-
-			case etf.Ref:
-				lib.Log("got reply: %#v\n%#v", mtag, message)
-				p.reply <- m
-
-			default:
-				lib.Log("mtag: %#v", mtag)
-				go func() {
-					lockState.Lock()
-
-					cf := p.currentFunction
-					p.currentFunction = "GenStage:HandleInfo"
-					code, state := object.(GenStageBehavior).HandleInfo(message, p.state)
-					p.currentFunction = cf
-
-					if code == "stop" {
-						stop <- state.(string)
-					}
-					p.state = state
-					lockState.Unlock()
-				}()
-			}
-
-		default:
-			lib.Log("m: %#v", m)
-			go func() {
-				lockState.Lock()
-
-				cf := p.currentFunction
-				p.currentFunction = "GenStage:HandleInfo"
-				code, state := object.(GenStageBehavior).HandleInfo(message, p.state)
-				p.currentFunction = cf
-
-				if code == "stop" {
-					stop <- state.(string)
-					return
-				}
-				p.state = state
-				lockState.Unlock()
-			}()
-		}
-	}
 }
 
 func (gst *GenStage) GetDemandMode() GenStageDemandMode {
