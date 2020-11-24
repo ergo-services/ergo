@@ -90,7 +90,7 @@ func (a *Application) loop(p *Process, object interface{}, args ...interface{}) 
 
 	object.(ApplicationBehavior).Start(p, args[1:]...)
 	lib.Log("Application spec %#v\n", spec)
-	p.ready <- true
+	p.ready <- nil
 
 	p.currentFunction = "Application:loop"
 

@@ -212,7 +212,13 @@ func (lf *linkFlusher) Write(b []byte) (int, error) {
 		var keepAlivePacket = []byte{0, 0, 0, 0}
 		var keepAliveTimeout = time.Duration(5 * time.Second)
 
-		lf.timer.Reset(keepAliveTimeout)
+		// sometimes this coroutine executes before the value
+		// of time.AfterFunc has been assigned to the lf.timer
+		// so we should make sure that lf.timer is not nil
+		if lf.timer != nil {
+			lf.timer.Reset(keepAliveTimeout)
+		}
+
 		lf.mutex.Lock()
 		defer lf.mutex.Unlock()
 
@@ -231,7 +237,7 @@ func (lf *linkFlusher) Write(b []byte) (int, error) {
 
 }
 
-func Handshake(ctx context.Context, conn net.Conn, name, cookie string, hidden bool) (*Link, error) {
+func Handshake(conn net.Conn, tls bool, name, cookie string, hidden bool) (*Link, error) {
 
 	link := &Link{
 		Name:   name,
@@ -253,11 +259,10 @@ func Handshake(ctx context.Context, conn net.Conn, name, cookie string, hidden b
 	b := lib.TakeBuffer()
 	defer lib.ReleaseBuffer(b)
 
-	link.composeName(b)
+	link.composeName(b, tls)
 	if e := b.WriteDataTo(conn); e != nil {
 		return nil, e
 	}
-	b.Reset()
 
 	// define timeout for the handshaking
 	timer := time.NewTimer(5 * time.Second)
@@ -275,6 +280,13 @@ func Handshake(ctx context.Context, conn net.Conn, name, cookie string, hidden b
 		_, e := b.ReadDataFrom(conn)
 		asyncReadChannel <- e
 	}
+
+	expectingBytes := 2
+	if tls {
+		// TLS connection has 4 bytes packet length header
+		expectingBytes = 4
+	}
+
 	for {
 		go asyncRead()
 
@@ -286,53 +298,61 @@ func Handshake(ctx context.Context, conn net.Conn, name, cookie string, hidden b
 			if e != nil {
 				return nil, e
 			}
+
+			buffer := b.B
+
 		next:
-			switch b.B[2] {
+			l := binary.BigEndian.Uint16(buffer[expectingBytes-2 : expectingBytes])
+			buffer = buffer[expectingBytes:]
+
+			if len(buffer) < int(l) {
+				return nil, fmt.Errorf("malformed handshake (wrong packet length)")
+			}
+
+			switch buffer[0] {
 			case 'n':
 				// 'n' + 2 (version) + 4 (flags) + 4 (challenge) + name...
 				if len(b.B) < 12 {
 					return nil, fmt.Errorf("malformed handshake ('n')")
 				}
 
-				challenge := link.readChallenge(b.B)
+				challenge := link.readChallenge(buffer[1:])
 				b.Reset()
-				link.composeChallengeReply(challenge, b)
+				link.composeChallengeReply(challenge, b, tls)
 
 				if e := b.WriteDataTo(conn); e != nil {
 					return nil, e
 				}
-				b.Reset()
-				continue
+
 			case 'a':
 				// 'a' + 16 (digest)
-				if len(b.B) != 19 {
+				if len(buffer) != 17 {
 					return nil, fmt.Errorf("malformed handshake ('a' length of digest)")
 				}
 
 				// 'a' + 16 (digest)
-				if !link.validateChallengeAck(b) {
+				if !link.validateChallengeAck(buffer[1:]) {
 					return nil, fmt.Errorf("malformed handshake ('a' digest)")
 				}
 
 				// handshaked
 				link.flusher = newLinkFlusher(link.conn, defaultLatency)
-
 				return link, nil
+
 			case 's':
-				if !link.readStatus(b) {
+				if !link.readStatus(buffer[1:]) {
 					return nil, fmt.Errorf("handshake negotiation failed")
 				}
-				if b.Len() > 1 {
-					lenNext := binary.BigEndian.Uint16(b.B[0:2])
-					if int(lenNext)+2 < b.Len() {
-						// read from socket the rest of this packet
-						continue
-					}
+				// skip "sok"
+				if len(buffer[3:]) > 0 {
+					buffer = buffer[3:]
 					goto next
 				}
 
+				b.Reset()
+
 			default:
-				return nil, fmt.Errorf("malformed handshake ('%c' digest)", b.B[2])
+				return nil, fmt.Errorf("malformed handshake ('%c' digest)", buffer[0])
 			}
 
 		}
@@ -341,7 +361,7 @@ func Handshake(ctx context.Context, conn net.Conn, name, cookie string, hidden b
 
 }
 
-func HandshakeAccept(ctx context.Context, conn net.Conn, name, cookie string, hidden bool) (*Link, error) {
+func HandshakeAccept(conn net.Conn, tls bool, name, cookie string, hidden bool) (*Link, error) {
 	link := &Link{
 		Name:   name,
 		Cookie: cookie,
@@ -367,6 +387,12 @@ func HandshakeAccept(ctx context.Context, conn net.Conn, name, cookie string, hi
 	timer := time.NewTimer(5 * time.Second)
 	defer timer.Stop()
 
+	// http://erlang.org/doc/apps/erts/erl_dist_protocol.html#distribution-handshake
+	// Every message in the handshake starts with a 16-bit big-endian integer,
+	// which contains the message length (not counting the two initial bytes).
+	// In Erlang this corresponds to option {packet, 2} in gen_tcp(3). Notice
+	// that after the handshake, the distribution switches to 4 byte packet headers.
+
 	asyncReadChannel := make(chan error, 2)
 	asyncRead := func() {
 		//  If the buffer becomes too large, ReadDataFrom will panic with ErrTooLarge.
@@ -378,6 +404,13 @@ func HandshakeAccept(ctx context.Context, conn net.Conn, name, cookie string, hi
 		_, e := b.ReadDataFrom(conn)
 		asyncReadChannel <- e
 	}
+
+	expectingBytes := 2
+	if tls {
+		// TLS connection has 4 bytes packet length header
+		expectingBytes = 4
+	}
+
 	for {
 		go asyncRead()
 
@@ -389,36 +422,47 @@ func HandshakeAccept(ctx context.Context, conn net.Conn, name, cookie string, hi
 				return nil, e
 			}
 
-			switch b.B[2] {
+			if b.Len() < expectingBytes+1 {
+				return nil, fmt.Errorf("malformed handshake (too short packet)")
+			}
+
+			l := binary.BigEndian.Uint16(b.B[expectingBytes-2 : expectingBytes])
+			buffer := b.B[expectingBytes:]
+
+			if len(buffer) < int(l) {
+				return nil, fmt.Errorf("malformed handshake (wrong packet length)")
+			}
+
+			switch buffer[0] {
 			case 'n':
-				if len(b.B) < 9 {
+				if len(buffer) < 7 {
 					return nil, fmt.Errorf("malformed handshake ('n' length)")
 				}
 
-				link.peer = link.readName(b.B[3:])
+				link.peer = link.readName(buffer[1:])
 				b.Reset()
-				link.composeStatus(b)
+				link.composeStatus(b, tls)
 				if e := b.WriteDataTo(conn); e != nil {
 					return nil, fmt.Errorf("malformed handshake ('n' accept name)")
 				}
 
-				link.composeChallenge(b)
+				link.composeChallenge(b, tls)
 				if e := b.WriteDataTo(conn); e != nil {
 					return nil, e
 				}
-				b.Reset()
 				continue
+
 			case 'r':
-				if len(b.B) < 21 {
+				if len(buffer) < 19 {
 					return nil, fmt.Errorf("malformed handshake ('r')")
 				}
 
-				if !link.validateChallengeReply(b.B[3:]) {
+				if !link.validateChallengeReply(buffer[1:]) {
 					return nil, fmt.Errorf("malformed handshake ('r1')")
 				}
 				b.Reset()
 
-				link.composeChallengeAck(b)
+				link.composeChallengeAck(b, tls)
 				if e := b.WriteDataTo(conn); e != nil {
 					return nil, e
 				}
@@ -429,7 +473,7 @@ func HandshakeAccept(ctx context.Context, conn net.Conn, name, cookie string, hi
 				return link, nil
 
 			default:
-				return nil, fmt.Errorf("malformed handshake (unknown code %d)", b.B[2])
+				return nil, fmt.Errorf("malformed handshake (unknown code %d)", b.B[0])
 			}
 
 		}
@@ -1042,9 +1086,20 @@ func (l *Link) GetRemoteName() string {
 	return l.peer.Name
 }
 
-func (l *Link) composeName(b *lib.Buffer) {
-	dataLength := uint16(7 + len(l.Name)) // byte + uint16 + uint32 + len(l.Name)
+func (l *Link) composeName(b *lib.Buffer, tls bool) {
+	if tls {
+		b.Allocate(11)
+		dataLength := uint32(7 + len(l.Name)) // byte + uint16 + uint32 + len(l.Name)
+		binary.BigEndian.PutUint32(b.B[0:4], dataLength)
+		b.B[4] = 'n'
+		binary.BigEndian.PutUint16(b.B[5:7], l.version)           // uint16
+		binary.BigEndian.PutUint32(b.B[7:11], l.flags.toUint32()) // uint32
+		b.Append([]byte(l.Name))
+		return
+	}
+
 	b.Allocate(9)
+	dataLength := uint16(7 + len(l.Name)) // byte + uint16 + uint32 + len(l.Name)
 	binary.BigEndian.PutUint16(b.B[0:2], dataLength)
 	b.B[2] = 'n'
 	binary.BigEndian.PutUint16(b.B[3:5], l.version)          // uint16
@@ -1061,37 +1116,46 @@ func (l *Link) readName(b []byte) *Link {
 	return peer
 }
 
-func (l *Link) composeStatus(b *lib.Buffer) {
+func (l *Link) composeStatus(b *lib.Buffer, tls bool) {
 	//FIXME: there are few options for the status:
 	//	   ok, ok_simultaneous, nok, not_allowed, alive
 	// More details here: https://erlang.org/doc/apps/erts/erl_dist_protocol.html#the-handshake-in-detail
+
+	if tls {
+		b.Allocate(4)
+		dataLength := uint32(3) // 's' + "ok"
+		binary.BigEndian.PutUint32(b.B[0:4], dataLength)
+		b.Append([]byte("sok"))
+		return
+	}
+
 	b.Allocate(2)
 	dataLength := uint16(3) // 's' + "ok"
 	binary.BigEndian.PutUint16(b.B[0:2], dataLength)
 	b.Append([]byte("sok"))
 }
 
-func (l *Link) readStatus(b *lib.Buffer) bool {
-	if b.Len() < 5 {
-		// malformed
-		return false
-	}
-	lenStatus := int(binary.BigEndian.Uint16(b.B[0:2]))
-	if b.Len() < 2+lenStatus {
-		// malformed
-		return false
-	}
-	s := fmt.Sprintf("%s", b.B[2:2+lenStatus])
-	if s == "sok" {
-		b.B = b.B[2+lenStatus:]
+func (l *Link) readStatus(msg []byte) bool {
+	if string(msg[:2]) == "ok" {
 		return true
 	}
 
 	return false
-
 }
 
-func (l *Link) composeChallenge(b *lib.Buffer) {
+func (l *Link) composeChallenge(b *lib.Buffer, tls bool) {
+	if tls {
+		b.Allocate(15)
+		dataLength := uint32(11 + len(l.Name))
+		binary.BigEndian.PutUint32(b.B[0:4], dataLength)
+		b.B[4] = 'n'
+		binary.BigEndian.PutUint16(b.B[5:7], l.version)           // uint16
+		binary.BigEndian.PutUint32(b.B[7:11], l.flags.toUint32()) // uint32
+		binary.BigEndian.PutUint32(b.B[11:15], l.challenge)       // uint32
+		b.Append([]byte(l.Name))
+		return
+	}
+
 	b.Allocate(13)
 	dataLength := uint16(11 + len(l.Name))
 	binary.BigEndian.PutUint16(b.B[0:2], dataLength)
@@ -1104,12 +1168,12 @@ func (l *Link) composeChallenge(b *lib.Buffer) {
 
 func (l *Link) readChallenge(msg []byte) (challenge uint32) {
 	link := &Link{
-		Name:    fmt.Sprintf("%s", msg[13:]),
-		version: binary.BigEndian.Uint16(msg[3:5]),
-		flags:   nodeFlag(binary.BigEndian.Uint32(msg[5:9])),
+		Name:    fmt.Sprintf("%s", msg[10:]),
+		version: binary.BigEndian.Uint16(msg[0:2]),
+		flags:   nodeFlag(binary.BigEndian.Uint32(msg[2:6])),
 	}
 	l.peer = link
-	return binary.BigEndian.Uint32(msg[9:13])
+	return binary.BigEndian.Uint32(msg[6:10])
 }
 
 func (l *Link) validateChallengeReply(b []byte) bool {
@@ -1120,7 +1184,16 @@ func (l *Link) validateChallengeReply(b []byte) bool {
 	return bytes.Equal(digestA[:], digestB)
 }
 
-func (l *Link) composeChallengeAck(b *lib.Buffer) {
+func (l *Link) composeChallengeAck(b *lib.Buffer, tls bool) {
+	if tls {
+		b.Allocate(5)
+		dataLength := uint32(17) // 'a' + 16 (digest)
+		binary.BigEndian.PutUint32(b.B[0:4], dataLength)
+		b.B[4] = 'a'
+		digest := genDigest(l.peer.challenge, l.Cookie)
+		b.Append(digest[:])
+		return
+	}
 
 	b.Allocate(3)
 	dataLength := uint16(17) // 'a' + 16 (digest)
@@ -1130,18 +1203,28 @@ func (l *Link) composeChallengeAck(b *lib.Buffer) {
 	b.Append(digest[:])
 }
 
-func (l *Link) composeChallengeReply(challenge uint32, b *lib.Buffer) {
+func (l *Link) composeChallengeReply(challenge uint32, b *lib.Buffer, tls bool) {
+	if tls {
+		b.Allocate(9)
+		digest := genDigest(challenge, l.Cookie)
+		dataLength := uint32(21) // 1 (byte) + 4 (challenge) + 16 (digest)
+		binary.BigEndian.PutUint32(b.B[0:4], dataLength)
+		b.B[4] = 'r'
+		binary.BigEndian.PutUint32(b.B[5:9], l.challenge) // uint32
+		b.Append(digest[:])
+		return
+	}
+
+	b.Allocate(7)
 	digest := genDigest(challenge, l.Cookie)
 	dataLength := uint16(21) // 1 (byte) + 4 (challenge) + 16 (digest)
-	b.Allocate(7)
 	binary.BigEndian.PutUint16(b.B[0:2], dataLength)
 	b.B[2] = 'r'
 	binary.BigEndian.PutUint32(b.B[3:7], l.challenge) // uint32
 	b.Append(digest[:])
 }
 
-func (l *Link) validateChallengeAck(b *lib.Buffer) bool {
-	//digest := msg[1:]
+func (l *Link) validateChallengeAck(msg []byte) bool {
 	//FIXME
 	return true
 }

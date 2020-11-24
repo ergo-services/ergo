@@ -114,9 +114,7 @@ func TestApplication(t *testing.T) {
 	if err := node.ApplicationUnload("testapp"); err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(100 * time.Millisecond) // takes some time
 	la = node.LoadedApplications()
-
 	if len(la) > 0 {
 		t.Fatal("total number of loaded application mismatch")
 	}
@@ -126,7 +124,6 @@ func TestApplication(t *testing.T) {
 	// case 2: start(and try to unload running app)/stop(normal) application
 	//
 	fmt.Printf("Starting application... ")
-	// use the new app name because the unloading takes some time
 	if err := node.ApplicationLoad(app, lifeSpan, "testapp1", "testAppGS1"); err != nil {
 		t.Fatal(err)
 	}
@@ -221,7 +218,10 @@ func TestApplication(t *testing.T) {
 	// case 3: start/stop (brutal) application
 	//
 	fmt.Printf("Starting application for brutal kill...")
-	p, e = node.ApplicationStart("testapp1")
+	if err := node.ApplicationLoad(app, lifeSpan, "testappBrutal", "testAppGS2Brutal"); err != nil {
+		t.Fatal(err)
+	}
+	p, e = node.ApplicationStart("testappBrutal")
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -233,7 +233,7 @@ func TestApplication(t *testing.T) {
 	}
 	fmt.Println("OK")
 
-	node.ApplicationUnload("testapp1")
+	node.ApplicationUnload("testappBrutal")
 
 	//
 	// case 4: start with limited lifespan
@@ -459,7 +459,7 @@ func TestApplicationStop(t *testing.T) {
 		t.Fatal(e)
 	}
 
-	p1, e1 := node.ApplicationStartPermanent("testapp1")
+	_, e1 := node.ApplicationStartPermanent("testapp1")
 	if e1 != nil {
 		t.Fatal(e1)
 	}
@@ -471,9 +471,8 @@ func TestApplicationStop(t *testing.T) {
 
 	// case 1: stopping via node.ApplicatoinStop
 	fmt.Printf("stopping testapp1 via node.ApplicationStop (shouldn't affect testapp2) ...")
-	node.ApplicationStop("testapp1")
-	if e := p1.WaitWithTimeout(100 * time.Millisecond); e != nil {
-		t.Fatal("can't stop application via node.ApplicationStop")
+	if e := node.ApplicationStop("testapp1"); e != nil {
+		t.Fatal("can't stop application via node.ApplicationStop", e)
 	}
 
 	if !p2.IsAlive() {
@@ -486,48 +485,6 @@ func TestApplicationStop(t *testing.T) {
 
 	fmt.Println("OK")
 
-	// case 2: stopping via process.Exit
-	fmt.Printf("starting application testapp1 ...")
-	p1, e1 = node.ApplicationStartPermanent("testapp1")
-	if e1 != nil {
-		t.Fatal(e1)
-	}
-	fmt.Println("OK")
-
-	fmt.Printf("stopping testapp1 via process.Exit (shouldn't affect testapp2)...")
-	p1.Exit(p1.Self(), "normal")
-	if e := p1.WaitWithTimeout(100 * time.Millisecond); e != nil {
-		t.Fatal(e)
-	}
-	if !p2.IsAlive() {
-		t.Fatal("testapp2 should be alive here")
-	}
-
-	if !node.IsAlive() {
-		t.Fatal("node should be alive here")
-	}
-	fmt.Println("OK")
-
-	// case 3: stopping via process.Kill
-	fmt.Printf("starting application testapp1 ...")
-	p1, e1 = node.ApplicationStartPermanent("testapp1")
-	if e1 != nil {
-		t.Fatal(e1)
-	}
-	fmt.Println("OK")
-
-	fmt.Printf("stopping testapp1 via process.Kill (shouldn't affect testapp2)...")
-	p1.Kill()
-	if e := p1.WaitWithTimeout(100 * time.Millisecond); e != nil {
-		t.Fatal(e)
-	}
-
-	if !p2.IsAlive() {
-		t.Fatal("testapp2 should be alive here")
-	}
-
-	if !node.IsAlive() {
-		t.Fatal("node should be alive here")
-	}
+	node.Stop()
 
 }

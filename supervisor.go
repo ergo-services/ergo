@@ -126,7 +126,7 @@ func (sv *Supervisor) loop(svp *Process, object interface{}, args ...interface{}
 
 	spec := object.(SupervisorBehavior).Init(args...)
 	lib.Log("Supervisor spec %#v\n", spec)
-	svp.ready <- true
+	svp.ready <- nil
 
 	sv.spec = &spec
 
