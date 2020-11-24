@@ -43,12 +43,9 @@ func TestNode(t *testing.T) {
 
 	p, e := node.Spawn("", ProcessOptions{}, &GenServer{})
 
-	if e != nil {
-		t.Fatal(e)
-	}
-	// empty GenServer{} should die immediately (via panic and recovering)
-	if node.IsProcessAlive(p.Self()) {
-		t.Fatal("IsProcessAlive: expect 'false', but got 'true'")
+	if e == nil {
+		// empty GenServer{} should die immediately (via panic and recovering)
+		t.Fatal(fmt.Errorf("should panic here"))
 	}
 
 	gs1 := &testGenServer{

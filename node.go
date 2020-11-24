@@ -186,20 +186,36 @@ func (n *Node) Spawn(name string, opts ProcessOptions, object interface{}, args 
 				n.registrar.UnregisterProcess(pid)
 				n.monitor.ProcessTerminated(pid, etf.Atom(name), "panic")
 				process.Kill()
+
+				process.ready <- fmt.Errorf("Can't start process: %s\n", r)
 			}
-			close(process.ready)
+
+			// we should close this channel otherwise if we try
+			// immediatelly call process.Exit it blocks this call forewer
+			// since there is nobody to read a message from this channel
+			close(process.gracefulExit)
 		}()
 
+		// start process loop
 		reason := object.(ProcessBehaviour).loop(process, object, args...)
+
+		// process stopped. unregister it and let everybody (who set up
+		// link/monitor) to know about it
 		n.registrar.UnregisterProcess(pid)
 		n.monitor.ProcessTerminated(pid, etf.Atom(name), reason)
+
+		// cancel the context if it was stopped by itself
 		if reason != "kill" {
 			process.Kill()
 		}
 
+		close(process.stopped)
 	}()
 
-	<-process.ready
+	defer close(process.ready)
+	if e := <-process.ready; e != nil {
+		return nil, e
+	}
 
 	return process, nil
 }
@@ -509,6 +525,7 @@ func (n *Node) applicationStart(startType, appName string, args ...interface{}) 
 		return nil, ErrAppAlreadyStarted
 	}
 
+	// start dependencies
 	for _, depAppName := range spec.Applications {
 		if _, e := n.ApplicationStart(depAppName); e != nil && e != ErrAppAlreadyStarted {
 			return nil, e
@@ -538,6 +555,10 @@ func (n *Node) ApplicationStop(name string) error {
 	}
 
 	spec.process.Exit(spec.process.Self(), "normal")
+	// we should wait until children process stopped.
+	if e := spec.process.WaitWithTimeout(5 * time.Second); e != nil {
+		return ErrProcessBusy
+	}
 	return nil
 }
 

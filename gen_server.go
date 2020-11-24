@@ -33,7 +33,7 @@ type GenServer struct{}
 
 func (gs *GenServer) loop(p *Process, object interface{}, args ...interface{}) string {
 	p.state = object.(GenServerBehavior).Init(p, args...)
-	p.ready <- true
+	p.ready <- nil
 
 	stop := make(chan string, 2)
 

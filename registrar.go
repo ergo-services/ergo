@@ -92,7 +92,8 @@ func (r *registrar) RegisterProcessExt(name string, object interface{}, opts Pro
 
 	process := &Process{
 		mailBox:      make(chan etf.Tuple, mailboxSize),
-		ready:        make(chan bool),
+		ready:        make(chan error),
+		stopped:      make(chan bool),
 		gracefulExit: exitChannel,
 		direct:       make(chan directMessage),
 		self:         pid,

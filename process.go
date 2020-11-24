@@ -20,9 +20,10 @@ type Process struct {
 	sync.RWMutex
 
 	mailBox      chan etf.Tuple
-	ready        chan bool
+	ready        chan error
 	gracefulExit chan gracefulExitRequest
 	direct       chan directMessage
+	stopped      chan bool
 	self         etf.Pid
 	groupLeader  *Process
 	Context      context.Context
@@ -309,7 +310,7 @@ func (p *Process) GetEnv(name string) interface{} {
 
 // Wait waits until process stopped
 func (p *Process) Wait() {
-	<-p.Context.Done() // closed once context canceled
+	<-p.stopped
 }
 
 // WaitWithTimeout waits until process stopped. Return ErrTimeout
@@ -321,7 +322,11 @@ func (p *Process) WaitWithTimeout(d time.Duration) error {
 	select {
 	case <-timer.C:
 		return ErrTimeout
-	case <-p.Context.Done():
+	case <-p.stopped:
+		// 'stopped' channel is closing after unregistering this process
+		// and releasing the name related to this process.
+		// we should wait here otherwise you wont be able to
+		// start another process with the same name
 		return nil
 	}
 }
