@@ -204,3 +204,13 @@ func waitForResultWithValue(t *testing.T, w chan interface{}, value interface{})
 		t.Fatal("result timeout")
 	}
 }
+
+func waitForTimeout(w chan interface{}) error {
+	select {
+	case v := <-w:
+		return fmt.Errorf("got value we shouldn't receive: %#v", v)
+
+	case <-time.After(time.Millisecond * time.Duration(300)):
+		return nil
+	}
+}

@@ -70,7 +70,7 @@ func (gs *testAppGenServer) Terminate(reason string, state interface{}) {
 }
 
 // testing application
-func TestApplication(t *testing.T) {
+func TestApplicationBasics(t *testing.T) {
 
 	fmt.Printf("\n=== Test Application load/unload/start/stop\n")
 	fmt.Printf("\nStarting node nodeTestAplication@localhost:")
@@ -88,7 +88,7 @@ func TestApplication(t *testing.T) {
 	//
 	// case 1: loading/unloading app
 	//
-	fmt.Printf("Loading application... ")
+	fmt.Printf("... loading application: ")
 	err := node.ApplicationLoad(app, lifeSpan, "testapp")
 	if err != nil {
 		t.Fatal(err)
@@ -110,7 +110,7 @@ func TestApplication(t *testing.T) {
 		t.Fatal("total number of running application mismatch")
 	}
 
-	fmt.Printf("Unloading application... ")
+	fmt.Printf("... unloading application: ")
 	if err := node.ApplicationUnload("testapp"); err != nil {
 		t.Fatal(err)
 	}
@@ -123,7 +123,7 @@ func TestApplication(t *testing.T) {
 	//
 	// case 2: start(and try to unload running app)/stop(normal) application
 	//
-	fmt.Printf("Starting application... ")
+	fmt.Printf("... starting application: ")
 	if err := node.ApplicationLoad(app, lifeSpan, "testapp1", "testAppGS1"); err != nil {
 		t.Fatal(err)
 	}
@@ -132,25 +132,29 @@ func TestApplication(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
+	fmt.Println("OK")
 
-	// we shouldn't be able to unload running app
+	fmt.Printf("... try to unload started application (shouldn't be able): ")
 	if e := node.ApplicationUnload("testapp1"); e != ErrAppAlreadyStarted {
 		t.Fatal(e)
 	}
+	fmt.Println("OK")
 
+	fmt.Printf("... check total number of running applications (should be 1): ")
 	wa = node.WhichApplications()
-	if len(wa) != 1 {
-		t.Fatal("total number of running application mismatch")
+	if n := len(wa); n != 1 {
+		t.Fatal(n)
 	}
+	fmt.Println("OK")
 
+	fmt.Printf("... check the name of running application (should be 'testapp1'): ")
 	if wa[0].Name != "testapp1" {
-		t.Fatal("can't start application")
+		t.Fatal(wa[0].Name)
 	}
-
 	fmt.Println("OK")
 
 	// case 2.1: test env vars
-	fmt.Printf("testing application' environment variables...")
+	fmt.Printf("... application's environment variables: ")
 	p.SetEnv("env123", 123)
 	p.SetEnv("envStr", "123")
 
@@ -180,7 +184,7 @@ func TestApplication(t *testing.T) {
 	fmt.Println("OK")
 
 	// case 2.2: get list of children' pid
-	fmt.Printf("testing application' children list...")
+	fmt.Printf("... application's children list: ")
 	list := p.GetChildren()
 	if len(list) != 1 || list[0] != gs.Self() {
 		t.Fatal("incorrect children list")
@@ -189,7 +193,7 @@ func TestApplication(t *testing.T) {
 
 	// case 2.3: get application info
 
-	fmt.Printf("get application info for testapp1...")
+	fmt.Printf("... getting application info: ")
 	info, errInfo := node.GetApplicationInfo("testapp1")
 	if errInfo != nil {
 		t.Fatal(errInfo)
@@ -199,7 +203,7 @@ func TestApplication(t *testing.T) {
 	}
 	fmt.Println("OK")
 
-	fmt.Printf("Stopping application ...")
+	fmt.Printf("... stopping application: ")
 	if e := node.ApplicationStop("testapp1"); e != nil {
 		t.Fatal(e)
 	}
@@ -217,7 +221,7 @@ func TestApplication(t *testing.T) {
 	//
 	// case 3: start/stop (brutal) application
 	//
-	fmt.Printf("Starting application for brutal kill...")
+	fmt.Printf("... starting application for brutal kill: ")
 	if err := node.ApplicationLoad(app, lifeSpan, "testappBrutal", "testAppGS2Brutal"); err != nil {
 		t.Fatal(err)
 	}
@@ -226,7 +230,7 @@ func TestApplication(t *testing.T) {
 		t.Fatal(e)
 	}
 	fmt.Println("OK")
-	fmt.Printf("Kill application...")
+	fmt.Printf("... kill application: ")
 	p.Kill()
 	if e := p.WaitWithTimeout(100 * time.Millisecond); e != nil {
 		t.Fatal("timed out")
@@ -238,7 +242,7 @@ func TestApplication(t *testing.T) {
 	//
 	// case 4: start with limited lifespan
 	//
-	fmt.Printf("Starting application with lifespan 150ms...")
+	fmt.Printf("... starting application with lifespan 150ms: ")
 	lifeSpan = 150 * time.Millisecond
 	if err := node.ApplicationLoad(app, lifeSpan, "testapp2", "testAppGS2"); err != nil {
 		t.Fatal(err)
@@ -249,19 +253,21 @@ func TestApplication(t *testing.T) {
 		t.Fatal(e)
 	}
 	if e := p.WaitWithTimeout(160 * time.Millisecond); e != nil {
-		t.Fatal("application lifespan was longer than 150m")
+		t.Fatal("application lifespan was longer than 150ms")
 	}
+	fmt.Println("OK")
 	tLifeSpan := time.Since(tStart)
 
+	fmt.Printf("... application should be self stopped in 150ms: ")
 	if node.IsProcessAlive(p.Self()) {
-		t.Fatal("application still alive")
+		t.Fatal("still alive")
 	}
 
 	if tLifeSpan < lifeSpan {
-		t.Fatal("application lifespan was shorter(", tLifeSpan, ") than ", lifeSpan)
+		t.Fatal("lifespan was shorter(", tLifeSpan, ") than ", lifeSpan)
 	}
 
-	fmt.Println("OK. lifespan:", tLifeSpan)
+	fmt.Println("OK [ real lifespan:", tLifeSpan, "]")
 
 	node.Stop()
 }
@@ -277,7 +283,7 @@ func TestApplicationTypePermanent(t *testing.T) {
 		fmt.Println("OK")
 	}
 
-	fmt.Printf("Starting application... ")
+	fmt.Printf("... starting application: ")
 	app := &testApplication{}
 	lifeSpan := time.Duration(0)
 	if err := node.ApplicationLoad(app, lifeSpan, "testapp"); err != nil {
@@ -288,13 +294,16 @@ func TestApplicationTypePermanent(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
+	fmt.Println("OK")
 
 	gs := node.GetProcessByName("testAppGS")
 
+	fmt.Printf("... stop child with 'abnormal' reason: ")
 	gs.Exit(p.Self(), "abnormal")
 	if e := gs.WaitWithTimeout(100 * time.Millisecond); e != nil {
 		t.Fatal("timeout on waiting child")
 	}
+	fmt.Println("OK")
 
 	if e := p.WaitWithTimeout(1 * time.Second); e != nil {
 		t.Fatal("timeout on waiting application stopping")
@@ -321,7 +330,6 @@ func TestApplicationTypeTransient(t *testing.T) {
 		fmt.Println("OK")
 	}
 
-	fmt.Printf("Starting application...")
 	app1 := &testApplication{}
 	app2 := &testApplication{}
 	lifeSpan := time.Duration(0)
@@ -334,19 +342,21 @@ func TestApplicationTypeTransient(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	fmt.Printf("... starting application testapp1: ")
 	p1, e1 := node.ApplicationStartTransient("testapp1")
 	if e1 != nil {
 		t.Fatal(e1)
 	}
+	fmt.Println("OK")
 
+	fmt.Printf("... starting application testapp2: ")
 	p2, e2 := node.ApplicationStartTransient("testapp2")
 	if e2 != nil {
 		t.Fatal(e2)
 	}
-
 	fmt.Println("OK")
 
-	fmt.Printf("stopping testAppGS1 with 'normal' reason (shouldn't affect testAppGS2)...")
+	fmt.Printf("... stopping testAppGS1 with 'normal' reason (shouldn't affect testAppGS2): ")
 	gs := node.GetProcessByName("testAppGS1")
 	gs.Exit(gs.Self(), "normal")
 	if e := gs.WaitWithTimeout(100 * time.Millisecond); e != nil {
@@ -370,14 +380,14 @@ func TestApplicationTypeTransient(t *testing.T) {
 
 	fmt.Println("OK")
 
-	fmt.Println("starting application testapp1")
+	fmt.Printf("... starting application testapp1: ")
 	p1, e1 = node.ApplicationStartTransient("testapp1")
 	if e1 != nil {
 		t.Fatal(e1)
 	}
 	fmt.Println("OK")
 
-	fmt.Printf("stopping testAppGS1 with 'abnormal' reason (node will shotdown)...")
+	fmt.Printf("... stopping testAppGS1 with 'abnormal' reason (node will shotdown): ")
 	gs = node.GetProcessByName("testAppGS1")
 	gs.Exit(gs.Self(), "abnormal")
 
@@ -396,6 +406,7 @@ func TestApplicationTypeTransient(t *testing.T) {
 	if e := node.WaitWithTimeout(100 * time.Millisecond); e != nil {
 		t.Fatal("node shouldn't be alive here")
 	}
+	fmt.Println("OK")
 }
 
 func TestApplicationTypeTemporary(t *testing.T) {
@@ -408,7 +419,7 @@ func TestApplicationTypeTemporary(t *testing.T) {
 	} else {
 		fmt.Println("OK")
 	}
-	fmt.Printf("Starting application...")
+	fmt.Printf("... starting application: ")
 	app := &testApplication{}
 	lifeSpan := time.Duration(0)
 	if err := node.ApplicationLoad(app, lifeSpan, "testapp"); err != nil {
@@ -419,7 +430,9 @@ func TestApplicationTypeTemporary(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
+	fmt.Println("OK")
 
+	fmt.Printf("... stopping testAppGS with 'normal' reason: ")
 	gs := node.GetProcessByName("testAppGS")
 	gs.Exit(p.Self(), "normal")
 	if e := gs.WaitWithTimeout(100 * time.Millisecond); e != nil {
@@ -433,6 +446,7 @@ func TestApplicationTypeTemporary(t *testing.T) {
 	if !node.IsAlive() {
 		t.Fatal("node should be alive here")
 	}
+	fmt.Println("OK")
 
 	node.Stop()
 }
@@ -447,7 +461,7 @@ func TestApplicationStop(t *testing.T) {
 	} else {
 		fmt.Println("OK")
 	}
-	fmt.Printf("Starting applications testapp1, testapp2...")
+	fmt.Printf("... starting applications testapp1, testapp2: ")
 	lifeSpan := time.Duration(0)
 	app := &testApplication{}
 	if e := node.ApplicationLoad(app, lifeSpan, "testapp1", "testAppGS1"); e != nil {
@@ -470,7 +484,7 @@ func TestApplicationStop(t *testing.T) {
 	fmt.Println("OK")
 
 	// case 1: stopping via node.ApplicatoinStop
-	fmt.Printf("stopping testapp1 via node.ApplicationStop (shouldn't affect testapp2) ...")
+	fmt.Printf("... stopping testapp1 via node.ApplicationStop (shouldn't affect testapp2):")
 	if e := node.ApplicationStop("testapp1"); e != nil {
 		t.Fatal("can't stop application via node.ApplicationStop", e)
 	}

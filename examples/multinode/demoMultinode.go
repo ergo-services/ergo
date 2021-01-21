@@ -54,7 +54,7 @@ func (dgs *demoGenServ) Init(p *ergo.Process, args ...interface{}) interface{} {
 // HandleCast -> ("noreply", state) - noreply
 //		         ("stop", reason) - stop with reason
 func (dgs *demoGenServ) HandleCast(message etf.Term, state interface{}) (string, interface{}) {
-	fmt.Printf("[%s] HandleCast: %#v\n", dgs.process.Node.Name, message)
+	fmt.Printf("[%s] HandleCast: %#v\n", dgs.process.Node.FullName, message)
 	switch message {
 	case etf.Atom("stop"):
 		return "stop", "they said"
@@ -69,7 +69,7 @@ func (dgs *demoGenServ) HandleCast(message etf.Term, state interface{}) (string,
 //				 ("noreply", _, state) - noreply
 //		         ("stop", reason, _) - normal stop
 func (dgs *demoGenServ) HandleCall(from etf.Tuple, message etf.Term, state interface{}) (string, etf.Term, interface{}) {
-	fmt.Printf("[%s] HandleCall: %#v, From: %#v\n", dgs.process.Node.Name, message, from)
+	fmt.Printf("[%s] HandleCall: %#v, From: %#v\n", dgs.process.Node.FullName, message, from)
 
 	reply := etf.Term(etf.Tuple{etf.Atom("error"), etf.Atom("unknown_request")})
 
@@ -84,13 +84,13 @@ func (dgs *demoGenServ) HandleCall(from etf.Tuple, message etf.Term, state inter
 // HandleInfo -> ("noreply", state) - noreply
 //		         ("stop", reason) - normal stop
 func (dgs *demoGenServ) HandleInfo(message etf.Term, state interface{}) (string, interface{}) {
-	fmt.Printf("[%s] HandleInfo: %#v\n", dgs.process.Node.Name, message)
+	fmt.Printf("[%s] HandleInfo: %#v\n", dgs.process.Node.FullName, message)
 	return "noreply", state
 }
 
 // Terminate called when process died
 func (dgs *demoGenServ) Terminate(reason string, state interface{}) {
-	fmt.Printf("[%s] Terminate: %#v\n", dgs.process.Node.Name, reason)
+	fmt.Printf("[%s] Terminate: %#v\n", dgs.process.Node.FullName, reason)
 	dgs.wg.Done()
 }
 

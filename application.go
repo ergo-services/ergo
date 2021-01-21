@@ -32,8 +32,8 @@ const (
 	ApplicationStartTransient = "transient"
 )
 
-// ApplicationBehavior interface
-type ApplicationBehavior interface {
+// ApplicationBehaviour interface
+type ApplicationBehaviour interface {
 	Load(args ...interface{}) (ApplicationSpec, error)
 	Start(process *Process, args ...interface{})
 }
@@ -48,7 +48,7 @@ type ApplicationSpec struct {
 	// Depends		[]
 	Children  []ApplicationChildSpec
 	startType ApplicationStartType
-	app       ApplicationBehavior
+	app       ApplicationBehaviour
 	process   *Process
 	mutex     sync.Mutex
 }
@@ -60,7 +60,7 @@ type ApplicationChildSpec struct {
 	process *Process
 }
 
-// Application is implementation of ProcessBehavior interface
+// Application is implementation of ProcessBehaviour interface
 type Application struct{}
 
 type ApplicationInfo struct {
@@ -70,10 +70,12 @@ type ApplicationInfo struct {
 	PID         etf.Pid
 }
 
-func (a *Application) loop(p *Process, object interface{}, args ...interface{}) string {
+func (a *Application) Loop(p *Process, args ...interface{}) string {
 	// some internal agreement that the first argument should be a spec of this application
 	// (see ApplicatoinStart for the details)
+	object := p.object
 	spec := args[0].(*ApplicationSpec)
+	p.SetTrapExit(true)
 
 	if spec.Environment != nil {
 		for k, v := range spec.Environment {
@@ -88,7 +90,7 @@ func (a *Application) loop(p *Process, object interface{}, args ...interface{}) 
 
 	p.currentFunction = "Application:Start"
 
-	object.(ApplicationBehavior).Start(p, args[1:]...)
+	object.(ApplicationBehaviour).Start(p, args[1:]...)
 	lib.Log("Application spec %#v\n", spec)
 	p.ready <- nil
 
@@ -103,9 +105,15 @@ func (a *Application) loop(p *Process, object interface{}, args ...interface{}) 
 	defer timer.Stop()
 
 	for {
+		var message etf.Term
+
 		select {
 		case ex := <-p.gracefulExit:
-			a.stopChildren(ex.from, spec.Children, string(ex.reason))
+			childrenStopped := a.stopChildren(ex.from, spec.Children, string(ex.reason))
+			if !childrenStopped {
+				fmt.Printf("Warining: application can't be stopped. Some of the children are still running")
+				continue
+			}
 			return ex.reason
 
 		case direct := <-p.direct:
@@ -114,72 +122,118 @@ func (a *Application) loop(p *Process, object interface{}, args ...interface{}) 
 
 		case <-p.Context.Done():
 			// node is down or killed using p.Kill()
-			fmt.Printf("Warning: application %s has been killed\n", spec.Name)
 			return "kill"
 		case <-timer.C:
 			// time to die
 			go p.Exit(p.Self(), "normal")
+			continue
 		case msg := <-p.mailBox:
-			//fromPid := msg.Element(1).(etf.Pid)
-			message := msg.Element(2)
-			switch r := message.(type) {
-			case etf.Tuple:
-				// waiting for {'EXIT', Pid, Reason}
-				if len(r) != 3 || r.Element(1) != etf.Atom("EXIT") {
-					// unknown. ignoring
+			message = msg.Element(2)
+		}
+
+		//fromPid := msg.Element(1).(etf.Pid)
+		switch r := message.(type) {
+		case etf.Tuple:
+			// waiting for {'EXIT', Pid, Reason}
+			if len(r) != 3 || r.Element(1) != etf.Atom("EXIT") {
+				// unknown. ignoring
+				continue
+			}
+			terminated := r.Element(2).(etf.Pid)
+			terminatedName := terminated.Str()
+			reason := r.Element(3).(etf.Atom)
+			alienPid := true
+
+			for i := range spec.Children {
+				child := spec.Children[i].process
+				if child == nil {
 					continue
 				}
-				terminated := r.Element(2).(etf.Pid)
-				terminatedName := terminated.Str()
-				reason := r.Element(3).(etf.Atom)
-
-				for i := range spec.Children {
-					child := spec.Children[i].process
-					if child != nil && child.Self() == terminated {
-						terminatedName = child.Name()
-						break
-					}
+				if child.Self() == terminated {
+					terminatedName = child.Name()
+					alienPid = false
+					break
 				}
-
-				switch spec.startType {
-				case ApplicationStartPermanent:
-					a.stopChildren(terminated, spec.Children, string(reason))
-					fmt.Printf("Application child %s (at %s) stopped with reason %s (permanent: node is shutting down)\n",
-						terminatedName, p.Node.FullName, reason)
-					p.Node.Stop()
-					return "shutdown"
-
-				case ApplicationStartTransient:
-					if reason == etf.Atom("normal") || reason == etf.Atom("shutdown") {
-						fmt.Printf("Application child %s (at %s) stopped with reason %s (transient)\n",
-							terminatedName, p.Node.FullName, reason)
-						continue
-					}
-					a.stopChildren(terminated, spec.Children, "normal")
-					fmt.Printf("Application child %s (at %s) stopped with reason %s. (transient: node is shutting down)\n",
-						terminatedName, p.Node.FullName, reason)
-					p.Node.Stop()
-					return string(reason)
-
-				case ApplicationStartTemporary:
-					fmt.Printf("Application child %s (at %s) stopped with reason %s (temporary)\n",
-						terminatedName, p.Node.FullName, reason)
-				}
-
 			}
+
+			// Application process has trapExit = true it means
+			// the calling Exit methond will never send a message into
+			// the gracefulExit channel, it will send an 'EXIT' message.
+			// Checking bellow whether the terminated process was found
+			// among the our children.
+			if alienPid {
+				// so we should proceed it as a graceful exit request and
+				// terminate this Application process (if all children will
+				// be stopped correctly)
+				go func() {
+					ex := gracefulExitRequest{
+						from:   terminated,
+						reason: string(reason),
+					}
+					p.gracefulExit <- ex
+				}()
+				continue
+			}
+
+			switch spec.startType {
+			case ApplicationStartPermanent:
+				a.stopChildren(terminated, spec.Children, string(reason))
+				fmt.Printf("Application child %s (at %s) stopped with reason %s (permanent: node is shutting down)\n",
+					terminatedName, p.Node.FullName, reason)
+				p.Node.Stop()
+				return "shutdown"
+
+			case ApplicationStartTransient:
+				if reason == etf.Atom("normal") || reason == etf.Atom("shutdown") {
+					fmt.Printf("Application child %s (at %s) stopped with reason %s (transient)\n",
+						terminatedName, p.Node.FullName, reason)
+					continue
+				}
+				a.stopChildren(terminated, spec.Children, "normal")
+				fmt.Printf("Application child %s (at %s) stopped with reason %s. (transient: node is shutting down)\n",
+					terminatedName, p.Node.FullName, reason)
+				p.Node.Stop()
+				return string(reason)
+
+			case ApplicationStartTemporary:
+				fmt.Printf("Application child %s (at %s) stopped with reason %s (temporary)\n",
+					terminatedName, p.Node.FullName, reason)
+			}
+
 		}
 
 	}
 }
-func (a *Application) stopChildren(from etf.Pid, children []ApplicationChildSpec, reason string) {
-
+func (a *Application) stopChildren(from etf.Pid, children []ApplicationChildSpec, reason string) bool {
+	childrenStopped := true
 	for i := range children {
 		child := children[i].process
-		if child != nil && child.self != from {
-			children[i].process.Exit(from, reason)
-			children[i].process = nil
+		if child == nil {
+			continue
 		}
+
+		if child.self == from {
+			continue
+		}
+
+		p := children[i].process
+		if p == nil {
+			continue
+		}
+		if !p.IsAlive() {
+			continue
+		}
+
+		p.Exit(from, reason)
+		if err := p.WaitWithTimeout(5 * time.Second); err != nil {
+			childrenStopped = false
+			continue
+		}
+
+		children[i].process = nil
 	}
+
+	return childrenStopped
 }
 
 func (a *Application) startChildren(parent *Process, children []ApplicationChildSpec) bool {

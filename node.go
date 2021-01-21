@@ -31,7 +31,7 @@ import (
 
 // Node instance of created node using CreateNode
 type Node struct {
-	dist.EPMD
+	epmd     *dist.EPMD
 	listener net.Listener
 	Cookie   string
 
@@ -45,6 +45,8 @@ type Node struct {
 
 	tlscertServer tls.Certificate
 	tlscertClient tls.Certificate
+
+	FullName string
 
 	opts NodeOptions
 }
@@ -103,6 +105,7 @@ func CreateNodeWithContext(ctx context.Context, name string, cookie string, opts
 	nodectx, nodestop := context.WithCancel(ctx)
 
 	node := &Node{
+		epmd:      &dist.EPMD{},
 		Cookie:    cookie,
 		context:   nodectx,
 		Stop:      nodestop,
@@ -149,13 +152,14 @@ func CreateNodeWithContext(ctx context.Context, name string, cookie string, opts
 			panic("FQDN for node name is required (example: node@hostname)")
 		}
 
-		if listenPort := node.listen(ns[1], opts); listenPort == 0 {
+		listenPort := node.listen(ns[1], opts)
+		if listenPort == 0 {
 			panic("Can't listen port")
-		} else {
-			// start EPMD
-			node.EPMD.Init(nodectx, name, listenPort, opts.EPMDPort, opts.Hidden, opts.DisableEPMDServer)
 		}
+		// start EPMD
+		node.epmd.Init(nodectx, name, listenPort, opts.EPMDPort, opts.Hidden, opts.DisableEPMDServer)
 
+		node.FullName = name
 	}
 
 	node.opts = opts
@@ -182,9 +186,9 @@ func (n *Node) Spawn(name string, opts ProcessOptions, object interface{}, args 
 
 		defer func() {
 			if r := recover(); r != nil {
-				fmt.Printf("Warning: recovered process: %v %#v\n", process.self, r)
+				fmt.Printf("Warning: recovered process(name: %s)%v %#v\n", name, process.self, r)
 				n.registrar.UnregisterProcess(pid)
-				n.monitor.ProcessTerminated(pid, etf.Atom(name), "panic")
+				n.monitor.ProcessTerminated(pid, name, "panic")
 				process.Kill()
 
 				process.ready <- fmt.Errorf("Can't start process: %s\n", r)
@@ -197,12 +201,12 @@ func (n *Node) Spawn(name string, opts ProcessOptions, object interface{}, args 
 		}()
 
 		// start process loop
-		reason := object.(ProcessBehaviour).loop(process, object, args...)
+		reason := object.(ProcessBehaviour).Loop(process, args...)
 
 		// process stopped. unregister it and let everybody (who set up
 		// link/monitor) to know about it
 		n.registrar.UnregisterProcess(pid)
-		n.monitor.ProcessTerminated(pid, etf.Atom(name), reason)
+		n.monitor.ProcessTerminated(pid, name, reason)
 
 		// cancel the context if it was stopped by itself
 		if reason != "kill" {
@@ -276,6 +280,25 @@ func (n *Node) ProcessInfo(pid etf.Pid) (ProcessInfo, error) {
 	}
 
 	return p.Info(), nil
+}
+
+// AddStaticRoute adds static route record into the EPMD client
+func (n *Node) AddStaticRoute(name string, port uint16) error {
+	return n.epmd.AddStaticRoute(name, port)
+}
+
+// RemoveStaticRoute removes static route record from the EPMD client
+func (n *Node) RemoveStaticRoute(name string) {
+	n.epmd.RemoveStaticRoute(name)
+}
+
+// ResolvePort resolves port number for the given name. Returns -1 if not found
+func (n *Node) ResolvePort(name string) int {
+	if port, err := n.epmd.ResolvePort(name); err == nil {
+		return port
+	}
+
+	return -1
 }
 
 func (n *Node) serve(link *dist.Link, opts NodeOptions) error {
@@ -356,7 +379,9 @@ func (n *Node) serve(link *dist.Link, opts NodeOptions) error {
 			packetLength, err = link.Read(b)
 			if err != nil || packetLength == 0 {
 				// link was closed or got malformed data
-				fmt.Println("link was closed", link.GetPeerName(), "error:", err)
+				if err != nil {
+					fmt.Println("link was closed", link.GetPeerName(), "error:", err)
+				}
 				lib.ReleaseBuffer(b)
 				return
 			}
@@ -456,11 +481,11 @@ func (n *Node) GetApplicationInfo(name string) (ApplicationInfo, error) {
 // into the node. It also loads the application specifications for any included applications
 func (n *Node) ApplicationLoad(app interface{}, args ...interface{}) error {
 
-	spec, err := app.(ApplicationBehavior).Load(args...)
+	spec, err := app.(ApplicationBehaviour).Load(args...)
 	if err != nil {
 		return err
 	}
-	spec.app = app.(ApplicationBehavior)
+	spec.app = app.(ApplicationBehaviour)
 	for i := range spec.Applications {
 		if e := n.ApplicationLoad(spec.Applications[i], args...); e != nil && e != ErrAppAlreadyLoaded {
 			return e
@@ -562,7 +587,7 @@ func (n *Node) ApplicationStop(name string) error {
 	return nil
 }
 
-func (n *Node) handleMessage(control, message etf.Term) {
+func (n *Node) handleMessage(fromNode string, control, message etf.Term) {
 	defer func() {
 		if r := recover(); r != nil {
 			fmt.Printf("Warning: recovered node.handleMessage: %s\n", r)
@@ -603,7 +628,7 @@ func (n *Node) handleMessage(control, message etf.Term) {
 				lib.Log("EXIT message (act %d): %#v", act, t)
 				terminated := t.Element(2).(etf.Pid)
 				reason := fmt.Sprint(t.Element(4))
-				n.monitor.ProcessTerminated(terminated, etf.Atom(""), string(reason))
+				n.monitor.ProcessTerminated(terminated, "", string(reason))
 
 			case distProtoEXIT2:
 				lib.Log("EXIT2 message (act %d): %#v", act, t)
@@ -624,10 +649,14 @@ func (n *Node) handleMessage(control, message etf.Term) {
 				// {21, FromProc, ToPid, Ref, Reason}, where FromProc = monitored process
 				// pid or name (atom), ToPid = monitoring process, and Reason = exit reason for the monitored process
 				lib.Log("MONITOR_EXIT message (act %d): %#v", act, t)
-				terminated := t.Element(2).(etf.Pid)
 				reason := fmt.Sprint(t.Element(5))
-				// FIXME: we must handle case when 'terminated' is atom
-				n.monitor.ProcessTerminated(terminated, etf.Atom(""), string(reason))
+				switch terminated := t.Element(2).(type) {
+				case etf.Pid:
+					n.monitor.ProcessTerminated(terminated, "", string(reason))
+				case etf.Atom:
+					pid := fakeMonitorPidFromName(string(terminated), fromNode)
+					n.monitor.ProcessTerminated(pid, "", string(reason))
+				}
 
 			// Not implemented yet, just stubs. TODO.
 			case distProtoSEND_SENDER:
@@ -735,7 +764,7 @@ func (n *Node) connect(to etf.Atom) error {
 	var port int
 	var err error
 	var c net.Conn
-	if port, err = n.ResolvePort(string(to)); port < 0 {
+	if port, err = n.epmd.ResolvePort(string(to)); port < 0 {
 		return fmt.Errorf("Can't resolve port for %s: %s", to, err)
 	}
 	ns := strings.Split(string(to), "@")
@@ -750,7 +779,7 @@ func (n *Node) connect(to etf.Atom) error {
 				InsecureSkipVerify: true,
 			},
 		}
-		c, err = tlsdialer.DialContext(n.context, "tcp", net.JoinHostPort(ns[1], strconv.Itoa(int(port))))
+		c, err = tlsdialer.DialContext(n.context, "tcp", net.JoinHostPort(ns[1], strconv.Itoa(port)))
 		TLSenabled = true
 
 	case TLSmodeStrict:
@@ -759,12 +788,12 @@ func (n *Node) connect(to etf.Atom) error {
 				Certificates: []tls.Certificate{n.tlscertClient},
 			},
 		}
-		c, err = tlsdialer.DialContext(n.context, "tcp", net.JoinHostPort(ns[1], strconv.Itoa(int(port))))
+		c, err = tlsdialer.DialContext(n.context, "tcp", net.JoinHostPort(ns[1], strconv.Itoa(port)))
 		TLSenabled = true
 
 	default:
 		dialer := net.Dialer{}
-		c, err = dialer.DialContext(n.context, "tcp", net.JoinHostPort(ns[1], strconv.Itoa(int(port))))
+		c, err = dialer.DialContext(n.context, "tcp", net.JoinHostPort(ns[1], strconv.Itoa(port)))
 	}
 
 	if err != nil {
@@ -838,10 +867,12 @@ func (n *Node) listen(name string, opts NodeOptions) uint16 {
 				c, err := l.Accept()
 				lib.Log("Accepted new connection from %s", c.RemoteAddr().String())
 
+				if n.IsAlive() == false {
+					c.Close()
+					return
+				}
+
 				if err != nil {
-					if err == context.Canceled {
-						return
-					}
 					lib.Log(err.Error())
 					continue
 				}

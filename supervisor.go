@@ -29,39 +29,39 @@ const (
 
 	// SupervisorStrategyOneForOne If one child process terminates and is to be restarted, only
 	// that child process is affected. This is the default restart strategy.
-	SupervisorStrategyOneForOne = "one_for_one"
+	SupervisorStrategyOneForOne = SupervisorStrategyType("one_for_one")
 
 	// SupervisorStrategyOneForAll If one child process terminates and is to be restarted, all other
 	// child processes are terminated and then all child processes are restarted.
-	SupervisorStrategyOneForAll = "one_for_all"
+	SupervisorStrategyOneForAll = SupervisorStrategyType("one_for_all")
 
 	// SupervisorStrategyRestForOne If one child process terminates and is to be restarted,
 	// the 'rest' of the child processes (that is, the child
 	// processes after the terminated child process in the start order)
 	// are terminated. Then the terminated child process and all
 	// child processes after it are restarted
-	SupervisorStrategyRestForOne = "rest_for_one"
+	SupervisorStrategyRestForOne = SupervisorStrategyType("rest_for_one")
 
 	// SupervisorStrategySimpleOneForOne A simplified one_for_one supervisor, where all
 	// child processes are dynamically added instances
 	// of the same process type, that is, running the same code.
-	SupervisorStrategySimpleOneForOne = "simple_one_for_one"
+	SupervisorStrategySimpleOneForOne = SupervisorStrategyType("simple_one_for_one")
 
 	// Restart types:
 
 	// SupervisorChildRestartPermanent child process is always restarted
-	SupervisorChildRestartPermanent = "permanent"
+	SupervisorChildRestartPermanent = SupervisorChildRestart("permanent")
 
 	// SupervisorChildRestartTemporary child process is never restarted
 	// (not even when the supervisor restart strategy is rest_for_one
 	// or one_for_all and a sibling death causes the temporary process
 	// to be terminated)
-	SupervisorChildRestartTemporary = "temporary"
+	SupervisorChildRestartTemporary = SupervisorChildRestart("temporary")
 
 	// SupervisorChildRestartTransient child process is restarted only if
 	// it terminates abnormally, that is, with an exit reason other
 	// than normal, shutdown, or {shutdown,Term}.
-	SupervisorChildRestartTransient = "transient"
+	SupervisorChildRestartTransient = SupervisorChildRestart("transient")
 
 	supervisorChildStateStart    = 0
 	supervisorChildStateRunning  = 1
@@ -75,7 +75,7 @@ const (
 
 	// SupervisorChildShutdownInfinity means that the supervisor will
 	// wait for an exit signal as long as child takes
-	SupervisorChildShutdownInfinity = 0 // default shutdown behavior
+	SupervisorChildShutdownInfinity = 0 // default shutdown behaviour
 
 	// SupervisorChildShutdownTimeout5sec predefined timeout value
 	SupervisorChildShutdownTimeout5sec = 5
@@ -95,8 +95,8 @@ type supervisorChildState int
 //   SupervisorChildShutdownTimeout5sec (5)
 type SupervisorChildShutdown int
 
-// SupervisorBehavior interface
-type SupervisorBehavior interface {
+// SupervisorBehaviour interface
+type SupervisorBehaviour interface {
 	Init(args ...interface{}) SupervisorSpec
 }
 
@@ -117,14 +117,14 @@ type SupervisorChildSpec struct {
 	process  *Process
 }
 
-// Supervisor is implementation of ProcessBehavior interface
+// Supervisor is implementation of ProcessBehaviour interface
 type Supervisor struct {
 	spec *SupervisorSpec
 }
 
-func (sv *Supervisor) loop(svp *Process, object interface{}, args ...interface{}) string {
-
-	spec := object.(SupervisorBehavior).Init(args...)
+func (sv *Supervisor) Loop(svp *Process, args ...interface{}) string {
+	object := svp.object
+	spec := object.(SupervisorBehaviour).Init(args...)
 	lib.Log("Supervisor spec %#v\n", spec)
 	svp.ready <- nil
 
@@ -134,6 +134,7 @@ func (sv *Supervisor) loop(svp *Process, object interface{}, args ...interface{}
 		startChildren(svp, &spec)
 	}
 
+	svp.SetTrapExit(true)
 	svp.currentFunction = "Supervisor:loop"
 	waitTerminatingProcesses := []etf.Pid{}
 
@@ -143,8 +144,14 @@ func (sv *Supervisor) loop(svp *Process, object interface{}, args ...interface{}
 		select {
 		case ex := <-svp.gracefulExit:
 			for i := range spec.Children {
-				if spec.Children[i].process != nil {
-					p := spec.Children[i].process
+				p := spec.Children[i].process
+				if p == nil {
+					continue
+				}
+				if p.IsAlive() {
+					// in order to get rid of race condition when Node goes down
+					// via node.Stop() cancaling the node's context which
+					// triggering all the processes to kill themselves
 					p.Exit(svp.Self(), ex.reason)
 				}
 			}
@@ -174,6 +181,32 @@ func (sv *Supervisor) loop(svp *Process, object interface{}, args ...interface{}
 			case etf.Atom("EXIT"):
 				terminated := m.Element(2).(etf.Pid)
 				reason := m.Element(3).(etf.Atom)
+				itWasChild := false
+				// We should make sure if it was real call for exit.
+				// 'EXIT' message shouldn't be sent by the child of this supervisor
+				for i := range spec.Children {
+					child := spec.Children[i].process
+					if child == nil {
+						continue
+					}
+					if child.Self() == terminated {
+						itWasChild = true
+						break
+					}
+				}
+				if !itWasChild && reason != etf.Atom("restart") {
+					// so we should proceed it as a graceful exit request and
+					// terminate this Application process (if all children will
+					// be stopped correctly)
+					go func() {
+						ex := gracefulExitRequest{
+							from:   terminated,
+							reason: string(reason),
+						}
+						svp.gracefulExit <- ex
+					}()
+					continue
+				}
 				if len(waitTerminatingProcesses) > 0 {
 
 					for i := range waitTerminatingProcesses {

@@ -48,6 +48,9 @@ type EPMD struct {
 	Extra    []byte
 	Creation uint16
 
+	staticRoutes map[string]uint16
+	mtx          sync.RWMutex
+
 	response chan interface{}
 }
 
@@ -73,6 +76,8 @@ func (e *EPMD) Init(ctx context.Context, name string, listenport uint16, epmdpor
 	e.HighVsn = 5
 	e.LowVsn = 5
 	e.Creation = 0
+
+	e.staticRoutes = make(map[string]uint16)
 
 	ready := make(chan bool)
 
@@ -123,7 +128,47 @@ func (e *EPMD) Init(ctx context.Context, name string, listenport uint16, epmdpor
 	<-ready
 }
 
+func (e *EPMD) AddStaticRoute(name string, port uint16) error {
+	ns := strings.Split(name, "@")
+	if len(ns) != 2 {
+		return fmt.Errorf("wrong FQDN")
+	}
+	if _, err := net.LookupHost(ns[1]); err != nil {
+		return err
+	}
+
+	e.mtx.Lock()
+	defer e.mtx.Unlock()
+	if _, ok := e.staticRoutes[name]; ok {
+		// already exist
+		return fmt.Errorf("already exist")
+	}
+	e.staticRoutes[name] = port
+
+	return nil
+}
+
+func (e *EPMD) RemoveStaticRoute(name string) {
+	e.mtx.Lock()
+	defer e.mtx.Unlock()
+	delete(e.staticRoutes, name)
+	return
+}
+
 func (e *EPMD) ResolvePort(name string) (int, error) {
+	// chech static routes first
+	e.mtx.RLock()
+	if port, ok := e.staticRoutes[name]; ok {
+		e.mtx.RUnlock()
+		return int(port), nil
+	}
+
+	e.mtx.RUnlock()
+	// no static route for the given name. go the regular way
+	return e.resolvePort(name)
+}
+
+func (e *EPMD) resolvePort(name string) (int, error) {
 	ns := strings.Split(name, "@")
 	conn, err := net.Dial("tcp", net.JoinHostPort(ns[1], fmt.Sprintf("%d", e.PortEMPD)))
 	if err != nil {

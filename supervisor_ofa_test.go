@@ -90,7 +90,7 @@ func TestSupervisorOneForAll(t *testing.T) {
 		ChildrenTestCase{
 			reason:   "normal",
 			statuses: []string{"new", "new", "new"},
-			events:   6, // waiting for 3 terminates and 3 starts
+			events:   6, // waiting for 3 terminating and 3 starting
 		},
 		ChildrenTestCase{
 			reason:   "abnormal",
