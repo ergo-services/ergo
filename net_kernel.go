@@ -4,9 +4,7 @@ package ergo
 
 import (
 	"context"
-	"fmt"
 	"runtime"
-	"syscall"
 	"time"
 
 	"github.com/halturin/ergo/etf"
@@ -182,7 +180,6 @@ func sendProcInfo(p *Process, to etf.Pid) {
 }
 
 func sendStats(ctx context.Context, p *Process, to etf.Pid, period int, cancel context.CancelFunc) {
-	var usage syscall.Rusage
 	var utime, utimetotal, stime, stimetotal int64
 	defer cancel()
 	for {
@@ -202,13 +199,7 @@ func sendStats(ctx context.Context, p *Process, to etf.Pid, period int, cancel c
 			code := etf.Tuple{etf.Atom("code"), 0}
 			ets := etf.Tuple{etf.Atom("ets"), 0}
 
-			if err := syscall.Getrusage(syscall.RUSAGE_SELF, &usage); err != nil {
-				fmt.Println("cannot get rusage for", syscall.Getpid(), err)
-				continue
-			} else {
-			}
-			utime = usage.Utime.Sec*1000000000 + usage.Utime.Nano()
-			stime = usage.Stime.Sec*1000000000 + usage.Stime.Nano()
+			utime, stime = os_dep_getResourceUsage()
 			utimetotal += utime
 			stimetotal += stime
 			stats := etf.Tuple{
