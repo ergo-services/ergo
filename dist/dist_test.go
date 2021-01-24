@@ -314,7 +314,7 @@ func TestDecodeFragment(t *testing.T) {
 		t.Fatal("fragments should have a record ")
 	}
 	// check and clean process should remove this record
-	time.Sleep(160 * time.Millisecond)
+	time.Sleep(360 * time.Millisecond)
 
 	// map of the fragments should be empty here
 	if len(link.fragments) > 0 {
