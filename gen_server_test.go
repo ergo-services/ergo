@@ -205,6 +205,25 @@ func waitForResultWithValue(t *testing.T, w chan interface{}, value interface{})
 	}
 }
 
+func waitForResultWithValueOrValue(t *testing.T, w chan interface{}, value1, value2 interface{}) {
+	select {
+	case v := <-w:
+		if reflect.DeepEqual(v, value1) {
+			fmt.Println("OK")
+		} else {
+			if reflect.DeepEqual(v, value2) {
+				fmt.Println("OK")
+			} else {
+				e := fmt.Errorf("expected another value, but got: %#v", v)
+				t.Fatal(e)
+			}
+		}
+
+	case <-time.After(time.Second * time.Duration(2)):
+		t.Fatal("result timeout")
+	}
+}
+
 func waitForTimeout(w chan interface{}) error {
 	select {
 	case v := <-w:

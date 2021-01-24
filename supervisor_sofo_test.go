@@ -112,7 +112,7 @@ func TestSupervisorSimpleOneForOne(t *testing.T) {
 		}
 
 		fmt.Printf("Stopping supervisor 'testSupervisor' (reason: %s)... ", testCases[c].reason)
-		processSV.Exit(processSV.Self(), "x")
+		processSV.Exit(processSV.Self(), testCases[c].reason)
 		if children1, err := waitNeventsSupervisorChildren(sv.ch, testCases[c].events-len(children), children); err != nil {
 			t.Fatal(err)
 		} else {
@@ -159,41 +159,3 @@ func (ts *testSupervisorSimpleOneForOne) Init(args ...interface{}) SupervisorSpe
 		},
 	}
 }
-
-// func waitNeventsSupervisorSimpleOneForOneChildren(ch chan interface{}, n int, children []etf.Pid) ([]etf.Pid, error) {
-// 	// n - number of events that have to be awaited
-// 	// start for-loop with 'n+1' to handle exceeded number of events
-// 	for i := 0; i < n+1; i++ {
-// 		select {
-// 		case c := <-ch:
-// 			switch child := c.(type) {
-// 			case testMessageTerminated:
-// 				for n := range children {
-// 					if children[n] == child.pid {
-// 						children[n] = etf.Pid{}
-// 						break
-// 					}
-// 				}
-// 				fmt.Println("TERM", child)
-// 			case testMessageStarted:
-// 				fmt.Println("START", child)
-// 				for n := range children {
-// 					if children[n] == child.pid {
-// 						panic("pid already exist")
-// 					}
-// 				}
-// 				children = append(children, child.pid)
-// 			}
-
-// 		case <-time.After(100 * time.Millisecond):
-// 			if i == n {
-// 				return children, nil
-// 			}
-// 			if i < n {
-// 				return children, fmt.Errorf("expected %d events, but got %d. TIMEOUT", n, i)
-// 			}
-
-// 		}
-// 	}
-// 	return children, fmt.Errorf("expected %d events, but got %d. ", n, n+1)
-// }

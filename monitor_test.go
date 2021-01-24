@@ -698,9 +698,14 @@ func TestLinkLocalRemote(t *testing.T) {
 		t.Fatal("link missing for node2gs2 on node2")
 	}
 
+	// its very interesting case. sometimes the hadnling of 'Stop' method
+	// goes so fast (on a remote node) so we receive here "kill" as a reason
+	// because Stop method starts a sequence of graceful shutdown for all the
+	// process on the node
 	node2.Stop()
-	result = etf.Tuple{etf.Atom("EXIT"), node2gs2.Self(), etf.Atom("noconnection")}
-	waitForResultWithValue(t, gs1.v, result)
+	result1 := etf.Tuple{etf.Atom("EXIT"), node2gs2.Self(), etf.Atom("noconnection")}
+	result2 := etf.Tuple{etf.Atom("EXIT"), node2gs2.Self(), etf.Atom("kill")}
+	waitForResultWithValueOrValue(t, gs1.v, result1, result2)
 
 	if err := chechCleanLinkPid(node1, node1gs1.Self()); err != nil {
 		t.Fatal(err)
