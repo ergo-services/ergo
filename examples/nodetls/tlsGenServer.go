@@ -122,9 +122,6 @@ func main() {
 	fmt.Printf("gen_server:cast({%s,'%s'}, stop).\n", GenServerName, NodeName)
 	fmt.Printf("gen_server:call({%s,'%s'}, hello).\n", GenServerName, NodeName)
 
-	select {
-	case <-process.Context.Done():
-
-	}
+	process.Wait()
 	node.Stop()
 }

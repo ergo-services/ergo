@@ -252,7 +252,8 @@ func TestApplicationBasics(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	if e := p.WaitWithTimeout(160 * time.Millisecond); e != nil {
+	// due to small lifespantiming it is ok to get real lifespan longer almost twice
+	if e := p.WaitWithTimeout(300 * time.Millisecond); e != nil {
 		t.Fatal("application lifespan was longer than 150ms")
 	}
 	fmt.Println("OK")

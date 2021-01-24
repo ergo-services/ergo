@@ -390,7 +390,7 @@ func (n *Node) serve(link *dist.Link, opts NodeOptions) error {
 			b1 := lib.TakeBuffer()
 			b1.Set(b.B[packetLength:])
 			// cut the tail and send it further for handling.
-			// buffer b have to be released by the reader of
+			// buffer b has to be released by the reader of
 			// recv channel (link.ReadHandlePacket)
 			b.B = b.B[:packetLength]
 			recv = receivers.recv[receivers.i]
@@ -416,7 +416,9 @@ func (n *Node) serve(link *dist.Link, opts NodeOptions) error {
 	for i := 0; i < numHandlers; i++ {
 		// run writer routines (encoder)
 		send := make(chan []etf.Term, opts.SendQueueLength)
+		p.mutex.Lock()
 		p.send[i] = send
+		p.mutex.Unlock()
 		go link.Writer(send, opts.FragmentationUnit)
 	}
 

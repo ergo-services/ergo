@@ -14,6 +14,7 @@ type AtomCache struct {
 	update    chan Atom
 	lastID    int16
 	cacheList [maxCacheItems]Atom
+	sync.Mutex
 }
 
 type CacheItem struct {
@@ -41,14 +42,20 @@ var (
 )
 
 func (a *AtomCache) Append(atom Atom) {
-	if a.lastID < maxCacheItems {
+	a.Lock()
+	id := a.lastID
+	a.Unlock()
+	if id < maxCacheItems {
 		a.update <- atom
 	}
 	// otherwise ignore
 }
 
 func (a *AtomCache) GetLastID() int16 {
-	return a.lastID
+	a.Lock()
+	id := a.lastID
+	a.Unlock()
+	return id
 }
 
 func NewAtomCache(ctx context.Context) *AtomCache {
@@ -72,8 +79,10 @@ func NewAtomCache(ctx context.Context) *AtomCache {
 				id = a.lastID
 				id++
 				a.cacheMap[atom] = id
+				a.Lock()
 				a.cacheList[id] = atom
 				a.lastID = id
+				a.Unlock()
 
 			case <-ctx.Done():
 				return
@@ -85,7 +94,10 @@ func NewAtomCache(ctx context.Context) *AtomCache {
 }
 
 func (a *AtomCache) List() [maxCacheItems]Atom {
-	return a.cacheList
+	a.Lock()
+	l := a.cacheList
+	a.Unlock()
+	return l
 }
 
 func (a *AtomCache) ListSince(id int16) []Atom {

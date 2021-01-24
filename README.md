@@ -1,17 +1,20 @@
-<h1> <img src="https://raw.githubusercontent.com/halturin/ergo/genstage/.images/logo.png" alt="logo" width="48" height="48"> Ergo Framework</h1>
+<h1><a href="https://ergo.services"><img src=".images/logo.svg" alt="Ergo Framework" width="159" height="49"></a></h1>
 
 [![GitHub release](https://img.shields.io/github/release/halturin/ergo.svg)](https://github.com/halturin/ergo/releases/latest)
 [![Go Report Card](https://goreportcard.com/badge/github.com/halturin/ergo)](https://goreportcard.com/report/github.com/halturin/ergo)
-[![GoDoc](https://godoc.org/halturin/ergo?status.svg)](https://godoc.org/github.com/halturin/ergo)
+[![GoDoc](https://pkg.go.dev/badge/halturin/ergo)](https://pkg.go.dev/github.com/halturin/ergo)
 [![MIT license](https://img.shields.io/badge/license-MIT-brightgreen.svg)](https://opensource.org/licenses/MIT)
-[![codecov](https://codecov.io/gh/halturin/ergo/graph/badge.svg)](https://codecov.io/gh/halturin/ergo)
 [![Build Status](https://travis-ci.org/halturin/ergo.svg)](https://travis-ci.org/halturin/ergo)
 
-Implementation of Erlang/OTP in Golang. Up to x5 times faster than original Erlang/OTP. The easiest drop-in replacement for your hot nodes in the cluster.
+Technologies and design patterns of Erlang/OTP have been proven over the years. Now in Golang.
+Up to x5 times faster than original Erlang/OTP in terms of network messaging.
+The easiest drop-in replacement for your hot Erlang-nodes in the cluster.
+
+[https://ergo.services](https://ergo.services)
 
 ### Purpose ###
 
-The goal of this project is to leverage Erlang/OTP experience with Golang performance. *Ergo Framework* implements OTP design patterns such as `GenServer`/`Supervisor`/`Application` and makes you able to create high performance and reliable application having native integration with Erlang infrastructure
+The goal of this project is to leverage Erlang/OTP experience with Golang performance. *Ergo Framework* implements [DIST protocol](https://erlang.org/doc/apps/erts/erl_dist_protocol.html), [ETF data format](https://erlang.org/doc/apps/erts/erl_ext_dist.html) and [OTP design patterns](https://erlang.org/doc/design_principles/des_princ.html) (`GenServer`/`Supervisor`/`Application`) which makes you able to create high performance and reliable application having native integration with Erlang infrastructure
 
 ### Features ###
 
@@ -24,7 +27,7 @@ The goal of this project is to leverage Erlang/OTP experience with Golang perfor
 * `Application` behaviour support
 * `GenStage` behaviour support (originated from Elixir's [GenStage](https://hexdocs.pm/gen_stage/GenStage.html))
 * Connect to (accept connection from) any Erlang node within a cluster (or clusters, if running as multinode)
-* Making sync/async request in fashion of `gen_server:call` or `gen_server:cast`
+* Making sync request `process.Call`, async - `process.Cast` or `process.Send` in fashion of `gen_server:call`, `gen_server:cast`, `erlang:send` accordingly
 * Monitor processes/nodes
   * local -> local
   * local -> remote
@@ -35,9 +38,10 @@ The goal of this project is to leverage Erlang/OTP experience with Golang perfor
   * remote <-> local
 * RPC callbacks support
 * Experimental [observer support](#observer)
-* Unmarshalling terms into the struct using etf.TermIntoStruct
-* Support Erlang 22. (with [fragmentation](http://blog.erlang.org/OTP-22-Highlights/))
-* Encryption (TLS 1.3) support
+* Unmarshalling terms into the struct using `etf.TermIntoStruct`, `etf.TermMapIntoStruct` or `etf.TermProplistIntoStruct`
+* Support Erlang 22. (including [fragmentation](http://blog.erlang.org/OTP-22-Highlights/) feature)
+* Encryption (TLS 1.3) support (including autogenerating self-signed certificates)
+* Tested and confirmed support Windows, Darwin (MacOS), Linux
 
 ### Requirements ###
 
@@ -57,7 +61,7 @@ Here are the changes of latest release. For more details see the [ChangeLog](Cha
   there is example of usage `examples/nodetls/tlsGenServer.go`
 
 * Introduced [GenStage](https://hexdocs.pm/gen_stage/GenStage.html) behaviour implementation (originated from Elixir world).
-  `GenStage` is an abstraction built on top of GenServer to provide a simple way to create a distributed Producer/Consumer architecture, while automatically managing the concept of backpressure.
+  `GenStage` is an abstraction built on top of `GenServer` to provide a simple way to create a distributed Producer/Consumer architecture, while automatically managing the concept of backpressure. This implementation is fully compatible with Elixir's GenStage.
 
   examples are here `examples/genstage`
 
@@ -65,7 +69,13 @@ Here are the changes of latest release. For more details see the [ChangeLog](Cha
 
 * Introduced `SetTrapExit`/`GetTrapExit` methods for `Process` in order to control the trapping `{'EXIT', from, reason}` message
 
+* Introduced `TermMapIntoStruct` and `TermProplistIntoStruct` functions. It should be easy now to transform `etf.Map` or `[]eft.ProplistElement` into the given struct. See documentation for the details.
+
 * Improved DIST implementation in order to support KeepAlive messages and get rid of platform-dependent `syscall` usage
+
+* Fixed `TermIntoStruct` function. There was a problem with `Tuple` value transforming into the given struct
+
+* Fixed incorrect decoding atoms `true`, `false` into the booleans
 
 * Fixed race condition and freeze of connection serving in corner case [#21](https://github.com/halturin/ergo/issues/21)
 
@@ -101,7 +111,7 @@ PASS
 ok  	github.com/halturin/ergo	120.720s
 ```
 
-it means Ergo Framework provides around 25000 sync rps via localhost for simple data and around 4Gbit/sec for 1MB messages
+it means Ergo Framework provides around **25.000 sync requests per second** via localhost for simple data and around 4Gbit/sec for 1MB messages
 
 #### Parallel GenServer.Call using 120 pairs of processes running on a single and two nodes
 
@@ -116,7 +126,7 @@ PASS
 ok  	github.com/halturin/ergo	34.145s
 ```
 
-these numbers shows around 260000 sync rps via localhost using simple data for messaging
+these numbers show around **260.000 sync requests per second** via localhost using simple data for messaging
 
 #### vs original Erlang/OTP
 
@@ -127,9 +137,9 @@ sources of these benchmarks are [here](https://github.com/halturin/ergobenchmark
 
 ### EPMD ###
 
-*Ergo Framework* has embedded EPMD implementation in order to run your node without external epmd process needs. By default it works as a client with erlang' epmd daemon or others ergo's nodes either.
+*Ergo Framework* has embedded EPMD implementation in order to run your node without external epmd process needs. By default, it works as a client with erlang' epmd daemon or others ergo's nodes either.
 
-The one thing that makes embedded EPMD different is the behaviour of handling connection hangs - if ergo' node is running as an EPMD client and lost connection it tries either to run its own embedded EPMD service or to restore the lost connection.
+The one thing that makes embedded EPMD different is the behaviour of handling connection hangs - if ergo' node is running as an EPMD client and lost connection, it tries either to run its own embedded EPMD service or to restore the lost connection.
 
 As an extra option, we provide EPMD service as a standalone application. There is a simple drop-in replacement of the original Erlang' epmd daemon.
 
@@ -137,7 +147,7 @@ As an extra option, we provide EPMD service as a standalone application. There i
 
 ### Multinode ###
 
- This feature allows create two or more nodes within a single running instance. The only needs is specify the different set of options for creating nodes (such as: node name, empd port number, secret cookie). You may also want to use this feature to create 'proxy'-node between some clusters.
+ This feature allows to create two or more nodes within a single running instance. The only need is to specify the different set of options for creating nodes (such as: node name, empd port number, secret cookie). You may also want to use this feature to create 'proxy'-node between some clusters.
  See [Examples](#examples) for more details
 
 ### Observer ###
@@ -154,76 +164,75 @@ Code below is a simple implementation of GenServer pattern `examples/simple/GenS
 package main
 
 import (
-    "fmt"
-    "time"
+	"fmt"
+	"time"
 
-    "github.com/halturin/ergo"
-    "github.com/halturin/ergo/etf"
+	"github.com/halturin/ergo"
+	"github.com/halturin/ergo/etf"
 )
 
 type ExampleGenServer struct {
-    ergo.GenServer
-    process ergo.Process
+	ergo.GenServer
+	process *ergo.Process
 }
 
 type State struct {
-    value int
+	value int
 }
 
-func (egs *ExampleGenServer) Init(p ergo.Process, args ...interface{}) (state interface{}) {
-    fmt.Printf("Init: args %v \n", args)
-    egs.process = p
-    InitialState := &State{
-        value: args[0].(int), // 100
-    }
-    return InitialState
+func (egs *ExampleGenServer) Init(p *ergo.Process, args ...interface{}) (state interface{}) {
+	fmt.Printf("Init: args %v \n", args)
+	egs.process = p
+	InitialState := &State{
+		value: args[0].(int), // 100
+	}
+	return InitialState
 }
 
 func (egs *ExampleGenServer) HandleCast(message etf.Term, state interface{}) (string, interface{}) {
-    fmt.Printf("HandleCast: %#v (state value %d) \n", message, state.(*State).value)
-    time.Sleep(1 * time.Second)
-    state.(*State).value++
+	fmt.Printf("HandleCast: %#v (state value %d) \n", message, state.(*State).value)
+	time.Sleep(1 * time.Second)
+	state.(*State).value++
 
-    if state.(*State).value > 103 {
-        egs.process.Send(egs.process.Self(), "hello")
-    } else {
-        egs.process.Cast(egs.process.Self(), "hi")
-    }
+	if state.(*State).value > 103 {
+		egs.process.Send(egs.process.Self(), "hello")
+	} else {
+		egs.process.Cast(egs.process.Self(), "hi")
+	}
 
-    return "noreply", state
+	return "noreply", state
 }
 
 func (egs *ExampleGenServer) HandleCall(from etf.Tuple, message etf.Term, state interface{}) (string, etf.Term, interface{}) {
-    fmt.Printf("HandleCall: %#v, From: %#v\n", message, from)
-    return "reply", message, state
+	fmt.Printf("HandleCall: %#v, From: %#v\n", message, from)
+	return "reply", message, state
 }
 
 func (egs *ExampleGenServer) HandleInfo(message etf.Term, state interface{}) (string, interface{}) {
-    fmt.Printf("HandleInfo: %#v (state value %d) \n", message, state.(*State).value)
-    time.Sleep(1 * time.Second)
-    state.(*State).value++
-    if state.(*State).value > 106 {
-        return "stop", "normal"
-    } else {
-        egs.process.Send(egs.process.Self(), "hello")
-    }
-    return "noreply", state
+	fmt.Printf("HandleInfo: %#v (state value %d) \n", message, state.(*State).value)
+	time.Sleep(1 * time.Second)
+	state.(*State).value++
+	if state.(*State).value > 106 {
+		return "stop", "normal"
+	} else {
+		egs.process.Send(egs.process.Self(), "hello")
+	}
+	return "noreply", state
 }
+
 func (egs *ExampleGenServer) Terminate(reason string, state interface{}) {
-    fmt.Printf("Terminate: %#v \n", reason)
+	fmt.Printf("Terminate: %#v \n", reason)
 }
 
 func main() {
-    node := ergo.CreateNode("node@localhost", "cookies", ergo.NodeOptions{})
-    gs1 := &ExampleGenServer{}
-    process, _ := node.Spawn("gs1", ergo.ProcessOptions{}, gs1, 100)
+	node := ergo.CreateNode("node@localhost", "cookies", ergo.NodeOptions{})
 
-    process.Cast(process.Self(), "hey")
+	gs1 := &ExampleGenServer{}
+	process, _ := node.Spawn("gs1", ergo.ProcessOptions{}, gs1, 100)
+	process.Cast(process.Self(), "hey")
 
-    select {
-    case <-process.Context.Done():
-        fmt.Println("exited")
-    }
+	process.Wait()
+	fmt.Println("exited")
 }
 
 ```
@@ -295,9 +304,10 @@ Now golang' profiler is available at `http://localhost:9009/debug/pprof`
 
 [![Kaspersky](./.images/kaspersky.png)](https://kaspersky.com)
 [![RingCentral](./.images/ringcentral.png)](https://www.ringcentral.com)
+[![LilithGames](./.images/lilithgames.png)](https://lilithgames.com)
 
 is your company using Ergo? add your company logo/name here
 
 ### Commercial support
 
-if you are looking for commercial support feel free to contact me via email (halturin at gmail dot com)
+please, visit https://ergo.services for more information

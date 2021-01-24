@@ -3,7 +3,6 @@ package ergo
 // http://erlang.org/doc/reference_manual/processes.html
 
 import (
-	"fmt"
 	"github.com/halturin/ergo/etf"
 	"github.com/halturin/ergo/lib"
 	"strings"
@@ -78,7 +77,7 @@ next:
 
 		m.mutexProcesses.Lock()
 		l := m.processes[t]
-		key := ref2key(ref)
+		key := ref.String()
 		item := monitorItem{
 			pid:     by,
 			ref:     ref,
@@ -169,7 +168,7 @@ func (m *monitor) DemonitorProcess(ref etf.Ref) bool {
 	var process interface{}
 	var nodeName etf.Atom
 
-	key := ref2key(ref)
+	key := ref.String()
 
 	m.mutexProcesses.Lock()
 	defer m.mutexProcesses.Unlock()
@@ -336,7 +335,7 @@ func (m *monitor) MonitorNode(by etf.Pid, node string) etf.Ref {
 	defer m.mutexNodes.Unlock()
 
 	l := m.nodes[node]
-	key := ref2key(ref)
+	key := ref.String()
 	item := monitorItem{
 		pid: by,
 		ref: ref,
@@ -355,7 +354,7 @@ func (m *monitor) DemonitorNode(ref etf.Ref) {
 	m.mutexNodes.Lock()
 	defer m.mutexNodes.Unlock()
 
-	key := ref2key(ref)
+	key := ref.String()
 	if name, ok = m.ref2node[key]; !ok {
 		return
 	}
@@ -605,10 +604,6 @@ func (m *monitor) notifyProcessExit(to etf.Pid, terminated etf.Pid, reason strin
 	if p := m.node.GetProcessByPid(to); p != nil && p.IsAlive() {
 		p.Exit(terminated, reason)
 	}
-}
-
-func ref2key(ref etf.Ref) string {
-	return fmt.Sprintf("%v", ref)
 }
 
 func fakeMonitorPidFromName(name, node string) etf.Pid {

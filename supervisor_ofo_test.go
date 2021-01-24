@@ -306,7 +306,7 @@ func waitNeventsSupervisorChildren(ch chan interface{}, n int, children []etf.Pi
 				childrenNew[child.order] = child.pid
 			}
 
-		case <-time.After(100 * time.Millisecond):
+		case <-time.After(200 * time.Millisecond):
 			if i == n {
 				return childrenNew, nil
 			}

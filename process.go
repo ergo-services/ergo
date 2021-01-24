@@ -207,10 +207,10 @@ func (p *Process) SendAfter(to interface{}, message etf.Term, after time.Duratio
 		defer timer.Stop()
 
 		select {
-		case <-timer.C:
-			p.Node.registrar.route(p.self, to, message)
 		case <-ctx.Done():
 			return
+		case <-timer.C:
+			p.Node.registrar.route(p.self, to, message)
 		}
 	}()
 	return cancel

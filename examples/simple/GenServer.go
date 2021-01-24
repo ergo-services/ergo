@@ -86,8 +86,6 @@ func main() {
 	process.Cast(process.Self(), "hey")
 
 	// waiting for the process termination.
-	select {
-	case <-process.Context.Done():
-		fmt.Println("exited")
-	}
+	process.Wait()
+	fmt.Println("exited")
 }

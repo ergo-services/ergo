@@ -32,6 +32,10 @@ type Ref struct {
 	ID       []uint32
 }
 
+func (ref Ref) String() string {
+	return fmt.Sprintf("%#v", ref)
+}
+
 type Function struct {
 	Arity  byte
 	Unique [16]byte
@@ -133,134 +137,176 @@ func (p Pid) Str() string {
 	return fmt.Sprintf("<%X.%d.%d>", hasher32.Sum32(), p.ID, p.Serial)
 }
 
-func TermIntoStruct(term Term, dest interface{}) error {
+type ProplistElement struct {
+	Name  Atom
+	Value Term
+}
+
+// ProplistIntoStruct transorms given term into the provided struct 'dest'.
+// Proplist is the list of Tuple values with two items { Name , Value },
+// where Name can be string or Atom and Value must be the same type as
+// it has the field of 'dest' struct with the equivalent name. Its also
+// accepts []ProplistElement as a 'term' value
+func TermProplistIntoStruct(term Term, dest interface{}) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("%v", r)
+		}
+	}()
 	v := reflect.Indirect(reflect.ValueOf(dest))
-	return termIntoStruct(term, v)
-
+	return setProplist(term, v)
 }
 
-func termIntoStruct(term Term, destV reflect.Value) error {
-	destType := destV.Type()
+// TermIntoStruct transforms 'term' (etf.Term, etf.List, etf.Tuple, etf.Map) into the
+// given 'dest' (could be a struct, map, slice or array). Its a pretty
+// expencive operation in terms of CPU usage so you shouldn't use it
+// on highload parts of your code. Use manual type casting instead.
+func TermIntoStruct(term Term, dest interface{}) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("%v", r)
+		}
+	}()
+	v := reflect.Indirect(reflect.ValueOf(dest))
+	err = termIntoStruct(term, v)
+	return
+}
 
-	if destType.Kind() == reflect.Interface {
-		destV.Set(reflect.ValueOf(term))
+// TermMapIntoSturct transforms etf.Map into the given 'dest'.
+// There are limitations to use this helper. A key of the given etf.Map
+// must be a string or etf.Atom. 'dest' must be a structure with
+// specified tag 'etf' and the name of a key for every single field.
+func TermMapIntoStruct(term Term, dest interface{}) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("%v", r)
+		}
+	}()
+	v := reflect.Indirect(reflect.ValueOf(dest))
+	return setMapStructField(term.(Map), v)
+}
+
+func termIntoStruct(term Term, dest reflect.Value) error {
+	t := dest.Type()
+
+	if term == nil {
 		return nil
 	}
 
-	switch x := term.(type) {
+	if t.Kind() == reflect.Interface {
+		dest.Set(reflect.ValueOf(term))
+		return nil
+	}
+
+	switch v := term.(type) {
 	case Atom:
-		return setStringField(string(x), destV, destType)
-	case string:
-		return setStringField(x, destV, destType)
-	case []byte:
-		if destType.Kind() == reflect.String {
-			destV.SetString(string(x))
-		} else if destType == reflect.SliceOf(reflect.TypeOf(byte(1))) {
-			destV.Set(reflect.ValueOf(x))
-		} else {
-			return NewInvalidTypesError(destType, term)
-		}
-	case Map:
-		return setMapField(x, destV, destType)
-	case List:
-		return setListOrTupleField([]Term(x), destV, destType)
-	case Tuple:
-		return setListOrTupleField([]Term(x), destV, destType)
-	default:
-		return intSwitch(term, destV, destType)
-	}
-
-	return nil
-}
-
-func intSwitch(term Term, destV reflect.Value, destType reflect.Type) error {
-	switch x := term.(type) {
-	case int:
-		return setIntField(int64(x), destV, destType)
-	case int64:
-		return setIntField(x, destV, destType)
-	case uint:
-		return setUIntField(uint64(x), destV, destType)
-	case uint64:
-		return setUIntField(x, destV, destType)
-	default:
-		return fmt.Errorf("Unknown term %s, %v", reflect.TypeOf(term).Name(), x)
-	}
-}
-
-func setStringField(s string, destV reflect.Value, destType reflect.Type) error {
-	if destType.Kind() == reflect.Bool {
-		switch s {
-		case "false":
-			destV.SetBool(false)
-		case "true":
-			destV.SetBool(true)
-		default:
-			return NewInvalidTypesError(destType, Atom(s))
-		}
-
+		dest.SetString(string(v))
 		return nil
+	case string:
+		dest.SetString(v)
+		return nil
+	case []byte:
+		if t.Kind() == reflect.String {
+			dest.SetString(string(v))
+		} else if t == reflect.SliceOf(reflect.TypeOf(byte(1))) {
+			dest.Set(reflect.ValueOf(v))
+		} else {
+			return NewInvalidTypesError(t, term)
+		}
+	case bool:
+		dest.SetBool(v)
+	case float32:
+		dest.SetFloat(float64(v))
+	case float64:
+		dest.SetFloat(v)
+	case int:
+		return setIntField(int64(v), dest, t)
+	case int8:
+		return setIntField(int64(v), dest, t)
+	case int16:
+		return setIntField(int64(v), dest, t)
+	case int32:
+		return setIntField(int64(v), dest, t)
+	case int64:
+		return setIntField(int64(v), dest, t)
+	case uint:
+		return setUIntField(uint64(v), dest, t)
+	case uint8:
+		return setUIntField(uint64(v), dest, t)
+	case uint16:
+		return setUIntField(uint64(v), dest, t)
+	case uint32:
+		return setUIntField(uint64(v), dest, t)
+	case uint64:
+		return setUIntField(uint64(v), dest, t)
+	case Map:
+		return setMapField(v, dest, t)
+	case List:
+		return setListField(v, dest, t)
+	case Tuple:
+		return setStructField([]Term(v), dest, t)
+	default:
+		dest.Set(reflect.ValueOf(v))
 	}
 
-	if destType.Kind() != reflect.String && (s == "" || s == "nil") {
-		return intSwitch(0, destV, destType)
-	}
-
-	if destType.Kind() != reflect.String {
-		return NewInvalidTypesError(destType, Atom(s))
-	}
-
-	destV.SetString(s)
 	return nil
 }
 
-func setListOrTupleField(v []Term, field reflect.Value, t reflect.Type) error {
+func setListField(term List, dest reflect.Value, t reflect.Type) error {
 	var value reflect.Value
 
-	switch {
-	case t.Kind() == reflect.Slice:
-		value = reflect.MakeSlice(t, len(v), len(v))
-	case t.Kind() == reflect.Array && t.Len() == len(v):
-		value = field
+	switch t.Kind() {
+	case reflect.Slice:
+		value = reflect.MakeSlice(t, len(term), len(term))
+	case reflect.Array:
+		if t.Len() != len(term) {
+			return NewInvalidTypesError(t, term)
+		}
+		value = dest
 	default:
-		return NewInvalidTypesError(t, v)
+		return NewInvalidTypesError(t, term)
 	}
 
-	for i, elem := range v {
+	for i, elem := range term {
 		if err := termIntoStruct(elem, value.Index(i)); err != nil {
 			return err
 		}
 	}
 
 	if t.Kind() == reflect.Slice {
-		field.Set(value)
+		dest.Set(value)
 	}
 
 	return nil
 }
 
-func setMapField(v Map, field reflect.Value, t reflect.Type) error {
-	if t.Kind() == reflect.Map {
-		return setMapMapField(v, field, t)
-	} else if t.Kind() == reflect.Struct {
-		return setMapStructField(v, field, t)
-	} else if t.Kind() == reflect.Interface {
-		// TODO... do this a better way
-		field.Set(reflect.ValueOf(v))
-		return nil
+func setProplist(term Term, dest reflect.Value) error {
+	switch v := term.(type) {
+	case []ProplistElement:
+		return setProplistElementField(v, dest)
+	case List:
+		return setProplistField(v, dest)
+	default:
+		return NewInvalidTypesError(dest.Type(), term)
 	}
 
-	return NewInvalidTypesError(t, v)
 }
 
-func setMapStructField(v Map, st reflect.Value, t reflect.Type) error {
+func setProplistField(list List, dest reflect.Value) error {
+	t := dest.Type()
 	numField := t.NumField()
 	fields := make([]reflect.StructField, numField)
 	for i, _ := range fields {
 		fields[i] = t.Field(i)
 	}
 
-	for key, val := range v {
+	for _, elem := range list {
+		if len(elem.(Tuple)) != 2 {
+			return &InvalidStructKeyError{Term: elem}
+		}
+
+		key := elem.(Tuple)[0]
+		val := elem.(Tuple)[1]
 		fName, ok := StringTerm(key)
 		if !ok {
 			return &InvalidStructKeyError{Term: key}
@@ -270,7 +316,7 @@ func setMapStructField(v Map, st reflect.Value, t reflect.Type) error {
 			continue
 		}
 
-		err := termIntoStruct(val, st.Field(index))
+		err := termIntoStruct(val, dest.Field(index))
 		if err != nil {
 			return err
 		}
@@ -279,10 +325,92 @@ func setMapStructField(v Map, st reflect.Value, t reflect.Type) error {
 	return nil
 }
 
-func findStructField(fields []reflect.StructField, key string) (index int, structField reflect.StructField) {
+func setProplistElementField(proplist []ProplistElement, dest reflect.Value) error {
+	t := dest.Type()
+	numField := t.NumField()
+	fields := make([]reflect.StructField, numField)
+	for i, _ := range fields {
+		fields[i] = t.Field(i)
+	}
+
+	for _, elem := range proplist {
+		fName, ok := StringTerm(elem.Name)
+		if !ok {
+			return &InvalidStructKeyError{Term: elem.Name}
+		}
+		index, _ := findStructField(fields, fName)
+		if index == -1 {
+			continue
+		}
+
+		err := termIntoStruct(elem.Value, dest.Field(index))
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+func setMapField(term Map, dest reflect.Value, t reflect.Type) error {
+	switch t.Kind() {
+	case reflect.Map:
+		return setMapMapField(term, dest, t)
+	case reflect.Interface:
+		// TODO... do this a better way
+		dest.Set(reflect.ValueOf(term))
+		return nil
+	}
+
+	return NewInvalidTypesError(t, term)
+}
+
+func setStructField(term Tuple, dest reflect.Value, t reflect.Type) error {
+	if dest.Kind() == reflect.Ptr {
+		pdest := reflect.New(dest.Type().Elem())
+		dest.Set(pdest)
+		dest = pdest.Elem()
+	}
+	for i, elem := range term {
+		if err := termIntoStruct(elem, dest.Field(i)); err != nil {
+			return err
+		}
+	}
+
+	return nil
+
+}
+
+func setMapStructField(term Map, dest reflect.Value) error {
+	t := dest.Type()
+	numField := t.NumField()
+	fields := make([]reflect.StructField, numField)
+	for i, _ := range fields {
+		fields[i] = t.Field(i)
+	}
+
+	for key, val := range term {
+		fName, ok := StringTerm(key)
+		if !ok {
+			return &InvalidStructKeyError{Term: key}
+		}
+		index, _ := findStructField(fields, fName)
+		if index == -1 {
+			continue
+		}
+
+		err := termIntoStruct(val, dest.Field(index))
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func findStructField(term []reflect.StructField, key string) (index int, structField reflect.StructField) {
 	index = -1
-	for i, f := range fields {
-		tag := f.Tag.Get("json")
+	for i, f := range term {
+		tag := f.Tag.Get("etf")
 		split := strings.Split(tag, ",")
 		if len(split) > 0 && split[0] != "" {
 			if split[0] == key {
@@ -299,41 +427,47 @@ func findStructField(fields []reflect.StructField, key string) (index int, struc
 	return
 }
 
-func setMapMapField(v Map, field reflect.Value, t reflect.Type) error {
-	if field.IsNil() {
-		field.Set(reflect.MakeMapWithSize(t, len(v)))
+func setMapMapField(term Map, dest reflect.Value, t reflect.Type) error {
+	if dest.IsNil() {
+		dest.Set(reflect.MakeMapWithSize(t, len(term)))
 	}
-	for key, val := range v {
-		field.SetMapIndex(reflect.ValueOf(key), reflect.ValueOf(val))
+	tkey := t.Key()
+	tval := t.Elem()
+	for key, val := range term {
+		destkey := reflect.Indirect(reflect.New(tkey))
+		if err := termIntoStruct(key, destkey); err != nil {
+			return err
+		}
+		destval := reflect.Indirect(reflect.New(tval))
+		if err := termIntoStruct(val, destval); err != nil {
+			return err
+		}
+		dest.SetMapIndex(destkey, destval)
 	}
 	return nil
 }
 
-func setIntField(v int64, field reflect.Value, t reflect.Type) error {
-
+func setIntField(i int64, field reflect.Value, t reflect.Type) error {
 	switch t.Kind() {
 	case reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64, reflect.Int:
-		field.SetInt(int64(v))
+		field.SetInt(int64(i))
 	case reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uint:
-		field.SetUint(uint64(v))
+		field.SetUint(uint64(i))
 	default:
-		return NewInvalidTypesError(field.Type(), v)
+		return NewInvalidTypesError(field.Type(), i)
 	}
-
 	return nil
 }
 
-func setUIntField(v uint64, field reflect.Value, t reflect.Type) error {
-
+func setUIntField(ui uint64, field reflect.Value, t reflect.Type) error {
 	switch t.Kind() {
 	case reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64, reflect.Int:
-		field.SetInt(int64(v))
+		field.SetInt(int64(ui))
 	case reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uint:
-		field.SetUint(uint64(v))
+		field.SetUint(uint64(ui))
 	default:
-		return NewInvalidTypesError(field.Type(), v)
+		return NewInvalidTypesError(field.Type(), ui)
 	}
-
 	return nil
 }
 
@@ -343,7 +477,7 @@ type StructPopulatorError struct {
 }
 
 func (s *StructPopulatorError) Error() string {
-	return fmt.Sprintf("Cannot put %v into go value of type %s", s.Term, s.Type.Kind().String())
+	return fmt.Sprintf("Cannot put %#v into go value of type %s", s.Term, s.Type.Kind().String())
 }
 
 func NewInvalidTypesError(t reflect.Type, term Term) error {
