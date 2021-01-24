@@ -37,6 +37,7 @@ The goal of this project is to leverage Erlang/OTP experience with Golang perfor
 * Unmarshalling terms into the struct using etf.TermIntoStruct
 * Support Erlang 22. (with [fragmentation](http://blog.erlang.org/OTP-22-Highlights/))
 * Encryption (TLS 1.3) support
+* Tested and confirmed support Windows, Darwin (MacOS), Linux
 
 ### Requirements ###
 
