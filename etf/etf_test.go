@@ -2,7 +2,6 @@ package etf
 
 import (
 	"bytes"
-	"fmt"
 	"reflect"
 	"testing"
 )
