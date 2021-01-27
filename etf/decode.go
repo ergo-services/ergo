@@ -64,11 +64,27 @@ var (
 //
 // see comments within this function
 
-func Decode(packet []byte, cache []Atom) (Term, []byte, error) {
+func Decode(packet []byte, cache []Atom) (retTerm Term, retByte []byte, retErr error) {
 	var term Term
 	var stack *stackElement
 	var child *stackElement
 	var t byte
+	defer func() {
+		// We should catch any panic happend during decoding the raw data.
+		// Some of the Erlang' types can not be supported in Golang.
+		// As an example: Erlang map with tuple as a key cause a panic
+		// in Golang runtime with message:
+		// 'panic: runtime error: hash of unhashable type etf.Tuple'
+		// The problem is in etf.Tuple type - it is interface type. At the same
+		// time Golang does support hashable key in map (like struct as a key),
+		// but it should be known implicitly. It means we can encode such kind
+		// of data, but can not to decode it back.
+		if r := recover(); r != nil {
+			retTerm = nil
+			retByte = nil
+			retErr = fmt.Errorf("%v", r)
+		}
+	}()
 
 	for {
 		child = nil
