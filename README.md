@@ -7,7 +7,7 @@
 [![codecov](https://codecov.io/gh/halturin/ergo/graph/badge.svg)](https://codecov.io/gh/halturin/ergo)
 [![Build Status](https://travis-ci.org/halturin/ergo.svg)](https://travis-ci.org/halturin/ergo)
 
-Implementation of Erlang/OTP in Golang. Up to x5 times faster than original Erlang/OTP. The easiest drop-in replacement for your hot nodes in the cluster. 
+Implementation of Erlang/OTP in Golang. Up to x5 times faster than original Erlang/OTP. The easiest drop-in replacement for your hot nodes in the cluster.
 
 ### Purpose ###
 
@@ -272,6 +272,7 @@ Now golang' profiler is available at `http://localhost:9009/debug/pprof`
 
 [![Kaspersky](./.images/kaspersky.png)](https://kaspersky.com)
 [![RingCentral](./.images/ringcentral.png)](https://www.ringcentral.com)
+[![LilithGames](./.images/lilithgames.png)](https://lilithgames.com)
 
 is your company using Ergo? add your company logo/name here
 
