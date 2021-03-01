@@ -36,6 +36,8 @@ type GenServerBehaviour interface {
 type GenServer struct{}
 
 func (gs *GenServer) Loop(p *Process, args ...interface{}) string {
+	var lockState = &sync.Mutex{}
+
 	object := p.object
 	p.state = object.(GenServerBehaviour).Init(p, args...)
 	p.ready <- nil
@@ -47,7 +49,6 @@ func (gs *GenServer) Loop(p *Process, args ...interface{}) string {
 	for {
 		var message etf.Term
 		var fromPid etf.Pid
-		var lockState = &sync.Mutex{}
 
 		select {
 		case ex := <-p.gracefulExit:
