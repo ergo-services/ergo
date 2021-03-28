@@ -243,11 +243,12 @@ exited
 
 See `examples/` for more details
 
-* [GenServer](examples/genserver)
-* [Supervisor](examples/supervisor)
 * [Application](examples/application)
+* [GenServer](examples/genserver)
 * [Multinode](examples/multinode)
 * [NodeWithTLS](examples/nodetls)
+* [Supervisor](examples/supervisor)
+
 
 ### Elixir Phoenix Users ###
 
