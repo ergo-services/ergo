@@ -745,6 +745,12 @@ func handleConsumer(subscription GenStageSubscription, cmd stageRequestCommand, 
 
 		return etf.Atom("ok"), nil
 
+	case etf.Atom("retry-cancel"):
+		// if "subscribed" message hasn't still arrived then just ignore it
+		if _, ok := state.producers[subscription.Ref.String()]; !ok {
+			return etf.Atom("ok"), nil
+		}
+		fallthrough
 	case etf.Atom("cancel"):
 		// the subscription was canceled
 		reason, ok := cmd.Opt1.(string)
@@ -754,7 +760,18 @@ func handleConsumer(subscription GenStageSubscription, cmd stageRequestCommand, 
 
 		subInternal, ok := state.producers[subscription.Ref.String()]
 		if !ok {
-			// just ignore unknown subscription
+			// There might be a case when "cancel" message arrives before
+			// the "subscribed" message due to async nature of messaging,
+			// so we should wait a bit and try to handle it one more time
+			// using "retry-cancel" message.
+			// I got this problem with GOMAXPROCS=1
+			msg := etf.Tuple{
+				etf.Atom("$gen_consumer"),
+				etf.Tuple{subscription.Pid, subscription.Ref},
+				etf.Tuple{etf.Atom("retry-cancel"), reason},
+			}
+			// handle it in a second
+			state.p.SendAfter(state.p.Self(), msg, 200*time.Millisecond)
 			return etf.Atom("ok"), nil
 		}
 
@@ -878,7 +895,7 @@ func handleProducer(subscription GenStageSubscription, cmd stageRequestCommand, 
 			// any other error should terminate this stage
 			return nil, err
 		}
-	case etf.Atom("reask"):
+	case etf.Atom("retry-ask"):
 		// if "subscribe" message hasn't still arrived, send a cancelation message
 		// to the consumer
 		if _, ok := state.consumers[subscription.Pid]; !ok {
@@ -932,11 +949,11 @@ func handleProducer(subscription GenStageSubscription, cmd stageRequestCommand, 
 			// there might be a case when "ask" message arrives before
 			// the "subscribe" message due to async nature of messaging,
 			// so we should wait a bit and try to handle it one more time
-			// using "reask" message
+			// using "retry-ask" message
 			msg := etf.Tuple{
 				etf.Atom("$gen_producer"),
 				etf.Tuple{subscription.Pid, subscription.Ref},
-				etf.Tuple{etf.Atom("reask"), count},
+				etf.Tuple{etf.Atom("retry-ask"), count},
 			}
 			// handle it in a second
 			state.p.SendAfter(state.p.Self(), msg, 1*time.Second)
