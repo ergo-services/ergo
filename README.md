@@ -14,7 +14,7 @@ The easiest drop-in replacement for your hot Erlang-nodes in the cluster.
 
 ### Purpose ###
 
-The goal of this project is to leverage Erlang/OTP experience with Golang performance. *Ergo Framework* implements [DIST protocol](https://erlang.org/doc/apps/erts/erl_dist_protocol.html), [ETF data format](https://erlang.org/doc/apps/erts/erl_ext_dist.html) and [OTP design patterns](https://erlang.org/doc/design_principles/des_princ.html) (`GenServer`/`Supervisor`/`Application`) which makes you able to create high performance and reliable application having native integration with Erlang infrastructure
+The goal of this project is to leverage Erlang/OTP experience with Golang performance. Ergo Framework implements [DIST protocol](https://erlang.org/doc/apps/erts/erl_dist_protocol.html), [ETF data format](https://erlang.org/doc/apps/erts/erl_ext_dist.html) and [OTP design patterns](https://erlang.org/doc/design_principles/des_princ.html) (`GenServer`/`Supervisor`/`Application`) which makes you able to create high performance and reliable application having native integration with Erlang infrastructure
 
 ### Features ###
 

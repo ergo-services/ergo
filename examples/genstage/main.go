@@ -10,7 +10,7 @@ import (
 )
 
 func main() {
-	// create node for producer
+	// create nodes for producer and consumers
 	fmt.Println("Starting nodes 'node_abc@localhost' and 'node_def@localhost'")
 	node_abc := ergo.CreateNode("node_abc@localhost", "cookies", ergo.NodeOptions{})
 	node_def := ergo.CreateNode("node_def@localhost", "cookies", ergo.NodeOptions{})
@@ -19,7 +19,6 @@ func main() {
 	producer := &Producer{}
 	consumer := &Consumer{}
 
-	// spawn a new process of producer on 'node_abc@localhost'
 	fmt.Println("Spawn producer on 'node_abc@localhost'")
 	p1, errP := node_abc.Spawn("producer", ergo.ProcessOptions{}, producer, nil)
 	if errP != nil {
