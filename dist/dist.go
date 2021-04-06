@@ -210,14 +210,6 @@ func (lf *linkFlusher) Write(b []byte) (int, error) {
 	lf.timer = time.AfterFunc(lf.latency, func() {
 		// KeepAlive packet is just 4 bytes with zero value
 		var keepAlivePacket = []byte{0, 0, 0, 0}
-		var keepAliveTimeout = time.Duration(5 * time.Second)
-
-		// sometimes this coroutine executes before the value
-		// of time.AfterFunc has been assigned to the lf.timer
-		// so we should make sure that lf.timer is not nil
-		if lf.timer != nil {
-			lf.timer.Reset(keepAliveTimeout)
-		}
 
 		lf.mutex.Lock()
 		defer lf.mutex.Unlock()

@@ -17,3 +17,6 @@ cover:
 bench:
 	go test -bench=Node -run=X -benchmem
 
+migrate:
+	find . -type f -exec sed -i 's/halturin/ergo-services/g' {} +
+

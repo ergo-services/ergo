@@ -19,8 +19,8 @@ jobs:
         go-version: 1.15
 
     - name: Test
-      run: go test -v ./...
-      
+      run: go test -run ./...
+
   test-master-on-macos-latest:
     runs-on: macos-latest
     steps:
@@ -32,7 +32,7 @@ jobs:
         go-version: 1.15
 
     - name: Test
-      run: go test -v ./...
+      run: go test -run ./...
 
   test-master-on-windows-latest:
     runs-on: windows-latest
@@ -45,4 +45,4 @@ jobs:
         go-version: 1.15
 
     - name: Test
-      run: go test -v ./...
+      run: go test -run ./...

@@ -32,6 +32,10 @@ type Ref struct {
 	ID       []uint32
 }
 
+func (ref Ref) String() string {
+	return fmt.Sprintf("%#v", ref)
+}
+
 type Function struct {
 	Arity  byte
 	Unique [16]byte
@@ -133,6 +137,26 @@ func (p Pid) Str() string {
 	return fmt.Sprintf("<%X.%d.%d>", hasher32.Sum32(), p.ID, p.Serial)
 }
 
+type ProplistElement struct {
+	Name  Atom
+	Value Term
+}
+
+// ProplistIntoStruct transorms given term into the provided struct 'dest'.
+// Proplist is the list of Tuple values with two items { Name , Value },
+// where Name can be string or Atom and Value must be the same type as
+// it has the field of 'dest' struct with the equivalent name. Its also
+// accepts []ProplistElement as a 'term' value
+func TermProplistIntoStruct(term Term, dest interface{}) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("%v", r)
+		}
+	}()
+	v := reflect.Indirect(reflect.ValueOf(dest))
+	return setProplist(term, v)
+}
+
 // TermIntoStruct transforms 'term' (etf.Term, etf.List, etf.Tuple, etf.Map) into the
 // given 'dest' (could be a struct, map, slice or array). Its a pretty
 // expencive operation in terms of CPU usage so you shouldn't use it
@@ -228,10 +252,6 @@ func termIntoStruct(term Term, dest reflect.Value) error {
 	return nil
 }
 
-func termMapIntoStruct(term Term, dest reflect.Value) error {
-	return nil
-}
-
 func setListField(term List, dest reflect.Value, t reflect.Type) error {
 	var value reflect.Value
 
@@ -260,6 +280,77 @@ func setListField(term List, dest reflect.Value, t reflect.Type) error {
 	return nil
 }
 
+func setProplist(term Term, dest reflect.Value) error {
+	switch v := term.(type) {
+	case []ProplistElement:
+		return setProplistElementField(v, dest)
+	case List:
+		return setProplistField(v, dest)
+	default:
+		return NewInvalidTypesError(dest.Type(), term)
+	}
+
+}
+
+func setProplistField(list List, dest reflect.Value) error {
+	t := dest.Type()
+	numField := t.NumField()
+	fields := make([]reflect.StructField, numField)
+	for i, _ := range fields {
+		fields[i] = t.Field(i)
+	}
+
+	for _, elem := range list {
+		if len(elem.(Tuple)) != 2 {
+			return &InvalidStructKeyError{Term: elem}
+		}
+
+		key := elem.(Tuple)[0]
+		val := elem.(Tuple)[1]
+		fName, ok := StringTerm(key)
+		if !ok {
+			return &InvalidStructKeyError{Term: key}
+		}
+		index, _ := findStructField(fields, fName)
+		if index == -1 {
+			continue
+		}
+
+		err := termIntoStruct(val, dest.Field(index))
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func setProplistElementField(proplist []ProplistElement, dest reflect.Value) error {
+	t := dest.Type()
+	numField := t.NumField()
+	fields := make([]reflect.StructField, numField)
+	for i, _ := range fields {
+		fields[i] = t.Field(i)
+	}
+
+	for _, elem := range proplist {
+		fName, ok := StringTerm(elem.Name)
+		if !ok {
+			return &InvalidStructKeyError{Term: elem.Name}
+		}
+		index, _ := findStructField(fields, fName)
+		if index == -1 {
+			continue
+		}
+
+		err := termIntoStruct(elem.Value, dest.Field(index))
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
 func setMapField(term Map, dest reflect.Value, t reflect.Type) error {
 	switch t.Kind() {
 	case reflect.Map:

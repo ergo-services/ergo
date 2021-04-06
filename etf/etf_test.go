@@ -270,3 +270,46 @@ func TestTermMapIntoStruct_Struct(t *testing.T) {
 	}
 
 }
+
+func TestTermProplistIntoStruct(t *testing.T) {
+	type testStruct struct {
+		A []bool `etf:"a"`
+		B uint32 `etf:"b"`
+		C string `etf:"c"`
+	}
+
+	dest := testStruct{}
+
+	want := testStruct{
+		A: []bool{false, true, true},
+		B: 3233,
+		C: "hello world",
+	}
+	termList := List{
+		Tuple{Atom("a"), List{false, true, true}},
+		Tuple{"b", 3233},
+		Tuple{Atom("c"), "hello world"},
+	}
+
+	if err := TermProplistIntoStruct(termList, &dest); err != nil {
+		t.Errorf("%#v: conversion failed %v", termList, err)
+	}
+
+	if !reflect.DeepEqual(dest, want) {
+		t.Errorf("%#v: got %#v, want %#v", termList, dest, want)
+	}
+
+	termSliceProplistElements := []ProplistElement{
+		ProplistElement{Atom("a"), List{false, true, true}},
+		ProplistElement{"b", 3233},
+		ProplistElement{Atom("c"), "hello world"},
+	}
+
+	if err := TermProplistIntoStruct(termSliceProplistElements, &dest); err != nil {
+		t.Errorf("%#v: conversion failed %v", termList, err)
+	}
+
+	if !reflect.DeepEqual(dest, want) {
+		t.Errorf("%#v: got %#v, want %#v", termSliceProplistElements, dest, want)
+	}
+}

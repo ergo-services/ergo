@@ -125,7 +125,14 @@ func Decode(packet []byte, cache []Atom) (retTerm Term, retByte []byte, retErr e
 				return nil, nil, errMalformedSmallAtomUTF8
 			}
 
-			term = Atom(packet[1 : n+1])
+			switch Atom(packet[1 : n+1]) {
+			case "true":
+				term = true
+			case "false":
+				term = false
+			default:
+				term = Atom(packet[1 : n+1])
+			}
 			packet = packet[n+1:]
 
 		case ettString:
@@ -145,7 +152,15 @@ func Decode(packet []byte, cache []Atom) (retTerm Term, retByte []byte, retErr e
 			if len(packet) == 0 {
 				return nil, nil, errMalformedCacheRef
 			}
-			term = cache[int(packet[0])]
+
+			switch cache[int(packet[0])] {
+			case "true":
+				term = true
+			case "false":
+				term = false
+			default:
+				term = cache[int(packet[0])]
+			}
 			packet = packet[1:]
 
 		case ettNewFloat:

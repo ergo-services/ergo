@@ -190,6 +190,42 @@ func waitForResult(t *testing.T, w chan error) {
 	}
 }
 
+func waitForResultWithMultiValue(t *testing.T, w chan interface{}, values etf.List) {
+
+	select {
+	case v := <-w:
+		found := false
+		i := 0
+		for {
+			if reflect.DeepEqual(v, values[i]) {
+				found = true
+				values[i] = values[0]
+				values = values[1:]
+				if len(values) == 0 {
+					return
+				}
+				// i dont care about stack growing since 'values'
+				// usualy short
+				waitForResultWithMultiValue(t, w, values)
+				break
+			}
+			i++
+			if i+1 > len(values) {
+				break
+			}
+		}
+
+		if !found {
+			e := fmt.Errorf("got unexpected value: %#v", v)
+			t.Fatal(e)
+		}
+
+	case <-time.After(time.Second * time.Duration(2)):
+		t.Fatal("result timeout")
+	}
+	fmt.Println("OK")
+}
+
 func waitForResultWithValue(t *testing.T, w chan interface{}, value interface{}) {
 	select {
 	case v := <-w:
@@ -224,12 +260,13 @@ func waitForResultWithValueOrValue(t *testing.T, w chan interface{}, value1, val
 	}
 }
 
-func waitForTimeout(w chan interface{}) error {
+func waitForTimeout(t *testing.T, w chan interface{}) {
 	select {
 	case v := <-w:
-		return fmt.Errorf("got value we shouldn't receive: %#v", v)
+		e := fmt.Errorf("got value we shouldn't receive: %#v", v)
+		t.Fatal(e)
 
 	case <-time.After(time.Millisecond * time.Duration(300)):
-		return nil
+		return
 	}
 }
