@@ -51,7 +51,7 @@ The goal of this project is to leverage Erlang/OTP experience with Golang perfor
 
 Here are the changes of latest release. For more details see the [ChangeLog](ChangeLog.md)
 
-#### [1.2.0](https://github.com/halturin/ergo/releases/tag/1.2.0) - 2021-02-23 ####
+#### [1.2.0](https://github.com/halturin/ergo/releases/tag/1.2.0) - 2021-04-07 ####
 
 * Added TLS support. Introduced new option `TLSmode` in `ergo.NodeOptions` with the following values:
   - `ergo.TLSmodeDisabled` default value. encryption is disabled
@@ -61,9 +61,7 @@ Here are the changes of latest release. For more details see the [ChangeLog](Cha
   there is example of usage `examples/nodetls/tlsGenServer.go`
 
 * Introduced [GenStage](https://hexdocs.pm/gen_stage/GenStage.html) behaviour implementation (originated from Elixir world).
-  `GenStage` is an abstraction built on top of `GenServer` to provide a simple way to create a distributed Producer/Consumer architecture, while automatically managing the concept of backpressure. This implementation is fully compatible with Elixir's GenStage.
-
-  examples are here `examples/genstage`
+  `GenStage` is an abstraction built on top of `GenServer` to provide a simple way to create a distributed Producer/Consumer architecture, while automatically managing the concept of backpressure. This implementation is fully compatible with Elixir's GenStage. Example here `examples/genstage` or just run it `go run ./examples/genstage` to see it in action
 
 * Introduced new methods `AddStaticRoute`/`RemoveStaticRoute` for `Node`. This feature allows you to keep EPMD service behind a firewall.
 
