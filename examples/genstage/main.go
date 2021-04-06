@@ -53,7 +53,7 @@ func main() {
 	for {
 		n := rand.Intn(9) + 1
 		numbers := generateNumbers(n)
-		fmt.Println("Producer. Generating random numbers and send them...", numbers)
+		fmt.Println("Producer. Generate random numbers and send them to consumers...", numbers)
 		producer.SendEvents(p1, numbers)
 		time.Sleep(1 * time.Second)
 	}

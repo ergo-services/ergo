@@ -18,6 +18,8 @@ The goal of this project is to leverage Erlang/OTP experience with Golang perfor
 
 ### Features ###
 
+![image](https://user-images.githubusercontent.com/118860/113710255-c57d5500-96e3-11eb-9970-20f49008a990.png)
+
 * Erlang node (run single/[multinode](#multinode))
 * [embedded EPMD](#epmd) (in order to get rid of erlang' dependencies)
 * Spawn Erlang-like processes
@@ -254,11 +256,11 @@ exited
 See `examples/` for more details
 
 * [GenServer](examples/genserver)
+* [GenStage](examples/genstage)
 * [Supervisor](examples/supervisor)
 * [Application](examples/application)
 * [Multinode](examples/multinode)
 * [NodeWithTLS](examples/nodetls)
-* [GenStage](examples/genstage)
 
 ### Elixir Phoenix Users ###
 

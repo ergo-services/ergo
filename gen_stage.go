@@ -764,7 +764,7 @@ func handleConsumer(subscription GenStageSubscription, cmd stageRequestCommand, 
 			// the "subscribed" message due to async nature of messaging,
 			// so we should wait a bit and try to handle it one more time
 			// using "retry-cancel" message.
-			// I got this with problem with GOMAXPROCS=1
+			// I got this problem with GOMAXPROCS=1
 			msg := etf.Tuple{
 				etf.Atom("$gen_consumer"),
 				etf.Tuple{subscription.Pid, subscription.Ref},
