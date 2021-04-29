@@ -171,6 +171,7 @@ func (p *Process) CallRPCWithTimeout(timeout int, node, module, function string,
 		etf.Atom(module),
 		etf.Atom(function),
 		etf.List(args),
+		p.Self(),
 	}
 	to := etf.Tuple{etf.Atom("rex"), etf.Atom(node)}
 	return p.CallWithTimeout(to, message, timeout)
