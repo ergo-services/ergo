@@ -14,7 +14,7 @@ The easiest drop-in replacement for your hot Erlang-nodes in the cluster.
 
 ### Purpose ###
 
-The goal of this project is to leverage Erlang/OTP experience with Golang performance. Ergo Framework implements [DIST protocol](https://erlang.org/doc/apps/erts/erl_dist_protocol.html), [ETF data format](https://erlang.org/doc/apps/erts/erl_ext_dist.html) and [OTP design patterns](https://erlang.org/doc/design_principles/des_princ.html) (`GenServer`/`Supervisor`/`Application`) which makes you able to create high performance and reliable application having native integration with Erlang infrastructure
+The goal of this project is to leverage Erlang/OTP experience with Golang performance. Ergo Framework implements [DIST protocol](https://erlang.org/doc/apps/erts/erl_dist_protocol.html), [ETF data format](https://erlang.org/doc/apps/erts/erl_ext_dist.html) and [OTP design patterns](https://erlang.org/doc/design_principles/des_princ.html) (`GenServer`/`Supervisor`/`Application`) which makes you able to create high performance and reliable microservice solutions having native integration with Erlang infrastructure
 
 ### Features ###
 
@@ -53,7 +53,7 @@ The goal of this project is to leverage Erlang/OTP experience with Golang perfor
 
 Here are the changes of latest release. For more details see the [ChangeLog](ChangeLog.md)
 
-#### [1.2.0](https://github.com/halturin/ergo/releases/tag/1.2.0) - 2021-04-07 ####
+#### [1.2.0](https://github.com/halturin/ergo/releases/tag/v1.2.0) - 2021-04-07 ####
 
 * Added TLS support. Introduced new option `TLSmode` in `ergo.NodeOptions` with the following values:
   - `ergo.TLSmodeDisabled` default value. encryption is disabled
