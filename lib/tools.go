@@ -51,6 +51,9 @@ func TakeTimer() *time.Timer {
 }
 
 func ReleaseTimer(t *time.Timer) {
+	if !t.Stop() {
+		<-t.C
+	}
 	timers.Put(t)
 }
 
