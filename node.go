@@ -6,6 +6,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+
 	//"crypto/rsa"
 	"crypto/tls"
 	"crypto/x509"
@@ -23,6 +24,7 @@ import (
 
 	"log"
 	"net"
+
 	//	"net/http"
 	"strconv"
 	"strings"
@@ -213,11 +215,12 @@ func (n *Node) Spawn(name string, opts ProcessOptions, object interface{}, args 
 			process.Kill()
 		}
 
+		close(process.ready)
 		close(process.stopped)
 	}()
 
-	defer close(process.ready)
 	if e := <-process.ready; e != nil {
+		close(process.ready)
 		return nil, e
 	}
 
