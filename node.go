@@ -6,6 +6,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+
 	//"crypto/rsa"
 	"crypto/tls"
 	"crypto/x509"
@@ -23,6 +24,7 @@ import (
 
 	"log"
 	"net"
+
 	//	"net/http"
 	"strconv"
 	"strings"
@@ -80,10 +82,6 @@ const (
 	defaultSendQueueLength   int = 100
 	defaultRecvQueueLength   int = 100
 	defaultFragmentationUnit     = 65000
-
-	versionOTP        int = 22
-	versionERTSprefix     = "ergo"
-	version               = "1.1.0"
 
 	// TLSmodeDisabled no TLS encryption
 	TLSmodeDisabled TLSmodeType = ""
@@ -222,6 +220,27 @@ func (n *Node) Spawn(name string, opts ProcessOptions, object interface{}, args 
 	}
 
 	return process, nil
+}
+
+func (n *Node) ProvideSpawnRemote(name string, object interface{}) {
+	//FIXME
+	return
+}
+
+func (n *Node) RevokeSpawnRemote(name string) bool {
+	//FIXME
+	return true
+}
+
+func (n *Node) SpawnRemote(RemoteNode etf.Tuple, opts ProcessOptions, object string, args ...interface{}) (etf.Ref, error) {
+	//FIXME
+	x := n.MakeRef()
+	return x, nil
+}
+
+func (n *Node) SpawnRemoteCancel(ref etf.Ref) bool {
+	//FIXME
+	return true
 }
 
 // Register register associates the name with pid

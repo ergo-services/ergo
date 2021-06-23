@@ -370,6 +370,21 @@ func (p *Process) GetTrapExit() bool {
 	return p.trapExit
 }
 
+// Create an alias which can be used when sending messages to the process
+// that created the alias. When the alias has been deactivated, messages
+// sent using the alias will be dropped.
+func (p *Process) Alias() etf.Ref {
+	//FIXME
+	return p.node.MakeRef()
+}
+
+// Unalias deactivates the alias previously created by the calling process.
+// Returns true if Alias was a currently active alias for current processes; otherwise, false.
+func (p *Process) Unalias(alias etf.Ref) bool {
+	//FIXME
+	return true
+}
+
 func (p *Process) directRequest(id string, request interface{}) (interface{}, error) {
 	reply := make(chan directMessage)
 	t := time.Second * time.Duration(5)

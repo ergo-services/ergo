@@ -14,16 +14,19 @@ type Atom string
 type Map map[Term]Term
 
 type Pid struct {
-	Node     Atom
-	ID       uint32
-	Serial   uint32
-	Creation byte
+	Node       Atom
+	ID         uint32
+	Serial     uint32
+	Creation   byte
+	Creation32 uint32 // since OTP.21
 }
 
 type Port struct {
-	Node     Atom
-	ID       uint32
-	Creation byte
+	Node       Atom
+	ID         uint32
+	Creation   byte
+	Creation32 uint32 // since OTP.21
+
 }
 
 type Ref struct {

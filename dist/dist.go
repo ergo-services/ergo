@@ -33,7 +33,7 @@ func dLog(f string, a ...interface{}) {
 	}
 }
 
-type flagId uint32
+type flagId uint64
 type nodeFlag flagId
 
 const (
@@ -72,20 +72,30 @@ const (
 	BIG_SEQTRACE_LABELS        = 0x100000
 	EXIT_PAYLOAD               = 0x400000 // since OTP.22 enable replacement for EXIT, EXIT2, MONITOR_P_EXIT
 	FRAGMENTS                  = 0x800000
+	HANDSHAKE23                = 0x1000000 // new connection setup handshake (version 6) introduced in OTP 23
+	// for 64bit flags
+	SPAWN   = 1 << 32
+	NAME_ME = 1 << 33
+	V4_NC   = 1 << 34
+	ALIAS   = 1 << 35
 )
 
 func (nf nodeFlag) toUint32() uint32 {
 	return uint32(nf)
 }
 
+func (nf nodeFlag) toUint64() uint64 {
+	return uint64(nf)
+}
+
 func (nf nodeFlag) isSet(f flagId) bool {
-	return (uint32(nf) & uint32(f)) != 0
+	return (uint64(nf) & uint64(f)) != 0
 }
 
 func toNodeFlag(f ...flagId) nodeFlag {
-	var flags uint32
+	var flags uint64
 	for _, v := range f {
-		flags |= uint32(v)
+		flags |= uint64(v)
 	}
 	return nodeFlag(flags)
 }
@@ -199,10 +209,6 @@ func (lf *linkFlusher) Write(b []byte) (int, error) {
 	lf.pending = true
 
 	if lf.timer != nil {
-		// spent few hours due to this bug :(
-		// https://github.com/golang/go/issues/38070
-		// TL;DR - you have to upgrade/downgrade your golang runtime
-		// in case of using 1.14 or 1.14.1
 		lf.timer.Reset(lf.latency)
 		return lenB, nil
 	}
@@ -315,6 +321,9 @@ func Handshake(conn net.Conn, tls bool, name, cookie string, hidden bool) (*Link
 				if e := b.WriteDataTo(conn); e != nil {
 					return nil, e
 				}
+
+			case 'N':
+				// The new challenge message format (version 6)
 
 			case 'a':
 				// 'a' + 16 (digest)
