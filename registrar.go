@@ -175,6 +175,8 @@ func (r *registrar) UnregisterProcess(pid etf.Pid) {
 			}
 		}
 		r.mutexProcesses.Unlock()
+		// invoke cancel context to prevent memory leaks
+		p.Kill()
 		return
 	}
 	r.mutexProcesses.Unlock()
