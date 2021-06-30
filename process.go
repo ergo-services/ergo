@@ -206,6 +206,7 @@ func (p *Process) SendAfter(to interface{}, message etf.Term, after time.Duratio
 		// to prevent of timer leaks due to its not GCed until the timer fires
 		timer := time.NewTimer(after)
 		defer timer.Stop()
+		defer cancel()
 
 		select {
 		case <-ctx.Done():
