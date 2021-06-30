@@ -83,10 +83,6 @@ const (
 	defaultRecvQueueLength   int = 100
 	defaultFragmentationUnit     = 65000
 
-	versionOTP        int = 22
-	versionERTSprefix     = "ergo"
-	version               = "1.1.0"
-
 	// TLSmodeDisabled no TLS encryption
 	TLSmodeDisabled TLSmodeType = ""
 	// TLSmodeAuto generate self-signed certificate
