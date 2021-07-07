@@ -37,9 +37,7 @@ func (am *appMon) Init(p *Process, args ...interface{}) interface{} {
 	}
 }
 
-// HandleCast -> ("noreply", state) - noreply
-//		         ("stop", reason) - stop with reason
-func (am *appMon) HandleCast(message etf.Term, state interface{}) (string, interface{}) {
+func (am *appMon) HandleCast(message etf.Term, state interface{}) string {
 	var appState appMonState = state.(appMonState)
 	lib.Log("APP_MON: HandleCast: %#v", message)
 	switch message {
@@ -75,7 +73,7 @@ func (am *appMon) HandleCast(message etf.Term, state interface{}) (string, inter
 		}
 
 		appState.process.CastAfter(appState.process.Self(), "sendStat", 2*time.Second)
-		return "noreply", state
+		return "noreply"
 
 	default:
 		switch m := message.(type) {
@@ -97,7 +95,7 @@ func (am *appMon) HandleCast(message etf.Term, state interface{}) (string, inter
 					if jobList, ok := state.(appMonState).jobs[m.Element(2).(etf.Atom)]; ok {
 						for i := range jobList {
 							if jobList[i].name == job.name {
-								return "noreply", appState
+								return "noreply"
 							}
 						}
 						jobList = append(jobList, job)
@@ -125,42 +123,27 @@ func (am *appMon) HandleCast(message etf.Term, state interface{}) (string, inter
 					}
 
 					if len(state.(appMonState).jobs) == 0 {
-						return "stop", "normal"
+						return "stop"
 					}
 
 				}
-				return "noreply", appState
+				return "noreply"
 			}
-
-			// etf.Tuple{etf.Atom("EXIT"), Pid, reason}
-
 		}
 	}
 
-	return "stop", "normal"
+	return "stop"
 }
 
-// HandleCall serves incoming messages sending via gen_server:call
-// HandleCall -> ("reply", message, state) - reply
-//				 ("noreply", _, state) - noreply
-//		         ("stop", reason, _) - normal stop
-func (am *appMon) HandleCall(from etf.Tuple, message etf.Term, state interface{}) (string, etf.Term, interface{}) {
+func (am *appMon) HandleCall(from etf.Tuple, message etf.Term, state interface{}) (string, etf.Term) {
 	lib.Log("APP_MON: HandleCall: %#v, From: %#v", message, from)
 	// return "reply", reply, state
-	return "stop", "normal", state
+	return "stop", nil
 }
 
-// HandleInfo serves all another incoming messages (Pid ! message)
-// HandleInfo -> ("noreply", state) - noreply
-//		         ("stop", reason) - normal stop
-func (am *appMon) HandleInfo(message etf.Term, state interface{}) (string, interface{}) {
+func (am *appMon) HandleInfo(message etf.Term, state interface{}) string {
 	lib.Log("APP_MON: HandleInfo: %#v", message)
-	return "stop", "normal"
-}
-
-// Terminate called when process died
-func (am *appMon) Terminate(reason string, state interface{}) {
-	lib.Log("APP_MON: Terminate: %#v", reason)
+	return "stop"
 }
 
 func (am *appMon) makeAppTree(p *Process, app etf.Atom) etf.Tuple {

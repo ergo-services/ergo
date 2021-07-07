@@ -33,7 +33,6 @@ type Process struct {
 	Node         *Node
 
 	object interface{}
-	state  interface{}
 	reply  chan etf.Tuple
 
 	env map[string]interface{}
@@ -354,13 +353,6 @@ func (p *Process) GetChildren() []etf.Pid {
 	return []etf.Pid{}
 }
 
-// GetState returns string representation of the process state (GenServer)
-func (p *Process) GetState() string {
-	p.RLock()
-	defer p.RUnlock()
-	return fmt.Sprintf("%#v", p.state)
-}
-
 // SetTrapExit enables/disables the trap on terminate process
 func (p *Process) SetTrapExit(trap bool) {
 	p.trapExit = trap
@@ -371,12 +363,17 @@ func (p *Process) GetTrapExit() bool {
 	return p.trapExit
 }
 
+// GetObject returns object this process runs on.
+func (p *Process) GetObject() interface{} {
+	return p.object
+}
+
 // Create an alias which can be used when sending messages to the process
 // that created the alias. When the alias has been deactivated, messages
 // sent using the alias will be dropped.
 func (p *Process) Alias() etf.Ref {
 	//FIXME
-	return p.node.MakeRef()
+	return p.Node.MakeRef()
 }
 
 // Unalias deactivates the alias previously created by the calling process.

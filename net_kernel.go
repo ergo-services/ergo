@@ -54,33 +54,17 @@ func (nks *netKernelSup) Init(args ...interface{}) SupervisorSpec {
 
 type netKernel struct {
 	GenServer
-	process     *Process
 	routinesCtx map[etf.Pid]context.CancelFunc
 }
 
-// Init initializes process state using arbitrary arguments
-// Init(...) -> state
-func (nk *netKernel) Init(p *Process, args ...interface{}) (state interface{}) {
+func (nk *netKernel) Init(p *Process, args ...interface{}) (interface{}, error) {
 	lib.Log("NET_KERNEL: Init: %#v", args)
-	nk.process = p
 	nk.routinesCtx = make(map[etf.Pid]context.CancelFunc)
-	return nil
+	return nil, nil
 }
 
-// HandleCast -> ("noreply", state) - noreply
-//		         ("stop", reason) - stop with reason
-func (nk *netKernel) HandleCast(message etf.Term, state interface{}) (string, interface{}) {
-	lib.Log("NET_KERNEL: HandleCast: %#v", message)
-	return "noreply", state
-}
-
-// HandleCall serves incoming messages sending via gen_server:call
-// HandleCall -> ("reply", message, state) - reply
-//				 ("noreply", _, state) - noreply
-//		         ("stop", reason, _) - normal stop
-func (nk *netKernel) HandleCall(from etf.Tuple, message etf.Term, state interface{}) (code string, reply etf.Term, stateout interface{}) {
+func (nk *netKernel) HandleCall(from etf.Tuple, message etf.Term, state GenServerState) (code string, reply etf.Term) {
 	lib.Log("NET_KERNEL: HandleCall: %#v, From: %#v", message, from)
-	stateout = state
 	code = "reply"
 
 	switch t := (message).(type) {
@@ -99,8 +83,8 @@ func (nk *netKernel) HandleCall(from etf.Tuple, message etf.Term, state interfac
 			case etf.Atom("procs_info"):
 				// etf.Tuple{"spawn_link", "observer_backend", "procs_info", etf.List{etf.Pid{}}, etf.Pid{}}
 				sendTo := t.Element(4).(etf.List).Element(1).(etf.Pid)
-				go sendProcInfo(nk.process, sendTo)
-				reply = nk.process.Self()
+				go sendProcInfo(state.Process, sendTo)
+				reply = state.Process.Self()
 			case etf.Atom("fetch_stats"):
 				// etf.Tuple{"spawn_link", "observer_backend", "fetch_stats", etf.List{etf.Pid{}, 500}, etf.Pid{}}
 				sendTo := t.Element(4).(etf.List).Element(1).(etf.Pid)
@@ -110,11 +94,11 @@ func (nk *netKernel) HandleCall(from etf.Tuple, message etf.Term, state interfac
 					return
 				}
 
-				nk.process.MonitorProcess(sendTo)
-				ctx, cancel := context.WithCancel(nk.process.Context)
+				state.Process.MonitorProcess(sendTo)
+				ctx, cancel := context.WithCancel(state.Process.Context)
 				nk.routinesCtx[sendTo] = cancel
-				go sendStats(ctx, nk.process, sendTo, period, cancel)
-				reply = nk.process.Self()
+				go sendStats(ctx, state.Process, sendTo, period, cancel)
+				reply = state.Process.Self()
 			}
 		}
 
@@ -122,10 +106,7 @@ func (nk *netKernel) HandleCall(from etf.Tuple, message etf.Term, state interfac
 	return
 }
 
-// HandleInfo serves all another incoming messages (Pid ! message)
-// HandleInfo -> ("noreply", state) - noreply
-//		         ("stop", reason) - normal stop
-func (nk *netKernel) HandleInfo(message etf.Term, state interface{}) (string, interface{}) {
+func (nk *netKernel) HandleInfo(message etf.Term, state GenServerState) string {
 	lib.Log("NET_KERNEL: HandleInfo: %#v", message)
 	// {"DOWN", etf.Ref{Node:"demo@127.0.0.1", Creation:0x1, Id:[]uint32{0x27715, 0x5762, 0x0}}, "process",
 	// etf.Pid{Node:"erl-demo@127.0.0.1", Id:0x460, Serial:0x0, Creation:0x1}, "normal"}
@@ -140,11 +121,11 @@ func (nk *netKernel) HandleInfo(message etf.Term, state interface{}) (string, in
 		}
 
 	}
-	return "noreply", state
+	return "noreply"
 }
 
 // Terminate called when process died
-func (nk *netKernel) Terminate(reason string, state interface{}) {
+func (nk *netKernel) Terminate(reason string, state GenServerState) {
 	lib.Log("NET_KERNEL: Terminate: %#v", reason)
 }
 

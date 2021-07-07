@@ -14,64 +14,50 @@ type ExampleGenServer struct {
 	process *ergo.Process
 }
 
-type State struct {
+type ExampleState struct {
 	value int
 }
 
-// Init initializes process state using arbitrary arguments
-// Init -> state
-func (egs *ExampleGenServer) Init(p *ergo.Process, args ...interface{}) (state interface{}) {
+func (egs *ExampleGenServer) Init(p *ergo.Process, args ...interface{}) (interface{}, error) {
 	fmt.Printf("Init: args %v \n", args)
 	egs.process = p
-	InitialState := &State{
+	InitialState := &ExampleState{
 		value: args[0].(int), // 100
 	}
-	return InitialState
+	return InitialState, nil
 }
 
-// HandleCast -> ("noreply", state) - noreply
-//		         ("stop", reason) - stop with reason
-func (egs *ExampleGenServer) HandleCast(message etf.Term, state interface{}) (string, interface{}) {
-	fmt.Printf("HandleCast: %#v (state value %d) \n", message, state.(*State).value)
+func (egs *ExampleGenServer) HandleCast(message etf.Term, state ergo.GenServerState) string {
+	st := state.State.(*ExampleState)
+	fmt.Printf("HandleCast: %#v (state value %d) \n", message, st.value)
 	time.Sleep(1 * time.Second)
-	state.(*State).value++
+	state.State.(*ExampleState).value++
 
-	if state.(*State).value > 103 {
-		egs.process.Send(egs.process.Self(), "hello")
+	if st.value > 103 {
+		state.Process.Send(state.Process.Self(), "hello")
 	} else {
-		egs.process.Cast(egs.process.Self(), "hi")
+		state.Process.Cast(state.Process.Self(), "hi")
 	}
 
-	return "noreply", state
+	return "noreply"
 }
 
-// HandleCall serves incoming messages sending via gen_server:call
-// HandleCall -> ("reply", message, state) - reply
-//				 ("noreply", _, state) - noreply
-//		         ("stop", reason, _) - normal stop
-func (egs *ExampleGenServer) HandleCall(from etf.Tuple, message etf.Term, state interface{}) (string, etf.Term, interface{}) {
+func (egs *ExampleGenServer) HandleCall(from etf.Tuple, message etf.Term, state ergo.GenServerState) (string, etf.Term) {
 	fmt.Printf("HandleCall: %#v, From: %#v\n", message, from)
-	return "reply", message, state
+	return "reply", message
 }
 
-// HandleInfo serves all another incoming messages (Pid ! message)
-// HandleInfo -> ("noreply", state) - noreply
-//		         ("stop", reason) - normal stop
-func (egs *ExampleGenServer) HandleInfo(message etf.Term, state interface{}) (string, interface{}) {
-	fmt.Printf("HandleInfo: %#v (state value %d) \n", message, state.(*State).value)
+func (egs *ExampleGenServer) HandleInfo(message etf.Term, state ergo.GenServerState) string {
+	st := state.State.(*ExampleState)
+	fmt.Printf("HandleInfo: %#v (state value %d) \n", message, st.value)
 	time.Sleep(1 * time.Second)
-	state.(*State).value++
-	if state.(*State).value > 106 {
-		return "stop", "normal"
+	st.value++
+	if st.value > 106 {
+		return "stop"
 	} else {
-		egs.process.Send(egs.process.Self(), "hello")
+		state.Process.Send(state.Process.Self(), "hello")
 	}
-	return "noreply", state
-}
-
-// Terminate called when process died
-func (egs *ExampleGenServer) Terminate(reason string, state interface{}) {
-	fmt.Printf("Terminate: %#v \n", reason)
+	return "noreply"
 }
 
 func main() {

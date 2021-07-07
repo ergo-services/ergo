@@ -189,7 +189,7 @@ func (egs *ExampleGenServer) Init(p *ergo.Process, args ...interface{}) (state i
 	return InitialState
 }
 
-func (egs *ExampleGenServer) HandleCast(message etf.Term, state interface{}) (string, interface{}) {
+func (egs *ExampleGenServer) HandleCast(message etf.Term, state interface{}) string {
 	fmt.Printf("HandleCast: %#v (state value %d) \n", message, state.(*State).value)
 	time.Sleep(1 * time.Second)
 	state.(*State).value++
@@ -200,15 +200,15 @@ func (egs *ExampleGenServer) HandleCast(message etf.Term, state interface{}) (st
 		egs.process.Cast(egs.process.Self(), "hi")
 	}
 
-	return "noreply", state
+	return "noreply"
 }
 
-func (egs *ExampleGenServer) HandleCall(from etf.Tuple, message etf.Term, state interface{}) (string, etf.Term, interface{}) {
+func (egs *ExampleGenServer) HandleCall(from etf.Tuple, message etf.Term, state interface{}) (string, etf.Term) {
 	fmt.Printf("HandleCall: %#v, From: %#v\n", message, from)
-	return "reply", message, state
+	return "reply", message
 }
 
-func (egs *ExampleGenServer) HandleInfo(message etf.Term, state interface{}) (string, interface{}) {
+func (egs *ExampleGenServer) HandleInfo(message etf.Term, state interface{}) string {
 	fmt.Printf("HandleInfo: %#v (state value %d) \n", message, state.(*State).value)
 	time.Sleep(1 * time.Second)
 	state.(*State).value++
@@ -217,7 +217,7 @@ func (egs *ExampleGenServer) HandleInfo(message etf.Term, state interface{}) (st
 	} else {
 		egs.process.Send(egs.process.Self(), "hello")
 	}
-	return "noreply", state
+	return "noreply"
 }
 
 func (egs *ExampleGenServer) Terminate(reason string, state interface{}) {

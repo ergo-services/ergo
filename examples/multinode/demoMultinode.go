@@ -12,9 +12,8 @@ import (
 // GenServer implementation structure
 type demoGenServ struct {
 	ergo.GenServer
-	process *ergo.Process
-	wg      *sync.WaitGroup
-	bridge  chan interface{}
+	wg     *sync.WaitGroup
+	bridge chan interface{}
 }
 
 type state struct {
@@ -27,9 +26,8 @@ var (
 
 // Init initializes process state using arbitrary arguments
 // Init(...) -> state
-func (dgs *demoGenServ) Init(p *ergo.Process, args ...interface{}) interface{} {
+func (dgs *demoGenServ) Init(p *ergo.Process, args ...interface{}) (interface{}, error) {
 	// fmt.Printf("Init: args %v \n", args)
-	dgs.process = p
 	dgs.wg = args[0].(*sync.WaitGroup)
 	dgs.bridge = args[2].(chan interface{})
 
@@ -47,29 +45,22 @@ func (dgs *demoGenServ) Init(p *ergo.Process, args ...interface{}) interface{} {
 		}
 	}()
 
-	return state{i: 12345}
+	return state{i: 12345}, nil
 }
 
-// HandleCast serves incoming messages sending via gen_server:cast
-// HandleCast -> ("noreply", state) - noreply
-//		         ("stop", reason) - stop with reason
-func (dgs *demoGenServ) HandleCast(message etf.Term, state interface{}) (string, interface{}) {
-	fmt.Printf("[%s] HandleCast: %#v\n", dgs.process.Node.FullName, message)
+func (dgs *demoGenServ) HandleCast(message etf.Term, state ergo.GenServerState) string {
+	fmt.Printf("[%s] HandleCast: %#v\n", state.Process.Node.FullName, message)
 	switch message {
 	case etf.Atom("stop"):
-		return "stop", "they said"
+		return "stop they said"
 	case etf.Atom("forward"):
-		dgs.bridge <- fmt.Sprintf("Hi from %v", dgs.process.Self())
+		dgs.bridge <- fmt.Sprintf("Hi from %v", state.Process.Self())
 	}
-	return "noreply", state
+	return "noreply"
 }
 
-// HandleCall serves incoming messages sending via gen_server:call
-// HandleCall -> ("reply", message, state) - reply
-//				 ("noreply", _, state) - noreply
-//		         ("stop", reason, _) - normal stop
-func (dgs *demoGenServ) HandleCall(from etf.Tuple, message etf.Term, state interface{}) (string, etf.Term, interface{}) {
-	fmt.Printf("[%s] HandleCall: %#v, From: %#v\n", dgs.process.Node.FullName, message, from)
+func (dgs *demoGenServ) HandleCall(from etf.Tuple, message etf.Term, state ergo.GenServerState) (string, etf.Term) {
+	fmt.Printf("[%s] HandleCall: %#v, From: %#v\n", state.Process.Node.FullName, message, from)
 
 	reply := etf.Term(etf.Tuple{etf.Atom("error"), etf.Atom("unknown_request")})
 
@@ -77,20 +68,16 @@ func (dgs *demoGenServ) HandleCall(from etf.Tuple, message etf.Term, state inter
 	case etf.Atom("hello"):
 		reply = etf.Term(etf.Atom("hi"))
 	}
-	return "reply", reply, state
+	return "reply", reply
 }
 
-// HandleInfo serves all another incoming messages (Pid ! message)
-// HandleInfo -> ("noreply", state) - noreply
-//		         ("stop", reason) - normal stop
-func (dgs *demoGenServ) HandleInfo(message etf.Term, state interface{}) (string, interface{}) {
-	fmt.Printf("[%s] HandleInfo: %#v\n", dgs.process.Node.FullName, message)
-	return "noreply", state
+func (dgs *demoGenServ) HandleInfo(message etf.Term, state ergo.GenServerState) string {
+	fmt.Printf("[%s] HandleInfo: %#v\n", state.Process.Node.FullName, message)
+	return "noreply"
 }
 
-// Terminate called when process died
-func (dgs *demoGenServ) Terminate(reason string, state interface{}) {
-	fmt.Printf("[%s] Terminate: %#v\n", dgs.process.Node.FullName, reason)
+func (dgs *demoGenServ) Terminate(reason string, state ergo.GenServerState) {
+	fmt.Printf("[%s] Terminate: %#v\n", state.Process.Node.FullName, reason)
 	dgs.wg.Done()
 }
 

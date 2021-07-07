@@ -11,66 +11,32 @@ type erlang struct {
 	GenServer
 }
 
-type erlangState struct {
-	process *Process
-}
-
-// Init initializes process state using arbitrary arguments
-// Init -> state
-func (e *erlang) Init(p *Process, args ...interface{}) interface{} {
+func (e *erlang) Init(p *Process, args ...interface{}) (interface{}, error) {
 	lib.Log("ERLANG: Init: %#v", args)
-	return erlangState{
-		process: p,
-	}
+	return nil, nil
 }
 
-// HandleCast -> ("noreply", state) - noreply
-//		         ("stop", reason) - stop with reason
-func (e *erlang) HandleCast(message etf.Term, state interface{}) (string, interface{}) {
-	var newState erlangState = state.(erlangState)
-	lib.Log("ERLANG: HandleCast: %#v", message)
-	return "noreply", newState
-}
-
-// HandleCall serves incoming messages sending via gen_server:call
-// HandleCall -> ("reply", message, state) - reply
-//				 ("noreply", _, state) - noreply
-//		         ("stop", reason, _) - normal stop
-func (e *erlang) HandleCall(from etf.Tuple, message etf.Term, state interface{}) (string, etf.Term, interface{}) {
+func (e *erlang) HandleCall(from etf.Tuple, message etf.Term, state GenServerState) (string, etf.Term) {
 	lib.Log("ERLANG: HandleCall: %#v, From: %#v", message, from)
-	var newState erlangState = state.(erlangState)
 
 	switch m := message.(type) {
 	case etf.Tuple:
 		switch m.Element(1) {
 		case etf.Atom("process_info"):
 			args := m.Element(2).(etf.List)
-			reply := processInfo(newState.process, args[0].(etf.Pid), args[1])
-			return "reply", reply, state
+			reply := processInfo(state.Process, args[0].(etf.Pid), args[1])
+			return "reply", reply
 		case etf.Atom("system_info"):
 			args := m.Element(2).(etf.List)
-			reply := systemInfo(newState.process, args[0].(etf.Atom))
-			return "reply", reply, state
+			reply := systemInfo(state.Process, args[0].(etf.Atom))
+			return "reply", reply
 
 		case etf.Atom("function_exported"):
-			return "reply", true, state
+			return "reply", true
 		}
 
 	}
-	return "reply", etf.Atom("ok"), state
-}
-
-// HandleInfo serves all another incoming messages (Pid ! message)
-// HandleInfo -> ("noreply", state) - noreply
-//		         ("stop", reason) - normal stop
-func (e *erlang) HandleInfo(message etf.Term, state interface{}) (string, interface{}) {
-	lib.Log("ERLANG: HandleInfo: %#v", message)
-	return "noreply", "normal"
-}
-
-// Terminate called when process died
-func (e *erlang) Terminate(reason string, state interface{}) {
-	lib.Log("ERLANG: Terminate: %#v", reason)
+	return "reply", etf.Atom("ok")
 }
 
 func processInfo(p *Process, pid etf.Pid, property etf.Term) etf.Term {

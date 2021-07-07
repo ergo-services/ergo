@@ -2,8 +2,9 @@ package ergo
 
 import (
 	"fmt"
-	"github.com/halturin/ergo/etf"
 	"time"
+
+	"github.com/halturin/ergo/etf"
 	//"github.com/halturin/ergo/lib"
 )
 
@@ -401,7 +402,7 @@ func (gst *GenStage) Cancel(p *Process, subscription GenStageSubscription, reaso
 //
 // GenServer callbacks
 //
-func (gst *GenStage) Init(p *Process, args ...interface{}) interface{} {
+func (gst *GenStage) Init(p *Process, args ...interface{}) (interface{}, error) {
 	//var stageOptions GenStageOptions
 	state := &stateGenStage{
 		producers: make(map[string]*subscriptionInternal),
@@ -409,7 +410,7 @@ func (gst *GenStage) Init(p *Process, args ...interface{}) interface{} {
 	}
 
 	state.p = p
-	state.options, state.internal = p.object.(GenStageBehaviour).InitStage(p, args)
+	state.options, state.internal = p.GetObject().(GenStageBehaviour).InitStage(p, args)
 	if state.options.BufferSize == 0 {
 		state.options.BufferSize = defaultDispatcherBufferSize
 	}
@@ -426,37 +427,37 @@ func (gst *GenStage) Init(p *Process, args ...interface{}) interface{} {
 		}
 	}
 
-	return state
+	return state, nil
 }
 
-func (gst *GenStage) HandleCall(from etf.Tuple, message etf.Term, state interface{}) (string, etf.Term, interface{}) {
-	st := state.(*stateGenStage)
+func (gst *GenStage) HandleCall(from etf.Tuple, message etf.Term, state GenServerState) (string, etf.Term) {
+	st := state.State.(*stateGenStage)
 
 	switch m := message.(type) {
 	case setManualDemand:
 		subInternal, ok := st.producers[m.subscription.Ref.String()]
 		if !ok {
-			return "reply", fmt.Errorf("unknown subscription"), state
+			return "reply", fmt.Errorf("unknown subscription")
 		}
 		subInternal.Options.ManualDemand = m.enable
 		if subInternal.count < defaultAutoDemandCount && !subInternal.Options.ManualDemand {
-			sendDemand(st.p, subInternal.Producer, m.subscription, defaultAutoDemandCount)
+			sendDemand(state.Process, subInternal.Producer, m.subscription, defaultAutoDemandCount)
 			subInternal.count += defaultAutoDemandCount
 		}
-		return "reply", "ok", state
+		return "reply", "ok"
 
 	case setCancelMode:
 		subInternal, ok := st.producers[m.subscription.Ref.String()]
 		if !ok {
-			return "reply", fmt.Errorf("unknown subscription"), state
+			return "reply", fmt.Errorf("unknown subscription")
 		}
 		subInternal.Options.Cancel = m.cancel
-		return "reply", "ok", state
+		return "reply", "ok"
 
 	case setForwardDemand:
 		st.options.DisableForwarding = !m.forward
 		if !m.forward {
-			return "reply", "ok", state
+			return "reply", "ok"
 		}
 
 		// create demand with count = 0, which will be ignored but start
@@ -466,16 +467,16 @@ func (gst *GenStage) HandleCall(from etf.Tuple, message etf.Term, state interfac
 			etf.Tuple{etf.Pid{}, etf.Ref{}},
 			etf.Tuple{etf.Atom("ask"), 0},
 		}
-		st.p.Send(st.p.Self(), msg)
+		state.Process.Send(state.Process.Self(), msg)
 
-		return "reply", "ok", state
+		return "reply", "ok"
 
 	case sendEvents:
 		var deliver []GenStageDispatchItem
 		// dispatch to the subscribers
 		deliver = st.options.Dispatcher.Dispatch(m.events, st.dispatcherState)
 		if len(deliver) == 0 {
-			return "reply", "ok", state
+			return "reply", "ok"
 		}
 		for d := range deliver {
 			msg := etf.Tuple{
@@ -483,22 +484,22 @@ func (gst *GenStage) HandleCall(from etf.Tuple, message etf.Term, state interfac
 				etf.Tuple{deliver[d].subscription.Pid, deliver[d].subscription.Ref},
 				deliver[d].events,
 			}
-			st.p.Send(deliver[d].subscription.Pid, msg)
+			state.Process.Send(deliver[d].subscription.Pid, msg)
 		}
-		return "reply", "ok", state
+		return "reply", "ok"
 
 	case demandRequest:
 		subInternal, ok := st.producers[m.subscription.Ref.String()]
 		if !ok {
-			return "reply", fmt.Errorf("unknown subscription"), state
+			return "reply", fmt.Errorf("unknown subscription")
 		}
 		if !subInternal.Options.ManualDemand {
-			return "reply", fmt.Errorf("auto demand"), state
+			return "reply", fmt.Errorf("auto demand")
 		}
 
-		sendDemand(st.p, subInternal.Producer, m.subscription, m.count)
+		sendDemand(state.Process, subInternal.Producer, m.subscription, m.count)
 		subInternal.count += int(m.count)
-		return "reply", "ok", state
+		return "reply", "ok"
 
 	case cancelSubscription:
 		// if we act as a consumer with this subscription
@@ -508,15 +509,15 @@ func (gst *GenStage) HandleCall(from etf.Tuple, message etf.Term, state interfac
 				etf.Tuple{m.subscription.Pid, m.subscription.Ref},
 				etf.Tuple{etf.Atom("cancel"), m.reason},
 			}
-			st.p.Send(subInternal.Producer, msg)
+			state.Process.Send(subInternal.Producer, msg)
 			cmd := stageRequestCommand{
 				Cmd:  etf.Atom("cancel"),
 				Opt1: "normal",
 			}
 			if _, err := handleConsumer(subInternal.Subscription, cmd, st); err != nil {
-				return "reply", err, state
+				return "reply", err
 			}
-			return "reply", "ok", state
+			return "reply", "ok"
 		}
 		// if we act as a producer within this subscription
 		if subInternal, ok := st.consumers[m.subscription.Pid]; ok {
@@ -525,74 +526,70 @@ func (gst *GenStage) HandleCall(from etf.Tuple, message etf.Term, state interfac
 				etf.Tuple{m.subscription.Pid, m.subscription.Ref},
 				etf.Tuple{etf.Atom("cancel"), m.reason},
 			}
-			st.p.Send(m.subscription.Pid, msg)
-			st.p.DemonitorProcess(subInternal.Monitor)
+			state.Process.Send(m.subscription.Pid, msg)
+			state.Process.DemonitorProcess(subInternal.Monitor)
 			cmd := stageRequestCommand{
 				Cmd:  etf.Atom("cancel"),
 				Opt1: "normal",
 			}
 			if _, err := handleProducer(subInternal.Subscription, cmd, st); err != nil {
-				return "reply", err, st
+				return "reply", err
 			}
-			return "reply", "ok", state
+			return "reply", "ok"
 		}
-		return "reply", fmt.Errorf("unknown subscription"), state
+		return "reply", fmt.Errorf("unknown subscription")
 
 	default:
-		reply, term := st.p.object.(GenStageBehaviour).HandleGenStageCall(from, message, st.internal)
-		return reply, term, state
+		reply, term := state.Process.GetObject().(GenStageBehaviour).HandleGenStageCall(from, message, st.internal)
+		return reply, term
 	}
 
-	return "reply", "ok", state
+	return "reply", "ok"
 }
 
-func (gst *GenStage) HandleCast(message etf.Term, state interface{}) (string, interface{}) {
-	st := state.(*stateGenStage)
-	reply := st.p.object.(GenStageBehaviour).HandleGenStageCast(message, st.internal)
+func (gst *GenStage) HandleCast(message etf.Term, state GenServerState) string {
+	st := state.State.(*stateGenStage)
+	reply := state.Process.GetObject().(GenStageBehaviour).HandleGenStageCast(message, st.internal)
 
-	return reply, state
+	return reply
 }
 
-func (gst *GenStage) HandleInfo(message etf.Term, state interface{}) (string, interface{}) {
+func (gst *GenStage) HandleInfo(message etf.Term, state GenServerState) string {
 	var r stageMessage
 	var d downMessage
 	var err error
 
-	st := state.(*stateGenStage)
+	st := state.State.(*stateGenStage)
 
 	// check if we got a 'DOWN' message
 	// {DOWN, Ref, process, PidOrName, Reason}
 	if err := etf.TermIntoStruct(message, &d); err == nil && d.Down == etf.Atom("DOWN") {
 		if err1 := handleDown(d, st); err1 != nil {
-			return "stop", err1.Error()
+			return err1.Error()
 		}
-		return "noreply", state
+		return "noreply"
 	}
 
 	if err := etf.TermIntoStruct(message, &r); err != nil {
-		reply := st.p.object.(GenStageBehaviour).HandleGenStageInfo(message, st.internal)
-		return reply, state
+		reply := state.Process.GetObject().(GenStageBehaviour).HandleGenStageInfo(message, st.internal)
+		return reply
 	}
 
 	_, err = handleRequest(r, st)
 
 	switch err {
 	case nil:
-		return "noreply", state
+		return "noreply"
 	case ErrStop:
-		return "stop", "normal"
+		return "stop"
 	case ErrUnsupportedRequest:
-		reply := st.p.object.(GenStageBehaviour).HandleGenStageInfo(message, st.internal)
-		return reply, state
+		reply := state.Process.GetObject().(GenStageBehaviour).HandleGenStageInfo(message, st.internal)
+		return reply
 	default:
-		return "stop", err.Error()
+		return err.Error()
 	}
 
-	return "noreply", state
-}
-
-func (gst *GenStage) Terminate(reason string, state interface{}) {
-	return
+	return "noreply"
 }
 
 // default callbacks

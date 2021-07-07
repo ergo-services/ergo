@@ -12,23 +12,9 @@ type TestRegistrarGenserver struct {
 	GenServer
 }
 
-func (trg *TestRegistrarGenserver) Init(p *Process, args ...interface{}) (state interface{}) {
-	return nil
-}
-func (trg *TestRegistrarGenserver) HandleCast(message etf.Term, state interface{}) (string, interface{}) {
-	// fmt.Printf("TestRegistrarGenserver ({%s, %s}): HandleCast: %#v\n", trg.process.name, trg.process.Node.FullName, message)
-	return "noreply", state
-}
-func (trg *TestRegistrarGenserver) HandleCall(from etf.Tuple, message etf.Term, state interface{}) (string, etf.Term, interface{}) {
+func (trg *TestRegistrarGenserver) HandleCall(from etf.Tuple, message etf.Term, state GenServerState) (string, etf.Term) {
 	// fmt.Printf("TestRegistrarGenserver ({%s, %s}): HandleCall: %#v, From: %#v\n", trg.process.name, trg.process.Node.FullName, message, from)
-	return "reply", message, state
-}
-func (trg *TestRegistrarGenserver) HandleInfo(message etf.Term, state interface{}) (string, interface{}) {
-	// fmt.Printf("TestRegistrarGenserver ({%s, %s}): HandleInfo: %#v\n", trg.process.name, trg.process.Node.FullName, message)
-	return "noreply", state
-}
-func (trg *TestRegistrarGenserver) Terminate(reason string, state interface{}) {
-	// fmt.Printf("\nTestRegistrarGenserver ({%s, %s}): Terminate: %#v\n", trg.process.name, trg.process.Node.FullName, reason)
+	return "reply", message
 }
 
 func TestRegistrar(t *testing.T) {

@@ -13,23 +13,21 @@ type testMonitorGenServer struct {
 	v       chan interface{}
 }
 
-func (tgs *testMonitorGenServer) Init(p *Process, args ...interface{}) (state interface{}) {
+func (tgs *testMonitorGenServer) Init(p *Process, args ...interface{}) (interface{}, error) {
 	tgs.v <- p.Self()
 	tgs.process = p
-	return nil
+	return nil, nil
 }
-func (tgs *testMonitorGenServer) HandleCast(message etf.Term, state interface{}) (string, interface{}) {
+func (tgs *testMonitorGenServer) HandleCast(message etf.Term, state GenServerState) string {
 	tgs.v <- message
-	return "noreply", state
+	return "noreply"
 }
-func (tgs *testMonitorGenServer) HandleCall(from etf.Tuple, message etf.Term, state interface{}) (string, etf.Term, interface{}) {
-	return "reply", message, state
+func (tgs *testMonitorGenServer) HandleCall(from etf.Tuple, message etf.Term, state GenServerState) (string, etf.Term) {
+	return "reply", message
 }
-func (tgs *testMonitorGenServer) HandleInfo(message etf.Term, state interface{}) (string, interface{}) {
+func (tgs *testMonitorGenServer) HandleInfo(message etf.Term, state GenServerState) string {
 	tgs.v <- message
-	return "noreply", state
-}
-func (tgs *testMonitorGenServer) Terminate(reason string, state interface{}) {
+	return "noreply"
 }
 
 /*

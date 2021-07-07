@@ -47,26 +47,13 @@ type testAppGenServer struct {
 	GenServer
 }
 
-func (gs *testAppGenServer) Init(p *Process, args ...interface{}) interface{} {
-	//fmt.Println("STARTING TEST GS IN APP")
+func (gs *testAppGenServer) Init(p *Process, args ...interface{}) (interface{}, error) {
 	p.SetEnv("env123", 456)
-	return nil
+	return nil, nil
 }
 
-func (gs *testAppGenServer) HandleCast(message etf.Term, state interface{}) (string, interface{}) {
-	return "noreply", state
-}
-
-func (gs *testAppGenServer) HandleCall(from etf.Tuple, message etf.Term, state interface{}) (string, etf.Term, interface{}) {
-	return "stop", message, nil
-}
-
-func (gs *testAppGenServer) HandleInfo(message etf.Term, state interface{}) (string, interface{}) {
-	return "noreply", state
-}
-
-func (gs *testAppGenServer) Terminate(reason string, state interface{}) {
-	//fmt.Println("TERMINATING TEST GS IN APP with reason:", reason)
+func (gs *testAppGenServer) HandleCall(from etf.Tuple, message etf.Term, state GenServerState) (string, etf.Term) {
+	return "stop", nil
 }
 
 // testing application

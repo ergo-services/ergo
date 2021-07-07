@@ -41,17 +41,10 @@ func TestNode(t *testing.T) {
 		defer conn.Close()
 	}
 
-	p, e := node.Spawn("", ProcessOptions{}, &GenServer{})
-
-	if e == nil {
-		// empty GenServer{} should die immediately (via panic and recovering)
-		t.Fatal(fmt.Errorf("should panic here"))
-	}
-
 	gs1 := &testGenServer{
 		err: make(chan error, 2),
 	}
-	p, e = node.Spawn("", ProcessOptions{}, gs1)
+	p, e := node.Spawn("", ProcessOptions{}, gs1)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -72,11 +65,7 @@ type testFragmentationGS struct {
 	GenServer
 }
 
-func (f *testFragmentationGS) Init(p *Process, args ...interface{}) interface{} {
-	return nil
-}
-
-func (f *testFragmentationGS) HandleCall(from etf.Tuple, message etf.Term, state interface{}) (string, etf.Term, interface{}) {
+func (f *testFragmentationGS) HandleCall(from etf.Tuple, message etf.Term, state GenServerState) (string, etf.Term) {
 	md5original := message.(etf.Tuple)[0].(string)
 	blob := message.(etf.Tuple)[1].([]byte)
 
@@ -86,19 +75,7 @@ func (f *testFragmentationGS) HandleCall(from etf.Tuple, message etf.Term, state
 		result = etf.Atom("mismatch")
 	}
 
-	return "reply", result, state
-}
-
-func (f *testFragmentationGS) HandleCast(message etf.Term, state interface{}) (string, interface{}) {
-	return "noreply", state
-}
-
-func (f *testFragmentationGS) HandleInfo(message etf.Term, state interface{}) (string, interface{}) {
-	return "noreply", state
-}
-
-func (f *testFragmentationGS) Terminate(reason string, state interface{}) {
-
+	return "reply", result
 }
 
 func TestNodeFragmentation(t *testing.T) {
@@ -215,24 +192,8 @@ type benchGS struct {
 	GenServer
 }
 
-func (b *benchGS) Init(p *Process, args ...interface{}) interface{} {
-	return nil
-}
-
-func (b *benchGS) HandleCall(from etf.Tuple, message etf.Term, state interface{}) (string, etf.Term, interface{}) {
-	return "reply", etf.Atom("ok"), state
-}
-
-func (b *benchGS) HandleCast(message etf.Term, state interface{}) (string, interface{}) {
-	return "noreply", state
-}
-
-func (b *benchGS) HandleInfo(message etf.Term, state interface{}) (string, interface{}) {
-	return "noreply", state
-}
-
-func (b *benchGS) Terminate(reason string, state interface{}) {
-
+func (b *benchGS) HandleCall(from etf.Tuple, message etf.Term, state GenServerState) (string, etf.Term) {
+	return "reply", etf.Atom("ok")
 }
 
 func BenchmarkNodeSequential(b *testing.B) {

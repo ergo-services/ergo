@@ -33,25 +33,25 @@ type testGenServer struct {
 	err chan error
 }
 
-func (tgs *testGenServer) Init(p *Process, args ...interface{}) (state interface{}) {
+func (tgs *testGenServer) Init(p *Process, args ...interface{}) (interface{}, error) {
 	tgs.err <- nil
-	return nil
+	return nil, nil
 }
-func (tgs *testGenServer) HandleCast(message etf.Term, state interface{}) (string, interface{}) {
+func (tgs *testGenServer) HandleCast(message etf.Term, state GenServerState) string {
 	// fmt.Printf("testGenServer ({%s, %s}): HandleCast: %#v\n", tgs.process.name, tgs.process.Node.FullName, message)
 	tgs.err <- nil
-	return "noreply", state
+	return "noreply"
 }
-func (tgs *testGenServer) HandleCall(from etf.Tuple, message etf.Term, state interface{}) (string, etf.Term, interface{}) {
+func (tgs *testGenServer) HandleCall(from etf.Tuple, message etf.Term, state GenServerState) (string, etf.Term) {
 	// fmt.Printf("testGenServer ({%s, %s}): HandleCall: %#v, From: %#v\n", tgs.process.name, tgs.process.Node.FullName, message, from)
-	return "reply", message, state
+	return "reply", message
 }
-func (tgs *testGenServer) HandleInfo(message etf.Term, state interface{}) (string, interface{}) {
+func (tgs *testGenServer) HandleInfo(message etf.Term, state GenServerState) string {
 	// fmt.Printf("testGenServer ({%s, %s}): HandleInfo: %#v\n", tgs.process.name, tgs.process.Node.FullName, message)
 	tgs.err <- nil
-	return "noreply", state
+	return "noreply"
 }
-func (tgs *testGenServer) Terminate(reason string, state interface{}) {
+func (tgs *testGenServer) Terminate(reason string, state GenServerState) {
 	// fmt.Printf("testGenServer ({%s, %s}): Terminate: %#v\n", tgs.process.name, tgs.process.Node.FullName, reason)
 	tgs.err <- nil
 }

@@ -11,31 +11,10 @@ import (
 
 type testRPCGenServer struct {
 	GenServer
-	process *Process
-	// v       chan interface{}
 }
 
-func (trpc *testRPCGenServer) Init(p *Process, args ...interface{}) (state interface{}) {
-	// trpc.v <- p.Self()
-	trpc.process = p
-	return nil
-}
-func (trpc *testRPCGenServer) HandleCast(message etf.Term, state interface{}) (string, interface{}) {
-	// fmt.Printf("testRPCGenServer ({%s, %s}): HandleCast: %#v\n", trpc.process.name, trpc.process.Node.FullName, message)
-	// trpc.v <- message
-	return "noreply", state
-}
-func (trpc *testRPCGenServer) HandleCall(from etf.Tuple, message etf.Term, state interface{}) (string, etf.Term, interface{}) {
-	// fmt.Printf("testRPCGenServer ({%s, %s}): HandleCall: %#v, From: %#v\n", trpc.process.name, trpc.process.Node.FullName, message, from)
-	return "reply", message, state
-}
-func (trpc *testRPCGenServer) HandleInfo(message etf.Term, state interface{}) (string, interface{}) {
-	// fmt.Printf("testRPCGenServer ({%s, %s}): HandleInfo: %#v\n", trpc.process.name, trpc.process.Node.FullName, message)
-	// trpc.v <- message
-	return "noreply", state
-}
-func (trpc *testRPCGenServer) Terminate(reason string, state interface{}) {
-	// fmt.Printf("\ntestRPCGenServer ({%s, %s}): Terminate: %#v\n", trpc.process.name, trpc.process.Node.FullName, reason)
+func (trpc *testRPCGenServer) HandleCall(from etf.Tuple, message etf.Term, state GenServerState) (string, etf.Term) {
+	return "reply", message
 }
 
 func TestRPC(t *testing.T) {
