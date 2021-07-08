@@ -39,7 +39,7 @@ func (h *Handler) HandleCast(message etf.Term, state ergo.GenServerState) string
 	w.Header().Set("Content-Type", "application/json")
 	response := response{
 		Request: state.State.(*st).r.URL.Path,
-		Answer:  "This is answer for your request",
+		Answer:  "Your request has been handled",
 	}
 
 	err := json.NewEncoder(w).Encode(response)
