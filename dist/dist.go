@@ -122,8 +122,7 @@ type Link struct {
 	flusher *linkFlusher
 
 	// atom cache for incomming messages
-	cacheIn      [2048]etf.Atom
-	CacheInMutex sync.Mutex
+	cacheIn [2048]etf.Atom
 
 	// atom cache for outgoing messages
 	cacheOut *etf.AtomCache
@@ -553,8 +552,6 @@ func (l *Link) ReadHandlePacket(ctx context.Context, recv <-chan *lib.Buffer,
 		control, message, err := l.ReadPacket(b.B)
 		if err != nil {
 			fmt.Println("Malformed Dist proto at link with", l.PeerName(), err)
-			// mutex wasn't unlocked due to the error, so unlock it here
-			l.CacheInMutex.Unlock()
 			l.Close()
 			return
 		}
@@ -592,9 +589,6 @@ func (l *Link) ReadPacket(packet []byte) (etf.Term, etf.Term, error) {
 func (l *Link) ReadDist(packet []byte) (etf.Term, etf.Term, error) {
 	switch packet[0] {
 	case protoDistCompressed:
-		// release atom cache mutex for the further socket reading
-		l.CacheInMutex.Unlock()
-
 		// do we need it?
 		// zip.NewReader(...)
 		// ...unzipping to the new buffer b (lib.TakeBuffer)
@@ -608,9 +602,6 @@ func (l *Link) ReadDist(packet []byte) (etf.Term, etf.Term, error) {
 		var err error
 
 		cache, packet = l.decodeDistHeaderAtomCache(packet[1:])
-		// release atom cache mutex for the further socket reading
-		l.CacheInMutex.Unlock()
-
 		if packet == nil {
 			return nil, nil, fmt.Errorf("incorrect dist header atom cache")
 		}
@@ -636,9 +627,6 @@ func (l *Link) ReadDist(packet []byte) (etf.Term, etf.Term, error) {
 		return control, message, nil
 
 	case protoDistFragment1, protoDistFragmentN:
-		// release atom cache mutex for the further socket reading
-		l.CacheInMutex.Unlock()
-
 		first := packet[0] == protoDistFragment1
 		if len(packet) < 18 {
 			return nil, nil, fmt.Errorf("malformed fragment")

@@ -410,7 +410,6 @@ next:
 			r.mutexNames.Unlock()
 			goto next
 		}
-		lib.Log("[%s] process with name %s is not found", r.node.FullName, tto)
 		r.mutexNames.Unlock()
 
 	case etf.Atom:
@@ -421,7 +420,6 @@ next:
 			r.mutexNames.Unlock()
 			goto next
 		}
-		lib.Log("[%s] process with name %s is not found", r.node.FullName, tto)
 		r.mutexNames.Unlock()
 	default:
 		lib.Log("[%s] unknow sender type %#v", r.node.FullName, tto)

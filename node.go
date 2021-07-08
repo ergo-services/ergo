@@ -414,21 +414,6 @@ func (n *Node) serve(link *dist.Link, opts NodeOptions) error {
 			// recv channel (link.ReadHandlePacket)
 			b.B = b.B[:packetLength]
 			recv = receivers.recv[receivers.i]
-
-			// The main idea of using Atom Cache Mutex here is that
-			// we have N goroutines for the processing packets we
-			// got here. So, there is a case when we got two packets
-			// like MONITOR, REG_SEND (which is pretty usual for
-			// the regular  gen_server:call from the Erlang). The first
-			// packet (MONITOR)  has new atom cache entries, which
-			// should use in the next packet (REG_SEND). But sometimes,
-			// doing handle REG_SEND packet,  the atom cache still
-			// has no entries due to processing of the MONITOR packet
-			// is doing on another goroutine and hasn't finished yet.
-			// So, we lock cache here and release it right after the
-			// atom cache part of this packet is processed (see dist/dist.go
-			// for the details)
-			link.CacheInMutex.Lock()
 			recv <- b
 
 			// set new buffer as a current for the next reading
