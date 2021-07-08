@@ -20,7 +20,11 @@ import (
 	"github.com/halturin/ergo/lib"
 )
 
-var dTrace bool
+var (
+	dTrace            bool
+	ErrMissingInCache = fmt.Errorf("Missing in cache")
+	ErrMalformed      = fmt.Errorf("Malformed")
+)
 
 func init() {
 	rand.Seed(time.Now().UTC().UnixNano())
@@ -43,11 +47,12 @@ const (
 	defaultCleanDeadline = 30 * time.Second // for checkClean
 
 	// http://erlang.org/doc/apps/erts/erl_ext_dist.html#distribution_header
-	protoDist           = 131
-	protoDistCompressed = 80
-	protoDistMessage    = 68
-	protoDistFragment1  = 69
-	protoDistFragmentN  = 70
+	protoDist             = 131
+	protoDistCompressed   = 80
+	protoDistMessage      = 68
+	protoDistMessageRetry = 200 // for the internal usage only
+	protoDistFragment1    = 69
+	protoDistFragmentN    = 70
 
 	// distribution flags are defined here https://erlang.org/doc/apps/erts/erl_dist_protocol.html#distribution-flags
 	PUBLISHED           flagId = 0x1
@@ -112,7 +117,8 @@ type Link struct {
 	flusher *linkFlusher
 
 	// atom cache for incomming messages
-	cacheIn [2048]etf.Atom
+	cacheIn      [2048]*etf.Atom
+	cacheInMutex sync.Mutex
 
 	// atom cache for outgoing messages
 	cacheOut *etf.AtomCache
@@ -527,7 +533,7 @@ func (l *Link) Read(b *lib.Buffer) (int, error) {
 
 }
 
-func (l *Link) ReadHandlePacket(ctx context.Context, recv <-chan *lib.Buffer,
+func (l *Link) ReadHandlePacket(ctx context.Context, recv chan *lib.Buffer,
 	handler func(string, etf.Term, etf.Term)) {
 	var b *lib.Buffer
 
@@ -541,9 +547,42 @@ func (l *Link) ReadHandlePacket(ctx context.Context, recv <-chan *lib.Buffer,
 
 		// read and decode recieved packet
 		control, message, err := l.ReadPacket(b.B)
+
+		//////////////////////////////////////////////////////////////////////
+		// The main idea of getting this packet back into the 'recv'
+		// channel is that we have N goroutines for the processing packets.
+		// There is a case when we got two packets like MONITOR, REG_SEND
+		// (which is pretty usual for the regular gen_server:call from the Erlang).
+		// The first packet (MONITOR) has new atom cache entries, which
+		// should use in the next packet (REG_SEND). But sometimes,
+		// doing handle REG_SEND packet, the atom cache still
+		// has no entries due to processing of the MONITOR packet
+		// is doing on another goroutine and hasn't finished yet.
+		//
+		// Besides that, if we have the only packet in the 'recv' channle add some
+		// delay before we take another attempt to handle this packet.
+		// If this delay is not enought it seems we got disordered data. Drop
+		// this connection.
+		if err == ErrMissingInCache {
+			select {
+			case recv <- b:
+				if len(recv) == 1 {
+					time.Sleep(100 * time.Millisecond)
+				}
+				continue
+			default:
+				fmt.Println("Disordered data at link with", l.PeerName())
+				l.Close()
+				lib.ReleaseBuffer(b)
+				return
+			}
+		}
+		//////////////////////////////////////////////////////////////////////
+
 		if err != nil {
 			fmt.Println("Malformed Dist proto at link with", l.PeerName(), err)
 			l.Close()
+			lib.ReleaseBuffer(b)
 			return
 		}
 
@@ -587,14 +626,21 @@ func (l *Link) ReadDist(packet []byte) (etf.Term, etf.Term, error) {
 		// otherwise it will cause recursive call and im not sure if its ok
 		// return l.ReadDist(b)
 
-	case protoDistMessage:
+	case protoDistMessage, protoDistMessageRetry:
 		var control, message etf.Term
 		var cache []etf.Atom
 		var err error
+		var original []byte
 
-		cache, packet = l.decodeDistHeaderAtomCache(packet[1:])
-		if packet == nil {
-			return nil, nil, fmt.Errorf("incorrect dist header atom cache")
+		original = packet
+		cache, packet, err = l.decodeDistHeaderAtomCache(packet[1:])
+		if err == ErrMissingInCache && original[0] == protoDistMessage {
+			original[0] = protoDistMessageRetry
+			return nil, nil, ErrMissingInCache
+		}
+
+		if err != nil {
+			return nil, nil, fmt.Errorf("incorrect dist header atom cache: %s", err)
 		}
 
 		control, packet, err = etf.Decode(packet, cache)
@@ -621,6 +667,14 @@ func (l *Link) ReadDist(packet []byte) (etf.Term, etf.Term, error) {
 		first := packet[0] == protoDistFragment1
 		if len(packet) < 18 {
 			return nil, nil, fmt.Errorf("malformed fragment")
+		}
+
+		// We should decode first fragment in order to process Atom Cache Header
+		// to get rid the case when we get the first fragment of the packet
+		// and the next packet is not the part of the fragmented packet, but with
+		// the ids were encoded in the first fragment
+		if first {
+			l.decodeDistHeaderAtomCache(packet[1:])
 		}
 
 		if assembled, err := l.decodeFragment(packet[1:], first); assembled != nil {
@@ -745,20 +799,20 @@ func (l *Link) decodeFragment(packet []byte, first bool) (*lib.Buffer, error) {
 	return nil, nil
 }
 
-func (l *Link) decodeDistHeaderAtomCache(packet []byte) ([]etf.Atom, []byte) {
+func (l *Link) decodeDistHeaderAtomCache(packet []byte) ([]etf.Atom, []byte, error) {
 	// all the details are here https://erlang.org/doc/apps/erts/erl_ext_dist.html#normal-distribution-header
 
 	// number of atom references are present in package
 	references := int(packet[0])
 	if references == 0 {
-		return nil, packet[1:]
+		return nil, packet[1:], nil
 	}
 
 	cache := make([]etf.Atom, references)
 	flagsLen := references/2 + 1
 	if len(packet) < 1+flagsLen {
 		// malformed
-		return nil, nil
+		return nil, nil, ErrMalformed
 	}
 	flags := packet[1 : flagsLen+1]
 
@@ -778,7 +832,7 @@ func (l *Link) decodeDistHeaderAtomCache(packet []byte) ([]etf.Atom, []byte) {
 	for i := 0; i < references; i++ {
 		if len(packet) < 1+headerAtomLength {
 			// malformed
-			return nil, nil
+			return nil, nil, ErrMalformed
 		}
 		shift = uint((i & 0x01) * 4)
 		flag := (flags[i/2] >> shift) & 0x0F
@@ -796,23 +850,31 @@ func (l *Link) decodeDistHeaderAtomCache(packet []byte) ([]etf.Atom, []byte) {
 			packet = packet[1+headerAtomLength:]
 			if len(packet) < int(atomLen) {
 				// malformed
-				return nil, nil
+				return nil, nil, ErrMalformed
 			}
-			atom := string(packet[:atomLen])
+			atom := etf.Atom(packet[:atomLen])
 			// store in temporary cache for decoding
-			cache[i] = etf.Atom(atom)
+			cache[i] = atom
 
 			// store in link' cache
-			l.cacheIn[idx] = etf.Atom(atom)
+			l.cacheInMutex.Lock()
+			l.cacheIn[idx] = &atom
+			l.cacheInMutex.Unlock()
 			packet = packet[atomLen:]
 			continue
 		}
 
-		cache[i] = l.cacheIn[idx]
+		l.cacheInMutex.Lock()
+		c := l.cacheIn[idx]
+		l.cacheInMutex.Unlock()
+		if c == nil {
+			return cache, packet, ErrMissingInCache
+		}
+		cache[i] = *c
 		packet = packet[1:]
 	}
 
-	return cache, packet
+	return cache, packet, nil
 }
 
 func (l *Link) SetAtomCache(cache *etf.AtomCache) {

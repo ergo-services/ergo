@@ -2,8 +2,9 @@ package ergo
 
 import (
 	"fmt"
-	"github.com/halturin/ergo/etf"
 	"sync"
+
+	"github.com/halturin/ergo/etf"
 )
 
 var (
