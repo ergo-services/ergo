@@ -90,6 +90,7 @@ func TestGenStageSimple(t *testing.T) {
 		t.Fatal("can't start node")
 		return
 	}
+	fmt.Println("OK")
 
 	producer := &GenStageProducerTest{
 		value: make(chan interface{}, 2),
