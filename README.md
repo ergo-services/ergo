@@ -206,7 +206,8 @@ See `examples/` for more details
 * [Supervisor](examples/supervisor)
 * [Application](examples/application)
 * [Multinode](examples/multinode)
-* [NodeWithTLS](examples/nodetls)
+* [Node with TLS](examples/nodetls)
+* [Node with HTTP server](examples/http)
 
 ### Elixir Phoenix Users ###
 
