@@ -58,6 +58,7 @@ Here are the changes of latest release. For more details see the [ChangeLog](Cha
 
 * Added support of Erlang/OTP 24
 * Introduced new behaviour GenSaga
+* Added simple example `example/http` to demonsrate how HTTP server can be integrated into the Ergo node.
 * Important: GenServer interface got significant improvements to be easier to use (without backward compatibility).
 * Fixed RPC issue #45
 * Fixed internal timer issue #48
@@ -151,68 +152,36 @@ import (
 	"github.com/halturin/ergo/etf"
 )
 
+// ExampleGenServer simple implementation of GenServer
 type ExampleGenServer struct {
 	ergo.GenServer
-	process *ergo.Process
 }
 
-type State struct {
-	value int
-}
-
-func (egs *ExampleGenServer) Init(p *ergo.Process, args ...interface{}) (state interface{}) {
-	fmt.Printf("Init: args %v \n", args)
-	egs.process = p
-	InitialState := &State{
-		value: args[0].(int), // 100
+func (egs *ExampleGenServer) HandleInfo(message etf.Term, state ergo.GenServerState) string {
+	value := message.(int)
+	fmt.Printf("HandleInfo: %#v \n", message)
+	if value > 104 {
+		return "stop"
 	}
-	return InitialState
-}
-
-func (egs *ExampleGenServer) HandleCast(message etf.Term, state interface{}) string {
-	fmt.Printf("HandleCast: %#v (state value %d) \n", message, state.(*State).value)
-	time.Sleep(1 * time.Second)
-	state.(*State).value++
-
-	if state.(*State).value > 103 {
-		egs.process.Send(egs.process.Self(), "hello")
-	} else {
-		egs.process.Cast(egs.process.Self(), "hi")
-	}
-
+	// sending a message with delay
+	state.Process.SendAfter(state.Process.Self(), value+1, time.Duration(1*time.Second))
 	return "noreply"
-}
-
-func (egs *ExampleGenServer) HandleCall(from etf.Tuple, message etf.Term, state interface{}) (string, etf.Term) {
-	fmt.Printf("HandleCall: %#v, From: %#v\n", message, from)
-	return "reply", message
-}
-
-func (egs *ExampleGenServer) HandleInfo(message etf.Term, state interface{}) string {
-	fmt.Printf("HandleInfo: %#v (state value %d) \n", message, state.(*State).value)
-	time.Sleep(1 * time.Second)
-	state.(*State).value++
-	if state.(*State).value > 106 {
-		return "stop", "normal"
-	} else {
-		egs.process.Send(egs.process.Self(), "hello")
-	}
-	return "noreply"
-}
-
-func (egs *ExampleGenServer) Terminate(reason string, state interface{}) {
-	fmt.Printf("Terminate: %#v \n", reason)
 }
 
 func main() {
+	// create a new node
 	node := ergo.CreateNode("node@localhost", "cookies", ergo.NodeOptions{})
 
-	gs1 := &ExampleGenServer{}
-	process, _ := node.Spawn("gs1", ergo.ProcessOptions{}, gs1, 100)
-	process.Cast(process.Self(), "hey")
+	// spawn a new process of genserver
+	process, _ := node.Spawn("gs1", ergo.ProcessOptions{}, &ExampleGenServer{})
 
+	// sending a message to itself
+	process.Send(process.Self(), 100)
+
+	// waiting for the process termination.
 	process.Wait()
 	fmt.Println("exited")
+	node.Stop()
 }
 
 ```
@@ -220,16 +189,13 @@ func main() {
 here is output of this code
 
 ```shell
-$ go run ./examples/simple/GenServer.go
-Init: args [100]
-HandleCast: "hey" (state value 100)
-HandleCast: "hi" (state value 101)
-HandleCast: "hi" (state value 102)
-HandleCast: "hi" (state value 103)
-HandleInfo: "hello" (state value 104)
-HandleInfo: "hello" (state value 105)
-HandleInfo: "hello" (state value 106)
-Terminate: "normal"
+$ go run ./examples/simple
+HandleInfo: 100
+HandleInfo: 101
+HandleInfo: 102
+HandleInfo: 103
+HandleInfo: 104
+HandleInfo: 105
 exited
 ```
 
@@ -249,8 +215,7 @@ to an ergo node. The reason is that, in addition to global_name_server and net_k
 Phoenix attempts to broadcast messages to the [pg2 PubSub handler](https://hexdocs.pm/phoenix/1.1.0/Phoenix.PubSub.PG2.html)
 
 To work with Phoenix nodes, you must create and register a dedicated pg2 GenServer, and
-spawn it inside your node. Take inspiration from the global_name_server.go for the rest of
-the GenServer methods, but the Spawn must have "pg2" as a process name:
+spawn it inside your node. The spawning process must have "pg2" as a process name:
 
 ```golang
 type Pg2GenServer struct {

@@ -77,10 +77,12 @@ func main() {
 	node := ergo.CreateNode(NodeName, Cookie, opts)
 
 	// Initialize new instance of demoGenServ structure which implements Process behaviour
-	demoGS := new(demoGenServ)
+	demoGS := &demoGenServ{}
 
 	// Spawn process with one arguments
 	process, _ := node.Spawn(GenServerName, ergo.ProcessOptions{}, demoGS)
+
+	// Print how it can be used along with the Erlang node
 	fmt.Println("Run erl shell:")
 	fmt.Printf("erl -name %s -setcookie %s\n", "erl-"+node.FullName, Cookie)
 
