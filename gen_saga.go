@@ -35,7 +35,7 @@ type GenSagaState struct {
 }
 
 type GenSagaTransaction struct {
-	Options GenSagaTranasctionOptions
+	Options GenSagaTransactionOptions
 	Name    string
 	Pid     etf.Pid
 	Ref     etf.Ref
@@ -65,7 +65,7 @@ type GenSagaBehaviour interface {
 	// Optional callbacks
 	//
 
-	HandleNext(tx GenSagaTransaction, state GenSagaState) error
+	HandleNext(tx GenSagaTransaction, arg interface{}, state GenSagaState) error
 	HandleTimeout(tx GenSagaTransaction, timeout int, state GenSagaState) error
 	HandleInterim(tx GenSagaTransaction, interim interface{}, state GenSagaState) error
 
@@ -93,7 +93,7 @@ func (gs *GenSaga) InitSaga(process *Process, args ...interface{}) (GenSagaOptio
 	return opts, nil
 }
 
-func (gs *GenSaga) HandleNext(tx GenSagaTransaction, args ...interface{}, state GenSagaState) error {
+func (gs *GenSaga) HandleNext(tx GenSagaTransaction, arg interface{}, state GenSagaState) error {
 	fmt.Printf("HandleNext: unhandled message %#v\n", tx)
 	return nil
 }
