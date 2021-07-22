@@ -2,14 +2,15 @@ package ergo
 
 import (
 	"fmt"
-	"github.com/halturin/ergo/etf"
 	"math/rand"
+
+	"github.com/halturin/ergo/etf"
 )
 
-// GenStageDispatcherBehaviour defined interface for the dispatcher
+// GenStageDispatcherBehavior defined interface for the dispatcher
 // implementation. To create a custom dispatcher you should implement this interface
 // and use it in GenStageOptions as a Dispatcher
-type GenStageDispatcherBehaviour interface {
+type GenStageDispatcherBehavior interface {
 	// InitStageDispatcher(opts)
 	Init(opts GenStageOptions) interface{}
 
@@ -38,7 +39,7 @@ type dispatcherPartition struct {
 // to the highest demand. This is the default dispatcher used
 // by GenStage. In order to avoid greedy consumers, it is recommended
 // that all consumers have exactly the same maximum demand.
-func CreateGenStageDispatcherDemand() GenStageDispatcherBehaviour {
+func CreateGenStageDispatcherDemand() GenStageDispatcherBehavior {
 	return &dispatcherDemand{}
 }
 
@@ -47,7 +48,7 @@ func CreateGenStageDispatcherDemand() GenStageDispatcherBehaviour {
 // This dispatcher guarantees that events are dispatched to
 // all consumers without exceeding the demand of any given consumer.
 // The demand is only sent upstream once all consumers ask for data.
-func CreateGenStageDispatcherBroadcast() GenStageDispatcherBehaviour {
+func CreateGenStageDispatcherBroadcast() GenStageDispatcherBehavior {
 	return &dispatcherBroadcast{}
 }
 
@@ -56,7 +57,7 @@ func CreateGenStageDispatcherBroadcast() GenStageDispatcherBehaviour {
 // 'hash' should return number within range [0,n). Value outside of this range
 // is discarding event.
 // If 'hash' is nil the random partition will be used on every event.
-func CreateGenStageDispatcherPartition(n uint, hash func(etf.Term) int) GenStageDispatcherBehaviour {
+func CreateGenStageDispatcherPartition(n uint, hash func(etf.Term) int) GenStageDispatcherBehavior {
 	if hash == nil {
 		hash = func(event etf.Term) int {
 			p := rand.Intn(int(n) - 1)

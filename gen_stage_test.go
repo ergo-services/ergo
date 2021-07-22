@@ -11,7 +11,7 @@ import (
 type GenStageProducerTest struct {
 	GenStage
 	value      chan interface{}
-	dispatcher GenStageDispatcherBehaviour
+	dispatcher GenStageDispatcherBehavior
 }
 
 type GenStageConsumerTest struct {
@@ -168,15 +168,15 @@ func TestGenStageSimple(t *testing.T) {
 	waitForResultWithValue(t, producer.value, etf.Tuple{"canceled", sub3, "not a producer"})
 
 	// case 4: invoking GenServer callbacks
-	fmt.Printf("... Invoking GenServer's calback handlers HandleGenStageCall: ")
+	fmt.Printf("... Invoking GenServer's callback handlers HandleGenStageCall: ")
 	if _, err := producerProcess.Call("stageConsumer", "test call"); err != nil {
 		t.Fatal(err)
 	}
 	waitForResultWithValue(t, consumer.value, "test call")
-	fmt.Printf("... Invoking GenServer's calback handlers HandleGenStageCast: ")
+	fmt.Printf("... Invoking GenServer's callback handlers HandleGenStageCast: ")
 	producerProcess.Cast("stageConsumer", "test cast")
 	waitForResultWithValue(t, consumer.value, "test cast")
-	fmt.Printf("... Invoking GenServer's calback handlers HandleGenStageInfo: ")
+	fmt.Printf("... Invoking GenServer's callback handlers HandleGenStageInfo: ")
 	producerProcess.Send("stageConsumer", "test info")
 	waitForResultWithValue(t, consumer.value, "test info")
 
@@ -410,7 +410,7 @@ func TestGenStageDistributed(t *testing.T) {
 	if err := producerProcess2.WaitWithTimeout(500 * time.Millisecond); err != nil {
 		t.Fatal(err)
 	}
-	fmt.Printf("... Producer process terminated normaly. Consumer should receive 'canceled' with reason 'normal': ")
+	fmt.Printf("... Producer process terminated normally. Consumer should receive 'canceled' with reason 'normal': ")
 	waitForResultWithValue(t, consumer.value, etf.Tuple{"canceled", sub2, "normal"})
 	fmt.Printf("... Consumer process should be terminated due to GenStageCancelPermanent mode: ")
 	if err := consumerProcess1.WaitWithTimeout(500 * time.Millisecond); err != nil {

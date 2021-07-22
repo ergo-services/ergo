@@ -478,7 +478,7 @@ func TestLinkLocalLocal(t *testing.T) {
 
 	node1gs2.Exit(etf.Pid{}, "normal")
 
-	// wait a bit to make sure if we recieve anything (shouldnt receive)
+	// wait a bit to make sure if we receive anything (shouldnt receive)
 	waitForTimeout(t, gs1.v)
 	fmt.Println("OK")
 
@@ -627,7 +627,7 @@ func TestLinkLocalRemote(t *testing.T) {
 
 	node2gs2.Exit(etf.Pid{}, "normal")
 
-	// wait a bit to make sure if we recieve anything (shouldnt receive)
+	// wait a bit to make sure if we receive anything (shouldnt receive)
 	waitForTimeout(t, gs1.v)
 
 	if err := chechCleanLinkPid(node1, node1gs1.Self()); err != nil {

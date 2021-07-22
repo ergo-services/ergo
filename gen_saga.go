@@ -42,8 +42,8 @@ type GenSagaTransaction struct {
 	parents []etf.Pid
 }
 
-// GenSagaBehaviour interface
-type GenSagaBehaviour interface {
+// GenSagaBehavior interface
+type GenSagaBehavior interface {
 	//
 	// Mandatory callbacks
 	//
@@ -61,12 +61,14 @@ type GenSagaBehaviour interface {
 	// HandleDone
 	HandleDone(tx GenSagaTransaction, result interface{}, state GenSagaState) error
 
+	// HandleTimeout
+	HandleTimeout(tx GenSagaTransaction, timeout int, state GenSagaState) error
+
 	//
 	// Optional callbacks
 	//
 
-	HandleNext(tx GenSagaTransaction, arg interface{}, state GenSagaState) error
-	HandleTimeout(tx GenSagaTransaction, timeout int, state GenSagaState) error
+	HandleNext(tx GenSagaTransaction, arlg interface{}, state GenSagaState) error
 	HandleInterim(tx GenSagaTransaction, interim interface{}, state GenSagaState) error
 
 	// HandleGenStageCall this callback is invoked on Process.Call. This method is optional
@@ -74,7 +76,7 @@ type GenSagaBehaviour interface {
 	HandleGenSagaCall(from etf.Tuple, message etf.Term, state GenSagaState) (string, etf.Term)
 	// HandleGenStageCast this callback is invoked on Process.Cast. This method is optional
 	// for the implementation
-	HandleGenSageCast(message etf.Term, state GenSagaState) string
+	HandleGenSagaCast(message etf.Term, state GenSagaState) string
 	// HandleGenStageInfo this callback is invoked on Process.Send. This method is optional
 	// for the implementation
 	HandleGenSagaInfo(message etf.Term, state GenSagaState) string
@@ -87,11 +89,6 @@ func GenSagaTransactionStart(process *Process, args ...interface{}) (interface{}
 }
 
 // default GenSaga callbacks
-
-func (gs *GenSaga) InitSaga(process *Process, args ...interface{}) (GenSagaOptions, error) {
-	opts := GenSagaOptions{}
-	return opts, nil
-}
 
 func (gs *GenSaga) HandleNext(tx GenSagaTransaction, arg interface{}, state GenSagaState) error {
 	fmt.Printf("HandleNext: unhandled message %#v\n", tx)
@@ -130,7 +127,7 @@ func (gs *GenSaga) HandleGenSagaInfo(message etf.Term, state GenSagaState) strin
 func (gs *GenSaga) Init(p *Process, args ...interface{}) (interface{}, error) {
 	state := &GenSagaState{}
 
-	state.options, state.internal = p.GetObject().(GenSagaBehaviour).InitSaga(p, args)
+	state.options, state.internal = p.GetObject().(GenSagaBehavior).InitSaga(p, args)
 	return state, nil
 }
 

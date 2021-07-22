@@ -9,7 +9,7 @@ import (
 
 type Producer struct {
 	ergo.GenStage
-	dispatcher ergo.GenStageDispatcherBehaviour
+	dispatcher ergo.GenStageDispatcherBehavior
 }
 
 func (g *Producer) InitStage(process *ergo.Process, args ...interface{}) (ergo.GenStageOptions, interface{}) {

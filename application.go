@@ -32,8 +32,8 @@ const (
 	ApplicationStartTransient = "transient"
 )
 
-// ApplicationBehaviour interface
-type ApplicationBehaviour interface {
+// ApplicationBehavior interface
+type ApplicationBehavior interface {
 	Load(args ...interface{}) (ApplicationSpec, error)
 	Start(process *Process, args ...interface{})
 }
@@ -48,7 +48,7 @@ type ApplicationSpec struct {
 	// Depends		[]
 	Children  []ApplicationChildSpec
 	startType ApplicationStartType
-	app       ApplicationBehaviour
+	app       ApplicationBehavior
 	process   *Process
 	mutex     sync.Mutex
 }
@@ -60,7 +60,7 @@ type ApplicationChildSpec struct {
 	process *Process
 }
 
-// Application is implementation of ProcessBehaviour interface
+// Application is implementation of ProcessBehavior interface
 type Application struct{}
 
 type ApplicationInfo struct {
@@ -90,7 +90,7 @@ func (a *Application) Loop(p *Process, args ...interface{}) string {
 
 	p.currentFunction = "Application:Start"
 
-	object.(ApplicationBehaviour).Start(p, args[1:]...)
+	object.(ApplicationBehavior).Start(p, args[1:]...)
 	lib.Log("Application spec %#v\n", spec)
 	p.ready <- nil
 

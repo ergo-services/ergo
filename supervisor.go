@@ -75,7 +75,7 @@ const (
 
 	// SupervisorChildShutdownInfinity means that the supervisor will
 	// wait for an exit signal as long as child takes
-	SupervisorChildShutdownInfinity = 0 // default shutdown behaviour
+	SupervisorChildShutdownInfinity = 0 // default shutdown behavior
 
 	// SupervisorChildShutdownTimeout5sec predefined timeout value
 	SupervisorChildShutdownTimeout5sec = 5
@@ -95,8 +95,8 @@ type supervisorChildState int
 //   SupervisorChildShutdownTimeout5sec (5)
 type SupervisorChildShutdown int
 
-// SupervisorBehaviour interface
-type SupervisorBehaviour interface {
+// SupervisorBehavior interface
+type SupervisorBehavior interface {
 	Init(args ...interface{}) SupervisorSpec
 }
 
@@ -117,14 +117,14 @@ type SupervisorChildSpec struct {
 	process  *Process
 }
 
-// Supervisor is implementation of ProcessBehaviour interface
+// Supervisor is implementation of ProcessBehavior interface
 type Supervisor struct {
 	spec *SupervisorSpec
 }
 
 func (sv *Supervisor) Loop(svp *Process, args ...interface{}) string {
 	object := svp.object
-	spec := object.(SupervisorBehaviour).Init(args...)
+	spec := object.(SupervisorBehavior).Init(args...)
 	lib.Log("Supervisor spec %#v\n", spec)
 	svp.ready <- nil
 

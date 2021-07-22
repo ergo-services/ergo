@@ -81,8 +81,8 @@ type ProcessOptions struct {
 // ProcessExitFunc initiate a graceful stopping process
 type ProcessExitFunc func(from etf.Pid, reason string)
 
-// ProcessBehaviour interface contains methods you should implement to make own process behaviour
-type ProcessBehaviour interface {
+// ProcessBehavior interface contains methods you should implement to make own process behaviour
+type ProcessBehavior interface {
 	Loop(*Process, ...interface{}) string // method which implements control flow of process
 }
 

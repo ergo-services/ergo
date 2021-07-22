@@ -3,13 +3,14 @@ package dist
 import (
 	"bytes"
 	"fmt"
-	"github.com/halturin/ergo/etf"
-	"github.com/halturin/ergo/lib"
 	"math/rand"
 	"net"
 	"reflect"
 	"testing"
 	"time"
+
+	"github.com/halturin/ergo/etf"
+	"github.com/halturin/ergo/lib"
 )
 
 func TestLinkRead(t *testing.T) {
@@ -112,8 +113,10 @@ func TestValidateChallengeAck(t *testing.T) {
 
 func TestDecodeDistHeaderAtomCache(t *testing.T) {
 	link := Link{}
-	link.cacheIn[1034] = "atom1"
-	link.cacheIn[5] = "atom2"
+	a1 := etf.Atom("atom1")
+	a2 := etf.Atom("atom2")
+	link.cacheIn[1034] = &a1
+	link.cacheIn[5] = &a2
 	packet := []byte{
 		131, 68, // start dist header
 		5, 4, 137, 9, // 5 atoms and theirs flags
@@ -132,12 +135,15 @@ func TestDecodeDistHeaderAtomCache(t *testing.T) {
 
 	cacheExpected := []etf.Atom{"atom1", "atom2", "reg", "call", "set_get_state"}
 	cacheInExpected := link.cacheIn
-	cacheInExpected[492] = "reg"
-	cacheInExpected[9] = "call"
-	cacheInExpected[494] = "set_get_state"
+	a3 := etf.Atom("reg")
+	a4 := etf.Atom("call")
+	a5 := etf.Atom("set_get_state")
+	cacheInExpected[492] = &a3
+	cacheInExpected[9] = &a4
+	cacheInExpected[494] = &a5
 
 	packetExpected := packet[34:]
-	cache, packet1 := link.decodeDistHeaderAtomCache(packet[2:])
+	cache, packet1, _ := link.decodeDistHeaderAtomCache(packet[2:])
 
 	if !bytes.Equal(packet1, packetExpected) {
 		t.Fatal("incorrect packet")

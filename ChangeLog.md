@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   there is example of usage `examples/nodetls/tlsGenServer.go`
 
-* Introduced [GenStage](https://hexdocs.pm/gen_stage/GenStage.html) behaviour implementation (originated from Elixir world).
+* Introduced [GenStage](https://hexdocs.pm/gen_stage/GenStage.html) behavior implementation (originated from Elixir world).
   `GenStage` is an abstraction built on top of `GenServer` to provide a simple way to create a distributed Producer/Consumer architecture, while automatically managing the concept of backpressure. This implementation is fully compatible with Elixir's GenStage. Example here `examples/genstage` or just run it `go run ./examples/genstage` to see it in action
 
 * Introduced new methods `AddStaticRoute`/`RemoveStaticRoute` for `Node`. This feature allows you to keep EPMD service behind a firewall.
@@ -55,7 +55,7 @@ the new one.
 
 - Completely reworked (almost from scratch) architecture whole project
 
-- Implemented linking process feature (in order to support Application/Supervisor behaviours)
+- Implemented linking process feature (in order to support Application/Supervisor behaviors)
 
 - Reworked Monitor-feature. Now it has full-featured support with remote process/nodes
 

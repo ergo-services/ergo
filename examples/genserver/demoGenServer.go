@@ -76,7 +76,7 @@ func main() {
 	// Initialize new node with given name, cookie, listening port range and epmd port
 	node := ergo.CreateNode(NodeName, Cookie, opts)
 
-	// Initialize new instance of demoGenServ structure which implements Process behaviour
+	// Initialize new instance of demoGenServ structure which implements Process behavior
 	demoGS := &demoGenServ{}
 
 	// Spawn process with one arguments

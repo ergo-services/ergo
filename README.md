@@ -20,15 +20,16 @@ The goal of this project is to leverage Erlang/OTP experience with Golang perfor
 
 ![image](https://user-images.githubusercontent.com/118860/113710255-c57d5500-96e3-11eb-9970-20f49008a990.png)
 
+* Support Erlang 24
 * Erlang node (run single/[multinode](#multinode))
 * [embedded EPMD](#epmd) (in order to get rid of erlang' dependencies)
 * Spawn Erlang-like processes
 * Register/unregister processes with simple atom
-* `GenServer` behaviour support (with atomic state)
-* `Supervisor` behaviour support (with all known restart strategies support)
-* `Application` behaviour support
-* `GenStage` behaviour support (originated from Elixir's [GenStage](https://hexdocs.pm/gen_stage/GenStage.html)). This is abstraction built on top of `GenServer` to provide a simple way to create a distributed Producer/Consumer architecture, while automatically managing the concept of backpressure. This implementation is fully compatible with Elixir's GenStage. Example here `examples/genstage` or just run it `go run ./examples/genstage` to see it in action
-* `GenSaga` behaviour support.
+* `GenServer` behavior support (with atomic state)
+* `Supervisor` behavior support (with all known restart strategies support)
+* `Application` behavior support
+* `GenStage` behavior support (originated from Elixir's [GenStage](https://hexdocs.pm/gen_stage/GenStage.html)). This is abstraction built on top of `GenServer` to provide a simple way to create a distributed Producer/Consumer architecture, while automatically managing the concept of backpressure. This implementation is fully compatible with Elixir's GenStage. Example here `examples/genstage` or just run it `go run ./examples/genstage` to see it in action
+* `GenSaga` behavior support.
 * Connect to (accept connection from) any Erlang node within a cluster (or clusters, if running as multinode)
 * Making sync request `process.Call`, async - `process.Cast` or `process.Send` in fashion of `gen_server:call`, `gen_server:cast`, `erlang:send` accordingly
 * Monitor processes/nodes
@@ -42,7 +43,6 @@ The goal of this project is to leverage Erlang/OTP experience with Golang perfor
 * RPC callbacks support
 * Experimental [observer support](#observer)
 * Unmarshalling terms into the struct using `etf.TermIntoStruct`, `etf.TermMapIntoStruct` or `etf.TermProplistIntoStruct`
-* Support Erlang 24. (including [fragmentation](http://blog.erlang.org/OTP-22-Highlights/) feature)
 * Encryption (TLS 1.3) support (including autogenerating self-signed certificates)
 * Tested and confirmed support Windows, Darwin (MacOS), Linux
 
@@ -57,7 +57,7 @@ Here are the changes of latest release. For more details see the [ChangeLog](Cha
 #### [1.3.0](https://github.com/halturin/ergo/releases/tag/v1.3.0) - 2021-09-07 ####
 
 * Added support of Erlang/OTP 24
-* Introduced new behaviour GenSaga
+* Introduced new behavior GenSaga. It implements a Saga design pattern - a sequence of transactions that updates each service state and publishes the result (or cancels the transaction or triggers the next transaction step). GenSaga also provides a feature of interim results, which can be used as transaction progress or part of pipeline processing.
 * Added simple example `example/http` to demonsrate how HTTP server can be integrated into the Ergo node.
 * Important: GenServer interface got significant improvements to be easier to use (without backward compatibility).
 * Fixed RPC issue #45
@@ -120,7 +120,7 @@ sources of these benchmarks are [here](https://github.com/halturin/ergobenchmark
 
 *Ergo Framework* has embedded EPMD implementation in order to run your node without external epmd process needs. By default, it works as a client with erlang' epmd daemon or others ergo's nodes either.
 
-The one thing that makes embedded EPMD different is the behaviour of handling connection hangs - if ergo' node is running as an EPMD client and lost connection, it tries either to run its own embedded EPMD service or to restore the lost connection.
+The one thing that makes embedded EPMD different is the behavior of handling connection hangs - if ergo' node is running as an EPMD client and lost connection, it tries either to run its own embedded EPMD service or to restore the lost connection.
 
 As an extra option, we provide EPMD service as a standalone application. There is a simple drop-in replacement of the original Erlang' epmd daemon.
 

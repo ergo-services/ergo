@@ -193,13 +193,13 @@ func (n *Node) Spawn(name string, opts ProcessOptions, object interface{}, args 
 			}
 
 			// we should close this channel otherwise if we try
-			// immediatelly call process.Exit it blocks this call forewer
+			// immediately call process.Exit it blocks this call forewer
 			// since there is nobody to read a message from this channel
 			close(process.gracefulExit)
 		}()
 
 		// start process loop
-		reason := object.(ProcessBehaviour).Loop(process, args...)
+		reason := object.(ProcessBehavior).Loop(process, args...)
 
 		// process stopped. unregister it and let everybody (who set up
 		// link/monitor) to know about it
@@ -503,11 +503,11 @@ func (n *Node) GetApplicationInfo(name string) (ApplicationInfo, error) {
 // into the node. It also loads the application specifications for any included applications
 func (n *Node) ApplicationLoad(app interface{}, args ...interface{}) error {
 
-	spec, err := app.(ApplicationBehaviour).Load(args...)
+	spec, err := app.(ApplicationBehavior).Load(args...)
 	if err != nil {
 		return err
 	}
-	spec.app = app.(ApplicationBehaviour)
+	spec.app = app.(ApplicationBehavior)
 	for i := range spec.Applications {
 		if e := n.ApplicationLoad(spec.Applications[i], args...); e != nil && e != ErrAppAlreadyLoaded {
 			return e
@@ -932,6 +932,9 @@ func generateSelfSignedCert() (tls.Certificate, error) {
 	}
 	serialNumberLimit := new(big.Int).Lsh(big.NewInt(1), 128)
 	serialNumber, err := rand.Int(rand.Reader, serialNumberLimit)
+	if err != nil {
+		return cert, err
+	}
 
 	template := x509.Certificate{
 		SerialNumber: serialNumber,

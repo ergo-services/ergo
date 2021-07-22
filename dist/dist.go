@@ -554,7 +554,7 @@ func (l *Link) ReadHandlePacket(ctx context.Context, recv chan *lib.Buffer,
 			return
 		}
 
-		// read and decode recieved packet
+		// read and decode received packet
 		control, message, err := l.ReadPacket(b.B)
 
 		//////////////////////////////////////////////////////////////////////

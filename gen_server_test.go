@@ -205,7 +205,7 @@ func waitForResultWithMultiValue(t *testing.T, w chan interface{}, values etf.Li
 					return
 				}
 				// i dont care about stack growing since 'values'
-				// usualy short
+				// usually short
 				waitForResultWithMultiValue(t, w, values)
 				break
 			}

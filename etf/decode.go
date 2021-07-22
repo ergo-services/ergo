@@ -55,7 +55,7 @@ var (
 	errInternal  = fmt.Errorf("Internal error")
 )
 
-// stackless implementaion is speeding up it up to x25 times
+// stackless implementation is speeding up it up to x25 times
 
 // it might looks hard to understand the logic, but
 // there are only two stages
@@ -70,7 +70,7 @@ func Decode(packet []byte, cache []Atom) (retTerm Term, retByte []byte, retErr e
 	var child *stackElement
 	var t byte
 	defer func() {
-		// We should catch any panic happend during decoding the raw data.
+		// We should catch any panic happened during decoding the raw data.
 		// Some of the Erlang' types can not be supported in Golang.
 		// As an example: Erlang map with tuple as a key cause a panic
 		// in Golang runtime with message:

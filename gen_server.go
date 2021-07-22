@@ -12,8 +12,8 @@ const (
 	DefaultCallTimeout = 5
 )
 
-// GenServerBehaviour interface
-type GenServerBehaviour interface {
+// GenServerBehavior interface
+type GenServerBehavior interface {
 	// Init(...) -> state
 	Init(process *Process, args ...interface{}) (interface{}, error)
 
@@ -36,7 +36,7 @@ type GenServerBehaviour interface {
 	Terminate(reason string, state GenServerState)
 }
 
-// GenServer is implementation of ProcessBehaviour interface for GenServer objects
+// GenServer is implementation of ProcessBehavior interface for GenServer objects
 type GenServer struct{}
 
 // GenServerState state of the GenServer process. State keeps the value returned from the Init callback.
@@ -48,7 +48,7 @@ type GenServerState struct {
 func (gs *GenServer) Loop(p *Process, args ...interface{}) string {
 	lockState := &sync.Mutex{}
 
-	gsState, err := p.object.(GenServerBehaviour).Init(p, args...)
+	gsState, err := p.object.(GenServerBehavior).Init(p, args...)
 	if err != nil {
 		return err.Error()
 	}
@@ -68,11 +68,11 @@ func (gs *GenServer) Loop(p *Process, args ...interface{}) string {
 
 		select {
 		case ex := <-p.gracefulExit:
-			p.object.(GenServerBehaviour).Terminate(ex.reason, state)
+			p.object.(GenServerBehavior).Terminate(ex.reason, state)
 			return ex.reason
 
 		case reason := <-stop:
-			p.object.(GenServerBehaviour).Terminate(reason, state)
+			p.object.(GenServerBehavior).Terminate(reason, state)
 			return reason
 
 		case msg := <-p.mailBox:
@@ -107,7 +107,7 @@ func (gs *GenServer) Loop(p *Process, args ...interface{}) string {
 
 						cf := p.currentFunction
 						p.currentFunction = "GenServer:HandleCall"
-						code, reply := p.object.(GenServerBehaviour).HandleCall(fromTuple, m.Element(3), state)
+						code, reply := p.object.(GenServerBehavior).HandleCall(fromTuple, m.Element(3), state)
 						p.currentFunction = cf
 						switch code {
 						case "reply":
@@ -137,7 +137,7 @@ func (gs *GenServer) Loop(p *Process, args ...interface{}) string {
 
 						cf := p.currentFunction
 						p.currentFunction = "GenServer:HandleCast"
-						code := p.object.(GenServerBehaviour).HandleCast(m.Element(2), state)
+						code := p.object.(GenServerBehavior).HandleCast(m.Element(2), state)
 						p.currentFunction = cf
 
 						switch code {
@@ -157,7 +157,7 @@ func (gs *GenServer) Loop(p *Process, args ...interface{}) string {
 
 						cf := p.currentFunction
 						p.currentFunction = "GenServer:HandleInfo"
-						code := p.object.(GenServerBehaviour).HandleInfo(message, state)
+						code := p.object.(GenServerBehavior).HandleInfo(message, state)
 						p.currentFunction = cf
 						switch code {
 						case "noreply":
@@ -183,7 +183,7 @@ func (gs *GenServer) Loop(p *Process, args ...interface{}) string {
 
 					cf := p.currentFunction
 					p.currentFunction = "GenServer:HandleInfo"
-					code := p.object.(GenServerBehaviour).HandleInfo(message, state)
+					code := p.object.(GenServerBehavior).HandleInfo(message, state)
 					p.currentFunction = cf
 
 					switch code {
@@ -205,7 +205,7 @@ func (gs *GenServer) Loop(p *Process, args ...interface{}) string {
 
 				cf := p.currentFunction
 				p.currentFunction = "GenServer:HandleInfo"
-				code := p.object.(GenServerBehaviour).HandleInfo(message, state)
+				code := p.object.(GenServerBehavior).HandleInfo(message, state)
 				p.currentFunction = cf
 
 				switch code {
