@@ -72,6 +72,7 @@ Here are the changes of latest release. For more details see the [ChangeLog](Cha
 * Fixed memory leaks #53
 * Fixed double panic issue #52
 * Fixed Atom Cache race conditioned issue #54
+* Fixed observer support
 
 
 ### Benchmarks ###
@@ -140,7 +141,9 @@ As an extra option, we provide EPMD service as a standalone application. There i
 
 ### Observer ###
 
- It allows you to see the most metrics/information using standard tool of Erlang distribution. The example below shows this feature in action using one of the [examples](examples/):
+It's a standard Erlang tool. Observer is a graphical tool for observing the characteristics of Erlang systems. The tool Observer displays system information, application supervisor trees, process information.
+
+Here you can see this feature in action using one of the [examples](examples/):
 
 ![observer demo](./.images/observer.gif)
 

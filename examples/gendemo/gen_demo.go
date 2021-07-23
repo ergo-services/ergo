@@ -31,10 +31,10 @@ type GenDemoBehavior interface {
 	// Mandatory callbacks
 	//
 
-	// InitSaga
+	// InitDemo
 	InitDemo(state *GenDemoState, args ...interface{}) error
 
-	// HandleHello invoked on a 'hello' request where 'n' is now many times it was received
+	// HandleHello invoked on a 'hello' request where 'n' is how many times it was received
 	HandleHello(state *GenDemoState, n int) error
 
 	//
@@ -117,18 +117,11 @@ func (gs *GenDemo) HandleInfo(state *ergo.GenServerState, message etf.Term) stri
 		reply := state.Process.GetObject().(GenDemoBehavior).HandleGenDemoInfo(st, message)
 		return reply
 	}
-	err := handleDemoRequest(st, m)
-	switch err {
-	case nil:
-		return "noreply"
-	case ErrStop:
-		return "stop"
-	case ErrUnsupportedRequest:
-		reply := state.Process.GetObject().(GenDemoBehavior).HandleGenDemoInfo(st, message)
-		return reply
-	default:
+	if err := handleDemoRequest(st, m); err != nil {
+		// stop with reason
 		return err.Error()
 	}
+	return "noreply"
 }
 
 func handleDemoRequest(state *GenDemoState, m demoMessage) error {
