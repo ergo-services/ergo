@@ -213,6 +213,7 @@ See `examples/` for more details
 
 * [GenServer](examples/genserver)
 * [GenStage](examples/genstage)
+* [GenDemo](examples/gendemo)
 * [Supervisor](examples/supervisor)
 * [Application](examples/application)
 * [Multinode](examples/multinode)
