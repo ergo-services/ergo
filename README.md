@@ -65,7 +65,7 @@ Here are the changes of latest release. For more details see the [ChangeLog](Cha
 * Added support of Erlang/OTP 24
 * Introduced new behavior GenSaga. It implements a Saga design pattern - a sequence of transactions that updates each service state and publishes the result (or cancels the transaction or triggers the next transaction step). GenSaga also provides a feature of interim results, which can be used as transaction progress or part of pipeline processing.
 * Added example `example/http` to demonsrate how HTTP server can be integrated into the Ergo node.
-* Added example `example/gendemo` - how to create a custom behavior (design pattern). Take inspiration from the `gen_stage.go` or `gen_saga.go` design patterns.
+* Added example `example/gendemo` - how to create a custom behavior (design pattern) on top of the GenServer. Take inspiration from the `gen_stage.go` or `gen_saga.go` design patterns.
 * Important: GenServer and GenStage interfaces got significant improvements to be easier to use (without backward compatibility). Make sure to update your code.
 * Fixed RPC issue #45
 * Fixed internal timer issue #48
