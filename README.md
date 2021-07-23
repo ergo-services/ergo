@@ -21,13 +21,18 @@ The goal of this project is to leverage Erlang/OTP experience with Golang perfor
 ![image](https://user-images.githubusercontent.com/118860/113710255-c57d5500-96e3-11eb-9970-20f49008a990.png)
 
 * Support Erlang 24
-* Erlang node (run single/[multinode](#multinode))
-* [embedded EPMD](#epmd) (in order to get rid of erlang' dependencies)
 * Spawn Erlang-like processes
 * Register/unregister processes with simple atom
 * `GenServer` behavior support (with atomic state)
-* `Supervisor` behavior support (with all known restart strategies support)
-* `Application` behavior support
+* `Supervisor` behavior support with all known [restart strategies](https://erlang.org/doc/design_principles/sup_princ.html#restart-strategy) support
+  * One For One
+  * One For All
+  * Rest For One
+  * Simple One For One
+* `Application` behavior support with all known [starting types](https://erlang.org/doc/design_principles/applications.html#application-start-types) support
+  * Permanent
+  * Temporary
+  * Transient
 * `GenStage` behavior support (originated from Elixir's [GenStage](https://hexdocs.pm/gen_stage/GenStage.html)). This is abstraction built on top of `GenServer` to provide a simple way to create a distributed Producer/Consumer architecture, while automatically managing the concept of backpressure. This implementation is fully compatible with Elixir's GenStage. Example here `examples/genstage` or just run it `go run ./examples/genstage` to see it in action
 * `GenSaga` behavior support.
 * Connect to (accept connection from) any Erlang node within a cluster (or clusters, if running as multinode)
@@ -41,6 +46,7 @@ The goal of this project is to leverage Erlang/OTP experience with Golang perfor
   * local <-> remote
   * remote <-> local
 * RPC callbacks support
+* [embedded EPMD](#epmd) (in order to get rid of erlang' dependencies)
 * Experimental [observer support](#observer)
 * Unmarshalling terms into the struct using `etf.TermIntoStruct`, `etf.TermMapIntoStruct` or `etf.TermProplistIntoStruct`
 * Encryption (TLS 1.3) support (including autogenerating self-signed certificates)
@@ -59,7 +65,7 @@ Here are the changes of latest release. For more details see the [ChangeLog](Cha
 * Added support of Erlang/OTP 24
 * Introduced new behavior GenSaga. It implements a Saga design pattern - a sequence of transactions that updates each service state and publishes the result (or cancels the transaction or triggers the next transaction step). GenSaga also provides a feature of interim results, which can be used as transaction progress or part of pipeline processing.
 * Added simple example `example/http` to demonsrate how HTTP server can be integrated into the Ergo node.
-* Important: GenServer interface got significant improvements to be easier to use (without backward compatibility).
+* Important: GenServer and GenStage interfaces got significant improvements to be easier to use (without backward compatibility). Make sure to update your code.
 * Fixed RPC issue #45
 * Fixed internal timer issue #48
 * Fixed memory leaks #53
