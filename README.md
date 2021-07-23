@@ -34,7 +34,7 @@ The goal of this project is to leverage Erlang/OTP experience with Golang perfor
   * Temporary
   * Transient
 * `GenStage` behavior support (originated from Elixir's [GenStage](https://hexdocs.pm/gen_stage/GenStage.html)). This is abstraction built on top of `GenServer` to provide a simple way to create a distributed Producer/Consumer architecture, while automatically managing the concept of backpressure. This implementation is fully compatible with Elixir's GenStage. Example here `examples/genstage` or just run it `go run ./examples/genstage` to see it in action
-* `GenSaga` behavior support.
+* `GenSaga` behavior support. It implements a Saga design pattern - a sequence of transactions that updates each service state and publishes the result (or cancels the transaction or triggers the next transaction step). GenSaga also provides a feature of interim results, which can be used as transaction progress or part of pipeline processing.
 * Connect to (accept connection from) any Erlang node within a cluster (or clusters, if running as multinode)
 * Making sync request `process.Call`, async - `process.Cast` or `process.Send` in fashion of `gen_server:call`, `gen_server:cast`, `erlang:send` accordingly
 * Monitor processes/nodes
