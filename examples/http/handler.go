@@ -25,15 +25,15 @@ type response struct {
 
 // Init initializes process state using arbitrary arguments
 // Init(...) -> state
-func (h *Handler) Init(p *ergo.Process, args ...interface{}) (interface{}, error) {
+func (h *Handler) Init(state *ergo.GenServerState, args ...interface{}) error {
 	fmt.Println("Start handling http request")
-	s := &st{
+	state.State = &st{
 		r: args[0].(*http.Request),
 	}
-	return s, nil
+	return nil
 }
 
-func (h *Handler) HandleCast(message etf.Term, state ergo.GenServerState) string {
+func (h *Handler) HandleCast(state *ergo.GenServerState, message etf.Term) string {
 	fmt.Println(state.State.(*st).r.URL.Path)
 	w := message.(http.ResponseWriter)
 	w.Header().Set("Content-Type", "application/json")

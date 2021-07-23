@@ -16,28 +16,24 @@ type demoGenServ struct {
 	bridge chan interface{}
 }
 
-type state struct {
-	i int
-}
-
 var (
 	GenServerName string
 )
 
 // Init initializes process state using arbitrary arguments
 // Init(...) -> state
-func (dgs *demoGenServ) Init(p *ergo.Process, args ...interface{}) (interface{}, error) {
+func (dgs *demoGenServ) Init(state *ergo.GenServerState, args ...interface{}) error {
 	// fmt.Printf("Init: args %v \n", args)
 	dgs.wg = args[0].(*sync.WaitGroup)
 	dgs.bridge = args[2].(chan interface{})
 
 	go func() {
-		ctx, cancel := context.WithCancel(p.Context)
+		ctx, cancel := context.WithCancel(state.Process.Context)
 		defer cancel()
 		for {
 			select {
 			case msg := <-args[1].(chan interface{}):
-				p.Send(p.Self(), etf.Tuple{"forwarded", msg})
+				state.Process.Send(state.Process.Self(), etf.Tuple{"forwarded", msg})
 
 			case <-ctx.Done():
 				return
@@ -45,10 +41,10 @@ func (dgs *demoGenServ) Init(p *ergo.Process, args ...interface{}) (interface{},
 		}
 	}()
 
-	return state{i: 12345}, nil
+	return nil
 }
 
-func (dgs *demoGenServ) HandleCast(message etf.Term, state ergo.GenServerState) string {
+func (dgs *demoGenServ) HandleCast(state *ergo.GenServerState, message etf.Term) string {
 	fmt.Printf("[%s] HandleCast: %#v\n", state.Process.Node.FullName, message)
 	switch message {
 	case etf.Atom("stop"):
@@ -59,7 +55,7 @@ func (dgs *demoGenServ) HandleCast(message etf.Term, state ergo.GenServerState) 
 	return "noreply"
 }
 
-func (dgs *demoGenServ) HandleCall(from etf.Tuple, message etf.Term, state ergo.GenServerState) (string, etf.Term) {
+func (dgs *demoGenServ) HandleCall(state *ergo.GenServerState, from ergo.GenServerFrom, message etf.Term) (string, etf.Term) {
 	fmt.Printf("[%s] HandleCall: %#v, From: %#v\n", state.Process.Node.FullName, message, from)
 
 	reply := etf.Term(etf.Tuple{etf.Atom("error"), etf.Atom("unknown_request")})
@@ -71,12 +67,12 @@ func (dgs *demoGenServ) HandleCall(from etf.Tuple, message etf.Term, state ergo.
 	return "reply", reply
 }
 
-func (dgs *demoGenServ) HandleInfo(message etf.Term, state ergo.GenServerState) string {
+func (dgs *demoGenServ) HandleInfo(state *ergo.GenServerState, message etf.Term) string {
 	fmt.Printf("[%s] HandleInfo: %#v\n", state.Process.Node.FullName, message)
 	return "noreply"
 }
 
-func (dgs *demoGenServ) Terminate(reason string, state ergo.GenServerState) {
+func (dgs *demoGenServ) Terminate(state *ergo.GenServerState, reason string) {
 	fmt.Printf("[%s] Terminate: %#v\n", state.Process.Node.FullName, reason)
 	dgs.wg.Done()
 }

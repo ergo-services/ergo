@@ -13,10 +13,6 @@ type demoGenServ struct {
 	ergo.GenServer
 }
 
-type state struct {
-	i int
-}
-
 var (
 	GenServerName    string
 	NodeName         string
@@ -30,12 +26,12 @@ var (
 	EnableRPC bool
 )
 
-func (dgs *demoGenServ) Init(p *ergo.Process, args ...interface{}) (interface{}, error) {
-	fmt.Printf("[%s] Init: args %v \n", p.Name(), args)
-	return state{i: 12345}, nil
+func (dgs *demoGenServ) Init(state *ergo.GenServerState, args ...interface{}) error {
+	fmt.Printf("[%s] Init: args %v \n", state.Process.Name(), args)
+	return nil
 }
 
-func (dgs *demoGenServ) HandleCast(message etf.Term, state ergo.GenServerState) string {
+func (dgs *demoGenServ) HandleCast(state *ergo.GenServerState, message etf.Term) string {
 	fmt.Printf("[%s] HandleCast: %#v\n", state.Process.Name(), message)
 	switch message {
 	case etf.Atom("stop"):
@@ -44,7 +40,7 @@ func (dgs *demoGenServ) HandleCast(message etf.Term, state ergo.GenServerState) 
 	return "noreply"
 }
 
-func (dgs *demoGenServ) HandleCall(from etf.Tuple, message etf.Term, state ergo.GenServerState) (string, etf.Term) {
+func (dgs *demoGenServ) HandleCall(state *ergo.GenServerState, from ergo.GenServerFrom, message etf.Term) (string, etf.Term) {
 	fmt.Printf("[%s] HandleCall: %#v, From: %#v\n", state.Process.Name(), message, from)
 
 	reply := etf.Term(etf.Tuple{etf.Atom("error"), etf.Atom("unknown_request")})

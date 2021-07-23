@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"net/http"
 
 	"github.com/halturin/ergo"
@@ -57,6 +58,7 @@ func main() {
 	})
 
 	go http.ListenAndServe(":8080", nil)
+	fmt.Println("HTTP is listening on http://127.0.0.1:8080")
 
 	process.Wait()
 	node.Stop()

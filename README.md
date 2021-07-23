@@ -157,7 +157,7 @@ type ExampleGenServer struct {
 	ergo.GenServer
 }
 
-func (egs *ExampleGenServer) HandleInfo(message etf.Term, state ergo.GenServerState) string {
+func (egs *ExampleGenServer) HandleInfo(state *ergo.GenServerState, message etf.Term) string {
 	value := message.(int)
 	fmt.Printf("HandleInfo: %#v \n", message)
 	if value > 104 {

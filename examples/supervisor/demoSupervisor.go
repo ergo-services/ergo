@@ -63,7 +63,7 @@ type demoGenServ struct {
 	ergo.GenServer
 }
 
-func (dgs *demoGenServ) HandleCast(message etf.Term, state ergo.GenServerState) string {
+func (dgs *demoGenServ) HandleCast(state *ergo.GenServerState, message etf.Term) string {
 	fmt.Printf("HandleCast (%s): %#v\n", state.Process.Name(), message)
 	switch message {
 	case etf.Atom("stop"):
@@ -72,7 +72,7 @@ func (dgs *demoGenServ) HandleCast(message etf.Term, state ergo.GenServerState) 
 	return "noreply"
 }
 
-func (dgs *demoGenServ) HandleCall(from etf.Tuple, message etf.Term, state ergo.GenServerState) (string, etf.Term) {
+func (dgs *demoGenServ) HandleCall(state *ergo.GenServerState, from ergo.GenServerFrom, message etf.Term) (string, etf.Term) {
 
 	if message == etf.Atom("hello") {
 		return "reply", etf.Atom("hi")
@@ -80,12 +80,12 @@ func (dgs *demoGenServ) HandleCall(from etf.Tuple, message etf.Term, state ergo.
 	return "reply", etf.Tuple{etf.Atom("error"), etf.Atom("unknown_request")}
 }
 
-func (dgs *demoGenServ) HandleInfo(message etf.Term, state ergo.GenServerState) string {
+func (dgs *demoGenServ) HandleInfo(state *ergo.GenServerState, message etf.Term) string {
 	fmt.Printf("HandleInfo (%s): %#v\n", state.Process.Name(), message)
 	return "noreply"
 }
 
-func (dgs *demoGenServ) Terminate(reason string, state ergo.GenServerState) {
+func (dgs *demoGenServ) Terminate(state *ergo.GenServerState, reason string) {
 	fmt.Printf("Terminate (%s): %#v\n", state.Process.Name(), reason)
 }
 

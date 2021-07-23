@@ -12,7 +12,7 @@ type Producer struct {
 	dispatcher ergo.GenStageDispatcherBehavior
 }
 
-func (g *Producer) InitStage(process *ergo.Process, args ...interface{}) (ergo.GenStageOptions, interface{}) {
+func (g *Producer) InitStage(state *ergo.GenStageState, args ...interface{}) error {
 	// create a hash function for the dispatcher
 	hash := func(t etf.Term) int {
 		i, ok := t.(int)
@@ -26,17 +26,17 @@ func (g *Producer) InitStage(process *ergo.Process, args ...interface{}) (ergo.G
 		return 1
 	}
 
-	options := ergo.GenStageOptions{
+	state.Options = ergo.GenStageOptions{
 		Dispatcher: ergo.CreateGenStageDispatcherPartition(3, hash),
 	}
-	return options, nil
+	return nil
 }
-func (g *Producer) HandleDemand(subscription ergo.GenStageSubscription, count uint, state interface{}) (error, etf.List) {
+func (g *Producer) HandleDemand(state *ergo.GenStageState, subscription ergo.GenStageSubscription, count uint) (error, etf.List) {
 	fmt.Println("Producer: just got demand for", count, "pack of events from", subscription.Pid)
 	return nil, nil
 }
 
-func (g *Producer) HandleSubscribe(subscription ergo.GenStageSubscription, options ergo.GenStageSubscribeOptions, state interface{}) error {
+func (g *Producer) HandleSubscribe(state *ergo.GenStageState, subscription ergo.GenStageSubscription, options ergo.GenStageSubscribeOptions) error {
 	fmt.Println("New subscription from:", subscription.Pid, "with min:", options.MinDemand, "and max:", options.MaxDemand)
 	return nil
 }
