@@ -12,19 +12,19 @@ import (
 // and use it in GenStageOptions as a Dispatcher
 type GenStageDispatcherBehavior interface {
 	// InitStageDispatcher(opts)
-	Init(opts GenStageOptions) interface{}
+	Init(opts GenStageOptions) (state interface{})
 
 	// Ask called every time a consumer sends demand
-	Ask(subscription GenStageSubscription, count uint, state interface{})
+	Ask(state interface{}, subscription GenStageSubscription, count uint)
 
 	// Cancel called every time a subscription is cancelled or the consumer goes down.
-	Cancel(subscription GenStageSubscription, state interface{})
+	Cancel(state interface{}, subscription GenStageSubscription)
 
 	// Dispatch called every time a producer wants to dispatch an event.
-	Dispatch(events etf.List, state interface{}) []GenStageDispatchItem
+	Dispatch(state interface{}, events etf.List) []GenStageDispatchItem
 
 	// Subscribe called every time the producer gets a new subscriber
-	Subscribe(subscription GenStageSubscription, opts GenStageSubscribeOptions, state interface{}) error
+	Subscribe(state interface{}, subscription GenStageSubscription, opts GenStageSubscribeOptions) error
 }
 
 type GenStageDispatcher int
@@ -137,7 +137,7 @@ func (dd *dispatcherDemand) Init(opts GenStageOptions) interface{} {
 	return state
 }
 
-func (dd *dispatcherDemand) Ask(subscription GenStageSubscription, count uint, state interface{}) {
+func (dd *dispatcherDemand) Ask(state interface{}, subscription GenStageSubscription, count uint) {
 	st := state.(*demandState)
 	demand, ok := st.demands[subscription.Pid]
 	if !ok {
@@ -147,7 +147,7 @@ func (dd *dispatcherDemand) Ask(subscription GenStageSubscription, count uint, s
 	return
 }
 
-func (dd *dispatcherDemand) Cancel(subscription GenStageSubscription, state interface{}) {
+func (dd *dispatcherDemand) Cancel(state interface{}, subscription GenStageSubscription) {
 	st := state.(*demandState)
 	delete(st.demands, subscription.Pid)
 	for i := range st.order {
@@ -161,7 +161,7 @@ func (dd *dispatcherDemand) Cancel(subscription GenStageSubscription, state inte
 	return
 }
 
-func (dd *dispatcherDemand) Dispatch(events etf.List, state interface{}) []GenStageDispatchItem {
+func (dd *dispatcherDemand) Dispatch(state interface{}, events etf.List) []GenStageDispatchItem {
 	st := state.(*demandState)
 	// put events into the buffer before we start dispatching
 	for e := range events {
@@ -227,7 +227,7 @@ func (dd *dispatcherDemand) Dispatch(events etf.List, state interface{}) []GenSt
 	return dispatchItems
 }
 
-func (dd *dispatcherDemand) Subscribe(subscription GenStageSubscription, opts GenStageSubscribeOptions, state interface{}) error {
+func (dd *dispatcherDemand) Subscribe(state interface{}, subscription GenStageSubscription, opts GenStageSubscribeOptions) error {
 	st := state.(*demandState)
 	newDemand := &demand{
 		subscription: subscription,
@@ -253,7 +253,7 @@ func (db *dispatcherBroadcast) Init(opts GenStageOptions) interface{} {
 	return state
 }
 
-func (db *dispatcherBroadcast) Ask(subscription GenStageSubscription, count uint, state interface{}) {
+func (db *dispatcherBroadcast) Ask(state interface{}, subscription GenStageSubscription, count uint) {
 	st := state.(*broadcastState)
 	demand, ok := st.demands[subscription.Pid]
 	if !ok {
@@ -264,14 +264,14 @@ func (db *dispatcherBroadcast) Ask(subscription GenStageSubscription, count uint
 	return
 }
 
-func (db *dispatcherBroadcast) Cancel(subscription GenStageSubscription, state interface{}) {
+func (db *dispatcherBroadcast) Cancel(state interface{}, subscription GenStageSubscription) {
 	st := state.(*broadcastState)
 	delete(st.demands, subscription.Pid)
 	st.broadcasts = minCountDemand(st.demands)
 	return
 }
 
-func (db *dispatcherBroadcast) Dispatch(events etf.List, state interface{}) []GenStageDispatchItem {
+func (db *dispatcherBroadcast) Dispatch(state interface{}, events etf.List) []GenStageDispatchItem {
 	st := state.(*broadcastState)
 	// put events into the buffer before we start dispatching
 	for e := range events {
@@ -318,7 +318,7 @@ func (db *dispatcherBroadcast) Dispatch(events etf.List, state interface{}) []Ge
 	return dispatchItems
 }
 
-func (db *dispatcherBroadcast) Subscribe(subscription GenStageSubscription, opts GenStageSubscribeOptions, state interface{}) error {
+func (db *dispatcherBroadcast) Subscribe(state interface{}, subscription GenStageSubscription, opts GenStageSubscribeOptions) error {
 	st := state.(*broadcastState)
 	newDemand := &demand{
 		subscription: subscription,
@@ -372,7 +372,7 @@ func (dp *dispatcherPartition) Init(opts GenStageOptions) interface{} {
 	return state
 }
 
-func (dp *dispatcherPartition) Ask(subscription GenStageSubscription, count uint, state interface{}) {
+func (dp *dispatcherPartition) Ask(state interface{}, subscription GenStageSubscription, count uint) {
 	st := state.(*partitionState)
 	demand, ok := st.demands[subscription.Pid]
 	if !ok {
@@ -382,7 +382,7 @@ func (dp *dispatcherPartition) Ask(subscription GenStageSubscription, count uint
 	return
 }
 
-func (dp *dispatcherPartition) Cancel(subscription GenStageSubscription, state interface{}) {
+func (dp *dispatcherPartition) Cancel(state interface{}, subscription GenStageSubscription) {
 	st := state.(*partitionState)
 	demand, ok := st.demands[subscription.Pid]
 	if !ok {
@@ -400,7 +400,7 @@ func (dp *dispatcherPartition) Cancel(subscription GenStageSubscription, state i
 	return
 }
 
-func (dp *dispatcherPartition) Dispatch(events etf.List, state interface{}) []GenStageDispatchItem {
+func (dp *dispatcherPartition) Dispatch(state interface{}, events etf.List) []GenStageDispatchItem {
 	st := state.(*partitionState)
 	// put events into the buffer before we start dispatching
 	for e := range events {
@@ -473,7 +473,7 @@ func (dp *dispatcherPartition) Dispatch(events etf.List, state interface{}) []Ge
 	return dispatchItems
 }
 
-func (dp *dispatcherPartition) Subscribe(subscription GenStageSubscription, opts GenStageSubscribeOptions, state interface{}) error {
+func (dp *dispatcherPartition) Subscribe(state interface{}, subscription GenStageSubscription, opts GenStageSubscribeOptions) error {
 	st := state.(*partitionState)
 	if opts.Partition > dp.n-1 {
 		return fmt.Errorf("unknown partition")

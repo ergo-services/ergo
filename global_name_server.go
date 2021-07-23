@@ -8,6 +8,6 @@ type globalNameServer struct {
 	GenServer
 }
 
-func (gns *globalNameServer) HandleCast(message etf.Term, state GenServerState) string {
+func (gns *globalNameServer) HandleCast(state *GenServerState, message etf.Term) string {
 	return "noreply"
 }

@@ -13,7 +13,7 @@ type testRPCGenServer struct {
 	GenServer
 }
 
-func (trpc *testRPCGenServer) HandleCall(from etf.Tuple, message etf.Term, state GenServerState) (string, etf.Term) {
+func (trpc *testRPCGenServer) HandleCall(state *GenServerState, from GenServerFrom, message etf.Term) (string, etf.Term) {
 	return "reply", message
 }
 

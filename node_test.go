@@ -65,7 +65,7 @@ type testFragmentationGS struct {
 	GenServer
 }
 
-func (f *testFragmentationGS) HandleCall(from etf.Tuple, message etf.Term, state GenServerState) (string, etf.Term) {
+func (f *testFragmentationGS) HandleCall(state *GenServerState, from GenServerFrom, message etf.Term) (string, etf.Term) {
 	md5original := message.(etf.Tuple)[0].(string)
 	blob := message.(etf.Tuple)[1].([]byte)
 
@@ -192,7 +192,7 @@ type benchGS struct {
 	GenServer
 }
 
-func (b *benchGS) HandleCall(from etf.Tuple, message etf.Term, state GenServerState) (string, etf.Term) {
+func (b *benchGS) HandleCall(state *GenServerState, from GenServerFrom, message etf.Term) (string, etf.Term) {
 	return "reply", etf.Atom("ok")
 }
 

@@ -14,30 +14,36 @@ const (
 
 // GenServerBehavior interface
 type GenServerBehavior interface {
-	// Init(...) -> state
-	Init(process *Process, args ...interface{}) (interface{}, error)
+	// Init(...) -> error
+	Init(state *GenServerState, args ...interface{}) error
 
 	// HandleCast -> "noreply" - noreply
 	//				"stop" - stop with reason 'normal'
 	//		         "reason" - stop with given reason
-	HandleCast(message etf.Term, state GenServerState) string
+	HandleCast(state *GenServerState, message etf.Term) string
 
 	// HandleCall -> ("reply", message) - reply
 	//				 ("noreply", _) - noreply
 	//		         ("stop", _) - stop with reason 'normal'
 	//				 ("reason", _) - stop with given reason
-	HandleCall(from etf.Tuple, message etf.Term, state GenServerState) (string, etf.Term)
+	HandleCall(state *GenServerState, from GenServerFrom, message etf.Term) (string, etf.Term)
 
 	// HandleInfo -> "noreply" - noreply
 	//				"stop" - stop with reason 'normal'
 	//		         "reason" - stop with given reason
-	HandleInfo(message etf.Term, state GenServerState) string
+	HandleInfo(state *GenServerState, message etf.Term) string
 
-	Terminate(reason string, state GenServerState)
+	Terminate(state *GenServerState, reason string)
 }
 
 // GenServer is implementation of ProcessBehavior interface for GenServer objects
 type GenServer struct{}
+
+// GenServerFrom
+type GenServerFrom struct {
+	Pid etf.Pid
+	Ref etf.Ref
+}
 
 // GenServerState state of the GenServer process. State keeps the value returned from the Init callback.
 type GenServerState struct {
@@ -48,13 +54,12 @@ type GenServerState struct {
 func (gs *GenServer) Loop(p *Process, args ...interface{}) string {
 	lockState := &sync.Mutex{}
 
-	gsState, err := p.object.(GenServerBehavior).Init(p, args...)
+	state := &GenServerState{
+		Process: p,
+	}
+	err := p.object.(GenServerBehavior).Init(state, args...)
 	if err != nil {
 		return err.Error()
-	}
-	state := GenServerState{
-		Process: p,
-		State:   gsState,
 	}
 	p.ready <- nil
 
@@ -68,11 +73,11 @@ func (gs *GenServer) Loop(p *Process, args ...interface{}) string {
 
 		select {
 		case ex := <-p.gracefulExit:
-			p.object.(GenServerBehavior).Terminate(ex.reason, state)
+			p.object.(GenServerBehavior).Terminate(state, ex.reason)
 			return ex.reason
 
 		case reason := <-stop:
-			p.object.(GenServerBehavior).Terminate(reason, state)
+			p.object.(GenServerBehavior).Terminate(state, reason)
 			return reason
 
 		case msg := <-p.mailBox:
@@ -101,25 +106,49 @@ func (gs *GenServer) Loop(p *Process, args ...interface{}) string {
 					// sync-requests (like 'process.Call') within callback execution
 					// since reply (etf.Ref) comes through the same mailBox channel
 					go func() {
-						fromTuple := m.Element(2).(etf.Tuple)
+						if len(m) != 3 {
+							// wrong $gen_call message. ignore it
+							return
+						}
+
+						fromTuple, ok := m.Element(2).(etf.Tuple)
+						if !ok || len(fromTuple) != 2 {
+							// not a tuple or has wrong value
+							return
+						}
+
+						fromPid, ok := fromTuple.Element(1).(etf.Pid)
+						if !ok {
+							// wrong Pid value
+							return
+						}
+
+						fromRef, ok := fromTuple.Element(2).(etf.Ref)
+						if !ok {
+							// wrong Ref value
+							return
+						}
+
 						lockState.Lock()
 						defer lockState.Unlock()
 
 						cf := p.currentFunction
 						p.currentFunction = "GenServer:HandleCall"
-						code, reply := p.object.(GenServerBehavior).HandleCall(fromTuple, m.Element(3), state)
+						from := GenServerFrom{
+							Pid: fromPid,
+							Ref: fromRef,
+						}
+						code, reply := p.object.(GenServerBehavior).HandleCall(state, from, m.Element(3))
 						p.currentFunction = cf
 						switch code {
 						case "reply":
-							pid := fromTuple.Element(1).(etf.Pid)
-							ref := fromTuple.Element(2)
 							if reply != nil {
-								rep := etf.Term(etf.Tuple{ref, reply})
-								p.Send(pid, rep)
+								rep := etf.Term(etf.Tuple{fromRef, reply})
+								p.Send(fromPid, rep)
 								return
 							}
-							rep := etf.Term(etf.Tuple{ref, etf.Atom("nil")})
-							p.Send(pid, rep)
+							rep := etf.Term(etf.Tuple{fromRef, etf.Atom("nil")})
+							p.Send(fromPid, rep)
 						case "noreply":
 							return
 						case "stop":
@@ -137,7 +166,7 @@ func (gs *GenServer) Loop(p *Process, args ...interface{}) string {
 
 						cf := p.currentFunction
 						p.currentFunction = "GenServer:HandleCast"
-						code := p.object.(GenServerBehavior).HandleCast(m.Element(2), state)
+						code := p.object.(GenServerBehavior).HandleCast(state, m.Element(2))
 						p.currentFunction = cf
 
 						switch code {
@@ -157,7 +186,7 @@ func (gs *GenServer) Loop(p *Process, args ...interface{}) string {
 
 						cf := p.currentFunction
 						p.currentFunction = "GenServer:HandleInfo"
-						code := p.object.(GenServerBehavior).HandleInfo(message, state)
+						code := p.object.(GenServerBehavior).HandleInfo(state, message)
 						p.currentFunction = cf
 						switch code {
 						case "noreply":
@@ -183,7 +212,7 @@ func (gs *GenServer) Loop(p *Process, args ...interface{}) string {
 
 					cf := p.currentFunction
 					p.currentFunction = "GenServer:HandleInfo"
-					code := p.object.(GenServerBehavior).HandleInfo(message, state)
+					code := p.object.(GenServerBehavior).HandleInfo(state, message)
 					p.currentFunction = cf
 
 					switch code {
@@ -205,7 +234,7 @@ func (gs *GenServer) Loop(p *Process, args ...interface{}) string {
 
 				cf := p.currentFunction
 				p.currentFunction = "GenServer:HandleInfo"
-				code := p.object.(GenServerBehavior).HandleInfo(message, state)
+				code := p.object.(GenServerBehavior).HandleInfo(state, message)
 				p.currentFunction = cf
 
 				switch code {
@@ -232,25 +261,25 @@ func (gs *GenServer) handleDirect(m directMessage) {
 //
 // default callbacks for GenServer interface
 //
-func (gs *GenServer) Init(process *Process, args ...interface{}) (interface{}, error) {
-	return nil, nil
+func (gs *GenServer) Init(state *GenServerState, args ...interface{}) error {
+	return nil
 }
 
-func (gs *GenServer) HandleCast(message etf.Term, state GenServerState) string {
+func (gs *GenServer) HandleCast(state *GenServerState, message etf.Term) string {
 	fmt.Printf("GenServer [%s] HandleCast: unhandled message %#v \n", state.Process.Name(), message)
 	return "noreply"
 }
 
-func (gs *GenServer) HandleCall(from etf.Tuple, message etf.Term, state GenServerState) (string, etf.Term) {
+func (gs *GenServer) HandleCall(state *GenServerState, from GenServerFrom, message etf.Term) (string, etf.Term) {
 	fmt.Printf("GenServer [%s] HandleCall: unhandled message %#v from %#v \n", state.Process.Name(), message, from)
 	return "reply", "ok"
 }
 
-func (gs *GenServer) HandleInfo(message etf.Term, state GenServerState) string {
+func (gs *GenServer) HandleInfo(state *GenServerState, message etf.Term) string {
 	fmt.Printf("GenServer [%s] HandleInfo: unhandled message %#v \n", state.Process.Name(), message)
 	return "noreply"
 }
 
-func (gs *GenServer) Terminate(reason string, state GenServerState) {
+func (gs *GenServer) Terminate(state *GenServerState, reason string) {
 	return
 }

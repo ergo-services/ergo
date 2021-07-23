@@ -20,62 +20,62 @@ type GenStageConsumerTest struct {
 	subscribeTo []GenStageSubscribeTo
 }
 
-func (gs *GenStageProducerTest) InitStage(process *Process, args ...interface{}) (GenStageOptions, interface{}) {
-	options := GenStageOptions{
+func (gs *GenStageProducerTest) InitStage(state *GenStageState, args ...interface{}) error {
+	state.Options = GenStageOptions{
 		Dispatcher: gs.dispatcher,
 	}
-	return options, nil
+	return nil
 }
 
 // a simple GenStage Producer
-func (gs *GenStageProducerTest) HandleDemand(subscription GenStageSubscription, count uint, state interface{}) (error, etf.List) {
+func (gs *GenStageProducerTest) HandleDemand(state *GenStageState, subscription GenStageSubscription, count uint) (error, etf.List) {
 	gs.value <- etf.Tuple{subscription, count}
 	return nil, nil
 }
 
-func (gs *GenStageProducerTest) HandleSubscribe(subscription GenStageSubscription, options GenStageSubscribeOptions, state interface{}) error {
+func (gs *GenStageProducerTest) HandleSubscribe(state *GenStageState, subscription GenStageSubscription, options GenStageSubscribeOptions) error {
 	gs.value <- subscription
 	return nil
 }
-func (gs *GenStageProducerTest) HandleCancel(subscription GenStageSubscription, reason string, state interface{}) error {
+func (gs *GenStageProducerTest) HandleCancel(state *GenStageState, subscription GenStageSubscription, reason string) error {
 	gs.value <- etf.Tuple{"cancel", subscription}
 	return nil
 }
 
 // add this callback only for the 'not a producer' case
-func (gs *GenStageProducerTest) HandleCanceled(subscription GenStageSubscription, reason string, state interface{}) error {
+func (gs *GenStageProducerTest) HandleCanceled(state *GenStageState, subscription GenStageSubscription, reason string) error {
 	gs.value <- etf.Tuple{"canceled", subscription, reason}
 	return nil
 }
 
 // a simple GenStage Consumer
-func (gs *GenStageConsumerTest) InitStage(process *Process, args ...interface{}) (GenStageOptions, interface{}) {
-	options := GenStageOptions{
+func (gs *GenStageConsumerTest) InitStage(state *GenStageState, args ...interface{}) error {
+	state.Options = GenStageOptions{
 		SubscribeTo: gs.subscribeTo,
 	}
-	return options, nil
+	return nil
 }
-func (gs *GenStageConsumerTest) HandleEvents(subscription GenStageSubscription, events etf.List, state interface{}) error {
+func (gs *GenStageConsumerTest) HandleEvents(state *GenStageState, subscription GenStageSubscription, events etf.List) error {
 	gs.value <- etf.Tuple{"events", subscription, events}
 	return nil
 }
-func (gs *GenStageConsumerTest) HandleSubscribed(subscription GenStageSubscription, opts GenStageSubscribeOptions, state interface{}) (error, bool) {
+func (gs *GenStageConsumerTest) HandleSubscribed(state *GenStageState, subscription GenStageSubscription, opts GenStageSubscribeOptions) (error, bool) {
 	gs.value <- subscription
 	return nil, opts.ManualDemand
 }
-func (gs *GenStageConsumerTest) HandleCanceled(subscription GenStageSubscription, reason string, state interface{}) error {
+func (gs *GenStageConsumerTest) HandleCanceled(state *GenStageState, subscription GenStageSubscription, reason string) error {
 	gs.value <- etf.Tuple{"canceled", subscription, reason}
 	return nil
 }
-func (gs *GenStageConsumerTest) HandleGenStageCall(from etf.Tuple, message etf.Term, state interface{}) (string, etf.Term) {
+func (gs *GenStageConsumerTest) HandleGenStageCall(state *GenStageState, from GenServerFrom, message etf.Term) (string, etf.Term) {
 	gs.value <- message
 	return "reply", "ok"
 }
-func (gs *GenStageConsumerTest) HandleGenStageCast(message etf.Term, state interface{}) string {
+func (gs *GenStageConsumerTest) HandleGenStageCast(state *GenStageState, message etf.Term) string {
 	gs.value <- message
 	return "noreply"
 }
-func (gs *GenStageConsumerTest) HandleGenStageInfo(message etf.Term, state interface{}) string {
+func (gs *GenStageConsumerTest) HandleGenStageInfo(state *GenStageState, message etf.Term) string {
 	gs.value <- message
 	return "noreply"
 }

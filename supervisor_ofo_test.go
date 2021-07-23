@@ -60,28 +60,29 @@ type testSupervisorGenServerState struct {
 	order int
 }
 
-func (tsv *testSupervisorGenServer) Init(process *Process, args ...interface{}) (interface{}, error) {
-	st := testSupervisorGenServerState{
+func (tsv *testSupervisorGenServer) Init(state *GenServerState, args ...interface{}) error {
+	st := &testSupervisorGenServerState{
 		ch:    args[0].(chan interface{}),
 		order: args[1].(int),
 	}
+	state.State = st
 
 	st.ch <- testMessageStarted{
-		pid:   process.Self(),
-		name:  process.Name(),
+		pid:   state.Process.Self(),
+		name:  state.Process.Name(),
 		order: st.order,
 	}
 
-	return &st, nil
+	return nil
 }
-func (tsv *testSupervisorGenServer) HandleCast(message etf.Term, state GenServerState) string {
+func (tsv *testSupervisorGenServer) HandleCast(state *GenServerState, message etf.Term) string {
 	// message has the stop reason
 	return message.(string)
 }
-func (tsv *testSupervisorGenServer) HandleCall(from etf.Tuple, message etf.Term, state GenServerState) (string, etf.Term) {
+func (tsv *testSupervisorGenServer) HandleCall(state *GenServerState, from GenServerFrom, message etf.Term) (string, etf.Term) {
 	return "reply", message
 }
-func (tsv *testSupervisorGenServer) Terminate(reason string, state GenServerState) {
+func (tsv *testSupervisorGenServer) Terminate(state *GenServerState, reason string) {
 	// fmt.Printf("\ntestSupervisorGenServer ({%s, %s}): Terminate: %#v\n", tsv.process.name, tsv.process.Node.FullName, reason)
 	st := state.State.(*testSupervisorGenServerState)
 	st.ch <- testMessageTerminated{

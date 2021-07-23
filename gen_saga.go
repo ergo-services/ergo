@@ -1,7 +1,9 @@
 package ergo
 
 import (
+	"encoding/hex"
 	"fmt"
+	"math/rand"
 
 	"github.com/halturin/ergo/etf"
 )
@@ -23,15 +25,15 @@ type GenSagaTransactionOptions struct {
 }
 
 type GenSagaOptions struct {
-	// MaxTransactions defines the limit of active transactions.
-	MaxTransactions int
+	// MaxTransactions defines the limit for the number of active transactions. Default: 0 (unlimited)
+	MaxTransactions uint
 }
 
 type GenSagaState struct {
 	GenServerState
-	options  GenSagaOptions
-	txs      map[string]GenSagaTransaction
-	internal interface{}
+	options GenSagaOptions
+	txs     map[string]GenSagaTransaction
+	State   interface{}
 }
 
 type GenSagaTransaction struct {
@@ -49,73 +51,67 @@ type GenSagaBehavior interface {
 	//
 
 	// InitSaga
-	InitSaga(process *Process, args ...interface{}) (GenSagaOptions, interface{})
+	InitSaga(state *GenSagaState, args ...interface{}) error
 
 	// HandleCancel invoked on a request of transaction cancelation.
-	HandleCancel(tx GenSagaTransaction, state GenSagaState) error
+	HandleCancel(state *GenSagaState, tx GenSagaTransaction) error
 
 	// HandleCanceled invoked if the given transaction has been canceled by some
 	// reason (node or process went down or by explicit cancelation).
-	HandleCanceled(tx GenSagaTransaction, reason string, state GenSagaState) error
+	HandleCanceled(state *GenSagaState, tx GenSagaTransaction, reason string) error
 
 	// HandleDone
-	HandleDone(tx GenSagaTransaction, result interface{}, state GenSagaState) error
+	HandleDone(state *GenSagaState, tx GenSagaTransaction, result interface{}) error
 
 	// HandleTimeout
-	HandleTimeout(tx GenSagaTransaction, timeout int, state GenSagaState) error
+	HandleTimeout(state *GenSagaState, tx GenSagaTransaction, timeout int) error
 
 	//
 	// Optional callbacks
 	//
 
-	HandleNext(tx GenSagaTransaction, arlg interface{}, state GenSagaState) error
-	HandleInterim(tx GenSagaTransaction, interim interface{}, state GenSagaState) error
+	HandleNext(state *GenSagaState, tx GenSagaTransaction, arlg interface{}) error
+	HandleInterim(state *GenSagaState, tx GenSagaTransaction, interim interface{}) error
 
 	// HandleGenStageCall this callback is invoked on Process.Call. This method is optional
 	// for the implementation
-	HandleGenSagaCall(from etf.Tuple, message etf.Term, state GenSagaState) (string, etf.Term)
+	HandleGenSagaCall(state *GenSagaState, from GenServerFrom, message etf.Term) (string, etf.Term)
 	// HandleGenStageCast this callback is invoked on Process.Cast. This method is optional
 	// for the implementation
-	HandleGenSagaCast(message etf.Term, state GenSagaState) string
+	HandleGenSagaCast(state *GenSagaState, message etf.Term) string
 	// HandleGenStageInfo this callback is invoked on Process.Send. This method is optional
 	// for the implementation
-	HandleGenSagaInfo(message etf.Term, state GenSagaState) string
-}
-
-// API
-
-func GenSagaTransactionStart(process *Process, args ...interface{}) (interface{}, error) {
-	return nil, nil
+	HandleGenSagaInfo(state *GenSagaState, message etf.Term) string
 }
 
 // default GenSaga callbacks
 
-func (gs *GenSaga) HandleNext(tx GenSagaTransaction, arg interface{}, state GenSagaState) error {
+func (gs *GenSaga) HandleNext(state *GenSagaState, tx GenSagaTransaction, arg interface{}) error {
 	fmt.Printf("HandleNext: unhandled message %#v\n", tx)
 	return nil
 }
-func (gs *GenSaga) HandleCanceled(tx GenSagaTransaction, reason string, state GenSagaState) error {
+func (gs *GenSaga) HandleCanceled(state *GenSagaState, tx GenSagaTransaction, reason string) error {
 	// default callback if it wasn't implemented
 	return nil
 }
-func (gs *GenSaga) HandleInterim(tx GenSagaTransaction, interim interface{}, state GenSagaState) error {
+func (gs *GenSaga) HandleInterim(state *GenSagaState, tx GenSagaTransaction, interim interface{}) error {
 	// default callback if it wasn't implemented
 	fmt.Printf("HandleInterim: unhandled message %#v\n", tx)
 	return nil
 }
 
-func (gs *GenSaga) HandleGenSagaCall(from etf.Tuple, message etf.Term, state GenSagaState) (string, etf.Term) {
+func (gs *GenSaga) HandleGenSagaCall(state *GenSagaState, from GenServerFrom, message etf.Term) (string, etf.Term) {
 	// default callback if it wasn't implemented
 	fmt.Printf("HandleGenSagaCall: unhandled message (from %#v) %#v\n", from, message)
 	return "reply", etf.Atom("ok")
 }
 
-func (gs *GenSaga) HandleGenSagaCast(message etf.Term, state GenSagaState) string {
+func (gs *GenSaga) HandleGenSagaCast(state *GenSagaState, message etf.Term) string {
 	// default callback if it wasn't implemented
 	fmt.Printf("HandleGenSagaCast: unhandled message %#v\n", message)
 	return "noreply"
 }
-func (gs *GenSaga) HandleGenSagaInfo(message etf.Term, state GenSagaState) string {
+func (gs *GenSaga) HandleGenSagaInfo(state *GenSagaState, message etf.Term) string {
 	// default callback if it wasn't implemnted
 	fmt.Printf("HandleGenSagaInfo: unhandled message %#v\n", message)
 	return "noreply"
@@ -124,21 +120,34 @@ func (gs *GenSaga) HandleGenSagaInfo(message etf.Term, state GenSagaState) strin
 //
 // GenServer callbacks
 //
-func (gs *GenSaga) Init(p *Process, args ...interface{}) (interface{}, error) {
-	state := &GenSagaState{}
-
-	state.options, state.internal = p.GetObject().(GenSagaBehavior).InitSaga(p, args)
-	return state, nil
+func (gs *GenSaga) Init(state *GenServerState, args ...interface{}) error {
+	sagaState := &GenSagaState{
+		GenServerState: *state,
+	}
+	if err := state.Process.GetObject().(GenSagaBehavior).InitSaga(sagaState, args...); err != nil {
+		return err
+	}
+	return nil
 }
 
-func (gs *GenSaga) HandleCall(from etf.Tuple, message etf.Term, state GenServerState) (string, etf.Term) {
+func (gs *GenSaga) HandleCall(state *GenServerState, from GenServerFrom, message etf.Term) (string, etf.Term) {
 	return "reply", "ok"
 }
 
-func (gs *GenSaga) HandleCast(message etf.Term, state GenServerState) string {
+func (gs *GenSaga) HandleCast(state *GenServerState, message etf.Term) string {
 	return "noreply"
 }
 
-func (gs *GenSaga) HandleInfo(message etf.Term, state GenServerState) string {
+func (gs *GenSaga) HandleInfo(state *GenServerState, message etf.Term) string {
 	return "noreply"
+}
+
+//
+// private functions
+//
+
+func randomString(length int) string {
+	buff := make([]byte, length)
+	rand.Read(buff)
+	return hex.EncodeToString(buff)
 }

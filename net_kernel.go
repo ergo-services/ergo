@@ -57,13 +57,13 @@ type netKernel struct {
 	routinesCtx map[etf.Pid]context.CancelFunc
 }
 
-func (nk *netKernel) Init(p *Process, args ...interface{}) (interface{}, error) {
+func (nk *netKernel) Init(state *GenServerState, args ...interface{}) error {
 	lib.Log("NET_KERNEL: Init: %#v", args)
 	nk.routinesCtx = make(map[etf.Pid]context.CancelFunc)
-	return nil, nil
+	return nil
 }
 
-func (nk *netKernel) HandleCall(from etf.Tuple, message etf.Term, state GenServerState) (code string, reply etf.Term) {
+func (nk *netKernel) HandleCall(state *GenServerState, from GenServerFrom, message etf.Term) (code string, reply etf.Term) {
 	lib.Log("NET_KERNEL: HandleCall: %#v, From: %#v", message, from)
 	code = "reply"
 
@@ -106,7 +106,7 @@ func (nk *netKernel) HandleCall(from etf.Tuple, message etf.Term, state GenServe
 	return
 }
 
-func (nk *netKernel) HandleInfo(message etf.Term, state GenServerState) string {
+func (nk *netKernel) HandleInfo(state *GenServerState, message etf.Term) string {
 	lib.Log("NET_KERNEL: HandleInfo: %#v", message)
 	// {"DOWN", etf.Ref{Node:"demo@127.0.0.1", Creation:0x1, Id:[]uint32{0x27715, 0x5762, 0x0}}, "process",
 	// etf.Pid{Node:"erl-demo@127.0.0.1", Id:0x460, Serial:0x0, Creation:0x1}, "normal"}
@@ -125,7 +125,7 @@ func (nk *netKernel) HandleInfo(message etf.Term, state GenServerState) string {
 }
 
 // Terminate called when process died
-func (nk *netKernel) Terminate(reason string, state GenServerState) {
+func (nk *netKernel) Terminate(state *GenServerState, reason string) {
 	lib.Log("NET_KERNEL: Terminate: %#v", reason)
 }
 

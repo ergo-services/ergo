@@ -11,12 +11,12 @@ type erlang struct {
 	GenServer
 }
 
-func (e *erlang) Init(p *Process, args ...interface{}) (interface{}, error) {
+func (e *erlang) Init(state *GenServerState, args ...interface{}) error {
 	lib.Log("ERLANG: Init: %#v", args)
-	return nil, nil
+	return nil
 }
 
-func (e *erlang) HandleCall(from etf.Tuple, message etf.Term, state GenServerState) (string, etf.Term) {
+func (e *erlang) HandleCall(state *GenServerState, from GenServerFrom, message etf.Term) (string, etf.Term) {
 	lib.Log("ERLANG: HandleCall: %#v, From: %#v", message, from)
 
 	switch m := message.(type) {

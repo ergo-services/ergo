@@ -9,23 +9,21 @@ import (
 
 type testMonitorGenServer struct {
 	GenServer
-	process *Process
-	v       chan interface{}
+	v chan interface{}
 }
 
-func (tgs *testMonitorGenServer) Init(p *Process, args ...interface{}) (interface{}, error) {
-	tgs.v <- p.Self()
-	tgs.process = p
-	return nil, nil
+func (tgs *testMonitorGenServer) Init(state *GenServerState, args ...interface{}) error {
+	tgs.v <- state.Process.Self()
+	return nil
 }
-func (tgs *testMonitorGenServer) HandleCast(message etf.Term, state GenServerState) string {
+func (tgs *testMonitorGenServer) HandleCast(state *GenServerState, message etf.Term) string {
 	tgs.v <- message
 	return "noreply"
 }
-func (tgs *testMonitorGenServer) HandleCall(from etf.Tuple, message etf.Term, state GenServerState) (string, etf.Term) {
+func (tgs *testMonitorGenServer) HandleCall(state *GenServerState, from GenServerFrom, message etf.Term) (string, etf.Term) {
 	return "reply", message
 }
-func (tgs *testMonitorGenServer) HandleInfo(message etf.Term, state GenServerState) string {
+func (tgs *testMonitorGenServer) HandleInfo(state *GenServerState, message etf.Term) string {
 	tgs.v <- message
 	return "noreply"
 }

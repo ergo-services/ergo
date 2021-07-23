@@ -12,7 +12,7 @@ type TestRegistrarGenserver struct {
 	GenServer
 }
 
-func (trg *TestRegistrarGenserver) HandleCall(from etf.Tuple, message etf.Term, state GenServerState) (string, etf.Term) {
+func (trg *TestRegistrarGenserver) HandleCall(state *GenServerState, from GenServerFrom, message etf.Term) (string, etf.Term) {
 	// fmt.Printf("TestRegistrarGenserver ({%s, %s}): HandleCall: %#v, From: %#v\n", trg.process.name, trg.process.Node.FullName, message, from)
 	return "reply", message
 }

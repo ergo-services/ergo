@@ -47,12 +47,12 @@ type testAppGenServer struct {
 	GenServer
 }
 
-func (gs *testAppGenServer) Init(p *Process, args ...interface{}) (interface{}, error) {
-	p.SetEnv("env123", 456)
-	return nil, nil
+func (gs *testAppGenServer) Init(state *GenServerState, args ...interface{}) error {
+	state.Process.SetEnv("env123", 456)
+	return nil
 }
 
-func (gs *testAppGenServer) HandleCall(from etf.Tuple, message etf.Term, state GenServerState) (string, etf.Term) {
+func (gs *testAppGenServer) HandleCall(state *GenServerState, from GenServerFrom, message etf.Term) (string, etf.Term) {
 	return "stop", nil
 }
 

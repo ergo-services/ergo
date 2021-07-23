@@ -9,24 +9,23 @@ type testGenSaga struct {
 	GenSaga
 }
 
-func (gs *testGenSaga) InitSaga(p *Process, args ...interface{}) (GenSagaOptions, interface{}) {
-	opts := GenSagaOptions{}
-	return opts, nil
-}
-
-func (gs *testGenSaga) HandleCancel(tx GenSagaTransaction, state GenSagaState) error {
+func (gs *testGenSaga) InitSaga(state *GenSagaState, args ...interface{}) error {
 	return nil
 }
 
-func (gs *testGenSaga) HandleCanceled(tx GenSagaTransaction, reason string, state GenSagaState) error {
+func (gs *testGenSaga) HandleCancel(state *GenSagaState, tx GenSagaTransaction) error {
 	return nil
 }
 
-func (gs *testGenSaga) HandleDone(tx GenSagaTransaction, result interface{}, state GenSagaState) error {
+func (gs *testGenSaga) HandleCanceled(state *GenSagaState, tx GenSagaTransaction, reason string) error {
 	return nil
 }
 
-func (gs *testGenSaga) HandleTimeout(tx GenSagaTransaction, timeout int, state GenSagaState) error {
+func (gs *testGenSaga) HandleDone(state *GenSagaState, tx GenSagaTransaction, result interface{}) error {
+	return nil
+}
+
+func (gs *testGenSaga) HandleTimeout(state *GenSagaState, tx GenSagaTransaction, timeout int) error {
 	return nil
 }
 
