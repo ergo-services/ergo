@@ -41,7 +41,23 @@ type GenSagaTransaction struct {
 }
 
 type sagaMessage struct {
-	request string
+	Request string
+	Command interface{}
+}
+
+type sagaMessageNext struct {
+	Transaction GenSagaTransaction
+	Args        []interface{}
+}
+
+type sagaMessageResult struct {
+	Transaction GenSagaTransaction
+	Result      interface{}
+}
+
+type sagaMessageCancel struct {
+	Transaction GenSagaTransaction
+	Reason      string
 }
 
 // GenSagaBehavior interface
@@ -174,7 +190,37 @@ func (gs *GenSaga) HandleInfo(state *GenServerState, message etf.Term) string {
 }
 
 func handleSagaRequest(state *GenSagaState, m sagaMessage) error {
-	return nil
+	var next sagaMessageNext
+	var cancel sagaMessageCancel
+	var result sagaMessageResult
+
+	switch m.request {
+	case "$saga_next":
+		if err := etf.TermIntoStruct(m.Command, &next); err != nil {
+			return ErrUnsupportedRequest
+		}
+		state.Process.GetObject().(GenSagaBehavior).HandleNext(state, next.Transaction, next.Args...)
+		return nil
+	case "$saga_cancel":
+		if err := etf.TermIntoStruct(m.Command, &cancel); err != nil {
+			return ErrUnsupportedRequest
+		}
+		state.Process.GetObject().(GenSagaBehavior).HandleCancel(state, cancel.Transaction, cancel.Reason)
+		return nil
+	case "$saga_interim":
+		if err := etf.TermIntoStruct(m.Command, &result); err != nil {
+			return ErrUnsupportedRequest
+		}
+		state.Process.GetObject().(GenSagaBehavior).HandleInterim(state, result.Transaction, result.Result)
+		return nil
+	case "$saga_result":
+		if err := etf.TermIntoStruct(m.Command, &result); err != nil {
+			return ErrUnsupportedRequest
+		}
+		state.Process.GetObject().(GenSagaBehavior).HandleResult(state, result.Transaction, result.Result)
+		return nil
+	}
+	return ErrUnsupportedRequest
 }
 func handleSagaDown(state *GenSagaState, down DownMessage) error {
 	return nil

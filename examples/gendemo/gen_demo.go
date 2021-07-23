@@ -19,6 +19,7 @@ type GenDemoOptions struct {
 type GenDemoState struct {
 	ergo.GenServerState
 	Options GenDemoOptions
+	counter int
 }
 
 type demoMessage struct {
@@ -89,17 +90,17 @@ func (gd *GenDemo) Init(state *ergo.GenServerState, args ...interface{}) error {
 	return nil
 }
 
-func (gs *GenDemo) HandleCall(state *ergo.GenServerState, from ergo.GenServerFrom, message etf.Term) (string, etf.Term) {
+func (gd *GenDemo) HandleCall(state *ergo.GenServerState, from ergo.GenServerFrom, message etf.Term) (string, etf.Term) {
 	st := state.State.(*GenDemoState)
 	return state.Process.GetObject().(GenDemoBehavior).HandleGenDemoCall(st, from, message)
 }
 
-func (gs *GenDemo) HandleCast(state *ergo.GenServerState, message etf.Term) string {
+func (gd *GenDemo) HandleCast(state *ergo.GenServerState, message etf.Term) string {
 	st := state.State.(*GenDemoState)
 	return state.Process.GetObject().(GenDemoBehavior).HandleGenDemoCast(st, message)
 }
 
-func (gs *GenDemo) HandleInfo(state *ergo.GenServerState, message etf.Term) string {
+func (gd *GenDemo) HandleInfo(state *ergo.GenServerState, message etf.Term) string {
 	var d DownMessage
 	var m demoMessage
 
@@ -117,6 +118,7 @@ func (gs *GenDemo) HandleInfo(state *ergo.GenServerState, message etf.Term) stri
 		reply := state.Process.GetObject().(GenDemoBehavior).HandleGenDemoInfo(st, message)
 		return reply
 	}
+
 	if err := handleDemoRequest(st, m); err != nil {
 		// stop with reason
 		return err.Error()

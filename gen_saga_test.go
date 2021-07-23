@@ -13,6 +13,10 @@ func (gs *testGenSaga) InitSaga(state *GenSagaState, args ...interface{}) error 
 	return nil
 }
 
+func (gs *testGenSaga) HandleNext(state *GenSagaState, tx GenSagaTransaction, args ...interface{}) error {
+	return nil
+}
+
 func (gs *testGenSaga) HandleCancel(state *GenSagaState, tx GenSagaTransaction) error {
 	return nil
 }
