@@ -189,14 +189,6 @@ type stageMessage struct {
 	Command      interface{}
 }
 
-type downMessage struct {
-	Down   etf.Atom // = etf.Atom("DOWN")
-	Ref    etf.Ref  // a monitor reference
-	Type   etf.Atom // = etf.Atom("process")
-	From   etf.Term // Pid or Name. Depends on how MonitorProcess was called - by name or by pid
-	Reason string
-}
-
 type setManualDemand struct {
 	subscription GenStageSubscription
 	enable       bool
@@ -562,16 +554,14 @@ func (gst *GenStage) HandleCast(state *GenServerState, message etf.Term) string 
 
 func (gst *GenStage) HandleInfo(state *GenServerState, message etf.Term) string {
 	var r stageMessage
-	var d downMessage
-	var err error
 
 	st := state.State.(*GenStageState)
 
 	// check if we got a 'DOWN' message
 	// {DOWN, Ref, process, PidOrName, Reason}
-	if err := etf.TermIntoStruct(message, &d); err == nil && d.Down == etf.Atom("DOWN") {
-		if err1 := handleDown(st, d); err1 != nil {
-			return err1.Error()
+	if isDown, d := IsDownMessage(message); isDown {
+		if err := handleStageDown(st, d); err != nil {
+			return err.Error()
 		}
 		return "noreply"
 	}
@@ -581,7 +571,7 @@ func (gst *GenStage) HandleInfo(state *GenServerState, message etf.Term) string 
 		return reply
 	}
 
-	_, err = handleRequest(st, r)
+	_, err := handleStageRequest(st, r)
 
 	switch err {
 	case nil:
@@ -594,8 +584,6 @@ func (gst *GenStage) HandleInfo(state *GenServerState, message etf.Term) string 
 	default:
 		return err.Error()
 	}
-
-	return "noreply"
 }
 
 // default callbacks
@@ -651,7 +639,7 @@ func (gst *GenStage) HandleDemand(state *GenStageState, subscription GenStageSub
 
 // private functions
 
-func handleRequest(state *GenStageState, m stageMessage) (etf.Term, error) {
+func handleStageRequest(state *GenStageState, m stageMessage) (etf.Term, error) {
 	var command stageRequestCommand
 	switch m.Request {
 	case "$gen_consumer":
@@ -1010,7 +998,7 @@ func handleProducer(state *GenStageState, subscription GenStageSubscription, cmd
 	return nil, fmt.Errorf("unknown GenStage command (HandleCall)")
 }
 
-func handleDown(state *GenStageState, down downMessage) error {
+func handleStageDown(state *GenStageState, down DownMessage) error {
 	// remove subscription for producer and consumer. corner case - two
 	// processes have subscribed to each other.
 

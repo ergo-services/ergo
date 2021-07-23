@@ -3,11 +3,20 @@ package ergo
 // http://erlang.org/doc/reference_manual/processes.html
 
 import (
-	"github.com/halturin/ergo/etf"
-	"github.com/halturin/ergo/lib"
 	"strings"
 	"sync"
+
+	"github.com/halturin/ergo/etf"
+	"github.com/halturin/ergo/lib"
 )
+
+type DownMessage struct {
+	Down   etf.Atom // = etf.Atom("DOWN")
+	Ref    etf.Ref  // a monitor reference
+	Type   etf.Atom // = etf.Atom("process")
+	From   etf.Term // Pid or Name. Depends on how MonitorProcess was called - by name or by pid
+	Reason string
+}
 
 type monitorItem struct {
 	pid     etf.Pid // by
@@ -604,6 +613,22 @@ func (m *monitor) notifyProcessExit(to etf.Pid, terminated etf.Pid, reason strin
 	if p := m.node.GetProcessByPid(to); p != nil && p.IsAlive() {
 		p.Exit(terminated, reason)
 	}
+}
+
+func IsDownMessage(message etf.Term) (isTrue bool, d DownMessage) {
+	// {DOWN, Ref, process, PidOrName, Reason}
+	err := etf.TermIntoStruct(message, &d)
+	if err != nil {
+		return
+	}
+	if d.Down != etf.Atom("DOWN") {
+		return
+	}
+	if d.Type != etf.Atom("process") {
+		return
+	}
+	isTrue = true
+	return
 }
 
 func fakeMonitorPidFromName(name, node string) etf.Pid {

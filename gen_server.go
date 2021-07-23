@@ -18,19 +18,19 @@ type GenServerBehavior interface {
 	Init(state *GenServerState, args ...interface{}) error
 
 	// HandleCast -> "noreply" - noreply
-	//				"stop" - stop with reason 'normal'
-	//		         "reason" - stop with given reason
+	//				"stop" - stop with reason "normal"
+	//		         "reason" - stop with given "reason"
 	HandleCast(state *GenServerState, message etf.Term) string
 
 	// HandleCall -> ("reply", message) - reply
 	//				 ("noreply", _) - noreply
-	//		         ("stop", _) - stop with reason 'normal'
-	//				 ("reason", _) - stop with given reason
+	//		         ("stop", _) - stop with reason "normal"
+	//				 ("reason", _) - stop with given "reason"
 	HandleCall(state *GenServerState, from GenServerFrom, message etf.Term) (string, etf.Term)
 
 	// HandleInfo -> "noreply" - noreply
-	//				"stop" - stop with reason 'normal'
-	//		         "reason" - stop with given reason
+	//				"stop" - stop with reason "normal"
+	//		         "reason" - stop with given "reason"
 	HandleInfo(state *GenServerState, message etf.Term) string
 
 	Terminate(state *GenServerState, reason string)
@@ -45,7 +45,7 @@ type GenServerFrom struct {
 	Ref etf.Ref
 }
 
-// GenServerState state of the GenServer process. State keeps the value returned from the Init callback.
+// GenServerState state of the GenServer process.
 type GenServerState struct {
 	Process *Process
 	State   interface{}
@@ -143,11 +143,11 @@ func (gs *GenServer) Loop(p *Process, args ...interface{}) string {
 						switch code {
 						case "reply":
 							if reply != nil {
-								rep := etf.Term(etf.Tuple{fromRef, reply})
+								rep := etf.Tuple{fromRef, reply}
 								p.Send(fromPid, rep)
 								return
 							}
-							rep := etf.Term(etf.Tuple{fromRef, etf.Atom("nil")})
+							rep := etf.Tuple{fromRef, etf.Atom("nil")}
 							p.Send(fromPid, rep)
 						case "noreply":
 							return

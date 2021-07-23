@@ -1,9 +1,7 @@
 package ergo
 
 import (
-	"encoding/hex"
 	"fmt"
-	"math/rand"
 
 	"github.com/halturin/ergo/etf"
 )
@@ -31,17 +29,19 @@ type GenSagaOptions struct {
 
 type GenSagaState struct {
 	GenServerState
-	options GenSagaOptions
+	Options GenSagaOptions
 	txs     map[string]GenSagaTransaction
-	State   interface{}
 }
 
 type GenSagaTransaction struct {
 	Options GenSagaTransactionOptions
 	Name    string
-	Pid     etf.Pid
 	Ref     etf.Ref
 	parents []etf.Pid
+}
+
+type sagaMessage struct {
+	request string
 }
 
 // GenSagaBehavior interface
@@ -60,8 +60,8 @@ type GenSagaBehavior interface {
 	// reason (node or process went down or by explicit cancelation).
 	HandleCanceled(state *GenSagaState, tx GenSagaTransaction, reason string) error
 
-	// HandleDone
-	HandleDone(state *GenSagaState, tx GenSagaTransaction, result interface{}) error
+	// HandleResult
+	HandleResult(state *GenSagaState, tx GenSagaTransaction, result interface{}) error
 
 	// HandleTimeout
 	HandleTimeout(state *GenSagaState, tx GenSagaTransaction, timeout int) error
@@ -70,7 +70,7 @@ type GenSagaBehavior interface {
 	// Optional callbacks
 	//
 
-	HandleNext(state *GenSagaState, tx GenSagaTransaction, arlg interface{}) error
+	HandleNext(state *GenSagaState, tx GenSagaTransaction, args ...interface{}) error
 	HandleInterim(state *GenSagaState, tx GenSagaTransaction, interim interface{}) error
 
 	// HandleGenStageCall this callback is invoked on Process.Call. This method is optional
@@ -127,6 +127,7 @@ func (gs *GenSaga) Init(state *GenServerState, args ...interface{}) error {
 	if err := state.Process.GetObject().(GenSagaBehavior).InitSaga(sagaState, args...); err != nil {
 		return err
 	}
+	state.State = sagaState
 	return nil
 }
 
@@ -135,19 +136,46 @@ func (gs *GenSaga) HandleCall(state *GenServerState, from GenServerFrom, message
 }
 
 func (gs *GenSaga) HandleCast(state *GenServerState, message etf.Term) string {
-	return "noreply"
+	st := state.State.(*GenSagaState)
+	reply := state.Process.GetObject().(GenSagaBehavior).HandleGenSagaCast(st, message)
+	return reply
 }
 
 func (gs *GenSaga) HandleInfo(state *GenServerState, message etf.Term) string {
-	return "noreply"
+	var d DownMessage
+	var m sagaMessage
+
+	st := state.State.(*GenSagaState)
+	// check if we got a 'DOWN' message
+	// {DOWN, Ref, process, PidOrName, Reason}
+	if isDown, d := IsDownMessage(message); isDown {
+		if err := handleSagaDown(st, d); err != nil {
+			return err.Error()
+		}
+		return "noreply"
+	}
+
+	if err := etf.TermIntoStruct(message, &m); err != nil {
+		reply := state.Process.GetObject().(GenSagaBehavior).HandleGenSagaInfo(st, message)
+		return reply
+	}
+	err := handleSagaRequest(st, m)
+	switch err {
+	case nil:
+		return "noreply"
+	case ErrStop:
+		return "stop"
+	case ErrUnsupportedRequest:
+		reply := state.Process.GetObject().(GenSagaBehavior).HandleGenSagaInfo(st, message)
+		return reply
+	default:
+		return err.Error()
+	}
 }
 
-//
-// private functions
-//
-
-func randomString(length int) string {
-	buff := make([]byte, length)
-	rand.Read(buff)
-	return hex.EncodeToString(buff)
+func handleSagaRequest(state *GenSagaState, m sagaMessage) error {
+	return nil
+}
+func handleSagaDown(state *GenSagaState, down DownMessage) error {
+	return nil
 }

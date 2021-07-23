@@ -1,6 +1,8 @@
 package lib
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"flag"
 	"fmt"
 	"io"
@@ -166,4 +168,10 @@ func (b *Buffer) Extend(n int) []byte {
 		b.B = b.B[:e]
 		return b.B[l:e]
 	}
+}
+
+func RandomString(length int) string {
+	buff := make([]byte, length)
+	rand.Read(buff)
+	return hex.EncodeToString(buff)
 }

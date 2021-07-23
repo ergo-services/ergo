@@ -21,7 +21,11 @@ func (gs *testGenSaga) HandleCanceled(state *GenSagaState, tx GenSagaTransaction
 	return nil
 }
 
-func (gs *testGenSaga) HandleDone(state *GenSagaState, tx GenSagaTransaction, result interface{}) error {
+func (gs *testGenSaga) HandleResult(state *GenSagaState, tx GenSagaTransaction, result interface{}) error {
+	return nil
+}
+
+func (gs *testGenSaga) HandleInterim(state *GenSagaState, tx GenSagaTransaction, interim interface{}) error {
 	return nil
 }
 
