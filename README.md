@@ -14,7 +14,7 @@ The easiest drop-in replacement for your hot Erlang-nodes in the cluster.
 
 ### Purpose ###
 
-The goal of this project is to leverage Erlang/OTP experience with Golang performance. Ergo Framework implements [DIST protocol](https://erlang.org/doc/apps/erts/erl_dist_protocol.html), [ETF data format](https://erlang.org/doc/apps/erts/erl_ext_dist.html) and [OTP design patterns](https://erlang.org/doc/design_principles/des_princ.html) (`GenServer`/`Supervisor`/`Application`) which makes you able to create high performance and reliable microservice solutions having native integration with Erlang infrastructure
+The goal of this project is to leverage Erlang/OTP experience with Golang performance. Ergo Framework implements [DIST protocol](https://erlang.org/doc/apps/erts/erl_dist_protocol.html), [ETF data format](https://erlang.org/doc/apps/erts/erl_ext_dist.html) and [OTP design patterns](https://erlang.org/doc/design_principles/des_princ.html) (`GenServer`/`Supervisor`/`Application`) which makes you able to create distributed, high performance and reliable microservice solutions having native integration with Erlang infrastructure
 
 ### Features ###
 
@@ -35,7 +35,7 @@ The goal of this project is to leverage Erlang/OTP experience with Golang perfor
   * Transient
 * `GenStage` behavior support (originated from Elixir's [GenStage](https://hexdocs.pm/gen_stage/GenStage.html)). This is abstraction built on top of `GenServer` to provide a simple way to create a distributed Producer/Consumer architecture, while automatically managing the concept of backpressure. This implementation is fully compatible with Elixir's GenStage. Example here `examples/genstage` or just run it `go run ./examples/genstage` to see it in action
 * `GenSaga` behavior support. It implements a Saga design pattern - a sequence of transactions that updates each service state and publishes the result (or cancels the transaction or triggers the next transaction step). GenSaga also provides a feature of interim results, which can be used as transaction progress or part of pipeline processing.
-* Connect to (accept connection from) any Erlang node within a cluster (or clusters, if running as multinode)
+* Connect to (accept connection from) any Erlang node within a cluster
 * Making sync request `process.Call`, async - `process.Cast` or `process.Send` in fashion of `gen_server:call`, `gen_server:cast`, `erlang:send` accordingly
 * Monitor processes/nodes
   * local -> local
@@ -133,11 +133,6 @@ The one thing that makes embedded EPMD different is the behavior of handling con
 As an extra option, we provide EPMD service as a standalone application. There is a simple drop-in replacement of the original Erlang' epmd daemon.
 
 `go get -u github.com/halturin/ergo/cmd/epmd`
-
-### Multinode ###
-
- This feature allows to create two or more nodes within a single running instance. The only need is to specify the different set of options for creating nodes (such as: node name, empd port number, secret cookie). You may also want to use this feature to create 'proxy'-node between some clusters.
- See [Examples](#examples) for more details
 
 ### Observer ###
 
