@@ -50,7 +50,7 @@ The goal of this project is to leverage Erlang/OTP experience with Golang perfor
 * Experimental [observer support](#observer)
 * Unmarshalling terms into the struct using `etf.TermIntoStruct`, `etf.TermMapIntoStruct` or `etf.TermProplistIntoStruct`
 * Encryption (TLS 1.3) support (including autogenerating self-signed certificates)
-* Tested and confirmed support Windows, Darwin (MacOS), Linux
+* Tested and confirmed support Windows, Darwin (MacOS), Linux, FreeBSD, Solaris (amd64).
 
 ### Requirements ###
 
@@ -69,6 +69,7 @@ Here are the changes of latest release. For more details see the [ChangeLog](Cha
 * Important: GenServer and GenStage interfaces got significant improvements to be easier to use (without backward compatibility). Make sure to update your code.
 * Introduced new methods `Process.Direct` and `Process.DirectWithTimeout` to make direct request to the actor (GenServer or inherited object). If an actor has no implementation of `HandleDirect` callback it returns `ErrUnsupportedRequest` as a error.
 * Introduced new callback `HandleDirect` in the GenServer interface as a handler for the request made by `Process.Direct` or `Process.DirectWithTimeout`. It should be easy now to interact with actors from outside while `Process.Call`, `Process.Cast` and `Process.Send` must be used inside the actors.
+* Added support FreeBSD, OpenBSD, NetBSD, DragoFly, Solaris (amd64).
 * Fixed RPC issue #45
 * Fixed internal timer issue #48
 * Fixed memory leaks #53

@@ -121,12 +121,14 @@ func (p *Process) Info() ProcessInfo {
 }
 
 // Call makes outgoing sync request in fashion of 'gen_call'.
-// 'to' can be Pid, registered local name or a tuple {RegisteredName, NodeName}
+// 'to' can be Pid, registered local name or a tuple {RegisteredName, NodeName}.
+// This method shouldn't be used outside of the actor. Use Direct method instead.
 func (p *Process) Call(to interface{}, message etf.Term) (etf.Term, error) {
 	return p.CallWithTimeout(to, message, DefaultCallTimeout)
 }
 
-// CallWithTimeout makes outgoing sync request in fashiod of 'gen_call' with given timeout
+// CallWithTimeout makes outgoing sync request in fashiod of 'gen_call' with given timeout.
+// This method shouldn't be used outside of the actor. Use DirectWithTimeout method instead.
 func (p *Process) CallWithTimeout(to interface{}, message etf.Term, timeout int) (etf.Term, error) {
 	var timer *time.Timer
 
@@ -385,7 +387,7 @@ func (p *Process) Unalias(alias etf.Ref) bool {
 
 // Direct make a direct request to the actor (Application, Supervisor, GenServer or inherited from GenServer actor) with default timeout 5 seconds
 func (p *Process) Direct(request interface{}) (interface{}, error) {
-	return p.directRequest("", request, 5)
+	return p.directRequest("", request, DefaultCallTimeout)
 }
 
 // DirectWithTimeout make a direct request to the actor with the given timeout (in seconds)
