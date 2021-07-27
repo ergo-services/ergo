@@ -146,7 +146,7 @@ func (a *Application) Loop(p *Process, args ...interface{}) string {
 			go p.Exit(p.Self(), "normal")
 			continue
 		case msg := <-p.mailBox:
-			message = msg.Element(2)
+			message = msg.message
 		}
 
 		//fromPid := msg.Element(1).(etf.Pid)

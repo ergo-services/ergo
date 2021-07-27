@@ -19,7 +19,7 @@ const (
 type Process struct {
 	sync.RWMutex
 
-	mailBox      chan etf.Tuple
+	mailBox      chan mailboxMessage
 	ready        chan error
 	gracefulExit chan gracefulExitRequest
 	direct       chan directMessage
@@ -42,6 +42,11 @@ type Process struct {
 	currentFunction string
 
 	trapExit bool
+}
+
+type mailboxMessage struct {
+	from    etf.Pid
+	message interface{}
 }
 
 type directMessage struct {

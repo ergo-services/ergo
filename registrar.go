@@ -83,7 +83,7 @@ func (r *registrar) RegisterProcessExt(name string, object interface{}, opts Pro
 	exitChannel := make(chan gracefulExitRequest)
 
 	process := &Process{
-		mailBox:      make(chan etf.Tuple, mailboxSize),
+		mailBox:      make(chan mailboxMessage, mailboxSize),
 		ready:        make(chan error),
 		stopped:      make(chan bool),
 		gracefulExit: exitChannel,
@@ -109,11 +109,13 @@ func (r *registrar) RegisterProcessExt(name string, object interface{}, opts Pro
 			return
 		}
 		if process.trapExit {
-			message := etf.Tuple{from, etf.Tuple{
-				etf.Atom("EXIT"),
-				from,
-				etf.Atom(reason),
-			}}
+			message := mailboxMessage{
+				from: from,
+				message: etf.Tuple{
+					etf.Atom("EXIT"),
+					from,
+					etf.Atom(reason),
+				}}
 			process.mailBox <- message
 			return
 		}
@@ -324,7 +326,7 @@ next:
 			r.mutexProcesses.Lock()
 			if p, ok := r.processes[tto.ID]; ok {
 				select {
-				case p.mailBox <- etf.Tuple{from, message}:
+				case p.mailBox <- mailboxMessage{from, message}:
 
 				default:
 					fmt.Println("WARNING! mailbox of", p.Self(), "is full. dropped message from", from)

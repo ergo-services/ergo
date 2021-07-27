@@ -158,8 +158,8 @@ func (sv *Supervisor) Loop(svp *Process, args ...interface{}) string {
 			return ex.reason
 
 		case msg := <-svp.mailBox:
-			fromPid = msg.Element(1).(etf.Pid)
-			message = msg.Element(2)
+			fromPid = msg.from
+			message = msg.message
 
 		case <-svp.Context.Done():
 			return "kill"
@@ -379,7 +379,7 @@ func (sv *Supervisor) Loop(svp *Process, args ...interface{}) string {
 					args,
 					reply,
 				}
-				svp.mailBox <- etf.Tuple{etf.Pid{}, m}
+				svp.mailBox <- mailboxMessage{etf.Pid{}, m}
 
 			case etf.Atom("$startBySpec"):
 				specChild := m.Element(2).(SupervisorChildSpec)
@@ -417,7 +417,7 @@ func (sv *Supervisor) StartChild(parent *Process, specName string, args ...inter
 		args,
 		reply,
 	}
-	parent.mailBox <- etf.Tuple{etf.Pid{}, m}
+	parent.mailBox <- mailboxMessage{etf.Pid{}, m}
 	r := <-reply
 	switch r.Element(1) {
 	case etf.Atom("ok"):
@@ -438,7 +438,7 @@ func (sv *Supervisor) StartChildWithSpec(parent *Process, spec SupervisorChildSp
 		args,
 		reply,
 	}
-	parent.mailBox <- etf.Tuple{etf.Pid{}, m}
+	parent.mailBox <- mailboxMessage{etf.Pid{}, m}
 	r := <-reply
 	switch r.Element(1) {
 	case etf.Atom("ok"):

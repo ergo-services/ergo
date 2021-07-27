@@ -84,8 +84,8 @@ func (gs *GenServer) Loop(p *Process, args ...interface{}) string {
 			return reason
 
 		case msg := <-p.mailBox:
-			fromPid = msg.Element(1).(etf.Pid)
-			message = msg.Element(2)
+			fromPid = msg.from
+			message = msg.message
 
 		case <-p.Context.Done():
 			return "kill"
