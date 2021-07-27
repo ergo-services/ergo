@@ -13,6 +13,11 @@ type ExampleGenServer struct {
 	ergo.GenServer
 }
 
+func (egs *ExampleGenServer) HandleDirect(state *ergo.GenServerState, message interface{}) (interface{}, error) {
+	state.Process.Send(state.Process.Self(), message)
+	return nil, nil
+}
+
 func (egs *ExampleGenServer) HandleInfo(state *ergo.GenServerState, message etf.Term) string {
 	value := message.(int)
 	fmt.Printf("HandleInfo: %#v \n", message)
@@ -31,10 +36,10 @@ func main() {
 	// spawn new process of genserver
 	process, _ := node.Spawn("gs1", ergo.ProcessOptions{}, &ExampleGenServer{})
 
-	// sending message to itself
-	process.Send(process.Self(), 100)
+	// send a direct message to itself
+	process.Direct(100)
 
-	// waiting for the process termination.
+	// wait for the process termination.
 	process.Wait()
 	fmt.Println("exited")
 	node.Stop()

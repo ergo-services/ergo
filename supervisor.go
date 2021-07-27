@@ -164,7 +164,25 @@ func (sv *Supervisor) Loop(svp *Process, args ...interface{}) string {
 		case <-svp.Context.Done():
 			return "kill"
 		case direct := <-svp.direct:
-			sv.handleDirect(direct)
+			switch direct.id {
+			case "getChildren":
+				children := []etf.Pid{}
+				for i := range sv.spec.Children {
+					if sv.spec.Children[i].process == nil {
+						continue
+					}
+					children = append(children, sv.spec.Children[i].process.self)
+				}
+
+				direct.message = children
+				direct.err = nil
+				direct.reply <- direct
+
+			default:
+				direct.message = nil
+				direct.err = ErrUnsupportedRequest
+				direct.reply <- direct
+			}
 			continue
 		}
 
@@ -427,28 +445,6 @@ func (sv *Supervisor) StartChildWithSpec(parent *Process, spec SupervisorChildSp
 		return r.Element(2).(etf.Pid), nil
 	default:
 		return etf.Pid{}, fmt.Errorf(r.Element(1).(string))
-	}
-}
-
-func (sv *Supervisor) handleDirect(m directMessage) {
-	switch m.id {
-	case "getChildren":
-		children := []etf.Pid{}
-		for i := range sv.spec.Children {
-			if sv.spec.Children[i].process == nil {
-				continue
-			}
-			children = append(children, sv.spec.Children[i].process.self)
-		}
-
-		m.message = children
-		m.reply <- m
-
-	default:
-		if m.reply != nil {
-			m.message = ErrUnsupportedRequest
-			m.reply <- m
-		}
 	}
 }
 

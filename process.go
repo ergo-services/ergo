@@ -346,7 +346,7 @@ func (p *Process) IsAlive() bool {
 
 // GetChildren returns list of children pid (Application, Supervisor)
 func (p *Process) GetChildren() []etf.Pid {
-	c, err := p.directRequest("getChildren", nil)
+	c, err := p.directRequest("$getChildren", nil, 5)
 	if err == nil {
 		return c.([]etf.Pid)
 	}
@@ -383,27 +383,40 @@ func (p *Process) Unalias(alias etf.Ref) bool {
 	return true
 }
 
-func (p *Process) directRequest(id string, request interface{}) (interface{}, error) {
-	reply := make(chan directMessage)
-	t := time.Second * time.Duration(5)
-	m := directMessage{
+// Direct make a direct request to the actor (Application, Supervisor, GenServer or inherited from GenServer actor) with default timeout 5 seconds
+func (p *Process) Direct(request interface{}) (interface{}, error) {
+	return p.directRequest("", request, 5)
+}
+
+// DirectWithTimeout make a direct request to the actor with the given timeout (in seconds)
+func (p *Process) DirectWithTimeout(request interface{}, timeout int) (interface{}, error) {
+	if timeout < 1 {
+		timeout = 5
+	}
+	return p.directRequest("", request, timeout)
+}
+
+func (p *Process) directRequest(id string, request interface{}, timeout int) (interface{}, error) {
+	timer := lib.TakeTimer()
+	defer lib.ReleaseTimer(timer)
+
+	direct := directMessage{
 		id:      id,
 		message: request,
-		reply:   reply,
+		reply:   make(chan directMessage),
 	}
-	timer := time.NewTimer(t)
-	defer timer.Stop()
+
 	// sending request
 	select {
-	case p.direct <- m:
-		timer.Reset(t)
+	case p.direct <- direct:
+		timer.Reset(time.Second * time.Duration(timeout))
 	case <-timer.C:
 		return nil, ErrProcessBusy
 	}
 
 	// receiving response
 	select {
-	case response := <-reply:
+	case response := <-direct.reply:
 		if response.err != nil {
 			return nil, response.err
 		}

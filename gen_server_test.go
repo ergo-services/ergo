@@ -56,6 +56,19 @@ func (tgs *testGenServer) Terminate(state *GenServerState, reason string) {
 	tgs.err <- nil
 }
 
+type testGenServerDirect struct {
+	GenServer
+	err chan error
+}
+
+func (tgsd *testGenServerDirect) Init(state *GenServerState, args ...interface{}) error {
+	tgsd.err <- nil
+	return nil
+}
+func (tgsd *testGenServerDirect) HandleDirect(state *GenServerState, message interface{}) (interface{}, error) {
+	return message, nil
+}
+
 func TestGenServer(t *testing.T) {
 	fmt.Printf("\n=== Test GenServer\n")
 	fmt.Printf("Starting nodes: nodeGS1@localhost, nodeGS2@localhost: ")
@@ -76,6 +89,9 @@ func TestGenServer(t *testing.T) {
 	gs3 := &testGenServer{
 		err: make(chan error, 2),
 	}
+	gsDirect := &testGenServerDirect{
+		err: make(chan error, 2),
+	}
 
 	fmt.Printf("    wait for start of gs1 on %#v: ", node1.FullName)
 	node1gs1, _ := node1.Spawn("gs1", ProcessOptions{}, gs1, nil)
@@ -88,6 +104,10 @@ func TestGenServer(t *testing.T) {
 	fmt.Printf("    wait for start of gs3 on %#v: ", node2.FullName)
 	node2gs3, _ := node2.Spawn("gs3", ProcessOptions{}, gs3, nil)
 	waitForResult(t, gs3.err)
+
+	fmt.Printf("    wait for start of gsDirect on %#v: ", node2.FullName)
+	node2gsDirect, _ := node2.Spawn("gsDirect", ProcessOptions{}, gsDirect, nil)
+	waitForResult(t, gsDirect.err)
 
 	fmt.Println("Testing GenServer process:")
 
@@ -163,6 +183,23 @@ func TestGenServer(t *testing.T) {
 
 	fmt.Printf("    process.Call (by Name) local (gs1) -> remote (gs3): ")
 	if v1, err := node1gs1.Call(processName, v); err != nil {
+		t.Fatal(err)
+	} else {
+		if v == v1 {
+			fmt.Println("OK")
+		} else {
+			e := fmt.Errorf("expected: %#v , got: %#v", v, v1)
+			t.Fatal(e)
+		}
+	}
+	fmt.Printf("    process.Direct (without HandleDirect implementation): ")
+	if _, err := node1gs1.Direct(nil); err == nil {
+		t.Fatal("must be ErrUnsupportedRequest")
+	} else {
+		fmt.Println("OK")
+	}
+	fmt.Printf("    process.Direct (with HandleDirect implementation): ")
+	if v1, err := node2gsDirect.Direct(v); err != nil {
 		t.Fatal(err)
 	} else {
 		if v == v1 {

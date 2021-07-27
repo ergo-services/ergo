@@ -172,11 +172,6 @@ type GenStageState struct {
 	consumers map[etf.Pid]*subscriptionInternal
 }
 
-type stageRequestCommandCancel struct {
-	Subscription etf.Ref
-	Reason       etf.Term
-}
-
 type stageRequestCommand struct {
 	Cmd  etf.Atom
 	Opt1 interface{}
@@ -231,10 +226,7 @@ func (gst *GenStage) DisableAutoDemand(p *Process, subscription GenStageSubscrip
 		subscription: subscription,
 		enable:       false,
 	}
-	val, err := p.Call(p.Self(), message)
-	if err, ok := val.(error); ok {
-		return err
-	}
+	_, err := p.Direct(message)
 	return err
 }
 
@@ -247,10 +239,7 @@ func (gst *GenStage) EnableAutoDemand(p *Process, subscription GenStageSubscript
 		subscription: subscription,
 		enable:       false,
 	}
-	val, err := p.Call(p.Self(), message)
-	if err, ok := val.(error); ok {
-		return err
-	}
+	_, err := p.Direct(message)
 	return err
 }
 
@@ -260,10 +249,7 @@ func (gst *GenStage) EnableForwardDemand(p *Process) error {
 	message := setForwardDemand{
 		forward: true,
 	}
-	val, err := p.Call(p.Self(), message)
-	if err, ok := val.(error); ok {
-		return err
-	}
+	_, err := p.Direct(message)
 	return err
 }
 
@@ -274,10 +260,7 @@ func (gst *GenStage) DisableForwardDemand(p *Process) error {
 	message := setForwardDemand{
 		forward: false,
 	}
-	val, err := p.Call(p.Self(), message)
-	if err, ok := val.(error); ok {
-		return err
-	}
+	_, err := p.Direct(message)
 	return err
 }
 
@@ -286,10 +269,7 @@ func (gst *GenStage) SendEvents(p *Process, events etf.List) error {
 	message := sendEvents{
 		events: events,
 	}
-	val, err := p.Call(p.Self(), message)
-	if err, ok := val.(error); ok {
-		return err
-	}
+	_, err := p.Direct(message)
 	return err
 }
 
@@ -303,10 +283,7 @@ func (gst *GenStage) SetCancelMode(p *Process, subscription GenStageSubscription
 		cancel:       cancel,
 	}
 
-	val, err := p.Call(p.Self(), message)
-	if err, ok := val.(error); ok {
-		return err
-	}
+	_, err := p.Direct(message)
 	return err
 }
 
@@ -371,10 +348,7 @@ func (gst *GenStage) Ask(p *Process, subscription GenStageSubscription, count ui
 		subscription: subscription,
 		count:        count,
 	}
-	val, err := p.Call(p.Self(), message)
-	if err, ok := val.(error); ok {
-		return err
-	}
+	_, err := p.Direct(message)
 	return err
 }
 
@@ -384,10 +358,7 @@ func (gst *GenStage) Cancel(p *Process, subscription GenStageSubscription, reaso
 		subscription: subscription,
 		reason:       reason,
 	}
-	val, err := p.Call(p.Self(), message)
-	if err, ok := val.(error); ok {
-		return err
-	}
+	_, err := p.Direct(message)
 	return err
 }
 
@@ -430,32 +401,36 @@ func (gst *GenStage) Init(state *GenServerState, args ...interface{}) error {
 
 func (gst *GenStage) HandleCall(state *GenServerState, from GenServerFrom, message etf.Term) (string, etf.Term) {
 	st := state.State.(*GenStageState)
+	return state.Process.GetObject().(GenStageBehavior).HandleGenStageCall(st, from, message)
+}
 
+func (gst *GenStage) HandleDirect(state *GenServerState, message interface{}) (interface{}, error) {
+	st := state.State.(*GenStageState)
 	switch m := message.(type) {
 	case setManualDemand:
 		subInternal, ok := st.producers[m.subscription.Ref.String()]
 		if !ok {
-			return "reply", fmt.Errorf("unknown subscription")
+			return nil, fmt.Errorf("unknown subscription")
 		}
 		subInternal.Options.ManualDemand = m.enable
 		if subInternal.count < defaultAutoDemandCount && !subInternal.Options.ManualDemand {
 			sendDemand(state.Process, subInternal.Producer, m.subscription, defaultAutoDemandCount)
 			subInternal.count += defaultAutoDemandCount
 		}
-		return "reply", "ok"
+		return nil, nil
 
 	case setCancelMode:
 		subInternal, ok := st.producers[m.subscription.Ref.String()]
 		if !ok {
-			return "reply", fmt.Errorf("unknown subscription")
+			return nil, fmt.Errorf("unknown subscription")
 		}
 		subInternal.Options.Cancel = m.cancel
-		return "reply", "ok"
+		return nil, nil
 
 	case setForwardDemand:
 		st.Options.DisableForwarding = !m.forward
 		if !m.forward {
-			return "reply", "ok"
+			return nil, nil
 		}
 
 		// create demand with count = 0, which will be ignored but start
@@ -467,14 +442,14 @@ func (gst *GenStage) HandleCall(state *GenServerState, from GenServerFrom, messa
 		}
 		state.Process.Send(state.Process.Self(), msg)
 
-		return "reply", "ok"
+		return nil, nil
 
 	case sendEvents:
 		var deliver []GenStageDispatchItem
 		// dispatch to the subscribers
 		deliver = st.Options.Dispatcher.Dispatch(st.dispatcherState, m.events)
 		if len(deliver) == 0 {
-			return "reply", "ok"
+			return nil, nil
 		}
 		for d := range deliver {
 			msg := etf.Tuple{
@@ -484,20 +459,20 @@ func (gst *GenStage) HandleCall(state *GenServerState, from GenServerFrom, messa
 			}
 			state.Process.Send(deliver[d].subscription.Pid, msg)
 		}
-		return "reply", "ok"
+		return nil, nil
 
 	case demandRequest:
 		subInternal, ok := st.producers[m.subscription.Ref.String()]
 		if !ok {
-			return "reply", fmt.Errorf("unknown subscription")
+			return nil, fmt.Errorf("unknown subscription")
 		}
 		if !subInternal.Options.ManualDemand {
-			return "reply", fmt.Errorf("auto demand")
+			return nil, fmt.Errorf("auto demand")
 		}
 
 		sendDemand(state.Process, subInternal.Producer, m.subscription, m.count)
 		subInternal.count += int(m.count)
-		return "reply", "ok"
+		return nil, nil
 
 	case cancelSubscription:
 		// if we act as a consumer with this subscription
@@ -513,9 +488,9 @@ func (gst *GenStage) HandleCall(state *GenServerState, from GenServerFrom, messa
 				Opt1: "normal",
 			}
 			if _, err := handleConsumer(st, subInternal.Subscription, cmd); err != nil {
-				return "reply", err
+				return nil, err
 			}
-			return "reply", "ok"
+			return nil, nil
 		}
 		// if we act as a producer within this subscription
 		if subInternal, ok := st.consumers[m.subscription.Pid]; ok {
@@ -531,25 +506,21 @@ func (gst *GenStage) HandleCall(state *GenServerState, from GenServerFrom, messa
 				Opt1: "normal",
 			}
 			if _, err := handleProducer(st, subInternal.Subscription, cmd); err != nil {
-				return "reply", err
+				return nil, err
 			}
-			return "reply", "ok"
+			return nil, nil
 		}
-		return "reply", fmt.Errorf("unknown subscription")
+		return nil, fmt.Errorf("unknown subscription")
 
 	default:
-		reply, term := state.Process.GetObject().(GenStageBehavior).HandleGenStageCall(st, from, message)
-		return reply, term
+		return nil, ErrUnsupportedRequest
 	}
 
-	return "reply", "ok"
 }
 
 func (gst *GenStage) HandleCast(state *GenServerState, message etf.Term) string {
 	st := state.State.(*GenStageState)
-	reply := state.Process.GetObject().(GenStageBehavior).HandleGenStageCast(st, message)
-
-	return reply
+	return state.Process.GetObject().(GenStageBehavior).HandleGenStageCast(st, message)
 }
 
 func (gst *GenStage) HandleInfo(state *GenServerState, message etf.Term) string {

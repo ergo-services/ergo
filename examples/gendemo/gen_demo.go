@@ -26,6 +26,11 @@ type demoMessage struct {
 	request string
 }
 
+type setCounter struct {
+	c int
+}
+type getCounter struct{}
+
 // GenDemoBehavior interface
 type GenDemoBehavior interface {
 	//
@@ -67,13 +72,25 @@ func (gd *GenDemo) HandleGenDemoCall(state *GenDemoState, from ergo.GenServerFro
 	return "reply", etf.Atom("ok")
 }
 
-func (gs *GenDemo) HandleGenDemoCast(state *GenDemoState, message etf.Term) string {
+func (gd *GenDemo) HandleGenDemoCast(state *GenDemoState, message etf.Term) string {
 	fmt.Printf("HandleGenDemoCast: unhandled message %#v\n", message)
 	return "noreply"
 }
-func (gs *GenDemo) HandleGenDemoInfo(state *GenDemoState, message etf.Term) string {
+func (gd *GenDemo) HandleGenDemoInfo(state *GenDemoState, message etf.Term) string {
 	fmt.Printf("HandleGenDemoInfo: unhandled message %#v\n", message)
 	return "noreply"
+}
+
+// API
+
+func (gd *GenDemo) SetCounter(process *ergo.Process, c int) error {
+	_, err := process.Direct(setCounter{c: c})
+	return err
+}
+
+func (gd *GenDemo) GetCounter(process *ergo.Process) (int, error) {
+	return process.Direct(getCounter{})
+
 }
 
 //
@@ -93,6 +110,20 @@ func (gd *GenDemo) Init(state *ergo.GenServerState, args ...interface{}) error {
 func (gd *GenDemo) HandleCall(state *ergo.GenServerState, from ergo.GenServerFrom, message etf.Term) (string, etf.Term) {
 	st := state.State.(*GenDemoState)
 	return state.Process.GetObject().(GenDemoBehavior).HandleGenDemoCall(st, from, message)
+}
+
+func (gd *GenDemo) HandleDirect(state *ergo.GenServerState, message interface{}) (interface{}, error) {
+	st := state.State.(*GenDemoState)
+	switch m := message.(type) {
+	case setCounter:
+		st.counter = m.c
+		return nil, nil
+	case getCounter:
+		return st.counter, nil
+	default:
+		return nil, ergo.ErrUnsupportedRequest
+	}
+
 }
 
 func (gd *GenDemo) HandleCast(state *ergo.GenServerState, message etf.Term) string {

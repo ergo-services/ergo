@@ -28,6 +28,9 @@ type GenServerBehavior interface {
 	//				 ("reason", _) - stop with given "reason"
 	HandleCall(state *GenServerState, from GenServerFrom, message etf.Term) (string, etf.Term)
 
+	// HandleDirect invoked on a direct request made via Process.Direct
+	HandleDirect(state *GenServerState, message interface{}) (interface{}, error)
+
 	// HandleInfo -> "noreply" - noreply
 	//				"stop" - stop with reason "normal"
 	//		         "reason" - stop with given "reason"
@@ -88,7 +91,17 @@ func (gs *GenServer) Loop(p *Process, args ...interface{}) string {
 			return "kill"
 
 		case direct := <-p.direct:
-			gs.handleDirect(direct)
+			reply, err := p.object.(GenServerBehavior).HandleDirect(state, direct.message)
+			if err != nil {
+				direct.message = nil
+				direct.err = err
+				direct.reply <- direct
+				continue
+			}
+
+			direct.message = reply
+			direct.err = nil
+			direct.reply <- direct
 			continue
 		}
 
@@ -250,14 +263,6 @@ func (gs *GenServer) Loop(p *Process, args ...interface{}) string {
 	}
 }
 
-func (gs *GenServer) handleDirect(m directMessage) {
-
-	if m.reply != nil {
-		m.err = ErrUnsupportedRequest
-		m.reply <- m
-	}
-}
-
 //
 // default callbacks for GenServer interface
 //
@@ -273,6 +278,10 @@ func (gs *GenServer) HandleCast(state *GenServerState, message etf.Term) string 
 func (gs *GenServer) HandleCall(state *GenServerState, from GenServerFrom, message etf.Term) (string, etf.Term) {
 	fmt.Printf("GenServer [%s] HandleCall: unhandled message %#v from %#v \n", state.Process.Name(), message, from)
 	return "reply", "ok"
+}
+
+func (gs *GenServer) HandleDirect(state *GenServerState, message interface{}) (interface{}, error) {
+	return nil, ErrUnsupportedRequest
 }
 
 func (gs *GenServer) HandleInfo(state *GenServerState, message etf.Term) string {

@@ -117,7 +117,25 @@ func (a *Application) Loop(p *Process, args ...interface{}) string {
 			return ex.reason
 
 		case direct := <-p.direct:
-			a.handleDirect(direct, spec.Children)
+			switch direct.id {
+			case "$getChildren":
+				pids := []etf.Pid{}
+				for i := range spec.Children {
+					if spec.Children[i].process == nil {
+						continue
+					}
+					pids = append(pids, spec.Children[i].process.self)
+				}
+
+				direct.message = pids
+				direct.err = nil
+				direct.reply <- direct
+
+			default:
+				direct.message = nil
+				direct.err = ErrUnsupportedRequest
+				direct.reply <- direct
+			}
 			continue
 
 		case <-p.Context.Done():
@@ -247,26 +265,4 @@ func (a *Application) startChildren(parent *Process, children []ApplicationChild
 		children[i].process = p
 	}
 	return true
-}
-
-func (a *Application) handleDirect(m directMessage, children []ApplicationChildSpec) {
-	switch m.id {
-	case "getChildren":
-		pids := []etf.Pid{}
-		for i := range children {
-			if children[i].process == nil {
-				continue
-			}
-			pids = append(pids, children[i].process.self)
-		}
-
-		m.message = pids
-		m.reply <- m
-
-	default:
-		if m.reply != nil {
-			m.message = ErrUnsupportedRequest
-			m.reply <- m
-		}
-	}
 }
