@@ -375,21 +375,6 @@ func (p *Process) GetObject() interface{} {
 	return p.object
 }
 
-// Create an alias which can be used when sending messages to the process
-// that created the alias. When the alias has been deactivated, messages
-// sent using the alias will be dropped.
-func (p *Process) Alias() etf.Ref {
-	//FIXME
-	return p.Node.MakeRef()
-}
-
-// Unalias deactivates the alias previously created by the calling process.
-// Returns true if Alias was a currently active alias for current processes; otherwise, false.
-func (p *Process) Unalias(alias etf.Ref) bool {
-	//FIXME
-	return true
-}
-
 // Direct make a direct request to the actor (Application, Supervisor, GenServer or inherited from GenServer actor) with default timeout 5 seconds
 func (p *Process) Direct(request interface{}) (interface{}, error) {
 	return p.directRequest("", request, DefaultCallTimeout)
