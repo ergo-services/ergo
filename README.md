@@ -66,7 +66,7 @@ Here are the changes of latest release. For more details see the [ChangeLog](Cha
 * Introduced new behavior GenSaga. It implements a Saga design pattern - a sequence of transactions that updates each service state and publishes the result (or cancels the transaction or triggers the next transaction step). GenSaga also provides a feature of interim results (can be used as transaction progress or as a part of pipeline processing), time deadline (to limit transaction lifespan), two-phase commit (to make distributed transaction atomic).
 * Added example `example/http` to demonsrate how HTTP server can be integrated into the Ergo node.
 * Added example `example/gendemo` - how to create a custom behavior (design pattern) on top of the GenServer. Take inspiration from the `gen_stage.go` or `gen_saga.go` design patterns.
-* Important: GenServer and GenStage interfaces got significant improvements to be easier to use (without backward compatibility). Make sure to update your code.
+* Important: `GenServer` and `GenStage` interfaces got significant improvements to be easier to use (without backward compatibility). Make sure to update your code.
 * Introduced new methods `Process.Direct` and `Process.DirectWithTimeout` to make direct request to the actor (GenServer or inherited object). If an actor has no implementation of `HandleDirect` callback it returns `ErrUnsupportedRequest` as a error.
 * Introduced new callback `HandleDirect` in the GenServer interface as a handler for the request made by `Process.Direct` or `Process.DirectWithTimeout`. It should be easy now to interact with actors from outside while `Process.Call`, `Process.Cast` and `Process.Send` must be used inside the actors.
 * Introduced new methods for `Node`:
