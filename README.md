@@ -72,7 +72,7 @@ Here are the changes of latest release. For more details see the [ChangeLog](Cha
 * Introduced new methods for `Node`:
   * `ProvideSpawnRemote`, `RevokeSpawnRemote`, `SpawnRemote`, `CancelSpawnRemote` spawn process on a remote node
   * `Ping` sets up a connection to remote Node. Returns `etf.Atom(pong)` if it is successful, otherwise `etf.Atom(pang)`.
-* Introduced new methods for `Process.Alias`, `Process.Unalias`. It can be used when sending messages to the process that created the alias. When the alias has been deactivated, messages sent using the alias will be dropped.
+* Introduced new methods `Process.Alias` and `Process.Unalias`. It can be used when sending messages to the process that created the alias. When the alias has been deactivated, messages sent using the alias will be dropped.
 * Added support FreeBSD, OpenBSD, NetBSD, DragoFly.
 * Fixed RPC issue #45
 * Fixed internal timer issue #48
