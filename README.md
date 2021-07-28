@@ -70,7 +70,7 @@ Here are the changes of latest release. For more details see the [ChangeLog](Cha
 * Introduced new methods `Process.Direct` and `Process.DirectWithTimeout` to make direct request to the actor (GenServer or inherited object). If an actor has no implementation of `HandleDirect` callback it returns `ErrUnsupportedRequest` as a error.
 * Introduced new callback `HandleDirect` in the GenServer interface as a handler for the request made by `Process.Direct` or `Process.DirectWithTimeout`. It should be easy now to interact with actors from outside while `Process.Call`, `Process.Cast` and `Process.Send` must be used inside the actors.
 * Introduced new methods for `Node`:
-  * `ProvideSpawnRemove`, `RevokeSpawnRemote`, `SpawnRemote`, `CancelSpawnRemote` spawn a process on a remote node
+  * `ProvideSpawnRemove`, `RevokeSpawnRemote`, `SpawnRemote`, `CancelSpawnRemote` spawn process on a remote node
   * `Ping` sets up a connection to Node. Returns `etf.Atom(pong)` if it is successful, otherwise `etf.Atom(pang).
 * Added support FreeBSD, OpenBSD, NetBSD, DragoFly.
 * Fixed RPC issue #45
