@@ -115,9 +115,9 @@ type GenSagaBehavior interface {
 	// Optional callbacks
 	//
 
-	HandleJobResult(state *GenStageState, ref etf.Ref, result interface{}) error
-	HandleJobInterim(state *GenStageState, ref etf.Ref, interim interface{}) error
-	HandleJobFailed(state *GenStageState, ref etf.Ref) error
+	HandleJobResult(state *GenSagaState, ref etf.Ref, result interface{}) error
+	HandleJobInterim(state *GenSagaState, ref etf.Ref, interim interface{}) error
+	HandleJobFailed(state *GenSagaState, ref etf.Ref) error
 
 	// HandleInterim invoked if received interim result from the Next hop
 	HandleInterim(state *GenSagaState, tx GenSagaTransaction, next GenSagaNext, interim interface{}) error
@@ -254,7 +254,16 @@ func (gs *GenSaga) HandleDirect(state *GenServerState, message interface{}) (int
 
 func (gs *GenSaga) HandleCast(state *GenServerState, message etf.Term) string {
 	st := state.State.(*GenSagaState)
-	return state.Process.GetObject().(GenSagaBehavior).HandleGenSagaCast(st, message)
+	switch m := message.(type) {
+	case messageSagaWorkerJobResult:
+		state.Process.GetObject().(GenSagaBehavior).HandleJobResult(st, m.ref, m.result)
+		return "noreply"
+	case messageSagaWorkerJobInterim:
+		state.Process.GetObject().(GenSagaBehavior).HandleJobInterim(st, m.ref, m.interim)
+		return "noreply"
+	default:
+		return state.Process.GetObject().(GenSagaBehavior).HandleGenSagaCast(st, message)
+	}
 }
 
 func (gs *GenSaga) HandleInfo(state *GenServerState, message etf.Term) string {
@@ -405,15 +414,15 @@ func handleSagaDown(state *GenSagaState, down DownMessage) error {
 
 // default callbacks
 
-func (gs *GenSaga) HandleJobResult(state *GenStageState, ref etf.Ref, result interface{}) error {
+func (gs *GenSaga) HandleJobResult(state *GenSagaState, ref etf.Ref, result interface{}) error {
 	fmt.Printf("HandleJobResult: unhandled message %#v\n", result)
 	return nil
 }
-func (gs *GenSaga) HandleJobInterim(state *GenStageState, ref etf.Ref, interim interface{}) error {
+func (gs *GenSaga) HandleJobInterim(state *GenSagaState, ref etf.Ref, interim interface{}) error {
 	fmt.Printf("HandleJobInterim: unhandled message %#v\n", interim)
 	return nil
 }
-func (gs *GenSaga) HandleJobFailed(state *GenStageState, ref etf.Ref) error {
+func (gs *GenSaga) HandleJobFailed(state *GenSagaState, ref etf.Ref) error {
 	fmt.Printf("HandleJobFailed: unhandled message %#v\n", ref)
 	return nil
 }

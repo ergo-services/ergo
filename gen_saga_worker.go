@@ -52,7 +52,7 @@ func (w *GenSagaWorker) SendResult(process *Process, job GenSagaWorkerJob, resul
 		ref:    job.Ref,
 		result: result,
 	}
-	process.Send(job.saga, message)
+	process.Cast(job.saga, message)
 }
 
 func (w *GenSagaWorker) SendInterim(process *Process, job GenSagaWorkerJob, interim interface{}) {
@@ -60,7 +60,7 @@ func (w *GenSagaWorker) SendInterim(process *Process, job GenSagaWorkerJob, inte
 		ref:     job.Ref,
 		interim: interim,
 	}
-	process.Send(job.saga, message)
+	process.Cast(job.saga, message)
 }
 
 func (w *GenSagaWorker) Init(state *GenServerState, args ...interface{}) error {
