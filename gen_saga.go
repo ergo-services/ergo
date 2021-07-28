@@ -23,8 +23,8 @@ type GenSagaTransactionOptions struct {
 	Lifespan uint
 
 	// TwoPhaseCommit enables 2PC for the transaction. This option makes all
-	// Sagas involved in this transaction invoke HandleCommit callback once
-	// the transaction is finished.
+	// Sagas involved in this transaction invoke HandleCommit on them and
+	// invoke HandleCommitJob callback on Worker processes once the transaction is finished.
 	TwoPhaseCommit bool
 }
 
@@ -82,9 +82,9 @@ type sagaMessageResult struct {
 }
 
 type sagaMessageCancel struct {
-	Transaction GenSagaTransaction
-	From        etf.Pid
-	Reason      string
+	Ref    etf.Ref
+	ID     string
+	Reason string
 }
 type sagaSetMaxTransactions struct {
 	max uint
@@ -115,14 +115,8 @@ type GenSagaBehavior interface {
 	// Optional callbacks
 	//
 
-	HandleJobResult(state *GenSagaState, ref etf.Ref, result interface{}) error
-	HandleJobInterim(state *GenSagaState, ref etf.Ref, interim interface{}) error
-	HandleJobFailed(state *GenSagaState, ref etf.Ref) error
-
 	// HandleInterim invoked if received interim result from the Next hop
 	HandleInterim(state *GenSagaState, tx GenSagaTransaction, next GenSagaNext, interim interface{}) error
-	// HandleCommit invoked if TwoPhaseCommit is enabled on the given transaction
-	HandleCommit(state *GenSagaState, tx GenSagaTransaction)
 
 	// HandleGenStageCall this callback is invoked on Process.Call. This method is optional
 	// for the implementation
@@ -133,6 +127,13 @@ type GenSagaBehavior interface {
 	// HandleGenStageInfo this callback is invoked on Process.Send. This method is optional
 	// for the implementation
 	HandleGenSagaInfo(state *GenSagaState, message etf.Term) string
+
+	// HandleJobResult
+	HandleJobResult(state *GenSagaState, ref etf.Ref, result interface{}) error
+	// HandleJobInterim
+	HandleJobInterim(state *GenSagaState, ref etf.Ref, interim interface{}) error
+	// HandleJobFailed
+	HandleJobFailed(state *GenSagaState, ref etf.Ref) error
 }
 
 // SetMaxTransactions set maximum transactions fo the saga
@@ -144,7 +145,7 @@ func (gs *GenSaga) SetMaxTransactions(process *Process, max uint) error {
 	return err
 }
 
-func StartSagaTransaction(process *Process, options GenSagaTransactionOptions, next GenSagaNext) etf.Ref {
+func StartSagaTransaction(process *Process, options GenSagaTransactionOptions, next GenSagaNext) string {
 	if options.Name == "" {
 		options.Name = lib.RandomString(32)
 	}
@@ -164,37 +165,7 @@ func StartSagaTransaction(process *Process, options GenSagaTransactionOptions, n
 	}
 
 	process.Send(next.Next, message)
-
-	return tx.Ref
-}
-
-// default GenSaga callbacks
-
-func (gs *GenSaga) HandleInterim(state *GenSagaState, tx GenSagaTransaction, interim interface{}) error {
-	// default callback if it wasn't implemented
-	fmt.Printf("HandleInterim: unhandled message %#v\n", tx)
-	return nil
-}
-
-func (gs *GenSaga) HandleCommit(state *GenSagaState, tx GenSagaTransaction) {
-	return
-}
-
-func (gs *GenSaga) HandleGenSagaCall(state *GenSagaState, from GenServerFrom, message etf.Term) (string, etf.Term) {
-	// default callback if it wasn't implemented
-	fmt.Printf("HandleGenSagaCall: unhandled message (from %#v) %#v\n", from, message)
-	return "reply", etf.Atom("ok")
-}
-
-func (gs *GenSaga) HandleGenSagaCast(state *GenSagaState, message etf.Term) string {
-	// default callback if it wasn't implemented
-	fmt.Printf("HandleGenSagaCast: unhandled message %#v\n", message)
-	return "noreply"
-}
-func (gs *GenSaga) HandleGenSagaInfo(state *GenSagaState, message etf.Term) string {
-	// default callback if it wasn't implemnted
-	fmt.Printf("HandleGenSagaInfo: unhandled message %#v\n", message)
-	return "noreply"
+	return tx.ID
 }
 
 //
@@ -215,7 +186,7 @@ func (gs *GenSaga) Init(state *GenServerState, args ...interface{}) error {
 	state.State = sagaState
 
 	if options.Worker == nil {
-		// Do not start supervisor if Worker hasn't been defined
+		// do not start supervisor if Worker hasn't been defined
 		return nil
 	}
 
@@ -228,8 +199,9 @@ func (gs *GenSaga) Init(state *GenServerState, args ...interface{}) error {
 	if err != nil {
 		return err
 	}
-
+	// link saga with supervisor process
 	state.Process.Link(svp.Self())
+
 	sagaState.sv = sv
 	sagaState.svp = svp
 
@@ -314,9 +286,8 @@ func handleSagaRequest(state *GenSagaState, m sagaMessage) error {
 		if _, ok := state.txs[nextMessage.Transaction.ID]; ok {
 			cancel := etf.Tuple{
 				etf.Atom("$saga_cancel"),
-				nextMessage.Transaction.Ref,
-				nextMessage.Transaction.ID,
-				"loop_detected",
+				state.Process.Self(),
+				etf.Tuple{nextMessage.Transaction.Ref, nextMessage.Transaction.ID, "loop_detected"},
 			}
 			state.Process.Send(m.Pid, cancel)
 			return nil
@@ -326,9 +297,8 @@ func handleSagaRequest(state *GenSagaState, m sagaMessage) error {
 		if len(state.txs)+1 > int(state.Options.MaxTransactions) {
 			cancel := etf.Tuple{
 				etf.Atom("$saga_cancel"),
-				nextMessage.Transaction.Ref,
-				nextMessage.Transaction.ID,
-				"exceed_max_limit",
+				state.Process.Self(),
+				etf.Tuple{nextMessage.Transaction.Ref, nextMessage.Transaction.ID, "exceed_max_limit"},
 			}
 			state.Process.Send(m.Pid, cancel)
 			return nil
@@ -340,9 +310,8 @@ func handleSagaRequest(state *GenSagaState, m sagaMessage) error {
 		if hoplimit > 0 && hop+1 > int(hoplimit) {
 			cancel := etf.Tuple{
 				etf.Atom("$saga_cancel"),
-				nextMessage.Transaction.Ref,
-				nextMessage.Transaction.ID,
-				"exceed_hop_limit",
+				state.Process.Self(),
+				etf.Tuple{nextMessage.Transaction.Ref, nextMessage.Transaction.ID, "exceed_hop_limit"},
 			}
 			state.Process.Send(m.Pid, cancel)
 			return nil
@@ -354,9 +323,8 @@ func handleSagaRequest(state *GenSagaState, m sagaMessage) error {
 		if lifespan > 0 && l > int64(lifespan) {
 			cancel := etf.Tuple{
 				etf.Atom("$saga_cancel"),
-				nextMessage.Transaction.Ref,
-				nextMessage.Transaction.ID,
-				"exceed_lifespan",
+				state.Process.Self(),
+				etf.Tuple{nextMessage.Transaction.Ref, nextMessage.Transaction.ID, "exceed_lifespan"},
 			}
 			state.Process.Send(m.Pid, cancel)
 			return nil
@@ -391,7 +359,12 @@ func handleSagaRequest(state *GenSagaState, m sagaMessage) error {
 		if err := etf.TermIntoStruct(m.Command, &cancel); err != nil {
 			return ErrUnsupportedRequest
 		}
-		state.Process.GetObject().(GenSagaBehavior).HandleCancel(state, cancel.Transaction, cancel.Reason)
+		tx, exist := state.txs[cancel.ID]
+		if !exist {
+			return nil
+		}
+
+		state.Process.GetObject().(GenSagaBehavior).HandleCancel(state, tx, cancel.Reason)
 		return nil
 	case "$saga_interim":
 		if err := etf.TermIntoStruct(m.Command, &result); err != nil {
@@ -408,12 +381,37 @@ func handleSagaRequest(state *GenSagaState, m sagaMessage) error {
 	}
 	return ErrUnsupportedRequest
 }
+
 func handleSagaDown(state *GenSagaState, down DownMessage) error {
 	return nil
 }
 
-// default callbacks
-
+//
+// default GenSaga callbacks
+//
+func (gs *GenSaga) HandleCommit(state *GenSagaState, tx GenSagaTransaction) {
+	return
+}
+func (gs *GenSaga) HandleInterim(state *GenSagaState, tx GenSagaTransaction, interim interface{}) error {
+	// default callback if it wasn't implemented
+	fmt.Printf("HandleInterim: unhandled message %#v\n", tx)
+	return nil
+}
+func (gs *GenSaga) HandleGenSagaCall(state *GenSagaState, from GenServerFrom, message etf.Term) (string, etf.Term) {
+	// default callback if it wasn't implemented
+	fmt.Printf("HandleGenSagaCall: unhandled message (from %#v) %#v\n", from, message)
+	return "reply", etf.Atom("ok")
+}
+func (gs *GenSaga) HandleGenSagaCast(state *GenSagaState, message etf.Term) string {
+	// default callback if it wasn't implemented
+	fmt.Printf("HandleGenSagaCast: unhandled message %#v\n", message)
+	return "noreply"
+}
+func (gs *GenSaga) HandleGenSagaInfo(state *GenSagaState, message etf.Term) string {
+	// default callback if it wasn't implemnted
+	fmt.Printf("HandleGenSagaInfo: unhandled message %#v\n", message)
+	return "noreply"
+}
 func (gs *GenSaga) HandleJobResult(state *GenSagaState, ref etf.Ref, result interface{}) error {
 	fmt.Printf("HandleJobResult: unhandled message %#v\n", result)
 	return nil

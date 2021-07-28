@@ -26,10 +26,10 @@ type GenSagaWorker struct {
 
 type GenSagaWorkerState struct {
 	GenServerState
-	Job GenSagaWorkerJob
+	Job GenSagaJob
 }
 
-type GenSagaWorkerJob struct {
+type GenSagaJob struct {
 	Ref   etf.Ref
 	Value interface{}
 	saga  etf.Pid
@@ -47,7 +47,7 @@ type messageSagaWorkerJobResult struct {
 	result interface{}
 }
 
-func (w *GenSagaWorker) SendResult(process *Process, job GenSagaWorkerJob, result interface{}) {
+func (w *GenSagaWorker) SendResult(process *Process, job GenSagaJob, result interface{}) {
 	message := messageSagaWorkerJobResult{
 		ref:    job.Ref,
 		result: result,
@@ -55,7 +55,7 @@ func (w *GenSagaWorker) SendResult(process *Process, job GenSagaWorkerJob, resul
 	process.Cast(job.saga, message)
 }
 
-func (w *GenSagaWorker) SendInterim(process *Process, job GenSagaWorkerJob, interim interface{}) {
+func (w *GenSagaWorker) SendInterim(process *Process, job GenSagaJob, interim interface{}) {
 	message := messageSagaWorkerJobInterim{
 		ref:     job.Ref,
 		interim: interim,
@@ -64,7 +64,7 @@ func (w *GenSagaWorker) SendInterim(process *Process, job GenSagaWorkerJob, inte
 }
 
 func (w *GenSagaWorker) Init(state *GenServerState, args ...interface{}) error {
-	job := args[0].(GenSagaWorkerJob)
+	job := args[0].(GenSagaJob)
 	workerState := &GenSagaWorkerState{
 		GenServerState: *state,
 		Job:            job,
