@@ -3,10 +3,11 @@ package etf
 import (
 	"context"
 	"fmt"
-	"github.com/halturin/ergo/lib"
 	"math/big"
 	"reflect"
 	"testing"
+
+	"github.com/halturin/ergo/lib"
 )
 
 func TestEncodeBool(t *testing.T) {
@@ -476,16 +477,17 @@ func TestEncodeGoStruct(t *testing.T) {
 	b := lib.TakeBuffer()
 	defer lib.ReleaseBuffer(b)
 
-	expected := []byte{116, 0, 0, 0, 2, 119, 15, 83, 116, 114, 117, 99, 116, 84, 111, 77,
-		97, 112, 75, 101, 121, 49, 98, 0, 0, 48, 57, 119, 15, 83, 116, 114, 117,
-		99, 116, 84, 111, 77, 97, 112, 75, 101, 121, 50, 107, 0, 11, 104, 101,
-		108, 108, 111, 32, 119, 111, 114, 108, 100}
+	expected := []byte{116, 0, 0, 0, 3, 119, 15, 83, 116, 114, 117, 99, 116, 84, 111, 77, 97, 112, 75, 101, 121, 49, 98, 0, 0, 48, 57, 119, 15, 83, 116, 114, 117, 99, 116, 84, 111, 77, 97, 112, 75, 101, 121, 50, 107, 0, 22, 112, 111, 105, 110, 116, 101, 114, 32, 116, 111, 32, 104, 101, 108, 108, 111, 32, 119, 111, 114, 108, 100, 119, 15, 83, 116, 114, 117, 99, 116, 84, 111, 77, 97, 112, 75, 101, 121, 51, 107, 0, 11, 104, 101, 108, 108, 111, 32, 119, 111, 114, 108, 100}
+
+	s := "pointer to hello world"
 	term := struct {
 		StructToMapKey1 int
 		StructToMapKey2 string
+		StructToMapKey3 string
 	}{
 		StructToMapKey1: 12345,
-		StructToMapKey2: "hello world",
+		StructToMapKey2: s,
+		StructToMapKey3: "hello world",
 	}
 
 	err := Encode(term, b, nil, nil, nil)
@@ -496,6 +498,97 @@ func TestEncodeGoStruct(t *testing.T) {
 	if !reflect.DeepEqual(b.B, expected) {
 		fmt.Println("exp", expected)
 		fmt.Println("got", b.B)
+		t.Fatal("incorrect value")
+	}
+	b1 := lib.TakeBuffer()
+	defer lib.ReleaseBuffer(b1)
+
+	term1 := struct {
+		StructToMapKey1 int
+		StructToMapKey2 *string
+		StructToMapKey3 string
+	}{
+		StructToMapKey1: 12345,
+		StructToMapKey2: &s,
+		StructToMapKey3: "hello world",
+	}
+
+	err = Encode(term1, b1, nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !reflect.DeepEqual(b1.B, expected) {
+		fmt.Println("exp", expected)
+		fmt.Println("got", b1.B)
+		t.Fatal("incorrect value")
+	}
+}
+
+func TestEncodeGoStructWithNestedPointers(t *testing.T) {
+	b := lib.TakeBuffer()
+	defer lib.ReleaseBuffer(b)
+
+	type Nested struct {
+		Key1 string
+		Key2 *string
+		Key3 int
+		Key4 *int
+		Key5 float64
+		Key6 *float64
+		Key7 bool
+		Key8 *bool
+	}
+	type Tst struct {
+		Nested
+		Key9 *Nested
+	}
+	ValueString := "hello world"
+	ValueInt := 123
+	ValueFloat := 3.14
+	ValueBool := true
+
+	nested := Nested{
+		Key1: ValueString,
+		Key2: &ValueString,
+		Key3: ValueInt,
+		Key4: &ValueInt,
+		Key5: ValueFloat,
+		Key6: &ValueFloat,
+		Key7: ValueBool,
+		Key8: &ValueBool,
+	}
+	term := Tst{
+		Nested: nested,
+		Key9:   &nested,
+	}
+
+	expected := []byte{116, 0, 0, 0, 2, 119, 6, 78, 101, 115, 116, 101, 100, 116, 0, 0, 0, 8, 119, 4, 75, 101, 121, 49, 107, 0, 11, 104, 101, 108, 108, 111, 32, 119, 111, 114, 108, 100, 119, 4, 75, 101, 121, 50, 107, 0, 11, 104, 101, 108, 108, 111, 32, 119, 111, 114, 108, 100, 119, 4, 75, 101, 121, 51, 97, 123, 119, 4, 75, 101, 121, 52, 97, 123, 119, 4, 75, 101, 121, 53, 70, 64, 9, 30, 184, 81, 235, 133, 31, 119, 4, 75, 101, 121, 54, 70, 64, 9, 30, 184, 81, 235, 133, 31, 119, 4, 75, 101, 121, 55, 115, 4, 116, 114, 117, 101, 119, 4, 75, 101, 121, 56, 115, 4, 116, 114, 117, 101, 119, 4, 75, 101, 121, 57, 116, 0, 0, 0, 8, 119, 4, 75, 101, 121, 49, 107, 0, 11, 104, 101, 108, 108, 111, 32, 119, 111, 114, 108, 100, 119, 4, 75, 101, 121, 50, 107, 0, 11, 104, 101, 108, 108, 111, 32, 119, 111, 114, 108, 100, 119, 4, 75, 101, 121, 51, 97, 123, 119, 4, 75, 101, 121, 52, 97, 123, 119, 4, 75, 101, 121, 53, 70, 64, 9, 30, 184, 81, 235, 133, 31, 119, 4, 75, 101, 121, 54, 70, 64, 9, 30, 184, 81, 235, 133, 31, 119, 4, 75, 101, 121, 55, 115, 4, 116, 114, 117, 101, 119, 4, 75, 101, 121, 56, 115, 4, 116, 114, 117, 101}
+
+	err := Encode(term, b, nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(b.B, expected) {
+		fmt.Println("exp", expected)
+		fmt.Println("got", b.B)
+		t.Fatal("incorrect value")
+	}
+
+	b1 := lib.TakeBuffer()
+	defer lib.ReleaseBuffer(b1)
+	termWithNil := Tst{
+		Nested: nested,
+	}
+	expectedWithNil := []byte{116, 0, 0, 0, 2, 119, 6, 78, 101, 115, 116, 101, 100, 116, 0, 0, 0, 8, 119, 4, 75, 101, 121, 49, 107, 0, 11, 104, 101, 108, 108, 111, 32, 119, 111, 114, 108, 100, 119, 4, 75, 101, 121, 50, 107, 0, 11, 104, 101, 108, 108, 111, 32, 119, 111, 114, 108, 100, 119, 4, 75, 101, 121, 51, 97, 123, 119, 4, 75, 101, 121, 52, 97, 123, 119, 4, 75, 101, 121, 53, 70, 64, 9, 30, 184, 81, 235, 133, 31, 119, 4, 75, 101, 121, 54, 70, 64, 9, 30, 184, 81, 235, 133, 31, 119, 4, 75, 101, 121, 55, 115, 4, 116, 114, 117, 101, 119, 4, 75, 101, 121, 56, 115, 4, 116, 114, 117, 101, 119, 4, 75, 101, 121, 57, 106}
+
+	err = Encode(termWithNil, b1, nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(b1.B, expectedWithNil) {
+		fmt.Println("exp", expectedWithNil)
+		fmt.Println("got", b1.B)
 		t.Fatal("incorrect value")
 	}
 }
@@ -622,7 +715,14 @@ func TestEncodeGoPtrNil(t *testing.T) {
 	defer lib.ReleaseBuffer(b)
 
 	err := Encode(x, b, nil, nil, nil)
-	if err == nil {
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected := []byte{ettNil}
+	if !reflect.DeepEqual(b.B, expected) {
+		fmt.Println("exp", expected)
+		fmt.Println("got", b.B)
 		t.Fatal("incorrect value")
 	}
 }
