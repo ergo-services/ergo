@@ -3,10 +3,11 @@ package etf
 import (
 	"encoding/binary"
 	"fmt"
-	"github.com/halturin/ergo/lib"
 	"math"
 	"math/big"
 	"reflect"
+
+	"github.com/halturin/ergo/lib"
 )
 
 var (
@@ -20,7 +21,13 @@ var (
 func Encode(term Term, b *lib.Buffer,
 	linkAtomCache *AtomCache,
 	writerAtomCache map[Atom]CacheItem,
-	encodingAtomCache *ListAtomCache) error {
+	encodingAtomCache *ListAtomCache) (retErr error) {
+	defer func() {
+		// We should catch any panic happend during encoding Golang types.
+		if r := recover(); r != nil {
+			retErr = fmt.Errorf("%v", r)
+		}
+	}()
 
 	var stack, child *stackElement
 
