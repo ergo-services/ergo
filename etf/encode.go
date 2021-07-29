@@ -546,11 +546,15 @@ func Encode(term Term, b *lib.Buffer,
 
 			case reflect.Ptr:
 				// dereference value
-				if v.IsNil() {
-					return fmt.Errorf("unsupported nil value")
+				if !v.IsNil() {
+					term = v.Elem().Interface()
+					goto recasting
 				}
-				term = v.Elem().Interface()
-				continue
+
+				b.AppendByte(ettNil)
+				if stack == nil {
+					break
+				}
 
 			default:
 				return fmt.Errorf("unsupported type %#v", v)
