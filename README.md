@@ -63,15 +63,15 @@ Here are the changes of latest release. For more details see the [ChangeLog](Cha
 #### [1.3.0](https://github.com/halturin/ergo/releases/tag/v1.3.0) - 2021-09-07 ####
 
 * Added support of Erlang/OTP 24
-* Introduced new behavior `GenSaga`. It implements a Saga design pattern - a sequence of transactions that updates each service state and publishes the result (or cancels the transaction or triggers the next transaction step). `GenSaga` also provides a feature of interim results (can be used as transaction progress or as a part of pipeline processing), time deadline (to limit transaction lifespan), two-phase commit (to make distributed transaction atomic).
-* Added example `example/http` to demonsrate how HTTP server can be integrated into the Ergo node.
-* Added example `example/gendemo` - how to create a custom behavior (design pattern) on top of the `GenServer`. Take inspiration from the `gen_stage.go` or `gen_saga.go` design patterns.
 * Important: `GenServer` and `GenStage` interfaces got significant improvements to be easier to use (without backward compatibility). Make sure to update your code.
+* Introduced new behavior `GenSaga`. It implements a Saga design pattern - a sequence of transactions that updates each service state and publishes the result (or cancels the transaction or triggers the next transaction step). `GenSaga` also provides a feature of interim results (can be used as transaction progress or as a part of pipeline processing), time deadline (to limit transaction lifespan), two-phase commit (to make distributed transaction atomic).
 * Introduced new methods `Process.Direct` and `Process.DirectWithTimeout` to make direct request to the actor (`GenServer` or inherited object). If an actor has no implementation of `HandleDirect` callback it returns `ErrUnsupportedRequest` as a error.
 * Introduced new callback `HandleDirect` in the `GenServer` interface as a handler for the request made by `Process.Direct` or `Process.DirectWithTimeout`. It should be easy now to interact with actors from outside while `Process.Call`, `Process.Cast` and `Process.Send` must be used inside the actors.
 * Introduced new methods for `Node`:
   * `ProvideSpawnRemote`, `RevokeSpawnRemote`, `SpawnRemote`, `CancelSpawnRemote` spawn process on a remote node
   * `Ping` sets up a connection to remote Node. Returns `etf.Atom(pong)` if it is successful, otherwise `etf.Atom(pang)`.
+* Added example `example/http` to demonsrate how HTTP server can be integrated into the Ergo node.
+* Added example `example/gendemo` - how to create a custom behavior (design pattern) on top of the `GenServer`. Take inspiration from the `gen_stage.go` or `gen_saga.go` design patterns.
 * Added support FreeBSD, OpenBSD, NetBSD, DragoFly.
 * Fixed RPC issue #45
 * Fixed internal timer issue #48
@@ -79,6 +79,7 @@ Here are the changes of latest release. For more details see the [ChangeLog](Cha
 * Fixed double panic issue #52
 * Fixed Atom Cache race conditioned issue #54
 * Fixed observer support
+* Fixed ETF encoder issues #64 #66
 
 
 ### Benchmarks ###
