@@ -171,7 +171,7 @@ func TermIntoStruct(term Term, dest interface{}) (err error) {
 		}
 	}()
 	v := reflect.Indirect(reflect.ValueOf(dest))
-	err = termIntoStruct(term, v)
+	err = termIntoStruct(term, v, false)
 	return
 }
 
@@ -189,7 +189,7 @@ func TermMapIntoStruct(term Term, dest interface{}) (err error) {
 	return setMapStructField(term.(Map), v)
 }
 
-func termIntoStruct(term Term, dest reflect.Value) error {
+func termIntoStruct(term Term, dest reflect.Value, charlistToString bool) error {
 	t := dest.Type()
 
 	if term == nil {
@@ -199,6 +199,12 @@ func termIntoStruct(term Term, dest reflect.Value) error {
 	if t.Kind() == reflect.Interface {
 		dest.Set(reflect.ValueOf(term))
 		return nil
+	}
+
+	if t.Kind() == reflect.Ptr {
+		pdest := reflect.New(dest.Type().Elem())
+		dest.Set(pdest)
+		dest = pdest.Elem()
 	}
 
 	switch v := term.(type) {
@@ -223,29 +229,29 @@ func termIntoStruct(term Term, dest reflect.Value) error {
 	case float64:
 		dest.SetFloat(v)
 	case int:
-		return setIntField(int64(v), dest, t)
+		return setIntField(int64(v), dest)
 	case int8:
-		return setIntField(int64(v), dest, t)
+		return setIntField(int64(v), dest)
 	case int16:
-		return setIntField(int64(v), dest, t)
+		return setIntField(int64(v), dest)
 	case int32:
-		return setIntField(int64(v), dest, t)
+		return setIntField(int64(v), dest)
 	case int64:
-		return setIntField(int64(v), dest, t)
+		return setIntField(int64(v), dest)
 	case uint:
-		return setUIntField(uint64(v), dest, t)
+		return setUIntField(uint64(v), dest)
 	case uint8:
-		return setUIntField(uint64(v), dest, t)
+		return setUIntField(uint64(v), dest)
 	case uint16:
-		return setUIntField(uint64(v), dest, t)
+		return setUIntField(uint64(v), dest)
 	case uint32:
-		return setUIntField(uint64(v), dest, t)
+		return setUIntField(uint64(v), dest)
 	case uint64:
-		return setUIntField(uint64(v), dest, t)
+		return setUIntField(uint64(v), dest)
 	case Map:
-		return setMapField(v, dest, t)
+		return setMapField(v, dest)
 	case List:
-		return setListField(v, dest, t)
+		return setListField(v, dest, charlistToString)
 	case Tuple:
 		return setStructField([]Term(v), dest, t)
 	default:
@@ -255,9 +261,9 @@ func termIntoStruct(term Term, dest reflect.Value) error {
 	return nil
 }
 
-func setListField(term List, dest reflect.Value, t reflect.Type) error {
+func setListField(term List, dest reflect.Value, charlistToString bool) error {
 	var value reflect.Value
-
+	t := dest.Type()
 	switch t.Kind() {
 	case reflect.Slice:
 		value = reflect.MakeSlice(t, len(term), len(term))
@@ -266,12 +272,20 @@ func setListField(term List, dest reflect.Value, t reflect.Type) error {
 			return NewInvalidTypesError(t, term)
 		}
 		value = dest
+	case reflect.String:
+		s, err := convertCharlistToString(term)
+		if err != nil {
+			return NewInvalidTypesError(t, term)
+		}
+		dest.SetString(s)
+		return nil
+
 	default:
 		return NewInvalidTypesError(t, term)
 	}
 
 	for i, elem := range term {
-		if err := termIntoStruct(elem, value.Index(i)); err != nil {
+		if err := termIntoStruct(elem, value.Index(i), charlistToString); err != nil {
 			return err
 		}
 	}
@@ -314,12 +328,12 @@ func setProplistField(list List, dest reflect.Value) error {
 		if !ok {
 			return &InvalidStructKeyError{Term: key}
 		}
-		index, _ := findStructField(fields, fName)
+		index, charlistToString := findStructField(fields, fName)
 		if index == -1 {
 			continue
 		}
 
-		err := termIntoStruct(val, dest.Field(index))
+		err := termIntoStruct(val, dest.Field(index), charlistToString)
 		if err != nil {
 			return err
 		}
@@ -341,12 +355,12 @@ func setProplistElementField(proplist []ProplistElement, dest reflect.Value) err
 		if !ok {
 			return &InvalidStructKeyError{Term: elem.Name}
 		}
-		index, _ := findStructField(fields, fName)
+		index, charlistToString := findStructField(fields, fName)
 		if index == -1 {
 			continue
 		}
 
-		err := termIntoStruct(elem.Value, dest.Field(index))
+		err := termIntoStruct(elem.Value, dest.Field(index), charlistToString)
 		if err != nil {
 			return err
 		}
@@ -354,17 +368,18 @@ func setProplistElementField(proplist []ProplistElement, dest reflect.Value) err
 
 	return nil
 }
-func setMapField(term Map, dest reflect.Value, t reflect.Type) error {
-	switch t.Kind() {
+func setMapField(term Map, dest reflect.Value) error {
+	switch dest.Type().Kind() {
 	case reflect.Map:
-		return setMapMapField(term, dest, t)
+		return setMapMapField(term, dest)
+	case reflect.Struct:
+		return setMapStructField(term, dest)
 	case reflect.Interface:
-		// TODO... do this a better way
 		dest.Set(reflect.ValueOf(term))
 		return nil
 	}
 
-	return NewInvalidTypesError(t, term)
+	return NewInvalidTypesError(dest.Type(), term)
 }
 
 func setStructField(term Tuple, dest reflect.Value, t reflect.Type) error {
@@ -374,7 +389,7 @@ func setStructField(term Tuple, dest reflect.Value, t reflect.Type) error {
 		dest = pdest.Elem()
 	}
 	for i, elem := range term {
-		if err := termIntoStruct(elem, dest.Field(i)); err != nil {
+		if err := termIntoStruct(elem, dest.Field(i), false); err != nil {
 			return err
 		}
 	}
@@ -396,12 +411,12 @@ func setMapStructField(term Map, dest reflect.Value) error {
 		if !ok {
 			return &InvalidStructKeyError{Term: key}
 		}
-		index, _ := findStructField(fields, fName)
+		index, charlistToString := findStructField(fields, fName)
 		if index == -1 {
 			continue
 		}
 
-		err := termIntoStruct(val, dest.Field(index))
+		err := termIntoStruct(val, dest.Field(index), charlistToString)
 		if err != nil {
 			return err
 		}
@@ -410,18 +425,29 @@ func setMapStructField(term Map, dest reflect.Value) error {
 	return nil
 }
 
-func findStructField(term []reflect.StructField, key string) (index int, structField reflect.StructField) {
+func findStructField(term []reflect.StructField, key string) (index int, charlistToString bool) {
+	var fieldName string
 	index = -1
 	for i, f := range term {
+		fieldName = f.Name
+		charlistToString = false
+
 		tag := f.Tag.Get("etf")
-		split := strings.Split(tag, ",")
-		if len(split) > 0 && split[0] != "" {
-			if split[0] == key {
-				return i, f
+		split := strings.Split(tag, " ")
+		for s := range split {
+			switch split[s] {
+			case "charlist":
+				charlistToString = true
+			default:
+				fieldName = split[s]
 			}
+		}
+
+		if fieldName == key {
+			index = i
+			return
 		} else {
 			if strings.EqualFold(f.Name, key) {
-				structField = f
 				index = i
 			}
 		}
@@ -430,7 +456,8 @@ func findStructField(term []reflect.StructField, key string) (index int, structF
 	return
 }
 
-func setMapMapField(term Map, dest reflect.Value, t reflect.Type) error {
+func setMapMapField(term Map, dest reflect.Value) error {
+	t := dest.Type()
 	if dest.IsNil() {
 		dest.Set(reflect.MakeMapWithSize(t, len(term)))
 	}
@@ -438,11 +465,11 @@ func setMapMapField(term Map, dest reflect.Value, t reflect.Type) error {
 	tval := t.Elem()
 	for key, val := range term {
 		destkey := reflect.Indirect(reflect.New(tkey))
-		if err := termIntoStruct(key, destkey); err != nil {
+		if err := termIntoStruct(key, destkey, false); err != nil {
 			return err
 		}
 		destval := reflect.Indirect(reflect.New(tval))
-		if err := termIntoStruct(val, destval); err != nil {
+		if err := termIntoStruct(val, destval, false); err != nil {
 			return err
 		}
 		dest.SetMapIndex(destkey, destval)
@@ -450,8 +477,8 @@ func setMapMapField(term Map, dest reflect.Value, t reflect.Type) error {
 	return nil
 }
 
-func setIntField(i int64, field reflect.Value, t reflect.Type) error {
-	switch t.Kind() {
+func setIntField(i int64, field reflect.Value) error {
+	switch field.Type().Kind() {
 	case reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64, reflect.Int:
 		field.SetInt(int64(i))
 	case reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uint:
@@ -462,8 +489,8 @@ func setIntField(i int64, field reflect.Value, t reflect.Type) error {
 	return nil
 }
 
-func setUIntField(ui uint64, field reflect.Value, t reflect.Type) error {
-	switch t.Kind() {
+func setUIntField(ui uint64, field reflect.Value) error {
+	switch field.Type().Kind() {
 	case reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64, reflect.Int:
 		field.SetInt(int64(ui))
 	case reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uint:
@@ -496,4 +523,25 @@ type InvalidStructKeyError struct {
 
 func (s *InvalidStructKeyError) Error() string {
 	return fmt.Sprintf("Cannot use %s as struct field name", reflect.TypeOf(s.Term).Name())
+}
+
+func convertCharlistToString(l List) (string, error) {
+	runes := make([]rune, len(l))
+	for i := range l {
+		switch x := l[i].(type) {
+		case int64:
+			runes[i] = int32(x)
+		case int32:
+			runes[i] = int32(x)
+		case int16:
+			runes[i] = int32(x)
+		case int8:
+			runes[i] = int32(x)
+		case int:
+			runes[i] = int32(x)
+		default:
+			return "", fmt.Errorf("wrong rune %#v", l[i])
+		}
+	}
+	return string(runes), nil
 }

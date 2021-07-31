@@ -13,10 +13,11 @@ type stackElement struct {
 
 	termType byte
 
-	term     Term //value
-	i        int  // current
-	children int
-	tmp      Term // temporary value. uses as a temporary storage for a key of map
+	term             Term //value
+	i                int  // current
+	children         int
+	stringAsCharlist bool // treat strings as []rune in the encoding process
+	tmp              Term // temporary value. uses as a temporary storage for a key of map
 }
 
 var (
