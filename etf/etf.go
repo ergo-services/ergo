@@ -526,8 +526,6 @@ func convertCharlistToString(l List) (string, error) {
 	runes := make([]rune, len(l))
 	for i := range l {
 		switch x := l[i].(type) {
-		case int64:
-			runes[i] = int32(x)
 		case int32:
 			runes[i] = int32(x)
 		case int16:
