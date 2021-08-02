@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/halturin/ergo/lib"
 )
@@ -525,17 +526,19 @@ func TestEncodeStruct(t *testing.T) {
 	b := lib.TakeBuffer()
 	defer lib.ReleaseBuffer(b)
 
-	expected := []byte{116, 0, 0, 0, 3, 119, 15, 83, 116, 114, 117, 99, 116, 84, 111, 77, 97, 112, 75, 101, 121, 49, 98, 0, 0, 48, 57, 119, 15, 83, 116, 114, 117, 99, 116, 84, 111, 77, 97, 112, 75, 101, 121, 50, 109, 0, 0, 0, 22, 112, 111, 105, 110, 116, 101, 114, 32, 116, 111, 32, 104, 101, 108, 108, 111, 32, 119, 111, 114, 108, 100, 119, 15, 83, 116, 114, 117, 99, 116, 84, 111, 77, 97, 112, 75, 101, 121, 51, 109, 0, 0, 0, 11, 104, 101, 108, 108, 111, 32, 119, 111, 114, 108, 100}
+	expected := []byte{116, 0, 0, 0, 4, 119, 15, 83, 116, 114, 117, 99, 116, 84, 111, 77, 97, 112, 75, 101, 121, 49, 98, 0, 0, 48, 57, 119, 15, 83, 116, 114, 117, 99, 116, 84, 111, 77, 97, 112, 75, 101, 121, 50, 109, 0, 0, 0, 22, 112, 111, 105, 110, 116, 101, 114, 32, 116, 111, 32, 104, 101, 108, 108, 111, 32, 119, 111, 114, 108, 100, 119, 15, 83, 116, 114, 117, 99, 116, 84, 111, 77, 97, 112, 75, 101, 121, 51, 109, 0, 0, 0, 11, 104, 101, 108, 108, 111, 32, 119, 111, 114, 108, 100, 119, 15, 115, 116, 114, 117, 99, 116, 84, 111, 77, 97, 112, 75, 101, 121, 52, 109, 0, 0, 0, 10, 117, 110, 101, 120, 112, 111, 114, 116, 101, 100}
 
 	s := "pointer to hello world"
 	term := struct {
 		StructToMapKey1 int
 		StructToMapKey2 string
 		StructToMapKey3 string
+		structToMapKey4 string
 	}{
 		StructToMapKey1: 12345,
 		StructToMapKey2: s,
 		StructToMapKey3: "hello world",
+		structToMapKey4: "unexported",
 	}
 
 	err := Encode(term, b, nil, nil, nil)
@@ -555,10 +558,12 @@ func TestEncodeStruct(t *testing.T) {
 		StructToMapKey1 int
 		StructToMapKey2 *string
 		StructToMapKey3 string
+		structToMapKey4 string
 	}{
 		StructToMapKey1: 12345,
 		StructToMapKey2: &s,
 		StructToMapKey3: "hello world",
+		structToMapKey4: "unexported",
 	}
 
 	err = Encode(term1, b1, nil, nil, nil)
@@ -792,6 +797,28 @@ func TestEncodeTupleRefPid(t *testing.T) {
 			Creation: 2}}
 
 	err := Encode(term, b, nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !reflect.DeepEqual(b.B, expected) {
+		fmt.Println("exp", expected)
+		fmt.Println("got", b.B)
+		t.Fatal("incorrect value")
+	}
+}
+
+func TestEncodeGoTime(t *testing.T) {
+	b := lib.TakeBuffer()
+	defer lib.ReleaseBuffer(b)
+
+	expected := []byte{ettBitBinary, 0, 0, 0, 20, 8, 50, 48, 48, 54, 45, 48, 49, 45, 48, 50, 84, 49, 53, 58, 48, 52, 58, 48, 53, 90}
+	term, err := time.Parse(time.RFC3339, "2006-01-02T15:04:05Z")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = Encode(term, b, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

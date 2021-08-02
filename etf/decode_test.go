@@ -492,6 +492,19 @@ func TestDecodeFunction(t *testing.T) {
 
 }
 
+func TestDecodeNil(t *testing.T) {
+	expected := List{}
+	packet := []byte{ettNil}
+	term, _, err := Decode(packet, []Atom{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := term.(List)
+	if !reflect.DeepEqual(expected, result) {
+		t.Fatal("result != expected")
+	}
+}
+
 //
 // benchmarks
 //

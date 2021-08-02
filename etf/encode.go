@@ -1,12 +1,14 @@
 package etf
 
 import (
+	"encoding"
 	"encoding/binary"
 	"fmt"
 	"math"
 	"math/big"
 	"reflect"
 	"strings"
+	"unsafe"
 
 	"github.com/halturin/ergo/lib"
 )
@@ -162,8 +164,19 @@ func Encode(term Term, b *lib.Buffer,
 					break
 				}
 
-				// a value
-				term = stack.term.(func(int) reflect.Value)(stack.i / 2).Interface()
+				fieldVal := stack.term.(func(int) reflect.Value)(stack.i / 2)
+				if field.PkgPath != "" {
+					// unexported value
+					val := reflect.NewAt(field.Type, unsafe.Pointer(fieldVal.UnsafeAddr())).Elem()
+					if val.CanInterface() {
+						term = val.Interface()
+					} else {
+						term = fieldVal.String()
+					}
+				} else {
+					// exported value
+					term = fieldVal.Interface()
+				}
 
 			default:
 
@@ -588,6 +601,28 @@ func Encode(term Term, b *lib.Buffer,
 			v := reflect.ValueOf(t)
 			switch v.Kind() {
 			case reflect.Struct:
+				if !v.CanAddr() {
+					switch t := t.(type) {
+					case encoding.TextMarshaler:
+						bb, err := t.MarshalText()
+						if err != nil {
+							return err
+						}
+						term = bb
+						goto recasting
+
+					case fmt.Stringer:
+						term = t.String()
+						goto recasting
+
+					default:
+						// make addressable copy
+						vCopy := reflect.New(v.Type()).Elem()
+						vCopy.Set(v)
+						v = vCopy
+					}
+				}
+
 				lenStruct := v.NumField()
 				buf := b.Extend(5)
 				buf[0] = ettMap
@@ -642,7 +677,22 @@ func Encode(term Term, b *lib.Buffer,
 				}
 
 			default:
-				return fmt.Errorf("unsupported type %#v", v)
+				switch t := t.(type) {
+				case encoding.TextMarshaler:
+					bb, err := t.MarshalText()
+					if err != nil {
+						return err
+					}
+					term = bb
+					goto recasting
+
+				case fmt.Stringer:
+					term = t.String()
+					goto recasting
+
+				default:
+					return fmt.Errorf("unsupported type %#v", v)
+				}
 			}
 		}
 
