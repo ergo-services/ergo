@@ -11,6 +11,7 @@ type Term interface{}
 type Tuple []Term
 type List []Term
 type Atom string
+type String string // ASCII-only string
 type Map map[Term]Term
 
 type Pid struct {
@@ -56,6 +57,8 @@ func StringTerm(t Term) (s string, ok bool) {
 	ok = true
 	switch x := t.(type) {
 	case Atom:
+		s = string(x)
+	case String:
 		s = string(x)
 	case string:
 		s = x
@@ -206,6 +209,9 @@ func termIntoStruct(term Term, dest reflect.Value, charlistToString bool) error 
 
 	switch v := term.(type) {
 	case Atom:
+		dest.SetString(string(v))
+		return nil
+	case String:
 		dest.SetString(string(v))
 		return nil
 	case string:

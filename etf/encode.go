@@ -403,6 +403,20 @@ func Encode(term Term, b *lib.Buffer,
 			}
 			lenString := len(t)
 
+			if lenString > 4294967295 {
+				return ErrStringTooLong
+			}
+
+			// 1 (ettBinary) + 4 (len) + string
+			buf := b.Extend(1 + 4 + lenString)
+			buf[0] = ettBinary
+			binary.BigEndian.PutUint32(buf[1:5], uint32(lenString))
+			copy(buf[5:], t)
+
+		case String:
+			// ASCII-only string
+			lenString := len(t)
+
 			if lenString > 65535 {
 				return ErrStringTooLong
 			}
@@ -529,10 +543,11 @@ func Encode(term Term, b *lib.Buffer,
 
 		case []byte:
 			lenBinary := len(t)
-			buf := b.Extend(1 + 4 + lenBinary)
-			buf[0] = ettBinary
+			buf := b.Extend(1 + 4 + 1 + lenBinary)
+			buf[0] = ettBitBinary
 			binary.BigEndian.PutUint32(buf[1:5], uint32(lenBinary))
-			copy(buf[5:], t)
+			buf[5] = 8 // 1 byte = 8 bits
+			copy(buf[6:], t)
 
 		default:
 			v := reflect.ValueOf(t)

@@ -35,7 +35,7 @@ func TestDecodeAtom(t *testing.T) {
 }
 
 func TestDecodeString(t *testing.T) {
-	expected := "abc"
+	expected := String("abc")
 	packet := []byte{ettString, 0, 3, 97, 98, 99}
 	term, _, err := Decode(packet, []Atom{})
 	if err != nil || term != expected {
@@ -198,7 +198,7 @@ func TestDecodeMap(t *testing.T) {
 		Atom("abc"): 123,
 		"abc":       4.56,
 	}
-	packet := []byte{116, 0, 0, 0, 2, 100, 0, 3, 97, 98, 99, 97, 123, 107, 0, 3, 97, 98,
+	packet := []byte{116, 0, 0, 0, 2, 100, 0, 3, 97, 98, 99, 97, 123, 109, 0, 0, 0, 3, 97, 98,
 		99, 70, 64, 18, 61, 112, 163, 215, 10, 61}
 
 	term, _, err := Decode(packet, []Atom{})
@@ -214,8 +214,23 @@ func TestDecodeMap(t *testing.T) {
 }
 
 func TestDecodeBinary(t *testing.T) {
+	expected := "abc"
+	packet := []byte{ettBinary, 0, 0, 0, 3, 97, 98, 99}
+	term, _, err := Decode(packet, []Atom{})
+	if err != nil || term != expected {
+		t.Fatal(err)
+	}
+
+	packet = []byte{ettBinary, 0, 3, 97, 98, 99}
+	term, _, err = Decode(packet, []Atom{})
+	if err != errMalformedBinary {
+		t.Fatal(err)
+	}
+}
+
+func TestDecodeBitBinary(t *testing.T) {
 	expected := []byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 0}
-	packet := []byte{ettBinary, 0, 0, 0, 10, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0}
+	packet := []byte{ettBitBinary, 0, 0, 0, 10, 8, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0}
 
 	term, _, err := Decode(packet, []Atom{})
 	if err != nil {
@@ -228,9 +243,9 @@ func TestDecodeBinary(t *testing.T) {
 	}
 }
 
-func TestDecodeBitBinary(t *testing.T) {
+func TestDecodeBitBinaryWithLastBits(t *testing.T) {
 	expected := []byte{1, 2, 3, 4, 5}
-	packet := []byte{77, 0, 0, 0, 5, 3, 1, 2, 3, 4, 160}
+	packet := []byte{ettBitBinary, 0, 0, 0, 5, 3, 1, 2, 3, 4, 160}
 
 	term, _, err := Decode(packet, []Atom{})
 	if err != nil {
@@ -401,9 +416,9 @@ func TestDecodeComplex(t *testing.T) {
 	expected := Tuple{"hello", List{},
 		Map{Atom("v1"): List{Tuple{3, 13, 3.13}, Tuple{Atom("abc"), "abc"}},
 			Atom("v2"): int64(12345)}}
-	packet := []byte{104, 3, 107, 0, 5, 104, 101, 108, 108, 111, 106, 116, 0, 0, 0, 2,
+	packet := []byte{104, 3, 109, 0, 0, 0, 5, 104, 101, 108, 108, 111, 106, 116, 0, 0, 0, 2,
 		100, 0, 2, 118, 49, 108, 0, 0, 0, 2, 104, 3, 97, 3, 97, 13, 70, 64, 9, 10,
-		61, 112, 163, 215, 10, 104, 2, 100, 0, 3, 97, 98, 99, 107, 0, 3, 97, 98,
+		61, 112, 163, 215, 10, 104, 2, 100, 0, 3, 97, 98, 99, 109, 0, 0, 0, 3, 97, 98,
 		99, 106, 100, 0, 2, 118, 50, 98, 0, 0, 48, 57}
 	term, _, err := Decode(packet, []Atom{})
 	if err != nil {

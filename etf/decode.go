@@ -146,7 +146,7 @@ func Decode(packet []byte, cache []Atom) (retTerm Term, retByte []byte, retErr e
 				return nil, nil, errMalformedString
 			}
 
-			term = string(packet[2 : n+2])
+			term = String(packet[2 : n+2])
 			packet = packet[n+2:]
 
 		case ettCacheRef:
@@ -360,7 +360,7 @@ func Decode(packet []byte, cache []Atom) (retTerm Term, retByte []byte, retErr e
 			b := make([]byte, n)
 			copy(b, packet[4:n+4])
 
-			term = b
+			term = string(b)
 			packet = packet[n+4:]
 
 		case ettNil:
@@ -438,7 +438,9 @@ func Decode(packet []byte, cache []Atom) (retTerm Term, retByte []byte, retErr e
 
 			b := make([]byte, n)
 			copy(b, packet[5:n+5])
-			b[n-1] = b[n-1] >> (8 - bits)
+			if bits != 8 {
+				b[n-1] = b[n-1] >> (8 - bits)
+			}
 
 			term = b
 			packet = packet[n+5:]
