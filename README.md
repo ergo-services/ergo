@@ -71,9 +71,9 @@ Here are the changes of latest release. For more details see the [ChangeLog](Cha
   * `ProvideSpawnRemote`, `RevokeSpawnRemote`, `SpawnRemote`, `CancelSpawnRemote` spawn process on a remote node
   * `Ping` sets up a connection to remote Node. Returns `etf.Atom(pong)` if it is successful, otherwise `etf.Atom(pang)`.
 * Introduced new types intended to be used to interact with Erlang
-  * etf.ListImproper to support improper list like `[a|b]`
-  * etf.String (an alias for the Golang string) encodes as a binary
-  * etf.Charlist (an alias for the Golang string) encodes as a list of chars ([]rune) in order to support Erlang `charlist()` type
+  * `etf.ListImproper` to support improper list like `[a|b]`
+  * `etf.String` (an alias for the Golang string) encodes as a binary
+  * `etf.Charlist` (an alias for the Golang string) encodes as a list of chars ([]rune) in order to support Erlang `charlist()` type
 * Added example `example/http` to demonsrate how HTTP server can be integrated into the Ergo node.
 * Added example `example/gendemo` - how to create a custom behavior (design pattern) on top of the `GenServer`. Take inspiration from the `gen_stage.go` or `gen_saga.go` design patterns.
 * Added support FreeBSD, OpenBSD, NetBSD, DragoFly.
