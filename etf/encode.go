@@ -11,8 +11,8 @@ import (
 )
 
 var (
-	ErrStringTooLong = fmt.Errorf("Encoding error. String too long")
-	ErrAtomTooLong   = fmt.Errorf("Encoding error. Atom too long")
+	ErrStringTooLong = fmt.Errorf("Encoding error. String too long. Max allowed length is 65535")
+	ErrAtomTooLong   = fmt.Errorf("Encoding error. Atom too long. Max allowed UTF-8 chars is 255")
 
 	goSlice  = byte(240) // internal type
 	goMap    = byte(241) // internal type
