@@ -12,6 +12,7 @@ import (
 
 var (
 	ErrStringTooLong = fmt.Errorf("Encoding error. String too long")
+	ErrAtomTooLong   = fmt.Errorf("Encoding error. Atom too long")
 
 	goSlice  = byte(240) // internal type
 	goMap    = byte(241) // internal type
@@ -497,6 +498,10 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 			goto recasting
 
 		case Atom:
+			// As from ERTS 9.0 (OTP 20), atoms may contain any Unicode
+			// characters and are always encoded using the UTF-8 external
+			// formats ATOM_UTF8_EXT or SMALL_ATOM_UTF8_EXT.
+
 			if cacheEnabled && cacheIndex < 256 {
 				// looking for CacheItem
 				ci, found := options.writerAtomCache[t]
@@ -508,6 +513,13 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 				}
 
 				options.linkAtomCache.Append(t)
+			}
+
+			// https://erlang.org/doc/apps/erts/erl_ext_dist.html#utf8_atoms
+			// The maximum number of allowed characters in an atom is 255.
+			// In the UTF-8 case, each character can need 4 bytes to be encoded.
+			if len([]rune(t)) > 255 {
+				return ErrAtomTooLong
 			}
 
 			lenAtom := len(t)

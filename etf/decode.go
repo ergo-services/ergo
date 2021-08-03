@@ -112,7 +112,11 @@ func Decode(packet []byte, cache []Atom) (retTerm Term, retByte []byte, retErr e
 				return nil, nil, errMalformedAtomUTF8
 			}
 
-			term = Atom(packet[2 : n+2])
+			atom := Atom(packet[2 : n+2])
+			if len([]rune(atom)) > 255 {
+				return nil, nil, errMalformedAtomUTF8
+			}
+			term = atom
 			packet = packet[n+2:]
 
 		case ettSmallAtomUTF8, ettSmallAtom:
@@ -498,7 +502,6 @@ func Decode(packet []byte, cache []Atom) (retTerm Term, retByte []byte, retErr e
 				stack.i++
 
 			case ettPid:
-				fmt.Println("BBB")
 				if len(packet) < 9 {
 					return nil, nil, errMalformedPid
 				}
@@ -536,7 +539,6 @@ func Decode(packet []byte, cache []Atom) (retTerm Term, retByte []byte, retErr e
 					Creation: binary.BigEndian.Uint32(packet[8:12]),
 				}
 
-				fmt.Printf("AAA %#v %#v %#v\n", pid, ID, packet[:12])
 				packet = packet[12:]
 				stack.term = pid
 				stack.i++
