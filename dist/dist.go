@@ -253,7 +253,7 @@ func Handshake(conn net.Conn, tls bool, name, cookie string, hidden bool) (*Link
 			EXTENDED_PIDS_PORTS, EXTENDED_REFERENCES, ATOM_CACHE,
 			DIST_HDR_ATOM_CACHE, HIDDEN_ATOM_CACHE, NEW_FUN_TAGS,
 			SMALL_ATOM_TAGS, UTF8_ATOMS, MAP_TAG,
-			FRAGMENTS, BIG_CREATION,
+			FRAGMENTS, BIG_CREATION, V4_NC,
 		),
 
 		conn:       conn,
@@ -379,7 +379,7 @@ func HandshakeAccept(conn net.Conn, tls bool, name, cookie string, hidden bool) 
 			EXTENDED_PIDS_PORTS, EXTENDED_REFERENCES, ATOM_CACHE,
 			DIST_HDR_ATOM_CACHE, HIDDEN_ATOM_CACHE, NEW_FUN_TAGS,
 			SMALL_ATOM_TAGS, UTF8_ATOMS, MAP_TAG,
-			FRAGMENTS, BIG_CREATION,
+			FRAGMENTS, BIG_CREATION, V4_NC,
 		),
 
 		conn:       conn,
@@ -653,7 +653,12 @@ func (l *Link) ReadDist(packet []byte) (etf.Term, etf.Term, error) {
 			return nil, nil, fmt.Errorf("incorrect dist header atom cache: %s", err)
 		}
 
-		control, packet, err = etf.Decode(packet, cache)
+		decodeOptions := etf.DecodeOptions{
+			FlagV4NC:        l.peer.flags.isSet(V4_NC),
+			FlagBigCreation: l.peer.flags.isSet(BIG_CREATION),
+		}
+
+		control, packet, err = etf.Decode(packet, cache, decodeOptions)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -662,7 +667,7 @@ func (l *Link) ReadDist(packet []byte) (etf.Term, etf.Term, error) {
 			return control, nil, nil
 		}
 
-		message, packet, err = etf.Decode(packet, cache)
+		message, packet, err = etf.Decode(packet, cache, decodeOptions)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -989,6 +994,8 @@ func (l *Link) Writer(send <-chan []etf.Term, fragmentationUnit int) {
 		LinkAtomCache:     linkAtomCache,
 		WriterAtomCache:   writerAtomCache,
 		EncodingAtomCache: encodingAtomCache,
+		FlagBigCreation:   l.peer.flags.isSet(BIG_CREATION),
+		FlagV4NC:          l.peer.flags.isSet(V4_NC),
 	}
 
 	for {

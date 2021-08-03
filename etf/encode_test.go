@@ -698,8 +698,8 @@ func TestEncodePid(t *testing.T) {
 	term = Pid{Node: "erl-demo@127.0.0.1", ID: 4294967295, Creation: 2}
 
 	options := EncodeOptions{
-		flagBigCreation: true,
-		flagV4NC:        true,
+		FlagBigCreation: true,
+		FlagV4NC:        true,
 	}
 	err = Encode(term, b, options)
 	if err != nil {
@@ -719,8 +719,8 @@ func TestEncodePid(t *testing.T) {
 	term = Pid{Node: "erl-demo@127.0.0.1", ID: 18446744073709551615, Creation: 2}
 
 	options = EncodeOptions{
-		flagBigCreation: true,
-		flagV4NC:        true,
+		FlagBigCreation: true,
+		FlagV4NC:        true,
 	}
 	err = Encode(term, b, options)
 	if err != nil {
@@ -777,7 +777,7 @@ func TestEncodeRef(t *testing.T) {
 	b := lib.TakeBuffer()
 	defer lib.ReleaseBuffer(b)
 
-	// flagBigCreation = false, flagV4NC = false
+	// FlagBigCreation = false, FlagV4NC = false
 	expected := []byte{ettNewRef, 0, 3, 119, 18, 101, 114, 108, 45, 100, 101, 109, 111, 64,
 		49, 50, 55, 46, 48, 46, 48, 46, 49, 8, 0, 1, 30, 228, 183, 192, 0, 1, 141,
 		122, 203, 35}
@@ -799,7 +799,7 @@ func TestEncodeRef(t *testing.T) {
 		t.Fatal("incorrect value")
 	}
 
-	// flagBigCreation = true, flagV4NC = false
+	// FlagBigCreation = true, FlagV4NC = false
 	b.Reset()
 	expected = []byte{ettNewerRef, 0, 3, 119, 18, 101, 114, 108, 45, 100, 101, 109, 111, 64,
 		49, 50, 55, 46, 48, 46, 48, 46, 49, 0, 0, 0, 8, 0, 1, 30, 228, 183, 192, 0, 1, 141,
@@ -812,7 +812,7 @@ func TestEncodeRef(t *testing.T) {
 	}
 
 	options := EncodeOptions{
-		flagBigCreation: true,
+		FlagBigCreation: true,
 	}
 	err = Encode(term, b, options)
 	if err != nil {
@@ -825,7 +825,7 @@ func TestEncodeRef(t *testing.T) {
 		t.Fatal("incorrect value")
 	}
 
-	// flagBigCreation = true, flagV4NC = true
+	// FlagBigCreation = true, FlagV4NC = true
 	b.Reset()
 	expected = []byte{ettNewerRef, 0, 5, 119, 18, 101, 114, 108, 45, 100, 101, 109, 111, 64,
 		49, 50, 55, 46, 48, 46, 48, 46, 49, 0, 0, 0, 8, 0, 1, 30, 228, 183, 192, 0, 1, 141,
@@ -838,8 +838,8 @@ func TestEncodeRef(t *testing.T) {
 	}
 
 	options = EncodeOptions{
-		flagBigCreation: true,
-		flagV4NC:        true,
+		FlagBigCreation: true,
+		FlagV4NC:        true,
 	}
 	err = Encode(term, b, options)
 	if err != nil {
@@ -896,6 +896,30 @@ func TestEncodeGoPtrNil(t *testing.T) {
 		t.Fatal(err)
 	}
 	expected := []byte{ettNil}
+	if !reflect.DeepEqual(b.B, expected) {
+		fmt.Println("exp", expected)
+		fmt.Println("got", b.B)
+		t.Fatal("incorrect value")
+	}
+}
+
+type testMarshal struct{}
+
+func (testMarshal) MarshalETF() ([]byte, error) {
+	return []byte{1, 2, 3}, nil
+}
+
+func TestEncodeMarshal(t *testing.T) {
+	var x testMarshal
+
+	b := lib.TakeBuffer()
+	defer lib.ReleaseBuffer(b)
+
+	err := Encode(x, b, EncodeOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected := []byte{ettBinary, 0, 0, 0, 3, 1, 2, 3}
 	if !reflect.DeepEqual(b.B, expected) {
 		fmt.Println("exp", expected)
 		fmt.Println("got", b.B)

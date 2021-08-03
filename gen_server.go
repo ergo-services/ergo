@@ -107,7 +107,6 @@ func (gs *GenServer) Loop(p *Process, args ...interface{}) string {
 		}
 
 		lib.Log("[%s]. %v got message from %#v\n", p.Node.FullName, p.self, fromPid)
-		fmt.Printf("GOT %#v\n", message)
 
 		p.reductions++
 
@@ -148,7 +147,6 @@ func (gs *GenServer) Loop(p *Process, args ...interface{}) string {
 							if vinc, ok := v.Element(1).(etf.List); ok {
 								v = vinc
 							}
-							fmt.Printf("AAAAAAAAAAAAAAAAA %#v %#v \n", v.Element(1).(etf.Atom), v.Element(2).(etf.Ref))
 							from.Ref, ok = v.Element(2).(etf.Ref)
 							if !ok {
 								// wrong value

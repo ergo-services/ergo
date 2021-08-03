@@ -2,6 +2,7 @@ package etf
 
 import (
 	"bytes"
+	"fmt"
 	"reflect"
 	"testing"
 
@@ -353,7 +354,9 @@ func TestTermIntoStruct_WithTags(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	term_Term, _, err := Decode(b.B, []Atom{})
+	fmt.Println("bin", b.B)
+
+	term_Term, _, err := Decode(b.B, []Atom{}, DecodeOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -381,4 +384,105 @@ func TestCharlistToString(t *testing.T) {
 		t.Fatal("incorrect result")
 	}
 
+}
+
+func TestEncodeDecodePid(t *testing.T) {
+	b := lib.TakeBuffer()
+	defer lib.ReleaseBuffer(b)
+
+	pidIn := Pid{Node: "erl-demo@127.0.0.1", ID: 32767, Creation: 2}
+
+	err := Encode(pidIn, b, EncodeOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	term, _, err := Decode(b.B, []Atom{}, DecodeOptions{})
+	pidOut, ok := term.(Pid)
+	if !ok {
+		t.Fatal("incorrect result")
+	}
+
+	if pidIn != pidOut {
+		t.Error("want", pidIn)
+		t.Error("got", pidOut)
+		t.Fatal("incorrect result")
+	}
+
+	// enable BigCreation
+	b.Reset()
+	encodeOptions := EncodeOptions{
+		flagBigCreation: true,
+	}
+	err = Encode(pidIn, b, encodeOptions)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	decodeOptions := DecodeOptions{
+		flagBigCreation: true,
+	}
+	term, _, err = Decode(b.B, []Atom{}, decodeOptions)
+	pidOut, ok = term.(Pid)
+	if !ok {
+		t.Fatal("incorrect result")
+	}
+
+	if pidIn != pidOut {
+		t.Error("want", pidIn)
+		t.Error("got", pidOut)
+		t.Fatal("incorrect result")
+	}
+
+	// enable V4NC
+	b.Reset()
+	encodeOptions = EncodeOptions{
+		flagV4NC: true,
+	}
+	err = Encode(pidIn, b, encodeOptions)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	decodeOptions = DecodeOptions{
+		flagV4NC: true,
+	}
+	term, _, err = Decode(b.B, []Atom{}, decodeOptions)
+	pidOut, ok = term.(Pid)
+	if !ok {
+		t.Fatal("incorrect result")
+	}
+
+	if pidIn != pidOut {
+		t.Error("want", pidIn)
+		t.Error("got", pidOut)
+		t.Fatal("incorrect result")
+	}
+
+	// enable BigCreation and V4NC
+	b.Reset()
+	encodeOptions = EncodeOptions{
+		flagV4NC:        true,
+		flagBigCreation: true,
+	}
+	err = Encode(pidIn, b, encodeOptions)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	decodeOptions = DecodeOptions{
+		flagV4NC:        true,
+		flagBigCreation: true,
+	}
+	term, _, err = Decode(b.B, []Atom{}, decodeOptions)
+	pidOut, ok = term.(Pid)
+	if !ok {
+		t.Fatal("incorrect result")
+	}
+
+	if pidIn != pidOut {
+		t.Error("want", pidIn)
+		t.Error("got", pidOut)
+		t.Fatal("incorrect result")
+	}
 }

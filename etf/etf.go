@@ -45,10 +45,15 @@ func (ref Ref) String() string {
 	return fmt.Sprintf("%#v", ref)
 }
 
-// Marshaling interface for the customizing encode/decode processes.
-type Marshaling interface {
-	Marshal() []byte
-	Unmarshal([]byte)
+// Marshaler is the interface implemented by types that can marshal themselves into valid ETF binary
+type Marshaler interface {
+	MarshalETF() ([]byte, error)
+}
+
+// Unmarshaler is the interface implemented by types that can unmarshal an ETF binary of themselves.
+// Returns ErrEmpty for []byte{}.
+type Unmarshaler interface {
+	UnmarshalETF([]byte) error
 }
 
 type Function struct {
@@ -274,6 +279,7 @@ func termIntoStruct(term Term, dest reflect.Value) error {
 		dest.SetString(string(v))
 		return nil
 	case Charlist:
+		fmt.Println("aaaa", v)
 		s, err := convertCharlistToString(term.(List))
 		if err != nil {
 			return NewInvalidTypesError(t, term)
@@ -281,6 +287,7 @@ func termIntoStruct(term Term, dest reflect.Value) error {
 		dest.SetString(s)
 		return nil
 	case List:
+		fmt.Println("bbbb", v)
 		return setListField(v, dest)
 	case Tuple:
 		return setStructField([]Term(v), dest, t)

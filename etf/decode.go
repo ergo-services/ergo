@@ -55,6 +55,11 @@ var (
 	errInternal  = fmt.Errorf("Internal error")
 )
 
+type DecodeOptions struct {
+	FlagV4NC        bool
+	FlagBigCreation bool
+}
+
 // stackless implementation is speeding up it up to x25 times
 
 // it might looks hard to understand the logic, but
@@ -64,7 +69,7 @@ var (
 //
 // see comments within this function
 
-func Decode(packet []byte, cache []Atom) (retTerm Term, retByte []byte, retErr error) {
+func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, retByte []byte, retErr error) {
 	var term Term
 	var stack *stackElement
 	var child *stackElement
@@ -510,12 +515,24 @@ func Decode(packet []byte, cache []Atom) (retTerm Term, retByte []byte, retErr e
 				if !ok {
 					return nil, nil, errMalformedPid
 				}
-
 				pid := Pid{
-					Node:     name,
-					ID:       binary.BigEndian.Uint64(packet[:8]),
-					Creation: uint32(packet[8]),
+					Node: name,
+					// Same as NEW_PID_EXT except the Creation field is
+					// only one byte and only two bits are significant,
+					// the rest are to be 0.
+					Creation: uint32(packet[8]) & 3,
 				}
+
+				id := uint64(binary.BigEndian.Uint32(packet[:4]))
+				serial := uint64(binary.BigEndian.Uint32(packet[4:8]))
+				if options.FlagV4NC {
+					id = id | (serial << 32)
+				} else {
+					// id 15 bits only 2**15 - 1 = 32767
+					// serial 13 bits only 2**13 - 1 = 8191
+					id = (id & 32767) | ((serial & 8191) << 15)
+				}
+				pid.ID = id
 
 				packet = packet[9:]
 				stack.term = pid
@@ -531,13 +548,20 @@ func Decode(packet []byte, cache []Atom) (retTerm Term, retByte []byte, retErr e
 					return nil, nil, errMalformedPid
 				}
 
-				ID := uint64(binary.BigEndian.Uint32(packet[:4]))
-				IDserial := uint64(binary.BigEndian.Uint32(packet[4:8])) << 32
+				id := uint64(binary.BigEndian.Uint32(packet[:4]))
+				serial := uint64(binary.BigEndian.Uint32(packet[4:8]))
 				pid := Pid{
 					Node:     name,
-					ID:       ID | IDserial,
 					Creation: binary.BigEndian.Uint32(packet[8:12]),
 				}
+				if options.FlagV4NC {
+					id = id | (serial << 32)
+				} else {
+					// id 15 bits only 2**15 - 1 = 32767
+					// serial 13 bits only 2**13 - 1 = 8191
+					id = (id & 32767) | ((serial & 8191) << 15)
+				}
+				pid.ID = id
 
 				packet = packet[12:]
 				stack.term = pid
@@ -551,7 +575,10 @@ func Decode(packet []byte, cache []Atom) (retTerm Term, retByte []byte, retErr e
 				}
 
 				l := stack.tmp.(uint16)
-				if l > 3 {
+				if l > 5 {
+					return nil, nil, errMalformedRef
+				}
+				if l > 3 && !options.FlagV4NC {
 					return nil, nil, errMalformedRef
 				}
 				stack.tmp = nil
@@ -568,7 +595,14 @@ func Decode(packet []byte, cache []Atom) (retTerm Term, retByte []byte, retErr e
 				packet = packet[1:]
 
 				for i := 0; i < int(l); i++ {
-					id = binary.BigEndian.Uint32(packet[:4])
+					// In the first word (4 bytes) of ID, only 18 bits
+					// are significant, the rest must be 0.
+					if i == 0 {
+						// 2**18 - 1 = 262143
+						id = binary.BigEndian.Uint32(packet[:4]) & 262143
+					} else {
+						id = binary.BigEndian.Uint32(packet[:4])
+					}
 					ref.ID[i] = id
 					packet = packet[4:]
 				}
@@ -587,6 +621,9 @@ func Decode(packet []byte, cache []Atom) (retTerm Term, retByte []byte, retErr e
 				if l > 5 {
 					return nil, nil, errMalformedRef
 				}
+				if l > 3 && !options.FlagV4NC {
+					return nil, nil, errMalformedRef
+				}
 				stack.tmp = nil
 				expectedLength := int(4 + l*4)
 
@@ -601,7 +638,14 @@ func Decode(packet []byte, cache []Atom) (retTerm Term, retByte []byte, retErr e
 				packet = packet[4:]
 
 				for i := 0; i < int(l); i++ {
-					id = binary.BigEndian.Uint32(packet[:4])
+					// In the first word (4 bytes) of ID, only 18 bits
+					// are significant, the rest must be 0.
+					if i == 0 {
+						// 2**18 - 1 = 262143
+						id = binary.BigEndian.Uint32(packet[:4]) & 262143
+					} else {
+						id = binary.BigEndian.Uint32(packet[:4])
+					}
 					ref.ID[i] = id
 					packet = packet[4:]
 				}

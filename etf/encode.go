@@ -24,16 +24,16 @@ type EncodeOptions struct {
 	WriterAtomCache   map[Atom]CacheItem
 	EncodingAtomCache *ListAtomCache
 
-	// flagV4NC The node accepts a larger amount of data in pids
+	// FlagV4NC The node accepts a larger amount of data in pids
 	// and references (node container types version 4).
 	// In the pid case full 32-bit ID and Serial fields in NEW_PID_EXT
 	// and in the reference case up to 5 32-bit ID words are now
 	// accepted in NEWER_REFERENCE_EXT. Introduced in OTP 24.
-	flagV4NC bool
+	FlagV4NC bool
 
-	// flagBigCreation The node understands big node creation tags NEW_PID_EXT,
+	// FlagBigCreation The node understands big node creation tags NEW_PID_EXT,
 	// NEWER_REFERENCE_EXT.
-	flagBigCreation bool
+	FlagBigCreation bool
 }
 
 func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
@@ -102,7 +102,7 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 				// ID a 32-bit big endian unsigned integer. If distribution
 				// flag DFLAG_V4_NC is not set, only 15 bits may be used
 				// and the rest must be 0.
-				if options.flagV4NC {
+				if options.FlagV4NC {
 					binary.BigEndian.PutUint32(buf[:4], uint32(p.ID))
 				} else {
 					// 15 bits only 2**15 - 1 = 32767
@@ -112,7 +112,7 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 				// Serial a 32-bit big endian unsigned integer. If distribution
 				// flag DFLAG_V4_NC is not set, only 13 bits may be used
 				// and the rest must be 0.
-				if options.flagV4NC {
+				if options.FlagV4NC {
 					binary.BigEndian.PutUint32(buf[4:8], uint32(p.ID>>32))
 				} else {
 					// 13 bits only 2**13 - 1 = 8191
@@ -136,14 +136,14 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 
 				buf := b.Extend(12)
 				// ID
-				if options.flagV4NC {
+				if options.FlagV4NC {
 					binary.BigEndian.PutUint32(buf[:4], uint32(p.ID))
 				} else {
 					// 15 bits only 2**15 - 1 = 32767
 					binary.BigEndian.PutUint32(buf[:4], uint32(p.ID)&32767)
 				}
 				// Serial
-				if options.flagV4NC {
+				if options.FlagV4NC {
 					binary.BigEndian.PutUint32(buf[4:8], uint32(p.ID>>32))
 				} else {
 					// 13 bits only 2**13 - 1 = 8191
@@ -163,8 +163,12 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 				}
 
 				lenID := 3
+				if options.FlagV4NC {
+					lenID = 5
+				}
 				buf := b.Extend(1 + lenID*4)
-				buf[0] = byte(r.Creation)
+				// Only one byte long and only two bits are significant, the rest must be 0.
+				buf[0] = byte(r.Creation & 3)
 				buf = buf[1:]
 				for i := 0; i < lenID; i++ {
 					// In the first word (4 bytes) of ID, only 18 bits
@@ -189,7 +193,7 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 				}
 
 				lenID := 5
-				if !options.flagV4NC {
+				if !options.FlagV4NC {
 					lenID = 3
 				}
 				buf := b.Extend(4 + lenID*4)
@@ -571,7 +575,7 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 				term:     t,
 				children: 2,
 			}
-			if options.flagBigCreation {
+			if options.FlagBigCreation {
 				child.termType = ettNewPid
 				b.AppendByte(ettNewPid)
 			} else {
@@ -587,20 +591,20 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 				term:     t,
 				children: 2,
 			}
-			if options.flagBigCreation {
+			if options.FlagBigCreation {
 				buf[0] = ettNewerRef
 				child.termType = ettNewerRef
-				// LEN a 16-bit big endian unsigned integer not larger
-				// than 5 when the DFLAG_V4_NC has been set; otherwise not larger than 3.
-				if options.flagV4NC {
-					binary.BigEndian.PutUint16(buf[1:3], 5)
-				} else {
-					binary.BigEndian.PutUint16(buf[1:3], 3)
-				}
 
 			} else {
 				buf[0] = ettNewRef
 				child.termType = ettNewRef
+			}
+
+			// LEN a 16-bit big endian unsigned integer not larger
+			// than 5 when the DFLAG_V4_NC has been set; otherwise not larger than 3.
+			if options.FlagV4NC {
+				binary.BigEndian.PutUint16(buf[1:3], 5)
+			} else {
 				binary.BigEndian.PutUint16(buf[1:3], 3)
 			}
 
@@ -653,6 +657,18 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 			buf[0] = ettBinary
 			binary.BigEndian.PutUint32(buf[1:5], uint32(lenBinary))
 			copy(buf[5:], t)
+
+		case Marshaler:
+			m, err := t.MarshalETF()
+			if err != nil {
+				return err
+			}
+
+			lenBinary := len(m)
+			buf := b.Extend(1 + 4 + lenBinary)
+			buf[0] = ettBinary
+			binary.BigEndian.PutUint32(buf[1:5], uint32(lenBinary))
+			copy(buf[5:], m)
 
 		default:
 			v := reflect.ValueOf(t)
