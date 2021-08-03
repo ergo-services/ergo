@@ -48,7 +48,7 @@ The goal of this project is to leverage Erlang/OTP experience with Golang perfor
 * RPC callbacks support
 * [embedded EPMD](#epmd) (in order to get rid of erlang' dependencies)
 * Experimental [observer support](#observer)
-* Unmarshalling terms into the struct using `etf.TermIntoStruct`, `etf.TermMapIntoStruct`, `etf.TermProplistIntoStruct`, `etf.TermToString`
+* Unmarshalling terms into the struct using `etf.TermIntoStruct`, `etf.TermMapIntoStruct`, `etf.TermProplistIntoStruct` or to the sting using `etf.TermToString`
 * Encryption (TLS 1.3) support (including autogenerating self-signed certificates)
 * Tested and confirmed support Windows, Darwin (MacOS), Linux, FreeBSD.
 
