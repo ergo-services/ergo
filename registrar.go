@@ -15,7 +15,7 @@ const (
 )
 
 type registrar struct {
-	nextPID  uint32
+	nextPID  uint64
 	nodeName string
 	creation byte
 
@@ -23,7 +23,9 @@ type registrar struct {
 
 	names          map[string]etf.Pid
 	mutexNames     sync.Mutex
-	processes      map[uint32]*Process
+	aliases        map[etf.Ref]etf.Pid
+	mutexAliases   sync.Mutex
+	processes      map[uint64]*Process
 	mutexProcesses sync.Mutex
 	peers          map[string]*peer
 	mutexPeers     sync.Mutex
@@ -38,7 +40,8 @@ func createRegistrar(node *Node) *registrar {
 		creation:  byte(1),
 		node:      node,
 		names:     make(map[string]etf.Pid),
-		processes: make(map[uint32]*Process),
+		aliases:   make(map[etf.Ref]etf.Pid),
+		processes: make(map[uint64]*Process),
 		peers:     make(map[string]*peer),
 		apps:      make(map[string]*ApplicationSpec),
 	}
@@ -48,14 +51,70 @@ func createRegistrar(node *Node) *registrar {
 func (r *registrar) createNewPID() etf.Pid {
 	// http://erlang.org/doc/apps/erts/erl_ext_dist.html#pid_ext
 	// https://stackoverflow.com/questions/243363/can-someone-explain-the-structure-of-a-pid-in-erlang
-	i := atomic.AddUint32(&r.nextPID, 1)
+	i := atomic.AddUint64(&r.nextPID, 1)
 	return etf.Pid{
 		Node:     etf.Atom(r.nodeName),
 		ID:       i,
-		Serial:   1,
-		Creation: byte(r.creation),
+		Creation: r.node.creation,
 	}
 
+}
+
+func (r *registrar) createAlias(pid etf.Pid) (etf.Ref, error) {
+	var ref etf.Ref
+
+	r.mutexProcesses.Lock()
+	defer r.mutexProcesses.Unlock()
+
+	p, exist := r.processes[pid.ID]
+	if !exist {
+		return ref, ErrProcessUnknown
+	}
+
+	ref = r.node.MakeRef()
+
+	r.mutexAliases.Lock()
+	r.aliases[ref] = pid
+	r.mutexAliases.Unlock()
+
+	p.aliases = append(p.aliases, ref)
+	return ref, nil
+}
+
+func (r *registrar) deleteAlias(ref etf.Ref) error {
+	r.mutexProcesses.Lock()
+	defer r.mutexProcesses.Unlock()
+	r.mutexAliases.Lock()
+	defer r.mutexAliases.Unlock()
+
+	pid, alias_exist := r.aliases[ref]
+	if !alias_exist {
+		return ErrAliasUnknown
+	}
+
+	p, process_exist := r.processes[pid.ID]
+	if !process_exist {
+		return ErrProcessUnknown
+	}
+
+	for i := range p.aliases {
+		if ref != p.aliases[i] {
+			continue
+		}
+		delete(r.aliases, ref)
+		if len(r.aliases) == 0 {
+			// lets GC free this slice
+			p.aliases = []etf.Ref{}
+			return nil
+		}
+		p.aliases[i] = p.aliases[0]
+		p.aliases = p.aliases[1:]
+		return nil
+	}
+
+	fmt.Println("Bug: Process lost its alias. Please, report this issue")
+	delete(r.aliases, ref)
+	return ErrAliasUnknown
 }
 
 func (r *registrar) RegisterProcess(object interface{}) (*Process, error) {
@@ -423,6 +482,38 @@ next:
 			goto next
 		}
 		r.mutexNames.Unlock()
+
+	case etf.Ref:
+		lib.Log("[%s] sending message by alias %v", r.node.FullName, tto)
+		r.mutexAliases.Lock()
+		if string(tto.Node) == r.nodeName {
+			// local route by alias
+			if pid, ok := r.aliases[tto]; ok {
+				to = pid
+				r.mutexAliases.Unlock()
+				goto next
+			}
+		}
+		r.mutexAliases.Unlock()
+
+		r.mutexPeers.Lock()
+		peer, ok := r.peers[string(tto.Node)]
+		r.mutexPeers.Unlock()
+		if !ok {
+			if err := r.node.connect(tto.Node); err != nil {
+				lib.Log("[%s] can't connect to %v: %s", r.node.FullName, tto.Node, err)
+				return
+			}
+
+			r.mutexPeers.Lock()
+			peer, _ = r.peers[string(tto.Node)]
+			r.mutexPeers.Unlock()
+		}
+
+		fmt.Printf("BBBBBBB %#v \n", etf.Tuple{distProtoALIAS_SEND, from, tto, message})
+		send := peer.GetChannel()
+		send <- []etf.Term{etf.Tuple{distProtoALIAS_SEND, from, tto}, message}
+
 	default:
 		lib.Log("[%s] unknow sender type %#v", r.node.FullName, tto)
 	}

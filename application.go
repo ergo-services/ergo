@@ -158,7 +158,7 @@ func (a *Application) Loop(p *Process, args ...interface{}) string {
 				continue
 			}
 			terminated := r.Element(2).(etf.Pid)
-			terminatedName := terminated.Str()
+			terminatedName := terminated.String()
 			reason := r.Element(3).(etf.Atom)
 			alienPid := true
 

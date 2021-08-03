@@ -33,6 +33,10 @@ func (dgs *demoGenServ) Init(state *ergo.GenServerState, args ...interface{}) er
 
 func (dgs *demoGenServ) HandleCast(state *ergo.GenServerState, message etf.Term) string {
 	fmt.Printf("[%s] HandleCast: %#v\n", state.Process.Name(), message)
+	if pid, ok := message.(etf.Pid); ok {
+		state.Process.Send(pid, etf.Atom("hahaha"))
+		return "noreply"
+	}
 	switch message {
 	case etf.Atom("stop"):
 		return "stop they said"

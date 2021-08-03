@@ -103,6 +103,10 @@ func (r *rex) HandleCall(state *GenServerState, from GenServerFrom, message etf.
 	return "reply", reply
 }
 
+func (r *rex) HandleInfo(state *GenServerState, message etf.Term) string {
+	return "noreply"
+}
+
 func (r *rex) handleRPC(state *GenServerState, module, function etf.Atom, args etf.List) (reply interface{}) {
 	defer func() {
 		if x := recover(); x != nil {

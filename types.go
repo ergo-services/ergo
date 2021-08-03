@@ -13,6 +13,8 @@ var (
 	ErrAppUnknown         = fmt.Errorf("Unknown application name")
 	ErrAppIsNotRunning    = fmt.Errorf("Application is not running")
 	ErrProcessBusy        = fmt.Errorf("Process is busy")
+	ErrProcessUnknown     = fmt.Errorf("Unknown process")
+	ErrAliasUnknown       = fmt.Errorf("Unknown alias")
 	ErrNameIsTaken        = fmt.Errorf("Name is taken")
 	ErrUnsupportedRequest = fmt.Errorf("Unsupported request")
 	ErrTimeout            = fmt.Errorf("Timed out")
@@ -44,6 +46,14 @@ const (
 	distProtoPAYLOAD_EXIT2          = 26
 	distProtoPAYLOAD_EXIT2_TT       = 27
 	distProtoPAYLOAD_MONITOR_P_EXIT = 28
+	distProtoSPAWN_REQUEST          = 29
+	distProtoSPAWN_REQUEST_TT       = 30
+	distProtoSPAWN_REPLY            = 31
+	distProtoSPAWN_REPLY_TT         = 32
+	distProtoALIAS_SEND             = 33
+	distProtoALIAS_SEND_TT          = 34
+	distProtoUNLINK_ID              = 35
+	distProtoUNLINK_ID_ACK          = 36
 )
 
 type peer struct {

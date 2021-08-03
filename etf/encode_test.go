@@ -14,7 +14,7 @@ func TestEncodeBool(t *testing.T) {
 	b := lib.TakeBuffer()
 	defer lib.ReleaseBuffer(b)
 
-	err := Encode(false, b, nil, nil, nil)
+	err := Encode(false, b, EncodeOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -38,7 +38,13 @@ func TestEncodeBoolWithAtomCache(t *testing.T) {
 
 	writerAtomCache["false"] = ci
 
-	err := Encode(false, b, linkAtomCache, writerAtomCache, encodingAtomCache)
+	encodeOptions := EncodeOptions{
+		linkAtomCache:     linkAtomCache,
+		writerAtomCache:   writerAtomCache,
+		encodingAtomCache: encodingAtomCache,
+	}
+
+	err := Encode(false, b, encodeOptions)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -145,7 +151,7 @@ func TestEncodeInteger(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			b.Reset()
 
-			err := Encode(c.integer, b, nil, nil, nil)
+			err := Encode(c.integer, b, EncodeOptions{})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -164,7 +170,7 @@ func TestEncodeFloat(t *testing.T) {
 
 	expected := []byte{ettNewFloat, 64, 9, 30, 184, 81, 235, 133, 31}
 
-	err := Encode(float64(3.14), b, nil, nil, nil)
+	err := Encode(float64(3.14), b, EncodeOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -176,7 +182,7 @@ func TestEncodeFloat(t *testing.T) {
 	}
 
 	b.Reset()
-	err = Encode(float32(3.14), b, nil, nil, nil)
+	err = Encode(float32(3.14), b, EncodeOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -197,7 +203,7 @@ func TestEncodeString(t *testing.T) {
 	defer lib.ReleaseBuffer(b)
 
 	expected := []byte{ettString, 0, 52, 72, 101, 108, 108, 111, 32, 87, 111, 114, 108, 100, 46, 32, 228, 189, 160, 229, 165, 189, 228, 184, 150, 231, 149, 140, 46, 32, 208, 159, 209, 128, 208, 184, 208, 178, 208, 181, 209, 130, 32, 208, 188, 208, 184, 209, 128, 46, 32, 240, 159, 154, 128}
-	err := Encode("Hello World. 你好世界. Привет мир. 🚀", b, nil, nil, nil)
+	err := Encode("Hello World. 你好世界. Привет мир. 🚀", b, EncodeOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -216,7 +222,7 @@ func TestEncodeAtom(t *testing.T) {
 	expected := []byte{ettSmallAtomUTF8, 14, 69, 114, 103, 111, 32, 70, 114, 97, 109, 101, 119,
 		111, 114, 107}
 
-	err := Encode(Atom("Ergo Framework"), b, nil, nil, nil)
+	err := Encode(Atom("Ergo Framework"), b, EncodeOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -251,7 +257,7 @@ func TestEncodeAtom(t *testing.T) {
 		111, 114, 107, 32, 69, 114, 103, 111, 32, 70, 114, 97, 109, 101, 119,
 		111, 114, 107, 32, 69, 114, 103, 111, 32, 70, 114, 97, 109, 101, 119,
 		111, 114, 107}
-	err = Encode(longAtom, b, nil, nil, nil)
+	err = Encode(longAtom, b, EncodeOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -278,7 +284,13 @@ func TestEncodeAtomWithCache(t *testing.T) {
 	ci := CacheItem{ID: 2020, Encoded: true, Name: "cached atom"}
 	writerAtomCache["cached atom"] = ci
 
-	err := Encode(Atom("cached atom"), b, linkAtomCache, writerAtomCache, encodingAtomCache)
+	encodeOptions := EncodeOptions{
+		linkAtomCache:     linkAtomCache,
+		writerAtomCache:   writerAtomCache,
+		encodingAtomCache: encodingAtomCache,
+	}
+
+	err := Encode(Atom("cached atom"), b, encodeOptions)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -293,7 +305,7 @@ func TestEncodeAtomWithCache(t *testing.T) {
 
 	b.Reset()
 
-	err = Encode(Atom("not cached atom"), b, linkAtomCache, writerAtomCache, encodingAtomCache)
+	err = Encode(Atom("not cached atom"), b, encodeOptions)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -312,7 +324,7 @@ func TestEncodeBinary(t *testing.T) {
 	b := lib.TakeBuffer()
 	defer lib.ReleaseBuffer(b)
 
-	err := Encode([]byte{1, 2, 3, 4, 5}, b, nil, nil, nil)
+	err := Encode([]byte{1, 2, 3, 4, 5}, b, EncodeOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -329,7 +341,24 @@ func TestEncodeList(t *testing.T) {
 
 	expected := []byte{ettList, 0, 0, 0, 3, ettSmallAtomUTF8, 1, 97, ettSmallInteger, 2, ettSmallInteger, 3, ettNil}
 	term := List{Atom("a"), 2, 3}
-	err := Encode(term, b, nil, nil, nil)
+	err := Encode(term, b, EncodeOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !reflect.DeepEqual(b.B, expected) {
+		fmt.Println("exp", expected)
+		fmt.Println("got", b.B)
+		t.Fatal("incorrect value")
+	}
+}
+func TestEncodeListImproper(t *testing.T) {
+	b := lib.TakeBuffer()
+	defer lib.ReleaseBuffer(b)
+
+	expected := []byte{ettList, 0, 0, 0, 2, ettSmallAtomUTF8, 1, 97, ettSmallInteger, 2, ettSmallInteger, 3}
+	term := ListImproper{Atom("a"), 2, 3}
+	err := Encode(term, b, EncodeOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -348,7 +377,7 @@ func TestEncodeSlice(t *testing.T) {
 		98, 0, 1, 9, 50, 106}
 	//expected := []byte{ettList, 0, 0, 0, 3, ettSmallAtomUTF8, 1, 97, ettSmallInteger, 2, ettSmallInteger, 3, ettNil}
 	term := []int{12345, 67890, 12345, 67890}
-	err := Encode(term, b, nil, nil, nil)
+	err := Encode(term, b, EncodeOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -366,7 +395,7 @@ func TestEncodeListNested(t *testing.T) {
 		0, 0, 0, 2, 119, 1, 99, 97, 3, 106, 97, 4, 106, 106}
 
 	term := List{Atom("a"), List{Atom("b"), 2, List{Atom("c"), 3}, 4}}
-	err := Encode(term, b, nil, nil, nil)
+	err := Encode(term, b, EncodeOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -385,7 +414,7 @@ func TestEncodeTupleNested(t *testing.T) {
 		97, 3, 97, 4}
 
 	term := Tuple{Atom("a"), Tuple{Atom("b"), 2, Tuple{Atom("c"), 3}, 4}}
-	err := Encode(term, b, nil, nil, nil)
+	err := Encode(term, b, EncodeOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -403,7 +432,7 @@ func TestEncodeTuple(t *testing.T) {
 
 	expected := []byte{ettSmallTuple, 3, ettSmallAtomUTF8, 1, 97, ettSmallInteger, 2, ettSmallInteger, 3}
 	term := Tuple{Atom("a"), 2, 3}
-	err := Encode(term, b, nil, nil, nil)
+	err := Encode(term, b, EncodeOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -431,7 +460,7 @@ func TestEncodeMap(t *testing.T) {
 		Atom("key2"): "hello world",
 	}
 
-	err := Encode(term, b, nil, nil, nil)
+	err := Encode(term, b, EncodeOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -459,7 +488,7 @@ func TestEncodeGoMap(t *testing.T) {
 		Atom("key2"): "hello world",
 	}
 
-	err := Encode(term, b, nil, nil, nil)
+	err := Encode(term, b, EncodeOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -488,7 +517,7 @@ func TestEncodeStruct(t *testing.T) {
 		StructToMapKey3: "hello world",
 	}
 
-	err := Encode(term, b, nil, nil, nil)
+	err := Encode(term, b, EncodeOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -511,7 +540,7 @@ func TestEncodeStruct(t *testing.T) {
 		StructToMapKey3: "hello world",
 	}
 
-	err = Encode(term1, b1, nil, nil, nil)
+	err = Encode(term1, b1, EncodeOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -563,7 +592,7 @@ func TestEncodeStructWithNestedPointers(t *testing.T) {
 
 	expected := []byte{116, 0, 0, 0, 2, 119, 6, 78, 101, 115, 116, 101, 100, 116, 0, 0, 0, 8, 119, 4, 75, 101, 121, 49, 107, 0, 11, 104, 101, 108, 108, 111, 32, 119, 111, 114, 108, 100, 119, 4, 75, 101, 121, 50, 107, 0, 11, 104, 101, 108, 108, 111, 32, 119, 111, 114, 108, 100, 119, 4, 75, 101, 121, 51, 97, 123, 119, 4, 75, 101, 121, 52, 97, 123, 119, 4, 75, 101, 121, 53, 70, 64, 9, 30, 184, 81, 235, 133, 31, 119, 4, 75, 101, 121, 54, 70, 64, 9, 30, 184, 81, 235, 133, 31, 119, 4, 75, 101, 121, 55, 115, 4, 116, 114, 117, 101, 119, 4, 75, 101, 121, 56, 115, 4, 116, 114, 117, 101, 119, 4, 75, 101, 121, 57, 116, 0, 0, 0, 8, 119, 4, 75, 101, 121, 49, 107, 0, 11, 104, 101, 108, 108, 111, 32, 119, 111, 114, 108, 100, 119, 4, 75, 101, 121, 50, 107, 0, 11, 104, 101, 108, 108, 111, 32, 119, 111, 114, 108, 100, 119, 4, 75, 101, 121, 51, 97, 123, 119, 4, 75, 101, 121, 52, 97, 123, 119, 4, 75, 101, 121, 53, 70, 64, 9, 30, 184, 81, 235, 133, 31, 119, 4, 75, 101, 121, 54, 70, 64, 9, 30, 184, 81, 235, 133, 31, 119, 4, 75, 101, 121, 55, 115, 4, 116, 114, 117, 101, 119, 4, 75, 101, 121, 56, 115, 4, 116, 114, 117, 101}
 
-	err := Encode(term, b, nil, nil, nil)
+	err := Encode(term, b, EncodeOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -580,7 +609,7 @@ func TestEncodeStructWithNestedPointers(t *testing.T) {
 	}
 	expectedWithNil := []byte{116, 0, 0, 0, 2, 119, 6, 78, 101, 115, 116, 101, 100, 116, 0, 0, 0, 8, 119, 4, 75, 101, 121, 49, 107, 0, 11, 104, 101, 108, 108, 111, 32, 119, 111, 114, 108, 100, 119, 4, 75, 101, 121, 50, 107, 0, 11, 104, 101, 108, 108, 111, 32, 119, 111, 114, 108, 100, 119, 4, 75, 101, 121, 51, 97, 123, 119, 4, 75, 101, 121, 52, 97, 123, 119, 4, 75, 101, 121, 53, 70, 64, 9, 30, 184, 81, 235, 133, 31, 119, 4, 75, 101, 121, 54, 70, 64, 9, 30, 184, 81, 235, 133, 31, 119, 4, 75, 101, 121, 55, 115, 4, 116, 114, 117, 101, 119, 4, 75, 101, 121, 56, 115, 4, 116, 114, 117, 101, 119, 4, 75, 101, 121, 57, 106}
 
-	err = Encode(termWithNil, b1, nil, nil, nil)
+	err = Encode(termWithNil, b1, EncodeOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -599,34 +628,35 @@ func TestEncodeStructWithTags(t *testing.T) {
 
 	type Nested struct {
 		NestedKey1 string
-		NestedKey2 map[string]*string `etf:"field charlist"`
+		NestedKey2 map[string]*Charlist `etf:"field"`
 	}
 	type StructWithTags struct {
 		Key1 string
-		Key2 []*string `etf:"custom_field_name charlist"`
+		Key2 []*Charlist `etf:"custom_field_name"`
 		Key3 *Nested
-		Key4 [][]*string `etf:"charlist"`
+		Key4 [][]*Charlist
 	}
 
-	nestedMap := make(map[string]*string)
-	value1 := "Hello World! 你好世界! Привет Мир! 🚀"
+	nestedMap := make(map[string]*Charlist)
+	value1 := Charlist("Hello World! 你好世界! Привет Мир! 🚀")
+	value11 := "Hello World! 你好世界! Привет Мир! 🚀"
 	nestedMap["map_key"] = &value1
 
 	nested := Nested{
-		NestedKey1: value1,
+		NestedKey1: value11,
 		NestedKey2: nestedMap,
 	}
 
-	value2 := "你好世界! 🚀"
-	value3 := "Привет Мир! 🚀"
-	value4 := "Hello World! 🚀"
+	value2 := Charlist("你好世界! 🚀")
+	value3 := Charlist("Привет Мир! 🚀")
+	value4 := Charlist("Hello World! 🚀")
 	term := StructWithTags{
 		Key1: "Hello World!",
-		Key2: []*string{&value2, &value3, &value4},
+		Key2: []*Charlist{&value2, &value3, &value4},
 		Key3: &nested,
-		Key4: [][]*string{[]*string{&value2, &value3, &value4}, []*string{&value2, &value3, &value4}},
+		Key4: [][]*Charlist{[]*Charlist{&value2, &value3, &value4}, []*Charlist{&value2, &value3, &value4}},
 	}
-	err := Encode(term, b, nil, nil, nil)
+	err := Encode(term, b, EncodeOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -643,9 +673,9 @@ func TestEncodePid(t *testing.T) {
 
 	expected := []byte{103, 119, 18, 101, 114, 108, 45, 100, 101, 109, 111, 64, 49, 50,
 		55, 46, 48, 46, 48, 46, 49, 0, 0, 1, 56, 0, 0, 0, 0, 2}
-	term := Pid{Node: "erl-demo@127.0.0.1", ID: 312, Serial: 0, Creation: 2}
+	term := Pid{Node: "erl-demo@127.0.0.1", ID: 312, Creation: 2}
 
-	err := Encode(term, b, nil, nil, nil)
+	err := Encode(term, b, EncodeOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -663,7 +693,7 @@ func TestEncodePidWithAtomCache(t *testing.T) {
 	defer lib.ReleaseBuffer(b)
 
 	expected := []byte{103, 82, 0, 0, 0, 1, 56, 0, 0, 0, 0, 2}
-	term := Pid{Node: "erl-demo@127.0.0.1", ID: 312, Serial: 0, Creation: 2}
+	term := Pid{Node: "erl-demo@127.0.0.1", ID: 312, Creation: 2}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -675,8 +705,12 @@ func TestEncodePidWithAtomCache(t *testing.T) {
 
 	ci := CacheItem{ID: 2020, Encoded: true, Name: "erl-demo@127.0.0.1"}
 	writerAtomCache["erl-demo@127.0.0.1"] = ci
-
-	err := Encode(term, b, linkAtomCache, writerAtomCache, encodingAtomCache)
+	encodeOptions := EncodeOptions{
+		linkAtomCache:     linkAtomCache,
+		writerAtomCache:   writerAtomCache,
+		encodingAtomCache: encodingAtomCache,
+	}
+	err := Encode(term, b, encodeOptions)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -704,10 +738,10 @@ func TestEncodeRef(t *testing.T) {
 	term := Ref{
 		Node:     Atom("erl-demo@127.0.0.1"),
 		Creation: 2,
-		ID:       []uint32{73444, 3082813441, 2373634851},
+		ID:       [5]uint32{73444, 3082813441, 2373634851},
 	}
 
-	err := Encode(term, b, nil, nil, nil)
+	err := Encode(term, b, EncodeOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -734,14 +768,13 @@ func TestEncodeTupleRefPid(t *testing.T) {
 		Ref{
 			Node:     Atom("erl-demo@127.0.0.1"),
 			Creation: 2,
-			ID:       []uint32{0x11f1c, 0xb7c00001, 0x8d7acb23}},
+			ID:       [5]uint32{0x11f1c, 0xb7c00001, 0x8d7acb23}},
 		Pid{
 			Node:     Atom("erl-demo@127.0.0.1"),
 			ID:       312,
-			Serial:   0,
 			Creation: 2}}
 
-	err := Encode(term, b, nil, nil, nil)
+	err := Encode(term, b, EncodeOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -758,7 +791,7 @@ func TestEncodeGoPtrNil(t *testing.T) {
 	b := lib.TakeBuffer()
 	defer lib.ReleaseBuffer(b)
 
-	err := Encode(x, b, nil, nil, nil)
+	err := Encode(x, b, EncodeOptions{})
 
 	if err != nil {
 		t.Fatal(err)
@@ -778,7 +811,7 @@ func BenchmarkEncodeBool(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		err := Encode(false, buf, nil, nil, nil)
+		err := Encode(false, buf, EncodeOptions{})
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -800,9 +833,14 @@ func BenchmarkEncodeBoolWithAtomCache(b *testing.B) {
 
 	writerAtomCache["false"] = CacheItem{ID: 499, Encoded: true, Name: "false"}
 
+	encodeOptions := EncodeOptions{
+		linkAtomCache:     linkAtomCache,
+		writerAtomCache:   writerAtomCache,
+		encodingAtomCache: encodingAtomCache,
+	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		err := Encode(false, buf, linkAtomCache, writerAtomCache, encodingAtomCache)
+		err := Encode(false, buf, encodeOptions)
 		encodingAtomCache.Reset()
 		buf.Reset()
 		if err != nil {
@@ -818,7 +856,7 @@ func BenchmarkEncodeInteger(b *testing.B) {
 			defer lib.ReleaseBuffer(buf)
 
 			for i := 0; i < b.N; i++ {
-				err := Encode(c.integer, buf, nil, nil, nil)
+				err := Encode(c.integer, buf, EncodeOptions{})
 				if err != nil {
 					b.Fatal(err)
 				}
@@ -833,7 +871,7 @@ func BenchmarkEncodeFloat32(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		err := Encode(float32(3.14), buf, nil, nil, nil)
+		err := Encode(float32(3.14), buf, EncodeOptions{})
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -846,7 +884,7 @@ func BenchmarkEncodeFloat64(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		err := Encode(float64(3.14), buf, nil, nil, nil)
+		err := Encode(float64(3.14), buf, EncodeOptions{})
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -859,7 +897,7 @@ func BenchmarkEncodeString(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		err := Encode("Ergo Framework", buf, nil, nil, nil)
+		err := Encode("Ergo Framework", buf, EncodeOptions{})
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -872,7 +910,7 @@ func BenchmarkEncodeAtom(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		err := Encode(Atom("Ergo Framework"), buf, nil, nil, nil)
+		err := Encode(Atom("Ergo Framework"), buf, EncodeOptions{})
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -894,9 +932,15 @@ func BenchmarkEncodeAtomWithCache(b *testing.B) {
 	ci := CacheItem{ID: 2020, Encoded: true, Name: "cached atom"}
 	writerAtomCache["cached atom"] = ci
 
+	encodeOptions := EncodeOptions{
+		linkAtomCache:     linkAtomCache,
+		writerAtomCache:   writerAtomCache,
+		encodingAtomCache: encodingAtomCache,
+	}
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		err := Encode(Atom("cached atom"), buf, linkAtomCache, writerAtomCache, encodingAtomCache)
+		err := Encode(Atom("cached atom"), buf, encodeOptions)
 		buf.Reset()
 		encodingAtomCache.Reset()
 		if err != nil {
@@ -912,7 +956,7 @@ func BenchmarkEncodeBinary(b *testing.B) {
 	bytes := []byte{1, 2, 3, 4, 5}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		err := Encode(bytes, buf, nil, nil, nil)
+		err := Encode(bytes, buf, EncodeOptions{})
 		buf.Reset()
 		if err != nil {
 			b.Fatal(err)
@@ -928,7 +972,7 @@ func BenchmarkEncodeList(b *testing.B) {
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		err := Encode(term, buf, nil, nil, nil)
+		err := Encode(term, buf, EncodeOptions{})
 		buf.Reset()
 		if err != nil {
 			b.Fatal(err)
@@ -945,7 +989,7 @@ func BenchmarkEncodeListNested(b *testing.B) {
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		err := Encode(term, buf, nil, nil, nil)
+		err := Encode(term, buf, EncodeOptions{})
 		buf.Reset()
 		if err != nil {
 			b.Fatal(err)
@@ -962,7 +1006,7 @@ func BenchmarkEncodeTuple(b *testing.B) {
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		err := Encode(term, buf, nil, nil, nil)
+		err := Encode(term, buf, EncodeOptions{})
 		buf.Reset()
 		if err != nil {
 			b.Fatal(err)
@@ -979,7 +1023,7 @@ func BenchmarkEncodeTupleNested(b *testing.B) {
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		err := Encode(term, buf, nil, nil, nil)
+		err := Encode(term, buf, EncodeOptions{})
 		buf.Reset()
 		if err != nil {
 			b.Fatal(err)
@@ -996,7 +1040,7 @@ func BenchmarkEncodeSlice(b *testing.B) {
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		err := Encode(term, buf, nil, nil, nil)
+		err := Encode(term, buf, EncodeOptions{})
 		buf.Reset()
 		if err != nil {
 			b.Fatal(err)
@@ -1012,7 +1056,7 @@ func BenchmarkEncodeArray(b *testing.B) {
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		err := Encode(term, buf, nil, nil, nil)
+		err := Encode(term, buf, EncodeOptions{})
 		buf.Reset()
 		if err != nil {
 			b.Fatal(err)
@@ -1031,7 +1075,7 @@ func BenchmarkEncodeMap(b *testing.B) {
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		err := Encode(term, buf, nil, nil, nil)
+		err := Encode(term, buf, EncodeOptions{})
 		buf.Reset()
 		if err != nil {
 			b.Fatal(err)
@@ -1050,7 +1094,7 @@ func BenchmarkEncodeGoMap(b *testing.B) {
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		err := Encode(term, buf, nil, nil, nil)
+		err := Encode(term, buf, EncodeOptions{})
 		buf.Reset()
 		if err != nil {
 			b.Fatal(err)
@@ -1072,7 +1116,7 @@ func BenchmarkEncodeGoStruct(b *testing.B) {
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		err := Encode(term, buf, nil, nil, nil)
+		err := Encode(term, buf, EncodeOptions{})
 		buf.Reset()
 		if err != nil {
 			b.Fatal(err)
@@ -1084,11 +1128,11 @@ func BenchmarkEncodePid(b *testing.B) {
 	buf := lib.TakeBuffer()
 	defer lib.ReleaseBuffer(buf)
 
-	term := Pid{Node: "erl-demo@127.0.0.1", ID: 312, Serial: 0, Creation: 2}
+	term := Pid{Node: "erl-demo@127.0.0.1", ID: 312, Creation: 2}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		err := Encode(term, buf, nil, nil, nil)
+		err := Encode(term, buf, EncodeOptions{})
 		buf.Reset()
 		if err != nil {
 			b.Fatal(err)
@@ -1100,7 +1144,7 @@ func BenchmarkEncodePidWithAtomCache(b *testing.B) {
 	buf := lib.TakeBuffer()
 	defer lib.ReleaseBuffer(buf)
 
-	term := Pid{Node: "erl-demo@127.0.0.1", ID: 312, Serial: 0, Creation: 2}
+	term := Pid{Node: "erl-demo@127.0.0.1", ID: 312, Creation: 2}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -1113,9 +1157,15 @@ func BenchmarkEncodePidWithAtomCache(b *testing.B) {
 	ci := CacheItem{ID: 2020, Encoded: true, Name: "erl-demo@127.0.0.1"}
 	writerAtomCache["erl-demo@127.0.0.1"] = ci
 
+	encodeOptions := EncodeOptions{
+		linkAtomCache:     linkAtomCache,
+		writerAtomCache:   writerAtomCache,
+		encodingAtomCache: encodingAtomCache,
+	}
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		err := Encode(term, buf, linkAtomCache, writerAtomCache, encodingAtomCache)
+		err := Encode(term, buf, encodeOptions)
 		buf.Reset()
 		encodingAtomCache.Reset()
 		if err != nil {
@@ -1131,11 +1181,11 @@ func BenchmarkEncodeRef(b *testing.B) {
 	term := Ref{
 		Node:     Atom("erl-demo@127.0.0.1"),
 		Creation: 2,
-		ID:       []uint32{73444, 3082813441, 2373634851},
+		ID:       [5]uint32{73444, 3082813441, 2373634851},
 	}
 
 	for i := 0; i < b.N; i++ {
-		err := Encode(term, buf, nil, nil, nil)
+		err := Encode(term, buf, EncodeOptions{})
 		buf.Reset()
 		if err != nil {
 			b.Fatal(err)
@@ -1150,7 +1200,7 @@ func BenchmarkEncodeRefWithAtomCache(b *testing.B) {
 	term := Ref{
 		Node:     Atom("erl-demo@127.0.0.1"),
 		Creation: 2,
-		ID:       []uint32{73444, 3082813441, 2373634851},
+		ID:       [5]uint32{73444, 3082813441, 2373634851},
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -1164,9 +1214,15 @@ func BenchmarkEncodeRefWithAtomCache(b *testing.B) {
 	ci := CacheItem{ID: 2020, Encoded: true, Name: "erl-demo@127.0.0.1"}
 	writerAtomCache["erl-demo@127.0.0.1"] = ci
 
+	encodeOptions := EncodeOptions{
+		linkAtomCache:     linkAtomCache,
+		writerAtomCache:   writerAtomCache,
+		encodingAtomCache: encodingAtomCache,
+	}
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		err := Encode(term, buf, linkAtomCache, writerAtomCache, encodingAtomCache)
+		err := Encode(term, buf, encodeOptions)
 		buf.Reset()
 		encodingAtomCache.Reset()
 		if err != nil {
@@ -1183,16 +1239,15 @@ func BenchmarkEncodeTupleRefPid(b *testing.B) {
 		Ref{
 			Node:     Atom("erl-demo@127.0.0.1"),
 			Creation: 2,
-			ID:       []uint32{0x11f1c, 0xb7c00001, 0x8d7acb23}},
+			ID:       [5]uint32{0x11f1c, 0xb7c00001, 0x8d7acb23}},
 		Pid{
 			Node:     Atom("erl-demo@127.0.0.1"),
 			ID:       312,
-			Serial:   0,
 			Creation: 2}}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		err := Encode(term, buf, nil, nil, nil)
+		err := Encode(term, buf, EncodeOptions{})
 		buf.Reset()
 		if err != nil {
 			b.Fatal(err)
@@ -1208,11 +1263,10 @@ func BenchmarkEncodeTupleRefPidWithAtomCache(b *testing.B) {
 		Ref{
 			Node:     Atom("erl-demo@127.0.0.1"),
 			Creation: 2,
-			ID:       []uint32{0x11f1c, 0xb7c00001, 0x8d7acb23}},
+			ID:       [5]uint32{0x11f1c, 0xb7c00001, 0x8d7acb23}},
 		Pid{
 			Node:     Atom("erl-demo@127.0.0.1"),
 			ID:       312,
-			Serial:   0,
 			Creation: 2}}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -1226,9 +1280,15 @@ func BenchmarkEncodeTupleRefPidWithAtomCache(b *testing.B) {
 	ci := CacheItem{ID: 2020, Encoded: true, Name: "erl-demo@127.0.0.1"}
 	writerAtomCache["erl-demo@127.0.0.1"] = ci
 
+	encodeOptions := EncodeOptions{
+		linkAtomCache:     linkAtomCache,
+		writerAtomCache:   writerAtomCache,
+		encodingAtomCache: encodingAtomCache,
+	}
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		err := Encode(term, buf, linkAtomCache, writerAtomCache, encodingAtomCache)
+		err := Encode(term, buf, encodeOptions)
 		buf.Reset()
 		encodingAtomCache.Reset()
 		if err != nil {

@@ -248,7 +248,6 @@ func TestDecodePid(t *testing.T) {
 	expected := Pid{
 		Node:     Atom("erl-demo@127.0.0.1"),
 		ID:       142,
-		Serial:   0,
 		Creation: 2,
 	}
 	packet := []byte{103, 100, 0, 18, 101, 114, 108, 45, 100, 101, 109, 111, 64, 49,
@@ -268,7 +267,6 @@ func TestDecodePidWithCacheAtom(t *testing.T) {
 	expected := Pid{
 		Node:     Atom("erl-demo@127.0.0.1"),
 		ID:       142,
-		Serial:   0,
 		Creation: 2,
 	}
 	packet := []byte{103, ettCacheRef, 0, 0, 0, 0, 142, 0, 0, 0, 0, 2}
@@ -288,7 +286,7 @@ func TestDecodeRef(t *testing.T) {
 	expected := Ref{
 		Node:     Atom("erl-demo@127.0.0.1"),
 		Creation: 2,
-		ID:       []uint32{73444, 3082813441, 2373634851},
+		ID:       [5]uint32{73444, 3082813441, 2373634851},
 	}
 	packet := []byte{114, 0, 3, 100, 0, 18, 101, 114, 108, 45, 100, 101, 109, 111, 64,
 		49, 50, 55, 46, 48, 46, 48, 46, 49, 2, 0, 1, 30, 228, 183, 192, 0, 1, 141,
@@ -308,7 +306,7 @@ func TestDecodeRefWithAtomCache(t *testing.T) {
 	expected := Ref{
 		Node:     Atom("erl-demo@127.0.0.1"),
 		Creation: 2,
-		ID:       []uint32{73444, 3082813441, 2373634851},
+		ID:       [5]uint32{73444, 3082813441, 2373634851},
 	}
 	packet := []byte{114, 0, 3, ettCacheRef, 0, 2, 0, 1, 30, 228, 183, 192, 0, 1, 141,
 		122, 203, 35}
@@ -329,11 +327,10 @@ func TestDecodeTupleRefPid(t *testing.T) {
 		Ref{
 			Node:     Atom("erl-demo@127.0.0.1"),
 			Creation: 2,
-			ID:       []uint32{0x11f1c, 0xb7c00001, 0x8d7acb23}},
+			ID:       [5]uint32{0x11f1c, 0xb7c00001, 0x8d7acb23}},
 		Pid{
 			Node:     Atom("erl-demo@127.0.0.1"),
 			ID:       0x8e,
-			Serial:   0x0,
 			Creation: 0x2}}
 	packet := []byte{ettSmallTuple, 2, ettNewRef, 0, 3, ettAtom, 0, 18, 101, 114, 108, 45, 100, 101, 109,
 		111, 64, 49, 50, 55, 46, 48, 46, 48, 46, 49, 2, 0, 1, 31, 28, 183, 192, 0,
@@ -356,11 +353,10 @@ func TestDecodeTupleRefPidWithAtomCache(t *testing.T) {
 		Ref{
 			Node:     Atom("erl-demo@127.0.0.1"),
 			Creation: 2,
-			ID:       []uint32{0x11f1c, 0xb7c00001, 0x8d7acb23}},
+			ID:       [5]uint32{0x11f1c, 0xb7c00001, 0x8d7acb23}},
 		Pid{
 			Node:     Atom("erl-demo@127.0.0.1"),
 			ID:       0x8e,
-			Serial:   0x0,
 			Creation: 0x2}}
 	packet := []byte{ettSmallTuple, 2, ettNewRef, 0, 3, ettCacheRef, 0,
 		2, 0, 1, 31, 28, 183, 192, 0, 1, 141, 122, 203, 35, 103, ettCacheRef, 0,

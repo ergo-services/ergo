@@ -10,33 +10,45 @@ import (
 type Term interface{}
 type Tuple []Term
 type List []Term
+
+// ListImproper as a workaround for the Erlang's improper list [a|b]. Intended to be used to interact with Erlang.
+type ListImproper []Term
+
 type Atom string
 type Map map[Term]Term
 
+// String this type is intended to be used to interact with Erlang. String value encodes as a binary (Erlang type: <<...>>)
+type String string
+
+// Charlist this type is intended to be used to interact with Erlang. Charlist value encodes as a list of int32 numbers in order to support Erlang string with UTF-8 symbols on an Erlang side (Erlang type: [...])
+type Charlist string
+
 type Pid struct {
-	Node       Atom
-	ID         uint32
-	Serial     uint32
-	Creation   byte
-	Creation32 uint32 // since OTP.21
+	Node     Atom
+	ID       uint64
+	Creation uint32
 }
 
 type Port struct {
-	Node       Atom
-	ID         uint32
-	Creation   byte
-	Creation32 uint32 // since OTP.21
-
+	Node     Atom
+	ID       uint32
+	Creation uint32
 }
 
 type Ref struct {
 	Node     Atom
-	Creation byte
-	ID       []uint32
+	Creation uint32
+	ID       [5]uint32
 }
 
 func (ref Ref) String() string {
 	return fmt.Sprintf("%#v", ref)
+}
+
+// Marshaling interface for the customizing encode/decode processes.
+type Marshaling interface {
+	Marshal() []byte
+	Unmarshal([]byte)
 }
 
 type Function struct {
@@ -54,22 +66,6 @@ type Function struct {
 var (
 	hasher32 = fnv.New32a()
 )
-
-func StringTerm(t Term) (s string, ok bool) {
-	ok = true
-	switch x := t.(type) {
-	case Atom:
-		s = string(x)
-	case string:
-		s = x
-	case []byte:
-		s = string(x)
-	default:
-		ok = false
-	}
-
-	return
-}
 
 type Export struct {
 	Module   Atom
@@ -94,9 +90,10 @@ const (
 	ettLargeBig     = byte(111)
 	ettSmallBig     = byte(110)
 
-	ettList       = byte(108)
-	ettSmallTuple = byte(104)
-	ettLargeTuple = byte(105)
+	ettList         = byte(108)
+	ettListImproper = byte(18) // to be able to encode improper lists like [a|b].
+	ettSmallTuple   = byte(104)
+	ettLargeTuple   = byte(105)
 
 	ettMap = byte(116)
 
@@ -134,15 +131,38 @@ func (t Tuple) Element(i int) Term {
 	return t[i-1]
 }
 
-func (p Pid) Str() string {
+func (p Pid) String() string {
 	hasher32.Write([]byte(p.Node))
 	defer hasher32.Reset()
-	return fmt.Sprintf("<%X.%d.%d>", hasher32.Sum32(), p.ID, p.Serial)
+	return fmt.Sprintf("<%X.%d.%d>", hasher32.Sum32(), int32(p.ID>>32), int32(p.ID))
 }
 
 type ProplistElement struct {
 	Name  Atom
 	Value Term
+}
+
+// TermToString transforms given term (Atom, []byte, List) to the string
+func TermToString(t Term) (s string, ok bool) {
+	ok = true
+	switch x := t.(type) {
+	case Atom:
+		s = string(x)
+	case string:
+		s = x
+	case []byte:
+		s = string(x)
+	case List:
+		str, err := convertCharlistToString(x)
+		if err != nil {
+			ok = false
+			return
+		}
+		s = str
+	default:
+		ok = false
+	}
+	return
 }
 
 // ProplistIntoStruct transorms given term into the provided struct 'dest'.
@@ -171,7 +191,7 @@ func TermIntoStruct(term Term, dest interface{}) (err error) {
 		}
 	}()
 	v := reflect.Indirect(reflect.ValueOf(dest))
-	err = termIntoStruct(term, v, false)
+	err = termIntoStruct(term, v)
 	return
 }
 
@@ -189,7 +209,7 @@ func TermMapIntoStruct(term Term, dest interface{}) (err error) {
 	return setMapStructField(term.(Map), v)
 }
 
-func termIntoStruct(term Term, dest reflect.Value, charlistToString bool) error {
+func termIntoStruct(term Term, dest reflect.Value) error {
 	t := dest.Type()
 
 	if term == nil {
@@ -250,8 +270,18 @@ func termIntoStruct(term Term, dest reflect.Value, charlistToString bool) error 
 		return setUIntField(uint64(v), dest)
 	case Map:
 		return setMapField(v, dest)
+	case String:
+		dest.SetString(string(v))
+		return nil
+	case Charlist:
+		s, err := convertCharlistToString(term.(List))
+		if err != nil {
+			return NewInvalidTypesError(t, term)
+		}
+		dest.SetString(s)
+		return nil
 	case List:
-		return setListField(v, dest, charlistToString)
+		return setListField(v, dest)
 	case Tuple:
 		return setStructField([]Term(v), dest, t)
 	default:
@@ -261,7 +291,7 @@ func termIntoStruct(term Term, dest reflect.Value, charlistToString bool) error 
 	return nil
 }
 
-func setListField(term List, dest reflect.Value, charlistToString bool) error {
+func setListField(term List, dest reflect.Value) error {
 	var value reflect.Value
 	t := dest.Type()
 	switch t.Kind() {
@@ -272,20 +302,12 @@ func setListField(term List, dest reflect.Value, charlistToString bool) error {
 			return NewInvalidTypesError(t, term)
 		}
 		value = dest
-	case reflect.String:
-		s, err := convertCharlistToString(term)
-		if err != nil {
-			return NewInvalidTypesError(t, term)
-		}
-		dest.SetString(s)
-		return nil
-
 	default:
 		return NewInvalidTypesError(t, term)
 	}
 
 	for i, elem := range term {
-		if err := termIntoStruct(elem, value.Index(i), charlistToString); err != nil {
+		if err := termIntoStruct(elem, value.Index(i)); err != nil {
 			return err
 		}
 	}
@@ -324,16 +346,16 @@ func setProplistField(list List, dest reflect.Value) error {
 
 		key := elem.(Tuple)[0]
 		val := elem.(Tuple)[1]
-		fName, ok := StringTerm(key)
+		fName, ok := TermToString(key)
 		if !ok {
 			return &InvalidStructKeyError{Term: key}
 		}
-		index, charlistToString := findStructField(fields, fName)
+		index := findStructField(fields, fName)
 		if index == -1 {
 			continue
 		}
 
-		err := termIntoStruct(val, dest.Field(index), charlistToString)
+		err := termIntoStruct(val, dest.Field(index))
 		if err != nil {
 			return err
 		}
@@ -351,16 +373,16 @@ func setProplistElementField(proplist []ProplistElement, dest reflect.Value) err
 	}
 
 	for _, elem := range proplist {
-		fName, ok := StringTerm(elem.Name)
+		fName, ok := TermToString(elem.Name)
 		if !ok {
 			return &InvalidStructKeyError{Term: elem.Name}
 		}
-		index, charlistToString := findStructField(fields, fName)
+		index := findStructField(fields, fName)
 		if index == -1 {
 			continue
 		}
 
-		err := termIntoStruct(elem.Value, dest.Field(index), charlistToString)
+		err := termIntoStruct(elem.Value, dest.Field(index))
 		if err != nil {
 			return err
 		}
@@ -389,7 +411,7 @@ func setStructField(term Tuple, dest reflect.Value, t reflect.Type) error {
 		dest = pdest.Elem()
 	}
 	for i, elem := range term {
-		if err := termIntoStruct(elem, dest.Field(i), false); err != nil {
+		if err := termIntoStruct(elem, dest.Field(i)); err != nil {
 			return err
 		}
 	}
@@ -407,16 +429,16 @@ func setMapStructField(term Map, dest reflect.Value) error {
 	}
 
 	for key, val := range term {
-		fName, ok := StringTerm(key)
+		fName, ok := TermToString(key)
 		if !ok {
 			return &InvalidStructKeyError{Term: key}
 		}
-		index, charlistToString := findStructField(fields, fName)
+		index := findStructField(fields, fName)
 		if index == -1 {
 			continue
 		}
 
-		err := termIntoStruct(val, dest.Field(index), charlistToString)
+		err := termIntoStruct(val, dest.Field(index))
 		if err != nil {
 			return err
 		}
@@ -425,22 +447,14 @@ func setMapStructField(term Map, dest reflect.Value) error {
 	return nil
 }
 
-func findStructField(term []reflect.StructField, key string) (index int, charlistToString bool) {
+func findStructField(term []reflect.StructField, key string) (index int) {
 	var fieldName string
 	index = -1
 	for i, f := range term {
 		fieldName = f.Name
-		charlistToString = false
 
-		tag := f.Tag.Get("etf")
-		split := strings.Split(tag, " ")
-		for s := range split {
-			switch split[s] {
-			case "charlist":
-				charlistToString = true
-			default:
-				fieldName = split[s]
-			}
+		if tag := f.Tag.Get("etf"); tag != "" {
+			fieldName = tag
 		}
 
 		if fieldName == key {
@@ -465,11 +479,11 @@ func setMapMapField(term Map, dest reflect.Value) error {
 	tval := t.Elem()
 	for key, val := range term {
 		destkey := reflect.Indirect(reflect.New(tkey))
-		if err := termIntoStruct(key, destkey, false); err != nil {
+		if err := termIntoStruct(key, destkey); err != nil {
 			return err
 		}
 		destval := reflect.Indirect(reflect.New(tval))
-		if err := termIntoStruct(val, destval, false); err != nil {
+		if err := termIntoStruct(val, destval); err != nil {
 			return err
 		}
 		dest.SetMapIndex(destkey, destval)

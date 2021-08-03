@@ -155,13 +155,13 @@ func (am *appMon) makeAppTree(p *Process, app etf.Atom) etf.Tuple {
 	resolver := make(map[etf.Pid]interface{})
 
 	tree := makeTree(p, resolver, appInfo.PID)
-	children := etf.List{etf.Tuple{appInfo.PID, appInfo.PID.Str()}}
+	children := etf.List{etf.Tuple{appInfo.PID, appInfo.PID.String()}}
 	for p, n := range resolver {
 		children = append(children, etf.Tuple{p, n})
 	}
 
 	appTree := etf.Tuple{
-		appInfo.PID.Str(), // pid or registered name
+		appInfo.PID.String(), // pid or registered name
 		children,
 		tree,
 		etf.List{}, // TODO: links
@@ -179,7 +179,7 @@ func makeTree(p *Process, resolver map[etf.Pid]interface{}, pid etf.Pid) etf.Lis
 	if pidProcess.name != "" {
 		resolver[pid] = pidProcess.name
 	} else {
-		resolver[pid] = pid.Str()
+		resolver[pid] = pid.String()
 	}
 
 	tree := etf.List{}

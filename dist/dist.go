@@ -78,6 +78,7 @@ const (
 	EXIT_PAYLOAD               = 0x400000 // since OTP.22 enable replacement for EXIT, EXIT2, MONITOR_P_EXIT
 	FRAGMENTS                  = 0x800000
 	HANDSHAKE23                = 0x1000000 // new connection setup handshake (version 6) introduced in OTP 23
+	UNLINK_ID                  = 0x2000000
 	// for 64bit flags
 	SPAWN   = 1 << 32
 	NAME_ME = 1 << 33
@@ -252,7 +253,7 @@ func Handshake(conn net.Conn, tls bool, name, cookie string, hidden bool) (*Link
 			EXTENDED_PIDS_PORTS, EXTENDED_REFERENCES, ATOM_CACHE,
 			DIST_HDR_ATOM_CACHE, HIDDEN_ATOM_CACHE, NEW_FUN_TAGS,
 			SMALL_ATOM_TAGS, UTF8_ATOMS, MAP_TAG,
-			FRAGMENTS,
+			FRAGMENTS, BIG_CREATION,
 		),
 
 		conn:       conn,
@@ -378,7 +379,7 @@ func HandshakeAccept(conn net.Conn, tls bool, name, cookie string, hidden bool) 
 			EXTENDED_PIDS_PORTS, EXTENDED_REFERENCES, ATOM_CACHE,
 			DIST_HDR_ATOM_CACHE, HIDDEN_ATOM_CACHE, NEW_FUN_TAGS,
 			SMALL_ATOM_TAGS, UTF8_ATOMS, MAP_TAG,
-			FRAGMENTS,
+			FRAGMENTS, BIG_CREATION,
 		),
 
 		conn:       conn,
@@ -984,6 +985,12 @@ func (l *Link) Writer(send <-chan []etf.Term, fragmentationUnit int) {
 		linkAtomCache = l.cacheOut
 	}
 
+	encodeOptions := etf.EncodeOptions{
+		linkAtomCache:     linkAtomCache,
+		writerAtomCache:   writerAtomCache,
+		encodingAtomCache: encodingAtomCache,
+	}
+
 	for {
 		terms = nil
 		terms = <-send
@@ -1005,7 +1012,7 @@ func (l *Link) Writer(send <-chan []etf.Term, fragmentationUnit int) {
 		}
 
 		// encode Control
-		err = etf.Encode(terms[0], packetBuffer, linkAtomCache, writerAtomCache, encodingAtomCache)
+		err = etf.Encode(terms[0], packetBuffer, encodeOptions)
 		if err != nil {
 			fmt.Println(err)
 			lib.ReleaseBuffer(packetBuffer)
@@ -1015,7 +1022,7 @@ func (l *Link) Writer(send <-chan []etf.Term, fragmentationUnit int) {
 
 		// encode Message if present
 		if len(terms) == 2 {
-			err = etf.Encode(terms[1], packetBuffer, linkAtomCache, writerAtomCache, encodingAtomCache)
+			err = etf.Encode(terms[1], packetBuffer, encodeOptions)
 			if err != nil {
 				fmt.Println(err)
 				lib.ReleaseBuffer(packetBuffer)
@@ -1033,7 +1040,7 @@ func (l *Link) Writer(send <-chan []etf.Term, fragmentationUnit int) {
 
 			if lenAtomCache > reserveHeaderAtomCache-22 {
 				// are you serious? ))) what da hell you just sent?
-				// FIXME i'm gonna fix it once someone report about this issue :)
+				// FIXME i'm gonna fix it if someone report about this issue :)
 				panic("exceed atom header cache size limit. please report about this issue")
 			}
 

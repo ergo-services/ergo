@@ -349,7 +349,7 @@ func TestTermIntoStruct_WithTags(t *testing.T) {
 		Key3: &nested,
 		Key4: [][]*string{[]*string{&value2, &value3, &value4}, []*string{&value2, &value3, &value4}},
 	}
-	if err := Encode(term_source, b, nil, nil, nil); err != nil {
+	if err := Encode(term_source, b, EncodeOptions{}); err != nil {
 		t.Fatal(err)
 	}
 

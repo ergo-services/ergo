@@ -44,8 +44,9 @@ type GenServer struct{}
 
 // GenServerFrom
 type GenServerFrom struct {
-	Pid etf.Pid
-	Ref etf.Ref
+	Pid   etf.Pid
+	Ref   etf.Ref
+	Alias bool
 }
 
 // GenServerState state of the GenServer process.
@@ -106,6 +107,7 @@ func (gs *GenServer) Loop(p *Process, args ...interface{}) string {
 		}
 
 		lib.Log("[%s]. %v got message from %#v\n", p.Node.FullName, p.self, fromPid)
+		fmt.Printf("GOT %#v\n", message)
 
 		p.reductions++
 
@@ -119,6 +121,7 @@ func (gs *GenServer) Loop(p *Process, args ...interface{}) string {
 					// sync-requests (like 'process.Call') within callback execution
 					// since reply (etf.Ref) comes through the same mailBox channel
 					go func() {
+						var ok bool
 						if len(m) != 3 {
 							// wrong $gen_call message. ignore it
 							return
@@ -130,15 +133,31 @@ func (gs *GenServer) Loop(p *Process, args ...interface{}) string {
 							return
 						}
 
-						fromPid, ok := fromTuple.Element(1).(etf.Pid)
+						from := GenServerFrom{}
+
+						from.Pid, ok = fromTuple.Element(1).(etf.Pid)
 						if !ok {
 							// wrong Pid value
 							return
 						}
 
-						fromRef, ok := fromTuple.Element(2).(etf.Ref)
-						if !ok {
-							// wrong Ref value
+						switch v := fromTuple.Element(2).(type) {
+						case etf.Ref:
+							from.Ref = v
+						case etf.List:
+							if vinc, ok := v.Element(1).(etf.List); ok {
+								v = vinc
+							}
+							fmt.Printf("AAAAAAAAAAAAAAAAA %#v %#v \n", v.Element(1).(etf.Atom), v.Element(2).(etf.Ref))
+							from.Ref, ok = v.Element(2).(etf.Ref)
+							if !ok {
+								// wrong value
+								return
+							}
+							from.Alias = true
+
+						default:
+							// wrong tag value
 							return
 						}
 
@@ -147,21 +166,27 @@ func (gs *GenServer) Loop(p *Process, args ...interface{}) string {
 
 						cf := p.currentFunction
 						p.currentFunction = "GenServer:HandleCall"
-						from := GenServerFrom{
-							Pid: fromPid,
-							Ref: fromRef,
-						}
 						code, reply := p.object.(GenServerBehavior).HandleCall(state, from, m.Element(3))
 						p.currentFunction = cf
 						switch code {
 						case "reply":
+							var fromTag etf.Term
+							var to etf.Term
+							if from.Alias {
+								fromTag = etf.ListImproper{etf.Atom("alias"), from.Ref}
+								to = from.Ref
+							} else {
+								fromTag = from.Ref
+								to = from.Pid
+							}
+
 							if reply != nil {
-								rep := etf.Tuple{fromRef, reply}
-								p.Send(fromPid, rep)
+								rep := etf.Tuple{fromTag, reply}
+								p.Send(to, rep)
 								return
 							}
-							rep := etf.Tuple{fromRef, etf.Atom("nil")}
-							p.Send(fromPid, rep)
+							rep := etf.Tuple{fromTag, etf.Atom("nil")}
+							p.Send(to, rep)
 						case "noreply":
 							return
 						case "stop":

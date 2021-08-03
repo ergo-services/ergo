@@ -634,9 +634,8 @@ func IsDownMessage(message etf.Term) (isTrue bool, d DownMessage) {
 func fakeMonitorPidFromName(name, node string) etf.Pid {
 	fakePid := etf.Pid{}
 	fakePid.Node = etf.Atom(name + "|" + node) // registered process name
-	fakePid.ID = 4294967295                    // 2^32 - 1
-	fakePid.Serial = 4294967295                // 2^32 - 1
-	fakePid.Creation = 255                     // 2^8 - 1
+	fakePid.ID = 18446744073709551615          // 2^64 - 1
+	fakePid.Creation = 4294967295              // 2^32 - 1
 	return fakePid
 }
 
@@ -661,7 +660,7 @@ func fakePidToNodeName(pid etf.Pid) string {
 }
 
 func isFakePid(pid etf.Pid) bool {
-	if pid.ID == 4294967295 && pid.Serial == 4294967295 && pid.Creation == 255 {
+	if pid.ID == 18446744073709551615 && pid.Creation == 4294967295 {
 		return true
 	}
 	return false

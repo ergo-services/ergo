@@ -13,11 +13,10 @@ type stackElement struct {
 
 	termType byte
 
-	term             Term //value
-	i                int  // current
-	children         int
-	stringAsCharlist bool // treat strings as []rune in the encoding process
-	tmp              Term // temporary value. uses as a temporary storage for a key of map
+	term     Term //value
+	i        int  // current
+	children int
+	tmp      Term // temporary value. uses as a temporary storage for a key of map
 }
 
 var (
@@ -499,6 +498,7 @@ func Decode(packet []byte, cache []Atom) (retTerm Term, retByte []byte, retErr e
 				stack.i++
 
 			case ettPid:
+				fmt.Println("BBB")
 				if len(packet) < 9 {
 					return nil, nil, errMalformedPid
 				}
@@ -510,9 +510,8 @@ func Decode(packet []byte, cache []Atom) (retTerm Term, retByte []byte, retErr e
 
 				pid := Pid{
 					Node:     name,
-					ID:       binary.BigEndian.Uint32(packet[:4]),
-					Serial:   binary.BigEndian.Uint32(packet[4:8]),
-					Creation: packet[8] & 3, // only two bits are significant, rest are to be 0
+					ID:       binary.BigEndian.Uint64(packet[:8]),
+					Creation: uint32(packet[8]),
 				}
 
 				packet = packet[9:]
@@ -529,15 +528,15 @@ func Decode(packet []byte, cache []Atom) (retTerm Term, retByte []byte, retErr e
 					return nil, nil, errMalformedPid
 				}
 
+				ID := uint64(binary.BigEndian.Uint32(packet[:4]))
+				IDserial := uint64(binary.BigEndian.Uint32(packet[4:8])) << 32
 				pid := Pid{
-					Node:   name,
-					ID:     binary.BigEndian.Uint32(packet[:4]),
-					Serial: binary.BigEndian.Uint32(packet[4:8]),
-					// FIXME: we must upgrade this type to uint32
-					// Creation: binary.BigEndian.Uint32(packet[8:12])
-					Creation: packet[11], // use the last byte for a while
+					Node:     name,
+					ID:       ID | IDserial,
+					Creation: binary.BigEndian.Uint32(packet[8:12]),
 				}
 
+				fmt.Printf("AAA %#v %#v %#v\n", pid, ID, packet[:12])
 				packet = packet[12:]
 				stack.term = pid
 				stack.i++
@@ -550,6 +549,9 @@ func Decode(packet []byte, cache []Atom) (retTerm Term, retByte []byte, retErr e
 				}
 
 				l := stack.tmp.(uint16)
+				if l > 3 {
+					return nil, nil, errMalformedRef
+				}
 				stack.tmp = nil
 				expectedLength := int(1 + l*4)
 
@@ -559,8 +561,7 @@ func Decode(packet []byte, cache []Atom) (retTerm Term, retByte []byte, retErr e
 
 				ref := Ref{
 					Node:     name,
-					ID:       make([]uint32, l),
-					Creation: packet[0],
+					Creation: uint32(packet[0]),
 				}
 				packet = packet[1:]
 
@@ -581,6 +582,9 @@ func Decode(packet []byte, cache []Atom) (retTerm Term, retByte []byte, retErr e
 				}
 
 				l := stack.tmp.(uint16)
+				if l > 5 {
+					return nil, nil, errMalformedRef
+				}
 				stack.tmp = nil
 				expectedLength := int(4 + l*4)
 
@@ -589,11 +593,8 @@ func Decode(packet []byte, cache []Atom) (retTerm Term, retByte []byte, retErr e
 				}
 
 				ref := Ref{
-					Node: name,
-					ID:   make([]uint32, l),
-					// FIXME: we must upgrade this type to uint32
-					// Creation: binary.BigEndian.Uint32(packet[:4])
-					Creation: packet[3],
+					Node:     name,
+					Creation: binary.BigEndian.Uint32(packet[:4]),
 				}
 				packet = packet[4:]
 
@@ -619,7 +620,7 @@ func Decode(packet []byte, cache []Atom) (retTerm Term, retByte []byte, retErr e
 				port := Port{
 					Node:     name,
 					ID:       binary.BigEndian.Uint32(packet[:4]),
-					Creation: packet[4],
+					Creation: uint32(packet[4]),
 				}
 
 				packet = packet[5:]
@@ -637,11 +638,9 @@ func Decode(packet []byte, cache []Atom) (retTerm Term, retByte []byte, retErr e
 				}
 
 				port := Port{
-					Node: name,
-					ID:   binary.BigEndian.Uint32(packet[:4]),
-					// FIXME: we must upgrade this type to uint32
-					// Creation: binary.BigEndian.Uint32(packet[4:8])
-					Creation: packet[7],
+					Node:     name,
+					ID:       binary.BigEndian.Uint32(packet[:4]),
+					Creation: binary.BigEndian.Uint32(packet[4:8]),
 				}
 
 				packet = packet[8:]

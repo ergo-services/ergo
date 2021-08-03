@@ -63,11 +63,11 @@ func TestMonitorLocalLocal(t *testing.T) {
 	// by Pid
 	fmt.Printf("... by Pid Local-Local: gs1 -> gs2. demonitor: ")
 	ref := node1gs1.MonitorProcess(node1gs2.Self())
-	if err := chechCleanProcessRef(node1, ref); err == nil {
+	if err := checkCleanProcessRef(node1, ref); err == nil {
 		t.Fatal("monitor reference has been lost")
 	}
 	node1gs1.DemonitorProcess(ref)
-	if err := chechCleanProcessRef(node1, ref); err != nil {
+	if err := checkCleanProcessRef(node1, ref); err != nil {
 		t.Fatal(err)
 	}
 	fmt.Println("OK")
@@ -78,7 +78,7 @@ func TestMonitorLocalLocal(t *testing.T) {
 	result := etf.Tuple{etf.Atom("DOWN"), ref, etf.Atom("process"), node1gs2.Self(), etf.Atom("normal")}
 	waitForResultWithValue(t, gs1.v, result)
 
-	if err := chechCleanProcessRef(node1, ref); err != nil {
+	if err := checkCleanProcessRef(node1, ref); err != nil {
 		t.Fatal(err)
 	}
 
@@ -93,11 +93,11 @@ func TestMonitorLocalLocal(t *testing.T) {
 	// by Name
 	fmt.Printf("... by Name Local-Local: gs1 -> gs2. demonitor: ")
 	ref = node1gs1.MonitorProcess("gs2")
-	if err := chechCleanProcessRef(node1, ref); err == nil {
+	if err := checkCleanProcessRef(node1, ref); err == nil {
 		t.Fatal("monitor reference has been lost")
 	}
 	node1gs1.DemonitorProcess(ref)
-	if err := chechCleanProcessRef(node1, ref); err != nil {
+	if err := checkCleanProcessRef(node1, ref); err != nil {
 		t.Fatal(err)
 	}
 	fmt.Println("OK")
@@ -108,7 +108,7 @@ func TestMonitorLocalLocal(t *testing.T) {
 	procName := etf.Tuple{"gs2", node1.FullName}
 	result = etf.Tuple{etf.Atom("DOWN"), ref, etf.Atom("process"), procName, etf.Atom("normal")}
 	waitForResultWithValue(t, gs1.v, result)
-	if err := chechCleanProcessRef(node1, ref); err != nil {
+	if err := checkCleanProcessRef(node1, ref); err != nil {
 		t.Fatal(err)
 	}
 	fmt.Print("... by Name Local-Local: gs1 -> unknownPid: ")
@@ -124,11 +124,11 @@ func TestMonitorLocalLocal(t *testing.T) {
 	fmt.Printf("... by Tuple Local-Local: gs1 -> gs2. demonitor: ")
 	tuple := etf.Tuple{"gs2", node1.FullName}
 	ref = node1gs1.MonitorProcess(tuple)
-	if err := chechCleanProcessRef(node1, ref); err == nil {
+	if err := checkCleanProcessRef(node1, ref); err == nil {
 		t.Fatal("monitor reference has been lost")
 	}
 	node1gs1.DemonitorProcess(ref)
-	if err := chechCleanProcessRef(node1, ref); err != nil {
+	if err := checkCleanProcessRef(node1, ref); err != nil {
 		t.Fatal(err)
 	}
 	fmt.Println("OK")
@@ -137,7 +137,7 @@ func TestMonitorLocalLocal(t *testing.T) {
 	node1gs2.Exit(etf.Pid{}, "normal")
 	result = etf.Tuple{etf.Atom("DOWN"), ref, etf.Atom("process"), tuple, etf.Atom("normal")}
 	waitForResultWithValue(t, gs1.v, result)
-	if err := chechCleanProcessRef(node1, ref); err != nil {
+	if err := checkCleanProcessRef(node1, ref); err != nil {
 		t.Fatal(err)
 	}
 	fmt.Print("... by Tuple Local-Local: gs1 -> unknownPid: ")
@@ -189,10 +189,10 @@ func TestMonitorLocalRemoteByPid(t *testing.T) {
 	ref := node1gs1.MonitorProcess(node2gs2.Self())
 	// wait a bit for the 'DOWN' message if something went wrong
 	waitForTimeout(t, gs1.v)
-	if err := chechCleanProcessRef(node1, ref); err == nil {
+	if err := checkCleanProcessRef(node1, ref); err == nil {
 		t.Fatal("monitor reference has been lost on node 1")
 	}
-	if err := chechCleanProcessRef(node2, ref); err == nil {
+	if err := checkCleanProcessRef(node2, ref); err == nil {
 		t.Fatal("monitor reference has been lost on node 2")
 	}
 	if found := node1gs1.DemonitorProcess(ref); found == false {
@@ -201,10 +201,10 @@ func TestMonitorLocalRemoteByPid(t *testing.T) {
 	// Demonitoring is the async message with nothing as a feedback.
 	// use waitForTimeout just as a short timer
 	waitForTimeout(t, gs1.v)
-	if err := chechCleanProcessRef(node1, ref); err != nil {
+	if err := checkCleanProcessRef(node1, ref); err != nil {
 		t.Fatal(err)
 	}
-	if err := chechCleanProcessRef(node2, ref); err != nil {
+	if err := checkCleanProcessRef(node2, ref); err != nil {
 		t.Fatal(err)
 	}
 	fmt.Println("OK")
@@ -217,10 +217,10 @@ func TestMonitorLocalRemoteByPid(t *testing.T) {
 	result := etf.Tuple{etf.Atom("DOWN"), ref, etf.Atom("process"), node2gs2.Self(), etf.Atom("normal")}
 	waitForResultWithValue(t, gs1.v, result)
 
-	if err := chechCleanProcessRef(node1, ref); err != nil {
+	if err := checkCleanProcessRef(node1, ref); err != nil {
 		t.Fatal(err)
 	}
-	if err := chechCleanProcessRef(node2, ref); err != nil {
+	if err := checkCleanProcessRef(node2, ref); err != nil {
 		t.Fatal(err)
 	}
 
@@ -228,7 +228,7 @@ func TestMonitorLocalRemoteByPid(t *testing.T) {
 	ref = node1gs1.MonitorProcess(node2gs2.Self())
 	result = etf.Tuple{etf.Atom("DOWN"), ref, etf.Atom("process"), node2gs2.Self(), etf.Atom("noproc")}
 	waitForResultWithValue(t, gs1.v, result)
-	if err := chechCleanProcessRef(node1, ref); err != nil {
+	if err := checkCleanProcessRef(node1, ref); err != nil {
 		t.Fatal(err)
 	}
 
@@ -243,7 +243,7 @@ func TestMonitorLocalRemoteByPid(t *testing.T) {
 	node2.Stop()
 	result = etf.Tuple{etf.Atom("DOWN"), ref, etf.Atom("process"), node2gs2.Self(), etf.Atom("noconnection")}
 	waitForResultWithValue(t, gs1.v, result)
-	if err := chechCleanProcessRef(node1, ref); err != nil {
+	if err := checkCleanProcessRef(node1, ref); err != nil {
 		t.Fatal(err)
 	}
 
@@ -251,7 +251,7 @@ func TestMonitorLocalRemoteByPid(t *testing.T) {
 	ref = node1gs1.MonitorProcess(node2gs2.Self())
 	result = etf.Tuple{etf.Atom("DOWN"), ref, etf.Atom("process"), node2gs2.Self(), etf.Atom("noconnection")}
 	waitForResultWithValue(t, gs1.v, result)
-	if err := chechCleanProcessRef(node1, ref); err != nil {
+	if err := checkCleanProcessRef(node1, ref); err != nil {
 		t.Fatal(err)
 	}
 	node1.Stop()
@@ -290,10 +290,10 @@ func TestMonitorLocalRemoteByTuple(t *testing.T) {
 	ref := node1gs1.MonitorProcess(tuple2)
 	// wait a bit for the 'DOWN' message if something went wrong
 	waitForTimeout(t, gs1.v)
-	if err := chechCleanProcessRef(node1, ref); err == nil {
+	if err := checkCleanProcessRef(node1, ref); err == nil {
 		t.Fatal("monitor reference has been lost on node 1")
 	}
-	if err := chechCleanProcessRef(node2, ref); err == nil {
+	if err := checkCleanProcessRef(node2, ref); err == nil {
 		t.Fatal("monitor reference has been lost on node 2")
 	}
 	if found := node1gs1.DemonitorProcess(ref); found == false {
@@ -302,10 +302,10 @@ func TestMonitorLocalRemoteByTuple(t *testing.T) {
 	// Demonitoring is the async message with nothing as a feedback.
 	// use waitForTimeout just as a short timer
 	waitForTimeout(t, gs1.v)
-	if err := chechCleanProcessRef(node1, ref); err != nil {
+	if err := checkCleanProcessRef(node1, ref); err != nil {
 		t.Fatal(err)
 	}
-	if err := chechCleanProcessRef(node2, ref); err != nil {
+	if err := checkCleanProcessRef(node2, ref); err != nil {
 		t.Fatal(err)
 	}
 	fmt.Println("OK")
@@ -318,10 +318,10 @@ func TestMonitorLocalRemoteByTuple(t *testing.T) {
 	result := etf.Tuple{etf.Atom("DOWN"), ref, etf.Atom("process"), tuple2, etf.Atom("normal")}
 	waitForResultWithValue(t, gs1.v, result)
 
-	if err := chechCleanProcessRef(node1, ref); err != nil {
+	if err := checkCleanProcessRef(node1, ref); err != nil {
 		t.Fatal(err)
 	}
-	if err := chechCleanProcessRef(node2, ref); err != nil {
+	if err := checkCleanProcessRef(node2, ref); err != nil {
 		t.Fatal(err)
 	}
 
@@ -329,7 +329,7 @@ func TestMonitorLocalRemoteByTuple(t *testing.T) {
 	ref = node1gs1.MonitorProcess(tuple2)
 	result = etf.Tuple{etf.Atom("DOWN"), ref, etf.Atom("process"), tuple2, etf.Atom("noproc")}
 	waitForResultWithValue(t, gs1.v, result)
-	if err := chechCleanProcessRef(node1, ref); err != nil {
+	if err := checkCleanProcessRef(node1, ref); err != nil {
 		t.Fatal(err)
 	}
 
@@ -344,7 +344,7 @@ func TestMonitorLocalRemoteByTuple(t *testing.T) {
 	node2.Stop()
 	result = etf.Tuple{etf.Atom("DOWN"), ref, etf.Atom("process"), tuple2, etf.Atom("noconnection")}
 	waitForResultWithValue(t, gs1.v, result)
-	if err := chechCleanProcessRef(node1, ref); err != nil {
+	if err := checkCleanProcessRef(node1, ref); err != nil {
 		t.Fatal(err)
 	}
 
@@ -352,7 +352,7 @@ func TestMonitorLocalRemoteByTuple(t *testing.T) {
 	ref = node1gs1.MonitorProcess(tuple2)
 	result = etf.Tuple{etf.Atom("DOWN"), ref, etf.Atom("process"), tuple2, etf.Atom("noconnection")}
 	waitForResultWithValue(t, gs1.v, result)
-	if err := chechCleanProcessRef(node1, ref); err != nil {
+	if err := checkCleanProcessRef(node1, ref); err != nil {
 		t.Fatal(err)
 	}
 	node1.Stop()
@@ -389,7 +389,7 @@ func TestLinkLocalLocal(t *testing.T) {
 
 	fmt.Printf("Testing Link process (by Pid only) Local-Local: gs1 -> gs1. equals: ")
 	node1gs1.Link(node1gs1.Self())
-	if err := chechCleanLinkPid(node1, node1gs1.Self()); err != nil {
+	if err := checkCleanLinkPid(node1, node1gs1.Self()); err != nil {
 		t.Fatal("link to itself shouldnt happen")
 	}
 	fmt.Println("OK")
@@ -397,27 +397,27 @@ func TestLinkLocalLocal(t *testing.T) {
 	fmt.Printf("Testing Link process (by Pid only) Local-Local: gs1 -> gs2. unlink: ")
 	node1gs1.Link(node1gs2.Self())
 
-	if chechCleanLinkPid(node1, node1gs1.Self()) == nil {
+	if checkCleanLinkPid(node1, node1gs1.Self()) == nil {
 		t.Fatal("link missing for node1gs1")
 	}
-	if chechCleanLinkPid(node1, node1gs2.Self()) == nil {
+	if checkCleanLinkPid(node1, node1gs2.Self()) == nil {
 		t.Fatal("link missing for node1gs2")
 	}
 	node1gs1.Unlink(node1gs2.Self())
-	if err := chechCleanLinkPid(node1, node1gs1.Self()); err != nil {
+	if err := checkCleanLinkPid(node1, node1gs1.Self()); err != nil {
 		t.Fatal(err)
 	}
-	if err := chechCleanLinkPid(node1, node1gs2.Self()); err != nil {
+	if err := checkCleanLinkPid(node1, node1gs2.Self()); err != nil {
 		t.Fatal(err)
 	}
 	fmt.Println("OK")
 
 	fmt.Printf("Testing Link process (by Pid only) Local-Local: gs1 -> gs2. already_linked: ")
 	node1gs1.Link(node1gs2.Self())
-	if chechCleanLinkPid(node1, node1gs1.Self()) == nil {
+	if checkCleanLinkPid(node1, node1gs1.Self()) == nil {
 		t.Fatal("link missing for node1gs1")
 	}
-	if chechCleanLinkPid(node1, node1gs2.Self()) == nil {
+	if checkCleanLinkPid(node1, node1gs2.Self()) == nil {
 		t.Fatal("link missing for node1gs2")
 	}
 	ll := len(node1.monitor.links)
@@ -433,10 +433,10 @@ func TestLinkLocalLocal(t *testing.T) {
 	//node1gs1.Link(node1gs2.Self())
 
 	node1gs1.SetTrapExit(true)
-	if chechCleanLinkPid(node1, node1gs1.Self()) == nil {
+	if checkCleanLinkPid(node1, node1gs1.Self()) == nil {
 		t.Fatal("link missing for node1gs1")
 	}
-	if chechCleanLinkPid(node1, node1gs2.Self()) == nil {
+	if checkCleanLinkPid(node1, node1gs2.Self()) == nil {
 		t.Fatal("link missing for node1gs2")
 	}
 
@@ -444,10 +444,10 @@ func TestLinkLocalLocal(t *testing.T) {
 	result := etf.Tuple{etf.Atom("EXIT"), node1gs2.Self(), etf.Atom("normal")}
 	waitForResultWithValue(t, gs1.v, result)
 
-	if err := chechCleanLinkPid(node1, node1gs1.Self()); err != nil {
+	if err := checkCleanLinkPid(node1, node1gs1.Self()); err != nil {
 		t.Fatal(err)
 	}
-	if err := chechCleanLinkPid(node1, node1gs2.Self()); err != nil {
+	if err := checkCleanLinkPid(node1, node1gs2.Self()); err != nil {
 		t.Fatal(err)
 	}
 	if !node1gs1.IsAlive() {
@@ -467,10 +467,10 @@ func TestLinkLocalLocal(t *testing.T) {
 	fmt.Printf("Testing Link process (by Pid only) Local-Local: gs1 -> gs2. terminate (trap_exit = false): ")
 	node1gs1.Link(node1gs2.Self())
 
-	if chechCleanLinkPid(node1, node1gs1.Self()) == nil {
+	if checkCleanLinkPid(node1, node1gs1.Self()) == nil {
 		t.Fatal("link missing for node1gs1")
 	}
-	if chechCleanLinkPid(node1, node1gs2.Self()) == nil {
+	if checkCleanLinkPid(node1, node1gs2.Self()) == nil {
 		t.Fatal("link missing for node1gs2")
 	}
 
@@ -480,10 +480,10 @@ func TestLinkLocalLocal(t *testing.T) {
 	waitForTimeout(t, gs1.v)
 	fmt.Println("OK")
 
-	if err := chechCleanLinkPid(node1, node1gs1.Self()); err != nil {
+	if err := checkCleanLinkPid(node1, node1gs1.Self()); err != nil {
 		t.Fatal(err)
 	}
-	if err := chechCleanLinkPid(node1, node1gs2.Self()); err != nil {
+	if err := checkCleanLinkPid(node1, node1gs2.Self()); err != nil {
 		t.Fatal(err)
 	}
 	if node1gs1.IsAlive() {
@@ -528,39 +528,39 @@ func TestLinkLocalRemote(t *testing.T) {
 	fmt.Printf("Testing Link process (by Pid only) Local-Remote: gs1 -> gs2. unlink: ")
 	node1gs1.Link(node2gs2.Self())
 
-	if chechCleanLinkPid(node1, node1gs1.Self()) == nil {
+	if checkCleanLinkPid(node1, node1gs1.Self()) == nil {
 		t.Fatal("link missing for node1gs1")
 	}
-	if chechCleanLinkPid(node1, node2gs2.Self()) == nil {
+	if checkCleanLinkPid(node1, node2gs2.Self()) == nil {
 		t.Fatal("link missing for node2gs2 on node1")
 	}
 	// wait a bit since linking process is async
 	waitForTimeout(t, gs1.v)
-	if chechCleanLinkPid(node2, node2gs2.Self()) == nil {
+	if checkCleanLinkPid(node2, node2gs2.Self()) == nil {
 		t.Fatal("link missing for node2gs2")
 	}
 	node1gs1.Unlink(node2gs2.Self())
-	if err := chechCleanLinkPid(node1, node1gs1.Self()); err != nil {
+	if err := checkCleanLinkPid(node1, node1gs1.Self()); err != nil {
 		t.Fatal(err)
 	}
-	if err := chechCleanLinkPid(node1, node2gs2.Self()); err != nil {
+	if err := checkCleanLinkPid(node1, node2gs2.Self()); err != nil {
 		t.Fatal(err)
 	}
 	// wait a bit since unlinking process is async
 	waitForTimeout(t, gs1.v)
-	if err := chechCleanLinkPid(node2, node2gs2.Self()); err != nil {
+	if err := checkCleanLinkPid(node2, node2gs2.Self()); err != nil {
 		t.Fatal(err)
 	}
 	fmt.Println("OK")
 
 	fmt.Printf("Testing Link process (by Pid only) Local-Remote: gs1 -> gs2. already_linked: ")
 	node1gs1.Link(node2gs2.Self())
-	if chechCleanLinkPid(node1, node1gs1.Self()) == nil {
+	if checkCleanLinkPid(node1, node1gs1.Self()) == nil {
 		t.Fatal("link missing for node1gs1")
 	}
 	// wait a bit since linking process is async
 	waitForTimeout(t, gs1.v)
-	if chechCleanLinkPid(node2, node2gs2.Self()) == nil {
+	if checkCleanLinkPid(node2, node2gs2.Self()) == nil {
 		t.Fatal("link missing for node1gs2")
 	}
 	ll1 := len(node1.monitor.links)
@@ -583,16 +583,16 @@ func TestLinkLocalRemote(t *testing.T) {
 	result := etf.Tuple{etf.Atom("EXIT"), node2gs2.Self(), etf.Atom("normal")}
 	waitForResultWithValue(t, gs1.v, result)
 
-	if err := chechCleanLinkPid(node1, node1gs1.Self()); err != nil {
+	if err := checkCleanLinkPid(node1, node1gs1.Self()); err != nil {
 		t.Fatal(err)
 	}
-	if err := chechCleanLinkPid(node1, node2gs2.Self()); err != nil {
+	if err := checkCleanLinkPid(node1, node2gs2.Self()); err != nil {
 		t.Fatal(err)
 	}
-	if err := chechCleanLinkPid(node2, node2gs2.Self()); err != nil {
+	if err := checkCleanLinkPid(node2, node2gs2.Self()); err != nil {
 		t.Fatal(err)
 	}
-	if err := chechCleanLinkPid(node2, node1gs1.Self()); err != nil {
+	if err := checkCleanLinkPid(node2, node1gs1.Self()); err != nil {
 		t.Fatal(err)
 	}
 	if !node1gs1.IsAlive() {
@@ -616,10 +616,10 @@ func TestLinkLocalRemote(t *testing.T) {
 	fmt.Printf("Testing Link process (by Pid only) Local-Local: gs1 -> gs2. terminate (trap_exit = false): ")
 	node1gs1.Link(node2gs2.Self())
 
-	if chechCleanLinkPid(node1, node1gs1.Self()) == nil {
+	if checkCleanLinkPid(node1, node1gs1.Self()) == nil {
 		t.Fatal("link missing for node1gs1")
 	}
-	if chechCleanLinkPid(node1, node2gs2.Self()) == nil {
+	if checkCleanLinkPid(node1, node2gs2.Self()) == nil {
 		t.Fatal("link missing for node2gs2")
 	}
 
@@ -628,13 +628,13 @@ func TestLinkLocalRemote(t *testing.T) {
 	// wait a bit to make sure if we receive anything (shouldnt receive)
 	waitForTimeout(t, gs1.v)
 
-	if err := chechCleanLinkPid(node1, node1gs1.Self()); err != nil {
+	if err := checkCleanLinkPid(node1, node1gs1.Self()); err != nil {
 		t.Fatal(err)
 	}
-	if err := chechCleanLinkPid(node1, node2gs2.Self()); err != nil {
+	if err := checkCleanLinkPid(node1, node2gs2.Self()); err != nil {
 		t.Fatal(err)
 	}
-	if err := chechCleanLinkPid(node2, node2gs2.Self()); err != nil {
+	if err := checkCleanLinkPid(node2, node2gs2.Self()); err != nil {
 		t.Fatal(err)
 	}
 	if node1gs1.IsAlive() {
@@ -654,13 +654,13 @@ func TestLinkLocalRemote(t *testing.T) {
 	node1gs1.Link(node2gs2.Self())
 	waitForTimeout(t, gs1.v)
 
-	if chechCleanLinkPid(node1, node1gs1.Self()) == nil {
+	if checkCleanLinkPid(node1, node1gs1.Self()) == nil {
 		t.Fatal("link missing for node1gs1")
 	}
-	if chechCleanLinkPid(node1, node2gs2.Self()) == nil {
+	if checkCleanLinkPid(node1, node2gs2.Self()) == nil {
 		t.Fatal("link missing for node2gs2")
 	}
-	if chechCleanLinkPid(node2, node2gs2.Self()) == nil {
+	if checkCleanLinkPid(node2, node2gs2.Self()) == nil {
 		t.Fatal("link missing for node2gs2 on node2")
 	}
 
@@ -673,10 +673,10 @@ func TestLinkLocalRemote(t *testing.T) {
 	result2 := etf.Tuple{etf.Atom("EXIT"), node2gs2.Self(), etf.Atom("kill")}
 	waitForResultWithValueOrValue(t, gs1.v, result1, result2)
 
-	if err := chechCleanLinkPid(node1, node1gs1.Self()); err != nil {
+	if err := checkCleanLinkPid(node1, node1gs1.Self()); err != nil {
 		t.Fatal(err)
 	}
-	if err := chechCleanLinkPid(node1, node2gs2.Self()); err != nil {
+	if err := checkCleanLinkPid(node1, node2gs2.Self()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -693,7 +693,7 @@ func TestLinkLocalRemote(t *testing.T) {
 }
 
 // helpers
-func chechCleanProcessRef(node *Node, ref etf.Ref) error {
+func checkCleanProcessRef(node *Node, ref etf.Ref) error {
 	node.monitor.mutexProcesses.Lock()
 	defer node.monitor.mutexProcesses.Unlock()
 	key := ref.String()
@@ -704,7 +704,7 @@ func chechCleanProcessRef(node *Node, ref etf.Ref) error {
 	return nil
 }
 
-func chechCleanLinkPid(node *Node, pid etf.Pid) error {
+func checkCleanLinkPid(node *Node, pid etf.Pid) error {
 	node.monitor.mutexLinks.Lock()
 	defer node.monitor.mutexLinks.Unlock()
 	if _, ok := node.monitor.links[pid]; ok {

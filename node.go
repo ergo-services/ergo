@@ -50,6 +50,8 @@ type Node struct {
 
 	FullName string
 
+	creation uint32
+
 	opts NodeOptions
 }
 
@@ -102,14 +104,16 @@ func CreateNodeWithContext(ctx context.Context, name string, cookie string, opts
 	lib.Log("Start with name '%s' and cookie '%s'", name, cookie)
 	nodectx, nodestop := context.WithCancel(ctx)
 
+	r := mathrand.New(mathrand.NewSource(time.Now().UnixNano()))
+
 	node := &Node{
 		epmd:      &dist.EPMD{},
 		Cookie:    cookie,
 		context:   nodectx,
 		Stop:      nodestop,
 		StartedAt: time.Now(),
-		uniqID:    time.Now().UnixNano(), // (*uint64)(unsafe.Pointer(node)) ?
-
+		uniqID:    time.Now().UnixNano(),
+		creation:  r.Uint32(),
 	}
 
 	// start networking if name is defined
@@ -765,11 +769,10 @@ func (n *Node) GetPeerList() []string {
 // MakeRef returns atomic reference etf.Ref within this node
 func (n *Node) MakeRef() (ref etf.Ref) {
 	ref.Node = etf.Atom(n.FullName)
-	ref.Creation = 1
+	ref.Creation = n.creation
 	nt := atomic.AddInt64(&n.uniqID, 1)
-	id1 := uint32(uint64(nt) & ((2 << 17) - 1))
-	id2 := uint32(uint64(nt) >> 46)
-	ref.ID = []uint32{id1, id2, 0}
+	ref.ID[0] = uint32(uint64(nt) & ((2 << 17) - 1))
+	ref.ID[1] = uint32(uint64(nt) >> 46)
 
 	return
 }

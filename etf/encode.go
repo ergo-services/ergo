@@ -6,7 +6,6 @@ import (
 	"math"
 	"math/big"
 	"reflect"
-	"strings"
 
 	"github.com/halturin/ergo/lib"
 )
@@ -19,10 +18,24 @@ var (
 	goStruct = byte(242) // internal type
 )
 
-func Encode(term Term, b *lib.Buffer,
-	linkAtomCache *AtomCache,
-	writerAtomCache map[Atom]CacheItem,
-	encodingAtomCache *ListAtomCache) (retErr error) {
+type EncodeOptions struct {
+	linkAtomCache     *AtomCache
+	writerAtomCache   map[Atom]CacheItem
+	encodingAtomCache *ListAtomCache
+
+	// flagV4NC The node accepts a larger amount of data in pids
+	// and references (node container types version 4).
+	// In the pid case full 32-bit ID and Serial fields in NEW_PID_EXT
+	// and in the reference case up to 5 32-bit ID words are now
+	// accepted in NEWER_REFERENCE_EXT. Introduced in OTP 24.
+	flagV4NC bool
+
+	// flagBigCreation The node understands big node creation tags NEW_PID_EXT,
+	// NEWER_REFERENCE_EXT.
+	flagBigCreation bool
+}
+
+func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 	defer func() {
 		// We should catch any panic happend during encoding Golang types.
 		if r := recover(); r != nil {
@@ -31,21 +44,20 @@ func Encode(term Term, b *lib.Buffer,
 	}()
 
 	var stack, child *stackElement
-	var stringAsCharlist bool
 
-	cacheEnabled := linkAtomCache != nil
+	cacheEnabled := options.linkAtomCache != nil
 
 	cacheIndex := uint16(0)
-	if encodingAtomCache != nil {
-		cacheIndex = uint16(len(encodingAtomCache.L))
+	if options.encodingAtomCache != nil {
+		cacheIndex = uint16(len(options.encodingAtomCache.L))
 	}
 
-	// Atom cache: (if its enabled: linkAtomCache != nil)
-	// 1. check for an atom in writerAtomCache (map)
+	// Atom cache: (if its enabled: options.linkAtomCache != nil)
+	// 1. check for an atom in options.writerAtomCache (map)
 	// 2. if not found in writerAtomCache call linkAtomCache.Append(atom),
 	//    encode it as a regular atom (ettAtom*)
 	// 3. if found
-	//    add encodingAtomCache[i] = CacheItem, where i is just a counter
+	//    add options.encodingAtomCache[i] = CacheItem, where i is just a counter
 	//    within this encoding process.
 	//    encode atom as ettCacheRef with value = i
 	for {
@@ -62,8 +74,6 @@ func Encode(term Term, b *lib.Buffer,
 				continue
 			}
 
-			stringAsCharlist = stack.stringAsCharlist
-
 			switch stack.termType {
 			case ettList:
 				if stack.i == stack.children-1 {
@@ -72,6 +82,9 @@ func Encode(term Term, b *lib.Buffer,
 					break
 				}
 				term = stack.term.(List)[stack.i]
+			case ettListImproper:
+				// improper list like [a|b] has no ettNil as a last item
+				term = stack.term.(ListImproper)[stack.i]
 
 			case ettSmallTuple:
 				term = stack.term.(Tuple)[stack.i]
@@ -84,9 +97,60 @@ func Encode(term Term, b *lib.Buffer,
 				}
 
 				buf := b.Extend(9)
-				binary.BigEndian.PutUint32(buf[:4], p.ID)
-				binary.BigEndian.PutUint32(buf[4:8], p.Serial)
-				buf[8] = p.Creation
+
+				// ID a 32-bit big endian unsigned integer. If distribution
+				// flag DFLAG_V4_NC is not set, only 15 bits may be used
+				// and the rest must be 0.
+				if options.flagV4NC {
+					binary.BigEndian.PutUint32(buf[:4], uint32(p.ID))
+				} else {
+					// 15 bits only 2**15 - 1 = 32767
+					binary.BigEndian.PutUint32(buf[:4], uint32(p.ID)&32767)
+				}
+
+				// Serial a 32-bit big endian unsigned integer. If distribution
+				// flag DFLAG_V4_NC is not set, only 13 bits may be used
+				// and the rest must be 0.
+				if options.flagV4NC {
+					binary.BigEndian.PutUint32(buf[4:8], uint32(p.ID)>>32)
+				} else {
+					// 13 bits only 2**13 - 1 = 8191
+					binary.BigEndian.PutUint32(buf[4:8], (uint32(p.ID)>>32)&8191)
+				}
+
+				// Creation must be > 0 so make 'or 0x1'
+				// Same as NEW_PID_EXT except the Creation field is
+				// only one byte and only two bits are significant,
+				// the rest are to be 0.
+				buf[8] = (byte(p.Creation) | 1) & 3
+
+				stack.i++
+				continue
+
+			case ettNewPid:
+				p := stack.term.(Pid)
+				if stack.i == 0 {
+					term = p.Node
+					break
+				}
+
+				buf := b.Extend(12)
+				// ID
+				if options.flagV4NC {
+					binary.BigEndian.PutUint32(buf[:4], uint32(p.ID))
+				} else {
+					// 15 bits only 2**15 - 1 = 32767
+					binary.BigEndian.PutUint32(buf[:4], uint32(p.ID)&32767)
+				}
+				// Serial
+				if options.flagV4NC {
+					binary.BigEndian.PutUint32(buf[4:8], uint32(p.ID)>>32)
+				} else {
+					// 13 bits only 2**13 - 1 = 8191
+					binary.BigEndian.PutUint32(buf[4:8], (uint32(p.ID)>>32)&8191)
+				}
+				// Creation
+				binary.BigEndian.PutUint32(buf[8:12], p.Creation)
 
 				stack.i++
 				continue
@@ -98,10 +162,40 @@ func Encode(term Term, b *lib.Buffer,
 					break
 				}
 
-				lenID := len(r.ID)
+				lenID := 3
 				buf := b.Extend(1 + lenID*4)
-				buf[0] = r.Creation
+				// Creation must be > 0 so make 'or 0x1'
+				buf[0] = byte(r.Creation) | 1
 				buf = buf[1:]
+				for i := 0; i < lenID; i++ {
+					// In the first word (4 bytes) of ID, only 18 bits
+					// are significant, the rest must be 0.
+					if i == 0 {
+						// 2**18 - 1 = 262143
+						binary.BigEndian.PutUint32(buf[:4], r.ID[i]&262143)
+					} else {
+						binary.BigEndian.PutUint32(buf[:4], r.ID[i])
+					}
+					buf = buf[4:]
+				}
+
+				stack.i++
+				continue
+
+			case ettNewerRef:
+				r := stack.term.(Ref)
+				if stack.i == 0 {
+					term = stack.term.(Ref).Node
+					break
+				}
+
+				lenID := 5
+				if !options.flagV4NC {
+					lenID = 3
+				}
+				buf := b.Extend(4 + lenID*4)
+				binary.BigEndian.PutUint32(buf[0:4], r.Creation)
+				buf = buf[4:]
 				for i := 0; i < lenID; i++ {
 					binary.BigEndian.PutUint32(buf[:4], r.ID[i])
 					buf = buf[4:]
@@ -117,8 +211,6 @@ func Encode(term Term, b *lib.Buffer,
 					break
 				}
 				term = key
-				// do not encode key as a charlist
-				stringAsCharlist = false
 
 			case goMap:
 				key := stack.tmp.([]reflect.Value)[stack.i/2]
@@ -127,8 +219,6 @@ func Encode(term Term, b *lib.Buffer,
 					break
 				}
 				term = key.Interface() // a key
-				// do not encode key as a charlist
-				stringAsCharlist = false
 
 			case goSlice:
 				if stack.i == stack.children-1 {
@@ -141,20 +231,9 @@ func Encode(term Term, b *lib.Buffer,
 			case goStruct:
 				field := stack.tmp.(func(int) reflect.StructField)(stack.i / 2)
 				fieldName := field.Name
-				stringAsCharlist = false
 
-				if field.Tag != "" {
-					if tag := field.Tag.Get("etf"); tag != "" {
-						split := strings.Split(tag, " ")
-						for _, s := range split {
-							switch s {
-							case "charlist":
-								stringAsCharlist = true
-							default:
-								fieldName = s
-							}
-						}
-					}
+				if tag := field.Tag.Get("etf"); tag != "" {
+					fieldName = tag
 				}
 
 				if stack.i&0x01 != 0x01 { // a key (field name)
@@ -184,15 +263,15 @@ func Encode(term Term, b *lib.Buffer,
 				}
 
 				// looking for CacheItem
-				ci, found := writerAtomCache[value]
+				ci, found := options.writerAtomCache[value]
 				if found {
-					encodingAtomCache.Append(ci)
+					options.encodingAtomCache.Append(ci)
 					b.Append([]byte{ettCacheRef, byte(cacheIndex)})
 					cacheIndex++
 					break
 				}
 				// add it to the cache and encode as usual Atom
-				linkAtomCache.Append(value)
+				options.linkAtomCache.Append(value)
 
 			}
 
@@ -397,10 +476,6 @@ func Encode(term Term, b *lib.Buffer,
 			copy(buf[6:], bytes)
 
 		case string:
-			if stringAsCharlist {
-				term = []rune(t)
-				goto recasting
-			}
 			lenString := len(t)
 
 			if lenString > 65535 {
@@ -413,18 +488,26 @@ func Encode(term Term, b *lib.Buffer,
 			binary.BigEndian.PutUint16(buf[1:3], uint16(lenString))
 			copy(buf[3:], t)
 
+		case Charlist:
+			term = []rune(t)
+			goto recasting
+
+		case String:
+			term = []byte(t)
+			goto recasting
+
 		case Atom:
 			if cacheEnabled && cacheIndex < 256 {
 				// looking for CacheItem
-				ci, found := writerAtomCache[t]
+				ci, found := options.writerAtomCache[t]
 				if found {
-					encodingAtomCache.Append(ci)
+					options.encodingAtomCache.Append(ci)
 					b.Append([]byte{ettCacheRef, byte(cacheIndex)})
 					cacheIndex++
 					break
 				}
 
-				linkAtomCache.Append(t)
+				options.linkAtomCache.Append(t)
 			}
 
 			lenAtom := len(t)
@@ -466,32 +549,48 @@ func Encode(term Term, b *lib.Buffer,
 				binary.BigEndian.PutUint32(buf[1:5], uint32(lenTuple))
 			}
 			child = &stackElement{
-				parent:           stack,
-				termType:         ettSmallTuple, // doesn't matter what exact type for the further processing
-				term:             t,
-				children:         lenTuple,
-				stringAsCharlist: stringAsCharlist,
+				parent:   stack,
+				termType: ettSmallTuple, // doesn't matter what exact type for the further processing
+				term:     t,
+				children: lenTuple,
 			}
 
 		case Pid:
-			b.AppendByte(ettPid)
 			child = &stackElement{
 				parent:   stack,
-				termType: ettPid,
 				term:     t,
 				children: 2,
+			}
+			if options.flagBigCreation {
+				child.termType = ettNewPid
+				b.AppendByte(ettNewPid)
+			} else {
+				child.termType = ettPid
+				b.AppendByte(ettPid)
 			}
 
 		case Ref:
 			buf := b.Extend(3)
-			buf[0] = ettNewRef
-			binary.BigEndian.PutUint16(buf[1:3], uint16(len(t.ID)))
 
 			child = &stackElement{
 				parent:   stack,
-				termType: ettNewRef,
+				termType: ettNewerRef,
 				term:     t,
 				children: 2,
+			}
+			if options.flagBigCreation {
+				buf[0] = ettNewerRef
+				// LEN a 16-bit big endian unsigned integer not larger
+				// than 5 when the DFLAG_V4_NC has been set; otherwise not larger than 3.
+				if options.flagV4NC {
+					binary.BigEndian.PutUint16(buf[1:3], 5)
+				} else {
+					binary.BigEndian.PutUint16(buf[1:3], 3)
+				}
+
+			} else {
+				buf[0] = ettNewRef
+				binary.BigEndian.PutUint16(buf[1:3], 3)
 			}
 
 		case Map:
@@ -506,12 +605,23 @@ func Encode(term Term, b *lib.Buffer,
 			}
 
 			child = &stackElement{
-				parent:           stack,
-				termType:         ettMap,
-				term:             t,
-				children:         lenMap * 2,
-				tmp:              keys,
-				stringAsCharlist: stringAsCharlist,
+				parent:   stack,
+				termType: ettMap,
+				term:     t,
+				children: lenMap * 2,
+				tmp:      keys,
+			}
+
+		case ListImproper:
+			lenList := len(t) - 1
+			buf := b.Extend(5)
+			buf[0] = ettList
+			binary.BigEndian.PutUint32(buf[1:], uint32(lenList))
+			child = &stackElement{
+				parent:   stack,
+				termType: ettListImproper,
+				term:     t,
+				children: lenList + 1,
 			}
 
 		case List:
@@ -520,11 +630,10 @@ func Encode(term Term, b *lib.Buffer,
 			buf[0] = ettList
 			binary.BigEndian.PutUint32(buf[1:], uint32(lenList))
 			child = &stackElement{
-				parent:           stack,
-				termType:         ettList,
-				term:             t,
-				children:         lenList + 1,
-				stringAsCharlist: stringAsCharlist,
+				parent:   stack,
+				termType: ettList,
+				term:     t,
+				children: lenList + 1,
 			}
 
 		case []byte:
@@ -557,11 +666,10 @@ func Encode(term Term, b *lib.Buffer,
 				buf[0] = ettList
 				binary.BigEndian.PutUint32(buf[1:], uint32(lenList))
 				child = &stackElement{
-					parent:           stack,
-					termType:         goSlice,
-					term:             v.Index,
-					children:         lenList + 1,
-					stringAsCharlist: stringAsCharlist,
+					parent:   stack,
+					termType: goSlice,
+					term:     v.Index,
+					children: lenList + 1,
 				}
 
 			case reflect.Map:
@@ -571,12 +679,11 @@ func Encode(term Term, b *lib.Buffer,
 				binary.BigEndian.PutUint32(buf[1:], uint32(lenMap))
 
 				child = &stackElement{
-					parent:           stack,
-					termType:         goMap,
-					term:             v.MapIndex,
-					children:         lenMap * 2,
-					tmp:              v.MapKeys(),
-					stringAsCharlist: stringAsCharlist,
+					parent:   stack,
+					termType: goMap,
+					term:     v.MapIndex,
+					children: lenMap * 2,
+					tmp:      v.MapKeys(),
 				}
 
 			case reflect.Ptr:

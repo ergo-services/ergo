@@ -352,7 +352,13 @@ func benchCases() []benchCase {
 	return []benchCase{
 		benchCase{"number", 12345},
 		benchCase{"string", "hello world"},
-		benchCase{"tuple (PID)", etf.Pid{Node: "node@localhost", ID: 1, Serial: 1000, Creation: byte(0)}},
+		benchCase{"tuple (PID)",
+			etf.Pid{
+				Node:     "node@localhost",
+				ID:       1000,
+				Creation: 1,
+			},
+		},
 		benchCase{"binary 1MB", make([]byte, 1024*1024)},
 	}
 }
