@@ -44,9 +44,9 @@ type GenServer struct{}
 
 // GenServerFrom
 type GenServerFrom struct {
-	Pid   etf.Pid
-	Ref   etf.Ref
-	Alias bool
+	Pid           etf.Pid
+	Ref           etf.Ref
+	CalledByAlias bool
 }
 
 // GenServerState state of the GenServer process.
@@ -154,7 +154,7 @@ func (gs *GenServer) Loop(p *Process, args ...interface{}) string {
 								// wrong value
 								return
 							}
-							from.Alias = true
+							from.CalledByAlias = true
 
 						default:
 							// wrong tag value
@@ -172,7 +172,7 @@ func (gs *GenServer) Loop(p *Process, args ...interface{}) string {
 						case "reply":
 							var fromTag etf.Term
 							var to etf.Term
-							if from.Alias {
+							if from.CalledByAlias {
 								fromTag = etf.ListImproper{etf.Atom("alias"), from.Ref}
 								to = from.Ref
 							} else {
