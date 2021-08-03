@@ -20,9 +20,9 @@ var (
 )
 
 type EncodeOptions struct {
-	linkAtomCache     *AtomCache
-	writerAtomCache   map[Atom]CacheItem
-	encodingAtomCache *ListAtomCache
+	LinkAtomCache     *AtomCache
+	WriterAtomCache   map[Atom]CacheItem
+	EncodingAtomCache *ListAtomCache
 
 	// flagV4NC The node accepts a larger amount of data in pids
 	// and references (node container types version 4).
@@ -46,19 +46,19 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 
 	var stack, child *stackElement
 
-	cacheEnabled := options.linkAtomCache != nil
+	cacheEnabled := options.LinkAtomCache != nil
 
 	cacheIndex := uint16(0)
-	if options.encodingAtomCache != nil {
-		cacheIndex = uint16(len(options.encodingAtomCache.L))
+	if options.EncodingAtomCache != nil {
+		cacheIndex = uint16(len(options.EncodingAtomCache.L))
 	}
 
-	// Atom cache: (if its enabled: options.linkAtomCache != nil)
-	// 1. check for an atom in options.writerAtomCache (map)
-	// 2. if not found in writerAtomCache call linkAtomCache.Append(atom),
+	// Atom cache: (if its enabled: options.LinkAtomCache != nil)
+	// 1. check for an atom in options.WriterAtomCache (map)
+	// 2. if not found in WriterAtomCache call LinkAtomCache.Append(atom),
 	//    encode it as a regular atom (ettAtom*)
 	// 3. if found
-	//    add options.encodingAtomCache[i] = CacheItem, where i is just a counter
+	//    add options.EncodingAtomCache[i] = CacheItem, where i is just a counter
 	//    within this encoding process.
 	//    encode atom as ettCacheRef with value = i
 	for {
@@ -113,17 +113,16 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 				// flag DFLAG_V4_NC is not set, only 13 bits may be used
 				// and the rest must be 0.
 				if options.flagV4NC {
-					binary.BigEndian.PutUint32(buf[4:8], uint32(p.ID)>>32)
+					binary.BigEndian.PutUint32(buf[4:8], uint32(p.ID>>32))
 				} else {
 					// 13 bits only 2**13 - 1 = 8191
-					binary.BigEndian.PutUint32(buf[4:8], (uint32(p.ID)>>32)&8191)
+					binary.BigEndian.PutUint32(buf[4:8], (uint32(p.ID>>15) & 8191))
 				}
 
-				// Creation must be > 0 so make 'or 0x1'
 				// Same as NEW_PID_EXT except the Creation field is
 				// only one byte and only two bits are significant,
 				// the rest are to be 0.
-				buf[8] = (byte(p.Creation) | 1) & 3
+				buf[8] = byte(p.Creation) & 3
 
 				stack.i++
 				continue
@@ -145,10 +144,10 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 				}
 				// Serial
 				if options.flagV4NC {
-					binary.BigEndian.PutUint32(buf[4:8], uint32(p.ID)>>32)
+					binary.BigEndian.PutUint32(buf[4:8], uint32(p.ID>>32))
 				} else {
 					// 13 bits only 2**13 - 1 = 8191
-					binary.BigEndian.PutUint32(buf[4:8], (uint32(p.ID)>>32)&8191)
+					binary.BigEndian.PutUint32(buf[4:8], (uint32(p.ID>>32))&8191)
 				}
 				// Creation
 				binary.BigEndian.PutUint32(buf[8:12], p.Creation)
@@ -165,8 +164,7 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 
 				lenID := 3
 				buf := b.Extend(1 + lenID*4)
-				// Creation must be > 0 so make 'or 0x1'
-				buf[0] = byte(r.Creation) | 1
+				buf[0] = byte(r.Creation)
 				buf = buf[1:]
 				for i := 0; i < lenID; i++ {
 					// In the first word (4 bytes) of ID, only 18 bits
@@ -264,15 +262,15 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 				}
 
 				// looking for CacheItem
-				ci, found := options.writerAtomCache[value]
+				ci, found := options.WriterAtomCache[value]
 				if found {
-					options.encodingAtomCache.Append(ci)
+					options.EncodingAtomCache.Append(ci)
 					b.Append([]byte{ettCacheRef, byte(cacheIndex)})
 					cacheIndex++
 					break
 				}
 				// add it to the cache and encode as usual Atom
-				options.linkAtomCache.Append(value)
+				options.LinkAtomCache.Append(value)
 
 			}
 
@@ -504,15 +502,15 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 
 			if cacheEnabled && cacheIndex < 256 {
 				// looking for CacheItem
-				ci, found := options.writerAtomCache[t]
+				ci, found := options.WriterAtomCache[t]
 				if found {
-					options.encodingAtomCache.Append(ci)
+					options.EncodingAtomCache.Append(ci)
 					b.Append([]byte{ettCacheRef, byte(cacheIndex)})
 					cacheIndex++
 					break
 				}
 
-				options.linkAtomCache.Append(t)
+				options.LinkAtomCache.Append(t)
 			}
 
 			// https://erlang.org/doc/apps/erts/erl_ext_dist.html#utf8_atoms
@@ -586,12 +584,12 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 
 			child = &stackElement{
 				parent:   stack,
-				termType: ettNewerRef,
 				term:     t,
 				children: 2,
 			}
 			if options.flagBigCreation {
 				buf[0] = ettNewerRef
+				child.termType = ettNewerRef
 				// LEN a 16-bit big endian unsigned integer not larger
 				// than 5 when the DFLAG_V4_NC has been set; otherwise not larger than 3.
 				if options.flagV4NC {
@@ -602,6 +600,7 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 
 			} else {
 				buf[0] = ettNewRef
+				child.termType = ettNewRef
 				binary.BigEndian.PutUint16(buf[1:3], 3)
 			}
 

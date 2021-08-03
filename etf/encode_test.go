@@ -39,9 +39,9 @@ func TestEncodeBoolWithAtomCache(t *testing.T) {
 	writerAtomCache["false"] = ci
 
 	encodeOptions := EncodeOptions{
-		linkAtomCache:     linkAtomCache,
-		writerAtomCache:   writerAtomCache,
-		encodingAtomCache: encodingAtomCache,
+		LinkAtomCache:     linkAtomCache,
+		WriterAtomCache:   writerAtomCache,
+		EncodingAtomCache: encodingAtomCache,
 	}
 
 	err := Encode(false, b, encodeOptions)
@@ -272,9 +272,9 @@ func TestEncodeAtomWithCache(t *testing.T) {
 	writerAtomCache["cached atom"] = ci
 
 	encodeOptions := EncodeOptions{
-		linkAtomCache:     linkAtomCache,
-		writerAtomCache:   writerAtomCache,
-		encodingAtomCache: encodingAtomCache,
+		LinkAtomCache:     linkAtomCache,
+		WriterAtomCache:   writerAtomCache,
+		EncodingAtomCache: encodingAtomCache,
 	}
 
 	err := Encode(Atom("cached atom"), b, encodeOptions)
@@ -658,9 +658,10 @@ func TestEncodePid(t *testing.T) {
 	b := lib.TakeBuffer()
 	defer lib.ReleaseBuffer(b)
 
-	expected := []byte{103, 119, 18, 101, 114, 108, 45, 100, 101, 109, 111, 64, 49, 50,
-		55, 46, 48, 46, 48, 46, 49, 0, 0, 1, 56, 0, 0, 0, 0, 2}
-	term := Pid{Node: "erl-demo@127.0.0.1", ID: 312, Creation: 2}
+	// V4NC disabled. max value for ID (15 bits), serial 0
+	expected := []byte{ettPid, 119, 18, 101, 114, 108, 45, 100, 101, 109, 111, 64, 49, 50,
+		55, 46, 48, 46, 48, 46, 49, 0, 0, 127, 255, 0, 0, 0, 0, 2}
+	term := Pid{Node: "erl-demo@127.0.0.1", ID: 32767, Creation: 2}
 
 	err := Encode(term, b, EncodeOptions{})
 	if err != nil {
@@ -673,6 +674,64 @@ func TestEncodePid(t *testing.T) {
 		t.Fatal("incorrect value")
 	}
 
+	// V4NC disabled. overflowed 15 bit. ID 0, serial 1
+	b.Reset()
+	expected = []byte{ettPid, 119, 18, 101, 114, 108, 45, 100, 101, 109, 111, 64, 49, 50,
+		55, 46, 48, 46, 48, 46, 49, 0, 0, 0, 0, 0, 0, 0, 1, 2}
+	term = Pid{Node: "erl-demo@127.0.0.1", ID: 32768, Creation: 2}
+
+	err = Encode(term, b, EncodeOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !reflect.DeepEqual(b.B, expected) {
+		fmt.Println("exp", expected)
+		fmt.Println("got", b.B)
+		t.Fatal("incorrect value")
+	}
+
+	// BigCreation, V4NC enabled. max value for ID (32 bits), serial 0
+	b.Reset()
+	expected = []byte{ettNewPid, 119, 18, 101, 114, 108, 45, 100, 101, 109, 111, 64, 49, 50,
+		55, 46, 48, 46, 48, 46, 49, 255, 255, 255, 255, 0, 0, 0, 0, 0, 0, 0, 2}
+	term = Pid{Node: "erl-demo@127.0.0.1", ID: 4294967295, Creation: 2}
+
+	options := EncodeOptions{
+		flagBigCreation: true,
+		flagV4NC:        true,
+	}
+	err = Encode(term, b, options)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !reflect.DeepEqual(b.B, expected) {
+		fmt.Println("exp", expected)
+		fmt.Println("got", b.B)
+		t.Fatal("incorrect value")
+	}
+
+	// BigCreation, V4NC enabled. max value for ID (32 bits), max value for Serial (32 bits)
+	b.Reset()
+	expected = []byte{ettNewPid, 119, 18, 101, 114, 108, 45, 100, 101, 109, 111, 64, 49, 50,
+		55, 46, 48, 46, 48, 46, 49, 255, 255, 255, 255, 255, 255, 255, 255, 0, 0, 0, 2}
+	term = Pid{Node: "erl-demo@127.0.0.1", ID: 18446744073709551615, Creation: 2}
+
+	options = EncodeOptions{
+		flagBigCreation: true,
+		flagV4NC:        true,
+	}
+	err = Encode(term, b, options)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !reflect.DeepEqual(b.B, expected) {
+		fmt.Println("exp", expected)
+		fmt.Println("got", b.B)
+		t.Fatal("incorrect value")
+	}
 }
 
 func TestEncodePidWithAtomCache(t *testing.T) {
@@ -693,9 +752,9 @@ func TestEncodePidWithAtomCache(t *testing.T) {
 	ci := CacheItem{ID: 2020, Encoded: true, Name: "erl-demo@127.0.0.1"}
 	writerAtomCache["erl-demo@127.0.0.1"] = ci
 	encodeOptions := EncodeOptions{
-		linkAtomCache:     linkAtomCache,
-		writerAtomCache:   writerAtomCache,
-		encodingAtomCache: encodingAtomCache,
+		LinkAtomCache:     linkAtomCache,
+		WriterAtomCache:   writerAtomCache,
+		EncodingAtomCache: encodingAtomCache,
 	}
 	err := Encode(term, b, encodeOptions)
 	if err != nil {
@@ -718,13 +777,14 @@ func TestEncodeRef(t *testing.T) {
 	b := lib.TakeBuffer()
 	defer lib.ReleaseBuffer(b)
 
-	expected := []byte{114, 0, 3, 119, 18, 101, 114, 108, 45, 100, 101, 109, 111, 64,
-		49, 50, 55, 46, 48, 46, 48, 46, 49, 2, 0, 1, 30, 228, 183, 192, 0, 1, 141,
+	// flagBigCreation = false, flagV4NC = false
+	expected := []byte{ettNewRef, 0, 3, 119, 18, 101, 114, 108, 45, 100, 101, 109, 111, 64,
+		49, 50, 55, 46, 48, 46, 48, 46, 49, 8, 0, 1, 30, 228, 183, 192, 0, 1, 141,
 		122, 203, 35}
 
 	term := Ref{
 		Node:     Atom("erl-demo@127.0.0.1"),
-		Creation: 2,
+		Creation: 8,
 		ID:       [5]uint32{73444, 3082813441, 2373634851},
 	}
 
@@ -739,6 +799,58 @@ func TestEncodeRef(t *testing.T) {
 		t.Fatal("incorrect value")
 	}
 
+	// flagBigCreation = true, flagV4NC = false
+	b.Reset()
+	expected = []byte{ettNewerRef, 0, 3, 119, 18, 101, 114, 108, 45, 100, 101, 109, 111, 64,
+		49, 50, 55, 46, 48, 46, 48, 46, 49, 0, 0, 0, 8, 0, 1, 30, 228, 183, 192, 0, 1, 141,
+		122, 203, 35}
+
+	term = Ref{
+		Node:     Atom("erl-demo@127.0.0.1"),
+		Creation: 8,
+		ID:       [5]uint32{73444, 3082813441, 2373634851, 1, 2},
+	}
+
+	options := EncodeOptions{
+		flagBigCreation: true,
+	}
+	err = Encode(term, b, options)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !reflect.DeepEqual(b.B, expected) {
+		fmt.Println("exp", expected)
+		fmt.Println("got", b.B)
+		t.Fatal("incorrect value")
+	}
+
+	// flagBigCreation = true, flagV4NC = true
+	b.Reset()
+	expected = []byte{ettNewerRef, 0, 5, 119, 18, 101, 114, 108, 45, 100, 101, 109, 111, 64,
+		49, 50, 55, 46, 48, 46, 48, 46, 49, 0, 0, 0, 8, 0, 1, 30, 228, 183, 192, 0, 1, 141,
+		122, 203, 35, 0, 0, 0, 1, 0, 0, 0, 2}
+
+	term = Ref{
+		Node:     Atom("erl-demo@127.0.0.1"),
+		Creation: 8,
+		ID:       [5]uint32{73444, 3082813441, 2373634851, 1, 2},
+	}
+
+	options = EncodeOptions{
+		flagBigCreation: true,
+		flagV4NC:        true,
+	}
+	err = Encode(term, b, options)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !reflect.DeepEqual(b.B, expected) {
+		fmt.Println("exp", expected)
+		fmt.Println("got", b.B)
+		t.Fatal("incorrect value")
+	}
 }
 
 func TestEncodeTupleRefPid(t *testing.T) {
@@ -821,9 +933,9 @@ func BenchmarkEncodeBoolWithAtomCache(b *testing.B) {
 	writerAtomCache["false"] = CacheItem{ID: 499, Encoded: true, Name: "false"}
 
 	encodeOptions := EncodeOptions{
-		linkAtomCache:     linkAtomCache,
-		writerAtomCache:   writerAtomCache,
-		encodingAtomCache: encodingAtomCache,
+		LinkAtomCache:     linkAtomCache,
+		WriterAtomCache:   writerAtomCache,
+		EncodingAtomCache: encodingAtomCache,
 	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -920,9 +1032,9 @@ func BenchmarkEncodeAtomWithCache(b *testing.B) {
 	writerAtomCache["cached atom"] = ci
 
 	encodeOptions := EncodeOptions{
-		linkAtomCache:     linkAtomCache,
-		writerAtomCache:   writerAtomCache,
-		encodingAtomCache: encodingAtomCache,
+		LinkAtomCache:     linkAtomCache,
+		WriterAtomCache:   writerAtomCache,
+		EncodingAtomCache: encodingAtomCache,
 	}
 
 	b.ResetTimer()
@@ -1145,9 +1257,9 @@ func BenchmarkEncodePidWithAtomCache(b *testing.B) {
 	writerAtomCache["erl-demo@127.0.0.1"] = ci
 
 	encodeOptions := EncodeOptions{
-		linkAtomCache:     linkAtomCache,
-		writerAtomCache:   writerAtomCache,
-		encodingAtomCache: encodingAtomCache,
+		LinkAtomCache:     linkAtomCache,
+		WriterAtomCache:   writerAtomCache,
+		EncodingAtomCache: encodingAtomCache,
 	}
 
 	b.ResetTimer()
@@ -1202,9 +1314,9 @@ func BenchmarkEncodeRefWithAtomCache(b *testing.B) {
 	writerAtomCache["erl-demo@127.0.0.1"] = ci
 
 	encodeOptions := EncodeOptions{
-		linkAtomCache:     linkAtomCache,
-		writerAtomCache:   writerAtomCache,
-		encodingAtomCache: encodingAtomCache,
+		LinkAtomCache:     linkAtomCache,
+		WriterAtomCache:   writerAtomCache,
+		EncodingAtomCache: encodingAtomCache,
 	}
 
 	b.ResetTimer()
@@ -1268,9 +1380,9 @@ func BenchmarkEncodeTupleRefPidWithAtomCache(b *testing.B) {
 	writerAtomCache["erl-demo@127.0.0.1"] = ci
 
 	encodeOptions := EncodeOptions{
-		linkAtomCache:     linkAtomCache,
-		writerAtomCache:   writerAtomCache,
-		encodingAtomCache: encodingAtomCache,
+		LinkAtomCache:     linkAtomCache,
+		WriterAtomCache:   writerAtomCache,
+		EncodingAtomCache: encodingAtomCache,
 	}
 
 	b.ResetTimer()

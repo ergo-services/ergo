@@ -6,6 +6,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	mathrand "math/rand"
 
 	//"crypto/rsa"
 	"crypto/tls"
@@ -113,7 +114,8 @@ func CreateNodeWithContext(ctx context.Context, name string, cookie string, opts
 		Stop:      nodestop,
 		StartedAt: time.Now(),
 		uniqID:    time.Now().UnixNano(),
-		creation:  r.Uint32(),
+		// Creation must be > 0 so make 'or 0x1'
+		creation: r.Uint32() | 1,
 	}
 
 	// start networking if name is defined

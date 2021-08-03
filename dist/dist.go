@@ -986,9 +986,9 @@ func (l *Link) Writer(send <-chan []etf.Term, fragmentationUnit int) {
 	}
 
 	encodeOptions := etf.EncodeOptions{
-		linkAtomCache:     linkAtomCache,
-		writerAtomCache:   writerAtomCache,
-		encodingAtomCache: encodingAtomCache,
+		LinkAtomCache:     linkAtomCache,
+		WriterAtomCache:   writerAtomCache,
+		EncodingAtomCache: encodingAtomCache,
 	}
 
 	for {
