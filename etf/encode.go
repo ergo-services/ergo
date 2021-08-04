@@ -403,7 +403,7 @@ func Encode(term Term, b *lib.Buffer,
 			}
 			lenString := len(t)
 
-			if lenString > 4294967295 {
+			if lenString > math.MaxUint32 {
 				return ErrStringTooLong
 			}
 
@@ -412,20 +412,6 @@ func Encode(term Term, b *lib.Buffer,
 			buf[0] = ettBinary
 			binary.BigEndian.PutUint32(buf[1:5], uint32(lenString))
 			copy(buf[5:], t)
-
-		case String:
-			// ASCII-only string
-			lenString := len(t)
-
-			if lenString > 65535 {
-				return ErrStringTooLong
-			}
-
-			// 1 (ettString) + 2 (len) + string
-			buf := b.Extend(1 + 2 + lenString)
-			buf[0] = ettString
-			binary.BigEndian.PutUint16(buf[1:3], uint16(lenString))
-			copy(buf[3:], t)
 
 		case Atom:
 			if cacheEnabled && cacheIndex < 256 {
@@ -528,6 +514,38 @@ func Encode(term Term, b *lib.Buffer,
 				stringAsCharlist: stringAsCharlist,
 			}
 
+		case String:
+			// Spec: optimization for sending lists of bytes
+			// See: https://erlang.org/doc/apps/erts/erl_ext_dist.html#string_ext
+			lenString := len(t)
+
+			charlist := []rune(t)
+			lenCharlist := len(charlist)
+			// each character takes up only one byte in extended ASCII charset (i.e. Latin1)
+			if lenString != lenCharlist {
+				// Spec: when unicode detected, must send list of unicode/rune, as list of UTF8 bytes is a "StrangeList" in Erlang
+				// See: https://erlang.org/doc/apps/stdlib/unicode_usage.html#lists-of-utf-8-bytes
+				// Usage: erl +pc unicode -name erl-demo@localhost -setcookie 123
+				term = charlist
+				goto recasting
+			} else if lenString > 65535 {
+				// Spec: implementations must ensure that lists longer than 65535 elements are encoded as LIST_EXT.
+				// See: https://erlang.org/doc/apps/erts/erl_ext_dist.html#string_ext
+				l := make(List, lenString)
+				for i := 0; i < lenString; i++ {
+					// each element = one char
+					l[i] = t[i]
+				}
+				term = l
+				goto recasting
+			}
+
+			// 1 (ettString) + 2 (len) + string
+			buf := b.Extend(1 + 2 + lenString)
+			buf[0] = ettString
+			binary.BigEndian.PutUint16(buf[1:3], uint16(lenString))
+			copy(buf[3:], t)
+
 		case List:
 			lenList := len(t)
 			buf := b.Extend(5)
@@ -537,6 +555,23 @@ func Encode(term Term, b *lib.Buffer,
 				parent:           stack,
 				termType:         ettList,
 				term:             t,
+				children:         lenList + 1,
+				stringAsCharlist: stringAsCharlist,
+			}
+
+		case []rune:
+			lenList := len(t)
+			buf := b.Extend(5)
+			buf[0] = ettList
+			binary.BigEndian.PutUint32(buf[1:], uint32(lenList))
+			l := make(List, lenList)
+			for i := 0; i < lenList; i++ {
+				l[i] = t[i]
+			}
+			child = &stackElement{
+				parent:           stack,
+				termType:         ettList,
+				term:             l,
 				children:         lenList + 1,
 				stringAsCharlist: stringAsCharlist,
 			}

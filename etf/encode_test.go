@@ -1,10 +1,12 @@
 package etf
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"math/big"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/halturin/ergo/lib"
@@ -196,12 +198,43 @@ func TestEncodeString(t *testing.T) {
 	b := lib.TakeBuffer()
 	defer lib.ReleaseBuffer(b)
 
-	expected := []byte{ettString, 0, 52, 72, 101, 108, 108, 111, 32, 87, 111, 114, 108, 100, 46, 32, 228, 189, 160, 229, 165, 189, 228, 184, 150, 231, 149, 140, 46, 32, 208, 159, 209, 128, 208, 184, 208, 178, 208, 181, 209, 130, 32, 208, 188, 208, 184, 209, 128, 46, 32, 240, 159, 154, 128}
-	err := Encode(String("Hello World. 你好世界. Привет мир. 🚀"), b, nil, nil, nil)
+	expected := []byte{ettString, 0, 12, 72, 101, 108, 108, 111, 32, 87, 111, 114, 108, 100, 46}
+
+	err := Encode(String("Hello World."), b, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 
+	if !reflect.DeepEqual(b.B, expected) {
+		fmt.Println("exp", expected)
+		fmt.Println("got", b.B)
+		t.Fatal("incorrect value")
+	}
+
+	b.Reset()
+	lenString := 65555
+	err = Encode(String(strings.Repeat("a", lenString)), b, nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	expected = []byte{ettList, 0, 1, 0, 19}
+	// binary.BigEndian.PutUint32(expected[1:], uint32(lenString))
+	expected = append(expected, bytes.Repeat([]byte{97, 97}, lenString)...)
+	expected = append(expected, ettNil)
+	if !reflect.DeepEqual(b.B, expected) {
+		fmt.Println("exp", expected)
+		fmt.Println("got", b.B)
+		t.Fatal("incorrect value")
+	}
+
+	b.Reset()
+	err = Encode(String("Hello World. 你好世界. Привет мир. 🚀"), b, nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	expected = []byte{ettList, 0, 0, 0, 32, 97, 72, 97, 101, 97, 108, 97, 108, 97, 111, 97, 32, 97, 87, 97, 111, 97, 114, 97, 108, 97, 100, 97, 46, 97, 32, 98, 0, 0, 79, 96, 98, 0, 0, 89, 125, 98, 0, 0, 78, 22, 98, 0, 0, 117, 76, 97, 46, 97, 32, 98, 0, 0, 4, 31, 98, 0, 0, 4, 64, 98, 0, 0, 4, 56, 98, 0, 0, 4, 50, 98, 0, 0, 4, 53, 98, 0, 0, 4, 66, 97, 32, 98, 0, 0, 4, 60, 98, 0, 0, 4, 56, 98, 0, 0, 4, 64, 97, 46, 97, 32, 98, 0, 1, 246, 128, 106}
 	if !reflect.DeepEqual(b.B, expected) {
 		fmt.Println("exp", expected)
 		fmt.Println("got", b.B)

@@ -90,6 +90,8 @@ func TestTermIntoStruct_Struct(t *testing.T) {
 		A []bool
 		B uint32
 		C string
+		D String
+		E Atom
 	}
 
 	type testStruct struct {
@@ -110,6 +112,8 @@ func TestTermIntoStruct_Struct(t *testing.T) {
 					A: []bool{true, false, false, true, false},
 					B: 8765,
 					C: "test value",
+					D: String("test"),
+					E: Atom("value"),
 				},
 				BB: 3.13,
 				CC: &testStruct{
@@ -127,6 +131,8 @@ func TestTermIntoStruct_Struct(t *testing.T) {
 					List{true, false, false, true, false}, // A []bool
 					8765,                                  // B uint32
 					"test value",                          // C string
+					"test",                                // C String
+					"value",                               // C Atom
 				},
 				3.13, // BB float64
 				Tuple{ // CC *testStruct
@@ -247,6 +253,8 @@ func TestTermMapIntoStruct_Struct(t *testing.T) {
 		A []bool `etf:"a"`
 		B uint32 `etf:"b"`
 		C string `etf:"c"`
+		D String `etf:"d"`
+		E Atom   `etf:"e"`
 	}
 
 	dest := testStruct{}
@@ -255,12 +263,16 @@ func TestTermMapIntoStruct_Struct(t *testing.T) {
 		A: []bool{false, true, true},
 		B: 3233,
 		C: "hello world",
+		D: String("hello"),
+		E: Atom("world"),
 	}
 
 	term := Map{
 		Atom("a"): List{false, true, true},
 		"b":       3233,
 		Atom("c"): "hello world",
+		Atom("d"): String("hello"),
+		Atom("e"): Atom("world"),
 	}
 
 	if err := TermMapIntoStruct(term, &dest); err != nil {
@@ -278,6 +290,8 @@ func TestTermProplistIntoStruct(t *testing.T) {
 		A []bool `etf:"a"`
 		B uint32 `etf:"b"`
 		C string `etf:"c"`
+		D String `etf:"d"`
+		E Atom   `etf:"e"`
 	}
 
 	dest := testStruct{}
@@ -286,11 +300,15 @@ func TestTermProplistIntoStruct(t *testing.T) {
 		A: []bool{false, true, true},
 		B: 3233,
 		C: "hello world",
+		D: String("hello"),
+		E: Atom("world"),
 	}
 	termList := List{
 		Tuple{Atom("a"), List{false, true, true}},
 		Tuple{"b", 3233},
 		Tuple{Atom("c"), "hello world"},
+		Tuple{Atom("d"), String("hello")},
+		Tuple{Atom("e"), Atom("world")},
 	}
 
 	if err := TermProplistIntoStruct(termList, &dest); err != nil {
