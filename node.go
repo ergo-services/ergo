@@ -6,7 +6,6 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
-	mathrand "math/rand"
 
 	//"crypto/rsa"
 	"crypto/tls"
@@ -105,7 +104,7 @@ func CreateNodeWithContext(ctx context.Context, name string, cookie string, opts
 	lib.Log("Start with name '%s' and cookie '%s'", name, cookie)
 	nodectx, nodestop := context.WithCancel(ctx)
 
-	r := mathrand.New(mathrand.NewSource(time.Now().UnixNano()))
+	r := time.Now().Unix()
 
 	node := &Node{
 		epmd:      &dist.EPMD{},
@@ -115,7 +114,7 @@ func CreateNodeWithContext(ctx context.Context, name string, cookie string, opts
 		StartedAt: time.Now(),
 		uniqID:    time.Now().UnixNano(),
 		// Creation must be > 0 so make 'or 0x1'
-		creation: r.Uint32() | 1,
+		creation: uint32(r) | 1,
 	}
 
 	// start networking if name is defined
