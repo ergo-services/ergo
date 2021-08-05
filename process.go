@@ -280,9 +280,14 @@ func (p *Process) DemonitorNode(ref etf.Ref) {
 	p.Node.monitor.DemonitorNode(ref)
 }
 
-// NewAlias() creates a new alias for the Process
-func (p *Process) NewAlias() (etf.Alias, error) {
+// CreateAlias creates a new alias for the Process
+func (p *Process) CreateAlias() (etf.Alias, error) {
 	return p.Node.registrar.createNewAlias(p)
+}
+
+// DeleteAlias deletes the given alias
+func (p *Process) DeleteAlias(alias etf.Alias) error {
+	return p.Node.registrar.deleteAlias(p, alias)
 }
 
 // ListEnv returns map of configured environment variables.

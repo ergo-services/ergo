@@ -121,12 +121,15 @@ func (b *Buffer) WriteDataTo(w io.Writer) error {
 	return nil
 }
 
-func (b *Buffer) ReadDataFrom(r io.Reader) (int, error) {
+func (b *Buffer) ReadDataFrom(r io.Reader, limit int) (int, error) {
 	capB := cap(b.B)
 	lenB := len(b.B)
-	// do panic if buffer becomes too large
-	if lenB > 4294967000 {
-		panic(ErrTooLarge)
+	if limit == 0 {
+		limit = 4294967000
+	}
+	// if buffer becomes too large
+	if lenB > limit {
+		return 0, ErrTooLarge
 	}
 	if capB-lenB < capB>>1 {
 		// less than (almost) 50% space left. increase capacity

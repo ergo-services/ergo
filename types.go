@@ -15,6 +15,7 @@ var (
 	ErrProcessBusy        = fmt.Errorf("Process is busy")
 	ErrProcessUnknown     = fmt.Errorf("Unknown process")
 	ErrAliasUnknown       = fmt.Errorf("Unknown alias")
+	ErrAliasOwner         = fmt.Errorf("Not an owner")
 	ErrNameIsTaken        = fmt.Errorf("Name is taken")
 	ErrUnsupportedRequest = fmt.Errorf("Unsupported request")
 	ErrTimeout            = fmt.Errorf("Timed out")

@@ -63,13 +63,12 @@ Here are the changes of latest release. For more details see the [ChangeLog](Cha
 #### [1.3.0](https://github.com/halturin/ergo/releases/tag/v1.3.0) - 2021-09-07 ####
 
 * Added support of Erlang/OTP 24 (including [Alias](https://blog.erlang.org/My-OTP-24-Highlights/#eep-53-process-aliases) feature)
+  * Introduced new methods for `Node`: `ProvideSpawnRemote`, `RevokeSpawnRemote`, `SpawnRemote`, `CancelSpawnRemote`, `GetProcessByAlias`.
+  * Introduced new methods for `Process`: `CreateAlias`, `DeleteAlias`
 * Important: `GenServer` and `GenStage` interfaces got significant improvements to be easier to use (without backward compatibility). Make sure to update your code.
 * Introduced new behavior `GenSaga`. It implements a Saga design pattern - a sequence of transactions that updates each service state and publishes the result (or cancels the transaction or triggers the next transaction step). `GenSaga` also provides a feature of interim results (can be used as transaction progress or as a part of pipeline processing), time deadline (to limit transaction lifespan), two-phase commit (to make distributed transaction atomic). Here is example `examples/gensaga`.
 * Introduced new methods `Process.Direct` and `Process.DirectWithTimeout` to make direct request to the actor (`GenServer` or inherited object). If an actor has no implementation of `HandleDirect` callback it returns `ErrUnsupportedRequest` as a error.
 * Introduced new callback `HandleDirect` in the `GenServer` interface as a handler for requests made by `Process.Direct` or `Process.DirectWithTimeout`. It should be easy to interact with actors from outside while `Process.Call`, `Process.Cast` and `Process.Send` must be used inside the actors.
-* Introduced new methods for `Node`:
-  * `ProvideSpawnRemote`, `RevokeSpawnRemote`, `SpawnRemote`, `CancelSpawnRemote` spawn process on a remote node (within Erlang/OTP 24 support)
-  * `Ping` sets up a connection to remote Node. Returns `etf.Atom(pong)` if it is successful, otherwise `etf.Atom(pang)`.
 * Introduced new types intended to be used to interact with Erlang/Elixir
   * `etf.ListImproper` to support improper lists like `[a|b]` (a cons cell).
   * `etf.String` (an alias for the Golang string) encodes as a binary in order to support Elixir string type (which is `binary()` type)

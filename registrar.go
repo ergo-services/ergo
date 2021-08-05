@@ -82,7 +82,7 @@ func (r *registrar) createNewAlias(p *Process) (etf.Alias, error) {
 	return alias, nil
 }
 
-func (r *registrar) deleteAlias(alias etf.Alias) error {
+func (r *registrar) deleteAlias(owner *Process, alias etf.Alias) error {
 	r.mutexProcesses.Lock()
 	defer r.mutexProcesses.Unlock()
 	r.mutexAliases.Lock()
@@ -93,9 +93,12 @@ func (r *registrar) deleteAlias(alias etf.Alias) error {
 		return ErrAliasUnknown
 	}
 
-	_, process_exist := r.processes[p.self.ID]
+	process, process_exist := r.processes[p.self.ID]
 	if !process_exist {
 		return ErrProcessUnknown
+	}
+	if process.self != owner.self {
+		return ErrAliasOwner
 	}
 
 	for i := range p.aliases {
@@ -103,11 +106,6 @@ func (r *registrar) deleteAlias(alias etf.Alias) error {
 			continue
 		}
 		delete(r.aliases, alias)
-		if len(r.aliases) == 0 {
-			// lets GC free this slice
-			p.aliases = []etf.Alias{}
-			return nil
-		}
 		p.aliases[i] = p.aliases[0]
 		p.aliases = p.aliases[1:]
 		return nil

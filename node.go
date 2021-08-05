@@ -71,6 +71,7 @@ type NodeOptions struct {
 	TLSkeyServer           string
 	TLScrtClient           string
 	TLSkeyClient           string
+	HandshakeVersion       int // 5 or 6
 }
 
 // TLSmodeType should be one of TLSmodeDisabled (default), TLSmodeAuto or TLSmodeStrict
@@ -84,6 +85,8 @@ const (
 	defaultSendQueueLength   int = 100
 	defaultRecvQueueLength   int = 100
 	defaultFragmentationUnit     = 65000
+
+	defaultHandshakeVersion = 5
 
 	// TLSmodeDisabled no TLS encryption
 	TLSmodeDisabled TLSmodeType = ""
@@ -145,6 +148,10 @@ func CreateNodeWithContext(ctx context.Context, name string, cookie string, opts
 
 		if opts.FragmentationUnit < 1500 {
 			opts.FragmentationUnit = defaultFragmentationUnit
+		}
+
+		if opts.HandshakeVersion != 5 || opts.HandshakeVersion != 6 {
+			opts.HandshakeVersion = defaultHandshakeVersion
 		}
 
 		if opts.Hidden {
@@ -832,7 +839,15 @@ func (n *Node) connect(to etf.Atom) error {
 		return err
 	}
 
-	link, e := dist.Handshake(c, TLSenabled, n.FullName, n.Cookie, false)
+	handshakeOptions := dist.HandshakeOptions{
+		Name:     n.FullName,
+		Cookie:   n.Cookie,
+		TLS:      TLSenabled,
+		Hidden:   false,
+		Creation: n.creation,
+		Version:  n.opts.HandshakeVersion,
+	}
+	link, e := dist.Handshake(c, handshakeOptions)
 	if e != nil {
 		return e
 	}
@@ -907,8 +922,16 @@ func (n *Node) listen(name string, opts NodeOptions) uint16 {
 					lib.Log(err.Error())
 					continue
 				}
+				handshakeOptions := dist.HandshakeOptions{
+					Name:     n.FullName,
+					Cookie:   n.Cookie,
+					TLS:      TLSenabled,
+					Hidden:   opts.Hidden,
+					Creation: n.creation,
+					Version:  n.opts.HandshakeVersion,
+				}
 
-				link, e := dist.HandshakeAccept(c, TLSenabled, n.FullName, n.Cookie, opts.Hidden)
+				link, e := dist.HandshakeAccept(c, handshakeOptions)
 				if e != nil {
 					lib.Log("Can't handshake with %s: %s", c.RemoteAddr().String(), e)
 					c.Close()
