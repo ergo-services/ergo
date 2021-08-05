@@ -23,7 +23,7 @@ type registrar struct {
 
 	names          map[string]etf.Pid
 	mutexNames     sync.Mutex
-	aliases        map[etf.Ref]etf.Pid
+	aliases        map[etf.Alias]*Process
 	mutexAliases   sync.Mutex
 	processes      map[uint64]*Process
 	mutexProcesses sync.Mutex
@@ -40,7 +40,7 @@ func createRegistrar(node *Node) *registrar {
 		creation:  byte(1),
 		node:      node,
 		names:     make(map[string]etf.Pid),
-		aliases:   make(map[etf.Ref]etf.Pid),
+		aliases:   make(map[etf.Alias]*Process),
 		processes: make(map[uint64]*Process),
 		peers:     make(map[string]*peer),
 		apps:      make(map[string]*ApplicationSpec),
@@ -60,51 +60,52 @@ func (r *registrar) createNewPID() etf.Pid {
 
 }
 
-func (r *registrar) createAlias(pid etf.Pid) (etf.Ref, error) {
-	var ref etf.Ref
+func (r *registrar) createNewAlias(p *Process) (etf.Alias, error) {
+	var alias etf.Alias
 
 	r.mutexProcesses.Lock()
 	defer r.mutexProcesses.Unlock()
 
-	p, exist := r.processes[pid.ID]
+	// chech if its alive
+	_, exist := r.processes[p.self.ID]
 	if !exist {
-		return ref, ErrProcessUnknown
+		return alias, ErrProcessUnknown
 	}
 
-	ref = r.node.MakeRef()
+	alias = etf.Alias(r.node.MakeRef())
 
 	r.mutexAliases.Lock()
-	r.aliases[ref] = pid
+	r.aliases[alias] = p
 	r.mutexAliases.Unlock()
 
-	p.aliases = append(p.aliases, ref)
-	return ref, nil
+	p.aliases = append(p.aliases, alias)
+	return alias, nil
 }
 
-func (r *registrar) deleteAlias(ref etf.Ref) error {
+func (r *registrar) deleteAlias(alias etf.Alias) error {
 	r.mutexProcesses.Lock()
 	defer r.mutexProcesses.Unlock()
 	r.mutexAliases.Lock()
 	defer r.mutexAliases.Unlock()
 
-	pid, alias_exist := r.aliases[ref]
+	p, alias_exist := r.aliases[alias]
 	if !alias_exist {
 		return ErrAliasUnknown
 	}
 
-	p, process_exist := r.processes[pid.ID]
+	_, process_exist := r.processes[p.self.ID]
 	if !process_exist {
 		return ErrProcessUnknown
 	}
 
 	for i := range p.aliases {
-		if ref != p.aliases[i] {
+		if alias != p.aliases[i] {
 			continue
 		}
-		delete(r.aliases, ref)
+		delete(r.aliases, alias)
 		if len(r.aliases) == 0 {
 			// lets GC free this slice
-			p.aliases = []etf.Ref{}
+			p.aliases = []etf.Alias{}
 			return nil
 		}
 		p.aliases[i] = p.aliases[0]
@@ -113,7 +114,7 @@ func (r *registrar) deleteAlias(ref etf.Ref) error {
 	}
 
 	fmt.Println("Bug: Process lost its alias. Please, report this issue")
-	delete(r.aliases, ref)
+	delete(r.aliases, alias)
 	return ErrAliasUnknown
 }
 
@@ -328,6 +329,17 @@ func (r *registrar) GetProcessByPid(pid etf.Pid) *Process {
 	return nil
 }
 
+// GetProcessByAlias returns Process struct for the given alias. Returns nil if it doesn't exist (not found)
+func (r *registrar) GetProcessByAlias(alias etf.Alias) *Process {
+	r.mutexAliases.Lock()
+	defer r.mutexAliases.Unlock()
+	if p, ok := r.aliases[alias]; ok {
+		return p
+	}
+	// unknown process
+	return nil
+}
+
 // GetProcessByPid returns Process struct for the given name. Returns nil if it doesn't exist (not found)
 func (r *registrar) GetProcessByName(name string) *Process {
 	var pid etf.Pid
@@ -483,7 +495,7 @@ next:
 		}
 		r.mutexNames.Unlock()
 
-	case etf.Ref:
+	case etf.Alias:
 		lib.Log("[%s] sending message by alias %v", r.node.FullName, tto)
 		r.mutexAliases.Lock()
 		if string(tto.Node) == r.nodeName {

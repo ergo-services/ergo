@@ -10,6 +10,7 @@ import (
 type Term interface{}
 type Tuple []Term
 type List []Term
+type Alias Ref
 
 // ListImproper as a workaround for the Erlang's improper list [a|b]. Intended to be used to interact with Erlang.
 type ListImproper []Term

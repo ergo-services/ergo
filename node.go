@@ -752,9 +752,14 @@ func (n *Node) GetProcessByName(name string) *Process {
 	return n.registrar.GetProcessByName(name)
 }
 
-// GetProcessByPid returns Process by given pid
+// GetProcessByPid returns Process by given Pid
 func (n *Node) GetProcessByPid(pid etf.Pid) *Process {
 	return n.registrar.GetProcessByPid(pid)
+}
+
+// GetProcessByAlias returns Process by given Ref
+func (n *Node) GetProcessByAlias(alias etf.Alias) *Process {
+	return n.registrar.GetProcessByAlias(alias)
 }
 
 // GetProcessList returns array of running process

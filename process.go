@@ -37,7 +37,7 @@ type Process struct {
 
 	env map[string]interface{}
 
-	aliases []etf.Ref
+	aliases []etf.Alias
 
 	parent          *Process
 	reductions      uint64 // we use this term to count total number of processed messages from mailBox
@@ -278,6 +278,11 @@ func (p *Process) DemonitorProcess(ref etf.Ref) bool {
 // DemonitorNode removes monitor
 func (p *Process) DemonitorNode(ref etf.Ref) {
 	p.Node.monitor.DemonitorNode(ref)
+}
+
+// NewAlias() creates a new alias for the Process
+func (p *Process) NewAlias() (etf.Alias, error) {
+	return p.Node.registrar.createNewAlias(p)
 }
 
 // ListEnv returns map of configured environment variables.
