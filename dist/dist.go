@@ -556,11 +556,12 @@ func HandshakeAccept(conn net.Conn, options HandshakeOptions) (*Link, error) {
 
 				await = []byte{'r'}
 
+				fmt.Printf("++++%#v\n", b.B)
 				if len(buffer) > 9 {
 					b.B = b.B[expectingBytes+9:]
-					fmt.Printf("++++%#v\n")
 					goto next
 				}
+				b.Reset()
 
 			case 'r':
 				if len(buffer) < 19 {
@@ -1134,7 +1135,6 @@ func (l *Link) Writer(send <-chan []etf.Term, fragmentationUnit int) {
 			lib.ReleaseBuffer(packetBuffer)
 			continue
 		}
-		fmt.Printf("VVVVVV %v\n", packetBuffer.B[reserveHeaderAtomCache:])
 		lenControl = packetBuffer.Len() - reserveHeaderAtomCache
 
 		// encode Message if present
