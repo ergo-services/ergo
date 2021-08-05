@@ -20,7 +20,7 @@ The goal of this project is to leverage Erlang/OTP experience with Golang perfor
 
 ![image](https://user-images.githubusercontent.com/118860/113710255-c57d5500-96e3-11eb-9970-20f49008a990.png)
 
-* Support Erlang 24 (with [Alias](https://blog.erlang.org/My-OTP-24-Highlights/#eep-53-process-aliases) support)
+* Support Erlang 24 (including [Alias](https://blog.erlang.org/My-OTP-24-Highlights/#eep-53-process-aliases) feature)
 * Spawn Erlang-like processes
 * Register/unregister processes with simple atom
 * `GenServer` behavior support (with atomic state)
@@ -62,7 +62,7 @@ Here are the changes of latest release. For more details see the [ChangeLog](Cha
 
 #### [1.3.0](https://github.com/halturin/ergo/releases/tag/v1.3.0) - 2021-09-07 ####
 
-* Added support of Erlang/OTP 24 (with [Alias](https://blog.erlang.org/My-OTP-24-Highlights/#eep-53-process-aliases) support)
+* Added support of Erlang/OTP 24 (including [Alias](https://blog.erlang.org/My-OTP-24-Highlights/#eep-53-process-aliases) feature)
 * Important: `GenServer` and `GenStage` interfaces got significant improvements to be easier to use (without backward compatibility). Make sure to update your code.
 * Introduced new behavior `GenSaga`. It implements a Saga design pattern - a sequence of transactions that updates each service state and publishes the result (or cancels the transaction or triggers the next transaction step). `GenSaga` also provides a feature of interim results (can be used as transaction progress or as a part of pipeline processing), time deadline (to limit transaction lifespan), two-phase commit (to make distributed transaction atomic). Here is example `examples/gensaga`.
 * Introduced new methods `Process.Direct` and `Process.DirectWithTimeout` to make direct request to the actor (`GenServer` or inherited object). If an actor has no implementation of `HandleDirect` callback it returns `ErrUnsupportedRequest` as a error.
