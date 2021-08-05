@@ -357,10 +357,7 @@ func Decode(packet []byte, cache []Atom) (retTerm Term, retByte []byte, retErr e
 				return nil, nil, errMalformedBinary
 			}
 
-			b := make([]byte, n)
-			copy(b, packet[4:n+4])
-
-			term = string(b)
+			term = string(packet[4 : n+4])
 			packet = packet[n+4:]
 
 		case ettNil:
@@ -438,6 +435,7 @@ func Decode(packet []byte, cache []Atom) (retTerm Term, retByte []byte, retErr e
 
 			b := make([]byte, n)
 			copy(b, packet[5:n+5])
+
 			if bits != 8 {
 				b[n-1] = b[n-1] >> (8 - bits)
 			}

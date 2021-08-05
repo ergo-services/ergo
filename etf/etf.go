@@ -219,7 +219,13 @@ func termIntoStruct(term Term, dest reflect.Value, charlistToString bool) error 
 	case String:
 		dest.SetString(string(v))
 	case string:
-		dest.SetString(v)
+		if t.Kind() == reflect.String {
+			dest.SetString(v)
+		} else if t == reflect.SliceOf(reflect.TypeOf(byte(1))) {
+			dest.Set(reflect.ValueOf([]byte(v)))
+		} else {
+			return NewInvalidTypesError(t, term)
+		}
 	case []byte:
 		if t.Kind() == reflect.String {
 			dest.SetString(string(v))

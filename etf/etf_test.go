@@ -92,6 +92,7 @@ func TestTermIntoStruct_Struct(t *testing.T) {
 		C string
 		D String
 		E Atom
+		F []byte
 	}
 
 	type testStruct struct {
@@ -114,6 +115,7 @@ func TestTermIntoStruct_Struct(t *testing.T) {
 					C: "test value",
 					D: String("test"),
 					E: Atom("value"),
+					F: []byte{97, 127, 255},
 				},
 				BB: 3.13,
 				CC: &testStruct{
@@ -131,8 +133,9 @@ func TestTermIntoStruct_Struct(t *testing.T) {
 					List{true, false, false, true, false}, // A []bool
 					8765,                                  // B uint32
 					"test value",                          // C string
-					"test",                                // C String
-					"value",                               // C Atom
+					"test",                                // D String (string -> String)
+					"value",                               // E Atom (string -> Atom)
+					string([]byte{97, 127, 255}),          // F []byte (string -> []byte)
 				},
 				3.13, // BB float64
 				Tuple{ // CC *testStruct
@@ -255,6 +258,7 @@ func TestTermMapIntoStruct_Struct(t *testing.T) {
 		C string `etf:"c"`
 		D String `etf:"d"`
 		E Atom   `etf:"e"`
+		F []byte `etf:"f"`
 	}
 
 	dest := testStruct{}
@@ -265,6 +269,7 @@ func TestTermMapIntoStruct_Struct(t *testing.T) {
 		C: "hello world",
 		D: String("hello"),
 		E: Atom("world"),
+		F: []byte{97, 127, 255},
 	}
 
 	term := Map{
@@ -273,6 +278,7 @@ func TestTermMapIntoStruct_Struct(t *testing.T) {
 		Atom("c"): "hello world",
 		Atom("d"): String("hello"),
 		Atom("e"): Atom("world"),
+		Atom("f"): []byte{97, 127, 255},
 	}
 
 	if err := TermMapIntoStruct(term, &dest); err != nil {
@@ -292,6 +298,7 @@ func TestTermProplistIntoStruct(t *testing.T) {
 		C string `etf:"c"`
 		D String `etf:"d"`
 		E Atom   `etf:"e"`
+		F []byte `etf:"f"`
 	}
 
 	dest := testStruct{}
@@ -302,6 +309,7 @@ func TestTermProplistIntoStruct(t *testing.T) {
 		C: "hello world",
 		D: String("hello"),
 		E: Atom("world"),
+		F: []byte{97, 127, 255},
 	}
 	termList := List{
 		Tuple{Atom("a"), List{false, true, true}},
@@ -309,6 +317,7 @@ func TestTermProplistIntoStruct(t *testing.T) {
 		Tuple{Atom("c"), "hello world"},
 		Tuple{Atom("d"), String("hello")},
 		Tuple{Atom("e"), Atom("world")},
+		Tuple{Atom("f"), []byte{97, 127, 255}},
 	}
 
 	if err := TermProplistIntoStruct(termList, &dest); err != nil {
