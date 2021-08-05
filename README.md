@@ -20,7 +20,7 @@ The goal of this project is to leverage Erlang/OTP experience with Golang perfor
 
 ![image](https://user-images.githubusercontent.com/118860/113710255-c57d5500-96e3-11eb-9970-20f49008a990.png)
 
-* Support Erlang 24
+* Support Erlang 24 (with [Alias](https://blog.erlang.org/My-OTP-24-Highlights/#eep-53-process-aliases) support)
 * Spawn Erlang-like processes
 * Register/unregister processes with simple atom
 * `GenServer` behavior support (with atomic state)
