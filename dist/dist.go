@@ -472,7 +472,6 @@ func HandshakeAccept(conn net.Conn, options HandshakeOptions) (*Link, error) {
 	await = []byte{'n', 'N'}
 
 	for {
-		fmt.Println("for")
 		go asyncRead()
 
 		select {
@@ -499,10 +498,8 @@ func HandshakeAccept(conn net.Conn, options HandshakeOptions) (*Link, error) {
 				return nil, fmt.Errorf("malformed handshake (wrong response %d)", buffer[0])
 			}
 
-			fmt.Println("AAAA", buffer[0])
 			switch buffer[0] {
 			case 'n':
-				fmt.Println("nnnnnn")
 				if len(buffer) < 8 {
 					return nil, fmt.Errorf("malformed handshake ('n' length)")
 				}
@@ -556,7 +553,6 @@ func HandshakeAccept(conn net.Conn, options HandshakeOptions) (*Link, error) {
 
 				await = []byte{'r'}
 
-				fmt.Printf("++++%#v\n", b.B)
 				if len(buffer) > 9 {
 					b.B = b.B[expectingBytes+9:]
 					goto next

@@ -524,7 +524,6 @@ next:
 			r.mutexPeers.Unlock()
 		}
 
-		fmt.Printf("BBBBBBB %#v \n", etf.Tuple{distProtoALIAS_SEND, from, tto, message})
 		send := peer.GetChannel()
 		send <- []etf.Term{etf.Tuple{distProtoALIAS_SEND, from, tto}, message}
 
