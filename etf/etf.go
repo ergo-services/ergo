@@ -51,7 +51,7 @@ type Marshaler interface {
 }
 
 // Unmarshaler is the interface implemented by types that can unmarshal an ETF binary of themselves.
-// Returns ErrEmpty for []byte{}.
+// Returns error ErrEmpty for []byte{}.
 type Unmarshaler interface {
 	UnmarshalETF([]byte) error
 }
