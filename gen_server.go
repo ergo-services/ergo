@@ -106,7 +106,7 @@ func (gs *GenServer) Loop(p *Process, args ...interface{}) string {
 			continue
 		}
 
-		lib.Log("[%s]. %v got message from %#v\n", p.Node.FullName, p.self, fromPid)
+		lib.Log("[%s]. %v got message from %#v %#v\n", p.Node.FullName, p.self, fromPid, message)
 
 		p.reductions++
 

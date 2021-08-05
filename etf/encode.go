@@ -192,10 +192,10 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 					break
 				}
 
-				lenID := 5
-				if !options.FlagV4NC {
-					lenID = 3
-				}
+				lenID := 3
+				//if options.FlagV4NC {
+				//	lenID = 5
+				//}
 				buf := b.Extend(4 + lenID*4)
 				binary.BigEndian.PutUint32(buf[0:4], r.Creation)
 				buf = buf[4:]
@@ -583,6 +583,10 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 				b.AppendByte(ettPid)
 			}
 
+		case Alias:
+			term = Ref(t)
+			goto recasting
+
 		case Ref:
 			buf := b.Extend(3)
 
@@ -602,11 +606,11 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 
 			// LEN a 16-bit big endian unsigned integer not larger
 			// than 5 when the DFLAG_V4_NC has been set; otherwise not larger than 3.
-			if options.FlagV4NC {
-				binary.BigEndian.PutUint16(buf[1:3], 5)
-			} else {
-				binary.BigEndian.PutUint16(buf[1:3], 3)
-			}
+			//if options.FlagV4NC {
+			//	binary.BigEndian.PutUint16(buf[1:3], 5)
+			//} else {
+			binary.BigEndian.PutUint16(buf[1:3], 3)
+			//}
 
 		case Map:
 			lenMap := len(t)

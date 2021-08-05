@@ -493,6 +493,10 @@ next:
 		}
 		r.mutexNames.Unlock()
 
+	case etf.Ref:
+		to = etf.Alias(tto)
+		goto next
+
 	case etf.Alias:
 		lib.Log("[%s] sending message by alias %v", r.node.FullName, tto)
 		r.mutexAliases.Lock()

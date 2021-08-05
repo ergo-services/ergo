@@ -150,7 +150,8 @@ func CreateNodeWithContext(ctx context.Context, name string, cookie string, opts
 			opts.FragmentationUnit = defaultFragmentationUnit
 		}
 
-		if opts.HandshakeVersion != 5 || opts.HandshakeVersion != 6 {
+		// must be 5 or 6
+		if opts.HandshakeVersion != 5 && opts.HandshakeVersion != 6 {
 			opts.HandshakeVersion = defaultHandshakeVersion
 		}
 
@@ -159,7 +160,7 @@ func CreateNodeWithContext(ctx context.Context, name string, cookie string, opts
 		}
 		ns := strings.Split(name, "@")
 		if len(ns) != 2 {
-			panic("FQDN for node name is required (example: node@hostname)")
+			panic("FQDN for node name is required (example: node@localhost)")
 		}
 
 		listenPort := node.listen(ns[1], opts)
