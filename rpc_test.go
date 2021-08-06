@@ -20,7 +20,7 @@ func (trpc *testRPCGenServer) HandleCall(state *GenServerState, from GenServerFr
 func TestRPC(t *testing.T) {
 	fmt.Printf("\n=== Test RPC\n")
 
-	node1 := CreateNode("nodeRPC@localhost", "cookies", NodeOptions{})
+	node1, _ := CreateNode("nodeRPC@localhost", "cookies", NodeOptions{})
 	gs1 := &testRPCGenServer{}
 	node1gs1, _ := node1.Spawn("gs1", ProcessOptions{}, gs1, nil)
 

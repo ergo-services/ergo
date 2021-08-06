@@ -62,7 +62,7 @@ func TestApplicationBasics(t *testing.T) {
 	fmt.Printf("\n=== Test Application load/unload/start/stop\n")
 	fmt.Printf("\nStarting node nodeTestAplication@localhost:")
 	ctx := context.Background()
-	node := CreateNodeWithContext(ctx, "nodeTestApplication@localhost", "cookies", NodeOptions{})
+	node, _ := CreateNodeWithContext(ctx, "nodeTestApplication@localhost", "cookies", NodeOptions{})
 	if node == nil {
 		t.Fatal("can't start node")
 	} else {
@@ -264,7 +264,7 @@ func TestApplicationTypePermanent(t *testing.T) {
 	fmt.Printf("\n=== Test Application type Permanent\n")
 	fmt.Printf("\nStarting node nodeTestAplicationPermanent@localhost:")
 	ctx := context.Background()
-	node := CreateNodeWithContext(ctx, "nodeTestApplicationPermanent@localhost", "cookies", NodeOptions{})
+	node, _ := CreateNodeWithContext(ctx, "nodeTestApplicationPermanent@localhost", "cookies", NodeOptions{})
 	if node == nil {
 		t.Fatal("can't start node")
 	} else {
@@ -311,7 +311,7 @@ func TestApplicationTypeTransient(t *testing.T) {
 	fmt.Printf("\n=== Test Application type Transient\n")
 	fmt.Printf("\nStarting node nodeTestAplicationTypeTransient@localhost:")
 	ctx := context.Background()
-	node := CreateNodeWithContext(ctx, "nodeTestApplicationTypeTransient@localhost", "cookies", NodeOptions{})
+	node, _ := CreateNodeWithContext(ctx, "nodeTestApplicationTypeTransient@localhost", "cookies", NodeOptions{})
 	if node == nil {
 		t.Fatal("can't start node")
 	} else {
@@ -401,7 +401,7 @@ func TestApplicationTypeTemporary(t *testing.T) {
 	fmt.Printf("\n=== Test Application type Temporary\n")
 	fmt.Printf("\nStarting node nodeTestAplicationStop@localhost:")
 	ctx := context.Background()
-	node := CreateNodeWithContext(ctx, "nodeTestApplicationStop@localhost", "cookies", NodeOptions{})
+	node, _ := CreateNodeWithContext(ctx, "nodeTestApplicationStop@localhost", "cookies", NodeOptions{})
 	if node == nil {
 		t.Fatal("can't start node")
 	} else {
@@ -443,7 +443,7 @@ func TestApplicationStop(t *testing.T) {
 	fmt.Printf("\n=== Test Application stopping\n")
 	fmt.Printf("\nStarting node nodeTestAplicationTypeTemporary@localhost:")
 	ctx := context.Background()
-	node := CreateNodeWithContext(ctx, "nodeTestApplicationTypeTemporary@localhost", "cookies", NodeOptions{})
+	node, _ := CreateNodeWithContext(ctx, "nodeTestApplicationTypeTemporary@localhost", "cookies", NodeOptions{})
 	if node == nil {
 		t.Fatal("can't start node")
 	} else {

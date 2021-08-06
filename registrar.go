@@ -193,7 +193,7 @@ func (r *registrar) RegisterProcessExt(name string, object interface{}, opts Pro
 		r.mutexNames.Lock()
 		if _, exist := r.names[name]; exist {
 			r.mutexNames.Unlock()
-			return nil, ErrNameIsTaken
+			return nil, ErrTaken
 		}
 		r.names[name] = process.self
 		r.mutexNames.Unlock()
@@ -253,7 +253,7 @@ func (r *registrar) RegisterName(name string, pid etf.Pid) error {
 	if _, ok := r.names[name]; ok {
 		// already registered
 		r.mutexNames.Unlock()
-		return ErrNameIsTaken
+		return ErrTaken
 	}
 	r.names[name] = pid
 	r.mutexNames.Unlock()
@@ -275,7 +275,7 @@ func (r *registrar) RegisterPeer(peer *peer) error {
 
 	if _, ok := r.peers[peer.name]; ok {
 		// already registered
-		return ErrNameIsTaken
+		return ErrTaken
 	}
 	r.peers[peer.name] = peer
 	return nil

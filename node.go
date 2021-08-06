@@ -97,12 +97,12 @@ const (
 )
 
 // CreateNode create new node with name and cookie string
-func CreateNode(name string, cookie string, opts NodeOptions) *Node {
+func CreateNode(name string, cookie string, opts NodeOptions) (*Node, error) {
 	return CreateNodeWithContext(context.Background(), name, cookie, opts)
 }
 
 // CreateNodeWithContext create new node with specified context, name and cookie string
-func CreateNodeWithContext(ctx context.Context, name string, cookie string, opts NodeOptions) *Node {
+func CreateNodeWithContext(ctx context.Context, name string, cookie string, opts NodeOptions) (*Node, error) {
 
 	lib.Log("Start with name '%s' and cookie '%s'", name, cookie)
 	nodectx, nodestop := context.WithCancel(ctx)
@@ -164,12 +164,12 @@ func CreateNodeWithContext(ctx context.Context, name string, cookie string, opts
 			name = name + "@localhost"
 		}
 		if len(ns) != 2 {
-			panic("incorrect FQDN node name (example: node@localhost)")
+			return nil, fmt.Errorf("incorrect FQDN node name (example: node@localhost)")
 		}
 
 		listenPort := node.listen(ns[1], opts)
 		if listenPort == 0 {
-			panic("Can't listen port")
+			return nil, ErrTaken
 		}
 		// start EPMD
 		node.epmd.Init(nodectx, name, listenPort, opts.EPMDPort, opts.Hidden, opts.DisableEPMDServer)
@@ -185,7 +185,7 @@ func CreateNodeWithContext(ctx context.Context, name string, cookie string, opts
 	netKernelSup := &netKernelSup{}
 	node.Spawn("net_kernel_sup", ProcessOptions{}, netKernelSup)
 
-	return node
+	return node, nil
 }
 
 // Spawn create new process

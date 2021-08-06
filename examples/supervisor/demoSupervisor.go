@@ -107,7 +107,7 @@ func main() {
 	}
 
 	// Initialize new node with given name, cookie, listening port range and epmd port
-	node := ergo.CreateNode(NodeName, Cookie, opts)
+	node, _ := ergo.CreateNode(NodeName, Cookie, opts)
 
 	// Spawn supervisor process
 	process, _ := node.Spawn("demo_sup", ergo.ProcessOptions{}, &demoSup{})

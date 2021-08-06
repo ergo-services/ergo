@@ -63,7 +63,7 @@ type ChildrenTestCase struct {
 func TestSupervisorOneForAll(t *testing.T) {
 	fmt.Printf("\n=== Test Supervisor - one for all\n")
 	fmt.Printf("Starting node nodeSvOneForAll@localhost: ")
-	node := CreateNode("nodeSvOneForAll@localhost", "cookies", NodeOptions{})
+	node, _ := CreateNode("nodeSvOneForAll@localhost", "cookies", NodeOptions{})
 	if node == nil {
 		t.Fatal("can't start node")
 	} else {

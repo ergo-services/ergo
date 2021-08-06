@@ -31,7 +31,7 @@ func (egs *ExampleGenServer) HandleInfo(state *ergo.GenServerState, message etf.
 
 func main() {
 	// create a new node
-	node := ergo.CreateNode("node@localhost", "cookies", ergo.NodeOptions{})
+	node, _ := ergo.CreateNode("node@localhost", "cookies", ergo.NodeOptions{})
 
 	// spawn new process of genserver
 	process, _ := node.Spawn("gs1", ergo.ProcessOptions{}, &ExampleGenServer{})

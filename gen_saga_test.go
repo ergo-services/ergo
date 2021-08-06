@@ -78,7 +78,7 @@ func TestGenSagaSimple(t *testing.T) {
 	fmt.Printf("\n=== Test GenSagaSimple\n")
 	fmt.Printf("Starting node: nodeGenSagaSimple01@localhost...")
 
-	node := CreateNode("nodeGenSagaSimple01@localhost", "cookies", NodeOptions{})
+	node, _ := CreateNode("nodeGenSagaSimple01@localhost", "cookies", NodeOptions{})
 
 	if node == nil {
 		t.Fatal("can't start node")

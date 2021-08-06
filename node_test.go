@@ -26,7 +26,7 @@ func TestNode(t *testing.T) {
 		EPMDPort:         24999,
 	}
 
-	node := CreateNode("node@localhost", "cookies", opts)
+	node, _ := CreateNode("node@localhost", "cookies", opts)
 
 	if conn, err := net.Dial("tcp", ":25001"); err != nil {
 		fmt.Println("Connect to the node' listening port FAILED")
@@ -87,8 +87,8 @@ func TestNodeFragmentation(t *testing.T) {
 	md5 := fmt.Sprint(md5.Sum(blob))
 	message := etf.Tuple{md5, blob}
 
-	node1 := CreateNode("nodeT1Fragmentation@localhost", "secret", NodeOptions{})
-	node2 := CreateNode("nodeT2Fragmentation@localhost", "secret", NodeOptions{})
+	node1, _ := CreateNode("nodeT1Fragmentation@localhost", "secret", NodeOptions{})
+	node2, _ := CreateNode("nodeT2Fragmentation@localhost", "secret", NodeOptions{})
 
 	tgs := &testFragmentationGS{}
 	p1, e1 := node1.Spawn("", ProcessOptions{}, tgs)
@@ -133,8 +133,8 @@ func TestNodeFragmentation(t *testing.T) {
 
 func TestNodeAtomCache(t *testing.T) {
 
-	node1 := CreateNode("nodeT1AtomCache@localhost", "secret", NodeOptions{})
-	node2 := CreateNode("nodeT2AtomCache@localhost", "secret", NodeOptions{})
+	node1, _ := CreateNode("nodeT1AtomCache@localhost", "secret", NodeOptions{})
+	node2, _ := CreateNode("nodeT2AtomCache@localhost", "secret", NodeOptions{})
 
 	tgs := &benchGS{}
 	p1, e1 := node1.Spawn("", ProcessOptions{}, tgs)
@@ -165,7 +165,7 @@ func TestNodeStaticRoute(t *testing.T) {
 	nodeName := "nodeT1StaticRoute@localhost"
 	nodeStaticPort := 9876
 
-	node1 := CreateNode(nodeName, "secret", NodeOptions{})
+	node1, _ := CreateNode(nodeName, "secret", NodeOptions{})
 	port1 := node1.ResolvePort(nodeName)
 	if port1 == -1 {
 		t.Fatal("Can't resolve port number for ", nodeName)
@@ -221,47 +221,31 @@ func TestNodeDistHandshake(t *testing.T) {
 		nodeA *Node
 		nodeB *Node
 	}
+	node1, _ := CreateNode("node1Handshake5", "secret", nodeOptions5)
+	node2, _ := CreateNode("node2Handshake5", "secret", nodeOptions5)
+	node3, _ := CreateNode("node3Handshake5", "secret", nodeOptions5)
+	node4, _ := CreateNode("node4Handshake6", "secret", nodeOptions6)
+	// node5, _ := CreateNode("node5Handshake6", "secret", nodeOptions6)
+	// node6, _ := CreateNode("node6Handshake5", "secret", nodeOptions5)
+	node7, _ := CreateNode("node7Handshake6", "secret", nodeOptions6)
+	node8, _ := CreateNode("node8Handshake6", "secret", nodeOptions6)
+	node9, _ := CreateNode("node9Handshake5", "secret", nodeOptions5WithTLS)
+	node10, _ := CreateNode("node10Handshake5", "secret", nodeOptions5WithTLS)
+	node11, _ := CreateNode("node11Handshake5", "secret", nodeOptions5WithTLS)
+	node12, _ := CreateNode("node12Handshake6", "secret", nodeOptions6WithTLS)
+	// node13, _ := CreateNode("node13Handshake6", "secret", nodeOptions6WithTLS)
+	// node14, _ := CreateNode("node14Handshake5", "secret", nodeOptions5WithTLS)
+	node15, _ := CreateNode("node15Handshake6", "secret", nodeOptions6WithTLS)
+	node16, _ := CreateNode("node16Handshake6", "secret", nodeOptions6WithTLS)
 	nodes := []Pair{
-		Pair{
-			"No TLS. version 5 -> version 5",
-			CreateNode("node1Handshake5", "secret", nodeOptions5),
-			CreateNode("node2Handshake5", "secret", nodeOptions5),
-		},
-		Pair{
-			"No TLS. version 5 -> version 6",
-			CreateNode("node3Handshake5", "secret", nodeOptions5),
-			CreateNode("node4Handshake6", "secret", nodeOptions6),
-		},
-		//Pair{
-		//	"No TLS. version 6 -> version 5",
-		//	CreateNode("node5Handshake6", "secret", nodeOptions6),
-		//	CreateNode("node6Handshake5", "secret", nodeOptions5),
-		//},
-		Pair{
-			"No TLS. version 6 -> version 6",
-			CreateNode("node7Handshake6", "secret", nodeOptions6),
-			CreateNode("node8Handshake6", "secret", nodeOptions6),
-		},
-		Pair{
-			"With TLS. version 5 -> version 5",
-			CreateNode("node9Handshake5", "secret", nodeOptions5WithTLS),
-			CreateNode("node10Handshake5", "secret", nodeOptions5WithTLS),
-		},
-		Pair{
-			"With TLS. version 5 -> version 6",
-			CreateNode("node11Handshake5", "secret", nodeOptions5WithTLS),
-			CreateNode("node12Handshake6", "secret", nodeOptions6WithTLS),
-		},
-		//Pair{
-		//	"With TLS. version 6 -> version 5",
-		//	CreateNode("node13Handshake6", "secret", nodeOptions6WithTLS),
-		//	CreateNode("node14Handshake5", "secret", nodeOptions5WithTLS),
-		//},
-		Pair{
-			"With TLS. version 6 -> version 6",
-			CreateNode("node15Handshake6", "secret", nodeOptions6WithTLS),
-			CreateNode("node16Handshake6", "secret", nodeOptions6WithTLS),
-		},
+		Pair{"No TLS. version 5 -> version 5", node1, node2},
+		Pair{"No TLS. version 5 -> version 6", node3, node4},
+		//Pair{ "No TLS. version 6 -> version 5", node5, node6 },
+		Pair{"No TLS. version 6 -> version 6", node7, node8},
+		Pair{"With TLS. version 5 -> version 5", node9, node10},
+		Pair{"With TLS. version 5 -> version 6", node11, node12},
+		//Pair{ "With TLS. version 6 -> version 5", node13, node14 },
+		Pair{"With TLS. version 6 -> version 6", node15, node16},
 	}
 
 	defer func(nodes []Pair) {
@@ -309,8 +293,8 @@ func BenchmarkNodeSequential(b *testing.B) {
 
 	node1name := fmt.Sprintf("nodeB1_%d@localhost", b.N)
 	node2name := fmt.Sprintf("nodeB2_%d@localhost", b.N)
-	node1 := CreateNode(node1name, "bench", NodeOptions{DisableHeaderAtomCache: false})
-	node2 := CreateNode(node2name, "bench", NodeOptions{})
+	node1, _ := CreateNode(node1name, "bench", NodeOptions{DisableHeaderAtomCache: false})
+	node2, _ := CreateNode(node2name, "bench", NodeOptions{})
 
 	bgs := &benchGS{}
 
@@ -344,7 +328,7 @@ func BenchmarkNodeSequential(b *testing.B) {
 func BenchmarkNodeSequentialSingleNode(b *testing.B) {
 
 	node1name := fmt.Sprintf("nodeB1Local_%d@localhost", b.N)
-	node1 := CreateNode(node1name, "bench", NodeOptions{DisableHeaderAtomCache: true})
+	node1, _ := CreateNode(node1name, "bench", NodeOptions{DisableHeaderAtomCache: true})
 
 	bgs := &benchGS{}
 
@@ -379,8 +363,8 @@ func BenchmarkNodeParallel(b *testing.B) {
 
 	node1name := fmt.Sprintf("nodeB1Parallel_%d@localhost", b.N)
 	node2name := fmt.Sprintf("nodeB2Parallel_%d@localhost", b.N)
-	node1 := CreateNode(node1name, "bench", NodeOptions{DisableHeaderAtomCache: false})
-	node2 := CreateNode(node2name, "bench", NodeOptions{})
+	node1, _ := CreateNode(node1name, "bench", NodeOptions{DisableHeaderAtomCache: false})
+	node2, _ := CreateNode(node2name, "bench", NodeOptions{})
 
 	bgs := &benchGS{}
 
@@ -421,7 +405,7 @@ func BenchmarkNodeParallel(b *testing.B) {
 func BenchmarkNodeParallelSingleNode(b *testing.B) {
 
 	node1name := fmt.Sprintf("nodeB1ParallelLocal_%d@localhost", b.N)
-	node1 := CreateNode(node1name, "bench", NodeOptions{DisableHeaderAtomCache: true})
+	node1, _ := CreateNode(node1name, "bench", NodeOptions{DisableHeaderAtomCache: true})
 
 	bgs := &benchGS{}
 

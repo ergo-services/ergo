@@ -12,8 +12,8 @@ import (
 func main() {
 	// create nodes for producer and consumers
 	fmt.Println("Starting nodes 'node_abc@localhost' and 'node_def@localhost'")
-	node_abc := ergo.CreateNode("node_abc@localhost", "cookies", ergo.NodeOptions{})
-	node_def := ergo.CreateNode("node_def@localhost", "cookies", ergo.NodeOptions{})
+	node_abc, _ := ergo.CreateNode("node_abc@localhost", "cookies", ergo.NodeOptions{})
+	node_def, _ := ergo.CreateNode("node_def@localhost", "cookies", ergo.NodeOptions{})
 
 	// create producer and consumer objects
 	producer := &Producer{}

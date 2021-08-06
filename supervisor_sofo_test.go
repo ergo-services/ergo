@@ -22,7 +22,7 @@ type testSupervisorSimpleOneForOne struct {
 func TestSupervisorSimpleOneForOne(t *testing.T) {
 	fmt.Printf("\n=== Test Supervisor - simple one for one\n")
 	fmt.Printf("Starting node nodeSvSimpleOneForOne@localhost: ")
-	node := CreateNode("nodeSvSimpleOneForOne@localhost", "cookies", NodeOptions{})
+	node, _ := CreateNode("nodeSvSimpleOneForOne@localhost", "cookies", NodeOptions{})
 	if node == nil {
 		t.Fatal("can't start node")
 	} else {

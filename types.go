@@ -16,7 +16,7 @@ var (
 	ErrProcessUnknown     = fmt.Errorf("Unknown process")
 	ErrAliasUnknown       = fmt.Errorf("Unknown alias")
 	ErrAliasOwner         = fmt.Errorf("Not an owner")
-	ErrNameIsTaken        = fmt.Errorf("Name is taken")
+	ErrTaken              = fmt.Errorf("Resource is taken")
 	ErrUnsupportedRequest = fmt.Errorf("Unsupported request")
 	ErrTimeout            = fmt.Errorf("Timed out")
 	ErrFragmented         = fmt.Errorf("Fragmented data")

@@ -84,7 +84,7 @@ func TestGenStageSimple(t *testing.T) {
 	fmt.Printf("\n=== Test GenStageSimple\n")
 	fmt.Printf("Starting node: nodeGenStageSimple01@localhost...")
 
-	node := CreateNode("nodeGenStageSimple01@localhost", "cookies", NodeOptions{})
+	node, _ := CreateNode("nodeGenStageSimple01@localhost", "cookies", NodeOptions{})
 
 	if node == nil {
 		t.Fatal("can't start node")
@@ -295,14 +295,14 @@ func TestGenStageSimple(t *testing.T) {
 func TestGenStageDistributed(t *testing.T) {
 	fmt.Printf("\n=== Test GenStageDistributed\n")
 	fmt.Printf("Starting node: nodeGenStageDistributed01@localhost...")
-	node1 := CreateNode("nodeGenStageDistributed01@localhost", "cookies", NodeOptions{})
+	node1, _ := CreateNode("nodeGenStageDistributed01@localhost", "cookies", NodeOptions{})
 	if node1 == nil {
 		t.Fatal("can't start node")
 		return
 	}
 	fmt.Println("OK")
 	fmt.Printf("Starting node: nodeGenStageDistributed02@localhost...")
-	node2 := CreateNode("nodeGenStageDistributed02@localhost", "cookies", NodeOptions{})
+	node2, _ := CreateNode("nodeGenStageDistributed02@localhost", "cookies", NodeOptions{})
 	if node2 == nil {
 		t.Fatal("can't start node")
 		return
@@ -450,7 +450,7 @@ func TestGenStageDistributed(t *testing.T) {
 func TestGenStageDispatcherDemand(t *testing.T) {
 	fmt.Printf("\n=== Test GenStageDispatcherDemand\n")
 	fmt.Printf("Starting node: GenStageDispatcherDemand@localhost...")
-	node := CreateNode("GenStageDispatcherDemand@localhost", "cookies", NodeOptions{})
+	node, _ := CreateNode("GenStageDispatcherDemand@localhost", "cookies", NodeOptions{})
 	if node == nil {
 		t.Fatal("can't start node")
 		return
@@ -549,7 +549,7 @@ func TestGenStageDispatcherDemand(t *testing.T) {
 func TestGenStageDispatcherBroadcast(t *testing.T) {
 	fmt.Printf("\n=== Test GenStageDispatcherBroadcast\n")
 	fmt.Printf("Starting node: GenStageDispatcherBroadcast@localhost...")
-	node := CreateNode("GenStageDispatcherBroadcast@localhost", "cookies", NodeOptions{})
+	node, _ := CreateNode("GenStageDispatcherBroadcast@localhost", "cookies", NodeOptions{})
 	if node == nil {
 		t.Fatal("can't start node")
 		return
@@ -646,7 +646,7 @@ func TestGenStageDispatcherBroadcast(t *testing.T) {
 func TestGenStageDispatcherPartition(t *testing.T) {
 	fmt.Printf("\n=== Test GenStageDispatcherPartition\n")
 	fmt.Printf("Starting node: GenStageDispatcherPartition@localhost...")
-	node := CreateNode("GenStageDispatcherPartition@localhost", "cookies", NodeOptions{})
+	node, _ := CreateNode("GenStageDispatcherPartition@localhost", "cookies", NodeOptions{})
 	if node == nil {
 		t.Fatal("can't start node")
 		return

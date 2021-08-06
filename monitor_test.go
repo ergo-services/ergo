@@ -38,7 +38,7 @@ func (tgs *testMonitorGenServer) HandleInfo(state *GenServerState, message etf.T
 func TestMonitorLocalLocal(t *testing.T) {
 	fmt.Printf("\n=== Test Monitor Local-Local\n")
 	fmt.Printf("Starting node: nodeM1LocalLocal@localhost: ")
-	node1 := CreateNode("nodeM1LocalLocal@localhost", "cookies", NodeOptions{})
+	node1, _ := CreateNode("nodeM1LocalLocal@localhost", "cookies", NodeOptions{})
 	if node1 == nil {
 		t.Fatal("can't start node")
 	} else {
@@ -160,8 +160,8 @@ func TestMonitorLocalLocal(t *testing.T) {
 func TestMonitorLocalRemoteByPid(t *testing.T) {
 	fmt.Printf("\n=== Test Monitor Local-Remote by Pid\n")
 	fmt.Printf("Starting nodes: nodeM1LocalRemoteByPid@localhost, nodeM2LocalRemoteByPid@localhost: ")
-	node1 := CreateNode("nodeM1LocalRemoteByPid@localhost", "cookies", NodeOptions{})
-	node2 := CreateNode("nodeM2LocalRemoteByPid@localhost", "cookies", NodeOptions{})
+	node1, _ := CreateNode("nodeM1LocalRemoteByPid@localhost", "cookies", NodeOptions{})
+	node2, _ := CreateNode("nodeM2LocalRemoteByPid@localhost", "cookies", NodeOptions{})
 	if node1 == nil || node2 == nil {
 		t.Fatal("can't start nodes")
 	} else {
@@ -260,8 +260,8 @@ func TestMonitorLocalRemoteByPid(t *testing.T) {
 func TestMonitorLocalRemoteByTuple(t *testing.T) {
 	fmt.Printf("\n=== Test Monitor Local-Remote by Tuple\n")
 	fmt.Printf("Starting nodes: nodeM1LocalRemoteByTuple@localhost, nodeM2LocalRemoteByTuple@localhost: ")
-	node1 := CreateNode("nodeM1LocalRemoteByTuple@localhost", "cookies", NodeOptions{})
-	node2 := CreateNode("nodeM2LocalRemoteByTuple@localhost", "cookies", NodeOptions{})
+	node1, _ := CreateNode("nodeM1LocalRemoteByTuple@localhost", "cookies", NodeOptions{})
+	node2, _ := CreateNode("nodeM2LocalRemoteByTuple@localhost", "cookies", NodeOptions{})
 	if node1 == nil || node2 == nil {
 		t.Fatal("can't start nodes")
 	} else {
@@ -366,7 +366,7 @@ func TestMonitorLocalRemoteByTuple(t *testing.T) {
 func TestLinkLocalLocal(t *testing.T) {
 	fmt.Printf("\n=== Test Link Local-Local\n")
 	fmt.Printf("Starting node: nodeL1LocalLocal@localhost: ")
-	node1 := CreateNode("nodeL1LocalLocal@localhost", "cookies", NodeOptions{})
+	node1, _ := CreateNode("nodeL1LocalLocal@localhost", "cookies", NodeOptions{})
 	if node1 == nil {
 		t.Fatal("can't start node")
 	} else {
@@ -501,8 +501,8 @@ func TestLinkLocalLocal(t *testing.T) {
 func TestLinkLocalRemote(t *testing.T) {
 	fmt.Printf("\n=== Test Link Local-Remote by Pid\n")
 	fmt.Printf("Starting nodes: nodeL1LocalRemoteByPid@localhost, nodeL2LocalRemoteByPid@localhost: ")
-	node1 := CreateNode("nodeL1LocalRemoteByPid@localhost", "cookies", NodeOptions{})
-	node2 := CreateNode("nodeL2LocalRemoteByPid@localhost", "cookies", NodeOptions{})
+	node1, _ := CreateNode("nodeL1LocalRemoteByPid@localhost", "cookies", NodeOptions{})
+	node2, _ := CreateNode("nodeL2LocalRemoteByPid@localhost", "cookies", NodeOptions{})
 	if node1 == nil || node2 == nil {
 		t.Fatal("can't start nodes")
 	} else {

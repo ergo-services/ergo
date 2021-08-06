@@ -20,8 +20,8 @@ func (trg *TestRegistrarGenserver) HandleCall(state *GenServerState, from GenSer
 func TestRegistrar(t *testing.T) {
 	fmt.Printf("\n=== Test Registrar\n")
 	fmt.Printf("Starting nodes: nodeR1@localhost, nodeR2@localhost: ")
-	node1 := CreateNode("nodeR1@localhost", "cookies", NodeOptions{})
-	node2 := CreateNode("nodeR2@localhost", "cookies", NodeOptions{})
+	node1, _ := CreateNode("nodeR1@localhost", "cookies", NodeOptions{})
+	node2, _ := CreateNode("nodeR2@localhost", "cookies", NodeOptions{})
 	defer node1.Stop()
 	defer node2.Stop()
 	if node1 == nil || node2 == nil {
@@ -152,7 +152,7 @@ func TestRegistrar(t *testing.T) {
 func TestRegistrarAlias(t *testing.T) {
 	fmt.Printf("\n=== Test Registrar Alias\n")
 	fmt.Printf("Starting node: nodeR1Alias@localhost: ")
-	node1 := CreateNode("nodeR1Alias@localhost", "cookies", NodeOptions{})
+	node1, _ := CreateNode("nodeR1Alias@localhost", "cookies", NodeOptions{})
 	defer node1.Stop()
 	if node1 == nil {
 		t.Fatal("can't start nodes")

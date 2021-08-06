@@ -97,7 +97,7 @@ func TestSupervisorOneForOne(t *testing.T) {
 
 	fmt.Printf("\n=== Test Supervisor - one for one\n")
 	fmt.Printf("Starting node nodeSvOneForOne@localhost: ")
-	node := CreateNode("nodeSvOneForOne@localhost", "cookies", NodeOptions{})
+	node, _ := CreateNode("nodeSvOneForOne@localhost", "cookies", NodeOptions{})
 	if node == nil {
 		t.Fatal("can't start node")
 	} else {

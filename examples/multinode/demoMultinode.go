@@ -83,12 +83,12 @@ func main() {
 	optsNode01 := ergo.NodeOptions{
 		EPMDPort: 7878,
 	}
-	node01 := ergo.CreateNode("demoNode7878@127.0.0.1", "cookie123", optsNode01)
+	node01, _ := ergo.CreateNode("demoNode7878@127.0.0.1", "cookie123", optsNode01)
 	fmt.Println("Started ergo node: demoNode7878@127.0.0.1 on port 7878")
 	optsNode02 := ergo.NodeOptions{
 		EPMDPort: 8787,
 	}
-	node02 := ergo.CreateNode("demoNode8787@127.0.0.1", "cookie456", optsNode02)
+	node02, _ := ergo.CreateNode("demoNode8787@127.0.0.1", "cookie456", optsNode02)
 	fmt.Println("Started ergo node: demoNode8787@127.0.0.1 on port 8787")
 
 	// Spawn process with one arguments
