@@ -585,6 +585,11 @@ func HandshakeAccept(conn net.Conn, options HandshakeOptions) (*Link, error) {
 				}
 
 				await = []byte{'c', 'r'}
+				if len(buffer) > 4 {
+					b.B = b.B[expectingBytes+4:]
+					goto next
+				}
+				b.Reset()
 
 			default:
 				return nil, fmt.Errorf("malformed handshake (unknown code %d)", b.B[0])
