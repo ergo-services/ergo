@@ -110,10 +110,6 @@ func (nf nodeFlag) isSet(f flagId) bool {
 	return (uint64(nf) & uint64(f)) != 0
 }
 
-func (nf nodeFlag) clear(f flagId) nodeFlag {
-	return nodeFlag(^uint64(f) & uint64(nf))
-}
-
 func toNodeFlag(f ...flagId) nodeFlag {
 	var flags uint64
 	for _, v := range f {
