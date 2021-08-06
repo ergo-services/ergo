@@ -54,8 +54,8 @@ const (
 	protoDistFragment1    = 69
 	protoDistFragmentN    = 70
 
-	protoHandshake5 = 5
-	protoHandshake6 = 6
+	ProtoHandshake5 = 5
+	ProtoHandshake6 = 6
 
 	// distribution flags are defined here https://erlang.org/doc/apps/erts/erl_dist_protocol.html#distribution-flags
 	PUBLISHED           flagId = 0x1
@@ -108,6 +108,10 @@ func (nf nodeFlag) toUint64() uint64 {
 
 func (nf nodeFlag) isSet(f flagId) bool {
 	return (uint64(nf) & uint64(f)) != 0
+}
+
+func (nf nodeFlag) clear(f flagId) nodeFlag {
+	return nodeFlag(^uint64(f) & uint64(nf))
 }
 
 func toNodeFlag(f ...flagId) nodeFlag {
@@ -272,7 +276,7 @@ func Handshake(conn net.Conn, options HandshakeOptions) (*Link, error) {
 
 		conn:       conn,
 		sequenceID: time.Now().UnixNano(),
-		version:    protoHandshake5,
+		version:    uint16(options.Version),
 		creation:   options.Creation,
 	}
 
@@ -280,14 +284,19 @@ func Handshake(conn net.Conn, options HandshakeOptions) (*Link, error) {
 	defer lib.ReleaseBuffer(b)
 
 	var await []byte
-	link.composeName(b, options.TLS)
+
+	if options.Version == ProtoHandshake5 {
+		link.composeName(b, options.TLS)
+		// the next message must be send_status 's' or send_challenge 'n' (for
+		// handshake version 5) or 'N' (for handshake version 6)
+		await = []byte{'s', 'n', 'N'}
+	} else {
+		link.composeNameVersion6(b, options.TLS)
+		await = []byte{'s', 'N'}
+	}
 	if e := b.WriteDataTo(conn); e != nil {
 		return nil, e
 	}
-
-	// the next message must be send_status 's' or send_challenge 'n' (for
-	// handshake version 5) or 'N' (for handshake version 6)
-	await = []byte{'s', 'n', 'N'}
 
 	// define timeout for the handshaking
 	timer := time.NewTimer(5 * time.Second)
@@ -322,11 +331,9 @@ func Handshake(conn net.Conn, options HandshakeOptions) (*Link, error) {
 				return nil, e
 			}
 
-			buffer := b.B
-
 		next:
-			l := binary.BigEndian.Uint16(buffer[expectingBytes-2 : expectingBytes])
-			buffer = buffer[expectingBytes:]
+			l := binary.BigEndian.Uint16(b.B[expectingBytes-2 : expectingBytes])
+			buffer := b.B[expectingBytes:]
 
 			if len(buffer) < int(l) {
 				return nil, fmt.Errorf("malformed handshake (wrong packet length)")
@@ -350,14 +357,6 @@ func Handshake(conn net.Conn, options HandshakeOptions) (*Link, error) {
 				}
 				b.Reset()
 
-				if link.peer.flags.isSet(HANDSHAKE23) {
-					link.composeComplement(b, options.TLS)
-					if e := b.WriteDataTo(conn); e != nil {
-						return nil, e
-					}
-					b.Reset()
-				}
-
 				link.composeChallengeReply(b, challenge, options.TLS)
 
 				if e := b.WriteDataTo(conn); e != nil {
@@ -367,6 +366,8 @@ func Handshake(conn net.Conn, options HandshakeOptions) (*Link, error) {
 				await = []byte{'s', 'a'}
 
 			case 'N':
+				// Peer support version 6.
+
 				// The new challenge message format (version 6)
 				// 8 (flags) + 4 (Creation) + 2 (NameLen) + Name
 				if len(buffer) < 16 {
@@ -374,6 +375,15 @@ func Handshake(conn net.Conn, options HandshakeOptions) (*Link, error) {
 				}
 				challenge := link.readChallengeVersion6(buffer[1:])
 				b.Reset()
+
+				if link.version == ProtoHandshake5 {
+					// send complement message
+					link.composeComplement(b, options.TLS)
+					if e := b.WriteDataTo(conn); e != nil {
+						return nil, e
+					}
+					link.version = ProtoHandshake6
+				}
 
 				link.composeChallengeReply(b, challenge, options.TLS)
 
@@ -391,7 +401,8 @@ func Handshake(conn net.Conn, options HandshakeOptions) (*Link, error) {
 				}
 
 				// 'a' + 16 (digest)
-				if bytes.Compare(buffer[1:17], link.digest) != 0 {
+				digest := genDigest(link.peer.challenge, link.Cookie)
+				if bytes.Compare(buffer[1:17], digest) != 0 {
 					return nil, fmt.Errorf("malformed handshake ('a' digest)")
 				}
 
@@ -404,10 +415,10 @@ func Handshake(conn net.Conn, options HandshakeOptions) (*Link, error) {
 					return nil, fmt.Errorf("handshake negotiation failed")
 				}
 
-				await = []byte{'a'}
+				await = []byte{'n', 'N'}
 				// "sok"
 				if len(buffer) > 4 {
-					b.B = b.B[expectingBytes+4:]
+					b.B = b.B[expectingBytes+3:]
 					goto next
 				}
 				b.Reset()
@@ -438,7 +449,7 @@ func HandshakeAccept(conn net.Conn, options HandshakeOptions) (*Link, error) {
 		conn:       conn,
 		sequenceID: time.Now().UnixNano(),
 		challenge:  rand.Uint32(),
-		version:    protoHandshake6,
+		version:    ProtoHandshake6,
 		creation:   options.Creation,
 	}
 
@@ -517,7 +528,7 @@ func HandshakeAccept(conn net.Conn, options HandshakeOptions) (*Link, error) {
 					link.composeChallengeVersion6(b, options.TLS)
 					await = []byte{'s', 'r', 'c'}
 				} else {
-					link.version = protoHandshake5
+					link.version = ProtoHandshake5
 					link.composeChallenge(b, options.TLS)
 					await = []byte{'s', 'r'}
 				}
@@ -1296,6 +1307,29 @@ func (l *Link) composeName(b *lib.Buffer, tls bool) {
 	b.Append([]byte(l.Name))
 }
 
+func (l *Link) composeNameVersion6(b *lib.Buffer, tls bool) {
+	if tls {
+		b.Allocate(19)
+		dataLength := 15 + len(l.Name) // 1 + 8 (flags) + 4 (creation) + 2 (len l.Name)
+		binary.BigEndian.PutUint32(b.B[0:4], uint32(dataLength))
+		b.B[4] = 'N'
+		binary.BigEndian.PutUint64(b.B[5:13], l.flags.toUint64())   // uint64
+		binary.BigEndian.PutUint32(b.B[13:17], l.creation)          //uint32
+		binary.BigEndian.PutUint16(b.B[17:19], uint16(len(l.Name))) // uint16
+		b.Append([]byte(l.Name))
+		return
+	}
+
+	b.Allocate(17)
+	dataLength := 15 + len(l.Name) // 1 + 8 (flags) + 4 (creation) + 2 (len l.Name)
+	binary.BigEndian.PutUint16(b.B[0:2], uint16(dataLength))
+	b.B[2] = 'N'
+	binary.BigEndian.PutUint64(b.B[3:11], l.flags.toUint64())   // uint64
+	binary.BigEndian.PutUint32(b.B[11:15], l.creation)          // uint32
+	binary.BigEndian.PutUint16(b.B[15:17], uint16(len(l.Name))) // uint16
+	b.Append([]byte(l.Name))
+}
+
 func (l *Link) readName(b []byte) *Link {
 	peer := &Link{
 		Name:    string(b[6:]),
@@ -1311,7 +1345,7 @@ func (l *Link) readNameVersion6(b []byte) *Link {
 		flags:    nodeFlag(binary.BigEndian.Uint64(b[0:8])),
 		creation: binary.BigEndian.Uint32(b[8:12]),
 		Name:     string(b[14 : 14+nameLen]),
-		version:  protoHandshake6,
+		version:  ProtoHandshake6,
 	}
 	return peer
 }
@@ -1395,7 +1429,7 @@ func (l *Link) composeChallengeVersion6(b *lib.Buffer, tls bool) {
 
 func (l *Link) readChallenge(msg []byte) (challenge uint32) {
 	version := binary.BigEndian.Uint16(msg[0:2])
-	if version != protoHandshake5 {
+	if version != ProtoHandshake5 {
 		return 0
 	}
 
@@ -1412,7 +1446,7 @@ func (l *Link) readChallengeVersion6(msg []byte) (challenge uint32) {
 	lenName := int(binary.BigEndian.Uint16(msg[16:18]))
 	link := &Link{
 		Name:     string(msg[18 : 18+lenName]),
-		version:  protoHandshake6,
+		version:  ProtoHandshake6,
 		flags:    nodeFlag(binary.BigEndian.Uint64(msg[0:8])),
 		creation: binary.BigEndian.Uint32(msg[12:16]),
 	}

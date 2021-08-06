@@ -9,7 +9,9 @@ import (
 	"runtime"
 	"sync"
 	"testing"
+	"time"
 
+	"github.com/halturin/ergo/dist"
 	"github.com/halturin/ergo/etf"
 )
 
@@ -185,6 +187,115 @@ func TestNodeStaticRoute(t *testing.T) {
 	// should be resolved into the original port number
 	if port1 != port2 {
 		t.Fatal("Wrong port number after removing static route")
+	}
+}
+
+type handshakeGenServer struct {
+	GenServer
+}
+
+func (h *handshakeGenServer) HandleCall(state *GenServerState, from GenServerFrom, message etf.Term) (string, etf.Term) {
+	return "reply", "pass"
+}
+
+func TestNodeDistHandshake(t *testing.T) {
+	fmt.Printf("\n=== Test Node Handshake versions\n")
+
+	nodeOptions5 := NodeOptions{
+		HandshakeVersion: dist.ProtoHandshake5,
+	}
+	nodeOptions6 := NodeOptions{
+		HandshakeVersion: dist.ProtoHandshake6,
+	}
+	nodeOptions5WithTLS := NodeOptions{
+		HandshakeVersion: dist.ProtoHandshake5,
+		TLSmode:          TLSmodeAuto,
+	}
+	nodeOptions6WithTLS := NodeOptions{
+		HandshakeVersion: dist.ProtoHandshake6,
+		TLSmode:          TLSmodeAuto,
+	}
+	hgs := &handshakeGenServer{}
+
+	type Pair struct {
+		name  string
+		nodeA *Node
+		nodeB *Node
+	}
+	nodes := []Pair{
+		Pair{
+			"No TLS. version 5 -> version 5",
+			CreateNode("node1Handshake5", "secret", nodeOptions5),
+			CreateNode("node2Handshake5", "secret", nodeOptions5),
+		},
+		Pair{
+			"No TLS. version 5 -> version 6",
+			CreateNode("node3Handshake5", "secret", nodeOptions5),
+			CreateNode("node4Handshake6", "secret", nodeOptions6),
+		},
+		//Pair{
+		//	"No TLS. version 6 -> version 5",
+		//	CreateNode("node5Handshake6", "secret", nodeOptions6),
+		//	CreateNode("node6Handshake5", "secret", nodeOptions5),
+		//},
+		Pair{
+			"No TLS. version 6 -> version 6",
+			CreateNode("node7Handshake6", "secret", nodeOptions6),
+			CreateNode("node8Handshake6", "secret", nodeOptions6),
+		},
+		Pair{
+			"With TLS. version 5 -> version 5",
+			CreateNode("node9Handshake5", "secret", nodeOptions5WithTLS),
+			CreateNode("node10Handshake5", "secret", nodeOptions5WithTLS),
+		},
+		Pair{
+			"With TLS. version 5 -> version 6",
+			CreateNode("node11Handshake5", "secret", nodeOptions5WithTLS),
+			CreateNode("node12Handshake6", "secret", nodeOptions6WithTLS),
+		},
+		//Pair{
+		//	"With TLS. version 6 -> version 5",
+		//	CreateNode("node13Handshake6", "secret", nodeOptions6WithTLS),
+		//	CreateNode("node14Handshake5", "secret", nodeOptions5WithTLS),
+		//},
+		Pair{
+			"With TLS. version 6 -> version 6",
+			CreateNode("node15Handshake6", "secret", nodeOptions6WithTLS),
+			CreateNode("node16Handshake6", "secret", nodeOptions6WithTLS),
+		},
+	}
+
+	defer func(nodes []Pair) {
+		for i := range nodes {
+			nodes[i].nodeA.Stop()
+			nodes[i].nodeB.Stop()
+		}
+	}(nodes)
+
+	time.Sleep(1 * time.Second)
+	var pA, pB *Process
+	var e error
+	var result etf.Term
+	for i := range nodes {
+		pair := nodes[i]
+		fmt.Printf("    %s: ", pair.name)
+		pA, e = pair.nodeA.Spawn("", ProcessOptions{}, hgs)
+		if e != nil {
+			t.Fatal(e)
+		}
+		pB, e = pair.nodeB.Spawn("", ProcessOptions{}, hgs)
+		if e != nil {
+			t.Fatal(e)
+		}
+
+		result, e = pA.Call(pB.Self(), "test")
+		if e != nil {
+			t.Fatal(e)
+		}
+		if r, ok := result.(string); !ok || r != "pass" {
+			t.Fatal("wrong result")
+		}
+		fmt.Println("OK")
 	}
 }
 

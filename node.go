@@ -159,8 +159,12 @@ func CreateNodeWithContext(ctx context.Context, name string, cookie string, opts
 			lib.Log("Running as hidden node")
 		}
 		ns := strings.Split(name, "@")
+		if len(ns) == 1 {
+			ns = append(ns, "localhost")
+			name = name + "@localhost"
+		}
 		if len(ns) != 2 {
-			panic("FQDN for node name is required (example: node@localhost)")
+			panic("incorrect FQDN node name (example: node@localhost)")
 		}
 
 		listenPort := node.listen(ns[1], opts)
