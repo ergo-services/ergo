@@ -453,7 +453,7 @@ func HandshakeAccept(conn net.Conn, options HandshakeOptions) (*Link, error) {
 
 	asyncReadChannel := make(chan error, 2)
 	asyncRead := func() {
-		_, e := b.ReadDataFrom(conn, 0)
+		_, e := b.ReadDataFrom(conn, 512)
 		asyncReadChannel <- e
 	}
 
