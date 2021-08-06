@@ -562,11 +562,11 @@ func HandshakeAccept(conn net.Conn, options HandshakeOptions) (*Link, error) {
 
 			case 'r':
 				if len(buffer) < 19 {
-					return nil, fmt.Errorf("malformed handshake ('r')")
+					return nil, fmt.Errorf("malformed handshake ('r' length)")
 				}
 
 				if !link.validateChallengeReply(buffer[1:]) {
-					return nil, fmt.Errorf("malformed handshake ('r1')")
+					return nil, fmt.Errorf("malformed handshake ('r' invalid reply)")
 				}
 				b.Reset()
 
