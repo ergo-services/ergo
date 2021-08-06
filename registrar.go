@@ -209,10 +209,10 @@ func (r *registrar) RegisterProcessExt(name string, object interface{}, opts Pro
 // UnregisterProcess unregister process by Pid
 func (r *registrar) UnregisterProcess(pid etf.Pid) {
 	r.mutexProcesses.Lock()
+	defer r.mutexProcesses.Unlock()
 	if p, ok := r.processes[pid.ID]; ok {
 		lib.Log("[%s] REGISTRAR unregistering process: %#v", r.node.FullName, p.self)
 		delete(r.processes, pid.ID)
-		r.mutexProcesses.Unlock()
 
 		r.mutexNames.Lock()
 		if (p.name) != "" {
@@ -228,19 +228,22 @@ func (r *registrar) UnregisterProcess(pid etf.Pid) {
 		}
 		r.mutexNames.Unlock()
 
+		r.mutexAliases.Lock()
+		for alias := range r.aliases {
+			delete(r.aliases, alias)
+		}
+		r.mutexAliases.Unlock()
+
 		// delete associated process with this app
-		r.mutexProcesses.Lock()
 		for _, spec := range r.apps {
 			if spec.process != nil && spec.process.self == p.self {
 				spec.process = nil
 			}
 		}
-		r.mutexProcesses.Unlock()
 		// invoke cancel context to prevent memory leaks
 		p.Kill()
 		return
 	}
-	r.mutexProcesses.Unlock()
 }
 
 // RegisterName register associates the name with pid
@@ -503,8 +506,8 @@ next:
 		r.mutexAliases.Lock()
 		if string(tto.Node) == r.nodeName {
 			// local route by alias
-			if pid, ok := r.aliases[tto]; ok {
-				to = pid
+			if p, ok := r.aliases[tto]; ok {
+				to = p.self
 				r.mutexAliases.Unlock()
 				goto next
 			}

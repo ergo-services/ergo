@@ -22,6 +22,8 @@ func TestRegistrar(t *testing.T) {
 	fmt.Printf("Starting nodes: nodeR1@localhost, nodeR2@localhost: ")
 	node1 := CreateNode("nodeR1@localhost", "cookies", NodeOptions{})
 	node2 := CreateNode("nodeR2@localhost", "cookies", NodeOptions{})
+	defer node1.Stop()
+	defer node2.Stop()
 	if node1 == nil || node2 == nil {
 		t.Fatal("can't start nodes")
 	} else {
@@ -144,5 +146,98 @@ func TestRegistrar(t *testing.T) {
 	if xID+10 != x.ID {
 		t.Fatalf("malformed PID creation sequence")
 	}
+
+}
+
+func TestRegistrarAlias(t *testing.T) {
+	fmt.Printf("\n=== Test Registrar Alias\n")
+	fmt.Printf("Starting node: nodeR1Alias@localhost: ")
+	node1 := CreateNode("nodeR1Alias@localhost", "cookies", NodeOptions{})
+	defer node1.Stop()
+	if node1 == nil {
+		t.Fatal("can't start nodes")
+	} else {
+		fmt.Println("OK")
+	}
+
+	gs := &TestRegistrarGenserver{}
+	fmt.Printf("    Starting gs1 and gs2 GenServers on %s: ", node1.FullName)
+	node1gs1, err := node1.Spawn("gs1", ProcessOptions{}, gs, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	node1gs2, err := node1.Spawn("gs2", ProcessOptions{}, gs, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(node1.registrar.aliases) > 0 {
+		t.Fatal("alias table must be empty")
+	}
+
+	fmt.Println("OK")
+
+	fmt.Printf("    Create gs1 alias: ")
+	alias, err := node1gs1.CreateAlias()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p, ok := node1.registrar.aliases[alias]; !ok {
+		if p.self != p.self {
+			t.Fatal("wrong alias")
+		}
+		t.Fatal("missing alias")
+	}
+	fmt.Println("OK")
+	fmt.Printf("    Make a call to gs1 via alias: ")
+	if reply, err := node1gs2.Call(alias, "hi"); err == nil {
+		if r, ok := reply.(string); !ok || r != "hi" {
+			t.Fatal("wrong result", reply)
+		}
+	} else {
+		t.Fatal(err)
+	}
+	fmt.Println("OK")
+	fmt.Printf("    Delete gs1 alias by gs2 (shouldn't be allowed): ")
+	if err := node1gs2.DeleteAlias(alias); err != ErrAliasOwner {
+		t.Fatal(" expected ErrAliasOwner, got:", err)
+	}
+	fmt.Println("OK")
+	fmt.Printf("    Delete gs1 alias by itself: ")
+	if err := node1gs1.DeleteAlias(alias); err != nil {
+		t.Fatal(err)
+	}
+	fmt.Println("OK")
+	if len(node1.registrar.aliases) > 0 {
+		t.Fatal("alias table (registrar) must be empty", node1.registrar.aliases)
+	}
+
+	if len(node1gs1.aliases) > 0 {
+		t.Fatal("alias table (process) must be empty", node1gs1.aliases)
+
+	}
+	fmt.Printf("    Aliases must be cleaned up once owner is down: ")
+	node1gs1.CreateAlias()
+	node1gs1.CreateAlias()
+	node1gs1.CreateAlias()
+	if len(node1.registrar.aliases) != 3 {
+		t.Fatal("alias table (registrar) must have 3 aliases", node1.registrar.aliases)
+	}
+
+	if len(node1gs1.aliases) != 3 {
+		t.Fatal("alias table (process) must have 3 aliases", node1gs1.aliases)
+	}
+	node1gs1.Kill()
+	time.Sleep(100 * time.Millisecond)
+	if len(node1.registrar.aliases) != 0 {
+		t.Fatal("alias table (registrar) must be empty", node1.registrar.aliases)
+	}
+	fmt.Println("OK")
+
+	fmt.Printf("    Create gs1 alias on a stopped process (shouldn't be allowed): ")
+	alias, err = node1gs1.CreateAlias()
+	if err != ErrProcessUnknown {
+		t.Fatal("wrong result")
+	}
+	fmt.Println("OK")
 
 }

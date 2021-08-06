@@ -9,7 +9,6 @@ import (
 	"runtime"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/halturin/ergo/dist"
 	"github.com/halturin/ergo/etf"
@@ -272,7 +271,6 @@ func TestNodeDistHandshake(t *testing.T) {
 		}
 	}(nodes)
 
-	time.Sleep(1 * time.Second)
 	var pA, pB *Process
 	var e error
 	var result etf.Term
