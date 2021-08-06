@@ -524,7 +524,7 @@ next:
 		send <- []etf.Term{etf.Tuple{distProtoALIAS_SEND, from, tto}, message}
 
 	default:
-		lib.Log("[%s] unknow sender type %#v", r.node.FullName, tto)
+		lib.Log("[%s] unknow receiver type %#v", r.node.FullName, tto)
 	}
 }
 
