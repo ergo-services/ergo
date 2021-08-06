@@ -22,7 +22,6 @@ type monitorItem struct {
 	pid     etf.Pid // by
 	process etf.Pid
 	ref     etf.Ref
-	key     string
 }
 
 type linkProcessRequest struct {
@@ -32,12 +31,12 @@ type linkProcessRequest struct {
 
 type monitor struct {
 	processes      map[etf.Pid][]monitorItem
-	ref2pid        map[string]etf.Pid
+	ref2pid        map[etf.Ref]etf.Pid
 	mutexProcesses sync.Mutex
 	links          map[etf.Pid][]etf.Pid
 	mutexLinks     sync.Mutex
 	nodes          map[string][]monitorItem
-	ref2node       map[string]string
+	ref2node       map[etf.Ref]string
 	mutexNodes     sync.Mutex
 
 	node *Node
@@ -49,8 +48,8 @@ func createMonitor(node *Node) *monitor {
 		links:     make(map[etf.Pid][]etf.Pid),
 		nodes:     make(map[string][]monitorItem),
 
-		ref2pid:  make(map[string]etf.Pid),
-		ref2node: make(map[string]string),
+		ref2pid:  make(map[etf.Ref]etf.Pid),
+		ref2node: make(map[etf.Ref]string),
 
 		node: node,
 	}
@@ -86,15 +85,13 @@ next:
 
 		m.mutexProcesses.Lock()
 		l := m.processes[t]
-		key := ref.String()
 		item := monitorItem{
 			pid:     by,
 			ref:     ref,
-			key:     key,
 			process: t,
 		}
 		m.processes[t] = append(l, item)
-		m.ref2pid[key] = t
+		m.ref2pid[ref] = t
 		m.mutexProcesses.Unlock()
 
 		if isFakePid(t) {
@@ -113,7 +110,7 @@ next:
 		if err := m.node.registrar.routeRaw(t.Node, message); err != nil {
 			m.notifyProcessTerminated(ref, by, t, "noconnection")
 			m.mutexProcesses.Lock()
-			delete(m.ref2pid, key)
+			delete(m.ref2pid, ref)
 			m.mutexProcesses.Unlock()
 		}
 
@@ -177,12 +174,10 @@ func (m *monitor) DemonitorProcess(ref etf.Ref) bool {
 	var process interface{}
 	var nodeName etf.Atom
 
-	key := ref.String()
-
 	m.mutexProcesses.Lock()
 	defer m.mutexProcesses.Unlock()
 
-	if pid, ok = m.ref2pid[key]; !ok {
+	if pid, ok = m.ref2pid[ref]; !ok {
 		// unknown monitor reference
 		return false
 	}
@@ -192,7 +187,7 @@ func (m *monitor) DemonitorProcess(ref etf.Ref) bool {
 
 	// remove PID from monitoring processes list
 	for i := range items {
-		if items[i].key != key {
+		if items[i].ref != ref {
 			continue
 		}
 		process = items[i].process
@@ -210,7 +205,7 @@ func (m *monitor) DemonitorProcess(ref etf.Ref) bool {
 
 		items[i] = items[0]
 		items = items[1:]
-		delete(m.ref2pid, key)
+		delete(m.ref2pid, ref)
 		break
 
 	}
@@ -344,14 +339,12 @@ func (m *monitor) MonitorNode(by etf.Pid, node string) etf.Ref {
 	defer m.mutexNodes.Unlock()
 
 	l := m.nodes[node]
-	key := ref.String()
 	item := monitorItem{
 		pid: by,
 		ref: ref,
-		key: key,
 	}
 	m.nodes[node] = append(l, item)
-	m.ref2node[key] = node
+	m.ref2node[ref] = node
 
 	return ref
 }
@@ -363,8 +356,7 @@ func (m *monitor) DemonitorNode(ref etf.Ref) {
 	m.mutexNodes.Lock()
 	defer m.mutexNodes.Unlock()
 
-	key := ref.String()
-	if name, ok = m.ref2node[key]; !ok {
+	if name, ok = m.ref2node[ref]; !ok {
 		return
 	}
 
@@ -372,20 +364,20 @@ func (m *monitor) DemonitorNode(ref etf.Ref) {
 
 	// remove PID from monitoring processes list
 	for i := range l {
-		if l[i].key != key {
+		if l[i].ref != ref {
 			continue
 		}
 
 		l[i] = l[0]
 		l = l[1:]
 		m.mutexProcesses.Lock()
-		delete(m.ref2pid, key)
+		delete(m.ref2pid, ref)
 		m.mutexProcesses.Unlock()
 		break
 
 	}
 	m.nodes[name] = l
-	delete(m.ref2node, key)
+	delete(m.ref2node, ref)
 }
 
 func (m *monitor) NodeDown(name string) {
@@ -413,7 +405,7 @@ func (m *monitor) NodeDown(name string) {
 		}
 		for i := range ps {
 			m.notifyProcessTerminated(ps[i].ref, ps[i].pid, pid, "noconnection")
-			delete(m.ref2pid, ps[i].key)
+			delete(m.ref2pid, ps[i].ref)
 		}
 		delete(m.processes, pid)
 	}
@@ -465,7 +457,7 @@ func (m *monitor) ProcessTerminated(terminated etf.Pid, name, reason string) {
 		for i := range items {
 			lib.Log("[%s] MONITOR process terminated: %v send notify to: %v", m.node.FullName, terminated, items[i].pid)
 			m.notifyProcessTerminated(items[i].ref, items[i].pid, items[i].process, reason)
-			delete(m.ref2pid, items[i].key)
+			delete(m.ref2pid, items[i].ref)
 		}
 		delete(m.processes, terminatedPid)
 	}

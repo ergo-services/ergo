@@ -215,7 +215,7 @@ func TestRegistrarAlias(t *testing.T) {
 		t.Fatal("alias table (process) must be empty", node1gs1.aliases)
 
 	}
-	fmt.Printf("    Aliases must be cleaned up once owner is down: ")
+	fmt.Printf("    Aliases must be cleaned up once the owner is down: ")
 	node1gs1.CreateAlias()
 	node1gs1.CreateAlias()
 	node1gs1.CreateAlias()

@@ -42,10 +42,6 @@ type Ref struct {
 	ID       [5]uint32
 }
 
-func (ref Ref) String() string {
-	return fmt.Sprintf("%#v", ref)
-}
-
 // Marshaler is the interface implemented by types that can marshal themselves into valid ETF binary
 type Marshaler interface {
 	MarshalETF() ([]byte, error)

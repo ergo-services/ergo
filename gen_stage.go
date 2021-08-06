@@ -166,8 +166,7 @@ type GenStageState struct {
 	demandBuffer    []demandRequest
 	dispatcherState interface{}
 	// keep our subscriptions
-	// key: string representation of etf.Ref (monitor)
-	producers map[string]*subscriptionInternal
+	producers map[etf.Ref]*subscriptionInternal
 	// keep our subscribers
 	consumers map[etf.Pid]*subscriptionInternal
 }
@@ -370,7 +369,7 @@ func (gst *GenStage) Init(state *GenServerState, args ...interface{}) error {
 
 	stageState := &GenStageState{
 		GenServerState: *state,
-		producers:      make(map[string]*subscriptionInternal),
+		producers:      make(map[etf.Ref]*subscriptionInternal),
 		consumers:      make(map[etf.Pid]*subscriptionInternal),
 	}
 
@@ -408,7 +407,7 @@ func (gst *GenStage) HandleDirect(state *GenServerState, message interface{}) (i
 	st := state.State.(*GenStageState)
 	switch m := message.(type) {
 	case setManualDemand:
-		subInternal, ok := st.producers[m.subscription.Ref.String()]
+		subInternal, ok := st.producers[m.subscription.Ref]
 		if !ok {
 			return nil, fmt.Errorf("unknown subscription")
 		}
@@ -420,7 +419,7 @@ func (gst *GenStage) HandleDirect(state *GenServerState, message interface{}) (i
 		return nil, nil
 
 	case setCancelMode:
-		subInternal, ok := st.producers[m.subscription.Ref.String()]
+		subInternal, ok := st.producers[m.subscription.Ref]
 		if !ok {
 			return nil, fmt.Errorf("unknown subscription")
 		}
@@ -462,7 +461,7 @@ func (gst *GenStage) HandleDirect(state *GenServerState, message interface{}) (i
 		return nil, nil
 
 	case demandRequest:
-		subInternal, ok := st.producers[m.subscription.Ref.String()]
+		subInternal, ok := st.producers[m.subscription.Ref]
 		if !ok {
 			return nil, fmt.Errorf("unknown subscription")
 		}
@@ -476,7 +475,7 @@ func (gst *GenStage) HandleDirect(state *GenServerState, message interface{}) (i
 
 	case cancelSubscription:
 		// if we act as a consumer with this subscription
-		if subInternal, ok := st.producers[m.subscription.Ref.String()]; ok {
+		if subInternal, ok := st.producers[m.subscription.Ref]; ok {
 			msg := etf.Tuple{
 				etf.Atom("$gen_producer"),
 				etf.Tuple{m.subscription.Pid, m.subscription.Ref},
@@ -647,7 +646,7 @@ func handleConsumer(state *GenStageState, subscription GenStageSubscription, cmd
 		object := state.Process.GetObject()
 		numEvents := len(events)
 
-		subInternal, ok := state.producers[subscription.Ref.String()]
+		subInternal, ok := state.producers[subscription.Ref]
 		if !ok {
 			fmt.Printf("Warning! got %d events for unknown subscription %#v\n", numEvents, subscription)
 			return etf.Atom("ok"), nil
@@ -695,7 +694,7 @@ func handleConsumer(state *GenStageState, subscription GenStageSubscription, cmd
 			Producer:     producer,
 			Options:      subscriptionOpts,
 		}
-		state.producers[subscription.Ref.String()] = subInternal
+		state.producers[subscription.Ref] = subInternal
 
 		if !manualDemand {
 			sendDemand(state.Process, producer, subscription, defaultAutoDemandCount)
@@ -706,7 +705,7 @@ func handleConsumer(state *GenStageState, subscription GenStageSubscription, cmd
 
 	case etf.Atom("retry-cancel"):
 		// if "subscribed" message hasn't still arrived then just ignore it
-		if _, ok := state.producers[subscription.Ref.String()]; !ok {
+		if _, ok := state.producers[subscription.Ref]; !ok {
 			return etf.Atom("ok"), nil
 		}
 		fallthrough
@@ -717,7 +716,7 @@ func handleConsumer(state *GenStageState, subscription GenStageSubscription, cmd
 			return nil, fmt.Errorf("Cancel reason is not a string")
 		}
 
-		subInternal, ok := state.producers[subscription.Ref.String()]
+		subInternal, ok := state.producers[subscription.Ref]
 		if !ok {
 			// There might be a case when "cancel" message arrives before
 			// the "subscribed" message due to async nature of messaging,
@@ -742,7 +741,7 @@ func handleConsumer(state *GenStageState, subscription GenStageSubscription, cmd
 			return nil, err
 		}
 
-		delete(state.producers, subscription.Ref.String())
+		delete(state.producers, subscription.Ref)
 
 		switch subInternal.Options.Cancel {
 		case GenStageCancelTemporary:
@@ -991,7 +990,7 @@ func handleStageDown(state *GenStageState, down DownMessage) error {
 	}
 
 	// checking for producers (if we act as a consumer)
-	if subInternal, ok := state.producers[down.Ref.String()]; ok {
+	if subInternal, ok := state.producers[down.Ref]; ok {
 		cmd := stageRequestCommand{
 			Cmd:  etf.Atom("cancel"),
 			Opt1: down.Reason,

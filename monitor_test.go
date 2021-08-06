@@ -696,8 +696,7 @@ func TestLinkLocalRemote(t *testing.T) {
 func checkCleanProcessRef(node *Node, ref etf.Ref) error {
 	node.monitor.mutexProcesses.Lock()
 	defer node.monitor.mutexProcesses.Unlock()
-	key := ref.String()
-	if _, ok := node.monitor.ref2pid[key]; ok {
+	if _, ok := node.monitor.ref2pid[ref]; ok {
 		return fmt.Errorf("monitor process reference hasnt clean correctly")
 	}
 
