@@ -151,6 +151,29 @@ func TestGenServer(t *testing.T) {
 			t.Fatal(e)
 		}
 	}
+	alias, err := node1gs2.CreateAlias()
+	if err != nil {
+		t.Fatal(err)
+	}
+	fmt.Printf("    process.Send (by Alias) local (gs1) -> local (gs2) : ")
+	node1gs1.Send(alias, etf.Atom("hi"))
+	waitForResult(t, gs2.err)
+
+	node1gs1.Cast(alias, etf.Atom("hi cast"))
+	fmt.Printf("    process.Cast (by Alias) local (gs1) -> local (gs2) : ")
+	waitForResult(t, gs2.err)
+
+	fmt.Printf("    process.Call (by Alias) local (gs1) -> local (gs2): ")
+	if v1, err := node1gs1.Call(alias, v); err != nil {
+		t.Fatal(err)
+	} else {
+		if v == v1 {
+			fmt.Println("OK")
+		} else {
+			e := fmt.Errorf("expected: %#v , got: %#v", v, v1)
+			t.Fatal(e)
+		}
+	}
 
 	fmt.Printf("    process.Send (by Pid) local (gs1) -> remote (gs3) : ")
 	node1gs1.Send(node2gs3.Self(), etf.Atom("hi"))
@@ -192,6 +215,32 @@ func TestGenServer(t *testing.T) {
 			t.Fatal(e)
 		}
 	}
+
+	fmt.Printf("    process.Send (by Alias) local (gs1) -> remote (gs3) : ")
+	alias, err = node2gs3.CreateAlias()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	node1gs1.Send(alias, etf.Atom("hi"))
+	waitForResult(t, gs3.err)
+
+	node1gs1.Cast(alias, etf.Atom("hi cast"))
+	fmt.Printf("    process.Cast (by Alias) local (gs1) -> remote (gs3) : ")
+	waitForResult(t, gs3.err)
+
+	fmt.Printf("    process.Call (by Alias) local (gs1) -> remote (gs3): ")
+	if v1, err := node1gs1.Call(alias, v); err != nil {
+		t.Fatal(err)
+	} else {
+		if v == v1 {
+			fmt.Println("OK")
+		} else {
+			e := fmt.Errorf("expected: %#v , got: %#v", v, v1)
+			t.Fatal(e)
+		}
+	}
+
 	fmt.Printf("    process.Direct (without HandleDirect implementation): ")
 	if _, err := node1gs1.Direct(nil); err == nil {
 		t.Fatal("must be ErrUnsupportedRequest")

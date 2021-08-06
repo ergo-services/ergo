@@ -709,7 +709,8 @@ func (n *Node) handleMessage(fromNode string, control, message etf.Term) {
 			case distProtoALIAS_SEND:
 				// {33, FromPid, Alias}
 				lib.Log("[%s] CONTROL ALIAS_SEND [from %s]: %#v", n.FullName, fromNode, control)
-				n.registrar.route(t.Element(2).(etf.Pid), t.Element(3).(etf.Alias), message)
+				alias := etf.Alias(t.Element(3).(etf.Ref))
+				n.registrar.route(t.Element(2).(etf.Pid), alias, message)
 
 			default:
 				lib.Log("[%s] CONTROL unknown command [from %s]: %#v", n.FullName, fromNode, control)
