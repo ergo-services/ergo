@@ -172,7 +172,7 @@ func (gs *GenServer) Loop(p *Process, args ...interface{}) string {
 							var to etf.Term
 							if from.CalledByAlias {
 								fromTag = etf.ListImproper{etf.Atom("alias"), from.Ref}
-								to = from.Ref
+								to = etf.Alias(from.Ref)
 							} else {
 								fromTag = from.Ref
 								to = from.Pid

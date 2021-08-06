@@ -702,6 +702,9 @@ func (n *Node) handleMessage(fromNode string, control, message etf.Term) {
 				lib.Log("PAYLOAD_EXIT2 message (act %d): %#v", act, t)
 			case distProtoPAYLOAD_MONITOR_P_EXIT:
 				lib.Log("PAYLOAD_MONITOR_P_EXIT message (act %d): %#v", act, t)
+			case distProtoALIAS_SEND:
+				// {33, FromPid, Alias}
+				n.registrar.route(t.Element(2).(etf.Pid), t.Element(3).(etf.Alias), message)
 
 			default:
 				lib.Log("Unhandled node message (act %d): %#v", act, t)
