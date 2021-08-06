@@ -400,15 +400,16 @@ func Handshake(conn net.Conn, options HandshakeOptions) (*Link, error) {
 				return link, nil
 
 			case 's':
-				if !link.readStatus(buffer[1:]) {
+				if link.readStatus(buffer[1:]) == false {
 					return nil, fmt.Errorf("handshake negotiation failed")
 				}
-				// skip "sok"
-				if len(buffer[3:]) > 0 {
-					buffer = buffer[3:]
+
+				await = []byte{'a'}
+				// "sok"
+				if len(buffer) > 4 {
+					b.B = b.B[expectingBytes+4:]
 					goto next
 				}
-
 				b.Reset()
 
 			default:
