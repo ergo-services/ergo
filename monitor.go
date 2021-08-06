@@ -73,7 +73,7 @@ func (m *monitor) MonitorProcessWithRef(by etf.Pid, process interface{}, ref etf
 next:
 	switch t := process.(type) {
 	case etf.Pid:
-		lib.Log("[%s] MONITOR process: %v => %v", m.node.FullName, by, t)
+		lib.Log("[%s] MONITOR process: %#v => %#v", m.node.FullName, by, t)
 
 		// If 'process' belongs this node we should make sure if its alive.
 		// http://erlang.org/doc/reference_manual/processes.html#monitors

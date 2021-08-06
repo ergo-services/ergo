@@ -44,9 +44,9 @@ type GenServer struct{}
 
 // GenServerFrom
 type GenServerFrom struct {
-	Pid           etf.Pid
-	Ref           etf.Ref
-	CalledByAlias bool
+	Pid          etf.Pid
+	Ref          etf.Ref
+	ReplyByAlias bool
 }
 
 // GenServerState state of the GenServer process.
@@ -106,7 +106,7 @@ func (gs *GenServer) Loop(p *Process, args ...interface{}) string {
 			continue
 		}
 
-		lib.Log("[%s]. %v got message from %#v %#v\n", p.Node.FullName, p.self, fromPid, message)
+		lib.Log("[%s] GEN_SERVER %#v got message from %#v", p.Node.FullName, p.self, fromPid)
 
 		p.reductions++
 
@@ -144,15 +144,22 @@ func (gs *GenServer) Loop(p *Process, args ...interface{}) string {
 						case etf.Ref:
 							from.Ref = v
 						case etf.List:
-							if vinc, ok := v.Element(1).(etf.List); ok {
-								v = vinc
+							var ok bool
+							// was sent with "alias" [etf.Atom("alias"), etf.Ref]
+							if len(v) != 2 {
+								// wrong value
+								return
+							}
+							if alias, ok := v.Element(1).(etf.Atom); !ok || alias != etf.Atom("alias") {
+								// wrong value
+								return
 							}
 							from.Ref, ok = v.Element(2).(etf.Ref)
 							if !ok {
 								// wrong value
 								return
 							}
-							from.CalledByAlias = true
+							from.ReplyByAlias = true
 
 						default:
 							// wrong tag value
@@ -170,7 +177,8 @@ func (gs *GenServer) Loop(p *Process, args ...interface{}) string {
 						case "reply":
 							var fromTag etf.Term
 							var to etf.Term
-							if from.CalledByAlias {
+							if from.ReplyByAlias {
+								// Erlang gen_server:call uses improper list for the reply ['alias'|Ref]
 								fromTag = etf.ListImproper{etf.Atom("alias"), from.Ref}
 								to = etf.Alias(from.Ref)
 							} else {
@@ -237,11 +245,11 @@ func (gs *GenServer) Loop(p *Process, args ...interface{}) string {
 				}
 
 			case etf.Ref:
-				lib.Log("got reply: %#v\n%#v", mtag, message)
+				lib.Log("[%s] GEN_SERVER %#v got reply: %#v", p.Node.FullName, p.self, mtag)
 				p.reply <- m
 
 			default:
-				lib.Log("mtag: %#v", mtag)
+				lib.Log("[%s] GEN_SERVER %#v got simple message %#v", p.Node.FullName, p.self, mtag)
 				go func() {
 					lockState.Lock()
 					defer lockState.Unlock()

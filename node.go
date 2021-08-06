@@ -629,8 +629,6 @@ func (n *Node) handleMessage(fromNode string, control, message etf.Term) {
 		}
 	}()
 
-	lib.Log("Node control: %#v", control)
-
 	switch t := control.(type) {
 	case etf.Tuple:
 		switch act := t.Element(1).(type) {
@@ -638,52 +636,54 @@ func (n *Node) handleMessage(fromNode string, control, message etf.Term) {
 			switch act {
 			case distProtoREG_SEND:
 				// {6, FromPid, Unused, ToName}
+				lib.Log("[%s] CONTROL REG_SEND [from %s]: %#v", n.FullName, fromNode, control)
 				n.registrar.route(t.Element(2).(etf.Pid), t.Element(4), message)
 
 			case distProtoSEND:
 				// {2, Unused, ToPid}
 				// SEND has no sender pid
+				lib.Log("[%s] CONTROL SEND [from %s]: %#v", n.FullName, fromNode, control)
 				n.registrar.route(etf.Pid{}, t.Element(3), message)
 
 			case distProtoLINK:
 				// {1, FromPid, ToPid}
-				lib.Log("LINK message (act %d): %#v", act, t)
+				lib.Log("[%s] CONTROL LINK [from %s]: %#v", n.FullName, fromNode, control)
 				n.monitor.Link(t.Element(2).(etf.Pid), t.Element(3).(etf.Pid))
 
 			case distProtoUNLINK:
 				// {4, FromPid, ToPid}
-				lib.Log("UNLINK message (act %d): %#v", act, t)
+				lib.Log("[%s] CONTROL UNLINK [from %s]: %#v", n.FullName, fromNode, control)
 				n.monitor.Unlink(t.Element(2).(etf.Pid), t.Element(3).(etf.Pid))
 
 			case distProtoNODE_LINK:
-				lib.Log("NODE_LINK message (act %d): %#v", act, t)
+				lib.Log("[%s] CONTROL NODE_LINK [from %s]: %#v", n.FullName, fromNode, control)
 
 			case distProtoEXIT:
 				// {3, FromPid, ToPid, Reason}
-				lib.Log("EXIT message (act %d): %#v", act, t)
+				lib.Log("[%s] CONTROL EXIT [from %s]: %#v", n.FullName, fromNode, control)
 				terminated := t.Element(2).(etf.Pid)
 				reason := fmt.Sprint(t.Element(4))
 				n.monitor.ProcessTerminated(terminated, "", string(reason))
 
 			case distProtoEXIT2:
-				lib.Log("EXIT2 message (act %d): %#v", act, t)
+				lib.Log("[%s] CONTROL EXIT2 [from %s]: %#v", n.FullName, fromNode, control)
 
 			case distProtoMONITOR:
 				// {19, FromPid, ToProc, Ref}, where FromPid = monitoring process
 				// and ToProc = monitored process pid or name (atom)
-				lib.Log("MONITOR message (act %d): %#v", act, t)
+				lib.Log("[%s] CONTROL MONITOR [from %s]: %#v", n.FullName, fromNode, control)
 				n.monitor.MonitorProcessWithRef(t.Element(2).(etf.Pid), t.Element(3), t.Element(4).(etf.Ref))
 
 			case distProtoDEMONITOR:
 				// {20, FromPid, ToProc, Ref}, where FromPid = monitoring process
 				// and ToProc = monitored process pid or name (atom)
-				lib.Log("DEMONITOR message (act %d): %#v", act, t)
+				lib.Log("[%s] CONTROL DEMONITOR [from %s]: %#v", n.FullName, fromNode, control)
 				n.monitor.DemonitorProcess(t.Element(4).(etf.Ref))
 
 			case distProtoMONITOR_EXIT:
 				// {21, FromProc, ToPid, Ref, Reason}, where FromProc = monitored process
 				// pid or name (atom), ToPid = monitoring process, and Reason = exit reason for the monitored process
-				lib.Log("MONITOR_EXIT message (act %d): %#v", act, t)
+				lib.Log("[%s] CONTROL MONITOR_EXIT [from %s]: %#v", n.FullName, fromNode, control)
 				reason := fmt.Sprint(t.Element(5))
 				switch terminated := t.Element(2).(type) {
 				case etf.Pid:
@@ -695,22 +695,23 @@ func (n *Node) handleMessage(fromNode string, control, message etf.Term) {
 
 			// Not implemented yet, just stubs. TODO.
 			case distProtoSEND_SENDER:
-				lib.Log("SEND_SENDER message (act %d): %#v", act, t)
+				lib.Log("[%s] CONTROL SEND_SENDER unsupported [from %s]: %#v", n.FullName, fromNode, control)
 			case distProtoPAYLOAD_EXIT:
-				lib.Log("PAYLOAD_EXIT message (act %d): %#v", act, t)
+				lib.Log("[%s] CONTROL PAYLOAD_EXIT unsupported [from %s]: %#v", n.FullName, fromNode, control)
 			case distProtoPAYLOAD_EXIT2:
-				lib.Log("PAYLOAD_EXIT2 message (act %d): %#v", act, t)
+				lib.Log("[%s] CONTROL PAYLOAD_EXIT2 unsupported [from %s]: %#v", n.FullName, fromNode, control)
 			case distProtoPAYLOAD_MONITOR_P_EXIT:
-				lib.Log("PAYLOAD_MONITOR_P_EXIT message (act %d): %#v", act, t)
+				lib.Log("[%s] CONTROL PAYLOAD_MONITOR_P_EXIT unsupported [from %s]: %#v", n.FullName, fromNode, control)
 			case distProtoALIAS_SEND:
 				// {33, FromPid, Alias}
+				lib.Log("[%s] CONTROL ALIAS_SEND [from %s]: %#v", n.FullName, fromNode, control)
 				n.registrar.route(t.Element(2).(etf.Pid), t.Element(3).(etf.Alias), message)
 
 			default:
-				lib.Log("Unhandled node message (act %d): %#v", act, t)
+				lib.Log("[%s] CONTROL unknown command [from %s]: %#v", n.FullName, fromNode, control)
 			}
 		default:
-			lib.Log("UNHANDLED ACT: %#v", t.Element(1))
+			lib.Log("[%s] CONTROL unsupported message [from %s]: %#v", n.FullName, fromNode, control)
 		}
 	}
 }
