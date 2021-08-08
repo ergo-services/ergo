@@ -632,6 +632,10 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 			}
 
 		case ListImproper:
+			if len(t) == 0 {
+				b.AppendByte(ettNil)
+				continue
+			}
 			lenList := len(t) - 1
 			buf := b.Extend(5)
 			buf[0] = ettList
@@ -645,6 +649,10 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 
 		case List:
 			lenList := len(t)
+			if lenList == 0 {
+				b.AppendByte(ettNil)
+				continue
+			}
 			buf := b.Extend(5)
 			buf[0] = ettList
 			binary.BigEndian.PutUint32(buf[1:], uint32(lenList))

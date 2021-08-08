@@ -134,6 +134,10 @@ func (t Tuple) Element(i int) Term {
 }
 
 func (p Pid) String() string {
+	empty := Pid{}
+	if p == empty {
+		return "<0.0.0>"
+	}
 	hasher32.Write([]byte(p.Node))
 	defer hasher32.Reset()
 	return fmt.Sprintf("<%X.%d.%d>", hasher32.Sum32(), int32(p.ID>>32), int32(p.ID))

@@ -628,11 +628,12 @@ func (n *Node) ApplicationStop(name string) error {
 }
 
 func (n *Node) handleMessage(fromNode string, control, message etf.Term) (err error) {
-	defer func() {
-		if r := recover(); r != nil {
-			err = fmt.Errorf("%s", r)
-		}
-	}()
+	//defer func() {
+	//	if r := recover(); r != nil {
+	//		fmt.Println("PANIC", r)
+	//		err = fmt.Errorf("%s", r)
+	//	}
+	//}()
 
 	switch t := control.(type) {
 	case etf.Tuple:
@@ -714,7 +715,6 @@ func (n *Node) handleMessage(fromNode string, control, message etf.Term) (err er
 				n.registrar.route(t.Element(2).(etf.Pid), alias, message)
 
 			case distProtoSPAWN_REQUEST:
-				fmt.Println("CCCC", control, message)
 				// {29, ReqId, From, GroupLeader, {Module, Function, Arity}, OptList}
 				lib.Log("[%s] CONTROL SPAWN_REQUEST [from %s]: %#v", n.FullName, fromNode, control)
 				registerName := ""
@@ -733,7 +733,7 @@ func (n *Node) handleMessage(fromNode string, control, message etf.Term) (err er
 
 				mfa := t.Element(5).(etf.Tuple)
 				module := mfa.Element(1).(etf.Atom)
-				args := message.([]etf.Term)
+				args := message.(etf.List)
 
 				n.remoteSpawnMutex.Lock()
 				object, provided := n.remoteSpawn[string(module)]
@@ -762,7 +762,7 @@ func (n *Node) handleMessage(fromNode string, control, message etf.Term) (err er
 				if process == nil {
 					return
 				}
-				ref := t.Element(3).(etf.Ref)
+				ref := t.Element(2).(etf.Ref)
 				//flags := t.Element(4)
 				process.putSyncReply(ref, t.Element(5))
 

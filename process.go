@@ -421,7 +421,7 @@ func (p *Process) RemoteSpawn(node string, object string, opts RemoteSpawnOption
 	if opts.Timeout == 0 {
 		opts.Timeout = DefaultCallTimeout
 	}
-	control := etf.Tuple{distProtoSPAWN_REQUEST, ref, p.self,
+	control := etf.Tuple{distProtoSPAWN_REQUEST, ref, p.self, p.self,
 		// {M,F,A}
 		etf.Tuple{etf.Atom(object), etf.Atom(opts.Function), len(args)},
 		optlist,
@@ -447,6 +447,11 @@ func (p *Process) RemoteSpawn(node string, object string, opts RemoteSpawnOption
 		}
 		return r, nil
 	case etf.Atom:
+		switch string(r) {
+		case ErrTaken.Error():
+			return etf.Pid{}, ErrTaken
+
+		}
 		return etf.Pid{}, fmt.Errorf(string(r))
 	}
 
@@ -489,7 +494,6 @@ func (p *Process) sendSyncRequestRaw(ref etf.Ref, node etf.Atom, messages ...etf
 	p.replyMutex.Lock()
 	defer p.replyMutex.Unlock()
 	p.reply[ref] = reply
-	fmt.Println("KKKK", node, messages)
 	p.Node.registrar.routeRaw(node, messages...)
 }
 func (p *Process) sendSyncRequest(ref etf.Ref, to interface{}, message etf.Term) {

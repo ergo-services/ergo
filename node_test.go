@@ -193,6 +193,13 @@ type handshakeGenServer struct {
 	GenServer
 }
 
+func (h *handshakeGenServer) Init(state *GenServerState, args ...etf.Term) error {
+	if len(args) > 0 {
+		fmt.Println(state.Process.Node.FullName, state.Process.Name(), args)
+	}
+	return nil
+}
+
 func (h *handshakeGenServer) HandleCall(state *GenServerState, from GenServerFrom, message etf.Term) (string, etf.Term) {
 	return "reply", "pass"
 }
@@ -281,7 +288,7 @@ func TestNodeDistHandshake(t *testing.T) {
 	}
 }
 
-func ATestNodeRemoteSpawn(t *testing.T) {
+func TestNodeRemoteSpawn(t *testing.T) {
 	fmt.Printf("\n=== Test Node Remote Spawn\n")
 	node1, _ := CreateNode("node1remoteSpawn", "secret", NodeOptions{})
 	node2, _ := CreateNode("node2remoteSpawn", "secret", NodeOptions{})
@@ -294,13 +301,20 @@ func ATestNodeRemoteSpawn(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	opts := RemoteSpawnOptions{RegisterName: "asdf"}
+	opts := RemoteSpawnOptions{
+		RegisterName: "asdf",
+	}
 	remote, err := process.RemoteSpawn(node2.FullName, "remote", opts, 1, 2, 3)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	fmt.Println("REMOTE", remote)
+	remote1, err := process.RemoteSpawn(node2.FullName, "remote", opts, 1, 2, 3)
+	if err != ErrTaken {
+		t.Fatal(err)
+	}
+	fmt.Println("REMOTE1", remote1)
 
 }
 

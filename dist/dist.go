@@ -721,7 +721,12 @@ func (l *Link) ReadHandlePacket(ctx context.Context, recv chan *lib.Buffer,
 		}
 
 		// handle message
-		handler(l.peer.Name, control, message)
+		if err := handler(l.peer.Name, control, message); err != nil {
+			fmt.Printf("Malformed Control packet at link with %s: %#v\n", l.PeerName(), control)
+			l.Close()
+			lib.ReleaseBuffer(b)
+			return
+		}
 
 		// we have to release this buffer
 		lib.ReleaseBuffer(b)
