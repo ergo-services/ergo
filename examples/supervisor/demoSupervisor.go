@@ -39,13 +39,13 @@ func (ds *demoSup) Init(args ...etf.Term) ergo.SupervisorSpec {
 				Name:    "demoServer02",
 				Child:   &demoGenServ{},
 				Restart: ergo.SupervisorChildRestartPermanent,
-				Args:    []interface{}{12345},
+				Args:    []etf.Term{12345},
 			},
 			ergo.SupervisorChildSpec{
 				Name:    "demoServer03",
 				Child:   &demoGenServ{},
 				Restart: ergo.SupervisorChildRestartPermanent,
-				Args:    []interface{}{"abc", 67890},
+				Args:    []etf.Term{"abc", 67890},
 			},
 		},
 		Strategy: ergo.SupervisorStrategy{
