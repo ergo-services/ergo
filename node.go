@@ -628,12 +628,11 @@ func (n *Node) ApplicationStop(name string) error {
 }
 
 func (n *Node) handleMessage(fromNode string, control, message etf.Term) (err error) {
-	//defer func() {
-	//	if r := recover(); r != nil {
-	//		fmt.Println("PANIC", r)
-	//		err = fmt.Errorf("%s", r)
-	//	}
-	//}()
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("%s", r)
+		}
+	}()
 
 	switch t := control.(type) {
 	case etf.Tuple:
