@@ -15,7 +15,7 @@ type netKernelSup struct {
 	Supervisor
 }
 
-func (nks *netKernelSup) Init(args ...interface{}) SupervisorSpec {
+func (nks *netKernelSup) Init(args ...etf.Term) SupervisorSpec {
 	return SupervisorSpec{
 		Children: []SupervisorChildSpec{
 			SupervisorChildSpec{
@@ -57,7 +57,7 @@ type netKernel struct {
 	routinesCtx map[etf.Pid]context.CancelFunc
 }
 
-func (nk *netKernel) Init(state *GenServerState, args ...interface{}) error {
+func (nk *netKernel) Init(state *GenServerState, args ...etf.Term) error {
 	lib.Log("NET_KERNEL: Init: %#v", args)
 	nk.routinesCtx = make(map[etf.Pid]context.CancelFunc)
 	return nil

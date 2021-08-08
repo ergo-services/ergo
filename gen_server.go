@@ -8,14 +8,12 @@ import (
 	"github.com/halturin/ergo/lib"
 )
 
-const (
-	DefaultCallTimeout = 5
-)
-
 // GenServerBehavior interface
 type GenServerBehavior interface {
+	ProcessBehavior
+
 	// Init(...) -> error
-	Init(state *GenServerState, args ...interface{}) error
+	Init(state *GenServerState, args ...etf.Term) error
 
 	// HandleCast -> "noreply" - noreply
 	//				"stop" - stop with reason "normal"
@@ -55,7 +53,7 @@ type GenServerState struct {
 	State   interface{}
 }
 
-func (gs *GenServer) Loop(p *Process, args ...interface{}) string {
+func (gs *GenServer) Loop(p *Process, args ...etf.Term) string {
 	lockState := &sync.Mutex{}
 
 	state := &GenServerState{
@@ -244,11 +242,13 @@ func (gs *GenServer) Loop(p *Process, args ...interface{}) string {
 
 				}
 
-			case etf.Ref:
-				lib.Log("[%s] GEN_SERVER %#v got reply: %#v", p.Node.FullName, p.self, mtag)
-				p.reply <- m
-
 			default:
+				if ref, ok := m.Element(1).(etf.Ref); ok && len(m) == 2 {
+					lib.Log("[%s] GEN_SERVER %#v got reply: %#v", p.Node.FullName, p.self, mtag)
+					p.putSyncReply(ref, m.Element(2))
+					continue
+				}
+
 				lib.Log("[%s] GEN_SERVER %#v got simple message %#v", p.Node.FullName, p.self, mtag)
 				go func() {
 					lockState.Lock()
@@ -297,7 +297,7 @@ func (gs *GenServer) Loop(p *Process, args ...interface{}) string {
 //
 // default callbacks for GenServer interface
 //
-func (gs *GenServer) Init(state *GenServerState, args ...interface{}) error {
+func (gs *GenServer) Init(state *GenServerState, args ...etf.Term) error {
 	return nil
 }
 

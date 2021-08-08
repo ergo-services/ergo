@@ -26,7 +26,7 @@ var (
 	EnableRPC bool
 )
 
-func (dgs *demoGenServ) Init(state *ergo.GenServerState, args ...interface{}) error {
+func (dgs *demoGenServ) Init(state *ergo.GenServerState, args ...etf.Term) error {
 	fmt.Printf("[%s] Init: args %v \n", state.Process.Name(), args)
 	return nil
 }

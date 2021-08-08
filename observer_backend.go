@@ -19,7 +19,7 @@ type observerBackend struct {
 
 // Init initializes process state using arbitrary arguments
 // Init(...) -> state
-func (o *observerBackend) Init(state *GenServerState, args ...interface{}) error {
+func (o *observerBackend) Init(state *GenServerState, args ...etf.Term) error {
 	lib.Log("OBSERVER: Init: %#v", args)
 
 	funProcLibInitialCall := func(a ...etf.Term) etf.Term {

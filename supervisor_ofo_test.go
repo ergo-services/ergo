@@ -60,7 +60,7 @@ type testSupervisorGenServerState struct {
 	order int
 }
 
-func (tsv *testSupervisorGenServer) Init(state *GenServerState, args ...interface{}) error {
+func (tsv *testSupervisorGenServer) Init(state *GenServerState, args ...etf.Term) error {
 	st := &testSupervisorGenServerState{
 		ch:    args[0].(chan interface{}),
 		order: args[1].(int),
@@ -247,7 +247,7 @@ func TestSupervisorOneForOne(t *testing.T) {
 
 }
 
-func (ts *testSupervisorOneForOne) Init(args ...interface{}) SupervisorSpec {
+func (ts *testSupervisorOneForOne) Init(args ...etf.Term) SupervisorSpec {
 	restart := args[0].(string)
 	ch := args[1].(chan interface{})
 	return SupervisorSpec{
@@ -256,19 +256,19 @@ func (ts *testSupervisorOneForOne) Init(args ...interface{}) SupervisorSpec {
 				Name:    "testGS1",
 				Child:   &testSupervisorGenServer{},
 				Restart: restart,
-				Args:    []interface{}{ch, 0},
+				Args:    []etf.Term{ch, 0},
 			},
 			SupervisorChildSpec{
 				Name:    "testGS2",
 				Child:   &testSupervisorGenServer{},
 				Restart: restart,
-				Args:    []interface{}{ch, 1},
+				Args:    []etf.Term{ch, 1},
 			},
 			SupervisorChildSpec{
 				Name:    "testGS3",
 				Child:   &testSupervisorGenServer{},
 				Restart: restart,
-				Args:    []interface{}{ch, 2},
+				Args:    []etf.Term{ch, 2},
 			},
 		},
 		Strategy: SupervisorStrategy{

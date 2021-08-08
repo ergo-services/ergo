@@ -27,7 +27,7 @@ type rex struct {
 	methods map[modFun]rpcFunction
 }
 
-func (r *rex) Init(state *GenServerState, args ...interface{}) error {
+func (r *rex) Init(state *GenServerState, args ...etf.Term) error {
 	lib.Log("REX: Init: %#v", args)
 	r.methods = make(map[modFun]rpcFunction, 0)
 

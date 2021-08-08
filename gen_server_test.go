@@ -33,7 +33,7 @@ type testGenServer struct {
 	err chan error
 }
 
-func (tgs *testGenServer) Init(state *GenServerState, args ...interface{}) error {
+func (tgs *testGenServer) Init(state *GenServerState, args ...etf.Term) error {
 	tgs.err <- nil
 	return nil
 }
@@ -61,7 +61,7 @@ type testGenServerDirect struct {
 	err chan error
 }
 
-func (tgsd *testGenServerDirect) Init(state *GenServerState, args ...interface{}) error {
+func (tgsd *testGenServerDirect) Init(state *GenServerState, args ...etf.Term) error {
 	tgsd.err <- nil
 	return nil
 }

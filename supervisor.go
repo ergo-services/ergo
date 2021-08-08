@@ -97,7 +97,8 @@ type SupervisorChildShutdown int
 
 // SupervisorBehavior interface
 type SupervisorBehavior interface {
-	Init(args ...interface{}) SupervisorSpec
+	ProcessBehavior
+	Init(args ...etf.Term) SupervisorSpec
 }
 
 type SupervisorSpec struct {
@@ -108,9 +109,11 @@ type SupervisorSpec struct {
 }
 
 type SupervisorChildSpec struct {
+	// Node to run child on remote node
+	Node     string
 	Name     string
-	Child    interface{}
-	Args     []interface{}
+	Child    ProcessBehavior
+	Args     []etf.Term
 	Restart  SupervisorChildRestart
 	Shutdown SupervisorChildShutdown
 	state    supervisorChildState // for internal usage
@@ -122,7 +125,7 @@ type Supervisor struct {
 	spec *SupervisorSpec
 }
 
-func (sv *Supervisor) Loop(svp *Process, args ...interface{}) string {
+func (sv *Supervisor) Loop(svp *Process, args ...etf.Term) string {
 	object := svp.object
 	spec := object.(SupervisorBehavior).Init(args...)
 	lib.Log("Supervisor spec %#v\n", spec)
@@ -383,7 +386,7 @@ func (sv *Supervisor) Loop(svp *Process, args ...interface{}) string {
 
 			case etf.Atom("$startBySpec"):
 				specChild := m.Element(2).(SupervisorChildSpec)
-				args := m.Element(3).([]interface{})
+				args := m.Element(3).([]etf.Term)
 				reply := m.Element(4).(chan etf.Tuple)
 
 				if len(args) > 0 {
@@ -409,7 +412,7 @@ func (sv *Supervisor) Loop(svp *Process, args ...interface{}) string {
 // StartChild dynamically starts a child process with given name of child spec which is defined by Init call.
 // Created process will use the same object (GenServer/Supervisor) you have defined in spec as a Child since it
 // keeps pointer. You might use this object as a shared among the process you will create using this spec.
-func (sv *Supervisor) StartChild(parent *Process, specName string, args ...interface{}) (etf.Pid, error) {
+func (sv *Supervisor) StartChild(parent *Process, specName string, args ...etf.Term) (etf.Pid, error) {
 	reply := make(chan etf.Tuple)
 	m := etf.Tuple{
 		etf.Atom("$startByName"),
@@ -430,7 +433,7 @@ func (sv *Supervisor) StartChild(parent *Process, specName string, args ...inter
 }
 
 // StartChildWithSpec dynamically starts a child process with given child spec
-func (sv *Supervisor) StartChildWithSpec(parent *Process, spec SupervisorChildSpec, args ...interface{}) (etf.Pid, error) {
+func (sv *Supervisor) StartChildWithSpec(parent *Process, spec SupervisorChildSpec, args ...etf.Term) (etf.Pid, error) {
 	reply := make(chan etf.Tuple)
 	m := etf.Tuple{
 		etf.Atom("$startBySpec"),
@@ -477,7 +480,7 @@ func startChildren(parent *Process, spec *SupervisorSpec) {
 	}
 }
 
-func startChild(parent *Process, name string, child interface{}, args ...interface{}) *Process {
+func startChild(parent *Process, name string, child ProcessBehavior, args ...etf.Term) *Process {
 	opts := ProcessOptions{}
 
 	if parent.groupLeader == nil {

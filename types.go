@@ -14,6 +14,7 @@ var (
 	ErrAppIsNotRunning    = fmt.Errorf("Application is not running")
 	ErrProcessBusy        = fmt.Errorf("Process is busy")
 	ErrProcessUnknown     = fmt.Errorf("Unknown process")
+	ErrProcessTerminated  = fmt.Errorf("Process terminated")
 	ErrAliasUnknown       = fmt.Errorf("Unknown alias")
 	ErrAliasOwner         = fmt.Errorf("Not an owner")
 	ErrTaken              = fmt.Errorf("Resource is taken")

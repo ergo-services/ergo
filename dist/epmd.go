@@ -56,6 +56,10 @@ type EPMD struct {
 
 func (e *EPMD) Init(ctx context.Context, name string, listenport uint16, epmdport uint16, hidden bool, disableServer bool) {
 	ns := strings.Split(name, "@")
+	if len(ns) == 1 {
+		ns = append(ns, "localhost")
+		name = name + "@localhost"
+	}
 	if len(ns) != 2 {
 		panic("FQDN for node name is required (example: node@hostname)")
 	}
@@ -130,6 +134,9 @@ func (e *EPMD) Init(ctx context.Context, name string, listenport uint16, epmdpor
 
 func (e *EPMD) AddStaticRoute(name string, port uint16) error {
 	ns := strings.Split(name, "@")
+	if len(ns) == 1 {
+		ns = append(ns, "localhost")
+	}
 	if len(ns) != 2 {
 		return fmt.Errorf("wrong FQDN")
 	}
@@ -170,6 +177,9 @@ func (e *EPMD) ResolvePort(name string) (int, error) {
 
 func (e *EPMD) resolvePort(name string) (int, error) {
 	ns := strings.Split(name, "@")
+	if len(ns) != 2 {
+		return -1, fmt.Errorf("incorrect FQDN node name (example: node@localhost)")
+	}
 	conn, err := net.Dial("tcp", net.JoinHostPort(ns[1], fmt.Sprintf("%d", e.PortEMPD)))
 	if err != nil {
 		return -1, err

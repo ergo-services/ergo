@@ -6,6 +6,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"sync"
 
 	//"crypto/rsa"
 	"crypto/tls"
@@ -53,6 +54,9 @@ type Node struct {
 	creation uint32
 
 	opts NodeOptions
+
+	remoteSpawnMutex sync.Mutex
+	remoteSpawn      map[string]ProcessBehavior
 }
 
 // NodeOptions struct with bootstrapping options for CreateNode
@@ -117,7 +121,8 @@ func CreateNodeWithContext(ctx context.Context, name string, cookie string, opts
 		StartedAt: time.Now(),
 		uniqID:    time.Now().UnixNano(),
 		// Creation must be > 0 so make 'or 0x1'
-		creation: uint32(r) | 1,
+		creation:    uint32(r) | 1,
+		remoteSpawn: make(map[string]ProcessBehavior),
 	}
 
 	// start networking if name is defined
@@ -189,7 +194,7 @@ func CreateNodeWithContext(ctx context.Context, name string, cookie string, opts
 }
 
 // Spawn create new process
-func (n *Node) Spawn(name string, opts ProcessOptions, object interface{}, args ...interface{}) (*Process, error) {
+func (n *Node) Spawn(name string, opts ProcessOptions, object ProcessBehavior, args ...etf.Term) (*Process, error) {
 
 	process, err := n.registrar.RegisterProcessExt(name, object, opts)
 	if err != nil {
@@ -240,25 +245,21 @@ func (n *Node) Spawn(name string, opts ProcessOptions, object interface{}, args 
 	return process, nil
 }
 
-func (n *Node) ProvideSpawnRemote(name string, object interface{}) {
-	//FIXME
+func (n *Node) ProvideRemoteSpawn(name string, object ProcessBehavior) {
+	n.remoteSpawnMutex.Lock()
+	n.remoteSpawn[name] = object
+	n.remoteSpawnMutex.Unlock()
 	return
 }
 
-func (n *Node) RevokeSpawnRemote(name string) bool {
-	//FIXME
-	return true
-}
-
-func (n *Node) SpawnRemote(RemoteNode etf.Tuple, opts ProcessOptions, object string, args ...interface{}) (etf.Ref, error) {
-	//FIXME
-	x := n.MakeRef()
-	return x, nil
-}
-
-func (n *Node) SpawnRemoteCancel(ref etf.Ref) bool {
-	//FIXME
-	return true
+func (n *Node) RevokeRemoteSpawn(name string) bool {
+	n.remoteSpawnMutex.Lock()
+	defer n.remoteSpawnMutex.Unlock()
+	if _, ok := n.remoteSpawn[name]; ok {
+		delete(n.remoteSpawn, name)
+		return true
+	}
+	return false
 }
 
 // Register register associates the name with pid
@@ -518,7 +519,7 @@ func (n *Node) GetApplicationInfo(name string) (ApplicationInfo, error) {
 
 // ApplicationLoad loads the application specification for an application
 // into the node. It also loads the application specifications for any included applications
-func (n *Node) ApplicationLoad(app interface{}, args ...interface{}) error {
+func (n *Node) ApplicationLoad(app interface{}, args ...etf.Term) error {
 
 	spec, err := app.(ApplicationBehavior).Load(args...)
 	if err != nil {
@@ -552,7 +553,7 @@ func (n *Node) ApplicationUnload(appName string) error {
 // ApplicationStartPermanent start Application with start type ApplicationStartPermanent
 // If this application terminates, all other applications and the entire node are also
 // terminated
-func (n *Node) ApplicationStartPermanent(appName string, args ...interface{}) (*Process, error) {
+func (n *Node) ApplicationStartPermanent(appName string, args ...etf.Term) (*Process, error) {
 	return n.applicationStart(ApplicationStartPermanent, appName, args...)
 }
 
@@ -560,18 +561,18 @@ func (n *Node) ApplicationStartPermanent(appName string, args ...interface{}) (*
 // If transient application terminates with reason 'normal', this is reported and no
 // other applications are terminated. Otherwise, all other applications and node
 // are terminated
-func (n *Node) ApplicationStartTransient(appName string, args ...interface{}) (*Process, error) {
+func (n *Node) ApplicationStartTransient(appName string, args ...etf.Term) (*Process, error) {
 	return n.applicationStart(ApplicationStartTransient, appName, args...)
 }
 
 // ApplicationStart start Application with start type ApplicationStartTemporary
 // If an application terminates, this is reported but no other applications
 // are terminated
-func (n *Node) ApplicationStart(appName string, args ...interface{}) (*Process, error) {
+func (n *Node) ApplicationStart(appName string, args ...etf.Term) (*Process, error) {
 	return n.applicationStart(ApplicationStartTemporary, appName, args...)
 }
 
-func (n *Node) applicationStart(startType, appName string, args ...interface{}) (*Process, error) {
+func (n *Node) applicationStart(startType, appName string, args ...etf.Term) (*Process, error) {
 
 	spec := n.registrar.GetApplicationSpecByName(appName)
 	if spec == nil {
@@ -597,7 +598,7 @@ func (n *Node) applicationStart(startType, appName string, args ...interface{}) 
 	}
 
 	// passing 'spec' to the process loop in order to handle children's startup.
-	args = append([]interface{}{spec}, args)
+	args = append([]etf.Term{spec}, args)
 	appProcess, e := n.Spawn("", ProcessOptions{}, spec.app, args...)
 	if e != nil {
 		return nil, e
@@ -626,10 +627,10 @@ func (n *Node) ApplicationStop(name string) error {
 	return nil
 }
 
-func (n *Node) handleMessage(fromNode string, control, message etf.Term) {
+func (n *Node) handleMessage(fromNode string, control, message etf.Term) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
-			fmt.Printf("Warning: recovered node.handleMessage: %s\n", r)
+			err = fmt.Errorf("%s", r)
 		}
 	}()
 
@@ -712,13 +713,68 @@ func (n *Node) handleMessage(fromNode string, control, message etf.Term) {
 				alias := etf.Alias(t.Element(3).(etf.Ref))
 				n.registrar.route(t.Element(2).(etf.Pid), alias, message)
 
+			case distProtoSPAWN_REQUEST:
+				fmt.Println("CCCC", control, message)
+				// {29, ReqId, From, GroupLeader, {Module, Function, Arity}, OptList}
+				lib.Log("[%s] CONTROL SPAWN_REQUEST [from %s]: %#v", n.FullName, fromNode, control)
+				registerName := ""
+				for _, option := range t.Element(6).(etf.List) {
+					name, ok := option.(etf.Tuple)
+					if !ok {
+						break
+					}
+					if name.Element(1).(etf.Atom) == etf.Atom("name") {
+						registerName = string(name.Element(2).(etf.Atom))
+					}
+				}
+
+				from := t.Element(3).(etf.Pid)
+				ref := t.Element(2).(etf.Ref)
+
+				mfa := t.Element(5).(etf.Tuple)
+				module := mfa.Element(1).(etf.Atom)
+				args := message.([]etf.Term)
+
+				n.remoteSpawnMutex.Lock()
+				object, provided := n.remoteSpawn[string(module)]
+				n.remoteSpawnMutex.Unlock()
+				if !provided {
+					message := etf.Tuple{distProtoSPAWN_REPLY, ref, from, 0, etf.Atom("not_provided")}
+					n.registrar.routeRaw(from.Node, message)
+					return
+				}
+
+				process, err_spawn := n.Spawn(registerName, ProcessOptions{}, object, args...)
+				if err_spawn != nil {
+					message := etf.Tuple{distProtoSPAWN_REPLY, ref, from, 0, etf.Atom(err_spawn.Error())}
+					n.registrar.routeRaw(from.Node, message)
+					return
+				}
+				message := etf.Tuple{distProtoSPAWN_REPLY, ref, from, 0, process.Self()}
+				n.registrar.routeRaw(from.Node, message)
+
+			case distProtoSPAWN_REPLY:
+				// {31, ReqId, To, Flags, Result}
+				lib.Log("[%s] CONTROL SPAWN_REPLY [from %s]: %#v", n.FullName, fromNode, control)
+
+				to := t.Element(3).(etf.Pid)
+				process := n.GetProcessByPid(to)
+				if process == nil {
+					return
+				}
+				ref := t.Element(3).(etf.Ref)
+				//flags := t.Element(4)
+				process.putSyncReply(ref, t.Element(5))
+
 			default:
 				lib.Log("[%s] CONTROL unknown command [from %s]: %#v", n.FullName, fromNode, control)
 			}
 		default:
-			lib.Log("[%s] CONTROL unsupported message [from %s]: %#v", n.FullName, fromNode, control)
+			err = fmt.Errorf("unsupported message %#v", control)
 		}
 	}
+
+	return
 }
 
 // ProvideRPC register given module/function as RPC method

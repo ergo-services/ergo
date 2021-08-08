@@ -13,7 +13,7 @@ type testApplication struct {
 	Application
 }
 
-func (a *testApplication) Load(args ...interface{}) (ApplicationSpec, error) {
+func (a *testApplication) Load(args ...etf.Term) (ApplicationSpec, error) {
 	lifeSpan := args[0].(time.Duration)
 	name := args[1].(string)
 	nameGS := "testAppGS"
@@ -38,7 +38,7 @@ func (a *testApplication) Load(args ...interface{}) (ApplicationSpec, error) {
 	}, nil
 }
 
-func (a *testApplication) Start(p *Process, args ...interface{}) {
+func (a *testApplication) Start(p *Process, args ...etf.Term) {
 	//p.SetEnv("env123", 456)
 }
 
@@ -47,7 +47,7 @@ type testAppGenServer struct {
 	GenServer
 }
 
-func (gs *testAppGenServer) Init(state *GenServerState, args ...interface{}) error {
+func (gs *testAppGenServer) Init(state *GenServerState, args ...etf.Term) error {
 	state.Process.SetEnv("env123", 456)
 	return nil
 }

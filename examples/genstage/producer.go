@@ -12,7 +12,7 @@ type Producer struct {
 	dispatcher ergo.GenStageDispatcherBehavior
 }
 
-func (g *Producer) InitStage(state *ergo.GenStageState, args ...interface{}) error {
+func (g *Producer) InitStage(state *ergo.GenStageState, args ...etf.Term) error {
 	// create a hash function for the dispatcher
 	hash := func(t etf.Term) int {
 		i, ok := t.(int)

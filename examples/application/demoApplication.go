@@ -24,7 +24,7 @@ type demoApp struct {
 	ergo.Application
 }
 
-func (da *demoApp) Load(args ...interface{}) (ergo.ApplicationSpec, error) {
+func (da *demoApp) Load(args ...etf.Term) (ergo.ApplicationSpec, error) {
 	return ergo.ApplicationSpec{
 		Name:        "demoApp",
 		Description: "Demo Applicatoin",
@@ -46,7 +46,7 @@ func (da *demoApp) Load(args ...interface{}) (ergo.ApplicationSpec, error) {
 	}, nil
 }
 
-func (da *demoApp) Start(process *ergo.Process, args ...interface{}) {
+func (da *demoApp) Start(process *ergo.Process, args ...etf.Term) {
 	fmt.Println("Application started!")
 }
 
@@ -54,7 +54,7 @@ type demoSup struct {
 	ergo.Supervisor
 }
 
-func (ds *demoSup) Init(args ...interface{}) ergo.SupervisorSpec {
+func (ds *demoSup) Init(args ...etf.Term) ergo.SupervisorSpec {
 	return ergo.SupervisorSpec{
 		Name: "demoAppSup",
 		Children: []ergo.SupervisorChildSpec{

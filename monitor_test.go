@@ -12,7 +12,7 @@ type testMonitorGenServer struct {
 	v chan interface{}
 }
 
-func (tgs *testMonitorGenServer) Init(state *GenServerState, args ...interface{}) error {
+func (tgs *testMonitorGenServer) Init(state *GenServerState, args ...etf.Term) error {
 	tgs.v <- state.Process.Self()
 	return nil
 }

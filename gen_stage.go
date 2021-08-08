@@ -56,7 +56,7 @@ var (
 type GenStageBehavior interface {
 
 	// InitStage
-	InitStage(state *GenStageState, args ...interface{}) error
+	InitStage(state *GenStageState, args ...etf.Term) error
 
 	// HandleDemand this callback is invoked on a producer stage
 	// The producer that implements this callback must either store the demand, or return the amount of requested events.
@@ -364,7 +364,7 @@ func (gst *GenStage) Cancel(p *Process, subscription GenStageSubscription, reaso
 //
 // GenServer callbacks
 //
-func (gst *GenStage) Init(state *GenServerState, args ...interface{}) error {
+func (gst *GenStage) Init(state *GenServerState, args ...etf.Term) error {
 	//var stageOptions GenStageOptions
 
 	stageState := &GenStageState{
@@ -558,7 +558,7 @@ func (gst *GenStage) HandleInfo(state *GenServerState, message etf.Term) string 
 
 // default callbacks
 
-func (gst *GenStage) InitStage(state *GenStageState, args ...interface{}) error {
+func (gst *GenStage) InitStage(state *GenStageState, args ...etf.Term) error {
 	return nil
 }
 

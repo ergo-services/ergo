@@ -26,7 +26,7 @@ type jobDetails struct {
 
 // Init initializes process state using arbitrary arguments
 // Init -> state
-func (am *appMon) Init(p *Process, args ...interface{}) interface{} {
+func (am *appMon) Init(p *Process, args ...etf.Term) interface{} {
 	lib.Log("APP_MON: Init %#v", args)
 	from := args[0]
 	p.Link(from.(etf.Pid))

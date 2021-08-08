@@ -129,7 +129,7 @@ func TestSupervisorSimpleOneForOne(t *testing.T) {
 
 }
 
-func (ts *testSupervisorSimpleOneForOne) Init(args ...interface{}) SupervisorSpec {
+func (ts *testSupervisorSimpleOneForOne) Init(args ...etf.Term) SupervisorSpec {
 	ch := args[0].(chan interface{})
 	return SupervisorSpec{
 		Children: []SupervisorChildSpec{
@@ -137,19 +137,19 @@ func (ts *testSupervisorSimpleOneForOne) Init(args ...interface{}) SupervisorSpe
 				Name:    "testGS1",
 				Child:   &testSupervisorGenServer{},
 				Restart: SupervisorChildRestartPermanent,
-				Args:    []interface{}{ch, 0},
+				Args:    []etf.Term{ch, 0},
 			},
 			SupervisorChildSpec{
 				Name:    "testGS2",
 				Child:   &testSupervisorGenServer{},
 				Restart: SupervisorChildRestartTransient,
-				Args:    []interface{}{ch, 1},
+				Args:    []etf.Term{ch, 1},
 			},
 			SupervisorChildSpec{
 				Name:    "testGS3",
 				Child:   &testSupervisorGenServer{},
 				Restart: SupervisorChildRestartTemporary,
-				Args:    []interface{}{ch, 2},
+				Args:    []etf.Term{ch, 2},
 			},
 		},
 		Strategy: SupervisorStrategy{

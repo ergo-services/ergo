@@ -1,12 +1,15 @@
 package main
 
-import "github.com/halturin/ergo"
+import (
+	"github.com/halturin/ergo"
+	"github.com/halturin/ergo/etf"
+)
 
 type HandlerSup struct {
 	ergo.Supervisor
 }
 
-func (hs *HandlerSup) Init(args ...interface{}) ergo.SupervisorSpec {
+func (hs *HandlerSup) Init(args ...etf.Term) ergo.SupervisorSpec {
 	return ergo.SupervisorSpec{
 		Name: "handler_sup",
 		Children: []ergo.SupervisorChildSpec{

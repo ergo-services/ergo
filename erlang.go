@@ -11,7 +11,7 @@ type erlang struct {
 	GenServer
 }
 
-func (e *erlang) Init(state *GenServerState, args ...interface{}) error {
+func (e *erlang) Init(state *GenServerState, args ...etf.Term) error {
 	lib.Log("ERLANG: Init: %#v", args)
 	return nil
 }

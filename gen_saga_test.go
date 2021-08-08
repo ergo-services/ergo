@@ -3,13 +3,15 @@ package ergo
 import (
 	"fmt"
 	"testing"
+
+	"github.com/halturin/ergo/etf"
 )
 
 type testGenSaga struct {
 	GenSaga
 }
 
-func (gs *testGenSaga) InitSaga(state *GenSagaState, args ...interface{}) error {
+func (gs *testGenSaga) InitSaga(state *GenSagaState, args ...etf.Term) error {
 	return nil
 }
 

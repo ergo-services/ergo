@@ -22,7 +22,7 @@ var (
 
 // Init initializes process state using arbitrary arguments
 // Init(...) -> state
-func (dgs *demoGenServ) Init(state *ergo.GenServerState, args ...interface{}) error {
+func (dgs *demoGenServ) Init(state *ergo.GenServerState, args ...etf.Term) error {
 	// fmt.Printf("Init: args %v \n", args)
 	dgs.wg = args[0].(*sync.WaitGroup)
 	dgs.bridge = args[2].(chan interface{})

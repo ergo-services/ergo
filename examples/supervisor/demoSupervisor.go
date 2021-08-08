@@ -24,7 +24,7 @@ type demoSup struct {
 	ergo.Supervisor
 }
 
-func (ds *demoSup) Init(args ...interface{}) ergo.SupervisorSpec {
+func (ds *demoSup) Init(args ...etf.Term) ergo.SupervisorSpec {
 	return ergo.SupervisorSpec{
 		Name: "demoSupervisorSup",
 		Children: []ergo.SupervisorChildSpec{

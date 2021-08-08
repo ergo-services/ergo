@@ -267,7 +267,7 @@ func Handshake(conn net.Conn, options HandshakeOptions) (*Link, error) {
 			EXTENDED_PIDS_PORTS, EXTENDED_REFERENCES, ATOM_CACHE,
 			DIST_HDR_ATOM_CACHE, HIDDEN_ATOM_CACHE, NEW_FUN_TAGS,
 			SMALL_ATOM_TAGS, UTF8_ATOMS, MAP_TAG,
-			FRAGMENTS, HANDSHAKE23, BIG_CREATION, V4_NC, ALIAS,
+			FRAGMENTS, HANDSHAKE23, BIG_CREATION, SPAWN, V4_NC, ALIAS,
 		),
 
 		conn:       conn,
@@ -439,7 +439,7 @@ func HandshakeAccept(conn net.Conn, options HandshakeOptions) (*Link, error) {
 			EXTENDED_PIDS_PORTS, EXTENDED_REFERENCES, ATOM_CACHE,
 			DIST_HDR_ATOM_CACHE, HIDDEN_ATOM_CACHE, NEW_FUN_TAGS,
 			SMALL_ATOM_TAGS, UTF8_ATOMS, MAP_TAG,
-			FRAGMENTS, HANDSHAKE23, BIG_CREATION, V4_NC, ALIAS,
+			FRAGMENTS, HANDSHAKE23, BIG_CREATION, SPAWN, V4_NC, ALIAS,
 		),
 
 		conn:       conn,
@@ -663,7 +663,7 @@ func (l *Link) Read(b *lib.Buffer) (int, error) {
 }
 
 func (l *Link) ReadHandlePacket(ctx context.Context, recv chan *lib.Buffer,
-	handler func(string, etf.Term, etf.Term)) {
+	handler func(string, etf.Term, etf.Term) error) {
 	var b *lib.Buffer
 
 	for {

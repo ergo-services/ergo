@@ -38,7 +38,7 @@ type GenDemoBehavior interface {
 	//
 
 	// InitDemo
-	InitDemo(state *GenDemoState, args ...interface{}) error
+	InitDemo(state *GenDemoState, args ...etf.Term) error
 
 	// HandleHello invoked on a 'hello' request where 'n' is how many times it was received
 	HandleHello(state *GenDemoState, n int) error
@@ -96,7 +96,7 @@ func (gd *GenDemo) GetCounter(process *ergo.Process) (int, error) {
 //
 // GenServer callbacks
 //
-func (gd *GenDemo) Init(state *ergo.GenServerState, args ...interface{}) error {
+func (gd *GenDemo) Init(state *ergo.GenServerState, args ...etf.Term) error {
 	demoState := &GenDemoState{
 		ergo.GenServerState: *state,
 	}

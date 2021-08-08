@@ -97,7 +97,7 @@ type GenSagaBehavior interface {
 	//
 
 	// InitSaga
-	InitSaga(state *GenSagaState, args ...interface{}) error
+	InitSaga(state *GenSagaState, args ...etf.Term) error
 
 	// HandleNext
 	HandleNext(state *GenSagaState, tx GenSagaTransaction, value interface{}) error
@@ -171,7 +171,7 @@ func StartSagaTransaction(process *Process, options GenSagaTransactionOptions, n
 //
 // GenServer callbacks
 //
-func (gs *GenSaga) Init(state *GenServerState, args ...interface{}) error {
+func (gs *GenSaga) Init(state *GenServerState, args ...etf.Term) error {
 	var options GenSagaOptions
 	if opts, ok := args[0].(GenSagaOptions); ok {
 		options = opts

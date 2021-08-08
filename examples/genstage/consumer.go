@@ -11,7 +11,7 @@ type Consumer struct {
 	ergo.GenStage
 }
 
-func (g *Consumer) InitStage(state *ergo.GenStageState, args ...interface{}) error {
+func (g *Consumer) InitStage(state *ergo.GenStageState, args ...etf.Term) error {
 	return nil
 }
 func (g *Consumer) HandleEvents(state *ergo.GenStageState, subscription ergo.GenStageSubscription, events etf.List) error {

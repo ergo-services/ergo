@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/halturin/ergo"
+	"github.com/halturin/ergo/etf"
 )
 
 type App struct {
@@ -14,7 +15,7 @@ var (
 	handler_sup = &HandlerSup{}
 )
 
-func (a *App) Load(args ...interface{}) (ergo.ApplicationSpec, error) {
+func (a *App) Load(args ...etf.Term) (ergo.ApplicationSpec, error) {
 	return ergo.ApplicationSpec{
 		Name:        "WebApp",
 		Description: "Demo Web Application",
@@ -29,6 +30,6 @@ func (a *App) Load(args ...interface{}) (ergo.ApplicationSpec, error) {
 	}, nil
 }
 
-func (a *App) Start(process *ergo.Process, args ...interface{}) {
+func (a *App) Start(process *ergo.Process, args ...etf.Term) {
 	fmt.Println("Application started!")
 }

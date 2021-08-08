@@ -281,6 +281,29 @@ func TestNodeDistHandshake(t *testing.T) {
 	}
 }
 
+func ATestNodeRemoteSpawn(t *testing.T) {
+	fmt.Printf("\n=== Test Node Remote Spawn\n")
+	node1, _ := CreateNode("node1remoteSpawn", "secret", NodeOptions{})
+	node2, _ := CreateNode("node2remoteSpawn", "secret", NodeOptions{})
+	defer node1.Stop()
+	defer node2.Stop()
+
+	node2.ProvideRemoteSpawn("remote", &handshakeGenServer{})
+	process, err := node1.Spawn("", ProcessOptions{}, &handshakeGenServer{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	opts := RemoteSpawnOptions{RegisterName: "asdf"}
+	remote, err := process.RemoteSpawn(node2.FullName, "remote", opts, 1, 2, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	fmt.Println("REMOTE", remote)
+
+}
+
 type benchGS struct {
 	GenServer
 }

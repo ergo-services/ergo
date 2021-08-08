@@ -117,14 +117,14 @@ func (r *registrar) deleteAlias(owner *Process, alias etf.Alias) error {
 	return ErrAliasUnknown
 }
 
-func (r *registrar) RegisterProcess(object interface{}) (*Process, error) {
+func (r *registrar) RegisterProcess(object ProcessBehavior) (*Process, error) {
 	opts := ProcessOptions{
 		MailboxSize: DefaultProcessMailboxSize, // size of channel for regular messages
 	}
 	return r.RegisterProcessExt("", object, opts)
 }
 
-func (r *registrar) RegisterProcessExt(name string, object interface{}, opts ProcessOptions) (*Process, error) {
+func (r *registrar) RegisterProcessExt(name string, object ProcessBehavior, opts ProcessOptions) (*Process, error) {
 
 	mailboxSize := DefaultProcessMailboxSize
 	if opts.MailboxSize > 0 {
@@ -153,7 +153,7 @@ func (r *registrar) RegisterProcessExt(name string, object interface{}, opts Pro
 		Kill:         kill,
 		name:         name,
 		Node:         r.node,
-		reply:        make(chan etf.Tuple, 2),
+		reply:        make(map[etf.Ref]chan etf.Term),
 		object:       object,
 	}
 
@@ -536,10 +536,13 @@ next:
 	}
 }
 
-func (r *registrar) routeRaw(nodename etf.Atom, message etf.Term) error {
+func (r *registrar) routeRaw(nodename etf.Atom, messages ...etf.Term) error {
 	r.mutexPeers.Lock()
 	peer, ok := r.peers[string(nodename)]
 	r.mutexPeers.Unlock()
+	if len(messages) == 0 {
+		return fmt.Errorf("nothing to send")
+	}
 	if !ok {
 		// initiate connection and make yet another attempt to deliver this message
 		if err := r.node.connect(nodename); err != nil {
@@ -553,6 +556,6 @@ func (r *registrar) routeRaw(nodename etf.Atom, message etf.Term) error {
 	}
 
 	send := peer.GetChannel()
-	send <- []etf.Term{message}
+	send <- messages
 	return nil
 }

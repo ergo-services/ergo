@@ -7,6 +7,7 @@ import (
 )
 
 type GenSagaWorkerBehavior interface {
+	ProcessBehavior
 	// Mandatory callbacks
 	HandleStartJob(state *GenSagaWorkerState) error
 	HandleCancelJob(state *GenSagaWorkerState)
@@ -63,7 +64,7 @@ func (w *GenSagaWorker) SendInterim(process *Process, job GenSagaJob, interim in
 	process.Cast(job.saga, message)
 }
 
-func (w *GenSagaWorker) Init(state *GenServerState, args ...interface{}) error {
+func (w *GenSagaWorker) Init(state *GenServerState, args ...etf.Term) error {
 	job := args[0].(GenSagaJob)
 	workerState := &GenSagaWorkerState{
 		GenServerState: *state,

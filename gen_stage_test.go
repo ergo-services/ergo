@@ -20,7 +20,7 @@ type GenStageConsumerTest struct {
 	subscribeTo []GenStageSubscribeTo
 }
 
-func (gs *GenStageProducerTest) InitStage(state *GenStageState, args ...interface{}) error {
+func (gs *GenStageProducerTest) InitStage(state *GenStageState, args ...etf.Term) error {
 	state.Options = GenStageOptions{
 		Dispatcher: gs.dispatcher,
 	}
@@ -49,7 +49,7 @@ func (gs *GenStageProducerTest) HandleCanceled(state *GenStageState, subscriptio
 }
 
 // a simple GenStage Consumer
-func (gs *GenStageConsumerTest) InitStage(state *GenStageState, args ...interface{}) error {
+func (gs *GenStageConsumerTest) InitStage(state *GenStageState, args ...etf.Term) error {
 	state.Options = GenStageOptions{
 		SubscribeTo: gs.subscribeTo,
 	}

@@ -25,7 +25,7 @@ type response struct {
 
 // Init initializes process state using arbitrary arguments
 // Init(...) -> state
-func (h *Handler) Init(state *ergo.GenServerState, args ...interface{}) error {
+func (h *Handler) Init(state *ergo.GenServerState, args ...etf.Term) error {
 	fmt.Println("Start handling http request")
 	state.State = &st{
 		r: args[0].(*http.Request),

@@ -34,8 +34,9 @@ const (
 
 // ApplicationBehavior interface
 type ApplicationBehavior interface {
-	Load(args ...interface{}) (ApplicationSpec, error)
-	Start(process *Process, args ...interface{})
+	ProcessBehavior
+	Load(args ...etf.Term) (ApplicationSpec, error)
+	Start(process *Process, args ...etf.Term)
 }
 
 type ApplicationSpec struct {
@@ -54,9 +55,9 @@ type ApplicationSpec struct {
 }
 
 type ApplicationChildSpec struct {
-	Child   interface{}
+	Child   ProcessBehavior
 	Name    string
-	Args    []interface{}
+	Args    []etf.Term
 	process *Process
 }
 
@@ -70,7 +71,7 @@ type ApplicationInfo struct {
 	PID         etf.Pid
 }
 
-func (a *Application) Loop(p *Process, args ...interface{}) string {
+func (a *Application) Loop(p *Process, args ...etf.Term) string {
 	// some internal agreement that the first argument should be a spec of this application
 	// (see ApplicatoinStart for the details)
 	object := p.object
