@@ -116,7 +116,6 @@ func (gs *GenServer) Loop(p *Process, args ...etf.Term) string {
 					p.Name(), p.self, r, runtime.FuncForPC(pc).Name(), fn, line)
 				stop <- "panic"
 			}
-
 		}
 
 		switch m := message.(type) {
@@ -130,6 +129,7 @@ func (gs *GenServer) Loop(p *Process, args ...etf.Term) string {
 					// since reply (etf.Ref) comes through the same mailBox channel
 					go func() {
 						defer panicHandler()
+
 						var ok bool
 						if len(m) != 3 {
 							// wrong $gen_call message. ignore it
