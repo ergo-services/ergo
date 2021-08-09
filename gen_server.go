@@ -1,6 +1,8 @@
 package ergo
 
 import (
+	"fmt"
+	"runtime"
 	"sync"
 
 	"github.com/halturin/ergo/etf"
@@ -74,6 +76,15 @@ func (gs *GenServer) Loop(p *Process, args ...interface{}) string {
 
 		p.reductions++
 
+		panicHandler := func() {
+			if r := recover(); r != nil {
+				pc, fn, line, _ := runtime.Caller(2)
+				fmt.Printf("Warning: GenServer recovered (name: %s) %v %#v at %s[%s:%d]\n",
+					p.Name(), p.self, r, runtime.FuncForPC(pc).Name(), fn, line)
+				stop <- "panic"
+			}
+		}
+
 		switch m := message.(type) {
 		case etf.Tuple:
 			switch mtag := m.Element(1).(type) {
@@ -84,8 +95,12 @@ func (gs *GenServer) Loop(p *Process, args ...interface{}) string {
 					// sync-requests (like 'process.Call') within callback execution
 					// since reply (etf.Ref) comes through the same mailBox channel
 					go func() {
-						fromTuple := m.Element(2).(etf.Tuple)
+						defer panicHandler()
+
 						lockState.Lock()
+						defer lockState.Unlock()
+
+						fromTuple := m.Element(2).(etf.Tuple)
 
 						cf := p.currentFunction
 						p.currentFunction = "GenServer:HandleCall"
@@ -99,7 +114,6 @@ func (gs *GenServer) Loop(p *Process, args ...interface{}) string {
 						}
 
 						p.state = state
-						lockState.Unlock()
 
 						if reply != nil && code == "reply" {
 							pid := fromTuple.Element(1).(etf.Pid)
@@ -111,7 +125,10 @@ func (gs *GenServer) Loop(p *Process, args ...interface{}) string {
 
 				case etf.Atom("$gen_cast"):
 					go func() {
+						defer panicHandler()
+
 						lockState.Lock()
+						defer lockState.Unlock()
 
 						cf := p.currentFunction
 						p.currentFunction = "GenServer:HandleCast"
@@ -123,12 +140,14 @@ func (gs *GenServer) Loop(p *Process, args ...interface{}) string {
 							return
 						}
 						p.state = state
-						lockState.Unlock()
 					}()
 
 				default:
 					go func() {
+						defer panicHandler()
+
 						lockState.Lock()
+						defer lockState.Unlock()
 
 						cf := p.currentFunction
 						p.currentFunction = "GenServer:HandleInfo"
@@ -140,7 +159,6 @@ func (gs *GenServer) Loop(p *Process, args ...interface{}) string {
 							return
 						}
 						p.state = state
-						lockState.Unlock()
 					}()
 
 				}
@@ -152,7 +170,10 @@ func (gs *GenServer) Loop(p *Process, args ...interface{}) string {
 			default:
 				lib.Log("mtag: %#v", mtag)
 				go func() {
+					defer panicHandler()
+
 					lockState.Lock()
+					defer lockState.Unlock()
 
 					cf := p.currentFunction
 					p.currentFunction = "GenServer:HandleInfo"
@@ -163,14 +184,16 @@ func (gs *GenServer) Loop(p *Process, args ...interface{}) string {
 						stop <- state.(string)
 					}
 					p.state = state
-					lockState.Unlock()
 				}()
 			}
 
 		default:
 			lib.Log("m: %#v", m)
 			go func() {
+				defer panicHandler()
+
 				lockState.Lock()
+				defer lockState.Unlock()
 
 				cf := p.currentFunction
 				p.currentFunction = "GenServer:HandleInfo"
@@ -182,7 +205,6 @@ func (gs *GenServer) Loop(p *Process, args ...interface{}) string {
 					return
 				}
 				p.state = state
-				lockState.Unlock()
 			}()
 		}
 	}
