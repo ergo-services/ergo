@@ -196,8 +196,10 @@ func TestEncodeString(t *testing.T) {
 	b := lib.TakeBuffer()
 	defer lib.ReleaseBuffer(b)
 
-	expected := []byte{ettString, 0, 52, 72, 101, 108, 108, 111, 32, 87, 111, 114, 108, 100, 46, 32, 228, 189, 160, 229, 165, 189, 228, 184, 150, 231, 149, 140, 46, 32, 208, 159, 209, 128, 208, 184, 208, 178, 208, 181, 209, 130, 32, 208, 188, 208, 184, 209, 128, 46, 32, 240, 159, 154, 128}
-	err := Encode("Hello World. 你好世界. Привет мир. 🚀", b, nil, nil, nil)
+	expected := []byte{ettString, 0, 14, 69, 114, 103, 111, 32, 70, 114, 97, 109, 101, 119,
+		111, 114, 107}
+
+	err := Encode("Ergo Framework", b, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -471,7 +473,7 @@ func TestEncodeGoMap(t *testing.T) {
 	}
 }
 
-func TestEncodeStruct(t *testing.T) {
+func TestEncodeGoStruct(t *testing.T) {
 	b := lib.TakeBuffer()
 	defer lib.ReleaseBuffer(b)
 
@@ -523,7 +525,7 @@ func TestEncodeStruct(t *testing.T) {
 	}
 }
 
-func TestEncodeStructWithNestedPointers(t *testing.T) {
+func TestEncodeGoStructWithNestedPointers(t *testing.T) {
 	b := lib.TakeBuffer()
 	defer lib.ReleaseBuffer(b)
 
@@ -587,52 +589,6 @@ func TestEncodeStructWithNestedPointers(t *testing.T) {
 	if !reflect.DeepEqual(b1.B, expectedWithNil) {
 		fmt.Println("exp", expectedWithNil)
 		fmt.Println("got", b1.B)
-		t.Fatal("incorrect value")
-	}
-}
-
-func TestEncodeStructWithTags(t *testing.T) {
-	b := lib.TakeBuffer()
-	defer lib.ReleaseBuffer(b)
-
-	expected := []byte{116, 0, 0, 0, 4, 119, 4, 75, 101, 121, 49, 107, 0, 12, 72, 101, 108, 108, 111, 32, 87, 111, 114, 108, 100, 33, 119, 17, 99, 117, 115, 116, 111, 109, 95, 102, 105, 101, 108, 100, 95, 110, 97, 109, 101, 108, 0, 0, 0, 3, 108, 0, 0, 0, 7, 98, 0, 0, 79, 96, 98, 0, 0, 89, 125, 98, 0, 0, 78, 22, 98, 0, 0, 117, 76, 97, 33, 97, 32, 98, 0, 1, 246, 128, 106, 108, 0, 0, 0, 13, 98, 0, 0, 4, 31, 98, 0, 0, 4, 64, 98, 0, 0, 4, 56, 98, 0, 0, 4, 50, 98, 0, 0, 4, 53, 98, 0, 0, 4, 66, 97, 32, 98, 0, 0, 4, 28, 98, 0, 0, 4, 56, 98, 0, 0, 4, 64, 97, 33, 97, 32, 98, 0, 1, 246, 128, 106, 108, 0, 0, 0, 14, 97, 72, 97, 101, 97, 108, 97, 108, 97, 111, 97, 32, 97, 87, 97, 111, 97, 114, 97, 108, 97, 100, 97, 33, 97, 32, 98, 0, 1, 246, 128, 106, 106, 119, 4, 75, 101, 121, 51, 116, 0, 0, 0, 2, 119, 10, 78, 101, 115, 116, 101, 100, 75, 101, 121, 49, 107, 0, 52, 72, 101, 108, 108, 111, 32, 87, 111, 114, 108, 100, 33, 32, 228, 189, 160, 229, 165, 189, 228, 184, 150, 231, 149, 140, 33, 32, 208, 159, 209, 128, 208, 184, 208, 178, 208, 181, 209, 130, 32, 208, 156, 208, 184, 209, 128, 33, 32, 240, 159, 154, 128, 119, 5, 102, 105, 101, 108, 100, 116, 0, 0, 0, 1, 107, 0, 7, 109, 97, 112, 95, 107, 101, 121, 108, 0, 0, 0, 32, 97, 72, 97, 101, 97, 108, 97, 108, 97, 111, 97, 32, 97, 87, 97, 111, 97, 114, 97, 108, 97, 100, 97, 33, 97, 32, 98, 0, 0, 79, 96, 98, 0, 0, 89, 125, 98, 0, 0, 78, 22, 98, 0, 0, 117, 76, 97, 33, 97, 32, 98, 0, 0, 4, 31, 98, 0, 0, 4, 64, 98, 0, 0, 4, 56, 98, 0, 0, 4, 50, 98, 0, 0, 4, 53, 98, 0, 0, 4, 66, 97, 32, 98, 0, 0, 4, 28, 98, 0, 0, 4, 56, 98, 0, 0, 4, 64, 97, 33, 97, 32, 98, 0, 1, 246, 128, 106, 119, 4, 75, 101, 121, 52, 108, 0, 0, 0, 2, 108, 0, 0, 0, 3, 108, 0, 0, 0, 7, 98, 0, 0, 79, 96, 98, 0, 0, 89, 125, 98, 0, 0, 78, 22, 98, 0, 0, 117, 76, 97, 33, 97, 32, 98, 0, 1, 246, 128, 106, 108, 0, 0, 0, 13, 98, 0, 0, 4, 31, 98, 0, 0, 4, 64, 98, 0, 0, 4, 56, 98, 0, 0, 4, 50, 98, 0, 0, 4, 53, 98, 0, 0, 4, 66, 97, 32, 98, 0, 0, 4, 28, 98, 0, 0, 4, 56, 98, 0, 0, 4, 64, 97, 33, 97, 32, 98, 0, 1, 246, 128, 106, 108, 0, 0, 0, 14, 97, 72, 97, 101, 97, 108, 97, 108, 97, 111, 97, 32, 97, 87, 97, 111, 97, 114, 97, 108, 97, 100, 97, 33, 97, 32, 98, 0, 1, 246, 128, 106, 106, 108, 0, 0, 0, 3, 108, 0, 0, 0, 7, 98, 0, 0, 79, 96, 98, 0, 0, 89, 125, 98, 0, 0, 78, 22, 98, 0, 0, 117, 76, 97, 33, 97, 32, 98, 0, 1, 246, 128, 106, 108, 0, 0, 0, 13, 98, 0, 0, 4, 31, 98, 0, 0, 4, 64, 98, 0, 0, 4, 56, 98, 0, 0, 4, 50, 98, 0, 0, 4, 53, 98, 0, 0, 4, 66, 97, 32, 98, 0, 0, 4, 28, 98, 0, 0, 4, 56, 98, 0, 0, 4, 64, 97, 33, 97, 32, 98, 0, 1, 246, 128, 106, 108, 0, 0, 0, 14, 97, 72, 97, 101, 97, 108, 97, 108, 97, 111, 97, 32, 97, 87, 97, 111, 97, 114, 97, 108, 97, 100, 97, 33, 97, 32, 98, 0, 1, 246, 128, 106, 106, 106}
-
-	type Nested struct {
-		NestedKey1 string
-		NestedKey2 map[string]*string `etf:"field charlist"`
-	}
-	type StructWithTags struct {
-		Key1 string
-		Key2 []*string `etf:"custom_field_name charlist"`
-		Key3 *Nested
-		Key4 [][]*string `etf:"charlist"`
-	}
-
-	nestedMap := make(map[string]*string)
-	value1 := "Hello World! 你好世界! Привет Мир! 🚀"
-	nestedMap["map_key"] = &value1
-
-	nested := Nested{
-		NestedKey1: value1,
-		NestedKey2: nestedMap,
-	}
-
-	value2 := "你好世界! 🚀"
-	value3 := "Привет Мир! 🚀"
-	value4 := "Hello World! 🚀"
-	term := StructWithTags{
-		Key1: "Hello World!",
-		Key2: []*string{&value2, &value3, &value4},
-		Key3: &nested,
-		Key4: [][]*string{[]*string{&value2, &value3, &value4}, []*string{&value2, &value3, &value4}},
-	}
-	err := Encode(term, b, nil, nil, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !reflect.DeepEqual(b.B, expected) {
-		fmt.Println("exp", expected)
-		fmt.Println("got", b.B)
 		t.Fatal("incorrect value")
 	}
 }

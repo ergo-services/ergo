@@ -4,8 +4,6 @@ import (
 	"bytes"
 	"reflect"
 	"testing"
-
-	"github.com/halturin/ergo/lib"
 )
 
 func TestTermIntoStruct_Slice(t *testing.T) {
@@ -314,71 +312,4 @@ func TestTermProplistIntoStruct(t *testing.T) {
 	if !reflect.DeepEqual(dest, want) {
 		t.Errorf("%#v: got %#v, want %#v", termSliceProplistElements, dest, want)
 	}
-}
-
-func TestTermIntoStruct_WithTags(t *testing.T) {
-	b := lib.TakeBuffer()
-	defer lib.ReleaseBuffer(b)
-
-	type Nested struct {
-		NestedKey1 string
-		NestedKey2 map[string]*string `etf:"field charlist"`
-	}
-	type StructWithTags struct {
-		Key1 string
-		Key2 []*string `etf:"custom_field_name charlist"`
-		Key3 *Nested
-		Key4 [][]*string `etf:"charlist"`
-	}
-
-	nestedMap := make(map[string]*string)
-	value1 := "Hello World! 你好世界! Привет Мир! 🚀"
-	nestedMap["map_key"] = &value1
-
-	nested := Nested{
-		NestedKey1: value1,
-		NestedKey2: nestedMap,
-	}
-
-	value2 := "你好世界! 🚀"
-	value3 := "Привет Мир! 🚀"
-	value4 := "Hello World! 🚀"
-	term_source := StructWithTags{
-		Key1: "Hello World!",
-		Key2: []*string{&value2, &value3, &value4},
-		Key3: &nested,
-		Key4: [][]*string{[]*string{&value2, &value3, &value4}, []*string{&value2, &value3, &value4}},
-	}
-	if err := Encode(term_source, b, nil, nil, nil); err != nil {
-		t.Fatal(err)
-	}
-
-	term_Term, _, err := Decode(b.B, []Atom{})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	term_dest := StructWithTags{}
-	if err := TermMapIntoStruct(term_Term, &term_dest); err != nil {
-		t.Fatal(err)
-	}
-
-	if !reflect.DeepEqual(term_source, term_dest) {
-		t.Fatal("result != expected")
-	}
-}
-
-func TestCharlistToString(t *testing.T) {
-	l := List{72, 101, 108, 108, 111, 32, 87, 111, 114, 108, 100, 33, 32, 20320, 22909, 19990, 30028, 33, 32, 1055, 1088, 1080, 1074, 1077, 1090, 32, 1052, 1080, 1088, 33, 32, 128640}
-	s, err := convertCharlistToString(l)
-	if err != nil {
-		t.Fatal(err)
-	}
-	expected := "Hello World! 你好世界! Привет Мир! 🚀"
-	if s != expected {
-		t.Error("want", expected)
-		t.Error("got", s)
-		t.Fatal("incorrect result")
-	}
-
 }

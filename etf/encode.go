@@ -6,7 +6,6 @@ import (
 	"math"
 	"math/big"
 	"reflect"
-	"strings"
 
 	"github.com/halturin/ergo/lib"
 )
@@ -31,7 +30,6 @@ func Encode(term Term, b *lib.Buffer,
 	}()
 
 	var stack, child *stackElement
-	var stringAsCharlist bool
 
 	cacheEnabled := linkAtomCache != nil
 
@@ -61,8 +59,6 @@ func Encode(term Term, b *lib.Buffer,
 				stack, stack.parent = stack.parent, nil
 				continue
 			}
-
-			stringAsCharlist = stack.stringAsCharlist
 
 			switch stack.termType {
 			case ettList:
@@ -117,18 +113,6 @@ func Encode(term Term, b *lib.Buffer,
 					break
 				}
 				term = key
-				// do not encode key as a charlist
-				stringAsCharlist = false
-
-			case goMap:
-				key := stack.tmp.([]reflect.Value)[stack.i/2]
-				if stack.i&0x01 == 0x01 { // a value
-					term = stack.term.(func(reflect.Value) reflect.Value)(key).Interface()
-					break
-				}
-				term = key.Interface() // a key
-				// do not encode key as a charlist
-				stringAsCharlist = false
 
 			case goSlice:
 				if stack.i == stack.children-1 {
@@ -138,32 +122,22 @@ func Encode(term Term, b *lib.Buffer,
 				}
 				term = stack.term.(func(int) reflect.Value)(stack.i).Interface()
 
-			case goStruct:
-				field := stack.tmp.(func(int) reflect.StructField)(stack.i / 2)
-				fieldName := field.Name
-				stringAsCharlist = false
-
-				if field.Tag != "" {
-					if tag := field.Tag.Get("etf"); tag != "" {
-						split := strings.Split(tag, " ")
-						for _, s := range split {
-							switch s {
-							case "charlist":
-								stringAsCharlist = true
-							default:
-								fieldName = s
-							}
-						}
-					}
+			case goMap:
+				key := stack.tmp.([]reflect.Value)[stack.i/2]
+				if stack.i&0x01 == 0x01 { // a value
+					term = stack.term.(func(reflect.Value) reflect.Value)(key).Interface()
+					break
 				}
+				term = key.Interface()
 
-				if stack.i&0x01 != 0x01 { // a key (field name)
-					term = Atom(fieldName)
+			case goStruct:
+				if stack.i&0x01 == 0x01 { // a value
+					term = stack.term.(func(int) reflect.Value)(stack.i / 2).Interface()
 					break
 				}
 
-				// a value
-				term = stack.term.(func(int) reflect.Value)(stack.i / 2).Interface()
+				// a key (field name)
+				term = Atom(stack.tmp.(func(int) reflect.StructField)(stack.i / 2).Name)
 
 			default:
 
@@ -397,10 +371,6 @@ func Encode(term Term, b *lib.Buffer,
 			copy(buf[6:], bytes)
 
 		case string:
-			if stringAsCharlist {
-				term = []rune(t)
-				goto recasting
-			}
 			lenString := len(t)
 
 			if lenString > 65535 {
@@ -466,11 +436,10 @@ func Encode(term Term, b *lib.Buffer,
 				binary.BigEndian.PutUint32(buf[1:5], uint32(lenTuple))
 			}
 			child = &stackElement{
-				parent:           stack,
-				termType:         ettSmallTuple, // doesn't matter what exact type for the further processing
-				term:             t,
-				children:         lenTuple,
-				stringAsCharlist: stringAsCharlist,
+				parent:   stack,
+				termType: ettSmallTuple, // doesn't matter what exact type for the further processing
+				term:     t,
+				children: lenTuple,
 			}
 
 		case Pid:
@@ -506,12 +475,11 @@ func Encode(term Term, b *lib.Buffer,
 			}
 
 			child = &stackElement{
-				parent:           stack,
-				termType:         ettMap,
-				term:             t,
-				children:         lenMap * 2,
-				tmp:              keys,
-				stringAsCharlist: stringAsCharlist,
+				parent:   stack,
+				termType: ettMap,
+				term:     t,
+				children: lenMap * 2,
+				tmp:      keys,
 			}
 
 		case List:
@@ -520,11 +488,10 @@ func Encode(term Term, b *lib.Buffer,
 			buf[0] = ettList
 			binary.BigEndian.PutUint32(buf[1:], uint32(lenList))
 			child = &stackElement{
-				parent:           stack,
-				termType:         ettList,
-				term:             t,
-				children:         lenList + 1,
-				stringAsCharlist: stringAsCharlist,
+				parent:   stack,
+				termType: ettList,
+				term:     t,
+				children: lenList + 1,
 			}
 
 		case []byte:
@@ -557,11 +524,10 @@ func Encode(term Term, b *lib.Buffer,
 				buf[0] = ettList
 				binary.BigEndian.PutUint32(buf[1:], uint32(lenList))
 				child = &stackElement{
-					parent:           stack,
-					termType:         goSlice,
-					term:             v.Index,
-					children:         lenList + 1,
-					stringAsCharlist: stringAsCharlist,
+					parent:   stack,
+					termType: goSlice,
+					term:     v.Index,
+					children: lenList + 1,
 				}
 
 			case reflect.Map:
@@ -571,12 +537,11 @@ func Encode(term Term, b *lib.Buffer,
 				binary.BigEndian.PutUint32(buf[1:], uint32(lenMap))
 
 				child = &stackElement{
-					parent:           stack,
-					termType:         goMap,
-					term:             v.MapIndex,
-					children:         lenMap * 2,
-					tmp:              v.MapKeys(),
-					stringAsCharlist: stringAsCharlist,
+					parent:   stack,
+					termType: goMap,
+					term:     v.MapIndex,
+					children: lenMap * 2,
+					tmp:      v.MapKeys(),
 				}
 
 			case reflect.Ptr:
