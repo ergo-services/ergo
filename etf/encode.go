@@ -193,6 +193,8 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 				}
 
 				lenID := 3
+				// FIXME Erlang 24 has a bug https://github.com/erlang/otp/issues/5097
+				// uncomment once they fix it
 				//if options.FlagV4NC {
 				//	lenID = 5
 				//}
@@ -606,6 +608,9 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 
 			// LEN a 16-bit big endian unsigned integer not larger
 			// than 5 when the DFLAG_V4_NC has been set; otherwise not larger than 3.
+
+			// FIXME Erlang 24 has a bug https://github.com/erlang/otp/issues/5097
+			// uncomment once they fix it
 			//if options.FlagV4NC {
 			//	binary.BigEndian.PutUint16(buf[1:3], 5)
 			//} else {
