@@ -734,13 +734,13 @@ func (n *Node) handleMessage(fromNode string, control, message etf.Term) (err er
 				module := mfa.Element(1).(etf.Atom)
 				// Args can't be anything but etf.List.
 				var args etf.List
-				if str, ok := message.(string); ok {
+				if str, ok := message.(string); !ok {
+					args = message.(etf.List)
+				} else {
 					// stupid Erlang's strings :). [1,2,3,4,5] sends as a string
 					for i := range []byte(str) {
 						args = append(args, str[i])
 					}
-				} else {
-					args = message.(etf.List)
 				}
 
 				n.remoteSpawnMutex.Lock()
