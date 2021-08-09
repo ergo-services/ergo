@@ -206,12 +206,15 @@ func (n *Node) Spawn(name string, opts ProcessOptions, object ProcessBehavior, a
 
 		defer func() {
 			if r := recover(); r != nil {
-				fmt.Printf("Warning: recovered process(name: %s)%v %#v\n", name, process.self, r)
+				pc, fn, line, _ := runtime.Caller(2)
+				fmt.Printf("Warning: process recovered (name: %s) %v %#v at %s[%s:%d]\n",
+					process.name, process.self, r, runtime.FuncForPC(pc).Name(), fn, line)
 				n.registrar.UnregisterProcess(pid)
 				n.monitor.ProcessTerminated(pid, name, "panic")
 				process.Kill()
 
 				process.ready <- fmt.Errorf("Can't start process: %s\n", r)
+				close(process.stopped)
 			}
 
 			// we should close this channel otherwise if we try

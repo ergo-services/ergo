@@ -2,6 +2,7 @@ package ergo
 
 import (
 	"fmt"
+	"runtime"
 	"sync"
 
 	"github.com/halturin/ergo/etf"
@@ -108,6 +109,16 @@ func (gs *GenServer) Loop(p *Process, args ...etf.Term) string {
 
 		p.reductions++
 
+		panicHandler := func() {
+			if r := recover(); r != nil {
+				pc, fn, line, _ := runtime.Caller(2)
+				fmt.Printf("Warning: GenServer recovered (name: %s) %v %#v at %s[%s:%d]\n",
+					p.Name(), p.self, r, runtime.FuncForPC(pc).Name(), fn, line)
+				stop <- "panic"
+			}
+
+		}
+
 		switch m := message.(type) {
 		case etf.Tuple:
 			switch mtag := m.Element(1).(type) {
@@ -118,6 +129,7 @@ func (gs *GenServer) Loop(p *Process, args ...etf.Term) string {
 					// sync-requests (like 'process.Call') within callback execution
 					// since reply (etf.Ref) comes through the same mailBox channel
 					go func() {
+						defer panicHandler()
 						var ok bool
 						if len(m) != 3 {
 							// wrong $gen_call message. ignore it
@@ -203,6 +215,8 @@ func (gs *GenServer) Loop(p *Process, args ...etf.Term) string {
 
 				case etf.Atom("$gen_cast"):
 					go func() {
+						defer panicHandler()
+
 						lockState.Lock()
 						defer lockState.Unlock()
 
@@ -223,6 +237,8 @@ func (gs *GenServer) Loop(p *Process, args ...etf.Term) string {
 
 				default:
 					go func() {
+						defer panicHandler()
+
 						lockState.Lock()
 						defer lockState.Unlock()
 
@@ -251,6 +267,8 @@ func (gs *GenServer) Loop(p *Process, args ...etf.Term) string {
 
 				lib.Log("[%s] GEN_SERVER %#v got simple message %#v", p.Node.FullName, p.self, mtag)
 				go func() {
+					defer panicHandler()
+
 					lockState.Lock()
 					defer lockState.Unlock()
 
@@ -273,6 +291,8 @@ func (gs *GenServer) Loop(p *Process, args ...etf.Term) string {
 		default:
 			lib.Log("m: %#v", m)
 			go func() {
+				defer panicHandler()
+
 				lockState.Lock()
 				defer lockState.Unlock()
 
