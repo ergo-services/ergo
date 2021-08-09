@@ -214,13 +214,12 @@ exited
 
 See `examples/` for more details
 
+* [Application](examples/application)
+* [Supervisor](examples/supervisor)
 * [GenServer](examples/genserver)
 * [GenStage](examples/genstage)
 * [GenSaga](examples/gensaga)
 * [GenDemo](examples/gendemo)
-* [Supervisor](examples/supervisor)
-* [Application](examples/application)
-* [Multinode](examples/multinode)
 * [Node with TLS](examples/nodetls)
 * [Node with HTTP server](examples/http)
 
