@@ -216,84 +216,145 @@ func TermMapIntoStruct(term Term, dest interface{}) (err error) {
 }
 
 func termIntoStruct(term Term, dest reflect.Value) error {
-	t := dest.Type()
 
 	if term == nil {
 		return nil
 	}
 
-	if t.Kind() == reflect.Interface {
-		dest.Set(reflect.ValueOf(term))
-		return nil
-	}
-
-	if t.Kind() == reflect.Ptr {
+	switch dest.Kind() {
+	case reflect.Ptr:
 		pdest := reflect.New(dest.Type().Elem())
 		dest.Set(pdest)
 		dest = pdest.Elem()
-	}
+		return termIntoStruct(term, dest)
 
-	switch v := term.(type) {
-	case Atom:
-		dest.SetString(string(v))
+	case reflect.Array, reflect.Slice:
+		t := dest.Type()
+		byte_slice, ok := term.([]byte)
+		if t == reflect.SliceOf(reflect.TypeOf(byte(1))) && ok {
+			dest.Set(reflect.ValueOf(byte_slice))
+			return nil
+
+		}
+		return setListField(term.(List), dest)
+
+	case reflect.Struct:
+		switch s := term.(type) {
+		case Map:
+			return setMapStructField(s, dest)
+		case Tuple:
+			return setStructField(s, dest)
+		case Ref:
+			dest.Set(reflect.ValueOf(s))
+			return nil
+		case Pid:
+			dest.Set(reflect.ValueOf(s))
+			return nil
+
+		}
+		return fmt.Errorf("can't convert %#v to struct", term)
+
+	case reflect.Map:
+		return setMapField(term.(Map), dest)
+
+	case reflect.Bool:
+		b, ok := term.(bool)
+		if !ok {
+			return fmt.Errorf("can't convert %#v to bool", term)
+		}
+		dest.SetBool(b)
 		return nil
-	case string:
-		dest.SetString(v)
+
+	case reflect.Float32, reflect.Float64:
+		f, ok := term.(float64)
+		if !ok {
+			return fmt.Errorf("can't convert %#v to float64", term)
+		}
+		dest.SetFloat(f)
 		return nil
-	case []byte:
-		if t.Kind() == reflect.String {
+
+	case reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64, reflect.Int:
+		i := int64(0)
+		switch v := term.(type) {
+		case int64:
+			i = v
+		case int32:
+			i = int64(v)
+		case int16:
+			i = int64(v)
+		case int8:
+			i = int64(v)
+		case int:
+			i = int64(v)
+		case uint64:
+			i = int64(v)
+		case uint32:
+			i = int64(v)
+		case uint16:
+			i = int64(v)
+		case uint8:
+			i = int64(v)
+		case uint:
+			i = int64(v)
+		default:
+			return fmt.Errorf("can't convert %#v to int64", term)
+		}
+		dest.SetInt(i)
+		return nil
+
+	case reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uint:
+		u := uint64(0)
+		switch v := term.(type) {
+		case uint64:
+			u = v
+		case uint32:
+			u = uint64(v)
+		case uint16:
+			u = uint64(v)
+		case uint8:
+			u = uint64(v)
+		case uint:
+			u = uint64(v)
+		case int64:
+			u = uint64(v)
+		case int32:
+			u = uint64(v)
+		case int16:
+			u = uint64(v)
+		case int8:
+			u = uint64(v)
+		case int:
+			u = uint64(v)
+
+		default:
+			return fmt.Errorf("can't convert %#v to uint64", term)
+		}
+		dest.SetUint(u)
+		return nil
+
+	case reflect.String:
+		switch v := term.(type) {
+		case List:
+			s, err := convertCharlistToString(v)
+			if err != nil {
+				return err
+			}
+			dest.SetString(s)
+			return nil
+		case []byte:
 			dest.SetString(string(v))
-		} else if t == reflect.SliceOf(reflect.TypeOf(byte(1))) {
-			dest.Set(reflect.ValueOf(v))
-		} else {
-			return NewInvalidTypesError(t, term)
+			return nil
+		case string:
+			dest.SetString(v)
+			return nil
+		case Atom:
+			dest.SetString(string(v))
+			return nil
 		}
-	case bool:
-		dest.SetBool(v)
-	case float32:
-		dest.SetFloat(float64(v))
-	case float64:
-		dest.SetFloat(v)
-	case int:
-		return setIntField(int64(v), dest)
-	case int8:
-		return setIntField(int64(v), dest)
-	case int16:
-		return setIntField(int64(v), dest)
-	case int32:
-		return setIntField(int64(v), dest)
-	case int64:
-		return setIntField(int64(v), dest)
-	case uint:
-		return setUIntField(uint64(v), dest)
-	case uint8:
-		return setUIntField(uint64(v), dest)
-	case uint16:
-		return setUIntField(uint64(v), dest)
-	case uint32:
-		return setUIntField(uint64(v), dest)
-	case uint64:
-		return setUIntField(uint64(v), dest)
-	case Map:
-		return setMapField(v, dest)
-	case String:
-		dest.SetString(string(v))
-		return nil
-	case Charlist:
-		fmt.Println("aaaa", v)
-		s, err := convertCharlistToString(term.(List))
-		if err != nil {
-			return NewInvalidTypesError(t, term)
-		}
-		dest.SetString(s)
-		return nil
-	case List:
-		fmt.Println("bbbb", v)
-		return setListField(v, dest)
-	case Tuple:
-		return setStructField([]Term(v), dest, t)
+
 	default:
-		dest.Set(reflect.ValueOf(v))
+		dest.Set(reflect.ValueOf(term))
+		return nil
 	}
 
 	return nil
@@ -301,6 +362,11 @@ func termIntoStruct(term Term, dest reflect.Value) error {
 
 func setListField(term List, dest reflect.Value) error {
 	var value reflect.Value
+	if dest.Kind() == reflect.Ptr {
+		pdest := reflect.New(dest.Type().Elem())
+		dest.Set(pdest)
+		dest = pdest.Elem()
+	}
 	t := dest.Type()
 	switch t.Kind() {
 	case reflect.Slice:
@@ -412,7 +478,7 @@ func setMapField(term Map, dest reflect.Value) error {
 	return NewInvalidTypesError(dest.Type(), term)
 }
 
-func setStructField(term Tuple, dest reflect.Value, t reflect.Type) error {
+func setStructField(term Tuple, dest reflect.Value) error {
 	if dest.Kind() == reflect.Ptr {
 		pdest := reflect.New(dest.Type().Elem())
 		dest.Set(pdest)
@@ -499,30 +565,6 @@ func setMapMapField(term Map, dest reflect.Value) error {
 	return nil
 }
 
-func setIntField(i int64, field reflect.Value) error {
-	switch field.Type().Kind() {
-	case reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64, reflect.Int:
-		field.SetInt(int64(i))
-	case reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uint:
-		field.SetUint(uint64(i))
-	default:
-		return NewInvalidTypesError(field.Type(), i)
-	}
-	return nil
-}
-
-func setUIntField(ui uint64, field reflect.Value) error {
-	switch field.Type().Kind() {
-	case reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64, reflect.Int:
-		field.SetInt(int64(ui))
-	case reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uint:
-		field.SetUint(uint64(ui))
-	default:
-		return NewInvalidTypesError(field.Type(), ui)
-	}
-	return nil
-}
-
 type StructPopulatorError struct {
 	Type reflect.Type
 	Term Term
@@ -551,6 +593,8 @@ func convertCharlistToString(l List) (string, error) {
 	runes := make([]rune, len(l))
 	for i := range l {
 		switch x := l[i].(type) {
+		case int64:
+			runes[i] = int32(x)
 		case int32:
 			runes[i] = int32(x)
 		case int16:

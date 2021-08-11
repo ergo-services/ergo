@@ -707,7 +707,7 @@ func checkCleanLinkPid(node *Node, pid etf.Pid) error {
 	node.monitor.mutexLinks.Lock()
 	defer node.monitor.mutexLinks.Unlock()
 	if _, ok := node.monitor.links[pid]; ok {
-		return fmt.Errorf("process link reference hasnt clean correctly")
+		return fmt.Errorf("process link reference hasnt cleaned correctly")
 	}
 	return nil
 }

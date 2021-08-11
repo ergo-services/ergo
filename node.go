@@ -75,7 +75,10 @@ type NodeOptions struct {
 	TLSkeyServer           string
 	TLScrtClient           string
 	TLSkeyClient           string
-	HandshakeVersion       int // 5 or 6
+	// HandshakeVersion. Allowed values 5 or 6. Default version is 5
+	HandshakeVersion int
+	// ConnectionHandlers defines the number of readers/writers per connection. Default is the number of CPU.
+	ConnectionHandlers int
 }
 
 // TLSmodeType should be one of TLSmodeDisabled (default), TLSmodeAuto or TLSmodeStrict
@@ -345,7 +348,7 @@ func (n *Node) ResolvePort(name string) int {
 
 func (n *Node) serve(link *dist.Link, opts NodeOptions) error {
 	// define the total number of reader/writer goroutines
-	numHandlers := runtime.GOMAXPROCS(-1)
+	numHandlers := runtime.GOMAXPROCS(opts.ConnectionHandlers)
 
 	// do not use shared channels within intencive code parts, impacts on a performance
 	receivers := struct {

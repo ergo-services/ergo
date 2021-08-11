@@ -2,7 +2,6 @@ package etf
 
 import (
 	"bytes"
-	"fmt"
 	"reflect"
 	"testing"
 
@@ -317,56 +316,56 @@ func TestTermProplistIntoStruct(t *testing.T) {
 	}
 }
 
-func TestTermIntoStruct_WithTags(t *testing.T) {
+func TestTermIntoStructCharlistString(t *testing.T) {
 	b := lib.TakeBuffer()
 	defer lib.ReleaseBuffer(b)
 
 	type Nested struct {
-		NestedKey1 string
-		NestedKey2 map[string]*string `etf:"field charlist"`
+		NestedKey1 String
+		NestedKey2 map[string]*Charlist `etf:"field"`
 	}
-	type StructWithTags struct {
+	type StructCharlistString struct {
 		Key1 string
-		Key2 []*string `etf:"custom_field_name charlist"`
+		Key2 []*Charlist `etf:"custom_field_name"`
 		Key3 *Nested
-		Key4 [][]*string `etf:"charlist"`
+		Key4 [][]*Charlist
 	}
 
-	nestedMap := make(map[string]*string)
-	value1 := "Hello World! 你好世界! Привет Мир! 🚀"
+	nestedMap := make(map[string]*Charlist)
+	value1 := Charlist("Hello World! 你好世界! Привет Мир! 🚀")
+	value11 := String("Hello World! 你好世界! Привет Мир! 🚀")
 	nestedMap["map_key"] = &value1
 
 	nested := Nested{
-		NestedKey1: value1,
+		NestedKey1: value11,
 		NestedKey2: nestedMap,
 	}
 
-	value2 := "你好世界! 🚀"
-	value3 := "Привет Мир! 🚀"
-	value4 := "Hello World! 🚀"
-	term_source := StructWithTags{
+	value2 := Charlist("你好世界! 🚀")
+	value3 := Charlist("Привет Мир! 🚀")
+	value4 := Charlist("Hello World! 🚀")
+	term := StructCharlistString{
 		Key1: "Hello World!",
-		Key2: []*string{&value2, &value3, &value4},
+		Key2: []*Charlist{&value2, &value3, &value4},
 		Key3: &nested,
-		Key4: [][]*string{[]*string{&value2, &value3, &value4}, []*string{&value2, &value3, &value4}},
+		Key4: [][]*Charlist{[]*Charlist{&value2, &value3, &value4}, []*Charlist{&value2, &value3, &value4}},
 	}
-	if err := Encode(term_source, b, EncodeOptions{}); err != nil {
+	err := Encode(term, b, EncodeOptions{})
+	if err != nil {
 		t.Fatal(err)
 	}
-
-	fmt.Println("bin", b.B)
 
 	term_Term, _, err := Decode(b.B, []Atom{}, DecodeOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	term_dest := StructWithTags{}
+	term_dest := StructCharlistString{}
 	if err := TermMapIntoStruct(term_Term, &term_dest); err != nil {
 		t.Fatal(err)
 	}
 
-	if !reflect.DeepEqual(term_source, term_dest) {
+	if !reflect.DeepEqual(term, term_dest) {
 		t.Fatal("result != expected")
 	}
 }
@@ -412,7 +411,7 @@ func TestEncodeDecodePid(t *testing.T) {
 	// enable BigCreation
 	b.Reset()
 	encodeOptions := EncodeOptions{
-		flagBigCreation: true,
+		FlagBigCreation: true,
 	}
 	err = Encode(pidIn, b, encodeOptions)
 	if err != nil {
@@ -420,7 +419,7 @@ func TestEncodeDecodePid(t *testing.T) {
 	}
 
 	decodeOptions := DecodeOptions{
-		flagBigCreation: true,
+		FlagBigCreation: true,
 	}
 	term, _, err = Decode(b.B, []Atom{}, decodeOptions)
 	pidOut, ok = term.(Pid)
@@ -437,7 +436,7 @@ func TestEncodeDecodePid(t *testing.T) {
 	// enable V4NC
 	b.Reset()
 	encodeOptions = EncodeOptions{
-		flagV4NC: true,
+		FlagV4NC: true,
 	}
 	err = Encode(pidIn, b, encodeOptions)
 	if err != nil {
@@ -445,7 +444,7 @@ func TestEncodeDecodePid(t *testing.T) {
 	}
 
 	decodeOptions = DecodeOptions{
-		flagV4NC: true,
+		FlagV4NC: true,
 	}
 	term, _, err = Decode(b.B, []Atom{}, decodeOptions)
 	pidOut, ok = term.(Pid)
@@ -462,8 +461,8 @@ func TestEncodeDecodePid(t *testing.T) {
 	// enable BigCreation and V4NC
 	b.Reset()
 	encodeOptions = EncodeOptions{
-		flagV4NC:        true,
-		flagBigCreation: true,
+		FlagV4NC:        true,
+		FlagBigCreation: true,
 	}
 	err = Encode(pidIn, b, encodeOptions)
 	if err != nil {
@@ -471,8 +470,8 @@ func TestEncodeDecodePid(t *testing.T) {
 	}
 
 	decodeOptions = DecodeOptions{
-		flagV4NC:        true,
-		flagBigCreation: true,
+		FlagV4NC:        true,
+		FlagBigCreation: true,
 	}
 	term, _, err = Decode(b.B, []Atom{}, decodeOptions)
 	pidOut, ok = term.(Pid)

@@ -304,18 +304,15 @@ func TestNodeRemoteSpawn(t *testing.T) {
 	opts := RemoteSpawnOptions{
 		RegisterName: "asdf",
 	}
-	remote, err := process.RemoteSpawn(node2.FullName, "remote", opts, 1, 2, 3)
+	_, err = process.RemoteSpawn(node2.FullName, "remote", opts, 1, 2, 3)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	fmt.Println("REMOTE", remote)
-	remote1, err := process.RemoteSpawn(node2.FullName, "remote", opts, 1, 2, 3)
+	_, err = process.RemoteSpawn(node2.FullName, "remote", opts, 1, 2, 3)
 	if err != ErrTaken {
 		t.Fatal(err)
 	}
-	fmt.Println("REMOTE1", remote1)
-
 }
 
 type benchGS struct {
