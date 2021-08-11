@@ -221,6 +221,20 @@ func termIntoStruct(term Term, dest reflect.Value) error {
 		return nil
 	}
 
+	if dest.Type().NumMethod() > 0 && dest.CanInterface() {
+		v := dest
+		if v.Kind() != reflect.Ptr {
+			v = v.Addr()
+		}
+		if u, ok := v.Interface().(Unmarshaler); ok {
+			b, is_binary := term.([]byte)
+			if !is_binary {
+				return fmt.Errorf("can't unmarshal value, wront type %s", term)
+			}
+			return u.UnmarshalETF(b)
+		}
+	}
+
 	switch dest.Kind() {
 	case reflect.Ptr:
 		pdest := reflect.New(dest.Type().Elem())

@@ -2,8 +2,10 @@ package etf
 
 import (
 	"bytes"
+	"fmt"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/halturin/ergo/lib"
 )
@@ -484,4 +486,47 @@ func TestEncodeDecodePid(t *testing.T) {
 		t.Error("got", pidOut)
 		t.Fatal("incorrect result")
 	}
+}
+
+type myTime struct {
+	Time time.Time
+}
+
+func (m *myTime) MarshalETF() ([]byte, error) {
+	s := fmt.Sprintf("%s", m.Time.Format(time.RFC3339))
+	fmt.Println("LLL1", s)
+	return []byte(s), nil
+}
+
+func (m *myTime) UnmarshalETF(b []byte) error {
+	t, e := time.Parse(
+		time.RFC3339, string(b))
+	m.Time = t
+	fmt.Println("LLL2", m)
+	return e
+
+}
+
+func TestTermIntoStructUnmarshal(t *testing.T) {
+	b := lib.TakeBuffer()
+	defer lib.ReleaseBuffer(b)
+
+	var src, dest myTime
+
+	src.Time = time.Now()
+	err := Encode(src, b, EncodeOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	term, _, err := Decode(b.B, []Atom{}, DecodeOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	fmt.Println("AAA", term)
+	if err := TermIntoStruct(term, &dest); err != nil {
+		t.Errorf("%#v: conversion failed %v", term, err)
+	}
+	fmt.Print("AAA", dest)
+
 }
