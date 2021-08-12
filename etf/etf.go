@@ -220,20 +220,6 @@ func TermIntoStruct(term Term, dest interface{}) (err error) {
 	return
 }
 
-// TermMapIntoSturct transforms etf.Map into the given 'dest'.
-// There are limitations to use this helper. A key of the given etf.Map
-// must be a string or etf.Atom. 'dest' must be a structure with
-// specified tag 'etf' and the name of a key for every single field.
-func TermMapIntoStruct(term Term, dest interface{}) (err error) {
-	defer func() {
-		if r := recover(); r != nil {
-			err = fmt.Errorf("%v", r)
-		}
-	}()
-	v := reflect.Indirect(reflect.ValueOf(dest))
-	return setMapStructField(term.(Map), v)
-}
-
 func termIntoStruct(term Term, dest reflect.Value) error {
 
 	if term == nil {

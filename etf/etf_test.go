@@ -265,7 +265,33 @@ func TestTermMapIntoStruct_Struct(t *testing.T) {
 		Atom("c"): "hello world",
 	}
 
-	if err := TermMapIntoStruct(term, &dest); err != nil {
+	if err := TermIntoStruct(term, &dest); err != nil {
+		t.Errorf("%#v: conversion failed %v", term, err)
+	}
+
+	if !reflect.DeepEqual(dest, want) {
+		t.Errorf("%#v: got %#v, want %#v", term, dest, want)
+	}
+
+}
+func TestTermMapIntoMap(t *testing.T) {
+	type testMap map[string]int
+
+	var dest testMap
+
+	want := testMap{
+		"a": 123,
+		"b": 456,
+		"c": 789,
+	}
+
+	term := Map{
+		Atom("a"): 123,
+		"b":       456,
+		Atom("c"): 789,
+	}
+
+	if err := TermIntoStruct(term, &dest); err != nil {
 		t.Errorf("%#v: conversion failed %v", term, err)
 	}
 
@@ -363,7 +389,7 @@ func TestTermIntoStructCharlistString(t *testing.T) {
 	}
 
 	term_dest := StructCharlistString{}
-	if err := TermMapIntoStruct(term_Term, &term_dest); err != nil {
+	if err := TermIntoStruct(term_Term, &term_dest); err != nil {
 		t.Fatal(err)
 	}
 
@@ -502,7 +528,6 @@ func (m *myTime) UnmarshalETF(b []byte) error {
 		time.RFC3339, string(b))
 	m.Time = t
 	return e
-
 }
 
 func TestTermIntoStructUnmarshal(t *testing.T) {
