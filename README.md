@@ -49,7 +49,7 @@ The goal of this project is to leverage Erlang/OTP experience with Golang perfor
 * [embedded EPMD](#epmd) (in order to get rid of erlang' dependencies)
 * Experimental [observer support](#observer)
 * Unmarshalling terms into the struct using `etf.TermIntoStruct`, `etf.TermProplistIntoStruct` or to the string using `etf.TermToString`
-* Custom marshaling/unmarshaling via `MarshalETF` and `UnmarshalETF` interfaces
+* Custom marshaling/unmarshaling via `Marshal` and `Unmarshal` interfaces
 * Encryption (TLS 1.3) support (including autogenerating self-signed certificates)
 * Tested and confirmed support Windows, Darwin (MacOS), Linux, FreeBSD.
 
@@ -77,7 +77,7 @@ Here are the changes of latest release. For more details see the [ChangeLog](Cha
 * Introduced new interfaces `Marshaler` (method `MarshalETF`) and `Unmarshaler` (method `UnmarshalETF`) for the custom encoding/decoding data.
 * Added example `example/http` to demonsrate how HTTP server can be integrated into the Ergo node.
 * Added example `example/gendemo` - how to create a custom behavior (design pattern) on top of the `GenServer`. Take inspiration from the `gen_stage.go` or `gen_saga.go` design patterns.
-* Added support FreeBSD, OpenBSD, NetBSD, DragoFly.
+* Added support FreeBSD, OpenBSD, NetBSD, DragonFly.
 * Fixed RPC issue #45
 * Fixed internal timer issue #48
 * Fixed memory leaks #53
