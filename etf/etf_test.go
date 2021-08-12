@@ -492,9 +492,8 @@ type myTime struct {
 	Time time.Time
 }
 
-func (m *myTime) MarshalETF() ([]byte, error) {
+func (m myTime) MarshalETF() ([]byte, error) {
 	s := fmt.Sprintf("%s", m.Time.Format(time.RFC3339))
-	fmt.Println("LLL1", s)
 	return []byte(s), nil
 }
 
@@ -502,7 +501,6 @@ func (m *myTime) UnmarshalETF(b []byte) error {
 	t, e := time.Parse(
 		time.RFC3339, string(b))
 	m.Time = t
-	fmt.Println("LLL2", m)
 	return e
 
 }
@@ -513,7 +511,11 @@ func TestTermIntoStructUnmarshal(t *testing.T) {
 
 	var src, dest myTime
 
-	src.Time = time.Now()
+	now := time.Now()
+	s := fmt.Sprintf("%s", now.Format(time.RFC3339))
+	now, _ = time.Parse(time.RFC3339, s)
+
+	src.Time = now
 	err := Encode(src, b, EncodeOptions{})
 	if err != nil {
 		t.Fatal(err)
@@ -523,10 +525,40 @@ func TestTermIntoStructUnmarshal(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	fmt.Println("AAA", term)
 	if err := TermIntoStruct(term, &dest); err != nil {
 		t.Errorf("%#v: conversion failed %v", term, err)
 	}
-	fmt.Print("AAA", dest)
 
+	if src != dest {
+		t.Fatal("wrong value")
+	}
+
+	type aaa struct {
+		A1 myTime
+		A2 *myTime
+	}
+
+	var src1 aaa
+	var dst1 aaa
+
+	src1.A1.Time = now
+	src1.A2 = &myTime{now}
+
+	b.Reset()
+
+	err = Encode(src1, b, EncodeOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	term, _, err = Decode(b.B, []Atom{}, DecodeOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err = TermIntoStruct(term, &dst1); err != nil {
+		t.Errorf("%#v: conversion failed %v", term, err)
+	}
+	if !reflect.DeepEqual(src1, dst1) {
+		t.Errorf("got %v, want %v", dst1, src1)
+	}
 }

@@ -677,27 +677,21 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 			binary.BigEndian.PutUint32(buf[1:5], uint32(lenBinary))
 			copy(buf[5:], t)
 
+		case Marshaler:
+			m, err := t.MarshalETF()
+			if err != nil {
+				return err
+			}
+
+			lenBinary := len(m)
+			buf := b.Extend(1 + 4 + lenBinary)
+			buf[0] = ettBinary
+			binary.BigEndian.PutUint32(buf[1:5], uint32(lenBinary))
+			copy(buf[5:], m)
+
 		default:
 			v := reflect.ValueOf(t)
 
-			fmt.Println("AAA1", t)
-			if reflect.PtrTo(v.Type()).Implements(marshalerType) {
-				fmt.Println("AAA2", t)
-				if m, ok := (&t).(Marshaler); ok {
-					bin, err := m.MarshalETF()
-					if err != nil {
-						return err
-					}
-
-					lenBinary := len(bin)
-					buf := b.Extend(1 + 4 + lenBinary)
-					buf[0] = ettBinary
-					binary.BigEndian.PutUint32(buf[1:5], uint32(lenBinary))
-					copy(buf[5:], bin)
-					break
-				}
-			}
-			fmt.Println("AAA3", t)
 			switch v.Kind() {
 			case reflect.Struct:
 				lenStruct := v.NumField()

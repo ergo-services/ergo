@@ -42,13 +42,32 @@ type Ref struct {
 	ID       [5]uint32
 }
 
-// Marshaler is the interface implemented by types that can marshal themselves into valid ETF binary
+// Marshaler interface implemented by types that can marshal themselves into valid ETF binary
+// Interface implementation must be over the object e.g. (MyObject) UnmarshalETF:
+//
+// 	type MyObject struct{}
+//
+// 	func (m MyObject) MarshalETF() ([]byte, error) {
+// 		var encoded []byte
+// 		... encoding routine ...
+// 		return encoded, nil
+// }
+//
 type Marshaler interface {
 	MarshalETF() ([]byte, error)
 }
 
-// Unmarshaler is the interface implemented by types that can unmarshal an ETF binary of themselves.
+// Unmarshaler interface implemented by types that can unmarshal an ETF binary of themselves.
 // Returns error ErrEmpty for []byte{}.
+// Interface implementation must be over pointer to the object e.g. (*MyObject) UnmarshalETF:
+//
+// 	type MyObject struct{}
+//
+// 	func (m *MyObject) UnmarshalETF(b []byte) error {
+// 		var err error
+// 		... decoding routine ...
+// 		return err
+// 	}
 type Unmarshaler interface {
 	UnmarshalETF([]byte) error
 }
@@ -191,11 +210,11 @@ func TermProplistIntoStruct(term Term, dest interface{}) (err error) {
 // expencive operation in terms of CPU usage so you shouldn't use it
 // on highload parts of your code. Use manual type casting instead.
 func TermIntoStruct(term Term, dest interface{}) (err error) {
-	defer func() {
-		if r := recover(); r != nil {
-			err = fmt.Errorf("%v", r)
-		}
-	}()
+	//defer func() {
+	//	if r := recover(); r != nil {
+	//		err = fmt.Errorf("%v", r)
+	//	}
+	//}()
 	v := reflect.Indirect(reflect.ValueOf(dest))
 	err = termIntoStruct(term, v)
 	return
@@ -223,15 +242,16 @@ func termIntoStruct(term Term, dest reflect.Value) error {
 
 	if dest.Type().NumMethod() > 0 && dest.CanInterface() {
 		v := dest
-		if v.Kind() != reflect.Ptr {
+		if v.Kind() != reflect.Ptr && v.CanAddr() {
 			v = v.Addr()
-		}
-		if u, ok := v.Interface().(Unmarshaler); ok {
-			b, is_binary := term.([]byte)
-			if !is_binary {
-				return fmt.Errorf("can't unmarshal value, wront type %s", term)
+
+			if u, ok := v.Interface().(Unmarshaler); ok {
+				b, is_binary := term.([]byte)
+				if !is_binary {
+					return fmt.Errorf("can't unmarshal value, wront type %s", term)
+				}
+				return u.UnmarshalETF(b)
 			}
-			return u.UnmarshalETF(b)
 		}
 	}
 
