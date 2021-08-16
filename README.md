@@ -83,7 +83,6 @@ Here are the changes of latest release. For more details see the [ChangeLog](Cha
 * Fixed memory leaks #53
 * Fixed double panic issue #52
 * Fixed Atom Cache race conditioned issue #54
-* Fixed observer support
 * Fixed ETF encoder issues #64 #66
 
 
