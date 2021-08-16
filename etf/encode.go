@@ -746,7 +746,7 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 				}
 
 			default:
-				return fmt.Errorf("unsupported type %#v", v)
+				return fmt.Errorf("unsupported type %v with value %#v", v.Type(), v)
 			}
 		}
 

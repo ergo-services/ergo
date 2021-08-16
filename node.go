@@ -526,19 +526,13 @@ func (n *Node) GetApplicationInfo(name string) (ApplicationInfo, error) {
 
 // ApplicationLoad loads the application specification for an application
 // into the node. It also loads the application specifications for any included applications
-func (n *Node) ApplicationLoad(app interface{}, args ...etf.Term) error {
+func (n *Node) ApplicationLoad(app ApplicationBehavior, args ...etf.Term) error {
 
-	spec, err := app.(ApplicationBehavior).Load(args...)
+	spec, err := app.Load(args...)
 	if err != nil {
 		return err
 	}
-	spec.app = app.(ApplicationBehavior)
-	for i := range spec.Applications {
-		if e := n.ApplicationLoad(spec.Applications[i], args...); e != nil && e != ErrAppAlreadyLoaded {
-			return e
-		}
-	}
-
+	spec.app = app
 	return n.registrar.RegisterApp(spec.Name, &spec)
 }
 

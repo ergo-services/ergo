@@ -194,9 +194,6 @@ type handshakeGenServer struct {
 }
 
 func (h *handshakeGenServer) Init(state *GenServerState, args ...etf.Term) error {
-	if len(args) > 0 {
-		fmt.Println(state.Process.Node.FullName, state.Process.Name(), args)
-	}
 	return nil
 }
 
@@ -296,23 +293,27 @@ func TestNodeRemoteSpawn(t *testing.T) {
 	defer node2.Stop()
 
 	node2.ProvideRemoteSpawn("remote", &handshakeGenServer{})
-	process, err := node1.Spawn("", ProcessOptions{}, &handshakeGenServer{})
+	process, err := node1.Spawn("gs1", ProcessOptions{}, &handshakeGenServer{})
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	opts := RemoteSpawnOptions{
-		RegisterName: "asdf",
+		RegisterName: "remote",
 	}
+	fmt.Printf("    process gs1@node1 requests spawn new process on node2 and register this process with name 'remote': ")
 	_, err = process.RemoteSpawn(node2.FullName, "remote", opts, 1, 2, 3)
 	if err != nil {
 		t.Fatal(err)
 	}
+	fmt.Println("OK")
+	fmt.Printf("    process gs1@node1 requests spawn new process on node2 with the same name (must be failed): ")
 
 	_, err = process.RemoteSpawn(node2.FullName, "remote", opts, 1, 2, 3)
 	if err != ErrTaken {
 		t.Fatal(err)
 	}
+	fmt.Println("OK")
 }
 
 type benchGS struct {

@@ -93,8 +93,8 @@ func (o *observerBackend) sysInfo(p *Process) etf.List {
 	threads := etf.Tuple{etf.Atom("threads"), true}
 	threadsPoolSize := etf.Tuple{etf.Atom("threads_pool_size"), 1}
 	i := int(1)
-	wordsizeInternal := etf.Tuple{etf.Atom("wordsize_internal"), unsafe.Sizeof(i)}
-	wordsizeExternal := etf.Tuple{etf.Atom("wordsize_external"), unsafe.Sizeof(i)}
+	wordsizeInternal := etf.Tuple{etf.Atom("wordsize_internal"), int(unsafe.Sizeof(i))}
+	wordsizeExternal := etf.Tuple{etf.Atom("wordsize_external"), int(unsafe.Sizeof(i))}
 	tmp := etf.Tuple{etf.Atom("instance"), 0,
 		etf.List{
 			etf.Tuple{etf.Atom("mbcs"), etf.List{
