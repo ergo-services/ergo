@@ -76,6 +76,7 @@ type ProcessInfo struct {
 	Links           []etf.Pid
 	Monitors        []etf.Pid
 	MonitoredBy     []etf.Pid
+	Aliases         []etf.Alias
 	Dictionary      etf.Map
 	TrapExit        bool
 	GroupLeader     etf.Pid
@@ -115,6 +116,7 @@ func (p *Process) Info() ProcessInfo {
 	links := p.Node.monitor.GetLinks(p.self)
 	monitors := p.Node.monitor.GetMonitors(p.self)
 	monitoredBy := p.Node.monitor.GetMonitoredBy(p.self)
+	aliases := append(make([]etf.Alias, len(p.aliases)), p.aliases...)
 	return ProcessInfo{
 		PID:             p.self,
 		Name:            p.name,
@@ -123,6 +125,7 @@ func (p *Process) Info() ProcessInfo {
 		Links:           links,
 		Monitors:        monitors,
 		MonitoredBy:     monitoredBy,
+		Aliases:         aliases,
 		Status:          "running",
 		MessageQueueLen: len(p.mailBox),
 		TrapExit:        p.trapExit,

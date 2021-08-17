@@ -515,7 +515,8 @@ func (m *monitor) GetLinks(process etf.Pid) []etf.Pid {
 	m.mutexLinks.Lock()
 	defer m.mutexLinks.Unlock()
 
-	if links, ok := m.links[process]; ok {
+	if l, ok := m.links[process]; ok {
+		links := append(make([]etf.Pid, len(l)), l...)
 		return links
 	}
 	return nil
