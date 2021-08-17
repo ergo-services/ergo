@@ -20,33 +20,32 @@ const (
 type Process struct {
 	sync.RWMutex
 
+	name   string
+	self   etf.Pid
+	object ProcessBehavior
+	env    map[string]interface{}
+
+	parent      *Process
+	groupLeader *Process
+	aliases     []etf.Alias
+
 	mailBox      chan mailboxMessage
 	ready        chan error
 	gracefulExit chan gracefulExitRequest
 	direct       chan directMessage
 	stopped      chan bool
-	self         etf.Pid
-	groupLeader  *Process
-	Context      context.Context
-	Kill         context.CancelFunc
-	Exit         ProcessExitFunc
-	name         string
-	Node         *Node
 
-	object ProcessBehavior
+	Context context.Context
+	Kill    context.CancelFunc
+	Exit    ProcessExitFunc
+	Node    *Node
 
 	replyMutex sync.Mutex
 	reply      map[etf.Ref]chan etf.Term
 
-	env map[string]interface{}
-
-	aliases []etf.Alias
-
-	parent          *Process
 	reductions      uint64 // we use this term to count total number of processed messages from mailBox
 	currentFunction string
-
-	trapExit bool
+	trapExit        bool
 }
 
 type mailboxMessage struct {
@@ -86,7 +85,7 @@ type ProcessInfo struct {
 type ProcessOptions struct {
 	MailboxSize uint16
 	GroupLeader *Process
-	Context     context.Context
+	Parent      *Process
 }
 
 // ProcessExitFunc initiate a graceful stopping process
@@ -243,9 +242,9 @@ func (p *Process) Cast(to interface{}, message etf.Term) error {
 // MonitorProcess creates monitor between the processes.
 // 'process' value can be: etf.Pid, registered local name etf.Atom or
 // remote registered name etf.Tuple{Name etf.Atom, Node etf.Atom}
-// When a process monitor is triggered, a 'DOWN' message sends that has the following
+// When a process monitor is triggered, a 'DOWN' message sends with the following
 // pattern: {'DOWN', MonitorRef, Type, Object, Info} where
-// Info has following values:
+// Info has the following values:
 //  - the exit reason of the process
 //  - 'noproc' (process did not exist at the time of monitor creation)
 //  - 'noconnection' (no connection to the node where the monitored process resides)
@@ -272,14 +271,14 @@ func (p *Process) MonitorNode(name string) etf.Ref {
 	return p.Node.monitor.MonitorNode(p.self, name)
 }
 
-// DemonitorProcess removes monitor. Returns false if the given reference 'ref' wasn't found
+// DemonitorProcess removes monitor. Returns false if the given reference wasn't found
 func (p *Process) DemonitorProcess(ref etf.Ref) bool {
 	return p.Node.monitor.DemonitorProcess(ref)
 }
 
-// DemonitorNode removes monitor
-func (p *Process) DemonitorNode(ref etf.Ref) {
-	p.Node.monitor.DemonitorNode(ref)
+// DemonitorNode removes monitor. Returns false if the given reference wasn't found
+func (p *Process) DemonitorNode(ref etf.Ref) bool {
+	return p.Node.monitor.DemonitorNode(ref)
 }
 
 // CreateAlias creates a new alias for the Process
@@ -292,22 +291,29 @@ func (p *Process) DeleteAlias(alias etf.Alias) error {
 	return p.Node.registrar.deleteAlias(p, alias)
 }
 
-// ListEnv returns map of configured environment variables.
-// Process' environment is also inherited from environment variables
-// of groupLeader (if its started as a child of Application/Supervisor)
+// ListEnv returns a map of configured environment variables.
+// It also includes environment variables from the GroupLeader and Parent.
+// which are overlapped by priority: Process(Parent(GroupLeader))
 func (p *Process) ListEnv() map[string]interface{} {
-	var env map[string]interface{}
-	if p.groupLeader == nil {
-		env = make(map[string]interface{})
-	} else {
-		env = p.groupLeader.ListEnv()
-	}
-
 	p.RLock()
 	defer p.RUnlock()
+
+	env := make(map[string]interface{})
+
+	if p.groupLeader != nil {
+		for key, value := range p.groupLeader.ListEnv() {
+			env[key] = value
+		}
+	}
+	if p.parent != nil {
+		for key, value := range p.parent.ListEnv() {
+			env[key] = value
+		}
+	}
 	for key, value := range p.env {
 		env[key] = value
 	}
+
 	return env
 }
 

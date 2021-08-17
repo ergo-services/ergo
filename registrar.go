@@ -126,15 +126,22 @@ func (r *registrar) RegisterProcess(object ProcessBehavior) (*Process, error) {
 
 func (r *registrar) RegisterProcessExt(name string, object ProcessBehavior, opts ProcessOptions) (*Process, error) {
 
+	var parentContext context.Context
+
 	mailboxSize := DefaultProcessMailboxSize
 	if opts.MailboxSize > 0 {
 		mailboxSize = int(opts.MailboxSize)
 	}
 
-	parentContext := r.node.context
-	if opts.Context != nil {
-		parentContext = opts.Context
+	switch {
+	case opts.Parent != nil:
+		parentContext = opts.Parent.Context
+	case opts.GroupLeader != nil:
+		parentContext = opts.GroupLeader.Context
+	default:
+		parentContext = r.node.context
 	}
+
 	ctx, kill := context.WithCancel(parentContext)
 
 	pid := r.createNewPID()
@@ -149,6 +156,7 @@ func (r *registrar) RegisterProcessExt(name string, object ProcessBehavior, opts
 		direct:       make(chan directMessage),
 		self:         pid,
 		groupLeader:  opts.GroupLeader,
+		parent:       opts.Parent,
 		Context:      ctx,
 		Kill:         kill,
 		name:         name,

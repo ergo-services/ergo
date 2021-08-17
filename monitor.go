@@ -344,7 +344,7 @@ func (m *monitor) MonitorNode(by etf.Pid, node string) etf.Ref {
 	return ref
 }
 
-func (m *monitor) DemonitorNode(ref etf.Ref) {
+func (m *monitor) DemonitorNode(ref etf.Ref) bool {
 	var name string
 	var ok bool
 
@@ -352,7 +352,7 @@ func (m *monitor) DemonitorNode(ref etf.Ref) {
 	defer m.mutexNodes.Unlock()
 
 	if name, ok = m.ref2node[ref]; !ok {
-		return
+		return false
 	}
 
 	l := m.nodes[name]
@@ -373,6 +373,7 @@ func (m *monitor) DemonitorNode(ref etf.Ref) {
 	}
 	m.nodes[name] = l
 	delete(m.ref2node, ref)
+	return true
 }
 
 func (m *monitor) NodeDown(name string) {
