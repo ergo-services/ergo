@@ -49,7 +49,7 @@ type Node struct {
 	tlscertServer tls.Certificate
 	tlscertClient tls.Certificate
 
-	FullName string
+	name string
 
 	creation uint32
 
@@ -182,7 +182,7 @@ func CreateNodeWithContext(ctx context.Context, name string, cookie string, opts
 		// start EPMD
 		node.epmd.Init(nodectx, name, listenPort, opts.EPMDPort, opts.Hidden, opts.DisableEPMDServer)
 
-		node.FullName = name
+		node.name = name
 	}
 
 	node.opts = opts
@@ -194,6 +194,11 @@ func CreateNodeWithContext(ctx context.Context, name string, cookie string, opts
 	node.Spawn("net_kernel_sup", ProcessOptions{}, netKernelSup)
 
 	return node, nil
+}
+
+// Name returns node name
+func (n *Node) Name() string {
+	return n.name
 }
 
 // Spawn create new process
@@ -280,7 +285,7 @@ func (n *Node) Unregister(name string) {
 
 // IsProcessAlive returns true if the process with given pid is alive
 func (n *Node) IsProcessAlive(pid etf.Pid) bool {
-	if pid.Node != etf.Atom(n.FullName) {
+	if pid.Node != etf.Atom(n.Name()) {
 		return false
 	}
 
@@ -642,54 +647,54 @@ func (n *Node) handleMessage(fromNode string, control, message etf.Term) (err er
 			switch act {
 			case distProtoREG_SEND:
 				// {6, FromPid, Unused, ToName}
-				lib.Log("[%s] CONTROL REG_SEND [from %s]: %#v", n.FullName, fromNode, control)
+				lib.Log("[%s] CONTROL REG_SEND [from %s]: %#v", n.Name(), fromNode, control)
 				n.registrar.route(t.Element(2).(etf.Pid), t.Element(4), message)
 
 			case distProtoSEND:
 				// {2, Unused, ToPid}
 				// SEND has no sender pid
-				lib.Log("[%s] CONTROL SEND [from %s]: %#v", n.FullName, fromNode, control)
+				lib.Log("[%s] CONTROL SEND [from %s]: %#v", n.Name(), fromNode, control)
 				n.registrar.route(etf.Pid{}, t.Element(3), message)
 
 			case distProtoLINK:
 				// {1, FromPid, ToPid}
-				lib.Log("[%s] CONTROL LINK [from %s]: %#v", n.FullName, fromNode, control)
+				lib.Log("[%s] CONTROL LINK [from %s]: %#v", n.Name(), fromNode, control)
 				n.monitor.Link(t.Element(2).(etf.Pid), t.Element(3).(etf.Pid))
 
 			case distProtoUNLINK:
 				// {4, FromPid, ToPid}
-				lib.Log("[%s] CONTROL UNLINK [from %s]: %#v", n.FullName, fromNode, control)
+				lib.Log("[%s] CONTROL UNLINK [from %s]: %#v", n.Name(), fromNode, control)
 				n.monitor.Unlink(t.Element(2).(etf.Pid), t.Element(3).(etf.Pid))
 
 			case distProtoNODE_LINK:
-				lib.Log("[%s] CONTROL NODE_LINK [from %s]: %#v", n.FullName, fromNode, control)
+				lib.Log("[%s] CONTROL NODE_LINK [from %s]: %#v", n.Name(), fromNode, control)
 
 			case distProtoEXIT:
 				// {3, FromPid, ToPid, Reason}
-				lib.Log("[%s] CONTROL EXIT [from %s]: %#v", n.FullName, fromNode, control)
+				lib.Log("[%s] CONTROL EXIT [from %s]: %#v", n.Name(), fromNode, control)
 				terminated := t.Element(2).(etf.Pid)
 				reason := fmt.Sprint(t.Element(4))
 				n.monitor.ProcessTerminated(terminated, "", string(reason))
 
 			case distProtoEXIT2:
-				lib.Log("[%s] CONTROL EXIT2 [from %s]: %#v", n.FullName, fromNode, control)
+				lib.Log("[%s] CONTROL EXIT2 [from %s]: %#v", n.Name(), fromNode, control)
 
 			case distProtoMONITOR:
 				// {19, FromPid, ToProc, Ref}, where FromPid = monitoring process
 				// and ToProc = monitored process pid or name (atom)
-				lib.Log("[%s] CONTROL MONITOR [from %s]: %#v", n.FullName, fromNode, control)
+				lib.Log("[%s] CONTROL MONITOR [from %s]: %#v", n.Name(), fromNode, control)
 				n.monitor.MonitorProcessWithRef(t.Element(2).(etf.Pid), t.Element(3), t.Element(4).(etf.Ref))
 
 			case distProtoDEMONITOR:
 				// {20, FromPid, ToProc, Ref}, where FromPid = monitoring process
 				// and ToProc = monitored process pid or name (atom)
-				lib.Log("[%s] CONTROL DEMONITOR [from %s]: %#v", n.FullName, fromNode, control)
+				lib.Log("[%s] CONTROL DEMONITOR [from %s]: %#v", n.Name(), fromNode, control)
 				n.monitor.DemonitorProcess(t.Element(4).(etf.Ref))
 
 			case distProtoMONITOR_EXIT:
 				// {21, FromProc, ToPid, Ref, Reason}, where FromProc = monitored process
 				// pid or name (atom), ToPid = monitoring process, and Reason = exit reason for the monitored process
-				lib.Log("[%s] CONTROL MONITOR_EXIT [from %s]: %#v", n.FullName, fromNode, control)
+				lib.Log("[%s] CONTROL MONITOR_EXIT [from %s]: %#v", n.Name(), fromNode, control)
 				reason := fmt.Sprint(t.Element(5))
 				switch terminated := t.Element(2).(type) {
 				case etf.Pid:
@@ -701,22 +706,22 @@ func (n *Node) handleMessage(fromNode string, control, message etf.Term) (err er
 
 			// Not implemented yet, just stubs. TODO.
 			case distProtoSEND_SENDER:
-				lib.Log("[%s] CONTROL SEND_SENDER unsupported [from %s]: %#v", n.FullName, fromNode, control)
+				lib.Log("[%s] CONTROL SEND_SENDER unsupported [from %s]: %#v", n.Name(), fromNode, control)
 			case distProtoPAYLOAD_EXIT:
-				lib.Log("[%s] CONTROL PAYLOAD_EXIT unsupported [from %s]: %#v", n.FullName, fromNode, control)
+				lib.Log("[%s] CONTROL PAYLOAD_EXIT unsupported [from %s]: %#v", n.Name(), fromNode, control)
 			case distProtoPAYLOAD_EXIT2:
-				lib.Log("[%s] CONTROL PAYLOAD_EXIT2 unsupported [from %s]: %#v", n.FullName, fromNode, control)
+				lib.Log("[%s] CONTROL PAYLOAD_EXIT2 unsupported [from %s]: %#v", n.Name(), fromNode, control)
 			case distProtoPAYLOAD_MONITOR_P_EXIT:
-				lib.Log("[%s] CONTROL PAYLOAD_MONITOR_P_EXIT unsupported [from %s]: %#v", n.FullName, fromNode, control)
+				lib.Log("[%s] CONTROL PAYLOAD_MONITOR_P_EXIT unsupported [from %s]: %#v", n.Name(), fromNode, control)
 			case distProtoALIAS_SEND:
 				// {33, FromPid, Alias}
-				lib.Log("[%s] CONTROL ALIAS_SEND [from %s]: %#v", n.FullName, fromNode, control)
+				lib.Log("[%s] CONTROL ALIAS_SEND [from %s]: %#v", n.Name(), fromNode, control)
 				alias := etf.Alias(t.Element(3).(etf.Ref))
 				n.registrar.route(t.Element(2).(etf.Pid), alias, message)
 
 			case distProtoSPAWN_REQUEST:
 				// {29, ReqId, From, GroupLeader, {Module, Function, Arity}, OptList}
-				lib.Log("[%s] CONTROL SPAWN_REQUEST [from %s]: %#v", n.FullName, fromNode, control)
+				lib.Log("[%s] CONTROL SPAWN_REQUEST [from %s]: %#v", n.Name(), fromNode, control)
 				registerName := ""
 				for _, option := range t.Element(6).(etf.List) {
 					name, ok := option.(etf.Tuple)
@@ -764,7 +769,7 @@ func (n *Node) handleMessage(fromNode string, control, message etf.Term) (err er
 
 			case distProtoSPAWN_REPLY:
 				// {31, ReqId, To, Flags, Result}
-				lib.Log("[%s] CONTROL SPAWN_REPLY [from %s]: %#v", n.FullName, fromNode, control)
+				lib.Log("[%s] CONTROL SPAWN_REPLY [from %s]: %#v", n.Name(), fromNode, control)
 
 				to := t.Element(3).(etf.Pid)
 				process := n.GetProcessByPid(to)
@@ -776,7 +781,7 @@ func (n *Node) handleMessage(fromNode string, control, message etf.Term) (err er
 				process.putSyncReply(ref, t.Element(5))
 
 			default:
-				lib.Log("[%s] CONTROL unknown command [from %s]: %#v", n.FullName, fromNode, control)
+				lib.Log("[%s] CONTROL unknown command [from %s]: %#v", n.Name(), fromNode, control)
 			}
 		default:
 			err = fmt.Errorf("unsupported message %#v", control)
@@ -856,7 +861,7 @@ func (n *Node) GetPeerList() []string {
 
 // MakeRef returns atomic reference etf.Ref within this node
 func (n *Node) MakeRef() (ref etf.Ref) {
-	ref.Node = etf.Atom(n.FullName)
+	ref.Node = etf.Atom(n.Name())
 	ref.Creation = n.creation
 	nt := atomic.AddInt64(&n.uniqID, 1)
 	ref.ID[0] = uint32(uint64(nt) & ((2 << 17) - 1))
@@ -915,7 +920,7 @@ func (n *Node) connect(to etf.Atom) error {
 	}
 
 	handshakeOptions := dist.HandshakeOptions{
-		Name:     n.FullName,
+		Name:     n.Name(),
 		Cookie:   n.Cookie,
 		TLS:      TLSenabled,
 		Hidden:   false,
@@ -998,7 +1003,7 @@ func (n *Node) listen(name string, opts NodeOptions) uint16 {
 					continue
 				}
 				handshakeOptions := dist.HandshakeOptions{
-					Name:     n.FullName,
+					Name:     n.Name(),
 					Cookie:   n.Cookie,
 					TLS:      TLSenabled,
 					Hidden:   opts.Hidden,

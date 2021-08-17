@@ -28,7 +28,7 @@ func TestRPC(t *testing.T) {
 		return a[len(a)-1]
 	}
 
-	fmt.Printf("Registering RPC method 'testMod.testFun' on %s: ", node1.FullName)
+	fmt.Printf("Registering RPC method 'testMod.testFun' on %s: ", node1.Name())
 	time.Sleep(100 * time.Millisecond) // waiting for start 'rex' gen_server
 	if e := node1.ProvideRPC("testMod", "testFun", testFun1); e != nil {
 		message := fmt.Sprintf("%s", e)
@@ -37,21 +37,21 @@ func TestRPC(t *testing.T) {
 		fmt.Println("OK")
 	}
 
-	fmt.Printf("Call RPC method 'testMod.testFun' with 1 arg on %s: ", node1.FullName)
+	fmt.Printf("Call RPC method 'testMod.testFun' with 1 arg on %s: ", node1.Name())
 	if v, e := node1gs1.CallRPC("nodeRPC@localhost", "testMod", "testFun", 12345); e != nil || v != 12345 {
 		message := fmt.Sprintf("%s %#v", e, v)
 		t.Fatal(message)
 	}
 	fmt.Println("OK")
 
-	fmt.Printf("Call RPC method 'testMod.testFun' with 3 arg on %s: ", node1.FullName)
+	fmt.Printf("Call RPC method 'testMod.testFun' with 3 arg on %s: ", node1.Name())
 	if v, e := node1gs1.CallRPC("nodeRPC@localhost", "testMod", "testFun", 12345, 5.678, node1gs1.Self()); e != nil || v != node1gs1.Self() {
 		message := fmt.Sprintf("%s %#v", e, v)
 		t.Fatal(message)
 	}
 	fmt.Println("OK")
 
-	fmt.Printf("Revoking RPC method 'testMod.testFun' on %s: ", node1.FullName)
+	fmt.Printf("Revoking RPC method 'testMod.testFun' on %s: ", node1.Name())
 	if e := node1.RevokeRPC("testMod", "testFun"); e != nil {
 		message := fmt.Sprintf("%s", e)
 		t.Fatal(message)
@@ -59,7 +59,7 @@ func TestRPC(t *testing.T) {
 		fmt.Println("OK")
 	}
 
-	fmt.Printf("Call revoked RPC method 'testMod.testFun' with 1 arg on %s: ", node1.FullName)
+	fmt.Printf("Call revoked RPC method 'testMod.testFun' with 1 arg on %s: ", node1.Name())
 	expected1 := etf.Tuple{etf.Atom("badrpc"),
 		etf.Tuple{etf.Atom("EXIT"),
 			etf.Tuple{etf.Atom("undef"),
@@ -79,7 +79,7 @@ func TestRPC(t *testing.T) {
 	}
 	fmt.Println("OK")
 
-	fmt.Printf("Call RPC unknown method 'xxx.xxx' on %s: ", node1.FullName)
+	fmt.Printf("Call RPC unknown method 'xxx.xxx' on %s: ", node1.Name())
 	expected2 := etf.Tuple{etf.Atom("badrpc"),
 		etf.Tuple{etf.Atom("EXIT"),
 			etf.Tuple{etf.Atom("undef"),

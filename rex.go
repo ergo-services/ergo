@@ -58,7 +58,7 @@ func (r *rex) HandleCall(state *GenServerState, from GenServerFrom, message etf.
 				return "reply", reply
 			}
 
-			to := etf.Tuple{string(module), state.Process.Node.FullName}
+			to := etf.Tuple{string(module), state.Process.Node.Name()}
 			m := etf.Tuple{m.Element(3), m.Element(4)}
 			reply, err := state.Process.Call(to, m)
 			if err != nil {

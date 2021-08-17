@@ -52,11 +52,11 @@ func TestMonitorLocalLocal(t *testing.T) {
 	}
 	// starting gen servers
 
-	fmt.Printf("    wait for start of gs1 on %#v: ", node1.FullName)
+	fmt.Printf("    wait for start of gs1 on %#v: ", node1.Name())
 	node1gs1, _ := node1.Spawn("gs1", ProcessOptions{}, gs1, nil)
 	waitForResultWithValue(t, gs1.v, node1gs1.Self())
 
-	fmt.Printf("    wait for start of gs2 on %#v: ", node1.FullName)
+	fmt.Printf("    wait for start of gs2 on %#v: ", node1.Name())
 	node1gs2, _ := node1.Spawn("gs2", ProcessOptions{}, gs2, nil)
 	waitForResultWithValue(t, gs2.v, node1gs2.Self())
 
@@ -87,7 +87,7 @@ func TestMonitorLocalLocal(t *testing.T) {
 	result = etf.Tuple{etf.Atom("DOWN"), ref, etf.Atom("process"), node1gs2.Self(), etf.Atom("noproc")}
 	waitForResultWithValue(t, gs1.v, result)
 
-	fmt.Printf("    wait for start of gs2 on %#v: ", node1.FullName)
+	fmt.Printf("    wait for start of gs2 on %#v: ", node1.Name())
 	node1gs2, _ = node1.Spawn("gs2", ProcessOptions{}, gs2, nil)
 	waitForResultWithValue(t, gs2.v, node1gs2.Self())
 	// by Name
@@ -105,7 +105,7 @@ func TestMonitorLocalLocal(t *testing.T) {
 	fmt.Printf("... by Name Local-Local: gs1 -> gs2. terminate: ")
 	ref = node1gs1.MonitorProcess("gs2")
 	node1gs2.Exit(etf.Pid{}, "normal")
-	procName := etf.Tuple{"gs2", node1.FullName}
+	procName := etf.Tuple{"gs2", node1.Name()}
 	result = etf.Tuple{etf.Atom("DOWN"), ref, etf.Atom("process"), procName, etf.Atom("normal")}
 	waitForResultWithValue(t, gs1.v, result)
 	if err := checkCleanProcessRef(node1, ref); err != nil {
@@ -113,16 +113,16 @@ func TestMonitorLocalLocal(t *testing.T) {
 	}
 	fmt.Print("... by Name Local-Local: gs1 -> unknownPid: ")
 	ref = node1gs1.MonitorProcess("asdfasdf")
-	procName = etf.Tuple{"asdfasdf", node1.FullName}
+	procName = etf.Tuple{"asdfasdf", node1.Name()}
 	result = etf.Tuple{etf.Atom("DOWN"), ref, etf.Atom("process"), procName, etf.Atom("noproc")}
 	waitForResultWithValue(t, gs1.v, result)
 
-	fmt.Printf("    wait for start of gs2 on %#v: ", node1.FullName)
+	fmt.Printf("    wait for start of gs2 on %#v: ", node1.Name())
 	node1gs2, _ = node1.Spawn("gs2", ProcessOptions{}, gs2, nil)
 	waitForResultWithValue(t, gs2.v, node1gs2.Self())
 	// by Tuple {Name, Node}
 	fmt.Printf("... by Tuple Local-Local: gs1 -> gs2. demonitor: ")
-	tuple := etf.Tuple{"gs2", node1.FullName}
+	tuple := etf.Tuple{"gs2", node1.Name()}
 	ref = node1gs1.MonitorProcess(tuple)
 	if err := checkCleanProcessRef(node1, ref); err == nil {
 		t.Fatal("monitor reference has been lost")
@@ -141,7 +141,7 @@ func TestMonitorLocalLocal(t *testing.T) {
 		t.Fatal(err)
 	}
 	fmt.Print("... by Tuple Local-Local: gs1 -> unknownPid: ")
-	tupleUnknownProc := etf.Tuple{"gs2222", node1.FullName}
+	tupleUnknownProc := etf.Tuple{"gs2222", node1.Name()}
 	ref = node1gs1.MonitorProcess(tupleUnknownProc)
 	result = etf.Tuple{etf.Atom("DOWN"), ref, etf.Atom("process"), tupleUnknownProc, etf.Atom("noproc")}
 	waitForResultWithValue(t, gs1.v, result)
@@ -176,11 +176,11 @@ func TestMonitorLocalRemoteByPid(t *testing.T) {
 	}
 
 	// starting gen servers
-	fmt.Printf("    wait for start of gs1 on %#v: ", node1.FullName)
+	fmt.Printf("    wait for start of gs1 on %#v: ", node1.Name())
 	node1gs1, _ := node1.Spawn("gs1", ProcessOptions{}, gs1, nil)
 	waitForResultWithValue(t, gs1.v, node1gs1.Self())
 
-	fmt.Printf("    wait for start of gs2 on %#v: ", node2.FullName)
+	fmt.Printf("    wait for start of gs2 on %#v: ", node2.Name())
 	node2gs2, _ := node2.Spawn("gs2", ProcessOptions{}, gs2, nil)
 	waitForResultWithValue(t, gs2.v, node2gs2.Self())
 
@@ -232,7 +232,7 @@ func TestMonitorLocalRemoteByPid(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	fmt.Printf("    wait for start of gs2 on %#v: ", node2.FullName)
+	fmt.Printf("    wait for start of gs2 on %#v: ", node2.Name())
 	node2gs2, _ = node2.Spawn("gs2", ProcessOptions{}, gs2, nil)
 	waitForResultWithValue(t, gs2.v, node2gs2.Self())
 
@@ -276,15 +276,15 @@ func TestMonitorLocalRemoteByTuple(t *testing.T) {
 	}
 
 	// starting gen servers
-	fmt.Printf("    wait for start of gs1 on %#v: ", node1.FullName)
+	fmt.Printf("    wait for start of gs1 on %#v: ", node1.Name())
 	node1gs1, _ := node1.Spawn("gs1", ProcessOptions{}, gs1, nil)
 	waitForResultWithValue(t, gs1.v, node1gs1.Self())
 
-	fmt.Printf("    wait for start of gs2 on %#v: ", node2.FullName)
+	fmt.Printf("    wait for start of gs2 on %#v: ", node2.Name())
 	node2gs2, _ := node2.Spawn("gs2", ProcessOptions{}, gs2, nil)
 	waitForResultWithValue(t, gs2.v, node2gs2.Self())
 
-	tuple2 := etf.Tuple{"gs2", node2.FullName}
+	tuple2 := etf.Tuple{"gs2", node2.Name()}
 
 	fmt.Printf("... by Tuple Local-Remote: gs1 -> gs2. demonitor: ")
 	ref := node1gs1.MonitorProcess(tuple2)
@@ -333,7 +333,7 @@ func TestMonitorLocalRemoteByTuple(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	fmt.Printf("    wait for start of gs2 on %#v: ", node2.FullName)
+	fmt.Printf("    wait for start of gs2 on %#v: ", node2.Name())
 	node2gs2, _ = node2.Spawn("gs2", ProcessOptions{}, gs2, nil)
 	waitForResultWithValue(t, gs2.v, node2gs2.Self())
 
@@ -379,11 +379,11 @@ func TestLinkLocalLocal(t *testing.T) {
 		v: make(chan interface{}, 2),
 	}
 	// starting gen servers
-	fmt.Printf("    wait for start of gs1 on %#v: ", node1.FullName)
+	fmt.Printf("    wait for start of gs1 on %#v: ", node1.Name())
 	node1gs1, _ := node1.Spawn("gs1", ProcessOptions{}, gs1, nil)
 	waitForResultWithValue(t, gs1.v, node1gs1.Self())
 
-	fmt.Printf("    wait for start of gs2 on %#v: ", node1.FullName)
+	fmt.Printf("    wait for start of gs2 on %#v: ", node1.Name())
 	node1gs2, _ := node1.Spawn("gs2", ProcessOptions{}, gs2, nil)
 	waitForResultWithValue(t, gs2.v, node1gs2.Self())
 
@@ -403,6 +403,7 @@ func TestLinkLocalLocal(t *testing.T) {
 	if checkCleanLinkPid(node1, node1gs2.Self()) == nil {
 		t.Fatal("link missing for node1gs2")
 	}
+
 	node1gs1.Unlink(node1gs2.Self())
 	if err := checkCleanLinkPid(node1, node1gs1.Self()); err != nil {
 		t.Fatal(err)
@@ -459,7 +460,7 @@ func TestLinkLocalLocal(t *testing.T) {
 	result = etf.Tuple{etf.Atom("EXIT"), node1gs2.Self(), etf.Atom("noproc")}
 	waitForResultWithValue(t, gs1.v, result)
 
-	fmt.Printf("    wait for start of gs2 on %#v: ", node1.FullName)
+	fmt.Printf("    wait for start of gs2 on %#v: ", node1.Name())
 	node1gs2, _ = node1.Spawn("gs2", ProcessOptions{}, gs2, nil)
 	waitForResultWithValue(t, gs2.v, node1gs2.Self())
 
@@ -517,11 +518,11 @@ func TestLinkLocalRemote(t *testing.T) {
 	}
 
 	// starting gen servers
-	fmt.Printf("    wait for start of gs1 on %#v: ", node1.FullName)
+	fmt.Printf("    wait for start of gs1 on %#v: ", node1.Name())
 	node1gs1, _ := node1.Spawn("gs1", ProcessOptions{}, gs1, nil)
 	waitForResultWithValue(t, gs1.v, node1gs1.Self())
 
-	fmt.Printf("    wait for start of gs2 on %#v: ", node2.FullName)
+	fmt.Printf("    wait for start of gs2 on %#v: ", node2.Name())
 	node2gs2, _ := node2.Spawn("gs2", ProcessOptions{}, gs2, nil)
 	waitForResultWithValue(t, gs2.v, node2gs2.Self())
 
@@ -608,7 +609,7 @@ func TestLinkLocalRemote(t *testing.T) {
 		t.Fatal("number of links has changed on the second Link call")
 	}
 
-	fmt.Printf("    wait for start of gs2 on %#v: ", node1.FullName)
+	fmt.Printf("    wait for start of gs2 on %#v: ", node1.Name())
 	node2gs2, _ = node2.Spawn("gs2", ProcessOptions{}, gs2, nil)
 	waitForResultWithValue(t, gs2.v, node2gs2.Self())
 
@@ -642,10 +643,10 @@ func TestLinkLocalRemote(t *testing.T) {
 	}
 	fmt.Println("OK")
 
-	fmt.Printf("    wait for start of gs1 on %#v: ", node1.FullName)
+	fmt.Printf("    wait for start of gs1 on %#v: ", node1.Name())
 	node1gs1, _ = node1.Spawn("gs1", ProcessOptions{}, gs1, nil)
 	waitForResultWithValue(t, gs1.v, node1gs1.Self())
-	fmt.Printf("    wait for start of gs2 on %#v: ", node2.FullName)
+	fmt.Printf("    wait for start of gs2 on %#v: ", node2.Name())
 	node2gs2, _ = node2.Spawn("gs2", ProcessOptions{}, gs2, nil)
 	waitForResultWithValue(t, gs2.v, node2gs2.Self())
 

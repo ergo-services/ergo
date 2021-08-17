@@ -105,7 +105,7 @@ func (gs *GenServer) Loop(p *Process, args ...etf.Term) string {
 			continue
 		}
 
-		lib.Log("[%s] GEN_SERVER %#v got message from %#v", p.Node.FullName, p.self, fromPid)
+		lib.Log("[%s] GEN_SERVER %#v got message from %#v", p.Node.Name(), p.self, fromPid)
 
 		p.reductions++
 
@@ -260,12 +260,12 @@ func (gs *GenServer) Loop(p *Process, args ...etf.Term) string {
 
 			default:
 				if ref, ok := m.Element(1).(etf.Ref); ok && len(m) == 2 {
-					lib.Log("[%s] GEN_SERVER %#v got reply: %#v", p.Node.FullName, p.self, mtag)
+					lib.Log("[%s] GEN_SERVER %#v got reply: %#v", p.Node.Name(), p.self, mtag)
 					p.putSyncReply(ref, m.Element(2))
 					continue
 				}
 
-				lib.Log("[%s] GEN_SERVER %#v got simple message %#v", p.Node.FullName, p.self, mtag)
+				lib.Log("[%s] GEN_SERVER %#v got simple message %#v", p.Node.Name(), p.self, mtag)
 				go func() {
 					defer panicHandler()
 

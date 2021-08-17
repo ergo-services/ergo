@@ -163,7 +163,7 @@ func (p *Process) CallRPC(node, module, function string, args ...etf.Term) (etf.
 
 // CallRPCWithTimeout evaluate rpc call with given node/MFA and timeout
 func (p *Process) CallRPCWithTimeout(timeout int, node, module, function string, args ...etf.Term) (etf.Term, error) {
-	lib.Log("[%s] RPC calling: %s:%s:%s", p.Node.FullName, node, module, function)
+	lib.Log("[%s] RPC calling: %s:%s:%s", p.Node.Name(), node, module, function)
 	message := etf.Tuple{
 		etf.Atom("call"),
 		etf.Atom(module),
@@ -177,7 +177,7 @@ func (p *Process) CallRPCWithTimeout(timeout int, node, module, function string,
 
 // CastRPC evaluate rpc cast with given node/MFA
 func (p *Process) CastRPC(node, module, function string, args ...etf.Term) {
-	lib.Log("[%s] RPC casting: %s:%s:%s", p.Node.FullName, node, module, function)
+	lib.Log("[%s] RPC casting: %s:%s:%s", p.Node.Name(), node, module, function)
 	message := etf.Tuple{
 		etf.Atom("cast"),
 		etf.Atom(module),
@@ -251,7 +251,9 @@ func (p *Process) Cast(to interface{}, message etf.Term) error {
 //  - 'noconnection' (no connection to the node where the monitored process resides)
 // Note: The monitor request is an asynchronous signal. That is, it takes time before the signal reaches its destination.
 func (p *Process) MonitorProcess(process interface{}) etf.Ref {
-	return p.Node.monitor.MonitorProcess(p.self, process)
+	ref := p.Node.MakeRef()
+	p.Node.monitor.MonitorProcessWithRef(p.self, process, ref)
+	return ref
 }
 
 // Link creates a link between the calling process and another process

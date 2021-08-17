@@ -141,7 +141,7 @@ func main() {
 
 	process, _ := node.ApplicationStart("demoApp")
 	fmt.Println("Run erl shell:")
-	fmt.Printf("erl -name %s -setcookie %s\n", "erl-"+node.FullName, Cookie)
+	fmt.Printf("erl -name %s -setcookie %s\n", "erl-"+node.Name(), Cookie)
 
 	fmt.Println("-----Examples that can be tried from 'erl'-shell")
 	fmt.Printf("gen_server:cast({%s,'%s'}, stop).\n", "demoServer01", NodeName)

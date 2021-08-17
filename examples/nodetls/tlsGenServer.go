@@ -83,7 +83,7 @@ func main() {
 	// Spawn process with one arguments
 	process, _ := node.Spawn(GenServerName, ergo.ProcessOptions{}, demoGS)
 	fmt.Println("Run erl shell:")
-	fmt.Printf("erl -proto_dist inet_tls -ssl_dist_opt server_certfile example.crt -ssl_dist_opt server_keyfile example.key -name %s -setcookie %s\n", "erl-"+node.FullName, Cookie)
+	fmt.Printf("erl -proto_dist inet_tls -ssl_dist_opt server_certfile example.crt -ssl_dist_opt server_keyfile example.key -name %s -setcookie %s\n", "erl-"+node.Name(), Cookie)
 
 	fmt.Println("-----Examples that can be tried from 'erl'-shell")
 	fmt.Printf("gen_server:cast({%s,'%s'}, stop).\n", GenServerName, NodeName)

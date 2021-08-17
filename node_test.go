@@ -302,14 +302,14 @@ func TestNodeRemoteSpawn(t *testing.T) {
 		RegisterName: "remote",
 	}
 	fmt.Printf("    process gs1@node1 requests spawn new process on node2 and register this process with name 'remote': ")
-	_, err = process.RemoteSpawn(node2.FullName, "remote", opts, 1, 2, 3)
+	_, err = process.RemoteSpawn(node2.Name(), "remote", opts, 1, 2, 3)
 	if err != nil {
 		t.Fatal(err)
 	}
 	fmt.Println("OK")
 	fmt.Printf("    process gs1@node1 requests spawn new process on node2 with the same name (must be failed): ")
 
-	_, err = process.RemoteSpawn(node2.FullName, "remote", opts, 1, 2, 3)
+	_, err = process.RemoteSpawn(node2.Name(), "remote", opts, 1, 2, 3)
 	if err != ErrTaken {
 		t.Fatal(err)
 	}

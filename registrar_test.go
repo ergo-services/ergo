@@ -13,7 +13,7 @@ type TestRegistrarGenserver struct {
 }
 
 func (trg *TestRegistrarGenserver) HandleCall(state *GenServerState, from GenServerFrom, message etf.Term) (string, etf.Term) {
-	// fmt.Printf("TestRegistrarGenserver ({%s, %s}): HandleCall: %#v, From: %#v\n", trg.process.name, trg.process.Node.FullName, message, from)
+	// fmt.Printf("TestRegistrarGenserver ({%s, %s}): HandleCall: %#v, From: %#v\n", trg.process.name, trg.process.Node.Name(), message, from)
 	return "reply", message
 }
 
@@ -31,10 +31,10 @@ func TestRegistrar(t *testing.T) {
 	}
 
 	gs := &TestRegistrarGenserver{}
-	fmt.Printf("Starting TestRegistrarGenserver and registering as 'gs1' on %s: ", node1.FullName)
+	fmt.Printf("Starting TestRegistrarGenserver and registering as 'gs1' on %s: ", node1.Name())
 	node1gs1, _ := node1.Spawn("gs1", ProcessOptions{}, gs, nil)
 	if _, ok := node1.registrar.processes[node1gs1.Self().ID]; !ok {
-		message := fmt.Sprintf("missing process %v on %s", node1gs1.Self(), node1.FullName)
+		message := fmt.Sprintf("missing process %v on %s", node1gs1.Self(), node1.Name())
 		t.Fatal(message)
 	}
 	fmt.Println("OK")
@@ -55,10 +55,10 @@ func TestRegistrar(t *testing.T) {
 	}
 	fmt.Println("OK")
 
-	fmt.Printf("Starting TestRegistrarGenserver and registering as 'gs2' on %s: ", node2.FullName)
+	fmt.Printf("Starting TestRegistrarGenserver and registering as 'gs2' on %s: ", node2.Name())
 	node2gs2, _ := node2.Spawn("gs2", ProcessOptions{}, gs, nil)
 	if _, ok := node2.registrar.processes[node2gs2.Self().ID]; !ok {
-		message := fmt.Sprintf("missing process %v on %s", node2gs2.Self(), node2.FullName)
+		message := fmt.Sprintf("missing process %v on %s", node2gs2.Self(), node2.Name())
 		t.Fatal(message)
 	}
 	fmt.Println("OK")
@@ -70,7 +70,7 @@ func TestRegistrar(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	if pids, ok := node1.monitor.processes[node2gs2.Self()]; !ok {
-		message := fmt.Sprintf("missing monitor %v on %s", node2gs2.Self(), node1.FullName)
+		message := fmt.Sprintf("missing monitor %v on %s", node2gs2.Self(), node1.Name())
 		t.Fatal(message)
 	} else {
 		found := false
@@ -80,7 +80,7 @@ func TestRegistrar(t *testing.T) {
 			}
 		}
 		if !found {
-			message := fmt.Sprintf("missing monitoring by %v on %s", node1gs1.Self(), node1.FullName)
+			message := fmt.Sprintf("missing monitoring by %v on %s", node1gs1.Self(), node1.Name())
 			t.Fatal(message)
 		}
 	}
@@ -89,7 +89,7 @@ func TestRegistrar(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	if pids, ok := node1.monitor.processes[node2gs2.Self()]; ok {
-		message := fmt.Sprintf("monitor %v on %s is still present", node2gs2.Self(), node1.FullName)
+		message := fmt.Sprintf("monitor %v on %s is still present", node2gs2.Self(), node1.Name())
 		t.Fatal(message)
 	} else {
 		found := false
@@ -99,7 +99,7 @@ func TestRegistrar(t *testing.T) {
 			}
 		}
 		if found {
-			message := fmt.Sprintf("monitoring by %v on %s is still present", node1gs1.Self(), node1.FullName)
+			message := fmt.Sprintf("monitoring by %v on %s is still present", node1gs1.Self(), node1.Name())
 			t.Fatal(message)
 		}
 	}
@@ -108,7 +108,7 @@ func TestRegistrar(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	if pids, ok := node1.monitor.links[node2gs2.Self()]; !ok {
-		message := fmt.Sprintf("missing link %v on %s", node2gs2.Self(), node1.FullName)
+		message := fmt.Sprintf("missing link %v on %s", node2gs2.Self(), node1.Name())
 		t.Fatal(message)
 	} else {
 		found := false
@@ -118,12 +118,12 @@ func TestRegistrar(t *testing.T) {
 			}
 		}
 		if !found {
-			message := fmt.Sprintf("missing link by %v on %s", node1gs1.Self(), node1.FullName)
+			message := fmt.Sprintf("missing link by %v on %s", node1gs1.Self(), node1.Name())
 			t.Fatal(message)
 		}
 	}
 	if pids, ok := node1.monitor.links[node1gs1.Self()]; !ok {
-		message := fmt.Sprintf("missing link %v on %s", node1gs1.Self(), node1.FullName)
+		message := fmt.Sprintf("missing link %v on %s", node1gs1.Self(), node1.Name())
 		t.Fatal(message)
 	} else {
 		found := false
@@ -133,7 +133,7 @@ func TestRegistrar(t *testing.T) {
 			}
 		}
 		if !found {
-			message := fmt.Sprintf("missing link by %v on %s", node2gs2.Self(), node1.FullName)
+			message := fmt.Sprintf("missing link by %v on %s", node2gs2.Self(), node1.Name())
 			t.Fatal(message)
 		}
 	}
@@ -161,7 +161,7 @@ func TestRegistrarAlias(t *testing.T) {
 	}
 
 	gs := &TestRegistrarGenserver{}
-	fmt.Printf("    Starting gs1 and gs2 GenServers on %s: ", node1.FullName)
+	fmt.Printf("    Starting gs1 and gs2 GenServers on %s: ", node1.Name())
 	node1gs1, err := node1.Spawn("gs1", ProcessOptions{}, gs, nil)
 	if err != nil {
 		t.Fatal(err)

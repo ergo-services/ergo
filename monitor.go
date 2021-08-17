@@ -3,6 +3,7 @@ package ergo
 // http://erlang.org/doc/reference_manual/processes.html
 
 import (
+	"math"
 	"strings"
 	"sync"
 
@@ -57,28 +58,22 @@ func createMonitor(node *Node) *monitor {
 	return m
 }
 
-func (m *monitor) MonitorProcess(by etf.Pid, process interface{}) etf.Ref {
-	ref := m.node.MakeRef()
-	m.MonitorProcessWithRef(by, process, ref)
-	return ref
-}
-
 func (m *monitor) MonitorProcessWithRef(by etf.Pid, process interface{}, ref etf.Ref) {
 	if by.Node != ref.Node {
-		lib.Log("[%s] Incorrect monitor request by Pid = %v and Ref = %v", m.node.FullName, by, ref)
+		lib.Log("[%s] Incorrect monitor request by Pid = %v and Ref = %v", m.node.Name(), by, ref)
 		return
 	}
 
 next:
 	switch t := process.(type) {
 	case etf.Pid:
-		lib.Log("[%s] MONITOR process: %#v => %#v", m.node.FullName, by, t)
+		lib.Log("[%s] MONITOR process: %#v => %#v", m.node.Name(), by, t)
 
 		// If 'process' belongs this node we should make sure if its alive.
 		// http://erlang.org/doc/reference_manual/processes.html#monitors
 		// If Pid does not exist, the 'DOWN' message should be
 		// send immediately with Reason set to noproc.
-		if p := m.node.registrar.GetProcessByPid(t); string(t.Node) == m.node.FullName && p == nil {
+		if p := m.node.registrar.GetProcessByPid(t); string(t.Node) == m.node.Name() && p == nil {
 			m.notifyProcessTerminated(ref, by, t, "noproc")
 			return
 		}
@@ -100,7 +95,7 @@ next:
 			return
 		}
 
-		if string(t.Node) == m.node.FullName {
+		if string(t.Node) == m.node.Name() {
 			// this is the local process so we have nothing to do
 			return
 		}
@@ -116,7 +111,7 @@ next:
 
 	case string:
 		// requesting monitor of local process
-		fakePid := fakeMonitorPidFromName(t, m.node.FullName)
+		fakePid := fakeMonitorPidFromName(t, m.node.Name())
 		// If Pid does not exist, the 'DOWN' message should be
 		// send immediately with Reason set to noproc.
 		if p := m.node.registrar.GetProcessByName(t); p == nil {
@@ -127,7 +122,7 @@ next:
 		goto next
 	case etf.Atom:
 		// the same as 'string'
-		fakePid := fakeMonitorPidFromName(string(t), m.node.FullName)
+		fakePid := fakeMonitorPidFromName(string(t), m.node.Name())
 		if p := m.node.registrar.GetProcessByName(string(t)); p == nil {
 			m.notifyProcessTerminated(ref, by, fakePid, "noproc")
 			return
@@ -138,7 +133,7 @@ next:
 	case etf.Tuple:
 		// requesting monitor of remote process by the local one using registered process name
 		if len(t) != 2 {
-			lib.Log("[%s] Incorrect monitor request by Pid = %v and process = %v", m.node.FullName, process, ref)
+			lib.Log("[%s] Incorrect monitor request by Pid = %v and process = %v", m.node.Name(), process, ref)
 			return
 		}
 
@@ -147,7 +142,7 @@ next:
 		fakePid := fakeMonitorPidFromName(name, nodeName)
 		process = fakePid
 
-		if nodeName == m.node.FullName {
+		if nodeName == m.node.Name() {
 			// If Pid does not exist, the 'DOWN' message should be
 			// send immediately with Reason set to noproc.
 			if p := m.node.registrar.GetProcessByName(name); p == nil {
@@ -198,7 +193,7 @@ func (m *monitor) DemonitorProcess(ref etf.Ref) bool {
 			nodeName = etf.Atom(n)
 		}
 
-		if string(nodeName) != m.node.FullName {
+		if string(nodeName) != m.node.Name() {
 			message := etf.Tuple{distProtoDEMONITOR, items[i].pid, process, ref}
 			m.node.registrar.routeRaw(nodeName, message)
 		}
@@ -220,7 +215,7 @@ func (m *monitor) DemonitorProcess(ref etf.Ref) bool {
 }
 
 func (m *monitor) Link(pidA, pidB etf.Pid) {
-	lib.Log("[%s] LINK process: %v => %v", m.node.FullName, pidA, pidB)
+	lib.Log("[%s] LINK process: %v => %v", m.node.Name(), pidA, pidB)
 
 	// http://erlang.org/doc/reference_manual/processes.html#links
 	// Links are bidirectional and there can only be one link between
@@ -236,7 +231,7 @@ func (m *monitor) Link(pidA, pidB etf.Pid) {
 	defer m.mutexLinks.Unlock()
 
 	linksA := m.links[pidA]
-	if pidA.Node == etf.Atom(m.node.FullName) {
+	if pidA.Node == etf.Atom(m.node.Name()) {
 		// check if these processes are linked already (source)
 		for i := range linksA {
 			if linksA[i] == pidB {
@@ -255,7 +250,7 @@ func (m *monitor) Link(pidA, pidB etf.Pid) {
 		}
 	}
 
-	if pidB.Node == etf.Atom(m.node.FullName) {
+	if pidB.Node == etf.Atom(m.node.Name()) {
 		// for the local process we should make sure if its alive
 		// otherwise send 'EXIT' message with 'noproc' as a reason
 		if p := m.node.registrar.GetProcessByPid(pidB); p == nil {
@@ -290,12 +285,12 @@ func (m *monitor) Unlink(pidA, pidB etf.Pid) {
 	m.mutexLinks.Lock()
 	defer m.mutexLinks.Unlock()
 
-	if pidB.Node != etf.Atom(m.node.FullName) {
+	if pidB.Node != etf.Atom(m.node.Name()) {
 		message := etf.Tuple{distProtoUNLINK, pidA, pidB}
 		m.node.registrar.routeRaw(pidB.Node, message)
 	}
 
-	if pidA.Node == etf.Atom(m.node.FullName) {
+	if pidA.Node == etf.Atom(m.node.Name()) {
 		linksA := m.links[pidA]
 		for i := range linksA {
 			if linksA[i] != pidB {
@@ -332,7 +327,7 @@ func (m *monitor) Unlink(pidA, pidB etf.Pid) {
 }
 
 func (m *monitor) MonitorNode(by etf.Pid, node string) etf.Ref {
-	lib.Log("[%s] MONITOR NODE : %v => %s", m.node.FullName, by, node)
+	lib.Log("[%s] MONITOR NODE : %v => %s", m.node.Name(), by, node)
 
 	ref := m.node.MakeRef()
 	m.mutexNodes.Lock()
@@ -381,12 +376,12 @@ func (m *monitor) DemonitorNode(ref etf.Ref) {
 }
 
 func (m *monitor) NodeDown(name string) {
-	lib.Log("[%s] MONITOR NODE  down: %v", m.node.FullName, name)
+	lib.Log("[%s] MONITOR NODE  down: %v", m.node.Name(), name)
 
 	m.mutexNodes.Lock()
 	if pids, ok := m.nodes[name]; ok {
 		for i := range pids {
-			lib.Log("[%s] MONITOR node down: %v. send notify to: %v", m.node.FullName, name, pids[i])
+			lib.Log("[%s] MONITOR node down: %v. send notify to: %v", m.node.Name(), name, pids[i])
 			m.notifyNodeDown(pids[i].pid, name)
 			delete(m.nodes, name)
 		}
@@ -450,12 +445,12 @@ func (m *monitor) NodeDown(name string) {
 }
 
 func (m *monitor) ProcessTerminated(terminated etf.Pid, name, reason string) {
-	lib.Log("[%s] MONITOR process terminated: %v", m.node.FullName, terminated)
+	lib.Log("[%s] MONITOR process terminated: %v", m.node.Name(), terminated)
 
 	// just wrapper for the iterating through monitors list
 	handleMonitors := func(terminatedPid etf.Pid, items []monitorItem) {
 		for i := range items {
-			lib.Log("[%s] MONITOR process terminated: %v send notify to: %v", m.node.FullName, terminated, items[i].pid)
+			lib.Log("[%s] MONITOR process terminated: %v send notify to: %v", m.node.Name(), terminated, items[i].pid)
 			m.notifyProcessTerminated(items[i].ref, items[i].pid, items[i].process, reason)
 			delete(m.ref2pid, items[i].ref)
 		}
@@ -467,7 +462,7 @@ func (m *monitor) ProcessTerminated(terminated etf.Pid, name, reason string) {
 	// monitors had created using this name (fake Pid uses for this purpose)
 	if name != "" {
 		// monitor was created by the name so we should look up using fake pid
-		terminatedPid := fakeMonitorPidFromName(name, m.node.FullName)
+		terminatedPid := fakeMonitorPidFromName(name, m.node.Name())
 		if items, ok := m.processes[terminatedPid]; ok {
 			handleMonitors(terminatedPid, items)
 		}
@@ -481,7 +476,7 @@ func (m *monitor) ProcessTerminated(terminated etf.Pid, name, reason string) {
 	m.mutexLinks.Lock()
 	if pidLinks, ok := m.links[terminated]; ok {
 		for i := range pidLinks {
-			lib.Log("[%s] LINK process exited: %v send notify to: %v", m.node.FullName, terminated, pidLinks[i])
+			lib.Log("[%s] LINK process exited: %v send notify to: %v", m.node.Name(), terminated, pidLinks[i])
 			m.notifyProcessExit(pidLinks[i], terminated, reason)
 
 			// remove A link
@@ -559,7 +554,7 @@ func (m *monitor) notifyNodeDown(to etf.Pid, node string) {
 
 func (m *monitor) notifyProcessTerminated(ref etf.Ref, to etf.Pid, terminated etf.Pid, reason string) {
 	// for remote {21, FromProc, ToPid, Ref, Reason}, where FromProc = monitored process
-	if to.Node != etf.Atom(m.node.FullName) {
+	if to.Node != etf.Atom(m.node.Name()) {
 		if isFakePid(terminated) {
 			// it was monitored by name and this Pid was created using
 			// fakeMonitorPidFromName. It means this Pid has
@@ -596,7 +591,7 @@ func (m *monitor) notifyProcessTerminated(ref etf.Ref, to etf.Pid, terminated et
 
 func (m *monitor) notifyProcessExit(to etf.Pid, terminated etf.Pid, reason string) {
 	// for remote: {3, FromPid, ToPid, Reason}
-	if to.Node != etf.Atom(m.node.FullName) {
+	if to.Node != etf.Atom(m.node.Name()) {
 		message := etf.Tuple{distProtoEXIT, terminated, to, etf.Atom(reason)}
 		m.node.registrar.routeRaw(to.Node, message)
 		return
@@ -627,18 +622,24 @@ func IsDownMessage(message etf.Term) (isTrue bool, d DownMessage) {
 func fakeMonitorPidFromName(name, node string) etf.Pid {
 	fakePid := etf.Pid{}
 	fakePid.Node = etf.Atom(name + "|" + node) // registered process name
-	fakePid.ID = 18446744073709551615          // 2^64 - 1
-	fakePid.Creation = 4294967295              // 2^32 - 1
+	fakePid.ID = math.MaxUint64
+	fakePid.Creation = math.MaxUint32
 	return fakePid
 }
 
 func fakePidToTuple(pid etf.Pid) etf.Tuple {
 	s := strings.Split(string(pid.Node), "|")
+	if len(s) != 2 {
+		return etf.Tuple{}
+	}
 	return etf.Tuple{s[0], s[1]}
 }
 
 func fakePidExtractNames(pid etf.Pid) (string, string) {
 	s := strings.Split(string(pid.Node), "|")
+	if len(s) != 2 {
+		return "", ""
+	}
 	return s[0], s[1]
 }
 
@@ -649,11 +650,14 @@ func fakePidToName(pid etf.Pid) string {
 
 func fakePidToNodeName(pid etf.Pid) string {
 	s := strings.Split(string(pid.Node), "|")
+	if len(s) != 2 {
+		return ""
+	}
 	return s[1]
 }
 
 func isFakePid(pid etf.Pid) bool {
-	if pid.ID == 18446744073709551615 && pid.Creation == 4294967295 {
+	if pid.ID == math.MaxUint64 && pid.Creation == math.MaxUint32 {
 		return true
 	}
 	return false

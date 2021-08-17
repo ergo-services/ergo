@@ -83,7 +83,7 @@ func (tsv *testSupervisorGenServer) HandleCall(state *GenServerState, from GenSe
 	return "reply", message
 }
 func (tsv *testSupervisorGenServer) Terminate(state *GenServerState, reason string) {
-	// fmt.Printf("\ntestSupervisorGenServer ({%s, %s}): Terminate: %#v\n", tsv.process.name, tsv.process.Node.FullName, reason)
+	// fmt.Printf("\ntestSupervisorGenServer ({%s, %s}): Terminate: %#v\n", tsv.process.name, tsv.process.Node.Name(), reason)
 	st := state.State.(*testSupervisorGenServerState)
 	st.ch <- testMessageTerminated{
 		name:  state.Process.Name(),

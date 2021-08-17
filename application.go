@@ -198,25 +198,25 @@ func (a *Application) Loop(p *Process, args ...etf.Term) string {
 			case ApplicationStartPermanent:
 				a.stopChildren(terminated, spec.Children, string(reason))
 				fmt.Printf("Application child %s (at %s) stopped with reason %s (permanent: node is shutting down)\n",
-					terminatedName, p.Node.FullName, reason)
+					terminatedName, p.Node.Name(), reason)
 				p.Node.Stop()
 				return "shutdown"
 
 			case ApplicationStartTransient:
 				if reason == etf.Atom("normal") || reason == etf.Atom("shutdown") {
 					fmt.Printf("Application child %s (at %s) stopped with reason %s (transient)\n",
-						terminatedName, p.Node.FullName, reason)
+						terminatedName, p.Node.Name(), reason)
 					continue
 				}
 				a.stopChildren(terminated, spec.Children, "normal")
 				fmt.Printf("Application child %s (at %s) stopped with reason %s. (transient: node is shutting down)\n",
-					terminatedName, p.Node.FullName, reason)
+					terminatedName, p.Node.Name(), reason)
 				p.Node.Stop()
 				return string(reason)
 
 			case ApplicationStartTemporary:
 				fmt.Printf("Application child %s (at %s) stopped with reason %s (temporary)\n",
-					terminatedName, p.Node.FullName, reason)
+					terminatedName, p.Node.Name(), reason)
 			}
 
 		}

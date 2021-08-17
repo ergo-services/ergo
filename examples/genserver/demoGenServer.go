@@ -84,7 +84,7 @@ func main() {
 
 	// Print how it can be used along with the Erlang node
 	fmt.Println("Run erl shell:")
-	fmt.Printf("erl -name %s -setcookie %s\n", "erl-"+node.FullName, Cookie)
+	fmt.Printf("erl -name %s -setcookie %s\n", "erl-"+node.Name(), Cookie)
 
 	fmt.Println("-----Examples that can be tried from 'erl'-shell")
 	fmt.Printf("gen_server:cast({%s,'%s'}, stop).\n", GenServerName, NodeName)

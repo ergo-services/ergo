@@ -36,7 +36,7 @@ type registrar struct {
 func createRegistrar(node *Node) *registrar {
 	r := registrar{
 		nextPID:   startPID,
-		nodeName:  node.FullName,
+		nodeName:  node.Name(),
 		creation:  byte(1),
 		node:      node,
 		names:     make(map[string]etf.Pid),
@@ -62,7 +62,7 @@ func (r *registrar) createNewPID() etf.Pid {
 
 func (r *registrar) createNewAlias(p *Process) (etf.Alias, error) {
 	var alias etf.Alias
-	lib.Log("[%s] REGISTRAR create process alias for %v", r.node.FullName, p.self)
+	lib.Log("[%s] REGISTRAR create process alias for %v", r.node.Name(), p.self)
 	r.mutexProcesses.Lock()
 	defer r.mutexProcesses.Unlock()
 
@@ -83,7 +83,7 @@ func (r *registrar) createNewAlias(p *Process) (etf.Alias, error) {
 }
 
 func (r *registrar) deleteAlias(owner *Process, alias etf.Alias) error {
-	lib.Log("[%s] REGISTRAR delete process alias %v for %v", r.node.FullName, alias, owner.self)
+	lib.Log("[%s] REGISTRAR delete process alias %v for %v", r.node.Name(), alias, owner.self)
 	r.mutexProcesses.Lock()
 	defer r.mutexProcesses.Unlock()
 	r.mutexAliases.Lock()
@@ -158,7 +158,7 @@ func (r *registrar) RegisterProcessExt(name string, object ProcessBehavior, opts
 	}
 
 	exit := func(from etf.Pid, reason string) {
-		lib.Log("[%s] EXIT: %#v with reason: %s", r.node.FullName, pid, reason)
+		lib.Log("[%s] EXIT: %#v with reason: %s", r.node.Name(), pid, reason)
 		ex := gracefulExitRequest{
 			from:   from,
 			reason: reason,
@@ -211,12 +211,12 @@ func (r *registrar) UnregisterProcess(pid etf.Pid) {
 	r.mutexProcesses.Lock()
 	defer r.mutexProcesses.Unlock()
 	if p, ok := r.processes[pid.ID]; ok {
-		lib.Log("[%s] REGISTRAR unregistering process: %#v", r.node.FullName, p.self)
+		lib.Log("[%s] REGISTRAR unregistering process: %#v", r.node.Name(), p.self)
 		delete(r.processes, pid.ID)
 
 		r.mutexNames.Lock()
 		if (p.name) != "" {
-			lib.Log("[%s] REGISTRAR unregistering name (%#v): %s", r.node.FullName, p.self, p.name)
+			lib.Log("[%s] REGISTRAR unregistering name (%#v): %s", r.node.Name(), p.self, p.name)
 			delete(r.names, p.name)
 		}
 
@@ -248,7 +248,7 @@ func (r *registrar) UnregisterProcess(pid etf.Pid) {
 
 // RegisterName register associates the name with pid
 func (r *registrar) RegisterName(name string, pid etf.Pid) error {
-	lib.Log("[%s] REGISTRAR registering name %#v", r.node.FullName, name)
+	lib.Log("[%s] REGISTRAR registering name %#v", r.node.Name(), name)
 	r.mutexNames.Lock()
 	if _, ok := r.names[name]; ok {
 		// already registered
@@ -262,14 +262,14 @@ func (r *registrar) RegisterName(name string, pid etf.Pid) error {
 
 // UnregisterName unregister named process
 func (r *registrar) UnregisterName(name string) {
-	lib.Log("[%s] REGISTRAR unregistering name %#v", r.node.FullName, name)
+	lib.Log("[%s] REGISTRAR unregistering name %#v", r.node.Name(), name)
 	r.mutexNames.Lock()
 	delete(r.names, name)
 	r.mutexNames.Unlock()
 }
 
 func (r *registrar) RegisterPeer(peer *peer) error {
-	lib.Log("[%s] REGISTRAR registering peer %#v", r.node.FullName, peer.name)
+	lib.Log("[%s] REGISTRAR registering peer %#v", r.node.Name(), peer.name)
 	r.mutexPeers.Lock()
 	defer r.mutexPeers.Unlock()
 
@@ -282,7 +282,7 @@ func (r *registrar) RegisterPeer(peer *peer) error {
 }
 
 func (r *registrar) UnregisterPeer(name string) {
-	lib.Log("[%s] REGISTRAR unregistering peer %v", r.node.FullName, name)
+	lib.Log("[%s] REGISTRAR unregistering peer %v", r.node.Name(), name)
 	r.mutexPeers.Lock()
 	if _, ok := r.peers[name]; ok {
 		delete(r.peers, name)
@@ -292,7 +292,7 @@ func (r *registrar) UnregisterPeer(name string) {
 }
 
 func (r *registrar) RegisterApp(name string, spec *ApplicationSpec) error {
-	lib.Log("[%s] REGISTRAR registering app %v", r.node.FullName, name)
+	lib.Log("[%s] REGISTRAR registering app %v", r.node.Name(), name)
 	r.mutexApps.Lock()
 	if _, ok := r.apps[name]; ok {
 		// already loaded
@@ -305,7 +305,7 @@ func (r *registrar) RegisterApp(name string, spec *ApplicationSpec) error {
 }
 
 func (r *registrar) UnregisterApp(name string) {
-	lib.Log("[%s] REGISTRAR unregistering app %v", r.node.FullName, name)
+	lib.Log("[%s] REGISTRAR unregistering app %v", r.node.Name(), name)
 	r.mutexApps.Lock()
 	delete(r.apps, name)
 	r.mutexApps.Unlock()
@@ -393,7 +393,7 @@ func (r *registrar) route(from etf.Pid, to etf.Term, message etf.Term) {
 next:
 	switch tto := to.(type) {
 	case etf.Pid:
-		lib.Log("[%s] REGISTRAR sending message by pid %#v", r.node.FullName, tto)
+		lib.Log("[%s] REGISTRAR sending message by pid %#v", r.node.Name(), tto)
 		if string(tto.Node) == r.nodeName {
 			// local route
 			r.mutexProcesses.Lock()
@@ -414,7 +414,7 @@ next:
 		r.mutexPeers.Unlock()
 		if !ok {
 			if err := r.node.connect(tto.Node); err != nil {
-				lib.Log("[%s] can't connect to %v: %s", r.node.FullName, tto.Node, err)
+				lib.Log("[%s] can't connect to %v: %s", r.node.Name(), tto.Node, err)
 				return
 			}
 
@@ -427,10 +427,10 @@ next:
 		send <- []etf.Term{etf.Tuple{distProtoSEND, etf.Atom(""), tto}, message}
 
 	case etf.Tuple:
-		lib.Log("[%s] REGISTRAR sending message by tuple %#v", r.node.FullName, tto)
+		lib.Log("[%s] REGISTRAR sending message by tuple %#v", r.node.Name(), tto)
 
 		if len(tto) != 2 {
-			lib.Log("[%s] can't send message. wrong type. must be etf.Tuple{string, string} or etf.Tuple{etf.Atom, etf.Atom}", r.node.FullName)
+			lib.Log("[%s] can't send message. wrong type. must be etf.Tuple{string, string} or etf.Tuple{etf.Atom, etf.Atom}", r.node.Name())
 			return
 		}
 
@@ -441,7 +441,7 @@ next:
 		case string:
 			toNode = etf.Atom(tto.Element(2).(string))
 		default:
-			lib.Log("[%s] can't send message. wrong type of node name. must be etf.Atom or string", r.node.FullName)
+			lib.Log("[%s] can't send message. wrong type of node name. must be etf.Atom or string", r.node.Name())
 			return
 		}
 
@@ -452,7 +452,7 @@ next:
 		case string:
 			toProcessName = etf.Atom(tto.Element(1).(string))
 		default:
-			lib.Log("[%s] can't send message. wrong type of process name. must be etf.Atom or string", r.node.FullName)
+			lib.Log("[%s] can't send message. wrong type of process name. must be etf.Atom or string", r.node.Name())
 			return
 		}
 
@@ -469,7 +469,7 @@ next:
 		if !ok {
 			// initiate connection and make yet another attempt to deliver this message
 			if err := r.node.connect(toNode); err != nil {
-				lib.Log("[%s] can't connect to %v: %s", r.node.FullName, toNode, err)
+				lib.Log("[%s] can't connect to %v: %s", r.node.Name(), toNode, err)
 				return
 			}
 
@@ -482,7 +482,7 @@ next:
 		send <- []etf.Term{etf.Tuple{distProtoREG_SEND, from, etf.Atom(""), toProcessName}, message}
 
 	case string:
-		lib.Log("[%s] REGISTRAR sending message by name %#v", r.node.FullName, tto)
+		lib.Log("[%s] REGISTRAR sending message by name %#v", r.node.Name(), tto)
 		r.mutexNames.Lock()
 		if pid, ok := r.names[tto]; ok {
 			to = pid
@@ -492,7 +492,7 @@ next:
 		r.mutexNames.Unlock()
 
 	case etf.Atom:
-		lib.Log("[%s] REGISTRAR sending message by name %#v", r.node.FullName, tto)
+		lib.Log("[%s] REGISTRAR sending message by name %#v", r.node.Name(), tto)
 		r.mutexNames.Lock()
 		if pid, ok := r.names[string(tto)]; ok {
 			to = pid
@@ -502,7 +502,7 @@ next:
 		r.mutexNames.Unlock()
 
 	case etf.Alias:
-		lib.Log("[%s] REGISTRAR sending message by alias %#v", r.node.FullName, tto)
+		lib.Log("[%s] REGISTRAR sending message by alias %#v", r.node.Name(), tto)
 		r.mutexAliases.Lock()
 		if string(tto.Node) == r.nodeName {
 			// local route by alias
@@ -519,7 +519,7 @@ next:
 		r.mutexPeers.Unlock()
 		if !ok {
 			if err := r.node.connect(tto.Node); err != nil {
-				lib.Log("[%s] can't connect to %v: %s", r.node.FullName, tto.Node, err)
+				lib.Log("[%s] can't connect to %v: %s", r.node.Name(), tto.Node, err)
 				return
 			}
 
@@ -532,7 +532,7 @@ next:
 		send <- []etf.Term{etf.Tuple{distProtoALIAS_SEND, from, tto}, message}
 
 	default:
-		lib.Log("[%s] unknow receiver type %#v", r.node.FullName, tto)
+		lib.Log("[%s] unknow receiver type %#v", r.node.Name(), tto)
 	}
 }
 
@@ -546,7 +546,7 @@ func (r *registrar) routeRaw(nodename etf.Atom, messages ...etf.Term) error {
 	if !ok {
 		// initiate connection and make yet another attempt to deliver this message
 		if err := r.node.connect(nodename); err != nil {
-			lib.Log("[%s] can't connect to %v: %s", r.node.FullName, nodename, err)
+			lib.Log("[%s] can't connect to %v: %s", r.node.Name(), nodename, err)
 			return err
 		}
 
