@@ -14,6 +14,17 @@ const (
 	startPID = 1000
 )
 
+type Router interface {
+	Route(from etf.Pid, to etf.Term, message etf.Term)
+	RouteRaw(nodename etf.Atom, messages ...etf.Term) error
+}
+
+type Registrar interface {
+	GetProcessByName(name string) *Process
+	GetProcessByPid(pid etf.Pid) *Process
+	GetProcessByAlias(alias etf.Alias) *Process
+}
+
 type registrar struct {
 	nextPID  uint64
 	nodeName string
@@ -146,23 +157,28 @@ func (r *registrar) RegisterProcessExt(name string, object ProcessBehavior, opts
 
 	pid := r.createNewPID()
 
-	exitChannel := make(chan gracefulExitRequest)
-
 	process := &Process{
+		self:   pid,
+		name:   name,
+		object: object,
+		env:    opts.Env,
+
+		parent:      opts.Parent,
+		groupLeader: opts.GroupLeader,
+
+		router: Router(r),
+
 		mailBox:      make(chan mailboxMessage, mailboxSize),
 		ready:        make(chan error),
-		stopped:      make(chan bool),
-		gracefulExit: exitChannel,
+		gracefulExit: make(chan gracefulExitRequest),
 		direct:       make(chan directMessage),
-		self:         pid,
-		groupLeader:  opts.GroupLeader,
-		parent:       opts.Parent,
-		Context:      ctx,
-		Kill:         kill,
-		name:         name,
-		Node:         r.node,
-		reply:        make(map[etf.Ref]chan etf.Term),
-		object:       object,
+		stopped:      make(chan bool),
+
+		Context: ctx,
+		Kill:    kill,
+		Node:    r.node,
+
+		reply: make(map[etf.Ref]chan etf.Term),
 	}
 
 	exit := func(from etf.Pid, reason string) {
@@ -191,7 +207,7 @@ func (r *registrar) RegisterProcessExt(name string, object ProcessBehavior, opts
 		// there is nobody to read from the exitChannel and it locks the calling
 		// process foreveer
 		select {
-		case exitChannel <- ex:
+		case process.gracefulExit <- ex:
 		default:
 		}
 	}
@@ -397,7 +413,7 @@ func (r *registrar) ApplicationList() []*ApplicationSpec {
 }
 
 // route routes message to a local/remote process
-func (r *registrar) route(from etf.Pid, to etf.Term, message etf.Term) {
+func (r *registrar) Route(from etf.Pid, to etf.Term, message etf.Term) {
 next:
 	switch tto := to.(type) {
 	case etf.Pid:
@@ -466,7 +482,7 @@ next:
 
 		if toNode == etf.Atom(r.nodeName) {
 			// local route
-			r.route(from, toProcessName, message)
+			r.Route(from, toProcessName, message)
 			return
 		}
 
@@ -544,7 +560,7 @@ next:
 	}
 }
 
-func (r *registrar) routeRaw(nodename etf.Atom, messages ...etf.Term) error {
+func (r *registrar) RouteRaw(nodename etf.Atom, messages ...etf.Term) error {
 	r.mutexPeers.Lock()
 	peer, ok := r.peers[string(nodename)]
 	r.mutexPeers.Unlock()

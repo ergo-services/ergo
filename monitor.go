@@ -40,6 +40,8 @@ type monitor struct {
 	ref2node       map[etf.Ref]string
 	mutexNodes     sync.Mutex
 
+	router Router
+
 	node *Node
 }
 
@@ -51,6 +53,8 @@ func createMonitor(node *Node) *monitor {
 
 		ref2pid:  make(map[etf.Ref]etf.Pid),
 		ref2node: make(map[etf.Ref]string),
+
+		router: node.registrar,
 
 		node: node,
 	}
@@ -69,7 +73,7 @@ next:
 	case etf.Pid:
 		lib.Log("[%s] MONITOR process: %#v => %#v", m.node.Name(), by, t)
 
-		// If 'process' belongs this node we should make sure if its alive.
+		// If 'process' belongs to this node we should make sure if its alive.
 		// http://erlang.org/doc/reference_manual/processes.html#monitors
 		// If Pid does not exist, the 'DOWN' message should be
 		// send immediately with Reason set to noproc.
@@ -102,7 +106,7 @@ next:
 
 		// request monitoring the remote process
 		message := etf.Tuple{distProtoMONITOR, by, t, ref}
-		if err := m.node.registrar.routeRaw(t.Node, message); err != nil {
+		if err := m.router.RouteRaw(t.Node, message); err != nil {
 			m.notifyProcessTerminated(ref, by, t, "noconnection")
 			m.mutexProcesses.Lock()
 			delete(m.ref2pid, ref)
@@ -153,7 +157,7 @@ next:
 		}
 
 		message := etf.Tuple{distProtoMONITOR, by, name, ref}
-		if err := m.node.registrar.routeRaw(etf.Atom(nodeName), message); err != nil {
+		if err := m.router.RouteRaw(etf.Atom(nodeName), message); err != nil {
 			m.notifyProcessTerminated(ref, by, fakePid, "noconnection")
 			return
 		}
@@ -195,7 +199,7 @@ func (m *monitor) DemonitorProcess(ref etf.Ref) bool {
 
 		if string(nodeName) != m.node.Name() {
 			message := etf.Tuple{distProtoDEMONITOR, items[i].pid, process, ref}
-			m.node.registrar.routeRaw(nodeName, message)
+			m.router.RouteRaw(nodeName, message)
 		}
 
 		items[i] = items[0]
@@ -265,7 +269,7 @@ func (m *monitor) Link(pidA, pidB etf.Pid) {
 	} else {
 		// linking with remote process
 		message := etf.Tuple{distProtoLINK, pidA, pidB}
-		if err := m.node.registrar.routeRaw(pidB.Node, message); err != nil {
+		if err := m.router.RouteRaw(pidB.Node, message); err != nil {
 			// seems we have no connection with this node. notify the sender
 			// with 'EXIT' message and 'noconnection' as a reason
 			m.notifyProcessExit(pidA, pidB, "noconnection")
@@ -287,7 +291,7 @@ func (m *monitor) Unlink(pidA, pidB etf.Pid) {
 
 	if pidB.Node != etf.Atom(m.node.Name()) {
 		message := etf.Tuple{distProtoUNLINK, pidA, pidB}
-		m.node.registrar.routeRaw(pidB.Node, message)
+		m.router.RouteRaw(pidB.Node, message)
 	}
 
 	if pidA.Node == etf.Atom(m.node.Name()) {
@@ -550,7 +554,7 @@ func (m *monitor) GetMonitoredBy(process etf.Pid) []etf.Pid {
 
 func (m *monitor) notifyNodeDown(to etf.Pid, node string) {
 	message := etf.Term(etf.Tuple{etf.Atom("nodedown"), node})
-	m.node.registrar.route(etf.Pid{}, to, message)
+	m.router.Route(etf.Pid{}, to, message)
 }
 
 func (m *monitor) notifyProcessTerminated(ref etf.Ref, to etf.Pid, terminated etf.Pid, reason string) {
@@ -562,12 +566,12 @@ func (m *monitor) notifyProcessTerminated(ref etf.Ref, to etf.Pid, terminated et
 			// "processName|nodeName" in Node field
 			terminatedName := fakePidToName(terminated)
 			message := etf.Tuple{distProtoMONITOR_EXIT, etf.Atom(terminatedName), to, ref, etf.Atom(reason)}
-			m.node.registrar.routeRaw(to.Node, message)
+			m.router.RouteRaw(to.Node, message)
 			return
 		}
 		// terminated is a real Pid. send it as it is.
 		message := etf.Tuple{distProtoMONITOR_EXIT, terminated, to, ref, etf.Atom(reason)}
-		m.node.registrar.routeRaw(to.Node, message)
+		m.router.RouteRaw(to.Node, message)
 		return
 	}
 	// {'DOWN', MonitorRef, Type, Object, Info}
@@ -582,19 +586,19 @@ func (m *monitor) notifyProcessTerminated(ref etf.Ref, to etf.Pid, terminated et
 		// it was monitored by name
 		p := fakePidToTuple(terminated)
 		message := etf.Term(etf.Tuple{etf.Atom("DOWN"), ref, etf.Atom("process"), p, etf.Atom(reason)})
-		m.node.registrar.route(terminated, to, message)
+		m.router.Route(terminated, to, message)
 		return
 	}
 
 	message := etf.Term(etf.Tuple{etf.Atom("DOWN"), ref, etf.Atom("process"), terminated, etf.Atom(reason)})
-	m.node.registrar.route(terminated, to, message)
+	m.router.Route(terminated, to, message)
 }
 
 func (m *monitor) notifyProcessExit(to etf.Pid, terminated etf.Pid, reason string) {
 	// for remote: {3, FromPid, ToPid, Reason}
 	if to.Node != etf.Atom(m.node.Name()) {
 		message := etf.Tuple{distProtoEXIT, terminated, to, etf.Atom(reason)}
-		m.node.registrar.routeRaw(to.Node, message)
+		m.router.RouteRaw(to.Node, message)
 		return
 	}
 

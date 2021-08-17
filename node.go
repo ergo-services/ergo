@@ -648,13 +648,13 @@ func (n *Node) handleMessage(fromNode string, control, message etf.Term) (err er
 			case distProtoREG_SEND:
 				// {6, FromPid, Unused, ToName}
 				lib.Log("[%s] CONTROL REG_SEND [from %s]: %#v", n.Name(), fromNode, control)
-				n.registrar.route(t.Element(2).(etf.Pid), t.Element(4), message)
+				n.registrar.Route(t.Element(2).(etf.Pid), t.Element(4), message)
 
 			case distProtoSEND:
 				// {2, Unused, ToPid}
 				// SEND has no sender pid
 				lib.Log("[%s] CONTROL SEND [from %s]: %#v", n.Name(), fromNode, control)
-				n.registrar.route(etf.Pid{}, t.Element(3), message)
+				n.registrar.Route(etf.Pid{}, t.Element(3), message)
 
 			case distProtoLINK:
 				// {1, FromPid, ToPid}
@@ -717,7 +717,7 @@ func (n *Node) handleMessage(fromNode string, control, message etf.Term) (err er
 				// {33, FromPid, Alias}
 				lib.Log("[%s] CONTROL ALIAS_SEND [from %s]: %#v", n.Name(), fromNode, control)
 				alias := etf.Alias(t.Element(3).(etf.Ref))
-				n.registrar.route(t.Element(2).(etf.Pid), alias, message)
+				n.registrar.Route(t.Element(2).(etf.Pid), alias, message)
 
 			case distProtoSPAWN_REQUEST:
 				// {29, ReqId, From, GroupLeader, {Module, Function, Arity}, OptList}
@@ -754,18 +754,18 @@ func (n *Node) handleMessage(fromNode string, control, message etf.Term) (err er
 				n.remoteSpawnMutex.Unlock()
 				if !provided {
 					message := etf.Tuple{distProtoSPAWN_REPLY, ref, from, 0, etf.Atom("not_provided")}
-					n.registrar.routeRaw(from.Node, message)
+					n.registrar.RouteRaw(from.Node, message)
 					return
 				}
 
 				process, err_spawn := n.Spawn(registerName, ProcessOptions{}, object, args...)
 				if err_spawn != nil {
 					message := etf.Tuple{distProtoSPAWN_REPLY, ref, from, 0, etf.Atom(err_spawn.Error())}
-					n.registrar.routeRaw(from.Node, message)
+					n.registrar.RouteRaw(from.Node, message)
 					return
 				}
 				message := etf.Tuple{distProtoSPAWN_REPLY, ref, from, 0, process.Self()}
-				n.registrar.routeRaw(from.Node, message)
+				n.registrar.RouteRaw(from.Node, message)
 
 			case distProtoSPAWN_REPLY:
 				// {31, ReqId, To, Flags, Result}

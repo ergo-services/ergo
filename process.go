@@ -29,6 +29,8 @@ type Process struct {
 	groupLeader *Process
 	aliases     []etf.Alias
 
+	router Router
+
 	mailBox      chan mailboxMessage
 	ready        chan error
 	gracefulExit chan gracefulExitRequest
@@ -86,6 +88,7 @@ type ProcessOptions struct {
 	MailboxSize uint16
 	GroupLeader *Process
 	Parent      *Process
+	Env         map[string]interface{}
 }
 
 // ProcessExitFunc initiate a graceful stopping process
@@ -193,7 +196,7 @@ func (p *Process) Send(to interface{}, message etf.Term) error {
 	if !p.IsAlive() {
 		return ErrProcessTerminated
 	}
-	p.Node.registrar.route(p.self, to, message)
+	p.router.Route(p.self, to, message)
 	return nil
 }
 
@@ -214,7 +217,7 @@ func (p *Process) SendAfter(to interface{}, message etf.Term, after time.Duratio
 			return
 		case <-timer.C:
 			if p.IsAlive() {
-				p.Node.registrar.route(p.self, to, message)
+				p.router.Route(p.self, to, message)
 			}
 		}
 	}()
@@ -235,7 +238,7 @@ func (p *Process) Cast(to interface{}, message etf.Term) error {
 		return ErrProcessTerminated
 	}
 	msg := etf.Term(etf.Tuple{etf.Atom("$gen_cast"), message})
-	p.Node.registrar.route(p.self, to, msg)
+	p.router.Route(p.self, to, msg)
 	return nil
 }
 
@@ -505,7 +508,7 @@ func (p *Process) sendSyncRequestRaw(ref etf.Ref, node etf.Atom, messages ...etf
 	p.replyMutex.Lock()
 	defer p.replyMutex.Unlock()
 	p.reply[ref] = reply
-	p.Node.registrar.routeRaw(node, messages...)
+	p.router.RouteRaw(node, messages...)
 }
 func (p *Process) sendSyncRequest(ref etf.Ref, to interface{}, message etf.Term) {
 	reply := make(chan etf.Term, 2)
