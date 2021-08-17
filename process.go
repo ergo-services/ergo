@@ -86,7 +86,7 @@ type ProcessInfo struct {
 type ProcessOptions struct {
 	MailboxSize uint16
 	GroupLeader *Process
-	parent      *Process
+	Context     context.Context
 }
 
 // ProcessExitFunc initiate a graceful stopping process

@@ -132,8 +132,8 @@ func (r *registrar) RegisterProcessExt(name string, object ProcessBehavior, opts
 	}
 
 	parentContext := r.node.context
-	if opts.parent != nil {
-		parentContext = opts.parent.Context
+	if opts.Context != nil {
+		parentContext = opts.Context
 	}
 	ctx, kill := context.WithCancel(parentContext)
 

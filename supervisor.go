@@ -489,7 +489,7 @@ func startChild(parent *Process, name string, child ProcessBehavior, args ...etf
 	} else {
 		opts.GroupLeader = parent.groupLeader
 	}
-	opts.parent = parent
+	opts.Context = parent.Context
 	process, err := parent.Node.Spawn(name, opts, child, args...)
 
 	if err != nil {
