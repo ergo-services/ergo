@@ -15,7 +15,6 @@ import (
 	"encoding/pem"
 	"fmt"
 	"runtime"
-	"sync/atomic"
 
 	"github.com/halturin/ergo/dist"
 	"github.com/halturin/ergo/etf"
@@ -32,19 +31,22 @@ import (
 	"time"
 )
 
+type network interface {
+	connect(to etf.Atom) error
+}
+
 // Node instance of created node using CreateNode
 type Node struct {
+	Registrar
+
 	epmd     *dist.EPMD
 	listener net.Listener
 	Cookie   string
 
-	registrar *registrar
-	monitor   *monitor
-	context   context.Context
-	Stop      context.CancelFunc
+	context context.Context
+	Stop    context.CancelFunc
 
 	StartedAt time.Time
-	uniqID    int64
 
 	tlscertServer tls.Certificate
 	tlscertClient tls.Certificate
@@ -122,7 +124,6 @@ func CreateNodeWithContext(ctx context.Context, name string, cookie string, opts
 		context:   nodectx,
 		Stop:      nodestop,
 		StartedAt: time.Now(),
-		uniqID:    time.Now().UnixNano(),
 		// Creation must be > 0 so make 'or 0x1'
 		creation:    uint32(r) | 1,
 		remoteSpawn: make(map[string]ProcessBehavior),
@@ -187,11 +188,10 @@ func CreateNodeWithContext(ctx context.Context, name string, cookie string, opts
 
 	node.opts = opts
 
-	node.registrar = createRegistrar(node)
-	node.monitor = createMonitor(node)
+	node.Registrar = NewRegistrar(ctx, node.name, node.creation, node)
 
-	netKernelSup := &netKernelSup{}
-	node.Spawn("net_kernel_sup", ProcessOptions{}, netKernelSup)
+	//	netKernelSup := &netKernelSup{}
+	//	node.Spawn("net_kernel_sup", ProcessOptions{}, netKernelSup)
 
 	return node, nil
 }
@@ -199,62 +199,6 @@ func CreateNodeWithContext(ctx context.Context, name string, cookie string, opts
 // Name returns node name
 func (n *Node) Name() string {
 	return n.name
-}
-
-// Spawn create new process
-func (n *Node) Spawn(name string, opts ProcessOptions, object ProcessBehavior, args ...etf.Term) (*Process, error) {
-
-	process, err := n.registrar.RegisterProcessExt(name, object, opts)
-	if err != nil {
-		return nil, err
-	}
-
-	go func() {
-		pid := process.Self()
-
-		defer func() {
-			if r := recover(); r != nil {
-				pc, fn, line, _ := runtime.Caller(2)
-				fmt.Printf("Warning: process recovered (name: %s) %v %#v at %s[%s:%d]\n",
-					name, process.self, r, runtime.FuncForPC(pc).Name(), fn, line)
-
-				n.registrar.UnregisterProcess(pid)
-				n.monitor.ProcessTerminated(pid, name, "panic")
-				process.Kill()
-
-				process.ready <- fmt.Errorf("Can't start process: %s\n", r)
-				close(process.stopped)
-			}
-
-			// we should close this channel otherwise if we try
-			// immediately call process.Exit it blocks this call forewer
-			// since there is nobody to read a message from this channel
-			close(process.gracefulExit)
-		}()
-
-		// start process loop
-		reason := object.(ProcessBehavior).Loop(process, args...)
-
-		// process stopped. unregister it and let everybody (who set up
-		// link/monitor) to know about it
-		n.registrar.UnregisterProcess(pid)
-		n.monitor.ProcessTerminated(pid, name, reason)
-
-		// cancel the context if it was stopped by itself
-		if reason != "kill" {
-			process.Kill()
-		}
-
-		close(process.ready)
-		close(process.stopped)
-	}()
-
-	if e := <-process.ready; e != nil {
-		close(process.ready)
-		return nil, e
-	}
-
-	return process, nil
 }
 
 func (n *Node) ProvideRemoteSpawn(name string, object ProcessBehavior) {
@@ -272,29 +216,6 @@ func (n *Node) RevokeRemoteSpawn(name string) bool {
 		return true
 	}
 	return false
-}
-
-// Register register associates the name with pid
-func (n *Node) Register(name string, pid etf.Pid) error {
-	return n.registrar.RegisterName(name, pid)
-}
-
-func (n *Node) Unregister(name string) {
-	n.registrar.UnregisterName(name)
-}
-
-// IsProcessAlive returns true if the process with given pid is alive
-func (n *Node) IsProcessAlive(pid etf.Pid) bool {
-	if pid.Node != etf.Atom(n.Name()) {
-		return false
-	}
-
-	p := n.registrar.GetProcessByPid(pid)
-	if p == nil {
-		return false
-	}
-
-	return p.IsAlive()
 }
 
 // IsAlive returns true if node is running
@@ -320,16 +241,6 @@ func (n *Node) WaitWithTimeout(d time.Duration) error {
 	case <-n.context.Done():
 		return nil
 	}
-}
-
-// ProcessInfo returns the details about given Pid
-func (n *Node) ProcessInfo(pid etf.Pid) (ProcessInfo, error) {
-	p := n.registrar.GetProcessByPid(pid)
-	if p == nil {
-		return ProcessInfo{}, fmt.Errorf("undefined")
-	}
-
-	return p.Info(), nil
 }
 
 // AddStaticRoute adds static route record into the EPMD client
@@ -371,7 +282,7 @@ func (n *Node) serve(link *dist.Link, opts NodeOptions) error {
 		n:    numHandlers,
 	}
 
-	if err := n.registrar.RegisterPeer(p); err != nil {
+	if err := n.registerPeer(p); err != nil {
 		// duplicate link?
 		return err
 	}
@@ -411,7 +322,7 @@ func (n *Node) serve(link *dist.Link, opts NodeOptions) error {
 
 		defer func() {
 			link.Close()
-			n.registrar.UnregisterPeer(link.GetRemoteName())
+			n.unregisterPeer(link.GetRemoteName())
 
 			// close handlers channel
 			for i := 0; i < numHandlers; i++ {
@@ -477,161 +388,161 @@ func (n *Node) serve(link *dist.Link, opts NodeOptions) error {
 
 // LoadedApplications returns a list with information about the
 // applications, which are loaded using ApplicatoinLoad
-func (n *Node) LoadedApplications() []ApplicationInfo {
-	info := []ApplicationInfo{}
-	for _, a := range n.registrar.ApplicationList() {
-		appInfo := ApplicationInfo{
-			Name:        a.Name,
-			Description: a.Description,
-			Version:     a.Version,
-		}
-		info = append(info, appInfo)
-	}
-	return info
-}
-
-// WhichApplications returns a list with information about the applications that are currently running.
-func (n *Node) WhichApplications() []ApplicationInfo {
-	info := []ApplicationInfo{}
-	for _, a := range n.registrar.ApplicationList() {
-		if a.process == nil {
-			// list only started apps
-			continue
-		}
-		appInfo := ApplicationInfo{
-			Name:        a.Name,
-			Description: a.Description,
-			Version:     a.Version,
-			PID:         a.process.self,
-		}
-		info = append(info, appInfo)
-	}
-	return info
-}
-
-// GetApplicationInfo returns information about application
-func (n *Node) GetApplicationInfo(name string) (ApplicationInfo, error) {
-	spec := n.registrar.GetApplicationSpecByName(name)
-	if spec == nil {
-		return ApplicationInfo{}, ErrAppUnknown
-	}
-
-	pid := etf.Pid{}
-	if spec.process != nil {
-		pid = spec.process.self
-	}
-
-	return ApplicationInfo{
-		Name:        name,
-		Description: spec.Description,
-		Version:     spec.Version,
-		PID:         pid,
-	}, nil
-}
-
-// ApplicationLoad loads the application specification for an application
-// into the node. It also loads the application specifications for any included applications
-func (n *Node) ApplicationLoad(app ApplicationBehavior, args ...etf.Term) error {
-
-	spec, err := app.Load(args...)
-	if err != nil {
-		return err
-	}
-	spec.app = app
-	return n.registrar.RegisterApp(spec.Name, &spec)
-}
-
-// ApplicationUnload unloads the application specification for Application from the
-// node. It also unloads the application specifications for any included applications.
-func (n *Node) ApplicationUnload(appName string) error {
-	spec := n.registrar.GetApplicationSpecByName(appName)
-	if spec == nil {
-		return ErrAppUnknown
-	}
-	if spec.process != nil {
-		return ErrAppAlreadyStarted
-	}
-
-	n.registrar.UnregisterApp(appName)
-	return nil
-}
-
-// ApplicationStartPermanent start Application with start type ApplicationStartPermanent
-// If this application terminates, all other applications and the entire node are also
-// terminated
-func (n *Node) ApplicationStartPermanent(appName string, args ...etf.Term) (*Process, error) {
-	return n.applicationStart(ApplicationStartPermanent, appName, args...)
-}
-
-// ApplicationStartTransient start Application with start type ApplicationStartTransient
-// If transient application terminates with reason 'normal', this is reported and no
-// other applications are terminated. Otherwise, all other applications and node
-// are terminated
-func (n *Node) ApplicationStartTransient(appName string, args ...etf.Term) (*Process, error) {
-	return n.applicationStart(ApplicationStartTransient, appName, args...)
-}
-
-// ApplicationStart start Application with start type ApplicationStartTemporary
-// If an application terminates, this is reported but no other applications
-// are terminated
-func (n *Node) ApplicationStart(appName string, args ...etf.Term) (*Process, error) {
-	return n.applicationStart(ApplicationStartTemporary, appName, args...)
-}
-
-func (n *Node) applicationStart(startType, appName string, args ...etf.Term) (*Process, error) {
-
-	spec := n.registrar.GetApplicationSpecByName(appName)
-	if spec == nil {
-		return nil, ErrAppUnknown
-	}
-
-	spec.startType = startType
-
-	// to prevent race condition on starting application we should
-	// make sure that nobodyelse starting it
-	spec.mutex.Lock()
-	defer spec.mutex.Unlock()
-
-	if spec.process != nil {
-		return nil, ErrAppAlreadyStarted
-	}
-
-	// start dependencies
-	for _, depAppName := range spec.Applications {
-		if _, e := n.ApplicationStart(depAppName); e != nil && e != ErrAppAlreadyStarted {
-			return nil, e
-		}
-	}
-
-	// passing 'spec' to the process loop in order to handle children's startup.
-	args = append([]etf.Term{spec}, args)
-	appProcess, e := n.Spawn("", ProcessOptions{}, spec.app, args...)
-	if e != nil {
-		return nil, e
-	}
-
-	spec.process = appProcess
-	return appProcess, nil
-}
-
-// ApplicationStop stop running application
-func (n *Node) ApplicationStop(name string) error {
-	spec := n.registrar.GetApplicationSpecByName(name)
-	if spec == nil {
-		return ErrAppUnknown
-	}
-
-	if spec.process == nil {
-		return ErrAppIsNotRunning
-	}
-
-	spec.process.Exit(spec.process.Self(), "normal")
-	// we should wait until children process stopped.
-	if e := spec.process.WaitWithTimeout(5 * time.Second); e != nil {
-		return ErrProcessBusy
-	}
-	return nil
-}
+//func (n *Node) LoadedApplications() []ApplicationInfo {
+//	info := []ApplicationInfo{}
+//	for _, a := range n.registrar.ApplicationList() {
+//		appInfo := ApplicationInfo{
+//			Name:        a.Name,
+//			Description: a.Description,
+//			Version:     a.Version,
+//		}
+//		info = append(info, appInfo)
+//	}
+//	return info
+//}
+//
+//// WhichApplications returns a list with information about the applications that are currently running.
+//func (n *Node) WhichApplications() []ApplicationInfo {
+//	info := []ApplicationInfo{}
+//	for _, a := range n.registrar.ApplicationList() {
+//		if a.process == nil {
+//			// list only started apps
+//			continue
+//		}
+//		appInfo := ApplicationInfo{
+//			Name:        a.Name,
+//			Description: a.Description,
+//			Version:     a.Version,
+//			PID:         a.process.self,
+//		}
+//		info = append(info, appInfo)
+//	}
+//	return info
+//}
+//
+//// GetApplicationInfo returns information about application
+//func (n *Node) GetApplicationInfo(name string) (ApplicationInfo, error) {
+//	spec := n.registrar.GetApplicationSpecByName(name)
+//	if spec == nil {
+//		return ApplicationInfo{}, ErrAppUnknown
+//	}
+//
+//	pid := etf.Pid{}
+//	if spec.process != nil {
+//		pid = spec.process.self
+//	}
+//
+//	return ApplicationInfo{
+//		Name:        name,
+//		Description: spec.Description,
+//		Version:     spec.Version,
+//		PID:         pid,
+//	}, nil
+//}
+//
+//// ApplicationLoad loads the application specification for an application
+//// into the node. It also loads the application specifications for any included applications
+//func (n *Node) ApplicationLoad(app ApplicationBehavior, args ...etf.Term) error {
+//
+//	spec, err := app.Load(args...)
+//	if err != nil {
+//		return err
+//	}
+//	spec.app = app
+//	return n.registrar.RegisterApp(spec.Name, &spec)
+//}
+//
+//// ApplicationUnload unloads the application specification for Application from the
+//// node. It also unloads the application specifications for any included applications.
+//func (n *Node) ApplicationUnload(appName string) error {
+//	spec := n.registrar.GetApplicationSpecByName(appName)
+//	if spec == nil {
+//		return ErrAppUnknown
+//	}
+//	if spec.process != nil {
+//		return ErrAppAlreadyStarted
+//	}
+//
+//	n.registrar.UnregisterApp(appName)
+//	return nil
+//}
+//
+//// ApplicationStartPermanent start Application with start type ApplicationStartPermanent
+//// If this application terminates, all other applications and the entire node are also
+//// terminated
+//func (n *Node) ApplicationStartPermanent(appName string, args ...etf.Term) (*Process, error) {
+//	return n.applicationStart(ApplicationStartPermanent, appName, args...)
+//}
+//
+//// ApplicationStartTransient start Application with start type ApplicationStartTransient
+//// If transient application terminates with reason 'normal', this is reported and no
+//// other applications are terminated. Otherwise, all other applications and node
+//// are terminated
+//func (n *Node) ApplicationStartTransient(appName string, args ...etf.Term) (*Process, error) {
+//	return n.applicationStart(ApplicationStartTransient, appName, args...)
+//}
+//
+//// ApplicationStart start Application with start type ApplicationStartTemporary
+//// If an application terminates, this is reported but no other applications
+//// are terminated
+//func (n *Node) ApplicationStart(appName string, args ...etf.Term) (*Process, error) {
+//	return n.applicationStart(ApplicationStartTemporary, appName, args...)
+//}
+//
+//func (n *Node) applicationStart(startType, appName string, args ...etf.Term) (*Process, error) {
+//
+//	spec := n.registrar.GetApplicationSpecByName(appName)
+//	if spec == nil {
+//		return nil, ErrAppUnknown
+//	}
+//
+//	spec.startType = startType
+//
+//	// to prevent race condition on starting application we should
+//	// make sure that nobodyelse starting it
+//	spec.mutex.Lock()
+//	defer spec.mutex.Unlock()
+//
+//	if spec.process != nil {
+//		return nil, ErrAppAlreadyStarted
+//	}
+//
+//	// start dependencies
+//	for _, depAppName := range spec.Applications {
+//		if _, e := n.ApplicationStart(depAppName); e != nil && e != ErrAppAlreadyStarted {
+//			return nil, e
+//		}
+//	}
+//
+//	// passing 'spec' to the process loop in order to handle children's startup.
+//	args = append([]etf.Term{spec}, args)
+//	appProcess, e := n.Spawn("", ProcessOptions{}, spec.app, args...)
+//	if e != nil {
+//		return nil, e
+//	}
+//
+//	spec.process = appProcess
+//	return appProcess, nil
+//}
+//
+//// ApplicationStop stop running application
+//func (n *Node) ApplicationStop(name string) error {
+//	spec := n.registrar.GetApplicationSpecByName(name)
+//	if spec == nil {
+//		return ErrAppUnknown
+//	}
+//
+//	if spec.process == nil {
+//		return ErrAppIsNotRunning
+//	}
+//
+//	spec.process.Exit(spec.process.Self(), "normal")
+//	// we should wait until children process stopped.
+//	if e := spec.process.WaitWithTimeout(5 * time.Second); e != nil {
+//		return ErrProcessBusy
+//	}
+//	return nil
+//}
 
 func (n *Node) handleMessage(fromNode string, control, message etf.Term) (err error) {
 	defer func() {
@@ -648,23 +559,23 @@ func (n *Node) handleMessage(fromNode string, control, message etf.Term) (err er
 			case distProtoREG_SEND:
 				// {6, FromPid, Unused, ToName}
 				lib.Log("[%s] CONTROL REG_SEND [from %s]: %#v", n.Name(), fromNode, control)
-				n.registrar.Route(t.Element(2).(etf.Pid), t.Element(4), message)
+				n.Route(t.Element(2).(etf.Pid), t.Element(4), message)
 
 			case distProtoSEND:
 				// {2, Unused, ToPid}
 				// SEND has no sender pid
 				lib.Log("[%s] CONTROL SEND [from %s]: %#v", n.Name(), fromNode, control)
-				n.registrar.Route(etf.Pid{}, t.Element(3), message)
+				n.Route(etf.Pid{}, t.Element(3), message)
 
 			case distProtoLINK:
 				// {1, FromPid, ToPid}
 				lib.Log("[%s] CONTROL LINK [from %s]: %#v", n.Name(), fromNode, control)
-				n.monitor.Link(t.Element(2).(etf.Pid), t.Element(3).(etf.Pid))
+				n.link(t.Element(2).(etf.Pid), t.Element(3).(etf.Pid))
 
 			case distProtoUNLINK:
 				// {4, FromPid, ToPid}
 				lib.Log("[%s] CONTROL UNLINK [from %s]: %#v", n.Name(), fromNode, control)
-				n.monitor.Unlink(t.Element(2).(etf.Pid), t.Element(3).(etf.Pid))
+				n.unlink(t.Element(2).(etf.Pid), t.Element(3).(etf.Pid))
 
 			case distProtoNODE_LINK:
 				lib.Log("[%s] CONTROL NODE_LINK [from %s]: %#v", n.Name(), fromNode, control)
@@ -674,7 +585,7 @@ func (n *Node) handleMessage(fromNode string, control, message etf.Term) (err er
 				lib.Log("[%s] CONTROL EXIT [from %s]: %#v", n.Name(), fromNode, control)
 				terminated := t.Element(2).(etf.Pid)
 				reason := fmt.Sprint(t.Element(4))
-				n.monitor.ProcessTerminated(terminated, "", string(reason))
+				n.processTerminated(terminated, "", string(reason))
 
 			case distProtoEXIT2:
 				lib.Log("[%s] CONTROL EXIT2 [from %s]: %#v", n.Name(), fromNode, control)
@@ -683,13 +594,13 @@ func (n *Node) handleMessage(fromNode string, control, message etf.Term) (err er
 				// {19, FromPid, ToProc, Ref}, where FromPid = monitoring process
 				// and ToProc = monitored process pid or name (atom)
 				lib.Log("[%s] CONTROL MONITOR [from %s]: %#v", n.Name(), fromNode, control)
-				n.monitor.MonitorProcessWithRef(t.Element(2).(etf.Pid), t.Element(3), t.Element(4).(etf.Ref))
+				n.monitorProcess(t.Element(2).(etf.Pid), t.Element(3), t.Element(4).(etf.Ref))
 
 			case distProtoDEMONITOR:
 				// {20, FromPid, ToProc, Ref}, where FromPid = monitoring process
 				// and ToProc = monitored process pid or name (atom)
 				lib.Log("[%s] CONTROL DEMONITOR [from %s]: %#v", n.Name(), fromNode, control)
-				n.monitor.DemonitorProcess(t.Element(4).(etf.Ref))
+				n.demonitorProcess(t.Element(4).(etf.Ref))
 
 			case distProtoMONITOR_EXIT:
 				// {21, FromProc, ToPid, Ref, Reason}, where FromProc = monitored process
@@ -698,10 +609,10 @@ func (n *Node) handleMessage(fromNode string, control, message etf.Term) (err er
 				reason := fmt.Sprint(t.Element(5))
 				switch terminated := t.Element(2).(type) {
 				case etf.Pid:
-					n.monitor.ProcessTerminated(terminated, "", string(reason))
+					n.processTerminated(terminated, "", string(reason))
 				case etf.Atom:
 					pid := fakeMonitorPidFromName(string(terminated), fromNode)
-					n.monitor.ProcessTerminated(pid, "", string(reason))
+					n.processTerminated(pid, "", string(reason))
 				}
 
 			// Not implemented yet, just stubs. TODO.
@@ -717,7 +628,7 @@ func (n *Node) handleMessage(fromNode string, control, message etf.Term) (err er
 				// {33, FromPid, Alias}
 				lib.Log("[%s] CONTROL ALIAS_SEND [from %s]: %#v", n.Name(), fromNode, control)
 				alias := etf.Alias(t.Element(3).(etf.Ref))
-				n.registrar.Route(t.Element(2).(etf.Pid), alias, message)
+				n.Route(t.Element(2).(etf.Pid), alias, message)
 
 			case distProtoSPAWN_REQUEST:
 				// {29, ReqId, From, GroupLeader, {Module, Function, Arity}, OptList}
@@ -754,18 +665,18 @@ func (n *Node) handleMessage(fromNode string, control, message etf.Term) (err er
 				n.remoteSpawnMutex.Unlock()
 				if !provided {
 					message := etf.Tuple{distProtoSPAWN_REPLY, ref, from, 0, etf.Atom("not_provided")}
-					n.registrar.RouteRaw(from.Node, message)
+					n.RouteRaw(from.Node, message)
 					return
 				}
 
 				process, err_spawn := n.Spawn(registerName, ProcessOptions{}, object, args...)
 				if err_spawn != nil {
 					message := etf.Tuple{distProtoSPAWN_REPLY, ref, from, 0, etf.Atom(err_spawn.Error())}
-					n.registrar.RouteRaw(from.Node, message)
+					n.RouteRaw(from.Node, message)
 					return
 				}
 				message := etf.Tuple{distProtoSPAWN_REPLY, ref, from, 0, process.Self()}
-				n.registrar.RouteRaw(from.Node, message)
+				n.RouteRaw(from.Node, message)
 
 			case distProtoSPAWN_REPLY:
 				// {31, ReqId, To, Flags, Result}
@@ -800,7 +711,7 @@ func (n *Node) ProvideRPC(module string, function string, fun rpcFunction) error
 		etf.Atom(function),
 		fun,
 	}
-	rex := n.registrar.GetProcessByName("rex")
+	rex := n.GetProcessByName("rex")
 	if rex == nil {
 		return fmt.Errorf("RPC module is disabled")
 	}
@@ -816,7 +727,7 @@ func (n *Node) ProvideRPC(module string, function string, fun rpcFunction) error
 func (n *Node) RevokeRPC(module, function string) error {
 	lib.Log("RPC revoke: %s:%s", module, function)
 
-	rex := n.registrar.GetProcessByName("rex")
+	rex := n.GetProcessByName("rex")
 	if rex == nil {
 		return fmt.Errorf("RPC module is disabled")
 	}
@@ -832,42 +743,6 @@ func (n *Node) RevokeRPC(module, function string) error {
 	}
 
 	return nil
-}
-
-// GetProcessByName returns Process associated with given name
-func (n *Node) GetProcessByName(name string) *Process {
-	return n.registrar.GetProcessByName(name)
-}
-
-// GetProcessByPid returns Process by the given pid
-func (n *Node) GetProcessByPid(pid etf.Pid) *Process {
-	return n.registrar.GetProcessByPid(pid)
-}
-
-// GetProcessByAlias returns Process by the given alias
-func (n *Node) GetProcessByAlias(alias etf.Alias) *Process {
-	return n.registrar.GetProcessByAlias(alias)
-}
-
-// GetProcessList returns array of running process
-func (n *Node) GetProcessList() []*Process {
-	return n.registrar.ProcessList()
-}
-
-// GetPeerList returns list of connected nodes
-func (n *Node) GetPeerList() []string {
-	return n.registrar.PeerList()
-}
-
-// MakeRef returns atomic reference etf.Ref within this node
-func (n *Node) MakeRef() (ref etf.Ref) {
-	ref.Node = etf.Atom(n.Name())
-	ref.Creation = n.creation
-	nt := atomic.AddInt64(&n.uniqID, 1)
-	ref.ID[0] = uint32(uint64(nt) & ((2 << 17) - 1))
-	ref.ID[1] = uint32(uint64(nt) >> 46)
-
-	return
 }
 
 func (n *Node) VersionERTS() string {
@@ -1084,4 +959,20 @@ func generateSelfSignedCert() (tls.Certificate, error) {
 	})
 
 	return tls.X509KeyPair(certPEM.Bytes(), certPrivKeyPEM.Bytes())
+}
+
+func IsDownMessage(message etf.Term) (isTrue bool, d DownMessage) {
+	// {DOWN, Ref, process, PidOrName, Reason}
+	err := etf.TermIntoStruct(message, &d)
+	if err != nil {
+		return
+	}
+	if d.Down != etf.Atom("DOWN") {
+		return
+	}
+	if d.Type != etf.Atom("process") {
+		return
+	}
+	isTrue = true
+	return
 }

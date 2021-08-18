@@ -3,8 +3,10 @@ package ergo
 import (
 	"context"
 	"fmt"
+	"runtime"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/halturin/ergo/etf"
 	"github.com/halturin/ergo/lib"
@@ -14,23 +16,38 @@ const (
 	startPID = 1000
 )
 
-type Router interface {
-	Route(from etf.Pid, to etf.Term, message etf.Term)
-	RouteRaw(nodename etf.Atom, messages ...etf.Term) error
-}
-
 type Registrar interface {
+	Monitor
+	NodeName() string
 	GetProcessByName(name string) *Process
 	GetProcessByPid(pid etf.Pid) *Process
 	GetProcessByAlias(alias etf.Alias) *Process
+	ProcessList() []*Process
+	MakeRef() etf.Ref
+	RegisterName(name string, pid etf.Pid) error
+	UnregisterName(name string)
+	Spawn(name string, opts ProcessOptions, object ProcessBehavior, args ...etf.Term) (*Process, error)
+	IsProcessAlive(pid etf.Pid) bool
+
+	Route(from etf.Pid, to etf.Term, message etf.Term)
+	RouteRaw(nodename etf.Atom, messages ...etf.Term) error
+
+	registerPeer(peer *peer) error
+	unregisterPeer(name string)
+	newAlias(p *Process) (etf.Alias, error)
+	deleteAlias(owner *Process, alias etf.Alias) error
 }
 
 type registrar struct {
-	nextPID  uint64
-	nodeName string
-	creation byte
+	monitor
+	ctx context.Context
 
-	node *Node
+	nextPID  uint64
+	uniqID   uint64
+	nodename string
+	creation uint32
+
+	net network
 
 	names          map[string]etf.Pid
 	mutexNames     sync.Mutex
@@ -44,36 +61,54 @@ type registrar struct {
 	mutexApps      sync.Mutex
 }
 
-func createRegistrar(node *Node) *registrar {
-	r := registrar{
+func NewRegistrar(ctx context.Context, nodename string, creation uint32, net network) Registrar {
+	r := &registrar{
+		ctx:       ctx,
 		nextPID:   startPID,
-		nodeName:  node.Name(),
-		creation:  byte(1),
-		node:      node,
+		uniqID:    uint64(time.Now().UnixNano()),
+		net:       net,
+		nodename:  nodename,
+		creation:  creation,
 		names:     make(map[string]etf.Pid),
 		aliases:   make(map[etf.Alias]*Process),
 		processes: make(map[uint64]*Process),
 		peers:     make(map[string]*peer),
 		apps:      make(map[string]*ApplicationSpec),
 	}
-	return &r
+	r.monitor = NewMonitor(r)
+	return r
 }
 
-func (r *registrar) createNewPID() etf.Pid {
+func (r *registrar) NodeName() string {
+	return r.nodename
+}
+
+func (r *registrar) newPID() etf.Pid {
 	// http://erlang.org/doc/apps/erts/erl_ext_dist.html#pid_ext
 	// https://stackoverflow.com/questions/243363/can-someone-explain-the-structure-of-a-pid-in-erlang
 	i := atomic.AddUint64(&r.nextPID, 1)
 	return etf.Pid{
-		Node:     etf.Atom(r.nodeName),
+		Node:     etf.Atom(r.nodename),
 		ID:       i,
-		Creation: r.node.creation,
+		Creation: r.creation,
 	}
 
 }
 
-func (r *registrar) createNewAlias(p *Process) (etf.Alias, error) {
+// MakeRef returns atomic reference etf.Ref within this node
+func (r *registrar) MakeRef() (ref etf.Ref) {
+	ref.Node = etf.Atom(r.nodename)
+	ref.Creation = r.creation
+	nt := atomic.AddUint64(&r.uniqID, 1)
+	ref.ID[0] = uint32(uint64(nt) & ((2 << 17) - 1))
+	ref.ID[1] = uint32(uint64(nt) >> 46)
+
+	return
+}
+
+func (r *registrar) newAlias(p *Process) (etf.Alias, error) {
 	var alias etf.Alias
-	lib.Log("[%s] REGISTRAR create process alias for %v", r.node.Name(), p.self)
+	lib.Log("[%s] REGISTRAR create process alias for %v", r.nodename, p.self)
 	r.mutexProcesses.Lock()
 	defer r.mutexProcesses.Unlock()
 
@@ -83,7 +118,7 @@ func (r *registrar) createNewAlias(p *Process) (etf.Alias, error) {
 		return alias, ErrProcessUnknown
 	}
 
-	alias = etf.Alias(r.node.MakeRef())
+	alias = etf.Alias(r.MakeRef())
 
 	r.mutexAliases.Lock()
 	r.aliases[alias] = p
@@ -94,7 +129,7 @@ func (r *registrar) createNewAlias(p *Process) (etf.Alias, error) {
 }
 
 func (r *registrar) deleteAlias(owner *Process, alias etf.Alias) error {
-	lib.Log("[%s] REGISTRAR delete process alias %v for %v", r.node.Name(), alias, owner.self)
+	lib.Log("[%s] REGISTRAR delete process alias %v for %v", r.nodename, alias, owner.self)
 	r.mutexProcesses.Lock()
 	defer r.mutexProcesses.Unlock()
 	r.mutexAliases.Lock()
@@ -128,14 +163,7 @@ func (r *registrar) deleteAlias(owner *Process, alias etf.Alias) error {
 	return ErrAliasUnknown
 }
 
-func (r *registrar) RegisterProcess(object ProcessBehavior) (*Process, error) {
-	opts := ProcessOptions{
-		MailboxSize: DefaultProcessMailboxSize, // size of channel for regular messages
-	}
-	return r.RegisterProcessExt("", object, opts)
-}
-
-func (r *registrar) RegisterProcessExt(name string, object ProcessBehavior, opts ProcessOptions) (*Process, error) {
+func (r *registrar) newProcess(name string, object ProcessBehavior, opts ProcessOptions) (*Process, error) {
 
 	var parentContext context.Context
 
@@ -150,14 +178,16 @@ func (r *registrar) RegisterProcessExt(name string, object ProcessBehavior, opts
 	case opts.GroupLeader != nil:
 		parentContext = opts.GroupLeader.Context
 	default:
-		parentContext = r.node.context
+		parentContext = r.ctx
 	}
 
-	ctx, kill := context.WithCancel(parentContext)
+	processContext, kill := context.WithCancel(parentContext)
 
-	pid := r.createNewPID()
+	pid := r.newPID()
 
 	process := &Process{
+		Registrar: r,
+
 		self:   pid,
 		name:   name,
 		object: object,
@@ -166,28 +196,25 @@ func (r *registrar) RegisterProcessExt(name string, object ProcessBehavior, opts
 		parent:      opts.Parent,
 		groupLeader: opts.GroupLeader,
 
-		router: Router(r),
-
 		mailBox:      make(chan mailboxMessage, mailboxSize),
 		ready:        make(chan error),
 		gracefulExit: make(chan gracefulExitRequest),
 		direct:       make(chan directMessage),
 		stopped:      make(chan bool),
 
-		Context: ctx,
+		Context: processContext,
 		Kill:    kill,
-		Node:    r.node,
 
 		reply: make(map[etf.Ref]chan etf.Term),
 	}
 
 	exit := func(from etf.Pid, reason string) {
-		lib.Log("[%s] EXIT: %#v with reason: %s", r.node.Name(), pid, reason)
+		lib.Log("[%s] EXIT: %#v with reason: %s", r.nodename, pid, reason)
 		ex := gracefulExitRequest{
 			from:   from,
 			reason: reason,
 		}
-		if ctx.Err() != nil {
+		if processContext.Err() != nil {
 			// process is already died
 			return
 		}
@@ -230,17 +257,16 @@ func (r *registrar) RegisterProcessExt(name string, object ProcessBehavior, opts
 	return process, nil
 }
 
-// UnregisterProcess unregister process by Pid
-func (r *registrar) UnregisterProcess(pid etf.Pid) {
+func (r *registrar) deleteProcess(pid etf.Pid) {
 	r.mutexProcesses.Lock()
 	defer r.mutexProcesses.Unlock()
 	if p, ok := r.processes[pid.ID]; ok {
-		lib.Log("[%s] REGISTRAR unregistering process: %#v", r.node.Name(), p.self)
+		lib.Log("[%s] REGISTRAR unregistering process: %#v", r.nodename, p.self)
 		delete(r.processes, pid.ID)
 
 		r.mutexNames.Lock()
 		if (p.name) != "" {
-			lib.Log("[%s] REGISTRAR unregistering name (%#v): %s", r.node.Name(), p.self, p.name)
+			lib.Log("[%s] REGISTRAR unregistering name (%#v): %s", r.nodename, p.self, p.name)
 			delete(r.names, p.name)
 		}
 
@@ -270,9 +296,69 @@ func (r *registrar) UnregisterProcess(pid etf.Pid) {
 	}
 }
 
+// Spawn create new process
+func (r *registrar) Spawn(name string, opts ProcessOptions, object ProcessBehavior, args ...etf.Term) (*Process, error) {
+
+	process, err := r.newProcess(name, object, opts)
+	if err != nil {
+		return nil, err
+	}
+
+	go func() {
+		pid := process.Self()
+		cleanProcess := func() {
+			r.deleteProcess(pid)
+			r.processTerminated(pid, name, "panic")
+		}
+
+		defer func(clean func()) {
+			if r := recover(); r != nil {
+				pc, fn, line, _ := runtime.Caller(2)
+				fmt.Printf("Warning: process recovered (name: %s) %v %#v at %s[%s:%d]\n",
+					name, process.self, r, runtime.FuncForPC(pc).Name(), fn, line)
+
+				clean()
+
+				process.Kill()
+
+				process.ready <- fmt.Errorf("Can't start process: %s\n", r)
+				close(process.stopped)
+			}
+
+			// we should close this channel otherwise if we try
+			// immediately call process.Exit it blocks this call forewer
+			// since there is nobody to read a message from this channel
+			close(process.gracefulExit)
+		}(cleanProcess)
+
+		// start process loop
+		reason := object.(ProcessBehavior).Loop(process, args...)
+
+		// process stopped. unregister it and let everybody (who set up
+		// link/monitor) to know about it
+		r.deleteProcess(pid)
+		r.processTerminated(pid, name, reason)
+
+		// cancel the context if it was stopped by itself
+		if reason != "kill" {
+			process.Kill()
+		}
+
+		close(process.ready)
+		close(process.stopped)
+	}()
+
+	if e := <-process.ready; e != nil {
+		close(process.ready)
+		return nil, e
+	}
+
+	return process, nil
+}
+
 // RegisterName register associates the name with pid
 func (r *registrar) RegisterName(name string, pid etf.Pid) error {
-	lib.Log("[%s] REGISTRAR registering name %#v", r.node.Name(), name)
+	lib.Log("[%s] REGISTRAR registering name %#v", r.nodename, name)
 	r.mutexNames.Lock()
 	if _, ok := r.names[name]; ok {
 		// already registered
@@ -286,14 +372,14 @@ func (r *registrar) RegisterName(name string, pid etf.Pid) error {
 
 // UnregisterName unregister named process
 func (r *registrar) UnregisterName(name string) {
-	lib.Log("[%s] REGISTRAR unregistering name %#v", r.node.Name(), name)
+	lib.Log("[%s] REGISTRAR unregistering name %#v", r.nodename, name)
 	r.mutexNames.Lock()
 	delete(r.names, name)
 	r.mutexNames.Unlock()
 }
 
-func (r *registrar) RegisterPeer(peer *peer) error {
-	lib.Log("[%s] REGISTRAR registering peer %#v", r.node.Name(), peer.name)
+func (r *registrar) registerPeer(peer *peer) error {
+	lib.Log("[%s] REGISTRAR registering peer %#v", r.nodename, peer.name)
 	r.mutexPeers.Lock()
 	defer r.mutexPeers.Unlock()
 
@@ -305,18 +391,18 @@ func (r *registrar) RegisterPeer(peer *peer) error {
 	return nil
 }
 
-func (r *registrar) UnregisterPeer(name string) {
-	lib.Log("[%s] REGISTRAR unregistering peer %v", r.node.Name(), name)
+func (r *registrar) unregisterPeer(name string) {
+	lib.Log("[%s] REGISTRAR unregistering peer %v", r.nodename, name)
 	r.mutexPeers.Lock()
 	if _, ok := r.peers[name]; ok {
 		delete(r.peers, name)
-		r.node.monitor.NodeDown(name)
+		r.nodeDown(name)
 	}
 	r.mutexPeers.Unlock()
 }
 
 func (r *registrar) RegisterApp(name string, spec *ApplicationSpec) error {
-	lib.Log("[%s] REGISTRAR registering app %v", r.node.Name(), name)
+	lib.Log("[%s] REGISTRAR registering app %v", r.nodename, name)
 	r.mutexApps.Lock()
 	if _, ok := r.apps[name]; ok {
 		// already loaded
@@ -329,7 +415,7 @@ func (r *registrar) RegisterApp(name string, spec *ApplicationSpec) error {
 }
 
 func (r *registrar) UnregisterApp(name string) {
-	lib.Log("[%s] REGISTRAR unregistering app %v", r.node.Name(), name)
+	lib.Log("[%s] REGISTRAR unregistering app %v", r.nodename, name)
 	r.mutexApps.Lock()
 	delete(r.apps, name)
 	r.mutexApps.Unlock()
@@ -342,6 +428,30 @@ func (r *registrar) GetApplicationSpecByName(name string) *ApplicationSpec {
 		return spec
 	}
 	return nil
+}
+
+// IsProcessAlive returns true if the process with given pid is alive
+func (r *registrar) IsProcessAlive(pid etf.Pid) bool {
+	if pid.Node != etf.Atom(r.nodename) {
+		return false
+	}
+
+	p := r.GetProcessByPid(pid)
+	if p == nil {
+		return false
+	}
+
+	return p.IsAlive()
+}
+
+// ProcessInfo returns the details about given Pid
+func (r *registrar) ProcessInfo(pid etf.Pid) (ProcessInfo, error) {
+	p := r.GetProcessByPid(pid)
+	if p == nil {
+		return ProcessInfo{}, fmt.Errorf("undefined")
+	}
+
+	return p.Info(), nil
 }
 
 // GetProcessByPid returns Process struct for the given Pid. Returns nil if it doesn't exist (not found)
@@ -417,8 +527,8 @@ func (r *registrar) Route(from etf.Pid, to etf.Term, message etf.Term) {
 next:
 	switch tto := to.(type) {
 	case etf.Pid:
-		lib.Log("[%s] REGISTRAR sending message by pid %#v", r.node.Name(), tto)
-		if string(tto.Node) == r.nodeName {
+		lib.Log("[%s] REGISTRAR sending message by pid %#v", r.nodename, tto)
+		if string(tto.Node) == r.nodename {
 			// local route
 			r.mutexProcesses.Lock()
 			if p, ok := r.processes[tto.ID]; ok {
@@ -437,8 +547,8 @@ next:
 		peer, ok := r.peers[string(tto.Node)]
 		r.mutexPeers.Unlock()
 		if !ok {
-			if err := r.node.connect(tto.Node); err != nil {
-				lib.Log("[%s] can't connect to %v: %s", r.node.Name(), tto.Node, err)
+			if err := r.net.connect(tto.Node); err != nil {
+				lib.Log("[%s] can't connect to %v: %s", r.nodename, tto.Node, err)
 				return
 			}
 
@@ -451,10 +561,10 @@ next:
 		send <- []etf.Term{etf.Tuple{distProtoSEND, etf.Atom(""), tto}, message}
 
 	case etf.Tuple:
-		lib.Log("[%s] REGISTRAR sending message by tuple %#v", r.node.Name(), tto)
+		lib.Log("[%s] REGISTRAR sending message by tuple %#v", r.nodename, tto)
 
 		if len(tto) != 2 {
-			lib.Log("[%s] can't send message. wrong type. must be etf.Tuple{string, string} or etf.Tuple{etf.Atom, etf.Atom}", r.node.Name())
+			lib.Log("[%s] can't send message. wrong type. must be etf.Tuple{string, string} or etf.Tuple{etf.Atom, etf.Atom}", r.nodename)
 			return
 		}
 
@@ -465,7 +575,7 @@ next:
 		case string:
 			toNode = etf.Atom(tto.Element(2).(string))
 		default:
-			lib.Log("[%s] can't send message. wrong type of node name. must be etf.Atom or string", r.node.Name())
+			lib.Log("[%s] can't send message. wrong type of node name. must be etf.Atom or string", r.nodename)
 			return
 		}
 
@@ -476,11 +586,11 @@ next:
 		case string:
 			toProcessName = etf.Atom(tto.Element(1).(string))
 		default:
-			lib.Log("[%s] can't send message. wrong type of process name. must be etf.Atom or string", r.node.Name())
+			lib.Log("[%s] can't send message. wrong type of process name. must be etf.Atom or string", r.nodename)
 			return
 		}
 
-		if toNode == etf.Atom(r.nodeName) {
+		if toNode == etf.Atom(r.nodename) {
 			// local route
 			r.Route(from, toProcessName, message)
 			return
@@ -492,8 +602,8 @@ next:
 		r.mutexPeers.Unlock()
 		if !ok {
 			// initiate connection and make yet another attempt to deliver this message
-			if err := r.node.connect(toNode); err != nil {
-				lib.Log("[%s] can't connect to %v: %s", r.node.Name(), toNode, err)
+			if err := r.net.connect(toNode); err != nil {
+				lib.Log("[%s] can't connect to %v: %s", r.nodename, toNode, err)
 				return
 			}
 
@@ -506,7 +616,7 @@ next:
 		send <- []etf.Term{etf.Tuple{distProtoREG_SEND, from, etf.Atom(""), toProcessName}, message}
 
 	case string:
-		lib.Log("[%s] REGISTRAR sending message by name %#v", r.node.Name(), tto)
+		lib.Log("[%s] REGISTRAR sending message by name %#v", r.nodename, tto)
 		r.mutexNames.Lock()
 		if pid, ok := r.names[tto]; ok {
 			to = pid
@@ -516,7 +626,7 @@ next:
 		r.mutexNames.Unlock()
 
 	case etf.Atom:
-		lib.Log("[%s] REGISTRAR sending message by name %#v", r.node.Name(), tto)
+		lib.Log("[%s] REGISTRAR sending message by name %#v", r.nodename, tto)
 		r.mutexNames.Lock()
 		if pid, ok := r.names[string(tto)]; ok {
 			to = pid
@@ -526,9 +636,9 @@ next:
 		r.mutexNames.Unlock()
 
 	case etf.Alias:
-		lib.Log("[%s] REGISTRAR sending message by alias %#v", r.node.Name(), tto)
+		lib.Log("[%s] REGISTRAR sending message by alias %#v", r.nodename, tto)
 		r.mutexAliases.Lock()
-		if string(tto.Node) == r.nodeName {
+		if string(tto.Node) == r.nodename {
 			// local route by alias
 			if p, ok := r.aliases[tto]; ok {
 				to = p.self
@@ -542,8 +652,8 @@ next:
 		peer, ok := r.peers[string(tto.Node)]
 		r.mutexPeers.Unlock()
 		if !ok {
-			if err := r.node.connect(tto.Node); err != nil {
-				lib.Log("[%s] can't connect to %v: %s", r.node.Name(), tto.Node, err)
+			if err := r.net.connect(tto.Node); err != nil {
+				lib.Log("[%s] can't connect to %v: %s", r.nodename, tto.Node, err)
 				return
 			}
 
@@ -556,7 +666,7 @@ next:
 		send <- []etf.Term{etf.Tuple{distProtoALIAS_SEND, from, tto}, message}
 
 	default:
-		lib.Log("[%s] unknow receiver type %#v", r.node.Name(), tto)
+		lib.Log("[%s] unknow receiver type %#v", r.nodename, tto)
 	}
 }
 
@@ -569,8 +679,8 @@ func (r *registrar) RouteRaw(nodename etf.Atom, messages ...etf.Term) error {
 	}
 	if !ok {
 		// initiate connection and make yet another attempt to deliver this message
-		if err := r.node.connect(nodename); err != nil {
-			lib.Log("[%s] can't connect to %v: %s", r.node.Name(), nodename, err)
+		if err := r.net.connect(nodename); err != nil {
+			lib.Log("[%s] can't connect to %v: %s", r.nodename, nodename, err)
 			return err
 		}
 

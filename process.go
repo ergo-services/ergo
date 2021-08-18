@@ -18,6 +18,7 @@ const (
 )
 
 type Process struct {
+	Registrar
 	sync.RWMutex
 
 	name   string
@@ -28,8 +29,6 @@ type Process struct {
 	parent      *Process
 	groupLeader *Process
 	aliases     []etf.Alias
-
-	router Router
 
 	mailBox      chan mailboxMessage
 	ready        chan error
@@ -115,9 +114,9 @@ func (p *Process) Info() ProcessInfo {
 	if p.groupLeader != nil {
 		gl = p.groupLeader.self
 	}
-	links := p.Node.monitor.GetLinks(p.self)
-	monitors := p.Node.monitor.GetMonitors(p.self)
-	monitoredBy := p.Node.monitor.GetMonitoredBy(p.self)
+	links := p.GetLinks(p.self)
+	monitors := p.GetMonitors(p.self)
+	monitoredBy := p.GetMonitoredBy(p.self)
 	aliases := append(make([]etf.Alias, len(p.aliases)), p.aliases...)
 	return ProcessInfo{
 		PID:             p.self,
@@ -196,7 +195,7 @@ func (p *Process) Send(to interface{}, message etf.Term) error {
 	if !p.IsAlive() {
 		return ErrProcessTerminated
 	}
-	p.router.Route(p.self, to, message)
+	p.Route(p.self, to, message)
 	return nil
 }
 
@@ -217,7 +216,7 @@ func (p *Process) SendAfter(to interface{}, message etf.Term, after time.Duratio
 			return
 		case <-timer.C:
 			if p.IsAlive() {
-				p.router.Route(p.self, to, message)
+				p.Route(p.self, to, message)
 			}
 		}
 	}()
@@ -238,60 +237,18 @@ func (p *Process) Cast(to interface{}, message etf.Term) error {
 		return ErrProcessTerminated
 	}
 	msg := etf.Term(etf.Tuple{etf.Atom("$gen_cast"), message})
-	p.router.Route(p.self, to, msg)
+	p.Route(p.self, to, msg)
 	return nil
-}
-
-// MonitorProcess creates monitor between the processes.
-// 'process' value can be: etf.Pid, registered local name etf.Atom or
-// remote registered name etf.Tuple{Name etf.Atom, Node etf.Atom}
-// When a process monitor is triggered, a 'DOWN' message sends with the following
-// pattern: {'DOWN', MonitorRef, Type, Object, Info} where
-// Info has the following values:
-//  - the exit reason of the process
-//  - 'noproc' (process did not exist at the time of monitor creation)
-//  - 'noconnection' (no connection to the node where the monitored process resides)
-// Note: The monitor request is an asynchronous signal. That is, it takes time before the signal reaches its destination.
-func (p *Process) MonitorProcess(process interface{}) etf.Ref {
-	ref := p.Node.MakeRef()
-	p.Node.monitor.MonitorProcessWithRef(p.self, process, ref)
-	return ref
-}
-
-// Link creates a link between the calling process and another process
-func (p *Process) Link(with etf.Pid) {
-	p.Node.monitor.Link(p.self, with)
-}
-
-// Unlink removes the link, if there is one, between the calling process and the process referred to by Pid.
-func (p *Process) Unlink(with etf.Pid) {
-	p.Node.monitor.Unlink(p.self, with)
-}
-
-// MonitorNode creates monitor between the current process and node. If Node fails or does not exist,
-// the message {nodedown, Node} is delivered to the process.
-func (p *Process) MonitorNode(name string) etf.Ref {
-	return p.Node.monitor.MonitorNode(p.self, name)
-}
-
-// DemonitorProcess removes monitor. Returns false if the given reference wasn't found
-func (p *Process) DemonitorProcess(ref etf.Ref) bool {
-	return p.Node.monitor.DemonitorProcess(ref)
-}
-
-// DemonitorNode removes monitor. Returns false if the given reference wasn't found
-func (p *Process) DemonitorNode(ref etf.Ref) bool {
-	return p.Node.monitor.DemonitorNode(ref)
 }
 
 // CreateAlias creates a new alias for the Process
 func (p *Process) CreateAlias() (etf.Alias, error) {
-	return p.Node.registrar.createNewAlias(p)
+	return p.newAlias(p)
 }
 
 // DeleteAlias deletes the given alias
 func (p *Process) DeleteAlias(alias etf.Alias) error {
-	return p.Node.registrar.deleteAlias(p, alias)
+	return p.deleteAlias(p, alias)
 }
 
 // ListEnv returns a map of configured environment variables.
@@ -369,6 +326,16 @@ func (p *Process) WaitWithTimeout(d time.Duration) error {
 	}
 }
 
+// Link creates a link between the calling process and another process
+func (p *Process) Link(with etf.Pid) {
+	p.link(p.self, with)
+}
+
+// Unlink removes the link, if there is one, between the calling process and the process referred to by Pid.
+func (p *Process) Unlink(with etf.Pid) {
+	p.unlink(p.self, with)
+}
+
 // IsAlive returns whether the process is alive
 func (p *Process) IsAlive() bool {
 	return p.Context.Err() == nil
@@ -425,8 +392,35 @@ type RemoteSpawnOptions struct {
 	Timeout int
 }
 
+// MonitorNode creates monitor between the current process and node. If Node fails or does not exist,
+// the message {nodedown, Node} is delivered to the process.
+func (p *Process) MonitorNode(name string) etf.Ref {
+	return p.monitorNode(p.self, name)
+}
+
+// MonitorProcess creates monitor between the processes.
+// 'process' value can be: etf.Pid, registered local name etf.Atom or
+// remote registered name etf.Tuple{Name etf.Atom, Node etf.Atom}
+// When a process monitor is triggered, a 'DOWN' message sends with the following
+// pattern: {'DOWN', MonitorRef, Type, Object, Info} where
+// Info has the following values:
+//  - the exit reason of the process
+//  - 'noproc' (process did not exist at the time of monitor creation)
+//  - 'noconnection' (no connection to the node where the monitored process resides)
+// Note: The monitor request is an asynchronous signal. That is, it takes time before the signal reaches its destination.
+func (p *Process) MonitorProcess(process interface{}) etf.Ref {
+	ref := p.MakeRef()
+	p.monitorProcess(p.self, process, ref)
+	return ref
+}
+
+// DemonitorProcess removes monitor. Returns false if the given reference wasn't found
+func (p *Process) DemonitorProcess(ref etf.Ref) bool {
+	return p.demonitorProcess(ref)
+}
+
 func (p *Process) RemoteSpawn(node string, object string, opts RemoteSpawnOptions, args ...etf.Term) (etf.Pid, error) {
-	ref := p.Node.MakeRef()
+	ref := p.MakeRef()
 	optlist := etf.List{}
 	if opts.RegisterName != "" {
 		optlist = append(optlist, etf.Tuple{etf.Atom("name"), etf.Atom(opts.RegisterName)})
@@ -454,7 +448,7 @@ func (p *Process) RemoteSpawn(node string, object string, opts RemoteSpawnOption
 	case etf.Pid:
 		m := etf.Ref{} // empty reference
 		if opts.Monitor != m {
-			p.Node.monitor.MonitorProcessWithRef(p.self, r, opts.Monitor)
+			p.monitorProcess(p.self, r, opts.Monitor)
 		}
 		if opts.Link {
 			p.Link(r)
@@ -508,7 +502,7 @@ func (p *Process) sendSyncRequestRaw(ref etf.Ref, node etf.Atom, messages ...etf
 	p.replyMutex.Lock()
 	defer p.replyMutex.Unlock()
 	p.reply[ref] = reply
-	p.router.RouteRaw(node, messages...)
+	p.RouteRaw(node, messages...)
 }
 func (p *Process) sendSyncRequest(ref etf.Ref, to interface{}, message etf.Term) {
 	reply := make(chan etf.Term, 2)
