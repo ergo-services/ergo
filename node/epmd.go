@@ -230,7 +230,7 @@ func compose_ALIVE2_REQ(e *epmd) (reply []byte) {
 	reply = make([]byte, 2+14+len(e.Name)+len(e.Extra))
 	binary.BigEndian.PutUint16(reply[0:2], uint16(len(reply)-2))
 	reply[2] = byte(EPMD_ALIVE2_REQ)
-	binary.BigEndian.PutUint16(reply[3:5], e.Port)
+	binary.BigEndian.PutUint16(reply[3:5], e.NodePort)
 	reply[5] = e.Type
 	reply[6] = e.Protocol
 	binary.BigEndian.PutUint16(reply[7:9], e.HighVsn)

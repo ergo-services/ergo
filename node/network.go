@@ -49,8 +49,12 @@ func NewNetwork(ctx context.Context, name string, opts Options, r registrarInter
 		opts:      opts,
 		registrar: r,
 	}
+	ns := strings.Split(name, "@")
+	if len(ns) != 2 {
+		return nil, fmt.Errorf("(EMPD) FQDN for node name is required (example: node@hostname)")
+	}
 
-	port, err := n.listen(ctx, name)
+	port, err := n.listen(ctx, ns[1])
 	if err != nil {
 		return nil, err
 	}
@@ -97,8 +101,10 @@ func (n *network) listen(ctx context.Context, name string) (uint16, error) {
 	var TLSenabled bool = true
 	versions := ctx.Value("versions").(map[string]interface{})
 
+	fmt.Println("AA", n.opts.ListenRangeBegin, n.opts.ListenRangeEnd)
 	lc := net.ListenConfig{}
 	for p := n.opts.ListenRangeBegin; p <= n.opts.ListenRangeEnd; p++ {
+		fmt.Println("BB", net.JoinHostPort(name, strconv.Itoa(int(p))))
 		l, err := lc.Listen(ctx, "tcp", net.JoinHostPort(name, strconv.Itoa(int(p))))
 		if err != nil {
 			continue
