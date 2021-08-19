@@ -107,20 +107,20 @@ type ProcessChannels struct {
 }
 
 type ProcessMailboxMessage struct {
-	from    etf.Pid
-	message interface{}
+	From    etf.Pid
+	Message interface{}
 }
 
 type ProcessDirectMessage struct {
-	id      string
-	message interface{}
-	err     error
-	reply   chan ProcessDirectMessage
+	ID      string
+	Message interface{}
+	Err     error
+	Reply   chan ProcessDirectMessage
 }
 
 type ProcessGracefulExitRequest struct {
-	from   etf.Pid
-	reason string
+	From   etf.Pid
+	Reason string
 }
 
 // RemoteSpawnOptions defines options for RemoteSpawn method
@@ -153,7 +153,7 @@ type Registrar interface {
 	GetProcessByName(name string) Process
 	GetProcessByPid(pid etf.Pid) Process
 	GetProcessByAlias(alias etf.Alias) Process
-	ProcessList() []*Process
+	ProcessList() []Process
 	MakeRef() etf.Ref
 	RegisterName(name string, pid etf.Pid) error
 	UnregisterName(name string)

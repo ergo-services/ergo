@@ -29,9 +29,9 @@ type registrar struct {
 
 	names          map[string]etf.Pid
 	mutexNames     sync.Mutex
-	aliases        map[etf.Alias]gen.Process
+	aliases        map[etf.Alias]*process
 	mutexAliases   sync.Mutex
-	processes      map[uint64]gen.Process
+	processes      map[uint64]*process
 	mutexProcesses sync.Mutex
 	peers          map[string]*peer
 	mutexPeers     sync.Mutex
@@ -43,11 +43,11 @@ type registrarInternal interface {
 	gen.Registrar
 	monitorInternal
 
-	spawn(name string, opts gen.ProcessOptions, object gen.ProcessBehavior, args ...etf.Term) (gen.Process, error)
+	spawn(name string, opts processOptions, behavior gen.ProcessBehavior, args ...etf.Term) (gen.Process, error)
 	registerPeer(peer *peer) error
 	unregisterPeer(name string)
-	newAlias(p gen.Process) (etf.Alias, error)
-	deleteAlias(owner gen.Process, alias etf.Alias) error
+	newAlias(p *process) (etf.Alias, error)
+	deleteAlias(owner *process, alias etf.Alias) error
 }
 
 func NewRegistrar(ctx context.Context, nodename string, creation uint32, net Network) registrarInternal {
@@ -59,8 +59,8 @@ func NewRegistrar(ctx context.Context, nodename string, creation uint32, net Net
 		nodename:  nodename,
 		creation:  creation,
 		names:     make(map[string]etf.Pid),
-		aliases:   make(map[etf.Alias]gen.Process),
-		processes: make(map[uint64]gen.Process),
+		aliases:   make(map[etf.Alias]*process),
+		processes: make(map[uint64]*process),
 		peers:     make(map[string]*peer),
 		apps:      make(map[string]*gen.ApplicationSpec),
 	}
@@ -95,14 +95,14 @@ func (r *registrar) MakeRef() (ref etf.Ref) {
 	return
 }
 
-func (r *registrar) newAlias(pid etf.Pid) (etf.Alias, error) {
+func (r *registrar) newAlias(p *process) (etf.Alias, error) {
 	var alias etf.Alias
-	lib.Log("[%s] REGISTRAR create process alias for %v", r.nodename, pid)
+	lib.Log("[%s] REGISTRAR create process alias for %v", r.nodename, p.self)
 	r.mutexProcesses.Lock()
 	defer r.mutexProcesses.Unlock()
 
 	// chech if its alive
-	_, exist := r.processes[pid.ID]
+	_, exist := r.processes[p.self.ID]
 	if !exist {
 		return alias, ErrProcessUnknown
 	}
@@ -117,8 +117,8 @@ func (r *registrar) newAlias(pid etf.Pid) (etf.Alias, error) {
 	return alias, nil
 }
 
-func (r *registrar) deleteAlias(owner etf.Pid, alias etf.Alias) error {
-	lib.Log("[%s] REGISTRAR delete process alias %v for %v", r.nodename, alias, owner)
+func (r *registrar) deleteAlias(owner *process, alias etf.Alias) error {
+	lib.Log("[%s] REGISTRAR delete process alias %v for %v", r.nodename, alias, owner.self)
 	r.mutexProcesses.Lock()
 	defer r.mutexProcesses.Unlock()
 	r.mutexAliases.Lock()
@@ -129,7 +129,7 @@ func (r *registrar) deleteAlias(owner etf.Pid, alias etf.Alias) error {
 		return ErrAliasUnknown
 	}
 
-	process, process_exist := r.processes[owner.ID]
+	process, process_exist := r.processes[owner.self.ID]
 	if !process_exist {
 		return ErrProcessUnknown
 	}
@@ -152,7 +152,7 @@ func (r *registrar) deleteAlias(owner etf.Pid, alias etf.Alias) error {
 	return ErrAliasUnknown
 }
 
-func (r *registrar) newProcess(name string, object gen.ProcessBehavior, opts processOptions) (gen.Process, error) {
+func (r *registrar) newProcess(name string, behavior gen.ProcessBehavior, opts processOptions) (*process, error) {
 
 	var parentContext context.Context
 
@@ -174,23 +174,23 @@ func (r *registrar) newProcess(name string, object gen.ProcessBehavior, opts pro
 
 	pid := r.newPID()
 
-	process := &Process{
-		Registrar: r,
+	process := &process{
+		registrarInternal: r,
 
-		self:   pid,
-		name:   name,
-		object: object,
-		env:    opts.Env,
+		self:     pid,
+		name:     name,
+		behavior: behavior,
+		env:      opts.Env,
 
-		parent:      opts.Parent,
+		parent:      opts.parent,
 		groupLeader: opts.GroupLeader,
 
-		mailBox:      make(chan mailboxMessage, mailboxSize),
-		gracefulExit: make(chan gracefulExitRequest),
-		direct:       make(chan directMessage),
+		mailBox:      make(chan gen.ProcessMailboxMessage, mailboxSize),
+		gracefulExit: make(chan gen.ProcessGracefulExitRequest),
+		direct:       make(chan gen.ProcessDirectMessage),
 		stopped:      make(chan bool),
 
-		Context: processContext,
+		context: processContext,
 		kill:    kill,
 
 		reply: make(map[etf.Ref]chan etf.Term),
@@ -203,8 +203,8 @@ func (r *registrar) newProcess(name string, object gen.ProcessBehavior, opts pro
 			return
 		}
 		ex := gen.ProcessGracefulExitRequest{
-			from:   process.self,
-			reason: reason,
+			From:   process.self,
+			Reason: reason,
 		}
 		// the reason why we use 'select':
 		// if this process is on the way of exiting
@@ -263,8 +263,8 @@ func (r *registrar) deleteProcess(pid etf.Pid) {
 
 		// delete associated process with this app
 		for _, spec := range r.apps {
-			if spec.process != nil && spec.process.self == p.self {
-				spec.process = nil
+			if spec.Process != nil && spec.Process.Self() == p.Self() {
+				spec.Process = nil
 			}
 		}
 		// invoke cancel context to prevent memory leaks
@@ -274,18 +274,18 @@ func (r *registrar) deleteProcess(pid etf.Pid) {
 }
 
 // Spawn create new process
-func (r *registrar) spawn(name string, opts gen.ProcessOptions, object gen.ProcessBehavior, args ...etf.Term) (*process, error) {
+func (r *registrar) spawn(name string, opts processOptions, behavior gen.ProcessBehavior, args ...etf.Term) (gen.Process, error) {
 
-	process, err := r.newProcess(name, object, opts)
+	process, err := r.newProcess(name, behavior, opts)
 	if err != nil {
 		return nil, err
 	}
-	processState, err := object.ProcessInit(process, args...)
+	processState, err := behavior.ProcessInit(process, args...)
 	if err != nil {
 		return nil, err
 	}
 
-	go func(ps ProcessState) {
+	go func(ps gen.ProcessState) {
 		pid := process.Self()
 		//cleanProcess := func() {
 		//	r.deleteProcess(pid)
@@ -313,7 +313,7 @@ func (r *registrar) spawn(name string, opts gen.ProcessOptions, object gen.Proce
 		//}(cleanProcess)
 
 		// start process loop
-		reason := object.(ProcessBehavior).Loop(ps)
+		reason := behavior.ProcessLoop(ps)
 
 		// process stopped. unregister it and let everybody (who set up
 		// link/monitor) to know about it
@@ -467,7 +467,7 @@ func (r *registrar) GetProcessByName(name string) gen.Process {
 }
 
 func (r *registrar) ProcessList() []gen.Process {
-	list := []Process{}
+	list := []gen.Process{}
 	r.mutexProcesses.Lock()
 	for _, p := range r.processes {
 		list = append(list, p)
@@ -505,7 +505,7 @@ next:
 			r.mutexProcesses.Lock()
 			if p, ok := r.processes[tto.ID]; ok {
 				select {
-				case p.mailBox <- mailboxMessage{from, message}:
+				case p.mailBox <- gen.ProcessMailboxMessage{from, message}:
 
 				default:
 					fmt.Println("WARNING! mailbox of", p.Self(), "is full. dropped message from", from)

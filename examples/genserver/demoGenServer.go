@@ -6,11 +6,13 @@ import (
 
 	"github.com/halturin/ergo"
 	"github.com/halturin/ergo/etf"
+	"github.com/halturin/ergo/gen"
+	"github.com/halturin/ergo/node"
 )
 
 // GenServer implementation structure
 type demoGenServ struct {
-	ergo.GenServer
+	gen.GenServer
 }
 
 var (
@@ -26,15 +28,15 @@ var (
 	EnableRPC bool
 )
 
-func (dgs *demoGenServ) Init(state *ergo.GenServerState, args ...etf.Term) error {
-	fmt.Printf("[%s] Init: args %v \n", state.Process.Name(), args)
+func (dgs *demoGenServ) Init(process *gen.GenServerProcess, args ...etf.Term) error {
+	fmt.Printf("[%s] Init: args %v \n", process.Name(), args)
 	return nil
 }
 
-func (dgs *demoGenServ) HandleCast(state *ergo.GenServerState, message etf.Term) string {
-	fmt.Printf("[%s] HandleCast: %#v\n", state.Process.Name(), message)
+func (dgs *demoGenServ) HandleCast(process *gen.GenServerProcess, message etf.Term) string {
+	fmt.Printf("[%s] HandleCast: %#v\n", process.Name(), message)
 	if pid, ok := message.(etf.Pid); ok {
-		state.Process.Send(pid, etf.Atom("hahaha"))
+		process.Send(pid, etf.Atom("hahaha"))
 		return "noreply"
 	}
 	switch message {
@@ -44,8 +46,8 @@ func (dgs *demoGenServ) HandleCast(state *ergo.GenServerState, message etf.Term)
 	return "noreply"
 }
 
-func (dgs *demoGenServ) HandleCall(state *ergo.GenServerState, from ergo.GenServerFrom, message etf.Term) (string, etf.Term) {
-	fmt.Printf("[%s] HandleCall: %#v, From: %#v\n", state.Process.Name(), message, from)
+func (dgs *demoGenServ) HandleCall(process *gen.GenServerProcess, from gen.GenServerFrom, message etf.Term) (string, etf.Term) {
+	fmt.Printf("[%s] HandleCall: %#v, From: %#v\n", process.Name(), message, from)
 
 	reply := etf.Term(etf.Tuple{etf.Atom("error"), etf.Atom("unknown_request")})
 	switch message {
@@ -67,20 +69,28 @@ func init() {
 func main() {
 	flag.Parse()
 
-	opts := ergo.NodeOptions{
+	opts := node.Options{
 		ListenRangeBegin: uint16(ListenRangeBegin),
 		ListenRangeEnd:   uint16(ListenRangeEnd),
 		EPMDPort:         uint16(ListenEPMD),
 	}
 
 	// Initialize new node with given name, cookie, listening port range and epmd port
-	node, _ := ergo.CreateNode(NodeName, Cookie, opts)
+	node, e := ergo.StartNode(NodeName, Cookie, opts)
+	if e != nil {
+		fmt.Println("error", e)
+		return
+	}
 
 	// Initialize new instance of demoGenServ structure which implements Process behavior
 	demoGS := &demoGenServ{}
 
 	// Spawn process with one arguments
-	process, _ := node.Spawn(GenServerName, ergo.ProcessOptions{}, demoGS)
+	process, e := node.Spawn(GenServerName, gen.ProcessOptions{}, demoGS)
+	if e != nil {
+		fmt.Println("error", e)
+		return
+	}
 
 	// Print how it can be used along with the Erlang node
 	fmt.Println("Run erl shell:")

@@ -95,6 +95,7 @@ func (n *network) RevokeRemoteSpawn(name string) bool {
 
 func (n *network) listen(ctx context.Context, name string) (uint16, error) {
 	var TLSenabled bool = true
+	versions := ctx.Value("versions").(map[string]interface{})
 
 	lc := net.ListenConfig{}
 	for p := n.opts.ListenRangeBegin; p <= n.opts.ListenRangeEnd; p++ {
@@ -105,7 +106,7 @@ func (n *network) listen(ctx context.Context, name string) (uint16, error) {
 
 		switch n.opts.TLSMode {
 		case TLSModeAuto:
-			cert, err := generateSelfSignedCert()
+			cert, err := generateSelfSignedCert(versions)
 			if err != nil {
 				return 0, fmt.Errorf("Can't generate certificate: %s\n", err)
 			}
@@ -438,7 +439,7 @@ func (n *network) handleMessage(fromNode string, control, message etf.Term) (err
 					return
 				}
 
-				process, err_spawn := n.registrar.spawn(registerName, gen.ProcessOptions{}, object, args...)
+				process, err_spawn := n.registrar.spawn(registerName, processOptions{}, object, args...)
 				if err_spawn != nil {
 					message := etf.Tuple{distProtoSPAWN_REPLY, ref, from, 0, etf.Atom(err_spawn.Error())}
 					n.registrar.RouteRaw(from.Node, message)
@@ -532,8 +533,11 @@ func (n *network) connect(to etf.Atom) error {
 	return nil
 }
 
-func generateSelfSignedCert() (tls.Certificate, error) {
+func generateSelfSignedCert(versions map[string]interface{}) (tls.Certificate, error) {
 	var cert = tls.Certificate{}
+	prefix := versions["prefix"].(string)
+	version := versions["version"].(string)
+	org := fmt.Sprintf("%s %s", prefix, version)
 
 	certPrivKey, err := ecdsa.GenerateKey(elliptic.P521(), rand.Reader)
 	if err != nil {
@@ -548,7 +552,7 @@ func generateSelfSignedCert() (tls.Certificate, error) {
 	template := x509.Certificate{
 		SerialNumber: serialNumber,
 		Subject: pkix.Name{
-			Organization: []string{VersionPrefix},
+			Organization: []string{org},
 		},
 		NotBefore: time.Now(),
 		NotAfter:  time.Now().Add(time.Hour * 24 * 365),

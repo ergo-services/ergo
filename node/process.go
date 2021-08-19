@@ -17,13 +17,13 @@ const (
 )
 
 type process struct {
-	registrar
+	registrarInternal
 	sync.RWMutex
 
-	name   string
-	self   etf.Pid
-	object gen.ProcessBehavior
-	env    map[string]interface{}
+	name     string
+	self     etf.Pid
+	behavior gen.ProcessBehavior
+	env      map[string]interface{}
 
 	parent      *process
 	groupLeader gen.Process
@@ -40,6 +40,8 @@ type process struct {
 
 	replyMutex sync.Mutex
 	reply      map[etf.Ref]chan etf.Term
+
+	trapExit bool
 }
 
 type processOptions struct {
@@ -71,11 +73,11 @@ func (p *process) Context() context.Context {
 	return p.context
 }
 
-func (p *process) GenParent() gen.Process {
+func (p *process) GetParent() gen.Process {
 	return p.parent
 }
 
-func (p *process) GenGroupLeader() gen.Process {
+func (p *process) GetGroupLeader() gen.Process {
 	return p.groupLeader
 }
 
@@ -89,10 +91,9 @@ func (p *process) Info() gen.ProcessInfo {
 	monitors := p.GetMonitors(p.self)
 	monitoredBy := p.GetMonitoredBy(p.self)
 	aliases := append(make([]etf.Alias, len(p.aliases)), p.aliases...)
-	return ProcessInfo{
+	return gen.ProcessInfo{
 		PID:             p.self,
 		Name:            p.name,
-		CurrentFunction: p.currentFunction,
 		GroupLeader:     gl,
 		Links:           links,
 		Monitors:        monitors,
@@ -101,7 +102,6 @@ func (p *process) Info() gen.ProcessInfo {
 		Status:          "running",
 		MessageQueueLen: len(p.mailBox),
 		TrapExit:        p.trapExit,
-		Reductions:      p.reductions,
 	}
 }
 
@@ -122,9 +122,9 @@ func (p *process) CallWithTimeout(to interface{}, message etf.Term, timeout int)
 	ref := p.MakeRef()
 	from := etf.Tuple{p.self, ref}
 	msg := etf.Term(etf.Tuple{etf.Atom("$gen_call"), from, message})
-	p.sendSyncRequest(ref, to, msg)
+	p.SendSyncRequest(ref, to, msg)
 
-	return p.waitSyncReply(ref, timeout)
+	return p.WaitSyncReply(ref, timeout)
 
 }
 
@@ -175,7 +175,7 @@ func (p *process) Send(to interface{}, message etf.Term) error {
 // Returns cancel function in order to discard sending a message
 func (p *process) SendAfter(to interface{}, message etf.Term, after time.Duration) context.CancelFunc {
 	//TODO: should we control the number of timers/goroutines have been created this way?
-	ctx, cancel := context.WithCancel(p.Context)
+	ctx, cancel := context.WithCancel(p.context)
 	go func() {
 		// to prevent of timer leaks due to its not GCed until the timer fires
 		timer := time.NewTimer(after)
@@ -214,12 +214,12 @@ func (p *process) Cast(to interface{}, message etf.Term) error {
 
 // CreateAlias creates a new alias for the Process
 func (p *process) CreateAlias() (etf.Alias, error) {
-	return p.newAlias(p.self)
+	return p.newAlias(p)
 }
 
 // DeleteAlias deletes the given alias
 func (p *process) DeleteAlias(alias etf.Alias) error {
-	return p.deleteAlias(p.self, alias)
+	return p.deleteAlias(p, alias)
 }
 
 // ListEnv returns a map of configured environment variables.
@@ -309,7 +309,7 @@ func (p *process) Unlink(with etf.Pid) {
 
 // IsAlive returns whether the process is alive
 func (p *process) IsAlive() bool {
-	return p.Context.Err() == nil
+	return p.context.Err() == nil
 }
 
 // GetChildren returns list of children pid (Application, Supervisor)
@@ -333,7 +333,7 @@ func (p *process) GetTrapExit() bool {
 
 // GetObject returns object this process runs on.
 func (p *process) GetProcessBehavior() gen.ProcessBehavior {
-	return p.object
+	return p.behavior
 }
 
 // Direct make a direct request to the actor (Application, Supervisor, GenServer or inherited from GenServer actor) with default timeout 5 seconds
@@ -397,8 +397,8 @@ func (p *process) RemoteSpawn(node string, object string, opts gen.RemoteSpawnOp
 		etf.Tuple{etf.Atom(object), etf.Atom(opts.Function), len(args)},
 		optlist,
 	}
-	p.sendSyncRequestRaw(ref, etf.Atom(node), append([]etf.Term{control}, args)...)
-	reply, err := p.waitSyncReply(ref, opts.Timeout)
+	p.SendSyncRequestRaw(ref, etf.Atom(node), append([]etf.Term{control}, args)...)
+	reply, err := p.WaitSyncReply(ref, opts.Timeout)
 	if err != nil {
 		return etf.Pid{}, err
 	}
@@ -429,19 +429,22 @@ func (p *process) RemoteSpawn(node string, object string, opts gen.RemoteSpawnOp
 	return etf.Pid{}, fmt.Errorf("unknown result: %#v", reply)
 }
 
-func (p *process) Spawn(name string, opts gen.ProcessOptions, object gen.ProcessBehavior, args ...etf.Term) (gen.Process, error) {
-	options := processOptions{opts, parent: p}
-	return p.spawn(name, options, object, args...)
+func (p *process) Spawn(name string, opts gen.ProcessOptions, behavior gen.ProcessBehavior, args ...etf.Term) (gen.Process, error) {
+	options := processOptions{
+		ProcessOptions: opts,
+		parent:         p,
+	}
+	return p.spawn(name, options, behavior, args...)
 }
 
 func (p *process) directRequest(id string, request interface{}, timeout int) (interface{}, error) {
 	timer := lib.TakeTimer()
 	defer lib.ReleaseTimer(timer)
 
-	direct := directMessage{
-		id:      id,
-		message: request,
-		reply:   make(chan directMessage),
+	direct := gen.ProcessDirectMessage{
+		ID:      id,
+		Message: request,
+		Reply:   make(chan gen.ProcessDirectMessage),
 	}
 
 	// sending request
@@ -454,12 +457,12 @@ func (p *process) directRequest(id string, request interface{}, timeout int) (in
 
 	// receiving response
 	select {
-	case response := <-direct.reply:
-		if response.err != nil {
-			return nil, response.err
+	case response := <-direct.Reply:
+		if response.Err != nil {
+			return nil, response.Err
 		}
 
-		return response.message, nil
+		return response.Message, nil
 	case <-timer.C:
 		return nil, ErrTimeout
 	}
@@ -519,7 +522,7 @@ func (p *process) WaitSyncReply(ref etf.Ref, timeout int) (etf.Term, error) {
 			return m, nil
 		case <-timer.C:
 			return nil, ErrTimeout
-		case <-p.Context.Done():
+		case <-p.context.Done():
 			return nil, ErrProcessTerminated
 		}
 	}
@@ -527,7 +530,7 @@ func (p *process) WaitSyncReply(ref etf.Ref, timeout int) (etf.Term, error) {
 }
 
 func (p *process) GetProcessChannels() gen.ProcessChannels {
-	return gen.ProcessChannel{
+	return gen.ProcessChannels{
 		Mailbox:      p.mailBox,
 		Direct:       p.direct,
 		GracefulExit: p.gracefulExit,

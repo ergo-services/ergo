@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/halturin/ergo/etf"
-	"github.com/halturin/ergo/lib"
 )
 
 type ApplicationStartType = string
@@ -36,7 +35,7 @@ const (
 type ApplicationBehavior interface {
 	ProcessBehavior
 	Load(args ...etf.Term) (ApplicationSpec, error)
-	Start(process *Process, args ...etf.Term)
+	Start(process Process, args ...etf.Term)
 }
 
 type ApplicationSpec struct {
@@ -50,7 +49,7 @@ type ApplicationSpec struct {
 	Children  []ApplicationChildSpec
 	startType ApplicationStartType
 	app       ApplicationBehavior
-	process   *Process
+	Process   Process
 	mutex     sync.Mutex
 }
 
@@ -58,7 +57,7 @@ type ApplicationChildSpec struct {
 	Child   ProcessBehavior
 	Name    string
 	Args    []etf.Term
-	process *Process
+	process Process
 }
 
 // Application is implementation of ProcessBehavior interface
@@ -71,10 +70,9 @@ type ApplicationInfo struct {
 	PID         etf.Pid
 }
 
-func (a *Application) Loop(p *Process, args ...etf.Term) string {
+func (a *Application) ProcessInit(p Process, args ...etf.Term) (ProcessState, error) {
 	// some internal agreement that the first argument should be a spec of this application
 	// (see ApplicatoinStart for the details)
-	object := p.object
 	spec := args[0].(*ApplicationSpec)
 	p.SetTrapExit(true)
 
@@ -86,20 +84,30 @@ func (a *Application) Loop(p *Process, args ...etf.Term) string {
 
 	if !a.startChildren(p, spec.Children[:]) {
 		a.stopChildren(p.Self(), spec.Children[:], "failed")
-		return "failed"
+		return ProcessState{}, fmt.Errorf("failed")
 	}
 
-	p.currentFunction = "Application:Start"
+	behavior, ok := p.GetProcessBehavior().(ApplicationBehavior)
+	if !ok {
+		return ProcessState{}, fmt.Errorf("ProcessInit: not an ApplicationBehavior")
+	}
+	behavior.Start(p, args[1:]...)
 
-	object.(ApplicationBehavior).Start(p, args[1:]...)
-	lib.Log("Application spec %#v\n", spec)
-	p.ready <- nil
+	return ProcessState{
+		Process: p,
+		State:   spec,
+	}, nil
+}
 
-	p.currentFunction = "Application:loop"
+func (a *Application) ProcessLoop(ps ProcessState) string {
+
+	spec := ps.State.(ApplicationSpec)
 
 	if spec.Lifespan == 0 {
 		spec.Lifespan = time.Second * 31536000 * 100 // let's define default lifespan 100 years :)
 	}
+
+	chs := ps.GetProcessChannels()
 
 	// to prevent of timer leaks due to its not GCed until the timer fires
 	timer := time.NewTimer(spec.Lifespan)
@@ -109,45 +117,45 @@ func (a *Application) Loop(p *Process, args ...etf.Term) string {
 		var message etf.Term
 
 		select {
-		case ex := <-p.gracefulExit:
-			childrenStopped := a.stopChildren(ex.from, spec.Children, string(ex.reason))
+		case ex := <-chs.GracefulExit:
+			childrenStopped := a.stopChildren(ex.From, spec.Children, string(ex.Reason))
 			if !childrenStopped {
 				fmt.Printf("Warining: application can't be stopped. Some of the children are still running")
 				continue
 			}
-			return ex.reason
+			return ex.Reason
 
-		case direct := <-p.direct:
-			switch direct.id {
+		case direct := <-chs.Direct:
+			switch direct.ID {
 			case "$getChildren":
 				pids := []etf.Pid{}
 				for i := range spec.Children {
 					if spec.Children[i].process == nil {
 						continue
 					}
-					pids = append(pids, spec.Children[i].process.self)
+					pids = append(pids, spec.Children[i].process.Self())
 				}
 
-				direct.message = pids
-				direct.err = nil
-				direct.reply <- direct
+				direct.Message = pids
+				direct.Err = nil
+				direct.Reply <- direct
 
 			default:
-				direct.message = nil
-				direct.err = ErrUnsupportedRequest
-				direct.reply <- direct
+				direct.Message = nil
+				direct.Err = ErrUnsupportedRequest
+				direct.Reply <- direct
 			}
 			continue
 
-		case <-p.Context.Done():
+		case <-ps.Context().Done():
 			// node is down or killed using p.Kill()
 			return "kill"
 		case <-timer.C:
 			// time to die
-			go p.Exit(p.Self(), "normal")
+			go ps.Exit("normal")
 			continue
-		case msg := <-p.mailBox:
-			message = msg.message
+		case msg := <-chs.Mailbox:
+			message = msg.Message
 		}
 
 		//fromPid := msg.Element(1).(etf.Pid)
@@ -185,11 +193,11 @@ func (a *Application) Loop(p *Process, args ...etf.Term) string {
 				// terminate this Application process (if all children will
 				// be stopped correctly)
 				go func() {
-					ex := gracefulExitRequest{
-						from:   terminated,
-						reason: string(reason),
-					}
-					p.gracefulExit <- ex
+					//ex := gracefulExitRequest{
+					//	from:   terminated,
+					//	reason: string(reason),
+					//}
+					//p.gracefulExit <- ex
 				}()
 				continue
 			}
@@ -198,25 +206,27 @@ func (a *Application) Loop(p *Process, args ...etf.Term) string {
 			case ApplicationStartPermanent:
 				a.stopChildren(terminated, spec.Children, string(reason))
 				fmt.Printf("Application child %s (at %s) stopped with reason %s (permanent: node is shutting down)\n",
-					terminatedName, p.NodeName(), reason)
-				p.Node.Stop()
+					terminatedName, ps.NodeName(), reason)
+				//FIXME
+				//ps.NodeStop()
 				return "shutdown"
 
 			case ApplicationStartTransient:
 				if reason == etf.Atom("normal") || reason == etf.Atom("shutdown") {
 					fmt.Printf("Application child %s (at %s) stopped with reason %s (transient)\n",
-						terminatedName, p.NodeName(), reason)
+						terminatedName, ps.NodeName(), reason)
 					continue
 				}
 				a.stopChildren(terminated, spec.Children, "normal")
 				fmt.Printf("Application child %s (at %s) stopped with reason %s. (transient: node is shutting down)\n",
-					terminatedName, p.NodeName(), reason)
-				p.Node.Stop()
+					terminatedName, ps.NodeName(), reason)
+				//FIXME
+				//p.Node.Stop()
 				return string(reason)
 
 			case ApplicationStartTemporary:
 				fmt.Printf("Application child %s (at %s) stopped with reason %s (temporary)\n",
-					terminatedName, p.NodeName(), reason)
+					terminatedName, ps.NodeName(), reason)
 			}
 
 		}
@@ -231,7 +241,7 @@ func (a *Application) stopChildren(from etf.Pid, children []ApplicationChildSpec
 			continue
 		}
 
-		if child.self == from {
+		if child.Self() == from {
 			continue
 		}
 
@@ -243,7 +253,7 @@ func (a *Application) stopChildren(from etf.Pid, children []ApplicationChildSpec
 			continue
 		}
 
-		p.Exit(from, reason)
+		p.Exit(reason)
 		if err := p.WaitWithTimeout(5 * time.Second); err != nil {
 			childrenStopped = false
 			continue
@@ -255,7 +265,7 @@ func (a *Application) stopChildren(from etf.Pid, children []ApplicationChildSpec
 	return childrenStopped
 }
 
-func (a *Application) startChildren(parent *Process, children []ApplicationChildSpec) bool {
+func (a *Application) startChildren(parent Process, children []ApplicationChildSpec) bool {
 	for i := range children {
 		// i know, it looks weird to use the funcion from supervisor file.
 		// will move it to somewhere else, but let it be there for a while.

@@ -100,8 +100,8 @@ func (gs *GenServer) ProcessLoop(ps ProcessState) string {
 		select {
 		case ex := <-chs.GracefulExit:
 			if !gsp.GetTrapExit() {
-				gsp.behavior.Terminate(gsp, ex.reason)
-				return ex.reason
+				gsp.behavior.Terminate(gsp, ex.Reason)
+				return ex.Reason
 			}
 			message = ex
 
@@ -110,24 +110,24 @@ func (gs *GenServer) ProcessLoop(ps ProcessState) string {
 			return reason
 
 		case msg := <-chs.Mailbox:
-			fromPid = msg.from
-			message = msg.message
+			fromPid = msg.From
+			message = msg.Message
 
 		case <-gsp.Context().Done():
 			return "kill"
 
 		case direct := <-chs.Direct:
-			reply, err := gsp.behavior.HandleDirect(gsp, direct.message)
+			reply, err := gsp.behavior.HandleDirect(gsp, direct.Message)
 			if err != nil {
-				direct.message = nil
-				direct.err = err
-				direct.reply <- direct
+				direct.Message = nil
+				direct.Err = err
+				direct.Reply <- direct
 				continue
 			}
 
-			direct.message = reply
-			direct.err = nil
-			direct.reply <- direct
+			direct.Message = reply
+			direct.Err = nil
+			direct.Reply <- direct
 			continue
 		}
 

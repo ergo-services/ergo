@@ -30,8 +30,8 @@ type node struct {
 	stop     context.CancelFunc
 }
 
-// StartNodeWithContext create new node with specified context, name and cookie string
-func startNodeWithContext(ctx context.Context, name string, cookie string, opts Options) (Node, error) {
+// StartWithContext create new node with specified context, name and cookie string
+func StartWithContext(ctx context.Context, name string, cookie string, opts Options) (Node, error) {
 
 	lib.Log("Start with name '%s' and cookie '%s'", name, cookie)
 	nodectx, nodestop := context.WithCancel(ctx)
@@ -135,11 +135,19 @@ func (n *node) WaitWithTimeout(d time.Duration) error {
 	}
 }
 func (n *node) Spawn(name string, opts gen.ProcessOptions, object gen.ProcessBehavior, args ...etf.Term) (gen.Process, error) {
-	return n.spawn(name, opts, object, args...)
+	options := processOptions{
+		ProcessOptions: opts,
+		//parent:
+	}
+	return n.spawn(name, options, object, args...)
 }
 
 func (n *node) Stop() {
 	n.stop()
+}
+
+func (n *node) Name() string {
+	return n.name
 }
 
 // LoadedApplications returns a list with information about the

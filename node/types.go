@@ -100,6 +100,7 @@ type TLSmodeType string
 type Node interface {
 	gen.Registrar
 	Network
+	Name() string
 	IsAlive() bool
 	Wait()
 	WaitWithTimeout(d time.Duration) error

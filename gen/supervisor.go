@@ -164,19 +164,19 @@ func (sv *Supervisor) ProcessLoop(ps ProcessState) string {
 					// in order to get rid of race condition when Node goes down
 					// via node.Stop() cancaling the node's context which
 					// triggering all the processes to kill themselves
-					ps.Exit(ex.reason)
+					ps.Exit(ex.Reason)
 				}
 			}
-			return ex.reason
+			return ex.Reason
 
 		case msg := <-chs.Mailbox:
-			fromPid = msg.from
-			message = msg.message
+			fromPid = msg.From
+			message = msg.Message
 
 		case <-ps.Context().Done():
 			return "kill"
 		case direct := <-chs.Direct:
-			switch direct.id {
+			switch direct.ID {
 			case "getChildren":
 				children := []etf.Pid{}
 				for i := range spec.Children {
@@ -186,14 +186,14 @@ func (sv *Supervisor) ProcessLoop(ps ProcessState) string {
 					children = append(children, spec.Children[i].process.Self())
 				}
 
-				direct.message = children
-				direct.err = nil
-				direct.reply <- direct
+				direct.Message = children
+				direct.Err = nil
+				direct.Reply <- direct
 
 			default:
-				direct.message = nil
-				direct.err = ErrUnsupportedRequest
-				direct.reply <- direct
+				direct.Message = nil
+				direct.Err = ErrUnsupportedRequest
+				direct.Reply <- direct
 			}
 			continue
 		}
