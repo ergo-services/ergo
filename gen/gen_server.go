@@ -91,7 +91,7 @@ func (gs *GenServer) ProcessLoop(ps ProcessState) string {
 	stop := make(chan string, 2)
 
 	gsp.currentFunction = "GenServer:loop"
-	chs := gsp.getProcessChannels()
+	chs := gsp.GetProcessChannels()
 
 	for {
 		var message etf.Term
@@ -99,8 +99,11 @@ func (gs *GenServer) ProcessLoop(ps ProcessState) string {
 
 		select {
 		case ex := <-chs.GracefulExit:
-			gsp.behavior.Terminate(gsp, ex.reason)
-			return ex.reason
+			if !gsp.GetTrapExit() {
+				gsp.behavior.Terminate(gsp, ex.reason)
+				return ex.reason
+			}
+			message = ex
 
 		case reason := <-stop:
 			gsp.behavior.Terminate(gsp, reason)
@@ -284,7 +287,7 @@ func (gs *GenServer) ProcessLoop(ps ProcessState) string {
 			default:
 				if ref, ok := m.Element(1).(etf.Ref); ok && len(m) == 2 {
 					lib.Log("[%s] GEN_SERVER %#v got reply: %#v", gsp.NodeName(), gsp.Self(), mtag)
-					gsp.putSyncReply(ref, m.Element(2))
+					gsp.PutSyncReply(ref, m.Element(2))
 					continue
 				}
 

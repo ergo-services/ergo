@@ -1,8 +1,5 @@
-rungs:
+demo:
 	go run --tags debug ./examples/genserver/demoGenServer.go -trace.node
-
-epmd:
-	go build cmd/epmd/epmd.go
 
 test:
 	go vet

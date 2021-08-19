@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/halturin/ergo/etf"
+	"github.com/halturin/ergo/gen"
 	"github.com/halturin/ergo/lib"
 )
 
@@ -30,6 +31,21 @@ type linkProcessRequest struct {
 	pidB etf.Pid
 }
 
+type monitorInternal interface {
+	gen.Monitor
+
+	monitorProcess(by etf.Pid, process interface{}, ref etf.Ref)
+	demonitorProcess(ref etf.Ref) bool
+	monitorNode(by etf.Pid, node string) etf.Ref
+	demonitorNode(ref etf.Ref) bool
+
+	nodeDown(name string)
+	processTerminated(terminated etf.Pid, name, reason string)
+
+	link(pidA, pidB etf.Pid)
+	unlink(pidA, pidB etf.Pid)
+}
+
 type monitor struct {
 	processes      map[etf.Pid][]monitorItem
 	ref2pid        map[etf.Ref]etf.Pid
@@ -40,10 +56,10 @@ type monitor struct {
 	ref2node       map[etf.Ref]string
 	mutexNodes     sync.Mutex
 
-	registrar Registrar
+	registrar gen.Registrar
 }
 
-func NewMonitor(registrar Registrar) monitor {
+func NewMonitor(registrar gen.Registrar) monitor {
 	return monitor{
 		processes: make(map[etf.Pid][]monitorItem),
 		links:     make(map[etf.Pid][]etf.Pid),
@@ -598,7 +614,8 @@ func (m *monitor) notifyProcessExit(to etf.Pid, terminated etf.Pid, reason strin
 
 	// check if 'to' process is still alive. otherwise ignore this event
 	if p := m.registrar.GetProcessByPid(to); p != nil && p.IsAlive() {
-		p.Exit(terminated, reason)
+		//FIXME
+		p.Exit(reason)
 	}
 }
 

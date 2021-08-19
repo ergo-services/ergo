@@ -2,6 +2,11 @@ package node
 
 import (
 	"fmt"
+	"sync"
+	"time"
+
+	"github.com/halturin/ergo/etf"
+	"github.com/halturin/ergo/gen"
 )
 
 var (
@@ -53,4 +58,97 @@ const (
 	distProtoALIAS_SEND_TT          = 34
 	distProtoUNLINK_ID              = 35
 	distProtoUNLINK_ID_ACK          = 36
+
+	defaultListenRangeBegin  uint16 = 15000
+	defaultListenRangeEnd    uint16 = 65000
+	defaultEPMDPort          uint16 = 4369
+	defaultSendQueueLength   int    = 100
+	defaultRecvQueueLength   int    = 100
+	defaultFragmentationUnit        = 65000
+	defaultHandshakeVersion         = 5
 )
+
+// Options struct with bootstrapping options for CreateNode
+type Options struct {
+	ListenRangeBegin       uint16
+	ListenRangeEnd         uint16
+	Hidden                 bool
+	EPMDPort               uint16
+	DisableEPMDServer      bool
+	DisableEPMD            bool // use static routes only
+	SendQueueLength        int
+	RecvQueueLength        int
+	FragmentationUnit      int
+	DisableHeaderAtomCache bool
+	TLSMode                TLSModeType
+	TLScrtServer           string
+	TLSkeyServer           string
+	TLScrtClient           string
+	TLSkeyClient           string
+	// HandshakeVersion. Allowed values 5 or 6. Default version is 5
+	HandshakeVersion int
+	// ConnectionHandlers defines the number of readers/writers per connection. Default is the number of CPU.
+	ConnectionHandlers int
+
+	cookie   string
+	creation uint32
+}
+
+// TLSmodeType should be one of TLSmodeDisabled (default), TLSmodeAuto or TLSmodeStrict
+type TLSmodeType string
+
+type Node interface {
+	gen.Registrar
+	Network
+	IsAlive() bool
+	Wait()
+	WaitWithTimeout(d time.Duration) error
+	Spawn(name string, opts gen.ProcessOptions, object gen.ProcessBehavior, args ...etf.Term) (gen.Process, error)
+	Stop()
+}
+
+type Network interface {
+	AddStaticRoute(name string, port uint16) error
+	AddStaticRouteExt(name string, port uint16, cookie string, tls bool) error
+	RemoveStaticRoute(name string)
+	ProvideRemoteSpawn(name string, object gen.ProcessBehavior)
+	RevokeRemoteSpawn(name string) bool
+
+	connect(to etf.Atom) error
+}
+
+// TLSmodeType should be one of TLSmodeDisabled (default), TLSmodeAuto or TLSmodeStrict
+type TLSModeType string
+
+const (
+	// TLSModeDisabled no TLS encryption
+	TLSModeDisabled TLSModeType = ""
+	// TLSModeAuto generate self-signed certificate
+	TLSModeAuto TLSModeType = "auto"
+	// TLSModeStrict with validation certificate
+	TLSModeStrict TLSModeType = "strict"
+)
+
+type peer struct {
+	name string
+	send []chan []etf.Term
+	i    int
+	n    int
+
+	mutex sync.Mutex
+}
+
+func (p *peer) GetChannel() chan []etf.Term {
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
+
+	c := p.send[p.i]
+
+	p.i++
+	if p.i < p.n {
+		return c
+	}
+
+	p.i = 0
+	return c
+}

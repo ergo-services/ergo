@@ -22,11 +22,11 @@ type process struct {
 
 	name   string
 	self   etf.Pid
-	object ProcessBehavior
+	object gen.ProcessBehavior
 	env    map[string]interface{}
 
 	parent      *process
-	groupLeader *process
+	groupLeader gen.Process
 	aliases     []etf.Alias
 
 	mailBox      chan gen.ProcessMailboxMessage
@@ -35,20 +35,19 @@ type process struct {
 	stopped      chan bool
 
 	context context.Context
-	Kill    context.CancelFunc
-	Exit    processExitFunc
+	kill    context.CancelFunc
+	exit    processExitFunc
 
 	replyMutex sync.Mutex
 	reply      map[etf.Ref]chan etf.Term
 }
 
 type processOptions struct {
-	ProcessOptions
+	gen.ProcessOptions
 	parent *process
 }
 
-// ProcessExitFunc initiate a graceful stopping process
-type processExitFunc func(from etf.Pid, reason string)
+type processExitFunc func(reason string)
 
 // Self returns self Pid
 func (p *process) Self() etf.Pid {
@@ -60,15 +59,31 @@ func (p *process) Name() string {
 	return p.name
 }
 
+func (p *process) Kill() {
+	p.kill()
+}
+
+func (p *process) Exit(reason string) {
+	p.exit(reason)
+}
+
 func (p *process) Context() context.Context {
 	return p.context
 }
 
+func (p *process) GenParent() gen.Process {
+	return p.parent
+}
+
+func (p *process) GenGroupLeader() gen.Process {
+	return p.groupLeader
+}
+
 // Info returns detailed information about the process
-func (p *process) Info() ProcessInfo {
+func (p *process) Info() gen.ProcessInfo {
 	gl := p.self
 	if p.groupLeader != nil {
-		gl = p.groupLeader.self
+		gl = p.groupLeader.Self()
 	}
 	links := p.GetLinks(p.self)
 	monitors := p.GetMonitors(p.self)
@@ -366,7 +381,7 @@ func (p *process) DemonitorProcess(ref etf.Ref) bool {
 	return p.demonitorProcess(ref)
 }
 
-func (p *process) RemoteSpawn(node string, object string, opts RemoteSpawnOptions, args ...etf.Term) (etf.Pid, error) {
+func (p *process) RemoteSpawn(node string, object string, opts gen.RemoteSpawnOptions, args ...etf.Term) (etf.Pid, error) {
 	ref := p.MakeRef()
 	optlist := etf.List{}
 	if opts.RegisterName != "" {
@@ -414,7 +429,7 @@ func (p *process) RemoteSpawn(node string, object string, opts RemoteSpawnOption
 	return etf.Pid{}, fmt.Errorf("unknown result: %#v", reply)
 }
 
-func (p *process) Spawn(name string, opts gen.ProcessOptions, object gen.ProcessBehavior, args ...etf.Term) (Process, error) {
+func (p *process) Spawn(name string, opts gen.ProcessOptions, object gen.ProcessBehavior, args ...etf.Term) (gen.Process, error) {
 	options := processOptions{opts, parent: p}
 	return p.spawn(name, options, object, args...)
 }
@@ -450,14 +465,14 @@ func (p *process) directRequest(id string, request interface{}, timeout int) (in
 	}
 }
 
-func (p *process) sendSyncRequestRaw(ref etf.Ref, node etf.Atom, messages ...etf.Term) {
+func (p *process) SendSyncRequestRaw(ref etf.Ref, node etf.Atom, messages ...etf.Term) {
 	reply := make(chan etf.Term, 2)
 	p.replyMutex.Lock()
 	defer p.replyMutex.Unlock()
 	p.reply[ref] = reply
 	p.RouteRaw(node, messages...)
 }
-func (p *process) sendSyncRequest(ref etf.Ref, to interface{}, message etf.Term) {
+func (p *process) SendSyncRequest(ref etf.Ref, to interface{}, message etf.Term) {
 	reply := make(chan etf.Term, 2)
 	p.replyMutex.Lock()
 	defer p.replyMutex.Unlock()
@@ -465,7 +480,7 @@ func (p *process) sendSyncRequest(ref etf.Ref, to interface{}, message etf.Term)
 	p.Send(to, message)
 }
 
-func (p *process) putSyncReply(ref etf.Ref, reply etf.Term) {
+func (p *process) PutSyncReply(ref etf.Ref, reply etf.Term) {
 	p.replyMutex.Lock()
 	rep, ok := p.reply[ref]
 	p.replyMutex.Unlock()
@@ -479,7 +494,7 @@ func (p *process) putSyncReply(ref etf.Ref, reply etf.Term) {
 
 }
 
-func (p *process) waitSyncReply(ref etf.Ref, timeout int) (etf.Term, error) {
+func (p *process) WaitSyncReply(ref etf.Ref, timeout int) (etf.Term, error) {
 	p.replyMutex.Lock()
 	reply, wait_for_reply := p.reply[ref]
 	p.replyMutex.Unlock()
@@ -511,7 +526,7 @@ func (p *process) waitSyncReply(ref etf.Ref, timeout int) (etf.Term, error) {
 
 }
 
-func (p *process) getProcessChannels() gen.ProcessChannels {
+func (p *process) GetProcessChannels() gen.ProcessChannels {
 	return gen.ProcessChannel{
 		Mailbox:      p.mailBox,
 		Direct:       p.direct,

@@ -3,7 +3,6 @@ package gen
 import (
 	"context"
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/halturin/ergo/etf"
@@ -44,7 +43,10 @@ type Process interface {
 	SendAfter(to interface{}, message etf.Term, after time.Duration) context.CancelFunc
 	CastAfter(to interface{}, message etf.Term, after time.Duration) context.CancelFunc
 	Cast(to interface{}, message etf.Term) error
-	Exit()
+	// Exit initiate a graceful stopping process
+	Exit(reason string)
+	// Kill immidiately stops process
+	Kill()
 	CreateAlias() (etf.Alias, error)
 	DeleteAlias(alias etf.Alias) error
 	ListEnv() map[string]interface{}
@@ -63,14 +65,16 @@ type Process interface {
 	DemonitorProcess(ref etf.Ref) bool
 	Context() context.Context
 	GetProcessBehavior() ProcessBehavior
+	GetGroupLeader() Process
+	GetParent() Process
 
 	// Methods below are intended to be used for the ProcessBehavior implementation
 
-	sendSyncRequestRaw(ref etf.Ref, node etf.Atom, messages ...etf.Term)
-	putSyncReply(ref etf.Ref, term etf.Term)
-	sendSyncRequest(ref etf.Ref, to interface{}, message etf.Term)
-	waitSyncReply(ref etf.Ref, timeout int) (etf.Term, error)
-	getProcessChannels() ProcessChannels
+	SendSyncRequestRaw(ref etf.Ref, node etf.Atom, messages ...etf.Term)
+	PutSyncReply(ref etf.Ref, term etf.Term)
+	SendSyncRequest(ref etf.Ref, to interface{}, message etf.Term)
+	WaitSyncReply(ref etf.Ref, timeout int) (etf.Term, error)
+	GetProcessChannels() ProcessChannels
 }
 
 // ProcessInfo struct with process details
@@ -146,9 +150,9 @@ type ProcessBehavior interface {
 type Registrar interface {
 	Monitor
 	NodeName() string
-	GetProcessByName(name string) *Process
-	GetProcessByPid(pid etf.Pid) *Process
-	GetProcessByAlias(alias etf.Alias) *Process
+	GetProcessByName(name string) Process
+	GetProcessByPid(pid etf.Pid) Process
+	GetProcessByAlias(alias etf.Alias) Process
 	ProcessList() []*Process
 	MakeRef() etf.Ref
 	RegisterName(name string, pid etf.Pid) error
@@ -157,53 +161,12 @@ type Registrar interface {
 
 	Route(from etf.Pid, to etf.Term, message etf.Term)
 	RouteRaw(nodename etf.Atom, messages ...etf.Term) error
-
-	spawn(name string, opts ProcessOptions, object ProcessBehavior, args ...etf.Term) (*Process, error)
-	registerPeer(peer *peer) error
-	unregisterPeer(name string)
-	newAlias(p *Process) (etf.Alias, error)
-	deleteAlias(owner *Process, alias etf.Alias) error
 }
 
 type Monitor interface {
 	GetLinks(process etf.Pid) []etf.Pid
 	GetMonitors(process etf.Pid) []etf.Pid
 	GetMonitoredBy(process etf.Pid) []etf.Pid
-
-	monitorProcess(by etf.Pid, process interface{}, ref etf.Ref)
-	demonitorProcess(ref etf.Ref) bool
-	monitorNode(by etf.Pid, node string) etf.Ref
-	demonitorNode(ref etf.Ref) bool
-
-	nodeDown(name string)
-	processTerminated(terminated etf.Pid, name, reason string)
-
-	link(pidA, pidB etf.Pid)
-	unlink(pidA, pidB etf.Pid)
-}
-
-type peer struct {
-	name string
-	send []chan []etf.Term
-	i    int
-	n    int
-
-	mutex sync.Mutex
-}
-
-func (p *peer) GetChannel() chan []etf.Term {
-	p.mutex.Lock()
-	defer p.mutex.Unlock()
-
-	c := p.send[p.i]
-
-	p.i++
-	if p.i < p.n {
-		return c
-	}
-
-	p.i = 0
-	return c
 }
 
 type DownMessage struct {

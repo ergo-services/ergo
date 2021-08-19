@@ -98,7 +98,7 @@ type SupervisorChildShutdown int
 // SupervisorBehavior interface
 type SupervisorBehavior interface {
 	ProcessBehavior
-	Init(args ...etf.Term) SupervisorSpec
+	Init(args ...etf.Term) (SupervisorSpec, error)
 }
 
 type SupervisorSpec struct {
@@ -117,64 +117,73 @@ type SupervisorChildSpec struct {
 	Restart  SupervisorChildRestart
 	Shutdown SupervisorChildShutdown
 	state    supervisorChildState // for internal usage
-	process  *Process
+	process  Process
 }
 
 // Supervisor is implementation of ProcessBehavior interface
-type Supervisor struct {
-	spec *SupervisorSpec
+type Supervisor struct{}
+
+func (sv *Supervisor) ProcessInit(p Process, args ...etf.Term) (ProcessState, error) {
+	behavior, ok := p.GetProcessBehavior().(SupervisorBehavior)
+	if !ok {
+		return ProcessState{}, fmt.Errorf("ProcessInit: not a SupervisorBehavior")
+	}
+	spec, err := behavior.Init(args...)
+	if err != nil {
+		return ProcessState{}, err
+	}
+	lib.Log("Supervisor spec %#v\n", spec)
+
+	return ProcessState{
+		Process: p,
+		State:   spec,
+	}, nil
 }
 
-func (sv *Supervisor) Loop(svp *Process, args ...etf.Term) string {
-	object := svp.object
-	spec := object.(SupervisorBehavior).Init(args...)
-	lib.Log("Supervisor spec %#v\n", spec)
-	svp.ready <- nil
-
-	sv.spec = &spec
-
+func (sv *Supervisor) ProcessLoop(ps ProcessState) string {
+	spec := ps.State.(SupervisorSpec)
 	if spec.Strategy.Type != SupervisorStrategySimpleOneForOne {
-		startChildren(svp, &spec)
+		startChildren(ps, &spec)
 	}
 
-	svp.SetTrapExit(true)
-	svp.currentFunction = "Supervisor:loop"
+	ps.SetTrapExit(true)
 	waitTerminatingProcesses := []etf.Pid{}
+	chs := ps.GetProcessChannels()
 
 	for {
 		var message etf.Term
 		var fromPid etf.Pid
 		select {
-		case ex := <-svp.gracefulExit:
+		case ex := <-chs.GracefulExit:
 			for i := range spec.Children {
 				p := spec.Children[i].process
 				if p == nil {
 					continue
 				}
-				if p.IsAlive() {
+				if ps.IsAlive() {
 					// in order to get rid of race condition when Node goes down
 					// via node.Stop() cancaling the node's context which
 					// triggering all the processes to kill themselves
-					p.Exit(svp.Self(), ex.reason)
+					ps.Exit(ex.reason)
 				}
 			}
 			return ex.reason
 
-		case msg := <-svp.mailBox:
+		case msg := <-chs.Mailbox:
 			fromPid = msg.from
 			message = msg.message
 
-		case <-svp.Context.Done():
+		case <-ps.Context().Done():
 			return "kill"
-		case direct := <-svp.direct:
+		case direct := <-chs.Direct:
 			switch direct.id {
 			case "getChildren":
 				children := []etf.Pid{}
-				for i := range sv.spec.Children {
-					if sv.spec.Children[i].process == nil {
+				for i := range spec.Children {
+					if spec.Children[i].process == nil {
 						continue
 					}
-					children = append(children, sv.spec.Children[i].process.self)
+					children = append(children, spec.Children[i].process.Self())
 				}
 
 				direct.message = children
@@ -189,9 +198,7 @@ func (sv *Supervisor) Loop(svp *Process, args ...etf.Term) string {
 			continue
 		}
 
-		svp.reductions++
-
-		lib.Log("[%#v]. Message from %#v\n", svp.self, fromPid)
+		lib.Log("[%#v]. Message from %#v\n", ps.Self(), fromPid)
 
 		switch m := message.(type) {
 
@@ -220,11 +227,11 @@ func (sv *Supervisor) Loop(svp *Process, args ...etf.Term) string {
 					// terminate this Application process (if all children will
 					// be stopped correctly)
 					go func() {
-						ex := gracefulExitRequest{
-							from:   terminated,
-							reason: string(reason),
-						}
-						svp.gracefulExit <- ex
+						//ex := ProcessGracefulExitRequest{
+						//	from:   terminated,
+						//	reason: string(reason),
+						//}
+						//		chs.GracefulExit <- ex
 					}()
 					continue
 				}
@@ -240,7 +247,7 @@ func (sv *Supervisor) Loop(svp *Process, args ...etf.Term) string {
 
 					if len(waitTerminatingProcesses) == 0 {
 						// it was the last one. lets restart all terminated children
-						startChildren(svp, &spec)
+						startChildren(ps, &spec)
 					}
 
 					continue
@@ -269,7 +276,7 @@ func (sv *Supervisor) Loop(svp *Process, args ...etf.Term) string {
 
 							if len(spec.Children) == i+1 && len(waitTerminatingProcesses) == 0 {
 								// it was the last one. nothing to waiting for
-								startChildren(svp, &spec)
+								startChildren(ps, &spec)
 							}
 							continue
 						}
@@ -279,7 +286,7 @@ func (sv *Supervisor) Loop(svp *Process, args ...etf.Term) string {
 						} else {
 							spec.Children[i].state = supervisorChildStateStart
 						}
-						p.Exit(p.Self(), "restart")
+						p.Exit("restart")
 
 						waitTerminatingProcesses = append(waitTerminatingProcesses, p.Self())
 					}
@@ -302,14 +309,14 @@ func (sv *Supervisor) Loop(svp *Process, args ...etf.Term) string {
 
 							if len(spec.Children) == i+1 && len(waitTerminatingProcesses) == 0 {
 								// it was the last one. nothing to waiting for
-								startChildren(svp, &spec)
+								startChildren(ps, &spec)
 							}
 
 							continue
 						}
 
 						if isRest && spec.Children[i].state == supervisorChildStateRunning {
-							p.Exit(p.Self(), "restart")
+							p.Exit("restart")
 							spec.Children[i].process = nil
 							waitTerminatingProcesses = append(waitTerminatingProcesses, p.Self())
 							if haveToDisableChild(spec.Children[i].Restart, "restart") {
@@ -334,7 +341,7 @@ func (sv *Supervisor) Loop(svp *Process, args ...etf.Term) string {
 								spec.Children[i].state = supervisorChildStateStart
 							}
 
-							startChildren(svp, &spec)
+							startChildren(ps, &spec)
 							break
 						}
 					}
@@ -354,7 +361,7 @@ func (sv *Supervisor) Loop(svp *Process, args ...etf.Term) string {
 								break
 							}
 
-							process := startChild(svp, spec.Children[i].Name, spec.Children[i].Child, spec.Children[i].Args...)
+							process := startChild(ps, spec.Children[i].Name, spec.Children[i].Child, spec.Children[i].Args...)
 							spec.Children[i].process = process
 							break
 						}
@@ -364,7 +371,7 @@ func (sv *Supervisor) Loop(svp *Process, args ...etf.Term) string {
 			case etf.Atom("$startByName"):
 				// dynamically start child process
 				specName := m.Element(2).(string)
-				args := m.Element(3)
+				//args := m.Element(3)
 				reply := m.Element(4).(chan etf.Tuple)
 
 				s := lookupSpecByName(specName, spec.Children)
@@ -376,13 +383,13 @@ func (sv *Supervisor) Loop(svp *Process, args ...etf.Term) string {
 				specChild.process = nil
 				specChild.state = supervisorChildStateStart
 
-				m := etf.Tuple{
-					etf.Atom("$startBySpec"),
-					specChild,
-					args,
-					reply,
-				}
-				svp.mailBox <- mailboxMessage{etf.Pid{}, m}
+				//m := etf.Tuple{
+				//	etf.Atom("$startBySpec"),
+				//	specChild,
+				//	args,
+				//	reply,
+				//}
+				//chs.Mailbox <- ProcessMailboxMessage{etf.Pid{}, m}
 
 			case etf.Atom("$startBySpec"):
 				specChild := m.Element(2).(SupervisorChildSpec)
@@ -393,12 +400,12 @@ func (sv *Supervisor) Loop(svp *Process, args ...etf.Term) string {
 					specChild.Args = args
 				}
 
-				process := startChild(svp, "", specChild.Child, specChild.Args...)
+				process := startChild(ps, "", specChild.Child, specChild.Args...)
 				specChild.process = process
 				specChild.Name = ""
 				spec.Children = append(spec.Children, specChild)
 
-				reply <- etf.Tuple{etf.Atom("ok"), process.self}
+				reply <- etf.Tuple{etf.Atom("ok"), process.Self()}
 			default:
 				lib.Log("m: %#v", m)
 			}
@@ -412,15 +419,15 @@ func (sv *Supervisor) Loop(svp *Process, args ...etf.Term) string {
 // StartChild dynamically starts a child process with given name of child spec which is defined by Init call.
 // Created process will use the same object (GenServer/Supervisor) you have defined in spec as a Child since it
 // keeps pointer. You might use this object as a shared among the process you will create using this spec.
-func (sv *Supervisor) StartChild(parent *Process, specName string, args ...etf.Term) (etf.Pid, error) {
+func (sv *Supervisor) StartChild(parent Process, specName string, args ...etf.Term) (etf.Pid, error) {
 	reply := make(chan etf.Tuple)
-	m := etf.Tuple{
-		etf.Atom("$startByName"),
-		specName,
-		args,
-		reply,
-	}
-	parent.mailBox <- mailboxMessage{etf.Pid{}, m}
+	//m := etf.Tuple{
+	//	etf.Atom("$startByName"),
+	//	specName,
+	//	args,
+	//	reply,
+	//}
+	//parent.mailBox <- ProcessMailboxMessage{etf.Pid{}, m}
 	r := <-reply
 	switch r.Element(1) {
 	case etf.Atom("ok"):
@@ -433,15 +440,15 @@ func (sv *Supervisor) StartChild(parent *Process, specName string, args ...etf.T
 }
 
 // StartChildWithSpec dynamically starts a child process with given child spec
-func (sv *Supervisor) StartChildWithSpec(parent *Process, spec SupervisorChildSpec, args ...etf.Term) (etf.Pid, error) {
+func (sv *Supervisor) StartChildWithSpec(parent Process, spec SupervisorChildSpec, args ...etf.Term) (etf.Pid, error) {
 	reply := make(chan etf.Tuple)
-	m := etf.Tuple{
-		etf.Atom("$startBySpec"),
-		spec,
-		args,
-		reply,
-	}
-	parent.mailBox <- mailboxMessage{etf.Pid{}, m}
+	//m := etf.Tuple{
+	//	etf.Atom("$startBySpec"),
+	//	spec,
+	//	args,
+	//	reply,
+	//}
+	//parent.mailBox <- ProcessMailboxMessage{etf.Pid{}, m}
 	r := <-reply
 	switch r.Element(1) {
 	case etf.Atom("ok"):
@@ -451,7 +458,7 @@ func (sv *Supervisor) StartChildWithSpec(parent *Process, spec SupervisorChildSp
 	}
 }
 
-func startChildren(parent *Process, spec *SupervisorSpec) {
+func startChildren(parent Process, spec *SupervisorSpec) {
 	spec.restarts = append(spec.restarts, time.Now().Unix())
 	if len(spec.restarts) > int(spec.Strategy.Intensity) {
 		period := time.Now().Unix() - spec.restarts[0]
@@ -480,14 +487,14 @@ func startChildren(parent *Process, spec *SupervisorSpec) {
 	}
 }
 
-func startChild(parent *Process, name string, child ProcessBehavior, args ...etf.Term) *Process {
+func startChild(parent Process, name string, child ProcessBehavior, args ...etf.Term) Process {
 	opts := ProcessOptions{}
 
-	if parent.groupLeader == nil {
+	if parent.GetGroupLeader() == nil {
 		// leader is not set
 		opts.GroupLeader = parent
 	} else {
-		opts.GroupLeader = parent.groupLeader
+		opts.GroupLeader = parent.GetGroupLeader()
 	}
 	process, err := parent.Spawn(name, opts, child, args...)
 
@@ -495,8 +502,7 @@ func startChild(parent *Process, name string, child ProcessBehavior, args ...etf
 		panic(err)
 	}
 
-	process.parent = parent
-	parent.Link(process.self)
+	parent.Link(process.Self())
 
 	return process
 }

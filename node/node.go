@@ -8,6 +8,7 @@ import (
 	"fmt"
 
 	"github.com/halturin/ergo/etf"
+	"github.com/halturin/ergo/gen"
 	"github.com/halturin/ergo/lib"
 
 	//	"net/http"
@@ -17,8 +18,8 @@ import (
 )
 
 // Node instance of created node using CreateNode
-type Node struct {
-	Registrar
+type node struct {
+	registrarInternal
 	Network
 
 	name     string
@@ -26,40 +27,11 @@ type Node struct {
 	creation uint32
 	opts     Options
 	context  context.Context
-	Stop     context.CancelFunc
+	stop     context.CancelFunc
 }
-
-// Options struct with bootstrapping options for CreateNode
-type Options struct {
-	ListenRangeBegin       uint16
-	ListenRangeEnd         uint16
-	Hidden                 bool
-	EPMDPort               uint16
-	DisableEPMDServer      bool
-	DisableEPMD            bool // use static routes only
-	SendQueueLength        int
-	RecvQueueLength        int
-	FragmentationUnit      int
-	DisableHeaderAtomCache bool
-	TLSMode                TLSModeType
-	TLScrtServer           string
-	TLSkeyServer           string
-	TLScrtClient           string
-	TLSkeyClient           string
-	// HandshakeVersion. Allowed values 5 or 6. Default version is 5
-	HandshakeVersion int
-	// ConnectionHandlers defines the number of readers/writers per connection. Default is the number of CPU.
-	ConnectionHandlers int
-
-	cookie   string
-	creation uint32
-}
-
-// TLSmodeType should be one of TLSmodeDisabled (default), TLSmodeAuto or TLSmodeStrict
-type TLSmodeType string
 
 // StartNodeWithContext create new node with specified context, name and cookie string
-func startNodeWithContext(ctx context.Context, name string, cookie string, opts Options) (*Node, error) {
+func startNodeWithContext(ctx context.Context, name string, cookie string, opts Options) (Node, error) {
 
 	lib.Log("Start with name '%s' and cookie '%s'", name, cookie)
 	nodectx, nodestop := context.WithCancel(ctx)
@@ -67,10 +39,10 @@ func startNodeWithContext(ctx context.Context, name string, cookie string, opts 
 	// Creation must be > 0 so make 'or 0x1'
 	creation := uint32(time.Now().Unix()) | 1
 
-	node := &Node{
+	node := &node{
 		Cookie:   cookie,
 		context:  nodectx,
-		Stop:     nodestop,
+		stop:     nodestop,
 		creation: creation,
 	}
 
@@ -129,7 +101,7 @@ func startNodeWithContext(ctx context.Context, name string, cookie string, opts 
 		return nil, err
 	}
 
-	node.Registrar = registrar
+	node.registrarInternal = registrar
 	node.Network = network
 
 	//	netKernelSup := &netKernelSup{}
@@ -139,18 +111,18 @@ func startNodeWithContext(ctx context.Context, name string, cookie string, opts 
 }
 
 // IsAlive returns true if node is running
-func (n *Node) IsAlive() bool {
+func (n *node) IsAlive() bool {
 	return n.context.Err() == nil
 }
 
 // Wait waits until node stopped
-func (n *Node) Wait() {
+func (n *node) Wait() {
 	<-n.context.Done()
 }
 
 // WaitWithTimeout waits until node stopped. Return ErrTimeout
 // if given timeout is exceeded
-func (n *Node) WaitWithTimeout(d time.Duration) error {
+func (n *node) WaitWithTimeout(d time.Duration) error {
 
 	timer := time.NewTimer(d)
 	defer timer.Stop()
@@ -162,8 +134,12 @@ func (n *Node) WaitWithTimeout(d time.Duration) error {
 		return nil
 	}
 }
-func (n *node) Spawn(name string, opts ProcessOptions, object ProcessBehavior, args ...etf.Term) (*Process, error) {
+func (n *node) Spawn(name string, opts gen.ProcessOptions, object gen.ProcessBehavior, args ...etf.Term) (gen.Process, error) {
 	return n.spawn(name, opts, object, args...)
+}
+
+func (n *node) Stop() {
+	n.stop()
 }
 
 // LoadedApplications returns a list with information about the

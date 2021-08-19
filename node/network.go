@@ -17,6 +17,7 @@ import (
 	"runtime"
 
 	"github.com/halturin/ergo/etf"
+	"github.com/halturin/ergo/gen"
 	"github.com/halturin/ergo/lib"
 	"github.com/halturin/ergo/node/dist"
 
@@ -30,51 +31,19 @@ import (
 	"time"
 )
 
-type Network interface {
-	AddStaticRoute(name string, port uint16) error
-	AddStaticRouteExt(name string, port uint16, cookie string, tls bool) error
-	RemoveStaticRoute(name string)
-	ProvideRemoteSpawn(name string, object ProcessBehavior)
-	RevokeRemoteSpawn(name string) bool
-
-	connect(to etf.Atom) error
-}
-
-// TLSmodeType should be one of TLSmodeDisabled (default), TLSmodeAuto or TLSmodeStrict
-type TLSModeType string
-
-const (
-	defaultListenRangeBegin uint16 = 15000
-	defaultListenRangeEnd   uint16 = 65000
-	defaultEPMDPort         uint16 = 4369
-
-	defaultSendQueueLength   int = 100
-	defaultRecvQueueLength   int = 100
-	defaultFragmentationUnit     = 65000
-
-	defaultHandshakeVersion = 5
-
-	// TLSModeDisabled no TLS encryption
-	TLSModeDisabled TLSModeType = ""
-	// TLSModeAuto generate self-signed certificate
-	TLSModeAuto TLSModeType = "auto"
-	// TLSModeStrict with validation certificate
-	TLSModeStrict TLSModeType = "strict"
-)
-
 type network struct {
-	registrar        Registrar
+	registrar        registrarInternal
 	name             string
 	opts             Options
 	ctx              context.Context
 	remoteSpawnMutex sync.Mutex
-	remoteSpawn      map[string]ProcessBehavior
+	remoteSpawn      map[string]gen.ProcessBehavior
 	epmd             *epmd
 	tlscertServer    tls.Certificate
 	tlscertClient    tls.Certificate
 }
 
-func NewNetwork(ctx context.Context, name string, opts Options, r Registrar) (Network, error) {
+func NewNetwork(ctx context.Context, name string, opts Options, r registrarInternal) (Network, error) {
 	n := &network{
 		name:      name,
 		opts:      opts,
@@ -107,7 +76,7 @@ func (n *network) RemoveStaticRoute(name string) {
 	n.epmd.RemoveStaticRoute(name)
 }
 
-func (n *network) ProvideRemoteSpawn(name string, object ProcessBehavior) {
+func (n *network) ProvideRemoteSpawn(name string, object gen.ProcessBehavior) {
 	n.remoteSpawnMutex.Lock()
 	n.remoteSpawn[name] = object
 	n.remoteSpawnMutex.Unlock()
@@ -234,7 +203,7 @@ func (n *network) serve(ctx context.Context, link *dist.Link) error {
 		n:    numHandlers,
 	}
 
-	p := &gen.peer{
+	p := &peer{
 		name: link.GetRemoteName(),
 		send: make([]chan []etf.Term, numHandlers),
 		n:    numHandlers,
@@ -469,7 +438,7 @@ func (n *network) handleMessage(fromNode string, control, message etf.Term) (err
 					return
 				}
 
-				process, err_spawn := n.registrar.spawn(registerName, ProcessOptions{}, object, args...)
+				process, err_spawn := n.registrar.spawn(registerName, gen.ProcessOptions{}, object, args...)
 				if err_spawn != nil {
 					message := etf.Tuple{distProtoSPAWN_REPLY, ref, from, 0, etf.Atom(err_spawn.Error())}
 					n.registrar.RouteRaw(from.Node, message)
@@ -489,7 +458,7 @@ func (n *network) handleMessage(fromNode string, control, message etf.Term) (err
 				}
 				ref := t.Element(2).(etf.Ref)
 				//flags := t.Element(4)
-				process.putSyncReply(ref, t.Element(5))
+				process.PutSyncReply(ref, t.Element(5))
 
 			default:
 				lib.Log("[%s] CONTROL unknown command [from %s]: %#v", n.registrar.NodeName(), fromNode, control)
@@ -579,7 +548,7 @@ func generateSelfSignedCert() (tls.Certificate, error) {
 	template := x509.Certificate{
 		SerialNumber: serialNumber,
 		Subject: pkix.Name{
-			Organization: []string{"ergo"},
+			Organization: []string{VersionPrefix},
 		},
 		NotBefore: time.Now(),
 		NotAfter:  time.Now().Add(time.Hour * 24 * 365),
