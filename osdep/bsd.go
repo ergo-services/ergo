@@ -1,12 +1,12 @@
 // +build freebsd openbsd netbsd dragonfly
 
-package ergo
+package osdep
 
 import (
 	"syscall"
 )
 
-func os_dep_getResourceUsage() (int64, int64) {
+func getResourceUsage() (int64, int64) {
 	var usage syscall.Rusage
 	var utime, stime int64
 	if err := syscall.Getrusage(syscall.RUSAGE_SELF, &usage); err == nil {

@@ -1,4 +1,4 @@
-package ergo
+package gen
 
 import (
 	"fmt"
@@ -489,8 +489,7 @@ func startChild(parent *Process, name string, child ProcessBehavior, args ...etf
 	} else {
 		opts.GroupLeader = parent.groupLeader
 	}
-	opts.Parent = parent
-	process, err := parent.Node.Spawn(name, opts, child, args...)
+	process, err := parent.Spawn(name, opts, child, args...)
 
 	if err != nil {
 		panic(err)

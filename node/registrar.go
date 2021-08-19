@@ -1,42 +1,20 @@
-package ergo
+package node
 
 import (
 	"context"
 	"fmt"
-	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/halturin/ergo/etf"
+	"github.com/halturin/ergo/gen"
 	"github.com/halturin/ergo/lib"
 )
 
 const (
 	startPID = 1000
 )
-
-type Registrar interface {
-	Monitor
-	NodeName() string
-	GetProcessByName(name string) *Process
-	GetProcessByPid(pid etf.Pid) *Process
-	GetProcessByAlias(alias etf.Alias) *Process
-	ProcessList() []*Process
-	MakeRef() etf.Ref
-	RegisterName(name string, pid etf.Pid) error
-	UnregisterName(name string)
-	Spawn(name string, opts ProcessOptions, object ProcessBehavior, args ...etf.Term) (*Process, error)
-	IsProcessAlive(pid etf.Pid) bool
-
-	Route(from etf.Pid, to etf.Term, message etf.Term)
-	RouteRaw(nodename etf.Atom, messages ...etf.Term) error
-
-	registerPeer(peer *peer) error
-	unregisterPeer(name string)
-	newAlias(p *Process) (etf.Alias, error)
-	deleteAlias(owner *Process, alias etf.Alias) error
-}
 
 type registrar struct {
 	monitor
@@ -47,7 +25,7 @@ type registrar struct {
 	nodename string
 	creation uint32
 
-	net network
+	net Network
 
 	names          map[string]etf.Pid
 	mutexNames     sync.Mutex
@@ -57,11 +35,11 @@ type registrar struct {
 	mutexProcesses sync.Mutex
 	peers          map[string]*peer
 	mutexPeers     sync.Mutex
-	apps           map[string]*ApplicationSpec
+	apps           map[string]*gen.ApplicationSpec
 	mutexApps      sync.Mutex
 }
 
-func NewRegistrar(ctx context.Context, nodename string, creation uint32, net network) Registrar {
+func NewRegistrar(ctx context.Context, nodename string, creation uint32, net Network) Registrar {
 	r := &registrar{
 		ctx:       ctx,
 		nextPID:   startPID,
@@ -73,7 +51,7 @@ func NewRegistrar(ctx context.Context, nodename string, creation uint32, net net
 		aliases:   make(map[etf.Alias]*Process),
 		processes: make(map[uint64]*Process),
 		peers:     make(map[string]*peer),
-		apps:      make(map[string]*ApplicationSpec),
+		apps:      make(map[string]*gen.ApplicationSpec),
 	}
 	r.monitor = NewMonitor(r)
 	return r
@@ -106,14 +84,14 @@ func (r *registrar) MakeRef() (ref etf.Ref) {
 	return
 }
 
-func (r *registrar) newAlias(p *Process) (etf.Alias, error) {
+func (r *registrar) newAlias(pid etf.Pid) (etf.Alias, error) {
 	var alias etf.Alias
-	lib.Log("[%s] REGISTRAR create process alias for %v", r.nodename, p.self)
+	lib.Log("[%s] REGISTRAR create process alias for %v", r.nodename, pid)
 	r.mutexProcesses.Lock()
 	defer r.mutexProcesses.Unlock()
 
 	// chech if its alive
-	_, exist := r.processes[p.self.ID]
+	_, exist := r.processes[pid.ID]
 	if !exist {
 		return alias, ErrProcessUnknown
 	}
@@ -128,8 +106,8 @@ func (r *registrar) newAlias(p *Process) (etf.Alias, error) {
 	return alias, nil
 }
 
-func (r *registrar) deleteAlias(owner *Process, alias etf.Alias) error {
-	lib.Log("[%s] REGISTRAR delete process alias %v for %v", r.nodename, alias, owner.self)
+func (r *registrar) deleteAlias(owner etf.Pid, alias etf.Alias) error {
+	lib.Log("[%s] REGISTRAR delete process alias %v for %v", r.nodename, alias, owner)
 	r.mutexProcesses.Lock()
 	defer r.mutexProcesses.Unlock()
 	r.mutexAliases.Lock()
@@ -140,7 +118,7 @@ func (r *registrar) deleteAlias(owner *Process, alias etf.Alias) error {
 		return ErrAliasUnknown
 	}
 
-	process, process_exist := r.processes[p.self.ID]
+	process, process_exist := r.processes[owner.ID]
 	if !process_exist {
 		return ErrProcessUnknown
 	}
@@ -163,7 +141,7 @@ func (r *registrar) deleteAlias(owner *Process, alias etf.Alias) error {
 	return ErrAliasUnknown
 }
 
-func (r *registrar) newProcess(name string, object ProcessBehavior, opts ProcessOptions) (*Process, error) {
+func (r *registrar) newProcess(name string, object gen.ProcessBehavior, opts processOptions) (*Process, error) {
 
 	var parentContext context.Context
 
@@ -173,10 +151,10 @@ func (r *registrar) newProcess(name string, object ProcessBehavior, opts Process
 	}
 
 	switch {
-	case opts.Parent != nil:
-		parentContext = opts.Parent.Context
+	case opts.parent != nil:
+		parentContext = opts.parent.context
 	case opts.GroupLeader != nil:
-		parentContext = opts.GroupLeader.Context
+		parentContext = opts.GroupLeader.Context()
 	default:
 		parentContext = r.ctx
 	}
@@ -197,7 +175,6 @@ func (r *registrar) newProcess(name string, object ProcessBehavior, opts Process
 		groupLeader: opts.GroupLeader,
 
 		mailBox:      make(chan mailboxMessage, mailboxSize),
-		ready:        make(chan error),
 		gracefulExit: make(chan gracefulExitRequest),
 		direct:       make(chan directMessage),
 		stopped:      make(chan bool),
@@ -297,42 +274,46 @@ func (r *registrar) deleteProcess(pid etf.Pid) {
 }
 
 // Spawn create new process
-func (r *registrar) Spawn(name string, opts ProcessOptions, object ProcessBehavior, args ...etf.Term) (*Process, error) {
+func (r *registrar) spawn(name string, opts ProcessOptions, object ProcessBehavior, args ...etf.Term) (*process, error) {
 
 	process, err := r.newProcess(name, object, opts)
 	if err != nil {
 		return nil, err
 	}
+	processState, err := object.ProcessInit(process, args...)
+	if err != nil {
+		return nil, err
+	}
 
-	go func() {
+	go func(ps ProcessState) {
 		pid := process.Self()
-		cleanProcess := func() {
-			r.deleteProcess(pid)
-			r.processTerminated(pid, name, "panic")
-		}
+		//cleanProcess := func() {
+		//	r.deleteProcess(pid)
+		//	r.processTerminated(pid, name, "panic")
+		//}
 
-		defer func(clean func()) {
-			if r := recover(); r != nil {
-				pc, fn, line, _ := runtime.Caller(2)
-				fmt.Printf("Warning: process recovered (name: %s) %v %#v at %s[%s:%d]\n",
-					name, process.self, r, runtime.FuncForPC(pc).Name(), fn, line)
+		//defer func(clean func()) {
+		//	if r := recover(); r != nil {
+		//		pc, fn, line, _ := runtime.Caller(2)
+		//		fmt.Printf("Warning: process recovered (name: %s) %v %#v at %s[%s:%d]\n",
+		//			name, process.self, r, runtime.FuncForPC(pc).Name(), fn, line)
 
-				clean()
+		//		clean()
 
-				process.Kill()
+		//		process.Kill()
 
-				process.ready <- fmt.Errorf("Can't start process: %s\n", r)
-				close(process.stopped)
-			}
+		//		process.ready <- fmt.Errorf("Can't start process: %s\n", r)
+		//		close(process.stopped)
+		//	}
 
-			// we should close this channel otherwise if we try
-			// immediately call process.Exit it blocks this call forewer
-			// since there is nobody to read a message from this channel
-			close(process.gracefulExit)
-		}(cleanProcess)
+		//	// we should close this channel otherwise if we try
+		//	// immediately call process.Exit it blocks this call forewer
+		//	// since there is nobody to read a message from this channel
+		//	close(process.gracefulExit)
+		//}(cleanProcess)
 
 		// start process loop
-		reason := object.(ProcessBehavior).Loop(process, args...)
+		reason := object.(ProcessBehavior).Loop(ps)
 
 		// process stopped. unregister it and let everybody (who set up
 		// link/monitor) to know about it
@@ -344,14 +325,8 @@ func (r *registrar) Spawn(name string, opts ProcessOptions, object ProcessBehavi
 			process.Kill()
 		}
 
-		close(process.ready)
 		close(process.stopped)
-	}()
-
-	if e := <-process.ready; e != nil {
-		close(process.ready)
-		return nil, e
-	}
+	}(processState)
 
 	return process, nil
 }
@@ -401,7 +376,7 @@ func (r *registrar) unregisterPeer(name string) {
 	r.mutexPeers.Unlock()
 }
 
-func (r *registrar) RegisterApp(name string, spec *ApplicationSpec) error {
+func (r *registrar) RegisterApp(name string, spec *gen.ApplicationSpec) error {
 	lib.Log("[%s] REGISTRAR registering app %v", r.nodename, name)
 	r.mutexApps.Lock()
 	if _, ok := r.apps[name]; ok {
@@ -421,7 +396,7 @@ func (r *registrar) UnregisterApp(name string) {
 	r.mutexApps.Unlock()
 }
 
-func (r *registrar) GetApplicationSpecByName(name string) *ApplicationSpec {
+func (r *registrar) GetApplicationSpecByName(name string) *gen.ApplicationSpec {
 	r.mutexApps.Lock()
 	defer r.mutexApps.Unlock()
 	if spec, ok := r.apps[name]; ok {
@@ -431,11 +406,8 @@ func (r *registrar) GetApplicationSpecByName(name string) *ApplicationSpec {
 }
 
 // IsProcessAlive returns true if the process with given pid is alive
-func (r *registrar) IsProcessAlive(pid etf.Pid) bool {
-	if pid.Node != etf.Atom(r.nodename) {
-		return false
-	}
-
+func (r *registrar) IsProcessAlive(process Process) bool {
+	pid := process.Self()
 	p := r.GetProcessByPid(pid)
 	if p == nil {
 		return false
@@ -512,8 +484,8 @@ func (r *registrar) PeerList() []string {
 	return list
 }
 
-func (r *registrar) ApplicationList() []*ApplicationSpec {
-	list := []*ApplicationSpec{}
+func (r *registrar) ApplicationList() []*gen.ApplicationSpec {
+	list := []*gen.ApplicationSpec{}
 	r.mutexApps.Lock()
 	for _, a := range r.apps {
 		list = append(list, a)

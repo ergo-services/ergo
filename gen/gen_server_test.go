@@ -1,4 +1,4 @@
-package ergo
+package gen
 
 import (
 	"fmt"
@@ -38,21 +38,17 @@ func (tgs *testGenServer) Init(state *GenServerState, args ...etf.Term) error {
 	return nil
 }
 func (tgs *testGenServer) HandleCast(state *GenServerState, message etf.Term) string {
-	// fmt.Printf("testGenServer ({%s, %s}): HandleCast: %#v\n", tgs.process.name, tgs.process.Node.Name(), message)
 	tgs.err <- nil
 	return "noreply"
 }
 func (tgs *testGenServer) HandleCall(state *GenServerState, from GenServerFrom, message etf.Term) (string, etf.Term) {
-	// fmt.Printf("testGenServer ({%s, %s}): HandleCall: %#v, From: %#v\n", tgs.process.name, tgs.process.Node.Name(), message, from)
 	return "reply", message
 }
 func (tgs *testGenServer) HandleInfo(state *GenServerState, message etf.Term) string {
-	// fmt.Printf("testGenServer ({%s, %s}): HandleInfo: %#v\n", tgs.process.name, tgs.process.Node.Name(), message)
 	tgs.err <- nil
 	return "noreply"
 }
 func (tgs *testGenServer) Terminate(state *GenServerState, reason string) {
-	// fmt.Printf("testGenServer ({%s, %s}): Terminate: %#v\n", tgs.process.name, tgs.process.Node.Name(), reason)
 	tgs.err <- nil
 }
 
@@ -93,19 +89,19 @@ func TestGenServer(t *testing.T) {
 		err: make(chan error, 2),
 	}
 
-	fmt.Printf("    wait for start of gs1 on %#v: ", node1.Name())
+	fmt.Printf("    wait for start of gs1 on %#v: ", node1.NodeName())
 	node1gs1, _ := node1.Spawn("gs1", ProcessOptions{}, gs1, nil)
 	waitForResult(t, gs1.err)
 
-	fmt.Printf("    wait for start of gs2 on %#v: ", node1.Name())
+	fmt.Printf("    wait for start of gs2 on %#v: ", node1.NodeName())
 	node1gs2, _ := node1.Spawn("gs2", ProcessOptions{}, gs2, nil)
 	waitForResult(t, gs2.err)
 
-	fmt.Printf("    wait for start of gs3 on %#v: ", node2.Name())
+	fmt.Printf("    wait for start of gs3 on %#v: ", node2.NodeName())
 	node2gs3, _ := node2.Spawn("gs3", ProcessOptions{}, gs3, nil)
 	waitForResult(t, gs3.err)
 
-	fmt.Printf("    wait for start of gsDirect on %#v: ", node2.Name())
+	fmt.Printf("    wait for start of gsDirect on %#v: ", node2.NodeName())
 	node2gsDirect, _ := node2.Spawn("gsDirect", ProcessOptions{}, gsDirect, nil)
 	waitForResult(t, gsDirect.err)
 
@@ -196,7 +192,7 @@ func TestGenServer(t *testing.T) {
 	}
 
 	fmt.Printf("    process.Send (by Name) local (gs1) -> remote (gs3) : ")
-	processName := etf.Tuple{"gs3", node2.Name()}
+	processName := etf.Tuple{"gs3", node2.NodeName()}
 	node1gs1.Send(processName, etf.Atom("hi"))
 	waitForResult(t, gs3.err)
 
@@ -259,7 +255,7 @@ func TestGenServer(t *testing.T) {
 		}
 	}
 
-	fmt.Printf("Stopping nodes: %v, %v\n", node1.Name(), node2.Name())
+	fmt.Printf("Stopping nodes: %v, %v\n", node1.NodeName(), node2.NodeName())
 	node1.Stop()
 	node2.Stop()
 }

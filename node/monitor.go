@@ -1,4 +1,4 @@
-package ergo
+package node
 
 // http://erlang.org/doc/reference_manual/processes.html
 
@@ -10,23 +10,6 @@ import (
 	"github.com/halturin/ergo/etf"
 	"github.com/halturin/ergo/lib"
 )
-
-type Monitor interface {
-	GetLinks(process etf.Pid) []etf.Pid
-	GetMonitors(process etf.Pid) []etf.Pid
-	GetMonitoredBy(process etf.Pid) []etf.Pid
-
-	monitorProcess(by etf.Pid, process interface{}, ref etf.Ref)
-	demonitorProcess(ref etf.Ref) bool
-	monitorNode(by etf.Pid, node string) etf.Ref
-	demonitorNode(ref etf.Ref) bool
-
-	nodeDown(name string)
-	processTerminated(terminated etf.Pid, name, reason string)
-
-	link(pidA, pidB etf.Pid)
-	unlink(pidA, pidB etf.Pid)
-}
 
 type DownMessage struct {
 	Down   etf.Atom // = etf.Atom("DOWN")

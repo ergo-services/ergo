@@ -1,4 +1,4 @@
-package dist
+package node
 
 import (
 	"context"
@@ -28,18 +28,15 @@ const (
 	EPMD_STOP_REQ = 115 // $s
 )
 
-type EPMD struct {
-	FullName string
-	Name     string
-	Domain   string
+type epmd struct {
+	Name   string
+	Domain string
 
 	// Listening port for incoming connections
-	Port uint16
+	NodePort uint16
 
 	// EPMD port for the cluster
-	PortEMPD uint16
-	// http://erlang.org/doc/reference_manual/distributed.html (section 13.5)
-	// // 77 — regular public node, 72 — hidden
+	Port uint16
 	Type uint8
 
 	Protocol uint8
@@ -48,55 +45,61 @@ type EPMD struct {
 	Extra    []byte
 	Creation uint16
 
-	staticRoutes map[string]uint16
+	staticOnly   bool
+	staticRoutes map[string]portcookietls
 	mtx          sync.RWMutex
 
 	response chan interface{}
 }
 
-func (e *EPMD) Init(ctx context.Context, name string, listenport uint16, epmdport uint16, hidden bool, disableServer bool) {
+type portcookietls struct {
+	port   int
+	cookie string
+	tls    bool
+}
+
+func (e *epmd) Init(ctx context.Context, name string, port uint16, opts Options) error {
 	ns := strings.Split(name, "@")
-	if len(ns) == 1 {
-		ns = append(ns, "localhost")
-		name = name + "@localhost"
-	}
 	if len(ns) != 2 {
-		panic("FQDN for node name is required (example: node@hostname)")
+		return fmt.Errorf("(EMPD) FQDN for node name is required (example: node@hostname)")
 	}
 
-	e.FullName = name
 	e.Name = ns[0]
 	e.Domain = ns[1]
-	e.Port = listenport
-	e.PortEMPD = epmdport
+	e.NodePort = port
+	e.Port = opts.EPMDPort
 
-	if hidden {
+	// http://erlang.org/doc/reference_manual/distributed.html (section 13.5)
+	// // 77 — regular public node, 72 — hidden
+	if opts.Hidden {
 		e.Type = 72
 	} else {
 		e.Type = 77
 	}
 
 	e.Protocol = 0
-	e.HighVsn = 5
+	e.HighVsn = uint16(opts.HandshakeVersion)
 	e.LowVsn = 5
-	e.Creation = 0
+	// FIXME overflows value opts.creation is uint32
+	e.Creation = uint16(opts.creation)
 
-	e.staticRoutes = make(map[string]uint16)
+	e.staticOnly = opts.DisableEPMD
+	e.staticRoutes = make(map[string]portcookietls)
 
-	ready := make(chan bool)
+	ready := make(chan error)
 
-	go func(e *EPMD) {
+	go func(e *epmd) {
 		defer close(ready)
 		for {
-			if !disableServer {
+			if !opts.DisableEPMDServer {
 				// trying to start embedded EPMD before we go further
-				Server(ctx, epmdport)
+				Server(ctx, e.Port)
 			}
-			dsn := net.JoinHostPort("", strconv.Itoa(int(epmdport)))
+			dsn := net.JoinHostPort("", strconv.Itoa(int(e.Port)))
 			conn, err := net.Dial("tcp", dsn)
 			if err != nil {
-				// we can't work without epmd service
-				panic(err.Error())
+				ready <- err
+				return
 			}
 
 			conn.Write(compose_ALIVE2_REQ(e))
@@ -114,11 +117,12 @@ func (e *EPMD) Init(ctx context.Context, name string, listenport uint16, epmdpor
 					creation := read_ALIVE2_RESP(buf)
 					switch creation {
 					case false:
-						panic(fmt.Sprintf("Duplicate name '%s'", e.Name))
+						ready <- fmt.Errorf("Duplicate name '%s'", e.Name)
+						return
 					default:
 						e.Creation = creation.(uint16)
 					}
-					ready <- true
+					ready <- nil
 				} else {
 					lib.Log("Malformed EPMD reply")
 					conn.Close()
@@ -129,10 +133,10 @@ func (e *EPMD) Init(ctx context.Context, name string, listenport uint16, epmdpor
 		}
 	}(e)
 
-	<-ready
+	return <-ready
 }
 
-func (e *EPMD) AddStaticRoute(name string, port uint16) error {
+func (e *epmd) AddStaticRoute(name string, port uint16, cookie string, tls bool) error {
 	ns := strings.Split(name, "@")
 	if len(ns) == 1 {
 		ns = append(ns, "localhost")
@@ -144,45 +148,57 @@ func (e *EPMD) AddStaticRoute(name string, port uint16) error {
 		return err
 	}
 
+	if e.staticOnly && port == 0 {
+		return fmt.Errorf("EMPD is disabled. Port must be > 0")
+	}
+
 	e.mtx.Lock()
 	defer e.mtx.Unlock()
 	if _, ok := e.staticRoutes[name]; ok {
 		// already exist
 		return fmt.Errorf("already exist")
 	}
-	e.staticRoutes[name] = port
+	e.staticRoutes[name] = portcookietls{int(port), cookie, tls}
 
 	return nil
 }
 
-func (e *EPMD) RemoveStaticRoute(name string) {
+func (e *epmd) RemoveStaticRoute(name string) {
 	e.mtx.Lock()
 	defer e.mtx.Unlock()
 	delete(e.staticRoutes, name)
 	return
 }
 
-func (e *EPMD) ResolvePort(name string) (int, error) {
+func (e *epmd) resolve(name string) (portcookietls, error) {
 	// chech static routes first
 	e.mtx.RLock()
-	if port, ok := e.staticRoutes[name]; ok {
-		e.mtx.RUnlock()
-		return int(port), nil
+	defer e.mtx.RUnlock()
+	pct, ok := e.staticRoutes[name]
+	if ok && pct.port > 0 {
+		return pct, nil
 	}
 
-	e.mtx.RUnlock()
+	if e.staticOnly {
+		return pct, fmt.Errorf("Can't resolve %s", name)
+	}
+
 	// no static route for the given name. go the regular way
-	return e.resolvePort(name)
+	port, err := e.resolvePort(name)
+	if err != nil {
+		return portcookietls{}, err
+	}
+	return portcookietls{port, pct.cookie, pct.tls}, nil
 }
 
-func (e *EPMD) resolvePort(name string) (int, error) {
+func (e *epmd) resolvePort(name string) (int, error) {
 	ns := strings.Split(name, "@")
 	if len(ns) != 2 {
-		return -1, fmt.Errorf("incorrect FQDN node name (example: node@localhost)")
+		return 0, fmt.Errorf("incorrect FQDN node name (example: node@localhost)")
 	}
-	conn, err := net.Dial("tcp", net.JoinHostPort(ns[1], fmt.Sprintf("%d", e.PortEMPD)))
+	conn, err := net.Dial("tcp", net.JoinHostPort(ns[1], fmt.Sprintf("%d", e.Port)))
 	if err != nil {
-		return -1, err
+		return 0, err
 	}
 
 	defer conn.Close()
@@ -210,7 +226,7 @@ func (e *EPMD) resolvePort(name string) (int, error) {
 	}
 }
 
-func compose_ALIVE2_REQ(e *EPMD) (reply []byte) {
+func compose_ALIVE2_REQ(e *epmd) (reply []byte) {
 	reply = make([]byte, 2+14+len(e.Name)+len(e.Extra))
 	binary.BigEndian.PutUint16(reply[0:2], uint16(len(reply)-2))
 	reply[2] = byte(EPMD_ALIVE2_REQ)

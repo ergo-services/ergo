@@ -1,4 +1,4 @@
-package ergo
+package gen
 
 import "github.com/halturin/ergo/etf"
 

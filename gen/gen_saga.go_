@@ -1,4 +1,4 @@
-package ergo
+package gen
 
 import (
 	"fmt"
@@ -195,7 +195,7 @@ func (gs *GenSaga) Init(state *GenServerState, args ...etf.Term) error {
 		Worker: options.Worker,
 	}
 	sv := &GenSagaWorkerSup{}
-	svp, err := state.Process.Node.Spawn("gen_saga_worker_sup", ProcessOptions{}, sv, svopts)
+	svp, err := state.Process.Spawn("gen_saga_worker_sup", ProcessOptions{}, sv, svopts)
 	if err != nil {
 		return err
 	}

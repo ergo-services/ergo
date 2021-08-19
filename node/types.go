@@ -1,10 +1,7 @@
-package ergo
+package node
 
 import (
 	"fmt"
-	"sync"
-
-	"github.com/halturin/ergo/etf"
 )
 
 var (
@@ -57,27 +54,3 @@ const (
 	distProtoUNLINK_ID              = 35
 	distProtoUNLINK_ID_ACK          = 36
 )
-
-type peer struct {
-	name string
-	send []chan []etf.Term
-	i    int
-	n    int
-
-	mutex sync.Mutex
-}
-
-func (p *peer) GetChannel() chan []etf.Term {
-	p.mutex.Lock()
-	defer p.mutex.Unlock()
-
-	c := p.send[p.i]
-
-	p.i++
-	if p.i < p.n {
-		return c
-	}
-
-	p.i = 0
-	return c
-}

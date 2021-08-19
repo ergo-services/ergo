@@ -1,4 +1,4 @@
-package ergo
+package node
 
 import (
 	"context"
@@ -7,18 +7,17 @@ import (
 	"time"
 
 	"github.com/halturin/ergo/etf"
+	"github.com/halturin/ergo/gen"
 	"github.com/halturin/ergo/lib"
 )
-
-type ProcessType = string
 
 const (
 	DefaultProcessMailboxSize = 100
 	DefaultCallTimeout        = 5
 )
 
-type Process struct {
-	Registrar
+type process struct {
+	registrar
 	sync.RWMutex
 
 	name   string
@@ -26,90 +25,47 @@ type Process struct {
 	object ProcessBehavior
 	env    map[string]interface{}
 
-	parent      *Process
-	groupLeader *Process
+	parent      *process
+	groupLeader *process
 	aliases     []etf.Alias
 
-	mailBox      chan mailboxMessage
-	ready        chan error
-	gracefulExit chan gracefulExitRequest
-	direct       chan directMessage
+	mailBox      chan gen.ProcessMailboxMessage
+	gracefulExit chan gen.ProcessGracefulExitRequest
+	direct       chan gen.ProcessDirectMessage
 	stopped      chan bool
 
-	Context context.Context
+	context context.Context
 	Kill    context.CancelFunc
-	Exit    ProcessExitFunc
-	Node    *Node
+	Exit    processExitFunc
 
 	replyMutex sync.Mutex
 	reply      map[etf.Ref]chan etf.Term
-
-	reductions      uint64 // we use this term to count total number of processed messages from mailBox
-	currentFunction string
-	trapExit        bool
 }
 
-type mailboxMessage struct {
-	from    etf.Pid
-	message interface{}
-}
-
-type directMessage struct {
-	id      string
-	message interface{}
-	err     error
-	reply   chan directMessage
-}
-
-type gracefulExitRequest struct {
-	from   etf.Pid
-	reason string
-}
-
-// ProcessInfo struct with process details
-type ProcessInfo struct {
-	PID             etf.Pid
-	Name            string
-	CurrentFunction string
-	Status          string
-	MessageQueueLen int
-	Links           []etf.Pid
-	Monitors        []etf.Pid
-	MonitoredBy     []etf.Pid
-	Aliases         []etf.Alias
-	Dictionary      etf.Map
-	TrapExit        bool
-	GroupLeader     etf.Pid
-	Reductions      uint64
-}
-
-type ProcessOptions struct {
-	MailboxSize uint16
-	GroupLeader *Process
-	Parent      *Process
-	Env         map[string]interface{}
+type processOptions struct {
+	ProcessOptions
+	parent *process
 }
 
 // ProcessExitFunc initiate a graceful stopping process
-type ProcessExitFunc func(from etf.Pid, reason string)
-
-// ProcessBehavior interface contains methods you should implement to make own process behaviour
-type ProcessBehavior interface {
-	Loop(*Process, ...etf.Term) string // method which implements control flow of process
-}
+type processExitFunc func(from etf.Pid, reason string)
 
 // Self returns self Pid
-func (p *Process) Self() etf.Pid {
+func (p *process) Self() etf.Pid {
 	return p.self
 }
 
 // Name returns registered name of the process
-func (p *Process) Name() string {
+func (p *process) Name() string {
 	return p.name
 }
 
+func (p *process) Context() context.Context {
+	return p.context
+}
+
 // Info returns detailed information about the process
-func (p *Process) Info() ProcessInfo {
+func (p *process) Info() ProcessInfo {
 	gl := p.self
 	if p.groupLeader != nil {
 		gl = p.groupLeader.self
@@ -137,18 +93,18 @@ func (p *Process) Info() ProcessInfo {
 // Call makes outgoing sync request in fashion of 'gen_call'.
 // 'to' can be Pid, registered local name or a tuple {RegisteredName, NodeName}.
 // This method shouldn't be used outside of the actor. Use Direct method instead.
-func (p *Process) Call(to interface{}, message etf.Term) (etf.Term, error) {
+func (p *process) Call(to interface{}, message etf.Term) (etf.Term, error) {
 	return p.CallWithTimeout(to, message, DefaultCallTimeout)
 }
 
 // CallWithTimeout makes outgoing sync request in fashiod of 'gen_call' with given timeout.
 // This method shouldn't be used outside of the actor. Use DirectWithTimeout method instead.
-func (p *Process) CallWithTimeout(to interface{}, message etf.Term, timeout int) (etf.Term, error) {
+func (p *process) CallWithTimeout(to interface{}, message etf.Term, timeout int) (etf.Term, error) {
 	if !p.IsAlive() {
 		return nil, ErrProcessTerminated
 	}
 
-	ref := p.Node.MakeRef()
+	ref := p.MakeRef()
 	from := etf.Tuple{p.self, ref}
 	msg := etf.Term(etf.Tuple{etf.Atom("$gen_call"), from, message})
 	p.sendSyncRequest(ref, to, msg)
@@ -158,13 +114,13 @@ func (p *Process) CallWithTimeout(to interface{}, message etf.Term, timeout int)
 }
 
 // CallRPC evaluate rpc call with given node/MFA
-func (p *Process) CallRPC(node, module, function string, args ...etf.Term) (etf.Term, error) {
+func (p *process) CallRPC(node, module, function string, args ...etf.Term) (etf.Term, error) {
 	return p.CallRPCWithTimeout(DefaultCallTimeout, node, module, function, args...)
 }
 
 // CallRPCWithTimeout evaluate rpc call with given node/MFA and timeout
-func (p *Process) CallRPCWithTimeout(timeout int, node, module, function string, args ...etf.Term) (etf.Term, error) {
-	lib.Log("[%s] RPC calling: %s:%s:%s", p.Node.Name(), node, module, function)
+func (p *process) CallRPCWithTimeout(timeout int, node, module, function string, args ...etf.Term) (etf.Term, error) {
+	lib.Log("[%s] RPC calling: %s:%s:%s", p.NodeName(), node, module, function)
 	message := etf.Tuple{
 		etf.Atom("call"),
 		etf.Atom(module),
@@ -177,8 +133,8 @@ func (p *Process) CallRPCWithTimeout(timeout int, node, module, function string,
 }
 
 // CastRPC evaluate rpc cast with given node/MFA
-func (p *Process) CastRPC(node, module, function string, args ...etf.Term) {
-	lib.Log("[%s] RPC casting: %s:%s:%s", p.Node.Name(), node, module, function)
+func (p *process) CastRPC(node, module, function string, args ...etf.Term) {
+	lib.Log("[%s] RPC casting: %s:%s:%s", p.NodeName(), node, module, function)
 	message := etf.Tuple{
 		etf.Atom("cast"),
 		etf.Atom(module),
@@ -191,7 +147,7 @@ func (p *Process) CastRPC(node, module, function string, args ...etf.Term) {
 
 // Send sends a message. 'to' can be a Pid, registered local name
 // or a tuple {RegisteredName, NodeName}
-func (p *Process) Send(to interface{}, message etf.Term) error {
+func (p *process) Send(to interface{}, message etf.Term) error {
 	if !p.IsAlive() {
 		return ErrProcessTerminated
 	}
@@ -202,7 +158,7 @@ func (p *Process) Send(to interface{}, message etf.Term) error {
 // SendAfter starts a timer. When the timer expires, the message sends to the process identified by 'to'.
 // 'to' can be a Pid, registered local name or a tuple {RegisteredName, NodeName}.
 // Returns cancel function in order to discard sending a message
-func (p *Process) SendAfter(to interface{}, message etf.Term, after time.Duration) context.CancelFunc {
+func (p *process) SendAfter(to interface{}, message etf.Term, after time.Duration) context.CancelFunc {
 	//TODO: should we control the number of timers/goroutines have been created this way?
 	ctx, cancel := context.WithCancel(p.Context)
 	go func() {
@@ -224,7 +180,7 @@ func (p *Process) SendAfter(to interface{}, message etf.Term, after time.Duratio
 }
 
 // CastAfter simple wrapper for SendAfter to send '$gen_cast' message
-func (p *Process) CastAfter(to interface{}, message etf.Term, after time.Duration) context.CancelFunc {
+func (p *process) CastAfter(to interface{}, message etf.Term, after time.Duration) context.CancelFunc {
 	msg := etf.Term(etf.Tuple{etf.Atom("$gen_cast"), message})
 	return p.SendAfter(to, msg, after)
 }
@@ -232,7 +188,7 @@ func (p *Process) CastAfter(to interface{}, message etf.Term, after time.Duratio
 // Cast sends a message in fashion of 'gen_cast'.
 // 'to' can be a Pid, registered local name
 // or a tuple {RegisteredName, NodeName}
-func (p *Process) Cast(to interface{}, message etf.Term) error {
+func (p *process) Cast(to interface{}, message etf.Term) error {
 	if !p.IsAlive() {
 		return ErrProcessTerminated
 	}
@@ -242,19 +198,19 @@ func (p *Process) Cast(to interface{}, message etf.Term) error {
 }
 
 // CreateAlias creates a new alias for the Process
-func (p *Process) CreateAlias() (etf.Alias, error) {
-	return p.newAlias(p)
+func (p *process) CreateAlias() (etf.Alias, error) {
+	return p.newAlias(p.self)
 }
 
 // DeleteAlias deletes the given alias
-func (p *Process) DeleteAlias(alias etf.Alias) error {
-	return p.deleteAlias(p, alias)
+func (p *process) DeleteAlias(alias etf.Alias) error {
+	return p.deleteAlias(p.self, alias)
 }
 
 // ListEnv returns a map of configured environment variables.
 // It also includes environment variables from the GroupLeader and Parent.
 // which are overlapped by priority: Process(Parent(GroupLeader))
-func (p *Process) ListEnv() map[string]interface{} {
+func (p *process) ListEnv() map[string]interface{} {
 	p.RLock()
 	defer p.RUnlock()
 
@@ -278,7 +234,7 @@ func (p *Process) ListEnv() map[string]interface{} {
 }
 
 // SetEnv set environment variable with given name
-func (p *Process) SetEnv(name string, value interface{}) {
+func (p *process) SetEnv(name string, value interface{}) {
 	p.Lock()
 	defer p.Unlock()
 	if p.env == nil {
@@ -288,7 +244,7 @@ func (p *Process) SetEnv(name string, value interface{}) {
 }
 
 // GetEnv returns value associated with given environment name.
-func (p *Process) GetEnv(name string) interface{} {
+func (p *process) GetEnv(name string) interface{} {
 	p.RLock()
 	defer p.RUnlock()
 
@@ -304,13 +260,13 @@ func (p *Process) GetEnv(name string) interface{} {
 }
 
 // Wait waits until process stopped
-func (p *Process) Wait() {
+func (p *process) Wait() {
 	<-p.stopped
 }
 
 // WaitWithTimeout waits until process stopped. Return ErrTimeout
 // if given timeout is exceeded
-func (p *Process) WaitWithTimeout(d time.Duration) error {
+func (p *process) WaitWithTimeout(d time.Duration) error {
 	timer := time.NewTimer(d)
 	defer timer.Stop()
 
@@ -327,22 +283,22 @@ func (p *Process) WaitWithTimeout(d time.Duration) error {
 }
 
 // Link creates a link between the calling process and another process
-func (p *Process) Link(with etf.Pid) {
+func (p *process) Link(with etf.Pid) {
 	p.link(p.self, with)
 }
 
 // Unlink removes the link, if there is one, between the calling process and the process referred to by Pid.
-func (p *Process) Unlink(with etf.Pid) {
+func (p *process) Unlink(with etf.Pid) {
 	p.unlink(p.self, with)
 }
 
 // IsAlive returns whether the process is alive
-func (p *Process) IsAlive() bool {
+func (p *process) IsAlive() bool {
 	return p.Context.Err() == nil
 }
 
 // GetChildren returns list of children pid (Application, Supervisor)
-func (p *Process) GetChildren() []etf.Pid {
+func (p *process) GetChildren() []etf.Pid {
 	c, err := p.directRequest("$getChildren", nil, 5)
 	if err == nil {
 		return c.([]etf.Pid)
@@ -351,51 +307,42 @@ func (p *Process) GetChildren() []etf.Pid {
 }
 
 // SetTrapExit enables/disables the trap on terminate process
-func (p *Process) SetTrapExit(trap bool) {
+func (p *process) SetTrapExit(trap bool) {
 	p.trapExit = trap
 }
 
 // GetTrapExit returns whether the trap was enabled on this process
-func (p *Process) GetTrapExit() bool {
+func (p *process) GetTrapExit() bool {
 	return p.trapExit
 }
 
 // GetObject returns object this process runs on.
-func (p *Process) GetObject() interface{} {
+func (p *process) GetProcessBehavior() gen.ProcessBehavior {
 	return p.object
 }
 
 // Direct make a direct request to the actor (Application, Supervisor, GenServer or inherited from GenServer actor) with default timeout 5 seconds
-func (p *Process) Direct(request interface{}) (interface{}, error) {
+func (p *process) Direct(request interface{}) (interface{}, error) {
 	return p.directRequest("", request, DefaultCallTimeout)
 }
 
 // DirectWithTimeout make a direct request to the actor with the given timeout (in seconds)
-func (p *Process) DirectWithTimeout(request interface{}, timeout int) (interface{}, error) {
+func (p *process) DirectWithTimeout(request interface{}, timeout int) (interface{}, error) {
 	if timeout < 1 {
 		timeout = 5
 	}
 	return p.directRequest("", request, timeout)
 }
 
-// RemoteSpawnOptions defines options for RemoteSpawn method
-type RemoteSpawnOptions struct {
-	// RegisterName
-	RegisterName string
-	// Monitor enables monitor on the spawned process using provided reference
-	Monitor etf.Ref
-	// Link enables link between the calling and spawned processes
-	Link bool
-	// Function in order to support {M,F,A} request to the Erlang node
-	Function string
-	// Timeout
-	Timeout int
-}
-
 // MonitorNode creates monitor between the current process and node. If Node fails or does not exist,
 // the message {nodedown, Node} is delivered to the process.
-func (p *Process) MonitorNode(name string) etf.Ref {
+func (p *process) MonitorNode(name string) etf.Ref {
 	return p.monitorNode(p.self, name)
+}
+
+// DemonitorNode removes monitor. Returns false if the given reference wasn't found
+func (p *process) DemonitorNode(ref etf.Ref) bool {
+	return p.demonitorNode(ref)
 }
 
 // MonitorProcess creates monitor between the processes.
@@ -408,18 +355,18 @@ func (p *Process) MonitorNode(name string) etf.Ref {
 //  - 'noproc' (process did not exist at the time of monitor creation)
 //  - 'noconnection' (no connection to the node where the monitored process resides)
 // Note: The monitor request is an asynchronous signal. That is, it takes time before the signal reaches its destination.
-func (p *Process) MonitorProcess(process interface{}) etf.Ref {
+func (p *process) MonitorProcess(process interface{}) etf.Ref {
 	ref := p.MakeRef()
 	p.monitorProcess(p.self, process, ref)
 	return ref
 }
 
 // DemonitorProcess removes monitor. Returns false if the given reference wasn't found
-func (p *Process) DemonitorProcess(ref etf.Ref) bool {
+func (p *process) DemonitorProcess(ref etf.Ref) bool {
 	return p.demonitorProcess(ref)
 }
 
-func (p *Process) RemoteSpawn(node string, object string, opts RemoteSpawnOptions, args ...etf.Term) (etf.Pid, error) {
+func (p *process) RemoteSpawn(node string, object string, opts RemoteSpawnOptions, args ...etf.Term) (etf.Pid, error) {
 	ref := p.MakeRef()
 	optlist := etf.List{}
 	if opts.RegisterName != "" {
@@ -429,7 +376,8 @@ func (p *Process) RemoteSpawn(node string, object string, opts RemoteSpawnOption
 	if opts.Timeout == 0 {
 		opts.Timeout = DefaultCallTimeout
 	}
-	control := etf.Tuple{distProtoSPAWN_REQUEST, ref, p.self, p.self,
+	// distProtoSPAWN_REQUEST = 29
+	control := etf.Tuple{29, ref, p.self, p.self,
 		// {M,F,A}
 		etf.Tuple{etf.Atom(object), etf.Atom(opts.Function), len(args)},
 		optlist,
@@ -466,7 +414,12 @@ func (p *Process) RemoteSpawn(node string, object string, opts RemoteSpawnOption
 	return etf.Pid{}, fmt.Errorf("unknown result: %#v", reply)
 }
 
-func (p *Process) directRequest(id string, request interface{}, timeout int) (interface{}, error) {
+func (p *process) Spawn(name string, opts gen.ProcessOptions, object gen.ProcessBehavior, args ...etf.Term) (Process, error) {
+	options := processOptions{opts, parent: p}
+	return p.spawn(name, options, object, args...)
+}
+
+func (p *process) directRequest(id string, request interface{}, timeout int) (interface{}, error) {
 	timer := lib.TakeTimer()
 	defer lib.ReleaseTimer(timer)
 
@@ -497,14 +450,14 @@ func (p *Process) directRequest(id string, request interface{}, timeout int) (in
 	}
 }
 
-func (p *Process) sendSyncRequestRaw(ref etf.Ref, node etf.Atom, messages ...etf.Term) {
+func (p *process) sendSyncRequestRaw(ref etf.Ref, node etf.Atom, messages ...etf.Term) {
 	reply := make(chan etf.Term, 2)
 	p.replyMutex.Lock()
 	defer p.replyMutex.Unlock()
 	p.reply[ref] = reply
 	p.RouteRaw(node, messages...)
 }
-func (p *Process) sendSyncRequest(ref etf.Ref, to interface{}, message etf.Term) {
+func (p *process) sendSyncRequest(ref etf.Ref, to interface{}, message etf.Term) {
 	reply := make(chan etf.Term, 2)
 	p.replyMutex.Lock()
 	defer p.replyMutex.Unlock()
@@ -512,7 +465,7 @@ func (p *Process) sendSyncRequest(ref etf.Ref, to interface{}, message etf.Term)
 	p.Send(to, message)
 }
 
-func (p *Process) putSyncReply(ref etf.Ref, reply etf.Term) {
+func (p *process) putSyncReply(ref etf.Ref, reply etf.Term) {
 	p.replyMutex.Lock()
 	rep, ok := p.reply[ref]
 	p.replyMutex.Unlock()
@@ -526,7 +479,7 @@ func (p *Process) putSyncReply(ref etf.Ref, reply etf.Term) {
 
 }
 
-func (p *Process) waitSyncReply(ref etf.Ref, timeout int) (etf.Term, error) {
+func (p *process) waitSyncReply(ref etf.Ref, timeout int) (etf.Term, error) {
 	p.replyMutex.Lock()
 	reply, wait_for_reply := p.reply[ref]
 	p.replyMutex.Unlock()
@@ -556,4 +509,12 @@ func (p *Process) waitSyncReply(ref etf.Ref, timeout int) (etf.Term, error) {
 		}
 	}
 
+}
+
+func (p *process) getProcessChannels() gen.ProcessChannels {
+	return gen.ProcessChannel{
+		Mailbox:      p.mailBox,
+		Direct:       p.direct,
+		GracefulExit: p.gracefulExit,
+	}
 }
