@@ -1,4 +1,4 @@
-package ergo
+package erlang
 
 // https://github.com/erlang/otp/blob/master/lib/kernel/src/rpc.erl
 
@@ -6,10 +6,11 @@ import (
 	"fmt"
 
 	"github.com/halturin/ergo/etf"
+	"github.com/halturin/ergo/gen"
 	"github.com/halturin/ergo/lib"
 )
 
-type rpcFunction func(...etf.Term) etf.Term
+type FunctionRPC func(...etf.Term) etf.Term
 
 type modFun struct {
 	module   string
@@ -22,14 +23,14 @@ var (
 	}
 )
 
-type rex struct {
-	GenServer
-	methods map[modFun]rpcFunction
+type Rex struct {
+	gen.GenServer
+	methods map[modFun]FunctionRPC
 }
 
-func (r *rex) Init(state *GenServerState, args ...etf.Term) error {
+func (r *Rex) Init(state *gen.GenServerProcess, args ...etf.Term) error {
 	lib.Log("REX: Init: %#v", args)
-	r.methods = make(map[modFun]rpcFunction, 0)
+	r.methods = make(map[modFun]FunctionRPC, 0)
 
 	for i := range allowedModFun {
 		mf := modFun{
@@ -42,7 +43,7 @@ func (r *rex) Init(state *GenServerState, args ...etf.Term) error {
 	return nil
 }
 
-func (r *rex) HandleCall(state *GenServerState, from GenServerFrom, message etf.Term) (string, etf.Term) {
+func (r *Rex) HandleCall(process *gen.GenServerProcess, from gen.GenServerFrom, message etf.Term) (string, etf.Term) {
 	lib.Log("REX: HandleCall: %#v, From: %#v", message, from)
 	switch m := message.(type) {
 	case etf.Tuple:
@@ -53,14 +54,14 @@ func (r *rex) HandleCall(state *GenServerState, from GenServerFrom, message etf.
 			module := m.Element(2).(etf.Atom)
 			function := m.Element(3).(etf.Atom)
 			args := m.Element(4).(etf.List)
-			reply := r.handleRPC(state, module, function, args)
+			reply := r.handleRPC(process, module, function, args)
 			if reply != nil {
 				return "reply", reply
 			}
 
-			to := etf.Tuple{string(module), state.Process.NodeName()}
+			to := etf.Tuple{string(module), process.NodeName()}
 			m := etf.Tuple{m.Element(3), m.Element(4)}
-			reply, err := state.Process.Call(to, m)
+			reply, err := process.Call(to, m)
 			if err != nil {
 				reply = etf.Term(etf.Tuple{etf.Atom("error"), err})
 			}
@@ -69,7 +70,7 @@ func (r *rex) HandleCall(state *GenServerState, from GenServerFrom, message etf.
 		case etf.Atom("$provide"):
 			module := m.Element(2).(etf.Atom)
 			function := m.Element(3).(etf.Atom)
-			fun := m.Element(4).(rpcFunction)
+			fun := m.Element(4).(FunctionRPC)
 			mf := modFun{
 				module:   string(module),
 				function: string(function),
@@ -103,11 +104,7 @@ func (r *rex) HandleCall(state *GenServerState, from GenServerFrom, message etf.
 	return "reply", reply
 }
 
-func (r *rex) HandleInfo(state *GenServerState, message etf.Term) string {
-	return "noreply"
-}
-
-func (r *rex) handleRPC(state *GenServerState, module, function etf.Atom, args etf.List) (reply interface{}) {
+func (r *Rex) handleRPC(process *gen.GenServerProcess, module, function etf.Atom, args etf.List) (reply interface{}) {
 	defer func() {
 		if x := recover(); x != nil {
 			err := fmt.Sprintf("panic reason: %s", x)
@@ -154,11 +151,11 @@ func (r *rex) handleRPC(state *GenServerState, module, function etf.Atom, args e
 		},
 	}
 	// calling a local module if its been registered as a process)
-	if state.Process.Node.GetProcessByName(mf.module) == nil {
+	if process.GetProcessByName(mf.module) == nil {
 		return badRPC
 	}
 
-	if value, err := state.Process.Call(mf.module, args); err != nil {
+	if value, err := process.Call(mf.module, args); err != nil {
 		return badRPC
 	} else {
 		return value

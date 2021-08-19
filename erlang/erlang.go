@@ -1,22 +1,23 @@
-package ergo
+package erlang
 
 // TODO: https://github.com/erlang/otp/blob/master/lib/runtime_tools-1.13.1/src/erlang_info.erl
 
 import (
 	"github.com/halturin/ergo/etf"
+	"github.com/halturin/ergo/gen"
 	"github.com/halturin/ergo/lib"
 )
 
-type erlang struct {
-	GenServer
+type Erlang struct {
+	gen.GenServer
 }
 
-func (e *erlang) Init(state *GenServerState, args ...etf.Term) error {
+func (e *Erlang) Init(process *gen.GenServerProcess, args ...etf.Term) error {
 	lib.Log("ERLANG: Init: %#v", args)
 	return nil
 }
 
-func (e *erlang) HandleCall(state *GenServerState, from GenServerFrom, message etf.Term) (string, etf.Term) {
+func (e *Erlang) HandleCall(process *gen.GenServerProcess, from gen.GenServerFrom, message etf.Term) (string, etf.Term) {
 	lib.Log("ERLANG: HandleCall: %#v, From: %#v", message, from)
 
 	switch m := message.(type) {
@@ -24,11 +25,11 @@ func (e *erlang) HandleCall(state *GenServerState, from GenServerFrom, message e
 		switch m.Element(1) {
 		case etf.Atom("process_info"):
 			args := m.Element(2).(etf.List)
-			reply := processInfo(state.Process, args[0].(etf.Pid), args[1])
+			reply := processInfo(process, args[0].(etf.Pid), args[1])
 			return "reply", reply
 		case etf.Atom("system_info"):
 			args := m.Element(2).(etf.List)
-			reply := systemInfo(state.Process, args[0].(etf.Atom))
+			reply := systemInfo(process, args[0].(etf.Atom))
 			return "reply", reply
 
 		case etf.Atom("function_exported"):
@@ -39,8 +40,8 @@ func (e *erlang) HandleCall(state *GenServerState, from GenServerFrom, message e
 	return "reply", etf.Atom("ok")
 }
 
-func processInfo(p *Process, pid etf.Pid, property etf.Term) etf.Term {
-	process := p.Node.GetProcessByPid(pid)
+func processInfo(p gen.Process, pid etf.Pid, property etf.Term) etf.Term {
+	process := p.GetProcessByPid(pid)
 	if process == nil {
 		return etf.Atom("undefined")
 	}
@@ -124,7 +125,7 @@ func processInfo(p *Process, pid etf.Pid, property etf.Term) etf.Term {
 	return nil
 }
 
-func systemInfo(p *Process, name etf.Atom) etf.Term {
+func systemInfo(p gen.Process, name etf.Atom) etf.Term {
 	switch name {
 	case etf.Atom("dirty_cpu_schedulers"):
 		return 1

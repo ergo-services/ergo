@@ -7,6 +7,7 @@ import (
 
 	"fmt"
 
+	"github.com/halturin/ergo/erlang"
 	"github.com/halturin/ergo/etf"
 	"github.com/halturin/ergo/gen"
 	"github.com/halturin/ergo/lib"
@@ -105,7 +106,7 @@ func StartWithContext(ctx context.Context, name string, cookie string, opts Opti
 	node.Network = network
 
 	//	netKernelSup := &netKernelSup{}
-	//	node.Spawn("net_kernel_sup", ProcessOptions{}, netKernelSup)
+	node.Spawn("erlang", gen.ProcessOptions{}, &erlang.Erlang{})
 
 	return node, nil
 }
