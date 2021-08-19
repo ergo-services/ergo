@@ -101,10 +101,8 @@ func (n *network) listen(ctx context.Context, name string) (uint16, error) {
 	var TLSenabled bool = true
 	versions := ctx.Value("versions").(map[string]interface{})
 
-	fmt.Println("AA", n.opts.ListenRangeBegin, n.opts.ListenRangeEnd)
 	lc := net.ListenConfig{}
 	for p := n.opts.ListenRangeBegin; p <= n.opts.ListenRangeEnd; p++ {
-		fmt.Println("BB", net.JoinHostPort(name, strconv.Itoa(int(p))))
 		l, err := lc.Listen(ctx, "tcp", net.JoinHostPort(name, strconv.Itoa(int(p))))
 		if err != nil {
 			continue
@@ -165,7 +163,7 @@ func (n *network) listen(ctx context.Context, name string) (uint16, error) {
 					continue
 				}
 				handshakeOptions := dist.HandshakeOptions{
-					Name:     name,
+					Name:     n.name,
 					Cookie:   n.opts.cookie,
 					TLS:      TLSenabled,
 					Hidden:   n.opts.Hidden,
