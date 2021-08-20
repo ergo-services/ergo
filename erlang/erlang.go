@@ -9,15 +9,15 @@ import (
 )
 
 type Erlang struct {
-	gen.GenServer
+	gen.Server
 }
 
-func (e *Erlang) Init(process *gen.GenServerProcess, args ...etf.Term) error {
+func (e *Erlang) Init(process *gen.ServerProcess, args ...etf.Term) error {
 	lib.Log("ERLANG: Init: %#v", args)
 	return nil
 }
 
-func (e *Erlang) HandleCall(process *gen.GenServerProcess, from gen.GenServerFrom, message etf.Term) (string, etf.Term) {
+func (e *Erlang) HandleCall(process *gen.ServerProcess, from gen.ServerFrom, message etf.Term) (string, etf.Term) {
 	lib.Log("ERLANG: HandleCall: %#v, From: %#v", message, from)
 
 	switch m := message.(type) {

@@ -162,35 +162,37 @@ import (
 
 	"github.com/halturin/ergo"
 	"github.com/halturin/ergo/etf"
+	"github.com/halturin/ergo/gen"
+	"github.com/halturin/ergo/node"
 )
 
-// ExampleGenServer simple implementation of GenServer
-type ExampleGenServer struct {
-	ergo.GenServer
+// simple simple implementation of Server
+type simple struct {
+	gen.Server
 }
 
-func (egs *ExampleGenServer) HandleInfo(state *ergo.GenServerState, message etf.Term) string {
+func (s *simple) HandleInfo(process *gen.ServerProcess, message etf.Term) string {
 	value := message.(int)
 	fmt.Printf("HandleInfo: %#v \n", message)
 	if value > 104 {
 		return "stop"
 	}
-	// sending a message with delay
-	state.Process.SendAfter(state.Process.Self(), value+1, time.Duration(1*time.Second))
+	// sending message with delay
+	process.SendAfter(process.Self(), value+1, time.Duration(1*time.Second))
 	return "noreply"
 }
 
 func main() {
 	// create a new node
-	node, _ := ergo.CreateNode("node@localhost", "cookies", ergo.NodeOptions{})
+	node, _ := ergo.StartNode("node@localhost", "cookies", node.Options{})
 
-	// spawn a new process of genserver
-	process, _ := node.Spawn("gs1", ergo.ProcessOptions{}, &ExampleGenServer{})
+	// spawn a new process of gen.Server
+	process, _ := node.Spawn("gs1", gen.ProcessOptions{}, &simple{})
 
-	// sending a message to itself
+	// send a message to itself
 	process.Send(process.Self(), 100)
 
-	// waiting for the process termination.
+	// wait for the process termination.
 	process.Wait()
 	fmt.Println("exited")
 	node.Stop()

@@ -47,6 +47,7 @@ func NewNetwork(ctx context.Context, name string, opts Options, r registrarInter
 	n := &network{
 		name:      name,
 		opts:      opts,
+		ctx:       ctx,
 		registrar: r,
 	}
 	ns := strings.Split(name, "@")
@@ -539,8 +540,17 @@ func (n *network) connect(to etf.Atom) error {
 
 func generateSelfSignedCert(versions map[string]interface{}) (tls.Certificate, error) {
 	var cert = tls.Certificate{}
-	prefix := versions["prefix"].(string)
-	version := versions["version"].(string)
+	var prefix string = "ergo"
+	var version string = ""
+	p, ok := versions["prefix"]
+	if ok {
+		prefix, _ = p.(string)
+	}
+	p, ok = versions["version"]
+	if ok {
+		version, _ = p.(string)
+	}
+
 	org := fmt.Sprintf("%s %s", prefix, version)
 
 	certPrivKey, err := ecdsa.GenerateKey(elliptic.P521(), rand.Reader)

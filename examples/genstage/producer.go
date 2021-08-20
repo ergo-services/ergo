@@ -3,16 +3,16 @@ package main
 import (
 	"fmt"
 
-	"github.com/halturin/ergo"
 	"github.com/halturin/ergo/etf"
+	"github.com/halturin/ergo/gen"
 )
 
 type Producer struct {
-	ergo.GenStage
-	dispatcher ergo.GenStageDispatcherBehavior
+	gen.Stage
+	dispatcher gen.StageDispatcherBehavior
 }
 
-func (g *Producer) InitStage(state *ergo.GenStageState, args ...etf.Term) error {
+func (p *Producer) InitStage(process *gen.StageProcess, args ...etf.Term) error {
 	// create a hash function for the dispatcher
 	hash := func(t etf.Term) int {
 		i, ok := t.(int)
@@ -26,17 +26,17 @@ func (g *Producer) InitStage(state *ergo.GenStageState, args ...etf.Term) error 
 		return 1
 	}
 
-	state.Options = ergo.GenStageOptions{
-		Dispatcher: ergo.CreateGenStageDispatcherPartition(3, hash),
+	process.Options = gen.StageOptions{
+		Dispatcher: gen.CreateStageDispatcherPartition(3, hash),
 	}
 	return nil
 }
-func (g *Producer) HandleDemand(state *ergo.GenStageState, subscription ergo.GenStageSubscription, count uint) (error, etf.List) {
+func (p *Producer) HandleDemand(process *gen.StageProcess, subscription gen.StageSubscription, count uint) (error, etf.List) {
 	fmt.Println("Producer: just got demand for", count, "pack of events from", subscription.Pid)
 	return nil, nil
 }
 
-func (g *Producer) HandleSubscribe(state *ergo.GenStageState, subscription ergo.GenStageSubscription, options ergo.GenStageSubscribeOptions) error {
+func (p *Producer) HandleSubscribe(process *gen.StageProcess, subscription gen.StageSubscription, options gen.StageSubscribeOptions) error {
 	fmt.Println("New subscription from:", subscription.Pid, "with min:", options.MinDemand, "and max:", options.MaxDemand)
 	return nil
 }

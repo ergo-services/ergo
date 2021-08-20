@@ -19,11 +19,5 @@ func StartNodeWithContext(ctx context.Context, name string, cookie string, opts 
 		"otp":     VersionOTP,
 	}
 
-	node, err := node.StartWithContext(context.WithValue(ctx, "versions", versions), name, cookie, opts)
-	if err != nil {
-		return nil, err
-	}
-	//node.Spawn("erlang_sup", gen.ProcessOptions{}, &erlang.Sup{})
-
-	return node, nil
+	return node.StartWithContext(context.WithValue(ctx, "versions", versions), name, cookie, opts)
 }

@@ -8,9 +8,9 @@ import (
 // TODO: https://github.com/erlang/otp/blob/master/lib/kernel/src/global.erl
 
 type GlobalNameServer struct {
-	gen.GenServer
+	gen.Server
 }
 
-func (gns *GlobalNameServer) HandleCast(process *gen.GenServerProcess, message etf.Term) string {
+func (gns *GlobalNameServer) HandleCast(process *gen.ServerProcess, message etf.Term) string {
 	return "noreply"
 }

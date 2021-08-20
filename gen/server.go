@@ -9,61 +9,62 @@ import (
 	"github.com/halturin/ergo/lib"
 )
 
-// GenServerBehavior interface
-type GenServerBehavior interface {
+// ServerBehavior interface
+type ServerBehavior interface {
 	ProcessBehavior
 
 	// Init(...) -> error
-	Init(state *GenServerProcess, args ...etf.Term) error
+	Init(state *ServerProcess, args ...etf.Term) error
 
 	// HandleCast -> "noreply" - noreply
 	//				"stop" - stop with reason "normal"
 	//		         "reason" - stop with given "reason"
-	HandleCast(state *GenServerProcess, message etf.Term) string
+	HandleCast(state *ServerProcess, message etf.Term) string
 
 	// HandleCall -> ("reply", message) - reply
 	//				 ("noreply", _) - noreply
 	//		         ("stop", _) - stop with reason "normal"
 	//				 ("reason", _) - stop with given "reason"
-	HandleCall(state *GenServerProcess, from GenServerFrom, message etf.Term) (string, etf.Term)
+	HandleCall(state *ServerProcess, from ServerFrom, message etf.Term) (string, etf.Term)
 
 	// HandleDirect invoked on a direct request made via Process.Direct
-	HandleDirect(state *GenServerProcess, message interface{}) (interface{}, error)
+	HandleDirect(state *ServerProcess, message interface{}) (interface{}, error)
 
 	// HandleInfo -> "noreply" - noreply
 	//				"stop" - stop with reason "normal"
 	//		         "reason" - stop with given "reason"
-	HandleInfo(state *GenServerProcess, message etf.Term) string
+	HandleInfo(state *ServerProcess, message etf.Term) string
 
-	Terminate(state *GenServerProcess, reason string)
+	Terminate(state *ServerProcess, reason string)
 }
 
-// GenServer is implementation of ProcessBehavior interface for GenServer objects
-type GenServer struct{}
+// Server is implementation of ProcessBehavior interface for Server objects
+type Server struct{}
 
-// GenServerFrom
-type GenServerFrom struct {
+// ServerFrom
+type ServerFrom struct {
 	Pid          etf.Pid
 	Ref          etf.Ref
 	ReplyByAlias bool
 }
 
-// GenServerState state of the GenServer process.
-type GenServerProcess struct {
+// ServerState state of the Server process.
+type ServerProcess struct {
 	ProcessState
 
-	behavior        GenServerBehavior
+	behavior        ServerBehavior
 	reductions      uint64 // we use this term to count total number of processed messages from mailBox
 	currentFunction string
 	trapExit        bool
 }
 
-func (gs *GenServer) ProcessInit(p Process, args ...etf.Term) (ProcessState, error) {
-	behavior, ok := p.GetProcessBehavior().(GenServerBehavior)
-	if !ok {
-		return ProcessState{}, fmt.Errorf("ProcessInit: not a GenServerBehavior")
-	}
-	gsp := &GenServerProcess{
+func (gs *Server) ProcessInit(p Process, args ...etf.Term) (ProcessState, error) {
+	behavior := p.GetProcessBehavior().(ServerBehavior)
+	//behavior, ok := p.GetProcessBehavior().(ServerBehavior)
+	//if !ok {
+	//	return ProcessState{}, fmt.Errorf("ProcessInit: not a ServerBehavior")
+	//}
+	gsp := &ServerProcess{
 		ProcessState: ProcessState{
 			Process: p,
 		},
@@ -76,13 +77,13 @@ func (gs *GenServer) ProcessInit(p Process, args ...etf.Term) (ProcessState, err
 	return gsp.ProcessState, nil
 }
 
-func (gs *GenServer) ProcessLoop(ps ProcessState) string {
+func (gs *Server) ProcessLoop(ps ProcessState) string {
 
-	behavior, ok := ps.GetProcessBehavior().(GenServerBehavior)
+	behavior, ok := ps.GetProcessBehavior().(ServerBehavior)
 	if !ok {
-		return "ProcessLoop: not a GenServerBehavior"
+		return "ProcessLoop: not a ServerBehavior"
 	}
-	gsp := &GenServerProcess{
+	gsp := &ServerProcess{
 		ProcessState: ps,
 		behavior:     behavior,
 	}
@@ -90,7 +91,7 @@ func (gs *GenServer) ProcessLoop(ps ProcessState) string {
 	lockState := &sync.Mutex{}
 	stop := make(chan string, 2)
 
-	gsp.currentFunction = "GenServer:loop"
+	gsp.currentFunction = "Server:loop"
 	chs := gsp.GetProcessChannels()
 
 	for {
@@ -138,7 +139,7 @@ func (gs *GenServer) ProcessLoop(ps ProcessState) string {
 		panicHandler := func() {
 			if r := recover(); r != nil {
 				pc, fn, line, _ := runtime.Caller(2)
-				fmt.Printf("Warning: GenServer recovered (name: %s) %v %#v at %s[%s:%d]\n",
+				fmt.Printf("Warning: Server recovered (name: %s) %v %#v at %s[%s:%d]\n",
 					gsp.Name(), gsp.Self(), r, runtime.FuncForPC(pc).Name(), fn, line)
 				stop <- "panic"
 			}
@@ -168,7 +169,7 @@ func (gs *GenServer) ProcessLoop(ps ProcessState) string {
 							return
 						}
 
-						from := GenServerFrom{}
+						from := ServerFrom{}
 
 						from.Pid, ok = fromTuple.Element(1).(etf.Pid)
 						if !ok {
@@ -206,7 +207,7 @@ func (gs *GenServer) ProcessLoop(ps ProcessState) string {
 						defer lockState.Unlock()
 
 						cf := gsp.currentFunction
-						gsp.currentFunction = "GenServer:HandleCall"
+						gsp.currentFunction = "Server:HandleCall"
 						code, reply := gsp.behavior.HandleCall(gsp, from, m.Element(3))
 						gsp.currentFunction = cf
 						switch code {
@@ -247,7 +248,7 @@ func (gs *GenServer) ProcessLoop(ps ProcessState) string {
 						defer lockState.Unlock()
 
 						cf := gsp.currentFunction
-						gsp.currentFunction = "GenServer:HandleCast"
+						gsp.currentFunction = "Server:HandleCast"
 						code := gsp.behavior.HandleCast(gsp, m.Element(2))
 						gsp.currentFunction = cf
 
@@ -269,7 +270,7 @@ func (gs *GenServer) ProcessLoop(ps ProcessState) string {
 						defer lockState.Unlock()
 
 						cf := gsp.currentFunction
-						gsp.currentFunction = "GenServer:HandleInfo"
+						gsp.currentFunction = "Server:HandleInfo"
 						code := gsp.behavior.HandleInfo(gsp, message)
 						gsp.currentFunction = cf
 						switch code {
@@ -299,7 +300,7 @@ func (gs *GenServer) ProcessLoop(ps ProcessState) string {
 					defer lockState.Unlock()
 
 					cf := gsp.currentFunction
-					gsp.currentFunction = "GenServer:HandleInfo"
+					gsp.currentFunction = "Server:HandleInfo"
 					code := gsp.behavior.HandleInfo(gsp, message)
 					gsp.currentFunction = cf
 
@@ -323,7 +324,7 @@ func (gs *GenServer) ProcessLoop(ps ProcessState) string {
 				defer lockState.Unlock()
 
 				cf := gsp.currentFunction
-				gsp.currentFunction = "GenServer:HandleInfo"
+				gsp.currentFunction = "Server:HandleInfo"
 				code := gsp.behavior.HandleInfo(gsp, message)
 				gsp.currentFunction = cf
 
@@ -341,31 +342,31 @@ func (gs *GenServer) ProcessLoop(ps ProcessState) string {
 }
 
 //
-// default callbacks for GenServer interface
+// default callbacks for Server interface
 //
-func (gs *GenServer) Init(process *GenServerProcess, args ...etf.Term) error {
+func (gs *Server) Init(process *ServerProcess, args ...etf.Term) error {
 	return nil
 }
 
-func (gs *GenServer) HandleCast(process *GenServerProcess, message etf.Term) string {
-	fmt.Printf("GenServer [%s] HandleCast: unhandled message %#v \n", process.Name(), message)
+func (gs *Server) HandleCast(process *ServerProcess, message etf.Term) string {
+	fmt.Printf("Server [%s] HandleCast: unhandled message %#v \n", process.Name(), message)
 	return "noreply"
 }
 
-func (gs *GenServer) HandleCall(process *GenServerProcess, from GenServerFrom, message etf.Term) (string, etf.Term) {
-	fmt.Printf("GenServer [%s] HandleCall: unhandled message %#v from %#v \n", process.Name(), message, from)
+func (gs *Server) HandleCall(process *ServerProcess, from ServerFrom, message etf.Term) (string, etf.Term) {
+	fmt.Printf("Server [%s] HandleCall: unhandled message %#v from %#v \n", process.Name(), message, from)
 	return "reply", "ok"
 }
 
-func (gs *GenServer) HandleDirect(process *GenServerProcess, message interface{}) (interface{}, error) {
+func (gs *Server) HandleDirect(process *ServerProcess, message interface{}) (interface{}, error) {
 	return nil, ErrUnsupportedRequest
 }
 
-func (gs *GenServer) HandleInfo(process *GenServerProcess, message etf.Term) string {
-	fmt.Printf("GenServer [%s] HandleInfo: unhandled message %#v \n", process.Name(), message)
+func (gs *Server) HandleInfo(process *ServerProcess, message etf.Term) string {
+	fmt.Printf("Server [%s] HandleInfo: unhandled message %#v \n", process.Name(), message)
 	return "noreply"
 }
 
-func (gs *GenServer) Terminate(process *GenServerProcess, reason string) {
+func (gs *Server) Terminate(process *ServerProcess, reason string) {
 	return
 }

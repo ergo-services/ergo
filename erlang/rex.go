@@ -24,11 +24,11 @@ var (
 )
 
 type Rex struct {
-	gen.GenServer
+	gen.Server
 	methods map[modFun]FunctionRPC
 }
 
-func (r *Rex) Init(state *gen.GenServerProcess, args ...etf.Term) error {
+func (r *Rex) Init(state *gen.ServerProcess, args ...etf.Term) error {
 	lib.Log("REX: Init: %#v", args)
 	r.methods = make(map[modFun]FunctionRPC, 0)
 
@@ -43,7 +43,7 @@ func (r *Rex) Init(state *gen.GenServerProcess, args ...etf.Term) error {
 	return nil
 }
 
-func (r *Rex) HandleCall(process *gen.GenServerProcess, from gen.GenServerFrom, message etf.Term) (string, etf.Term) {
+func (r *Rex) HandleCall(process *gen.ServerProcess, from gen.ServerFrom, message etf.Term) (string, etf.Term) {
 	lib.Log("REX: HandleCall: %#v, From: %#v", message, from)
 	switch m := message.(type) {
 	case etf.Tuple:
@@ -104,7 +104,7 @@ func (r *Rex) HandleCall(process *gen.GenServerProcess, from gen.GenServerFrom, 
 	return "reply", reply
 }
 
-func (r *Rex) handleRPC(process *gen.GenServerProcess, module, function etf.Atom, args etf.List) (reply interface{}) {
+func (r *Rex) handleRPC(process *gen.ServerProcess, module, function etf.Atom, args etf.List) (reply interface{}) {
 	defer func() {
 		if x := recover(); x != nil {
 			err := fmt.Sprintf("panic reason: %s", x)
