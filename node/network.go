@@ -151,7 +151,7 @@ func (n *network) listen(ctx context.Context, name string) (uint16, error) {
 		go func() {
 			for {
 				c, err := l.Accept()
-				lib.Log("Accepted new connection from %s", c.RemoteAddr().String())
+				lib.Log("[%s] Accepted new connection from %s", n.name, c.RemoteAddr().String())
 
 				if ctx.Err() != nil {
 					// Context was canceled
@@ -174,7 +174,7 @@ func (n *network) listen(ctx context.Context, name string) (uint16, error) {
 
 				link, e := dist.HandshakeAccept(c, handshakeOptions)
 				if e != nil {
-					lib.Log("Can't handshake with %s: %s", c.RemoteAddr().String(), e)
+					lib.Log("[%s] Can't handshake with %s: %s", n.name, c.RemoteAddr().String(), e)
 					c.Close()
 					continue
 				}
@@ -484,6 +484,9 @@ func (n *network) connect(to etf.Atom) error {
 	if pc, err = n.epmd.resolve(string(to)); err != nil {
 		return fmt.Errorf("Can't resolve port for %s: %s", to, err)
 	}
+	if pc.cookie == "" {
+		pc.cookie = n.opts.cookie
+	}
 	ns := strings.Split(string(to), "@")
 
 	TLSenabled := false
@@ -519,7 +522,7 @@ func (n *network) connect(to etf.Atom) error {
 	}
 
 	handshakeOptions := dist.HandshakeOptions{
-		Name:     n.registrar.NodeName(),
+		Name:     n.name,
 		Cookie:   pc.cookie,
 		TLS:      TLSenabled,
 		Hidden:   false,

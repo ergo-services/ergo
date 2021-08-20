@@ -520,7 +520,7 @@ next:
 		r.mutexPeers.Unlock()
 		if !ok {
 			if err := r.net.connect(tto.Node); err != nil {
-				lib.Log("[%s] can't connect to %v: %s", r.nodename, tto.Node, err)
+				lib.Log("[%s] Can't connect to %v: %s", r.nodename, tto.Node, err)
 				return
 			}
 
@@ -536,7 +536,7 @@ next:
 		lib.Log("[%s] REGISTRAR sending message by tuple %#v", r.nodename, tto)
 
 		if len(tto) != 2 {
-			lib.Log("[%s] can't send message. wrong type. must be etf.Tuple{string, string} or etf.Tuple{etf.Atom, etf.Atom}", r.nodename)
+			lib.Log("[%s] Can't send message. wrong type. must be etf.Tuple{string, string} or etf.Tuple{etf.Atom, etf.Atom}", r.nodename)
 			return
 		}
 
@@ -547,7 +547,7 @@ next:
 		case string:
 			toNode = etf.Atom(tto.Element(2).(string))
 		default:
-			lib.Log("[%s] can't send message. wrong type of node name. must be etf.Atom or string", r.nodename)
+			lib.Log("[%s] Can't send message. wrong type of node name. must be etf.Atom or string", r.nodename)
 			return
 		}
 
@@ -558,7 +558,7 @@ next:
 		case string:
 			toProcessName = etf.Atom(tto.Element(1).(string))
 		default:
-			lib.Log("[%s] can't send message. wrong type of process name. must be etf.Atom or string", r.nodename)
+			lib.Log("[%s] Can't send message. wrong type of process name. must be etf.Atom or string", r.nodename)
 			return
 		}
 
@@ -575,7 +575,7 @@ next:
 		if !ok {
 			// initiate connection and make yet another attempt to deliver this message
 			if err := r.net.connect(toNode); err != nil {
-				lib.Log("[%s] can't connect to %v: %s", r.nodename, toNode, err)
+				lib.Log("[%s] Can't connect to %v: %s", r.nodename, toNode, err)
 				return
 			}
 
@@ -625,7 +625,7 @@ next:
 		r.mutexPeers.Unlock()
 		if !ok {
 			if err := r.net.connect(tto.Node); err != nil {
-				lib.Log("[%s] can't connect to %v: %s", r.nodename, tto.Node, err)
+				lib.Log("[%s] Can't connect to %v: %s", r.nodename, tto.Node, err)
 				return
 			}
 
@@ -652,7 +652,7 @@ func (r *registrar) RouteRaw(nodename etf.Atom, messages ...etf.Term) error {
 	if !ok {
 		// initiate connection and make yet another attempt to deliver this message
 		if err := r.net.connect(nodename); err != nil {
-			lib.Log("[%s] can't connect to %v: %s", r.nodename, nodename, err)
+			lib.Log("[%s] Can't connect to %v: %s", r.nodename, nodename, err)
 			return err
 		}
 
