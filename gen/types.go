@@ -9,19 +9,7 @@ import (
 )
 
 var (
-	//	ErrAppAlreadyLoaded   = fmt.Errorf("Application is already loaded")
-	//	ErrAppAlreadyStarted  = fmt.Errorf("Application is already started")
-	//	ErrAppUnknown         = fmt.Errorf("Unknown application name")
-	//	ErrAppIsNotRunning    = fmt.Errorf("Application is not running")
-	ErrProcessBusy = fmt.Errorf("Process is busy")
-	//	ErrProcessUnknown     = fmt.Errorf("Unknown process")
-	ErrProcessTerminated = fmt.Errorf("Process terminated")
-	//	ErrAliasUnknown       = fmt.Errorf("Unknown alias")
-	//	ErrAliasOwner         = fmt.Errorf("Not an owner")
-	ErrTaken              = fmt.Errorf("Resource is taken")
 	ErrUnsupportedRequest = fmt.Errorf("Unsupported request")
-	ErrTimeout            = fmt.Errorf("Timed out")
-	ErrFragmented         = fmt.Errorf("Fragmented data")
 	ErrStop               = fmt.Errorf("stop")
 )
 
@@ -67,6 +55,7 @@ type Process interface {
 	GetProcessBehavior() ProcessBehavior
 	GetGroupLeader() Process
 	GetParent() Process
+	GetChildren() []etf.Pid
 
 	// Methods below are intended to be used for the ProcessBehavior implementation
 
@@ -159,6 +148,11 @@ type Registrar interface {
 	UnregisterName(name string)
 	IsProcessAlive(process Process) bool
 
+	RegisterBehavior(group, name string, behavior ProcessBehavior, data interface{}) error
+	GetRegisteredBehavior(group, name string) (RegisteredBehavior, error)
+	GetRegisteredBehaviorGroup(group string) []RegisteredBehavior
+	UnregisterBehavior(group, name string) error
+
 	Route(from etf.Pid, to etf.Term, message etf.Term)
 	RouteRaw(nodename etf.Atom, messages ...etf.Term) error
 }
@@ -167,6 +161,11 @@ type Monitor interface {
 	GetLinks(process etf.Pid) []etf.Pid
 	GetMonitors(process etf.Pid) []etf.Pid
 	GetMonitoredBy(process etf.Pid) []etf.Pid
+}
+
+type RegisteredBehavior struct {
+	Behavior ProcessBehavior
+	Data     interface{}
 }
 
 type DownMessage struct {

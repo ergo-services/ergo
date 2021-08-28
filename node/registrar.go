@@ -35,8 +35,9 @@ type registrar struct {
 	mutexProcesses sync.Mutex
 	peers          map[string]*peer
 	mutexPeers     sync.Mutex
-	apps           map[string]*gen.ApplicationSpec
-	mutexApps      sync.Mutex
+
+	behaviors      map[string]map[string]gen.RegisteredBehavior
+	mutexBehaviors sync.Mutex
 }
 
 type registrarInternal interface {
@@ -62,7 +63,7 @@ func NewRegistrar(ctx context.Context, nodename string, creation uint32, net Net
 		aliases:   make(map[etf.Alias]*process),
 		processes: make(map[uint64]*process),
 		peers:     make(map[string]*peer),
-		apps:      make(map[string]*gen.ApplicationSpec),
+		behaviors: make(map[string]map[string]gen.RegisteredBehavior),
 	}
 	r.monitor = NewMonitor(r)
 	return r
@@ -261,12 +262,6 @@ func (r *registrar) deleteProcess(pid etf.Pid) {
 		}
 		r.mutexAliases.Unlock()
 
-		// delete associated process with this app
-		for _, spec := range r.apps {
-			if spec.Process != nil && spec.Process.Self() == p.Self() {
-				spec.Process = nil
-			}
-		}
 		// invoke cancel context to prevent memory leaks
 		p.Kill()
 		return
@@ -376,31 +371,89 @@ func (r *registrar) unregisterPeer(name string) {
 	r.mutexPeers.Unlock()
 }
 
-func (r *registrar) RegisterApp(name string, spec *gen.ApplicationSpec) error {
-	lib.Log("[%s] REGISTRAR registering app %v", r.nodename, name)
-	r.mutexApps.Lock()
-	if _, ok := r.apps[name]; ok {
-		// already loaded
-		r.mutexApps.Unlock()
-		return ErrAppAlreadyLoaded
+func (r *registrar) RegisterBehavior(group, name string, behavior gen.ProcessBehavior, data interface{}) error {
+	lib.Log("[%s] REGISTRAR registering behavior %s in group %s ", r.nodename, group, name)
+	var groupBehaviors map[string]gen.RegisteredBehavior
+	var exist bool
+
+	r.mutexBehaviors.Lock()
+	defer r.mutexBehaviors.Unlock()
+
+	groupBehaviors, exist = r.behaviors[group]
+	if !exist {
+		groupBehaviors = make(map[string]gen.RegisteredBehavior)
+		r.behaviors[group] = groupBehaviors
 	}
-	r.apps[name] = spec
-	r.mutexApps.Unlock()
+
+	_, exist = groupBehaviors[name]
+	if exist {
+		return ErrTaken
+	}
+
+	rb := gen.RegisteredBehavior{
+		Behavior: behavior,
+		Data:     data,
+	}
+	groupBehaviors[name] = rb
 	return nil
 }
 
-func (r *registrar) UnregisterApp(name string) {
-	lib.Log("[%s] REGISTRAR unregistering app %v", r.nodename, name)
-	r.mutexApps.Lock()
-	delete(r.apps, name)
-	r.mutexApps.Unlock()
+func (r *registrar) GetRegisteredBehavior(group, name string) (gen.RegisteredBehavior, error) {
+	var groupBehaviors map[string]gen.RegisteredBehavior
+	var rb gen.RegisteredBehavior
+	var exist bool
+
+	r.mutexBehaviors.Lock()
+	defer r.mutexBehaviors.Unlock()
+
+	groupBehaviors, exist = r.behaviors[group]
+	if !exist {
+		return rb, ErrBehaviorGroupUnknown
+	}
+
+	rb, exist = groupBehaviors[name]
+	if !exist {
+		return rb, ErrBehaviorUnknown
+	}
+	return rb, nil
 }
 
-func (r *registrar) GetApplicationSpecByName(name string) *gen.ApplicationSpec {
-	r.mutexApps.Lock()
-	defer r.mutexApps.Unlock()
-	if spec, ok := r.apps[name]; ok {
-		return spec
+func (r *registrar) GetRegisteredBehaviorGroup(group string) []gen.RegisteredBehavior {
+	var groupBehaviors map[string]gen.RegisteredBehavior
+	var exist bool
+	var listrb []gen.RegisteredBehavior
+
+	r.mutexBehaviors.Lock()
+	defer r.mutexBehaviors.Unlock()
+
+	groupBehaviors, exist = r.behaviors[group]
+	if !exist {
+		return listrb
+	}
+
+	for _, v := range groupBehaviors {
+		listrb = append(listrb, v)
+	}
+	return listrb
+}
+
+func (r *registrar) UnregisterBehavior(group, name string) error {
+	lib.Log("[%s] REGISTRAR unregistering behavior %s in group %s ", r.nodename, group, name)
+	var groupBehaviors map[string]gen.RegisteredBehavior
+	var exist bool
+
+	r.mutexBehaviors.Lock()
+	defer r.mutexBehaviors.Unlock()
+
+	groupBehaviors, exist = r.behaviors[group]
+	if !exist {
+		return ErrBehaviorUnknown
+	}
+	delete(groupBehaviors, name)
+
+	// remove group if its empty
+	if len(groupBehaviors) == 0 {
+		delete(r.behaviors, group)
 	}
 	return nil
 }
@@ -481,16 +534,6 @@ func (r *registrar) PeerList() []string {
 	for n, _ := range r.peers {
 		list = append(list, n)
 	}
-	return list
-}
-
-func (r *registrar) ApplicationList() []*gen.ApplicationSpec {
-	list := []*gen.ApplicationSpec{}
-	r.mutexApps.Lock()
-	for _, a := range r.apps {
-		list = append(list, a)
-	}
-	r.mutexApps.Unlock()
 	return list
 }
 

@@ -39,18 +39,16 @@ type ApplicationBehavior interface {
 }
 
 type ApplicationSpec struct {
+	sync.Mutex
 	Name         string
 	Description  string
 	Version      string
 	Lifespan     time.Duration
 	Applications []string
 	Environment  map[string]interface{}
-	// Depends		[]
-	Children  []ApplicationChildSpec
-	startType ApplicationStartType
-	app       ApplicationBehavior
-	Process   Process
-	mutex     sync.Mutex
+	Children     []ApplicationChildSpec
+	Process      Process
+	StartType    ApplicationStartType
 }
 
 type ApplicationChildSpec struct {
@@ -71,9 +69,11 @@ type ApplicationInfo struct {
 }
 
 func (a *Application) ProcessInit(p Process, args ...etf.Term) (ProcessState, error) {
-	// some internal agreement that the first argument should be a spec of this application
-	// (see ApplicatoinStart for the details)
-	spec := args[0].(*ApplicationSpec)
+
+	spec, ok := p.GetEnv("spec").(*ApplicationSpec)
+	if !ok {
+		return ProcessState{}, fmt.Errorf("ProcessInit: not an ApplicationBehavior")
+	}
 	p.SetTrapExit(true)
 
 	if spec.Environment != nil {
@@ -91,7 +91,7 @@ func (a *Application) ProcessInit(p Process, args ...etf.Term) (ProcessState, er
 	if !ok {
 		return ProcessState{}, fmt.Errorf("ProcessInit: not an ApplicationBehavior")
 	}
-	behavior.Start(p, args[1:]...)
+	behavior.Start(p, args...)
 
 	return ProcessState{
 		Process: p,
@@ -101,10 +101,11 @@ func (a *Application) ProcessInit(p Process, args ...etf.Term) (ProcessState, er
 
 func (a *Application) ProcessLoop(ps ProcessState) string {
 
-	spec := ps.State.(ApplicationSpec)
+	spec := ps.State.(*ApplicationSpec)
+	defer func() { spec.Process = nil }()
 
 	if spec.Lifespan == 0 {
-		spec.Lifespan = time.Second * 31536000 * 100 // let's define default lifespan 100 years :)
+		spec.Lifespan = time.Hour * 24 * 365 * 100 // let's define default lifespan 100 years :)
 	}
 
 	chs := ps.GetProcessChannels()
@@ -202,7 +203,7 @@ func (a *Application) ProcessLoop(ps ProcessState) string {
 				continue
 			}
 
-			switch spec.startType {
+			switch spec.StartType {
 			case ApplicationStartPermanent:
 				a.stopChildren(terminated, spec.Children, string(reason))
 				fmt.Printf("Application child %s (at %s) stopped with reason %s (permanent: node is shutting down)\n",

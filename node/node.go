@@ -18,6 +18,15 @@ import (
 	"time"
 )
 
+const (
+	appBehaviorGroup = "$application"
+)
+
+type nodeInternal interface {
+	Node
+	registrarInternal
+}
+
 // Node instance of created node using CreateNode
 type node struct {
 	registrarInternal
@@ -32,7 +41,7 @@ type node struct {
 }
 
 // StartWithContext create new node with specified context, name and cookie string
-func StartWithContext(ctx context.Context, name string, cookie string, opts Options) (Node, error) {
+func StartWithContext(ctx context.Context, name string, cookie string, opts Options) (nodeInternal, error) {
 
 	lib.Log("Start with name '%s' and cookie '%s'", name, cookie)
 	nodectx, nodestop := context.WithCancel(ctx)
@@ -136,9 +145,9 @@ func (n *node) WaitWithTimeout(d time.Duration) error {
 	}
 }
 func (n *node) Spawn(name string, opts gen.ProcessOptions, object gen.ProcessBehavior, args ...etf.Term) (gen.Process, error) {
+	// process started by node has no parent
 	options := processOptions{
 		ProcessOptions: opts,
-		//parent:
 	}
 	return n.spawn(name, options, object, args...)
 }
@@ -151,163 +160,181 @@ func (n *node) Name() string {
 	return n.name
 }
 
-// LoadedApplications returns a list with information about the
-// applications, which are loaded using ApplicatoinLoad
-//func (n *Node) LoadedApplications() []ApplicationInfo {
-//	info := []ApplicationInfo{}
-//	for _, a := range n.registrar.ApplicationList() {
-//		appInfo := ApplicationInfo{
-//			Name:        a.Name,
-//			Description: a.Description,
-//			Version:     a.Version,
-//		}
-//		info = append(info, appInfo)
-//	}
-//	return info
-//}
-//
-//// WhichApplications returns a list with information about the applications that are currently running.
-//func (n *Node) WhichApplications() []ApplicationInfo {
-//	info := []ApplicationInfo{}
-//	for _, a := range n.registrar.ApplicationList() {
-//		if a.process == nil {
-//			// list only started apps
-//			continue
-//		}
-//		appInfo := ApplicationInfo{
-//			Name:        a.Name,
-//			Description: a.Description,
-//			Version:     a.Version,
-//			PID:         a.process.self,
-//		}
-//		info = append(info, appInfo)
-//	}
-//	return info
-//}
-//
-//// GetApplicationInfo returns information about application
-//func (n *Node) GetApplicationInfo(name string) (ApplicationInfo, error) {
-//	spec := n.registrar.GetApplicationSpecByName(name)
-//	if spec == nil {
-//		return ApplicationInfo{}, ErrAppUnknown
-//	}
-//
-//	pid := etf.Pid{}
-//	if spec.process != nil {
-//		pid = spec.process.self
-//	}
-//
-//	return ApplicationInfo{
-//		Name:        name,
-//		Description: spec.Description,
-//		Version:     spec.Version,
-//		PID:         pid,
-//	}, nil
-//}
-//
-//// ApplicationLoad loads the application specification for an application
-//// into the node. It also loads the application specifications for any included applications
-//func (n *Node) ApplicationLoad(app ApplicationBehavior, args ...etf.Term) error {
-//
-//	spec, err := app.Load(args...)
-//	if err != nil {
-//		return err
-//	}
-//	spec.app = app
-//	return n.registrar.RegisterApp(spec.Name, &spec)
-//}
-//
-//// ApplicationUnload unloads the application specification for Application from the
-//// node. It also unloads the application specifications for any included applications.
-//func (n *Node) ApplicationUnload(appName string) error {
-//	spec := n.registrar.GetApplicationSpecByName(appName)
-//	if spec == nil {
-//		return ErrAppUnknown
-//	}
-//	if spec.process != nil {
-//		return ErrAppAlreadyStarted
-//	}
-//
-//	n.registrar.UnregisterApp(appName)
-//	return nil
-//}
-//
-//// ApplicationStartPermanent start Application with start type ApplicationStartPermanent
-//// If this application terminates, all other applications and the entire node are also
-//// terminated
-//func (n *Node) ApplicationStartPermanent(appName string, args ...etf.Term) (*Process, error) {
-//	return n.applicationStart(ApplicationStartPermanent, appName, args...)
-//}
-//
-//// ApplicationStartTransient start Application with start type ApplicationStartTransient
-//// If transient application terminates with reason 'normal', this is reported and no
-//// other applications are terminated. Otherwise, all other applications and node
-//// are terminated
-//func (n *Node) ApplicationStartTransient(appName string, args ...etf.Term) (*Process, error) {
-//	return n.applicationStart(ApplicationStartTransient, appName, args...)
-//}
-//
-//// ApplicationStart start Application with start type ApplicationStartTemporary
-//// If an application terminates, this is reported but no other applications
-//// are terminated
-//func (n *Node) ApplicationStart(appName string, args ...etf.Term) (*Process, error) {
-//	return n.applicationStart(ApplicationStartTemporary, appName, args...)
-//}
-//
-//func (n *Node) applicationStart(startType, appName string, args ...etf.Term) (*Process, error) {
-//
-//	spec := n.registrar.GetApplicationSpecByName(appName)
-//	if spec == nil {
-//		return nil, ErrAppUnknown
-//	}
-//
-//	spec.startType = startType
-//
-//	// to prevent race condition on starting application we should
-//	// make sure that nobodyelse starting it
-//	spec.mutex.Lock()
-//	defer spec.mutex.Unlock()
-//
-//	if spec.process != nil {
-//		return nil, ErrAppAlreadyStarted
-//	}
-//
-//	// start dependencies
-//	for _, depAppName := range spec.Applications {
-//		if _, e := n.ApplicationStart(depAppName); e != nil && e != ErrAppAlreadyStarted {
-//			return nil, e
-//		}
-//	}
-//
-//	// passing 'spec' to the process loop in order to handle children's startup.
-//	args = append([]etf.Term{spec}, args)
-//	appProcess, e := n.Spawn("", ProcessOptions{}, spec.app, args...)
-//	if e != nil {
-//		return nil, e
-//	}
-//
-//	spec.process = appProcess
-//	return appProcess, nil
-//}
-//
-//// ApplicationStop stop running application
-//func (n *Node) ApplicationStop(name string) error {
-//	spec := n.registrar.GetApplicationSpecByName(name)
-//	if spec == nil {
-//		return ErrAppUnknown
-//	}
-//
-//	if spec.process == nil {
-//		return ErrAppIsNotRunning
-//	}
-//
-//	spec.process.Exit(spec.process.Self(), "normal")
-//	// we should wait until children process stopped.
-//	if e := spec.process.WaitWithTimeout(5 * time.Second); e != nil {
-//		return ErrProcessBusy
-//	}
-//	return nil
-//}
+// LoadedApplications returns a list of loaded applications (including running applications)
+func (n *node) LoadedApplications() []gen.ApplicationInfo {
+	return n.listApplications(false)
+}
+
+// WhichApplications returns a list of running applications
+func (n *node) WhichApplications() []gen.ApplicationInfo {
+	return n.listApplications(true)
+}
+
+// WhichApplications returns a list of running applications
+func (n *node) listApplications(onlyRunning bool) []gen.ApplicationInfo {
+	info := []gen.ApplicationInfo{}
+	for _, rb := range n.GetRegisteredBehaviorGroup(appBehaviorGroup) {
+		spec, ok := rb.Data.(gen.ApplicationSpec)
+		if !ok {
+			continue
+		}
+
+		if onlyRunning && spec.Process == nil {
+			// list only started apps
+			continue
+		}
+
+		appInfo := gen.ApplicationInfo{
+			Name:        spec.Name,
+			Description: spec.Description,
+			Version:     spec.Version,
+		}
+		if spec.Process != nil {
+			appInfo.PID = spec.Process.Self()
+		}
+		info = append(info, appInfo)
+	}
+	return info
+}
+
+// GetApplicationInfo returns information about application
+func (n *node) GetApplicationInfo(name string) (gen.ApplicationInfo, error) {
+	rb, err := n.GetRegisteredBehavior(appBehaviorGroup, name)
+	if err != nil {
+		return gen.ApplicationInfo{}, ErrAppUnknown
+	}
+	spec, ok := rb.Data.(gen.ApplicationSpec)
+	if !ok {
+		return gen.ApplicationInfo{}, ErrAppUnknown
+	}
+
+	pid := etf.Pid{}
+	if spec.Process != nil {
+		pid = spec.Process.Self()
+	}
+
+	appInfo := gen.ApplicationInfo{
+		Name:        spec.Name,
+		Description: spec.Description,
+		Version:     spec.Version,
+		PID:         pid,
+	}
+	return appInfo, nil
+}
+
+// ApplicationLoad loads the application specification for an application
+// into the node.
+func (n *node) ApplicationLoad(app gen.ApplicationBehavior, args ...etf.Term) error {
+
+	spec, err := app.Load(args...)
+	if err != nil {
+		return err
+	}
+	return n.RegisterBehavior(appBehaviorGroup, spec.Name, app, &spec)
+}
+
+// ApplicationUnload unloads given application
+func (n *node) ApplicationUnload(appName string) error {
+	rb, err := n.GetRegisteredBehavior(appBehaviorGroup, appName)
+	if err != nil {
+		return ErrAppUnknown
+	}
+
+	spec, ok := rb.Data.(gen.ApplicationSpec)
+	if !ok {
+		return ErrAppUnknown
+	}
+	if spec.Process != nil {
+		return ErrAppAlreadyStarted
+	}
+
+	return n.UnregisterBehavior(appBehaviorGroup, appName)
+}
+
+// ApplicationStartPermanent start Application with start type ApplicationStartPermanent
+// If this application terminates, all other applications and the entire node are also
+// terminated
+func (n *node) ApplicationStartPermanent(appName string, args ...etf.Term) (gen.Process, error) {
+	return n.applicationStart(gen.ApplicationStartPermanent, appName, args...)
+}
+
+// ApplicationStartTransient start Application with start type ApplicationStartTransient
+// If transient application terminates with reason 'normal', this is reported and no
+// other applications are terminated. Otherwise, all other applications and node
+// are terminated
+func (n *node) ApplicationStartTransient(appName string, args ...etf.Term) (gen.Process, error) {
+	return n.applicationStart(gen.ApplicationStartTransient, appName, args...)
+}
+
+// ApplicationStart start Application with start type ApplicationStartTemporary
+// If an application terminates, this is reported but no other applications
+// are terminated
+func (n *node) ApplicationStart(appName string, args ...etf.Term) (gen.Process, error) {
+	return n.applicationStart(gen.ApplicationStartTemporary, appName, args...)
+}
+
+func (n *node) applicationStart(startType, appName string, args ...etf.Term) (gen.Process, error) {
+	rb, err := n.GetRegisteredBehavior(appBehaviorGroup, appName)
+	if err != nil {
+		return nil, ErrAppUnknown
+	}
+
+	spec, ok := rb.Data.(*gen.ApplicationSpec)
+	if !ok {
+		return nil, ErrAppUnknown
+	}
+
+	spec.StartType = startType
+
+	// to prevent race condition on starting application we should
+	// make sure that nobodyelse starting it
+	spec.Lock()
+	defer spec.Unlock()
+
+	if spec.Process != nil {
+		return nil, ErrAppAlreadyStarted
+	}
+
+	// start dependencies
+	for _, depAppName := range spec.Applications {
+		if _, e := n.ApplicationStart(depAppName); e != nil && e != ErrAppAlreadyStarted {
+			return nil, e
+		}
+	}
+
+	env := map[string]interface{}{
+		"spec": spec,
+	}
+	options := gen.ProcessOptions{
+		Env: env,
+	}
+	process, e := n.Spawn("", options, rb.Behavior, args...)
+	if e != nil {
+		return nil, e
+	}
+
+	return process, nil
+}
+
+// ApplicationStop stop running application
+func (n *node) ApplicationStop(name string) error {
+	rb, err := n.GetRegisteredBehavior(appBehaviorGroup, name)
+	if err != nil {
+		return ErrAppUnknown
+	}
+
+	spec, ok := rb.Data.(*gen.ApplicationSpec)
+	if !ok {
+		return ErrAppUnknown
+	}
+
+	if spec.Process == nil {
+		return ErrAppIsNotRunning
+	}
+
+	spec.Process.Exit("normal")
+	return nil
+}
 
 // ProvideRPC register given module/function as RPC method
 //func (n *Node) ProvideRPC(module string, function string, fun rpcFunction) error {

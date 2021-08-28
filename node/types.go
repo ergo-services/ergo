@@ -10,20 +10,20 @@ import (
 )
 
 var (
-	ErrAppAlreadyLoaded   = fmt.Errorf("Application is already loaded")
-	ErrAppAlreadyStarted  = fmt.Errorf("Application is already started")
-	ErrAppUnknown         = fmt.Errorf("Unknown application name")
-	ErrAppIsNotRunning    = fmt.Errorf("Application is not running")
-	ErrProcessBusy        = fmt.Errorf("Process is busy")
-	ErrProcessUnknown     = fmt.Errorf("Unknown process")
-	ErrProcessTerminated  = fmt.Errorf("Process terminated")
-	ErrAliasUnknown       = fmt.Errorf("Unknown alias")
-	ErrAliasOwner         = fmt.Errorf("Not an owner")
-	ErrTaken              = fmt.Errorf("Resource is taken")
-	ErrUnsupportedRequest = fmt.Errorf("Unsupported request")
-	ErrTimeout            = fmt.Errorf("Timed out")
-	ErrFragmented         = fmt.Errorf("Fragmented data")
-	ErrStop               = fmt.Errorf("stop")
+	ErrAppAlreadyLoaded     = fmt.Errorf("Application is already loaded")
+	ErrAppAlreadyStarted    = fmt.Errorf("Application is already started")
+	ErrAppUnknown           = fmt.Errorf("Unknown application name")
+	ErrAppIsNotRunning      = fmt.Errorf("Application is not running")
+	ErrProcessBusy          = fmt.Errorf("Process is busy")
+	ErrProcessUnknown       = fmt.Errorf("Unknown process")
+	ErrProcessTerminated    = fmt.Errorf("Process terminated")
+	ErrBehaviorUnknown      = fmt.Errorf("Unknown behavior")
+	ErrBehaviorGroupUnknown = fmt.Errorf("Unknown behavior group")
+	ErrAliasUnknown         = fmt.Errorf("Unknown alias")
+	ErrAliasOwner           = fmt.Errorf("Not an owner")
+	ErrTaken                = fmt.Errorf("Resource is taken")
+	ErrTimeout              = fmt.Errorf("Timed out")
+	ErrFragmented           = fmt.Errorf("Fragmented data")
 )
 
 // Distributed operations codes (http://www.erlang.org/doc/apps/erts/erl_dist_protocol.html)
@@ -106,6 +106,15 @@ type Node interface {
 	WaitWithTimeout(d time.Duration) error
 	Spawn(name string, opts gen.ProcessOptions, object gen.ProcessBehavior, args ...etf.Term) (gen.Process, error)
 	Stop()
+	LoadedApplications() []gen.ApplicationInfo
+	WhichApplications() []gen.ApplicationInfo
+	GetApplicationInfo(name string) (gen.ApplicationInfo, error)
+	ApplicationLoad(app gen.ApplicationBehavior, args ...etf.Term) error
+	ApplicationUnload(appName string) error
+	ApplicationStartPermanent(appName string, args ...etf.Term) (gen.Process, error)
+	ApplicationStartTransient(appName string, args ...etf.Term) (gen.Process, error)
+	ApplicationStart(appName string, args ...etf.Term) (gen.Process, error)
+	ApplicationStop(appName string) error
 }
 
 type Network interface {

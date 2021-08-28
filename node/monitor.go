@@ -32,8 +32,6 @@ type linkProcessRequest struct {
 }
 
 type monitorInternal interface {
-	gen.Monitor
-
 	monitorProcess(by etf.Pid, process interface{}, ref etf.Ref)
 	demonitorProcess(ref etf.Ref) bool
 	monitorNode(by etf.Pid, node string) etf.Ref
@@ -44,6 +42,8 @@ type monitorInternal interface {
 
 	link(pidA, pidB etf.Pid)
 	unlink(pidA, pidB etf.Pid)
+
+	isMonitor(etf.Ref) bool
 }
 
 type monitor struct {
@@ -560,6 +560,15 @@ func (m *monitor) GetMonitoredBy(process etf.Pid) []etf.Pid {
 
 	}
 	return monitors
+}
+
+func (m *monitor) isMonitor(ref etf.Ref) bool {
+	m.mutexProcesses.Lock()
+	defer m.mutexProcesses.Unlock()
+	if _, ok := m.ref2pid[ref]; ok {
+		return true
+	}
+	return false
 }
 
 func (m *monitor) notifyNodeDown(to etf.Pid, node string) {
