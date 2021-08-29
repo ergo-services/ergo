@@ -1,14 +1,18 @@
 
-== Generic behaviors ==
+## Generic behaviors ##
 
-* Server
+### Server
   Generic server behavior.
-* Supervisor
+
+### Supervisor
   Generic supervisor behavior.
-* Application
+
+### Application
   Generic application behavior.
-* Stage
+
+### Stage
   Generic stage behavior.
-* Saga
+
+### Saga
   Generic saga behavior.
 
