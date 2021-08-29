@@ -74,6 +74,9 @@ func (a *Application) ProcessInit(p Process, args ...etf.Term) (ProcessState, er
 	if !ok {
 		return ProcessState{}, fmt.Errorf("ProcessInit: not an ApplicationBehavior")
 	}
+	// remove variable from the env
+	p.SetEnv("spec", nil)
+
 	p.SetTrapExit(true)
 
 	if spec.Environment != nil {
@@ -92,6 +95,7 @@ func (a *Application) ProcessInit(p Process, args ...etf.Term) (ProcessState, er
 		return ProcessState{}, fmt.Errorf("ProcessInit: not an ApplicationBehavior")
 	}
 	behavior.Start(p, args...)
+	spec.Process = p
 
 	return ProcessState{
 		Process: p,
@@ -110,8 +114,9 @@ func (a *Application) ProcessLoop(ps ProcessState) string {
 
 	chs := ps.GetProcessChannels()
 
-	// to prevent of timer leaks due to its not GCed until the timer fires
 	timer := time.NewTimer(spec.Lifespan)
+	// timer must be stopped explicitly to prevent of timer leaks
+	// due to its not GCed until the timer fires
 	defer timer.Stop()
 
 	for {

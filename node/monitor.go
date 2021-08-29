@@ -59,7 +59,7 @@ type monitor struct {
 	registrar gen.Registrar
 }
 
-func NewMonitor(registrar gen.Registrar) monitor {
+func newMonitor(registrar gen.Registrar) monitor {
 	return monitor{
 		processes: make(map[etf.Pid][]monitorItem),
 		links:     make(map[etf.Pid][]etf.Pid),

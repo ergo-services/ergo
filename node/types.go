@@ -123,8 +123,6 @@ type Network interface {
 	RemoveStaticRoute(name string)
 	ProvideRemoteSpawn(name string, object gen.ProcessBehavior)
 	RevokeRemoteSpawn(name string) bool
-
-	connect(to etf.Atom) error
 }
 
 // TLSmodeType should be one of TLSmodeDisabled (default), TLSmodeAuto or TLSmodeStrict

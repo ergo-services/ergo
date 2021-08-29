@@ -200,7 +200,7 @@ func TestApplicationBasics(t *testing.T) {
 	fmt.Println("OK")
 
 	if e := p.WaitWithTimeout(100 * time.Millisecond); e != nil {
-		t.Fatal("timed out")
+		t.Fatal(e)
 	}
 	wa = mynode.WhichApplications()
 	if len(wa) != 0 {

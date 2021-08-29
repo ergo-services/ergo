@@ -248,12 +248,16 @@ func (p *process) ListEnv() map[string]interface{} {
 	return env
 }
 
-// SetEnv set environment variable with given name
+// SetEnv set environment variable with given name. Use nil value to remove variable with given name.
 func (p *process) SetEnv(name string, value interface{}) {
 	p.Lock()
 	defer p.Unlock()
 	if p.env == nil {
 		p.env = make(map[string]interface{})
+	}
+	if value == nil {
+		delete(p.env, name)
+		return
 	}
 	p.env[name] = value
 }

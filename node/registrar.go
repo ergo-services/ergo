@@ -25,7 +25,8 @@ type registrar struct {
 	nodename string
 	creation uint32
 
-	net Network
+	net  networkInternal
+	node nodeInternal
 
 	names          map[string]etf.Pid
 	mutexNames     sync.Mutex
@@ -51,12 +52,13 @@ type registrarInternal interface {
 	deleteAlias(owner *process, alias etf.Alias) error
 }
 
-func NewRegistrar(ctx context.Context, nodename string, creation uint32, net Network) registrarInternal {
+func newRegistrar(ctx context.Context, nodename string, creation uint32, node nodeInternal) registrarInternal {
 	r := &registrar{
 		ctx:       ctx,
 		nextPID:   startPID,
 		uniqID:    uint64(time.Now().UnixNano()),
-		net:       net,
+		net:       node.(networkInternal),
+		node:      node.(nodeInternal),
 		nodename:  nodename,
 		creation:  creation,
 		names:     make(map[string]etf.Pid),
@@ -65,7 +67,7 @@ func NewRegistrar(ctx context.Context, nodename string, creation uint32, net Net
 		peers:     make(map[string]*peer),
 		behaviors: make(map[string]map[string]gen.RegisteredBehavior),
 	}
-	r.monitor = NewMonitor(r)
+	r.monitor = newMonitor(r)
 	return r
 }
 
@@ -187,7 +189,7 @@ func (r *registrar) newProcess(name string, behavior gen.ProcessBehavior, opts p
 		groupLeader: opts.GroupLeader,
 
 		mailBox:      make(chan gen.ProcessMailboxMessage, mailboxSize),
-		gracefulExit: make(chan gen.ProcessGracefulExitRequest),
+		gracefulExit: make(chan gen.ProcessGracefulExitRequest, 2),
 		direct:       make(chan gen.ProcessDirectMessage),
 		stopped:      make(chan bool),
 
@@ -198,7 +200,7 @@ func (r *registrar) newProcess(name string, behavior gen.ProcessBehavior, opts p
 	}
 
 	exit := func(reason string) {
-		lib.Log("[%s] EXIT: %#v with reason: %s", r.nodename, reason)
+		lib.Log("[%s] EXIT: %s with reason: %s", r.nodename, pid, reason)
 		if processContext.Err() != nil {
 			// process is already died
 			return
@@ -214,6 +216,7 @@ func (r *registrar) newProcess(name string, behavior gen.ProcessBehavior, opts p
 		select {
 		case process.gracefulExit <- ex:
 		default:
+			fmt.Println("LLLLL", pid)
 		}
 	}
 	process.exit = exit
@@ -295,8 +298,6 @@ func (r *registrar) spawn(name string, opts processOptions, behavior gen.Process
 
 		//		clean()
 
-		//		process.Kill()
-
 		//		process.ready <- fmt.Errorf("Can't start process: %s\n", r)
 		//		close(process.stopped)
 		//	}
@@ -314,11 +315,6 @@ func (r *registrar) spawn(name string, opts processOptions, behavior gen.Process
 		// link/monitor) to know about it
 		r.deleteProcess(pid)
 		r.processTerminated(pid, name, reason)
-
-		// cancel the context if it was stopped by itself
-		if reason != "kill" {
-			process.Kill()
-		}
 
 		close(process.stopped)
 	}(processState)

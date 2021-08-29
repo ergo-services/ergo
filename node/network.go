@@ -31,6 +31,11 @@ import (
 	"time"
 )
 
+type networkInternal interface {
+	Network
+	connect(to etf.Atom) error
+}
+
 type network struct {
 	registrar        registrarInternal
 	name             string
@@ -43,7 +48,7 @@ type network struct {
 	tlscertClient    tls.Certificate
 }
 
-func NewNetwork(ctx context.Context, name string, opts Options, r registrarInternal) (Network, error) {
+func newNetwork(ctx context.Context, name string, opts Options, r registrarInternal) (networkInternal, error) {
 	n := &network{
 		name:      name,
 		opts:      opts,

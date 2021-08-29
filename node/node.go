@@ -30,10 +30,10 @@ type nodeInternal interface {
 // Node instance of created node using CreateNode
 type node struct {
 	registrarInternal
-	Network
+	networkInternal
 
 	name     string
-	Cookie   string
+	cookie   string
 	creation uint32
 	opts     Options
 	context  context.Context
@@ -50,7 +50,7 @@ func StartWithContext(ctx context.Context, name string, cookie string, opts Opti
 	creation := uint32(time.Now().Unix()) | 1
 
 	node := &node{
-		Cookie:   cookie,
+		cookie:   cookie,
 		context:  nodectx,
 		stop:     nodestop,
 		creation: creation,
@@ -105,14 +105,14 @@ func StartWithContext(ctx context.Context, name string, cookie string, opts Opti
 	node.opts = opts
 	node.name = name
 
-	registrar := NewRegistrar(ctx, name, creation, node)
-	network, err := NewNetwork(ctx, name, opts, registrar)
+	registrar := newRegistrar(ctx, name, creation, node)
+	network, err := newNetwork(ctx, name, opts, registrar)
 	if err != nil {
 		return nil, err
 	}
 
 	node.registrarInternal = registrar
-	node.Network = network
+	node.networkInternal = network
 
 	//	netKernelSup := &netKernelSup{}
 	node.Spawn("erlang", gen.ProcessOptions{}, &erlang.Erlang{})
@@ -174,7 +174,7 @@ func (n *node) WhichApplications() []gen.ApplicationInfo {
 func (n *node) listApplications(onlyRunning bool) []gen.ApplicationInfo {
 	info := []gen.ApplicationInfo{}
 	for _, rb := range n.GetRegisteredBehaviorGroup(appBehaviorGroup) {
-		spec, ok := rb.Data.(gen.ApplicationSpec)
+		spec, ok := rb.Data.(*gen.ApplicationSpec)
 		if !ok {
 			continue
 		}
@@ -203,7 +203,7 @@ func (n *node) GetApplicationInfo(name string) (gen.ApplicationInfo, error) {
 	if err != nil {
 		return gen.ApplicationInfo{}, ErrAppUnknown
 	}
-	spec, ok := rb.Data.(gen.ApplicationSpec)
+	spec, ok := rb.Data.(*gen.ApplicationSpec)
 	if !ok {
 		return gen.ApplicationInfo{}, ErrAppUnknown
 	}
@@ -240,7 +240,7 @@ func (n *node) ApplicationUnload(appName string) error {
 		return ErrAppUnknown
 	}
 
-	spec, ok := rb.Data.(gen.ApplicationSpec)
+	spec, ok := rb.Data.(*gen.ApplicationSpec)
 	if !ok {
 		return ErrAppUnknown
 	}
@@ -328,9 +328,13 @@ func (n *node) ApplicationStop(name string) error {
 		return ErrAppUnknown
 	}
 
+	spec.Lock()
+	defer func() { spec.Unlock() }()
 	if spec.Process == nil {
 		return ErrAppIsNotRunning
 	}
+
+	fmt.Println("QQQ", spec.Process.Self())
 
 	spec.Process.Exit("normal")
 	return nil
