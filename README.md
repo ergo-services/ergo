@@ -14,7 +14,7 @@ The easiest drop-in replacement for your hot Erlang-nodes in the cluster.
 
 ### Purpose ###
 
-The goal of this project is to leverage Erlang/OTP experience with Golang performance. Ergo Framework implements [DIST protocol](https://erlang.org/doc/apps/erts/erl_dist_protocol.html), [ETF data format](https://erlang.org/doc/apps/erts/erl_ext_dist.html) and [OTP design patterns](https://erlang.org/doc/design_principles/des_princ.html) (`GenServer`/`Supervisor`/`Application`) which makes you able to create distributed, high performance and reliable microservice solutions having native integration with Erlang infrastructure
+The goal of this project is to leverage Erlang/OTP experience with Golang performance. Ergo Framework implements [DIST protocol](https://erlang.org/doc/apps/erts/erl_dist_protocol.html), [ETF data format](https://erlang.org/doc/apps/erts/erl_ext_dist.html) and [OTP design patterns](https://erlang.org/doc/design_principles/des_princ.html) (`gen.Server`/`gen.Supervisor`/`gen.Application`) which makes you able to create distributed, high performance and reliable microservice solutions having native integration with Erlang infrastructure
 
 ### Features ###
 
@@ -23,20 +23,20 @@ The goal of this project is to leverage Erlang/OTP experience with Golang perfor
 * Support Erlang 24 (including [Alias](https://blog.erlang.org/My-OTP-24-Highlights/#eep-53-process-aliases) feature)
 * Spawn Erlang-like processes
 * Register/unregister processes with simple atom
-* `GenServer` behavior support (with atomic state)
-* `Supervisor` behavior support with all known [restart strategies](https://erlang.org/doc/design_principles/sup_princ.html#restart-strategy) support
+* `gen.Server` behavior support (with atomic state)
+* `gen.Supervisor` behavior support with all known [restart strategies](https://erlang.org/doc/design_principles/sup_princ.html#restart-strategy) support
   * One For One
   * One For All
   * Rest For One
   * Simple One For One
-* `Application` behavior support with all known [starting types](https://erlang.org/doc/design_principles/applications.html#application-start-types) support
+* `gen.Application` behavior support with all known [starting types](https://erlang.org/doc/design_principles/applications.html#application-start-types) support
   * Permanent
   * Temporary
   * Transient
-* `GenStage` behavior support (originated from Elixir's [GenStage](https://hexdocs.pm/gen_stage/GenStage.html)). This is abstraction built on top of `GenServer` to provide a simple way to create a distributed Producer/Consumer architecture, while automatically managing the concept of backpressure. This implementation is fully compatible with Elixir's GenStage. Example here `examples/genstage` or just run it `go run ./examples/genstage` to see it in action
-* `GenSaga` behavior support. It implements a Saga design pattern - a sequence of transactions that updates each service state and publishes the result (or cancels the transaction or triggers the next transaction step). `GenSaga` also provides a feature of interim results (can be used as transaction progress or as a part of pipeline processing), time deadline (to limit transaction lifespan), two-phase commit (to make distributed transaction atomic).
+* `gen.Stage` behavior support (originated from Elixir's [GenStage](https://hexdocs.pm/gen_stage/GenStage.html)). This is abstraction built on top of `gen.Server` to provide a simple way to create a distributed Producer/Consumer architecture, while automatically managing the concept of backpressure. This implementation is fully compatible with Elixir's GenStage. Example here `examples/genstage` or just run it `go run ./examples/genstage` to see it in action
+* `gen.Saga` behavior support. It implements a Saga design pattern - a sequence of transactions that updates each service state and publishes the result (or cancels the transaction or triggers the next transaction step). `gen.Saga` also provides a feature of interim results (can be used as transaction progress or as a part of pipeline processing), time deadline (to limit transaction lifespan), two-phase commit (to make distributed transaction atomic).
 * Connect to (accept connection from) any Erlang node within a cluster
-* Making sync request `process.Call`, async - `process.Cast` or `process.Send` in fashion of `gen_server:call`, `gen_server:cast`, `erlang:send` accordingly
+* Making sync request `Process.Call`, async - `Process.Cast` or `Process.Send` in fashion of `gen_server:call`, `gen_server:cast`, `erlang:send` accordingly
 * Monitor processes/nodes
   * local -> local
   * local -> remote
@@ -66,10 +66,10 @@ Here are the changes of latest release. For more details see the [ChangeLog](Cha
 * Added support of Erlang/OTP 24 (including [Alias](https://blog.erlang.org/My-OTP-24-Highlights/#eep-53-process-aliases) feature)
   * Introduced new methods for `Node`: `GetProcessByAlias`, `ProvideRemoteSpawn`, `RevokeRemoteSpawn`.
   * Introduced new methods for `Process`: `CreateAlias`, `DeleteAlias`, `RemoteSpawn`
-* Important: `GenServer` and `GenStage` interfaces got significant improvements to be easier to use (without backward compatibility). Make sure to update your code.
-* Introduced new behavior `GenSaga`. It implements a Saga design pattern - a sequence of transactions that updates each service state and publishes the result (or cancels the transaction or triggers the next transaction step). `GenSaga` also provides a feature of interim results (can be used as transaction progress or as a part of pipeline processing), time deadline (to limit transaction lifespan), two-phase commit (to make distributed transaction atomic). Here is example `examples/gensaga`.
+* Important: `gen.Server` and `gen.Stage` interfaces got significant improvements to be easier to use (without backward compatibility). Make sure to update your code.
+* Introduced new behavior `gen.Saga`. It implements a Saga design pattern - a sequence of transactions that updates each service state and publishes the result (or cancels the transaction or triggers the next transaction step). `gen.Saga` also provides a feature of interim results (can be used as transaction progress or as a part of pipeline processing), time deadline (to limit transaction lifespan), two-phase commit (to make distributed transaction atomic). Here is example `examples/gensaga`.
 * Introduced new methods `Process.Direct` and `Process.DirectWithTimeout` to make direct request to the actor (`GenServer` or inherited object). If an actor has no implementation of `HandleDirect` callback it returns `ErrUnsupportedRequest` as a error.
-* Introduced new callback `HandleDirect` in the `GenServer` interface as a handler for requests made by `Process.Direct` or `Process.DirectWithTimeout`. It should be easy to interact with actors from outside while `Process.Call`, `Process.Cast` and `Process.Send` must be used inside the actors.
+* Introduced new callback `HandleDirect` in the `gen.Server` interface as a handler for requests made by `Process.Direct` or `Process.DirectWithTimeout`. It should be easy to interact with actors from outside while `Process.Call`, `Process.Cast` and `Process.Send` must be used inside the actors.
 * Introduced new types intended to be used to interact with Erlang/Elixir
   * `etf.ListImproper` to support improper lists like `[a|b]` (a cons cell).
   * `etf.String` (an alias for the Golang string) encodes as a binary in order to support Elixir string type (which is `binary()` type)
@@ -215,12 +215,12 @@ exited
 
 See `examples/` for more details
 
-* [Application](examples/application)
-* [Supervisor](examples/supervisor)
-* [GenServer](examples/genserver)
-* [GenStage](examples/genstage)
-* [GenSaga](examples/gensaga)
-* [GenDemo](examples/gendemo)
+* [gen.Application](examples/application)
+* [gen.Supervisor](examples/supervisor)
+* [gen.Server](examples/genserver)
+* [gen.Stage](examples/genstage)
+* [gen.Saga](examples/gensaga)
+* [gen.Demo](examples/gendemo)
 * [Node with TLS](examples/nodetls)
 * [Node with HTTP server](examples/http)
 
@@ -235,14 +235,14 @@ spawn it inside your node. The spawning process must have "pg2" as a process nam
 
 ```golang
 type Pg2GenServer struct {
-    ergo.GenServer
+    gen.Server
 }
 
 func main() {
     // ...
     pg2 := &Pg2GenServer{}
-    node1, _ := ergo.CreateNode("node1@localhost", "cookies", ergo.NodeOptions{})
-    process, _ := node1.Spawn("pg2", ergo.ProcessOptions{}, pg2, nil)
+    node1, _ := ergo.StartNode("node1@localhost", "cookies", node.Options{})
+    process, _ := node1.Spawn("pg2", gen.ProcessOptions{}, pg2, nil)
     // ...
 }
 
