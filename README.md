@@ -1,4 +1,4 @@
-<h1><a href="https://ergo.services"><img src=".images/logo.svg" alt="Ergo Framework" width="159" height="49"></a></h1>
+<h1><a href="https://ergo.services"><img src=".github/images/logo.svg" alt="Ergo Framework" width="159" height="49"></a></h1>
 
 [![GitHub release](https://img.shields.io/github/release/halturin/ergo.svg)](https://github.com/halturin/ergo/releases/latest)
 [![Go Report Card](https://goreportcard.com/badge/github.com/halturin/ergo)](https://goreportcard.com/report/github.com/halturin/ergo)
@@ -147,7 +147,7 @@ It's a standard Erlang tool. Observer is a graphical tool for observing the char
 
 Here you can see this feature in action using one of the [examples](examples/):
 
-![observer demo](./.images/observer.gif)
+![observer demo](.github/images/observer.gif)
 
 ### Examples ###
 
@@ -263,9 +263,9 @@ Now golang' profiler is available at `http://localhost:9009/debug/pprof`
 
 ### Companies are using Ergo Framework ###
 
-[![Kaspersky](./.images/kaspersky.png)](https://kaspersky.com)
-[![RingCentral](./.images/ringcentral.png)](https://www.ringcentral.com)
-[![LilithGames](./.images/lilithgames.png)](https://lilithgames.com)
+[![Kaspersky](.github/images/kaspersky.png)](https://kaspersky.com)
+[![RingCentral](.github/images/ringcentral.png)](https://www.ringcentral.com)
+[![LilithGames](.github/images/lilithgames.png)](https://lilithgames.com)
 
 is your company using Ergo? add your company logo/name here
 
