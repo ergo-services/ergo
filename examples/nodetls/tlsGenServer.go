@@ -6,11 +6,13 @@ import (
 
 	"github.com/halturin/ergo"
 	"github.com/halturin/ergo/etf"
+	"github.com/halturin/ergo/gen"
+	"github.com/halturin/ergo/node"
 )
 
 // GenServer implementation structure
 type demoGenServ struct {
-	ergo.GenServer
+	gen.Server
 }
 
 var (
@@ -26,7 +28,7 @@ var (
 	EnableRPC bool
 )
 
-func (dgs *demoGenServ) HandleCast(state *ergo.GenServerState, message etf.Term) string {
+func (dgs *demoGenServ) HandleCast(process *gen.ServerProcess, message etf.Term) string {
 	fmt.Printf("HandleCast: %#v\n", message)
 	switch message {
 	case etf.Atom("stop"):
@@ -35,14 +37,14 @@ func (dgs *demoGenServ) HandleCast(state *ergo.GenServerState, message etf.Term)
 	return "noreply"
 }
 
-func (dgs *demoGenServ) HandleCall(state *ergo.GenServerState, from ergo.GenServerFrom, message etf.Term) (string, etf.Term) {
+func (dgs *demoGenServ) HandleCall(state *gen.ServerProcess, from gen.ServerFrom, message etf.Term) (string, etf.Term) {
 	fmt.Printf("HandleCall: %#v, From: %#v\n", message, from)
 
-	reply := etf.Term(etf.Tuple{etf.Atom("error"), etf.Atom("unknown_request")})
 	switch message {
 	case etf.Atom("hello"):
-		reply = etf.Term("hi")
+		return "reply", etf.Term("hi")
 	}
+	reply := etf.Tuple{etf.Atom("error"), etf.Atom("unknown_request")}
 	return "reply", reply
 }
 
@@ -58,13 +60,13 @@ func init() {
 func main() {
 	flag.Parse()
 
-	opts := ergo.NodeOptions{
+	opts := node.Options{
 		ListenRangeBegin: uint16(ListenRangeBegin),
 		ListenRangeEnd:   uint16(ListenRangeEnd),
 		EPMDPort:         uint16(ListenEPMD),
 
 		// enables TLS encryption with self-signed certificate
-		TLSmode: ergo.TLSmodeAuto,
+		TLSMode: node.TLSModeAuto,
 
 		// set TLSmode to TLSmodeStrict to use custom certificate
 		// TLSmode: ergo.TLSmodeStrict,
@@ -75,20 +77,17 @@ func main() {
 	}
 
 	// Initialize new node with given name, cookie, listening port range and epmd port
-	node, _ := ergo.CreateNode(NodeName, Cookie, opts)
-
-	// Initialize new instance of demoGenServ structure which implements Process behavior
-	demoGS := new(demoGenServ)
+	nodeTLS, _ := ergo.StartNode(NodeName, Cookie, opts)
 
 	// Spawn process with one arguments
-	process, _ := node.Spawn(GenServerName, ergo.ProcessOptions{}, demoGS)
+	process, _ := nodeTLS.Spawn(GenServerName, gen.ProcessOptions{}, &demoGenServ{})
 	fmt.Println("Run erl shell:")
-	fmt.Printf("erl -proto_dist inet_tls -ssl_dist_opt server_certfile example.crt -ssl_dist_opt server_keyfile example.key -name %s -setcookie %s\n", "erl-"+node.Name(), Cookie)
+	fmt.Printf("erl -proto_dist inet_tls -ssl_dist_opt server_certfile example.crt -ssl_dist_opt server_keyfile example.key -name %s -setcookie %s\n", "erl-"+nodeTLS.Name(), Cookie)
 
 	fmt.Println("-----Examples that can be tried from 'erl'-shell")
 	fmt.Printf("gen_server:cast({%s,'%s'}, stop).\n", GenServerName, NodeName)
 	fmt.Printf("gen_server:call({%s,'%s'}, hello).\n", GenServerName, NodeName)
 
 	process.Wait()
-	node.Stop()
+	nodeTLS.Stop()
 }

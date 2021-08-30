@@ -34,7 +34,7 @@ func (dgs *demo) Init(process *gen.ServerProcess, args ...etf.Term) error {
 }
 
 func (dgs *demo) HandleCast(process *gen.ServerProcess, message etf.Term) string {
-	fmt.Printf("[%s] HandleCast: %#v\n", process.Name(), message)
+	fmt.Printf("[%s] HandleCast: %v\n", process.Name(), message)
 	if pid, ok := message.(etf.Pid); ok {
 		process.Send(pid, etf.Atom("hahaha"))
 		return "noreply"
@@ -47,7 +47,7 @@ func (dgs *demo) HandleCast(process *gen.ServerProcess, message etf.Term) string
 }
 
 func (dgs *demo) HandleCall(process *gen.ServerProcess, from gen.ServerFrom, message etf.Term) (string, etf.Term) {
-	fmt.Printf("[%s] HandleCall: %#v, From: %#v\n", process.Name(), message, from)
+	fmt.Printf("[%s] HandleCall: %#v, From: %v\n", process.Name(), message, from)
 
 	reply := etf.Term(etf.Tuple{etf.Atom("error"), etf.Atom("unknown_request")})
 	switch message {

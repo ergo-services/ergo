@@ -46,16 +46,10 @@ type epmd struct {
 	Creation uint16
 
 	staticOnly   bool
-	staticRoutes map[string]portcookietls
+	staticRoutes map[string]NetworkRoute
 	mtx          sync.RWMutex
 
 	response chan interface{}
-}
-
-type portcookietls struct {
-	port   int
-	cookie string
-	tls    bool
 }
 
 func (e *epmd) Init(ctx context.Context, name string, port uint16, opts Options) error {
@@ -84,7 +78,7 @@ func (e *epmd) Init(ctx context.Context, name string, port uint16, opts Options)
 	e.Creation = uint16(opts.creation)
 
 	e.staticOnly = opts.DisableEPMD
-	e.staticRoutes = make(map[string]portcookietls)
+	e.staticRoutes = make(map[string]NetworkRoute)
 
 	ready := make(chan error)
 
@@ -158,7 +152,7 @@ func (e *epmd) AddStaticRoute(name string, port uint16, cookie string, tls bool)
 		// already exist
 		return fmt.Errorf("already exist")
 	}
-	e.staticRoutes[name] = portcookietls{int(port), cookie, tls}
+	e.staticRoutes[name] = NetworkRoute{int(port), cookie, tls}
 
 	return nil
 }
@@ -170,25 +164,25 @@ func (e *epmd) RemoveStaticRoute(name string) {
 	return
 }
 
-func (e *epmd) resolve(name string) (portcookietls, error) {
+func (e *epmd) resolve(name string) (NetworkRoute, error) {
 	// chech static routes first
 	e.mtx.RLock()
 	defer e.mtx.RUnlock()
-	pct, ok := e.staticRoutes[name]
-	if ok && pct.port > 0 {
-		return pct, nil
+	nr, ok := e.staticRoutes[name]
+	if ok && nr.Port > 0 {
+		return nr, nil
 	}
 
 	if e.staticOnly {
-		return pct, fmt.Errorf("Can't resolve %s", name)
+		return nr, fmt.Errorf("Can't resolve %s", name)
 	}
 
 	// no static route for the given name. go the regular way
 	port, err := e.resolvePort(name)
 	if err != nil {
-		return portcookietls{}, err
+		return nr, err
 	}
-	return portcookietls{port, pct.cookie, pct.tls}, nil
+	return NetworkRoute{port, nr.Cookie, nr.TLS}, nil
 }
 
 func (e *epmd) resolvePort(name string) (int, error) {

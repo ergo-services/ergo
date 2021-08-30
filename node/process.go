@@ -390,8 +390,7 @@ func (p *process) RemoteSpawn(node string, object string, opts gen.RemoteSpawnOp
 	if opts.Timeout == 0 {
 		opts.Timeout = DefaultCallTimeout
 	}
-	// distProtoSPAWN_REQUEST = 29
-	control := etf.Tuple{29, ref, p.self, p.self,
+	control := etf.Tuple{distProtoSPAWN_REQUEST, ref, p.self, p.self,
 		// {M,F,A}
 		etf.Tuple{etf.Atom(object), etf.Atom(opts.Function), len(args)},
 		optlist,

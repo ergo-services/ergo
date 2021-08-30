@@ -121,8 +121,16 @@ type Network interface {
 	AddStaticRoute(name string, port uint16) error
 	AddStaticRouteExt(name string, port uint16, cookie string, tls bool) error
 	RemoveStaticRoute(name string)
-	ProvideRemoteSpawn(name string, object gen.ProcessBehavior)
-	RevokeRemoteSpawn(name string) bool
+	Resolve(name string) (NetworkRoute, error)
+
+	ProvideRemoteSpawn(name string, object gen.ProcessBehavior) error
+	RevokeRemoteSpawn(name string) error
+}
+
+type NetworkRoute struct {
+	Port   int
+	Cookie string
+	TLS    bool
 }
 
 // TLSmodeType should be one of TLSmodeDisabled (default), TLSmodeAuto or TLSmodeStrict

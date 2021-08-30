@@ -31,6 +31,10 @@ import (
 	"time"
 )
 
+const (
+	remoteBehaviorGroup = "$remote"
+)
+
 type networkInternal interface {
 	Network
 	connect(to etf.Atom) error
@@ -84,23 +88,6 @@ func (n *network) AddStaticRouteExt(name string, port uint16, cookie string, tls
 // RemoveStaticRoute removes static route record from the EPMD client
 func (n *network) RemoveStaticRoute(name string) {
 	n.epmd.RemoveStaticRoute(name)
-}
-
-func (n *network) ProvideRemoteSpawn(name string, object gen.ProcessBehavior) {
-	n.remoteSpawnMutex.Lock()
-	n.remoteSpawn[name] = object
-	n.remoteSpawnMutex.Unlock()
-	return
-}
-
-func (n *network) RevokeRemoteSpawn(name string) bool {
-	n.remoteSpawnMutex.Lock()
-	defer n.remoteSpawnMutex.Unlock()
-	if _, ok := n.remoteSpawn[name]; ok {
-		delete(n.remoteSpawn, name)
-		return true
-	}
-	return false
 }
 
 func (n *network) listen(ctx context.Context, name string) (uint16, error) {
@@ -200,6 +187,19 @@ func (n *network) listen(ctx context.Context, name string) (uint16, error) {
 	// all the ports within a given range are taken
 	return 0, fmt.Errorf("Can't start listener. Port range is taken")
 }
+
+func (n *network) ProvideRemoteSpawn(name string, behavior gen.ProcessBehavior) error {
+	return n.registrar.RegisterBehavior(remoteBehaviorGroup, name, behavior, nil)
+}
+
+func (n *network) RevokeRemoteSpawn(name string) error {
+	return n.registrar.UnregisterBehavior(remoteBehaviorGroup, name)
+}
+
+func (n *network) Resolve(name string) (NetworkRoute, error) {
+	return n.epmd.resolve(name)
+}
+
 func (n *network) serve(ctx context.Context, link *dist.Link) error {
 	// define the total number of reader/writer goroutines
 	numHandlers := runtime.GOMAXPROCS(n.opts.ConnectionHandlers)
@@ -440,16 +440,14 @@ func (n *network) handleMessage(fromNode string, control, message etf.Term) (err
 					}
 				}
 
-				n.remoteSpawnMutex.Lock()
-				object, provided := n.remoteSpawn[string(module)]
-				n.remoteSpawnMutex.Unlock()
-				if !provided {
+				rb, err_behavior := n.registrar.GetRegisteredBehavior(remoteBehaviorGroup, string(module))
+				if err_behavior != nil {
 					message := etf.Tuple{distProtoSPAWN_REPLY, ref, from, 0, etf.Atom("not_provided")}
 					n.registrar.RouteRaw(from.Node, message)
 					return
 				}
 
-				process, err_spawn := n.registrar.spawn(registerName, processOptions{}, object, args...)
+				process, err_spawn := n.registrar.spawn(registerName, processOptions{}, rb.Behavior, args...)
 				if err_spawn != nil {
 					message := etf.Tuple{distProtoSPAWN_REPLY, ref, from, 0, etf.Atom(err_spawn.Error())}
 					n.registrar.RouteRaw(from.Node, message)
@@ -483,14 +481,14 @@ func (n *network) handleMessage(fromNode string, control, message etf.Term) (err
 }
 
 func (n *network) connect(to etf.Atom) error {
-	var pc portcookietls
+	var nr NetworkRoute
 	var err error
 	var c net.Conn
-	if pc, err = n.epmd.resolve(string(to)); err != nil {
+	if nr, err = n.epmd.resolve(string(to)); err != nil {
 		return fmt.Errorf("Can't resolve port for %s: %s", to, err)
 	}
-	if pc.cookie == "" {
-		pc.cookie = n.opts.cookie
+	if nr.Cookie == "" {
+		nr.Cookie = n.opts.cookie
 	}
 	ns := strings.Split(string(to), "@")
 
@@ -504,7 +502,7 @@ func (n *network) connect(to etf.Atom) error {
 				InsecureSkipVerify: true,
 			},
 		}
-		c, err = tlsdialer.DialContext(n.ctx, "tcp", net.JoinHostPort(ns[1], strconv.Itoa(pc.port)))
+		c, err = tlsdialer.DialContext(n.ctx, "tcp", net.JoinHostPort(ns[1], strconv.Itoa(nr.Port)))
 		TLSenabled = true
 
 	case TLSModeStrict:
@@ -513,12 +511,12 @@ func (n *network) connect(to etf.Atom) error {
 				Certificates: []tls.Certificate{n.tlscertClient},
 			},
 		}
-		c, err = tlsdialer.DialContext(n.ctx, "tcp", net.JoinHostPort(ns[1], strconv.Itoa(pc.port)))
+		c, err = tlsdialer.DialContext(n.ctx, "tcp", net.JoinHostPort(ns[1], strconv.Itoa(nr.Port)))
 		TLSenabled = true
 
 	default:
 		dialer := net.Dialer{}
-		c, err = dialer.DialContext(n.ctx, "tcp", net.JoinHostPort(ns[1], strconv.Itoa(pc.port)))
+		c, err = dialer.DialContext(n.ctx, "tcp", net.JoinHostPort(ns[1], strconv.Itoa(nr.Port)))
 	}
 
 	if err != nil {
@@ -528,7 +526,7 @@ func (n *network) connect(to etf.Atom) error {
 
 	handshakeOptions := dist.HandshakeOptions{
 		Name:     n.name,
-		Cookie:   pc.cookie,
+		Cookie:   nr.Cookie,
 		TLS:      TLSenabled,
 		Hidden:   false,
 		Creation: n.opts.creation,

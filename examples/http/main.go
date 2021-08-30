@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/halturin/ergo"
+	"github.com/halturin/ergo/node"
 )
 
 var (
@@ -28,31 +29,38 @@ func init() {
 func main() {
 	flag.Parse()
 
-	opts := ergo.NodeOptions{
+	opts := node.Options{
 		ListenRangeBegin: uint16(ListenRangeBegin),
 		ListenRangeEnd:   uint16(ListenRangeEnd),
 		EPMDPort:         uint16(ListenEPMD),
 	}
 
 	// Initialize new node with given name, cookie, listening port range and epmd port
-	node, _ := ergo.CreateNode(NodeName, Cookie, opts)
+	nodeHTTP, _ := ergo.StartNode(NodeName, Cookie, opts)
 
 	// start application
-	if err := node.ApplicationLoad(&App{}); err != nil {
+	if err := nodeHTTP.ApplicationLoad(&App{}); err != nil {
 		panic(err)
 	}
 
-	process, _ := node.ApplicationStart("WebApp")
+	process, _ := nodeHTTP.ApplicationStart("WebApp")
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		p := process.Node.GetProcessByName("handler_sup")
-
-		if pid, err := handler_sup.StartChild(p, "handler", r); err == nil {
-			process.Cast(pid, w)
-			handler := process.Node.GetProcessByPid(pid)
-			handler.Wait()
+		p := process.GetProcessByName("handler_sup")
+		if p == nil {
+			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
+
+		fmt.Println("AAA")
+		if pid, err := handler_sup.StartChild(p, "handler", r); err == nil {
+			process.Cast(pid, w)
+			handler := process.GetProcessByPid(pid)
+			handler.Wait()
+			fmt.Println("AAA2")
+			return
+		}
+		fmt.Println("AAA1")
 
 		w.WriteHeader(http.StatusInternalServerError)
 	})
@@ -61,5 +69,5 @@ func main() {
 	fmt.Println("HTTP is listening on http://127.0.0.1:8080")
 
 	process.Wait()
-	node.Stop()
+	nodeHTTP.Stop()
 }

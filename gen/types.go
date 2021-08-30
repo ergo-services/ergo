@@ -89,6 +89,20 @@ type ProcessOptions struct {
 	Env         map[string]interface{}
 }
 
+// RemoteSpawnOptions defines options for RemoteSpawn method
+type RemoteSpawnOptions struct {
+	// RegisterName
+	RegisterName string
+	// Monitor enables monitor on the spawned process using provided reference
+	Monitor etf.Ref
+	// Link enables link between the calling and spawned processes
+	Link bool
+	// Function in order to support {M,F,A} request to the Erlang node
+	Function string
+	// Timeout
+	Timeout int
+}
+
 type ProcessChannels struct {
 	Mailbox      <-chan ProcessMailboxMessage
 	Direct       <-chan ProcessDirectMessage
@@ -112,20 +126,6 @@ type ProcessGracefulExitRequest struct {
 	Reason string
 }
 
-// RemoteSpawnOptions defines options for RemoteSpawn method
-type RemoteSpawnOptions struct {
-	// RegisterName
-	RegisterName string
-	// Monitor enables monitor on the spawned process using provided reference
-	Monitor etf.Ref
-	// Link enables link between the calling and spawned processes
-	Link bool
-	// Function in order to support {M,F,A} request to the Erlang node
-	Function string
-	// Timeout
-	Timeout int
-}
-
 type ProcessState struct {
 	Process
 	State interface{}
@@ -143,6 +143,7 @@ type Registrar interface {
 	GetProcessByName(name string) Process
 	GetProcessByPid(pid etf.Pid) Process
 	GetProcessByAlias(alias etf.Alias) Process
+	ProcessInfo(pid etf.Pid) (ProcessInfo, error)
 	ProcessList() []Process
 	MakeRef() etf.Ref
 	RegisterName(name string, pid etf.Pid) error

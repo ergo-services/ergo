@@ -3,26 +3,26 @@ package main
 import (
 	"fmt"
 
-	"github.com/halturin/ergo"
 	"github.com/halturin/ergo/etf"
+	"github.com/halturin/ergo/gen"
 )
 
 type App struct {
-	ergo.Application
+	gen.Application
 }
 
 var (
 	handler_sup = &HandlerSup{}
 )
 
-func (a *App) Load(args ...etf.Term) (ergo.ApplicationSpec, error) {
-	return ergo.ApplicationSpec{
+func (a *App) Load(args ...etf.Term) (gen.ApplicationSpec, error) {
+	return gen.ApplicationSpec{
 		Name:        "WebApp",
 		Description: "Demo Web Application",
 		Version:     "v.1.0",
 		Environment: map[string]interface{}{},
-		Children: []ergo.ApplicationChildSpec{
-			ergo.ApplicationChildSpec{
+		Children: []gen.ApplicationChildSpec{
+			gen.ApplicationChildSpec{
 				Child: handler_sup,
 				Name:  "handler_sup",
 			},
@@ -30,6 +30,6 @@ func (a *App) Load(args ...etf.Term) (ergo.ApplicationSpec, error) {
 	}, nil
 }
 
-func (a *App) Start(process *ergo.Process, args ...etf.Term) {
+func (a *App) Start(process gen.Process, args ...etf.Term) {
 	fmt.Println("Application started!")
 }
