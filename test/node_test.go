@@ -45,7 +45,9 @@ func TestNode(t *testing.T) {
 		defer conn.Close()
 	}
 
-	gs1 := &testServer{}
+	gs1 := &testServer{
+		res: make(chan interface{}, 2),
+	}
 	p, e := node1.Spawn("", gen.ProcessOptions{}, gs1)
 	if e != nil {
 		t.Fatal(e)
