@@ -77,7 +77,6 @@ func (r *registrar) NodeName() string {
 }
 
 func (r *registrar) NodeStop() {
-	fmt.Println("NODE STOP")
 	r.node.Stop()
 }
 
@@ -195,7 +194,7 @@ func (r *registrar) newProcess(name string, behavior gen.ProcessBehavior, opts p
 		groupLeader: opts.GroupLeader,
 
 		mailBox:      make(chan gen.ProcessMailboxMessage, mailboxSize),
-		gracefulExit: make(chan gen.ProcessGracefulExitRequest, 1),
+		gracefulExit: make(chan gen.ProcessGracefulExitRequest),
 		direct:       make(chan gen.ProcessDirectMessage),
 
 		context: processContext,
@@ -205,28 +204,25 @@ func (r *registrar) newProcess(name string, behavior gen.ProcessBehavior, opts p
 	}
 
 	process.exit = func(from etf.Pid, reason string) error {
-		lib.Log("[%s] EXIT process %s with reason: %s", r.nodename, pid, reason)
+		lib.Log("[%s] EXIT from %s to %s with reason: %s", r.nodename, from, pid, reason)
 		if processContext.Err() != nil {
 			// process is already died
 			return ErrProcessUnknown
-		}
-		// let the process decide whether to stop itself
-		if !process.trapExit {
-			defer process.kill()
 		}
 
 		ex := gen.ProcessGracefulExitRequest{
 			From:   from,
 			Reason: reason,
 		}
-		// the reason why we use 'select':
-		// if this process is on the way of exiting
-		// there is nobody to read from the exitChannel and it locks the calling
-		// process foreveer
 		select {
 		case process.gracefulExit <- ex:
 		default:
 			return ErrProcessBusy
+		}
+
+		// let the process decide whether to stop itself, otherwise its going to be killed
+		if !process.trapExit {
+			process.kill()
 		}
 		return nil
 	}
@@ -293,6 +289,9 @@ func (r *registrar) spawn(name string, opts processOptions, behavior gen.Process
 		return nil, err
 	}
 
+	started := make(chan bool)
+	defer close(started)
+
 	go func(ps gen.ProcessState) {
 		pid := process.Self()
 		//cleanProcess := func() {
@@ -319,7 +318,7 @@ func (r *registrar) spawn(name string, opts processOptions, behavior gen.Process
 		//}(cleanProcess)
 
 		// start process loop
-		reason := behavior.ProcessLoop(ps)
+		reason := behavior.ProcessLoop(ps, started)
 
 		// process stopped. unregister it and let everybody (who set up
 		// link/monitor) to know about it
@@ -328,6 +327,8 @@ func (r *registrar) spawn(name string, opts processOptions, behavior gen.Process
 
 	}(processState)
 
+	// wait for the starting process loop
+	<-started
 	return process, nil
 }
 
@@ -335,13 +336,12 @@ func (r *registrar) spawn(name string, opts processOptions, behavior gen.Process
 func (r *registrar) RegisterName(name string, pid etf.Pid) error {
 	lib.Log("[%s] REGISTRAR registering name %s", r.nodename, name)
 	r.mutexNames.Lock()
+	defer r.mutexNames.Unlock()
 	if _, ok := r.names[name]; ok {
 		// already registered
-		r.mutexNames.Unlock()
 		return ErrTaken
 	}
 	r.names[name] = pid
-	r.mutexNames.Unlock()
 	return nil
 }
 
@@ -349,8 +349,8 @@ func (r *registrar) RegisterName(name string, pid etf.Pid) error {
 func (r *registrar) UnregisterName(name string) {
 	lib.Log("[%s] REGISTRAR unregistering name %s", r.nodename, name)
 	r.mutexNames.Lock()
+	defer r.mutexNames.Unlock()
 	delete(r.names, name)
-	r.mutexNames.Unlock()
 }
 
 func (r *registrar) registerPeer(peer *peer) error {
@@ -369,11 +369,11 @@ func (r *registrar) registerPeer(peer *peer) error {
 func (r *registrar) unregisterPeer(name string) {
 	lib.Log("[%s] REGISTRAR unregistering peer %v", r.nodename, name)
 	r.mutexPeers.Lock()
+	defer r.mutexPeers.Unlock()
 	if _, ok := r.peers[name]; ok {
 		delete(r.peers, name)
 		r.nodeDown(name)
 	}
-	r.mutexPeers.Unlock()
 }
 
 func (r *registrar) RegisterBehavior(group, name string, behavior gen.ProcessBehavior, data interface{}) error {
@@ -486,7 +486,12 @@ func (r *registrar) ProcessInfo(pid etf.Pid) (gen.ProcessInfo, error) {
 
 // GetProcessByPid returns Process struct for the given Pid. Returns nil if it doesn't exist (not found)
 func (r *registrar) GetProcessByPid(pid etf.Pid) gen.Process {
-	return r.getProcessByPid(pid)
+	if p := r.getProcessByPid(pid); p != nil {
+		return p
+	}
+	// we must return nil explicitly, otherwise returning value is not nil
+	// even for the nil(*process) due to the nature of interface type
+	return nil
 }
 
 func (r *registrar) getProcessByPid(pid etf.Pid) *process {
@@ -516,11 +521,11 @@ func (r *registrar) GetProcessByName(name string) gen.Process {
 	if name != "" {
 		// requesting Process by name
 		r.mutexNames.Lock()
+		defer r.mutexNames.Unlock()
+
 		if p, ok := r.names[name]; ok {
-			r.mutexNames.Unlock()
 			pid = p
 		} else {
-			r.mutexNames.Unlock()
 			return nil
 		}
 	}

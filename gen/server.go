@@ -77,8 +77,7 @@ func (gs *Server) ProcessInit(p Process, args ...etf.Term) (ProcessState, error)
 	return gsp.ProcessState, nil
 }
 
-func (gs *Server) ProcessLoop(ps ProcessState) string {
-
+func (gs *Server) ProcessLoop(ps ProcessState, started chan<- bool) string {
 	behavior, ok := ps.GetProcessBehavior().(ServerBehavior)
 	if !ok {
 		return "ProcessLoop: not a ServerBehavior"
@@ -94,6 +93,7 @@ func (gs *Server) ProcessLoop(ps ProcessState) string {
 	gsp.currentFunction = "Server:loop"
 	chs := gsp.GetProcessChannels()
 
+	started <- true
 	for {
 		var message etf.Term
 		var fromPid etf.Pid

@@ -102,7 +102,7 @@ func (a *Application) ProcessInit(p Process, args ...etf.Term) (ProcessState, er
 	}, nil
 }
 
-func (a *Application) ProcessLoop(ps ProcessState) string {
+func (a *Application) ProcessLoop(ps ProcessState, started chan<- bool) string {
 	spec := ps.State.(*ApplicationSpec)
 	defer func() { spec.Process = nil }()
 
@@ -117,6 +117,7 @@ func (a *Application) ProcessLoop(ps ProcessState) string {
 	// due to its not GCed until the timer fires
 	defer timer.Stop()
 
+	started <- true
 	for {
 		select {
 		case ex := <-chs.GracefulExit:
@@ -162,7 +163,7 @@ func (a *Application) ProcessLoop(ps ProcessState) string {
 						terminated, ps.NodeName(), reason)
 					continue
 				}
-				a.stopChildren(terminated, spec.Children, "normal")
+				a.stopChildren(terminated, spec.Children, reason)
 				fmt.Printf("Application child %s (at %s) stopped with reason %s. (transient: node is shutting down)\n",
 					terminated, ps.NodeName(), reason)
 				ps.Process.NodeStop()
@@ -172,11 +173,7 @@ func (a *Application) ProcessLoop(ps ProcessState) string {
 				fmt.Printf("Application child %s (at %s) stopped with reason %s (temporary)\n",
 					terminated, ps.NodeName(), reason)
 			}
-		default:
 
-		}
-
-		select {
 		case direct := <-chs.Direct:
 			switch direct.ID {
 			case "$getChildren":
@@ -229,20 +226,16 @@ func (a *Application) stopChildren(from etf.Pid, children []ApplicationChildSpec
 			continue
 		}
 
-		p := children[i].process
-		if p == nil {
-			continue
-		}
-		if !p.IsAlive() {
+		if !child.IsAlive() {
 			continue
 		}
 
-		if err := p.Exit(reason); err != nil {
+		if err := child.Exit(reason); err != nil {
 			childrenStopped = false
 			continue
 		}
 
-		if err := p.WaitWithTimeout(5 * time.Second); err != nil {
+		if err := child.WaitWithTimeout(5 * time.Second); err != nil {
 			childrenStopped = false
 			continue
 		}

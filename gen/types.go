@@ -134,7 +134,7 @@ type ProcessState struct {
 // ProcessBehavior interface contains methods you should implement to make own process behaviour
 type ProcessBehavior interface {
 	ProcessInit(Process, ...etf.Term) (ProcessState, error)
-	ProcessLoop(ProcessState) string // method which implements control flow of process
+	ProcessLoop(ProcessState, chan<- bool) string // method which implements control flow of process
 }
 type Registrar interface {
 	Monitor

@@ -358,7 +358,12 @@ func TestApplicationTypeTransient(t *testing.T) {
 		t.Fatal("application testapp1 should be alive here")
 	}
 
+	fmt.Printf("... stopping application testapp1: ")
 	p1.Kill()
+	if e := p1.WaitWithTimeout(100 * time.Millisecond); e != nil {
+		t.Fatal("application testapp1 shouldn't be alive here:", e)
+	}
+	fmt.Println("OK")
 
 	p2.WaitWithTimeout(100 * time.Millisecond)
 	if !p2.IsAlive() {
@@ -378,7 +383,7 @@ func TestApplicationTypeTransient(t *testing.T) {
 	}
 	fmt.Println("OK")
 
-	fmt.Printf("... stopping testAppGS1 with 'abnormal' reason (node will shotdown): ")
+	fmt.Printf("... stopping testAppGS1 with 'abnormal' reason (node will shutdown): ")
 	gs = mynode.GetProcessByName("testAppGS1")
 	gs.Exit("abnormal")
 

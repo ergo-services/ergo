@@ -105,8 +105,8 @@ func StartWithContext(ctx context.Context, name string, cookie string, opts Opti
 	node.opts = opts
 	node.name = name
 
-	registrar := newRegistrar(ctx, name, creation, node)
-	network, err := newNetwork(ctx, name, opts, registrar)
+	registrar := newRegistrar(nodectx, name, creation, node)
+	network, err := newNetwork(nodectx, name, opts, registrar)
 	if err != nil {
 		return nil, err
 	}

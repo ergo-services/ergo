@@ -140,7 +140,7 @@ func (sv *Supervisor) ProcessInit(p Process, args ...etf.Term) (ProcessState, er
 	}, nil
 }
 
-func (sv *Supervisor) ProcessLoop(ps ProcessState) string {
+func (sv *Supervisor) ProcessLoop(ps ProcessState, started chan<- bool) string {
 	spec := ps.State.(SupervisorSpec)
 	if spec.Strategy.Type != SupervisorStrategySimpleOneForOne {
 		startChildren(ps, &spec)
@@ -150,6 +150,7 @@ func (sv *Supervisor) ProcessLoop(ps ProcessState) string {
 	waitTerminatingProcesses := []etf.Pid{}
 	chs := ps.GetProcessChannels()
 
+	started <- true
 	for {
 		var message etf.Term
 		var fromPid etf.Pid
