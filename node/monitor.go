@@ -8,7 +8,6 @@ import (
 	"sync"
 
 	"github.com/halturin/ergo/etf"
-	"github.com/halturin/ergo/gen"
 	"github.com/halturin/ergo/lib"
 )
 
@@ -56,10 +55,10 @@ type monitor struct {
 	ref2node       map[etf.Ref]string
 	mutexNodes     sync.Mutex
 
-	registrar gen.Registrar
+	registrar registrarInternal
 }
 
-func newMonitor(registrar gen.Registrar) monitor {
+func newMonitor(registrar registrarInternal) monitor {
 	return monitor{
 		processes: make(map[etf.Pid][]monitorItem),
 		links:     make(map[etf.Pid][]etf.Pid),
@@ -396,7 +395,7 @@ func (m *monitor) nodeDown(name string) {
 	m.mutexNodes.Lock()
 	if pids, ok := m.nodes[name]; ok {
 		for i := range pids {
-			lib.Log("[%s] MONITOR node down: %v. send notify to: %v", m.registrar.NodeName(), name, pids[i])
+			lib.Log("[%s] MONITOR node down: %v. send notify to: %s", m.registrar.NodeName(), name, pids[i])
 			m.notifyNodeDown(pids[i].pid, name)
 			delete(m.nodes, name)
 		}
@@ -465,7 +464,7 @@ func (m *monitor) processTerminated(terminated etf.Pid, name, reason string) {
 	// just wrapper for the iterating through monitors list
 	handleMonitors := func(terminatedPid etf.Pid, items []monitorItem) {
 		for i := range items {
-			lib.Log("[%s] MONITOR process terminated: %v send notify to: %v", m.registrar.NodeName(), terminated, items[i].pid)
+			lib.Log("[%s] MONITOR process terminated: %s. send notify to: %s", m.registrar.NodeName(), terminated, items[i].pid)
 			m.notifyProcessTerminated(items[i].ref, items[i].pid, items[i].process, reason)
 			delete(m.ref2pid, items[i].ref)
 		}
@@ -491,7 +490,7 @@ func (m *monitor) processTerminated(terminated etf.Pid, name, reason string) {
 	m.mutexLinks.Lock()
 	if pidLinks, ok := m.links[terminated]; ok {
 		for i := range pidLinks {
-			lib.Log("[%s] LINK process exited: %v send notify to: %v", m.registrar.NodeName(), terminated, pidLinks[i])
+			lib.Log("[%s] LINK process exited: %s. send notify to: %s", m.registrar.NodeName(), terminated, pidLinks[i])
 			m.notifyProcessExit(pidLinks[i], terminated, reason)
 
 			// remove A link
@@ -622,9 +621,8 @@ func (m *monitor) notifyProcessExit(to etf.Pid, terminated etf.Pid, reason strin
 	}
 
 	// check if 'to' process is still alive. otherwise ignore this event
-	if p := m.registrar.GetProcessByPid(to); p != nil && p.IsAlive() {
-		//FIXME
-		p.Exit(reason)
+	if p := m.registrar.getProcessByPid(to); p != nil && p.IsAlive() {
+		p.exit(terminated, reason)
 	}
 }
 

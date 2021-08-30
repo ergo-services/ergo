@@ -329,14 +329,19 @@ func (n *node) ApplicationStop(name string) error {
 	}
 
 	spec.Lock()
-	defer func() { spec.Unlock() }()
+	defer spec.Unlock()
 	if spec.Process == nil {
 		return ErrAppIsNotRunning
 	}
 
-	fmt.Println("QQQ", spec.Process.Self())
-
-	spec.Process.Exit("normal")
+	if e := spec.Process.Exit("normal"); e != nil {
+		fmt.Println("CANTEXIT", spec.Process.IsAlive())
+		return e
+	}
+	// we should wait until children process stopped.
+	if e := spec.Process.WaitWithTimeout(5 * time.Second); e != nil {
+		return ErrProcessBusy
+	}
 	return nil
 }
 

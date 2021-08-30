@@ -32,7 +32,6 @@ type process struct {
 	mailBox      chan gen.ProcessMailboxMessage
 	gracefulExit chan gen.ProcessGracefulExitRequest
 	direct       chan gen.ProcessDirectMessage
-	stopped      chan bool
 
 	context context.Context
 	kill    context.CancelFunc
@@ -49,7 +48,7 @@ type processOptions struct {
 	parent *process
 }
 
-type processExitFunc func(reason string)
+type processExitFunc func(from etf.Pid, reason string) error
 
 // Self returns self Pid
 func (p *process) Self() etf.Pid {
@@ -65,8 +64,8 @@ func (p *process) Kill() {
 	p.kill()
 }
 
-func (p *process) Exit(reason string) {
-	p.exit(reason)
+func (p *process) Exit(reason string) error {
+	return p.exit(p.self, reason)
 }
 
 func (p *process) Context() context.Context {
@@ -280,7 +279,7 @@ func (p *process) GetEnv(name string) interface{} {
 
 // Wait waits until process stopped
 func (p *process) Wait() {
-	<-p.stopped
+	<-p.context.Done()
 }
 
 // WaitWithTimeout waits until process stopped. Return ErrTimeout
@@ -292,11 +291,7 @@ func (p *process) WaitWithTimeout(d time.Duration) error {
 	select {
 	case <-timer.C:
 		return ErrTimeout
-	case <-p.stopped:
-		// 'stopped' channel is closing after unregistering this process
-		// and releasing the name related to this process.
-		// we should wait here otherwise you wont be able to
-		// start another process with the same name
+	case <-p.context.Done():
 		return nil
 	}
 }
@@ -448,7 +443,7 @@ func (p *process) directRequest(id string, request interface{}, timeout int) (in
 	direct := gen.ProcessDirectMessage{
 		ID:      id,
 		Message: request,
-		Reply:   make(chan gen.ProcessDirectMessage),
+		Reply:   make(chan gen.ProcessDirectMessage, 1),
 	}
 
 	// sending request

@@ -154,7 +154,7 @@ func TestApplicationBasics(t *testing.T) {
 		t.Fatal("incorrect environment variable: not found")
 	}
 
-	if env.(int) != 456 {
+	if i, ok := env.(int); !ok || i != 456 {
 		t.Fatal("incorrect environment variable: value should be overrided by child process")
 	}
 

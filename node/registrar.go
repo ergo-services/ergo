@@ -50,6 +50,7 @@ type registrarInternal interface {
 	unregisterPeer(name string)
 	newAlias(p *process) (etf.Alias, error)
 	deleteAlias(owner *process, alias etf.Alias) error
+	getProcessByPid(etf.Pid) *process
 }
 
 func newRegistrar(ctx context.Context, nodename string, creation uint32, node nodeInternal) registrarInternal {
@@ -72,7 +73,12 @@ func newRegistrar(ctx context.Context, nodename string, creation uint32, node no
 }
 
 func (r *registrar) NodeName() string {
-	return r.nodename
+	return r.node.Name()
+}
+
+func (r *registrar) NodeStop() {
+	fmt.Println("NODE STOP")
+	r.node.Stop()
 }
 
 func (r *registrar) newPID() etf.Pid {
@@ -189,9 +195,8 @@ func (r *registrar) newProcess(name string, behavior gen.ProcessBehavior, opts p
 		groupLeader: opts.GroupLeader,
 
 		mailBox:      make(chan gen.ProcessMailboxMessage, mailboxSize),
-		gracefulExit: make(chan gen.ProcessGracefulExitRequest, 2),
+		gracefulExit: make(chan gen.ProcessGracefulExitRequest, 1),
 		direct:       make(chan gen.ProcessDirectMessage),
-		stopped:      make(chan bool),
 
 		context: processContext,
 		kill:    kill,
@@ -199,14 +204,19 @@ func (r *registrar) newProcess(name string, behavior gen.ProcessBehavior, opts p
 		reply: make(map[etf.Ref]chan etf.Term),
 	}
 
-	exit := func(reason string) {
-		lib.Log("[%s] EXIT: %s with reason: %s", r.nodename, pid, reason)
+	process.exit = func(from etf.Pid, reason string) error {
+		lib.Log("[%s] EXIT process %s with reason: %s", r.nodename, pid, reason)
 		if processContext.Err() != nil {
 			// process is already died
-			return
+			return ErrProcessUnknown
 		}
+		// let the process decide whether to stop itself
+		if !process.trapExit {
+			defer process.kill()
+		}
+
 		ex := gen.ProcessGracefulExitRequest{
-			From:   process.self,
+			From:   from,
 			Reason: reason,
 		}
 		// the reason why we use 'select':
@@ -216,10 +226,10 @@ func (r *registrar) newProcess(name string, behavior gen.ProcessBehavior, opts p
 		select {
 		case process.gracefulExit <- ex:
 		default:
-			fmt.Println("LLLLL", pid)
+			return ErrProcessBusy
 		}
+		return nil
 	}
-	process.exit = exit
 
 	if name != "" {
 		r.mutexNames.Lock()
@@ -242,12 +252,12 @@ func (r *registrar) deleteProcess(pid etf.Pid) {
 	r.mutexProcesses.Lock()
 	defer r.mutexProcesses.Unlock()
 	if p, ok := r.processes[pid.ID]; ok {
-		lib.Log("[%s] REGISTRAR unregistering process: %#v", r.nodename, p.self)
+		lib.Log("[%s] REGISTRAR unregistering process: %s", r.nodename, p.self)
 		delete(r.processes, pid.ID)
 
 		r.mutexNames.Lock()
 		if (p.name) != "" {
-			lib.Log("[%s] REGISTRAR unregistering name (%#v): %s", r.nodename, p.self, p.name)
+			lib.Log("[%s] REGISTRAR unregistering name (%s): %s", r.nodename, p.self, p.name)
 			delete(r.names, p.name)
 		}
 
@@ -316,7 +326,6 @@ func (r *registrar) spawn(name string, opts processOptions, behavior gen.Process
 		r.deleteProcess(pid)
 		r.processTerminated(pid, name, reason)
 
-		close(process.stopped)
 	}(processState)
 
 	return process, nil
@@ -324,7 +333,7 @@ func (r *registrar) spawn(name string, opts processOptions, behavior gen.Process
 
 // RegisterName register associates the name with pid
 func (r *registrar) RegisterName(name string, pid etf.Pid) error {
-	lib.Log("[%s] REGISTRAR registering name %#v", r.nodename, name)
+	lib.Log("[%s] REGISTRAR registering name %s", r.nodename, name)
 	r.mutexNames.Lock()
 	if _, ok := r.names[name]; ok {
 		// already registered
@@ -338,7 +347,7 @@ func (r *registrar) RegisterName(name string, pid etf.Pid) error {
 
 // UnregisterName unregister named process
 func (r *registrar) UnregisterName(name string) {
-	lib.Log("[%s] REGISTRAR unregistering name %#v", r.nodename, name)
+	lib.Log("[%s] REGISTRAR unregistering name %s", r.nodename, name)
 	r.mutexNames.Lock()
 	delete(r.names, name)
 	r.mutexNames.Unlock()
@@ -368,7 +377,7 @@ func (r *registrar) unregisterPeer(name string) {
 }
 
 func (r *registrar) RegisterBehavior(group, name string, behavior gen.ProcessBehavior, data interface{}) error {
-	lib.Log("[%s] REGISTRAR registering behavior %s in group %s ", r.nodename, group, name)
+	lib.Log("[%s] REGISTRAR registering behavior %q in group %q ", r.nodename, name, group)
 	var groupBehaviors map[string]gen.RegisteredBehavior
 	var exist bool
 
@@ -434,7 +443,7 @@ func (r *registrar) GetRegisteredBehaviorGroup(group string) []gen.RegisteredBeh
 }
 
 func (r *registrar) UnregisterBehavior(group, name string) error {
-	lib.Log("[%s] REGISTRAR unregistering behavior %s in group %s ", r.nodename, group, name)
+	lib.Log("[%s] REGISTRAR unregistering behavior %s in group %s ", r.nodename, name, group)
 	var groupBehaviors map[string]gen.RegisteredBehavior
 	var exist bool
 
@@ -477,6 +486,10 @@ func (r *registrar) ProcessInfo(pid etf.Pid) (gen.ProcessInfo, error) {
 
 // GetProcessByPid returns Process struct for the given Pid. Returns nil if it doesn't exist (not found)
 func (r *registrar) GetProcessByPid(pid etf.Pid) gen.Process {
+	return r.getProcessByPid(pid)
+}
+
+func (r *registrar) getProcessByPid(pid etf.Pid) *process {
 	r.mutexProcesses.Lock()
 	defer r.mutexProcesses.Unlock()
 	if p, ok := r.processes[pid.ID]; ok {

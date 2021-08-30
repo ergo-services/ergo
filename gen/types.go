@@ -32,7 +32,7 @@ type Process interface {
 	CastAfter(to interface{}, message etf.Term, after time.Duration) context.CancelFunc
 	Cast(to interface{}, message etf.Term) error
 	// Exit initiate a graceful stopping process
-	Exit(reason string)
+	Exit(reason string) error
 	// Kill immidiately stops process
 	Kill()
 	CreateAlias() (etf.Alias, error)
@@ -139,6 +139,7 @@ type ProcessBehavior interface {
 type Registrar interface {
 	Monitor
 	NodeName() string
+	NodeStop()
 	GetProcessByName(name string) Process
 	GetProcessByPid(pid etf.Pid) Process
 	GetProcessByAlias(alias etf.Alias) Process

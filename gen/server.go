@@ -100,11 +100,8 @@ func (gs *Server) ProcessLoop(ps ProcessState) string {
 
 		select {
 		case ex := <-chs.GracefulExit:
-			if !gsp.GetTrapExit() {
-				gsp.behavior.Terminate(gsp, ex.Reason)
-				return ex.Reason
-			}
-			message = ex
+			gsp.behavior.Terminate(gsp, ex.Reason)
+			return ex.Reason
 
 		case reason := <-stop:
 			gsp.behavior.Terminate(gsp, reason)
