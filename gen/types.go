@@ -178,6 +178,12 @@ type DownMessage struct {
 	Reason string
 }
 
+// ExitMessage delievers to Server's HandleInfo callback on enabled trap exit using SetTrapExit(true)
+type ExitMessage struct {
+	From   etf.Pid
+	Reason string
+}
+
 func IsDownMessage(message etf.Term) (isTrue bool, d DownMessage) {
 	// {DOWN, Ref, process, PidOrName, Reason}
 	err := etf.TermIntoStruct(message, &d)

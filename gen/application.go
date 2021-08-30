@@ -123,7 +123,7 @@ func (a *Application) ProcessLoop(ps ProcessState, started chan<- bool) string {
 		case ex := <-chs.GracefulExit:
 			terminated := ex.From
 			reason := ex.Reason
-			if ex.From == ps.Process.Self() {
+			if ex.From == ps.Self() {
 				childrenStopped := a.stopChildren(terminated, spec.Children, reason)
 				if !childrenStopped {
 					fmt.Printf("Warining: application can't be stopped. Some of the children are still running")
@@ -154,7 +154,7 @@ func (a *Application) ProcessLoop(ps ProcessState, started chan<- bool) string {
 				a.stopChildren(terminated, spec.Children, string(reason))
 				fmt.Printf("Application child %s (at %s) stopped with reason %s (permanent: node is shutting down)\n",
 					terminated, ps.NodeName(), reason)
-				ps.Process.NodeStop()
+				ps.NodeStop()
 				return "shutdown"
 
 			case ApplicationStartTransient:
@@ -166,7 +166,7 @@ func (a *Application) ProcessLoop(ps ProcessState, started chan<- bool) string {
 				a.stopChildren(terminated, spec.Children, reason)
 				fmt.Printf("Application child %s (at %s) stopped with reason %s. (transient: node is shutting down)\n",
 					terminated, ps.NodeName(), reason)
-				ps.Process.NodeStop()
+				ps.NodeStop()
 				return string(reason)
 
 			case ApplicationStartTemporary:

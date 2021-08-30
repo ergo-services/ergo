@@ -33,26 +33,26 @@ import (
 
 type testServer struct {
 	gen.Server
-	err chan error
+	res chan interface{}
 }
 
 func (tgs *testServer) Init(process *gen.ServerProcess, args ...etf.Term) error {
-	tgs.err <- nil
+	tgs.res <- nil
 	return nil
 }
 func (tgs *testServer) HandleCast(process *gen.ServerProcess, message etf.Term) string {
-	tgs.err <- nil
+	tgs.res <- message
 	return "noreply"
 }
 func (tgs *testServer) HandleCall(process *gen.ServerProcess, from gen.ServerFrom, message etf.Term) (string, etf.Term) {
 	return "reply", message
 }
 func (tgs *testServer) HandleInfo(process *gen.ServerProcess, message etf.Term) string {
-	tgs.err <- nil
+	tgs.res <- message
 	return "noreply"
 }
 func (tgs *testServer) Terminate(process *gen.ServerProcess, reason string) {
-	tgs.err <- nil
+	tgs.res <- reason
 }
 
 type testServerDirect struct {
@@ -80,13 +80,13 @@ func TestServer(t *testing.T) {
 	}
 
 	gs1 := &testServer{
-		err: make(chan error, 2),
+		res: make(chan interface{}, 2),
 	}
 	gs2 := &testServer{
-		err: make(chan error, 2),
+		res: make(chan interface{}, 2),
 	}
 	gs3 := &testServer{
-		err: make(chan error, 2),
+		res: make(chan interface{}, 2),
 	}
 	gsDirect := &testServerDirect{
 		err: make(chan error, 2),
@@ -94,15 +94,15 @@ func TestServer(t *testing.T) {
 
 	fmt.Printf("    wait for start of gs1 on %#v: ", node1.NodeName())
 	node1gs1, _ := node1.Spawn("gs1", gen.ProcessOptions{}, gs1, nil)
-	waitForResult(t, gs1.err)
+	waitForResultWithValue(t, gs1.res, nil)
 
 	fmt.Printf("    wait for start of gs2 on %#v: ", node1.NodeName())
 	node1gs2, _ := node1.Spawn("gs2", gen.ProcessOptions{}, gs2, nil)
-	waitForResult(t, gs2.err)
+	waitForResultWithValue(t, gs2.res, nil)
 
 	fmt.Printf("    wait for start of gs3 on %#v: ", node2.NodeName())
 	node2gs3, _ := node2.Spawn("gs3", gen.ProcessOptions{}, gs3, nil)
-	waitForResult(t, gs3.err)
+	waitForResultWithValue(t, gs3.res, nil)
 
 	fmt.Printf("    wait for start of gsDirect on %#v: ", node2.NodeName())
 	node2gsDirect, _ := node2.Spawn("gsDirect", gen.ProcessOptions{}, gsDirect, nil)
@@ -112,11 +112,11 @@ func TestServer(t *testing.T) {
 
 	fmt.Printf("    process.Send (by Pid) local (gs1) -> local (gs2) : ")
 	node1gs1.Send(node1gs2.Self(), etf.Atom("hi"))
-	waitForResult(t, gs2.err)
+	waitForResultWithValue(t, gs2.res, etf.Atom("hi"))
 
 	node1gs1.Cast(node1gs2.Self(), etf.Atom("hi cast"))
 	fmt.Printf("    process.Cast (by Pid) local (gs1) -> local (gs2) : ")
-	waitForResult(t, gs2.err)
+	waitForResultWithValue(t, gs2.res, etf.Atom("hi cast"))
 
 	fmt.Printf("    process.Call (by Pid) local (gs1) -> local (gs2): ")
 	v := etf.Atom("hi call")
@@ -133,11 +133,11 @@ func TestServer(t *testing.T) {
 
 	fmt.Printf("    process.Send (by Name) local (gs1) -> local (gs2) : ")
 	node1gs1.Send(etf.Atom("gs2"), etf.Atom("hi"))
-	waitForResult(t, gs2.err)
+	waitForResultWithValue(t, gs2.res, etf.Atom("hi"))
 
 	node1gs1.Cast(etf.Atom("gs2"), etf.Atom("hi cast"))
 	fmt.Printf("    process.Cast (by Name) local (gs1) -> local (gs2) : ")
-	waitForResult(t, gs2.err)
+	waitForResultWithValue(t, gs2.res, etf.Atom("hi cast"))
 
 	fmt.Printf("    process.Call (by Name) local (gs1) -> local (gs2): ")
 	if v1, err := node1gs1.Call(etf.Atom("gs2"), v); err != nil {
@@ -156,11 +156,11 @@ func TestServer(t *testing.T) {
 	}
 	fmt.Printf("    process.Send (by Alias) local (gs1) -> local (gs2) : ")
 	node1gs1.Send(alias, etf.Atom("hi"))
-	waitForResult(t, gs2.err)
+	waitForResultWithValue(t, gs2.res, etf.Atom("hi"))
 
 	node1gs1.Cast(alias, etf.Atom("hi cast"))
 	fmt.Printf("    process.Cast (by Alias) local (gs1) -> local (gs2) : ")
-	waitForResult(t, gs2.err)
+	waitForResultWithValue(t, gs2.res, etf.Atom("hi cast"))
 
 	fmt.Printf("    process.Call (by Alias) local (gs1) -> local (gs2): ")
 	if v1, err := node1gs1.Call(alias, v); err != nil {
@@ -176,11 +176,11 @@ func TestServer(t *testing.T) {
 
 	fmt.Printf("    process.Send (by Pid) local (gs1) -> remote (gs3) : ")
 	node1gs1.Send(node2gs3.Self(), etf.Atom("hi"))
-	waitForResult(t, gs3.err)
+	waitForResultWithValue(t, gs3.res, etf.Atom("hi"))
 
 	node1gs1.Cast(node2gs3.Self(), etf.Atom("hi cast"))
 	fmt.Printf("    process.Cast (by Pid) local (gs1) -> remote (gs3) : ")
-	waitForResult(t, gs3.err)
+	waitForResultWithValue(t, gs3.res, etf.Atom("hi cast"))
 
 	fmt.Printf("    process.Call (by Pid) local (gs1) -> remote (gs3): ")
 	if v1, err := node1gs1.Call(node2gs3.Self(), v); err != nil {
@@ -197,11 +197,11 @@ func TestServer(t *testing.T) {
 	fmt.Printf("    process.Send (by Name) local (gs1) -> remote (gs3) : ")
 	processName := etf.Tuple{"gs3", node2.NodeName()}
 	node1gs1.Send(processName, etf.Atom("hi"))
-	waitForResult(t, gs3.err)
+	waitForResultWithValue(t, gs3.res, etf.Atom("hi"))
 
 	node1gs1.Cast(processName, etf.Atom("hi cast"))
 	fmt.Printf("    process.Cast (by Name) local (gs1) -> remote (gs3) : ")
-	waitForResult(t, gs3.err)
+	waitForResultWithValue(t, gs3.res, etf.Atom("hi cast"))
 
 	fmt.Printf("    process.Call (by Name) local (gs1) -> remote (gs3): ")
 	if v1, err := node1gs1.Call(processName, v); err != nil {
@@ -222,11 +222,11 @@ func TestServer(t *testing.T) {
 	}
 
 	node1gs1.Send(alias, etf.Atom("hi"))
-	waitForResult(t, gs3.err)
+	waitForResultWithValue(t, gs3.res, etf.Atom("hi"))
 
 	node1gs1.Cast(alias, etf.Atom("hi cast"))
 	fmt.Printf("    process.Cast (by Alias) local (gs1) -> remote (gs3) : ")
-	waitForResult(t, gs3.err)
+	waitForResultWithValue(t, gs3.res, etf.Atom("hi cast"))
 
 	fmt.Printf("    process.Call (by Alias) local (gs1) -> remote (gs3): ")
 	if v1, err := node1gs1.Call(alias, v); err != nil {
@@ -258,6 +258,27 @@ func TestServer(t *testing.T) {
 		}
 	}
 
+	fmt.Printf("    process.SetTrapExit(true) and call process.Exit() gs2: ")
+	node1gs2.SetTrapExit(true)
+	node1gs2.Exit("test trap")
+	waitForResultWithValue(t, gs2.res, gen.ExitMessage{node1gs2.Self(), "test trap"})
+	fmt.Printf("    check process.IsAlive gs2 (must be alive): ")
+	if !node1gs2.IsAlive() {
+		t.Fatal("should be alive")
+	}
+	fmt.Println("OK")
+
+	fmt.Printf("    process.SetTrapExit(false) and call process.Exit() gs2: ")
+	node1gs2.SetTrapExit(false)
+	node1gs2.Exit("test trap")
+	waitForResultWithValue(t, gs2.res, "test trap")
+
+	fmt.Printf("    check process.IsAlive gs2 (must be died): ")
+	if node1gs2.IsAlive() {
+		t.Fatal("shouldn't be alive")
+	}
+	fmt.Println("OK")
+
 	fmt.Printf("Stopping nodes: %v, %v\n", node1.NodeName(), node2.NodeName())
 	node1.Stop()
 	node2.Stop()
@@ -268,7 +289,10 @@ func waitForResult(t *testing.T, w chan error) {
 	case e := <-w:
 		if e == nil {
 			fmt.Println("OK")
+			return
 		}
+
+		t.Fatal(e)
 
 	case <-time.After(time.Second * time.Duration(1)):
 		t.Fatal("result timeout")
