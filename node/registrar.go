@@ -227,6 +227,9 @@ func (r *registrar) newProcess(name string, behavior gen.ProcessBehavior, opts p
 		return nil
 	}
 
+	r.mutexProcesses.Lock()
+	defer r.mutexProcesses.Unlock()
+
 	if name != "" {
 		lib.Log("[%s] REGISTRAR registering name (%s): %s", r.nodename, pid, name)
 		r.mutexNames.Lock()
@@ -238,9 +241,7 @@ func (r *registrar) newProcess(name string, behavior gen.ProcessBehavior, opts p
 	}
 
 	lib.Log("[%s] REGISTRAR registering process: %s", r.nodename, pid)
-	r.mutexProcesses.Lock()
 	r.processes[process.self.ID] = process
-	r.mutexProcesses.Unlock()
 
 	return process, nil
 }

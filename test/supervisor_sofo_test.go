@@ -1,4 +1,4 @@
-package gen
+package test
 
 // - Supervisor
 
@@ -11,19 +11,22 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/halturin/ergo"
 	"github.com/halturin/ergo/etf"
+	"github.com/halturin/ergo/gen"
+	"github.com/halturin/ergo/node"
 )
 
 type testSupervisorSimpleOneForOne struct {
-	Supervisor
+	gen.Supervisor
 	ch chan interface{}
 }
 
 func TestSupervisorSimpleOneForOne(t *testing.T) {
 	fmt.Printf("\n=== Test Supervisor - simple one for one\n")
 	fmt.Printf("Starting node nodeSvSimpleOneForOne@localhost: ")
-	node, _ := CreateNode("nodeSvSimpleOneForOne@localhost", "cookies", NodeOptions{})
-	if node == nil {
+	node1, _ := ergo.StartNode("nodeSvSimpleOneForOne@localhost", "cookies", node.Options{})
+	if node1 == nil {
 		t.Fatal("can't start node")
 	} else {
 		fmt.Println("OK")
@@ -52,7 +55,7 @@ func TestSupervisorSimpleOneForOne(t *testing.T) {
 		sv := &testSupervisorSimpleOneForOne{
 			ch: make(chan interface{}, 15),
 		}
-		processSV, _ := node.Spawn("testSupervisor", ProcessOptions{}, sv, sv.ch)
+		processSV, _ := node1.Spawn("testSupervisor", gen.ProcessOptions{}, sv, sv.ch)
 		children := make([]etf.Pid, 6)
 		children1, err := waitNeventsSupervisorChildren(sv.ch, 0, children)
 		if err != nil {
@@ -112,7 +115,7 @@ func TestSupervisorSimpleOneForOne(t *testing.T) {
 		}
 
 		fmt.Printf("Stopping supervisor 'testSupervisor' (reason: %s)... ", testCases[c].reason)
-		processSV.Exit(processSV.Self(), testCases[c].reason)
+		processSV.Exit(testCases[c].reason)
 		if children1, err := waitNeventsSupervisorChildren(sv.ch, testCases[c].events-len(children), children); err != nil {
 			t.Fatal(err)
 		} else {
@@ -129,33 +132,32 @@ func TestSupervisorSimpleOneForOne(t *testing.T) {
 
 }
 
-func (ts *testSupervisorSimpleOneForOne) Init(args ...etf.Term) SupervisorSpec {
-	ch := args[0].(chan interface{})
-	return SupervisorSpec{
-		Children: []SupervisorChildSpec{
-			SupervisorChildSpec{
-				Name:    "testGS1",
-				Child:   &testSupervisorGenServer{},
-				Restart: SupervisorChildRestartPermanent,
-				Args:    []etf.Term{ch, 0},
+func (ts *testSupervisorSimpleOneForOne) Init(args ...etf.Term) (gen.SupervisorSpec, error) {
+	restart := args[0].(string)
+	ch := args[1].(chan interface{})
+	return gen.SupervisorSpec{
+		Children: []gen.SupervisorChildSpec{
+			gen.SupervisorChildSpec{
+				Name:  "testGS1",
+				Child: &testSupervisorGenServer{},
+				Args:  []etf.Term{ch, 0},
 			},
-			SupervisorChildSpec{
-				Name:    "testGS2",
-				Child:   &testSupervisorGenServer{},
-				Restart: SupervisorChildRestartTransient,
-				Args:    []etf.Term{ch, 1},
+			gen.SupervisorChildSpec{
+				Name:  "testGS2",
+				Child: &testSupervisorGenServer{},
+				Args:  []etf.Term{ch, 1},
 			},
-			SupervisorChildSpec{
-				Name:    "testGS3",
-				Child:   &testSupervisorGenServer{},
-				Restart: SupervisorChildRestartTemporary,
-				Args:    []etf.Term{ch, 2},
+			gen.SupervisorChildSpec{
+				Name:  "testGS3",
+				Child: &testSupervisorGenServer{},
+				Args:  []etf.Term{ch, 2},
 			},
 		},
-		Strategy: SupervisorStrategy{
-			Type:      SupervisorStrategySimpleOneForOne,
+		Strategy: gen.SupervisorStrategy{
+			Type:      gen.SupervisorStrategySimpleOneForOne,
 			Intensity: 10,
 			Period:    5,
+			Restart:   restart,
 		},
-	}
+	}, nil
 }
