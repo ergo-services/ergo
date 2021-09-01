@@ -313,7 +313,7 @@ func (p *process) IsAlive() bool {
 
 // GetChildren returns list of children pid (Application, Supervisor)
 func (p *process) GetChildren() []etf.Pid {
-	c, err := p.directRequest("$getChildren", nil, 5)
+	c, err := p.directRequest(gen.MessageDirectGetChildren{}, 5)
 	if err == nil {
 		return c.([]etf.Pid)
 	}
@@ -337,7 +337,7 @@ func (p *process) GetProcessBehavior() gen.ProcessBehavior {
 
 // Direct make a direct request to the actor (Application, Supervisor, GenServer or inherited from GenServer actor) with default timeout 5 seconds
 func (p *process) Direct(request interface{}) (interface{}, error) {
-	return p.directRequest("", request, DefaultCallTimeout)
+	return p.directRequest(request, DefaultCallTimeout)
 }
 
 // DirectWithTimeout make a direct request to the actor with the given timeout (in seconds)
@@ -345,7 +345,7 @@ func (p *process) DirectWithTimeout(request interface{}, timeout int) (interface
 	if timeout < 1 {
 		timeout = 5
 	}
-	return p.directRequest("", request, timeout)
+	return p.directRequest(request, timeout)
 }
 
 // MonitorNode creates monitor between the current process and node. If Node fails or does not exist,
@@ -435,12 +435,11 @@ func (p *process) Spawn(name string, opts gen.ProcessOptions, behavior gen.Proce
 	return p.spawn(name, options, behavior, args...)
 }
 
-func (p *process) directRequest(id string, request interface{}, timeout int) (interface{}, error) {
+func (p *process) directRequest(request interface{}, timeout int) (interface{}, error) {
 	timer := lib.TakeTimer()
 	defer lib.ReleaseTimer(timer)
 
 	direct := gen.ProcessDirectMessage{
-		ID:      id,
 		Message: request,
 		Reply:   make(chan gen.ProcessDirectMessage, 1),
 	}

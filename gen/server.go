@@ -100,16 +100,18 @@ func (gs *Server) ProcessLoop(ps ProcessState, started chan<- bool) string {
 
 		select {
 		case ex := <-chs.GracefulExit:
+			fmt.Println("SERVER GRACE EXIT", ps.Self())
 			if !gsp.GetTrapExit() {
 				gsp.behavior.Terminate(gsp, ex.Reason)
 				return ex.Reason
 			}
-			message = ExitMessage{
+			message = MessageExit{
 				From:   ex.From,
 				Reason: ex.Reason,
 			}
 
 		case reason := <-stop:
+			fmt.Println("SERVER EXIT", reason, ps.Self())
 			gsp.behavior.Terminate(gsp, reason)
 			return reason
 
@@ -118,6 +120,7 @@ func (gs *Server) ProcessLoop(ps ProcessState, started chan<- bool) string {
 			message = msg.Message
 
 		case <-gsp.Context().Done():
+			fmt.Println("SERVER KILLED", ps.Self())
 			return "kill"
 
 		case direct := <-chs.Direct:
@@ -135,7 +138,7 @@ func (gs *Server) ProcessLoop(ps ProcessState, started chan<- bool) string {
 			continue
 		}
 
-		lib.Log("[%s] GEN_SERVER %#v got message from %#v", gsp.NodeName(), gsp.Self(), fromPid)
+		lib.Log("[%s] GEN_SERVER %s got message from %s", gsp.NodeName(), gsp.Self(), fromPid)
 
 		gsp.reductions++
 
@@ -259,8 +262,10 @@ func (gs *Server) ProcessLoop(ps ProcessState, started chan<- bool) string {
 						case "noreply":
 							return
 						case "stop":
+							fmt.Println("SERVER CAST STOP normal", ps.Self())
 							stop <- "normal"
 						default:
+							fmt.Println("SERVER CAST STOP", code, ps.Self())
 							stop <- code
 						}
 					}()

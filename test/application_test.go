@@ -149,6 +149,9 @@ func TestApplicationBasics(t *testing.T) {
 	p.SetEnv("envStr", "123")
 
 	gs := mynode.GetProcessByName("testAppGS1")
+	if gs == nil {
+		t.Fatal("process testAppGS1 is not found by name")
+	}
 	env := gs.GetEnv("env123")
 	if env == nil {
 		t.Fatal("incorrect environment variable: not found")
@@ -288,7 +291,9 @@ func TestApplicationTypePermanent(t *testing.T) {
 	fmt.Println("OK")
 
 	gs := mynode.GetProcessByName("testAppGS")
-
+	if gs == nil {
+		t.Fatal("process testAppGS is not found by name")
+	}
 	fmt.Printf("... stop child with 'abnormal' reason: ")
 	gs.Exit("abnormal")
 	if e := gs.WaitWithTimeout(100 * time.Millisecond); e != nil {
@@ -349,6 +354,9 @@ func TestApplicationTypeTransient(t *testing.T) {
 
 	fmt.Printf("... stopping testAppGS1 with 'normal' reason (shouldn't affect testAppGS2): ")
 	gs := mynode.GetProcessByName("testAppGS1")
+	if gs == nil {
+		t.Fatal("process testAppGS1 is not found by name")
+	}
 	gs.Exit("normal")
 	if e := gs.WaitWithTimeout(100 * time.Millisecond); e != nil {
 		t.Fatal(e)
@@ -430,6 +438,9 @@ func TestApplicationTypeTemporary(t *testing.T) {
 
 	fmt.Printf("... stopping testAppGS with 'normal' reason: ")
 	gs := mynode.GetProcessByName("testAppGS")
+	if gs == nil {
+		t.Fatal("process testAppGS is not found by name")
+	}
 	gs.Exit("normal")
 	if e := gs.WaitWithTimeout(100 * time.Millisecond); e != nil {
 		t.Fatal(e)

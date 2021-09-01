@@ -335,7 +335,6 @@ func (n *node) ApplicationStop(name string) error {
 	}
 
 	if e := spec.Process.Exit("normal"); e != nil {
-		fmt.Println("CANTEXIT", spec.Process.IsAlive())
 		return e
 	}
 	// we should wait until children process stopped.

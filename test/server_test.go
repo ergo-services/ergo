@@ -261,7 +261,7 @@ func TestServer(t *testing.T) {
 	fmt.Printf("    process.SetTrapExit(true) and call process.Exit() gs2: ")
 	node1gs2.SetTrapExit(true)
 	node1gs2.Exit("test trap")
-	waitForResultWithValue(t, gs2.res, gen.ExitMessage{node1gs2.Self(), "test trap"})
+	waitForResultWithValue(t, gs2.res, gen.MessageExit{node1gs2.Self(), "test trap"})
 	fmt.Printf("    check process.IsAlive gs2 (must be alive): ")
 	if !node1gs2.IsAlive() {
 		t.Fatal("should be alive")

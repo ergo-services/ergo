@@ -194,7 +194,7 @@ func (r *registrar) newProcess(name string, behavior gen.ProcessBehavior, opts p
 		groupLeader: opts.GroupLeader,
 
 		mailBox:      make(chan gen.ProcessMailboxMessage, mailboxSize),
-		gracefulExit: make(chan gen.ProcessGracefulExitRequest),
+		gracefulExit: make(chan gen.ProcessGracefulExitRequest, mailboxSize),
 		direct:       make(chan gen.ProcessDirectMessage),
 
 		context: processContext,
@@ -228,15 +228,16 @@ func (r *registrar) newProcess(name string, behavior gen.ProcessBehavior, opts p
 	}
 
 	if name != "" {
+		lib.Log("[%s] REGISTRAR registering name (%s): %s", r.nodename, pid, name)
 		r.mutexNames.Lock()
+		defer r.mutexNames.Unlock()
 		if _, exist := r.names[name]; exist {
-			r.mutexNames.Unlock()
 			return nil, ErrTaken
 		}
 		r.names[name] = process.self
-		r.mutexNames.Unlock()
 	}
 
+	lib.Log("[%s] REGISTRAR registering process: %s", r.nodename, pid)
 	r.mutexProcesses.Lock()
 	r.processes[process.self.ID] = process
 	r.mutexProcesses.Unlock()
@@ -556,7 +557,7 @@ func (r *registrar) Route(from etf.Pid, to etf.Term, message etf.Term) {
 next:
 	switch tto := to.(type) {
 	case etf.Pid:
-		lib.Log("[%s] REGISTRAR sending message by pid %#v", r.nodename, tto)
+		lib.Log("[%s] REGISTRAR sending message by pid %s", r.nodename, tto)
 		if string(tto.Node) == r.nodename {
 			// local route
 			r.mutexProcesses.Lock()
@@ -665,7 +666,7 @@ next:
 		r.mutexNames.Unlock()
 
 	case etf.Alias:
-		lib.Log("[%s] REGISTRAR sending message by alias %#v", r.nodename, tto)
+		lib.Log("[%s] REGISTRAR sending message by alias %s", r.nodename, tto)
 		r.mutexAliases.Lock()
 		if string(tto.Node) == r.nodename {
 			// local route by alias

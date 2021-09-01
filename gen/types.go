@@ -115,7 +115,6 @@ type ProcessMailboxMessage struct {
 }
 
 type ProcessDirectMessage struct {
-	ID      string
 	Message interface{}
 	Err     error
 	Reply   chan ProcessDirectMessage
@@ -178,11 +177,13 @@ type DownMessage struct {
 	Reason string
 }
 
-// ExitMessage delievers to Server's HandleInfo callback on enabled trap exit using SetTrapExit(true)
-type ExitMessage struct {
+// MessageExit delievers to Server's HandleInfo callback on enabled trap exit using SetTrapExit(true)
+type MessageExit struct {
 	From   etf.Pid
 	Reason string
 }
+
+type MessageDirectGetChildren struct{}
 
 func IsDownMessage(message etf.Term) (isTrue bool, d DownMessage) {
 	// {DOWN, Ref, process, PidOrName, Reason}

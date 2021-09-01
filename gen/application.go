@@ -175,8 +175,8 @@ func (a *Application) ProcessLoop(ps ProcessState, started chan<- bool) string {
 			}
 
 		case direct := <-chs.Direct:
-			switch direct.ID {
-			case "$getChildren":
+			switch direct.Message.(type) {
+			case MessageDirectGetChildren:
 				pids := []etf.Pid{}
 				for i := range spec.Children {
 					if spec.Children[i].process == nil {
@@ -194,7 +194,6 @@ func (a *Application) ProcessLoop(ps ProcessState, started chan<- bool) string {
 				direct.Err = ErrUnsupportedRequest
 				direct.Reply <- direct
 			}
-			continue
 
 		case <-ps.Context().Done():
 			// node is down or killed using p.Kill()
@@ -204,11 +203,9 @@ func (a *Application) ProcessLoop(ps ProcessState, started chan<- bool) string {
 			// time to die
 			ps.SetTrapExit(false)
 			go ps.Exit("normal")
-			continue
 
 		case <-chs.Mailbox:
 			// do nothing
-			continue
 		}
 
 	}
