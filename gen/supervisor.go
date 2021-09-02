@@ -250,12 +250,15 @@ func handleDirect(supervisor Process, spec *SupervisorSpec, message interface{})
 			return nil, err
 		}
 		childSpec.state = supervisorChildStateStart
-		childSpec.Args = m.args
+		if len(m.args) > 0 {
+			childSpec.Args = m.args
+		}
 		// Dinamically started child can't be registered with a name.
 		childSpec.Name = ""
 		process := startChild(supervisor, childSpec.Name, childSpec.Child, childSpec.Args...)
 		childSpec.process = process
 		spec.Children = append(spec.Children, childSpec)
+		return process.Self(), nil
 
 	default:
 	}
