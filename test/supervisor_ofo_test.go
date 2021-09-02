@@ -61,7 +61,6 @@ type testSupervisorGenServerState struct {
 }
 
 func (tsv *testSupervisorGenServer) Init(process *gen.ServerProcess, args ...etf.Term) error {
-	fmt.Println("TEST STARTED", process.Self())
 	st := &testSupervisorGenServerState{
 		ch:    args[0].(chan interface{}),
 		order: args[1].(int),
@@ -78,14 +77,12 @@ func (tsv *testSupervisorGenServer) Init(process *gen.ServerProcess, args ...etf
 }
 func (tsv *testSupervisorGenServer) HandleCast(process *gen.ServerProcess, message etf.Term) string {
 	// message has the stop reason
-	fmt.Println("TEST CAAAAAST", process.Self())
 	return message.(string)
 }
 func (tsv *testSupervisorGenServer) HandleCall(process *gen.ServerProcess, from gen.ServerFrom, message etf.Term) (string, etf.Term) {
 	return "reply", message
 }
 func (tsv *testSupervisorGenServer) Terminate(process *gen.ServerProcess, reason string) {
-	fmt.Println("TEST terminated", process.Self())
 	st := process.State.(*testSupervisorGenServerState)
 	st.ch <- testMessageTerminated{
 		name:  process.Name(),
@@ -123,7 +120,6 @@ func TestSupervisorOneForOne(t *testing.T) {
 	}
 
 	fmt.Printf("... stopping children with 'normal' reason and waiting for their starting ... ")
-	fmt.Println("-----")
 	for i := range children {
 		processSV.Cast(children[i], "normal") // stopping child with reason "normal"
 	}

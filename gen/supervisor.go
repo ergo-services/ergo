@@ -130,7 +130,6 @@ func (sv *Supervisor) ProcessLoop(ps ProcessState, started chan<- bool) string {
 
 	started <- true
 	for {
-		fmt.Println("WAITING FOR", waitTerminatingProcesses)
 		select {
 		case ex := <-chs.GracefulExit:
 			if ex.From == ps.Self() {
@@ -270,7 +269,6 @@ func handleMessageExit(p Process, exit ProcessGracefulExitRequest, spec *Supervi
 
 	terminated := exit.From
 	reason := exit.Reason
-	fmt.Println("SUPERVISOR GOT EXIT from ", terminated)
 
 	isChild := false
 	// We should make sure if it was an exit message from the supervisor's child
@@ -285,7 +283,6 @@ func handleMessageExit(p Process, exit ProcessGracefulExitRequest, spec *Supervi
 		}
 	}
 
-	fmt.Println("EXIT REASON", reason, wait)
 	if !isChild && reason != "restart" {
 		return wait
 	}
@@ -344,7 +341,6 @@ func handleMessageExit(p Process, exit ProcessGracefulExitRequest, spec *Supervi
 			child.Exit("restart")
 
 			wait = append(wait, child.Self())
-			fmt.Println("ADDDD WAIT", child.Self, wait)
 		}
 
 	case SupervisorStrategyRestForOne:

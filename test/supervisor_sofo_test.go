@@ -37,7 +37,6 @@ func TestSupervisorSimpleOneForOne(t *testing.T) {
 
 	// ===================================================================================================
 	// test SupervisorStrategyRestartPermanent
-	fmt.Printf("Starting supervisor 'testSupervisorPermanent' (%s)... ", gen.SupervisorStrategyRestartPermanent)
 	testCases := []ChildrenTestCase{
 		ChildrenTestCase{
 			reason:   "abnormal",
@@ -57,6 +56,7 @@ func TestSupervisorSimpleOneForOne(t *testing.T) {
 	}
 
 	for c := range testCases {
+		fmt.Printf("Starting supervisor 'testSupervisorPermanent' (%s)... ", gen.SupervisorStrategyRestartPermanent)
 		processSV, err := node1.Spawn("testSupervisorPermanent", gen.ProcessOptions{}, sv, gen.SupervisorStrategyRestartPermanent)
 		if err != nil {
 			t.Fatal(err)
@@ -145,7 +145,6 @@ func TestSupervisorSimpleOneForOne(t *testing.T) {
 
 	// ===================================================================================================
 	// test SupervisorStrategyRestartTransient
-	fmt.Printf("Starting supervisor 'testSupervisorTransient' (%s)... ", gen.SupervisorStrategyRestartTransient)
 	testCases = []ChildrenTestCase{
 		ChildrenTestCase{
 			reason:   "abnormal",
@@ -165,6 +164,7 @@ func TestSupervisorSimpleOneForOne(t *testing.T) {
 	}
 
 	for c := range testCases {
+		fmt.Printf("Starting supervisor 'testSupervisorTransient' (%s)... ", gen.SupervisorStrategyRestartTransient)
 		processSV, err := node1.Spawn("testSupervisorTransient", gen.ProcessOptions{}, sv, gen.SupervisorStrategyRestartTransient)
 		if err != nil {
 			t.Fatal(err)
@@ -217,7 +217,7 @@ func TestSupervisorSimpleOneForOne(t *testing.T) {
 		}
 
 		// kill them all with reason = testCases[c].reason
-		fmt.Printf("... stopping children with '%s' reason and waiting for restarting all of them ... ", testCases[c].reason)
+		fmt.Printf("... stopping children with '%s' reason and waiting for restarting some of them ... ", testCases[c].reason)
 
 		for k := range children {
 			processSV.Cast(children[k], testCases[c].reason)
@@ -253,7 +253,6 @@ func TestSupervisorSimpleOneForOne(t *testing.T) {
 
 	// ===================================================================================================
 	// test SupervisorStrategyRestartTemporary
-	fmt.Printf("Starting supervisor 'testSupervisorTemporary' (%s)... ", gen.SupervisorStrategyRestartTemporary)
 	testCases = []ChildrenTestCase{
 		ChildrenTestCase{
 			reason:   "abnormal",
@@ -273,6 +272,7 @@ func TestSupervisorSimpleOneForOne(t *testing.T) {
 	}
 
 	for c := range testCases {
+		fmt.Printf("Starting supervisor 'testSupervisorTemporary' (%s)... ", gen.SupervisorStrategyRestartTemporary)
 		processSV, err := node1.Spawn("testSupervisorTemporary", gen.ProcessOptions{}, sv, gen.SupervisorStrategyRestartTemporary)
 		if err != nil {
 			t.Fatal(err)
@@ -325,7 +325,7 @@ func TestSupervisorSimpleOneForOne(t *testing.T) {
 		}
 
 		// kill them all with reason = testCases[c].reason
-		fmt.Printf("... stopping children with '%s' reason and waiting for restarting all of them ... ", testCases[c].reason)
+		fmt.Printf("... stopping children with '%s' reason and waiting for exiting all of them ... ", testCases[c].reason)
 
 		for k := range children {
 			processSV.Cast(children[k], testCases[c].reason)
