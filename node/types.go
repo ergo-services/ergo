@@ -70,6 +70,7 @@ const (
 
 // Options struct with bootstrapping options for CreateNode
 type Options struct {
+	Applications           []gen.ApplicationBehavior
 	ListenRangeBegin       uint16
 	ListenRangeEnd         uint16
 	Hidden                 bool
@@ -108,8 +109,8 @@ type Node interface {
 	Stop()
 	LoadedApplications() []gen.ApplicationInfo
 	WhichApplications() []gen.ApplicationInfo
-	GetApplicationInfo(name string) (gen.ApplicationInfo, error)
-	ApplicationLoad(app gen.ApplicationBehavior, args ...etf.Term) error
+	ApplicationInfo(name string) (gen.ApplicationInfo, error)
+	ApplicationLoad(app gen.ApplicationBehavior, args ...etf.Term) (string, error)
 	ApplicationUnload(appName string) error
 	ApplicationStartPermanent(appName string, args ...etf.Term) (gen.Process, error)
 	ApplicationStartTransient(appName string, args ...etf.Term) (gen.Process, error)

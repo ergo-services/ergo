@@ -3,6 +3,8 @@ package ergo
 import (
 	"context"
 
+	"github.com/halturin/ergo/erlang"
+	"github.com/halturin/ergo/gen"
 	"github.com/halturin/ergo/node"
 )
 
@@ -18,6 +20,9 @@ func StartNodeWithContext(ctx context.Context, name string, cookie string, opts 
 		"prefix":  VersionPrefix,
 		"otp":     VersionOTP,
 	}
+
+	// add erlang support application
+	opts.Applications = append([]gen.ApplicationBehavior{&erlang.KernelApp{}}, opts.Applications...)
 
 	return node.StartWithContext(context.WithValue(ctx, "versions", versions), name, cookie, opts)
 }

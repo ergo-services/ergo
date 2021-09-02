@@ -79,7 +79,7 @@ func TestApplicationBasics(t *testing.T) {
 	// case 1: loading/unloading app
 	//
 	fmt.Printf("... loading application: ")
-	err := mynode.ApplicationLoad(app, lifeSpan, "testapp")
+	_, err := mynode.ApplicationLoad(app, lifeSpan, "testapp")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,7 +114,7 @@ func TestApplicationBasics(t *testing.T) {
 	// case 2: start(and try to unload running app)/stop(normal) application
 	//
 	fmt.Printf("... starting application: ")
-	if err := mynode.ApplicationLoad(app, lifeSpan, "testapp1", "testAppGS1"); err != nil {
+	if _, err := mynode.ApplicationLoad(app, lifeSpan, "testapp1", "testAppGS1"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -148,11 +148,11 @@ func TestApplicationBasics(t *testing.T) {
 	p.SetEnv("env123", 123)
 	p.SetEnv("envStr", "123")
 
-	gs := mynode.GetProcessByName("testAppGS1")
+	gs := mynode.ProcessByName("testAppGS1")
 	if gs == nil {
 		t.Fatal("process testAppGS1 is not found by name")
 	}
-	env := gs.GetEnv("env123")
+	env := gs.Env("env123")
 	if env == nil {
 		t.Fatal("incorrect environment variable: not found")
 	}
@@ -161,7 +161,7 @@ func TestApplicationBasics(t *testing.T) {
 		t.Fatal("incorrect environment variable: value should be overrided by child process")
 	}
 
-	if envUnknown := gs.GetEnv("unknown"); envUnknown != nil {
+	if envUnknown := gs.Env("unknown"); envUnknown != nil {
 		t.Fatal("incorrect environment variable: undefined variable should have nil value")
 	}
 
@@ -178,7 +178,7 @@ func TestApplicationBasics(t *testing.T) {
 
 	// case 2.2: get list of children' pid
 	fmt.Printf("... application's children list: ")
-	list := p.GetChildren()
+	list := p.Children()
 	if len(list) != 1 || list[0] != gs.Self() {
 		t.Fatal("incorrect children list")
 	}
@@ -187,7 +187,7 @@ func TestApplicationBasics(t *testing.T) {
 	// case 2.3: get application info
 
 	fmt.Printf("... getting application info: ")
-	info, errInfo := mynode.GetApplicationInfo("testapp1")
+	info, errInfo := mynode.ApplicationInfo("testapp1")
 	if errInfo != nil {
 		t.Fatal(errInfo)
 	}
@@ -215,7 +215,7 @@ func TestApplicationBasics(t *testing.T) {
 	// case 3: start/stop (brutal) application
 	//
 	fmt.Printf("... starting application for brutal kill: ")
-	if err := mynode.ApplicationLoad(app, lifeSpan, "testappBrutal", "testAppGS2Brutal"); err != nil {
+	if _, err := mynode.ApplicationLoad(app, lifeSpan, "testappBrutal", "testAppGS2Brutal"); err != nil {
 		t.Fatal(err)
 	}
 	p, e = mynode.ApplicationStart("testappBrutal")
@@ -237,7 +237,7 @@ func TestApplicationBasics(t *testing.T) {
 	//
 	fmt.Printf("... starting application with lifespan 150ms: ")
 	lifeSpan = 150 * time.Millisecond
-	if err := mynode.ApplicationLoad(app, lifeSpan, "testapp2", "testAppGS2"); err != nil {
+	if _, err := mynode.ApplicationLoad(app, lifeSpan, "testapp2", "testAppGS2"); err != nil {
 		t.Fatal(err)
 	}
 	tStart := time.Now()
@@ -280,7 +280,7 @@ func TestApplicationTypePermanent(t *testing.T) {
 	fmt.Printf("... starting application: ")
 	app := &testApplication{}
 	lifeSpan := time.Duration(0)
-	if err := mynode.ApplicationLoad(app, lifeSpan, "testapp"); err != nil {
+	if _, err := mynode.ApplicationLoad(app, lifeSpan, "testapp"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -290,7 +290,7 @@ func TestApplicationTypePermanent(t *testing.T) {
 	}
 	fmt.Println("OK")
 
-	gs := mynode.GetProcessByName("testAppGS")
+	gs := mynode.ProcessByName("testAppGS")
 	if gs == nil {
 		t.Fatal("process testAppGS is not found by name")
 	}
@@ -330,11 +330,11 @@ func TestApplicationTypeTransient(t *testing.T) {
 	app2 := &testApplication{}
 	lifeSpan := time.Duration(0)
 
-	if err := mynode.ApplicationLoad(app1, lifeSpan, "testapp1", "testAppGS1"); err != nil {
+	if _, err := mynode.ApplicationLoad(app1, lifeSpan, "testapp1", "testAppGS1"); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := mynode.ApplicationLoad(app2, lifeSpan, "testapp2", "testAppGS2"); err != nil {
+	if _, err := mynode.ApplicationLoad(app2, lifeSpan, "testapp2", "testAppGS2"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -353,7 +353,7 @@ func TestApplicationTypeTransient(t *testing.T) {
 	fmt.Println("OK")
 
 	fmt.Printf("... stopping testAppGS1 with 'normal' reason (shouldn't affect testAppGS2): ")
-	gs := mynode.GetProcessByName("testAppGS1")
+	gs := mynode.ProcessByName("testAppGS1")
 	if gs == nil {
 		t.Fatal("process testAppGS1 is not found by name")
 	}
@@ -392,7 +392,7 @@ func TestApplicationTypeTransient(t *testing.T) {
 	fmt.Println("OK")
 
 	fmt.Printf("... stopping testAppGS1 with 'abnormal' reason (node will shutdown): ")
-	gs = mynode.GetProcessByName("testAppGS1")
+	gs = mynode.ProcessByName("testAppGS1")
 	gs.Exit("abnormal")
 
 	if e := gs.WaitWithTimeout(100 * time.Millisecond); e != nil {
@@ -426,7 +426,7 @@ func TestApplicationTypeTemporary(t *testing.T) {
 	fmt.Printf("... starting application: ")
 	app := &testApplication{}
 	lifeSpan := time.Duration(0)
-	if err := mynode.ApplicationLoad(app, lifeSpan, "testapp"); err != nil {
+	if _, err := mynode.ApplicationLoad(app, lifeSpan, "testapp"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -437,7 +437,7 @@ func TestApplicationTypeTemporary(t *testing.T) {
 	fmt.Println("OK")
 
 	fmt.Printf("... stopping testAppGS with 'normal' reason: ")
-	gs := mynode.GetProcessByName("testAppGS")
+	gs := mynode.ProcessByName("testAppGS")
 	if gs == nil {
 		t.Fatal("process testAppGS is not found by name")
 	}
@@ -471,12 +471,12 @@ func TestApplicationStop(t *testing.T) {
 	fmt.Printf("... starting applications testapp1, testapp2: ")
 	lifeSpan := time.Duration(0)
 	app := &testApplication{}
-	if e := mynode.ApplicationLoad(app, lifeSpan, "testapp1", "testAppGS1"); e != nil {
+	if _, e := mynode.ApplicationLoad(app, lifeSpan, "testapp1", "testAppGS1"); e != nil {
 		t.Fatal(e)
 	}
 
 	app1 := &testApplication{}
-	if e := mynode.ApplicationLoad(app1, lifeSpan, "testapp2", "testAppGS2"); e != nil {
+	if _, e := mynode.ApplicationLoad(app1, lifeSpan, "testapp2", "testAppGS2"); e != nil {
 		t.Fatal(e)
 	}
 

@@ -182,6 +182,9 @@ func (r *registrar) newProcess(name string, behavior gen.ProcessBehavior, opts p
 
 	pid := r.newPID()
 
+	// set global variable 'node'
+	opts.Env["node"] = r.node.(Node)
+
 	process := &process{
 		registrarInternal: r,
 
@@ -405,7 +408,7 @@ func (r *registrar) RegisterBehavior(group, name string, behavior gen.ProcessBeh
 	return nil
 }
 
-func (r *registrar) GetRegisteredBehavior(group, name string) (gen.RegisteredBehavior, error) {
+func (r *registrar) RegisteredBehavior(group, name string) (gen.RegisteredBehavior, error) {
 	var groupBehaviors map[string]gen.RegisteredBehavior
 	var rb gen.RegisteredBehavior
 	var exist bool
@@ -425,7 +428,7 @@ func (r *registrar) GetRegisteredBehavior(group, name string) (gen.RegisteredBeh
 	return rb, nil
 }
 
-func (r *registrar) GetRegisteredBehaviorGroup(group string) []gen.RegisteredBehavior {
+func (r *registrar) RegisteredBehaviorGroup(group string) []gen.RegisteredBehavior {
 	var groupBehaviors map[string]gen.RegisteredBehavior
 	var exist bool
 	var listrb []gen.RegisteredBehavior
@@ -468,7 +471,7 @@ func (r *registrar) UnregisterBehavior(group, name string) error {
 // IsProcessAlive returns true if the process with given pid is alive
 func (r *registrar) IsProcessAlive(process gen.Process) bool {
 	pid := process.Self()
-	p := r.GetProcessByPid(pid)
+	p := r.ProcessByPid(pid)
 	if p == nil {
 		return false
 	}
@@ -478,7 +481,7 @@ func (r *registrar) IsProcessAlive(process gen.Process) bool {
 
 // ProcessInfo returns the details about given Pid
 func (r *registrar) ProcessInfo(pid etf.Pid) (gen.ProcessInfo, error) {
-	p := r.GetProcessByPid(pid)
+	p := r.ProcessByPid(pid)
 	if p == nil {
 		return gen.ProcessInfo{}, fmt.Errorf("undefined")
 	}
@@ -486,8 +489,8 @@ func (r *registrar) ProcessInfo(pid etf.Pid) (gen.ProcessInfo, error) {
 	return p.Info(), nil
 }
 
-// GetProcessByPid returns Process struct for the given Pid. Returns nil if it doesn't exist (not found)
-func (r *registrar) GetProcessByPid(pid etf.Pid) gen.Process {
+// ProcessByPid returns Process struct for the given Pid. Returns nil if it doesn't exist (not found)
+func (r *registrar) ProcessByPid(pid etf.Pid) gen.Process {
 	if p := r.getProcessByPid(pid); p != nil {
 		return p
 	}
@@ -506,8 +509,8 @@ func (r *registrar) getProcessByPid(pid etf.Pid) *process {
 	return nil
 }
 
-// GetProcessByAlias returns Process struct for the given alias. Returns nil if it doesn't exist (not found)
-func (r *registrar) GetProcessByAlias(alias etf.Alias) gen.Process {
+// ProcessByAlias returns Process struct for the given alias. Returns nil if it doesn't exist (not found)
+func (r *registrar) ProcessByAlias(alias etf.Alias) gen.Process {
 	r.mutexAliases.Lock()
 	defer r.mutexAliases.Unlock()
 	if p, ok := r.aliases[alias]; ok {
@@ -517,8 +520,8 @@ func (r *registrar) GetProcessByAlias(alias etf.Alias) gen.Process {
 	return nil
 }
 
-// GetProcessByPid returns Process struct for the given name. Returns nil if it doesn't exist (not found)
-func (r *registrar) GetProcessByName(name string) gen.Process {
+// ProcessByPid returns Process struct for the given name. Returns nil if it doesn't exist (not found)
+func (r *registrar) ProcessByName(name string) gen.Process {
 	var pid etf.Pid
 	if name != "" {
 		// requesting Process by name
@@ -532,7 +535,7 @@ func (r *registrar) GetProcessByName(name string) gen.Process {
 		}
 	}
 
-	return r.GetProcessByPid(pid)
+	return r.ProcessByPid(pid)
 }
 
 func (r *registrar) ProcessList() []gen.Process {

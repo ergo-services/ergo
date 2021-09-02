@@ -138,7 +138,7 @@ func main() {
 	demoNode, _ := ergo.StartNode(NodeName, Cookie, opts)
 
 	// start application
-	if err := demoNode.ApplicationLoad(&demoApp{}); err != nil {
+	if _, err := demoNode.ApplicationLoad(&demoApp{}); err != nil {
 		panic(err)
 	}
 

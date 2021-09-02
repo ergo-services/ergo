@@ -59,8 +59,8 @@ type ServerProcess struct {
 }
 
 func (gs *Server) ProcessInit(p Process, args ...etf.Term) (ProcessState, error) {
-	behavior := p.GetProcessBehavior().(ServerBehavior)
-	//behavior, ok := p.GetProcessBehavior().(ServerBehavior)
+	behavior := p.ProcessBehavior().(ServerBehavior)
+	//behavior, ok := p.ProcessBehavior().(ServerBehavior)
 	//if !ok {
 	//	return ProcessState{}, fmt.Errorf("ProcessInit: not a ServerBehavior")
 	//}
@@ -78,7 +78,7 @@ func (gs *Server) ProcessInit(p Process, args ...etf.Term) (ProcessState, error)
 }
 
 func (gs *Server) ProcessLoop(ps ProcessState, started chan<- bool) string {
-	behavior, ok := ps.GetProcessBehavior().(ServerBehavior)
+	behavior, ok := ps.ProcessBehavior().(ServerBehavior)
 	if !ok {
 		return "ProcessLoop: not a ServerBehavior"
 	}
@@ -91,7 +91,7 @@ func (gs *Server) ProcessLoop(ps ProcessState, started chan<- bool) string {
 	stop := make(chan string, 2)
 
 	gsp.currentFunction = "Server:loop"
-	chs := gsp.GetProcessChannels()
+	chs := gsp.ProcessChannels()
 
 	started <- true
 	for {
@@ -100,7 +100,7 @@ func (gs *Server) ProcessLoop(ps ProcessState, started chan<- bool) string {
 
 		select {
 		case ex := <-chs.GracefulExit:
-			if !gsp.GetTrapExit() {
+			if !gsp.TrapExit() {
 				gsp.behavior.Terminate(gsp, ex.Reason)
 				return ex.Reason
 			}

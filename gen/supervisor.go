@@ -102,7 +102,7 @@ type messageStartChild struct {
 }
 
 func (sv *Supervisor) ProcessInit(p Process, args ...etf.Term) (ProcessState, error) {
-	behavior, ok := p.GetProcessBehavior().(SupervisorBehavior)
+	behavior, ok := p.ProcessBehavior().(SupervisorBehavior)
 	if !ok {
 		return ProcessState{}, fmt.Errorf("ProcessInit: not a SupervisorBehavior")
 	}
@@ -126,7 +126,7 @@ func (sv *Supervisor) ProcessLoop(ps ProcessState, started chan<- bool) string {
 	}
 
 	waitTerminatingProcesses := []etf.Pid{}
-	chs := ps.GetProcessChannels()
+	chs := ps.ProcessChannels()
 
 	started <- true
 	for {
@@ -214,7 +214,7 @@ func startChildren(supervisor Process, spec *SupervisorSpec) {
 func startChild(supervisor Process, name string, child ProcessBehavior, args ...etf.Term) Process {
 	opts := ProcessOptions{}
 
-	if leader := supervisor.GetGroupLeader(); leader != nil {
+	if leader := supervisor.GroupLeader(); leader != nil {
 		opts.GroupLeader = leader
 	} else {
 		// leader is not set
@@ -233,7 +233,7 @@ func startChild(supervisor Process, name string, child ProcessBehavior, args ...
 
 func handleDirect(supervisor Process, spec *SupervisorSpec, message interface{}) (interface{}, error) {
 	switch m := message.(type) {
-	case MessageDirectGetChildren:
+	case MessageDirectChildren:
 		children := []etf.Pid{}
 		for i := range spec.Children {
 			if spec.Children[i].process == nil {

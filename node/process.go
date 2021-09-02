@@ -72,11 +72,17 @@ func (p *process) Context() context.Context {
 	return p.context
 }
 
-func (p *process) GetParent() gen.Process {
+func (p *process) Parent() gen.Process {
+	if p.parent == nil {
+		return nil
+	}
 	return p.parent
 }
 
-func (p *process) GetGroupLeader() gen.Process {
+func (p *process) GroupLeader() gen.Process {
+	if p.groupLeader == nil {
+		return nil
+	}
 	return p.groupLeader
 }
 
@@ -86,9 +92,9 @@ func (p *process) Info() gen.ProcessInfo {
 	if p.groupLeader != nil {
 		gl = p.groupLeader.Self()
 	}
-	links := p.GetLinks(p.self)
-	monitors := p.GetMonitors(p.self)
-	monitoredBy := p.GetMonitoredBy(p.self)
+	links := p.Links(p.self)
+	monitors := p.Monitors(p.self)
+	monitoredBy := p.MonitoredBy(p.self)
 	aliases := append(make([]etf.Alias, len(p.aliases)), p.aliases...)
 	return gen.ProcessInfo{
 		PID:             p.self,
@@ -261,8 +267,8 @@ func (p *process) SetEnv(name string, value interface{}) {
 	p.env[name] = value
 }
 
-// GetEnv returns value associated with given environment name.
-func (p *process) GetEnv(name string) interface{} {
+// Env returns value associated with given environment name.
+func (p *process) Env(name string) interface{} {
 	p.RLock()
 	defer p.RUnlock()
 
@@ -271,7 +277,7 @@ func (p *process) GetEnv(name string) interface{} {
 	}
 
 	if p.groupLeader != nil {
-		return p.groupLeader.GetEnv(name)
+		return p.groupLeader.Env(name)
 	}
 
 	return nil
@@ -311,9 +317,9 @@ func (p *process) IsAlive() bool {
 	return p.context.Err() == nil
 }
 
-// GetChildren returns list of children pid (Application, Supervisor)
-func (p *process) GetChildren() []etf.Pid {
-	c, err := p.directRequest(gen.MessageDirectGetChildren{}, 5)
+// Children returns list of children pid (Application, Supervisor)
+func (p *process) Children() []etf.Pid {
+	c, err := p.directRequest(gen.MessageDirectChildren{}, 5)
 	if err == nil {
 		return c.([]etf.Pid)
 	}
@@ -325,13 +331,16 @@ func (p *process) SetTrapExit(trap bool) {
 	p.trapExit = trap
 }
 
-// GetTrapExit returns whether the trap was enabled on this process
-func (p *process) GetTrapExit() bool {
+// TrapExit returns whether the trap was enabled on this process
+func (p *process) TrapExit() bool {
 	return p.trapExit
 }
 
-// GetObject returns object this process runs on.
-func (p *process) GetProcessBehavior() gen.ProcessBehavior {
+// ProcessBehavior returns the object this process runs on.
+func (p *process) ProcessBehavior() gen.ProcessBehavior {
+	if p.behavior == nil {
+		return nil
+	}
 	return p.behavior
 }
 
@@ -526,7 +535,7 @@ func (p *process) WaitSyncReply(ref etf.Ref, timeout int) (etf.Term, error) {
 
 }
 
-func (p *process) GetProcessChannels() gen.ProcessChannels {
+func (p *process) ProcessChannels() gen.ProcessChannels {
 	return gen.ProcessChannels{
 		Mailbox:      p.mailBox,
 		Direct:       p.direct,

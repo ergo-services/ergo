@@ -7,7 +7,6 @@ import (
 
 	"fmt"
 
-	"github.com/halturin/ergo/erlang"
 	"github.com/halturin/ergo/etf"
 	"github.com/halturin/ergo/gen"
 	"github.com/halturin/ergo/lib"
@@ -114,8 +113,19 @@ func StartWithContext(ctx context.Context, name string, cookie string, opts Opti
 	node.registrarInternal = registrar
 	node.networkInternal = network
 
-	//	netKernelSup := &netKernelSup{}
-	node.Spawn("erlang", gen.ProcessOptions{}, &erlang.Erlang{})
+	// load applications
+	for _, app := range opts.Applications {
+		name, err := node.ApplicationLoad(app)
+		if err != nil {
+			nodestop()
+			return nil, err
+		}
+		_, err = node.ApplicationStart(name)
+		if err != nil {
+			nodestop()
+			return nil, err
+		}
+	}
 
 	return node, nil
 }
@@ -173,7 +183,7 @@ func (n *node) WhichApplications() []gen.ApplicationInfo {
 // WhichApplications returns a list of running applications
 func (n *node) listApplications(onlyRunning bool) []gen.ApplicationInfo {
 	info := []gen.ApplicationInfo{}
-	for _, rb := range n.GetRegisteredBehaviorGroup(appBehaviorGroup) {
+	for _, rb := range n.RegisteredBehaviorGroup(appBehaviorGroup) {
 		spec, ok := rb.Data.(*gen.ApplicationSpec)
 		if !ok {
 			continue
@@ -197,9 +207,9 @@ func (n *node) listApplications(onlyRunning bool) []gen.ApplicationInfo {
 	return info
 }
 
-// GetApplicationInfo returns information about application
-func (n *node) GetApplicationInfo(name string) (gen.ApplicationInfo, error) {
-	rb, err := n.GetRegisteredBehavior(appBehaviorGroup, name)
+// ApplicationInfo returns information about application
+func (n *node) ApplicationInfo(name string) (gen.ApplicationInfo, error) {
+	rb, err := n.RegisteredBehavior(appBehaviorGroup, name)
 	if err != nil {
 		return gen.ApplicationInfo{}, ErrAppUnknown
 	}
@@ -222,20 +232,24 @@ func (n *node) GetApplicationInfo(name string) (gen.ApplicationInfo, error) {
 	return appInfo, nil
 }
 
-// ApplicationLoad loads the application specification for an application
-// into the node.
-func (n *node) ApplicationLoad(app gen.ApplicationBehavior, args ...etf.Term) error {
+// ApplicationLoad loads the application specification for an application. Returns name of
+// loaded application.
+func (n *node) ApplicationLoad(app gen.ApplicationBehavior, args ...etf.Term) (string, error) {
 
 	spec, err := app.Load(args...)
 	if err != nil {
-		return err
+		return "", err
 	}
-	return n.RegisterBehavior(appBehaviorGroup, spec.Name, app, &spec)
+	err = n.RegisterBehavior(appBehaviorGroup, spec.Name, app, &spec)
+	if err != nil {
+		return "", err
+	}
+	return spec.Name, nil
 }
 
 // ApplicationUnload unloads given application
 func (n *node) ApplicationUnload(appName string) error {
-	rb, err := n.GetRegisteredBehavior(appBehaviorGroup, appName)
+	rb, err := n.RegisteredBehavior(appBehaviorGroup, appName)
 	if err != nil {
 		return ErrAppUnknown
 	}
@@ -274,7 +288,7 @@ func (n *node) ApplicationStart(appName string, args ...etf.Term) (gen.Process, 
 }
 
 func (n *node) applicationStart(startType, appName string, args ...etf.Term) (gen.Process, error) {
-	rb, err := n.GetRegisteredBehavior(appBehaviorGroup, appName)
+	rb, err := n.RegisteredBehavior(appBehaviorGroup, appName)
 	if err != nil {
 		return nil, ErrAppUnknown
 	}
@@ -318,7 +332,7 @@ func (n *node) applicationStart(startType, appName string, args ...etf.Term) (ge
 
 // ApplicationStop stop running application
 func (n *node) ApplicationStop(name string) error {
-	rb, err := n.GetRegisteredBehavior(appBehaviorGroup, name)
+	rb, err := n.RegisteredBehavior(appBehaviorGroup, name)
 	if err != nil {
 		return ErrAppUnknown
 	}
@@ -345,44 +359,44 @@ func (n *node) ApplicationStop(name string) error {
 }
 
 // ProvideRPC register given module/function as RPC method
-//func (n *Node) ProvideRPC(module string, function string, fun rpcFunction) error {
-//	lib.Log("RPC provide: %s:%s %#v", module, function, fun)
-//	message := etf.Tuple{
-//		etf.Atom("$provide"),
-//		etf.Atom(module),
-//		etf.Atom(function),
-//		fun,
-//	}
-//	rex := n.GetProcessByName("rex")
-//	if rex == nil {
-//		return fmt.Errorf("RPC module is disabled")
-//	}
-//
-//	if v, err := rex.Call(rex.Self(), message); v != etf.Atom("ok") || err != nil {
-//		return fmt.Errorf("value: %s err: %s", v, err)
-//	}
-//
-//	return nil
-//}
-//
-//// RevokeRPC unregister given module/function
-//func (n *Node) RevokeRPC(module, function string) error {
-//	lib.Log("RPC revoke: %s:%s", module, function)
-//
-//	rex := n.GetProcessByName("rex")
-//	if rex == nil {
-//		return fmt.Errorf("RPC module is disabled")
-//	}
-//
-//	message := etf.Tuple{
-//		etf.Atom("$revoke"),
-//		etf.Atom(module),
-//		etf.Atom(function),
-//	}
-//
-//	if v, err := rex.Call(rex.Self(), message); v != etf.Atom("ok") || err != nil {
-//		return fmt.Errorf("value: %s err: %s", v, err)
-//	}
-//
-//	return nil
-//}
+func (n *node) ProvideRPC(module string, function string, fun gen.RPC) error {
+	lib.Log("RPC provide: %s:%s %#v", module, function, fun)
+	rex := n.ProcessByName("rex")
+	if rex == nil {
+		return fmt.Errorf("RPC is disabled")
+	}
+
+	message := gen.MessageManageRPC{
+		Provide:  true,
+		Module:   module,
+		Function: function,
+		Fun:      fun,
+	}
+	if _, err := rex.Direct(message); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// RevokeRPC unregister given module/function
+func (n *node) RevokeRPC(module, function string) error {
+	lib.Log("RPC revoke: %s:%s", module, function)
+
+	rex := n.ProcessByName("rex")
+	if rex == nil {
+		return fmt.Errorf("RPC is disabled")
+	}
+
+	message := gen.MessageManageRPC{
+		Provide:  false,
+		Module:   module,
+		Function: function,
+	}
+
+	if _, err := rex.Direct(message); err != nil {
+		return err
+	}
+
+	return nil
+}

@@ -39,23 +39,23 @@ type Process interface {
 	DeleteAlias(alias etf.Alias) error
 	ListEnv() map[string]interface{}
 	SetEnv(name string, value interface{})
-	GetEnv(name string) interface{}
+	Env(name string) interface{}
 	Wait()
 	WaitWithTimeout(d time.Duration) error
 	Link(with etf.Pid)
 	Unlink(with etf.Pid)
 	IsAlive() bool
 	SetTrapExit(trap bool)
-	GetTrapExit() bool
+	TrapExit() bool
 	MonitorNode(name string) etf.Ref
 	DemonitorNode(ref etf.Ref) bool
 	MonitorProcess(process interface{}) etf.Ref
 	DemonitorProcess(ref etf.Ref) bool
+	ProcessBehavior() ProcessBehavior
+	GroupLeader() Process
+	Parent() Process
 	Context() context.Context
-	GetProcessBehavior() ProcessBehavior
-	GetGroupLeader() Process
-	GetParent() Process
-	GetChildren() []etf.Pid
+	Children() []etf.Pid
 
 	// Methods below are intended to be used for the ProcessBehavior implementation
 
@@ -63,7 +63,7 @@ type Process interface {
 	PutSyncReply(ref etf.Ref, term etf.Term)
 	SendSyncRequest(ref etf.Ref, to interface{}, message etf.Term)
 	WaitSyncReply(ref etf.Ref, timeout int) (etf.Term, error)
-	GetProcessChannels() ProcessChannels
+	ProcessChannels() ProcessChannels
 }
 
 // ProcessInfo struct with process details
@@ -139,9 +139,9 @@ type Registrar interface {
 	Monitor
 	NodeName() string
 	NodeStop()
-	GetProcessByName(name string) Process
-	GetProcessByPid(pid etf.Pid) Process
-	GetProcessByAlias(alias etf.Alias) Process
+	ProcessByName(name string) Process
+	ProcessByPid(pid etf.Pid) Process
+	ProcessByAlias(alias etf.Alias) Process
 	ProcessInfo(pid etf.Pid) (ProcessInfo, error)
 	ProcessList() []Process
 	MakeRef() etf.Ref
@@ -150,8 +150,8 @@ type Registrar interface {
 	IsProcessAlive(process Process) bool
 
 	RegisterBehavior(group, name string, behavior ProcessBehavior, data interface{}) error
-	GetRegisteredBehavior(group, name string) (RegisteredBehavior, error)
-	GetRegisteredBehaviorGroup(group string) []RegisteredBehavior
+	RegisteredBehavior(group, name string) (RegisteredBehavior, error)
+	RegisteredBehaviorGroup(group string) []RegisteredBehavior
 	UnregisterBehavior(group, name string) error
 
 	Route(from etf.Pid, to etf.Term, message etf.Term)
@@ -159,9 +159,9 @@ type Registrar interface {
 }
 
 type Monitor interface {
-	GetLinks(process etf.Pid) []etf.Pid
-	GetMonitors(process etf.Pid) []etf.Pid
-	GetMonitoredBy(process etf.Pid) []etf.Pid
+	Links(process etf.Pid) []etf.Pid
+	Monitors(process etf.Pid) []etf.Pid
+	MonitoredBy(process etf.Pid) []etf.Pid
 }
 
 type RegisteredBehavior struct {
@@ -183,7 +183,18 @@ type MessageExit struct {
 	Reason string
 }
 
-type MessageDirectGetChildren struct{}
+// RPC defines rpc function type
+type RPC func(...etf.Term) etf.Term
+
+// MessageManageRPC is using to manage RPC feature provides by "rex" process
+type MessageManageRPC struct {
+	Provide  bool
+	Module   string
+	Function string
+	Fun      RPC
+}
+
+type MessageDirectChildren struct{}
 
 func IsDownMessage(message etf.Term) (isTrue bool, d DownMessage) {
 	// {DOWN, Ref, process, PidOrName, Reason}

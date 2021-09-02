@@ -64,7 +64,7 @@ Here are the changes of latest release. For more details see the [ChangeLog](Cha
 #### [1.3.0](https://github.com/halturin/ergo/releases/tag/v1.3.0) - 2021-09-07 ####
 
 * Added support of Erlang/OTP 24 (including [Alias](https://blog.erlang.org/My-OTP-24-Highlights/#eep-53-process-aliases) feature)
-  * Introduced new methods for `Node`: `GetProcessByAlias`, `ProvideRemoteSpawn`, `RevokeRemoteSpawn`.
+  * Introduced new methods for `Node`: `ProcessByAlias`, `ProvideRemoteSpawn`, `RevokeRemoteSpawn`.
   * Introduced new methods for `Process`: `CreateAlias`, `DeleteAlias`, `RemoteSpawn`
 * Important: `gen.Server` and `gen.Stage` interfaces got significant improvements to be easier to use (without backward compatibility). Make sure to update your code.
 * Introduced new behavior `gen.Saga`. It implements a Saga design pattern - a sequence of transactions that updates each service state and publishes the result (or cancels the transaction or triggers the next transaction step). `gen.Saga` also provides a feature of interim results (can be used as transaction progress or as a part of pipeline processing), time deadline (to limit transaction lifespan), two-phase commit (to make distributed transaction atomic). Here is example `examples/gensaga`.

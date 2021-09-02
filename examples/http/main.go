@@ -39,14 +39,14 @@ func main() {
 	nodeHTTP, _ := ergo.StartNode(NodeName, Cookie, opts)
 
 	// start application
-	if err := nodeHTTP.ApplicationLoad(&App{}); err != nil {
+	if _, err := nodeHTTP.ApplicationLoad(&App{}); err != nil {
 		panic(err)
 	}
 
 	process, _ := nodeHTTP.ApplicationStart("WebApp")
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		p := process.GetProcessByName("handler_sup")
+		p := process.ProcessByName("handler_sup")
 		if p == nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
@@ -55,7 +55,7 @@ func main() {
 		fmt.Println("AAA")
 		if pid, err := handler_sup.StartChild(p, "handler", r); err == nil {
 			process.Cast(pid, w)
-			handler := process.GetProcessByPid(pid)
+			handler := process.ProcessByPid(pid)
 			handler.Wait()
 			fmt.Println("AAA2")
 			return

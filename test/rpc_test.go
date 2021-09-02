@@ -1,4 +1,4 @@
-package gen
+package test
 
 import (
 	"fmt"
@@ -6,23 +6,26 @@ import (
 	"testing"
 	"time"
 
+	"github.com/halturin/ergo"
 	"github.com/halturin/ergo/etf"
+	"github.com/halturin/ergo/gen"
+	"github.com/halturin/ergo/node"
 )
 
 type testRPCGenServer struct {
-	GenServer
+	gen.Server
 }
 
-func (trpc *testRPCGenServer) HandleCall(state *GenServerState, from GenServerFrom, message etf.Term) (string, etf.Term) {
+func (trpc *testRPCGenServer) HandleCall(process *gen.ServerProcess, from gen.ServerFrom, message etf.Term) (string, etf.Term) {
 	return "reply", message
 }
 
 func TestRPC(t *testing.T) {
 	fmt.Printf("\n=== Test RPC\n")
 
-	node1, _ := CreateNode("nodeRPC@localhost", "cookies", NodeOptions{})
+	node1, _ := ergo.StartNode("nodeRPC@localhost", "cookies", node.Options{})
 	gs1 := &testRPCGenServer{}
-	node1gs1, _ := node1.Spawn("gs1", ProcessOptions{}, gs1, nil)
+	node1gs1, _ := node1.Spawn("gs1", gen.ProcessOptions{}, gs1, nil)
 
 	testFun1 := func(a ...etf.Term) etf.Term {
 		return a[len(a)-1]
@@ -31,8 +34,7 @@ func TestRPC(t *testing.T) {
 	fmt.Printf("Registering RPC method 'testMod.testFun' on %s: ", node1.NodeName())
 	time.Sleep(100 * time.Millisecond) // waiting for start 'rex' gen_server
 	if e := node1.ProvideRPC("testMod", "testFun", testFun1); e != nil {
-		message := fmt.Sprintf("%s", e)
-		t.Fatal(message)
+		t.Fatal(e)
 	} else {
 		fmt.Println("OK")
 	}
@@ -53,8 +55,7 @@ func TestRPC(t *testing.T) {
 
 	fmt.Printf("Revoking RPC method 'testMod.testFun' on %s: ", node1.NodeName())
 	if e := node1.RevokeRPC("testMod", "testFun"); e != nil {
-		message := fmt.Sprintf("%s", e)
-		t.Fatal(message)
+		t.Fatal(e)
 	} else {
 		fmt.Println("OK")
 	}

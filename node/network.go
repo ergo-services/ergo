@@ -440,7 +440,7 @@ func (n *network) handleMessage(fromNode string, control, message etf.Term) (err
 					}
 				}
 
-				rb, err_behavior := n.registrar.GetRegisteredBehavior(remoteBehaviorGroup, string(module))
+				rb, err_behavior := n.registrar.RegisteredBehavior(remoteBehaviorGroup, string(module))
 				if err_behavior != nil {
 					message := etf.Tuple{distProtoSPAWN_REPLY, ref, from, 0, etf.Atom("not_provided")}
 					n.registrar.RouteRaw(from.Node, message)
@@ -461,7 +461,7 @@ func (n *network) handleMessage(fromNode string, control, message etf.Term) (err
 				lib.Log("[%s] CONTROL SPAWN_REPLY [from %s]: %#v", n.registrar.NodeName(), fromNode, control)
 
 				to := t.Element(3).(etf.Pid)
-				process := n.registrar.GetProcessByPid(to)
+				process := n.registrar.ProcessByPid(to)
 				if process == nil {
 					return
 				}

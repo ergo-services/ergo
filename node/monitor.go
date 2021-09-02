@@ -86,7 +86,7 @@ next:
 		// http://erlang.org/doc/reference_manual/processes.html#monitors
 		// If Pid does not exist, the 'DOWN' message should be
 		// send immediately with Reason set to noproc.
-		if p := m.registrar.GetProcessByPid(t); string(t.Node) == m.registrar.NodeName() && p == nil {
+		if p := m.registrar.ProcessByPid(t); string(t.Node) == m.registrar.NodeName() && p == nil {
 			m.notifyProcessTerminated(ref, by, t, "noproc")
 			return
 		}
@@ -127,7 +127,7 @@ next:
 		fakePid := fakeMonitorPidFromName(t, m.registrar.NodeName())
 		// If Pid does not exist, the 'DOWN' message should be
 		// send immediately with Reason set to noproc.
-		if p := m.registrar.GetProcessByName(t); p == nil {
+		if p := m.registrar.ProcessByName(t); p == nil {
 			m.notifyProcessTerminated(ref, by, fakePid, "noproc")
 			return
 		}
@@ -136,7 +136,7 @@ next:
 	case etf.Atom:
 		// the same as 'string'
 		fakePid := fakeMonitorPidFromName(string(t), m.registrar.NodeName())
-		if p := m.registrar.GetProcessByName(string(t)); p == nil {
+		if p := m.registrar.ProcessByName(string(t)); p == nil {
 			m.notifyProcessTerminated(ref, by, fakePid, "noproc")
 			return
 		}
@@ -158,7 +158,7 @@ next:
 		if nodeName == m.registrar.NodeName() {
 			// If Pid does not exist, the 'DOWN' message should be
 			// send immediately with Reason set to noproc.
-			if p := m.registrar.GetProcessByName(name); p == nil {
+			if p := m.registrar.ProcessByName(name); p == nil {
 				m.notifyProcessTerminated(ref, by, fakePid, "noproc")
 				return
 			}
@@ -266,7 +266,7 @@ func (m *monitor) link(pidA, pidB etf.Pid) {
 	if pidB.Node == etf.Atom(m.registrar.NodeName()) {
 		// for the local process we should make sure if its alive
 		// otherwise send 'EXIT' message with 'noproc' as a reason
-		if p := m.registrar.GetProcessByPid(pidB); p == nil {
+		if p := m.registrar.ProcessByPid(pidB); p == nil {
 			m.notifyProcessExit(pidA, pidB, "noproc")
 			if len(linksA) > 0 {
 				m.links[pidA] = linksA
@@ -520,7 +520,7 @@ func (m *monitor) processTerminated(terminated etf.Pid, name, reason string) {
 
 }
 
-func (m *monitor) GetLinks(process etf.Pid) []etf.Pid {
+func (m *monitor) Links(process etf.Pid) []etf.Pid {
 	m.mutexLinks.Lock()
 	defer m.mutexLinks.Unlock()
 
@@ -531,7 +531,7 @@ func (m *monitor) GetLinks(process etf.Pid) []etf.Pid {
 	return nil
 }
 
-func (m *monitor) GetMonitors(process etf.Pid) []etf.Pid {
+func (m *monitor) Monitors(process etf.Pid) []etf.Pid {
 	monitors := []etf.Pid{}
 	m.mutexProcesses.Lock()
 	defer m.mutexProcesses.Unlock()
@@ -546,7 +546,7 @@ func (m *monitor) GetMonitors(process etf.Pid) []etf.Pid {
 	return monitors
 }
 
-func (m *monitor) GetMonitoredBy(process etf.Pid) []etf.Pid {
+func (m *monitor) MonitoredBy(process etf.Pid) []etf.Pid {
 	monitors := []etf.Pid{}
 	m.mutexProcesses.Lock()
 	defer m.mutexProcesses.Unlock()

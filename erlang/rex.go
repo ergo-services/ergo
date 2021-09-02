@@ -151,7 +151,7 @@ func (r *Rex) handleRPC(process *gen.ServerProcess, module, function etf.Atom, a
 		},
 	}
 	// calling a local module if its been registered as a process)
-	if process.GetProcessByName(mf.module) == nil {
+	if process.ProcessByName(mf.module) == nil {
 		return badRPC
 	}
 

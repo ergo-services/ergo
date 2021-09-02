@@ -69,7 +69,7 @@ type ApplicationInfo struct {
 }
 
 func (a *Application) ProcessInit(p Process, args ...etf.Term) (ProcessState, error) {
-	spec, ok := p.GetEnv("spec").(*ApplicationSpec)
+	spec, ok := p.Env("spec").(*ApplicationSpec)
 	if !ok {
 		return ProcessState{}, fmt.Errorf("ProcessInit: not an ApplicationBehavior")
 	}
@@ -89,7 +89,7 @@ func (a *Application) ProcessInit(p Process, args ...etf.Term) (ProcessState, er
 		return ProcessState{}, fmt.Errorf("failed")
 	}
 
-	behavior, ok := p.GetProcessBehavior().(ApplicationBehavior)
+	behavior, ok := p.ProcessBehavior().(ApplicationBehavior)
 	if !ok {
 		return ProcessState{}, fmt.Errorf("ProcessInit: not an ApplicationBehavior")
 	}
@@ -110,7 +110,7 @@ func (a *Application) ProcessLoop(ps ProcessState, started chan<- bool) string {
 		spec.Lifespan = time.Hour * 24 * 365 * 100 // let's define default lifespan 100 years :)
 	}
 
-	chs := ps.GetProcessChannels()
+	chs := ps.ProcessChannels()
 
 	timer := time.NewTimer(spec.Lifespan)
 	// timer must be stopped explicitly to prevent of timer leaks
@@ -176,7 +176,7 @@ func (a *Application) ProcessLoop(ps ProcessState, started chan<- bool) string {
 
 		case direct := <-chs.Direct:
 			switch direct.Message.(type) {
-			case MessageDirectGetChildren:
+			case MessageDirectChildren:
 				pids := []etf.Pid{}
 				for i := range spec.Children {
 					if spec.Children[i].process == nil {

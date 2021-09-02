@@ -41,7 +41,7 @@ func (e *Erlang) HandleCall(process *gen.ServerProcess, from gen.ServerFrom, mes
 }
 
 func processInfo(p gen.Process, pid etf.Pid, property etf.Term) etf.Term {
-	process := p.GetProcessByPid(pid)
+	process := p.ProcessByPid(pid)
 	if process == nil {
 		return etf.Atom("undefined")
 	}
