@@ -102,7 +102,7 @@ type messageStartChild struct {
 }
 
 func (sv *Supervisor) ProcessInit(p Process, args ...etf.Term) (ProcessState, error) {
-	behavior, ok := p.ProcessBehavior().(SupervisorBehavior)
+	behavior, ok := p.Behavior().(SupervisorBehavior)
 	if !ok {
 		return ProcessState{}, fmt.Errorf("ProcessInit: not a SupervisorBehavior")
 	}

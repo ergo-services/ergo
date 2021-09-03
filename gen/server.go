@@ -59,8 +59,8 @@ type ServerProcess struct {
 }
 
 func (gs *Server) ProcessInit(p Process, args ...etf.Term) (ProcessState, error) {
-	behavior := p.ProcessBehavior().(ServerBehavior)
-	//behavior, ok := p.ProcessBehavior().(ServerBehavior)
+	behavior := p.Behavior().(ServerBehavior)
+	//behavior, ok := p.Behavior().(ServerBehavior)
 	//if !ok {
 	//	return ProcessState{}, fmt.Errorf("ProcessInit: not a ServerBehavior")
 	//}
@@ -78,7 +78,7 @@ func (gs *Server) ProcessInit(p Process, args ...etf.Term) (ProcessState, error)
 }
 
 func (gs *Server) ProcessLoop(ps ProcessState, started chan<- bool) string {
-	behavior, ok := ps.ProcessBehavior().(ServerBehavior)
+	behavior, ok := ps.Behavior().(ServerBehavior)
 	if !ok {
 		return "ProcessLoop: not a ServerBehavior"
 	}

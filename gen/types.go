@@ -51,7 +51,7 @@ type Process interface {
 	DemonitorNode(ref etf.Ref) bool
 	MonitorProcess(process interface{}) etf.Ref
 	DemonitorProcess(ref etf.Ref) bool
-	ProcessBehavior() ProcessBehavior
+	Behavior() ProcessBehavior
 	GroupLeader() Process
 	Parent() Process
 	Context() context.Context

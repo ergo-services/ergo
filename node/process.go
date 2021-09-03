@@ -334,7 +334,7 @@ func (p *process) TrapExit() bool {
 }
 
 // ProcessBehavior returns the object this process runs on.
-func (p *process) ProcessBehavior() gen.ProcessBehavior {
+func (p *process) Behavior() gen.ProcessBehavior {
 	if p.behavior == nil {
 		return nil
 	}

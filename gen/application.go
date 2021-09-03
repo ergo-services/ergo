@@ -89,7 +89,7 @@ func (a *Application) ProcessInit(p Process, args ...etf.Term) (ProcessState, er
 		return ProcessState{}, fmt.Errorf("failed")
 	}
 
-	behavior, ok := p.ProcessBehavior().(ApplicationBehavior)
+	behavior, ok := p.Behavior().(ApplicationBehavior)
 	if !ok {
 		return ProcessState{}, fmt.Errorf("ProcessInit: not an ApplicationBehavior")
 	}

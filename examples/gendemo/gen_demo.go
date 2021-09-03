@@ -1,10 +1,8 @@
 package main
 
-/*
 import (
 	"fmt"
 
-	"github.com/halturin/ergo"
 	"github.com/halturin/ergo/etf"
 	"github.com/halturin/ergo/gen"
 )
@@ -13,24 +11,14 @@ type GenDemo struct {
 	gen.Server
 }
 
-type GenDemoOptions struct {
-	A int
-	B string
-}
-
 type GenDemoProcess struct {
-	Options GenDemoOptions
+	gen.ServerProcess
 	counter int
 }
 
-type demoMessage struct {
-	request string
-}
-
-type setCounter struct {
-	c int
-}
-type getCounter struct{}
+type messageHello struct{}
+type messageHi struct{}
+type messageGetStat struct{}
 
 // GenDemoBehavior interface
 type GenDemoBehavior interface {
@@ -41,14 +29,14 @@ type GenDemoBehavior interface {
 	// InitDemo
 	InitDemo(process *GenDemoProcess, args ...etf.Term) error
 
-	// HandleHello invoked on a 'hello' request where 'n' is how many times it was received
-	HandleHello(process *GenDemoProcess, n int) error
+	// HandleHello invoked on a 'hello'
+	HandleHello(process *GenDemoProcess)
 
 	//
 	// Optional callbacks
 	//
 
-	HandleHi(process *GenDemoProcess) error
+	HandleHi(process *GenDemoProcess)
 
 	// HandleGenDemoCall this callback is invoked on Process.Call. This method is optional
 	// for the implementation
@@ -63,9 +51,9 @@ type GenDemoBehavior interface {
 
 // default GenDemo callbacks
 
-func (gd *GenDemo) HandleHi(process *GenDemoProcess) error {
+func (gd *GenDemo) HandleHi(process *GenDemoProcess) {
 	fmt.Println("HandleHi: unhandled message")
-	return nil
+	return
 }
 
 func (gd *GenDemo) HandleGenDemoCall(process *GenDemoProcess, from gen.ServerFrom, message etf.Term) (string, etf.Term) {
@@ -84,82 +72,64 @@ func (gd *GenDemo) HandleGenDemoInfo(process *GenDemoProcess, message etf.Term) 
 
 // API
 
-func (gd *GenDemo) SetCounter(process gen.Process, c int) error {
-	_, err := process.Direct(setCounter{c: c})
+func (gd *GenDemo) Hello(process gen.Process) error {
+	_, err := process.Direct(messageHello{})
+	return err
+}
+func (gd *GenDemo) Hi(process gen.Process) error {
+	_, err := process.Direct(messageHi{})
 	return err
 }
 
-func (gd *GenDemo) GetCounter(process gen.Process) (int, error) {
-	return process.Direct(getCounter{})
-
+func (gd *GenDemo) Stat(process gen.Process) int {
+	counter, _ := process.Direct(messageGetStat{})
+	return counter.(int)
 }
 
 //
 // gen.Server callbacks
 //
 func (gd *GenDemo) Init(process *gen.ServerProcess, args ...etf.Term) error {
-	demoState := &GenDemoProcess{}
-	if err := state.Process.GetObject().(GenDemoBehavior).InitDemo(demoState, args...); err != nil {
+	demo := &GenDemoProcess{
+		ServerProcess: *process,
+	}
+	if err := process.Behavior().(GenDemoBehavior).InitDemo(demo, args...); err != nil {
 		return err
 	}
-	process.State = demoState
+	process.State = demo
 	return nil
 }
 
 func (gd *GenDemo) HandleCall(process *gen.ServerProcess, from gen.ServerFrom, message etf.Term) (string, etf.Term) {
-	st := process.State.(*GenDemoProcess)
-	return process.GetObject().(GenDemoBehavior).HandleGenDemoCall(st, from, message)
+	demo := process.State.(*GenDemoProcess)
+	return process.Behavior().(GenDemoBehavior).HandleGenDemoCall(demo, from, message)
 }
 
 func (gd *GenDemo) HandleDirect(process *gen.ServerProcess, message interface{}) (interface{}, error) {
-	st := process.State.(*GenDemoProcess)
-	switch m := message.(type) {
-	case setCounter:
-		st.counter = m.c
+	demo := process.State.(*GenDemoProcess)
+	switch message.(type) {
+	case messageGetStat:
+		return demo.counter, nil
+	case messageHello:
+		process.Behavior().(GenDemoBehavior).HandleHello(demo)
+		demo.counter++
 		return nil, nil
-	case getCounter:
-		return st.counter, nil
+	case messageHi:
+		process.Behavior().(GenDemoBehavior).HandleHi(demo)
+		return nil, nil
 	default:
-		return nil, ergo.ErrUnsupportedRequest
+		return nil, gen.ErrUnsupportedRequest
 	}
 
 }
 
 func (gd *GenDemo) HandleCast(process *gen.ServerProcess, message etf.Term) string {
-	st := process.State.(*GenDemoProcess)
-	return process.GetObject().(GenDemoBehavior).HandleGenDemoCast(st, message)
+	demo := process.State.(*GenDemoProcess)
+	return process.Behavior().(GenDemoBehavior).HandleGenDemoCast(demo, message)
 }
 
 func (gd *GenDemo) HandleInfo(process *gen.ServerProcess, message etf.Term) string {
-	var d DownMessage
-	var m demoMessage
-
-	st := process.State.(*GenDemoProcess)
-	// check if we got a 'DOWN' message
-	// {DOWN, Ref, process, PidOrName, Reason}
-	if isDown, d := IsDownMessage(message); isDown {
-		if err := handleDemoDown(st, d); err != nil {
-			return err.Error()
-		}
-		return "noreply"
-	}
-
-	if err := etf.TermIntoStruct(message, &m); err != nil {
-		reply := process.GetObject().(GenDemoBehavior).HandleGenDemoInfo(st, message)
-		return reply
-	}
-
-	if err := handleDemoRequest(st, m); err != nil {
-		// stop with reason
-		return err.Error()
-	}
+	demo := process.State.(*GenDemoProcess)
+	return process.Behavior().(GenDemoBehavior).HandleGenDemoInfo(demo, message)
 	return "noreply"
 }
-
-func handleDemoRequest(state *GenDemoProcess, m demoMessage) error {
-	return nil
-}
-func handleDemoDown(state *GenDemoProcess, down DownMessage) error {
-	return nil
-}
-*/

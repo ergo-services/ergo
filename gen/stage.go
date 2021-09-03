@@ -375,7 +375,7 @@ func (gst *Stage) Init(process *ServerProcess, args ...etf.Term) error {
 		consumers:     make(map[etf.Pid]*subscriptionInternal),
 	}
 
-	behavior, ok := process.ProcessBehavior().(StageBehavior)
+	behavior, ok := process.Behavior().(StageBehavior)
 	if !ok {
 		return fmt.Errorf("Stage: not a StageBehavior")
 	}
