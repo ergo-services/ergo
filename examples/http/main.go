@@ -52,15 +52,12 @@ func main() {
 			return
 		}
 
-		fmt.Println("AAA")
 		if pid, err := handler_sup.StartChild(p, "handler", r); err == nil {
 			process.Cast(pid, w)
 			handler := process.ProcessByPid(pid)
 			handler.Wait()
-			fmt.Println("AAA2")
 			return
 		}
-		fmt.Println("AAA1")
 
 		w.WriteHeader(http.StatusInternalServerError)
 	})

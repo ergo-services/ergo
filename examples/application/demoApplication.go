@@ -61,23 +61,18 @@ func (ds *demoSup) Init(args ...etf.Term) (gen.SupervisorSpec, error) {
 		Name: "demoAppSup",
 		Children: []gen.SupervisorChildSpec{
 			gen.SupervisorChildSpec{
-				Name:    "demoServer01",
-				Child:   &demoGenServ{},
-				Restart: gen.SupervisorChildRestartTemporary,
-				// Restart: gen.SupervisorChildRestartTransient,
-				// Restart: gen.SupervisorChildRestartPermanent,
+				Name:  "demoServer01",
+				Child: &demoGenServ{},
 			},
 			gen.SupervisorChildSpec{
-				Name:    "demoServer02",
-				Child:   &demoGenServ{},
-				Restart: gen.SupervisorChildRestartPermanent,
-				Args:    []etf.Term{12345},
+				Name:  "demoServer02",
+				Child: &demoGenServ{},
+				Args:  []etf.Term{12345},
 			},
 			gen.SupervisorChildSpec{
-				Name:    "demoServer03",
-				Child:   &demoGenServ{},
-				Restart: gen.SupervisorChildRestartPermanent,
-				Args:    []etf.Term{"abc", 67890},
+				Name:  "demoServer03",
+				Child: &demoGenServ{},
+				Args:  []etf.Term{"abc", 67890},
 			},
 		},
 		Strategy: gen.SupervisorStrategy{
@@ -86,6 +81,9 @@ func (ds *demoSup) Init(args ...etf.Term) (gen.SupervisorSpec, error) {
 			// Type:      gen.SupervisorStrategyOneForOne,
 			Intensity: 2,
 			Period:    5,
+			Restart:   gen.SupervisorStrategyRestartTemporary,
+			// Restart: gen.SupervisorStrategyRestartTransient,
+			// Restart: gen.SupervisorStrategyRestartPermanent,
 		},
 	}
 	return spec, nil

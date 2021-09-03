@@ -34,7 +34,6 @@ func (h *Handler) Init(process *gen.ServerProcess, args ...etf.Term) error {
 }
 
 func (h *Handler) HandleCast(process *gen.ServerProcess, message etf.Term) string {
-	fmt.Println("KKKKKKKKKKLL")
 	fmt.Println(process.State.(*st).r.URL.Path)
 	w := message.(http.ResponseWriter)
 	w.Header().Set("Content-Type", "application/json")
@@ -47,6 +46,6 @@ func (h *Handler) HandleCast(process *gen.ServerProcess, message etf.Term) strin
 	if err != nil {
 		fmt.Println(err)
 	}
-	fmt.Println("KKKKKKKKKK")
+	fmt.Println("Finish handling http request")
 	return "stop"
 }

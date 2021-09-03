@@ -76,6 +76,11 @@ func (r *rex) HandleCall(process *gen.ServerProcess, from gen.ServerFrom, messag
 	return "reply", reply
 }
 
+func (r *rex) HandleInfo(process *gen.ServerProcess, message etf.Term) string {
+	// add this handler to suppres any messages from erlang
+	return "noreply"
+}
+
 func (r *rex) HandleDirect(process *gen.ServerProcess, message interface{}) (interface{}, error) {
 	switch m := message.(type) {
 	case gen.MessageManageRPC:

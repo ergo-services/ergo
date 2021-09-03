@@ -95,7 +95,7 @@ func main() {
 		return
 	}
 
-	// Add RPC call
+	// Add RPC handle with MF "rpc" "request"
 	fun := func(args ...etf.Term) etf.Term {
 		if len(args) == 0 {
 			return etf.Atom("ok")
