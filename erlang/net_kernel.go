@@ -10,6 +10,7 @@ import (
 	"github.com/halturin/ergo/etf"
 	"github.com/halturin/ergo/gen"
 	"github.com/halturin/ergo/lib"
+	"github.com/halturin/ergo/lib/osdep"
 )
 
 type KernelApp struct {
@@ -101,7 +102,7 @@ func (nk *netKernel) HandleCall(process *gen.ServerProcess, from gen.ServerFrom,
 				// etf.Tuple{"spawn_link", "observer_backend", "procs_info", etf.List{etf.Pid{}}, etf.Pid{}}
 				sendTo := t.Element(4).(etf.List).Element(1).(etf.Pid)
 				go sendProcInfo(process, sendTo)
-				reply = state.Process.Self()
+				reply = process.Self()
 			case etf.Atom("fetch_stats"):
 				// etf.Tuple{"spawn_link", "observer_backend", "fetch_stats", etf.List{etf.Pid{}, 500}, etf.Pid{}}
 				sendTo := t.Element(4).(etf.List).Element(1).(etf.Pid)
@@ -115,7 +116,7 @@ func (nk *netKernel) HandleCall(process *gen.ServerProcess, from gen.ServerFrom,
 				ctx, cancel := context.WithCancel(process.Context())
 				nk.routinesCtx[sendTo] = cancel
 				go sendStats(ctx, process, sendTo, period, cancel)
-				reply = state.Process.Self()
+				reply = process.Self()
 			}
 		}
 
@@ -192,7 +193,7 @@ func sendStats(ctx context.Context, p gen.Process, to etf.Pid, period int, cance
 			code := etf.Tuple{etf.Atom("code"), 0}
 			ets := etf.Tuple{etf.Atom("ets"), 0}
 
-			utime, stime = os_dep_getResourceUsage()
+			utime, stime = osdep.ResourceUsage()
 			utimetotal += utime
 			stimetotal += stime
 			stats := etf.Tuple{

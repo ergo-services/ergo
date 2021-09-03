@@ -4,43 +4,45 @@ package erlang
 
 import (
 	"runtime"
-	"time"
 	"unsafe"
 
 	"github.com/halturin/ergo/etf"
+	"github.com/halturin/ergo/gen"
 	"github.com/halturin/ergo/lib"
+	"github.com/halturin/ergo/node"
 )
 
 var m runtime.MemStats
 
 type observerBackend struct {
-	GenServer
+	gen.Server
 }
 
 // Init initializes process state using arbitrary arguments
 // Init(...) -> state
-func (o *observerBackend) Init(state *GenServerState, args ...etf.Term) error {
+func (o *observerBackend) Init(process *gen.ServerProcess, args ...etf.Term) error {
 	lib.Log("OBSERVER: Init: %#v", args)
 
 	funProcLibInitialCall := func(a ...etf.Term) etf.Term {
 		return etf.Tuple{etf.Atom("proc_lib"), etf.Atom("init_p"), 5}
 	}
-	state.Process.Node.ProvideRPC("proc_lib", "translate_initial_call", funProcLibInitialCall)
+	node := process.Env("node").(node.Node)
+	node.ProvideRPC("proc_lib", "translate_initial_call", funProcLibInitialCall)
 
 	funAppmonInfo := func(a ...etf.Term) etf.Term {
 		from := a[0] // pid
-		am, e := state.Process.Node.Spawn("", ProcessOptions{}, &appMon{}, from)
+		am, e := process.Spawn("", gen.ProcessOptions{}, &appMon{}, from)
 		if e != nil {
 			return etf.Tuple{etf.Atom("error")}
 		}
 		return etf.Tuple{etf.Atom("ok"), am.Self()}
 	}
-	state.Process.Node.ProvideRPC("appmon_info", "start_link2", funAppmonInfo)
+	node.ProvideRPC("appmon_info", "start_link2", funAppmonInfo)
 
 	return nil
 }
 
-func (o *observerBackend) HandleCall(state *GenServerState, from GenServerFrom, message etf.Term) (string, etf.Term) {
+func (o *observerBackend) HandleCall(state *gen.ServerProcess, from gen.ServerFrom, message etf.Term) (string, etf.Term) {
 	lib.Log("OBSERVER: HandleCall: %v, From: %#v", message, from)
 	function := message.(etf.Tuple).Element(1).(etf.Atom)
 	// args := message.(etf.Tuple).Element(2).(etf.List)
@@ -64,9 +66,10 @@ func (o *observerBackend) HandleCall(state *GenServerState, from GenServerFrom, 
 	return "reply", "ok"
 }
 
-func (o *observerBackend) sysInfo(p *Process) etf.List {
+func (o *observerBackend) sysInfo(p gen.Process) etf.List {
 	// observer_backend:sys_info()
-	processCount := etf.Tuple{etf.Atom("process_count"), len(p.Node.GetProcessList())}
+	node := p.Env("node").(node.Node)
+	processCount := etf.Tuple{etf.Atom("process_count"), len(p.ProcessList())}
 	processLimit := etf.Tuple{etf.Atom("process_limit"), 262144}
 	atomCount := etf.Tuple{etf.Atom("atom_count"), 0}
 	atomLimit := etf.Tuple{etf.Atom("atom_limit"), 1}
@@ -74,7 +77,7 @@ func (o *observerBackend) sysInfo(p *Process) etf.List {
 	etsLimit := etf.Tuple{etf.Atom("ets_limit"), 1}
 	portCount := etf.Tuple{etf.Atom("port_count"), 0}
 	portLimit := etf.Tuple{etf.Atom("port_limit"), 1}
-	ut := time.Now().Unix() - p.Node.StartedAt.Unix()
+	ut := node.Uptime()
 	uptime := etf.Tuple{etf.Atom("uptime"), ut * 1000}
 	runQueue := etf.Tuple{etf.Atom("run_queue"), 0}
 	ioInput := etf.Tuple{etf.Atom("io_input"), 0}
@@ -85,8 +88,9 @@ func (o *observerBackend) sysInfo(p *Process) etf.List {
 	schedulers := etf.Tuple{etf.Atom("schedulers"), 1}
 	schedulersOnline := etf.Tuple{etf.Atom("schedulers_online"), 1}
 	schedulersAvailable := etf.Tuple{etf.Atom("schedulers_available"), 1}
-	otpRelease := etf.Tuple{etf.Atom("otp_release"), p.Node.VersionOTP()}
-	version := etf.Tuple{etf.Atom("version"), etf.Atom(p.Node.VersionERTS())}
+	v := node.Version()
+	otpRelease := etf.Tuple{etf.Atom("otp_release"), v.OTP}
+	version := etf.Tuple{etf.Atom("version"), etf.Atom(v.Release)}
 	systemArchitecture := etf.Tuple{etf.Atom("system_architecture"), etf.Atom(runtime.GOARCH)}
 	kernelPoll := etf.Tuple{etf.Atom("kernel_poll"), true}
 	smpSupport := etf.Tuple{etf.Atom("smp_support"), true}

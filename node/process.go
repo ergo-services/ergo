@@ -257,9 +257,6 @@ func (p *process) ListEnv() map[string]interface{} {
 func (p *process) SetEnv(name string, value interface{}) {
 	p.Lock()
 	defer p.Unlock()
-	if p.env == nil {
-		p.env = make(map[string]interface{})
-	}
 	if value == nil {
 		delete(p.env, name)
 		return

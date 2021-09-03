@@ -183,6 +183,9 @@ func (r *registrar) newProcess(name string, behavior gen.ProcessBehavior, opts p
 	pid := r.newPID()
 
 	// set global variable 'node'
+	if opts.Env == nil {
+		opts.Env = make(map[string]interface{})
+	}
 	opts.Env["node"] = r.node.(Node)
 
 	process := &process{

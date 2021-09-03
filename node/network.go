@@ -92,7 +92,8 @@ func (n *network) RemoveStaticRoute(name string) {
 
 func (n *network) listen(ctx context.Context, name string) (uint16, error) {
 	var TLSenabled bool = true
-	versions := ctx.Value("versions").(map[string]interface{})
+	var version Version
+	version, _ = ctx.Value("version").(Version)
 
 	lc := net.ListenConfig{}
 	for p := n.opts.ListenRangeBegin; p <= n.opts.ListenRangeEnd; p++ {
@@ -103,7 +104,7 @@ func (n *network) listen(ctx context.Context, name string) (uint16, error) {
 
 		switch n.opts.TLSMode {
 		case TLSModeAuto:
-			cert, err := generateSelfSignedCert(versions)
+			cert, err := generateSelfSignedCert(version)
 			if err != nil {
 				return 0, fmt.Errorf("Can't generate certificate: %s\n", err)
 			}
@@ -544,21 +545,9 @@ func (n *network) connect(to etf.Atom) error {
 	return nil
 }
 
-func generateSelfSignedCert(versions map[string]interface{}) (tls.Certificate, error) {
+func generateSelfSignedCert(version Version) (tls.Certificate, error) {
 	var cert = tls.Certificate{}
-	var prefix string = "ergo"
-	var version string = ""
-	p, ok := versions["prefix"]
-	if ok {
-		prefix, _ = p.(string)
-	}
-	p, ok = versions["version"]
-	if ok {
-		version, _ = p.(string)
-	}
-
-	org := fmt.Sprintf("%s %s", prefix, version)
-
+	org := fmt.Sprintf("%s %s", version.Prefix, version.Release)
 	certPrivKey, err := ecdsa.GenerateKey(elliptic.P521(), rand.Reader)
 	if err != nil {
 		return cert, err

@@ -68,6 +68,52 @@ const (
 	defaultHandshakeVersion         = 5
 )
 
+type Node interface {
+	gen.Registrar
+	Network
+	Name() string
+	IsAlive() bool
+	Uptime() int64
+	Version() Version
+	Wait()
+	WaitWithTimeout(d time.Duration) error
+	Spawn(name string, opts gen.ProcessOptions, object gen.ProcessBehavior, args ...etf.Term) (gen.Process, error)
+	Stop()
+	LoadedApplications() []gen.ApplicationInfo
+	WhichApplications() []gen.ApplicationInfo
+	ApplicationInfo(name string) (gen.ApplicationInfo, error)
+	ApplicationLoad(app gen.ApplicationBehavior, args ...etf.Term) (string, error)
+	ApplicationUnload(appName string) error
+	ApplicationStartPermanent(appName string, args ...etf.Term) (gen.Process, error)
+	ApplicationStartTransient(appName string, args ...etf.Term) (gen.Process, error)
+	ApplicationStart(appName string, args ...etf.Term) (gen.Process, error)
+	ApplicationStop(appName string) error
+	ProvideRPC(module string, function string, fun gen.RPC) error
+	RevokeRPC(module, function string) error
+}
+
+type Version struct {
+	Release string
+	Prefix  string
+	OTP     int
+}
+
+type Network interface {
+	AddStaticRoute(name string, port uint16) error
+	AddStaticRouteExt(name string, port uint16, cookie string, tls bool) error
+	RemoveStaticRoute(name string)
+	Resolve(name string) (NetworkRoute, error)
+
+	ProvideRemoteSpawn(name string, object gen.ProcessBehavior) error
+	RevokeRemoteSpawn(name string) error
+}
+
+type NetworkRoute struct {
+	Port   int
+	Cookie string
+	TLS    bool
+}
+
 // Options struct with bootstrapping options for CreateNode
 type Options struct {
 	Applications           []gen.ApplicationBehavior
@@ -97,42 +143,6 @@ type Options struct {
 
 // TLSmodeType should be one of TLSmodeDisabled (default), TLSmodeAuto or TLSmodeStrict
 type TLSmodeType string
-
-type Node interface {
-	gen.Registrar
-	Network
-	Name() string
-	IsAlive() bool
-	Wait()
-	WaitWithTimeout(d time.Duration) error
-	Spawn(name string, opts gen.ProcessOptions, object gen.ProcessBehavior, args ...etf.Term) (gen.Process, error)
-	Stop()
-	LoadedApplications() []gen.ApplicationInfo
-	WhichApplications() []gen.ApplicationInfo
-	ApplicationInfo(name string) (gen.ApplicationInfo, error)
-	ApplicationLoad(app gen.ApplicationBehavior, args ...etf.Term) (string, error)
-	ApplicationUnload(appName string) error
-	ApplicationStartPermanent(appName string, args ...etf.Term) (gen.Process, error)
-	ApplicationStartTransient(appName string, args ...etf.Term) (gen.Process, error)
-	ApplicationStart(appName string, args ...etf.Term) (gen.Process, error)
-	ApplicationStop(appName string) error
-}
-
-type Network interface {
-	AddStaticRoute(name string, port uint16) error
-	AddStaticRouteExt(name string, port uint16, cookie string, tls bool) error
-	RemoveStaticRoute(name string)
-	Resolve(name string) (NetworkRoute, error)
-
-	ProvideRemoteSpawn(name string, object gen.ProcessBehavior) error
-	RevokeRemoteSpawn(name string) error
-}
-
-type NetworkRoute struct {
-	Port   int
-	Cookie string
-	TLS    bool
-}
 
 // TLSmodeType should be one of TLSmodeDisabled (default), TLSmodeAuto or TLSmodeStrict
 type TLSModeType string

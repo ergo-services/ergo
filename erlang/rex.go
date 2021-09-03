@@ -8,9 +8,8 @@ import (
 	"github.com/halturin/ergo/etf"
 	"github.com/halturin/ergo/gen"
 	"github.com/halturin/ergo/lib"
+	"github.com/halturin/ergo/node"
 )
-
-type FunctionRPC func(...etf.Term) etf.Term
 
 type modFun struct {
 	module   string
@@ -23,14 +22,15 @@ var (
 	}
 )
 
-type Rex struct {
+type rex struct {
 	gen.Server
-	methods map[modFun]FunctionRPC
+	// Keep methods in the object. Won't be lost if the process restarted for some reason
+	methods map[modFun]gen.RPC
 }
 
-func (r *Rex) Init(state *gen.ServerProcess, args ...etf.Term) error {
+func (r *rex) Init(process *gen.ServerProcess, args ...etf.Term) error {
 	lib.Log("REX: Init: %#v", args)
-	r.methods = make(map[modFun]FunctionRPC, 0)
+	r.methods = make(map[modFun]gen.RPC, 0)
 
 	for i := range allowedModFun {
 		mf := modFun{
@@ -39,11 +39,10 @@ func (r *Rex) Init(state *gen.ServerProcess, args ...etf.Term) error {
 		}
 		r.methods[mf] = nil
 	}
-
 	return nil
 }
 
-func (r *Rex) HandleCall(process *gen.ServerProcess, from gen.ServerFrom, message etf.Term) (string, etf.Term) {
+func (r *rex) HandleCall(process *gen.ServerProcess, from gen.ServerFrom, message etf.Term) (string, etf.Term) {
 	lib.Log("REX: HandleCall: %#v, From: %#v", message, from)
 	switch m := message.(type) {
 	case etf.Tuple:
@@ -67,44 +66,42 @@ func (r *Rex) HandleCall(process *gen.ServerProcess, from gen.ServerFrom, messag
 			}
 			return "reply", reply
 
-		case etf.Atom("$provide"):
-			module := m.Element(2).(etf.Atom)
-			function := m.Element(3).(etf.Atom)
-			fun := m.Element(4).(FunctionRPC)
-			mf := modFun{
-				module:   string(module),
-				function: string(function),
-			}
-			if _, ok := r.methods[mf]; ok {
-				return "reply", etf.Atom("taken")
-			}
-
-			r.methods[mf] = fun
-			return "reply", etf.Atom("ok")
-
-		case etf.Atom("$revoke"):
-			module := m.Element(2).(etf.Atom)
-			function := m.Element(3).(etf.Atom)
-			mf := modFun{
-				module:   string(module),
-				function: string(function),
-			}
-
-			if _, ok := r.methods[mf]; ok {
-				delete(r.methods, mf)
-				return "reply", etf.Atom("ok")
-			}
-
-			return "reply", etf.Atom("unknown")
 		}
-
 	}
 
 	reply := etf.Term(etf.Tuple{etf.Atom("badrpc"), etf.Atom("unknown")})
 	return "reply", reply
 }
 
-func (r *Rex) handleRPC(process *gen.ServerProcess, module, function etf.Atom, args etf.List) (reply interface{}) {
+func (r *rex) HandleDirect(process *gen.ServerProcess, message interface{}) (interface{}, error) {
+	switch m := message.(type) {
+	case gen.MessageManageRPC:
+		mf := modFun{
+			module:   string(m.Module),
+			function: string(m.Function),
+		}
+		// provide RPC
+		if m.Provide {
+			if _, ok := r.methods[mf]; ok {
+				return nil, node.ErrTaken
+			}
+			r.methods[mf] = m.Fun
+			return nil, nil
+		}
+
+		// revoke RPC
+		if _, ok := r.methods[mf]; ok {
+			delete(r.methods, mf)
+			return nil, nil
+		}
+		return nil, fmt.Errorf("unknown RPC name")
+
+	default:
+		return nil, gen.ErrUnsupportedRequest
+	}
+}
+
+func (r *rex) handleRPC(process *gen.ServerProcess, module, function etf.Atom, args etf.List) (reply interface{}) {
 	defer func() {
 		if x := recover(); x != nil {
 			err := fmt.Sprintf("panic reason: %s", x)

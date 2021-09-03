@@ -15,14 +15,14 @@ func StartNode(name string, cookie string, opts node.Options) (node.Node, error)
 
 // CreateNodeWithContext create new node with specified context, name and cookie string
 func StartNodeWithContext(ctx context.Context, name string, cookie string, opts node.Options) (node.Node, error) {
-	versions := map[string]interface{}{
-		"version": Version,
-		"prefix":  VersionPrefix,
-		"otp":     VersionOTP,
+	version := node.Version{
+		Release: Version,
+		Prefix:  VersionPrefix,
+		OTP:     VersionOTP,
 	}
 
 	// add erlang support application
 	opts.Applications = append([]gen.ApplicationBehavior{&erlang.KernelApp{}}, opts.Applications...)
 
-	return node.StartWithContext(context.WithValue(ctx, "versions", versions), name, cookie, opts)
+	return node.StartWithContext(context.WithValue(ctx, "version", version), name, cookie, opts)
 }

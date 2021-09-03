@@ -37,6 +37,7 @@ type node struct {
 	opts     Options
 	context  context.Context
 	stop     context.CancelFunc
+	version  Version
 }
 
 // StartWithContext create new node with specified context, name and cookie string
@@ -138,6 +139,16 @@ func (n *node) IsAlive() bool {
 // Wait waits until node stopped
 func (n *node) Wait() {
 	<-n.context.Done()
+}
+
+// Uptime return uptime in seconds
+func (n *node) Uptime() int64 {
+	return time.Now().Unix() - int64(n.creation)
+}
+
+// Version returns version of the node
+func (n *node) Version() Version {
+	return n.version
 }
 
 // WaitWithTimeout waits until node stopped. Return ErrTimeout
