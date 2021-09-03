@@ -52,10 +52,10 @@ func (nks *netKernelSup) Init(args ...etf.Term) (gen.SupervisorSpec, error) {
 				Name:  "rex",
 				Child: &rex{},
 			},
-			//gen.SupervisorChildSpec{
-			//	Name:    "observer_backend",
-			//	Child:   &observerBackend{},
-			//},
+			gen.SupervisorChildSpec{
+				Name:  "observer_backend",
+				Child: &observerBackend{},
+			},
 			gen.SupervisorChildSpec{
 				Name:  "erlang",
 				Child: &erlang{},

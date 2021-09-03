@@ -65,9 +65,9 @@ func TestApplicationBasics(t *testing.T) {
 	fmt.Printf("\n=== Test Application load/unload/start/stop\n")
 	fmt.Printf("\nStarting node nodeTestAplication@localhost:")
 	ctx := context.Background()
-	mynode, _ := ergo.StartNodeWithContext(ctx, "nodeTestApplication@localhost", "cookies", node.Options{})
-	if mynode == nil {
-		t.Fatal("can't start node")
+	mynode, err := ergo.StartNodeWithContext(ctx, "nodeTestApplication@localhost", "cookies", node.Options{})
+	if err != nil {
+		t.Fatal(err)
 	} else {
 		fmt.Println("OK")
 	}
@@ -79,24 +79,25 @@ func TestApplicationBasics(t *testing.T) {
 	// case 1: loading/unloading app
 	//
 	fmt.Printf("... loading application: ")
-	_, err := mynode.ApplicationLoad(app, lifeSpan, "testapp")
+	loaded, err := mynode.ApplicationLoad(app, lifeSpan, "testapp")
 	if err != nil {
 		t.Fatal(err)
+	}
+	if loaded != "testapp" {
+		t.Fatal("can't load application")
 	}
 
 	la := mynode.LoadedApplications()
 
-	if len(la) != 1 {
+	// there is yet another default application - KernelApp. thats why it
+	// should be equal 2.
+	if len(la) != 2 {
 		t.Fatal("total number of loaded application mismatch")
 	}
-	if la[0].Name != "testapp" {
-		t.Fatal("can't load application")
-	}
-
 	fmt.Println("OK")
 
 	wa := mynode.WhichApplications()
-	if len(wa) > 0 {
+	if len(wa) > 1 {
 		t.Fatal("total number of running application mismatch")
 	}
 
@@ -105,7 +106,7 @@ func TestApplicationBasics(t *testing.T) {
 		t.Fatal(err)
 	}
 	la = mynode.LoadedApplications()
-	if len(la) > 0 {
+	if len(la) > 1 {
 		t.Fatal("total number of loaded application mismatch")
 	}
 	fmt.Println("OK")
@@ -130,16 +131,24 @@ func TestApplicationBasics(t *testing.T) {
 	}
 	fmt.Println("OK")
 
-	fmt.Printf("... check total number of running applications (should be 1): ")
+	fmt.Printf("... check total number of running applications (should be 2 including KernelApp): ")
 	wa = mynode.WhichApplications()
-	if n := len(wa); n != 1 {
+	if n := len(wa); n != 2 {
 		t.Fatal(n)
 	}
 	fmt.Println("OK")
 
 	fmt.Printf("... check the name of running application (should be 'testapp1'): ")
-	if wa[0].Name != "testapp1" {
-		t.Fatal(wa[0].Name)
+	found := false
+	for _, a := range wa {
+		if a.Name == "testapp1" {
+			found = true
+			break
+		}
+
+	}
+	if !found {
+		t.Fatal("can't find testapp1 among the running applications")
 	}
 	fmt.Println("OK")
 
@@ -206,7 +215,7 @@ func TestApplicationBasics(t *testing.T) {
 		t.Fatal(e)
 	}
 	wa = mynode.WhichApplications()
-	if len(wa) != 0 {
+	if len(wa) != 1 {
 		fmt.Println("waa: ", wa)
 		t.Fatal("total number of running application mismatch")
 	}
