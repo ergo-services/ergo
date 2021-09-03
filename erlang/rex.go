@@ -30,7 +30,10 @@ type rex struct {
 
 func (r *rex) Init(process *gen.ServerProcess, args ...etf.Term) error {
 	lib.Log("REX: Init: %#v", args)
-	r.methods = make(map[modFun]gen.RPC, 0)
+	// Do not overwrite existing methods if this process restarted
+	if r.methods == nil {
+		r.methods = make(map[modFun]gen.RPC, 0)
+	}
 
 	for i := range allowedModFun {
 		mf := modFun{
@@ -77,8 +80,8 @@ func (r *rex) HandleDirect(process *gen.ServerProcess, message interface{}) (int
 	switch m := message.(type) {
 	case gen.MessageManageRPC:
 		mf := modFun{
-			module:   string(m.Module),
-			function: string(m.Function),
+			module:   m.Module,
+			function: m.Function,
 		}
 		// provide RPC
 		if m.Provide {

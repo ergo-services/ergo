@@ -50,9 +50,12 @@ func (dgs *demo) HandleCall(process *gen.ServerProcess, from gen.ServerFrom, mes
 	fmt.Printf("[%s] HandleCall: %#v, From: %v\n", process.Name(), message, from)
 
 	reply := etf.Term(etf.Tuple{etf.Atom("error"), etf.Atom("unknown_request")})
-	switch message {
-	case etf.Atom("hello"):
-		reply = etf.Term("hi")
+	switch message.(type) {
+	case etf.Atom:
+		return "reply", etf.Term("hi")
+
+	case etf.List:
+		return "reply", message
 	}
 	return "reply", reply
 }
@@ -92,13 +95,27 @@ func main() {
 		return
 	}
 
+	// Add RPC call
+	fun := func(args ...etf.Term) etf.Term {
+		if len(args) == 0 {
+			return etf.Atom("ok")
+		}
+		return etf.Term(args)
+	}
+	node.ProvideRPC("rpc", "request", fun)
+
 	// Print how it can be used along with the Erlang node
 	fmt.Println("Run erl shell:")
 	fmt.Printf("erl -name %s -setcookie %s\n", "erl-"+node.Name(), Cookie)
 
-	fmt.Println("-----Examples that can be tried from 'erl'-shell")
+	fmt.Println("----- Examples that can be tried from 'erl'-shell")
 	fmt.Printf("gen_server:cast({%s,'%s'}, stop).\n", ServerName, NodeName)
 	fmt.Printf("gen_server:call({%s,'%s'}, hello).\n", ServerName, NodeName)
+	fmt.Println("----- you may also want to try RPC request two ways:	")
+	fmt.Println("----- by the registered MF('rpc','request'). will be handled by the registered anonymous func")
+	fmt.Printf("rpc:call('%s', rpc, request, [hello, 3.14]).\n", NodeName)
+	fmt.Printf("----- by the process name. will be handled by %s process. function name will be ignored\n", ServerName)
+	fmt.Printf("rpc:call('%s', %s, f, [hello, 3.14]).\n", NodeName, ServerName)
 
 	process.Wait()
 	node.Stop()

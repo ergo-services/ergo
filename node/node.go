@@ -371,7 +371,7 @@ func (n *node) ApplicationStop(name string) error {
 
 // ProvideRPC register given module/function as RPC method
 func (n *node) ProvideRPC(module string, function string, fun gen.RPC) error {
-	lib.Log("RPC provide: %s:%s %#v", module, function, fun)
+	lib.Log("[%s] RPC provide: %s:%s %#v", n.name, module, function, fun)
 	rex := n.ProcessByName("rex")
 	if rex == nil {
 		return fmt.Errorf("RPC is disabled")
@@ -392,7 +392,7 @@ func (n *node) ProvideRPC(module string, function string, fun gen.RPC) error {
 
 // RevokeRPC unregister given module/function
 func (n *node) RevokeRPC(module, function string) error {
-	lib.Log("RPC revoke: %s:%s", module, function)
+	lib.Log("[%s] RPC revoke: %s:%s", n.name, module, function)
 
 	rex := n.ProcessByName("rex")
 	if rex == nil {
