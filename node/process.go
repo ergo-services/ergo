@@ -171,7 +171,7 @@ func (p *process) Send(to interface{}, message etf.Term) error {
 	if !p.IsAlive() {
 		return ErrProcessTerminated
 	}
-	p.Route(p.self, to, message)
+	p.route(p.self, to, message)
 	return nil
 }
 
@@ -192,7 +192,7 @@ func (p *process) SendAfter(to interface{}, message etf.Term, after time.Duratio
 			return
 		case <-timer.C:
 			if p.IsAlive() {
-				p.Route(p.self, to, message)
+				p.route(p.self, to, message)
 			}
 		}
 	}()
@@ -213,7 +213,7 @@ func (p *process) Cast(to interface{}, message etf.Term) error {
 		return ErrProcessTerminated
 	}
 	msg := etf.Term(etf.Tuple{etf.Atom("$gen_cast"), message})
-	p.Route(p.self, to, msg)
+	p.route(p.self, to, msg)
 	return nil
 }
 
@@ -476,7 +476,7 @@ func (p *process) SendSyncRequestRaw(ref etf.Ref, node etf.Atom, messages ...etf
 	p.replyMutex.Lock()
 	defer p.replyMutex.Unlock()
 	p.reply[ref] = reply
-	p.RouteRaw(node, messages...)
+	p.routeRaw(node, messages...)
 }
 func (p *process) SendSyncRequest(ref etf.Ref, to interface{}, message etf.Term) {
 	reply := make(chan etf.Term, 2)

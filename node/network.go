@@ -37,7 +37,7 @@ const (
 
 type networkInternal interface {
 	Network
-	connect(to etf.Atom) error
+	connect(to string) error
 }
 
 type network struct {
@@ -340,13 +340,13 @@ func (n *network) handleMessage(fromNode string, control, message etf.Term) (err
 			case distProtoREG_SEND:
 				// {6, FromPid, Unused, ToName}
 				lib.Log("[%s] CONTROL REG_SEND [from %s]: %#v", n.registrar.NodeName(), fromNode, control)
-				n.registrar.Route(t.Element(2).(etf.Pid), t.Element(4), message)
+				n.registrar.route(t.Element(2).(etf.Pid), t.Element(4), message)
 
 			case distProtoSEND:
 				// {2, Unused, ToPid}
 				// SEND has no sender pid
 				lib.Log("[%s] CONTROL SEND [from %s]: %#v", n.registrar.NodeName(), fromNode, control)
-				n.registrar.Route(etf.Pid{}, t.Element(3), message)
+				n.registrar.route(etf.Pid{}, t.Element(3), message)
 
 			case distProtoLINK:
 				// {1, FromPid, ToPid}
@@ -392,8 +392,8 @@ func (n *network) handleMessage(fromNode string, control, message etf.Term) (err
 				case etf.Pid:
 					n.registrar.processTerminated(terminated, "", string(reason))
 				case etf.Atom:
-					pid := fakeMonitorPidFromName(string(terminated), fromNode)
-					n.registrar.processTerminated(pid, "", string(reason))
+					vpid := virtualPid(gen.ProcessID{string(terminated), fromNode})
+					n.registrar.processTerminated(vpid, "", string(reason))
 				}
 
 			// Not implemented yet, just stubs. TODO.
@@ -405,11 +405,13 @@ func (n *network) handleMessage(fromNode string, control, message etf.Term) (err
 				lib.Log("[%s] CONTROL PAYLOAD_EXIT2 unsupported [from %s]: %#v", n.registrar.NodeName(), fromNode, control)
 			case distProtoPAYLOAD_MONITOR_P_EXIT:
 				lib.Log("[%s] CONTROL PAYLOAD_MONITOR_P_EXIT unsupported [from %s]: %#v", n.registrar.NodeName(), fromNode, control)
+
+			// alias support
 			case distProtoALIAS_SEND:
 				// {33, FromPid, Alias}
 				lib.Log("[%s] CONTROL ALIAS_SEND [from %s]: %#v", n.registrar.NodeName(), fromNode, control)
 				alias := etf.Alias(t.Element(3).(etf.Ref))
-				n.registrar.Route(t.Element(2).(etf.Pid), alias, message)
+				n.registrar.route(t.Element(2).(etf.Pid), alias, message)
 
 			case distProtoSPAWN_REQUEST:
 				// {29, ReqId, From, GroupLeader, {Module, Function, Arity}, OptList}
@@ -432,7 +434,7 @@ func (n *network) handleMessage(fromNode string, control, message etf.Term) (err
 				module := mfa.Element(1).(etf.Atom)
 				var args etf.List
 				if str, ok := message.(string); !ok {
-					args = message.(etf.List)
+					args, _ = message.(etf.List)
 				} else {
 					// stupid Erlang's strings :). [1,2,3,4,5] sends as a string.
 					// args can't be anything but etf.List.
@@ -444,18 +446,18 @@ func (n *network) handleMessage(fromNode string, control, message etf.Term) (err
 				rb, err_behavior := n.registrar.RegisteredBehavior(remoteBehaviorGroup, string(module))
 				if err_behavior != nil {
 					message := etf.Tuple{distProtoSPAWN_REPLY, ref, from, 0, etf.Atom("not_provided")}
-					n.registrar.RouteRaw(from.Node, message)
+					n.registrar.routeRaw(from.Node, message)
 					return
 				}
 
 				process, err_spawn := n.registrar.spawn(registerName, processOptions{}, rb.Behavior, args...)
 				if err_spawn != nil {
 					message := etf.Tuple{distProtoSPAWN_REPLY, ref, from, 0, etf.Atom(err_spawn.Error())}
-					n.registrar.RouteRaw(from.Node, message)
+					n.registrar.routeRaw(from.Node, message)
 					return
 				}
 				message := etf.Tuple{distProtoSPAWN_REPLY, ref, from, 0, process.Self()}
-				n.registrar.RouteRaw(from.Node, message)
+				n.registrar.routeRaw(from.Node, message)
 
 			case distProtoSPAWN_REPLY:
 				// {31, ReqId, To, Flags, Result}
@@ -481,7 +483,7 @@ func (n *network) handleMessage(fromNode string, control, message etf.Term) (err
 	return
 }
 
-func (n *network) connect(to etf.Atom) error {
+func (n *network) connect(to string) error {
 	var nr NetworkRoute
 	var err error
 	var c net.Conn
@@ -491,7 +493,7 @@ func (n *network) connect(to etf.Atom) error {
 	if nr.Cookie == "" {
 		nr.Cookie = n.opts.cookie
 	}
-	ns := strings.Split(string(to), "@")
+	ns := strings.Split(to, "@")
 
 	TLSenabled := false
 

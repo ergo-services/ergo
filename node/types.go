@@ -165,7 +165,7 @@ type peer struct {
 	mutex sync.Mutex
 }
 
-func (p *peer) GetChannel() chan []etf.Term {
+func (p *peer) getChannel() chan []etf.Term {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
 

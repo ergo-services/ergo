@@ -51,6 +51,9 @@ type registrarInternal interface {
 	newAlias(p *process) (etf.Alias, error)
 	deleteAlias(owner *process, alias etf.Alias) error
 	getProcessByPid(etf.Pid) *process
+
+	route(from etf.Pid, to etf.Term, message etf.Term)
+	routeRaw(nodename etf.Atom, messages ...etf.Term) error
 }
 
 func newRegistrar(ctx context.Context, nodename string, creation uint32, node nodeInternal) registrarInternal {
@@ -559,8 +562,8 @@ func (r *registrar) PeerList() []string {
 	return list
 }
 
-// route routes message to a local/remote process
-func (r *registrar) Route(from etf.Pid, to etf.Term, message etf.Term) {
+// route message to a local/remote process
+func (r *registrar) route(from etf.Pid, to etf.Term, message etf.Term) {
 next:
 	switch tto := to.(type) {
 	case etf.Pid:
@@ -584,7 +587,7 @@ next:
 		peer, ok := r.peers[string(tto.Node)]
 		r.mutexPeers.Unlock()
 		if !ok {
-			if err := r.net.connect(tto.Node); err != nil {
+			if err := r.net.connect(string(tto.Node)); err != nil {
 				lib.Log("[%s] Can't connect to %v: %s", r.nodename, tto.Node, err)
 				return
 			}
@@ -594,63 +597,36 @@ next:
 			r.mutexPeers.Unlock()
 		}
 
-		send := peer.GetChannel()
+		send := peer.getChannel()
 		send <- []etf.Term{etf.Tuple{distProtoSEND, etf.Atom(""), tto}, message}
 
-	case etf.Tuple:
-		lib.Log("[%s] REGISTRAR sending message by tuple %#v", r.nodename, tto)
+	case gen.ProcessID:
+		lib.Log("[%s] REGISTRAR sending message by gen.ProcessID %#v", r.nodename, tto)
 
-		if len(tto) != 2 {
-			lib.Log("[%s] Can't send message. wrong type. must be etf.Tuple{string, string} or etf.Tuple{etf.Atom, etf.Atom}", r.nodename)
-			return
-		}
-
-		toNode := etf.Atom("")
-		switch x := tto.Element(2).(type) {
-		case etf.Atom:
-			toNode = x
-		case string:
-			toNode = etf.Atom(tto.Element(2).(string))
-		default:
-			lib.Log("[%s] Can't send message. wrong type of node name. must be etf.Atom or string", r.nodename)
-			return
-		}
-
-		toProcessName := etf.Atom("")
-		switch x := tto.Element(1).(type) {
-		case etf.Atom:
-			toProcessName = x
-		case string:
-			toProcessName = etf.Atom(tto.Element(1).(string))
-		default:
-			lib.Log("[%s] Can't send message. wrong type of process name. must be etf.Atom or string", r.nodename)
-			return
-		}
-
-		if toNode == etf.Atom(r.nodename) {
+		if tto.Node == r.nodename {
 			// local route
-			r.Route(from, toProcessName, message)
-			return
+			to = tto.Name
+			goto next
 		}
 
 		// sending to remote node
 		r.mutexPeers.Lock()
-		peer, ok := r.peers[string(toNode)]
+		peer, ok := r.peers[tto.Node]
 		r.mutexPeers.Unlock()
 		if !ok {
 			// initiate connection and make yet another attempt to deliver this message
-			if err := r.net.connect(toNode); err != nil {
-				lib.Log("[%s] Can't connect to %v: %s", r.nodename, toNode, err)
+			if err := r.net.connect(tto.Node); err != nil {
+				lib.Log("[%s] Can't connect to %v: %s", r.nodename, tto.Node, err)
 				return
 			}
 
 			r.mutexPeers.Lock()
-			peer, _ = r.peers[string(toNode)]
+			peer, _ = r.peers[tto.Node]
 			r.mutexPeers.Unlock()
 		}
 
-		send := peer.GetChannel()
-		send <- []etf.Term{etf.Tuple{distProtoREG_SEND, from, etf.Atom(""), toProcessName}, message}
+		send := peer.getChannel()
+		send <- []etf.Term{etf.Tuple{distProtoREG_SEND, from, etf.Atom(""), etf.Atom(tto.Name)}, message}
 
 	case string:
 		lib.Log("[%s] REGISTRAR sending message by name %#v", r.nodename, tto)
@@ -689,7 +665,7 @@ next:
 		peer, ok := r.peers[string(tto.Node)]
 		r.mutexPeers.Unlock()
 		if !ok {
-			if err := r.net.connect(tto.Node); err != nil {
+			if err := r.net.connect(string(tto.Node)); err != nil {
 				lib.Log("[%s] Can't connect to %v: %s", r.nodename, tto.Node, err)
 				return
 			}
@@ -699,7 +675,7 @@ next:
 			r.mutexPeers.Unlock()
 		}
 
-		send := peer.GetChannel()
+		send := peer.getChannel()
 		send <- []etf.Term{etf.Tuple{distProtoALIAS_SEND, from, tto}, message}
 
 	default:
@@ -707,7 +683,7 @@ next:
 	}
 }
 
-func (r *registrar) RouteRaw(nodename etf.Atom, messages ...etf.Term) error {
+func (r *registrar) routeRaw(nodename etf.Atom, messages ...etf.Term) error {
 	r.mutexPeers.Lock()
 	peer, ok := r.peers[string(nodename)]
 	r.mutexPeers.Unlock()
@@ -716,7 +692,7 @@ func (r *registrar) RouteRaw(nodename etf.Atom, messages ...etf.Term) error {
 	}
 	if !ok {
 		// initiate connection and make yet another attempt to deliver this message
-		if err := r.net.connect(nodename); err != nil {
+		if err := r.net.connect(string(nodename)); err != nil {
 			lib.Log("[%s] Can't connect to %v: %s", r.nodename, nodename, err)
 			return err
 		}
@@ -726,7 +702,7 @@ func (r *registrar) RouteRaw(nodename etf.Atom, messages ...etf.Term) error {
 		r.mutexPeers.Unlock()
 	}
 
-	send := peer.GetChannel()
+	send := peer.getChannel()
 	send <- messages
 	return nil
 }

@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/halturin/ergo/etf"
+	"github.com/halturin/ergo/gen"
 	"github.com/halturin/ergo/lib"
 )
 
@@ -102,9 +103,9 @@ next:
 		m.ref2pid[ref] = t
 		m.mutexProcesses.Unlock()
 
-		if isFakePid(t) {
-			// this Pid was created as a virtual. we use virtual (fake) pids for the
-			// cases if monitoring process was requested using the registered name.
+		if isVirtualPid(t) {
+			// this Pid was created as a virtual. we use virtual pids for the
+			// monitoring process by the registered name.
 			return
 		}
 
@@ -115,7 +116,7 @@ next:
 
 		// request monitoring the remote process
 		message := etf.Tuple{distProtoMONITOR, by, t, ref}
-		if err := m.registrar.RouteRaw(t.Node, message); err != nil {
+		if err := m.registrar.routeRaw(t.Node, message); err != nil {
 			m.notifyProcessTerminated(ref, by, t, "noconnection")
 			m.mutexProcesses.Lock()
 			delete(m.ref2pid, ref)
@@ -124,54 +125,47 @@ next:
 
 	case string:
 		// requesting monitor of local process
-		fakePid := fakeMonitorPidFromName(t, m.registrar.NodeName())
+		vPid := virtualPid(gen.ProcessID{t, m.registrar.NodeName()})
 		// If Pid does not exist, the 'DOWN' message should be
 		// send immediately with Reason set to noproc.
 		if p := m.registrar.ProcessByName(t); p == nil {
-			m.notifyProcessTerminated(ref, by, fakePid, "noproc")
+			m.notifyProcessTerminated(ref, by, vPid, "noproc")
 			return
 		}
-		process = fakePid
+		process = vPid
 		goto next
 	case etf.Atom:
 		// the same as 'string'
-		fakePid := fakeMonitorPidFromName(string(t), m.registrar.NodeName())
+		vPid := virtualPid(gen.ProcessID{string(t), m.registrar.NodeName()})
 		if p := m.registrar.ProcessByName(string(t)); p == nil {
-			m.notifyProcessTerminated(ref, by, fakePid, "noproc")
+			m.notifyProcessTerminated(ref, by, vPid, "noproc")
 			return
 		}
-		process = fakePid
+		process = vPid
 		goto next
 
-	case etf.Tuple:
+	case gen.ProcessID:
 		// requesting monitor of remote process by the local one using registered process name
-		if len(t) != 2 {
-			lib.Log("[%s] Incorrect monitor request by Pid = %v and process = %v", m.registrar.NodeName(), process, ref)
-			return
-		}
+		vPid := virtualPid(t)
 
-		name := t.Element(1).(string)
-		nodeName := t.Element(2).(string)
-		fakePid := fakeMonitorPidFromName(name, nodeName)
-		process = fakePid
-
-		if nodeName == m.registrar.NodeName() {
+		if t.Node == m.registrar.NodeName() {
 			// If Pid does not exist, the 'DOWN' message should be
 			// send immediately with Reason set to noproc.
-			if p := m.registrar.ProcessByName(name); p == nil {
-				m.notifyProcessTerminated(ref, by, fakePid, "noproc")
+			if p := m.registrar.ProcessByName(t.Name); p == nil {
+				m.notifyProcessTerminated(ref, by, vPid, "noproc")
 				return
 			}
 			goto next
 		}
 
-		message := etf.Tuple{distProtoMONITOR, by, name, ref}
-		if err := m.registrar.RouteRaw(etf.Atom(nodeName), message); err != nil {
-			m.notifyProcessTerminated(ref, by, fakePid, "noconnection")
+		message := etf.Tuple{distProtoMONITOR, by, etf.Atom(t.Name), ref}
+		if err := m.registrar.routeRaw(etf.Atom(t.Node), message); err != nil {
+			m.notifyProcessTerminated(ref, by, vPid, "noconnection")
 			return
 		}
 
-		// in order to handle 'nodedown' event we create a local monitor on a fake pid
+		// in order to handle 'nodedown' event we create a local monitor on a virtual pid
+		process = vPid
 		goto next
 	}
 }
@@ -180,7 +174,7 @@ func (m *monitor) demonitorProcess(ref etf.Ref) bool {
 	var pid etf.Pid
 	var ok bool
 	var process interface{}
-	var nodeName etf.Atom
+	var node etf.Atom
 
 	m.mutexProcesses.Lock()
 	defer m.mutexProcesses.Unlock()
@@ -199,16 +193,16 @@ func (m *monitor) demonitorProcess(ref etf.Ref) bool {
 			continue
 		}
 		process = items[i].process
-		nodeName = pid.Node
-		if isFakePid(pid) {
-			p, n := fakePidExtractNames(pid)
-			process = p
-			nodeName = etf.Atom(n)
+		node = pid.Node
+		if isVirtualPid(pid) {
+			processID := virtualPidToProcessID(pid)
+			process = etf.Atom(processID.Name)
+			node = etf.Atom(processID.Node)
 		}
 
-		if string(nodeName) != m.registrar.NodeName() {
+		if string(node) != m.registrar.NodeName() {
 			message := etf.Tuple{distProtoDEMONITOR, items[i].pid, process, ref}
-			m.registrar.RouteRaw(nodeName, message)
+			m.registrar.routeRaw(node, message)
 		}
 
 		items[i] = items[0]
@@ -278,7 +272,7 @@ func (m *monitor) link(pidA, pidB etf.Pid) {
 	} else {
 		// linking with remote process
 		message := etf.Tuple{distProtoLINK, pidA, pidB}
-		if err := m.registrar.RouteRaw(pidB.Node, message); err != nil {
+		if err := m.registrar.routeRaw(pidB.Node, message); err != nil {
 			// seems we have no connection with this node. notify the sender
 			// with 'EXIT' message and 'noconnection' as a reason
 			m.notifyProcessExit(pidA, pidB, "noconnection")
@@ -300,7 +294,7 @@ func (m *monitor) unlink(pidA, pidB etf.Pid) {
 
 	if pidB.Node != etf.Atom(m.registrar.NodeName()) {
 		message := etf.Tuple{distProtoUNLINK, pidA, pidB}
-		m.registrar.RouteRaw(pidB.Node, message)
+		m.registrar.routeRaw(pidB.Node, message)
 	}
 
 	if pidA.Node == etf.Atom(m.registrar.NodeName()) {
@@ -405,12 +399,11 @@ func (m *monitor) nodeDown(name string) {
 	// notify process monitors
 	m.mutexProcesses.Lock()
 	for pid, ps := range m.processes {
-		nodeName := string(pid.Node)
-		if isFakePid(pid) {
-			nodeName = fakePidToNodeName(pid)
-		}
-		if nodeName != name {
-			continue
+		if isVirtualPid(pid) {
+			processID := virtualPidToProcessID(pid)
+			if processID.Node != name {
+				continue
+			}
 		}
 		for i := range ps {
 			m.notifyProcessTerminated(ps[i].ref, ps[i].pid, pid, "noconnection")
@@ -472,16 +465,15 @@ func (m *monitor) processTerminated(terminated etf.Pid, name, reason string) {
 	}
 
 	m.mutexProcesses.Lock()
-	// if terminated process had a name we should make shure if we have
-	// monitors had created using this name (fake Pid uses for this purpose)
+	// if terminated process had a name we should make shure to clean up them all
 	if name != "" {
-		// monitor was created by the name so we should look up using fake pid
-		terminatedPid := fakeMonitorPidFromName(name, m.registrar.NodeName())
+		// monitor was created by the name so we should look up using virtual pid
+		terminatedPid := virtualPid(gen.ProcessID{name, m.registrar.NodeName()})
 		if items, ok := m.processes[terminatedPid]; ok {
 			handleMonitors(terminatedPid, items)
 		}
 	}
-	// check whether we have monitorItem on this Pid (terminated)
+	// check whether we have monitorItem on this process by Pid (terminated)
 	if items, ok := m.processes[terminated]; ok {
 		handleMonitors(terminated, items)
 	}
@@ -571,52 +563,50 @@ func (m *monitor) isMonitor(ref etf.Ref) bool {
 }
 
 func (m *monitor) notifyNodeDown(to etf.Pid, node string) {
-	message := etf.Term(etf.Tuple{etf.Atom("nodedown"), node})
-	m.registrar.Route(etf.Pid{}, to, message)
+	message := gen.MessageNodeDown{node}
+	m.registrar.route(etf.Pid{}, to, message)
 }
 
 func (m *monitor) notifyProcessTerminated(ref etf.Ref, to etf.Pid, terminated etf.Pid, reason string) {
 	// for remote {21, FromProc, ToPid, Ref, Reason}, where FromProc = monitored process
-	if to.Node != etf.Atom(m.registrar.NodeName()) {
-		if isFakePid(terminated) {
-			// it was monitored by name and this Pid was created using
-			// fakeMonitorPidFromName. It means this Pid has
-			// "processName|nodeName" in Node field
-			terminatedName := fakePidToName(terminated)
-			message := etf.Tuple{distProtoMONITOR_EXIT, etf.Atom(terminatedName), to, ref, etf.Atom(reason)}
-			m.registrar.RouteRaw(to.Node, message)
+	localNode := etf.Atom(m.registrar.NodeName())
+	if to.Node != localNode {
+		if isVirtualPid(terminated) {
+			// it was monitored by name and this Pid was created using virtualPid().
+			processID := virtualPidToProcessID(terminated)
+			message := etf.Tuple{distProtoMONITOR_EXIT, etf.Atom(processID.Name), to, ref, etf.Atom(reason)}
+			m.registrar.routeRaw(to.Node, message)
 			return
 		}
 		// terminated is a real Pid. send it as it is.
 		message := etf.Tuple{distProtoMONITOR_EXIT, terminated, to, ref, etf.Atom(reason)}
-		m.registrar.RouteRaw(to.Node, message)
-		return
-	}
-	// {'DOWN', MonitorRef, Type, Object, Info}
-	// {'DOWN',#Ref<0.0.13893633.237772>,process,<26194.4.1>,reason}
-	// Type: We do not support port/time_offset so Type could be 'process' only.
-	// Object: The monitored entity, which triggered the event. When monitoring a
-	// local process, Object will be equal to the pid() that was being monitored.
-	// When monitoring process by name, Object will have format {RegisteredName, Node}
-	// where RegisteredName is the name which has been used with monitor/2 call and
-	// Node is local or remote node name.
-	if isFakePid(terminated) {
-		// it was monitored by name
-		p := fakePidToTuple(terminated)
-		message := etf.Term(etf.Tuple{etf.Atom("DOWN"), ref, etf.Atom("process"), p, etf.Atom(reason)})
-		m.registrar.Route(terminated, to, message)
+		m.registrar.routeRaw(to.Node, message)
 		return
 	}
 
-	message := etf.Term(etf.Tuple{etf.Atom("DOWN"), ref, etf.Atom("process"), terminated, etf.Atom(reason)})
-	m.registrar.Route(terminated, to, message)
+	if isVirtualPid(terminated) {
+		// it was monitored by name
+		down := gen.MessageDown{
+			Ref:       ref,
+			ProcessID: virtualPidToProcessID(terminated),
+			Reason:    reason,
+		}
+		m.registrar.route(terminated, to, down)
+		return
+	}
+	down := gen.MessageDown{
+		Ref:    ref,
+		Pid:    terminated,
+		Reason: reason,
+	}
+	m.registrar.route(terminated, to, down)
 }
 
 func (m *monitor) notifyProcessExit(to etf.Pid, terminated etf.Pid, reason string) {
 	// for remote: {3, FromPid, ToPid, Reason}
 	if to.Node != etf.Atom(m.registrar.NodeName()) {
 		message := etf.Tuple{distProtoEXIT, terminated, to, etf.Atom(reason)}
-		m.registrar.RouteRaw(to.Node, message)
+		m.registrar.routeRaw(to.Node, message)
 		return
 	}
 
@@ -626,44 +616,23 @@ func (m *monitor) notifyProcessExit(to etf.Pid, terminated etf.Pid, reason strin
 	}
 }
 
-func fakeMonitorPidFromName(name, node string) etf.Pid {
-	fakePid := etf.Pid{}
-	fakePid.Node = etf.Atom(name + "|" + node) // registered process name
-	fakePid.ID = math.MaxUint64
-	fakePid.Creation = math.MaxUint32
-	return fakePid
+func virtualPid(p gen.ProcessID) etf.Pid {
+	pid := etf.Pid{}
+	pid.Node = etf.Atom(p.Name + "|" + p.Node) // registered process name
+	pid.ID = math.MaxUint64
+	pid.Creation = math.MaxUint32
+	return pid
 }
 
-func fakePidToTuple(pid etf.Pid) etf.Tuple {
+func virtualPidToProcessID(pid etf.Pid) gen.ProcessID {
 	s := strings.Split(string(pid.Node), "|")
 	if len(s) != 2 {
-		return etf.Tuple{}
+		return gen.ProcessID{}
 	}
-	return etf.Tuple{s[0], s[1]}
+	return gen.ProcessID{s[0], s[1]}
 }
 
-func fakePidExtractNames(pid etf.Pid) (string, string) {
-	s := strings.Split(string(pid.Node), "|")
-	if len(s) != 2 {
-		return "", ""
-	}
-	return s[0], s[1]
-}
-
-func fakePidToName(pid etf.Pid) string {
-	s := strings.Split(string(pid.Node), "|")
-	return s[0]
-}
-
-func fakePidToNodeName(pid etf.Pid) string {
-	s := strings.Split(string(pid.Node), "|")
-	if len(s) != 2 {
-		return ""
-	}
-	return s[1]
-}
-
-func isFakePid(pid etf.Pid) bool {
+func isVirtualPid(pid etf.Pid) bool {
 	if pid.ID == math.MaxUint64 && pid.Creation == math.MaxUint32 {
 		return true
 	}

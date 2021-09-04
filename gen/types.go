@@ -153,9 +153,6 @@ type Registrar interface {
 	RegisteredBehavior(group, name string) (RegisteredBehavior, error)
 	RegisteredBehaviorGroup(group string) []RegisteredBehavior
 	UnregisterBehavior(group, name string) error
-
-	Route(from etf.Pid, to etf.Term, message etf.Term)
-	RouteRaw(nodename etf.Atom, messages ...etf.Term) error
 }
 
 type Monitor interface {
@@ -169,12 +166,34 @@ type RegisteredBehavior struct {
 	Data     interface{}
 }
 
+// FIXME remove it
 type DownMessage struct {
 	Down   etf.Atom // = etf.Atom("DOWN")
 	Ref    etf.Ref  // a monitor reference
 	Type   etf.Atom // = etf.Atom("process")
 	From   etf.Term // Pid or Name. Depends on how MonitorProcess was called - by name or by pid
 	Reason string
+}
+
+// ProcessID long notation of registered process {process_name, node_name}
+type ProcessID struct {
+	Name string
+	Node string
+}
+
+// MessageDown delivers as a message to Server's HandleInfo callback of the process
+// that created monitor using MonitorProcess
+type MessageDown struct {
+	Ref       etf.Ref   // a monitor reference
+	ProcessID ProcessID // if monitor was created by name
+	Pid       etf.Pid
+	Reason    string
+}
+
+// MessageNodeDown delivers as a message to Server's HandleInfo callback of the process
+// that created monitor using MonitorNode
+type MessageNodeDown struct {
+	Name string
 }
 
 // MessageExit delievers to Server's HandleInfo callback on enabled trap exit using SetTrapExit(true)
