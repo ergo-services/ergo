@@ -177,6 +177,16 @@ func (r Ref) String() string {
 	return fmt.Sprintf("Ref#<%X.%d.%d.%d>", n, r.ID[0], r.ID[1], r.ID[2])
 }
 
+func (a Alias) String() string {
+	n := uint32(0)
+	if a.Node != "" {
+		hasher32.Write([]byte(a.Node))
+		defer hasher32.Reset()
+		n = hasher32.Sum32()
+	}
+	return fmt.Sprintf("Ref#<%X.%d.%d.%d>", n, a.ID[0], a.ID[1], a.ID[2])
+}
+
 type ProplistElement struct {
 	Name  Atom
 	Value Term

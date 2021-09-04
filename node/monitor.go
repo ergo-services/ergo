@@ -34,8 +34,6 @@ type monitorInternal interface {
 
 	link(pidA, pidB etf.Pid)
 	unlink(pidA, pidB etf.Pid)
-
-	isMonitor(etf.Ref) bool
 }
 
 type monitor struct {
@@ -381,7 +379,7 @@ func (m *monitor) nodeDown(name string) {
 	m.mutexNodes.Lock()
 	if pids, ok := m.nodes[name]; ok {
 		for i := range pids {
-			lib.Log("[%s] MONITOR node down: %v. send notify to: %s", m.registrar.NodeName(), name, pids[i])
+			lib.Log("[%s] MONITOR node down: %v. send notify to: %s", m.registrar.NodeName(), name, pids[i].pid)
 			m.notifyNodeDown(pids[i].pid, name)
 			delete(m.nodes, name)
 		}
@@ -521,9 +519,31 @@ func (m *monitor) Monitors(process etf.Pid) []etf.Pid {
 	defer m.mutexProcesses.Unlock()
 
 	for p, by := range m.processes {
+		if isVirtualPid(p) {
+			continue
+		}
 		for b := range by {
 			if by[b].pid == process {
 				monitors = append(monitors, p)
+			}
+		}
+	}
+	return monitors
+}
+
+func (m *monitor) MonitorsByName(process etf.Pid) []gen.ProcessID {
+	monitors := []gen.ProcessID{}
+	m.mutexProcesses.Lock()
+	defer m.mutexProcesses.Unlock()
+
+	for p, by := range m.processes {
+		if !isVirtualPid(p) {
+			continue
+		}
+		for b := range by {
+			if by[b].pid == process {
+				processID := virtualPidToProcessID(p)
+				monitors = append(monitors, processID)
 			}
 		}
 	}
@@ -545,7 +565,7 @@ func (m *monitor) MonitoredBy(process etf.Pid) []etf.Pid {
 	return monitors
 }
 
-func (m *monitor) isMonitor(ref etf.Ref) bool {
+func (m *monitor) IsMonitor(ref etf.Ref) bool {
 	m.mutexProcesses.Lock()
 	defer m.mutexProcesses.Unlock()
 	if _, ok := m.ref2pid[ref]; ok {

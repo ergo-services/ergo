@@ -158,7 +158,9 @@ type Registrar interface {
 type Monitor interface {
 	Links(process etf.Pid) []etf.Pid
 	Monitors(process etf.Pid) []etf.Pid
+	MonitorsByName(process etf.Pid) []ProcessID
 	MonitoredBy(process etf.Pid) []etf.Pid
+	IsMonitor(ref etf.Ref) bool
 }
 
 type RegisteredBehavior struct {

@@ -1,12 +1,13 @@
-package node
+package test
 
 import (
-	"context"
 	"fmt"
 	"testing"
 
+	"github.com/halturin/ergo"
 	"github.com/halturin/ergo/etf"
 	"github.com/halturin/ergo/gen"
+	"github.com/halturin/ergo/node"
 )
 
 type testMonitor struct {
@@ -40,7 +41,7 @@ func (tgs *testMonitor) HandleInfo(process *gen.ServerProcess, message etf.Term)
 func TestMonitorLocalLocal(t *testing.T) {
 	fmt.Printf("\n=== Test Monitor Local-Local\n")
 	fmt.Printf("Starting node: nodeM1LocalLocal@localhost: ")
-	node1, _ := StartWithContext(context.Background(), "nodeM1LocalLocal@localhost", "cookies", Options{})
+	node1, _ := ergo.StartNode("nodeM1LocalLocal@localhost", "cookies", node.Options{})
 	if node1 == nil {
 		t.Fatal("can't start node")
 	} else {
@@ -65,8 +66,8 @@ func TestMonitorLocalLocal(t *testing.T) {
 	// by Pid
 	fmt.Printf("... by Pid Local-Local: gs1 -> gs2. demonitor: ")
 	ref := node1gs1.MonitorProcess(node1gs2.Self())
-	node1.isMonitor(ref)
-	if err := checkCleanProcessRef(node1, ref); err == nil {
+
+	if !node1gs2.IsMonitor(ref) {
 		t.Fatal("monitor reference has been lost")
 	}
 	node1gs1.DemonitorProcess(ref)
@@ -163,8 +164,8 @@ func TestMonitorLocalLocal(t *testing.T) {
 func TestMonitorLocalRemoteByPid(t *testing.T) {
 	fmt.Printf("\n=== Test Monitor Local-Remote by Pid\n")
 	fmt.Printf("Starting nodes: nodeM1LocalRemoteByPid@localhost, nodeM2LocalRemoteByPid@localhost: ")
-	node1, _ := StartWithContext(context.Background(), "nodeM1LocalRemoteByPid@localhost", "cookies", Options{})
-	node2, _ := StartWithContext(context.Background(), "nodeM2LocalRemoteByPid@localhost", "cookies", Options{})
+	node1, _ := ergo.StartNode("nodeM1LocalRemoteByPid@localhost", "cookies", node.Options{})
+	node2, _ := ergo.StartNode("nodeM2LocalRemoteByPid@localhost", "cookies", node.Options{})
 	if node1 == nil || node2 == nil {
 		t.Fatal("can't start nodes")
 	} else {
@@ -263,8 +264,8 @@ func TestMonitorLocalRemoteByPid(t *testing.T) {
 func TestMonitorLocalRemoteByTuple(t *testing.T) {
 	fmt.Printf("\n=== Test Monitor Local-Remote by Tuple\n")
 	fmt.Printf("Starting nodes: nodeM1LocalRemoteByTuple@localhost, nodeM2LocalRemoteByTuple@localhost: ")
-	node1, _ := StartWithContext(context.Background(), "nodeM1LocalRemoteByTuple@localhost", "cookies", Options{})
-	node2, _ := StartWithContext(context.Background(), "nodeM2LocalRemoteByTuple@localhost", "cookies", Options{})
+	node1, _ := ergo.StartNode("nodeM1LocalRemoteByTuple@localhost", "cookies", node.Options{})
+	node2, _ := ergo.StartNode("nodeM2LocalRemoteByTuple@localhost", "cookies", node.Options{})
 	if node1 == nil || node2 == nil {
 		t.Fatal("can't start nodes")
 	} else {
@@ -321,19 +322,19 @@ func TestMonitorLocalRemoteByTuple(t *testing.T) {
 	result := etf.Tuple{etf.Atom("DOWN"), ref, etf.Atom("process"), tuple2, etf.Atom("normal")}
 	waitForResultWithValue(t, gs1.v, result)
 
-	if err := checkCleanProcessRef(node1, ref); err != nil {
-		t.Fatal(err)
+	if !node1gs1.IsMonitor(ref) {
+		t.Fatal("monitor ref is still alive")
 	}
-	if err := checkCleanProcessRef(node2, ref); err != nil {
-		t.Fatal(err)
+	if !node2gs2.IsMonitor(ref) {
+		t.Fatal("monitor ref is still alive")
 	}
 
 	fmt.Printf("... by Tuple Local-Remote: gs1 -> unknownPid: ")
 	ref = node1gs1.MonitorProcess(tuple2)
 	result = etf.Tuple{etf.Atom("DOWN"), ref, etf.Atom("process"), tuple2, etf.Atom("noproc")}
 	waitForResultWithValue(t, gs1.v, result)
-	if err := checkCleanProcessRef(node1, ref); err != nil {
-		t.Fatal(err)
+	if !node1gs1.IsMonitor(ref) {
+		t.Fatal("monitor ref is still alive")
 	}
 
 	fmt.Printf("    wait for start of gs2 on %#v: ", node2.Name())
@@ -347,16 +348,16 @@ func TestMonitorLocalRemoteByTuple(t *testing.T) {
 	node2.Stop()
 	result = etf.Tuple{etf.Atom("DOWN"), ref, etf.Atom("process"), tuple2, etf.Atom("noconnection")}
 	waitForResultWithValue(t, gs1.v, result)
-	if err := checkCleanProcessRef(node1, ref); err != nil {
-		t.Fatal(err)
+	if !node1gs1.IsMonitor(ref) {
+		t.Fatal("monitor ref is still alive")
 	}
 
 	fmt.Printf("... by Tuple Local-Remote: gs1 -> gs2. UnknownNode: ")
 	ref = node1gs1.MonitorProcess(tuple2)
 	result = etf.Tuple{etf.Atom("DOWN"), ref, etf.Atom("process"), tuple2, etf.Atom("noconnection")}
 	waitForResultWithValue(t, gs1.v, result)
-	if err := checkCleanProcessRef(node1, ref); err != nil {
-		t.Fatal(err)
+	if !node1gs1.IsMonitor(ref) {
+		t.Fatal("monitor ref is still alive")
 	}
 	node1.Stop()
 }
@@ -369,7 +370,7 @@ func TestMonitorLocalRemoteByTuple(t *testing.T) {
 func TestLinkLocalLocal(t *testing.T) {
 	fmt.Printf("\n=== Test Link Local-Local\n")
 	fmt.Printf("Starting node: nodeL1LocalLocal@localhost: ")
-	node1, _ := StartWithContext(context.Background(), "nodeL1LocalLocal@localhost", "cookies", Options{})
+	node1, _ := ergo.StartNode("nodeL1LocalLocal@localhost", "cookies", node.Options{})
 	if node1 == nil {
 		t.Fatal("can't start node")
 	} else {
@@ -424,10 +425,10 @@ func TestLinkLocalLocal(t *testing.T) {
 	if checkCleanLinkPid(node1, node1gs2.Self()) == nil {
 		t.Fatal("link missing for node1gs2")
 	}
-	ll := len(node1.monitor.links)
+	ll := len(node1gs2.Links(node1gs2.Self()))
 	node1gs2.Link(node1gs1.Self())
 
-	if ll != len(node1.monitor.links) {
+	if ll != len(node1gs1.Links(node1gs1.Self())) {
 		t.Fatal("number of links has changed on the second Link call")
 	}
 	fmt.Println("OK")
@@ -505,8 +506,8 @@ func TestLinkLocalLocal(t *testing.T) {
 func TestLinkLocalRemote(t *testing.T) {
 	fmt.Printf("\n=== Test Link Local-Remote by Pid\n")
 	fmt.Printf("Starting nodes: nodeL1LocalRemoteByPid@localhost, nodeL2LocalRemoteByPid@localhost: ")
-	node1, _ := StartWithContext(context.Background(), "nodeL1LocalRemoteByPid@localhost", "cookies", Options{})
-	node2, _ := StartWithContext(context.Background(), "nodeL2LocalRemoteByPid@localhost", "cookies", Options{})
+	node1, _ := ergo.StartNode("nodeL1LocalRemoteByPid@localhost", "cookies", node.Options{})
+	node2, _ := ergo.StartNode("nodeL2LocalRemoteByPid@localhost", "cookies", node.Options{})
 	if node1 == nil || node2 == nil {
 		t.Fatal("can't start nodes")
 	} else {
