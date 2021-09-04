@@ -126,18 +126,12 @@ func (nk *netKernel) HandleCall(process *gen.ServerProcess, from gen.ServerFrom,
 
 func (nk *netKernel) HandleInfo(process *gen.ServerProcess, message etf.Term) string {
 	lib.Log("NET_KERNEL: HandleInfo: %#v", message)
-	// {"DOWN", etf.Ref{Node:"demo@127.0.0.1", Creation:0x1, Id:[]uint32{0x27715, 0x5762, 0x0}}, "process",
-	// etf.Pid{Node:"erl-demo@127.0.0.1", Id:0x460, Serial:0x0, Creation:0x1}, "normal"}
 	switch m := message.(type) {
-	case etf.Tuple:
-		if m.Element(1) == etf.Atom("DOWN") {
-			pid := m.Element(4).(etf.Pid)
-			if cancel, ok := nk.routinesCtx[pid]; ok {
-				cancel()
-				delete(nk.routinesCtx, pid)
-			}
+	case gen.MessageDown:
+		if cancel, ok := nk.routinesCtx[m.Pid]; ok {
+			cancel()
+			delete(nk.routinesCtx, m.Pid)
 		}
-
 	}
 	return "noreply"
 }

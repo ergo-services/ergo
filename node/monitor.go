@@ -12,14 +12,6 @@ import (
 	"github.com/halturin/ergo/lib"
 )
 
-type DownMessage struct {
-	Down   etf.Atom // = etf.Atom("DOWN")
-	Ref    etf.Ref  // a monitor reference
-	Type   etf.Atom // = etf.Atom("process")
-	From   etf.Term // Pid or Name. Depends on how MonitorProcess was called - by name or by pid
-	Reason string
-}
-
 type monitorItem struct {
 	pid     etf.Pid // by
 	process etf.Pid
@@ -85,7 +77,7 @@ next:
 
 		// If 'process' belongs to this node we should make sure if its alive.
 		// http://erlang.org/doc/reference_manual/processes.html#monitors
-		// If Pid does not exist, the 'DOWN' message should be
+		// If Pid does not exist a gen.MessageDown must be
 		// send immediately with Reason set to noproc.
 		if p := m.registrar.ProcessByPid(t); string(t.Node) == m.registrar.NodeName() && p == nil {
 			m.notifyProcessTerminated(ref, by, t, "noproc")
@@ -126,7 +118,7 @@ next:
 	case string:
 		// requesting monitor of local process
 		vPid := virtualPid(gen.ProcessID{t, m.registrar.NodeName()})
-		// If Pid does not exist, the 'DOWN' message should be
+		// If Pid does not exist a gen.MessageDown must be
 		// send immediately with Reason set to noproc.
 		if p := m.registrar.ProcessByName(t); p == nil {
 			m.notifyProcessTerminated(ref, by, vPid, "noproc")
@@ -149,7 +141,7 @@ next:
 		vPid := virtualPid(t)
 
 		if t.Node == m.registrar.NodeName() {
-			// If Pid does not exist, the 'DOWN' message should be
+			// If Pid does not exist a gen.MessageDown must be
 			// send immediately with Reason set to noproc.
 			if p := m.registrar.ProcessByName(t.Name); p == nil {
 				m.notifyProcessTerminated(ref, by, vPid, "noproc")

@@ -366,14 +366,8 @@ func (p *process) DemonitorNode(ref etf.Ref) bool {
 }
 
 // MonitorProcess creates monitor between the processes.
-// 'process' value can be: etf.Pid, registered local name etf.Atom or
-// remote registered name etf.Tuple{Name etf.Atom, Node etf.Atom}
-// When a process monitor is triggered, a 'DOWN' message sends with the following
-// pattern: {'DOWN', MonitorRef, Type, Object, Info} where
-// Info has the following values:
-//  - the exit reason of the process
-//  - 'noproc' (process did not exist at the time of monitor creation)
-//  - 'noconnection' (no connection to the node where the monitored process resides)
+// Allowed types for the 'process' value: etf.Pid, gen.Process
+// When a process monitor is triggered, a MessageDown sends to the caller.
 // Note: The monitor request is an asynchronous signal. That is, it takes time before the signal reaches its destination.
 func (p *process) MonitorProcess(process interface{}) etf.Ref {
 	ref := p.MakeRef()

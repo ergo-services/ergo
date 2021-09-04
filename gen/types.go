@@ -166,15 +166,6 @@ type RegisteredBehavior struct {
 	Data     interface{}
 }
 
-// FIXME remove it
-type DownMessage struct {
-	Down   etf.Atom // = etf.Atom("DOWN")
-	Ref    etf.Ref  // a monitor reference
-	Type   etf.Atom // = etf.Atom("process")
-	From   etf.Term // Pid or Name. Depends on how MonitorProcess was called - by name or by pid
-	Reason string
-}
-
 // ProcessID long notation of registered process {process_name, node_name}
 type ProcessID struct {
 	Name string
@@ -182,7 +173,11 @@ type ProcessID struct {
 }
 
 // MessageDown delivers as a message to Server's HandleInfo callback of the process
-// that created monitor using MonitorProcess
+// that created monitor using MonitorProcess.
+// Reason values:
+//  - the exit reason of the process
+//  - 'noproc' (process did not exist at the time of monitor creation)
+//  - 'noconnection' (no connection to the node where the monitored process resides)
 type MessageDown struct {
 	Ref       etf.Ref   // a monitor reference
 	ProcessID ProcessID // if monitor was created by name
@@ -215,18 +210,11 @@ type MessageManageRPC struct {
 
 type MessageDirectChildren struct{}
 
-func IsDownMessage(message etf.Term) (isTrue bool, d DownMessage) {
-	// {DOWN, Ref, process, PidOrName, Reason}
-	err := etf.TermIntoStruct(message, &d)
-	if err != nil {
-		return
+func IsMessageDown(message etf.Term) (bool, MessageDown) {
+	var md MessageDown
+	switch m := message.(type) {
+	case MessageDown:
+		return true, m
 	}
-	if d.Down != etf.Atom("DOWN") {
-		return
-	}
-	if d.Type != etf.Atom("process") {
-		return
-	}
-	isTrue = true
-	return
+	return false, md
 }

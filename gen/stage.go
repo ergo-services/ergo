@@ -323,8 +323,8 @@ func (s *Stage) Subscribe(p Process, producer etf.Term, opts StageSubscribeOptio
 
 	// In order to get rid of race condition we should send this message
 	// before we send 'subscribe' to the producer process. Just
-	// to make sure if we registered this subscription before the 'DOWN'
-	// or 'EXIT' message arrived in case of something went wrong.
+	// to make sure if we registered this subscription before the MessageDown
+	// or MessageExit message arrived in case of something went wrong.
 	msg := etf.Tuple{
 		etf.Atom("$gen_consumer"),
 		etf.Tuple{p.Self(), subscription_id},
@@ -534,9 +534,8 @@ func (gst *Stage) HandleInfo(process *ServerProcess, message etf.Term) string {
 
 	stageProcess := process.State.(*StageProcess)
 
-	// check if we got a 'DOWN' message
-	// {DOWN, Ref, process, PidOrName, Reason}
-	if isDown, d := IsDownMessage(message); isDown {
+	// check if we got a MessageDown
+	if isDown, d := IsMessageDown(message); isDown {
 		if err := handleStageDown(stageProcess, d); err != nil {
 			return err.Error()
 		}
@@ -969,24 +968,22 @@ func handleProducer(process *StageProcess, subscription StageSubscription, cmd s
 	return nil, fmt.Errorf("unknown Stage command (HandleCall)")
 }
 
-func handleStageDown(process *StageProcess, down DownMessage) error {
+func handleStageDown(process *StageProcess, down MessageDown) error {
 	// remove subscription for producer and consumer. corner case - two
 	// processes have subscribed to each other.
 
 	// checking for subscribers (if we act as a producer).
 	// we monitor them by Pid only
-	if Pid, isPid := down.From.(etf.Pid); isPid {
-		if subInternal, ok := process.consumers[Pid]; ok {
-			// producer monitors consumer by the Pid and stores monitor reference
-			// in the subInternal struct
-			process.DemonitorProcess(subInternal.Monitor)
-			cmd := stageRequestCommand{
-				Cmd:  etf.Atom("cancel"),
-				Opt1: down.Reason,
-			}
-			if _, err := handleProducer(process, subInternal.Subscription, cmd); err != nil {
-				return err
-			}
+	if subInternal, ok := process.consumers[down.Pid]; ok {
+		// producer monitors consumer by the Pid and stores monitor reference
+		// in the subInternal struct
+		process.DemonitorProcess(subInternal.Monitor)
+		cmd := stageRequestCommand{
+			Cmd:  etf.Atom("cancel"),
+			Opt1: down.Reason,
+		}
+		if _, err := handleProducer(process, subInternal.Subscription, cmd); err != nil {
+			return err
 		}
 	}
 
