@@ -71,7 +71,7 @@ func (m *monitor) monitorProcess(by etf.Pid, process interface{}, ref etf.Ref) {
 next:
 	switch t := process.(type) {
 	case etf.Pid:
-		lib.Log("[%s] MONITOR process: %#v => %#v", m.registrar.NodeName(), by, t)
+		lib.Log("[%s] MONITOR process: %s => %s", m.registrar.NodeName(), by, t)
 
 		// If 'process' belongs to this node we should make sure if its alive.
 		// http://erlang.org/doc/reference_manual/processes.html#monitors
@@ -124,6 +124,7 @@ next:
 		}
 		process = vPid
 		goto next
+
 	case etf.Atom:
 		// the same as 'string'
 		vPid := virtualPid(gen.ProcessID{string(t), m.registrar.NodeName()})
@@ -137,6 +138,7 @@ next:
 	case gen.ProcessID:
 		// requesting monitor of remote process by the local one using registered process name
 		vPid := virtualPid(t)
+		process = vPid
 
 		if t.Node == m.registrar.NodeName() {
 			// If Pid does not exist a gen.MessageDown must be
@@ -155,7 +157,6 @@ next:
 		}
 
 		// in order to handle 'nodedown' event we create a local monitor on a virtual pid
-		process = vPid
 		goto next
 	}
 }
