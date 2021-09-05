@@ -300,7 +300,6 @@ func TestMonitorLocalRemoteByPid(t *testing.T) {
 	node1.Stop()
 }
 
-/*
 func TestMonitorLocalRemoteByName(t *testing.T) {
 	fmt.Printf("\n=== Test Monitor Local-Remote by Name\n")
 	fmt.Printf("Starting nodes: nodeM1LocalRemoteByTuple@localhost, nodeM2LocalRemoteByTuple@localhost: ")
@@ -328,16 +327,16 @@ func TestMonitorLocalRemoteByName(t *testing.T) {
 	node2gs2, _ := node2.Spawn("gs2", gen.ProcessOptions{}, gs2, nil)
 	waitForResultWithValue(t, gs2.v, node2gs2.Self())
 
-	tuple2 := etf.Tuple{"gs2", node2.Name()}
+	processID := gen.ProcessID{"gs2", node2.Name()}
 
-	fmt.Printf("... by Tuple Local-Remote: gs1 -> gs2. demonitor: ")
-	ref := node1gs1.MonitorProcess(tuple2)
+	fmt.Printf("... by gen.ProcessID{Name, Node} Local-Remote: gs1 -> gs2. demonitor: ")
+	ref := node1gs1.MonitorProcess(processID)
 	// wait a bit for the 'DOWN' message if something went wrong
 	waitForTimeout(t, gs1.v)
-	if err := checkCleanProcessRef(node1, ref); err == nil {
+	if err := checkCleanProcessRef(node1gs1, ref); err == nil {
 		t.Fatal("monitor reference has been lost on node 1")
 	}
-	if err := checkCleanProcessRef(node2, ref); err == nil {
+	if err := checkCleanProcessRef(node2gs2, ref); err == nil {
 		t.Fatal("monitor reference has been lost on node 2")
 	}
 	if found := node1gs1.DemonitorProcess(ref); found == false {
@@ -346,20 +345,24 @@ func TestMonitorLocalRemoteByName(t *testing.T) {
 	// Demonitoring is the async message with nothing as a feedback.
 	// use waitForTimeout just as a short timer
 	waitForTimeout(t, gs1.v)
-	if err := checkCleanProcessRef(node1, ref); err != nil {
+	if err := checkCleanProcessRef(node1gs1, ref); err != nil {
 		t.Fatal(err)
 	}
-	if err := checkCleanProcessRef(node2, ref); err != nil {
+	if err := checkCleanProcessRef(node2gs2, ref); err != nil {
 		t.Fatal(err)
 	}
 	fmt.Println("OK")
 
-	fmt.Printf("... by Tuple Local-Remote: gs1 -> gs2. terminate: ")
-	ref = node1gs1.MonitorProcess(tuple2)
+	fmt.Printf("... by gen.ProcessID{Name, Node} Local-Remote: gs1 -> gs2. terminate: ")
+	ref = node1gs1.MonitorProcess(processID)
 	// wait a bit for the 'DOWN' message if something went wrong
 	waitForTimeout(t, gs1.v)
 	node2gs2.Exit("normal")
-	result := etf.Tuple{etf.Atom("DOWN"), ref, etf.Atom("process"), tuple2, etf.Atom("normal")}
+	result := gen.MessageDown{
+		Ref:       ref,
+		ProcessID: processID,
+		Reason:    "normal",
+	}
 	waitForResultWithValue(t, gs1.v, result)
 
 	if !node1gs1.IsMonitor(ref) {
@@ -369,9 +372,13 @@ func TestMonitorLocalRemoteByName(t *testing.T) {
 		t.Fatal("monitor ref is still alive")
 	}
 
-	fmt.Printf("... by Tuple Local-Remote: gs1 -> unknownPid: ")
-	ref = node1gs1.MonitorProcess(tuple2)
-	result = etf.Tuple{etf.Atom("DOWN"), ref, etf.Atom("process"), tuple2, etf.Atom("noproc")}
+	fmt.Printf("... by gen.ProcessID{Name, Node} Local-Remote: gs1 -> unknownPid: ")
+	ref = node1gs1.MonitorProcess(processID)
+	result = gen.MessageDown{
+		Ref:       ref,
+		ProcessID: processID,
+		Reason:    "noproc",
+	}
 	waitForResultWithValue(t, gs1.v, result)
 	if !node1gs1.IsMonitor(ref) {
 		t.Fatal("monitor ref is still alive")
@@ -381,28 +388,30 @@ func TestMonitorLocalRemoteByName(t *testing.T) {
 	node2gs2, _ = node2.Spawn("gs2", gen.ProcessOptions{}, gs2, nil)
 	waitForResultWithValue(t, gs2.v, node2gs2.Self())
 
-	fmt.Printf("... by Tuple Local-Remote: gs1 -> gs2. onNodeDown: ")
-	ref = node1gs1.MonitorProcess(tuple2)
+	fmt.Printf("... by gen.ProcessID{Name, Node} Local-Remote: gs1 -> gs2. onNodeDown: ")
+	ref = node1gs1.MonitorProcess(processID)
+	result = gen.MessageDown{
+		Ref:    ref,
+		Pid:    node2gs2.Self(),
+		Reason: "noconnection",
+	}
 	// wait a bit for the 'DOWN' message if something went wrong
 	waitForTimeout(t, gs1.v)
 	node2.Stop()
-	result = etf.Tuple{etf.Atom("DOWN"), ref, etf.Atom("process"), tuple2, etf.Atom("noconnection")}
 	waitForResultWithValue(t, gs1.v, result)
 	if !node1gs1.IsMonitor(ref) {
 		t.Fatal("monitor ref is still alive")
 	}
 
-	fmt.Printf("... by Tuple Local-Remote: gs1 -> gs2. UnknownNode: ")
-	ref = node1gs1.MonitorProcess(tuple2)
-	result = etf.Tuple{etf.Atom("DOWN"), ref, etf.Atom("process"), tuple2, etf.Atom("noconnection")}
+	fmt.Printf("... by gen.ProcessID{Name, Node} Local-Remote: gs1 -> gs2. UnknownNode: ")
+	ref = node1gs1.MonitorProcess(processID)
+	result.Ref = ref
 	waitForResultWithValue(t, gs1.v, result)
 	if !node1gs1.IsMonitor(ref) {
 		t.Fatal("monitor ref is still alive")
 	}
 	node1.Stop()
 }
-
-*/
 
 /*
 	Test cases for Local-Local
