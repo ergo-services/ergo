@@ -365,10 +365,10 @@ func TestMonitorLocalRemoteByName(t *testing.T) {
 	}
 	waitForResultWithValue(t, gs1.v, result)
 
-	if !node1gs1.IsMonitor(ref) {
+	if node1gs1.IsMonitor(ref) {
 		t.Fatal("monitor ref is still alive")
 	}
-	if !node2gs2.IsMonitor(ref) {
+	if node2gs2.IsMonitor(ref) {
 		t.Fatal("monitor ref is still alive")
 	}
 
@@ -380,7 +380,7 @@ func TestMonitorLocalRemoteByName(t *testing.T) {
 		Reason:    "noproc",
 	}
 	waitForResultWithValue(t, gs1.v, result)
-	if !node1gs1.IsMonitor(ref) {
+	if node1gs1.IsMonitor(ref) {
 		t.Fatal("monitor ref is still alive")
 	}
 
@@ -391,15 +391,15 @@ func TestMonitorLocalRemoteByName(t *testing.T) {
 	fmt.Printf("... by gen.ProcessID{Name, Node} Local-Remote: gs1 -> gs2. onNodeDown: ")
 	ref = node1gs1.MonitorProcess(processID)
 	result = gen.MessageDown{
-		Ref:    ref,
-		Pid:    node2gs2.Self(),
-		Reason: "noconnection",
+		Ref:       ref,
+		ProcessID: processID,
+		Reason:    "noconnection",
 	}
 	// wait a bit for the 'DOWN' message if something went wrong
 	waitForTimeout(t, gs1.v)
 	node2.Stop()
 	waitForResultWithValue(t, gs1.v, result)
-	if !node1gs1.IsMonitor(ref) {
+	if node1gs1.IsMonitor(ref) {
 		t.Fatal("monitor ref is still alive")
 	}
 
@@ -407,7 +407,7 @@ func TestMonitorLocalRemoteByName(t *testing.T) {
 	ref = node1gs1.MonitorProcess(processID)
 	result.Ref = ref
 	waitForResultWithValue(t, gs1.v, result)
-	if !node1gs1.IsMonitor(ref) {
+	if node1gs1.IsMonitor(ref) {
 		t.Fatal("monitor ref is still alive")
 	}
 	node1.Stop()

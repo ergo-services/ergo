@@ -13,9 +13,8 @@ import (
 )
 
 type monitorItem struct {
-	pid     etf.Pid // by
-	process etf.Pid
-	ref     etf.Ref
+	pid etf.Pid // by
+	ref etf.Ref
 }
 
 type linkProcessRequest struct {
@@ -85,9 +84,8 @@ next:
 		m.mutexProcesses.Lock()
 		l := m.processes[t]
 		item := monitorItem{
-			pid:     by,
-			ref:     ref,
-			process: t,
+			pid: by,
+			ref: ref,
 		}
 		m.processes[t] = append(l, item)
 		m.ref2pid[ref] = t
@@ -162,15 +160,14 @@ next:
 }
 
 func (m *monitor) demonitorProcess(ref etf.Ref) bool {
-	var pid etf.Pid
-	var ok bool
 	var process interface{}
 	var node etf.Atom
 
 	m.mutexProcesses.Lock()
 	defer m.mutexProcesses.Unlock()
 
-	if pid, ok = m.ref2pid[ref]; !ok {
+	pid, knownRef := m.ref2pid[ref]
+	if !knownRef {
 		// unknown monitor reference
 		return false
 	}
@@ -183,7 +180,7 @@ func (m *monitor) demonitorProcess(ref etf.Ref) bool {
 		if items[i].ref != ref {
 			continue
 		}
-		process = items[i].process
+		process = pid
 		node = pid.Node
 		if isVirtualPid(pid) {
 			processID := virtualPidToProcessID(pid)
@@ -449,7 +446,7 @@ func (m *monitor) processTerminated(terminated etf.Pid, name, reason string) {
 	handleMonitors := func(terminatedPid etf.Pid, items []monitorItem) {
 		for i := range items {
 			lib.Log("[%s] MONITOR process terminated: %s. send notify to: %s", m.registrar.NodeName(), terminated, items[i].pid)
-			m.notifyProcessTerminated(items[i].ref, items[i].pid, items[i].process, reason)
+			m.notifyProcessTerminated(items[i].ref, items[i].pid, terminatedPid, reason)
 			delete(m.ref2pid, items[i].ref)
 		}
 		delete(m.processes, terminatedPid)
