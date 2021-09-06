@@ -729,6 +729,8 @@ func TestLinkLocalRemote(t *testing.T) {
 	if err := checkCleanLinkPid(node1gs1, node2gs2.Self()); err != nil {
 		t.Fatal(err)
 	}
+	// must wait a bit
+	waitForTimeout(t, gs1.v)
 	if err := checkCleanLinkPid(node2gs2, node1gs1.Self()); err != nil {
 		t.Fatal(err)
 	}

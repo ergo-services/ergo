@@ -223,6 +223,10 @@ func (r *registrar) newProcess(name string, behavior gen.ProcessBehavior, opts p
 			From:   from,
 			Reason: reason,
 		}
+
+		// use select just in case if this process isn't been started yet
+		// or ProcessLoop is already exited (has been set to nil)
+		// otherwise it cause infinity lock
 		select {
 		case process.gracefulExit <- ex:
 		default:
@@ -322,10 +326,10 @@ func (r *registrar) spawn(name string, opts processOptions, behavior gen.Process
 		//		close(process.stopped)
 		//	}
 
-		//	// we should close this channel otherwise if we try
+		//	// we should set this channel to nil otherwise if we try
 		//	// immediately call process.Exit it blocks this call forewer
 		//	// since there is nobody to read a message from this channel
-		//	close(process.gracefulExit)
+		//	process.gracefulExit = nil
 		//}(cleanProcess)
 
 		// start process loop
@@ -333,6 +337,7 @@ func (r *registrar) spawn(name string, opts processOptions, behavior gen.Process
 
 		// process stopped. unregister it and let everybody (who set up
 		// link/monitor) to know about it
+		process.gracefulExit = nil
 		r.deleteProcess(pid)
 		r.processTerminated(pid, name, reason)
 
@@ -574,7 +579,6 @@ next:
 			if p, ok := r.processes[tto.ID]; ok {
 				select {
 				case p.mailBox <- gen.ProcessMailboxMessage{from, message}:
-
 				default:
 					fmt.Println("WARNING! mailbox of", p.Self(), "is full. dropped message from", from)
 				}

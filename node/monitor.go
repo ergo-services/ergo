@@ -408,6 +408,7 @@ func (m *monitor) nodeDown(name string) {
 
 	// notify linked processes
 	m.mutexLinks.Lock()
+	defer m.mutexLinks.Unlock()
 	for link, pids := range m.links {
 		if link.Node != etf.Atom(name) {
 			continue
@@ -441,7 +442,6 @@ func (m *monitor) nodeDown(name string) {
 
 		delete(m.links, link)
 	}
-	m.mutexLinks.Unlock()
 }
 
 func (m *monitor) processTerminated(terminated etf.Pid, name, reason string) {
@@ -501,7 +501,7 @@ func (m *monitor) processTerminated(terminated etf.Pid, name, reason string) {
 		// remove link
 		delete(m.links, terminated)
 	}
-	m.mutexLinks.Unlock()
+	defer m.mutexLinks.Unlock()
 
 }
 
@@ -510,8 +510,7 @@ func (m *monitor) processLinks(process etf.Pid) []etf.Pid {
 	defer m.mutexLinks.Unlock()
 
 	if l, ok := m.links[process]; ok {
-		links := append(make([]etf.Pid, len(l)), l...)
-		return links
+		return l
 	}
 	return nil
 }
@@ -586,6 +585,10 @@ func (m *monitor) notifyProcessTerminated(ref etf.Ref, to etf.Pid, terminated et
 	// for remote {21, FromProc, ToPid, Ref, Reason}, where FromProc = monitored process
 	localNode := etf.Atom(m.registrar.NodeName())
 	if to.Node != localNode {
+		// do nothing
+		if reason == "noconnection" {
+			return
+		}
 		if isVirtualPid(terminated) {
 			// it was monitored by name and this Pid was created using virtualPid().
 			processID := virtualPidToProcessID(terminated)
@@ -620,6 +623,9 @@ func (m *monitor) notifyProcessTerminated(ref etf.Ref, to etf.Pid, terminated et
 func (m *monitor) notifyProcessExit(to etf.Pid, terminated etf.Pid, reason string) {
 	// for remote: {3, FromPid, ToPid, Reason}
 	if to.Node != etf.Atom(m.registrar.NodeName()) {
+		if reason == "noconnection" {
+			return
+		}
 		message := etf.Tuple{distProtoEXIT, terminated, to, etf.Atom(reason)}
 		m.registrar.routeRaw(to.Node, message)
 		return
