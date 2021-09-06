@@ -562,7 +562,6 @@ func TestLinkLocalLocal(t *testing.T) {
 	Link
 		by Pid		- already_linked, doesnt_exist, terminate, unlink, node_down, node_unknown
 */
-/*
 func TestLinkLocalRemote(t *testing.T) {
 	fmt.Printf("\n=== Test Link Local-Remote by Pid\n")
 	fmt.Printf("Starting nodes: nodeL1LocalRemoteByPid@localhost, nodeL2LocalRemoteByPid@localhost: ")
@@ -592,49 +591,45 @@ func TestLinkLocalRemote(t *testing.T) {
 
 	fmt.Printf("Testing Link process (by Pid only) Local-Remote: gs1 -> gs2. unlink: ")
 	node1gs1.Link(node2gs2.Self())
-
-	if checkCleanLinkPid(node1, node1gs1.Self()) == nil {
-		t.Fatal("link missing for node1gs1")
-	}
-	if checkCleanLinkPid(node1, node2gs2.Self()) == nil {
-		t.Fatal("link missing for node2gs2 on node1")
-	}
 	// wait a bit since linking process is async
 	waitForTimeout(t, gs1.v)
-	if checkCleanLinkPid(node2, node2gs2.Self()) == nil {
-		t.Fatal("link missing for node2gs2")
+
+	if checkLinkPid(node1gs1, node2gs2.Self()) != nil {
+		t.Fatal("link missing on node1gs1")
 	}
+	if checkLinkPid(node2gs2, node1gs1.Self()) != nil {
+		t.Fatal("link missing on node2gs2 ")
+	}
+
 	node1gs1.Unlink(node2gs2.Self())
-	if err := checkCleanLinkPid(node1, node1gs1.Self()); err != nil {
-		t.Fatal(err)
-	}
-	if err := checkCleanLinkPid(node1, node2gs2.Self()); err != nil {
-		t.Fatal(err)
-	}
 	// wait a bit since unlinking process is async
 	waitForTimeout(t, gs1.v)
-	if err := checkCleanLinkPid(node2, node2gs2.Self()); err != nil {
+	if err := checkCleanLinkPid(node1gs1, node2gs2.Self()); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkCleanLinkPid(node2gs2, node1gs1.Self()); err != nil {
 		t.Fatal(err)
 	}
 	fmt.Println("OK")
 
 	fmt.Printf("Testing Link process (by Pid only) Local-Remote: gs1 -> gs2. already_linked: ")
 	node1gs1.Link(node2gs2.Self())
-	if checkCleanLinkPid(node1, node1gs1.Self()) == nil {
-		t.Fatal("link missing for node1gs1")
+	if checkLinkPid(node1gs1, node2gs2.Self()) == nil {
+		t.Fatal("link missing on node1gs1")
 	}
 	// wait a bit since linking process is async
 	waitForTimeout(t, gs1.v)
-	if checkCleanLinkPid(node2, node2gs2.Self()) == nil {
-		t.Fatal("link missing for node1gs2")
+	if checkCleanLinkPid(node2gs2, node1gs1.Self()) == nil {
+		t.Fatal("link missing on node2gs2")
 	}
-	ll1 := len(node1.monitor.links)
-	ll2 := len(node2.monitor.links)
+	ll1 := len(node1gs1.Links())
+	ll2 := len(node2gs2.Links())
+
 	node2gs2.Link(node1gs1.Self())
 	// wait a bit since linking process is async
 	waitForTimeout(t, gs2.v)
 
-	if ll1 != len(node1.monitor.links) || ll2 != len(node2.monitor.links) {
+	if ll1 != len(node1gs1.Links()) || ll2 != len(node2gs2.Links()) {
 		t.Fatal("number of links has changed on the second Link call")
 	}
 	fmt.Println("OK")
@@ -645,19 +640,13 @@ func TestLinkLocalRemote(t *testing.T) {
 	node1gs1.SetTrapExit(true)
 
 	node2gs2.Exit("normal")
-	result := etf.Tuple{etf.Atom("EXIT"), node2gs2.Self(), etf.Atom("normal")}
+	result := gen.MessageExit{node2gs2.Self(), "normal"}
 	waitForResultWithValue(t, gs1.v, result)
 
-	if err := checkCleanLinkPid(node1, node1gs1.Self()); err != nil {
+	if err := checkCleanLinkPid(node1gs1, node2gs2.Self()); err != nil {
 		t.Fatal(err)
 	}
-	if err := checkCleanLinkPid(node1, node2gs2.Self()); err != nil {
-		t.Fatal(err)
-	}
-	if err := checkCleanLinkPid(node2, node2gs2.Self()); err != nil {
-		t.Fatal(err)
-	}
-	if err := checkCleanLinkPid(node2, node1gs1.Self()); err != nil {
+	if err := checkCleanLinkPid(node2gs2, node1gs1.Self()); err != nil {
 		t.Fatal(err)
 	}
 	if !node1gs1.IsAlive() {
@@ -665,11 +654,11 @@ func TestLinkLocalRemote(t *testing.T) {
 	}
 
 	fmt.Printf("Testing Link process (by Pid only) Local-Remote: gs1 -> gs2. doesnt_exist: ")
-	ll1 = len(node1.monitor.links)
+	ll1 = len(node1gs1.Links())
 	node1gs1.Link(node2gs2.Self())
-	result = etf.Tuple{etf.Atom("EXIT"), node2gs2.Self(), etf.Atom("noproc")}
+	result = gen.MessageExit{node2gs2.Self(), "noproc"}
 	waitForResultWithValue(t, gs1.v, result)
-	if ll1 != len(node1.monitor.links) {
+	if ll1 != len(node1gs1.Links()) {
 		t.Fatal("number of links has changed on the second Link call")
 	}
 
@@ -681,10 +670,10 @@ func TestLinkLocalRemote(t *testing.T) {
 	fmt.Printf("Testing Link process (by Pid only) Local-Local: gs1 -> gs2. terminate (trap_exit = false): ")
 	node1gs1.Link(node2gs2.Self())
 
-	if checkCleanLinkPid(node1, node1gs1.Self()) == nil {
+	if checkLinkPid(node1gs1, node2gs2.Self()) != nil {
 		t.Fatal("link missing for node1gs1")
 	}
-	if checkCleanLinkPid(node1, node2gs2.Self()) == nil {
+	if checkLinkPid(node2gs2, node1gs1.Self()) != nil {
 		t.Fatal("link missing for node2gs2")
 	}
 
@@ -693,17 +682,17 @@ func TestLinkLocalRemote(t *testing.T) {
 	// wait a bit to make sure if we receive anything (shouldnt receive)
 	waitForTimeout(t, gs1.v)
 
-	if err := checkCleanLinkPid(node1, node1gs1.Self()); err != nil {
+	if err := checkCleanLinkPid(node1gs1, node2gs2.Self()); err != nil {
 		t.Fatal(err)
 	}
-	if err := checkCleanLinkPid(node1, node2gs2.Self()); err != nil {
-		t.Fatal(err)
-	}
-	if err := checkCleanLinkPid(node2, node2gs2.Self()); err != nil {
+	if err := checkCleanLinkPid(node2gs2, node1gs1.Self()); err != nil {
 		t.Fatal(err)
 	}
 	if node1gs1.IsAlive() {
 		t.Fatal("gs1 shouldnt be alive after gs2 exit due to disable trap exit on gs1")
+	}
+	if node2gs2.IsAlive() {
+		t.Fatal("gs2 must be terminated")
 	}
 	fmt.Println("OK")
 
@@ -719,44 +708,41 @@ func TestLinkLocalRemote(t *testing.T) {
 	node1gs1.Link(node2gs2.Self())
 	waitForTimeout(t, gs1.v)
 
-	if checkCleanLinkPid(node1, node1gs1.Self()) == nil {
+	if checkLinkPid(node1gs1, node2gs2.Self()) != nil {
 		t.Fatal("link missing for node1gs1")
 	}
-	if checkCleanLinkPid(node1, node2gs2.Self()) == nil {
+	if checkCleanLinkPid(node2gs2, node1gs1.Self()) == nil {
 		t.Fatal("link missing for node2gs2")
 	}
-	if checkCleanLinkPid(node2, node2gs2.Self()) == nil {
-		t.Fatal("link missing for node2gs2 on node2")
-	}
 
-	// its very interesting case. sometimes the hadnling of 'Stop' method
-	// goes so fast (on a remote node) so we receive here "kill" as a reason
-	// because Stop method starts a sequence of graceful shutdown for all the
-	// process on the node
+	// race conditioned case.
+	// processing of the process termination (on the remote peer) can be done faster than
+	// the link termination there, so MessageExit with "kill" reason will be arrived
+	// earlier.
 	node2.Stop()
-	result1 := etf.Tuple{etf.Atom("EXIT"), node2gs2.Self(), etf.Atom("noconnection")}
-	result2 := etf.Tuple{etf.Atom("EXIT"), node2gs2.Self(), etf.Atom("kill")}
+	result1 := gen.MessageExit{node2gs2.Self(), "noconnection"}
+	result2 := gen.MessageExit{node2gs2.Self(), "kill"}
+
 	waitForResultWithValueOrValue(t, gs1.v, result1, result2)
 
-	if err := checkCleanLinkPid(node1, node1gs1.Self()); err != nil {
+	if err := checkCleanLinkPid(node1gs1, node2gs2.Self()); err != nil {
 		t.Fatal(err)
 	}
-	if err := checkCleanLinkPid(node1, node2gs2.Self()); err != nil {
+	if err := checkCleanLinkPid(node2gs2, node1gs1.Self()); err != nil {
 		t.Fatal(err)
 	}
 
-	ll1 = len(node1.monitor.links)
+	ll1 = len(node1gs1.Links())
 	fmt.Printf("Testing Link process (by Pid only) Local-Remote: gs1 -> gs2. node_unknown: ")
 	node1gs1.Link(node2gs2.Self())
-	result = etf.Tuple{etf.Atom("EXIT"), node2gs2.Self(), etf.Atom("noconnection")}
+	result = gen.MessageExit{node2gs2.Self(), "noconnectin"}
 	waitForResultWithValue(t, gs1.v, result)
 
-	if ll1 != len(node1.monitor.links) {
+	if ll1 != len(node1gs1.Links()) {
 		t.Fatal("number of links has changed on the second Link call")
 	}
 	node1.Stop()
 }
-*/
 
 // helpers
 func checkCleanProcessRef(p gen.Process, ref etf.Ref) error {

@@ -105,7 +105,7 @@ func (gs *Server) ProcessLoop(ps ProcessState, started chan<- bool) string {
 				return ex.Reason
 			}
 			message = MessageExit{
-				From:   ex.From,
+				Pid:    ex.From,
 				Reason: ex.Reason,
 			}
 

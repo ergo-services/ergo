@@ -197,7 +197,7 @@ type MessageNodeDown struct {
 
 // MessageExit delievers to Server's HandleInfo callback on enabled trap exit using SetTrapExit(true)
 type MessageExit struct {
-	From   etf.Pid
+	Pid    etf.Pid
 	Reason string
 }
 
