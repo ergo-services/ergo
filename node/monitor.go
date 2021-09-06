@@ -408,7 +408,6 @@ func (m *monitor) nodeDown(name string) {
 
 	// notify linked processes
 	m.mutexLinks.Lock()
-	defer m.mutexLinks.Unlock()
 	for link, pids := range m.links {
 		if link.Node != etf.Atom(name) {
 			continue
@@ -442,6 +441,7 @@ func (m *monitor) nodeDown(name string) {
 
 		delete(m.links, link)
 	}
+	defer m.mutexLinks.Unlock()
 }
 
 func (m *monitor) processTerminated(terminated etf.Pid, name, reason string) {

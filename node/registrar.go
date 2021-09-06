@@ -109,11 +109,11 @@ func (r *registrar) MakeRef() (ref etf.Ref) {
 func (r *registrar) newAlias(p *process) (etf.Alias, error) {
 	var alias etf.Alias
 	lib.Log("[%s] REGISTRAR create process alias for %v", r.nodename, p.self)
-	r.mutexProcesses.Lock()
-	defer r.mutexProcesses.Unlock()
 
 	// chech if its alive
+	r.mutexProcesses.Lock()
 	_, exist := r.processes[p.self.ID]
+	r.mutexProcesses.Unlock()
 	if !exist {
 		return alias, ErrProcessUnknown
 	}
@@ -124,23 +124,27 @@ func (r *registrar) newAlias(p *process) (etf.Alias, error) {
 	r.aliases[alias] = p
 	r.mutexAliases.Unlock()
 
+	p.Lock()
 	p.aliases = append(p.aliases, alias)
+	p.Unlock()
 	return alias, nil
 }
 
 func (r *registrar) deleteAlias(owner *process, alias etf.Alias) error {
 	lib.Log("[%s] REGISTRAR delete process alias %v for %v", r.nodename, alias, owner.self)
-	r.mutexProcesses.Lock()
-	defer r.mutexProcesses.Unlock()
-	r.mutexAliases.Lock()
-	defer r.mutexAliases.Unlock()
 
+	r.mutexAliases.Lock()
 	p, alias_exist := r.aliases[alias]
+	r.mutexAliases.Unlock()
+
 	if !alias_exist {
 		return ErrAliasUnknown
 	}
 
+	r.mutexProcesses.Lock()
 	process, process_exist := r.processes[owner.self.ID]
+	r.mutexProcesses.Unlock()
+
 	if !process_exist {
 		return ErrProcessUnknown
 	}
@@ -148,6 +152,7 @@ func (r *registrar) deleteAlias(owner *process, alias etf.Alias) error {
 		return ErrAliasOwner
 	}
 
+	p.Lock()
 	for i := range p.aliases {
 		if alias != p.aliases[i] {
 			continue
@@ -155,11 +160,16 @@ func (r *registrar) deleteAlias(owner *process, alias etf.Alias) error {
 		delete(r.aliases, alias)
 		p.aliases[i] = p.aliases[0]
 		p.aliases = p.aliases[1:]
+		p.Unlock()
 		return nil
 	}
 
+	p.Unlock()
 	fmt.Println("Bug: Process lost its alias. Please, report this issue")
+	r.mutexAliases.Lock()
 	delete(r.aliases, alias)
+	r.mutexAliases.Unlock()
+
 	return ErrAliasUnknown
 }
 
@@ -240,56 +250,59 @@ func (r *registrar) newProcess(name string, behavior gen.ProcessBehavior, opts p
 		return nil
 	}
 
-	r.mutexProcesses.Lock()
-	defer r.mutexProcesses.Unlock()
-
 	if name != "" {
 		lib.Log("[%s] REGISTRAR registering name (%s): %s", r.nodename, pid, name)
 		r.mutexNames.Lock()
-		defer r.mutexNames.Unlock()
 		if _, exist := r.names[name]; exist {
+			r.mutexNames.Unlock()
 			return nil, ErrTaken
 		}
 		r.names[name] = process.self
+		r.mutexNames.Unlock()
 	}
 
 	lib.Log("[%s] REGISTRAR registering process: %s", r.nodename, pid)
+	r.mutexProcesses.Lock()
 	r.processes[process.self.ID] = process
+	r.mutexProcesses.Unlock()
 
 	return process, nil
 }
 
 func (r *registrar) deleteProcess(pid etf.Pid) {
 	r.mutexProcesses.Lock()
-	defer r.mutexProcesses.Unlock()
-	if p, ok := r.processes[pid.ID]; ok {
-		lib.Log("[%s] REGISTRAR unregistering process: %s", r.nodename, p.self)
-		delete(r.processes, pid.ID)
-
-		r.mutexNames.Lock()
-		if (p.name) != "" {
-			lib.Log("[%s] REGISTRAR unregistering name (%s): %s", r.nodename, p.self, p.name)
-			delete(r.names, p.name)
-		}
-
-		// delete names registered with this pid
-		for name, pid := range r.names {
-			if p.self == pid {
-				delete(r.names, name)
-			}
-		}
-		r.mutexNames.Unlock()
-
-		r.mutexAliases.Lock()
-		for alias := range r.aliases {
-			delete(r.aliases, alias)
-		}
-		r.mutexAliases.Unlock()
-
-		// invoke cancel context to prevent memory leaks
-		p.Kill()
+	p, exist := r.processes[pid.ID]
+	if !exist {
+		r.mutexProcesses.Unlock()
 		return
 	}
+	lib.Log("[%s] REGISTRAR unregistering process: %s", r.nodename, p.self)
+	delete(r.processes, pid.ID)
+	r.mutexProcesses.Unlock()
+
+	r.mutexNames.Lock()
+	if (p.name) != "" {
+		lib.Log("[%s] REGISTRAR unregistering name (%s): %s", r.nodename, p.self, p.name)
+		delete(r.names, p.name)
+	}
+
+	// delete names registered with this pid
+	for name, pid := range r.names {
+		if p.self == pid {
+			delete(r.names, name)
+		}
+	}
+	r.mutexNames.Unlock()
+
+	r.mutexAliases.Lock()
+	for alias := range r.aliases {
+		delete(r.aliases, alias)
+	}
+	r.mutexAliases.Unlock()
+
+	// invoke cancel context to prevent memory leaks
+	p.Kill()
+	return
 }
 
 // Spawn create new process
@@ -385,11 +398,14 @@ func (r *registrar) registerPeer(peer *peer) error {
 func (r *registrar) unregisterPeer(name string) {
 	lib.Log("[%s] REGISTRAR unregistering peer %v", r.nodename, name)
 	r.mutexPeers.Lock()
-	defer r.mutexPeers.Unlock()
 	if _, ok := r.peers[name]; ok {
 		delete(r.peers, name)
+		// mutex must be unlocked before we call nodeDown
+		r.mutexPeers.Unlock()
 		r.nodeDown(name)
+		return
 	}
+	r.mutexPeers.Unlock()
 }
 
 func (r *registrar) RegisterBehavior(group, name string, behavior gen.ProcessBehavior, data interface{}) error {
@@ -537,13 +553,14 @@ func (r *registrar) ProcessByName(name string) gen.Process {
 	if name != "" {
 		// requesting Process by name
 		r.mutexNames.Lock()
-		defer r.mutexNames.Unlock()
 
 		if p, ok := r.names[name]; ok {
 			pid = p
 		} else {
+			r.mutexNames.Unlock()
 			return nil
 		}
+		r.mutexNames.Unlock()
 	}
 
 	return r.ProcessByPid(pid)
@@ -576,14 +593,16 @@ next:
 		if string(tto.Node) == r.nodename {
 			// local route
 			r.mutexProcesses.Lock()
-			if p, ok := r.processes[tto.ID]; ok {
-				select {
-				case p.mailBox <- gen.ProcessMailboxMessage{from, message}:
-				default:
-					fmt.Println("WARNING! mailbox of", p.Self(), "is full. dropped message from", from)
-				}
-			}
+			p, exist := r.processes[tto.ID]
 			r.mutexProcesses.Unlock()
+			if !exist {
+				return
+			}
+			select {
+			case p.mailBox <- gen.ProcessMailboxMessage{from, message}:
+			default:
+				fmt.Println("WARNING! mailbox of", p.Self(), "is full. dropped message from", from)
+			}
 			return
 		}
 
