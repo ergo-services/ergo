@@ -261,6 +261,27 @@ To enable Golang profiler just add `--tags debug` in your `go run` or `go build`
 
 Now golang' profiler is available at `http://localhost:9009/debug/pprof`
 
+To check test coverage:
+
+```
+	go test -coverprofile=cover.out ./...
+	go tool cover -html=cover.out -o coverage.html
+```
+
+To run test with cleaned test cache:
+
+```
+	go vet
+	go clean -testcache
+	go test -v ./...
+```
+
+To run benchmarks:
+
+```
+	go test -bench=Node -run=X -benchmem
+```
+
 ### Companies are using Ergo Framework ###
 
 [![Kaspersky](.github/images/kaspersky.png)](https://kaspersky.com)

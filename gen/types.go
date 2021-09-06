@@ -61,6 +61,7 @@ type Process interface {
 	Monitors() []etf.Pid
 	MonitorsByName() []ProcessID
 	MonitoredBy() []etf.Pid
+	Aliases() []etf.Alias
 
 	// Methods below are intended to be used for the ProcessBehavior implementation
 

@@ -14,7 +14,7 @@ type MyDemo struct {
 }
 
 func (md *MyDemo) InitDemo(process *GenDemoProcess, args ...etf.Term) error {
-	fmt.Println("Started instance of MyDemo with PID %s and args %v", process.Self(), args)
+	fmt.Printf("Started instance of MyDemo with PID %s and args %v\n", process.Self(), args)
 	return nil
 }
 

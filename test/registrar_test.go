@@ -1,18 +1,21 @@
-package ergo
+package test
 
 import (
 	"fmt"
 	"testing"
 	"time"
 
+	"github.com/halturin/ergo"
 	"github.com/halturin/ergo/etf"
+	"github.com/halturin/ergo/gen"
+	"github.com/halturin/ergo/node"
 )
 
 type TestRegistrarGenserver struct {
-	GenServer
+	gen.Server
 }
 
-func (trg *TestRegistrarGenserver) HandleCall(state *GenServerState, from GenServerFrom, message etf.Term) (string, etf.Term) {
+func (trg *TestRegistrarGenserver) HandleCall(process *gen.ServerProcess, from gen.ServerFrom, message etf.Term) (string, etf.Term) {
 	// fmt.Printf("TestRegistrarGenserver ({%s, %s}): HandleCall: %#v, From: %#v\n", trg.process.name, trg.process.Node.Name(), message, from)
 	return "reply", message
 }
@@ -20,8 +23,8 @@ func (trg *TestRegistrarGenserver) HandleCall(state *GenServerState, from GenSer
 func TestRegistrar(t *testing.T) {
 	fmt.Printf("\n=== Test Registrar\n")
 	fmt.Printf("Starting nodes: nodeR1@localhost, nodeR2@localhost: ")
-	node1, _ := CreateNode("nodeR1@localhost", "cookies", NodeOptions{})
-	node2, _ := CreateNode("nodeR2@localhost", "cookies", NodeOptions{})
+	node1, _ := ergo.StartNode("nodeR1@localhost", "cookies", node.Options{})
+	node2, _ := ergo.StartNode("nodeR2@localhost", "cookies", node.Options{})
 	defer node1.Stop()
 	defer node2.Stop()
 	if node1 == nil || node2 == nil {
@@ -31,10 +34,46 @@ func TestRegistrar(t *testing.T) {
 	}
 
 	gs := &TestRegistrarGenserver{}
-	fmt.Printf("Starting TestRegistrarGenserver and registering as 'gs1' on %s: ", node1.Name())
-	node1gs1, _ := node1.Spawn("gs1", ProcessOptions{}, gs, nil)
-	if _, ok := node1.registrar.processes[node1gs1.Self().ID]; !ok {
+	fmt.Printf("Starting TestRegistrarGenserver. registering as 'gs1' on %s and create an alias: ", node1.Name())
+	node1gs1, err := node1.Spawn("gs1", gen.ProcessOptions{}, gs, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	alias, err := node1gs1.CreateAlias()
+	if err != nil {
+		t.Fatal(err)
+	}
+	fmt.Println("OK")
+
+	fmt.Printf("...get process by name 'gs1': ")
+	p := node1.ProcessByName("gs1")
+	if p == nil {
 		message := fmt.Sprintf("missing process %v on %s", node1gs1.Self(), node1.Name())
+		t.Fatal(message)
+	}
+	fmt.Println("OK")
+	fmt.Printf("...get process by pid of 'gs1': ")
+	p1 := node1.ProcessByPid(node1gs1.Self())
+	if p1 == nil {
+		message := fmt.Sprintf("missing process %v on %s", node1gs1.Self(), node1.Name())
+		t.Fatal(message)
+	}
+
+	if p != p1 {
+		message := fmt.Sprintf("not equal: %v on %s", p.Self(), p1.Self())
+		t.Fatal(message)
+	}
+	fmt.Println("OK")
+
+	fmt.Printf("...get process by alias of 'gs1': ")
+	p2 := node1.ProcessByAlias(alias)
+	if p2 == nil {
+		message := fmt.Sprintf("missing process %v on %s", node1gs1.Self(), node1.Name())
+		t.Fatal(message)
+	}
+
+	if p1 != p2 {
+		message := fmt.Sprintf("not equal: %v on %s", p1.Self(), p2.Self())
 		t.Fatal(message)
 	}
 	fmt.Println("OK")
@@ -62,91 +101,6 @@ func TestRegistrar(t *testing.T) {
 		t.Fatal(message)
 	}
 	fmt.Println("OK")
-
-	// tests below are about monitor/link, tbh :). let't it be here for a while
-
-	ref := node1gs1.MonitorProcess(node2gs2.Self())
-	// setting remote monitor is async.
-	time.Sleep(100 * time.Millisecond)
-
-	if pids, ok := node1.monitor.processes[node2gs2.Self()]; !ok {
-		message := fmt.Sprintf("missing monitor %v on %s", node2gs2.Self(), node1.Name())
-		t.Fatal(message)
-	} else {
-		found := false
-		for i := range pids {
-			if pids[i].pid == node1gs1.Self() {
-				found = true
-			}
-		}
-		if !found {
-			message := fmt.Sprintf("missing monitoring by %v on %s", node1gs1.Self(), node1.Name())
-			t.Fatal(message)
-		}
-	}
-
-	node1gs1.DemonitorProcess(ref)
-	time.Sleep(100 * time.Millisecond)
-
-	if pids, ok := node1.monitor.processes[node2gs2.Self()]; ok {
-		message := fmt.Sprintf("monitor %v on %s is still present", node2gs2.Self(), node1.Name())
-		t.Fatal(message)
-	} else {
-		found := false
-		for i := range pids {
-			if pids[i].pid == node1gs1.Self() {
-				found = true
-			}
-		}
-		if found {
-			message := fmt.Sprintf("monitoring by %v on %s is still present", node1gs1.Self(), node1.Name())
-			t.Fatal(message)
-		}
-	}
-
-	node1gs1.Link(node2gs2.Self())
-	time.Sleep(100 * time.Millisecond)
-
-	if pids, ok := node1.monitor.links[node2gs2.Self()]; !ok {
-		message := fmt.Sprintf("missing link %v on %s", node2gs2.Self(), node1.Name())
-		t.Fatal(message)
-	} else {
-		found := false
-		for i := range pids {
-			if pids[i] == node1gs1.Self() {
-				found = true
-			}
-		}
-		if !found {
-			message := fmt.Sprintf("missing link by %v on %s", node1gs1.Self(), node1.Name())
-			t.Fatal(message)
-		}
-	}
-	if pids, ok := node1.monitor.links[node1gs1.Self()]; !ok {
-		message := fmt.Sprintf("missing link %v on %s", node1gs1.Self(), node1.Name())
-		t.Fatal(message)
-	} else {
-		found := false
-		for i := range pids {
-			if pids[i] == node2gs2.Self() {
-				found = true
-			}
-		}
-		if !found {
-			message := fmt.Sprintf("missing link by %v on %s", node2gs2.Self(), node1.Name())
-			t.Fatal(message)
-		}
-	}
-
-	x := node1.registrar.createNewPID()
-	xID := x.ID
-	for i := xID; i < xID+10; i++ {
-		x = node1.registrar.createNewPID()
-	}
-	if xID+10 != x.ID {
-		t.Fatalf("malformed PID creation sequence")
-	}
-
 }
 
 func TestRegistrarAlias(t *testing.T) {

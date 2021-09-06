@@ -98,6 +98,9 @@ func (p *process) MonitorsByName() []gen.ProcessID {
 func (p *process) MonitoredBy() []etf.Pid {
 	return p.processMonitoredBy(p.self)
 }
+func (p *process) Aliases() []etf.Alias {
+	return p.aliases
+}
 
 // Info returns detailed information about the process
 func (p *process) Info() gen.ProcessInfo {
