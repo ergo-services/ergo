@@ -61,7 +61,7 @@ func (r *rex) HandleCall(process *gen.ServerProcess, from gen.ServerFrom, messag
 				return "reply", reply
 			}
 
-			to := etf.Tuple{string(module), process.NodeName()}
+			to := gen.ProcessID{string(module), process.NodeName()}
 			m := etf.Tuple{m.Element(3), m.Element(4)}
 			reply, err := process.Call(to, m)
 			if err != nil {

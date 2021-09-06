@@ -162,7 +162,7 @@ func (p *process) CallRPCWithTimeout(timeout int, node, module, function string,
 		etf.List(args),
 		p.Self(),
 	}
-	to := etf.Tuple{etf.Atom("rex"), etf.Atom(node)}
+	to := gen.ProcessID{"rex", node}
 	return p.CallWithTimeout(to, message, timeout)
 }
 
@@ -175,7 +175,7 @@ func (p *process) CastRPC(node, module, function string, args ...etf.Term) {
 		etf.Atom(function),
 		etf.List(args),
 	}
-	to := etf.Tuple{etf.Atom("rex"), etf.Atom(node)}
+	to := gen.ProcessID{"rex", node}
 	p.Cast(to, message)
 }
 
