@@ -614,12 +614,12 @@ func TestLinkLocalRemote(t *testing.T) {
 
 	fmt.Printf("Testing Link process (by Pid only) Local-Remote: gs1 -> gs2. already_linked: ")
 	node1gs1.Link(node2gs2.Self())
-	if checkLinkPid(node1gs1, node2gs2.Self()) == nil {
+	if checkLinkPid(node1gs1, node2gs2.Self()) != nil {
 		t.Fatal("link missing on node1gs1")
 	}
 	// wait a bit since linking process is async
 	waitForTimeout(t, gs1.v)
-	if checkCleanLinkPid(node2gs2, node1gs1.Self()) == nil {
+	if checkLinkPid(node2gs2, node1gs1.Self()) != nil {
 		t.Fatal("link missing on node2gs2")
 	}
 	ll1 := len(node1gs1.Links())
@@ -669,12 +669,13 @@ func TestLinkLocalRemote(t *testing.T) {
 	node1gs1.SetTrapExit(false)
 	fmt.Printf("Testing Link process (by Pid only) Local-Local: gs1 -> gs2. terminate (trap_exit = false): ")
 	node1gs1.Link(node2gs2.Self())
+	waitForTimeout(t, gs2.v)
 
 	if checkLinkPid(node1gs1, node2gs2.Self()) != nil {
-		t.Fatal("link missing for node1gs1")
+		t.Fatal("link missing on node1gs1")
 	}
 	if checkLinkPid(node2gs2, node1gs1.Self()) != nil {
-		t.Fatal("link missing for node2gs2")
+		t.Fatal("link missing on node2gs2")
 	}
 
 	node2gs2.Exit("normal")
@@ -735,7 +736,7 @@ func TestLinkLocalRemote(t *testing.T) {
 	ll1 = len(node1gs1.Links())
 	fmt.Printf("Testing Link process (by Pid only) Local-Remote: gs1 -> gs2. node_unknown: ")
 	node1gs1.Link(node2gs2.Self())
-	result = gen.MessageExit{node2gs2.Self(), "noconnectin"}
+	result = gen.MessageExit{node2gs2.Self(), "noconnection"}
 	waitForResultWithValue(t, gs1.v, result)
 
 	if ll1 != len(node1gs1.Links()) {
