@@ -245,7 +245,6 @@ func main() {
     process, _ := node1.Spawn("pg2", gen.ProcessOptions{}, pg2, nil)
     // ...
 }
-
 ```
 
 ### Development and debugging ###
@@ -257,7 +256,9 @@ There is a couple of options are already defined that you might want to use
 
 To enable Golang profiler just add `--tags debug` in your `go run` or `go build` like this:
 
-`go run --tags debug ./examples/genserver/demoGenServer.go`
+```
+go run --tags debug ./examples/genserver/demoGenServer.go
+```
 
 Now golang' profiler is available at `http://localhost:9009/debug/pprof`
 
