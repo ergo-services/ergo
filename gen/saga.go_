@@ -242,8 +242,7 @@ func (gs *GenSaga) HandleInfo(state *GenServerState, message etf.Term) string {
 	var m sagaMessage
 
 	st := state.State.(*GenSagaState)
-	// check if we got a 'DOWN' message
-	// {DOWN, Ref, process, PidOrName, Reason}
+	// check if we got a MessageDown
 	if isDown, d := IsDownMessage(message); isDown {
 		if err := handleSagaDown(st, d); err != nil {
 			return err.Error()

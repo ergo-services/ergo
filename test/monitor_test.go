@@ -218,7 +218,7 @@ func TestMonitorLocalRemoteByPid(t *testing.T) {
 	// by Pid
 	fmt.Printf("... by Pid Local-Remote: gs1 -> gs2. demonitor: ")
 	ref := node1gs1.MonitorProcess(node2gs2.Self())
-	// wait a bit for the 'DOWN' message if something went wrong
+	// wait a bit for the MessageDown if something went wrong
 	waitForTimeout(t, gs1.v)
 	if err := checkCleanProcessRef(node1gs1, ref); err == nil {
 		t.Fatal("monitor reference has been lost on node 1")
@@ -242,7 +242,7 @@ func TestMonitorLocalRemoteByPid(t *testing.T) {
 
 	fmt.Printf("... by Pid Local-Remote: gs1 -> gs2. terminate: ")
 	ref = node1gs1.MonitorProcess(node2gs2.Self())
-	// wait a bit for the 'DOWN' message if something went wrong
+	// wait a bit for the MessageDown if something went wrong
 	waitForTimeout(t, gs1.v)
 	node2gs2.Exit("normal")
 	result := gen.MessageDown{
@@ -277,7 +277,7 @@ func TestMonitorLocalRemoteByPid(t *testing.T) {
 
 	fmt.Printf("... by Pid Local-Remote: gs1 -> gs2. onNodeDown: ")
 	ref = node1gs1.MonitorProcess(node2gs2.Self())
-	// wait a bit for the 'DOWN' message if something went wrong
+	// wait a bit for the MessageDown if something went wrong
 	waitForTimeout(t, gs1.v)
 	node2.Stop()
 	result = gen.MessageDown{
@@ -331,7 +331,7 @@ func TestMonitorLocalRemoteByName(t *testing.T) {
 
 	fmt.Printf("... by gen.ProcessID{Name, Node} Local-Remote: gs1 -> gs2. demonitor: ")
 	ref := node1gs1.MonitorProcess(processID)
-	// wait a bit for the 'DOWN' message if something went wrong
+	// wait a bit for the MessageDown if something went wrong
 	waitForTimeout(t, gs1.v)
 	if err := checkCleanProcessRef(node1gs1, ref); err == nil {
 		t.Fatal("monitor reference has been lost on node 1")
@@ -355,7 +355,7 @@ func TestMonitorLocalRemoteByName(t *testing.T) {
 
 	fmt.Printf("... by gen.ProcessID{Name, Node} Local-Remote: gs1 -> gs2. terminate: ")
 	ref = node1gs1.MonitorProcess(processID)
-	// wait a bit for the 'DOWN' message if something went wrong
+	// wait a bit for the MessageDown if something went wrong
 	waitForTimeout(t, gs1.v)
 	node2gs2.Exit("normal")
 	result := gen.MessageDown{
@@ -395,7 +395,7 @@ func TestMonitorLocalRemoteByName(t *testing.T) {
 		ProcessID: processID,
 		Reason:    "noconnection",
 	}
-	// wait a bit for the 'DOWN' message if something went wrong
+	// wait a bit for the MessageDown if something went wrong
 	waitForTimeout(t, gs1.v)
 	node2.Stop()
 	waitForResultWithValue(t, gs1.v, result)
@@ -419,7 +419,6 @@ func TestMonitorLocalRemoteByName(t *testing.T) {
 		by Pid		- equal_pids, already_linked, doesnt_exist, terminate, unlink
 */
 
-/*
 func TestLinkLocalLocal(t *testing.T) {
 	fmt.Printf("\n=== Test Link Local-Local\n")
 	fmt.Printf("Starting node: nodeL1LocalLocal@localhost: ")
@@ -446,7 +445,7 @@ func TestLinkLocalLocal(t *testing.T) {
 
 	fmt.Printf("Testing Link process (by Pid only) Local-Local: gs1 -> gs1. equals: ")
 	node1gs1.Link(node1gs1.Self())
-	if err := checkCleanLinkPid(node1, node1gs1.Self()); err != nil {
+	if err := checkCleanLinkPid(node1gs1, node1gs1.Self()); err != nil {
 		t.Fatal("link to itself shouldnt happen")
 	}
 	fmt.Println("OK")
@@ -454,7 +453,7 @@ func TestLinkLocalLocal(t *testing.T) {
 	fmt.Printf("Testing Link process (by Pid only) Local-Local: gs1 -> gs2. unlink: ")
 	node1gs1.Link(node1gs2.Self())
 
-	if checkCleanLinkPid(node1, node1gs1.Self()) == nil {
+	if checkCleanLinkPid(node1gs1, node1gs2.Self()) == nil {
 		t.Fatal("link missing for node1gs1")
 	}
 	if checkCleanLinkPid(node1, node1gs2.Self()) == nil {
@@ -550,7 +549,6 @@ func TestLinkLocalLocal(t *testing.T) {
 
 	node1.Stop()
 }
-*/
 
 /*
 	Test cases for Local-Remote
@@ -763,8 +761,18 @@ func checkCleanProcessRef(p gen.Process, ref etf.Ref) error {
 }
 
 func checkCleanLinkPid(p gen.Process, pid etf.Pid) error {
-	//if _, ok := node.monitor.links[pid]; ok {
-	//	return fmt.Errorf("process link reference hasnt cleaned correctly")
-	//}
+	for _, l := range p.Links() {
+		if l == pid {
+			return fmt.Errorf("process link reference hasnt cleaned correctly")
+		}
+	}
 	return nil
+}
+func checkLinkPid(p gen.Process, pid etf.Pid) error {
+	for _, l := range p.Links() {
+		if l == pid {
+			return nil
+		}
+	}
+	return fmt.Errorf("process %s has no link to %s", p.Self(), pid)
 }
