@@ -441,7 +441,7 @@ func (m *monitor) nodeDown(name string) {
 
 		delete(m.links, link)
 	}
-	defer m.mutexLinks.Unlock()
+	m.mutexLinks.Unlock()
 }
 
 func (m *monitor) processTerminated(terminated etf.Pid, name, reason string) {
