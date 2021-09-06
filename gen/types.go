@@ -214,11 +214,11 @@ type MessageManageRPC struct {
 
 type MessageDirectChildren struct{}
 
-func IsMessageDown(message etf.Term) (bool, MessageDown) {
+func IsMessageDown(message etf.Term) (MessageDown, bool) {
 	var md MessageDown
 	switch m := message.(type) {
 	case MessageDown:
-		return true, m
+		return m, true
 	}
-	return false, md
+	return md, false
 }

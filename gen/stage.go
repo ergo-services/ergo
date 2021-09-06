@@ -291,8 +291,15 @@ func (s *Stage) SetCancelMode(p Process, subscription StageSubscription, cancel 
 // Subscribe subscribes to the given producer. HandleSubscribed callback will be invoked
 // on a consumer stage once a request for the subscription is sent. If something went wrong
 // on a producer side the callback HandleCancel will be invoked with a reason of cancelation.
-func (s *Stage) Subscribe(p Process, producer etf.Term, opts StageSubscribeOptions) StageSubscription {
+func (s *Stage) Subscribe(p Process, producer etf.Term, opts StageSubscribeOptions) (StageSubscription, error) {
 	var subscription StageSubscription
+	switch producer.(type) {
+	case string:
+	case etf.Pid:
+	case ProcessID:
+	default:
+		return subscription, fmt.Errorf("allowed type for producer: etf.Pid, string, gen.ProcessID")
+	}
 
 	subscription_id := p.MonitorProcess(producer)
 	subscription.Pid = p.Self()
@@ -339,7 +346,7 @@ func (s *Stage) Subscribe(p Process, producer etf.Term, opts StageSubscribeOptio
 	}
 	p.Send(producer, msg)
 
-	return subscription
+	return subscription, nil
 }
 
 // Ask makes a demand request for the given subscription. This function must only be
@@ -535,7 +542,7 @@ func (gst *Stage) HandleInfo(process *ServerProcess, message etf.Term) string {
 	stageProcess := process.State.(*StageProcess)
 
 	// check if we got a MessageDown
-	if isDown, d := IsMessageDown(message); isDown {
+	if d, isDown := IsMessageDown(message); isDown {
 		if err := handleStageDown(stageProcess, d); err != nil {
 			return err.Error()
 		}

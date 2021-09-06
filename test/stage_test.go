@@ -128,14 +128,14 @@ func TestStageSimple(t *testing.T) {
 
 	// case 1: subscribe
 	fmt.Println("Subscribing/resubscribing/cancelation:")
-	sub := consumer.Subscribe(consumerProcess, "stageProducer", subOpts)
+	sub, _ := consumer.Subscribe(consumerProcess, "stageProducer", subOpts)
 	fmt.Printf("... Producer handled subscription request from Consumer: ")
 	waitForResultWithValue(t, producer.value, sub)
 	fmt.Printf("... Consumer handled subscription confirmation from Producer: ")
 	waitForResultWithValue(t, consumer.value, sub)
 	// case 2: subscribe one more time (prev subscription should be canceled automatically)
 	fmt.Printf("... Consumer subscribes to Producer without cancelation previous subscription: ")
-	sub1 := consumer.Subscribe(consumerProcess, "stageProducer", subOpts)
+	sub1, _ := consumer.Subscribe(consumerProcess, "stageProducer", subOpts)
 	fmt.Println("OK")
 	// previous subscription should be canceled
 	fmt.Printf("... Producer canceled previous subscription and handled the new subscription request from Consumer: ")
@@ -154,7 +154,7 @@ func TestStageSimple(t *testing.T) {
 	waitForResultWithValue(t, consumer.value, etf.Tuple{"canceled", sub1, "normal"})
 
 	fmt.Println("make another subscription for the testing of explicit cancelation from the Producer side")
-	sub2 := consumer.Subscribe(consumerProcess, "stageProducer", subOpts)
+	sub2, _ := consumer.Subscribe(consumerProcess, "stageProducer", subOpts)
 	fmt.Printf("... Producer handled subscription request from Consumer: ")
 	waitForResultWithValue(t, producer.value, sub2)
 	fmt.Printf("... Consumer handled subscription confirmation from Producer: ")
@@ -172,7 +172,7 @@ func TestStageSimple(t *testing.T) {
 	// case 3:
 	fmt.Printf("... trying to subscribe on Consumer (should fail with error 'not a producer'): ")
 	// let's subscribe using Pid instead of registered name "stageConsumer"
-	sub3 := producer.Subscribe(producerProcess, consumerProcess.Self(), subOpts)
+	sub3, _ := producer.Subscribe(producerProcess, consumerProcess.Self(), subOpts)
 	waitForResultWithValue(t, producer.value, etf.Tuple{"canceled", sub3, "not a producer"})
 
 	// case 4: invoking Server callbacks
@@ -196,7 +196,7 @@ func TestStageSimple(t *testing.T) {
 	subOpts.MaxDemand = 4
 	subOpts.ManualDemand = true
 	fmt.Println("make yet another subscription for the testing subscribe/ask/send_events")
-	sub4 := consumer.Subscribe(consumerProcess, producerProcess.Self(), subOpts)
+	sub4, _ := consumer.Subscribe(consumerProcess, producerProcess.Self(), subOpts)
 	fmt.Printf("... Producer handled subscription request from Consumer: ")
 	waitForResultWithValue(t, producer.value, sub4)
 	fmt.Printf("... Consumer handled subscription confirmation from Producer: ")
@@ -341,7 +341,7 @@ func TestStageDistributed(t *testing.T) {
 		Cancel: gen.StageCancelTemporary,
 	}
 	fmt.Println("Consumer@node2 subscribes on Producer@node1: ")
-	sub := consumer.Subscribe(consumerProcess, etf.Tuple{"stageProducer", "nodeStageDistributed01@localhost"}, subOpts)
+	sub, _ := consumer.Subscribe(consumerProcess, gen.ProcessID{"stageProducer", "nodeStageDistributed01@localhost"}, subOpts)
 	fmt.Printf("... Producer@node1 handled subscription request from Consumer@node2: ")
 	waitForResultWithValue(t, producer.value, sub)
 	fmt.Printf("... Consumer@node2 handled subscription confirmation from Producer@node1: ")
@@ -376,7 +376,7 @@ func TestStageDistributed(t *testing.T) {
 	fmt.Println("OK")
 
 	subOpts.Cancel = gen.StageCancelTransient
-	sub1 := consumer.Subscribe(consumerProcess, etf.Tuple{"stageProducer", "nodeStageDistributed01@localhost"}, subOpts)
+	sub1, _ := consumer.Subscribe(consumerProcess, gen.ProcessID{"stageProducer", "nodeStageDistributed01@localhost"}, subOpts)
 	fmt.Printf("... Producer@node1 handled subscription request from Consumer@node2: ")
 	waitForResultWithValue(t, producer.value, sub1)
 	fmt.Printf("... Consumer@node2 handled subscription confirmation from Producer@node1 (StageCancelTransient): ")
@@ -408,7 +408,7 @@ func TestStageDistributed(t *testing.T) {
 	fmt.Println("OK")
 
 	subOpts.Cancel = gen.StageCancelPermanent
-	sub2 := consumer.Subscribe(consumerProcess1, etf.Tuple{"stageProducer", "nodeStageDistributed01@localhost"}, subOpts)
+	sub2, _ := consumer.Subscribe(consumerProcess1, gen.ProcessID{"stageProducer", "nodeStageDistributed01@localhost"}, subOpts)
 	fmt.Printf("... Producer@node1 handled subscription request from Consumer@node2: ")
 	waitForResultWithValue(t, producer.value, sub2)
 	fmt.Printf("... Consumer@node2 handled subscription confirmation from Producer@node1 (StageCancelPermanent): ")
@@ -438,7 +438,7 @@ func TestStageDistributed(t *testing.T) {
 	}
 	fmt.Println("OK")
 	subOpts.Cancel = gen.StageCancelTemporary
-	sub3 := consumer.Subscribe(consumerProcess2, etf.Tuple{"stageProducer", "nodeStageDistributed01@localhost"}, subOpts)
+	sub3, _ := consumer.Subscribe(consumerProcess2, gen.ProcessID{"stageProducer", "nodeStageDistributed01@localhost"}, subOpts)
 	fmt.Printf("... Producer@node1 handled subscription request from Consumer@node2: ")
 	waitForResultWithValue(t, producer.value, sub3)
 	fmt.Printf("... Consumer@node2 handled subscription confirmation from Producer@node1 (StageCancelTemporary): ")
@@ -490,7 +490,7 @@ func TestStageDispatcherDemand(t *testing.T) {
 		t.Fatal(errC1)
 	}
 	fmt.Println("OK")
-	sub1 := consumer.Subscribe(consumer1Process, "stageProducer", subOpts)
+	sub1, _ := consumer.Subscribe(consumer1Process, "stageProducer", subOpts)
 	fmt.Printf("... Producer handled subscription request from Consumer1: ")
 	expected1 := etf.Tuple{sub1, uint(3)}
 	expected2 := sub1
@@ -505,7 +505,7 @@ func TestStageDispatcherDemand(t *testing.T) {
 		t.Fatal(errC2)
 	}
 	fmt.Println("OK")
-	sub2 := consumer.Subscribe(consumer2Process, "stageProducer", subOpts)
+	sub2, _ := consumer.Subscribe(consumer2Process, "stageProducer", subOpts)
 	fmt.Printf("... Producer handled subscription request from Consumer2: ")
 	expected1 = etf.Tuple{sub2, uint(3)}
 	expected2 = sub2
@@ -519,7 +519,7 @@ func TestStageDispatcherDemand(t *testing.T) {
 		t.Fatal(errC3)
 	}
 	fmt.Println("OK")
-	sub3 := consumer.Subscribe(consumer3Process, "stageProducer", subOpts)
+	sub3, _ := consumer.Subscribe(consumer3Process, "stageProducer", subOpts)
 	fmt.Printf("... Producer handled subscription request from Consumer3: ")
 	expected1 = etf.Tuple{sub3, uint(3)}
 	expected2 = sub3
@@ -594,7 +594,7 @@ func TestStageDispatcherBroadcast(t *testing.T) {
 		t.Fatal(errC1)
 	}
 	fmt.Println("OK")
-	sub1 := consumer1.Subscribe(consumer1Process, "stageProducer", subOpts)
+	sub1, _ := consumer1.Subscribe(consumer1Process, "stageProducer", subOpts)
 	fmt.Printf("... Producer handled subscription request from Consumer1: ")
 	expected1 := etf.Tuple{sub1, uint(3)}
 	expected2 := sub1
@@ -609,7 +609,7 @@ func TestStageDispatcherBroadcast(t *testing.T) {
 		t.Fatal(errC2)
 	}
 	fmt.Println("OK")
-	sub2 := consumer2.Subscribe(consumer2Process, "stageProducer", subOpts)
+	sub2, _ := consumer2.Subscribe(consumer2Process, "stageProducer", subOpts)
 	fmt.Printf("... Producer handled subscription request from Consumer2: ")
 	expected1 = etf.Tuple{sub2, uint(3)}
 	expected2 = sub2
@@ -623,7 +623,7 @@ func TestStageDispatcherBroadcast(t *testing.T) {
 		t.Fatal(errC3)
 	}
 	fmt.Println("OK")
-	sub3 := consumer3.Subscribe(consumer3Process, "stageProducer", subOpts)
+	sub3, _ := consumer3.Subscribe(consumer3Process, "stageProducer", subOpts)
 	fmt.Printf("... Producer handled subscription request from Consumer3: ")
 	expected1 = etf.Tuple{sub3, uint(3)}
 	expected2 = sub3
@@ -719,7 +719,7 @@ func TestStageDispatcherPartition(t *testing.T) {
 		t.Fatal(errC1)
 	}
 	fmt.Println("OK")
-	sub1 := consumer1.Subscribe(consumer1Process, "stageProducer", subOpts1)
+	sub1, _ := consumer1.Subscribe(consumer1Process, "stageProducer", subOpts1)
 	fmt.Printf("... Producer handled subscription request from Consumer1: ")
 	expected1 := etf.Tuple{sub1, uint(3)}
 	expected2 := sub1
@@ -734,7 +734,7 @@ func TestStageDispatcherPartition(t *testing.T) {
 		t.Fatal(errC2)
 	}
 	fmt.Println("OK")
-	sub2 := consumer2.Subscribe(consumer2Process, "stageProducer", subOpts2)
+	sub2, _ := consumer2.Subscribe(consumer2Process, "stageProducer", subOpts2)
 	fmt.Printf("... Producer handled subscription request from Consumer2: ")
 	expected1 = etf.Tuple{sub2, uint(3)}
 	expected2 = sub2
@@ -748,7 +748,7 @@ func TestStageDispatcherPartition(t *testing.T) {
 		t.Fatal(errC3)
 	}
 	fmt.Println("OK")
-	sub3 := consumer3.Subscribe(consumer3Process, "stageProducer", subOpts3)
+	sub3, _ := consumer3.Subscribe(consumer3Process, "stageProducer", subOpts3)
 	fmt.Printf("... Producer handled subscription request from Consumer3: ")
 	expected1 = etf.Tuple{sub3, uint(3)}
 	expected2 = sub3
