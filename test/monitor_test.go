@@ -443,44 +443,45 @@ func TestLinkLocalLocal(t *testing.T) {
 	node1gs2, _ := node1.Spawn("gs2", gen.ProcessOptions{}, gs2, nil)
 	waitForResultWithValue(t, gs2.v, node1gs2.Self())
 
-	fmt.Printf("Testing Link process (by Pid only) Local-Local: gs1 -> gs1. equals: ")
+	fmt.Printf("Testing Link process (by Pid only) Local-Local: gs1 -> gs1 (link to itself is not allowed): ")
 	node1gs1.Link(node1gs1.Self())
 	if err := checkCleanLinkPid(node1gs1, node1gs1.Self()); err != nil {
-		t.Fatal("link to itself shouldnt happen")
+		t.Fatal(err)
 	}
 	fmt.Println("OK")
 
-	fmt.Printf("Testing Link process (by Pid only) Local-Local: gs1 -> gs2. unlink: ")
+	fmt.Printf("Testing Link process (by Pid only) Local-Local: gs1 -> gs2. link/unlink: ")
 	node1gs1.Link(node1gs2.Self())
 
-	if checkCleanLinkPid(node1gs1, node1gs2.Self()) == nil {
-		t.Fatal("link missing for node1gs1")
+	if err := checkLinkPid(node1gs1, node1gs2.Self()); err != nil {
+		t.Fatal(err)
 	}
-	if checkCleanLinkPid(node1, node1gs2.Self()) == nil {
-		t.Fatal("link missing for node1gs2")
+	if err := checkLinkPid(node1gs2, node1gs1.Self()); err != nil {
+		t.Fatal(err)
 	}
 
 	node1gs1.Unlink(node1gs2.Self())
-	if err := checkCleanLinkPid(node1, node1gs1.Self()); err != nil {
+	if err := checkCleanLinkPid(node1gs1, node1gs2.Self()); err != nil {
 		t.Fatal(err)
 	}
-	if err := checkCleanLinkPid(node1, node1gs2.Self()); err != nil {
+	if err := checkCleanLinkPid(node1gs2, node1gs1.Self()); err != nil {
 		t.Fatal(err)
 	}
 	fmt.Println("OK")
 
 	fmt.Printf("Testing Link process (by Pid only) Local-Local: gs1 -> gs2. already_linked: ")
 	node1gs1.Link(node1gs2.Self())
-	if checkCleanLinkPid(node1, node1gs1.Self()) == nil {
-		t.Fatal("link missing for node1gs1")
+	if err := checkLinkPid(node1gs1, node1gs2.Self()); err != nil {
+		t.Fatal(err)
 	}
-	if checkCleanLinkPid(node1, node1gs2.Self()) == nil {
+	if err := checkLinkPid(node1gs2, node1gs1.Self()); err != nil {
 		t.Fatal("link missing for node1gs2")
 	}
-	ll := len(node1gs2.Links(node1gs2.Self()))
+	gs1links := node1gs1.Links()
+	gs2links := node1gs2.Links()
 	node1gs2.Link(node1gs1.Self())
 
-	if ll != len(node1gs1.Links(node1gs1.Self())) {
+	if len(gs1links) != len(node1gs1.Links()) || len(gs2links) != len(node1gs2.Links()) {
 		t.Fatal("number of links has changed on the second Link call")
 	}
 	fmt.Println("OK")
@@ -490,21 +491,21 @@ func TestLinkLocalLocal(t *testing.T) {
 	//node1gs1.Link(node1gs2.Self())
 
 	node1gs1.SetTrapExit(true)
-	if checkCleanLinkPid(node1, node1gs1.Self()) == nil {
+	if checkCleanLinkPid(node1gs1, node1gs2.Self()) == nil {
 		t.Fatal("link missing for node1gs1")
 	}
-	if checkCleanLinkPid(node1, node1gs2.Self()) == nil {
+	if checkCleanLinkPid(node1gs2, node1gs1.Self()) == nil {
 		t.Fatal("link missing for node1gs2")
 	}
 
 	node1gs2.Exit("normal")
-	result := etf.Tuple{etf.Atom("EXIT"), node1gs2.Self(), etf.Atom("normal")}
+	result := gen.MessageExit{node1gs2.Self(), "normal"}
 	waitForResultWithValue(t, gs1.v, result)
 
-	if err := checkCleanLinkPid(node1, node1gs1.Self()); err != nil {
+	if err := checkCleanLinkPid(node1gs2, node1gs1.Self()); err != nil {
 		t.Fatal(err)
 	}
-	if err := checkCleanLinkPid(node1, node1gs2.Self()); err != nil {
+	if err := checkCleanLinkPid(node1gs1, node1gs2.Self()); err != nil {
 		t.Fatal(err)
 	}
 	if !node1gs1.IsAlive() {
@@ -513,7 +514,7 @@ func TestLinkLocalLocal(t *testing.T) {
 
 	fmt.Printf("Testing Link process (by Pid only) Local-Local: gs1 -> gs2. doesnt_exist: ")
 	node1gs1.Link(node1gs2.Self())
-	result = etf.Tuple{etf.Atom("EXIT"), node1gs2.Self(), etf.Atom("noproc")}
+	result = gen.MessageExit{node1gs2.Self(), "noproc"}
 	waitForResultWithValue(t, gs1.v, result)
 
 	fmt.Printf("    wait for start of gs2 on %#v: ", node1.Name())
@@ -524,10 +525,10 @@ func TestLinkLocalLocal(t *testing.T) {
 	fmt.Printf("Testing Link process (by Pid only) Local-Local: gs1 -> gs2. terminate (trap_exit = false): ")
 	node1gs1.Link(node1gs2.Self())
 
-	if checkCleanLinkPid(node1, node1gs1.Self()) == nil {
+	if checkCleanLinkPid(node1gs2, node1gs1.Self()) == nil {
 		t.Fatal("link missing for node1gs1")
 	}
-	if checkCleanLinkPid(node1, node1gs2.Self()) == nil {
+	if checkCleanLinkPid(node1gs1, node1gs2.Self()) == nil {
 		t.Fatal("link missing for node1gs2")
 	}
 
@@ -537,10 +538,10 @@ func TestLinkLocalLocal(t *testing.T) {
 	waitForTimeout(t, gs1.v)
 	fmt.Println("OK")
 
-	if err := checkCleanLinkPid(node1, node1gs1.Self()); err != nil {
+	if err := checkCleanLinkPid(node1gs2, node1gs1.Self()); err != nil {
 		t.Fatal(err)
 	}
-	if err := checkCleanLinkPid(node1, node1gs2.Self()); err != nil {
+	if err := checkCleanLinkPid(node1gs1, node1gs2.Self()); err != nil {
 		t.Fatal(err)
 	}
 	if node1gs1.IsAlive() {

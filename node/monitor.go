@@ -33,6 +33,11 @@ type monitorInternal interface {
 
 	link(pidA, pidB etf.Pid)
 	unlink(pidA, pidB etf.Pid)
+
+	processLinks(process etf.Pid) []etf.Pid
+	processMonitors(process etf.Pid) []etf.Pid
+	processMonitorsByName(process etf.Pid) []gen.ProcessID
+	processMonitoredBy(process etf.Pid) []etf.Pid
 }
 
 type monitor struct {
@@ -500,7 +505,7 @@ func (m *monitor) processTerminated(terminated etf.Pid, name, reason string) {
 
 }
 
-func (m *monitor) Links(process etf.Pid) []etf.Pid {
+func (m *monitor) processLinks(process etf.Pid) []etf.Pid {
 	m.mutexLinks.Lock()
 	defer m.mutexLinks.Unlock()
 
@@ -511,7 +516,7 @@ func (m *monitor) Links(process etf.Pid) []etf.Pid {
 	return nil
 }
 
-func (m *monitor) Monitors(process etf.Pid) []etf.Pid {
+func (m *monitor) processMonitors(process etf.Pid) []etf.Pid {
 	monitors := []etf.Pid{}
 	m.mutexProcesses.Lock()
 	defer m.mutexProcesses.Unlock()
@@ -529,7 +534,7 @@ func (m *monitor) Monitors(process etf.Pid) []etf.Pid {
 	return monitors
 }
 
-func (m *monitor) MonitorsByName(process etf.Pid) []gen.ProcessID {
+func (m *monitor) processMonitorsByName(process etf.Pid) []gen.ProcessID {
 	monitors := []gen.ProcessID{}
 	m.mutexProcesses.Lock()
 	defer m.mutexProcesses.Unlock()
@@ -548,7 +553,7 @@ func (m *monitor) MonitorsByName(process etf.Pid) []gen.ProcessID {
 	return monitors
 }
 
-func (m *monitor) MonitoredBy(process etf.Pid) []etf.Pid {
+func (m *monitor) processMonitoredBy(process etf.Pid) []etf.Pid {
 	monitors := []etf.Pid{}
 	m.mutexProcesses.Lock()
 	defer m.mutexProcesses.Unlock()

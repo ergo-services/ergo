@@ -86,24 +86,38 @@ func (p *process) GroupLeader() gen.Process {
 	return p.groupLeader
 }
 
+func (p *process) Links() []etf.Pid {
+	return p.processLinks(p.self)
+}
+func (p *process) Monitors() []etf.Pid {
+	return p.processMonitors(p.self)
+}
+func (p *process) MonitorsByName() []gen.ProcessID {
+	return p.processMonitorsByName(p.self)
+}
+func (p *process) MonitoredBy() []etf.Pid {
+	return p.processMonitoredBy(p.self)
+}
+
 // Info returns detailed information about the process
 func (p *process) Info() gen.ProcessInfo {
 	gl := p.self
 	if p.groupLeader != nil {
 		gl = p.groupLeader.Self()
 	}
-	links := p.Links(p.self)
-	monitors := p.Monitors(p.self)
-	monitoredBy := p.MonitoredBy(p.self)
-	aliases := append(make([]etf.Alias, len(p.aliases)), p.aliases...)
+	links := p.Links()
+	monitors := p.Monitors()
+	monitorsByName := p.MonitorsByName()
+	monitoredBy := p.MonitoredBy()
 	return gen.ProcessInfo{
 		PID:             p.self,
 		Name:            p.name,
 		GroupLeader:     gl,
 		Links:           links,
 		Monitors:        monitors,
+		MonitorsByName:  monitorsByName,
 		MonitoredBy:     monitoredBy,
-		Aliases:         aliases,
+		Aliases:         p.aliases,
 		Status:          "running",
 		MessageQueueLen: len(p.mailBox),
 		TrapExit:        p.trapExit,

@@ -57,6 +57,11 @@ type Process interface {
 	Context() context.Context
 	Children() []etf.Pid
 
+	Links() []etf.Pid
+	Monitors() []etf.Pid
+	MonitorsByName() []ProcessID
+	MonitoredBy() []etf.Pid
+
 	// Methods below are intended to be used for the ProcessBehavior implementation
 
 	SendSyncRequestRaw(ref etf.Ref, node etf.Atom, messages ...etf.Term)
@@ -75,6 +80,7 @@ type ProcessInfo struct {
 	MessageQueueLen int
 	Links           []etf.Pid
 	Monitors        []etf.Pid
+	MonitorsByName  []ProcessID
 	MonitoredBy     []etf.Pid
 	Aliases         []etf.Alias
 	Dictionary      etf.Map
@@ -156,10 +162,6 @@ type Registrar interface {
 }
 
 type Monitor interface {
-	Links(process etf.Pid) []etf.Pid
-	Monitors(process etf.Pid) []etf.Pid
-	MonitorsByName(process etf.Pid) []ProcessID
-	MonitoredBy(process etf.Pid) []etf.Pid
 	IsMonitor(ref etf.Ref) bool
 }
 

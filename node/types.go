@@ -2,7 +2,6 @@ package node
 
 import (
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/halturin/ergo/etf"
@@ -75,21 +74,27 @@ type Node interface {
 	IsAlive() bool
 	Uptime() int64
 	Version() Version
-	Wait()
-	WaitWithTimeout(d time.Duration) error
 	Spawn(name string, opts gen.ProcessOptions, object gen.ProcessBehavior, args ...etf.Term) (gen.Process, error)
-	Stop()
 	LoadedApplications() []gen.ApplicationInfo
 	WhichApplications() []gen.ApplicationInfo
 	ApplicationInfo(name string) (gen.ApplicationInfo, error)
 	ApplicationLoad(app gen.ApplicationBehavior, args ...etf.Term) (string, error)
 	ApplicationUnload(appName string) error
+	ApplicationStart(appName string, args ...etf.Term) (gen.Process, error)
 	ApplicationStartPermanent(appName string, args ...etf.Term) (gen.Process, error)
 	ApplicationStartTransient(appName string, args ...etf.Term) (gen.Process, error)
-	ApplicationStart(appName string, args ...etf.Term) (gen.Process, error)
 	ApplicationStop(appName string) error
 	ProvideRPC(module string, function string, fun gen.RPC) error
 	RevokeRPC(module, function string) error
+
+	Links(process etf.Pid) []etf.Pid
+	Monitors(process etf.Pid) []etf.Pid
+	MonitorsByName(process etf.Pid) []gen.ProcessID
+	MonitoredBy(process etf.Pid) []etf.Pid
+
+	Stop()
+	Wait()
+	WaitWithTimeout(d time.Duration) error
 }
 
 type Version struct {
@@ -155,27 +160,3 @@ const (
 	// TLSModeStrict with validation certificate
 	TLSModeStrict TLSModeType = "strict"
 )
-
-type peer struct {
-	name string
-	send []chan []etf.Term
-	i    int
-	n    int
-
-	mutex sync.Mutex
-}
-
-func (p *peer) getChannel() chan []etf.Term {
-	p.mutex.Lock()
-	defer p.mutex.Unlock()
-
-	c := p.send[p.i]
-
-	p.i++
-	if p.i < p.n {
-		return c
-	}
-
-	p.i = 0
-	return c
-}

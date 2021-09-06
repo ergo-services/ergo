@@ -368,6 +368,18 @@ func (n *node) ApplicationStop(name string) error {
 	}
 	return nil
 }
+func (n *node) Links(process etf.Pid) []etf.Pid {
+	return n.processLinks(process)
+}
+func (n *node) Monitors(process etf.Pid) []etf.Pid {
+	return n.processMonitors(process)
+}
+func (n *node) MonitorsByName(process etf.Pid) []gen.ProcessID {
+	return n.processMonitorsByName(process)
+}
+func (n *node) MonitoredBy(process etf.Pid) []etf.Pid {
+	return n.processMonitoredBy(process)
+}
 
 // ProvideRPC register given module/function as RPC method
 func (n *node) ProvideRPC(module string, function string, fun gen.RPC) error {

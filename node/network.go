@@ -597,3 +597,27 @@ func generateSelfSignedCert(version Version) (tls.Certificate, error) {
 
 	return tls.X509KeyPair(certPEM.Bytes(), certPrivKeyPEM.Bytes())
 }
+
+type peer struct {
+	name string
+	send []chan []etf.Term
+	i    int
+	n    int
+
+	mutex sync.Mutex
+}
+
+func (p *peer) getChannel() chan []etf.Term {
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
+
+	c := p.send[p.i]
+
+	p.i++
+	if p.i < p.n {
+		return c
+	}
+
+	p.i = 0
+	return c
+}
