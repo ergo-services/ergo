@@ -490,20 +490,23 @@ func TestLinkLocalLocal(t *testing.T) {
 	// do not link these process since they are already linked after the previous test
 	//node1gs1.Link(node1gs2.Self())
 
-	node1gs1.SetTrapExit(true)
-	if checkCleanLinkPid(node1gs1, node1gs2.Self()) == nil {
+	if checkLinkPid(node1gs1, node1gs2.Self()) != nil {
 		t.Fatal("link missing for node1gs1")
 	}
-	if checkCleanLinkPid(node1gs2, node1gs1.Self()) == nil {
+	if checkLinkPid(node1gs2, node1gs1.Self()) != nil {
 		t.Fatal("link missing for node1gs2")
 	}
 
+	node1gs1.SetTrapExit(true)
 	node1gs2.Exit("normal")
 	result := gen.MessageExit{node1gs2.Self(), "normal"}
 	waitForResultWithValue(t, gs1.v, result)
 
 	if err := checkCleanLinkPid(node1gs2, node1gs1.Self()); err != nil {
 		t.Fatal(err)
+	}
+	if node1gs2.IsAlive() {
+		t.Fatal("node1gs2 must be terminated")
 	}
 	if err := checkCleanLinkPid(node1gs1, node1gs2.Self()); err != nil {
 		t.Fatal(err)
@@ -525,10 +528,10 @@ func TestLinkLocalLocal(t *testing.T) {
 	fmt.Printf("Testing Link process (by Pid only) Local-Local: gs1 -> gs2. terminate (trap_exit = false): ")
 	node1gs1.Link(node1gs2.Self())
 
-	if checkCleanLinkPid(node1gs2, node1gs1.Self()) == nil {
+	if checkLinkPid(node1gs2, node1gs1.Self()) != nil {
 		t.Fatal("link missing for node1gs1")
 	}
-	if checkCleanLinkPid(node1gs1, node1gs2.Self()) == nil {
+	if checkLinkPid(node1gs1, node1gs2.Self()) != nil {
 		t.Fatal("link missing for node1gs2")
 	}
 
@@ -546,6 +549,9 @@ func TestLinkLocalLocal(t *testing.T) {
 	}
 	if node1gs1.IsAlive() {
 		t.Fatal("gs1 shouldnt be alive after gs2 exit due to disable trap exit on gs1")
+	}
+	if node1gs2.IsAlive() {
+		t.Fatal("node1gs2 must be terminated")
 	}
 
 	node1.Stop()
