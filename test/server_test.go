@@ -195,7 +195,7 @@ func TestServer(t *testing.T) {
 	}
 
 	fmt.Printf("    process.Send (by Name) local (gs1) -> remote (gs3) : ")
-	processName := etf.Tuple{"gs3", node2.NodeName()}
+	processName := gen.ProcessID{"gs3", node2.NodeName()}
 	node1gs1.Send(processName, etf.Atom("hi"))
 	waitForResultWithValue(t, gs3.res, etf.Atom("hi"))
 
