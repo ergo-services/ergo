@@ -42,7 +42,7 @@ func main() {
 		MaxDemand: 2,
 		Partition: 0,
 	}
-	consumer.Subscribe(c1, etf.Tuple{"producer", "node_abc@localhost"}, c1_sub_opts)
+	consumer.Subscribe(c1, gen.ProcessID{"producer", "node_abc@localhost"}, c1_sub_opts)
 
 	fmt.Println("Subscribe consumer 'odd' with min events = 2 and max events 4 (odd numbers only)")
 	c2_sub_opts := gen.StageSubscribeOptions{
@@ -50,7 +50,7 @@ func main() {
 		MaxDemand: 4,
 		Partition: 1,
 	}
-	consumer.Subscribe(c2, etf.Tuple{"producer", "node_abc@localhost"}, c2_sub_opts)
+	consumer.Subscribe(c2, gen.ProcessID{"producer", "node_abc@localhost"}, c2_sub_opts)
 
 	for {
 		n := rand.Intn(9) + 1

@@ -438,7 +438,10 @@ func TestStageDistributed(t *testing.T) {
 	}
 	fmt.Println("OK")
 	subOpts.Cancel = gen.StageCancelTemporary
-	sub3, _ := consumer.Subscribe(consumerProcess2, gen.ProcessID{"stageProducer", "nodeStageDistributed01@localhost"}, subOpts)
+	sub3, err := consumer.Subscribe(consumerProcess2, gen.ProcessID{"stageProducer", "nodeStageDistributed01@localhost"}, subOpts)
+	if err != nil {
+		t.Fatal(err)
+	}
 	fmt.Printf("... Producer@node1 handled subscription request from Consumer@node2: ")
 	waitForResultWithValue(t, producer.value, sub3)
 	fmt.Printf("... Consumer@node2 handled subscription confirmation from Producer@node1 (StageCancelTemporary): ")

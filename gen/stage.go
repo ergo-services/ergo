@@ -744,14 +744,16 @@ func handleConsumer(process *StageProcess, subscription StageSubscription, cmd s
 			return etf.Atom("ok"), nil
 		}
 
-		process.DemonitorProcess(subscription.Ref)
+		// if we already handle MessageDown skip it
+		if reason != "noconnection" {
+			process.DemonitorProcess(subscription.Ref)
+		}
+		delete(process.producers, subscription.Ref)
 
 		err = process.behavior.HandleCanceled(process, subscription, reason)
 		if err != nil {
 			return nil, err
 		}
-
-		delete(process.producers, subscription.Ref)
 
 		switch subInternal.Options.Cancel {
 		case StageCancelTemporary:
@@ -996,6 +998,7 @@ func handleStageDown(process *StageProcess, down MessageDown) error {
 
 	// checking for producers (if we act as a consumer)
 	if subInternal, ok := process.producers[down.Ref]; ok {
+
 		cmd := stageRequestCommand{
 			Cmd:  etf.Atom("cancel"),
 			Opt1: down.Reason,
