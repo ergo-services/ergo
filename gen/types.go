@@ -28,7 +28,7 @@ type Process interface {
 	CallRPCWithTimeout(timeout int, node, module, function string, args ...etf.Term) (etf.Term, error)
 	Direct(request interface{}) (interface{}, error)
 	DirectWithTimeout(request interface{}, timeout int) (interface{}, error)
-	CastRPC(node, module, function string, args ...etf.Term)
+	CastRPC(node, module, function string, args ...etf.Term) error
 	Send(to interface{}, message etf.Term) error
 	SendAfter(to interface{}, message etf.Term, after time.Duration) context.CancelFunc
 	CastAfter(to interface{}, message etf.Term, after time.Duration) context.CancelFunc
@@ -67,9 +67,9 @@ type Process interface {
 
 	// Methods below are intended to be used for the ProcessBehavior implementation
 
-	SendSyncRequestRaw(ref etf.Ref, node etf.Atom, messages ...etf.Term)
-	PutSyncReply(ref etf.Ref, term etf.Term)
-	SendSyncRequest(ref etf.Ref, to interface{}, message etf.Term)
+	SendSyncRequestRaw(ref etf.Ref, node etf.Atom, messages ...etf.Term) error
+	PutSyncReply(ref etf.Ref, term etf.Term) error
+	SendSyncRequest(ref etf.Ref, to interface{}, message etf.Term) error
 	WaitSyncReply(ref etf.Ref, timeout int) (etf.Term, error)
 	ProcessChannels() ProcessChannels
 }

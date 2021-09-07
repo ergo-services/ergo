@@ -56,7 +56,7 @@ type registrarInternal interface {
 	IsAlias(etf.Alias) bool
 	getProcessByPid(etf.Pid) *process
 
-	route(from etf.Pid, to etf.Term, message etf.Term)
+	route(from etf.Pid, to etf.Term, message etf.Term) error
 	routeRaw(nodename etf.Atom, messages ...etf.Term) error
 }
 
@@ -346,7 +346,7 @@ func (r *registrar) spawn(name string, opts processOptions, behavior gen.Process
 		process.exit = nil
 		process.kill = nil
 		process.mailBox = nil
-		process.gracefulExit = nil
+		process.direct = nil
 		process.env = nil
 		process.reply = nil
 	}
@@ -601,7 +601,7 @@ func (r *registrar) PeerList() []string {
 }
 
 // route message to a local/remote process
-func (r *registrar) route(from etf.Pid, to etf.Term, message etf.Term) {
+func (r *registrar) route(from etf.Pid, to etf.Term, message etf.Term) error {
 next:
 	switch tto := to.(type) {
 	case etf.Pid:
@@ -612,14 +612,14 @@ next:
 			p, exist := r.processes[tto.ID]
 			r.mutexProcesses.Unlock()
 			if !exist {
-				return
+				return ErrProcessUnknown
 			}
 			select {
 			case p.mailBox <- gen.ProcessMailboxMessage{from, message}:
 			default:
-				fmt.Println("WARNING! mailbox of", p.Self(), "is full. dropped message from", from)
+				return fmt.Errorf("WARNING! mailbox of", p.Self(), "is full. dropped message from", from)
 			}
-			return
+			return nil
 		}
 
 		r.mutexPeers.Lock()
@@ -628,7 +628,7 @@ next:
 		if !ok {
 			if err := r.net.connect(string(tto.Node)); err != nil {
 				lib.Log("[%s] Can't connect to %v: %s", r.nodename, tto.Node, err)
-				return
+				return fmt.Errorf("Can't connect to %s: %s", tto.Node, err)
 			}
 
 			r.mutexPeers.Lock()
@@ -656,7 +656,7 @@ next:
 			// initiate connection and make yet another attempt to deliver this message
 			if err := r.net.connect(tto.Node); err != nil {
 				lib.Log("[%s] Can't connect to %v: %s", r.nodename, tto.Node, err)
-				return
+				return fmt.Errorf("Can't connect to %s: %s", tto.Node, err)
 			}
 
 			r.mutexPeers.Lock()
@@ -706,7 +706,7 @@ next:
 		if !ok {
 			if err := r.net.connect(string(tto.Node)); err != nil {
 				lib.Log("[%s] Can't connect to %v: %s", r.nodename, tto.Node, err)
-				return
+				return fmt.Errorf("Can't connect to %s: %s", tto.Node, err)
 			}
 
 			r.mutexPeers.Lock()
@@ -718,8 +718,11 @@ next:
 		send <- []etf.Term{etf.Tuple{distProtoALIAS_SEND, from, tto}, message}
 
 	default:
-		lib.Log("[%s] unknow receiver type %#v", r.nodename, tto)
+		lib.Log("[%s] unsupported receiver type %#v", r.nodename, tto)
+		return fmt.Errorf("unsupported receiver type %#v", r.nodename, tto)
 	}
+
+	return nil
 }
 
 func (r *registrar) routeRaw(nodename etf.Atom, messages ...etf.Term) error {

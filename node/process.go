@@ -61,10 +61,18 @@ func (p *process) Name() string {
 }
 
 func (p *process) RegisterName(name string) error {
+	empty := etf.Pid{}
+	if p.self == empty {
+		return ErrProcessTerminated
+	}
 	return p.registerName(name, p.self)
 }
 
 func (p *process) UnregisterName(name string) error {
+	empty := etf.Pid{}
+	if p.self == empty {
+		return ErrProcessTerminated
+	}
 	prc := p.ProcessByName(name)
 	if prc == nil {
 		return ErrNameUnknown
@@ -76,10 +84,18 @@ func (p *process) UnregisterName(name string) error {
 }
 
 func (p *process) Kill() {
+	empty := etf.Pid{}
+	if p.self == empty {
+		return
+	}
 	p.kill()
 }
 
 func (p *process) Exit(reason string) error {
+	empty := etf.Pid{}
+	if p.self == empty {
+		return ErrProcessTerminated
+	}
 	return p.exit(p.self, reason)
 }
 
@@ -119,6 +135,11 @@ func (p *process) Aliases() []etf.Alias {
 
 // Info returns detailed information about the process
 func (p *process) Info() gen.ProcessInfo {
+	empty := etf.Pid{}
+	if p.self == empty {
+		return gen.ProcessInfo{}
+	}
+
 	gl := p.self
 	if p.groupLeader != nil {
 		gl = p.groupLeader.Self()
@@ -152,7 +173,8 @@ func (p *process) Call(to interface{}, message etf.Term) (etf.Term, error) {
 // CallWithTimeout makes outgoing sync request in fashiod of 'gen_call' with given timeout.
 // This method shouldn't be used outside of the actor. Use DirectWithTimeout method instead.
 func (p *process) CallWithTimeout(to interface{}, message etf.Term, timeout int) (etf.Term, error) {
-	if !p.IsAlive() {
+	empty := etf.Pid{}
+	if p.self == empty {
 		return nil, ErrProcessTerminated
 	}
 
@@ -185,7 +207,7 @@ func (p *process) CallRPCWithTimeout(timeout int, node, module, function string,
 }
 
 // CastRPC evaluate rpc cast with given node/MFA
-func (p *process) CastRPC(node, module, function string, args ...etf.Term) {
+func (p *process) CastRPC(node, module, function string, args ...etf.Term) error {
 	lib.Log("[%s] RPC casting: %s:%s:%s", p.NodeName(), node, module, function)
 	message := etf.Tuple{
 		etf.Atom("cast"),
@@ -194,17 +216,17 @@ func (p *process) CastRPC(node, module, function string, args ...etf.Term) {
 		etf.List(args),
 	}
 	to := gen.ProcessID{"rex", node}
-	p.Cast(to, message)
+	return p.Cast(to, message)
 }
 
 // Send sends a message. 'to' can be a Pid, registered local name
 // or a tuple {RegisteredName, NodeName}
 func (p *process) Send(to interface{}, message etf.Term) error {
-	if !p.IsAlive() {
+	empty := etf.Pid{}
+	if p.self == empty {
 		return ErrProcessTerminated
 	}
-	p.route(p.self, to, message)
-	return nil
+	return p.route(p.self, to, message)
 }
 
 // SendAfter starts a timer. When the timer expires, the message sends to the process identified by 'to'.
@@ -241,21 +263,29 @@ func (p *process) CastAfter(to interface{}, message etf.Term, after time.Duratio
 // 'to' can be a Pid, registered local name
 // or a tuple {RegisteredName, NodeName}
 func (p *process) Cast(to interface{}, message etf.Term) error {
-	if !p.IsAlive() {
+	empty := etf.Pid{}
+	if p.self == empty {
 		return ErrProcessTerminated
 	}
 	msg := etf.Term(etf.Tuple{etf.Atom("$gen_cast"), message})
-	p.route(p.self, to, msg)
-	return nil
+	return p.route(p.self, to, msg)
 }
 
 // CreateAlias creates a new alias for the Process
 func (p *process) CreateAlias() (etf.Alias, error) {
+	empty := etf.Pid{}
+	if p.self == empty {
+		return etf.Alias{}, ErrProcessTerminated
+	}
 	return p.newAlias(p)
 }
 
 // DeleteAlias deletes the given alias
 func (p *process) DeleteAlias(alias etf.Alias) error {
+	empty := etf.Pid{}
+	if p.self == empty {
+		return ErrProcessTerminated
+	}
 	return p.deleteAlias(p, alias)
 }
 
@@ -468,6 +498,10 @@ func (p *process) Spawn(name string, opts gen.ProcessOptions, behavior gen.Proce
 }
 
 func (p *process) directRequest(request interface{}, timeout int) (interface{}, error) {
+	if p.direct == nil {
+		return nil, ErrProcessTerminated
+	}
+
 	timer := lib.TakeTimer()
 	defer lib.ReleaseTimer(timer)
 
@@ -497,33 +531,45 @@ func (p *process) directRequest(request interface{}, timeout int) (interface{}, 
 	}
 }
 
-func (p *process) SendSyncRequestRaw(ref etf.Ref, node etf.Atom, messages ...etf.Term) {
+func (p *process) SendSyncRequestRaw(ref etf.Ref, node etf.Atom, messages ...etf.Term) error {
+	if p.reply == nil {
+		return ErrProcessTerminated
+	}
 	reply := make(chan etf.Term, 2)
 	p.replyMutex.Lock()
 	defer p.replyMutex.Unlock()
 	p.reply[ref] = reply
-	p.routeRaw(node, messages...)
+	return p.routeRaw(node, messages...)
 }
-func (p *process) SendSyncRequest(ref etf.Ref, to interface{}, message etf.Term) {
-	reply := make(chan etf.Term, 2)
+func (p *process) SendSyncRequest(ref etf.Ref, to interface{}, message etf.Term) error {
+	if p.reply == nil {
+		return ErrProcessTerminated
+	}
 	p.replyMutex.Lock()
 	defer p.replyMutex.Unlock()
+
+	reply := make(chan etf.Term, 2)
 	p.reply[ref] = reply
-	p.Send(to, message)
+
+	return p.Send(to, message)
 }
 
-func (p *process) PutSyncReply(ref etf.Ref, reply etf.Term) {
+func (p *process) PutSyncReply(ref etf.Ref, reply etf.Term) error {
+	if p.reply == nil {
+		return ErrProcessTerminated
+	}
 	p.replyMutex.Lock()
 	rep, ok := p.reply[ref]
 	p.replyMutex.Unlock()
 	if !ok {
 		// ignored, no process waiting for the reply
-		return
+		return nil
 	}
 	select {
 	case rep <- reply:
 	}
 
+	return nil
 }
 
 func (p *process) WaitSyncReply(ref etf.Ref, timeout int) (etf.Term, error) {
