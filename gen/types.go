@@ -18,6 +18,8 @@ type Process interface {
 	Spawn(name string, opts ProcessOptions, object ProcessBehavior, args ...etf.Term) (Process, error)
 	RemoteSpawn(node string, object string, opts RemoteSpawnOptions, args ...etf.Term) (etf.Pid, error)
 	Name() string
+	RegisterName(name string) error
+	UnregisterName(name string) error
 	Info() ProcessInfo
 	Self() etf.Pid
 	Call(to interface{}, message etf.Term) (etf.Term, error)
@@ -151,9 +153,8 @@ type Registrar interface {
 	ProcessByAlias(alias etf.Alias) Process
 	ProcessInfo(pid etf.Pid) (ProcessInfo, error)
 	ProcessList() []Process
+	IsAlias(etf.Alias) bool
 	MakeRef() etf.Ref
-	RegisterName(name string, pid etf.Pid) error
-	UnregisterName(name string)
 	IsProcessAlive(process Process) bool
 
 	RegisterBehavior(group, name string, behavior ProcessBehavior, data interface{}) error

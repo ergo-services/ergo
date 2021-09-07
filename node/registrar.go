@@ -3,6 +3,7 @@ package node
 import (
 	"context"
 	"fmt"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -46,10 +47,13 @@ type registrarInternal interface {
 	monitorInternal
 
 	spawn(name string, opts processOptions, behavior gen.ProcessBehavior, args ...etf.Term) (gen.Process, error)
+	registerName(name string, pid etf.Pid) error
+	unregisterName(name string) error
 	registerPeer(peer *peer) error
 	unregisterPeer(name string)
 	newAlias(p *process) (etf.Alias, error)
 	deleteAlias(owner *process, alias etf.Alias) error
+	IsAlias(etf.Alias) bool
 	getProcessByPid(etf.Pid) *process
 
 	route(from etf.Pid, to etf.Term, message etf.Term)
@@ -104,6 +108,13 @@ func (r *registrar) MakeRef() (ref etf.Ref) {
 	ref.ID[1] = uint32(uint64(nt) >> 46)
 
 	return
+}
+
+func (r *registrar) IsAlias(alias etf.Alias) bool {
+	r.mutexAliases.Lock()
+	_, ok := r.aliases[alias]
+	r.mutexAliases.Unlock()
+	return ok
 }
 
 func (r *registrar) newAlias(p *process) (etf.Alias, error) {
@@ -320,39 +331,40 @@ func (r *registrar) spawn(name string, opts processOptions, behavior gen.Process
 	started := make(chan bool)
 	defer close(started)
 
+	cleanProcess := func(reason string) {
+		// set gracefulExit to nil before we start termination handling
+		process.gracefulExit = nil
+		r.deleteProcess(process.self)
+		r.processTerminated(process.self, name, reason)
+		// make the rest empty
+		process.name = ""
+		process.aliases = []etf.Alias{}
+		process.self = etf.Pid{}
+		process.behavior = nil
+		process.parent = nil
+		process.groupLeader = nil
+		process.exit = nil
+		process.kill = nil
+		process.mailBox = nil
+		process.gracefulExit = nil
+		process.env = nil
+		process.reply = nil
+	}
+
 	go func(ps gen.ProcessState) {
-		pid := process.Self()
-		//cleanProcess := func() {
-		//	r.deleteProcess(pid)
-		//	r.processTerminated(pid, name, "panic")
-		//}
-
-		//defer func(clean func()) {
-		//	if r := recover(); r != nil {
-		//		pc, fn, line, _ := runtime.Caller(2)
-		//		fmt.Printf("Warning: process recovered (name: %s) %v %#v at %s[%s:%d]\n",
-		//			name, process.self, r, runtime.FuncForPC(pc).Name(), fn, line)
-
-		//		clean()
-
-		//		process.ready <- fmt.Errorf("Can't start process: %s\n", r)
-		//		close(process.stopped)
-		//	}
-
-		//	// we should set this channel to nil otherwise if we try
-		//	// immediately call process.Exit it blocks this call forewer
-		//	// since there is nobody to read a message from this channel
-		//	process.gracefulExit = nil
-		//}(cleanProcess)
+		defer func() {
+			if r := recover(); r != nil {
+				pc, fn, line, _ := runtime.Caller(2)
+				fmt.Printf("Warning: process recovered (name: %s) %v %#v at %s[%s:%d]\n",
+					name, process.self, r, runtime.FuncForPC(pc).Name(), fn, line)
+				cleanProcess("panic")
+			}
+		}()
 
 		// start process loop
 		reason := behavior.ProcessLoop(ps, started)
-
-		// process stopped. unregister it and let everybody (who set up
-		// link/monitor) to know about it
-		process.gracefulExit = nil
-		r.deleteProcess(pid)
-		r.processTerminated(pid, name, reason)
+		// process stopped
+		cleanProcess(reason)
 
 	}(processState)
 
@@ -362,7 +374,7 @@ func (r *registrar) spawn(name string, opts processOptions, behavior gen.Process
 }
 
 // RegisterName register associates the name with pid
-func (r *registrar) RegisterName(name string, pid etf.Pid) error {
+func (r *registrar) registerName(name string, pid etf.Pid) error {
 	lib.Log("[%s] REGISTRAR registering name %s", r.nodename, name)
 	r.mutexNames.Lock()
 	defer r.mutexNames.Unlock()
@@ -375,11 +387,15 @@ func (r *registrar) RegisterName(name string, pid etf.Pid) error {
 }
 
 // UnregisterName unregister named process
-func (r *registrar) UnregisterName(name string) {
+func (r *registrar) unregisterName(name string) error {
 	lib.Log("[%s] REGISTRAR unregistering name %s", r.nodename, name)
 	r.mutexNames.Lock()
 	defer r.mutexNames.Unlock()
-	delete(r.names, name)
+	if _, ok := r.names[name]; ok {
+		delete(r.names, name)
+		return nil
+	}
+	return ErrNameUnknown
 }
 
 func (r *registrar) registerPeer(peer *peer) error {

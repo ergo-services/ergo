@@ -3,7 +3,6 @@ package test
 import (
 	"fmt"
 	"testing"
-	"time"
 
 	"github.com/halturin/ergo"
 	"github.com/halturin/ergo/etf"
@@ -24,10 +23,8 @@ func TestRegistrar(t *testing.T) {
 	fmt.Printf("\n=== Test Registrar\n")
 	fmt.Printf("Starting nodes: nodeR1@localhost, nodeR2@localhost: ")
 	node1, _ := ergo.StartNode("nodeR1@localhost", "cookies", node.Options{})
-	node2, _ := ergo.StartNode("nodeR2@localhost", "cookies", node.Options{})
 	defer node1.Stop()
-	defer node2.Stop()
-	if node1 == nil || node2 == nil {
+	if node1 == nil {
 		t.Fatal("can't start nodes")
 	} else {
 		fmt.Println("OK")
@@ -79,34 +76,42 @@ func TestRegistrar(t *testing.T) {
 	fmt.Println("OK")
 
 	fmt.Printf("...registering name 'test' related to %v: ", node1gs1.Self())
-	if e := node1.Register("test", node1gs1.Self()); e != nil {
+	if e := node1.RegisterName("test", node1gs1.Self()); e != nil {
 		t.Fatal(e)
 	} else {
-		if e := node1.Register("test", node1gs1.Self()); e == nil {
+		if e := node1.RegisterName("test", node1gs1.Self()); e == nil {
 			t.Fatal("registered duplicate name")
 		}
 	}
 	fmt.Println("OK")
 	fmt.Printf("...unregistering name 'test' related to %v: ", node1gs1.Self())
-	node1.Unregister("test")
-	if e := node1.Register("test", node1gs1.Self()); e != nil {
+	node1.UnregisterName("test")
+	if e := node1.RegisterName("test", node1gs1.Self()); e != nil {
 		t.Fatal(e)
 	}
-	fmt.Println("OK")
 
-	fmt.Printf("Starting TestRegistrarGenserver and registering as 'gs2' on %s: ", node2.Name())
-	node2gs2, _ := node2.Spawn("gs2", ProcessOptions{}, gs, nil)
-	if _, ok := node2.registrar.processes[node2gs2.Self().ID]; !ok {
-		message := fmt.Sprintf("missing process %v on %s", node2gs2.Self(), node2.Name())
-		t.Fatal(message)
+	fmt.Printf("Starting TestRegistrarGenserver and registering as 'gs2' on %s: ", node1.Name())
+	node1gs2, err := node1.Spawn("gs2", gen.ProcessOptions{}, gs, nil)
+	if err != nil {
+		t.Fatal(err)
 	}
+	fmt.Println("OK")
+	fmt.Printf("...try to unregister 'test' related to %v using gs2 process (not allowed): ", node1gs1.Self())
+	if err := node1gs2.UnregisterName("test"); err != node.ErrNameOwner {
+		t.Fatal("not allowed to unregister by not an owner")
+	}
+	fmt.Printf("...try to unregister 'test' related to %v using gs1 process (owner): ", node1gs1.Self())
+	if err := node1gs1.UnregisterName("test"); err != nil {
+		t.Fatal(err)
+	}
+
 	fmt.Println("OK")
 }
 
 func TestRegistrarAlias(t *testing.T) {
 	fmt.Printf("\n=== Test Registrar Alias\n")
 	fmt.Printf("Starting node: nodeR1Alias@localhost: ")
-	node1, _ := CreateNode("nodeR1Alias@localhost", "cookies", NodeOptions{})
+	node1, _ := ergo.StartNode("nodeR1Alias@localhost", "cookies", node.Options{})
 	defer node1.Stop()
 	if node1 == nil {
 		t.Fatal("can't start nodes")
@@ -116,15 +121,15 @@ func TestRegistrarAlias(t *testing.T) {
 
 	gs := &TestRegistrarGenserver{}
 	fmt.Printf("    Starting gs1 and gs2 GenServers on %s: ", node1.Name())
-	node1gs1, err := node1.Spawn("gs1", ProcessOptions{}, gs, nil)
+	node1gs1, err := node1.Spawn("gs1", gen.ProcessOptions{}, gs, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	node1gs2, err := node1.Spawn("gs2", ProcessOptions{}, gs, nil)
+	node1gs2, err := node1.Spawn("gs2", gen.ProcessOptions{}, gs, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(node1.registrar.aliases) > 0 {
+	if len(node1gs1.Aliases()) > 0 || len(node1gs2.Aliases()) > 0 {
 		t.Fatal("alias table must be empty")
 	}
 
@@ -135,13 +140,15 @@ func TestRegistrarAlias(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p, ok := node1.registrar.aliases[alias]; !ok {
-		if p.self != p.self {
-			t.Fatal("wrong alias")
-		}
+	prc := node1gs1.ProcessByAlias(alias)
+	if prc == nil {
 		t.Fatal("missing alias")
 	}
+	if prc.Self() != node1gs1.Self() {
+		t.Fatal("wrong alias")
+	}
 	fmt.Println("OK")
+
 	fmt.Printf("    Make a call to gs1 via alias: ")
 	if reply, err := node1gs2.Call(alias, "hi"); err == nil {
 		if r, ok := reply.(string); !ok || r != "hi" {
@@ -151,8 +158,9 @@ func TestRegistrarAlias(t *testing.T) {
 		t.Fatal(err)
 	}
 	fmt.Println("OK")
-	fmt.Printf("    Delete gs1 alias by gs2 (shouldn't be allowed): ")
-	if err := node1gs2.DeleteAlias(alias); err != ErrAliasOwner {
+
+	fmt.Printf("    Delete gs1 alias by gs2 (not allowed): ")
+	if err := node1gs2.DeleteAlias(alias); err != node.ErrAliasOwner {
 		t.Fatal(" expected ErrAliasOwner, got:", err)
 	}
 	fmt.Println("OK")
@@ -161,35 +169,36 @@ func TestRegistrarAlias(t *testing.T) {
 		t.Fatal(err)
 	}
 	fmt.Println("OK")
-	if len(node1.registrar.aliases) > 0 {
-		t.Fatal("alias table (registrar) must be empty", node1.registrar.aliases)
+	if a := node1gs1.Aliases(); len(a) > 0 {
+		t.Fatal("alias table (registrar) must be empty on gs1 process", a)
 	}
 
-	if len(node1gs1.aliases) > 0 {
-		t.Fatal("alias table (process) must be empty", node1gs1.aliases)
+	if a := node1gs2.Aliases(); len(a) > 0 {
+		t.Fatal("alias table (process) must be empty on gs2 process", a)
 
 	}
 	fmt.Printf("    Aliases must be cleaned up once the owner is down: ")
-	node1gs1.CreateAlias()
-	node1gs1.CreateAlias()
-	node1gs1.CreateAlias()
-	if len(node1.registrar.aliases) != 3 {
-		t.Fatal("alias table (registrar) must have 3 aliases", node1.registrar.aliases)
+	alias1, _ := node1gs1.CreateAlias()
+	alias2, _ := node1gs1.CreateAlias()
+	alias3, _ := node1gs1.CreateAlias()
+	if a := node1gs1.Aliases(); len(a) != 3 {
+		t.Fatal("alias table of gs1 must have 3 aliases", a)
 	}
 
-	if len(node1gs1.aliases) != 3 {
-		t.Fatal("alias table (process) must have 3 aliases", node1gs1.aliases)
+	if !node1.IsAlias(alias1) || !node1.IsAlias(alias2) || !node1.IsAlias(alias3) {
+		t.Fatal("not an alias", alias1, alias2, alias3)
 	}
+
 	node1gs1.Kill()
-	time.Sleep(100 * time.Millisecond)
-	if len(node1.registrar.aliases) != 0 {
-		t.Fatal("alias table (registrar) must be empty", node1.registrar.aliases)
+	node1gs1.Wait()
+	if a := node1gs1.Aliases(); len(a) != 0 {
+		t.Fatal("alias table  must be empty", a)
 	}
 	fmt.Println("OK")
 
 	fmt.Printf("    Create gs1 alias on a stopped process (shouldn't be allowed): ")
 	alias, err = node1gs1.CreateAlias()
-	if err != ErrProcessUnknown {
+	if err != node.ErrProcessUnknown {
 		t.Fatal("wrong result")
 	}
 	fmt.Println("OK")

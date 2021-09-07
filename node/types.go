@@ -13,6 +13,8 @@ var (
 	ErrAppAlreadyStarted    = fmt.Errorf("Application is already started")
 	ErrAppUnknown           = fmt.Errorf("Unknown application name")
 	ErrAppIsNotRunning      = fmt.Errorf("Application is not running")
+	ErrNameUnknown          = fmt.Errorf("Unknown name")
+	ErrNameOwner            = fmt.Errorf("Not an owner")
 	ErrProcessBusy          = fmt.Errorf("Process is busy")
 	ErrProcessUnknown       = fmt.Errorf("Unknown process")
 	ErrProcessTerminated    = fmt.Errorf("Process terminated")
@@ -75,6 +77,9 @@ type Node interface {
 	Uptime() int64
 	Version() Version
 	Spawn(name string, opts gen.ProcessOptions, object gen.ProcessBehavior, args ...etf.Term) (gen.Process, error)
+
+	RegisterName(name string, pid etf.Pid) error
+	UnregisterName(name string) error
 	LoadedApplications() []gen.ApplicationInfo
 	WhichApplications() []gen.ApplicationInfo
 	ApplicationInfo(name string) (gen.ApplicationInfo, error)

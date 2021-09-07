@@ -60,6 +60,21 @@ func (p *process) Name() string {
 	return p.name
 }
 
+func (p *process) RegisterName(name string) error {
+	return p.registerName(name, p.self)
+}
+
+func (p *process) UnregisterName(name string) error {
+	prc := p.ProcessByName(name)
+	if prc == nil {
+		return ErrNameUnknown
+	}
+	if prc.Self() != p.self {
+		return ErrNameOwner
+	}
+	return p.unregisterName(name)
+}
+
 func (p *process) Kill() {
 	p.kill()
 }

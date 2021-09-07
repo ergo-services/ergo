@@ -181,6 +181,13 @@ func (n *node) Name() string {
 	return n.name
 }
 
+func (n *node) RegisterName(name string, pid etf.Pid) error {
+	return n.registerName(name, pid)
+}
+func (n *node) UnregisterName(name string) error {
+	return n.unregisterName(name)
+}
+
 // LoadedApplications returns a list of loaded applications (including running applications)
 func (n *node) LoadedApplications() []gen.ApplicationInfo {
 	return n.listApplications(false)
