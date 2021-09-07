@@ -3,6 +3,7 @@ package node
 import (
 	"context"
 	"fmt"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -118,7 +119,6 @@ func (r *registrar) IsAlias(alias etf.Alias) bool {
 
 func (r *registrar) newAlias(p *process) (etf.Alias, error) {
 	var alias etf.Alias
-	lib.Log("[%s] REGISTRAR create process alias for %v", r.nodename, p.self)
 
 	// chech if its alive
 	r.mutexProcesses.Lock()
@@ -129,6 +129,7 @@ func (r *registrar) newAlias(p *process) (etf.Alias, error) {
 	}
 
 	alias = etf.Alias(r.MakeRef())
+	lib.Log("[%s] REGISTRAR create process alias for %v: %s", r.nodename, p.self, alias)
 
 	r.mutexAliases.Lock()
 	r.aliases[alias] = p
@@ -152,13 +153,13 @@ func (r *registrar) deleteAlias(owner *process, alias etf.Alias) error {
 	}
 
 	r.mutexProcesses.Lock()
-	process, process_exist := r.processes[owner.self.ID]
+	_, process_exist := r.processes[owner.self.ID]
 	r.mutexProcesses.Unlock()
 
 	if !process_exist {
 		return ErrProcessUnknown
 	}
-	if process.self != owner.self {
+	if p.self != owner.self {
 		return ErrAliasOwner
 	}
 
@@ -332,9 +333,6 @@ func (r *registrar) spawn(name string, opts processOptions, behavior gen.Process
 		// set gracefulExit to nil before we start termination handling
 		process.gracefulExit = nil
 		r.deleteProcess(process.self)
-		// invoke cancel context to prevent memory leaks
-		// and propagate context canelation
-		process.Kill()
 		// notify all the linked process and monitors
 		r.processTerminated(process.self, name, reason)
 		// make the rest empty
@@ -352,17 +350,20 @@ func (r *registrar) spawn(name string, opts processOptions, behavior gen.Process
 		process.direct = nil
 		process.env = nil
 		process.reply = nil
+		// invoke cancel context to prevent memory leaks
+		// and propagate context canelation
+		process.Kill()
 	}
 
 	go func(ps gen.ProcessState) {
-		//defer func() {
-		//	if r := recover(); r != nil {
-		//		pc, fn, line, _ := runtime.Caller(2)
-		//		fmt.Printf("Warning: process recovered (name: %s) %v %#v at %s[%s:%d]\n",
-		//			name, process.self, r, runtime.FuncForPC(pc).Name(), fn, line)
-		//		cleanProcess("panic")
-		//	}
-		//}()
+		defer func() {
+			if r := recover(); r != nil {
+				pc, fn, line, _ := runtime.Caller(2)
+				fmt.Printf("Warning: process recovered (name: %s) %v %#v at %s[%s:%d]\n",
+					name, process.self, r, runtime.FuncForPC(pc).Name(), fn, line)
+				cleanProcess("panic")
+			}
+		}()
 
 		// start process loop
 		reason := behavior.ProcessLoop(ps, started)

@@ -187,7 +187,7 @@ func TestApplicationBasics(t *testing.T) {
 
 	// case 2.2: get list of children' pid
 	fmt.Printf("... application's children list: ")
-	list := p.Children()
+	list, _ := p.Children()
 	if len(list) != 1 || list[0] != gs.Self() {
 		t.Fatal("incorrect children list")
 	}

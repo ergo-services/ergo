@@ -334,10 +334,9 @@ func (p *process) Env(name string) interface{} {
 
 // Wait waits until process stopped
 func (p *process) Wait() {
-	if p.behavior == nil {
-		return
+	if p.IsAlive() {
+		<-p.context.Done()
 	}
-	<-p.context.Done()
 }
 
 // WaitWithTimeout waits until process stopped. Return ErrTimeout
@@ -360,26 +359,35 @@ func (p *process) WaitWithTimeout(d time.Duration) error {
 
 // Link creates a link between the calling process and another process
 func (p *process) Link(with etf.Pid) {
+	if p.behavior == nil {
+		return
+	}
 	p.link(p.self, with)
 }
 
 // Unlink removes the link, if there is one, between the calling process and the process referred to by Pid.
 func (p *process) Unlink(with etf.Pid) {
+	if p.behavior == nil {
+		return
+	}
 	p.unlink(p.self, with)
 }
 
 // IsAlive returns whether the process is alive
 func (p *process) IsAlive() bool {
+	if p.behavior == nil {
+		return false
+	}
 	return p.context.Err() == nil
 }
 
 // Children returns list of children pid (Application, Supervisor)
-func (p *process) Children() []etf.Pid {
+func (p *process) Children() ([]etf.Pid, error) {
 	c, err := p.directRequest(gen.MessageDirectChildren{}, 5)
 	if err == nil {
-		return c.([]etf.Pid)
+		return c.([]etf.Pid), nil
 	}
-	return []etf.Pid{}
+	return []etf.Pid{}, err
 }
 
 // SetTrapExit enables/disables the trap on terminate process

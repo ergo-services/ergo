@@ -3,6 +3,7 @@ package test
 import (
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/halturin/ergo"
 	"github.com/halturin/ergo/etf"
@@ -89,6 +90,7 @@ func TestRegistrar(t *testing.T) {
 	if e := node1.RegisterName("test", node1gs1.Self()); e != nil {
 		t.Fatal(e)
 	}
+	fmt.Println("OK")
 
 	fmt.Printf("Starting TestRegistrarGenserver and registering as 'gs2' on %s: ", node1.Name())
 	node1gs2, err := node1.Spawn("gs2", gen.ProcessOptions{}, gs, nil)
@@ -96,10 +98,13 @@ func TestRegistrar(t *testing.T) {
 		t.Fatal(err)
 	}
 	fmt.Println("OK")
+
 	fmt.Printf("...try to unregister 'test' related to %v using gs2 process (not allowed): ", node1gs1.Self())
 	if err := node1gs2.UnregisterName("test"); err != node.ErrNameOwner {
 		t.Fatal("not allowed to unregister by not an owner")
 	}
+	fmt.Println("OK")
+
 	fmt.Printf("...try to unregister 'test' related to %v using gs1 process (owner): ", node1gs1.Self())
 	if err := node1gs1.UnregisterName("test"); err != nil {
 		t.Fatal(err)
@@ -190,7 +195,7 @@ func TestRegistrarAlias(t *testing.T) {
 	}
 
 	node1gs1.Kill()
-	node1gs1.Wait()
+	time.Sleep(100 * time.Millisecond)
 	if a := node1gs1.Aliases(); len(a) != 0 {
 		t.Fatal("alias table  must be empty", a)
 	}
@@ -198,8 +203,8 @@ func TestRegistrarAlias(t *testing.T) {
 
 	fmt.Printf("    Create gs1 alias on a stopped process (shouldn't be allowed): ")
 	alias, err = node1gs1.CreateAlias()
-	if err != node.ErrProcessUnknown {
-		t.Fatal("wrong result")
+	if err != node.ErrProcessTerminated {
+		t.Fatal(err)
 	}
 	fmt.Println("OK")
 

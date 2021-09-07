@@ -175,7 +175,11 @@ func makeTree(process gen.Process, resolver map[etf.Pid]interface{}, pid etf.Pid
 
 	tree := etf.List{}
 
-	for _, cp := range pidProcess.Children() {
+	pchildren, err := pidProcess.Children()
+	if err != nil {
+		return tree
+	}
+	for _, cp := range pchildren {
 		children := makeTree(process, resolver, cp)
 		child := etf.Tuple{resolver[pid], resolver[cp]}
 		tree = append(tree, child)

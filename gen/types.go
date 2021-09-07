@@ -57,7 +57,7 @@ type Process interface {
 	GroupLeader() Process
 	Parent() Process
 	Context() context.Context
-	Children() []etf.Pid
+	Children() ([]etf.Pid, error)
 
 	Links() []etf.Pid
 	Monitors() []etf.Pid
