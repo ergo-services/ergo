@@ -3,7 +3,6 @@ package node
 import (
 	"context"
 	"fmt"
-	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -311,8 +310,6 @@ func (r *registrar) deleteProcess(pid etf.Pid) {
 	}
 	r.mutexAliases.Unlock()
 
-	// invoke cancel context to prevent memory leaks
-	p.Kill()
 	return
 }
 
@@ -335,11 +332,17 @@ func (r *registrar) spawn(name string, opts processOptions, behavior gen.Process
 		// set gracefulExit to nil before we start termination handling
 		process.gracefulExit = nil
 		r.deleteProcess(process.self)
+		// invoke cancel context to prevent memory leaks
+		// and propagate context canelation
+		process.Kill()
+		// notify all the linked process and monitors
 		r.processTerminated(process.self, name, reason)
 		// make the rest empty
 		process.name = ""
 		process.aliases = []etf.Alias{}
-		process.self = etf.Pid{}
+		// do not clean self. sometimes its good to know what pid was
+		// used by the dead process. (gen.Applications is using it)
+		// process.self = etf.Pid{}
 		process.behavior = nil
 		process.parent = nil
 		process.groupLeader = nil
@@ -352,14 +355,14 @@ func (r *registrar) spawn(name string, opts processOptions, behavior gen.Process
 	}
 
 	go func(ps gen.ProcessState) {
-		defer func() {
-			if r := recover(); r != nil {
-				pc, fn, line, _ := runtime.Caller(2)
-				fmt.Printf("Warning: process recovered (name: %s) %v %#v at %s[%s:%d]\n",
-					name, process.self, r, runtime.FuncForPC(pc).Name(), fn, line)
-				cleanProcess("panic")
-			}
-		}()
+		//defer func() {
+		//	if r := recover(); r != nil {
+		//		pc, fn, line, _ := runtime.Caller(2)
+		//		fmt.Printf("Warning: process recovered (name: %s) %v %#v at %s[%s:%d]\n",
+		//			name, process.self, r, runtime.FuncForPC(pc).Name(), fn, line)
+		//		cleanProcess("panic")
+		//	}
+		//}()
 
 		// start process loop
 		reason := behavior.ProcessLoop(ps, started)
