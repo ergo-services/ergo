@@ -613,7 +613,7 @@ next:
 			select {
 			case p.mailBox <- gen.ProcessMailboxMessage{from, message}:
 			default:
-				return fmt.Errorf("WARNING! mailbox of", p.Self(), "is full. dropped message from", from)
+				return fmt.Errorf("WARNING! mailbox of %s is full. dropped message from %s", p.Self(), from)
 			}
 			return nil
 		}
@@ -715,7 +715,7 @@ next:
 
 	default:
 		lib.Log("[%s] unsupported receiver type %#v", r.nodename, tto)
-		return fmt.Errorf("unsupported receiver type %#v", r.nodename, tto)
+		return fmt.Errorf("unsupported receiver type %#v", tto)
 	}
 
 	return nil
