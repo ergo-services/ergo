@@ -1,24 +1,27 @@
-package gen
+package test
 
 import (
 	"fmt"
 	"testing"
 
+	"github.com/halturin/ergo"
 	"github.com/halturin/ergo/etf"
+	"github.com/halturin/ergo/gen"
+	"github.com/halturin/ergo/node"
 )
 
-type testGenSaga struct {
-	GenSaga
+type testSaga struct {
+	gen.Saga
 }
 
-func (gs *testGenSaga) InitSaga(state *GenSagaState, args ...etf.Term) error {
+func (gs *testGenSaga) InitSaga(state *gen.SagaState, args ...etf.Term) error {
 	return nil
 }
 
-func (gs *testGenSaga) HandleNext(state *GenSagaState, tx GenSagaTransaction, value interface{}) error {
+func (gs *testGenSaga) HandleNext(state *gen.SagaState, tx gen.SagaTransaction, value interface{}) error {
 	//return "result", value
 	//return "interim", value
-	//return "next", []GenSagaNext
+	//return "next", []gen.SagaNext
 	//return "cancel", reason // cancel tx with given reason
 	//return "stop", nil // stop saga with reason 'normal'
 	//return "noreply", nil
@@ -27,7 +30,7 @@ func (gs *testGenSaga) HandleNext(state *GenSagaState, tx GenSagaTransaction, va
 	return nil
 }
 
-func (gs *testGenSaga) HandleCancel(state *GenSagaState, tx GenSagaTransaction, reason string) error {
+func (gs *testGenSaga) HandleCancel(state *gen.SagaState, tx gen.SagaTransaction, reason string) error {
 	//return "ok"
 	//return "stop" // stop saga with reason 'normal'
 	//return reason
@@ -35,8 +38,8 @@ func (gs *testGenSaga) HandleCancel(state *GenSagaState, tx GenSagaTransaction, 
 	return nil
 }
 
-func (gs *testGenSaga) HandleResult(state *GenSagaState, tx GenSagaTransaction, from GenSagaNext, result interface{}) error {
-	//return "next", []GenSagaNext
+func (gs *testGenSaga) HandleResult(state *gen.SagaState, tx gen.SagaTransaction, from gen.SagaNext, result interface{}) error {
+	//return "next", []gen.SagaNext
 	//return "cancel", reason // cancel tx with given reason
 	//return "result", value
 	//return "interim", value
@@ -47,7 +50,7 @@ func (gs *testGenSaga) HandleResult(state *GenSagaState, tx GenSagaTransaction, 
 	return nil
 }
 
-func (gs *testGenSaga) HandleInterim(state *GenSagaState, tx GenSagaTransaction, from GenSagaNext, interim interface{}) error {
+func (gs *testGenSaga) HandleInterim(state *gen.SagaState, tx gen.SagaTransaction, from gen.SagaNext, interim interface{}) error {
 	//return "ok"
 	//return "stop" // stop saga with reason 'normal'
 	//return reason
@@ -55,8 +58,8 @@ func (gs *testGenSaga) HandleInterim(state *GenSagaState, tx GenSagaTransaction,
 	return nil
 }
 
-func (gs *testGenSaga) HandleTimeout(state *GenSagaState, tx GenSagaTransaction, from GenSagaNext) error {
-	//return "next", []GenSagaNext
+func (gs *testGenSaga) HandleTimeout(state *gen.SagaState, tx gen.SagaTransaction, from gen.SagaNext) error {
+	//return "next", []gen.SagaNext
 	//return "wait", value
 	//return "cancel", reason // cancel tx with given reason
 	//return "stop", nil      // stop saga with reason 'normal'
@@ -66,13 +69,13 @@ func (gs *testGenSaga) HandleTimeout(state *GenSagaState, tx GenSagaTransaction,
 }
 
 type testGenSagaWorker struct {
-	GenSagaWorker
+	gen.SagaWorker
 }
 
-func (w *testGenSagaWorker) HandleStartJob(state *GenSagaWorkerState) error {
+func (w *testGenSagaWorker) HandleStartJob(state *gen.SagaWorkerState) error {
 	return nil
 }
-func (w *testGenSagaWorker) HandleCancelJob(state *GenSagaWorkerState) {
+func (w *testGenSagaWorker) HandleCancelJob(state *gen.SagaWorkerState) {
 	return
 }
 
@@ -80,7 +83,7 @@ func TestGenSagaSimple(t *testing.T) {
 	fmt.Printf("\n=== Test GenSagaSimple\n")
 	fmt.Printf("Starting node: nodeGenSagaSimple01@localhost...")
 
-	node, _ := CreateNode("nodeGenSagaSimple01@localhost", "cookies", NodeOptions{})
+	node, _ := ergo.StartNode("nodeGenSagaSimple01@localhost", "cookies", node.Options{})
 
 	if node == nil {
 		t.Fatal("can't start node")
@@ -90,7 +93,7 @@ func TestGenSagaSimple(t *testing.T) {
 
 	fmt.Printf("... starting Saga processes: ")
 	saga := &testGenSaga{}
-	saga_opts := GenSagaOptions{
+	saga_opts := gen.SagaOptions{
 		Worker: &testGenSagaWorker{},
 	}
 	saga_process, err := node.Spawn("saga", ProcessOptions{}, saga, saga_opts)
