@@ -333,6 +333,9 @@ func (r *registrar) spawn(name string, opts processOptions, behavior gen.Process
 		// set gracefulExit to nil before we start termination handling
 		process.gracefulExit = nil
 		r.deleteProcess(process.self)
+		// invoke cancel context to prevent memory leaks
+		// and propagate context canelation
+		process.Kill()
 		// notify all the linked process and monitors
 		r.processTerminated(process.self, name, reason)
 		// make the rest empty
@@ -350,9 +353,6 @@ func (r *registrar) spawn(name string, opts processOptions, behavior gen.Process
 		process.direct = nil
 		process.env = nil
 		process.reply = nil
-		// invoke cancel context to prevent memory leaks
-		// and propagate context canelation
-		process.Kill()
 	}
 
 	go func(ps gen.ProcessState) {

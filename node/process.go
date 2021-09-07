@@ -342,12 +342,12 @@ func (p *process) Wait() {
 // WaitWithTimeout waits until process stopped. Return ErrTimeout
 // if given timeout is exceeded
 func (p *process) WaitWithTimeout(d time.Duration) error {
-	timer := time.NewTimer(d)
-	defer timer.Stop()
-
-	if p.behavior == nil {
+	if !p.IsAlive() {
 		return nil
 	}
+
+	timer := time.NewTimer(d)
+	defer timer.Stop()
 
 	select {
 	case <-timer.C:
