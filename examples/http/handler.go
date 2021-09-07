@@ -5,13 +5,13 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/halturin/ergo"
 	"github.com/halturin/ergo/etf"
+	"github.com/halturin/ergo/gen"
 )
 
 // GenServer implementation structure
 type Handler struct {
-	ergo.GenServer
+	gen.Server
 }
 
 type st struct {
@@ -25,20 +25,20 @@ type response struct {
 
 // Init initializes process state using arbitrary arguments
 // Init(...) -> state
-func (h *Handler) Init(state *ergo.GenServerState, args ...etf.Term) error {
+func (h *Handler) Init(process *gen.ServerProcess, args ...etf.Term) error {
 	fmt.Println("Start handling http request")
-	state.State = &st{
+	process.State = &st{
 		r: args[0].(*http.Request),
 	}
 	return nil
 }
 
-func (h *Handler) HandleCast(state *ergo.GenServerState, message etf.Term) string {
-	fmt.Println(state.State.(*st).r.URL.Path)
+func (h *Handler) HandleCast(process *gen.ServerProcess, message etf.Term) string {
+	fmt.Println(process.State.(*st).r.URL.Path)
 	w := message.(http.ResponseWriter)
 	w.Header().Set("Content-Type", "application/json")
 	response := response{
-		Request: state.State.(*st).r.URL.Path,
+		Request: process.State.(*st).r.URL.Path,
 		Answer:  "Your request has been handled",
 	}
 
@@ -46,5 +46,6 @@ func (h *Handler) HandleCast(state *ergo.GenServerState, message etf.Term) strin
 	if err != nil {
 		fmt.Println(err)
 	}
+	fmt.Println("Finish handling http request")
 	return "stop"
 }

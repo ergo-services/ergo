@@ -18,7 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 * Introduced new methods `AddStaticRoute`/`RemoveStaticRoute` for `Node`. This feature allows you to keep EPMD service behind a firewall.
 
-* Introduced `SetTrapExit`/`GetTrapExit` methods for `Process` in order to control the trapping `{'EXIT', from, reason}` message
+* Introduced `SetTrapExit`/`TrapExit` methods for `Process` in order to control the trapping `gen.MessageExit` message (for the linked processes)
 
 * Introduced `TermMapIntoStruct` and `TermProplistIntoStruct` functions. It should be easy now to transform `etf.Map` or `[]eft.ProplistElement` into the given struct. See documentation for the details.
 

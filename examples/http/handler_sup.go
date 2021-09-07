@@ -1,28 +1,28 @@
 package main
 
 import (
-	"github.com/halturin/ergo"
 	"github.com/halturin/ergo/etf"
+	"github.com/halturin/ergo/gen"
 )
 
 type HandlerSup struct {
-	ergo.Supervisor
+	gen.Supervisor
 }
 
-func (hs *HandlerSup) Init(args ...etf.Term) ergo.SupervisorSpec {
-	return ergo.SupervisorSpec{
+func (hs *HandlerSup) Init(args ...etf.Term) (gen.SupervisorSpec, error) {
+	return gen.SupervisorSpec{
 		Name: "handler_sup",
-		Children: []ergo.SupervisorChildSpec{
-			ergo.SupervisorChildSpec{
-				Name:    "handler",
-				Child:   &Handler{},
-				Restart: ergo.SupervisorChildRestartTemporary,
+		Children: []gen.SupervisorChildSpec{
+			gen.SupervisorChildSpec{
+				Name:  "handler",
+				Child: &Handler{},
 			},
 		},
-		Strategy: ergo.SupervisorStrategy{
-			Type:      ergo.SupervisorStrategySimpleOneForOne,
+		Strategy: gen.SupervisorStrategy{
+			Type:      gen.SupervisorStrategySimpleOneForOne,
 			Intensity: 5,
 			Period:    5,
+			Restart:   gen.SupervisorStrategyRestartTemporary,
 		},
-	}
+	}, nil
 }

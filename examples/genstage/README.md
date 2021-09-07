@@ -1,1 +1,1 @@
-This is a producer/consumer example based on GenStage feature
+This is a producer/consumer example based on gen.Stage feature

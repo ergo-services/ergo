@@ -3,18 +3,18 @@ package main
 import (
 	"fmt"
 
-	"github.com/halturin/ergo"
 	"github.com/halturin/ergo/etf"
+	"github.com/halturin/ergo/gen"
 )
 
 type Consumer struct {
-	ergo.GenStage
+	gen.Stage
 }
 
-func (g *Consumer) InitStage(state *ergo.GenStageState, args ...etf.Term) error {
+func (c *Consumer) InitStage(process *gen.StageProcess, args ...etf.Term) error {
 	return nil
 }
-func (g *Consumer) HandleEvents(state *ergo.GenStageState, subscription ergo.GenStageSubscription, events etf.List) error {
-	fmt.Printf("Consumer '%s' got events: %v\n", state.Process.Name(), events)
+func (c *Consumer) HandleEvents(process *gen.StageProcess, subscription gen.StageSubscription, events etf.List) error {
+	fmt.Printf("Consumer '%s' got events: %v\n", process.Name(), events)
 	return nil
 }
