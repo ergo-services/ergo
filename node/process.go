@@ -50,12 +50,10 @@ type processOptions struct {
 
 type processExitFunc func(from etf.Pid, reason string) error
 
-// Self returns self Pid
 func (p *process) Self() etf.Pid {
 	return p.self
 }
 
-// Name returns registered name of the process
 func (p *process) Name() string {
 	return p.name
 }
@@ -129,7 +127,6 @@ func (p *process) Aliases() []etf.Alias {
 	return p.aliases
 }
 
-// Info returns detailed information about the process
 func (p *process) Info() gen.ProcessInfo {
 	if p.behavior == nil {
 		return gen.ProcessInfo{}
@@ -158,15 +155,10 @@ func (p *process) Info() gen.ProcessInfo {
 	}
 }
 
-// Call makes outgoing sync request in fashion of 'gen_call'.
-// 'to' can be Pid, registered local name or a tuple {RegisteredName, NodeName}.
-// This method shouldn't be used outside of the actor. Use Direct method instead.
 func (p *process) Call(to interface{}, message etf.Term) (etf.Term, error) {
 	return p.CallWithTimeout(to, message, DefaultCallTimeout)
 }
 
-// CallWithTimeout makes outgoing sync request in fashiod of 'gen_call' with given timeout.
-// This method shouldn't be used outside of the actor. Use DirectWithTimeout method instead.
 func (p *process) CallWithTimeout(to interface{}, message etf.Term, timeout int) (etf.Term, error) {
 	if p.behavior == nil {
 		return nil, ErrProcessTerminated
@@ -181,12 +173,10 @@ func (p *process) CallWithTimeout(to interface{}, message etf.Term, timeout int)
 
 }
 
-// CallRPC evaluate rpc call with given node/MFA
 func (p *process) CallRPC(node, module, function string, args ...etf.Term) (etf.Term, error) {
 	return p.CallRPCWithTimeout(DefaultCallTimeout, node, module, function, args...)
 }
 
-// CallRPCWithTimeout evaluate rpc call with given node/MFA and timeout
 func (p *process) CallRPCWithTimeout(timeout int, node, module, function string, args ...etf.Term) (etf.Term, error) {
 	lib.Log("[%s] RPC calling: %s:%s:%s", p.NodeName(), node, module, function)
 	message := etf.Tuple{
@@ -200,7 +190,6 @@ func (p *process) CallRPCWithTimeout(timeout int, node, module, function string,
 	return p.CallWithTimeout(to, message, timeout)
 }
 
-// CastRPC evaluate rpc cast with given node/MFA
 func (p *process) CastRPC(node, module, function string, args ...etf.Term) error {
 	lib.Log("[%s] RPC casting: %s:%s:%s", p.NodeName(), node, module, function)
 	message := etf.Tuple{
@@ -213,8 +202,6 @@ func (p *process) CastRPC(node, module, function string, args ...etf.Term) error
 	return p.Cast(to, message)
 }
 
-// Send sends a message. 'to' can be a Pid, registered local name
-// or a tuple {RegisteredName, NodeName}
 func (p *process) Send(to interface{}, message etf.Term) error {
 	if p.behavior == nil {
 		return ErrProcessTerminated
@@ -222,9 +209,6 @@ func (p *process) Send(to interface{}, message etf.Term) error {
 	return p.route(p.self, to, message)
 }
 
-// SendAfter starts a timer. When the timer expires, the message sends to the process identified by 'to'.
-// 'to' can be a Pid, registered local name or a tuple {RegisteredName, NodeName}.
-// Returns cancel function in order to discard sending a message
 func (p *process) SendAfter(to interface{}, message etf.Term, after time.Duration) context.CancelFunc {
 	//TODO: should we control the number of timers/goroutines have been created this way?
 	ctx, cancel := context.WithCancel(p.context)
@@ -246,15 +230,11 @@ func (p *process) SendAfter(to interface{}, message etf.Term, after time.Duratio
 	return cancel
 }
 
-// CastAfter simple wrapper for SendAfter to send '$gen_cast' message
 func (p *process) CastAfter(to interface{}, message etf.Term, after time.Duration) context.CancelFunc {
 	msg := etf.Term(etf.Tuple{etf.Atom("$gen_cast"), message})
 	return p.SendAfter(to, msg, after)
 }
 
-// Cast sends a message in fashion of 'gen_cast'.
-// 'to' can be a Pid, registered local name
-// or a tuple {RegisteredName, NodeName}
 func (p *process) Cast(to interface{}, message etf.Term) error {
 	if p.behavior == nil {
 		return ErrProcessTerminated
@@ -263,7 +243,6 @@ func (p *process) Cast(to interface{}, message etf.Term) error {
 	return p.route(p.self, to, msg)
 }
 
-// CreateAlias creates a new alias for the Process
 func (p *process) CreateAlias() (etf.Alias, error) {
 	if p.behavior == nil {
 		return etf.Alias{}, ErrProcessTerminated
@@ -271,7 +250,6 @@ func (p *process) CreateAlias() (etf.Alias, error) {
 	return p.newAlias(p)
 }
 
-// DeleteAlias deletes the given alias
 func (p *process) DeleteAlias(alias etf.Alias) error {
 	if p.behavior == nil {
 		return ErrProcessTerminated
@@ -279,9 +257,6 @@ func (p *process) DeleteAlias(alias etf.Alias) error {
 	return p.deleteAlias(p, alias)
 }
 
-// ListEnv returns a map of configured environment variables.
-// It also includes environment variables from the GroupLeader and Parent.
-// which are overlapped by priority: Process(Parent(GroupLeader))
 func (p *process) ListEnv() map[string]interface{} {
 	p.RLock()
 	defer p.RUnlock()
@@ -305,7 +280,6 @@ func (p *process) ListEnv() map[string]interface{} {
 	return env
 }
 
-// SetEnv set environment variable with given name. Use nil value to remove variable with given name.
 func (p *process) SetEnv(name string, value interface{}) {
 	p.Lock()
 	defer p.Unlock()
@@ -316,7 +290,6 @@ func (p *process) SetEnv(name string, value interface{}) {
 	p.env[name] = value
 }
 
-// Env returns value associated with given environment name.
 func (p *process) Env(name string) interface{} {
 	p.RLock()
 	defer p.RUnlock()
@@ -332,15 +305,12 @@ func (p *process) Env(name string) interface{} {
 	return nil
 }
 
-// Wait waits until process stopped
 func (p *process) Wait() {
 	if p.IsAlive() {
 		<-p.context.Done()
 	}
 }
 
-// WaitWithTimeout waits until process stopped. Return ErrTimeout
-// if given timeout is exceeded
 func (p *process) WaitWithTimeout(d time.Duration) error {
 	if !p.IsAlive() {
 		return nil
@@ -357,7 +327,6 @@ func (p *process) WaitWithTimeout(d time.Duration) error {
 	}
 }
 
-// Link creates a link between the calling process and another process
 func (p *process) Link(with etf.Pid) {
 	if p.behavior == nil {
 		return
@@ -365,7 +334,6 @@ func (p *process) Link(with etf.Pid) {
 	p.link(p.self, with)
 }
 
-// Unlink removes the link, if there is one, between the calling process and the process referred to by Pid.
 func (p *process) Unlink(with etf.Pid) {
 	if p.behavior == nil {
 		return
@@ -373,7 +341,6 @@ func (p *process) Unlink(with etf.Pid) {
 	p.unlink(p.self, with)
 }
 
-// IsAlive returns whether the process is alive
 func (p *process) IsAlive() bool {
 	if p.behavior == nil {
 		return false
@@ -381,7 +348,6 @@ func (p *process) IsAlive() bool {
 	return p.context.Err() == nil
 }
 
-// Children returns list of children pid (Application, Supervisor)
 func (p *process) Children() ([]etf.Pid, error) {
 	c, err := p.directRequest(gen.MessageDirectChildren{}, 5)
 	if err == nil {
@@ -390,17 +356,14 @@ func (p *process) Children() ([]etf.Pid, error) {
 	return []etf.Pid{}, err
 }
 
-// SetTrapExit enables/disables the trap on terminate process
 func (p *process) SetTrapExit(trap bool) {
 	p.trapExit = trap
 }
 
-// TrapExit returns whether the trap was enabled on this process
 func (p *process) TrapExit() bool {
 	return p.trapExit
 }
 
-// ProcessBehavior returns the object this process runs on.
 func (p *process) Behavior() gen.ProcessBehavior {
 	if p.behavior == nil {
 		return nil
@@ -408,12 +371,10 @@ func (p *process) Behavior() gen.ProcessBehavior {
 	return p.behavior
 }
 
-// Direct make a direct request to the actor (Application, Supervisor, GenServer or inherited from GenServer actor) with default timeout 5 seconds
 func (p *process) Direct(request interface{}) (interface{}, error) {
 	return p.directRequest(request, DefaultCallTimeout)
 }
 
-// DirectWithTimeout make a direct request to the actor with the given timeout (in seconds)
 func (p *process) DirectWithTimeout(request interface{}, timeout int) (interface{}, error) {
 	if timeout < 1 {
 		timeout = 5
@@ -421,28 +382,20 @@ func (p *process) DirectWithTimeout(request interface{}, timeout int) (interface
 	return p.directRequest(request, timeout)
 }
 
-// MonitorNode creates monitor between the current process and node. If Node fails or does not exist,
-// the message {nodedown, Node} is delivered to the process.
 func (p *process) MonitorNode(name string) etf.Ref {
 	return p.monitorNode(p.self, name)
 }
 
-// DemonitorNode removes monitor. Returns false if the given reference wasn't found
 func (p *process) DemonitorNode(ref etf.Ref) bool {
 	return p.demonitorNode(ref)
 }
 
-// MonitorProcess creates monitor between the processes.
-// Allowed types for the 'process' value: etf.Pid, gen.Process
-// When a process monitor is triggered, a MessageDown sends to the caller.
-// Note: The monitor request is an asynchronous signal. That is, it takes time before the signal reaches its destination.
 func (p *process) MonitorProcess(process interface{}) etf.Ref {
 	ref := p.MakeRef()
 	p.monitorProcess(p.self, process, ref)
 	return ref
 }
 
-// DemonitorProcess removes monitor. Returns false if the given reference wasn't found
 func (p *process) DemonitorProcess(ref etf.Ref) bool {
 	return p.demonitorProcess(ref)
 }

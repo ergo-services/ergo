@@ -314,7 +314,6 @@ func (r *registrar) deleteProcess(pid etf.Pid) {
 	return
 }
 
-// Spawn create new process
 func (r *registrar) spawn(name string, opts processOptions, behavior gen.ProcessBehavior, args ...etf.Term) (gen.Process, error) {
 
 	process, err := r.newProcess(name, behavior, opts)
@@ -377,7 +376,6 @@ func (r *registrar) spawn(name string, opts processOptions, behavior gen.Process
 	return process, nil
 }
 
-// RegisterName register associates the name with pid
 func (r *registrar) registerName(name string, pid etf.Pid) error {
 	lib.Log("[%s] REGISTRAR registering name %s", r.nodename, name)
 	r.mutexNames.Lock()
@@ -390,7 +388,6 @@ func (r *registrar) registerName(name string, pid etf.Pid) error {
 	return nil
 }
 
-// UnregisterName unregister named process
 func (r *registrar) unregisterName(name string) error {
 	lib.Log("[%s] REGISTRAR unregistering name %s", r.nodename, name)
 	r.mutexNames.Lock()
@@ -515,7 +512,6 @@ func (r *registrar) UnregisterBehavior(group, name string) error {
 	return nil
 }
 
-// IsProcessAlive returns true if the process with given pid is alive
 func (r *registrar) IsProcessAlive(process gen.Process) bool {
 	pid := process.Self()
 	p := r.ProcessByPid(pid)
@@ -526,7 +522,6 @@ func (r *registrar) IsProcessAlive(process gen.Process) bool {
 	return p.IsAlive()
 }
 
-// ProcessInfo returns the details about given Pid
 func (r *registrar) ProcessInfo(pid etf.Pid) (gen.ProcessInfo, error) {
 	p := r.ProcessByPid(pid)
 	if p == nil {
@@ -536,7 +531,6 @@ func (r *registrar) ProcessInfo(pid etf.Pid) (gen.ProcessInfo, error) {
 	return p.Info(), nil
 }
 
-// ProcessByPid returns Process struct for the given Pid. Returns nil if it doesn't exist (not found)
 func (r *registrar) ProcessByPid(pid etf.Pid) gen.Process {
 	if p := r.getProcessByPid(pid); p != nil {
 		return p
@@ -556,7 +550,6 @@ func (r *registrar) getProcessByPid(pid etf.Pid) *process {
 	return nil
 }
 
-// ProcessByAlias returns Process struct for the given alias. Returns nil if it doesn't exist (not found)
 func (r *registrar) ProcessByAlias(alias etf.Alias) gen.Process {
 	r.mutexAliases.Lock()
 	defer r.mutexAliases.Unlock()
@@ -567,7 +560,6 @@ func (r *registrar) ProcessByAlias(alias etf.Alias) gen.Process {
 	return nil
 }
 
-// ProcessByPid returns Process struct for the given name. Returns nil if it doesn't exist (not found)
 func (r *registrar) ProcessByName(name string) gen.Process {
 	var pid etf.Pid
 	if name != "" {
