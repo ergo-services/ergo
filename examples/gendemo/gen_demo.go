@@ -93,6 +93,9 @@ func (gd *GenDemo) Init(process *gen.ServerProcess, args ...etf.Term) error {
 	demo := &GenDemoProcess{
 		ServerProcess: *process,
 	}
+	// do not inherite parent State
+	demo.State = nil
+
 	if err := process.Behavior().(GenDemoBehavior).InitDemo(demo, args...); err != nil {
 		return err
 	}

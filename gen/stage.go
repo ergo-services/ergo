@@ -381,6 +381,8 @@ func (gst *Stage) Init(process *ServerProcess, args ...etf.Term) error {
 		producers:     make(map[etf.Ref]*subscriptionInternal),
 		consumers:     make(map[etf.Pid]*subscriptionInternal),
 	}
+	// do not inherite parent State
+	stageProcess.State = nil
 
 	behavior, ok := process.Behavior().(StageBehavior)
 	if !ok {

@@ -1,30 +1,33 @@
 package gen
 
-import "github.com/halturin/ergo/etf"
+import (
+	"fmt"
+
+	"github.com/halturin/ergo/etf"
+)
 
 type SagaWorkerSup struct {
 	Supervisor
 }
 
-type GenSagaWorkerSupOptions struct {
-	Worker GenSagaWorkerBehavior
-}
-
-func (ws *SagaWorkerSup) Init(args ...etf.Term) SupervisorSpec {
-	options := args[0].(SagaWorkerSupOptions)
+func (ws *SagaWorkerSup) Init(args ...etf.Term) (SupervisorSpec, error) {
+	worker, is_worker := args[0].(SagaWorkerBehavior)
+	if !is_worker {
+		return SupervisorSpec{}, fmt.Errorf("Not a gen.SagaWorkerBehavior")
+	}
 	return SupervisorSpec{
 		Name: "gen_saga_worker_sup",
 		Children: []SupervisorChildSpec{
 			SupervisorChildSpec{
-				Name:    "gen_saga_worker",
-				Child:   options.Worker,
-				Restart: SupervisorChildRestartTemporary,
+				Name:  "gen_saga_worker",
+				Child: worker,
 			},
 		},
 		Strategy: SupervisorStrategy{
 			Type:      SupervisorStrategySimpleOneForOne,
 			Intensity: 5,
 			Period:    5,
+			Restart:   SupervisorStrategyRestartTemporary,
 		},
-	}
+	}, nil
 }

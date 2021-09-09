@@ -11,6 +11,7 @@ import (
 var (
 	ErrUnsupportedRequest = fmt.Errorf("Unsupported request")
 	ErrStop               = fmt.Errorf("stop")
+	ErrServerTerminated   = fmt.Errorf("Server terminated")
 )
 
 type Process interface {
