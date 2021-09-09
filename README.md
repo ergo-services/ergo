@@ -33,7 +33,7 @@ The goal of this project is to leverage Erlang/OTP experience with Golang perfor
   * Permanent
   * Temporary
   * Transient
-* `gen.Stage` behavior support (originated from Elixir's [GenStage](https://hexdocs.pm/gen_stage/GenStage.html)). This is abstraction built on top of `gen.Server` to provide a simple way to create a distributed Producer/Consumer architecture, while automatically managing the concept of backpressure. This implementation is fully compatible with Elixir's GenStage. Example here `examples/genstage` or just run it `go run ./examples/genstage` to see it in action
+* `gen.Stage` behavior support (originated from Elixir's [GenStage](https://hexdocs.pm/gen_stage/GenStage.html)). This is abstraction built on top of `gen.Server` to provide a simple way to create a distributed Producer/Consumer architecture, while automatically managing the concept of backpressure. This implementation is fully compatible with Elixir's GenStage. Example here [examples/genstage](examples/genstage) or just run it `go run ./examples/genstage` to see it in action
 * `gen.Saga` behavior support. It implements a Saga design pattern - a sequence of transactions that updates each service state and publishes the result (or cancels the transaction or triggers the next transaction step). `gen.Saga` also provides a feature of interim results (can be used as transaction progress or as a part of pipeline processing), time deadline (to limit transaction lifespan), two-phase commit (to make distributed transaction atomic).
 * Connect to (accept connection from) any Erlang node within a cluster
 * Making sync request `Process.Call`, async - `Process.Cast` or `Process.Send` in fashion of `gen_server:call`, `gen_server:cast`, `erlang:send` accordingly
@@ -61,13 +61,11 @@ The goal of this project is to leverage Erlang/OTP experience with Golang perfor
 
 Here are the changes of latest release. For more details see the [ChangeLog](ChangeLog.md)
 
-#### [1.3.0](https://github.com/halturin/ergo/releases/tag/v1.3.0) - 2021-09-07 ####
+#### [2.0.0](https://github.com/halturin/ergo/releases/tag/v2.0.0) - 2021-09-22 ####
 
-* Added support of Erlang/OTP 24 (including [Alias](https://blog.erlang.org/My-OTP-24-Highlights/#eep-53-process-aliases) feature)
-  * Introduced new methods for `Node`: `ProcessByAlias`, `ProvideRemoteSpawn`, `RevokeRemoteSpawn`.
-  * Introduced new methods for `Process`: `CreateAlias`, `DeleteAlias`, `RemoteSpawn`
-* Important: `gen.Server` and `gen.Stage` interfaces got significant improvements to be easier to use (without backward compatibility). Make sure to update your code.
-* Introduced new behavior `gen.Saga`. It implements a Saga design pattern - a sequence of transactions that updates each service state and publishes the result (or cancels the transaction or triggers the next transaction step). `gen.Saga` also provides a feature of interim results (can be used as transaction progress or as a part of pipeline processing), time deadline (to limit transaction lifespan), two-phase commit (to make distributed transaction atomic). Here is example `examples/gensaga`.
+* Added support of Erlang/OTP 24 (including [Alias](https://blog.erlang.org/My-OTP-24-Highlights/#eep-53-process-aliases) feature and [remote spawn](https://erlang.org/doc/man/erlang.html#spawn_request-1) introduced in Erlang/OTP 23)
+* **Important**: This release includes refined API for a more convenient way to create OTP-designed microservices (without backward compatibility). Make sure to update your code.
+* Introduced new behavior `gen.Saga`. It implements a Saga design pattern - a sequence of transactions that updates each service state and publishes the result (or cancels the transaction or triggers the next transaction step). `gen.Saga` also provides a feature of interim results (can be used as transaction progress or as a part of pipeline processing), time deadline (to limit transaction lifespan), two-phase commit (to make distributed transaction atomic). Here is example [examples/gensaga](examples/gensaga).
 * Introduced new methods `Process.Direct` and `Process.DirectWithTimeout` to make direct request to the actor (`GenServer` or inherited object). If an actor has no implementation of `HandleDirect` callback it returns `ErrUnsupportedRequest` as a error.
 * Introduced new callback `HandleDirect` in the `gen.Server` interface as a handler for requests made by `Process.Direct` or `Process.DirectWithTimeout`. It should be easy to interact with actors from outside while `Process.Call`, `Process.Cast` and `Process.Send` must be used inside the actors.
 * Introduced new types intended to be used to interact with Erlang/Elixir
@@ -75,8 +73,8 @@ Here are the changes of latest release. For more details see the [ChangeLog](Cha
   * `etf.String` (an alias for the Golang string) encodes as a binary in order to support Elixir string type (which is `binary()` type)
   * `etf.Charlist` (an alias for the Golang string) encodes as a list of chars `[]rune` in order to support Erlang string type (which is `charlist()` type)
 * Introduced new interfaces `Marshaler` (method `MarshalETF`) and `Unmarshaler` (method `UnmarshalETF`) for the custom encoding/decoding data.
-* Added example `example/http` to demonsrate how HTTP server can be integrated into the Ergo node.
-* Added example `example/gendemo` - how to create a custom behavior (design pattern) on top of the `gen.Server`. Take inspiration from the [gen/stage.go](gen/stage.go) or [gen/saga.go](gen/saga.go) design patterns.
+* Added example [examples/http](examples/http) to demonsrate how HTTP server can be integrated into the Ergo node.
+* Added example [examples/gendemo](examples/gendemo) - how to create a custom behavior (design pattern) on top of the `gen.Server`. Take inspiration from the [gen/stage.go](gen/stage.go) or [gen/saga.go](gen/saga.go) design patterns.
 * Added support FreeBSD, OpenBSD, NetBSD, DragonFly.
 * Fixed RPC issue #45
 * Fixed internal timer issue #48
@@ -151,7 +149,7 @@ Here you can see this feature in action using one of the [examples](examples/):
 
 ### Examples ###
 
-Code below is a simple implementation of GenServer pattern `examples/simple/GenServer.go`
+Code below is a simple implementation of GenServer pattern [examples/simple](examples/simple)
 
 ```golang
 package main

@@ -35,8 +35,8 @@ type SagaOptions struct {
 	Worker SagaWorkerBehavior
 }
 
-type SagaState struct {
-	ServerState
+type SagaProcess struct {
+	ServerProcess
 	Options SagaOptions
 	txs     map[string]SagaTransaction
 
@@ -97,43 +97,43 @@ type SagaBehavior interface {
 	//
 
 	// InitSaga
-	InitSaga(state *SagaState, args ...etf.Term) error
+	InitSaga(state *SagaProcess, args ...etf.Term) error
 
 	// HandleNext
-	HandleNext(state *SagaState, tx SagaTransaction, value interface{}) error
+	HandleNext(state *SagaProcess, tx SagaTransaction, value interface{}) error
 
 	// HandleCancel invoked on a request of transaction cancelation.
-	HandleCancel(state *SagaState, tx SagaTransaction, reason string) error
+	HandleCancel(state *SagaProcess, tx SagaTransaction, reason string) error
 
 	// HandleResult
-	HandleResult(state *SagaState, tx SagaTransaction, next SagaNext, result interface{}) error
+	HandleResult(state *SagaProcess, tx SagaTransaction, next SagaNext, result interface{}) error
 
 	// HandleTimeout
-	HandleTimeout(state *SagaState, tx SagaTransaction, next SagaNext) error
+	HandleTimeout(state *SagaProcess, tx SagaTransaction, next SagaNext) error
 
 	//
 	// Optional callbacks
 	//
 
 	// HandleInterim invoked if received interim result from the Next hop
-	HandleInterim(state *SagaState, tx SagaTransaction, next SagaNext, interim interface{}) error
+	HandleInterim(state *SagaProcess, tx SagaTransaction, next SagaNext, interim interface{}) error
 
 	// HandleStageCall this callback is invoked on Process.Call. This method is optional
 	// for the implementation
-	HandleSagaCall(state *SagaState, from ServerFrom, message etf.Term) (string, etf.Term)
+	HandleSagaCall(state *SagaProcess, from ServerFrom, message etf.Term) (string, etf.Term)
 	// HandleStageCast this callback is invoked on Process.Cast. This method is optional
 	// for the implementation
-	HandleSagaCast(state *SagaState, message etf.Term) string
+	HandleSagaCast(state *SagaProcess, message etf.Term) string
 	// HandleStageInfo this callback is invoked on Process.Send. This method is optional
 	// for the implementation
-	HandleSagaInfo(state *SagaState, message etf.Term) string
+	HandleSagaInfo(state *SagaProcess, message etf.Term) string
 
 	// HandleJobResult
-	HandleJobResult(state *SagaState, ref etf.Ref, result interface{}) error
+	HandleJobResult(state *SagaProcess, ref etf.Ref, result interface{}) error
 	// HandleJobInterim
-	HandleJobInterim(state *SagaState, ref etf.Ref, interim interface{}) error
+	HandleJobInterim(state *SagaProcess, ref etf.Ref, interim interface{}) error
 	// HandleJobFailed
-	HandleJobFailed(state *SagaState, ref etf.Ref) error
+	HandleJobFailed(state *SagaProcess, ref etf.Ref) error
 }
 
 // SetMaxTransactions set maximum transactions fo the saga
@@ -176,14 +176,14 @@ func (gs *Saga) Init(process *ServerProcess, args ...etf.Term) error {
 	if opts, ok := args[0].(SagaOptions); ok {
 		options = opts
 	}
-	sagaState := &SagaState{
-		ServerState: *state,
-		txs:         make(map[string]SagaTransaction),
+	sagaProcess := &SagaProcess{
+		ServerProcess: *process,
+		txs:           make(map[string]SagaTransaction),
 	}
-	if err := process.Behavior().(SagaBehavior).InitSaga(sagaState, args...); err != nil {
+	if err := process.Behavior().(SagaBehavior).InitSaga(sagaProcess, args...); err != nil {
 		return err
 	}
-	process.State = sagaState
+	process.State = sagaProcess
 
 	if options.Worker == nil {
 		// do not start supervisor if Worker hasn't been defined
@@ -209,12 +209,12 @@ func (gs *Saga) Init(process *ServerProcess, args ...etf.Term) error {
 }
 
 func (gs *Saga) HandleCall(process *ServerProcess, from ServerFrom, message etf.Term) (string, etf.Term) {
-	st := process.State.(*SagaState)
-	return process.Behavior().(SagaBehavior).HandleSagaCall(st, from, message)
+	sp := process.State.(*SagaProcess)
+	return process.Behavior().(SagaBehavior).HandleSagaCall(sp, from, message)
 }
 
 func (gs *Saga) HandleDirect(process *ServerProcess, message interface{}) (interface{}, error) {
-	st := process.State.(*SagaState)
+	st := process.State.(*SagaProcess)
 	switch m := message.(type) {
 	case sagaSetMaxTransactions:
 		st.Options.MaxTransactions = m.max
@@ -225,7 +225,7 @@ func (gs *Saga) HandleDirect(process *ServerProcess, message interface{}) (inter
 }
 
 func (gs *Saga) HandleCast(process *ServerProcess, message etf.Term) string {
-	st := process.State.(*SagaState)
+	st := process.State.(*SagaProcess)
 	switch m := message.(type) {
 	case messageSagaWorkerJobResult:
 		process.Behavior().(SagaBehavior).HandleJobResult(st, m.ref, m.result)
@@ -241,7 +241,7 @@ func (gs *Saga) HandleCast(process *ServerProcess, message etf.Term) string {
 func (gs *Saga) HandleInfo(process *ServerProcess, message etf.Term) string {
 	var m sagaMessage
 
-	st := process.State.(*SagaState)
+	st := process.State.(*SagaProcess)
 	// check if we got a MessageDown
 	if isDown, d := IsDownMessage(message); isDown {
 		if err := handleSagaDown(st, d); err != nil {
@@ -269,7 +269,7 @@ func (gs *Saga) HandleInfo(process *ServerProcess, message etf.Term) string {
 	}
 }
 
-func handleSagaRequest(state *SagaState, m sagaMessage) error {
+func handleSagaRequest(state *SagaProcess, m sagaMessage) error {
 	var nextMessage sagaMessageNext
 	var cancel sagaMessageCancel
 	var result sagaMessageResult
@@ -381,45 +381,45 @@ func handleSagaRequest(state *SagaState, m sagaMessage) error {
 	return ErrUnsupportedRequest
 }
 
-func handleSagaDown(state *SagaState, down DownMessage) error {
+func handleSagaDown(state *SagaProcess, down DownMessage) error {
 	return nil
 }
 
 //
 // default Saga callbacks
 //
-func (gs *Saga) HandleCommit(state *SagaState, tx SagaTransaction) {
+func (gs *Saga) HandleCommit(state *SagaProcess, tx SagaTransaction) {
 	return
 }
-func (gs *Saga) HandleInterim(state *SagaState, tx SagaTransaction, interim interface{}) error {
+func (gs *Saga) HandleInterim(state *SagaProcess, tx SagaTransaction, interim interface{}) error {
 	// default callback if it wasn't implemented
 	fmt.Printf("HandleInterim: unhandled message %#v\n", tx)
 	return nil
 }
-func (gs *Saga) HandleSagaCall(state *SagaState, from ServerFrom, message etf.Term) (string, etf.Term) {
+func (gs *Saga) HandleSagaCall(state *SagaProcess, from ServerFrom, message etf.Term) (string, etf.Term) {
 	// default callback if it wasn't implemented
 	fmt.Printf("HandleSagaCall: unhandled message (from %#v) %#v\n", from, message)
 	return "reply", etf.Atom("ok")
 }
-func (gs *Saga) HandleSagaCast(state *SagaState, message etf.Term) string {
+func (gs *Saga) HandleSagaCast(state *SagaProcess, message etf.Term) string {
 	// default callback if it wasn't implemented
 	fmt.Printf("HandleSagaCast: unhandled message %#v\n", message)
 	return "noreply"
 }
-func (gs *Saga) HandleSagaInfo(state *SagaState, message etf.Term) string {
+func (gs *Saga) HandleSagaInfo(state *SagaProcess, message etf.Term) string {
 	// default callback if it wasn't implemnted
 	fmt.Printf("HandleSagaInfo: unhandled message %#v\n", message)
 	return "noreply"
 }
-func (gs *Saga) HandleJobResult(state *SagaState, ref etf.Ref, result interface{}) error {
+func (gs *Saga) HandleJobResult(state *SagaProcess, ref etf.Ref, result interface{}) error {
 	fmt.Printf("HandleJobResult: unhandled message %#v\n", result)
 	return nil
 }
-func (gs *Saga) HandleJobInterim(state *SagaState, ref etf.Ref, interim interface{}) error {
+func (gs *Saga) HandleJobInterim(state *SagaProcess, ref etf.Ref, interim interface{}) error {
 	fmt.Printf("HandleJobInterim: unhandled message %#v\n", interim)
 	return nil
 }
-func (gs *Saga) HandleJobFailed(state *SagaState, ref etf.Ref) error {
+func (gs *Saga) HandleJobFailed(state *SagaProcess, ref etf.Ref) error {
 	fmt.Printf("HandleJobFailed: unhandled message %#v\n", ref)
 	return nil
 }
