@@ -166,20 +166,20 @@ func (sv *Supervisor) ProcessLoop(ps ProcessState, started chan<- bool) string {
 }
 
 // StartChild dynamically starts a child process with given name of child spec which is defined by Init call.
-func (sv *Supervisor) StartChild(supervisor Process, name string, args ...etf.Term) (etf.Pid, error) {
+func (sv *Supervisor) StartChild(supervisor Process, name string, args ...etf.Term) (Process, error) {
 	message := messageStartChild{
 		name: name,
 		args: args,
 	}
 	value, err := supervisor.Direct(message)
 	if err != nil {
-		return etf.Pid{}, err
+		return nil, err
 	}
-	pid, ok := value.(etf.Pid)
+	process, ok := value.(Process)
 	if !ok {
-		return etf.Pid{}, fmt.Errorf("internal error: can't start child %#v", value)
+		return nil, fmt.Errorf("internal error: can't start child %#v", value)
 	}
-	return pid, nil
+	return process, nil
 }
 
 func startChildren(supervisor Process, spec *SupervisorSpec) {
@@ -257,7 +257,7 @@ func handleDirect(supervisor Process, spec *SupervisorSpec, message interface{})
 		process := startChild(supervisor, childSpec.Name, childSpec.Child, childSpec.Args...)
 		childSpec.process = process
 		spec.Children = append(spec.Children, childSpec)
-		return process.Self(), nil
+		return process, nil
 
 	default:
 	}

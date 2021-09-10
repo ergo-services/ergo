@@ -131,7 +131,7 @@ type Process interface {
 	DemonitorNode(ref etf.Ref) bool
 
 	// MonitorProcess creates monitor between the processes.
-	// Allowed types for the 'process' value: etf.Pid, gen.Process
+	// Allowed types for the 'process' value: etf.Pid, gen.ProcessID
 	// When a process monitor is triggered, a MessageDown sends to the caller.
 	// Note: The monitor request is an asynchronous signal. That is, it takes
 	// time before the signal reaches its destination.
@@ -183,9 +183,15 @@ type ProcessInfo struct {
 }
 
 type ProcessOptions struct {
+	// Context allows mix the system context with the custom one. E.g. to limit
+	// the lifespan using context.WithTimeout
+	Context context.Context
+	// MailboxSize defines the lenght of message queue for the process
 	MailboxSize uint16
+	// GroupLeader
 	GroupLeader Process
-	Env         map[string]interface{}
+	// Env set the process environment variables
+	Env map[string]interface{}
 }
 
 // RemoteSpawnOptions defines options for RemoteSpawn method

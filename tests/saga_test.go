@@ -18,11 +18,14 @@ type testSagaWorker struct {
 	gen.SagaWorker
 }
 
-func (w *testSagaWorker) HandleStartJob(process *gen.SagaWorkerProcess) error {
+func (w *testSagaWorker) HandleStartJob(process *gen.SagaWorkerProcess, job gen.SagaJob) error {
 	return nil
 }
 func (w *testSagaWorker) HandleCancelJob(process *gen.SagaWorkerProcess) {
 	return
+}
+func (w *testSagaWorker) HandleWorkerInfo(process *gen.SagaWorkerProcess, message etf.Term) string {
+	return "result"
 }
 
 func (gs *testSaga) InitSaga(process *gen.SagaProcess, args ...etf.Term) (gen.SagaOptions, error) {
@@ -32,52 +35,24 @@ func (gs *testSaga) InitSaga(process *gen.SagaProcess, args ...etf.Term) (gen.Sa
 	return opts, nil
 }
 
-func (gs *testSaga) HandleNext(process *gen.SagaProcess, tx gen.SagaTransaction, value interface{}) error {
-	//return "result", value
-	//return "interim", value
-	//return "next", []gen.SagaNext
-	//return "cancel", reason // cancel tx with given reason
-	//return "stop", nil // stop saga with reason 'normal'
-	//return "noreply", nil
-	//return reason, nil
+func (gs *testSaga) HandleTxNew(process *gen.SagaProcess, tx gen.SagaTransaction, value interface{}) error {
+	return nil
+}
+
+func (gs *testSaga) HandleTxCancel(process *gen.SagaProcess, tx gen.SagaTransaction, reason string) error {
+	return nil
+}
+
+func (gs *testSaga) HandleTxResult(process *gen.SagaProcess, tx gen.SagaTransaction, from gen.SagaNext, result interface{}) error {
+	return nil
+}
+
+func (gs *testSaga) HandleTxInterim(process *gen.SagaProcess, tx gen.SagaTransaction, from gen.SagaNext, interim interface{}) error {
 
 	return nil
 }
 
-func (gs *testSaga) HandleCancel(process *gen.SagaProcess, tx gen.SagaTransaction, reason string) error {
-	//return "ok"
-	//return "stop" // stop saga with reason 'normal'
-	//return reason
-
-	return nil
-}
-
-func (gs *testSaga) HandleResult(process *gen.SagaProcess, tx gen.SagaTransaction, from gen.SagaNext, result interface{}) error {
-	//return "next", []gen.SagaNext
-	//return "cancel", reason // cancel tx with given reason
-	//return "result", value
-	//return "interim", value
-	//return "stop", nil // stop saga with reason 'normal'
-	//return "wait", value
-	//return reason, nil
-
-	return nil
-}
-
-func (gs *testSaga) HandleInterim(process *gen.SagaProcess, tx gen.SagaTransaction, from gen.SagaNext, interim interface{}) error {
-	//return "ok"
-	//return "stop" // stop saga with reason 'normal'
-	//return reason
-
-	return nil
-}
-
-func (gs *testSaga) HandleTimeout(process *gen.SagaProcess, tx gen.SagaTransaction, from gen.SagaNext) error {
-	//return "next", []gen.SagaNext
-	//return "wait", value
-	//return "cancel", reason // cancel tx with given reason
-	//return "stop", nil      // stop saga with reason 'normal'
-	//return reason, nil
+func (gs *testSaga) HandleTxTimeout(process *gen.SagaProcess, tx gen.SagaTransaction, from gen.SagaNext) error {
 
 	return nil
 }

@@ -52,10 +52,9 @@ func main() {
 			return
 		}
 
-		if pid, err := handler_sup.StartChild(p, "handler", r); err == nil {
-			process.Cast(pid, w)
-			handler := process.ProcessByPid(pid)
-			handler.Wait()
+		if handlerProcess, err := handler_sup.StartChild(p, "handler", r); err == nil {
+			process.Cast(handlerProcess.Self(), w)
+			handlerProcess.Wait()
 			return
 		}
 

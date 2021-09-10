@@ -86,14 +86,14 @@ func TestSupervisorSimpleOneForOne(t *testing.T) {
 			if e != nil {
 				t.Fatal(e)
 			}
-			children[i] = p
+			children[i] = p.Self()
 			// start twice. must be able to start any number of child processes
 			// as it doesn't register this process with the given name.
 			p, e = sv.StartChild(processSV, fmt.Sprintf("testGS%d", i/2+1), sv.ch, i+1)
 			if e != nil {
 				t.Fatal(e)
 			}
-			children[i+1] = p
+			children[i+1] = p.Self()
 		}
 		if children1, err := waitNeventsSupervisorChildren(sv.ch, 6, children); err != nil {
 			t.Fatal(err)
@@ -194,14 +194,14 @@ func TestSupervisorSimpleOneForOne(t *testing.T) {
 			if e != nil {
 				t.Fatal(e)
 			}
-			children[i] = p
+			children[i] = p.Self()
 			// start twice. must be able to start any number of child processes
 			// as it doesn't register this process with the given name.
 			p, e = sv.StartChild(processSV, fmt.Sprintf("testGS%d", i/2+1), sv.ch, i+1)
 			if e != nil {
 				t.Fatal(e)
 			}
-			children[i+1] = p
+			children[i+1] = p.Self()
 		}
 		if children1, err := waitNeventsSupervisorChildren(sv.ch, 6, children); err != nil {
 			t.Fatal(err)

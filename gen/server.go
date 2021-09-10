@@ -118,6 +118,7 @@ func (gs *Server) ProcessLoop(ps ProcessState, started chan<- bool) string {
 			message = msg.Message
 
 		case <-gsp.Context().Done():
+			gsp.behavior.Terminate(gsp, "kill")
 			return "kill"
 
 		case direct := <-chs.Direct:

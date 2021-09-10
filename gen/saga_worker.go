@@ -7,19 +7,27 @@ import (
 )
 
 type SagaWorkerBehavior interface {
-	ProcessBehavior
+	ServerBehavior
 	// Mandatory callbacks
-	HandleStartJob(process *SagaWorkerProcess) error
+	HandleStartJob(process *SagaWorkerProcess, job SagaJob) error
 	HandleCancelJob(process *SagaWorkerProcess)
 
 	// Optional callbacks
 	HandleCommitJob(process *SagaWorkerProcess)
 
-	HandleWorkerInfo(process *SagaWorkerProcess, message etf.Term) string
-	HandleWorkerCast(process *SagaWorkerProcess, message etf.Term) string
-	HandleWorkerCall(process *SagaWorkerProcess, from ServerFrom, message etf.Term) (string, interface{})
+	HandleWorkerInfo(process *SagaWorkerProcess, message etf.Term) (SagaWorkerState, interface{})
+	HandleWorkerCast(process *SagaWorkerProcess, message etf.Term) (SagaWorkerState, interface{})
+	HandleWorkerCall(process *SagaWorkerProcess, from ServerFrom, message etf.Term) (SagaWorkerState, interface{})
 	HandleWorkerDirect(process *SagaWorkerProcess, message interface{}) (interface{}, error)
 }
+
+type SagaWorkerState string
+
+const (
+	SagaWorkerStateOK    SagaWorkerState = "ok"
+	SagaWorkerStateError SagaWorkerState = "error"
+	SagaWorkerStateReply SagaWorkerState = "reply"
+)
 
 type SagaWorker struct {
 	Server
@@ -27,80 +35,84 @@ type SagaWorker struct {
 
 type SagaWorkerProcess struct {
 	ServerProcess
-	Job SagaJob
+	job  SagaJob
+	done bool
 }
 
-type SagaJobID etf.Ref
-
-type SagaJob struct {
-	ID    SagaJobID
-	Value interface{}
-	saga  etf.Pid
+type messageSagaJobStart struct {
+	job SagaJob
 }
-
-type messageSagaWorkerJobStart struct{}
-type messageSagaWorkerJobCancel struct{}
-type messageSagaWorkerJobCommit struct{}
-type messageSagaWorkerJobInterim struct {
+type messageSagaJobCancel struct{}
+type messageSagaJobCommit struct{}
+type messageSagaJobInterim struct {
 	id      SagaJobID
 	interim interface{}
 }
-type messageSagaWorkerJobResult struct {
+type messageSagaJobResult struct {
 	id     SagaJobID
 	result interface{}
 }
 
-func (w *SagaWorker) SendResult(process Process, job SagaJob, result interface{}) {
-	message := messageSagaWorkerJobResult{
-		id:     job.ID,
+//
+// SagaWorkerProcess methods
+//
+
+// SendResult
+func (wp *SagaWorkerProcess) SendResult(result interface{}) {
+	message := messageSagaJobResult{
+		id:     wp.job.ID,
 		result: result,
 	}
-	process.Cast(job.saga, message)
+	wp.Cast(wp.job.saga, message)
+	wp.job.done = true
 }
 
-func (w *SagaWorker) SendInterim(process Process, job SagaJob, interim interface{}) {
-	message := messageSagaWorkerJobInterim{
-		id:      job.ID,
+// SendInterim
+func (wp *SagaWorkerProcess) SendInterim(interim interface{}) {
+	message := messageSagaJobInterim{
+		id:      wp.job.ID,
 		interim: interim,
 	}
-	process.Cast(job.saga, message)
+	wp.Cast(wp.job.saga, message)
+
 }
 
+// Server callbacks
+
 func (w *SagaWorker) Init(process *ServerProcess, args ...etf.Term) error {
-	job, ok := args[0].(SagaJob)
-	if !ok {
-		return fmt.Errorf("not a gen.SagaJob")
-	}
 	workerProcess := &SagaWorkerProcess{
 		ServerProcess: *process,
-		Job:           job,
 	}
 	process.State = workerProcess
-	process.Send(process.Self(), messageSagaWorkerJobStart{})
 	return nil
 }
 
-func (w *SagaWorker) HandleInfo(process *ServerProcess, message etf.Term) string {
+func (w *SagaWorker) HandleCast(process *ServerProcess, message etf.Term) string {
 	p := process.State.(*SagaWorkerProcess)
-	switch message.(type) {
-	case messageSagaWorkerJobStart:
-		err := process.Behavior().(SagaWorkerBehavior).HandleStartJob(p)
+	switch m := message.(type) {
+	case messageSagaJobStart:
+		p.job = m.job
+		err := process.Behavior().(SagaWorkerBehavior).HandleStartJob(p, p.job)
+
 		switch err {
 		case nil:
+			// if job is done and commit shouldn't be awaited
+			// stop this worker with 'normal' as a reason
+			if p.job.done && !p.job.commit {
+				return "stop"
+			}
 			return "noreply"
-		case ErrStop:
-			return "stop"
 		default:
 			return err.Error()
 		}
-	case messageSagaWorkerJobCommit:
+	case messageSagaJobCommit:
 		process.Behavior().(SagaWorkerBehavior).HandleCommitJob(p)
 		return "stop"
-	case messageSagaWorkerJobCancel:
+	case messageSagaJobCancel:
 		process.Behavior().(SagaWorkerBehavior).HandleCancelJob(p)
 		return "stop"
 	default:
-		return process.Behavior().(SagaWorkerBehavior).HandleWorkerInfo(p, message)
+		return process.Behavior().(SagaWorkerBehavior).HandleWorkerCast(p, message)
 	}
 }
 
@@ -113,9 +125,9 @@ func (w *SagaWorker) HandleDirect(process *ServerProcess, message interface{}) (
 	p := process.State.(*SagaWorkerProcess)
 	return process.Behavior().(SagaWorkerBehavior).HandleWorkerDirect(p, message)
 }
-func (w *SagaWorker) HandleCast(process *ServerProcess, message etf.Term) string {
+func (w *SagaWorker) HandleInfo(process *ServerProcess, message etf.Term) string {
 	p := process.State.(*SagaWorkerProcess)
-	return process.Behavior().(SagaWorkerBehavior).HandleWorkerCast(p, message)
+	return process.Behavior().(SagaWorkerBehavior).HandleWorkerInfo(p, message)
 }
 
 // default callbacks

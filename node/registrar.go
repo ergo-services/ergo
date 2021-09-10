@@ -193,16 +193,12 @@ func (r *registrar) newProcess(name string, behavior gen.ProcessBehavior, opts p
 		mailboxSize = int(opts.MailboxSize)
 	}
 
-	switch {
-	case opts.parent != nil:
-		parentContext = opts.parent.context
-	case opts.GroupLeader != nil:
-		parentContext = opts.GroupLeader.Context()
-	default:
-		parentContext = r.ctx
-	}
+	parentContext = r.ctx
 
 	processContext, kill := context.WithCancel(parentContext)
+	if opts.Context != nil {
+		processContext = context.WithContext(opts.Context)
+	}
 
 	pid := r.newPID()
 

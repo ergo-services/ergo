@@ -8,7 +8,7 @@
 
 Technologies and design patterns of Erlang/OTP have been proven over the years. Now in Golang.
 Up to x5 times faster than original Erlang/OTP in terms of network messaging.
-The easiest drop-in replacement for your hot Erlang-nodes in the cluster.
+The easiest way to create an OTP-designed application in Golang.
 
 [https://ergo.services](https://ergo.services)
 
