@@ -15,15 +15,15 @@ type simple struct {
 	gen.Server
 }
 
-func (s *simple) HandleInfo(process *gen.ServerProcess, message etf.Term) string {
+func (s *simple) HandleInfo(process *gen.ServerProcess, message etf.Term) gen.ServerStatus {
 	value := message.(int)
 	fmt.Printf("HandleInfo: %#v \n", message)
 	if value > 104 {
-		return "stop"
+		return gen.ServerStatusStop
 	}
 	// sending message with delay
 	process.SendAfter(process.Self(), value+1, time.Duration(1*time.Second))
-	return "noreply"
+	return gen.ServerStatusOK
 }
 
 func main() {

@@ -81,9 +81,9 @@ func (nk *netKernel) Init(process *gen.ServerProcess, args ...etf.Term) error {
 	return nil
 }
 
-func (nk *netKernel) HandleCall(process *gen.ServerProcess, from gen.ServerFrom, message etf.Term) (code string, reply etf.Term) {
+func (nk *netKernel) HandleCall(process *gen.ServerProcess, from gen.ServerFrom, message etf.Term) (reply etf.Term, status gen.ServerStatus) {
 	lib.Log("NET_KERNEL: HandleCall: %#v, From: %#v", message, from)
-	code = "reply"
+	status = gen.ServerStatusOK
 
 	switch t := (message).(type) {
 	case etf.Tuple:
@@ -124,7 +124,7 @@ func (nk *netKernel) HandleCall(process *gen.ServerProcess, from gen.ServerFrom,
 	return
 }
 
-func (nk *netKernel) HandleInfo(process *gen.ServerProcess, message etf.Term) string {
+func (nk *netKernel) HandleInfo(process *gen.ServerProcess, message etf.Term) gen.ServerStatus {
 	lib.Log("NET_KERNEL: HandleInfo: %#v", message)
 	switch m := message.(type) {
 	case gen.MessageDown:
@@ -133,7 +133,7 @@ func (nk *netKernel) HandleInfo(process *gen.ServerProcess, message etf.Term) st
 			delete(nk.routinesCtx, m.Pid)
 		}
 	}
-	return "noreply"
+	return gen.ServerStatusOK
 }
 
 func sendProcInfo(p gen.Process, to etf.Pid) {

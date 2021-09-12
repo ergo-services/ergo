@@ -45,7 +45,7 @@ func (r *rex) Init(process *gen.ServerProcess, args ...etf.Term) error {
 	return nil
 }
 
-func (r *rex) HandleCall(process *gen.ServerProcess, from gen.ServerFrom, message etf.Term) (string, etf.Term) {
+func (r *rex) HandleCall(process *gen.ServerProcess, from gen.ServerFrom, message etf.Term) (etf.Term, gen.ServerStatus) {
 	lib.Log("REX: HandleCall: %#v, From: %#v", message, from)
 	switch m := message.(type) {
 	case etf.Tuple:
@@ -58,7 +58,7 @@ func (r *rex) HandleCall(process *gen.ServerProcess, from gen.ServerFrom, messag
 			args := m.Element(4).(etf.List)
 			reply := r.handleRPC(process, module, function, args)
 			if reply != nil {
-				return "reply", reply
+				return reply, gen.ServerStatusOK
 			}
 
 			to := gen.ProcessID{string(module), process.NodeName()}
@@ -67,21 +67,21 @@ func (r *rex) HandleCall(process *gen.ServerProcess, from gen.ServerFrom, messag
 			if err != nil {
 				reply = etf.Term(etf.Tuple{etf.Atom("error"), err})
 			}
-			return "reply", reply
+			return reply, gen.ServerStatusOK
 
 		}
 	}
 
 	reply := etf.Term(etf.Tuple{etf.Atom("badrpc"), etf.Atom("unknown")})
-	return "reply", reply
+	return reply, gen.ServerStatusOK
 }
 
-func (r *rex) HandleInfo(process *gen.ServerProcess, message etf.Term) string {
+func (r *rex) HandleInfo(process *gen.ServerProcess, message etf.Term) gen.ServerStatus {
 	// add this handler to suppres any messages from erlang
-	return "noreply"
+	return gen.ServerStatusOK
 }
 
-func (r *rex) HandleDirect(process *gen.ServerProcess, message interface{}) (interface{}, error) {
+func (r *rex) HandleDirect(process *gen.ServerProcess, message interface{}) (interface{}, gen.ServerStatus) {
 	switch m := message.(type) {
 	case gen.MessageManageRPC:
 		mf := modFun{

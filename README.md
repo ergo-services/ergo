@@ -67,7 +67,7 @@ Here are the changes of latest release. For more details see the [ChangeLog](Cha
 * **Important**: This release includes refined API for a more convenient way to create OTP-designed microservices (without backward compatibility). Make sure to update your code.
 * **Important**: Project repository has been moved to [https://github.com/ergo-services/ergo](https://github.com/ergo-services/ergo). It is still available on the old URL [https://github.com/halturin/ergo](https://github.com/halturin/ergo) and GitHub will redirect all requests to the new one (thanks to GitHub for this feature).
 * Introduced new behavior `gen.Saga`. It implements Saga design pattern - a sequence of transactions that updates each service state and publishes the result (or cancels the transaction or triggers the next transaction step). `gen.Saga` also provides a feature of interim results (can be used as transaction progress or as a part of pipeline processing), time deadline (to limit transaction lifespan), two-phase commit (to make distributed transaction atomic). Here is example [examples/gensaga](examples/gensaga).
-* Introduced new methods `Process.Direct` and `Process.DirectWithTimeout` to make direct request to the actor (`GenServer` or inherited object). If an actor has no implementation of `HandleDirect` callback it returns `ErrUnsupportedRequest` as a error.
+* Introduced new methods `Process.Direct` and `Process.DirectWithTimeout` to make direct request to the actor (`gen.Server` or inherited object). If an actor has no implementation of `HandleDirect` callback it returns `ErrUnsupportedRequest` as a error.
 * Introduced new callback `HandleDirect` in the `gen.Server` interface as a handler for requests made by `Process.Direct` or `Process.DirectWithTimeout`. It should be easy to interact with actors from outside while `Process.Call`, `Process.Cast` and `Process.Send` must be used inside the actors.
 * Introduced new types intended to be used to interact with Erlang/Elixir
   * `etf.ListImproper` to support improper lists like `[a|b]` (a cons cell).
@@ -92,7 +92,7 @@ Here is simple EndToEnd test demonstrates performance of messaging subsystem
 
 Hardware: laptop with Intel(R) Core(TM) i5-8265U (4 cores. 8 with HT)
 
-#### Sequential GenServer.Call using two processes running on single and two nodes
+#### Sequential Process.Call using two processes running on single and two nodes
 
 ```
 ❯❯❯❯ go test -bench=NodeSequential -run=XXX -benchtime=10s
@@ -113,7 +113,7 @@ ok  	github.com/halturin/ergo	120.720s
 
 it means Ergo Framework provides around **25.000 sync requests per second** via localhost for simple data and around 4Gbit/sec for 1MB messages
 
-#### Parallel GenServer.Call using 120 pairs of processes running on a single and two nodes
+#### Parallel Process.Call using 120 pairs of processes running on a single and two nodes
 
 ```
 ❯❯❯❯ go test -bench=NodeParallel -run=XXX -benchtime=10s
@@ -151,7 +151,7 @@ Here you can see this feature in action using one of the [examples](examples/):
 
 ### Examples ###
 
-Code below is a simple implementation of GenServer pattern [examples/simple](examples/simple)
+Code below is a simple implementation of gen.Server pattern [examples/simple](examples/simple)
 
 ```golang
 package main
@@ -171,15 +171,15 @@ type simple struct {
 	gen.Server
 }
 
-func (s *simple) HandleInfo(process *gen.ServerProcess, message etf.Term) string {
+func (s *simple) HandleInfo(process *gen.ServerProcess, message etf.Term) gen.ServerStatus {
 	value := message.(int)
 	fmt.Printf("HandleInfo: %#v \n", message)
 	if value > 104 {
-		return "stop"
+		return gen.ServerStatusStop
 	}
 	// sending message with delay
 	process.SendAfter(process.Self(), value+1, time.Duration(1*time.Second))
-	return "noreply"
+	return gen.ServerStatusOK
 }
 
 func main() {

@@ -37,7 +37,7 @@ func (am *appMon) Init(process *gen.ServerProcess, args ...etf.Term) error {
 	return nil
 }
 
-func (am *appMon) HandleCast(process *gen.ServerProcess, message etf.Term) string {
+func (am *appMon) HandleCast(process *gen.ServerProcess, message etf.Term) gen.ServerStatus {
 	var appState *appMonState = process.State.(*appMonState)
 	lib.Log("APP_MON: HandleCast: %#v", message)
 	node := process.Env("node").(node.Node)
@@ -74,7 +74,7 @@ func (am *appMon) HandleCast(process *gen.ServerProcess, message etf.Term) strin
 		}
 
 		process.CastAfter(process.Self(), "sendStat", 2*time.Second)
-		return "noreply"
+		return gen.ServerStatusOK
 
 	default:
 		switch m := message.(type) {
@@ -96,7 +96,7 @@ func (am *appMon) HandleCast(process *gen.ServerProcess, message etf.Term) strin
 					if jobList, ok := appState.jobs[m.Element(2).(etf.Atom)]; ok {
 						for i := range jobList {
 							if jobList[i].name == job.name {
-								return "noreply"
+								return gen.ServerStatusOK
 							}
 						}
 						jobList = append(jobList, job)
@@ -124,16 +124,16 @@ func (am *appMon) HandleCast(process *gen.ServerProcess, message etf.Term) strin
 					}
 
 					if len(appState.jobs) == 0 {
-						return "stop"
+						return gen.ServerStatusStop
 					}
 
 				}
-				return "noreply"
+				return gen.ServerStatusOK
 			}
 		}
 	}
 
-	return "stop"
+	return gen.ServerStatusStop
 }
 
 func (am *appMon) makeAppTree(process gen.Process, app etf.Atom) etf.Tuple {

@@ -17,7 +17,7 @@ func (e *erlang) Init(process *gen.ServerProcess, args ...etf.Term) error {
 	return nil
 }
 
-func (e *erlang) HandleCall(process *gen.ServerProcess, from gen.ServerFrom, message etf.Term) (string, etf.Term) {
+func (e *erlang) HandleCall(process *gen.ServerProcess, from gen.ServerFrom, message etf.Term) (etf.Term, gen.ServerStatus) {
 	lib.Log("ERLANG: HandleCall: %#v, From: %#v", message, from)
 
 	switch m := message.(type) {
@@ -26,18 +26,18 @@ func (e *erlang) HandleCall(process *gen.ServerProcess, from gen.ServerFrom, mes
 		case etf.Atom("process_info"):
 			args := m.Element(2).(etf.List)
 			reply := processInfo(process, args[0].(etf.Pid), args[1])
-			return "reply", reply
+			return reply, gen.ServerStatusOK
 		case etf.Atom("system_info"):
 			args := m.Element(2).(etf.List)
 			reply := systemInfo(process, args[0].(etf.Atom))
-			return "reply", reply
+			return reply, gen.ServerStatusOK
 
 		case etf.Atom("function_exported"):
-			return "reply", true
+			return true, gen.ServerStatusOK
 		}
 
 	}
-	return "reply", etf.Atom("ok")
+	return etf.Atom("ok"), gen.ServerStatusOK
 }
 
 func processInfo(p gen.Process, pid etf.Pid, property etf.Term) etf.Term {

@@ -11,6 +11,6 @@ type globalNameServer struct {
 	gen.Server
 }
 
-func (gns *globalNameServer) HandleCast(process *gen.ServerProcess, message etf.Term) string {
-	return "noreply"
+func (gns *globalNameServer) HandleCast(process *gen.ServerProcess, message etf.Term) gen.ServerStatus {
+	return gen.ServerStatusOK
 }

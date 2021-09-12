@@ -42,7 +42,7 @@ func (o *observerBackend) Init(process *gen.ServerProcess, args ...etf.Term) err
 	return nil
 }
 
-func (o *observerBackend) HandleCall(state *gen.ServerProcess, from gen.ServerFrom, message etf.Term) (string, etf.Term) {
+func (o *observerBackend) HandleCall(state *gen.ServerProcess, from gen.ServerFrom, message etf.Term) (etf.Term, gen.ServerStatus) {
 	lib.Log("OBSERVER: HandleCall: %v, From: %#v", message, from)
 	function := message.(etf.Tuple).Element(1).(etf.Atom)
 	// args := message.(etf.Tuple).Element(2).(etf.List)
@@ -51,19 +51,19 @@ func (o *observerBackend) HandleCall(state *gen.ServerProcess, from gen.ServerFr
 		//etf.Tuple{"call", "observer_backend", "sys_info",
 		//           etf.List{}, etf.Pid{Node:"erl-examplenode@127.0.0.1", Id:0x46, Serial:0x0, Creation:0x2}}
 		reply := etf.Term(o.sysInfo(state.Process))
-		return "reply", reply
+		return reply, gen.ServerStatusOK
 	case etf.Atom("get_table_list"):
 		// TODO: add here implementation if we decide to support ETS tables
 		// args should be like:
 		// etf.List{"ets", etf.List{etf.Tuple{"sys_hidden", "true"}, etf.Tuple{"unread_hidden", "true"}}}
 		reply := etf.Term(etf.List{})
-		return "reply", reply
+		return reply, gen.ServerStatusOK
 	case etf.Atom("get_port_list"):
 		reply := etf.Term(etf.List{})
-		return "reply", reply
+		return reply, gen.ServerStatusOK
 	}
 
-	return "reply", "ok"
+	return "ok", gen.ServerStatusOK
 }
 
 func (o *observerBackend) sysInfo(p gen.Process) etf.List {
