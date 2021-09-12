@@ -13,30 +13,34 @@ import (
 type ServerBehavior interface {
 	ProcessBehavior
 
-	// Init(...) -> error
+	// Init invoked on a start Server
 	Init(state *ServerProcess, args ...etf.Term) error
 
-	// HandleCast -> "noreply" - noreply
-	//				"stop" - stop with reason "normal"
-	//		         "reason" - stop with given "reason"
-	HandleCast(state *ServerProcess, message etf.Term) string
+	// HandleCast invoked if Server received message sent with Process.Cast.
+	// Return ServerStatusStop to stop server with "normal" reason. Use ServerStatus(error)
+	// for the custom reason
+	HandleCast(state *ServerProcess, message etf.Term) ServerStatus
 
-	// HandleCall -> ("reply", message) - reply
-	//				 ("noreply", _) - noreply
-	//		         ("stop", _) - stop with reason "normal"
-	//				 ("reason", _) - stop with given "reason"
-	HandleCall(state *ServerProcess, from ServerFrom, message etf.Term) (string, etf.Term)
+	// HandleCall invoked if Server got sync request using Process.Call
+	HandleCall(state *ServerProcess, from ServerFrom, message etf.Term) (etf.Term, ServerStatus)
 
-	// HandleDirect invoked on a direct request made via Process.Direct
-	HandleDirect(state *ServerProcess, message interface{}) (interface{}, error)
+	// HandleDirect invoked on a direct request made with Process.Direct
+	HandleDirect(state *ServerProcess, message interface{}) (interface{}, ServerStatus)
 
-	// HandleInfo -> "noreply" - noreply
-	//				"stop" - stop with reason "normal"
-	//		         "reason" - stop with given "reason"
-	HandleInfo(state *ServerProcess, message etf.Term) string
+	// HandleInfo invoked if Server received message sent with Process.Send.
+	HandleInfo(state *ServerProcess, message etf.Term) ServerStatus
 
+	// Terminate invoked on a termination process
 	Terminate(state *ServerProcess, reason string)
 }
+
+type ServerStatus error
+
+var (
+	ServerStatusOK     ServerStatus = nil
+	ServerStatusStop   ServerStatus = fmt.Errorf("stop")
+	ServerStatusIgnore ServerStatus = fmt.Errorf("ignore")
+)
 
 // Server is implementation of ProcessBehavior interface for Server objects
 type Server struct{}
@@ -59,11 +63,10 @@ type ServerProcess struct {
 }
 
 func (gs *Server) ProcessInit(p Process, args ...etf.Term) (ProcessState, error) {
-	behavior := p.Behavior().(ServerBehavior)
-	//behavior, ok := p.Behavior().(ServerBehavior)
-	//if !ok {
-	//	return ProcessState{}, fmt.Errorf("ProcessInit: not a ServerBehavior")
-	//}
+	behavior, ok := p.Behavior().(ServerBehavior)
+	if !ok {
+		return ProcessState{}, fmt.Errorf("ProcessInit: not a ServerBehavior")
+	}
 	gsp := &ServerProcess{
 		ProcessState: ProcessState{
 			Process: p,
@@ -212,10 +215,10 @@ func (gs *Server) ProcessLoop(ps ProcessState, started chan<- bool) string {
 
 						cf := gsp.currentFunction
 						gsp.currentFunction = "Server:HandleCall"
-						code, reply := gsp.behavior.HandleCall(gsp, from, m.Element(3))
+						reply, status := gsp.behavior.HandleCall(gsp, from, m.Element(3))
 						gsp.currentFunction = cf
-						switch code {
-						case "reply":
+						switch status {
+						case ServerStatusOK:
 							var fromTag etf.Term
 							var to etf.Term
 							if from.ReplyByAlias {
@@ -234,13 +237,13 @@ func (gs *Server) ProcessLoop(ps ProcessState, started chan<- bool) string {
 							}
 							rep := etf.Tuple{fromTag, etf.Atom("nil")}
 							gsp.Send(to, rep)
-						case "noreply":
+						case ServerStatusIgnore:
 							return
-						case "stop":
+						case ServerStatusStop:
 							stop <- "normal"
 
 						default:
-							stop <- reply.(string)
+							stop <- status.Error()
 						}
 					}()
 
@@ -253,16 +256,16 @@ func (gs *Server) ProcessLoop(ps ProcessState, started chan<- bool) string {
 
 						cf := gsp.currentFunction
 						gsp.currentFunction = "Server:HandleCast"
-						code := gsp.behavior.HandleCast(gsp, m.Element(2))
+						status := gsp.behavior.HandleCast(gsp, m.Element(2))
 						gsp.currentFunction = cf
 
-						switch code {
-						case "noreply":
+						switch status {
+						case ServerStatusOK, ServerStatusIgnore:
 							return
-						case "stop":
+						case ServerStatusStop:
 							stop <- "normal"
 						default:
-							stop <- code
+							stop <- status.Error()
 						}
 					}()
 
@@ -275,15 +278,15 @@ func (gs *Server) ProcessLoop(ps ProcessState, started chan<- bool) string {
 
 						cf := gsp.currentFunction
 						gsp.currentFunction = "Server:HandleInfo"
-						code := gsp.behavior.HandleInfo(gsp, message)
+						status := gsp.behavior.HandleInfo(gsp, message)
 						gsp.currentFunction = cf
-						switch code {
-						case "noreply":
+						switch status {
+						case ServerStatusOK, ServerStatusIgnore:
 							return
-						case "stop":
+						case ServerStatusStop:
 							stop <- "normal"
 						default:
-							stop <- code
+							stop <- status.Error()
 						}
 					}()
 
@@ -305,16 +308,16 @@ func (gs *Server) ProcessLoop(ps ProcessState, started chan<- bool) string {
 
 					cf := gsp.currentFunction
 					gsp.currentFunction = "Server:HandleInfo"
-					code := gsp.behavior.HandleInfo(gsp, message)
+					status := gsp.behavior.HandleInfo(gsp, message)
 					gsp.currentFunction = cf
 
-					switch code {
-					case "noreply":
+					switch status {
+					case ServerStatusOK, ServerStatusIgnore:
 						return
-					case "stop":
+					case ServerStatusStop:
 						stop <- "normal"
 					default:
-						stop <- code
+						stop <- status.Error()
 					}
 				}()
 			}
@@ -329,16 +332,16 @@ func (gs *Server) ProcessLoop(ps ProcessState, started chan<- bool) string {
 
 				cf := gsp.currentFunction
 				gsp.currentFunction = "Server:HandleInfo"
-				code := gsp.behavior.HandleInfo(gsp, message)
+				status := gsp.behavior.HandleInfo(gsp, message)
 				gsp.currentFunction = cf
 
-				switch code {
-				case "noreply":
+				switch status {
+				case ServerStatusOK, ServerStatusIgnore:
 					return
-				case "stop":
+				case ServerStatusStop:
 					stop <- "normal"
 				default:
-					stop <- code
+					stop <- status.Error()
 				}
 			}()
 		}
@@ -352,23 +355,23 @@ func (gs *Server) Init(process *ServerProcess, args ...etf.Term) error {
 	return nil
 }
 
-func (gs *Server) HandleCast(process *ServerProcess, message etf.Term) string {
+func (gs *Server) HandleCast(process *ServerProcess, message etf.Term) ServerStatus {
 	fmt.Printf("Server [%s] HandleCast: unhandled message %#v \n", process.Name(), message)
-	return "noreply"
+	return ServerStatusOK
 }
 
-func (gs *Server) HandleCall(process *ServerProcess, from ServerFrom, message etf.Term) (string, etf.Term) {
+func (gs *Server) HandleCall(process *ServerProcess, from ServerFrom, message etf.Term) (etf.Term, ServerStatus) {
 	fmt.Printf("Server [%s] HandleCall: unhandled message %#v from %#v \n", process.Name(), message, from)
-	return "reply", "ok"
+	return "ok", ServerStatusOK
 }
 
-func (gs *Server) HandleDirect(process *ServerProcess, message interface{}) (interface{}, error) {
+func (gs *Server) HandleDirect(process *ServerProcess, message interface{}) (interface{}, ServerStatus) {
 	return nil, ErrUnsupportedRequest
 }
 
-func (gs *Server) HandleInfo(process *ServerProcess, message etf.Term) string {
+func (gs *Server) HandleInfo(process *ServerProcess, message etf.Term) ServerStatus {
 	fmt.Printf("Server [%s] HandleInfo: unhandled message %#v \n", process.Name(), message)
-	return "noreply"
+	return ServerStatusOK
 }
 
 func (gs *Server) Terminate(process *ServerProcess, reason string) {

@@ -20,60 +20,59 @@ type SagaBehavior interface {
 	InitSaga(process *SagaProcess, args ...etf.Term) (SagaOptions, error)
 
 	// HandleTxNew invokes on a new TX receiving by this saga.
-	HandleTxNew(process *SagaProcess, tx SagaTransaction, value interface{}) error
+	HandleTxNew(process *SagaProcess, tx SagaTransaction, value interface{}) SagaStatus
 
 	// HandleTxCancel invoked on a request of transaction cancelation.
-	HandleTxCancel(process *SagaProcess, tx SagaTransaction, reason string) error
+	HandleTxCancel(process *SagaProcess, tx SagaTransaction, reason string) SagaStatus
 
 	// HandleTxResult invoked on a receiving result from the next saga
-	HandleTxResult(process *SagaProcess, tx SagaTransaction, next SagaNext, result interface{}) error
+	HandleTxResult(process *SagaProcess, tx SagaTransaction, next SagaNext, result interface{}) SagaStatus
 
 	// HandleTxTimeout invoked if a result haven't been recieved from the next saga in time.
-	HandleTimeout(process *SagaProcess, tx SagaTransaction, next SagaNext) error
+	HandleTxTimeout(process *SagaProcess, tx SagaTransaction, next SagaNext) SagaStatus
 
 	//
 	// Optional callbacks
 	//
 
 	// HandleInterim invoked if received interim result from the Next hop
-	HandleTxInterim(process *SagaProcess, tx SagaTransaction, next SagaNext, interim interface{}) error
+	HandleTxInterim(process *SagaProcess, tx SagaTransaction, next SagaNext, interim interface{}) SagaStatus
 
 	// HandleDone invoked when the TX is done. Invoked on a saga where this tx was created.
 	HandleTxDone(process *SagaProcess, tx SagaTransaction)
-
-	// HandleStageCall this callback is invoked on Process.Call. This method is optional
-	// for the implementation
-	HandleSagaCall(process *SagaProcess, from ServerFrom, message etf.Term) (string, etf.Term)
-	// HandleStageCast this callback is invoked on Process.Cast. This method is optional
-	// for the implementation
-	HandleSagaCast(process *SagaProcess, message etf.Term) string
-	// HandleStageInfo this callback is invoked on Process.Send. This method is optional
-	// for the implementation
-	HandleSagaInfo(process *SagaProcess, message etf.Term) string
 
 	//
 	// Callbacks to handle results from the worker(s)
 	//
 
 	// HandleJobResult
-	HandleJobResult(process *SagaProcess, id SagaJobID, result interface{}) error
+	HandleJobResult(process *SagaProcess, id SagaJobID, result interface{}) SagaStatus
 	// HandleJobInterim
-	HandleJobInterim(process *SagaProcess, id SagaJobID, interim interface{}) error
+	HandleJobInterim(process *SagaProcess, id SagaJobID, interim interface{}) SagaStatus
 	// HandleJobFailed
-	HandleJobFailed(process *SagaProcess, id SagaJobID) error
+	HandleJobFailed(process *SagaProcess, id SagaJobID) SagaStatus
+
+	//
+	// Server's callbacks
+	//
+
+	// HandleStageCall this callback is invoked on Process.Call. This method is optional
+	// for the implementation
+	HandleSagaCall(process *SagaProcess, from ServerFrom, message etf.Term) (etf.Term, ServerStatus)
+	// HandleStageCast this callback is invoked on Process.Cast. This method is optional
+	// for the implementation
+	HandleSagaCast(process *SagaProcess, message etf.Term) ServerStatus
+	// HandleStageInfo this callback is invoked on Process.Send. This method is optional
+	// for the implementation
+	HandleSagaInfo(process *SagaProcess, message etf.Term) ServerStatus
 }
 
-type SagaState string
+type SagaStatus error
 
-const (
-	SagaStateStop    SagaState = "stop"
-	SagaStateResult  SagaState = "result"
-	SagaStateInterim SagaState = "interim"
-	SagaStateJob     SagaState = "job"
-	SagaStateNext    SagaState = "next"
-	SagaStateCancel  SagaState = "cancel"
-	SagaStateReply   SagaState = "reply"
-	SagaStateOK      SagaState = "ok"
+var (
+	SagaStatusOK          SagaStatus // nil
+	SagaStatusStop        SagaStatus = fmt.Errorf("stop")
+	sagaStatusUnsupported SagaStatus = fmt.Errorf("unsupported")
 )
 
 type Saga struct {
@@ -143,31 +142,36 @@ type SagaNext struct {
 type SagaJobID etf.Ref
 
 type SagaJob struct {
-	ID     SagaJobID
-	Value  interface{}
-	saga   etf.Pid
-	commit bool
+	ID      SagaJobID
+	Value   interface{}
+	options SagaJobOptions
+	commit  bool
+	saga    etf.Pid
 }
 
-type sagaMessage struct {
+type SagaJobOptions struct {
+	Timeout uint
+}
+
+type messageSaga struct {
 	request string
 	pid     etf.Pid
 	command interface{}
 }
 
-type sagaMessageNext struct {
+type messageSagaNext struct {
 	Transaction SagaTransaction
 	Ref         etf.Ref
 	Value       interface{}
 }
 
-type sagaMessageResult struct {
+type messageSagaResult struct {
 	Transaction SagaTransaction
 	From        etf.Pid
 	Result      interface{}
 }
 
-type sagaMessageCancel struct {
+type messageSagaCancel struct {
 	ID     etf.Ref
 	Name   string
 	Reason string
@@ -243,7 +247,7 @@ func (sp *SagaProcess) StartTransaction(name string, options SagaTransactionOpti
 
 func (sp *SagaProcess) CancelTransaction(id etf.Ref, reason string) {
 	sp.mutexTXS.Lock()
-	tx, ok := sp.txs[id]
+	_, ok := sp.txs[id]
 	if !ok {
 		sp.mutexTXS.Unlock()
 		return
@@ -268,29 +272,28 @@ func (sp *SagaProcess) Next(tx SagaTransaction, next SagaNext) {
 
 }
 
-func (sp *SagaProcess) StartJob(value interface{}, timeout int, commit bool) (SagaJob, error) {
+func (sp *SagaProcess) StartJob(tx SagaTransaction, options SagaJobOptions, value interface{}) (SagaJobID, error) {
 	job := SagaJob{}
 
 	if sp.options.Worker == nil {
-		return job, fmt.Errorf("This saga has no worker")
+		return job.ID, fmt.Errorf("This saga has no worker")
 	}
-	options := ProcessOptions{}
-	if timeout > 0 {
-
-	}
-	worker, err := sp.Spawn("", sp.options.Worker, spoptions)
+	// make context WithTimeout to limit the lifespan
+	workerOptions := ProcessOptions{}
+	worker, err := sp.Spawn("", workerOptions, sp.options.Worker)
 	if err != nil {
-		return job, err
+		return job.ID, err
 	}
 	ref := sp.MonitorProcess(worker.Self())
 	job.ID = SagaJobID(ref)
 	job.Value = value
-	job.commit = commit
+	job.commit = tx.Options.TwoPhaseCommit
 
-	return job, nil
+	return job.ID, nil
 }
 
 func (sp *SagaProcess) CancelJob(job SagaJobID) error {
+	return nil
 
 }
 
@@ -327,92 +330,85 @@ func (gs *Saga) Init(process *ServerProcess, args ...etf.Term) error {
 
 	process.State = sagaProcess
 
-	if options.Worker == nil {
-		// do not start supervisor if Worker hasn't been defined
-		return nil
+	if options.Worker != nil {
+		sagaProcess.jobs = make(map[SagaJobID]Process)
 	}
-
-	// start supervisor
-	svBehavior := &SagaWorkerSup{}
-	svProcess, err := process.Spawn("gen_saga_worker_sup", ProcessOptions{}, svBehavior, options.Worker)
-	if err != nil {
-		return err
-	}
-	// link saga with the supervisor process
-	process.Link(svProcess.Self())
-
-	sagaProcess.svBehavior = svBehavior
-	sagaProcess.svProcess = svProcess
-	sagaProcess.jobs = make(map[SagaJobID]Process)
 
 	return nil
 }
 
-func (gs *Saga) HandleCall(process *ServerProcess, from ServerFrom, message etf.Term) (string, etf.Term) {
+func (gs *Saga) HandleCall(process *ServerProcess, from ServerFrom, message etf.Term) (etf.Term, ServerStatus) {
 	sp := process.State.(*SagaProcess)
 	return process.Behavior().(SagaBehavior).HandleSagaCall(sp, from, message)
 }
 
-func (gs *Saga) HandleDirect(process *ServerProcess, message interface{}) (interface{}, error) {
+func (gs *Saga) HandleDirect(process *ServerProcess, message interface{}) (interface{}, ServerStatus) {
 	st := process.State.(*SagaProcess)
 	switch m := message.(type) {
 	case sagaSetMaxTransactions:
-		st.Options.MaxTransactions = m.max
+		st.options.MaxTransactions = m.max
 		return nil, nil
 	default:
 		return nil, ErrUnsupportedRequest
 	}
 }
 
-func (gs *Saga) HandleCast(process *ServerProcess, message etf.Term) string {
+func (gs *Saga) HandleCast(process *ServerProcess, message etf.Term) ServerStatus {
+	var status SagaStatus
 	st := process.State.(*SagaProcess)
 	switch m := message.(type) {
-	case messageSagaWorkerJobResult:
-		process.Behavior().(SagaBehavior).HandleJobResult(st, m.id, m.result)
-		return "noreply"
-	case messageSagaWorkerJobInterim:
-		process.Behavior().(SagaBehavior).HandleJobInterim(st, m.id, m.interim)
-		return "noreply"
+	case messageSagaJobResult:
+		status = process.Behavior().(SagaBehavior).HandleJobResult(st, m.id, m.result)
+	case messageSagaJobInterim:
+		status = process.Behavior().(SagaBehavior).HandleJobInterim(st, m.id, m.interim)
 	default:
-		return process.Behavior().(SagaBehavior).HandleSagaCast(st, message)
+		s := process.Behavior().(SagaBehavior).HandleSagaCast(st, message)
+		status = SagaStatus(s)
+	}
+	switch status {
+	case SagaStatusOK:
+		return ServerStatusOK
+	case SagaStatusStop:
+		return ServerStatusStop
+	default:
+		return ServerStatus(status)
 	}
 }
 
-func (gs *Saga) HandleInfo(process *ServerProcess, message etf.Term) string {
-	var m sagaMessage
+func (gs *Saga) HandleInfo(process *ServerProcess, message etf.Term) ServerStatus {
+	var m messageSaga
 
 	st := process.State.(*SagaProcess)
 	// check if we got a MessageDown
 	if d, isDown := IsMessageDown(message); isDown {
 		if err := handleSagaDown(st, d); err != nil {
-			return err.Error()
+			return ServerStatus(err)
 		}
-		return "noreply"
+		return ServerStatusOK
 	}
 
 	if err := etf.TermIntoStruct(message, &m); err != nil {
-		reply := process.Behavior().(SagaBehavior).HandleSagaInfo(st, message)
-		return reply
+		status := process.Behavior().(SagaBehavior).HandleSagaInfo(st, message)
+		return status
 	}
 
-	err := handleSagaRequest(st, m)
-	switch err {
+	status := handleSagaRequest(st, m)
+	switch status {
 	case nil:
-		return "noreply"
-	case ErrStop:
-		return "stop"
-	case ErrUnsupportedRequest:
-		reply := process.Behavior().(SagaBehavior).HandleSagaInfo(st, message)
-		return reply
+		return ServerStatusOK
+	case SagaStatusStop:
+		return ServerStatusStop
+	case sagaStatusUnsupported:
+		return process.Behavior().(SagaBehavior).HandleSagaInfo(st, message)
 	default:
-		return err.Error()
+		return ServerStatus(status)
 	}
 }
 
-func handleSagaRequest(process *SagaProcess, m sagaMessage) error {
-	var nextMessage sagaMessageNext
-	var cancel sagaMessageCancel
-	var result sagaMessageResult
+func handleSagaRequest(process *SagaProcess, m messageSaga) error {
+	var nextMessage messageSagaNext
+	var cancel messageSagaCancel
+	var result messageSagaResult
 
 	next := SagaNext{}
 	switch m.request {
@@ -437,7 +433,7 @@ func handleSagaRequest(process *SagaProcess, m sagaMessage) error {
 		}
 
 		// Check if exceed the number of transaction on this saga
-		if len(process.txs)+1 > int(process.Options.MaxTransactions) {
+		if len(process.txs)+1 > int(process.options.MaxTransactions) {
 			cancel := etf.Tuple{
 				etf.Atom("$saga_cancel"),
 				process.Self(),
@@ -488,9 +484,8 @@ func handleSagaRequest(process *SagaProcess, m sagaMessage) error {
 		// everything looks good. go further
 		process.txs[nextMessage.Transaction.ID] = nextMessage.Transaction
 
-		err := process.Behavior().(SagaBehavior).HandleTxNew(process, nextMessage.Transaction, next.Value)
+		return process.Behavior().(SagaBehavior).HandleTxNew(process, nextMessage.Transaction, next.Value)
 
-		return err
 	case "$saga_cancel":
 		if err := etf.TermIntoStruct(m.command, &cancel); err != nil {
 			return ErrUnsupportedRequest
@@ -500,22 +495,22 @@ func handleSagaRequest(process *SagaProcess, m sagaMessage) error {
 			return nil
 		}
 
-		process.Behavior().(SagaBehavior).HandleCancel(process, tx, cancel.Reason)
+		process.Behavior().(SagaBehavior).HandleTxCancel(process, tx, cancel.Reason)
 		return nil
 	case "$saga_interim":
 		if err := etf.TermIntoStruct(m.command, &result); err != nil {
 			return ErrUnsupportedRequest
 		}
-		process.Behavior().(SagaBehavior).HandleInterim(process, result.Transaction, next, result.Result)
+		process.Behavior().(SagaBehavior).HandleTxInterim(process, result.Transaction, next, result.Result)
 		return nil
 	case "$saga_result":
 		if err := etf.TermIntoStruct(m.command, &result); err != nil {
 			return ErrUnsupportedRequest
 		}
-		process.Behavior().(SagaBehavior).HandleResult(process, result.Transaction, next, result.Result)
+		process.Behavior().(SagaBehavior).HandleTxResult(process, result.Transaction, next, result.Result)
 		return nil
 	}
-	return ErrUnsupportedRequest
+	return sagaStatusUnsupported
 }
 
 func handleSagaDown(process *SagaProcess, down MessageDown) error {

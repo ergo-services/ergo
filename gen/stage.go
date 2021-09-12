@@ -39,6 +39,8 @@ type StageOptions struct {
 	Dispatcher StageDispatcherBehavior
 }
 
+type StageStatus error
+
 const (
 	StageCancelPermanent StageCancelMode = 0
 	StageCancelTransient StageCancelMode = 1
@@ -49,7 +51,10 @@ const (
 )
 
 var (
-	ErrNotAProducer = fmt.Errorf("not a producer")
+	StageStatusOK           StageStatus = nil
+	StageStatusStop         StageStatus = fmt.Errorf("stop")
+	StageStatusUnsupported  StageStatus = fmt.Errorf("unsupported")
+	StageStatusNotAProducer StageStatus = fmt.Errorf("not a producer")
 )
 
 // StageBehavior interface for the Stage inmplementation
@@ -60,34 +65,25 @@ type StageBehavior interface {
 
 	// HandleDemand this callback is invoked on a producer stage
 	// The producer that implements this callback must either store the demand, or return the amount of requested events.
-	// Use `ergo.ErrStop` as an error for the normal shutdown this process. Any other error values
-	// will be used as a reason for the abnornal shutdown process.
-	HandleDemand(process *StageProcess, subscription StageSubscription, count uint) (error, etf.List)
+	HandleDemand(process *StageProcess, subscription StageSubscription, count uint) (etf.List, StageStatus)
 
 	// HandleEvents this callback is invoked on a consumer stage.
-	// Use `ergo.ErrStop` as an error for the normal shutdown this process. Any other error values
-	// will be used as a reason for the abnornal shutdown process.
-	HandleEvents(process *StageProcess, subscription StageSubscription, events etf.List) error
+	HandleEvents(process *StageProcess, subscription StageSubscription, events etf.List) StageStatus
 
 	// HandleSubscribe This callback is invoked on a producer stage.
-	// Use `ergo.ErrStop` as an error for the normal shutdown this process. Any other error values
-	// will be used as a reason for the abnornal shutdown process.
-	HandleSubscribe(process *StageProcess, subscription StageSubscription, options StageSubscribeOptions) error
+	HandleSubscribe(process *StageProcess, subscription StageSubscription, options StageSubscribeOptions) StageStatus
 
 	// HandleSubscribed this callback is invoked as a confirmation for the subscription request
 	// Returning false means that demand must be sent to producers explicitly using Ask method.
 	// Returning true means the stage implementation will take care of automatically sending.
-	// Use `ergo.ErrStop` as an error for the normal shutdown this process. Any other error values
-	HandleSubscribed(process *StageProcess, subscription StageSubscription, opts StageSubscribeOptions) (error, bool)
+	HandleSubscribed(process *StageProcess, subscription StageSubscription, opts StageSubscribeOptions) (bool, StageStatus)
 
 	// HandleCancel
 	// Invoked when a consumer is no longer subscribed to a producer (invoked on a producer stage)
 	// The cancelReason will be a {Cancel: "cancel", Reason: _} if the reason for cancellation
 	// was a Stage.Cancel call. Any other value means the cancellation reason was
 	// due to an EXIT.
-	// Use `ergo.ErrStop` as an error for the normal shutdown this process. Any other error values
-	// will be used as a reason for the abnornal shutdown process.
-	HandleCancel(process *StageProcess, subscription StageSubscription, reason string) error
+	HandleCancel(process *StageProcess, subscription StageSubscription, reason string) StageStatus
 
 	// HandleCanceled
 	// Invoked when a consumer is no longer subscribed to a producer (invoked on a consumer stage)
@@ -95,17 +91,17 @@ type StageBehavior interface {
 	// StageCancelPermanent - this stage will be terminated right after this callback invoking.
 	// For the cancel mode StageCancelTransient - it depends on a reason of subscription canceling.
 	// Cancel mode StageCancelTemporary keeps this stage alive whether the reason could be.
-	HandleCanceled(process *StageProcess, subscription StageSubscription, reason string) error
+	HandleCanceled(process *StageProcess, subscription StageSubscription, reason string) StageStatus
 
 	// HandleStageCall this callback is invoked on Process.Call. This method is optional
 	// for the implementation
-	HandleStageCall(process *StageProcess, from ServerFrom, message etf.Term) (string, etf.Term)
+	HandleStageCall(process *StageProcess, from ServerFrom, message etf.Term) (etf.Term, ServerStatus)
 	// HandleStageCast this callback is invoked on Process.Cast. This method is optional
 	// for the implementation
-	HandleStageCast(process *StageProcess, message etf.Term) string
+	HandleStageCast(process *StageProcess, message etf.Term) ServerStatus
 	// HandleStageInfo this callback is invoked on Process.Send. This method is optional
 	// for the implementation
-	HandleStageInfo(process *StageProcess, message etf.Term) string
+	HandleStageInfo(process *StageProcess, message etf.Term) ServerStatus
 }
 
 type StageSubscription struct {
@@ -414,12 +410,12 @@ func (gst *Stage) Init(process *ServerProcess, args ...etf.Term) error {
 	return nil
 }
 
-func (gst *Stage) HandleCall(process *ServerProcess, from ServerFrom, message etf.Term) (string, etf.Term) {
+func (gst *Stage) HandleCall(process *ServerProcess, from ServerFrom, message etf.Term) (etf.Term, ServerStatus) {
 	stageProcess := process.State.(*StageProcess)
 	return stageProcess.behavior.HandleStageCall(stageProcess, from, message)
 }
 
-func (gst *Stage) HandleDirect(process *ServerProcess, message interface{}) (interface{}, error) {
+func (gst *Stage) HandleDirect(process *ServerProcess, message interface{}) (interface{}, ServerStatus) {
 	stageProcess := process.State.(*StageProcess)
 	switch m := message.(type) {
 	case setManualDemand:
@@ -533,12 +529,12 @@ func (gst *Stage) HandleDirect(process *ServerProcess, message interface{}) (int
 
 }
 
-func (gst *Stage) HandleCast(process *ServerProcess, message etf.Term) string {
+func (gst *Stage) HandleCast(process *ServerProcess, message etf.Term) ServerStatus {
 	stageProcess := process.State.(*StageProcess)
 	return stageProcess.behavior.HandleStageCast(stageProcess, message)
 }
 
-func (gst *Stage) HandleInfo(process *ServerProcess, message etf.Term) string {
+func (gst *Stage) HandleInfo(process *ServerProcess, message etf.Term) ServerStatus {
 	var r stageMessage
 
 	stageProcess := process.State.(*StageProcess)
@@ -546,9 +542,9 @@ func (gst *Stage) HandleInfo(process *ServerProcess, message etf.Term) string {
 	// check if we got a MessageDown
 	if d, isDown := IsMessageDown(message); isDown {
 		if err := handleStageDown(stageProcess, d); err != nil {
-			return err.Error()
+			return err
 		}
-		return "noreply"
+		return ServerStatusOK
 	}
 
 	if err := etf.TermIntoStruct(message, &r); err != nil {
@@ -560,14 +556,14 @@ func (gst *Stage) HandleInfo(process *ServerProcess, message etf.Term) string {
 
 	switch err {
 	case nil:
-		return "noreply"
-	case ErrStop:
-		return "stop"
-	case ErrUnsupportedRequest:
-		reply := stageProcess.behavior.HandleStageInfo(stageProcess, message)
-		return reply
+		return ServerStatusOK
+	case StageStatusStop:
+		return ServerStatusStop
+	case StageStatusUnsupported:
+		status := stageProcess.behavior.HandleStageInfo(stageProcess, message)
+		return status
 	default:
-		return err.Error()
+		return err
 	}
 }
 
@@ -577,54 +573,54 @@ func (gst *Stage) InitStage(process *StageProcess, args ...etf.Term) error {
 	return nil
 }
 
-func (gst *Stage) HandleStageCall(process *StageProcess, from ServerFrom, message etf.Term) (string, etf.Term) {
+func (gst *Stage) HandleStageCall(process *StageProcess, from ServerFrom, message etf.Term) (etf.Term, ServerStatus) {
 	// default callback if it wasn't implemented
 	fmt.Printf("HandleStageCall: unhandled message (from %#v) %#v\n", from, message)
-	return "reply", etf.Atom("ok")
+	return etf.Atom("ok"), ServerStatusOK
 }
 
-func (gst *Stage) HandleStageCast(process *StageProcess, message etf.Term) string {
+func (gst *Stage) HandleStageCast(process *StageProcess, message etf.Term) ServerStatus {
 	// default callback if it wasn't implemented
 	fmt.Printf("HandleStageCast: unhandled message %#v\n", message)
-	return "noreply"
+	return ServerStatusOK
 }
-func (gst *Stage) HandleStageInfo(process *StageProcess, message etf.Term) string {
+func (gst *Stage) HandleStageInfo(process *StageProcess, message etf.Term) ServerStatus {
 	// default callback if it wasn't implemnted
 	fmt.Printf("HandleStageInfo: unhandled message %#v\n", message)
-	return "noreply"
+	return ServerStatusOK
 }
 
-func (gst *Stage) HandleSubscribe(process *StageProcess, subscription StageSubscription, options StageSubscribeOptions) error {
-	return ErrNotAProducer
+func (gst *Stage) HandleSubscribe(process *StageProcess, subscription StageSubscription, options StageSubscribeOptions) StageStatus {
+	return StageStatusNotAProducer
 }
 
-func (gst *Stage) HandleSubscribed(process *StageProcess, subscription StageSubscription, opts StageSubscribeOptions) (error, bool) {
-	return nil, opts.ManualDemand
+func (gst *Stage) HandleSubscribed(process *StageProcess, subscription StageSubscription, opts StageSubscribeOptions) (bool, StageStatus) {
+	return opts.ManualDemand, StageStatusOK
 }
 
-func (gst *Stage) HandleCancel(process *StageProcess, subscription StageSubscription, reason string) error {
+func (gst *Stage) HandleCancel(process *StageProcess, subscription StageSubscription, reason string) StageStatus {
 	// default callback if it wasn't implemented
-	return nil
+	return StageStatusOK
 }
 
-func (gst *Stage) HandleCanceled(process *StageProcess, subscription StageSubscription, reason string) error {
+func (gst *Stage) HandleCanceled(process *StageProcess, subscription StageSubscription, reason string) StageStatus {
 	// default callback if it wasn't implemented
-	return nil
+	return StageStatusOK
 }
 
-func (gst *Stage) HandleEvents(process *StageProcess, subscription StageSubscription, events etf.List) error {
+func (gst *Stage) HandleEvents(process *StageProcess, subscription StageSubscription, events etf.List) StageStatus {
 	fmt.Printf("Stage HandleEvents: unhandled subscription (%#v) events %#v\n", subscription, events)
-	return nil
+	return StageStatusOK
 }
 
-func (gst *Stage) HandleDemand(process *StageProcess, subscription StageSubscription, count uint) (error, etf.List) {
+func (gst *Stage) HandleDemand(process *StageProcess, subscription StageSubscription, count uint) (etf.List, StageStatus) {
 	fmt.Printf("Stage HandleDemand: unhandled subscription (%#v) demand %#v\n", subscription, count)
-	return nil, nil
+	return nil, StageStatusOK
 }
 
 // private functions
 
-func handleStageRequest(process *StageProcess, m stageMessage) (etf.Term, error) {
+func handleStageRequest(process *StageProcess, m stageMessage) (etf.Term, StageStatus) {
 	var command stageRequestCommand
 	switch m.Request {
 	case "$gen_consumer":
@@ -638,22 +634,21 @@ func handleStageRequest(process *StageProcess, m stageMessage) (etf.Term, error)
 			return handleConsumer(process, m.Subscription, command)
 		}
 		if err := etf.TermIntoStruct(m.Command, &command); err != nil {
-			return nil, ErrUnsupportedRequest
+			return nil, StageStatusUnsupported
 		}
 		return handleConsumer(process, m.Subscription, command)
 	case "$gen_producer":
 		if err := etf.TermIntoStruct(m.Command, &command); err != nil {
-			return nil, ErrUnsupportedRequest
+			return nil, StageStatusUnsupported
 		}
 		return handleProducer(process, m.Subscription, command)
 	}
-	return nil, ErrUnsupportedRequest
+	return nil, StageStatusUnsupported
 }
 
 func handleConsumer(process *StageProcess, subscription StageSubscription, cmd stageRequestCommand) (etf.Term, error) {
 	var subscriptionOpts StageSubscribeOptions
 	var err error
-	var manualDemand bool
 
 	switch cmd.Cmd {
 	case etf.Atom("events"):
@@ -694,10 +689,10 @@ func handleConsumer(process *StageProcess, subscription StageSubscription, cmd s
 			return nil, err
 		}
 
-		err, manualDemand = process.behavior.HandleSubscribed(process, subscription, subscriptionOpts)
+		manualDemand, status := process.behavior.HandleSubscribed(process, subscription, subscriptionOpts)
 
-		if err != nil {
-			return nil, err
+		if status != StageStatusOK {
+			return nil, status
 		}
 		subscriptionOpts.ManualDemand = manualDemand
 
@@ -852,7 +847,7 @@ func handleProducer(process *StageProcess, subscription StageSubscription, cmd s
 			process.consumers[subscription.Pid] = s
 			return etf.Atom("ok"), nil
 
-		case ErrNotAProducer:
+		case StageStatusNotAProducer:
 			// if it wasnt overloaded - send 'cancel' to the consumer
 			msg := etf.Tuple{
 				etf.Atom("$gen_consumer"),
@@ -943,7 +938,7 @@ func handleProducer(process *StageProcess, subscription StageSubscription, cmd s
 			return etf.Atom("ok"), nil
 		}
 
-		_, events = process.behavior.HandleDemand(process, subscription, count)
+		events, _ = process.behavior.HandleDemand(process, subscription, count)
 
 		// register this demand and trying to dispatch having events
 		dispatcher := process.Options.Dispatcher

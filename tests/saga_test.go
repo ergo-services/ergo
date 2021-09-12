@@ -18,14 +18,14 @@ type testSagaWorker struct {
 	gen.SagaWorker
 }
 
-func (w *testSagaWorker) HandleStartJob(process *gen.SagaWorkerProcess, job gen.SagaJob) error {
+func (w *testSagaWorker) HandleStartJob(process *gen.SagaWorkerProcess, job gen.SagaJob) gen.SagaWorkerStatus {
 	return nil
 }
 func (w *testSagaWorker) HandleCancelJob(process *gen.SagaWorkerProcess) {
 	return
 }
-func (w *testSagaWorker) HandleWorkerInfo(process *gen.SagaWorkerProcess, message etf.Term) string {
-	return "result"
+func (w *testSagaWorker) HandleWorkerInfo(process *gen.SagaWorkerProcess, message etf.Term) gen.ServerStatus {
+	return gen.ServerStatusOK
 }
 
 func (gs *testSaga) InitSaga(process *gen.SagaProcess, args ...etf.Term) (gen.SagaOptions, error) {
@@ -35,26 +35,26 @@ func (gs *testSaga) InitSaga(process *gen.SagaProcess, args ...etf.Term) (gen.Sa
 	return opts, nil
 }
 
-func (gs *testSaga) HandleTxNew(process *gen.SagaProcess, tx gen.SagaTransaction, value interface{}) error {
-	return nil
+func (gs *testSaga) HandleTxNew(process *gen.SagaProcess, tx gen.SagaTransaction, value interface{}) gen.SagaStatus {
+	return gen.SagaStatusOK
 }
 
-func (gs *testSaga) HandleTxCancel(process *gen.SagaProcess, tx gen.SagaTransaction, reason string) error {
-	return nil
+func (gs *testSaga) HandleTxCancel(process *gen.SagaProcess, tx gen.SagaTransaction, reason string) gen.SagaStatus {
+	return gen.SagaStatusOK
 }
 
-func (gs *testSaga) HandleTxResult(process *gen.SagaProcess, tx gen.SagaTransaction, from gen.SagaNext, result interface{}) error {
-	return nil
+func (gs *testSaga) HandleTxResult(process *gen.SagaProcess, tx gen.SagaTransaction, from gen.SagaNext, result interface{}) gen.SagaStatus {
+	return gen.SagaStatusOK
 }
 
-func (gs *testSaga) HandleTxInterim(process *gen.SagaProcess, tx gen.SagaTransaction, from gen.SagaNext, interim interface{}) error {
+func (gs *testSaga) HandleTxInterim(process *gen.SagaProcess, tx gen.SagaTransaction, from gen.SagaNext, interim interface{}) gen.SagaStatus {
 
-	return nil
+	return gen.SagaStatusOK
 }
 
-func (gs *testSaga) HandleTxTimeout(process *gen.SagaProcess, tx gen.SagaTransaction, from gen.SagaNext) error {
+func (gs *testSaga) HandleTxTimeout(process *gen.SagaProcess, tx gen.SagaTransaction, from gen.SagaNext) gen.SagaStatus {
 
-	return nil
+	return gen.SagaStatusOK
 }
 
 func TestSagaSimple(t *testing.T) {

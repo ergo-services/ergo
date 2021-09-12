@@ -197,7 +197,7 @@ func (r *registrar) newProcess(name string, behavior gen.ProcessBehavior, opts p
 
 	processContext, kill := context.WithCancel(parentContext)
 	if opts.Context != nil {
-		processContext = context.WithContext(opts.Context)
+		processContext, _ = context.WithCancel(opts.Context)
 	}
 
 	pid := r.newPID()
