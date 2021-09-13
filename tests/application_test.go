@@ -55,8 +55,8 @@ func (gs *testAppGenServer) Init(process *gen.ServerProcess, args ...etf.Term) e
 	return nil
 }
 
-func (gs *testAppGenServer) HandleCall(process *gen.ServerProcess, from gen.ServerFrom, message etf.Term) (string, etf.Term) {
-	return "stop", nil
+func (gs *testAppGenServer) HandleCall(process *gen.ServerProcess, from gen.ServerFrom, message etf.Term) (etf.Term, gen.ServerStatus) {
+	return nil, gen.ServerStatusStop
 }
 
 // testing application

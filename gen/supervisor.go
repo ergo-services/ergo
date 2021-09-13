@@ -8,6 +8,12 @@ import (
 	"github.com/halturin/ergo/lib"
 )
 
+// SupervisorBehavior interface
+type SupervisorBehavior interface {
+	ProcessBehavior
+	Init(args ...etf.Term) (SupervisorSpec, error)
+}
+
 type SupervisorStrategy struct {
 	Type      SupervisorStrategyType
 	Intensity uint16
@@ -69,12 +75,6 @@ const (
 )
 
 type supervisorChildState int
-
-// SupervisorBehavior interface
-type SupervisorBehavior interface {
-	ProcessBehavior
-	Init(args ...etf.Term) (SupervisorSpec, error)
-}
 
 type SupervisorSpec struct {
 	Name     string

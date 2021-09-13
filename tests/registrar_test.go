@@ -15,9 +15,9 @@ type TestRegistrarGenserver struct {
 	gen.Server
 }
 
-func (trg *TestRegistrarGenserver) HandleCall(process *gen.ServerProcess, from gen.ServerFrom, message etf.Term) (string, etf.Term) {
+func (trg *TestRegistrarGenserver) HandleCall(process *gen.ServerProcess, from gen.ServerFrom, message etf.Term) (etf.Term, gen.ServerStatus) {
 	// fmt.Printf("TestRegistrarGenserver ({%s, %s}): HandleCall: %#v, From: %#v\n", trg.process.name, trg.process.Node.Name(), message, from)
-	return "reply", message
+	return message, gen.ServerStatusOK
 }
 
 func TestRegistrar(t *testing.T) {

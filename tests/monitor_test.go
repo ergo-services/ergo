@@ -19,16 +19,16 @@ func (tgs *testMonitor) Init(process *gen.ServerProcess, args ...etf.Term) error
 	tgs.v <- process.Self()
 	return nil
 }
-func (tgs *testMonitor) HandleCast(process *gen.ServerProcess, message etf.Term) string {
+func (tgs *testMonitor) HandleCast(process *gen.ServerProcess, message etf.Term) gen.ServerStatus {
 	tgs.v <- message
-	return "noreply"
+	return gen.ServerStatusOK
 }
-func (tgs *testMonitor) HandleCall(process *gen.ServerProcess, from gen.ServerFrom, message etf.Term) (string, etf.Term) {
-	return "reply", message
+func (tgs *testMonitor) HandleCall(process *gen.ServerProcess, from gen.ServerFrom, message etf.Term) (etf.Term, gen.ServerStatus) {
+	return message, gen.ServerStatusOK
 }
-func (tgs *testMonitor) HandleInfo(process *gen.ServerProcess, message etf.Term) string {
+func (tgs *testMonitor) HandleInfo(process *gen.ServerProcess, message etf.Term) gen.ServerStatus {
 	tgs.v <- message
-	return "noreply"
+	return gen.ServerStatusOK
 }
 
 /*

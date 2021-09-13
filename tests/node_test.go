@@ -69,7 +69,7 @@ type testFragmentationGS struct {
 	gen.Server
 }
 
-func (f *testFragmentationGS) HandleCall(process *gen.ServerProcess, from gen.ServerFrom, message etf.Term) (string, etf.Term) {
+func (f *testFragmentationGS) HandleCall(process *gen.ServerProcess, from gen.ServerFrom, message etf.Term) (etf.Term, gen.ServerStatus) {
 	md5original := message.(etf.Tuple)[0].(string)
 	blob := message.(etf.Tuple)[1].([]byte)
 
@@ -79,7 +79,7 @@ func (f *testFragmentationGS) HandleCall(process *gen.ServerProcess, from gen.Se
 		result = etf.Atom("mismatch")
 	}
 
-	return "reply", result
+	return result, gen.ServerStatusOK
 }
 
 func TestNodeFragmentation(t *testing.T) {
@@ -199,8 +199,8 @@ func (h *handshakeGenServer) Init(process *gen.ServerProcess, args ...etf.Term) 
 	return nil
 }
 
-func (h *handshakeGenServer) HandleCall(process *gen.ServerProcess, from gen.ServerFrom, message etf.Term) (string, etf.Term) {
-	return "reply", "pass"
+func (h *handshakeGenServer) HandleCall(process *gen.ServerProcess, from gen.ServerFrom, message etf.Term) (etf.Term, gen.ServerStatus) {
+	return "pass", gen.ServerStatusOK
 }
 
 func TestNodeDistHandshake(t *testing.T) {
@@ -359,8 +359,8 @@ type benchGS struct {
 	gen.Server
 }
 
-func (b *benchGS) HandleCall(process *gen.ServerProcess, from gen.ServerFrom, message etf.Term) (string, etf.Term) {
-	return "reply", etf.Atom("ok")
+func (b *benchGS) HandleCall(process *gen.ServerProcess, from gen.ServerFrom, message etf.Term) (etf.Term, gen.ServerStatus) {
+	return etf.Atom("ok"), gen.ServerStatusOK
 }
 
 func BenchmarkNodeSequential(b *testing.B) {

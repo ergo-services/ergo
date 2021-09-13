@@ -42,6 +42,10 @@ var (
 	ServerStatusIgnore ServerStatus = fmt.Errorf("ignore")
 )
 
+func ServerStatusStopWithReason(s string) ServerStatus {
+	return ServerStatus(fmt.Errorf(s))
+}
+
 // Server is implementation of ProcessBehavior interface for Server objects
 type Server struct{}
 

@@ -75,12 +75,13 @@ func (tsv *testSupervisorGenServer) Init(process *gen.ServerProcess, args ...etf
 
 	return nil
 }
-func (tsv *testSupervisorGenServer) HandleCast(process *gen.ServerProcess, message etf.Term) string {
+func (tsv *testSupervisorGenServer) HandleCast(process *gen.ServerProcess, message etf.Term) gen.ServerStatus {
 	// message has the stop reason
-	return message.(string)
+
+	return gen.ServerStatusStopWithReason(message.(string))
 }
-func (tsv *testSupervisorGenServer) HandleCall(process *gen.ServerProcess, from gen.ServerFrom, message etf.Term) (string, etf.Term) {
-	return "reply", message
+func (tsv *testSupervisorGenServer) HandleCall(process *gen.ServerProcess, from gen.ServerFrom, message etf.Term) (etf.Term, gen.ServerStatus) {
+	return message, gen.ServerStatusOK
 }
 func (tsv *testSupervisorGenServer) Terminate(process *gen.ServerProcess, reason string) {
 	st := process.State.(*testSupervisorGenServerState)

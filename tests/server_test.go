@@ -40,16 +40,16 @@ func (tgs *testServer) Init(process *gen.ServerProcess, args ...etf.Term) error 
 	tgs.res <- nil
 	return nil
 }
-func (tgs *testServer) HandleCast(process *gen.ServerProcess, message etf.Term) string {
+func (tgs *testServer) HandleCast(process *gen.ServerProcess, message etf.Term) gen.ServerStatus {
 	tgs.res <- message
-	return "noreply"
+	return gen.ServerStatusOK
 }
-func (tgs *testServer) HandleCall(process *gen.ServerProcess, from gen.ServerFrom, message etf.Term) (string, etf.Term) {
-	return "reply", message
+func (tgs *testServer) HandleCall(process *gen.ServerProcess, from gen.ServerFrom, message etf.Term) (etf.Term, gen.ServerStatus) {
+	return message, gen.ServerStatusOK
 }
-func (tgs *testServer) HandleInfo(process *gen.ServerProcess, message etf.Term) string {
+func (tgs *testServer) HandleInfo(process *gen.ServerProcess, message etf.Term) gen.ServerStatus {
 	tgs.res <- message
-	return "noreply"
+	return gen.ServerStatusOK
 }
 func (tgs *testServer) Terminate(process *gen.ServerProcess, reason string) {
 	tgs.res <- reason
@@ -64,7 +64,7 @@ func (tgsd *testServerDirect) Init(process *gen.ServerProcess, args ...etf.Term)
 	tgsd.err <- nil
 	return nil
 }
-func (tgsd *testServerDirect) HandleDirect(process *gen.ServerProcess, message interface{}) (interface{}, error) {
+func (tgsd *testServerDirect) HandleDirect(process *gen.ServerProcess, message interface{}) (interface{}, gen.ServerStatus) {
 	return message, nil
 }
 

@@ -16,8 +16,8 @@ type testRPCGenServer struct {
 	gen.Server
 }
 
-func (trpc *testRPCGenServer) HandleCall(process *gen.ServerProcess, from gen.ServerFrom, message etf.Term) (string, etf.Term) {
-	return "reply", message
+func (trpc *testRPCGenServer) HandleCall(process *gen.ServerProcess, from gen.ServerFrom, message etf.Term) (etf.Term, gen.ServerStatus) {
+	return message, gen.ServerStatusOK
 }
 
 func TestRPC(t *testing.T) {
