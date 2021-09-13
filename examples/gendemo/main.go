@@ -47,8 +47,8 @@ func main() {
 
 	fmt.Println("How many times Hello was called: ", demo.Stat(process))
 
-	fmt.Println("make simple call (no handler)")
-	process.Call(process.Self(), "simple message")
+	fmt.Println("make simple cast (no handler)")
+	process.Cast(process.Self(), "simple message")
 
 	fmt.Println("Exiting")
 	process.Exit("normal")
