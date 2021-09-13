@@ -10,16 +10,17 @@ import (
 )
 
 type MyDemo struct {
-	GenDemo
+	Demo
 }
 
-func (md *MyDemo) InitDemo(process *GenDemoProcess, args ...etf.Term) error {
+func (md *MyDemo) InitDemo(process *DemoProcess, args ...etf.Term) error {
 	fmt.Printf("Started instance of MyDemo with PID %s and args %v\n", process.Self(), args)
 	return nil
 }
 
-func (md *MyDemo) HandleHello(process *GenDemoProcess) {
+func (md *MyDemo) HandleHello(process *DemoProcess) DemoStatus {
 	fmt.Println("got Hello")
+	return DemoStatusOK
 }
 
 func main() {
@@ -45,9 +46,6 @@ func main() {
 	demo.Hello(process)
 
 	fmt.Println("How many times Hello was called: ", demo.Stat(process))
-
-	fmt.Println("call Hi method (no handler)")
-	demo.Hi(process)
 
 	fmt.Println("make simple call (no handler)")
 	process.Call(process.Self(), "simple message")

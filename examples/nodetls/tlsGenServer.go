@@ -28,24 +28,24 @@ var (
 	EnableRPC bool
 )
 
-func (dgs *demoGenServ) HandleCast(process *gen.ServerProcess, message etf.Term) string {
+func (dgs *demoGenServ) HandleCast(process *gen.ServerProcess, message etf.Term) gen.ServerStatus {
 	fmt.Printf("HandleCast: %#v\n", message)
 	switch message {
 	case etf.Atom("stop"):
-		return "stop they said"
+		return gen.ServerStatusStopWithReason("stop they said")
 	}
-	return "noreply"
+	return gen.ServerStatusOK
 }
 
-func (dgs *demoGenServ) HandleCall(state *gen.ServerProcess, from gen.ServerFrom, message etf.Term) (string, etf.Term) {
+func (dgs *demoGenServ) HandleCall(state *gen.ServerProcess, from gen.ServerFrom, message etf.Term) (etf.Term, gen.ServerStatus) {
 	fmt.Printf("HandleCall: %#v, From: %#v\n", message, from)
 
 	switch message {
 	case etf.Atom("hello"):
-		return "reply", etf.Term("hi")
+		return etf.Term("hi"), gen.ServerStatusOK
 	}
 	reply := etf.Tuple{etf.Atom("error"), etf.Atom("unknown_request")}
-	return "reply", reply
+	return reply, gen.ServerStatusOK
 }
 
 func init() {
