@@ -35,6 +35,9 @@ type DemoBehavior interface {
 	// HandleDemoCall this callback is invoked on Process.Call. This method is optional
 	// for the implementation
 	HandleDemoCall(process *DemoProcess, from gen.ServerFrom, message etf.Term) (etf.Term, gen.ServerStatus)
+	// HandleDemoDirect this callback is invoked on Process.Direct. This method is optional
+	// for the implementation
+	HandleDemoDirect(process *DemoProcess, message interface{}) (interface{}, gen.ServerStatus)
 	// HandleDemoCast this callback is invoked on Process.Cast. This method is optional
 	// for the implementation
 	HandleDemoCast(process *DemoProcess, message etf.Term) gen.ServerStatus
@@ -125,7 +128,7 @@ func (gd *Demo) HandleDirect(process *gen.ServerProcess, message interface{}) (i
 		demo.counter++
 		return nil, nil
 	default:
-		return nil, gen.ErrUnsupportedRequest
+		return process.Behavior().(DemoBehavior).HandleDemoDirect(demo, message)
 	}
 
 }

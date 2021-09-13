@@ -23,6 +23,13 @@ func (md *MyDemo) HandleHello(process *DemoProcess) DemoStatus {
 	return DemoStatusOK
 }
 
+func (md *MyDemo) HandleDemoDirect(process *DemoProcess, message interface{}) (interface{}, gen.ServerStatus) {
+
+	fmt.Println("Say hi to increase counter twice")
+	process.Hi()
+	return nil, gen.ServerStatusOK
+}
+
 func main() {
 
 	// Initialize new node with given name, cookie, listening port range and epmd port
@@ -49,6 +56,10 @@ func main() {
 
 	fmt.Println("make simple cast (no handler)")
 	process.Cast(process.Self(), "simple message")
+
+	fmt.Println("make direct request")
+	process.Direct(nil)
+	fmt.Println("How big is the counter now: ", demo.Stat(process))
 
 	fmt.Println("Exiting")
 	process.Exit("normal")
