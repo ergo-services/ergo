@@ -22,11 +22,14 @@ type SagaBehavior interface {
 	// HandleTxNew invokes on a new TX receiving by this saga.
 	HandleTxNew(process *SagaProcess, tx SagaTransaction, value interface{}) SagaStatus
 
-	// HandleTxCancel invoked on a request of transaction cancelation.
-	HandleTxCancel(process *SagaProcess, tx SagaTransaction, reason string) SagaStatus
+	// HandleDone invoked when the TX is done. Invoked on a saga where this tx was created.
+	HandleTxDone(process *SagaProcess, tx SagaTransaction) SagaStatus
 
 	// HandleTxResult invoked on a receiving result from the next saga
 	HandleTxResult(process *SagaProcess, tx SagaTransaction, next SagaNext, result interface{}) SagaStatus
+
+	// HandleTxCancel invoked on a request of transaction cancelation.
+	HandleTxCancel(process *SagaProcess, tx SagaTransaction, reason string) SagaStatus
 
 	// HandleTxTimeout invoked if a result haven't been recieved from the next saga in time.
 	HandleTxTimeout(process *SagaProcess, tx SagaTransaction, next SagaNext) SagaStatus
@@ -37,9 +40,6 @@ type SagaBehavior interface {
 
 	// HandleInterim invoked if received interim result from the Next hop
 	HandleTxInterim(process *SagaProcess, tx SagaTransaction, next SagaNext, interim interface{}) SagaStatus
-
-	// HandleDone invoked when the TX is done. Invoked on a saga where this tx was created.
-	HandleTxDone(process *SagaProcess, tx SagaTransaction)
 
 	//
 	// Callbacks to handle results from the worker(s)
@@ -520,38 +520,35 @@ func handleSagaDown(process *SagaProcess, down MessageDown) error {
 //
 // default Saga callbacks
 //
-func (gs *Saga) HandleCommit(process *SagaProcess, tx SagaTransaction) {
-	return
-}
-func (gs *Saga) HandleInterim(process *SagaProcess, tx SagaTransaction, interim interface{}) error {
+func (gs *Saga) HandleTxInterim(process *SagaProcess, tx SagaTransaction, interim interface{}) SagaStatus {
 	// default callback if it wasn't implemented
 	fmt.Printf("HandleInterim: unhandled message %#v\n", tx)
 	return nil
 }
-func (gs *Saga) HandleSagaCall(process *SagaProcess, from ServerFrom, message etf.Term) (string, etf.Term) {
+func (gs *Saga) HandleSagaCall(process *SagaProcess, from ServerFrom, message etf.Term) (etf.Term, ServerStatus) {
 	// default callback if it wasn't implemented
 	fmt.Printf("HandleSagaCall: unhandled message (from %#v) %#v\n", from, message)
-	return "reply", etf.Atom("ok")
+	return etf.Atom("ok"), ServerStatusOK
 }
-func (gs *Saga) HandleSagaCast(process *SagaProcess, message etf.Term) string {
+func (gs *Saga) HandleSagaCast(process *SagaProcess, message etf.Term) ServerStatus {
 	// default callback if it wasn't implemented
 	fmt.Printf("HandleSagaCast: unhandled message %#v\n", message)
-	return "noreply"
+	return ServerStatusOK
 }
-func (gs *Saga) HandleSagaInfo(process *SagaProcess, message etf.Term) string {
+func (gs *Saga) HandleSagaInfo(process *SagaProcess, message etf.Term) ServerStatus {
 	// default callback if it wasn't implemnted
 	fmt.Printf("HandleSagaInfo: unhandled message %#v\n", message)
-	return "noreply"
+	return ServerStatusOK
 }
-func (gs *Saga) HandleJobResult(process *SagaProcess, id SagaJobID, result interface{}) error {
+func (gs *Saga) HandleJobResult(process *SagaProcess, id SagaJobID, result interface{}) SagaStatus {
 	fmt.Printf("HandleJobResult: unhandled message %#v\n", result)
-	return nil
+	return SagaStatusOK
 }
-func (gs *Saga) HandleJobInterim(process *SagaProcess, id SagaJobID, interim interface{}) error {
+func (gs *Saga) HandleJobInterim(process *SagaProcess, id SagaJobID, interim interface{}) SagaStatus {
 	fmt.Printf("HandleJobInterim: unhandled message %#v\n", interim)
-	return nil
+	return SagaStatusOK
 }
-func (gs *Saga) HandleJobFailed(process *SagaProcess, id SagaJobID) error {
+func (gs *Saga) HandleJobFailed(process *SagaProcess, id SagaJobID) SagaStatus {
 	fmt.Printf("HandleJobFailed: unhandled message %#v\n", id)
 	return nil
 }

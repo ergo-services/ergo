@@ -9,23 +9,17 @@ import (
 type SagaWorkerBehavior interface {
 	ServerBehavior
 	// Mandatory callbacks
-	HandleStartJob(process *SagaWorkerProcess, job SagaJob) SagaWorkerStatus
-	HandleCancelJob(process *SagaWorkerProcess)
+	HandleJobStart(process *SagaWorkerProcess, job SagaJob) error
+	HandleJobCancel(process *SagaWorkerProcess)
 
 	// Optional callbacks
-	HandleCommitJob(process *SagaWorkerProcess)
+	HandleJobCommit(process *SagaWorkerProcess)
 
 	HandleWorkerInfo(process *SagaWorkerProcess, message etf.Term) ServerStatus
 	HandleWorkerCast(process *SagaWorkerProcess, message etf.Term) ServerStatus
 	HandleWorkerCall(process *SagaWorkerProcess, from ServerFrom, message etf.Term) (etf.Term, ServerStatus)
 	HandleWorkerDirect(process *SagaWorkerProcess, message interface{}) (interface{}, ServerStatus)
 }
-
-type SagaWorkerStatus error
-
-var (
-	SagaWorkerStatusOK SagaWorkerStatus // nil
-)
 
 type SagaWorker struct {
 	Server
@@ -82,7 +76,7 @@ func (w *SagaWorker) Init(process *ServerProcess, args ...etf.Term) error {
 		ServerProcess: *process,
 	}
 	process.State = workerProcess
-	return SagaWorkerStatusOK
+	return nil
 }
 
 func (w *SagaWorker) HandleCast(process *ServerProcess, message etf.Term) ServerStatus {
@@ -90,24 +84,22 @@ func (w *SagaWorker) HandleCast(process *ServerProcess, message etf.Term) Server
 	switch m := message.(type) {
 	case messageSagaJobStart:
 		p.job = m.job
-		status := process.Behavior().(SagaWorkerBehavior).HandleStartJob(p, p.job)
-
-		switch status {
-		case SagaWorkerStatusOK:
-			// if job is done and commit shouldn't be awaited
-			// stop this worker with 'normal' as a reason
-			if p.done && !p.job.commit {
-				return ServerStatusStop
-			}
-			return ServerStatusOK
-		default:
-			return status
+		err := process.Behavior().(SagaWorkerBehavior).HandleJobStart(p, p.job)
+		if err != nil {
+			return err
 		}
+
+		// if job is done and commit shouldn't be awaited
+		// stop this worker with 'normal' as a reason
+		if p.done && !p.job.commit {
+			return ServerStatusStop
+		}
+		return ServerStatusOK
 	case messageSagaJobCommit:
-		process.Behavior().(SagaWorkerBehavior).HandleCommitJob(p)
+		process.Behavior().(SagaWorkerBehavior).HandleJobCommit(p)
 		return ServerStatusStop
 	case messageSagaJobCancel:
-		process.Behavior().(SagaWorkerBehavior).HandleCancelJob(p)
+		process.Behavior().(SagaWorkerBehavior).HandleJobCancel(p)
 		return ServerStatusStop
 	default:
 		return process.Behavior().(SagaWorkerBehavior).HandleWorkerCast(p, message)
@@ -129,7 +121,7 @@ func (w *SagaWorker) HandleInfo(process *ServerProcess, message etf.Term) Server
 }
 
 // default callbacks
-func (w *SagaWorker) HandleCommitJob(process *SagaWorkerProcess) {
+func (w *SagaWorker) HandleJobCommit(process *SagaWorkerProcess) {
 	return
 }
 func (w *SagaWorker) HandleWorkerInfo(process *SagaWorkerProcess, message etf.Term) ServerStatus {

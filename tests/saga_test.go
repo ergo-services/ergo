@@ -10,22 +10,28 @@ import (
 	"github.com/halturin/ergo/node"
 )
 
-type testSaga struct {
-	gen.Saga
-}
-
+//
+// Worker
+//
 type testSagaWorker struct {
 	gen.SagaWorker
 }
 
-func (w *testSagaWorker) HandleStartJob(process *gen.SagaWorkerProcess, job gen.SagaJob) gen.SagaWorkerStatus {
+func (w *testSagaWorker) HandleJobStart(process *gen.SagaWorkerProcess, job gen.SagaJob) error {
 	return nil
 }
-func (w *testSagaWorker) HandleCancelJob(process *gen.SagaWorkerProcess) {
+func (w *testSagaWorker) HandleJobCancel(process *gen.SagaWorkerProcess) {
 	return
 }
 func (w *testSagaWorker) HandleWorkerInfo(process *gen.SagaWorkerProcess, message etf.Term) gen.ServerStatus {
 	return gen.ServerStatusOK
+}
+
+//
+// Saga
+//
+type testSaga struct {
+	gen.Saga
 }
 
 func (gs *testSaga) InitSaga(process *gen.SagaProcess, args ...etf.Term) (gen.SagaOptions, error) {
@@ -36,6 +42,10 @@ func (gs *testSaga) InitSaga(process *gen.SagaProcess, args ...etf.Term) (gen.Sa
 }
 
 func (gs *testSaga) HandleTxNew(process *gen.SagaProcess, tx gen.SagaTransaction, value interface{}) gen.SagaStatus {
+	return gen.SagaStatusOK
+}
+
+func (gs *testSaga) HandleTxDone(process *gen.SagaProcess, tx gen.SagaTransaction) gen.SagaStatus {
 	return gen.SagaStatusOK
 }
 
