@@ -2,6 +2,8 @@ package main
 
 import (
 	"fmt"
+	"math/rand"
+	"time"
 
 	"github.com/halturin/ergo/etf"
 	"github.com/halturin/ergo/gen"
@@ -12,7 +14,7 @@ type Producer struct {
 	dispatcher gen.StageDispatcherBehavior
 }
 
-func (p *Producer) InitStage(process *gen.StageProcess, args ...etf.Term) error {
+func (p *Producer) InitStage(process *gen.StageProcess, args ...etf.Term) (gen.StageOptions, error) {
 	// create a hash function for the dispatcher
 	hash := func(t etf.Term) int {
 		i, ok := t.(int)
@@ -26,17 +28,33 @@ func (p *Producer) InitStage(process *gen.StageProcess, args ...etf.Term) error 
 		return 1
 	}
 
-	process.Options = gen.StageOptions{
+	options := gen.StageOptions{
 		Dispatcher: gen.CreateStageDispatcherPartition(3, hash),
 	}
-	return nil
+	return options, nil
 }
-func (p *Producer) HandleDemand(process *gen.StageProcess, subscription gen.StageSubscription, count uint) (error, etf.List) {
+func (p *Producer) HandleDemand(process *gen.StageProcess, subscription gen.StageSubscription, count uint) (etf.List, gen.StageStatus) {
 	fmt.Println("Producer: just got demand for", count, "pack of events from", subscription.Pid)
-	return nil, nil
+	for i := 0; i < int(count); i++ {
+		n := rand.Intn(9) + 1
+		numbers := generateNumbers(n)
+		fmt.Println("Producer. Generate random numbers and send them to consumers...", numbers)
+		process.SendEvents(numbers)
+		time.Sleep(500 * time.Millisecond)
+	}
+	return nil, gen.StageStatusOK
 }
 
-func (p *Producer) HandleSubscribe(process *gen.StageProcess, subscription gen.StageSubscription, options gen.StageSubscribeOptions) error {
+func (p *Producer) HandleSubscribe(process *gen.StageProcess, subscription gen.StageSubscription, options gen.StageSubscribeOptions) gen.StageStatus {
 	fmt.Println("New subscription from:", subscription.Pid, "with min:", options.MinDemand, "and max:", options.MaxDemand)
-	return nil
+	return gen.StageStatusOK
+}
+
+func generateNumbers(n int) etf.List {
+	l := etf.List{}
+	for n > 0 {
+		l = append(l, rand.Intn(100))
+		n--
+	}
+	return l
 }

@@ -22,6 +22,10 @@ type StageProducerTest struct {
 	dispatcher gen.StageDispatcherBehavior
 }
 
+type sendEvents struct {
+	events etf.List
+}
+
 //
 // a simple Stage Producer
 //
@@ -50,6 +54,38 @@ func (gs *StageProducerTest) HandleCancel(process *gen.StageProcess, subscriptio
 func (gs *StageProducerTest) HandleCanceled(process *gen.StageProcess, subscription gen.StageSubscription, reason string) gen.StageStatus {
 	gs.value <- etf.Tuple{"canceled", subscription, reason}
 	return gen.StageStatusOK
+}
+
+func (s *StageProducerTest) SendEvents(p gen.Process, events etf.List) error {
+	message := sendEvents{
+		events: events,
+	}
+	_, err := p.Direct(message)
+	return err
+}
+
+func (s *StageProducerTest) Cancel(p gen.Process, subscription StageSubscription, reason string) error {
+	message := cancelSubscription{
+		subscription: subscription,
+		reason:       reason,
+	}
+	_, err := p.Direct(message)
+	return err
+}
+
+func (s *StageProducerTest) HandleStageDirect(process *gen.StageProcess, message interface{}) (interface{}, gen.ServerStatus) {
+	switch m := message.(type) {
+	case sendEvents:
+		process.SendEvents(m.events)
+		return nil, nil
+
+	case cancelSubscription:
+		err := process.Cancel(m.subscription, m.reason)
+		return nil, err
+
+	default:
+		return nil, gen.ErrUnsupportedRequest
+	}
 }
 
 //
@@ -89,9 +125,43 @@ func (gs *StageConsumerTest) HandleStageInfo(process *gen.StageProcess, message 
 	return gen.ServerStatusOK
 }
 
-func (gs *StageConsumerTest) Subscribe(process gen.Process, producer interface{}, opts gen.StageSubscriptionOptions) (etf.Ref, error) {
+func (s *StageConsumerTest) HandleStageDirect(p *gen.StageProcess, message interface{}) (interface{}, gen.ServerStatus) {
+	switch m := message.(type) {
+	case demandRequest:
+		p.Ask(m.subscription, m.count)
+		return nil, nil
 
+	case cancelSubscription:
+		err := p.Cancel(m.subscription, m.reason)
+		return nil, err
+
+	default:
+		return nil, gen.ErrUnsupportedRequest
+	}
 }
+
+func (gs *StageConsumerTest) Subscribe(p gen.Process, producer interface{}, opts gen.StageSubscriptionOptions) (etf.Ref, error) {
+	return etf.Ref{}, nil
+}
+
+func (s *StageConsumerTest) Cancel(p gen.Process, subscription StageSubscription, reason string) error {
+	message := cancelSubscription{
+		subscription: subscription,
+		reason:       reason,
+	}
+	_, err := p.Direct(message)
+	return err
+}
+
+func (s *StageConsumerTest) Ask(p gen.Process, subscription StageSubscription, count uint) error {
+	message := demandRequest{
+		subscription: subscription,
+		count:        count,
+	}
+	_, err := p.Direct(message)
+	return err
+}
+
 func TestStageSimple(t *testing.T) {
 
 	fmt.Printf("\n=== Test StageSimple\n")

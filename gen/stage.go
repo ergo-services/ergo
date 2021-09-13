@@ -409,7 +409,7 @@ func (gst *Stage) Init(process *ServerProcess, args ...etf.Term) error {
 	}
 	stageProcess.behavior = behavior
 
-	stageOpts, err := behavior.InitStage(stageProcess, args)
+	stageOpts, err := behavior.InitStage(stageProcess, args...)
 	if err != nil {
 		return err
 	}
