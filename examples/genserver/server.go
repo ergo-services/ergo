@@ -33,31 +33,31 @@ func (dgs *demo) Init(process *gen.ServerProcess, args ...etf.Term) error {
 	return nil
 }
 
-func (dgs *demo) HandleCast(process *gen.ServerProcess, message etf.Term) string {
+func (dgs *demo) HandleCast(process *gen.ServerProcess, message etf.Term) gen.ServerStatus {
 	fmt.Printf("[%s] HandleCast: %v\n", process.Name(), message)
 	if pid, ok := message.(etf.Pid); ok {
 		process.Send(pid, etf.Atom("hahaha"))
-		return "noreply"
+		return gen.ServerStatusOK
 	}
 	switch message {
 	case etf.Atom("stop"):
-		return "stop they said"
+		return gen.ServerStatusStopWithReason("stop they said")
 	}
-	return "noreply"
+	return gen.ServerStatusOK
 }
 
-func (dgs *demo) HandleCall(process *gen.ServerProcess, from gen.ServerFrom, message etf.Term) (string, etf.Term) {
+func (dgs *demo) HandleCall(process *gen.ServerProcess, from gen.ServerFrom, message etf.Term) (etf.Term, gen.ServerStatus) {
 	fmt.Printf("[%s] HandleCall: %#v, From: %v\n", process.Name(), message, from)
 
 	reply := etf.Term(etf.Tuple{etf.Atom("error"), etf.Atom("unknown_request")})
 	switch message.(type) {
 	case etf.Atom:
-		return "reply", etf.Term("hi")
+		return etf.Term("hi"), gen.ServerStatusOK
 
 	case etf.List:
-		return "reply", message
+		return message, gen.ServerStatusOK
 	}
-	return "reply", reply
+	return reply, gen.ServerStatusOK
 }
 
 func init() {
@@ -102,7 +102,11 @@ func main() {
 		}
 		return etf.Term(args)
 	}
-	node.ProvideRPC("rpc", "request", fun)
+	err := node.ProvideRPC("rpc", "request", fun)
+	if err != nil {
+		fmt.Println("error", err)
+		return
+	}
 
 	// Print how it can be used along with the Erlang node
 	fmt.Println("Run erl shell:")

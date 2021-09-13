@@ -94,25 +94,25 @@ type demoGenServ struct {
 	gen.Server
 }
 
-func (dgs *demoGenServ) HandleCast(process *gen.ServerProcess, message etf.Term) string {
+func (dgs *demoGenServ) HandleCast(process *gen.ServerProcess, message etf.Term) gen.ServerStatus {
 	fmt.Printf("HandleCast (%s): %v\n", process.Name(), message)
 	switch message {
 	case etf.Atom("stop"):
-		return "stop they said"
+		return gen.ServerStatusStopWithReason("stop they said")
 	}
-	return "noreply"
+	return gen.ServerStatusOK
 }
 
-func (dgs *demoGenServ) HandleCall(process *gen.ServerProcess, from gen.ServerFrom, message etf.Term) (string, etf.Term) {
+func (dgs *demoGenServ) HandleCall(process *gen.ServerProcess, from gen.ServerFrom, message etf.Term) (etf.Term, gen.ServerStatus) {
 	fmt.Printf("HandleCall (%s): %v, From: %v\n", process.Name(), message, from)
 
 	switch message {
 	case etf.Atom("hello"):
-		return "reply", etf.Atom("hi")
+		return etf.Atom("hi"), gen.ServerStatusOK
 	}
 
 	reply := etf.Tuple{etf.Atom("error"), etf.Atom("unknown_request")}
-	return "reply", reply
+	return reply, gen.ServerStatusOK
 }
 
 func init() {

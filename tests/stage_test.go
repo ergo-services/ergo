@@ -22,20 +22,16 @@ type StageProducerTest struct {
 	dispatcher gen.StageDispatcherBehavior
 }
 
-type StageConsumerTest struct {
-	gen.Stage
-	value       chan interface{}
-	subscribeTo []gen.StageSubscribeTo
-}
+//
+// a simple Stage Producer
+//
 
-func (gs *StageProducerTest) InitStage(process *gen.StageProcess, args ...etf.Term) error {
-	process.Options = gen.StageOptions{
+func (gs *StageProducerTest) InitStage(process *gen.StageProcess, args ...etf.Term) (gen.StageOptions, error) {
+	opts := gen.StageOptions{
 		Dispatcher: gs.dispatcher,
 	}
-	return nil
+	return opts, nil
 }
-
-// a simple Stage Producer
 func (gs *StageProducerTest) HandleDemand(process *gen.StageProcess, subscription gen.StageSubscription, count uint) (etf.List, gen.StageStatus) {
 	gs.value <- etf.Tuple{subscription, count}
 	return nil, gen.StageStatusOK
@@ -56,12 +52,17 @@ func (gs *StageProducerTest) HandleCanceled(process *gen.StageProcess, subscript
 	return gen.StageStatusOK
 }
 
+//
 // a simple Stage Consumer
-func (gs *StageConsumerTest) InitStage(process *gen.StageProcess, args ...etf.Term) error {
-	process.Options = gen.StageOptions{
-		SubscribeTo: gs.subscribeTo,
-	}
-	return nil
+//
+type StageConsumerTest struct {
+	gen.Stage
+	value       chan interface{}
+	subscribeTo []gen.StageSubscribeTo
+}
+
+func (gs *StageConsumerTest) InitStage(process *gen.StageProcess, args ...etf.Term) (gen.StageOptions, error) {
+	return gen.StageOptions{}, nil
 }
 func (gs *StageConsumerTest) HandleEvents(process *gen.StageProcess, subscription gen.StageSubscription, events etf.List) gen.StageStatus {
 	gs.value <- etf.Tuple{"events", subscription, events}
@@ -86,6 +87,10 @@ func (gs *StageConsumerTest) HandleStageCast(process *gen.StageProcess, message 
 func (gs *StageConsumerTest) HandleStageInfo(process *gen.StageProcess, message etf.Term) gen.ServerStatus {
 	gs.value <- message
 	return gen.ServerStatusOK
+}
+
+func (gs *StageConsumerTest) Subscribe(process gen.Process, producer interface{}, opts gen.StageSubscriptionOptions) (etf.Ref, error) {
+
 }
 func TestStageSimple(t *testing.T) {
 

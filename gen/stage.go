@@ -10,18 +10,9 @@ import (
 
 type StageCancelMode uint
 
-// StageOptions defines the Stage' configuration using Init callback.
-// Some options are specific to the chosen stage mode while others are
-// shared across all types.
+// StageOptions defines the producer configuration using Init callback. It will be ignored
+// if it acts as a consumer only.
 type StageOptions struct {
-
-	// If this stage acts as a consumer you can to define producers
-	// this stage should subscribe to.
-	// SubscribeTo is a list of StageSubscribeTo. Each element represents
-	// a producer (etf.Pid or registered name) and subscription options.
-	SubscribeTo []StageSubscribeTo
-
-	// Options below are for the stage that acts as a producer.
 
 	// DisableForwarding. the demand is always forwarded to the HandleDemand callback.
 	// When this options is set to 'true', demands are accumulated until mode is
@@ -61,7 +52,7 @@ var (
 type StageBehavior interface {
 
 	// InitStage
-	InitStage(process *StageProcess, args ...etf.Term) error
+	InitStage(process *StageProcess, args ...etf.Term) (StageOptions, error)
 
 	// HandleDemand this callback is invoked on a producer stage
 	// The producer that implements this callback must either store the demand, or return the amount of requested events.
@@ -96,6 +87,9 @@ type StageBehavior interface {
 	// HandleStageCall this callback is invoked on Process.Call. This method is optional
 	// for the implementation
 	HandleStageCall(process *StageProcess, from ServerFrom, message etf.Term) (etf.Term, ServerStatus)
+	// HandleStageDirect this callback is invoked on Process.Direct. This method is optional
+	// for the implementation
+	HandleStageDirect(process *StageProcess, message interface{}) (interface{}, ServerStatus)
 	// HandleStageCast this callback is invoked on Process.Cast. This method is optional
 	// for the implementation
 	HandleStageCast(process *StageProcess, message etf.Term) ServerStatus
@@ -112,15 +106,10 @@ type StageSubscription struct {
 type subscriptionInternal struct {
 	Producer     etf.Term
 	Subscription StageSubscription
-	Options      StageSubscribeOptions
+	options      StageSubscribeOptions
 	Monitor      etf.Ref
 	// number of event requests (demands) made as a consumer.
 	count int
-}
-
-type StageSubscribeTo struct {
-	Producer etf.Term
-	Options  StageSubscribeOptions
 }
 
 type StageSubscribeOptions struct {
@@ -158,7 +147,7 @@ type Stage struct {
 type StageProcess struct {
 	ServerProcess
 
-	Options         StageOptions
+	options         StageOptions
 	demandBuffer    []demandRequest
 	dispatcherState interface{}
 	// keep our subscriptions
@@ -191,11 +180,6 @@ type setCancelMode struct {
 	cancel       StageCancelMode
 }
 
-type doSubscribe struct {
-	to      etf.Term
-	options StageSubscribeOptions
-}
-
 type setForwardDemand struct {
 	forward bool
 }
@@ -205,16 +189,7 @@ type demandRequest struct {
 	count        uint
 }
 
-type cancelSubscription struct {
-	subscription StageSubscription
-	reason       string
-}
-
-type sendEvents struct {
-	events etf.List
-}
-
-// Stage methods
+// Stage API
 
 // DisableAutoDemand means that demand must be sent to producers explicitly using Ask method. This
 // mode can be used when a special behavior is desired.
@@ -261,15 +236,6 @@ func (s *Stage) DisableForwardDemand(p Process) error {
 	return err
 }
 
-// SendEvents sends events for the subscribers
-func (s *Stage) SendEvents(p Process, events etf.List) error {
-	message := sendEvents{
-		events: events,
-	}
-	_, err := p.Direct(message)
-	return err
-}
-
 // SetCancelMode defines how consumer will handle termination of the producer. There are 3 modes:
 // StageCancelPermanent (default) - consumer exits when the producer cancels or exits
 // StageCancelTransient - consumer exits only if reason is not normal, shutdown, or {shutdown, reason}
@@ -284,10 +250,14 @@ func (s *Stage) SetCancelMode(p Process, subscription StageSubscription, cancel 
 	return err
 }
 
+//
+// StageProcess methods
+//
+
 // Subscribe subscribes to the given producer. HandleSubscribed callback will be invoked
 // on a consumer stage once a request for the subscription is sent. If something went wrong
 // on a producer side the callback HandleCancel will be invoked with a reason of cancelation.
-func (s *Stage) Subscribe(p Process, producer etf.Term, opts StageSubscribeOptions) (StageSubscription, error) {
+func (p *StageProcess) Subscribe(producer etf.Term, opts StageSubscribeOptions) (StageSubscription, error) {
 	var subscription StageSubscription
 	switch producer.(type) {
 	case string:
@@ -345,33 +315,86 @@ func (s *Stage) Subscribe(p Process, producer etf.Term, opts StageSubscribeOptio
 	return subscription, nil
 }
 
+// SendEvents sends events to the subscribers
+func (p *StageProcess) SendEvents(events etf.List) {
+	var deliver []StageDispatchItem
+	// dispatch to the subscribers
+	deliver = p.options.Dispatcher.Dispatch(p.dispatcherState, events)
+	if len(deliver) == 0 {
+		return
+	}
+	for d := range deliver {
+		msg := etf.Tuple{
+			etf.Atom("$gen_consumer"),
+			etf.Tuple{deliver[d].subscription.Pid, deliver[d].subscription.Ref},
+			deliver[d].events,
+		}
+		p.Send(deliver[d].subscription.Pid, msg)
+	}
+	return
+}
+
 // Ask makes a demand request for the given subscription. This function must only be
 // used in the cases when a consumer sets a subscription to manual mode using DisableAutoDemand
-func (s *Stage) Ask(p Process, subscription StageSubscription, count uint) error {
-	message := demandRequest{
-		subscription: subscription,
-		count:        count,
+func (p *StageProcess) Ask(subscription StageSubscription, count uint) error {
+	subInternal, ok := p.producers[subscription.Ref]
+	if !ok {
+		fmt.Errorf("unknown subscription")
 	}
-	_, err := p.Direct(message)
-	return err
+	if !subInternal.options.ManualDemand {
+		fmt.Errorf("auto demand")
+	}
+
+	sendDemand(p, subInternal.Producer, subscription, count)
+	subInternal.count += int(count)
+	return nil
 }
 
 // Cancel
-func (s *Stage) Cancel(p Process, subscription StageSubscription, reason string) error {
-	message := cancelSubscription{
-		subscription: subscription,
-		reason:       reason,
+func (p *StageProcess) Cancel(subscription StageSubscription, reason string) error {
+	// if we act as a consumer with this subscription
+	if subInternal, ok := p.producers[subscription.Ref]; ok {
+		msg := etf.Tuple{
+			etf.Atom("$gen_producer"),
+			etf.Tuple{subscription.Pid, subscription.Ref},
+			etf.Tuple{etf.Atom("cancel"), reason},
+		}
+		p.Send(subInternal.Producer, msg)
+		cmd := stageRequestCommand{
+			Cmd:  etf.Atom("cancel"),
+			Opt1: "normal",
+		}
+		if _, err := handleConsumer(p, subInternal.Subscription, cmd); err != nil {
+			return err
+		}
+		return nil
 	}
-	_, err := p.Direct(message)
-	return err
+	// if we act as a producer within this subscription
+	if subInternal, ok := p.consumers[subscription.Pid]; ok {
+		msg := etf.Tuple{
+			etf.Atom("$gen_consumer"),
+			etf.Tuple{subscription.Pid, subscription.Ref},
+			etf.Tuple{etf.Atom("cancel"), reason},
+		}
+		p.Send(subscription.Pid, msg)
+		p.DemonitorProcess(subInternal.Monitor)
+		cmd := stageRequestCommand{
+			Cmd:  etf.Atom("cancel"),
+			Opt1: "normal",
+		}
+		if _, err := handleProducer(p, subInternal.Subscription, cmd); err != nil {
+			return err
+		}
+		return nil
+	}
+	return fmt.Errorf("unknown subscription")
+
 }
 
 //
 // gen.Server callbacks
 //
 func (gst *Stage) Init(process *ServerProcess, args ...etf.Term) error {
-	//var stageOptions StageOptions
-
 	stageProcess := &StageProcess{
 		ServerProcess: *process,
 		producers:     make(map[etf.Ref]*subscriptionInternal),
@@ -386,25 +409,22 @@ func (gst *Stage) Init(process *ServerProcess, args ...etf.Term) error {
 	}
 	stageProcess.behavior = behavior
 
-	if err := behavior.InitStage(stageProcess, args); err != nil {
+	stageOpts, err := behavior.InitStage(stageProcess, args)
+	if err != nil {
 		return err
 	}
 
-	if stageProcess.Options.BufferSize == 0 {
-		stageProcess.Options.BufferSize = defaultDispatcherBufferSize
+	if stageOpts.BufferSize == 0 {
+		stageOpts.BufferSize = defaultDispatcherBufferSize
 	}
 
 	// if dispatcher wasn't specified create a default one StageDispatcherDemand
-	if stageProcess.Options.Dispatcher == nil {
-		stageProcess.Options.Dispatcher = CreateStageDispatcherDemand()
+	if stageOpts.Dispatcher == nil {
+		stageOpts.Dispatcher = CreateStageDispatcherDemand()
 	}
 
-	stageProcess.dispatcherState = stageProcess.Options.Dispatcher.Init(stageProcess.Options)
-	if len(stageProcess.Options.SubscribeTo) > 0 {
-		for _, s := range stageProcess.Options.SubscribeTo {
-			gst.Subscribe(process, s.Producer, s.Options)
-		}
-	}
+	stageProcess.dispatcherState = stageOpts.Dispatcher.Init(stageOpts)
+	stageProcess.options = stageOpts
 
 	process.State = stageProcess
 	return nil
@@ -423,8 +443,8 @@ func (gst *Stage) HandleDirect(process *ServerProcess, message interface{}) (int
 		if !ok {
 			return nil, fmt.Errorf("unknown subscription")
 		}
-		subInternal.Options.ManualDemand = m.enable
-		if subInternal.count < defaultAutoDemandCount && !subInternal.Options.ManualDemand {
+		subInternal.options.ManualDemand = m.enable
+		if subInternal.count < defaultAutoDemandCount && !subInternal.options.ManualDemand {
 			sendDemand(process, subInternal.Producer, m.subscription, defaultAutoDemandCount)
 			subInternal.count += defaultAutoDemandCount
 		}
@@ -435,11 +455,11 @@ func (gst *Stage) HandleDirect(process *ServerProcess, message interface{}) (int
 		if !ok {
 			return nil, fmt.Errorf("unknown subscription")
 		}
-		subInternal.Options.Cancel = m.cancel
+		subInternal.options.Cancel = m.cancel
 		return nil, nil
 
 	case setForwardDemand:
-		stageProcess.Options.DisableForwarding = !m.forward
+		stageProcess.options.DisableForwarding = !m.forward
 		if !m.forward {
 			return nil, nil
 		}
@@ -455,76 +475,8 @@ func (gst *Stage) HandleDirect(process *ServerProcess, message interface{}) (int
 
 		return nil, nil
 
-	case sendEvents:
-		var deliver []StageDispatchItem
-		// dispatch to the subscribers
-		deliver = stageProcess.Options.Dispatcher.Dispatch(stageProcess.dispatcherState, m.events)
-		if len(deliver) == 0 {
-			return nil, nil
-		}
-		for d := range deliver {
-			msg := etf.Tuple{
-				etf.Atom("$gen_consumer"),
-				etf.Tuple{deliver[d].subscription.Pid, deliver[d].subscription.Ref},
-				deliver[d].events,
-			}
-			process.Send(deliver[d].subscription.Pid, msg)
-		}
-		return nil, nil
-
-	case demandRequest:
-		subInternal, ok := stageProcess.producers[m.subscription.Ref]
-		if !ok {
-			return nil, fmt.Errorf("unknown subscription")
-		}
-		if !subInternal.Options.ManualDemand {
-			return nil, fmt.Errorf("auto demand")
-		}
-
-		sendDemand(process, subInternal.Producer, m.subscription, m.count)
-		subInternal.count += int(m.count)
-		return nil, nil
-
-	case cancelSubscription:
-		// if we act as a consumer with this subscription
-		if subInternal, ok := stageProcess.producers[m.subscription.Ref]; ok {
-			msg := etf.Tuple{
-				etf.Atom("$gen_producer"),
-				etf.Tuple{m.subscription.Pid, m.subscription.Ref},
-				etf.Tuple{etf.Atom("cancel"), m.reason},
-			}
-			process.Send(subInternal.Producer, msg)
-			cmd := stageRequestCommand{
-				Cmd:  etf.Atom("cancel"),
-				Opt1: "normal",
-			}
-			if _, err := handleConsumer(stageProcess, subInternal.Subscription, cmd); err != nil {
-				return nil, err
-			}
-			return nil, nil
-		}
-		// if we act as a producer within this subscription
-		if subInternal, ok := stageProcess.consumers[m.subscription.Pid]; ok {
-			msg := etf.Tuple{
-				etf.Atom("$gen_consumer"),
-				etf.Tuple{m.subscription.Pid, m.subscription.Ref},
-				etf.Tuple{etf.Atom("cancel"), m.reason},
-			}
-			process.Send(m.subscription.Pid, msg)
-			process.DemonitorProcess(subInternal.Monitor)
-			cmd := stageRequestCommand{
-				Cmd:  etf.Atom("cancel"),
-				Opt1: "normal",
-			}
-			if _, err := handleProducer(stageProcess, subInternal.Subscription, cmd); err != nil {
-				return nil, err
-			}
-			return nil, nil
-		}
-		return nil, fmt.Errorf("unknown subscription")
-
 	default:
-		return nil, ErrUnsupportedRequest
+		return stageProcess.behavior.HandleStageDirect(stageProcess, message)
 	}
 
 }
@@ -577,6 +529,11 @@ func (gst *Stage) HandleStageCall(process *StageProcess, from ServerFrom, messag
 	// default callback if it wasn't implemented
 	fmt.Printf("HandleStageCall: unhandled message (from %#v) %#v\n", from, message)
 	return etf.Atom("ok"), ServerStatusOK
+}
+
+func (gst *Stage) HandleStageDirect(process *StageProcess, message interface{}) (interface{}, ServerStatus) {
+	// default callback if it wasn't implemented
+	return nil, ErrUnsupportedRequest
 }
 
 func (gst *Stage) HandleStageCast(process *StageProcess, message etf.Term) ServerStatus {
@@ -664,11 +621,11 @@ func handleConsumer(process *StageProcess, subscription StageSubscription, cmd s
 		if subInternal.count < 0 {
 			return nil, fmt.Errorf("got %d events which haven't bin requested", numEvents)
 		}
-		if numEvents < int(subInternal.Options.MinDemand) {
-			return nil, fmt.Errorf("got %d events which is less than min %d", numEvents, subInternal.Options.MinDemand)
+		if numEvents < int(subInternal.options.MinDemand) {
+			return nil, fmt.Errorf("got %d events which is less than min %d", numEvents, subInternal.options.MinDemand)
 		}
-		if numEvents > int(subInternal.Options.MaxDemand) {
-			return nil, fmt.Errorf("got %d events which is more than max %d", numEvents, subInternal.Options.MaxDemand)
+		if numEvents > int(subInternal.options.MaxDemand) {
+			return nil, fmt.Errorf("got %d events which is more than max %d", numEvents, subInternal.options.MaxDemand)
 		}
 
 		err = process.behavior.HandleEvents(process, subscription, events)
@@ -678,7 +635,7 @@ func handleConsumer(process *StageProcess, subscription StageSubscription, cmd s
 
 		// if subscription has auto demand we should request yet another
 		// bunch of events
-		if subInternal.count < defaultAutoDemandCount && !subInternal.Options.ManualDemand {
+		if subInternal.count < defaultAutoDemandCount && !subInternal.options.ManualDemand {
 			sendDemand(process, subInternal.Producer, subscription, defaultAutoDemandCount)
 			subInternal.count += defaultAutoDemandCount
 		}
@@ -700,7 +657,7 @@ func handleConsumer(process *StageProcess, subscription StageSubscription, cmd s
 		subInternal := &subscriptionInternal{
 			Subscription: subscription,
 			Producer:     producer,
-			Options:      subscriptionOpts,
+			options:      subscriptionOpts,
 		}
 		process.producers[subscription.Ref] = subInternal
 
@@ -752,7 +709,7 @@ func handleConsumer(process *StageProcess, subscription StageSubscription, cmd s
 			return nil, err
 		}
 
-		switch subInternal.Options.Cancel {
+		switch subInternal.options.Cancel {
 		case StageCancelTemporary:
 			return etf.Atom("ok"), nil
 		case StageCancelTransient:
@@ -808,9 +765,9 @@ func handleProducer(process *StageProcess, subscription StageSubscription, cmd s
 					Ref: s.Subscription.Ref,
 				}
 				// cancel current demands
-				process.Options.Dispatcher.Cancel(process.dispatcherState, canceledSubscription)
+				process.options.Dispatcher.Cancel(process.dispatcherState, canceledSubscription)
 				// notify dispatcher about the new subscription
-				if err := process.Options.Dispatcher.Subscribe(process.dispatcherState, subscription, subscriptionOpts); err != nil {
+				if err := process.options.Dispatcher.Subscribe(process.dispatcherState, subscription, subscriptionOpts); err != nil {
 					// dispatcher can't handle this subscription
 					msg := etf.Tuple{
 						etf.Atom("$gen_consumer"),
@@ -825,7 +782,7 @@ func handleProducer(process *StageProcess, subscription StageSubscription, cmd s
 				return etf.Atom("ok"), nil
 			}
 
-			if err := process.Options.Dispatcher.Subscribe(process.dispatcherState, subscription, subscriptionOpts); err != nil {
+			if err := process.options.Dispatcher.Subscribe(process.dispatcherState, subscription, subscriptionOpts); err != nil {
 				// dispatcher can't handle this subscription
 				msg := etf.Tuple{
 					etf.Atom("$gen_consumer"),
@@ -842,7 +799,7 @@ func handleProducer(process *StageProcess, subscription StageSubscription, cmd s
 			s := &subscriptionInternal{
 				Subscription: subscription,
 				Monitor:      m,
-				Options:      subscriptionOpts,
+				options:      subscriptionOpts,
 			}
 			process.consumers[subscription.Pid] = s
 			return etf.Atom("ok"), nil
@@ -862,7 +819,7 @@ func handleProducer(process *StageProcess, subscription StageSubscription, cmd s
 			return nil, err
 		}
 	case etf.Atom("retry-ask"):
-		// if "subscribe" message hasn't still arrived, send a cancelation message
+		// if the "subscribe" message hasn't still arrived, send a cancelation message
 		// to the consumer
 		if _, ok := process.consumers[subscription.Pid]; !ok {
 			msg := etf.Tuple{
@@ -890,7 +847,7 @@ func handleProducer(process *StageProcess, subscription StageSubscription, cmd s
 
 		// handle buffered demand on exit this function
 		defer func() {
-			if process.Options.DisableForwarding {
+			if process.options.DisableForwarding {
 				return
 			}
 			if len(process.demandBuffer) == 0 {
@@ -926,7 +883,7 @@ func handleProducer(process *StageProcess, subscription StageSubscription, cmd s
 			return etf.Atom("ok"), nil
 		}
 
-		if process.Options.DisableForwarding {
+		if process.options.DisableForwarding {
 			d := demandRequest{
 				subscription: subscription,
 				count:        count,
@@ -941,7 +898,7 @@ func handleProducer(process *StageProcess, subscription StageSubscription, cmd s
 		events, _ = process.behavior.HandleDemand(process, subscription, count)
 
 		// register this demand and trying to dispatch having events
-		dispatcher := process.Options.Dispatcher
+		dispatcher := process.options.Dispatcher
 		dispatcher.Ask(process.dispatcherState, subscription, count)
 		deliver = dispatcher.Dispatch(process.dispatcherState, events)
 		if len(deliver) == 0 {
@@ -962,7 +919,7 @@ func handleProducer(process *StageProcess, subscription StageSubscription, cmd s
 	case etf.Atom("cancel"):
 		var e error
 		// handle this cancelation in the dispatcher
-		dispatcher := process.Options.Dispatcher
+		dispatcher := process.options.Dispatcher
 		dispatcher.Cancel(process.dispatcherState, subscription)
 		reason := cmd.Opt1.(string)
 		// handle it in a Stage callback
