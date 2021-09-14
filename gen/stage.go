@@ -534,7 +534,7 @@ func (gst *Stage) HandleStageCall(process *StageProcess, from ServerFrom, messag
 	return etf.Atom("ok"), ServerStatusOK
 }
 
-func (gst *Stage) HandleStageDirect(process *StageProcess, message interface{}) (interface{}, ServerStatus) {
+func (gst *Stage) HandleStageDirect(process *StageProcess, message interface{}) (interface{}, error) {
 	// default callback if it wasn't implemented
 	return nil, ErrUnsupportedRequest
 }
