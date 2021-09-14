@@ -195,7 +195,7 @@ func TestServer(t *testing.T) {
 	}
 
 	fmt.Printf("    process.Send (by Name) local (gs1) -> remote (gs3) : ")
-	processName := gen.ProcessID{"gs3", node2.NodeName()}
+	processName := gen.ProcessID{Name: "gs3", Node: node2.NodeName()}
 	node1gs1.Send(processName, etf.Atom("hi"))
 	waitForResultWithValue(t, gs3.res, etf.Atom("hi"))
 
@@ -261,7 +261,7 @@ func TestServer(t *testing.T) {
 	fmt.Printf("    process.SetTrapExit(true) and call process.Exit() gs2: ")
 	node1gs2.SetTrapExit(true)
 	node1gs2.Exit("test trap")
-	waitForResultWithValue(t, gs2.res, gen.MessageExit{node1gs2.Self(), "test trap"})
+	waitForResultWithValue(t, gs2.res, gen.MessageExit{Pid: node1gs2.Self(), Reason: "test trap"})
 	fmt.Printf("    check process.IsAlive gs2 (must be alive): ")
 	if !node1gs2.IsAlive() {
 		t.Fatal("should be alive")

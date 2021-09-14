@@ -449,7 +449,7 @@ func TestStageDistributed(t *testing.T) {
 		Cancel: gen.StageCancelTemporary,
 	}
 	fmt.Println("Consumer@node2 subscribes on Producer@node1: ")
-	sub, _ := consumer.Subscribe(consumerProcess, gen.ProcessID{"stageProducer", "nodeStageDistributed01@localhost"}, subOpts)
+	sub, _ := consumer.Subscribe(consumerProcess, gen.ProcessID{Name: "stageProducer", Node: "nodeStageDistributed01@localhost"}, subOpts)
 	fmt.Printf("... Producer@node1 handled subscription request from Consumer@node2: ")
 	waitForResultWithValue(t, producer.value, sub)
 	fmt.Printf("... Consumer@node2 handled subscription confirmation from Producer@node1: ")
@@ -484,7 +484,7 @@ func TestStageDistributed(t *testing.T) {
 	fmt.Println("OK")
 
 	subOpts.Cancel = gen.StageCancelTransient
-	sub1, _ := consumer.Subscribe(consumerProcess, gen.ProcessID{"stageProducer", "nodeStageDistributed01@localhost"}, subOpts)
+	sub1, _ := consumer.Subscribe(consumerProcess, gen.ProcessID{Name: "stageProducer", Node: "nodeStageDistributed01@localhost"}, subOpts)
 	fmt.Printf("... Producer@node1 handled subscription request from Consumer@node2: ")
 	waitForResultWithValue(t, producer.value, sub1)
 	fmt.Printf("... Consumer@node2 handled subscription confirmation from Producer@node1 (StageCancelTransient): ")
@@ -516,7 +516,7 @@ func TestStageDistributed(t *testing.T) {
 	fmt.Println("OK")
 
 	subOpts.Cancel = gen.StageCancelPermanent
-	sub2, _ := consumer.Subscribe(consumerProcess1, gen.ProcessID{"stageProducer", "nodeStageDistributed01@localhost"}, subOpts)
+	sub2, _ := consumer.Subscribe(consumerProcess1, gen.ProcessID{Name: "stageProducer", Node: "nodeStageDistributed01@localhost"}, subOpts)
 	fmt.Printf("... Producer@node1 handled subscription request from Consumer@node2: ")
 	waitForResultWithValue(t, producer.value, sub2)
 	fmt.Printf("... Consumer@node2 handled subscription confirmation from Producer@node1 (StageCancelPermanent): ")
@@ -546,7 +546,7 @@ func TestStageDistributed(t *testing.T) {
 	}
 	fmt.Println("OK")
 	subOpts.Cancel = gen.StageCancelTemporary
-	sub3, err := consumer.Subscribe(consumerProcess2, gen.ProcessID{"stageProducer", "nodeStageDistributed01@localhost"}, subOpts)
+	sub3, err := consumer.Subscribe(consumerProcess2, gen.ProcessID{Name: "stageProducer", Node: "nodeStageDistributed01@localhost"}, subOpts)
 	if err != nil {
 		t.Fatal(err)
 	}

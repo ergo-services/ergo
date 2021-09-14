@@ -119,7 +119,7 @@ func TestMonitorLocalLocal(t *testing.T) {
 	node1gs2.Exit("normal")
 	result = gen.MessageDown{
 		Ref:       ref,
-		ProcessID: gen.ProcessID{"gs2", node1.Name()},
+		ProcessID: gen.ProcessID{Name: "gs2", Node: node1.Name()},
 		Reason:    "normal",
 	}
 	waitForResultWithValue(t, gs1.v, result)
@@ -130,7 +130,7 @@ func TestMonitorLocalLocal(t *testing.T) {
 	ref = node1gs1.MonitorProcess("asdfasdf")
 	result = gen.MessageDown{
 		Ref:       ref,
-		ProcessID: gen.ProcessID{"asdfasdf", node1.Name()},
+		ProcessID: gen.ProcessID{Name: "asdfasdf", Node: node1.Name()},
 		Reason:    "noproc",
 	}
 	waitForResultWithValue(t, gs1.v, result)
@@ -141,7 +141,7 @@ func TestMonitorLocalLocal(t *testing.T) {
 
 	// by Name gen.ProcessID{ProcessName, Node}
 	fmt.Printf("... by gen.ProcessID{Name, Node} Local-Local: gs1 -> gs2. demonitor: ")
-	processID := gen.ProcessID{"gs2", node1.Name()}
+	processID := gen.ProcessID{Name: "gs2", Node: node1.Name()}
 	ref = node1gs1.MonitorProcess(processID)
 	if err := checkCleanProcessRef(node1gs1, ref); err == nil {
 		t.Fatal("monitor reference has been lost")
@@ -164,7 +164,7 @@ func TestMonitorLocalLocal(t *testing.T) {
 		t.Fatal(err)
 	}
 	fmt.Print("... by gen.ProcessID{Name, Node} Local-Local: gs1 -> unknownPid: ")
-	processID = gen.ProcessID{"gs2222", node1.Name()}
+	processID = gen.ProcessID{Name: "gs2222", Node: node1.Name()}
 	ref = node1gs1.MonitorProcess(processID)
 	result = gen.MessageDown{
 		Ref:       ref,
@@ -327,7 +327,7 @@ func TestMonitorLocalRemoteByName(t *testing.T) {
 	node2gs2, _ := node2.Spawn("gs2", gen.ProcessOptions{}, gs2, nil)
 	waitForResultWithValue(t, gs2.v, node2gs2.Self())
 
-	processID := gen.ProcessID{"gs2", node2.Name()}
+	processID := gen.ProcessID{Name: "gs2", Node: node2.Name()}
 
 	fmt.Printf("... by gen.ProcessID{Name, Node} Local-Remote: gs1 -> gs2. demonitor: ")
 	ref := node1gs1.MonitorProcess(processID)
@@ -499,7 +499,7 @@ func TestLinkLocalLocal(t *testing.T) {
 
 	node1gs1.SetTrapExit(true)
 	node1gs2.Exit("normal")
-	result := gen.MessageExit{node1gs2.Self(), "normal"}
+	result := gen.MessageExit{Pid: node1gs2.Self(), Reason: "normal"}
 	waitForResultWithValue(t, gs1.v, result)
 
 	if err := checkCleanLinkPid(node1gs2, node1gs1.Self()); err != nil {
@@ -517,7 +517,7 @@ func TestLinkLocalLocal(t *testing.T) {
 
 	fmt.Printf("Testing Link process (by Pid only) Local-Local: gs1 -> gs2. doesnt_exist: ")
 	node1gs1.Link(node1gs2.Self())
-	result = gen.MessageExit{node1gs2.Self(), "noproc"}
+	result = gen.MessageExit{Pid: node1gs2.Self(), Reason: "noproc"}
 	waitForResultWithValue(t, gs1.v, result)
 
 	fmt.Printf("    wait for start of gs2 on %#v: ", node1.Name())
@@ -640,7 +640,7 @@ func TestLinkLocalRemote(t *testing.T) {
 	node1gs1.SetTrapExit(true)
 
 	node2gs2.Exit("normal")
-	result := gen.MessageExit{node2gs2.Self(), "normal"}
+	result := gen.MessageExit{Pid: node2gs2.Self(), Reason: "normal"}
 	waitForResultWithValue(t, gs1.v, result)
 
 	if err := checkCleanLinkPid(node1gs1, node2gs2.Self()); err != nil {
@@ -656,7 +656,7 @@ func TestLinkLocalRemote(t *testing.T) {
 	fmt.Printf("Testing Link process (by Pid only) Local-Remote: gs1 -> gs2. doesnt_exist: ")
 	ll1 = len(node1gs1.Links())
 	node1gs1.Link(node2gs2.Self())
-	result = gen.MessageExit{node2gs2.Self(), "noproc"}
+	result = gen.MessageExit{Pid: node2gs2.Self(), Reason: "noproc"}
 	waitForResultWithValue(t, gs1.v, result)
 	if ll1 != len(node1gs1.Links()) {
 		t.Fatal("number of links has changed on the second Link call")
@@ -721,8 +721,8 @@ func TestLinkLocalRemote(t *testing.T) {
 	// the link termination there, so MessageExit with "kill" reason will be arrived
 	// earlier.
 	node2.Stop()
-	result1 := gen.MessageExit{node2gs2.Self(), "noconnection"}
-	result2 := gen.MessageExit{node2gs2.Self(), "kill"}
+	result1 := gen.MessageExit{Pid: node2gs2.Self(), Reason: "noconnection"}
+	result2 := gen.MessageExit{Pid: node2gs2.Self(), Reason: "kill"}
 
 	waitForResultWithValueOrValue(t, gs1.v, result1, result2)
 
@@ -738,7 +738,7 @@ func TestLinkLocalRemote(t *testing.T) {
 	ll1 = len(node1gs1.Links())
 	fmt.Printf("Testing Link process (by Pid only) Local-Remote: gs1 -> gs2. node_unknown: ")
 	node1gs1.Link(node2gs2.Self())
-	result = gen.MessageExit{node2gs2.Self(), "noconnection"}
+	result = gen.MessageExit{Pid: node2gs2.Self(), Reason: "noconnection"}
 	waitForResultWithValue(t, gs1.v, result)
 
 	if ll1 != len(node1gs1.Links()) {

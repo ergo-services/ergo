@@ -22,9 +22,6 @@ type SagaBehavior interface {
 	// HandleTxNew invokes on a new TX receiving by this saga.
 	HandleTxNew(process *SagaProcess, tx SagaTransaction, value interface{}) SagaStatus
 
-	// HandleDone invoked when the TX is done. Invoked on a saga where this tx was created.
-	HandleTxDone(process *SagaProcess, tx SagaTransaction) SagaStatus
-
 	// HandleTxResult invoked on a receiving result from the next saga
 	HandleTxResult(process *SagaProcess, tx SagaTransaction, next SagaNext, result interface{}) SagaStatus
 
@@ -38,11 +35,14 @@ type SagaBehavior interface {
 	// Optional callbacks
 	//
 
+	// HandleDone invoked when the TX is done. Invoked on a saga where this tx was created.
+	HandleTxDone(process *SagaProcess, tx SagaTransaction) SagaStatus
+
 	// HandleInterim invoked if received interim result from the Next hop
 	HandleTxInterim(process *SagaProcess, tx SagaTransaction, next SagaNext, interim interface{}) SagaStatus
 
 	//
-	// Callbacks to handle results from the worker(s)
+	// Callbacks to handle result/interim from the worker(s)
 	//
 
 	// HandleJobResult
@@ -65,6 +65,9 @@ type SagaBehavior interface {
 	// HandleStageInfo this callback is invoked on Process.Send. This method is optional
 	// for the implementation
 	HandleSagaInfo(process *SagaProcess, message etf.Term) ServerStatus
+	// HandleSagaDirect this callback is invoked on Process.Direct. This method is optional
+	// for the implementation
+	HandleSagaDirect(process *SagaProcess, message interface{}) (interface{}, error)
 }
 
 type SagaStatus error
@@ -87,7 +90,7 @@ type SagaTransactionOptions struct {
 	Lifespan uint
 
 	// TwoPhaseCommit enables 2PC for the transaction. This option makes all
-	// Sagas involved in this transaction invoke HandleCommit on them and
+	// Sagas involved in this transaction invoke HandleCommit callback on them and
 	// invoke HandleCommitJob callback on Worker processes once the transaction is finished.
 	TwoPhaseCommit bool
 }
@@ -264,10 +267,6 @@ func (sp *SagaProcess) CancelTransaction(id etf.Ref, reason string) {
 
 }
 
-func (sp *SagaProcess) CommitTransaction(tx SagaTransaction) {
-
-}
-
 func (sp *SagaProcess) Next(tx SagaTransaction, next SagaNext) {
 
 }
@@ -310,11 +309,11 @@ func (sp *SagaProcess) SendInterim(tx SagaTransaction, interim interface{}) {
 //
 func (gs *Saga) Init(process *ServerProcess, args ...etf.Term) error {
 	var options SagaOptions
-	behavior := process.Behavior().(SagaBehavior)
-	//behavior, ok := process.Behavior().(SagaBehavior)
-	//if !ok {
-	//	return fmt.Errorf("Saga: not a SagaBehavior")
-	//}
+	//behavior := process.Behavior().(SagaBehavior)
+	behavior, ok := process.Behavior().(SagaBehavior)
+	if !ok {
+		return fmt.Errorf("Saga: not a SagaBehavior")
+	}
 
 	sagaProcess := &SagaProcess{
 		ServerProcess: *process,
@@ -520,23 +519,20 @@ func handleSagaDown(process *SagaProcess, down MessageDown) error {
 //
 // default Saga callbacks
 //
+
 func (gs *Saga) HandleTxInterim(process *SagaProcess, tx SagaTransaction, interim interface{}) SagaStatus {
-	// default callback if it wasn't implemented
 	fmt.Printf("HandleInterim: unhandled message %#v\n", tx)
 	return nil
 }
 func (gs *Saga) HandleSagaCall(process *SagaProcess, from ServerFrom, message etf.Term) (etf.Term, ServerStatus) {
-	// default callback if it wasn't implemented
 	fmt.Printf("HandleSagaCall: unhandled message (from %#v) %#v\n", from, message)
 	return etf.Atom("ok"), ServerStatusOK
 }
 func (gs *Saga) HandleSagaCast(process *SagaProcess, message etf.Term) ServerStatus {
-	// default callback if it wasn't implemented
 	fmt.Printf("HandleSagaCast: unhandled message %#v\n", message)
 	return ServerStatusOK
 }
 func (gs *Saga) HandleSagaInfo(process *SagaProcess, message etf.Term) ServerStatus {
-	// default callback if it wasn't implemnted
 	fmt.Printf("HandleSagaInfo: unhandled message %#v\n", message)
 	return ServerStatusOK
 }

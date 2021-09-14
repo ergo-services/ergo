@@ -122,10 +122,10 @@ func TestNodeFragmentation(t *testing.T) {
 			for k := 0; k < 100; k++ {
 				check, e := p1.Call(p2.Self(), message)
 				if e != nil {
-					t.Fatal(e)
+					panic(e)
 				}
 				if check != etf.Atom("ok") {
-					t.Fatal("md5sum mismatch")
+					panic("md5sum mismatch")
 				}
 			}
 
