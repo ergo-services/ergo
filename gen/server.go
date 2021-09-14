@@ -25,7 +25,7 @@ type ServerBehavior interface {
 	HandleCall(state *ServerProcess, from ServerFrom, message etf.Term) (etf.Term, ServerStatus)
 
 	// HandleDirect invoked on a direct request made with Process.Direct
-	HandleDirect(state *ServerProcess, message interface{}) (interface{}, ServerStatus)
+	HandleDirect(state *ServerProcess, message interface{}) (interface{}, error)
 
 	// HandleInfo invoked if Server received message sent with Process.Send.
 	HandleInfo(state *ServerProcess, message etf.Term) ServerStatus
@@ -369,7 +369,7 @@ func (gs *Server) HandleCall(process *ServerProcess, from ServerFrom, message et
 	return "ok", ServerStatusOK
 }
 
-func (gs *Server) HandleDirect(process *ServerProcess, message interface{}) (interface{}, ServerStatus) {
+func (gs *Server) HandleDirect(process *ServerProcess, message interface{}) (interface{}, error) {
 	return nil, ErrUnsupportedRequest
 }
 

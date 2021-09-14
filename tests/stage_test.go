@@ -25,6 +25,19 @@ type StageProducerTest struct {
 type sendEvents struct {
 	events etf.List
 }
+type cancelSubscription struct {
+	subscription gen.StageSubscription
+	reason       string
+}
+
+type demandRequest struct {
+	subscription gen.StageSubscription
+	count        uint
+}
+type newSubscription struct {
+	producer etf.Term
+	opts     gen.StageSubscribeOptions
+}
 
 //
 // a simple Stage Producer
@@ -64,7 +77,7 @@ func (s *StageProducerTest) SendEvents(p gen.Process, events etf.List) error {
 	return err
 }
 
-func (s *StageProducerTest) Cancel(p gen.Process, subscription StageSubscription, reason string) error {
+func (s *StageProducerTest) Cancel(p gen.Process, subscription gen.StageSubscription, reason string) error {
 	message := cancelSubscription{
 		subscription: subscription,
 		reason:       reason,
@@ -72,9 +85,22 @@ func (s *StageProducerTest) Cancel(p gen.Process, subscription StageSubscription
 	_, err := p.Direct(message)
 	return err
 }
+func (gs *StageProducerTest) Subscribe(p gen.Process, producer etf.Term, opts gen.StageSubscribeOptions) (gen.StageSubscription, error) {
+	message := newSubscription{
+		producer: producer,
+		opts:     opts,
+	}
+	s, err := p.Direct(message)
+	if err != nil {
+		return gen.StageSubscription{}, err
+	}
+	return s.(gen.StageSubscription), nil
+}
 
 func (s *StageProducerTest) HandleStageDirect(process *gen.StageProcess, message interface{}) (interface{}, gen.ServerStatus) {
 	switch m := message.(type) {
+	case newSubscription:
+		return process.Subscribe(m.producer, m.opts)
 	case sendEvents:
 		process.SendEvents(m.events)
 		return nil, nil
@@ -93,8 +119,7 @@ func (s *StageProducerTest) HandleStageDirect(process *gen.StageProcess, message
 //
 type StageConsumerTest struct {
 	gen.Stage
-	value       chan interface{}
-	subscribeTo []gen.StageSubscribeTo
+	value chan interface{}
 }
 
 func (gs *StageConsumerTest) InitStage(process *gen.StageProcess, args ...etf.Term) (gen.StageOptions, error) {
@@ -125,8 +150,10 @@ func (gs *StageConsumerTest) HandleStageInfo(process *gen.StageProcess, message 
 	return gen.ServerStatusOK
 }
 
-func (s *StageConsumerTest) HandleStageDirect(p *gen.StageProcess, message interface{}) (interface{}, gen.ServerStatus) {
+func (s *StageConsumerTest) HandleStageDirect(p *gen.StageProcess, message interface{}) (interface{}, error) {
 	switch m := message.(type) {
+	case newSubscription:
+		return p.Subscribe(m.producer, m.opts)
 	case demandRequest:
 		p.Ask(m.subscription, m.count)
 		return nil, nil
@@ -134,17 +161,23 @@ func (s *StageConsumerTest) HandleStageDirect(p *gen.StageProcess, message inter
 	case cancelSubscription:
 		err := p.Cancel(m.subscription, m.reason)
 		return nil, err
-
-	default:
-		return nil, gen.ErrUnsupportedRequest
 	}
+	return nil, gen.ErrUnsupportedRequest
 }
 
-func (gs *StageConsumerTest) Subscribe(p gen.Process, producer interface{}, opts gen.StageSubscriptionOptions) (etf.Ref, error) {
-	return etf.Ref{}, nil
+func (gs *StageConsumerTest) Subscribe(p gen.Process, producer etf.Term, opts gen.StageSubscribeOptions) (gen.StageSubscription, error) {
+	message := newSubscription{
+		producer: producer,
+		opts:     opts,
+	}
+	s, err := p.Direct(message)
+	if err != nil {
+		return gen.StageSubscription{}, err
+	}
+	return s.(gen.StageSubscription), nil
 }
 
-func (s *StageConsumerTest) Cancel(p gen.Process, subscription StageSubscription, reason string) error {
+func (s *StageConsumerTest) Cancel(p gen.Process, subscription gen.StageSubscription, reason string) error {
 	message := cancelSubscription{
 		subscription: subscription,
 		reason:       reason,
@@ -153,7 +186,7 @@ func (s *StageConsumerTest) Cancel(p gen.Process, subscription StageSubscription
 	return err
 }
 
-func (s *StageConsumerTest) Ask(p gen.Process, subscription StageSubscription, count uint) error {
+func (s *StageConsumerTest) Ask(p gen.Process, subscription gen.StageSubscription, count uint) error {
 	message := demandRequest{
 		subscription: subscription,
 		count:        count,

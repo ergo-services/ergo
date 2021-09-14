@@ -37,7 +37,7 @@ type DemoBehavior interface {
 	HandleDemoCall(process *DemoProcess, from gen.ServerFrom, message etf.Term) (etf.Term, gen.ServerStatus)
 	// HandleDemoDirect this callback is invoked on Process.Direct. This method is optional
 	// for the implementation
-	HandleDemoDirect(process *DemoProcess, message interface{}) (interface{}, gen.ServerStatus)
+	HandleDemoDirect(process *DemoProcess, message interface{}) (interface{}, error)
 	// HandleDemoCast this callback is invoked on Process.Cast. This method is optional
 	// for the implementation
 	HandleDemoCast(process *DemoProcess, message etf.Term) gen.ServerStatus
@@ -118,7 +118,7 @@ func (gd *Demo) HandleCall(process *gen.ServerProcess, from gen.ServerFrom, mess
 	return process.Behavior().(DemoBehavior).HandleDemoCall(demo, from, message)
 }
 
-func (gd *Demo) HandleDirect(process *gen.ServerProcess, message interface{}) (interface{}, gen.ServerStatus) {
+func (gd *Demo) HandleDirect(process *gen.ServerProcess, message interface{}) (interface{}, error) {
 	demo := process.State.(*DemoProcess)
 	switch message.(type) {
 	case messageGetStat:

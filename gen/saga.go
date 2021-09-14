@@ -342,7 +342,7 @@ func (gs *Saga) HandleCall(process *ServerProcess, from ServerFrom, message etf.
 	return process.Behavior().(SagaBehavior).HandleSagaCall(sp, from, message)
 }
 
-func (gs *Saga) HandleDirect(process *ServerProcess, message interface{}) (interface{}, ServerStatus) {
+func (gs *Saga) HandleDirect(process *ServerProcess, message interface{}) (interface{}, error) {
 	st := process.State.(*SagaProcess)
 	switch m := message.(type) {
 	case sagaSetMaxTransactions:

@@ -64,7 +64,7 @@ func (tgsd *testServerDirect) Init(process *gen.ServerProcess, args ...etf.Term)
 	tgsd.err <- nil
 	return nil
 }
-func (tgsd *testServerDirect) HandleDirect(process *gen.ServerProcess, message interface{}) (interface{}, gen.ServerStatus) {
+func (tgsd *testServerDirect) HandleDirect(process *gen.ServerProcess, message interface{}) (interface{}, error) {
 	return message, nil
 }
 

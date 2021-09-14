@@ -18,7 +18,7 @@ type SagaWorkerBehavior interface {
 	HandleWorkerInfo(process *SagaWorkerProcess, message etf.Term) ServerStatus
 	HandleWorkerCast(process *SagaWorkerProcess, message etf.Term) ServerStatus
 	HandleWorkerCall(process *SagaWorkerProcess, from ServerFrom, message etf.Term) (etf.Term, ServerStatus)
-	HandleWorkerDirect(process *SagaWorkerProcess, message interface{}) (interface{}, ServerStatus)
+	HandleWorkerDirect(process *SagaWorkerProcess, message interface{}) (interface{}, error)
 }
 
 type SagaWorker struct {
@@ -111,7 +111,7 @@ func (w *SagaWorker) HandleCall(process *ServerProcess, from ServerFrom, message
 	return process.Behavior().(SagaWorkerBehavior).HandleWorkerCall(p, from, message)
 }
 
-func (w *SagaWorker) HandleDirect(process *ServerProcess, message interface{}) (interface{}, ServerStatus) {
+func (w *SagaWorker) HandleDirect(process *ServerProcess, message interface{}) (interface{}, error) {
 	p := process.State.(*SagaWorkerProcess)
 	return process.Behavior().(SagaWorkerBehavior).HandleWorkerDirect(p, message)
 }
@@ -136,7 +136,7 @@ func (w *SagaWorker) HandleWorkerCall(process *SagaWorkerProcess, from ServerFro
 	fmt.Printf("HandleWorkerCall: unhandled message (from %#v) %#v\n", from, message)
 	return etf.Atom("ok"), ServerStatusOK
 }
-func (w *SagaWorker) HandleWorkerDirect(process *SagaWorkerProcess, message interface{}) (interface{}, ServerStatus) {
+func (w *SagaWorker) HandleWorkerDirect(process *SagaWorkerProcess, message interface{}) (interface{}, error) {
 	fmt.Printf("HandleWorkerDirect: unhandled message %#v\n", message)
-	return nil, ServerStatusOK
+	return nil, nil
 }

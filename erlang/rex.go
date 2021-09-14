@@ -81,7 +81,7 @@ func (r *rex) HandleInfo(process *gen.ServerProcess, message etf.Term) gen.Serve
 	return gen.ServerStatusOK
 }
 
-func (r *rex) HandleDirect(process *gen.ServerProcess, message interface{}) (interface{}, gen.ServerStatus) {
+func (r *rex) HandleDirect(process *gen.ServerProcess, message interface{}) (interface{}, error) {
 	switch m := message.(type) {
 	case gen.MessageManageRPC:
 		mf := modFun{
