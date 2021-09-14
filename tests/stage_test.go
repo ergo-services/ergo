@@ -97,7 +97,7 @@ func (gs *StageProducerTest) Subscribe(p gen.Process, producer etf.Term, opts ge
 	return s.(gen.StageSubscription), nil
 }
 
-func (s *StageProducerTest) HandleStageDirect(process *gen.StageProcess, message interface{}) (interface{}, gen.ServerStatus) {
+func (s *StageProducerTest) HandleStageDirect(process *gen.StageProcess, message interface{}) (interface{}, error) {
 	switch m := message.(type) {
 	case newSubscription:
 		return process.Subscribe(m.producer, m.opts)

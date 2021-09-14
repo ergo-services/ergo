@@ -89,7 +89,7 @@ type StageBehavior interface {
 	HandleStageCall(process *StageProcess, from ServerFrom, message etf.Term) (etf.Term, ServerStatus)
 	// HandleStageDirect this callback is invoked on Process.Direct. This method is optional
 	// for the implementation
-	HandleStageDirect(process *StageProcess, message interface{}) (interface{}, ServerStatus)
+	HandleStageDirect(process *StageProcess, message interface{}) (interface{}, error)
 	// HandleStageCast this callback is invoked on Process.Cast. This method is optional
 	// for the implementation
 	HandleStageCast(process *StageProcess, message etf.Term) ServerStatus
@@ -99,8 +99,8 @@ type StageBehavior interface {
 }
 
 type StageSubscription struct {
-	ID  etf.Ref
 	Pid etf.Pid
+	ID  etf.Ref
 }
 
 type subscriptionInternal struct {
