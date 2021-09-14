@@ -155,8 +155,8 @@ func (s *StageConsumerTest) HandleStageDirect(p *gen.StageProcess, message inter
 	case newSubscription:
 		return p.Subscribe(m.producer, m.opts)
 	case demandRequest:
-		p.Ask(m.subscription, m.count)
-		return nil, nil
+		err := p.Ask(m.subscription, m.count)
+		return nil, err
 
 	case cancelSubscription:
 		err := p.Cancel(m.subscription, m.reason)

@@ -342,10 +342,10 @@ func (p *StageProcess) SendEvents(events etf.List) error {
 func (p *StageProcess) Ask(subscription StageSubscription, count uint) error {
 	subInternal, ok := p.producers[subscription.ID]
 	if !ok {
-		fmt.Errorf("unknown subscription")
+		return fmt.Errorf("unknown subscription")
 	}
 	if !subInternal.options.ManualDemand {
-		fmt.Errorf("auto demand")
+		return fmt.Errorf("auto demand")
 	}
 
 	sendDemand(p, subInternal.Producer, subInternal.Subscription, count)
