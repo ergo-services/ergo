@@ -44,6 +44,11 @@ func (gs *testSaga) InitSaga(process *gen.SagaProcess, args ...etf.Term) (gen.Sa
 
 func (gs *testSaga) HandleTxNew(process *gen.SagaProcess, id gen.SagaTransactionID, value interface{}) gen.SagaStatus {
 	fmt.Println("Got new TX", id)
+	job_id, err := process.StartJob(id, gen.SagaJobOptions{}, value)
+	if err != nil {
+		return err
+	}
+	fmt.Println("Started job", job_id)
 	return gen.SagaStatusOK
 }
 

@@ -319,12 +319,20 @@ func (sp *SagaProcess) Next(id SagaTransactionID, next SagaNext) (SagaNextID, er
 	return next_id, nil
 }
 
-func (sp *SagaProcess) StartJob(tx SagaTransaction, options SagaJobOptions, value interface{}) (SagaJobID, error) {
-	job := SagaJob{}
+func (sp *SagaProcess) StartJob(id SagaTransactionID, options SagaJobOptions, value interface{}) (SagaJobID, error) {
+	var job SagaJob
 
 	if sp.options.Worker == nil {
 		return job.ID, fmt.Errorf("This saga has no worker")
 	}
+	sp.mutexTXS.Lock()
+	tx, ok := sp.txs[id]
+	sp.mutexTXS.Unlock()
+
+	if !ok {
+		return job.ID, fmt.Errorf("unknown transaction")
+	}
+
 	// make context WithTimeout to limit the lifespan
 	workerOptions := ProcessOptions{}
 	worker, err := sp.Spawn("", workerOptions, sp.options.Worker)
@@ -335,6 +343,10 @@ func (sp *SagaProcess) StartJob(tx SagaTransaction, options SagaJobOptions, valu
 	job.ID = SagaJobID(ref)
 	job.Value = value
 	job.commit = tx.options.TwoPhaseCommit
+
+	sp.mutexJobs.Lock()
+	sp.jobs[job.ID] = worker
+	sp.mutexJobs.Unlock()
 
 	return job.ID, nil
 }
