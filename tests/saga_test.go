@@ -19,7 +19,7 @@ type testSagaWorker struct {
 }
 
 func (w *testSagaWorker) HandleJobStart(process *gen.SagaWorkerProcess, job gen.SagaJob) error {
-	fmt.Println("Worker process started", job)
+	fmt.Println("Worker process started on", job.ID, " with value", job.Value)
 	return nil
 }
 func (w *testSagaWorker) HandleJobCancel(process *gen.SagaWorkerProcess) {
@@ -44,7 +44,7 @@ func (gs *testSaga) InitSaga(process *gen.SagaProcess, args ...etf.Term) (gen.Sa
 }
 
 func (gs *testSaga) HandleTxNew(process *gen.SagaProcess, id gen.SagaTransactionID, value interface{}) gen.SagaStatus {
-	fmt.Println("Got new TX", id)
+	fmt.Println("Got new TX", id, value)
 	job_id, err := process.StartJob(id, gen.SagaJobOptions{}, value)
 	if err != nil {
 		return err
@@ -83,6 +83,7 @@ func (gs *testSaga) HandleSagaInfo(process *gen.SagaProcess, message etf.Term) g
 func (gs *testSaga) HandleSagaDirect(process *gen.SagaProcess, message interface{}) (interface{}, error) {
 	switch m := message.(type) {
 	case startTX:
+		fmt.Println("MMM", m.value)
 		id := process.StartTransaction(m.name, m.opts, m.value)
 		return id, nil
 	}
@@ -109,7 +110,7 @@ func TestSagaSimple(t *testing.T) {
 		t.Fatal(err)
 	}
 	fmt.Println("OK", saga_process.Self())
-	txID, err := saga_process.Direct(startTX{})
+	txID, err := saga_process.Direct(startTX{value: 555})
 	if err != nil {
 		t.Fatal(err)
 	}

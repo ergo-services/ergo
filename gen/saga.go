@@ -333,7 +333,7 @@ func (sp *SagaProcess) StartJob(id SagaTransactionID, options SagaJobOptions, va
 		return job.ID, fmt.Errorf("unknown transaction")
 	}
 
-	// make context WithTimeout to limit the lifespan
+	// FIXME make context WithTimeout to limit the lifespan
 	workerOptions := ProcessOptions{}
 	worker, err := sp.Spawn("", workerOptions, sp.options.Worker)
 	if err != nil {
@@ -343,6 +343,14 @@ func (sp *SagaProcess) StartJob(id SagaTransactionID, options SagaJobOptions, va
 	job.ID = SagaJobID(ref)
 	job.Value = value
 	job.commit = tx.options.TwoPhaseCommit
+
+	m := messageSagaJobStart{
+		job: job,
+	}
+	if err := sp.Cast(worker.Self(), m); err != nil {
+		worker.Kill()
+		return SagaJobID{}, err
+	}
 
 	sp.mutexJobs.Lock()
 	sp.jobs[job.ID] = worker
@@ -369,11 +377,10 @@ func (sp *SagaProcess) SendInterim(tx SagaTransaction, interim interface{}) {
 //
 func (gs *Saga) Init(process *ServerProcess, args ...etf.Term) error {
 	var options SagaOptions
-	behavior := process.Behavior().(SagaBehavior)
-	//behavior, ok := process.Behavior().(SagaBehavior)
-	//if !ok {
-	//	return fmt.Errorf("Saga: not a SagaBehavior")
-	//}
+	behavior, ok := process.Behavior().(SagaBehavior)
+	if !ok {
+		return fmt.Errorf("Saga: not a SagaBehavior")
+	}
 
 	sagaProcess := &SagaProcess{
 		ServerProcess: *process,
@@ -471,7 +478,6 @@ func handleSagaRequest(process *SagaProcess, m messageSaga) error {
 	//var cancel messageSagaCancel
 	//var result messageSagaResult
 
-	next := SagaNext{}
 	switch m.Request {
 	case etf.Atom("$saga_next"):
 		if err := etf.TermIntoStruct(m.Command, &nextMessage); err != nil {
@@ -530,7 +536,7 @@ func handleSagaRequest(process *SagaProcess, m messageSaga) error {
 		// everything looks good. go further
 		//process.txs[nextMessage.Transaction.id] = nextMessage.Transaction
 
-		return process.Behavior().(SagaBehavior).HandleTxNew(process, id, next.Value)
+		return process.Behavior().(SagaBehavior).HandleTxNew(process, id, nextMessage.Value)
 
 		//case "$saga_cancel":
 		//	if err := etf.TermIntoStruct(m.Command, &cancel); err != nil {
