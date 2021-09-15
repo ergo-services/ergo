@@ -19,7 +19,10 @@ type testSagaWorker struct {
 }
 
 func (w *testSagaWorker) HandleJobStart(process *gen.SagaWorkerProcess, job gen.SagaJob) error {
-	fmt.Println("Worker process started on", job.ID, " with value", job.Value)
+	fmt.Println("Worker process started", process.Self(), " on", job.ID, " with value", job.Value)
+	process.SendInterim(888)
+	process.SendInterim(999)
+	process.SendResult(1000)
 	return nil
 }
 func (w *testSagaWorker) HandleJobCancel(process *gen.SagaWorkerProcess) {
@@ -115,8 +118,9 @@ func TestSagaSimple(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	fmt.Println("Stated TX", txID)
-	time.Sleep(1 * time.Second)
+	fmt.Println("Started TX", txID)
+	time.Sleep(2 * time.Second)
 
 	node.Stop()
+	node.Wait()
 }

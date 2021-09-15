@@ -339,10 +339,11 @@ func (sp *SagaProcess) StartJob(id SagaTransactionID, options SagaJobOptions, va
 	if err != nil {
 		return job.ID, err
 	}
-	ref := sp.MonitorProcess(worker.Self())
-	job.ID = SagaJobID(ref)
+	sp.Link(worker.Self())
+	job.ID = SagaJobID(sp.MakeRef())
 	job.Value = value
 	job.commit = tx.options.TwoPhaseCommit
+	job.saga = sp.Self()
 
 	m := messageSagaJobStart{
 		job: job,
@@ -377,6 +378,7 @@ func (sp *SagaProcess) SendInterim(tx SagaTransaction, interim interface{}) {
 //
 func (gs *Saga) Init(process *ServerProcess, args ...etf.Term) error {
 	var options SagaOptions
+
 	behavior, ok := process.Behavior().(SagaBehavior)
 	if !ok {
 		return fmt.Errorf("Saga: not a SagaBehavior")
@@ -401,6 +403,8 @@ func (gs *Saga) Init(process *ServerProcess, args ...etf.Term) error {
 	if options.Worker != nil {
 		sagaProcess.jobs = make(map[SagaJobID]Process)
 	}
+
+	process.SetTrapExit(true)
 
 	return nil
 }
@@ -428,6 +432,7 @@ func (gs *Saga) HandleCast(process *ServerProcess, message etf.Term) ServerStatu
 	case messageSagaJobResult:
 		status = process.Behavior().(SagaBehavior).HandleJobResult(st, m.id, m.result)
 	case messageSagaJobInterim:
+		fmt.Println("INT")
 		status = process.Behavior().(SagaBehavior).HandleJobInterim(st, m.id, m.interim)
 	default:
 		s := process.Behavior().(SagaBehavior).HandleSagaCast(st, message)
@@ -471,6 +476,10 @@ func (gs *Saga) HandleInfo(process *ServerProcess, message etf.Term) ServerStatu
 	default:
 		return ServerStatus(status)
 	}
+}
+
+func (gs *Saga) Terminate(process *ServerProcess, reason string) {
+	fmt.Println("SAGA terminated")
 }
 
 func handleSagaRequest(process *SagaProcess, m messageSaga) error {
@@ -575,7 +584,7 @@ func handleSagaDown(process *SagaProcess, down MessageDown) error {
 
 func (gs *Saga) HandleTxInterim(process *SagaProcess, tx SagaTransaction, interim interface{}) SagaStatus {
 	fmt.Printf("HandleInterim: unhandled message %#v\n", tx)
-	return nil
+	return ServerStatusOK
 }
 func (gs *Saga) HandleSagaCall(process *SagaProcess, from ServerFrom, message etf.Term) (etf.Term, ServerStatus) {
 	fmt.Printf("HandleSagaCall: unhandled message (from %#v) %#v\n", from, message)

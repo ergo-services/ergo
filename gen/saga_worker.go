@@ -78,8 +78,8 @@ func (wp *SagaWorkerProcess) SendInterim(interim interface{}) {
 		id:      wp.job.ID,
 		interim: interim,
 	}
-	wp.Cast(wp.job.saga, message)
-
+	err := wp.Cast(wp.job.saga, message)
+	fmt.Println("INTERIM", err, wp.job.saga, wp.IsAlive())
 }
 
 // Server callbacks
@@ -97,12 +97,14 @@ func (w *SagaWorker) HandleCast(process *ServerProcess, message etf.Term) Server
 	switch m := message.(type) {
 	case messageSagaJobStart:
 		p.job = m.job
+		fmt.Println("WORKER start ", p.job)
 		err := process.Behavior().(SagaWorkerBehavior).HandleJobStart(p, p.job)
+		fmt.Println("WORKER start return", err)
 		if err != nil {
 			return err
 		}
 
-		// if job is done and commit shouldn't be awaited
+		// if job is done and 2PC is disabled
 		// stop this worker with 'normal' as a reason
 		if p.done && !p.job.commit {
 			return ServerStatusStop
@@ -131,6 +133,10 @@ func (w *SagaWorker) HandleDirect(process *ServerProcess, message interface{}) (
 func (w *SagaWorker) HandleInfo(process *ServerProcess, message etf.Term) ServerStatus {
 	p := process.State.(*SagaWorkerProcess)
 	return process.Behavior().(SagaWorkerBehavior).HandleWorkerInfo(p, message)
+}
+
+func (w *SagaWorker) Terminated(process *ServerProcess, reason string) {
+	fmt.Println("Worker terminated", process.Self())
 }
 
 // default callbacks
