@@ -3,6 +3,7 @@ package test
 import (
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/halturin/ergo"
 	"github.com/halturin/ergo/etf"
@@ -41,30 +42,46 @@ func (gs *testSaga) InitSaga(process *gen.SagaProcess, args ...etf.Term) (gen.Sa
 	return opts, nil
 }
 
-func (gs *testSaga) HandleTxNew(process *gen.SagaProcess, tx gen.SagaTransaction, value interface{}) gen.SagaStatus {
+func (gs *testSaga) HandleTxNew(process *gen.SagaProcess, id gen.SagaTransactionID, value interface{}) gen.SagaStatus {
+	fmt.Println("Got new TX", id)
 	return gen.SagaStatusOK
 }
 
-func (gs *testSaga) HandleTxDone(process *gen.SagaProcess, tx gen.SagaTransaction) gen.SagaStatus {
+func (gs *testSaga) HandleTxDone(process *gen.SagaProcess, id gen.SagaTransactionID) gen.SagaStatus {
 	return gen.SagaStatusOK
 }
 
-func (gs *testSaga) HandleTxCancel(process *gen.SagaProcess, tx gen.SagaTransaction, reason string) gen.SagaStatus {
+func (gs *testSaga) HandleTxCancel(process *gen.SagaProcess, id gen.SagaTransactionID, reason string) gen.SagaStatus {
 	return gen.SagaStatusOK
 }
 
-func (gs *testSaga) HandleTxResult(process *gen.SagaProcess, tx gen.SagaTransaction, from gen.SagaNext, result interface{}) gen.SagaStatus {
+func (gs *testSaga) HandleTxResult(process *gen.SagaProcess, id gen.SagaTransactionID, from gen.SagaNextID, result interface{}) gen.SagaStatus {
 	return gen.SagaStatusOK
 }
 
-func (gs *testSaga) HandleTxInterim(process *gen.SagaProcess, tx gen.SagaTransaction, from gen.SagaNext, interim interface{}) gen.SagaStatus {
+func (gs *testSaga) HandleTxInterim(process *gen.SagaProcess, id gen.SagaTransactionID, from gen.SagaNextID, interim interface{}) gen.SagaStatus {
 
 	return gen.SagaStatusOK
 }
 
-func (gs *testSaga) HandleTxTimeout(process *gen.SagaProcess, tx gen.SagaTransaction, from gen.SagaNext) gen.SagaStatus {
+type startTX struct {
+	name  string
+	opts  gen.SagaTransactionOptions
+	value interface{}
+}
 
-	return gen.SagaStatusOK
+func (gs *testSaga) HandleSagaInfo(process *gen.SagaProcess, message etf.Term) gen.ServerStatus {
+	fmt.Println("INFO", message)
+	return gen.ServerStatusOK
+}
+func (gs *testSaga) HandleSagaDirect(process *gen.SagaProcess, message interface{}) (interface{}, error) {
+	switch m := message.(type) {
+	case startTX:
+		id := process.StartTransaction(m.name, m.opts, m.value)
+		return id, nil
+	}
+
+	return nil, fmt.Errorf("unknown request %#v", message)
 }
 
 func TestSagaSimple(t *testing.T) {
@@ -86,6 +103,13 @@ func TestSagaSimple(t *testing.T) {
 		t.Fatal(err)
 	}
 	fmt.Println("OK", saga_process.Self())
+	txID, err := saga_process.Direct(startTX{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	fmt.Println("Stated TX", txID)
+	time.Sleep(1 * time.Second)
 
 	node.Stop()
 }

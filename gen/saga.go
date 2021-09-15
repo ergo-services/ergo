@@ -3,11 +3,11 @@ package gen
 import (
 	"context"
 	"fmt"
+	"math"
 	"sync"
 	"time"
 
 	"github.com/halturin/ergo/etf"
-	"github.com/halturin/ergo/lib"
 )
 
 // SagaBehavior interface
@@ -20,26 +20,23 @@ type SagaBehavior interface {
 	InitSaga(process *SagaProcess, args ...etf.Term) (SagaOptions, error)
 
 	// HandleTxNew invokes on a new TX receiving by this saga.
-	HandleTxNew(process *SagaProcess, tx SagaTransaction, value interface{}) SagaStatus
+	HandleTxNew(process *SagaProcess, id SagaTransactionID, value interface{}) SagaStatus
 
 	// HandleTxResult invoked on a receiving result from the next saga
-	HandleTxResult(process *SagaProcess, tx SagaTransaction, next SagaNext, result interface{}) SagaStatus
+	HandleTxResult(process *SagaProcess, id SagaTransactionID, from SagaNextID, result interface{}) SagaStatus
 
 	// HandleTxCancel invoked on a request of transaction cancelation.
-	HandleTxCancel(process *SagaProcess, tx SagaTransaction, reason string) SagaStatus
-
-	// HandleTxTimeout invoked if a result haven't been recieved from the next saga in time.
-	HandleTxTimeout(process *SagaProcess, tx SagaTransaction, next SagaNext) SagaStatus
+	HandleTxCancel(process *SagaProcess, id SagaTransactionID, reason string) SagaStatus
 
 	//
 	// Optional callbacks
 	//
 
 	// HandleDone invoked when the TX is done. Invoked on a saga where this tx was created.
-	HandleTxDone(process *SagaProcess, tx SagaTransaction) SagaStatus
+	HandleTxDone(process *SagaProcess, id SagaTransactionID) SagaStatus
 
 	// HandleInterim invoked if received interim result from the Next hop
-	HandleTxInterim(process *SagaProcess, tx SagaTransaction, next SagaNext, interim interface{}) SagaStatus
+	HandleTxInterim(process *SagaProcess, id SagaTransactionID, from SagaNextID, interim interface{}) SagaStatus
 
 	//
 	// Callbacks to handle result/interim from the worker(s)
@@ -70,6 +67,11 @@ type SagaBehavior interface {
 	HandleSagaDirect(process *SagaProcess, message interface{}) (interface{}, error)
 }
 
+const (
+	defaultHopLimit = math.MaxUint16
+	defaultLifespan = 60
+)
+
 type SagaStatus error
 
 var (
@@ -86,7 +88,7 @@ type SagaTransactionOptions struct {
 	// HopLimit defines a number of hop within the transaction. Default limit
 	// is 0 (no limit).
 	HopLimit uint
-	// Lifespan defines a lifespan for the transaction in seconds. Default 0 (no limit)
+	// Lifespan defines a lifespan for the transaction in seconds. Must be > 0 (default is 60).
 	Lifespan uint
 
 	// TwoPhaseCommit enables 2PC for the transaction. This option makes all
@@ -107,11 +109,11 @@ type SagaProcess struct {
 	options SagaOptions
 
 	// running transactions
-	txs      map[etf.Ref]SagaTransaction
+	txs      map[SagaTransactionID]*SagaTransaction
 	mutexTXS sync.Mutex
 
 	// next sagas where txs were sent
-	next      map[etf.Ref]SagaNext
+	next      map[SagaNextID]SagaNext
 	mutexNext sync.Mutex
 
 	// running jobs
@@ -119,16 +121,29 @@ type SagaProcess struct {
 	mutexJobs sync.Mutex
 }
 
-type SagaTransaction struct {
-	ID        etf.Ref
-	Name      string
-	StartTime int64
-	Options   SagaTransactionOptions
-	Parents   []etf.Pid
+type SagaTransactionID etf.Ref
 
-	// internal
+func (id SagaTransactionID) String() string {
+	r := etf.Ref(id)
+	return fmt.Sprintf("TX#%d.%d.%d", r.ID[0], r.ID[1], r.ID[2])
+}
+
+type SagaTransaction struct {
+	id      SagaTransactionID
+	options SagaTransactionOptions
+	origin  SagaNextID // where it came from
+	arrival int64      // when it came
+	parents []etf.Pid
+
 	context context.Context
 	cancel  context.CancelFunc
+}
+
+type SagaNextID etf.Ref
+
+func (id SagaNextID) String() string {
+	r := etf.Ref(id)
+	return fmt.Sprintf("Next#%d.%d.%d", r.ID[0], r.ID[1], r.ID[2])
 }
 
 type SagaNext struct {
@@ -139,14 +154,23 @@ type SagaNext struct {
 	// Timeout - how long this Saga will be waiting for the result from the Next hop. Default - 10 seconds
 	Timeout uint
 
+	// internal
 	id etf.Ref
+	tx *SagaTransaction
 }
 
 type SagaJobID etf.Ref
 
+func (id SagaJobID) String() string {
+	r := etf.Ref(id)
+	return fmt.Sprintf("Job#%d.%d.%d", r.ID[0], r.ID[1], r.ID[2])
+}
+
 type SagaJob struct {
-	ID      SagaJobID
-	Value   interface{}
+	ID    SagaJobID
+	Value interface{}
+
+	// internal
 	options SagaJobOptions
 	commit  bool
 	saga    etf.Pid
@@ -157,15 +181,17 @@ type SagaJobOptions struct {
 }
 
 type messageSaga struct {
-	request string
-	pid     etf.Pid
-	command interface{}
+	Request etf.Atom
+	Pid     etf.Pid
+	Command interface{}
 }
 
 type messageSagaNext struct {
-	Transaction SagaTransaction
-	Ref         etf.Ref
-	Value       interface{}
+	NextID        etf.Ref
+	TransactionID etf.Ref
+	Value         interface{}
+	Parents       []etf.Pid
+	Options       map[string]interface{}
 }
 
 type messageSagaResult struct {
@@ -204,71 +230,93 @@ func (gs *Saga) SetMaxTransactions(process Process, max uint) error {
 // SagaProcess methods
 //
 
-func (sp *SagaProcess) StartTransaction(name string, options SagaTransactionOptions, value interface{}) (etf.Ref, error) {
-	if len(sp.txs)+1 > int(sp.options.MaxTransactions) {
-		return etf.Ref{}, fmt.Errorf("exceed_tx_limit")
-	}
-
-	if name == "" {
-		// must be enought for the unique name
-		name = lib.RandomString(32)
-	}
-
-	// use reference as a transaction ID
-	id := sp.MakeRef()
+func (sp *SagaProcess) StartTransaction(name string, options SagaTransactionOptions, value interface{}) SagaTransactionID {
 	tx := SagaTransaction{
-		ID:        id,
-		Name:      name,
-		Options:   options,
-		StartTime: time.Now().Unix(),
+		id:      SagaTransactionID(sp.MakeRef()),
+		arrival: time.Now().Unix(),
 	}
+	if options.HopLimit == 0 {
+		options.HopLimit = defaultHopLimit
+	}
+	if options.Lifespan == 0 {
+		options.Lifespan = defaultLifespan
+	}
+	tx.options = options
 
 	sp.mutexTXS.Lock()
-	sp.txs[id] = tx
+	sp.txs[tx.id] = &tx
 	sp.mutexTXS.Unlock()
 
-	message := etf.Tuple{
-		etf.Atom("$saga_next"),
-		sp.Self(),
-		etf.Tuple{tx, etf.Ref{}, value},
+	next := SagaNext{
+		Saga:  sp.Self(),
+		Value: value,
+		tx:    &tx,
 	}
-	sp.Send(sp.Self(), message)
+	sp.Next(tx.id, next)
 
-	tx.context, tx.cancel = context.WithCancel(sp.Context())
-
-	if options.Lifespan > 0 {
-		ctx, _ := context.WithTimeout(tx.context, time.Duration(options.Lifespan)*time.Second)
-		go func() {
-			<-ctx.Done()
-			sp.CancelTransaction(id, "timeout")
-		}()
-	}
-
-	return id, nil
+	return tx.id
 
 }
 
-func (sp *SagaProcess) CancelTransaction(id etf.Ref, reason string) {
+func (sp *SagaProcess) CancelTransaction(id SagaTransactionID, reason string) {
 	sp.mutexTXS.Lock()
-	_, ok := sp.txs[id]
+	tx, ok := sp.txs[id]
+	sp.mutexTXS.Unlock()
 	if !ok {
-		sp.mutexTXS.Unlock()
 		return
 	}
-	delete(sp.txs, id)
-	sp.mutexTXS.Unlock()
 
 	message := etf.Tuple{
 		etf.Atom("$saga_cancel"),
 		sp.Self(),
-		etf.Tuple{id, etf.Ref{}, reason},
+		etf.Tuple{tx.id, etf.Ref(tx.origin), reason},
 	}
 	sp.Send(sp.Self(), message)
-
 }
 
-func (sp *SagaProcess) Next(tx SagaTransaction, next SagaNext) {
+func (sp *SagaProcess) Next(id SagaTransactionID, next SagaNext) (SagaNextID, error) {
+	sp.mutexTXS.Lock()
+	tx, ok := sp.txs[id]
+	sp.mutexTXS.Unlock()
+	if !ok {
+		return SagaNextID{}, fmt.Errorf("unknown transaction")
+	}
 
+	if tx.options.HopLimit == 0 {
+		return SagaNextID{}, fmt.Errorf("exceeded hop limit")
+	}
+
+	next_id := SagaNextID(sp.MakeRef())
+	next_HopLimit := tx.options.HopLimit - 1
+	next_Lifespan := time.Now().Unix() - tx.arrival
+
+	message := etf.Tuple{
+		etf.Atom("$saga_next"),
+		sp.Self(),
+		etf.Tuple{
+			etf.Ref(next_id),
+			etf.Ref(tx.id),
+			next.Value,
+			tx.parents,
+			etf.Map{
+				"HopLimit":       next_HopLimit,
+				"Lifespan":       next_Lifespan,
+				"TwoPhaseCommit": tx.options.TwoPhaseCommit,
+			},
+		},
+	}
+	next.tx = tx
+	sp.mutexNext.Lock()
+	sp.next[next_id] = next
+	sp.mutexNext.Unlock()
+
+	// FIXME handle next.Timeout
+
+	if err := sp.Send(next.Saga, message); err != nil {
+		sp.CancelTransaction(tx.id, err.Error())
+	}
+
+	return next_id, nil
 }
 
 func (sp *SagaProcess) StartJob(tx SagaTransaction, options SagaJobOptions, value interface{}) (SagaJobID, error) {
@@ -286,7 +334,7 @@ func (sp *SagaProcess) StartJob(tx SagaTransaction, options SagaJobOptions, valu
 	ref := sp.MonitorProcess(worker.Self())
 	job.ID = SagaJobID(ref)
 	job.Value = value
-	job.commit = tx.Options.TwoPhaseCommit
+	job.commit = tx.options.TwoPhaseCommit
 
 	return job.ID, nil
 }
@@ -309,15 +357,16 @@ func (sp *SagaProcess) SendInterim(tx SagaTransaction, interim interface{}) {
 //
 func (gs *Saga) Init(process *ServerProcess, args ...etf.Term) error {
 	var options SagaOptions
-	//behavior := process.Behavior().(SagaBehavior)
-	behavior, ok := process.Behavior().(SagaBehavior)
-	if !ok {
-		return fmt.Errorf("Saga: not a SagaBehavior")
-	}
+	behavior := process.Behavior().(SagaBehavior)
+	//behavior, ok := process.Behavior().(SagaBehavior)
+	//if !ok {
+	//	return fmt.Errorf("Saga: not a SagaBehavior")
+	//}
 
 	sagaProcess := &SagaProcess{
 		ServerProcess: *process,
-		txs:           make(map[etf.Ref]SagaTransaction),
+		txs:           make(map[SagaTransactionID]*SagaTransaction),
+		next:          make(map[SagaNextID]SagaNext),
 	}
 	// do not inherite parent State
 	sagaProcess.State = nil
@@ -327,6 +376,7 @@ func (gs *Saga) Init(process *ServerProcess, args ...etf.Term) error {
 		return err
 	}
 
+	sagaProcess.options = options
 	process.State = sagaProcess
 
 	if options.Worker != nil {
@@ -348,7 +398,7 @@ func (gs *Saga) HandleDirect(process *ServerProcess, message interface{}) (inter
 		st.options.MaxTransactions = m.max
 		return nil, nil
 	default:
-		return nil, ErrUnsupportedRequest
+		return process.Behavior().(SagaBehavior).HandleSagaDirect(st, message)
 	}
 }
 
@@ -406,108 +456,93 @@ func (gs *Saga) HandleInfo(process *ServerProcess, message etf.Term) ServerStatu
 
 func handleSagaRequest(process *SagaProcess, m messageSaga) error {
 	var nextMessage messageSagaNext
-	var cancel messageSagaCancel
-	var result messageSagaResult
+	//var cancel messageSagaCancel
+	//var result messageSagaResult
 
 	next := SagaNext{}
-	switch m.request {
-	case "$saga_next":
-		if err := etf.TermIntoStruct(m.command, &nextMessage); err != nil {
+	switch m.Request {
+	case etf.Atom("$saga_next"):
+		if err := etf.TermIntoStruct(m.Command, &nextMessage); err != nil {
 			return ErrUnsupportedRequest
 		}
 
 		// Check for the loop
-		if _, ok := process.txs[nextMessage.Transaction.ID]; ok {
+		id := SagaTransactionID(nextMessage.TransactionID)
+		tx, ok := process.txs[id]
+		if ok && len(tx.parents) > 0 {
 			cancel := etf.Tuple{
 				etf.Atom("$saga_cancel"),
 				process.Self(),
 				etf.Tuple{
-					nextMessage.Transaction.ID,
-					nextMessage.Ref,
+					nextMessage.NextID,
+					nextMessage.TransactionID,
 					"loop_detected",
 				},
 			}
-			process.Send(m.pid, cancel)
+			process.Send(m.Pid, cancel)
 			return nil
 		}
 
 		// Check if exceed the number of transaction on this saga
-		if len(process.txs)+1 > int(process.options.MaxTransactions) {
+		if process.options.MaxTransactions > 0 && len(process.txs)+1 > int(process.options.MaxTransactions) {
 			cancel := etf.Tuple{
 				etf.Atom("$saga_cancel"),
 				process.Self(),
 				etf.Tuple{
-					nextMessage.Transaction.ID,
-					nextMessage.Ref,
+					nextMessage.NextID,
+					nextMessage.TransactionID,
 					"exceed_tx_limit",
 				},
 			}
-			process.Send(m.pid, cancel)
+			process.Send(m.Pid, cancel)
 			return nil
 		}
 
-		// Check if exceed the hop limit
-		hop := len(nextMessage.Transaction.Parents)
-		hoplimit := nextMessage.Transaction.Options.HopLimit
-		if hoplimit > 0 && hop+1 > int(hoplimit) {
-			cancel := etf.Tuple{
-				etf.Atom("$saga_cancel"),
-				process.Self(),
-				etf.Tuple{
-					nextMessage.Transaction.ID,
-					nextMessage.Ref,
-					"exceed_hop_limit",
-				},
-			}
-			process.Send(m.pid, cancel)
-			return nil
-		}
-
-		// Check if lifespan is limited and transaction is too long
-		lifespan := nextMessage.Transaction.Options.Lifespan
-		l := time.Now().Unix() - nextMessage.Transaction.StartTime
-		if lifespan > 0 && l > int64(lifespan) {
-			cancel := etf.Tuple{
-				etf.Atom("$saga_cancel"),
-				process.Self(),
-				etf.Tuple{
-					nextMessage.Transaction.ID,
-					nextMessage.Ref,
-					"exceed_lifespan",
-				},
-			}
-			process.Send(m.pid, cancel)
-			return nil
-		}
+		//	// Check if lifespan is limited and transaction is too long
+		//	lifespan := nextMessage.Transaction.options.Lifespan
+		//	l := time.Now().Unix() - nextMessage.Transaction.arrived
+		//	if lifespan > 0 && l > int64(lifespan) {
+		//		cancel := etf.Tuple{
+		//			etf.Atom("$saga_cancel"),
+		//			process.Self(),
+		//			etf.Tuple{
+		//				nextMessage.Transaction.id,
+		//				nextMessage.Ref,
+		//				"exceed_lifespan",
+		//			},
+		//		}
+		//		process.Send(m.Pid, cancel)
+		//		return nil
+		//	}
 
 		// everything looks good. go further
-		process.txs[nextMessage.Transaction.ID] = nextMessage.Transaction
+		//process.txs[nextMessage.Transaction.id] = nextMessage.Transaction
 
-		return process.Behavior().(SagaBehavior).HandleTxNew(process, nextMessage.Transaction, next.Value)
+		return process.Behavior().(SagaBehavior).HandleTxNew(process, id, next.Value)
 
-	case "$saga_cancel":
-		if err := etf.TermIntoStruct(m.command, &cancel); err != nil {
-			return ErrUnsupportedRequest
-		}
-		tx, exist := process.txs[cancel.ID]
-		if !exist {
-			return nil
-		}
+		//case "$saga_cancel":
+		//	if err := etf.TermIntoStruct(m.Command, &cancel); err != nil {
+		//		return ErrUnsupportedRequest
+		//	}
+		//	tx, exist := process.txs[SagaTransactionID(cancel.ID)]
+		//	if !exist {
+		//		return nil
+		//	}
 
-		process.Behavior().(SagaBehavior).HandleTxCancel(process, tx, cancel.Reason)
-		return nil
-	case "$saga_interim":
-		if err := etf.TermIntoStruct(m.command, &result); err != nil {
-			return ErrUnsupportedRequest
-		}
-		process.Behavior().(SagaBehavior).HandleTxInterim(process, result.Transaction, next, result.Result)
-		return nil
-	case "$saga_result":
-		if err := etf.TermIntoStruct(m.command, &result); err != nil {
-			return ErrUnsupportedRequest
-		}
-		process.Behavior().(SagaBehavior).HandleTxResult(process, result.Transaction, next, result.Result)
-		return nil
+		//	process.Behavior().(SagaBehavior).HandleTxCancel(process, tx.id, cancel.Reason)
+		//	return nil
+		//case "$saga_interim":
+		//	if err := etf.TermIntoStruct(m.Command, &result); err != nil {
+		//		return ErrUnsupportedRequest
+		//	}
+		//	process.Behavior().(SagaBehavior).HandleTxInterim(process, result.Transaction.id, next, result.Result)
+		//	return nil
+		//case "$saga_result":
+		//	if err := etf.TermIntoStruct(m.Command, &result); err != nil {
+		//		return ErrUnsupportedRequest
+		//	}
+		//	process.Behavior().(SagaBehavior).HandleTxResult(process, result.Transaction.id, next, result.Result)
+		//	return nil
 	}
 	return sagaStatusUnsupported
 }

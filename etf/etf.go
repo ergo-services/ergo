@@ -235,11 +235,11 @@ func TermProplistIntoStruct(term Term, dest interface{}) (err error) {
 // expencive operation in terms of CPU usage so you shouldn't use it
 // on highload parts of your code. Use manual type casting instead.
 func TermIntoStruct(term Term, dest interface{}) (err error) {
-	//defer func() {
-	//	if r := recover(); r != nil {
-	//		err = fmt.Errorf("%v", r)
-	//	}
-	//}()
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("%v", r)
+		}
+	}()
 	v := reflect.Indirect(reflect.ValueOf(dest))
 	err = termIntoStruct(term, v)
 	return
@@ -281,6 +281,11 @@ func termIntoStruct(term Term, dest reflect.Value) error {
 			return nil
 
 		}
+		if _, ok := term.(List); !ok {
+			// in case if term is the golang native type
+			dest.Set(reflect.ValueOf(term))
+			return nil
+		}
 		return setListField(term.(List), dest)
 
 	case reflect.Struct:
@@ -295,11 +300,15 @@ func termIntoStruct(term Term, dest reflect.Value) error {
 		case Pid:
 			dest.Set(reflect.ValueOf(s))
 			return nil
-
 		}
 		return fmt.Errorf("can't convert %#v to struct", term)
 
 	case reflect.Map:
+		if _, ok := term.(Map); !ok {
+			// in case if term is the golang native type
+			dest.Set(reflect.ValueOf(term))
+			return nil
+		}
 		return setMapField(term.(Map), dest)
 
 	case reflect.Bool:
@@ -530,6 +539,8 @@ func setStructField(term Tuple, dest reflect.Value) error {
 		dest = pdest.Elem()
 	}
 	for i, elem := range term {
+		// let it panic if number of term elements is bigger than
+		// number of struct fields
 		if err := termIntoStruct(elem, dest.Field(i)); err != nil {
 			return err
 		}

@@ -371,7 +371,6 @@ func (n *node) ApplicationStop(name string) error {
 	}
 	// we should wait until children process stopped.
 	if e := spec.Process.WaitWithTimeout(5 * time.Second); e != nil {
-		fmt.Println("AAA", spec.Process.Self())
 		return ErrProcessBusy
 	}
 	return nil

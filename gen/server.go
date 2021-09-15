@@ -2,7 +2,6 @@ package gen
 
 import (
 	"fmt"
-	"runtime"
 	"sync"
 
 	"github.com/halturin/ergo/etf"
@@ -148,12 +147,12 @@ func (gs *Server) ProcessLoop(ps ProcessState, started chan<- bool) string {
 		gsp.reductions++
 
 		panicHandler := func() {
-			if r := recover(); r != nil {
-				pc, fn, line, _ := runtime.Caller(2)
-				fmt.Printf("Warning: Server recovered (name: %s) %v %#v at %s[%s:%d]\n",
-					gsp.Name(), gsp.Self(), r, runtime.FuncForPC(pc).Name(), fn, line)
-				stop <- "panic"
-			}
+			//if r := recover(); r != nil {
+			//	pc, fn, line, _ := runtime.Caller(2)
+			//	fmt.Printf("Warning: Server recovered (name: %s) %v %#v at %s[%s:%d]\n",
+			//		gsp.Name(), gsp.Self(), r, runtime.FuncForPC(pc).Name(), fn, line)
+			//	stop <- "panic"
+			//}
 		}
 
 		switch m := message.(type) {

@@ -174,7 +174,7 @@ func (b *Buffer) Extend(n int) []byte {
 }
 
 func RandomString(length int) string {
-	buff := make([]byte, length)
+	buff := make([]byte, length/2)
 	rand.Read(buff)
 	return hex.EncodeToString(buff)
 }
