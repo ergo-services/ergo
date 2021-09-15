@@ -19,6 +19,7 @@ type testSagaWorker struct {
 }
 
 func (w *testSagaWorker) HandleJobStart(process *gen.SagaWorkerProcess, job gen.SagaJob) error {
+	fmt.Println("Worker process started", job)
 	return nil
 }
 func (w *testSagaWorker) HandleJobCancel(process *gen.SagaWorkerProcess) {
