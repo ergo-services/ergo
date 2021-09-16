@@ -331,3 +331,12 @@ func IsMessageDown(message etf.Term) (MessageDown, bool) {
 	}
 	return md, false
 }
+
+func IsMessageExit(message etf.Term) (MessageExit, bool) {
+	var me MessageExit
+	switch m := message.(type) {
+	case MessageExit:
+		return m, true
+	}
+	return me, false
+}

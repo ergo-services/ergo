@@ -22,7 +22,8 @@ func (w *testSagaWorker) HandleJobStart(process *gen.SagaWorkerProcess, job gen.
 	fmt.Println("Worker process started", process.Self(), " on", job.ID, " with value", job.Value)
 	process.SendInterim(888)
 	process.SendInterim(999)
-	process.SendResult(1000)
+	//process.SendResult(1000)
+	panic("asdf")
 	return nil
 }
 func (w *testSagaWorker) HandleJobCancel(process *gen.SagaWorkerProcess) {

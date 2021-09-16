@@ -47,7 +47,7 @@ type SagaBehavior interface {
 	// HandleJobInterim
 	HandleJobInterim(process *SagaProcess, id SagaJobID, interim interface{}) SagaStatus
 	// HandleJobFailed
-	HandleJobFailed(process *SagaProcess, id SagaJobID) SagaStatus
+	HandleJobFailed(process *SagaProcess, id SagaJobID, reason string) SagaStatus
 
 	//
 	// Server's callbacks
@@ -117,7 +117,7 @@ type SagaProcess struct {
 	mutexNext sync.Mutex
 
 	// running jobs
-	jobs      map[SagaJobID]Process
+	jobs      map[etf.Pid]SagaJob
 	mutexJobs sync.Mutex
 }
 
@@ -168,12 +168,14 @@ func (id SagaJobID) String() string {
 
 type SagaJob struct {
 	ID    SagaJobID
+	TXID  SagaTransactionID
 	Value interface{}
 
 	// internal
 	options SagaJobOptions
-	commit  bool
 	saga    etf.Pid
+	commit  bool
+	worker  Process
 }
 
 type SagaJobOptions struct {
@@ -340,10 +342,13 @@ func (sp *SagaProcess) StartJob(id SagaTransactionID, options SagaJobOptions, va
 		return job.ID, err
 	}
 	sp.Link(worker.Self())
+
 	job.ID = SagaJobID(sp.MakeRef())
+	job.TXID = id
 	job.Value = value
 	job.commit = tx.options.TwoPhaseCommit
 	job.saga = sp.Self()
+	job.worker = worker
 
 	m := messageSagaJobStart{
 		job: job,
@@ -354,7 +359,7 @@ func (sp *SagaProcess) StartJob(id SagaTransactionID, options SagaJobOptions, va
 	}
 
 	sp.mutexJobs.Lock()
-	sp.jobs[job.ID] = worker
+	sp.jobs[worker.Self()] = job
 	sp.mutexJobs.Unlock()
 
 	return job.ID, nil
@@ -401,7 +406,7 @@ func (gs *Saga) Init(process *ServerProcess, args ...etf.Term) error {
 	process.State = sagaProcess
 
 	if options.Worker != nil {
-		sagaProcess.jobs = make(map[SagaJobID]Process)
+		sagaProcess.jobs = make(map[etf.Pid]SagaJob)
 	}
 
 	process.SetTrapExit(true)
@@ -410,8 +415,47 @@ func (gs *Saga) Init(process *ServerProcess, args ...etf.Term) error {
 }
 
 func (gs *Saga) HandleCall(process *ServerProcess, from ServerFrom, message etf.Term) (etf.Term, ServerStatus) {
-	sp := process.State.(*SagaProcess)
-	return process.Behavior().(SagaBehavior).HandleSagaCall(sp, from, message)
+	var status SagaStatus
+	var value etf.Term
+	st := process.State.(*SagaProcess)
+
+	switch m := message.(type) {
+	case messageSagaJobResult:
+		st.mutexJobs.Lock()
+		job, ok := st.jobs[m.pid]
+		st.mutexJobs.Unlock()
+		if !ok {
+			// might be already canceled. just ignore it
+			status = SagaStatusOK
+			break
+		}
+		status = process.Behavior().(SagaBehavior).HandleJobResult(st, job.ID, m.result)
+		st.mutexJobs.Lock()
+		delete(st.jobs, m.pid)
+		st.mutexJobs.Unlock()
+
+	case messageSagaJobInterim:
+		st.mutexJobs.Lock()
+		job, ok := st.jobs[m.pid]
+		st.mutexJobs.Unlock()
+		if !ok {
+			// might be already canceled. just ignore it
+			status = SagaStatusOK
+			break
+		}
+		status = process.Behavior().(SagaBehavior).HandleJobInterim(st, job.ID, m.interim)
+
+	default:
+		value, status = process.Behavior().(SagaBehavior).HandleSagaCall(st, from, message)
+	}
+	switch status {
+	case SagaStatusOK:
+		return value, ServerStatusOK
+	case SagaStatusStop:
+		return value, ServerStatusStop
+	default:
+		return value, ServerStatus(status)
+	}
 }
 
 func (gs *Saga) HandleDirect(process *ServerProcess, message interface{}) (interface{}, error) {
@@ -428,12 +472,33 @@ func (gs *Saga) HandleDirect(process *ServerProcess, message interface{}) (inter
 func (gs *Saga) HandleCast(process *ServerProcess, message etf.Term) ServerStatus {
 	var status SagaStatus
 	st := process.State.(*SagaProcess)
+
 	switch m := message.(type) {
 	case messageSagaJobResult:
-		status = process.Behavior().(SagaBehavior).HandleJobResult(st, m.id, m.result)
+		st.mutexJobs.Lock()
+		job, ok := st.jobs[m.pid]
+		st.mutexJobs.Unlock()
+		if !ok {
+			// might be already canceled. just ignore it
+			status = SagaStatusOK
+			break
+		}
+		status = process.Behavior().(SagaBehavior).HandleJobResult(st, job.ID, m.result)
+		st.mutexJobs.Lock()
+		delete(st.jobs, m.pid)
+		st.mutexJobs.Unlock()
+
 	case messageSagaJobInterim:
-		fmt.Println("INT")
-		status = process.Behavior().(SagaBehavior).HandleJobInterim(st, m.id, m.interim)
+		st.mutexJobs.Lock()
+		job, ok := st.jobs[m.pid]
+		st.mutexJobs.Unlock()
+		if !ok {
+			// might be already canceled. just ignore it
+			status = SagaStatusOK
+			break
+		}
+		status = process.Behavior().(SagaBehavior).HandleJobInterim(st, job.ID, m.interim)
+
 	default:
 		s := process.Behavior().(SagaBehavior).HandleSagaCast(st, message)
 		status = SagaStatus(s)
@@ -452,9 +517,9 @@ func (gs *Saga) HandleInfo(process *ServerProcess, message etf.Term) ServerStatu
 	var m messageSaga
 
 	st := process.State.(*SagaProcess)
-	// check if we got a MessageDown
-	if d, isDown := IsMessageDown(message); isDown {
-		if err := handleSagaDown(st, d); err != nil {
+	// check if we got a MessageExit from the linked job worker
+	if d, isExit := IsMessageExit(message); isExit {
+		if err := handleSagaExit(st, d); err != nil {
 			return ServerStatus(err)
 		}
 		return ServerStatusOK
@@ -574,8 +639,19 @@ func handleSagaRequest(process *SagaProcess, m messageSaga) error {
 	return sagaStatusUnsupported
 }
 
-func handleSagaDown(process *SagaProcess, down MessageDown) error {
-	return nil
+func handleSagaExit(process *SagaProcess, exit MessageExit) error {
+	process.mutexJobs.Lock()
+	job, ok := process.jobs[exit.Pid]
+	process.mutexJobs.Unlock()
+	if !ok {
+		// must be already handled as finished and was removed from there
+		return nil
+	}
+	if exit.Reason != "normal" {
+		return process.Behavior().(SagaBehavior).HandleJobFailed(process, job.ID, exit.Reason)
+	}
+
+	return process.Behavior().(SagaBehavior).HandleJobFailed(process, job.ID, "no result")
 }
 
 //
@@ -606,7 +682,7 @@ func (gs *Saga) HandleJobInterim(process *SagaProcess, id SagaJobID, interim int
 	fmt.Printf("HandleJobInterim: unhandled message %#v\n", interim)
 	return SagaStatusOK
 }
-func (gs *Saga) HandleJobFailed(process *SagaProcess, id SagaJobID) SagaStatus {
-	fmt.Printf("HandleJobFailed: unhandled message %#v\n", id)
+func (gs *Saga) HandleJobFailed(process *SagaProcess, id SagaJobID, reason string) SagaStatus {
+	fmt.Printf("HandleJobFailed: unhandled message %s. reason %q\n", id, reason)
 	return nil
 }

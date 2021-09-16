@@ -50,11 +50,11 @@ type messageSagaJobStart struct {
 type messageSagaJobCancel struct{}
 type messageSagaJobCommit struct{}
 type messageSagaJobInterim struct {
-	id      SagaJobID
+	pid     etf.Pid
 	interim interface{}
 }
 type messageSagaJobResult struct {
-	id     SagaJobID
+	pid    etf.Pid
 	result interface{}
 }
 
@@ -63,23 +63,31 @@ type messageSagaJobResult struct {
 //
 
 // SendResult
-func (wp *SagaWorkerProcess) SendResult(result interface{}) {
+func (wp *SagaWorkerProcess) SendResult(result interface{}) error {
 	message := messageSagaJobResult{
-		id:     wp.job.ID,
+		pid:    wp.Self(),
 		result: result,
 	}
-	wp.Cast(wp.job.saga, message)
+	// must be a sync request to keep an order of sending messages
+	// and to ensure the result has been delivered
+	_, err := wp.Call(wp.job.saga, message)
+	if err != nil {
+		return err
+	}
 	wp.done = true
+	return nil
 }
 
 // SendInterim
-func (wp *SagaWorkerProcess) SendInterim(interim interface{}) {
+func (wp *SagaWorkerProcess) SendInterim(interim interface{}) error {
 	message := messageSagaJobInterim{
-		id:      wp.job.ID,
+		pid:     wp.Self(),
 		interim: interim,
 	}
-	err := wp.Cast(wp.job.saga, message)
-	fmt.Println("INTERIM", err, wp.job.saga, wp.IsAlive())
+	// must be a sync request to keep an order of sending messages
+	// and to ensure the result has been delivered
+	_, err := wp.Call(wp.job.saga, message)
+	return err
 }
 
 // Server callbacks
