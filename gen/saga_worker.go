@@ -70,7 +70,7 @@ func (wp *SagaWorkerProcess) SendResult(result interface{}) error {
 	}
 	// must be a sync request to keep an order of sending messages
 	// and to ensure the result has been delivered
-	_, err := wp.Call(wp.job.saga, message)
+	err := wp.Cast(wp.job.saga, message)
 	if err != nil {
 		return err
 	}
@@ -86,8 +86,7 @@ func (wp *SagaWorkerProcess) SendInterim(interim interface{}) error {
 	}
 	// must be a sync request to keep an order of sending messages
 	// and to ensure the result has been delivered
-	_, err := wp.Call(wp.job.saga, message)
-	return err
+	return wp.Cast(wp.job.saga, message)
 }
 
 // Server callbacks

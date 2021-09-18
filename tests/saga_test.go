@@ -22,8 +22,8 @@ func (w *testSagaWorker) HandleJobStart(process *gen.SagaWorkerProcess, job gen.
 	fmt.Println("Worker process started", process.Self(), " on", job.ID, " with value", job.Value)
 	process.SendInterim(888)
 	process.SendInterim(999)
-	//process.SendResult(1000)
-	panic("asdf")
+	process.SendResult(1000)
+	//panic("asdf")
 	return nil
 }
 func (w *testSagaWorker) HandleJobCancel(process *gen.SagaWorkerProcess) {
@@ -58,6 +58,7 @@ func (gs *testSaga) HandleTxNew(process *gen.SagaProcess, id gen.SagaTransaction
 }
 
 func (gs *testSaga) HandleTxDone(process *gen.SagaProcess, id gen.SagaTransactionID) gen.SagaStatus {
+	fmt.Println("Tx done", id)
 	return gen.SagaStatusOK
 }
 

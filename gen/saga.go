@@ -105,7 +105,8 @@ type SagaOptions struct {
 
 type SagaProcess struct {
 	ServerProcess
-	options SagaOptions
+	options  SagaOptions
+	behavior SagaBehavior
 
 	// running transactions
 	txs      map[SagaTransactionID]*SagaTransaction
@@ -261,22 +262,6 @@ func (sp *SagaProcess) StartTransaction(name string, options SagaTransactionOpti
 
 }
 
-func (sp *SagaProcess) CancelTransaction(id SagaTransactionID, reason string) {
-	sp.mutexTXS.Lock()
-	tx, ok := sp.txs[id]
-	sp.mutexTXS.Unlock()
-	if !ok {
-		return
-	}
-
-	message := etf.Tuple{
-		etf.Atom("$saga_cancel"),
-		sp.Self(),
-		etf.Tuple{tx.id, etf.Ref(tx.origin), reason},
-	}
-	sp.Send(sp.Self(), message)
-}
-
 func (sp *SagaProcess) Next(id SagaTransactionID, step SagaStep) (SagaStepID, error) {
 	sp.mutexTXS.Lock()
 	tx, ok := sp.txs[id]
@@ -376,11 +361,6 @@ func (sp *SagaProcess) StartJob(id SagaTransactionID, options SagaJobOptions, va
 	return job.ID, nil
 }
 
-func (sp *SagaProcess) CancelJob(job SagaJobID) error {
-	return nil
-
-}
-
 func (sp *SagaProcess) SendResult(id SagaTransactionID, result interface{}) error {
 	sp.mutexTXS.Lock()
 	tx, ok := sp.txs[id]
@@ -451,6 +431,27 @@ func (sp *SagaProcess) SendInterim(id SagaTransactionID, interim interface{}) er
 	}
 
 	return nil
+}
+
+func (sp *SagaProcess) CancelTransaction(id SagaTransactionID, reason string) {
+	sp.mutexTXS.Lock()
+	tx, ok := sp.txs[id]
+	sp.mutexTXS.Unlock()
+	if !ok {
+		return
+	}
+
+	message := etf.Tuple{
+		etf.Atom("$saga_cancel"),
+		sp.Self(),
+		etf.Tuple{tx.id, etf.Ref(tx.origin), reason},
+	}
+	sp.Send(sp.Self(), message)
+}
+
+func (sp *SagaProcess) CancelJob(job SagaJobID) error {
+	return nil
+
 }
 
 func (sp *SagaProcess) checkTxDone(tx *SagaTransaction) bool {
@@ -696,6 +697,7 @@ func (gs *Saga) Init(process *ServerProcess, args ...etf.Term) error {
 		ServerProcess: *process,
 		txs:           make(map[SagaTransactionID]*SagaTransaction),
 		steps:         make(map[SagaStepID]*SagaTransaction),
+		behavior:      behavior,
 	}
 	// do not inherite parent State
 	sagaProcess.State = nil
@@ -760,7 +762,7 @@ func (gs *Saga) HandleCall(process *ServerProcess, from ServerFrom, message etf.
 			job.done = true
 		}
 
-		status = process.Behavior().(SagaBehavior).HandleJobResult(sp, job.ID, m.result)
+		status = sp.behavior.HandleJobResult(sp, job.ID, m.result)
 
 	case messageSagaJobInterim:
 		sp.mutexJobs.Lock()
@@ -771,7 +773,7 @@ func (gs *Saga) HandleCall(process *ServerProcess, from ServerFrom, message etf.
 			status = SagaStatusOK
 			break
 		}
-		status = process.Behavior().(SagaBehavior).HandleJobInterim(sp, job.ID, m.interim)
+		status = sp.behavior.HandleJobInterim(sp, job.ID, m.interim)
 
 	default:
 		if err := etf.TermIntoStruct(message, &mSaga); err == nil {
@@ -781,7 +783,7 @@ func (gs *Saga) HandleCall(process *ServerProcess, from ServerFrom, message etf.
 			break
 		}
 
-		value, status = process.Behavior().(SagaBehavior).HandleSagaCall(sp, from, message)
+		value, status = sp.behavior.HandleSagaCall(sp, from, message)
 	}
 	switch status {
 	case SagaStatusOK:
@@ -794,21 +796,90 @@ func (gs *Saga) HandleCall(process *ServerProcess, from ServerFrom, message etf.
 }
 
 func (gs *Saga) HandleDirect(process *ServerProcess, message interface{}) (interface{}, error) {
-	st := process.State.(*SagaProcess)
+	sp := process.State.(*SagaProcess)
 	switch m := message.(type) {
 	case sagaSetMaxTransactions:
-		st.options.MaxTransactions = m.max
+		sp.options.MaxTransactions = m.max
 		return nil, nil
 	default:
-		return process.Behavior().(SagaBehavior).HandleSagaDirect(st, message)
+		return sp.behavior.HandleSagaDirect(sp, message)
 	}
 }
 
 func (gs *Saga) HandleCast(process *ServerProcess, message etf.Term) ServerStatus {
 	var status SagaStatus
+	var mSaga messageSaga
+
+	fmt.Println("GOT CAST on saga", message)
 	sp := process.State.(*SagaProcess)
-	status = process.Behavior().(SagaBehavior).HandleSagaCast(sp, message)
-	return SagaStatus(status)
+
+	switch m := message.(type) {
+	case messageSagaJobResult:
+		sp.mutexJobs.Lock()
+		job, ok := sp.jobs[m.pid]
+		sp.mutexJobs.Unlock()
+		if !ok {
+			status = SagaStatusOK
+			break
+		}
+
+		sp.mutexTXS.Lock()
+		tx, ok := sp.txs[job.TXID]
+		sp.mutexTXS.Unlock()
+
+		if !ok {
+			sp.mutexJobs.Lock()
+			delete(sp.jobs, m.pid)
+			sp.mutexJobs.Unlock()
+
+			// might be already canceled. just ignore it
+			status = SagaStatusOK
+			break
+		}
+
+		if tx.options.TwoPhaseCommit == false {
+			sp.mutexJobs.Lock()
+			delete(sp.jobs, m.pid)
+			sp.mutexJobs.Unlock()
+
+			tx.Lock()
+			delete(tx.jobs, m.pid)
+			tx.Unlock()
+		} else {
+			job.done = true
+		}
+
+		status = sp.behavior.HandleJobResult(sp, job.ID, m.result)
+
+	case messageSagaJobInterim:
+		sp.mutexJobs.Lock()
+		job, ok := sp.jobs[m.pid]
+		sp.mutexJobs.Unlock()
+		if !ok {
+			// might be already canceled. just ignore it
+			status = SagaStatusOK
+			break
+		}
+		status = sp.behavior.HandleJobInterim(sp, job.ID, m.interim)
+
+	default:
+		if err := etf.TermIntoStruct(message, &mSaga); err == nil {
+			// handle Interim and Result messages comes from the "next" sagas
+			s := sp.handleSagaRequest(mSaga)
+			status = ServerStatus(s)
+			break
+		}
+
+		status = sp.behavior.HandleSagaCast(sp, message)
+	}
+	switch status {
+	case SagaStatusOK:
+		return ServerStatusOK
+	case SagaStatusStop:
+		return ServerStatusStop
+	default:
+		return ServerStatus(status)
+	}
 }
 
 func (gs *Saga) HandleInfo(process *ServerProcess, message etf.Term) ServerStatus {
@@ -830,7 +901,7 @@ func (gs *Saga) HandleInfo(process *ServerProcess, message etf.Term) ServerStatu
 		return ServerStatusOK
 	default:
 		if err := etf.TermIntoStruct(message, &mSaga); err != nil {
-			status := process.Behavior().(SagaBehavior).HandleSagaInfo(sp, message)
+			status := sp.behavior.HandleSagaInfo(sp, message)
 			return status
 		}
 	}
@@ -842,7 +913,7 @@ func (gs *Saga) HandleInfo(process *ServerProcess, message etf.Term) ServerStatu
 	case SagaStatusStop:
 		return ServerStatusStop
 	case sagaStatusUnsupported:
-		return process.Behavior().(SagaBehavior).HandleSagaInfo(sp, message)
+		return sp.behavior.HandleSagaInfo(sp, message)
 	default:
 		return ServerStatus(status)
 	}
