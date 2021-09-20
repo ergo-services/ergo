@@ -13,7 +13,6 @@ import (
 
 const (
 	DefaultProcessMailboxSize = 100
-	DefaultCallTimeout        = 5
 )
 
 type process struct {
@@ -155,30 +154,13 @@ func (p *process) Info() gen.ProcessInfo {
 	}
 }
 
-func (p *process) Call(to interface{}, message etf.Term) (etf.Term, error) {
-	return p.CallWithTimeout(to, message, DefaultCallTimeout)
-}
-
-func (p *process) CallWithTimeout(to interface{}, message etf.Term, timeout int) (etf.Term, error) {
-	if p.behavior == nil {
-		return nil, ErrProcessTerminated
-	}
-
-	ref := p.MakeRef()
-	from := etf.Tuple{p.self, ref}
-	msg := etf.Term(etf.Tuple{etf.Atom("$gen_call"), from, message})
-	p.SendSyncRequest(ref, to, msg)
-
-	return p.WaitSyncReply(ref, timeout)
-
-}
-
 func (p *process) CallRPC(node, module, function string, args ...etf.Term) (etf.Term, error) {
-	return p.CallRPCWithTimeout(DefaultCallTimeout, node, module, function, args...)
+	return p.CallRPCWithTimeout(gen.DefaultCallTimeout, node, module, function, args...)
 }
 
 func (p *process) CallRPCWithTimeout(timeout int, node, module, function string, args ...etf.Term) (etf.Term, error) {
 	lib.Log("[%s] RPC calling: %s:%s:%s", p.NodeName(), node, module, function)
+
 	message := etf.Tuple{
 		etf.Atom("call"),
 		etf.Atom(module),
@@ -187,7 +169,12 @@ func (p *process) CallRPCWithTimeout(timeout int, node, module, function string,
 		p.Self(),
 	}
 	to := gen.ProcessID{"rex", node}
-	return p.CallWithTimeout(to, message, timeout)
+	ref := p.MakeRef()
+	from := etf.Tuple{p.Self(), ref}
+	msg := etf.Term(etf.Tuple{etf.Atom("$gen_call"), from, message})
+
+	p.SendSyncRequest(ref, to, msg)
+	return p.WaitSyncReply(ref, timeout)
 }
 
 func (p *process) CastRPC(node, module, function string, args ...etf.Term) error {
@@ -198,8 +185,9 @@ func (p *process) CastRPC(node, module, function string, args ...etf.Term) error
 		etf.Atom(function),
 		etf.List(args),
 	}
+	msg := etf.Tuple{etf.Atom("$gen_cast"), message}
 	to := gen.ProcessID{"rex", node}
-	return p.Cast(to, message)
+	return p.Send(to, msg)
 }
 
 func (p *process) Send(to interface{}, message etf.Term) error {
@@ -228,19 +216,6 @@ func (p *process) SendAfter(to interface{}, message etf.Term, after time.Duratio
 		}
 	}()
 	return cancel
-}
-
-func (p *process) CastAfter(to interface{}, message etf.Term, after time.Duration) context.CancelFunc {
-	msg := etf.Term(etf.Tuple{etf.Atom("$gen_cast"), message})
-	return p.SendAfter(to, msg, after)
-}
-
-func (p *process) Cast(to interface{}, message etf.Term) error {
-	if p.behavior == nil {
-		return ErrProcessTerminated
-	}
-	msg := etf.Term(etf.Tuple{etf.Atom("$gen_cast"), message})
-	return p.route(p.self, to, msg)
 }
 
 func (p *process) CreateAlias() (etf.Alias, error) {
@@ -372,7 +347,7 @@ func (p *process) Behavior() gen.ProcessBehavior {
 }
 
 func (p *process) Direct(request interface{}) (interface{}, error) {
-	return p.directRequest(request, DefaultCallTimeout)
+	return p.directRequest(request, gen.DefaultCallTimeout)
 }
 
 func (p *process) DirectWithTimeout(request interface{}, timeout int) (interface{}, error) {
@@ -408,7 +383,7 @@ func (p *process) RemoteSpawn(node string, object string, opts gen.RemoteSpawnOp
 
 	}
 	if opts.Timeout == 0 {
-		opts.Timeout = DefaultCallTimeout
+		opts.Timeout = gen.DefaultCallTimeout
 	}
 	control := etf.Tuple{distProtoSPAWN_REQUEST, ref, p.self, p.self,
 		// {M,F,A}

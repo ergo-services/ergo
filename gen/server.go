@@ -1,12 +1,17 @@
 package gen
 
 import (
+	"context"
 	"fmt"
 	"runtime"
-	"sync"
+	"time"
 
 	"github.com/halturin/ergo/etf"
 	"github.com/halturin/ergo/lib"
+)
+
+const (
+	DefaultCallTimeout = 5
 )
 
 // ServerBehavior interface
@@ -64,6 +69,55 @@ type ServerProcess struct {
 	reductions      uint64 // we use this term to count total number of processed messages from mailBox
 	currentFunction string
 	trapExit        bool
+
+	waitReply         *etf.Ref
+	callbackWaitReply chan etf.Ref
+	stop              chan string
+}
+
+type handleCallMessage struct {
+	from    ServerFrom
+	message etf.Term
+}
+
+type handleCastMessage struct {
+	message etf.Term
+}
+
+type handleInfoMessage struct {
+	message etf.Term
+}
+
+// CastAfter simple wrapper for SendAfter to send '$gen_cast' message
+func (sp *ServerProcess) CastAfter(to interface{}, message etf.Term, after time.Duration) context.CancelFunc {
+	msg := etf.Term(etf.Tuple{etf.Atom("$gen_cast"), message})
+	return sp.SendAfter(to, msg, after)
+}
+
+// Cast sends a message in fashion of 'gen_cast'. 'to' can be a Pid, registered local name
+// or gen.ProcessID{RegisteredName, NodeName}
+func (sp *ServerProcess) Cast(to interface{}, message etf.Term) error {
+	msg := etf.Term(etf.Tuple{etf.Atom("$gen_cast"), message})
+	return sp.Send(to, msg)
+}
+
+// Call makes outgoing sync request in fashion of 'gen_call'.
+// 'to' can be Pid, registered local name or gen.ProcessID{RegisteredName, NodeName}.
+// This method shouldn't be used outside of the actor. Use Direct method instead.
+func (sp *ServerProcess) Call(to interface{}, message etf.Term) (etf.Term, error) {
+	return sp.CallWithTimeout(to, message, DefaultCallTimeout)
+}
+
+// CallWithTimeout makes outgoing sync request in fashiod of 'gen_call' with given timeout.
+// This method shouldn't be used outside of the actor. Use DirectWithTimeout method instead.
+func (sp *ServerProcess) CallWithTimeout(to interface{}, message etf.Term, timeout int) (etf.Term, error) {
+	ref := sp.MakeRef()
+	from := etf.Tuple{sp.Self(), ref}
+	msg := etf.Term(etf.Tuple{etf.Atom("$gen_call"), from, message})
+	sp.SendSyncRequest(ref, to, msg)
+
+	return sp.WaitSyncReply(ref, timeout)
+
 }
 
 func (gs *Server) ProcessInit(p Process, args ...etf.Term) (ProcessState, error) {
@@ -85,20 +139,27 @@ func (gs *Server) ProcessInit(p Process, args ...etf.Term) (ProcessState, error)
 }
 
 func (gs *Server) ProcessLoop(ps ProcessState, started chan<- bool) string {
+	var deferredMailbox chan ProcessMailboxMessage
+	var originalMailbox <-chan ProcessMailboxMessage
 	behavior, ok := ps.Behavior().(ServerBehavior)
 	if !ok {
 		return "ProcessLoop: not a ServerBehavior"
 	}
 	gsp := &ServerProcess{
-		ProcessState: ps,
-		behavior:     behavior,
+		ProcessState:      ps,
+		behavior:          behavior,
+		callbackWaitReply: make(chan etf.Ref),
 	}
 
-	lockState := &sync.Mutex{}
-	stop := make(chan string, 2)
-
+	gsp.stop = make(chan string, 2)
 	gsp.currentFunction = "Server:loop"
-	chs := gsp.ProcessChannels()
+
+	channels := gsp.ProcessChannels()
+	originalMailbox = channels.Mailbox
+	deferredMailbox = make(chan ProcessMailboxMessage, cap(channels.Mailbox))
+
+	channels.Mailbox = deferredMailbox
+	channels.Mailbox = originalMailbox
 
 	started <- true
 	for {
@@ -106,7 +167,7 @@ func (gs *Server) ProcessLoop(ps ProcessState, started chan<- bool) string {
 		var fromPid etf.Pid
 
 		select {
-		case ex := <-chs.GracefulExit:
+		case ex := <-channels.GracefulExit:
 			if !gsp.TrapExit() {
 				gsp.behavior.Terminate(gsp, ex.Reason)
 				return ex.Reason
@@ -116,11 +177,11 @@ func (gs *Server) ProcessLoop(ps ProcessState, started chan<- bool) string {
 				Reason: ex.Reason,
 			}
 
-		case reason := <-stop:
+		case reason := <-gsp.stop:
 			gsp.behavior.Terminate(gsp, reason)
 			return reason
 
-		case msg := <-chs.Mailbox:
+		case msg := <-channels.Mailbox:
 			fromPid = msg.From
 			message = msg.Message
 
@@ -128,7 +189,7 @@ func (gs *Server) ProcessLoop(ps ProcessState, started chan<- bool) string {
 			gsp.behavior.Terminate(gsp, "kill")
 			return "kill"
 
-		case direct := <-chs.Direct:
+		case direct := <-channels.Direct:
 			reply, err := gsp.behavior.HandleDirect(gsp, direct.Message)
 			if err != nil {
 				direct.Message = nil
@@ -147,208 +208,218 @@ func (gs *Server) ProcessLoop(ps ProcessState, started chan<- bool) string {
 
 		gsp.reductions++
 
-		panicHandler := func() {
-			if r := recover(); r != nil {
-				pc, fn, line, _ := runtime.Caller(2)
-				fmt.Printf("Warning: Server terminated (name: %q) %v %#v at %s[%s:%d]\n",
-					gsp.Name(), gsp.Self(), r, runtime.FuncForPC(pc).Name(), fn, line)
-				stop <- "panic"
-			}
-		}
-
 		switch m := message.(type) {
 		case etf.Tuple:
+
 			switch mtag := m.Element(1).(type) {
-			case etf.Atom:
-				switch mtag {
-				case etf.Atom("$gen_call"):
-					// We need to wrap it out using goroutine in order to serve
-					// sync-requests (like 'process.Call') within callback execution
-					// since reply (etf.Ref) comes through the same mailBox channel
-					go func() {
-						defer panicHandler()
-
-						var ok bool
-						if len(m) != 3 {
-							// wrong $gen_call message. ignore it
-							return
-						}
-
-						fromTuple, ok := m.Element(2).(etf.Tuple)
-						if !ok || len(fromTuple) != 2 {
-							// not a tuple or has wrong value
-							return
-						}
-
-						from := ServerFrom{}
-
-						from.Pid, ok = fromTuple.Element(1).(etf.Pid)
-						if !ok {
-							// wrong Pid value
-							return
-						}
-
-						switch v := fromTuple.Element(2).(type) {
-						case etf.Ref:
-							from.Ref = v
-						case etf.List:
-							var ok bool
-							// was sent with "alias" [etf.Atom("alias"), etf.Ref]
-							if len(v) != 2 {
-								// wrong value
-								return
-							}
-							if alias, ok := v.Element(1).(etf.Atom); !ok || alias != etf.Atom("alias") {
-								// wrong value
-								return
-							}
-							from.Ref, ok = v.Element(2).(etf.Ref)
-							if !ok {
-								// wrong value
-								return
-							}
-							from.ReplyByAlias = true
-
-						default:
-							// wrong tag value
-							return
-						}
-
-						lockState.Lock()
-						defer lockState.Unlock()
-
-						cf := gsp.currentFunction
-						gsp.currentFunction = "Server:HandleCall"
-						reply, status := gsp.behavior.HandleCall(gsp, from, m.Element(3))
-						gsp.currentFunction = cf
-						switch status {
-						case ServerStatusOK:
-							var fromTag etf.Term
-							var to etf.Term
-							if from.ReplyByAlias {
-								// Erlang gen_server:call uses improper list for the reply ['alias'|Ref]
-								fromTag = etf.ListImproper{etf.Atom("alias"), from.Ref}
-								to = etf.Alias(from.Ref)
-							} else {
-								fromTag = from.Ref
-								to = from.Pid
-							}
-
-							if reply != nil {
-								rep := etf.Tuple{fromTag, reply}
-								gsp.Send(to, rep)
-								return
-							}
-							rep := etf.Tuple{fromTag, etf.Atom("nil")}
-							gsp.Send(to, rep)
-						case ServerStatusIgnore:
-							return
-						case ServerStatusStop:
-							stop <- "normal"
-
-						default:
-							stop <- status.Error()
-						}
-					}()
-
-				case etf.Atom("$gen_cast"):
-					go func() {
-						defer panicHandler()
-
-						lockState.Lock()
-						defer lockState.Unlock()
-
-						cf := gsp.currentFunction
-						gsp.currentFunction = "Server:HandleCast"
-						status := gsp.behavior.HandleCast(gsp, m.Element(2))
-						gsp.currentFunction = cf
-
-						switch status {
-						case ServerStatusOK, ServerStatusIgnore:
-							return
-						case ServerStatusStop:
-							stop <- "normal"
-						default:
-							stop <- status.Error()
-						}
-					}()
-
-				default:
-					go func() {
-						defer panicHandler()
-
-						lockState.Lock()
-						defer lockState.Unlock()
-
-						cf := gsp.currentFunction
-						gsp.currentFunction = "Server:HandleInfo"
-						status := gsp.behavior.HandleInfo(gsp, message)
-						gsp.currentFunction = cf
-						switch status {
-						case ServerStatusOK, ServerStatusIgnore:
-							return
-						case ServerStatusStop:
-							stop <- "normal"
-						default:
-							stop <- status.Error()
-						}
-					}()
-
-				}
-
-			default:
-				if ref, ok := m.Element(1).(etf.Ref); ok && len(m) == 2 {
+			case etf.Ref:
+				// check if we waiting for reply
+				if gsp.waitReply != nil {
+					if len(m) != 2 {
+						break
+					}
+					if *gsp.waitReply != mtag {
+						break
+					}
+					gsp.waitReply = nil
 					lib.Log("[%s] GEN_SERVER %#v got reply: %#v", gsp.NodeName(), gsp.Self(), mtag)
-					gsp.PutSyncReply(ref, m.Element(2))
+					gsp.PutSyncReply(mtag, m.Element(2))
 					continue
 				}
 
-				lib.Log("[%s] GEN_SERVER %#v got simple message %#v", gsp.NodeName(), gsp.Self(), mtag)
-				go func() {
-					defer panicHandler()
+			case etf.Atom:
+				switch mtag {
+				case etf.Atom("$gen_call"):
 
-					lockState.Lock()
-					defer lockState.Unlock()
-
-					cf := gsp.currentFunction
-					gsp.currentFunction = "Server:HandleInfo"
-					status := gsp.behavior.HandleInfo(gsp, message)
-					gsp.currentFunction = cf
-
-					switch status {
-					case ServerStatusOK, ServerStatusIgnore:
-						return
-					case ServerStatusStop:
-						stop <- "normal"
-					default:
-						stop <- status.Error()
+					var ok bool
+					if len(m) != 3 {
+						// wrong $gen_call message. ignore it
+						break
 					}
-				}()
+
+					fromTuple, ok := m.Element(2).(etf.Tuple)
+					if !ok || len(fromTuple) != 2 {
+						// not a tuple or has wrong value
+						break
+					}
+
+					from := ServerFrom{}
+
+					from.Pid, ok = fromTuple.Element(1).(etf.Pid)
+					if !ok {
+						// wrong Pid value
+						break
+					}
+
+					correct := false
+					switch v := fromTuple.Element(2).(type) {
+					case etf.Ref:
+						from.Ref = v
+					case etf.List:
+						var ok bool
+						// was sent with "alias" [etf.Atom("alias"), etf.Ref]
+						if len(v) != 2 {
+							// wrong value
+							break
+						}
+						if alias, ok := v.Element(1).(etf.Atom); !ok || alias != etf.Atom("alias") {
+							// wrong value
+							break
+						}
+						from.Ref, ok = v.Element(2).(etf.Ref)
+						if !ok {
+							// wrong value
+							break
+						}
+						from.ReplyByAlias = true
+
+						correct = true
+					}
+
+					if correct == false {
+						break
+					}
+
+					callMessage := handleCallMessage{
+						message: m.Element(3),
+						from:    from,
+					}
+					if gsp.waitReply != nil {
+						call := ProcessMailboxMessage{
+							From:    fromPid,
+							Message: callMessage,
+						}
+						deferredMailbox <- call
+						continue
+					}
+
+					go gsp.handleCall(callMessage)
+
+					continue
+
+				case etf.Atom("$gen_cast"):
+					select {
+					case <-gsp.Context().Done():
+						// if process died during the callback execution
+						return "kill"
+					case waitReply := <-gsp.callbackWaitReply:
+						empty := etf.Ref{}
+						if waitReply != empty {
+							gsp.waitReply = &waitReply
+						}
+					}
+					castMessage := handleCastMessage{
+						message: m.Element(3),
+					}
+
+					go gsp.handleCast(castMessage)
+					continue
+				}
 			}
+
+			infoMessage := handleInfoMessage{
+				message: message,
+			}
+			lib.Log("[%s] GEN_SERVER %#v got simple message %#v", gsp.NodeName(), gsp.Self(), message)
+			go gsp.handleInfo(infoMessage)
+
+		case handleCallMessage:
+			go gsp.handleCall(m)
+		case handleCastMessage:
+			go gsp.handleCast(m)
+		case handleInfoMessage:
+			go gsp.handleInfo(m)
 
 		default:
 			lib.Log("m: %#v", m)
-			go func() {
-				defer panicHandler()
-
-				lockState.Lock()
-				defer lockState.Unlock()
-
-				cf := gsp.currentFunction
-				gsp.currentFunction = "Server:HandleInfo"
-				status := gsp.behavior.HandleInfo(gsp, message)
-				gsp.currentFunction = cf
-
-				switch status {
-				case ServerStatusOK, ServerStatusIgnore:
-					return
-				case ServerStatusStop:
-					stop <- "normal"
-				default:
-					stop <- status.Error()
-				}
-			}()
+			infoMessage := handleInfoMessage{
+				message: m,
+			}
+			go gsp.handleInfo(infoMessage)
 		}
+	}
+}
+
+// ServerProcess handlers
+
+func (gsp *ServerProcess) panicHandler() {
+	if r := recover(); r != nil {
+		pc, fn, line, _ := runtime.Caller(2)
+		fmt.Printf("Warning: Server terminated (name: %q) %v %#v at %s[%s:%d]\n",
+			gsp.Name(), gsp.Self(), r, runtime.FuncForPC(pc).Name(), fn, line)
+		gsp.stop <- "panic"
+	}
+}
+
+func (gsp *ServerProcess) handleCall(m handleCallMessage) {
+	defer gsp.panicHandler()
+
+	cf := gsp.currentFunction
+	gsp.currentFunction = "Server:HandleCall"
+	reply, status := gsp.behavior.HandleCall(gsp, m.from, m.message)
+	gsp.currentFunction = cf
+	switch status {
+	case ServerStatusOK:
+		var fromTag etf.Term
+		var to etf.Term
+		if m.from.ReplyByAlias {
+			// Erlang gen_server:call uses improper list for the reply ['alias'|Ref]
+			fromTag = etf.ListImproper{etf.Atom("alias"), m.from.Ref}
+			to = etf.Alias(m.from.Ref)
+		} else {
+			fromTag = m.from.Ref
+			to = m.from.Pid
+		}
+
+		if reply != nil {
+			rep := etf.Tuple{fromTag, reply}
+			gsp.Send(to, rep)
+			return
+		}
+		rep := etf.Tuple{fromTag, etf.Atom("nil")}
+		gsp.Send(to, rep)
+	case ServerStatusIgnore:
+		return
+	case ServerStatusStop:
+		gsp.stop <- "normal"
+
+	default:
+		gsp.stop <- status.Error()
+	}
+}
+
+func (gsp *ServerProcess) handleCast(m handleCastMessage) {
+	defer gsp.panicHandler()
+
+	cf := gsp.currentFunction
+	gsp.currentFunction = "Server:HandleCast"
+	status := gsp.behavior.HandleCast(gsp, m.message)
+	gsp.currentFunction = cf
+
+	switch status {
+	case ServerStatusOK, ServerStatusIgnore:
+		return
+	case ServerStatusStop:
+		gsp.stop <- "normal"
+	default:
+		gsp.stop <- status.Error()
+	}
+}
+
+func (gsp *ServerProcess) handleInfo(m handleInfoMessage) {
+	defer gsp.panicHandler()
+
+	cf := gsp.currentFunction
+	gsp.currentFunction = "Server:HandleInfo"
+	status := gsp.behavior.HandleInfo(gsp, m.message)
+	gsp.currentFunction = cf
+	switch status {
+	case ServerStatusOK, ServerStatusIgnore:
+		return
+	case ServerStatusStop:
+		gsp.stop <- "normal"
+	default:
+		gsp.stop <- status.Error()
 	}
 }
 

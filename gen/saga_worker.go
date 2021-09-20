@@ -68,8 +68,6 @@ func (wp *SagaWorkerProcess) SendResult(result interface{}) error {
 		pid:    wp.Self(),
 		result: result,
 	}
-	// must be a sync request to keep an order of sending messages
-	// and to ensure the result has been delivered
 	err := wp.Cast(wp.job.saga, message)
 	if err != nil {
 		return err
@@ -84,8 +82,6 @@ func (wp *SagaWorkerProcess) SendInterim(interim interface{}) error {
 		pid:     wp.Self(),
 		interim: interim,
 	}
-	// must be a sync request to keep an order of sending messages
-	// and to ensure the result has been delivered
 	return wp.Cast(wp.job.saga, message)
 }
 

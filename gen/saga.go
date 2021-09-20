@@ -234,32 +234,33 @@ func (gs *Saga) SetMaxTransactions(process Process, max uint) error {
 //
 
 func (sp *SagaProcess) StartTransaction(name string, options SagaTransactionOptions, value interface{}) SagaTransactionID {
-	tx := SagaTransaction{
-		id:      SagaTransactionID(sp.MakeRef()),
-		arrival: time.Now().Unix(),
-		steps:   make(map[SagaStepID]*SagaStep),
-		jobs:    make(map[etf.Pid]bool),
-	}
+	id := sp.MakeRef()
+
 	if options.HopLimit == 0 {
 		options.HopLimit = defaultHopLimit
 	}
 	if options.Lifespan == 0 {
 		options.Lifespan = defaultLifespan
 	}
-	tx.options = options
 
-	sp.mutexTXS.Lock()
-	sp.txs[tx.id] = &tx
-	sp.mutexTXS.Unlock()
-
-	step := SagaStep{
-		Saga:  sp.Self(),
-		Value: value,
+	message := etf.Tuple{
+		etf.Atom("$saga_next"),
+		sp.Self(),
+		etf.Tuple{
+			etf.Ref{}, // step id
+			id,        // tx id
+			value,
+			[]etf.Pid{},
+			etf.Map{
+				"HopLimit":       options.HopLimit,
+				"Lifespan":       options.Lifespan,
+				"TwoPhaseCommit": options.TwoPhaseCommit,
+			},
+		},
 	}
-	sp.Next(tx.id, step)
 
-	return tx.id
-
+	sp.Send(sp.Self(), message)
+	return SagaTransactionID(id)
 }
 
 func (sp *SagaProcess) Next(id SagaTransactionID, step SagaStep) (SagaStepID, error) {
@@ -369,8 +370,8 @@ func (sp *SagaProcess) SendResult(id SagaTransactionID, result interface{}) erro
 		return fmt.Errorf("unknown transaction")
 	}
 
-	if len(tx.parents) == 0 {
-		return fmt.Errorf("no parent saga")
+	if sp.checkTxDone(tx) == false {
+		return fmt.Errorf("transaction is still in progress")
 	}
 
 	message := etf.Tuple{
@@ -382,13 +383,9 @@ func (sp *SagaProcess) SendResult(id SagaTransactionID, result interface{}) erro
 			result,
 		},
 	}
-	if tx.options.TwoPhaseCommit == false {
-
-	}
 
 	// send message to the parent saga
-	// FIXME handle Call result (value)
-	if _, err := sp.Call(tx.parents[0], message); err != nil {
+	if err := sp.Cast(tx.parents[0], message); err != nil {
 		return err
 	}
 
@@ -410,10 +407,6 @@ func (sp *SagaProcess) SendInterim(id SagaTransactionID, interim interface{}) er
 		return fmt.Errorf("unknown transaction")
 	}
 
-	if len(tx.parents) == 0 {
-		return fmt.Errorf("no parent saga")
-	}
-
 	message := etf.Tuple{
 		etf.Atom("$saga_interim"),
 		sp.Self(),
@@ -425,8 +418,7 @@ func (sp *SagaProcess) SendInterim(id SagaTransactionID, interim interface{}) er
 	}
 
 	// send message to the parent saga
-	// FIXME handle Call result (value)
-	if _, err := sp.Call(tx.parents[0], message); err != nil {
+	if err := sp.Cast(tx.parents[0], message); err != nil {
 		return err
 	}
 
@@ -456,6 +448,7 @@ func (sp *SagaProcess) CancelJob(job SagaJobID) error {
 
 func (sp *SagaProcess) checkTxDone(tx *SagaTransaction) bool {
 
+	fmt.Println("AAA2")
 	if tx.options.TwoPhaseCommit == false { // 2PC is disabled
 		if len(tx.steps) > 0 { // haven't received all results from the "next" sagas
 			return false
@@ -579,15 +572,13 @@ func (sp *SagaProcess) handleSagaRequest(m messageSaga) error {
 				return nil
 
 			}
-			tx = &SagaTransaction{
-				arrival: time.Now().Unix(),
-				parents: append([]etf.Pid{m.Pid}, stepMessage.Parents...),
-			}
+			tx.arrival = time.Now().Unix()
+			tx.parents = []etf.Pid{m.Pid}
 		}
 		sp.mutexTXS.Unlock()
 
 		tx.monitor = sp.MonitorProcess(m.Pid)
-		return sp.Behavior().(SagaBehavior).HandleTxNew(sp, transactionID, stepMessage.Value)
+		return sp.behavior.HandleTxNew(sp, transactionID, stepMessage.Value)
 
 	//case "$saga_cancel":
 	//	if err := etf.TermIntoStruct(m.Command, &cancel); err != nil {
@@ -607,6 +598,7 @@ func (sp *SagaProcess) handleSagaRequest(m messageSaga) error {
 	//	sp.Behavior().(SagaBehavior).HandleTxInterim(sp, result.Transaction.id, next, result.Result)
 	//	return nil
 	case etf.Atom("$saga_result"):
+		fmt.Println("got saga result", result)
 		if err := etf.TermIntoStruct(m.Command, &result); err != nil {
 			return ErrUnsupportedRequest
 		}
@@ -636,9 +628,12 @@ func (sp *SagaProcess) handleSagaRequest(m messageSaga) error {
 		}
 		tx.Unlock()
 
-		// FIXME do not call it here. calling saga process is on hold during this call
-		// FIXME handle returned status
-		sp.Behavior().(SagaBehavior).HandleTxResult(sp, tx.id, step_id, result.Result)
+		sp.behavior.HandleTxResult(sp, tx.id, step_id, result.Result)
+
+		fmt.Println("AAA1")
+		if sp.checkTxDone(tx) == true {
+			sp.behavior.HandleTxDone(sp, tx.id)
+		}
 
 		return nil
 	case etf.Atom("$saga_interim"):
@@ -654,9 +649,7 @@ func (sp *SagaProcess) handleSagaRequest(m messageSaga) error {
 			return nil
 		}
 		sp.mutexSteps.Unlock()
-		// FIXME do not call it here. calling saga process is on hold during this call
-		// FIXME handle returned status
-		sp.Behavior().(SagaBehavior).HandleTxInterim(sp, tx.id, step_id, result.Result)
+		sp.behavior.HandleTxInterim(sp, tx.id, step_id, result.Result)
 		return nil
 	}
 	return sagaStatusUnsupported
@@ -671,10 +664,10 @@ func (sp *SagaProcess) handleSagaExit(exit MessageExit) error {
 		return nil
 	}
 	if exit.Reason != "normal" {
-		return sp.Behavior().(SagaBehavior).HandleJobFailed(sp, job.ID, exit.Reason)
+		return sp.behavior.HandleJobFailed(sp, job.ID, exit.Reason)
 	}
 
-	return sp.Behavior().(SagaBehavior).HandleJobFailed(sp, job.ID, "no result")
+	return sp.behavior.HandleJobFailed(sp, job.ID, "no result")
 }
 
 func (sp *SagaProcess) handleSagaDown(down MessageDown) error {
@@ -720,79 +713,9 @@ func (gs *Saga) Init(process *ServerProcess, args ...etf.Term) error {
 }
 
 func (gs *Saga) HandleCall(process *ServerProcess, from ServerFrom, message etf.Term) (etf.Term, ServerStatus) {
-	var status SagaStatus
-	var value etf.Term
-	var mSaga messageSaga
-
 	sp := process.State.(*SagaProcess)
 
-	switch m := message.(type) {
-	case messageSagaJobResult:
-		sp.mutexJobs.Lock()
-		job, ok := sp.jobs[m.pid]
-		sp.mutexJobs.Unlock()
-		if !ok {
-			status = SagaStatusOK
-			break
-		}
-
-		sp.mutexTXS.Lock()
-		tx, ok := sp.txs[job.TXID]
-		sp.mutexTXS.Unlock()
-
-		if !ok {
-			sp.mutexJobs.Lock()
-			delete(sp.jobs, m.pid)
-			sp.mutexJobs.Unlock()
-
-			// might be already canceled. just ignore it
-			status = SagaStatusOK
-			break
-		}
-
-		if tx.options.TwoPhaseCommit == false {
-			sp.mutexJobs.Lock()
-			delete(sp.jobs, m.pid)
-			sp.mutexJobs.Unlock()
-
-			tx.Lock()
-			delete(tx.jobs, m.pid)
-			tx.Unlock()
-		} else {
-			job.done = true
-		}
-
-		status = sp.behavior.HandleJobResult(sp, job.ID, m.result)
-
-	case messageSagaJobInterim:
-		sp.mutexJobs.Lock()
-		job, ok := sp.jobs[m.pid]
-		sp.mutexJobs.Unlock()
-		if !ok {
-			// might be already canceled. just ignore it
-			status = SagaStatusOK
-			break
-		}
-		status = sp.behavior.HandleJobInterim(sp, job.ID, m.interim)
-
-	default:
-		if err := etf.TermIntoStruct(message, &mSaga); err == nil {
-			// handle Interim and Result messages comes from the "next" sagas
-			s := sp.handleSagaRequest(mSaga)
-			status = ServerStatus(s)
-			break
-		}
-
-		value, status = sp.behavior.HandleSagaCall(sp, from, message)
-	}
-	switch status {
-	case SagaStatusOK:
-		return value, ServerStatusOK
-	case SagaStatusStop:
-		return value, ServerStatusStop
-	default:
-		return value, ServerStatus(status)
-	}
+	return sp.behavior.HandleSagaCall(sp, from, message)
 }
 
 func (gs *Saga) HandleDirect(process *ServerProcess, message interface{}) (interface{}, error) {
@@ -810,7 +733,6 @@ func (gs *Saga) HandleCast(process *ServerProcess, message etf.Term) ServerStatu
 	var status SagaStatus
 	var mSaga messageSaga
 
-	fmt.Println("GOT CAST on saga", message)
 	sp := process.State.(*SagaProcess)
 
 	switch m := message.(type) {

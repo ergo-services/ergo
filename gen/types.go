@@ -34,15 +34,6 @@ type Process interface {
 	// Self returns registered process identificator belongs to the process
 	Self() etf.Pid
 
-	// Call makes outgoing sync request in fashion of 'gen_call'.
-	// 'to' can be Pid, registered local name or gen.ProcessID{RegisteredName, NodeName}.
-	// This method shouldn't be used outside of the actor. Use Direct method instead.
-	Call(to interface{}, message etf.Term) (etf.Term, error)
-
-	// CallWithTimeout makes outgoing sync request in fashiod of 'gen_call' with given timeout.
-	// This method shouldn't be used outside of the actor. Use DirectWithTimeout method instead.
-	CallWithTimeout(to interface{}, message etf.Term, timeout int) (etf.Term, error)
-
 	// CallRPC evaluate rpc call with given node/MFA
 	CallRPC(node, module, function string, args ...etf.Term) (etf.Term, error)
 
@@ -52,7 +43,7 @@ type Process interface {
 	// CastRPC evaluate rpc cast with given node/MFA
 	CastRPC(node, module, function string, args ...etf.Term) error
 
-	// Direct make a direct request to the actor (Application, Supervisor, GenServer or
+	// Direct make a direct request to the actor (gen.Application, gen.Supervisor, gen.Server or
 	// inherited from gen.Server actor) with default timeout 5 seconds
 	Direct(request interface{}) (interface{}, error)
 
@@ -68,13 +59,6 @@ type Process interface {
 	// gen.ProcessID{RegisteredName, NodeName}. Returns cancel function in order to discard
 	// sending a message
 	SendAfter(to interface{}, message etf.Term, after time.Duration) context.CancelFunc
-
-	// CastAfter simple wrapper for SendAfter to send '$gen_cast' message
-	CastAfter(to interface{}, message etf.Term, after time.Duration) context.CancelFunc
-
-	// Cast sends a message in fashion of 'gen_cast'. 'to' can be a Pid, registered local name
-	// or gen.ProcessID{RegisteredName, NodeName}
-	Cast(to interface{}, message etf.Term) error
 
 	// Exit initiate a graceful stopping process
 	Exit(reason string) error

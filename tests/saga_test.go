@@ -24,6 +24,7 @@ func (w *testSagaWorker) HandleJobStart(process *gen.SagaWorkerProcess, job gen.
 	process.SendInterim(999)
 	process.SendResult(1000)
 	//panic("asdf")
+	time.Sleep(500 * time.Millisecond)
 	return nil
 }
 func (w *testSagaWorker) HandleJobCancel(process *gen.SagaWorkerProcess) {
@@ -38,12 +39,14 @@ func (w *testSagaWorker) HandleWorkerInfo(process *gen.SagaWorkerProcess, messag
 //
 type testSaga struct {
 	gen.Saga
+	jobs map[gen.SagaJobID]gen.SagaTransactionID
 }
 
 func (gs *testSaga) InitSaga(process *gen.SagaProcess, args ...etf.Term) (gen.SagaOptions, error) {
 	opts := gen.SagaOptions{
 		Worker: &testSagaWorker{},
 	}
+	gs.jobs = make(map[gen.SagaJobID]gen.SagaTransactionID)
 	return opts, nil
 }
 
@@ -54,6 +57,7 @@ func (gs *testSaga) HandleTxNew(process *gen.SagaProcess, id gen.SagaTransaction
 		return err
 	}
 	fmt.Println("Started job", job_id)
+	gs.jobs[job_id] = id
 	return gen.SagaStatusOK
 }
 
@@ -72,6 +76,13 @@ func (gs *testSaga) HandleTxResult(process *gen.SagaProcess, id gen.SagaTransact
 
 func (gs *testSaga) HandleTxInterim(process *gen.SagaProcess, id gen.SagaTransactionID, from gen.SagaStepID, interim interface{}) gen.SagaStatus {
 
+	return gen.SagaStatusOK
+}
+
+func (gs *testSaga) HandleJobResult(process *gen.SagaProcess, id gen.SagaJobID, result interface{}) gen.SagaStatus {
+	txid, _ := gs.jobs[id]
+	err := process.SendResult(txid, result)
+	fmt.Println("Job result", result, txid, err)
 	return gen.SagaStatusOK
 }
 
