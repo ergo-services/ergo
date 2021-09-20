@@ -70,8 +70,12 @@ type ServerProcess struct {
 	currentFunction string
 	trapExit        bool
 
+	mailbox  <-chan ProcessMailboxMessage
+	original <-chan ProcessMailboxMessage
+	deferred chan ProcessMailboxMessage
+
 	waitReply         *etf.Ref
-	callbackWaitReply chan etf.Ref
+	callbackWaitReply chan *etf.Ref
 	stop              chan string
 }
 
@@ -115,9 +119,8 @@ func (sp *ServerProcess) CallWithTimeout(to interface{}, message etf.Term, timeo
 	from := etf.Tuple{sp.Self(), ref}
 	msg := etf.Term(etf.Tuple{etf.Atom("$gen_call"), from, message})
 	sp.SendSyncRequest(ref, to, msg)
-
+	sp.callbackWaitReply <- &ref
 	return sp.WaitSyncReply(ref, timeout)
-
 }
 
 func (gs *Server) ProcessInit(p Process, args ...etf.Term) (ProcessState, error) {
@@ -139,27 +142,24 @@ func (gs *Server) ProcessInit(p Process, args ...etf.Term) (ProcessState, error)
 }
 
 func (gs *Server) ProcessLoop(ps ProcessState, started chan<- bool) string {
-	var deferredMailbox chan ProcessMailboxMessage
-	var originalMailbox <-chan ProcessMailboxMessage
 	behavior, ok := ps.Behavior().(ServerBehavior)
 	if !ok {
 		return "ProcessLoop: not a ServerBehavior"
 	}
+
+	channels := ps.ProcessChannels()
+
 	gsp := &ServerProcess{
-		ProcessState:      ps,
+		ProcessState: ps,
+
 		behavior:          behavior,
-		callbackWaitReply: make(chan etf.Ref),
+		currentFunction:   "Server:loop",
+		mailbox:           channels.Mailbox,
+		original:          channels.Mailbox,
+		deferred:          make(chan ProcessMailboxMessage, cap(channels.Mailbox)),
+		callbackWaitReply: make(chan *etf.Ref),
+		stop:              make(chan string, 2),
 	}
-
-	gsp.stop = make(chan string, 2)
-	gsp.currentFunction = "Server:loop"
-
-	channels := gsp.ProcessChannels()
-	originalMailbox = channels.Mailbox
-	deferredMailbox = make(chan ProcessMailboxMessage, cap(channels.Mailbox))
-
-	channels.Mailbox = deferredMailbox
-	channels.Mailbox = originalMailbox
 
 	started <- true
 	for {
@@ -181,7 +181,7 @@ func (gs *Server) ProcessLoop(ps ProcessState, started chan<- bool) string {
 			gsp.behavior.Terminate(gsp, reason)
 			return reason
 
-		case msg := <-channels.Mailbox:
+		case msg := <-gsp.mailbox:
 			fromPid = msg.From
 			message = msg.Message
 
@@ -190,17 +190,7 @@ func (gs *Server) ProcessLoop(ps ProcessState, started chan<- bool) string {
 			return "kill"
 
 		case direct := <-channels.Direct:
-			reply, err := gsp.behavior.HandleDirect(gsp, direct.Message)
-			if err != nil {
-				direct.Message = nil
-				direct.Err = err
-				direct.Reply <- direct
-				continue
-			}
-
-			direct.Message = reply
-			direct.Err = nil
-			direct.Reply <- direct
+			gsp.waitCallbackOrDeferr(direct)
 			continue
 		}
 
@@ -208,29 +198,32 @@ func (gs *Server) ProcessLoop(ps ProcessState, started chan<- bool) string {
 
 		gsp.reductions++
 
+		if len(gsp.deferred) == 0 {
+			gsp.mailbox = gsp.original
+		}
+
 		switch m := message.(type) {
 		case etf.Tuple:
 
 			switch mtag := m.Element(1).(type) {
 			case etf.Ref:
 				// check if we waiting for reply
-				if gsp.waitReply != nil {
-					if len(m) != 2 {
-						break
-					}
-					if *gsp.waitReply != mtag {
-						break
-					}
+				if gsp.waitReply != nil && len(m) == 2 && *gsp.waitReply == mtag {
 					gsp.waitReply = nil
 					lib.Log("[%s] GEN_SERVER %#v got reply: %#v", gsp.NodeName(), gsp.Self(), mtag)
 					gsp.PutSyncReply(mtag, m.Element(2))
+					if len(gsp.deferred) > 0 {
+						gsp.mailbox = gsp.deferred
+					}
 					continue
 				}
+				break
 
 			case etf.Atom:
 				switch mtag {
 				case etf.Atom("$gen_call"):
 
+					var from ServerFrom
 					var ok bool
 					if len(m) != 3 {
 						// wrong $gen_call message. ignore it
@@ -243,8 +236,6 @@ func (gs *Server) ProcessLoop(ps ProcessState, started chan<- bool) string {
 						break
 					}
 
-					from := ServerFrom{}
-
 					from.Pid, ok = fromTuple.Element(1).(etf.Pid)
 					if !ok {
 						// wrong Pid value
@@ -255,6 +246,7 @@ func (gs *Server) ProcessLoop(ps ProcessState, started chan<- bool) string {
 					switch v := fromTuple.Element(2).(type) {
 					case etf.Ref:
 						from.Ref = v
+						correct = true
 					case etf.List:
 						var ok bool
 						// was sent with "alias" [etf.Atom("alias"), etf.Ref]
@@ -272,7 +264,6 @@ func (gs *Server) ProcessLoop(ps ProcessState, started chan<- bool) string {
 							break
 						}
 						from.ReplyByAlias = true
-
 						correct = true
 					}
 
@@ -281,66 +272,99 @@ func (gs *Server) ProcessLoop(ps ProcessState, started chan<- bool) string {
 					}
 
 					callMessage := handleCallMessage{
-						message: m.Element(3),
 						from:    from,
+						message: m.Element(3),
 					}
-					if gsp.waitReply != nil {
-						call := ProcessMailboxMessage{
-							From:    fromPid,
-							Message: callMessage,
-						}
-						deferredMailbox <- call
-						continue
-					}
-
-					go gsp.handleCall(callMessage)
-
+					gsp.waitCallbackOrDeferr(callMessage)
 					continue
 
 				case etf.Atom("$gen_cast"):
-					select {
-					case <-gsp.Context().Done():
-						// if process died during the callback execution
-						return "kill"
-					case waitReply := <-gsp.callbackWaitReply:
-						empty := etf.Ref{}
-						if waitReply != empty {
-							gsp.waitReply = &waitReply
-						}
+					if len(m) != 2 {
+						// wrong $gen_cast message. ignore it
+						break
 					}
 					castMessage := handleCastMessage{
-						message: m.Element(3),
+						message: m.Element(2),
 					}
-
-					go gsp.handleCast(castMessage)
+					gsp.waitCallbackOrDeferr(castMessage)
 					continue
 				}
 			}
 
+			lib.Log("[%s] GEN_SERVER %#v got simple message %#v", gsp.NodeName(), gsp.Self(), message)
 			infoMessage := handleInfoMessage{
 				message: message,
 			}
-			lib.Log("[%s] GEN_SERVER %#v got simple message %#v", gsp.NodeName(), gsp.Self(), message)
-			go gsp.handleInfo(infoMessage)
+			gsp.waitCallbackOrDeferr(infoMessage)
 
 		case handleCallMessage:
-			go gsp.handleCall(m)
+			gsp.waitCallbackOrDeferr(message)
 		case handleCastMessage:
-			go gsp.handleCast(m)
+			gsp.waitCallbackOrDeferr(message)
 		case handleInfoMessage:
-			go gsp.handleInfo(m)
+			gsp.waitCallbackOrDeferr(message)
+		case ProcessDirectMessage:
+			gsp.waitCallbackOrDeferr(message)
 
 		default:
 			lib.Log("m: %#v", m)
 			infoMessage := handleInfoMessage{
 				message: m,
 			}
-			go gsp.handleInfo(infoMessage)
+			gsp.waitCallbackOrDeferr(infoMessage)
 		}
 	}
 }
 
 // ServerProcess handlers
+
+func (gsp *ServerProcess) waitCallbackOrDeferr(message interface{}) {
+	if gsp.waitReply != nil {
+		// already waiting for reply. deferr this message
+		deferred := ProcessMailboxMessage{
+			Message: message,
+		}
+		select {
+		case gsp.deferred <- deferred:
+			// do nothing
+			return
+		default:
+			// deferredMailbox is full
+		}
+	} else {
+		switch m := message.(type) {
+		case handleCallMessage:
+			go func() {
+				gsp.handleCall(m)
+				gsp.callbackWaitReply <- nil
+			}()
+		case handleCastMessage:
+			go func() {
+				gsp.handleCast(m)
+				gsp.callbackWaitReply <- nil
+			}()
+		case handleInfoMessage:
+			go func() {
+				gsp.handleInfo(m)
+				gsp.callbackWaitReply <- nil
+			}()
+		case ProcessDirectMessage:
+			go func() {
+				gsp.handleDirect(m)
+				gsp.callbackWaitReply <- nil
+			}()
+
+		}
+	}
+	select {
+	case <-gsp.Context().Done():
+		// got request to kill this process
+		return
+	case gsp.waitReply = <-gsp.callbackWaitReply:
+		// not nil value means callback made a Call request and waiting for reply
+		return
+	}
+}
 
 func (gsp *ServerProcess) panicHandler() {
 	if r := recover(); r != nil {
@@ -349,6 +373,23 @@ func (gsp *ServerProcess) panicHandler() {
 			gsp.Name(), gsp.Self(), r, runtime.FuncForPC(pc).Name(), fn, line)
 		gsp.stop <- "panic"
 	}
+}
+
+func (gsp *ServerProcess) handleDirect(direct ProcessDirectMessage) {
+	defer gsp.panicHandler()
+
+	reply, err := gsp.behavior.HandleDirect(gsp, direct.Message)
+	if err != nil {
+		direct.Message = nil
+		direct.Err = err
+		direct.Reply <- direct
+		return
+	}
+
+	direct.Message = reply
+	direct.Err = nil
+	direct.Reply <- direct
+	return
 }
 
 func (gsp *ServerProcess) handleCall(m handleCallMessage) {
