@@ -20,6 +20,14 @@ func (trg *TestRegistrarGenserver) HandleCall(process *gen.ServerProcess, from g
 	return message, gen.ServerStatusOK
 }
 
+func (trg *TestRegistrarGenserver) HandleDirect(process *gen.ServerProcess, message interface{}) (interface{}, error) {
+	switch m := message.(type) {
+	case makeCall:
+		return process.Call(m.to, m.message)
+	}
+	return nil, gen.ErrUnsupportedRequest
+}
+
 func TestRegistrar(t *testing.T) {
 	fmt.Printf("\n=== Test Registrar\n")
 	fmt.Printf("Starting nodes: nodeR1@localhost, nodeR2@localhost: ")
@@ -155,7 +163,11 @@ func TestRegistrarAlias(t *testing.T) {
 	fmt.Println("OK")
 
 	fmt.Printf("    Make a call to gs1 via alias: ")
-	if reply, err := node1gs2.Call(alias, "hi"); err == nil {
+	call := makeCall{
+		to:      alias,
+		message: "hi",
+	}
+	if reply, err := node1gs2.Direct(call); err == nil {
 		if r, ok := reply.(string); !ok || r != "hi" {
 			t.Fatal("wrong result", reply)
 		}

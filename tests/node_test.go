@@ -86,13 +86,17 @@ type makeCall struct {
 	to      interface{}
 	message interface{}
 }
+type makeCast struct {
+	to      interface{}
+	message interface{}
+}
 
 func (f *testFragmentationGS) HandleDirect(process *gen.ServerProcess, message interface{}) (interface{}, error) {
 	switch m := message.(type) {
 	case makeCall:
 		return process.Call(m.to, m.message)
 	}
-	return nil, node.ErrUnsupportedRequest
+	return nil, gen.ErrUnsupportedRequest
 }
 
 func TestNodeFragmentation(t *testing.T) {
@@ -137,7 +141,11 @@ func TestNodeFragmentation(t *testing.T) {
 			p2, _ := node2.Spawn("", gen.ProcessOptions{}, tgs)
 			defer wg.Done()
 			for k := 0; k < 100; k++ {
-				check, e := p1.Call(p2.Self(), message)
+				call := makeCall{
+					to:      p2.Self(),
+					message: message,
+				}
+				check, e := p1.Direct(call)
 				if e != nil {
 					panic(e)
 				}
@@ -175,7 +183,11 @@ func TestNodeAtomCache(t *testing.T) {
 		etf.Atom("a5"),
 	}
 	for i := 0; i < 2*runtime.GOMAXPROCS(-1); i++ {
-		if _, e := p1.Call(p2.Self(), message); e != nil {
+		call := makeCall{
+			to:      p2.Self(),
+			message: message,
+		}
+		if _, e := p1.Direct(call); e != nil {
 			t.Fatal(e)
 		}
 	}
@@ -218,6 +230,13 @@ func (h *handshakeGenServer) Init(process *gen.ServerProcess, args ...etf.Term) 
 
 func (h *handshakeGenServer) HandleCall(process *gen.ServerProcess, from gen.ServerFrom, message etf.Term) (etf.Term, gen.ServerStatus) {
 	return "pass", gen.ServerStatusOK
+}
+func (h *handshakeGenServer) HandleDirect(process *gen.ServerProcess, message interface{}) (interface{}, error) {
+	switch m := message.(type) {
+	case makeCall:
+		return process.Call(m.to, m.message)
+	}
+	return nil, gen.ErrUnsupportedRequest
 }
 
 func TestNodeDistHandshake(t *testing.T) {
@@ -330,7 +349,11 @@ func TestNodeDistHandshake(t *testing.T) {
 			t.Fatal(e)
 		}
 
-		result, e = pA.Call(pB.Self(), "test")
+		call := makeCall{
+			to:      pB.Self(),
+			message: "test",
+		}
+		result, e = pA.Direct(call)
 		if e != nil {
 			t.Fatal(e)
 		}
@@ -379,6 +402,13 @@ type benchGS struct {
 func (b *benchGS) HandleCall(process *gen.ServerProcess, from gen.ServerFrom, message etf.Term) (etf.Term, gen.ServerStatus) {
 	return etf.Atom("ok"), gen.ServerStatusOK
 }
+func (b *benchGS) HandleDirect(process *gen.ServerProcess, message interface{}) (interface{}, error) {
+	switch m := message.(type) {
+	case makeCall:
+		return process.Call(m.to, m.message)
+	}
+	return nil, gen.ErrUnsupportedRequest
+}
 
 func BenchmarkNodeSequential(b *testing.B) {
 
@@ -399,7 +429,11 @@ func BenchmarkNodeSequential(b *testing.B) {
 		b.Fatal(e2)
 	}
 
-	if _, e := p1.Call(p2.Self(), 1); e != nil {
+	call := makeCall{
+		to:      p2.Self(),
+		message: 1,
+	}
+	if _, e := p1.Direct(call); e != nil {
 		b.Fatal("single ping", e)
 	}
 
@@ -407,7 +441,11 @@ func BenchmarkNodeSequential(b *testing.B) {
 	for _, c := range benchCases() {
 		b.Run(c.name, func(b *testing.B) {
 			for i := 0; i < b.N; i++ {
-				_, e := p1.Call(p2.Self(), c.value)
+				call := makeCall{
+					to:      p2.Self(),
+					message: c.value,
+				}
+				_, e := p1.Direct(call)
 				if e != nil {
 					b.Fatal(e, i)
 				}
@@ -433,7 +471,11 @@ func BenchmarkNodeSequentialSingleNode(b *testing.B) {
 		b.Fatal(e2)
 	}
 
-	if _, e := p1.Call(p2.Self(), 1); e != nil {
+	call := makeCall{
+		to:      p2.Self(),
+		message: 1,
+	}
+	if _, e := p1.Direct(call); e != nil {
 		b.Fatal("single ping", e)
 	}
 
@@ -441,7 +483,11 @@ func BenchmarkNodeSequentialSingleNode(b *testing.B) {
 	for _, c := range benchCases() {
 		b.Run(c.name, func(b *testing.B) {
 			for i := 0; i < b.N; i++ {
-				_, e := p1.Call(p2.Self(), c.value)
+				call := makeCall{
+					to:      p2.Self(),
+					message: c.value,
+				}
+				_, e := p1.Direct(call)
 				if e != nil {
 					b.Fatal(e, i)
 				}
@@ -468,7 +514,11 @@ func BenchmarkNodeParallel(b *testing.B) {
 		b.Fatal(e2)
 	}
 
-	if _, e := p1.Call(p2.Self(), "hi"); e != nil {
+	call := makeCall{
+		to:      p2.Self(),
+		message: "hi",
+	}
+	if _, e := p1.Direct(call); e != nil {
 		b.Fatal("single ping", e)
 	}
 
@@ -484,7 +534,11 @@ func BenchmarkNodeParallel(b *testing.B) {
 		}
 		b.ResetTimer()
 		for pb.Next() {
-			_, e := p1.Call(p2.Self(), etf.Atom("ping"))
+			call := makeCall{
+				to:      p2.Self(),
+				message: etf.Atom("ping"),
+			}
+			_, e := p1.Direct(call)
 			if e != nil {
 				b.Fatal(e)
 			}
@@ -509,7 +563,11 @@ func BenchmarkNodeParallelSingleNode(b *testing.B) {
 		b.Fatal(e2)
 	}
 
-	if _, e := p1.Call(p2.Self(), "hi"); e != nil {
+	call := makeCall{
+		to:      p2.Self(),
+		message: "hi",
+	}
+	if _, e := p1.Direct(call); e != nil {
 		b.Fatal("single ping", e)
 	}
 	b.SetParallelism(15)
@@ -524,7 +582,11 @@ func BenchmarkNodeParallelSingleNode(b *testing.B) {
 		}
 		b.ResetTimer()
 		for pb.Next() {
-			_, e := p1.Call(p2.Self(), etf.Atom("ping"))
+			call := makeCall{
+				to:      p2.Self(),
+				message: etf.Atom("ping"),
+			}
+			_, e := p1.Direct(call)
 			if e != nil {
 				b.Fatal(e)
 			}

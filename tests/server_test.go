@@ -51,6 +51,17 @@ func (tgs *testServer) HandleInfo(process *gen.ServerProcess, message etf.Term) 
 	tgs.res <- message
 	return gen.ServerStatusOK
 }
+
+func (tgs *testServer) HandleDirect(process *gen.ServerProcess, message interface{}) (interface{}, error) {
+	switch m := message.(type) {
+	case makeCall:
+		return process.Call(m.to, m.message)
+	case makeCast:
+		return nil, process.Cast(m.to, m.message)
+
+	}
+	return nil, gen.ErrUnsupportedRequest
+}
 func (tgs *testServer) Terminate(process *gen.ServerProcess, reason string) {
 	tgs.res <- reason
 }
@@ -114,13 +125,21 @@ func TestServer(t *testing.T) {
 	node1gs1.Send(node1gs2.Self(), etf.Atom("hi"))
 	waitForResultWithValue(t, gs2.res, etf.Atom("hi"))
 
-	node1gs1.Cast(node1gs2.Self(), etf.Atom("hi cast"))
+	cast := makeCast{
+		to:      node1gs2.Self(),
+		message: etf.Atom("hi cast"),
+	}
+	node1gs1.Direct(cast)
 	fmt.Printf("    process.Cast (by Pid) local (gs1) -> local (gs2) : ")
 	waitForResultWithValue(t, gs2.res, etf.Atom("hi cast"))
 
 	fmt.Printf("    process.Call (by Pid) local (gs1) -> local (gs2): ")
 	v := etf.Atom("hi call")
-	if v1, err := node1gs1.Call(node1gs2.Self(), v); err != nil {
+	call := makeCall{
+		to:      node1gs2.Self(),
+		message: v,
+	}
+	if v1, err := node1gs1.Direct(call); err != nil {
 		t.Fatal(err)
 	} else {
 		if v == v1 {
@@ -135,12 +154,20 @@ func TestServer(t *testing.T) {
 	node1gs1.Send(etf.Atom("gs2"), etf.Atom("hi"))
 	waitForResultWithValue(t, gs2.res, etf.Atom("hi"))
 
-	node1gs1.Cast(etf.Atom("gs2"), etf.Atom("hi cast"))
+	cast = makeCast{
+		to:      etf.Atom("gs2"),
+		message: etf.Atom("hi cast"),
+	}
+	node1gs1.Direct(cast)
 	fmt.Printf("    process.Cast (by Name) local (gs1) -> local (gs2) : ")
 	waitForResultWithValue(t, gs2.res, etf.Atom("hi cast"))
 
 	fmt.Printf("    process.Call (by Name) local (gs1) -> local (gs2): ")
-	if v1, err := node1gs1.Call(etf.Atom("gs2"), v); err != nil {
+	call = makeCall{
+		to:      etf.Atom("gs2"),
+		message: v,
+	}
+	if v1, err := node1gs1.Direct(call); err != nil {
 		t.Fatal(err)
 	} else {
 		if v == v1 {
@@ -158,12 +185,20 @@ func TestServer(t *testing.T) {
 	node1gs1.Send(alias, etf.Atom("hi"))
 	waitForResultWithValue(t, gs2.res, etf.Atom("hi"))
 
-	node1gs1.Cast(alias, etf.Atom("hi cast"))
+	cast = makeCast{
+		to:      alias,
+		message: etf.Atom("hi cast"),
+	}
+	node1gs1.Direct(cast)
 	fmt.Printf("    process.Cast (by Alias) local (gs1) -> local (gs2) : ")
 	waitForResultWithValue(t, gs2.res, etf.Atom("hi cast"))
 
 	fmt.Printf("    process.Call (by Alias) local (gs1) -> local (gs2): ")
-	if v1, err := node1gs1.Call(alias, v); err != nil {
+	call = makeCall{
+		to:      alias,
+		message: v,
+	}
+	if v1, err := node1gs1.Direct(call); err != nil {
 		t.Fatal(err)
 	} else {
 		if v == v1 {
@@ -178,12 +213,20 @@ func TestServer(t *testing.T) {
 	node1gs1.Send(node2gs3.Self(), etf.Atom("hi"))
 	waitForResultWithValue(t, gs3.res, etf.Atom("hi"))
 
-	node1gs1.Cast(node2gs3.Self(), etf.Atom("hi cast"))
+	cast = makeCast{
+		to:      node2gs3.Self(),
+		message: etf.Atom("hi cast"),
+	}
+	node1gs1.Direct(cast)
 	fmt.Printf("    process.Cast (by Pid) local (gs1) -> remote (gs3) : ")
 	waitForResultWithValue(t, gs3.res, etf.Atom("hi cast"))
 
 	fmt.Printf("    process.Call (by Pid) local (gs1) -> remote (gs3): ")
-	if v1, err := node1gs1.Call(node2gs3.Self(), v); err != nil {
+	call = makeCall{
+		to:      node2gs3.Self(),
+		message: v,
+	}
+	if v1, err := node1gs1.Direct(call); err != nil {
 		t.Fatal(err)
 	} else {
 		if v == v1 {
@@ -199,12 +242,20 @@ func TestServer(t *testing.T) {
 	node1gs1.Send(processName, etf.Atom("hi"))
 	waitForResultWithValue(t, gs3.res, etf.Atom("hi"))
 
-	node1gs1.Cast(processName, etf.Atom("hi cast"))
+	cast = makeCast{
+		to:      processName,
+		message: etf.Atom("hi cast"),
+	}
+	node1gs1.Direct(cast)
 	fmt.Printf("    process.Cast (by Name) local (gs1) -> remote (gs3) : ")
 	waitForResultWithValue(t, gs3.res, etf.Atom("hi cast"))
 
 	fmt.Printf("    process.Call (by Name) local (gs1) -> remote (gs3): ")
-	if v1, err := node1gs1.Call(processName, v); err != nil {
+	call = makeCall{
+		to:      processName,
+		message: v,
+	}
+	if v1, err := node1gs1.Direct(call); err != nil {
 		t.Fatal(err)
 	} else {
 		if v == v1 {
@@ -224,12 +275,20 @@ func TestServer(t *testing.T) {
 	node1gs1.Send(alias, etf.Atom("hi"))
 	waitForResultWithValue(t, gs3.res, etf.Atom("hi"))
 
-	node1gs1.Cast(alias, etf.Atom("hi cast"))
+	cast = makeCast{
+		to:      alias,
+		message: etf.Atom("hi cast"),
+	}
+	node1gs1.Direct(cast)
 	fmt.Printf("    process.Cast (by Alias) local (gs1) -> remote (gs3) : ")
 	waitForResultWithValue(t, gs3.res, etf.Atom("hi cast"))
 
 	fmt.Printf("    process.Call (by Alias) local (gs1) -> remote (gs3): ")
-	if v1, err := node1gs1.Call(alias, v); err != nil {
+	call = makeCall{
+		to:      alias,
+		message: v,
+	}
+	if v1, err := node1gs1.Direct(call); err != nil {
 		t.Fatal(err)
 	} else {
 		if v == v1 {

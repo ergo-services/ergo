@@ -161,6 +161,10 @@ func (s *StageConsumerTest) HandleStageDirect(p *gen.StageProcess, message inter
 	case cancelSubscription:
 		err := p.Cancel(m.subscription, m.reason)
 		return nil, err
+	case makeCall:
+		return p.Call(m.to, m.message)
+	case makeCast:
+		return nil, p.Cast(m.to, m.message)
 	}
 	return nil, gen.ErrUnsupportedRequest
 }
@@ -285,12 +289,20 @@ func TestStageSimple(t *testing.T) {
 
 	// case 4: invoking Server callbacks
 	fmt.Printf("... Invoking Server's callback handlers HandleStageCall: ")
-	if _, err := producerProcess.Call("stageConsumer", "test call"); err != nil {
+	call := makeCall{
+		to:      "stageConsumer",
+		message: "test call",
+	}
+	if _, err := producerProcess.Direct(call); err != nil {
 		t.Fatal(err)
 	}
 	waitForResultWithValue(t, consumer.value, "test call")
 	fmt.Printf("... Invoking Server's callback handlers HandleStageCast: ")
-	producerProcess.Cast("stageConsumer", "test cast")
+	cast := makeCast{
+		to:      "stageConsumer",
+		message: "test cast",
+	}
+	producerProcess.Direct(cast)
 	waitForResultWithValue(t, consumer.value, "test cast")
 	fmt.Printf("... Invoking Server's callback handlers HandleStageInfo: ")
 	producerProcess.Send("stageConsumer", "test info")
