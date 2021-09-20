@@ -82,6 +82,19 @@ func (f *testFragmentationGS) HandleCall(process *gen.ServerProcess, from gen.Se
 	return result, gen.ServerStatusOK
 }
 
+type makeCall struct {
+	to      interface{}
+	message interface{}
+}
+
+func (f *testFragmentationGS) HandleDirect(process *gen.ServerProcess, message interface{}) (interface{}, error) {
+	switch m := message.(type) {
+	case makeCall:
+		return process.Call(m.to, m.message)
+	}
+	return nil, node.ErrUnsupportedRequest
+}
+
 func TestNodeFragmentation(t *testing.T) {
 	var wg sync.WaitGroup
 
@@ -105,7 +118,11 @@ func TestNodeFragmentation(t *testing.T) {
 	}
 
 	// check single call
-	check, e := p1.Call(p2.Self(), message)
+	call := makeCall{
+		to:      p2.Self(),
+		message: message,
+	}
+	check, e := p1.Direct(call)
 	if e != nil {
 		t.Fatal(e)
 	}
