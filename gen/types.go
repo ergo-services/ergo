@@ -34,15 +34,6 @@ type Process interface {
 	// Self returns registered process identificator belongs to the process
 	Self() etf.Pid
 
-	// CallRPC evaluate rpc call with given node/MFA
-	CallRPC(node, module, function string, args ...etf.Term) (etf.Term, error)
-
-	// CallRPCWithTimeout evaluate rpc call with given node/MFA and timeout
-	CallRPCWithTimeout(timeout int, node, module, function string, args ...etf.Term) (etf.Term, error)
-
-	// CastRPC evaluate rpc cast with given node/MFA
-	CastRPC(node, module, function string, args ...etf.Term) error
-
 	// Direct make a direct request to the actor (gen.Application, gen.Supervisor, gen.Server or
 	// inherited from gen.Server actor) with default timeout 5 seconds
 	Direct(request interface{}) (interface{}, error)

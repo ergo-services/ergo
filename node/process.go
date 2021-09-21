@@ -154,42 +154,6 @@ func (p *process) Info() gen.ProcessInfo {
 	}
 }
 
-func (p *process) CallRPC(node, module, function string, args ...etf.Term) (etf.Term, error) {
-	return p.CallRPCWithTimeout(gen.DefaultCallTimeout, node, module, function, args...)
-}
-
-func (p *process) CallRPCWithTimeout(timeout int, node, module, function string, args ...etf.Term) (etf.Term, error) {
-	lib.Log("[%s] RPC calling: %s:%s:%s", p.NodeName(), node, module, function)
-
-	message := etf.Tuple{
-		etf.Atom("call"),
-		etf.Atom(module),
-		etf.Atom(function),
-		etf.List(args),
-		p.Self(),
-	}
-	to := gen.ProcessID{"rex", node}
-	ref := p.MakeRef()
-	from := etf.Tuple{p.Self(), ref}
-	msg := etf.Term(etf.Tuple{etf.Atom("$gen_call"), from, message})
-
-	p.SendSyncRequest(ref, to, msg)
-	return p.WaitSyncReply(ref, timeout)
-}
-
-func (p *process) CastRPC(node, module, function string, args ...etf.Term) error {
-	lib.Log("[%s] RPC casting: %s:%s:%s", p.NodeName(), node, module, function)
-	message := etf.Tuple{
-		etf.Atom("cast"),
-		etf.Atom(module),
-		etf.Atom(function),
-		etf.List(args),
-	}
-	msg := etf.Tuple{etf.Atom("$gen_cast"), message}
-	to := gen.ProcessID{"rex", node}
-	return p.Send(to, msg)
-}
-
 func (p *process) Send(to interface{}, message etf.Term) error {
 	if p.behavior == nil {
 		return ErrProcessTerminated

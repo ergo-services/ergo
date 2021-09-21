@@ -21,21 +21,23 @@ type ServerBehavior interface {
 	// Init invoked on a start Server
 	Init(process *ServerProcess, args ...etf.Term) error
 
-	// HandleCast invoked if Server received message sent with Process.Cast.
+	// HandleCast invoked if Server received message sent with ServerProcess.Cast.
 	// Return ServerStatusStop to stop server with "normal" reason. Use ServerStatus(error)
 	// for the custom reason
 	HandleCast(process *ServerProcess, message etf.Term) ServerStatus
 
-	// HandleCall invoked if Server got sync request using Process.Call
+	// HandleCall invoked if Server got sync request using ServerProcess.Call
 	HandleCall(process *ServerProcess, from ServerFrom, message etf.Term) (etf.Term, ServerStatus)
 
-	// HandleDirect invoked on a direct request made with Process.Direct
+	// HandleDirect invoked on a direct request made with Process.Direct. It's not allowed to
+	// make a sync ServerProcess.Call during this callback (causes Timeout error)
 	HandleDirect(process *ServerProcess, message interface{}) (interface{}, error)
 
 	// HandleInfo invoked if Server received message sent with Process.Send.
 	HandleInfo(process *ServerProcess, message etf.Term) ServerStatus
 
-	// Terminate invoked on a termination process
+	// Terminate invoked on a termination process. ServerProcess.State is not locked during
+	// this callback.
 	Terminate(process *ServerProcess, reason string)
 }
 
@@ -125,6 +127,39 @@ func (sp *ServerProcess) CallWithTimeout(to interface{}, message etf.Term, timeo
 	value, err := sp.WaitSyncReply(ref, timeout)
 	return value, err
 
+}
+
+// CallRPC evaluate rpc call with given node/MFA
+func (sp *ServerProcess) CallRPC(node, module, function string, args ...etf.Term) (etf.Term, error) {
+	return sp.CallRPCWithTimeout(DefaultCallTimeout, node, module, function, args...)
+}
+
+// CallRPCWithTimeout evaluate rpc call with given node/MFA and timeout
+func (sp *ServerProcess) CallRPCWithTimeout(timeout int, node, module, function string, args ...etf.Term) (etf.Term, error) {
+	lib.Log("[%s] RPC calling: %s:%s:%s", sp.NodeName(), node, module, function)
+
+	message := etf.Tuple{
+		etf.Atom("call"),
+		etf.Atom(module),
+		etf.Atom(function),
+		etf.List(args),
+		sp.Self(),
+	}
+	to := ProcessID{"rex", node}
+	return sp.CallWithTimeout(to, message, timeout)
+}
+
+// CastRPC evaluate rpc cast with given node/MFA
+func (sp *ServerProcess) CastRPC(node, module, function string, args ...etf.Term) error {
+	lib.Log("[%s] RPC casting: %s:%s:%s", sp.NodeName(), node, module, function)
+	message := etf.Tuple{
+		etf.Atom("cast"),
+		etf.Atom(module),
+		etf.Atom(function),
+		etf.List(args),
+	}
+	to := ProcessID{"rex", node}
+	return sp.Cast(to, message)
 }
 
 func (gs *Server) ProcessInit(p Process, args ...etf.Term) (ProcessState, error) {
@@ -222,6 +257,7 @@ func (gs *Server) ProcessLoop(ps ProcessState, started chan<- bool) string {
 						gsp.mailbox = gsp.deferred
 					}
 					// continue read gsp.callbackWaitReply channel
+					// to wait for the exit from the callback call
 					gsp.waitCallbackOrDeferr(nil)
 					continue
 				}
