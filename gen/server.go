@@ -118,9 +118,13 @@ func (sp *ServerProcess) CallWithTimeout(to interface{}, message etf.Term, timeo
 	ref := sp.MakeRef()
 	from := etf.Tuple{sp.Self(), ref}
 	msg := etf.Term(etf.Tuple{etf.Atom("$gen_call"), from, message})
-	sp.SendSyncRequest(ref, to, msg)
+	if err := sp.SendSyncRequest(ref, to, msg); err != nil {
+		return nil, err
+	}
 	sp.callbackWaitReply <- &ref
-	return sp.WaitSyncReply(ref, timeout)
+	value, err := sp.WaitSyncReply(ref, timeout)
+	return value, err
+
 }
 
 func (gs *Server) ProcessInit(p Process, args ...etf.Term) (ProcessState, error) {
@@ -198,7 +202,7 @@ func (gs *Server) ProcessLoop(ps ProcessState, started chan<- bool) string {
 
 		gsp.reductions++
 
-		if len(gsp.deferred) == 0 {
+		if gsp.waitReply == nil && len(gsp.deferred) == 0 {
 			gsp.mailbox = gsp.original
 		}
 
@@ -208,16 +212,19 @@ func (gs *Server) ProcessLoop(ps ProcessState, started chan<- bool) string {
 			switch mtag := m.Element(1).(type) {
 			case etf.Ref:
 				// check if we waiting for reply
-				if gsp.waitReply != nil && len(m) == 2 && *gsp.waitReply == mtag {
+				fmt.Printf("GOT REF as REPL %#v WAIT FOR %#v\n", mtag, gsp.waitReply)
+				if len(m) != 2 {
+					break
+				}
+				lib.Log("[%s] GEN_SERVER %#v got reply: %#v", gsp.NodeName(), gsp.Self(), mtag)
+				gsp.PutSyncReply(mtag, m.Element(2))
+				if gsp.waitReply != nil && *gsp.waitReply == mtag {
 					gsp.waitReply = nil
-					lib.Log("[%s] GEN_SERVER %#v got reply: %#v", gsp.NodeName(), gsp.Self(), mtag)
-					gsp.PutSyncReply(mtag, m.Element(2))
 					if len(gsp.deferred) > 0 {
 						gsp.mailbox = gsp.deferred
 					}
 					continue
 				}
-				break
 
 			case etf.Atom:
 				switch mtag {
@@ -319,48 +326,72 @@ func (gs *Server) ProcessLoop(ps ProcessState, started chan<- bool) string {
 // ServerProcess handlers
 
 func (gsp *ServerProcess) waitCallbackOrDeferr(message interface{}) {
+	fmt.Printf("%s waitCallbackOrDefer ENTER %T %#v\n", gsp.Self(), message, gsp.waitReply)
+	defer fmt.Printf("%s waitCallbackOrDefer EXIT %T %#v\n", gsp.Self(), message, gsp.waitReply)
 	if gsp.waitReply != nil {
 		// already waiting for reply. deferr this message
 		deferred := ProcessMailboxMessage{
 			Message: message,
 		}
+		fmt.Println("DEFERR", message)
 		select {
 		case gsp.deferred <- deferred:
 			// do nothing
-			return
 		default:
-			// deferredMailbox is full
+			// deferred mailbox is full
 		}
 	} else {
 		switch m := message.(type) {
 		case handleCallMessage:
 			go func() {
+				fmt.Println(gsp.Self(), "waitCallbackOrDefer GO CALL")
 				gsp.handleCall(m)
-				gsp.callbackWaitReply <- nil
+				select {
+				case gsp.callbackWaitReply <- nil:
+				default:
+				}
+				fmt.Println(gsp.Self(), "waitCallbackOrDefer GO CALL EXIT")
 			}()
 		case handleCastMessage:
 			go func() {
+				fmt.Println(gsp.Self(), "waitCallbackOrDefer GO CAST")
 				gsp.handleCast(m)
-				gsp.callbackWaitReply <- nil
+				select {
+				case gsp.callbackWaitReply <- nil:
+				default:
+				}
+				fmt.Println(gsp.Self(), "waitCallbackOrDefer GO CAST EXIT")
 			}()
 		case handleInfoMessage:
 			go func() {
+				fmt.Println(gsp.Self(), "waitCallbackOrDefer GO INFO")
 				gsp.handleInfo(m)
-				gsp.callbackWaitReply <- nil
+				select {
+				case gsp.callbackWaitReply <- nil:
+				default:
+				}
+				fmt.Println(gsp.Self(), "waitCallbackOrDefer GO INFO EXIT")
 			}()
 		case ProcessDirectMessage:
 			go func() {
+				fmt.Println(gsp.Self(), "waitCallbackOrDefer GO DIRECT")
 				gsp.handleDirect(m)
-				gsp.callbackWaitReply <- nil
+				select {
+				case gsp.callbackWaitReply <- nil:
+				default:
+				}
+				fmt.Println(gsp.Self(), "waitCallbackOrDefer GO DIRECT EXIT")
 			}()
 
 		}
 	}
+	fmt.Println(gsp.Self(), "waitCallbackOrDefer: select")
 	select {
 	case <-gsp.Context().Done():
 		// got request to kill this process
 		return
 	case gsp.waitReply = <-gsp.callbackWaitReply:
+		fmt.Printf("%s waitCallbackOrDefer: select.. waitReply %#v\n", gsp.Self(), gsp.waitReply)
 		// not nil value means callback made a Call request and waiting for reply
 		return
 	}
@@ -462,6 +493,10 @@ func (gsp *ServerProcess) handleInfo(m handleInfoMessage) {
 	default:
 		gsp.stop <- status.Error()
 	}
+}
+
+func (gsp *ServerProcess) Direct(request interface{}) (interface{}, error) {
+	return nil, fmt.Errorf("Not allowed to make a Direct request within the actor")
 }
 
 //
