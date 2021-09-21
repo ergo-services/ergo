@@ -24,19 +24,19 @@ type ServerBehavior interface {
 	// HandleCast invoked if Server received message sent with Process.Cast.
 	// Return ServerStatusStop to stop server with "normal" reason. Use ServerStatus(error)
 	// for the custom reason
-	HandleCast(state *ServerProcess, message etf.Term) ServerStatus
+	HandleCast(process *ServerProcess, message etf.Term) ServerStatus
 
 	// HandleCall invoked if Server got sync request using Process.Call
-	HandleCall(state *ServerProcess, from ServerFrom, message etf.Term) (etf.Term, ServerStatus)
+	HandleCall(process *ServerProcess, from ServerFrom, message etf.Term) (etf.Term, ServerStatus)
 
 	// HandleDirect invoked on a direct request made with Process.Direct
-	HandleDirect(state *ServerProcess, message interface{}) (interface{}, error)
+	HandleDirect(process *ServerProcess, message interface{}) (interface{}, error)
 
 	// HandleInfo invoked if Server received message sent with Process.Send.
-	HandleInfo(state *ServerProcess, message etf.Term) ServerStatus
+	HandleInfo(process *ServerProcess, message etf.Term) ServerStatus
 
 	// Terminate invoked on a termination process
-	Terminate(state *ServerProcess, reason string)
+	Terminate(process *ServerProcess, reason string)
 }
 
 type ServerStatus error
