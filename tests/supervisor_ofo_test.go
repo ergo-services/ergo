@@ -75,7 +75,7 @@ func (tsv *testSupervisorGenServer) Init(process *gen.ServerProcess, args ...etf
 
 	return nil
 }
-func (tsv *testSupervisorGenServer) HandleCast(process *gen.ServerProcess, message etf.Term) gen.ServerStatus {
+func (tsv *testSupervisorGenServer) HandleInfo(process *gen.ServerProcess, message etf.Term) gen.ServerStatus {
 	// message has the stop reason
 
 	return gen.ServerStatusStopWithReason(message.(string))
@@ -133,11 +133,7 @@ func TestSupervisorOneForOne(t *testing.T) {
 
 	fmt.Printf("... stopping children with 'normal' reason and waiting for their starting ... ")
 	for i := range children {
-		cast := makeCast{
-			to:      children[i],
-			message: "normal",
-		}
-		processSV.Direct(cast) // stopping child with reason "normal"
+		processSV.Send(children[i], "normal") // stopping child with reason "normal"
 	}
 
 	time.Sleep(1 * time.Second)
@@ -186,11 +182,7 @@ func TestSupervisorOneForOne(t *testing.T) {
 	}
 	fmt.Printf("... stopping children with 'abnormal' reason and waiting for their starting ... ")
 	for i := range children {
-		cast := makeCast{
-			to:      children[i],
-			message: "abnormal",
-		}
-		processSV.Direct(cast) // stopping child
+		processSV.Send(children[i], "abnormal") // stopping child
 	}
 
 	if children1, err := waitNeventsSupervisorChildren(sv.ch, 6, children); err != nil { // waiting for 3 terminates and 3 starts
@@ -208,11 +200,7 @@ func TestSupervisorOneForOne(t *testing.T) {
 
 	fmt.Printf("... stopping children with 'normal' reason and they are haven't be restarted ... ")
 	for i := range children {
-		cast := makeCast{
-			to:      children[i],
-			message: "normal",
-		}
-		processSV.Direct(cast) // stopping child
+		processSV.Send(children[i], "normal") // stopping child
 	}
 
 	if children1, err := waitNeventsSupervisorChildren(sv.ch, 3, children); err != nil {
@@ -249,21 +237,9 @@ func TestSupervisorOneForOne(t *testing.T) {
 	}
 
 	fmt.Printf("... stopping children with 'normal', 'abnornal','shutdown' reasons and they are haven't be restarted ... ")
-	cast := makeCast{
-		to:      children[0],
-		message: "normal",
-	}
-	processSV.Direct(cast) // stopping child
-	cast = makeCast{
-		to:      children[1],
-		message: "abnormal",
-	}
-	processSV.Direct(cast) // stopping child
-	cast = makeCast{
-		to:      children[2],
-		message: "shutdown",
-	}
-	processSV.Direct(cast) // stopping child
+	processSV.Send(children[0], "normal")   // stopping child
+	processSV.Send(children[1], "abnormal") // stopping child
+	processSV.Send(children[2], "shutdown") // stopping child
 
 	if children1, err := waitNeventsSupervisorChildren(sv.ch, 3, children); err != nil {
 		t.Fatal(err)
