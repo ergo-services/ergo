@@ -343,6 +343,158 @@ func TestServer(t *testing.T) {
 	node2.Stop()
 }
 
+type messageOrderGS struct {
+	gen.Server
+	n   int
+	res chan interface{}
+}
+
+type testCase1 struct {
+	n int
+}
+
+type testCase2 struct {
+	n int
+}
+type testCase3 struct {
+	n int
+}
+
+func (gs *messageOrderGS) Init(process *gen.ServerProcess, args ...etf.Term) error {
+	gs.res <- nil
+	return nil
+}
+
+func (gs *messageOrderGS) HandleInfo(process *gen.ServerProcess, message etf.Term) gen.ServerStatus {
+	switch m := message.(type) {
+	case testCase1:
+		if gs.n+1 != m.n {
+			panic(fmt.Sprintf("Disordered messages on %d (awaited: %d)", m.n, gs.n+1))
+		}
+		gs.n = m.n
+
+		if gs.n == 100 {
+			gs.res <- 1000
+		}
+
+		return gen.ServerStatusOK
+	case testCase2:
+		if gs.n+1 != m.n {
+			panic(fmt.Sprintf("Disordered messages on %d (awaited: %d)", m.n, gs.n+1))
+		}
+		gs.n = m.n
+		value, err := process.Call("gs3order", message)
+		if err != nil {
+			panic(err)
+		}
+		if value.(string) != "ok" {
+			panic("wrong result")
+		}
+		return gen.ServerStatusOK
+	}
+
+	return gen.ServerStatusStop
+}
+
+func (gs *messageOrderGS) HandleCall(process *gen.ServerProcess, from gen.ServerFrom, message etf.Term) (etf.Term, gen.ServerStatus) {
+	switch message.(type) {
+	case testCase2:
+		return "ok", gen.ServerStatusOK
+	case testCase3:
+		return "ok", gen.ServerStatusOK
+	}
+	return nil, fmt.Errorf("incorrect call")
+}
+
+func (gs *messageOrderGS) HandleDirect(process *gen.ServerProcess, message interface{}) (interface{}, error) {
+	switch m := message.(type) {
+	case testCase3:
+		for i := 0; i < m.n; i++ {
+			value, err := process.Call("gs3order", message)
+			if err != nil {
+				panic(err)
+			}
+			if value.(string) != "ok" {
+				panic("wrong result")
+			}
+		}
+		return nil, nil
+
+	}
+	return nil, fmt.Errorf("incorrect direct call")
+}
+
+func TestServerMessageOrder(t *testing.T) {
+	fmt.Printf("\n=== Test Server message order\n")
+	fmt.Printf("Starting node: nodeGS1MessageOrder@localhost: ")
+	node1, _ := ergo.StartNode("nodeGS1MessageOrder@localhost", "cookies", node.Options{})
+	if node1 == nil {
+		t.Fatal("can't start nodes")
+	} else {
+		fmt.Println("OK")
+	}
+
+	gs1 := &messageOrderGS{
+		res: make(chan interface{}, 2),
+	}
+
+	gs2 := &messageOrderGS{
+		res: make(chan interface{}, 2),
+	}
+
+	gs3 := &messageOrderGS{
+		res: make(chan interface{}, 2),
+	}
+
+	fmt.Printf("    wait for start of gs1order on %#v: ", node1.NodeName())
+	node1gs1, _ := node1.Spawn("gs1order", gen.ProcessOptions{}, gs1, nil)
+	waitForResultWithValue(t, gs1.res, nil)
+
+	fmt.Printf("    wait for start of gs2order on %#v: ", node1.NodeName())
+	node1gs2, _ := node1.Spawn("gs2order", gen.ProcessOptions{}, gs2, nil)
+	waitForResultWithValue(t, gs2.res, nil)
+
+	fmt.Printf("    wait for start of gs3order on %#v: ", node1.NodeName())
+	node1gs3, _ := node1.Spawn("gs3order", gen.ProcessOptions{}, gs3, nil)
+	waitForResultWithValue(t, gs3.res, nil)
+
+	fmt.Printf("    sending 100 messages from gs1 to gs2. checking the order: ")
+	for i := 1; i < 101; i++ {
+		err := node1gs1.Send(node1gs2.Self(), testCase1{n: i})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	waitForResultWithValue(t, gs2.res, 1000)
+	fmt.Println("OK")
+
+	fmt.Printf("    making Direct call with making a call from gs2 to gs3 1 time: ")
+	_, err := node1gs2.Direct(testCase3{n: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fmt.Println("OK")
+	fmt.Printf("    making Direct call with making a call from gs2 to gs3 100 times: ")
+	_, err = node1gs2.Direct(testCase3{n: 100})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fmt.Println("OK")
+
+	gs2.n = 0
+
+	fmt.Printf("    sending 100 messages from gs1 to gs2 with making a call from gs2 to gs3: ")
+	for i := 1; i < 100; i++ {
+		err := node1gs1.Send(node1gs2.Self(), testCase2{n: i})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	fmt.Println("OK")
+	node1gs3.Exit("normal")
+
+}
+
 func waitForResult(t *testing.T, w chan error) {
 	select {
 	case e := <-w:

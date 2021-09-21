@@ -19,7 +19,7 @@ type ServerBehavior interface {
 	ProcessBehavior
 
 	// Init invoked on a start Server
-	Init(state *ServerProcess, args ...etf.Term) error
+	Init(process *ServerProcess, args ...etf.Term) error
 
 	// HandleCast invoked if Server received message sent with Process.Cast.
 	// Return ServerStatusStop to stop server with "normal" reason. Use ServerStatus(error)
@@ -221,6 +221,8 @@ func (gs *Server) ProcessLoop(ps ProcessState, started chan<- bool) string {
 					if len(gsp.deferred) > 0 {
 						gsp.mailbox = gsp.deferred
 					}
+					// continue read gsp.callbackWaitReply channel
+					gsp.waitCallbackOrDeferr(nil)
 					continue
 				}
 
@@ -340,34 +342,22 @@ func (gsp *ServerProcess) waitCallbackOrDeferr(message interface{}) {
 		case handleCallMessage:
 			go func() {
 				gsp.handleCall(m)
-				select {
-				case gsp.callbackWaitReply <- nil:
-				default:
-				}
+				gsp.callbackWaitReply <- nil
 			}()
 		case handleCastMessage:
 			go func() {
 				gsp.handleCast(m)
-				select {
-				case gsp.callbackWaitReply <- nil:
-				default:
-				}
+				gsp.callbackWaitReply <- nil
 			}()
 		case handleInfoMessage:
 			go func() {
 				gsp.handleInfo(m)
-				select {
-				case gsp.callbackWaitReply <- nil:
-				default:
-				}
+				gsp.callbackWaitReply <- nil
 			}()
 		case ProcessDirectMessage:
 			go func() {
 				gsp.handleDirect(m)
-				select {
-				case gsp.callbackWaitReply <- nil:
-				default:
-				}
+				gsp.callbackWaitReply <- nil
 			}()
 
 		}
