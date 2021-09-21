@@ -264,6 +264,7 @@ func (n *network) serve(ctx context.Context, link *dist.Link) error {
 			n.registrar.unregisterPeer(link.GetRemoteName())
 
 			// close handlers channel
+			p.mutex.Lock()
 			for i := 0; i < numHandlers; i++ {
 				if p.send[i] != nil {
 					close(p.send[i])
@@ -272,6 +273,7 @@ func (n *network) serve(ctx context.Context, link *dist.Link) error {
 					close(receivers.recv[i])
 				}
 			}
+			p.mutex.Unlock()
 		}()
 
 		b := lib.TakeBuffer()

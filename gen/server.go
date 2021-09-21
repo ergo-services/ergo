@@ -480,10 +480,6 @@ func (gsp *ServerProcess) handleInfo(m handleInfoMessage) {
 	}
 }
 
-func (gsp *ServerProcess) Direct(request interface{}) (interface{}, error) {
-	return nil, fmt.Errorf("Not allowed to make a Direct request within the actor")
-}
-
 //
 // default callbacks for Server interface
 //

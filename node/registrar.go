@@ -333,6 +333,7 @@ func (r *registrar) spawn(name string, opts processOptions, behavior gen.Process
 		// notify all the linked process and monitors
 		r.processTerminated(process.self, name, reason)
 		// make the rest empty
+		process.Lock()
 		process.name = ""
 		process.aliases = []etf.Alias{}
 		// do not clean self. sometimes its good to know what pid was
@@ -347,6 +348,7 @@ func (r *registrar) spawn(name string, opts processOptions, behavior gen.Process
 		process.direct = nil
 		process.env = nil
 		process.reply = nil
+		process.Unlock()
 	}
 
 	go func(ps gen.ProcessState) {

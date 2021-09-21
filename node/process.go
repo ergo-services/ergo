@@ -310,6 +310,8 @@ func (p *process) Link(with etf.Pid) {
 }
 
 func (p *process) Unlink(with etf.Pid) {
+	p.Lock()
+	defer p.Unlock()
 	if p.behavior == nil {
 		return
 	}
@@ -317,6 +319,8 @@ func (p *process) Unlink(with etf.Pid) {
 }
 
 func (p *process) IsAlive() bool {
+	p.Lock()
+	defer p.Unlock()
 	if p.behavior == nil {
 		return false
 	}
@@ -340,6 +344,8 @@ func (p *process) TrapExit() bool {
 }
 
 func (p *process) Behavior() gen.ProcessBehavior {
+	p.Lock()
+	defer p.Unlock()
 	if p.behavior == nil {
 		return nil
 	}

@@ -1273,10 +1273,12 @@ func (l *Link) Writer(send <-chan []etf.Term, fragmentationUnit int) {
 		// get updates from link AtomCache and update the local one (map writerAtomCache)
 		id := linkAtomCache.GetLastID()
 		if lastCacheID < id {
+			linkAtomCache.Lock()
 			for _, a := range linkAtomCache.ListSince(lastCacheID + 1) {
 				writerAtomCache[a] = etf.CacheItem{ID: lastCacheID + 1, Name: a, Encoded: false}
 				lastCacheID++
 			}
+			linkAtomCache.Unlock()
 		}
 
 	}
