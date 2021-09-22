@@ -30,7 +30,7 @@ type ServerBehavior interface {
 	HandleCall(process *ServerProcess, from ServerFrom, message etf.Term) (etf.Term, ServerStatus)
 
 	// HandleDirect invoked on a direct request made with Process.Direct. It's not allowed to
-	// make a sync ServerProcess.Call during this callback (causes Timeout error)
+	// make a sync ServerProcess.Call/ServerProcess.CallRPC during this callback (causes Timeout error)
 	HandleDirect(process *ServerProcess, message interface{}) (interface{}, error)
 
 	// HandleInfo invoked if Server received message sent with Process.Send.
