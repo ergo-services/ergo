@@ -108,6 +108,10 @@ func (s *StageProducerTest) HandleStageDirect(process *gen.StageProcess, message
 	case cancelSubscription:
 		err := process.Cancel(m.subscription, m.reason)
 		return nil, err
+	case makeCall:
+		return process.Call(m.to, m.message)
+	case makeCast:
+		return nil, process.Cast(m.to, m.message)
 
 	default:
 		return nil, gen.ErrUnsupportedRequest
