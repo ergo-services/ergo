@@ -166,23 +166,22 @@ func (gs *Server) ProcessInit(p Process, args ...etf.Term) (ProcessState, error)
 	if !ok {
 		return ProcessState{}, fmt.Errorf("ProcessInit: not a ServerBehavior")
 	}
+	ps := ProcessState{
+		Process: p,
+	}
 
 	gsp := &ServerProcess{
+		ProcessState:      ps,
 		behavior:          behavior,
 		callbackWaitReply: make(chan *etf.Ref),
 		stop:              make(chan string, 2),
 	}
 
-	ps := ProcessState{
-		Process: p,
-		State:   gsp,
-	}
-
-	gsp.ProcessState = ps
 	err := behavior.Init(gsp, args...)
 	if err != nil {
 		return ProcessState{}, err
 	}
+	ps.State = gsp
 	return ps, nil
 }
 
