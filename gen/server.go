@@ -171,10 +171,12 @@ func (gs *Server) ProcessInit(p Process, args ...etf.Term) (ProcessState, error)
 	}
 
 	gsp := &ServerProcess{
-		ProcessState:      ps,
-		behavior:          behavior,
+		ProcessState: ps,
+		behavior:     behavior,
+
+		// callbackWaitReply must be defined here, otherwise making a Call request
+		// will not be able in the inherited object
 		callbackWaitReply: make(chan *etf.Ref),
-		stop:              make(chan string, 2),
 	}
 
 	err := behavior.Init(gsp, args...)
@@ -196,6 +198,7 @@ func (gs *Server) ProcessLoop(ps ProcessState, started chan<- bool) string {
 	gsp.original = channels.Mailbox
 	gsp.deferred = make(chan ProcessMailboxMessage, cap(channels.Mailbox))
 	gsp.currentFunction = "Server:loop"
+	gsp.stop = make(chan string, 2)
 
 	started <- true
 	for {
@@ -368,8 +371,10 @@ func (gsp *ServerProcess) waitCallbackOrDeferr(message interface{}) {
 		case gsp.deferred <- deferred:
 			// do nothing
 		default:
-			// deferred mailbox is full
+			fmt.Printf("WARNING! deferred mailbox of %s is full. dropped message %v", gsp.Self(), message)
 		}
+		return
+
 	} else {
 		switch m := message.(type) {
 		case handleCallMessage:

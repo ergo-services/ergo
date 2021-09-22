@@ -3,6 +3,7 @@ package node
 import (
 	"context"
 	"fmt"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -352,14 +353,14 @@ func (r *registrar) spawn(name string, opts processOptions, behavior gen.Process
 	}
 
 	go func(ps gen.ProcessState) {
-		//defer func() {
-		//	if r := recover(); r != nil {
-		//		pc, fn, line, _ := runtime.Caller(2)
-		//		fmt.Printf("Warning: process terminated (name: %s) %v %#v at %s[%s:%d]\n",
-		//			name, process.self, r, runtime.FuncForPC(pc).Name(), fn, line)
-		//		cleanProcess("panic")
-		//	}
-		//}()
+		defer func() {
+			if r := recover(); r != nil {
+				pc, fn, line, _ := runtime.Caller(2)
+				fmt.Printf("Warning: process terminated (name: %s) %v %#v at %s[%s:%d]\n",
+					name, process.self, r, runtime.FuncForPC(pc).Name(), fn, line)
+				cleanProcess("panic")
+			}
+		}()
 
 		// start process loop
 		reason := behavior.ProcessLoop(ps, started)
