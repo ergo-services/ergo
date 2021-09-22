@@ -166,38 +166,37 @@ func (gs *Server) ProcessInit(p Process, args ...etf.Term) (ProcessState, error)
 	if !ok {
 		return ProcessState{}, fmt.Errorf("ProcessInit: not a ServerBehavior")
 	}
+
 	gsp := &ServerProcess{
-		ProcessState: ProcessState{
-			Process: p,
-		},
+		behavior:          behavior,
+		callbackWaitReply: make(chan *etf.Ref),
+		stop:              make(chan string, 2),
 	}
+
+	ps := ProcessState{
+		Process: p,
+		State:   gsp,
+	}
+
+	gsp.ProcessState = ps
 	err := behavior.Init(gsp, args...)
 	if err != nil {
 		return ProcessState{}, err
 	}
-
-	return gsp.ProcessState, nil
+	return ps, nil
 }
 
 func (gs *Server) ProcessLoop(ps ProcessState, started chan<- bool) string {
-	behavior, ok := ps.Behavior().(ServerBehavior)
+	gsp, ok := ps.State.(*ServerProcess)
 	if !ok {
 		return "ProcessLoop: not a ServerBehavior"
 	}
 
 	channels := ps.ProcessChannels()
-
-	gsp := &ServerProcess{
-		ProcessState: ps,
-
-		behavior:          behavior,
-		currentFunction:   "Server:loop",
-		mailbox:           channels.Mailbox,
-		original:          channels.Mailbox,
-		deferred:          make(chan ProcessMailboxMessage, cap(channels.Mailbox)),
-		callbackWaitReply: make(chan *etf.Ref),
-		stop:              make(chan string, 2),
-	}
+	gsp.mailbox = channels.Mailbox
+	gsp.original = channels.Mailbox
+	gsp.deferred = make(chan ProcessMailboxMessage, cap(channels.Mailbox))
+	gsp.currentFunction = "Server:loop"
 
 	started <- true
 	for {
