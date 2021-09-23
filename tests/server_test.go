@@ -12,25 +12,6 @@ import (
 	"github.com/halturin/ergo/node"
 )
 
-// This test is checking the cases below:
-//
-// initiation:
-// - starting 2 nodes (node1, node2)
-// - starting 4 Servers
-//	 * 2 on node1 - gs1, gs2
-// 	 * 2 on node2 - gs3, gs4
-//
-// checking:
-// - local sending
-//  * send: node1 (gs1) -> node1 (gs2). in fashion of erlang sending `erlang:send`
-//  * cast: node1 (gs1) -> node1 (gs2). like `gen_server:cast` does
-//  * call: node1 (gs1) -> node1 (gs2). like `gen_server:call` does
-//
-// - remote sending
-//  * send: node1 (gs1) -> node2 (gs3)
-//  * cast: node1 (gs1) -> node2 (gs3)
-//  * call: node1 (gs1) -> node2 (gs3)
-
 type testServer struct {
 	gen.Server
 	res chan interface{}
@@ -493,6 +474,193 @@ func TestServerMessageOrder(t *testing.T) {
 	fmt.Println("OK")
 	node1gs3.Exit("normal")
 
+}
+
+type messageFloodSourceGS struct {
+	gen.Server
+	id  int
+	res chan interface{}
+}
+
+type messageFlood struct {
+	id int
+	i  int
+}
+
+func (fl *messageFloodSourceGS) Init(process *gen.ServerProcess, args ...etf.Term) error {
+	fl.res <- nil
+	return nil
+}
+
+func (fl *messageFloodSourceGS) HandleInfo(process *gen.ServerProcess, message etf.Term) gen.ServerStatus {
+	max := message.(int)
+
+	for i := 1; i < max+1; i++ {
+		if err := process.Send("gsdest", messageFlood{id: fl.id - 1, i: i}); err != nil {
+			panic(fmt.Sprintf("err on making a send: %s", err))
+		}
+		if err := process.Cast("gsdest", messageFlood{id: fl.id - 1, i: i}); err != nil {
+			panic(fmt.Sprintf("err on making a cast: %s", err))
+		}
+		if _, err := process.Call("gsdest", messageFlood{id: fl.id - 1, i: i}); err != nil {
+			panic(fmt.Sprintf("err on making a call: %s", err))
+		}
+
+	}
+
+	return gen.ServerStatusStop
+}
+
+type messageFloodDestGS struct {
+	gen.Server
+	max  int
+	info [5]int
+	cast [5]int
+	call [5]int
+	done int
+	res  chan interface{}
+}
+
+func (fl *messageFloodDestGS) Init(process *gen.ServerProcess, args ...etf.Term) error {
+
+	fl.res <- nil
+	return nil
+}
+
+func (fl *messageFloodDestGS) HandleCall(process *gen.ServerProcess, from gen.ServerFrom, message etf.Term) (etf.Term, gen.ServerStatus) {
+	switch m := message.(type) {
+	case messageFlood:
+		if fl.call[m.id]+1 != m.i {
+			panic("wrong order")
+		}
+		fl.call[m.id] = m.i
+		if fl.call[m.id] == fl.max {
+			fl.done++
+		}
+		if fl.done != len(fl.info)*3 {
+			return nil, gen.ServerStatusOK
+		}
+	default:
+		return nil, gen.ServerStatusStop
+	}
+
+	fl.res <- nil
+	return nil, gen.ServerStatusOK
+}
+
+func (fl *messageFloodDestGS) HandleCast(process *gen.ServerProcess, message etf.Term) gen.ServerStatus {
+	switch m := message.(type) {
+	case messageFlood:
+		if fl.cast[m.id]+1 != m.i {
+			panic("wrong order")
+		}
+		fl.cast[m.id] = m.i
+		if fl.cast[m.id] == fl.max {
+			fl.done++
+		}
+		if fl.done != len(fl.info)*3 {
+			return gen.ServerStatusOK
+		}
+	default:
+		return gen.ServerStatusStop
+	}
+
+	fl.res <- nil
+	return gen.ServerStatusOK
+}
+
+func (fl *messageFloodDestGS) HandleInfo(process *gen.ServerProcess, message etf.Term) gen.ServerStatus {
+	switch m := message.(type) {
+	case messageFlood:
+		if fl.info[m.id]+1 != m.i {
+			panic("wrong order")
+		}
+		fl.info[m.id] = m.i
+		if fl.info[m.id] == fl.max {
+			fl.done++
+		}
+		if fl.done != len(fl.info)*3 {
+			return gen.ServerStatusOK
+		}
+	default:
+		return gen.ServerStatusStop
+	}
+
+	fl.res <- nil
+	return gen.ServerStatusOK
+}
+
+type testCaseFlood struct {
+	id int
+}
+
+func TestServerMessageFlood(t *testing.T) {
+	fmt.Printf("\n=== Test Server message flood \n")
+	fmt.Printf("Starting node: nodeGS1MessageFlood@localhost: ")
+	node1, _ := ergo.StartNode("nodeGS1MessageFlood@localhost", "cookies", node.Options{})
+	if node1 == nil {
+		t.Fatal("can't start nodes")
+	} else {
+		fmt.Println("OK")
+	}
+
+	gs1source := &messageFloodSourceGS{
+		id:  1,
+		res: make(chan interface{}, 2),
+	}
+	gs2source := &messageFloodSourceGS{
+		id:  2,
+		res: make(chan interface{}, 2),
+	}
+	gs3source := &messageFloodSourceGS{
+		id:  3,
+		res: make(chan interface{}, 2),
+	}
+	gs4source := &messageFloodSourceGS{
+		id:  4,
+		res: make(chan interface{}, 2),
+	}
+	gs5source := &messageFloodSourceGS{
+		id:  5,
+		res: make(chan interface{}, 2),
+	}
+
+	gsdest := &messageFloodDestGS{
+		res: make(chan interface{}, 2),
+	}
+	fmt.Printf("    wait for start of gs1source on %#v: ", node1.NodeName())
+	gs1sourceProcess, _ := node1.Spawn("gs1source", gen.ProcessOptions{}, gs1source, nil)
+	waitForResultWithValue(t, gs1source.res, nil)
+
+	fmt.Printf("    wait for start of gs2source on %#v: ", node1.NodeName())
+	gs2sourceProcess, _ := node1.Spawn("gs2source", gen.ProcessOptions{}, gs2source, nil)
+	waitForResultWithValue(t, gs2source.res, nil)
+
+	fmt.Printf("    wait for start of gs3source on %#v: ", node1.NodeName())
+	gs3sourceProcess, _ := node1.Spawn("gs3source", gen.ProcessOptions{}, gs3source, nil)
+	waitForResultWithValue(t, gs3source.res, nil)
+
+	fmt.Printf("    wait for start of gs4source on %#v: ", node1.NodeName())
+	gs4sourceProcess, _ := node1.Spawn("gs4source", gen.ProcessOptions{}, gs4source, nil)
+	waitForResultWithValue(t, gs4source.res, nil)
+
+	fmt.Printf("    wait for start of gs5source on %#v: ", node1.NodeName())
+	gs5sourceProcess, _ := node1.Spawn("gs5source", gen.ProcessOptions{}, gs5source, nil)
+	waitForResultWithValue(t, gs5source.res, nil)
+
+	fmt.Printf("    wait for start of gsdest on %#v: ", node1.NodeName())
+	node1.Spawn("gsdest", gen.ProcessOptions{}, gsdest, nil)
+	waitForResultWithValue(t, gsdest.res, nil)
+
+	gsdest.max = 1000
+	// start flood
+	gs1sourceProcess.Send(gs1sourceProcess.Self(), gsdest.max)
+	gs2sourceProcess.Send(gs2sourceProcess.Self(), gsdest.max)
+	gs3sourceProcess.Send(gs3sourceProcess.Self(), gsdest.max)
+	gs4sourceProcess.Send(gs4sourceProcess.Self(), gsdest.max)
+	gs5sourceProcess.Send(gs5sourceProcess.Self(), gsdest.max)
+
+	waitForResultWithValue(t, gsdest.res, nil)
 }
 
 func waitForResult(t *testing.T, w chan error) {

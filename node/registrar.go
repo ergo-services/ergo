@@ -356,8 +356,8 @@ func (r *registrar) spawn(name string, opts processOptions, behavior gen.Process
 		defer func() {
 			if r := recover(); r != nil {
 				pc, fn, line, _ := runtime.Caller(2)
-				fmt.Printf("Warning: process terminated (name: %s) %v %#v at %s[%s:%d]\n",
-					name, process.self, r, runtime.FuncForPC(pc).Name(), fn, line)
+				fmt.Printf("Warning: process terminated %s[%q] %#v at %s[%s:%d]\n",
+					process.self, name, r, runtime.FuncForPC(pc).Name(), fn, line)
 				cleanProcess("panic")
 			}
 		}()

@@ -363,6 +363,7 @@ func (gs *Server) ProcessLoop(ps ProcessState, started chan<- bool) string {
 
 func (gsp *ServerProcess) waitCallbackOrDeferr(message interface{}) {
 	if gsp.waitReply != nil {
+		fmt.Println("DEEEEEF")
 		// already waiting for reply. deferr this message
 		deferred := ProcessMailboxMessage{
 			Message: message,
@@ -371,7 +372,8 @@ func (gsp *ServerProcess) waitCallbackOrDeferr(message interface{}) {
 		case gsp.deferred <- deferred:
 			// do nothing
 		default:
-			fmt.Printf("WARNING! deferred mailbox of %s is full. dropped message %v", gsp.Self(), message)
+			fmt.Printf("WARNING! deferred mailbox of %s[%q] is full. dropped message %v",
+				gsp.Self(), gsp.Name(), message)
 		}
 		return
 
@@ -413,8 +415,8 @@ func (gsp *ServerProcess) waitCallbackOrDeferr(message interface{}) {
 func (gsp *ServerProcess) panicHandler() {
 	if r := recover(); r != nil {
 		pc, fn, line, _ := runtime.Caller(2)
-		fmt.Printf("Warning: Server terminated (name: %q) %v %#v at %s[%s:%d]\n",
-			gsp.Name(), gsp.Self(), r, runtime.FuncForPC(pc).Name(), fn, line)
+		fmt.Printf("Warning: Server terminated %s[%q] %#v at %s[%s:%d]\n",
+			gsp.Self(), gsp.Name(), r, runtime.FuncForPC(pc).Name(), fn, line)
 		gsp.stop <- "panic"
 	}
 }
