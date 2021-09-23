@@ -39,13 +39,13 @@ func (h *Handler) HandleInfo(process *gen.ServerProcess, message etf.Term) gen.S
 	w.Header().Set("Content-Type", "application/json")
 	response := response{
 		Request: process.State.(*st).r.URL.Path,
-		Answer:  "Your request has been handled",
+		Answer:  "Your request has been handled by " + process.Self().String(),
 	}
 
 	err := json.NewEncoder(w).Encode(response)
 	if err != nil {
 		fmt.Println(err)
 	}
-	fmt.Println("Finish handling http request")
+	fmt.Println("Finish handling http request and stop the server", process.Self())
 	return gen.ServerStatusStop
 }
