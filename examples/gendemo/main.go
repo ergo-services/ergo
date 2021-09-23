@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/halturin/ergo"
 	"github.com/halturin/ergo/etf"
@@ -23,11 +24,11 @@ func (md *MyDemo) HandleHello(process *DemoProcess) DemoStatus {
 	return DemoStatusOK
 }
 
-func (md *MyDemo) HandleDemoDirect(process *DemoProcess, message interface{}) (interface{}, gen.ServerStatus) {
+func (md *MyDemo) HandleDemoDirect(process *DemoProcess, message interface{}) (interface{}, error) {
 
 	fmt.Println("Say hi to increase counter twice")
 	process.Hi()
-	return nil, gen.ServerStatusOK
+	return nil, nil
 }
 
 func main() {
@@ -40,7 +41,7 @@ func main() {
 	}
 
 	demo := &MyDemo{}
-	// Spawn process with one arguments
+	// Spawn a new process with arguments
 	process, e := node.Spawn("demo", gen.ProcessOptions{}, demo, 1, 2, 3)
 	if e != nil {
 		fmt.Println("error", e)
@@ -54,12 +55,15 @@ func main() {
 
 	fmt.Println("How many times Hello was called: ", demo.Stat(process))
 
-	fmt.Println("make simple cast (no handler)")
-	process.Cast(process.Self(), "simple message")
-
 	fmt.Println("make direct request")
 	process.Direct(nil)
 	fmt.Println("How big is the counter now: ", demo.Stat(process))
+
+	fmt.Println("send a simple message (no handler) and call Exit")
+	process.Send(process.Self(), "simple message")
+
+	// add some delay to see "unhandled message" warning
+	time.Sleep(100 * time.Millisecond)
 
 	fmt.Println("Exiting")
 	process.Exit("normal")
