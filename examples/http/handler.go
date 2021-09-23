@@ -33,7 +33,7 @@ func (h *Handler) Init(process *gen.ServerProcess, args ...etf.Term) error {
 	return nil
 }
 
-func (h *Handler) HandleCast(process *gen.ServerProcess, message etf.Term) gen.ServerStatus {
+func (h *Handler) HandleInfo(process *gen.ServerProcess, message etf.Term) gen.ServerStatus {
 	fmt.Println(process.State.(*st).r.URL.Path)
 	w := message.(http.ResponseWriter)
 	w.Header().Set("Content-Type", "application/json")

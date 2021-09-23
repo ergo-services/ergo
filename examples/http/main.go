@@ -53,7 +53,7 @@ func main() {
 		}
 
 		if handlerProcess, err := handler_sup.StartChild(p, "handler", r); err == nil {
-			process.Cast(handlerProcess.Self(), w)
+			process.Send(handlerProcess.Self(), w)
 			handlerProcess.Wait()
 			return
 		}
