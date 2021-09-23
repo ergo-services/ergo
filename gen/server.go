@@ -363,7 +363,6 @@ func (gs *Server) ProcessLoop(ps ProcessState, started chan<- bool) string {
 
 func (gsp *ServerProcess) waitCallbackOrDeferr(message interface{}) {
 	if gsp.waitReply != nil {
-		fmt.Println("DEEEEEF")
 		// already waiting for reply. deferr this message
 		deferred := ProcessMailboxMessage{
 			Message: message,
