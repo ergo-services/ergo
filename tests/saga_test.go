@@ -23,7 +23,6 @@ func (w *testSagaWorker) HandleJobStart(process *gen.SagaWorkerProcess, job gen.
 	process.SendInterim(888)
 	process.SendInterim(999)
 	process.SendResult(1000)
-	//panic("asdf")
 	time.Sleep(500 * time.Millisecond)
 	return nil
 }

@@ -316,7 +316,25 @@ func (r *registrar) spawn(name string, opts processOptions, behavior gen.Process
 	if err != nil {
 		return nil, err
 	}
-	processState, err := behavior.ProcessInit(process, args...)
+
+	initProcess := func() (ps gen.ProcessState, err error) {
+		if lib.CatchPanic() {
+			defer func() {
+				if rcv := recover(); rcv != nil {
+					pc, fn, line, _ := runtime.Caller(2)
+					fmt.Printf("Warning: initialization process failed %s[%q] %#v at %s[%s:%d]\n",
+						process.self, name, rcv, runtime.FuncForPC(pc).Name(), fn, line)
+					r.deleteProcess(process.self)
+					err = fmt.Errorf("panic")
+				}
+			}()
+		}
+
+		ps, err = behavior.ProcessInit(process, args...)
+		return
+	}
+
+	processState, err := initProcess()
 	if err != nil {
 		return nil, err
 	}
@@ -353,14 +371,16 @@ func (r *registrar) spawn(name string, opts processOptions, behavior gen.Process
 	}
 
 	go func(ps gen.ProcessState) {
-		defer func() {
-			if r := recover(); r != nil {
-				pc, fn, line, _ := runtime.Caller(2)
-				fmt.Printf("Warning: process terminated %s[%q] %#v at %s[%s:%d]\n",
-					process.self, name, r, runtime.FuncForPC(pc).Name(), fn, line)
-				cleanProcess("panic")
-			}
-		}()
+		if lib.CatchPanic() {
+			defer func() {
+				if rcv := recover(); rcv != nil {
+					pc, fn, line, _ := runtime.Caller(2)
+					fmt.Printf("Warning: process terminated %s[%q] %#v at %s[%s:%d]\n",
+						process.self, name, rcv, runtime.FuncForPC(pc).Name(), fn, line)
+					cleanProcess("panic")
+				}
+			}()
+		}
 
 		// start process loop
 		reason := behavior.ProcessLoop(ps, started)

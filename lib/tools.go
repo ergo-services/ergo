@@ -17,7 +17,8 @@ type Buffer struct {
 }
 
 var (
-	nTrace              = false
+	traceErgo           = false
+	traceNoRecover      = false
 	DefaultBufferLength = 16384
 	buffers             = &sync.Pool{
 		New: func() interface{} {
@@ -39,13 +40,18 @@ var (
 )
 
 func init() {
-	flag.BoolVar(&nTrace, "trace.node", false, "trace node")
+	flag.BoolVar(&traceErgo, "trace.ergo", false, "enable extended debug info")
+	flag.BoolVar(&traceNoRecover, "trace.norecover", false, "disable panic catching")
 }
 
 func Log(f string, a ...interface{}) {
-	if nTrace {
+	if traceErgo {
 		log.Printf(f, a...)
 	}
+}
+
+func CatchPanic() bool {
+	return traceNoRecover == false
 }
 
 func TakeTimer() *time.Timer {

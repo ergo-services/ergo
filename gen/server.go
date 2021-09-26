@@ -421,7 +421,9 @@ func (gsp *ServerProcess) panicHandler() {
 }
 
 func (gsp *ServerProcess) handleDirect(direct ProcessDirectMessage) {
-	defer gsp.panicHandler()
+	if lib.CatchPanic() {
+		defer gsp.panicHandler()
+	}
 
 	reply, err := gsp.behavior.HandleDirect(gsp, direct.Message)
 	if err != nil {
@@ -438,7 +440,9 @@ func (gsp *ServerProcess) handleDirect(direct ProcessDirectMessage) {
 }
 
 func (gsp *ServerProcess) handleCall(m handleCallMessage) {
-	defer gsp.panicHandler()
+	if lib.CatchPanic() {
+		defer gsp.panicHandler()
+	}
 
 	cf := gsp.currentFunction
 	gsp.currentFunction = "Server:HandleCall"
@@ -475,7 +479,9 @@ func (gsp *ServerProcess) handleCall(m handleCallMessage) {
 }
 
 func (gsp *ServerProcess) handleCast(m handleCastMessage) {
-	defer gsp.panicHandler()
+	if lib.CatchPanic() {
+		defer gsp.panicHandler()
+	}
 
 	cf := gsp.currentFunction
 	gsp.currentFunction = "Server:HandleCast"
@@ -493,7 +499,9 @@ func (gsp *ServerProcess) handleCast(m handleCastMessage) {
 }
 
 func (gsp *ServerProcess) handleInfo(m handleInfoMessage) {
-	defer gsp.panicHandler()
+	if lib.CatchPanic() {
+		defer gsp.panicHandler()
+	}
 
 	cf := gsp.currentFunction
 	gsp.currentFunction = "Server:HandleInfo"

@@ -6,10 +6,8 @@ import (
 	"context"
 	"crypto/md5"
 	"encoding/binary"
-	"flag"
 	"fmt"
 	"io"
-	"log"
 	"math/rand"
 	"net"
 	"sync"
@@ -21,20 +19,12 @@ import (
 )
 
 var (
-	dTrace            bool
 	ErrMissingInCache = fmt.Errorf("Missing in cache")
 	ErrMalformed      = fmt.Errorf("Malformed")
 )
 
 func init() {
 	rand.Seed(time.Now().UTC().UnixNano())
-	flag.BoolVar(&dTrace, "trace.dist", false, "trace erlang distribution protocol")
-}
-
-func dLog(f string, a ...interface{}) {
-	if dTrace {
-		log.Printf("d# "+f, a...)
-	}
 }
 
 type flagId uint64

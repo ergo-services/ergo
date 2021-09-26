@@ -249,10 +249,10 @@ func main() {
 
 ### Development and debugging ###
 
-There is a couple of options are already defined that you might want to use
+There are few of options already defined that you might want to use
 
-* -trace.node
-* -trace.dist
+* -trace.ergo - enable extended debug info
+* -trace.norecover - disable panic catching
 
 To enable Golang profiler just add `--tags debug` in your `go run` or `go build` like this:
 

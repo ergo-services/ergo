@@ -17,16 +17,18 @@ type SagaWorkerBehavior interface {
 
 	// Optional callbacks
 
-	// HandleJobCommit invoked if this job was a part of the transaction with 2PC
+	// HandleJobCommit invoked if this job was a part of the transaction
+	// with enabled TwoPhaseCommit option. All workers involved in this TX
+	// handling are receiving this call.
 	HandleJobCommit(process *SagaWorkerProcess)
 
 	// HandleWorkerInfo this callback is invoked on Process.Send. This method is optional
 	// for the implementation
 	HandleWorkerInfo(process *SagaWorkerProcess, message etf.Term) ServerStatus
-	// HandleWorkerCast this callback is invoked on Process.Cast. This method is optional
+	// HandleWorkerCast this callback is invoked on ServerProcess.Cast. This method is optional
 	// for the implementation
 	HandleWorkerCast(process *SagaWorkerProcess, message etf.Term) ServerStatus
-	// HandleWorkerCall this callback is invoked on Process.Call. This method is optional
+	// HandleWorkerCall this callback is invoked on ServerProcess.Call. This method is optional
 	// for the implementation
 	HandleWorkerCall(process *SagaWorkerProcess, from ServerFrom, message etf.Term) (etf.Term, ServerStatus)
 	// HandleWorkerDirect this callback is invoked on Process.Direct. This method is optional

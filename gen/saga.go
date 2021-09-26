@@ -31,11 +31,16 @@ type SagaBehavior interface {
 	// Optional callbacks
 	//
 
-	// HandleDone invoked when the transaction is done on a saga where it was created.
+	// HandleTxDone invoked when the transaction is done on a saga where it was created.
 	HandleTxDone(process *SagaProcess, id SagaTransactionID) SagaStatus
 
-	// HandleInterim invoked if received interim result from the next hop
+	// HandleTxInterim invoked if received interim result from the next hop
 	HandleTxInterim(process *SagaProcess, id SagaTransactionID, from SagaStepID, interim interface{}) SagaStatus
+
+	// HandleTxCommit invoked if TwoPhaseCommit option is enabled for the given TX once the
+	// final result was received by the Saga created this TX. All sagas involved in this
+	// TX handling are making this call.
+	HandleTxCommit(process *SagaProcess, id SagaTransactionID) SagaStatus
 
 	//
 	// Callbacks to handle result/interim from the worker(s)
@@ -855,10 +860,19 @@ func (gs *Saga) Terminate(process *ServerProcess, reason string) {
 // default Saga callbacks
 //
 
-func (gs *Saga) HandleTxInterim(process *SagaProcess, tx SagaTransaction, interim interface{}) SagaStatus {
-	fmt.Printf("HandleInterim: unhandled message %#v\n", tx)
+func (gs *Saga) HandleTxInterim(process *SagaProcess, id SagaTransactionID, from SagaStepID, interim interface{}) SagaStatus {
+	fmt.Printf("HandleTxInterim: unhandled message %v from %v\n", id, from)
 	return ServerStatusOK
 }
+func (gs *Saga) HandleTxCommit(process *SagaProcess, id SagaTransactionID) SagaStatus {
+	fmt.Printf("HandleTxCommit: unhandled message %v\n", id)
+	return ServerStatusOK
+}
+func (gs *Saga) HandleTxDone(process *SagaProcess, id SagaTransactionID) SagaStatus {
+	fmt.Printf("HandleTxDone: unhandled message %v\n", id)
+	return ServerStatusOK
+}
+
 func (gs *Saga) HandleSagaCall(process *SagaProcess, from ServerFrom, message etf.Term) (etf.Term, ServerStatus) {
 	fmt.Printf("HandleSagaCall: unhandled message (from %#v) %#v\n", from, message)
 	return etf.Atom("ok"), ServerStatusOK
