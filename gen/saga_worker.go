@@ -64,6 +64,9 @@ type messageSagaJobResult struct {
 
 // SendResult
 func (wp *SagaWorkerProcess) SendResult(result interface{}) error {
+	if wp.done {
+		return fmt.Errorf("result is already sent")
+	}
 	message := messageSagaJobResult{
 		pid:    wp.Self(),
 		result: result,

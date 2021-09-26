@@ -31,7 +31,7 @@ type SagaBehavior interface {
 	// Optional callbacks
 	//
 
-	// HandleDone invoked when the TX is done. Invoked on a saga where this tx was created.
+	// HandleDone invoked when the transaction is done on a saga where it was created.
 	HandleTxDone(process *SagaProcess, id SagaTransactionID) SagaStatus
 
 	// HandleInterim invoked if received interim result from the next hop
@@ -52,10 +52,10 @@ type SagaBehavior interface {
 	// Server's callbacks
 	//
 
-	// HandleStageCall this callback is invoked on Process.Call. This method is optional
+	// HandleStageCall this callback is invoked on ServerProcess.Call. This method is optional
 	// for the implementation
 	HandleSagaCall(process *SagaProcess, from ServerFrom, message etf.Term) (etf.Term, ServerStatus)
-	// HandleStageCast this callback is invoked on Process.Cast. This method is optional
+	// HandleStageCast this callback is invoked on ServerProcess.Cast. This method is optional
 	// for the implementation
 	HandleSagaCast(process *SagaProcess, message etf.Term) ServerStatus
 	// HandleStageInfo this callback is invoked on Process.Send. This method is optional
@@ -74,9 +74,14 @@ const (
 type SagaStatus error
 
 var (
-	SagaStatusOK          SagaStatus // nil
-	SagaStatusStop        SagaStatus = fmt.Errorf("stop")
+	SagaStatusOK   SagaStatus // nil
+	SagaStatusStop SagaStatus = fmt.Errorf("stop")
+
+	// internal
 	sagaStatusUnsupported SagaStatus = fmt.Errorf("unsupported")
+
+	ErrSagaTxEndOfLifespan = fmt.Errorf("End of TX lifespan")
+	ErrSagaTxNextTimeout   = fmt.Errorf("Next saga timeout")
 )
 
 type Saga struct {
@@ -138,6 +143,8 @@ type SagaTransaction struct {
 	jobs    map[etf.Pid]bool
 	arrival int64     // when it arrived on this saga
 	parents []etf.Pid // sagas trace
+
+	done bool // do not allow send result more than once if 2PC is set
 }
 
 type SagaStepID etf.Ref
@@ -168,7 +175,7 @@ func (id SagaJobID) String() string {
 
 type SagaJob struct {
 	ID    SagaJobID
-	TXID  SagaTransactionID
+	TxID  SagaTransactionID
 	Value interface{}
 
 	// internal
@@ -337,7 +344,7 @@ func (sp *SagaProcess) StartJob(id SagaTransactionID, options SagaJobOptions, va
 	sp.Link(worker.Self())
 
 	job.ID = SagaJobID(sp.MakeRef())
-	job.TXID = id
+	job.TxID = id
 	job.Value = value
 	job.commit = tx.options.TwoPhaseCommit
 	job.saga = sp.Self()
@@ -369,6 +376,9 @@ func (sp *SagaProcess) SendResult(id SagaTransactionID, result interface{}) erro
 	if !ok {
 		return fmt.Errorf("unknown transaction")
 	}
+	if tx.done {
+		return fmt.Errorf("result is already sent")
+	}
 
 	if sp.checkTxDone(tx) == false {
 		return fmt.Errorf("transaction is still in progress")
@@ -396,6 +406,8 @@ func (sp *SagaProcess) SendResult(id SagaTransactionID, result interface{}) erro
 		sp.mutexTXS.Unlock()
 	}
 
+	// tx handling is done on this saga
+	tx.done = true
 	return nil
 }
 
@@ -497,12 +509,11 @@ func (sp *SagaProcess) checkTxDone(tx *SagaTransaction) bool {
 }
 
 func (sp *SagaProcess) handleSagaRequest(m messageSaga) error {
-	var stepMessage messageSagaStep
-	var result messageSagaResult
-	//var cancel messageSagaCancel
 
 	switch m.Request {
 	case etf.Atom("$saga_next"):
+		stepMessage := messageSagaStep{}
+
 		if err := etf.TermIntoStruct(m.Command, &stepMessage); err != nil {
 			return ErrUnsupportedRequest
 		}
@@ -591,13 +602,8 @@ func (sp *SagaProcess) handleSagaRequest(m messageSaga) error {
 
 	//	sp.Behavior().(SagaBehavior).HandleTxCancel(sp, tx.id, cancel.Reason)
 	//	return nil
-	//case "$saga_interim":
-	//	if err := etf.TermIntoStruct(m.Command, &result); err != nil {
-	//		return ErrUnsupportedRequest
-	//	}
-	//	sp.Behavior().(SagaBehavior).HandleTxInterim(sp, result.Transaction.id, next, result.Result)
-	//	return nil
 	case etf.Atom("$saga_result"):
+		result := messageSagaResult{}
 		fmt.Println("got saga result", result)
 		if err := etf.TermIntoStruct(m.Command, &result); err != nil {
 			return ErrUnsupportedRequest
@@ -637,19 +643,19 @@ func (sp *SagaProcess) handleSagaRequest(m messageSaga) error {
 
 		return nil
 	case etf.Atom("$saga_interim"):
-		if err := etf.TermIntoStruct(m.Command, &result); err != nil {
+		interim := messageSagaResult{}
+		if err := etf.TermIntoStruct(m.Command, &interim); err != nil {
 			return ErrUnsupportedRequest
 		}
-		step_id := SagaStepID(result.Origin)
+		step_id := SagaStepID(interim.Origin)
 		sp.mutexSteps.Lock()
 		tx, ok := sp.steps[step_id]
+		sp.mutexSteps.Unlock()
 		if !ok {
-			sp.mutexSteps.Unlock()
 			// ignore unknown result
 			return nil
 		}
-		sp.mutexSteps.Unlock()
-		sp.behavior.HandleTxInterim(sp, tx.id, step_id, result.Result)
+		sp.behavior.HandleTxInterim(sp, tx.id, step_id, interim.Result)
 		return nil
 	}
 	return sagaStatusUnsupported
@@ -746,7 +752,7 @@ func (gs *Saga) HandleCast(process *ServerProcess, message etf.Term) ServerStatu
 		}
 
 		sp.mutexTXS.Lock()
-		tx, ok := sp.txs[job.TXID]
+		tx, ok := sp.txs[job.TxID]
 		sp.mutexTXS.Unlock()
 
 		if !ok {

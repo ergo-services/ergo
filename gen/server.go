@@ -67,7 +67,7 @@ type ServerProcess struct {
 	ProcessState
 
 	behavior        ServerBehavior
-	reductions      uint64 // we use this term to count total number of processed messages from mailBox
+	reductions      uint64 // total number of processed messages from mailBox
 	currentFunction string
 	trapExit        bool
 
@@ -93,27 +93,27 @@ type handleInfoMessage struct {
 	message etf.Term
 }
 
-// CastAfter simple wrapper for SendAfter to send '$gen_cast' message
+// CastAfter a simple wrapper for Process.SendAfter to send a message in fashion of 'gen_server:cast'
 func (sp *ServerProcess) CastAfter(to interface{}, message etf.Term, after time.Duration) context.CancelFunc {
 	msg := etf.Term(etf.Tuple{etf.Atom("$gen_cast"), message})
 	return sp.SendAfter(to, msg, after)
 }
 
-// Cast sends a message in fashion of 'gen_cast'. 'to' can be a Pid, registered local name
+// Cast sends a message in fashion of 'gen_server:cast'. 'to' can be a Pid, registered local name
 // or gen.ProcessID{RegisteredName, NodeName}
 func (sp *ServerProcess) Cast(to interface{}, message etf.Term) error {
 	msg := etf.Term(etf.Tuple{etf.Atom("$gen_cast"), message})
 	return sp.Send(to, msg)
 }
 
-// Call makes outgoing sync request in fashion of 'gen_call'.
+// Call makes outgoing sync request in fashion of 'gen_server:call'.
 // 'to' can be Pid, registered local name or gen.ProcessID{RegisteredName, NodeName}.
 // This method shouldn't be used outside of the actor. Use Direct method instead.
 func (sp *ServerProcess) Call(to interface{}, message etf.Term) (etf.Term, error) {
 	return sp.CallWithTimeout(to, message, DefaultCallTimeout)
 }
 
-// CallWithTimeout makes outgoing sync request in fashiod of 'gen_call' with given timeout.
+// CallWithTimeout makes outgoing sync request in fashiod of 'gen_server:call' with given timeout.
 // This method shouldn't be used outside of the actor. Use DirectWithTimeout method instead.
 func (sp *ServerProcess) CallWithTimeout(to interface{}, message etf.Term, timeout int) (etf.Term, error) {
 	ref := sp.MakeRef()

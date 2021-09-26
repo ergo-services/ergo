@@ -41,7 +41,7 @@ type Process interface {
 	// DirectWithTimeout make a direct request to the actor with the given timeout (in seconds)
 	DirectWithTimeout(request interface{}, timeout int) (interface{}, error)
 
-	// Send sends a message. 'to' can be a Pid, registered local name
+	// Send sends a message in fashion of 'erlang:send'. The value of 'to' can be a Pid, registered local name
 	// or gen.ProcessID{RegisteredName, NodeName}
 	Send(to interface{}, message etf.Term) error
 
@@ -81,7 +81,11 @@ type Process interface {
 	// if given timeout is exceeded
 	WaitWithTimeout(d time.Duration) error
 
-	// Link creates a link between the calling process and another process
+	// Link creates a link between the calling process and another process.
+	// Links are bidirectional and there can only be one link between two processes.
+	// Repeated calls to Process.Link(Pid) have no effect. If one of the participants
+	// of a link terminates, it will send an exit signal to the other participant and caused
+	// termination of the last one (if this process hasn't set a trap using Process.SetTrapExit(true)).
 	Link(with etf.Pid)
 
 	// Unlink removes the link, if there is one, between the calling process and
@@ -91,7 +95,9 @@ type Process interface {
 	// IsAlive returns whether the process is alive
 	IsAlive() bool
 
-	// SetTrapExit enables/disables the trap on terminate process
+	// SetTrapExit enables/disables the trap on terminate process. When a process is trapping exits,
+	// it will not terminate when an exit signal is received. Instead, the signal is transformed
+	// into a 'gen.MessageExit' which is put into the mailbox of the process just like a regular message.
 	SetTrapExit(trap bool)
 
 	// TrapExit returns whether the trap was enabled on this process

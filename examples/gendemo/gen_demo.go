@@ -32,13 +32,13 @@ type DemoBehavior interface {
 	// Optional callbacks
 	//
 
-	// HandleDemoCall this callback is invoked on Process.Call. This method is optional
+	// HandleDemoCall this callback is invoked on ServerProcess.Call. This method is optional
 	// for the implementation
 	HandleDemoCall(process *DemoProcess, from gen.ServerFrom, message etf.Term) (etf.Term, gen.ServerStatus)
 	// HandleDemoDirect this callback is invoked on Process.Direct. This method is optional
 	// for the implementation
 	HandleDemoDirect(process *DemoProcess, message interface{}) (interface{}, error)
-	// HandleDemoCast this callback is invoked on Process.Cast. This method is optional
+	// HandleDemoCast this callback is invoked on ServerProcess.Cast. This method is optional
 	// for the implementation
 	HandleDemoCast(process *DemoProcess, message etf.Term) gen.ServerStatus
 	// HandleDemoInfo this callback is invoked on Process.Send. This method is optional

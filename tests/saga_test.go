@@ -19,7 +19,7 @@ type testSagaWorker struct {
 }
 
 func (w *testSagaWorker) HandleJobStart(process *gen.SagaWorkerProcess, job gen.SagaJob) error {
-	fmt.Println("Worker process started", process.Self(), " on", job.ID, " with value", job.Value)
+	fmt.Println("... Worker process started", process.Self(), " on", job.ID, " with value", job.Value, "for TX", job.TxID)
 	process.SendInterim(888)
 	process.SendInterim(999)
 	process.SendResult(1000)
@@ -51,12 +51,10 @@ func (gs *testSaga) InitSaga(process *gen.SagaProcess, args ...etf.Term) (gen.Sa
 }
 
 func (gs *testSaga) HandleTxNew(process *gen.SagaProcess, id gen.SagaTransactionID, value interface{}) gen.SagaStatus {
-	fmt.Println("Got new TX", id, value)
 	job_id, err := process.StartJob(id, gen.SagaJobOptions{}, value)
 	if err != nil {
 		return err
 	}
-	fmt.Println("Started job", job_id)
 	gs.jobs[job_id] = id
 	return gen.SagaStatusOK
 }
@@ -79,10 +77,16 @@ func (gs *testSaga) HandleTxInterim(process *gen.SagaProcess, id gen.SagaTransac
 	return gen.SagaStatusOK
 }
 
+func (gs *testSaga) HandleJobInterim(process *gen.SagaProcess, id gen.SagaJobID, interim interface{}) gen.SagaStatus {
+	fmt.Println("... Saga got interim result", interim, "from job", id)
+	return gen.SagaStatusOK
+}
 func (gs *testSaga) HandleJobResult(process *gen.SagaProcess, id gen.SagaJobID, result interface{}) gen.SagaStatus {
 	txid, _ := gs.jobs[id]
-	err := process.SendResult(txid, result)
-	fmt.Println("Job result", result, txid, err)
+	if err := process.SendResult(txid, result); err != nil {
+		panic(err)
+	}
+	fmt.Println("... Saga got job result", result, "from job", id)
 	return gen.SagaStatusOK
 }
 
@@ -99,7 +103,6 @@ func (gs *testSaga) HandleSagaInfo(process *gen.SagaProcess, message etf.Term) g
 func (gs *testSaga) HandleSagaDirect(process *gen.SagaProcess, message interface{}) (interface{}, error) {
 	switch m := message.(type) {
 	case startTX:
-		fmt.Println("MMM", m.value)
 		id := process.StartTransaction(m.name, m.opts, m.value)
 		return id, nil
 	}
@@ -119,19 +122,21 @@ func TestSagaSimple(t *testing.T) {
 	}
 	fmt.Println("OK")
 
-	fmt.Printf("... starting Saga processes: ")
+	fmt.Printf("... Starting Saga processes: ")
 	saga := &testSaga{}
 	saga_process, err := node.Spawn("saga", gen.ProcessOptions{}, saga)
 	if err != nil {
 		t.Fatal(err)
 	}
-	fmt.Println("OK", saga_process.Self())
-	txID, err := saga_process.Direct(startTX{value: 555})
+	fmt.Println("OK")
+
+	fmt.Printf("... Starting new TX with initial value 12345 ")
+	txID, err := saga_process.Direct(startTX{value: 12345})
 	if err != nil {
 		t.Fatal(err)
 	}
+	fmt.Println("and txid", txID)
 
-	fmt.Println("Started TX", txID)
 	time.Sleep(2 * time.Second)
 
 	node.Stop()

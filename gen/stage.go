@@ -84,13 +84,13 @@ type StageBehavior interface {
 	// Cancel mode StageCancelTemporary keeps this stage alive whether the reason could be.
 	HandleCanceled(process *StageProcess, subscription StageSubscription, reason string) StageStatus
 
-	// HandleStageCall this callback is invoked on Process.Call. This method is optional
+	// HandleStageCall this callback is invoked on ServerProcess.Call. This method is optional
 	// for the implementation
 	HandleStageCall(process *StageProcess, from ServerFrom, message etf.Term) (etf.Term, ServerStatus)
 	// HandleStageDirect this callback is invoked on Process.Direct. This method is optional
 	// for the implementation
 	HandleStageDirect(process *StageProcess, message interface{}) (interface{}, error)
-	// HandleStageCast this callback is invoked on Process.Cast. This method is optional
+	// HandleStageCast this callback is invoked on ServerProcess.Cast. This method is optional
 	// for the implementation
 	HandleStageCast(process *StageProcess, message etf.Term) ServerStatus
 	// HandleStageInfo this callback is invoked on Process.Send. This method is optional
