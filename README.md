@@ -249,7 +249,7 @@ func main() {
 
 ### Development and debugging ###
 
-There are few of options already defined that you might want to use
+There are options already defined that you might want to use
 
 * `-trace.ergo` - enable extended debug info
 * `-trace.norecover` - disable panic catching
