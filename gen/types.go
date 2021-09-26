@@ -15,6 +15,7 @@ var (
 
 type Process interface {
 	Registrar
+
 	// Spawn create a new process with parent
 	Spawn(name string, opts ProcessOptions, object ProcessBehavior, args ...etf.Term) (Process, error)
 	// RemoteSpawn creates a new process at a remote node. The object name is a regitered behavior on a remote name using RegisterBehavior(...)
@@ -122,17 +123,25 @@ type Process interface {
 
 	// Behavior returns the object this process runs on.
 	Behavior() ProcessBehavior
+	// GroupLeader returns group leader process. Usually it points to the application process.
 	GroupLeader() Process
+	// Parent returns parent process. It returns nil if this process was spawned using Node.Spawn.
 	Parent() Process
+	// Context returns process context.
 	Context() context.Context
 
 	// Children returns list of children pid (Application, Supervisor)
 	Children() ([]etf.Pid, error)
 
+	// Links returns list of the process pids this process has linked to.
 	Links() []etf.Pid
+	// Monitors returns list of monitors created this process by pid.
 	Monitors() []etf.Pid
+	// Monitors returns list of monitors created this process by name.
 	MonitorsByName() []ProcessID
+	// MonitoredBy returns list of process pids monitored this process.
 	MonitoredBy() []etf.Pid
+	// Aliases returns list of aliases of this process.
 	Aliases() []etf.Alias
 
 	// Methods below are intended to be used for the ProcessBehavior implementation
@@ -222,6 +231,7 @@ type ProcessBehavior interface {
 }
 type Registrar interface {
 	Monitor
+
 	NodeName() string
 	NodeStop()
 

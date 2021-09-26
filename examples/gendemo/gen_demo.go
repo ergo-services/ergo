@@ -103,7 +103,7 @@ func (d *Demo) Init(process *gen.ServerProcess, args ...etf.Term) error {
 	demo := &DemoProcess{
 		ServerProcess: *process,
 	}
-	// do not inherite parent State
+	// do not inherit parent State
 	demo.State = nil
 
 	if err := process.Behavior().(DemoBehavior).InitDemo(demo, args...); err != nil {

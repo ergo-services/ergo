@@ -703,7 +703,7 @@ func (gs *Saga) Init(process *ServerProcess, args ...etf.Term) error {
 		steps:         make(map[SagaStepID]*SagaTransaction),
 		behavior:      behavior,
 	}
-	// do not inherite parent State
+	// do not inherit parent State
 	sagaProcess.State = nil
 
 	options, err := behavior.InitSaga(sagaProcess, args...)
