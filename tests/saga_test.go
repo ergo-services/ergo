@@ -68,6 +68,7 @@ func (gs *testSaga) HandleTxCancel(process *gen.SagaProcess, id gen.SagaTransact
 }
 
 func (gs *testSaga) HandleTxResult(process *gen.SagaProcess, id gen.SagaTransactionID, from gen.SagaStepID, result interface{}) gen.SagaStatus {
+	fmt.Println("Tx result", id, result)
 	return gen.SagaStatusOK
 }
 

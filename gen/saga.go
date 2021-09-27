@@ -259,11 +259,11 @@ func (sp *SagaProcess) StartTransaction(name string, options SagaTransactionOpti
 		etf.Atom("$saga_next"),
 		sp.Self(),
 		etf.Tuple{
-			etf.Ref{}, // step id
-			id,        // tx id
-			value,
-			[]etf.Pid{},
-			etf.Map{
+			etf.Ref{},   // origin (step id)
+			id,          // tx id
+			value,       // tx value
+			[]etf.Pid{}, // parents
+			etf.Map{ // tx options
 				"HopLimit":       options.HopLimit,
 				"Lifespan":       options.Lifespan,
 				"TwoPhaseCommit": options.TwoPhaseCommit,
@@ -404,15 +404,23 @@ func (sp *SagaProcess) SendResult(id SagaTransactionID, result interface{}) erro
 		return err
 	}
 
-	// do not remove if 2PC is enabled
-	if tx.options.TwoPhaseCommit == false {
-		sp.mutexTXS.Lock()
-		delete(sp.txs, id)
-		sp.mutexTXS.Unlock()
-	}
-
 	// tx handling is done on this saga
 	tx.done = true
+
+	// do not remove TX if we send result to itself
+	if tx.parents[0] == sp.Self() {
+		return nil
+	}
+
+	// do not remove TX if 2PC is enabled
+	if tx.options.TwoPhaseCommit {
+		return nil
+	}
+
+	sp.mutexTXS.Lock()
+	delete(sp.txs, id)
+	sp.mutexTXS.Unlock()
+
 	return nil
 }
 
@@ -465,7 +473,6 @@ func (sp *SagaProcess) CancelJob(job SagaJobID) error {
 
 func (sp *SagaProcess) checkTxDone(tx *SagaTransaction) bool {
 
-	fmt.Println("AAA2")
 	if tx.options.TwoPhaseCommit == false { // 2PC is disabled
 		if len(tx.steps) > 0 { // haven't received all results from the "next" sagas
 			return false
@@ -542,58 +549,57 @@ func (sp *SagaProcess) handleSagaRequest(m messageSaga) error {
 		transactionID := SagaTransactionID(stepMessage.TransactionID)
 		sp.mutexTXS.Lock()
 		tx, ok := sp.txs[transactionID]
-		if !ok {
-			// came from remote saga
-			txOptions := SagaTransactionOptions{
-				HopLimit: defaultHopLimit,
-				Lifespan: defaultLifespan,
+		sp.mutexTXS.Unlock()
+		if ok {
+			// loop detected. send cancel message
+			cancel := etf.Tuple{
+				etf.Atom("$saga_cancel"),
+				sp.Self(),
+				etf.Tuple{
+					stepMessage.Origin,
+					stepMessage.TransactionID,
+					"loop_detected",
+				},
 			}
-			if value, ok := stepMessage.Options["HopLimit"]; ok {
-				if hoplimit, ok := value.(int64); ok {
-					txOptions.HopLimit = uint(hoplimit)
-				}
-			}
-			if value, ok := stepMessage.Options["Lifespan"]; ok {
-				if lifespan, ok := value.(int64); ok {
-					txOptions.Lifespan = uint(lifespan)
-				}
-			}
-			if value, ok := stepMessage.Options["TwoPhaseCommit"]; ok {
-				txOptions.TwoPhaseCommit, _ = value.(bool)
-			}
-
-			tx = &SagaTransaction{
-				id:      transactionID,
-				options: txOptions,
-				origin:  SagaStepID(stepMessage.Origin),
-				steps:   make(map[SagaStepID]*SagaStep),
-				jobs:    make(map[etf.Pid]bool),
-				parents: append([]etf.Pid{m.Pid}, stepMessage.Parents...),
-			}
-			sp.txs[transactionID] = tx
-
-		} else {
-			if len(tx.parents) > 0 {
-				cancel := etf.Tuple{
-					etf.Atom("$saga_cancel"),
-					sp.Self(),
-					etf.Tuple{
-						stepMessage.Origin,
-						stepMessage.TransactionID,
-						"loop_detected",
-					},
-				}
-				sp.Send(m.Pid, cancel)
-				sp.mutexTXS.Unlock()
-				return nil
-
-			}
-			tx.arrival = time.Now().Unix()
-			tx.parents = []etf.Pid{m.Pid}
+			sp.Send(m.Pid, cancel)
+			return nil
 		}
+
+		txOptions := SagaTransactionOptions{
+			HopLimit: defaultHopLimit,
+			Lifespan: defaultLifespan,
+		}
+		if value, ok := stepMessage.Options["HopLimit"]; ok {
+			if hoplimit, ok := value.(int64); ok {
+				txOptions.HopLimit = uint(hoplimit)
+			}
+		}
+		if value, ok := stepMessage.Options["Lifespan"]; ok {
+			if lifespan, ok := value.(int64); ok {
+				txOptions.Lifespan = uint(lifespan)
+			}
+		}
+		if value, ok := stepMessage.Options["TwoPhaseCommit"]; ok {
+			txOptions.TwoPhaseCommit, _ = value.(bool)
+		}
+
+		tx = &SagaTransaction{
+			id:      transactionID,
+			options: txOptions,
+			origin:  SagaStepID(stepMessage.Origin),
+			steps:   make(map[SagaStepID]*SagaStep),
+			jobs:    make(map[etf.Pid]bool),
+			parents: append([]etf.Pid{m.Pid}, stepMessage.Parents...),
+		}
+		sp.mutexTXS.Lock()
+		sp.txs[transactionID] = tx
 		sp.mutexTXS.Unlock()
 
-		tx.monitor = sp.MonitorProcess(m.Pid)
+		// do not monitor itself (they are equal if it came from StartTransaction)
+		if m.Pid != sp.Self() {
+			tx.monitor = sp.MonitorProcess(m.Pid)
+		}
+		// FIXME start lifespan timer
 		return sp.behavior.HandleTxNew(sp, transactionID, stepMessage.Value)
 
 	//case "$saga_cancel":
@@ -609,44 +615,53 @@ func (sp *SagaProcess) handleSagaRequest(m messageSaga) error {
 	//	return nil
 	case etf.Atom("$saga_result"):
 		result := messageSagaResult{}
-		fmt.Println("got saga result", result)
 		if err := etf.TermIntoStruct(m.Command, &result); err != nil {
 			return ErrUnsupportedRequest
 		}
 
-		step_id := SagaStepID(result.Origin)
-		sp.mutexSteps.Lock()
-		tx, ok := sp.steps[step_id]
+		transactionID := SagaTransactionID(result.TransactionID)
+		sp.mutexTXS.Lock()
+		tx, ok := sp.txs[transactionID]
+		sp.mutexTXS.Unlock()
 		if !ok {
-			sp.mutexSteps.Unlock()
-			// ignore unknown result
+			// ignore unknown TX
 			return nil
-		} else {
-			delete(sp.steps, step_id)
-			if tx.id != SagaTransactionID(result.TransactionID) {
-				sp.mutexSteps.Unlock()
-				return fmt.Errorf("transaction id mismatch in saga result")
+		}
+
+		step_id := SagaStepID(result.Origin)
+		empty_step_id := SagaStepID{}
+		// step id is empty if we got result on a saga created this TX
+		if step_id != empty_step_id {
+			sp.mutexSteps.Lock()
+			_, ok := sp.steps[step_id]
+			sp.mutexSteps.Unlock()
+			if !ok {
+				// ignore unknown result
+				return nil
 			}
+			sp.mutexSteps.Lock()
+			delete(sp.steps, step_id)
+			sp.mutexSteps.Unlock()
+
+			tx.Lock()
+			if tx.options.TwoPhaseCommit == false {
+				delete(tx.steps, step_id)
+			} else {
+				step := tx.steps[step_id]
+				step.done = true
+			}
+			tx.Unlock()
+
+			return sp.behavior.HandleTxResult(sp, tx.id, step_id, result.Result)
 		}
-		sp.mutexSteps.Unlock()
 
-		tx.Lock()
-		if tx.options.TwoPhaseCommit == false {
-			delete(tx.steps, step_id)
-		} else {
-			step := tx.steps[step_id]
-			step.done = true
-		}
-		tx.Unlock()
-
-		sp.behavior.HandleTxResult(sp, tx.id, step_id, result.Result)
-
-		fmt.Println("AAA1")
+		status := sp.behavior.HandleTxResult(sp, tx.id, step_id, result.Result)
 		if sp.checkTxDone(tx) == true {
-			sp.behavior.HandleTxDone(sp, tx.id)
+			return sp.behavior.HandleTxDone(sp, tx.id)
 		}
 
-		return nil
+		return status
+
 	case etf.Atom("$saga_interim"):
 		interim := messageSagaResult{}
 		if err := etf.TermIntoStruct(m.Command, &interim); err != nil {
@@ -657,7 +672,7 @@ func (sp *SagaProcess) handleSagaRequest(m messageSaga) error {
 		tx, ok := sp.steps[step_id]
 		sp.mutexSteps.Unlock()
 		if !ok {
-			// ignore unknown result
+			// ignore unknown interim result
 			return nil
 		}
 		sp.behavior.HandleTxInterim(sp, tx.id, step_id, interim.Result)
@@ -841,7 +856,7 @@ func (gs *Saga) HandleInfo(process *ServerProcess, message etf.Term) ServerStatu
 
 	status := sp.handleSagaRequest(mSaga)
 	switch status {
-	case nil:
+	case nil, SagaStatusOK:
 		return ServerStatusOK
 	case SagaStatusStop:
 		return ServerStatusStop
