@@ -12,14 +12,14 @@ type SagaWorkerBehavior interface {
 
 	// HandleJobStart invoked on a worker start
 	HandleJobStart(process *SagaWorkerProcess, job SagaJob) error
-	// HandleJobCancel invoked if transaction was canceled
+	// HandleJobCancel invoked if transaction was canceled before the termination.
 	HandleJobCancel(process *SagaWorkerProcess)
 
 	// Optional callbacks
 
 	// HandleJobCommit invoked if this job was a part of the transaction
 	// with enabled TwoPhaseCommit option. All workers involved in this TX
-	// handling are receiving this call.
+	// handling are receiving this call. Callback invoked before the termination.
 	HandleJobCommit(process *SagaWorkerProcess)
 
 	// HandleWorkerInfo this callback is invoked on Process.Send. This method is optional
@@ -49,6 +49,7 @@ type SagaWorkerProcess struct {
 type messageSagaJobStart struct {
 	job SagaJob
 }
+type messageSagaJobDone struct{}
 type messageSagaJobCancel struct{}
 type messageSagaJobCommit struct{}
 type messageSagaJobInterim struct {
@@ -64,7 +65,8 @@ type messageSagaJobResult struct {
 // SagaWorkerProcess methods
 //
 
-// SendResult
+// SendResult sends the result and terminates this worker if 2PC is disabled. Otherwise,
+// will be waiting for cancel/commit signal.
 func (wp *SagaWorkerProcess) SendResult(result interface{}) error {
 	if wp.done {
 		return fmt.Errorf("result is already sent")
@@ -78,6 +80,13 @@ func (wp *SagaWorkerProcess) SendResult(result interface{}) error {
 		return err
 	}
 	wp.done = true
+
+	// if 2PC is enable do not terminate this worker
+	if wp.job.commit {
+		return nil
+	}
+
+	wp.Cast(wp.Self(), messageSagaJobDone{})
 	return nil
 }
 
@@ -116,6 +125,8 @@ func (w *SagaWorker) HandleCast(process *ServerProcess, message etf.Term) Server
 			return ServerStatusStop
 		}
 		return ServerStatusOK
+	case messageSagaJobDone:
+		return ServerStatusStop
 	case messageSagaJobCommit:
 		process.Behavior().(SagaWorkerBehavior).HandleJobCommit(p)
 		return ServerStatusStop

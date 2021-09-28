@@ -11,6 +11,9 @@ import (
 	"github.com/halturin/ergo/node"
 )
 
+// -----------------------
+// ----- Saga Simple -----
+
 //
 // Worker
 //
@@ -142,3 +145,16 @@ func TestSagaSimple(t *testing.T) {
 	node.Stop()
 	node.Wait()
 }
+
+// ----- Saga Simple -----
+// -----------------------
+
+// ----------------------------
+// ----- Saga Distributed -----
+
+type testSagaDist struct {
+	gen.Saga
+}
+
+// ----- Saga Distributed -----
+// ----------------------------

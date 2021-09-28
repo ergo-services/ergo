@@ -87,6 +87,8 @@ var (
 
 	ErrSagaTxEndOfLifespan = fmt.Errorf("End of TX lifespan")
 	ErrSagaTxNextTimeout   = fmt.Errorf("Next saga timeout")
+	ErrSagaUnknown         = fmt.Errorf("Unknown saga")
+	ErrSagaJobUnknown      = fmt.Errorf("Unknown job")
 )
 
 type Saga struct {
@@ -160,12 +162,14 @@ func (id SagaStepID) String() string {
 }
 
 type SagaStep struct {
-	// Saga - etf.Pid, string (for the locally registered process), gen.ProcessID{process, node} (for the remote process)
+	// Saga etf.Pid, string (for the locally registered process), gen.ProcessID{process, node} (for the remote process)
 	Saga interface{}
-	// Value - a value for the invoking HandleTX on a next hop.
+	// Value a value for the invoking HandleTX on a next hop.
 	Value interface{}
-	// Timeout - how long this Saga will be waiting for the result from the next hop. Default - 10 seconds
+	// Timeout how long this Saga will be waiting for the result from the next hop. Default - 10 seconds
 	Timeout uint
+	// TrapCancel if the next saga fails, it will transform the cancel signal into the regular message gen.MessageSagaCancel, and HandleSagaInfo callback will be invoked.
+	TrapCancel bool
 
 	// internal
 	done bool // for 2PC case
@@ -202,8 +206,8 @@ type messageSaga struct {
 }
 
 type messageSagaStep struct {
-	Origin        etf.Ref
 	TransactionID etf.Ref
+	Origin        etf.Ref
 	Value         interface{}
 	Parents       []etf.Pid
 	Options       map[string]interface{}
@@ -219,6 +223,12 @@ type messageSagaCancel struct {
 	Transaction etf.Ref
 	Origin      etf.Ref
 	Reason      string
+}
+
+type MessageSagaCancel struct {
+	TransactionID SagaTransactionID
+	StepID        SagaStepID
+	Reason        string
 }
 
 //
@@ -259,8 +269,8 @@ func (sp *SagaProcess) StartTransaction(name string, options SagaTransactionOpti
 		etf.Atom("$saga_next"),
 		sp.Self(),
 		etf.Tuple{
-			etf.Ref{},   // origin (step id)
 			id,          // tx id
+			etf.Ref{},   // origin (step id)
 			value,       // tx value
 			[]etf.Pid{}, // parents
 			etf.Map{ // tx options
@@ -299,8 +309,8 @@ func (sp *SagaProcess) Next(id SagaTransactionID, step SagaStep) (SagaStepID, er
 		etf.Atom("$saga_next"),
 		sp.Self(),
 		etf.Tuple{
-			ref,            // step id
 			etf.Ref(tx.id), // tx id
+			ref,            // step id
 			step.Value,
 			tx.parents,
 			etf.Map{
@@ -686,17 +696,39 @@ func (sp *SagaProcess) handleSagaExit(exit MessageExit) error {
 	job, ok := sp.jobs[exit.Pid]
 	sp.mutexJobs.Unlock()
 	if !ok {
-		// must be already handled as finished and was removed from there
-		return nil
+		// passthrough this message to HandleSagaInfo callback
+		return ErrSagaJobUnknown
 	}
+
+	// remove it
+	sp.mutexJobs.Lock()
+	delete(sp.jobs, exit.Pid)
+	sp.mutexJobs.Unlock()
+
+	// if job is done dont care the reason of termination
+	if job.done {
+		return SagaStatusOK
+	}
+
 	if exit.Reason != "normal" {
 		return sp.behavior.HandleJobFailed(sp, job.ID, exit.Reason)
 	}
 
+	// seems no result received from this worker
 	return sp.behavior.HandleJobFailed(sp, job.ID, "no result")
 }
 
 func (sp *SagaProcess) handleSagaDown(down MessageDown) error {
+	// FIXME
+
+	// if down.Ref is unknown return ErrSagaUnknown to passthrough
+	// this message to HandleSagaInfo callback
+
+	// if down.Ref == Origin - parent saga is down
+
+	// check the sp.steps for this down.Ref
+	// if found - next saga is down. send cancel message to itself
+	// with reason "next saga down"
 	return nil
 }
 
@@ -740,7 +772,6 @@ func (gs *Saga) Init(process *ServerProcess, args ...etf.Term) error {
 
 func (gs *Saga) HandleCall(process *ServerProcess, from ServerFrom, message etf.Term) (etf.Term, ServerStatus) {
 	sp := process.State.(*SagaProcess)
-
 	return sp.behavior.HandleSagaCall(sp, from, message)
 }
 
@@ -776,25 +807,18 @@ func (gs *Saga) HandleCast(process *ServerProcess, message etf.Term) ServerStatu
 		sp.mutexTXS.Unlock()
 
 		if !ok {
-			sp.mutexJobs.Lock()
-			delete(sp.jobs, m.pid)
-			sp.mutexJobs.Unlock()
-
 			// might be already canceled. just ignore it
 			status = SagaStatusOK
 			break
 		}
+		job.done = true
 
+		// remove this job from the tx job list, but do not remove
+		// from the sp.jobs (will be removed once worker terminated)
 		if tx.options.TwoPhaseCommit == false {
-			sp.mutexJobs.Lock()
-			delete(sp.jobs, m.pid)
-			sp.mutexJobs.Unlock()
-
 			tx.Lock()
 			delete(tx.jobs, m.pid)
 			tx.Unlock()
-		} else {
-			job.done = true
 		}
 
 		status = sp.behavior.HandleJobResult(sp, job.ID, m.result)
@@ -820,6 +844,7 @@ func (gs *Saga) HandleCast(process *ServerProcess, message etf.Term) ServerStatu
 
 		status = sp.behavior.HandleSagaCast(sp, message)
 	}
+
 	switch status {
 	case SagaStatusOK:
 		return ServerStatusOK
@@ -837,16 +862,20 @@ func (gs *Saga) HandleInfo(process *ServerProcess, message etf.Term) ServerStatu
 	switch m := message.(type) {
 	case MessageExit:
 		// handle worker exit message
-		if err := sp.handleSagaExit(m); err != nil {
-			return ServerStatus(err)
+		err := sp.handleSagaExit(m)
+		if err == ErrSagaJobUnknown {
+			return sp.behavior.HandleSagaInfo(sp, m)
 		}
-		return ServerStatusOK
+		return ServerStatus(err)
+
 	case MessageDown:
 		// handle saga's down message
-		if err := sp.handleSagaDown(m); err != nil {
-			return ServerStatus(err)
+		err := sp.handleSagaDown(m)
+		if err == ErrSagaUnknown {
+			return sp.behavior.HandleSagaInfo(sp, m)
 		}
-		return ServerStatusOK
+		return ServerStatus(err)
+
 	default:
 		if err := etf.TermIntoStruct(message, &mSaga); err != nil {
 			status := sp.behavior.HandleSagaInfo(sp, message)
