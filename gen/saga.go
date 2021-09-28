@@ -183,9 +183,9 @@ func (id SagaJobID) String() string {
 }
 
 type SagaJob struct {
-	ID    SagaJobID
-	TxID  SagaTransactionID
-	Value interface{}
+	ID            SagaJobID
+	TransactionID SagaTransactionID
+	Value         interface{}
 
 	// internal
 	options SagaJobOptions
@@ -359,7 +359,7 @@ func (sp *SagaProcess) StartJob(id SagaTransactionID, options SagaJobOptions, va
 	sp.Link(worker.Self())
 
 	job.ID = SagaJobID(sp.MakeRef())
-	job.TxID = id
+	job.TransactionID = id
 	job.Value = value
 	job.commit = tx.options.TwoPhaseCommit
 	job.saga = sp.Self()
@@ -705,6 +705,15 @@ func (sp *SagaProcess) handleSagaExit(exit MessageExit) error {
 	delete(sp.jobs, exit.Pid)
 	sp.mutexJobs.Unlock()
 
+	// check if this tx is still alive
+	sp.mutexTXS.Lock()
+	_, ok = sp.txs[job.TransactionID]
+	sp.mutexTXS.Unlock()
+	if !ok {
+		// seems it was already canceled
+		return SagaStatusOK
+	}
+
 	// if this job is done, don't care about the termination reason
 	if job.done {
 		return SagaStatusOK
@@ -803,7 +812,7 @@ func (gs *Saga) HandleCast(process *ServerProcess, message etf.Term) ServerStatu
 		}
 
 		sp.mutexTXS.Lock()
-		tx, ok := sp.txs[job.TxID]
+		tx, ok := sp.txs[job.TransactionID]
 		sp.mutexTXS.Unlock()
 
 		if !ok {

@@ -75,6 +75,7 @@ Here are the changes of latest release. For more details see the [ChangeLog](Cha
   * `etf.Charlist` (an alias for the Golang string) encodes as a list of chars `[]rune` in order to support Erlang string type (which is `charlist()` type)
 * Introduced new methods `Node.ProvideRemoteSpawn`, `Node.RevokeRemoteSpawn`, `Process.RemoteSpawn`.
 * Introduced new interfaces `Marshaler` (method `MarshalETF`) and `Unmarshaler` (method `UnmarshalETF`) for the custom encoding/decoding data.
+* Improved performance for the local messaging (up to 3 times for some cases)
 * Added example [examples/http](examples/http) to demonsrate how HTTP server can be integrated into the Ergo node.
 * Added example [examples/gendemo](examples/gendemo) - how to create a custom behavior (design pattern) on top of the `gen.Server`. Take inspiration from the [gen/stage.go](gen/stage.go) or [gen/saga.go](gen/saga.go) design patterns.
 * Added support FreeBSD, OpenBSD, NetBSD, DragonFly.

@@ -22,7 +22,7 @@ type testSagaWorker struct {
 }
 
 func (w *testSagaWorker) HandleJobStart(process *gen.SagaWorkerProcess, job gen.SagaJob) error {
-	fmt.Println("... Worker process started", process.Self(), " on", job.ID, " with value", job.Value, "for TX", job.TxID)
+	fmt.Println("... Worker process started", process.Self(), " on", job.ID, " with value", job.Value, "for TX", job.TransactionID)
 	process.SendInterim(888)
 	process.SendInterim(999)
 	process.SendResult(1000)
