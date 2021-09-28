@@ -42,8 +42,10 @@ type SagaWorker struct {
 
 type SagaWorkerProcess struct {
 	ServerProcess
-	job  SagaJob
-	done bool
+
+	behavior SagaWorkerBehavior
+	job      SagaJob
+	done     bool
 }
 
 type messageSagaJobStart struct {
@@ -104,6 +106,7 @@ func (wp *SagaWorkerProcess) SendInterim(interim interface{}) error {
 func (w *SagaWorker) Init(process *ServerProcess, args ...etf.Term) error {
 	workerProcess := &SagaWorkerProcess{
 		ServerProcess: *process,
+		behavior:      process.Behavior().(SagaWorkerBehavior),
 	}
 	process.State = workerProcess
 	return nil
@@ -114,7 +117,7 @@ func (w *SagaWorker) HandleCast(process *ServerProcess, message etf.Term) Server
 	switch m := message.(type) {
 	case messageSagaJobStart:
 		p.job = m.job
-		err := process.Behavior().(SagaWorkerBehavior).HandleJobStart(p, p.job)
+		err := p.behavior.HandleJobStart(p, p.job)
 		if err != nil {
 			return err
 		}
@@ -128,28 +131,28 @@ func (w *SagaWorker) HandleCast(process *ServerProcess, message etf.Term) Server
 	case messageSagaJobDone:
 		return ServerStatusStop
 	case messageSagaJobCommit:
-		process.Behavior().(SagaWorkerBehavior).HandleJobCommit(p)
+		p.behavior.HandleJobCommit(p)
 		return ServerStatusStop
 	case messageSagaJobCancel:
-		process.Behavior().(SagaWorkerBehavior).HandleJobCancel(p)
+		p.behavior.HandleJobCancel(p)
 		return ServerStatusStop
 	default:
-		return process.Behavior().(SagaWorkerBehavior).HandleWorkerCast(p, message)
+		return p.behavior.HandleWorkerCast(p, message)
 	}
 }
 
 func (w *SagaWorker) HandleCall(process *ServerProcess, from ServerFrom, message etf.Term) (etf.Term, ServerStatus) {
 	p := process.State.(*SagaWorkerProcess)
-	return process.Behavior().(SagaWorkerBehavior).HandleWorkerCall(p, from, message)
+	return p.behavior.HandleWorkerCall(p, from, message)
 }
 
 func (w *SagaWorker) HandleDirect(process *ServerProcess, message interface{}) (interface{}, error) {
 	p := process.State.(*SagaWorkerProcess)
-	return process.Behavior().(SagaWorkerBehavior).HandleWorkerDirect(p, message)
+	return p.behavior.HandleWorkerDirect(p, message)
 }
 func (w *SagaWorker) HandleInfo(process *ServerProcess, message etf.Term) ServerStatus {
 	p := process.State.(*SagaWorkerProcess)
-	return process.Behavior().(SagaWorkerBehavior).HandleWorkerInfo(p, message)
+	return p.behavior.HandleWorkerInfo(p, message)
 }
 
 // default callbacks

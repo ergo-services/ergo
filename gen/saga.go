@@ -705,7 +705,7 @@ func (sp *SagaProcess) handleSagaExit(exit MessageExit) error {
 	delete(sp.jobs, exit.Pid)
 	sp.mutexJobs.Unlock()
 
-	// if job is done dont care the reason of termination
+	// if this job is done, don't care about the termination reason
 	if job.done {
 		return SagaStatusOK
 	}
