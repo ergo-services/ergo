@@ -104,9 +104,13 @@ func (wp *SagaWorkerProcess) SendInterim(interim interface{}) error {
 // Server callbacks
 
 func (w *SagaWorker) Init(process *ServerProcess, args ...etf.Term) error {
+	behavior, ok := process.Behavior().(SagaWorkerBehavior)
+	if !ok {
+		return fmt.Errorf("Not a SagaWorkerBehavior")
+	}
 	workerProcess := &SagaWorkerProcess{
 		ServerProcess: *process,
-		behavior:      process.Behavior().(SagaWorkerBehavior),
+		behavior:      behavior,
 	}
 	process.State = workerProcess
 	return nil
