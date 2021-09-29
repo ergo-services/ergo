@@ -2,19 +2,13 @@ package node
 
 import (
 	"context"
-
-	//"crypto/rsa"
-
 	"fmt"
+	"strings"
+	"time"
 
 	"github.com/halturin/ergo/etf"
 	"github.com/halturin/ergo/gen"
 	"github.com/halturin/ergo/lib"
-
-	//	"net/http"
-
-	"strings"
-	"time"
 )
 
 const (
@@ -26,7 +20,7 @@ type nodeInternal interface {
 	registrarInternal
 }
 
-// Node instance of created node using CreateNode
+// node instance of created node using CreateNode
 type node struct {
 	registrarInternal
 	networkInternal

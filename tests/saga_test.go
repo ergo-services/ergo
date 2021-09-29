@@ -70,12 +70,12 @@ func (gs *testSaga) HandleTxCancel(process *gen.SagaProcess, id gen.SagaTransact
 	return gen.SagaStatusOK
 }
 
-func (gs *testSaga) HandleTxResult(process *gen.SagaProcess, id gen.SagaTransactionID, from gen.SagaStepID, result interface{}) gen.SagaStatus {
+func (gs *testSaga) HandleTxResult(process *gen.SagaProcess, id gen.SagaTransactionID, from gen.SagaNextID, result interface{}) gen.SagaStatus {
 	fmt.Println("Tx result", id, result)
 	return gen.SagaStatusOK
 }
 
-func (gs *testSaga) HandleTxInterim(process *gen.SagaProcess, id gen.SagaTransactionID, from gen.SagaStepID, interim interface{}) gen.SagaStatus {
+func (gs *testSaga) HandleTxInterim(process *gen.SagaProcess, id gen.SagaTransactionID, from gen.SagaNextID, interim interface{}) gen.SagaStatus {
 
 	return gen.SagaStatusOK
 }

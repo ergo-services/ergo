@@ -270,7 +270,7 @@ go test -coverprofile=cover.out ./...
 go tool cover -html=cover.out -o coverage.html
 ```
 
-To run test with cleaned test cache:
+To run tests with cleaned test cache:
 
 ```
 go vet
