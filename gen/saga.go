@@ -99,7 +99,7 @@ type SagaTransactionOptions struct {
 	// HopLimit defines a number of hop within the transaction. Default limit
 	// is 0 (no limit).
 	HopLimit uint
-	// Lifespan defines a lifespan for the transaction in seconds. Must be > 0 (default is 60).
+	// Lifespan defines a lifespan for the transaction in seconds. Default is 60.
 	Lifespan uint
 
 	// TwoPhaseCommit enables 2PC for the transaction. This option makes all
@@ -270,7 +270,7 @@ func (sp *SagaProcess) StartTransaction(name string, options SagaTransactionOpti
 		sp.Self(),
 		etf.Tuple{
 			id,          // tx id
-			etf.Ref{},   // origin (parent's next id)
+			etf.Ref{},   // origin. empty value. (parent's next id)
 			value,       // tx value
 			[]etf.Pid{}, // parents
 			etf.Map{ // tx options
@@ -397,6 +397,11 @@ func (sp *SagaProcess) SendResult(id SagaTransactionID, result interface{}) erro
 
 	if sp.checkTxDone(tx) == false {
 		return fmt.Errorf("transaction is still in progress")
+	}
+
+	if len(tx.parents) == 0 {
+		// SendResult is called right after CreateTransaction call.
+		return fmt.Errorf("not allowed")
 	}
 
 	message := etf.Tuple{
@@ -546,8 +551,8 @@ func (sp *SagaProcess) handleSagaRequest(m messageSaga) error {
 				etf.Atom("$saga_cancel"),
 				sp.Self(),
 				etf.Tuple{
-					nextMessage.Origin,
 					nextMessage.TransactionID,
+					nextMessage.Origin,
 					"exceed_tx_limit",
 				},
 			}
@@ -566,8 +571,8 @@ func (sp *SagaProcess) handleSagaRequest(m messageSaga) error {
 				etf.Atom("$saga_cancel"),
 				sp.Self(),
 				etf.Tuple{
-					nextMessage.Origin,
 					nextMessage.TransactionID,
+					nextMessage.Origin,
 					"loop_detected",
 				},
 			}
@@ -605,7 +610,7 @@ func (sp *SagaProcess) handleSagaRequest(m messageSaga) error {
 		sp.txs[transactionID] = tx
 		sp.mutexTXS.Unlock()
 
-		// do not monitor itself (they are equal if it came from StartTransaction)
+		// do not monitor itself (they are equal if its came from the StartTransaction call)
 		if m.Pid != sp.Self() {
 			tx.monitor = sp.MonitorProcess(m.Pid)
 		}
