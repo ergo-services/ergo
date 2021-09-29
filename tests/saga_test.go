@@ -211,6 +211,19 @@ func TestSagaSimple(t *testing.T) {
 	}
 	waitForResultWithValue(t, saga.res, sum3)
 
+	saga.result = 0
+	slice4 := rand.Perm(10000)
+	sum4 := sumSlice(slice4)
+	startTask4 := task{
+		value:  slice4,
+		split:  100, // 1 items per tx
+		chunks: 5,   // size of slice for worker
+	}
+	_, err = saga_process.Direct(startTask4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitForResultWithValue(t, saga.res, sum4)
 	node.Stop()
 	node.Wait()
 }
