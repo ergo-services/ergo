@@ -162,7 +162,7 @@ func TestSagaSimple(t *testing.T) {
 
 	fmt.Printf("... Starting Saga processes: ")
 	saga := &testSaga{}
-	saga_process, err := node.Spawn("saga", gen.ProcessOptions{MailboxSize: 1000}, saga)
+	saga_process, err := node.Spawn("saga", gen.ProcessOptions{MailboxSize: 10000}, saga)
 	if err != nil {
 		t.Fatal(err)
 	}
