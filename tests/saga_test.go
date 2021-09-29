@@ -183,6 +183,7 @@ func TestSagaSimple(t *testing.T) {
 	}
 	waitForResultWithValue(t, saga.res, sum1)
 
+	saga.result = 0
 	slice2 := rand.Perm(100)
 	sum2 := sumSlice(slice2)
 	startTask2 := task{
@@ -196,6 +197,7 @@ func TestSagaSimple(t *testing.T) {
 	}
 	waitForResultWithValue(t, saga.res, sum2)
 
+	saga.result = 0
 	slice3 := rand.Perm(100)
 	sum3 := sumSlice(slice3)
 	startTask3 := task{
