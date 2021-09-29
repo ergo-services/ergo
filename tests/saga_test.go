@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"math/rand"
 	"testing"
-	"time"
 
 	"github.com/halturin/ergo"
 	"github.com/halturin/ergo/etf"
@@ -32,30 +31,33 @@ func (w *testSagaWorker) HandleJobStart(process *gen.SagaWorkerProcess, job gen.
 func (w *testSagaWorker) HandleJobCancel(process *gen.SagaWorkerProcess) {
 	return
 }
-func (w *testSagaWorker) HandleWorkerInfo(process *gen.SagaWorkerProcess, message etf.Term) gen.ServerStatus {
-	return gen.ServerStatusOK
-}
 
 //
 // Saga
 //
 type testSaga struct {
 	gen.Saga
-	txs    map[gen.SagaTransactionID]int
-	result int
 	res    chan interface{}
+	result int
 }
 
 type testSagaState struct {
-	jobs map[gen.SagaJobID]gen.SagaTransactionID
+	txs map[gen.SagaTransactionID]*txjobs
+}
+
+type txjobs struct {
+	result int
+	jobs   map[gen.SagaJobID]bool
 }
 
 func (gs *testSaga) InitSaga(process *gen.SagaProcess, args ...etf.Term) (gen.SagaOptions, error) {
 	opts := gen.SagaOptions{
 		Worker: &testSagaWorker{},
 	}
-	gs.txs = make(map[gen.SagaTransactionID]int)
-	process.State = &testSagaState{jobs: make(map[gen.SagaJobID]gen.SagaTransactionID)}
+	gs.res = make(chan interface{}, 2)
+	process.State = &testSagaState{
+		txs: make(map[gen.SagaTransactionID]*txjobs),
+	}
 	return opts, nil
 }
 
@@ -63,18 +65,27 @@ func (gs *testSaga) HandleTxNew(process *gen.SagaProcess, id gen.SagaTransaction
 	task := value.(taskTX)
 	values := splitSlice(task.value, task.chunks)
 	state := process.State.(*testSagaState)
+	j := txjobs{
+		jobs: make(map[gen.SagaJobID]bool),
+	}
 	for i := range values {
 		job_id, err := process.StartJob(id, gen.SagaJobOptions{}, values[i])
 		if err != nil {
 			return err
 		}
-		state.jobs[job_id] = id
+		j.jobs[job_id] = true
 	}
+	state.txs[id] = &j
 	return gen.SagaStatusOK
 }
 
 func (gs *testSaga) HandleTxDone(process *gen.SagaProcess, id gen.SagaTransactionID) gen.SagaStatus {
 	fmt.Println("Tx done", id)
+	state := process.State.(*testSagaState)
+
+	if len(state.txs) == 0 {
+		gs.res <- gs.result
+	}
 	return gen.SagaStatusOK
 }
 
@@ -93,16 +104,17 @@ func (gs *testSaga) HandleTxInterim(process *gen.SagaProcess, id gen.SagaTransac
 	return gen.SagaStatusOK
 }
 
-func (gs *testSaga) HandleJobResult(process *gen.SagaProcess, id gen.SagaJobID, result interface{}) gen.SagaStatus {
-
+func (gs *testSaga) HandleJobResult(process *gen.SagaProcess, id gen.SagaTransactionID, from gen.SagaJobID, result interface{}) gen.SagaStatus {
 	state := process.State.(*testSagaState)
-	tx_id := state.jobs[id]
-	txValue := gs.txs[tx_id]
-	txValue += result.(int)
-	gs.txs[tx_id] = txValue
-	delete(state.jobs, id)
-	if len(state.jobs) == 0 {
-		process.SendResult(tx_id, txValue)
+	fmt.Println("got result", id, from, result)
+	j := state.txs[id]
+	j.result += result.(int)
+	delete(j.jobs, from)
+
+	if len(j.jobs) == 0 {
+		fmt.Println("all jobs finished for tx", id)
+		delete(state.txs, id)
+		process.SendResult(id, j.result)
 	}
 	return gen.SagaStatusOK
 }
@@ -118,10 +130,6 @@ type taskTX struct {
 	chunks int
 }
 
-func (gs *testSaga) HandleSagaInfo(process *gen.SagaProcess, message etf.Term) gen.ServerStatus {
-	fmt.Println("INFO", message)
-	return gen.ServerStatusOK
-}
 func (gs *testSaga) HandleSagaDirect(process *gen.SagaProcess, message interface{}) (interface{}, error) {
 	switch m := message.(type) {
 	case task:
@@ -132,7 +140,7 @@ func (gs *testSaga) HandleSagaDirect(process *gen.SagaProcess, message interface
 				chunks: m.chunks,
 			}
 			id := process.StartTransaction(gen.SagaTransactionOptions{}, txValue)
-			gs.txs[id] = 0
+			fmt.Println("start tx", id)
 		}
 
 		return nil, nil
@@ -161,21 +169,18 @@ func TestSagaSimple(t *testing.T) {
 	}
 	fmt.Println("OK")
 
-	fmt.Printf("... Starting new TX with initial value 12345 ")
-	slice1 := rand.Perm(10)
+	slice1 := rand.Perm(20)
 	sum1 := sumSlice(slice1)
 	startTask := task{
 		value:  slice1,
-		split:  3, // split on 3 txs
-		chunks: 5, // size of slice for worker
+		split:  10, // 3 items per tx
+		chunks: 5,  // size of slice for worker
 	}
 	_, err = saga_process.Direct(startTask)
 	if err != nil {
 		t.Fatal(err)
 	}
 	waitForResultWithValue(t, saga.res, sum1)
-
-	time.Sleep(2 * time.Second)
 
 	node.Stop()
 	node.Wait()

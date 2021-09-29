@@ -47,11 +47,11 @@ type SagaBehavior interface {
 	//
 
 	// HandleJobResult
-	HandleJobResult(process *SagaProcess, id SagaJobID, result interface{}) SagaStatus
+	HandleJobResult(process *SagaProcess, id SagaTransactionID, from SagaJobID, result interface{}) SagaStatus
 	// HandleJobInterim
-	HandleJobInterim(process *SagaProcess, id SagaJobID, interim interface{}) SagaStatus
+	HandleJobInterim(process *SagaProcess, id SagaTransactionID, from SagaJobID, interim interface{}) SagaStatus
 	// HandleJobFailed
-	HandleJobFailed(process *SagaProcess, id SagaJobID, reason string) SagaStatus
+	HandleJobFailed(process *SagaProcess, id SagaTransactionID, from SagaJobID, reason string) SagaStatus
 
 	//
 	// Server's callbacks
@@ -368,8 +368,6 @@ func (sp *SagaProcess) StartJob(id SagaTransactionID, options SagaJobOptions, va
 	sp.mutexJobs.Lock()
 	sp.jobs[worker.Self()] = &job
 	sp.mutexJobs.Unlock()
-
-	fmt.Println("JOB", job.ID, worker.Self(), sp.jobs)
 
 	m := messageSagaJobStart{
 		job: job,
@@ -724,11 +722,11 @@ func (sp *SagaProcess) handleSagaExit(exit MessageExit) error {
 	}
 
 	if exit.Reason != "normal" {
-		return sp.behavior.HandleJobFailed(sp, job.ID, exit.Reason)
+		return sp.behavior.HandleJobFailed(sp, job.TransactionID, job.ID, exit.Reason)
 	}
 
 	// seems no result received from this worker
-	return sp.behavior.HandleJobFailed(sp, job.ID, "no result")
+	return sp.behavior.HandleJobFailed(sp, job.TransactionID, job.ID, "no result")
 }
 
 func (sp *SagaProcess) handleSagaDown(down MessageDown) error {
@@ -834,7 +832,7 @@ func (gs *Saga) HandleCast(process *ServerProcess, message etf.Term) ServerStatu
 			tx.Unlock()
 		}
 
-		status = sp.behavior.HandleJobResult(sp, job.ID, m.result)
+		status = sp.behavior.HandleJobResult(sp, job.TransactionID, job.ID, m.result)
 
 	case messageSagaJobInterim:
 		sp.mutexJobs.Lock()
@@ -845,7 +843,7 @@ func (gs *Saga) HandleCast(process *ServerProcess, message etf.Term) ServerStatu
 			status = SagaStatusOK
 			break
 		}
-		status = sp.behavior.HandleJobInterim(sp, job.ID, m.interim)
+		status = sp.behavior.HandleJobInterim(sp, job.TransactionID, job.ID, m.interim)
 
 	default:
 		if err := etf.TermIntoStruct(message, &mSaga); err == nil {
@@ -918,15 +916,15 @@ func (gs *Saga) Terminate(process *ServerProcess, reason string) {
 //
 
 func (gs *Saga) HandleTxInterim(process *SagaProcess, id SagaTransactionID, from SagaNextID, interim interface{}) SagaStatus {
-	fmt.Printf("HandleTxInterim: unhandled message %v from %v\n", id, from)
+	fmt.Printf("HandleTxInterim: [%v %v] unhandled message %#v\n", id, from, interim)
 	return ServerStatusOK
 }
 func (gs *Saga) HandleTxCommit(process *SagaProcess, id SagaTransactionID) SagaStatus {
-	fmt.Printf("HandleTxCommit: unhandled message %v\n", id)
+	fmt.Printf("HandleTxCommit: [%v] unhandled message\n", id)
 	return ServerStatusOK
 }
 func (gs *Saga) HandleTxDone(process *SagaProcess, id SagaTransactionID) SagaStatus {
-	fmt.Printf("HandleTxDone: unhandled message %v\n", id)
+	fmt.Printf("HandleTxDone: [%v] unhandled message \n", id)
 	return ServerStatusOK
 }
 
@@ -942,15 +940,15 @@ func (gs *Saga) HandleSagaInfo(process *SagaProcess, message etf.Term) ServerSta
 	fmt.Printf("HandleSagaInfo: unhandled message %#v\n", message)
 	return ServerStatusOK
 }
-func (gs *Saga) HandleJobResult(process *SagaProcess, id SagaJobID, result interface{}) SagaStatus {
-	fmt.Printf("HandleJobResult: unhandled message %#v\n", result)
+func (gs *Saga) HandleJobResult(process *SagaProcess, id SagaTransactionID, from SagaJobID, result interface{}) SagaStatus {
+	fmt.Printf("HandleJobResult: [%v %v] unhandled message %#v\n", id, from, result)
 	return SagaStatusOK
 }
-func (gs *Saga) HandleJobInterim(process *SagaProcess, id SagaJobID, interim interface{}) SagaStatus {
-	fmt.Printf("HandleJobInterim: unhandled message %#v\n", interim)
+func (gs *Saga) HandleJobInterim(process *SagaProcess, id SagaTransactionID, from SagaJobID, interim interface{}) SagaStatus {
+	fmt.Printf("HandleJobInterim: [%v %v] unhandled message %#v\n", id, from, interim)
 	return SagaStatusOK
 }
-func (gs *Saga) HandleJobFailed(process *SagaProcess, id SagaJobID, reason string) SagaStatus {
-	fmt.Printf("HandleJobFailed: unhandled message %s. reason %q\n", id, reason)
+func (gs *Saga) HandleJobFailed(process *SagaProcess, id SagaTransactionID, from SagaJobID, reason string) SagaStatus {
+	fmt.Printf("HandleJobFailed: [%v %v] unhandled message. reason %q\n", id, from, reason)
 	return nil
 }
