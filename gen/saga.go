@@ -630,6 +630,7 @@ func (sp *SagaProcess) handleSagaRequest(m messageSaga) error {
 		if err := etf.TermIntoStruct(m.Command, &result); err != nil {
 			return ErrUnsupportedRequest
 		}
+		fmt.Println("SAGA RESULT", result)
 
 		transactionID := SagaTransactionID(result.TransactionID)
 		sp.mutexTXS.Lock()

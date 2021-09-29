@@ -83,6 +83,7 @@ func (gs *testSaga) HandleTxDone(process *gen.SagaProcess, id gen.SagaTransactio
 	fmt.Println("Tx done", id)
 	state := process.State.(*testSagaState)
 
+	delete(state.txs, id)
 	if len(state.txs) == 0 {
 		gs.res <- gs.result
 	}
@@ -94,8 +95,8 @@ func (gs *testSaga) HandleTxCancel(process *gen.SagaProcess, id gen.SagaTransact
 }
 
 func (gs *testSaga) HandleTxResult(process *gen.SagaProcess, id gen.SagaTransactionID, from gen.SagaNextID, result interface{}) gen.SagaStatus {
-	fmt.Println("Tx result", id, result)
 	gs.result += result.(int)
+	fmt.Println("Tx result", id, result, gs.result)
 	return gen.SagaStatusOK
 }
 
@@ -112,8 +113,7 @@ func (gs *testSaga) HandleJobResult(process *gen.SagaProcess, id gen.SagaTransac
 	delete(j.jobs, from)
 
 	if len(j.jobs) == 0 {
-		fmt.Println("all jobs finished for tx", id)
-		delete(state.txs, id)
+		fmt.Println("all jobs finished for tx", id, "result", j.result)
 		process.SendResult(id, j.result)
 	}
 	return gen.SagaStatusOK
@@ -140,7 +140,7 @@ func (gs *testSaga) HandleSagaDirect(process *gen.SagaProcess, message interface
 				chunks: m.chunks,
 			}
 			id := process.StartTransaction(gen.SagaTransactionOptions{}, txValue)
-			fmt.Println("start tx", id)
+			fmt.Println("start tx", id, values[i])
 		}
 
 		return nil, nil
@@ -169,12 +169,12 @@ func TestSagaSimple(t *testing.T) {
 	}
 	fmt.Println("OK")
 
-	slice1 := rand.Perm(20)
+	slice1 := rand.Perm(220)
 	sum1 := sumSlice(slice1)
 	startTask := task{
 		value:  slice1,
-		split:  10, // 3 items per tx
-		chunks: 5,  // size of slice for worker
+		split:  9, // 3 items per tx
+		chunks: 5, // size of slice for worker
 	}
 	_, err = saga_process.Direct(startTask)
 	if err != nil {
