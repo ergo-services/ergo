@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math/rand"
 	"testing"
+	"time"
 
 	"github.com/halturin/ergo"
 	"github.com/halturin/ergo/etf"
@@ -22,10 +23,12 @@ type testSagaWorker struct {
 }
 
 func (w *testSagaWorker) HandleJobStart(process *gen.SagaWorkerProcess, job gen.SagaJob) error {
-	fmt.Println("... Worker process started", process.Self(), " on", job.ID, " with value", job.Value, "for TX", job.TransactionID)
 	values := job.Value.([]int)
 	result := sumSlice(values)
-	process.SendResult(result)
+	xx := process.SendResult(result)
+	if xx != nil {
+		panic(xx)
+	}
 	return nil
 }
 func (w *testSagaWorker) HandleJobCancel(process *gen.SagaWorkerProcess) {
@@ -80,7 +83,6 @@ func (gs *testSaga) HandleTxNew(process *gen.SagaProcess, id gen.SagaTransaction
 }
 
 func (gs *testSaga) HandleTxDone(process *gen.SagaProcess, id gen.SagaTransactionID) gen.SagaStatus {
-	fmt.Println("Tx done", id)
 	state := process.State.(*testSagaState)
 
 	delete(state.txs, id)
@@ -96,7 +98,6 @@ func (gs *testSaga) HandleTxCancel(process *gen.SagaProcess, id gen.SagaTransact
 
 func (gs *testSaga) HandleTxResult(process *gen.SagaProcess, id gen.SagaTransactionID, from gen.SagaNextID, result interface{}) gen.SagaStatus {
 	gs.result += result.(int)
-	fmt.Println("Tx result", id, result, gs.result)
 	return gen.SagaStatusOK
 }
 
@@ -107,13 +108,11 @@ func (gs *testSaga) HandleTxInterim(process *gen.SagaProcess, id gen.SagaTransac
 
 func (gs *testSaga) HandleJobResult(process *gen.SagaProcess, id gen.SagaTransactionID, from gen.SagaJobID, result interface{}) gen.SagaStatus {
 	state := process.State.(*testSagaState)
-	fmt.Println("got result", id, from, result)
 	j := state.txs[id]
 	j.result += result.(int)
 	delete(j.jobs, from)
 
 	if len(j.jobs) == 0 {
-		fmt.Println("all jobs finished for tx", id, "result", j.result)
 		process.SendResult(id, j.result)
 	}
 	return gen.SagaStatusOK
@@ -134,13 +133,13 @@ func (gs *testSaga) HandleSagaDirect(process *gen.SagaProcess, message interface
 	switch m := message.(type) {
 	case task:
 		values := splitSlice(m.value, m.split)
+		fmt.Printf("    start %v txs with %v value(s) each and chunk size %v: ", len(values), m.split, m.chunks)
 		for i := range values {
 			txValue := taskTX{
 				value:  values[i],
 				chunks: m.chunks,
 			}
-			id := process.StartTransaction(gen.SagaTransactionOptions{}, txValue)
-			fmt.Println("start tx", id, values[i])
+			process.StartTransaction(gen.SagaTransactionOptions{}, txValue)
 		}
 
 		return nil, nil
@@ -163,24 +162,52 @@ func TestSagaSimple(t *testing.T) {
 
 	fmt.Printf("... Starting Saga processes: ")
 	saga := &testSaga{}
-	saga_process, err := node.Spawn("saga", gen.ProcessOptions{}, saga)
+	saga_process, err := node.Spawn("saga", gen.ProcessOptions{MailboxSize: 1000}, saga)
 	if err != nil {
 		t.Fatal(err)
 	}
 	fmt.Println("OK")
 
-	slice1 := rand.Perm(220)
+	rand.Seed(time.Now().Unix())
+
+	slice1 := rand.Perm(1000)
 	sum1 := sumSlice(slice1)
-	startTask := task{
+	startTask1 := task{
 		value:  slice1,
-		split:  9, // 3 items per tx
-		chunks: 5, // size of slice for worker
+		split:  10, // 10 items per tx
+		chunks: 5,  // size of slice for worker
 	}
-	_, err = saga_process.Direct(startTask)
+	_, err = saga_process.Direct(startTask1)
 	if err != nil {
 		t.Fatal(err)
 	}
 	waitForResultWithValue(t, saga.res, sum1)
+
+	slice2 := rand.Perm(100)
+	sum2 := sumSlice(slice2)
+	startTask2 := task{
+		value:  slice2,
+		split:  1, // 1 items per tx
+		chunks: 5, // size of slice for worker
+	}
+	_, err = saga_process.Direct(startTask2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitForResultWithValue(t, saga.res, sum2)
+
+	slice3 := rand.Perm(100)
+	sum3 := sumSlice(slice3)
+	startTask3 := task{
+		value:  slice3,
+		split:  100, // 1 items per tx
+		chunks: 5,   // size of slice for worker
+	}
+	_, err = saga_process.Direct(startTask3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitForResultWithValue(t, saga.res, sum3)
 
 	node.Stop()
 	node.Wait()

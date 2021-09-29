@@ -544,6 +544,7 @@ func (sp *SagaProcess) handleSagaRequest(m messageSaga) error {
 
 		// Check if exceed the number of transaction on this saga
 		if sp.options.MaxTransactions > 0 && len(sp.txs)+1 > int(sp.options.MaxTransactions) {
+			panic("")
 			cancel := etf.Tuple{
 				etf.Atom("$saga_cancel"),
 				sp.Self(),
@@ -563,6 +564,7 @@ func (sp *SagaProcess) handleSagaRequest(m messageSaga) error {
 		tx, ok := sp.txs[transactionID]
 		sp.mutexTXS.Unlock()
 		if ok {
+			panic("")
 			// loop detected. send cancel message
 			cancel := etf.Tuple{
 				etf.Atom("$saga_cancel"),
@@ -614,7 +616,8 @@ func (sp *SagaProcess) handleSagaRequest(m messageSaga) error {
 		// FIXME start lifespan timer
 		return sp.behavior.HandleTxNew(sp, transactionID, nextMessage.Value)
 
-	//case "$saga_cancel":
+	case "$saga_cancel":
+		panic("got cancel")
 	//	if err := etf.TermIntoStruct(m.Command, &cancel); err != nil {
 	//		return ErrUnsupportedRequest
 	//	}
@@ -630,7 +633,6 @@ func (sp *SagaProcess) handleSagaRequest(m messageSaga) error {
 		if err := etf.TermIntoStruct(m.Command, &result); err != nil {
 			return ErrUnsupportedRequest
 		}
-		fmt.Println("SAGA RESULT", result)
 
 		transactionID := SagaTransactionID(result.TransactionID)
 		sp.mutexTXS.Lock()
