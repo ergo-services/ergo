@@ -12,9 +12,6 @@ import (
 	"github.com/halturin/ergo/node"
 )
 
-// -----------------------
-// ----- Saga Simple -----
-
 //
 // Worker
 //
@@ -25,9 +22,8 @@ type testSagaWorker struct {
 func (w *testSagaWorker) HandleJobStart(process *gen.SagaWorkerProcess, job gen.SagaJob) error {
 	values := job.Value.([]int)
 	result := sumSlice(values)
-	xx := process.SendResult(result)
-	if xx != nil {
-		panic(xx)
+	if err := process.SendResult(result); err != nil {
+		panic(err)
 	}
 	return nil
 }
@@ -133,7 +129,7 @@ func (gs *testSaga) HandleSagaDirect(process *gen.SagaProcess, message interface
 	switch m := message.(type) {
 	case task:
 		values := splitSlice(m.value, m.split)
-		fmt.Printf("    start %v txs with %v value(s) each and chunk size %v: ", len(values), m.split, m.chunks)
+		fmt.Printf("    process %v txs with %v value(s) each and chunk size %v: ", len(values), m.split, m.chunks)
 		for i := range values {
 			txValue := taskTX{
 				value:  values[i],
@@ -251,16 +247,3 @@ func sumSlice(slice []int) int {
 	}
 	return result
 }
-
-// ----- Saga Simple -----
-// -----------------------
-
-// ----------------------------
-// ----- Saga Distributed -----
-
-type testSagaDist struct {
-	gen.Saga
-}
-
-// ----- Saga Distributed -----
-// ----------------------------
