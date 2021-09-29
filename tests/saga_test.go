@@ -2,6 +2,7 @@ package test
 
 import (
 	"fmt"
+	"math/rand"
 	"testing"
 	"time"
 
@@ -23,10 +24,9 @@ type testSagaWorker struct {
 
 func (w *testSagaWorker) HandleJobStart(process *gen.SagaWorkerProcess, job gen.SagaJob) error {
 	fmt.Println("... Worker process started", process.Self(), " on", job.ID, " with value", job.Value, "for TX", job.TransactionID)
-	process.SendInterim(888)
-	process.SendInterim(999)
-	process.SendResult(1000)
-	time.Sleep(500 * time.Millisecond)
+	values := job.Value.([]int)
+	result := sumSlice(values)
+	process.SendResult(result)
 	return nil
 }
 func (w *testSagaWorker) HandleJobCancel(process *gen.SagaWorkerProcess) {
@@ -41,6 +41,12 @@ func (w *testSagaWorker) HandleWorkerInfo(process *gen.SagaWorkerProcess, messag
 //
 type testSaga struct {
 	gen.Saga
+	txs    map[gen.SagaTransactionID]int
+	result int
+	res    chan interface{}
+}
+
+type testSagaState struct {
 	jobs map[gen.SagaJobID]gen.SagaTransactionID
 }
 
@@ -48,16 +54,22 @@ func (gs *testSaga) InitSaga(process *gen.SagaProcess, args ...etf.Term) (gen.Sa
 	opts := gen.SagaOptions{
 		Worker: &testSagaWorker{},
 	}
-	gs.jobs = make(map[gen.SagaJobID]gen.SagaTransactionID)
+	gs.txs = make(map[gen.SagaTransactionID]int)
+	process.State = &testSagaState{jobs: make(map[gen.SagaJobID]gen.SagaTransactionID)}
 	return opts, nil
 }
 
 func (gs *testSaga) HandleTxNew(process *gen.SagaProcess, id gen.SagaTransactionID, value interface{}) gen.SagaStatus {
-	job_id, err := process.StartJob(id, gen.SagaJobOptions{}, value)
-	if err != nil {
-		return err
+	task := value.(taskTX)
+	values := splitSlice(task.value, task.chunks)
+	state := process.State.(*testSagaState)
+	for i := range values {
+		job_id, err := process.StartJob(id, gen.SagaJobOptions{}, values[i])
+		if err != nil {
+			return err
+		}
+		state.jobs[job_id] = id
 	}
-	gs.jobs[job_id] = id
 	return gen.SagaStatusOK
 }
 
@@ -72,6 +84,7 @@ func (gs *testSaga) HandleTxCancel(process *gen.SagaProcess, id gen.SagaTransact
 
 func (gs *testSaga) HandleTxResult(process *gen.SagaProcess, id gen.SagaTransactionID, from gen.SagaNextID, result interface{}) gen.SagaStatus {
 	fmt.Println("Tx result", id, result)
+	gs.result += result.(int)
 	return gen.SagaStatusOK
 }
 
@@ -80,23 +93,29 @@ func (gs *testSaga) HandleTxInterim(process *gen.SagaProcess, id gen.SagaTransac
 	return gen.SagaStatusOK
 }
 
-func (gs *testSaga) HandleJobInterim(process *gen.SagaProcess, id gen.SagaJobID, interim interface{}) gen.SagaStatus {
-	fmt.Println("... Saga got interim result", interim, "from job", id)
-	return gen.SagaStatusOK
-}
 func (gs *testSaga) HandleJobResult(process *gen.SagaProcess, id gen.SagaJobID, result interface{}) gen.SagaStatus {
-	txid, _ := gs.jobs[id]
-	if err := process.SendResult(txid, result); err != nil {
-		panic(err)
+
+	state := process.State.(*testSagaState)
+	tx_id := state.jobs[id]
+	txValue := gs.txs[tx_id]
+	txValue += result.(int)
+	gs.txs[tx_id] = txValue
+	delete(state.jobs, id)
+	if len(state.jobs) == 0 {
+		process.SendResult(tx_id, txValue)
 	}
-	fmt.Println("... Saga got job result", result, "from job", id)
 	return gen.SagaStatusOK
 }
 
-type startTX struct {
-	name  string
-	opts  gen.SagaTransactionOptions
-	value interface{}
+type task struct {
+	value  []int
+	split  int
+	chunks int
+}
+
+type taskTX struct {
+	value  []int
+	chunks int
 }
 
 func (gs *testSaga) HandleSagaInfo(process *gen.SagaProcess, message etf.Term) gen.ServerStatus {
@@ -105,9 +124,18 @@ func (gs *testSaga) HandleSagaInfo(process *gen.SagaProcess, message etf.Term) g
 }
 func (gs *testSaga) HandleSagaDirect(process *gen.SagaProcess, message interface{}) (interface{}, error) {
 	switch m := message.(type) {
-	case startTX:
-		id := process.StartTransaction(m.name, m.opts, m.value)
-		return id, nil
+	case task:
+		values := splitSlice(m.value, m.split)
+		for i := range values {
+			txValue := taskTX{
+				value:  values[i],
+				chunks: m.chunks,
+			}
+			id := process.StartTransaction(gen.SagaTransactionOptions{}, txValue)
+			gs.txs[id] = 0
+		}
+
+		return nil, nil
 	}
 
 	return nil, fmt.Errorf("unknown request %#v", message)
@@ -134,16 +162,47 @@ func TestSagaSimple(t *testing.T) {
 	fmt.Println("OK")
 
 	fmt.Printf("... Starting new TX with initial value 12345 ")
-	txID, err := saga_process.Direct(startTX{value: 12345})
+	slice1 := rand.Perm(10)
+	sum1 := sumSlice(slice1)
+	startTask := task{
+		value:  slice1,
+		split:  3, // split on 3 txs
+		chunks: 5, // size of slice for worker
+	}
+	_, err = saga_process.Direct(startTask)
 	if err != nil {
 		t.Fatal(err)
 	}
-	fmt.Println("and txid", txID)
+	waitForResultWithValue(t, saga.res, sum1)
 
 	time.Sleep(2 * time.Second)
 
 	node.Stop()
 	node.Wait()
+}
+
+func splitSlice(slice []int, size int) [][]int {
+	var chunks [][]int
+	for i := 0; i < len(slice); i += size {
+		end := i + size
+
+		if end > len(slice) {
+			end = len(slice)
+		}
+
+		chunks = append(chunks, slice[i:end])
+	}
+
+	return chunks
+
+}
+
+func sumSlice(slice []int) int {
+	var result int
+	for i := range slice {
+		result += slice[i]
+	}
+	return result
 }
 
 // ----- Saga Simple -----

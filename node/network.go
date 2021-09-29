@@ -32,7 +32,7 @@ import (
 )
 
 const (
-	remoteBehaviorGroup = "$remote"
+	remoteBehaviorGroup = "ergo:remote"
 )
 
 type networkInternal interface {

@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	appBehaviorGroup = "$application"
+	appBehaviorGroup = "ergo:applications"
 )
 
 type nodeInternal interface {

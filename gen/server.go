@@ -211,10 +211,19 @@ func (gs *Server) ProcessLoop(ps ProcessState, started chan<- bool) string {
 				gsp.behavior.Terminate(gsp, ex.Reason)
 				return ex.Reason
 			}
+			// Enabled trap exit message. Transform exit signal
+			// into MessageExit and send it to itself as a regular message
+			// keeping the processing order right.
+			// We should process this message after the others we got earlier
+			// from the died process.
 			message = MessageExit{
 				Pid:    ex.From,
 				Reason: ex.Reason,
 			}
+			// We can't write this message to the mailbox directly so use
+			// the common way to send it to itself
+			ps.Send(ps.Self(), message)
+			continue
 
 		case reason := <-gsp.stop:
 			gsp.behavior.Terminate(gsp, reason)

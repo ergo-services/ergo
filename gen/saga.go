@@ -255,7 +255,7 @@ func (gs *Saga) SetMaxTransactions(process Process, max uint) error {
 // SagaProcess methods
 //
 
-func (sp *SagaProcess) StartTransaction(name string, options SagaTransactionOptions, value interface{}) SagaTransactionID {
+func (sp *SagaProcess) StartTransaction(options SagaTransactionOptions, value interface{}) SagaTransactionID {
 	id := sp.MakeRef()
 
 	if options.HopLimit == 0 {
@@ -365,21 +365,20 @@ func (sp *SagaProcess) StartJob(id SagaTransactionID, options SagaJobOptions, va
 	job.saga = sp.Self()
 	job.worker = worker
 
-	m := messageSagaJobStart{
-		job: job,
-	}
-	if err := sp.Cast(worker.Self(), m); err != nil {
-		worker.Kill()
-		return SagaJobID{}, err
-	}
-
 	sp.mutexJobs.Lock()
 	sp.jobs[worker.Self()] = &job
 	sp.mutexJobs.Unlock()
 
+	fmt.Println("JOB", job.ID, worker.Self(), sp.jobs)
+
+	m := messageSagaJobStart{
+		job: job,
+	}
 	tx.Lock()
 	tx.jobs[worker.Self()] = true
 	tx.Unlock()
+
+	sp.Cast(worker.Self(), m)
 
 	return job.ID, nil
 }
