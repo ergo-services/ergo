@@ -124,15 +124,17 @@ goos: linux
 goarch: amd64
 pkg: github.com/halturin/ergo/tests
 cpu: AMD Ryzen Threadripper 3970X 32-Core Processor
-BenchmarkNodeParallel-64                 4884604              2444 ns/op
-BenchmarkNodeParallelSingleNode-64      14128090               911.0 ns/op
+BenchmarkNodeParallel-64                 4913106              2435 ns/op
+BenchmarkNodeParallelSingleNode-64      14392318               909.3 ns/op
 PASS
 ok      github.com/halturin/ergo/tests  29.596s
 ```
 
-these numbers show around **480.000 sync requests per second** for the network messaging via localhost and **1.400.000 sync requests per second** for the local messaging (within a node).
+these numbers show almost **500.000 sync requests per second** for the network messaging via localhost and **1.400.000 sync requests per second** for the local messaging (within a node).
 
-#### vs original Erlang/OTP
+#### Ergo Framework vs original Erlang/OTP
+
+Hardware: laptop with Intel(R) Core(TM) i5-8265U (4 cores. 8 with HT)
 
 ![benchmarks](https://raw.githubusercontent.com/halturin/ergobenchmarks/master/ergobenchmark.png)
 
