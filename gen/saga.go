@@ -298,6 +298,7 @@ func (sp *SagaProcess) Next(id SagaTransactionID, next SagaNext) (SagaNextID, er
 	}
 
 	next_Lifespan := int64(tx.options.Lifespan) - (time.Now().Unix() - tx.arrival)
+	fmt.Println("AAA", tx.options.Lifespan, time.Now().Unix(), tx.arrival, next_Lifespan)
 	if next_Lifespan < 1 {
 		sp.CancelTransaction(id, "exceeded lifespan")
 		return SagaNextID{}, fmt.Errorf("exceeded lifespan. transaction canceled")
@@ -601,6 +602,7 @@ func (sp *SagaProcess) handleSagaRequest(m messageSaga) error {
 			origin:  SagaNextID(nextMessage.Origin),
 			next:    make(map[SagaNextID]*SagaNext),
 			jobs:    make(map[etf.Pid]bool),
+			arrival: time.Now().Unix(),
 			parents: append([]etf.Pid{m.Pid}, nextMessage.Parents...),
 		}
 		sp.mutexTXS.Lock()

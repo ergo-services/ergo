@@ -205,6 +205,8 @@ func TestSagaDist(t *testing.T) {
 	}
 	saga1_process.Direct(startTask1)
 
+	time.Sleep(time.Second)
+
 	// stop all nodes
 	node3.Stop()
 	node3.Wait()
