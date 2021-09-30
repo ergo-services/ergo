@@ -10,7 +10,7 @@ import (
 	"github.com/halturin/ergo/node"
 )
 
-// simple simple implementation of Server
+// simple implementation of Server
 type simple struct {
 	gen.Server
 }
@@ -21,8 +21,8 @@ func (s *simple) HandleInfo(process *gen.ServerProcess, message etf.Term) gen.Se
 	if value > 104 {
 		return gen.ServerStatusStop
 	}
-	// sending message with delay
-	process.SendAfter(process.Self(), value+1, time.Duration(1*time.Second))
+	// sending message with delay 1 second
+	process.SendAfter(process.Self(), value+1, time.Second)
 	return gen.ServerStatusOK
 }
 

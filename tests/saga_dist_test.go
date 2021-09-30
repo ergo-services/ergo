@@ -2,7 +2,9 @@ package test
 
 import (
 	"fmt"
+	"math/rand"
 	"testing"
+	"time"
 
 	"github.com/halturin/ergo"
 	"github.com/halturin/ergo/etf"
@@ -28,6 +30,7 @@ import (
 type testSaga1 struct {
 	gen.Saga
 	res    chan interface{}
+	sw     bool
 	result int
 }
 
@@ -38,11 +41,33 @@ func (gs *testSaga1) InitSaga(process *gen.SagaProcess, args ...etf.Term) (gen.S
 }
 
 func (gs *testSaga1) HandleTxNew(process *gen.SagaProcess, id gen.SagaTransactionID, value interface{}) gen.SagaStatus {
-	//task := value.(taskTX)
-	//values := splitSlice(task.value, task.chunks)
-	//for i := range values {
-	//	//process.Next()
-	//}
+	task := value.(taskTX)
+	values := splitSlice(task.value, task.chunks)
+	for i := range values {
+		saga := saga2_process
+		gs.sw = !gs.sw
+		if gs.sw {
+			saga = saga3_process
+		}
+		next := gen.SagaNext{
+			Saga:  saga,
+			Value: values[i],
+		}
+		next_id, err := process.Next(id, next)
+		if err != nil {
+			panic(err)
+		}
+		fmt.Println("send to", next, "next_id", next_id)
+	}
+	return gen.SagaStatusOK
+}
+
+func (gs *testSaga1) HandleTxCancel(process *gen.SagaProcess, id gen.SagaTransactionID, reason string) gen.SagaStatus {
+	return gen.SagaStatusOK
+}
+
+func (gs *testSaga1) HandleTxResult(process *gen.SagaProcess, id gen.SagaTransactionID, from gen.SagaNextID, result interface{}) gen.SagaStatus {
+	gs.result += result.(int)
 	return gen.SagaStatusOK
 }
 
@@ -77,6 +102,18 @@ func (gs *testSagaN) InitSaga(process *gen.SagaProcess, args ...etf.Term) (gen.S
 	opts := gen.SagaOptions{}
 	return opts, nil
 }
+func (gs *testSagaN) HandleTxNew(process *gen.SagaProcess, id gen.SagaTransactionID, value interface{}) gen.SagaStatus {
+	fmt.Println(process.Name(), "got new tx", id)
+	return gen.SagaStatusOK
+}
+
+func (gs *testSagaN) HandleTxCancel(process *gen.SagaProcess, id gen.SagaTransactionID, reason string) gen.SagaStatus {
+	return gen.SagaStatusOK
+}
+
+func (gs *testSagaN) HandleTxResult(process *gen.SagaProcess, id gen.SagaTransactionID, from gen.SagaNextID, result interface{}) gen.SagaStatus {
+	return gen.SagaStatusOK
+}
 
 //
 // SagaWorkerN
@@ -84,6 +121,18 @@ func (gs *testSagaN) InitSaga(process *gen.SagaProcess, args ...etf.Term) (gen.S
 type testSagaWorkerN struct {
 	gen.SagaWorker
 }
+
+var (
+	saga2_process = gen.ProcessID{
+		Name: "saga2",
+		Node: "nodeGenSagaDist02@localhost",
+	}
+
+	saga3_process = gen.ProcessID{
+		Name: "saga3",
+		Node: "nodeGenSagaDist03@localhost",
+	}
+)
 
 func (w *testSagaWorkerN) HandleJobStart(process *gen.SagaWorkerProcess, job gen.SagaJob) error {
 	values := job.Value.([]int)
@@ -121,6 +170,40 @@ func TestSagaDist(t *testing.T) {
 		return
 	}
 	fmt.Println("OK")
+
+	fmt.Printf("... Starting Saga1 processes (on node1): ")
+	saga1 := &testSaga1{}
+	saga1_process, err := node1.Spawn("saga1", gen.ProcessOptions{MailboxSize: 10000}, saga1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fmt.Println("OK")
+
+	fmt.Printf("... Starting Saga2 processes (on node2): ")
+	saga2 := &testSagaN{}
+	_, err = node2.Spawn("saga2", gen.ProcessOptions{MailboxSize: 10000}, saga2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fmt.Println("OK")
+
+	fmt.Printf("... Starting Saga3 processes (on node3): ")
+	saga3 := &testSagaN{}
+	_, err = node3.Spawn("saga3", gen.ProcessOptions{MailboxSize: 10000}, saga3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fmt.Println("OK")
+
+	rand.Seed(time.Now().Unix())
+
+	slice1 := rand.Perm(1000)
+	startTask1 := task{
+		value:  slice1,
+		split:  1,
+		chunks: 5,
+	}
+	saga1_process.Direct(startTask1)
 
 	// stop all nodes
 	node3.Stop()

@@ -751,10 +751,11 @@ func (sp *SagaProcess) handleSagaDown(down MessageDown) error {
 func (gs *Saga) Init(process *ServerProcess, args ...etf.Term) error {
 	var options SagaOptions
 
-	behavior, ok := process.Behavior().(SagaBehavior)
-	if !ok {
-		return fmt.Errorf("Saga: not a SagaBehavior")
-	}
+	behavior := process.Behavior().(SagaBehavior)
+	//behavior, ok := process.Behavior().(SagaBehavior)
+	//if !ok {
+	//	return fmt.Errorf("Saga: not a SagaBehavior")
+	//}
 
 	sagaProcess := &SagaProcess{
 		ServerProcess: *process,
@@ -941,6 +942,10 @@ func (gs *Saga) HandleSagaInfo(process *SagaProcess, message etf.Term) ServerSta
 	fmt.Printf("HandleSagaInfo: unhandled message %#v\n", message)
 	return ServerStatusOK
 }
+func (gs *Saga) HandleSagaDirect(process *SagaProcess, message interface{}) (interface{}, error) {
+	return nil, ErrUnsupportedRequest
+}
+
 func (gs *Saga) HandleJobResult(process *SagaProcess, id SagaTransactionID, from SagaJobID, result interface{}) SagaStatus {
 	fmt.Printf("HandleJobResult: [%v %v] unhandled message %#v\n", id, from, result)
 	return SagaStatusOK

@@ -172,7 +172,7 @@ import (
 	"github.com/halturin/ergo/node"
 )
 
-// simple simple implementation of Server
+// simple implementation of Server
 type simple struct {
 	gen.Server
 }
