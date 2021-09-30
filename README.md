@@ -91,9 +91,9 @@ Here are the changes of latest release. For more details see the [ChangeLog](Cha
 
 Here is simple EndToEnd test demonstrates performance of messaging subsystem
 
-Hardware: laptop with Intel(R) Core(TM) i5-8265U (4 cores. 8 with HT)
-
 #### Sequential Process.Call using two processes running on single and two nodes
+
+Hardware: laptop with Intel(R) Core(TM) i5-8265U (4 cores. 8 with HT)
 
 ```
 ❯❯❯❯ go test -bench=NodeSequential -run=XXX -benchtime=10s
@@ -116,18 +116,21 @@ it means Ergo Framework provides around **25.000 sync requests per second** via 
 
 #### Parallel Process.Call using 120 pairs of processes running on a single and two nodes
 
+Hardware: workstation with AMD Ryzen Threadripper 3970X (64) @ 3.700GHz
+
 ```
 ❯❯❯❯ go test -bench=NodeParallel -run=XXX -benchtime=10s
 goos: linux
 goarch: amd64
-pkg: github.com/halturin/ergo
-BenchmarkNodeParallel-8        	         2652494	      5246 ns/op
-BenchmarkNodeParallelSingleNode-8   	 6100352	      2226 ns/op
+pkg: github.com/halturin/ergo/tests
+cpu: AMD Ryzen Threadripper 3970X 32-Core Processor
+BenchmarkNodeParallel-64                 4884604              2444 ns/op
+BenchmarkNodeParallelSingleNode-64      14128090               911.0 ns/op
 PASS
-ok  	github.com/halturin/ergo	34.145s
+ok      github.com/halturin/ergo/tests  29.596s
 ```
 
-these numbers show around **260.000 sync requests per second** via localhost using simple data for messaging
+these numbers show around **480.000 sync requests per second** for the network messaging via localhost and **1.400.000 sync requests per second** for the local messaging (within a node).
 
 #### vs original Erlang/OTP
 
