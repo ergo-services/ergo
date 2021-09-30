@@ -103,7 +103,7 @@ func (gs *testSagaN) InitSaga(process *gen.SagaProcess, args ...etf.Term) (gen.S
 	return opts, nil
 }
 func (gs *testSagaN) HandleTxNew(process *gen.SagaProcess, id gen.SagaTransactionID, value interface{}) gen.SagaStatus {
-	fmt.Println(process.Name(), "got new tx", id)
+	fmt.Println(process.Name(), "got new tx", id, "with value", value)
 	return gen.SagaStatusOK
 }
 
