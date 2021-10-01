@@ -67,6 +67,7 @@ func (gs *testSaga1) HandleTxCancel(process *gen.SagaProcess, id gen.SagaTransac
 }
 
 func (gs *testSaga1) HandleTxResult(process *gen.SagaProcess, id gen.SagaTransactionID, from gen.SagaNextID, result interface{}) gen.SagaStatus {
+	fmt.Println("got result from", from, "value", result)
 	gs.result += result.(int)
 	return gen.SagaStatusOK
 }
@@ -94,16 +95,41 @@ func (gs *testSaga1) HandleSagaDirect(process *gen.SagaProcess, message interfac
 // Saga2/Saga3
 //
 
+var (
+	saga2_process = gen.ProcessID{
+		Name: "saga2",
+		Node: "nodeGenSagaDist02@localhost",
+	}
+
+	saga3_process = gen.ProcessID{
+		Name: "saga3",
+		Node: "nodeGenSagaDist03@localhost",
+	}
+)
+
 type testSagaN struct {
 	gen.Saga
 }
 
 func (gs *testSagaN) InitSaga(process *gen.SagaProcess, args ...etf.Term) (gen.SagaOptions, error) {
-	opts := gen.SagaOptions{}
+	opts := gen.SagaOptions{
+		Worker: &testSagaWorkerN{},
+	}
 	return opts, nil
 }
 func (gs *testSagaN) HandleTxNew(process *gen.SagaProcess, id gen.SagaTransactionID, value interface{}) gen.SagaStatus {
 	fmt.Println(process.Name(), "got new tx", id, "with value", value)
+	var vv []int
+	if err := etf.TermIntoStruct(value, &vv); err != nil {
+		panic(err)
+	}
+	values := splitSlice(vv, 5)
+	for i := range values {
+		_, err := process.StartJob(id, gen.SagaJobOptions{}, values[i])
+		if err != nil {
+			return err
+		}
+	}
 	return gen.SagaStatusOK
 }
 
@@ -122,18 +148,6 @@ type testSagaWorkerN struct {
 	gen.SagaWorker
 }
 
-var (
-	saga2_process = gen.ProcessID{
-		Name: "saga2",
-		Node: "nodeGenSagaDist02@localhost",
-	}
-
-	saga3_process = gen.ProcessID{
-		Name: "saga3",
-		Node: "nodeGenSagaDist03@localhost",
-	}
-)
-
 func (w *testSagaWorkerN) HandleJobStart(process *gen.SagaWorkerProcess, job gen.SagaJob) error {
 	values := job.Value.([]int)
 	result := sumSlice(values)
@@ -146,6 +160,7 @@ func (w *testSagaWorkerN) HandleJobStart(process *gen.SagaWorkerProcess, job gen
 func (w *testSagaWorkerN) HandleJobCancel(process *gen.SagaWorkerProcess) {
 	return
 }
+
 func TestSagaDist(t *testing.T) {
 	fmt.Printf("\n=== Test GenSagaDist\n")
 
