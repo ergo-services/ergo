@@ -18,7 +18,7 @@
 3. Saga1 commits Tx when its done
 
 ```
-         -- signal COMMIT --> Saga4 -- signal COMMIT -->
+         -> signal COMMIT --> Saga4 -> signal COMMIT -->
        /                                                 \
   Saga1 ............. Saga2 (terminated) ................ Saga3
 
