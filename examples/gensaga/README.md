@@ -1,6 +1,6 @@
 ## Saga demo scenario ##
 
-1. Start Tx on Saga1. Saga1 sends it to Saga2 with enabled TrapCancel, Saga2 sends Tx to Saga3.
+1. Start Tx on Saga1 with enable TwoPhaseCommit. Saga1 sends it to Saga2 with enabled TrapCancel, Saga2 sends Tx to Saga3.
 
 ```
   Saga1 -> Tx -> Saga2 -> Tx -> Saga3
