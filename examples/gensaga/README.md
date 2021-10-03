@@ -1,4 +1,4 @@
-== Saga demo scenario ==
+## Saga demo scenario ##
 
 1. Start Tx on Saga1 and send it to Saga2 and Saga3, consequently
 
