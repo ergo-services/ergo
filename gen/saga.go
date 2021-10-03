@@ -772,10 +772,11 @@ func (sp *SagaProcess) handleSagaDown(down MessageDown) error {
 func (gs *Saga) Init(process *ServerProcess, args ...etf.Term) error {
 	var options SagaOptions
 
-	behavior, ok := process.Behavior().(SagaBehavior)
-	if !ok {
-		return fmt.Errorf("Saga: not a SagaBehavior")
-	}
+	behavior := process.Behavior().(SagaBehavior)
+	//behavior, ok := process.Behavior().(SagaBehavior)
+	//if !ok {
+	//	return fmt.Errorf("Saga: not a SagaBehavior")
+	//}
 
 	sagaProcess := &SagaProcess{
 		ServerProcess: *process,
@@ -941,7 +942,7 @@ func (gs *Saga) HandleInfo(process *ServerProcess, message etf.Term) ServerStatu
 }
 
 func (gs *Saga) Terminate(process *ServerProcess, reason string) {
-	fmt.Println("SAGA terminated with reason", reason)
+	//fmt.Println("SAGA terminated with reason", reason)
 }
 
 //
