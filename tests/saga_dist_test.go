@@ -34,14 +34,30 @@ type testSaga1 struct {
 	result int
 }
 
+type testSaga1State struct {
+	txs map[gen.SagaTransactionID]*txvalue
+}
+type txvalue struct {
+	res   int
+	nexts map[gen.SagaNextID]bool
+}
+
 func (gs *testSaga1) InitSaga(process *gen.SagaProcess, args ...etf.Term) (gen.SagaOptions, error) {
 	opts := gen.SagaOptions{}
 	gs.res = make(chan interface{}, 2)
+	process.State = &testSaga1State{
+		txs: make(map[gen.SagaTransactionID]*txvalue),
+	}
 	return opts, nil
 }
 
 func (gs *testSaga1) HandleTxNew(process *gen.SagaProcess, id gen.SagaTransactionID, value interface{}) gen.SagaStatus {
+	state := process.State.(*testSaga1State)
 	task := value.(taskTX)
+
+	txval := &txvalue{
+		nexts: make(map[gen.SagaNextID]bool),
+	}
 	values := splitSlice(task.value, task.chunks)
 	for i := range values {
 		saga := saga2_process
@@ -57,8 +73,10 @@ func (gs *testSaga1) HandleTxNew(process *gen.SagaProcess, id gen.SagaTransactio
 		if err != nil {
 			panic(err)
 		}
+		txval.nexts[next_id] = true
 		fmt.Println("send to", next, "next_id", next_id)
 	}
+	state.txs[id] = txval
 	return gen.SagaStatusOK
 }
 
@@ -68,18 +86,23 @@ func (gs *testSaga1) HandleTxCancel(process *gen.SagaProcess, id gen.SagaTransac
 
 func (gs *testSaga1) HandleTxResult(process *gen.SagaProcess, id gen.SagaTransactionID, from gen.SagaNextID, result interface{}) gen.SagaStatus {
 	fmt.Println("got result from", from, "value", result)
+	state := process.State.(*testSaga1State)
+	txval := state.txs[id]
 	switch r := result.(type) {
 	case int:
-		gs.result += r
+		txval.res += r
 	case int8:
-		gs.result += int(r)
+		txval.res += int(r)
 	case int16:
-		gs.result += int(r)
+		txval.res += int(r)
 	case int32:
-		gs.result += int(r)
+		txval.res += int(r)
 	case int64:
-		gs.result += int(r)
-
+		txval.res += int(r)
+	}
+	delete(txval.nexts, from)
+	if len(txval.nexts) == 0 {
+		process.SendResult(id, txval.res)
 	}
 	return gen.SagaStatusOK
 }
@@ -87,6 +110,13 @@ func (gs *testSaga1) HandleTxResult(process *gen.SagaProcess, id gen.SagaTransac
 func (gs *testSaga1) HandleTxDone(process *gen.SagaProcess, id gen.SagaTransactionID, result interface{}) gen.SagaStatus {
 	//state := process.State.(*testSagaState)
 	fmt.Println("TX", id, "DONE on", process.Name())
+	state := process.State.(*testSaga1State)
+	txval := state.txs[id]
+	delete(state.txs, id)
+	gs.result += txval.res
+	if len(state.txs) == 0 {
+		gs.res <- gs.result
+	}
 
 	return gen.SagaStatusOK
 }
@@ -259,6 +289,8 @@ func TestSagaDist(t *testing.T) {
 	rand.Seed(time.Now().Unix())
 
 	slice1 := rand.Perm(1000)
+	sum1 := sumSlice(slice1)
+	saga1.result = 0
 	startTask1 := task{
 		value:  slice1,
 		split:  1,
@@ -266,7 +298,7 @@ func TestSagaDist(t *testing.T) {
 	}
 	saga1_process.Direct(startTask1)
 
-	time.Sleep(time.Second)
+	waitForResultWithValue(t, saga1.res, sum1)
 
 	// stop all nodes
 	node3.Stop()
