@@ -63,6 +63,17 @@ func (gs *testSagaCancel) HandleTxResult(process *gen.SagaProcess, id gen.SagaTr
 	return gen.SagaStatusOK
 }
 
+func (gs *testSagaCancel) HandleSagaDirect(process *gen.SagaProcess, message interface{}) (interface{}, error) {
+	switch m := message.(type) {
+	case task:
+
+		process.StartTransaction(gen.SagaTransactionOptions{}, 3.14)
+		return nil, nil
+	}
+
+	return nil, fmt.Errorf("unknown request %#v", message)
+}
+
 func TestSagaCancelSimple(t *testing.T) {
 
 	fmt.Printf("\n=== Test GenSagaCancelSimple\n")
@@ -82,8 +93,13 @@ func TestSagaCancelSimple(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fmt.Println("OK", saga_process.Self())
+	fmt.Println("OK")
 
+	_, err = saga_process.Direct(startTask1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitForResultWithValue(t, saga.res, sum1)
 }
 
 //

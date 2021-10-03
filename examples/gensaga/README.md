@@ -3,7 +3,7 @@
 1. Start Tx on Saga1 with enabled TwoPhaseCommit option. Saga1 sends this Tx to Saga2 with enabled TrapCancel option, Saga2 sends it to Saga3.
 
 ```
-  Saga1 -> Tx -> Saga2 -> Tx -> Saga3
+  Saga1 ---> Tx ---> Saga2 ---> Tx ---> Saga3
 ```
 
 2. Saga2 terminates, and Saga1 handle it, sending this Tx to Saga4 and Saga4 sends it to Saga3.
