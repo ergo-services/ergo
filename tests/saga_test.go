@@ -1,4 +1,4 @@
-package test
+package tests
 
 import (
 	"fmt"
@@ -198,7 +198,7 @@ func TestSagaSimple(t *testing.T) {
 	sum3 := sumSlice(slice3)
 	startTask3 := task{
 		value:  slice3,
-		split:  100, // 1 items per tx
+		split:  100, // 100 items per tx
 		chunks: 5,   // size of slice for worker
 	}
 	_, err = saga_process.Direct(startTask3)
@@ -212,7 +212,7 @@ func TestSagaSimple(t *testing.T) {
 	sum4 := sumSlice(slice4)
 	startTask4 := task{
 		value:  slice4,
-		split:  100, // 1 items per tx
+		split:  100, // 100 items per tx
 		chunks: 5,   // size of slice for worker
 	}
 	_, err = saga_process.Direct(startTask4)
