@@ -32,7 +32,7 @@ type SagaBehavior interface {
 	//
 
 	// HandleTxDone invoked when the transaction is done on a saga where it was created.
-	HandleTxDone(process *SagaProcess, id SagaTransactionID) SagaStatus
+	HandleTxDone(process *SagaProcess, id SagaTransactionID, result interface{}) SagaStatus
 
 	// HandleTxInterim invoked if received interim result from the next hop
 	HandleTxInterim(process *SagaProcess, id SagaTransactionID, from SagaNextID, interim interface{}) SagaStatus
@@ -220,9 +220,9 @@ type messageSagaResult struct {
 }
 
 type messageSagaCancel struct {
-	Transaction etf.Ref
-	Origin      etf.Ref
-	Reason      string
+	TransactionID etf.Ref
+	Origin        etf.Ref
+	Reason        string
 }
 
 type MessageSagaCancel struct {
@@ -388,17 +388,18 @@ func (sp *SagaProcess) SendResult(id SagaTransactionID, result interface{}) erro
 	if !ok {
 		return fmt.Errorf("unknown transaction")
 	}
+
+	if len(tx.parents) == 0 {
+		// SendResult is called right after CreateTransaction call.
+		return fmt.Errorf("not allowed")
+	}
+
 	if tx.done {
 		return fmt.Errorf("result is already sent")
 	}
 
 	if sp.checkTxDone(tx) == false {
 		return fmt.Errorf("transaction is still in progress")
-	}
-
-	if len(tx.parents) == 0 {
-		// SendResult is called right after CreateTransaction call.
-		return fmt.Errorf("not allowed")
 	}
 
 	message := etf.Tuple{
@@ -479,8 +480,8 @@ func (sp *SagaProcess) CancelTransaction(id SagaTransactionID, reason string) {
 }
 
 func (sp *SagaProcess) CancelJob(job SagaJobID) error {
+	//FIXME
 	return nil
-
 }
 
 func (sp *SagaProcess) checkTxDone(tx *SagaTransaction) bool {
@@ -617,16 +618,24 @@ func (sp *SagaProcess) handleSagaRequest(m messageSaga) error {
 
 	case "$saga_cancel":
 		panic("got cancel")
-	//	if err := etf.TermIntoStruct(m.Command, &cancel); err != nil {
-	//		return ErrUnsupportedRequest
-	//	}
-	//	tx, exist := sp.txs[SagaTransactionID(cancel.ID)]
-	//	if !exist {
-	//		return nil
-	//	}
+		cancel := messageSagaCancel{}
+		if err := etf.TermIntoStruct(m.Command, &cancel); err != nil {
+			return ErrUnsupportedRequest
+		}
 
-	//	sp.Behavior().(SagaBehavior).HandleTxCancel(sp, tx.id, cancel.Reason)
-	//	return nil
+		tx, exist := sp.txs[SagaTransactionID(cancel.TransactionID)]
+		if !exist {
+			// unknown tx, just ignore it
+			return nil
+		}
+		// FIXME handle canceling:
+		// - stop any workers related to this TX
+		// - check if we got it from next saga and propagate
+		//   cancel signal to the parent if TrapCancel is disabled on this saga.
+		// - check if we got it from the parent saga. Propagate it to the all next sagas
+
+		return sp.behavior.HandleTxCancel(sp, tx.id, cancel.Reason)
+
 	case etf.Atom("$saga_result"):
 		result := messageSagaResult{}
 		if err := etf.TermIntoStruct(m.Command, &result); err != nil {
@@ -669,9 +678,15 @@ func (sp *SagaProcess) handleSagaRequest(m messageSaga) error {
 			return sp.behavior.HandleTxResult(sp, tx.id, next_id, result.Result)
 		}
 
-		status := sp.behavior.HandleTxResult(sp, tx.id, next_id, result.Result)
-		if sp.checkTxDone(tx) == true {
-			return sp.behavior.HandleTxDone(sp, tx.id)
+		// got result on a saga created this tx
+		sp.mutexTXS.Lock()
+		delete(sp.txs, transactionID)
+		sp.mutexTXS.Unlock()
+
+		status := sp.behavior.HandleTxDone(sp, tx.id, result.Result)
+		if status == SagaStatusOK {
+			// FIXME
+			// propagate Commit signal if 2PC is enabled
 		}
 
 		return status
@@ -686,11 +701,15 @@ func (sp *SagaProcess) handleSagaRequest(m messageSaga) error {
 		tx, ok := sp.next[next_id]
 		sp.mutexNext.Unlock()
 		if !ok {
-			// ignore unknown interim result
+			// ignore unknown interim result and send cancel message to the sender
+			//FIXME
 			return nil
 		}
 		sp.behavior.HandleTxInterim(sp, tx.id, next_id, interim.Result)
 		return nil
+
+	case etf.Atom("$saga_commit"):
+		panic("handle commit message")
 	}
 	return sagaStatusUnsupported
 }
@@ -752,11 +771,10 @@ func (sp *SagaProcess) handleSagaDown(down MessageDown) error {
 func (gs *Saga) Init(process *ServerProcess, args ...etf.Term) error {
 	var options SagaOptions
 
-	behavior := process.Behavior().(SagaBehavior)
-	//behavior, ok := process.Behavior().(SagaBehavior)
-	//if !ok {
-	//	return fmt.Errorf("Saga: not a SagaBehavior")
-	//}
+	behavior, ok := process.Behavior().(SagaBehavior)
+	if !ok {
+		return fmt.Errorf("Saga: not a SagaBehavior")
+	}
 
 	sagaProcess := &SagaProcess{
 		ServerProcess: *process,
@@ -812,20 +830,28 @@ func (gs *Saga) HandleCast(process *ServerProcess, message etf.Term) ServerStatu
 		job, ok := sp.jobs[m.pid]
 		sp.mutexJobs.Unlock()
 		if !ok {
+			// kill this process
+			if worker := process.ProcessByPid(m.pid); worker != nil {
+				process.Unlink(worker.Self())
+				worker.Kill()
+			}
 			status = SagaStatusOK
 			break
 		}
+		job.done = true
 
 		sp.mutexTXS.Lock()
 		tx, ok := sp.txs[job.TransactionID]
 		sp.mutexTXS.Unlock()
 
 		if !ok {
-			// might be already canceled. just ignore it
+			// tx is already canceled. kill this worker if its still alive (tx might have had
+			// 2PC enabled, and the worker is waiting for the commit signal)
+			process.Unlink(job.worker.Self())
+			job.worker.Kill()
 			status = SagaStatusOK
 			break
 		}
-		job.done = true
 
 		// remove this job from the tx job list, but do not remove
 		// from the sp.jobs (will be removed once worker terminated)
@@ -842,7 +868,12 @@ func (gs *Saga) HandleCast(process *ServerProcess, message etf.Term) ServerStatu
 		job, ok := sp.jobs[m.pid]
 		sp.mutexJobs.Unlock()
 		if !ok {
-			// might be already canceled. just ignore it
+			// kill this process
+			if worker := process.ProcessByPid(m.pid); worker != nil {
+				process.Unlink(worker.Self())
+				worker.Kill()
+			}
+			// tx was canceled. just ignore it
 			status = SagaStatusOK
 			break
 		}
@@ -889,12 +920,10 @@ func (gs *Saga) HandleInfo(process *ServerProcess, message etf.Term) ServerStatu
 			return sp.behavior.HandleSagaInfo(sp, m)
 		}
 		return ServerStatus(err)
+	}
 
-	default:
-		if err := etf.TermIntoStruct(message, &mSaga); err != nil {
-			status := sp.behavior.HandleSagaInfo(sp, message)
-			return status
-		}
+	if err := etf.TermIntoStruct(message, &mSaga); err != nil {
+		return sp.behavior.HandleSagaInfo(sp, message)
 	}
 
 	status := sp.handleSagaRequest(mSaga)
@@ -911,7 +940,7 @@ func (gs *Saga) HandleInfo(process *ServerProcess, message etf.Term) ServerStatu
 }
 
 func (gs *Saga) Terminate(process *ServerProcess, reason string) {
-	fmt.Println("SAGA terminated")
+	fmt.Println("SAGA terminated with reason", reason)
 }
 
 //
@@ -926,9 +955,8 @@ func (gs *Saga) HandleTxCommit(process *SagaProcess, id SagaTransactionID) SagaS
 	fmt.Printf("HandleTxCommit: [%v] unhandled message\n", id)
 	return ServerStatusOK
 }
-func (gs *Saga) HandleTxDone(process *SagaProcess, id SagaTransactionID) SagaStatus {
-	fmt.Printf("HandleTxDone: [%v] unhandled message \n", id)
-	return ServerStatusOK
+func (gs *Saga) HandleTxDone(process *SagaProcess, id SagaTransactionID, result interface{}) SagaStatus {
+	return fmt.Errorf("Saga [%v:%v] has no implementaion of HandleTxDone method", process.Self(), process.Name())
 }
 
 func (gs *Saga) HandleSagaCall(process *SagaProcess, from ServerFrom, message etf.Term) (etf.Term, ServerStatus) {

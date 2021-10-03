@@ -175,7 +175,8 @@ func (gs *Server) ProcessInit(p Process, args ...etf.Term) (ProcessState, error)
 		behavior:     behavior,
 
 		// callbackWaitReply must be defined here, otherwise making a Call request
-		// will not be able in the inherited object
+		// will not be able in the inherited object (locks on trying to send
+		// a message to the nil channel)
 		callbackWaitReply: make(chan *etf.Ref),
 	}
 

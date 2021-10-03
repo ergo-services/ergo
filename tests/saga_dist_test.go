@@ -68,10 +68,28 @@ func (gs *testSaga1) HandleTxCancel(process *gen.SagaProcess, id gen.SagaTransac
 
 func (gs *testSaga1) HandleTxResult(process *gen.SagaProcess, id gen.SagaTransactionID, from gen.SagaNextID, result interface{}) gen.SagaStatus {
 	fmt.Println("got result from", from, "value", result)
-	gs.result += result.(int)
+	switch r := result.(type) {
+	case int:
+		gs.result += r
+	case int8:
+		gs.result += int(r)
+	case int16:
+		gs.result += int(r)
+	case int32:
+		gs.result += int(r)
+	case int64:
+		gs.result += int(r)
+
+	}
 	return gen.SagaStatusOK
 }
 
+func (gs *testSaga1) HandleTxDone(process *gen.SagaProcess, id gen.SagaTransactionID, result interface{}) gen.SagaStatus {
+	//state := process.State.(*testSagaState)
+	fmt.Println("TX", id, "DONE on", process.Name())
+
+	return gen.SagaStatusOK
+}
 func (gs *testSaga1) HandleSagaDirect(process *gen.SagaProcess, message interface{}) (interface{}, error) {
 	switch m := message.(type) {
 	case task:
@@ -111,9 +129,16 @@ type testSagaN struct {
 	gen.Saga
 }
 
+type testSagaNState struct {
+	txs map[gen.SagaTransactionID]*txjobs
+}
+
 func (gs *testSagaN) InitSaga(process *gen.SagaProcess, args ...etf.Term) (gen.SagaOptions, error) {
 	opts := gen.SagaOptions{
 		Worker: &testSagaWorkerN{},
+	}
+	process.State = &testSagaState{
+		txs: make(map[gen.SagaTransactionID]*txjobs),
 	}
 	return opts, nil
 }
@@ -123,13 +148,20 @@ func (gs *testSagaN) HandleTxNew(process *gen.SagaProcess, id gen.SagaTransactio
 	if err := etf.TermIntoStruct(value, &vv); err != nil {
 		panic(err)
 	}
+	state := process.State.(*testSagaState)
+	j := txjobs{
+		jobs: make(map[gen.SagaJobID]bool),
+	}
+
 	values := splitSlice(vv, 5)
 	for i := range values {
-		_, err := process.StartJob(id, gen.SagaJobOptions{}, values[i])
+		job_id, err := process.StartJob(id, gen.SagaJobOptions{}, values[i])
 		if err != nil {
 			return err
 		}
+		j.jobs[job_id] = true
 	}
+	state.txs[id] = &j
 	return gen.SagaStatusOK
 }
 
@@ -138,6 +170,20 @@ func (gs *testSagaN) HandleTxCancel(process *gen.SagaProcess, id gen.SagaTransac
 }
 
 func (gs *testSagaN) HandleTxResult(process *gen.SagaProcess, id gen.SagaTransactionID, from gen.SagaNextID, result interface{}) gen.SagaStatus {
+	return gen.SagaStatusOK
+}
+
+func (gs *testSagaN) HandleJobResult(process *gen.SagaProcess, id gen.SagaTransactionID, from gen.SagaJobID, result interface{}) gen.SagaStatus {
+	state := process.State.(*testSagaState)
+	fmt.Println("got job result", id, from, result)
+	j := state.txs[id]
+	j.result += result.(int)
+	delete(j.jobs, from)
+
+	if len(j.jobs) == 0 {
+		process.SendResult(id, j.result)
+	}
+
 	return gen.SagaStatusOK
 }
 

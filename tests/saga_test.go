@@ -78,9 +78,10 @@ func (gs *testSaga) HandleTxNew(process *gen.SagaProcess, id gen.SagaTransaction
 	return gen.SagaStatusOK
 }
 
-func (gs *testSaga) HandleTxDone(process *gen.SagaProcess, id gen.SagaTransactionID) gen.SagaStatus {
+func (gs *testSaga) HandleTxDone(process *gen.SagaProcess, id gen.SagaTransactionID, result interface{}) gen.SagaStatus {
 	state := process.State.(*testSagaState)
 
+	gs.result += result.(int)
 	delete(state.txs, id)
 	if len(state.txs) == 0 {
 		gs.res <- gs.result
@@ -93,7 +94,6 @@ func (gs *testSaga) HandleTxCancel(process *gen.SagaProcess, id gen.SagaTransact
 }
 
 func (gs *testSaga) HandleTxResult(process *gen.SagaProcess, id gen.SagaTransactionID, from gen.SagaNextID, result interface{}) gen.SagaStatus {
-	gs.result += result.(int)
 	return gen.SagaStatusOK
 }
 
