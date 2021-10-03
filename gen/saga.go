@@ -617,11 +617,12 @@ func (sp *SagaProcess) handleSagaRequest(m messageSaga) error {
 		return sp.behavior.HandleTxNew(sp, transactionID, nextMessage.Value)
 
 	case "$saga_cancel":
-		panic("got cancel")
 		cancel := messageSagaCancel{}
 		if err := etf.TermIntoStruct(m.Command, &cancel); err != nil {
 			return ErrUnsupportedRequest
 		}
+		fmt.Println("CANCEL", cancel)
+		panic("got cancel")
 
 		tx, exist := sp.txs[SagaTransactionID(cancel.TransactionID)]
 		if !exist {
