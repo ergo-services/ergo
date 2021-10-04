@@ -201,6 +201,17 @@ func (gs *Server) ProcessLoop(ps ProcessState, started chan<- bool) string {
 	gsp.currentFunction = "Server:loop"
 	gsp.stop = make(chan string, 2)
 
+	defer func() {
+		if gsp.waitReply == nil {
+			return
+		}
+		// there is runnig callback goroutine waiting for reply. to get rid
+		// of infinity lock (of this callback goroutine) we must provide a reader
+		// for the callbackWaitReply channel (it writes a nil value to this channel
+		// on exit)
+		go gsp.waitCallbackOrDeferr(nil)
+	}()
+
 	started <- true
 	for {
 		var message etf.Term
@@ -405,10 +416,14 @@ func (gsp *ServerProcess) waitCallbackOrDeferr(message interface{}) {
 
 		}
 	}
+
 	select {
-	case <-gsp.Context().Done():
-		// got request to kill this process
-		return
+
+	//case <-gsp.Context().Done():
+	// do not read the context state. otherwise the goroutine with running callback
+	// might lock forever on exit (or on making a Call request) as nobody read
+	// the callbackWaitReply channel.
+
 	case gsp.waitReply = <-gsp.callbackWaitReply:
 		// not nil value means callback made a Call request and waiting for reply
 		if gsp.waitReply == nil && len(gsp.deferred) > 0 {
