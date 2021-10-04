@@ -353,33 +353,34 @@ func (sp *SagaProcess) Next(id SagaTransactionID, next SagaNext) (SagaNextID, er
 }
 
 func (sp *SagaProcess) StartJob(id SagaTransactionID, options SagaJobOptions, value interface{}) (SagaJobID, error) {
-	var job SagaJob
 
 	if sp.options.Worker == nil {
-		return job.ID, fmt.Errorf("This saga has no worker")
+		return SagaJobID{}, fmt.Errorf("This saga has no worker")
 	}
 	sp.mutexTXS.Lock()
 	tx, ok := sp.txs[id]
 	sp.mutexTXS.Unlock()
 
 	if !ok {
-		return job.ID, fmt.Errorf("unknown transaction")
+		return SagaJobID{}, fmt.Errorf("unknown transaction")
 	}
 
 	// FIXME make context WithTimeout to limit the lifespan
 	workerOptions := ProcessOptions{}
 	worker, err := sp.Spawn("", workerOptions, sp.options.Worker)
 	if err != nil {
-		return job.ID, err
+		return SagaJobID{}, err
 	}
 	sp.Link(worker.Self())
 
-	job.ID = SagaJobID(sp.MakeRef())
-	job.TransactionID = id
-	job.Value = value
-	job.commit = tx.options.TwoPhaseCommit
-	job.saga = sp.Self()
-	job.worker = worker
+	job := SagaJob{
+		ID:            SagaJobID(sp.MakeRef()),
+		TransactionID: id,
+		Value:         value,
+		commit:        tx.options.TwoPhaseCommit,
+		saga:          sp.Self(),
+		worker:        worker,
+	}
 
 	sp.mutexJobs.Lock()
 	sp.jobs[worker.Self()] = &job
@@ -406,7 +407,7 @@ func (sp *SagaProcess) SendResult(id SagaTransactionID, result interface{}) erro
 	}
 
 	if len(tx.parents) == 0 {
-		// SendResult is called right after CreateTransaction call.
+		// SendResult was called right after CreateTransaction call.
 		return fmt.Errorf("not allowed")
 	}
 
@@ -429,7 +430,7 @@ func (sp *SagaProcess) SendResult(id SagaTransactionID, result interface{}) erro
 	}
 
 	// send message to the parent saga
-	if err := sp.Cast(tx.parents[0], message); err != nil {
+	if err := sp.Send(tx.parents[0], message); err != nil {
 		return err
 	}
 
@@ -472,7 +473,7 @@ func (sp *SagaProcess) SendInterim(id SagaTransactionID, interim interface{}) er
 	}
 
 	// send message to the parent saga
-	if err := sp.Cast(tx.parents[0], message); err != nil {
+	if err := sp.Send(tx.parents[0], message); err != nil {
 		return err
 	}
 
@@ -1035,7 +1036,6 @@ func (gs *Saga) HandleDirect(process *ServerProcess, message interface{}) (inter
 
 func (gs *Saga) HandleCast(process *ServerProcess, message etf.Term) ServerStatus {
 	var status SagaStatus
-	var mSaga messageSaga
 
 	sp := process.State.(*SagaProcess)
 
@@ -1095,13 +1095,6 @@ func (gs *Saga) HandleCast(process *ServerProcess, message etf.Term) ServerStatu
 		status = sp.behavior.HandleJobInterim(sp, job.TransactionID, job.ID, m.interim)
 
 	default:
-		if err := etf.TermIntoStruct(message, &mSaga); err == nil {
-			// handle Interim and Result messages comes from the "next" sagas
-			s := sp.handleSagaRequest(mSaga)
-			status = ServerStatus(s)
-			break
-		}
-
 		status = sp.behavior.HandleSagaCast(sp, message)
 	}
 
