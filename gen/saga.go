@@ -1061,7 +1061,7 @@ func (gs *Saga) HandleCast(process *ServerProcess, message etf.Term) ServerStatu
 
 		if !ok {
 			// tx is already canceled. kill this worker if its still alive (tx might have had
-			// 2PC enabled, and the worker is waiting for the commit signal)
+			// 2PC enabled, and the worker is waiting for the commit message)
 			process.Unlink(job.worker.Self())
 			job.worker.Kill()
 			status = SagaStatusOK
@@ -1145,10 +1145,6 @@ func (gs *Saga) HandleInfo(process *ServerProcess, message etf.Term) ServerStatu
 	default:
 		return ServerStatus(status)
 	}
-}
-
-func (gs *Saga) Terminate(process *ServerProcess, reason string) {
-	//fmt.Println("SAGA terminated with reason", reason)
 }
 
 //
