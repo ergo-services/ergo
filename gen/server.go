@@ -231,6 +231,7 @@ func (gs *Server) ProcessLoop(ps ProcessState, started chan<- bool) string {
 			return reason
 
 		case msg := <-gsp.mailbox:
+			gsp.mailbox = gsp.original
 			fromPid = msg.From
 			message = msg.Message
 
@@ -247,10 +248,6 @@ func (gs *Server) ProcessLoop(ps ProcessState, started chan<- bool) string {
 
 		gsp.reductions++
 
-		if gsp.waitReply == nil && len(gsp.deferred) == 0 {
-			gsp.mailbox = gsp.original
-		}
-
 		switch m := message.(type) {
 		case etf.Tuple:
 
@@ -263,9 +260,6 @@ func (gs *Server) ProcessLoop(ps ProcessState, started chan<- bool) string {
 				gsp.PutSyncReply(mtag, m.Element(2))
 				if gsp.waitReply != nil && *gsp.waitReply == mtag {
 					gsp.waitReply = nil
-					if len(gsp.deferred) > 0 {
-						gsp.mailbox = gsp.deferred
-					}
 					// continue read gsp.callbackWaitReply channel
 					// to wait for the exit from the callback call
 					gsp.waitCallbackOrDeferr(nil)
@@ -417,6 +411,9 @@ func (gsp *ServerProcess) waitCallbackOrDeferr(message interface{}) {
 		return
 	case gsp.waitReply = <-gsp.callbackWaitReply:
 		// not nil value means callback made a Call request and waiting for reply
+		if gsp.waitReply == nil && len(gsp.deferred) > 0 {
+			gsp.mailbox = gsp.deferred
+		}
 		return
 	}
 }

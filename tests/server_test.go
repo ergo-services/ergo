@@ -357,19 +357,23 @@ func (gs *messageOrderGS) HandleInfo(process *gen.ServerProcess, message etf.Ter
 		if gs.n == 100 {
 			gs.res <- 1000
 		}
-
 		return gen.ServerStatusOK
+
 	case testCase2:
-		if gs.n+1 != m.n {
+		if gs.n != m.n {
 			panic(fmt.Sprintf("Disordered messages on %d (awaited: %d)", m.n, gs.n+1))
 		}
-		gs.n = m.n
+		gs.n = m.n - 1
 		value, err := process.Call("gs3order", message)
 		if err != nil {
 			panic(err)
 		}
 		if value.(string) != "ok" {
 			panic("wrong result")
+		}
+
+		if gs.n == 0 {
+			gs.res <- 123
 		}
 		return gen.ServerStatusOK
 	}
@@ -428,15 +432,24 @@ func TestServerMessageOrder(t *testing.T) {
 	}
 
 	fmt.Printf("    wait for start of gs1order on %#v: ", node1.NodeName())
-	node1gs1, _ := node1.Spawn("gs1order", gen.ProcessOptions{}, gs1, nil)
+	node1gs1, err1 := node1.Spawn("gs1order", gen.ProcessOptions{}, gs1, nil)
+	if err1 != nil {
+		panic(err1)
+	}
 	waitForResultWithValue(t, gs1.res, nil)
 
 	fmt.Printf("    wait for start of gs2order on %#v: ", node1.NodeName())
-	node1gs2, _ := node1.Spawn("gs2order", gen.ProcessOptions{}, gs2, nil)
+	node1gs2, err2 := node1.Spawn("gs2order", gen.ProcessOptions{}, gs2, nil)
+	if err2 != nil {
+		panic(err2)
+	}
 	waitForResultWithValue(t, gs2.res, nil)
 
 	fmt.Printf("    wait for start of gs3order on %#v: ", node1.NodeName())
-	node1gs3, _ := node1.Spawn("gs3order", gen.ProcessOptions{}, gs3, nil)
+	node1gs3, err3 := node1.Spawn("gs3order", gen.ProcessOptions{}, gs3, nil)
+	if err3 != nil {
+		panic(err3)
+	}
 	waitForResultWithValue(t, gs3.res, nil)
 
 	fmt.Printf("    sending 100 messages from gs1 to gs2. checking the order: ")
@@ -462,18 +475,20 @@ func TestServerMessageOrder(t *testing.T) {
 	}
 	fmt.Println("OK")
 
-	gs2.n = 0
+	gs2.n = 100
 
 	fmt.Printf("    sending 100 messages from gs1 to gs2 with making a call from gs2 to gs3: ")
-	for i := 1; i < 100; i++ {
+	for i := gs2.n; i > 0; i-- {
 		err := node1gs1.Send(node1gs2.Self(), testCase2{n: i})
 		if err != nil {
 			t.Fatal(err)
 		}
 	}
+	waitForResultWithValue(t, gs2.res, 123)
 	fmt.Println("OK")
 	node1gs3.Exit("normal")
-
+	node1.Stop()
+	node1.Wait()
 }
 
 type messageFloodSourceGS struct {
