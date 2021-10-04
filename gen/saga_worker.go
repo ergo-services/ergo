@@ -13,7 +13,7 @@ type SagaWorkerBehavior interface {
 	// HandleJobStart invoked on a worker start
 	HandleJobStart(process *SagaWorkerProcess, job SagaJob) error
 	// HandleJobCancel invoked if transaction was canceled before the termination.
-	HandleJobCancel(process *SagaWorkerProcess)
+	HandleJobCancel(process *SagaWorkerProcess, reason string)
 
 	// Optional callbacks
 
@@ -52,7 +52,9 @@ type messageSagaJobStart struct {
 	job SagaJob
 }
 type messageSagaJobDone struct{}
-type messageSagaJobCancel struct{}
+type messageSagaJobCancel struct {
+	reason string
+}
 type messageSagaJobCommit struct{}
 type messageSagaJobInterim struct {
 	pid     etf.Pid
@@ -138,7 +140,7 @@ func (w *SagaWorker) HandleCast(process *ServerProcess, message etf.Term) Server
 		p.behavior.HandleJobCommit(p)
 		return ServerStatusStop
 	case messageSagaJobCancel:
-		p.behavior.HandleJobCancel(p)
+		p.behavior.HandleJobCancel(p, m.reason)
 		return ServerStatusStop
 	default:
 		return p.behavior.HandleWorkerCast(p, message)

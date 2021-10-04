@@ -98,12 +98,6 @@ func (gs *testSaga1) HandleTxResult(process *gen.SagaProcess, id gen.SagaTransac
 	switch r := result.(type) {
 	case int:
 		txval.res += r
-	case int8:
-		txval.res += int(r)
-	case int16:
-		txval.res += int(r)
-	case int32:
-		txval.res += int(r)
 	case int64:
 		txval.res += int(r)
 	}
@@ -114,8 +108,7 @@ func (gs *testSaga1) HandleTxResult(process *gen.SagaProcess, id gen.SagaTransac
 	return gen.SagaStatusOK
 }
 
-func (gs *testSaga1) HandleTxDone(process *gen.SagaProcess, id gen.SagaTransactionID, result interface{}) gen.SagaStatus {
-	//state := process.State.(*testSagaState)
+func (gs *testSaga1) HandleTxDone(process *gen.SagaProcess, id gen.SagaTransactionID, result interface{}) (interface{}, gen.SagaStatus) {
 	state := process.State.(*testSaga1State)
 	txval := state.txs[id]
 	delete(state.txs, id)
@@ -124,7 +117,7 @@ func (gs *testSaga1) HandleTxDone(process *gen.SagaProcess, id gen.SagaTransacti
 		gs.res <- gs.result
 	}
 
-	return gen.SagaStatusOK
+	return nil, gen.SagaStatusOK
 }
 func (gs *testSaga1) HandleSagaDirect(process *gen.SagaProcess, message interface{}) (interface{}, error) {
 	switch m := message.(type) {
@@ -237,7 +230,7 @@ func (w *testSagaWorkerN) HandleJobStart(process *gen.SagaWorkerProcess, job gen
 	return nil
 }
 
-func (w *testSagaWorkerN) HandleJobCancel(process *gen.SagaWorkerProcess) {
+func (w *testSagaWorkerN) HandleJobCancel(process *gen.SagaWorkerProcess, reason string) {
 	return
 }
 

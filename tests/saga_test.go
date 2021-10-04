@@ -27,7 +27,7 @@ func (w *testSagaWorker) HandleJobStart(process *gen.SagaWorkerProcess, job gen.
 	}
 	return nil
 }
-func (w *testSagaWorker) HandleJobCancel(process *gen.SagaWorkerProcess) {
+func (w *testSagaWorker) HandleJobCancel(process *gen.SagaWorkerProcess, reason string) {
 	return
 }
 
@@ -78,7 +78,7 @@ func (gs *testSaga) HandleTxNew(process *gen.SagaProcess, id gen.SagaTransaction
 	return gen.SagaStatusOK
 }
 
-func (gs *testSaga) HandleTxDone(process *gen.SagaProcess, id gen.SagaTransactionID, result interface{}) gen.SagaStatus {
+func (gs *testSaga) HandleTxDone(process *gen.SagaProcess, id gen.SagaTransactionID, result interface{}) (interface{}, gen.SagaStatus) {
 	state := process.State.(*testSagaState)
 
 	gs.result += result.(int)
@@ -86,7 +86,7 @@ func (gs *testSaga) HandleTxDone(process *gen.SagaProcess, id gen.SagaTransactio
 	if len(state.txs) == 0 {
 		gs.res <- gs.result
 	}
-	return gen.SagaStatusOK
+	return nil, gen.SagaStatusOK
 }
 
 func (gs *testSaga) HandleTxCancel(process *gen.SagaProcess, id gen.SagaTransactionID, reason string) gen.SagaStatus {
