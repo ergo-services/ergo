@@ -3,6 +3,7 @@ package tests
 import (
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/halturin/ergo"
 	"github.com/halturin/ergo/etf"
@@ -24,6 +25,8 @@ import (
 //            /
 //       Saga1 <- signal Down <- Saga2 (terminates) -> signal Down -> Saga3
 
+type taskCancelCase1 struct{}
+
 //
 // Case 1
 //
@@ -36,26 +39,39 @@ func (w *testSagaCancelWorker) HandleJobStart(process *gen.SagaWorkerProcess, jo
 	return nil
 }
 func (w *testSagaCancelWorker) HandleJobCancel(process *gen.SagaWorkerProcess, reason string) {
+	fmt.Println("JOB GOT CANC")
 	return
 }
 
 type testSagaCancel struct {
 	gen.Saga
+	res chan interface{}
 }
 
 func (gs *testSagaCancel) InitSaga(process *gen.SagaProcess, args ...etf.Term) (gen.SagaOptions, error) {
 	opts := gen.SagaOptions{
 		Worker: &testSagaCancelWorker{},
 	}
-
+	gs.res = make(chan interface{}, 2)
 	return opts, nil
 }
 
 func (gs *testSagaCancel) HandleTxNew(process *gen.SagaProcess, id gen.SagaTransactionID, value interface{}) gen.SagaStatus {
+	process.StartJob(id, gen.SagaJobOptions{}, nil)
+	process.CancelTransaction(id, "test cancel")
 	return gen.SagaStatusOK
 }
 
 func (gs *testSagaCancel) HandleTxCancel(process *gen.SagaProcess, id gen.SagaTransactionID, reason string) gen.SagaStatus {
+	fmt.Println("CANC")
+	if reason == "test cancel" {
+		gs.res <- "ok"
+	}
+	return gen.SagaStatusOK
+}
+
+func (gs *testSagaCancel) HandleJobFailed(process *gen.SagaProcess, id gen.SagaTransactionID, from gen.SagaJobID, reason string) gen.SagaStatus {
+	fmt.Println("CANC JOB FAIL")
 	return gen.SagaStatusOK
 }
 
@@ -65,7 +81,7 @@ func (gs *testSagaCancel) HandleTxResult(process *gen.SagaProcess, id gen.SagaTr
 
 func (gs *testSagaCancel) HandleSagaDirect(process *gen.SagaProcess, message interface{}) (interface{}, error) {
 	switch message.(type) {
-	case task:
+	case taskCancelCase1:
 
 		process.StartTransaction(gen.SagaTransactionOptions{}, 3.14)
 		return nil, nil
@@ -95,12 +111,15 @@ func TestSagaCancelSimple(t *testing.T) {
 	}
 	fmt.Println("OK", saga_process.Self())
 
-	//_, err = saga_process.Direct(startTask1)
-	//if err != nil {
-	//	t.Fatal(err)
-	//}
-	//waitForResultWithValue(t, saga.res, sum1)
+	_, err = saga_process.Direct(taskCancelCase1{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitForResultWithValue(t, saga.res, "ok")
+	time.Sleep(time.Second)
 }
+
+/*
 
 //
 // Case 2.a
@@ -121,6 +140,7 @@ func TestSagaCancelCase2a(t *testing.T) {
 	}
 	fmt.Println("OK")
 }
+
 
 //
 // Case 2.b
@@ -180,3 +200,4 @@ func TestSagaCancelCase2d(t *testing.T) {
 	}
 	fmt.Println("OK")
 }
+*/
