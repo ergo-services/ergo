@@ -91,7 +91,7 @@ Here are the changes of latest release. For more details see the [ChangeLog](Cha
 
 Here is simple EndToEnd test demonstrates performance of messaging subsystem
 
-#### Sequential Process.Call using two processes running on single and two nodes
+#### Sequential Process.Call using two processes running on a single and two nodes
 
 Hardware: laptop with Intel(R) Core(TM) i5-8265U (4 cores. 8 with HT)
 

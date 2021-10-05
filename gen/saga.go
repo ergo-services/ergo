@@ -986,11 +986,11 @@ func (gs *Saga) Init(process *ServerProcess, args ...etf.Term) error {
 	var options SagaOptions
 
 	// FIXME
-	behavior := process.Behavior().(SagaBehavior)
-	//behavior, ok := process.Behavior().(SagaBehavior)
-	//if !ok {
-	//	return fmt.Errorf("Saga: not a SagaBehavior")
-	//}
+	//behavior := process.Behavior().(SagaBehavior)
+	behavior, ok := process.Behavior().(SagaBehavior)
+	if !ok {
+		return fmt.Errorf("Saga: not a SagaBehavior")
+	}
 
 	sagaProcess := &SagaProcess{
 		ServerProcess: *process,
