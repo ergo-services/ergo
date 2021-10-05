@@ -25,19 +25,21 @@ import (
 //            /
 //       Saga1 <- signal Down <- Saga2 (terminates) -> signal Down -> Saga3
 
-type taskCancelCase1 struct{}
-
 //
 // Case 1
 //
 
+type taskSagaCancelCase1 struct {
+	workerRes chan interface{}
+	sagaRes   chan interface{}
+}
+
 type testSagaCancelWorker struct {
 	gen.SagaWorker
-	res chan interface{}
 }
 
 func (w *testSagaCancelWorker) HandleJobStart(process *gen.SagaWorkerProcess, job gen.SagaJob) error {
-	gs.res = make(chan interface{}, 2)
+	process.State = job.Value
 	return nil
 }
 func (w *testSagaCancelWorker) HandleJobCancel(process *gen.SagaWorkerProcess, reason string) {
@@ -47,40 +49,35 @@ func (w *testSagaCancelWorker) HandleJobCancel(process *gen.SagaWorkerProcess, r
 	if err := process.SendResult(1); err != gen.ErrSagaTxCanceled {
 		panic("shouldn't be able to send the result")
 	}
-
-	w.res <- "ok"
+	task := process.State.(taskSagaCancelCase1)
+	task.workerRes <- "ok"
 	return
 }
 
 type testSagaCancel struct {
 	gen.Saga
-	res chan interface{}
 }
 
 func (gs *testSagaCancel) InitSaga(process *gen.SagaProcess, args ...etf.Term) (gen.SagaOptions, error) {
+	worker := &testSagaCancelWorker{}
 	opts := gen.SagaOptions{
-		Worker: &testSagaCancelWorker{},
+		Worker: worker,
 	}
-	gs.res = make(chan interface{}, 2)
 	return opts, nil
 }
 
 func (gs *testSagaCancel) HandleTxNew(process *gen.SagaProcess, id gen.SagaTransactionID, value interface{}) gen.SagaStatus {
-	process.StartJob(id, gen.SagaJobOptions{}, nil)
+	process.StartJob(id, gen.SagaJobOptions{}, value)
 	process.CancelTransaction(id, "test cancel")
+	process.State = value
 	return gen.SagaStatusOK
 }
 
 func (gs *testSagaCancel) HandleTxCancel(process *gen.SagaProcess, id gen.SagaTransactionID, reason string) gen.SagaStatus {
-	fmt.Println("CANC")
+	task := process.State.(taskSagaCancelCase1)
 	if reason == "test cancel" {
-		gs.res <- "ok"
+		task.sagaRes <- "ok"
 	}
-	return gen.SagaStatusOK
-}
-
-func (gs *testSagaCancel) HandleJobFailed(process *gen.SagaProcess, id gen.SagaTransactionID, from gen.SagaJobID, reason string) gen.SagaStatus {
-	fmt.Println("JOB FAIL")
 	return gen.SagaStatusOK
 }
 
@@ -89,14 +86,9 @@ func (gs *testSagaCancel) HandleTxResult(process *gen.SagaProcess, id gen.SagaTr
 }
 
 func (gs *testSagaCancel) HandleSagaDirect(process *gen.SagaProcess, message interface{}) (interface{}, error) {
-	switch message.(type) {
-	case taskCancelCase1:
 
-		process.StartTransaction(gen.SagaTransactionOptions{}, 3.14)
-		return nil, nil
-	}
-
-	return nil, fmt.Errorf("unknown request %#v", message)
+	process.StartTransaction(gen.SagaTransactionOptions{}, message)
+	return nil, nil
 }
 
 func TestSagaCancelSimple(t *testing.T) {
@@ -118,13 +110,22 @@ func TestSagaCancelSimple(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fmt.Println("OK", saga_process.Self())
+	fmt.Println("OK")
 
-	_, err = saga_process.Direct(taskCancelCase1{})
+	task := taskSagaCancelCase1{
+		workerRes: make(chan interface{}, 2),
+		sagaRes:   make(chan interface{}, 2),
+	}
+	fmt.Printf("... Start new TX on saga: ")
+	_, err = saga_process.Direct(task)
 	if err != nil {
 		t.Fatal(err)
 	}
-	waitForResultWithValue(t, saga.res, "ok")
+	fmt.Println("OK")
+	fmt.Printf("... Saga worker handled TX cancelation: ")
+	waitForResultWithValue(t, task.workerRes, "ok")
+	fmt.Printf("... Saga handled TX cancelation: ")
+	waitForResultWithValue(t, task.sagaRes, "ok")
 	time.Sleep(time.Second)
 }
 
