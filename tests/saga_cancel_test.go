@@ -33,13 +33,22 @@ type taskCancelCase1 struct{}
 
 type testSagaCancelWorker struct {
 	gen.SagaWorker
+	res chan interface{}
 }
 
 func (w *testSagaCancelWorker) HandleJobStart(process *gen.SagaWorkerProcess, job gen.SagaJob) error {
+	gs.res = make(chan interface{}, 2)
 	return nil
 }
 func (w *testSagaCancelWorker) HandleJobCancel(process *gen.SagaWorkerProcess, reason string) {
-	fmt.Println("JOB GOT CANC")
+	if err := process.SendInterim(1); err != gen.ErrSagaTxCanceled {
+		panic("shouldn't be able to send interim result")
+	}
+	if err := process.SendResult(1); err != gen.ErrSagaTxCanceled {
+		panic("shouldn't be able to send the result")
+	}
+
+	w.res <- "ok"
 	return
 }
 
@@ -71,7 +80,7 @@ func (gs *testSagaCancel) HandleTxCancel(process *gen.SagaProcess, id gen.SagaTr
 }
 
 func (gs *testSagaCancel) HandleJobFailed(process *gen.SagaProcess, id gen.SagaTransactionID, from gen.SagaJobID, reason string) gen.SagaStatus {
-	fmt.Println("CANC JOB FAIL")
+	fmt.Println("JOB FAIL")
 	return gen.SagaStatusOK
 }
 

@@ -20,7 +20,7 @@ type SagaWorkerBehavior interface {
 	// HandleJobCommit invoked if this job was a part of the transaction
 	// with enabled TwoPhaseCommit option. All workers involved in this TX
 	// handling are receiving this call. Callback invoked before the termination.
-	HandleJobCommit(process *SagaWorkerProcess)
+	HandleJobCommit(process *SagaWorkerProcess, final interface{})
 
 	// HandleWorkerInfo this callback is invoked on Process.Send. This method is optional
 	// for the implementation
@@ -46,6 +46,7 @@ type SagaWorkerProcess struct {
 	behavior SagaWorkerBehavior
 	job      SagaJob
 	done     bool
+	cancel   bool
 }
 
 type messageSagaJobStart struct {
@@ -55,7 +56,9 @@ type messageSagaJobDone struct{}
 type messageSagaJobCancel struct {
 	reason string
 }
-type messageSagaJobCommit struct{}
+type messageSagaJobCommit struct {
+	final interface{}
+}
 type messageSagaJobInterim struct {
 	pid     etf.Pid
 	interim interface{}
@@ -73,7 +76,10 @@ type messageSagaJobResult struct {
 // will be waiting for cancel/commit signal.
 func (wp *SagaWorkerProcess) SendResult(result interface{}) error {
 	if wp.done {
-		return fmt.Errorf("result is already sent")
+		return ErrSagaResultAlreadySent
+	}
+	if wp.cancel {
+		return ErrSagaTxCanceled
 	}
 	message := messageSagaJobResult{
 		pid:    wp.Self(),
@@ -96,6 +102,12 @@ func (wp *SagaWorkerProcess) SendResult(result interface{}) error {
 
 // SendInterim
 func (wp *SagaWorkerProcess) SendInterim(interim interface{}) error {
+	if wp.done {
+		return ErrSagaResultAlreadySent
+	}
+	if wp.cancel {
+		return ErrSagaTxCanceled
+	}
 	message := messageSagaJobInterim{
 		pid:     wp.Self(),
 		interim: interim,
@@ -119,31 +131,32 @@ func (w *SagaWorker) Init(process *ServerProcess, args ...etf.Term) error {
 }
 
 func (w *SagaWorker) HandleCast(process *ServerProcess, message etf.Term) ServerStatus {
-	p := process.State.(*SagaWorkerProcess)
+	wp := process.State.(*SagaWorkerProcess)
 	switch m := message.(type) {
 	case messageSagaJobStart:
-		p.job = m.job
-		err := p.behavior.HandleJobStart(p, p.job)
+		wp.job = m.job
+		err := wp.behavior.HandleJobStart(wp, wp.job)
 		if err != nil {
 			return err
 		}
 
 		// if job is done and 2PC is disabled
 		// stop this worker with 'normal' as a reason
-		if p.done && !p.job.commit {
+		if wp.done && !wp.job.commit {
 			return ServerStatusStop
 		}
 		return ServerStatusOK
 	case messageSagaJobDone:
 		return ServerStatusStop
 	case messageSagaJobCommit:
-		p.behavior.HandleJobCommit(p)
+		wp.behavior.HandleJobCommit(wp, m.final)
 		return ServerStatusStop
 	case messageSagaJobCancel:
-		p.behavior.HandleJobCancel(p, m.reason)
+		wp.cancel = true
+		wp.behavior.HandleJobCancel(wp, m.reason)
 		return ServerStatusStop
 	default:
-		return p.behavior.HandleWorkerCast(p, message)
+		return wp.behavior.HandleWorkerCast(wp, message)
 	}
 }
 
@@ -162,7 +175,7 @@ func (w *SagaWorker) HandleInfo(process *ServerProcess, message etf.Term) Server
 }
 
 // default callbacks
-func (w *SagaWorker) HandleJobCommit(process *SagaWorkerProcess) {
+func (w *SagaWorker) HandleJobCommit(process *SagaWorkerProcess, final interface{}) {
 	return
 }
 func (w *SagaWorker) HandleWorkerInfo(process *SagaWorkerProcess, message etf.Term) ServerStatus {

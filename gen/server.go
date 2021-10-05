@@ -436,7 +436,7 @@ func (gsp *ServerProcess) waitCallbackOrDeferr(message interface{}) {
 func (gsp *ServerProcess) panicHandler() {
 	if r := recover(); r != nil {
 		pc, fn, line, _ := runtime.Caller(2)
-		fmt.Printf("Warning: Server terminated %s[%q] %#v at %s[%s:%d]\n",
+		fmt.Printf("Warning: Server terminated %s[%q]. Panic reason: %#v at %s[%s:%d]\n",
 			gsp.Self(), gsp.Name(), r, runtime.FuncForPC(pc).Name(), fn, line)
 		gsp.stop <- "panic"
 	}

@@ -88,10 +88,15 @@ var (
 	// internal
 	sagaStatusUnsupported SagaStatus = fmt.Errorf("unsupported")
 
-	ErrSagaTxEndOfLifespan = fmt.Errorf("End of TX lifespan")
-	ErrSagaTxNextTimeout   = fmt.Errorf("Next saga timeout")
-	ErrSagaUnknown         = fmt.Errorf("Unknown saga")
-	ErrSagaJobUnknown      = fmt.Errorf("Unknown job")
+	ErrSagaTxEndOfLifespan   = fmt.Errorf("End of TX lifespan")
+	ErrSagaTxNextTimeout     = fmt.Errorf("Next saga timeout")
+	ErrSagaUnknown           = fmt.Errorf("Unknown saga")
+	ErrSagaJobUnknown        = fmt.Errorf("Unknown job")
+	ErrSagaTxUnknown         = fmt.Errorf("Unknown TX")
+	ErrSagaTxCanceled        = fmt.Errorf("Tx is canceled")
+	ErrSagaTxInProgress      = fmt.Errorf("Tx is still in progress")
+	ErrSagaResultAlreadySent = fmt.Errorf("Result is already sent")
+	ErrSagaNotAllowed        = fmt.Errorf("Operation is not allowed")
 )
 
 type Saga struct {
@@ -306,7 +311,7 @@ func (sp *SagaProcess) Next(id SagaTransactionID, next SagaNext) (SagaNextID, er
 	tx, ok := sp.txs[id]
 	sp.mutexTXS.Unlock()
 	if !ok {
-		return SagaNextID{}, fmt.Errorf("unknown transaction")
+		return SagaNextID{}, ErrSagaTxUnknown
 	}
 
 	if len(tx.next) > int(tx.options.HopLimit) {
@@ -362,7 +367,7 @@ func (sp *SagaProcess) StartJob(id SagaTransactionID, options SagaJobOptions, va
 	sp.mutexTXS.Unlock()
 
 	if !ok {
-		return SagaJobID{}, fmt.Errorf("unknown transaction")
+		return SagaJobID{}, ErrSagaTxUnknown
 	}
 
 	// FIXME make context WithTimeout to limit the lifespan
@@ -403,20 +408,20 @@ func (sp *SagaProcess) SendResult(id SagaTransactionID, result interface{}) erro
 	tx, ok := sp.txs[id]
 	sp.mutexTXS.Unlock()
 	if !ok {
-		return fmt.Errorf("unknown transaction")
+		return ErrSagaTxUnknown
 	}
 
 	if len(tx.parents) == 0 {
 		// SendResult was called right after CreateTransaction call.
-		return fmt.Errorf("not allowed")
+		return ErrSagaNotAllowed
 	}
 
 	if tx.done {
-		return fmt.Errorf("result is already sent")
+		return ErrSagaResultAlreadySent
 	}
 
 	if sp.checkTxDone(tx) == false {
-		return fmt.Errorf("transaction is still in progress")
+		return ErrSagaTxInProgress
 	}
 
 	message := etf.Tuple{
@@ -459,7 +464,7 @@ func (sp *SagaProcess) SendInterim(id SagaTransactionID, interim interface{}) er
 	tx, ok := sp.txs[id]
 	sp.mutexTXS.Unlock()
 	if !ok {
-		return fmt.Errorf("unknown transaction")
+		return ErrSagaTxUnknown
 	}
 
 	message := etf.Tuple{
@@ -501,7 +506,7 @@ func (sp *SagaProcess) CancelJob(id SagaTransactionID, job SagaJobID, reason str
 	tx, ok := sp.txs[id]
 	sp.mutexTXS.Unlock()
 	if !ok {
-		return fmt.Errorf("unknown transaction")
+		return ErrSagaTxUnknown
 	}
 	tx.Lock()
 	defer tx.Unlock()
@@ -856,7 +861,7 @@ func (sp *SagaProcess) commitTX(tx *SagaTransaction, final interface{}) {
 		// unlink before this worker stopped
 		sp.Unlink(pid)
 		// send commit message
-		sp.Cast(pid, messageSagaJobCommit{})
+		sp.Cast(pid, messageSagaJobCommit{final: final})
 	}
 	// remove monitor from parent saga
 	sp.DemonitorProcess(tx.monitor)
