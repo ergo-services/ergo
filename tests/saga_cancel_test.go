@@ -3,7 +3,6 @@ package tests
 import (
 	"fmt"
 	"testing"
-	"time"
 
 	"github.com/halturin/ergo"
 	"github.com/halturin/ergo/etf"
@@ -81,7 +80,7 @@ func (gs *testSagaCancel) HandleTxNew(process *gen.SagaProcess, id gen.SagaTrans
 	}
 
 	// try to cancel unknown TX
-	if err := process.CancelTransaction(gen.SagaTransactionID{}, "bla bla"); err == nil {
+	if err := process.CancelTransaction(gen.SagaTransactionID{}, "bla bla"); err != gen.ErrSagaTxUnknown {
 		panic("must be ErrSagaTxUnknown")
 	}
 	task.sagaRes <- "cancelTX"
@@ -145,7 +144,6 @@ func TestSagaCancelSimple(t *testing.T) {
 	waitForResultWithValue(t, task.workerRes, "ok")
 	fmt.Printf("... Saga handled TX cancelation: ")
 	waitForResultWithValue(t, task.sagaRes, "ok")
-	time.Sleep(time.Second)
 }
 
 /*
