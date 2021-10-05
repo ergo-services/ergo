@@ -79,6 +79,11 @@ func (gs *testSagaCancel) HandleTxNew(process *gen.SagaProcess, id gen.SagaTrans
 	if err := process.CancelTransaction(id, "test cancel"); err != nil {
 		panic(err)
 	}
+
+	// try to cancel unknown TX
+	if err := process.CancelTransaction(gen.SagaTransactionID{}, "bla bla"); err == nil {
+		panic("must be ErrSagaTxUnknown")
+	}
 	task.sagaRes <- "cancelTX"
 	return gen.SagaStatusOK
 }
