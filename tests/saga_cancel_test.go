@@ -67,9 +67,19 @@ func (gs *testSagaCancel) InitSaga(process *gen.SagaProcess, args ...etf.Term) (
 }
 
 func (gs *testSagaCancel) HandleTxNew(process *gen.SagaProcess, id gen.SagaTransactionID, value interface{}) gen.SagaStatus {
-	process.StartJob(id, gen.SagaJobOptions{}, value)
-	process.CancelTransaction(id, "test cancel")
 	process.State = value
+	task := process.State.(taskSagaCancelCase1)
+	task.sagaRes <- "startTX"
+
+	_, err := process.StartJob(id, gen.SagaJobOptions{}, value)
+	if err != nil {
+		panic(err)
+	}
+	task.workerRes <- "startWorker"
+	if err := process.CancelTransaction(id, "test cancel"); err != nil {
+		panic(err)
+	}
+	task.sagaRes <- "cancelTX"
 	return gen.SagaStatusOK
 }
 
@@ -116,12 +126,16 @@ func TestSagaCancelSimple(t *testing.T) {
 		workerRes: make(chan interface{}, 2),
 		sagaRes:   make(chan interface{}, 2),
 	}
-	fmt.Printf("... Start new TX on saga: ")
 	_, err = saga_process.Direct(task)
 	if err != nil {
 		t.Fatal(err)
 	}
-	fmt.Println("OK")
+	fmt.Printf("... Start new TX on saga: ")
+	waitForResultWithValue(t, task.sagaRes, "startTX")
+	fmt.Printf("... Start new worker on saga: ")
+	waitForResultWithValue(t, task.workerRes, "startWorker")
+	fmt.Printf("... Cancel TX on saga: ")
+	waitForResultWithValue(t, task.sagaRes, "cancelTX")
 	fmt.Printf("... Saga worker handled TX cancelation: ")
 	waitForResultWithValue(t, task.workerRes, "ok")
 	fmt.Printf("... Saga handled TX cancelation: ")

@@ -485,12 +485,12 @@ func (sp *SagaProcess) SendInterim(id SagaTransactionID, interim interface{}) er
 	return nil
 }
 
-func (sp *SagaProcess) CancelTransaction(id SagaTransactionID, reason string) {
+func (sp *SagaProcess) CancelTransaction(id SagaTransactionID, reason string) error {
 	sp.mutexTXS.Lock()
 	tx, ok := sp.txs[id]
 	sp.mutexTXS.Unlock()
 	if !ok {
-		return
+		return ErrSagaTxUnknown
 	}
 
 	message := etf.Tuple{
@@ -499,6 +499,7 @@ func (sp *SagaProcess) CancelTransaction(id SagaTransactionID, reason string) {
 		etf.Tuple{etf.Ref(tx.id), etf.Ref(tx.origin), reason},
 	}
 	sp.Send(sp.Self(), message)
+	return nil
 }
 
 func (sp *SagaProcess) CancelJob(id SagaTransactionID, job SagaJobID, reason string) error {
