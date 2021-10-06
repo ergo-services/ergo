@@ -176,6 +176,7 @@ func (w *SagaWorker) HandleInfo(process *ServerProcess, message etf.Term) Server
 
 // default callbacks
 func (w *SagaWorker) HandleJobCommit(process *SagaWorkerProcess, final interface{}) {
+	fmt.Printf("HandleJobCommit: unhandled message %#v\n", final)
 	return
 }
 func (w *SagaWorker) HandleWorkerInfo(process *SagaWorkerProcess, message etf.Term) ServerStatus {

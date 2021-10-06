@@ -172,7 +172,7 @@ func (id SagaNextID) String() string {
 type SagaNext struct {
 	// Saga etf.Pid, string (for the locally registered process), gen.ProcessID{process, node} (for the remote process)
 	Saga interface{}
-	// Value a value for the invoking HandleTX on a next hop.
+	// Value a value for the invoking HandleTxNew on a next hop.
 	Value interface{}
 	// Timeout how long this Saga will be waiting for the result from the next hop. Default - 10 seconds
 	Timeout uint
