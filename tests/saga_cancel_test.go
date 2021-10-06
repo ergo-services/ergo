@@ -169,7 +169,7 @@ func (w *testSagaCancelWorker2) HandleJobCancel(process *gen.SagaWorkerProcess, 
 		panic("shouldn't be able to send the result")
 	}
 	args := process.State.(testSagaCancel2Args)
-	args.workerRes <- "ok"
+	args.workerRes <- reason
 	return
 }
 
@@ -201,9 +201,6 @@ func (gs *testSagaCancel2) HandleTxNew(process *gen.SagaProcess, id gen.SagaTran
 		panic(err)
 	}
 	args.workerRes <- id
-	if err := process.CancelTransaction(id, "test cancel"); err != nil {
-		panic(err)
-	}
 
 	next := gen.SagaNext{}
 	switch process.Name() {
@@ -224,9 +221,7 @@ func (gs *testSagaCancel2) HandleTxNew(process *gen.SagaProcess, id gen.SagaTran
 
 func (gs *testSagaCancel2) HandleTxCancel(process *gen.SagaProcess, id gen.SagaTransactionID, reason string) gen.SagaStatus {
 	args := process.State.(testSagaCancel2Args)
-	if reason == "test cancel" {
-		args.sagaRes <- reason
-	}
+	args.sagaRes <- reason
 	return gen.SagaStatusOK
 }
 
@@ -246,7 +241,6 @@ func (gs *testSagaCancel2) HandleSagaDirect(process *gen.SagaProcess, message in
 	case testSagaStartTX:
 		return process.StartTransaction(gen.SagaTransactionOptions{}, message), nil
 	case testSagaCancelTX:
-		fmt.Println("CNC", m.ID)
 		return nil, process.CancelTransaction(m.ID, m.Reason)
 	}
 	return nil, nil
@@ -334,7 +328,7 @@ func TestSagaCancelCase2a(t *testing.T) {
 		t.Fatal("not a gen.SagaTransactionID")
 	}
 
-	fmt.Println("    Case a: Node1.Saga1 -> cancel -> Node2.Saga2 -> cancel -> Node3Saga3")
+	fmt.Println("    Case A: Node1.Saga1 -> cancel -> Node2.Saga2 -> cancel -> Node3Saga3")
 	fmt.Printf("... Start new TX %v on saga1: ", TXID)
 	waitForResultWithValue(t, args1.sagaRes, TXID)
 	fmt.Printf("... Start new worker on saga1 with TX %v: ", TXID)
@@ -357,8 +351,16 @@ func TestSagaCancelCase2a(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitForResultWithValue(t, args1.sagaRes, cancelReason)
-	fmt.Printf("...       saga1 cancels TX %v on worker: ", TXID)
+	fmt.Printf("...       saga1 cancels TX %v on its worker: ", TXID)
 	waitForResultWithValue(t, args1.workerRes, cancelReason)
+	fmt.Printf("...       cancels TX %v on saga2: ", TXID)
+	waitForResultWithValue(t, args2.sagaRes, cancelReason)
+	fmt.Printf("...       saga2 cancels TX %v on its worker: ", TXID)
+	waitForResultWithValue(t, args2.workerRes, cancelReason)
+	fmt.Printf("...       cancels TX %v on saga3: ", TXID)
+	waitForResultWithValue(t, args3.sagaRes, cancelReason)
+	fmt.Printf("...       saga3 cancels TX %v on its worker: ", TXID)
+	waitForResultWithValue(t, args3.workerRes, cancelReason)
 	//
 	// Case 2.d
 	//    Node1.Saga1 -> Tx -> Node2.Saga2 -> Tx -> Node3.Saga3
