@@ -670,11 +670,9 @@ func (sp *SagaProcess) handleSagaRequest(m messageSaga) error {
 		sp.mutexNext.Lock()
 		next, ok := tx.next[next_id]
 		sp.mutexNext.Unlock()
-		if !ok {
-			// ignore unknown SagaNextID
-			return SagaStatusOK
-		}
-		if next.TrapCancel {
+
+		if ok && next.TrapCancel {
+			// came from the next saga and TrapCancel was enabled
 			cm := MessageSagaCancel{
 				TransactionID: tx.id,
 				NextID:        next_id,
