@@ -319,6 +319,12 @@ func TestSagaCancelCase2a(t *testing.T) {
 	}
 	fmt.Println("OK", saga2_process.Self(), saga3_process.Self())
 
+	//
+	// case 2.A
+	//
+
+	fmt.Println("    Case A: Node1.Saga1 -> cancel -> Node2.Saga2 -> cancel -> Node3.Saga3")
+
 	ValueTXID, err := saga1_process.Direct(testSagaStartTX{})
 	if err != nil {
 		t.Fatal(err)
@@ -328,7 +334,6 @@ func TestSagaCancelCase2a(t *testing.T) {
 		t.Fatal("not a gen.SagaTransactionID")
 	}
 
-	fmt.Println("    Case A: Node1.Saga1 -> cancel -> Node2.Saga2 -> cancel -> Node3Saga3")
 	fmt.Printf("... Start new TX %v on saga1: ", TXID)
 	waitForResultWithValue(t, args1.sagaRes, TXID)
 	fmt.Printf("... Start new worker on saga1 with TX %v: ", TXID)
@@ -361,6 +366,37 @@ func TestSagaCancelCase2a(t *testing.T) {
 	waitForResultWithValue(t, args3.sagaRes, cancelReason)
 	fmt.Printf("...       saga3 cancels TX %v on its worker: ", TXID)
 	waitForResultWithValue(t, args3.workerRes, cancelReason)
+
+	//
+	// case 2.B
+	//
+
+	fmt.Println("    Case B: Node1.Saga1 <- cancel <- Node2.Saga2 -> cancel -> Node3.Saga3")
+
+	ValueTXID, err := saga1_process.Direct(testSagaStartTX{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	TXID, ok := ValueTXID.(gen.SagaTransactionID)
+	if !ok {
+		t.Fatal("not a gen.SagaTransactionID")
+	}
+
+	fmt.Printf("... Start new TX %v on saga1: ", TXID)
+	waitForResultWithValue(t, args1.sagaRes, TXID)
+	fmt.Printf("... Start new worker on saga1 with TX %v: ", TXID)
+	waitForResultWithValue(t, args1.workerRes, TXID)
+
+	fmt.Printf("... Start new TX %v on saga2: ", TXID)
+	waitForResultWithValue(t, args2.sagaRes, TXID)
+	fmt.Printf("... Start new worker on saga2 with TX %v: ", TXID)
+	waitForResultWithValue(t, args2.workerRes, TXID)
+
+	fmt.Printf("... Start new TX %v on saga3: ", TXID)
+	waitForResultWithValue(t, args3.sagaRes, TXID)
+	fmt.Printf("... Start new worker on saga3 with TX %v: ", TXID)
+	waitForResultWithValue(t, args3.workerRes, TXID)
+
 	//
 	// Case 2.d
 	//    Node1.Saga1 -> Tx -> Node2.Saga2 -> Tx -> Node3.Saga3
