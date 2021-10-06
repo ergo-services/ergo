@@ -153,11 +153,6 @@ func TestSagaCancelSimple(t *testing.T) {
 //       Node1.Saga1 -> cancel -> Node2.Saga2 -> cancel -> Node3Saga3
 //
 
-type taskSagaCancelCase2 struct {
-	workerRes chan interface{}
-	sagaRes   chan interface{}
-}
-
 type testSagaCancelWorker2 struct {
 	gen.SagaWorker
 }
@@ -173,8 +168,8 @@ func (w *testSagaCancelWorker2) HandleJobCancel(process *gen.SagaWorkerProcess, 
 	if err := process.SendResult(1); err != gen.ErrSagaTxCanceled {
 		panic("shouldn't be able to send the result")
 	}
-	task := process.State.(taskSagaCancelCase2)
-	task.workerRes <- "ok"
+	args := process.State.(testSagaCancel2Args)
+	args.workerRes <- "ok"
 	return
 }
 
@@ -182,40 +177,55 @@ type testSagaCancel2 struct {
 	gen.Saga
 }
 
+type testSagaCancel2Args struct {
+	workerRes chan interface{}
+	sagaRes   chan interface{}
+	testCase  int // 1,2,3,4
+}
+
 func (gs *testSagaCancel2) InitSaga(process *gen.SagaProcess, args ...etf.Term) (gen.SagaOptions, error) {
-	worker := &testSagaCancelWorker1{}
+	worker := &testSagaCancelWorker2{}
 	opts := gen.SagaOptions{
 		Worker: worker,
 	}
+	process.State = args[0] // testSagaCancel2Args
 	return opts, nil
 }
 
 func (gs *testSagaCancel2) HandleTxNew(process *gen.SagaProcess, id gen.SagaTransactionID, value interface{}) gen.SagaStatus {
-	process.State = value
-	task := process.State.(taskSagaCancelCase2)
-	task.sagaRes <- "startTX"
+	args := process.State.(testSagaCancel2Args)
+	args.sagaRes <- "startTX"
 
-	_, err := process.StartJob(id, gen.SagaJobOptions{}, value)
+	_, err := process.StartJob(id, gen.SagaJobOptions{}, process.State)
 	if err != nil {
 		panic(err)
 	}
-	task.workerRes <- "startWorker"
+	args.workerRes <- "startWorker"
 	if err := process.CancelTransaction(id, "test cancel"); err != nil {
 		panic(err)
 	}
 
-	// try to cancel unknown TX
-	if err := process.CancelTransaction(gen.SagaTransactionID{}, "bla bla"); err != gen.ErrSagaTxUnknown {
-		panic("must be ErrSagaTxUnknown")
+	next := gen.SagaNext{}
+	switch process.Name() {
+	case "saga1":
+		next.Saga = gen.ProcessID{Name: "saga2", Node: "node2GenSagaCancelCase2@localhost"}
+	case "saga2":
+		next.Saga = gen.ProcessID{Name: "saga3", Node: "node3GenSagaCancelCase2@localhost"}
+	default:
+		return gen.SagaStatusOK
 	}
-	task.sagaRes <- "cancelTX"
+	if args.testCase == 4 {
+		next.TrapCancel = true
+	}
+	process.Next(id, next)
+
 	return gen.SagaStatusOK
 }
 
 func (gs *testSagaCancel2) HandleTxCancel(process *gen.SagaProcess, id gen.SagaTransactionID, reason string) gen.SagaStatus {
-	task := process.State.(taskSagaCancelCase2)
+	args := process.State.(testSagaCancel2Args)
 	if reason == "test cancel" {
-		task.sagaRes <- "ok"
+		args.sagaRes <- "ok"
 	}
 	return gen.SagaStatusOK
 }
@@ -231,11 +241,10 @@ func (gs *testSagaCancel2) HandleSagaDirect(process *gen.SagaProcess, message in
 }
 
 func TestSagaCancelCase2a(t *testing.T) {
-	fmt.Printf("\n=== Test GenSagaCancelCase2a\n")
-	fmt.Println("      Node1.Saga1 -> cancel -> Node2.Saga2 -> cancel -> Node3Saga3")
+	fmt.Printf("\n=== Test GenSagaCancelCase2\n")
 
-	fmt.Printf("Starting node: node1GenSagaCancelCase2a01@localhost...")
-	node1, _ := ergo.StartNode("node1GenSagaCancelCase2a01@localhost", "cookies", node.Options{})
+	fmt.Printf("Starting node: node1GenSagaCancelCase2@localhost...")
+	node1, _ := ergo.StartNode("node1GenSagaCancelCase2@localhost", "cookies", node.Options{})
 
 	if node1 == nil {
 		t.Fatal("can't start node")
@@ -244,8 +253,8 @@ func TestSagaCancelCase2a(t *testing.T) {
 	fmt.Println("OK")
 	defer node1.Stop()
 
-	fmt.Printf("Starting node: node2GenSagaCancelCase2a01@localhost...")
-	node2, _ := ergo.StartNode("node2GenSagaCancelCase2a01@localhost", "cookies", node.Options{})
+	fmt.Printf("Starting node: node2GenSagaCancelCase2@localhost...")
+	node2, _ := ergo.StartNode("node2GenSagaCancelCase2@localhost", "cookies", node.Options{})
 
 	if node2 == nil {
 		t.Fatal("can't start node")
@@ -254,8 +263,8 @@ func TestSagaCancelCase2a(t *testing.T) {
 	fmt.Println("OK")
 	defer node2.Stop()
 
-	fmt.Printf("Starting node: node3GenSagaCancelCase2a01@localhost...")
-	node3, _ := ergo.StartNode("node3GenSagaCancelCase2a01@localhost", "cookies", node.Options{})
+	fmt.Printf("Starting node: node3GenSagaCancelCase2@localhost...")
+	node3, _ := ergo.StartNode("node3GenSagaCancelCase2@localhost", "cookies", node.Options{})
 
 	if node3 == nil {
 		t.Fatal("can't start node")
@@ -264,40 +273,98 @@ func TestSagaCancelCase2a(t *testing.T) {
 	fmt.Println("OK")
 	defer node3.Stop()
 
+	args1 := testSagaCancel2Args{
+		workerRes: make(chan interface{}, 2),
+		sagaRes:   make(chan interface{}, 2),
+		testCase:  1,
+	}
+
+	fmt.Printf("Starting saga1 on node1GenSagaCancelCase2@localhost...")
 	saga1 := &testSagaCancel2{}
-	saga1_process, err := node1.Spawn("saga1", gen.ProcessOptions{MailboxSize: 10000}, saga1)
+	saga1_process, err := node1.Spawn("saga1", gen.ProcessOptions{MailboxSize: 10000}, saga1, args1)
 	if err != nil {
 		t.Fatal(err)
 	}
 	fmt.Println("OK")
 
+	args2 := testSagaCancel2Args{
+		workerRes: make(chan interface{}, 2),
+		sagaRes:   make(chan interface{}, 2),
+		testCase:  1,
+	}
+	fmt.Printf("Starting saga2 on node2GenSagaCancelCase2@localhost...")
 	saga2 := &testSagaCancel2{}
-	saga2_process, err := node2.Spawn("saga2", gen.ProcessOptions{MailboxSize: 10000}, saga2)
+	saga2_process, err := node2.Spawn("saga2", gen.ProcessOptions{MailboxSize: 10000}, saga2, args2)
 	if err != nil {
 		t.Fatal(err)
 	}
 	fmt.Println("OK")
 
+	args3 := testSagaCancel2Args{
+		workerRes: make(chan interface{}, 2),
+		sagaRes:   make(chan interface{}, 2),
+		testCase:  1,
+	}
+	fmt.Printf("Starting saga3 on node3GenSagaCancelCase2@localhost...")
 	saga3 := &testSagaCancel2{}
-	saga3_process, err := node3.Spawn("saga2", gen.ProcessOptions{MailboxSize: 10000}, saga3)
+	saga3_process, err := node3.Spawn("saga3", gen.ProcessOptions{MailboxSize: 10000}, saga3, args3)
 	if err != nil {
 		t.Fatal(err)
 	}
 	fmt.Println("OK", saga2_process.Self(), saga3_process.Self())
 
-	task := taskSagaCancelCase2{
-		workerRes: make(chan interface{}, 2),
-		sagaRes:   make(chan interface{}, 2),
-	}
-	_, err = saga1_process.Direct(task)
+	_, err = saga1_process.Direct(nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	fmt.Printf("... Start new TX on saga: ")
-	waitForResultWithValue(t, task.sagaRes, "startTX")
-	fmt.Printf("... Start new worker on saga: ")
-	waitForResultWithValue(t, task.workerRes, "startWorker")
+	fmt.Println("    Case a: Node1.Saga1 -> cancel -> Node2.Saga2 -> cancel -> Node3Saga3")
+	fmt.Printf("... Start new TX on saga1: ")
+	waitForResultWithValue(t, args1.sagaRes, "startTX")
+	fmt.Printf("... Start new worker on saga1: ")
+	waitForResultWithValue(t, args1.workerRes, "startWorker")
+
+	fmt.Printf("... Start new TX on saga2: ")
+	waitForResultWithValue(t, args2.sagaRes, "startTX")
+	fmt.Printf("... Start new worker on saga2: ")
+	waitForResultWithValue(t, args2.workerRes, "startWorker")
+
+	fmt.Printf("... Start new TX on saga3: ")
+	waitForResultWithValue(t, args3.sagaRes, "startTX")
+	fmt.Printf("... Start new worker on saga3: ")
+	waitForResultWithValue(t, args3.workerRes, "startWorker")
+	//
+	// Case 2.d
+	//    Node1.Saga1 -> Tx -> Node2.Saga2 -> Tx -> Node3.Saga3
+	//    d) Saga1 sets TrapCancel, Saga2 process/node is going down, Saga1 sends Tx to the Saga4
+	//              -> Tx -> Saga4 -> Tx -> Saga3
+	//            /
+	//       Saga1 <- signal Down <- Saga2 (terminates) -> signal Down -> Saga3
+	//
+
+	/*
+		fmt.Println("      case d: Saga1 sets TrapCancel, Saga2 process/node is going down, Saga1 sends Tx to the Saga4")
+		fmt.Println("        -> Tx -> Saga4 -> Tx -> Saga3")
+		fmt.Println("      /")
+		fmt.Println(" Saga1 <- signal Down <- Saga2 (terminates) -> signal Down -> Saga3")
+		fmt.Printf("Starting node: node4GenSagaCancelCase2@localhost...")
+		node4, _ := ergo.StartNode("node4GenSagaCancelCase2@localhost", "cookies", node.Options{})
+
+		if node4 == nil {
+			t.Fatal("can't start node")
+			return
+		}
+		fmt.Println("OK")
+		defer node4.Stop()
+
+		fmt.Printf("Starting saga4 on node4GenSagaCancelCase2@localhost...")
+		saga4 := &testSagaCancel2{}
+		saga4_process, err := node4.Spawn("saga4", gen.ProcessOptions{MailboxSize: 10000}, saga4, args)
+		if err != nil {
+			t.Fatal(err)
+		}
+		fmt.Println("OK", saga4_process.Self())
+	*/
 }
 
 /*
