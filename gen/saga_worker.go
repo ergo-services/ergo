@@ -34,6 +34,9 @@ type SagaWorkerBehavior interface {
 	// HandleWorkerDirect this callback is invoked on Process.Direct. This method is optional
 	// for the implementation
 	HandleWorkerDirect(process *SagaWorkerProcess, message interface{}) (interface{}, error)
+
+	// HandleWorkerTerminate this callback invoked on a process termination
+	HandleWorkerTerminate(process *SagaWorkerProcess, reason string)
 }
 
 type SagaWorker struct {
@@ -174,6 +177,12 @@ func (w *SagaWorker) HandleInfo(process *ServerProcess, message etf.Term) Server
 	return p.behavior.HandleWorkerInfo(p, message)
 }
 
+func (w *SagaWorker) Terminate(process *ServerProcess, reason string) {
+	p := process.State.(*SagaWorkerProcess)
+	p.behavior.HandleWorkerTerminate(p, reason)
+	return
+}
+
 // default callbacks
 func (w *SagaWorker) HandleJobCommit(process *SagaWorkerProcess, final interface{}) {
 	fmt.Printf("HandleJobCommit: unhandled message %#v\n", final)
@@ -194,4 +203,8 @@ func (w *SagaWorker) HandleWorkerCall(process *SagaWorkerProcess, from ServerFro
 func (w *SagaWorker) HandleWorkerDirect(process *SagaWorkerProcess, message interface{}) (interface{}, error) {
 	fmt.Printf("HandleWorkerDirect: unhandled message %#v\n", message)
 	return nil, nil
+}
+
+func (w *SagaWorker) HandleWorkerTerminate(process *SagaWorkerProcess, reason string) {
+	return
 }

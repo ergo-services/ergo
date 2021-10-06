@@ -667,9 +667,12 @@ func (sp *SagaProcess) handleSagaRequest(m messageSaga) error {
 
 		// this cancel came from one of the next sagas
 		next_id := SagaNextID(cancel.Origin)
-		sp.mutexNext.Lock()
+		tx.Lock()
 		next, ok := tx.next[next_id]
-		sp.mutexNext.Unlock()
+		if ok {
+			delete(tx.next, next_id)
+		}
+		tx.Unlock()
 
 		if ok && next.TrapCancel {
 			// came from the next saga and TrapCancel was enabled
@@ -938,6 +941,7 @@ func (sp *SagaProcess) handleSagaExit(exit MessageExit) error {
 
 func (sp *SagaProcess) handleSagaDown(down MessageDown) error {
 
+	fmt.Printf("DOWN!!! %s %v\n", sp.Name(), down)
 	sp.mutexNext.Lock()
 	tx, ok := sp.next[SagaNextID(down.Ref)]
 	sp.mutexNext.Unlock()

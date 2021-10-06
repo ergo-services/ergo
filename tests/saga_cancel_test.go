@@ -3,6 +3,7 @@ package tests
 import (
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/halturin/ergo"
 	"github.com/halturin/ergo/etf"
@@ -180,7 +181,6 @@ type testSagaCancel2 struct {
 type testSagaCancel2Args struct {
 	workerRes chan interface{}
 	sagaRes   chan interface{}
-	testCase  int // 1,2,3,4
 }
 
 func (gs *testSagaCancel2) InitSaga(process *gen.SagaProcess, args ...etf.Term) (gen.SagaOptions, error) {
@@ -205,16 +205,19 @@ func (gs *testSagaCancel2) HandleTxNew(process *gen.SagaProcess, id gen.SagaTran
 	next := gen.SagaNext{}
 	switch process.Name() {
 	case "saga1":
-		next.Saga = gen.ProcessID{Name: "saga2", Node: "node2GenSagaCancelCase2@localhost"}
+		trapCancel, _ := value.(bool)
+		if trapCancel {
+			// case 2.D
+			next.TrapCancel = true
+		}
+		next.Saga = gen.ProcessID{Name: "saga2", Node: "node2GenSagaCancelCases@localhost"}
 	case "saga2":
-		next.Saga = gen.ProcessID{Name: "saga3", Node: "node3GenSagaCancelCase2@localhost"}
+		next.Saga = gen.ProcessID{Name: "saga3", Node: "node3GenSagaCancelCases@localhost"}
 	default:
 		return gen.SagaStatusOK
 	}
-	if args.testCase == 4 {
-		next.TrapCancel = true
-	}
-	process.Next(id, next)
+	nn, _ := process.Next(id, next)
+	fmt.Println("NEXT", etf.Ref(nn))
 
 	return gen.SagaStatusOK
 }
@@ -229,7 +232,9 @@ func (gs *testSagaCancel2) HandleTxResult(process *gen.SagaProcess, id gen.SagaT
 	return gen.SagaStatusOK
 }
 
-type testSagaStartTX struct{}
+type testSagaStartTX struct {
+	TrapCancel bool
+}
 type testSagaCancelTX struct {
 	ID     gen.SagaTransactionID
 	Reason string
@@ -239,18 +244,18 @@ func (gs *testSagaCancel2) HandleSagaDirect(process *gen.SagaProcess, message in
 
 	switch m := message.(type) {
 	case testSagaStartTX:
-		return process.StartTransaction(gen.SagaTransactionOptions{}, message), nil
+		return process.StartTransaction(gen.SagaTransactionOptions{}, m.TrapCancel), nil
 	case testSagaCancelTX:
 		return nil, process.CancelTransaction(m.ID, m.Reason)
 	}
 	return nil, nil
 }
 
-func TestSagaCancelCase2a(t *testing.T) {
-	fmt.Printf("\n=== Test GenSagaCancelCase2\n")
+func TestSagaCancelCases(t *testing.T) {
+	fmt.Printf("\n=== Test GenSagaCancelCases\n")
 
-	fmt.Printf("Starting node: node1GenSagaCancelCase2@localhost...")
-	node1, _ := ergo.StartNode("node1GenSagaCancelCase2@localhost", "cookies", node.Options{})
+	fmt.Printf("Starting node: node1GenSagaCancelCases@localhost...")
+	node1, _ := ergo.StartNode("node1GenSagaCancelCases@localhost", "cookies", node.Options{})
 
 	if node1 == nil {
 		t.Fatal("can't start node")
@@ -259,8 +264,8 @@ func TestSagaCancelCase2a(t *testing.T) {
 	fmt.Println("OK")
 	defer node1.Stop()
 
-	fmt.Printf("Starting node: node2GenSagaCancelCase2@localhost...")
-	node2, _ := ergo.StartNode("node2GenSagaCancelCase2@localhost", "cookies", node.Options{})
+	fmt.Printf("Starting node: node2GenSagaCancelCases@localhost...")
+	node2, _ := ergo.StartNode("node2GenSagaCancelCases@localhost", "cookies", node.Options{})
 
 	if node2 == nil {
 		t.Fatal("can't start node")
@@ -269,8 +274,8 @@ func TestSagaCancelCase2a(t *testing.T) {
 	fmt.Println("OK")
 	defer node2.Stop()
 
-	fmt.Printf("Starting node: node3GenSagaCancelCase2@localhost...")
-	node3, _ := ergo.StartNode("node3GenSagaCancelCase2@localhost", "cookies", node.Options{})
+	fmt.Printf("Starting node: node3GenSagaCancelCases@localhost...")
+	node3, _ := ergo.StartNode("node3GenSagaCancelCases@localhost", "cookies", node.Options{})
 
 	if node3 == nil {
 		t.Fatal("can't start node")
@@ -282,10 +287,9 @@ func TestSagaCancelCase2a(t *testing.T) {
 	args1 := testSagaCancel2Args{
 		workerRes: make(chan interface{}, 2),
 		sagaRes:   make(chan interface{}, 2),
-		testCase:  1,
 	}
 
-	fmt.Printf("Starting saga1 on node1GenSagaCancelCase2@localhost...")
+	fmt.Printf("Starting saga1 on node1GenSagaCancelCases@localhost...")
 	saga1 := &testSagaCancel2{}
 	saga1_process, err := node1.Spawn("saga1", gen.ProcessOptions{MailboxSize: 10000}, saga1, args1)
 	if err != nil {
@@ -296,9 +300,8 @@ func TestSagaCancelCase2a(t *testing.T) {
 	args2 := testSagaCancel2Args{
 		workerRes: make(chan interface{}, 2),
 		sagaRes:   make(chan interface{}, 2),
-		testCase:  1,
 	}
-	fmt.Printf("Starting saga2 on node2GenSagaCancelCase2@localhost...")
+	fmt.Printf("Starting saga2 on node2GenSagaCancelCases@localhost...")
 	saga2 := &testSagaCancel2{}
 	saga2_process, err := node2.Spawn("saga2", gen.ProcessOptions{MailboxSize: 10000}, saga2, args2)
 	if err != nil {
@@ -309,9 +312,8 @@ func TestSagaCancelCase2a(t *testing.T) {
 	args3 := testSagaCancel2Args{
 		workerRes: make(chan interface{}, 2),
 		sagaRes:   make(chan interface{}, 2),
-		testCase:  1,
 	}
-	fmt.Printf("Starting saga3 on node3GenSagaCancelCase2@localhost...")
+	fmt.Printf("Starting saga3 on node3GenSagaCancelCases@localhost...")
 	saga3 := &testSagaCancel2{}
 	saga3_process, err := node3.Spawn("saga3", gen.ProcessOptions{MailboxSize: 10000}, saga3, args3)
 	if err != nil {
@@ -462,98 +464,82 @@ func TestSagaCancelCase2a(t *testing.T) {
 	waitForResultWithValue(t, args1.sagaRes, cancelReason)
 	fmt.Printf("...       saga1 cancels TX %v on its worker: ", TXID)
 	waitForResultWithValue(t, args1.workerRes, cancelReason)
+
 	//
-	// Case 2.d
-	//    Node1.Saga1 -> Tx -> Node2.Saga2 -> Tx -> Node3.Saga3
-	//    d) Saga1 sets TrapCancel, Saga2 process/node is going down, Saga1 sends Tx to the Saga4
-	//              -> Tx -> Saga4 -> Tx -> Saga3
-	//            /
-	//       Saga1 <- signal Down <- Saga2 (terminates) -> signal Down -> Saga3
+	// Case 2.D
 	//
 
-	/*
-		fmt.Println("      case d: Saga1 sets TrapCancel, Saga2 process/node is going down, Saga1 sends Tx to the Saga4")
-		fmt.Println("        -> Tx -> Saga4 -> Tx -> Saga3")
-		fmt.Println("      /")
-		fmt.Println(" Saga1 <- signal Down <- Saga2 (terminates) -> signal Down -> Saga3")
-		fmt.Printf("Starting node: node4GenSagaCancelCase2@localhost...")
-		node4, _ := ergo.StartNode("node4GenSagaCancelCase2@localhost", "cookies", node.Options{})
+	fmt.Println("  Case D: Saga1 sets TrapCancel, Saga2 process/node is going down, Saga1 sends Tx to the Saga4:")
+	fmt.Println("        -------->  Tx -------> Saga4 -------> Tx ----------> ")
+	fmt.Println("      /                                                      \\ ")
+	fmt.Println(" Saga1 <- signal Down <- Saga2 (terminates) -> signal Down -> Saga3")
 
-		if node4 == nil {
-			t.Fatal("can't start node")
-			return
-		}
-		fmt.Println("OK")
-		defer node4.Stop()
+	fmt.Printf("Starting node: node4GenSagaCancelCases@localhost...")
+	node4, _ := ergo.StartNode("node4GenSagaCancelCases@localhost", "cookies", node.Options{})
 
-		fmt.Printf("Starting saga4 on node4GenSagaCancelCase2@localhost...")
-		saga4 := &testSagaCancel2{}
-		saga4_process, err := node4.Spawn("saga4", gen.ProcessOptions{MailboxSize: 10000}, saga4, args)
-		if err != nil {
-			t.Fatal(err)
-		}
-		fmt.Println("OK", saga4_process.Self())
-	*/
-}
-
-/*
-
-//
-// Case 2.b
-//    Saga1 -> Tx -> Saga2 -> Tx -> Saga3
-//       Saga2 cancels Tx
-//       Saga1 <- cancel <- Saga2 -> cancel -> Saga3
-//
-func TestSagaCancelCase2b(t *testing.T) {
-	fmt.Printf("\n=== Test GenSagaCancelCase2b\n")
-	fmt.Printf("Starting node: nodeGenSagaCancelCase2b01@localhost...")
-
-	node, _ := ergo.StartNode("nodeGenSagaCancelCase2b01@localhost", "cookies", node.Options{})
-
-	if node == nil {
+	if node4 == nil {
 		t.Fatal("can't start node")
 		return
 	}
 	fmt.Println("OK")
-}
+	defer node4.Stop()
 
-//
-// Case 2.c
-//    Saga1 -> Tx -> Saga2 -> Tx -> Saga3
-//       Saga3 cancels Tx
-//       Saga1 <- cancel <- Saga2 <- cancel <- Saga3
-//
-func TestSagaCancelCase2c(t *testing.T) {
-	fmt.Printf("\n=== Test GenSagaCancelCase2c\n")
-	fmt.Printf("Starting node: nodeGenSagaCancelCase2c01@localhost...")
+	args4 := testSagaCancel2Args{
+		workerRes: make(chan interface{}, 2),
+		sagaRes:   make(chan interface{}, 2),
+	}
+	fmt.Printf("Starting saga4 on node4GenSagaCancelCases@localhost...")
+	saga4 := &testSagaCancel2{}
+	saga4_process, err := node4.Spawn("saga4", gen.ProcessOptions{MailboxSize: 10000}, saga4, args4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fmt.Println("OK", saga4_process.Self())
 
-	node, _ := ergo.StartNode("nodeGenSagaCancelCase2c01@localhost", "cookies", node.Options{})
+	// TrapCancel will be enabled on the Saga1 only
+	ValueTXID, err = saga1_process.Direct(testSagaStartTX{TrapCancel: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	TXID, ok = ValueTXID.(gen.SagaTransactionID)
+	if !ok {
+		t.Fatal("not a gen.SagaTransactionID")
+	}
 
-	if node == nil {
-		t.Fatal("can't start node")
-		return
+	fmt.Printf("... Start new TX %v on saga1: ", TXID)
+	waitForResultWithValue(t, args1.sagaRes, TXID)
+	fmt.Printf("... Start new worker on saga1 with TX %v: ", TXID)
+	waitForResultWithValue(t, args1.workerRes, TXID)
+
+	fmt.Printf("... Start new TX %v on saga2: ", TXID)
+	waitForResultWithValue(t, args2.sagaRes, TXID)
+	fmt.Printf("... Start new worker on saga2 with TX %v: ", TXID)
+	waitForResultWithValue(t, args2.workerRes, TXID)
+
+	fmt.Printf("... Start new TX %v on saga3: ", TXID)
+	waitForResultWithValue(t, args3.sagaRes, TXID)
+	fmt.Printf("... Start new worker on saga3 with TX %v: ", TXID)
+	waitForResultWithValue(t, args3.workerRes, TXID)
+
+	fmt.Printf("... Terminate saga2 process: ")
+	saga2_process.Kill()
+	if err := saga2_process.WaitWithTimeout(2 * time.Second); err != nil {
+		t.Fatal(err)
 	}
 	fmt.Println("OK")
+
+	//fmt.Printf("...       saga2 termination cause termination its worker (%v): ", TXID)
+	//waitForResultWithValue(t, args2.workerRes, cancelReason)
+	fmt.Printf("...       cancels TX %v on saga3: ", TXID)
+	cancelReason = fmt.Sprintf("parent saga %s is down", saga2_process.Self())
+	waitForResultWithValue(t, args3.sagaRes, cancelReason)
+	fmt.Printf("...       saga3 cancels TX %v on its worker: ", TXID)
+	waitForResultWithValue(t, args3.workerRes, cancelReason)
+
+	fmt.Printf("...       handle trapped cancelation TX %v on saga1: ", TXID)
+	waitForResultWithValue(t, args1.sagaRes, TXID)
+	fmt.Printf("... Start new TX %v on saga4: ", TXID)
+	waitForResultWithValue(t, args4.sagaRes, TXID)
+	fmt.Printf("... Start new worker on saga4 with TX %v: ", TXID)
+	waitForResultWithValue(t, args3.workerRes, TXID)
 }
-
-//
-// Case 2.d
-//    Saga1 -> Tx -> Saga2 -> Tx -> Saga3
-//       Saga1 sets TrapCancel, Saga2 process/node is going down, Saga1 sends Tx to the Saga4
-//              -> Tx -> Saga4 -> Tx -> Saga3
-//            /
-//       Saga1 <- signal Down <- Saga2 (terminates) -> signal Down -> Saga3
-//
-func TestSagaCancelCase2d(t *testing.T) {
-	fmt.Printf("\n=== Test GenSagaCancelCase2d\n")
-	fmt.Printf("Starting node: nodeGenSagaCancelCase2d01@localhost...")
-
-	node, _ := ergo.StartNode("nodeGenSagaCancelCase2d01@localhost", "cookies", node.Options{})
-
-	if node == nil {
-		t.Fatal("can't start node")
-		return
-	}
-	fmt.Println("OK")
-}
-*/
