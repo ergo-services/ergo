@@ -149,3 +149,42 @@ func TestSagaCommitSimple(t *testing.T) {
 	fmt.Printf("... Worker terminated: ")
 	waitForResultWithValue(t, task.workerRes, "normal")
 }
+
+func TestSagaCommitDistributed(t *testing.T) {
+
+	fmt.Printf("\n=== Test GenSagaCommitDistributed\n")
+
+	fmt.Printf("Starting node: nodeGenSagaCommitDist01@localhost...")
+	node1, _ := ergo.StartNode("nodeGenSagaCommitDist01@localhost", "cookies", node.Options{})
+	if node1 == nil {
+		t.Fatal("can't start node")
+		return
+	}
+	fmt.Println("OK")
+	defer node1.Stop()
+
+	fmt.Printf("Starting node: nodeGenSagaCommitDist02@localhost...")
+	node2, _ := ergo.StartNode("nodeGenSagaCommitDist02@localhost", "cookies", node.Options{})
+	if node2 == nil {
+		t.Fatal("can't start node")
+		return
+	}
+	fmt.Println("OK")
+	defer node2.Stop()
+
+	fmt.Printf("... Starting Saga1 processes on node1: ")
+	saga1 := &testSagaCommit1{}
+	saga1_process, err := node1.Spawn("saga1", gen.ProcessOptions{MailboxSize: 10000}, saga1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fmt.Println("OK")
+
+	fmt.Printf("... Starting Saga2 processes on node2: ")
+	saga2 := &testSagaCommit1{}
+	saga2_process, err := node2.Spawn("saga1", gen.ProcessOptions{MailboxSize: 10000}, saga2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fmt.Println("OK", saga1_process.Self(), saga2_process.Self())
+}

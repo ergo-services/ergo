@@ -161,6 +161,32 @@ func (sp *ServerProcess) CastRPC(node, module, function string, args ...etf.Term
 	return sp.Cast(to, message)
 }
 
+// SendReply sends a reply message to the sender made ServerProcess.Call request.
+// Useful for the case with dispatcher and pool of workers: Dispatcher process
+// forwards Call requests (asynchronously) within a HandleCall callback to the worker(s)
+// using ServerProcess.Cast or ServerProcess.Send but returns ServerStatusIgnore
+// instead of ServerStatusOK. Worker process sends result using ServerProcess.SendReply
+// method using 'from' value received from the Dispatcher.
+func (sp *ServerProcess) SendReply(from ServerFrom, reply etf.Term) error {
+	var fromTag etf.Term
+	var to etf.Term
+	if from.ReplyByAlias {
+		// Erlang gen_server:call uses improper list for the reply ['alias'|Ref]
+		fromTag = etf.ListImproper{etf.Atom("alias"), from.Ref}
+		to = etf.Alias(from.Ref)
+	} else {
+		fromTag = from.Ref
+		to = from.Pid
+	}
+
+	if reply != nil {
+		rep := etf.Tuple{fromTag, reply}
+		return sp.Send(to, rep)
+	}
+	rep := etf.Tuple{fromTag, etf.Atom("nil")}
+	return sp.Send(to, rep)
+}
+
 func (gs *Server) ProcessInit(p Process, args ...etf.Term) (ProcessState, error) {
 	behavior, ok := p.Behavior().(ServerBehavior)
 	if !ok {
@@ -472,24 +498,7 @@ func (gsp *ServerProcess) handleCall(m handleCallMessage) {
 	gsp.currentFunction = cf
 	switch status {
 	case ServerStatusOK:
-		var fromTag etf.Term
-		var to etf.Term
-		if m.from.ReplyByAlias {
-			// Erlang gen_server:call uses improper list for the reply ['alias'|Ref]
-			fromTag = etf.ListImproper{etf.Atom("alias"), m.from.Ref}
-			to = etf.Alias(m.from.Ref)
-		} else {
-			fromTag = m.from.Ref
-			to = m.from.Pid
-		}
-
-		if reply != nil {
-			rep := etf.Tuple{fromTag, reply}
-			gsp.Send(to, rep)
-			return
-		}
-		rep := etf.Tuple{fromTag, etf.Atom("nil")}
-		gsp.Send(to, rep)
+		gsp.SendReply(m.from, reply)
 	case ServerStatusIgnore:
 		return
 	case ServerStatusStop:
