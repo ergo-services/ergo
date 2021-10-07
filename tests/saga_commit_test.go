@@ -63,7 +63,7 @@ func (gs *testSagaCommit1) HandleTxNew(process *gen.SagaProcess, id gen.SagaTran
 		panic(err)
 	}
 
-	if args.testCaseDist && process.Name() == "saga1" {
+	if args.testCaseDist {
 		next := gen.SagaNext{
 			Saga: gen.ProcessID{Name: "saga2", Node: "nodeGenSagaCommitDist02@localhost"},
 		}
@@ -83,7 +83,15 @@ func (gs *testSagaCommit1) HandleTxCancel(process *gen.SagaProcess, id gen.SagaT
 	return gen.SagaStatusOK
 }
 
+func (gs *testSagaCommit1) HandleTxCommit(process *gen.SagaProcess, id gen.SagaTransactionID, final interface{}) gen.SagaStatus {
+	args := process.State.(argsSagaCommitArgs)
+	args.sagaRes <- final
+	return gen.SagaStatusOK
+}
+
 func (gs *testSagaCommit1) HandleTxResult(process *gen.SagaProcess, id gen.SagaTransactionID, from gen.SagaNextID, result interface{}) gen.SagaStatus {
+	args := process.State.(argsSagaCommitArgs)
+	args.sagaRes <- "txresult"
 	return gen.SagaStatusOK
 }
 
@@ -181,8 +189,9 @@ func TestSagaCommitDistributed(t *testing.T) {
 	defer node2.Stop()
 
 	args1 := argsSagaCommitArgs{
-		workerRes: make(chan interface{}, 2),
-		sagaRes:   make(chan interface{}, 2),
+		workerRes:    make(chan interface{}, 2),
+		sagaRes:      make(chan interface{}, 2),
+		testCaseDist: true,
 	}
 	fmt.Printf("... Starting Saga1 processes on node1: ")
 	saga1 := &testSagaCommit1{}
@@ -220,4 +229,31 @@ func TestSagaCommitDistributed(t *testing.T) {
 	waitForResultWithValue(t, args2.sagaRes, "newtx")
 	fmt.Printf("... Start new worker on saga2: ")
 	waitForResultWithValue(t, args2.workerRes, "jobresult")
+	fmt.Printf("... Try to send the result on saga1 (must be error ErrSagaTxInProgress): ")
+	if _, err := saga1_process.Direct(testSagaCommitSendRes{id: TXID}); err != gen.ErrSagaTxInProgress {
+		t.Fatal("must be error here")
+	}
+	fmt.Println("OK")
+
+	fmt.Printf("... Send the result on saga2 : ")
+	if _, err := saga2_process.Direct(testSagaCommitSendRes{id: TXID}); err != nil {
+		t.Fatal(err)
+	}
+	fmt.Println("OK")
+
+	fmt.Printf("... Handle TX result on saga1 (from saga2): ")
+	waitForResultWithValue(t, args1.sagaRes, "txresult")
+	fmt.Printf("... Send the result on saga1 : ")
+	if _, err := saga1_process.Direct(testSagaCommitSendRes{id: TXID}); err != nil {
+		t.Fatal(err)
+	}
+	fmt.Println("OK")
+	fmt.Printf("... Handle TX done on saga1: ")
+	waitForResultWithValue(t, args1.sagaRes, "txdone")
+	fmt.Printf("... Handle TX commit with final value on saga1 worker: ")
+	waitForResultWithValue(t, args1.workerRes, 6.28)
+	fmt.Printf("... Handle TX commit on saga2: ")
+	waitForResultWithValue(t, args2.sagaRes, 6.28)
+	fmt.Printf("... Handle TX commit with final value on saga2 worker: ")
+	waitForResultWithValue(t, args2.workerRes, 6.28)
 }
