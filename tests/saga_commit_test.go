@@ -180,19 +180,44 @@ func TestSagaCommitDistributed(t *testing.T) {
 	fmt.Println("OK")
 	defer node2.Stop()
 
+	args1 := argsSagaCommitArgs{
+		workerRes: make(chan interface{}, 2),
+		sagaRes:   make(chan interface{}, 2),
+	}
 	fmt.Printf("... Starting Saga1 processes on node1: ")
 	saga1 := &testSagaCommit1{}
-	saga1_process, err := node1.Spawn("saga1", gen.ProcessOptions{MailboxSize: 10000}, saga1)
+	saga1_process, err := node1.Spawn("saga1", gen.ProcessOptions{MailboxSize: 10000}, saga1, args1)
 	if err != nil {
 		t.Fatal(err)
 	}
 	fmt.Println("OK")
 
+	args2 := argsSagaCommitArgs{
+		workerRes: make(chan interface{}, 2),
+		sagaRes:   make(chan interface{}, 2),
+	}
 	fmt.Printf("... Starting Saga2 processes on node2: ")
 	saga2 := &testSagaCommit1{}
-	saga2_process, err := node2.Spawn("saga2", gen.ProcessOptions{MailboxSize: 10000}, saga2)
+	saga2_process, err := node2.Spawn("saga2", gen.ProcessOptions{MailboxSize: 10000}, saga2, args2)
 	if err != nil {
 		t.Fatal(err)
 	}
 	fmt.Println("OK", saga1_process.Self(), saga2_process.Self())
+
+	ValueTXID, err := saga1_process.Direct(testSagaCommitStartTx{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	TXID, ok := ValueTXID.(gen.SagaTransactionID)
+	if !ok {
+		t.Fatal("not a gen.SagaTransactionID")
+	}
+	fmt.Printf("... Start new TX on saga1: ")
+	waitForResultWithValue(t, args1.sagaRes, "newtx")
+	fmt.Printf("... Start new worker on saga1: ")
+	waitForResultWithValue(t, args1.workerRes, "jobresult")
+	fmt.Printf("... Start new TX on saga2: ")
+	waitForResultWithValue(t, args2.sagaRes, "newtx")
+	fmt.Printf("... Start new worker on saga2: ")
+	waitForResultWithValue(t, args2.workerRes, "jobresult")
 }
