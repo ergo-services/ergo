@@ -165,8 +165,8 @@ func (sp *ServerProcess) CastRPC(node, module, function string, args ...etf.Term
 // Useful for the case with dispatcher and pool of workers: Dispatcher process
 // forwards Call requests (asynchronously) within a HandleCall callback to the worker(s)
 // using ServerProcess.Cast or ServerProcess.Send but returns ServerStatusIgnore
-// instead of ServerStatusOK. Worker process sends result using ServerProcess.SendReply
-// method using 'from' value received from the Dispatcher.
+// instead of ServerStatusOK; Worker process sends result using ServerProcess.SendReply
+// method with 'from' value received from the Dispatcher.
 func (sp *ServerProcess) SendReply(from ServerFrom, reply etf.Term) error {
 	var fromTag etf.Term
 	var to etf.Term

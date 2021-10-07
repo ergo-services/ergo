@@ -10,9 +10,10 @@ import (
 	"github.com/halturin/ergo/node"
 )
 
-type taskSagaCommitCase1 struct {
-	workerRes chan interface{}
-	sagaRes   chan interface{}
+type argsSagaCommitArgs struct {
+	workerRes    chan interface{}
+	sagaRes      chan interface{}
+	testCaseDist bool
 }
 
 type testSagaCommitWorker1 struct {
@@ -22,13 +23,13 @@ type testSagaCommitWorker1 struct {
 func (w *testSagaCommitWorker1) HandleJobStart(process *gen.SagaWorkerProcess, job gen.SagaJob) error {
 	process.State = job.Value
 	process.SendResult(123)
-	task := process.State.(taskSagaCommitCase1)
-	task.workerRes <- "jobresult"
+	args := process.State.(argsSagaCommitArgs)
+	args.workerRes <- "jobresult"
 	return nil
 }
 func (w *testSagaCommitWorker1) HandleJobCommit(process *gen.SagaWorkerProcess, final interface{}) {
-	task := process.State.(taskSagaCommitCase1)
-	task.workerRes <- final
+	args := process.State.(argsSagaCommitArgs)
+	args.workerRes <- final
 	return
 }
 func (w *testSagaCommitWorker1) HandleJobCancel(process *gen.SagaWorkerProcess, reason string) {
@@ -36,8 +37,8 @@ func (w *testSagaCommitWorker1) HandleJobCancel(process *gen.SagaWorkerProcess, 
 }
 
 func (w *testSagaCommitWorker1) HandleWorkerTerminate(process *gen.SagaWorkerProcess, reason string) {
-	task := process.State.(taskSagaCommitCase1)
-	task.workerRes <- reason
+	args := process.State.(argsSagaCommitArgs)
+	args.workerRes <- reason
 }
 
 type testSagaCommit1 struct {
@@ -49,25 +50,32 @@ func (gs *testSagaCommit1) InitSaga(process *gen.SagaProcess, args ...etf.Term) 
 	opts := gen.SagaOptions{
 		Worker: worker,
 	}
+	process.State = args[0]
 	return opts, nil
 }
 
 func (gs *testSagaCommit1) HandleTxNew(process *gen.SagaProcess, id gen.SagaTransactionID, value interface{}) gen.SagaStatus {
-	process.State = value
-	task := process.State.(taskSagaCommitCase1)
-	task.sagaRes <- "newtx"
+	args := process.State.(argsSagaCommitArgs)
+	args.sagaRes <- "newtx"
 
-	_, err := process.StartJob(id, gen.SagaJobOptions{}, value)
+	_, err := process.StartJob(id, gen.SagaJobOptions{}, args)
 	if err != nil {
 		panic(err)
+	}
+
+	if args.testCaseDist && process.Name() == "saga1" {
+		next := gen.SagaNext{
+			Saga: gen.ProcessID{Name: "saga2", Node: "nodeGenSagaCommitDist02@localhost"},
+		}
+		process.Next(id, next)
 	}
 
 	return gen.SagaStatusOK
 }
 
 func (gs *testSagaCommit1) HandleTxDone(process *gen.SagaProcess, id gen.SagaTransactionID, result interface{}) (interface{}, gen.SagaStatus) {
-	task := process.State.(taskSagaCommitCase1)
-	task.sagaRes <- "txdone"
+	args := process.State.(argsSagaCommitArgs)
+	args.sagaRes <- "txdone"
 	return 6.28, gen.SagaStatusOK
 }
 
@@ -91,7 +99,7 @@ type testSagaCommitSendRes struct {
 func (gs *testSagaCommit1) HandleSagaDirect(process *gen.SagaProcess, message interface{}) (interface{}, error) {
 
 	switch m := message.(type) {
-	case taskSagaCommitCase1:
+	case testSagaCommitStartTx:
 		id := process.StartTransaction(gen.SagaTransactionOptions{TwoPhaseCommit: true}, m)
 		return id, nil
 	case testSagaCommitSendRes:
@@ -114,18 +122,18 @@ func TestSagaCommitSimple(t *testing.T) {
 	defer node.Stop()
 
 	fmt.Printf("... Starting Saga processes: ")
+	args := argsSagaCommitArgs{
+		workerRes: make(chan interface{}, 2),
+		sagaRes:   make(chan interface{}, 2),
+	}
 	saga := &testSagaCommit1{}
-	saga_process, err := node.Spawn("saga", gen.ProcessOptions{MailboxSize: 10000}, saga)
+	saga_process, err := node.Spawn("saga", gen.ProcessOptions{MailboxSize: 10000}, saga, args)
 	if err != nil {
 		t.Fatal(err)
 	}
 	fmt.Println("OK")
 
-	task := taskSagaCommitCase1{
-		workerRes: make(chan interface{}, 2),
-		sagaRes:   make(chan interface{}, 2),
-	}
-	ValueTXID, err := saga_process.Direct(task)
+	ValueTXID, err := saga_process.Direct(testSagaCommitStartTx{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -134,20 +142,20 @@ func TestSagaCommitSimple(t *testing.T) {
 		t.Fatal("not a gen.SagaTransactionID")
 	}
 	fmt.Printf("... Start new TX on saga: ")
-	waitForResultWithValue(t, task.sagaRes, "newtx")
+	waitForResultWithValue(t, args.sagaRes, "newtx")
 	fmt.Printf("... Start new worker on saga: ")
-	waitForResultWithValue(t, task.workerRes, "jobresult")
+	waitForResultWithValue(t, args.workerRes, "jobresult")
 	fmt.Printf("... Sending result on saga: ")
 	if _, err := saga_process.Direct(testSagaCommitSendRes{id: TXID}); err != nil {
 		t.Fatal(err)
 	}
 	fmt.Println("OK")
 	fmt.Printf("... Handle TX done on saga: ")
-	waitForResultWithValue(t, task.sagaRes, "txdone")
+	waitForResultWithValue(t, args.sagaRes, "txdone")
 	fmt.Printf("... Handle TX commit with final value on worker: ")
-	waitForResultWithValue(t, task.workerRes, 6.28)
+	waitForResultWithValue(t, args.workerRes, 6.28)
 	fmt.Printf("... Worker terminated: ")
-	waitForResultWithValue(t, task.workerRes, "normal")
+	waitForResultWithValue(t, args.workerRes, "normal")
 }
 
 func TestSagaCommitDistributed(t *testing.T) {
@@ -182,7 +190,7 @@ func TestSagaCommitDistributed(t *testing.T) {
 
 	fmt.Printf("... Starting Saga2 processes on node2: ")
 	saga2 := &testSagaCommit1{}
-	saga2_process, err := node2.Spawn("saga1", gen.ProcessOptions{MailboxSize: 10000}, saga2)
+	saga2_process, err := node2.Spawn("saga2", gen.ProcessOptions{MailboxSize: 10000}, saga2)
 	if err != nil {
 		t.Fatal(err)
 	}
