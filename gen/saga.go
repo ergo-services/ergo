@@ -375,8 +375,6 @@ func (sp *SagaProcess) Next(id SagaTransactionID, next SagaNext) (SagaNextID, er
 	sp.next[next_id] = tx
 	sp.mutexNext.Unlock()
 
-	// FIXME handle next.Timeout
-
 	return next_id, nil
 }
 
