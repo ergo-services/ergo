@@ -840,8 +840,8 @@ func (sp *SagaProcess) cancelTX(from etf.Pid, cancel messageSagaCancel, tx *Saga
 	sp.mutexJobs.Lock()
 	for i := range cancelJobs {
 		job, ok := sp.jobs[cancelJobs[i]]
-		delete(sp.jobs, cancelJobs[i])
 		if ok {
+			delete(sp.jobs, cancelJobs[i])
 			job.cancelTimer()
 		}
 	}
