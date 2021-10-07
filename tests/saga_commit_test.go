@@ -211,7 +211,7 @@ func TestSagaCommitDistributed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fmt.Println("OK", saga1_process.Self(), saga2_process.Self())
+	fmt.Println("OK")
 
 	ValueTXID, err := saga1_process.Direct(testSagaCommitStartTx{})
 	if err != nil {

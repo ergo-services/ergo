@@ -70,6 +70,9 @@ type messageSagaJobResult struct {
 	pid    etf.Pid
 	result interface{}
 }
+type messageSagaJobLifespan struct {
+	pid etf.Pid
+}
 
 //
 // SagaWorkerProcess methods

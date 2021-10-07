@@ -353,11 +353,13 @@ func (r *registrar) spawn(name string, opts processOptions, behavior gen.Process
 		r.processTerminated(process.self, name, reason)
 		// make the rest empty
 		process.Lock()
-		process.name = ""
 		process.aliases = []etf.Alias{}
-		// do not clean self. sometimes its good to know what pid was
-		// used by the dead process. (gen.Applications is using it)
+
+		// Do not clean self and name. Sometimes its good to know what pid
+		// (and what name) was used by the dead process. (gen.Applications is using it)
+		// process.name = ""
 		// process.self = etf.Pid{}
+
 		process.behavior = nil
 		process.parent = nil
 		process.groupLeader = nil

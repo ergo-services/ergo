@@ -1,6 +1,7 @@
 package gen
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"sync"
@@ -180,7 +181,8 @@ type SagaNext struct {
 	TrapCancel bool
 
 	// internal
-	done bool // for 2PC case
+	done        bool // for 2PC case
+	cancelTimer context.CancelFunc
 }
 
 type SagaJobID etf.Ref
@@ -196,11 +198,12 @@ type SagaJob struct {
 	Value         interface{}
 
 	// internal
-	options SagaJobOptions
-	saga    etf.Pid
-	commit  bool
-	worker  Process
-	done    bool
+	options     SagaJobOptions
+	saga        etf.Pid
+	commit      bool
+	worker      Process
+	done        bool
+	cancelTimer context.CancelFunc
 }
 
 type SagaJobOptions struct {
@@ -318,10 +321,18 @@ func (sp *SagaProcess) Next(id SagaTransactionID, next SagaNext) (SagaNextID, er
 		return SagaNextID{}, fmt.Errorf("exceeded hop limit")
 	}
 
-	next_Lifespan := int64(tx.options.Lifespan) - (time.Now().Unix() - tx.arrival)
-	if next_Lifespan < 1 {
+	nextLifespan := int64(tx.options.Lifespan) - (time.Now().Unix() - tx.arrival)
+	if nextLifespan < 1 {
 		sp.CancelTransaction(id, "exceeded lifespan")
 		return SagaNextID{}, fmt.Errorf("exceeded lifespan. transaction canceled")
+	}
+
+	if next.Timeout > 0 && int64(next.Timeout) > nextLifespan {
+		return SagaNextID{}, fmt.Errorf("requested timeout exceed lifespan")
+	}
+
+	if next.Timeout > 0 {
+		nextLifespan = int64(next.Timeout)
 	}
 
 	ref := sp.MonitorProcess(next.Saga)
@@ -336,13 +347,25 @@ func (sp *SagaProcess) Next(id SagaTransactionID, next SagaNext) (SagaNextID, er
 			tx.parents,
 			etf.Map{
 				"HopLimit":       tx.options.HopLimit,
-				"Lifespan":       next_Lifespan,
+				"Lifespan":       nextLifespan,
 				"TwoPhaseCommit": tx.options.TwoPhaseCommit,
 			},
 		},
 	}
 
 	sp.Send(next.Saga, message)
+
+	cancelMessage := etf.Tuple{
+		etf.Atom("$saga_cancel"),
+		etf.Pid{}, // do not send sp.Self() to be able TrapCancel work
+		etf.Tuple{
+			etf.Ref(tx.id), // tx id
+			ref,
+			"lifespan",
+		},
+	}
+	timeout := time.Duration(nextLifespan) * time.Second
+	next.cancelTimer = sp.SendAfter(sp.Self(), cancelMessage, timeout)
 
 	tx.Lock()
 	tx.next[next_id] = &next
@@ -370,7 +393,14 @@ func (sp *SagaProcess) StartJob(id SagaTransactionID, options SagaJobOptions, va
 		return SagaJobID{}, ErrSagaTxUnknown
 	}
 
-	// FIXME make context WithTimeout to limit the lifespan
+	jobLifespan := int64(tx.options.Lifespan) - (time.Now().Unix() - tx.arrival)
+	if options.Timeout > 0 && int64(options.Timeout) > jobLifespan {
+		return SagaJobID{}, fmt.Errorf("requested timeout exceed lifespan")
+	}
+	if options.Timeout > 0 {
+		jobLifespan = int64(options.Timeout)
+	}
+
 	workerOptions := ProcessOptions{}
 	worker, err := sp.Spawn("", workerOptions, sp.options.Worker)
 	if err != nil {
@@ -399,6 +429,15 @@ func (sp *SagaProcess) StartJob(id SagaTransactionID, options SagaJobOptions, va
 	tx.Unlock()
 
 	sp.Cast(worker.Self(), m)
+
+	// terminate worker process via handleSagaExit
+	exitMessage := MessageExit{
+		Pid:    worker.Self(),
+		Reason: "lifespan",
+	}
+
+	timeout := time.Duration(jobLifespan) * time.Second
+	job.cancelTimer = sp.SendAfter(sp.Self(), exitMessage, timeout)
 
 	return job.ID, nil
 }
@@ -718,10 +757,11 @@ func (sp *SagaProcess) handleSagaRequest(m messageSaga) error {
 			sp.mutexNext.Unlock()
 
 			tx.Lock()
+			next := tx.next[next_id]
 			if tx.options.TwoPhaseCommit == false {
+				next.cancelTimer()
 				delete(tx.next, next_id)
 			} else {
-				next := tx.next[next_id]
 				next.done = true
 			}
 			tx.Unlock()
@@ -788,16 +828,32 @@ func (sp *SagaProcess) handleSagaRequest(m messageSaga) error {
 
 func (sp *SagaProcess) cancelTX(from etf.Pid, cancel messageSagaCancel, tx *SagaTransaction) {
 	// stop workers
+	tx.Lock()
+	cancelJobs := []etf.Pid{}
 	for _, pid := range tx.jobs {
 		sp.Unlink(pid)
 		sp.Cast(pid, messageSagaJobCancel{reason: cancel.Reason})
+		cancelJobs = append(cancelJobs, pid)
 	}
+	tx.Unlock()
+
+	sp.mutexJobs.Lock()
+	for i := range cancelJobs {
+		job, ok := sp.jobs[cancelJobs[i]]
+		delete(sp.jobs, cancelJobs[i])
+		if ok {
+			job.cancelTimer()
+		}
+	}
+	sp.mutexJobs.Unlock()
+
 	// remove monitor from parent saga
 	if tx.parents[0] != sp.Self() {
 		sp.DemonitorProcess(tx.monitor)
 
 		// do not send to the parent saga if it came from there
-		if tx.parents[0] != from {
+		// and cancelation reason caused by lifespan timer
+		if tx.parents[0] != from && cancel.Reason != "lifespan" {
 			cm := etf.Tuple{
 				etf.Atom("$saga_cancel"),
 				sp.Self(),
@@ -818,10 +874,17 @@ func (sp *SagaProcess) cancelTX(from etf.Pid, cancel messageSagaCancel, tx *Saga
 		// remove monitor from the next saga
 		sp.DemonitorProcess(ref)
 		delete(sp.next, nxtid)
+		nxt.cancelTimer()
 
-		if ref == cancel.Origin {
+		if cancel.Reason == "lifespan" {
+			// do not send if the cancelation caused by lifespan timer
 			continue
 		}
+		if ref == cancel.Origin {
+			// do not send to the parent if it came from there
+			continue
+		}
+
 		cm := etf.Tuple{
 			etf.Atom("$saga_cancel"),
 			sp.Self(),
@@ -895,6 +958,7 @@ func (sp *SagaProcess) commitTX(tx *SagaTransaction, final interface{}) {
 			sp.Send(sp.Self(), errmessage)
 		}
 		delete(sp.next, nxtid)
+		nxt.cancelTimer()
 	}
 	sp.mutexNext.Unlock()
 
@@ -907,6 +971,13 @@ func (sp *SagaProcess) handleSagaExit(exit MessageExit) error {
 	if !ok {
 		// passthrough this message to HandleSagaInfo callback
 		return ErrSagaJobUnknown
+	}
+
+	if exit.Reason == "lifespan" {
+		sp.Unlink(job.worker.Self())
+		job.worker.Exit(exit.Reason)
+	} else {
+		job.cancelTimer()
 	}
 
 	// remove it from saga job list
@@ -949,6 +1020,7 @@ func (sp *SagaProcess) handleSagaDown(down MessageDown) error {
 	if ok {
 		// got DOWN message from the next saga
 		empty := etf.Pid{}
+		fmt.Println("DOWN", down)
 		reason := fmt.Sprintf("next saga %s is down", down.Pid)
 		if down.Pid == empty {
 			// monitored by name
@@ -1061,6 +1133,7 @@ func (gs *Saga) HandleCast(process *ServerProcess, message etf.Term) ServerStatu
 			break
 		}
 		job.done = true
+		job.cancelTimer()
 
 		sp.mutexTXS.Lock()
 		tx, ok := sp.txs[job.TransactionID]
