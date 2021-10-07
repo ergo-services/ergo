@@ -331,7 +331,7 @@ func (sp *SagaProcess) Next(id SagaTransactionID, next SagaNext) (SagaNextID, er
 		sp.Self(),
 		etf.Tuple{
 			etf.Ref(tx.id), // tx id
-			ref,            // next id
+			ref,            // next id (tx origin on the next saga)
 			next.Value,
 			tx.parents,
 			etf.Map{
@@ -660,18 +660,17 @@ func (sp *SagaProcess) handleSagaRequest(m messageSaga) error {
 
 		// check where it came from.
 		if tx.parents[0] == m.Pid {
-			// came from parent saga. can't be ignored
+			// came from parent saga or from itself via CancelTransaction
+			// can't be ignored
 			sp.cancelTX(m.Pid, cancel, tx)
 			return sp.behavior.HandleTxCancel(sp, tx.id, cancel.Reason)
 		}
 
 		// this cancel came from one of the next sagas
+		// or from itself (being in the middle of transaction graph)
 		next_id := SagaNextID(cancel.Origin)
 		tx.Lock()
 		next, ok := tx.next[next_id]
-		if ok {
-			delete(tx.next, next_id)
-		}
 		tx.Unlock()
 
 		if ok && next.TrapCancel {
@@ -794,26 +793,32 @@ func (sp *SagaProcess) cancelTX(from etf.Pid, cancel messageSagaCancel, tx *Saga
 		sp.Cast(pid, messageSagaJobCancel{reason: cancel.Reason})
 	}
 	// remove monitor from parent saga
-	sp.DemonitorProcess(tx.monitor)
+	if tx.parents[0] != sp.Self() {
+		sp.DemonitorProcess(tx.monitor)
 
-	// do not send to the parent saga if it came from there
-	if tx.parents[0] != from {
-		cm := etf.Tuple{
-			etf.Atom("$saga_cancel"),
-			sp.Self(),
-			etf.Tuple{
-				cancel.TransactionID,
-				etf.Ref(tx.origin),
-				cancel.Reason,
-			},
+		// do not send to the parent saga if it came from there
+		if tx.parents[0] != from {
+			cm := etf.Tuple{
+				etf.Atom("$saga_cancel"),
+				sp.Self(),
+				etf.Tuple{
+					cancel.TransactionID,
+					etf.Ref(tx.origin),
+					cancel.Reason,
+				},
+			}
+			sp.Send(tx.parents[0], cm)
 		}
-		sp.Send(tx.parents[0], cm)
 	}
 
 	// send cancel to all next sagas except the saga this cancel came from
 	sp.mutexNext.Lock()
 	for nxtid, nxt := range tx.next {
 		ref := etf.Ref(nxtid)
+		// remove monitor from the next saga
+		sp.DemonitorProcess(ref)
+		delete(sp.next, nxtid)
+
 		if ref == cancel.Origin {
 			continue
 		}
@@ -826,8 +831,6 @@ func (sp *SagaProcess) cancelTX(from etf.Pid, cancel messageSagaCancel, tx *Saga
 				cancel.Reason,
 			},
 		}
-		// remove monitor from the next saga
-		sp.DemonitorProcess(ref)
 		if err := sp.Send(nxt.Saga, cm); err != nil {
 			errmessage := MessageSagaError{
 				TransactionID: tx.id,
@@ -837,7 +840,6 @@ func (sp *SagaProcess) cancelTX(from etf.Pid, cancel messageSagaCancel, tx *Saga
 			}
 			sp.Send(sp.Self(), errmessage)
 		}
-		delete(sp.next, nxtid)
 	}
 	sp.mutexNext.Unlock()
 
@@ -941,7 +943,6 @@ func (sp *SagaProcess) handleSagaExit(exit MessageExit) error {
 
 func (sp *SagaProcess) handleSagaDown(down MessageDown) error {
 
-	fmt.Printf("DOWN!!! %s %v\n", sp.Name(), down)
 	sp.mutexNext.Lock()
 	tx, ok := sp.next[SagaNextID(down.Ref)]
 	sp.mutexNext.Unlock()
@@ -955,7 +956,7 @@ func (sp *SagaProcess) handleSagaDown(down MessageDown) error {
 		}
 		message := etf.Tuple{
 			etf.Atom("$saga_cancel"),
-			sp.Self(),
+			down.Pid,
 			etf.Tuple{etf.Ref(tx.id), down.Ref, reason},
 		}
 		sp.Send(sp.Self(), message)
@@ -993,8 +994,6 @@ func (sp *SagaProcess) handleSagaDown(down MessageDown) error {
 func (gs *Saga) Init(process *ServerProcess, args ...etf.Term) error {
 	var options SagaOptions
 
-	// FIXME
-	//behavior := process.Behavior().(SagaBehavior)
 	behavior, ok := process.Behavior().(SagaBehavior)
 	if !ok {
 		return fmt.Errorf("Saga: not a SagaBehavior")

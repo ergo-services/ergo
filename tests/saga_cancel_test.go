@@ -216,8 +216,7 @@ func (gs *testSagaCancel2) HandleTxNew(process *gen.SagaProcess, id gen.SagaTran
 	default:
 		return gen.SagaStatusOK
 	}
-	nn, _ := process.Next(id, next)
-	fmt.Println("NEXT", etf.Ref(nn))
+	process.Next(id, next)
 
 	return gen.SagaStatusOK
 }
@@ -238,6 +237,19 @@ type testSagaStartTX struct {
 type testSagaCancelTX struct {
 	ID     gen.SagaTransactionID
 	Reason string
+}
+
+func (gs *testSagaCancel2) HandleSagaInfo(process *gen.SagaProcess, message etf.Term) gen.ServerStatus {
+	args := process.State.(testSagaCancel2Args)
+	switch m := message.(type) {
+	case gen.MessageSagaCancel:
+		args.sagaRes <- m.Reason
+		next := gen.SagaNext{}
+		next.Saga = gen.ProcessID{Name: "saga4", Node: "node4GenSagaCancelCases@localhost"}
+		process.Next(m.TransactionID, next)
+		args.sagaRes <- m.TransactionID
+	}
+	return gen.ServerStatusOK
 }
 
 func (gs *testSagaCancel2) HandleSagaDirect(process *gen.SagaProcess, message interface{}) (interface{}, error) {
@@ -324,7 +336,6 @@ func TestSagaCancelCases(t *testing.T) {
 	//
 	// case 2.A
 	//
-
 	fmt.Println("  Case A (cancel TX on Node1.Saga1): Node1.Saga1 -> cancel -> Node2.Saga2 -> cancel -> Node3.Saga3")
 
 	ValueTXID, err := saga1_process.Direct(testSagaStartTX{})
@@ -368,7 +379,6 @@ func TestSagaCancelCases(t *testing.T) {
 	waitForResultWithValue(t, args3.sagaRes, cancelReason)
 	fmt.Printf("...       saga3 cancels TX %v on its worker: ", TXID)
 	waitForResultWithValue(t, args3.workerRes, cancelReason)
-
 	//
 	// case 2.B
 	//
@@ -416,11 +426,9 @@ func TestSagaCancelCases(t *testing.T) {
 	waitForResultWithValue(t, args3.sagaRes, cancelReason)
 	fmt.Printf("...       saga3 cancels TX %v on its worker: ", TXID)
 	waitForResultWithValue(t, args3.workerRes, cancelReason)
-
 	//
 	// case 2.C
 	//
-
 	fmt.Println("  Case C (cancel TX on Node.Saga3): Node1.Saga1 <- cancel <- Node2.Saga2 <- cancel <- Node3.Saga3")
 
 	ValueTXID, err = saga1_process.Direct(testSagaStartTX{})
@@ -464,15 +472,10 @@ func TestSagaCancelCases(t *testing.T) {
 	waitForResultWithValue(t, args1.sagaRes, cancelReason)
 	fmt.Printf("...       saga1 cancels TX %v on its worker: ", TXID)
 	waitForResultWithValue(t, args1.workerRes, cancelReason)
-
 	//
 	// Case 2.D
 	//
-
 	fmt.Println("  Case D: Saga1 sets TrapCancel, Saga2 process/node is going down, Saga1 sends Tx to the Saga4:")
-	fmt.Println("        -------->  Tx -------> Saga4 -------> Tx ----------> ")
-	fmt.Println("      /                                                      \\ ")
-	fmt.Println(" Saga1 <- signal Down <- Saga2 (terminates) -> signal Down -> Saga3")
 
 	fmt.Printf("Starting node: node4GenSagaCancelCases@localhost...")
 	node4, _ := ergo.StartNode("node4GenSagaCancelCases@localhost", "cookies", node.Options{})
@@ -522,24 +525,26 @@ func TestSagaCancelCases(t *testing.T) {
 	waitForResultWithValue(t, args3.workerRes, TXID)
 
 	fmt.Printf("... Terminate saga2 process: ")
+	time.Sleep(200 * time.Millisecond)
 	saga2_process.Kill()
 	if err := saga2_process.WaitWithTimeout(2 * time.Second); err != nil {
 		t.Fatal(err)
 	}
 	fmt.Println("OK")
 
-	//fmt.Printf("...       saga2 termination cause termination its worker (%v): ", TXID)
-	//waitForResultWithValue(t, args2.workerRes, cancelReason)
+	fmt.Printf("...       handle trapped cancelation TX %v on saga1: ", TXID)
+	cancelReason = fmt.Sprintf("next saga %s is down", gen.ProcessID{Name: saga2_process.Name(), Node: node2.Name()})
+	waitForResultWithValue(t, args1.sagaRes, cancelReason)
 	fmt.Printf("...       cancels TX %v on saga3: ", TXID)
 	cancelReason = fmt.Sprintf("parent saga %s is down", saga2_process.Self())
 	waitForResultWithValue(t, args3.sagaRes, cancelReason)
 	fmt.Printf("...       saga3 cancels TX %v on its worker: ", TXID)
 	waitForResultWithValue(t, args3.workerRes, cancelReason)
 
-	fmt.Printf("...       handle trapped cancelation TX %v on saga1: ", TXID)
+	fmt.Printf("...       forward (trapped) canceled TX %v on saga1 to Saga4: ", TXID)
 	waitForResultWithValue(t, args1.sagaRes, TXID)
 	fmt.Printf("... Start new TX %v on saga4: ", TXID)
 	waitForResultWithValue(t, args4.sagaRes, TXID)
 	fmt.Printf("... Start new worker on saga4 with TX %v: ", TXID)
-	waitForResultWithValue(t, args3.workerRes, TXID)
+	waitForResultWithValue(t, args4.workerRes, TXID)
 }
