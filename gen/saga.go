@@ -1020,7 +1020,6 @@ func (sp *SagaProcess) handleSagaDown(down MessageDown) error {
 	if ok {
 		// got DOWN message from the next saga
 		empty := etf.Pid{}
-		fmt.Println("DOWN", down)
 		reason := fmt.Sprintf("next saga %s is down", down.Pid)
 		if down.Pid == empty {
 			// monitored by name
