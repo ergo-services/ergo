@@ -32,7 +32,7 @@ Starting node: node1@localhost and Saga1 process...OK
 Starting node: node2@localhost and Saga2 process...OK
 Starting node: node3@localhost and Saga3 process...OK
 Starting node: node4@localhost and Saga4 process...OK
-Saga1. Start new TX#25333.23216.0
+Saga1. Start new transaction TX#25333.23216.0
  Worker started on Saga1 with value "Hello "
 Saga1. Received result from worker with value "Hello W"
 Saga1. ...sent TX#25333.23216.0 further, to the Saga2 on Node2 (Next#25335.23216.0)

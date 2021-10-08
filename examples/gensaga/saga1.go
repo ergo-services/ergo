@@ -124,7 +124,7 @@ func (s *Saga1) HandleSagaInfo(process *gen.SagaProcess, message etf.Term) gen.S
 			TwoPhaseCommit: true,
 		}
 		id := process.StartTransaction(opts, "Hello ")
-		fmt.Printf("Saga1. Start new %v\n", id)
+		fmt.Printf("Saga1. Start new transaction %v\n", id)
 	}
 	return gen.ServerStatusOK
 }
