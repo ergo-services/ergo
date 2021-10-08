@@ -160,7 +160,8 @@ type SagaTransaction struct {
 	arrival int64     // when it arrived on this saga
 	parents []etf.Pid // sagas trace
 
-	done bool // do not allow send result more than once if 2PC is set
+	done        bool // do not allow send result more than once if 2PC is set
+	cancelTimer context.CancelFunc
 }
 
 type SagaNextID etf.Ref
@@ -655,7 +656,7 @@ func (sp *SagaProcess) handleSagaRequest(m messageSaga) error {
 			}
 		}
 		if value, ok := nextMessage.Options["Lifespan"]; ok {
-			if lifespan, ok := value.(int64); ok {
+			if lifespan, ok := value.(int64); ok && lifespan > 0 {
 				txOptions.Lifespan = uint(lifespan)
 			}
 		}
@@ -680,7 +681,20 @@ func (sp *SagaProcess) handleSagaRequest(m messageSaga) error {
 		if m.Pid != sp.Self() {
 			tx.monitor = sp.MonitorProcess(m.Pid)
 		}
-		// FIXME start lifespan timer
+
+		// tx lifespan timer
+		cancelMessage := etf.Tuple{
+			etf.Atom("$saga_cancel"),
+			sp.Self(), // can't be trapped (ignored)
+			etf.Tuple{
+				nextMessage.TransactionID,
+				nextMessage.Origin,
+				"lifespan",
+			},
+		}
+		timeout := time.Duration(txOptions.Lifespan) * time.Second
+		tx.cancelTimer = sp.SendAfter(sp.Self(), cancelMessage, timeout)
+
 		return sp.behavior.HandleTxNew(sp, transactionID, nextMessage.Value)
 
 	case "$saga_cancel":
@@ -758,6 +772,7 @@ func (sp *SagaProcess) handleSagaRequest(m messageSaga) error {
 			next := tx.next[next_id]
 			if tx.options.TwoPhaseCommit == false {
 				next.cancelTimer()
+				sp.DemonitorProcess(result.Origin)
 				delete(tx.next, next_id)
 			} else {
 				next.done = true
@@ -825,6 +840,8 @@ func (sp *SagaProcess) handleSagaRequest(m messageSaga) error {
 }
 
 func (sp *SagaProcess) cancelTX(from etf.Pid, cancel messageSagaCancel, tx *SagaTransaction) {
+	tx.cancelTimer()
+
 	// stop workers
 	tx.Lock()
 	cancelJobs := []etf.Pid{}
@@ -911,20 +928,20 @@ func (sp *SagaProcess) cancelTX(from etf.Pid, cancel messageSagaCancel, tx *Saga
 }
 
 func (sp *SagaProcess) commitTX(tx *SagaTransaction, final interface{}) {
+	tx.cancelTimer()
 	// remove tx from this saga
 	sp.mutexTXS.Lock()
 	delete(sp.txs, tx.id)
 	sp.mutexTXS.Unlock()
 
-	// do nothing if 2PC option is disabled
-	if tx.options.TwoPhaseCommit == false {
-		return
-	}
-
 	// send commit message to all workers
 	for _, pid := range tx.jobs {
 		// unlink before this worker stopped
 		sp.Unlink(pid)
+		// do nothing if 2PC option is disabled
+		if tx.options.TwoPhaseCommit == false {
+			continue
+		}
 		// send commit message
 		sp.Cast(pid, messageSagaJobCommit{final: final})
 	}
@@ -936,7 +953,13 @@ func (sp *SagaProcess) commitTX(tx *SagaTransaction, final interface{}) {
 		ref := etf.Ref(nxtid)
 		// remove monitor from the next saga
 		sp.DemonitorProcess(ref)
+
+		delete(sp.next, nxtid)
+		nxt.cancelTimer()
 		// send commit message
+		if tx.options.TwoPhaseCommit == false {
+			continue
+		}
 		cm := etf.Tuple{
 			etf.Atom("$saga_commit"),
 			sp.Self(),
@@ -955,8 +978,6 @@ func (sp *SagaProcess) commitTX(tx *SagaTransaction, final interface{}) {
 			}
 			sp.Send(sp.Self(), errmessage)
 		}
-		delete(sp.next, nxtid)
-		nxt.cancelTimer()
 	}
 	sp.mutexNext.Unlock()
 

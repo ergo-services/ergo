@@ -331,7 +331,7 @@ func TestSagaCancelCases(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fmt.Println("OK", saga2_process.Self(), saga3_process.Self())
+	fmt.Println("OK")
 
 	//
 	// case 2.A
