@@ -50,7 +50,7 @@ Saga4. Received TX#25333.23216.0 with value "Hello Wo"
 Saga3. Received result from worker with value "Hello World"
 Saga3. ...sent result "Hello World!" to the parent saga for TX#25333.23216.0
 Saga3. Canceled TX#25333.23216.0 with reason: "parent saga <59AA5040.0.1008> is down"
- Worker terminated on Saga3 with reason "normal"
+ Worker terminated on Saga3 with reason: "normal"
  Worker started on Saga4 with value "Hello Wo"
 Saga4. Received result from worker with value "Hello Wor"
 Saga4. ...sent TX#25333.23216.0 further, to the Saga3 on Node3 (Next#179533.23216.0)
@@ -69,5 +69,5 @@ Saga4. Final result for TX#25333.23216.0: "Hello World! 🚀"
  Worker terminated on Saga4 with reason: "normal"
 Saga3. Final result for TX#25333.23216.0: "Hello World! 🚀"
  Worker on Saga3 received final result for TX#25333.23216.0 with value "Hello World! 🚀"
- Worker terminated on Saga3 with reason "normal"
+ Worker terminated on Saga3 with reason: "normal"
 ```
