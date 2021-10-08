@@ -553,7 +553,6 @@ func (sp *SagaProcess) CancelJob(id SagaTransactionID, job SagaJobID, reason str
 }
 
 func (sp *SagaProcess) checkTxDone(tx *SagaTransaction) bool {
-
 	if tx.options.TwoPhaseCommit == false { // 2PC is disabled
 		if len(tx.next) > 0 { // haven't received all results from the "next" sagas
 			return false
@@ -725,6 +724,16 @@ func (sp *SagaProcess) handleSagaRequest(m messageSaga) error {
 		tx.Unlock()
 
 		if ok && next.TrapCancel {
+			// clean the next saga stuff
+			next.cancelTimer()
+			sp.DemonitorProcess(cancel.Origin)
+			tx.Lock()
+			delete(tx.next, next_id)
+			tx.Unlock()
+			sp.mutexNext.Lock()
+			delete(sp.next, next_id)
+			sp.mutexNext.Unlock()
+
 			// came from the next saga and TrapCancel was enabled
 			cm := MessageSagaCancel{
 				TransactionID: tx.id,
