@@ -71,7 +71,7 @@ func (s *Saga1) HandleTxCancel(process *gen.SagaProcess, id gen.SagaTransactionI
 
 func (s *Saga1) HandleTxDone(process *gen.SagaProcess, id gen.SagaTransactionID, result interface{}) (interface{}, gen.SagaStatus) {
 	final := result.(string) + " 🚀"
-	fmt.Printf("Saga1. Final result: %q\n", final)
+	fmt.Printf("Saga1. Final result for %v: %q\n", id, final)
 
 	// let the main goroutine know we got finished
 	state := process.State.(*Saga1State)

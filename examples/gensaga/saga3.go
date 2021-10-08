@@ -80,6 +80,6 @@ func (s *Saga3) HandleJobResult(process *gen.SagaProcess, id gen.SagaTransaction
 }
 
 func (s *Saga3) HandleTxCommit(process *gen.SagaProcess, id gen.SagaTransactionID, final interface{}) gen.SagaStatus {
-	fmt.Printf("Saga3. Final result: %q\n", final)
+	fmt.Printf("Saga3. Final result for %v: %q\n", id, final)
 	return gen.SagaStatusOK
 }
