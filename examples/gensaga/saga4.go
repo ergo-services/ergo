@@ -62,7 +62,7 @@ func (s *Saga4) HandleTxCancel(process *gen.SagaProcess, id gen.SagaTransactionI
 }
 
 func (s *Saga4) HandleTxResult(process *gen.SagaProcess, id gen.SagaTransactionID, from gen.SagaNextID, result interface{}) gen.SagaStatus {
-	fmt.Printf("Saga4. Received result from Saga3 (%v) with value %q\n", from, result)
+	fmt.Printf("Saga4. Received result for %v from Saga3 (%v) with value %q\n", id, from, result)
 	process.SendResult(id, result)
 	fmt.Printf("Saga4. ...sent result %q to the parent saga for %v\n", result, id)
 	return gen.SagaStatusOK

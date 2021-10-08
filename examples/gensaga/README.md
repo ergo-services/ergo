@@ -32,42 +32,40 @@ Starting node: node1@localhost and Saga1 process...OK
 Starting node: node2@localhost and Saga2 process...OK
 Starting node: node3@localhost and Saga3 process...OK
 Starting node: node4@localhost and Saga4 process...OK
-Saga1. Start new TX#17731.23216.0
+Saga1. Start new TX#37398.23216.0
  Worker started on Saga1 with value "Hello "
 Saga1. Received result from worker with value "Hello W"
-Saga1. ...sent TX#17731.23216.0 further, to the Saga2 on Node2 (Next#17733.23216.0)
-Saga2. Received TX#17731.23216.0 with value "Hello Wo"
+Saga1. ...sent TX#37398.23216.0 further, to the Saga2 on Node2 (Next#37400.23216.0)
+Saga2. Received TX#37398.23216.0 with value "Hello Wo"
  Worker started on Saga2 with value "Hello Wo"
 Saga2. Received result from worker with value "Hello Wor"
-Saga2. ...sent TX#17731.23216.0 further, to the Saga3 on Node3 (Next#224069.23216.0)
+Saga2. ...sent TX#37398.23216.0 further, to the Saga3 on Node3 (Next#71709.23216.0)
 Saga2 termination
  Worker terminated on Saga2 with reason: "normal"
-Saga1. Trapped cancelation TX#17731.23216.0. Reason "next saga {saga2 node2@localhost} is down"
-Saga3. Received TX#17731.23216.0 with value "Hello Worl"
-Saga1. ...sent TX#17731.23216.0 further, to the Saga4 on Node4 (Next#17734.23216.0)
-Saga4. Received TX#17731.23216.0 with value "Hello Wo"
+Saga3. Received TX#37398.23216.0 with value "Hello Worl"
+Saga1. Trapped cancelation TX#37398.23216.0. Reason "next saga {saga2 node2@localhost} is down"
+Saga1. ...sent TX#37398.23216.0 further, to the Saga4 on Node4 (Next#37401.23216.0)
+Saga4. Received TX#37398.23216.0 with value "Hello Wo"
+Saga3. Canceled TX#37398.23216.0 with reason: "parent saga <59AA5040.0.1008> is down"
  Worker started on Saga3 with value "Hello Worl"
-Saga3. Received result from worker with value "Hello World"
-Saga3. ...sent result "Hello World!" to the parent saga for TX#17731.23216.0
-Saga3. Canceled TX#17731.23216.0 with reason: "parent saga <59AA5040.0.1008> is down"
  Worker terminated on Saga3 with reason "normal"
  Worker started on Saga4 with value "Hello Wo"
 Saga4. Received result from worker with value "Hello Wor"
-Saga4. ...sent TX#17731.23216.0 further, to the Saga3 on Node3 (Next#113911.23216.0)
-Saga3. Received TX#17731.23216.0 with value "Hello Worl"
+Saga4. ...sent TX#37398.23216.0 further, to the Saga3 on Node3 (Next#216730.23216.0)
+Saga3. Received TX#37398.23216.0 with value "Hello Worl"
  Worker started on Saga3 with value "Hello Worl"
 Saga3. Received result from worker with value "Hello World"
-Saga3. ...sent result "Hello World!" to the parent saga for TX#17731.23216.0
-Saga4. Received result from Saga3 (Next#113911.23216.0) with value "Hello World!"
-Saga4. ...sent result "Hello World!" to the parent saga for TX#17731.23216.0
-Saga1. Received result for TX#17731.23216.0 from Saga4 (Next#17734.23216.0)
+Saga3. ...sent result "Hello World!" to the parent saga for TX#37398.23216.0
+Saga4. Received result for TX#37398.23216.0 from Saga3 (Next#216730.23216.0) with value "Hello World!"
+Saga4. ...sent result "Hello World!" to the parent saga for TX#37398.23216.0
+Saga1. Received result for TX#37398.23216.0 from Saga4 (Next#37401.23216.0) with value "Hello World!"
 Saga1. Final result: "Hello World! 🚀"
- Worker on Saga1 received final result for TX#17731.23216.0 with value "Hello World! 🚀"
+ Worker on Saga1 received final result for TX#37398.23216.0 with value "Hello World! 🚀"
  Worker terminated on Saga1 with reason: "normal"
 Saga4. Final result: "Hello World! 🚀"
- Worker on Saga4 received final result for TX#17731.23216.0 with value "Hello World! 🚀"
+ Worker on Saga4 received final result for TX#37398.23216.0 with value "Hello World! 🚀"
  Worker terminated on Saga4 with reason: "normal"
 Saga3. Final result: "Hello World! 🚀"
- Worker on Saga3 received final result for TX#17731.23216.0 with value "Hello World! 🚀"
+ Worker on Saga3 received final result for TX#37398.23216.0 with value "Hello World! 🚀"
  Worker terminated on Saga3 with reason "normal"
 ```

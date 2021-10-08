@@ -81,7 +81,7 @@ func (s *Saga1) HandleTxDone(process *gen.SagaProcess, id gen.SagaTransactionID,
 }
 
 func (s *Saga1) HandleTxResult(process *gen.SagaProcess, id gen.SagaTransactionID, from gen.SagaNextID, result interface{}) gen.SagaStatus {
-	fmt.Printf("Saga1. Received result for %v from Saga4 (%v)\n", id, from)
+	fmt.Printf("Saga1. Received result for %v from Saga4 (%v) with value %q\n", id, from, result)
 	// to finish TX on a saga it was created we must call SendResult with the result
 	process.SendResult(id, result)
 	return gen.SagaStatusOK
