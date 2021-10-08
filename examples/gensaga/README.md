@@ -6,7 +6,7 @@
   Saga1 ---> Tx ---> Saga2 ---> Tx ---> Saga3
 ```
 
-2. Saga2 terminates, and Saga1 handle it, sending this Tx to Saga4 and Saga4 sends it to Saga3.
+2. Saga2 terminates, and Saga1 handles it by sending this Tx to Saga4, and Saga4 sends it to Saga3.
 
 ```
          --------> Tx ------> Saga4 -------- Tx ------->
