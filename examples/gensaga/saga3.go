@@ -31,7 +31,7 @@ func (w *saga3worker) HandleJobCommit(process *gen.SagaWorkerProcess, final inte
 }
 
 func (w *saga3worker) HandleWorkerTerminate(process *gen.SagaWorkerProcess, reason string) {
-	fmt.Printf(" Worker terminated on Saga3 with reason %q\n", reason)
+	fmt.Printf(" Worker terminated on Saga3 with reason: %q\n", reason)
 }
 
 //
