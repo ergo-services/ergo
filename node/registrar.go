@@ -53,7 +53,6 @@ type registrarInternal interface {
 	unregisterPeer(name string)
 	newAlias(p *process) (etf.Alias, error)
 	deleteAlias(owner *process, alias etf.Alias) error
-	IsAlias(etf.Alias) bool
 	getProcessByPid(etf.Pid) *process
 
 	route(from etf.Pid, to etf.Term, message etf.Term) error

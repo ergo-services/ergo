@@ -18,7 +18,7 @@ type Process interface {
 
 	// Spawn create a new process with parent
 	Spawn(name string, opts ProcessOptions, object ProcessBehavior, args ...etf.Term) (Process, error)
-	// RemoteSpawn creates a new process at a remote node. The object name is a regitered behavior on a remote name using RegisterBehavior(...)
+	// RemoteSpawn creates a new process at a remote node. The object name is a regitered behavior on a remote name using RegisterBehavior(...). Init callback of the started remote process will receive gen.RemoteSpawnRequest as an argument.
 	RemoteSpawn(node string, object string, opts RemoteSpawnOptions, args ...etf.Term) (etf.Pid, error)
 	// Name returns process name used on starting.
 	Name() string
@@ -195,6 +195,16 @@ type RemoteSpawnOptions struct {
 	Function string
 	// Timeout
 	Timeout int
+}
+
+// RemoteSpawnRequest applies as an argument on spawning new process by RemoteSpawn request
+type RemoteSpawnRequest struct {
+	// PID of the process made RemoteSpawn request
+	From etf.Pid
+	// Function provided via RemoteSpawnOptions.Function
+	Function string
+	// Args argument list
+	Args etf.List
 }
 
 type ProcessChannels struct {

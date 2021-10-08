@@ -42,6 +42,8 @@ func (r *rex) Init(process *gen.ServerProcess, args ...etf.Term) error {
 		}
 		r.methods[mf] = nil
 	}
+	node := process.Env("ergo:node").(node.Node)
+	node.ProvideRemoteSpawn("erpc", &erpc{})
 	return nil
 }
 
@@ -165,4 +167,29 @@ func (r *rex) handleRPC(process *gen.ServerProcess, module, function etf.Atom, a
 	} else {
 		return value
 	}
+}
+
+type erpc struct {
+	gen.Server
+}
+
+func (e *erpc) Init(process *gen.ServerProcess, args ...etf.Term) error {
+	lib.Log("ERPC [%v]: Init: %#v", process.Self(), args)
+	return nil
+}
+
+func (e *erpc) HandleCall(process *gen.ServerProcess, from gen.ServerFrom, message etf.Term) (etf.Term, gen.ServerStatus) {
+	lib.Log("ERPC [%v]: HandleCall: %#v, From: %#v", process.Self(), message, from)
+
+	return etf.Atom("ok"), gen.ServerStatusOK
+}
+
+func (e *erpc) HandleCast(process *gen.ServerProcess, message etf.Term) gen.ServerStatus {
+	lib.Log("ERPC [%v]: HandleCast: %#v", process.Self(), message)
+	return gen.ServerStatusOK
+}
+
+func (e *erpc) HandleInfo(process *gen.ServerProcess, message etf.Term) gen.ServerStatus {
+	lib.Log("ERPC [%v]: HandleInfo: %#v", process.Self(), message)
+	return gen.ServerStatusOK
 }
