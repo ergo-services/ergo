@@ -435,14 +435,14 @@ func (n *network) handleMessage(fromNode string, control, message etf.Term) (err
 				mfa := t.Element(5).(etf.Tuple)
 				module := mfa.Element(1).(etf.Atom)
 				function := mfa.Element(2).(etf.Atom)
-				var request_args etf.List
+				var args etf.List
 				if str, ok := message.(string); !ok {
-					request_args, _ = message.(etf.List)
+					args, _ = message.(etf.List)
 				} else {
 					// stupid Erlang's strings :). [1,2,3,4,5] sends as a string.
 					// args can't be anything but etf.List.
 					for i := range []byte(str) {
-						request_args = append(request_args, str[i])
+						args = append(args, str[i])
 					}
 				}
 
@@ -452,13 +452,15 @@ func (n *network) handleMessage(fromNode string, control, message etf.Term) (err
 					n.registrar.routeRaw(from.Node, message)
 					return
 				}
-				args := gen.RemoteSpawnRequest{
+				remote_request := gen.RemoteSpawnRequest{
+					Ref:      ref,
 					From:     from,
 					Function: string(function),
-					Args:     request_args,
 				}
+				process_opts := processOptions{}
+				process_opts.Env = map[string]interface{}{"ergo:RemoteSpawnRequest": remote_request}
 
-				process, err_spawn := n.registrar.spawn(registerName, processOptions{}, rb.Behavior, args)
+				process, err_spawn := n.registrar.spawn(registerName, process_opts, rb.Behavior, args...)
 				if err_spawn != nil {
 					message := etf.Tuple{distProtoSPAWN_REPLY, ref, from, 0, etf.Atom(err_spawn.Error())}
 					n.registrar.routeRaw(from.Node, message)

@@ -197,14 +197,14 @@ type RemoteSpawnOptions struct {
 	Timeout int
 }
 
-// RemoteSpawnRequest applies as an argument on spawning new process by RemoteSpawn request
+// RemoteSpawnRequest stores in process environment ("ergo:RemoteSpawnRequest") if it was spawned by RemoteSpawn request
 type RemoteSpawnRequest struct {
+	// Ref request id
+	Ref etf.Ref
 	// PID of the process made RemoteSpawn request
 	From etf.Pid
 	// Function provided via RemoteSpawnOptions.Function
 	Function string
-	// Args argument list
-	Args etf.List
 }
 
 type ProcessChannels struct {

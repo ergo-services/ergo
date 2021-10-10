@@ -205,7 +205,7 @@ func (r *registrar) newProcess(name string, behavior gen.ProcessBehavior, opts p
 	if opts.Env == nil {
 		opts.Env = make(map[string]interface{})
 	}
-	opts.Env["ergo:node"] = r.node.(Node)
+	opts.Env["ergo:Node"] = r.node.(Node)
 
 	process := &process{
 		registrarInternal: r,
