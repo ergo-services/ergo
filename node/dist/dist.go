@@ -37,12 +37,11 @@ const (
 	defaultCleanDeadline = 30 * time.Second // for checkClean
 
 	// http://erlang.org/doc/apps/erts/erl_ext_dist.html#distribution_header
-	protoDist             = 131
-	protoDistCompressed   = 80
-	protoDistMessage      = 68
-	protoDistMessageRetry = 200 // for the internal usage only
-	protoDistFragment1    = 69
-	protoDistFragmentN    = 70
+	protoDist           = 131
+	protoDistCompressed = 80
+	protoDistMessage    = 68
+	protoDistFragment1  = 69
+	protoDistFragmentN  = 70
 
 	ProtoHandshake5 = 5
 	ProtoHandshake6 = 6
@@ -750,21 +749,15 @@ func (l *Link) ReadDist(packet []byte) (etf.Term, etf.Term, error) {
 		// otherwise it will cause recursive call and im not sure if its ok
 		// return l.ReadDist(b)
 
-	case protoDistMessage, protoDistMessageRetry:
+	case protoDistMessage:
 		var control, message etf.Term
 		var cache []etf.Atom
 		var err error
-		var original []byte
 
-		original = packet
 		cache, packet, err = l.decodeDistHeaderAtomCache(packet[1:])
-		if err == ErrMissingInCache && original[0] == protoDistMessage {
-			original[0] = protoDistMessageRetry
-			return nil, nil, ErrMissingInCache
-		}
 
 		if err != nil {
-			return nil, nil, fmt.Errorf("incorrect dist header atom cache: %s", err)
+			return nil, nil, err
 		}
 
 		decodeOptions := etf.DecodeOptions{
