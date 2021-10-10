@@ -651,54 +651,68 @@ func (l *Link) Read(b *lib.Buffer) (int, error) {
 
 }
 
+type deferrMissing struct {
+	b *lib.Buffer
+	c int
+}
+
 func (l *Link) ReadHandlePacket(ctx context.Context, recv chan *lib.Buffer,
 	handler func(string, etf.Term, etf.Term) error) {
 	var b *lib.Buffer
-	var retry bool
+	var missing deferrMissing
+
+	deferrChannel := make(chan deferrMissing, 100)
+	defer close(deferrChannel)
+
+	dChannel := deferrChannel
 
 	for {
-		retry = false
-		b = nil
-		b = <-recv
-		if b == nil {
-			// channel was closed
-			return
+		select {
+		case missing = <-dChannel:
+			b = missing.b
+		default:
+			b = <-recv
+			if b == nil {
+				// channel was closed
+				return
+			}
 		}
 
-	retryReadPacket:
 		// read and decode received packet
 		control, message, err := l.ReadPacket(b.B)
 
-		//////////////////////////////////////////////////////////////////////
-		// The main idea of sleeping here is that we have N goroutines
-		// for the processing packets.
-		// There is a case when we got two packets like MONITOR, REG_SEND
-		// (which is pretty usual for the regular gen_server:call from the Erlang).
-		// The first packet (MONITOR) has new atom cache entries, which
-		// should use in the next packet (REG_SEND). But sometimes,
-		// doing handle REG_SEND packet, the atom cache still
-		// has no entries due to processing of the MONITOR packet
-		// is doing on another goroutine and hasn't finished yet.
-		//
-		// Besides that, if we have the only packet in the 'recv' channle add some
-		// delay before we take another attempt to handle this packet.
-		// If this delay is not enought it seems we got disordered data. Drop
-		// this connection.
-		if err == ErrMissingInCache && retry == false {
-			retry = true
-			time.Sleep(250 * time.Millisecond)
-			goto retryReadPacket
-		}
 		if err == ErrMissingInCache {
-			fmt.Println("Disordered data at link with", l.PeerName())
-			l.Close()
-			lib.ReleaseBuffer(b)
-			return
+			if b == missing.b && missing.c > 100 {
+				fmt.Println("Error: Disordered data at the link with", l.PeerName(), ". Close connection")
+				l.Close()
+				lib.ReleaseBuffer(b)
+				return
+			}
+
+			if b == missing.b {
+				missing.c++
+			} else {
+				missing.b = b
+				missing.c = 0
+			}
+
+			select {
+			case deferrChannel <- missing:
+				// read recv channel
+				dChannel = nil
+				continue
+			default:
+				fmt.Println("Error: Mess at the link with", l.PeerName(), ". Close connection")
+				l.Close()
+				lib.ReleaseBuffer(b)
+				return
+			}
 		}
-		//////////////////////////////////////////////////////////////////////
+
+		dChannel = deferrChannel
 
 		if err != nil {
-			fmt.Println("Malformed Dist proto at link with", l.PeerName(), err)
+			fmt.Println("Malformed Dist proto at the link with", l.PeerName(), err)
 			l.Close()
 			lib.ReleaseBuffer(b)
 			return
@@ -711,7 +725,7 @@ func (l *Link) ReadHandlePacket(ctx context.Context, recv chan *lib.Buffer,
 
 		// handle message
 		if err := handler(l.peer.Name, control, message); err != nil {
-			fmt.Printf("Malformed Control packet at link with %s: %#v\n", l.PeerName(), control)
+			fmt.Printf("Malformed Control packet at the link with %s: %#v\n", l.PeerName(), control)
 			l.Close()
 			lib.ReleaseBuffer(b)
 			return
