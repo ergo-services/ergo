@@ -3,28 +3,37 @@ package main
 import (
 	"fmt"
 
-	"github.com/halturin/ergo"
-	"github.com/halturin/ergo/etf"
+	"github.com/ergo-services/ergo/etf"
+	"github.com/ergo-services/ergo/gen"
 )
 
 type Consumer struct {
-	ergo.GenStage
+	gen.Stage
 }
 
-type ConsumerState struct {
-	p *ergo.Process
-}
-
-func (g *Consumer) InitStage(process *ergo.Process, args ...interface{}) (ergo.GenStageOptions, interface{}) {
-	// create a hash function for the dispatcher
-	state := &ConsumerState{
-		p: process,
+func (c *Consumer) InitStage(process *gen.StageProcess, args ...etf.Term) (gen.StageOptions, error) {
+	var opts gen.StageSubscribeOptions
+	even := args[0].(bool)
+	if even {
+		opts = gen.StageSubscribeOptions{
+			MinDemand: 1,
+			MaxDemand: 2,
+			Partition: 0,
+		}
+	} else {
+		opts = gen.StageSubscribeOptions{
+			MinDemand: 2,
+			MaxDemand: 4,
+			Partition: 1,
+		}
 	}
-
-	return ergo.GenStageOptions{}, state
+	fmt.Println("Subscribe consumer", process.Name(), "[", process.Self(), "]",
+		"with min events =", opts.MinDemand,
+		"and max events", opts.MaxDemand)
+	process.Subscribe(gen.ProcessID{"producer", "node_abc@localhost"}, opts)
+	return gen.StageOptions{}, nil
 }
-func (g *Consumer) HandleEvents(subscription ergo.GenStageSubscription, events etf.List, state interface{}) error {
-	st := state.(*ConsumerState)
-	fmt.Printf("Consumer '%s' got events: %v\n", st.p.Name(), events)
-	return nil
+func (c *Consumer) HandleEvents(process *gen.StageProcess, subscription gen.StageSubscription, events etf.List) gen.StageStatus {
+	fmt.Printf("Consumer '%s' got events: %v\n", process.Name(), events)
+	return gen.StageStatusOK
 }

@@ -1,6 +1,8 @@
 package lib
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"flag"
 	"fmt"
 	"io"
@@ -15,7 +17,9 @@ type Buffer struct {
 }
 
 var (
-	nTrace              = false
+	ergoTrace     = false
+	ergoNoRecover = false
+
 	DefaultBufferLength = 16384
 	buffers             = &sync.Pool{
 		New: func() interface{} {
@@ -37,13 +41,18 @@ var (
 )
 
 func init() {
-	flag.BoolVar(&nTrace, "trace.node", false, "trace node")
+	flag.BoolVar(&ergoTrace, "ergo.trace", false, "enable extended debug info")
+	flag.BoolVar(&ergoNoRecover, "ergo.norecover", false, "disable panic catching")
 }
 
 func Log(f string, a ...interface{}) {
-	if nTrace {
+	if ergoTrace {
 		log.Printf(f, a...)
 	}
+}
+
+func CatchPanic() bool {
+	return ergoNoRecover == false
 }
 
 func TakeTimer() *time.Timer {
@@ -119,12 +128,15 @@ func (b *Buffer) WriteDataTo(w io.Writer) error {
 	return nil
 }
 
-func (b *Buffer) ReadDataFrom(r io.Reader) (int, error) {
+func (b *Buffer) ReadDataFrom(r io.Reader, limit int) (int, error) {
 	capB := cap(b.B)
 	lenB := len(b.B)
-	// do panic if buffer becomes too large
-	if lenB > 4294967000 {
-		panic(ErrTooLarge)
+	if limit == 0 {
+		limit = 4294967000
+	}
+	// if buffer becomes too large
+	if lenB > limit {
+		return 0, ErrTooLarge
 	}
 	if capB-lenB < capB>>1 {
 		// less than (almost) 50% space left. increase capacity
@@ -166,4 +178,10 @@ func (b *Buffer) Extend(n int) []byte {
 		b.B = b.B[:e]
 		return b.B[l:e]
 	}
+}
+
+func RandomString(length int) string {
+	buff := make([]byte, length/2)
+	rand.Read(buff)
+	return hex.EncodeToString(buff)
 }

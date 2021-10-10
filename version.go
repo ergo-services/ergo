@@ -1,7 +1,7 @@
 package ergo
 
 const (
-	versionOTP        int = 22
-	versionERTSprefix     = "ergo"
-	version               = "1.2.6"
+	Version           = "2.0.0"
+	VersionPrefix     = "ergo"
+	VersionOTP    int = 24
 )

@@ -4,8 +4,10 @@ import (
 	"flag"
 	"fmt"
 
-	"github.com/halturin/ergo"
-	"github.com/halturin/ergo/etf"
+	"github.com/ergo-services/ergo"
+	"github.com/ergo-services/ergo/etf"
+	"github.com/ergo-services/ergo/gen"
+	"github.com/ergo-services/ergo/node"
 )
 
 var (
@@ -21,100 +23,70 @@ var (
 )
 
 type demoSup struct {
-	ergo.Supervisor
+	gen.Supervisor
 }
 
-func (ds *demoSup) Init(args ...interface{}) ergo.SupervisorSpec {
-	return ergo.SupervisorSpec{
+func (ds *demoSup) Init(args ...etf.Term) (gen.SupervisorSpec, error) {
+	return gen.SupervisorSpec{
 		Name: "demoSupervisorSup",
-		Children: []ergo.SupervisorChildSpec{
-			ergo.SupervisorChildSpec{
-				Name:    "demoServer01",
-				Child:   &demoGenServ{},
-				Restart: ergo.SupervisorChildRestartTemporary,
-				// Restart: ergo.SupervisorChildRestartTransient,
-				// Restart: ergo.SupervisorChildRestartPermanent,
+		Children: []gen.SupervisorChildSpec{
+			gen.SupervisorChildSpec{
+				Name:  "demoServer01",
+				Child: &demoGenServ{},
 			},
-			ergo.SupervisorChildSpec{
-				Name:    "demoServer02",
-				Child:   &demoGenServ{},
-				Restart: ergo.SupervisorChildRestartPermanent,
-				Args:    []interface{}{12345},
+			gen.SupervisorChildSpec{
+				Name:  "demoServer02",
+				Child: &demoGenServ{},
+				Args:  []etf.Term{12345},
 			},
-			ergo.SupervisorChildSpec{
-				Name:    "demoServer03",
-				Child:   &demoGenServ{},
-				Restart: ergo.SupervisorChildRestartPermanent,
-				Args:    []interface{}{"abc", 67890},
+			gen.SupervisorChildSpec{
+				Name:  "demoServer03",
+				Child: &demoGenServ{},
+				Args:  []etf.Term{"abc", 67890},
 			},
 		},
-		Strategy: ergo.SupervisorStrategy{
-			Type: ergo.SupervisorStrategyOneForAll,
-			// Type:      ergo.SupervisorStrategyRestForOne,
-			// Type:      ergo.SupervisorStrategyOneForOne,
+		Strategy: gen.SupervisorStrategy{
+			Type: gen.SupervisorStrategyOneForAll,
+			// Type:      gen.SupervisorStrategyRestForOne,
+			// Type:      gen.SupervisorStrategyOneForOne,
 			Intensity: 2,
 			Period:    5,
+			// Restart:   gen.SupervisorStrategyRestartTemporary,
+			// Restart: gen.SupervisorStrategyRestartTransient,
+			Restart: gen.SupervisorStrategyRestartPermanent,
 		},
-	}
+	}, nil
 }
 
 // GenServer implementation structure
 type demoGenServ struct {
-	ergo.GenServer
-	process *ergo.Process
+	gen.Server
 }
 
-type state struct {
-	i int
-}
-
-// Init initializes process state using arbitrary arguments
-// Init(...) -> state
-func (dgs *demoGenServ) Init(p *ergo.Process, args ...interface{}) interface{} {
-	fmt.Printf("Init (%s): args %v \n", p.Name(), args)
-	dgs.process = p
-	return state{i: 12345}
-}
-
-// HandleCast serves incoming messages sending via gen_server:cast
-// HandleCast -> ("noreply", state) - noreply
-//		         ("stop", reason) - stop with reason
-func (dgs *demoGenServ) HandleCast(message etf.Term, state interface{}) (string, interface{}) {
-	fmt.Printf("HandleCast (%s): %#v\n", dgs.process.Name(), message)
+func (dgs *demoGenServ) HandleCast(process *gen.ServerProcess, message etf.Term) gen.ServerStatus {
+	fmt.Printf("HandleCast (%s): %#v\n", process.Name(), message)
 	switch message {
 	case etf.Atom("stop"):
-		return "stop", "they said"
+		return gen.ServerStatusStopWithReason("stop they said")
 	}
-	return "noreply", state
+	return gen.ServerStatusOK
 }
 
-// HandleCall serves incoming messages sending via gen_server:call
-// HandleCall -> ("reply", message, state) - reply
-//				 ("noreply", _, state) - noreply
-//		         ("stop", reason, _) - normal stop
-func (dgs *demoGenServ) HandleCall(from etf.Tuple, message etf.Term, state interface{}) (string, etf.Term, interface{}) {
-	fmt.Printf("HandleCall (%s): %#v, From: %#v\n", dgs.process.Name(), message, from)
+func (dgs *demoGenServ) HandleCall(process *gen.ServerProcess, from gen.ServerFrom, message etf.Term) (etf.Term, gen.ServerStatus) {
 
-	reply := etf.Term(etf.Tuple{etf.Atom("error"), etf.Atom("unknown_request")})
-
-	switch message {
-	case etf.Atom("hello"):
-		reply = etf.Term(etf.Atom("hi"))
+	if message == etf.Atom("hello") {
+		return etf.Atom("hi"), gen.ServerStatusOK
 	}
-	return "reply", reply, state
+	return etf.Tuple{etf.Atom("error"), etf.Atom("unknown_request")}, gen.ServerStatusOK
 }
 
-// HandleInfo serves all another incoming messages (Pid ! message)
-// HandleInfo -> ("noreply", state) - noreply
-//		         ("stop", reason) - normal stop
-func (dgs *demoGenServ) HandleInfo(message etf.Term, state interface{}) (string, interface{}) {
-	fmt.Printf("HandleInfo (%s): %#v\n", dgs.process.Name(), message)
-	return "noreply", state
+func (dgs *demoGenServ) HandleInfo(process *gen.ServerProcess, message etf.Term) gen.ServerStatus {
+	fmt.Printf("HandleInfo (%s): %#v\n", process.Name(), message)
+	return gen.ServerStatusOK
 }
 
-// Terminate called when process died
-func (dgs *demoGenServ) Terminate(reason string, state interface{}) {
-	fmt.Printf("Terminate (%s): %#v\n", dgs.process.Name(), reason)
+func (dgs *demoGenServ) Terminate(process *gen.ServerProcess, reason string) {
+	fmt.Printf("Terminate (%s): %#v\n", process.Name(), reason)
 }
 
 func init() {
@@ -128,20 +100,20 @@ func init() {
 func main() {
 	flag.Parse()
 
-	opts := ergo.NodeOptions{
+	opts := node.Options{
 		ListenRangeBegin: uint16(ListenRangeBegin),
 		ListenRangeEnd:   uint16(ListenRangeEnd),
 		EPMDPort:         uint16(ListenEPMD),
 	}
 
 	// Initialize new node with given name, cookie, listening port range and epmd port
-	node := ergo.CreateNode(NodeName, Cookie, opts)
+	node, _ := ergo.StartNode(NodeName, Cookie, opts)
 
 	// Spawn supervisor process
-	process, _ := node.Spawn("demo_sup", ergo.ProcessOptions{}, &demoSup{})
+	process, _ := node.Spawn("demo_sup", gen.ProcessOptions{}, &demoSup{})
 
 	fmt.Println("Run erl shell:")
-	fmt.Printf("erl -name %s -setcookie %s\n", "erl-"+node.FullName, Cookie)
+	fmt.Printf("erl -name %s -setcookie %s\n", "erl-"+node.Name(), Cookie)
 
 	fmt.Println("-----Examples that can be tried from 'erl'-shell")
 	fmt.Printf("gen_server:cast({%s,'%s'}, stop).\n", "demoServer01", NodeName)

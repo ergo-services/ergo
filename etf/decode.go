@@ -55,7 +55,12 @@ var (
 	errInternal  = fmt.Errorf("Internal error")
 )
 
-// stackless implementaion is speeding up it up to x25 times
+type DecodeOptions struct {
+	FlagV4NC        bool
+	FlagBigCreation bool
+}
+
+// stackless implementation is speeding up it up to x25 times
 
 // it might looks hard to understand the logic, but
 // there are only two stages
@@ -64,13 +69,13 @@ var (
 //
 // see comments within this function
 
-func Decode(packet []byte, cache []Atom) (retTerm Term, retByte []byte, retErr error) {
+func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, retByte []byte, retErr error) {
 	var term Term
 	var stack *stackElement
 	var child *stackElement
 	var t byte
 	defer func() {
-		// We should catch any panic happend during decoding the raw data.
+		// We should catch any panic happened during decoding the raw data.
 		// Some of the Erlang' types can not be supported in Golang.
 		// As an example: Erlang map with tuple as a key cause a panic
 		// in Golang runtime with message:
@@ -112,7 +117,11 @@ func Decode(packet []byte, cache []Atom) (retTerm Term, retByte []byte, retErr e
 				return nil, nil, errMalformedAtomUTF8
 			}
 
-			term = Atom(packet[2 : n+2])
+			atom := Atom(packet[2 : n+2])
+			if len([]rune(atom)) > 255 {
+				return nil, nil, errMalformedAtomUTF8
+			}
+			term = atom
 			packet = packet[n+2:]
 
 		case ettSmallAtomUTF8, ettSmallAtom:
@@ -506,13 +515,24 @@ func Decode(packet []byte, cache []Atom) (retTerm Term, retByte []byte, retErr e
 				if !ok {
 					return nil, nil, errMalformedPid
 				}
-
 				pid := Pid{
-					Node:     name,
-					ID:       binary.BigEndian.Uint32(packet[:4]),
-					Serial:   binary.BigEndian.Uint32(packet[4:8]),
-					Creation: packet[8] & 3, // only two bits are significant, rest are to be 0
+					Node: name,
+					// Same as NEW_PID_EXT except the Creation field is
+					// only one byte and only two bits are significant,
+					// the rest are to be 0.
+					Creation: uint32(packet[8]) & 3,
 				}
+
+				id := uint64(binary.BigEndian.Uint32(packet[:4]))
+				serial := uint64(binary.BigEndian.Uint32(packet[4:8]))
+				if options.FlagV4NC {
+					id = id | (serial << 32)
+				} else {
+					// id 15 bits only 2**15 - 1 = 32767
+					// serial 13 bits only 2**13 - 1 = 8191
+					id = (id & 32767) | ((serial & 8191) << 15)
+				}
+				pid.ID = id
 
 				packet = packet[9:]
 				stack.term = pid
@@ -528,14 +548,20 @@ func Decode(packet []byte, cache []Atom) (retTerm Term, retByte []byte, retErr e
 					return nil, nil, errMalformedPid
 				}
 
+				id := uint64(binary.BigEndian.Uint32(packet[:4]))
+				serial := uint64(binary.BigEndian.Uint32(packet[4:8]))
 				pid := Pid{
-					Node:   name,
-					ID:     binary.BigEndian.Uint32(packet[:4]),
-					Serial: binary.BigEndian.Uint32(packet[4:8]),
-					// FIXME: we must upgrade this type to uint32
-					// Creation: binary.BigEndian.Uint32(packet[8:12])
-					Creation: packet[11], // use the last byte for a while
+					Node:     name,
+					Creation: binary.BigEndian.Uint32(packet[8:12]),
 				}
+				if options.FlagV4NC {
+					id = id | (serial << 32)
+				} else {
+					// id 15 bits only 2**15 - 1 = 32767
+					// serial 13 bits only 2**13 - 1 = 8191
+					id = (id & 32767) | ((serial & 8191) << 15)
+				}
+				pid.ID = id
 
 				packet = packet[12:]
 				stack.term = pid
@@ -549,6 +575,12 @@ func Decode(packet []byte, cache []Atom) (retTerm Term, retByte []byte, retErr e
 				}
 
 				l := stack.tmp.(uint16)
+				if l > 5 {
+					return nil, nil, errMalformedRef
+				}
+				if l > 3 && !options.FlagV4NC {
+					return nil, nil, errMalformedRef
+				}
 				stack.tmp = nil
 				expectedLength := int(1 + l*4)
 
@@ -558,13 +590,19 @@ func Decode(packet []byte, cache []Atom) (retTerm Term, retByte []byte, retErr e
 
 				ref := Ref{
 					Node:     name,
-					ID:       make([]uint32, l),
-					Creation: packet[0],
+					Creation: uint32(packet[0]),
 				}
 				packet = packet[1:]
 
 				for i := 0; i < int(l); i++ {
-					id = binary.BigEndian.Uint32(packet[:4])
+					// In the first word (4 bytes) of ID, only 18 bits
+					// are significant, the rest must be 0.
+					if i == 0 {
+						// 2**18 - 1 = 262143
+						id = binary.BigEndian.Uint32(packet[:4]) & 262143
+					} else {
+						id = binary.BigEndian.Uint32(packet[:4])
+					}
 					ref.ID[i] = id
 					packet = packet[4:]
 				}
@@ -580,6 +618,12 @@ func Decode(packet []byte, cache []Atom) (retTerm Term, retByte []byte, retErr e
 				}
 
 				l := stack.tmp.(uint16)
+				if l > 5 {
+					return nil, nil, errMalformedRef
+				}
+				if l > 3 && !options.FlagV4NC {
+					return nil, nil, errMalformedRef
+				}
 				stack.tmp = nil
 				expectedLength := int(4 + l*4)
 
@@ -588,16 +632,20 @@ func Decode(packet []byte, cache []Atom) (retTerm Term, retByte []byte, retErr e
 				}
 
 				ref := Ref{
-					Node: name,
-					ID:   make([]uint32, l),
-					// FIXME: we must upgrade this type to uint32
-					// Creation: binary.BigEndian.Uint32(packet[:4])
-					Creation: packet[3],
+					Node:     name,
+					Creation: binary.BigEndian.Uint32(packet[:4]),
 				}
 				packet = packet[4:]
 
 				for i := 0; i < int(l); i++ {
-					id = binary.BigEndian.Uint32(packet[:4])
+					// In the first word (4 bytes) of ID, only 18 bits
+					// are significant, the rest must be 0.
+					if i == 0 {
+						// 2**18 - 1 = 262143
+						id = binary.BigEndian.Uint32(packet[:4]) & 262143
+					} else {
+						id = binary.BigEndian.Uint32(packet[:4])
+					}
 					ref.ID[i] = id
 					packet = packet[4:]
 				}
@@ -618,7 +666,7 @@ func Decode(packet []byte, cache []Atom) (retTerm Term, retByte []byte, retErr e
 				port := Port{
 					Node:     name,
 					ID:       binary.BigEndian.Uint32(packet[:4]),
-					Creation: packet[4],
+					Creation: uint32(packet[4]),
 				}
 
 				packet = packet[5:]
@@ -636,11 +684,9 @@ func Decode(packet []byte, cache []Atom) (retTerm Term, retByte []byte, retErr e
 				}
 
 				port := Port{
-					Node: name,
-					ID:   binary.BigEndian.Uint32(packet[:4]),
-					// FIXME: we must upgrade this type to uint32
-					// Creation: binary.BigEndian.Uint32(packet[4:8])
-					Creation: packet[7],
+					Node:     name,
+					ID:       binary.BigEndian.Uint32(packet[:4]),
+					Creation: binary.BigEndian.Uint32(packet[4:8]),
 				}
 
 				packet = packet[8:]

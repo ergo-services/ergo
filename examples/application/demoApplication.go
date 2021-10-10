@@ -4,8 +4,10 @@ import (
 	"flag"
 	"fmt"
 
-	"github.com/halturin/ergo"
-	"github.com/halturin/ergo/etf"
+	"github.com/ergo-services/ergo"
+	"github.com/ergo-services/ergo/etf"
+	"github.com/ergo-services/ergo/gen"
+	"github.com/ergo-services/ergo/node"
 )
 
 var (
@@ -21,11 +23,11 @@ var (
 )
 
 type demoApp struct {
-	ergo.Application
+	gen.Application
 }
 
-func (da *demoApp) Load(args ...interface{}) (ergo.ApplicationSpec, error) {
-	return ergo.ApplicationSpec{
+func (da *demoApp) Load(args ...etf.Term) (gen.ApplicationSpec, error) {
+	return gen.ApplicationSpec{
 		Name:        "demoApp",
 		Description: "Demo Applicatoin",
 		Version:     "v.1.0",
@@ -33,12 +35,12 @@ func (da *demoApp) Load(args ...interface{}) (ergo.ApplicationSpec, error) {
 			"envName1": 123,
 			"envName2": "Hello world",
 		},
-		Children: []ergo.ApplicationChildSpec{
-			ergo.ApplicationChildSpec{
+		Children: []gen.ApplicationChildSpec{
+			gen.ApplicationChildSpec{
 				Child: &demoSup{},
 				Name:  "demoSup",
 			},
-			ergo.ApplicationChildSpec{
+			gen.ApplicationChildSpec{
 				Child: &demoGenServ{},
 				Name:  "justDemoGS",
 			},
@@ -46,105 +48,71 @@ func (da *demoApp) Load(args ...interface{}) (ergo.ApplicationSpec, error) {
 	}, nil
 }
 
-func (da *demoApp) Start(process *ergo.Process, args ...interface{}) {
+func (da *demoApp) Start(process gen.Process, args ...etf.Term) {
 	fmt.Println("Application started!")
 }
 
 type demoSup struct {
-	ergo.Supervisor
+	gen.Supervisor
 }
 
-func (ds *demoSup) Init(args ...interface{}) ergo.SupervisorSpec {
-	return ergo.SupervisorSpec{
+func (ds *demoSup) Init(args ...etf.Term) (gen.SupervisorSpec, error) {
+	spec := gen.SupervisorSpec{
 		Name: "demoAppSup",
-		Children: []ergo.SupervisorChildSpec{
-			ergo.SupervisorChildSpec{
-				Name:    "demoServer01",
-				Child:   &demoGenServ{},
-				Restart: ergo.SupervisorChildRestartTemporary,
-				// Restart: ergo.SupervisorChildRestartTransient,
-				// Restart: ergo.SupervisorChildRestartPermanent,
+		Children: []gen.SupervisorChildSpec{
+			gen.SupervisorChildSpec{
+				Name:  "demoServer01",
+				Child: &demoGenServ{},
 			},
-			ergo.SupervisorChildSpec{
-				Name:    "demoServer02",
-				Child:   &demoGenServ{},
-				Restart: ergo.SupervisorChildRestartPermanent,
-				Args:    []interface{}{12345},
+			gen.SupervisorChildSpec{
+				Name:  "demoServer02",
+				Child: &demoGenServ{},
+				Args:  []etf.Term{12345},
 			},
-			ergo.SupervisorChildSpec{
-				Name:    "demoServer03",
-				Child:   &demoGenServ{},
-				Restart: ergo.SupervisorChildRestartPermanent,
-				Args:    []interface{}{"abc", 67890},
+			gen.SupervisorChildSpec{
+				Name:  "demoServer03",
+				Child: &demoGenServ{},
+				Args:  []etf.Term{"abc", 67890},
 			},
 		},
-		Strategy: ergo.SupervisorStrategy{
-			Type: ergo.SupervisorStrategyOneForAll,
-			// Type:      ergo.SupervisorStrategyRestForOne,
-			// Type:      ergo.SupervisorStrategyOneForOne,
+		Strategy: gen.SupervisorStrategy{
+			Type: gen.SupervisorStrategyOneForAll,
+			// Type:      gen.SupervisorStrategyRestForOne,
+			// Type:      gen.SupervisorStrategyOneForOne,
 			Intensity: 2,
 			Period:    5,
+			Restart:   gen.SupervisorStrategyRestartTemporary,
+			// Restart: gen.SupervisorStrategyRestartTransient,
+			// Restart: gen.SupervisorStrategyRestartPermanent,
 		},
 	}
+	return spec, nil
 }
 
-// GenServer implementation structure
+// gen.Server implementation structure
 type demoGenServ struct {
-	ergo.GenServer
-	process *ergo.Process
+	gen.Server
 }
 
-type state struct {
-	i int
-}
-
-// Init initializes process state using arbitrary arguments
-// Init(...) -> state
-func (dgs *demoGenServ) Init(p *ergo.Process, args ...interface{}) interface{} {
-	fmt.Printf("Init (%s): args %v \n", p.Name(), args)
-	dgs.process = p
-	return state{i: 12345}
-}
-
-// HandleCast serves incoming messages sending via gen_server:cast
-// HandleCast -> ("noreply", state) - noreply
-//		         ("stop", reason) - stop with reason
-func (dgs *demoGenServ) HandleCast(message etf.Term, state interface{}) (string, interface{}) {
-	fmt.Printf("HandleCast (%s): %#v\n", dgs.process.Name(), message)
+func (dgs *demoGenServ) HandleCast(process *gen.ServerProcess, message etf.Term) gen.ServerStatus {
+	fmt.Printf("HandleCast (%s): %v\n", process.Name(), message)
 	switch message {
 	case etf.Atom("stop"):
-		return "stop", "they said"
+		return gen.ServerStatusStopWithReason("stop they said")
 	}
-	return "noreply", state
+	return gen.ServerStatusOK
 }
 
-// HandleCall serves incoming messages sending via gen_server:call
-// HandleCall -> ("reply", message, state) - reply
-//				 ("noreply", _, state) - noreply
-//		         ("stop", reason, _) - normal stop
-func (dgs *demoGenServ) HandleCall(from etf.Tuple, message etf.Term, state interface{}) (string, etf.Term, interface{}) {
-	fmt.Printf("HandleCall (%s): %#v, From: %#v\n", dgs.process.Name(), message, from)
-
-	reply := etf.Term(etf.Tuple{etf.Atom("error"), etf.Atom("unknown_request")})
+func (dgs *demoGenServ) HandleCall(process *gen.ServerProcess, from gen.ServerFrom, message etf.Term) (etf.Term, gen.ServerStatus) {
+	fmt.Printf("HandleCall (%s): %v, From: %v\n", process.Name(), message, from)
 
 	switch message {
 	case etf.Atom("hello"):
-		reply = etf.Term(etf.Atom("hi"))
+		return etf.Atom("hi"), gen.ServerStatusOK
 	}
-	return "reply", reply, state
-}
 
-// HandleInfo serves all another incoming messages (Pid ! message)
-// HandleInfo -> ("noreply", state) - noreply
-//		         ("stop", reason) - normal stop
-func (dgs *demoGenServ) HandleInfo(message etf.Term, state interface{}) (string, interface{}) {
-	fmt.Printf("HandleInfo (%s): %#v\n", dgs.process.Name(), message)
-	return "noreply", state
-}
-
-// Terminate called when process died
-func (dgs *demoGenServ) Terminate(reason string, state interface{}) {
-	fmt.Printf("Terminate (%s): %#v\n", dgs.process.Name(), reason)
+	reply := etf.Tuple{etf.Atom("error"), etf.Atom("unknown_request")}
+	return reply, gen.ServerStatusOK
 }
 
 func init() {
@@ -158,28 +126,28 @@ func init() {
 func main() {
 	flag.Parse()
 
-	opts := ergo.NodeOptions{
+	opts := node.Options{
 		ListenRangeBegin: uint16(ListenRangeBegin),
 		ListenRangeEnd:   uint16(ListenRangeEnd),
 		EPMDPort:         uint16(ListenEPMD),
 	}
 
 	// Initialize new node with given name, cookie, listening port range and epmd port
-	node := ergo.CreateNode(NodeName, Cookie, opts)
+	demoNode, _ := ergo.StartNode(NodeName, Cookie, opts)
 
 	// start application
-	if err := node.ApplicationLoad(&demoApp{}); err != nil {
+	if _, err := demoNode.ApplicationLoad(&demoApp{}); err != nil {
 		panic(err)
 	}
 
-	process, _ := node.ApplicationStart("demoApp")
+	appProcess, _ := demoNode.ApplicationStart("demoApp")
 	fmt.Println("Run erl shell:")
-	fmt.Printf("erl -name %s -setcookie %s\n", "erl-"+node.FullName, Cookie)
+	fmt.Printf("erl -name %s -setcookie %s\n", "erl-"+demoNode.Name(), Cookie)
 
 	fmt.Println("-----Examples that can be tried from 'erl'-shell")
-	fmt.Printf("gen_server:cast({%s,'%s'}, stop).\n", "demoServer01", NodeName)
-	fmt.Printf("gen_server:call({%s,'%s'}, hello).\n", "demoServer01", NodeName)
+	fmt.Printf("gen_server:cast({%s,'%s'}, stop).\n", "demoServer01", demoNode.Name())
+	fmt.Printf("gen_server:call({%s,'%s'}, hello).\n", "demoServer01", demoNode.Name())
 
-	process.Wait()
-	node.Stop()
+	appProcess.Wait()
+	demoNode.Stop()
 }
