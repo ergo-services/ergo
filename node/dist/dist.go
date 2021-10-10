@@ -678,6 +678,8 @@ func (l *Link) ReadHandlePacket(ctx context.Context, recv chan *lib.Buffer,
 			if len(dChannel) > 0 {
 				timer.Reset(150 * time.Millisecond)
 				Timeout = timer.C
+			} else {
+				Timeout = nil
 			}
 			select {
 			case b = <-recv:
