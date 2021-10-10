@@ -655,8 +655,10 @@ func (l *Link) Read(b *lib.Buffer) (int, error) {
 func (l *Link) ReadHandlePacket(ctx context.Context, recv chan *lib.Buffer,
 	handler func(string, etf.Term, etf.Term) error) {
 	var b *lib.Buffer
+	var retry bool
 
 	for {
+		retry = false
 		b = nil
 		b = <-recv
 		if b == nil {
@@ -664,12 +666,13 @@ func (l *Link) ReadHandlePacket(ctx context.Context, recv chan *lib.Buffer,
 			return
 		}
 
+	retryReadPacket:
 		// read and decode received packet
 		control, message, err := l.ReadPacket(b.B)
 
 		//////////////////////////////////////////////////////////////////////
-		// The main idea of getting this packet back into the 'recv'
-		// channel is that we have N goroutines for the processing packets.
+		// The main idea of sleeping here is that we have N goroutines
+		// for the processing packets.
 		// There is a case when we got two packets like MONITOR, REG_SEND
 		// (which is pretty usual for the regular gen_server:call from the Erlang).
 		// The first packet (MONITOR) has new atom cache entries, which
@@ -682,19 +685,16 @@ func (l *Link) ReadHandlePacket(ctx context.Context, recv chan *lib.Buffer,
 		// delay before we take another attempt to handle this packet.
 		// If this delay is not enought it seems we got disordered data. Drop
 		// this connection.
+		if err == ErrMissingInCache && retry == false {
+			retry = true
+			time.Sleep(100 * time.Millisecond)
+			goto retryReadPacket
+		}
 		if err == ErrMissingInCache {
-			select {
-			case recv <- b:
-				if len(recv) == 1 {
-					time.Sleep(100 * time.Millisecond)
-				}
-				continue
-			default:
-				fmt.Println("Disordered data at link with", l.PeerName())
-				l.Close()
-				lib.ReleaseBuffer(b)
-				return
-			}
+			fmt.Println("Disordered data at link with", l.PeerName())
+			l.Close()
+			lib.ReleaseBuffer(b)
+			return
 		}
 		//////////////////////////////////////////////////////////////////////
 
