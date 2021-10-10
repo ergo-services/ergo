@@ -125,12 +125,12 @@ goarch: amd64
 pkg: github.com/ergo-services/ergo/tests
 cpu: AMD Ryzen Threadripper 3970X 32-Core Processor
 BenchmarkNodeParallel-64                 4922430              2440 ns/op
-BenchmarkNodeParallelSingleNode-64      15045528               864.5 ns/op
+BenchmarkNodeParallelSingleNode-64      16293586               810.0 ns/op
 PASS
 ok      github.com/ergo-services/ergo/tests  29.596s
 ```
 
-these numbers show almost **500.000 sync requests per second** for the network messaging via localhost and **1.500.000 sync requests per second** for the local messaging (within a node).
+these numbers show almost **500.000 sync requests per second** for the network messaging via localhost and **1.600.000 sync requests per second** for the local messaging (within a node).
 
 #### Ergo Framework vs original Erlang/OTP
 
