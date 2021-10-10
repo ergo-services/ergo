@@ -296,6 +296,7 @@ func (n *network) serve(ctx context.Context, link *dist.Link) error {
 			// recv channel (link.ReadHandlePacket)
 			b.B = b.B[:packetLength]
 			recv = receivers.recv[receivers.i]
+
 			recv <- b
 
 			// set new buffer as a current for the next reading
