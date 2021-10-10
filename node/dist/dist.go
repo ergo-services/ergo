@@ -686,7 +686,7 @@ func (l *Link) ReadHandlePacket(ctx context.Context, recv chan *lib.Buffer,
 		// this connection.
 		if err == ErrMissingInCache && retry == false {
 			retry = true
-			time.Sleep(150 * time.Millisecond)
+			time.Sleep(250 * time.Millisecond)
 			goto retryReadPacket
 		}
 		if err == ErrMissingInCache {
