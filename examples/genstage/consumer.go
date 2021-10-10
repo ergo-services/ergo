@@ -3,8 +3,8 @@ package main
 import (
 	"fmt"
 
-	"github.com/halturin/ergo/etf"
-	"github.com/halturin/ergo/gen"
+	"github.com/ergo-services/ergo/etf"
+	"github.com/ergo-services/ergo/gen"
 )
 
 type Consumer struct {

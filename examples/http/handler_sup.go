@@ -1,8 +1,8 @@
 package main
 
 import (
-	"github.com/halturin/ergo/etf"
-	"github.com/halturin/ergo/gen"
+	"github.com/ergo-services/ergo/etf"
+	"github.com/ergo-services/ergo/gen"
 )
 
 type HandlerSup struct {

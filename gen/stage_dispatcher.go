@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"math/rand"
 
-	"github.com/halturin/ergo/etf"
+	"github.com/ergo-services/ergo/etf"
 )
 
 // StageDispatcherBehavior defined interface for the dispatcher

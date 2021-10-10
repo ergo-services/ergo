@@ -3,7 +3,7 @@ package gen
 import (
 	"fmt"
 
-	"github.com/halturin/ergo/etf"
+	"github.com/ergo-services/ergo/etf"
 )
 
 type SagaWorkerBehavior interface {

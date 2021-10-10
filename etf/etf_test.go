@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/halturin/ergo/lib"
+	"github.com/ergo-services/ergo/lib"
 )
 
 func TestTermIntoStruct_Slice(t *testing.T) {

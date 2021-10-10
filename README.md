@@ -1,10 +1,10 @@
 <h1><a href="https://ergo.services"><img src=".github/images/logo.svg" alt="Ergo Framework" width="159" height="49"></a></h1>
 
-[![GitHub release](https://img.shields.io/github/release/halturin/ergo.svg)](https://github.com/halturin/ergo/releases/latest)
-[![Go Report Card](https://goreportcard.com/badge/github.com/halturin/ergo)](https://goreportcard.com/report/github.com/halturin/ergo)
-[![GoDoc](https://pkg.go.dev/badge/halturin/ergo)](https://pkg.go.dev/github.com/halturin/ergo)
+[![GitHub release](https://img.shields.io/github/release/ergo-services/ergo.svg)](https://github.com/ergo-services/ergo/releases/latest)
+[![Go Report Card](https://goreportcard.com/badge/github.com/ergo-services/ergo)](https://goreportcard.com/report/github.com/ergo-services/ergo)
+[![GoDoc](https://pkg.go.dev/badge/ergo-services/ergo)](https://pkg.go.dev/github.com/ergo-services/ergo)
 [![MIT license](https://img.shields.io/badge/license-MIT-brightgreen.svg)](https://opensource.org/licenses/MIT)
-[![Build Status](https://img.shields.io/github/workflow/status/halturin/ergo/TestLinuxWindowsMacOS)](https://github.com/halturin/ergo/actions/)
+[![Build Status](https://img.shields.io/github/workflow/status/ergo-services/ergo/TestLinuxWindowsMacOS)](https://github.com/ergo-services/ergo/actions/)
 
 Technologies and design patterns of Erlang/OTP have been proven over the years. Now in Golang.
 Up to x5 times faster than original Erlang/OTP in terms of network messaging.
@@ -61,7 +61,7 @@ The goal of this project is to leverage Erlang/OTP experience with Golang perfor
 
 Here are the changes of latest release. For more details see the [ChangeLog](ChangeLog.md)
 
-#### [2.0.0](https://github.com/halturin/ergo/releases/tag/v2.0.0) - 2021-10-12 ####
+#### [2.0.0](https://github.com/ergo-services/ergo/releases/tag/v2.0.0) - 2021-10-12 ####
 
 * Added support of Erlang/OTP 24 (including [Alias](https://blog.erlang.org/My-OTP-24-Highlights/#eep-53-process-aliases) feature and [Remote Spawn](https://blog.erlang.org/OTP-23-Highlights/#distributed-spawn-and-the-new-erpc-module) introduced in Erlang/OTP 23)
 * **Important**: This release includes refined API (without backward compatibility) for a more convenient way to create OTP-designed microservices. Make sure to update your code.
@@ -99,7 +99,7 @@ Hardware: laptop with Intel(R) Core(TM) i5-8265U (4 cores. 8 with HT)
 ❯❯❯❯ go test -bench=NodeSequential -run=XXX -benchtime=10s
 goos: linux
 goarch: amd64
-pkg: github.com/halturin/ergo
+pkg: github.com/ergo-services/ergo
 BenchmarkNodeSequential/number-8 	  256108	     48578 ns/op
 BenchmarkNodeSequential/string-8 	  266906	     51531 ns/op
 BenchmarkNodeSequential/tuple_(PID)-8         	  233700	     58192 ns/op
@@ -109,7 +109,7 @@ BenchmarkNodeSequentialSingleNode/string-8         	 2519410	      4760 ns/op
 BenchmarkNodeSequentialSingleNode/tuple_(PID)-8    	 2524701	      4757 ns/op
 BenchmarkNodeSequentialSingleNode/binary_1MB-8     	 2521370	      4758 ns/op
 PASS
-ok  	github.com/halturin/ergo	120.720s
+ok  	github.com/ergo-services/ergo	120.720s
 ```
 
 it means Ergo Framework provides around **25.000 sync requests per second** via localhost for simple data and around 4Gbit/sec for 1MB messages
@@ -122,12 +122,12 @@ Hardware: workstation with AMD Ryzen Threadripper 3970X (64) @ 3.700GHz
 ❯❯❯❯ go test -bench=NodeParallel -run=XXX -benchtime=10s
 goos: linux
 goarch: amd64
-pkg: github.com/halturin/ergo/tests
+pkg: github.com/ergo-services/ergo/tests
 cpu: AMD Ryzen Threadripper 3970X 32-Core Processor
 BenchmarkNodeParallel-64                 4922430              2440 ns/op
 BenchmarkNodeParallelSingleNode-64      15045528               864.5 ns/op
 PASS
-ok      github.com/halturin/ergo/tests  29.596s
+ok      github.com/ergo-services/ergo/tests  29.596s
 ```
 
 these numbers show almost **500.000 sync requests per second** for the network messaging via localhost and **1.500.000 sync requests per second** for the local messaging (within a node).
@@ -166,10 +166,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/halturin/ergo"
-	"github.com/halturin/ergo/etf"
-	"github.com/halturin/ergo/gen"
-	"github.com/halturin/ergo/node"
+	"github.com/ergo-services/ergo"
+	"github.com/ergo-services/ergo/etf"
+	"github.com/ergo-services/ergo/gen"
+	"github.com/ergo-services/ergo/node"
 )
 
 // simple implementation of Server

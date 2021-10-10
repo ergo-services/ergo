@@ -3,9 +3,9 @@ package erlang
 // TODO: https://github.com/erlang/otp/blob/master/lib/runtime_tools-1.13.1/src/erlang_info.erl
 
 import (
-	"github.com/halturin/ergo/etf"
-	"github.com/halturin/ergo/gen"
-	"github.com/halturin/ergo/lib"
+	"github.com/ergo-services/ergo/etf"
+	"github.com/ergo-services/ergo/gen"
+	"github.com/ergo-services/ergo/lib"
 )
 
 type erlang struct {

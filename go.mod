@@ -1,3 +1,3 @@
-module github.com/halturin/ergo
+module github.com/ergo-services/ergo
 
 go 1.15

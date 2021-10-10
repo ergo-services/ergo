@@ -44,12 +44,12 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/halturin/ergo"
-	"github.com/halturin/ergo/etf"
-	"github.com/halturin/ergo/gen"
-	"github.com/halturin/ergo/node"
+	"github.com/ergo-services/ergo"
+	"github.com/ergo-services/ergo/etf"
+	"github.com/ergo-services/ergo/gen"
+	"github.com/ergo-services/ergo/node"
 	// "time"
-	// "github.com/halturin/ergo/etf"
+	// "github.com/ergo-services/ergo/etf"
 )
 
 type testSupervisorRestForOne struct {

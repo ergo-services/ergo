@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/halturin/ergo/lib"
+	"github.com/ergo-services/ergo/lib"
 )
 
 const (

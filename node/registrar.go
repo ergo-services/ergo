@@ -8,9 +8,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/halturin/ergo/etf"
-	"github.com/halturin/ergo/gen"
-	"github.com/halturin/ergo/lib"
+	"github.com/ergo-services/ergo/etf"
+	"github.com/ergo-services/ergo/gen"
+	"github.com/ergo-services/ergo/lib"
 )
 
 const (

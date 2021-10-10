@@ -7,7 +7,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/halturin/ergo/lib"
+	"github.com/ergo-services/ergo/lib"
 )
 
 func TestEncodeBool(t *testing.T) {

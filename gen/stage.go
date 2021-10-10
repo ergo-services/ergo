@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/halturin/ergo/etf"
-	//"github.com/halturin/ergo/lib"
+	"github.com/ergo-services/ergo/etf"
+	//"github.com/ergo-services/ergo/lib"
 )
 
 type StageCancelMode uint

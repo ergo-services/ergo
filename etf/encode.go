@@ -7,7 +7,7 @@ import (
 	"math/big"
 	"reflect"
 
-	"github.com/halturin/ergo/lib"
+	"github.com/ergo-services/ergo/lib"
 )
 
 var (

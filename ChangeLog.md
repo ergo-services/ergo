@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 This format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-#### [1.2.0](https://github.com/halturin/ergo/releases/tag/v1.2.0) - 2021-04-07 ####
+#### [1.2.0](https://github.com/ergo-services/ergo/releases/tag/v1.2.0) - 2021-04-07 ####
 
 * Added TLS support. Introduced new option `TLSmode` in `ergo.NodeOptions` with the following values:
   - `ergo.TLSmodeDisabled` default value. encryption is disabled
@@ -19,18 +19,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * Improved DIST implementation in order to support KeepAlive messages and get rid of platform-dependent `syscall` usage
 * Fixed `TermIntoStruct` function. There was a problem with `Tuple` value transforming into the given struct
 * Fixed incorrect decoding atoms `true`, `false` into the booleans
-* Fixed race condition and freeze of connection serving in corner case [#21](https://github.com/halturin/ergo/issues/21)
+* Fixed race condition and freeze of connection serving in corner case [#21](https://github.com/ergo-services/ergo/issues/21)
 * Fixed problem with monitoring process by the registered name (local and remote)
 * Fixed issue with termination linked processes
 * Fixed platform-dependent issues. Now Ergo Framework has tested and confirmed support of Linux, MacOS, Windows.
 
-#### [1.1.0](https://github.com/halturin/ergo/releases/tag/1.1.0) - 2020-04-23 ####
+#### [1.1.0](https://github.com/ergo-services/ergo/releases/tag/1.1.0) - 2020-04-23 ####
 
 * Fragmentation support (which was introduced in Erlang/OTP 22)
 * Completely rewritten network subsystem (DIST/ETF).
 * Improved performance in terms of network messaging (outperforms original Erlang/OTP up to x5 times. See [Benchmarks](#benchmarks))
 
-#### [1.0.0](https://github.com/halturin/ergo/releases/tag/1.0.0) - 2020-03-03 ####
+#### [1.0.0](https://github.com/ergo-services/ergo/releases/tag/1.0.0) - 2020-03-03 ####
 ## There is a bunch of changes we deliver with this release
 
 * We have changed the name - Ergo (or Ergo Framework). GitHub's repo has been
@@ -47,7 +47,7 @@ the new one.
 * Improved ETF TermIntoStruct decoder
 * Improved code structure and readability
 
-#### [0.2.0](https://github.com/halturin/ergonode/releases/tag/0.2.0) - 2019-02-23 ####
+#### [0.2.0](https://github.com/ergo-services/ergo/releases/tag/0.2.0) - 2019-02-23 ####
 * Now we make versioning releases
 * Improve node creation. Now you can specify the listening port range. See 'Usage' for details
 * Add embedded EPMD. Trying to start internal epmd service on starting ergonode.

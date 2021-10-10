@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/halturin/ergo/etf"
-	"github.com/halturin/ergo/lib"
+	"github.com/ergo-services/ergo/etf"
+	"github.com/ergo-services/ergo/lib"
 )
 
 func TestLinkRead(t *testing.T) {
