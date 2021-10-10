@@ -647,16 +647,6 @@ func (l *Link) Read(b *lib.Buffer) (int, error) {
 			continue
 		}
 
-		//
-		//FIXME
-		// HACK for atom cache.
-		//if b.B[4] == protoDist {
-		//	if b.B[5] == protoDistMessage || b.B[5] == protoDistFragment1 {
-		//		l.decodeDistHeaderAtomCache(b.B[6:])
-		//	}
-		//}
-		// HACK
-
 		return int(packetLength) + 4, nil
 	}
 
@@ -806,6 +796,14 @@ func (l *Link) ReadDist(packet []byte) (etf.Term, etf.Term, error) {
 		first := packet[0] == protoDistFragment1
 		if len(packet) < 18 {
 			return nil, nil, fmt.Errorf("malformed fragment")
+		}
+
+		// We should decode first fragment in order to process Atom Cache Header
+		// to get rid the case when we get the first fragment of the packet
+		// and the next packet is not the part of the fragmented packet, but with
+		// the ids were encoded in the first fragment
+		if first {
+			l.decodeDistHeaderAtomCache(packet[1:])
 		}
 
 		if assembled, err := l.decodeFragment(packet[1:], first); assembled != nil {
