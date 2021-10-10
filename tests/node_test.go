@@ -147,7 +147,7 @@ func TestNodeFragmentation(t *testing.T) {
 				}
 				check, e := p1.Direct(call)
 				if e != nil {
-					panic(e)
+					panic("err on call")
 				}
 				if check != etf.Atom("ok") {
 					panic("md5sum mismatch")
