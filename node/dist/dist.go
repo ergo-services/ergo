@@ -660,9 +660,13 @@ func (l *Link) ReadHandlePacket(ctx context.Context, recv chan *lib.Buffer,
 	handler func(string, etf.Term, etf.Term) error) {
 	var b *lib.Buffer
 	var missing deferrMissing
+	var Timeout <-chan time.Time
 
 	deferrChannel := make(chan deferrMissing, 100)
 	defer close(deferrChannel)
+
+	timer := lib.TakeTimer()
+	defer lib.ReleaseTimer(timer)
 
 	dChannel := deferrChannel
 
@@ -671,10 +675,19 @@ func (l *Link) ReadHandlePacket(ctx context.Context, recv chan *lib.Buffer,
 		case missing = <-dChannel:
 			b = missing.b
 		default:
-			b = <-recv
-			if b == nil {
-				// channel was closed
-				return
+			if len(dChannel) > 0 {
+				timer.Reset(150 * time.Millisecond)
+				Timeout = timer.C
+			}
+			select {
+			case b = <-recv:
+				if b == nil {
+					// channel was closed
+					return
+				}
+			case <-Timeout:
+				dChannel = deferrChannel
+				continue
 			}
 		}
 
