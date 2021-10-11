@@ -675,7 +675,7 @@ func (l *Link) ReadHandlePacket(ctx context.Context, recv chan *lib.Buffer,
 		case missing = <-dChannel:
 			b = missing.b
 		default:
-			if len(dChannel) > 0 {
+			if len(deferrChannel) > 0 {
 				timer.Reset(150 * time.Millisecond)
 				Timeout = timer.C
 			} else {
