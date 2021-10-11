@@ -500,7 +500,7 @@ func BenchmarkNodeParallel(b *testing.B) {
 
 	node1name := fmt.Sprintf("nodeB1Parallel_%d@localhost", b.N)
 	node2name := fmt.Sprintf("nodeB2Parallel_%d@localhost", b.N)
-	node1, _ := ergo.StartNode(node1name, "bench", node.Options{DisableHeaderAtomCache: true})
+	node1, _ := ergo.StartNode(node1name, "bench", node.Options{DisableHeaderAtomCache: false})
 	node2, _ := ergo.StartNode(node2name, "bench", node.Options{})
 
 	bgs := &benchGS{}
@@ -550,7 +550,7 @@ func BenchmarkNodeParallel(b *testing.B) {
 func BenchmarkNodeParallelSingleNode(b *testing.B) {
 
 	node1name := fmt.Sprintf("nodeB1ParallelLocal_%d@localhost", b.N)
-	node1, _ := ergo.StartNode(node1name, "bench", node.Options{DisableHeaderAtomCache: true})
+	node1, _ := ergo.StartNode(node1name, "bench", node.Options{DisableHeaderAtomCache: false})
 
 	bgs := &benchGS{}
 
