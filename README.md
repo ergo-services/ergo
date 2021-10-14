@@ -65,7 +65,7 @@ Golang introduced [v2 rule](https://go.dev/blog/v2-go-modules) a while ago to so
 
 Here are the changes of latest release. For more details see the [ChangeLog](ChangeLog.md)
 
-#### [2.0.0](https://github.com/ergo-services/ergo/releases/tag/v2.0.0) - 2021-10-12 ####
+#### [v2.0.0](https://github.com/ergo-services/ergo/releases/tag/v1.999.200) - 2021-10-12 ####
 
 * Added support of Erlang/OTP 24 (including [Alias](https://blog.erlang.org/My-OTP-24-Highlights/#eep-53-process-aliases) feature and [Remote Spawn](https://blog.erlang.org/OTP-23-Highlights/#distributed-spawn-and-the-new-erpc-module) introduced in Erlang/OTP 23)
 * **Important**: This release includes refined API (without backward compatibility) for a more convenient way to create OTP-designed microservices. Make sure to update your code.
