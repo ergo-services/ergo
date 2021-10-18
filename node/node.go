@@ -81,10 +81,6 @@ func StartWithContext(ctx context.Context, name string, cookie string, opts Opti
 		opts.FragmentationUnit = defaultFragmentationUnit
 	}
 
-	if opts.Hidden {
-		lib.Log("Running as hidden node")
-	}
-
 	if len(strings.Split(name, "@")) != 2 {
 		return nil, fmt.Errorf("incorrect FQDN node name (example: node@localhost)")
 	}
@@ -103,13 +99,14 @@ func StartWithContext(ctx context.Context, name string, cookie string, opts Opti
 	node.registrarInternal = registrar
 	node.networkInternal = network
 
-	// load applications
 	for _, app := range opts.Applications {
+		// load applications
 		name, err := node.ApplicationLoad(app)
 		if err != nil {
 			nodestop()
 			return nil, err
 		}
+		// start applications
 		_, err = node.ApplicationStart(name)
 		if err != nil {
 			nodestop()
@@ -154,6 +151,8 @@ func (n *node) WaitWithTimeout(d time.Duration) error {
 		return nil
 	}
 }
+
+// Spawn
 func (n *node) Spawn(name string, opts gen.ProcessOptions, object gen.ProcessBehavior, args ...etf.Term) (gen.Process, error) {
 	// process started by node has no parent
 	options := processOptions{

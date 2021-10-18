@@ -13,13 +13,13 @@ import (
 	"github.com/ergo-services/ergo/lib"
 )
 
-type ErlangHandshakeVersion int
+type DistHandshakeVersion int
 
 const (
-	ErlangHandshakeVersion5 ErlangHandshakeVersion = 5
-	ErlangHandshakeVersion6 ErlangHandshakeVersion = 6
+	DistHandshakeVersion5 DistHandshakeVersion = 5
+	DistHandshakeVersion6 DistHandshakeVersion = 6
 
-	defaultErlangHandshakeVersion = ErlangHandshakeVersion5
+	defaultDistHandshakeVersion = DistHandshakeVersion5
 
 	// distribution flags are defined here https://erlang.org/doc/apps/erts/erl_dist_protocol.html#distribution-flags
 	flagPublished          flagId = 0x1
@@ -76,14 +76,14 @@ func toNodeFlag(f ...nodeFlagId) nodeFlag {
 	return nodeFlag(flags)
 }
 
-// ErlangHandshake implements Erlang handshake
-type ErlangHandshake struct {
+// DistHandshake implements Erlang handshake
+type DistHandshake struct {
 	Handshake
-	opts ErlangHandshakeOptions
+	opts DistHandshakeOptions
 }
 
-type ErlangHandshakeOptions struct {
-	Version    ErlangHandshakeVersion // 5 or 6
+type DistHandshakeOptions struct {
+	Version    DistHandshakeVersion // 5 or 6
 	Name       string
 	Cookie     string
 	EnabledTLS bool
@@ -91,22 +91,25 @@ type ErlangHandshakeOptions struct {
 	Creation   uint32
 }
 
-func CreateErlangHandshake(options ErlangHandshakeOptions) *ErlangHandshake {
+type DistConnection struct {
+	node.Connection
+}
+
+func CreateDistHandshake(options DistHandshakeOptions) *DistHandshake {
 	// must be 5 or 6
-	if options.Version != ErlangHandshakeVersion5 && options.Version != ErlangHandshakeVersion6 {
-		options.Version = defaultErlangHandshakeVersion
+	if options.Version != DistHandshakeVersion5 && options.Version != DistHandshakeVersion6 {
+		options.Version = defaultDistHandshakeVersion
 	}
-	return &ErlangHandshake{
+	return &DistHandshake{
 		opts: options,
 	}
 }
 
-func (h *ErlangHandshake) Start(ctx context.Context, conn net.Conn) (*Link, error) {
+func (h *DistHandshake) Start(ctx context.Context, conn net.Conn) (*node.Connection, error) {
 
 	link := &Link{
 		Name:   options.Name,
 		Cookie: options.Cookie,
-		Hidden: options.Hidden,
 
 		flags: toNodeFlag(
 			flagPublished,
@@ -291,7 +294,7 @@ func (h *ErlangHandshake) Start(ctx context.Context, conn net.Conn) (*Link, erro
 
 }
 
-func (h *ErlangHandshake) Accept(ctx context.Context, conn net.Conn, opts ErlangHandshakeOptions) (*Link, error) {
+func (h *DistHandshake) Accept(ctx context.Context, conn net.Conn, opts DistHandshakeOptions) (*node.Connection, error) {
 	link := &Link{
 		Name:   options.Name,
 		Cookie: options.Cookie,
@@ -470,28 +473,30 @@ func (h *ErlangHandshake) Accept(ctx context.Context, conn net.Conn, opts Erlang
 	}
 }
 
-func (l *Link) composeName(b *lib.Buffer, tls bool) {
+// private functions
+
+func (dh *DistHandshake) composeName(b *lib.Buffer, tls bool) {
 	if tls {
 		b.Allocate(11)
-		dataLength := 7 + len(l.Name) // byte + uint16 + uint32 + len(l.Name)
+		dataLength := 7 + len(dh.Name) // byte + uint16 + uint32 + len(dh.Name)
 		binary.BigEndian.PutUint32(b.B[0:4], uint32(dataLength))
 		b.B[4] = 'n'
-		binary.BigEndian.PutUint16(b.B[5:7], l.version)           // uint16
-		binary.BigEndian.PutUint32(b.B[7:11], l.flags.toUint32()) // uint32
-		b.Append([]byte(l.Name))
+		binary.BigEndian.PutUint16(b.B[5:7], dh.version)           // uint16
+		binary.BigEndian.PutUint32(b.B[7:11], dh.flags.toUint32()) // uint32
+		b.Append([]byte(dh.Name))
 		return
 	}
 
 	b.Allocate(9)
-	dataLength := 7 + len(l.Name) // byte + uint16 + uint32 + len(l.Name)
+	dataLength := 7 + len(dh.Name) // byte + uint16 + uint32 + len(dh.Name)
 	binary.BigEndian.PutUint16(b.B[0:2], uint16(dataLength))
 	b.B[2] = 'n'
-	binary.BigEndian.PutUint16(b.B[3:5], l.version)          // uint16
-	binary.BigEndian.PutUint32(b.B[5:9], l.flags.toUint32()) // uint32
-	b.Append([]byte(l.Name))
+	binary.BigEndian.PutUint16(b.B[3:5], dh.version)          // uint16
+	binary.BigEndian.PutUint32(b.B[5:9], dh.flags.toUint32()) // uint32
+	b.Append([]byte(dh.Name))
 }
 
-func (l *Link) composeNameVersion6(b *lib.Buffer, tls bool) {
+func (dh *DistHandshake) composeNameVersion6(b *lib.Buffer, tls bool) {
 	if tls {
 		b.Allocate(19)
 		dataLength := 15 + len(l.Name) // 1 + 8 (flags) + 4 (creation) + 2 (len l.Name)
@@ -514,7 +519,7 @@ func (l *Link) composeNameVersion6(b *lib.Buffer, tls bool) {
 	b.Append([]byte(l.Name))
 }
 
-func (l *Link) readName(b []byte) *Link {
+func (dh *DistHandshake) readName(b []byte) *Link {
 	peer := &Link{
 		Name:    string(b[6:]),
 		version: binary.BigEndian.Uint16(b[0:2]),
@@ -523,7 +528,7 @@ func (l *Link) readName(b []byte) *Link {
 	return peer
 }
 
-func (l *Link) readNameVersion6(b []byte) *Link {
+func (dh *DistHandshake) readNameVersion6(b []byte) *Link {
 	nameLen := int(binary.BigEndian.Uint16(b[12:14]))
 	peer := &Link{
 		flags:    nodeFlag(binary.BigEndian.Uint64(b[0:8])),
@@ -534,7 +539,7 @@ func (l *Link) readNameVersion6(b []byte) *Link {
 	return peer
 }
 
-func (l *Link) composeStatus(b *lib.Buffer, tls bool) {
+func (dh *DistHandshake) composeStatus(b *lib.Buffer, tls bool) {
 	//FIXME: there are few options for the status:
 	//	   ok, ok_simultaneous, nok, not_allowed, alive
 	// More details here: https://erlang.org/doc/apps/erts/erl_dist_protocol.html#the-handshake-in-detail
@@ -553,7 +558,7 @@ func (l *Link) composeStatus(b *lib.Buffer, tls bool) {
 
 }
 
-func (l *Link) readStatus(msg []byte) bool {
+func (dh *DistHandshake) readStatus(msg []byte) bool {
 	if string(msg[:2]) == "ok" {
 		return true
 	}
@@ -561,7 +566,7 @@ func (l *Link) readStatus(msg []byte) bool {
 	return false
 }
 
-func (l *Link) composeChallenge(b *lib.Buffer, tls bool) {
+func (dh *DistHandshake) composeChallenge(b *lib.Buffer, tls bool) {
 	if tls {
 		b.Allocate(15)
 		dataLength := uint32(11 + len(l.Name))
@@ -584,7 +589,7 @@ func (l *Link) composeChallenge(b *lib.Buffer, tls bool) {
 	b.Append([]byte(l.Name))
 }
 
-func (l *Link) composeChallengeVersion6(b *lib.Buffer, tls bool) {
+func (dh *DistHandshake) composeChallengeVersion6(b *lib.Buffer, tls bool) {
 	if tls {
 		// 1 ('N') + 8 (flags) + 4 (chalange) + 4 (creation) + 2 (len(l.Name))
 		b.Allocate(23)
@@ -611,7 +616,7 @@ func (l *Link) composeChallengeVersion6(b *lib.Buffer, tls bool) {
 	b.Append([]byte(l.Name))
 }
 
-func (l *Link) readChallenge(msg []byte) (challenge uint32) {
+func (dh *DistHandshake) readChallenge(msg []byte) (challenge uint32) {
 	version := binary.BigEndian.Uint16(msg[0:2])
 	if version != ProtoHandshake5 {
 		return 0
@@ -626,7 +631,7 @@ func (l *Link) readChallenge(msg []byte) (challenge uint32) {
 	return binary.BigEndian.Uint32(msg[6:10])
 }
 
-func (l *Link) readChallengeVersion6(msg []byte) (challenge uint32) {
+func (dh *DistHandshake) readChallengeVersion6(msg []byte) (challenge uint32) {
 	lenName := int(binary.BigEndian.Uint16(msg[16:18]))
 	link := &Link{
 		Name:     string(msg[18 : 18+lenName]),
@@ -638,14 +643,14 @@ func (l *Link) readChallengeVersion6(msg []byte) (challenge uint32) {
 	return binary.BigEndian.Uint32(msg[8:12])
 }
 
-func (l *Link) readComplement(msg []byte) {
+func (dh *DistHandshake) readComplement(msg []byte) {
 	flags := uint64(binary.BigEndian.Uint32(msg[0:4])) << 32
 	l.peer.flags = nodeFlag(l.peer.flags.toUint64() | flags)
 	l.peer.creation = binary.BigEndian.Uint32(msg[4:8])
 	return
 }
 
-func (l *Link) validateChallengeReply(b []byte) bool {
+func (dh *DistHandshake) validateChallengeReply(b []byte) bool {
 	l.peer.challenge = binary.BigEndian.Uint32(b[:4])
 	digestB := b[4:]
 
@@ -653,7 +658,7 @@ func (l *Link) validateChallengeReply(b []byte) bool {
 	return bytes.Equal(digestA[:], digestB)
 }
 
-func (l *Link) composeChallengeAck(b *lib.Buffer, tls bool) {
+func (dh *DistHandshake) composeChallengeAck(b *lib.Buffer, tls bool) {
 	if tls {
 		b.Allocate(5)
 		dataLength := uint32(17) // 'a' + 16 (digest)
@@ -672,7 +677,7 @@ func (l *Link) composeChallengeAck(b *lib.Buffer, tls bool) {
 	b.Append(digest)
 }
 
-func (l *Link) composeChallengeReply(b *lib.Buffer, challenge uint32, tls bool) {
+func (dh *DistHandshake) composeChallengeReply(b *lib.Buffer, challenge uint32, tls bool) {
 	if tls {
 		l.digest = genDigest(challenge, l.Cookie)
 		b.Allocate(9)
@@ -693,7 +698,7 @@ func (l *Link) composeChallengeReply(b *lib.Buffer, challenge uint32, tls bool) 
 	b.Append(l.digest)
 }
 
-func (l *Link) composeComplement(b *lib.Buffer, tls bool) {
+func (dh *DistHandshake) composeComplement(b *lib.Buffer, tls bool) {
 	flags := uint32(l.flags.toUint64() >> 32)
 	if tls {
 		b.Allocate(13)

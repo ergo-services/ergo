@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"math/rand"
-	"net"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -39,19 +38,16 @@ const (
 	protoDistFragmentN  = 70
 )
 
+type Dist struct {
+	Connection
+}
+
 type fragmentedPacket struct {
 	buffer           *lib.Buffer
 	disordered       *lib.Buffer
 	disorderedSlices map[uint64][]byte
 	fragmentID       uint64
 	lastUpdate       time.Time
-}
-
-type Connection struct {
-	Name          string
-	Peer          *Connection
-	EncodeOptions etf.EncodeOptions
-	DecodeOptions etf.DecodeOptions
 }
 
 type internalConnection struct {
@@ -77,27 +73,6 @@ type internalConnection struct {
 	checkCleanTimer    *time.Timer
 	checkCleanTimeout  time.Duration // default is 5 seconds
 	checkCleanDeadline time.Duration // how long we wait for the next fragment of the certain sequenceID. Default is 30 seconds
-}
-
-type Link struct {
-	Name      string
-	Cookie    string
-	Hidden    bool
-	peer      *Link
-	conn      net.Conn
-	challenge uint32
-	flags     nodeFlag
-	version   uint16
-	creation  uint32
-	digest    []byte
-}
-
-func (l *Link) GetPeerName() string {
-	if l.peer == nil {
-		return ""
-	}
-
-	return l.peer.Name
 }
 
 func newLinkFlusher(w io.Writer, latency time.Duration) *linkFlusher {
@@ -186,19 +161,6 @@ func (lf *linkFlusher) Write(b []byte) (int, error) {
 
 	return lenB, nil
 
-}
-
-func (l *Link) Close() {
-	if l.conn != nil {
-		l.conn.Close()
-	}
-}
-
-func (l *Link) PeerName() string {
-	if l.peer != nil {
-		return l.peer.Name
-	}
-	return ""
 }
 
 func (l *Link) Read(b *lib.Buffer) (int, error) {

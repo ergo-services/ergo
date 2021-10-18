@@ -6,6 +6,7 @@ import (
 	"github.com/ergo-services/ergo/erlang"
 	"github.com/ergo-services/ergo/gen"
 	"github.com/ergo-services/ergo/node"
+	"github.com/ergo-services/ergo/proto/dist"
 )
 
 // StartNode create new node with name and cookie string
@@ -24,5 +25,10 @@ func StartNodeWithContext(ctx context.Context, name string, cookie string, opts 
 	// add erlang support application
 	opts.Applications = append([]gen.ApplicationBehavior{&erlang.KernelApp{}}, opts.Applications...)
 
-	return node.StartWithContext(context.WithValue(ctx, "version", version), name, cookie, opts)
+	if opts.CustomHandshake == nil {
+		// set default handshake (Erlang Dist handshake)
+		opts.CustomHandshake == dist.CreateDistHandshake()
+	}
+
+	return node.StartWithContext(context.WithValue(ctx, node.ContextKeyVersion, version), name, cookie, opts)
 }

@@ -72,7 +72,12 @@ const (
 	defaultSendQueueLength   int    = 100
 	defaultRecvQueueLength   int    = 100
 	defaultFragmentationUnit        = 65000
+
+	ContextKeyVersion ContextKey = "version"
 )
+
+// ContextKey
+type ContextKey string
 
 // Node
 type Node interface {
@@ -126,6 +131,27 @@ type Network interface {
 	RevokeRemoteSpawn(name string) error
 }
 
+type NetworkHandler interface {
+	HandleSend(from etf.Pid, to etf.Pid, message etf.Term)
+	HandleSendReg(from etf.Pid, to gen.ProcessID, message etf.Term)
+	HandleSendAlias(from etf.Pid, to etf.Alias, message etf.Term)
+
+	HandleLink(remote etf.Pid, local etf.Pid)
+	HandleUnlink(remote etf.Pid, local etf.Pid)
+	HandleExit(terminated etf.Pid, reason string)
+
+	HandleMonitorReg(remote etf.Pid, process gen.ProcessID, ref etf.Ref)
+	HandleMonitor(remote etf.Pid, process etf.Pid, ref etf.Ref)
+	HandleDemonitor(ref etf.Ref)
+	HandleMonitorExitReg(process gen.ProcessID, reason string)
+	HandleMonitorExit(process etf.Pid, reason string)
+
+	HandleSpawnRequest()
+	HandleSpawnReply()
+
+	HandleProxyMessage()
+}
+
 // NetworkRoute
 type NetworkRoute struct {
 	Port   int
@@ -133,12 +159,40 @@ type NetworkRoute struct {
 	TLS    bool
 }
 
+type Connection struct {
+	ConnectionHandler
+	Name          string
+	Peer          *Connection
+	Conn          net.Conn
+	EncodeOptions etf.EncodeOptions
+	DecodeOptions etf.DecodeOptions
+}
+
+type ConnectionHandler interface {
+	Send(gen.Process, to etf.Pid, message etf.Term) error
+	SendReg(gen.Process, to gen.ProcessID, message etf.Term) error
+	SendAlias(gen.Process, to etf.Alias, message etf.Term) error
+
+	Link(local gen.Process, remote etf.Pid) error
+	Unlink(local gen.Process, remote etf.Pid) error
+	SendExit(local etf.Pid, remote etf.Pid) error
+
+	Monitor(local gen.Process, remote etf.Pid, ref etf.Ref) error
+	MonitorReg(local gen.Process, remote gen.ProcessID, ref etf.Ref) error
+	Demonitor(ref etf.Ref) error
+	SendMonitorExitReg(process gen.Process, ref etf.Ref, reason string) error
+	SendMonitorExit(process etf.Pid, ref etf.Ref, reason string) error
+
+	SpawnRequest()
+
+	Proxy()
+}
+
 // Options struct with bootstrapping options for CreateNode
 type Options struct {
 	Applications           []gen.ApplicationBehavior
 	ListenRangeBegin       uint16
 	ListenRangeEnd         uint16
-	Hidden                 bool
 	EPMDPort               uint16
 	DisableEPMDServer      bool
 	DisableEPMD            bool // use static routes only
@@ -175,7 +229,12 @@ const (
 // Handshake defines handshake interface
 type Handshake interface {
 	// Start initiates handshake process
-	Start(ctx context.Context, conn net.Conn) (*Link, error)
+	Start(ctx context.Context, conn net.Conn) (*Connection, error)
 	// Accept accepts handshake process initiated by another side of this connection
-	Accept(ctx context.Context, conn net.Conn) (*Link, error)
+	Accept(ctx context.Context, conn net.Conn) (*Connection, error)
+}
+
+type Proto interface {
+	// HandleConnection
+	HandleConnection(c *Connection)
 }

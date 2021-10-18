@@ -65,7 +65,7 @@ func newNetwork(ctx context.Context, name string, opts Options, r registrarInter
 	if opts.CustomHandshake == nil {
 		// create an Erlang handshake 6th verstion.
 		handshakeOptions := ErlangHandshakeOptions{}
-		opts.CustomHandshake = CreateErlangHandshake(6)
+		opts.CustomHandshake = CreateErlangHandshake(handshakeOptions)
 	}
 
 	port, err := n.listen(ctx, ns[1])
@@ -97,7 +97,7 @@ func (n *network) RemoveStaticRoute(name string) {
 func (n *network) listen(ctx context.Context, name string) (uint16, error) {
 	var TLSenabled bool = true
 	var version Version
-	version, _ = ctx.Value("version").(Version)
+	version, _ = ctx.Value(ContextKeyVersion).(Version)
 
 	lc := net.ListenConfig{}
 	for p := n.opts.ListenRangeBegin; p <= n.opts.ListenRangeEnd; p++ {
@@ -644,4 +644,20 @@ func (p *peer) getChannel() chan []etf.Term {
 
 	p.i = 0
 	return c
+}
+
+// Connection methods
+
+func (c *Connection) Close() error {
+	if c.Conn != nil {
+		return c.Conn.Close()
+	}
+	return fmt.Errorf("Conn is nil")
+}
+
+func (c *Connection) PeerName() string {
+	if c.Peer != nil {
+		return c.Peer.Name
+	}
+	return ""
 }

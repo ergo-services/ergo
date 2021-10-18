@@ -27,12 +27,12 @@ type EncodeOptions struct {
 	WriterAtomCache   map[Atom]CacheItem
 	EncodingAtomCache *ListAtomCache
 
-	// FlagV4NC The node accepts a larger amount of data in pids
+	// FlagBigPidRef (V4NC) The node accepts a larger amount of data in pids
 	// and references (node container types version 4).
 	// In the pid case full 32-bit ID and Serial fields in NEW_PID_EXT
 	// and in the reference case up to 5 32-bit ID words are now
 	// accepted in NEWER_REFERENCE_EXT. Introduced in OTP 24.
-	FlagV4NC bool
+	FlagBigPidRef bool
 
 	// FlagBigCreation The node understands big node creation tags NEW_PID_EXT,
 	// NEWER_REFERENCE_EXT.

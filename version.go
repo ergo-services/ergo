@@ -1,10 +1,7 @@
 package ergo
 
 const (
-	// Version
-	Version = "2.0.0"
-	// VersionPrefix
-	VersionPrefix = "ergo"
-	// VersionOTP
-	VersionOTP int = 24
+	Version           = "2.0.0" // Ergo Framework version
+	VersionPrefix     = "ergo"  // Prefix using for the full version name
+	VersionOTP    int = 24      // Erlang version support
 )
