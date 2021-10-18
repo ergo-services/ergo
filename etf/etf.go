@@ -463,7 +463,7 @@ func setProplistField(list List, dest reflect.Value) error {
 	t := dest.Type()
 	numField := t.NumField()
 	fields := make([]reflect.StructField, numField)
-	for i, _ := range fields {
+	for i := range fields {
 		fields[i] = t.Field(i)
 	}
 
@@ -496,7 +496,7 @@ func setProplistElementField(proplist []ProplistElement, dest reflect.Value) err
 	t := dest.Type()
 	numField := t.NumField()
 	fields := make([]reflect.StructField, numField)
-	for i, _ := range fields {
+	for i := range fields {
 		fields[i] = t.Field(i)
 	}
 
@@ -554,7 +554,7 @@ func setMapStructField(term Map, dest reflect.Value) error {
 	t := dest.Type()
 	numField := t.NumField()
 	fields := make([]reflect.StructField, numField)
-	for i, _ := range fields {
+	for i := range fields {
 		fields[i] = t.Field(i)
 	}
 
