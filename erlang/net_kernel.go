@@ -13,10 +13,12 @@ import (
 	"github.com/ergo-services/ergo/lib/osdep"
 )
 
+// KernelApp
 type KernelApp struct {
 	gen.Application
 }
 
+// Load
 func (nka *KernelApp) Load(args ...etf.Term) (gen.ApplicationSpec, error) {
 	return gen.ApplicationSpec{
 		Name:        "erlang",
@@ -31,12 +33,14 @@ func (nka *KernelApp) Load(args ...etf.Term) (gen.ApplicationSpec, error) {
 	}, nil
 }
 
+// Start
 func (nka *KernelApp) Start(p gen.Process, args ...etf.Term) {}
 
 type netKernelSup struct {
 	gen.Supervisor
 }
 
+// Init
 func (nks *netKernelSup) Init(args ...etf.Term) (gen.SupervisorSpec, error) {
 	return gen.SupervisorSpec{
 		Children: []gen.SupervisorChildSpec{
@@ -75,12 +79,14 @@ type netKernel struct {
 	routinesCtx map[etf.Pid]context.CancelFunc
 }
 
+// Init
 func (nk *netKernel) Init(process *gen.ServerProcess, args ...etf.Term) error {
 	lib.Log("NET_KERNEL: Init: %#v", args)
 	nk.routinesCtx = make(map[etf.Pid]context.CancelFunc)
 	return nil
 }
 
+// HandleCall
 func (nk *netKernel) HandleCall(process *gen.ServerProcess, from gen.ServerFrom, message etf.Term) (reply etf.Term, status gen.ServerStatus) {
 	lib.Log("NET_KERNEL: HandleCall: %#v, From: %#v", message, from)
 	status = gen.ServerStatusOK
@@ -124,6 +130,7 @@ func (nk *netKernel) HandleCall(process *gen.ServerProcess, from gen.ServerFrom,
 	return
 }
 
+// HandleInfo
 func (nk *netKernel) HandleInfo(process *gen.ServerProcess, message etf.Term) gen.ServerStatus {
 	lib.Log("NET_KERNEL: HandleInfo: %#v", message)
 	switch m := message.(type) {

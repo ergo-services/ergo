@@ -19,7 +19,6 @@ type observerBackend struct {
 }
 
 // Init initializes process state using arbitrary arguments
-// Init(...) -> state
 func (o *observerBackend) Init(process *gen.ServerProcess, args ...etf.Term) error {
 	lib.Log("OBSERVER: Init: %#v", args)
 
@@ -42,6 +41,7 @@ func (o *observerBackend) Init(process *gen.ServerProcess, args ...etf.Term) err
 	return nil
 }
 
+// HandleCall
 func (o *observerBackend) HandleCall(state *gen.ServerProcess, from gen.ServerFrom, message etf.Term) (etf.Term, gen.ServerStatus) {
 	lib.Log("OBSERVER: HandleCall: %v, From: %#v", message, from)
 	function := message.(etf.Tuple).Element(1).(etf.Atom)

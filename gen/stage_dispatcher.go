@@ -27,6 +27,7 @@ type StageDispatcherBehavior interface {
 	Subscribe(state interface{}, subscription StageSubscription, opts StageSubscribeOptions) error
 }
 
+// StageDispatcher
 type StageDispatcher int
 type dispatcherDemand struct{}
 type dispatcherBroadcast struct{}
@@ -126,6 +127,7 @@ type broadcastState struct {
 	bufferKeepLast bool
 }
 
+// Init
 func (dd *dispatcherDemand) Init(opts StageOptions) interface{} {
 	state := &demandState{
 		demands:        make(map[etf.Pid]*demand),
@@ -137,6 +139,7 @@ func (dd *dispatcherDemand) Init(opts StageOptions) interface{} {
 	return state
 }
 
+// Ask
 func (dd *dispatcherDemand) Ask(state interface{}, subscription StageSubscription, count uint) {
 	st := state.(*demandState)
 	demand, ok := st.demands[subscription.Pid]
@@ -147,6 +150,7 @@ func (dd *dispatcherDemand) Ask(state interface{}, subscription StageSubscriptio
 	return
 }
 
+// Cancel
 func (dd *dispatcherDemand) Cancel(state interface{}, subscription StageSubscription) {
 	st := state.(*demandState)
 	delete(st.demands, subscription.Pid)
@@ -161,6 +165,7 @@ func (dd *dispatcherDemand) Cancel(state interface{}, subscription StageSubscrip
 	return
 }
 
+// Dispatch
 func (dd *dispatcherDemand) Dispatch(state interface{}, events etf.List) []StageDispatchItem {
 	st := state.(*demandState)
 	// put events into the buffer before we start dispatching
@@ -227,6 +232,7 @@ func (dd *dispatcherDemand) Dispatch(state interface{}, events etf.List) []Stage
 	return dispatchItems
 }
 
+// Subscribe
 func (dd *dispatcherDemand) Subscribe(state interface{}, subscription StageSubscription, opts StageSubscribeOptions) error {
 	st := state.(*demandState)
 	newDemand := &demand{
@@ -243,6 +249,7 @@ func (dd *dispatcherDemand) Subscribe(state interface{}, subscription StageSubsc
 // Dispatcher Broadcast implementation
 //
 
+// Init
 func (db *dispatcherBroadcast) Init(opts StageOptions) interface{} {
 	state := &broadcastState{
 		demands:        make(map[etf.Pid]*demand),
@@ -253,6 +260,7 @@ func (db *dispatcherBroadcast) Init(opts StageOptions) interface{} {
 	return state
 }
 
+// Ask
 func (db *dispatcherBroadcast) Ask(state interface{}, subscription StageSubscription, count uint) {
 	st := state.(*broadcastState)
 	demand, ok := st.demands[subscription.Pid]
@@ -264,6 +272,7 @@ func (db *dispatcherBroadcast) Ask(state interface{}, subscription StageSubscrip
 	return
 }
 
+// Cancel
 func (db *dispatcherBroadcast) Cancel(state interface{}, subscription StageSubscription) {
 	st := state.(*broadcastState)
 	delete(st.demands, subscription.Pid)
@@ -271,6 +280,7 @@ func (db *dispatcherBroadcast) Cancel(state interface{}, subscription StageSubsc
 	return
 }
 
+// Dispatch
 func (db *dispatcherBroadcast) Dispatch(state interface{}, events etf.List) []StageDispatchItem {
 	st := state.(*broadcastState)
 	// put events into the buffer before we start dispatching
@@ -318,6 +328,7 @@ func (db *dispatcherBroadcast) Dispatch(state interface{}, events etf.List) []St
 	return dispatchItems
 }
 
+// Subscribe
 func (db *dispatcherBroadcast) Subscribe(state interface{}, subscription StageSubscription, opts StageSubscribeOptions) error {
 	st := state.(*broadcastState)
 	newDemand := &demand{
@@ -357,6 +368,8 @@ func (db *dispatcherBroadcast) Subscribe(state interface{}, subscription StageSu
 //
 // Dispatcher Partition implementation
 //
+
+// Init
 func (dp *dispatcherPartition) Init(opts StageOptions) interface{} {
 	state := &partitionState{
 		demands:        make(map[etf.Pid]*demand),
@@ -372,6 +385,7 @@ func (dp *dispatcherPartition) Init(opts StageOptions) interface{} {
 	return state
 }
 
+// Ask
 func (dp *dispatcherPartition) Ask(state interface{}, subscription StageSubscription, count uint) {
 	st := state.(*partitionState)
 	demand, ok := st.demands[subscription.Pid]
@@ -382,6 +396,7 @@ func (dp *dispatcherPartition) Ask(state interface{}, subscription StageSubscrip
 	return
 }
 
+// Cancel
 func (dp *dispatcherPartition) Cancel(state interface{}, subscription StageSubscription) {
 	st := state.(*partitionState)
 	demand, ok := st.demands[subscription.Pid]
@@ -400,6 +415,7 @@ func (dp *dispatcherPartition) Cancel(state interface{}, subscription StageSubsc
 	return
 }
 
+// Dispatch
 func (dp *dispatcherPartition) Dispatch(state interface{}, events etf.List) []StageDispatchItem {
 	st := state.(*partitionState)
 	// put events into the buffer before we start dispatching
@@ -473,6 +489,7 @@ func (dp *dispatcherPartition) Dispatch(state interface{}, events etf.List) []St
 	return dispatchItems
 }
 
+// Subscribe
 func (dp *dispatcherPartition) Subscribe(state interface{}, subscription StageSubscription, opts StageSubscribeOptions) error {
 	st := state.(*partitionState)
 	if opts.Partition > dp.n-1 {

@@ -12,6 +12,7 @@ import (
 )
 
 const (
+	// DefaultProcessMailboxSize
 	DefaultProcessMailboxSize = 100
 )
 
@@ -49,14 +50,17 @@ type processOptions struct {
 
 type processExitFunc func(from etf.Pid, reason string) error
 
+// Self
 func (p *process) Self() etf.Pid {
 	return p.self
 }
 
+// Name
 func (p *process) Name() string {
 	return p.name
 }
 
+// RegisterName
 func (p *process) RegisterName(name string) error {
 	if p.behavior == nil {
 		return ErrProcessTerminated
@@ -64,6 +68,7 @@ func (p *process) RegisterName(name string) error {
 	return p.registerName(name, p.self)
 }
 
+// UnregisterName
 func (p *process) UnregisterName(name string) error {
 	if p.behavior == nil {
 		return ErrProcessTerminated
@@ -78,6 +83,7 @@ func (p *process) UnregisterName(name string) error {
 	return p.unregisterName(name)
 }
 
+// Kill
 func (p *process) Kill() {
 	if p.behavior == nil {
 		return
@@ -85,6 +91,7 @@ func (p *process) Kill() {
 	p.kill()
 }
 
+// Exit
 func (p *process) Exit(reason string) error {
 	if p.behavior == nil {
 		return ErrProcessTerminated
@@ -92,10 +99,12 @@ func (p *process) Exit(reason string) error {
 	return p.exit(p.self, reason)
 }
 
+// Context
 func (p *process) Context() context.Context {
 	return p.context
 }
 
+// Parent
 func (p *process) Parent() gen.Process {
 	if p.parent == nil {
 		return nil
@@ -103,6 +112,7 @@ func (p *process) Parent() gen.Process {
 	return p.parent
 }
 
+// GroupLeader
 func (p *process) GroupLeader() gen.Process {
 	if p.groupLeader == nil {
 		return nil
@@ -110,22 +120,32 @@ func (p *process) GroupLeader() gen.Process {
 	return p.groupLeader
 }
 
+// Links
 func (p *process) Links() []etf.Pid {
 	return p.processLinks(p.self)
 }
+
+// Monitors
 func (p *process) Monitors() []etf.Pid {
 	return p.processMonitors(p.self)
 }
+
+// MonitorsByName
 func (p *process) MonitorsByName() []gen.ProcessID {
 	return p.processMonitorsByName(p.self)
 }
+
+// MonitoredBy
 func (p *process) MonitoredBy() []etf.Pid {
 	return p.processMonitoredBy(p.self)
 }
+
+// Aliases
 func (p *process) Aliases() []etf.Alias {
 	return p.aliases
 }
 
+// Info
 func (p *process) Info() gen.ProcessInfo {
 	if p.behavior == nil {
 		return gen.ProcessInfo{}
@@ -154,6 +174,7 @@ func (p *process) Info() gen.ProcessInfo {
 	}
 }
 
+// Send
 func (p *process) Send(to interface{}, message etf.Term) error {
 	if p.behavior == nil {
 		return ErrProcessTerminated
@@ -161,6 +182,7 @@ func (p *process) Send(to interface{}, message etf.Term) error {
 	return p.route(p.self, to, message)
 }
 
+// SendAfter
 func (p *process) SendAfter(to interface{}, message etf.Term, after time.Duration) context.CancelFunc {
 	//TODO: should we control the number of timers/goroutines have been created this way?
 	ctx, cancel := context.WithCancel(p.context)
@@ -182,6 +204,7 @@ func (p *process) SendAfter(to interface{}, message etf.Term, after time.Duratio
 	return cancel
 }
 
+// CreateAlias
 func (p *process) CreateAlias() (etf.Alias, error) {
 	if p.behavior == nil {
 		return etf.Alias{}, ErrProcessTerminated
@@ -189,6 +212,7 @@ func (p *process) CreateAlias() (etf.Alias, error) {
 	return p.newAlias(p)
 }
 
+// DeleteAlias
 func (p *process) DeleteAlias(alias etf.Alias) error {
 	if p.behavior == nil {
 		return ErrProcessTerminated
@@ -196,6 +220,7 @@ func (p *process) DeleteAlias(alias etf.Alias) error {
 	return p.deleteAlias(p, alias)
 }
 
+// ListEnv
 func (p *process) ListEnv() map[string]interface{} {
 	p.RLock()
 	defer p.RUnlock()
@@ -219,6 +244,7 @@ func (p *process) ListEnv() map[string]interface{} {
 	return env
 }
 
+// SetEnv
 func (p *process) SetEnv(name string, value interface{}) {
 	p.Lock()
 	defer p.Unlock()
@@ -229,6 +255,7 @@ func (p *process) SetEnv(name string, value interface{}) {
 	p.env[name] = value
 }
 
+// Env
 func (p *process) Env(name string) interface{} {
 	p.RLock()
 	defer p.RUnlock()
@@ -244,12 +271,14 @@ func (p *process) Env(name string) interface{} {
 	return nil
 }
 
+// Wait
 func (p *process) Wait() {
 	if p.IsAlive() {
 		<-p.context.Done()
 	}
 }
 
+// WaitWithTimeout
 func (p *process) WaitWithTimeout(d time.Duration) error {
 	if !p.IsAlive() {
 		return nil
@@ -266,6 +295,7 @@ func (p *process) WaitWithTimeout(d time.Duration) error {
 	}
 }
 
+// Link
 func (p *process) Link(with etf.Pid) {
 	if p.behavior == nil {
 		return
@@ -273,6 +303,7 @@ func (p *process) Link(with etf.Pid) {
 	p.link(p.self, with)
 }
 
+// Unlink
 func (p *process) Unlink(with etf.Pid) {
 	p.Lock()
 	defer p.Unlock()
@@ -282,6 +313,7 @@ func (p *process) Unlink(with etf.Pid) {
 	p.unlink(p.self, with)
 }
 
+// IsAlive
 func (p *process) IsAlive() bool {
 	p.Lock()
 	defer p.Unlock()
@@ -291,6 +323,7 @@ func (p *process) IsAlive() bool {
 	return p.context.Err() == nil
 }
 
+// Children
 func (p *process) Children() ([]etf.Pid, error) {
 	c, err := p.directRequest(gen.MessageDirectChildren{}, 5)
 	if err == nil {
@@ -299,14 +332,17 @@ func (p *process) Children() ([]etf.Pid, error) {
 	return []etf.Pid{}, err
 }
 
+// SetTrapExit
 func (p *process) SetTrapExit(trap bool) {
 	p.trapExit = trap
 }
 
+// TrapExit
 func (p *process) TrapExit() bool {
 	return p.trapExit
 }
 
+// Behavior
 func (p *process) Behavior() gen.ProcessBehavior {
 	p.Lock()
 	defer p.Unlock()
@@ -316,10 +352,12 @@ func (p *process) Behavior() gen.ProcessBehavior {
 	return p.behavior
 }
 
+// Direct
 func (p *process) Direct(request interface{}) (interface{}, error) {
 	return p.directRequest(request, gen.DefaultCallTimeout)
 }
 
+// DirectWithTimeout
 func (p *process) DirectWithTimeout(request interface{}, timeout int) (interface{}, error) {
 	if timeout < 1 {
 		timeout = 5
@@ -327,24 +365,29 @@ func (p *process) DirectWithTimeout(request interface{}, timeout int) (interface
 	return p.directRequest(request, timeout)
 }
 
+// MonitorNode
 func (p *process) MonitorNode(name string) etf.Ref {
 	return p.monitorNode(p.self, name)
 }
 
+// DemonitorNode
 func (p *process) DemonitorNode(ref etf.Ref) bool {
 	return p.demonitorNode(ref)
 }
 
+// MonitorProcess
 func (p *process) MonitorProcess(process interface{}) etf.Ref {
 	ref := p.MakeRef()
 	p.monitorProcess(p.self, process, ref)
 	return ref
 }
 
+// DemonitorProcess
 func (p *process) DemonitorProcess(ref etf.Ref) bool {
 	return p.demonitorProcess(ref)
 }
 
+// RemoteSpawn
 func (p *process) RemoteSpawn(node string, object string, opts gen.RemoteSpawnOptions, args ...etf.Term) (etf.Pid, error) {
 	ref := p.MakeRef()
 	optlist := etf.List{}
@@ -392,6 +435,7 @@ func (p *process) RemoteSpawn(node string, object string, opts gen.RemoteSpawnOp
 	return etf.Pid{}, fmt.Errorf("unknown result: %#v", reply)
 }
 
+// Spawn
 func (p *process) Spawn(name string, opts gen.ProcessOptions, behavior gen.ProcessBehavior, args ...etf.Term) (gen.Process, error) {
 	options := processOptions{
 		ProcessOptions: opts,
@@ -434,6 +478,7 @@ func (p *process) directRequest(request interface{}, timeout int) (interface{}, 
 	}
 }
 
+// SendSyncRequestRaw
 func (p *process) SendSyncRequestRaw(ref etf.Ref, node etf.Atom, messages ...etf.Term) error {
 	if p.reply == nil {
 		return ErrProcessTerminated
@@ -444,6 +489,8 @@ func (p *process) SendSyncRequestRaw(ref etf.Ref, node etf.Atom, messages ...etf
 	p.reply[ref] = reply
 	return p.routeRaw(node, messages...)
 }
+
+// SendSyncRequest
 func (p *process) SendSyncRequest(ref etf.Ref, to interface{}, message etf.Term) error {
 	if p.reply == nil {
 		return ErrProcessTerminated
@@ -457,6 +504,7 @@ func (p *process) SendSyncRequest(ref etf.Ref, to interface{}, message etf.Term)
 	return p.Send(to, message)
 }
 
+// PutSyncReply
 func (p *process) PutSyncReply(ref etf.Ref, reply etf.Term) error {
 	if p.reply == nil {
 		return ErrProcessTerminated
@@ -475,6 +523,7 @@ func (p *process) PutSyncReply(ref etf.Ref, reply etf.Term) error {
 	return nil
 }
 
+// WaitSyncReply
 func (p *process) WaitSyncReply(ref etf.Ref, timeout int) (etf.Term, error) {
 	p.replyMutex.Lock()
 	reply, wait_for_reply := p.reply[ref]
@@ -507,6 +556,7 @@ func (p *process) WaitSyncReply(ref etf.Ref, timeout int) (etf.Term, error) {
 
 }
 
+// ProcessChannels
 func (p *process) ProcessChannels() gen.ProcessChannels {
 	return gen.ProcessChannels{
 		Mailbox:      p.mailBox,

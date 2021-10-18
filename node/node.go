@@ -162,17 +162,22 @@ func (n *node) Spawn(name string, opts gen.ProcessOptions, object gen.ProcessBeh
 	return n.spawn(name, options, object, args...)
 }
 
+// Stop
 func (n *node) Stop() {
 	n.stop()
 }
 
+// Name
 func (n *node) Name() string {
 	return n.name
 }
 
+// RegisterName
 func (n *node) RegisterName(name string, pid etf.Pid) error {
 	return n.registerName(name, pid)
 }
+
+// UnregisterName
 func (n *node) UnregisterName(name string) error {
 	return n.unregisterName(name)
 }
@@ -364,15 +369,23 @@ func (n *node) ApplicationStop(name string) error {
 	}
 	return nil
 }
+
+// Links
 func (n *node) Links(process etf.Pid) []etf.Pid {
 	return n.processLinks(process)
 }
+
+// Monitors
 func (n *node) Monitors(process etf.Pid) []etf.Pid {
 	return n.processMonitors(process)
 }
+
+// MonitorsByName
 func (n *node) MonitorsByName(process etf.Pid) []gen.ProcessID {
 	return n.processMonitorsByName(process)
 }
+
+// MonitoredBy
 func (n *node) MonitoredBy(process etf.Pid) []etf.Pid {
 	return n.processMonitoredBy(process)
 }

@@ -26,7 +26,6 @@ type jobDetails struct {
 }
 
 // Init initializes process state using arbitrary arguments
-// Init -> state
 func (am *appMon) Init(process *gen.ServerProcess, args ...etf.Term) error {
 	lib.Log("APP_MON: Init %#v", args)
 	from := args[0]
@@ -37,6 +36,7 @@ func (am *appMon) Init(process *gen.ServerProcess, args ...etf.Term) error {
 	return nil
 }
 
+// HandleCast
 func (am *appMon) HandleCast(process *gen.ServerProcess, message etf.Term) gen.ServerStatus {
 	var appState *appMonState = process.State.(*appMonState)
 	lib.Log("APP_MON: HandleCast: %#v", message)

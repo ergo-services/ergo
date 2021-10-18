@@ -52,6 +52,7 @@ type epmd struct {
 	response chan interface{}
 }
 
+// Init
 func (e *epmd) Init(ctx context.Context, name string, port uint16, opts Options) error {
 	ns := strings.Split(name, "@")
 	if len(ns) != 2 {
@@ -130,6 +131,7 @@ func (e *epmd) Init(ctx context.Context, name string, port uint16, opts Options)
 	return <-ready
 }
 
+// AddStaticRoute
 func (e *epmd) AddStaticRoute(name string, port uint16, cookie string, tls bool) error {
 	ns := strings.Split(name, "@")
 	if len(ns) == 1 {
@@ -157,6 +159,7 @@ func (e *epmd) AddStaticRoute(name string, port uint16, cookie string, tls bool)
 	return nil
 }
 
+// RemoveStaticRoute
 func (e *epmd) RemoveStaticRoute(name string) {
 	e.mtx.Lock()
 	defer e.mtx.Unlock()

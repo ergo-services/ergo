@@ -28,6 +28,7 @@ type rex struct {
 	methods map[modFun]gen.RPC
 }
 
+// Init
 func (r *rex) Init(process *gen.ServerProcess, args ...etf.Term) error {
 	lib.Log("REX: Init: %#v", args)
 	// Do not overwrite existing methods if this process restarted
@@ -47,6 +48,7 @@ func (r *rex) Init(process *gen.ServerProcess, args ...etf.Term) error {
 	return nil
 }
 
+// HandleCall
 func (r *rex) HandleCall(process *gen.ServerProcess, from gen.ServerFrom, message etf.Term) (etf.Term, gen.ServerStatus) {
 	lib.Log("REX: HandleCall: %#v, From: %#v", message, from)
 	switch m := message.(type) {
@@ -78,11 +80,13 @@ func (r *rex) HandleCall(process *gen.ServerProcess, from gen.ServerFrom, messag
 	return reply, gen.ServerStatusOK
 }
 
+// HandleInfo
 func (r *rex) HandleInfo(process *gen.ServerProcess, message etf.Term) gen.ServerStatus {
 	// add this handler to suppres any messages from erlang
 	return gen.ServerStatusOK
 }
 
+// HandleDirect
 func (r *rex) HandleDirect(process *gen.ServerProcess, message interface{}) (interface{}, error) {
 	switch m := message.(type) {
 	case gen.MessageManageRPC:
@@ -179,6 +183,7 @@ type erpc struct {
 	gen.Server
 }
 
+// Init
 func (e *erpc) Init(process *gen.ServerProcess, args ...etf.Term) error {
 	lib.Log("ERPC [%v]: Init: %#v", process.Self(), args)
 	mfa := erpcMFA{
@@ -192,6 +197,7 @@ func (e *erpc) Init(process *gen.ServerProcess, args ...etf.Term) error {
 
 }
 
+// HandleCast
 func (e *erpc) HandleCast(process *gen.ServerProcess, message etf.Term) gen.ServerStatus {
 	lib.Log("ERPC [%v]: HandleCast: %#v", process.Self(), message)
 	mfa := message.(erpcMFA)

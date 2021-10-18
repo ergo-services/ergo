@@ -80,6 +80,7 @@ const (
 	defaultLifespan = 60
 )
 
+// SagaStatus
 type SagaStatus error
 
 var (
@@ -100,10 +101,12 @@ var (
 	ErrSagaNotAllowed        = fmt.Errorf("Operation is not allowed")
 )
 
+// Saga
 type Saga struct {
 	Server
 }
 
+// SagaTransactionOptions
 type SagaTransactionOptions struct {
 	// HopLimit defines a number of hop within the transaction. Default limit
 	// is 0 (no limit).
@@ -117,6 +120,7 @@ type SagaTransactionOptions struct {
 	TwoPhaseCommit bool
 }
 
+// SagaOptions
 type SagaOptions struct {
 	// MaxTransactions defines the limit for the number of active transactions. Default: 0 (unlimited)
 	MaxTransactions uint
@@ -124,6 +128,7 @@ type SagaOptions struct {
 	Worker SagaWorkerBehavior
 }
 
+// SagaProcess
 type SagaProcess struct {
 	ServerProcess
 	options  SagaOptions
@@ -142,13 +147,16 @@ type SagaProcess struct {
 	mutexJobs sync.Mutex
 }
 
+// SagaTransactionID
 type SagaTransactionID etf.Ref
 
+// String
 func (id SagaTransactionID) String() string {
 	r := etf.Ref(id)
 	return fmt.Sprintf("TX#%d.%d.%d", r.ID[0], r.ID[1], r.ID[2])
 }
 
+// SagaTransaction
 type SagaTransaction struct {
 	sync.Mutex
 	id      SagaTransactionID
@@ -164,13 +172,16 @@ type SagaTransaction struct {
 	cancelTimer context.CancelFunc
 }
 
+// SagaNextID
 type SagaNextID etf.Ref
 
+// String
 func (id SagaNextID) String() string {
 	r := etf.Ref(id)
 	return fmt.Sprintf("Next#%d.%d.%d", r.ID[0], r.ID[1], r.ID[2])
 }
 
+// SagaNext
 type SagaNext struct {
 	// Saga etf.Pid, string (for the locally registered process), gen.ProcessID{process, node} (for the remote process)
 	Saga interface{}
@@ -186,13 +197,16 @@ type SagaNext struct {
 	cancelTimer context.CancelFunc
 }
 
+// SagaJobID
 type SagaJobID etf.Ref
 
+// String
 func (id SagaJobID) String() string {
 	r := etf.Ref(id)
 	return fmt.Sprintf("Job#%d.%d.%d", r.ID[0], r.ID[1], r.ID[2])
 }
 
+// SagaJob
 type SagaJob struct {
 	ID            SagaJobID
 	TransactionID SagaTransactionID
@@ -207,6 +221,7 @@ type SagaJob struct {
 	cancelTimer context.CancelFunc
 }
 
+// SagaJobOptions
 type SagaJobOptions struct {
 	Timeout uint
 }
@@ -243,12 +258,14 @@ type messageSagaCommit struct {
 	Final         interface{}
 }
 
+// MessageSagaCancel
 type MessageSagaCancel struct {
 	TransactionID SagaTransactionID
 	NextID        SagaNextID
 	Reason        string
 }
 
+// MessageSagaError
 type MessageSagaError struct {
 	TransactionID SagaTransactionID
 	NextID        SagaNextID
@@ -280,6 +297,7 @@ func (gs *Saga) SetMaxTransactions(process Process, max uint) error {
 // SagaProcess methods
 //
 
+// StartTransaction
 func (sp *SagaProcess) StartTransaction(options SagaTransactionOptions, value interface{}) SagaTransactionID {
 	id := sp.MakeRef()
 
@@ -310,6 +328,7 @@ func (sp *SagaProcess) StartTransaction(options SagaTransactionOptions, value in
 	return SagaTransactionID(id)
 }
 
+// Next
 func (sp *SagaProcess) Next(id SagaTransactionID, next SagaNext) (SagaNextID, error) {
 	sp.mutexTXS.Lock()
 	tx, ok := sp.txs[id]
@@ -379,6 +398,7 @@ func (sp *SagaProcess) Next(id SagaTransactionID, next SagaNext) (SagaNextID, er
 	return next_id, nil
 }
 
+// StartJob
 func (sp *SagaProcess) StartJob(id SagaTransactionID, options SagaJobOptions, value interface{}) (SagaJobID, error) {
 
 	if sp.options.Worker == nil {
@@ -441,6 +461,7 @@ func (sp *SagaProcess) StartJob(id SagaTransactionID, options SagaJobOptions, va
 	return job.ID, nil
 }
 
+// SendResult
 func (sp *SagaProcess) SendResult(id SagaTransactionID, result interface{}) error {
 	sp.mutexTXS.Lock()
 	tx, ok := sp.txs[id]
@@ -497,6 +518,7 @@ func (sp *SagaProcess) SendResult(id SagaTransactionID, result interface{}) erro
 	return nil
 }
 
+// SendInterim
 func (sp *SagaProcess) SendInterim(id SagaTransactionID, interim interface{}) error {
 	sp.mutexTXS.Lock()
 	tx, ok := sp.txs[id]
@@ -523,6 +545,7 @@ func (sp *SagaProcess) SendInterim(id SagaTransactionID, interim interface{}) er
 	return nil
 }
 
+// CancelTransaction
 func (sp *SagaProcess) CancelTransaction(id SagaTransactionID, reason string) error {
 	sp.mutexTXS.Lock()
 	tx, ok := sp.txs[id]
@@ -540,6 +563,7 @@ func (sp *SagaProcess) CancelTransaction(id SagaTransactionID, reason string) er
 	return nil
 }
 
+// CancelJob
 func (sp *SagaProcess) CancelJob(id SagaTransactionID, job SagaJobID, reason string) error {
 	sp.mutexTXS.Lock()
 	tx, ok := sp.txs[id]
@@ -1090,6 +1114,7 @@ func (sp *SagaProcess) handleSagaDown(down MessageDown) error {
 // Server callbacks
 //
 
+// Init
 func (gs *Saga) Init(process *ServerProcess, args ...etf.Term) error {
 	var options SagaOptions
 
@@ -1124,11 +1149,13 @@ func (gs *Saga) Init(process *ServerProcess, args ...etf.Term) error {
 	return nil
 }
 
+// HandleCall
 func (gs *Saga) HandleCall(process *ServerProcess, from ServerFrom, message etf.Term) (etf.Term, ServerStatus) {
 	sp := process.State.(*SagaProcess)
 	return sp.behavior.HandleSagaCall(sp, from, message)
 }
 
+// HandleDirect
 func (gs *Saga) HandleDirect(process *ServerProcess, message interface{}) (interface{}, error) {
 	sp := process.State.(*SagaProcess)
 	switch m := message.(type) {
@@ -1140,6 +1167,7 @@ func (gs *Saga) HandleDirect(process *ServerProcess, message interface{}) (inter
 	}
 }
 
+// HandleCast
 func (gs *Saga) HandleCast(process *ServerProcess, message etf.Term) ServerStatus {
 	var status SagaStatus
 
@@ -1215,6 +1243,7 @@ func (gs *Saga) HandleCast(process *ServerProcess, message etf.Term) ServerStatu
 	}
 }
 
+// HandleInfo
 func (gs *Saga) HandleInfo(process *ServerProcess, message etf.Term) ServerStatus {
 	var mSaga messageSaga
 
@@ -1258,42 +1287,59 @@ func (gs *Saga) HandleInfo(process *ServerProcess, message etf.Term) ServerStatu
 // default Saga callbacks
 //
 
+// HandleTxInterim
 func (gs *Saga) HandleTxInterim(process *SagaProcess, id SagaTransactionID, from SagaNextID, interim interface{}) SagaStatus {
 	fmt.Printf("HandleTxInterim: [%v %v] unhandled message %#v\n", id, from, interim)
 	return ServerStatusOK
 }
+
+// HandleTxCommit
 func (gs *Saga) HandleTxCommit(process *SagaProcess, id SagaTransactionID, final interface{}) SagaStatus {
 	fmt.Printf("HandleTxCommit: [%v] unhandled message\n", id)
 	return ServerStatusOK
 }
+
+// HandleTxDone
 func (gs *Saga) HandleTxDone(process *SagaProcess, id SagaTransactionID, result interface{}) (interface{}, SagaStatus) {
 	return nil, fmt.Errorf("Saga [%v:%v] has no implementation of HandleTxDone method", process.Self(), process.Name())
 }
 
+// HandleSagaCall
 func (gs *Saga) HandleSagaCall(process *SagaProcess, from ServerFrom, message etf.Term) (etf.Term, ServerStatus) {
 	fmt.Printf("HandleSagaCall: unhandled message (from %#v) %#v\n", from, message)
 	return etf.Atom("ok"), ServerStatusOK
 }
+
+// HandleSagaCast
 func (gs *Saga) HandleSagaCast(process *SagaProcess, message etf.Term) ServerStatus {
 	fmt.Printf("HandleSagaCast: unhandled message %#v\n", message)
 	return ServerStatusOK
 }
+
+// HandleSagaInfo
 func (gs *Saga) HandleSagaInfo(process *SagaProcess, message etf.Term) ServerStatus {
 	fmt.Printf("HandleSagaInfo: unhandled message %#v\n", message)
 	return ServerStatusOK
 }
+
+// HandleSagaDirect
 func (gs *Saga) HandleSagaDirect(process *SagaProcess, message interface{}) (interface{}, error) {
 	return nil, ErrUnsupportedRequest
 }
 
+// HandleJobResult
 func (gs *Saga) HandleJobResult(process *SagaProcess, id SagaTransactionID, from SagaJobID, result interface{}) SagaStatus {
 	fmt.Printf("HandleJobResult: [%v %v] unhandled message %#v\n", id, from, result)
 	return SagaStatusOK
 }
+
+// HandleJobInterim
 func (gs *Saga) HandleJobInterim(process *SagaProcess, id SagaTransactionID, from SagaJobID, interim interface{}) SagaStatus {
 	fmt.Printf("HandleJobInterim: [%v %v] unhandled message %#v\n", id, from, interim)
 	return SagaStatusOK
 }
+
+// HandleJobFailed
 func (gs *Saga) HandleJobFailed(process *SagaProcess, id SagaTransactionID, from SagaJobID, reason string) SagaStatus {
 	fmt.Printf("HandleJobFailed: [%v %v] unhandled message. reason %q\n", id, from, reason)
 	return nil

@@ -78,10 +78,12 @@ func newRegistrar(ctx context.Context, nodename string, creation uint32, node no
 	return r
 }
 
+// NodeName
 func (r *registrar) NodeName() string {
 	return r.node.Name()
 }
 
+// NodeStop
 func (r *registrar) NodeStop() {
 	r.node.Stop()
 }
@@ -109,6 +111,7 @@ func (r *registrar) MakeRef() (ref etf.Ref) {
 	return
 }
 
+// IsAlias
 func (r *registrar) IsAlias(alias etf.Alias) bool {
 	r.mutexAliases.Lock()
 	_, ok := r.aliases[alias]
@@ -444,6 +447,7 @@ func (r *registrar) unregisterPeer(name string) {
 	r.mutexPeers.Unlock()
 }
 
+// RegisterBehavior
 func (r *registrar) RegisterBehavior(group, name string, behavior gen.ProcessBehavior, data interface{}) error {
 	lib.Log("[%s] REGISTRAR registering behavior %q in group %q ", r.nodename, name, group)
 	var groupBehaviors map[string]gen.RegisteredBehavior
@@ -471,6 +475,7 @@ func (r *registrar) RegisterBehavior(group, name string, behavior gen.ProcessBeh
 	return nil
 }
 
+// RegisteredBehavior
 func (r *registrar) RegisteredBehavior(group, name string) (gen.RegisteredBehavior, error) {
 	var groupBehaviors map[string]gen.RegisteredBehavior
 	var rb gen.RegisteredBehavior
@@ -491,6 +496,7 @@ func (r *registrar) RegisteredBehavior(group, name string) (gen.RegisteredBehavi
 	return rb, nil
 }
 
+// RegisteredBehaviorGroup
 func (r *registrar) RegisteredBehaviorGroup(group string) []gen.RegisteredBehavior {
 	var groupBehaviors map[string]gen.RegisteredBehavior
 	var exist bool
@@ -510,6 +516,7 @@ func (r *registrar) RegisteredBehaviorGroup(group string) []gen.RegisteredBehavi
 	return listrb
 }
 
+// UnregisterBehavior
 func (r *registrar) UnregisterBehavior(group, name string) error {
 	lib.Log("[%s] REGISTRAR unregistering behavior %s in group %s ", r.nodename, name, group)
 	var groupBehaviors map[string]gen.RegisteredBehavior
@@ -531,6 +538,7 @@ func (r *registrar) UnregisterBehavior(group, name string) error {
 	return nil
 }
 
+// IsProcessAlive
 func (r *registrar) IsProcessAlive(process gen.Process) bool {
 	pid := process.Self()
 	p := r.ProcessByPid(pid)
@@ -541,6 +549,7 @@ func (r *registrar) IsProcessAlive(process gen.Process) bool {
 	return p.IsAlive()
 }
 
+// ProcessInfo
 func (r *registrar) ProcessInfo(pid etf.Pid) (gen.ProcessInfo, error) {
 	p := r.ProcessByPid(pid)
 	if p == nil {
@@ -550,6 +559,7 @@ func (r *registrar) ProcessInfo(pid etf.Pid) (gen.ProcessInfo, error) {
 	return p.Info(), nil
 }
 
+// ProcessByPid
 func (r *registrar) ProcessByPid(pid etf.Pid) gen.Process {
 	if p := r.getProcessByPid(pid); p != nil {
 		return p
@@ -569,6 +579,7 @@ func (r *registrar) getProcessByPid(pid etf.Pid) *process {
 	return nil
 }
 
+// ProcessByAlias
 func (r *registrar) ProcessByAlias(alias etf.Alias) gen.Process {
 	r.mutexAliases.Lock()
 	defer r.mutexAliases.Unlock()
@@ -579,6 +590,7 @@ func (r *registrar) ProcessByAlias(alias etf.Alias) gen.Process {
 	return nil
 }
 
+// ProcessByName
 func (r *registrar) ProcessByName(name string) gen.Process {
 	var pid etf.Pid
 	if name != "" {
@@ -597,6 +609,7 @@ func (r *registrar) ProcessByName(name string) gen.Process {
 	return r.ProcessByPid(pid)
 }
 
+// ProcessList
 func (r *registrar) ProcessList() []gen.Process {
 	list := []gen.Process{}
 	r.mutexProcesses.Lock()
@@ -607,6 +620,7 @@ func (r *registrar) ProcessList() []gen.Process {
 	return list
 }
 
+// PeerList
 func (r *registrar) PeerList() []string {
 	list := []string{}
 	for n := range r.peers {

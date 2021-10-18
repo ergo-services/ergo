@@ -12,11 +12,13 @@ type erlang struct {
 	gen.Server
 }
 
+// Init
 func (e *erlang) Init(process *gen.ServerProcess, args ...etf.Term) error {
 	lib.Log("ERLANG: Init: %#v", args)
 	return nil
 }
 
+// HandleCall
 func (e *erlang) HandleCall(process *gen.ServerProcess, from gen.ServerFrom, message etf.Term) (etf.Term, gen.ServerStatus) {
 	lib.Log("ERLANG: HandleCall: %#v, From: %#v", message, from)
 

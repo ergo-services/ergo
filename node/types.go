@@ -74,6 +74,7 @@ const (
 	defaultFragmentationUnit        = 65000
 )
 
+// Node
 type Node interface {
 	gen.Registrar
 	Network
@@ -107,12 +108,14 @@ type Node interface {
 	WaitWithTimeout(d time.Duration) error
 }
 
+// Version
 type Version struct {
 	Release string
 	Prefix  string
 	OTP     int
 }
 
+// Network
 type Network interface {
 	AddStaticRoute(name string, port uint16) error
 	AddStaticRouteExt(name string, port uint16, cookie string, tls bool) error
@@ -123,6 +126,7 @@ type Network interface {
 	RevokeRemoteSpawn(name string) error
 }
 
+// NetworkRoute
 type NetworkRoute struct {
 	Port   int
 	Cookie string

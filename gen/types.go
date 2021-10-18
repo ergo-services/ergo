@@ -13,6 +13,7 @@ var (
 	ErrServerTerminated   = fmt.Errorf("Server terminated")
 )
 
+// Process
 type Process interface {
 	Registrar
 
@@ -171,6 +172,7 @@ type ProcessInfo struct {
 	Reductions      uint64
 }
 
+// ProcessOptions
 type ProcessOptions struct {
 	// Context allows mix the system context with the custom one. E.g. to limit
 	// the lifespan using context.WithTimeout
@@ -207,28 +209,33 @@ type RemoteSpawnRequest struct {
 	Function string
 }
 
+// ProcessChannels
 type ProcessChannels struct {
 	Mailbox      <-chan ProcessMailboxMessage
 	Direct       <-chan ProcessDirectMessage
 	GracefulExit <-chan ProcessGracefulExitRequest
 }
 
+// ProcessMailboxMessage
 type ProcessMailboxMessage struct {
 	From    etf.Pid
 	Message interface{}
 }
 
+// ProcessDirectMessage
 type ProcessDirectMessage struct {
 	Message interface{}
 	Err     error
 	Reply   chan ProcessDirectMessage
 }
 
+// ProcessGracefulExitRequest
 type ProcessGracefulExitRequest struct {
 	From   etf.Pid
 	Reason string
 }
 
+// ProcessState
 type ProcessState struct {
 	Process
 	State interface{}
@@ -239,6 +246,8 @@ type ProcessBehavior interface {
 	ProcessInit(Process, ...etf.Term) (ProcessState, error)
 	ProcessLoop(ProcessState, chan<- bool) string // method which implements control flow of process
 }
+
+// Registrar
 type Registrar interface {
 	Monitor
 
@@ -271,10 +280,12 @@ type Registrar interface {
 	UnregisterBehavior(group, name string) error
 }
 
+// Monitor
 type Monitor interface {
 	IsMonitor(ref etf.Ref) bool
 }
 
+// RegisteredBehavior
 type RegisteredBehavior struct {
 	Behavior ProcessBehavior
 	Data     interface{}
@@ -322,8 +333,10 @@ type MessageManageRPC struct {
 	Fun      RPC
 }
 
+// MessageDirectChildren
 type MessageDirectChildren struct{}
 
+// IsMessageDown
 func IsMessageDown(message etf.Term) (MessageDown, bool) {
 	var md MessageDown
 	switch m := message.(type) {
@@ -333,6 +346,7 @@ func IsMessageDown(message etf.Term) (MessageDown, bool) {
 	return md, false
 }
 
+// IsMessageExit
 func IsMessageExit(message etf.Term) (MessageExit, bool) {
 	var me MessageExit
 	switch m := message.(type) {

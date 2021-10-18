@@ -40,6 +40,7 @@ type ServerBehavior interface {
 	Terminate(process *ServerProcess, reason string)
 }
 
+// ServerStatus
 type ServerStatus error
 
 var (
@@ -48,6 +49,7 @@ var (
 	ServerStatusIgnore ServerStatus = fmt.Errorf("ignore")
 )
 
+// ServerStatusStopWithReason
 func ServerStatusStopWithReason(s string) ServerStatus {
 	return ServerStatus(fmt.Errorf(s))
 }
@@ -187,6 +189,7 @@ func (sp *ServerProcess) SendReply(from ServerFrom, reply etf.Term) error {
 	return sp.Send(to, rep)
 }
 
+// ProcessInit
 func (gs *Server) ProcessInit(p Process, args ...etf.Term) (ProcessState, error) {
 	behavior, ok := p.Behavior().(ServerBehavior)
 	if !ok {
@@ -214,6 +217,7 @@ func (gs *Server) ProcessInit(p Process, args ...etf.Term) (ProcessState, error)
 	return ps, nil
 }
 
+// ProcessLoop
 func (gs *Server) ProcessLoop(ps ProcessState, started chan<- bool) string {
 	gsp, ok := ps.State.(*ServerProcess)
 	if !ok {
@@ -551,29 +555,36 @@ func (gsp *ServerProcess) handleInfo(m handleInfoMessage) {
 //
 // default callbacks for Server interface
 //
+
+// Init
 func (gs *Server) Init(process *ServerProcess, args ...etf.Term) error {
 	return nil
 }
 
+// HanldeCast
 func (gs *Server) HandleCast(process *ServerProcess, message etf.Term) ServerStatus {
 	fmt.Printf("Server [%s] HandleCast: unhandled message %#v \n", process.Name(), message)
 	return ServerStatusOK
 }
 
+// HandleInfo
 func (gs *Server) HandleCall(process *ServerProcess, from ServerFrom, message etf.Term) (etf.Term, ServerStatus) {
 	fmt.Printf("Server [%s] HandleCall: unhandled message %#v from %#v \n", process.Name(), message, from)
 	return "ok", ServerStatusOK
 }
 
+// HandleDirect
 func (gs *Server) HandleDirect(process *ServerProcess, message interface{}) (interface{}, error) {
 	return nil, ErrUnsupportedRequest
 }
 
+// HandleInfo
 func (gs *Server) HandleInfo(process *ServerProcess, message etf.Term) ServerStatus {
 	fmt.Printf("Server [%s] HandleInfo: unhandled message %#v \n", process.Name(), message)
 	return ServerStatusOK
 }
 
+// Terminate
 func (gs *Server) Terminate(process *ServerProcess, reason string) {
 	return
 }

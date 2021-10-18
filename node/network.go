@@ -196,14 +196,17 @@ func (n *network) listen(ctx context.Context, name string) (uint16, error) {
 	return 0, fmt.Errorf("Can't start listener. Port range is taken")
 }
 
+// ProvideRemoteSpawn
 func (n *network) ProvideRemoteSpawn(name string, behavior gen.ProcessBehavior) error {
 	return n.registrar.RegisterBehavior(remoteBehaviorGroup, name, behavior, nil)
 }
 
+// RevokeRemoteSpawn
 func (n *network) RevokeRemoteSpawn(name string) error {
 	return n.registrar.UnregisterBehavior(remoteBehaviorGroup, name)
 }
 
+// Resolve
 func (n *network) Resolve(name string) (NetworkRoute, error) {
 	return n.epmd.resolve(name)
 }
@@ -489,6 +492,9 @@ func (n *network) handleMessage(fromNode string, control, message etf.Term) (err
 				ref := t.Element(2).(etf.Ref)
 				//flags := t.Element(4)
 				process.PutSyncReply(ref, t.Element(5))
+
+			case distProtoProxy:
+				// FIXME
 
 			default:
 				lib.Log("[%s] CONTROL unknown command [from %s]: %#v", n.registrar.NodeName(), fromNode, control)
