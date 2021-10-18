@@ -317,14 +317,14 @@ func TestNodeDistHandshake(t *testing.T) {
 	}
 
 	nodes := []Pair{
-		Pair{"No TLS. version 5 -> version 5", node1, node2},
-		Pair{"No TLS. version 5 -> version 6", node3, node4},
+		{"No TLS. version 5 -> version 5", node1, node2},
+		{"No TLS. version 5 -> version 6", node3, node4},
 		//Pair{ "No TLS. version 6 -> version 5", node5, node6 },
-		Pair{"No TLS. version 6 -> version 6", node7, node8},
-		Pair{"With TLS. version 5 -> version 5", node9, node10},
-		Pair{"With TLS. version 5 -> version 6", node11, node12},
+		{"No TLS. version 6 -> version 6", node7, node8},
+		{"With TLS. version 5 -> version 5", node9, node10},
+		{"With TLS. version 5 -> version 6", node11, node12},
 		//Pair{ "With TLS. version 6 -> version 5", node13, node14 },
-		Pair{"With TLS. version 6 -> version 6", node15, node16},
+		{"With TLS. version 6 -> version 6", node15, node16},
 	}
 
 	defer func(nodes []Pair) {
@@ -596,15 +596,15 @@ func BenchmarkNodeParallelSingleNode(b *testing.B) {
 }
 func benchCases() []benchCase {
 	return []benchCase{
-		benchCase{"number", 12345},
-		benchCase{"string", "hello world"},
-		benchCase{"tuple (PID)",
+		{"number", 12345},
+		{"string", "hello world"},
+		{"tuple (PID)",
 			etf.Pid{
 				Node:     "node@localhost",
 				ID:       1000,
 				Creation: 1,
 			},
 		},
-		benchCase{"binary 1MB", make([]byte, 1024*1024)},
+		{"binary 1MB", make([]byte, 1024*1024)},
 	}
 }
