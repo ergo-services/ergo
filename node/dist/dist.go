@@ -60,7 +60,7 @@ type internalConnection struct {
 	// writer
 	flusher *linkFlusher
 
-	// atom cache for incomming messages
+	// atom cache for incoming messages
 	cacheIn      [2048]*etf.Atom
 	cacheInMutex sync.Mutex
 

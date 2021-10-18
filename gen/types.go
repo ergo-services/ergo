@@ -55,7 +55,7 @@ type Process interface {
 	// Exit initiate a graceful stopping process
 	Exit(reason string) error
 
-	// Kill immidiately stops process
+	// Kill immediately stops process
 	Kill()
 
 	// CreateAlias creates a new alias for the Process
@@ -175,7 +175,7 @@ type ProcessOptions struct {
 	// Context allows mix the system context with the custom one. E.g. to limit
 	// the lifespan using context.WithTimeout
 	Context context.Context
-	// MailboxSize defines the lenght of message queue for the process
+	// MailboxSize defines the length of message queue for the process
 	MailboxSize uint16
 	// GroupLeader
 	GroupLeader Process

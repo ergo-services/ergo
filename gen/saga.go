@@ -1267,7 +1267,7 @@ func (gs *Saga) HandleTxCommit(process *SagaProcess, id SagaTransactionID, final
 	return ServerStatusOK
 }
 func (gs *Saga) HandleTxDone(process *SagaProcess, id SagaTransactionID, result interface{}) (interface{}, SagaStatus) {
-	return nil, fmt.Errorf("Saga [%v:%v] has no implementaion of HandleTxDone method", process.Self(), process.Name())
+	return nil, fmt.Errorf("Saga [%v:%v] has no implementation of HandleTxDone method", process.Self(), process.Name())
 }
 
 func (gs *Saga) HandleSagaCall(process *SagaProcess, from ServerFrom, message etf.Term) (etf.Term, ServerStatus) {

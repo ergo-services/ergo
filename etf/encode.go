@@ -40,7 +40,7 @@ type EncodeOptions struct {
 
 func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 	defer func() {
-		// We should catch any panic happend during encoding Golang types.
+		// We should catch any panic happened during encoding Golang types.
 		if r := recover(); r != nil {
 			retErr = fmt.Errorf("%v", r)
 		}
@@ -62,6 +62,7 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 	// 3. if found
 	//    add options.EncodingAtomCache[i] = CacheItem, where i is just a counter
 	//    within this encoding process.
+
 	//    encode atom as ettCacheRef with value = i
 	for {
 
