@@ -8,7 +8,6 @@ import (
 	"crypto/rand"
 	"sync"
 
-	//"crypto/rsa"
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
@@ -25,7 +24,6 @@ import (
 
 	"net"
 
-	//	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -62,6 +60,12 @@ func newNetwork(ctx context.Context, name string, opts Options, r registrarInter
 	ns := strings.Split(name, "@")
 	if len(ns) != 2 {
 		return nil, fmt.Errorf("(EMPD) FQDN for node name is required (example: node@hostname)")
+	}
+
+	if opts.CustomHandshake == nil {
+		// create an Erlang handshake 6th verstion.
+		handshakeOptions := ErlangHandshakeOptions{}
+		opts.CustomHandshake = CreateErlangHandshake(6)
 	}
 
 	port, err := n.listen(ctx, ns[1])
@@ -156,17 +160,20 @@ func (n *network) listen(ctx context.Context, name string) (uint16, error) {
 					lib.Log(err.Error())
 					continue
 				}
-				handshakeOptions := dist.HandshakeOptions{
-					Name:     n.name,
-					Cookie:   n.opts.cookie,
-					TLS:      TLSenabled,
-					Hidden:   n.opts.Hidden,
-					Creation: n.opts.creation,
-					Version:  n.opts.HandshakeVersion,
+				// wrap handler to catch panic
+				handshakeAccept := func(ctx context.Context, conn net.Conn) (link *Link, err error) {
+					defer func() {
+						if r := recover(); r != nil {
+							link = nil
+							err = r
+						}
+					}()
+					link, err = n.opts.CustomHandshake.Accept(ctx, conn)
+					return
 				}
 
-				link, e := dist.HandshakeAccept(c, handshakeOptions)
-				if e != nil {
+				link, err := handshakeAccept(ctx, c, options)
+				if err != nil {
 					lib.Log("[%s] Can't handshake with %s: %s", n.name, c.RemoteAddr().String(), e)
 					c.Close()
 					continue

@@ -2,6 +2,7 @@
 
 [![GitHub release](https://img.shields.io/github/release/ergo-services/ergo.svg)](https://github.com/ergo-services/ergo/releases/latest)
 [![Go Report Card](https://goreportcard.com/badge/github.com/ergo-services/ergo)](https://goreportcard.com/report/github.com/ergo-services/ergo)
+[![Gitbook Documentation](https://img.shields.io/badge/GitBook-Documentation-important?style=plastic&logo=gitbook&logoColor=white&style=flat)](https://docs.ergo.services)
 [![GoDoc](https://pkg.go.dev/badge/ergo-services/ergo)](https://pkg.go.dev/github.com/ergo-services/ergo)
 [![MIT license](https://img.shields.io/badge/license-MIT-brightgreen.svg)](https://opensource.org/licenses/MIT)
 [![Build Status](https://img.shields.io/github/workflow/status/ergo-services/ergo/TestLinuxWindowsMacOS)](https://github.com/ergo-services/ergo/actions/)
@@ -59,13 +60,13 @@ The goal of this project is to leverage Erlang/OTP experience with Golang perfor
 
 ### Versioning ###
 
-Golang introduced [v2 rule](https://go.dev/blog/v2-go-modules) a while ago to solve complicated dependency issues. We found this solution very controversial and there is still a lot of discussion around it. So, we decided to keep the old way for the versioning, but have to use the git tag versioning with v1 as a major version (due to "v2 rule" restrictions) . As a starting point for the v2.0.0 we use git tag v1.999.200. Since now, the only "patch version" will be increased for the next releases (e.g. v2.0.1 will be tagged in git as v.1.999.201 and so on, but never be above git tag v1.999 until the moment when Golang developers change the versioning approach)
+Golang introduced [v2 rule](https://go.dev/blog/v2-go-modules) a while ago to solve complicated dependency issues. We found this solution very controversial and there is still a lot of discussion around it. So, we decided to keep the old way for the versioning, but have to use the git tag with v1 as a major version (due to "v2 rule" restrictions) . As a starting point for the v2.0.0 we use git tag v1.999.200. Since now, the only "patch version" will be increased for the next releases (e.g. v2.0.1 will be tagged in git as v.1.999.201 and so on, but never be above git tag v1.999 until the moment when Golang developers change the versioning approach)
 
 ### Changelog ###
 
 Here are the changes of latest release. For more details see the [ChangeLog](ChangeLog.md)
 
-#### [v2.0.0](https://github.com/ergo-services/ergo/releases/tag/v1.999.200) tag version v1.999.200 - 2021-10-12 ####
+#### [v2.0.0](https://github.com/ergo-services/ergo/releases/tag/v1.999.200) 2021-10-12 [tag version v1.999.200] ####
 
 * Added support of Erlang/OTP 24 (including [Alias](https://blog.erlang.org/My-OTP-24-Highlights/#eep-53-process-aliases) feature and [Remote Spawn](https://blog.erlang.org/OTP-23-Highlights/#distributed-spawn-and-the-new-erpc-module) introduced in Erlang/OTP 23)
 * **Important**: This release includes refined API (without backward compatibility) for a more convenient way to create OTP-designed microservices. Make sure to update your code.

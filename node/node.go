@@ -81,11 +81,6 @@ func StartWithContext(ctx context.Context, name string, cookie string, opts Opti
 		opts.FragmentationUnit = defaultFragmentationUnit
 	}
 
-	// must be 5 or 6
-	if opts.HandshakeVersion != 5 && opts.HandshakeVersion != 6 {
-		opts.HandshakeVersion = defaultHandshakeVersion
-	}
-
 	if opts.Hidden {
 		lib.Log("Running as hidden node")
 	}

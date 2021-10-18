@@ -1,7 +1,9 @@
 package node
 
 import (
+	"context"
 	"fmt"
+	"net"
 	"time"
 
 	"github.com/ergo-services/ergo/etf"
@@ -60,13 +62,16 @@ const (
 	distProtoUNLINK_ID              = 35
 	distProtoUNLINK_ID_ACK          = 36
 
+	// ergo operations codes
+	distProtoPROXY = 1001
+
+	// node options
 	defaultListenRangeBegin  uint16 = 15000
 	defaultListenRangeEnd    uint16 = 65000
 	defaultEPMDPort          uint16 = 4369
 	defaultSendQueueLength   int    = 100
 	defaultRecvQueueLength   int    = 100
 	defaultFragmentationUnit        = 65000
-	defaultHandshakeVersion         = 5
 )
 
 type Node interface {
@@ -142,17 +147,14 @@ type Options struct {
 	TLSkeyServer           string
 	TLScrtClient           string
 	TLSkeyClient           string
-	// HandshakeVersion. Allowed values 5 or 6. Default version is 5
-	HandshakeVersion int
+	CustomHandshake        Handshake
+
 	// ConnectionHandlers defines the number of readers/writers per connection. Default is the number of CPU.
 	ConnectionHandlers int
 
 	cookie   string
 	creation uint32
 }
-
-// TLSmodeType should be one of TLSmodeDisabled (default), TLSmodeAuto or TLSmodeStrict
-type TLSmodeType string
 
 // TLSmodeType should be one of TLSmodeDisabled (default), TLSmodeAuto or TLSmodeStrict
 type TLSModeType string
@@ -165,3 +167,11 @@ const (
 	// TLSModeStrict with validation certificate
 	TLSModeStrict TLSModeType = "strict"
 )
+
+// Handshake defines handshake interface
+type Handshake interface {
+	// Start initiates handshake process
+	Start(ctx context.Context, conn net.Conn) (*Link, error)
+	// Accept accepts handshake process initiated by another side of this connection
+	Accept(ctx context.Context, conn net.Conn) (*Link, error)
+}
