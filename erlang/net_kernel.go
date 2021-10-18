@@ -23,7 +23,7 @@ func (nka *KernelApp) Load(args ...etf.Term) (gen.ApplicationSpec, error) {
 		Description: "Erlang support app",
 		Version:     "v.1.0",
 		Children: []gen.ApplicationChildSpec{
-			gen.ApplicationChildSpec{
+			{
 				Child: &netKernelSup{},
 				Name:  "net_kernel_sup",
 			},
@@ -40,23 +40,23 @@ type netKernelSup struct {
 func (nks *netKernelSup) Init(args ...etf.Term) (gen.SupervisorSpec, error) {
 	return gen.SupervisorSpec{
 		Children: []gen.SupervisorChildSpec{
-			gen.SupervisorChildSpec{
+			{
 				Name:  "net_kernel",
 				Child: &netKernel{},
 			},
-			gen.SupervisorChildSpec{
+			{
 				Name:  "global_name_server",
 				Child: &globalNameServer{},
 			},
-			gen.SupervisorChildSpec{
+			{
 				Name:  "rex",
 				Child: &rex{},
 			},
-			gen.SupervisorChildSpec{
+			{
 				Name:  "observer_backend",
 				Child: &observerBackend{},
 			},
-			gen.SupervisorChildSpec{
+			{
 				Name:  "erlang",
 				Child: &erlang{},
 			},
