@@ -91,17 +91,17 @@ func TestSupervisorOneForAll(t *testing.T) {
 
 	// testing permanent
 	testCases := []ChildrenTestCase{
-		ChildrenTestCase{
+		{
 			reason:   "normal",
 			statuses: []string{"new", "new", "new"},
 			events:   6, // waiting for 3 terminating and 3 starting
 		},
-		ChildrenTestCase{
+		{
 			reason:   "abnormal",
 			statuses: []string{"new", "new", "new"},
 			events:   6,
 		},
-		ChildrenTestCase{
+		{
 			reason:   "shutdown",
 			statuses: []string{"new", "new", "new"},
 			events:   6,
@@ -155,17 +155,17 @@ func TestSupervisorOneForAll(t *testing.T) {
 
 	// testing transient
 	testCases = []ChildrenTestCase{
-		ChildrenTestCase{
+		{
 			reason:   "normal",
 			statuses: []string{"empty", "new", "new"},
 			events:   5, // waiting for 3 terminates and 2 starts
 		},
-		ChildrenTestCase{
+		{
 			reason:   "abnormal",
 			statuses: []string{"empty", "new", "new"},
 			events:   4, // waiting for 2 terminates and 2 starts
 		},
-		ChildrenTestCase{
+		{
 			reason:   "shutdown",
 			statuses: []string{"empty", "new", "empty"},
 			events:   3, // waiting for 2 terminates and 1 start
@@ -211,17 +211,17 @@ func TestSupervisorOneForAll(t *testing.T) {
 	// restart strategy is rest_for_one or one_for_all and a sibling's death
 	// causes the temporary process to be terminated).
 	testCases = []ChildrenTestCase{
-		ChildrenTestCase{
+		{
 			reason:   "normal",
 			statuses: []string{"empty", "empty", "empty"},
 			events:   3, // waiting for 3 terminates
 		},
-		ChildrenTestCase{
+		{
 			reason:   "abnormal",
 			statuses: []string{"empty", "empty", "empty"},
 			events:   3, // waiting for 3 terminates
 		},
-		ChildrenTestCase{
+		{
 			reason:   "shutdown",
 			statuses: []string{"empty", "empty", "empty"},
 			events:   3, // waiting for 3 terminate
@@ -279,17 +279,17 @@ func (ts *testSupervisorOneForAll) Init(args ...etf.Term) (gen.SupervisorSpec, e
 	ch := args[1].(chan interface{})
 	return gen.SupervisorSpec{
 		Children: []gen.SupervisorChildSpec{
-			gen.SupervisorChildSpec{
+			{
 				Name:  "testGS1",
 				Child: &testSupervisorGenServer{},
 				Args:  []etf.Term{ch, 0},
 			},
-			gen.SupervisorChildSpec{
+			{
 				Name:  "testGS2",
 				Child: &testSupervisorGenServer{},
 				Args:  []etf.Term{ch, 1},
 			},
-			gen.SupervisorChildSpec{
+			{
 				Name:  "testGS3",
 				Child: &testSupervisorGenServer{},
 				Args:  []etf.Term{ch, 2},
