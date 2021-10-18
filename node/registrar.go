@@ -609,7 +609,7 @@ func (r *registrar) ProcessList() []gen.Process {
 
 func (r *registrar) PeerList() []string {
 	list := []string{}
-	for n, _ := range r.peers {
+	for n := range r.peers {
 		list = append(list, n)
 	}
 	return list
