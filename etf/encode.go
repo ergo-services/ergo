@@ -21,6 +21,7 @@ var (
 	marshalerType = reflect.TypeOf((*Marshaler)(nil)).Elem()
 )
 
+// EncodeOptions
 type EncodeOptions struct {
 	LinkAtomCache     *AtomCache
 	WriterAtomCache   map[Atom]CacheItem
@@ -38,6 +39,7 @@ type EncodeOptions struct {
 	FlagBigCreation bool
 }
 
+// Encode
 func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 	defer func() {
 		// We should catch any panic happened during encoding Golang types.

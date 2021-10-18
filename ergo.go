@@ -13,7 +13,7 @@ func StartNode(name string, cookie string, opts node.Options) (node.Node, error)
 	return StartNodeWithContext(context.Background(), name, cookie, opts)
 }
 
-// CreateNodeWithContext create new node with specified context, name and cookie string
+// StartNodeWithContext create new node with specified context, name and cookie string
 func StartNodeWithContext(ctx context.Context, name string, cookie string, opts node.Options) (node.Node, error) {
 	version := node.Version{
 		Release: Version,

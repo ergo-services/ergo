@@ -1,7 +1,10 @@
 package ergo
 
 const (
-	Version           = "2.0.0"
-	VersionPrefix     = "ergo"
-	VersionOTP    int = 24
+	// Version
+	Version = "2.0.0"
+	// VersionPrefix
+	VersionPrefix = "ergo"
+	// VersionOTP
+	VersionOTP int = 24
 )

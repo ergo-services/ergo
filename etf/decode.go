@@ -55,6 +55,7 @@ var (
 	errInternal  = fmt.Errorf("Internal error")
 )
 
+// DecodeOptions
 type DecodeOptions struct {
 	FlagV4NC        bool
 	FlagBigCreation bool
@@ -69,6 +70,7 @@ type DecodeOptions struct {
 //
 // see comments within this function
 
+// Decode
 func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, retByte []byte, retErr error) {
 	var term Term
 	var stack *stackElement

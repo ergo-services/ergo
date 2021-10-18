@@ -9,6 +9,7 @@ const (
 	maxCacheItems = int16(2048)
 )
 
+// AtomCache
 type AtomCache struct {
 	cacheMap  map[Atom]int16
 	update    chan Atom
@@ -17,12 +18,14 @@ type AtomCache struct {
 	sync.Mutex
 }
 
+// CacheItem
 type CacheItem struct {
 	ID      int16
 	Encoded bool
 	Name    Atom
 }
 
+// ListAtomCache
 type ListAtomCache struct {
 	L           []CacheItem
 	original    []CacheItem
@@ -41,6 +44,7 @@ var (
 	}
 )
 
+// Append
 func (a *AtomCache) Append(atom Atom) {
 	a.Lock()
 	id := a.lastID
@@ -51,6 +55,7 @@ func (a *AtomCache) Append(atom Atom) {
 	// otherwise ignore
 }
 
+// GetLastID
 func (a *AtomCache) GetLastID() int16 {
 	a.Lock()
 	id := a.lastID
@@ -58,6 +63,7 @@ func (a *AtomCache) GetLastID() int16 {
 	return id
 }
 
+// NewAtomCache
 func NewAtomCache(ctx context.Context) *AtomCache {
 	var id int16
 
@@ -93,6 +99,7 @@ func NewAtomCache(ctx context.Context) *AtomCache {
 	return a
 }
 
+// List
 func (a *AtomCache) List() [maxCacheItems]Atom {
 	a.Lock()
 	l := a.cacheList
@@ -100,22 +107,29 @@ func (a *AtomCache) List() [maxCacheItems]Atom {
 	return l
 }
 
+// ListSince
 func (a *AtomCache) ListSince(id int16) []Atom {
 	return a.cacheList[id:]
 }
 
+// TakeListAtomCache
 func TakeListAtomCache() *ListAtomCache {
 	return listAtomCachePool.Get().(*ListAtomCache)
 }
 
+// ReleaseListAtomCache
 func ReleaseListAtomCache(l *ListAtomCache) {
 	l.L = l.original[:0]
 	listAtomCachePool.Put(l)
 }
+
+// Reset
 func (l *ListAtomCache) Reset() {
 	l.L = l.original[:0]
 	l.HasLongAtom = false
 }
+
+// Append
 func (l *ListAtomCache) Append(a CacheItem) {
 	l.L = append(l.L, a)
 	if !a.Encoded && len(a.Name) > 255 {
@@ -123,6 +137,7 @@ func (l *ListAtomCache) Append(a CacheItem) {
 	}
 }
 
+// Len
 func (l *ListAtomCache) Len() int {
 	return len(l.L)
 }
