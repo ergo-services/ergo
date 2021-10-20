@@ -253,6 +253,8 @@ type Registrar interface {
 
 	NodeName() string
 	NodeStop()
+	// Nodes returns the list of connected nodes
+	Nodes() []string
 
 	// ProcessByName returns Process struct for the given name.
 	// Returns nil if it doesn't exist (not found)
@@ -295,6 +297,10 @@ type RegisteredBehavior struct {
 type ProcessID struct {
 	Name string
 	Node string
+}
+
+func (p ProcessID) String() string {
+	return fmt.Sprintf("<%s:%s>", p.Name, p.Node)
 }
 
 // MessageDown delivers as a message to Server's HandleInfo callback of the process

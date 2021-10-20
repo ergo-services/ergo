@@ -26,7 +26,7 @@ func StartNodeWithContext(ctx context.Context, name string, cookie string, opts 
 	opts.Applications = append([]gen.ApplicationBehavior{&erlang.KernelApp{}}, opts.Applications...)
 
 	if opts.CustomHandshake == nil {
-		// set default handshake (Erlang Dist handshake)
+		// set default handshake for the node (use Erlang Dist handshake)
 		opts.CustomHandshake == dist.CreateDistHandshake()
 	}
 

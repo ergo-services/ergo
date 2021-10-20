@@ -20,6 +20,7 @@ var (
 	ErrProcessBusy          = fmt.Errorf("Process is busy")
 	ErrProcessUnknown       = fmt.Errorf("Unknown process")
 	ErrProcessTerminated    = fmt.Errorf("Process terminated")
+	ErrSenderUnknown        = fmt.Errorf("Unknown sender")
 	ErrBehaviorUnknown      = fmt.Errorf("Unknown behavior")
 	ErrBehaviorGroupUnknown = fmt.Errorf("Unknown behavior group")
 	ErrAliasUnknown         = fmt.Errorf("Unknown alias")
@@ -27,6 +28,8 @@ var (
 	ErrTaken                = fmt.Errorf("Resource is taken")
 	ErrTimeout              = fmt.Errorf("Timed out")
 	ErrFragmented           = fmt.Errorf("Fragmented data")
+
+	ErrProtoUnsupported = fmt.Errorf("Not supported")
 )
 
 // Distributed operations codes (http://www.erlang.org/doc/apps/erts/erl_dist_protocol.html)
@@ -63,7 +66,8 @@ const (
 	distProtoUNLINK_ID_ACK          = 36
 
 	// ergo operations codes
-	distProtoPROXY = 1001
+	distProtoPROXY     = 1001
+	distProtoREG_PROXY = 1002
 
 	// node options
 	defaultListenRangeBegin  uint16 = 15000
@@ -131,25 +135,27 @@ type Network interface {
 	RevokeRemoteSpawn(name string) error
 }
 
-type NetworkHandler interface {
-	HandleSend(from etf.Pid, to etf.Pid, message etf.Term)
-	HandleSendReg(from etf.Pid, to gen.ProcessID, message etf.Term)
-	HandleSendAlias(from etf.Pid, to etf.Alias, message etf.Term)
+// Router routes messages from/to the remote node
+type Router interface {
+	RouteSend(from etf.Pid, to etf.Pid, message etf.Term) error
+	RouteSendReg(from etf.Pid, to gen.ProcessID, message etf.Term) error
+	RouteSendAlias(from etf.Pid, to etf.Alias, message etf.Term) error
 
-	HandleLink(remote etf.Pid, local etf.Pid)
-	HandleUnlink(remote etf.Pid, local etf.Pid)
-	HandleExit(terminated etf.Pid, reason string)
+	RouteLink(remote etf.Pid, local etf.Pid) error
+	RouteUnlink(remote etf.Pid, local etf.Pid) error
+	RouteExit(terminated etf.Pid, reason string) error
 
-	HandleMonitorReg(remote etf.Pid, process gen.ProcessID, ref etf.Ref)
-	HandleMonitor(remote etf.Pid, process etf.Pid, ref etf.Ref)
-	HandleDemonitor(ref etf.Ref)
-	HandleMonitorExitReg(process gen.ProcessID, reason string)
-	HandleMonitorExit(process etf.Pid, reason string)
+	RouteMonitorReg(remote etf.Pid, process gen.ProcessID, ref etf.Ref) error
+	RouteMonitor(remote etf.Pid, process etf.Pid, ref etf.Ref) error
+	RouteDemonitor(ref etf.Ref) error
+	RouteMonitorExitReg(process gen.ProcessID, reason string) error
+	RouteMonitorExit(process etf.Pid, reason string) error
 
-	HandleSpawnRequest()
-	HandleSpawnReply()
+	RouteSpawnRequest() error
+	RouteSpawnReply() error
 
-	HandleProxyMessage()
+	RouteProxy() error
+	RouteProxyReg() error
 }
 
 // NetworkRoute
@@ -160,18 +166,21 @@ type NetworkRoute struct {
 }
 
 type Connection struct {
-	ConnectionHandler
+	Proto
 	Name          string
 	Peer          *Connection
 	Conn          net.Conn
+	Context       context.Context
 	EncodeOptions etf.EncodeOptions
 	DecodeOptions etf.DecodeOptions
 }
 
-type ConnectionHandler interface {
-	Send(gen.Process, to etf.Pid, message etf.Term) error
-	SendReg(gen.Process, to gen.ProcessID, message etf.Term) error
-	SendAlias(gen.Process, to etf.Alias, message etf.Term) error
+type Proto interface {
+	Serve(router Router)
+
+	Send(from gen.Process, to etf.Pid, message etf.Term) error
+	SendReg(from gen.Process, to gen.ProcessID, message etf.Term) error
+	SendAlias(from gen.Process, to etf.Alias, message etf.Term) error
 
 	Link(local gen.Process, remote etf.Pid) error
 	Unlink(local gen.Process, remote etf.Pid) error
@@ -186,6 +195,7 @@ type ConnectionHandler interface {
 	SpawnRequest()
 
 	Proxy()
+	ProxyReg()
 }
 
 // Options struct with bootstrapping options for CreateNode
@@ -232,9 +242,4 @@ type Handshake interface {
 	Start(ctx context.Context, conn net.Conn) (*Connection, error)
 	// Accept accepts handshake process initiated by another side of this connection
 	Accept(ctx context.Context, conn net.Conn) (*Connection, error)
-}
-
-type Proto interface {
-	// HandleConnection
-	HandleConnection(c *Connection)
 }

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/ergo-services/ergo/lib"
+	"github.com/ergo-services/ergo/node"
 )
 
 type DistHandshakeVersion int
@@ -79,7 +80,7 @@ func toNodeFlag(f ...nodeFlagId) nodeFlag {
 // DistHandshake implements Erlang handshake
 type DistHandshake struct {
 	Handshake
-	opts DistHandshakeOptions
+	options DistHandshakeOptions
 }
 
 type DistHandshakeOptions struct {
@@ -91,68 +92,64 @@ type DistHandshakeOptions struct {
 	Creation   uint32
 }
 
-type DistConnection struct {
-	node.Connection
-}
-
 func CreateDistHandshake(options DistHandshakeOptions) *DistHandshake {
 	// must be 5 or 6
 	if options.Version != DistHandshakeVersion5 && options.Version != DistHandshakeVersion6 {
 		options.Version = defaultDistHandshakeVersion
 	}
 	return &DistHandshake{
-		opts: options,
+		options: options,
 	}
 }
 
 func (h *DistHandshake) Start(ctx context.Context, conn net.Conn) (*node.Connection, error) {
 
-	link := &Link{
-		Name:   options.Name,
-		Cookie: options.Cookie,
+	//link := &Link{
+	//	Name:   options.Name,
+	//	Cookie: options.Cookie,
 
-		flags: toNodeFlag(
-			flagPublished,
-			flagUnicodeIO,
-			flagDistMonitor,
-			flagDistMonitorName,
-			flagExtendedPidsPorts,
-			flagExtendedReferences,
-			flagAtomCache,
-			flagDistHdrAtomCache,
-			flagHiddenAtomCache,
-			flagNewFunTags,
-			flagSmallAtomTags,
-			flagUTF8Atoms,
-			flagMapTag,
-			flagFragments,
-			flagHandshake23,
-			flagBigCreation,
-			flagSpawn,
-			flagV4NC,
-			flagAlias,
-		),
+	//	flags: toNodeFlag(
+	//		flagPublished,
+	//		flagUnicodeIO,
+	//		flagDistMonitor,
+	//		flagDistMonitorName,
+	//		flagExtendedPidsPorts,
+	//		flagExtendedReferences,
+	//		flagAtomCache,
+	//		flagDistHdrAtomCache,
+	//		flagHiddenAtomCache,
+	//		flagNewFunTags,
+	//		flagSmallAtomTags,
+	//		flagUTF8Atoms,
+	//		flagMapTag,
+	//		flagFragments,
+	//		flagHandshake23,
+	//		flagBigCreation,
+	//		flagSpawn,
+	//		flagV4NC,
+	//		flagAlias,
+	//	),
 
-		conn: conn,
-		// sequenceID is using for the fragmentation messages
-		sequenceID: time.Now().UnixNano(),
+	//	conn: conn,
+	//	// sequenceID is using for the fragmentation messages
+	//	sequenceID: time.Now().UnixNano(),
 
-		version:  uint16(options.Version),
-		creation: options.Creation,
-	}
+	//	version:  uint16(options.Version),
+	//	creation: options.Creation,
+	//}
 
 	b := lib.TakeBuffer()
 	defer lib.ReleaseBuffer(b)
 
 	var await []byte
 
-	if h.version == ProtoHandshake5 {
-		h.composeName(b, options.TLS)
+	if dh.version == ProtoHandshake5 {
+		dh.composeName(b, dh.options.TLS)
 		// the next message must be send_status 's' or send_challenge 'n' (for
 		// handshake version 5) or 'N' (for handshake version 6)
 		await = []byte{'s', 'n', 'N'}
 	} else {
-		h.composeNameVersion6(b, options.TLS)
+		dh.composeNameVersion6(b, dh.options.TLS)
 		await = []byte{'s', 'N'}
 	}
 	if e := b.WriteDataTo(conn); e != nil {
@@ -237,9 +234,9 @@ func (h *DistHandshake) Start(ctx context.Context, conn net.Conn) (*node.Connect
 				challenge := link.readChallengeVersion6(buffer[1:])
 				b.Reset()
 
-				if link.version == ProtoHandshake5 {
+				if dh.version == ProtoHandshake5 {
 					// send complement message
-					link.composeComplement(b, options.TLS)
+					dh.composeComplement(b)
 					if e := b.WriteDataTo(conn); e != nil {
 						return nil, e
 					}
@@ -442,13 +439,13 @@ func (h *DistHandshake) Accept(ctx context.Context, conn net.Conn, opts DistHand
 				}
 				b.Reset()
 
-				link.composeChallengeAck(b, options.TLS)
+				dh.composeChallengeAck(b, options.TLS)
 				if e := b.WriteDataTo(conn); e != nil {
 					return nil, e
 				}
 
 				// handshaked
-				link.flusher = newLinkFlusher(link.conn, defaultLatency)
+				dh.flusher = newLinkFlusher(conn, defaultLatency)
 
 				return link, nil
 
@@ -475,8 +472,8 @@ func (h *DistHandshake) Accept(ctx context.Context, conn net.Conn, opts DistHand
 
 // private functions
 
-func (dh *DistHandshake) composeName(b *lib.Buffer, tls bool) {
-	if tls {
+func (dh *DistHandshake) composeName(b *lib.Buffer) {
+	if dh.options.TLS {
 		b.Allocate(11)
 		dataLength := 7 + len(dh.Name) // byte + uint16 + uint32 + len(dh.Name)
 		binary.BigEndian.PutUint32(b.B[0:4], uint32(dataLength))
@@ -496,8 +493,8 @@ func (dh *DistHandshake) composeName(b *lib.Buffer, tls bool) {
 	b.Append([]byte(dh.Name))
 }
 
-func (dh *DistHandshake) composeNameVersion6(b *lib.Buffer, tls bool) {
-	if tls {
+func (dh *DistHandshake) composeNameVersion6(b *lib.Buffer) {
+	if dh.options.TLS {
 		b.Allocate(19)
 		dataLength := 15 + len(l.Name) // 1 + 8 (flags) + 4 (creation) + 2 (len l.Name)
 		binary.BigEndian.PutUint32(b.B[0:4], uint32(dataLength))
@@ -539,11 +536,11 @@ func (dh *DistHandshake) readNameVersion6(b []byte) *Link {
 	return peer
 }
 
-func (dh *DistHandshake) composeStatus(b *lib.Buffer, tls bool) {
+func (dh *DistHandshake) composeStatus(b *lib.Buffer) {
 	//FIXME: there are few options for the status:
 	//	   ok, ok_simultaneous, nok, not_allowed, alive
 	// More details here: https://erlang.org/doc/apps/erts/erl_dist_protocol.html#the-handshake-in-detail
-	if tls {
+	if dh.options.tls {
 		b.Allocate(4)
 		dataLength := 3 // 's' + "ok"
 		binary.BigEndian.PutUint32(b.B[0:4], uint32(dataLength))
@@ -566,8 +563,8 @@ func (dh *DistHandshake) readStatus(msg []byte) bool {
 	return false
 }
 
-func (dh *DistHandshake) composeChallenge(b *lib.Buffer, tls bool) {
-	if tls {
+func (dh *DistHandshake) composeChallenge(b *lib.Buffer) {
+	if dh.options.tls {
 		b.Allocate(15)
 		dataLength := uint32(11 + len(l.Name))
 		binary.BigEndian.PutUint32(b.B[0:4], dataLength)
@@ -589,8 +586,8 @@ func (dh *DistHandshake) composeChallenge(b *lib.Buffer, tls bool) {
 	b.Append([]byte(l.Name))
 }
 
-func (dh *DistHandshake) composeChallengeVersion6(b *lib.Buffer, tls bool) {
-	if tls {
+func (dh *DistHandshake) composeChallengeVersion6(b *lib.Buffer) {
+	if dh.options.tls {
 		// 1 ('N') + 8 (flags) + 4 (chalange) + 4 (creation) + 2 (len(l.Name))
 		b.Allocate(23)
 		dataLength := 19 + len(l.Name)
@@ -658,8 +655,8 @@ func (dh *DistHandshake) validateChallengeReply(b []byte) bool {
 	return bytes.Equal(digestA[:], digestB)
 }
 
-func (dh *DistHandshake) composeChallengeAck(b *lib.Buffer, tls bool) {
-	if tls {
+func (dh *DistHandshake) composeChallengeAck(b *lib.Buffer) {
+	if dh.options.TLS {
 		b.Allocate(5)
 		dataLength := uint32(17) // 'a' + 16 (digest)
 		binary.BigEndian.PutUint32(b.B[0:4], dataLength)
@@ -677,8 +674,8 @@ func (dh *DistHandshake) composeChallengeAck(b *lib.Buffer, tls bool) {
 	b.Append(digest)
 }
 
-func (dh *DistHandshake) composeChallengeReply(b *lib.Buffer, challenge uint32, tls bool) {
-	if tls {
+func (dh *DistHandshake) composeChallengeReply(b *lib.Buffer, challenge uint32) {
+	if dh.options.TLS {
 		l.digest = genDigest(challenge, l.Cookie)
 		b.Allocate(9)
 		dataLength := 5 + len(l.digest) // 1 (byte) + 4 (challenge) + 16 (digest)
@@ -698,9 +695,9 @@ func (dh *DistHandshake) composeChallengeReply(b *lib.Buffer, challenge uint32, 
 	b.Append(l.digest)
 }
 
-func (dh *DistHandshake) composeComplement(b *lib.Buffer, tls bool) {
+func (dh *DistHandshake) composeComplement(b *lib.Buffer) {
 	flags := uint32(l.flags.toUint64() >> 32)
-	if tls {
+	if dh.options.TLS {
 		b.Allocate(13)
 		dataLength := 9 // 1 + 4 (flag high) + 4 (creation)
 		binary.BigEndian.PutUint32(b.B[0:4], uint32(dataLength))

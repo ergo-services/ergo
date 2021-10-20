@@ -13,7 +13,6 @@ import (
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"fmt"
-	"runtime"
 
 	"github.com/ergo-services/ergo/etf"
 	"github.com/ergo-services/ergo/gen"
@@ -147,12 +146,12 @@ func (n *network) listen(ctx context.Context, name string) (uint16, error) {
 
 		go func() {
 			for {
-				c, err := l.Accept()
+				conn, err := l.Accept()
 				lib.Log("[%s] Accepted new connection from %s", n.name, c.RemoteAddr().String())
 
 				if ctx.Err() != nil {
 					// Context was canceled
-					c.Close()
+					conn.Close()
 					return
 				}
 
@@ -161,29 +160,42 @@ func (n *network) listen(ctx context.Context, name string) (uint16, error) {
 					continue
 				}
 				// wrap handler to catch panic
-				handshakeAccept := func(ctx context.Context, conn net.Conn) (link *Link, err error) {
+				handshakeAccept := func(ctx context.Context, conn net.Conn) (c *Connection, err error) {
 					defer func() {
 						if r := recover(); r != nil {
-							link = nil
+							c = nil
 							err = r
 						}
 					}()
-					link, err = n.opts.CustomHandshake.Accept(ctx, conn)
+					c, err = n.opts.CustomHandshake.Accept(ctx, conn)
 					return
 				}
 
-				link, err := handshakeAccept(ctx, c, options)
+				connection, err := handshakeAccept(ctx, conn)
 				if err != nil {
-					lib.Log("[%s] Can't handshake with %s: %s", n.name, c.RemoteAddr().String(), e)
-					c.Close()
+					lib.Log("[%s] Can't handshake with %s: %s", n.name, conn.RemoteAddr().String(), e)
+					conn.Close()
 					continue
 				}
+				// FIXME
+				// question: whether to register this peer before the Serve call?
+				// what if this name is taken?
 
 				// start serving this link
-				if err := n.serve(ctx, link); err != nil {
-					lib.Log("Can't serve connection link due to: %s", err)
-					c.Close()
-				}
+				connection.Serve(Router(n.registrar))
+
+				// FIXME try to register this connection
+				// if err happened close the link
+				//p := &peer{
+				//	name: link.GetRemoteName(),
+				//	send: make([]chan []etf.Term, numHandlers),
+				//	n:    numHandlers,
+				//}
+				//
+				//if err := n.registrar.registerPeer(p); err != nil {
+				//	// duplicate link?
+				//	return err
+				//}
 
 			}
 		}()
@@ -192,7 +204,7 @@ func (n *network) listen(ctx context.Context, name string) (uint16, error) {
 		return p, nil
 	}
 
-	// all the ports within a given range are taken
+	// all ports within a given range are taken
 	return 0, fmt.Errorf("Can't start listener. Port range is taken")
 }
 
@@ -209,133 +221,6 @@ func (n *network) RevokeRemoteSpawn(name string) error {
 // Resolve
 func (n *network) Resolve(name string) (NetworkRoute, error) {
 	return n.epmd.resolve(name)
-}
-
-func (n *network) serve(ctx context.Context, link *dist.Link) error {
-	// define the total number of reader/writer goroutines
-	numHandlers := runtime.GOMAXPROCS(n.opts.ConnectionHandlers)
-
-	// do not use shared channels within intencive code parts, impacts on a performance
-	receivers := struct {
-		recv []chan *lib.Buffer
-		n    int
-		i    int
-	}{
-		recv: make([]chan *lib.Buffer, n.opts.RecvQueueLength),
-		n:    numHandlers,
-	}
-
-	p := &peer{
-		name: link.GetRemoteName(),
-		send: make([]chan []etf.Term, numHandlers),
-		n:    numHandlers,
-	}
-
-	if err := n.registrar.registerPeer(p); err != nil {
-		// duplicate link?
-		return err
-	}
-
-	// run readers for incoming messages
-	for i := 0; i < numHandlers; i++ {
-		// run packet reader/handler routines (decoder)
-		recv := make(chan *lib.Buffer, n.opts.RecvQueueLength)
-		receivers.recv[i] = recv
-		go link.ReadHandlePacket(ctx, recv, n.handleMessage)
-	}
-
-	cacheIsReady := make(chan bool)
-
-	// run link reader routine
-	go func() {
-		var err error
-		var packetLength int
-		var recv chan *lib.Buffer
-
-		linkctx, cancel := context.WithCancel(ctx)
-		defer cancel()
-
-		go func() {
-			select {
-			case <-linkctx.Done():
-				// if node's context is done
-				link.Close()
-			}
-		}()
-
-		// initializing atom cache if its enabled
-		if !n.opts.DisableHeaderAtomCache {
-			link.SetAtomCache(etf.NewAtomCache(linkctx))
-		}
-		cacheIsReady <- true
-
-		defer func() {
-			link.Close()
-			n.registrar.unregisterPeer(link.GetRemoteName())
-
-			// close handlers channel
-			p.mutex.Lock()
-			for i := 0; i < numHandlers; i++ {
-				if p.send[i] != nil {
-					close(p.send[i])
-				}
-				if receivers.recv[i] != nil {
-					close(receivers.recv[i])
-				}
-			}
-			p.mutex.Unlock()
-		}()
-
-		b := lib.TakeBuffer()
-		for {
-			packetLength, err = link.Read(b)
-			if err != nil || packetLength == 0 {
-				// link was closed or got malformed data
-				if err != nil {
-					fmt.Println("link was closed", link.GetPeerName(), "error:", err)
-				}
-				lib.ReleaseBuffer(b)
-				return
-			}
-
-			// take new buffer for the next reading and append the tail (part of the next packet)
-			b1 := lib.TakeBuffer()
-			b1.Set(b.B[packetLength:])
-			// cut the tail and send it further for handling.
-			// buffer b has to be released by the reader of
-			// recv channel (link.ReadHandlePacket)
-			b.B = b.B[:packetLength]
-			recv = receivers.recv[receivers.i]
-
-			recv <- b
-
-			// set new buffer as a current for the next reading
-			b = b1
-
-			// round-robin switch to the next receiver
-			receivers.i++
-			if receivers.i < receivers.n {
-				continue
-			}
-			receivers.i = 0
-
-		}
-	}()
-
-	// we should make sure if the cache is ready before we start writers
-	<-cacheIsReady
-
-	// run readers/writers for incoming/outgoing messages
-	for i := 0; i < numHandlers; i++ {
-		// run writer routines (encoder)
-		send := make(chan []etf.Term, n.opts.SendQueueLength)
-		p.mutex.Lock()
-		p.send[i] = send
-		p.mutex.Unlock()
-		go link.Writer(send, n.opts.FragmentationUnit)
-	}
-
-	return nil
 }
 
 func (n *network) handleMessage(fromNode string, control, message etf.Term) (err error) {
@@ -660,4 +545,50 @@ func (c *Connection) PeerName() string {
 		return c.Peer.Name
 	}
 	return ""
+}
+
+//
+// Connection interface default callbacks
+//
+func (c *Connection) Send(from gen.Process, to etf.Pid, message etf.Term) error {
+	return ErrProtoUnsupported
+}
+func (c *Connection) SendReg(from gen.Process, to gen.ProcessID, message etf.Term) error {
+	return ErrProtoUnsupported
+}
+func (c *Connection) SendAlias(from gen.Process, to etf.Alias, message etf.Term) error {
+	return ErrProtoUnsupported
+}
+func (c *Connection) Link(local gen.Process, remote etf.Pid) error {
+	return ErrProtoUnsupported
+}
+func (c *Connection) Unlink(local gen.Process, remote etf.Pid) error {
+	return ErrProtoUnsupported
+}
+func (c *Connection) SendExit(local etf.Pid, remote etf.Pid) error {
+	return ErrProtoUnsupported
+}
+func (c *Connection) Monitor(local gen.Process, remote etf.Pid, ref etf.Ref) error {
+	return ErrProtoUnsupported
+}
+func (c *Connection) MonitorReg(local gen.Process, remote gen.ProcessID, ref etf.Ref) error {
+	return ErrProtoUnsupported
+}
+func (c *Connection) Demonitor(ref etf.Ref) error {
+	return ErrProtoUnsupported
+}
+func (c *Connection) SendMonitorExitReg(process gen.Process, ref etf.Ref, reason string) error {
+	return ErrProtoUnsupported
+}
+func (c *Connection) SendMonitorExit(process etf.Pid, ref etf.Ref, reason string) error {
+	return ErrProtoUnsupported
+}
+func (c *Connection) SpawnRequest() error {
+	return ErrProtoUnsupported
+}
+func (c *Connection) Proxy() error {
+	return ErrProtoUnsupported
+}
+func (c *Connection) ProxyReg() error {
+	return ErrProtoUnsupported
 }
