@@ -28,7 +28,7 @@ type monitorInternal interface {
 	monitorNode(by etf.Pid, node string) etf.Ref
 	demonitorNode(ref etf.Ref) bool
 
-	nodeDown(name string)
+	processNodeDown(name string)
 	processTerminated(terminated etf.Pid, name, reason string)
 
 	link(pidA, pidB etf.Pid)
@@ -376,7 +376,7 @@ func (m *monitor) demonitorNode(ref etf.Ref) bool {
 	return true
 }
 
-func (m *monitor) nodeDown(name string) {
+func (m *monitor) processNodeDown(name string) {
 	lib.Log("[%s] MONITOR NODE  down: %v", m.registrar.NodeName(), name)
 
 	m.mutexNodes.Lock()

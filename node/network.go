@@ -28,9 +28,7 @@ import (
 	"time"
 )
 
-const (
-	remoteBehaviorGroup = "ergo:remote"
-)
+const ()
 
 type networkInternal interface {
 	Network
@@ -38,36 +36,32 @@ type networkInternal interface {
 }
 
 type network struct {
-	registrar        registrarInternal
 	name             string
-	opts             Options
 	ctx              context.Context
 	remoteSpawnMutex sync.Mutex
 	remoteSpawn      map[string]gen.ProcessBehavior
 	epmd             *epmd
 	tlscertServer    tls.Certificate
 	tlscertClient    tls.Certificate
+
+	handshake Handshake
+	proto     Proto
 }
 
-func newNetwork(ctx context.Context, name string, opts Options, r registrarInternal) (networkInternal, error) {
+func newNetwork(ctx context.Context, name string, opts Options, router Router) (networkInternal, error) {
 	n := &network{
 		name:      name,
-		opts:      opts,
 		ctx:       ctx,
-		registrar: r,
+		proto:     opts.Proto,
+		handshake: opts.Handshake,
+		router:    router,
 	}
 	ns := strings.Split(name, "@")
 	if len(ns) != 2 {
 		return nil, fmt.Errorf("(EMPD) FQDN for node name is required (example: node@hostname)")
 	}
 
-	if opts.CustomHandshake == nil {
-		// create an Erlang handshake 6th verstion.
-		handshakeOptions := ErlangHandshakeOptions{}
-		opts.CustomHandshake = CreateErlangHandshake(handshakeOptions)
-	}
-
-	port, err := n.listen(ctx, ns[1])
+	port, err := n.listen(ctx, ns[1], router)
 	if err != nil {
 		return nil, err
 	}
@@ -81,19 +75,19 @@ func newNetwork(ctx context.Context, name string, opts Options, r registrarInter
 // AddStaticRoute adds static route record into the EPMD client
 func (n *network) AddStaticRoute(name string, port uint16) error {
 	tlsEnabled := n.opts.TLSMode != TLSModeDisabled
-	return n.epmd.AddStaticRoute(name, port, n.opts.cookie, tlsEnabled)
+	return n.epmd.addStaticRoute(name, port, n.opts.cookie, tlsEnabled)
 }
 
 func (n *network) AddStaticRouteExt(name string, port uint16, cookie string, tls bool) error {
-	return n.epmd.AddStaticRoute(name, port, cookie, tls)
+	return n.epmd.addStaticRoute(name, port, cookie, tls)
 }
 
 // RemoveStaticRoute removes static route record from the EPMD client
 func (n *network) RemoveStaticRoute(name string) {
-	n.epmd.RemoveStaticRoute(name)
+	n.epmd.removeStaticRoute(name)
 }
 
-func (n *network) listen(ctx context.Context, name string) (uint16, error) {
+func (n *network) listen(ctx context.Context, name string, router Router) (uint16, error) {
 	var TLSenabled bool = true
 	var version Version
 	version, _ = ctx.Value(ContextKeyVersion).(Version)
@@ -167,7 +161,7 @@ func (n *network) listen(ctx context.Context, name string) (uint16, error) {
 							err = r
 						}
 					}()
-					c, err = n.opts.CustomHandshake.Accept(ctx, conn)
+					c, err = n.opts.Handshake.Accept(ctx, conn)
 					return
 				}
 
@@ -182,7 +176,7 @@ func (n *network) listen(ctx context.Context, name string) (uint16, error) {
 				// what if this name is taken?
 
 				// start serving this link
-				connection.Serve(Router(n.registrar))
+				go connection.Serve(router)
 
 				// FIXME try to register this connection
 				// if err happened close the link
@@ -206,16 +200,6 @@ func (n *network) listen(ctx context.Context, name string) (uint16, error) {
 
 	// all ports within a given range are taken
 	return 0, fmt.Errorf("Can't start listener. Port range is taken")
-}
-
-// ProvideRemoteSpawn
-func (n *network) ProvideRemoteSpawn(name string, behavior gen.ProcessBehavior) error {
-	return n.registrar.RegisterBehavior(remoteBehaviorGroup, name, behavior, nil)
-}
-
-// RevokeRemoteSpawn
-func (n *network) RevokeRemoteSpawn(name string) error {
-	return n.registrar.UnregisterBehavior(remoteBehaviorGroup, name)
 }
 
 // Resolve
@@ -548,47 +532,47 @@ func (c *Connection) PeerName() string {
 }
 
 //
-// Connection interface default callbacks
+// Proto interface default callbacks
 //
-func (c *Connection) Send(from gen.Process, to etf.Pid, message etf.Term) error {
+func (p *Proto) Send(from gen.Process, to etf.Pid, message etf.Term) error {
 	return ErrProtoUnsupported
 }
-func (c *Connection) SendReg(from gen.Process, to gen.ProcessID, message etf.Term) error {
+func (p *Proto) SendReg(from gen.Process, to gen.ProcessID, message etf.Term) error {
 	return ErrProtoUnsupported
 }
-func (c *Connection) SendAlias(from gen.Process, to etf.Alias, message etf.Term) error {
+func (p *Proto) SendAlias(from gen.Process, to etf.Alias, message etf.Term) error {
 	return ErrProtoUnsupported
 }
-func (c *Connection) Link(local gen.Process, remote etf.Pid) error {
+func (p *Proto) Link(local gen.Process, remote etf.Pid) error {
 	return ErrProtoUnsupported
 }
-func (c *Connection) Unlink(local gen.Process, remote etf.Pid) error {
+func (p *Proto) Unlink(local gen.Process, remote etf.Pid) error {
 	return ErrProtoUnsupported
 }
-func (c *Connection) SendExit(local etf.Pid, remote etf.Pid) error {
+func (p *Proto) SendExit(local etf.Pid, remote etf.Pid) error {
 	return ErrProtoUnsupported
 }
-func (c *Connection) Monitor(local gen.Process, remote etf.Pid, ref etf.Ref) error {
+func (p *Proto) Monitor(local gen.Process, remote etf.Pid, ref etf.Ref) error {
 	return ErrProtoUnsupported
 }
-func (c *Connection) MonitorReg(local gen.Process, remote gen.ProcessID, ref etf.Ref) error {
+func (p *Proto) MonitorReg(local gen.Process, remote gen.ProcessID, ref etf.Ref) error {
 	return ErrProtoUnsupported
 }
-func (c *Connection) Demonitor(ref etf.Ref) error {
+func (p *Proto) Demonitor(ref etf.Ref) error {
 	return ErrProtoUnsupported
 }
-func (c *Connection) SendMonitorExitReg(process gen.Process, ref etf.Ref, reason string) error {
+func (p *Proto) SendMonitorExitReg(process gen.Process, ref etf.Ref, reason string) error {
 	return ErrProtoUnsupported
 }
-func (c *Connection) SendMonitorExit(process etf.Pid, ref etf.Ref, reason string) error {
+func (p *Proto) SendMonitorExit(process etf.Pid, ref etf.Ref, reason string) error {
 	return ErrProtoUnsupported
 }
-func (c *Connection) SpawnRequest() error {
+func (p *Proto) SpawnRequest() error {
 	return ErrProtoUnsupported
 }
-func (c *Connection) Proxy() error {
+func (p *Proto) Proxy() error {
 	return ErrProtoUnsupported
 }
-func (c *Connection) ProxyReg() error {
+func (p *Proto) ProxyReg() error {
 	return ErrProtoUnsupported
 }

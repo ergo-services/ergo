@@ -265,7 +265,7 @@ func (h *DistHandshake) Start(ctx context.Context, conn net.Conn) (*node.Connect
 				}
 
 				// handshaked
-				link.flusher = newLinkFlusher(link.conn, defaultLatency)
+				//FIXME
 				return link, nil
 
 			case 's':
@@ -445,7 +445,7 @@ func (h *DistHandshake) Accept(ctx context.Context, conn net.Conn, opts DistHand
 				}
 
 				// handshaked
-				dh.flusher = newLinkFlusher(conn, defaultLatency)
+				// FIXME
 
 				return link, nil
 

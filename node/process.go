@@ -40,7 +40,8 @@ type process struct {
 	replyMutex sync.Mutex
 	reply      map[etf.Ref]chan etf.Term
 
-	trapExit bool
+	trapExit    bool
+	compression bool
 }
 
 type processOptions struct {
@@ -340,6 +341,16 @@ func (p *process) SetTrapExit(trap bool) {
 // TrapExit
 func (p *process) TrapExit() bool {
 	return p.trapExit
+}
+
+// SetCompression
+func (p *process) SetCompression(enable bool) {
+	p.compression = enable
+}
+
+// Compression
+func (p *process) Compression() bool {
+	return p.compression
 }
 
 // Behavior

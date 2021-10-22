@@ -131,8 +131,7 @@ func (e *epmd) Init(ctx context.Context, name string, port uint16, opts Options)
 	return <-ready
 }
 
-// AddStaticRoute
-func (e *epmd) AddStaticRoute(name string, port uint16, cookie string, tls bool) error {
+func (e *epmd) addStaticRoute(name string, port uint16, cookie string, tls bool) error {
 	ns := strings.Split(name, "@")
 	if len(ns) == 1 {
 		ns = append(ns, "localhost")
@@ -160,7 +159,7 @@ func (e *epmd) AddStaticRoute(name string, port uint16, cookie string, tls bool)
 }
 
 // RemoveStaticRoute
-func (e *epmd) RemoveStaticRoute(name string) {
+func (e *epmd) removeStaticRoute(name string) {
 	e.mtx.Lock()
 	defer e.mtx.Unlock()
 	delete(e.staticRoutes, name)

@@ -12,7 +12,8 @@ import (
 )
 
 const (
-	appBehaviorGroup = "ergo:applications"
+	appBehaviorGroup    = "ergo:applications"
+	remoteBehaviorGroup = "ergo:remote"
 )
 
 type nodeInternal interface {
@@ -28,7 +29,6 @@ type node struct {
 	name     string
 	cookie   string
 	creation uint32
-	opts     Options
 	context  context.Context
 	stop     context.CancelFunc
 	version  Version
@@ -40,14 +40,16 @@ func StartWithContext(ctx context.Context, name string, cookie string, opts Opti
 	lib.Log("Start with name '%s' and cookie '%s'", name, cookie)
 	nodectx, nodestop := context.WithCancel(ctx)
 
-	// Creation must be > 0 so make 'or 0x1'
-	creation := uint32(time.Now().Unix()) | 1
+	if opts.Creation == 0 {
+		// the last bit must be > 0 so make 'or 0x1'
+		opts.Creation = uint32(time.Now().Unix()) | 1
+	}
 
 	node := &node{
 		cookie:   cookie,
 		context:  nodectx,
 		stop:     nodestop,
-		creation: creation,
+		creation: opts.Creation,
 	}
 
 	if name == "" {
@@ -69,35 +71,53 @@ func StartWithContext(ctx context.Context, name string, cookie string, opts Opti
 		lib.Log("Using custom EPMD port: %d", opts.EPMDPort)
 	}
 
-	if opts.SendQueueLength == 0 {
-		opts.SendQueueLength = defaultSendQueueLength
+	if opts.ConnectionOptions.SendQueueLength == 0 {
+		opts.ConnectionOptions.SendQueueLength = defaultSendQueueLength
 	}
 
-	if opts.RecvQueueLength == 0 {
-		opts.RecvQueueLength = defaultRecvQueueLength
+	if opts.ConnectionOptions.RecvQueueLength == 0 {
+		opts.ConnectionOptions.RecvQueueLength = defaultRecvQueueLength
 	}
 
-	if opts.FragmentationUnit < 1500 {
-		opts.FragmentationUnit = defaultFragmentationUnit
+	if opts.ConnectionOptions.FragmentationUnit < 1500 {
+		opts.ConnectionOptions.FragmentationUnit = defaultFragmentationUnit
+	}
+
+	if opts.TLSMode != TLSModeDisabled {
+		opts.ConnectionOptions.TLS = true
 	}
 
 	if len(strings.Split(name, "@")) != 2 {
 		return nil, fmt.Errorf("incorrect FQDN node name (example: node@localhost)")
 	}
 
-	opts.cookie = cookie
-	opts.creation = creation
-	node.opts = opts
-	node.name = name
+	if opts.Handshake == nil {
+		return nil, fmt.Errorf("Handshake must be defined")
+	}
+	if opts.Proto == nil {
+		return nil, fmt.Errorf("Proto must be defined")
+	}
 
 	registrar := newRegistrar(nodectx, name, creation, node)
-	network, err := newNetwork(nodectx, name, opts, registrar)
+	network, err := newNetwork(nodectx, name, opts, Router(registrar))
 	if err != nil {
 		return nil, err
 	}
 
+	node.name = name
 	node.registrarInternal = registrar
 	node.networkInternal = network
+
+	// initialize handshake
+	if err := opts.Handshake.Init(name, cookie, opts.ConnectionOptions); err != nil {
+		nodestop()
+		return nil, err
+	}
+	// initialize proto
+	if err := opts.Proto.Init(opts.ConnectionOptions, Router(registrar)); err != nil {
+		nodestop()
+		return nil, err
+	}
 
 	for _, app := range opts.Applications {
 		// load applications
@@ -430,4 +450,14 @@ func (n *node) RevokeRPC(module, function string) error {
 	}
 
 	return nil
+}
+
+// ProvideRemoteSpawn
+func (n *node) ProvideRemoteSpawn(name string, behavior gen.ProcessBehavior) error {
+	return n.RegisterBehavior(remoteBehaviorGroup, name, behavior, nil)
+}
+
+// RevokeRemoteSpawn
+func (n *node) RevokeRemoteSpawn(name string) error {
+	return n.UnregisterBehavior(remoteBehaviorGroup, name)
 }

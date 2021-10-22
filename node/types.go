@@ -106,6 +106,8 @@ type Node interface {
 	ApplicationStop(appName string) error
 	ProvideRPC(module string, function string, fun gen.RPC) error
 	RevokeRPC(module, function string) error
+	ProvideRemoteSpawn(name string, object gen.ProcessBehavior) error
+	RevokeRemoteSpawn(name string) error
 
 	Links(process etf.Pid) []etf.Pid
 	Monitors(process etf.Pid) []etf.Pid
@@ -130,9 +132,6 @@ type Network interface {
 	AddStaticRouteExt(name string, port uint16, cookie string, tls bool) error
 	RemoveStaticRoute(name string)
 	Resolve(name string) (NetworkRoute, error)
-
-	ProvideRemoteSpawn(name string, object gen.ProcessBehavior) error
-	RevokeRemoteSpawn(name string) error
 }
 
 // Router routes messages from/to the remote node
@@ -165,18 +164,87 @@ type NetworkRoute struct {
 	TLS    bool
 }
 
-type Connection struct {
-	Proto
-	Name          string
-	Peer          *Connection
-	Conn          net.Conn
-	Context       context.Context
-	EncodeOptions etf.EncodeOptions
-	DecodeOptions etf.DecodeOptions
+// TLSmodeType should be one of TLSmodeDisabled (default), TLSmodeAuto or TLSmodeStrict
+type TLSModeType string
+
+const (
+	// TLSModeDisabled no TLS encryption
+	TLSModeDisabled TLSModeType = ""
+	// TLSModeAuto generate self-signed certificate
+	TLSModeAuto TLSModeType = "auto"
+	// TLSModeStrict with validation certificate
+	TLSModeStrict TLSModeType = "strict"
+)
+
+// ConnectionOptions
+type ConnectionOptions struct {
+	MaxMessageSize int64
+	// NumHandlers defines the number of readers/writers per connection. Default is the number of CPU.
+	NumHandlers            int
+	SendQueueLength        int
+	RecvQueueLength        int
+	FragmentationUnit      int
+	DisableHeaderAtomCache bool
+	Compression            bool
+	TLS                    bool
 }
 
-type Proto interface {
-	Serve(router Router)
+// Options defines bootstrapping options for the node
+type Options struct {
+	// application list that must be started
+	Applications []gen.ApplicationBehavior
+
+	// Creation. Default value: uint32(time.Now().Unix())
+	Creation uint32
+
+	// network options
+	ListenRangeBegin  uint16
+	ListenRangeEnd    uint16
+	EPMDPort          uint16
+	DisableEPMDServer bool
+	DisableEPMD       bool // use static routes only
+
+	// TLS settings
+	TLSMode      TLSModeType
+	TLScrtServer string
+	TLSkeyServer string
+	TLScrtClient string
+	TLSkeyClient string
+
+	// transport options
+	ConnectionOptions ConnectionOptions
+	Handshake         Handshake
+	Proto             Proto
+}
+
+type Connection struct {
+	// Name peer node name
+	Name          string
+	EncodeOptions etf.EncodeOptions
+	DecodeOptions etf.DecodeOptions
+	CustomOptions interface{}
+}
+
+// Handshake defines handshake interface
+type Handshake interface {
+	// Init initialize handshake. Invokes on a start node or if it used
+	// with AddRouteStatic
+	Init(nodename string, cookie string, options ConnectionOptions) error
+	// Start initiates handshake process.
+	Start(ctx context.Context, conn net.Conn) (*Connection, error)
+	// Accept accepts handshake process initiated by another side of this connection
+	Accept(ctx context.Context, conn net.Conn) (*Connection, error)
+}
+
+// Proto template struct for the custom Proto implementation
+type Proto struct {
+	ProtoInterface
+}
+
+// Proto defines proto interface for the custom Proto implementation
+type ProtoInterface interface {
+	Init(options ConnectionOptions, router Router) error
+	Serve(conn net.Conn, connection Connection)
 
 	Send(from gen.Process, to etf.Pid, message etf.Term) error
 	SendReg(from gen.Process, to gen.ProcessID, message etf.Term) error
@@ -196,50 +264,4 @@ type Proto interface {
 
 	Proxy()
 	ProxyReg()
-}
-
-// Options struct with bootstrapping options for CreateNode
-type Options struct {
-	Applications           []gen.ApplicationBehavior
-	ListenRangeBegin       uint16
-	ListenRangeEnd         uint16
-	EPMDPort               uint16
-	DisableEPMDServer      bool
-	DisableEPMD            bool // use static routes only
-	SendQueueLength        int
-	RecvQueueLength        int
-	FragmentationUnit      int
-	DisableHeaderAtomCache bool
-	TLSMode                TLSModeType
-	TLScrtServer           string
-	TLSkeyServer           string
-	TLScrtClient           string
-	TLSkeyClient           string
-	CustomHandshake        Handshake
-
-	// ConnectionHandlers defines the number of readers/writers per connection. Default is the number of CPU.
-	ConnectionHandlers int
-
-	cookie   string
-	creation uint32
-}
-
-// TLSmodeType should be one of TLSmodeDisabled (default), TLSmodeAuto or TLSmodeStrict
-type TLSModeType string
-
-const (
-	// TLSModeDisabled no TLS encryption
-	TLSModeDisabled TLSModeType = ""
-	// TLSModeAuto generate self-signed certificate
-	TLSModeAuto TLSModeType = "auto"
-	// TLSModeStrict with validation certificate
-	TLSModeStrict TLSModeType = "strict"
-)
-
-// Handshake defines handshake interface
-type Handshake interface {
-	// Start initiates handshake process
-	Start(ctx context.Context, conn net.Conn) (*Connection, error)
-	// Accept accepts handshake process initiated by another side of this connection
-	Accept(ctx context.Context, conn net.Conn) (*Connection, error)
 }

@@ -25,9 +25,14 @@ func StartNodeWithContext(ctx context.Context, name string, cookie string, opts 
 	// add erlang support application
 	opts.Applications = append([]gen.ApplicationBehavior{&erlang.KernelApp{}}, opts.Applications...)
 
-	if opts.CustomHandshake == nil {
+	if opts.Handshake == nil {
 		// set default handshake for the node (use Erlang Dist handshake)
-		opts.CustomHandshake == dist.CreateDistHandshake()
+		opts.Handshake == dist.CreateDistHandshake()
+	}
+
+	if opts.Proto == nil {
+		// set default proto handler (Erlang Dist Proto)
+		opts.Proto = dist.CreateDistProto()
 	}
 
 	return node.StartWithContext(context.WithValue(ctx, node.ContextKeyVersion, version), name, cookie, opts)

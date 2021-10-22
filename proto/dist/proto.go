@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"math/rand"
-	"net"
 	"runtime"
 	"sync"
 	"sync/atomic"
@@ -49,10 +48,11 @@ type fragmentedPacket struct {
 	lastUpdate       time.Time
 }
 
-type DistConnection struct {
-	node.Connection
+type DistProto struct {
+	node.Proto
 
-	options DistOptions
+	router  node.Router
+	options DistProtoOptions
 
 	// writer
 	flusher *linkFlusher
@@ -76,27 +76,23 @@ type DistConnection struct {
 	checkCleanDeadline time.Duration // how long we wait for the next fragment of the certain sequenceID. Default is 30 seconds
 }
 
-type DistOptions struct {
-	SendQueueLength        int
-	RecvQueueLength        int
-	FragmentationUnit      int
-	DisableHeaderAtomCache bool
-}
-
-func CreateDistConnection(ctx context.Context, name string, conn net.Conn, options DistOptions) *DistConnection {
-	return &DistConnection{
-		Name:    name,
-		Conn:    conn,
-		Context: ctx,
-		options: options,
-	}
+func CreateDistProto() Proto {
+	return &DistProto{}
 }
 
 //
 // net.Connection interface implementation
 //
 
-func (dc *DistConnection) Serve(router node.Router) {
+func (dp *DistProto) Init(router node.Router) error {
+	dp.router = router
+	return nil
+}
+
+func (dp *DistProto) Serve(connection node.Connection) {
+
+	dp.flusher = newLinkFlusher(connection.Conn, defaultLatency)
+
 	// define the total number of reader/writer goroutines
 	numHandlers := runtime.GOMAXPROCS(n.opts.ConnectionHandlers)
 
@@ -212,49 +208,49 @@ func (dc *DistConnection) Serve(router node.Router) {
 	return
 }
 
-func (dc *DistConnection) Send(from gen.Process, to etf.Pid, message etf.Term) error {
+func (dp *DistProto) Send(from gen.Process, to etf.Pid, message etf.Term) error {
 	return nil
 }
-func (dc *DistConnection) SendReg(from gen.Process, to gen.ProcessID, message etf.Term) error {
+func (dp *DistProto) SendReg(from gen.Process, to gen.ProcessID, message etf.Term) error {
 	return nil
 }
-func (dc *DistConnection) SendAlias(from gen.Process, to etf.Alias, message etf.Term) error {
-	return nil
-}
-
-func (dc *DistConnection) Link(local gen.Process, remote etf.Pid) error {
-	return nil
-}
-func (dc *DistConnection) Unlink(local gen.Process, remote etf.Pid) error {
-	return nil
-}
-func (dc *DistConnection) SendExit(local etf.Pid, remote etf.Pid) error {
+func (dp *DistProto) SendAlias(from gen.Process, to etf.Alias, message etf.Term) error {
 	return nil
 }
 
-func (dc *DistConnection) Monitor(local gen.Process, remote etf.Pid, ref etf.Ref) error {
+func (dp *DistProto) Link(local gen.Process, remote etf.Pid) error {
 	return nil
 }
-func (dc *DistConnection) MonitorReg(local gen.Process, remote gen.ProcessID, ref etf.Ref) error {
+func (dp *DistProto) Unlink(local gen.Process, remote etf.Pid) error {
 	return nil
 }
-func (dc *DistConnection) Demonitor(ref etf.Ref) error {
-	return nil
-}
-func (dc *DistConnection) SendMonitorExitReg(process gen.Process, ref etf.Ref, reason string) error {
-	return nil
-}
-func (dc *DistConnection) SendMonitorExit(process etf.Pid, ref etf.Ref, reason string) error {
+func (dp *DistProto) SendExit(local etf.Pid, remote etf.Pid) error {
 	return nil
 }
 
-func (dc *DistConnection) SpawnRequest() error {
+func (dp *DistProto) Monitor(local gen.Process, remote etf.Pid, ref etf.Ref) error {
 	return nil
 }
-func (dc *DistConnection) Proxy() error {
+func (dp *DistProto) MonitorReg(local gen.Process, remote gen.ProcessID, ref etf.Ref) error {
 	return nil
 }
-func (dc *DistConnection) ProxyReg() error {
+func (dp *DistProto) Demonitor(ref etf.Ref) error {
+	return nil
+}
+func (dp *DistProto) SendMonitorExitReg(process gen.Process, ref etf.Ref, reason string) error {
+	return nil
+}
+func (dp *DistProto) SendMonitorExit(process etf.Pid, ref etf.Ref, reason string) error {
+	return nil
+}
+
+func (dp *DistProto) SpawnRequest() error {
+	return nil
+}
+func (dp *DistProto) Proxy() error {
+	return nil
+}
+func (dp *DistProto) ProxyReg() error {
 	return nil
 }
 

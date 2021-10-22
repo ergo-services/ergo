@@ -105,6 +105,12 @@ type Process interface {
 	// TrapExit returns whether the trap was enabled on this process
 	TrapExit() bool
 
+	// SetCompression enables/disables compression for the messages sent outside this node
+	SetCompression(enabled bool)
+
+	// Compression returns true if compression is enabled for this process
+	Compression() bool
+
 	// MonitorNode creates monitor between the current process and node. If Node fails or does not exist,
 	// the message {nodedown, Node} is delivered to the process.
 	MonitorNode(name string) etf.Ref
@@ -170,6 +176,7 @@ type ProcessInfo struct {
 	TrapExit        bool
 	GroupLeader     etf.Pid
 	Reductions      uint64
+	Compression     bool
 }
 
 // ProcessOptions
@@ -183,6 +190,8 @@ type ProcessOptions struct {
 	GroupLeader Process
 	// Env set the process environment variables
 	Env map[string]interface{}
+	// Compression enables compression for the messages sent outside this node
+	Compression bool
 }
 
 // RemoteSpawnOptions defines options for RemoteSpawn method
@@ -253,6 +262,7 @@ type Registrar interface {
 
 	NodeName() string
 	NodeStop()
+
 	// Nodes returns the list of connected nodes
 	Nodes() []string
 
