@@ -297,17 +297,15 @@ func (p *process) WaitWithTimeout(d time.Duration) error {
 }
 
 // Link
-func (p *process) Link(with etf.Pid) {
+func (p *process) Link(with etf.Pid) error {
 	if p.behavior == nil {
 		return
 	}
-	p.link(p.self, with)
+	return p.link(p.self, with)
 }
 
 // Unlink
 func (p *process) Unlink(with etf.Pid) {
-	p.Lock()
-	defer p.Unlock()
 	if p.behavior == nil {
 		return
 	}
@@ -316,8 +314,6 @@ func (p *process) Unlink(with etf.Pid) {
 
 // IsAlive
 func (p *process) IsAlive() bool {
-	p.Lock()
-	defer p.Unlock()
 	if p.behavior == nil {
 		return false
 	}
@@ -327,10 +323,14 @@ func (p *process) IsAlive() bool {
 // Children
 func (p *process) Children() ([]etf.Pid, error) {
 	c, err := p.directRequest(gen.MessageDirectChildren{}, 5)
-	if err == nil {
-		return c.([]etf.Pid), nil
+	if err != nil {
+		return []etf.Pid{}, err
 	}
-	return []etf.Pid{}, err
+	children, err := c.([]etf.Pid)
+	if err != nil {
+		return []etf.Pid{}, err
+	}
+	return children, nil
 }
 
 // SetTrapExit

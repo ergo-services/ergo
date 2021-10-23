@@ -134,21 +134,22 @@ type Network interface {
 	Resolve(name string) (NetworkRoute, error)
 }
 
-// Router routes messages from/to the remote node
+// Router routes messages from remote node
 type Router interface {
 	RouteSend(from etf.Pid, to etf.Pid, message etf.Term) error
 	RouteSendReg(from etf.Pid, to gen.ProcessID, message etf.Term) error
 	RouteSendAlias(from etf.Pid, to etf.Alias, message etf.Term) error
 
-	RouteLink(remote etf.Pid, local etf.Pid) error
-	RouteUnlink(remote etf.Pid, local etf.Pid) error
-	RouteExit(terminated etf.Pid, reason string) error
+	RouteLink(pidA etf.Pid, pidB etf.Pid) error
+	RouteUnlink(pidA etf.Pid, pidB etf.Pid) error
+	RouteExit(to etf.Pid, terminated etf.Pid, reason string) error
 
 	RouteMonitorReg(remote etf.Pid, process gen.ProcessID, ref etf.Ref) error
-	RouteMonitor(remote etf.Pid, process etf.Pid, ref etf.Ref) error
-	RouteDemonitor(ref etf.Ref) error
-	RouteMonitorExitReg(process gen.ProcessID, reason string) error
-	RouteMonitorExit(process etf.Pid, reason string) error
+	RouteMonitor(local etf.Pid, process etf.Pid, ref etf.Ref) error
+	RouteDemonitorReg(local etf.Pid, process gen.ProcessID, ref etf.Ref) error
+	RouteDemonitor(by etf.Pid, process etf.Pid, ref etf.Ref) error
+	RouteMonitorExitReg(local gen.ProcessID, remote etf.Pid, reason string) error
+	RouteMonitorExit(local etf.Pid, remote etf.Pid, reason string) error
 
 	RouteSpawnRequest() error
 	RouteSpawnReply() error

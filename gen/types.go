@@ -30,6 +30,12 @@ type Process interface {
 	// UnregisterName unregister named process. Unregistering name is allowed to the owner only
 	UnregisterName(name string) error
 
+	// NodeName returns node name
+	NodeName() string
+
+	// NodeStop stops the node
+	NodeStop()
+
 	// Info returns process details
 	Info() ProcessInfo
 
@@ -256,13 +262,8 @@ type ProcessBehavior interface {
 	ProcessLoop(ProcessState, chan<- bool) string // method which implements control flow of process
 }
 
-// Registrar
+// Registrar the common set of methods provided by Process and node.Node interfaces
 type Registrar interface {
-	Monitor
-
-	NodeName() string
-	NodeStop()
-
 	// Nodes returns the list of connected nodes
 	Nodes() []string
 
@@ -283,6 +284,9 @@ type Registrar interface {
 	IsAlias(etf.Alias) bool
 	MakeRef() etf.Ref
 
+	// IsMonitor returns true if the given references is a monitor
+	IsMonitor(ref etf.Ref) bool
+
 	// IsProcessAlive returns true if the process with given pid is alive
 	IsProcessAlive(process Process) bool
 
@@ -290,11 +294,6 @@ type Registrar interface {
 	RegisteredBehavior(group, name string) (RegisteredBehavior, error)
 	RegisteredBehaviorGroup(group string) []RegisteredBehavior
 	UnregisterBehavior(group, name string) error
-}
-
-// Monitor
-type Monitor interface {
-	IsMonitor(ref etf.Ref) bool
 }
 
 // RegisteredBehavior
@@ -309,6 +308,7 @@ type ProcessID struct {
 	Node string
 }
 
+// String string representaion of ProcessID value
 func (p ProcessID) String() string {
 	return fmt.Sprintf("<%s:%s>", p.Name, p.Node)
 }
@@ -349,7 +349,9 @@ type MessageManageRPC struct {
 	Fun      RPC
 }
 
-// MessageDirectChildren
+// MessageDirectChildren type intended to be used in Process.Children which returns []etf.Pid
+// You can handle this type of message in your HandleDirect callback to enable Process.Children
+// support for your gen.Server actor.
 type MessageDirectChildren struct{}
 
 // IsMessageDown

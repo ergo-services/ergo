@@ -248,7 +248,7 @@ func (n *network) handleMessage(fromNode string, control, message etf.Term) (err
 				lib.Log("[%s] CONTROL EXIT [from %s]: %#v", n.registrar.NodeName(), fromNode, control)
 				terminated := t.Element(2).(etf.Pid)
 				reason := fmt.Sprint(t.Element(4))
-				n.registrar.processTerminated(terminated, "", string(reason))
+				n.registrar.handleTerminated(terminated, "", string(reason))
 
 			case distProtoEXIT2:
 				lib.Log("[%s] CONTROL EXIT2 [from %s]: %#v", n.registrar.NodeName(), fromNode, control)
@@ -272,10 +272,10 @@ func (n *network) handleMessage(fromNode string, control, message etf.Term) (err
 				reason := fmt.Sprint(t.Element(5))
 				switch terminated := t.Element(2).(type) {
 				case etf.Pid:
-					n.registrar.processTerminated(terminated, "", string(reason))
+					n.registrar.handleTerminated(terminated, "", string(reason))
 				case etf.Atom:
 					vpid := virtualPid(gen.ProcessID{string(terminated), fromNode})
-					n.registrar.processTerminated(vpid, "", string(reason))
+					n.registrar.handleTerminated(vpid, "", string(reason))
 				}
 
 			// Not implemented yet, just stubs. TODO.

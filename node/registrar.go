@@ -44,7 +44,7 @@ type registrar struct {
 type registrarInternal interface {
 	gen.Registrar
 	monitorInternal
-	Router
+	routerInternal
 
 	spawn(name string, opts processOptions, behavior gen.ProcessBehavior, args ...etf.Term) (gen.Process, error)
 	registerName(name string, pid etf.Pid) error
@@ -57,6 +57,24 @@ type registrarInternal interface {
 
 	route(from etf.Pid, to etf.Term, message etf.Term) error
 	routeRaw(nodename etf.Atom, messages ...etf.Term) error
+}
+
+// route locally or from local process to the remote one
+type routerInternal interface {
+	routeSend(from etf.Pid, to etf.Pid, message etf.Term)
+
+	routeLink(local etf.Pid, remote etf.Pid) error
+	routeUnlink(local etf.Pid, remote etf.Pid) error
+	routeExit(terminated etf.Pid, remote etf.Pid) error
+
+	routeMonitor(local etf.Pid, remote etf.Pid, ref etf.Ref) error
+	routeMonitorReg(local etf.Pid, remote gen.ProcessID, ref etf.Ref) error
+	routeDemonior(local etf.Pid, remote etf.Pid, ref etf.Ref) error
+	routeDemonitorReg(local etf.Pid, remote gen.ProcessID, ref etf.Ref) error
+	routeMonitorExit(local etf.Pid, remote etf.Pid, ref etf.Ref, reason string) error
+	routeMonitorExitReg(local gen.ProcessID, remote etf.Pid, ref etf.Ref, reason string) error
+
+	routeSpawnRequest()
 }
 
 func newRegistrar(ctx context.Context, nodename string, creation uint32, node nodeInternal) registrarInternal {
@@ -352,7 +370,7 @@ func (r *registrar) spawn(name string, opts processOptions, behavior gen.Process
 		// and propagate context canelation
 		process.Kill()
 		// notify all the linked process and monitors
-		r.processTerminated(process.self, name, reason)
+		r.handleTerminated(process.self, name, reason)
 		// make the rest empty
 		process.Lock()
 		process.aliases = []etf.Alias{}
@@ -441,7 +459,7 @@ func (r *registrar) unregisterConnection(name string) {
 	defer r.mutexConnections.Unlock()
 	if _, ok := r.connections[name]; ok {
 		delete(r.connections, name)
-		r.processNodeDown(name)
+		r.handleNodeDown(name)
 		return
 	}
 }
@@ -687,6 +705,7 @@ func (r *registrar) RouteSendReg(from etf.Pid, to gen.ProcessID, message etf.Ter
 		return r.RouteSend(from, pid, message)
 	}
 
+	lib.Log("[%s] REGISTRAR route message by gen.ProcessID (remote) %s failed. Can not connect to %s: %s", r.nodename, to, to.Node, err)
 	// sending to remote node
 	r.mutexConnections.Lock()
 	connection, ok := r.connections[tto.Node]
@@ -710,7 +729,7 @@ func (r *registrar) RouteSendReg(from etf.Pid, to gen.ProcessID, message etf.Ter
 }
 
 func (r *registrar) RouteSendAlias(from etf.Pid, to etf.Alias, message etf.Term) error {
-	lib.Log("[%s] REGISTRAR sending message by alias %s", r.nodename, to)
+	lib.Log("[%s] REGISTRAR route message by alias %s", r.nodename, to)
 	if string(to.Node) == r.nodename {
 		// local route by alias
 		r.mutexAliases.Lock()
@@ -722,23 +741,39 @@ func (r *registrar) RouteSendAlias(from etf.Pid, to etf.Alias, message etf.Term)
 		return r.RouteSend(from, process.Self(), message)
 	}
 
-	r.mutexConnections.Lock()
-	connection, ok := r.connections[string(to.Node)]
-	r.mutexConnections.Unlock()
-	if !ok {
-		if err := r.node.connect(string(to.Node)); err != nil {
-			lib.Log("[%s] Can't connect to %v: %s", r.nodename, to.Node, err)
-			return fmt.Errorf("Can't connect to %s: %s", to.Node, err)
-		}
-
-		r.mutexConnections.Lock()
-		connection, _ = r.connections[string(to.Node)]
-		r.mutexConnection.Unlock()
+	connection, err := r.getConnection(string(to.Name))
+	if err != nil {
+		return err
 	}
 
 	return connection.SendAlias(from, to, message)
-	//send := peer.getChannel()
-	//send <- []etf.Term{etf.Tuple{distProtoALIAS_SEND, from, tto}, message}
+}
+
+func (r *registrar) getConnection(remoteNodeName string) (*Connection, error) {
+	r.mutexConnections.Lock()
+	connection, ok := r.connections[remoteNodeName]
+	r.mutexConnections.Unlock()
+	if ok {
+		return connection, nil
+	}
+
+	if err := r.node.connect(remoteNodeName); err != nil {
+		return nil, fmt.Errorf("Can't connect to %s: %s", remoteNodeName, err)
+	}
+
+	r.mutexConnections.Lock()
+	connection, _ = r.connections[remoteNodeName]
+	r.mutexConnection.Unlock()
+	return connection, nil
+}
+
+// routerInternal interface.
+func (r *registrar) routeLink(pidA etf.Pid, pidB etf.Pid) error {
+	if string(pidB.Node) == r.nodename {
+		r.link(pidA, pidB)
+		return r.RouteSend(from, process.Self(), message)
+	}
+
 }
 
 //func (r *registrar) routeRaw(nodename etf.Atom, messages ...etf.Term) error {
