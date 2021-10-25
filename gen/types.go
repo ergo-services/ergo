@@ -267,32 +267,42 @@ type Registrar interface {
 	// Nodes returns the list of connected nodes
 	Nodes() []string
 
-	// ProcessByName returns Process struct for the given name.
-	// Returns nil if it doesn't exist (not found)
+	// ProcessByName returns Process for the given name.
+	// Returns nil if it doesn't exist (not found) or terminated.
 	ProcessByName(name string) Process
-	// ProcessByPid returns Process struct for the given Pid.
-	// Returns nil if it doesn't exist (not found)
+
+	// ProcessByPid returns Process for the given Pid.
+	// Returns nil if it doesn't exist (not found) or terminated.
 	ProcessByPid(pid etf.Pid) Process
 
-	// ProcessByAlias returns Process struct for the given alias.
-	// Returns nil if it doesn't exist (not found)
+	// ProcessByAlias returns Process for the given alias.
+	// Returns nil if it doesn't exist (not found) or terminated
 	ProcessByAlias(alias etf.Alias) Process
 
 	// ProcessInfo returns the details about given Pid
 	ProcessInfo(pid etf.Pid) (ProcessInfo, error)
+
+	// ProcessList returns the list of running processes
 	ProcessList() []Process
-	IsAlias(etf.Alias) bool
+
+	// MakeRef creates an unique reference within this node
 	MakeRef() etf.Ref
+
+	// IsAlias checks whether the given alias is belongs to the alive process on this node.
+	// If the process died all aliases are cleaned up and this function returns
+	// false for the given alias. For alias from the remote node always returns false.
+	IsAlias(etf.Alias) bool
 
 	// IsMonitor returns true if the given references is a monitor
 	IsMonitor(ref etf.Ref) bool
 
-	// IsProcessAlive returns true if the process with given pid is alive
-	IsProcessAlive(process Process) bool
-
+	// RegisterBehavior
 	RegisterBehavior(group, name string, behavior ProcessBehavior, data interface{}) error
+	// RegisteredBehavior
 	RegisteredBehavior(group, name string) (RegisteredBehavior, error)
+	// RegisteredBehaviorGroup
 	RegisteredBehaviorGroup(group string) []RegisteredBehavior
+	// UnregisterBehavior
 	UnregisterBehavior(group, name string) error
 }
 

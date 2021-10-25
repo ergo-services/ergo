@@ -262,7 +262,7 @@ func TestApplicationBasics(t *testing.T) {
 	tLifeSpan := time.Since(tStart)
 
 	fmt.Printf("... application should be self stopped in 150ms: ")
-	if mynode.IsProcessAlive(p) {
+	if p.IsAlive() {
 		t.Fatal("still alive")
 	}
 

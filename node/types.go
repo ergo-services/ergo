@@ -19,12 +19,14 @@ var (
 	ErrNameOwner            = fmt.Errorf("Not an owner")
 	ErrProcessBusy          = fmt.Errorf("Process is busy")
 	ErrProcessUnknown       = fmt.Errorf("Unknown process")
+	ErrProcessIncarnation   = fmt.Errorf("Process ID belongs to the previous incarnation")
 	ErrProcessTerminated    = fmt.Errorf("Process terminated")
 	ErrSenderUnknown        = fmt.Errorf("Unknown sender")
 	ErrBehaviorUnknown      = fmt.Errorf("Unknown behavior")
 	ErrBehaviorGroupUnknown = fmt.Errorf("Unknown behavior group")
 	ErrAliasUnknown         = fmt.Errorf("Unknown alias")
 	ErrAliasOwner           = fmt.Errorf("Not an owner")
+	ErrNoRoute              = fmt.Errorf("No route to node")
 	ErrTaken                = fmt.Errorf("Resource is taken")
 	ErrTimeout              = fmt.Errorf("Timed out")
 	ErrFragmented           = fmt.Errorf("Fragmented data")
@@ -86,7 +88,6 @@ type ContextKey string
 // Node
 type Node interface {
 	gen.Registrar
-	Network
 	Name() string
 	IsAlive() bool
 	Uptime() int64
@@ -114,6 +115,11 @@ type Node interface {
 	MonitorsByName(process etf.Pid) []gen.ProcessID
 	MonitoredBy(process etf.Pid) []etf.Pid
 
+	AddStaticRoute(name string, port uint16) error
+	AddStaticRouteExt(name string, port uint16, cookie string, tls bool) error
+	RemoveStaticRoute(name string)
+	Resolve(name string) (NetworkRoute, error)
+
 	Stop()
 	Wait()
 	WaitWithTimeout(d time.Duration) error
@@ -126,25 +132,29 @@ type Version struct {
 	OTP     int
 }
 
-// Network
-type Network interface {
-	AddStaticRoute(name string, port uint16) error
-	AddStaticRouteExt(name string, port uint16, cookie string, tls bool) error
-	RemoveStaticRoute(name string)
-	Resolve(name string) (NetworkRoute, error)
-}
-
 // Router routes messages from remote node
 type Router interface {
+
+	// implemented by registrar
+
+	// RouteSend routes message by Pid
 	RouteSend(from etf.Pid, to etf.Pid, message etf.Term) error
+	// RouteSendReg routes message by registered process name (gen.ProcessID)
 	RouteSendReg(from etf.Pid, to gen.ProcessID, message etf.Term) error
+	// RouteSendAlias routes message by process alias
 	RouteSendAlias(from etf.Pid, to etf.Alias, message etf.Term) error
 
-	RouteLink(pidA etf.Pid, pidB etf.Pid) error
-	RouteUnlink(pidA etf.Pid, pidB etf.Pid) error
-	RouteExit(to etf.Pid, terminated etf.Pid, reason string) error
+	// implemented by monitor
 
+	// RouteLink makes linking of the given two processes
+	RouteLink(pidA etf.Pid, pidB etf.Pid) error
+	// RouteUnlink makes unlinking of the given two processes
+	RouteUnlink(pidA etf.Pid, pidB etf.Pid) error
+	// RouteExit routes MessageExit to the linked process
+	RouteExit(to etf.Pid, terminated etf.Pid, reason string) error
+	// RouteMonitorReg makes monitor to the given registered process name (gen.ProcessID)
 	RouteMonitorReg(remote etf.Pid, process gen.ProcessID, ref etf.Ref) error
+	// RouteMonitor makes monitor to the given Pid
 	RouteMonitor(local etf.Pid, process etf.Pid, ref etf.Ref) error
 	RouteDemonitorReg(local etf.Pid, process gen.ProcessID, ref etf.Ref) error
 	RouteDemonitor(by etf.Pid, process etf.Pid, ref etf.Ref) error
@@ -156,6 +166,10 @@ type Router interface {
 
 	RouteProxy() error
 	RouteProxyReg() error
+
+	ProcessByPid(pid etf.Pid) gen.Process
+	ProcessByName(name string) gen.Process
+	ProcessByAlias(alias etf.Alias) gen.Process
 }
 
 // NetworkRoute
@@ -177,8 +191,8 @@ const (
 	TLSModeStrict TLSModeType = "strict"
 )
 
-// ConnectionOptions
-type ConnectionOptions struct {
+// ProtoOptions
+type ProtoOptions struct {
 	MaxMessageSize int64
 	// NumHandlers defines the number of readers/writers per connection. Default is the number of CPU.
 	NumHandlers            int
@@ -213,12 +227,13 @@ type Options struct {
 	TLSkeyClient string
 
 	// transport options
-	ConnectionOptions ConnectionOptions
-	Handshake         Handshake
-	Proto             Proto
+	Handshake    Handshake
+	Proto        Proto
+	ProtoOptions ProtoOptions
 }
 
 type Connection struct {
+	ConnectionInterface
 	// Name peer node name
 	Name          string
 	EncodeOptions etf.EncodeOptions
@@ -244,9 +259,11 @@ type Proto struct {
 
 // Proto defines proto interface for the custom Proto implementation
 type ProtoInterface interface {
-	Init(options ConnectionOptions, router Router) error
+	Init(options ProtoOptions, router Router) error
 	Serve(conn net.Conn, connection Connection)
+}
 
+type ConnectionInterface interface {
 	Send(from gen.Process, to etf.Pid, message etf.Term) error
 	SendReg(from gen.Process, to gen.ProcessID, message etf.Term) error
 	SendAlias(from gen.Process, to etf.Alias, message etf.Term) error

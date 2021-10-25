@@ -71,20 +71,20 @@ func StartWithContext(ctx context.Context, name string, cookie string, opts Opti
 		lib.Log("Using custom EPMD port: %d", opts.EPMDPort)
 	}
 
-	if opts.ConnectionOptions.SendQueueLength == 0 {
-		opts.ConnectionOptions.SendQueueLength = defaultSendQueueLength
+	if opts.ProtoOptions.SendQueueLength == 0 {
+		opts.ProtoOptions.SendQueueLength = defaultSendQueueLength
 	}
 
-	if opts.ConnectionOptions.RecvQueueLength == 0 {
-		opts.ConnectionOptions.RecvQueueLength = defaultRecvQueueLength
+	if opts.ProtoOptions.RecvQueueLength == 0 {
+		opts.ProtoOptions.RecvQueueLength = defaultRecvQueueLength
 	}
 
-	if opts.ConnectionOptions.FragmentationUnit < 1500 {
-		opts.ConnectionOptions.FragmentationUnit = defaultFragmentationUnit
+	if opts.ProtoOptions.FragmentationUnit < 1500 {
+		opts.ProtoOptions.FragmentationUnit = defaultFragmentationUnit
 	}
 
 	if opts.TLSMode != TLSModeDisabled {
-		opts.ConnectionOptions.TLS = true
+		opts.ProtoOptions.TLS = true
 	}
 
 	if len(strings.Split(name, "@")) != 2 {
@@ -109,12 +109,12 @@ func StartWithContext(ctx context.Context, name string, cookie string, opts Opti
 	node.networkInternal = network
 
 	// initialize handshake
-	if err := opts.Handshake.Init(name, cookie, opts.ConnectionOptions); err != nil {
+	if err := opts.Handshake.Init(name, cookie, opts.ProtoOptions); err != nil {
 		nodestop()
 		return nil, err
 	}
 	// initialize proto
-	if err := opts.Proto.Init(opts.ConnectionOptions, Router(registrar)); err != nil {
+	if err := opts.Proto.Init(opts.ProtoOptions, Router(registrar)); err != nil {
 		nodestop()
 		return nil, err
 	}

@@ -53,8 +53,8 @@ func TestNode(t *testing.T) {
 		t.Fatal(e)
 	}
 
-	if !node1.IsProcessAlive(p) {
-		t.Fatal("IsProcessAlive: expect 'true', but got 'false'")
+	if !p.IsAlive() {
+		t.Fatal("IsAlive: expect 'true', but got 'false'")
 	}
 
 	_, ee := node1.ProcessInfo(p.Self())

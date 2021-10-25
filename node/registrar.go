@@ -43,8 +43,8 @@ type registrar struct {
 
 type registrarInternal interface {
 	gen.Registrar
+	Router
 	monitorInternal
-	routerInternal
 
 	spawn(name string, opts processOptions, behavior gen.ProcessBehavior, args ...etf.Term) (gen.Process, error)
 	registerName(name string, pid etf.Pid) error
@@ -57,24 +57,6 @@ type registrarInternal interface {
 
 	route(from etf.Pid, to etf.Term, message etf.Term) error
 	routeRaw(nodename etf.Atom, messages ...etf.Term) error
-}
-
-// route locally or from local process to the remote one
-type routerInternal interface {
-	routeSend(from etf.Pid, to etf.Pid, message etf.Term)
-
-	routeLink(local etf.Pid, remote etf.Pid) error
-	routeUnlink(local etf.Pid, remote etf.Pid) error
-	routeExit(terminated etf.Pid, remote etf.Pid) error
-
-	routeMonitor(local etf.Pid, remote etf.Pid, ref etf.Ref) error
-	routeMonitorReg(local etf.Pid, remote gen.ProcessID, ref etf.Ref) error
-	routeDemonior(local etf.Pid, remote etf.Pid, ref etf.Ref) error
-	routeDemonitorReg(local etf.Pid, remote gen.ProcessID, ref etf.Ref) error
-	routeMonitorExit(local etf.Pid, remote etf.Pid, ref etf.Ref, reason string) error
-	routeMonitorExitReg(local gen.ProcessID, remote etf.Pid, ref etf.Ref, reason string) error
-
-	routeSpawnRequest()
 }
 
 func newRegistrar(ctx context.Context, nodename string, creation uint32, node nodeInternal) registrarInternal {
@@ -336,6 +318,7 @@ func (r *registrar) spawn(name string, opts processOptions, behavior gen.Process
 	if err != nil {
 		return nil, err
 	}
+	lib.Log("[%s] REGISTRAR spawn a new process %s (registered name: %q)", r.nodename, process.self, name)
 
 	initProcess := func() (ps gen.ProcessState, err error) {
 		if lib.CatchPanic() {
@@ -555,17 +538,6 @@ func (r *registrar) UnregisterBehavior(group, name string) error {
 	return nil
 }
 
-// IsProcessAlive
-func (r *registrar) IsProcessAlive(process gen.Process) bool {
-	pid := process.Self()
-	p := r.ProcessByPid(pid)
-	if p == nil {
-		return false
-	}
-
-	return p.IsAlive()
-}
-
 // ProcessInfo
 func (r *registrar) ProcessInfo(pid etf.Pid) (gen.ProcessInfo, error) {
 	p := r.ProcessByPid(pid)
@@ -578,7 +550,7 @@ func (r *registrar) ProcessInfo(pid etf.Pid) (gen.ProcessInfo, error) {
 
 // ProcessByPid
 func (r *registrar) ProcessByPid(pid etf.Pid) gen.Process {
-	if p := r.getProcessByPid(pid); p != nil {
+	if p := r.getProcessByPid(pid); p != nil && p.IsAlive() {
 		return p
 	}
 	// we must return nil explicitly, otherwise returning value is not nil
@@ -600,7 +572,7 @@ func (r *registrar) getProcessByPid(pid etf.Pid) *process {
 func (r *registrar) ProcessByAlias(alias etf.Alias) gen.Process {
 	r.mutexAliases.Lock()
 	defer r.mutexAliases.Unlock()
-	if p, ok := r.aliases[alias]; ok {
+	if p, ok := r.aliases[alias]; ok && p.IsAlive() {
 		return p
 	}
 	// unknown process
@@ -646,8 +618,25 @@ func (r *registrar) Nodes() []string {
 	return list
 }
 
+//
+// implementation of Router interface:
+// RouteSend
+// RouteSendReg
+// RouteSendAlias
+//
+
+// RouteSend implements RouteSend method of Router interface
 func (r *registrar) RouteSend(from etf.Pid, to etf.Pid, message etf.Term) error {
+	// do not allow to send from the alien node. Proxy request must be used.
+	if string(from.Node) != r.nodename {
+		return ErrSenderUnknown
+	}
+
 	if string(to.Node) == r.nodename {
+		if to.Creation != r.creation {
+			// message is addressed to the previous incarnation of this PID
+			return ErrProcessIncarnation
+		}
 		// local route
 		r.mutexProcesses.Lock()
 		p, exist := r.processes[to.ID]
@@ -665,32 +654,22 @@ func (r *registrar) RouteSend(from etf.Pid, to etf.Pid, message etf.Term) error 
 		return nil
 	}
 
-	if string(from.Node) != r.nodename {
-		return ErrSenderUnknown
-	}
-
-	r.mutexConnections.Lock()
-	connection, ok := r.connections[string(to.Node)]
-	r.mutexConnections.Unlock()
-	if !ok {
-		if err := r.node.connect(string(to.Node)); err != nil {
-			lib.Log("[%s] REGISTRAR route message by pid (remote) %s failed. Can not connect to %s: %s", r.nodename, to, to.Node, err)
-			return fmt.Errorf("Can't connect to %s: %s", to.Node, err)
-		}
-
-		r.mutexPeers.Lock()
-		connection, _ = r.connections[string(tto.Node)]
-		r.mutexPeers.Unlock()
+	// sending to remote node
+	connection, err := r.getConnection(string(to.Name))
+	if err != nil {
+		return err
 	}
 
 	lib.Log("[%s] REGISTRAR route message by pid (remote) %s", r.nodename, to)
 	return connection.Send(from, to, message)
-
-	//send := peer.getChannel()
-	//send <- []etf.Term{etf.Tuple{distProtoSEND, etf.Atom(""), tto}, message}
 }
 
+// RouteSendReg implements RouteSendReg method of Router interface
 func (r *registrar) RouteSendReg(from etf.Pid, to gen.ProcessID, message etf.Term) error {
+	// do not allow to send from the alien node. Proxy request must be used.
+	if string(from.Node) != r.nodename {
+		return ErrSenderUnknown
+	}
 
 	if to.Node == r.nodename {
 		// local route
@@ -705,30 +684,23 @@ func (r *registrar) RouteSendReg(from etf.Pid, to gen.ProcessID, message etf.Ter
 		return r.RouteSend(from, pid, message)
 	}
 
-	lib.Log("[%s] REGISTRAR route message by gen.ProcessID (remote) %s failed. Can not connect to %s: %s", r.nodename, to, to.Node, err)
-	// sending to remote node
-	r.mutexConnections.Lock()
-	connection, ok := r.connections[tto.Node]
-	r.mutexPeers.Unlock()
-	if !ok {
-		// initiate connection and make yet another attempt to deliver this message
-		if err := r.node.connect(to.Node); err != nil {
-			lib.Log("[%s] REGISTRAR route message by gen.ProcessID (remote) %s failed. Can not connect to %s: %s", r.nodename, to, to.Node, err)
-			return fmt.Errorf("Can't connect to %s: %s", to.Node, err)
-		}
-
-		r.mutexConnections.Lock()
-		connection, _ = r.connections[tto.Node]
-		r.mutexConnections.Unlock()
+	// send to remote node
+	connection, err := r.getConnection(string(to.Name))
+	if err != nil {
+		return err
 	}
+
 	lib.Log("[%s] REGISTRAR route message by gen.ProcessID (remote) %s", r.nodename, to)
 	return connection.SendReg(from, to, message)
-
-	//send := peer.getChannel()
-	//send <- []etf.Term{etf.Tuple{distProtoREG_SEND, from, etf.Atom(""), etf.Atom(tto.Name)}, message}
 }
 
+// RouteSendAlias implements RouteSendAlias method of Router interface
 func (r *registrar) RouteSendAlias(from etf.Pid, to etf.Alias, message etf.Term) error {
+	// do not allow to send from the alien node. Proxy request must be used.
+	if string(from.Node) != r.nodename {
+		return ErrSenderUnknown
+	}
+
 	lib.Log("[%s] REGISTRAR route message by alias %s", r.nodename, to)
 	if string(to.Node) == r.nodename {
 		// local route by alias
@@ -736,16 +708,19 @@ func (r *registrar) RouteSendAlias(from etf.Pid, to etf.Alias, message etf.Term)
 		process, ok := r.aliases[to]
 		r.mutexAliases.Unlock()
 		if !ok {
+			lib.Log("[%s] REGISTRAR route message by alias (local) %s failed. Unknown process", r.nodename, to)
 			return ErrProcessUnknown
 		}
-		return r.RouteSend(from, process.Self(), message)
+		return r.RouteSend(from, process.self, message)
 	}
 
+	// send to remote node
 	connection, err := r.getConnection(string(to.Name))
 	if err != nil {
 		return err
 	}
 
+	lib.Log("[%s] REGISTRAR route message by alias (remote) %s", r.nodename, to)
 	return connection.SendAlias(from, to, message)
 }
 
@@ -758,7 +733,8 @@ func (r *registrar) getConnection(remoteNodeName string) (*Connection, error) {
 	}
 
 	if err := r.node.connect(remoteNodeName); err != nil {
-		return nil, fmt.Errorf("Can't connect to %s: %s", remoteNodeName, err)
+		lib.Log("[%s] REGISTRAR no route to node %q: %s", r.nodename, remoteNodeName, err)
+		return nil, ErrNoRoute
 	}
 
 	r.mutexConnections.Lock()
@@ -766,36 +742,3 @@ func (r *registrar) getConnection(remoteNodeName string) (*Connection, error) {
 	r.mutexConnection.Unlock()
 	return connection, nil
 }
-
-// routerInternal interface.
-func (r *registrar) routeLink(pidA etf.Pid, pidB etf.Pid) error {
-	if string(pidB.Node) == r.nodename {
-		r.link(pidA, pidB)
-		return r.RouteSend(from, process.Self(), message)
-	}
-
-}
-
-//func (r *registrar) routeRaw(nodename etf.Atom, messages ...etf.Term) error {
-//	r.mutexPeers.Lock()
-//	peer, ok := r.peers[string(nodename)]
-//	r.mutexPeers.Unlock()
-//	if len(messages) == 0 {
-//		return fmt.Errorf("nothing to send")
-//	}
-//	if !ok {
-//		// initiate connection and make yet another attempt to deliver this message
-//		if err := r.node.connect(string(nodename)); err != nil {
-//			lib.Log("[%s] Can't connect to %v: %s", r.nodename, nodename, err)
-//			return err
-//		}
-//
-//		r.mutexPeers.Lock()
-//		peer, _ = r.peers[string(nodename)]
-//		r.mutexPeers.Unlock()
-//	}
-//
-//	send := peer.getChannel()
-//	send <- messages
-//	return nil
-//}

@@ -180,7 +180,19 @@ func (p *process) Send(to interface{}, message etf.Term) error {
 	if p.behavior == nil {
 		return ErrProcessTerminated
 	}
-	return p.route(p.self, to, message)
+	switch receiver := to.(type) {
+	case etf.Pid:
+		return p.RouteSend(p.self, receiver, message)
+	case string:
+		return p.RouteSendReg(p.self, gen.ProcessID{receiver, string(p.self.Node)}, message)
+	case etf.Atom:
+		return p.RouteSendReg(p.self, gen.ProcessID{string(receiver), string(p.self.Node)}, message)
+	case gen.ProcessID:
+		return p.RouteSendReg(p.self, receiver, message)
+	case etf.Alias:
+		return p.RouteSendAlias(p.self, receiver, message)
+	}
+	return fmt.Errorf("Unknown receiver type")
 }
 
 // SendAfter
@@ -198,7 +210,7 @@ func (p *process) SendAfter(to interface{}, message etf.Term, after time.Duratio
 			return
 		case <-timer.C:
 			if p.IsAlive() {
-				p.route(p.self, to, message)
+				p.Send(p.self, to, message)
 			}
 		}
 	}()
@@ -378,7 +390,9 @@ func (p *process) DirectWithTimeout(request interface{}, timeout int) (interface
 
 // MonitorNode
 func (p *process) MonitorNode(name string) etf.Ref {
-	return p.monitorNode(p.self, name)
+	ref := p.MakeRef()
+	p.monitorNode(p.self, name, ref)
+	return ref
 }
 
 // DemonitorNode
