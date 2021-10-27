@@ -25,7 +25,7 @@ func (o *observerBackend) Init(process *gen.ServerProcess, args ...etf.Term) err
 	funProcLibInitialCall := func(a ...etf.Term) etf.Term {
 		return etf.Tuple{etf.Atom("proc_lib"), etf.Atom("init_p"), 5}
 	}
-	node := process.Env("ergo:Node").(node.Node)
+	node := process.Env(node.EnvKeyNode).(node.Node)
 	node.ProvideRPC("proc_lib", "translate_initial_call", funProcLibInitialCall)
 
 	funAppmonInfo := func(a ...etf.Term) etf.Term {
@@ -68,7 +68,7 @@ func (o *observerBackend) HandleCall(state *gen.ServerProcess, from gen.ServerFr
 
 func (o *observerBackend) sysInfo(p gen.Process) etf.List {
 	// observer_backend:sys_info()
-	node := p.Env("ergo:Node").(node.Node)
+	node := p.Env(node.EnvKeyNode).(node.Node)
 	processCount := etf.Tuple{etf.Atom("process_count"), len(p.ProcessList())}
 	processLimit := etf.Tuple{etf.Atom("process_limit"), 262144}
 	atomCount := etf.Tuple{etf.Atom("atom_count"), 0}

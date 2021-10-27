@@ -204,11 +204,13 @@ func (r *registrar) newProcess(name string, behavior gen.ProcessBehavior, opts p
 
 	pid := r.newPID()
 
-	// set global variable 'node'
-	if opts.Env == nil {
-		opts.Env = make(map[string]interface{})
+	env := make(map[string]interface{})
+	for k, v := range r.node.env {
+		env[k] = v
 	}
-	opts.Env["ergo:Node"] = r.node.(Node)
+	for k, v := range opts.Env {
+		env[k] = v
+	}
 
 	process := &process{
 		registrarInternal: r,
@@ -216,7 +218,7 @@ func (r *registrar) newProcess(name string, behavior gen.ProcessBehavior, opts p
 		self:     pid,
 		name:     name,
 		behavior: behavior,
-		env:      opts.Env,
+		env:      env,
 
 		parent:      opts.parent,
 		groupLeader: opts.GroupLeader,
@@ -655,7 +657,7 @@ func (r *registrar) RouteSend(from etf.Pid, to etf.Pid, message etf.Term) error 
 	}
 
 	// sending to remote node
-	connection, err := r.getConnection(string(to.Name))
+	connection, err := r.GetConnection(string(to.Name))
 	if err != nil {
 		return err
 	}
@@ -685,7 +687,7 @@ func (r *registrar) RouteSendReg(from etf.Pid, to gen.ProcessID, message etf.Ter
 	}
 
 	// send to remote node
-	connection, err := r.getConnection(string(to.Name))
+	connection, err := r.GetConnection(string(to.Name))
 	if err != nil {
 		return err
 	}
@@ -715,7 +717,7 @@ func (r *registrar) RouteSendAlias(from etf.Pid, to etf.Alias, message etf.Term)
 	}
 
 	// send to remote node
-	connection, err := r.getConnection(string(to.Name))
+	connection, err := r.GetConnection(string(to.Name))
 	if err != nil {
 		return err
 	}
@@ -724,7 +726,7 @@ func (r *registrar) RouteSendAlias(from etf.Pid, to etf.Alias, message etf.Term)
 	return connection.SendAlias(from, to, message)
 }
 
-func (r *registrar) getConnection(remoteNodeName string) (*Connection, error) {
+func (r *registrar) GetConnection(remoteNodeName string) (*Connection, error) {
 	r.mutexConnections.Lock()
 	connection, ok := r.connections[remoteNodeName]
 	r.mutexConnections.Unlock()

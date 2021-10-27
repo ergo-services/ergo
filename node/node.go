@@ -32,6 +32,7 @@ type node struct {
 	context  context.Context
 	stop     context.CancelFunc
 	version  Version
+	env      map[gen.EnvKey]interface{}
 }
 
 // StartWithContext create new node with specified context, name and cookie string
@@ -133,6 +134,14 @@ func StartWithContext(ctx context.Context, name string, cookie string, opts Opti
 			return nil, err
 		}
 	}
+
+	node.env = make(map[string]interface{})
+	for k, v := range opts.Env {
+		node.env[k] = v
+	}
+
+	// set global variable 'ergo:Node'
+	node.env[EnvKeyNode] = node.(Node)
 
 	return node, nil
 }

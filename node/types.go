@@ -79,11 +79,9 @@ const (
 	defaultRecvQueueLength   int    = 100
 	defaultFragmentationUnit        = 65000
 
-	ContextKeyVersion ContextKey = "version"
+	EnvKeyVersion EnvKey = "ergo:Version"
+	EnvKeyNode    EnvKey = "ergo:Node"
 )
-
-// ContextKey
-type ContextKey string
 
 // Node
 type Node interface {
@@ -132,7 +130,7 @@ type Version struct {
 	OTP     int
 }
 
-// Router routes messages from remote node
+// Router routes messages from/to remote node
 type Router interface {
 
 	// implemented by registrar
@@ -153,13 +151,12 @@ type Router interface {
 	// RouteExit routes MessageExit to the linked process
 	RouteExit(to etf.Pid, terminated etf.Pid, reason string) error
 	// RouteMonitorReg makes monitor to the given registered process name (gen.ProcessID)
-	RouteMonitorReg(remote etf.Pid, process gen.ProcessID, ref etf.Ref) error
+	RouteMonitorReg(by etf.Pid, process gen.ProcessID, ref etf.Ref) error
 	// RouteMonitor makes monitor to the given Pid
-	RouteMonitor(local etf.Pid, process etf.Pid, ref etf.Ref) error
-	RouteDemonitorReg(local etf.Pid, process gen.ProcessID, ref etf.Ref) error
-	RouteDemonitor(by etf.Pid, process etf.Pid, ref etf.Ref) error
-	RouteMonitorExitReg(local gen.ProcessID, remote etf.Pid, reason string) error
-	RouteMonitorExit(local etf.Pid, remote etf.Pid, reason string) error
+	RouteMonitor(by etf.Pid, process etf.Pid, ref etf.Ref) error
+	RouteDemonitor(by etf.Pid, ref etf.Ref) error
+	RouteMonitorExitReg(to etf.Pid, terminated gen.ProcessID, reason string, ref etf.Ref) error
+	RouteMonitorExit(to etf.Pid, terminated etf.Pid, reason string, ref etf.Ref) error
 
 	RouteSpawnRequest() error
 	RouteSpawnReply() error
@@ -170,6 +167,8 @@ type Router interface {
 	ProcessByPid(pid etf.Pid) gen.Process
 	ProcessByName(name string) gen.Process
 	ProcessByAlias(alias etf.Alias) gen.Process
+
+	GetConnection(nodename string) (*Connection, error)
 }
 
 // NetworkRoute
@@ -206,8 +205,10 @@ type ProtoOptions struct {
 
 // Options defines bootstrapping options for the node
 type Options struct {
-	// application list that must be started
+	// Applications application list that must be started
 	Applications []gen.ApplicationBehavior
+	// Env node environment
+	Env map[gen.EnvKey]interface{}
 
 	// Creation. Default value: uint32(time.Now().Unix())
 	Creation uint32
@@ -232,13 +233,32 @@ type Options struct {
 	ProtoOptions ProtoOptions
 }
 
+// Connection
 type Connection struct {
 	ConnectionInterface
-	// Name peer node name
-	Name          string
-	EncodeOptions etf.EncodeOptions
-	DecodeOptions etf.DecodeOptions
-	CustomOptions interface{}
+	conn net.Conn
+}
+
+// ConnectionInterface
+type ConnectionInterface interface {
+	Send(from gen.Process, to etf.Pid, message etf.Term) error
+	SendReg(from gen.Process, to gen.ProcessID, message etf.Term) error
+	SendAlias(from gen.Process, to etf.Alias, message etf.Term) error
+
+	Link(local gen.Process, remote etf.Pid) error
+	Unlink(local gen.Process, remote etf.Pid) error
+	SendExit(local etf.Pid, remote etf.Pid) error
+
+	Monitor(local gen.Process, remote etf.Pid, ref etf.Ref) error
+	MonitorReg(local gen.Process, remote gen.ProcessID, ref etf.Ref) error
+	Demonitor(ref etf.Ref) error
+	MonitorExitReg(to etf.Pid, terminated gen.Process, reason string, ref etf.Ref) error
+	MonitorExit(to etf.Pid, terminated etf.Pid, reason string, ref etf.Ref) error
+
+	SpawnRequest()
+
+	Proxy()
+	ProxyReg()
 }
 
 // Handshake defines handshake interface
@@ -261,25 +281,4 @@ type Proto struct {
 type ProtoInterface interface {
 	Init(options ProtoOptions, router Router) error
 	Serve(conn net.Conn, connection Connection)
-}
-
-type ConnectionInterface interface {
-	Send(from gen.Process, to etf.Pid, message etf.Term) error
-	SendReg(from gen.Process, to gen.ProcessID, message etf.Term) error
-	SendAlias(from gen.Process, to etf.Alias, message etf.Term) error
-
-	Link(local gen.Process, remote etf.Pid) error
-	Unlink(local gen.Process, remote etf.Pid) error
-	SendExit(local etf.Pid, remote etf.Pid) error
-
-	Monitor(local gen.Process, remote etf.Pid, ref etf.Ref) error
-	MonitorReg(local gen.Process, remote gen.ProcessID, ref etf.Ref) error
-	Demonitor(ref etf.Ref) error
-	SendMonitorExitReg(process gen.Process, ref etf.Ref, reason string) error
-	SendMonitorExit(process etf.Pid, ref etf.Ref, reason string) error
-
-	SpawnRequest()
-
-	Proxy()
-	ProxyReg()
 }

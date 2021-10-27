@@ -44,6 +44,7 @@ type network struct {
 	tlscertServer    tls.Certificate
 	tlscertClient    tls.Certificate
 
+	version   Version
 	handshake Handshake
 	proto     Proto
 }
@@ -61,6 +62,7 @@ func newNetwork(ctx context.Context, name string, opts Options, router Router) (
 		return nil, fmt.Errorf("(EMPD) FQDN for node name is required (example: node@hostname)")
 	}
 
+	n.version, _ = opts.Env[EnvKeyVersion].(Version)
 	port, err := n.listen(ctx, ns[1], router)
 	if err != nil {
 		return nil, err
@@ -89,8 +91,6 @@ func (n *network) RemoveStaticRoute(name string) {
 
 func (n *network) listen(ctx context.Context, name string, router Router) (uint16, error) {
 	var TLSenabled bool = true
-	var version Version
-	version, _ = ctx.Value(ContextKeyVersion).(Version)
 
 	lc := net.ListenConfig{}
 	for p := n.opts.ListenRangeBegin; p <= n.opts.ListenRangeEnd; p++ {
@@ -101,7 +101,7 @@ func (n *network) listen(ctx context.Context, name string, router Router) (uint1
 
 		switch n.opts.TLSMode {
 		case TLSModeAuto:
-			cert, err := generateSelfSignedCert(version)
+			cert, err := generateSelfSignedCert(n.version)
 			if err != nil {
 				return 0, fmt.Errorf("Can't generate certificate: %s\n", err)
 			}
@@ -518,8 +518,8 @@ func (p *peer) getChannel() chan []etf.Term {
 // Connection methods
 
 func (c *Connection) Close() error {
-	if c.Conn != nil {
-		return c.Conn.Close()
+	if c.conn != nil {
+		return c.conn.Close()
 	}
 	return fmt.Errorf("Conn is nil")
 }
@@ -532,47 +532,47 @@ func (c *Connection) PeerName() string {
 }
 
 //
-// Proto interface default callbacks
+// Connection interface default callbacks
 //
-func (p *Proto) Send(from gen.Process, to etf.Pid, message etf.Term) error {
+func (c *Connection) Send(from gen.Process, to etf.Pid, message etf.Term) error {
 	return ErrProtoUnsupported
 }
-func (p *Proto) SendReg(from gen.Process, to gen.ProcessID, message etf.Term) error {
+func (c *Connection) SendReg(from gen.Process, to gen.ProcessID, message etf.Term) error {
 	return ErrProtoUnsupported
 }
-func (p *Proto) SendAlias(from gen.Process, to etf.Alias, message etf.Term) error {
+func (c *Connection) SendAlias(from gen.Process, to etf.Alias, message etf.Term) error {
 	return ErrProtoUnsupported
 }
-func (p *Proto) Link(local gen.Process, remote etf.Pid) error {
+func (c *Connection) Link(local gen.Process, remote etf.Pid) error {
 	return ErrProtoUnsupported
 }
-func (p *Proto) Unlink(local gen.Process, remote etf.Pid) error {
+func (c *Connection) Unlink(local gen.Process, remote etf.Pid) error {
 	return ErrProtoUnsupported
 }
-func (p *Proto) SendExit(local etf.Pid, remote etf.Pid) error {
+func (c *Connection) SendExit(local etf.Pid, remote etf.Pid) error {
 	return ErrProtoUnsupported
 }
-func (p *Proto) Monitor(local gen.Process, remote etf.Pid, ref etf.Ref) error {
+func (c *Connection) Monitor(local gen.Process, remote etf.Pid, ref etf.Ref) error {
 	return ErrProtoUnsupported
 }
-func (p *Proto) MonitorReg(local gen.Process, remote gen.ProcessID, ref etf.Ref) error {
+func (c *Connection) MonitorReg(local gen.Process, remote gen.ProcessID, ref etf.Ref) error {
 	return ErrProtoUnsupported
 }
-func (p *Proto) Demonitor(ref etf.Ref) error {
+func (c *Connection) Demonitor(ref etf.Ref) error {
 	return ErrProtoUnsupported
 }
-func (p *Proto) SendMonitorExitReg(process gen.Process, ref etf.Ref, reason string) error {
+func (c *Connection) MonitorExitReg(process gen.Process, reason string, ref etf.Ref) error {
 	return ErrProtoUnsupported
 }
-func (p *Proto) SendMonitorExit(process etf.Pid, ref etf.Ref, reason string) error {
+func (c *Connection) MonitorExit(to etf.Pid, terminated etf.Pid, reason string, ref etf.Ref) error {
 	return ErrProtoUnsupported
 }
-func (p *Proto) SpawnRequest() error {
+func (c *Connection) SpawnRequest() error {
 	return ErrProtoUnsupported
 }
-func (p *Proto) Proxy() error {
+func (c *Connection) Proxy() error {
 	return ErrProtoUnsupported
 }
-func (p *Proto) ProxyReg() error {
+func (c *Connection) ProxyReg() error {
 	return ErrProtoUnsupported
 }

@@ -234,11 +234,11 @@ func (p *process) DeleteAlias(alias etf.Alias) error {
 }
 
 // ListEnv
-func (p *process) ListEnv() map[string]interface{} {
+func (p *process) ListEnv() map[gen.EnvKey]interface{} {
 	p.RLock()
 	defer p.RUnlock()
 
-	env := make(map[string]interface{})
+	env := make(map[EnvKey]interface{})
 
 	if p.groupLeader != nil {
 		for key, value := range p.groupLeader.ListEnv() {
@@ -258,7 +258,7 @@ func (p *process) ListEnv() map[string]interface{} {
 }
 
 // SetEnv
-func (p *process) SetEnv(name string, value interface{}) {
+func (p *process) SetEnv(name gen.EnvKey, value interface{}) {
 	p.Lock()
 	defer p.Unlock()
 	if value == nil {
@@ -269,7 +269,7 @@ func (p *process) SetEnv(name string, value interface{}) {
 }
 
 // Env
-func (p *process) Env(name string) interface{} {
+func (p *process) Env(name gen.EnvKey) interface{} {
 	p.RLock()
 	defer p.RUnlock()
 
@@ -403,7 +403,23 @@ func (p *process) DemonitorNode(ref etf.Ref) bool {
 // MonitorProcess
 func (p *process) MonitorProcess(process interface{}) etf.Ref {
 	ref := p.MakeRef()
-	p.monitorProcess(p.self, process, ref)
+	switch mp := process.(type) {
+	case etf.Pid:
+		p.RouteMonitor(p.self, mp, ref)
+		return ref
+	case gen.ProcessID:
+		p.RouteMonitorReg(p.self, mp, ref)
+		return ref
+	case string:
+		p.RouteMonitorReg(p.self, gen.ProcessID{mp, string(p.self.Node)}, ref)
+		return ref
+	case etf.Atom:
+		p.RouteMonitorReg(p.self, gen.ProcessID{string(mp), string(p.self.Node)}, ref)
+		return ref
+	}
+
+	// create fake gen.ProcessID. Monitor will send MessageDown with "noproc" as a reason
+	p.RouteMonitorReg(p.self, gen.ProcessID{"", string(p.self.Node)}, ref)
 	return ref
 }
 

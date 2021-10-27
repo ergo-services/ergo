@@ -21,6 +21,10 @@ func StartNodeWithContext(ctx context.Context, name string, cookie string, opts 
 		Prefix:  VersionPrefix,
 		OTP:     VersionOTP,
 	}
+	if opts.Env == nil {
+		opts.Env = make(map[gen.EnvKey]interface{})
+	}
+	opts.Env[node.EnvKeyVersion] = version
 
 	// add erlang support application
 	opts.Applications = append([]gen.ApplicationBehavior{&erlang.KernelApp{}}, opts.Applications...)
@@ -35,5 +39,5 @@ func StartNodeWithContext(ctx context.Context, name string, cookie string, opts 
 		opts.Proto = dist.CreateDistProto()
 	}
 
-	return node.StartWithContext(context.WithValue(ctx, node.ContextKeyVersion, version), name, cookie, opts)
+	return node.StartWithContext(ctx, name, cookie, opts)
 }

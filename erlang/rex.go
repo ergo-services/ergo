@@ -43,7 +43,7 @@ func (r *rex) Init(process *gen.ServerProcess, args ...etf.Term) error {
 		}
 		r.methods[mf] = nil
 	}
-	node := process.Env("ergo:Node").(node.Node)
+	node := process.Env(node.EnvKeyNode).(node.Node)
 	node.ProvideRemoteSpawn("erpc", &erpc{})
 	return nil
 }

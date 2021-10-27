@@ -13,6 +13,9 @@ var (
 	ErrServerTerminated   = fmt.Errorf("Server terminated")
 )
 
+// EnvKey
+type EnvKey string
+
 // Process
 type Process interface {
 	Registrar
@@ -74,13 +77,13 @@ type Process interface {
 	// ListEnv returns a map of configured environment variables.
 	// It also includes environment variables from the GroupLeader and Parent.
 	// which are overlapped by priority: Process(Parent(GroupLeader))
-	ListEnv() map[string]interface{}
+	ListEnv() map[EnvKey]interface{}
 
 	// SetEnv set environment variable with given name. Use nil value to remove variable with given name.
-	SetEnv(name string, value interface{})
+	SetEnv(name EnvKey, value interface{})
 
 	// Env returns value associated with given environment name.
-	Env(name string) interface{}
+	Env(name EnvKey) interface{}
 
 	// Wait waits until process stopped
 	Wait()
@@ -195,7 +198,7 @@ type ProcessOptions struct {
 	// GroupLeader
 	GroupLeader Process
 	// Env set the process environment variables
-	Env map[string]interface{}
+	Env map[EnvKey]interface{}
 	// Compression enables compression for the messages sent outside this node
 	Compression bool
 }
