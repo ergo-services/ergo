@@ -251,11 +251,12 @@ type ConnectionInterface interface {
 	LinkExit(to etf.Pid, terminated etf.Pid, reason string) error
 
 	Monitor(by etf.Pid, process etf.Pid, ref etf.Ref) error
-	MonitorReg(by etf.Pid, process gen.ProcessID, ref etf.Ref) error
 	Demonitor(by etf.Pid, process etf.Pid, ref etf.Ref) error
+	MonitorExit(to etf.Pid, terminated etf.Pid, reason string, ref etf.Ref) error
+
+	MonitorReg(by etf.Pid, process gen.ProcessID, ref etf.Ref) error
 	DemonitorReg(by etf.Pid, process gen.ProcessID, ref etf.Ref) error
 	MonitorExitReg(to etf.Pid, terminated gen.Process, reason string, ref etf.Ref) error
-	MonitorExit(to etf.Pid, terminated etf.Pid, reason string, ref etf.Ref) error
 
 	SpawnRequest()
 

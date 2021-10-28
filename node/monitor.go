@@ -417,16 +417,17 @@ func (m *monitor) RouteLink(pidA etf.Pid, pidB etf.Pid) error {
 	// Links are bidirectional and there can only be one link between
 	// two processes. Repeated calls to link(Pid) have no effect.
 
-	// If the link already exists or a process attempts to create
-	// a link to itself, nothing is done.
+	// Returns error if link is already exist or a process attempts to create
+	// a link to itself
+
 	if pidA == pidB {
 		return fmt.Errorf("Can not link to itself")
 	}
 
 	m.mutexLinks.Lock()
-	defer m.mutexLinks.Unlock()
-
 	linksA := m.links[pidA]
+	m.mutexLinks.Unlock()
+
 	if pidA.Node == etf.Atom(m.nodename) {
 		// check if these processes are linked already (source)
 		for i := range linksA {
@@ -435,11 +436,13 @@ func (m *monitor) RouteLink(pidA etf.Pid, pidB etf.Pid) error {
 			}
 		}
 
-		m.links[pidA] = append(linksA, pidB)
 	}
 
 	// check if these processes are linked already (destination)
+	m.mutexLinks.Lock()
 	linksB := m.links[pidB]
+	m.mutexLinks.Unlock()
+
 	for i := range linksB {
 		if linksB[i] == pidA {
 			return fmt.Errorf("Already linked")
@@ -451,31 +454,26 @@ func (m *monitor) RouteLink(pidA etf.Pid, pidB etf.Pid) error {
 		// otherwise send 'EXIT' message with 'noproc' as a reason
 		if p := m.router.ProcessByPid(pidB); p == nil {
 			m.RouteExit(pidA, pidB, "noproc")
-			if len(linksA) > 0 {
-				m.links[pidA] = linksA
-			} else {
-				delete(m.links, pidA)
-			}
-			return nil
+			return ErrProcessUnknown
 		}
-	} else {
-		// linking with remote process
-		m.router
-
-		message := etf.Tuple{distProtoLINK, pidA, pidB}
-		if err := m.router.routeRaw(pidB.Node, message); err != nil {
-			// seems we have no connection with this node. notify the sender
-			// with 'EXIT' message and 'noconnection' as a reason
-			m.RouteExit(pidA, pidB, "noconnection")
-			if len(linksA) > 0 {
-				m.links[pidA] = linksA
-			} else {
-				delete(m.links, pidA)
-			}
-			return nil
-		}
+		m.links[pidA] = append(linksA, pidB)
+		m.links[pidB] = append(linksB, pidA)
+		return nil
 	}
 
+	// linking with remote process
+	connection, err := m.router.GetConnection(string(pidB.Node))
+	if err != nil {
+		m.RouteExit(pidA, pidB, "noconnection")
+		return err
+	}
+
+	if err := connection.Link(pidA, pidB); err != nil {
+		m.RouteExit(pidA, pidB, err.Error())
+		return err
+	}
+
+	m.links[pidA] = append(linksA, pidB)
 	m.links[pidB] = append(linksB, pidA)
 	return nil
 }
@@ -485,8 +483,11 @@ func (m *monitor) RouteUnlink(pidA etf.Pid, pidB etf.Pid) error {
 	defer m.mutexLinks.Unlock()
 
 	if pidB.Node != etf.Atom(m.nodename) {
-		message := etf.Tuple{distProtoUNLINK, pidA, pidB}
-		m.router.routeRaw(pidB.Node, message)
+		connection, err := m.router.GetConnection(string(pidB.Node))
+		if err != nil {
+			m.RouteExit(pidA, pidB, "noconnection")
+			return err
+		}
 	}
 
 	if pidA.Node == etf.Atom(m.nodename) {
@@ -504,7 +505,6 @@ func (m *monitor) RouteUnlink(pidA etf.Pid, pidB etf.Pid) error {
 				delete(m.links, pidA)
 			}
 			break
-
 		}
 	}
 
