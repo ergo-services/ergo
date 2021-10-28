@@ -21,6 +21,7 @@ var (
 	ErrProcessUnknown       = fmt.Errorf("Unknown process")
 	ErrProcessIncarnation   = fmt.Errorf("Process ID belongs to the previous incarnation")
 	ErrProcessTerminated    = fmt.Errorf("Process terminated")
+	ErrMonitorUnknown       = fmt.Errorf("Unknown monitor reference")
 	ErrSenderUnknown        = fmt.Errorf("Unknown sender")
 	ErrBehaviorUnknown      = fmt.Errorf("Unknown behavior")
 	ErrBehaviorGroupUnknown = fmt.Errorf("Unknown behavior group")
@@ -247,11 +248,12 @@ type ConnectionInterface interface {
 
 	Link(local gen.Process, remote etf.Pid) error
 	Unlink(local gen.Process, remote etf.Pid) error
-	SendExit(local etf.Pid, remote etf.Pid) error
+	LinkExit(to etf.Pid, terminated etf.Pid, reason string) error
 
-	Monitor(local gen.Process, remote etf.Pid, ref etf.Ref) error
-	MonitorReg(local gen.Process, remote gen.ProcessID, ref etf.Ref) error
-	Demonitor(ref etf.Ref) error
+	Monitor(by etf.Pid, process etf.Pid, ref etf.Ref) error
+	MonitorReg(by etf.Pid, process gen.ProcessID, ref etf.Ref) error
+	Demonitor(by etf.Pid, process etf.Pid, ref etf.Ref) error
+	DemonitorReg(by etf.Pid, process gen.ProcessID, ref etf.Ref) error
 	MonitorExitReg(to etf.Pid, terminated gen.Process, reason string, ref etf.Ref) error
 	MonitorExit(to etf.Pid, terminated etf.Pid, reason string, ref etf.Ref) error
 
