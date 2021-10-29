@@ -440,7 +440,7 @@ func (p *process) MonitorProcess(process interface{}) etf.Ref {
 
 // DemonitorProcess
 func (p *process) DemonitorProcess(ref etf.Ref) bool {
-	return p.demonitorProcess(ref)
+	return p.RouteDemonitor(p.self, ref)
 }
 
 // RemoteSpawn
@@ -473,7 +473,7 @@ func (p *process) RemoteSpawn(node string, object string, opts gen.RemoteSpawnOp
 	case etf.Pid:
 		m := etf.Ref{} // empty reference
 		if opts.Monitor != m {
-			p.monitorProcess(p.self, r, opts.Monitor)
+			p.RouteMonitor(p.self, r, opts.Monitor)
 		}
 		if opts.Link {
 			p.Link(r)

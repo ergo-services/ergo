@@ -28,9 +28,16 @@ import (
 	"time"
 )
 
-const ()
-
 type networkInternal interface {
+	// AddStaticRoute
+	AddStaticRoute(name string, port uint16) error
+	// AddStaticRouteExt
+	AddStaticRouteExt(name string, port uint16, cookie string, tls bool) error
+	// RemoveStaticRoute
+	RemoveStaticRoute(name string)
+	// Resolve
+	Resolve(name string) (NetworkRoute, error)
+
 	connect(to string) error
 }
 

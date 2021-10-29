@@ -98,7 +98,7 @@ func StartWithContext(ctx context.Context, name string, cookie string, opts Opti
 		return nil, fmt.Errorf("Proto must be defined")
 	}
 
-	core, err := newCore(nodectx, name, creation, node)
+	core, err := newCore(nodectx, name, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -157,6 +157,16 @@ func (n *node) Spawn(name string, opts gen.ProcessOptions, object gen.ProcessBeh
 	return n.spawn(name, options, object, args...)
 }
 
+// RegisterName
+func (n *node) RegisterName(name string, pid etf.Pid) error {
+	return n.registerName(name, pid)
+}
+
+// UnregisterName
+func (n *node) UnregisterName(name string) error {
+	return n.unregisterName(name)
+}
+
 // Stop
 func (n *node) Stop() {
 	n.coreStop()
@@ -185,16 +195,6 @@ func (n *node) Wait() {
 // WaitWithTimeout
 func (n *node) WaitWithTimeout(d time.Duration) error {
 	return n.coreWaitWithTimeout(d)
-}
-
-// RegisterName
-func (n *node) RegisterName(name string, pid etf.Pid) error {
-	return n.registerName(name, pid)
-}
-
-// UnregisterName
-func (n *node) UnregisterName(name string) error {
-	return n.unregisterName(name)
 }
 
 // LoadedApplications returns a list of loaded applications (including running applications)

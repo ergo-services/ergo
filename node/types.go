@@ -87,14 +87,22 @@ const (
 // Node
 type Node interface {
 	gen.Core
+	// Name returns node name
 	Name() string
+	// IsAlive returns true if node is still alive
 	IsAlive() bool
+	// Uptime returns node uptime in seconds
 	Uptime() int64
+	// Version return node version
 	Version() Version
+	// Spawn spawns a new process
 	Spawn(name string, opts gen.ProcessOptions, object gen.ProcessBehavior, args ...etf.Term) (gen.Process, error)
 
+	// RegisterName
 	RegisterName(name string, pid etf.Pid) error
+	// UnregisterName
 	UnregisterName(name string) error
+
 	LoadedApplications() []gen.ApplicationInfo
 	WhichApplications() []gen.ApplicationInfo
 	ApplicationInfo(name string) (gen.ApplicationInfo, error)
@@ -113,11 +121,6 @@ type Node interface {
 	Monitors(process etf.Pid) []etf.Pid
 	MonitorsByName(process etf.Pid) []gen.ProcessID
 	MonitoredBy(process etf.Pid) []etf.Pid
-
-	AddStaticRoute(name string, port uint16) error
-	AddStaticRouteExt(name string, port uint16, cookie string, tls bool) error
-	RemoveStaticRoute(name string)
-	Resolve(name string) (NetworkRoute, error)
 
 	Stop()
 	Wait()

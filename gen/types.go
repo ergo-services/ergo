@@ -311,6 +311,15 @@ type Core interface {
 	RegisteredBehaviorGroup(group string) []RegisteredBehavior
 	// UnregisterBehavior
 	UnregisterBehavior(group, name string) error
+
+	// AddStaticRoute adds static route for the given node name which makes node skip resolving process
+	AddStaticRoute(name string, port uint16) error
+	// AddStaticRouteExt adds static route with extra options
+	AddStaticRouteExt(name string, port uint16, cookie string, tls bool) error
+	// RemoveStaticRoute removes given route added with AddStaticRoute[Ext] function
+	RemoveStaticRoute(name string)
+	// Resolve resolves name to the route options.
+	Resolve(name string) (NetworkRoute, error)
 }
 
 // RegisteredBehavior

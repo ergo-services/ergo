@@ -46,8 +46,10 @@ type coreInternal interface {
 	gen.Core
 
 	spawn(name string, opts processOptions, behavior gen.ProcessBehavior, args ...etf.Term) (gen.Process, error)
+
 	registerName(name string, pid etf.Pid) error
 	unregisterName(name string) error
+
 	registerPeer(peer *peer) error
 	unregisterPeer(name string)
 	newAlias(p *process) (etf.Alias, error)
@@ -80,8 +82,8 @@ func newCore(ctx context.Context, nodename string, options Options) (coreInterna
 	c.stop = corestop
 	c.ctx = corectx
 
-	monitor := newMonitor(r)
-	network, err := newNetwork(c.ctx, r)
+	monitor := newMonitor(c)
+	network, err := newNetwork(c.ctx, nodename, options, c)
 	if err != nil {
 		return nil, err
 	}
@@ -652,7 +654,7 @@ func (c *core) Nodes() []string {
 }
 
 //
-// implementation of Router interface:
+// implementation of CoreRouter interface:
 // RouteSend
 // RouteSendReg
 // RouteSendAlias

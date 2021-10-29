@@ -17,11 +17,23 @@ type monitorItem struct {
 }
 
 type monitorInternal interface {
-	link(pidA, pidB etf.Pid)
-	unlink(pidA, pidB etf.Pid)
+	// RouteLink
+	RouteLink(pidA etf.Pid, pidB etf.Pid) error
+	// RouteUnlink
+	RouteUnlink(pidA etf.Pid, pidB etf.Pid) error
+	// RouteExit
+	RouteExit(to etf.Pid, terminated etf.Pid, reason string) error
+	// RouteMonitorReg
+	RouteMonitorReg(by etf.Pid, process gen.ProcessID, ref etf.Ref) error
+	// RouteMonitor
+	RouteMonitor(by etf.Pid, process etf.Pid, ref etf.Ref) error
+	// RouteDemonitor
+	RouteDemonitor(by etf.Pid, ref etf.Ref) error
+	// RouteMonitorExitReg
+	RouteMonitorExitReg(to etf.Pid, terminated gen.ProcessID, reason string, ref etf.Ref) error
+	// RouteMonitorExit
+	RouteMonitorExit(to etf.Pid, terminated etf.Pid, reason string, ref etf.Ref) error
 
-	monitorProcess(by etf.Pid, process interface{}, ref etf.Ref)
-	demonitorProcess(ref etf.Ref) bool
 	monitorNode(by etf.Pid, node string, ref etf.Ref)
 	demonitorNode(ref etf.Ref) bool
 
@@ -54,10 +66,10 @@ type monitor struct {
 	mutexNodes sync.Mutex
 
 	nodename string
-	router   Router
+	router   CoreRouter
 }
 
-func newMonitor(nodename string, router Router) monitor {
+func newMonitor(nodename string, router CoreRouter) monitor {
 	return monitor{
 		processes: make(map[etf.Pid][]monitorItem),
 		names:     make(map[gen.ProcessID]monitorItem),
@@ -335,81 +347,19 @@ func (m *monitor) IsMonitor(ref etf.Ref) bool {
 	return false
 }
 
-func (m *monitor) RouteMonitorExit(to etf.Pid, terminated etf.Pid, reason string, ref etf.Ref) error {
-	if string(to.Node) != m.nodename {
-		// remote
-		if reason == "noconnection" {
-			// do nothing. it was a monitor created by the remote node we lost connection to.
-			return nil
-		}
-
-		connection, err := m.router.GetConnection(string(to.Node))
-		if err != nil {
-			return err
-		}
-
-		return connection.MonitorExit(to, terminated, reason, ref)
-	}
-
-	// local
-	down := gen.MessageDown{
-		Ref:    ref,
-		Pid:    terminated,
-		Reason: reason,
-	}
-	return m.router.RouteSend(terminated, to, down)
-}
-
-func (m *monitor) RouteMonitorExitReg(to etf.Pid, terminated gen.ProcessID, reason string, ref etf.Ref) error {
-	if string(to.Node) != m.nodename {
-		// remote
-		if reason == "noconnection" {
-			// do nothing
-			return nil
-		}
-
-		connection, err := m.router.GetConnection(string(to.Node))
-		if err != nil {
-			return err
-		}
-
-		return connection.MonitorExitReg(to, processID, reason, ref)
-	}
-
-	// local
-	down := gen.MessageDown{
-		Ref:       ref,
-		ProcessID: terminated,
-		Reason:    reason,
-	}
-	return m.router.RouteSend(terminated, to, down)
-}
-
-func (m *monitor) RouteExit(to etf.Pid, terminated etf.Pid, reason string) {
-	// for remote: {3, FromPid, ToPid, Reason}
-	if to.Node != etf.Atom(m.nodename) {
-		if reason == "noconnection" {
-			return
-		}
-		connection, err := m.router.GetConnection(string(to.Node))
-		if err != nil {
-			return err
-		}
-
-		return connection.LinkExit(to, terminated, reason)
-	}
-
-	// check if 'to' process is still alive. otherwise ignore this event
-	if p := m.router.ProcessByPid(to); p != nil {
-		p.exit(terminated, reason)
-	}
-}
-
 //
-// implementation of Router interface:
+// implementation of CoreRouter interface:
+//
 // RouteLink
 // RouteUnlink
+// RouteExit
+// RouteMonitor
+// RouteMonitorReg
+// RouteDemonitor
+// RouteMonitorExit
+// RouteMonitorExitReg
 //
+
 func (m *monitor) RouteLink(pidA etf.Pid, pidB etf.Pid) error {
 	lib.Log("[%s] LINK process: %v => %v", m.nodename, pidA, pidB)
 
@@ -526,6 +476,26 @@ func (m *monitor) RouteUnlink(pidA etf.Pid, pidB etf.Pid) error {
 	return nil
 }
 
+func (m *monitor) RouteExit(to etf.Pid, terminated etf.Pid, reason string) {
+	// for remote: {3, FromPid, ToPid, Reason}
+	if to.Node != etf.Atom(m.nodename) {
+		if reason == "noconnection" {
+			return
+		}
+		connection, err := m.router.GetConnection(string(to.Node))
+		if err != nil {
+			return err
+		}
+
+		return connection.LinkExit(to, terminated, reason)
+	}
+
+	// check if 'to' process is still alive. otherwise ignore this event
+	if p := m.router.ProcessByPid(to); p != nil {
+		p.exit(terminated, reason)
+	}
+}
+
 func (m *monitor) RouteMonitor(by etf.Pid, pid etf.Pid, ref etf.Ref) error {
 	lib.Log("[%s] MONITOR process: %s => %s", m.nodename, by, process)
 
@@ -595,7 +565,7 @@ func (m *monitor) RouteMonitorReg(by etf.Pid, process gen.ProcessID, ref etf.Ref
 	return nil
 }
 
-func (m *monitor) RouterDemonitor(by etf.Pid, ref etf.Ref) error {
+func (m *monitor) RouteDemonitor(by etf.Pid, ref etf.Ref) error {
 	var pid etf.Pid
 	var processID gen.ProcessID
 	var knownRefByname, knownRefByPid bool
@@ -681,4 +651,54 @@ func (m *monitor) RouterDemonitor(by etf.Pid, ref etf.Ref) error {
 		return nil
 	}
 	return true
+}
+
+func (m *monitor) RouteMonitorExit(to etf.Pid, terminated etf.Pid, reason string, ref etf.Ref) error {
+	if string(to.Node) != m.nodename {
+		// remote
+		if reason == "noconnection" {
+			// do nothing. it was a monitor created by the remote node we lost connection to.
+			return nil
+		}
+
+		connection, err := m.router.GetConnection(string(to.Node))
+		if err != nil {
+			return err
+		}
+
+		return connection.MonitorExit(to, terminated, reason, ref)
+	}
+
+	// local
+	down := gen.MessageDown{
+		Ref:    ref,
+		Pid:    terminated,
+		Reason: reason,
+	}
+	return m.router.RouteSend(terminated, to, down)
+}
+
+func (m *monitor) RouteMonitorExitReg(to etf.Pid, terminated gen.ProcessID, reason string, ref etf.Ref) error {
+	if string(to.Node) != m.nodename {
+		// remote
+		if reason == "noconnection" {
+			// do nothing
+			return nil
+		}
+
+		connection, err := m.router.GetConnection(string(to.Node))
+		if err != nil {
+			return err
+		}
+
+		return connection.MonitorExitReg(to, processID, reason, ref)
+	}
+
+	// local
+	down := gen.MessageDown{
+		Ref:       ref,
+		ProcessID: terminated,
+		Reason:    reason,
+	}
+	return m.router.RouteSend(terminated, to, down)
 }
