@@ -23,8 +23,7 @@ type nodeInternal interface {
 
 // node instance of created node using CreateNode
 type node struct {
-	registrarInternal
-	networkInternal
+	coreInternal
 
 	name     string
 	cookie   string
@@ -36,7 +35,7 @@ type node struct {
 }
 
 // StartWithContext create new node with specified context, name and cookie string
-func StartWithContext(ctx context.Context, name string, cookie string, opts Options) (nodeInternal, error) {
+func StartWithContext(ctx context.Context, name string, cookie string, opts Options) (Node, error) {
 
 	lib.Log("Start with name '%s' and cookie '%s'", name, cookie)
 	nodectx, nodestop := context.WithCancel(ctx)
@@ -99,15 +98,13 @@ func StartWithContext(ctx context.Context, name string, cookie string, opts Opti
 		return nil, fmt.Errorf("Proto must be defined")
 	}
 
-	registrar := newRegistrar(nodectx, name, creation, node)
-	network, err := newNetwork(nodectx, name, opts, Router(registrar))
+	core, err := newCore(nodectx, name, creation, node)
 	if err != nil {
 		return nil, err
 	}
 
 	node.name = name
-	node.registrarInternal = registrar
-	node.networkInternal = network
+	node.coreInternal = core
 
 	// initialize handshake
 	if err := opts.Handshake.Init(name, cookie, opts.ProtoOptions); err != nil {
@@ -146,39 +143,9 @@ func StartWithContext(ctx context.Context, name string, cookie string, opts Opti
 	return node, nil
 }
 
-// IsAlive returns true if node is running
-func (n *node) IsAlive() bool {
-	return n.context.Err() == nil
-}
-
-// Wait waits until node stopped
-func (n *node) Wait() {
-	<-n.context.Done()
-}
-
-// Uptime return uptime in seconds
-func (n *node) Uptime() int64 {
-	return time.Now().Unix() - int64(n.creation)
-}
-
 // Version returns version of the node
 func (n *node) Version() Version {
 	return n.version
-}
-
-// WaitWithTimeout waits until node stopped. Return ErrTimeout
-// if given timeout is exceeded
-func (n *node) WaitWithTimeout(d time.Duration) error {
-
-	timer := time.NewTimer(d)
-	defer timer.Stop()
-
-	select {
-	case <-timer.C:
-		return ErrTimeout
-	case <-n.context.Done():
-		return nil
-	}
 }
 
 // Spawn
@@ -192,12 +159,32 @@ func (n *node) Spawn(name string, opts gen.ProcessOptions, object gen.ProcessBeh
 
 // Stop
 func (n *node) Stop() {
-	n.stop()
+	n.coreStop()
 }
 
 // Name
 func (n *node) Name() string {
 	return n.name
+}
+
+// IsAlive
+func (n *node) IsAlive() bool {
+	return n.coreIsAlive()
+}
+
+// Uptime
+func (n *node) Uptime() int64 {
+	return n.coreUptime()
+}
+
+// Wait
+func (n *node) Wait() {
+	n.coreWait()
+}
+
+// WaitWithTimeout
+func (n *node) WaitWithTimeout(d time.Duration) error {
+	return n.coreWaitWithTimeout(d)
 }
 
 // RegisterName

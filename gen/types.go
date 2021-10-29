@@ -18,10 +18,11 @@ type EnvKey string
 
 // Process
 type Process interface {
-	Registrar
+	Core
 
 	// Spawn create a new process with parent
 	Spawn(name string, opts ProcessOptions, object ProcessBehavior, args ...etf.Term) (Process, error)
+
 	// RemoteSpawn creates a new process at a remote node. The object name is a regitered behavior on a remote name using RegisterBehavior(...). Init callback of the started remote process will receive gen.RemoteSpawnRequest as an argument.
 	RemoteSpawn(node string, object string, opts RemoteSpawnOptions, args ...etf.Term) (etf.Pid, error)
 	// Name returns process name used on starting.
@@ -38,6 +39,9 @@ type Process interface {
 
 	// NodeStop stops the node
 	NodeStop()
+
+	// NodeUptime returns node lifespan
+	NodeUptime() int64
 
 	// Info returns process details
 	Info() ProcessInfo
@@ -265,8 +269,8 @@ type ProcessBehavior interface {
 	ProcessLoop(ProcessState, chan<- bool) string // method which implements control flow of process
 }
 
-// Registrar the common set of methods provided by Process and node.Node interfaces
-type Registrar interface {
+// Core the common set of methods provided by Process and node.Node interfaces
+type Core interface {
 	// Nodes returns the list of connected nodes
 	Nodes() []string
 

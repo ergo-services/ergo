@@ -17,7 +17,7 @@ const (
 )
 
 type process struct {
-	registrarInternal
+	coreInternal
 	sync.RWMutex
 
 	name     string
@@ -330,6 +330,21 @@ func (p *process) IsAlive() bool {
 		return false
 	}
 	return p.context.Err() == nil
+}
+
+// NodeName
+func (p *process) NodeName() string {
+	return p.coreNodeName()
+}
+
+// NodeStop
+func (p *process) NodeStop() {
+	p.coreStop()
+}
+
+// NodeUptime
+func (p *process) NodeUptime() int64 {
+	return p.coreUptime()
 }
 
 // Children

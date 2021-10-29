@@ -86,7 +86,7 @@ const (
 
 // Node
 type Node interface {
-	gen.Registrar
+	gen.Core
 	Name() string
 	IsAlive() bool
 	Uptime() int64
@@ -131,8 +131,8 @@ type Version struct {
 	OTP     int
 }
 
-// Router routes messages from/to remote node
-type Router interface {
+// CoreRouter routes messages from/to remote node
+type CoreRouter interface {
 
 	// implemented by registrar
 

@@ -31,7 +31,6 @@ import (
 const ()
 
 type networkInternal interface {
-	Network
 	connect(to string) error
 }
 

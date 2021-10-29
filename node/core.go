@@ -17,16 +17,17 @@ const (
 	startPID = 1000
 )
 
-type registrar struct {
-	monitor
-	ctx context.Context
+type core struct {
+	monitorInternal
+	networkInternal
+
+	ctx  context.Context
+	stop context.CancelFunc
 
 	nextPID  uint64
 	uniqID   uint64
 	nodename string
 	creation uint32
-
-	node nodeInternal
 
 	names            map[string]etf.Pid
 	mutexNames       sync.Mutex
@@ -41,10 +42,8 @@ type registrar struct {
 	mutexBehaviors sync.Mutex
 }
 
-type registrarInternal interface {
-	gen.Registrar
-	Router
-	monitorInternal
+type coreInternal interface {
+	gen.Core
 
 	spawn(name string, opts processOptions, behavior gen.ProcessBehavior, args ...etf.Term) (gen.Process, error)
 	registerName(name string, pid etf.Pid) error
@@ -53,110 +52,150 @@ type registrarInternal interface {
 	unregisterPeer(name string)
 	newAlias(p *process) (etf.Alias, error)
 	deleteAlias(owner *process, alias etf.Alias) error
-	getProcessByPid(etf.Pid) *process
 
-	route(from etf.Pid, to etf.Term, message etf.Term) error
-	routeRaw(nodename etf.Atom, messages ...etf.Term) error
+	coreNodeName() string
+	coreStop()
+	coreUptime() int64
+
+	coreWait()
+	coreWaitWithTimeout(d time.Duration) error
 }
 
-func newRegistrar(ctx context.Context, nodename string, creation uint32, node nodeInternal) registrarInternal {
-	r := &registrar{
+func newCore(ctx context.Context, nodename string, options Options) (coreInternal, error) {
+	c := &core{
 		ctx:     ctx,
 		nextPID: startPID,
 		uniqID:  uint64(time.Now().UnixNano()),
 		// keep node to get the process to access to the node's methods
-		node:        node.(nodeInternal),
 		nodename:    nodename,
-		creation:    creation,
+		creation:    options.Creation,
 		names:       make(map[string]etf.Pid),
 		aliases:     make(map[etf.Alias]*process),
 		processes:   make(map[uint64]*process),
 		connections: make(map[string]*Connection),
 		behaviors:   make(map[string]map[string]gen.RegisteredBehavior),
 	}
-	r.monitor = newMonitor(r)
-	return r
+
+	corectx, corestop := context.WithCancel(ctx)
+	c.stop = corestop
+	c.ctx = corectx
+
+	monitor := newMonitor(r)
+	network, err := newNetwork(c.ctx, r)
+	if err != nil {
+		return nil, err
+	}
+	c.networkInternal = network
+	c.monitorInternal = monitor
+	return c, nil
 }
 
 // NodeName
-func (r *registrar) NodeName() string {
-	return r.nodename
+func (c *core) coreNodeName() string {
+	return c.nodename
 }
 
-// NodeStop
-func (r *registrar) NodeStop() {
-	r.node.Stop()
+func (c *core) coreStop() {
+	c.stop()
 }
 
-func (r *registrar) newPID() etf.Pid {
+// Uptime return uptime in seconds
+func (c *core) coreUptime() int64 {
+	return time.Now().Unix() - int64(c.creation)
+}
+
+// Wait waits until node stopped
+func (c *core) coreWait() {
+	<-c.ctx.Done()
+}
+
+// WaitWithTimeout waits until node stopped. Return ErrTimeout
+// if given timeout is exceeded
+func (c *core) coreWaitWithTimeout(d time.Duration) error {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+
+	select {
+	case <-timer.C:
+		return ErrTimeout
+	case <-c.ctx.Done():
+		return nil
+	}
+}
+
+// IsAlive returns true if node is running
+func (c *core) coreIsAlive() bool {
+	return c.ctx.Err() == nil
+}
+
+func (c *core) newPID() etf.Pid {
 	// http://erlang.org/doc/apps/erts/erl_ext_dist.html#pid_ext
 	// https://stackoverflow.com/questions/243363/can-someone-explain-the-structure-of-a-pid-in-erlang
-	i := atomic.AddUint64(&r.nextPID, 1)
+	i := atomic.AddUint64(&c.nextPID, 1)
 	return etf.Pid{
-		Node:     etf.Atom(r.nodename),
+		Node:     etf.Atom(c.nodename),
 		ID:       i,
-		Creation: r.creation,
+		Creation: c.creation,
 	}
 
 }
 
 // MakeRef returns atomic reference etf.Ref within this node
-func (r *registrar) MakeRef() (ref etf.Ref) {
-	ref.Node = etf.Atom(r.nodename)
-	ref.Creation = r.creation
-	nt := atomic.AddUint64(&r.uniqID, 1)
+func (c *core) MakeRef() (ref etf.Ref) {
+	ref.Node = etf.Atom(c.nodename)
+	ref.Creation = c.creation
+	nt := atomic.AddUint64(&c.uniqID, 1)
 	ref.ID[0] = uint32(uint64(nt) & ((2 << 17) - 1))
 	ref.ID[1] = uint32(uint64(nt) >> 46)
-
 	return
 }
 
 // IsAlias
-func (r *registrar) IsAlias(alias etf.Alias) bool {
-	r.mutexAliases.Lock()
-	_, ok := r.aliases[alias]
-	r.mutexAliases.Unlock()
+func (c *core) IsAlias(alias etf.Alias) bool {
+	c.mutexAliases.Lock()
+	_, ok := c.aliases[alias]
+	c.mutexAliases.Unlock()
 	return ok
 }
 
-func (r *registrar) newAlias(p *process) (etf.Alias, error) {
+func (c *core) newAlias(p *process) (etf.Alias, error) {
 	var alias etf.Alias
 
 	// chech if its alive
-	r.mutexProcesses.Lock()
-	_, exist := r.processes[p.self.ID]
-	r.mutexProcesses.Unlock()
+	c.mutexProcesses.Lock()
+	_, exist := c.processes[p.self.ID]
+	c.mutexProcesses.Unlock()
 	if !exist {
 		return alias, ErrProcessUnknown
 	}
 
-	alias = etf.Alias(r.MakeRef())
-	lib.Log("[%s] REGISTRAR create process alias for %v: %s", r.nodename, p.self, alias)
+	alias = etf.Alias(c.MakeRef())
+	lib.Log("[%s] CORE create process alias for %v: %s", c.nodename, p.self, alias)
 
-	r.mutexAliases.Lock()
-	r.aliases[alias] = p
-	r.mutexAliases.Unlock()
+	c.mutexAliases.Lock()
+	c.aliases[alias] = p
+	c.mutexAliases.Unlock()
 
-	p.Lock()
-	p.aliases = append(p.aliases, alias)
-	p.Unlock()
+	c.Lock()
+	c.aliases = append(c.aliases, alias)
+	c.Unlock()
 	return alias, nil
 }
 
-func (r *registrar) deleteAlias(owner *process, alias etf.Alias) error {
-	lib.Log("[%s] REGISTRAR delete process alias %v for %v", r.nodename, alias, owner.self)
+func (c *core) deleteAlias(owner *process, alias etf.Alias) error {
+	lib.Log("[%s] CORE delete process alias %v for %v", c.nodename, alias, owner.self)
 
-	r.mutexAliases.Lock()
-	p, alias_exist := r.aliases[alias]
-	r.mutexAliases.Unlock()
+	c.mutexAliases.Lock()
+	p, alias_exist := c.aliases[alias]
+	c.mutexAliases.Unlock()
 
 	if !alias_exist {
 		return ErrAliasUnknown
 	}
 
-	r.mutexProcesses.Lock()
-	_, process_exist := r.processes[owner.self.ID]
-	r.mutexProcesses.Unlock()
+	c.mutexProcesses.Lock()
+	_, process_exist := c.processes[owner.self.ID]
+	c.mutexProcesses.Unlock()
 
 	if !process_exist {
 		return ErrProcessUnknown
@@ -179,14 +218,14 @@ func (r *registrar) deleteAlias(owner *process, alias etf.Alias) error {
 
 	p.Unlock()
 	fmt.Println("Bug: Process lost its alias. Please, report this issue")
-	r.mutexAliases.Lock()
+	c.mutexAliases.Lock()
 	delete(r.aliases, alias)
-	r.mutexAliases.Unlock()
+	c.mutexAliases.Unlock()
 
 	return ErrAliasUnknown
 }
 
-func (r *registrar) newProcess(name string, behavior gen.ProcessBehavior, opts processOptions) (*process, error) {
+func (c *core) newProcess(name string, behavior gen.ProcessBehavior, opts processOptions) (*process, error) {
 
 	var parentContext context.Context
 
@@ -195,17 +234,17 @@ func (r *registrar) newProcess(name string, behavior gen.ProcessBehavior, opts p
 		mailboxSize = int(opts.MailboxSize)
 	}
 
-	parentContext = r.ctx
+	parentContext = c.ctx
 
 	processContext, kill := context.WithCancel(parentContext)
 	if opts.Context != nil {
 		processContext, _ = context.WithCancel(opts.Context)
 	}
 
-	pid := r.newPID()
+	pid := c.newPID()
 
 	env := make(map[string]interface{})
-	for k, v := range r.node.env {
+	for k, v := range c.node.env {
 		env[k] = v
 	}
 	for k, v := range opts.Env {
@@ -213,7 +252,7 @@ func (r *registrar) newProcess(name string, behavior gen.ProcessBehavior, opts p
 	}
 
 	process := &process{
-		registrarInternal: r,
+		coreInternal: c,
 
 		self:     pid,
 		name:     name,
@@ -234,7 +273,7 @@ func (r *registrar) newProcess(name string, behavior gen.ProcessBehavior, opts p
 	}
 
 	process.exit = func(from etf.Pid, reason string) error {
-		lib.Log("[%s] EXIT from %s to %s with reason: %s", r.nodename, from, pid, reason)
+		lib.Log("[%s] EXIT from %s to %s with reason: %s", c.nodename, from, pid, reason)
 		if processContext.Err() != nil {
 			// process is already died
 			return ErrProcessUnknown
@@ -262,65 +301,65 @@ func (r *registrar) newProcess(name string, behavior gen.ProcessBehavior, opts p
 	}
 
 	if name != "" {
-		lib.Log("[%s] REGISTRAR registering name (%s): %s", r.nodename, pid, name)
-		r.mutexNames.Lock()
-		if _, exist := r.names[name]; exist {
-			r.mutexNames.Unlock()
+		lib.Log("[%s] CORE registering name (%s): %s", c.nodename, pid, name)
+		c.mutexNames.Lock()
+		if _, exist := c.names[name]; exist {
+			c.mutexNames.Unlock()
 			return nil, ErrTaken
 		}
-		r.names[name] = process.self
-		r.mutexNames.Unlock()
+		c.names[name] = process.self
+		c.mutexNames.Unlock()
 	}
 
-	lib.Log("[%s] REGISTRAR registering process: %s", r.nodename, pid)
-	r.mutexProcesses.Lock()
-	r.processes[process.self.ID] = process
-	r.mutexProcesses.Unlock()
+	lib.Log("[%s] CORE registering process: %s", c.nodename, pid)
+	c.mutexProcesses.Lock()
+	c.processes[process.self.ID] = process
+	c.mutexProcesses.Unlock()
 
 	return process, nil
 }
 
-func (r *registrar) deleteProcess(pid etf.Pid) {
-	r.mutexProcesses.Lock()
-	p, exist := r.processes[pid.ID]
+func (c *core) deleteProcess(pid etf.Pid) {
+	c.mutexProcesses.Lock()
+	p, exist := c.processes[pid.ID]
 	if !exist {
-		r.mutexProcesses.Unlock()
+		c.mutexProcesses.Unlock()
 		return
 	}
-	lib.Log("[%s] REGISTRAR unregistering process: %s", r.nodename, p.self)
-	delete(r.processes, pid.ID)
-	r.mutexProcesses.Unlock()
+	lib.Log("[%s] CORE unregistering process: %s", c.nodename, p.self)
+	delete(c.processes, pid.ID)
+	c.mutexProcesses.Unlock()
 
-	r.mutexNames.Lock()
+	c.mutexNames.Lock()
 	if (p.name) != "" {
-		lib.Log("[%s] REGISTRAR unregistering name (%s): %s", r.nodename, p.self, p.name)
-		delete(r.names, p.name)
+		lib.Log("[%s] CORE unregistering name (%s): %s", c.nodename, p.self, p.name)
+		delete(c.names, p.name)
 	}
 
 	// delete names registered with this pid
-	for name, pid := range r.names {
+	for name, pid := range c.names {
 		if p.self == pid {
-			delete(r.names, name)
+			delete(c.names, name)
 		}
 	}
-	r.mutexNames.Unlock()
+	c.mutexNames.Unlock()
 
-	r.mutexAliases.Lock()
-	for alias := range r.aliases {
-		delete(r.aliases, alias)
+	c.mutexAliases.Lock()
+	for alias := range c.aliases {
+		delete(c.aliases, alias)
 	}
-	r.mutexAliases.Unlock()
+	c.mutexAliases.Unlock()
 
 	return
 }
 
-func (r *registrar) spawn(name string, opts processOptions, behavior gen.ProcessBehavior, args ...etf.Term) (gen.Process, error) {
+func (c *core) spawn(name string, opts processOptions, behavior gen.ProcessBehavior, args ...etf.Term) (gen.Process, error) {
 
-	process, err := r.newProcess(name, behavior, opts)
+	process, err := c.newProcess(name, behavior, opts)
 	if err != nil {
 		return nil, err
 	}
-	lib.Log("[%s] REGISTRAR spawn a new process %s (registered name: %q)", r.nodename, process.self, name)
+	lib.Log("[%s] CORE spawn a new process %s (registered name: %q)", c.nodename, process.self, name)
 
 	initProcess := func() (ps gen.ProcessState, err error) {
 		if lib.CatchPanic() {
@@ -329,7 +368,7 @@ func (r *registrar) spawn(name string, opts processOptions, behavior gen.Process
 					pc, fn, line, _ := runtime.Caller(2)
 					fmt.Printf("Warning: initialization process failed %s[%q] %#v at %s[%s:%d]\n",
 						process.self, name, rcv, runtime.FuncForPC(pc).Name(), fn, line)
-					r.deleteProcess(process.self)
+					c.deleteProcess(process.self)
 					err = fmt.Errorf("panic")
 				}
 			}()
@@ -350,12 +389,12 @@ func (r *registrar) spawn(name string, opts processOptions, behavior gen.Process
 	cleanProcess := func(reason string) {
 		// set gracefulExit to nil before we start termination handling
 		process.gracefulExit = nil
-		r.deleteProcess(process.self)
+		c.deleteProcess(process.self)
 		// invoke cancel context to prevent memory leaks
 		// and propagate context canelation
 		process.Kill()
 		// notify all the linked process and monitors
-		r.handleTerminated(process.self, name, reason)
+		c.handleTerminated(process.self, name, reason)
 		// make the rest empty
 		process.Lock()
 		process.aliases = []etf.Alias{}
@@ -401,67 +440,67 @@ func (r *registrar) spawn(name string, opts processOptions, behavior gen.Process
 	return process, nil
 }
 
-func (r *registrar) registerName(name string, pid etf.Pid) error {
-	lib.Log("[%s] REGISTRAR registering name %s", r.nodename, name)
-	r.mutexNames.Lock()
-	defer r.mutexNames.Unlock()
-	if _, ok := r.names[name]; ok {
+func (c *core) registerName(name string, pid etf.Pid) error {
+	lib.Log("[%s] CORE registering name %s", c.nodename, name)
+	c.mutexNames.Lock()
+	defer c.mutexNames.Unlock()
+	if _, ok := c.names[name]; ok {
 		// already registered
 		return ErrTaken
 	}
-	r.names[name] = pid
+	c.names[name] = pid
 	return nil
 }
 
-func (r *registrar) unregisterName(name string) error {
-	lib.Log("[%s] REGISTRAR unregistering name %s", r.nodename, name)
-	r.mutexNames.Lock()
-	defer r.mutexNames.Unlock()
-	if _, ok := r.names[name]; ok {
-		delete(r.names, name)
+func (c *core) unregisterName(name string) error {
+	lib.Log("[%s] CORE unregistering name %s", c.nodename, name)
+	c.mutexNames.Lock()
+	defer c.mutexNames.Unlock()
+	if _, ok := c.names[name]; ok {
+		delete(c.names, name)
 		return nil
 	}
 	return ErrNameUnknown
 }
 
-func (r *registrar) registerConnection(c *Connection) error {
-	lib.Log("[%s] REGISTRAR registering peer %#v", r.nodename, c.Name)
-	r.mutexConnections.Lock()
-	defer r.mutexConnection.Unlock()
+func (c *core) registerConnection(connection *Connection) error {
+	lib.Log("[%s] CORE registering peer %#v", c.nodename, connection.Name)
+	c.mutexConnections.Lock()
+	defer c.mutexConnection.Unlock()
 	// FIXME validate c.Name. must be abc@def format
 
-	if _, ok := r.connections[c.Name]; ok {
+	if _, ok := c.connections[connection.Name]; ok {
 		// already registered
 		return ErrTaken
 	}
-	r.connections[c.Name] = c
+	r.connections[connection.Name] = connection
 	return nil
 }
 
-func (r *registrar) unregisterConnection(name string) {
-	lib.Log("[%s] REGISTRAR unregistering peer %v", r.nodename, name)
-	r.mutexConnections.Lock()
-	defer r.mutexConnections.Unlock()
-	if _, ok := r.connections[name]; ok {
-		delete(r.connections, name)
-		r.handleNodeDown(name)
+func (c *core) unregisterConnection(name string) {
+	lib.Log("[%s] CORE unregistering peer %v", c.nodename, name)
+	c.mutexConnections.Lock()
+	defer c.mutexConnections.Unlock()
+	if _, ok := c.connections[name]; ok {
+		delete(c.connections, name)
+		c.handleNodeDown(name)
 		return
 	}
 }
 
 // RegisterBehavior
-func (r *registrar) RegisterBehavior(group, name string, behavior gen.ProcessBehavior, data interface{}) error {
-	lib.Log("[%s] REGISTRAR registering behavior %q in group %q ", r.nodename, name, group)
+func (c *core) RegisterBehavior(group, name string, behavior gen.ProcessBehavior, data interface{}) error {
+	lib.Log("[%s] CORE registering behavior %q in group %q ", c.nodename, name, group)
 	var groupBehaviors map[string]gen.RegisteredBehavior
 	var exist bool
 
-	r.mutexBehaviors.Lock()
-	defer r.mutexBehaviors.Unlock()
+	c.mutexBehaviors.Lock()
+	defer c.mutexBehaviors.Unlock()
 
-	groupBehaviors, exist = r.behaviors[group]
+	groupBehaviors, exist = c.behaviors[group]
 	if !exist {
 		groupBehaviors = make(map[string]gen.RegisteredBehavior)
-		r.behaviors[group] = groupBehaviors
+		c.behaviors[group] = groupBehaviors
 	}
 
 	_, exist = groupBehaviors[name]
@@ -478,15 +517,15 @@ func (r *registrar) RegisterBehavior(group, name string, behavior gen.ProcessBeh
 }
 
 // RegisteredBehavior
-func (r *registrar) RegisteredBehavior(group, name string) (gen.RegisteredBehavior, error) {
+func (c *core) RegisteredBehavior(group, name string) (gen.RegisteredBehavior, error) {
 	var groupBehaviors map[string]gen.RegisteredBehavior
 	var rb gen.RegisteredBehavior
 	var exist bool
 
-	r.mutexBehaviors.Lock()
-	defer r.mutexBehaviors.Unlock()
+	c.mutexBehaviors.Lock()
+	defer c.mutexBehaviors.Unlock()
 
-	groupBehaviors, exist = r.behaviors[group]
+	groupBehaviors, exist = c.behaviors[group]
 	if !exist {
 		return rb, ErrBehaviorGroupUnknown
 	}
@@ -499,15 +538,15 @@ func (r *registrar) RegisteredBehavior(group, name string) (gen.RegisteredBehavi
 }
 
 // RegisteredBehaviorGroup
-func (r *registrar) RegisteredBehaviorGroup(group string) []gen.RegisteredBehavior {
+func (c *core) RegisteredBehaviorGroup(group string) []gen.RegisteredBehavior {
 	var groupBehaviors map[string]gen.RegisteredBehavior
 	var exist bool
 	var listrb []gen.RegisteredBehavior
 
-	r.mutexBehaviors.Lock()
-	defer r.mutexBehaviors.Unlock()
+	c.mutexBehaviors.Lock()
+	defer c.mutexBehaviors.Unlock()
 
-	groupBehaviors, exist = r.behaviors[group]
+	groupBehaviors, exist = c.behaviors[group]
 	if !exist {
 		return listrb
 	}
@@ -519,15 +558,15 @@ func (r *registrar) RegisteredBehaviorGroup(group string) []gen.RegisteredBehavi
 }
 
 // UnregisterBehavior
-func (r *registrar) UnregisterBehavior(group, name string) error {
-	lib.Log("[%s] REGISTRAR unregistering behavior %s in group %s ", r.nodename, name, group)
+func (c *core) UnregisterBehavior(group, name string) error {
+	lib.Log("[%s] CORE unregistering behavior %s in group %s ", c.nodename, name, group)
 	var groupBehaviors map[string]gen.RegisteredBehavior
 	var exist bool
 
-	r.mutexBehaviors.Lock()
-	defer r.mutexBehaviors.Unlock()
+	c.mutexBehaviors.Lock()
+	defer c.mutexBehaviors.Unlock()
 
-	groupBehaviors, exist = r.behaviors[group]
+	groupBehaviors, exist = c.behaviors[group]
 	if !exist {
 		return ErrBehaviorUnknown
 	}
@@ -535,14 +574,14 @@ func (r *registrar) UnregisterBehavior(group, name string) error {
 
 	// remove group if its empty
 	if len(groupBehaviors) == 0 {
-		delete(r.behaviors, group)
+		delete(c.behaviors, group)
 	}
 	return nil
 }
 
 // ProcessInfo
-func (r *registrar) ProcessInfo(pid etf.Pid) (gen.ProcessInfo, error) {
-	p := r.ProcessByPid(pid)
+func (c *core) ProcessInfo(pid etf.Pid) (gen.ProcessInfo, error) {
+	p := c.ProcessByPid(pid)
 	if p == nil {
 		return gen.ProcessInfo{}, fmt.Errorf("undefined")
 	}
@@ -551,30 +590,22 @@ func (r *registrar) ProcessInfo(pid etf.Pid) (gen.ProcessInfo, error) {
 }
 
 // ProcessByPid
-func (r *registrar) ProcessByPid(pid etf.Pid) gen.Process {
-	if p := r.getProcessByPid(pid); p != nil && p.IsAlive() {
+func (c *core) ProcessByPid(pid etf.Pid) gen.Process {
+	c.mutexProcesses.Lock()
+	defer c.mutexProcesses.Unlock()
+	if p, ok := c.processes[pid.ID]; ok && p.IsAlive() {
 		return p
 	}
-	// we must return nil explicitly, otherwise returning value is not nil
-	// even for the nil(*process) due to the nature of interface type
-	return nil
-}
 
-func (r *registrar) getProcessByPid(pid etf.Pid) *process {
-	r.mutexProcesses.Lock()
-	defer r.mutexProcesses.Unlock()
-	if p, ok := r.processes[pid.ID]; ok {
-		return p
-	}
 	// unknown process
 	return nil
 }
 
 // ProcessByAlias
-func (r *registrar) ProcessByAlias(alias etf.Alias) gen.Process {
-	r.mutexAliases.Lock()
-	defer r.mutexAliases.Unlock()
-	if p, ok := r.aliases[alias]; ok && p.IsAlive() {
+func (c *core) ProcessByAlias(alias etf.Alias) gen.Process {
+	c.mutexAliases.Lock()
+	defer c.mutexAliases.Unlock()
+	if p, ok := c.aliases[alias]; ok && p.IsAlive() {
 		return p
 	}
 	// unknown process
@@ -582,39 +613,39 @@ func (r *registrar) ProcessByAlias(alias etf.Alias) gen.Process {
 }
 
 // ProcessByName
-func (r *registrar) ProcessByName(name string) gen.Process {
+func (c *core) ProcessByName(name string) gen.Process {
 	var pid etf.Pid
 	if name != "" {
 		// requesting Process by name
-		r.mutexNames.Lock()
+		c.mutexNames.Lock()
 
-		if p, ok := r.names[name]; ok {
+		if p, ok := c.names[name]; ok {
 			pid = p
 		} else {
-			r.mutexNames.Unlock()
+			c.mutexNames.Unlock()
 			return nil
 		}
-		r.mutexNames.Unlock()
+		c.mutexNames.Unlock()
 	}
 
-	return r.ProcessByPid(pid)
+	return c.ProcessByPid(pid)
 }
 
 // ProcessList
-func (r *registrar) ProcessList() []gen.Process {
+func (c *core) ProcessList() []gen.Process {
 	list := []gen.Process{}
-	r.mutexProcesses.Lock()
-	for _, p := range r.processes {
+	c.mutexProcesses.Lock()
+	for _, p := range c.processes {
 		list = append(list, p)
 	}
-	r.mutexProcesses.Unlock()
+	c.mutexProcesses.Unlock()
 	return list
 }
 
 // Nodes
-func (r *registrar) Nodes() []string {
+func (c *core) Nodes() []string {
 	list := []string{}
-	for c := range r.connections {
+	for c := range c.connections {
 		list = append(list, c.Name)
 	}
 	return list
@@ -628,26 +659,26 @@ func (r *registrar) Nodes() []string {
 //
 
 // RouteSend implements RouteSend method of Router interface
-func (r *registrar) RouteSend(from etf.Pid, to etf.Pid, message etf.Term) error {
+func (c *core) RouteSend(from etf.Pid, to etf.Pid, message etf.Term) error {
 	// do not allow to send from the alien node. Proxy request must be used.
-	if string(from.Node) != r.nodename {
+	if string(from.Node) != c.nodename {
 		return ErrSenderUnknown
 	}
 
-	if string(to.Node) == r.nodename {
-		if to.Creation != r.creation {
+	if string(to.Node) == c.nodename {
+		if to.Creation != c.creation {
 			// message is addressed to the previous incarnation of this PID
 			return ErrProcessIncarnation
 		}
 		// local route
-		r.mutexProcesses.Lock()
-		p, exist := r.processes[to.ID]
-		r.mutexProcesses.Unlock()
+		c.mutexProcesses.Lock()
+		p, exist := c.processes[to.ID]
+		c.mutexProcesses.Unlock()
 		if !exist {
-			lib.Log("[%s] REGISTRAR route message by pid (local) %s failed. Unknown process", r.nodename, to)
+			lib.Log("[%s] CORE route message by pid (local) %s failed. Unknown process", c.nodename, to)
 			return ErrProcessUnknown
 		}
-		lib.Log("[%s] REGISTRAR route message by pid (local) %s", r.nodename, to)
+		lib.Log("[%s] CORE route message by pid (local) %s", c.nodename, to)
 		select {
 		case p.mailBox <- gen.ProcessMailboxMessage{from, message}:
 		default:
@@ -657,90 +688,90 @@ func (r *registrar) RouteSend(from etf.Pid, to etf.Pid, message etf.Term) error 
 	}
 
 	// sending to remote node
-	connection, err := r.GetConnection(string(to.Name))
+	connection, err := c.GetConnection(string(to.Name))
 	if err != nil {
 		return err
 	}
 
-	lib.Log("[%s] REGISTRAR route message by pid (remote) %s", r.nodename, to)
+	lib.Log("[%s] CORE route message by pid (remote) %s", c.nodename, to)
 	return connection.Send(from, to, message)
 }
 
 // RouteSendReg implements RouteSendReg method of Router interface
-func (r *registrar) RouteSendReg(from etf.Pid, to gen.ProcessID, message etf.Term) error {
+func (c *core) RouteSendReg(from etf.Pid, to gen.ProcessID, message etf.Term) error {
 	// do not allow to send from the alien node. Proxy request must be used.
-	if string(from.Node) != r.nodename {
+	if string(from.Node) != c.nodename {
 		return ErrSenderUnknown
 	}
 
-	if to.Node == r.nodename {
+	if to.Node == c.nodename {
 		// local route
-		r.mutexNames.Lock()
-		pid, ok := r.names[to.Name]
-		r.mutexNames.Unlock()
+		c.mutexNames.Lock()
+		pid, ok := c.names[to.Name]
+		c.mutexNames.Unlock()
 		if !ok {
-			lib.Log("[%s] REGISTRAR route message by gen.ProcessID (local) %s failed. Unknown process", r.nodename, to)
+			lib.Log("[%s] CORE route message by gen.ProcessID (local) %s failed. Unknown process", c.nodename, to)
 			return ErrProcessUnknown
 		}
-		lib.Log("[%s] REGISTRAR route message by gen.ProcessID (local) %s", r.nodename, to)
-		return r.RouteSend(from, pid, message)
+		lib.Log("[%s] CORE route message by gen.ProcessID (local) %s", c.nodename, to)
+		return c.RouteSend(from, pid, message)
 	}
 
 	// send to remote node
-	connection, err := r.GetConnection(string(to.Name))
+	connection, err := c.GetConnection(string(to.Name))
 	if err != nil {
 		return err
 	}
 
-	lib.Log("[%s] REGISTRAR route message by gen.ProcessID (remote) %s", r.nodename, to)
+	lib.Log("[%s] CORE route message by gen.ProcessID (remote) %s", c.nodename, to)
 	return connection.SendReg(from, to, message)
 }
 
 // RouteSendAlias implements RouteSendAlias method of Router interface
-func (r *registrar) RouteSendAlias(from etf.Pid, to etf.Alias, message etf.Term) error {
+func (c *core) RouteSendAlias(from etf.Pid, to etf.Alias, message etf.Term) error {
 	// do not allow to send from the alien node. Proxy request must be used.
-	if string(from.Node) != r.nodename {
+	if string(from.Node) != c.nodename {
 		return ErrSenderUnknown
 	}
 
-	lib.Log("[%s] REGISTRAR route message by alias %s", r.nodename, to)
-	if string(to.Node) == r.nodename {
+	lib.Log("[%s] CORE route message by alias %s", c.nodename, to)
+	if string(to.Node) == c.nodename {
 		// local route by alias
-		r.mutexAliases.Lock()
-		process, ok := r.aliases[to]
-		r.mutexAliases.Unlock()
+		c.mutexAliases.Lock()
+		process, ok := c.aliases[to]
+		c.mutexAliases.Unlock()
 		if !ok {
-			lib.Log("[%s] REGISTRAR route message by alias (local) %s failed. Unknown process", r.nodename, to)
+			lib.Log("[%s] CORE route message by alias (local) %s failed. Unknown process", c.nodename, to)
 			return ErrProcessUnknown
 		}
-		return r.RouteSend(from, process.self, message)
+		return c.RouteSend(from, process.self, message)
 	}
 
 	// send to remote node
-	connection, err := r.GetConnection(string(to.Name))
+	connection, err := c.GetConnection(string(to.Name))
 	if err != nil {
 		return err
 	}
 
-	lib.Log("[%s] REGISTRAR route message by alias (remote) %s", r.nodename, to)
+	lib.Log("[%s] CORE route message by alias (remote) %s", c.nodename, to)
 	return connection.SendAlias(from, to, message)
 }
 
-func (r *registrar) GetConnection(remoteNodeName string) (*Connection, error) {
-	r.mutexConnections.Lock()
-	connection, ok := r.connections[remoteNodeName]
-	r.mutexConnections.Unlock()
+func (c *core) GetConnection(remoteNodeName string) (*Connection, error) {
+	c.mutexConnections.Lock()
+	connection, ok := c.connections[remoteNodeName]
+	c.mutexConnections.Unlock()
 	if ok {
 		return connection, nil
 	}
 
-	if err := r.node.connect(remoteNodeName); err != nil {
-		lib.Log("[%s] REGISTRAR no route to node %q: %s", r.nodename, remoteNodeName, err)
+	if err := c.node.connect(remoteNodeName); err != nil {
+		lib.Log("[%s] CORE no route to node %q: %s", c.nodename, remoteNodeName, err)
 		return nil, ErrNoRoute
 	}
 
-	r.mutexConnections.Lock()
-	connection, _ = r.connections[remoteNodeName]
-	r.mutexConnection.Unlock()
+	c.mutexConnections.Lock()
+	connection, _ = c.connections[remoteNodeName]
+	c.mutexConnection.Unlock()
 	return connection, nil
 }
