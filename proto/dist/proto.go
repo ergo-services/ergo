@@ -55,7 +55,7 @@ type DistConnection struct {
 type DistProto struct {
 	node.Proto
 
-	router  node.Router
+	router  node.CoreRouter
 	options DistProtoOptions
 
 	// writer
@@ -88,7 +88,7 @@ func CreateDistProto() Proto {
 // node.Proto interface implementation
 //
 
-func (dp *DistProto) Init(router node.Router) error {
+func (dp *DistProto) Init(router node.CoreRouter) error {
 	dp.router = router
 	return nil
 }

@@ -95,7 +95,7 @@ func (n *network) RemoveStaticRoute(name string) {
 	n.epmd.removeStaticRoute(name)
 }
 
-func (n *network) listen(ctx context.Context, name string, router Router) (uint16, error) {
+func (n *network) listen(ctx context.Context, name string, router CoreRouter) (uint16, error) {
 	var TLSenabled bool = true
 
 	lc := net.ListenConfig{}
