@@ -35,7 +35,7 @@ func startServerEPMD(ctx context.Context, host string, port uint16) error {
 	}
 
 	epmd := epmd{
-		nodes: make(map[string]nodeinfo),
+		nodes: make(map[string]node),
 	}
 	go epmd.serve(listener)
 	lib.Log("Started embedded EMPD service and listen port: %d", port)
@@ -55,7 +55,7 @@ func (e *epmd) serve(l net.Listener) {
 	}
 }
 
-func (e *empdServer) handle(c net.Conn) {
+func (e *empd) handle(c net.Conn) {
 	buf := make([]byte, 1024)
 	name := ""
 
@@ -77,7 +77,7 @@ func (e *empdServer) handle(c net.Conn) {
 
 		switch buf[2] {
 		case epmdAliveReq:
-			name, node, err = e.readAliveReq(c)
+			name, node, err = e.readAliveReq(buf[3:])
 			if err != nil {
 				// send error and close connection
 				e.sendAliveResp(c, 1)
@@ -136,7 +136,7 @@ func (e *empdServer) handle(c net.Conn) {
 	}
 }
 
-func (e *epmd) readAliveReq(req []byte) (string, nodeinfo, error) {
+func (e *epmd) readAliveReq(req []byte) (string, node, error) {
 	if len(req) < 10 {
 		return "", nodeinfo{}, fmt.Errorf("Malformed EPMD request")
 	}
@@ -149,16 +149,16 @@ func (e *epmd) readAliveReq(req []byte) (string, nodeinfo, error) {
 	if req[2] == 72 {
 		hidden = true
 	}
-	// info
-	info := nodeinfo{
-		Port:      binary.BigEndian.Uint16(req[0:2]),
-		Hidden:    hidden,
-		HiVersion: binary.BigEndian.Uint16(req[4:6]),
-		LoVersion: binary.BigEndian.Uint16(req[6:8]),
-		Extra:     req[10+l],
+	// node
+	node := node{
+		port:   binary.BigEndian.Uint16(req[0:2]),
+		hidden: hidden,
+		hi:     binary.BigEndian.Uint16(req[4:6]),
+		lo:     binary.BigEndian.Uint16(req[6:8]),
+		extra:  req[10+l],
 	}
 
-	return name, info, nil
+	return name, node, nil
 }
 
 func (e *epmd) sendAliveResp(c net.Conn, code int) error {
@@ -173,7 +173,6 @@ func (e *epmd) sendAliveResp(c net.Conn, code int) error {
 }
 
 func (e *epmd) sendPortPleaseResp(c net.Conn, name string, node node) {
-
 	buf := make([]byte, 12+len(name)+2+len(node.extra))
 	buf[0] = epmdPortResp
 
@@ -201,7 +200,8 @@ func (e *epmd) sendPortPleaseResp(c net.Conn, name string, node node) {
 	l := len(info.extra)
 	binary.BigEndian.PutUint16(buf[offset:offset+2], uint16(l))
 	copy(buf[offset+2:offset+2+l], info.extra)
-
+	// send
+	c.Write(buf)
 	return
 }
 

@@ -23,10 +23,12 @@ const (
 	epmdAliveResp     = 121
 	epmdPortPleaseReq = 122
 	epmdPortResp      = 119
-	epmdNamesReq      = 110 // $n
-	epmdDumpReq       = 100 // $d
-	epmdKillReq       = 107 // $k
-	epmdStopReq       = 115 // $s
+	epmdNamesReq      = 110
+
+	// wont be implemented
+	// epmdDumpReq = 100
+	// epmdKillReq = 107
+	// epmdStopReq = 115
 
 	ergoExtraMagic        = 4411
 	ergoExtraVersion      = 1
