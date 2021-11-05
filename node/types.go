@@ -1,7 +1,7 @@
 package node
 
 import (
-	"context"
+	"crypto/tls"
 	"fmt"
 	"net"
 	"time"
@@ -32,53 +32,14 @@ var (
 	ErrTimeout              = fmt.Errorf("Timed out")
 	ErrFragmented           = fmt.Errorf("Fragmented data")
 
-	ErrProtoUnsupported = fmt.Errorf("Not supported")
+	ErrUnsupported = fmt.Errorf("Not supported")
 )
 
 // Distributed operations codes (http://www.erlang.org/doc/apps/erts/erl_dist_protocol.html)
 const (
-	distProtoLINK                   = 1
-	distProtoSEND                   = 2
-	distProtoEXIT                   = 3
-	distProtoUNLINK                 = 4
-	distProtoNODE_LINK              = 5
-	distProtoREG_SEND               = 6
-	distProtoGROUP_LEADER           = 7
-	distProtoEXIT2                  = 8
-	distProtoSEND_TT                = 12
-	distProtoEXIT_TT                = 13
-	distProtoREG_SEND_TT            = 16
-	distProtoEXIT2_TT               = 18
-	distProtoMONITOR                = 19
-	distProtoDEMONITOR              = 20
-	distProtoMONITOR_EXIT           = 21
-	distProtoSEND_SENDER            = 22
-	distProtoSEND_SENDER_TT         = 23
-	distProtoPAYLOAD_EXIT           = 24
-	distProtoPAYLOAD_EXIT_TT        = 25
-	distProtoPAYLOAD_EXIT2          = 26
-	distProtoPAYLOAD_EXIT2_TT       = 27
-	distProtoPAYLOAD_MONITOR_P_EXIT = 28
-	distProtoSPAWN_REQUEST          = 29
-	distProtoSPAWN_REQUEST_TT       = 30
-	distProtoSPAWN_REPLY            = 31
-	distProtoSPAWN_REPLY_TT         = 32
-	distProtoALIAS_SEND             = 33
-	distProtoALIAS_SEND_TT          = 34
-	distProtoUNLINK_ID              = 35
-	distProtoUNLINK_ID_ACK          = 36
-
-	// ergo operations codes
-	distProtoPROXY     = 1001
-	distProtoREG_PROXY = 1002
-
 	// node options
-	defaultListenRangeBegin  uint16 = 15000
-	defaultListenRangeEnd    uint16 = 65000
-	defaultEPMDPort          uint16 = 4369
-	defaultSendQueueLength   int    = 100
-	defaultRecvQueueLength   int    = 100
-	defaultFragmentationUnit        = 65000
+	defaultListenRangeBegin uint16 = 15000
+	defaultListenRangeEnd   uint16 = 65000
 
 	EnvKeyVersion EnvKey = "ergo:Version"
 	EnvKeyNode    EnvKey = "ergo:Node"
@@ -137,7 +98,7 @@ type Version struct {
 // CoreRouter routes messages from/to remote node
 type CoreRouter interface {
 
-	// implemented by registrar
+	// implemented by core
 
 	// RouteSend routes message by Pid
 	RouteSend(from etf.Pid, to etf.Pid, message etf.Term) error
@@ -183,29 +144,23 @@ type NetworkRoute struct {
 }
 
 // TLSmodeType should be one of TLSmodeDisabled (default), TLSmodeAuto or TLSmodeStrict
-type TLSModeType string
+type TLSMode string
+
+// ProxyMode
+type ProxyMode int
 
 const (
 	// TLSModeDisabled no TLS encryption
-	TLSModeDisabled TLSModeType = ""
+	TLSModeDisabled TLSMode = ""
 	// TLSModeAuto generate self-signed certificate
-	TLSModeAuto TLSModeType = "auto"
+	TLSModeAuto TLSMode = "auto"
 	// TLSModeStrict with validation certificate
-	TLSModeStrict TLSModeType = "strict"
-)
+	TLSModeStrict TLSMode = "strict"
 
-// ProtoOptions
-type ProtoOptions struct {
-	MaxMessageSize int64
-	// NumHandlers defines the number of readers/writers per connection. Default is the number of CPU.
-	NumHandlers            int
-	SendQueueLength        int
-	RecvQueueLength        int
-	FragmentationUnit      int
-	DisableHeaderAtomCache bool
-	Compression            bool
-	TLS                    bool
-}
+	// ProxyModeDisabled
+	ProxyModeDisabled = 0
+	ProxyModeEnabled  = 1
+)
 
 // Options defines bootstrapping options for the node
 type Options struct {
@@ -218,29 +173,60 @@ type Options struct {
 	Creation uint32
 
 	// network options
-	ListenRangeBegin  uint16
-	ListenRangeEnd    uint16
-	EPMDPort          uint16
-	DisableEPMDServer bool
-	DisableEPMD       bool // use static routes only
+
+	// Listen defines a port number for accepting incoming connections
+	Listen uint16
+	// ListenBegin and ListenEnd define a range of the port numbers where
+	// the node looking for available free port number for the listening.
+	// Default values 15000 and 65000 accordingly
+	ListenBegin uint16
+	ListenEnd   uint16
+
+	// ResolverListen defines port for the port mapping service (EPMD server)
+	// Default 4369
+	ResolverListen uint16
+	// ResolverHost defines host for the listening.
+	ResolverHost string
+	// ResolverDisableServer disables embedded port mapping service (EPMD server)
+	ResolverDisableServer bool
+	// ResolverStaticRoutesOnly disables port mapping service (EPMD client) and
+	// makes resolving localy only for nodes added using gen.AddStaticRoute
+	ResolverStaticRoutesOnly bool
+	// Resolver defines a resolving service. By default is using EPMD service
+	Resolver Resolver
+
+	// ProxyMode enables/disables proxy mode for the node
+	ProxyMode ProxyMode
 
 	// TLS settings
-	TLSMode      TLSModeType
+	TLSMode      TLSMode
 	TLScrtServer string
 	TLSkeyServer string
 	TLScrtClient string
 	TLSkeyClient string
 
-	// transport options
-	Handshake    Handshake
-	Proto        Proto
-	ProtoOptions ProtoOptions
+	// Handshake defines a handshake handler. By default is using
+	// DIST handshake created with dist.CreateHandshake(...)
+	Handshake Handshake
+	// Proto defines a proto handler. By default is using
+	// DIST proto created with dist.CreateProto(...)
+	Proto Proto
+}
+
+type TLS struct {
+	Enabled bool
+	Mode
+	Server tls.Certificate
+	Client tls.Certificate
+	Config tls.Config
 }
 
 // Connection
 type Connection struct {
 	ConnectionInterface
-	conn net.Conn
+	net.Conn
+
+	PeerName string
 }
 
 // ConnectionInterface
@@ -267,15 +253,33 @@ type ConnectionInterface interface {
 	ProxyReg()
 }
 
+// CustomHandshakeOptions a custom set of handshake options
+type CustomHandshakeOptions interface{}
+
+// Handshake template struct for the custom Handshake implementation
+type Handshake struct {
+	HandshakeInterface
+}
+
 // Handshake defines handshake interface
-type Handshake interface {
-	// Init initialize handshake. Invokes on a start node or if it used
-	// with AddRouteStatic
-	Init(nodename string, cookie string, options ConnectionOptions) error
-	// Start initiates handshake process.
-	Start(ctx context.Context, conn net.Conn) (*Connection, error)
-	// Accept accepts handshake process initiated by another side of this connection
-	Accept(ctx context.Context, conn net.Conn) (*Connection, error)
+type HandshakeInterface interface {
+	// Init initialize handshake.
+	Init(nodename string) error
+	// Start initiates handshake process. Returns proto options to override default ones.
+	Start(c *Connection, tls TLS) (*ProtoOptions, error)
+	// Accept accepts handshake process initiated by another side of this connection. Returns
+	// proto options to override default ones and the peer name.
+	Accept(c *Connection, tls TLS) (*ProtoOptions, string)
+}
+
+type HandshakeVersion int
+
+// HandshakeOptions defines handshake options
+type HandshakeOptions struct {
+	Cookie  string
+	Version HandshakeVersion
+	// Custom brings a custom set of options to the HandshakeInterface.Init handler
+	Custom CustomHandshakeOptions
 }
 
 // Proto template struct for the custom Proto implementation
@@ -285,6 +289,51 @@ type Proto struct {
 
 // Proto defines proto interface for the custom Proto implementation
 type ProtoInterface interface {
-	Init(options ProtoOptions, router Router) error
-	Serve(conn net.Conn, connection Connection)
+	// Init initialize proto handler and set default options
+	Init(router Router) error
+	// Serve serves connection with options defined by handshake.
+	Serve(c *Connection, options *ProtoOptions)
+}
+
+// CustomProtoOptions a custom set of proto options
+type CustomProtoOptions interface{}
+
+// ProtoOptions
+type ProtoOptions struct {
+	// MaxMessageSize limit the message size. Default 0 (no limit)
+	MaxMessageSize int64
+	// NumHandlers defines the number of readers/writers per connection. Default is the number of CPU.
+	NumHandlers int
+	// SendQueueLength defines queue size of handler for the outgoing messages. Default 100.
+	SendQueueLength int
+	// RecvQueueLength defines queue size of handler for the incoming messages. Default 100.
+	RecvQueueLength int
+	// FragmentationUnit defines unit size for the fragmentation feature. Default 65000
+	FragmentationUnit int
+	// DisableHeaderAtomCache makes proto handler disable header atom cache feature
+	DisableHeaderAtomCache bool
+	// Compression enable/disable compression
+	Compression bool
+	// Custom brings a custom set of options to the ProtoInterface.Serve handler
+	Custom CustomProtoOptions
+}
+
+// ResolverOptions defines resolving options
+type ResolverOptions struct {
+	// StaticOnly makes resolving locally
+	StaticOnly bool
+
+	NodeVersion      Version
+	Creation         uint32
+	HandshakeVersion HandshakeVersion
+	EnabledTLS       bool
+	EnabledProxy     bool
+}
+
+// Resolver defines resolving interface
+type Resolver interface {
+	Register(ctx contex.Context, options ResolverOptions) error
+	Resolve(name string) (gen.Route, error)
+	AddStaticRoute(name string, port uint16, options gen.RouteOptions) error
+	RemoveStaticRoute(name string) error
 }

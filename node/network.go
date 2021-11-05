@@ -3,15 +3,17 @@ package node
 import (
 	"bytes"
 	"context"
+	"encoding/pem"
+	"math/big"
+	"sync"
+	"time"
+
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
-	"sync"
-
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
-	"encoding/pem"
 	"fmt"
 
 	"github.com/ergo-services/ergo/etf"
@@ -19,13 +21,10 @@ import (
 	"github.com/ergo-services/ergo/lib"
 	"github.com/ergo-services/ergo/node/dist"
 
-	"math/big"
-
 	"net"
 
 	"strconv"
 	"strings"
-	"time"
 )
 
 type networkInternal interface {
@@ -37,8 +36,8 @@ type networkInternal interface {
 	RemoveStaticRoute(name string)
 	// Resolve
 	Resolve(name string) (NetworkRoute, error)
-
-	connect(to string) error
+	// Connect creates connection to the node with given name
+	Connect(to string) error
 }
 
 type network struct {
@@ -47,32 +46,45 @@ type network struct {
 	remoteSpawnMutex sync.Mutex
 	remoteSpawn      map[string]gen.ProcessBehavior
 	epmd             *epmd
-	tlscertServer    tls.Certificate
-	tlscertClient    tls.Certificate
+
+	tls TLS
 
 	version   Version
 	handshake Handshake
 	proto     Proto
 }
 
-func newNetwork(ctx context.Context, name string, opts Options, router Router) (networkInternal, error) {
+func newNetwork(ctx context.Context, name string, options Options, router Router) (networkInternal, error) {
 	n := &network{
 		name:      name,
 		ctx:       ctx,
-		proto:     opts.Proto,
-		handshake: opts.Handshake,
+		proto:     options.Proto,
+		handshake: options.Handshake,
 		router:    router,
 	}
+
 	ns := strings.Split(name, "@")
 	if len(ns) != 2 {
 		return nil, fmt.Errorf("(EMPD) FQDN for node name is required (example: node@hostname)")
 	}
 
-	n.version, _ = opts.Env[EnvKeyVersion].(Version)
+	if err := n.loadTLS(options); err != nil {
+		return nil, err
+	}
+
+	if err := n.handshake.Init(name); err != nil {
+		return nil, err
+	}
+
+	if err := n.proto.Init(router); err != nil {
+		return nil, err
+	}
+
 	port, err := n.listen(ctx, ns[1], router)
 	if err != nil {
 		return nil, err
 	}
+
 	n.epmd = &epmd{}
 	if err := n.epmd.Init(ctx, name, port, opts); err != nil {
 		return nil, err
@@ -95,6 +107,45 @@ func (n *network) RemoveStaticRoute(name string) {
 	n.epmd.removeStaticRoute(name)
 }
 
+func (n *network) loadTLS(options Options) error {
+	version, _ = options.Env[EnvKeyVersion].(Version)
+	switch options.TLSMode {
+	case TLSModeAuto:
+		cert, err := generateSelfSignedCert(version)
+		if err != nil {
+			return fmt.Errorf("Can't generate certificate: %s\n", err)
+		}
+
+		n.tls.Server = cert
+		n.tls.Client = cert
+		n.tls.Mode = TLSModeAuto
+		n.tls.Enabled = true
+		n.tls.Config = tls.Config{
+			Certificates:       []tls.Certificate{cert},
+			InsecureSkipVerify: true,
+		}
+
+	case TLSModeStrict:
+		certServer, err := tls.LoadX509KeyPair(options.TLScrtServer, options.TLSkeyServer)
+		if err != nil {
+			return 0, fmt.Errorf("Can't load server certificate: %s\n", err)
+		}
+		certClient, err := tls.LoadX509KeyPair(options.TLScrtServer, options.TLSkeyServer)
+		if err != nil {
+			return 0, fmt.Errorf("Can't load client certificate: %s\n", err)
+		}
+
+		n.tls.Server = certServer
+		n.tls.Client = certClient
+		n.tls.Mode = TLSModeStrict
+		n.tls.Enabled = true
+		n.tls.Config = tls.Config{
+			Certificates: []tls.Certificate{certServer},
+			ServerName:   "localhost",
+		}
+	}
+	return nil
+}
 func (n *network) listen(ctx context.Context, name string, router CoreRouter) (uint16, error) {
 	var TLSenabled bool = true
 
@@ -103,45 +154,6 @@ func (n *network) listen(ctx context.Context, name string, router CoreRouter) (u
 		l, err := lc.Listen(ctx, "tcp", net.JoinHostPort(name, strconv.Itoa(int(p))))
 		if err != nil {
 			continue
-		}
-
-		switch n.opts.TLSMode {
-		case TLSModeAuto:
-			cert, err := generateSelfSignedCert(n.version)
-			if err != nil {
-				return 0, fmt.Errorf("Can't generate certificate: %s\n", err)
-			}
-
-			n.tlscertServer = cert
-			n.tlscertClient = cert
-
-			TLSconfig := &tls.Config{
-				Certificates:       []tls.Certificate{cert},
-				InsecureSkipVerify: true,
-			}
-			l = tls.NewListener(l, TLSconfig)
-
-		case TLSModeStrict:
-			certServer, err := tls.LoadX509KeyPair(n.opts.TLScrtServer, n.opts.TLSkeyServer)
-			if err != nil {
-				return 0, fmt.Errorf("Can't load server certificate: %s\n", err)
-			}
-			certClient, err := tls.LoadX509KeyPair(n.opts.TLScrtServer, n.opts.TLSkeyServer)
-			if err != nil {
-				return 0, fmt.Errorf("Can't load client certificate: %s\n", err)
-			}
-
-			n.tlscertServer = certServer
-			n.tlscertClient = certClient
-
-			TLSconfig := &tls.Config{
-				Certificates: []tls.Certificate{certServer},
-				ServerName:   "localhost",
-			}
-			l = tls.NewListener(l, TLSconfig)
-
-		default:
-			TLSenabled = false
 		}
 
 		go func() {
@@ -382,7 +394,7 @@ func (n *network) handleMessage(fromNode string, control, message etf.Term) (err
 	return
 }
 
-func (n *network) connect(to string) error {
+func (n *network) Connect(to string) error {
 	var nr NetworkRoute
 	var err error
 	var c net.Conn
@@ -521,64 +533,60 @@ func (p *peer) getChannel() chan []etf.Term {
 	return c
 }
 
-// Connection methods
-
-func (c *Connection) Close() error {
-	if c.conn != nil {
-		return c.conn.Close()
-	}
-	return fmt.Errorf("Conn is nil")
-}
-
-func (c *Connection) PeerName() string {
-	if c.Peer != nil {
-		return c.Peer.Name
-	}
-	return ""
-}
-
 //
 // Connection interface default callbacks
 //
 func (c *Connection) Send(from gen.Process, to etf.Pid, message etf.Term) error {
-	return ErrProtoUnsupported
+	return ErrUnsupported
 }
 func (c *Connection) SendReg(from gen.Process, to gen.ProcessID, message etf.Term) error {
-	return ErrProtoUnsupported
+	return ErrUnsupported
 }
 func (c *Connection) SendAlias(from gen.Process, to etf.Alias, message etf.Term) error {
-	return ErrProtoUnsupported
+	return ErrUnsupported
 }
 func (c *Connection) Link(local gen.Process, remote etf.Pid) error {
-	return ErrProtoUnsupported
+	return ErrUnsupported
 }
 func (c *Connection) Unlink(local gen.Process, remote etf.Pid) error {
-	return ErrProtoUnsupported
+	return ErrUnsupported
 }
 func (c *Connection) SendExit(local etf.Pid, remote etf.Pid) error {
-	return ErrProtoUnsupported
+	return ErrUnsupported
 }
 func (c *Connection) Monitor(local gen.Process, remote etf.Pid, ref etf.Ref) error {
-	return ErrProtoUnsupported
+	return ErrUnsupported
 }
 func (c *Connection) MonitorReg(local gen.Process, remote gen.ProcessID, ref etf.Ref) error {
-	return ErrProtoUnsupported
+	return ErrUnsupported
 }
 func (c *Connection) Demonitor(ref etf.Ref) error {
-	return ErrProtoUnsupported
+	return ErrUnsupported
 }
 func (c *Connection) MonitorExitReg(process gen.Process, reason string, ref etf.Ref) error {
-	return ErrProtoUnsupported
+	return ErrUnsupported
 }
 func (c *Connection) MonitorExit(to etf.Pid, terminated etf.Pid, reason string, ref etf.Ref) error {
-	return ErrProtoUnsupported
+	return ErrUnsupported
 }
 func (c *Connection) SpawnRequest() error {
-	return ErrProtoUnsupported
+	return ErrUnsupported
 }
 func (c *Connection) Proxy() error {
-	return ErrProtoUnsupported
+	return ErrUnsupported
 }
 func (c *Connection) ProxyReg() error {
-	return ErrProtoUnsupported
+	return ErrUnsupported
+}
+
+//
+// Handshake interface default callbacks
+//
+
+func (h *Handshake) Start(ctx context.Context, c *Connection) (*Connection, error) {
+	return nil, ErrUnsupported
+}
+
+func (h *Handshake) Accept(ctx context.Context, c *Connection) (*Connection, error) {
+	return nil, ErrUnsupported
 }

@@ -26,7 +26,6 @@ type node struct {
 	coreInternal
 
 	name     string
-	cookie   string
 	creation uint32
 	context  context.Context
 	stop     context.CancelFunc
@@ -46,7 +45,6 @@ func StartWithContext(ctx context.Context, name string, cookie string, opts Opti
 	}
 
 	node := &node{
-		cookie:   cookie,
 		context:  nodectx,
 		stop:     nodestop,
 		creation: opts.Creation,
@@ -71,18 +69,6 @@ func StartWithContext(ctx context.Context, name string, cookie string, opts Opti
 		lib.Log("Using custom EPMD port: %d", opts.EPMDPort)
 	}
 
-	if opts.ProtoOptions.SendQueueLength == 0 {
-		opts.ProtoOptions.SendQueueLength = defaultSendQueueLength
-	}
-
-	if opts.ProtoOptions.RecvQueueLength == 0 {
-		opts.ProtoOptions.RecvQueueLength = defaultRecvQueueLength
-	}
-
-	if opts.ProtoOptions.FragmentationUnit < 1500 {
-		opts.ProtoOptions.FragmentationUnit = defaultFragmentationUnit
-	}
-
 	if opts.TLSMode != TLSModeDisabled {
 		opts.ProtoOptions.TLS = true
 	}
@@ -98,7 +84,7 @@ func StartWithContext(ctx context.Context, name string, cookie string, opts Opti
 		return nil, fmt.Errorf("Proto must be defined")
 	}
 
-	core, err := newCore(nodectx, name, opts)
+	core, err := newCore(nodectx, name, cookie, opts)
 	if err != nil {
 		return nil, err
 	}

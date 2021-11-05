@@ -2,6 +2,7 @@ package gen
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"time"
 
@@ -313,13 +314,14 @@ type Core interface {
 	UnregisterBehavior(group, name string) error
 
 	// AddStaticRoute adds static route for the given node name which makes node skip resolving process
-	AddStaticRoute(name string, port uint16) error
+	AddStaticRoute(name string, port uint16, options RouteOptions) error
 	// AddStaticRouteExt adds static route with extra options
-	AddStaticRouteExt(name string, port uint16, cookie string, tls bool) error
-	// RemoveStaticRoute removes given route added with AddStaticRoute[Ext] function
 	RemoveStaticRoute(name string)
 	// Resolve resolves name to the route options.
-	Resolve(name string) (NetworkRoute, error)
+	Resolve(name string) (Route, error)
+
+	// Connect sets up a connection to node
+	Connect(node string) error
 }
 
 // RegisteredBehavior
@@ -398,4 +400,26 @@ func IsMessageExit(message etf.Term) (MessageExit, bool) {
 		return m, true
 	}
 	return me, false
+}
+
+// CustomRouteOptions a custom set of route options
+type CustomRouteOptions interface{}
+
+// RouteOptions
+type RouteOptions struct {
+	Cookie       string
+	EnabledTLS   bool
+	EnabledProxy bool
+	IsErgo       bool
+
+	ClientCert tls.Certificate
+	Handshake  Handshake
+	Proto      Proto
+	Custom     CustomRouteOptions
+}
+
+// Route
+type Route struct {
+	Port uint16
+	RouteOptions
 }

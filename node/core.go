@@ -24,6 +24,8 @@ type core struct {
 	ctx  context.Context
 	stop context.CancelFunc
 
+	tls TLS
+
 	nextPID  uint64
 	uniqID   uint64
 	nodename string
@@ -78,6 +80,10 @@ func newCore(ctx context.Context, nodename string, options Options) (coreInterna
 		behaviors:   make(map[string]map[string]gen.RegisteredBehavior),
 	}
 
+	if err := c.loadTLS(options); err != nil {
+		return nil, err
+	}
+
 	corectx, corestop := context.WithCancel(ctx)
 	c.stop = corestop
 	c.ctx = corectx
@@ -92,7 +98,6 @@ func newCore(ctx context.Context, nodename string, options Options) (coreInterna
 	return c, nil
 }
 
-// NodeName
 func (c *core) coreNodeName() string {
 	return c.nodename
 }
@@ -101,12 +106,10 @@ func (c *core) coreStop() {
 	c.stop()
 }
 
-// Uptime return uptime in seconds
 func (c *core) coreUptime() int64 {
 	return time.Now().Unix() - int64(c.creation)
 }
 
-// Wait waits until node stopped
 func (c *core) coreWait() {
 	<-c.ctx.Done()
 }
@@ -767,7 +770,7 @@ func (c *core) GetConnection(remoteNodeName string) (*Connection, error) {
 		return connection, nil
 	}
 
-	if err := c.node.connect(remoteNodeName); err != nil {
+	if err := c.Connect(remoteNodeName); err != nil {
 		lib.Log("[%s] CORE no route to node %q: %s", c.nodename, remoteNodeName, err)
 		return nil, ErrNoRoute
 	}

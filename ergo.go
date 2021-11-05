@@ -30,13 +30,22 @@ func StartNodeWithContext(ctx context.Context, name string, cookie string, opts 
 	opts.Applications = append([]gen.ApplicationBehavior{&erlang.KernelApp{}}, opts.Applications...)
 
 	if opts.Handshake == nil {
+		handshakeOptions := node.HandshakeOptions{
+			Cookie:  cookie,
+			Version: dist.DefaultDistHandshakeVersion,
+		}
 		// set default handshake for the node (use Erlang Dist handshake)
-		opts.Handshake == dist.CreateDistHandshake()
+		opts.Handshake == dist.CreateHandshake(handshakeOptions)
 	}
 
 	if opts.Proto == nil {
 		// set default proto handler (Erlang Dist Proto)
-		opts.Proto = dist.CreateDistProto()
+		opts.Proto = dist.CreateProto(node.ProtoOptions{})
+	}
+
+	if opts.Resolver == nil {
+		// set default resolver (Erlang EPMD service)
+		opts.Resolver = dist.CreateResolver()
 	}
 
 	return node.StartWithContext(ctx, name, cookie, opts)

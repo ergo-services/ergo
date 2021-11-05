@@ -14,13 +14,11 @@ import (
 	"github.com/ergo-services/ergo/node"
 )
 
-type DistHandshakeVersion int
-
 const (
-	DistHandshakeVersion5 DistHandshakeVersion = 5
-	DistHandshakeVersion6 DistHandshakeVersion = 6
+	DistHandshakeVersion5 node.HandshakeVersion = 5
+	DistHandshakeVersion6 node.HandshakeVersion = 6
 
-	defaultDistHandshakeVersion = DistHandshakeVersion5
+	DefaultDistHandshakeVersion = DistHandshakeVersion5
 
 	// distribution flags are defined here https://erlang.org/doc/apps/erts/erl_dist_protocol.html#distribution-flags
 	flagPublished          flagId = 0x1
