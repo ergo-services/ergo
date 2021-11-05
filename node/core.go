@@ -80,10 +80,6 @@ func newCore(ctx context.Context, nodename string, options Options) (coreInterna
 		behaviors:   make(map[string]map[string]gen.RegisteredBehavior),
 	}
 
-	if err := c.loadTLS(options); err != nil {
-		return nil, err
-	}
-
 	corectx, corestop := context.WithCancel(ctx)
 	c.stop = corestop
 	c.ctx = corectx
