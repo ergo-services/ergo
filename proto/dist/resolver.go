@@ -236,7 +236,7 @@ func (e *epmdResolver) sendAliveReq(conn net.Conn) error {
 	return nil
 }
 
-func (e *EMPD) readAliveResp(conn net.Conn) error {
+func (e *epmdResolver) readAliveResp(conn net.Conn) error {
 	buf := make([]byte, 16)
 	if _, err := conn.Read(buf); err != nil {
 		return err
