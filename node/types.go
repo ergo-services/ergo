@@ -73,10 +73,21 @@ type Node interface {
 	ApplicationStartPermanent(appName string, args ...etf.Term) (gen.Process, error)
 	ApplicationStartTransient(appName string, args ...etf.Term) (gen.Process, error)
 	ApplicationStop(appName string) error
+
 	ProvideRPC(module string, function string, fun gen.RPC) error
 	RevokeRPC(module, function string) error
 	ProvideRemoteSpawn(name string, object gen.ProcessBehavior) error
 	RevokeRemoteSpawn(name string) error
+
+	// AddStaticRoute adds static route for the given node name which makes node skip resolving process
+	AddStaticRoute(name string, port uint16, options RouteOptions) error
+	// AddStaticRouteExt adds static route with extra options
+	RemoveStaticRoute(name string)
+	// StaticRoutes returns list of routes added using AddStaticRoute
+	StaticRoutes() []Route
+
+	// Connect sets up a connection to node
+	Connect(node string) error
 
 	Links(process etf.Pid) []etf.Pid
 	Monitors(process etf.Pid) []etf.Pid
@@ -158,8 +169,8 @@ const (
 	TLSModeStrict TLSMode = "strict"
 
 	// ProxyModeDisabled
-	ProxyModeDisabled = 0
-	ProxyModeEnabled  = 1
+	ProxyModeDisabled ProxyMode = 0
+	ProxyModeEnabled  ProxyMode = 1
 )
 
 // Options defines bootstrapping options for the node
@@ -182,6 +193,10 @@ type Options struct {
 	ListenBegin uint16
 	ListenEnd   uint16
 
+	// StaticRoutesOnly disables port mapping service (EPMD client) and
+	// makes resolving localy only for nodes added using gen.AddStaticRoute
+	StaticRoutesOnly bool
+
 	// ResolverListen defines port for the port mapping service (EPMD server)
 	// Default 4369
 	ResolverListen uint16
@@ -189,9 +204,6 @@ type Options struct {
 	ResolverHost string
 	// ResolverDisableServer disables embedded port mapping service (EPMD server)
 	ResolverDisableServer bool
-	// ResolverStaticRoutesOnly disables port mapping service (EPMD client) and
-	// makes resolving localy only for nodes added using gen.AddStaticRoute
-	ResolverStaticRoutesOnly bool
 	// Resolver defines a resolving service. By default is using EPMD service
 	Resolver Resolver
 
@@ -200,10 +212,10 @@ type Options struct {
 
 	// TLS settings
 	TLSMode      TLSMode
-	TLScrtServer string
-	TLSkeyServer string
-	TLScrtClient string
-	TLSkeyClient string
+	TLSCrtServer string
+	TLSKeyServer string
+	TLSCrtClient string
+	TLSKeyClient string
 
 	// Handshake defines a handshake handler. By default is using
 	// DIST handshake created with dist.CreateHandshake(...)
@@ -333,7 +345,28 @@ type ResolverOptions struct {
 // Resolver defines resolving interface
 type Resolver interface {
 	Register(ctx contex.Context, options ResolverOptions) error
-	Resolve(name string) (gen.Route, error)
-	AddStaticRoute(name string, port uint16, options gen.RouteOptions) error
-	RemoveStaticRoute(name string) error
+	Resolve(name string) (Route, error)
+}
+
+// CustomRouteOptions a custom set of route options
+type CustomRouteOptions interface{}
+
+// RouteOptions
+type RouteOptions struct {
+	Cookie       string
+	EnabledTLS   bool
+	EnabledProxy bool
+	IsErgo       bool
+
+	ClientCert tls.Certificate
+	Handshake  Handshake
+	Proto      Proto
+	Custom     CustomRouteOptions
+}
+
+// Route
+type Route struct {
+	Name string
+	Port uint16
+	RouteOptions
 }

@@ -28,39 +28,42 @@ import (
 )
 
 type networkInternal interface {
-	// AddStaticRoute
-	AddStaticRoute(name string, port uint16) error
-	// AddStaticRouteExt
-	AddStaticRouteExt(name string, port uint16, cookie string, tls bool) error
-	// RemoveStaticRoute
-	RemoveStaticRoute(name string)
-	// Resolve
-	Resolve(name string) (NetworkRoute, error)
-	// Connect creates connection to the node with given name
+	AddStaticRoute(name string, port uint16, options RouteOptions) error
+	RemoveStaticRoute(name string) error
+	StaticRoutes() []Route
 	Connect(to string) error
 }
 
 type network struct {
-	name             string
-	ctx              context.Context
-	remoteSpawnMutex sync.Mutex
+	name string
+	ctx  context.Context
+
+	resolver     Resolver
+	staticOnly   bool
+	staticRoutes map[string]Route
+	staticMutex  sync.Mutex
+
 	remoteSpawn      map[string]gen.ProcessBehavior
-	epmd             *epmd
+	remoteSpawnMutex sync.Mutex
 
-	tls TLS
+	tls     TLS
+	version Version
 
-	version   Version
 	handshake Handshake
 	proto     Proto
 }
 
 func newNetwork(ctx context.Context, name string, options Options, router Router) (networkInternal, error) {
 	n := &network{
-		name:      name,
-		ctx:       ctx,
-		proto:     options.Proto,
-		handshake: options.Handshake,
-		router:    router,
+		name:         name,
+		ctx:          ctx,
+		staticOnly:   options.StaticRoutesOnly,
+		staticRoutes: make(map[string]Route),
+		remoteSpawn:  make(map[string]gen.ProcessBehavior),
+		resolver:     options.Resolver,
+		proto:        options.Proto,
+		handshake:    options.Handshake,
+		router:       router,
 	}
 
 	ns := strings.Split(name, "@")
@@ -126,11 +129,11 @@ func (n *network) loadTLS(options Options) error {
 		}
 
 	case TLSModeStrict:
-		certServer, err := tls.LoadX509KeyPair(options.TLScrtServer, options.TLSkeyServer)
+		certServer, err := tls.LoadX509KeyPair(options.TLSCrtServer, options.TLSKeyServer)
 		if err != nil {
 			return 0, fmt.Errorf("Can't load server certificate: %s\n", err)
 		}
-		certClient, err := tls.LoadX509KeyPair(options.TLScrtServer, options.TLSkeyServer)
+		certClient, err := tls.LoadX509KeyPair(options.TLSCrtClient, options.TLSKeyClient)
 		if err != nil {
 			return 0, fmt.Errorf("Can't load client certificate: %s\n", err)
 		}

@@ -8,7 +8,6 @@ import (
 	"net"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/ergo-services/ergo/gen"
@@ -51,10 +50,6 @@ type epmdResolver struct {
 	nodeHost         string
 	handshakeVersion HandshakeVersion
 
-	staticOnly   bool
-	staticRoutes map[string]gen.Route
-	staticMutex  sync.Mutex
-
 	extra []byte
 }
 
@@ -68,7 +63,7 @@ func CreateResolver(ctx context.Context, enableServer bool, host string, port ui
 	if enableServer {
 		startServerEPMD(ctx, host, port)
 	}
-	return epmd
+	return resolver
 }
 
 func (e *epmdResolver) Register(name string, port uint16, options node.ResolverOptions) error {

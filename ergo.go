@@ -43,9 +43,10 @@ func StartNodeWithContext(ctx context.Context, name string, cookie string, opts 
 		opts.Proto = dist.CreateProto(node.ProtoOptions{})
 	}
 
-	if opts.Resolver == nil {
+	if opts.StaticRoutesOnly == false && opts.Resolver == nil {
 		// set default resolver (Erlang EPMD service)
-		opts.Resolver = dist.CreateResolver()
+		enabledServer := ops.ResolverDisableServer == false
+		opts.Resolver = dist.CreateResolver(ctx, enabledServer, opts.ResolverHost, opts.ResolverPort)
 	}
 
 	return node.StartWithContext(ctx, name, cookie, opts)
