@@ -353,10 +353,11 @@ type CustomRouteOptions interface{}
 
 // RouteOptions
 type RouteOptions struct {
-	Cookie       string
-	EnabledTLS   bool
-	EnabledProxy bool
-	IsErgo       bool
+	Cookie             string
+	SupportTLS         bool
+	SupportProxy       bool
+	SupportCompression bool // ????
+	IsErgo             bool
 
 	ClientCert tls.Certificate
 	Handshake  Handshake

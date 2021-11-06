@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ergo-services/ergo/gen"
 	"github.com/ergo-services/ergo/lib"
 	"github.com/ergo-services/ergo/node"
 )
@@ -123,8 +122,26 @@ func (e *epmdResolver) Register(name string, port uint16, options node.ResolverO
 	return nil
 }
 
-func (e *epmdResolver) Resolve(name string) (gen.Route, error) {
-	return gen.Route{}, nil
+func (e *epmdResolver) Resolve(name string) (Route, error) {
+	var route node.Route
+
+	n := strings.Split(name, "@")
+	if len(n) != 2 {
+		return 0, fmt.Errorf("incorrect FQDN node name (example: node@localhost)")
+	}
+	conn, err := net.Dial("tcp", net.JoinHostPort(n[1], fmt.Sprintf("%d", e.port)))
+	if err != nil {
+		return route, err
+	}
+
+	defer conn.Close()
+
+	if err := e.sendPortPleaseReq(c, n[0]); err != nil {
+		return route, err
+	}
+
+	return e.readPortResp(c)
+
 }
 
 func (e *epmdResolver) composeExtraVersion1(options node.ResolverOptions) {
@@ -239,47 +256,20 @@ func (e *epmdResolver) readAliveResp(conn net.Conn) error {
 	return nil
 }
 
-func (e *epmdResolver) resolve(name string) (NetworkRoute, error) {
-	// chech static routes first
-	e.mtx.RLock()
-	defer e.mtx.RUnlock()
-	nr, ok := e.staticRoutes[name]
-	if ok && nr.Port > 0 {
-		return nr, nil
-	}
-
-	if e.staticOnly {
-		return nr, fmt.Errorf("Can't resolve %s", name)
-	}
-
-	// no static route for the given name. go the regular way
-	port, err := e.resolvePort(name)
-	if err != nil {
-		return nr, err
-	}
-	return NetworkRoute{port, nr.Cookie, nr.TLS}, nil
+func (e *epmdResolver) sendPortPleaseReq(name string) (reply []byte) {
+	replylen := uint16(2 + len(name) + 1)
+	reply = make([]byte, replylen)
+	binary.BigEndian.PutUint16(reply[0:2], uint16(len(reply)-2))
+	reply[2] = byte(EPMD_PORT_PLEASE2_REQ)
+	copy(reply[3:replylen], name)
+	return
 }
 
-func (e *epmdResolver) resolvePort(name string) (int, error) {
-	ns := strings.Split(name, "@")
-	if len(ns) != 2 {
-		return 0, fmt.Errorf("incorrect FQDN node name (example: node@localhost)")
-	}
-	conn, err := net.Dial("tcp", net.JoinHostPort(ns[1], fmt.Sprintf("%d", e.Port)))
-	if err != nil {
-		return 0, err
-	}
-
-	defer conn.Close()
-
-	buf := compose_PORT_PLEASE2_REQ(ns[0])
-	_, err = conn.Write(buf)
-	if err != nil {
-		return -1, fmt.Errorf("initiate connection - %s", err)
-	}
+func (e *epmdResolver) readPortResp(c net.Conn) (node.Route, error) {
+	var route node.Route
 
 	buf = make([]byte, 1024)
-	_, err = conn.Read(buf)
+	_, err = c.Read(buf)
 	if err != nil && err != io.EOF {
 		return -1, fmt.Errorf("reading from link - %s", err)
 	}
@@ -293,13 +283,4 @@ func (e *epmdResolver) resolvePort(name string) (int, error) {
 	} else {
 		return -1, fmt.Errorf("malformed reply - %#v", buf)
 	}
-}
-
-func compose_PORT_PLEASE2_REQ(name string) (reply []byte) {
-	replylen := uint16(2 + len(name) + 1)
-	reply = make([]byte, replylen)
-	binary.BigEndian.PutUint16(reply[0:2], uint16(len(reply)-2))
-	reply[2] = byte(EPMD_PORT_PLEASE2_REQ)
-	copy(reply[3:replylen], name)
-	return
 }
