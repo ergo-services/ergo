@@ -2,7 +2,6 @@ package gen
 
 import (
 	"context"
-	"crypto/tls"
 	"fmt"
 	"time"
 
@@ -390,26 +389,4 @@ func IsMessageExit(message etf.Term) (MessageExit, bool) {
 		return m, true
 	}
 	return me, false
-}
-
-// CustomRouteOptions a custom set of route options
-type CustomRouteOptions interface{}
-
-// RouteOptions
-type RouteOptions struct {
-	Cookie       string
-	EnabledTLS   bool
-	EnabledProxy bool
-	IsErgo       bool
-
-	ClientCert tls.Certificate
-	Handshake  Handshake
-	Proto      Proto
-	Custom     CustomRouteOptions
-}
-
-// Route
-type Route struct {
-	Port uint16
-	RouteOptions
 }

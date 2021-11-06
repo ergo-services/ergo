@@ -127,14 +127,6 @@ func (e *epmdResolver) Resolve(name string) (gen.Route, error) {
 	return gen.Route{}, nil
 }
 
-func (e *epmdResolver) AddStaticRoute(name string, port uint16, options gen.RouteOptions) error {
-	return nil
-}
-
-func (e *epmdResolver) RemoveStaticRoute(name string) error {
-	return nil
-}
-
 func (e *epmdResolver) composeExtraVersion1(options node.ResolverOptions) {
 	buf := make([]byte, 5)
 
@@ -245,41 +237,6 @@ func (e *epmdResolver) readAliveResp(conn net.Conn) error {
 		return fmt.Errorf("Can't register. Code: %d", e.nodeName, buf[1])
 	}
 	return nil
-}
-
-func (e *epmdResolver) addStaticRoute(name string, port uint16, cookie string, tls bool) error {
-	ns := strings.Split(name, "@")
-	if len(ns) == 1 {
-		ns = append(ns, "localhost")
-	}
-	if len(ns) != 2 {
-		return fmt.Errorf("wrong FQDN")
-	}
-	if _, err := net.LookupHost(ns[1]); err != nil {
-		return err
-	}
-
-	if e.staticOnly && port == 0 {
-		return fmt.Errorf("EMPD is disabled. Port must be > 0")
-	}
-
-	e.mtx.Lock()
-	defer e.mtx.Unlock()
-	if _, ok := e.staticRoutes[name]; ok {
-		// already exist
-		return fmt.Errorf("already exist")
-	}
-	e.staticRoutes[name] = NetworkRoute{int(port), cookie, tls}
-
-	return nil
-}
-
-// RemoveStaticRoute
-func (e *epmdResolver) removeStaticRoute(name string) {
-	e.mtx.Lock()
-	defer e.mtx.Unlock()
-	delete(e.staticRoutes, name)
-	return
 }
 
 func (e *epmdResolver) resolve(name string) (NetworkRoute, error) {

@@ -38,10 +38,10 @@ type network struct {
 	name string
 	ctx  context.Context
 
-	resolver     Resolver
-	staticOnly   bool
-	staticRoutes map[string]Route
-	staticMutex  sync.Mutex
+	resolver          Resolver
+	staticOnly        bool
+	staticRoutes      map[string]Route
+	staticRoutesMutex sync.Mutex
 
 	remoteSpawn      map[string]gen.ProcessBehavior
 	remoteSpawnMutex sync.Mutex
@@ -95,19 +95,57 @@ func newNetwork(ctx context.Context, name string, options Options, router Router
 	return n, nil
 }
 
-// AddStaticRoute adds static route record into the EPMD client
-func (n *network) AddStaticRoute(name string, port uint16) error {
-	tlsEnabled := n.opts.TLSMode != TLSModeDisabled
-	return n.epmd.addStaticRoute(name, port, n.opts.cookie, tlsEnabled)
+// AddStaticRoute adds a static route to the node with the given name
+func (n *network) AddStaticRoute(name string, port uint16, options RouteOptions) error {
+	n := strings.Split(name, "@")
+	if len(n) != 2 {
+		return fmt.Errorf("wrong FQDN")
+	}
+	if _, err := net.LookupHost(ns[1]); err != nil {
+		return err
+	}
+
+	route := Route{
+		Name:         name,
+		Port:         port,
+		RouteOptions: options,
+	}
+
+	n.staticRoutesMutex.Lock()
+	defer n.staticRoutesMutex.Unlock()
+
+	_, exist := n.staticRoutes[name]
+	if exist {
+		return ErrTaken
+	}
+	n.staticRoutes[name] = route
+
+	return nil
 }
 
-func (n *network) AddStaticRouteExt(name string, port uint16, cookie string, tls bool) error {
-	return n.epmd.addStaticRoute(name, port, cookie, tls)
+// RemoveStaticRoute removes static route record. Returns false if it wasn't exist.
+func (n *network) RemoveStaticRoute(name string) bool {
+	n.staticRoutesMutex.Lock()
+	defer n.staticRoutesMutex.Unlock()
+	_, exist := n.staticRoutes[name]
+	if exist {
+		delete(n.staticRoutes, name)
+		return true
+	}
+	return false
 }
 
-// RemoveStaticRoute removes static route record from the EPMD client
-func (n *network) RemoveStaticRoute(name string) {
-	n.epmd.removeStaticRoute(name)
+// StaticRoutes returns list of static routes added with AddStaticRoute
+func (n *network) StaticRoutes() []Route {
+	var routes []Route
+
+	n.staticRoutesMutex.Lock()
+	defer n.staticRoutesMutex.Unlock()
+	for k, v := range n.staticRoutes {
+		routes = append(routes, v)
+	}
+
+	return routes
 }
 
 func (n *network) loadTLS(options Options) error {

@@ -82,7 +82,7 @@ type Node interface {
 	// AddStaticRoute adds static route for the given node name which makes node skip resolving process
 	AddStaticRoute(name string, port uint16, options RouteOptions) error
 	// AddStaticRouteExt adds static route with extra options
-	RemoveStaticRoute(name string)
+	RemoveStaticRoute(name string) bool
 	// StaticRoutes returns list of routes added using AddStaticRoute
 	StaticRoutes() []Route
 
