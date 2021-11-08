@@ -660,13 +660,20 @@ func (c *core) RouteSend(from etf.Pid, to etf.Pid, message etf.Term) error {
 	}
 
 	// sending to remote node
-	connection, err := c.GetConnection(string(to.Name))
+	c.mutexProcesses.Lock()
+	p_from, exist := c.processes[from.ID]
+	c.mutexProcesses.Unlock()
+	if !exist {
+		lib.Log("[%s] CORE route message by pid (local) %s failed. Unknown sender", c.nodename, to)
+		return ErrSenderUnknown
+	}
+	connection, err := c.GetConnection(string(to.Node))
 	if err != nil {
 		return err
 	}
 
 	lib.Log("[%s] CORE route message by pid (remote) %s", c.nodename, to)
-	return connection.Send(from, to, message)
+	return connection.Send(p_from, to, message)
 }
 
 // RouteSendReg implements RouteSendReg method of Router interface
@@ -690,13 +697,20 @@ func (c *core) RouteSendReg(from etf.Pid, to gen.ProcessID, message etf.Term) er
 	}
 
 	// send to remote node
-	connection, err := c.GetConnection(string(to.Name))
+	c.mutexProcesses.Lock()
+	p_from, exist := c.processes[from.ID]
+	c.mutexProcesses.Unlock()
+	if !exist {
+		lib.Log("[%s] CORE route message by gen.ProcessID (local) %s failed. Unknown sender", c.nodename, to)
+		return ErrSenderUnknown
+	}
+	connection, err := c.GetConnection(string(to.Node))
 	if err != nil {
 		return err
 	}
 
 	lib.Log("[%s] CORE route message by gen.ProcessID (remote) %s", c.nodename, to)
-	return connection.SendReg(from, to, message)
+	return connection.SendReg(p_from, to, message)
 }
 
 // RouteSendAlias implements RouteSendAlias method of Router interface
@@ -720,13 +734,20 @@ func (c *core) RouteSendAlias(from etf.Pid, to etf.Alias, message etf.Term) erro
 	}
 
 	// send to remote node
-	connection, err := c.GetConnection(string(to.Name))
+	c.mutexProcesses.Lock()
+	p_from, exist := c.processes[from.ID]
+	c.mutexProcesses.Unlock()
+	if !exist {
+		lib.Log("[%s] CORE route message by alias (local) %s failed. Unknown sender", c.nodename, to)
+		return ErrSenderUnknown
+	}
+	connection, err := c.GetConnection(string(to.Node))
 	if err != nil {
 		return err
 	}
 
 	lib.Log("[%s] CORE route message by alias (remote) %s", c.nodename, to)
-	return connection.SendAlias(from, to, message)
+	return connection.SendAlias(p_from, to, message)
 }
 
 // RouteProxy
