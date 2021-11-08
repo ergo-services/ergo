@@ -19,7 +19,6 @@ import (
 	"github.com/ergo-services/ergo/etf"
 	"github.com/ergo-services/ergo/gen"
 	"github.com/ergo-services/ergo/lib"
-	"github.com/ergo-services/ergo/node/dist"
 
 	"net"
 
@@ -31,7 +30,7 @@ type networkInternal interface {
 	AddStaticRoute(name string, port uint16, options RouteOptions) error
 	RemoveStaticRoute(name string) error
 	StaticRoutes() []Route
-	Connect(to string) error
+	connect(to string) (Connection, error)
 }
 
 type network struct {
@@ -64,6 +63,7 @@ func newNetwork(ctx context.Context, name string, options Options, router Router
 		proto:        options.Proto,
 		handshake:    options.Handshake,
 		router:       router,
+		creation:     options.Creation,
 	}
 
 	ns := strings.Split(name, "@")
@@ -92,7 +92,6 @@ func newNetwork(ctx context.Context, name string, options Options, router Router
 	}
 
 	resolverOptions := ResolverOptions{
-		Creation:         options.Creation,
 		NodeVersion:      version,
 		HandshakeVersion: handshakeVersion,
 		EnabledTLS:       n.tls.Enabled,
@@ -133,7 +132,7 @@ func (n *network) AddStaticRoute(name string, port uint16, options RouteOptions)
 	return nil
 }
 
-// RemoveStaticRoute removes static route record. Returns false if it wasn't exist.
+// RemoveStaticRoute removes static route record. Returns false if it doesn't exist.
 func (n *network) RemoveStaticRoute(name string) bool {
 	n.staticRoutesMutex.Lock()
 	defer n.staticRoutesMutex.Unlock()
@@ -270,242 +269,95 @@ func (n *network) listen(ctx context.Context, name string, router CoreRouter) (u
 	return 0, fmt.Errorf("Can't start listener. Port range is taken")
 }
 
-// Resolve
-func (n *network) Resolve(name string) (NetworkRoute, error) {
-	return n.epmd.resolve(name)
-}
-
-func (n *network) handleMessage(fromNode string, control, message etf.Term) (err error) {
-	defer func() {
-		if r := recover(); r != nil {
-			err = fmt.Errorf("%s", r)
-		}
-	}()
-
-	switch t := control.(type) {
-	case etf.Tuple:
-		switch act := t.Element(1).(type) {
-		case int:
-			switch act {
-			case distProtoREG_SEND:
-				// {6, FromPid, Unused, ToName}
-				lib.Log("[%s] CONTROL REG_SEND [from %s]: %#v", n.registrar.NodeName(), fromNode, control)
-				n.registrar.route(t.Element(2).(etf.Pid), t.Element(4), message)
-
-			case distProtoSEND:
-				// {2, Unused, ToPid}
-				// SEND has no sender pid
-				lib.Log("[%s] CONTROL SEND [from %s]: %#v", n.registrar.NodeName(), fromNode, control)
-				n.registrar.route(etf.Pid{}, t.Element(3), message)
-
-			case distProtoLINK:
-				// {1, FromPid, ToPid}
-				lib.Log("[%s] CONTROL LINK [from %s]: %#v", n.registrar.NodeName(), fromNode, control)
-				n.registrar.link(t.Element(2).(etf.Pid), t.Element(3).(etf.Pid))
-
-			case distProtoUNLINK:
-				// {4, FromPid, ToPid}
-				lib.Log("[%s] CONTROL UNLINK [from %s]: %#v", n.registrar.NodeName(), fromNode, control)
-				n.registrar.unlink(t.Element(2).(etf.Pid), t.Element(3).(etf.Pid))
-
-			case distProtoNODE_LINK:
-				lib.Log("[%s] CONTROL NODE_LINK [from %s]: %#v", n.registrar.NodeName(), fromNode, control)
-
-			case distProtoEXIT:
-				// {3, FromPid, ToPid, Reason}
-				lib.Log("[%s] CONTROL EXIT [from %s]: %#v", n.registrar.NodeName(), fromNode, control)
-				terminated := t.Element(2).(etf.Pid)
-				reason := fmt.Sprint(t.Element(4))
-				n.registrar.handleTerminated(terminated, "", string(reason))
-
-			case distProtoEXIT2:
-				lib.Log("[%s] CONTROL EXIT2 [from %s]: %#v", n.registrar.NodeName(), fromNode, control)
-
-			case distProtoMONITOR:
-				// {19, FromPid, ToProc, Ref}, where FromPid = monitoring process
-				// and ToProc = monitored process pid or name (atom)
-				lib.Log("[%s] CONTROL MONITOR [from %s]: %#v", n.registrar.NodeName(), fromNode, control)
-				n.registrar.monitorProcess(t.Element(2).(etf.Pid), t.Element(3), t.Element(4).(etf.Ref))
-
-			case distProtoDEMONITOR:
-				// {20, FromPid, ToProc, Ref}, where FromPid = monitoring process
-				// and ToProc = monitored process pid or name (atom)
-				lib.Log("[%s] CONTROL DEMONITOR [from %s]: %#v", n.registrar.NodeName(), fromNode, control)
-				n.registrar.demonitorProcess(t.Element(4).(etf.Ref))
-
-			case distProtoMONITOR_EXIT:
-				// {21, FromProc, ToPid, Ref, Reason}, where FromProc = monitored process
-				// pid or name (atom), ToPid = monitoring process, and Reason = exit reason for the monitored process
-				lib.Log("[%s] CONTROL MONITOR_EXIT [from %s]: %#v", n.registrar.NodeName(), fromNode, control)
-				reason := fmt.Sprint(t.Element(5))
-				switch terminated := t.Element(2).(type) {
-				case etf.Pid:
-					n.registrar.handleTerminated(terminated, "", string(reason))
-				case etf.Atom:
-					vpid := virtualPid(gen.ProcessID{string(terminated), fromNode})
-					n.registrar.handleTerminated(vpid, "", string(reason))
-				}
-
-			// Not implemented yet, just stubs. TODO.
-			case distProtoSEND_SENDER:
-				lib.Log("[%s] CONTROL SEND_SENDER unsupported [from %s]: %#v", n.registrar.NodeName(), fromNode, control)
-			case distProtoPAYLOAD_EXIT:
-				lib.Log("[%s] CONTROL PAYLOAD_EXIT unsupported [from %s]: %#v", n.registrar.NodeName(), fromNode, control)
-			case distProtoPAYLOAD_EXIT2:
-				lib.Log("[%s] CONTROL PAYLOAD_EXIT2 unsupported [from %s]: %#v", n.registrar.NodeName(), fromNode, control)
-			case distProtoPAYLOAD_MONITOR_P_EXIT:
-				lib.Log("[%s] CONTROL PAYLOAD_MONITOR_P_EXIT unsupported [from %s]: %#v", n.registrar.NodeName(), fromNode, control)
-
-			// alias support
-			case distProtoALIAS_SEND:
-				// {33, FromPid, Alias}
-				lib.Log("[%s] CONTROL ALIAS_SEND [from %s]: %#v", n.registrar.NodeName(), fromNode, control)
-				alias := etf.Alias(t.Element(3).(etf.Ref))
-				n.registrar.route(t.Element(2).(etf.Pid), alias, message)
-
-			case distProtoSPAWN_REQUEST:
-				// {29, ReqId, From, GroupLeader, {Module, Function, Arity}, OptList}
-				lib.Log("[%s] CONTROL SPAWN_REQUEST [from %s]: %#v", n.registrar.NodeName(), fromNode, control)
-				registerName := ""
-				for _, option := range t.Element(6).(etf.List) {
-					name, ok := option.(etf.Tuple)
-					if !ok {
-						break
-					}
-					if name.Element(1).(etf.Atom) == etf.Atom("name") {
-						registerName = string(name.Element(2).(etf.Atom))
-					}
-				}
-
-				from := t.Element(3).(etf.Pid)
-				ref := t.Element(2).(etf.Ref)
-
-				mfa := t.Element(5).(etf.Tuple)
-				module := mfa.Element(1).(etf.Atom)
-				function := mfa.Element(2).(etf.Atom)
-				var args etf.List
-				if str, ok := message.(string); !ok {
-					args, _ = message.(etf.List)
-				} else {
-					// stupid Erlang's strings :). [1,2,3,4,5] sends as a string.
-					// args can't be anything but etf.List.
-					for i := range []byte(str) {
-						args = append(args, str[i])
-					}
-				}
-
-				rb, err_behavior := n.registrar.RegisteredBehavior(remoteBehaviorGroup, string(module))
-				if err_behavior != nil {
-					message := etf.Tuple{distProtoSPAWN_REPLY, ref, from, 0, etf.Atom("not_provided")}
-					n.registrar.routeRaw(from.Node, message)
-					return
-				}
-				remote_request := gen.RemoteSpawnRequest{
-					Ref:      ref,
-					From:     from,
-					Function: string(function),
-				}
-				process_opts := processOptions{}
-				process_opts.Env = map[string]interface{}{"ergo:RemoteSpawnRequest": remote_request}
-
-				process, err_spawn := n.registrar.spawn(registerName, process_opts, rb.Behavior, args...)
-				if err_spawn != nil {
-					message := etf.Tuple{distProtoSPAWN_REPLY, ref, from, 0, etf.Atom(err_spawn.Error())}
-					n.registrar.routeRaw(from.Node, message)
-					return
-				}
-				message := etf.Tuple{distProtoSPAWN_REPLY, ref, from, 0, process.Self()}
-				n.registrar.routeRaw(from.Node, message)
-
-			case distProtoSPAWN_REPLY:
-				// {31, ReqId, To, Flags, Result}
-				lib.Log("[%s] CONTROL SPAWN_REPLY [from %s]: %#v", n.registrar.NodeName(), fromNode, control)
-
-				to := t.Element(3).(etf.Pid)
-				process := n.registrar.ProcessByPid(to)
-				if process == nil {
-					return
-				}
-				ref := t.Element(2).(etf.Ref)
-				//flags := t.Element(4)
-				process.PutSyncReply(ref, t.Element(5))
-
-			case distProtoProxy:
-				// FIXME
-
-			default:
-				lib.Log("[%s] CONTROL unknown command [from %s]: %#v", n.registrar.NodeName(), fromNode, control)
-			}
-		default:
-			err = fmt.Errorf("unsupported message %#v", control)
-		}
-	}
-
-	return
-}
-
-func (n *network) Connect(to string) error {
-	var nr NetworkRoute
-	var err error
+func (n *network) connect(to string) (ConnectionInterface, error) {
+	var route Route
 	var c net.Conn
-	if nr, err = n.epmd.resolve(string(to)); err != nil {
-		return fmt.Errorf("Can't resolve port for %s: %s", to, err)
-	}
-	if nr.Cookie == "" {
-		nr.Cookie = n.opts.cookie
-	}
-	ns := strings.Split(to, "@")
+	var err error
+	var enabledTLS bool
 
-	TLSenabled := false
-
-	switch n.opts.TLSMode {
-	case TLSModeAuto:
-		tlsdialer := tls.Dialer{
-			Config: &tls.Config{
-				Certificates:       []tls.Certificate{n.tlscertClient},
-				InsecureSkipVerify: true,
-			},
-		}
-		c, err = tlsdialer.DialContext(n.ctx, "tcp", net.JoinHostPort(ns[1], strconv.Itoa(nr.Port)))
-		TLSenabled = true
-
-	case TLSModeStrict:
-		tlsdialer := tls.Dialer{
-			Config: &tls.Config{
-				Certificates: []tls.Certificate{n.tlscertClient},
-			},
-		}
-		c, err = tlsdialer.DialContext(n.ctx, "tcp", net.JoinHostPort(ns[1], strconv.Itoa(nr.Port)))
-		TLSenabled = true
-
-	default:
-		dialer := net.Dialer{}
-		c, err = dialer.DialContext(n.ctx, "tcp", net.JoinHostPort(ns[1], strconv.Itoa(nr.Port)))
-	}
-
+	// resolve the route
+	route, err = n.resolver.Resolve(to)
 	if err != nil {
-		lib.Log("Error calling net.Dialer.DialerContext : %s", err.Error())
-		return err
+		return nil, err
 	}
 
-	handshakeOptions := dist.HandshakeOptions{
-		Name:     n.name,
-		Cookie:   nr.Cookie,
-		TLS:      TLSenabled,
-		Hidden:   false,
-		Creation: n.opts.creation,
-		Version:  n.opts.HandshakeVersion,
-	}
-	link, e := dist.Handshake(c, handshakeOptions)
-	if e != nil {
-		return e
+	HostPort := net.JoinHostPort(route.Host, strconv.Itoa(int(route.Port)))
+
+	if route.IsErgo == true {
+		// rely on the route TLS settings if they were defined
+		if route.EnabledTLS {
+			if route.TLSConfig == nil {
+				// use the local TLS settings
+				tlsdialer := tls.Dialer{
+					Config: &n.tls.Config,
+				}
+				c, err = tlsdialer.DialContext(n.ctx, "tcp", HostPort)
+			} else {
+				// use the route TLS settings
+				tlsdialer := tls.Dialer{
+					Config: route.TLSConfig,
+				}
+				c, err = tlsdialer.DialContext(n.ctx, "tcp", HostPort)
+			}
+
+			enabledTLS = true
+
+		} else {
+			// TLS disabled on a remote node
+			dialer := net.Dialer{}
+			c, err = dialer.DialContext(n.ctx, "tcp", HostPort)
+		}
+
+	} else {
+		// rely on the local TLS settings
+		if n.tls.Enabled {
+			tlsdialer := tls.Dialer{
+				Config: &n.tls.Config,
+			}
+			c, err = tlsdialer.DialContext(n.ctx, "tcp", HostPort)
+
+			enabledTLS = true
+
+		} else {
+			dialer := net.Dialer{}
+			c, err = dialer.DialContext(n.ctx, "tcp", HostPort)
+
+		}
 	}
 
-	if err := n.serve(n.ctx, link); err != nil {
+	// check if we couldn't reach the host
+	if err != nil {
+		return nil, err
+	}
+
+	// handshake
+	handshake := route.Handshake
+	if handshake == nil {
+		// use default handshake
+		handshake = n.handshake
+	}
+
+	connection, err := handshake.Start(c, n.creation, enabledTLS)
+	if err != nil {
 		c.Close()
-		return err
+		return nil, err
 	}
-	return nil
+	_, isConnectionObject := connection.(*Connection)
+	if isConnectionObject == false {
+		c.Close()
+		return nil, fmt.Errorf("Handshake start failed. Not a *node.Connection object")
+	}
+
+	// proto
+	proto := route.Proto
+	if proto == nil {
+		// use default proto
+		proto = n.proto
+	}
+
+	go proto.Serve(connection, protoOptions)
+
+	return connection, nil
 }
 
 func generateSelfSignedCert(version Version) (tls.Certificate, error) {
@@ -627,6 +479,9 @@ func (c *Connection) Proxy() error {
 }
 func (c *Connection) ProxyReg() error {
 	return ErrUnsupported
+}
+func (c *Connection) Options() ProtoOptions {
+	return ProtoOptions{}
 }
 
 //

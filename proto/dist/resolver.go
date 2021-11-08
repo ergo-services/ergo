@@ -123,7 +123,6 @@ func (e *epmdResolver) Register(name string, port uint16, options node.ResolverO
 }
 
 func (e *epmdResolver) Resolve(name string) (Route, error) {
-	var route node.Route
 
 	n := strings.Split(name, "@")
 	if len(n) != 2 {
@@ -131,16 +130,24 @@ func (e *epmdResolver) Resolve(name string) (Route, error) {
 	}
 	conn, err := net.Dial("tcp", net.JoinHostPort(n[1], fmt.Sprintf("%d", e.port)))
 	if err != nil {
-		return route, err
+		return node.Route{}, err
 	}
 
 	defer conn.Close()
 
 	if err := e.sendPortPleaseReq(c, n[0]); err != nil {
-		return route, err
+		return node.Route{}, err
 	}
 
-	return e.readPortResp(c)
+	route, err := e.readPortResp(c)
+	if err != nil {
+		return node.Route{}, err
+	}
+
+	route.NodeName = name
+	route.Name = n[0]
+	route.Host = n[1]
+	return route, nil
 
 }
 

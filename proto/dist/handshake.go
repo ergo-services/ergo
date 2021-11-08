@@ -1,4 +1,4 @@
-package node
+package dist
 
 import (
 	"bytes"
@@ -82,15 +82,11 @@ type DistHandshake struct {
 }
 
 type DistHandshakeOptions struct {
-	Version    DistHandshakeVersion // 5 or 6
-	Name       string
-	Cookie     string
-	EnabledTLS bool
-	Hidden     bool
-	Creation   uint32
+	Version node.HandshakeVersion // 5 or 6
+	Cookie  string
 }
 
-func CreateDistHandshake(options DistHandshakeOptions) *DistHandshake {
+func CreateDistHandshake(options DistHandshakeOptions) node.Handshake {
 	// must be 5 or 6
 	if options.Version != DistHandshakeVersion5 && options.Version != DistHandshakeVersion6 {
 		options.Version = defaultDistHandshakeVersion
@@ -98,6 +94,11 @@ func CreateDistHandshake(options DistHandshakeOptions) *DistHandshake {
 	return &DistHandshake{
 		options: options,
 	}
+}
+
+// Init implements Handshake interface mothod
+func (h *DistHandshake) Init(nodename string) (node.HandshakeVersion, error) {
+	return h.options.Version, nil
 }
 
 func (h *DistHandshake) Start(ctx context.Context, conn net.Conn) (*node.Connection, error) {

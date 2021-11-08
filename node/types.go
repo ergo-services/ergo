@@ -144,7 +144,7 @@ type CoreRouter interface {
 	ProcessByName(name string) gen.Process
 	ProcessByAlias(alias etf.Alias) gen.Process
 
-	GetConnection(nodename string) (*Connection, error)
+	GetConnection(nodename string) (ConnectionInterface, error)
 }
 
 // NetworkRoute
@@ -155,18 +155,18 @@ type NetworkRoute struct {
 }
 
 // TLSmodeType should be one of TLSmodeDisabled (default), TLSmodeAuto or TLSmodeStrict
-type TLSMode string
+type TLSMode int
 
 // ProxyMode
 type ProxyMode int
 
 const (
 	// TLSModeDisabled no TLS encryption
-	TLSModeDisabled TLSMode = ""
+	TLSModeDisabled TLSMode = 0
 	// TLSModeAuto generate self-signed certificate
-	TLSModeAuto TLSMode = "auto"
+	TLSModeAuto TLSMode = 1
 	// TLSModeStrict with validation certificate
-	TLSModeStrict TLSMode = "strict"
+	TLSModeStrict TLSMode = 2
 
 	// ProxyModeDisabled
 	ProxyModeDisabled ProxyMode = 0
@@ -245,9 +245,6 @@ type TLS struct {
 // Connection
 type Connection struct {
 	ConnectionInterface
-	net.Conn
-
-	PeerName string
 }
 
 // ConnectionInterface
@@ -272,10 +269,9 @@ type ConnectionInterface interface {
 
 	Proxy()
 	ProxyReg()
-}
 
-// CustomHandshakeOptions a custom set of handshake options
-type CustomHandshakeOptions interface{}
+	Options() ProtoOptions
+}
 
 // Handshake template struct for the custom Handshake implementation
 type Handshake struct {
@@ -287,21 +283,13 @@ type HandshakeInterface interface {
 	// Init initialize handshake.
 	Init(nodename string) (HandshakeVersion, error)
 	// Start initiates handshake process. Returns proto options to override default ones.
-	Start(c *Connection, tls TLS) (*ProtoOptions, error)
+	Start(c net.Conn, creation uint32, enabledTLS bool) (ConnectionInterface, error)
 	// Accept accepts handshake process initiated by another side of this connection. Returns
 	// proto options to override default ones and the peer name.
-	Accept(c *Connection, tls TLS) (*ProtoOptions, string)
+	Accept(c net.Conn, creation uint32, enabledTLS bool) (ConnectionInterface, string)
 }
 
 type HandshakeVersion int
-
-// HandshakeOptions defines handshake options
-type HandshakeOptions struct {
-	Cookie  string
-	Version HandshakeVersion
-	// Custom brings a custom set of options to the HandshakeInterface.Init handler
-	Custom CustomHandshakeOptions
-}
 
 // Proto template struct for the custom Proto implementation
 type Proto struct {
@@ -342,7 +330,6 @@ type ProtoOptions struct {
 // ResolverOptions defines resolving options
 type ResolverOptions struct {
 	NodeVersion      Version
-	Creation         uint32
 	HandshakeVersion HandshakeVersion
 	EnabledTLS       bool
 	EnabledProxy     bool
@@ -364,15 +351,17 @@ type RouteOptions struct {
 	EnabledProxy bool
 	IsErgo       bool
 
-	ClientCert tls.Certificate
-	Handshake  Handshake
-	Proto      Proto
-	Custom     CustomRouteOptions
+	TLSConfig *tls.Config
+	Handshake Handshake
+	Proto     Proto
+	Custom    CustomRouteOptions
 }
 
 // Route
 type Route struct {
-	Name string
-	Port uint16
+	NodeName string
+	Name     string
+	Host     string
+	Port     uint16
 	RouteOptions
 }

@@ -37,7 +37,7 @@ type core struct {
 	mutexAliases     sync.Mutex
 	processes        map[uint64]*process
 	mutexProcesses   sync.Mutex
-	connections      map[string]*Connection
+	connections      map[string]ConnectionInterface
 	mutexConnections sync.Mutex
 
 	behaviors      map[string]map[string]gen.RegisteredBehavior
@@ -759,7 +759,8 @@ func (c *core) RouteSendAlias(from etf.Pid, to etf.Alias, message etf.Term) erro
 	return connection.SendAlias(from, to, message)
 }
 
-func (c *core) GetConnection(remoteNodeName string) (*Connection, error) {
+// GetConnection
+func (c *core) GetConnection(remoteNodeName string) (ConnectionInterface, error) {
 	c.mutexConnections.Lock()
 	connection, ok := c.connections[remoteNodeName]
 	c.mutexConnections.Unlock()
@@ -767,13 +768,20 @@ func (c *core) GetConnection(remoteNodeName string) (*Connection, error) {
 		return connection, nil
 	}
 
-	if err := c.Connect(remoteNodeName); err != nil {
+	connection, err := c.Connect(remoteNodeName)
+	if err != nil {
 		lib.Log("[%s] CORE no route to node %q: %s", c.nodename, remoteNodeName, err)
 		return nil, ErrNoRoute
 	}
 
 	c.mutexConnections.Lock()
-	connection, _ = c.connections[remoteNodeName]
+	c.connections[remoteNodeName] = connection
 	c.mutexConnection.Unlock()
 	return connection, nil
+}
+
+// Connect
+func (c *core) Connect(nodename string) error {
+	_, err := c.GetConnection(nodename)
+	return err
 }

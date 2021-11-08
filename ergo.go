@@ -37,7 +37,8 @@ func StartNodeWithContext(ctx context.Context, name string, cookie string, opts 
 	}
 
 	if opts.Handshake == nil {
-		handshakeOptions := node.HandshakeOptions{
+		handshakeOptions := dist.HandshakeOptions{
+			Name:    name,
 			Cookie:  cookie,
 			Version: dist.DefaultDistHandshakeVersion,
 		}
