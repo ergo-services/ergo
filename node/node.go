@@ -16,11 +16,6 @@ const (
 	remoteBehaviorGroup = "ergo:remote"
 )
 
-type nodeInternal interface {
-	Node
-	registrarInternal
-}
-
 // node instance of created node using CreateNode
 type node struct {
 	coreInternal

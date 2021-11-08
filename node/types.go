@@ -109,7 +109,9 @@ type Version struct {
 // CoreRouter routes messages from/to remote node
 type CoreRouter interface {
 
+	//
 	// implemented by core
+	//
 
 	// RouteSend routes message by Pid
 	RouteSend(from etf.Pid, to etf.Pid, message etf.Term) error
@@ -118,7 +120,15 @@ type CoreRouter interface {
 	// RouteSendAlias routes message by process alias
 	RouteSendAlias(from etf.Pid, to etf.Alias, message etf.Term) error
 
+	ProcessByPid(pid etf.Pid) gen.Process
+	ProcessByName(name string) gen.Process
+	ProcessByAlias(alias etf.Alias) gen.Process
+
+	GetConnection(nodename string) (ConnectionInterface, error)
+
+	//
 	// implemented by monitor
+	//
 
 	// RouteLink makes linking of the given two processes
 	RouteLink(pidA etf.Pid, pidB etf.Pid) error
@@ -136,15 +146,7 @@ type CoreRouter interface {
 
 	RouteSpawnRequest() error
 	RouteSpawnReply() error
-
 	RouteProxy() error
-	RouteProxyReg() error
-
-	ProcessByPid(pid etf.Pid) gen.Process
-	ProcessByName(name string) gen.Process
-	ProcessByAlias(alias etf.Alias) gen.Process
-
-	GetConnection(nodename string) (ConnectionInterface, error)
 }
 
 // NetworkRoute
@@ -301,7 +303,7 @@ type ProtoInterface interface {
 	// Init initialize proto handler and set default options
 	Init(router Router) error
 	// Serve serves connection with options defined by handshake.
-	Serve(c *Connection, options *ProtoOptions)
+	Serve(c ConnectionInterface)
 }
 
 // CustomProtoOptions a custom set of proto options

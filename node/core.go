@@ -24,6 +24,8 @@ type core struct {
 	ctx  context.Context
 	stop context.CancelFunc
 
+	env map[gen.EnvKey]interface{}
+
 	tls TLS
 
 	nextPID  uint64
@@ -52,8 +54,6 @@ type coreInternal interface {
 	registerName(name string, pid etf.Pid) error
 	unregisterName(name string) error
 
-	registerPeer(peer *peer) error
-	unregisterPeer(name string)
 	newAlias(p *process) (etf.Alias, error)
 	deleteAlias(owner *process, alias etf.Alias) error
 
@@ -76,7 +76,7 @@ func newCore(ctx context.Context, nodename string, options Options) (coreInterna
 		names:       make(map[string]etf.Pid),
 		aliases:     make(map[etf.Alias]*process),
 		processes:   make(map[uint64]*process),
-		connections: make(map[string]*Connection),
+		connections: make(map[string]ConnectionInterface),
 		behaviors:   make(map[string]map[string]gen.RegisteredBehavior),
 	}
 
@@ -84,8 +84,8 @@ func newCore(ctx context.Context, nodename string, options Options) (coreInterna
 	c.stop = corestop
 	c.ctx = corectx
 
-	monitor := newMonitor(c)
-	network, err := newNetwork(c.ctx, nodename, options, c)
+	monitor := newMonitor(nodename, CoreRouter(c))
+	network, err := newNetwork(c.ctx, nodename, options, CoreRouter(c))
 	if err != nil {
 		corestop()
 		return nil, err
@@ -178,9 +178,9 @@ func (c *core) newAlias(p *process) (etf.Alias, error) {
 	c.aliases[alias] = p
 	c.mutexAliases.Unlock()
 
-	c.Lock()
-	c.aliases = append(c.aliases, alias)
-	c.Unlock()
+	p.Lock()
+	p.aliases = append(p.aliases, alias)
+	p.Unlock()
 	return alias, nil
 }
 
@@ -191,7 +191,7 @@ func (c *core) deleteAlias(owner *process, alias etf.Alias) error {
 	p, alias_exist := c.aliases[alias]
 	c.mutexAliases.Unlock()
 
-	if !alias_exist {
+	if alias_exist == false {
 		return ErrAliasUnknown
 	}
 
@@ -199,7 +199,7 @@ func (c *core) deleteAlias(owner *process, alias etf.Alias) error {
 	_, process_exist := c.processes[owner.self.ID]
 	c.mutexProcesses.Unlock()
 
-	if !process_exist {
+	if process_exist == false {
 		return ErrProcessUnknown
 	}
 	if p.self != owner.self {
@@ -211,17 +211,22 @@ func (c *core) deleteAlias(owner *process, alias etf.Alias) error {
 		if alias != p.aliases[i] {
 			continue
 		}
-		delete(r.aliases, alias)
+		// remove it from the global alias list
+		c.mutexAliases.Lock()
+		delete(c.aliases, alias)
+		c.mutexAliases.Unlock()
+		// remove it from the process alias list
 		p.aliases[i] = p.aliases[0]
 		p.aliases = p.aliases[1:]
 		p.Unlock()
 		return nil
 	}
-
 	p.Unlock()
+
+	// shouldn't reach this code. seems we got a bug
 	fmt.Println("Bug: Process lost its alias. Please, report this issue")
 	c.mutexAliases.Lock()
-	delete(r.aliases, alias)
+	delete(c.aliases, alias)
 	c.mutexAliases.Unlock()
 
 	return ErrAliasUnknown
@@ -245,10 +250,12 @@ func (c *core) newProcess(name string, behavior gen.ProcessBehavior, opts proces
 
 	pid := c.newPID()
 
-	env := make(map[string]interface{})
-	for k, v := range c.node.env {
+	env := make(map[gen.EnvKey]interface{})
+	// inherite the node environment
+	for k, v := range c.env {
 		env[k] = v
 	}
+	// merge the custom ones
 	for k, v := range opts.Env {
 		env[k] = v
 	}
@@ -465,13 +472,12 @@ func (c *core) unregisterName(name string) error {
 	return ErrNameUnknown
 }
 
-func (c *core) registerConnection(connection *Connection) error {
-	lib.Log("[%s] CORE registering peer %#v", c.nodename, connection.Name)
+func (c *core) registerConnection(nodename string, connection ConnectionInterface) error {
+	lib.Log("[%s] CORE registering peer %#v", c.nodename, nodename)
 	c.mutexConnections.Lock()
 	defer c.mutexConnection.Unlock()
-	// FIXME validate c.Name. must be abc@def format
 
-	if _, ok := c.connections[connection.Name]; ok {
+	if _, exist := c.connections[connection.Name]; exist {
 		// already registered
 		return ErrTaken
 	}
@@ -482,11 +488,12 @@ func (c *core) registerConnection(connection *Connection) error {
 func (c *core) unregisterConnection(name string) {
 	lib.Log("[%s] CORE unregistering peer %v", c.nodename, name)
 	c.mutexConnections.Lock()
-	defer c.mutexConnections.Unlock()
-	if _, ok := c.connections[name]; ok {
-		delete(c.connections, name)
+	_, exist := c.connections[name]
+	delete(c.connections, name)
+	c.mutexConnections.Unlock()
+
+	if exist {
 		c.handleNodeDown(name)
-		return
 	}
 }
 
@@ -759,6 +766,24 @@ func (c *core) RouteSendAlias(from etf.Pid, to etf.Alias, message etf.Term) erro
 	return connection.SendAlias(from, to, message)
 }
 
+// RouteProxy
+func (c *core) RouteProxy() error {
+	// FIXME
+	return nil
+}
+
+// RouteSpawnRequest
+func (c *core) RouteSpawnRequest() error {
+	// FIXME
+	return nil
+}
+
+// RouteSpawnReply
+func (c *core) RouteSpawnReply() error {
+	// FIXME
+	return nil
+}
+
 // GetConnection
 func (c *core) GetConnection(remoteNodeName string) (ConnectionInterface, error) {
 	c.mutexConnections.Lock()
@@ -768,15 +793,27 @@ func (c *core) GetConnection(remoteNodeName string) (ConnectionInterface, error)
 		return connection, nil
 	}
 
-	connection, err := c.Connect(remoteNodeName)
+	connection, err := c.connect(remoteNodeName)
 	if err != nil {
 		lib.Log("[%s] CORE no route to node %q: %s", c.nodename, remoteNodeName, err)
 		return nil, ErrNoRoute
 	}
 
-	c.mutexConnections.Lock()
-	c.connections[remoteNodeName] = connection
-	c.mutexConnection.Unlock()
+	err = c.registerConnection(remoteNodeName, connection)
+	if err != nil {
+		// Race condition:
+		// there must be another goroutine created a connection to this node
+		// close this connection and make another attempt to get it by name
+
+		c.mutexConnections.Lock()
+		connection, ok := c.connections[remoteNodeName]
+		c.mutexConnections.Unlock()
+		if !ok {
+			return nil, ErrNoRoute
+		}
+		return connection, nil
+	}
+
 	return connection, nil
 }
 

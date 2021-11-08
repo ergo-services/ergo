@@ -23,7 +23,7 @@ type process struct {
 	name     string
 	self     etf.Pid
 	behavior gen.ProcessBehavior
-	env      map[string]interface{}
+	env      map[gen.EnvKey]interface{}
 
 	parent      *process
 	groupLeader gen.Process
@@ -309,11 +309,11 @@ func (p *process) WaitWithTimeout(d time.Duration) error {
 }
 
 // Link
-func (p *process) Link(with etf.Pid) error {
+func (p *process) Link(with etf.Pid) {
 	if p.behavior == nil {
 		return
 	}
-	return p.link(p.self, with)
+	p.link(p.self, with)
 }
 
 // Unlink

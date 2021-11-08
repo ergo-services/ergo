@@ -34,6 +34,9 @@ type monitorInternal interface {
 	// RouteMonitorExit
 	RouteMonitorExit(to etf.Pid, terminated etf.Pid, reason string, ref etf.Ref) error
 
+	// IsMonitor
+	IsMonitor(ref etf.Ref) bool
+
 	monitorNode(by etf.Pid, node string, ref etf.Ref)
 	demonitorNode(ref etf.Ref) bool
 
@@ -69,7 +72,7 @@ type monitor struct {
 	router   CoreRouter
 }
 
-func newMonitor(nodename string, router CoreRouter) monitor {
+func newMonitor(nodename string, router CoreRouter) monitorInternal {
 	return monitor{
 		processes: make(map[etf.Pid][]monitorItem),
 		names:     make(map[gen.ProcessID]monitorItem),

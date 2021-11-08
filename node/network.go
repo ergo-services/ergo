@@ -48,11 +48,12 @@ type network struct {
 	tls     TLS
 	version Version
 
+	router    CoreRouter
 	handshake Handshake
 	proto     Proto
 }
 
-func newNetwork(ctx context.Context, name string, options Options, router Router) (networkInternal, error) {
+func newNetwork(ctx context.Context, name string, options Options, router CoreRouter) (networkInternal, error) {
 	n := &network{
 		name:         name,
 		ctx:          ctx,
@@ -106,8 +107,8 @@ func newNetwork(ctx context.Context, name string, options Options, router Router
 
 // AddStaticRoute adds a static route to the node with the given name
 func (n *network) AddStaticRoute(name string, port uint16, options RouteOptions) error {
-	n := strings.Split(name, "@")
-	if len(n) != 2 {
+	ns := strings.Split(name, "@")
+	if len(ns) != 2 {
 		return fmt.Errorf("wrong FQDN")
 	}
 	if _, err := net.LookupHost(ns[1]); err != nil {
