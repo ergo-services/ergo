@@ -30,17 +30,23 @@ type networkInternal interface {
 	AddStaticRoute(name string, port uint16, options RouteOptions) error
 	RemoveStaticRoute(name string) error
 	StaticRoutes() []Route
+	Connect(peername string) error
+	Nodes() []string
+
+	GetConnection(peername string) (ConnectionInterface, error)
 	connect(to string) (Connection, error)
 }
 
 type network struct {
-	name string
-	ctx  context.Context
+	nodename string
+	ctx      context.Context
 
 	resolver          Resolver
 	staticOnly        bool
 	staticRoutes      map[string]Route
 	staticRoutesMutex sync.Mutex
+
+	connections map[string]ConnectionInterface
 
 	remoteSpawn      map[string]gen.ProcessBehavior
 	remoteSpawnMutex sync.Mutex
@@ -53,12 +59,13 @@ type network struct {
 	proto     Proto
 }
 
-func newNetwork(ctx context.Context, name string, options Options, router CoreRouter) (networkInternal, error) {
+func newNetwork(ctx context.Context, nodename string, options Options, router CoreRouter) (networkInternal, error) {
 	n := &network{
-		name:         name,
+		nodename:     nodename,
 		ctx:          ctx,
 		staticOnly:   options.StaticRoutesOnly,
 		staticRoutes: make(map[string]Route),
+		connections:  make(map[string]ConnectionInterface),
 		remoteSpawn:  make(map[string]gen.ProcessBehavior),
 		resolver:     options.Resolver,
 		proto:        options.Proto,
@@ -67,8 +74,8 @@ func newNetwork(ctx context.Context, name string, options Options, router CoreRo
 		creation:     options.Creation,
 	}
 
-	ns := strings.Split(name, "@")
-	if len(ns) != 2 {
+	nn := strings.Split(nodename, "@")
+	if len(nn) != 2 {
 		return nil, fmt.Errorf("(EMPD) FQDN for node name is required (example: node@hostname)")
 	}
 
@@ -78,7 +85,7 @@ func newNetwork(ctx context.Context, name string, options Options, router CoreRo
 		return nil, err
 	}
 
-	handshakeVersion, err := n.handshake.Init(name)
+	handshakeVersion, err := n.handshake.Init(nodename)
 	if err != nil {
 		return nil, err
 	}
@@ -87,7 +94,7 @@ func newNetwork(ctx context.Context, name string, options Options, router CoreRo
 		return nil, err
 	}
 
-	port, err := n.listen(ctx, ns[1], router)
+	port, err := n.listen(ctx, nn[1], router)
 	if err != nil {
 		return nil, err
 	}
@@ -98,7 +105,7 @@ func newNetwork(ctx context.Context, name string, options Options, router CoreRo
 		EnabledTLS:       n.tls.Enabled,
 		EnabledProxy:     options.ProxyMode != ProxyModeDisabled,
 	}
-	if err := n.resolver.Register(name, port, resolverOptions); err != nil {
+	if err := n.resolver.Register(nodename, port, resolverOptions); err != nil {
 		return nil, err
 	}
 
@@ -158,6 +165,57 @@ func (n *network) StaticRoutes() []Route {
 	return routes
 }
 
+// GetConnection
+func (n *network) GetConnection(peername string) (ConnectionInterface, error) {
+	n.mutexConnections.Lock()
+	connection, ok := n.connections[nodename]
+	n.mutexConnections.Unlock()
+	if ok {
+		return connection, nil
+	}
+
+	connection, err := n.connect(peername)
+	if err != nil {
+		lib.Log("[%s] CORE no route to node %q: %s", n.nodename, peername, err)
+		return nil, ErrNoRoute
+	}
+
+	err = n.registerConnection(peername, connection)
+	if err != nil {
+		// Race condition:
+		// there must be another goroutine created a connection to this node
+		// close this connection and make another attempt to get it by name
+
+		n.mutexConnections.Lock()
+		connection, ok := n.connections[peername]
+		n.mutexConnections.Unlock()
+		if !ok {
+			return nil, ErrNoRoute
+		}
+		return connection, nil
+	}
+
+	return connection, nil
+}
+
+// Connect
+func (n *network) Connect(peername string) error {
+	_, err := c.GetConnection(peername)
+	return err
+}
+
+// Nodes
+func (n *network) Nodes() []string {
+	list := []string{}
+	n.mutexConnections.Lock()
+	defer n.mutexConnections.Unlock()
+
+	for c := range n.connections {
+		list = append(list, c.Name)
+	}
+	return list
+}
+
 func (n *network) loadTLS(options Options) error {
 	switch options.TLSMode {
 	case TLSModeAuto:
@@ -196,6 +254,7 @@ func (n *network) loadTLS(options Options) error {
 	}
 	return nil
 }
+
 func (n *network) listen(ctx context.Context, name string, router CoreRouter) (uint16, error) {
 	var TLSenabled bool = true
 
@@ -359,6 +418,31 @@ func (n *network) connect(to string) (ConnectionInterface, error) {
 	go proto.Serve(connection, protoOptions)
 
 	return connection, nil
+}
+
+func (n *network) registerConnection(peername string, connection ConnectionInterface) error {
+	lib.Log("[%s] NETWORK registering peer %#v", n.nodename, peername)
+	n.mutexConnections.Lock()
+	defer n.mutexConnection.Unlock()
+
+	if _, exist := n.connections[peername]; exist {
+		// already registered
+		return ErrTaken
+	}
+	n.connections[peername] = connection
+	return nil
+}
+
+func (n *network) unregisterConnection(peername string) {
+	lib.Log("[%s] NETWORK unregistering peer %v", n.nodename, peername)
+	n.mutexConnections.Lock()
+	_, exist := n.connections[name]
+	delete(n.connections, name)
+	n.mutexConnections.Unlock()
+
+	if exist {
+		n.router.RouteNodeDown(name)
+	}
 }
 
 func generateSelfSignedCert(version Version) (tls.Certificate, error) {

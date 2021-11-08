@@ -39,7 +39,6 @@ type core struct {
 	mutexAliases     sync.Mutex
 	processes        map[uint64]*process
 	mutexProcesses   sync.Mutex
-	connections      map[string]ConnectionInterface
 	mutexConnections sync.Mutex
 
 	behaviors      map[string]map[string]gen.RegisteredBehavior
@@ -71,27 +70,25 @@ func newCore(ctx context.Context, nodename string, options Options) (coreInterna
 		nextPID: startPID,
 		uniqID:  uint64(time.Now().UnixNano()),
 		// keep node to get the process to access to the node's methods
-		nodename:    nodename,
-		creation:    options.Creation,
-		names:       make(map[string]etf.Pid),
-		aliases:     make(map[etf.Alias]*process),
-		processes:   make(map[uint64]*process),
-		connections: make(map[string]ConnectionInterface),
-		behaviors:   make(map[string]map[string]gen.RegisteredBehavior),
+		nodename:  nodename,
+		creation:  options.Creation,
+		names:     make(map[string]etf.Pid),
+		aliases:   make(map[etf.Alias]*process),
+		processes: make(map[uint64]*process),
+		behaviors: make(map[string]map[string]gen.RegisteredBehavior),
 	}
 
 	corectx, corestop := context.WithCancel(ctx)
 	c.stop = corestop
 	c.ctx = corectx
 
-	monitor := newMonitor(nodename, CoreRouter(c))
+	c.monitorInternal = newMonitor(nodename, CoreRouter(c))
 	network, err := newNetwork(c.ctx, nodename, options, CoreRouter(c))
 	if err != nil {
 		corestop()
 		return nil, err
 	}
 	c.networkInternal = network
-	c.monitorInternal = monitor
 	return c, nil
 }
 
@@ -472,31 +469,6 @@ func (c *core) unregisterName(name string) error {
 	return ErrNameUnknown
 }
 
-func (c *core) registerConnection(nodename string, connection ConnectionInterface) error {
-	lib.Log("[%s] CORE registering peer %#v", c.nodename, nodename)
-	c.mutexConnections.Lock()
-	defer c.mutexConnection.Unlock()
-
-	if _, exist := c.connections[connection.Name]; exist {
-		// already registered
-		return ErrTaken
-	}
-	r.connections[connection.Name] = connection
-	return nil
-}
-
-func (c *core) unregisterConnection(name string) {
-	lib.Log("[%s] CORE unregistering peer %v", c.nodename, name)
-	c.mutexConnections.Lock()
-	_, exist := c.connections[name]
-	delete(c.connections, name)
-	c.mutexConnections.Unlock()
-
-	if exist {
-		c.handleNodeDown(name)
-	}
-}
-
 // RegisterBehavior
 func (c *core) RegisterBehavior(group, name string, behavior gen.ProcessBehavior, data interface{}) error {
 	lib.Log("[%s] CORE registering behavior %q in group %q ", c.nodename, name, group)
@@ -651,15 +623,6 @@ func (c *core) ProcessList() []gen.Process {
 	return list
 }
 
-// Nodes
-func (c *core) Nodes() []string {
-	list := []string{}
-	for c := range c.connections {
-		list = append(list, c.Name)
-	}
-	return list
-}
-
 //
 // implementation of CoreRouter interface:
 // RouteSend
@@ -782,43 +745,4 @@ func (c *core) RouteSpawnRequest() error {
 func (c *core) RouteSpawnReply() error {
 	// FIXME
 	return nil
-}
-
-// GetConnection
-func (c *core) GetConnection(remoteNodeName string) (ConnectionInterface, error) {
-	c.mutexConnections.Lock()
-	connection, ok := c.connections[remoteNodeName]
-	c.mutexConnections.Unlock()
-	if ok {
-		return connection, nil
-	}
-
-	connection, err := c.connect(remoteNodeName)
-	if err != nil {
-		lib.Log("[%s] CORE no route to node %q: %s", c.nodename, remoteNodeName, err)
-		return nil, ErrNoRoute
-	}
-
-	err = c.registerConnection(remoteNodeName, connection)
-	if err != nil {
-		// Race condition:
-		// there must be another goroutine created a connection to this node
-		// close this connection and make another attempt to get it by name
-
-		c.mutexConnections.Lock()
-		connection, ok := c.connections[remoteNodeName]
-		c.mutexConnections.Unlock()
-		if !ok {
-			return nil, ErrNoRoute
-		}
-		return connection, nil
-	}
-
-	return connection, nil
-}
-
-// Connect
-func (c *core) Connect(nodename string) error {
-	_, err := c.GetConnection(nodename)
-	return err
 }

@@ -271,8 +271,6 @@ type ProcessBehavior interface {
 
 // Core the common set of methods provided by Process and node.Node interfaces
 type Core interface {
-	// Nodes returns the list of connected nodes
-	Nodes() []string
 
 	// ProcessByName returns Process for the given name.
 	// Returns nil if it doesn't exist (not found) or terminated.

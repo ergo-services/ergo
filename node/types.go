@@ -88,6 +88,8 @@ type Node interface {
 
 	// Connect sets up a connection to node
 	Connect(node string) error
+	// Nodes returns the list of connected nodes
+	Nodes() []string
 
 	Links(process etf.Pid) []etf.Pid
 	Monitors(process etf.Pid) []etf.Pid
@@ -143,6 +145,8 @@ type CoreRouter interface {
 	RouteDemonitor(by etf.Pid, ref etf.Ref) error
 	RouteMonitorExitReg(to etf.Pid, terminated gen.ProcessID, reason string, ref etf.Ref) error
 	RouteMonitorExit(to etf.Pid, terminated etf.Pid, reason string, ref etf.Ref) error
+	// RouteNodeDown
+	RouteNodeDown(name string)
 
 	RouteSpawnRequest() error
 	RouteSpawnReply() error

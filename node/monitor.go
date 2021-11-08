@@ -33,6 +33,8 @@ type monitorInternal interface {
 	RouteMonitorExitReg(to etf.Pid, terminated gen.ProcessID, reason string, ref etf.Ref) error
 	// RouteMonitorExit
 	RouteMonitorExit(to etf.Pid, terminated etf.Pid, reason string, ref etf.Ref) error
+	// RouteNodeDown
+	RouteNodeDown(name string)
 
 	// IsMonitor
 	IsMonitor(ref etf.Ref) bool
@@ -40,7 +42,6 @@ type monitorInternal interface {
 	monitorNode(by etf.Pid, node string, ref etf.Ref)
 	demonitorNode(ref etf.Ref) bool
 
-	handleNodeDown(name string)
 	handleTerminated(terminated etf.Pid, name, reason string)
 
 	processLinks(process etf.Pid) []etf.Pid
@@ -102,6 +103,10 @@ func (m *monitor) monitorNode(by etf.Pid, node string, ref etf.Ref) {
 	m.nodes[node] = append(l, item)
 	m.ref2node[ref] = node
 
+	_, err := m.router.GetConnection(string(pidB.Node))
+	if err != nil {
+		m.RouteNodeDown(node)
+	}
 	return ref
 }
 
@@ -139,7 +144,7 @@ func (m *monitor) demonitorNode(ref etf.Ref) bool {
 	return true
 }
 
-func (m *monitor) handleNodeDown(name string) {
+func (m *monitor) RouteNodeDown(name string) {
 	lib.Log("[%s] MONITOR NODE  down: %v", m.nodename, name)
 
 	// notify node monitors
