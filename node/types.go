@@ -193,18 +193,18 @@ type Options struct {
 	ListenBegin uint16
 	ListenEnd   uint16
 
-	// StaticRoutesOnly disables port mapping service (EPMD client) and
+	// StaticRoutesOnly disables port mapping service (default is EPMD client) and
 	// makes resolving localy only for nodes added using gen.AddStaticRoute
 	StaticRoutesOnly bool
 
-	// ResolverListen defines port for the port mapping service (EPMD server)
+	// ResolverListen defines port for the port mapping service (default is EPMD server)
 	// Default 4369
 	ResolverListen uint16
 	// ResolverHost defines host for the listening.
 	ResolverHost string
-	// ResolverDisableServer disables embedded port mapping service (EPMD server)
+	// ResolverDisableServer disables embedded port mapping service (default is EPMD server)
 	ResolverDisableServer bool
-	// Resolver defines a resolving service. By default is using EPMD service
+	// Resolver defines a resolving service (default is EPMD service, client and server)
 	Resolver Resolver
 
 	// ProxyMode enables/disables proxy mode for the node
@@ -223,6 +223,15 @@ type Options struct {
 	// Proto defines a proto handler. By default is using
 	// DIST proto created with dist.CreateProto(...)
 	Proto Proto
+
+	// enable Ergo Cloud support
+	EnableCloud  bool
+	CloudOptions CloudOptions
+}
+
+type CloudOptions struct {
+	ID     string
+	Cookie string
 }
 
 type TLS struct {
@@ -276,7 +285,7 @@ type Handshake struct {
 // Handshake defines handshake interface
 type HandshakeInterface interface {
 	// Init initialize handshake.
-	Init(nodename string) error
+	Init(nodename string) (HandshakeVersion, error)
 	// Start initiates handshake process. Returns proto options to override default ones.
 	Start(c *Connection, tls TLS) (*ProtoOptions, error)
 	// Accept accepts handshake process initiated by another side of this connection. Returns
@@ -332,9 +341,6 @@ type ProtoOptions struct {
 
 // ResolverOptions defines resolving options
 type ResolverOptions struct {
-	// StaticOnly makes resolving locally
-	StaticOnly bool
-
 	NodeVersion      Version
 	Creation         uint32
 	HandshakeVersion HandshakeVersion
@@ -353,11 +359,10 @@ type CustomRouteOptions interface{}
 
 // RouteOptions
 type RouteOptions struct {
-	Cookie             string
-	SupportTLS         bool
-	SupportProxy       bool
-	SupportCompression bool // ????
-	IsErgo             bool
+	Cookie       string
+	EnabledTLS   bool
+	EnabledProxy bool
+	IsErgo       bool
 
 	ClientCert tls.Certificate
 	Handshake  Handshake

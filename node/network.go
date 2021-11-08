@@ -71,11 +71,14 @@ func newNetwork(ctx context.Context, name string, options Options, router Router
 		return nil, fmt.Errorf("(EMPD) FQDN for node name is required (example: node@hostname)")
 	}
 
+	n.version, _ = options.Env[EnvKeyVersion].(Version)
+
 	if err := n.loadTLS(options); err != nil {
 		return nil, err
 	}
 
-	if err := n.handshake.Init(name); err != nil {
+	handshakeVersion, err := n.handshake.Init(name)
+	if err != nil {
 		return nil, err
 	}
 
@@ -88,10 +91,17 @@ func newNetwork(ctx context.Context, name string, options Options, router Router
 		return nil, err
 	}
 
-	n.epmd = &epmd{}
-	if err := n.epmd.Init(ctx, name, port, opts); err != nil {
+	resolverOptions := ResolverOptions{
+		Creation:         options.Creation,
+		NodeVersion:      version,
+		HandshakeVersion: handshakeVersion,
+		EnabledTLS:       n.tls.Enabled,
+		EnabledProxy:     options.ProxyMode != ProxyModeDisabled,
+	}
+	if err := n.resolver.Register(name, port, resolverOptions); err != nil {
 		return nil, err
 	}
+
 	return n, nil
 }
 
@@ -149,10 +159,9 @@ func (n *network) StaticRoutes() []Route {
 }
 
 func (n *network) loadTLS(options Options) error {
-	version, _ = options.Env[EnvKeyVersion].(Version)
 	switch options.TLSMode {
 	case TLSModeAuto:
-		cert, err := generateSelfSignedCert(version)
+		cert, err := generateSelfSignedCert(n.version)
 		if err != nil {
 			return fmt.Errorf("Can't generate certificate: %s\n", err)
 		}

@@ -87,6 +87,7 @@ func newCore(ctx context.Context, nodename string, options Options) (coreInterna
 	monitor := newMonitor(c)
 	network, err := newNetwork(c.ctx, nodename, options, c)
 	if err != nil {
+		corestop()
 		return nil, err
 	}
 	c.networkInternal = network
