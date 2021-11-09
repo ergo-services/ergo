@@ -41,8 +41,8 @@ const (
 	defaultListenRangeBegin uint16 = 15000
 	defaultListenRangeEnd   uint16 = 65000
 
-	EnvKeyVersion EnvKey = "ergo:Version"
-	EnvKeyNode    EnvKey = "ergo:Node"
+	EnvKeyVersion gen.EnvKey = "ergo:Version"
+	EnvKeyNode    gen.EnvKey = "ergo:Node"
 )
 
 // Node
@@ -242,10 +242,10 @@ type CloudOptions struct {
 
 type TLS struct {
 	Enabled bool
-	Mode
-	Server tls.Certificate
-	Client tls.Certificate
-	Config tls.Config
+	Mode    TLSMode
+	Server  tls.Certificate
+	Client  tls.Certificate
+	Config  tls.Config
 }
 
 // Connection
@@ -259,8 +259,8 @@ type ConnectionInterface interface {
 	SendReg(from gen.Process, to gen.ProcessID, message etf.Term) error
 	SendAlias(from gen.Process, to etf.Alias, message etf.Term) error
 
-	Link(local gen.Process, remote etf.Pid) error
-	Unlink(local gen.Process, remote etf.Pid) error
+	Link(local etf.Pid, remote etf.Pid) error
+	Unlink(local etf.Pid, remote etf.Pid) error
 	LinkExit(to etf.Pid, terminated etf.Pid, reason string) error
 
 	Monitor(by etf.Pid, process etf.Pid, ref etf.Ref) error
@@ -269,7 +269,7 @@ type ConnectionInterface interface {
 
 	MonitorReg(by etf.Pid, process gen.ProcessID, ref etf.Ref) error
 	DemonitorReg(by etf.Pid, process gen.ProcessID, ref etf.Ref) error
-	MonitorExitReg(to etf.Pid, terminated gen.Process, reason string, ref etf.Ref) error
+	MonitorExitReg(to etf.Pid, terminated gen.ProcessID, reason string, ref etf.Ref) error
 
 	SpawnRequest()
 
@@ -305,7 +305,7 @@ type Proto struct {
 // Proto defines proto interface for the custom Proto implementation
 type ProtoInterface interface {
 	// Init initialize proto handler and set default options
-	Init(router Router) error
+	Init(router CoreRouter) error
 	// Serve serves connection with options defined by handshake.
 	Serve(c ConnectionInterface)
 }
@@ -343,8 +343,8 @@ type ResolverOptions struct {
 
 // Resolver defines resolving interface
 type Resolver interface {
-	Register(ctx contex.Context, options ResolverOptions) error
-	Resolve(name string) (Route, error)
+	Register(nodename string, port uint16, options ResolverOptions) error
+	Resolve(peername string) (Route, error)
 }
 
 // CustomRouteOptions a custom set of route options
