@@ -268,8 +268,11 @@ func (n *network) listen(ctx context.Context, options Options) (uint16, error) {
 				lib.Log("[%s] Accepted new connection from %s", n.name, c.RemoteAddr().String())
 
 				if err != nil {
+					if ctx.Err() == nil {
+						continue
+					}
 					lib.Log(err.Error())
-					continue
+					return
 				}
 
 				peername, protoOptions, err := n.handshake.Start(c, n.creation, n.tls.Enabled)
