@@ -166,7 +166,6 @@ type Process interface {
 
 	// Methods below are intended to be used for the ProcessBehavior implementation
 
-	SendSyncRequestRaw(ref etf.Ref, node etf.Atom, messages ...etf.Term) error
 	PutSyncReply(ref etf.Ref, term etf.Term) error
 	SendSyncRequest(ref etf.Ref, to interface{}, message etf.Term) error
 	WaitSyncReply(ref etf.Ref, timeout int) (etf.Term, error)

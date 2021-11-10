@@ -46,6 +46,9 @@ type core struct {
 
 type coreInternal interface {
 	gen.Core
+	CoreRouter
+	monitorInternal
+	networkInternal
 
 	spawn(name string, opts processOptions, behavior gen.ProcessBehavior, args ...etf.Term) (gen.Process, error)
 
@@ -58,6 +61,7 @@ type coreInternal interface {
 	coreNodeName() string
 	coreStop()
 	coreUptime() int64
+	coreIsAlive() bool
 
 	coreWait()
 	coreWaitWithTimeout(d time.Duration) error

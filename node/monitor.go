@@ -439,14 +439,6 @@ func (m *monitor) RouteUnlink(pidA etf.Pid, pidB etf.Pid) error {
 	m.mutexLinks.Lock()
 	defer m.mutexLinks.Unlock()
 
-	if pidB.Node != etf.Atom(m.nodename) {
-		connection, err := m.router.GetConnection(string(pidB.Node))
-		if err != nil {
-			m.RouteExit(pidA, pidB, "noconnection")
-			return err
-		}
-	}
-
 	if pidA.Node == etf.Atom(m.nodename) {
 		linksA := m.links[pidA]
 		for i := range linksA {
@@ -479,6 +471,18 @@ func (m *monitor) RouteUnlink(pidA etf.Pid, pidB etf.Pid) error {
 		}
 		break
 
+	}
+
+	if pidB.Node != etf.Atom(m.nodename) {
+		connection, err := m.router.GetConnection(string(pidB.Node))
+		if err != nil {
+			m.RouteExit(pidA, pidB, "noconnection")
+			return err
+		}
+		if err := connection.Unlink(pidA, pidB); err != nil {
+			m.RouteExit(pidA, pidB, err.Error())
+			return err
+		}
 	}
 	return nil
 }
@@ -574,7 +578,7 @@ func (m *monitor) RouteMonitorReg(by etf.Pid, process gen.ProcessID, ref etf.Ref
 func (m *monitor) RouteDemonitor(by etf.Pid, ref etf.Ref) error {
 	var pid etf.Pid
 	var processID gen.ProcessID
-	var knownRefByname, knownRefByPid bool
+	var knownRefByName, knownRefByPid bool
 
 	m.mutexProcesses.Lock()
 	pid, knownRefByPid = m.ref2pid[ref]
@@ -582,7 +586,7 @@ func (m *monitor) RouteDemonitor(by etf.Pid, ref etf.Ref) error {
 
 	if knownRefByPid == false {
 		m.mutexNames.Lock()
-		processID, knownRefByName := m.ref2name[ref]
+		processID, knownRefByName = m.ref2name[ref]
 		m.mutexNames.Unlock()
 		if knownRefByName == false {
 			// unknown monitor reference

@@ -210,7 +210,7 @@ func (p *process) SendAfter(to interface{}, message etf.Term, after time.Duratio
 			return
 		case <-timer.C:
 			if p.IsAlive() {
-				p.Send(p.self, to, message)
+				p.Send(to, message)
 			}
 		}
 	}()
@@ -238,7 +238,7 @@ func (p *process) ListEnv() map[gen.EnvKey]interface{} {
 	p.RLock()
 	defer p.RUnlock()
 
-	env := make(map[EnvKey]interface{})
+	env := make(map[gen.EnvKey]interface{})
 
 	if p.groupLeader != nil {
 		for key, value := range p.groupLeader.ListEnv() {
@@ -313,7 +313,7 @@ func (p *process) Link(with etf.Pid) {
 	if p.behavior == nil {
 		return
 	}
-	p.link(p.self, with)
+	p.RouteLink(p.self, with)
 }
 
 // Unlink
@@ -321,7 +321,7 @@ func (p *process) Unlink(with etf.Pid) {
 	if p.behavior == nil {
 		return
 	}
-	p.unlink(p.self, with)
+	p.RouteUnlink(p.self, with)
 }
 
 // IsAlive
@@ -353,8 +353,8 @@ func (p *process) Children() ([]etf.Pid, error) {
 	if err != nil {
 		return []etf.Pid{}, err
 	}
-	children, err := c.([]etf.Pid)
-	if err != nil {
+	children, correct := c.([]etf.Pid)
+	if correct == false {
 		return []etf.Pid{}, err
 	}
 	return children, nil
@@ -440,55 +440,59 @@ func (p *process) MonitorProcess(process interface{}) etf.Ref {
 
 // DemonitorProcess
 func (p *process) DemonitorProcess(ref etf.Ref) bool {
-	return p.RouteDemonitor(p.self, ref)
+	if err := p.RouteDemonitor(p.self, ref); err != nil {
+		return false
+	}
+	return true
 }
 
 // RemoteSpawn
 func (p *process) RemoteSpawn(node string, object string, opts gen.RemoteSpawnOptions, args ...etf.Term) (etf.Pid, error) {
-	ref := p.MakeRef()
-	optlist := etf.List{}
-	if opts.RegisterName != "" {
-		optlist = append(optlist, etf.Tuple{etf.Atom("name"), etf.Atom(opts.RegisterName)})
+	// ref := p.MakeRef()
+	//	optlist := etf.List{}
+	//	if opts.RegisterName != "" {
+	//		optlist = append(optlist, etf.Tuple{etf.Atom("name"), etf.Atom(opts.RegisterName)})
+	//
+	//	}
+	//	if opts.Timeout == 0 {
+	//		opts.Timeout = gen.DefaultCallTimeout
+	//	}
+	//	control := etf.Tuple{distProtoSPAWN_REQUEST, ref, p.self, p.self,
+	//		// {M,F,A}
+	//		etf.Tuple{etf.Atom(object), etf.Atom(opts.Function), len(args)},
+	//		optlist,
+	//	}
+	//	p.SendSyncRequestRaw(ref, etf.Atom(node), append([]etf.Term{control}, args)...)
+	//	reply, err := p.WaitSyncReply(ref, opts.Timeout)
+	//	if err != nil {
+	//		return etf.Pid{}, err
+	//	}
+	//
+	//	// Result of the operation. If Result is a process identifier,
+	//	// the operation succeeded and the process identifier is the
+	//	// identifier of the newly created process. If Result is an atom,
+	//	// the operation failed and the atom identifies failure reason.
+	//	switch r := reply.(type) {
+	//	case etf.Pid:
+	//		m := etf.Ref{} // empty reference
+	//		if opts.Monitor != m {
+	//			p.RouteMonitor(p.self, r, opts.Monitor)
+	//		}
+	//		if opts.Link {
+	//			p.Link(r)
+	//		}
+	//		return r, nil
+	//	case etf.Atom:
+	//		switch string(r) {
+	//		case ErrTaken.Error():
+	//			return etf.Pid{}, ErrTaken
+	//
+	//		}
+	//		return etf.Pid{}, fmt.Errorf(string(r))
+	//	}
 
-	}
-	if opts.Timeout == 0 {
-		opts.Timeout = gen.DefaultCallTimeout
-	}
-	control := etf.Tuple{distProtoSPAWN_REQUEST, ref, p.self, p.self,
-		// {M,F,A}
-		etf.Tuple{etf.Atom(object), etf.Atom(opts.Function), len(args)},
-		optlist,
-	}
-	p.SendSyncRequestRaw(ref, etf.Atom(node), append([]etf.Term{control}, args)...)
-	reply, err := p.WaitSyncReply(ref, opts.Timeout)
-	if err != nil {
-		return etf.Pid{}, err
-	}
-
-	// Result of the operation. If Result is a process identifier,
-	// the operation succeeded and the process identifier is the
-	// identifier of the newly created process. If Result is an atom,
-	// the operation failed and the atom identifies failure reason.
-	switch r := reply.(type) {
-	case etf.Pid:
-		m := etf.Ref{} // empty reference
-		if opts.Monitor != m {
-			p.RouteMonitor(p.self, r, opts.Monitor)
-		}
-		if opts.Link {
-			p.Link(r)
-		}
-		return r, nil
-	case etf.Atom:
-		switch string(r) {
-		case ErrTaken.Error():
-			return etf.Pid{}, ErrTaken
-
-		}
-		return etf.Pid{}, fmt.Errorf(string(r))
-	}
-
-	return etf.Pid{}, fmt.Errorf("unknown result: %#v", reply)
+	//return etf.Pid{}, fmt.Errorf("unknown result: %#v", reply)
+	return etf.Pid{}, nil
 }
 
 // Spawn
@@ -535,16 +539,16 @@ func (p *process) directRequest(request interface{}, timeout int) (interface{}, 
 }
 
 // SendSyncRequestRaw
-func (p *process) SendSyncRequestRaw(ref etf.Ref, node etf.Atom, messages ...etf.Term) error {
-	if p.reply == nil {
-		return ErrProcessTerminated
-	}
-	reply := make(chan etf.Term, 2)
-	p.replyMutex.Lock()
-	defer p.replyMutex.Unlock()
-	p.reply[ref] = reply
-	return p.routeRaw(node, messages...)
-}
+//func (p *process) SendSyncRequestRaw(ref etf.Ref, node etf.Atom, messages ...etf.Term) error {
+//	if p.reply == nil {
+//		return ErrProcessTerminated
+//	}
+//	reply := make(chan etf.Term, 2)
+//	p.replyMutex.Lock()
+//	defer p.replyMutex.Unlock()
+//	p.reply[ref] = reply
+//	return p.routeRaw(node, messages...)
+//}
 
 // SendSyncRequest
 func (p *process) SendSyncRequest(ref etf.Ref, to interface{}, message etf.Term) error {

@@ -165,7 +165,7 @@ func (n *network) StaticRoutes() []Route {
 
 	n.staticRoutesMutex.Lock()
 	defer n.staticRoutesMutex.Unlock()
-	for k, v := range n.staticRoutes {
+	for _, v := range n.staticRoutes {
 		routes = append(routes, v)
 	}
 
@@ -248,7 +248,6 @@ func (n *network) loadTLS(options Options) error {
 }
 
 func (n *network) listen(ctx context.Context, hostname string, options Options) (uint16, error) {
-	var TLSenabled bool = true
 
 	lc := net.ListenConfig{}
 	for port := options.ListenBegin; port <= options.ListenEnd; port++ {
@@ -316,7 +315,6 @@ func (n *network) connect(peername string) (ConnectionInterface, error) {
 	var route Route
 	var c net.Conn
 	var err error
-	var enabledTLS bool
 
 	// resolve the route
 	route, err = n.resolver.Resolve(peername)
@@ -343,8 +341,6 @@ func (n *network) connect(peername string) (ConnectionInterface, error) {
 				c, err = tlsdialer.DialContext(n.ctx, "tcp", HostPort)
 			}
 
-			enabledTLS = true
-
 		} else {
 			// TLS disabled on a remote node
 			dialer := net.Dialer{}
@@ -359,8 +355,6 @@ func (n *network) connect(peername string) (ConnectionInterface, error) {
 			}
 			c, err = tlsdialer.DialContext(n.ctx, "tcp", HostPort)
 
-			enabledTLS = true
-
 		} else {
 			dialer := net.Dialer{}
 			c, err = dialer.DialContext(n.ctx, "tcp", HostPort)
@@ -374,26 +368,28 @@ func (n *network) connect(peername string) (ConnectionInterface, error) {
 	}
 
 	// handshake
-	handshake := route.Handshake
-	if handshake == nil {
-		// use default handshake
-		handshake = n.handshake
-	}
+	//FIXME
+	//handshake := route.Handshake
+	//if handshake == nil {
+	//	// use default handshake
+	//	handshake = n.handshake
+	//}
 
-	protoOptions, err := handshake.Start(c)
+	protoOptions, err := n.handshake.Start(c)
 	if err != nil {
 		c.Close()
 		return nil, err
 	}
 
 	// proto
-	proto := route.Proto
-	if proto == nil {
-		// use default proto
-		proto = n.proto
-	}
+	//FIXME
+	//proto := route.Proto
+	//if proto == nil {
+	//	// use default proto
+	//	proto = n.proto
+	//}
 
-	connection, err := proto.Init(c, protoOptions, n.router)
+	connection, err := n.proto.Init(c, protoOptions, n.router)
 	if err != nil {
 		c.Close()
 		return nil, err
@@ -409,7 +405,7 @@ func (n *network) connect(peername string) (ConnectionInterface, error) {
 	}
 
 	go func() {
-		proto.Serve(n.ctx, connection)
+		n.proto.Serve(n.ctx, connection)
 		c.Close()
 		n.unregisterConnection(peername)
 	}()
@@ -568,9 +564,9 @@ func (c *Connection) ProxyReg() error {
 //
 
 func (h *Handshake) Start(c net.Conn) (ProtoOptions, error) {
-	return nil, ErrUnsupported
+	return ProtoOptions{}, ErrUnsupported
 }
 
 func (h *Handshake) Accept(c net.Conn) (string, ProtoOptions, error) {
-	return "", nil, ErrUnsupported
+	return "", ProtoOptions{}, ErrUnsupported
 }

@@ -31,7 +31,7 @@ const (
 	ApplicationStartTransient = "transient"
 
 	// EnvKeySpec
-	EnvKeySpec EnvKey = "spec"
+	EnvKeySpec EnvKey = "ergo:AppSpec"
 )
 
 // ApplicationBehavior interface

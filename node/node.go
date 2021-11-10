@@ -43,8 +43,8 @@ func StartWithContext(ctx context.Context, name string, cookie string, opts Opti
 
 	// set defaults listening port range
 	if opts.Listen > 0 {
-		opts.ListenBegin = Listen
-		opts.ListenEnd = Listen
+		opts.ListenBegin = opts.Listen
+		opts.ListenEnd = opts.Listen
 		lib.Log("Node listening port: %d", opts.Listen)
 	} else {
 		if opts.ListenBegin == 0 {
@@ -56,12 +56,13 @@ func StartWithContext(ctx context.Context, name string, cookie string, opts Opti
 		lib.Log("Node listening range: %d...%d", opts.ListenBegin, opts.ListenEnd)
 	}
 
-	if opts.Handshake == nil {
-		return nil, fmt.Errorf("Handshake must be defined")
-	}
-	if opts.Proto == nil {
-		return nil, fmt.Errorf("Proto must be defined")
-	}
+	//FIXME
+	//if opts.Handshake == nil {
+	//	return nil, fmt.Errorf("Handshake must be defined")
+	//}
+	//if opts.Proto == nil {
+	//	return nil, fmt.Errorf("Proto must be defined")
+	//}
 	if opts.StaticRoutesOnly == false && opts.Resolver == nil {
 		return nil, fmt.Errorf("Resolver must be defined if StaticRoutesOnly == false")
 	}
@@ -100,7 +101,7 @@ func StartWithContext(ctx context.Context, name string, cookie string, opts Opti
 	}
 
 	// set global variable 'ergo:Node'
-	node.env[EnvKeyNode] = node.(Node)
+	node.env[EnvKeyNode] = Node(node)
 
 	return node, nil
 }
@@ -305,8 +306,8 @@ func (n *node) applicationStart(startType, appName string, args ...etf.Term) (ge
 		}
 	}
 
-	env := map[string]interface{}{
-		"spec": spec,
+	env := map[gen.EnvKey]interface{}{
+		gen.EnvKeySpec: spec,
 	}
 	options := gen.ProcessOptions{
 		Env: env,
