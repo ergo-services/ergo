@@ -275,7 +275,7 @@ func (n *network) listen(ctx context.Context, options Options) (uint16, error) {
 					return
 				}
 
-				peername, protoOptions, err := n.handshake.Start(c, n.creation, n.tls.Enabled)
+				peername, protoOptions, err := n.handshake.Start(c)
 				if err != nil {
 					lib.Log("[%s] Can't handshake with %s: %s", n.nodename, c.RemoteAddr().String(), e)
 					c.Close()
@@ -286,18 +286,13 @@ func (n *network) listen(ctx context.Context, options Options) (uint16, error) {
 					c.Close()
 					continue
 				}
-				_, isConnectionObject := connection.(*Connection)
-				if isConnectionObject == false {
-					c.Close()
-					return nil, fmt.Errorf("Proto initialization failed. Not a *node.Connection object")
-				}
+
 				if _, err := n.registerConnection(peername, connection); err != nil {
 					// Race condition:
 					// There must be another goroutine which already created and registered
 					// connection to this node.
 					// Close this connection and use the already registered connection
 					c.Close()
-					// call connection callback
 					continue
 				}
 				go func() {
@@ -385,7 +380,7 @@ func (n *network) connect(to string) (ConnectionInterface, error) {
 		handshake = n.handshake
 	}
 
-	protoOptions, err := handshake.Start(c, n.creation, enabledTLS)
+	protoOptions, err := handshake.Start(c)
 	if err != nil {
 		c.Close()
 		return nil, err
@@ -404,19 +399,12 @@ func (n *network) connect(to string) (ConnectionInterface, error) {
 		return nil, err
 	}
 
-	_, isConnectionObject := connection.(*Connection)
-	if isConnectionObject == false {
-		c.Close()
-		return nil, fmt.Errorf("Proto initialization failed. Not a *node.Connection object")
-	}
-
 	if registered, err := n.registerConnection(peername, connection); err != nil {
 		// Race condition:
 		// There must be another goroutine which already created and registered
 		// connection to this node.
 		// Close this connection and use the already registered connection
 		c.Close()
-		// call connection callback
 		return registered, nil
 	}
 
