@@ -66,7 +66,7 @@ func StartWithContext(ctx context.Context, name string, cookie string, opts Opti
 		return nil, fmt.Errorf("Resolver must be defined if StaticRoutesOnly == false")
 	}
 
-	core, err := newCore(nodectx, name, cookie, opts)
+	core, err := newCore(nodectx, name, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -94,7 +94,7 @@ func StartWithContext(ctx context.Context, name string, cookie string, opts Opti
 		}
 	}
 
-	node.env = make(map[string]interface{})
+	node.env = make(map[gen.EnvKey]interface{})
 	for k, v := range opts.Env {
 		node.env[k] = v
 	}

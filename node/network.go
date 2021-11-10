@@ -95,7 +95,7 @@ func newNetwork(ctx context.Context, nodename string, options Options, router Co
 		return nil, err
 	}
 
-	port, err := n.listen(ctx, options)
+	port, err := n.listen(ctx, nn[1], options)
 	if err != nil {
 		return nil, err
 	}
@@ -247,25 +247,25 @@ func (n *network) loadTLS(options Options) error {
 	return nil
 }
 
-func (n *network) listen(ctx context.Context, options Options) (uint16, error) {
+func (n *network) listen(ctx context.Context, hostname string, options Options) (uint16, error) {
 	var TLSenabled bool = true
 
 	lc := net.ListenConfig{}
-	for p := options.ListenBegin; p <= options.ListenEnd; p++ {
-		hostPort := net.JoinHostPort(name, strconv.Itoa(int(p)))
+	for port := options.ListenBegin; port <= options.ListenEnd; port++ {
+		hostPort := net.JoinHostPort(hostname, strconv.Itoa(int(port)))
 		listener, err := lc.Listen(ctx, "tcp", hostPort)
 		if err != nil {
 			continue
 		}
 		if n.tls.Enabled {
-			listener = tls.NewListener(l, n.tls.Config)
+			listener = tls.NewListener(listener, &n.tls.Config)
 		}
 		n.listener = listener
 
 		go func() {
 			for {
 				c, err := listener.Accept()
-				lib.Log("[%s] Accepted new connection from %s", n.name, c.RemoteAddr().String())
+				lib.Log("[%s] Accepted new connection from %s", n.nodename, c.RemoteAddr().String())
 
 				if err != nil {
 					if ctx.Err() == nil {
@@ -275,9 +275,9 @@ func (n *network) listen(ctx context.Context, options Options) (uint16, error) {
 					return
 				}
 
-				peername, protoOptions, err := n.handshake.Start(c)
+				peername, protoOptions, err := n.handshake.Accept(c)
 				if err != nil {
-					lib.Log("[%s] Can't handshake with %s: %s", n.nodename, c.RemoteAddr().String(), e)
+					lib.Log("[%s] Can't handshake with %s: %s", n.nodename, c.RemoteAddr().String(), err)
 					c.Close()
 					continue
 				}
@@ -305,21 +305,21 @@ func (n *network) listen(ctx context.Context, options Options) (uint16, error) {
 		}()
 
 		// return port number this node listenig on for the incoming connections
-		return p, nil
+		return port, nil
 	}
 
 	// all ports within a given range are taken
 	return 0, fmt.Errorf("Can't start listener. Port range is taken")
 }
 
-func (n *network) connect(to string) (ConnectionInterface, error) {
+func (n *network) connect(peername string) (ConnectionInterface, error) {
 	var route Route
 	var c net.Conn
 	var err error
 	var enabledTLS bool
 
 	// resolve the route
-	route, err = n.resolver.Resolve(to)
+	route, err = n.resolver.Resolve(peername)
 	if err != nil {
 		return nil, err
 	}
@@ -420,7 +420,7 @@ func (n *network) connect(to string) (ConnectionInterface, error) {
 func (n *network) registerConnection(peername string, connection ConnectionInterface) (ConnectionInterface, error) {
 	lib.Log("[%s] NETWORK registering peer %#v", n.nodename, peername)
 	n.mutexConnections.Lock()
-	defer n.mutexConnection.Unlock()
+	defer n.mutexConnections.Unlock()
 
 	if registered, exist := n.connections[peername]; exist {
 		// already registered
@@ -433,12 +433,12 @@ func (n *network) registerConnection(peername string, connection ConnectionInter
 func (n *network) unregisterConnection(peername string) {
 	lib.Log("[%s] NETWORK unregistering peer %v", n.nodename, peername)
 	n.mutexConnections.Lock()
-	_, exist := n.connections[name]
-	delete(n.connections, name)
+	_, exist := n.connections[peername]
+	delete(n.connections, peername)
 	n.mutexConnections.Unlock()
 
 	if exist {
-		n.router.RouteNodeDown(name)
+		n.router.RouteNodeDown(peername)
 	}
 }
 
@@ -567,10 +567,10 @@ func (c *Connection) ProxyReg() error {
 // Handshake interface default callbacks
 //
 
-func (h *Handshake) Start(ctx context.Context, c *Connection) (*Connection, error) {
+func (h *Handshake) Start(c net.Conn) (ProtoOptions, error) {
 	return nil, ErrUnsupported
 }
 
-func (h *Handshake) Accept(ctx context.Context, c *Connection) (*Connection, error) {
-	return nil, ErrUnsupported
+func (h *Handshake) Accept(c net.Conn) (string, ProtoOptions, error) {
+	return "", nil, ErrUnsupported
 }
