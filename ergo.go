@@ -31,14 +31,13 @@ func StartNodeWithContext(ctx context.Context, name string, cookie string, opts 
 	opts.Applications = append([]gen.ApplicationBehavior{&erlang.KernelApp{}}, opts.Applications...)
 
 	// add cloud support if it's enabled
-	if opts.EnableCloud {
+	if opts.CloudEnable {
 		cloudApp := cloud.CreateApp(opts.CloudOptions)
 		opts.Applications = append([]gen.ApplicationBehavior{cloudApp}, opts.Applications...)
 	}
 
 	if opts.Handshake == nil {
 		handshakeOptions := dist.HandshakeOptions{
-			Name:    name,
 			Cookie:  cookie,
 			Version: dist.DefaultDistHandshakeVersion,
 		}

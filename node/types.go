@@ -1,6 +1,7 @@
 package node
 
 import (
+	"context"
 	"crypto/tls"
 	"fmt"
 	"net"
@@ -38,8 +39,8 @@ var (
 // Distributed operations codes (http://www.erlang.org/doc/apps/erts/erl_dist_protocol.html)
 const (
 	// node options
-	defaultListenRangeBegin uint16 = 15000
-	defaultListenRangeEnd   uint16 = 65000
+	defaultListenBegin uint16 = 15000
+	defaultListenEnd   uint16 = 65000
 
 	EnvKeyVersion gen.EnvKey = "ergo:Version"
 	EnvKeyNode    gen.EnvKey = "ergo:Node"
@@ -199,16 +200,16 @@ type Options struct {
 	ListenBegin uint16
 	ListenEnd   uint16
 
-	// StaticRoutesOnly disables port mapping service (default is EPMD client) and
+	// StaticRoutesOnly disables resolving service (default is EPMD client) and
 	// makes resolving localy only for nodes added using gen.AddStaticRoute
 	StaticRoutesOnly bool
 
-	// ResolverListen defines port for the port mapping service (default is EPMD server)
-	// Default 4369
+	// ResolverListen defines port for the resolving service
+	// (default is EPMD server and port number 4369)
 	ResolverListen uint16
 	// ResolverHost defines host for the listening.
 	ResolverHost string
-	// ResolverDisableServer disables embedded port mapping service (default is EPMD server)
+	// ResolverDisableServer disables embedded resolving service
 	ResolverDisableServer bool
 	// Resolver defines a resolving service (default is EPMD service, client and server)
 	Resolver Resolver
@@ -231,7 +232,7 @@ type Options struct {
 	Proto Proto
 
 	// enable Ergo Cloud support
-	EnableCloud  bool
+	CloudEnable  bool
 	CloudOptions CloudOptions
 }
 
@@ -275,8 +276,6 @@ type ConnectionInterface interface {
 
 	Proxy()
 	ProxyReg()
-
-	Options() ProtoOptions
 }
 
 // Handshake template struct for the custom Handshake implementation
@@ -287,12 +286,12 @@ type Handshake struct {
 // Handshake defines handshake interface
 type HandshakeInterface interface {
 	// Init initialize handshake.
-	Init(nodename string) (HandshakeVersion, error)
+	Init(nodename string, creation uint32, enabledTLS bool) (HandshakeVersion, error)
 	// Start initiates handshake process. Returns proto options to override default ones.
-	Start(c net.Conn, creation uint32, enabledTLS bool) (ConnectionInterface, error)
+	Start(c net.Conn) (ProtoOptions, error)
 	// Accept accepts handshake process initiated by another side of this connection. Returns
-	// proto options to override default ones and the peer name.
-	Accept(c net.Conn, creation uint32, enabledTLS bool) (ConnectionInterface, string)
+	// the name of connected peer and  proto options to override defaults
+	Accept(c net.Conn) (string, ProtoOptions, error)
 }
 
 type HandshakeVersion int
@@ -304,10 +303,10 @@ type Proto struct {
 
 // Proto defines proto interface for the custom Proto implementation
 type ProtoInterface interface {
-	// Init initialize proto handler and set default options
-	Init(router CoreRouter) error
-	// Serve serves connection with options defined by handshake.
-	Serve(c ConnectionInterface)
+	// Init initialize connection handler
+	Init(c net.Conn, options ProtoOptions, router CoreRouter) (ConnectionInterface, error)
+	// Serve connection
+	Serve(ctx context.Context, connection ConnectionInterface)
 }
 
 // CustomProtoOptions a custom set of proto options

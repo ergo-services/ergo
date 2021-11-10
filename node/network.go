@@ -28,31 +28,36 @@ import (
 
 type networkInternal interface {
 	AddStaticRoute(name string, port uint16, options RouteOptions) error
-	RemoveStaticRoute(name string) error
+	RemoveStaticRoute(name string) bool
 	StaticRoutes() []Route
 	Connect(peername string) error
 	Nodes() []string
 
 	GetConnection(peername string) (ConnectionInterface, error)
-	connect(to string) (Connection, error)
+
+	connect(to string) (ConnectionInterface, error)
+	stopNetwork()
 }
 
 type network struct {
 	nodename string
 	ctx      context.Context
+	listener net.Listener
 
 	resolver          Resolver
 	staticOnly        bool
 	staticRoutes      map[string]Route
 	staticRoutesMutex sync.Mutex
 
-	connections map[string]ConnectionInterface
+	connections      map[string]ConnectionInterface
+	mutexConnections sync.Mutex
 
 	remoteSpawn      map[string]gen.ProcessBehavior
 	remoteSpawnMutex sync.Mutex
 
-	tls     TLS
-	version Version
+	tls      TLS
+	version  Version
+	creation uint32
 
 	router    CoreRouter
 	handshake Handshake
@@ -68,8 +73,8 @@ func newNetwork(ctx context.Context, nodename string, options Options, router Co
 		connections:  make(map[string]ConnectionInterface),
 		remoteSpawn:  make(map[string]gen.ProcessBehavior),
 		resolver:     options.Resolver,
-		proto:        options.Proto,
 		handshake:    options.Handshake,
+		proto:        options.Proto,
 		router:       router,
 		creation:     options.Creation,
 	}
@@ -85,22 +90,18 @@ func newNetwork(ctx context.Context, nodename string, options Options, router Co
 		return nil, err
 	}
 
-	handshakeVersion, err := n.handshake.Init(nodename)
+	handshakeVersion, err := n.handshake.Init(n.nodename, n.creation, n.tls.Enabled)
 	if err != nil {
 		return nil, err
 	}
 
-	if err := n.proto.Init(router); err != nil {
-		return nil, err
-	}
-
-	port, err := n.listen(ctx, nn[1], router)
+	port, err := n.listen(ctx, options)
 	if err != nil {
 		return nil, err
 	}
 
 	resolverOptions := ResolverOptions{
-		NodeVersion:      version,
+		NodeVersion:      n.version,
 		HandshakeVersion: handshakeVersion,
 		EnabledTLS:       n.tls.Enabled,
 		EnabledProxy:     options.ProxyMode != ProxyModeDisabled,
@@ -110,6 +111,12 @@ func newNetwork(ctx context.Context, nodename string, options Options, router Co
 	}
 
 	return n, nil
+}
+
+func (n *network) stopNetwork() {
+	if n.listener != nil {
+		n.listener.Close()
+	}
 }
 
 // AddStaticRoute adds a static route to the node with the given name
@@ -168,7 +175,7 @@ func (n *network) StaticRoutes() []Route {
 // GetConnection
 func (n *network) GetConnection(peername string) (ConnectionInterface, error) {
 	n.mutexConnections.Lock()
-	connection, ok := n.connections[nodename]
+	connection, ok := n.connections[peername]
 	n.mutexConnections.Unlock()
 	if ok {
 		return connection, nil
@@ -180,27 +187,12 @@ func (n *network) GetConnection(peername string) (ConnectionInterface, error) {
 		return nil, ErrNoRoute
 	}
 
-	err = n.registerConnection(peername, connection)
-	if err != nil {
-		// Race condition:
-		// there must be another goroutine created a connection to this node
-		// close this connection and make another attempt to get it by name
-
-		n.mutexConnections.Lock()
-		connection, ok := n.connections[peername]
-		n.mutexConnections.Unlock()
-		if !ok {
-			return nil, ErrNoRoute
-		}
-		return connection, nil
-	}
-
 	return connection, nil
 }
 
 // Connect
 func (n *network) Connect(peername string) error {
-	_, err := c.GetConnection(peername)
+	_, err := n.GetConnection(peername)
 	return err
 }
 
@@ -210,8 +202,8 @@ func (n *network) Nodes() []string {
 	n.mutexConnections.Lock()
 	defer n.mutexConnections.Unlock()
 
-	for c := range n.connections {
-		list = append(list, c.Name)
+	for name := range n.connections {
+		list = append(list, name)
 	}
 	return list
 }
@@ -236,11 +228,11 @@ func (n *network) loadTLS(options Options) error {
 	case TLSModeStrict:
 		certServer, err := tls.LoadX509KeyPair(options.TLSCrtServer, options.TLSKeyServer)
 		if err != nil {
-			return 0, fmt.Errorf("Can't load server certificate: %s\n", err)
+			return fmt.Errorf("Can't load server certificate: %s\n", err)
 		}
 		certClient, err := tls.LoadX509KeyPair(options.TLSCrtClient, options.TLSKeyClient)
 		if err != nil {
-			return 0, fmt.Errorf("Can't load client certificate: %s\n", err)
+			return fmt.Errorf("Can't load client certificate: %s\n", err)
 		}
 
 		n.tls.Server = certServer
@@ -255,68 +247,61 @@ func (n *network) loadTLS(options Options) error {
 	return nil
 }
 
-func (n *network) listen(ctx context.Context, name string, router CoreRouter) (uint16, error) {
+func (n *network) listen(ctx context.Context, options Options) (uint16, error) {
 	var TLSenabled bool = true
 
 	lc := net.ListenConfig{}
-	for p := n.opts.ListenRangeBegin; p <= n.opts.ListenRangeEnd; p++ {
-		l, err := lc.Listen(ctx, "tcp", net.JoinHostPort(name, strconv.Itoa(int(p))))
+	for p := options.ListenBegin; p <= options.ListenEnd; p++ {
+		hostPort := net.JoinHostPort(name, strconv.Itoa(int(p)))
+		listener, err := lc.Listen(ctx, "tcp", hostPort)
 		if err != nil {
 			continue
 		}
+		if n.tls.Enabled {
+			listener = tls.NewListener(l, n.tls.Config)
+		}
+		n.listener = listener
 
 		go func() {
 			for {
-				conn, err := l.Accept()
+				c, err := listener.Accept()
 				lib.Log("[%s] Accepted new connection from %s", n.name, c.RemoteAddr().String())
-
-				if ctx.Err() != nil {
-					// Context was canceled
-					conn.Close()
-					return
-				}
 
 				if err != nil {
 					lib.Log(err.Error())
 					continue
 				}
-				// wrap handler to catch panic
-				handshakeAccept := func(ctx context.Context, conn net.Conn) (c *Connection, err error) {
-					defer func() {
-						if r := recover(); r != nil {
-							c = nil
-							err = r
-						}
-					}()
-					c, err = n.opts.Handshake.Accept(ctx, conn)
-					return
-				}
 
-				connection, err := handshakeAccept(ctx, conn)
+				peername, protoOptions, err := n.handshake.Start(c, n.creation, n.tls.Enabled)
 				if err != nil {
-					lib.Log("[%s] Can't handshake with %s: %s", n.name, conn.RemoteAddr().String(), e)
-					conn.Close()
+					lib.Log("[%s] Can't handshake with %s: %s", n.nodename, c.RemoteAddr().String(), e)
+					c.Close()
 					continue
 				}
-				// FIXME
-				// question: whether to register this peer before the Serve call?
-				// what if this name is taken?
-
-				// start serving this link
-				go connection.Serve(router)
-
-				// FIXME try to register this connection
-				// if err happened close the link
-				//p := &peer{
-				//	name: link.GetRemoteName(),
-				//	send: make([]chan []etf.Term, numHandlers),
-				//	n:    numHandlers,
-				//}
-				//
-				//if err := n.registrar.registerPeer(p); err != nil {
-				//	// duplicate link?
-				//	return err
-				//}
+				connection, err := n.proto.Init(c, protoOptions, n.router)
+				if err != nil {
+					c.Close()
+					continue
+				}
+				_, isConnectionObject := connection.(*Connection)
+				if isConnectionObject == false {
+					c.Close()
+					return nil, fmt.Errorf("Proto initialization failed. Not a *node.Connection object")
+				}
+				if _, err := n.registerConnection(peername, connection); err != nil {
+					// Race condition:
+					// There must be another goroutine which already created and registered
+					// connection to this node.
+					// Close this connection and use the already registered connection
+					c.Close()
+					// call connection callback
+					continue
+				}
+				go func() {
+					n.proto.Serve(n.ctx, connection)
+					c.Close()
+					n.unregisterConnection(peername)
+				}()
 
 			}
 		}()
@@ -385,7 +370,7 @@ func (n *network) connect(to string) (ConnectionInterface, error) {
 		}
 	}
 
-	// check if we couldn't reach the host
+	// check if we couldn't establish a connection with the node
 	if err != nil {
 		return nil, err
 	}
@@ -397,15 +382,10 @@ func (n *network) connect(to string) (ConnectionInterface, error) {
 		handshake = n.handshake
 	}
 
-	connection, err := handshake.Start(c, n.creation, enabledTLS)
+	protoOptions, err := handshake.Start(c, n.creation, enabledTLS)
 	if err != nil {
 		c.Close()
 		return nil, err
-	}
-	_, isConnectionObject := connection.(*Connection)
-	if isConnectionObject == false {
-		c.Close()
-		return nil, fmt.Errorf("Handshake start failed. Not a *node.Connection object")
 	}
 
 	// proto
@@ -415,22 +395,48 @@ func (n *network) connect(to string) (ConnectionInterface, error) {
 		proto = n.proto
 	}
 
-	go proto.Serve(connection, protoOptions)
+	connection, err := proto.Init(c, protoOptions, n.router)
+	if err != nil {
+		c.Close()
+		return nil, err
+	}
+
+	_, isConnectionObject := connection.(*Connection)
+	if isConnectionObject == false {
+		c.Close()
+		return nil, fmt.Errorf("Proto initialization failed. Not a *node.Connection object")
+	}
+
+	if registered, err := n.registerConnection(peername, connection); err != nil {
+		// Race condition:
+		// There must be another goroutine which already created and registered
+		// connection to this node.
+		// Close this connection and use the already registered connection
+		c.Close()
+		// call connection callback
+		return registered, nil
+	}
+
+	go func() {
+		proto.Serve(n.ctx, connection)
+		c.Close()
+		n.unregisterConnection(peername)
+	}()
 
 	return connection, nil
 }
 
-func (n *network) registerConnection(peername string, connection ConnectionInterface) error {
+func (n *network) registerConnection(peername string, connection ConnectionInterface) (ConnectionInterface, error) {
 	lib.Log("[%s] NETWORK registering peer %#v", n.nodename, peername)
 	n.mutexConnections.Lock()
 	defer n.mutexConnection.Unlock()
 
-	if _, exist := n.connections[peername]; exist {
+	if registered, exist := n.connections[peername]; exist {
 		// already registered
-		return ErrTaken
+		return registered, ErrTaken
 	}
 	n.connections[peername] = connection
-	return nil
+	return connection, nil
 }
 
 func (n *network) unregisterConnection(peername string) {
@@ -564,9 +570,6 @@ func (c *Connection) Proxy() error {
 }
 func (c *Connection) ProxyReg() error {
 	return ErrUnsupported
-}
-func (c *Connection) Options() ProtoOptions {
-	return ProtoOptions{}
 }
 
 //

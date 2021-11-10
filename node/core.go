@@ -33,13 +33,12 @@ type core struct {
 	nodename string
 	creation uint32
 
-	names            map[string]etf.Pid
-	mutexNames       sync.Mutex
-	aliases          map[etf.Alias]*process
-	mutexAliases     sync.Mutex
-	processes        map[uint64]*process
-	mutexProcesses   sync.Mutex
-	mutexConnections sync.Mutex
+	names          map[string]etf.Pid
+	mutexNames     sync.Mutex
+	aliases        map[etf.Alias]*process
+	mutexAliases   sync.Mutex
+	processes      map[uint64]*process
+	mutexProcesses sync.Mutex
 
 	behaviors      map[string]map[string]gen.RegisteredBehavior
 	mutexBehaviors sync.Mutex
@@ -98,6 +97,7 @@ func (c *core) coreNodeName() string {
 
 func (c *core) coreStop() {
 	c.stop()
+	c.stopNetwork()
 }
 
 func (c *core) coreUptime() int64 {

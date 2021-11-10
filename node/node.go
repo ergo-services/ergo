@@ -31,45 +31,29 @@ type node struct {
 // StartWithContext create new node with specified context, name and cookie string
 func StartWithContext(ctx context.Context, name string, cookie string, opts Options) (Node, error) {
 
-	lib.Log("Start with name '%s' and cookie '%s'", name, cookie)
+	lib.Log("Start node with name %q and cookie %q", name, cookie)
 	nodectx, nodestop := context.WithCancel(ctx)
-
-	if opts.Creation == 0 {
-		// the last bit must be > 0 so make 'or 0x1'
-		opts.Creation = uint32(time.Now().Unix()) | 1
-	}
-
-	node := &node{
-		context:  nodectx,
-		stop:     nodestop,
-		creation: opts.Creation,
-	}
-
-	if name == "" {
-		return nil, fmt.Errorf("Node name must be defined")
-	}
-	// set defaults
-	if opts.ListenRangeBegin == 0 {
-		opts.ListenRangeBegin = defaultListenRangeBegin
-	}
-	if opts.ListenRangeEnd == 0 {
-		opts.ListenRangeEnd = defaultListenRangeEnd
-	}
-	lib.Log("Listening range: %d...%d", opts.ListenRangeBegin, opts.ListenRangeEnd)
-
-	if opts.EPMDPort == 0 {
-		opts.EPMDPort = defaultEPMDPort
-	}
-	if opts.EPMDPort != 4369 {
-		lib.Log("Using custom EPMD port: %d", opts.EPMDPort)
-	}
-
-	if opts.TLSMode != TLSModeDisabled {
-		opts.ProtoOptions.TLS = true
-	}
 
 	if len(strings.Split(name, "@")) != 2 {
 		return nil, fmt.Errorf("incorrect FQDN node name (example: node@localhost)")
+	}
+	if opts.Creation == 0 {
+		opts.Creation = uint32(time.Now().Unix())
+	}
+
+	// set defaults listening port range
+	if opts.Listen > 0 {
+		opts.ListenBegin = Listen
+		opts.ListenEnd = Listen
+		lib.Log("Node listening port: %d", opts.Listen)
+	} else {
+		if opts.ListenBegin == 0 {
+			opts.ListenBegin = defaultListenBegin
+		}
+		if opts.ListenEnd == 0 {
+			opts.ListenEnd = defaultListenEnd
+		}
+		lib.Log("Node listening range: %d...%d", opts.ListenBegin, opts.ListenEnd)
 	}
 
 	if opts.Handshake == nil {
@@ -78,24 +62,21 @@ func StartWithContext(ctx context.Context, name string, cookie string, opts Opti
 	if opts.Proto == nil {
 		return nil, fmt.Errorf("Proto must be defined")
 	}
+	if opts.StaticRoutesOnly == false && opts.Resolver == nil {
+		return nil, fmt.Errorf("Resolver must be defined if StaticRoutesOnly == false")
+	}
 
 	core, err := newCore(nodectx, name, cookie, opts)
 	if err != nil {
 		return nil, err
 	}
 
-	node.name = name
-	node.coreInternal = core
-
-	// initialize handshake
-	if err := opts.Handshake.Init(name, cookie, opts.ProtoOptions); err != nil {
-		nodestop()
-		return nil, err
-	}
-	// initialize proto
-	if err := opts.Proto.Init(opts.ProtoOptions, Router(registrar)); err != nil {
-		nodestop()
-		return nil, err
+	node := &node{
+		name:         name,
+		context:      nodectx,
+		stop:         nodestop,
+		creation:     opts.Creation,
+		coreInternal: core,
 	}
 
 	for _, app := range opts.Applications {
