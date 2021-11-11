@@ -2,11 +2,9 @@ package dist
 
 import (
 	"bytes"
-	"context"
 	"crypto/md5"
 	"encoding/binary"
 	"fmt"
-	"math/rand"
 	"net"
 	"time"
 
@@ -97,62 +95,50 @@ func CreateDistHandshake(options DistHandshakeOptions) node.Handshake {
 }
 
 // Init implements Handshake interface mothod
-func (h *DistHandshake) Init(nodename string, creation uint32, enabledTLS bool) error {
+func (dh *DistHandshake) Init(nodename string, creation uint32, enabledTLS bool) error {
 	return nil
 }
 
-func (h *DistHandshake) Version() node.HandshakeVersion {
+func (dh *DistHandshake) Version() node.HandshakeVersion {
 	return h.options.Version
 }
 
-func (h *DistHandshake) Start(ctx context.Context, conn net.Conn) (*node.Connection, error) {
+func (dh *DistHandshake) Start(conn net.Conn) (node.ProtoOptions, error) {
 
-	//link := &Link{
-	//	Name:   options.Name,
-	//	Cookie: options.Cookie,
-
-	//	flags: toNodeFlag(
-	//		flagPublished,
-	//		flagUnicodeIO,
-	//		flagDistMonitor,
-	//		flagDistMonitorName,
-	//		flagExtendedPidsPorts,
-	//		flagExtendedReferences,
-	//		flagAtomCache,
-	//		flagDistHdrAtomCache,
-	//		flagHiddenAtomCache,
-	//		flagNewFunTags,
-	//		flagSmallAtomTags,
-	//		flagUTF8Atoms,
-	//		flagMapTag,
-	//		flagFragments,
-	//		flagHandshake23,
-	//		flagBigCreation,
-	//		flagSpawn,
-	//		flagV4NC,
-	//		flagAlias,
-	//	),
-
-	//	conn: conn,
-	//	// sequenceID is using for the fragmentation messages
-	//	sequenceID: time.Now().UnixNano(),
-
-	//	version:  uint16(options.Version),
-	//	creation: options.Creation,
-	//}
+	flags := toNodeFlag(
+		flagPublished,
+		flagUnicodeIO,
+		flagDistMonitor,
+		flagDistMonitorName,
+		flagExtendedPidsPorts,
+		flagExtendedReferences,
+		flagAtomCache,
+		flagDistHdrAtomCache,
+		flagHiddenAtomCache,
+		flagNewFunTags,
+		flagSmallAtomTags,
+		flagUTF8Atoms,
+		flagMapTag,
+		flagFragments,
+		flagHandshake23,
+		flagBigCreation,
+		flagSpawn,
+		flagV4NC,
+		flagAlias,
+	)
 
 	b := lib.TakeBuffer()
 	defer lib.ReleaseBuffer(b)
 
 	var await []byte
 
-	if dh.version == ProtoHandshake5 {
-		dh.composeName(b, dh.options.TLS)
+	if dh.options.Version == DistHandshakeVersion5 {
+		dh.composeName(b)
 		// the next message must be send_status 's' or send_challenge 'n' (for
 		// handshake version 5) or 'N' (for handshake version 6)
 		await = []byte{'s', 'n', 'N'}
 	} else {
-		dh.composeNameVersion6(b, dh.options.TLS)
+		dh.composeNameVersion6(b)
 		await = []byte{'s', 'N'}
 	}
 	if e := b.WriteDataTo(conn); e != nil {
@@ -175,7 +161,7 @@ func (h *DistHandshake) Start(ctx context.Context, conn net.Conn) (*node.Connect
 	// In Erlang this corresponds to option {packet, 2} in gen_tcp(3). Notice
 	// that after the handshake, the distribution switches to 4 byte packet headers.
 	expectingBytes := 2
-	if options.TLS {
+	if dh.options.TLS {
 		// TLS connection has 4 bytes packet length header
 		expectingBytes = 4
 	}
@@ -218,7 +204,7 @@ func (h *DistHandshake) Start(ctx context.Context, conn net.Conn) (*node.Connect
 				}
 				b.Reset()
 
-				link.composeChallengeReply(b, challenge, options.TLS)
+				dh.composeChallengeReply(b, challenge)
 
 				if e := b.WriteDataTo(conn); e != nil {
 					return nil, e
@@ -234,19 +220,18 @@ func (h *DistHandshake) Start(ctx context.Context, conn net.Conn) (*node.Connect
 				if len(buffer) < 16 {
 					return nil, fmt.Errorf("malformed handshake ('N' length)")
 				}
-				challenge := link.readChallengeVersion6(buffer[1:])
+				challenge := dh.readChallengeVersion6(buffer[1:])
 				b.Reset()
 
-				if dh.version == ProtoHandshake5 {
-					// send complement message
+				if dh.options.Version == DistHandshakeVersion5 {
+					// upgrade handshake to version 6 by sending complement message
 					dh.composeComplement(b)
 					if e := b.WriteDataTo(conn); e != nil {
 						return nil, e
 					}
-					link.version = ProtoHandshake6
 				}
 
-				link.composeChallengeReply(b, challenge, options.TLS)
+				dh.composeChallengeReply(b, challenge)
 
 				if e := b.WriteDataTo(conn); e != nil {
 					return nil, e
@@ -294,25 +279,31 @@ func (h *DistHandshake) Start(ctx context.Context, conn net.Conn) (*node.Connect
 
 }
 
-func (h *DistHandshake) Accept(ctx context.Context, conn net.Conn, opts DistHandshakeOptions) (*node.Connection, error) {
-	link := &Link{
-		Name:   options.Name,
-		Cookie: options.Cookie,
-		Hidden: options.Hidden,
+func (dh *DistHandshake) Accept(conn net.Conn) (string, node.ProtoOptions, error) {
+	var peername string
+	var protoOptions node.ProtoOptions
 
-		flags: toNodeFlag(PUBLISHED, UNICODE_IO, DIST_MONITOR, DIST_MONITOR_NAME,
-			EXTENDED_PIDS_PORTS, EXTENDED_REFERENCES, ATOM_CACHE,
-			DIST_HDR_ATOM_CACHE, HIDDEN_ATOM_CACHE, NEW_FUN_TAGS,
-			SMALL_ATOM_TAGS, UTF8_ATOMS, MAP_TAG,
-			FRAGMENTS, HANDSHAKE23, BIG_CREATION, SPAWN, V4_NC, ALIAS,
-		),
-
-		conn:       conn,
-		sequenceID: time.Now().UnixNano(),
-		challenge:  rand.Uint32(),
-		version:    ProtoHandshake6,
-		creation:   options.Creation,
-	}
+	flags := toNodeFlag(
+		flagPublished,
+		flagUnicodeIO,
+		flagDistMonitor,
+		flagDistMonitorName,
+		flagExtendedPidsPorts,
+		flagExtendedReferences,
+		flagAtomCache,
+		flagDistHdrAtomCache,
+		flagHiddenAtomCache,
+		flagNewFunTags,
+		flagSmallAtomTags,
+		flagUTF8Atoms,
+		flagMapTag,
+		flagFragments,
+		flagHandshake23,
+		flagBigCreation,
+		flagSpawn,
+		flagV4NC,
+		flagAlias,
+	)
 
 	b := lib.TakeBuffer()
 	defer lib.ReleaseBuffer(b)
@@ -335,7 +326,7 @@ func (h *DistHandshake) Accept(ctx context.Context, conn net.Conn, opts DistHand
 	// In Erlang this corresponds to option {packet, 2} in gen_tcp(3). Notice
 	// that after the handshake, the distribution switches to 4 byte packet headers.
 	expectingBytes := 2
-	if options.TLS {
+	if dh.options.TLS {
 		// TLS connection has 4 bytes packet length header
 		expectingBytes = 4
 	}
@@ -352,11 +343,11 @@ func (h *DistHandshake) Accept(ctx context.Context, conn net.Conn, opts DistHand
 			return nil, fmt.Errorf("handshake accept timeout")
 		case e := <-asyncReadChannel:
 			if e != nil {
-				return nil, e
+				return peername, protoOptions, e
 			}
 
 			if b.Len() < expectingBytes+1 {
-				return nil, fmt.Errorf("malformed handshake (too short packet)")
+				return peername, protoOptions, fmt.Errorf("malformed handshake (too short packet)")
 			}
 
 		next:
@@ -364,24 +355,24 @@ func (h *DistHandshake) Accept(ctx context.Context, conn net.Conn, opts DistHand
 			buffer := b.B[expectingBytes:]
 
 			if len(buffer) < int(l) {
-				return nil, fmt.Errorf("malformed handshake (wrong packet length)")
+				return peername, protoOptions, fmt.Errorf("malformed handshake (wrong packet length)")
 			}
 
 			if bytes.Count(await, buffer[0:1]) == 0 {
-				return nil, fmt.Errorf("malformed handshake (wrong response %d)", buffer[0])
+				return peername, protoOptions, fmt.Errorf("malformed handshake (wrong response %d)", buffer[0])
 			}
 
 			switch buffer[0] {
 			case 'n':
 				if len(buffer) < 8 {
-					return nil, fmt.Errorf("malformed handshake ('n' length)")
+					return peername, protoOptions, fmt.Errorf("malformed handshake ('n' length)")
 				}
 
 				link.peer = link.readName(buffer[1:])
 				b.Reset()
 				link.composeStatus(b, options.TLS)
 				if e := b.WriteDataTo(conn); e != nil {
-					return nil, fmt.Errorf("malformed handshake ('n' accept name)")
+					return peername, protoOptions, fmt.Errorf("malformed handshake ('n' accept name)")
 				}
 
 				b.Reset()
@@ -394,33 +385,33 @@ func (h *DistHandshake) Accept(ctx context.Context, conn net.Conn, opts DistHand
 					await = []byte{'s', 'r'}
 				}
 				if e := b.WriteDataTo(conn); e != nil {
-					return nil, e
+					return peername, protoOptions, e
 				}
 
 			case 'N':
 				// The new challenge message format (version 6)
 				// 8 (flags) + 4 (Creation) + 2 (NameLen) + Name
 				if len(buffer) < 16 {
-					return nil, fmt.Errorf("malformed handshake ('N' length)")
+					return peername, protoOptions, fmt.Errorf("malformed handshake ('N' length)")
 				}
 				link.peer = link.readNameVersion6(buffer[1:])
 				b.Reset()
 				link.composeStatus(b, options.TLS)
 				if e := b.WriteDataTo(conn); e != nil {
-					return nil, fmt.Errorf("malformed handshake ('N' accept name)")
+					return peername, protoOptions, fmt.Errorf("malformed handshake ('N' accept name)")
 				}
 
 				b.Reset()
 				link.composeChallengeVersion6(b, options.TLS)
 				if e := b.WriteDataTo(conn); e != nil {
-					return nil, e
+					return peername, protoOptions, e
 				}
 
 				await = []byte{'s', 'r'}
 
 			case 'c':
 				if len(buffer) < 9 {
-					return nil, fmt.Errorf("malformed handshake ('c' length)")
+					return peername, protoOptions, fmt.Errorf("malformed handshake ('c' length)")
 				}
 				link.readComplement(buffer[1:])
 
@@ -434,17 +425,17 @@ func (h *DistHandshake) Accept(ctx context.Context, conn net.Conn, opts DistHand
 
 			case 'r':
 				if len(buffer) < 19 {
-					return nil, fmt.Errorf("malformed handshake ('r' length)")
+					return peername, protoOptions, fmt.Errorf("malformed handshake ('r' length)")
 				}
 
 				if !link.validateChallengeReply(buffer[1:]) {
-					return nil, fmt.Errorf("malformed handshake ('r' invalid reply)")
+					return peername, protoOptions, fmt.Errorf("malformed handshake ('r' invalid reply)")
 				}
 				b.Reset()
 
 				dh.composeChallengeAck(b, options.TLS)
 				if e := b.WriteDataTo(conn); e != nil {
-					return nil, e
+					return peername, protoOptions, e
 				}
 
 				// handshaked
@@ -454,7 +445,7 @@ func (h *DistHandshake) Accept(ctx context.Context, conn net.Conn, opts DistHand
 
 			case 's':
 				if link.readStatus(buffer[1:]) == false {
-					return nil, fmt.Errorf("link status !ok")
+					return peername, protoOptions, fmt.Errorf("link status !ok")
 				}
 
 				await = []byte{'c', 'r'}
@@ -465,7 +456,7 @@ func (h *DistHandshake) Accept(ctx context.Context, conn net.Conn, opts DistHand
 				b.Reset()
 
 			default:
-				return nil, fmt.Errorf("malformed handshake (unknown code %d)", b.B[0])
+				return peername, protoOptions, fmt.Errorf("malformed handshake (unknown code %d)", b.B[0])
 			}
 
 		}
