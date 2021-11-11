@@ -1,18 +1,18 @@
 package cloud
 
 import (
-	"context"
-	"fmt"
 	"net"
+
+	"github.com/ergo-services/ergo/node"
 )
 
 type CloudHandshake struct {
+	node.Handshake
 }
 
-func (ch *CloudHandshake) Start(ctx context.Context, conn net.Conn, options node.HandshakeOptions) (*node.Link, error) {
-	return nil, nil
+func (ch *CloudHandshake) Init(nodename string, creation uint32, enabledTLS bool) error {
+	return nil
 }
-
-func (ch *CloudHandshake) Accept(ctx context.Context, conn net.Conn, options node.HandshakeOptions) (*node.Link, error) {
-	return nil, fmt.Errorf("Cloud handshake can't be used within Ergo Node")
+func (ch *CloudHandshake) Start(c net.Conn) (node.ProtoOptions, error) {
+	return node.ProtoOptions{}, nil
 }

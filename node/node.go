@@ -56,13 +56,12 @@ func StartWithContext(ctx context.Context, name string, cookie string, opts Opti
 		lib.Log("Node listening range: %d...%d", opts.ListenBegin, opts.ListenEnd)
 	}
 
-	//FIXME
-	//if opts.Handshake == nil {
-	//	return nil, fmt.Errorf("Handshake must be defined")
-	//}
-	//if opts.Proto == nil {
-	//	return nil, fmt.Errorf("Proto must be defined")
-	//}
+	if opts.Handshake == nil {
+		return nil, fmt.Errorf("Handshake must be defined")
+	}
+	if opts.Proto == nil {
+		return nil, fmt.Errorf("Proto must be defined")
+	}
 	if opts.StaticRoutesOnly == false && opts.Resolver == nil {
 		return nil, fmt.Errorf("Resolver must be defined if StaticRoutesOnly == false")
 	}

@@ -60,8 +60,8 @@ type network struct {
 	creation uint32
 
 	router    CoreRouter
-	handshake Handshake
-	proto     Proto
+	handshake HandshakeInterface
+	proto     ProtoInterface
 }
 
 func newNetwork(ctx context.Context, nodename string, options Options, router CoreRouter) (networkInternal, error) {
@@ -90,7 +90,7 @@ func newNetwork(ctx context.Context, nodename string, options Options, router Co
 		return nil, err
 	}
 
-	handshakeVersion, err := n.handshake.Init(n.nodename, n.creation, n.tls.Enabled)
+	err := n.handshake.Init(n.nodename, n.creation, n.tls.Enabled)
 	if err != nil {
 		return nil, err
 	}
@@ -102,7 +102,7 @@ func newNetwork(ctx context.Context, nodename string, options Options, router Co
 
 	resolverOptions := ResolverOptions{
 		NodeVersion:      n.version,
-		HandshakeVersion: handshakeVersion,
+		HandshakeVersion: n.handshake.Version(),
 		EnabledTLS:       n.tls.Enabled,
 		EnabledProxy:     options.ProxyMode != ProxyModeDisabled,
 	}
@@ -368,12 +368,11 @@ func (n *network) connect(peername string) (ConnectionInterface, error) {
 	}
 
 	// handshake
-	//FIXME
-	//handshake := route.Handshake
-	//if handshake == nil {
-	//	// use default handshake
-	//	handshake = n.handshake
-	//}
+	handshake := route.Handshake
+	if handshake == nil {
+		//	// use default handshake
+		handshake = n.handshake
+	}
 
 	protoOptions, err := n.handshake.Start(c)
 	if err != nil {
@@ -382,12 +381,11 @@ func (n *network) connect(peername string) (ConnectionInterface, error) {
 	}
 
 	// proto
-	//FIXME
-	//proto := route.Proto
-	//if proto == nil {
-	//	// use default proto
-	//	proto = n.proto
-	//}
+	proto := route.Proto
+	if proto == nil {
+		// use default proto
+		proto = n.proto
+	}
 
 	connection, err := n.proto.Init(c, protoOptions, n.router)
 	if err != nil {
@@ -562,11 +560,13 @@ func (c *Connection) ProxyReg() error {
 //
 // Handshake interface default callbacks
 //
-
 func (h *Handshake) Start(c net.Conn) (ProtoOptions, error) {
 	return ProtoOptions{}, ErrUnsupported
 }
-
 func (h *Handshake) Accept(c net.Conn) (string, ProtoOptions, error) {
 	return "", ProtoOptions{}, ErrUnsupported
+}
+func (h *Handshake) Version() HandshakeVersion {
+	var v HandshakeVersion
+	return v
 }

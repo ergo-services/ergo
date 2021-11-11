@@ -21,30 +21,30 @@ const (
 	DefaultDistHandshakeVersion = DistHandshakeVersion5
 
 	// distribution flags are defined here https://erlang.org/doc/apps/erts/erl_dist_protocol.html#distribution-flags
-	flagPublished          flagId = 0x1
-	flagAtomCache                 = 0x2
-	flagExtendedReferences        = 0x4
-	flagDistMonitor               = 0x8
-	flagFunTags                   = 0x10
-	flagDistMonitorName           = 0x20
-	flagHiddenAtomCache           = 0x40
-	flagNewFunTags                = 0x80
-	flagExtendedPidsPorts         = 0x100
-	flagExportPtrTag              = 0x200
-	flagBitBinaries               = 0x400
-	flagNewFloats                 = 0x800
-	flagUnicodeIO                 = 0x1000
-	flagDistHdrAtomCache          = 0x2000
-	flagSmallAtomTags             = 0x4000
-	flagUTF8Atoms                 = 0x10000
-	flagMapTag                    = 0x20000
-	flagBigCreation               = 0x40000
-	flagSendSender                = 0x80000 // since OTP.21 enable replacement for SEND (distProtoSEND by distProtoSEND_SENDER)
-	flagBigSeqTraceLabels         = 0x100000
-	flagExitPayload               = 0x400000 // since OTP.22 enable replacement for EXIT, EXIT2, MONITOR_P_EXIT
-	flagFragments                 = 0x800000
-	flagHandshake23               = 0x1000000 // new connection setup handshake (version 6) introduced in OTP 23
-	flagUnlinkID                  = 0x2000000
+	flagPublished          nodeFlagId = 0x1
+	flagAtomCache                     = 0x2
+	flagExtendedReferences            = 0x4
+	flagDistMonitor                   = 0x8
+	flagFunTags                       = 0x10
+	flagDistMonitorName               = 0x20
+	flagHiddenAtomCache               = 0x40
+	flagNewFunTags                    = 0x80
+	flagExtendedPidsPorts             = 0x100
+	flagExportPtrTag                  = 0x200
+	flagBitBinaries                   = 0x400
+	flagNewFloats                     = 0x800
+	flagUnicodeIO                     = 0x1000
+	flagDistHdrAtomCache              = 0x2000
+	flagSmallAtomTags                 = 0x4000
+	flagUTF8Atoms                     = 0x10000
+	flagMapTag                        = 0x20000
+	flagBigCreation                   = 0x40000
+	flagSendSender                    = 0x80000 // since OTP.21 enable replacement for SEND (distProtoSEND by distProtoSEND_SENDER)
+	flagBigSeqTraceLabels             = 0x100000
+	flagExitPayload                   = 0x400000 // since OTP.22 enable replacement for EXIT, EXIT2, MONITOR_P_EXIT
+	flagFragments                     = 0x800000
+	flagHandshake23                   = 0x1000000 // new connection setup handshake (version 6) introduced in OTP 23
+	flagUnlinkID                      = 0x2000000
 	// for 64bit flags
 	flagSpawn  = 1 << 32
 	flagNameMe = 1 << 33
@@ -77,7 +77,7 @@ func toNodeFlag(f ...nodeFlagId) nodeFlag {
 
 // DistHandshake implements Erlang handshake
 type DistHandshake struct {
-	Handshake
+	node.Handshake
 	options DistHandshakeOptions
 }
 
@@ -97,8 +97,12 @@ func CreateDistHandshake(options DistHandshakeOptions) node.Handshake {
 }
 
 // Init implements Handshake interface mothod
-func (h *DistHandshake) Init(nodename string) (node.HandshakeVersion, error) {
-	return h.options.Version, nil
+func (h *DistHandshake) Init(nodename string, creation uint32, enabledTLS bool) error {
+	return nil
+}
+
+func (h *DistHandshake) Version() node.HandshakeVersion {
+	return h.options.Version
 }
 
 func (h *DistHandshake) Start(ctx context.Context, conn net.Conn) (*node.Connection, error) {

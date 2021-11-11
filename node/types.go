@@ -226,10 +226,10 @@ type Options struct {
 
 	// Handshake defines a handshake handler. By default is using
 	// DIST handshake created with dist.CreateHandshake(...)
-	Handshake Handshake
+	Handshake HandshakeInterface
 	// Proto defines a proto handler. By default is using
 	// DIST proto created with dist.CreateProto(...)
-	Proto Proto
+	Proto ProtoInterface
 
 	// enable Ergo Cloud support
 	CloudEnable  bool
@@ -286,12 +286,15 @@ type Handshake struct {
 // Handshake defines handshake interface
 type HandshakeInterface interface {
 	// Init initialize handshake.
-	Init(nodename string, creation uint32, enabledTLS bool) (HandshakeVersion, error)
+	Init(nodename string, creation uint32, enabledTLS bool) error
 	// Start initiates handshake process. Returns proto options to override default ones.
 	Start(c net.Conn) (ProtoOptions, error)
 	// Accept accepts handshake process initiated by another side of this connection. Returns
 	// the name of connected peer and  proto options to override defaults
 	Accept(c net.Conn) (string, ProtoOptions, error)
+	// Version handshake version. Must be implemented if this handshake is going to be used
+	// for the accepting connections (this method is used in registration on the Resolver)
+	Version() HandshakeVersion
 }
 
 type HandshakeVersion int
@@ -357,8 +360,8 @@ type RouteOptions struct {
 	IsErgo       bool
 
 	TLSConfig *tls.Config
-	Handshake Handshake
-	Proto     Proto
+	Handshake HandshakeInterface
+	Proto     ProtoInterface
 	Custom    CustomRouteOptions
 }
 

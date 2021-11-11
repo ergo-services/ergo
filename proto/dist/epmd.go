@@ -13,7 +13,7 @@ import (
 	"github.com/ergo-services/ergo/lib"
 )
 
-type node struct {
+type registeredNode struct {
 	port   uint16
 	hidden bool
 	hi     uint16
@@ -22,7 +22,7 @@ type node struct {
 }
 
 type epmd struct {
-	nodes      map[string]node
+	nodes      map[string]registeredNode
 	nodesMutex sync.Mutex
 }
 
@@ -35,7 +35,7 @@ func startServerEPMD(ctx context.Context, host string, port uint16) error {
 	}
 
 	epmd := epmd{
-		nodes: make(map[string]node),
+		nodes: make(map[string]registeredNode),
 	}
 	go epmd.serve(listener)
 	lib.Log("Started embedded EMPD service and listen port: %d", port)
@@ -55,7 +55,7 @@ func (e *epmd) serve(l net.Listener) {
 	}
 }
 
-func (e *empd) handle(c net.Conn) {
+func (e *epmd) handle(c net.Conn) {
 	buf := make([]byte, 1024)
 	name := ""
 
@@ -136,7 +136,7 @@ func (e *empd) handle(c net.Conn) {
 	}
 }
 
-func (e *epmd) readAliveReq(req []byte) (string, node, error) {
+func (e *epmd) readAliveReq(req []byte) (string, registeredNode, error) {
 	if len(req) < 10 {
 		return "", nodeinfo{}, fmt.Errorf("Malformed EPMD request")
 	}
@@ -150,7 +150,7 @@ func (e *epmd) readAliveReq(req []byte) (string, node, error) {
 		hidden = true
 	}
 	// node
-	node := node{
+	node := registeredNode{
 		port:   binary.BigEndian.Uint16(req[0:2]),
 		hidden: hidden,
 		hi:     binary.BigEndian.Uint16(req[4:6]),
@@ -172,7 +172,7 @@ func (e *epmd) sendAliveResp(c net.Conn, code int) error {
 	return err
 }
 
-func (e *epmd) sendPortPleaseResp(c net.Conn, name string, node node) {
+func (e *epmd) sendPortPleaseResp(c net.Conn, name string, node registeredNode) {
 	buf := make([]byte, 12+len(name)+2+len(node.extra))
 	buf[0] = epmdPortResp
 

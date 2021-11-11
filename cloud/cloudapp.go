@@ -47,7 +47,7 @@ func (cas *cloudAppSup) Init(args ...etf.Term) (gen.SupervisorSpec, error) {
 		Children: []gen.SupervisorChildSpec{
 			gen.SupervisorChildSpec{
 				Name:  "cloud_client",
-				Child: &cloud{},
+				Child: &cloudClient{},
 			},
 		},
 		Strategy: gen.SupervisorStrategy{
@@ -71,7 +71,7 @@ func (cc *cloudClient) Init(process *gen.ServerProcess, args ...etf.Term) error 
 
 func (cc *cloudClient) HandleCall(process *gen.ServerProcess, from gen.ServerFrom, message etf.Term) (etf.Term, gen.ServerStatus) {
 	lib.Log("CLOUD_CLIENT: HandleCall: %#v, From: %#v", message, from)
-	return gen.ServerStatusOK
+	return nil, gen.ServerStatusOK
 }
 
 func (cc *cloudClient) HandleCast(process *gen.ServerProcess, message etf.Term) gen.ServerStatus {
