@@ -4,7 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
-	"net"
+	"io"
 	"time"
 
 	"github.com/ergo-services/ergo/etf"
@@ -287,11 +287,12 @@ type Handshake struct {
 type HandshakeInterface interface {
 	// Init initialize handshake.
 	Init(nodename string, creation uint32, enabledTLS bool) error
-	// Start initiates handshake process. Returns proto options to override default ones.
-	Start(c net.Conn) (ProtoOptions, error)
+	// Start initiates handshake process. Argument tls means the connection is wrapped by TLS
+	// Returns proto options to override default ones.
+	Start(c io.ReadWriter, tls bool) (ProtoOptions, error)
 	// Accept accepts handshake process initiated by another side of this connection. Returns
 	// the name of connected peer and  proto options to override defaults
-	Accept(c net.Conn) (string, ProtoOptions, error)
+	Accept(c io.ReadWriter, tls bool) (string, ProtoOptions, error)
 	// Version handshake version. Must be implemented if this handshake is going to be used
 	// for the accepting connections (this method is used in registration on the Resolver)
 	Version() HandshakeVersion
@@ -307,7 +308,7 @@ type Proto struct {
 // Proto defines proto interface for the custom Proto implementation
 type ProtoInterface interface {
 	// Init initialize connection handler
-	Init(c net.Conn, options ProtoOptions, router CoreRouter) (ConnectionInterface, error)
+	Init(c io.ReadWriter, options ProtoOptions, router CoreRouter) (ConnectionInterface, error)
 	// Serve connection
 	Serve(ctx context.Context, connection ConnectionInterface)
 }

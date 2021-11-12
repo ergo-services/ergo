@@ -315,6 +315,7 @@ func (n *network) connect(peername string) (ConnectionInterface, error) {
 	var route Route
 	var c net.Conn
 	var err error
+	var enabledTLS bool
 
 	// resolve the route
 	route, err = n.resolver.Resolve(peername)
@@ -340,6 +341,7 @@ func (n *network) connect(peername string) (ConnectionInterface, error) {
 				}
 				c, err = tlsdialer.DialContext(n.ctx, "tcp", HostPort)
 			}
+			enabledTLS = true
 
 		} else {
 			// TLS disabled on a remote node
@@ -354,6 +356,7 @@ func (n *network) connect(peername string) (ConnectionInterface, error) {
 				Config: &n.tls.Config,
 			}
 			c, err = tlsdialer.DialContext(n.ctx, "tcp", HostPort)
+			enabledTLS = true
 
 		} else {
 			dialer := net.Dialer{}
@@ -374,7 +377,7 @@ func (n *network) connect(peername string) (ConnectionInterface, error) {
 		handshake = n.handshake
 	}
 
-	protoOptions, err := n.handshake.Start(c)
+	protoOptions, err := n.handshake.Start(c, enabledTLS)
 	if err != nil {
 		c.Close()
 		return nil, err
