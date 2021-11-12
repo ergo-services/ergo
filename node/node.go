@@ -3,6 +3,7 @@ package node
 import (
 	"context"
 	"fmt"
+	"runtime"
 	"strings"
 	"time"
 
@@ -418,4 +419,17 @@ func (n *node) ProvideRemoteSpawn(name string, behavior gen.ProcessBehavior) err
 // RevokeRemoteSpawn
 func (n *node) RevokeRemoteSpawn(name string) error {
 	return n.UnregisterBehavior(remoteBehaviorGroup, name)
+}
+
+// DefaultProtoOptions
+func DefaultProtoOptions(handlers int, compression, disableHAC bool) ProtoOptions {
+	return ProtoOptions{
+		MaxMessageSize:         DefaultProtoMaxMessageSize,
+		NumHandlers:            runtime.GOMAXPROCS(handlers),
+		SendQueueLength:        DefaultProtoSendQueueLength,
+		RecvQueueLength:        DefaultProtoRecvQueueLength,
+		FragmentationUnit:      DefaultProroFragmentationUnit,
+		DisableHeaderAtomCache: disableHAC,
+		Compression:            compression,
+	}
 }

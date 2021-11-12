@@ -80,6 +80,7 @@ type DistHandshake struct {
 	nodename  string
 	creation  int64
 	challenge uint32
+	timeout   time.Duration
 	options   DistHandshakeOptions
 }
 
@@ -88,7 +89,7 @@ type DistHandshakeOptions struct {
 	Cookie  string
 }
 
-func CreateDistHandshake(options DistHandshakeOptions) node.Handshake {
+func CreateDistHandshake(timeout time.Duration, options DistHandshakeOptions) node.HandshakeInterface {
 	// must be 5 or 6
 	if options.Version != DistHandshakeVersion5 && options.Version != DistHandshakeVersion6 {
 		options.Version = defaultDistHandshakeVersion
@@ -158,7 +159,7 @@ func (dh *DistHandshake) Start(conn io.ReadWriter, tls bool) (node.ProtoOptions,
 	}
 
 	// define timeout for the handshaking
-	timer := time.NewTimer(5 * time.Second)
+	timer := time.NewTimer(dh.timeout)
 	defer timer.Stop()
 
 	asyncReadChannel := make(chan error, 2)
@@ -267,6 +268,7 @@ func (dh *DistHandshake) Start(conn io.ReadWriter, tls bool) (node.ProtoOptions,
 
 				// handshaked
 				//FIXME
+				protoOptions = node.DefaultProtoOptions(0, opts.Comression, false)
 				return protoOptions, nil
 
 			case 's':
@@ -326,7 +328,7 @@ func (dh *DistHandshake) Accept(conn io.ReadWriter, tls bool) (string, node.Prot
 	var await []byte
 
 	// define timeout for the handshaking
-	timer := time.NewTimer(5 * time.Second)
+	timer := time.NewTimer(dh.timeout)
 	defer timer.Stop()
 
 	asyncReadChannel := make(chan error, 2)
@@ -383,9 +385,9 @@ func (dh *DistHandshake) Accept(conn io.ReadWriter, tls bool) (string, node.Prot
 					return peer_name, protoOptions, fmt.Errorf("malformed handshake ('n' length)")
 				}
 
-				link.peer = link.readName(buffer[1:])
+				link.peer = dh.readName(buffer[1:])
 				b.Reset()
-				link.composeStatus(b, options.TLS)
+				dh.composeStatus(b, options.TLS)
 				if e := b.WriteDataTo(conn); e != nil {
 					return peer_name, protoOptions, fmt.Errorf("malformed handshake ('n' accept name)")
 				}
@@ -455,6 +457,7 @@ func (dh *DistHandshake) Accept(conn io.ReadWriter, tls bool) (string, node.Prot
 
 				// handshaked
 				// FIXME
+				protoOptions = node.DefaultProtoOptions(0, opts.Comression, false)
 
 				return peer_name, protoOptions, nil
 
@@ -527,24 +530,21 @@ func (dh *DistHandshake) composeNameVersion6(b *lib.Buffer, tls bool, flags node
 	b.Append([]byte(dh.nodename))
 }
 
-func (dh *DistHandshake) readName(b []byte) *Link {
-	peer := &Link{
-		Name:    string(b[6:]),
-		version: binary.BigEndian.Uint16(b[0:2]),
-		flags:   nodeFlag(binary.BigEndian.Uint32(b[2:6])),
-	}
-	return peer
+func (dh *DistHandshake) readName(b []byte) (string, nodeFlags) {
+	nodename := string(b[6:])
+	flags := nodeFlag(binary.BigEndian.Uint32(b[2:6]))
+	// don't care of it. its always == 5 according to the spec
+	// version := binary.BigEndian.Uint16(b[0:2])
+	return nodename, flags
 }
 
-func (dh *DistHandshake) readNameVersion6(b []byte) *Link {
+func (dh *DistHandshake) readNameVersion6(b []byte) (string, nodeFlags) {
 	nameLen := int(binary.BigEndian.Uint16(b[12:14]))
-	peer := &Link{
-		flags:    nodeFlag(binary.BigEndian.Uint64(b[0:8])),
-		creation: binary.BigEndian.Uint32(b[8:12]),
-		Name:     string(b[14 : 14+nameLen]),
-		version:  ProtoHandshake6,
-	}
-	return peer
+	nodename := string(b[14 : 14+nameLen])
+	flags := nodeFlag(binary.BigEndian.Uint64(b[0:8]))
+	// don't care of peer creation value
+	//creation:= binary.BigEndian.Uint32(b[8:12]),
+	return nodename, flags
 }
 
 func (dh *DistHandshake) composeStatus(b *lib.Buffer) {

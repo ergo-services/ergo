@@ -214,6 +214,9 @@ type Options struct {
 	// Resolver defines a resolving service (default is EPMD service, client and server)
 	Resolver Resolver
 
+	// Compression enables compression for outgoing messages
+	Compression bool
+
 	// ProxyMode enables/disables proxy mode for the node
 	ProxyMode ProxyMode
 
@@ -289,10 +292,10 @@ type HandshakeInterface interface {
 	Init(nodename string, creation uint32, enabledTLS bool) error
 	// Start initiates handshake process. Argument tls means the connection is wrapped by TLS
 	// Returns proto options to override default ones.
-	Start(c io.ReadWriter, tls bool) (ProtoOptions, error)
+	Start(conn io.ReadWriter, tls bool) (ProtoOptions, error)
 	// Accept accepts handshake process initiated by another side of this connection. Returns
 	// the name of connected peer and  proto options to override defaults
-	Accept(c io.ReadWriter, tls bool) (string, ProtoOptions, error)
+	Accept(conn io.ReadWriter, tls bool) (string, ProtoOptions, error)
 	// Version handshake version. Must be implemented if this handshake is going to be used
 	// for the accepting connections (this method is used in registration on the Resolver)
 	Version() HandshakeVersion
@@ -308,7 +311,7 @@ type Proto struct {
 // Proto defines proto interface for the custom Proto implementation
 type ProtoInterface interface {
 	// Init initialize connection handler
-	Init(c io.ReadWriter, options ProtoOptions, router CoreRouter) (ConnectionInterface, error)
+	Init(conn io.ReadWriter, options ProtoOptions, router CoreRouter) (ConnectionInterface, error)
 	// Serve connection
 	Serve(ctx context.Context, connection ConnectionInterface)
 }

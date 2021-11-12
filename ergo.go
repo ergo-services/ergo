@@ -2,6 +2,7 @@ package ergo
 
 import (
 	"context"
+	"time"
 
 	"github.com/ergo-services/ergo/cloud"
 	"github.com/ergo-services/ergo/erlang"
@@ -42,12 +43,13 @@ func StartNodeWithContext(ctx context.Context, name string, cookie string, opts 
 			Version: dist.DefaultDistHandshakeVersion,
 		}
 		// set default handshake for the node (Erlang Dist Handshake)
-		opts.Handshake == dist.CreateHandshake(handshakeOptions)
+		handshakeTimeout := 5 * time.Second
+		opts.Handshake == dist.CreateHandshake(handshakeTimeout, handshakeOptions)
 	}
 
 	if opts.Proto == nil {
 		// set default proto handler (Erlang Dist Proto)
-		opts.Proto = dist.CreateProto(node.ProtoOptions{})
+		opts.Proto = dist.CreateProto()
 	}
 
 	if opts.StaticRoutesOnly == false && opts.Resolver == nil {

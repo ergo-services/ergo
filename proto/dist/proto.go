@@ -80,7 +80,7 @@ type DistProto struct {
 	checkCleanDeadline time.Duration // how long we wait for the next fragment of the certain sequenceID. Default is 30 seconds
 }
 
-func CreateDistProto() Proto {
+func CreateProto() ProtoInterface {
 	return &DistProto{}
 }
 
