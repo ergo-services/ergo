@@ -299,6 +299,7 @@ func (dh *DistHandshake) Accept(conn io.ReadWriter, tls bool) (string, node.Prot
 	var peer_name string
 	var peer_flags nodeFlags
 	var protoOptions node.ProtoOptions
+	var err error
 
 	flags := toNodeFlag(
 		flagPublished,
@@ -385,9 +386,12 @@ func (dh *DistHandshake) Accept(conn io.ReadWriter, tls bool) (string, node.Prot
 					return peer_name, protoOptions, fmt.Errorf("malformed handshake ('n' length)")
 				}
 
-				link.peer = dh.readName(buffer[1:])
+				peer_name, peer_flags, err = dh.readName(buffer[1:])
+				if err != nil {
+					return peer_name, protoOptions, err
+				}
 				b.Reset()
-				dh.composeStatus(b, options.TLS)
+				dh.composeStatus(b, tls)
 				if e := b.WriteDataTo(conn); e != nil {
 					return peer_name, protoOptions, fmt.Errorf("malformed handshake ('n' accept name)")
 				}
@@ -411,7 +415,10 @@ func (dh *DistHandshake) Accept(conn io.ReadWriter, tls bool) (string, node.Prot
 				if len(buffer) < 16 {
 					return peer_name, protoOptions, fmt.Errorf("malformed handshake ('N' length)")
 				}
-				link.peer = link.readNameVersion6(buffer[1:])
+				peer_name, peer_flags, err = link.readNameVersion6(buffer[1:])
+				if err != nil {
+					return peer_name, protoOptions, err
+				}
 				b.Reset()
 				link.composeStatus(b, options.TLS)
 				if e := b.WriteDataTo(conn); e != nil {
@@ -530,27 +537,38 @@ func (dh *DistHandshake) composeNameVersion6(b *lib.Buffer, tls bool, flags node
 	b.Append([]byte(dh.nodename))
 }
 
-func (dh *DistHandshake) readName(b []byte) (string, nodeFlags) {
+func (dh *DistHandshake) readName(b []byte) (string, nodeFlags, error) {
+	if len(b[6:]) > 250 {
+		return "", 0, fmt.Errorf("Malformed node name")
+	}
 	nodename := string(b[6:])
 	flags := nodeFlag(binary.BigEndian.Uint32(b[2:6]))
-	// don't care of it. its always == 5 according to the spec
+
+	// don't care of version value. its always == 5 according to the spec
 	// version := binary.BigEndian.Uint16(b[0:2])
-	return nodename, flags
+
+	return nodename, flags, nil
 }
 
-func (dh *DistHandshake) readNameVersion6(b []byte) (string, nodeFlags) {
+func (dh *DistHandshake) readNameVersion6(b []byte) (string, nodeFlags, error) {
 	nameLen := int(binary.BigEndian.Uint16(b[12:14]))
+	if nameLen > 250 {
+		return "", 0, fmt.Errorf("Malformed node name")
+	}
 	nodename := string(b[14 : 14+nameLen])
 	flags := nodeFlag(binary.BigEndian.Uint64(b[0:8]))
+
 	// don't care of peer creation value
-	//creation:= binary.BigEndian.Uint32(b[8:12]),
-	return nodename, flags
+	// creation:= binary.BigEndian.Uint32(b[8:12]),
+
+	return nodename, flags, nil
 }
 
 func (dh *DistHandshake) composeStatus(b *lib.Buffer) {
-	//FIXME: there are few options for the status:
-	//	   ok, ok_simultaneous, nok, not_allowed, alive
+	// there are few options for the status: ok, ok_simultaneous, nok, not_allowed, alive
 	// More details here: https://erlang.org/doc/apps/erts/erl_dist_protocol.html#the-handshake-in-detail
+	// support "ok" only, in any other cases link will be just closed
+
 	if dh.options.tls {
 		b.Allocate(4)
 		dataLength := 3 // 's' + "ok"
