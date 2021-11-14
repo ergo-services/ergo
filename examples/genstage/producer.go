@@ -11,7 +11,7 @@ import (
 
 type Producer struct {
 	gen.Stage
-	dispatcher gen.StageDispatcherBehavior
+	// dispatcher gen.StageDispatcherBehavior
 }
 
 func (p *Producer) InitStage(process *gen.StageProcess, args ...etf.Term) (gen.StageOptions, error) {

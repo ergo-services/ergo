@@ -30,7 +30,7 @@ func (c *Consumer) InitStage(process *gen.StageProcess, args ...etf.Term) (gen.S
 	fmt.Println("Subscribe consumer", process.Name(), "[", process.Self(), "]",
 		"with min events =", opts.MinDemand,
 		"and max events", opts.MaxDemand)
-	process.Subscribe(gen.ProcessID{"producer", "node_abc@localhost"}, opts)
+	process.Subscribe(gen.ProcessID{Name: "producer", Node: "node_abc@localhost"}, opts)
 	return gen.StageOptions{}, nil
 }
 func (c *Consumer) HandleEvents(process *gen.StageProcess, subscription gen.StageSubscription, events etf.List) gen.StageStatus {

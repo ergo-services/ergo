@@ -17,10 +17,10 @@ type monitorItem struct {
 	ref etf.Ref
 }
 
-type linkProcessRequest struct {
-	pidA etf.Pid
-	pidB etf.Pid
-}
+// type linkProcessRequest struct {
+// 	pidA etf.Pid
+// 	pidB etf.Pid
+// }
 
 type monitorInternal interface {
 	monitorProcess(by etf.Pid, process interface{}, ref etf.Ref)
@@ -118,7 +118,7 @@ next:
 
 	case string:
 		// requesting monitor of local process
-		vPid := virtualPid(gen.ProcessID{t, m.registrar.NodeName()})
+		vPid := virtualPid(gen.ProcessID{Name: t, Node: m.registrar.NodeName()})
 		// If Pid does not exist a gen.MessageDown must be
 		// send immediately with Reason set to noproc.
 		if p := m.registrar.ProcessByName(t); p == nil {
@@ -130,7 +130,7 @@ next:
 
 	case etf.Atom:
 		// the same as 'string'
-		vPid := virtualPid(gen.ProcessID{string(t), m.registrar.NodeName()})
+		vPid := virtualPid(gen.ProcessID{Name: string(t), Node: m.registrar.NodeName()})
 		if p := m.registrar.ProcessByName(string(t)); p == nil {
 			m.notifyProcessTerminated(ref, by, vPid, "noproc")
 			return
@@ -461,7 +461,7 @@ func (m *monitor) processTerminated(terminated etf.Pid, name, reason string) {
 	// if terminated process had a name we should make shure to clean up them all
 	if name != "" {
 		// monitor was created by the name so we should look up using virtual pid
-		terminatedPid := virtualPid(gen.ProcessID{name, m.registrar.NodeName()})
+		terminatedPid := virtualPid(gen.ProcessID{Name: name, Node: m.registrar.NodeName()})
 		if items, ok := m.processes[terminatedPid]; ok {
 			handleMonitors(terminatedPid, items)
 		}
@@ -558,7 +558,6 @@ func (m *monitor) processMonitoredBy(process etf.Pid) []etf.Pid {
 	defer m.mutexProcesses.Unlock()
 
 	if m, ok := m.processes[process]; ok {
-		monitors := []etf.Pid{}
 		for i := range m {
 			monitors = append(monitors, m[i].pid)
 		}
@@ -577,7 +576,7 @@ func (m *monitor) IsMonitor(ref etf.Ref) bool {
 }
 
 func (m *monitor) notifyNodeDown(to etf.Pid, node string) {
-	message := gen.MessageNodeDown{node}
+	message := gen.MessageNodeDown{Name: node}
 	m.registrar.route(etf.Pid{}, to, message)
 }
 
@@ -650,7 +649,7 @@ func virtualPidToProcessID(pid etf.Pid) gen.ProcessID {
 	if len(s) != 2 {
 		return gen.ProcessID{}
 	}
-	return gen.ProcessID{s[0], s[1]}
+	return gen.ProcessID{Name: s[0], Node: s[1]}
 }
 
 func isVirtualPid(pid etf.Pid) bool {

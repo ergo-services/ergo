@@ -28,7 +28,6 @@ func (w *testSagaWorker) HandleJobStart(process *gen.SagaWorkerProcess, job gen.
 	return nil
 }
 func (w *testSagaWorker) HandleJobCancel(process *gen.SagaWorkerProcess, reason string) {
-	return
 }
 
 //
@@ -226,7 +225,7 @@ func TestSagaSimple(t *testing.T) {
 
 func splitSlice(slice []int, size int) [][]int {
 	var chunks [][]int
-	for i := 0; i < len(slice); i += size {
+	for i := range slice {
 		end := i + size
 		if end > len(slice) {
 			end = len(slice)

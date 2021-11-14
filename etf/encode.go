@@ -11,14 +11,14 @@ import (
 )
 
 var (
-	ErrStringTooLong = fmt.Errorf("Encoding error. String too long. Max allowed length is 65535")
-	ErrAtomTooLong   = fmt.Errorf("Encoding error. Atom too long. Max allowed UTF-8 chars is 255")
+	ErrStringTooLong = fmt.Errorf("encoding error. String too long. Max allowed length is 65535")
+	ErrAtomTooLong   = fmt.Errorf("encoding error. Atom too long. Max allowed UTF-8 chars is 255")
 
 	goSlice  = byte(240) // internal type
 	goMap    = byte(241) // internal type
 	goStruct = byte(242) // internal type
 
-	marshalerType = reflect.TypeOf((*Marshaler)(nil)).Elem()
+	// marshalerType = reflect.TypeOf((*Marshaler)(nil)).Elem()q
 )
 
 type EncodeOptions struct {
@@ -300,7 +300,7 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 			}
 
 			b.Append([]byte{ettSmallInteger, uint8(t)})
-			break
+			// break
 
 		case uint16:
 			if t <= math.MaxUint8 {

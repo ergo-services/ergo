@@ -13,7 +13,7 @@ func (hs *HandlerSup) Init(args ...etf.Term) (gen.SupervisorSpec, error) {
 	return gen.SupervisorSpec{
 		Name: "handler_sup",
 		Children: []gen.SupervisorChildSpec{
-			gen.SupervisorChildSpec{
+			{
 				Name:  "handler",
 				Child: &Handler{},
 			},

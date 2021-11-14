@@ -30,10 +30,8 @@ func (w *testSagaCommitWorker1) HandleJobStart(process *gen.SagaWorkerProcess, j
 func (w *testSagaCommitWorker1) HandleJobCommit(process *gen.SagaWorkerProcess, final interface{}) {
 	args := process.State.(argsSagaCommitArgs)
 	args.workerRes <- final
-	return
 }
 func (w *testSagaCommitWorker1) HandleJobCancel(process *gen.SagaWorkerProcess, reason string) {
-	return
 }
 
 func (w *testSagaCommitWorker1) HandleWorkerTerminate(process *gen.SagaWorkerProcess, reason string) {

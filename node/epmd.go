@@ -49,7 +49,7 @@ type epmd struct {
 	staticRoutes map[string]NetworkRoute
 	mtx          sync.RWMutex
 
-	response chan interface{}
+	// response chan interface{}
 }
 
 func (e *epmd) Init(ctx context.Context, name string, port uint16, opts Options) error {
@@ -111,7 +111,7 @@ func (e *epmd) Init(ctx context.Context, name string, port uint16, opts Options)
 					creation := read_ALIVE2_RESP(buf)
 					switch creation {
 					case false:
-						ready <- fmt.Errorf("Duplicate name '%s'", e.Name)
+						ready <- fmt.Errorf("duplicate name '%s'", e.Name)
 						return
 					default:
 						e.Creation = creation.(uint16)
@@ -161,7 +161,6 @@ func (e *epmd) RemoveStaticRoute(name string) {
 	e.mtx.Lock()
 	defer e.mtx.Unlock()
 	delete(e.staticRoutes, name)
-	return
 }
 
 func (e *epmd) resolve(name string) (NetworkRoute, error) {
@@ -174,7 +173,7 @@ func (e *epmd) resolve(name string) (NetworkRoute, error) {
 	}
 
 	if e.staticOnly {
-		return nr, fmt.Errorf("Can't resolve %s", name)
+		return nr, fmt.Errorf("can't resolve %s", name)
 	}
 
 	// no static route for the given name. go the regular way
@@ -317,7 +316,7 @@ func Server(ctx context.Context, port uint16) error {
 	epmd, err := lc.Listen(ctx, "tcp", net.JoinHostPort("", strconv.Itoa(int(port))))
 	if err != nil {
 		lib.Log("Can't start embedded EPMD service: %s", err)
-		return fmt.Errorf("Can't start embedded EPMD service: %s", err)
+		return fmt.Errorf("can't start embedded EPMD service: %s", err)
 
 	}
 

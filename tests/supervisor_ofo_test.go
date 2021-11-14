@@ -122,6 +122,9 @@ func TestSupervisorOneForOne(t *testing.T) {
 		ch: make(chan interface{}, 10),
 	}
 	processSV, err := node1.Spawn("testSupervisorPermanent", gen.ProcessOptions{}, sv, gen.SupervisorStrategyRestartPermanent, sv.ch)
+	if err != nil {
+		t.Fatal(err)
+	}
 	children := make([]etf.Pid, 3)
 
 	children, err = waitNeventsSupervisorChildren(sv.ch, 3, children)
@@ -158,7 +161,7 @@ func TestSupervisorOneForOne(t *testing.T) {
 		statuses := []string{"empty", "empty", "empty"}
 		if checkExpectedChildrenStatus(children[:], children1[:], statuses) {
 			fmt.Println("OK")
-			children = children1
+			// children = children1
 		} else {
 			e := fmt.Errorf("got something else except we expected (%v). old: %v new: %v", statuses, children, children1)
 			t.Fatal(e)
@@ -209,7 +212,7 @@ func TestSupervisorOneForOne(t *testing.T) {
 		statuses := []string{"empty", "empty", "empty"}
 		if checkExpectedChildrenStatus(children[:], children1[:], statuses) {
 			fmt.Println("OK")
-			children = children1
+			// children = children1
 		} else {
 			e := fmt.Errorf("got something else except we expected (%v). old: %v new: %v", statuses, children, children1)
 			t.Fatal(e)
@@ -247,7 +250,7 @@ func TestSupervisorOneForOne(t *testing.T) {
 		statuses := []string{"empty", "empty", "empty"}
 		if checkExpectedChildrenStatus(children[:], children1[:], statuses) {
 			fmt.Println("OK")
-			children = children1
+			// children = children1
 		} else {
 			e := fmt.Errorf("got something else except we expected (%v). old: %v new: %v", statuses, children, children1)
 			t.Fatal(e)
@@ -264,17 +267,17 @@ func (ts *testSupervisorOneForOne) Init(args ...etf.Term) (gen.SupervisorSpec, e
 	ch := args[1].(chan interface{})
 	return gen.SupervisorSpec{
 		Children: []gen.SupervisorChildSpec{
-			gen.SupervisorChildSpec{
+			{
 				Name:  "testGS1",
 				Child: &testSupervisorGenServer{},
 				Args:  []etf.Term{ch, 0},
 			},
-			gen.SupervisorChildSpec{
+			{
 				Name:  "testGS2",
 				Child: &testSupervisorGenServer{},
 				Args:  []etf.Term{ch, 1},
 			},
-			gen.SupervisorChildSpec{
+			{
 				Name:  "testGS3",
 				Child: &testSupervisorGenServer{},
 				Args:  []etf.Term{ch, 2},
@@ -319,7 +322,7 @@ func waitNeventsSupervisorChildren(ch chan interface{}, n int, children []etf.Pi
 
 func checkExpectedChildrenStatus(children, children1 []etf.Pid, statuses []string) bool {
 	empty := etf.Pid{}
-	for i := 0; i < len(statuses); i++ {
+	for i := range statuses {
 		switch statuses[i] {
 		case "new":
 			if children1[i] == empty { // is the epmty pid (child has been stopped)

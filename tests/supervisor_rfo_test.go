@@ -89,17 +89,17 @@ func TestSupervisorRestForOne(t *testing.T) {
 
 	// testing permanent
 	testCases := []ChildrenTestCase{
-		ChildrenTestCase{
+		{
 			reason:   "normal",
 			statuses: []string{"new", "new", "new"},
 			events:   6, // waiting for 3 terminates and 3 starts
 		},
-		ChildrenTestCase{
+		{
 			reason:   "abnormal",
 			statuses: []string{"old", "new", "new"},
 			events:   4, // waiting for 2 terminates and 2 starts
 		},
-		ChildrenTestCase{
+		{
 			reason:   "shutdown",
 			statuses: []string{"old", "old", "new"},
 			events:   2, // waiting for 1 terminates and 1 starts
@@ -130,7 +130,7 @@ func TestSupervisorRestForOne(t *testing.T) {
 		statuses := []string{"empty", "empty", "empty"}
 		if checkExpectedChildrenStatus(children[:], children1[:], statuses) {
 			fmt.Println("OK")
-			children = children1
+			// children = children1
 		} else {
 			e := fmt.Errorf("got something else except we expected (%v). old: %v new: %v", statuses, children, children1)
 			t.Fatal(e)
@@ -158,17 +158,17 @@ func TestSupervisorRestForOne(t *testing.T) {
 
 	// testing transient
 	testCases = []ChildrenTestCase{
-		ChildrenTestCase{
+		{
 			reason:   "abnormal",
 			statuses: []string{"new", "new", "new"},
 			events:   6, // waiting for 3 terminates and 3 starts
 		},
-		ChildrenTestCase{
+		{
 			reason:   "normal",
 			statuses: []string{"old", "empty", "new"},
 			events:   3, // waiting for 2 terminates and 1 starts
 		},
-		ChildrenTestCase{
+		{
 			reason:   "shutdown",
 			statuses: []string{"old", "empty", "empty"},
 			events:   1, // waiting for 1 terminates
@@ -199,7 +199,7 @@ func TestSupervisorRestForOne(t *testing.T) {
 		statuses := []string{"empty", "empty", "empty"}
 		if checkExpectedChildrenStatus(children[:], children1[:], statuses) {
 			fmt.Println("OK")
-			children = children1
+			// children = children1
 		} else {
 			e := fmt.Errorf("got something else except we expected (%v). old: %v new: %v", statuses, children, children1)
 			t.Fatal(e)
@@ -214,17 +214,17 @@ func TestSupervisorRestForOne(t *testing.T) {
 	// restart strategy is rest_for_one or one_for_all and a sibling's death
 	// causes the temporary process to be terminated).
 	testCases = []ChildrenTestCase{
-		ChildrenTestCase{
+		{
 			reason:   "normal",
 			statuses: []string{"empty", "empty", "empty"},
 			events:   3, // waiting for 3 terminates
 		},
-		ChildrenTestCase{
+		{
 			reason:   "abnormal",
 			statuses: []string{"old", "empty", "empty"},
 			events:   2, // waiting for 2 terminates
 		},
-		ChildrenTestCase{
+		{
 			reason:   "shutdown",
 			statuses: []string{"old", "old", "empty"},
 			events:   1, // waiting for 1 terminate
@@ -269,7 +269,7 @@ func TestSupervisorRestForOne(t *testing.T) {
 			statuses := []string{"empty", "empty", "empty"}
 			if checkExpectedChildrenStatus(children[:], children1[:], statuses) {
 				fmt.Println("OK")
-				children = children1
+				// children = children1
 			} else {
 				e := fmt.Errorf("got something else except we expected (%v). old: %v new: %v", statuses, children, children1)
 				t.Fatal(e)
@@ -284,17 +284,17 @@ func (ts *testSupervisorRestForOne) Init(args ...etf.Term) (gen.SupervisorSpec, 
 	ch := args[1].(chan interface{})
 	return gen.SupervisorSpec{
 		Children: []gen.SupervisorChildSpec{
-			gen.SupervisorChildSpec{
+			{
 				Name:  "testGS1",
 				Child: &testSupervisorGenServer{},
 				Args:  []etf.Term{ch, 0},
 			},
-			gen.SupervisorChildSpec{
+			{
 				Name:  "testGS2",
 				Child: &testSupervisorGenServer{},
 				Args:  []etf.Term{ch, 1},
 			},
-			gen.SupervisorChildSpec{
+			{
 				Name:  "testGS3",
 				Child: &testSupervisorGenServer{},
 				Args:  []etf.Term{ch, 2},

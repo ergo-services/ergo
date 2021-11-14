@@ -605,9 +605,9 @@ func (fl *messageFloodDestGS) HandleInfo(process *gen.ServerProcess, message etf
 	return gen.ServerStatusOK
 }
 
-type testCaseFlood struct {
-	id int
-}
+// type testCaseFlood struct {
+// 	id int
+// }
 
 func TestServerMessageFlood(t *testing.T) {
 	fmt.Printf("\n=== Test Server message flood \n")

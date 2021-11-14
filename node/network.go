@@ -41,15 +41,15 @@ type networkInternal interface {
 }
 
 type network struct {
-	registrar        registrarInternal
-	name             string
-	opts             Options
-	ctx              context.Context
-	remoteSpawnMutex sync.Mutex
-	remoteSpawn      map[string]gen.ProcessBehavior
-	epmd             *epmd
-	tlscertServer    tls.Certificate
-	tlscertClient    tls.Certificate
+	registrar registrarInternal
+	name      string
+	opts      Options
+	ctx       context.Context
+	// remoteSpawnMutex sync.Mutex
+	// remoteSpawn   map[string]gen.ProcessBehavior
+	epmd          *epmd
+	tlscertServer tls.Certificate
+	tlscertClient tls.Certificate
 }
 
 func newNetwork(ctx context.Context, name string, opts Options, r registrarInternal) (networkInternal, error) {
@@ -106,7 +106,7 @@ func (n *network) listen(ctx context.Context, name string) (uint16, error) {
 		case TLSModeAuto:
 			cert, err := generateSelfSignedCert(version)
 			if err != nil {
-				return 0, fmt.Errorf("Can't generate certificate: %s\n", err)
+				return 0, fmt.Errorf("can't generate certificate: %s", err)
 			}
 
 			n.tlscertServer = cert
@@ -121,11 +121,11 @@ func (n *network) listen(ctx context.Context, name string) (uint16, error) {
 		case TLSModeStrict:
 			certServer, err := tls.LoadX509KeyPair(n.opts.TLScrtServer, n.opts.TLSkeyServer)
 			if err != nil {
-				return 0, fmt.Errorf("Can't load server certificate: %s\n", err)
+				return 0, fmt.Errorf("can't load server certificate: %s", err)
 			}
 			certClient, err := tls.LoadX509KeyPair(n.opts.TLScrtServer, n.opts.TLSkeyServer)
 			if err != nil {
-				return 0, fmt.Errorf("Can't load client certificate: %s\n", err)
+				return 0, fmt.Errorf("can't load client certificate: %s", err)
 			}
 
 			n.tlscertServer = certServer
@@ -186,7 +186,7 @@ func (n *network) listen(ctx context.Context, name string) (uint16, error) {
 	}
 
 	// all the ports within a given range are taken
-	return 0, fmt.Errorf("Can't start listener. Port range is taken")
+	return 0, fmt.Errorf("can't start listener. Port range is taken")
 }
 
 func (n *network) ProvideRemoteSpawn(name string, behavior gen.ProcessBehavior) error {
@@ -246,11 +246,9 @@ func (n *network) serve(ctx context.Context, link *dist.Link) error {
 		defer cancel()
 
 		go func() {
-			select {
-			case <-linkctx.Done():
-				// if node's context is done
-				link.Close()
-			}
+			<-linkctx.Done()
+			link.Close()
+
 		}()
 
 		// initializing atom cache if its enabled
@@ -395,7 +393,7 @@ func (n *network) handleMessage(fromNode string, control, message etf.Term) (err
 				case etf.Pid:
 					n.registrar.processTerminated(terminated, "", string(reason))
 				case etf.Atom:
-					vpid := virtualPid(gen.ProcessID{string(terminated), fromNode})
+					vpid := virtualPid(gen.ProcessID{Name: string(terminated), Node: fromNode})
 					n.registrar.processTerminated(vpid, "", string(reason))
 				}
 
@@ -499,7 +497,7 @@ func (n *network) connect(to string) error {
 	var err error
 	var c net.Conn
 	if nr, err = n.epmd.resolve(string(to)); err != nil {
-		return fmt.Errorf("Can't resolve port for %s: %s", to, err)
+		return fmt.Errorf("can't resolve port for %s: %s", to, err)
 	}
 	if nr.Cookie == "" {
 		nr.Cookie = n.opts.cookie

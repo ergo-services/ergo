@@ -21,13 +21,13 @@ func TestDecodeAtom(t *testing.T) {
 	}
 
 	packet = []byte{ettSmallAtomUTF8, 4, 97, 98, 99}
-	term, _, err = Decode(packet, []Atom{}, DecodeOptions{})
+	_, _, err = Decode(packet, []Atom{}, DecodeOptions{})
 	if err != errMalformedSmallAtomUTF8 {
 		t.Fatal(err)
 	}
 
 	packet = []byte{119}
-	term, _, err = Decode(packet, []Atom{}, DecodeOptions{})
+	_, _, err = Decode(packet, []Atom{}, DecodeOptions{})
 	if err != errMalformedSmallAtomUTF8 {
 		t.Fatal(err)
 	}
@@ -43,7 +43,7 @@ func TestDecodeString(t *testing.T) {
 	}
 
 	packet = []byte{ettString, 3, 97, 98, 99}
-	term, _, err = Decode(packet, []Atom{}, DecodeOptions{})
+	_, _, err = Decode(packet, []Atom{}, DecodeOptions{})
 	if err != errMalformedString {
 		t.Fatal(err)
 	}
@@ -58,7 +58,7 @@ func TestDecodeNewFloat(t *testing.T) {
 	}
 
 	packet = []byte{ettNewFloat, 64, 0, 204, 204, 204, 204, 204}
-	term, _, err = Decode(packet, []Atom{}, DecodeOptions{})
+	_, _, err = Decode(packet, []Atom{}, DecodeOptions{})
 	if err != errMalformedNewFloat {
 		t.Fatal(err)
 	}
@@ -74,7 +74,7 @@ func TestDecodeInteger(t *testing.T) {
 	}
 
 	packet = []byte{ettSmallInteger}
-	term, _, err = Decode(packet, []Atom{}, DecodeOptions{})
+	_, _, err = Decode(packet, []Atom{}, DecodeOptions{})
 	if err != errMalformedSmallInteger {
 		t.Fatal(err)
 	}
@@ -87,7 +87,7 @@ func TestDecodeInteger(t *testing.T) {
 	}
 
 	packet = []byte{ettInteger, 182, 105, 253}
-	term, _, err = Decode(packet, []Atom{}, DecodeOptions{})
+	_, _, err = Decode(packet, []Atom{}, DecodeOptions{})
 	if err != errMalformedInteger {
 		t.Fatal(err)
 	}

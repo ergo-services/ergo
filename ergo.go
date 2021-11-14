@@ -23,6 +23,7 @@ func StartNodeWithContext(ctx context.Context, name string, cookie string, opts 
 
 	// add erlang support application
 	opts.Applications = append([]gen.ApplicationBehavior{&erlang.KernelApp{}}, opts.Applications...)
-
-	return node.StartWithContext(context.WithValue(ctx, "version", version), name, cookie, opts)
+	type version_type string
+	var versionType version_type = "version"
+	return node.StartWithContext(context.WithValue(ctx, versionType, version), name, cookie, opts)
 }

@@ -11,9 +11,9 @@ import (
 )
 
 var (
-	NodeName         string
-	Cookie           string
-	err              error
+	NodeName string
+	Cookie   string
+	// err              error
 	ListenRangeBegin int
 	ListenRangeEnd   int = 35000
 	Listen           string
@@ -36,11 +36,11 @@ func (da *demoApp) Load(args ...etf.Term) (gen.ApplicationSpec, error) {
 			"envName2": "Hello world",
 		},
 		Children: []gen.ApplicationChildSpec{
-			gen.ApplicationChildSpec{
+			{
 				Child: &demoSup{},
 				Name:  "demoSup",
 			},
-			gen.ApplicationChildSpec{
+			{
 				Child: &demoGenServ{},
 				Name:  "justDemoGS",
 			},
@@ -60,16 +60,16 @@ func (ds *demoSup) Init(args ...etf.Term) (gen.SupervisorSpec, error) {
 	spec := gen.SupervisorSpec{
 		Name: "demoAppSup",
 		Children: []gen.SupervisorChildSpec{
-			gen.SupervisorChildSpec{
+			{
 				Name:  "demoServer01",
 				Child: &demoGenServ{},
 			},
-			gen.SupervisorChildSpec{
+			{
 				Name:  "demoServer02",
 				Child: &demoGenServ{},
 				Args:  []etf.Term{12345},
 			},
-			gen.SupervisorChildSpec{
+			{
 				Name:  "demoServer03",
 				Child: &demoGenServ{},
 				Args:  []etf.Term{"abc", 67890},

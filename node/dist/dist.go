@@ -19,8 +19,8 @@ import (
 )
 
 var (
-	ErrMissingInCache = fmt.Errorf("Missing in cache")
-	ErrMalformed      = fmt.Errorf("Malformed")
+	ErrMissingInCache = fmt.Errorf("missing in cache")
+	ErrMalformed      = fmt.Errorf("malformed")
 )
 
 func init() {
@@ -48,29 +48,30 @@ const (
 
 	// distribution flags are defined here https://erlang.org/doc/apps/erts/erl_dist_protocol.html#distribution-flags
 	PUBLISHED           flagId = 0x1
-	ATOM_CACHE                 = 0x2
-	EXTENDED_REFERENCES        = 0x4
-	DIST_MONITOR               = 0x8
-	FUN_TAGS                   = 0x10
-	DIST_MONITOR_NAME          = 0x20
-	HIDDEN_ATOM_CACHE          = 0x40
-	NEW_FUN_TAGS               = 0x80
-	EXTENDED_PIDS_PORTS        = 0x100
-	EXPORT_PTR_TAG             = 0x200
-	BIT_BINARIES               = 0x400
-	NEW_FLOATS                 = 0x800
-	UNICODE_IO                 = 0x1000
-	DIST_HDR_ATOM_CACHE        = 0x2000
-	SMALL_ATOM_TAGS            = 0x4000
-	UTF8_ATOMS                 = 0x10000
-	MAP_TAG                    = 0x20000
-	BIG_CREATION               = 0x40000
-	SEND_SENDER                = 0x80000 // since OTP.21 enable replacement for SEND (distProtoSEND by distProtoSEND_SENDER)
-	BIG_SEQTRACE_LABELS        = 0x100000
-	EXIT_PAYLOAD               = 0x400000 // since OTP.22 enable replacement for EXIT, EXIT2, MONITOR_P_EXIT
-	FRAGMENTS                  = 0x800000
-	HANDSHAKE23                = 0x1000000 // new connection setup handshake (version 6) introduced in OTP 23
-	UNLINK_ID                  = 0x2000000
+	ATOM_CACHE          flagId = 0x2
+	EXTENDED_REFERENCES flagId = 0x4
+	DIST_MONITOR        flagId = 0x8
+	FUN_TAGS            flagId = 0x10
+	DIST_MONITOR_NAME   flagId = 0x20
+	HIDDEN_ATOM_CACHE   flagId = 0x40
+	NEW_FUN_TAGS        flagId = 0x80
+	EXTENDED_PIDS_PORTS flagId = 0x100
+	EXPORT_PTR_TAG      flagId = 0x200
+	BIT_BINARIES        flagId = 0x400
+	NEW_FLOATS          flagId = 0x800
+	UNICODE_IO          flagId = 0x1000
+	DIST_HDR_ATOM_CACHE flagId = 0x2000
+	SMALL_ATOM_TAGS     flagId = 0x4000
+	UTF8_ATOMS          flagId = 0x10000
+	MAP_TAG             flagId = 0x20000
+	BIG_CREATION        flagId = 0x40000
+	SEND_SENDER         flagId = 0x80000 // since OTP.21 enable replacement for SEND (distProtoSEND by distProtoSEND_SENDER)
+	BIG_SEQTRACE_LABELS flagId = 0x100000
+	EXIT_PAYLOAD        flagId = 0x400000 // since OTP.22 enable replacement for EXIT, EXIT2, MONITOR_P_EXIT
+	FRAGMENTS           flagId = 0x800000
+	HANDSHAKE23         flagId = 0x1000000 // new connection setup handshake (version 6) introduced in OTP 23
+	UNLINK_ID           flagId = 0x2000000
+
 	// for 64bit flags
 	SPAWN   = 1 << 32
 	NAME_ME = 1 << 33
@@ -387,7 +388,7 @@ func Handshake(conn net.Conn, options HandshakeOptions) (*Link, error) {
 
 				// 'a' + 16 (digest)
 				digest := genDigest(link.peer.challenge, link.Cookie)
-				if bytes.Compare(buffer[1:17], digest) != 0 {
+				if !bytes.Equal(buffer[1:17], digest) {
 					return nil, fmt.Errorf("malformed handshake ('a' digest)")
 				}
 
@@ -396,7 +397,7 @@ func Handshake(conn net.Conn, options HandshakeOptions) (*Link, error) {
 				return link, nil
 
 			case 's':
-				if link.readStatus(buffer[1:]) == false {
+				if !link.readStatus(buffer[1:]) {
 					return nil, fmt.Errorf("handshake negotiation failed")
 				}
 
@@ -577,7 +578,7 @@ func HandshakeAccept(conn net.Conn, options HandshakeOptions) (*Link, error) {
 				return link, nil
 
 			case 's':
-				if link.readStatus(buffer[1:]) == false {
+				if !link.readStatus(buffer[1:]) {
 					return nil, fmt.Errorf("link status !ok")
 				}
 
@@ -1050,7 +1051,7 @@ func (l *Link) encodeDistHeaderAtomCache(b *lib.Buffer,
 	flags := b.B[1 : lenFlags+1]
 	flags[lenFlags-1] = 0 // clear last byte to make sure we have valid LongAtom flag
 
-	for i := 0; i < len(encodingAtomCache.L); i++ {
+	for i := range encodingAtomCache.L {
 		shift := uint((i & 0x01) * 4)
 		idxReference := byte(encodingAtomCache.L[i].ID >> 8) // SegmentIndex
 		idxInternal := byte(encodingAtomCache.L[i].ID & 255) // InternalSegmentIndex
@@ -1385,11 +1386,7 @@ func (l *Link) composeStatus(b *lib.Buffer, tls bool) {
 }
 
 func (l *Link) readStatus(msg []byte) bool {
-	if string(msg[:2]) == "ok" {
-		return true
-	}
-
-	return false
+	return string(msg[:2]) == "ok"
 }
 
 func (l *Link) composeChallenge(b *lib.Buffer, tls bool) {
@@ -1473,7 +1470,6 @@ func (l *Link) readComplement(msg []byte) {
 	flags := uint64(binary.BigEndian.Uint32(msg[0:4])) << 32
 	l.peer.flags = nodeFlag(l.peer.flags.toUint64() | flags)
 	l.peer.creation = binary.BigEndian.Uint32(msg[4:8])
-	return
 }
 
 func (l *Link) validateChallengeReply(b []byte) bool {
@@ -1542,7 +1538,6 @@ func (l *Link) composeComplement(b *lib.Buffer, tls bool) {
 	b.B[2] = 'c'
 	binary.BigEndian.PutUint32(b.B[3:7], flags)
 	binary.BigEndian.PutUint32(b.B[7:11], l.creation)
-	return
 }
 
 func genDigest(challenge uint32, cookie string) []byte {

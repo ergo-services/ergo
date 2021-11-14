@@ -32,7 +32,7 @@ func (a *testApplication) Load(args ...etf.Term) (gen.ApplicationSpec, error) {
 			"envName2": "Hello world",
 		},
 		Children: []gen.ApplicationChildSpec{
-			gen.ApplicationChildSpec{
+			{
 				Child: &testAppGenServer{},
 				Name:  nameGS,
 			},

@@ -16,10 +16,10 @@ type demoGenServ struct {
 }
 
 var (
-	GenServerName    string
-	NodeName         string
-	Cookie           string
-	err              error
+	GenServerName string
+	NodeName      string
+	Cookie        string
+	// err              error
 	ListenRangeBegin int
 	ListenRangeEnd   int = 35000
 	Listen           string
@@ -69,7 +69,7 @@ func main() {
 		TLSMode: node.TLSModeAuto,
 
 		// set TLSmode to TLSmodeStrict to use custom certificate
-		// TLSmode: ergo.TLSmodeStrict,
+		// TLSMode:      node.TLSModeStrict,
 		// TLScrtServer: "example.crt",
 		// TLSkeyServer: "example.key",
 		// TLScrtClient: "example.crt",

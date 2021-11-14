@@ -468,9 +468,7 @@ func (p *process) PutSyncReply(ref etf.Ref, reply etf.Term) error {
 		// ignored, no process waiting for the reply
 		return nil
 	}
-	select {
-	case rep <- reply:
-	}
+	rep <- reply
 
 	return nil
 }
@@ -481,7 +479,7 @@ func (p *process) WaitSyncReply(ref etf.Ref, timeout int) (etf.Term, error) {
 	p.replyMutex.Unlock()
 
 	if !wait_for_reply {
-		return nil, fmt.Errorf("Unknown request")
+		return nil, fmt.Errorf("unknown request")
 	}
 
 	defer func(ref etf.Ref) {

@@ -51,7 +51,6 @@ func (w *testSagaCancelWorker1) HandleJobCancel(process *gen.SagaWorkerProcess, 
 	}
 	task := process.State.(taskSagaCancelCase1)
 	task.workerRes <- "ok"
-	return
 }
 
 type testSagaCancel1 struct {
@@ -171,7 +170,6 @@ func (w *testSagaCancelWorker2) HandleJobCancel(process *gen.SagaWorkerProcess, 
 	}
 	args := process.State.(testSagaCancel2Args)
 	args.workerRes <- reason
-	return
 }
 
 type testSagaCancel2 struct {

@@ -158,9 +158,9 @@ type testSagaN struct {
 	gen.Saga
 }
 
-type testSagaNState struct {
-	txs map[gen.SagaTransactionID]*txjobs
-}
+// type testSagaNState struct {
+// 	txs map[gen.SagaTransactionID]*txjobs
+// }
 
 func (gs *testSagaN) InitSaga(process *gen.SagaProcess, args ...etf.Term) (gen.SagaOptions, error) {
 	opts := gen.SagaOptions{
@@ -231,7 +231,6 @@ func (w *testSagaWorkerN) HandleJobStart(process *gen.SagaWorkerProcess, job gen
 }
 
 func (w *testSagaWorkerN) HandleJobCancel(process *gen.SagaWorkerProcess, reason string) {
-	return
 }
 
 func TestSagaDist(t *testing.T) {

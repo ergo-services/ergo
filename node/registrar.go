@@ -65,7 +65,7 @@ func newRegistrar(ctx context.Context, nodename string, creation uint32, node no
 		nextPID:   startPID,
 		uniqID:    uint64(time.Now().UnixNano()),
 		net:       node.(networkInternal),
-		node:      node.(nodeInternal),
+		node:      node,
 		nodename:  nodename,
 		creation:  creation,
 		names:     make(map[string]etf.Pid),
@@ -196,7 +196,9 @@ func (r *registrar) newProcess(name string, behavior gen.ProcessBehavior, opts p
 
 	processContext, kill := context.WithCancel(parentContext)
 	if opts.Context != nil {
-		processContext, _ = context.WithCancel(opts.Context)
+		optsPrecessCtx, cancel := context.WithCancel(opts.Context)
+		processContext = optsPrecessCtx
+		defer cancel()
 	}
 
 	pid := r.newPID()
@@ -306,7 +308,6 @@ func (r *registrar) deleteProcess(pid etf.Pid) {
 	}
 	r.mutexAliases.Unlock()
 
-	return
 }
 
 func (r *registrar) spawn(name string, opts processOptions, behavior gen.ProcessBehavior, args ...etf.Term) (gen.Process, error) {
@@ -609,7 +610,7 @@ func (r *registrar) ProcessList() []gen.Process {
 
 func (r *registrar) PeerList() []string {
 	list := []string{}
-	for n, _ := range r.peers {
+	for n := range r.peers {
 		list = append(list, n)
 	}
 	return list
@@ -630,7 +631,10 @@ next:
 				return ErrProcessUnknown
 			}
 			select {
-			case p.mailBox <- gen.ProcessMailboxMessage{from, message}:
+			case p.mailBox <- gen.ProcessMailboxMessage{
+				From:    from,
+				Message: message,
+			}:
 			default:
 				return fmt.Errorf("WARNING! mailbox of %s is full. dropped message from %s", p.Self(), from)
 			}
@@ -643,11 +647,11 @@ next:
 		if !ok {
 			if err := r.net.connect(string(tto.Node)); err != nil {
 				lib.Log("[%s] Can't connect to %v: %s", r.nodename, tto.Node, err)
-				return fmt.Errorf("Can't connect to %s: %s", tto.Node, err)
+				return fmt.Errorf("can't connect to %s: %s", tto.Node, err)
 			}
 
 			r.mutexPeers.Lock()
-			peer, _ = r.peers[string(tto.Node)]
+			peer = r.peers[string(tto.Node)]
 			r.mutexPeers.Unlock()
 		}
 
@@ -671,11 +675,11 @@ next:
 			// initiate connection and make yet another attempt to deliver this message
 			if err := r.net.connect(tto.Node); err != nil {
 				lib.Log("[%s] Can't connect to %v: %s", r.nodename, tto.Node, err)
-				return fmt.Errorf("Can't connect to %s: %s", tto.Node, err)
+				return fmt.Errorf("can't connect to %s: %s", tto.Node, err)
 			}
 
 			r.mutexPeers.Lock()
-			peer, _ = r.peers[tto.Node]
+			peer = r.peers[tto.Node]
 			r.mutexPeers.Unlock()
 		}
 
@@ -721,11 +725,11 @@ next:
 		if !ok {
 			if err := r.net.connect(string(tto.Node)); err != nil {
 				lib.Log("[%s] Can't connect to %v: %s", r.nodename, tto.Node, err)
-				return fmt.Errorf("Can't connect to %s: %s", tto.Node, err)
+				return fmt.Errorf("can't connect to %s: %s", tto.Node, err)
 			}
 
 			r.mutexPeers.Lock()
-			peer, _ = r.peers[string(tto.Node)]
+			peer = r.peers[string(tto.Node)]
 			r.mutexPeers.Unlock()
 		}
 
@@ -755,7 +759,7 @@ func (r *registrar) routeRaw(nodename etf.Atom, messages ...etf.Term) error {
 		}
 
 		r.mutexPeers.Lock()
-		peer, _ = r.peers[string(nodename)]
+		peer = r.peers[string(nodename)]
 		r.mutexPeers.Unlock()
 	}
 

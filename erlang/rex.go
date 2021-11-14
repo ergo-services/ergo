@@ -32,7 +32,7 @@ func (r *rex) Init(process *gen.ServerProcess, args ...etf.Term) error {
 	lib.Log("REX: Init: %#v", args)
 	// Do not overwrite existing methods if this process restarted
 	if r.methods == nil {
-		r.methods = make(map[modFun]gen.RPC, 0)
+		r.methods = make(map[modFun]gen.RPC)
 	}
 
 	for i := range allowedModFun {
@@ -63,7 +63,7 @@ func (r *rex) HandleCall(process *gen.ServerProcess, from gen.ServerFrom, messag
 				return reply, gen.ServerStatusOK
 			}
 
-			to := gen.ProcessID{string(module), process.NodeName()}
+			to := gen.ProcessID{Name: string(module), Node: process.NodeName()}
 			m := etf.Tuple{m.Element(3), m.Element(4)}
 			reply, err := process.Call(to, m)
 			if err != nil {
