@@ -36,8 +36,4 @@ const (
 	// ergo operations codes
 	distProtoPROXY     = 1001
 	distProtoREG_PROXY = 1002
-
-	defaultSendQueueLength   int = 100
-	defaultRecvQueueLength   int = 100
-	defaultFragmentationUnit     = 65000
 )

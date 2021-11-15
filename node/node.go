@@ -422,14 +422,17 @@ func (n *node) RevokeRemoteSpawn(name string) error {
 }
 
 // DefaultProtoOptions
-func DefaultProtoOptions(handlers int, compression, disableHAC bool) ProtoOptions {
+func DefaultProtoOptions(handlers int, compression, disableHeaderAtomCache bool) ProtoOptions {
+	flags := ProtoFlags{
+		DisableHeaderAtomCache: disableHeaderAtomCache,
+		EnableBigCreation:      true,
+	}
 	return ProtoOptions{
-		MaxMessageSize:         DefaultProtoMaxMessageSize,
-		NumHandlers:            runtime.GOMAXPROCS(handlers),
-		SendQueueLength:        DefaultProtoSendQueueLength,
-		RecvQueueLength:        DefaultProtoRecvQueueLength,
-		FragmentationUnit:      DefaultProroFragmentationUnit,
-		DisableHeaderAtomCache: disableHAC,
-		Compression:            compression,
+		MaxMessageSize:    0, // no limit
+		SendQueueLength:   DefaultProtoSendQueueLength,
+		RecvQueueLength:   DefaultProtoRecvQueueLength,
+		FragmentationUnit: DefaultProroFragmentationUnit,
+		NumHandlers:       runtime.GOMAXPROCS(handlers),
+		Flags:             flags,
 	}
 }

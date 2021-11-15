@@ -39,6 +39,13 @@ type networkInternal interface {
 	stopNetwork()
 }
 
+type connectionInternal struct {
+	c             net.Conn
+	connection    ConnectionInterface
+	ctx           context.Context
+	cancelContext context.CancelFunc
+}
+
 type network struct {
 	nodename string
 	ctx      context.Context
@@ -49,7 +56,7 @@ type network struct {
 	staticRoutes      map[string]Route
 	staticRoutesMutex sync.Mutex
 
-	connections      map[string]ConnectionInterface
+	connections      map[string]connectionInternal
 	mutexConnections sync.Mutex
 
 	remoteSpawn      map[string]gen.ProcessBehavior
@@ -70,7 +77,7 @@ func newNetwork(ctx context.Context, nodename string, options Options, router Co
 		ctx:          ctx,
 		staticOnly:   options.StaticRoutesOnly,
 		staticRoutes: make(map[string]Route),
-		connections:  make(map[string]ConnectionInterface),
+		connections:  make(map[string]connectionInternal),
 		remoteSpawn:  make(map[string]gen.ProcessBehavior),
 		resolver:     options.Resolver,
 		handshake:    options.Handshake,
@@ -280,25 +287,37 @@ func (n *network) listen(ctx context.Context, hostname string, options Options) 
 					c.Close()
 					continue
 				}
-				connection, err := n.proto.Init(c, protoOptions, n.router)
+				connection, err := n.proto.Init(c, peername, protoOptions, n.router)
 				if err != nil {
 					c.Close()
 					continue
 				}
 
-				if _, err := n.registerConnection(peername, connection); err != nil {
+				connectionctx, cancel := context.WithCancel(n.ctx)
+				cInternal := connectionInternal{
+					conn:          c,
+					connection:    connection,
+					cancelContext: cancel,
+					ctx:           connectionctx,
+				}
+
+				if _, err := n.registerConnection(peername, cInternal); err != nil {
 					// Race condition:
 					// There must be another goroutine which already created and registered
 					// connection to this node.
 					// Close this connection and use the already registered connection
 					c.Close()
+					cancel()
 					continue
 				}
-				go func() {
-					n.proto.Serve(n.ctx, connection)
-					c.Close()
+
+				// run serving connection
+				go func(ci connectionInternal) {
+					n.proto.Serve(ci.ctx, ci.connection)
+					ci.c.Close()
+					ci.cancelContext()
 					n.unregisterConnection(peername)
-				}()
+				}(cInternal)
 
 			}
 		}()
@@ -390,26 +409,36 @@ func (n *network) connect(peername string) (ConnectionInterface, error) {
 		proto = n.proto
 	}
 
-	connection, err := n.proto.Init(c, protoOptions, n.router)
+	connection, err := n.proto.Init(c, peername, protoOptions, n.router)
 	if err != nil {
 		c.Close()
 		return nil, err
 	}
+	connectionctx, cancel := context.WithCancel(n.ctx)
+	cInternal := connectionInternal{
+		conn:          c,
+		connection:    connection,
+		cancelContext: cancel,
+		ctx:           connectionctx,
+	}
 
-	if registered, err := n.registerConnection(peername, connection); err != nil {
+	if registered, err := n.registerConnection(peername, cInternal); err != nil {
 		// Race condition:
 		// There must be another goroutine which already created and registered
 		// connection to this node.
 		// Close this connection and use the already registered connection
 		c.Close()
+		cancel()
 		return registered, nil
 	}
 
-	go func() {
-		n.proto.Serve(n.ctx, connection)
-		c.Close()
+	// run serving connection
+	go func(ci connectionInternal) {
+		n.proto.Serve(ci.ctx, ci.connection)
+		ci.c.Close()
+		ci.cancelContext()
 		n.unregisterConnection(peername)
-	}()
+	}(cInternal)
 
 	return connection, nil
 }
