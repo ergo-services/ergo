@@ -334,7 +334,7 @@ type ProtoOptions struct {
 	RecvQueueLength int
 	// FragmentationUnit defines unit size for the fragmentation feature. Default 65000
 	FragmentationUnit int
-	// Flags
+	// Flags defines enabled/disabled features for the peering node
 	Flags ProtoFlags
 	// Custom brings a custom set of options to the ProtoInterface.Serve handler
 	Custom CustomProtoOptions
@@ -348,6 +348,8 @@ type ProtoFlags struct {
 	EnableBigCreation bool
 	// EnableBigPidRef accepts a larger amount of data in pids and references
 	EnableBigPidRef bool
+	// EnableFragmentation enables fragmentation feature for the sending data
+	EnableFragmentation bool
 }
 
 // ResolverOptions defines resolving options

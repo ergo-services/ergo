@@ -55,14 +55,20 @@ type distConnection struct {
 	peername string
 
 	// socket
-	conn    io.ReadWriter
-	options node.ProtoOptions
+	conn          io.ReadWriter
+	options       node.ProtoOptions
+	cancelContext context.CancelFunc
 
 	// route incoming messages
 	router node.CoreRouter
 
 	// writer
 	flusher *linkFlusher
+
+	// senders list of channels for the sending goroutines
+	senders senders
+	// receivers list of channels for the receiving goroutines
+	receivers receivers
 
 	// atom cache for incoming messages
 	cacheIn      [2048]*etf.Atom
@@ -116,11 +122,34 @@ func (dp *distProto) Init(conn io.ReadWriter, peername string, options node.Prot
 	return connection
 }
 
+type senders struct {
+	sync.Mutex
+	send []chan *sendMessage
+	n    int
+	i    int
+}
+
+type sendMessage struct {
+	control     etf.Term
+	payload     etf.Term
+	compression bool
+}
+
+type receivers struct {
+	recv []chan *lib.Buffer
+	n    int
+	i    int32
+}
+
 func (dp *DistProto) Serve(ctx context.Context, conn node.ConnectionInterface) {
 	connection, ok := conn.(*distConnection)
 	if !ok {
+		fmt.Println("conn is not a *distConnection type")
 		return
 	}
+	connectionctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	connection.cancelContext = cancel
 
 	// initializing atom cache if its enabled
 	if connection.options.Flags.DisableHeaderAtomCache == false {
@@ -134,91 +163,81 @@ func (dp *DistProto) Serve(ctx context.Context, conn node.ConnectionInterface) {
 	numHandlers := runtime.GOMAXPROCS(connection.options.NumHandlers)
 
 	// do not use shared channels within intencive code parts, impacts on a performance
-	receivers := struct {
-		recv []chan *lib.Buffer
-		n    int
-		i    int
-	}{
-		recv: make([]chan *lib.Buffer, connection.options.RecvQueueLength),
+	connection.receivers = receivers{
+		recv: make([]chan *lib.Buffer, numHandlers),
 		n:    numHandlers,
 	}
-
 	// run readers for incoming messages
 	for i := 0; i < numHandlers; i++ {
-		// run packet reader/handler routines (decoder)
-		recv := make(chan *lib.Buffer, connection.options.RecvQueueLength)
-		receivers.recv[i] = recv
-		go connection.readHandlePacket(recv)
+		// run packet reader routines (decoder)
+		connection.receivers.recv[i] = make(chan *lib.Buffer, connection.options.RecvQueueLength)
+		go connection.receiver(recv)
 	}
 
-	// run connection reader routine
-	go func() {
-		var err error
-		var packetLength int
-		var recv chan *lib.Buffer
-
-		defer func() {
-			// close handlers channel
-			p.mutex.Lock()
-			for i := 0; i < numHandlers; i++ {
-				if p.send[i] != nil {
-					close(p.send[i])
-				}
-				if receivers.recv[i] != nil {
-					close(receivers.recv[i])
-				}
-			}
-			p.mutex.Unlock()
-		}()
-
-		b := lib.TakeBuffer()
-		for {
-			packetLength, err = link.Read(b)
-			if err != nil || packetLength == 0 {
-				// link was closed or got malformed data
-				if err != nil {
-					fmt.Println("link was closed", link.GetPeerName(), "error:", err)
-				}
-				lib.ReleaseBuffer(b)
-				return
-			}
-
-			// take new buffer for the next reading and append the tail (part of the next packet)
-			b1 := lib.TakeBuffer()
-			b1.Set(b.B[packetLength:])
-			// cut the tail and send it further for handling.
-			// buffer b has to be released by the reader of
-			// recv channel (link.ReadHandlePacket)
-			b.B = b.B[:packetLength]
-			recv = receivers.recv[receivers.i]
-
-			recv <- b
-
-			// set new buffer as a current for the next reading
-			b = b1
-
-			// round-robin switch to the next receiver
-			receivers.i++
-			if receivers.i < receivers.n {
-				continue
-			}
-			receivers.i = 0
-
-		}
-	}()
-
+	connection.senders = senders{
+		send: make([]chan *sendMessage, numHandlers),
+		n:    numHandlers,
+	}
 	// run readers/writers for incoming/outgoing messages
 	for i := 0; i < numHandlers; i++ {
 		// run writer routines (encoder)
-		send := make(chan []etf.Term, n.opts.SendQueueLength)
-		p.mutex.Lock()
-		p.send[i] = send
-		p.mutex.Unlock()
-		go link.Writer(send, n.opts.FragmentationUnit)
+		connection.senders.send[i] = make(chan *sendMessage, connection.options.SendQueueLength)
+		go connection.sender(send, connection.options.FragmentationUnit, connection.options.Flags)
 	}
 
-	// waiting for the connection context cancellation
-	<-ctx.Done()
+	// close all reader/writer channels on exit from this routine
+	defer func() {
+		dc.senders.Lock()
+		for i := 0; i < numHandlers; i++ {
+			if dc.senders.send[i] != nil {
+				close(dc.senders.send[i])
+				dc.senders.send[i] = nil
+			}
+			if receivers.recv[i] != nil {
+				close(receivers.recv[i])
+			}
+		}
+		dc.senders.Unlock()
+	}()
+
+	// run read loop
+	var err error
+	var packetLength int
+
+	b := lib.TakeBuffer()
+	for {
+		packetLength, err = dc.read(connectionctx, b)
+		if err != nil || packetLength == 0 {
+			// link was closed or got malformed data
+			if err != nil {
+				fmt.Println("link was closed", dc.peername, "error:", err)
+			}
+			lib.ReleaseBuffer(b)
+			return
+		}
+
+		// take the new buffer for the next reading and append the tail
+		// (which is part of the next packet)
+		b1 := lib.TakeBuffer()
+		b1.Set(b.B[packetLength:])
+
+		// cut the tail and send it further for handling.
+		// buffer b has to be released by the reader of
+		// recv channel (link.ReadHandlePacket)
+		b.B = b.B[:packetLength]
+		dc.receivers.recv[dc.receivers.i] <- b
+
+		// set new buffer as a current for the next reading
+		b = b1
+
+		// round-robin switch to the next receiver
+		dc.receivers.i++
+		if dc.receivers.i < dc.receivers.n {
+			continue
+		}
+		dc.receivers.i = 0
+	}
+
 }
 
 // node.Connection interface implementation
@@ -273,13 +292,13 @@ func (dc *distConnection) ProxyReg() error {
 // internal
 //
 
-func (dc *distConnection) Read(b *lib.Buffer) (int, error) {
+func (dc *distConnection) read(ctx context.Context, b *lib.Buffer) (int, error) {
 	// http://erlang.org/doc/apps/erts/erl_dist_protocol.html#protocol-between-connected-nodes
 	expectingBytes := 4
 
 	for {
 		if b.Len() < expectingBytes {
-			n, e := b.ReadDataFrom(dc.conn, 0)
+			n, e := b.ReadDataFrom(dc.conn, dc.options.MaxMessageSize)
 			if n == 0 {
 				// link was closed
 				return 0, nil
@@ -288,6 +307,11 @@ func (dc *distConnection) Read(b *lib.Buffer) (int, error) {
 			if e != nil && e != io.EOF {
 				// something went wrong
 				return 0, e
+			}
+
+			if ctx.Err() != nil {
+				// context was canceled
+				return 0, nil
 			}
 
 			// check onemore time if we should read more data
@@ -319,10 +343,15 @@ type deferrMissing struct {
 	c int
 }
 
-func (dc *distConnection) readHandlePacket(recv <-chan *lib.Buffer) {
+func (dc *distConnection) receiver(recv <-chan *lib.Buffer) {
 	var b *lib.Buffer
 	var missing deferrMissing
 	var Timeout <-chan time.Time
+
+	// cancel connection context if something went wrong
+	// it will cause closing connection with stopping all
+	// goroutines around this connection
+	defer dc.cancelContext()
 
 	deferrChannel := make(chan deferrMissing, 100)
 	defer close(deferrChannel)
@@ -524,83 +553,127 @@ func (dc *distConnection) handleMessage(control, message etf.Term) (err error) {
 			switch act {
 			case distProtoREG_SEND:
 				// {6, FromPid, Unused, ToName}
-				lib.Log("[%s] CONTROL REG_SEND [from %s]: %#v", n.registrar.NodeName(), dc.peername, control)
-				n.registrar.route(t.Element(2).(etf.Pid), t.Element(4), message)
+				lib.Log("[%s] CONTROL REG_SEND [from %s]: %#v", dc.nodename, dc.peername, control)
+				to := gen.ProcessID{
+					Node: dc.nodename,
+					Name: string(t.Element(4).(etf.Atom)),
+				}
+				dc.router.RouteSendReg(t.Element(2).(etf.Pid), to, message)
+				return nil
 
 			case distProtoSEND:
 				// {2, Unused, ToPid}
 				// SEND has no sender pid
-				lib.Log("[%s] CONTROL SEND [from %s]: %#v", n.registrar.NodeName(), dc.peername, control)
-				n.registrar.route(etf.Pid{}, t.Element(3), message)
+				lib.Log("[%s] CONTROL SEND [from %s]: %#v", dc.nodename, dc.peername, control)
+				dc.router.RouteSend(etf.Pid{}, t.Element(3).(etf.Pid), message)
+				return nil
 
 			case distProtoLINK:
 				// {1, FromPid, ToPid}
-				lib.Log("[%s] CONTROL LINK [from %s]: %#v", n.registrar.NodeName(), dc.peername, control)
-				n.registrar.link(t.Element(2).(etf.Pid), t.Element(3).(etf.Pid))
+				lib.Log("[%s] CONTROL LINK [from %s]: %#v", dc.nodename, dc.peername, control)
+				dc.router.RouteLink(t.Element(2).(etf.Pid), t.Element(3).(etf.Pid))
+				return nil
 
 			case distProtoUNLINK:
 				// {4, FromPid, ToPid}
-				lib.Log("[%s] CONTROL UNLINK [from %s]: %#v", n.registrar.NodeName(), dc.peername, control)
-				n.registrar.unlink(t.Element(2).(etf.Pid), t.Element(3).(etf.Pid))
+				lib.Log("[%s] CONTROL UNLINK [from %s]: %#v", dc.nodename, dc.peername, control)
+				dc.router.RouteUnlink(t.Element(2).(etf.Pid), t.Element(3).(etf.Pid))
+				return nil
 
 			case distProtoNODE_LINK:
-				lib.Log("[%s] CONTROL NODE_LINK [from %s]: %#v", n.registrar.NodeName(), dc.peername, control)
+				lib.Log("[%s] CONTROL NODE_LINK [from %s]: %#v", dc.nodename, dc.peername, control)
+				return nil
 
 			case distProtoEXIT:
 				// {3, FromPid, ToPid, Reason}
-				lib.Log("[%s] CONTROL EXIT [from %s]: %#v", n.registrar.NodeName(), dc.peername, control)
+				lib.Log("[%s] CONTROL EXIT [from %s]: %#v", dc.nodename, dc.peername, control)
 				terminated := t.Element(2).(etf.Pid)
+				to := t.Element(3).(etf.Pid)
 				reason := fmt.Sprint(t.Element(4))
-				n.registrar.processTerminated(terminated, "", string(reason))
+				dc.router.RouteExit(to, terminated, string(reason))
+				return nil
 
 			case distProtoEXIT2:
-				lib.Log("[%s] CONTROL EXIT2 [from %s]: %#v", n.registrar.NodeName(), dc.peername, control)
+				lib.Log("[%s] CONTROL EXIT2 [from %s]: %#v", dc.nodename, dc.peername, control)
+				return nil
 
 			case distProtoMONITOR:
 				// {19, FromPid, ToProc, Ref}, where FromPid = monitoring process
 				// and ToProc = monitored process pid or name (atom)
-				lib.Log("[%s] CONTROL MONITOR [from %s]: %#v", n.registrar.NodeName(), dc.peername, control)
-				n.registrar.monitorProcess(t.Element(2).(etf.Pid), t.Element(3), t.Element(4).(etf.Ref))
+				lib.Log("[%s] CONTROL MONITOR [from %s]: %#v", dc.nodename, dc.peername, control)
+
+				fromPid := t.Element(2).(etf.Pid)
+				ref := t.Element(4).(etf.Ref)
+				// if monitoring by pid
+				if to, ok := t.Element(3).(etf.Pid); ok {
+					dc.router.RouteMonitor(fromPid, to, ref)
+					return nil
+				}
+
+				// if monitoring by process name
+				if to, ok := t.Element(3).(etf.Atom); ok {
+					processID := gen.ProcessID{
+						Node: dc.nodename,
+						Name: string(to),
+					}
+					dc.router.RouteMonitorReg(fromPid, processID, ref)
+					return nil
+				}
+
+				return fmt.Errorf("malformed monitor message")
 
 			case distProtoDEMONITOR:
 				// {20, FromPid, ToProc, Ref}, where FromPid = monitoring process
 				// and ToProc = monitored process pid or name (atom)
-				lib.Log("[%s] CONTROL DEMONITOR [from %s]: %#v", n.registrar.NodeName(), dc.peername, control)
-				n.registrar.demonitorProcess(t.Element(4).(etf.Ref))
+				lib.Log("[%s] CONTROL DEMONITOR [from %s]: %#v", dc.nodename, dc.peername, control)
+				ref := t.Element(4).(etf.Ref)
+				fromPid := t.Element(2).(etf.Pid)
+				dc.router.RouteDemonitor(fromPid, ref)
+				return nil
 
 			case distProtoMONITOR_EXIT:
 				// {21, FromProc, ToPid, Ref, Reason}, where FromProc = monitored process
 				// pid or name (atom), ToPid = monitoring process, and Reason = exit reason for the monitored process
-				lib.Log("[%s] CONTROL MONITOR_EXIT [from %s]: %#v", n.registrar.NodeName(), dc.peername, control)
+				lib.Log("[%s] CONTROL MONITOR_EXIT [from %s]: %#v", dc.nodename, dc.peername, control)
+				to := t.Element(3).(etf.Pid)
 				reason := fmt.Sprint(t.Element(5))
+				ref := t.Element(4).(etf.Ref)
 				switch terminated := t.Element(2).(type) {
 				case etf.Pid:
-					n.registrar.processTerminated(terminated, "", string(reason))
+					dc.router.RouteMonitorExit(to, terminated, reason, ref)
+					return nil
 				case etf.Atom:
-					vpid := virtualPid(gen.ProcessID{string(terminated), dc.peername})
-					n.registrar.processTerminated(vpid, "", string(reason))
+					processID := gen.ProcessID{string(terminated), dc.peername}
+					dc.router.RouteMonitorExitReg(processID, terminated, reason, ref)
+					return nil
 				}
+				return fmt.Errorf("malformed monitor exit message")
 
 			// Not implemented yet, just stubs. TODO.
 			case distProtoSEND_SENDER:
-				lib.Log("[%s] CONTROL SEND_SENDER unsupported [from %s]: %#v", n.registrar.NodeName(), dc.peername, control)
+				lib.Log("[%s] CONTROL SEND_SENDER unsupported [from %s]: %#v", dc.nodename, dc.peername, control)
+				return nil
 			case distProtoPAYLOAD_EXIT:
-				lib.Log("[%s] CONTROL PAYLOAD_EXIT unsupported [from %s]: %#v", n.registrar.NodeName(), dc.peername, control)
+				lib.Log("[%s] CONTROL PAYLOAD_EXIT unsupported [from %s]: %#v", dc.nodename, dc.peername, control)
+				return nil
 			case distProtoPAYLOAD_EXIT2:
-				lib.Log("[%s] CONTROL PAYLOAD_EXIT2 unsupported [from %s]: %#v", n.registrar.NodeName(), dc.peername, control)
+				lib.Log("[%s] CONTROL PAYLOAD_EXIT2 unsupported [from %s]: %#v", dc.nodename, dc.peername, control)
+				return nil
 			case distProtoPAYLOAD_MONITOR_P_EXIT:
-				lib.Log("[%s] CONTROL PAYLOAD_MONITOR_P_EXIT unsupported [from %s]: %#v", n.registrar.NodeName(), dc.peername, control)
+				lib.Log("[%s] CONTROL PAYLOAD_MONITOR_P_EXIT unsupported [from %s]: %#v", dc.nodename, dc.peername, control)
+				return nil
 
 			// alias support
 			case distProtoALIAS_SEND:
 				// {33, FromPid, Alias}
-				lib.Log("[%s] CONTROL ALIAS_SEND [from %s]: %#v", n.registrar.NodeName(), dc.peername, control)
+				lib.Log("[%s] CONTROL ALIAS_SEND [from %s]: %#v", dc.nodename, dc.peername, control)
 				alias := etf.Alias(t.Element(3).(etf.Ref))
-				n.registrar.route(t.Element(2).(etf.Pid), alias, message)
+				dc.router.RouteSendAlias(t.Element(2).(etf.Pid), alias, message)
+				return nil
 
 			case distProtoSPAWN_REQUEST:
 				// {29, ReqId, From, GroupLeader, {Module, Function, Arity}, OptList}
-				lib.Log("[%s] CONTROL SPAWN_REQUEST [from %s]: %#v", n.registrar.NodeName(), dc.peername, control)
+				lib.Log("[%s] CONTROL SPAWN_REQUEST [from %s]: %#v", dc.nodename, dc.peername, control)
 				registerName := ""
 				for _, option := range t.Element(6).(etf.List) {
 					name, ok := option.(etf.Tuple)
@@ -666,14 +739,13 @@ func (dc *distConnection) handleMessage(control, message etf.Term) (err error) {
 				process.PutSyncReply(ref, t.Element(5))
 
 			default:
-				lib.Log("[%s] CONTROL unknown command [from %s]: %#v", n.registrar.NodeName(), dc.peername, control)
+				lib.Log("[%s] CONTROL unknown command [from %s]: %#v", dc.nodename, dc.peername, control)
+				return fmt.Errorf("unknown control command %#v", control)
 			}
-		default:
-			err = fmt.Errorf("unsupported message %#v", control)
 		}
 	}
 
-	return
+	return fmt.Errorf("unsupported control message %#v", control)
 }
 
 func (dc *distConnection) decodeFragment(packet []byte, first bool) (*lib.Buffer, error) {
@@ -858,7 +930,7 @@ func (dc *distConnection) decodeDistHeaderAtomCache(packet []byte) ([]etf.Atom, 
 	return cache, packet, nil
 }
 
-func (l *Link) encodeDistHeaderAtomCache(b *lib.Buffer,
+func (dc *distConnection) encodeDistHeaderAtomCache(b *lib.Buffer,
 	writerAtomCache map[etf.Atom]etf.CacheItem,
 	encodingAtomCache *etf.ListAtomCache) {
 
@@ -924,9 +996,7 @@ func (l *Link) encodeDistHeaderAtomCache(b *lib.Buffer,
 	}
 }
 
-func (l *Link) Writer(send <-chan []etf.Term, fragmentationUnit int) {
-	var terms []etf.Term
-
+func (dc *distConnection) sender(send <-chan *sendMessage, fragmentationUnit int, flags node.ProtoFlags) {
 	var encodingAtomCache *etf.ListAtomCache
 	var writerAtomCache map[etf.Atom]etf.CacheItem
 	var linkAtomCache *etf.AtomCache
@@ -935,6 +1005,11 @@ func (l *Link) Writer(send <-chan []etf.Term, fragmentationUnit int) {
 	var lenControl, lenMessage, lenAtomCache, lenPacket, startDataPosition int
 	var atomCacheBuffer, packetBuffer *lib.Buffer
 	var err error
+
+	// cancel connection context if something went wrong
+	// it will cause closing connection with stopping all
+	// goroutines around this connection
+	defer dc.cancelContext()
 
 	cacheEnabled := l.peer.flags.isSet(DIST_HDR_ATOM_CACHE) && l.cacheOut != nil
 	fragmentationEnabled := l.peer.flags.isSet(FRAGMENTS) && fragmentationUnit > 0
@@ -949,7 +1024,7 @@ func (l *Link) Writer(send <-chan []etf.Term, fragmentationUnit int) {
 		encodingAtomCache = etf.TakeListAtomCache()
 		defer etf.ReleaseListAtomCache(encodingAtomCache)
 		writerAtomCache = make(map[etf.Atom]etf.CacheItem)
-		linkAtomCache = l.cacheOut
+		linkAtomCache = dc.cacheOut
 	}
 
 	encodeOptions := etf.EncodeOptions{
@@ -961,10 +1036,9 @@ func (l *Link) Writer(send <-chan []etf.Term, fragmentationUnit int) {
 	}
 
 	for {
-		terms = nil
-		terms = <-send
+		message = <-send
 
-		if terms == nil {
+		if message == nil {
 			// channel was closed
 			return
 		}
@@ -981,7 +1055,7 @@ func (l *Link) Writer(send <-chan []etf.Term, fragmentationUnit int) {
 		}
 
 		// encode Control
-		err = etf.Encode(terms[0], packetBuffer, encodeOptions)
+		err = etf.Encode(message.control, packetBuffer, encodeOptions)
 		if err != nil {
 			fmt.Println(err)
 			lib.ReleaseBuffer(packetBuffer)
@@ -990,8 +1064,8 @@ func (l *Link) Writer(send <-chan []etf.Term, fragmentationUnit int) {
 		lenControl = packetBuffer.Len() - reserveHeaderAtomCache
 
 		// encode Message if present
-		if len(terms) == 2 {
-			err = etf.Encode(terms[1], packetBuffer, encodeOptions)
+		if message.payload != nil {
+			err = etf.Encode(message.payload, packetBuffer, encodeOptions)
 			if err != nil {
 				fmt.Println(err)
 				lib.ReleaseBuffer(packetBuffer)
@@ -1004,13 +1078,14 @@ func (l *Link) Writer(send <-chan []etf.Term, fragmentationUnit int) {
 		// encode Header Atom Cache if its enabled
 		if cacheEnabled && encodingAtomCache.Len() > 0 {
 			atomCacheBuffer = lib.TakeBuffer()
-			l.encodeDistHeaderAtomCache(atomCacheBuffer, writerAtomCache, encodingAtomCache)
+			dc.encodeDistHeaderAtomCache(atomCacheBuffer, writerAtomCache, encodingAtomCache)
 			lenAtomCache = atomCacheBuffer.Len()
 
 			if lenAtomCache > reserveHeaderAtomCache-22 {
 				// are you serious? ))) what da hell you just sent?
 				// FIXME i'm gonna fix it if someone report about this issue :)
-				panic("exceed atom header cache size limit. please report about this issue")
+				fmt.Println("WARNING: exceed atom header cache size limit. please report about this issue")
+				return
 			}
 
 			startDataPosition -= lenAtomCache
@@ -1035,7 +1110,7 @@ func (l *Link) Writer(send <-chan []etf.Term, fragmentationUnit int) {
 				binary.BigEndian.PutUint32(packetBuffer.B[startDataPosition:], uint32(lenPacket))
 				packetBuffer.B[startDataPosition+4] = protoDist        // 131
 				packetBuffer.B[startDataPosition+5] = protoDistMessage // 68
-				if _, err := l.flusher.Write(packetBuffer.B[startDataPosition:]); err != nil {
+				if _, err := dc.flusher.Write(packetBuffer.B[startDataPosition:]); err != nil {
 					return
 				}
 				break
@@ -1046,7 +1121,7 @@ func (l *Link) Writer(send <-chan []etf.Term, fragmentationUnit int) {
 			// https://erlang.org/doc/apps/erts/erl_ext_dist.html#distribution-header-for-fragmented-messages
 			// "The entire atom cache and control message has to be part of the starting fragment"
 
-			sequenceID := uint64(atomic.AddInt64(&l.sequenceID, 1))
+			sequenceID := uint64(atomic.AddInt64(&dc.sequenceID, 1))
 			numFragments := lenMessage/fragmentationUnit + 1
 
 			// 1 (dist header: 131) + 1 (dist header: protoDistFragment) + 8 (sequenceID) + 8 (fragmentID) + ...
@@ -1061,7 +1136,7 @@ func (l *Link) Writer(send <-chan []etf.Term, fragmentationUnit int) {
 
 			binary.BigEndian.PutUint64(packetBuffer.B[startDataPosition+6:], uint64(sequenceID))
 			binary.BigEndian.PutUint64(packetBuffer.B[startDataPosition+14:], uint64(numFragments))
-			if _, err := l.flusher.Write(packetBuffer.B[startDataPosition : startDataPosition+4+lenPacket]); err != nil {
+			if _, err := dc.flusher.Write(packetBuffer.B[startDataPosition : startDataPosition+4+lenPacket]); err != nil {
 				return
 			}
 
@@ -1088,7 +1163,7 @@ func (l *Link) Writer(send <-chan []etf.Term, fragmentationUnit int) {
 			binary.BigEndian.PutUint64(packetBuffer.B[startDataPosition+6:], uint64(sequenceID))
 			binary.BigEndian.PutUint64(packetBuffer.B[startDataPosition+14:], uint64(numFragments))
 
-			if _, err := l.flusher.Write(packetBuffer.B[startDataPosition : startDataPosition+4+lenPacket]); err != nil {
+			if _, err := dc.flusher.Write(packetBuffer.B[startDataPosition : startDataPosition+4+lenPacket]); err != nil {
 				return
 			}
 
@@ -1104,7 +1179,7 @@ func (l *Link) Writer(send <-chan []etf.Term, fragmentationUnit int) {
 
 		lib.ReleaseBuffer(packetBuffer)
 
-		if !cacheEnabled {
+		if cacheEnabled == false {
 			continue
 		}
 
@@ -1121,4 +1196,14 @@ func (l *Link) Writer(send <-chan []etf.Term, fragmentationUnit int) {
 
 	}
 
+}
+
+func (dc *distConnection) getNextSender() chan sendMessage {
+	dc.senders.Lock()
+	defer dc.senders.Unlock()
+	dc.senders.i++
+	if dc.senders.i > dc.senders.n-1 {
+		dc.senders.i = 0
+	}
+	return dc.senders.send[i]
 }
