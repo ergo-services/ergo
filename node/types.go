@@ -153,7 +153,7 @@ type CoreRouter interface {
 	RouteNodeDown(name string)
 
 	RouteSpawnRequest() error
-	RouteSpawnReply() error
+	RouteSpawnReply(to etf.Pid, ref etf.Ref, result etf.Term) error
 	RouteProxy() error
 }
 
@@ -279,6 +279,8 @@ type ConnectionInterface interface {
 	MonitorExitReg(to etf.Pid, terminated gen.ProcessID, reason string, ref etf.Ref) error
 
 	SpawnRequest()
+	SpawnReply(to etf.Pid, ref etf.Ref, spawned etf.Pid) error
+	SpawnReplyError(to etf.Pid, ref etf.Ref, err error) error
 
 	Proxy()
 	ProxyReg()

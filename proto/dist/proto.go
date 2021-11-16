@@ -678,9 +678,9 @@ func (dc *distConnection) handleMessage(control, message etf.Term) (err error) {
 				for _, option := range t.Element(6).(etf.List) {
 					name, ok := option.(etf.Tuple)
 					if !ok {
-						break
+						return fmt.Errorf("malformed spawn request")
 					}
-					if name.Element(1).(etf.Atom) == etf.Atom("name") {
+					if reg, ok := name.Element(1).(etf.Atom); ok && reg == etf.Atom("name") {
 						registerName = string(name.Element(2).(etf.Atom))
 					}
 				}
@@ -702,41 +702,27 @@ func (dc *distConnection) handleMessage(control, message etf.Term) (err error) {
 					}
 				}
 
-				rb, err_behavior := n.registrar.RegisteredBehavior(remoteBehaviorGroup, string(module))
-				if err_behavior != nil {
-					message := etf.Tuple{distProtoSPAWN_REPLY, ref, from, 0, etf.Atom("not_provided")}
-					n.registrar.routeRaw(from.Node, message)
-					return
-				}
-				remote_request := gen.RemoteSpawnRequest{
+				spawnRequest := gen.RemoteSpawnRequest{
+					Name:     registerName,
 					Ref:      ref,
 					From:     from,
 					Function: string(function),
 				}
-				process_opts := processOptions{}
-				process_opts.Env = map[string]interface{}{"ergo:RemoteSpawnRequest": remote_request}
-
-				process, err_spawn := n.registrar.spawn(registerName, process_opts, rb.Behavior, args...)
-				if err_spawn != nil {
-					message := etf.Tuple{distProtoSPAWN_REPLY, ref, from, 0, etf.Atom(err_spawn.Error())}
-					n.registrar.routeRaw(from.Node, message)
+				pid, err := dc.router.RouteSpawnRequest(string(module), spawnRequest)
+				if err != nil {
+					dc.SpawnReplyError(ref, from, err)
 					return
 				}
-				message := etf.Tuple{distProtoSPAWN_REPLY, ref, from, 0, process.Self()}
-				n.registrar.routeRaw(from.Node, message)
+				dc.SpawnReply(ref, from, pid)
+				return
 
 			case distProtoSPAWN_REPLY:
 				// {31, ReqId, To, Flags, Result}
-				lib.Log("[%s] CONTROL SPAWN_REPLY [from %s]: %#v", n.registrar.NodeName(), dc.peername, control)
-
+				lib.Log("[%s] CONTROL SPAWN_REPLY [from %s]: %#v", dc.nodename, dc.peername, control)
 				to := t.Element(3).(etf.Pid)
-				process := n.registrar.ProcessByPid(to)
-				if process == nil {
-					return
-				}
 				ref := t.Element(2).(etf.Ref)
-				//flags := t.Element(4)
-				process.PutSyncReply(ref, t.Element(5))
+				dc.RouteSpawnReply(to, ref, t.Element(5))
+				return
 
 			default:
 				lib.Log("[%s] CONTROL unknown command [from %s]: %#v", dc.nodename, dc.peername, control)

@@ -761,13 +761,24 @@ func (c *core) RouteProxy() error {
 }
 
 // RouteSpawnRequest
-func (c *core) RouteSpawnRequest() error {
+func (c *core) RouteSpawnRequest(behaviorGroup string, behaviorName string, request gen.RemoteSpawnRequest) (etf.Pid, error) {
+	//rb, err_behavior := n.registrar.RegisteredBehavior(remoteBehaviorGroup, string(module))
 	// FIXME
-	return nil
+	//process_opts := processOptions{}
+	//process_opts.Env = map[string]interface{}{"ergo:RemoteSpawnRequest": remote_request}
+
+	//process, err_spawn := n.registrar.spawn(request.Name, process_opts, rb.Behavior, args...)
+	return etf.Pid{}, nil
 }
 
 // RouteSpawnReply
-func (c *core) RouteSpawnReply() error {
+func (c *core) RouteSpawnReply(to etf.Pid, ref etf.Ref, result etf.Term) error {
 	// FIXME
+	//			process := n.registrar.ProcessByPid(to)
+	//			if process == nil {
+	//				return
+	//			}
+	//			//flags := t.Element(4)
+	//			process.PutSyncReply(ref, t.Element(5))
 	return nil
 }

@@ -222,6 +222,8 @@ type RemoteSpawnOptions struct {
 
 // RemoteSpawnRequest stores in process environment ("ergo:RemoteSpawnRequest") if it was spawned by RemoteSpawn request
 type RemoteSpawnRequest struct {
+	// Name register name
+	Name string
 	// Ref request id
 	Ref etf.Ref
 	// PID of the process made RemoteSpawn request
