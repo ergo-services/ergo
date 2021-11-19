@@ -47,7 +47,7 @@ type epmdResolver struct {
 	nodePort         uint16
 	nodeName         string
 	nodeHost         string
-	handshakeVersion HandshakeVersion
+	handshakeVersion node.HandshakeVersion
 
 	extra []byte
 }
@@ -122,7 +122,7 @@ func (e *epmdResolver) Register(name string, port uint16, options node.ResolverO
 	return nil
 }
 
-func (e *epmdResolver) Resolve(name string) (Route, error) {
+func (e *epmdResolver) Resolve(name string) (node.Route, error) {
 
 	n := strings.Split(name, "@")
 	if len(n) != 2 {

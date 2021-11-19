@@ -100,7 +100,7 @@ type distProto struct {
 	proxymode node.ProxyMode
 }
 
-func CreateProto(nodename string, compression bool, proxymode node.ProxyMode) ProtoInterface {
+func CreateProto(nodename string, compression bool, proxymode node.ProxyMode) node.ProtoInterface {
 	return &distProto{
 		nodename:    string,
 		compression: compression,
@@ -146,7 +146,7 @@ type receivers struct {
 	i    int32
 }
 
-func (dp *DistProto) Serve(ctx context.Context, conn node.ConnectionInterface) {
+func (dp *distProto) Serve(ctx context.Context, conn node.ConnectionInterface) {
 	connection, ok := conn.(*distConnection)
 	if !ok {
 		fmt.Println("conn is not a *distConnection type")
@@ -534,7 +534,7 @@ func (dc *distConnection) decodePacket(packet []byte) (etf.Term, etf.Term, error
 
 }
 
-func (l *Link) decodeDist(packet []byte) (etf.Term, etf.Term, error) {
+func (dc *distConnection) decodeDist(packet []byte) (etf.Term, etf.Term, error) {
 	switch packet[0] {
 	case protoDistCompressed:
 		// do we need it?
@@ -786,10 +786,10 @@ func (dc *distConnection) handleMessage(control, message etf.Term) (err error) {
 				pid, err := dc.router.RouteSpawnRequest(string(module), spawnRequest)
 				if err != nil {
 					dc.SpawnReplyError(from, ref, err)
-					return
+					return err
 				}
 				dc.SpawnReply(from, ref, pid)
-				return
+				return nil
 
 			case distProtoSPAWN_REPLY:
 				// {31, ReqId, To, Flags, Result}
@@ -797,7 +797,7 @@ func (dc *distConnection) handleMessage(control, message etf.Term) (err error) {
 				to := t.Element(3).(etf.Pid)
 				ref := t.Element(2).(etf.Ref)
 				dc.RouteSpawnReply(to, ref, t.Element(5))
-				return
+				return nil
 
 			default:
 				lib.Log("[%s] CONTROL unknown command [from %s]: %#v", dc.nodename, dc.peername, control)
