@@ -40,10 +40,8 @@ type networkInternal interface {
 }
 
 type connectionInternal struct {
-	c             net.Conn
-	connection    ConnectionInterface
-	ctx           context.Context
-	cancelContext context.CancelFunc
+	conn       net.Conn
+	connection ConnectionInterface
 }
 
 type network struct {
@@ -182,10 +180,10 @@ func (n *network) StaticRoutes() []Route {
 // GetConnection
 func (n *network) GetConnection(peername string) (ConnectionInterface, error) {
 	n.mutexConnections.Lock()
-	connection, ok := n.connections[peername]
+	connectionInternal, ok := n.connections[peername]
 	n.mutexConnections.Unlock()
 	if ok {
-		return connection, nil
+		return connectionInternal.connection, nil
 	}
 
 	connection, err := n.connect(peername)
@@ -281,7 +279,7 @@ func (n *network) listen(ctx context.Context, hostname string, options Options) 
 					return
 				}
 
-				peername, protoOptions, err := n.handshake.Accept(c)
+				peername, protoOptions, err := n.handshake.Accept(c, n.tls.Enabled)
 				if err != nil {
 					lib.Log("[%s] Can't handshake with %s: %s", n.nodename, c.RemoteAddr().String(), err)
 					c.Close()
@@ -293,12 +291,9 @@ func (n *network) listen(ctx context.Context, hostname string, options Options) 
 					continue
 				}
 
-				connectionctx, cancel := context.WithCancel(n.ctx)
 				cInternal := connectionInternal{
-					conn:          c,
-					connection:    connection,
-					cancelContext: cancel,
-					ctx:           connectionctx,
+					conn:       c,
+					connection: connection,
 				}
 
 				if _, err := n.registerConnection(peername, cInternal); err != nil {
@@ -307,17 +302,15 @@ func (n *network) listen(ctx context.Context, hostname string, options Options) 
 					// connection to this node.
 					// Close this connection and use the already registered connection
 					c.Close()
-					cancel()
 					continue
 				}
 
 				// run serving connection
-				go func(ci connectionInternal) {
-					n.proto.Serve(ci.ctx, ci.connection)
-					ci.c.Close()
-					ci.cancelContext()
+				go func(ctx context.Context, ci connectionInternal) {
+					n.proto.Serve(ctx, ci.connection)
 					n.unregisterConnection(peername)
-				}(cInternal)
+					ci.conn.Close()
+				}(ctx, cInternal)
 
 			}
 		}()
@@ -414,12 +407,9 @@ func (n *network) connect(peername string) (ConnectionInterface, error) {
 		c.Close()
 		return nil, err
 	}
-	connectionctx, cancel := context.WithCancel(n.ctx)
 	cInternal := connectionInternal{
-		conn:          c,
-		connection:    connection,
-		cancelContext: cancel,
-		ctx:           connectionctx,
+		conn:       c,
+		connection: connection,
 	}
 
 	if registered, err := n.registerConnection(peername, cInternal); err != nil {
@@ -428,22 +418,20 @@ func (n *network) connect(peername string) (ConnectionInterface, error) {
 		// connection to this node.
 		// Close this connection and use the already registered connection
 		c.Close()
-		cancel()
-		return registered, nil
+		return registered.connection, nil
 	}
 
 	// run serving connection
-	go func(ci connectionInternal) {
-		n.proto.Serve(ci.ctx, ci.connection)
-		ci.c.Close()
-		ci.cancelContext()
+	go func(ctx context.Context, ci connectionInternal) {
+		n.proto.Serve(ctx, ci.connection)
 		n.unregisterConnection(peername)
-	}(cInternal)
+		ci.conn.Close()
+	}(n.ctx, cInternal)
 
 	return connection, nil
 }
 
-func (n *network) registerConnection(peername string, connection ConnectionInterface) (ConnectionInterface, error) {
+func (n *network) registerConnection(peername string, ci connectionInternal) (connectionInternal, error) {
 	lib.Log("[%s] NETWORK registering peer %#v", n.nodename, peername)
 	n.mutexConnections.Lock()
 	defer n.mutexConnections.Unlock()
@@ -452,8 +440,8 @@ func (n *network) registerConnection(peername string, connection ConnectionInter
 		// already registered
 		return registered, ErrTaken
 	}
-	n.connections[peername] = connection
-	return connection, nil
+	n.connections[peername] = ci
+	return ci, nil
 }
 
 func (n *network) unregisterConnection(peername string) {
@@ -561,7 +549,7 @@ func (c *Connection) Link(local gen.Process, remote etf.Pid) error {
 func (c *Connection) Unlink(local gen.Process, remote etf.Pid) error {
 	return ErrUnsupported
 }
-func (c *Connection) SendExit(local etf.Pid, remote etf.Pid) error {
+func (c *Connection) LinkExit(local etf.Pid, remote etf.Pid, reason string) error {
 	return ErrUnsupported
 }
 func (c *Connection) Monitor(local gen.Process, remote etf.Pid, ref etf.Ref) error {
@@ -570,7 +558,10 @@ func (c *Connection) Monitor(local gen.Process, remote etf.Pid, ref etf.Ref) err
 func (c *Connection) MonitorReg(local gen.Process, remote gen.ProcessID, ref etf.Ref) error {
 	return ErrUnsupported
 }
-func (c *Connection) Demonitor(ref etf.Ref) error {
+func (c *Connection) Demonitor(by etf.Pid, process etf.Pid, ref etf.Ref) error {
+	return ErrUnsupported
+}
+func (c *Connection) DemonitorReg(by etf.Pid, process gen.ProcessID, ref etf.Ref) error {
 	return ErrUnsupported
 }
 func (c *Connection) MonitorExitReg(process gen.Process, reason string, ref etf.Ref) error {

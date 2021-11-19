@@ -152,7 +152,7 @@ type CoreRouter interface {
 	// RouteNodeDown
 	RouteNodeDown(name string)
 
-	RouteSpawnRequest() error
+	RouteSpawnRequest(behaviorGroup string, behaviorName string, request gen.RemoteSpawnRequest) (etf.Pid, error)
 	RouteSpawnReply(to etf.Pid, ref etf.Ref, result etf.Term) error
 	RouteProxy() error
 }
@@ -270,12 +270,12 @@ type ConnectionInterface interface {
 	Unlink(local etf.Pid, remote etf.Pid) error
 	LinkExit(to etf.Pid, terminated etf.Pid, reason string) error
 
-	Monitor(by etf.Pid, process etf.Pid, ref etf.Ref) error
-	Demonitor(by etf.Pid, process etf.Pid, ref etf.Ref) error
+	Monitor(local etf.Pid, remote etf.Pid, ref etf.Ref) error
+	Demonitor(local etf.Pid, remote etf.Pid, ref etf.Ref) error
 	MonitorExit(to etf.Pid, terminated etf.Pid, reason string, ref etf.Ref) error
 
-	MonitorReg(by etf.Pid, process gen.ProcessID, ref etf.Ref) error
-	DemonitorReg(by etf.Pid, process gen.ProcessID, ref etf.Ref) error
+	MonitorReg(local etf.Pid, remote gen.ProcessID, ref etf.Ref) error
+	DemonitorReg(local etf.Pid, remote gen.ProcessID, ref etf.Ref) error
 	MonitorExitReg(to etf.Pid, terminated gen.ProcessID, reason string, ref etf.Ref) error
 
 	SpawnRequest()

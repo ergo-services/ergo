@@ -18,8 +18,9 @@ import (
 )
 
 var (
-	ErrMissingInCache = fmt.Errorf("missing in cache")
-	ErrMalformed      = fmt.Errorf("malformed")
+	ErrMissingInCache     = fmt.Errorf("missing in cache")
+	ErrMalformed          = fmt.Errorf("malformed")
+	ErrOverloadConnection = fmt.Errorf("connection buffer is overloaded")
 )
 
 func init() {
@@ -123,10 +124,14 @@ func (dp *distProto) Init(conn io.ReadWriter, peername string, options node.Prot
 }
 
 type senders struct {
+	sender []*senderChannel
+	n      int32
+	i      int32
+}
+
+type senderChannel struct {
 	sync.Mutex
-	send []chan *sendMessage
-	n    int
-	i    int
+	sendChannel chan *sendMessage
 }
 
 type sendMessage struct {
@@ -175,29 +180,33 @@ func (dp *DistProto) Serve(ctx context.Context, conn node.ConnectionInterface) {
 	}
 
 	connection.senders = senders{
-		send: make([]chan *sendMessage, numHandlers),
-		n:    numHandlers,
+		send: make([]*senderChannel, numHandlers),
+		n:    int32(numHandlers),
 	}
 	// run readers/writers for incoming/outgoing messages
 	for i := 0; i < numHandlers; i++ {
 		// run writer routines (encoder)
-		connection.senders.send[i] = make(chan *sendMessage, connection.options.SendQueueLength)
+		connection.senders.sender[i] = &senderChannel{
+			sendChannel: make(chan *sendMessage, connection.options.SendQueueLength),
+		}
 		go connection.sender(send, connection.options.FragmentationUnit, connection.options.Flags)
 	}
 
 	// close all reader/writer channels on exit from this routine
 	defer func() {
-		dc.senders.Lock()
 		for i := 0; i < numHandlers; i++ {
-			if dc.senders.send[i] != nil {
-				close(dc.senders.send[i])
-				dc.senders.send[i] = nil
+			sender := dc.senders.sender[i]
+			if sender != nil {
+				sender.Lock()
+				close(sender.sendChannel)
+				sender.sendChannel == nil
+				sender.Unlock()
+				dc.senders.sender[i] = nil
 			}
 			if receivers.recv[i] != nil {
 				close(receivers.recv[i])
 			}
 		}
-		dc.senders.Unlock()
 	}()
 
 	// run read loop
@@ -243,39 +252,105 @@ func (dp *DistProto) Serve(ctx context.Context, conn node.ConnectionInterface) {
 // node.Connection interface implementation
 
 func (dc *distConnection) Send(from gen.Process, to etf.Pid, message etf.Term) error {
-	return nil
+	var compression bool
+
+	if dc.compression == true {
+		compression = true
+	} else {
+		compression = from.Compression()
+	}
+	msg := &sendMessage{
+		control:     etf.Tuple{distProtoSEND, etf.Atom(""), to},
+		payload:     message,
+		compression: compression,
+	}
+	return dc.send(msg)
 }
 func (dc *distConnection) SendReg(from gen.Process, to gen.ProcessID, message etf.Term) error {
-	return nil
+	var compression bool
+
+	if dc.compression == true {
+		compression = true
+	} else {
+		compression = from.Compression()
+	}
+	msg := &sendMessage{
+		control:     etf.Tuple{distProtoREG_SEND, from.Self(), etf.Atom(""), etf.Atom(to.Name)},
+		payload:     message,
+		compression: compression,
+	}
+	return dc.send(msg)
 }
 func (dc *distConnection) SendAlias(from gen.Process, to etf.Alias, message etf.Term) error {
-	return nil
+	var compression bool
+
+	if dc.compression == true {
+		compression = true
+	} else {
+		compression = from.Compression()
+	}
+	msg := &sendMessage{
+		control:     etf.Tuple{distProtoALIAS_SEND, from.Self(), to},
+		payload:     message,
+		compression: compression,
+	}
+	return dc.send(msg)
 }
 
 func (dc *distConnection) Link(local gen.Process, remote etf.Pid) error {
-	return nil
+	msg := &sendMessage{
+		control: etf.Tuple{distProtoLINK, local.Self(), remote},
+	}
+	return dc.send(msg)
 }
 func (dc *distConnection) Unlink(local gen.Process, remote etf.Pid) error {
-	return nil
+	msg := &sendMessage{
+		control: etf.Tuple{distProtoUNLINK, local.Self(), remote},
+	}
+	return dc.send(msg)
 }
-func (dc *distConnection) SendExit(local etf.Pid, remote etf.Pid) error {
-	return nil
+func (dc *distConnection) LinkExit(local etf.Pid, remote etf.Pid, reason string) error {
+	msg := &sendMessage{
+		control: etf.Tuple{distProtoEXIT, terminated, to, etf.Atom(reason)},
+	}
+	return dc.send(msg)
 }
 
-func (dc *distConnection) Monitor(local gen.Process, remote etf.Pid, ref etf.Ref) error {
-	return nil
+func (dc *distConnection) Monitor(local etf.Pid, remote etf.Pid, ref etf.Ref) error {
+	msg := &sendMessage{
+		control: etf.Tuple{distProtoMONITOR, local, remote, ref},
+	}
+	return dc.send(msg)
 }
-func (dc *distConnection) MonitorReg(local gen.Process, remote gen.ProcessID, ref etf.Ref) error {
-	return nil
+func (dc *distConnection) MonitorReg(local etf.Pid, remote gen.ProcessID, ref etf.Ref) error {
+	msg := &sendMessage{
+		control: etf.Tuple{distProtoMONITOR, local, etf.Atom(remote.Name), ref},
+	}
+	return dc.send(msg)
 }
-func (dc *distConnection) Demonitor(ref etf.Ref) error {
-	return nil
+func (dc *distConnection) Demonitor(local etf.Pid, remote etf.Pid, ref etf.Ref) error {
+	msg := &sendMessage{
+		control: etf.Tuple{distProtoDEMONITOR, local, remote, ref},
+	}
+	return dc.send(msg)
 }
-func (dc *distConnection) MonitorExitReg(process gen.Process, reason string, ref etf.Ref) error {
-	return nil
+func (dc *distConnection) DemonitorReg(local etf.Pid, remote gen.Process, ref etf.Ref) error {
+	msg := &sendMessage{
+		control: etf.Tuple{distProtoDEMONITOR, local, etf.Atom(remote.Name), ref},
+	}
+	return dc.send(msg)
+}
+func (dc *distConnection) MonitorExitReg(to etf.Pid, terminated gen.Process, reason string, ref etf.Ref) error {
+	msg := &sendMessage{
+		control: etf.Tuple{distProtoMONITOR_EXIT, etf.Atom(terminated.Name), to, ref, etf.Atom(reason)},
+	}
+	return dc.send(msg)
 }
 func (dc *distConnection) MonitorExit(to etf.Pid, terminated etf.Pid, reason string, ref etf.Ref) error {
-	return nil
+	msg := &sendMessage{
+		control: etf.Tuple{distProtoMONITOR_EXIT, terminated, to, ref, etf.Atom(reason)},
+	}
+	return dc.send(msg)
 }
 
 func (dc *distConnection) SpawnRequest() error {
@@ -704,16 +779,16 @@ func (dc *distConnection) handleMessage(control, message etf.Term) (err error) {
 
 				spawnRequest := gen.RemoteSpawnRequest{
 					Name:     registerName,
-					Ref:      ref,
 					From:     from,
+					Ref:      ref,
 					Function: string(function),
 				}
 				pid, err := dc.router.RouteSpawnRequest(string(module), spawnRequest)
 				if err != nil {
-					dc.SpawnReplyError(ref, from, err)
+					dc.SpawnReplyError(from, ref, err)
 					return
 				}
-				dc.SpawnReply(ref, from, pid)
+				dc.SpawnReply(from, ref, pid)
 				return
 
 			case distProtoSPAWN_REPLY:
@@ -1184,12 +1259,21 @@ func (dc *distConnection) sender(send <-chan *sendMessage, fragmentationUnit int
 
 }
 
-func (dc *distConnection) getNextSender() chan sendMessage {
-	dc.senders.Lock()
-	defer dc.senders.Unlock()
-	dc.senders.i++
-	if dc.senders.i > dc.senders.n-1 {
-		dc.senders.i = 0
+func (dc *distConnection) send(msg *sendMessage) error {
+	i := atomic.AddInt32(&dc.senders.i, 1)
+	n := i % dc.senders.n
+	s := dc.senders.sender[n]
+	if s == nil {
+		// connection was closed
+		return node.ErrNoRoute
 	}
-	return dc.senders.send[i]
+	s.Lock()
+	defer s.Unlock()
+
+	select {
+	case s.send <- msg:
+		return nil
+	default:
+		return ErrOverloadConnection
+	}
 }

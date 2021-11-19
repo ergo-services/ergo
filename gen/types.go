@@ -224,10 +224,10 @@ type RemoteSpawnOptions struct {
 type RemoteSpawnRequest struct {
 	// Name register name
 	Name string
-	// Ref request id
-	Ref etf.Ref
 	// PID of the process made RemoteSpawn request
 	From etf.Pid
+	// Ref request id
+	Ref etf.Ref
 	// Function provided via RemoteSpawnOptions.Function
 	Function string
 }
