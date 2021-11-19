@@ -103,7 +103,7 @@ func (e *epmdResolver) Register(name string, port uint16, options node.ResolverO
 					startServerEPMD(e.ctx, e.host, e.port)
 				}
 
-				if c, err := e.registerNode(options); err != nil {
+				if c, err := e.registerNode(name, options); err != nil {
 					lib.Log("[%s] EPMD client: can't register node %q (%s). Retry in 3 seconds...", name, err)
 					time.Sleep(3 * time.Second)
 				} else {
@@ -126,7 +126,7 @@ func (e *epmdResolver) Resolve(name string) (node.Route, error) {
 
 	n := strings.Split(name, "@")
 	if len(n) != 2 {
-		return 0, fmt.Errorf("incorrect FQDN node name (example: node@localhost)")
+		return node.Route{}, fmt.Errorf("incorrect FQDN node name (example: node@localhost)")
 	}
 	conn, err := net.Dial("tcp", net.JoinHostPort(n[1], fmt.Sprintf("%d", e.port)))
 	if err != nil {
@@ -135,11 +135,11 @@ func (e *epmdResolver) Resolve(name string) (node.Route, error) {
 
 	defer conn.Close()
 
-	if err := e.sendPortPleaseReq(c, n[0]); err != nil {
+	if err := e.sendPortPleaseReq(conn, n[0]); err != nil {
 		return node.Route{}, err
 	}
 
-	route, err := e.readPortResp(c)
+	route, err := e.readPortResp(conn)
 	if err != nil {
 		return node.Route{}, err
 	}
@@ -151,11 +151,11 @@ func (e *epmdResolver) Resolve(name string) (node.Route, error) {
 
 }
 
-func (e *epmdResolver) composeExtraVersion1(options node.ResolverOptions) {
+func (e *epmdResolver) composeExtra(options node.ResolverOptions) {
 	buf := make([]byte, 5)
 
 	// 2 bytes: ergoExtraMagic
-	binary.BigEndian.PutUint16(buff[0:2], uint16(ergoExtraMagic))
+	binary.BigEndian.PutUint16(buf[0:2], uint16(ergoExtraMagic))
 	// 1 byte Extra version
 	buf[3] = ergoExtraVersion
 	// 1 byte flag enabled TLS
@@ -170,7 +170,7 @@ func (e *epmdResolver) composeExtraVersion1(options node.ResolverOptions) {
 	return
 }
 
-func (e *epmdResolver) readExtra(buf []byte, info *nodeinfo) {
+func (e *epmdResolver) readExtra(buf []byte, route *node.Route) {
 	if len(buf) < 5 {
 		return
 	}
@@ -196,14 +196,14 @@ func (e *epmdResolver) readExtra(buf []byte, info *nodeinfo) {
 	return
 }
 
-func (e *epmdResolver) registerNode(options node.ResolverOptions) (net.Conn, error) {
+func (e *epmdResolver) registerNode(name string, options node.ResolverOptions) (net.Conn, error) {
 	dsn := net.JoinHostPort(options.ServerHost, strconv.Itoa(int(options.ServerPort)))
 	conn, err := net.Dial("tcp", dsn)
 	if err != nil {
 		return nil, err
 	}
 
-	if _, err := e.sendAliveReq(conn); err != nil {
+	if err := e.sendAliveReq(conn); err != nil {
 		conn.Close()
 		return nil, err
 	}
@@ -218,9 +218,9 @@ func (e *epmdResolver) registerNode(options node.ResolverOptions) (net.Conn, err
 }
 
 func (e *epmdResolver) sendAliveReq(conn net.Conn) error {
-	buf := make([]byte, 2+14+len(e.nodeName)+len(e.Extra))
+	buf := make([]byte, 2+14+len(e.nodeName)+len(e.extra))
 	binary.BigEndian.PutUint16(buf[0:2], uint16(len(buf)-2))
-	buf[2] = byte(epmdAlive2Req)
+	buf[2] = byte(epmdAliveReq)
 	binary.BigEndian.PutUint16(buf[3:5], e.nodePort)
 	// http://erlang.org/doc/reference_manual/distributed.html (section 13.5)
 	// 77 — regular public node, 72 — hidden
@@ -239,9 +239,9 @@ func (e *epmdResolver) sendAliveReq(conn net.Conn) error {
 	offset := (13 + l)
 	copy(buf[13:offset], e.nodeName)
 	// Extra data
-	l = len(e.Extra)
+	l = len(e.extra)
 	binary.BigEndian.PutUint16(buf[offset:offset+2], uint16(l))
-	copy(buf[offset+2:offset+2+l], e.Extra)
+	copy(buf[offset+2:offset+2+l], e.extra)
 	// Send
 	if _, err := conn.Write(buf); err != nil {
 		return err
@@ -254,7 +254,7 @@ func (e *epmdResolver) readAliveResp(conn net.Conn) error {
 	if _, err := conn.Read(buf); err != nil {
 		return err
 	}
-	if buf[0] != epmdAlive2Resp {
+	if buf[0] != epmdAliveResp {
 		return fmt.Errorf("Malformed EMPD response")
 	}
 	if buf[1] != 0 {
@@ -263,13 +263,14 @@ func (e *epmdResolver) readAliveResp(conn net.Conn) error {
 	return nil
 }
 
-func (e *epmdResolver) sendPortPleaseReq(name string) (reply []byte) {
+func (e *epmdResolver) sendPortPleaseReq(conn net.Conn, name string) error {
 	replylen := uint16(2 + len(name) + 1)
 	reply = make([]byte, replylen)
 	binary.BigEndian.PutUint16(reply[0:2], uint16(len(reply)-2))
-	reply[2] = byte(EPMD_PORT_PLEASE2_REQ)
+	reply[2] = byte(epmdPortPleaseReq)
 	copy(reply[3:replylen], name)
-	return
+	_, err := conn.Write(reply)
+	return err
 }
 
 func (e *epmdResolver) readPortResp(c net.Conn) (node.Route, error) {
@@ -281,7 +282,7 @@ func (e *epmdResolver) readPortResp(c net.Conn) (node.Route, error) {
 		return -1, fmt.Errorf("reading from link - %s", err)
 	}
 
-	if buf[0] == EPMD_PORT2_RESP && buf[1] == 0 {
+	if buf[0] == epmdPortResp && buf[1] == 0 {
 		p := binary.BigEndian.Uint16(buf[2:4])
 		// we don't use all the extra info for a while. FIXME (do we need it?)
 		return int(p), nil
