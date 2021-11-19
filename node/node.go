@@ -422,7 +422,7 @@ func (n *node) RevokeRemoteSpawn(name string) error {
 }
 
 // DefaultProtoOptions
-func DefaultProtoOptions(handlers int, compression, disableHeaderAtomCache bool) ProtoOptions {
+func DefaultProtoOptions(handlers int, disableHeaderAtomCache bool) ProtoOptions {
 	flags := ProtoFlags{
 		DisableHeaderAtomCache: disableHeaderAtomCache,
 		EnableBigCreation:      true,

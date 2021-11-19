@@ -95,7 +95,7 @@ func newNetwork(ctx context.Context, nodename string, options Options, router Co
 		return nil, err
 	}
 
-	err := n.handshake.Init(n.nodename, n.creation, n.tls.Enabled)
+	err := n.handshake.Init(n.nodename, n.creation)
 	if err != nil {
 		return nil, err
 	}

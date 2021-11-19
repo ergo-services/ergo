@@ -294,7 +294,7 @@ type Handshake struct {
 // Handshake defines handshake interface
 type HandshakeInterface interface {
 	// Init initialize handshake.
-	Init(nodename string, creation uint32, enabledTLS bool) error
+	Init(nodename string, creation uint32) error
 	// Start initiates handshake process. Argument tls means the connection is wrapped by TLS
 	// Returns proto options to override default ones.
 	Start(conn io.ReadWriter, tls bool) (ProtoOptions, error)

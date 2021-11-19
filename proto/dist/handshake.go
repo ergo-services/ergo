@@ -78,7 +78,7 @@ func toNodeFlags(f ...nodeFlagId) nodeFlags {
 type DistHandshake struct {
 	node.Handshake
 	nodename  string
-	creation  int64
+	creation  uint32
 	challenge uint32
 	timeout   time.Duration
 	options   DistHandshakeOptions
@@ -92,7 +92,7 @@ type DistHandshakeOptions struct {
 func CreateDistHandshake(timeout time.Duration, options DistHandshakeOptions) node.HandshakeInterface {
 	// must be 5 or 6
 	if options.Version != DistHandshakeVersion5 && options.Version != DistHandshakeVersion6 {
-		options.Version = defaultDistHandshakeVersion
+		options.Version = DefaultDistHandshakeVersion
 	}
 	return &DistHandshake{
 		options:   options,
@@ -108,7 +108,7 @@ func (dh *DistHandshake) Init(nodename string, creation uint32) error {
 }
 
 func (dh *DistHandshake) Version() node.HandshakeVersion {
-	return h.options.Version
+	return dh.options.Version
 }
 
 func (dh *DistHandshake) Start(conn io.ReadWriter, tls bool) (node.ProtoOptions, error) {
@@ -118,7 +118,7 @@ func (dh *DistHandshake) Start(conn io.ReadWriter, tls bool) (node.ProtoOptions,
 	var peer_flags nodeFlags
 	var protoOptions node.ProtoOptions
 
-	flags := toNodeFlag(
+	flags := toNodeFlags(
 		flagPublished,
 		flagUnicodeIO,
 		flagDistMonitor,
@@ -174,7 +174,7 @@ func (dh *DistHandshake) Start(conn io.ReadWriter, tls bool) (node.ProtoOptions,
 	// In Erlang this corresponds to option {packet, 2} in gen_tcp(3). Notice
 	// that after the handshake, the distribution switches to 4 byte packet headers.
 	expectingBytes := 2
-	if dh.options.TLS {
+	if tls {
 		// TLS connection has 4 bytes packet length header
 		expectingBytes = 4
 	}
@@ -212,7 +212,7 @@ func (dh *DistHandshake) Start(conn io.ReadWriter, tls bool) (node.ProtoOptions,
 				}
 
 				peer_challenge, peer_name, peer_flags = dh.readChallenge(b.B[1:])
-				if challenge == 0 {
+				if peer_challenge == 0 {
 					return protoOptions, fmt.Errorf("malformed handshake (mismatch handshake version")
 				}
 				b.Reset()
@@ -239,7 +239,7 @@ func (dh *DistHandshake) Start(conn io.ReadWriter, tls bool) (node.ProtoOptions,
 
 				if dh.options.Version == DistHandshakeVersion5 {
 					// upgrade handshake to version 6 by sending complement message
-					dh.composeComplement(b, tls)
+					dh.composeComplement(b, flags, tls)
 					if e := b.WriteDataTo(conn); e != nil {
 						return protoOptions, e
 					}
@@ -268,7 +268,7 @@ func (dh *DistHandshake) Start(conn io.ReadWriter, tls bool) (node.ProtoOptions,
 
 				// handshaked
 				//FIXME
-				protoOptions = node.DefaultProtoOptions(0, opts.Comression, false)
+				protoOptions = node.DefaultProtoOptions(0, false)
 				return protoOptions, nil
 
 			case 's':
@@ -301,7 +301,7 @@ func (dh *DistHandshake) Accept(conn io.ReadWriter, tls bool) (string, node.Prot
 	var protoOptions node.ProtoOptions
 	var err error
 
-	flags := toNodeFlag(
+	flags := toNodeFlags(
 		flagPublished,
 		flagUnicodeIO,
 		flagDistMonitor,
@@ -358,7 +358,7 @@ func (dh *DistHandshake) Accept(conn io.ReadWriter, tls bool) (string, node.Prot
 
 		select {
 		case <-timer.C:
-			return nil, fmt.Errorf("handshake accept timeout")
+			return peer_name, protoOptions, fmt.Errorf("handshake accept timeout")
 		case e := <-asyncReadChannel:
 			if e != nil {
 				return peer_name, protoOptions, e
@@ -397,12 +397,11 @@ func (dh *DistHandshake) Accept(conn io.ReadWriter, tls bool) (string, node.Prot
 				}
 
 				b.Reset()
-				if link.peer.flags.isSet(HANDSHAKE23) {
-					link.composeChallengeVersion6(b, tls, flags)
+				if peer_flags.isSet(flagHandshake23) {
+					dh.composeChallengeVersion6(b, tls, flags)
 					await = []byte{'s', 'r', 'c'}
 				} else {
-					link.version = ProtoHandshake5
-					link.composeChallenge(b, tls, flags)
+					dh.composeChallenge(b, tls, flags)
 					await = []byte{'s', 'r'}
 				}
 				if e := b.WriteDataTo(conn); e != nil {
@@ -415,18 +414,18 @@ func (dh *DistHandshake) Accept(conn io.ReadWriter, tls bool) (string, node.Prot
 				if len(buffer) < 16 {
 					return peer_name, protoOptions, fmt.Errorf("malformed handshake ('N' length)")
 				}
-				peer_name, peer_flags, err = link.readNameVersion6(buffer[1:])
+				peer_name, peer_flags, err = dh.readNameVersion6(buffer[1:])
 				if err != nil {
 					return peer_name, protoOptions, err
 				}
 				b.Reset()
-				link.composeStatus(b, options.TLS)
+				dh.composeStatus(b, tls)
 				if e := b.WriteDataTo(conn); e != nil {
 					return peer_name, protoOptions, fmt.Errorf("malformed handshake ('N' accept name)")
 				}
 
 				b.Reset()
-				link.composeChallengeVersion6(b, options.TLS)
+				dh.composeChallengeVersion6(b, tls, flags)
 				if e := b.WriteDataTo(conn); e != nil {
 					return peer_name, protoOptions, e
 				}
@@ -437,7 +436,7 @@ func (dh *DistHandshake) Accept(conn io.ReadWriter, tls bool) (string, node.Prot
 				if len(buffer) < 9 {
 					return peer_name, protoOptions, fmt.Errorf("malformed handshake ('c' length)")
 				}
-				link.readComplement(buffer[1:])
+				peer_flags = dh.readComplement(buffer[1:], peer_flags)
 
 				await = []byte{'r'}
 
@@ -452,19 +451,20 @@ func (dh *DistHandshake) Accept(conn io.ReadWriter, tls bool) (string, node.Prot
 					return peer_name, protoOptions, fmt.Errorf("malformed handshake ('r' length)")
 				}
 
-				if !link.validateChallengeReply(buffer[1:]) {
+				peer_challenge, valid := dh.validateChallengeReply(buffer[1:])
+				if valid == false {
 					return peer_name, protoOptions, fmt.Errorf("malformed handshake ('r' invalid reply)")
 				}
 				b.Reset()
 
-				dh.composeChallengeAck(b, options.TLS)
+				dh.composeChallengeAck(b, peer_challenge, tls)
 				if e := b.WriteDataTo(conn); e != nil {
 					return peer_name, protoOptions, e
 				}
 
 				// handshaked
 				// FIXME
-				protoOptions = node.DefaultProtoOptions(0, opts.Comression, false)
+				protoOptions = node.DefaultProtoOptions(0, false)
 
 				return peer_name, protoOptions, nil
 
@@ -495,17 +495,17 @@ func (dh *DistHandshake) composeName(b *lib.Buffer, tls bool, flags nodeFlags) {
 	version := uint16(dh.options.Version)
 	if tls {
 		b.Allocate(11)
-		dataLength := 7 + len(dh.nodename) // byte + uint16 + uint32 + len(dh.Name)
+		dataLength := 7 + len(dh.nodename) // byte + uint16 + uint32 + len(dh.nodename)
 		binary.BigEndian.PutUint32(b.B[0:4], uint32(dataLength))
 		b.B[4] = 'n'
-		binary.BigEndian.PutUint16(b.B[5:7], version)              // uint16
-		binary.BigEndian.PutUint32(b.B[7:11], dh.flags.toUint32()) // uint32
+		binary.BigEndian.PutUint16(b.B[5:7], version)           // uint16
+		binary.BigEndian.PutUint32(b.B[7:11], flags.toUint32()) // uint32
 		b.Append([]byte(dh.nodename))
 		return
 	}
 
 	b.Allocate(9)
-	dataLength := 7 + len(dh.Name) // byte + uint16 + uint32 + len(dh.Name)
+	dataLength := 7 + len(dh.nodename) // byte + uint16 + uint32 + len(dh.nodename)
 	binary.BigEndian.PutUint16(b.B[0:2], uint16(dataLength))
 	b.B[2] = 'n'
 	binary.BigEndian.PutUint16(b.B[3:5], version)          // uint16
@@ -517,18 +517,18 @@ func (dh *DistHandshake) composeNameVersion6(b *lib.Buffer, tls bool, flags node
 	creation := uint32(dh.creation)
 	if tls {
 		b.Allocate(19)
-		dataLength := 15 + len(dh.nodename) // 1 + 8 (flags) + 4 (creation) + 2 (len l.Name)
+		dataLength := 15 + len(dh.nodename) // 1 + 8 (flags) + 4 (creation) + 2 (len dh.nodename)
 		binary.BigEndian.PutUint32(b.B[0:4], uint32(dataLength))
 		b.B[4] = 'N'
-		binary.BigEndian.PutUint64(b.B[5:13], flags.toUint64())         // uint64
-		binary.BigEndian.PutUint32(b.B[13:17], creation)                //uint32
-		binary.BigEndian.PutUint16(b.B[17:19], uint16(len(dh.nodeame))) // uint16
+		binary.BigEndian.PutUint64(b.B[5:13], flags.toUint64())          // uint64
+		binary.BigEndian.PutUint32(b.B[13:17], creation)                 //uint32
+		binary.BigEndian.PutUint16(b.B[17:19], uint16(len(dh.nodename))) // uint16
 		b.Append([]byte(dh.nodename))
 		return
 	}
 
 	b.Allocate(17)
-	dataLength := 15 + len(dh.nodename) // 1 + 8 (flags) + 4 (creation) + 2 (len l.Name)
+	dataLength := 15 + len(dh.nodename) // 1 + 8 (flags) + 4 (creation) + 2 (len dh.nodename)
 	binary.BigEndian.PutUint16(b.B[0:2], uint16(dataLength))
 	b.B[2] = 'N'
 	binary.BigEndian.PutUint64(b.B[3:11], flags.toUint64())          // uint64
@@ -542,7 +542,7 @@ func (dh *DistHandshake) readName(b []byte) (string, nodeFlags, error) {
 		return "", 0, fmt.Errorf("Malformed node name")
 	}
 	nodename := string(b[6:])
-	flags := nodeFlag(binary.BigEndian.Uint32(b[2:6]))
+	flags := nodeFlags(binary.BigEndian.Uint32(b[2:6]))
 
 	// don't care of version value. its always == 5 according to the spec
 	// version := binary.BigEndian.Uint16(b[0:2])
@@ -556,7 +556,7 @@ func (dh *DistHandshake) readNameVersion6(b []byte) (string, nodeFlags, error) {
 		return "", 0, fmt.Errorf("Malformed node name")
 	}
 	nodename := string(b[14 : 14+nameLen])
-	flags := nodeFlag(binary.BigEndian.Uint64(b[0:8]))
+	flags := nodeFlags(binary.BigEndian.Uint64(b[0:8]))
 
 	// don't care of peer creation value
 	// creation:= binary.BigEndian.Uint32(b[8:12]),
@@ -564,12 +564,12 @@ func (dh *DistHandshake) readNameVersion6(b []byte) (string, nodeFlags, error) {
 	return nodename, flags, nil
 }
 
-func (dh *DistHandshake) composeStatus(b *lib.Buffer) {
+func (dh *DistHandshake) composeStatus(b *lib.Buffer, tls bool) {
 	// there are few options for the status: ok, ok_simultaneous, nok, not_allowed, alive
 	// More details here: https://erlang.org/doc/apps/erts/erl_dist_protocol.html#the-handshake-in-detail
 	// support "ok" only, in any other cases link will be just closed
 
-	if dh.options.tls {
+	if tls {
 		b.Allocate(4)
 		dataLength := 3 // 's' + "ok"
 		binary.BigEndian.PutUint32(b.B[0:4], uint32(dataLength))
@@ -595,96 +595,98 @@ func (dh *DistHandshake) readStatus(msg []byte) bool {
 func (dh *DistHandshake) composeChallenge(b *lib.Buffer, tls bool, flags nodeFlags) {
 	if tls {
 		b.Allocate(15)
-		dataLength := uint32(11 + len(l.Name))
+		dataLength := uint32(11 + len(dh.nodename))
 		binary.BigEndian.PutUint32(b.B[0:4], dataLength)
 		b.B[4] = 'n'
-		binary.BigEndian.PutUint16(b.B[5:7], l.version)         // uint16
-		binary.BigEndian.PutUint32(b.B[7:11], flags.toUint32()) // uint32
-		binary.BigEndian.PutUint32(b.B[11:15], l.challenge)     // uint32
-		b.Append([]byte(l.Name))
+		binary.BigEndian.PutUint16(b.B[5:7], uint16(dh.options.Version)) // uint16
+		binary.BigEndian.PutUint32(b.B[7:11], flags.toUint32())          // uint32
+		binary.BigEndian.PutUint32(b.B[11:15], dh.challenge)             // uint32
+		b.Append([]byte(dh.nodename))
 		return
 	}
 
 	b.Allocate(13)
-	dataLength := 11 + len(l.Name)
+	dataLength := 11 + len(dh.nodename)
 	binary.BigEndian.PutUint16(b.B[0:2], uint16(dataLength))
 	b.B[2] = 'n'
-	binary.BigEndian.PutUint16(b.B[3:5], l.version)        // uint16
-	binary.BigEndian.PutUint32(b.B[5:9], flags.toUint32()) // uint32
-	binary.BigEndian.PutUint32(b.B[9:13], l.challenge)     // uint32
-	b.Append([]byte(l.Name))
+	binary.BigEndian.PutUint16(b.B[3:5], uint16(dh.options.Version)) // uint16
+	binary.BigEndian.PutUint32(b.B[5:9], flags.toUint32())           // uint32
+	binary.BigEndian.PutUint32(b.B[9:13], dh.challenge)              // uint32
+	b.Append([]byte(dh.nodename))
 }
 
 func (dh *DistHandshake) composeChallengeVersion6(b *lib.Buffer, tls bool, flags nodeFlags) {
 	if tls {
-		// 1 ('N') + 8 (flags) + 4 (chalange) + 4 (creation) + 2 (len(l.Name))
+		// 1 ('N') + 8 (flags) + 4 (chalange) + 4 (creation) + 2 (len(dh.nodename))
 		b.Allocate(23)
-		dataLength := 19 + len(l.Name)
+		dataLength := 19 + len(dh.nodename)
 		binary.BigEndian.PutUint32(b.B[0:4], uint32(dataLength))
 		b.B[4] = 'N'
-		binary.BigEndian.PutUint64(b.B[5:13], uint64(flags))        // uint64
-		binary.BigEndian.PutUint32(b.B[13:17], l.challenge)         // uint32
-		binary.BigEndian.PutUint32(b.B[17:21], l.creation)          // uint32
-		binary.BigEndian.PutUint16(b.B[21:23], uint16(len(l.Name))) // uint16
-		b.Append([]byte(l.Name))
+		binary.BigEndian.PutUint64(b.B[5:13], uint64(flags))             // uint64
+		binary.BigEndian.PutUint32(b.B[13:17], dh.challenge)             // uint32
+		binary.BigEndian.PutUint32(b.B[17:21], dh.creation)              // uint32
+		binary.BigEndian.PutUint16(b.B[21:23], uint16(len(dh.nodename))) // uint16
+		b.Append([]byte(dh.nodename))
 		return
 	}
 
-	// 1 ('N') + 8 (flags) + 4 (chalange) + 4 (creation) + 2 (len(l.Name))
+	// 1 ('N') + 8 (flags) + 4 (chalange) + 4 (creation) + 2 (len(dh.nodename))
 	b.Allocate(21)
-	dataLength := 19 + len(l.Name)
+	dataLength := 19 + len(dh.nodename)
 	binary.BigEndian.PutUint16(b.B[0:2], uint16(dataLength))
 	b.B[2] = 'N'
-	binary.BigEndian.PutUint64(b.B[3:11], uint64(flags))        // uint64
-	binary.BigEndian.PutUint32(b.B[11:15], l.challenge)         // uint32
-	binary.BigEndian.PutUint32(b.B[15:19], l.creation)          // uint32
-	binary.BigEndian.PutUint16(b.B[19:21], uint16(len(l.Name))) // uint16
-	b.Append([]byte(l.Name))
+	binary.BigEndian.PutUint64(b.B[3:11], uint64(flags))             // uint64
+	binary.BigEndian.PutUint32(b.B[11:15], dh.challenge)             // uint32
+	binary.BigEndian.PutUint32(b.B[15:19], dh.creation)              // uint32
+	binary.BigEndian.PutUint16(b.B[19:21], uint16(len(dh.nodename))) // uint16
+	b.Append([]byte(dh.nodename))
 }
 
 // returns challange, nodename, nodeFlags
 func (dh *DistHandshake) readChallenge(msg []byte) (challenge uint32, nodename string, flags nodeFlags) {
 	version := binary.BigEndian.Uint16(msg[0:2])
-	if version != DistHandshakeVersion5 {
+	if version != uint16(DistHandshakeVersion5) {
 		return
 	}
 	challenge = binary.BigEndian.Uint32(msg[6:10])
 	nodename = string(msg[10:])
-	flags = nodeFlag(binary.BigEndian.Uint32(msg[2:6]))
+	flags = nodeFlags(binary.BigEndian.Uint32(msg[2:6]))
+	return
 }
 
 func (dh *DistHandshake) readChallengeVersion6(msg []byte) (challenge uint32, nodename string, flags nodeFlags) {
 	lenName := int(binary.BigEndian.Uint16(msg[16:18]))
 	challenge = binary.BigEndian.Uint32(msg[8:12])
 	nodename = string(msg[18 : 18+lenName])
-	flags = nodeFlag(binary.BigEndian.Uint64(msg[0:8]))
+	flags = nodeFlags(binary.BigEndian.Uint64(msg[0:8]))
 
 	// don't care about 'creation'
 	// creation := binary.BigEndian.Uint32(msg[12:16]),
-}
-
-func (dh *DistHandshake) readComplement(msg []byte) {
-	flags := uint64(binary.BigEndian.Uint32(msg[0:4])) << 32
-	l.peer.flags = nodeFlag(l.peer.flags.toUint64() | flags)
-	l.peer.creation = binary.BigEndian.Uint32(msg[4:8])
 	return
 }
 
-func (dh *DistHandshake) validateChallengeReply(b []byte) bool {
-	l.peer.challenge = binary.BigEndian.Uint32(b[:4])
-	digestB := b[4:]
-
-	digestA := genDigest(l.challenge, l.Cookie)
-	return bytes.Equal(digestA[:], digestB)
+func (dh *DistHandshake) readComplement(msg []byte, peer_flags nodeFlags) nodeFlags {
+	flags := uint64(binary.BigEndian.Uint32(msg[0:4])) << 32
+	peer_flags = nodeFlags(peer_flags.toUint64() | flags)
+	// creation = binary.BigEndian.Uint32(msg[4:8])
+	return peer_flags
 }
 
-func (dh *DistHandshake) composeChallengeAck(b *lib.Buffer) {
-	if dh.options.TLS {
+func (dh *DistHandshake) validateChallengeReply(b []byte) (uint32, bool) {
+	challenge := binary.BigEndian.Uint32(b[:4])
+	digestB := b[4:]
+
+	digestA := genDigest(dh.challenge, dh.options.Cookie)
+	return challenge, bytes.Equal(digestA[:], digestB)
+}
+
+func (dh *DistHandshake) composeChallengeAck(b *lib.Buffer, peer_challenge uint32, tls bool) {
+	if tls {
 		b.Allocate(5)
 		dataLength := uint32(17) // 'a' + 16 (digest)
 		binary.BigEndian.PutUint32(b.B[0:4], dataLength)
 		b.B[4] = 'a'
-		digest := genDigest(l.peer.challenge, l.Cookie)
+		digest := genDigest(peer_challenge, dh.options.Cookie)
 		b.Append(digest)
 		return
 	}
@@ -693,43 +695,42 @@ func (dh *DistHandshake) composeChallengeAck(b *lib.Buffer) {
 	dataLength := uint16(17) // 'a' + 16 (digest)
 	binary.BigEndian.PutUint16(b.B[0:2], dataLength)
 	b.B[2] = 'a'
-	digest := genDigest(l.peer.challenge, l.Cookie)
+	digest := genDigest(peer_challenge, dh.options.Cookie)
 	b.Append(digest)
 }
 
 func (dh *DistHandshake) composeChallengeReply(b *lib.Buffer, challenge uint32, tls bool) {
 	if tls {
-		l.digest = genDigest(challenge, dh.options.Cookie)
+		digest := genDigest(challenge, dh.options.Cookie)
 		b.Allocate(9)
-		dataLength := 5 + len(l.digest) // 1 (byte) + 4 (challenge) + 16 (digest)
+		dataLength := 5 + len(digest) // 1 (byte) + 4 (challenge) + 16 (digest)
 		binary.BigEndian.PutUint32(b.B[0:4], uint32(dataLength))
 		b.B[4] = 'r'
 		binary.BigEndian.PutUint32(b.B[5:9], dh.challenge) // uint32
-		b.Append(l.digest[:])
+		b.Append(digest)
 		return
 	}
 
 	b.Allocate(7)
-	l.digest = genDigest(challenge, dh.options.Cookie)
-	dataLength := 5 + len(l.digest) // 1 (byte) + 4 (challenge) + 16 (digest)
+	digest := genDigest(challenge, dh.options.Cookie)
+	dataLength := 5 + len(digest) // 1 (byte) + 4 (challenge) + 16 (digest)
 	binary.BigEndian.PutUint16(b.B[0:2], uint16(dataLength))
 	b.B[2] = 'r'
 	binary.BigEndian.PutUint32(b.B[3:7], dh.challenge) // uint32
-	b.Append(l.digest)
+	b.Append(digest)
 }
 
-func (dh *DistHandshake) composeComplement(b *lib.Buffer, tls bool) {
+func (dh *DistHandshake) composeComplement(b *lib.Buffer, flags nodeFlags, tls bool) {
 	// cast must cast creation to int32 in order to follow the
 	// erlang's handshake. Ergo don't care of it.
-	creation := int32(dh.creation)
-	flags := uint32(l.flags.toUint64() >> 32)
+	node_flags := uint32(flags.toUint64() >> 32)
 	if tls {
 		b.Allocate(13)
 		dataLength := 9 // 1 + 4 (flag high) + 4 (creation)
 		binary.BigEndian.PutUint32(b.B[0:4], uint32(dataLength))
 		b.B[4] = 'c'
-		binary.BigEndian.PutUint32(b.B[5:9], flags)
-		binary.BigEndian.PutUint32(b.B[9:13], creation)
+		binary.BigEndian.PutUint32(b.B[5:9], node_flags)
+		binary.BigEndian.PutUint32(b.B[9:13], dh.creation)
 		return
 	}
 
@@ -737,8 +738,8 @@ func (dh *DistHandshake) composeComplement(b *lib.Buffer, tls bool) {
 	b.Allocate(11)
 	binary.BigEndian.PutUint16(b.B[0:2], uint16(dataLength))
 	b.B[2] = 'c'
-	binary.BigEndian.PutUint32(b.B[3:7], flags)
-	binary.BigEndian.PutUint32(b.B[7:11], creation)
+	binary.BigEndian.PutUint32(b.B[3:7], node_flags)
+	binary.BigEndian.PutUint32(b.B[7:11], dh.creation)
 }
 
 func genDigest(challenge uint32, cookie string) []byte {

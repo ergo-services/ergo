@@ -22,6 +22,7 @@ type registeredNode struct {
 }
 
 type epmd struct {
+	port       uint16
 	nodes      map[string]registeredNode
 	nodesMutex sync.Mutex
 }
@@ -35,6 +36,7 @@ func startServerEPMD(ctx context.Context, host string, port uint16) error {
 	}
 
 	epmd := epmd{
+		port:  port,
 		nodes: make(map[string]registeredNode),
 	}
 	go epmd.serve(listener)
@@ -56,8 +58,9 @@ func (e *epmd) serve(l net.Listener) {
 }
 
 func (e *epmd) handle(c net.Conn) {
+	var name string
+	var node registeredNode
 	buf := make([]byte, 1024)
-	name := ""
 
 	defer c.Close()
 	for {
@@ -138,7 +141,7 @@ func (e *epmd) handle(c net.Conn) {
 
 func (e *epmd) readAliveReq(req []byte) (string, registeredNode, error) {
 	if len(req) < 10 {
-		return "", nodeinfo{}, fmt.Errorf("Malformed EPMD request")
+		return "", registeredNode{}, fmt.Errorf("Malformed EPMD request")
 	}
 	// Name length
 	l := binary.BigEndian.Uint16(req[8:10])
@@ -155,7 +158,7 @@ func (e *epmd) readAliveReq(req []byte) (string, registeredNode, error) {
 		hidden: hidden,
 		hi:     binary.BigEndian.Uint16(req[4:6]),
 		lo:     binary.BigEndian.Uint16(req[6:8]),
-		extra:  req[10+l],
+		extra:  req[10+l:],
 	}
 
 	return name, node, nil
@@ -189,17 +192,17 @@ func (e *epmd) sendPortPleaseResp(c net.Conn, name string, node registeredNode) 
 	// Protocol TCP
 	buf[5] = 0
 	// Highest version
-	binary.BigEndian.PutUint16(buf[6:8], uint16(info.hi))
+	binary.BigEndian.PutUint16(buf[6:8], uint16(node.hi))
 	// Lowest version
-	binary.BigEndian.PutUint16(buf[8:10], uint16(info.lo))
+	binary.BigEndian.PutUint16(buf[8:10], uint16(node.lo))
 	// Name
 	binary.BigEndian.PutUint16(buf[10:12], uint16(len(name)))
 	offset := 12 + len(name)
 	copy(buf[12:offset], name)
 	// Extra
-	l := len(info.extra)
+	l := len(node.extra)
 	binary.BigEndian.PutUint16(buf[offset:offset+2], uint16(l))
-	copy(buf[offset+2:offset+2+l], info.extra)
+	copy(buf[offset+2:offset+2+l], node.extra)
 	// send
 	c.Write(buf)
 	return
@@ -213,14 +216,14 @@ func (e *epmd) sendNamesResp(c net.Conn, req []byte) {
 	binary.BigEndian.PutUint32(buf[0:4], uint32(e.port))
 	str.WriteString(string(buf[0:]))
 
-	e.serverMutex.Lock()
-	for k, v := range e.portmap {
+	e.nodesMutex.Lock()
+	for k, v := range e.nodes {
 		// io:format("name ~ts at port ~p~n", [NodeName, Port]).
-		s = fmt.Sprintf("name %s at port %d\n", k, v.Port)
+		s = fmt.Sprintf("name %s at port %d\n", k, v.port)
 		str.WriteString(s)
 	}
-	e.serverMutex.Unlock()
+	e.nodesMutex.Unlock()
 
-	c.Write(str.String())
+	c.Write([]byte(str.String()))
 	return
 }
