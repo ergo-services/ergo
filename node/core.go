@@ -761,7 +761,7 @@ func (c *core) RouteProxy() error {
 }
 
 // RouteSpawnRequest
-func (c *core) RouteSpawnRequest(behaviorGroup string, behaviorName string, request gen.RemoteSpawnRequest) (etf.Pid, error) {
+func (c *core) RouteSpawnRequest(behaviorName string, request gen.RemoteSpawnRequest) (etf.Pid, error) {
 	//rb, err_behavior := n.registrar.RegisteredBehavior(remoteBehaviorGroup, string(module))
 	// FIXME
 	//process_opts := processOptions{}

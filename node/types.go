@@ -152,7 +152,7 @@ type CoreRouter interface {
 	// RouteNodeDown
 	RouteNodeDown(name string)
 
-	RouteSpawnRequest(behaviorGroup string, behaviorName string, request gen.RemoteSpawnRequest) (etf.Pid, error)
+	RouteSpawnRequest(behaviorName string, request gen.RemoteSpawnRequest) (etf.Pid, error)
 	RouteSpawnReply(to etf.Pid, ref etf.Ref, result etf.Term) error
 	RouteProxy() error
 }
@@ -278,12 +278,12 @@ type ConnectionInterface interface {
 	DemonitorReg(local etf.Pid, remote gen.ProcessID, ref etf.Ref) error
 	MonitorExitReg(to etf.Pid, terminated gen.ProcessID, reason string, ref etf.Ref) error
 
-	SpawnRequest()
+	SpawnRequest() error
 	SpawnReply(to etf.Pid, ref etf.Ref, spawned etf.Pid) error
 	SpawnReplyError(to etf.Pid, ref etf.Ref, err error) error
 
-	Proxy()
-	ProxyReg()
+	Proxy() error
+	ProxyReg() error
 }
 
 // Handshake template struct for the custom Handshake implementation
@@ -327,7 +327,7 @@ type CustomProtoOptions interface{}
 // ProtoOptions
 type ProtoOptions struct {
 	// MaxMessageSize limit the message size. Default 0 (no limit)
-	MaxMessageSize int64
+	MaxMessageSize int
 	// NumHandlers defines the number of readers/writers per connection. Default is the number of CPU.
 	NumHandlers int
 	// SendQueueLength defines queue size of handler for the outgoing messages. Default 100.

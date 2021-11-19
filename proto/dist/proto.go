@@ -57,6 +57,7 @@ type distConnection struct {
 
 	// socket
 	conn          io.ReadWriter
+	compression   bool
 	options       node.ProtoOptions
 	cancelContext context.CancelFunc
 
@@ -102,7 +103,7 @@ type distProto struct {
 
 func CreateProto(nodename string, compression bool, proxymode node.ProxyMode) node.ProtoInterface {
 	return &distProto{
-		nodename:    string,
+		nodename:    nodename,
 		compression: compression,
 		proxymode:   proxymode,
 	}
@@ -112,15 +113,16 @@ func CreateProto(nodename string, compression bool, proxymode node.ProxyMode) no
 // node.Proto interface implementation
 //
 
-func (dp *distProto) Init(conn io.ReadWriter, peername string, options node.ProtoOptions, router node.CoreRouter) error {
+func (dp *distProto) Init(conn io.ReadWriter, peername string, options node.ProtoOptions, router node.CoreRouter) (node.ConnectionInterface, error) {
 	connection := &distConnection{
-		nodename: dp.nodename,
-		peername: peername,
-		conn:     conn,
-		router:   router,
-		options:  options,
+		nodename:    dp.nodename,
+		peername:    peername,
+		conn:        conn,
+		router:      router,
+		options:     options,
+		compression: dp.compression,
 	}
-	return connection
+	return connection, nil
 }
 
 type senders struct {
@@ -142,7 +144,7 @@ type sendMessage struct {
 
 type receivers struct {
 	recv []chan *lib.Buffer
-	n    int
+	n    int32
 	i    int32
 }
 
@@ -158,7 +160,7 @@ func (dp *distProto) Serve(ctx context.Context, conn node.ConnectionInterface) {
 
 	// initializing atom cache if its enabled
 	if connection.options.Flags.DisableHeaderAtomCache == false {
-		connection.cacheOut = etf.NewAtomCache(connectionxtx)
+		connection.cacheOut = etf.NewAtomCache(connectionctx)
 	}
 
 	// create connection buffering
@@ -170,24 +172,26 @@ func (dp *distProto) Serve(ctx context.Context, conn node.ConnectionInterface) {
 	// do not use shared channels within intencive code parts, impacts on a performance
 	connection.receivers = receivers{
 		recv: make([]chan *lib.Buffer, numHandlers),
-		n:    numHandlers,
+		n:    int32(numHandlers),
 	}
 	// run readers for incoming messages
 	for i := 0; i < numHandlers; i++ {
 		// run packet reader routines (decoder)
-		connection.receivers.recv[i] = make(chan *lib.Buffer, connection.options.RecvQueueLength)
+		recv := make(chan *lib.Buffer, connection.options.RecvQueueLength)
+		connection.receivers.recv[i] = recv
 		go connection.receiver(recv)
 	}
 
 	connection.senders = senders{
-		send: make([]*senderChannel, numHandlers),
-		n:    int32(numHandlers),
+		sender: make([]*senderChannel, numHandlers),
+		n:      int32(numHandlers),
 	}
 	// run readers/writers for incoming/outgoing messages
 	for i := 0; i < numHandlers; i++ {
 		// run writer routines (encoder)
+		send := make(chan *sendMessage, connection.options.SendQueueLength)
 		connection.senders.sender[i] = &senderChannel{
-			sendChannel: make(chan *sendMessage, connection.options.SendQueueLength),
+			sendChannel: send,
 		}
 		go connection.sender(send, connection.options.FragmentationUnit, connection.options.Flags)
 	}
@@ -195,16 +199,16 @@ func (dp *distProto) Serve(ctx context.Context, conn node.ConnectionInterface) {
 	// close all reader/writer channels on exit from this routine
 	defer func() {
 		for i := 0; i < numHandlers; i++ {
-			sender := dc.senders.sender[i]
+			sender := connection.senders.sender[i]
 			if sender != nil {
 				sender.Lock()
 				close(sender.sendChannel)
-				sender.sendChannel == nil
+				sender.sendChannel = nil
 				sender.Unlock()
-				dc.senders.sender[i] = nil
+				connection.senders.sender[i] = nil
 			}
-			if receivers.recv[i] != nil {
-				close(receivers.recv[i])
+			if connection.receivers.recv[i] != nil {
+				close(connection.receivers.recv[i])
 			}
 		}
 	}()
@@ -215,11 +219,11 @@ func (dp *distProto) Serve(ctx context.Context, conn node.ConnectionInterface) {
 
 	b := lib.TakeBuffer()
 	for {
-		packetLength, err = dc.read(connectionctx, b)
+		packetLength, err = connection.read(connectionctx, b)
 		if err != nil || packetLength == 0 {
 			// link was closed or got malformed data
 			if err != nil {
-				fmt.Println("link was closed", dc.peername, "error:", err)
+				fmt.Println("link was closed", connection.peername, "error:", err)
 			}
 			lib.ReleaseBuffer(b)
 			return
@@ -234,17 +238,17 @@ func (dp *distProto) Serve(ctx context.Context, conn node.ConnectionInterface) {
 		// buffer b has to be released by the reader of
 		// recv channel (link.ReadHandlePacket)
 		b.B = b.B[:packetLength]
-		dc.receivers.recv[dc.receivers.i] <- b
+		connection.receivers.recv[connection.receivers.i] <- b
 
 		// set new buffer as a current for the next reading
 		b = b1
 
 		// round-robin switch to the next receiver
-		dc.receivers.i++
-		if dc.receivers.i < dc.receivers.n {
+		connection.receivers.i++
+		if connection.receivers.i < connection.receivers.n {
 			continue
 		}
-		dc.receivers.i = 0
+		connection.receivers.i = 0
 	}
 
 }
@@ -297,19 +301,19 @@ func (dc *distConnection) SendAlias(from gen.Process, to etf.Alias, message etf.
 	return dc.send(msg)
 }
 
-func (dc *distConnection) Link(local gen.Process, remote etf.Pid) error {
+func (dc *distConnection) Link(local etf.Pid, remote etf.Pid) error {
 	msg := &sendMessage{
-		control: etf.Tuple{distProtoLINK, local.Self(), remote},
+		control: etf.Tuple{distProtoLINK, local, remote},
 	}
 	return dc.send(msg)
 }
-func (dc *distConnection) Unlink(local gen.Process, remote etf.Pid) error {
+func (dc *distConnection) Unlink(local etf.Pid, remote etf.Pid) error {
 	msg := &sendMessage{
-		control: etf.Tuple{distProtoUNLINK, local.Self(), remote},
+		control: etf.Tuple{distProtoUNLINK, local, remote},
 	}
 	return dc.send(msg)
 }
-func (dc *distConnection) LinkExit(local etf.Pid, remote etf.Pid, reason string) error {
+func (dc *distConnection) LinkExit(to etf.Pid, terminated etf.Pid, reason string) error {
 	msg := &sendMessage{
 		control: etf.Tuple{distProtoEXIT, terminated, to, etf.Atom(reason)},
 	}
@@ -334,13 +338,13 @@ func (dc *distConnection) Demonitor(local etf.Pid, remote etf.Pid, ref etf.Ref) 
 	}
 	return dc.send(msg)
 }
-func (dc *distConnection) DemonitorReg(local etf.Pid, remote gen.Process, ref etf.Ref) error {
+func (dc *distConnection) DemonitorReg(local etf.Pid, remote gen.ProcessID, ref etf.Ref) error {
 	msg := &sendMessage{
 		control: etf.Tuple{distProtoDEMONITOR, local, etf.Atom(remote.Name), ref},
 	}
 	return dc.send(msg)
 }
-func (dc *distConnection) MonitorExitReg(to etf.Pid, terminated gen.Process, reason string, ref etf.Ref) error {
+func (dc *distConnection) MonitorExitReg(to etf.Pid, terminated gen.ProcessID, reason string, ref etf.Ref) error {
 	msg := &sendMessage{
 		control: etf.Tuple{distProtoMONITOR_EXIT, etf.Atom(terminated.Name), to, ref, etf.Atom(reason)},
 	}
@@ -465,7 +469,7 @@ func (dc *distConnection) receiver(recv <-chan *lib.Buffer) {
 		if err == ErrMissingInCache {
 			if b == missing.b && missing.c > 100 {
 				fmt.Println("Error: Disordered data at the link with", dc.peername, ". Close connection")
-				l.Close()
+				dc.cancelContext()
 				lib.ReleaseBuffer(b)
 				return
 			}
@@ -484,7 +488,7 @@ func (dc *distConnection) receiver(recv <-chan *lib.Buffer) {
 				continue
 			default:
 				fmt.Println("Error: Mess at the link with", dc.peername, ". Close connection")
-				l.Close()
+				dc.cancelContext()
 				lib.ReleaseBuffer(b)
 				return
 			}
@@ -494,7 +498,7 @@ func (dc *distConnection) receiver(recv <-chan *lib.Buffer) {
 
 		if err != nil {
 			fmt.Println("Malformed Dist proto at the link with", dc.peername, err)
-			l.Close()
+			dc.cancelContext()
 			lib.ReleaseBuffer(b)
 			return
 		}
@@ -507,7 +511,7 @@ func (dc *distConnection) receiver(recv <-chan *lib.Buffer) {
 		// handle message
 		if err := dc.handleMessage(control, message); err != nil {
 			fmt.Printf("Malformed Control packet at the link with %s: %#v\n", dc.peername, control)
-			l.Close()
+			dc.cancelContext()
 			lib.ReleaseBuffer(b)
 			return
 		}
@@ -556,8 +560,8 @@ func (dc *distConnection) decodeDist(packet []byte) (etf.Term, etf.Term, error) 
 		}
 
 		decodeOptions := etf.DecodeOptions{
-			FlagV4NC:        l.peer.flags.isSet(V4_NC),
-			FlagBigCreation: l.peer.flags.isSet(BIG_CREATION),
+			// FIXME must be used from peer's flag
+			FlagBigPidRef: false,
 		}
 
 		// decode control message
@@ -719,7 +723,7 @@ func (dc *distConnection) handleMessage(control, message etf.Term) (err error) {
 					return nil
 				case etf.Atom:
 					processID := gen.ProcessID{string(terminated), dc.peername}
-					dc.router.RouteMonitorExitReg(processID, terminated, reason, ref)
+					dc.router.RouteMonitorExitReg(to, processID, reason, ref)
 					return nil
 				}
 				return fmt.Errorf("malformed monitor exit message")
@@ -796,7 +800,7 @@ func (dc *distConnection) handleMessage(control, message etf.Term) (err error) {
 				lib.Log("[%s] CONTROL SPAWN_REPLY [from %s]: %#v", dc.nodename, dc.peername, control)
 				to := t.Element(3).(etf.Pid)
 				ref := t.Element(2).(etf.Ref)
-				dc.RouteSpawnReply(to, ref, t.Element(5))
+				dc.router.RouteSpawnReply(to, ref, t.Element(5))
 				return nil
 
 			default:
@@ -1065,6 +1069,7 @@ func (dc *distConnection) sender(send <-chan *sendMessage, fragmentationUnit int
 
 	var lenControl, lenMessage, lenAtomCache, lenPacket, startDataPosition int
 	var atomCacheBuffer, packetBuffer *lib.Buffer
+	var message *sendMessage
 	var err error
 
 	// cancel connection context if something went wrong
@@ -1072,8 +1077,8 @@ func (dc *distConnection) sender(send <-chan *sendMessage, fragmentationUnit int
 	// goroutines around this connection
 	defer dc.cancelContext()
 
-	cacheEnabled := l.peer.flags.isSet(DIST_HDR_ATOM_CACHE) && l.cacheOut != nil
-	fragmentationEnabled := l.peer.flags.isSet(FRAGMENTS) && fragmentationUnit > 0
+	cacheEnabled := flags.DisableHeaderAtomCache && dc.cacheOut != nil
+	fragmentationEnabled := flags.EnableFragmentation && fragmentationUnit > 0
 
 	// Header atom cache is encoded right after the control/message encoding process
 	// but should be stored as a first item in the packet.
@@ -1092,8 +1097,8 @@ func (dc *distConnection) sender(send <-chan *sendMessage, fragmentationUnit int
 		LinkAtomCache:     linkAtomCache,
 		WriterAtomCache:   writerAtomCache,
 		EncodingAtomCache: encodingAtomCache,
-		FlagBigCreation:   l.peer.flags.isSet(BIG_CREATION),
-		FlagV4NC:          l.peer.flags.isSet(V4_NC),
+		FlagBigCreation:   flags.EnableBigCreation,
+		FlagBigPidRef:     flags.EnableBigPidRef,
 	}
 
 	for {
@@ -1271,7 +1276,7 @@ func (dc *distConnection) send(msg *sendMessage) error {
 	defer s.Unlock()
 
 	select {
-	case s.send <- msg:
+	case s.sendChannel <- msg:
 		return nil
 	default:
 		return ErrOverloadConnection
