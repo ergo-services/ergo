@@ -211,7 +211,7 @@ func (n *network) serve(ctx context.Context, link *dist.Link) error {
 		n    int
 		i    int
 	}{
-		recv: make([]chan *lib.Buffer, n.opts.RecvQueueLength),
+		recv: make([]chan *lib.Buffer, numHandlers),
 		n:    numHandlers,
 	}
 
