@@ -61,6 +61,7 @@ type network struct {
 	remoteSpawnMutex sync.Mutex
 
 	tls      TLS
+	proxy    Proxy
 	version  Version
 	creation uint32
 
@@ -91,16 +92,21 @@ func newNetwork(ctx context.Context, nodename string, options Options, router Co
 
 	n.version, _ = options.Env[EnvKeyVersion].(Version)
 
-	if err := n.loadTLS(options); err != nil {
-		return nil, err
+	n.tls = options.TLS
+	selfSignedCert, err := generateSelfSignedCert(n.version)
+	if n.tls.Server.Certificate == nil {
+		n.tls.Server = selfSignedCert
+	}
+	if n.tls.Client.Certificate == nil {
+		n.tls.Client = selfSignedCert
 	}
 
-	err := n.handshake.Init(n.nodename, n.creation)
+	err = n.handshake.Init(n.nodename, n.creation)
 	if err != nil {
 		return nil, err
 	}
 
-	port, err := n.listen(ctx, nn[1], options)
+	port, err := n.listen(ctx, nn[1], options.ListenBegin, options.ListenEnd)
 	if err != nil {
 		return nil, err
 	}
@@ -109,7 +115,7 @@ func newNetwork(ctx context.Context, nodename string, options Options, router Co
 		NodeVersion:      n.version,
 		HandshakeVersion: n.handshake.Version(),
 		EnabledTLS:       n.tls.Enabled,
-		EnabledProxy:     options.ProxyMode != ProxyModeDisabled,
+		EnabledProxy:     n.proxy.Enabled,
 	}
 	if err := n.resolver.Register(nodename, port, resolverOptions); err != nil {
 		return nil, err
@@ -213,56 +219,20 @@ func (n *network) Nodes() []string {
 	return list
 }
 
-func (n *network) loadTLS(options Options) error {
-	switch options.TLSMode {
-	case TLSModeAuto:
-		cert, err := generateSelfSignedCert(n.version)
-		if err != nil {
-			return fmt.Errorf("Can't generate certificate: %s\n", err)
-		}
-
-		n.tls.Server = cert
-		n.tls.Client = cert
-		n.tls.Mode = TLSModeAuto
-		n.tls.Enabled = true
-		n.tls.Config = tls.Config{
-			Certificates:       []tls.Certificate{cert},
-			InsecureSkipVerify: true,
-		}
-
-	case TLSModeStrict:
-		certServer, err := tls.LoadX509KeyPair(options.TLSCrtServer, options.TLSKeyServer)
-		if err != nil {
-			return fmt.Errorf("Can't load server certificate: %s\n", err)
-		}
-		certClient, err := tls.LoadX509KeyPair(options.TLSCrtClient, options.TLSKeyClient)
-		if err != nil {
-			return fmt.Errorf("Can't load client certificate: %s\n", err)
-		}
-
-		n.tls.Server = certServer
-		n.tls.Client = certClient
-		n.tls.Mode = TLSModeStrict
-		n.tls.Enabled = true
-		n.tls.Config = tls.Config{
-			Certificates: []tls.Certificate{certServer},
-			ServerName:   "localhost",
-		}
-	}
-	return nil
-}
-
-func (n *network) listen(ctx context.Context, hostname string, options Options) (uint16, error) {
+func (n *network) listen(ctx context.Context, hostname string, begin uint16, end uint16) (uint16, error) {
 
 	lc := net.ListenConfig{}
-	for port := options.ListenBegin; port <= options.ListenEnd; port++ {
+	for port := begin; port <= end; port++ {
 		hostPort := net.JoinHostPort(hostname, strconv.Itoa(int(port)))
 		listener, err := lc.Listen(ctx, "tcp", hostPort)
 		if err != nil {
 			continue
 		}
 		if n.tls.Enabled {
-			listener = tls.NewListener(listener, &n.tls.Config)
+			config := tls.Config{
+				Certificates: []tls.Certificate{n.tls.Server},
+			}
+			listener = tls.NewListener(listener, &config)
 		}
 		n.listener = listener
 
@@ -340,16 +310,23 @@ func (n *network) connect(peername string) (ConnectionInterface, error) {
 	if route.IsErgo == true {
 		// rely on the route TLS settings if they were defined
 		if route.EnabledTLS {
-			if route.TLSConfig == nil {
+			if route.Cert.Certificate == nil {
 				// use the local TLS settings
+				config := tls.Config{
+					Certificates:       []tls.Certificate{n.tls.Client},
+					InsecureSkipVerify: n.tls.SkipVerify,
+				}
 				tlsdialer := tls.Dialer{
-					Config: &n.tls.Config,
+					Config: &config,
 				}
 				c, err = tlsdialer.DialContext(n.ctx, "tcp", HostPort)
 			} else {
 				// use the route TLS settings
+				config := tls.Config{
+					Certificates: []tls.Certificate{route.Cert},
+				}
 				tlsdialer := tls.Dialer{
-					Config: route.TLSConfig,
+					Config: &config,
 				}
 				c, err = tlsdialer.DialContext(n.ctx, "tcp", HostPort)
 			}
@@ -364,8 +341,12 @@ func (n *network) connect(peername string) (ConnectionInterface, error) {
 	} else {
 		// rely on the local TLS settings
 		if n.tls.Enabled {
+			config := tls.Config{
+				Certificates:       []tls.Certificate{n.tls.Client},
+				InsecureSkipVerify: n.tls.SkipVerify,
+			}
 			tlsdialer := tls.Dialer{
-				Config: &n.tls.Config,
+				Config: &config,
 			}
 			c, err = tlsdialer.DialContext(n.ctx, "tcp", HostPort)
 			enabledTLS = true
@@ -505,30 +486,6 @@ func generateSelfSignedCert(version Version) (tls.Certificate, error) {
 	})
 
 	return tls.X509KeyPair(certPEM.Bytes(), certPrivKeyPEM.Bytes())
-}
-
-type peer struct {
-	name string
-	send []chan []etf.Term
-	i    int
-	n    int
-
-	mutex sync.Mutex
-}
-
-func (p *peer) getChannel() chan []etf.Term {
-	p.mutex.Lock()
-	defer p.mutex.Unlock()
-
-	c := p.send[p.i]
-
-	p.i++
-	if p.i < p.n {
-		return c
-	}
-
-	p.i = 0
-	return c
 }
 
 //

@@ -14,10 +14,10 @@ import (
 )
 
 const (
-	DistHandshakeVersion5 node.HandshakeVersion = 5
-	DistHandshakeVersion6 node.HandshakeVersion = 6
+	HandshakeVersion5 node.HandshakeVersion = 5
+	HandshakeVersion6 node.HandshakeVersion = 6
 
-	DefaultDistHandshakeVersion = DistHandshakeVersion5
+	DefaultHandshakeVersion = HandshakeVersion5
 
 	// distribution flags are defined here https://erlang.org/doc/apps/erts/erl_dist_protocol.html#distribution-flags
 	flagPublished          nodeFlagId = 0x1
@@ -81,18 +81,18 @@ type DistHandshake struct {
 	creation  uint32
 	challenge uint32
 	timeout   time.Duration
-	options   DistHandshakeOptions
+	options   HandshakeOptions
 }
 
-type DistHandshakeOptions struct {
+type HandshakeOptions struct {
 	Version node.HandshakeVersion // 5 or 6
 	Cookie  string
 }
 
-func CreateDistHandshake(timeout time.Duration, options DistHandshakeOptions) node.HandshakeInterface {
+func CreateHandshake(timeout time.Duration, options HandshakeOptions) node.HandshakeInterface {
 	// must be 5 or 6
-	if options.Version != DistHandshakeVersion5 && options.Version != DistHandshakeVersion6 {
-		options.Version = DefaultDistHandshakeVersion
+	if options.Version != HandshakeVersion5 && options.Version != HandshakeVersion6 {
+		options.Version = DefaultHandshakeVersion
 	}
 	return &DistHandshake{
 		options:   options,
@@ -145,7 +145,7 @@ func (dh *DistHandshake) Start(conn io.ReadWriter, tls bool) (node.ProtoOptions,
 
 	var await []byte
 
-	if dh.options.Version == DistHandshakeVersion5 {
+	if dh.options.Version == HandshakeVersion5 {
 		dh.composeName(b, tls, flags)
 		// the next message must be send_status 's' or send_challenge 'n' (for
 		// handshake version 5) or 'N' (for handshake version 6)
@@ -237,7 +237,7 @@ func (dh *DistHandshake) Start(conn io.ReadWriter, tls bool) (node.ProtoOptions,
 				peer_challenge, peer_name, peer_flags = dh.readChallengeVersion6(buffer[1:])
 				b.Reset()
 
-				if dh.options.Version == DistHandshakeVersion5 {
+				if dh.options.Version == HandshakeVersion5 {
 					// upgrade handshake to version 6 by sending complement message
 					dh.composeComplement(b, flags, tls)
 					if e := b.WriteDataTo(conn); e != nil {
@@ -268,6 +268,7 @@ func (dh *DistHandshake) Start(conn io.ReadWriter, tls bool) (node.ProtoOptions,
 
 				// handshaked
 				//FIXME
+				fmt.Println("PEERNAME", peer_name, "PEERFLAGS", peer_flags)
 				protoOptions = node.DefaultProtoOptions(0, false)
 				return protoOptions, nil
 
@@ -447,11 +448,12 @@ func (dh *DistHandshake) Accept(conn io.ReadWriter, tls bool) (string, node.Prot
 				b.Reset()
 
 			case 'r':
+				var valid bool
 				if len(buffer) < 19 {
 					return peer_name, protoOptions, fmt.Errorf("malformed handshake ('r' length)")
 				}
 
-				peer_challenge, valid := dh.validateChallengeReply(buffer[1:])
+				peer_challenge, valid = dh.validateChallengeReply(buffer[1:])
 				if valid == false {
 					return peer_name, protoOptions, fmt.Errorf("malformed handshake ('r' invalid reply)")
 				}
@@ -464,6 +466,7 @@ func (dh *DistHandshake) Accept(conn io.ReadWriter, tls bool) (string, node.Prot
 
 				// handshaked
 				// FIXME
+				fmt.Println("PEERCHALLENGE", peer_challenge)
 				protoOptions = node.DefaultProtoOptions(0, false)
 
 				return peer_name, protoOptions, nil
@@ -645,7 +648,7 @@ func (dh *DistHandshake) composeChallengeVersion6(b *lib.Buffer, tls bool, flags
 // returns challange, nodename, nodeFlags
 func (dh *DistHandshake) readChallenge(msg []byte) (challenge uint32, nodename string, flags nodeFlags) {
 	version := binary.BigEndian.Uint16(msg[0:2])
-	if version != uint16(DistHandshakeVersion5) {
+	if version != uint16(HandshakeVersion5) {
 		return
 	}
 	challenge = binary.BigEndian.Uint32(msg[6:10])

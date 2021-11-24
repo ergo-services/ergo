@@ -202,8 +202,6 @@ type ProcessOptions struct {
 	GroupLeader Process
 	// Env set the process environment variables
 	Env map[EnvKey]interface{}
-	// Compression enables compression for the messages sent outside this node
-	Compression bool
 }
 
 // RemoteSpawnOptions defines options for RemoteSpawn method

@@ -9,10 +9,10 @@ import (
 
 type CloudApp struct {
 	gen.Application
-	options node.CloudOptions
+	options node.Cloud
 }
 
-func CreateApp(options node.CloudOptions) gen.ApplicationBehavior {
+func CreateApp(options node.Cloud) gen.ApplicationBehavior {
 	return &CloudApp{
 		options: options,
 	}

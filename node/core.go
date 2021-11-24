@@ -24,7 +24,8 @@ type core struct {
 	ctx  context.Context
 	stop context.CancelFunc
 
-	env map[gen.EnvKey]interface{}
+	env         map[gen.EnvKey]interface{}
+	compression bool
 
 	tls TLS
 
@@ -73,12 +74,13 @@ func newCore(ctx context.Context, nodename string, options Options) (coreInterna
 		nextPID: startPID,
 		uniqID:  uint64(time.Now().UnixNano()),
 		// keep node to get the process to access to the node's methods
-		nodename:  nodename,
-		creation:  options.Creation,
-		names:     make(map[string]etf.Pid),
-		aliases:   make(map[etf.Alias]*process),
-		processes: make(map[uint64]*process),
-		behaviors: make(map[string]map[string]gen.RegisteredBehavior),
+		nodename:    nodename,
+		compression: options.Compression,
+		creation:    options.Creation,
+		names:       make(map[string]etf.Pid),
+		aliases:     make(map[etf.Alias]*process),
+		processes:   make(map[uint64]*process),
+		behaviors:   make(map[string]map[string]gen.RegisteredBehavior),
 	}
 
 	corectx, corestop := context.WithCancel(ctx)
@@ -264,10 +266,11 @@ func (c *core) newProcess(name string, behavior gen.ProcessBehavior, opts proces
 	process := &process{
 		coreInternal: c,
 
-		self:     pid,
-		name:     name,
-		behavior: behavior,
-		env:      env,
+		self:        pid,
+		name:        name,
+		behavior:    behavior,
+		env:         env,
+		compression: c.compression,
 
 		parent:      opts.parent,
 		groupLeader: opts.GroupLeader,

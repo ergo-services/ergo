@@ -157,36 +157,11 @@ type CoreRouter interface {
 	RouteProxy() error
 }
 
-// NetworkRoute
-type NetworkRoute struct {
-	Port   int
-	Cookie string
-	TLS    bool
-}
-
-// TLSmodeType should be one of TLSmodeDisabled (default), TLSmodeAuto or TLSmodeStrict
-type TLSMode int
-
-// ProxyMode
-type ProxyMode int
-
-const (
-	// TLSModeDisabled no TLS encryption
-	TLSModeDisabled TLSMode = 0
-	// TLSModeAuto generate self-signed certificate
-	TLSModeAuto TLSMode = 1
-	// TLSModeStrict with validation certificate
-	TLSModeStrict TLSMode = 2
-
-	// ProxyModeDisabled
-	ProxyModeDisabled ProxyMode = 0
-	ProxyModeEnabled  ProxyMode = 1
-)
-
 // Options defines bootstrapping options for the node
 type Options struct {
 	// Applications application list that must be started
 	Applications []gen.ApplicationBehavior
+
 	// Env node environment
 	Env map[gen.EnvKey]interface{}
 
@@ -195,7 +170,7 @@ type Options struct {
 
 	// network options
 
-	// Listen defines a port number for accepting incoming connections
+	// Listen defines a listening port number for accepting incoming connections.
 	Listen uint16
 	// ListenBegin and ListenEnd define a range of the port numbers where
 	// the node looking for available free port number for the listening.
@@ -203,56 +178,49 @@ type Options struct {
 	ListenBegin uint16
 	ListenEnd   uint16
 
+	// TLS settings
+	TLS TLS
+
 	// StaticRoutesOnly disables resolving service (default is EPMD client) and
 	// makes resolving localy only for nodes added using gen.AddStaticRoute
 	StaticRoutesOnly bool
 
-	// ResolverListen defines port for the resolving service
-	// (default is EPMD server and port number 4369)
-	ResolverListen uint16
-	// ResolverHost defines host for the listening.
-	ResolverHost string
-	// ResolverDisableServer disables embedded resolving service
-	ResolverDisableServer bool
 	// Resolver defines a resolving service (default is EPMD service, client and server)
 	Resolver Resolver
 
 	// Compression enables compression for outgoing messages
 	Compression bool
 
-	// ProxyMode enables/disables proxy mode for the node
-	ProxyMode ProxyMode
-
-	// TLS settings
-	TLSMode      TLSMode
-	TLSCrtServer string
-	TLSKeyServer string
-	TLSCrtClient string
-	TLSKeyClient string
-
 	// Handshake defines a handshake handler. By default is using
 	// DIST handshake created with dist.CreateHandshake(...)
 	Handshake HandshakeInterface
+
 	// Proto defines a proto handler. By default is using
 	// DIST proto created with dist.CreateProto(...)
 	Proto ProtoInterface
 
 	// enable Ergo Cloud support
-	CloudEnable  bool
-	CloudOptions CloudOptions
-}
+	Cloud Cloud
 
-type CloudOptions struct {
-	ID     string
-	Cookie string
+	// ProxyMode enables/disables proxy mode for the node
+	Proxy Proxy
 }
 
 type TLS struct {
+	Enabled    bool
+	Server     tls.Certificate
+	Client     tls.Certificate
+	SkipVerify bool
+}
+
+type Cloud struct {
 	Enabled bool
-	Mode    TLSMode
-	Server  tls.Certificate
-	Client  tls.Certificate
-	Config  tls.Config
+	ID      string
+	Cookie  string
+}
+
+type Proxy struct {
+	Enabled bool
 }
 
 // Connection
@@ -321,9 +289,6 @@ type ProtoInterface interface {
 	Serve(ctx context.Context, connection ConnectionInterface)
 }
 
-// CustomProtoOptions a custom set of proto options
-type CustomProtoOptions interface{}
-
 // ProtoOptions
 type ProtoOptions struct {
 	// MaxMessageSize limit the message size. Default 0 (no limit)
@@ -342,6 +307,9 @@ type ProtoOptions struct {
 	Custom CustomProtoOptions
 }
 
+// CustomProtoOptions a custom set of proto options
+type CustomProtoOptions interface{}
+
 // ProtoFlags
 type ProtoFlags struct {
 	// DisableHeaderAtomCache makes proto handler disable header atom cache feature
@@ -354,6 +322,12 @@ type ProtoFlags struct {
 	EnableFragmentation bool
 }
 
+// Resolver defines resolving interface
+type Resolver interface {
+	Register(nodename string, port uint16, options ResolverOptions) error
+	Resolve(peername string) (Route, error)
+}
+
 // ResolverOptions defines resolving options
 type ResolverOptions struct {
 	NodeVersion      Version
@@ -362,14 +336,13 @@ type ResolverOptions struct {
 	EnabledProxy     bool
 }
 
-// Resolver defines resolving interface
-type Resolver interface {
-	Register(nodename string, port uint16, options ResolverOptions) error
-	Resolve(peername string) (Route, error)
+// Route
+type Route struct {
+	Name string
+	Host string
+	Port uint16
+	RouteOptions
 }
-
-// CustomRouteOptions a custom set of route options
-type CustomRouteOptions interface{}
 
 // RouteOptions
 type RouteOptions struct {
@@ -378,17 +351,11 @@ type RouteOptions struct {
 	EnabledProxy bool
 	IsErgo       bool
 
-	TLSConfig *tls.Config
+	Cert      tls.Certificate
 	Handshake HandshakeInterface
 	Proto     ProtoInterface
 	Custom    CustomRouteOptions
 }
 
-// Route
-type Route struct {
-	NodeName string
-	Name     string
-	Host     string
-	Port     uint16
-	RouteOptions
-}
+// CustomRouteOptions a custom set of route options
+type CustomRouteOptions interface{}

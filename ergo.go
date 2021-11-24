@@ -32,30 +32,29 @@ func StartNodeWithContext(ctx context.Context, name string, cookie string, opts 
 	opts.Applications = append([]gen.ApplicationBehavior{&erlang.KernelApp{}}, opts.Applications...)
 
 	// add cloud support if it's enabled
-	if opts.CloudEnable {
-		cloudApp := cloud.CreateApp(opts.CloudOptions)
+	if opts.Cloud.Enabled {
+		cloudApp := cloud.CreateApp(opts.Cloud)
 		opts.Applications = append([]gen.ApplicationBehavior{cloudApp}, opts.Applications...)
 	}
 
 	if opts.Handshake == nil {
 		handshakeOptions := dist.HandshakeOptions{
 			Cookie:  cookie,
-			Version: dist.DefaultDistHandshakeVersion,
+			Version: dist.DefaultHandshakeVersion,
 		}
-		// set default handshake for the node (Erlang Dist Handshake)
+		// create default handshake for the node (Erlang Dist Handshake)
 		handshakeTimeout := 5 * time.Second
-		opts.Handshake == dist.CreateHandshake(handshakeTimeout, handshakeOptions)
+		opts.Handshake = dist.CreateHandshake(handshakeTimeout, handshakeOptions)
 	}
 
 	if opts.Proto == nil {
-		// set default proto handler (Erlang Dist Proto)
-		opts.Proto = dist.CreateProto(name, opts.Compression, opts.ProxyMode)
+		// create default proto handler (Erlang Dist Proto)
+		opts.Proto = dist.CreateProto(name, opts.Compression, opts.Proxy)
 	}
 
 	if opts.StaticRoutesOnly == false && opts.Resolver == nil {
-		// set default resolver (Erlang EPMD service)
-		enabledServer := ops.ResolverDisableServer == false
-		opts.Resolver = dist.CreateResolver(ctx, enabledServer, opts.ResolverHost, opts.ResolverPort)
+		// create default resolver (Erlang EPMD service)
+		opts.Resolver = dist.CreateResolver(ctx, true, "", dist.DefaultEPMDPort)
 	}
 
 	return node.StartWithContext(ctx, name, cookie, opts)

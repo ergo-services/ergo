@@ -98,14 +98,14 @@ type distProto struct {
 	// enable compression for outgoing messages
 	compression bool
 	// allow proxy messages
-	proxymode node.ProxyMode
+	proxy node.Proxy
 }
 
-func CreateProto(nodename string, compression bool, proxymode node.ProxyMode) node.ProtoInterface {
+func CreateProto(nodename string, compression bool, proxy node.Proxy) node.ProtoInterface {
 	return &distProto{
 		nodename:    nodename,
 		compression: compression,
-		proxymode:   proxymode,
+		proxy:       proxy,
 	}
 }
 
