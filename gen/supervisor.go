@@ -117,7 +117,7 @@ func (sv *Supervisor) ProcessInit(p Process, args ...etf.Term) (ProcessState, er
 	if err != nil {
 		return ProcessState{}, err
 	}
-	lib.Log("Supervisor spec %#v\n", spec)
+	lib.Log("[%s] SUPERVISOR %q with restart strategy: %s[%s] ", p.NodeName(), p.Name(), spec.Strategy.Type, spec.Strategy.Restart)
 
 	p.SetTrapExit(true)
 	return ProcessState{

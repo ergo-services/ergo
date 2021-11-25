@@ -19,6 +19,7 @@ const (
 
 	epmdAliveReq      = 120
 	epmdAliveResp     = 121
+	epmdAliveRespX    = 118
 	epmdPortPleaseReq = 122
 	epmdPortResp      = 119
 	epmdNamesReq      = 110
@@ -270,8 +271,10 @@ func (e *epmdResolver) readAliveResp(conn net.Conn) error {
 	if _, err := conn.Read(buf); err != nil {
 		return err
 	}
-	if buf[0] != epmdAliveResp {
-		return fmt.Errorf("Malformed EMPD response")
+	switch buf[0] {
+	case epmdAliveResp, epmdAliveRespX:
+	default:
+		return fmt.Errorf("Malformed EPMD response", buf)
 	}
 	if buf[1] != 0 {
 		return fmt.Errorf("Can't register. Code: %d", e.nodeName, buf[1])

@@ -41,6 +41,7 @@ func StartNodeWithContext(ctx context.Context, name string, cookie string, opts 
 		handshakeOptions := dist.HandshakeOptions{
 			Cookie:  cookie,
 			Version: dist.DefaultHandshakeVersion,
+			Flags:   node.DefaultProtoFlags(),
 		}
 		// create default handshake for the node (Erlang Dist Handshake)
 		handshakeTimeout := 5 * time.Second
@@ -49,7 +50,9 @@ func StartNodeWithContext(ctx context.Context, name string, cookie string, opts 
 
 	if opts.Proto == nil {
 		// create default proto handler (Erlang Dist Proto)
-		opts.Proto = dist.CreateProto(name, opts.Compression, opts.Proxy)
+		protoOptions := node.DefaultProtoOptions()
+		protoOptions.Compression = opts.Compression
+		opts.Proto = dist.CreateProto(name, protoOptions)
 	}
 
 	if opts.StaticRoutesOnly == false && opts.Resolver == nil {

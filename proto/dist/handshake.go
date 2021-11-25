@@ -87,6 +87,8 @@ type DistHandshake struct {
 type HandshakeOptions struct {
 	Version node.HandshakeVersion // 5 or 6
 	Cookie  string
+	// Flags defines enabled options for the running node
+	Flags node.ProtoFlags
 }
 
 func CreateHandshake(timeout time.Duration, options HandshakeOptions) node.HandshakeInterface {
@@ -95,6 +97,7 @@ func CreateHandshake(timeout time.Duration, options HandshakeOptions) node.Hands
 		options.Version = DefaultHandshakeVersion
 	}
 	return &DistHandshake{
+		timeout:   timeout,
 		options:   options,
 		challenge: rand.Uint32(),
 	}
@@ -111,12 +114,11 @@ func (dh *DistHandshake) Version() node.HandshakeVersion {
 	return dh.options.Version
 }
 
-func (dh *DistHandshake) Start(conn io.ReadWriter, tls bool) (node.ProtoOptions, error) {
+func (dh *DistHandshake) Start(conn io.ReadWriter, tls bool) (node.ProtoFlags, error) {
 
 	var peer_challenge uint32
-	var peer_name string
 	var peer_flags nodeFlags
-	var protoOptions node.ProtoOptions
+	var protoFlags node.ProtoFlags
 
 	flags := toNodeFlags(
 		flagPublished,
@@ -155,7 +157,7 @@ func (dh *DistHandshake) Start(conn io.ReadWriter, tls bool) (node.ProtoOptions,
 		await = []byte{'s', 'N'}
 	}
 	if e := b.WriteDataTo(conn); e != nil {
-		return protoOptions, e
+		return protoFlags, e
 	}
 
 	// define timeout for the handshaking
@@ -184,11 +186,11 @@ func (dh *DistHandshake) Start(conn io.ReadWriter, tls bool) (node.ProtoOptions,
 
 		select {
 		case <-timer.C:
-			return protoOptions, fmt.Errorf("handshake timeout")
+			return protoFlags, fmt.Errorf("handshake timeout")
 
 		case e := <-asyncReadChannel:
 			if e != nil {
-				return protoOptions, e
+				return protoFlags, e
 			}
 
 		next:
@@ -196,31 +198,32 @@ func (dh *DistHandshake) Start(conn io.ReadWriter, tls bool) (node.ProtoOptions,
 			buffer := b.B[expectingBytes:]
 
 			if len(buffer) < int(l) {
-				return protoOptions, fmt.Errorf("malformed handshake (wrong packet length)")
+				return protoFlags, fmt.Errorf("malformed handshake (wrong packet length)")
 			}
 
 			// chech if we got correct message type regarding to 'await' value
 			if bytes.Count(await, buffer[0:1]) == 0 {
-				return protoOptions, fmt.Errorf("malformed handshake (wrong response)")
+				return protoFlags, fmt.Errorf("malformed handshake (wrong response)")
 			}
 
 			switch buffer[0] {
 			case 'n':
 				// 'n' + 2 (version) + 4 (flags) + 4 (challenge) + name...
 				if len(b.B) < 12 {
-					return protoOptions, fmt.Errorf("malformed handshake ('n')")
+					return protoFlags, fmt.Errorf("malformed handshake ('n')")
 				}
 
-				peer_challenge, peer_name, peer_flags = dh.readChallenge(b.B[1:])
+				// ignore peer_name value if we initiate the connection
+				peer_challenge, _, peer_flags = dh.readChallenge(b.B[1:])
 				if peer_challenge == 0 {
-					return protoOptions, fmt.Errorf("malformed handshake (mismatch handshake version")
+					return protoFlags, fmt.Errorf("malformed handshake (mismatch handshake version")
 				}
 				b.Reset()
 
 				dh.composeChallengeReply(b, peer_challenge, tls)
 
 				if e := b.WriteDataTo(conn); e != nil {
-					return protoOptions, e
+					return protoFlags, e
 				}
 				// add 's' status for the case if we got it after 'n' or 'N' message
 				// yes, sometime it happens
@@ -232,23 +235,25 @@ func (dh *DistHandshake) Start(conn io.ReadWriter, tls bool) (node.ProtoOptions,
 				// The new challenge message format (version 6)
 				// 8 (flags) + 4 (Creation) + 2 (NameLen) + Name
 				if len(buffer) < 16 {
-					return protoOptions, fmt.Errorf("malformed handshake ('N' length)")
+					return protoFlags, fmt.Errorf("malformed handshake ('N' length)")
 				}
-				peer_challenge, peer_name, peer_flags = dh.readChallengeVersion6(buffer[1:])
+
+				// ignore peer_name value if we initiate the connection
+				peer_challenge, _, peer_flags = dh.readChallengeVersion6(buffer[1:])
 				b.Reset()
 
 				if dh.options.Version == HandshakeVersion5 {
 					// upgrade handshake to version 6 by sending complement message
 					dh.composeComplement(b, flags, tls)
 					if e := b.WriteDataTo(conn); e != nil {
-						return protoOptions, e
+						return protoFlags, e
 					}
 				}
 
 				dh.composeChallengeReply(b, peer_challenge, tls)
 
 				if e := b.WriteDataTo(conn); e != nil {
-					return protoOptions, e
+					return protoFlags, e
 				}
 
 				// add 's' (send_status message) for the case if we got it after 'n' or 'N' message
@@ -257,24 +262,40 @@ func (dh *DistHandshake) Start(conn io.ReadWriter, tls bool) (node.ProtoOptions,
 			case 'a':
 				// 'a' + 16 (digest)
 				if len(buffer) != 17 {
-					return protoOptions, fmt.Errorf("malformed handshake ('a' length of digest)")
+					return protoFlags, fmt.Errorf("malformed handshake ('a' length of digest)")
 				}
 
 				// 'a' + 16 (digest)
 				digest := genDigest(dh.challenge, dh.options.Cookie)
 				if bytes.Compare(buffer[1:17], digest) != 0 {
-					return protoOptions, fmt.Errorf("malformed handshake ('a' digest)")
+					return protoFlags, fmt.Errorf("malformed handshake ('a' digest)")
 				}
 
 				// handshaked
-				//FIXME
-				fmt.Println("PEERNAME", peer_name, "PEERFLAGS", peer_flags)
-				protoOptions = node.DefaultProtoOptions(0, false)
-				return protoOptions, nil
+				protoFlags = node.DefaultProtoFlags()
+				if peer_flags.isSet(flagFragments) {
+					protoFlags.EnableFragmentation = true
+				}
+				if peer_flags.isSet(flagBigCreation) {
+					protoFlags.EnableBigCreation = true
+				}
+				if peer_flags.isSet(flagDistHdrAtomCache) {
+					protoFlags.EnableHeaderAtomCache = true
+				}
+				if peer_flags.isSet(flagAlias) {
+					protoFlags.EnableAlias = true
+				}
+				if peer_flags.isSet(flagSpawn) {
+					protoFlags.EnableRemoteSpawn = true
+				}
+				if peer_flags.isSet(flagV4NC) {
+					protoFlags.EnableBigPidRef = true
+				}
+				return protoFlags, nil
 
 			case 's':
 				if dh.readStatus(buffer[1:]) == false {
-					return protoOptions, fmt.Errorf("handshake negotiation failed")
+					return protoFlags, fmt.Errorf("handshake negotiation failed")
 				}
 
 				await = []byte{'n', 'N'}
@@ -286,7 +307,7 @@ func (dh *DistHandshake) Start(conn io.ReadWriter, tls bool) (node.ProtoOptions,
 				b.Reset()
 
 			default:
-				return protoOptions, fmt.Errorf("malformed handshake ('%c' digest)", buffer[0])
+				return protoFlags, fmt.Errorf("malformed handshake ('%c' digest)", buffer[0])
 			}
 
 		}
@@ -295,11 +316,11 @@ func (dh *DistHandshake) Start(conn io.ReadWriter, tls bool) (node.ProtoOptions,
 
 }
 
-func (dh *DistHandshake) Accept(conn io.ReadWriter, tls bool) (string, node.ProtoOptions, error) {
+func (dh *DistHandshake) Accept(conn io.ReadWriter, tls bool) (string, node.ProtoFlags, error) {
 	var peer_challenge uint32
 	var peer_name string
 	var peer_flags nodeFlags
-	var protoOptions node.ProtoOptions
+	var protoFlags node.ProtoFlags
 	var err error
 
 	flags := toNodeFlags(
@@ -359,14 +380,14 @@ func (dh *DistHandshake) Accept(conn io.ReadWriter, tls bool) (string, node.Prot
 
 		select {
 		case <-timer.C:
-			return peer_name, protoOptions, fmt.Errorf("handshake accept timeout")
+			return peer_name, protoFlags, fmt.Errorf("handshake accept timeout")
 		case e := <-asyncReadChannel:
 			if e != nil {
-				return peer_name, protoOptions, e
+				return peer_name, protoFlags, e
 			}
 
 			if b.Len() < expectingBytes+1 {
-				return peer_name, protoOptions, fmt.Errorf("malformed handshake (too short packet)")
+				return peer_name, protoFlags, fmt.Errorf("malformed handshake (too short packet)")
 			}
 
 		next:
@@ -374,27 +395,27 @@ func (dh *DistHandshake) Accept(conn io.ReadWriter, tls bool) (string, node.Prot
 			buffer := b.B[expectingBytes:]
 
 			if len(buffer) < int(l) {
-				return peer_name, protoOptions, fmt.Errorf("malformed handshake (wrong packet length)")
+				return peer_name, protoFlags, fmt.Errorf("malformed handshake (wrong packet length)")
 			}
 
 			if bytes.Count(await, buffer[0:1]) == 0 {
-				return peer_name, protoOptions, fmt.Errorf("malformed handshake (wrong response %d)", buffer[0])
+				return peer_name, protoFlags, fmt.Errorf("malformed handshake (wrong response %d)", buffer[0])
 			}
 
 			switch buffer[0] {
 			case 'n':
 				if len(buffer) < 8 {
-					return peer_name, protoOptions, fmt.Errorf("malformed handshake ('n' length)")
+					return peer_name, protoFlags, fmt.Errorf("malformed handshake ('n' length)")
 				}
 
 				peer_name, peer_flags, err = dh.readName(buffer[1:])
 				if err != nil {
-					return peer_name, protoOptions, err
+					return peer_name, protoFlags, err
 				}
 				b.Reset()
 				dh.composeStatus(b, tls)
 				if e := b.WriteDataTo(conn); e != nil {
-					return peer_name, protoOptions, fmt.Errorf("malformed handshake ('n' accept name)")
+					return peer_name, protoFlags, fmt.Errorf("malformed handshake ('n' accept name)")
 				}
 
 				b.Reset()
@@ -406,36 +427,36 @@ func (dh *DistHandshake) Accept(conn io.ReadWriter, tls bool) (string, node.Prot
 					await = []byte{'s', 'r'}
 				}
 				if e := b.WriteDataTo(conn); e != nil {
-					return peer_name, protoOptions, e
+					return peer_name, protoFlags, e
 				}
 
 			case 'N':
 				// The new challenge message format (version 6)
 				// 8 (flags) + 4 (Creation) + 2 (NameLen) + Name
 				if len(buffer) < 16 {
-					return peer_name, protoOptions, fmt.Errorf("malformed handshake ('N' length)")
+					return peer_name, protoFlags, fmt.Errorf("malformed handshake ('N' length)")
 				}
 				peer_name, peer_flags, err = dh.readNameVersion6(buffer[1:])
 				if err != nil {
-					return peer_name, protoOptions, err
+					return peer_name, protoFlags, err
 				}
 				b.Reset()
 				dh.composeStatus(b, tls)
 				if e := b.WriteDataTo(conn); e != nil {
-					return peer_name, protoOptions, fmt.Errorf("malformed handshake ('N' accept name)")
+					return peer_name, protoFlags, fmt.Errorf("malformed handshake ('N' accept name)")
 				}
 
 				b.Reset()
 				dh.composeChallengeVersion6(b, tls, flags)
 				if e := b.WriteDataTo(conn); e != nil {
-					return peer_name, protoOptions, e
+					return peer_name, protoFlags, e
 				}
 
 				await = []byte{'s', 'r'}
 
 			case 'c':
 				if len(buffer) < 9 {
-					return peer_name, protoOptions, fmt.Errorf("malformed handshake ('c' length)")
+					return peer_name, protoFlags, fmt.Errorf("malformed handshake ('c' length)")
 				}
 				peer_flags = dh.readComplement(buffer[1:], peer_flags)
 
@@ -450,30 +471,46 @@ func (dh *DistHandshake) Accept(conn io.ReadWriter, tls bool) (string, node.Prot
 			case 'r':
 				var valid bool
 				if len(buffer) < 19 {
-					return peer_name, protoOptions, fmt.Errorf("malformed handshake ('r' length)")
+					return peer_name, protoFlags, fmt.Errorf("malformed handshake ('r' length)")
 				}
 
 				peer_challenge, valid = dh.validateChallengeReply(buffer[1:])
 				if valid == false {
-					return peer_name, protoOptions, fmt.Errorf("malformed handshake ('r' invalid reply)")
+					return peer_name, protoFlags, fmt.Errorf("malformed handshake ('r' invalid reply)")
 				}
 				b.Reset()
 
 				dh.composeChallengeAck(b, peer_challenge, tls)
 				if e := b.WriteDataTo(conn); e != nil {
-					return peer_name, protoOptions, e
+					return peer_name, protoFlags, e
 				}
 
 				// handshaked
-				// FIXME
-				fmt.Println("PEERCHALLENGE", peer_challenge)
-				protoOptions = node.DefaultProtoOptions(0, false)
+				protoFlags = node.DefaultProtoFlags()
+				if peer_flags.isSet(flagFragments) {
+					protoFlags.EnableFragmentation = true
+				}
+				if peer_flags.isSet(flagBigCreation) {
+					protoFlags.EnableBigCreation = true
+				}
+				if peer_flags.isSet(flagDistHdrAtomCache) {
+					protoFlags.EnableHeaderAtomCache = true
+				}
+				if peer_flags.isSet(flagAlias) {
+					protoFlags.EnableAlias = true
+				}
+				if peer_flags.isSet(flagSpawn) {
+					protoFlags.EnableRemoteSpawn = true
+				}
+				if peer_flags.isSet(flagV4NC) {
+					protoFlags.EnableBigPidRef = true
+				}
 
-				return peer_name, protoOptions, nil
+				return peer_name, protoFlags, nil
 
 			case 's':
 				if dh.readStatus(buffer[1:]) == false {
-					return peer_name, protoOptions, fmt.Errorf("link status != ok")
+					return peer_name, protoFlags, fmt.Errorf("link status != ok")
 				}
 
 				await = []byte{'c', 'r'}
@@ -484,7 +521,7 @@ func (dh *DistHandshake) Accept(conn io.ReadWriter, tls bool) (string, node.Prot
 				b.Reset()
 
 			default:
-				return peer_name, protoOptions, fmt.Errorf("malformed handshake (unknown code %d)", b.B[0])
+				return peer_name, protoFlags, fmt.Errorf("malformed handshake (unknown code %d)", b.B[0])
 			}
 
 		}

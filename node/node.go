@@ -423,18 +423,26 @@ func (n *node) RevokeRemoteSpawn(name string) error {
 	return n.UnregisterBehavior(remoteBehaviorGroup, name)
 }
 
-// DefaultProtoOptions
-func DefaultProtoOptions(handlers int, disableHeaderAtomCache bool) ProtoOptions {
-	flags := ProtoFlags{
-		DisableHeaderAtomCache: disableHeaderAtomCache,
-		EnableBigCreation:      true,
+// DefaultProtoFlags
+func DefaultProtoFlags() ProtoFlags {
+	return ProtoFlags{
+		EnableHeaderAtomCache: true,
+		EnableBigCreation:     true,
+		EnableBigPidRef:       true,
+		EnableFragmentation:   true,
+		EnableAlias:           true,
+		EnableRemoteSpawn:     true,
 	}
+
+}
+
+// DefaultProtoOptions
+func DefaultProtoOptions() ProtoOptions {
 	return ProtoOptions{
+		NumHandlers:       runtime.NumCPU(),
 		MaxMessageSize:    0, // no limit
 		SendQueueLength:   DefaultProtoSendQueueLength,
 		RecvQueueLength:   DefaultProtoRecvQueueLength,
 		FragmentationUnit: DefaultProroFragmentationUnit,
-		NumHandlers:       runtime.GOMAXPROCS(handlers),
-		Flags:             flags,
 	}
 }

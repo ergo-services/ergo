@@ -248,13 +248,13 @@ func (n *network) listen(ctx context.Context, hostname string, begin uint16, end
 				}
 				lib.Log("[%s] Accepted new connection from %s", n.nodename, c.RemoteAddr().String())
 
-				peername, protoOptions, err := n.handshake.Accept(c, n.tls.Enabled)
+				peername, protoFlags, err := n.handshake.Accept(c, n.tls.Enabled)
 				if err != nil {
 					lib.Log("[%s] Can't handshake with %s: %s", n.nodename, c.RemoteAddr().String(), err)
 					c.Close()
 					continue
 				}
-				connection, err := n.proto.Init(c, peername, protoOptions, n.router)
+				connection, err := n.proto.Init(c, peername, protoFlags, n.router)
 				if err != nil {
 					c.Close()
 					continue
@@ -369,7 +369,7 @@ func (n *network) connect(peername string) (ConnectionInterface, error) {
 		handshake = n.handshake
 	}
 
-	protoOptions, err := n.handshake.Start(c, enabledTLS)
+	protoFlags, err := n.handshake.Start(c, enabledTLS)
 	if err != nil {
 		c.Close()
 		return nil, err
@@ -382,7 +382,7 @@ func (n *network) connect(peername string) (ConnectionInterface, error) {
 		proto = n.proto
 	}
 
-	connection, err := n.proto.Init(c, peername, protoOptions, n.router)
+	connection, err := n.proto.Init(c, peername, protoFlags, n.router)
 	if err != nil {
 		c.Close()
 		return nil, err
@@ -539,11 +539,11 @@ func (c *Connection) ProxyReg() error {
 //
 // Handshake interface default callbacks
 //
-func (h *Handshake) Start(c net.Conn) (ProtoOptions, error) {
-	return ProtoOptions{}, ErrUnsupported
+func (h *Handshake) Start(c net.Conn) (ProtoFlags, error) {
+	return ProtoFlags{}, ErrUnsupported
 }
-func (h *Handshake) Accept(c net.Conn) (string, ProtoOptions, error) {
-	return "", ProtoOptions{}, ErrUnsupported
+func (h *Handshake) Accept(c net.Conn) (string, ProtoFlags, error) {
+	return "", ProtoFlags{}, ErrUnsupported
 }
 func (h *Handshake) Version() HandshakeVersion {
 	var v HandshakeVersion

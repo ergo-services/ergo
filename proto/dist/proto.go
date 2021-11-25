@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"math/rand"
-	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -55,10 +54,14 @@ type distConnection struct {
 	nodename string
 	peername string
 
+	// peer flags
+	flags node.ProtoFlags
+
+	// compression
+	compression bool
+
 	// socket
 	conn          io.ReadWriter
-	compression   bool
-	options       node.ProtoOptions
 	cancelContext context.CancelFunc
 
 	// route incoming messages
@@ -94,18 +97,13 @@ type distConnection struct {
 type distProto struct {
 	node.Proto
 	nodename string
-
-	// enable compression for outgoing messages
-	compression bool
-	// allow proxy messages
-	proxy node.Proxy
+	options  node.ProtoOptions
 }
 
-func CreateProto(nodename string, compression bool, proxy node.Proxy) node.ProtoInterface {
+func CreateProto(nodename string, options node.ProtoOptions) node.ProtoInterface {
 	return &distProto{
-		nodename:    nodename,
-		compression: compression,
-		proxy:       proxy,
+		nodename: nodename,
+		options:  options,
 	}
 }
 
@@ -113,14 +111,14 @@ func CreateProto(nodename string, compression bool, proxy node.Proxy) node.Proto
 // node.Proto interface implementation
 //
 
-func (dp *distProto) Init(conn io.ReadWriter, peername string, options node.ProtoOptions, router node.CoreRouter) (node.ConnectionInterface, error) {
+func (dp *distProto) Init(conn io.ReadWriter, peername string, flags node.ProtoFlags, router node.CoreRouter) (node.ConnectionInterface, error) {
 	connection := &distConnection{
 		nodename:    dp.nodename,
 		peername:    peername,
+		flags:       flags,
+		compression: dp.options.Compression,
 		conn:        conn,
 		router:      router,
-		options:     options,
-		compression: dp.compression,
 	}
 	return connection, nil
 }
@@ -159,46 +157,43 @@ func (dp *distProto) Serve(ctx context.Context, conn node.ConnectionInterface) {
 	connection.cancelContext = cancel
 
 	// initializing atom cache if its enabled
-	if connection.options.Flags.DisableHeaderAtomCache == false {
+	if connection.flags.EnableHeaderAtomCache {
 		connection.cacheOut = etf.NewAtomCache(connectionctx)
 	}
 
 	// create connection buffering
 	connection.flusher = newLinkFlusher(connection.conn, defaultLatency)
 
-	// define the total number of reader/writer goroutines
-	numHandlers := runtime.GOMAXPROCS(connection.options.NumHandlers)
-
 	// do not use shared channels within intencive code parts, impacts on a performance
 	connection.receivers = receivers{
-		recv: make([]chan *lib.Buffer, numHandlers),
-		n:    int32(numHandlers),
+		recv: make([]chan *lib.Buffer, dp.options.NumHandlers),
+		n:    int32(dp.options.NumHandlers),
 	}
 	// run readers for incoming messages
-	for i := 0; i < numHandlers; i++ {
+	for i := 0; i < dp.options.NumHandlers; i++ {
 		// run packet reader routines (decoder)
-		recv := make(chan *lib.Buffer, connection.options.RecvQueueLength)
+		recv := make(chan *lib.Buffer, dp.options.RecvQueueLength)
 		connection.receivers.recv[i] = recv
 		go connection.receiver(recv)
 	}
 
 	connection.senders = senders{
-		sender: make([]*senderChannel, numHandlers),
-		n:      int32(numHandlers),
+		sender: make([]*senderChannel, dp.options.NumHandlers),
+		n:      int32(dp.options.NumHandlers),
 	}
 	// run readers/writers for incoming/outgoing messages
-	for i := 0; i < numHandlers; i++ {
+	for i := 0; i < dp.options.NumHandlers; i++ {
 		// run writer routines (encoder)
-		send := make(chan *sendMessage, connection.options.SendQueueLength)
+		send := make(chan *sendMessage, dp.options.SendQueueLength)
 		connection.senders.sender[i] = &senderChannel{
 			sendChannel: send,
 		}
-		go connection.sender(send, connection.options.FragmentationUnit, connection.options.Flags)
+		go connection.sender(send, dp.options, connection.flags)
 	}
 
 	// close all reader/writer channels on exit from this routine
 	defer func() {
-		for i := 0; i < numHandlers; i++ {
+		for i := 0; i < dp.options.NumHandlers; i++ {
 			sender := connection.senders.sender[i]
 			if sender != nil {
 				sender.Lock()
@@ -219,7 +214,7 @@ func (dp *distProto) Serve(ctx context.Context, conn node.ConnectionInterface) {
 
 	b := lib.TakeBuffer()
 	for {
-		packetLength, err = connection.read(connectionctx, b)
+		packetLength, err = connection.read(connectionctx, b, dp.options.MaxMessageSize)
 		if err != nil || packetLength == 0 {
 			// link was closed or got malformed data
 			if err != nil {
@@ -371,13 +366,13 @@ func (dc *distConnection) ProxyReg() error {
 // internal
 //
 
-func (dc *distConnection) read(ctx context.Context, b *lib.Buffer) (int, error) {
+func (dc *distConnection) read(ctx context.Context, b *lib.Buffer, max int) (int, error) {
 	// http://erlang.org/doc/apps/erts/erl_dist_protocol.html#protocol-between-connected-nodes
 	expectingBytes := 4
 
 	for {
 		if b.Len() < expectingBytes {
-			n, e := b.ReadDataFrom(dc.conn, dc.options.MaxMessageSize)
+			n, e := b.ReadDataFrom(dc.conn, max)
 			if n == 0 {
 				// link was closed
 				return 0, nil
@@ -1061,7 +1056,7 @@ func (dc *distConnection) encodeDistHeaderAtomCache(b *lib.Buffer,
 	}
 }
 
-func (dc *distConnection) sender(send <-chan *sendMessage, fragmentationUnit int, flags node.ProtoFlags) {
+func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOptions, flags node.ProtoFlags) {
 	var encodingAtomCache *etf.ListAtomCache
 	var writerAtomCache map[etf.Atom]etf.CacheItem
 	var linkAtomCache *etf.AtomCache
@@ -1077,8 +1072,8 @@ func (dc *distConnection) sender(send <-chan *sendMessage, fragmentationUnit int
 	// goroutines around this connection
 	defer dc.cancelContext()
 
-	cacheEnabled := flags.DisableHeaderAtomCache && dc.cacheOut != nil
-	fragmentationEnabled := flags.EnableFragmentation && fragmentationUnit > 0
+	cacheEnabled := flags.EnableHeaderAtomCache && dc.cacheOut != nil
+	fragmentationEnabled := flags.EnableFragmentation && options.FragmentationUnit > 0
 
 	// Header atom cache is encoded right after the control/message encoding process
 	// but should be stored as a first item in the packet.
@@ -1169,7 +1164,7 @@ func (dc *distConnection) sender(send <-chan *sendMessage, fragmentationUnit int
 			// 4 (packet len) + 1 (dist header: 131) + 1 (dist header: protoDistMessage) + lenAtomCache
 			lenPacket = 1 + 1 + lenAtomCache + lenControl + lenMessage
 
-			if !fragmentationEnabled || lenPacket < fragmentationUnit {
+			if !fragmentationEnabled || lenPacket < options.FragmentationUnit {
 				// send as a single packet
 				startDataPosition -= 6
 
@@ -1188,10 +1183,10 @@ func (dc *distConnection) sender(send <-chan *sendMessage, fragmentationUnit int
 			// "The entire atom cache and control message has to be part of the starting fragment"
 
 			sequenceID := uint64(atomic.AddInt64(&dc.sequenceID, 1))
-			numFragments := lenMessage/fragmentationUnit + 1
+			numFragments := lenMessage/options.FragmentationUnit + 1
 
 			// 1 (dist header: 131) + 1 (dist header: protoDistFragment) + 8 (sequenceID) + 8 (fragmentID) + ...
-			lenPacket = 1 + 1 + 8 + 8 + lenAtomCache + lenControl + fragmentationUnit
+			lenPacket = 1 + 1 + 8 + 8 + lenAtomCache + lenControl + options.FragmentationUnit
 
 			// 4 (packet len) + 1 (dist header: 131) + 1 (dist header: protoDistFragment) + 8 (sequenceID) + 8 (fragmentID)
 			startDataPosition -= 22
@@ -1211,8 +1206,8 @@ func (dc *distConnection) sender(send <-chan *sendMessage, fragmentationUnit int
 
 		nextFragment:
 
-			if len(packetBuffer.B[startDataPosition:]) > fragmentationUnit {
-				lenPacket = 1 + 1 + 8 + 8 + fragmentationUnit
+			if len(packetBuffer.B[startDataPosition:]) > options.FragmentationUnit {
+				lenPacket = 1 + 1 + 8 + 8 + options.FragmentationUnit
 				// reuse the previous 22 bytes for the next frame header
 				startDataPosition -= 22
 

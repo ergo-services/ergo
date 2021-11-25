@@ -201,9 +201,6 @@ type Options struct {
 
 	// enable Ergo Cloud support
 	Cloud Cloud
-
-	// ProxyMode enables/disables proxy mode for the node
-	Proxy Proxy
 }
 
 type TLS struct {
@@ -265,10 +262,10 @@ type HandshakeInterface interface {
 	Init(nodename string, creation uint32) error
 	// Start initiates handshake process. Argument tls means the connection is wrapped by TLS
 	// Returns proto options to override default ones.
-	Start(conn io.ReadWriter, tls bool) (ProtoOptions, error)
+	Start(conn io.ReadWriter, tls bool) (ProtoFlags, error)
 	// Accept accepts handshake process initiated by another side of this connection. Returns
 	// the name of connected peer and proto options
-	Accept(conn io.ReadWriter, tls bool) (string, ProtoOptions, error)
+	Accept(conn io.ReadWriter, tls bool) (string, ProtoFlags, error)
 	// Version handshake version. Must be implemented if this handshake is going to be used
 	// for the accepting connections (this method is used in registration on the Resolver)
 	Version() HandshakeVersion
@@ -284,25 +281,27 @@ type Proto struct {
 // Proto defines proto interface for the custom Proto implementation
 type ProtoInterface interface {
 	// Init initialize connection handler
-	Init(conn io.ReadWriter, peername string, options ProtoOptions, router CoreRouter) (ConnectionInterface, error)
+	Init(conn io.ReadWriter, peername string, flags ProtoFlags, router CoreRouter) (ConnectionInterface, error)
 	// Serve connection
 	Serve(ctx context.Context, connection ConnectionInterface)
 }
 
 // ProtoOptions
 type ProtoOptions struct {
+	// NumHandlers defines the number of readers/writers per connection. Default is the number of CPU
+	NumHandlers int
 	// MaxMessageSize limit the message size. Default 0 (no limit)
 	MaxMessageSize int
-	// NumHandlers defines the number of readers/writers per connection. Default is the number of CPU.
-	NumHandlers int
 	// SendQueueLength defines queue size of handler for the outgoing messages. Default 100.
 	SendQueueLength int
 	// RecvQueueLength defines queue size of handler for the incoming messages. Default 100.
 	RecvQueueLength int
 	// FragmentationUnit defines unit size for the fragmentation feature. Default 65000
 	FragmentationUnit int
-	// Flags defines enabled/disabled features for the peering node
-	Flags ProtoFlags
+	// Compression enables compression for the outgoing messages
+	Compression bool
+	// Proxy defines proxy settings
+	Proxy Proxy
 	// Custom brings a custom set of options to the ProtoInterface.Serve handler
 	Custom CustomProtoOptions
 }
@@ -312,14 +311,18 @@ type CustomProtoOptions interface{}
 
 // ProtoFlags
 type ProtoFlags struct {
-	// DisableHeaderAtomCache makes proto handler disable header atom cache feature
-	DisableHeaderAtomCache bool
+	// EnableHeaderAtomCache enables header atom cache feature
+	EnableHeaderAtomCache bool
 	// EnableBigCreation
 	EnableBigCreation bool
 	// EnableBigPidRef accepts a larger amount of data in pids and references
 	EnableBigPidRef bool
 	// EnableFragmentation enables fragmentation feature for the sending data
 	EnableFragmentation bool
+	// EnableAlias accepts process aliases
+	EnableAlias bool
+	// EnableRemoteSpawn accepts remote spawn request
+	EnableRemoteSpawn bool
 }
 
 // Resolver defines resolving interface
