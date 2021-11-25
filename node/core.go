@@ -3,7 +3,6 @@ package node
 import (
 	"context"
 	"fmt"
-	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -71,6 +70,7 @@ type coreInternal interface {
 func newCore(ctx context.Context, nodename string, options Options) (coreInternal, error) {
 	c := &core{
 		ctx:     ctx,
+		env:     options.Env,
 		nextPID: startPID,
 		uniqID:  uint64(time.Now().UnixNano()),
 		// keep node to get the process to access to the node's methods
@@ -375,17 +375,17 @@ func (c *core) spawn(name string, opts processOptions, behavior gen.ProcessBehav
 	lib.Log("[%s] CORE spawn a new process %s (registered name: %q)", c.nodename, process.self, name)
 
 	initProcess := func() (ps gen.ProcessState, err error) {
-		if lib.CatchPanic() {
-			defer func() {
-				if rcv := recover(); rcv != nil {
-					pc, fn, line, _ := runtime.Caller(2)
-					fmt.Printf("Warning: initialization process failed %s[%q] %#v at %s[%s:%d]\n",
-						process.self, name, rcv, runtime.FuncForPC(pc).Name(), fn, line)
-					c.deleteProcess(process.self)
-					err = fmt.Errorf("panic")
-				}
-			}()
-		}
+		//if lib.CatchPanic() {
+		//	defer func() {
+		//		if rcv := recover(); rcv != nil {
+		//			pc, fn, line, _ := runtime.Caller(2)
+		//			fmt.Printf("Warning: initialization process failed %s[%q] %#v at %s[%s:%d]\n",
+		//				process.self, name, rcv, runtime.FuncForPC(pc).Name(), fn, line)
+		//			c.deleteProcess(process.self)
+		//			err = fmt.Errorf("panic")
+		//		}
+		//	}()
+		//}
 
 		ps, err = behavior.ProcessInit(process, args...)
 		return
@@ -430,16 +430,16 @@ func (c *core) spawn(name string, opts processOptions, behavior gen.ProcessBehav
 	}
 
 	go func(ps gen.ProcessState) {
-		if lib.CatchPanic() {
-			defer func() {
-				if rcv := recover(); rcv != nil {
-					pc, fn, line, _ := runtime.Caller(2)
-					fmt.Printf("Warning: process terminated %s[%q] %#v at %s[%s:%d]\n",
-						process.self, name, rcv, runtime.FuncForPC(pc).Name(), fn, line)
-					cleanProcess("panic")
-				}
-			}()
-		}
+		//if lib.CatchPanic() {
+		//	defer func() {
+		//		if rcv := recover(); rcv != nil {
+		//			pc, fn, line, _ := runtime.Caller(2)
+		//			fmt.Printf("Warning: process terminated %s[%q] %#v at %s[%s:%d]\n",
+		//				process.self, name, rcv, runtime.FuncForPC(pc).Name(), fn, line)
+		//			cleanProcess("panic")
+		//		}
+		//	}()
+		//}
 
 		// start process loop
 		reason := behavior.ProcessLoop(ps, started)

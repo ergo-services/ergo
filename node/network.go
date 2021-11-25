@@ -239,8 +239,6 @@ func (n *network) listen(ctx context.Context, hostname string, begin uint16, end
 		go func() {
 			for {
 				c, err := listener.Accept()
-				lib.Log("[%s] Accepted new connection from %s", n.nodename, c.RemoteAddr().String())
-
 				if err != nil {
 					if ctx.Err() == nil {
 						continue
@@ -248,6 +246,7 @@ func (n *network) listen(ctx context.Context, hostname string, begin uint16, end
 					lib.Log(err.Error())
 					return
 				}
+				lib.Log("[%s] Accepted new connection from %s", n.nodename, c.RemoteAddr().String())
 
 				peername, protoOptions, err := n.handshake.Accept(c, n.tls.Enabled)
 				if err != nil {

@@ -67,18 +67,28 @@ func StartWithContext(ctx context.Context, name string, cookie string, opts Opti
 		return nil, fmt.Errorf("Resolver must be defined if StaticRoutesOnly == false")
 	}
 
+	node := &node{
+		name:     name,
+		context:  nodectx,
+		stop:     nodestop,
+		creation: opts.Creation,
+	}
+
+	// create a copy of envs
+	node.env = make(map[gen.EnvKey]interface{})
+	for k, v := range opts.Env {
+		node.env[k] = v
+	}
+
+	// set global variable 'ergo:Node'
+	node.env[EnvKeyNode] = Node(node)
+	opts.Env = node.env
+
 	core, err := newCore(nodectx, name, opts)
 	if err != nil {
 		return nil, err
 	}
-
-	node := &node{
-		name:         name,
-		context:      nodectx,
-		stop:         nodestop,
-		creation:     opts.Creation,
-		coreInternal: core,
-	}
+	node.coreInternal = core
 
 	for _, app := range opts.Applications {
 		// load applications
@@ -94,14 +104,6 @@ func StartWithContext(ctx context.Context, name string, cookie string, opts Opti
 			return nil, err
 		}
 	}
-
-	node.env = make(map[gen.EnvKey]interface{})
-	for k, v := range opts.Env {
-		node.env[k] = v
-	}
-
-	// set global variable 'ergo:Node'
-	node.env[EnvKeyNode] = Node(node)
 
 	return node, nil
 }
