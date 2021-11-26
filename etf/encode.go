@@ -168,12 +168,6 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 				}
 
 				lenID := 3
-
-				// // FIXME Erlang 24 has a bug https://github.com/erlang/otp/issues/5097
-				// uncomment once they fix it
-				//if options.FlagBigPidRef {
-				//	lenID = 5
-				//}
 				buf := b.Extend(1 + lenID*4)
 				// Only one byte long and only two bits are significant, the rest must be 0.
 				buf[0] = byte(r.Creation & 3)

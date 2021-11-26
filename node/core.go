@@ -672,7 +672,7 @@ func (c *core) RouteSend(from etf.Pid, to etf.Pid, message etf.Term) error {
 	p_from, exist := c.processes[from.ID]
 	c.mutexProcesses.Unlock()
 	if !exist {
-		lib.Log("[%s] CORE route message by pid (local) %s failed. Unknown sender", c.nodename, to)
+		lib.Log("[%s] CORE route message by pid (remote) %s failed. Unknown sender", c.nodename, to)
 		return ErrSenderUnknown
 	}
 	connection, err := c.GetConnection(string(to.Node))
@@ -709,7 +709,7 @@ func (c *core) RouteSendReg(from etf.Pid, to gen.ProcessID, message etf.Term) er
 	p_from, exist := c.processes[from.ID]
 	c.mutexProcesses.Unlock()
 	if !exist {
-		lib.Log("[%s] CORE route message by gen.ProcessID (local) %s failed. Unknown sender", c.nodename, to)
+		lib.Log("[%s] CORE route message by gen.ProcessID (remote) %s failed. Unknown sender", c.nodename, to)
 		return ErrSenderUnknown
 	}
 	connection, err := c.GetConnection(string(to.Node))
@@ -724,7 +724,6 @@ func (c *core) RouteSendReg(from etf.Pid, to gen.ProcessID, message etf.Term) er
 // RouteSendAlias implements RouteSendAlias method of Router interface
 func (c *core) RouteSendAlias(from etf.Pid, to etf.Alias, message etf.Term) error {
 
-	lib.Log("[%s] CORE route message by alias %s", c.nodename, to)
 	if string(to.Node) == c.nodename {
 		// local route by alias
 		c.mutexAliases.Lock()
@@ -734,6 +733,7 @@ func (c *core) RouteSendAlias(from etf.Pid, to etf.Alias, message etf.Term) erro
 			lib.Log("[%s] CORE route message by alias (local) %s failed. Unknown process", c.nodename, to)
 			return ErrProcessUnknown
 		}
+		lib.Log("[%s] CORE route message by alias (local) %s", c.nodename, to)
 		return c.RouteSend(from, process.self, message)
 	}
 
@@ -747,7 +747,7 @@ func (c *core) RouteSendAlias(from etf.Pid, to etf.Alias, message etf.Term) erro
 	p_from, exist := c.processes[from.ID]
 	c.mutexProcesses.Unlock()
 	if !exist {
-		lib.Log("[%s] CORE route message by alias (local) %s failed. Unknown sender", c.nodename, to)
+		lib.Log("[%s] CORE route message by alias (remote) %s failed. Unknown sender", c.nodename, to)
 		return ErrSenderUnknown
 	}
 	connection, err := c.GetConnection(string(to.Node))
