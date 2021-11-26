@@ -120,27 +120,7 @@ func (dh *DistHandshake) Start(conn io.ReadWriter, tls bool) (node.ProtoFlags, e
 	var peer_flags nodeFlags
 	var protoFlags node.ProtoFlags
 
-	flags := toNodeFlags(
-		flagPublished,
-		flagUnicodeIO,
-		flagDistMonitor,
-		flagDistMonitorName,
-		flagExtendedPidsPorts,
-		flagExtendedReferences,
-		flagAtomCache,
-		flagDistHdrAtomCache,
-		flagHiddenAtomCache,
-		flagNewFunTags,
-		flagSmallAtomTags,
-		flagUTF8Atoms,
-		flagMapTag,
-		flagFragments,
-		flagHandshake23,
-		flagBigCreation,
-		flagSpawn,
-		flagV4NC,
-		flagAlias,
-	)
+	flags := composeFlags(dh.options.Flags)
 
 	b := lib.TakeBuffer()
 	defer lib.ReleaseBuffer(b)
@@ -273,24 +253,12 @@ func (dh *DistHandshake) Start(conn io.ReadWriter, tls bool) (node.ProtoFlags, e
 
 				// handshaked
 				protoFlags = node.DefaultProtoFlags()
-				if peer_flags.isSet(flagFragments) {
-					protoFlags.EnableFragmentation = true
-				}
-				if peer_flags.isSet(flagBigCreation) {
-					protoFlags.EnableBigCreation = true
-				}
-				if peer_flags.isSet(flagDistHdrAtomCache) {
-					protoFlags.EnableHeaderAtomCache = true
-				}
-				if peer_flags.isSet(flagAlias) {
-					protoFlags.EnableAlias = true
-				}
-				if peer_flags.isSet(flagSpawn) {
-					protoFlags.EnableRemoteSpawn = true
-				}
-				if peer_flags.isSet(flagV4NC) {
-					protoFlags.EnableBigPidRef = true
-				}
+				protoFlags.EnableFragmentation = peer_flags.isSet(flagFragments)
+				protoFlags.EnableBigCreation = peer_flags.isSet(flagBigCreation)
+				protoFlags.EnableHeaderAtomCache = peer_flags.isSet(flagDistHdrAtomCache)
+				protoFlags.EnableAlias = peer_flags.isSet(flagAlias)
+				protoFlags.EnableRemoteSpawn = peer_flags.isSet(flagSpawn)
+				protoFlags.EnableBigPidRef = peer_flags.isSet(flagV4NC)
 				return protoFlags, nil
 
 			case 's':
@@ -323,27 +291,7 @@ func (dh *DistHandshake) Accept(conn io.ReadWriter, tls bool) (string, node.Prot
 	var protoFlags node.ProtoFlags
 	var err error
 
-	flags := toNodeFlags(
-		flagPublished,
-		flagUnicodeIO,
-		flagDistMonitor,
-		flagDistMonitorName,
-		flagExtendedPidsPorts,
-		flagExtendedReferences,
-		flagAtomCache,
-		flagDistHdrAtomCache,
-		flagHiddenAtomCache,
-		flagNewFunTags,
-		flagSmallAtomTags,
-		flagUTF8Atoms,
-		flagMapTag,
-		flagFragments,
-		flagHandshake23,
-		flagBigCreation,
-		flagSpawn,
-		flagV4NC,
-		flagAlias,
-	)
+	flags := composeFlags(dh.options.Flags)
 
 	b := lib.TakeBuffer()
 	defer lib.ReleaseBuffer(b)
@@ -487,24 +435,12 @@ func (dh *DistHandshake) Accept(conn io.ReadWriter, tls bool) (string, node.Prot
 
 				// handshaked
 				protoFlags = node.DefaultProtoFlags()
-				if peer_flags.isSet(flagFragments) {
-					protoFlags.EnableFragmentation = true
-				}
-				if peer_flags.isSet(flagBigCreation) {
-					protoFlags.EnableBigCreation = true
-				}
-				if peer_flags.isSet(flagDistHdrAtomCache) {
-					protoFlags.EnableHeaderAtomCache = true
-				}
-				if peer_flags.isSet(flagAlias) {
-					protoFlags.EnableAlias = true
-				}
-				if peer_flags.isSet(flagSpawn) {
-					protoFlags.EnableRemoteSpawn = true
-				}
-				if peer_flags.isSet(flagV4NC) {
-					protoFlags.EnableBigPidRef = true
-				}
+				protoFlags.EnableFragmentation = peer_flags.isSet(flagFragments)
+				protoFlags.EnableBigCreation = peer_flags.isSet(flagBigCreation)
+				protoFlags.EnableHeaderAtomCache = peer_flags.isSet(flagDistHdrAtomCache)
+				protoFlags.EnableAlias = peer_flags.isSet(flagAlias)
+				protoFlags.EnableRemoteSpawn = peer_flags.isSet(flagSpawn)
+				protoFlags.EnableBigPidRef = peer_flags.isSet(flagV4NC)
 
 				return peer_name, protoFlags, nil
 
@@ -786,4 +722,45 @@ func genDigest(challenge uint32, cookie string) []byte {
 	s := fmt.Sprintf("%s%d", cookie, challenge)
 	digest := md5.Sum([]byte(s))
 	return digest[:]
+}
+
+func composeFlags(flags node.ProtoFlags) nodeFlags {
+
+	// default flags
+	enabledFlags := []nodeFlagId{
+		flagPublished,
+		flagUnicodeIO,
+		flagDistMonitor,
+		flagDistMonitorName,
+		flagExtendedPidsPorts,
+		flagExtendedReferences,
+		flagAtomCache,
+		flagHiddenAtomCache,
+		flagNewFunTags,
+		flagSmallAtomTags,
+		flagUTF8Atoms,
+		flagMapTag,
+		flagHandshake23,
+	}
+
+	// optional flags
+	if flags.EnableHeaderAtomCache {
+		enabledFlags = append(enabledFlags, flagDistHdrAtomCache)
+	}
+	if flags.EnableFragmentation {
+		enabledFlags = append(enabledFlags, flagFragments)
+	}
+	if flags.EnableBigCreation {
+		enabledFlags = append(enabledFlags, flagBigCreation)
+	}
+	if flags.EnableAlias {
+		enabledFlags = append(enabledFlags, flagAlias)
+	}
+	if flags.EnableBigPidRef {
+		enabledFlags = append(enabledFlags, flagV4NC)
+	}
+	if flags.EnableRemoteSpawn {
+		enabledFlags = append(enabledFlags, flagSpawn)
+	}
+	return toNodeFlags(enabledFlags...)
 }

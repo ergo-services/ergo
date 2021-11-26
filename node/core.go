@@ -639,11 +639,6 @@ func (c *core) ProcessList() []gen.Process {
 
 // RouteSend implements RouteSend method of Router interface
 func (c *core) RouteSend(from etf.Pid, to etf.Pid, message etf.Term) error {
-	// do not allow to send from the alien node. Proxy request must be used.
-	if string(from.Node) != c.nodename {
-		return ErrSenderUnknown
-	}
-
 	if string(to.Node) == c.nodename {
 		if to.Creation != c.creation {
 			// message is addressed to the previous incarnation of this PID
@@ -666,6 +661,11 @@ func (c *core) RouteSend(from etf.Pid, to etf.Pid, message etf.Term) error {
 		return nil
 	}
 
+	// do not allow to send from the alien node. Proxy request must be used.
+	if string(from.Node) != c.nodename {
+		return ErrSenderUnknown
+	}
+
 	// sending to remote node
 	c.mutexProcesses.Lock()
 	p_from, exist := c.processes[from.ID]
@@ -685,11 +685,6 @@ func (c *core) RouteSend(from etf.Pid, to etf.Pid, message etf.Term) error {
 
 // RouteSendReg implements RouteSendReg method of Router interface
 func (c *core) RouteSendReg(from etf.Pid, to gen.ProcessID, message etf.Term) error {
-	// do not allow to send from the alien node. Proxy request must be used.
-	if string(from.Node) != c.nodename {
-		return ErrSenderUnknown
-	}
-
 	if to.Node == c.nodename {
 		// local route
 		c.mutexNames.Lock()
@@ -701,6 +696,11 @@ func (c *core) RouteSendReg(from etf.Pid, to gen.ProcessID, message etf.Term) er
 		}
 		lib.Log("[%s] CORE route message by gen.ProcessID (local) %s", c.nodename, to)
 		return c.RouteSend(from, pid, message)
+	}
+
+	// do not allow to send from the alien node. Proxy request must be used.
+	if string(from.Node) != c.nodename {
+		return ErrSenderUnknown
 	}
 
 	// send to remote node
@@ -722,10 +722,6 @@ func (c *core) RouteSendReg(from etf.Pid, to gen.ProcessID, message etf.Term) er
 
 // RouteSendAlias implements RouteSendAlias method of Router interface
 func (c *core) RouteSendAlias(from etf.Pid, to etf.Alias, message etf.Term) error {
-	// do not allow to send from the alien node. Proxy request must be used.
-	if string(from.Node) != c.nodename {
-		return ErrSenderUnknown
-	}
 
 	lib.Log("[%s] CORE route message by alias %s", c.nodename, to)
 	if string(to.Node) == c.nodename {
@@ -738,6 +734,11 @@ func (c *core) RouteSendAlias(from etf.Pid, to etf.Alias, message etf.Term) erro
 			return ErrProcessUnknown
 		}
 		return c.RouteSend(from, process.self, message)
+	}
+
+	// do not allow to send from the alien node. Proxy request must be used.
+	if string(from.Node) != c.nodename {
+		return ErrSenderUnknown
 	}
 
 	// send to remote node

@@ -168,9 +168,12 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 				}
 
 				lenID := 3
-				if options.FlagBigPidRef {
-					lenID = 5
-				}
+
+				// // FIXME Erlang 24 has a bug https://github.com/erlang/otp/issues/5097
+				// uncomment once they fix it
+				//if options.FlagBigPidRef {
+				//	lenID = 5
+				//}
 				buf := b.Extend(1 + lenID*4)
 				// Only one byte long and only two bits are significant, the rest must be 0.
 				buf[0] = byte(r.Creation & 3)
@@ -197,10 +200,12 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 					break
 				}
 
+				// // FIXME Erlang 24 has a bug https://github.com/erlang/otp/issues/5097
+				// uncomment once they fix it
 				lenID := 3
-				if options.FlagBigPidRef {
-					lenID = 5
-				}
+				//if options.FlagBigPidRef {
+				//	lenID = 5
+				//}
 				buf := b.Extend(4 + lenID*4)
 				binary.BigEndian.PutUint32(buf[0:4], r.Creation)
 				buf = buf[4:]
@@ -611,11 +616,14 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 
 			// LEN a 16-bit big endian unsigned integer not larger
 			// than 5 when the FlagBigPidRef has been set; otherwise not larger than 3.
-			if options.FlagBigPidRef {
-				binary.BigEndian.PutUint16(buf[1:3], 5)
-			} else {
-				binary.BigEndian.PutUint16(buf[1:3], 3)
-			}
+
+			// FIXME Erlang 24 has a bug https://github.com/erlang/otp/issues/5097
+			// uncomment once they fix it
+			//if options.FlagBigPidRef {
+			//	binary.BigEndian.PutUint16(buf[1:3], 5)
+			//} else {
+			binary.BigEndian.PutUint16(buf[1:3], 3)
+			//}
 
 		case Map:
 			lenMap := len(t)

@@ -261,10 +261,10 @@ type HandshakeInterface interface {
 	// Init initialize handshake.
 	Init(nodename string, creation uint32) error
 	// Start initiates handshake process. Argument tls means the connection is wrapped by TLS
-	// Returns proto options to override default ones.
+	// Returns proto flags received from the peer during handshake
 	Start(conn io.ReadWriter, tls bool) (ProtoFlags, error)
-	// Accept accepts handshake process initiated by another side of this connection. Returns
-	// the name of connected peer and proto options
+	// Accept accepts handshake process initiated by another side of this connection.
+	// Returns the name of connected peer and proto flags received from the peer.
 	Accept(conn io.ReadWriter, tls bool) (string, ProtoFlags, error)
 	// Version handshake version. Must be implemented if this handshake is going to be used
 	// for the accepting connections (this method is used in registration on the Resolver)
