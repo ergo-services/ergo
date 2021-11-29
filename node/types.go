@@ -171,7 +171,8 @@ type Options struct {
 	// Creation. Default value: uint32(time.Now().Unix())
 	Creation uint32
 
-	// network options
+	// Flags defines enabled options for the running node
+	Flags Flags
 
 	// Listen defines a listening port number for accepting incoming connections.
 	Listen uint16
@@ -262,13 +263,13 @@ type Handshake struct {
 // Handshake defines handshake interface
 type HandshakeInterface interface {
 	// Init initialize handshake.
-	Init(nodename string, creation uint32) error
+	Init(nodename string, creation uint32, flags Flags) error
 	// Start initiates handshake process. Argument tls means the connection is wrapped by TLS
-	// Returns proto flags received from the peer during handshake
-	Start(conn io.ReadWriter, tls bool) (ProtoFlags, error)
+	// Returns Flags received from the peer during handshake
+	Start(conn io.ReadWriter, tls bool) (Flags, error)
 	// Accept accepts handshake process initiated by another side of this connection.
-	// Returns the name of connected peer and proto flags received from the peer.
-	Accept(conn io.ReadWriter, tls bool) (string, ProtoFlags, error)
+	// Returns the name of connected peer and Flags received from the peer.
+	Accept(conn io.ReadWriter, tls bool) (string, Flags, error)
 	// Version handshake version. Must be implemented if this handshake is going to be used
 	// for the accepting connections (this method is used in registration on the Resolver)
 	Version() HandshakeVersion
@@ -284,7 +285,7 @@ type Proto struct {
 // Proto defines proto interface for the custom Proto implementation
 type ProtoInterface interface {
 	// Init initialize connection handler
-	Init(conn io.ReadWriter, peername string, flags ProtoFlags, router CoreRouter) (ConnectionInterface, error)
+	Init(conn io.ReadWriter, peername string, flags Flags, router CoreRouter) (ConnectionInterface, error)
 	// Serve connection
 	Serve(ctx context.Context, connection ConnectionInterface)
 }
@@ -312,8 +313,10 @@ type ProtoOptions struct {
 // CustomProtoOptions a custom set of proto options
 type CustomProtoOptions interface{}
 
-// ProtoFlags
-type ProtoFlags struct {
+// Flags
+type Flags struct {
+	// Enable enable flags customization
+	Enable bool
 	// EnableHeaderAtomCache enables header atom cache feature
 	EnableHeaderAtomCache bool
 	// EnableBigCreation

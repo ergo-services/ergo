@@ -42,6 +42,10 @@ func StartWithContext(ctx context.Context, name string, cookie string, opts Opti
 		opts.Creation = uint32(time.Now().Unix())
 	}
 
+	if opts.Flags.Enable == false {
+		opts.Flags = DefaultFlags()
+	}
+
 	// set defaults listening port range
 	if opts.Listen > 0 {
 		opts.ListenBegin = opts.Listen
@@ -423,9 +427,9 @@ func (n *node) RevokeRemoteSpawn(name string) error {
 	return n.UnregisterBehavior(remoteBehaviorGroup, name)
 }
 
-// DefaultProtoFlags
-func DefaultProtoFlags() ProtoFlags {
-	return ProtoFlags{
+// DefaultFlags
+func DefaultFlags() Flags {
+	return Flags{
 		EnableHeaderAtomCache: true,
 		EnableBigCreation:     true,
 		EnableBigPidRef:       true,

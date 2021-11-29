@@ -55,7 +55,7 @@ type distConnection struct {
 	peername string
 
 	// peer flags
-	flags node.ProtoFlags
+	flags node.Flags
 
 	// compression
 	compression bool
@@ -111,7 +111,7 @@ func CreateProto(nodename string, options node.ProtoOptions) node.ProtoInterface
 // node.Proto interface implementation
 //
 
-func (dp *distProto) Init(conn io.ReadWriter, peername string, flags node.ProtoFlags, router node.CoreRouter) (node.ConnectionInterface, error) {
+func (dp *distProto) Init(conn io.ReadWriter, peername string, flags node.Flags, router node.CoreRouter) (node.ConnectionInterface, error) {
 	connection := &distConnection{
 		nodename:    dp.nodename,
 		peername:    peername,
@@ -1056,7 +1056,7 @@ func (dc *distConnection) encodeDistHeaderAtomCache(b *lib.Buffer,
 	}
 }
 
-func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOptions, flags node.ProtoFlags) {
+func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOptions, peerFlags node.Flags) {
 	var encodingAtomCache *etf.ListAtomCache
 	var writerAtomCache map[etf.Atom]etf.CacheItem
 	var linkAtomCache *etf.AtomCache
@@ -1072,8 +1072,8 @@ func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOpt
 	// goroutines around this connection
 	defer dc.cancelContext()
 
-	cacheEnabled := flags.EnableHeaderAtomCache && dc.cacheOut != nil
-	fragmentationEnabled := flags.EnableFragmentation && options.FragmentationUnit > 0
+	cacheEnabled := peerFlags.EnableHeaderAtomCache && dc.cacheOut != nil
+	fragmentationEnabled := peerFlags.EnableFragmentation && options.FragmentationUnit > 0
 
 	// Header atom cache is encoded right after the control/message encoding process
 	// but should be stored as a first item in the packet.
@@ -1092,8 +1092,8 @@ func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOpt
 		LinkAtomCache:     linkAtomCache,
 		WriterAtomCache:   writerAtomCache,
 		EncodingAtomCache: encodingAtomCache,
-		FlagBigCreation:   flags.EnableBigCreation,
-		FlagBigPidRef:     flags.EnableBigPidRef,
+		FlagBigCreation:   peerFlags.EnableBigCreation,
+		FlagBigPidRef:     peerFlags.EnableBigPidRef,
 	}
 
 	for {

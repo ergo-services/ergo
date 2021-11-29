@@ -102,7 +102,7 @@ func newNetwork(ctx context.Context, nodename string, options Options, router Co
 		n.tls.Client = selfSignedCert
 	}
 
-	err = n.handshake.Init(n.nodename, n.creation)
+	err = n.handshake.Init(n.nodename, n.creation, options.Flags)
 	if err != nil {
 		return nil, err
 	}
@@ -545,11 +545,11 @@ func (c *Connection) ProxyReg() error {
 //
 // Handshake interface default callbacks
 //
-func (h *Handshake) Start(c net.Conn) (ProtoFlags, error) {
-	return ProtoFlags{}, ErrUnsupported
+func (h *Handshake) Start(c net.Conn) (Flags, error) {
+	return Flags{}, ErrUnsupported
 }
-func (h *Handshake) Accept(c net.Conn) (string, ProtoFlags, error) {
-	return "", ProtoFlags{}, ErrUnsupported
+func (h *Handshake) Accept(c net.Conn) (string, Flags, error) {
+	return "", Flags{}, ErrUnsupported
 }
 func (h *Handshake) Version() HandshakeVersion {
 	var v HandshakeVersion
