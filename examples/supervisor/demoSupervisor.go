@@ -11,13 +11,9 @@ import (
 )
 
 var (
-	NodeName         string
-	Cookie           string
-	err              error
-	ListenRangeBegin int
-	ListenRangeEnd   int = 35000
-	Listen           string
-	ListenEPMD       int
+	NodeName string
+	Cookie   string
+	err      error
 
 	EnableRPC bool
 )
@@ -90,24 +86,15 @@ func (dgs *demoGenServ) Terminate(process *gen.ServerProcess, reason string) {
 }
 
 func init() {
-	flag.IntVar(&ListenRangeBegin, "listen_begin", 15151, "listen port range")
-	flag.IntVar(&ListenRangeEnd, "listen_end", 25151, "listen port range")
 	flag.StringVar(&NodeName, "name", "demo@127.0.0.1", "node name")
-	flag.IntVar(&ListenEPMD, "epmd", 4369, "EPMD port")
 	flag.StringVar(&Cookie, "cookie", "123", "cookie for interaction with erlang cluster")
 }
 
 func main() {
 	flag.Parse()
 
-	opts := node.Options{
-		ListenRangeBegin: uint16(ListenRangeBegin),
-		ListenRangeEnd:   uint16(ListenRangeEnd),
-		EPMDPort:         uint16(ListenEPMD),
-	}
-
 	// Initialize new node with given name, cookie, listening port range and epmd port
-	node, _ := ergo.StartNode(NodeName, Cookie, opts)
+	node, _ := ergo.StartNode(NodeName, Cookie, node.Options{})
 
 	// Spawn supervisor process
 	process, _ := node.Spawn("demo_sup", gen.ProcessOptions{}, &demoSup{})

@@ -30,6 +30,7 @@ type networkInternal interface {
 	AddStaticRoute(name string, port uint16, options RouteOptions) error
 	RemoveStaticRoute(name string) bool
 	StaticRoutes() []Route
+	Resolve(peername string) (Route, error)
 	Connect(peername string) error
 	Nodes() []string
 
@@ -199,6 +200,11 @@ func (n *network) GetConnection(peername string) (ConnectionInterface, error) {
 	}
 
 	return connection, nil
+}
+
+// Resolve
+func (n *network) Resolve(peername string) (Route, error) {
+	return n.resolver.Resolve(peername)
 }
 
 // Connect

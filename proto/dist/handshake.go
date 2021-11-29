@@ -18,6 +18,7 @@ const (
 	HandshakeVersion6 node.HandshakeVersion = 6
 
 	DefaultHandshakeVersion = HandshakeVersion5
+	DefaultHandshakeTimeout = 5 * time.Second
 
 	// distribution flags are defined here https://erlang.org/doc/apps/erts/erl_dist_protocol.html#distribution-flags
 	flagPublished          nodeFlagId = 0x1
@@ -85,19 +86,27 @@ type DistHandshake struct {
 }
 
 type HandshakeOptions struct {
+	Timeout time.Duration
 	Version node.HandshakeVersion // 5 or 6
 	Cookie  string
 	// Flags defines enabled options for the running node
 	Flags node.ProtoFlags
 }
 
-func CreateHandshake(timeout time.Duration, options HandshakeOptions) node.HandshakeInterface {
+func CreateHandshake(options HandshakeOptions) node.HandshakeInterface {
 	// must be 5 or 6
 	if options.Version != HandshakeVersion5 && options.Version != HandshakeVersion6 {
 		options.Version = DefaultHandshakeVersion
 	}
+
+	emptyFlags := node.ProtoFlags{}
+	if options.Flags == emptyFlags {
+		options.Flags = node.DefaultProtoFlags()
+	}
+	if options.Timeout == 0 {
+		options.Timeout = DefaultHandshakeTimeout
+	}
 	return &DistHandshake{
-		timeout:   timeout,
 		options:   options,
 		challenge: rand.Uint32(),
 	}
@@ -141,7 +150,7 @@ func (dh *DistHandshake) Start(conn io.ReadWriter, tls bool) (node.ProtoFlags, e
 	}
 
 	// define timeout for the handshaking
-	timer := time.NewTimer(dh.timeout)
+	timer := time.NewTimer(dh.options.Timeout)
 	defer timer.Stop()
 
 	asyncReadChannel := make(chan error, 2)

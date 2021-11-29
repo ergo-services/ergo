@@ -90,6 +90,9 @@ type Node interface {
 	// StaticRoutes returns list of routes added using AddStaticRoute
 	StaticRoutes() []Route
 
+	// Resolve
+	Resolve(peername string) (Route, error)
+
 	// Connect sets up a connection to node
 	Connect(node string) error
 	// Nodes returns the list of connected nodes

@@ -1,6 +1,7 @@
 package tests
 
 import (
+	"context"
 	"crypto/md5"
 	"fmt"
 	"math/rand"
@@ -14,7 +15,7 @@ import (
 	"github.com/ergo-services/ergo/etf"
 	"github.com/ergo-services/ergo/gen"
 	"github.com/ergo-services/ergo/node"
-	"github.com/ergo-services/ergo/node/dist"
+	"github.com/ergo-services/ergo/proto/dist"
 )
 
 type benchCase struct {
@@ -23,13 +24,13 @@ type benchCase struct {
 }
 
 func TestNode(t *testing.T) {
+	ctx := context.Background()
 	opts := node.Options{
-		ListenRangeBegin: 25001,
-		ListenRangeEnd:   25001,
-		EPMDPort:         24999,
+		Listen:   25001,
+		Resolver: dist.CreateResolver(ctx, true, "", 24999),
 	}
 
-	node1, _ := ergo.StartNode("node@localhost", "cookies", opts)
+	node1, _ := ergo.StartNodeWithContext(ctx, "node@localhost", "cookies", opts)
 
 	if conn, err := net.Dial("tcp", ":25001"); err != nil {
 		fmt.Println("Connect to the node' listening port FAILED")
@@ -195,20 +196,25 @@ func TestNodeAtomCache(t *testing.T) {
 
 func TestNodeStaticRoute(t *testing.T) {
 	nodeName := "nodeT1StaticRoute@localhost"
-	nodeStaticPort := 9876
+	nodeStaticPort := uint16(9876)
+	ctx := context.Background()
+	opts := node.Options{
+		Resolver: dist.CreateResolver(ctx, true, "", 9876),
+	}
 
-	node1, _ := ergo.StartNode(nodeName, "secret", node.Options{})
+	node1, _ := ergo.StartNodeWithContext(ctx, nodeName, "secret", opts)
 	nr, err := node1.Resolve(nodeName)
 	if err != nil {
 		t.Fatal("Can't resolve port number for ", nodeName)
 	}
 
-	e := node1.AddStaticRoute(nodeName, uint16(nodeStaticPort))
+	routeOptions := node.RouteOptions{}
+	e := node1.AddStaticRoute(nodeName, uint16(nodeStaticPort), routeOptions)
 	if e != nil {
 		t.Fatal(e)
 	}
 	// should be overrided by the new value of nodeStaticPort
-	if nr, err := node1.Resolve(nodeName); err != nil || nr.Port != nodeStaticPort {
+	if r, err := node1.Resolve(nodeName); err != nil || r.Port != nodeStaticPort {
 		t.Fatal("Wrong port number after adding static route. Got", nr.Port, "Expected", nodeStaticPort)
 	}
 
@@ -241,20 +247,38 @@ func (h *handshakeGenServer) HandleDirect(process *gen.ServerProcess, message in
 
 func TestNodeDistHandshake(t *testing.T) {
 	fmt.Printf("\n=== Test Node Handshake versions\n")
+	cookie := "secret"
 
+	// handshake version 5
+	handshake5options := dist.HandshakeOptions{
+		Cookie:  cookie,
+		Version: dist.HandshakeVersion5,
+	}
+	handshake5 := dist.CreateHandshake(handshake5options)
 	nodeOptions5 := node.Options{
-		HandshakeVersion: dist.ProtoHandshake5,
+		Handshake: handshake5,
 	}
+
+	// handshake version 6
+	handshake6options := dist.HandshakeOptions{
+		Cookie:  cookie,
+		Version: dist.HandshakeVersion6,
+	}
+	handshake6 := dist.CreateHandshake(handshake6options)
 	nodeOptions6 := node.Options{
-		HandshakeVersion: dist.ProtoHandshake6,
+		Handshake: handshake6,
 	}
+
+	// handshake version 5 with enabled TLS
 	nodeOptions5WithTLS := node.Options{
-		HandshakeVersion: dist.ProtoHandshake5,
-		TLSMode:          node.TLSModeAuto,
+		Handshake: handshake5,
+		TLS:       node.TLS{Enabled: true},
 	}
+
+	// handshake version 6 with enabled TLS
 	nodeOptions6WithTLS := node.Options{
-		HandshakeVersion: dist.ProtoHandshake6,
-		TLSMode:          node.TLSModeAuto,
+		Handshake: handshake6,
+		TLS:       node.TLS{Enabled: true},
 	}
 	hgs := &handshakeGenServer{}
 
@@ -414,7 +438,7 @@ func BenchmarkNodeSequential(b *testing.B) {
 
 	node1name := fmt.Sprintf("nodeB1_%d@localhost", b.N)
 	node2name := fmt.Sprintf("nodeB2_%d@localhost", b.N)
-	node1, _ := ergo.StartNode(node1name, "bench", node.Options{DisableHeaderAtomCache: false})
+	node1, _ := ergo.StartNode(node1name, "bench", node.Options{})
 	node2, _ := ergo.StartNode(node2name, "bench", node.Options{})
 
 	bgs := &benchGS{}
@@ -457,7 +481,7 @@ func BenchmarkNodeSequential(b *testing.B) {
 func BenchmarkNodeSequentialSingleNode(b *testing.B) {
 
 	node1name := fmt.Sprintf("nodeB1Local_%d@localhost", b.N)
-	node1, _ := ergo.StartNode(node1name, "bench", node.Options{DisableHeaderAtomCache: true})
+	node1, _ := ergo.StartNode(node1name, "bench", node.Options{})
 
 	bgs := &benchGS{}
 
@@ -500,7 +524,7 @@ func BenchmarkNodeParallel(b *testing.B) {
 
 	node1name := fmt.Sprintf("nodeB1Parallel_%d@localhost", b.N)
 	node2name := fmt.Sprintf("nodeB2Parallel_%d@localhost", b.N)
-	node1, _ := ergo.StartNode(node1name, "bench", node.Options{DisableHeaderAtomCache: false})
+	node1, _ := ergo.StartNode(node1name, "bench", node.Options{})
 	node2, _ := ergo.StartNode(node2name, "bench", node.Options{})
 
 	bgs := &benchGS{}
@@ -550,7 +574,7 @@ func BenchmarkNodeParallel(b *testing.B) {
 func BenchmarkNodeParallelSingleNode(b *testing.B) {
 
 	node1name := fmt.Sprintf("nodeB1ParallelLocal_%d@localhost", b.N)
-	node1, _ := ergo.StartNode(node1name, "bench", node.Options{DisableHeaderAtomCache: false})
+	node1, _ := ergo.StartNode(node1name, "bench", node.Options{})
 
 	bgs := &benchGS{}
 

@@ -27,7 +27,7 @@ func (a *testApplication) Load(args ...etf.Term) (gen.ApplicationSpec, error) {
 		Name:        name,
 		Description: "My Test Applicatoin",
 		Version:     "v.0.1",
-		Environment: map[string]interface{}{
+		Environment: map[gen.EnvKey]interface{}{
 			"envName1": 123,
 			"envName2": "Hello world",
 		},

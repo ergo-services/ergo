@@ -54,7 +54,7 @@ func TestRPC(t *testing.T) {
 		return a[len(a)-1]
 	}
 
-	fmt.Printf("Registering RPC method 'testMod.testFun' on %s: ", node1.NodeName())
+	fmt.Printf("Registering RPC method 'testMod.testFun' on %s: ", node1.Name())
 	time.Sleep(100 * time.Millisecond) // waiting for start 'rex' gen_server
 	if e := node1.ProvideRPC("testMod", "testFun", testFun1); e != nil {
 		t.Fatal(e)
@@ -64,7 +64,7 @@ func TestRPC(t *testing.T) {
 
 	node1gs1, _ := node1.Spawn("gs1", gen.ProcessOptions{}, gs1, nil)
 
-	fmt.Printf("Call RPC method 'testMod.testFun' with 1 arg on %s: ", node1.NodeName())
+	fmt.Printf("Call RPC method 'testMod.testFun' with 1 arg on %s: ", node1.Name())
 	case1 := testRPCCase1{
 		node: "nodeRPC@localhost",
 		mod:  "testMod",
@@ -76,7 +76,7 @@ func TestRPC(t *testing.T) {
 	}
 	waitForResultWithValue(t, gs1.res, 12345)
 
-	fmt.Printf("Call RPC method 'testMod.testFun' with 3 arg on %s: ", node1.NodeName())
+	fmt.Printf("Call RPC method 'testMod.testFun' with 3 arg on %s: ", node1.Name())
 	case1 = testRPCCase1{
 		node: "nodeRPC@localhost",
 		mod:  "testMod",
@@ -88,14 +88,14 @@ func TestRPC(t *testing.T) {
 	}
 	waitForResultWithValue(t, gs1.res, node1gs1.Self())
 
-	fmt.Printf("Revoking RPC method 'testMod.testFun' on %s: ", node1.NodeName())
+	fmt.Printf("Revoking RPC method 'testMod.testFun' on %s: ", node1.Name())
 	if e := node1.RevokeRPC("testMod", "testFun"); e != nil {
 		t.Fatal(e)
 	} else {
 		fmt.Println("OK")
 	}
 
-	fmt.Printf("Call revoked RPC method 'testMod.testFun' with 1 arg on %s: ", node1.NodeName())
+	fmt.Printf("Call revoked RPC method 'testMod.testFun' with 1 arg on %s: ", node1.Name())
 	expected1 := etf.Tuple{etf.Atom("badrpc"),
 		etf.Tuple{etf.Atom("EXIT"),
 			etf.Tuple{etf.Atom("undef"),
@@ -115,7 +115,7 @@ func TestRPC(t *testing.T) {
 	}
 	waitForResultWithValue(t, gs1.res, expected1)
 
-	fmt.Printf("Call RPC unknown method 'xxx.xxx' on %s: ", node1.NodeName())
+	fmt.Printf("Call RPC unknown method 'xxx.xxx' on %s: ", node1.Name())
 	expected2 := etf.Tuple{etf.Atom("badrpc"),
 		etf.Tuple{etf.Atom("EXIT"),
 			etf.Tuple{etf.Atom("undef"),
