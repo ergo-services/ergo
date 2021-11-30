@@ -254,32 +254,13 @@ func TestNodeDistHandshake(t *testing.T) {
 		Cookie:  cookie,
 		Version: dist.HandshakeVersion5,
 	}
-	handshake5 := dist.CreateHandshake(handshake5options)
-	nodeOptions5 := node.Options{
-		Handshake: handshake5,
-	}
 
 	// handshake version 6
 	handshake6options := dist.HandshakeOptions{
 		Cookie:  cookie,
 		Version: dist.HandshakeVersion6,
 	}
-	handshake6 := dist.CreateHandshake(handshake6options)
-	nodeOptions6 := node.Options{
-		Handshake: handshake6,
-	}
 
-	// handshake version 5 with enabled TLS
-	nodeOptions5WithTLS := node.Options{
-		Handshake: handshake5,
-		TLS:       node.TLS{Enabled: true},
-	}
-
-	// handshake version 6 with enabled TLS
-	nodeOptions6WithTLS := node.Options{
-		Handshake: handshake6,
-		TLS:       node.TLS{Enabled: true},
-	}
 	hgs := &handshakeGenServer{}
 
 	type Pair struct {
@@ -287,55 +268,97 @@ func TestNodeDistHandshake(t *testing.T) {
 		nodeA node.Node
 		nodeB node.Node
 	}
-	node1, e1 := ergo.StartNode("node1Handshake5@localhost", "secret", nodeOptions5)
+	node1Options5 := node.Options{
+		Handshake: dist.CreateHandshake(handshake5options),
+	}
+	node1, e1 := ergo.StartNode("node1Handshake5@localhost", "secret", node1Options5)
 	if e1 != nil {
 		t.Fatal(e1)
 	}
-	node2, e2 := ergo.StartNode("node2Handshake5@localhost", "secret", nodeOptions5)
+	node2Options5 := node.Options{
+		Handshake: dist.CreateHandshake(handshake5options),
+	}
+	node2, e2 := ergo.StartNode("node2Handshake5@localhost", "secret", node2Options5)
 	if e2 != nil {
 		t.Fatal(e2)
 	}
-	node3, e3 := ergo.StartNode("node3Handshake5@localhost", "secret", nodeOptions5)
+	node3Options5 := node.Options{
+		Handshake: dist.CreateHandshake(handshake5options),
+	}
+	node3, e3 := ergo.StartNode("node3Handshake5@localhost", "secret", node3Options5)
 	if e3 != nil {
 		t.Fatal(e3)
 	}
-	node4, e4 := ergo.StartNode("node4Handshake6@localhost", "secret", nodeOptions6)
+	node4Options6 := node.Options{
+		Handshake: dist.CreateHandshake(handshake6options),
+	}
+	node4, e4 := ergo.StartNode("node4Handshake6@localhost", "secret", node4Options6)
 	if e4 != nil {
 		t.Fatal(e4)
 	}
 	// node5, _ := ergo.StartNode("node5Handshake6@localhost", "secret", nodeOptions6)
 	// node6, _ := ergo.StartNode("node6Handshake5@localhost", "secret", nodeOptions5)
-	node7, e7 := ergo.StartNode("node7Handshake6@localhost", "secret", nodeOptions6)
+	node7Options6 := node.Options{
+		Handshake: dist.CreateHandshake(handshake6options),
+	}
+	node7, e7 := ergo.StartNode("node7Handshake6@localhost", "secret", node7Options6)
 	if e7 != nil {
 		t.Fatal(e7)
 	}
-	node8, e8 := ergo.StartNode("node8Handshake6@localhost", "secret", nodeOptions6)
+	node8Options6 := node.Options{
+		Handshake: dist.CreateHandshake(handshake6options),
+	}
+	node8, e8 := ergo.StartNode("node8Handshake6@localhost", "secret", node8Options6)
 	if e8 != nil {
 		t.Fatal(e8)
 	}
-	node9, e9 := ergo.StartNode("node9Handshake5@localhost", "secret", nodeOptions5WithTLS)
+	node9Options5WithTLS := node.Options{
+		Handshake: dist.CreateHandshake(handshake5options),
+		TLS:       node.TLS{Enabled: true},
+	}
+	node9, e9 := ergo.StartNode("node9Handshake5@localhost", "secret", node9Options5WithTLS)
 	if e9 != nil {
 		t.Fatal(e9)
 	}
-	node10, e10 := ergo.StartNode("node10Handshake5@localhost", "secret", nodeOptions5WithTLS)
+	node10Options5WithTLS := node.Options{
+		Handshake: dist.CreateHandshake(handshake5options),
+		TLS:       node.TLS{Enabled: true},
+	}
+	node10, e10 := ergo.StartNode("node10Handshake5@localhost", "secret", node10Options5WithTLS)
 	if e10 != nil {
 		t.Fatal(e10)
 	}
-	node11, e11 := ergo.StartNode("node11Handshake5@localhost", "secret", nodeOptions5WithTLS)
+	node11Options5WithTLS := node.Options{
+		Handshake: dist.CreateHandshake(handshake5options),
+		TLS:       node.TLS{Enabled: true},
+	}
+	node11, e11 := ergo.StartNode("node11Handshake5@localhost", "secret", node11Options5WithTLS)
 	if e11 != nil {
 		t.Fatal(e11)
 	}
-	node12, e12 := ergo.StartNode("node12Handshake6@localhost", "secret", nodeOptions6WithTLS)
+	node12Options6WithTLS := node.Options{
+		Handshake: dist.CreateHandshake(handshake6options),
+		TLS:       node.TLS{Enabled: true},
+	}
+	node12, e12 := ergo.StartNode("node12Handshake6@localhost", "secret", node12Options6WithTLS)
 	if e12 != nil {
 		t.Fatal(e12)
 	}
 	// node13, _ := ergo.StartNode("node13Handshake6@localhost", "secret", nodeOptions6WithTLS)
 	// node14, _ := ergo.StartNode("node14Handshake5@localhost", "secret", nodeOptions5WithTLS)
-	node15, e15 := ergo.StartNode("node15Handshake6@localhost", "secret", nodeOptions6WithTLS)
+	node15Options6WithTLS := node.Options{
+		Handshake: dist.CreateHandshake(handshake6options),
+		TLS:       node.TLS{Enabled: true},
+	}
+	node15, e15 := ergo.StartNode("node15Handshake6@localhost", "secret", node15Options6WithTLS)
 	if e15 != nil {
 		t.Fatal(e15)
 	}
-	node16, e16 := ergo.StartNode("node16Handshake6@localhost", "secret", nodeOptions6WithTLS)
+	node16Options6WithTLS := node.Options{
+		Handshake: dist.CreateHandshake(handshake6options),
+		TLS:       node.TLS{Enabled: true},
+	}
+	node16, e16 := ergo.StartNode("node16Handshake6@localhost", "secret", node16Options6WithTLS)
 	if e16 != nil {
 		t.Fatal(e16)
 	}
@@ -363,7 +386,7 @@ func TestNodeDistHandshake(t *testing.T) {
 	var result etf.Term
 	for i := range nodes {
 		pair := nodes[i]
-		fmt.Printf("    %s: ", pair.name)
+		fmt.Printf("    %s %s -> %s: ", pair.name, pair.nodeA.Name(), pair.nodeB.Name())
 		pA, e = pair.nodeA.Spawn("", gen.ProcessOptions{}, hgs)
 		if e != nil {
 			t.Fatal(e)

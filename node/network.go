@@ -97,6 +97,7 @@ func newNetwork(ctx context.Context, nodename string, options Options, router Co
 	selfSignedCert, err := generateSelfSignedCert(n.version)
 	if n.tls.Server.Certificate == nil {
 		n.tls.Server = selfSignedCert
+		n.tls.SkipVerify = true
 	}
 	if n.tls.Client.Certificate == nil {
 		n.tls.Client = selfSignedCert
@@ -236,7 +237,8 @@ func (n *network) listen(ctx context.Context, hostname string, begin uint16, end
 		}
 		if n.tls.Enabled {
 			config := tls.Config{
-				Certificates: []tls.Certificate{n.tls.Server},
+				Certificates:       []tls.Certificate{n.tls.Server},
+				InsecureSkipVerify: n.tls.SkipVerify,
 			}
 			listener = tls.NewListener(listener, &config)
 		}
@@ -252,10 +254,9 @@ func (n *network) listen(ctx context.Context, hostname string, begin uint16, end
 					lib.Log(err.Error())
 					return
 				}
-				lib.Log("[%s] Accepted new connection from %s", n.nodename, c.RemoteAddr().String())
+				lib.Log("[%s] NETWORK accepted new connection from %s", n.nodename, c.RemoteAddr().String())
 
 				peername, protoFlags, err := n.handshake.Accept(c, n.tls.Enabled)
-				fmt.Println("AAAa", n.nodename, err)
 				if err != nil {
 					lib.Log("[%s] Can't handshake with %s: %s", n.nodename, c.RemoteAddr().String(), err)
 					c.Close()

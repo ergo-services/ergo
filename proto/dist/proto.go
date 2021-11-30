@@ -191,6 +191,8 @@ func (dp *distProto) Serve(ci node.ConnectionInterface, router node.CoreRouter) 
 		return
 	}
 
+	connection.router = router
+
 	// run read loop
 	var err error
 	var packetLength int
@@ -629,8 +631,10 @@ func (dc *distConnection) decodeDist(packet []byte) (etf.Term, etf.Term, error) 
 
 func (dc *distConnection) handleMessage(control, message etf.Term) (err error) {
 	defer func() {
-		if r := recover(); r != nil {
-			err = fmt.Errorf("%s", r)
+		if lib.CatchPanic() {
+			if r := recover(); r != nil {
+				err = fmt.Errorf("%s", r)
+			}
 		}
 	}()
 
