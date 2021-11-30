@@ -100,7 +100,7 @@ type Process interface {
 	// Links are bidirectional and there can only be one link between two processes.
 	// Repeated calls to Process.Link(Pid) have no effect. If one of the participants
 	// of a link terminates, it will send an exit signal to the other participant and caused
-	// termination of the last one (if this process hasn't set a trap using Process.SetTrapExit(true)).
+	// termination of the last one. If process set a trap using Process.SetTrapExit(true) the exit signal transorms into the MessageExit and delivers as a regular message.
 	Link(with etf.Pid)
 
 	// Unlink removes the link, if there is one, between the calling process and
@@ -118,14 +118,14 @@ type Process interface {
 	// TrapExit returns whether the trap was enabled on this process
 	TrapExit() bool
 
-	// SetCompression enables/disables compression for the messages sent outside this node
+	// SetCompression enables/disables compression for the messages sent outside of this node
 	SetCompression(enabled bool)
 
 	// Compression returns true if compression is enabled for this process
 	Compression() bool
 
 	// MonitorNode creates monitor between the current process and node. If Node fails or does not exist,
-	// the message {nodedown, Node} is delivered to the process.
+	// the message MessageNodeDown is delivered to the process.
 	MonitorNode(name string) etf.Ref
 
 	// DemonitorNode removes monitor. Returns false if the given reference wasn't found

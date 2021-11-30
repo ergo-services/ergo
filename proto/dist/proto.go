@@ -78,7 +78,7 @@ type distConnection struct {
 
 	// atom cache for incoming messages
 	cacheIn      [2048]*etf.Atom
-	cacheInMutex sync.Mutex
+	cacheInMutex sync.RWMutex
 
 	// atom cache for outgoing messages
 	cacheOut *etf.AtomCache
@@ -995,9 +995,9 @@ func (dc *distConnection) decodeDistHeaderAtomCache(packet []byte) ([]etf.Atom, 
 			continue
 		}
 
-		dc.cacheInMutex.Lock()
+		dc.cacheInMutex.RLock()
 		c := dc.cacheIn[idx]
-		dc.cacheInMutex.Unlock()
+		dc.cacheInMutex.RUnlock()
 		if c == nil {
 			return cache, packet, ErrMissingInCache
 		}
