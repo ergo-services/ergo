@@ -27,7 +27,7 @@ func TestNode(t *testing.T) {
 	ctx := context.Background()
 	opts := node.Options{
 		Listen:   25001,
-		Resolver: dist.CreateResolver(ctx, true, "", 24999),
+		Resolver: dist.CreateResolverWithEPMD(ctx, "", 24999),
 	}
 
 	node1, _ := ergo.StartNodeWithContext(ctx, "node@localhost", "cookies", opts)
@@ -195,33 +195,41 @@ func TestNodeAtomCache(t *testing.T) {
 }
 
 func TestNodeStaticRoute(t *testing.T) {
-	nodeName := "nodeT1StaticRoute@localhost"
+	nodeName1 := "nodeT1StaticRoute@localhost"
+	nodeName2 := "nodeT2StaticRoute@localhost"
 	nodeStaticPort := uint16(9876)
-	ctx := context.Background()
-	opts := node.Options{
-		Resolver: dist.CreateResolver(ctx, true, "", 9876),
-	}
 
-	node1, _ := ergo.StartNodeWithContext(ctx, nodeName, "secret", opts)
-	nr, err := node1.Resolve(nodeName)
+	node1, e1 := ergo.StartNode(nodeName1, "secret", node.Options{})
+	if e1 != nil {
+		t.Fatal(e1)
+	}
+	defer node1.Stop()
+
+	node2, e2 := ergo.StartNode(nodeName2, "secret", node.Options{})
+	if e2 != nil {
+		t.Fatal(e2)
+	}
+	defer node2.Stop()
+
+	nr, err := node1.Resolve(nodeName2)
 	if err != nil {
-		t.Fatal("Can't resolve port number for ", nodeName)
+		t.Fatal("Can't resolve port number for ", nodeName2)
 	}
 
-	routeOptions := node.RouteOptions{}
-	e := node1.AddStaticRoute(nodeName, uint16(nodeStaticPort), routeOptions)
+	// override route for nodeName2 with static port
+	e := node1.AddStaticRoute(nodeName2, nodeStaticPort, node.RouteOptions{})
 	if e != nil {
 		t.Fatal(e)
 	}
 	// should be overrided by the new value of nodeStaticPort
-	if r, err := node1.Resolve(nodeName); err != nil || r.Port != nodeStaticPort {
-		t.Fatal("Wrong port number after adding static route. Got", nr.Port, "Expected", nodeStaticPort)
+	if r, err := node1.Resolve(nodeName2); err != nil || r.Port != nodeStaticPort {
+		t.Fatal("Wrong port number after adding static route. Got", r.Port, "Expected", nodeStaticPort)
 	}
 
-	node1.RemoveStaticRoute(nodeName)
+	node1.RemoveStaticRoute(nodeName2)
 
 	// should be resolved into the original port number
-	if nr2, err := node1.Resolve(nodeName); err != nil || nr.Port != nr2.Port {
+	if nr2, err := node1.Resolve(nodeName2); err != nil || nr.Port != nr2.Port {
 		t.Fatal("Wrong port number after removing static route")
 	}
 }

@@ -52,8 +52,8 @@ func StartNodeWithContext(ctx context.Context, name string, cookie string, opts 
 	}
 
 	if opts.StaticRoutesOnly == false && opts.Resolver == nil {
-		// create default resolver (Erlang EPMD service)
-		opts.Resolver = dist.CreateResolver(ctx, true, "", dist.DefaultEPMDPort)
+		// create default resolver (with enabled Erlang EPMD server)
+		opts.Resolver = dist.CreateResolverWithEPMD(ctx, "", dist.DefaultEPMDPort)
 	}
 
 	return node.StartWithContext(ctx, name, cookie, opts)

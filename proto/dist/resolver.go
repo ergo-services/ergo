@@ -43,9 +43,9 @@ type epmdResolver struct {
 	ctx context.Context
 
 	// EPMD server
-	enableServer bool
-	host         string
-	port         uint16
+	enableEPMD bool
+	host       string
+	port       uint16
 
 	// Node
 	nodePort         uint16
@@ -56,19 +56,25 @@ type epmdResolver struct {
 	extra []byte
 }
 
-func CreateResolver(ctx context.Context, enableLocalServer bool, host string, port uint16) node.Resolver {
+func CreateResolver(ctx context.Context) node.Resolver {
+	resolver := &epmdResolver{
+		ctx:  ctx,
+		port: DefaultEPMDPort,
+	}
+	return resolver
+}
+
+func CreateResolverWithEPMD(ctx context.Context, host string, port uint16) node.Resolver {
 	if port == 0 {
 		port = DefaultEPMDPort
 	}
 	resolver := &epmdResolver{
-		ctx:          ctx,
-		enableServer: enableLocalServer,
-		host:         host,
-		port:         port,
+		ctx:        ctx,
+		enableEPMD: true,
+		host:       host,
+		port:       port,
 	}
-	if enableLocalServer {
-		startServerEPMD(ctx, host, port)
-	}
+	startServerEPMD(ctx, host, port)
 	return resolver
 }
 
@@ -106,7 +112,7 @@ func (e *epmdResolver) Register(name string, port uint16, options node.ResolverO
 				}
 
 				// try to start embedded EPMD server
-				if e.enableServer {
+				if e.enableEPMD {
 					startServerEPMD(e.ctx, e.host, e.port)
 				}
 

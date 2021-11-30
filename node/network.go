@@ -144,6 +144,7 @@ func (n *network) AddStaticRoute(name string, port uint16, options RouteOptions)
 
 	route := Route{
 		Name:         name,
+		Host:         ns[1],
 		Port:         port,
 		RouteOptions: options,
 	}
@@ -205,6 +206,17 @@ func (n *network) GetConnection(peername string) (ConnectionInterface, error) {
 
 // Resolve
 func (n *network) Resolve(peername string) (Route, error) {
+	n.staticRoutesMutex.Lock()
+	defer n.staticRoutesMutex.Unlock()
+
+	if r, ok := n.staticRoutes[peername]; ok {
+		return r, nil
+	}
+
+	if n.staticOnly {
+		return Route{}, ErrNoRoute
+	}
+
 	return n.resolver.Resolve(peername)
 }
 
