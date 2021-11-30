@@ -285,9 +285,11 @@ type Proto struct {
 // Proto defines proto interface for the custom Proto implementation
 type ProtoInterface interface {
 	// Init initialize connection handler
-	Init(conn io.ReadWriter, peername string, flags Flags, router CoreRouter) (ConnectionInterface, error)
+	Init(ctx context.Context, conn io.ReadWriter, peername string, flags Flags) (ConnectionInterface, error)
 	// Serve connection
-	Serve(ctx context.Context, connection ConnectionInterface)
+	Serve(connection ConnectionInterface, router CoreRouter)
+	// Terminate invoked once Serve callback is finished
+	Terminate(connection ConnectionInterface)
 }
 
 // ProtoOptions

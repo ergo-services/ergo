@@ -97,3 +97,9 @@ func (lf *linkFlusher) Write(b []byte) (int, error) {
 	return lenB, nil
 
 }
+
+func (lf *linkFlusher) Stop() {
+	if lf.timer != nil {
+		lf.timer.Stop()
+	}
+}

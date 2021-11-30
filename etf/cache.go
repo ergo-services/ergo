@@ -1,7 +1,6 @@
 package etf
 
 import (
-	"context"
 	"sync"
 )
 
@@ -13,6 +12,7 @@ const (
 type AtomCache struct {
 	cacheMap  map[Atom]int16
 	update    chan Atom
+	stop      chan struct{}
 	lastID    int16
 	cacheList [maxCacheItems]Atom
 	sync.Mutex
@@ -63,13 +63,18 @@ func (a *AtomCache) GetLastID() int16 {
 	return id
 }
 
-// NewAtomCache
-func NewAtomCache(ctx context.Context) *AtomCache {
+func (a *AtomCache) Stop() {
+	close(a.stop)
+}
+
+// StartAtomCache
+func StartAtomCache() *AtomCache {
 	var id int16
 
 	a := &AtomCache{
 		cacheMap: make(map[Atom]int16),
 		update:   make(chan Atom, 100),
+		stop:     make(chan struct{}, 1),
 		lastID:   -1,
 	}
 
@@ -90,7 +95,7 @@ func NewAtomCache(ctx context.Context) *AtomCache {
 				a.lastID = id
 				a.Unlock()
 
-			case <-ctx.Done():
+			case <-a.stop:
 				return
 			}
 		}

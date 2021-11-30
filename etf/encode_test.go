@@ -1,7 +1,6 @@
 package etf
 
 import (
-	"context"
 	"fmt"
 	"math/big"
 	"reflect"
@@ -27,13 +26,11 @@ func TestEncodeBoolWithAtomCache(t *testing.T) {
 	b := lib.TakeBuffer()
 	defer lib.ReleaseBuffer(b)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
 	writerAtomCache := make(map[Atom]CacheItem)
 	encodingAtomCache := TakeListAtomCache()
 	defer ReleaseListAtomCache(encodingAtomCache)
-	linkAtomCache := NewAtomCache(ctx)
+	linkAtomCache := StartAtomCache()
+	defer linkAtomCache.Stop()
 	ci := CacheItem{ID: 499, Encoded: true, Name: "false"}
 
 	writerAtomCache["false"] = ci
@@ -260,13 +257,12 @@ func TestEncodeAtomWithCache(t *testing.T) {
 	b := lib.TakeBuffer()
 	defer lib.ReleaseBuffer(b)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
 	writerAtomCache := make(map[Atom]CacheItem)
 	encodingAtomCache := TakeListAtomCache()
 	defer ReleaseListAtomCache(encodingAtomCache)
-	linkAtomCache := NewAtomCache(ctx)
+
+	linkAtomCache := StartAtomCache()
+	defer linkAtomCache.Stop()
 
 	ci := CacheItem{ID: 2020, Encoded: true, Name: "cached atom"}
 	writerAtomCache["cached atom"] = ci
@@ -741,13 +737,11 @@ func TestEncodePidWithAtomCache(t *testing.T) {
 	expected := []byte{103, 82, 0, 0, 0, 1, 56, 0, 0, 0, 0, 2}
 	term := Pid{Node: "erl-demo@127.0.0.1", ID: 312, Creation: 2}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
 	writerAtomCache := make(map[Atom]CacheItem)
 	encodingAtomCache := TakeListAtomCache()
 	defer ReleaseListAtomCache(encodingAtomCache)
-	linkAtomCache := NewAtomCache(ctx)
+	linkAtomCache := StartAtomCache()
+	defer linkAtomCache.Stop()
 
 	ci := CacheItem{ID: 2020, Encoded: true, Name: "erl-demo@127.0.0.1"}
 	writerAtomCache["erl-demo@127.0.0.1"] = ci
@@ -952,13 +946,11 @@ func BenchmarkEncodeBoolWithAtomCache(b *testing.B) {
 	buf := lib.TakeBuffer()
 	defer lib.ReleaseBuffer(buf)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
 	writerAtomCache := make(map[Atom]CacheItem)
 	encodingAtomCache := TakeListAtomCache()
 	defer ReleaseListAtomCache(encodingAtomCache)
-	linkAtomCache := NewAtomCache(ctx)
+	linkAtomCache := StartAtomCache(ctx)
+	defer linkAtomCache.Stop()
 
 	writerAtomCache["false"] = CacheItem{ID: 499, Encoded: true, Name: "false"}
 
@@ -1050,13 +1042,11 @@ func BenchmarkEncodeAtomWithCache(b *testing.B) {
 	buf := lib.TakeBuffer()
 	defer lib.ReleaseBuffer(buf)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
 	writerAtomCache := make(map[Atom]CacheItem)
 	encodingAtomCache := TakeListAtomCache()
 	defer ReleaseListAtomCache(encodingAtomCache)
-	linkAtomCache := NewAtomCache(ctx)
+	linkAtomCache := StartAtomCache()
+	defer linkAtomCache.Stop()
 
 	ci := CacheItem{ID: 2020, Encoded: true, Name: "cached atom"}
 	writerAtomCache["cached atom"] = ci
@@ -1275,13 +1265,11 @@ func BenchmarkEncodePidWithAtomCache(b *testing.B) {
 
 	term := Pid{Node: "erl-demo@127.0.0.1", ID: 312, Creation: 2}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
 	writerAtomCache := make(map[Atom]CacheItem)
 	encodingAtomCache := TakeListAtomCache()
 	defer ReleaseListAtomCache(encodingAtomCache)
-	linkAtomCache := NewAtomCache(ctx)
+	linkAtomCache := StartAtomCache()
+	defer linkAtomCache.Stop()
 
 	ci := CacheItem{ID: 2020, Encoded: true, Name: "erl-demo@127.0.0.1"}
 	writerAtomCache["erl-demo@127.0.0.1"] = ci
@@ -1332,13 +1320,11 @@ func BenchmarkEncodeRefWithAtomCache(b *testing.B) {
 		ID:       [5]uint32{73444, 3082813441, 2373634851},
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
 	writerAtomCache := make(map[Atom]CacheItem)
 	encodingAtomCache := TakeListAtomCache()
 	defer ReleaseListAtomCache(encodingAtomCache)
-	linkAtomCache := NewAtomCache(ctx)
+	linkAtomCache := StartAtomCache()
+	defer linkAtomCache.Stop()
 
 	ci := CacheItem{ID: 2020, Encoded: true, Name: "erl-demo@127.0.0.1"}
 	writerAtomCache["erl-demo@127.0.0.1"] = ci
@@ -1398,13 +1384,11 @@ func BenchmarkEncodeTupleRefPidWithAtomCache(b *testing.B) {
 			ID:       312,
 			Creation: 2}}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
 	writerAtomCache := make(map[Atom]CacheItem)
 	encodingAtomCache := TakeListAtomCache()
 	defer ReleaseListAtomCache(encodingAtomCache)
-	linkAtomCache := NewAtomCache(ctx)
+	linkAtomCache := StartAtomCache()
+	defer linkAtomCache.Stop()
 
 	ci := CacheItem{ID: 2020, Encoded: true, Name: "erl-demo@127.0.0.1"}
 	writerAtomCache["erl-demo@127.0.0.1"] = ci

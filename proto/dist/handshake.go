@@ -82,7 +82,6 @@ type DistHandshake struct {
 	flags     node.Flags
 	creation  uint32
 	challenge uint32
-	timeout   time.Duration
 	options   HandshakeOptions
 }
 
@@ -98,9 +97,11 @@ func CreateHandshake(options HandshakeOptions) node.HandshakeInterface {
 		options.Version = DefaultHandshakeVersion
 	}
 
+	fmt.Println("OPPPPPP1", options.Timeout)
 	if options.Timeout == 0 {
 		options.Timeout = DefaultHandshakeTimeout
 	}
+	fmt.Println("OPPPPPP2", options.Timeout)
 	return &DistHandshake{
 		options:   options,
 		challenge: rand.Uint32(),
@@ -165,6 +166,8 @@ func (dh *DistHandshake) Start(conn io.ReadWriter, tls bool) (node.Flags, error)
 		// TLS connection has 4 bytes packet length header
 		expectingBytes = 4
 	}
+
+	fmt.Println("Start handshake on ", dh.nodename)
 
 	for {
 		go asyncRead()
@@ -304,7 +307,7 @@ func (dh *DistHandshake) Accept(conn io.ReadWriter, tls bool) (string, node.Flag
 	var await []byte
 
 	// define timeout for the handshaking
-	timer := time.NewTimer(dh.timeout)
+	timer := time.NewTimer(dh.options.Timeout)
 	defer timer.Stop()
 
 	asyncReadChannel := make(chan error, 2)
@@ -328,6 +331,7 @@ func (dh *DistHandshake) Accept(conn io.ReadWriter, tls bool) (string, node.Flag
 	// 'send_name' message request we just sent
 	await = []byte{'n', 'N'}
 
+	fmt.Printf("Accept handshake %#v\n", dh)
 	for {
 		go asyncRead()
 

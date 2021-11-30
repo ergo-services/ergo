@@ -53,6 +53,7 @@ type distConnection struct {
 
 	nodename string
 	peername string
+	ctx      context.Context
 
 	// peer flags
 	flags node.Flags
@@ -111,18 +112,6 @@ func CreateProto(nodename string, options node.ProtoOptions) node.ProtoInterface
 // node.Proto interface implementation
 //
 
-func (dp *distProto) Init(conn io.ReadWriter, peername string, flags node.Flags, router node.CoreRouter) (node.ConnectionInterface, error) {
-	connection := &distConnection{
-		nodename:    dp.nodename,
-		peername:    peername,
-		flags:       flags,
-		compression: dp.options.Compression,
-		conn:        conn,
-		router:      router,
-	}
-	return connection, nil
-}
-
 type senders struct {
 	sender []*senderChannel
 	n      int32
@@ -146,29 +135,30 @@ type receivers struct {
 	i    int32
 }
 
-func (dp *distProto) Serve(ctx context.Context, conn node.ConnectionInterface) {
-	connection, ok := conn.(*distConnection)
-	if !ok {
-		fmt.Println("conn is not a *distConnection type")
-		return
+func (dp *distProto) Init(ctx context.Context, conn io.ReadWriter, peername string, flags node.Flags) (node.ConnectionInterface, error) {
+	connection := &distConnection{
+		nodename:    dp.nodename,
+		peername:    peername,
+		flags:       flags,
+		compression: dp.options.Compression,
+		conn:        conn,
 	}
-	connectionctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	connection.cancelContext = cancel
+	connection.ctx, connection.cancelContext = context.WithCancel(ctx)
 
 	// initializing atom cache if its enabled
-	if connection.flags.EnableHeaderAtomCache {
-		connection.cacheOut = etf.NewAtomCache(connectionctx)
+	if flags.EnableHeaderAtomCache {
+		connection.cacheOut = etf.StartAtomCache()
 	}
 
 	// create connection buffering
-	connection.flusher = newLinkFlusher(connection.conn, defaultLatency)
+	connection.flusher = newLinkFlusher(conn, defaultLatency)
 
 	// do not use shared channels within intencive code parts, impacts on a performance
 	connection.receivers = receivers{
 		recv: make([]chan *lib.Buffer, dp.options.NumHandlers),
 		n:    int32(dp.options.NumHandlers),
 	}
+
 	// run readers for incoming messages
 	for i := 0; i < dp.options.NumHandlers; i++ {
 		// run packet reader routines (decoder)
@@ -191,22 +181,15 @@ func (dp *distProto) Serve(ctx context.Context, conn node.ConnectionInterface) {
 		go connection.sender(send, dp.options, connection.flags)
 	}
 
-	// close all reader/writer channels on exit from this routine
-	defer func() {
-		for i := 0; i < dp.options.NumHandlers; i++ {
-			sender := connection.senders.sender[i]
-			if sender != nil {
-				sender.Lock()
-				close(sender.sendChannel)
-				sender.sendChannel = nil
-				sender.Unlock()
-				connection.senders.sender[i] = nil
-			}
-			if connection.receivers.recv[i] != nil {
-				close(connection.receivers.recv[i])
-			}
-		}
-	}()
+	return connection, nil
+}
+
+func (dp *distProto) Serve(ci node.ConnectionInterface, router node.CoreRouter) {
+	connection, ok := ci.(*distConnection)
+	if !ok {
+		fmt.Println("conn is not a *distConnection type")
+		return
+	}
 
 	// run read loop
 	var err error
@@ -214,12 +197,21 @@ func (dp *distProto) Serve(ctx context.Context, conn node.ConnectionInterface) {
 
 	b := lib.TakeBuffer()
 	for {
-		packetLength, err = connection.read(connectionctx, b, dp.options.MaxMessageSize)
+		packetLength, err = connection.read(b, dp.options.MaxMessageSize)
+
+		// validation
 		if err != nil || packetLength == 0 {
 			// link was closed or got malformed data
 			if err != nil {
 				fmt.Println("link was closed", connection.peername, "error:", err)
 			}
+			lib.ReleaseBuffer(b)
+			return
+		}
+
+		// check the context if it was cancelled
+		if connection.ctx.Err() != nil {
+			// canceled
 			lib.ReleaseBuffer(b)
 			return
 		}
@@ -246,6 +238,33 @@ func (dp *distProto) Serve(ctx context.Context, conn node.ConnectionInterface) {
 		connection.receivers.i = 0
 	}
 
+}
+
+func (dp *distProto) Terminate(ci node.ConnectionInterface) {
+	connection, ok := ci.(*distConnection)
+	if !ok {
+		fmt.Println("conn is not a *distConnection type")
+		return
+	}
+
+	for i := 0; i < dp.options.NumHandlers; i++ {
+		sender := connection.senders.sender[i]
+		if sender != nil {
+			sender.Lock()
+			close(sender.sendChannel)
+			sender.sendChannel = nil
+			sender.Unlock()
+			connection.senders.sender[i] = nil
+		}
+		if connection.receivers.recv[i] != nil {
+			close(connection.receivers.recv[i])
+		}
+	}
+	if connection.cacheOut != nil {
+		connection.cacheOut.Stop()
+	}
+	connection.flusher.Stop()
+	connection.cancelContext()
 }
 
 // node.Connection interface implementation
@@ -366,7 +385,7 @@ func (dc *distConnection) ProxyReg() error {
 // internal
 //
 
-func (dc *distConnection) read(ctx context.Context, b *lib.Buffer, max int) (int, error) {
+func (dc *distConnection) read(b *lib.Buffer, max int) (int, error) {
 	// http://erlang.org/doc/apps/erts/erl_dist_protocol.html#protocol-between-connected-nodes
 	expectingBytes := 4
 
@@ -381,11 +400,6 @@ func (dc *distConnection) read(ctx context.Context, b *lib.Buffer, max int) (int
 			if e != nil && e != io.EOF {
 				// something went wrong
 				return 0, e
-			}
-
-			if ctx.Err() != nil {
-				// context was canceled
-				return 0, nil
 			}
 
 			// check onemore time if we should read more data

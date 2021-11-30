@@ -1,7 +1,6 @@
 package etf
 
 import (
-	"context"
 	"reflect"
 	"testing"
 	"time"
@@ -9,9 +8,8 @@ import (
 
 func TestAtomCache(t *testing.T) {
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	a := NewAtomCache(ctx)
+	a := StartAtomCache()
+	defer a.Stop()
 
 	a.Append(Atom("test1"))
 	time.Sleep(100 * time.Millisecond)

@@ -255,12 +255,13 @@ func (n *network) listen(ctx context.Context, hostname string, begin uint16, end
 				lib.Log("[%s] Accepted new connection from %s", n.nodename, c.RemoteAddr().String())
 
 				peername, protoFlags, err := n.handshake.Accept(c, n.tls.Enabled)
+				fmt.Println("AAAa", n.nodename, err)
 				if err != nil {
 					lib.Log("[%s] Can't handshake with %s: %s", n.nodename, c.RemoteAddr().String(), err)
 					c.Close()
 					continue
 				}
-				connection, err := n.proto.Init(c, peername, protoFlags, n.router)
+				connection, err := n.proto.Init(n.ctx, c, peername, protoFlags)
 				if err != nil {
 					c.Close()
 					continue
@@ -282,8 +283,9 @@ func (n *network) listen(ctx context.Context, hostname string, begin uint16, end
 
 				// run serving connection
 				go func(ctx context.Context, ci connectionInternal) {
-					n.proto.Serve(ctx, ci.connection)
+					n.proto.Serve(ci.connection, n.router)
 					n.unregisterConnection(peername)
+					n.proto.Terminate(ci.connection)
 					ci.conn.Close()
 				}(ctx, cInternal)
 
@@ -371,7 +373,7 @@ func (n *network) connect(peername string) (ConnectionInterface, error) {
 	// handshake
 	handshake := route.Handshake
 	if handshake == nil {
-		//	// use default handshake
+		// use default handshake
 		handshake = n.handshake
 	}
 
@@ -388,7 +390,7 @@ func (n *network) connect(peername string) (ConnectionInterface, error) {
 		proto = n.proto
 	}
 
-	connection, err := n.proto.Init(c, peername, protoFlags, n.router)
+	connection, err := n.proto.Init(n.ctx, c, peername, protoFlags)
 	if err != nil {
 		c.Close()
 		return nil, err
@@ -402,15 +404,16 @@ func (n *network) connect(peername string) (ConnectionInterface, error) {
 		// Race condition:
 		// There must be another goroutine which already created and registered
 		// connection to this node.
-		// Close this connection and use the already registered connection
+		// Close this connection and use the already registered one
 		c.Close()
 		return registered.connection, nil
 	}
 
 	// run serving connection
 	go func(ctx context.Context, ci connectionInternal) {
-		n.proto.Serve(ctx, ci.connection)
+		n.proto.Serve(ci.connection, n.router)
 		n.unregisterConnection(peername)
+		n.proto.Terminate(ci.connection)
 		ci.conn.Close()
 	}(n.ctx, cInternal)
 
