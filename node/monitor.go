@@ -196,7 +196,7 @@ func (m *monitor) RouteNodeDown(name string) {
 		}
 
 		for i := range pids {
-			m.RouteExit(pids[i], link, "noconnection")
+			m.sendExit(pids[i], link, "noconnection")
 			p, ok := m.links[pids[i]]
 
 			if !ok {
@@ -260,7 +260,7 @@ func (m *monitor) handleTerminated(terminated etf.Pid, name string, reason strin
 	if pidLinks, ok := m.links[terminated]; ok {
 		for i := range pidLinks {
 			lib.Log("[%s] LINK process exited: %s. send notify to: %s", m.nodename, terminated, pidLinks[i])
-			m.RouteExit(pidLinks[i], terminated, reason)
+			m.sendExit(pidLinks[i], terminated, reason)
 
 			// remove A link
 			pids, ok := m.links[pidLinks[i]]
@@ -285,7 +285,7 @@ func (m *monitor) handleTerminated(terminated etf.Pid, name string, reason strin
 		// remove link
 		delete(m.links, terminated)
 	}
-	defer m.mutexLinks.Unlock()
+	m.mutexLinks.Unlock()
 
 }
 
@@ -410,7 +410,7 @@ func (m *monitor) RouteLink(pidA etf.Pid, pidB etf.Pid) error {
 		// for the local process we should make sure if its alive
 		// otherwise send 'EXIT' message with 'noproc' as a reason
 		if p := m.router.ProcessByPid(pidB); p == nil {
-			m.RouteExit(pidA, pidB, "noproc")
+			m.sendExit(pidA, pidB, "noproc")
 			return ErrProcessUnknown
 		}
 		m.links[pidA] = append(linksA, pidB)
@@ -421,12 +421,12 @@ func (m *monitor) RouteLink(pidA etf.Pid, pidB etf.Pid) error {
 	// linking with remote process
 	connection, err := m.router.GetConnection(string(pidB.Node))
 	if err != nil {
-		m.RouteExit(pidA, pidB, "noconnection")
+		m.sendExit(pidA, pidB, "noconnection")
 		return err
 	}
 
 	if err := connection.Link(pidA, pidB); err != nil {
-		m.RouteExit(pidA, pidB, err.Error())
+		m.sendExit(pidA, pidB, err.Error())
 		return err
 	}
 
@@ -476,11 +476,11 @@ func (m *monitor) RouteUnlink(pidA etf.Pid, pidB etf.Pid) error {
 	if pidB.Node != etf.Atom(m.nodename) {
 		connection, err := m.router.GetConnection(string(pidB.Node))
 		if err != nil {
-			m.RouteExit(pidA, pidB, "noconnection")
+			m.sendExit(pidA, pidB, "noconnection")
 			return err
 		}
 		if err := connection.Unlink(pidA, pidB); err != nil {
-			m.RouteExit(pidA, pidB, err.Error())
+			m.sendExit(pidA, pidB, err.Error())
 			return err
 		}
 	}
@@ -488,24 +488,41 @@ func (m *monitor) RouteUnlink(pidA etf.Pid, pidB etf.Pid) error {
 }
 
 func (m *monitor) RouteExit(to etf.Pid, terminated etf.Pid, reason string) error {
-	// for remote: {3, FromPid, ToPid, Reason}
-	if to.Node != etf.Atom(m.nodename) {
-		if reason == "noconnection" {
-			return nil
-		}
-		connection, err := m.router.GetConnection(string(to.Node))
-		if err != nil {
-			return err
-		}
-		return connection.LinkExit(to, terminated, reason)
-	}
+	m.mutexLinks.Lock()
+	defer m.mutexLinks.Unlock()
 
-	// check if 'to' process is still alive
-	if p := m.router.ProcessByPid(to); p != nil {
-		p.Exit(reason)
+	pidLinks, ok := m.links[terminated]
+	if !ok {
 		return nil
 	}
-	return ErrProcessUnknown
+	for i := range pidLinks {
+		lib.Log("[%s] LINK process exited: %s. send notify to: %s", m.nodename, terminated, pidLinks[i])
+		m.sendExit(pidLinks[i], terminated, reason)
+
+		// remove A link
+		pids, ok := m.links[pidLinks[i]]
+		if !ok {
+			continue
+		}
+		for k := range pids {
+			if pids[k] != terminated {
+				continue
+			}
+			pids[k] = pids[0]
+			pids = pids[1:]
+			break
+		}
+
+		if len(pids) > 0 {
+			m.links[pidLinks[i]] = pids
+		} else {
+			delete(m.links, pidLinks[i])
+		}
+	}
+	// remove link
+	delete(m.links, terminated)
+	return nil
+
 }
 
 func (m *monitor) RouteMonitor(by etf.Pid, pid etf.Pid, ref etf.Ref) error {
@@ -774,4 +791,25 @@ func (m *monitor) sendMonitorExitReg(to etf.Pid, terminated gen.ProcessID, reaso
 	}
 	from := to
 	return m.router.RouteSend(from, to, down)
+}
+
+func (m *monitor) sendExit(to etf.Pid, terminated etf.Pid, reason string) error {
+	// for remote: {3, FromPid, ToPid, Reason}
+	if to.Node != etf.Atom(m.nodename) {
+		if reason == "noconnection" {
+			return nil
+		}
+		connection, err := m.router.GetConnection(string(to.Node))
+		if err != nil {
+			return err
+		}
+		return connection.LinkExit(to, terminated, reason)
+	}
+
+	// check if 'to' process is still alive
+	if p := m.router.ProcessByPid(to); p != nil {
+		p.Exit(reason)
+		return nil
+	}
+	return ErrProcessUnknown
 }
