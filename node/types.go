@@ -94,7 +94,9 @@ type Node interface {
 	Resolve(peername string) (Route, error)
 
 	// Connect sets up a connection to node
-	Connect(node string) error
+	Connect(nodename string) error
+	// Disconnect close connection to the node
+	Disconnect(nodename string) error
 	// Nodes returns the list of connected nodes
 	Nodes() []string
 
@@ -150,8 +152,8 @@ type CoreRouter interface {
 	// RouteMonitor makes monitor to the given Pid
 	RouteMonitor(by etf.Pid, process etf.Pid, ref etf.Ref) error
 	RouteDemonitor(by etf.Pid, ref etf.Ref) error
-	RouteMonitorExitReg(to etf.Pid, terminated gen.ProcessID, reason string, ref etf.Ref) error
-	RouteMonitorExit(to etf.Pid, terminated etf.Pid, reason string, ref etf.Ref) error
+	RouteMonitorExitReg(terminated gen.ProcessID, reason string, ref etf.Ref) error
+	RouteMonitorExit(terminated etf.Pid, reason string, ref etf.Ref) error
 	// RouteNodeDown
 	RouteNodeDown(name string)
 

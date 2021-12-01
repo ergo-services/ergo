@@ -32,6 +32,7 @@ type networkInternal interface {
 	StaticRoutes() []Route
 	Resolve(peername string) (Route, error)
 	Connect(peername string) error
+	Disconnect(peername string) error
 	Nodes() []string
 
 	GetConnection(peername string) (ConnectionInterface, error)
@@ -224,6 +225,19 @@ func (n *network) Resolve(peername string) (Route, error) {
 func (n *network) Connect(peername string) error {
 	_, err := n.GetConnection(peername)
 	return err
+}
+
+// Disconnect
+func (n *network) Disconnect(peername string) error {
+	n.mutexConnections.Lock()
+	connectionInternal, ok := n.connections[peername]
+	n.mutexConnections.Unlock()
+	if !ok {
+		return ErrNoRoute
+	}
+
+	connectionInternal.conn.Close()
+	return nil
 }
 
 // Nodes

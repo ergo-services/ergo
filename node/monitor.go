@@ -30,9 +30,9 @@ type monitorInternal interface {
 	// RouteDemonitor
 	RouteDemonitor(by etf.Pid, ref etf.Ref) error
 	// RouteMonitorExitReg
-	RouteMonitorExitReg(to etf.Pid, terminated gen.ProcessID, reason string, ref etf.Ref) error
+	RouteMonitorExitReg(terminated gen.ProcessID, reason string, ref etf.Ref) error
 	// RouteMonitorExit
-	RouteMonitorExit(to etf.Pid, terminated etf.Pid, reason string, ref etf.Ref) error
+	RouteMonitorExit(terminated etf.Pid, reason string, ref etf.Ref) error
 	// RouteNodeDown
 	RouteNodeDown(name string)
 
@@ -54,11 +54,11 @@ type monitor struct {
 	// monitors by pid
 	processes      map[etf.Pid][]monitorItem
 	ref2pid        map[etf.Ref]etf.Pid
-	mutexProcesses sync.Mutex
+	mutexProcesses sync.RWMutex
 	// monitors by name
 	names      map[gen.ProcessID][]monitorItem
 	ref2name   map[etf.Ref]gen.ProcessID
-	mutexNames sync.Mutex
+	mutexNames sync.RWMutex
 
 	// links
 	links      map[etf.Pid][]etf.Pid
@@ -93,7 +93,6 @@ func (m *monitor) monitorNode(by etf.Pid, node string, ref etf.Ref) {
 	lib.Log("[%s] MONITOR NODE : %v => %s", m.nodename, by, node)
 
 	m.mutexNodes.Lock()
-	defer m.mutexNodes.Unlock()
 
 	l := m.nodes[node]
 	item := monitorItem{
@@ -102,6 +101,7 @@ func (m *monitor) monitorNode(by etf.Pid, node string, ref etf.Ref) {
 	}
 	m.nodes[node] = append(l, item)
 	m.ref2node[ref] = node
+	m.mutexNodes.Unlock()
 
 	_, err := m.router.GetConnection(node)
 	if err != nil {
@@ -167,7 +167,7 @@ func (m *monitor) RouteNodeDown(name string) {
 		for i := range ps {
 			// args: (to, terminated, reason, ref)
 			delete(m.ref2pid, ps[i].ref)
-			m.RouteMonitorExit(ps[i].pid, pid, "noconnection", ps[i].ref)
+			m.sendMonitorExit(ps[i].pid, pid, "noconnection", ps[i].ref)
 		}
 		delete(m.processes, pid)
 	}
@@ -182,7 +182,7 @@ func (m *monitor) RouteNodeDown(name string) {
 		for i := range ps {
 			// args: (to, terminated, reason, ref)
 			delete(m.ref2name, ps[i].ref)
-			m.RouteMonitorExitReg(ps[i].pid, processID, "noconnection", ps[i].ref)
+			m.sendMonitorExitReg(ps[i].pid, processID, "noconnection", ps[i].ref)
 		}
 		delete(m.names, processID)
 	}
@@ -236,7 +236,7 @@ func (m *monitor) handleTerminated(terminated etf.Pid, name string, reason strin
 		if items, ok := m.names[terminatedProcessID]; ok {
 			for i := range items {
 				lib.Log("[%s] MONITOR process terminated: %s. send notify to: %s", m.nodename, terminatedProcessID, items[i].pid)
-				m.RouteMonitorExitReg(items[i].pid, terminatedProcessID, reason, items[i].ref)
+				m.sendMonitorExitReg(items[i].pid, terminatedProcessID, reason, items[i].ref)
 				delete(m.ref2name, items[i].ref)
 			}
 			delete(m.names, terminatedProcessID)
@@ -249,7 +249,7 @@ func (m *monitor) handleTerminated(terminated etf.Pid, name string, reason strin
 
 		for i := range items {
 			lib.Log("[%s] MONITOR process terminated: %s. send notify to: %s", m.nodename, terminated, items[i].pid)
-			m.RouteMonitorExit(items[i].pid, terminated, reason, items[i].ref)
+			m.sendMonitorExit(items[i].pid, terminated, reason, items[i].ref)
 			delete(m.ref2pid, items[i].ref)
 		}
 		delete(m.processes, terminated)
@@ -516,17 +516,18 @@ func (m *monitor) RouteMonitor(by etf.Pid, pid etf.Pid, ref etf.Ref) error {
 	// If Pid does not exist a gen.MessageDown must be
 	// send immediately with Reason set to noproc.
 	if p := m.router.ProcessByPid(pid); string(pid.Node) == m.nodename && p == nil {
-		return m.RouteMonitorExit(by, pid, "noproc", ref)
+		return m.sendMonitorExit(by, pid, "noproc", ref)
 	}
 
 	if string(pid.Node) != m.nodename {
 		connection, err := m.router.GetConnection(string(pid.Node))
 		if err != nil {
+			m.sendMonitorExit(by, pid, "noconnection", ref)
 			return err
 		}
 
 		if err := connection.Monitor(by, pid, ref); err != nil {
-			m.RouteMonitorExit(by, pid, "noconnection", ref)
+			m.sendMonitorExit(by, pid, "noconnection", ref)
 			return err
 		}
 	}
@@ -548,16 +549,17 @@ func (m *monitor) RouteMonitorReg(by etf.Pid, process gen.ProcessID, ref etf.Ref
 	// If 'process' belongs to this node and does not exist a gen.MessageDown must be
 	// send immediately with Reason set to noproc.
 	if p := m.router.ProcessByName(process.Name); process.Node == m.nodename && p == nil {
-		return m.RouteMonitorExitReg(by, process, "noproc", ref)
+		return m.sendMonitorExitReg(by, process, "noproc", ref)
 	}
 	if process.Node != m.nodename {
 		connection, err := m.router.GetConnection(process.Node)
 		if err != nil {
+			m.sendMonitorExitReg(by, process, "noconnection", ref)
 			return err
 		}
 
 		if err := connection.MonitorReg(by, process, ref); err != nil {
-			m.RouteMonitorExitReg(by, process, "noconnection", ref)
+			m.sendMonitorExitReg(by, process, "noconnection", ref)
 			return err
 		}
 	}
@@ -576,24 +578,21 @@ func (m *monitor) RouteMonitorReg(by etf.Pid, process gen.ProcessID, ref etf.Ref
 }
 
 func (m *monitor) RouteDemonitor(by etf.Pid, ref etf.Ref) error {
-	var pid etf.Pid
-	var processID gen.ProcessID
-	var knownRefByName, knownRefByPid bool
-
-	m.mutexProcesses.Lock()
-	pid, knownRefByPid = m.ref2pid[ref]
-	m.mutexProcesses.Unlock()
+	m.mutexProcesses.RLock()
+	pid, knownRefByPid := m.ref2pid[ref]
+	m.mutexProcesses.RUnlock()
 
 	if knownRefByPid == false {
+		// monitor was created by process name
 		m.mutexNames.Lock()
-		processID, knownRefByName = m.ref2name[ref]
-		m.mutexNames.Unlock()
+		defer m.mutexNames.Unlock()
+		processID, knownRefByName := m.ref2name[ref]
 		if knownRefByName == false {
 			// unknown monitor reference
 			return ErrMonitorUnknown
 		}
-
 		items := m.names[processID]
+
 		for i := range items {
 			if items[i].pid != by {
 				continue
@@ -605,14 +604,12 @@ func (m *monitor) RouteDemonitor(by etf.Pid, ref etf.Ref) error {
 			items[i] = items[0]
 			items = items[1:]
 
-			m.mutexNames.Lock()
 			if len(items) == 0 {
 				delete(m.names, processID)
 			} else {
 				m.names[processID] = items
 			}
 			delete(m.ref2name, ref)
-			m.mutexNames.Unlock()
 
 			if processID.Node != m.nodename {
 				connection, err := m.router.GetConnection(processID.Node)
@@ -626,7 +623,11 @@ func (m *monitor) RouteDemonitor(by etf.Pid, ref etf.Ref) error {
 		return nil
 	}
 
+	// monitor was created by pid
+
 	// cheching for monitorItem list
+	m.mutexProcesses.Lock()
+	defer m.mutexProcesses.Unlock()
 	items := m.processes[pid]
 
 	// remove PID from monitoring processes list
@@ -641,17 +642,15 @@ func (m *monitor) RouteDemonitor(by etf.Pid, ref etf.Ref) error {
 		items[i] = items[0]
 		items = items[1:]
 
-		m.mutexProcesses.Lock()
 		if len(items) == 0 {
 			delete(m.processes, pid)
 		} else {
 			m.processes[pid] = items
 		}
 		delete(m.ref2pid, ref)
-		m.mutexProcesses.Unlock()
 
 		if string(pid.Node) != m.nodename {
-			connection, err := m.router.GetConnection(processID.Node)
+			connection, err := m.router.GetConnection(string(pid.Node))
 			if err != nil {
 				return err
 			}
@@ -663,7 +662,69 @@ func (m *monitor) RouteDemonitor(by etf.Pid, ref etf.Ref) error {
 	return nil
 }
 
-func (m *monitor) RouteMonitorExit(to etf.Pid, terminated etf.Pid, reason string, ref etf.Ref) error {
+func (m *monitor) RouteMonitorExit(terminated etf.Pid, reason string, ref etf.Ref) error {
+	m.mutexProcesses.Lock()
+	defer m.mutexProcesses.Unlock()
+
+	items, ok := m.processes[terminated]
+	if !ok {
+		return nil
+	}
+
+	for i := range items {
+		lib.Log("[%s] MONITOR process terminated: %s. send notify to: %s", m.nodename, terminated, items[i].pid)
+		if items[i].ref != ref {
+			continue
+		}
+
+		delete(m.ref2pid, items[i].ref)
+		m.sendMonitorExit(items[i].pid, terminated, reason, items[i].ref)
+
+		items[i] = items[0]
+		items = items[1:]
+		if len(items) == 0 {
+			delete(m.processes, terminated)
+			return nil
+		}
+		m.processes[terminated] = items
+		return nil
+	}
+
+	return nil
+}
+
+func (m *monitor) RouteMonitorExitReg(terminated gen.ProcessID, reason string, ref etf.Ref) error {
+	m.mutexNames.Lock()
+	defer m.mutexNames.Unlock()
+
+	items, ok := m.names[terminated]
+	if !ok {
+		return nil
+	}
+
+	for i := range items {
+		lib.Log("[%s] MONITOR process terminated: %s. send notify to: %s", m.nodename, terminated, items[i].pid)
+		if items[i].ref != ref {
+			continue
+		}
+
+		delete(m.ref2name, items[i].ref)
+		m.sendMonitorExitReg(items[i].pid, terminated, reason, items[i].ref)
+
+		items[i] = items[0]
+		items = items[1:]
+		if len(items) == 0 {
+			delete(m.names, terminated)
+			return nil
+		}
+		m.names[terminated] = items
+		return nil
+	}
+
+	return nil
+}
+
+func (m *monitor) sendMonitorExit(to etf.Pid, terminated etf.Pid, reason string, ref etf.Ref) error {
 	if string(to.Node) != m.nodename {
 		// remote
 		if reason == "noconnection" {
@@ -689,7 +750,7 @@ func (m *monitor) RouteMonitorExit(to etf.Pid, terminated etf.Pid, reason string
 	return m.router.RouteSend(from, to, down)
 }
 
-func (m *monitor) RouteMonitorExitReg(to etf.Pid, terminated gen.ProcessID, reason string, ref etf.Ref) error {
+func (m *monitor) sendMonitorExitReg(to etf.Pid, terminated gen.ProcessID, reason string, ref etf.Ref) error {
 	if string(to.Node) != m.nodename {
 		// remote
 		if reason == "noconnection" {

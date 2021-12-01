@@ -727,16 +727,15 @@ func (dc *distConnection) handleMessage(control, message etf.Term) (err error) {
 				// {21, FromProc, ToPid, Ref, Reason}, where FromProc = monitored process
 				// pid or name (atom), ToPid = monitoring process, and Reason = exit reason for the monitored process
 				lib.Log("[%s] CONTROL MONITOR_EXIT [from %s]: %#v", dc.nodename, dc.peername, control)
-				to := t.Element(3).(etf.Pid)
 				reason := fmt.Sprint(t.Element(5))
 				ref := t.Element(4).(etf.Ref)
 				switch terminated := t.Element(2).(type) {
 				case etf.Pid:
-					dc.router.RouteMonitorExit(to, terminated, reason, ref)
+					dc.router.RouteMonitorExit(terminated, reason, ref)
 					return nil
 				case etf.Atom:
 					processID := gen.ProcessID{string(terminated), dc.peername}
-					dc.router.RouteMonitorExitReg(to, processID, reason, ref)
+					dc.router.RouteMonitorExitReg(processID, reason, ref)
 					return nil
 				}
 				return fmt.Errorf("malformed monitor exit message")

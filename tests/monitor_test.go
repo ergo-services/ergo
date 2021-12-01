@@ -216,14 +216,14 @@ func TestMonitorLocalRemoteByPid(t *testing.T) {
 	waitForResultWithValue(t, gs2.v, node2gs2.Self())
 
 	// by Pid
-	fmt.Printf("... by Pid Local-Remote: gs1 -> gs2. demonitor: ")
+	fmt.Printf("... by Pid Local-Remote: gs1 -> gs2. monitor/demonitor: ")
 	ref := node1gs1.MonitorProcess(node2gs2.Self())
 	// wait a bit for the MessageDown if something went wrong
 	waitForTimeout(t, gs1.v)
-	if err := checkCleanProcessRef(node1gs1, ref); err == nil {
+	if node1gs1.IsMonitor(ref) == false {
 		t.Fatal("monitor reference has been lost on node 1")
 	}
-	if err := checkCleanProcessRef(node2gs2, ref); err == nil {
+	if node2gs2.IsMonitor(ref) == false {
 		t.Fatal("monitor reference has been lost on node 2")
 	}
 	if found := node1gs1.DemonitorProcess(ref); found == false {
@@ -240,7 +240,7 @@ func TestMonitorLocalRemoteByPid(t *testing.T) {
 	}
 	fmt.Println("OK")
 
-	fmt.Printf("... by Pid Local-Remote: gs1 -> gs2. terminate: ")
+	fmt.Printf("... by Pid Local-Remote: gs1 -> gs2. monitor/terminate: ")
 	ref = node1gs1.MonitorProcess(node2gs2.Self())
 	// wait a bit for the MessageDown if something went wrong
 	waitForTimeout(t, gs1.v)
@@ -259,7 +259,7 @@ func TestMonitorLocalRemoteByPid(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	fmt.Printf("... by Pid Local-Remote: gs1 -> unknownPid: ")
+	fmt.Printf("... by Pid Local-Remote: gs1 -> monitor unknownPid: ")
 	ref = node1gs1.MonitorProcess(node2gs2.Self())
 	result = gen.MessageDown{
 		Ref:    ref,
@@ -275,10 +275,11 @@ func TestMonitorLocalRemoteByPid(t *testing.T) {
 	node2gs2, _ = node2.Spawn("gs2", gen.ProcessOptions{}, gs2, nil)
 	waitForResultWithValue(t, gs2.v, node2gs2.Self())
 
-	fmt.Printf("... by Pid Local-Remote: gs1 -> gs2. onNodeDown: ")
+	fmt.Printf("... by Pid Local-Remote: gs1 -> gs2. monitor/NodeDown: ")
 	ref = node1gs1.MonitorProcess(node2gs2.Self())
 	// wait a bit for the MessageDown if something went wrong
 	waitForTimeout(t, gs1.v)
+	node1.Disconnect(node2.Name())
 	node2.Stop()
 	result = gen.MessageDown{
 		Ref:    ref,
@@ -290,7 +291,7 @@ func TestMonitorLocalRemoteByPid(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	fmt.Printf("... by Pid Local-Remote: gs1 -> gs2. UnknownNode: ")
+	fmt.Printf("... by Pid Local-Remote: gs1 -> gs2. monitor unknown node: ")
 	ref = node1gs1.MonitorProcess(node2gs2.Self())
 	result.Ref = ref
 	waitForResultWithValue(t, gs1.v, result)
@@ -329,7 +330,7 @@ func TestMonitorLocalRemoteByName(t *testing.T) {
 
 	processID := gen.ProcessID{Name: "gs2", Node: node2.Name()}
 
-	fmt.Printf("... by gen.ProcessID{Name, Node} Local-Remote: gs1 -> gs2. demonitor: ")
+	fmt.Printf("... by gen.ProcessID{Name, Node} Local-Remote: gs1 -> gs2. monitor/demonitor: ")
 	ref := node1gs1.MonitorProcess(processID)
 	// wait a bit for the MessageDown if something went wrong
 	waitForTimeout(t, gs1.v)
@@ -353,7 +354,7 @@ func TestMonitorLocalRemoteByName(t *testing.T) {
 	}
 	fmt.Println("OK")
 
-	fmt.Printf("... by gen.ProcessID{Name, Node} Local-Remote: gs1 -> gs2. terminate: ")
+	fmt.Printf("... by gen.ProcessID{Name, Node} Local-Remote: gs1 -> gs2. monitor/terminate: ")
 	ref = node1gs1.MonitorProcess(processID)
 	// wait a bit for the MessageDown if something went wrong
 	waitForTimeout(t, gs1.v)
@@ -372,7 +373,7 @@ func TestMonitorLocalRemoteByName(t *testing.T) {
 		t.Fatal("monitor ref is still alive")
 	}
 
-	fmt.Printf("... by gen.ProcessID{Name, Node} Local-Remote: gs1 -> unknownPid: ")
+	fmt.Printf("... by gen.ProcessID{Name, Node} Local-Remote: gs1 -> monitor unknown remote name: ")
 	ref = node1gs1.MonitorProcess(processID)
 	result = gen.MessageDown{
 		Ref:       ref,
@@ -388,22 +389,21 @@ func TestMonitorLocalRemoteByName(t *testing.T) {
 	node2gs2, _ = node2.Spawn("gs2", gen.ProcessOptions{}, gs2, nil)
 	waitForResultWithValue(t, gs2.v, node2gs2.Self())
 
-	fmt.Printf("... by gen.ProcessID{Name, Node} Local-Remote: gs1 -> gs2. onNodeDown: ")
+	fmt.Printf("... by gen.ProcessID{Name, Node} Local-Remote: gs1 -> gs2. monitor/onNodeDown: ")
 	ref = node1gs1.MonitorProcess(processID)
+	node1.Disconnect(node2.Name())
+	node2.Stop()
 	result = gen.MessageDown{
 		Ref:       ref,
 		ProcessID: processID,
 		Reason:    "noconnection",
 	}
-	// wait a bit for the MessageDown if something went wrong
-	waitForTimeout(t, gs1.v)
-	node2.Stop()
 	waitForResultWithValue(t, gs1.v, result)
 	if node1gs1.IsMonitor(ref) {
 		t.Fatal("monitor ref is still alive")
 	}
 
-	fmt.Printf("... by gen.ProcessID{Name, Node} Local-Remote: gs1 -> gs2. UnknownNode: ")
+	fmt.Printf("... by gen.ProcessID{Name, Node} Local-Remote: gs1 -> gs2. monitor unknown node: ")
 	ref = node1gs1.MonitorProcess(processID)
 	result.Ref = ref
 	waitForResultWithValue(t, gs1.v, result)
@@ -750,7 +750,7 @@ func TestLinkLocalRemote(t *testing.T) {
 // helpers
 func checkCleanProcessRef(p gen.Process, ref etf.Ref) error {
 	if p.IsMonitor(ref) {
-		return fmt.Errorf("monitor process reference hasnt clean correctly")
+		return fmt.Errorf("monitor process reference hasn't been cleaned correctly")
 	}
 
 	return nil
@@ -759,7 +759,7 @@ func checkCleanProcessRef(p gen.Process, ref etf.Ref) error {
 func checkCleanLinkPid(p gen.Process, pid etf.Pid) error {
 	for _, l := range p.Links() {
 		if l == pid {
-			return fmt.Errorf("process link reference hasnt cleaned correctly")
+			return fmt.Errorf("process link reference hasn't been cleaned correctly")
 		}
 	}
 	return nil
