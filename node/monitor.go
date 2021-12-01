@@ -685,7 +685,8 @@ func (m *monitor) RouteMonitorExit(to etf.Pid, terminated etf.Pid, reason string
 		Pid:    terminated,
 		Reason: reason,
 	}
-	return m.router.RouteSend(terminated, to, down)
+	from := to
+	return m.router.RouteSend(from, to, down)
 }
 
 func (m *monitor) RouteMonitorExitReg(to etf.Pid, terminated gen.ProcessID, reason string, ref etf.Ref) error {
@@ -710,5 +711,6 @@ func (m *monitor) RouteMonitorExitReg(to etf.Pid, terminated gen.ProcessID, reas
 		ProcessID: terminated,
 		Reason:    reason,
 	}
-	return m.router.RouteSendReg(to, terminated, down)
+	from := to
+	return m.router.RouteSend(from, to, down)
 }

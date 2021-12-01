@@ -48,6 +48,7 @@ type epmdResolver struct {
 	port       uint16
 
 	// Node
+	name             string
 	nodePort         uint16
 	nodeName         string
 	nodeHost         string
@@ -84,6 +85,7 @@ func (e *epmdResolver) Register(name string, port uint16, options node.ResolverO
 		return fmt.Errorf("(EMPD) FQDN for node name is required (example: node@hostname)")
 	}
 
+	e.name = name
 	e.nodeName = n[0]
 	e.nodeHost = n[1]
 	e.nodePort = port
@@ -236,7 +238,7 @@ func (e *epmdResolver) registerNode(options node.ResolverOptions) (net.Conn, err
 		return nil, err
 	}
 
-	lib.Log("[%s] EPMD client: node registered", e.nodeName)
+	lib.Log("[%s] EPMD client: node registered", e.name)
 	return conn, nil
 }
 

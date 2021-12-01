@@ -64,7 +64,7 @@ func TestMonitorLocalLocal(t *testing.T) {
 	waitForResultWithValue(t, gs2.v, node1gs2.Self())
 
 	// by Pid
-	fmt.Printf("... by Pid Local-Local: gs1 -> gs2. demonitor: ")
+	fmt.Printf("... by Pid Local-Local: gs1 -> gs2. monitor/demonitor: ")
 	ref := node1gs1.MonitorProcess(node1gs2.Self())
 
 	if !node1gs2.IsMonitor(ref) {
@@ -76,7 +76,7 @@ func TestMonitorLocalLocal(t *testing.T) {
 	}
 	fmt.Println("OK")
 
-	fmt.Printf("... by Pid Local-Local: gs1 -> gs2. terminate: ")
+	fmt.Printf("... by Pid Local-Local: gs1 -> gs2. monitor/terminate: ")
 	ref = node1gs1.MonitorProcess(node1gs2.Self())
 	node1gs2.Exit("normal")
 	result := gen.MessageDown{
@@ -90,7 +90,7 @@ func TestMonitorLocalLocal(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	fmt.Print("... by Pid Local-Local: gs1 -> unknownPid: ")
+	fmt.Print("... by Pid Local-Local: gs1 -> monitor unknownPid: ")
 	ref = node1gs1.MonitorProcess(node1gs2.Self())
 	result = gen.MessageDown{
 		Ref:    ref,
@@ -103,7 +103,7 @@ func TestMonitorLocalLocal(t *testing.T) {
 	node1gs2, _ = node1.Spawn("gs2", gen.ProcessOptions{}, gs2, nil)
 	waitForResultWithValue(t, gs2.v, node1gs2.Self())
 	// by Name
-	fmt.Printf("... by Name Local-Local: gs1 -> gs2. demonitor: ")
+	fmt.Printf("... by Name Local-Local: gs1 -> gs2. monitor/demonitor: ")
 	ref = node1gs1.MonitorProcess("gs2")
 	if err := checkCleanProcessRef(node1gs1, ref); err == nil {
 		t.Fatal("monitor reference has been lost")
@@ -114,7 +114,7 @@ func TestMonitorLocalLocal(t *testing.T) {
 	}
 	fmt.Println("OK")
 
-	fmt.Printf("... by Name Local-Local: gs1 -> gs2. terminate: ")
+	fmt.Printf("... by Name Local-Local: gs1 -> gs2. monitor/terminate: ")
 	ref = node1gs1.MonitorProcess("gs2")
 	node1gs2.Exit("normal")
 	result = gen.MessageDown{
@@ -126,7 +126,7 @@ func TestMonitorLocalLocal(t *testing.T) {
 	if err := checkCleanProcessRef(node1gs1, ref); err != nil {
 		t.Fatal(err)
 	}
-	fmt.Print("... by Name Local-Local: gs1 -> unknownPid: ")
+	fmt.Print("... by Name Local-Local: gs1 -> monitor unknown name: ")
 	ref = node1gs1.MonitorProcess("asdfasdf")
 	result = gen.MessageDown{
 		Ref:       ref,
