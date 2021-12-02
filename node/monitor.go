@@ -70,10 +70,10 @@ type monitor struct {
 	mutexNodes sync.Mutex
 
 	nodename string
-	router   CoreRouter
+	router   coreRouterInternal
 }
 
-func newMonitor(nodename string, router CoreRouter) monitorInternal {
+func newMonitor(nodename string, router coreRouterInternal) monitorInternal {
 	return &monitor{
 		processes: make(map[etf.Pid][]monitorItem),
 		names:     make(map[gen.ProcessID][]monitorItem),
@@ -807,8 +807,8 @@ func (m *monitor) sendExit(to etf.Pid, terminated etf.Pid, reason string) error 
 	}
 
 	// check if 'to' process is still alive
-	if p := m.router.ProcessByPid(to); p != nil {
-		p.Exit(reason)
+	if p := m.router.processByPid(to); p != nil {
+		p.exit(terminated, reason)
 		return nil
 	}
 	return ErrProcessUnknown

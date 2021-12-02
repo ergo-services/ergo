@@ -68,6 +68,11 @@ type coreInternal interface {
 	coreWaitWithTimeout(d time.Duration) error
 }
 
+type coreRouterInternal interface {
+	CoreRouter
+	processByPid(pid etf.Pid) *process
+}
+
 func newCore(ctx context.Context, nodename string, options Options) (coreInternal, error) {
 	c := &core{
 		ctx:     ctx,
@@ -88,7 +93,7 @@ func newCore(ctx context.Context, nodename string, options Options) (coreInterna
 	c.stop = corestop
 	c.ctx = corectx
 
-	c.monitorInternal = newMonitor(nodename, CoreRouter(c))
+	c.monitorInternal = newMonitor(nodename, coreRouterInternal(c))
 	network, err := newNetwork(c.ctx, nodename, options, CoreRouter(c))
 	if err != nil {
 		corestop()
@@ -785,5 +790,16 @@ func (c *core) RouteSpawnReply(to etf.Pid, ref etf.Ref, result etf.Term) error {
 	//			}
 	//			//flags := t.Element(4)
 	//			process.PutSyncReply(ref, t.Element(5))
+	return nil
+}
+
+func (c *core) processByPid(pid etf.Pid) *process {
+	c.mutexProcesses.RLock()
+	defer c.mutexProcesses.RUnlock()
+	if p, ok := c.processes[pid.ID]; ok && p.IsAlive() {
+		return p
+	}
+
+	// unknown process
 	return nil
 }

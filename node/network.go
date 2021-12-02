@@ -57,7 +57,7 @@ type network struct {
 	staticRoutesMutex sync.Mutex
 
 	connections      map[string]connectionInternal
-	mutexConnections sync.Mutex
+	mutexConnections sync.RWMutex
 
 	remoteSpawn      map[string]gen.ProcessBehavior
 	remoteSpawnMutex sync.Mutex
@@ -189,9 +189,9 @@ func (n *network) StaticRoutes() []Route {
 
 // GetConnection
 func (n *network) GetConnection(peername string) (ConnectionInterface, error) {
-	n.mutexConnections.Lock()
+	n.mutexConnections.RLock()
 	connectionInternal, ok := n.connections[peername]
-	n.mutexConnections.Unlock()
+	n.mutexConnections.RUnlock()
 	if ok {
 		return connectionInternal.connection, nil
 	}
@@ -229,9 +229,9 @@ func (n *network) Connect(peername string) error {
 
 // Disconnect
 func (n *network) Disconnect(peername string) error {
-	n.mutexConnections.Lock()
+	n.mutexConnections.RLock()
 	connectionInternal, ok := n.connections[peername]
-	n.mutexConnections.Unlock()
+	n.mutexConnections.RUnlock()
 	if !ok {
 		return ErrNoRoute
 	}
@@ -243,8 +243,8 @@ func (n *network) Disconnect(peername string) error {
 // Nodes
 func (n *network) Nodes() []string {
 	list := []string{}
-	n.mutexConnections.Lock()
-	defer n.mutexConnections.Unlock()
+	n.mutexConnections.RLock()
+	defer n.mutexConnections.RUnlock()
 
 	for name := range n.connections {
 		list = append(list, name)
