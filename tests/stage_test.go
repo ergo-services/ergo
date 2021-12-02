@@ -571,6 +571,7 @@ func TestStageDistributed(t *testing.T) {
 	fmt.Printf("... Consumer@node2 handled subscription confirmation from Producer@node1 (StageCancelTemporary): ")
 	waitForResultWithValue(t, consumer.value, sub3)
 
+	node2.Disconnect(node1.Name())
 	node1.Stop()
 	fmt.Printf("... Stopping node1: ")
 	if err := node1.WaitWithTimeout(1000 * time.Millisecond); err != nil {

@@ -413,8 +413,10 @@ func (m *monitor) RouteLink(pidA etf.Pid, pidB etf.Pid) error {
 			m.sendExit(pidA, pidB, "noproc")
 			return ErrProcessUnknown
 		}
+		m.mutexLinks.Lock()
 		m.links[pidA] = append(linksA, pidB)
 		m.links[pidB] = append(linksB, pidA)
+		m.mutexLinks.Unlock()
 		return nil
 	}
 
@@ -430,8 +432,10 @@ func (m *monitor) RouteLink(pidA etf.Pid, pidB etf.Pid) error {
 		return err
 	}
 
+	m.mutexLinks.Lock()
 	m.links[pidA] = append(linksA, pidB)
 	m.links[pidB] = append(linksB, pidA)
+	m.mutexLinks.Unlock()
 	return nil
 }
 

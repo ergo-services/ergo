@@ -11,16 +11,16 @@ import (
 	"github.com/ergo-services/ergo/node"
 )
 
-type TestRegistrarGenserver struct {
+type TestCoreGenserver struct {
 	gen.Server
 }
 
-func (trg *TestRegistrarGenserver) HandleCall(process *gen.ServerProcess, from gen.ServerFrom, message etf.Term) (etf.Term, gen.ServerStatus) {
-	// fmt.Printf("TestRegistrarGenserver ({%s, %s}): HandleCall: %#v, From: %#v\n", trg.process.name, trg.process.Node.Name(), message, from)
+func (trg *TestCoreGenserver) HandleCall(process *gen.ServerProcess, from gen.ServerFrom, message etf.Term) (etf.Term, gen.ServerStatus) {
+	// fmt.Printf("TestCoreGenserver ({%s, %s}): HandleCall: %#v, From: %#v\n", trg.process.name, trg.process.Node.Name(), message, from)
 	return message, gen.ServerStatusOK
 }
 
-func (trg *TestRegistrarGenserver) HandleDirect(process *gen.ServerProcess, message interface{}) (interface{}, error) {
+func (trg *TestCoreGenserver) HandleDirect(process *gen.ServerProcess, message interface{}) (interface{}, error) {
 	switch m := message.(type) {
 	case makeCall:
 		return process.Call(m.to, m.message)
@@ -28,7 +28,7 @@ func (trg *TestRegistrarGenserver) HandleDirect(process *gen.ServerProcess, mess
 	return nil, gen.ErrUnsupportedRequest
 }
 
-func TestRegistrar(t *testing.T) {
+func TestCore(t *testing.T) {
 	fmt.Printf("\n=== Test Registrar\n")
 	fmt.Printf("Starting nodes: nodeR1@localhost, nodeR2@localhost: ")
 	node1, _ := ergo.StartNode("nodeR1@localhost", "cookies", node.Options{})
@@ -39,8 +39,8 @@ func TestRegistrar(t *testing.T) {
 		fmt.Println("OK")
 	}
 
-	gs := &TestRegistrarGenserver{}
-	fmt.Printf("Starting TestRegistrarGenserver. registering as 'gs1' on %s and create an alias: ", node1.Name())
+	gs := &TestCoreGenserver{}
+	fmt.Printf("Starting TestCoreGenserver. registering as 'gs1' on %s and create an alias: ", node1.Name())
 	node1gs1, err := node1.Spawn("gs1", gen.ProcessOptions{}, gs, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -100,7 +100,7 @@ func TestRegistrar(t *testing.T) {
 	}
 	fmt.Println("OK")
 
-	fmt.Printf("Starting TestRegistrarGenserver and registering as 'gs2' on %s: ", node1.Name())
+	fmt.Printf("Starting TestCoreGenserver and registering as 'gs2' on %s: ", node1.Name())
 	node1gs2, err := node1.Spawn("gs2", gen.ProcessOptions{}, gs, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -121,7 +121,7 @@ func TestRegistrar(t *testing.T) {
 	fmt.Println("OK")
 }
 
-func TestRegistrarAlias(t *testing.T) {
+func TestCoreAlias(t *testing.T) {
 	fmt.Printf("\n=== Test Registrar Alias\n")
 	fmt.Printf("Starting node: nodeR1Alias@localhost: ")
 	node1, _ := ergo.StartNode("nodeR1Alias@localhost", "cookies", node.Options{})
@@ -132,7 +132,7 @@ func TestRegistrarAlias(t *testing.T) {
 		fmt.Println("OK")
 	}
 
-	gs := &TestRegistrarGenserver{}
+	gs := &TestCoreGenserver{}
 	fmt.Printf("    Starting gs1 and gs2 GenServers on %s: ", node1.Name())
 	node1gs1, err := node1.Spawn("gs1", gen.ProcessOptions{}, gs, nil)
 	if err != nil {
