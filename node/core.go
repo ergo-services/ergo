@@ -585,14 +585,11 @@ func (c *core) ProcessInfo(pid etf.Pid) (gen.ProcessInfo, error) {
 
 // ProcessByPid
 func (c *core) ProcessByPid(pid etf.Pid) gen.Process {
-	c.mutexProcesses.RLock()
-	defer c.mutexProcesses.RUnlock()
-	if p, ok := c.processes[pid.ID]; ok && p.IsAlive() {
-		return p
+	p := c.processByPid(pid)
+	if p == nil {
+		return nil
 	}
-
-	// unknown process
-	return nil
+	return p
 }
 
 // ProcessByAlias
@@ -771,25 +768,43 @@ func (c *core) RouteProxy() error {
 }
 
 // RouteSpawnRequest
-func (c *core) RouteSpawnRequest(behaviorName string, request gen.RemoteSpawnRequest) (etf.Pid, error) {
-	//rb, err_behavior := n.registrar.RegisteredBehavior(remoteBehaviorGroup, string(module))
-	// FIXME
-	//process_opts := processOptions{}
-	//process_opts.Env = map[string]interface{}{"ergo:RemoteSpawnRequest": remote_request}
+func (c *core) RouteSpawnRequest(node string, behaviorName string, request gen.RemoteSpawnRequest, args ...etf.Term) error {
+	if node == c.nodename {
+		connection, err := c.GetConnection(string(request.From.Node))
+		if err != nil {
+			return err
+		}
 
-	//process, err_spawn := n.registrar.spawn(request.Name, process_opts, rb.Behavior, args...)
-	return etf.Pid{}, nil
+		b, err := c.RegisteredBehavior(remoteBehaviorGroup, behaviorName)
+		if err != nil {
+			return connection.SpawnReplyError(request.From, request.Ref, err)
+		}
+
+		process_opts := processOptions{}
+		process_opts.Env = map[gen.EnvKey]interface{}{EnvKeyRemoteSpawn: request.Options}
+		process, err_spawn := c.spawn(request.Options.Name, process_opts, b.Behavior, args...)
+
+		if err_spawn != nil {
+			return connection.SpawnReplyError(request.From, request.Ref, err_spawn)
+		}
+		return connection.SpawnReply(request.From, request.Ref, process.Self())
+	}
+
+	connection, err := c.GetConnection(node)
+	if err != nil {
+		return err
+	}
+	return connection.SpawnRequest(behaviorName, request, args...)
 }
 
 // RouteSpawnReply
 func (c *core) RouteSpawnReply(to etf.Pid, ref etf.Ref, result etf.Term) error {
-	// FIXME
-	//			process := n.registrar.ProcessByPid(to)
-	//			if process == nil {
-	//				return
-	//			}
-	//			//flags := t.Element(4)
-	//			process.PutSyncReply(ref, t.Element(5))
+	process := c.processByPid(to)
+	if process == nil {
+		// seems process terminated
+		return ErrProcessTerminated
+	}
+	process.PutSyncReply(ref, result)
 	return nil
 }
 
@@ -799,7 +814,6 @@ func (c *core) processByPid(pid etf.Pid) *process {
 	if p, ok := c.processes[pid.ID]; ok && p.IsAlive() {
 		return p
 	}
-
 	// unknown process
 	return nil
 }

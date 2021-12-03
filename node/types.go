@@ -42,8 +42,9 @@ const (
 	defaultListenBegin uint16 = 15000
 	defaultListenEnd   uint16 = 65000
 
-	EnvKeyVersion gen.EnvKey = "ergo:Version"
-	EnvKeyNode    gen.EnvKey = "ergo:Node"
+	EnvKeyVersion     gen.EnvKey = "ergo:Version"
+	EnvKeyNode        gen.EnvKey = "ergo:Node"
+	EnvKeyRemoteSpawn gen.EnvKey = "ergo:RemoteSpawn"
 
 	DefaultProtoRecvQueueLength   int = 100
 	DefaultProtoSendQueueLength   int = 100
@@ -137,6 +138,10 @@ type CoreRouter interface {
 
 	GetConnection(nodename string) (ConnectionInterface, error)
 
+	RouteSpawnRequest(node string, behaviorName string, request gen.RemoteSpawnRequest, args ...etf.Term) error
+	RouteSpawnReply(to etf.Pid, ref etf.Ref, result etf.Term) error
+	RouteProxy() error
+
 	//
 	// implemented by monitor
 	//
@@ -156,10 +161,6 @@ type CoreRouter interface {
 	RouteMonitorExit(terminated etf.Pid, reason string, ref etf.Ref) error
 	// RouteNodeDown
 	RouteNodeDown(name string)
-
-	RouteSpawnRequest(behaviorName string, request gen.RemoteSpawnRequest) (etf.Pid, error)
-	RouteSpawnReply(to etf.Pid, ref etf.Ref, result etf.Term) error
-	RouteProxy() error
 }
 
 // Options defines bootstrapping options for the node
@@ -249,12 +250,11 @@ type ConnectionInterface interface {
 	DemonitorReg(local etf.Pid, remote gen.ProcessID, ref etf.Ref) error
 	MonitorExitReg(to etf.Pid, terminated gen.ProcessID, reason string, ref etf.Ref) error
 
-	SpawnRequest() error
+	SpawnRequest(behaviorName string, request gen.RemoteSpawnRequest, args ...etf.Term) error
 	SpawnReply(to etf.Pid, ref etf.Ref, spawned etf.Pid) error
 	SpawnReplyError(to etf.Pid, ref etf.Ref, err error) error
 
 	Proxy() error
-	ProxyReg() error
 }
 
 // Handshake template struct for the custom Handshake implementation

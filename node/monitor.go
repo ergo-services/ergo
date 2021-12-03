@@ -409,7 +409,7 @@ func (m *monitor) RouteLink(pidA etf.Pid, pidB etf.Pid) error {
 	if pidB.Node == etf.Atom(m.nodename) {
 		// for the local process we should make sure if its alive
 		// otherwise send 'EXIT' message with 'noproc' as a reason
-		if p := m.router.ProcessByPid(pidB); p == nil {
+		if p := m.router.processByPid(pidB); p == nil {
 			m.sendExit(pidA, pidB, "noproc")
 			return ErrProcessUnknown
 		}
@@ -536,7 +536,7 @@ func (m *monitor) RouteMonitor(by etf.Pid, pid etf.Pid, ref etf.Ref) error {
 	// http://erlang.org/doc/reference_manual/processes.html#monitors
 	// If Pid does not exist a gen.MessageDown must be
 	// send immediately with Reason set to noproc.
-	if p := m.router.ProcessByPid(pid); string(pid.Node) == m.nodename && p == nil {
+	if p := m.router.processByPid(pid); string(pid.Node) == m.nodename && p == nil {
 		return m.sendMonitorExit(by, pid, "noproc", ref)
 	}
 

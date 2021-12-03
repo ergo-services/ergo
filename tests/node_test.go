@@ -433,15 +433,19 @@ func TestNodeRemoteSpawn(t *testing.T) {
 	}
 
 	opts := gen.RemoteSpawnOptions{
-		RegisterName: "remote",
+		Name: "remote",
 	}
-	fmt.Printf("    process gs1@node1 requests spawn new process on node2 and register this process with name 'remote': ")
+	fmt.Printf("    process gs1@node1 request to spawn new process on node2 and register this process with name 'remote': ")
 	_, err = process.RemoteSpawn(node2.Name(), "remote", opts, 1, 2, 3)
 	if err != nil {
 		t.Fatal(err)
 	}
+	if p := node2.ProcessByName("remote"); p == nil {
+		t.Fatal("can't find process 'remote' on node2")
+
+	}
 	fmt.Println("OK")
-	fmt.Printf("    process gs1@node1 requests spawn new process on node2 with the same name (must be failed): ")
+	fmt.Printf("    process gs1@node1 request to spawn new process on node2 with the same name (must be failed): ")
 
 	_, err = process.RemoteSpawn(node2.Name(), "remote", opts, 1, 2, 3)
 	if err != node.ErrTaken {

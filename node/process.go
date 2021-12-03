@@ -37,7 +37,7 @@ type process struct {
 	kill    context.CancelFunc
 	exit    processExitFunc
 
-	replyMutex sync.Mutex
+	replyMutex sync.RWMutex
 	reply      map[etf.Ref]chan etf.Term
 
 	trapExit    bool
@@ -446,53 +446,54 @@ func (p *process) DemonitorProcess(ref etf.Ref) bool {
 	return true
 }
 
-// RemoteSpawn
+// RemoteSpawn makes request to spawn new process on a remote node
 func (p *process) RemoteSpawn(node string, object string, opts gen.RemoteSpawnOptions, args ...etf.Term) (etf.Pid, error) {
-	// ref := p.MakeRef()
-	//	optlist := etf.List{}
-	//	if opts.RegisterName != "" {
-	//		optlist = append(optlist, etf.Tuple{etf.Atom("name"), etf.Atom(opts.RegisterName)})
-	//
-	//	}
-	//	if opts.Timeout == 0 {
-	//		opts.Timeout = gen.DefaultCallTimeout
-	//	}
-	//	control := etf.Tuple{distProtoSPAWN_REQUEST, ref, p.self, p.self,
-	//		// {M,F,A}
-	//		etf.Tuple{etf.Atom(object), etf.Atom(opts.Function), len(args)},
-	//		optlist,
-	//	}
-	//	p.SendSyncRequestRaw(ref, etf.Atom(node), append([]etf.Term{control}, args)...)
-	//	reply, err := p.WaitSyncReply(ref, opts.Timeout)
-	//	if err != nil {
-	//		return etf.Pid{}, err
-	//	}
-	//
-	//	// Result of the operation. If Result is a process identifier,
-	//	// the operation succeeded and the process identifier is the
-	//	// identifier of the newly created process. If Result is an atom,
-	//	// the operation failed and the atom identifies failure reason.
-	//	switch r := reply.(type) {
-	//	case etf.Pid:
-	//		m := etf.Ref{} // empty reference
-	//		if opts.Monitor != m {
-	//			p.RouteMonitor(p.self, r, opts.Monitor)
-	//		}
-	//		if opts.Link {
-	//			p.Link(r)
-	//		}
-	//		return r, nil
-	//	case etf.Atom:
-	//		switch string(r) {
-	//		case ErrTaken.Error():
-	//			return etf.Pid{}, ErrTaken
-	//
-	//		}
-	//		return etf.Pid{}, fmt.Errorf(string(r))
-	//	}
+	return p.RemoteSpawnWithTimeout(gen.DefaultCallTimeout, node, object, opts, args...)
+}
 
-	//return etf.Pid{}, fmt.Errorf("unknown result: %#v", reply)
-	return etf.Pid{}, nil
+// RemoteSpawnWithTimeout makes request to spawn new process on a remote node with given timeout
+func (p *process) RemoteSpawnWithTimeout(timeout int, node string, object string, opts gen.RemoteSpawnOptions, args ...etf.Term) (etf.Pid, error) {
+	ref := p.MakeRef()
+	p.PutSyncRequest(ref)
+	request := gen.RemoteSpawnRequest{
+		From:    p.self,
+		Ref:     ref,
+		Options: opts,
+	}
+	if err := p.RouteSpawnRequest(node, object, request, args...); err != nil {
+		p.CancelSyncRequest(ref)
+		return etf.Pid{}, err
+	}
+
+	reply, err := p.WaitSyncReply(ref, timeout)
+	if err != nil {
+		return etf.Pid{}, err
+	}
+
+	// Result of the operation. If Result is a process identifier,
+	// the operation succeeded and the process identifier is the
+	// identifier of the newly created process. If Result is an atom,
+	// the operation failed and the atom identifies failure reason.
+	switch r := reply.(type) {
+	case etf.Pid:
+		m := etf.Ref{} // empty reference
+		if opts.Monitor != m {
+			p.RouteMonitor(p.self, r, opts.Monitor)
+		}
+		if opts.Link {
+			p.RouteLink(p.self, r)
+		}
+		return r, nil
+	case etf.Atom:
+		switch string(r) {
+		case ErrTaken.Error():
+			return etf.Pid{}, ErrTaken
+
+		}
+		return etf.Pid{}, fmt.Errorf(string(r))
+	}
+
+	return etf.Pid{}, fmt.Errorf("unknown result: %#v", reply)
 }
 
 // Spawn
@@ -538,30 +539,15 @@ func (p *process) directRequest(request interface{}, timeout int) (interface{}, 
 	}
 }
 
-// SendSyncRequestRaw
-//func (p *process) SendSyncRequestRaw(ref etf.Ref, node etf.Atom, messages ...etf.Term) error {
-//	if p.reply == nil {
-//		return ErrProcessTerminated
-//	}
-//	reply := make(chan etf.Term, 2)
-//	p.replyMutex.Lock()
-//	defer p.replyMutex.Unlock()
-//	p.reply[ref] = reply
-//	return p.routeRaw(node, messages...)
-//}
-
-// SendSyncRequest
-func (p *process) SendSyncRequest(ref etf.Ref, to interface{}, message etf.Term) error {
+// PutSyncRequest
+func (p *process) PutSyncRequest(ref etf.Ref) {
 	if p.reply == nil {
-		return ErrProcessTerminated
+		return
 	}
-	p.replyMutex.Lock()
-	defer p.replyMutex.Unlock()
-
 	reply := make(chan etf.Term, 2)
+	p.replyMutex.Lock()
 	p.reply[ref] = reply
-
-	return p.Send(to, message)
+	p.replyMutex.Unlock()
 }
 
 // PutSyncReply
@@ -569,11 +555,13 @@ func (p *process) PutSyncReply(ref etf.Ref, reply etf.Term) error {
 	if p.reply == nil {
 		return ErrProcessTerminated
 	}
-	p.replyMutex.Lock()
+
+	p.replyMutex.RLock()
 	rep, ok := p.reply[ref]
-	p.replyMutex.Unlock()
+	p.replyMutex.RUnlock()
+
 	if !ok {
-		// ignored, no process waiting for the reply
+		// ignore this reply, no process waiting for it
 		return nil
 	}
 	select {
@@ -583,11 +571,22 @@ func (p *process) PutSyncReply(ref etf.Ref, reply etf.Term) error {
 	return nil
 }
 
+// CancelSyncRequest
+func (p *process) CancelSyncRequest(ref etf.Ref) {
+	p.replyMutex.Lock()
+	delete(p.reply, ref)
+	p.replyMutex.Unlock()
+}
+
 // WaitSyncReply
 func (p *process) WaitSyncReply(ref etf.Ref, timeout int) (etf.Term, error) {
-	p.replyMutex.Lock()
+	if p.reply == nil {
+		return nil, ErrProcessTerminated
+	}
+
+	p.replyMutex.RLock()
 	reply, wait_for_reply := p.reply[ref]
-	p.replyMutex.Unlock()
+	p.replyMutex.RUnlock()
 
 	if !wait_for_reply {
 		return nil, fmt.Errorf("Unknown request")

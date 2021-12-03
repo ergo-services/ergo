@@ -189,6 +189,9 @@ func (n *network) StaticRoutes() []Route {
 
 // GetConnection
 func (n *network) GetConnection(peername string) (ConnectionInterface, error) {
+	if peername == n.nodename {
+		return nil, fmt.Errorf("can't connect to itself")
+	}
 	n.mutexConnections.RLock()
 	connectionInternal, ok := n.connections[peername]
 	n.mutexConnections.RUnlock()
@@ -562,7 +565,13 @@ func (c *Connection) MonitorExitReg(process gen.Process, reason string, ref etf.
 func (c *Connection) MonitorExit(to etf.Pid, terminated etf.Pid, reason string, ref etf.Ref) error {
 	return ErrUnsupported
 }
-func (c *Connection) SpawnRequest() error {
+func (c *Connection) SpawnRequest(behaviorName string, request gen.RemoteSpawnRequest, args ...etf.Term) error {
+	return ErrUnsupported
+}
+func (c *Connection) SpawnReply(to etf.Pid, ref etf.Ref, pid etf.Pid) error {
+	return ErrUnsupported
+}
+func (c *Connection) SpawnReplyError(to etf.Pid, ref etf.Ref, err error) error {
 	return ErrUnsupported
 }
 func (c *Connection) Proxy() error {

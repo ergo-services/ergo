@@ -373,13 +373,38 @@ func (dc *distConnection) MonitorExit(to etf.Pid, terminated etf.Pid, reason str
 	return dc.send(msg)
 }
 
-func (dc *distConnection) SpawnRequest() error {
-	return nil
+func (dc *distConnection) SpawnRequest(behaviorName string, request gen.RemoteSpawnRequest, args ...etf.Term) error {
+	optlist := etf.List{}
+	if request.Options.Name != "" {
+		optlist = append(optlist, etf.Tuple{etf.Atom("name"), etf.Atom(request.Options.Name)})
+
+	}
+	msg := &sendMessage{
+		control: etf.Tuple{distProtoSPAWN_REQUEST, request.Ref, request.From, request.From,
+			// {M,F,A}
+			etf.Tuple{etf.Atom(behaviorName), etf.Atom(request.Options.Function), len(args)},
+			optlist,
+		},
+		payload: args,
+	}
+	return dc.send(msg)
 }
+
+func (dc *distConnection) SpawnReply(to etf.Pid, ref etf.Ref, pid etf.Pid) error {
+	msg := &sendMessage{
+		control: etf.Tuple{distProtoSPAWN_REPLY, ref, to, 0, pid},
+	}
+	return dc.send(msg)
+}
+
+func (dc *distConnection) SpawnReplyError(to etf.Pid, ref etf.Ref, err error) error {
+	msg := &sendMessage{
+		control: etf.Tuple{distProtoSPAWN_REPLY, ref, to, 0, etf.Atom(err.Error())},
+	}
+	return dc.send(msg)
+}
+
 func (dc *distConnection) Proxy() error {
-	return nil
-}
-func (dc *distConnection) ProxyReg() error {
 	return nil
 }
 
@@ -768,10 +793,11 @@ func (dc *distConnection) handleMessage(control, message etf.Term) (err error) {
 				registerName := ""
 				for _, option := range t.Element(6).(etf.List) {
 					name, ok := option.(etf.Tuple)
-					if !ok {
+					if !ok || len(name) != 2 {
 						return fmt.Errorf("malformed spawn request")
 					}
-					if reg, ok := name.Element(1).(etf.Atom); ok && reg == etf.Atom("name") {
+					switch name.Element(1) {
+					case etf.Atom("name"):
 						registerName = string(name.Element(2).(etf.Atom))
 					}
 				}
@@ -793,18 +819,16 @@ func (dc *distConnection) handleMessage(control, message etf.Term) (err error) {
 					}
 				}
 
-				spawnRequest := gen.RemoteSpawnRequest{
+				spawnRequestOptions := gen.RemoteSpawnOptions{
 					Name:     registerName,
-					From:     from,
-					Ref:      ref,
 					Function: string(function),
 				}
-				pid, err := dc.router.RouteSpawnRequest(string(module), spawnRequest)
-				if err != nil {
-					dc.SpawnReplyError(from, ref, err)
-					return err
+				spawnRequest := gen.RemoteSpawnRequest{
+					From:    from,
+					Ref:     ref,
+					Options: spawnRequestOptions,
 				}
-				dc.SpawnReply(from, ref, pid)
+				dc.router.RouteSpawnRequest(dc.nodename, string(module), spawnRequest, args...)
 				return nil
 
 			case distProtoSPAWN_REPLY:

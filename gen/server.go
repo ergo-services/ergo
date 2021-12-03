@@ -121,7 +121,10 @@ func (sp *ServerProcess) CallWithTimeout(to interface{}, message etf.Term, timeo
 	ref := sp.MakeRef()
 	from := etf.Tuple{sp.Self(), ref}
 	msg := etf.Term(etf.Tuple{etf.Atom("$gen_call"), from, message})
-	if err := sp.SendSyncRequest(ref, to, msg); err != nil {
+
+	sp.PutSyncRequest(ref)
+	if err := sp.Send(to, msg); err != nil {
+		sp.CancelSyncRequest(ref)
 		return nil, err
 	}
 	sp.callbackWaitReply <- &ref

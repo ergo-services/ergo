@@ -23,8 +23,12 @@ type Process interface {
 	// Spawn create a new process with parent
 	Spawn(name string, opts ProcessOptions, object ProcessBehavior, args ...etf.Term) (Process, error)
 
-	// RemoteSpawn creates a new process at a remote node. The object name is a regitered behavior on a remote name using RegisterBehavior(...). Init callback of the started remote process will receive gen.RemoteSpawnRequest as an argument.
+	// RemoteSpawn creates a new process at a remote node. The object name is a regitered
+	// behavior on a remote name using RegisterBehavior(...). The given options will stored
+	// in the process environment using node.EnvKeyRemoteSpawn as a key
 	RemoteSpawn(node string, object string, opts RemoteSpawnOptions, args ...etf.Term) (etf.Pid, error)
+	RemoteSpawnWithTimeout(timeout int, node string, object string, opts RemoteSpawnOptions, args ...etf.Term) (etf.Pid, error)
+
 	// Name returns process name used on starting.
 	Name() string
 
@@ -164,11 +168,10 @@ type Process interface {
 	// Aliases returns list of aliases of this process.
 	Aliases() []etf.Alias
 
-	// Methods below are intended to be used for the ProcessBehavior implementation
-
-	PutSyncReply(ref etf.Ref, term etf.Term) error
-	SendSyncRequest(ref etf.Ref, to interface{}, message etf.Term) error
+	PutSyncRequest(ref etf.Ref)
+	CancelSyncRequest(ref etf.Ref)
 	WaitSyncReply(ref etf.Ref, timeout int) (etf.Term, error)
+	PutSyncReply(ref etf.Ref, term etf.Term) error
 	ProcessChannels() ProcessChannels
 }
 
@@ -204,29 +207,22 @@ type ProcessOptions struct {
 	Env map[EnvKey]interface{}
 }
 
+// RemoteSpawnRequest
+type RemoteSpawnRequest struct {
+	From    etf.Pid
+	Ref     etf.Ref
+	Options RemoteSpawnOptions
+}
+
 // RemoteSpawnOptions defines options for RemoteSpawn method
 type RemoteSpawnOptions struct {
-	// RegisterName
-	RegisterName string
+	// Name register associated name with spawned process
+	Name string
 	// Monitor enables monitor on the spawned process using provided reference
 	Monitor etf.Ref
 	// Link enables link between the calling and spawned processes
 	Link bool
 	// Function in order to support {M,F,A} request to the Erlang node
-	Function string
-	// Timeout
-	Timeout int
-}
-
-// RemoteSpawnRequest stores in process environment ("ergo:RemoteSpawnRequest") if it was spawned by RemoteSpawn request
-type RemoteSpawnRequest struct {
-	// Name register name
-	Name string
-	// PID of the process made RemoteSpawn request
-	From etf.Pid
-	// Ref request id
-	Ref etf.Ref
-	// Function provided via RemoteSpawnOptions.Function
 	Function string
 }
 
