@@ -436,19 +436,28 @@ func TestNodeRemoteSpawn(t *testing.T) {
 		Name: "remote",
 	}
 	fmt.Printf("    process gs1@node1 request to spawn new process on node2 and register this process with name 'remote': ")
-	_, err = process.RemoteSpawn(node2.Name(), "remote", opts, 1, 2, 3)
+	gotPid, err := process.RemoteSpawn(node2.Name(), "remote", opts, 1, 2, 3)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p := node2.ProcessByName("remote"); p == nil {
+	p := node2.ProcessByName("remote")
+	if p == nil {
 		t.Fatal("can't find process 'remote' on node2")
-
+	}
+	if gotPid != p.Self() {
+		t.Fatal("process pid mismatch")
 	}
 	fmt.Println("OK")
-	fmt.Printf("    process gs1@node1 request to spawn new process on node2 with the same name (must be failed): ")
 
+	fmt.Printf("    process gs1@node1 request to spawn new process on node2 with the same name (must be failed): ")
 	_, err = process.RemoteSpawn(node2.Name(), "remote", opts, 1, 2, 3)
 	if err != node.ErrTaken {
+		t.Fatal(err)
+	}
+	fmt.Println("OK")
+	fmt.Printf("    process gs1@node1 request to spawn new process on node2 with unregistered behavior name (must be failed): ")
+	_, err = process.RemoteSpawn(node2.Name(), "randomname", opts, 1, 2, 3)
+	if err != node.ErrBehaviorUnknown {
 		t.Fatal(err)
 	}
 	fmt.Println("OK")

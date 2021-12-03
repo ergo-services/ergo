@@ -488,7 +488,8 @@ func (p *process) RemoteSpawnWithTimeout(timeout int, node string, object string
 		switch string(r) {
 		case ErrTaken.Error():
 			return etf.Pid{}, ErrTaken
-
+		case ErrBehaviorUnknown.Error():
+			return etf.Pid{}, ErrBehaviorUnknown
 		}
 		return etf.Pid{}, fmt.Errorf(string(r))
 	}
