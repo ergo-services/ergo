@@ -654,7 +654,7 @@ func TestEncodePid(t *testing.T) {
 	b := lib.TakeBuffer()
 	defer lib.ReleaseBuffer(b)
 
-	// V4NC disabled. max value for ID (15 bits), serial 0
+	// FlagBigPidRef disabled. max value for ID (15 bits), serial 0
 	expected := []byte{ettPid, 119, 18, 101, 114, 108, 45, 100, 101, 109, 111, 64, 49, 50,
 		55, 46, 48, 46, 48, 46, 49, 0, 0, 127, 255, 0, 0, 0, 0, 2}
 	term := Pid{Node: "erl-demo@127.0.0.1", ID: 32767, Creation: 2}
@@ -670,7 +670,7 @@ func TestEncodePid(t *testing.T) {
 		t.Fatal("incorrect value")
 	}
 
-	// V4NC disabled. overflowed 15 bit. ID 0, serial 1
+	// FlagBigPidRef disabled. overflowed 15 bit. ID 0, serial 1
 	b.Reset()
 	expected = []byte{ettPid, 119, 18, 101, 114, 108, 45, 100, 101, 109, 111, 64, 49, 50,
 		55, 46, 48, 46, 48, 46, 49, 0, 0, 0, 0, 0, 0, 0, 1, 2}
@@ -687,7 +687,7 @@ func TestEncodePid(t *testing.T) {
 		t.Fatal("incorrect value")
 	}
 
-	// BigCreation, V4NC enabled. max value for ID (32 bits), serial 0
+	// BigCreation, FlagBigPidRef enabled. max value for ID (32 bits), serial 0
 	b.Reset()
 	expected = []byte{ettNewPid, 119, 18, 101, 114, 108, 45, 100, 101, 109, 111, 64, 49, 50,
 		55, 46, 48, 46, 48, 46, 49, 255, 255, 255, 255, 0, 0, 0, 0, 0, 0, 0, 2}
@@ -695,7 +695,7 @@ func TestEncodePid(t *testing.T) {
 
 	options := EncodeOptions{
 		FlagBigCreation: true,
-		FlagV4NC:        true,
+		FlagBigPidRef:   true,
 	}
 	err = Encode(term, b, options)
 	if err != nil {
@@ -708,7 +708,7 @@ func TestEncodePid(t *testing.T) {
 		t.Fatal("incorrect value")
 	}
 
-	// BigCreation, V4NC enabled. max value for ID (32 bits), max value for Serial (32 bits)
+	// BigCreation, FlagBigPidRef enabled. max value for ID (32 bits), max value for Serial (32 bits)
 	b.Reset()
 	expected = []byte{ettNewPid, 119, 18, 101, 114, 108, 45, 100, 101, 109, 111, 64, 49, 50,
 		55, 46, 48, 46, 48, 46, 49, 255, 255, 255, 255, 255, 255, 255, 255, 0, 0, 0, 2}
@@ -716,7 +716,7 @@ func TestEncodePid(t *testing.T) {
 
 	options = EncodeOptions{
 		FlagBigCreation: true,
-		FlagV4NC:        true,
+		FlagBigPidRef:   true,
 	}
 	err = Encode(term, b, options)
 	if err != nil {
@@ -771,7 +771,7 @@ func TestEncodeRef(t *testing.T) {
 	b := lib.TakeBuffer()
 	defer lib.ReleaseBuffer(b)
 
-	// FlagBigCreation = false, FlagV4NC = false
+	// FlagBigCreation = false, FlagBigPidRef = false
 	expected := []byte{ettNewRef, 0, 3, 119, 18, 101, 114, 108, 45, 100, 101, 109, 111, 64,
 		49, 50, 55, 46, 48, 46, 48, 46, 49, 3, 0, 1, 30, 228, 183, 192, 0, 1, 141,
 		122, 203, 35}
@@ -795,7 +795,7 @@ func TestEncodeRef(t *testing.T) {
 		t.Fatal("incorrect value")
 	}
 
-	// FlagBigCreation = true, FlagV4NC = false
+	// FlagBigCreation = true, FlagBigPidRef = false
 	b.Reset()
 	expected = []byte{ettNewerRef, 0, 3, 119, 18, 101, 114, 108, 45, 100, 101, 109, 111, 64,
 		49, 50, 55, 46, 48, 46, 48, 46, 49, 0, 0, 0, 8, 0, 1, 30, 228, 183, 192, 0, 1, 141,
@@ -825,7 +825,7 @@ func TestEncodeRef(t *testing.T) {
 	// FIXME Erlang 24 has a bug https://github.com/erlang/otp/issues/5097
 	// uncomment once they fix it
 	//
-	// FlagBigCreation = true, FlagV4NC = true
+	// FlagBigCreation = true, FlagBigPidRef = true
 	//b.Reset()
 	//expected = []byte{ettNewerRef, 0, 5, 119, 18, 101, 114, 108, 45, 100, 101, 109, 111, 64,
 	//	49, 50, 55, 46, 48, 46, 48, 46, 49, 0, 0, 0, 8, 0, 1, 30, 228, 183, 192, 0, 1, 141,
@@ -839,7 +839,7 @@ func TestEncodeRef(t *testing.T) {
 
 	//options = EncodeOptions{
 	//	FlagBigCreation: true,
-	//	FlagV4NC:        true,
+	//	FlagBigPidRef:        true,
 	//}
 	//err = Encode(term, b, options)
 	//if err != nil {
@@ -949,7 +949,7 @@ func BenchmarkEncodeBoolWithAtomCache(b *testing.B) {
 	writerAtomCache := make(map[Atom]CacheItem)
 	encodingAtomCache := TakeListAtomCache()
 	defer ReleaseListAtomCache(encodingAtomCache)
-	linkAtomCache := StartAtomCache(ctx)
+	linkAtomCache := StartAtomCache()
 	defer linkAtomCache.Stop()
 
 	writerAtomCache["false"] = CacheItem{ID: 499, Encoded: true, Name: "false"}

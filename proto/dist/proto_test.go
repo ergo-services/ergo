@@ -2,9 +2,7 @@ package dist
 
 import (
 	"bytes"
-	"fmt"
 	"math/rand"
-	"net"
 	"reflect"
 	"testing"
 	"time"
@@ -12,46 +10,6 @@ import (
 	"github.com/ergo-services/ergo/etf"
 	"github.com/ergo-services/ergo/lib"
 )
-
-func TestLinkRead(t *testing.T) {
-
-	server, client := net.Pipe()
-	defer func() {
-		server.Close()
-		client.Close()
-	}()
-
-	link := Link{
-		conn: server,
-	}
-
-	go client.Write([]byte{0, 0, 0, 0, 0, 0, 0, 1, 0})
-
-	// read keepalive answer on a client side
-	go func() {
-		bb := make([]byte, 10)
-		for {
-			_, e := client.Read(bb)
-			if e != nil {
-				return
-			}
-		}
-	}()
-
-	c := make(chan bool)
-	b := lib.TakeBuffer()
-	go func() {
-		link.Read(b)
-		close(c)
-	}()
-	select {
-	case <-c:
-		fmt.Println("OK", b.B)
-	case <-time.After(1000 * time.Millisecond):
-		t.Fatal("incorrect")
-	}
-
-}
 
 func TestComposeName(t *testing.T) {
 	//link := &Link{
@@ -112,7 +70,7 @@ func TestValidateChallengeAck(t *testing.T) {
 }
 
 func TestDecodeDistHeaderAtomCache(t *testing.T) {
-	link := Link{}
+	link := &distConnection{}
 	a1 := etf.Atom("atom1")
 	a2 := etf.Atom("atom2")
 	link.cacheIn[1034] = &a1
@@ -190,7 +148,7 @@ func TestEncodeDistHeaderAtomCache(t *testing.T) {
 
 	}
 
-	l := &Link{}
+	l := &distConnection{}
 	l.encodeDistHeaderAtomCache(b, writerAtomCache, encodingAtomCache)
 
 	if !reflect.DeepEqual(b.B, expected) {
@@ -218,7 +176,7 @@ func TestEncodeDistHeaderAtomCache(t *testing.T) {
 }
 
 func BenchmarkDecodeDistHeaderAtomCache(b *testing.B) {
-	link := &Link{}
+	link := &distConnection{}
 	packet := []byte{
 		131, 68, // start dist header
 		5, 4, 137, 9, // 5 atoms and theirs flags
@@ -241,7 +199,7 @@ func BenchmarkDecodeDistHeaderAtomCache(b *testing.B) {
 }
 
 func BenchmarkEncodeDistHeaderAtomCache(b *testing.B) {
-	link := &Link{}
+	link := &distConnection{}
 	buf := lib.TakeBuffer()
 	defer lib.ReleaseBuffer(buf)
 
@@ -268,7 +226,7 @@ func BenchmarkEncodeDistHeaderAtomCache(b *testing.B) {
 }
 
 func TestDecodeFragment(t *testing.T) {
-	link := &Link{}
+	link := &distConnection{}
 
 	link.checkCleanTimeout = 50 * time.Millisecond
 	link.checkCleanDeadline = 150 * time.Millisecond

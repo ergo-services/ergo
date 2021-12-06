@@ -141,7 +141,7 @@ func (e *epmd) handle(c net.Conn) {
 
 func (e *epmd) readAliveReq(req []byte) (string, registeredNode, error) {
 	if len(req) < 10 {
-		return "", registeredNode{}, fmt.Errorf("Malformed EPMD request", req)
+		return "", registeredNode{}, fmt.Errorf("Malformed EPMD request %v", req)
 	}
 	// Name length
 	l := binary.BigEndian.Uint16(req[8:10])

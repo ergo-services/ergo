@@ -20,7 +20,6 @@ func (a *App) Load(args ...etf.Term) (gen.ApplicationSpec, error) {
 		Name:        "WebApp",
 		Description: "Demo Web Application",
 		Version:     "v.1.0",
-		Environment: map[string]interface{}{},
 		Children: []gen.ApplicationChildSpec{
 			gen.ApplicationChildSpec{
 				Child: handler_sup,

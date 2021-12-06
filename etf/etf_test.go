@@ -446,8 +446,31 @@ func TestEncodeDecodePid(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	decodeOptions := DecodeOptions{
-		FlagBigCreation: true,
+	decodeOptions := DecodeOptions{}
+	term, _, err = Decode(b.B, []Atom{}, decodeOptions)
+	pidOut, ok = term.(Pid)
+	if !ok {
+		t.Fatal("incorrect result")
+	}
+
+	if pidIn != pidOut {
+		t.Error("want", pidIn)
+		t.Error("got", pidOut)
+		t.Fatal("incorrect result")
+	}
+
+	// enable FlagBigPidRef
+	b.Reset()
+	encodeOptions = EncodeOptions{
+		FlagBigPidRef: true,
+	}
+	err = Encode(pidIn, b, encodeOptions)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	decodeOptions = DecodeOptions{
+		FlagBigPidRef: true,
 	}
 	term, _, err = Decode(b.B, []Atom{}, decodeOptions)
 	pidOut, ok = term.(Pid)
@@ -461,35 +484,10 @@ func TestEncodeDecodePid(t *testing.T) {
 		t.Fatal("incorrect result")
 	}
 
-	// enable V4NC
+	// enable BigCreation and FlagBigPidRef
 	b.Reset()
 	encodeOptions = EncodeOptions{
-		FlagV4NC: true,
-	}
-	err = Encode(pidIn, b, encodeOptions)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	decodeOptions = DecodeOptions{
-		FlagV4NC: true,
-	}
-	term, _, err = Decode(b.B, []Atom{}, decodeOptions)
-	pidOut, ok = term.(Pid)
-	if !ok {
-		t.Fatal("incorrect result")
-	}
-
-	if pidIn != pidOut {
-		t.Error("want", pidIn)
-		t.Error("got", pidOut)
-		t.Fatal("incorrect result")
-	}
-
-	// enable BigCreation and V4NC
-	b.Reset()
-	encodeOptions = EncodeOptions{
-		FlagV4NC:        true,
+		FlagBigPidRef:   true,
 		FlagBigCreation: true,
 	}
 	err = Encode(pidIn, b, encodeOptions)
@@ -498,8 +496,7 @@ func TestEncodeDecodePid(t *testing.T) {
 	}
 
 	decodeOptions = DecodeOptions{
-		FlagV4NC:        true,
-		FlagBigCreation: true,
+		FlagBigPidRef: true,
 	}
 	term, _, err = Decode(b.B, []Atom{}, decodeOptions)
 	pidOut, ok = term.(Pid)

@@ -257,7 +257,9 @@ func (n *network) Nodes() []string {
 
 func (n *network) listen(ctx context.Context, hostname string, begin uint16, end uint16) (uint16, error) {
 
-	lc := net.ListenConfig{}
+	lc := net.ListenConfig{
+		KeepAlive: defaultKeepAlivePeriod * time.Second,
+	}
 	for port := begin; port <= end; port++ {
 		hostPort := net.JoinHostPort(hostname, strconv.Itoa(int(port)))
 		listener, err := lc.Listen(ctx, "tcp", hostPort)
@@ -319,11 +321,6 @@ func (n *network) listen(ctx context.Context, hostname string, begin uint16, end
 					ci.conn.Close()
 				}(ctx, cInternal)
 
-				// set TCP keep alive
-				if err := c.(*net.TCPConn).SetKeepAlive(true); err != nil {
-					fmt.Printf("WARNING: can not enable KEEPALIVE on TCP link")
-				}
-
 			}
 		}()
 
@@ -348,6 +345,9 @@ func (n *network) connect(peername string) (ConnectionInterface, error) {
 	}
 
 	HostPort := net.JoinHostPort(route.Host, strconv.Itoa(int(route.Port)))
+	dialer := net.Dialer{
+		KeepAlive: defaultKeepAlivePeriod * time.Second,
+	}
 
 	if route.IsErgo == true {
 		// rely on the route TLS settings if they were defined
@@ -359,7 +359,8 @@ func (n *network) connect(peername string) (ConnectionInterface, error) {
 					InsecureSkipVerify: n.tls.SkipVerify,
 				}
 				tlsdialer := tls.Dialer{
-					Config: &config,
+					NetDialer: &dialer,
+					Config:    &config,
 				}
 				c, err = tlsdialer.DialContext(n.ctx, "tcp", HostPort)
 			} else {
@@ -368,7 +369,8 @@ func (n *network) connect(peername string) (ConnectionInterface, error) {
 					Certificates: []tls.Certificate{route.Cert},
 				}
 				tlsdialer := tls.Dialer{
-					Config: &config,
+					NetDialer: &dialer,
+					Config:    &config,
 				}
 				c, err = tlsdialer.DialContext(n.ctx, "tcp", HostPort)
 			}
@@ -376,7 +378,6 @@ func (n *network) connect(peername string) (ConnectionInterface, error) {
 
 		} else {
 			// TLS disabled on a remote node
-			dialer := net.Dialer{}
 			c, err = dialer.DialContext(n.ctx, "tcp", HostPort)
 		}
 
@@ -388,15 +389,14 @@ func (n *network) connect(peername string) (ConnectionInterface, error) {
 				InsecureSkipVerify: n.tls.SkipVerify,
 			}
 			tlsdialer := tls.Dialer{
-				Config: &config,
+				NetDialer: &dialer,
+				Config:    &config,
 			}
 			c, err = tlsdialer.DialContext(n.ctx, "tcp", HostPort)
 			enabledTLS = true
 
 		} else {
-			dialer := net.Dialer{}
 			c, err = dialer.DialContext(n.ctx, "tcp", HostPort)
-
 		}
 	}
 
@@ -451,11 +451,6 @@ func (n *network) connect(peername string) (ConnectionInterface, error) {
 		n.proto.Terminate(ci.connection)
 		ci.conn.Close()
 	}(n.ctx, cInternal)
-
-	// set TCP keep alive
-	if err := c.(*net.TCPConn).SetKeepAlive(true); err != nil {
-		fmt.Printf("WARNING: can not enable KEEPALIVE on TCP link")
-	}
 
 	return connection, nil
 }

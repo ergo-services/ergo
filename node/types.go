@@ -39,8 +39,9 @@ var (
 // Distributed operations codes (http://www.erlang.org/doc/apps/erts/erl_dist_protocol.html)
 const (
 	// node options
-	defaultListenBegin uint16 = 15000
-	defaultListenEnd   uint16 = 65000
+	defaultListenBegin     uint16        = 15000
+	defaultListenEnd       uint16        = 65000
+	defaultKeepAlivePeriod time.Duration = 5
 
 	EnvKeyVersion     gen.EnvKey = "ergo:Version"
 	EnvKeyNode        gen.EnvKey = "ergo:Node"
