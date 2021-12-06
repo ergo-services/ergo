@@ -36,15 +36,16 @@ const (
 	flagUnicodeIO                     = 0x1000
 	flagDistHdrAtomCache              = 0x2000
 	flagSmallAtomTags                 = 0x4000
-	flagUTF8Atoms                     = 0x10000
-	flagMapTag                        = 0x20000
-	flagBigCreation                   = 0x40000
-	flagSendSender                    = 0x80000 // since OTP.21 enable replacement for SEND (distProtoSEND by distProtoSEND_SENDER)
-	flagBigSeqTraceLabels             = 0x100000
-	flagExitPayload                   = 0x400000 // since OTP.22 enable replacement for EXIT, EXIT2, MONITOR_P_EXIT
-	flagFragments                     = 0x800000
-	flagHandshake23                   = 0x1000000 // new connection setup handshake (version 6) introduced in OTP 23
-	flagUnlinkID                      = 0x2000000
+	//flagCompressed = 0x8000 // erlang internal
+	flagUTF8Atoms         = 0x10000
+	flagMapTag            = 0x20000
+	flagBigCreation       = 0x40000
+	flagSendSender        = 0x80000 // since OTP.21 enable replacement for SEND (distProtoSEND by distProtoSEND_SENDER)
+	flagBigSeqTraceLabels = 0x100000
+	flagExitPayload       = 0x400000 // since OTP.22 enable replacement for EXIT, EXIT2, MONITOR_P_EXIT
+	flagFragments         = 0x800000
+	flagHandshake23       = 0x1000000 // new connection setup handshake (version 6) introduced in OTP 23
+	flagUnlinkID          = 0x2000000
 	// for 64bit flags
 	flagSpawn  = 1 << 32
 	flagNameMe = 1 << 33

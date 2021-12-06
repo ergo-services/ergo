@@ -322,7 +322,7 @@ func TestNodeDistHandshake(t *testing.T) {
 	}
 	node9Options5WithTLS := node.Options{
 		Handshake: dist.CreateHandshake(handshake5options),
-		TLS:       node.TLS{Enabled: true},
+		TLS:       node.TLS{Enable: true},
 	}
 	node9, e9 := ergo.StartNode("node9Handshake5@localhost", "secret", node9Options5WithTLS)
 	if e9 != nil {
@@ -330,7 +330,7 @@ func TestNodeDistHandshake(t *testing.T) {
 	}
 	node10Options5WithTLS := node.Options{
 		Handshake: dist.CreateHandshake(handshake5options),
-		TLS:       node.TLS{Enabled: true},
+		TLS:       node.TLS{Enable: true},
 	}
 	node10, e10 := ergo.StartNode("node10Handshake5@localhost", "secret", node10Options5WithTLS)
 	if e10 != nil {
@@ -338,7 +338,7 @@ func TestNodeDistHandshake(t *testing.T) {
 	}
 	node11Options5WithTLS := node.Options{
 		Handshake: dist.CreateHandshake(handshake5options),
-		TLS:       node.TLS{Enabled: true},
+		TLS:       node.TLS{Enable: true},
 	}
 	node11, e11 := ergo.StartNode("node11Handshake5@localhost", "secret", node11Options5WithTLS)
 	if e11 != nil {
@@ -346,7 +346,7 @@ func TestNodeDistHandshake(t *testing.T) {
 	}
 	node12Options6WithTLS := node.Options{
 		Handshake: dist.CreateHandshake(handshake6options),
-		TLS:       node.TLS{Enabled: true},
+		TLS:       node.TLS{Enable: true},
 	}
 	node12, e12 := ergo.StartNode("node12Handshake6@localhost", "secret", node12Options6WithTLS)
 	if e12 != nil {
@@ -356,7 +356,7 @@ func TestNodeDistHandshake(t *testing.T) {
 	// node14, _ := ergo.StartNode("node14Handshake5@localhost", "secret", nodeOptions5WithTLS)
 	node15Options6WithTLS := node.Options{
 		Handshake: dist.CreateHandshake(handshake6options),
-		TLS:       node.TLS{Enabled: true},
+		TLS:       node.TLS{Enable: true},
 	}
 	node15, e15 := ergo.StartNode("node15Handshake6@localhost", "secret", node15Options6WithTLS)
 	if e15 != nil {
@@ -364,7 +364,7 @@ func TestNodeDistHandshake(t *testing.T) {
 	}
 	node16Options6WithTLS := node.Options{
 		Handshake: dist.CreateHandshake(handshake6options),
-		TLS:       node.TLS{Enabled: true},
+		TLS:       node.TLS{Enable: true},
 	}
 	node16, e16 := ergo.StartNode("node16Handshake6@localhost", "secret", node16Options6WithTLS)
 	if e16 != nil {

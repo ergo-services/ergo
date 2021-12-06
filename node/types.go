@@ -203,7 +203,7 @@ type Options struct {
 	// Resolver defines a resolving service (default is EPMD service, client and server)
 	Resolver Resolver
 
-	// Compression enables compression for outgoing messages
+	// Compression enables compression for outgoing messages (if peer node has this feature enabled)
 	Compression bool
 
 	// Handshake defines a handshake handler. By default is using
@@ -219,20 +219,20 @@ type Options struct {
 }
 
 type TLS struct {
-	Enabled    bool
+	Enable     bool
 	Server     tls.Certificate
 	Client     tls.Certificate
 	SkipVerify bool
 }
 
 type Cloud struct {
-	Enabled bool
-	ID      string
-	Cookie  string
+	Enable bool
+	ID     string
+	Cookie string
 }
 
 type Proxy struct {
-	Enabled bool
+	Enable bool
 }
 
 // Connection
@@ -342,7 +342,7 @@ type Flags struct {
 	// EnableRemoteSpawn accepts remote spawn request
 	EnableRemoteSpawn bool
 	// Compression compression support
-	Compression bool
+	EnableCompression bool
 }
 
 // Resolver defines resolving interface
@@ -355,8 +355,8 @@ type Resolver interface {
 type ResolverOptions struct {
 	NodeVersion      Version
 	HandshakeVersion HandshakeVersion
-	EnabledTLS       bool
-	EnabledProxy     bool
+	EnableTLS        bool
+	EnableProxy      bool
 }
 
 // Route
@@ -369,10 +369,10 @@ type Route struct {
 
 // RouteOptions
 type RouteOptions struct {
-	Cookie       string
-	EnabledTLS   bool
-	EnabledProxy bool
-	IsErgo       bool
+	Cookie      string
+	EnableTLS   bool
+	EnableProxy bool
+	IsErgo      bool
 
 	Cert      tls.Certificate
 	Handshake HandshakeInterface

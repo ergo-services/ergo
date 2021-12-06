@@ -117,8 +117,8 @@ func newNetwork(ctx context.Context, nodename string, options Options, router Co
 	resolverOptions := ResolverOptions{
 		NodeVersion:      n.version,
 		HandshakeVersion: n.handshake.Version(),
-		EnabledTLS:       n.tls.Enabled,
-		EnabledProxy:     n.proxy.Enabled,
+		EnableTLS:        n.tls.Enable,
+		EnableProxy:      n.proxy.Enable,
 	}
 	if err := n.resolver.Register(nodename, port, resolverOptions); err != nil {
 		return nil, err
@@ -266,7 +266,7 @@ func (n *network) listen(ctx context.Context, hostname string, begin uint16, end
 		if err != nil {
 			continue
 		}
-		if n.tls.Enabled {
+		if n.tls.Enable {
 			config := tls.Config{
 				Certificates:       []tls.Certificate{n.tls.Server},
 				InsecureSkipVerify: n.tls.SkipVerify,
@@ -287,7 +287,7 @@ func (n *network) listen(ctx context.Context, hostname string, begin uint16, end
 				}
 				lib.Log("[%s] NETWORK accepted new connection from %s", n.nodename, c.RemoteAddr().String())
 
-				peername, protoFlags, err := n.handshake.Accept(c, n.tls.Enabled)
+				peername, protoFlags, err := n.handshake.Accept(c, n.tls.Enable)
 				if err != nil {
 					lib.Log("[%s] Can't handshake with %s: %s", n.nodename, c.RemoteAddr().String(), err)
 					c.Close()
@@ -351,7 +351,7 @@ func (n *network) connect(peername string) (ConnectionInterface, error) {
 
 	if route.IsErgo == true {
 		// rely on the route TLS settings if they were defined
-		if route.EnabledTLS {
+		if route.EnableTLS {
 			if route.Cert.Certificate == nil {
 				// use the local TLS settings
 				config := tls.Config{
@@ -383,7 +383,7 @@ func (n *network) connect(peername string) (ConnectionInterface, error) {
 
 	} else {
 		// rely on the local TLS settings
-		if n.tls.Enabled {
+		if n.tls.Enable {
 			config := tls.Config{
 				Certificates:       []tls.Certificate{n.tls.Client},
 				InsecureSkipVerify: n.tls.SkipVerify,

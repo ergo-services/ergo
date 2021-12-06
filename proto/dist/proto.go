@@ -275,7 +275,7 @@ func (dp *distProto) Terminate(ci node.ConnectionInterface) {
 func (dc *distConnection) Send(from gen.Process, to etf.Pid, message etf.Term) error {
 	var compression bool
 
-	if dc.flags.Compression {
+	if dc.flags.EnableCompression {
 		if dc.compression == true {
 			compression = true
 		} else {
@@ -293,7 +293,7 @@ func (dc *distConnection) Send(from gen.Process, to etf.Pid, message etf.Term) e
 func (dc *distConnection) SendReg(from gen.Process, to gen.ProcessID, message etf.Term) error {
 	var compression bool
 
-	if dc.flags.Compression {
+	if dc.flags.EnableCompression {
 		if dc.compression == true {
 			compression = true
 		} else {
@@ -315,7 +315,7 @@ func (dc *distConnection) SendAlias(from gen.Process, to etf.Alias, message etf.
 		return node.ErrUnsupported
 	}
 
-	if dc.flags.Compression {
+	if dc.flags.EnableCompression {
 		if dc.compression == true {
 			compression = true
 		} else {

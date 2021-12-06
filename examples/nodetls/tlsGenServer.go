@@ -66,7 +66,7 @@ func main() {
 
 	opts := node.Options{
 		// enables TLS encryption with self-signed certificate
-		TLS: node.TLS{Enabled: true},
+		TLS: node.TLS{Enable: true},
 	}
 
 	// Initialize new node with given name, cookie, listening port range and epmd port
