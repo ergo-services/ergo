@@ -341,6 +341,8 @@ type Flags struct {
 	EnableAlias bool
 	// EnableRemoteSpawn accepts remote spawn request
 	EnableRemoteSpawn bool
+	// Compression compression support
+	Compression bool
 }
 
 // Resolver defines resolving interface

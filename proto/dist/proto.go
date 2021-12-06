@@ -171,6 +171,7 @@ func (dp *distProto) Init(ctx context.Context, conn io.ReadWriter, peername stri
 		sender: make([]*senderChannel, dp.options.NumHandlers),
 		n:      int32(dp.options.NumHandlers),
 	}
+
 	// run readers/writers for incoming/outgoing messages
 	for i := 0; i < dp.options.NumHandlers; i++ {
 		// run writer routines (encoder)
@@ -274,11 +275,14 @@ func (dp *distProto) Terminate(ci node.ConnectionInterface) {
 func (dc *distConnection) Send(from gen.Process, to etf.Pid, message etf.Term) error {
 	var compression bool
 
-	if dc.compression == true {
-		compression = true
-	} else {
-		compression = from.Compression()
+	if dc.flags.Compression {
+		if dc.compression == true {
+			compression = true
+		} else {
+			compression = from.Compression()
+		}
 	}
+
 	msg := &sendMessage{
 		control:     etf.Tuple{distProtoSEND, etf.Atom(""), to},
 		payload:     message,
@@ -289,11 +293,14 @@ func (dc *distConnection) Send(from gen.Process, to etf.Pid, message etf.Term) e
 func (dc *distConnection) SendReg(from gen.Process, to gen.ProcessID, message etf.Term) error {
 	var compression bool
 
-	if dc.compression == true {
-		compression = true
-	} else {
-		compression = from.Compression()
+	if dc.flags.Compression {
+		if dc.compression == true {
+			compression = true
+		} else {
+			compression = from.Compression()
+		}
 	}
+
 	msg := &sendMessage{
 		control:     etf.Tuple{distProtoREG_SEND, from.Self(), etf.Atom(""), etf.Atom(to.Name)},
 		payload:     message,
@@ -304,11 +311,18 @@ func (dc *distConnection) SendReg(from gen.Process, to gen.ProcessID, message et
 func (dc *distConnection) SendAlias(from gen.Process, to etf.Alias, message etf.Term) error {
 	var compression bool
 
-	if dc.compression == true {
-		compression = true
-	} else {
-		compression = from.Compression()
+	if dc.flags.EnableAlias == false {
+		return node.ErrUnsupported
 	}
+
+	if dc.flags.Compression {
+		if dc.compression == true {
+			compression = true
+		} else {
+			compression = from.Compression()
+		}
+	}
+
 	msg := &sendMessage{
 		control:     etf.Tuple{distProtoALIAS_SEND, from.Self(), to},
 		payload:     message,
@@ -374,6 +388,10 @@ func (dc *distConnection) MonitorExit(to etf.Pid, terminated etf.Pid, reason str
 }
 
 func (dc *distConnection) SpawnRequest(behaviorName string, request gen.RemoteSpawnRequest, args ...etf.Term) error {
+	if dc.flags.EnableRemoteSpawn == false {
+		return node.ErrUnsupported
+	}
+
 	optlist := etf.List{}
 	if request.Options.Name != "" {
 		optlist = append(optlist, etf.Tuple{etf.Atom("name"), etf.Atom(request.Options.Name)})
