@@ -319,6 +319,11 @@ func (n *network) listen(ctx context.Context, hostname string, begin uint16, end
 					ci.conn.Close()
 				}(ctx, cInternal)
 
+				// set TCP keep alive
+				if err := c.(*net.TCPConn).SetKeepAlive(true); err != nil {
+					fmt.Printf("WARNING: can not enable KEEPALIVE on TCP link")
+				}
+
 			}
 		}()
 
@@ -446,6 +451,11 @@ func (n *network) connect(peername string) (ConnectionInterface, error) {
 		n.proto.Terminate(ci.connection)
 		ci.conn.Close()
 	}(n.ctx, cInternal)
+
+	// set TCP keep alive
+	if err := c.(*net.TCPConn).SetKeepAlive(true); err != nil {
+		fmt.Printf("WARNING: can not enable KEEPALIVE on TCP link")
+	}
 
 	return connection, nil
 }

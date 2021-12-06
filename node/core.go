@@ -770,20 +770,24 @@ func (c *core) RouteProxy() error {
 // RouteSpawnRequest
 func (c *core) RouteSpawnRequest(node string, behaviorName string, request gen.RemoteSpawnRequest, args ...etf.Term) error {
 	if node == c.nodename {
+		// get connection for reply
 		connection, err := c.GetConnection(string(request.From.Node))
 		if err != nil {
 			return err
 		}
 
+		// check if we have registered behavior with given name
 		b, err := c.RegisteredBehavior(remoteBehaviorGroup, behaviorName)
 		if err != nil {
 			return connection.SpawnReplyError(request.From, request.Ref, err)
 		}
 
+		// spawn new process
 		process_opts := processOptions{}
 		process_opts.Env = map[gen.EnvKey]interface{}{EnvKeyRemoteSpawn: request.Options}
 		process, err_spawn := c.spawn(request.Options.Name, process_opts, b.Behavior, args...)
 
+		// reply
 		if err_spawn != nil {
 			return connection.SpawnReplyError(request.From, request.Ref, err_spawn)
 		}

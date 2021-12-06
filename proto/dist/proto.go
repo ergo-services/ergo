@@ -435,10 +435,7 @@ func (dc *distConnection) read(b *lib.Buffer, max int) (int, error) {
 
 		packetLength := binary.BigEndian.Uint32(b.B[:4])
 		if packetLength == 0 {
-			// keepalive
-			b.Set(b.B[4:])
-			dc.conn.Write(b.B[:4])
-
+			// it was "software" keepalive
 			expectingBytes = 4
 			continue
 		}

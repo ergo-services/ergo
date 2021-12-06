@@ -83,13 +83,6 @@ func (lf *linkFlusher) Write(b []byte) (int, error) {
 		lf.mutex.Lock()
 		defer lf.mutex.Unlock()
 
-		// if we have no pending data to send we should
-		// send a KeepAlive packet
-		if !lf.pending {
-			lf.w.Write(keepAlivePacket)
-			return
-		}
-
 		lf.writer.Flush()
 		lf.pending = false
 	})
