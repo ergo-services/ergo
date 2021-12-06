@@ -31,7 +31,7 @@ func (da *demoApp) Load(args ...etf.Term) (gen.ApplicationSpec, error) {
 		Name:        "demoApp",
 		Description: "Demo Applicatoin",
 		Version:     "v.1.0",
-		Environment: map[string]interface{}{
+		Environment: map[gen.EnvKey]interface{}{
 			"envName1": 123,
 			"envName2": "Hello world",
 		},
@@ -116,21 +116,14 @@ func (dgs *demoGenServ) HandleCall(process *gen.ServerProcess, from gen.ServerFr
 }
 
 func init() {
-	flag.IntVar(&ListenRangeBegin, "listen_begin", 15151, "listen port range")
-	flag.IntVar(&ListenRangeEnd, "listen_end", 25151, "listen port range")
 	flag.StringVar(&NodeName, "name", "demo@127.0.0.1", "node name")
-	flag.IntVar(&ListenEPMD, "epmd", 4369, "EPMD port")
 	flag.StringVar(&Cookie, "cookie", "123", "cookie for interaction with erlang cluster")
 }
 
 func main() {
 	flag.Parse()
 
-	opts := node.Options{
-		ListenRangeBegin: uint16(ListenRangeBegin),
-		ListenRangeEnd:   uint16(ListenRangeEnd),
-		EPMDPort:         uint16(ListenEPMD),
-	}
+	opts := node.Options{}
 
 	// Initialize new node with given name, cookie, listening port range and epmd port
 	demoNode, _ := ergo.StartNode(NodeName, Cookie, opts)

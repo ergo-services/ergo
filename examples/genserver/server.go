@@ -16,14 +16,12 @@ type demo struct {
 }
 
 var (
-	ServerName       string
-	NodeName         string
-	Cookie           string
-	err              error
-	ListenRangeBegin int
-	ListenRangeEnd   int = 35000
-	Listen           string
-	ListenEPMD       int
+	ServerName  string
+	NodeName    string
+	Cookie      string
+	err         error
+	ListenBegin int
+	ListenEnd   int = 35000
 
 	EnableRPC bool
 )
@@ -61,11 +59,10 @@ func (dgs *demo) HandleCall(process *gen.ServerProcess, from gen.ServerFrom, mes
 }
 
 func init() {
-	flag.IntVar(&ListenRangeBegin, "listen_begin", 15151, "listen port range")
-	flag.IntVar(&ListenRangeEnd, "listen_end", 25151, "listen port range")
+	flag.IntVar(&ListenBegin, "listen_begin", 15151, "listen port range")
+	flag.IntVar(&ListenEnd, "listen_end", 25151, "listen port range")
 	flag.StringVar(&ServerName, "gen_server_name", "example", "gen_server name")
 	flag.StringVar(&NodeName, "name", "demo@127.0.0.1", "node name")
-	flag.IntVar(&ListenEPMD, "epmd", 4369, "EPMD port")
 	flag.StringVar(&Cookie, "cookie", "123", "cookie for interaction with erlang cluster")
 }
 
@@ -73,9 +70,8 @@ func main() {
 	flag.Parse()
 
 	opts := node.Options{
-		ListenRangeBegin: uint16(ListenRangeBegin),
-		ListenRangeEnd:   uint16(ListenRangeEnd),
-		EPMDPort:         uint16(ListenEPMD),
+		ListenBegin: uint16(ListenBegin),
+		ListenEnd:   uint16(ListenEnd),
 	}
 
 	// Initialize new node with given name, cookie, listening port range and epmd port

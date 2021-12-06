@@ -2,9 +2,7 @@ package dist
 
 import (
 	"bytes"
-	"fmt"
 	"math/rand"
-	"net"
 	"reflect"
 	"testing"
 	"time"
@@ -12,46 +10,6 @@ import (
 	"github.com/ergo-services/ergo/etf"
 	"github.com/ergo-services/ergo/lib"
 )
-
-func TestLinkRead(t *testing.T) {
-
-	server, client := net.Pipe()
-	defer func() {
-		server.Close()
-		client.Close()
-	}()
-
-	link := Link{
-		conn: server,
-	}
-
-	go client.Write([]byte{0, 0, 0, 0, 0, 0, 0, 1, 0})
-
-	// read keepalive answer on a client side
-	go func() {
-		bb := make([]byte, 10)
-		for {
-			_, e := client.Read(bb)
-			if e != nil {
-				return
-			}
-		}
-	}()
-
-	c := make(chan bool)
-	b := lib.TakeBuffer()
-	go func() {
-		link.Read(b)
-		close(c)
-	}()
-	select {
-	case <-c:
-		fmt.Println("OK", b.B)
-	case <-time.After(1000 * time.Millisecond):
-		t.Fatal("incorrect")
-	}
-
-}
 
 func TestComposeName(t *testing.T) {
 	//link := &Link{
@@ -112,7 +70,7 @@ func TestValidateChallengeAck(t *testing.T) {
 }
 
 func TestDecodeDistHeaderAtomCache(t *testing.T) {
-	link := Link{}
+	link := &distConnection{}
 	a1 := etf.Atom("atom1")
 	a2 := etf.Atom("atom2")
 	link.cacheIn[1034] = &a1
@@ -190,7 +148,7 @@ func TestEncodeDistHeaderAtomCache(t *testing.T) {
 
 	}
 
-	l := &Link{}
+	l := &distConnection{}
 	l.encodeDistHeaderAtomCache(b, writerAtomCache, encodingAtomCache)
 
 	if !reflect.DeepEqual(b.B, expected) {
@@ -218,7 +176,7 @@ func TestEncodeDistHeaderAtomCache(t *testing.T) {
 }
 
 func BenchmarkDecodeDistHeaderAtomCache(b *testing.B) {
-	link := &Link{}
+	link := &distConnection{}
 	packet := []byte{
 		131, 68, // start dist header
 		5, 4, 137, 9, // 5 atoms and theirs flags
@@ -241,7 +199,7 @@ func BenchmarkDecodeDistHeaderAtomCache(b *testing.B) {
 }
 
 func BenchmarkEncodeDistHeaderAtomCache(b *testing.B) {
-	link := &Link{}
+	link := &distConnection{}
 	buf := lib.TakeBuffer()
 	defer lib.ReleaseBuffer(buf)
 
@@ -268,7 +226,7 @@ func BenchmarkEncodeDistHeaderAtomCache(b *testing.B) {
 }
 
 func TestDecodeFragment(t *testing.T) {
-	link := &Link{}
+	link := &distConnection{}
 
 	link.checkCleanTimeout = 50 * time.Millisecond
 	link.checkCleanDeadline = 150 * time.Millisecond
@@ -330,15 +288,15 @@ func TestDecodeFragment(t *testing.T) {
 	link.checkCleanTimeout = 0
 	link.checkCleanDeadline = 0
 	fragments := [][]byte{
-		[]byte{0, 0, 0, 0, 0, 0, 0, 6, 0, 0, 0, 0, 0, 0, 0, 9, 1, 2, 3},
-		[]byte{0, 0, 0, 0, 0, 0, 0, 6, 0, 0, 0, 0, 0, 0, 0, 8, 4, 5, 6},
-		[]byte{0, 0, 0, 0, 0, 0, 0, 6, 0, 0, 0, 0, 0, 0, 0, 7, 7, 8, 9},
-		[]byte{0, 0, 0, 0, 0, 0, 0, 6, 0, 0, 0, 0, 0, 0, 0, 6, 10, 11, 12},
-		[]byte{0, 0, 0, 0, 0, 0, 0, 6, 0, 0, 0, 0, 0, 0, 0, 5, 13, 14, 15},
-		[]byte{0, 0, 0, 0, 0, 0, 0, 6, 0, 0, 0, 0, 0, 0, 0, 4, 16, 17, 18},
-		[]byte{0, 0, 0, 0, 0, 0, 0, 6, 0, 0, 0, 0, 0, 0, 0, 3, 19, 20, 21},
-		[]byte{0, 0, 0, 0, 0, 0, 0, 6, 0, 0, 0, 0, 0, 0, 0, 2, 22, 23, 24},
-		[]byte{0, 0, 0, 0, 0, 0, 0, 6, 0, 0, 0, 0, 0, 0, 0, 1, 25, 26, 27},
+		{0, 0, 0, 0, 0, 0, 0, 6, 0, 0, 0, 0, 0, 0, 0, 9, 1, 2, 3},
+		{0, 0, 0, 0, 0, 0, 0, 6, 0, 0, 0, 0, 0, 0, 0, 8, 4, 5, 6},
+		{0, 0, 0, 0, 0, 0, 0, 6, 0, 0, 0, 0, 0, 0, 0, 7, 7, 8, 9},
+		{0, 0, 0, 0, 0, 0, 0, 6, 0, 0, 0, 0, 0, 0, 0, 6, 10, 11, 12},
+		{0, 0, 0, 0, 0, 0, 0, 6, 0, 0, 0, 0, 0, 0, 0, 5, 13, 14, 15},
+		{0, 0, 0, 0, 0, 0, 0, 6, 0, 0, 0, 0, 0, 0, 0, 4, 16, 17, 18},
+		{0, 0, 0, 0, 0, 0, 0, 6, 0, 0, 0, 0, 0, 0, 0, 3, 19, 20, 21},
+		{0, 0, 0, 0, 0, 0, 0, 6, 0, 0, 0, 0, 0, 0, 0, 2, 22, 23, 24},
+		{0, 0, 0, 0, 0, 0, 0, 6, 0, 0, 0, 0, 0, 0, 0, 1, 25, 26, 27},
 	}
 	expected = []byte{68, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27}
 

@@ -26,7 +26,6 @@ type jobDetails struct {
 }
 
 // Init initializes process state using arbitrary arguments
-// Init -> state
 func (am *appMon) Init(process *gen.ServerProcess, args ...etf.Term) error {
 	lib.Log("APP_MON: Init %#v", args)
 	from := args[0]
@@ -37,10 +36,11 @@ func (am *appMon) Init(process *gen.ServerProcess, args ...etf.Term) error {
 	return nil
 }
 
+// HandleCast
 func (am *appMon) HandleCast(process *gen.ServerProcess, message etf.Term) gen.ServerStatus {
 	var appState *appMonState = process.State.(*appMonState)
 	lib.Log("APP_MON: HandleCast: %#v", message)
-	node := process.Env("ergo:Node").(node.Node)
+	node := process.Env(node.EnvKeyNode).(node.Node)
 	switch message {
 	case "sendStat":
 
@@ -137,7 +137,7 @@ func (am *appMon) HandleCast(process *gen.ServerProcess, message etf.Term) gen.S
 }
 
 func (am *appMon) makeAppTree(process gen.Process, app etf.Atom) etf.Tuple {
-	node := process.Env("ergo:Node").(node.Node)
+	node := process.Env(node.EnvKeyNode).(node.Node)
 	appInfo, err := node.ApplicationInfo(string(app))
 	if err != nil {
 		return nil

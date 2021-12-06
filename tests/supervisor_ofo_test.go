@@ -264,17 +264,17 @@ func (ts *testSupervisorOneForOne) Init(args ...etf.Term) (gen.SupervisorSpec, e
 	ch := args[1].(chan interface{})
 	return gen.SupervisorSpec{
 		Children: []gen.SupervisorChildSpec{
-			gen.SupervisorChildSpec{
+			{
 				Name:  "testGS1",
 				Child: &testSupervisorGenServer{},
 				Args:  []etf.Term{ch, 0},
 			},
-			gen.SupervisorChildSpec{
+			{
 				Name:  "testGS2",
 				Child: &testSupervisorGenServer{},
 				Args:  []etf.Term{ch, 1},
 			},
-			gen.SupervisorChildSpec{
+			{
 				Name:  "testGS3",
 				Child: &testSupervisorGenServer{},
 				Args:  []etf.Term{ch, 2},

@@ -21,26 +21,28 @@ var (
 	marshalerType = reflect.TypeOf((*Marshaler)(nil)).Elem()
 )
 
+// EncodeOptions
 type EncodeOptions struct {
 	LinkAtomCache     *AtomCache
 	WriterAtomCache   map[Atom]CacheItem
 	EncodingAtomCache *ListAtomCache
 
-	// FlagV4NC The node accepts a larger amount of data in pids
+	// FlagBigPidRef The node accepts a larger amount of data in pids
 	// and references (node container types version 4).
 	// In the pid case full 32-bit ID and Serial fields in NEW_PID_EXT
 	// and in the reference case up to 5 32-bit ID words are now
 	// accepted in NEWER_REFERENCE_EXT. Introduced in OTP 24.
-	FlagV4NC bool
+	FlagBigPidRef bool
 
 	// FlagBigCreation The node understands big node creation tags NEW_PID_EXT,
 	// NEWER_REFERENCE_EXT.
 	FlagBigCreation bool
 }
 
+// Encode
 func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 	defer func() {
-		// We should catch any panic happend during encoding Golang types.
+		// We should catch any panic happened during encoding Golang types.
 		if r := recover(); r != nil {
 			retErr = fmt.Errorf("%v", r)
 		}
@@ -62,6 +64,7 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 	// 3. if found
 	//    add options.EncodingAtomCache[i] = CacheItem, where i is just a counter
 	//    within this encoding process.
+
 	//    encode atom as ettCacheRef with value = i
 	for {
 
@@ -101,20 +104,20 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 
 				buf := b.Extend(9)
 
-				// ID a 32-bit big endian unsigned integer. If distribution
-				// flag DFLAG_V4_NC is not set, only 15 bits may be used
+				// ID a 32-bit big endian unsigned integer.
+				// If FlagBigPidRef is not set, only 15 bits may be used
 				// and the rest must be 0.
-				if options.FlagV4NC {
+				if options.FlagBigPidRef {
 					binary.BigEndian.PutUint32(buf[:4], uint32(p.ID))
 				} else {
 					// 15 bits only 2**15 - 1 = 32767
 					binary.BigEndian.PutUint32(buf[:4], uint32(p.ID)&32767)
 				}
 
-				// Serial a 32-bit big endian unsigned integer. If distribution
-				// flag DFLAG_V4_NC is not set, only 13 bits may be used
+				// Serial a 32-bit big endian unsigned integer.
+				// If distribution FlagBigPidRef is not set, only 13 bits may be used
 				// and the rest must be 0.
-				if options.FlagV4NC {
+				if options.FlagBigPidRef {
 					binary.BigEndian.PutUint32(buf[4:8], uint32(p.ID>>32))
 				} else {
 					// 13 bits only 2**13 - 1 = 8191
@@ -138,14 +141,14 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 
 				buf := b.Extend(12)
 				// ID
-				if options.FlagV4NC {
+				if options.FlagBigPidRef {
 					binary.BigEndian.PutUint32(buf[:4], uint32(p.ID))
 				} else {
 					// 15 bits only 2**15 - 1 = 32767
 					binary.BigEndian.PutUint32(buf[:4], uint32(p.ID)&32767)
 				}
 				// Serial
-				if options.FlagV4NC {
+				if options.FlagBigPidRef {
 					binary.BigEndian.PutUint32(buf[4:8], uint32(p.ID>>32))
 				} else {
 					// 13 bits only 2**13 - 1 = 8191
@@ -165,9 +168,6 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 				}
 
 				lenID := 3
-				if options.FlagV4NC {
-					lenID = 5
-				}
 				buf := b.Extend(1 + lenID*4)
 				// Only one byte long and only two bits are significant, the rest must be 0.
 				buf[0] = byte(r.Creation & 3)
@@ -194,10 +194,10 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 					break
 				}
 
-				lenID := 3
-				// FIXME Erlang 24 has a bug https://github.com/erlang/otp/issues/5097
+				// // FIXME Erlang 24 has a bug https://github.com/erlang/otp/issues/5097
 				// uncomment once they fix it
-				//if options.FlagV4NC {
+				lenID := 3
+				//if options.FlagBigPidRef {
 				//	lenID = 5
 				//}
 				buf := b.Extend(4 + lenID*4)
@@ -609,11 +609,11 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 			}
 
 			// LEN a 16-bit big endian unsigned integer not larger
-			// than 5 when the DFLAG_V4_NC has been set; otherwise not larger than 3.
+			// than 5 when the FlagBigPidRef has been set; otherwise not larger than 3.
 
 			// FIXME Erlang 24 has a bug https://github.com/erlang/otp/issues/5097
 			// uncomment once they fix it
-			//if options.FlagV4NC {
+			//if options.FlagBigPidRef {
 			//	binary.BigEndian.PutUint16(buf[1:3], 5)
 			//} else {
 			binary.BigEndian.PutUint16(buf[1:3], 3)

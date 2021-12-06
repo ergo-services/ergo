@@ -55,12 +55,12 @@ var (
 	errInternal  = fmt.Errorf("Internal error")
 )
 
+// DecodeOptions
 type DecodeOptions struct {
-	FlagV4NC        bool
-	FlagBigCreation bool
+	FlagBigPidRef bool
 }
 
-// stackless implementation is speeding up it up to x25 times
+// stackless implementation is speeding up decoding function up to x25 times
 
 // it might looks hard to understand the logic, but
 // there are only two stages
@@ -69,6 +69,7 @@ type DecodeOptions struct {
 //
 // see comments within this function
 
+// Decode
 func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, retByte []byte, retErr error) {
 	var term Term
 	var stack *stackElement
@@ -525,7 +526,7 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 
 				id := uint64(binary.BigEndian.Uint32(packet[:4]))
 				serial := uint64(binary.BigEndian.Uint32(packet[4:8]))
-				if options.FlagV4NC {
+				if options.FlagBigPidRef {
 					id = id | (serial << 32)
 				} else {
 					// id 15 bits only 2**15 - 1 = 32767
@@ -554,7 +555,7 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 					Node:     name,
 					Creation: binary.BigEndian.Uint32(packet[8:12]),
 				}
-				if options.FlagV4NC {
+				if options.FlagBigPidRef {
 					id = id | (serial << 32)
 				} else {
 					// id 15 bits only 2**15 - 1 = 32767
@@ -578,7 +579,7 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 				if l > 5 {
 					return nil, nil, errMalformedRef
 				}
-				if l > 3 && !options.FlagV4NC {
+				if l > 3 && !options.FlagBigPidRef {
 					return nil, nil, errMalformedRef
 				}
 				stack.tmp = nil
@@ -621,7 +622,7 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 				if l > 5 {
 					return nil, nil, errMalformedRef
 				}
-				if l > 3 && !options.FlagV4NC {
+				if l > 3 && !options.FlagBigPidRef {
 					return nil, nil, errMalformedRef
 				}
 				stack.tmp = nil

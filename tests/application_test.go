@@ -27,12 +27,12 @@ func (a *testApplication) Load(args ...etf.Term) (gen.ApplicationSpec, error) {
 		Name:        name,
 		Description: "My Test Applicatoin",
 		Version:     "v.0.1",
-		Environment: map[string]interface{}{
+		Environment: map[gen.EnvKey]interface{}{
 			"envName1": 123,
 			"envName2": "Hello world",
 		},
 		Children: []gen.ApplicationChildSpec{
-			gen.ApplicationChildSpec{
+			{
 				Child: &testAppGenServer{},
 				Name:  nameGS,
 			},
@@ -262,7 +262,7 @@ func TestApplicationBasics(t *testing.T) {
 	tLifeSpan := time.Since(tStart)
 
 	fmt.Printf("... application should be self stopped in 150ms: ")
-	if mynode.IsProcessAlive(p) {
+	if p.IsAlive() {
 		t.Fatal("still alive")
 	}
 

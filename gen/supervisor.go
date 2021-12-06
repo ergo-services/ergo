@@ -14,6 +14,7 @@ type SupervisorBehavior interface {
 	Init(args ...etf.Term) (SupervisorSpec, error)
 }
 
+// SupervisorStrategy
 type SupervisorStrategy struct {
 	Type      SupervisorStrategyType
 	Intensity uint16
@@ -21,7 +22,10 @@ type SupervisorStrategy struct {
 	Restart   SupervisorStrategyRestart
 }
 
+// SupervisorStrategyType
 type SupervisorStrategyType = string
+
+// SupervisorStrategyRestart
 type SupervisorStrategyRestart = string
 
 const (
@@ -76,6 +80,7 @@ const (
 
 type supervisorChildState int
 
+// SupervisorSpec
 type SupervisorSpec struct {
 	Name     string
 	Children []SupervisorChildSpec
@@ -83,6 +88,7 @@ type SupervisorSpec struct {
 	restarts []int64
 }
 
+// SupervisorChildSpec
 type SupervisorChildSpec struct {
 	// Node to run child on remote node
 	Node    string
@@ -101,6 +107,7 @@ type messageStartChild struct {
 	args []etf.Term
 }
 
+// ProcessInit
 func (sv *Supervisor) ProcessInit(p Process, args ...etf.Term) (ProcessState, error) {
 	behavior, ok := p.Behavior().(SupervisorBehavior)
 	if !ok {
@@ -110,7 +117,7 @@ func (sv *Supervisor) ProcessInit(p Process, args ...etf.Term) (ProcessState, er
 	if err != nil {
 		return ProcessState{}, err
 	}
-	lib.Log("Supervisor spec %#v\n", spec)
+	lib.Log("[%s] SUPERVISOR %q with restart strategy: %s[%s] ", p.NodeName(), p.Name(), spec.Strategy.Type, spec.Strategy.Restart)
 
 	p.SetTrapExit(true)
 	return ProcessState{
@@ -119,6 +126,7 @@ func (sv *Supervisor) ProcessInit(p Process, args ...etf.Term) (ProcessState, er
 	}, nil
 }
 
+// ProcessLoop
 func (sv *Supervisor) ProcessLoop(ps ProcessState, started chan<- bool) string {
 	spec := ps.State.(*SupervisorSpec)
 	if spec.Strategy.Type != SupervisorStrategySimpleOneForOne {

@@ -1,3 +1,4 @@
+//go:build darwin
 // +build darwin
 
 package osdep
@@ -6,6 +7,7 @@ import (
 	"syscall"
 )
 
+// ResourceUsage
 func ResourceUsage() (int64, int64) {
 	var usage syscall.Rusage
 	var utime, stime int64

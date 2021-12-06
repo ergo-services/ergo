@@ -29,6 +29,9 @@ const (
 	// is with any other reason than normal, all other applications and
 	// the runtime system (node) are also terminated.
 	ApplicationStartTransient = "transient"
+
+	// EnvKeySpec
+	EnvKeySpec EnvKey = "ergo:AppSpec"
 )
 
 // ApplicationBehavior interface
@@ -38,6 +41,7 @@ type ApplicationBehavior interface {
 	Start(process Process, args ...etf.Term)
 }
 
+// ApplicationSpec
 type ApplicationSpec struct {
 	sync.Mutex
 	Name         string
@@ -45,12 +49,13 @@ type ApplicationSpec struct {
 	Version      string
 	Lifespan     time.Duration
 	Applications []string
-	Environment  map[string]interface{}
+	Environment  map[EnvKey]interface{}
 	Children     []ApplicationChildSpec
 	Process      Process
 	StartType    ApplicationStartType
 }
 
+// ApplicationChildSpec
 type ApplicationChildSpec struct {
 	Child   ProcessBehavior
 	Name    string
@@ -61,6 +66,7 @@ type ApplicationChildSpec struct {
 // Application is implementation of ProcessBehavior interface
 type Application struct{}
 
+// ApplicationInfo
 type ApplicationInfo struct {
 	Name        string
 	Description string
@@ -68,13 +74,14 @@ type ApplicationInfo struct {
 	PID         etf.Pid
 }
 
+// ProcessInit
 func (a *Application) ProcessInit(p Process, args ...etf.Term) (ProcessState, error) {
-	spec, ok := p.Env("spec").(*ApplicationSpec)
+	spec, ok := p.Env(EnvKeySpec).(*ApplicationSpec)
 	if !ok {
 		return ProcessState{}, fmt.Errorf("ProcessInit: not an ApplicationBehavior")
 	}
 	// remove variable from the env
-	p.SetEnv("spec", nil)
+	p.SetEnv(EnvKeySpec, nil)
 
 	p.SetTrapExit(true)
 
@@ -102,6 +109,7 @@ func (a *Application) ProcessInit(p Process, args ...etf.Term) (ProcessState, er
 	}, nil
 }
 
+// ProcessLoop
 func (a *Application) ProcessLoop(ps ProcessState, started chan<- bool) string {
 	spec := ps.State.(*ApplicationSpec)
 	defer func() { spec.Process = nil }()

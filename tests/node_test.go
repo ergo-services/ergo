@@ -1,6 +1,7 @@
 package tests
 
 import (
+	"context"
 	"crypto/md5"
 	"fmt"
 	"math/rand"
@@ -14,7 +15,7 @@ import (
 	"github.com/ergo-services/ergo/etf"
 	"github.com/ergo-services/ergo/gen"
 	"github.com/ergo-services/ergo/node"
-	"github.com/ergo-services/ergo/node/dist"
+	"github.com/ergo-services/ergo/proto/dist"
 )
 
 type benchCase struct {
@@ -23,13 +24,13 @@ type benchCase struct {
 }
 
 func TestNode(t *testing.T) {
+	ctx := context.Background()
 	opts := node.Options{
-		ListenRangeBegin: 25001,
-		ListenRangeEnd:   25001,
-		EPMDPort:         24999,
+		Listen:   25001,
+		Resolver: dist.CreateResolverWithEPMD(ctx, "", 24999),
 	}
 
-	node1, _ := ergo.StartNode("node@localhost", "cookies", opts)
+	node1, _ := ergo.StartNodeWithContext(ctx, "node@localhost", "cookies", opts)
 
 	if conn, err := net.Dial("tcp", ":25001"); err != nil {
 		fmt.Println("Connect to the node' listening port FAILED")
@@ -53,8 +54,8 @@ func TestNode(t *testing.T) {
 		t.Fatal(e)
 	}
 
-	if !node1.IsProcessAlive(p) {
-		t.Fatal("IsProcessAlive: expect 'true', but got 'false'")
+	if !p.IsAlive() {
+		t.Fatal("IsAlive: expect 'true', but got 'false'")
 	}
 
 	_, ee := node1.ProcessInfo(p.Self())
@@ -194,28 +195,41 @@ func TestNodeAtomCache(t *testing.T) {
 }
 
 func TestNodeStaticRoute(t *testing.T) {
-	nodeName := "nodeT1StaticRoute@localhost"
-	nodeStaticPort := 9876
+	nodeName1 := "nodeT1StaticRoute@localhost"
+	nodeName2 := "nodeT2StaticRoute@localhost"
+	nodeStaticPort := uint16(9876)
 
-	node1, _ := ergo.StartNode(nodeName, "secret", node.Options{})
-	nr, err := node1.Resolve(nodeName)
+	node1, e1 := ergo.StartNode(nodeName1, "secret", node.Options{})
+	if e1 != nil {
+		t.Fatal(e1)
+	}
+	defer node1.Stop()
+
+	node2, e2 := ergo.StartNode(nodeName2, "secret", node.Options{})
+	if e2 != nil {
+		t.Fatal(e2)
+	}
+	defer node2.Stop()
+
+	nr, err := node1.Resolve(nodeName2)
 	if err != nil {
-		t.Fatal("Can't resolve port number for ", nodeName)
+		t.Fatal("Can't resolve port number for ", nodeName2)
 	}
 
-	e := node1.AddStaticRoute(nodeName, uint16(nodeStaticPort))
+	// override route for nodeName2 with static port
+	e := node1.AddStaticRoute(nodeName2, nodeStaticPort, node.RouteOptions{})
 	if e != nil {
 		t.Fatal(e)
 	}
 	// should be overrided by the new value of nodeStaticPort
-	if nr, err := node1.Resolve(nodeName); err != nil || nr.Port != nodeStaticPort {
-		t.Fatal("Wrong port number after adding static route. Got", nr.Port, "Expected", nodeStaticPort)
+	if r, err := node1.Resolve(nodeName2); err != nil || r.Port != nodeStaticPort {
+		t.Fatal("Wrong port number after adding static route. Got", r.Port, "Expected", nodeStaticPort)
 	}
 
-	node1.RemoveStaticRoute(nodeName)
+	node1.RemoveStaticRoute(nodeName2)
 
 	// should be resolved into the original port number
-	if nr2, err := node1.Resolve(nodeName); err != nil || nr.Port != nr2.Port {
+	if nr2, err := node1.Resolve(nodeName2); err != nil || nr.Port != nr2.Port {
 		t.Fatal("Wrong port number after removing static route")
 	}
 }
@@ -241,21 +255,20 @@ func (h *handshakeGenServer) HandleDirect(process *gen.ServerProcess, message in
 
 func TestNodeDistHandshake(t *testing.T) {
 	fmt.Printf("\n=== Test Node Handshake versions\n")
+	cookie := "secret"
 
-	nodeOptions5 := node.Options{
-		HandshakeVersion: dist.ProtoHandshake5,
+	// handshake version 5
+	handshake5options := dist.HandshakeOptions{
+		Cookie:  cookie,
+		Version: dist.HandshakeVersion5,
 	}
-	nodeOptions6 := node.Options{
-		HandshakeVersion: dist.ProtoHandshake6,
+
+	// handshake version 6
+	handshake6options := dist.HandshakeOptions{
+		Cookie:  cookie,
+		Version: dist.HandshakeVersion6,
 	}
-	nodeOptions5WithTLS := node.Options{
-		HandshakeVersion: dist.ProtoHandshake5,
-		TLSMode:          node.TLSModeAuto,
-	}
-	nodeOptions6WithTLS := node.Options{
-		HandshakeVersion: dist.ProtoHandshake6,
-		TLSMode:          node.TLSModeAuto,
-	}
+
 	hgs := &handshakeGenServer{}
 
 	type Pair struct {
@@ -263,68 +276,110 @@ func TestNodeDistHandshake(t *testing.T) {
 		nodeA node.Node
 		nodeB node.Node
 	}
-	node1, e1 := ergo.StartNode("node1Handshake5@localhost", "secret", nodeOptions5)
+	node1Options5 := node.Options{
+		Handshake: dist.CreateHandshake(handshake5options),
+	}
+	node1, e1 := ergo.StartNode("node1Handshake5@localhost", "secret", node1Options5)
 	if e1 != nil {
 		t.Fatal(e1)
 	}
-	node2, e2 := ergo.StartNode("node2Handshake5@localhost", "secret", nodeOptions5)
+	node2Options5 := node.Options{
+		Handshake: dist.CreateHandshake(handshake5options),
+	}
+	node2, e2 := ergo.StartNode("node2Handshake5@localhost", "secret", node2Options5)
 	if e2 != nil {
 		t.Fatal(e2)
 	}
-	node3, e3 := ergo.StartNode("node3Handshake5@localhost", "secret", nodeOptions5)
+	node3Options5 := node.Options{
+		Handshake: dist.CreateHandshake(handshake5options),
+	}
+	node3, e3 := ergo.StartNode("node3Handshake5@localhost", "secret", node3Options5)
 	if e3 != nil {
 		t.Fatal(e3)
 	}
-	node4, e4 := ergo.StartNode("node4Handshake6@localhost", "secret", nodeOptions6)
+	node4Options6 := node.Options{
+		Handshake: dist.CreateHandshake(handshake6options),
+	}
+	node4, e4 := ergo.StartNode("node4Handshake6@localhost", "secret", node4Options6)
 	if e4 != nil {
 		t.Fatal(e4)
 	}
 	// node5, _ := ergo.StartNode("node5Handshake6@localhost", "secret", nodeOptions6)
 	// node6, _ := ergo.StartNode("node6Handshake5@localhost", "secret", nodeOptions5)
-	node7, e7 := ergo.StartNode("node7Handshake6@localhost", "secret", nodeOptions6)
+	node7Options6 := node.Options{
+		Handshake: dist.CreateHandshake(handshake6options),
+	}
+	node7, e7 := ergo.StartNode("node7Handshake6@localhost", "secret", node7Options6)
 	if e7 != nil {
 		t.Fatal(e7)
 	}
-	node8, e8 := ergo.StartNode("node8Handshake6@localhost", "secret", nodeOptions6)
+	node8Options6 := node.Options{
+		Handshake: dist.CreateHandshake(handshake6options),
+	}
+	node8, e8 := ergo.StartNode("node8Handshake6@localhost", "secret", node8Options6)
 	if e8 != nil {
 		t.Fatal(e8)
 	}
-	node9, e9 := ergo.StartNode("node9Handshake5@localhost", "secret", nodeOptions5WithTLS)
+	node9Options5WithTLS := node.Options{
+		Handshake: dist.CreateHandshake(handshake5options),
+		TLS:       node.TLS{Enabled: true},
+	}
+	node9, e9 := ergo.StartNode("node9Handshake5@localhost", "secret", node9Options5WithTLS)
 	if e9 != nil {
 		t.Fatal(e9)
 	}
-	node10, e10 := ergo.StartNode("node10Handshake5@localhost", "secret", nodeOptions5WithTLS)
+	node10Options5WithTLS := node.Options{
+		Handshake: dist.CreateHandshake(handshake5options),
+		TLS:       node.TLS{Enabled: true},
+	}
+	node10, e10 := ergo.StartNode("node10Handshake5@localhost", "secret", node10Options5WithTLS)
 	if e10 != nil {
 		t.Fatal(e10)
 	}
-	node11, e11 := ergo.StartNode("node11Handshake5@localhost", "secret", nodeOptions5WithTLS)
+	node11Options5WithTLS := node.Options{
+		Handshake: dist.CreateHandshake(handshake5options),
+		TLS:       node.TLS{Enabled: true},
+	}
+	node11, e11 := ergo.StartNode("node11Handshake5@localhost", "secret", node11Options5WithTLS)
 	if e11 != nil {
 		t.Fatal(e11)
 	}
-	node12, e12 := ergo.StartNode("node12Handshake6@localhost", "secret", nodeOptions6WithTLS)
+	node12Options6WithTLS := node.Options{
+		Handshake: dist.CreateHandshake(handshake6options),
+		TLS:       node.TLS{Enabled: true},
+	}
+	node12, e12 := ergo.StartNode("node12Handshake6@localhost", "secret", node12Options6WithTLS)
 	if e12 != nil {
 		t.Fatal(e12)
 	}
 	// node13, _ := ergo.StartNode("node13Handshake6@localhost", "secret", nodeOptions6WithTLS)
 	// node14, _ := ergo.StartNode("node14Handshake5@localhost", "secret", nodeOptions5WithTLS)
-	node15, e15 := ergo.StartNode("node15Handshake6@localhost", "secret", nodeOptions6WithTLS)
+	node15Options6WithTLS := node.Options{
+		Handshake: dist.CreateHandshake(handshake6options),
+		TLS:       node.TLS{Enabled: true},
+	}
+	node15, e15 := ergo.StartNode("node15Handshake6@localhost", "secret", node15Options6WithTLS)
 	if e15 != nil {
 		t.Fatal(e15)
 	}
-	node16, e16 := ergo.StartNode("node16Handshake6@localhost", "secret", nodeOptions6WithTLS)
+	node16Options6WithTLS := node.Options{
+		Handshake: dist.CreateHandshake(handshake6options),
+		TLS:       node.TLS{Enabled: true},
+	}
+	node16, e16 := ergo.StartNode("node16Handshake6@localhost", "secret", node16Options6WithTLS)
 	if e16 != nil {
 		t.Fatal(e16)
 	}
 
 	nodes := []Pair{
-		Pair{"No TLS. version 5 -> version 5", node1, node2},
-		Pair{"No TLS. version 5 -> version 6", node3, node4},
+		{"No TLS. version 5 -> version 5", node1, node2},
+		{"No TLS. version 5 -> version 6", node3, node4},
 		//Pair{ "No TLS. version 6 -> version 5", node5, node6 },
-		Pair{"No TLS. version 6 -> version 6", node7, node8},
-		Pair{"With TLS. version 5 -> version 5", node9, node10},
-		Pair{"With TLS. version 5 -> version 6", node11, node12},
+		{"No TLS. version 6 -> version 6", node7, node8},
+		{"With TLS. version 5 -> version 5", node9, node10},
+		{"With TLS. version 5 -> version 6", node11, node12},
 		//Pair{ "With TLS. version 6 -> version 5", node13, node14 },
-		Pair{"With TLS. version 6 -> version 6", node15, node16},
+		{"With TLS. version 6 -> version 6", node15, node16},
 	}
 
 	defer func(nodes []Pair) {
@@ -339,7 +394,7 @@ func TestNodeDistHandshake(t *testing.T) {
 	var result etf.Term
 	for i := range nodes {
 		pair := nodes[i]
-		fmt.Printf("    %s: ", pair.name)
+		fmt.Printf("    %s %s -> %s: ", pair.name, pair.nodeA.Name(), pair.nodeB.Name())
 		pA, e = pair.nodeA.Spawn("", gen.ProcessOptions{}, hgs)
 		if e != nil {
 			t.Fatal(e)
@@ -378,18 +433,31 @@ func TestNodeRemoteSpawn(t *testing.T) {
 	}
 
 	opts := gen.RemoteSpawnOptions{
-		RegisterName: "remote",
+		Name: "remote",
 	}
-	fmt.Printf("    process gs1@node1 requests spawn new process on node2 and register this process with name 'remote': ")
-	_, err = process.RemoteSpawn(node2.Name(), "remote", opts, 1, 2, 3)
+	fmt.Printf("    process gs1@node1 request to spawn new process on node2 and register this process with name 'remote': ")
+	gotPid, err := process.RemoteSpawn(node2.Name(), "remote", opts, 1, 2, 3)
 	if err != nil {
 		t.Fatal(err)
 	}
+	p := node2.ProcessByName("remote")
+	if p == nil {
+		t.Fatal("can't find process 'remote' on node2")
+	}
+	if gotPid != p.Self() {
+		t.Fatal("process pid mismatch")
+	}
 	fmt.Println("OK")
-	fmt.Printf("    process gs1@node1 requests spawn new process on node2 with the same name (must be failed): ")
 
+	fmt.Printf("    process gs1@node1 request to spawn new process on node2 with the same name (must be failed): ")
 	_, err = process.RemoteSpawn(node2.Name(), "remote", opts, 1, 2, 3)
 	if err != node.ErrTaken {
+		t.Fatal(err)
+	}
+	fmt.Println("OK")
+	fmt.Printf("    process gs1@node1 request to spawn new process on node2 with unregistered behavior name (must be failed): ")
+	_, err = process.RemoteSpawn(node2.Name(), "randomname", opts, 1, 2, 3)
+	if err != node.ErrBehaviorUnknown {
 		t.Fatal(err)
 	}
 	fmt.Println("OK")
@@ -414,7 +482,7 @@ func BenchmarkNodeSequential(b *testing.B) {
 
 	node1name := fmt.Sprintf("nodeB1_%d@localhost", b.N)
 	node2name := fmt.Sprintf("nodeB2_%d@localhost", b.N)
-	node1, _ := ergo.StartNode(node1name, "bench", node.Options{DisableHeaderAtomCache: false})
+	node1, _ := ergo.StartNode(node1name, "bench", node.Options{})
 	node2, _ := ergo.StartNode(node2name, "bench", node.Options{})
 
 	bgs := &benchGS{}
@@ -457,7 +525,7 @@ func BenchmarkNodeSequential(b *testing.B) {
 func BenchmarkNodeSequentialSingleNode(b *testing.B) {
 
 	node1name := fmt.Sprintf("nodeB1Local_%d@localhost", b.N)
-	node1, _ := ergo.StartNode(node1name, "bench", node.Options{DisableHeaderAtomCache: true})
+	node1, _ := ergo.StartNode(node1name, "bench", node.Options{})
 
 	bgs := &benchGS{}
 
@@ -500,7 +568,7 @@ func BenchmarkNodeParallel(b *testing.B) {
 
 	node1name := fmt.Sprintf("nodeB1Parallel_%d@localhost", b.N)
 	node2name := fmt.Sprintf("nodeB2Parallel_%d@localhost", b.N)
-	node1, _ := ergo.StartNode(node1name, "bench", node.Options{DisableHeaderAtomCache: false})
+	node1, _ := ergo.StartNode(node1name, "bench", node.Options{})
 	node2, _ := ergo.StartNode(node2name, "bench", node.Options{})
 
 	bgs := &benchGS{}
@@ -550,7 +618,7 @@ func BenchmarkNodeParallel(b *testing.B) {
 func BenchmarkNodeParallelSingleNode(b *testing.B) {
 
 	node1name := fmt.Sprintf("nodeB1ParallelLocal_%d@localhost", b.N)
-	node1, _ := ergo.StartNode(node1name, "bench", node.Options{DisableHeaderAtomCache: false})
+	node1, _ := ergo.StartNode(node1name, "bench", node.Options{})
 
 	bgs := &benchGS{}
 
@@ -596,15 +664,15 @@ func BenchmarkNodeParallelSingleNode(b *testing.B) {
 }
 func benchCases() []benchCase {
 	return []benchCase{
-		benchCase{"number", 12345},
-		benchCase{"string", "hello world"},
-		benchCase{"tuple (PID)",
+		{"number", 12345},
+		{"string", "hello world"},
+		{"tuple (PID)",
 			etf.Pid{
 				Node:     "node@localhost",
 				ID:       1000,
 				Creation: 1,
 			},
 		},
-		benchCase{"binary 1MB", make([]byte, 1024*1024)},
+		{"binary 1MB", make([]byte, 1024*1024)},
 	}
 }

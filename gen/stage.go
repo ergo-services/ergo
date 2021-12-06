@@ -524,55 +524,67 @@ func (gst *Stage) HandleInfo(process *ServerProcess, message etf.Term) ServerSta
 
 // default callbacks
 
+// InitStage
 func (gst *Stage) InitStage(process *StageProcess, args ...etf.Term) error {
 	return nil
 }
 
+// HandleSagaCall
 func (gst *Stage) HandleStageCall(process *StageProcess, from ServerFrom, message etf.Term) (etf.Term, ServerStatus) {
 	// default callback if it wasn't implemented
 	fmt.Printf("HandleStageCall: unhandled message (from %#v) %#v\n", from, message)
 	return etf.Atom("ok"), ServerStatusOK
 }
 
+// HandleStageDirect
 func (gst *Stage) HandleStageDirect(process *StageProcess, message interface{}) (interface{}, error) {
 	// default callback if it wasn't implemented
 	return nil, ErrUnsupportedRequest
 }
 
+// HandleStageCast
 func (gst *Stage) HandleStageCast(process *StageProcess, message etf.Term) ServerStatus {
 	// default callback if it wasn't implemented
 	fmt.Printf("HandleStageCast: unhandled message %#v\n", message)
 	return ServerStatusOK
 }
+
+// HandleStageInfo
 func (gst *Stage) HandleStageInfo(process *StageProcess, message etf.Term) ServerStatus {
 	// default callback if it wasn't implemnted
 	fmt.Printf("HandleStageInfo: unhandled message %#v\n", message)
 	return ServerStatusOK
 }
 
+// HandleSubscribe
 func (gst *Stage) HandleSubscribe(process *StageProcess, subscription StageSubscription, options StageSubscribeOptions) StageStatus {
 	return StageStatusNotAProducer
 }
 
+// HandleSubscribed
 func (gst *Stage) HandleSubscribed(process *StageProcess, subscription StageSubscription, opts StageSubscribeOptions) (bool, StageStatus) {
 	return opts.ManualDemand, StageStatusOK
 }
 
+// HandleCancel
 func (gst *Stage) HandleCancel(process *StageProcess, subscription StageSubscription, reason string) StageStatus {
 	// default callback if it wasn't implemented
 	return StageStatusOK
 }
 
+// HandleCanceled
 func (gst *Stage) HandleCanceled(process *StageProcess, subscription StageSubscription, reason string) StageStatus {
 	// default callback if it wasn't implemented
 	return StageStatusOK
 }
 
+// HanndleEvents
 func (gst *Stage) HandleEvents(process *StageProcess, subscription StageSubscription, events etf.List) StageStatus {
 	fmt.Printf("Stage HandleEvents: unhandled subscription (%#v) events %#v\n", subscription, events)
 	return StageStatusOK
 }
 
+// HandleDemand
 func (gst *Stage) HandleDemand(process *StageProcess, subscription StageSubscription, count uint) (etf.List, StageStatus) {
 	fmt.Printf("Stage HandleDemand: unhandled subscription (%#v) demand %#v\n", subscription, count)
 	return nil, StageStatusOK

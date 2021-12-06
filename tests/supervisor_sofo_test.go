@@ -38,17 +38,17 @@ func TestSupervisorSimpleOneForOne(t *testing.T) {
 	// ===================================================================================================
 	// test SupervisorStrategyRestartPermanent
 	testCases := []ChildrenTestCase{
-		ChildrenTestCase{
+		{
 			reason:   "abnormal",
 			statuses: []string{"new", "new", "new", "new", "new", "new"},
 			events:   12, // waiting for 6 terminates and 6 restarts
 		},
-		ChildrenTestCase{
+		{
 			reason:   "normal",
 			statuses: []string{"new", "new", "new", "new", "new", "new"},
 			events:   12, // waiting for 6 terminates and 6 restarts
 		},
-		ChildrenTestCase{
+		{
 			reason:   "shutdown",
 			statuses: []string{"new", "new", "new", "new", "new", "new"},
 			events:   12, // waiting for 6 terminates and 6 restarts
@@ -146,17 +146,17 @@ func TestSupervisorSimpleOneForOne(t *testing.T) {
 	// ===================================================================================================
 	// test SupervisorStrategyRestartTransient
 	testCases = []ChildrenTestCase{
-		ChildrenTestCase{
+		{
 			reason:   "abnormal",
 			statuses: []string{"new", "new", "new", "new", "new", "new"},
 			events:   12, // waiting for 6 terminates and 6 restarts
 		},
-		ChildrenTestCase{
+		{
 			reason:   "normal",
 			statuses: []string{"empty", "empty", "empty", "empty", "empty", "empty"},
 			events:   6, // waiting for 6 terminates
 		},
-		ChildrenTestCase{
+		{
 			reason:   "shutdown",
 			statuses: []string{"empty", "empty", "empty", "empty", "empty", "empty"},
 			events:   6, // waiting for 6 terminates
@@ -254,17 +254,17 @@ func TestSupervisorSimpleOneForOne(t *testing.T) {
 	// ===================================================================================================
 	// test SupervisorStrategyRestartTemporary
 	testCases = []ChildrenTestCase{
-		ChildrenTestCase{
+		{
 			reason:   "abnormal",
 			statuses: []string{"empty", "empty", "empty", "empty", "empty", "empty"},
 			events:   6, // waiting for 6 terminates
 		},
-		ChildrenTestCase{
+		{
 			reason:   "normal",
 			statuses: []string{"empty", "empty", "empty", "empty", "empty", "empty"},
 			events:   6, // waiting for 6 terminates
 		},
-		ChildrenTestCase{
+		{
 			reason:   "shutdown",
 			statuses: []string{"empty", "empty", "empty", "empty", "empty", "empty"},
 			events:   6, // waiting for 6 terminates
@@ -364,15 +364,15 @@ func (ts *testSupervisorSimpleOneForOne) Init(args ...etf.Term) (gen.SupervisorS
 	restart := args[0].(string)
 	return gen.SupervisorSpec{
 		Children: []gen.SupervisorChildSpec{
-			gen.SupervisorChildSpec{
+			{
 				Name:  "testGS1",
 				Child: &testSupervisorGenServer{},
 			},
-			gen.SupervisorChildSpec{
+			{
 				Name:  "testGS2",
 				Child: &testSupervisorGenServer{},
 			},
-			gen.SupervisorChildSpec{
+			{
 				Name:  "testGS3",
 				Child: &testSupervisorGenServer{},
 			},
