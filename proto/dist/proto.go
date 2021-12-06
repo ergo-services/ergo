@@ -756,7 +756,7 @@ func (dc *distConnection) handleMessage(control, message etf.Term) (err error) {
 					dc.router.RouteMonitorExit(terminated, reason, ref)
 					return nil
 				case etf.Atom:
-					processID := gen.ProcessID{string(terminated), dc.peername}
+					processID := gen.ProcessID{Name: string(terminated), Node: dc.peername}
 					dc.router.RouteMonitorExitReg(processID, reason, ref)
 					return nil
 				}

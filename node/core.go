@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -24,10 +25,11 @@ type core struct {
 	ctx  context.Context
 	stop context.CancelFunc
 
-	env         map[gen.EnvKey]interface{}
-	compression bool
+	env      map[gen.EnvKey]interface{}
+	mutexEnv sync.RWMutex
 
-	tls TLS
+	compression bool
+	tls         TLS
 
 	nextPID  uint64
 	uniqID   uint64
@@ -48,6 +50,12 @@ type core struct {
 type coreInternal interface {
 	gen.Core
 	CoreRouter
+
+	// core environment
+	ListEnv() map[gen.EnvKey]interface{}
+	SetEnv(name gen.EnvKey, value interface{})
+	Env(name gen.EnvKey) interface{}
+
 	monitorInternal
 	networkInternal
 
@@ -243,27 +251,29 @@ func (c *core) deleteAlias(owner *process, alias etf.Alias) error {
 
 func (c *core) newProcess(name string, behavior gen.ProcessBehavior, opts processOptions) (*process, error) {
 
-	var parentContext context.Context
+	var processContext context.Context
+	var kill context.CancelFunc
 
 	mailboxSize := DefaultProcessMailboxSize
 	if opts.MailboxSize > 0 {
 		mailboxSize = int(opts.MailboxSize)
 	}
 
-	parentContext = c.ctx
-
-	processContext, kill := context.WithCancel(parentContext)
+	processContext, kill = context.WithCancel(c.ctx)
 	if opts.Context != nil {
-		processContext, _ = context.WithCancel(opts.Context)
+		processContext = context.WithValue(processContext, "context", processContext)
 	}
 
 	pid := c.newPID()
 
 	env := make(map[gen.EnvKey]interface{})
 	// inherite the node environment
+	c.mutexEnv.RLock()
 	for k, v := range c.env {
 		env[k] = v
 	}
+	c.mutexEnv.RUnlock()
+
 	// merge the custom ones
 	for k, v := range opts.Env {
 		env[k] = v
@@ -482,6 +492,39 @@ func (c *core) unregisterName(name string) error {
 	return ErrNameUnknown
 }
 
+// ListEnv
+func (c *core) ListEnv() map[gen.EnvKey]interface{} {
+	c.mutexEnv.RLock()
+	defer c.mutexEnv.RUnlock()
+
+	env := make(map[gen.EnvKey]interface{})
+	for key, value := range c.env {
+		env[key] = value
+	}
+
+	return env
+}
+
+// SetEnv
+func (c *core) SetEnv(name gen.EnvKey, value interface{}) {
+	c.mutexEnv.Lock()
+	defer c.mutexEnv.Unlock()
+	if strings.HasPrefix(string(name), "ergo:") {
+		return
+	}
+	c.env[name] = value
+}
+
+// Env
+func (c *core) Env(name gen.EnvKey) interface{} {
+	c.mutexEnv.RLock()
+	defer c.mutexEnv.RUnlock()
+	if value, ok := c.env[name]; ok {
+		return value
+	}
+	return nil
+}
+
 // RegisterBehavior
 func (c *core) RegisterBehavior(group, name string, behavior gen.ProcessBehavior, data interface{}) error {
 	lib.Log("[%s] CORE registering behavior %q in group %q ", c.nodename, name, group)
@@ -657,7 +700,7 @@ func (c *core) RouteSend(from etf.Pid, to etf.Pid, message etf.Term) error {
 		}
 		lib.Log("[%s] CORE route message by pid (local) %s", c.nodename, to)
 		select {
-		case p.mailBox <- gen.ProcessMailboxMessage{from, message}:
+		case p.mailBox <- gen.ProcessMailboxMessage{From: from, Message: message}:
 		default:
 			return fmt.Errorf("WARNING! mailbox of %s is full. dropped message from %s", p.Self(), from)
 		}

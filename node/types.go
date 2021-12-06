@@ -62,6 +62,13 @@ type Node interface {
 	Uptime() int64
 	// Version return node version
 	Version() Version
+	// ListEnv returns a map of configured Node environment variables.
+	ListEnv() map[gen.EnvKey]interface{}
+	// SetEnv set node environment variable with given name. Use nil value to remove variable with given name. Ignores names with "ergo:" as a prefix.
+	SetEnv(name gen.EnvKey, value interface{})
+	// Env returns value associated with given environment name.
+	Env(name gen.EnvKey) interface{}
+
 	// Spawn spawns a new process
 	Spawn(name string, opts gen.ProcessOptions, object gen.ProcessBehavior, args ...etf.Term) (gen.Process, error)
 

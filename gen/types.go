@@ -83,8 +83,8 @@ type Process interface {
 	DeleteAlias(alias etf.Alias) error
 
 	// ListEnv returns a map of configured environment variables.
-	// It also includes environment variables from the GroupLeader and Parent.
-	// which are overlapped by priority: Process(Parent(GroupLeader))
+	// It also includes environment variables from the GroupLeader, Parent and Node.
+	// which are overlapped by priority: Process(Parent(GroupLeader(Node)))
 	ListEnv() map[EnvKey]interface{}
 
 	// SetEnv set environment variable with given name. Use nil value to remove variable with given name.

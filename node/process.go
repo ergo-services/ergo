@@ -184,9 +184,9 @@ func (p *process) Send(to interface{}, message etf.Term) error {
 	case etf.Pid:
 		return p.RouteSend(p.self, receiver, message)
 	case string:
-		return p.RouteSendReg(p.self, gen.ProcessID{receiver, string(p.self.Node)}, message)
+		return p.RouteSendReg(p.self, gen.ProcessID{Name: receiver, Node: string(p.self.Node)}, message)
 	case etf.Atom:
-		return p.RouteSendReg(p.self, gen.ProcessID{string(receiver), string(p.self.Node)}, message)
+		return p.RouteSendReg(p.self, gen.ProcessID{Name: string(receiver), Node: string(p.self.Node)}, message)
 	case gen.ProcessID:
 		return p.RouteSendReg(p.self, receiver, message)
 	case etf.Alias:
@@ -426,15 +426,15 @@ func (p *process) MonitorProcess(process interface{}) etf.Ref {
 		p.RouteMonitorReg(p.self, mp, ref)
 		return ref
 	case string:
-		p.RouteMonitorReg(p.self, gen.ProcessID{mp, string(p.self.Node)}, ref)
+		p.RouteMonitorReg(p.self, gen.ProcessID{Name: mp, Node: string(p.self.Node)}, ref)
 		return ref
 	case etf.Atom:
-		p.RouteMonitorReg(p.self, gen.ProcessID{string(mp), string(p.self.Node)}, ref)
+		p.RouteMonitorReg(p.self, gen.ProcessID{Name: string(mp), Node: string(p.self.Node)}, ref)
 		return ref
 	}
 
 	// create fake gen.ProcessID. Monitor will send MessageDown with "noproc" as a reason
-	p.RouteMonitorReg(p.self, gen.ProcessID{"", string(p.self.Node)}, ref)
+	p.RouteMonitorReg(p.self, gen.ProcessID{Node: string(p.self.Node)}, ref)
 	return ref
 }
 

@@ -232,7 +232,7 @@ func (m *monitor) handleTerminated(terminated etf.Pid, name string, reason strin
 	// if terminated process had a name we should make shure to clean up them all
 	m.mutexNames.Lock()
 	if name != "" {
-		terminatedProcessID := gen.ProcessID{name, m.nodename}
+		terminatedProcessID := gen.ProcessID{Name: name, Node: m.nodename}
 		if items, ok := m.names[terminatedProcessID]; ok {
 			for i := range items {
 				lib.Log("[%s] MONITOR process terminated: %s. send notify to: %s", m.nodename, terminatedProcessID, items[i].pid)

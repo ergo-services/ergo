@@ -26,14 +26,12 @@ type node struct {
 	context  context.Context
 	stop     context.CancelFunc
 	version  Version
-	env      map[gen.EnvKey]interface{}
 }
 
 // StartWithContext create new node with specified context, name and cookie string
 func StartWithContext(ctx context.Context, name string, cookie string, opts Options) (Node, error) {
 
 	lib.Log("Start node with name %q and cookie %q", name, cookie)
-	nodectx, nodestop := context.WithCancel(ctx)
 
 	if len(strings.Split(name, "@")) != 2 {
 		return nil, fmt.Errorf("incorrect FQDN node name (example: node@localhost)")
@@ -71,6 +69,7 @@ func StartWithContext(ctx context.Context, name string, cookie string, opts Opti
 		return nil, fmt.Errorf("Resolver must be defined if StaticRoutesOnly == false")
 	}
 
+	nodectx, nodestop := context.WithCancel(ctx)
 	node := &node{
 		name:     name,
 		context:  nodectx,
@@ -79,14 +78,14 @@ func StartWithContext(ctx context.Context, name string, cookie string, opts Opti
 	}
 
 	// create a copy of envs
-	node.env = make(map[gen.EnvKey]interface{})
+	copyEnv := make(map[gen.EnvKey]interface{})
 	for k, v := range opts.Env {
-		node.env[k] = v
+		copyEnv[k] = v
 	}
 
 	// set global variable 'ergo:Node'
-	node.env[EnvKeyNode] = Node(node)
-	opts.Env = node.env
+	copyEnv[EnvKeyNode] = Node(node)
+	opts.Env = copyEnv
 
 	core, err := newCore(nodectx, name, opts)
 	if err != nil {
