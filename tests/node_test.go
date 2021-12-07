@@ -469,6 +469,7 @@ func TestNodeResoveExtra(t *testing.T) {
 	}
 	opts1.Flags.Enable = true
 	opts1.Flags.EnableProxy = true
+	opts1.Flags.EnableCompression = false
 	node1, _ := ergo.StartNode("node1resolveExtra@localhost", "secret", opts1)
 	defer node1.Stop()
 	node2, _ := ergo.StartNode("node2resolveExtra@localhost", "secret", node.Options{})
@@ -490,6 +491,9 @@ func TestNodeResoveExtra(t *testing.T) {
 
 	if route1.Options.EnableProxy == false {
 		t.Fatal("expected true value")
+	}
+	if route1.Options.EnableCompression {
+		t.Fatal("expected false value")
 	}
 }
 
