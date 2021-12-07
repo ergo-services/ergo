@@ -1,13 +1,12 @@
 package etf
 
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
 	"math"
 	"math/big"
 	"reflect"
-
-	"github.com/ergo-services/ergo/lib"
 )
 
 var (
@@ -40,7 +39,7 @@ type EncodeOptions struct {
 }
 
 // Encode
-func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
+func Encode(term Term, b *bytes.Buffer, options EncodeOptions) (retErr error) {
 	defer func() {
 		// We should catch any panic happened during encoding Golang types.
 		if r := recover(); r != nil {
@@ -102,7 +101,7 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 					break
 				}
 
-				buf := b.Extend(9)
+				var buf [9]byte
 
 				// ID a 32-bit big endian unsigned integer.
 				// If FlagBigPidRef is not set, only 15 bits may be used
@@ -128,6 +127,7 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 				// only one byte and only two bits are significant,
 				// the rest are to be 0.
 				buf[8] = byte(p.Creation) & 3
+				b.Write(buf[:])
 
 				stack.i++
 				continue
@@ -139,7 +139,7 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 					break
 				}
 
-				buf := b.Extend(12)
+				var buf [12]byte
 				// ID
 				if options.FlagBigPidRef {
 					binary.BigEndian.PutUint32(buf[:4], uint32(p.ID))
@@ -156,6 +156,7 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 				}
 				// Creation
 				binary.BigEndian.PutUint32(buf[8:12], p.Creation)
+				b.Write(buf[:])
 
 				stack.i++
 				continue
@@ -167,22 +168,25 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 					break
 				}
 
-				lenID := 3
-				buf := b.Extend(1 + lenID*4)
+				var lenID int = 3
+				// buf length = 1 + lenID*4
+				var buf [13]byte
+				var buf1 = buf[1:]
+
 				// Only one byte long and only two bits are significant, the rest must be 0.
 				buf[0] = byte(r.Creation & 3)
-				buf = buf[1:]
 				for i := 0; i < lenID; i++ {
 					// In the first word (4 bytes) of ID, only 18 bits
 					// are significant, the rest must be 0.
 					if i == 0 {
 						// 2**18 - 1 = 262143
-						binary.BigEndian.PutUint32(buf[:4], r.ID[i]&262143)
+						binary.BigEndian.PutUint32(buf1[:4], r.ID[i]&262143)
 					} else {
-						binary.BigEndian.PutUint32(buf[:4], r.ID[i])
+						binary.BigEndian.PutUint32(buf1[:4], r.ID[i])
 					}
-					buf = buf[4:]
+					buf1 = buf1[4:]
 				}
+				b.Write(buf[:])
 
 				stack.i++
 				continue
@@ -196,18 +200,19 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 
 				// // FIXME Erlang 24 has a bug https://github.com/erlang/otp/issues/5097
 				// uncomment once they fix it
-				lenID := 3
+				var lenID int = 3
 				//if options.FlagBigPidRef {
 				//	lenID = 5
 				//}
-				buf := b.Extend(4 + lenID*4)
+				// buf length = 4 + lenID*4
+				var buf [16]byte
+				var buf1 = buf[4:]
 				binary.BigEndian.PutUint32(buf[0:4], r.Creation)
-				buf = buf[4:]
 				for i := 0; i < lenID; i++ {
-					binary.BigEndian.PutUint32(buf[:4], r.ID[i])
-					buf = buf[4:]
+					binary.BigEndian.PutUint32(buf1[:4], r.ID[i])
+					buf1 = buf1[4:]
 				}
-
+				b.Write(buf[:])
 				stack.i++
 				continue
 
@@ -273,7 +278,7 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 				ci, found := options.WriterAtomCache[value]
 				if found {
 					options.EncodingAtomCache.Append(ci)
-					b.Append([]byte{ettCacheRef, byte(cacheIndex)})
+					b.Write([]byte{ettCacheRef, byte(cacheIndex)})
 					cacheIndex++
 					break
 				}
@@ -283,15 +288,15 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 			}
 
 			if t {
-				b.Append([]byte{ettSmallAtom, 4, 't', 'r', 'u', 'e'})
+				b.Write([]byte{ettSmallAtom, 4, 't', 'r', 'u', 'e'})
 				break
 			}
 
-			b.Append([]byte{ettSmallAtom, 5, 'f', 'a', 'l', 's', 'e'})
+			b.Write([]byte{ettSmallAtom, 5, 'f', 'a', 'l', 's', 'e'})
 
 		// do not use reflect.ValueOf(t) because its too expensive
 		case uint8:
-			b.Append([]byte{ettSmallInteger, t})
+			b.Write([]byte{ettSmallInteger, t})
 
 		case int8:
 			if t < 0 {
@@ -299,12 +304,12 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 				continue
 			}
 
-			b.Append([]byte{ettSmallInteger, uint8(t)})
+			b.Write([]byte{ettSmallInteger, uint8(t)})
 			break
 
 		case uint16:
 			if t <= math.MaxUint8 {
-				b.Append([]byte{ettSmallInteger, byte(t)})
+				b.Write([]byte{ettSmallInteger, byte(t)})
 				break
 			}
 			term = int32(t)
@@ -312,7 +317,7 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 
 		case int16:
 			if t >= 0 && t <= math.MaxUint8 {
-				b.Append([]byte{ettSmallInteger, byte(t)})
+				b.Write([]byte{ettSmallInteger, byte(t)})
 				break
 			}
 
@@ -321,7 +326,7 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 
 		case uint32:
 			if t <= math.MaxUint8 {
-				b.Append([]byte{ettSmallInteger, byte(t)})
+				b.Write([]byte{ettSmallInteger, byte(t)})
 				break
 			}
 
@@ -335,18 +340,19 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 
 		case int32:
 			if t >= 0 && t <= math.MaxUint8 {
-				b.Append([]byte{ettSmallInteger, byte(t)})
+				b.Write([]byte{ettSmallInteger, byte(t)})
 				break
 			}
 
 			// 1 (ettInteger) + 4 (32bit integer)
-			buf := b.Extend(1 + 4)
+			var buf [5]byte
 			buf[0] = ettInteger
 			binary.BigEndian.PutUint32(buf[1:5], uint32(t))
+			b.Write(buf[:])
 
 		case uint:
 			if t <= math.MaxUint8 {
-				b.Append([]byte{ettSmallInteger, byte(t)})
+				b.Write([]byte{ettSmallInteger, byte(t)})
 				break
 			}
 
@@ -360,7 +366,7 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 
 		case int:
 			if t >= 0 && t <= math.MaxUint8 {
-				b.Append([]byte{ettSmallInteger, byte(t)})
+				b.Write([]byte{ettSmallInteger, byte(t)})
 				break
 			}
 
@@ -374,7 +380,7 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 
 		case uint64:
 			if t <= math.MaxUint8 {
-				b.Append([]byte{ettSmallInteger, byte(t)})
+				b.Write([]byte{ettSmallInteger, byte(t)})
 				break
 			}
 
@@ -390,11 +396,11 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 
 			buf := []byte{ettSmallBig, 8, 0, 0, 0, 0, 0, 0, 0, 0, 0}
 			binary.LittleEndian.PutUint64(buf[3:], uint64(t))
-			b.Append(buf)
+			b.Write(buf)
 
 		case int64:
 			if t >= 0 && t <= math.MaxUint8 {
-				b.Append([]byte{ettSmallInteger, byte(t)})
+				b.Write([]byte{ettSmallInteger, byte(t)})
 				break
 			}
 
@@ -408,7 +414,7 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 				// if t = -9223372036854775808 (which is math.MinInt64)
 				// we can't just revert the sign because it overflows math.MaxInt64 value
 				buf := []byte{ettSmallBig, 8, 1, 0, 0, 0, 0, 0, 0, 0, 128}
-				b.Append(buf)
+				b.Write(buf)
 				break
 			}
 
@@ -424,23 +430,23 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 			switch {
 			case t < 4294967296:
 				buf[1] = 4
-				b.Append(buf[:7])
+				b.Write(buf[:7])
 
 			case t < 1099511627776:
 				buf[1] = 5
-				b.Append(buf[:8])
+				b.Write(buf[:8])
 
 			case t < 281474976710656:
 				buf[1] = 6
-				b.Append(buf[:9])
+				b.Write(buf[:9])
 
 			case t < 72057594037927936:
 				buf[1] = 7
-				b.Append(buf[:10])
+				b.Write(buf[:10])
 
 			default:
 				buf[1] = 8
-				b.Append(buf)
+				b.Write(buf)
 			}
 
 		case big.Int:
@@ -454,7 +460,7 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 
 			if l < 256 {
 				// 1 (ettSmallBig) + 1 (len) + 1 (sign) + bytes
-				buf := b.Extend(1 + 1 + 1 + l)
+				var buf [3]byte
 				buf[0] = ettSmallBig
 				buf[1] = byte(l)
 
@@ -463,14 +469,14 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 				} else {
 					buf[2] = 0
 				}
-
-				copy(buf[3:], bytes)
+				b.Write(buf[:])
+				b.Write(bytes)
 
 				break
 			}
 
 			// 1 (ettLargeBig) + 4 (len) + 1(sign) + bytes
-			buf := b.Extend(1 + 4 + 1 + l)
+			var buf [6]byte
 			buf[0] = ettLargeBig
 			binary.BigEndian.PutUint32(buf[1:5], uint32(l))
 
@@ -479,8 +485,8 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 			} else {
 				buf[5] = 0
 			}
-
-			copy(buf[6:], bytes)
+			b.Write(buf[:])
+			b.Write(bytes)
 
 		case string:
 			lenString := len(t)
@@ -490,10 +496,11 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 			}
 
 			// 1 (ettString) + 2 (len) + string
-			buf := b.Extend(1 + 2 + lenString)
+			var buf [3]byte
 			buf[0] = ettString
 			binary.BigEndian.PutUint16(buf[1:3], uint16(lenString))
-			copy(buf[3:], t)
+			b.Write(buf[:])
+			b.WriteString(t)
 
 		case Charlist:
 			term = []rune(t)
@@ -513,7 +520,7 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 				ci, found := options.WriterAtomCache[t]
 				if found {
 					options.EncodingAtomCache.Append(ci)
-					b.Append([]byte{ettCacheRef, byte(cacheIndex)})
+					b.Write([]byte{ettCacheRef, byte(cacheIndex)})
 					cacheIndex++
 					break
 				}
@@ -530,18 +537,19 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 
 			lenAtom := len(t)
 			if lenAtom < 256 {
-				buf := b.Extend(1 + 1 + lenAtom)
+				var buf [2]byte
 				buf[0] = ettSmallAtomUTF8
 				buf[1] = byte(lenAtom)
-				copy(buf[2:], t)
-				break
-			}
+				b.Write(buf[:])
+			} else {
+				// 1 (ettAtomUTF8) + 2 (len) + atom
+				var buf [3]byte
+				buf[0] = ettAtomUTF8
+				binary.BigEndian.PutUint16(buf[1:3], uint16(lenAtom))
+				b.Write(buf[:])
 
-			// 1 (ettAtomUTF8) + 2 (len) + atom
-			buf := b.Extend(1 + 2 + lenAtom)
-			buf[0] = ettAtomUTF8
-			binary.BigEndian.PutUint16(buf[1:3], uint16(lenAtom))
-			copy(b.B[3:], t)
+			}
+			b.Write([]byte(t))
 
 		case float32:
 			term = float64(t)
@@ -549,22 +557,24 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 
 		case float64:
 			// 1 (ettNewFloat) + 8 (float)
-			buf := b.Extend(1 + 8)
+			var buf [9]byte
 			buf[0] = ettNewFloat
 			bits := math.Float64bits(t)
 			binary.BigEndian.PutUint64(buf[1:9], uint64(bits))
+			b.Write(buf[:])
 
 		case nil:
-			b.AppendByte(ettNil)
+			b.WriteByte(ettNil)
 
 		case Tuple:
 			lenTuple := len(t)
 			if lenTuple < 256 {
-				b.Append([]byte{ettSmallTuple, byte(lenTuple)})
+				b.Write([]byte{ettSmallTuple, byte(lenTuple)})
 			} else {
-				buf := b.Extend(5)
+				var buf [5]byte
 				buf[0] = ettLargeTuple
 				binary.BigEndian.PutUint32(buf[1:5], uint32(lenTuple))
+				b.Write(buf[:])
 			}
 			child = &stackElement{
 				parent:   stack,
@@ -581,10 +591,10 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 			}
 			if options.FlagBigCreation {
 				child.termType = ettNewPid
-				b.AppendByte(ettNewPid)
+				b.WriteByte(ettNewPid)
 			} else {
 				child.termType = ettPid
-				b.AppendByte(ettPid)
+				b.WriteByte(ettPid)
 			}
 
 		case Alias:
@@ -592,7 +602,7 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 			goto recasting
 
 		case Ref:
-			buf := b.Extend(3)
+			var buf [3]byte
 
 			child = &stackElement{
 				parent:   stack,
@@ -618,12 +628,14 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 			//} else {
 			binary.BigEndian.PutUint16(buf[1:3], 3)
 			//}
+			b.Write(buf[:])
 
 		case Map:
 			lenMap := len(t)
-			buf := b.Extend(5)
+			var buf [5]byte
 			buf[0] = ettMap
 			binary.BigEndian.PutUint32(buf[1:], uint32(lenMap))
+			b.Write(buf[:])
 
 			keys := make(List, 0, lenMap)
 			for key := range t {
@@ -640,13 +652,14 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 
 		case ListImproper:
 			if len(t) == 0 {
-				b.AppendByte(ettNil)
+				b.WriteByte(ettNil)
 				continue
 			}
 			lenList := len(t) - 1
-			buf := b.Extend(5)
+			var buf [5]byte
 			buf[0] = ettList
 			binary.BigEndian.PutUint32(buf[1:], uint32(lenList))
+			b.Write(buf[:])
 			child = &stackElement{
 				parent:   stack,
 				termType: ettListImproper,
@@ -657,12 +670,13 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 		case List:
 			lenList := len(t)
 			if lenList == 0 {
-				b.AppendByte(ettNil)
+				b.WriteByte(ettNil)
 				continue
 			}
-			buf := b.Extend(5)
+			var buf [5]byte
 			buf[0] = ettList
 			binary.BigEndian.PutUint32(buf[1:], uint32(lenList))
+			b.Write(buf[:])
 			child = &stackElement{
 				parent:   stack,
 				termType: ettList,
@@ -672,10 +686,11 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 
 		case []byte:
 			lenBinary := len(t)
-			buf := b.Extend(1 + 4 + lenBinary)
+			var buf [5]byte
 			buf[0] = ettBinary
 			binary.BigEndian.PutUint32(buf[1:5], uint32(lenBinary))
-			copy(buf[5:], t)
+			b.Write(buf[:])
+			b.Write(t)
 
 		case Marshaler:
 			m, err := t.MarshalETF()
@@ -684,10 +699,11 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 			}
 
 			lenBinary := len(m)
-			buf := b.Extend(1 + 4 + lenBinary)
+			var buf [5]byte
 			buf[0] = ettBinary
 			binary.BigEndian.PutUint32(buf[1:5], uint32(lenBinary))
-			copy(buf[5:], m)
+			b.Write(buf[:])
+			b.Write(m)
 
 		default:
 			v := reflect.ValueOf(t)
@@ -695,9 +711,10 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 			switch v.Kind() {
 			case reflect.Struct:
 				lenStruct := v.NumField()
-				buf := b.Extend(5)
+				var buf [5]byte
 				buf[0] = ettMap
 				binary.BigEndian.PutUint32(buf[1:], uint32(lenStruct))
+				b.Write(buf[:])
 
 				child = &stackElement{
 					parent:   stack,
@@ -709,9 +726,10 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 
 			case reflect.Array, reflect.Slice:
 				lenList := v.Len()
-				buf := b.Extend(5)
+				var buf [5]byte
 				buf[0] = ettList
 				binary.BigEndian.PutUint32(buf[1:], uint32(lenList))
+				b.Write(buf[:])
 				child = &stackElement{
 					parent:   stack,
 					termType: goSlice,
@@ -721,10 +739,10 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 
 			case reflect.Map:
 				lenMap := v.Len()
-				buf := b.Extend(5)
+				var buf [5]byte
 				buf[0] = ettMap
 				binary.BigEndian.PutUint32(buf[1:], uint32(lenMap))
-
+				b.Write(buf[:])
 				child = &stackElement{
 					parent:   stack,
 					termType: goMap,
@@ -740,7 +758,7 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 					goto recasting
 				}
 
-				b.AppendByte(ettNil)
+				b.WriteByte(ettNil)
 				if stack == nil {
 					break
 				}

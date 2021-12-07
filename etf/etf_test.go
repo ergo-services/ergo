@@ -383,7 +383,7 @@ func TestTermIntoStructCharlistString(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	term_Term, _, err := Decode(b.B, []Atom{}, DecodeOptions{})
+	term_Term, _, err := Decode(b.Bytes(), []Atom{}, DecodeOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -424,7 +424,7 @@ func TestEncodeDecodePid(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	term, _, err := Decode(b.B, []Atom{}, DecodeOptions{})
+	term, _, err := Decode(b.Bytes(), []Atom{}, DecodeOptions{})
 	pidOut, ok := term.(Pid)
 	if !ok {
 		t.Fatal("incorrect result")
@@ -447,7 +447,7 @@ func TestEncodeDecodePid(t *testing.T) {
 	}
 
 	decodeOptions := DecodeOptions{}
-	term, _, err = Decode(b.B, []Atom{}, decodeOptions)
+	term, _, err = Decode(b.Bytes(), []Atom{}, decodeOptions)
 	pidOut, ok = term.(Pid)
 	if !ok {
 		t.Fatal("incorrect result")
@@ -472,7 +472,7 @@ func TestEncodeDecodePid(t *testing.T) {
 	decodeOptions = DecodeOptions{
 		FlagBigPidRef: true,
 	}
-	term, _, err = Decode(b.B, []Atom{}, decodeOptions)
+	term, _, err = Decode(b.Bytes(), []Atom{}, decodeOptions)
 	pidOut, ok = term.(Pid)
 	if !ok {
 		t.Fatal("incorrect result")
@@ -498,7 +498,7 @@ func TestEncodeDecodePid(t *testing.T) {
 	decodeOptions = DecodeOptions{
 		FlagBigPidRef: true,
 	}
-	term, _, err = Decode(b.B, []Atom{}, decodeOptions)
+	term, _, err = Decode(b.Bytes(), []Atom{}, decodeOptions)
 	pidOut, ok = term.(Pid)
 	if !ok {
 		t.Fatal("incorrect result")
@@ -542,7 +542,7 @@ func TestTermIntoStructUnmarshal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	term, _, err := Decode(b.B, []Atom{}, DecodeOptions{})
+	term, _, err := Decode(b.Bytes(), []Atom{}, DecodeOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -572,7 +572,7 @@ func TestTermIntoStructUnmarshal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	term, _, err = Decode(b.B, []Atom{}, DecodeOptions{})
+	term, _, err = Decode(b.Bytes(), []Atom{}, DecodeOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}

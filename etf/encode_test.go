@@ -17,7 +17,7 @@ func TestEncodeBool(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(b.B, []byte{ettSmallAtom, 5, 'f', 'a', 'l', 's', 'e'}) {
+	if !reflect.DeepEqual(b.Bytes(), []byte{ettSmallAtom, 5, 'f', 'a', 'l', 's', 'e'}) {
 		t.Fatal("incorrect value")
 	}
 }
@@ -50,7 +50,7 @@ func TestEncodeBoolWithAtomCache(t *testing.T) {
 		t.Fatal("incorrect cache value")
 	}
 
-	if !reflect.DeepEqual(b.B, []byte{ettCacheRef, 0}) {
+	if !reflect.DeepEqual(b.Bytes(), []byte{ettCacheRef, 0}) {
 		t.Fatal("incorrect value")
 	}
 
@@ -152,9 +152,9 @@ func TestEncodeInteger(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !reflect.DeepEqual(b.B, c.expected) {
+			if !reflect.DeepEqual(b.Bytes(), c.expected) {
 				fmt.Println("exp ", c.expected)
-				fmt.Println("got ", b.B)
+				fmt.Println("got ", b.Bytes())
 				t.Fatal("incorrect value")
 			}
 		})
@@ -172,9 +172,9 @@ func TestEncodeFloat(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if !reflect.DeepEqual(b.B, expected) {
+	if !reflect.DeepEqual(b.Bytes(), expected) {
 		fmt.Println("exp", expected)
-		fmt.Println("got", b.B)
+		fmt.Println("got", b.Bytes())
 		t.Fatal("incorrect value")
 	}
 
@@ -187,9 +187,9 @@ func TestEncodeFloat(t *testing.T) {
 	// float32 to float64 casting makes some changes, thats why 'expected'
 	// has different set of bytes
 	expected = []byte{ettNewFloat, 64, 9, 30, 184, 96, 0, 0, 0}
-	if !reflect.DeepEqual(b.B, expected) {
+	if !reflect.DeepEqual(b.Bytes(), expected) {
 		fmt.Println("exp", expected)
-		fmt.Println("got", b.B)
+		fmt.Println("got", b.Bytes())
 		t.Fatal("incorrect value")
 	}
 
@@ -205,9 +205,9 @@ func TestEncodeString(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if !reflect.DeepEqual(b.B, expected) {
+	if !reflect.DeepEqual(b.Bytes(), expected) {
 		fmt.Println("exp", expected)
-		fmt.Println("got", b.B)
+		fmt.Println("got", b.Bytes())
 		t.Fatal("incorrect value")
 	}
 }
@@ -224,9 +224,9 @@ func TestEncodeAtom(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if !reflect.DeepEqual(b.B, expected) {
+	if !reflect.DeepEqual(b.Bytes(), expected) {
 		fmt.Println("exp", expected)
-		fmt.Println("got", b.B)
+		fmt.Println("got", b.Bytes())
 		t.Fatal("incorrect value")
 	}
 
@@ -237,9 +237,9 @@ func TestEncodeAtom(t *testing.T) {
 	err = Encode(longAtom, b, EncodeOptions{})
 
 	expected = []byte{ettAtomUTF8, 1, 190, 228, 189, 160, 229, 165, 189, 228, 184, 150, 231, 149, 140, 208, 159, 209, 128, 208, 184, 208, 178, 208, 181, 209, 130, 208, 156, 208, 184, 209, 128, 72, 101, 108, 108, 111, 87, 111, 114, 108, 100, 228, 189, 160, 229, 165, 189, 228, 184, 150, 231, 149, 140, 208, 159, 209, 128, 208, 184, 208, 178, 208, 181, 209, 130, 208, 156, 208, 184, 209, 128, 72, 101, 108, 108, 111, 87, 111, 114, 108, 100, 228, 189, 160, 229, 165, 189, 228, 184, 150, 231, 149, 140, 208, 159, 209, 128, 208, 184, 208, 178, 208, 181, 209, 130, 208, 156, 208, 184, 209, 128, 72, 101, 108, 108, 111, 87, 111, 114, 108, 100, 228, 189, 160, 229, 165, 189, 228, 184, 150, 231, 149, 140, 208, 159, 209, 128, 208, 184, 208, 178, 208, 181, 209, 130, 208, 156, 208, 184, 209, 128, 72, 101, 108, 108, 111, 87, 111, 114, 108, 100, 228, 189, 160, 229, 165, 189, 228, 184, 150, 231, 149, 140, 208, 159, 209, 128, 208, 184, 208, 178, 208, 181, 209, 130, 208, 156, 208, 184, 209, 128, 72, 101, 108, 108, 111, 87, 111, 114, 108, 100, 228, 189, 160, 229, 165, 189, 228, 184, 150, 231, 149, 140, 208, 159, 209, 128, 208, 184, 208, 178, 208, 181, 209, 130, 208, 156, 208, 184, 209, 128, 72, 101, 108, 108, 111, 87, 111, 114, 108, 100, 228, 189, 160, 229, 165, 189, 228, 184, 150, 231, 149, 140, 208, 159, 209, 128, 208, 184, 208, 178, 208, 181, 209, 130, 208, 156, 208, 184, 209, 128, 72, 101, 108, 108, 111, 87, 111, 114, 108, 100, 228, 189, 160, 229, 165, 189, 228, 184, 150, 231, 149, 140, 208, 159, 209, 128, 208, 184, 208, 178, 208, 181, 209, 130, 208, 156, 208, 184, 209, 128, 72, 101, 108, 108, 111, 87, 111, 114, 108, 100, 228, 189, 160, 229, 165, 189, 228, 184, 150, 231, 149, 140, 208, 159, 209, 128, 208, 184, 208, 178, 208, 181, 209, 130, 208, 156, 208, 184, 209, 128, 72, 101, 108, 108, 111, 87, 111, 114, 108, 100, 228, 189, 160, 229, 165, 189, 228, 184, 150, 231, 149, 140, 208, 159, 209, 128, 208, 184, 208, 178, 208, 181, 209, 130, 208, 156, 208, 184, 209, 128, 72, 101, 108, 108, 111, 87, 111, 114, 108, 100, 228, 189, 160, 229, 165, 189, 228, 184, 150, 231, 149, 140, 208, 159, 209, 128, 208, 184, 208, 178, 208, 181, 209, 130, 208, 156, 208, 184, 209, 128, 72, 101, 108, 108, 111, 87, 111, 114, 108, 100, 228, 189, 160, 229, 165, 189}
-	if !reflect.DeepEqual(b.B, expected) {
+	if !reflect.DeepEqual(b.Bytes(), expected) {
 		fmt.Println("exp", expected)
-		fmt.Println("got", b.B)
+		fmt.Println("got", b.Bytes())
 		t.Fatal("incorrect value")
 	}
 
@@ -282,7 +282,7 @@ func TestEncodeAtomWithCache(t *testing.T) {
 		t.Fatal("incorrect cache value")
 	}
 
-	if !reflect.DeepEqual(b.B, []byte{ettCacheRef, 0}) {
+	if !reflect.DeepEqual(b.Bytes(), []byte{ettCacheRef, 0}) {
 		t.Fatal("incorrect value")
 	}
 
@@ -298,7 +298,7 @@ func TestEncodeAtomWithCache(t *testing.T) {
 	}
 
 	expected := []byte{ettSmallAtomUTF8, 15, 110, 111, 116, 32, 99, 97, 99, 104, 101, 100, 32, 97, 116, 111, 109}
-	if !reflect.DeepEqual(b.B, expected) {
+	if !reflect.DeepEqual(b.Bytes(), expected) {
 		t.Fatal("incorrect value")
 	}
 }
@@ -313,7 +313,7 @@ func TestEncodeBinary(t *testing.T) {
 	}
 
 	expected := []byte{ettBinary, 0, 0, 0, 5, 1, 2, 3, 4, 5}
-	if !reflect.DeepEqual(b.B, expected) {
+	if !reflect.DeepEqual(b.Bytes(), expected) {
 		t.Fatal("incorrect value")
 	}
 }
@@ -329,9 +329,9 @@ func TestEncodeList(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if !reflect.DeepEqual(b.B, expected) {
+	if !reflect.DeepEqual(b.Bytes(), expected) {
 		fmt.Println("exp", expected)
-		fmt.Println("got", b.B)
+		fmt.Println("got", b.Bytes())
 		t.Fatal("incorrect value")
 	}
 }
@@ -346,9 +346,9 @@ func TestEncodeListImproper(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if !reflect.DeepEqual(b.B, expected) {
+	if !reflect.DeepEqual(b.Bytes(), expected) {
 		fmt.Println("exp", expected)
-		fmt.Println("got", b.B)
+		fmt.Println("got", b.Bytes())
 		t.Fatal("incorrect value")
 	}
 }
@@ -365,9 +365,9 @@ func TestEncodeSlice(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if !reflect.DeepEqual(b.B, expected) {
+	if !reflect.DeepEqual(b.Bytes(), expected) {
 		fmt.Println("exp", expected)
-		fmt.Println("got", b.B)
+		fmt.Println("got", b.Bytes())
 		t.Fatal("incorrect value")
 	}
 }
@@ -383,9 +383,9 @@ func TestEncodeListNested(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if !reflect.DeepEqual(b.B, expected) {
+	if !reflect.DeepEqual(b.Bytes(), expected) {
 		fmt.Println("exp", expected)
-		fmt.Println("got", b.B)
+		fmt.Println("got", b.Bytes())
 		t.Fatal("incorrect value")
 	}
 }
@@ -402,9 +402,9 @@ func TestEncodeTupleNested(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if !reflect.DeepEqual(b.B, expected) {
+	if !reflect.DeepEqual(b.Bytes(), expected) {
 		fmt.Println("exp", expected)
-		fmt.Println("got", b.B)
+		fmt.Println("got", b.Bytes())
 		t.Fatal("incorrect value")
 	}
 }
@@ -420,9 +420,9 @@ func TestEncodeTuple(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if !reflect.DeepEqual(b.B, expected) {
+	if !reflect.DeepEqual(b.Bytes(), expected) {
 		fmt.Println("exp", expected)
-		fmt.Println("got", b.B)
+		fmt.Println("got", b.Bytes())
 		t.Fatal("incorrect value")
 	}
 }
@@ -448,9 +448,9 @@ func TestEncodeMap(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if !reflect.DeepEqual(b.B, expected) && !reflect.DeepEqual(b.B, expected1) {
+	if !reflect.DeepEqual(b.Bytes(), expected) && !reflect.DeepEqual(b.Bytes(), expected1) {
 		fmt.Println("exp", expected)
-		fmt.Println("got", b.B)
+		fmt.Println("got", b.Bytes())
 		t.Fatal("incorrect value")
 	}
 }
@@ -476,9 +476,9 @@ func TestEncodeGoMap(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if !reflect.DeepEqual(b.B, expected) && !reflect.DeepEqual(b.B, expected1) {
+	if !reflect.DeepEqual(b.Bytes(), expected) && !reflect.DeepEqual(b.Bytes(), expected1) {
 		fmt.Println("exp", expected)
-		fmt.Println("got", b.B)
+		fmt.Println("got", b.Bytes())
 		t.Fatal("incorrect value")
 	}
 }
@@ -505,9 +505,9 @@ func TestEncodeStruct(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if !reflect.DeepEqual(b.B, expected) {
+	if !reflect.DeepEqual(b.Bytes(), expected) {
 		fmt.Println("exp", expected)
-		fmt.Println("got", b.B)
+		fmt.Println("got", b.Bytes())
 		t.Fatal("incorrect value")
 	}
 	b1 := lib.TakeBuffer()
@@ -528,9 +528,9 @@ func TestEncodeStruct(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if !reflect.DeepEqual(b1.B, expected) {
+	if !reflect.DeepEqual(b1.Bytes(), expected) {
 		fmt.Println("exp", expected)
-		fmt.Println("got", b1.B)
+		fmt.Println("got", b1.Bytes())
 		t.Fatal("incorrect value")
 	}
 }
@@ -579,9 +579,9 @@ func TestEncodeStructWithNestedPointers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(b.B, expected) {
+	if !reflect.DeepEqual(b.Bytes(), expected) {
 		fmt.Println("exp", expected)
-		fmt.Println("got", b.B)
+		fmt.Println("got", b.Bytes())
 		t.Fatal("incorrect value")
 	}
 
@@ -596,9 +596,9 @@ func TestEncodeStructWithNestedPointers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(b1.B, expectedWithNil) {
+	if !reflect.DeepEqual(b1.Bytes(), expectedWithNil) {
 		fmt.Println("exp", expectedWithNil)
-		fmt.Println("got", b1.B)
+		fmt.Println("got", b1.Bytes())
 		t.Fatal("incorrect value")
 	}
 }
@@ -643,9 +643,9 @@ func TestEncodeStructWithTags(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(b.B, expected) {
+	if !reflect.DeepEqual(b.Bytes(), expected) {
 		fmt.Println("exp", expected)
-		fmt.Println("got", b.B)
+		fmt.Println("got", b.Bytes())
 		t.Fatal("incorrect value")
 	}
 }
@@ -664,9 +664,9 @@ func TestEncodePid(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if !reflect.DeepEqual(b.B, expected) {
+	if !reflect.DeepEqual(b.Bytes(), expected) {
 		fmt.Println("exp", expected)
-		fmt.Println("got", b.B)
+		fmt.Println("got", b.Bytes())
 		t.Fatal("incorrect value")
 	}
 
@@ -681,9 +681,9 @@ func TestEncodePid(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if !reflect.DeepEqual(b.B, expected) {
+	if !reflect.DeepEqual(b.Bytes(), expected) {
 		fmt.Println("exp", expected)
-		fmt.Println("got", b.B)
+		fmt.Println("got", b.Bytes())
 		t.Fatal("incorrect value")
 	}
 
@@ -702,9 +702,9 @@ func TestEncodePid(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if !reflect.DeepEqual(b.B, expected) {
+	if !reflect.DeepEqual(b.Bytes(), expected) {
 		fmt.Println("exp", expected)
-		fmt.Println("got", b.B)
+		fmt.Println("got", b.Bytes())
 		t.Fatal("incorrect value")
 	}
 
@@ -723,9 +723,9 @@ func TestEncodePid(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if !reflect.DeepEqual(b.B, expected) {
+	if !reflect.DeepEqual(b.Bytes(), expected) {
 		fmt.Println("exp", expected)
-		fmt.Println("got", b.B)
+		fmt.Println("got", b.Bytes())
 		t.Fatal("incorrect value")
 	}
 }
@@ -759,9 +759,9 @@ func TestEncodePidWithAtomCache(t *testing.T) {
 		t.Fatal("incorrect cache value")
 	}
 
-	if !reflect.DeepEqual(b.B, expected) {
+	if !reflect.DeepEqual(b.Bytes(), expected) {
 		fmt.Println("exp", expected)
-		fmt.Println("got", b.B)
+		fmt.Println("got", b.Bytes())
 		t.Fatal("incorrect value")
 	}
 
@@ -789,9 +789,9 @@ func TestEncodeRef(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if !reflect.DeepEqual(b.B, expected) {
+	if !reflect.DeepEqual(b.Bytes(), expected) {
 		fmt.Println("exp", expected)
-		fmt.Println("got", b.B)
+		fmt.Println("got", b.Bytes())
 		t.Fatal("incorrect value")
 	}
 
@@ -815,9 +815,9 @@ func TestEncodeRef(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if !reflect.DeepEqual(b.B, expected) {
+	if !reflect.DeepEqual(b.Bytes(), expected) {
 		fmt.Println("exp", expected)
-		fmt.Println("got", b.B)
+		fmt.Println("got", b.Bytes())
 		t.Fatal("incorrect value")
 	}
 
@@ -846,9 +846,9 @@ func TestEncodeRef(t *testing.T) {
 	//	t.Fatal(err)
 	//}
 
-	//if !reflect.DeepEqual(b.B, expected) {
+	//if !reflect.DeepEqual(b.Bytes(), expected) {
 	//	fmt.Println("exp", expected)
-	//	fmt.Println("got", b.B)
+	//	fmt.Println("got", b.Bytes())
 	//	t.Fatal("incorrect value")
 	//}
 }
@@ -878,9 +878,9 @@ func TestEncodeTupleRefPid(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if !reflect.DeepEqual(b.B, expected) {
+	if !reflect.DeepEqual(b.Bytes(), expected) {
 		fmt.Println("exp", expected)
-		fmt.Println("got", b.B)
+		fmt.Println("got", b.Bytes())
 		t.Fatal("incorrect value")
 	}
 }
@@ -896,9 +896,9 @@ func TestEncodeGoPtrNil(t *testing.T) {
 		t.Fatal(err)
 	}
 	expected := []byte{ettNil}
-	if !reflect.DeepEqual(b.B, expected) {
+	if !reflect.DeepEqual(b.Bytes(), expected) {
 		fmt.Println("exp", expected)
-		fmt.Println("got", b.B)
+		fmt.Println("got", b.Bytes())
 		t.Fatal("incorrect value")
 	}
 }
@@ -920,9 +920,9 @@ func TestEncodeMarshal(t *testing.T) {
 		t.Fatal(err)
 	}
 	expected := []byte{ettBinary, 0, 0, 0, 3, 1, 2, 3}
-	if !reflect.DeepEqual(b.B, expected) {
+	if !reflect.DeepEqual(b.Bytes(), expected) {
 		fmt.Println("exp", expected)
-		fmt.Println("got", b.B)
+		fmt.Println("got", b.Bytes())
 		t.Fatal("incorrect value")
 	}
 }
