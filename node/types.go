@@ -343,6 +343,8 @@ type Flags struct {
 	EnableRemoteSpawn bool
 	// Compression compression support
 	EnableCompression bool
+	// Proxy proxy support
+	EnableProxy bool
 }
 
 // Resolver defines resolving interface
@@ -353,26 +355,28 @@ type Resolver interface {
 
 // ResolverOptions defines resolving options
 type ResolverOptions struct {
-	NodeVersion      Version
-	HandshakeVersion HandshakeVersion
-	EnableTLS        bool
-	EnableProxy      bool
+	NodeVersion       Version
+	HandshakeVersion  HandshakeVersion
+	EnableTLS         bool
+	EnableProxy       bool
+	EnableCompression bool
 }
 
 // Route
 type Route struct {
-	Name string
-	Host string
-	Port uint16
-	RouteOptions
+	Name    string
+	Host    string
+	Port    uint16
+	Options RouteOptions
 }
 
 // RouteOptions
 type RouteOptions struct {
-	Cookie      string
-	EnableTLS   bool
-	EnableProxy bool
-	IsErgo      bool
+	Cookie            string
+	EnableTLS         bool
+	EnableProxy       bool
+	EnableCompression bool
+	IsErgo            bool
 
 	Cert      tls.Certificate
 	Handshake HandshakeInterface

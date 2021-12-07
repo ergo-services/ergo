@@ -79,6 +79,18 @@ func CreateResolverWithEPMD(ctx context.Context, host string, port uint16) node.
 	return resolver
 }
 
+func CreateResolverWithRemoteEPMD(ctx context.Context, host string, port uint16) node.Resolver {
+	if port == 0 {
+		port = DefaultEPMDPort
+	}
+	resolver := &epmdResolver{
+		ctx:  ctx,
+		host: host,
+		port: port,
+	}
+	return resolver
+}
+
 func (e *epmdResolver) Register(name string, port uint16, options node.ResolverOptions) error {
 	n := strings.Split(name, "@")
 	if len(n) != 2 {
@@ -168,7 +180,7 @@ func (e *epmdResolver) Resolve(name string) (node.Route, error) {
 }
 
 func (e *epmdResolver) composeExtra(options node.ResolverOptions) {
-	buf := make([]byte, 5)
+	buf := make([]byte, 6)
 
 	// 2 bytes: ergoExtraMagic
 	binary.BigEndian.PutUint16(buf[0:2], uint16(ergoExtraMagic))
@@ -182,12 +194,16 @@ func (e *epmdResolver) composeExtra(options node.ResolverOptions) {
 	if options.EnableProxy {
 		buf[5] = 1
 	}
+
+	if options.EnableCompression {
+		buf[6] = 1
+	}
 	e.extra = buf
 	return
 }
 
 func (e *epmdResolver) readExtra(route *node.Route, buf []byte) {
-	if len(buf) < 5 {
+	if len(buf) < 6 {
 		return
 	}
 	extraLen := int(binary.BigEndian.Uint16(buf[0:2]))
@@ -204,14 +220,18 @@ func (e *epmdResolver) readExtra(route *node.Route, buf []byte) {
 	}
 
 	if buf[5] == 1 {
-		route.EnableTLS = true
+		route.Options.EnableTLS = true
 	}
 
 	if buf[6] == 1 {
-		route.EnableProxy = true
+		route.Options.EnableProxy = true
 	}
 
-	route.IsErgo = true
+	if buf[6] == 1 {
+		route.Options.EnableCompression = true
+	}
+
+	route.Options.IsErgo = true
 
 	return
 }
@@ -310,11 +330,10 @@ func (e *epmdResolver) readPortResp(route *node.Route, c net.Conn) error {
 
 	if buf[0] == epmdPortResp && buf[1] == 0 {
 		p := binary.BigEndian.Uint16(buf[2:4])
-		// we don't use all the extra info for a while. FIXME (do we need it?)
 		nameLen := binary.BigEndian.Uint16(buf[10:12])
 		route.Port = p
 		extraStart := 12 + int(nameLen)
-
+		// read extra data
 		e.readExtra(route, buf[extraStart:])
 		return nil
 	} else if buf[1] > 0 {

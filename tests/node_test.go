@@ -463,6 +463,36 @@ func TestNodeRemoteSpawn(t *testing.T) {
 	fmt.Println("OK")
 }
 
+func TestNodeResoveExtra(t *testing.T) {
+	opts1 := node.Options{
+		Flags: node.DefaultFlags(),
+	}
+	opts1.Flags.Enable = true
+	opts1.Flags.EnableProxy = true
+	node1, _ := ergo.StartNode("node1resolveExtra@localhost", "secret", opts1)
+	defer node1.Stop()
+	node2, _ := ergo.StartNode("node2resolveExtra@localhost", "secret", node.Options{})
+	defer node2.Stop()
+
+	route2, err := node1.Resolve("node2resolveExtra@localhost")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if route2.Options.EnableProxy {
+		t.Fatal("expected false value")
+	}
+
+	route1, err := node2.Resolve("node1resolveExtra@localhost")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if route1.Options.EnableProxy == false {
+		t.Fatal("expected true value")
+	}
+}
+
 type benchGS struct {
 	gen.Server
 }

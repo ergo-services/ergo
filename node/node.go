@@ -435,6 +435,8 @@ func DefaultFlags() Flags {
 		EnableFragmentation:   true,
 		EnableAlias:           true,
 		EnableRemoteSpawn:     true,
+		EnableCompression:     true,
+		EnableProxy:           false,
 	}
 
 }

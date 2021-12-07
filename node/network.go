@@ -115,10 +115,11 @@ func newNetwork(ctx context.Context, nodename string, options Options, router Co
 	}
 
 	resolverOptions := ResolverOptions{
-		NodeVersion:      n.version,
-		HandshakeVersion: n.handshake.Version(),
-		EnableTLS:        n.tls.Enable,
-		EnableProxy:      n.proxy.Enable,
+		NodeVersion:       n.version,
+		HandshakeVersion:  n.handshake.Version(),
+		EnableTLS:         n.tls.Enable,
+		EnableProxy:       options.Flags.EnableProxy,
+		EnableCompression: options.Flags.EnableCompression,
 	}
 	if err := n.resolver.Register(nodename, port, resolverOptions); err != nil {
 		return nil, err
@@ -144,10 +145,10 @@ func (n *network) AddStaticRoute(name string, port uint16, options RouteOptions)
 	}
 
 	route := Route{
-		Name:         name,
-		Host:         ns[1],
-		Port:         port,
-		RouteOptions: options,
+		Name:    name,
+		Host:    ns[1],
+		Port:    port,
+		Options: options,
 	}
 
 	n.staticRoutesMutex.Lock()
@@ -349,10 +350,10 @@ func (n *network) connect(peername string) (ConnectionInterface, error) {
 		KeepAlive: defaultKeepAlivePeriod * time.Second,
 	}
 
-	if route.IsErgo == true {
+	if route.Options.IsErgo == true {
 		// rely on the route TLS settings if they were defined
-		if route.EnableTLS {
-			if route.Cert.Certificate == nil {
+		if route.Options.EnableTLS {
+			if route.Options.Cert.Certificate == nil {
 				// use the local TLS settings
 				config := tls.Config{
 					Certificates:       []tls.Certificate{n.tls.Client},
@@ -366,7 +367,7 @@ func (n *network) connect(peername string) (ConnectionInterface, error) {
 			} else {
 				// use the route TLS settings
 				config := tls.Config{
-					Certificates: []tls.Certificate{route.Cert},
+					Certificates: []tls.Certificate{route.Options.Cert},
 				}
 				tlsdialer := tls.Dialer{
 					NetDialer: &dialer,
@@ -406,7 +407,7 @@ func (n *network) connect(peername string) (ConnectionInterface, error) {
 	}
 
 	// handshake
-	handshake := route.Handshake
+	handshake := route.Options.Handshake
 	if handshake == nil {
 		// use default handshake
 		handshake = n.handshake
@@ -419,7 +420,7 @@ func (n *network) connect(peername string) (ConnectionInterface, error) {
 	}
 
 	// proto
-	proto := route.Proto
+	proto := route.Options.Proto
 	if proto == nil {
 		// use default proto
 		proto = n.proto
