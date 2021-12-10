@@ -1,9 +1,9 @@
 package etf
 
 import (
-	"bytes"
 	"encoding/binary"
 	"fmt"
+	"io"
 	"math"
 	"math/big"
 	"reflect"
@@ -39,7 +39,7 @@ type EncodeOptions struct {
 }
 
 // Encode
-func Encode(term Term, b *bytes.Buffer, options EncodeOptions) (retErr error) {
+func Encode(term Term, b io.Writer, options EncodeOptions) (retErr error) {
 	defer func() {
 		// We should catch any panic happened during encoding Golang types.
 		if r := recover(); r != nil {
@@ -500,7 +500,7 @@ func Encode(term Term, b *bytes.Buffer, options EncodeOptions) (retErr error) {
 			buf[0] = ettString
 			binary.BigEndian.PutUint16(buf[1:3], uint16(lenString))
 			b.Write(buf[:])
-			b.WriteString(t)
+			b.Write([]byte(t))
 
 		case Charlist:
 			term = []rune(t)
@@ -564,7 +564,7 @@ func Encode(term Term, b *bytes.Buffer, options EncodeOptions) (retErr error) {
 			b.Write(buf[:])
 
 		case nil:
-			b.WriteByte(ettNil)
+			b.Write([]byte{ettNil})
 
 		case Tuple:
 			lenTuple := len(t)
@@ -591,10 +591,10 @@ func Encode(term Term, b *bytes.Buffer, options EncodeOptions) (retErr error) {
 			}
 			if options.FlagBigCreation {
 				child.termType = ettNewPid
-				b.WriteByte(ettNewPid)
+				b.Write([]byte{ettNewPid})
 			} else {
 				child.termType = ettPid
-				b.WriteByte(ettPid)
+				b.Write([]byte{ettPid})
 			}
 
 		case Alias:
@@ -652,7 +652,7 @@ func Encode(term Term, b *bytes.Buffer, options EncodeOptions) (retErr error) {
 
 		case ListImproper:
 			if len(t) == 0 {
-				b.WriteByte(ettNil)
+				b.Write([]byte{ettNil})
 				continue
 			}
 			lenList := len(t) - 1
@@ -670,7 +670,7 @@ func Encode(term Term, b *bytes.Buffer, options EncodeOptions) (retErr error) {
 		case List:
 			lenList := len(t)
 			if lenList == 0 {
-				b.WriteByte(ettNil)
+				b.Write([]byte{ettNil})
 				continue
 			}
 			var buf [5]byte
@@ -758,7 +758,7 @@ func Encode(term Term, b *bytes.Buffer, options EncodeOptions) (retErr error) {
 					goto recasting
 				}
 
-				b.WriteByte(ettNil)
+				b.Write([]byte{ettNil})
 				if stack == nil {
 					break
 				}
