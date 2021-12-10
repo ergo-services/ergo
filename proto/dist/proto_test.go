@@ -119,9 +119,6 @@ func TestDecodeDistHeaderAtomCache(t *testing.T) {
 
 func TestEncodeDistHeaderAtomCache(t *testing.T) {
 
-	b := lib.TakeBuffer()
-	defer lib.ReleaseBuffer(b)
-
 	writerAtomCache := make(map[etf.Atom]etf.CacheItem)
 	encodingAtomCache := etf.TakeListAtomCache()
 	defer etf.ReleaseListAtomCache(encodingAtomCache)
@@ -149,15 +146,16 @@ func TestEncodeDistHeaderAtomCache(t *testing.T) {
 	}
 
 	l := &distConnection{}
-	l.encodeDistHeaderAtomCache(b, writerAtomCache, encodingAtomCache)
+	b := [8192]byte{}
+	lenb := l.encodeDistHeaderAtomCache(b[:], writerAtomCache, encodingAtomCache)
 
-	if !reflect.DeepEqual(b.B, expected) {
+	if !reflect.DeepEqual(b[:lenb], expected) {
 		t.Fatal("incorrect value")
 	}
 
-	b.Reset()
 	encodingAtomCache.Append(etf.CacheItem{ID: 2, Name: "yet_another_atom"})
 
+	b = [8192]byte{}
 	expected = []byte{
 		5, 49, 112, 8, // 5 atoms and theirs flags
 		243,                      // atom call. already encoded
@@ -168,10 +166,10 @@ func TestEncodeDistHeaderAtomCache(t *testing.T) {
 		97, 110, 111, 116, 104, 101,
 		114, 95, 97, 116, 111, 109,
 	}
-	l.encodeDistHeaderAtomCache(b, writerAtomCache, encodingAtomCache)
+	lenb = l.encodeDistHeaderAtomCache(b[:], writerAtomCache, encodingAtomCache)
 
-	if !reflect.DeepEqual(b.B, expected) {
-		t.Fatal("incorrect value", b.B)
+	if !reflect.DeepEqual(b[:lenb], expected) {
+		t.Fatal("incorrect value", b[:lenb])
 	}
 }
 
@@ -200,8 +198,6 @@ func BenchmarkDecodeDistHeaderAtomCache(b *testing.B) {
 
 func BenchmarkEncodeDistHeaderAtomCache(b *testing.B) {
 	link := &distConnection{}
-	buf := lib.TakeBuffer()
-	defer lib.ReleaseBuffer(buf)
 
 	writerAtomCache := make(map[etf.Atom]etf.CacheItem)
 	encodingAtomCache := etf.TakeListAtomCache()
@@ -220,8 +216,9 @@ func BenchmarkEncodeDistHeaderAtomCache(b *testing.B) {
 	encodingAtomCache.Append(etf.CacheItem{ID: 199, Name: "one_more_atom"})
 	encodingAtomCache.Append(etf.CacheItem{ID: 2017, Name: "potato"})
 	b.ResetTimer()
+	buf := [8192]byte{}
 	for i := 0; i < b.N; i++ {
-		link.encodeDistHeaderAtomCache(buf, writerAtomCache, encodingAtomCache)
+		link.encodeDistHeaderAtomCache(buf[:], writerAtomCache, encodingAtomCache)
 	}
 }
 
@@ -256,8 +253,8 @@ func TestDecodeFragment(t *testing.T) {
 		t.Fatal("shouldn't be nil here", e)
 	} else {
 		// x should be *lib.Buffer
-		if !reflect.DeepEqual(expected, x.B) {
-			t.Fatal("exp:", expected, "got:", x.B)
+		if !reflect.DeepEqual(expected, x.Bytes()) {
+			t.Fatal("exp:", expected, "got:", x.Bytes())
 		}
 		lib.ReleaseBuffer(x)
 
@@ -306,7 +303,7 @@ func TestDecodeFragment(t *testing.T) {
 		fragmentsReverse[l-i-1] = fragments[i]
 	}
 
-	var result *lib.Buffer
+	var result *bytes.Buffer
 	var e error
 	var first bool
 	for i := range fragmentsReverse {
@@ -322,8 +319,8 @@ func TestDecodeFragment(t *testing.T) {
 	if result == nil {
 		t.Fatal("got nil result")
 	}
-	if !reflect.DeepEqual(expected, result.B) {
-		t.Fatal("exp:", expected, "got:", result.B[:len(expected)])
+	if !reflect.DeepEqual(expected, result.Bytes()) {
+		t.Fatal("exp:", expected, "got:", result.Bytes())
 	}
 	// map of the fragments should be empty here
 	if len(link.fragments) > 0 {
@@ -352,8 +349,8 @@ func TestDecodeFragment(t *testing.T) {
 		if result == nil {
 			t.Fatal("got nil result")
 		}
-		if !reflect.DeepEqual(expected, result.B) {
-			t.Fatal("exp:", expected, "got:", result.B[:len(expected)])
+		if !reflect.DeepEqual(expected, result.Bytes()) {
+			t.Fatal("exp:", expected, "got:", result.Bytes())
 		}
 	}
 }

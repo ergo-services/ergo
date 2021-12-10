@@ -1072,12 +1072,12 @@ func (dc *distConnection) decodeDistHeaderAtomCache(packet []byte) ([]etf.Atom, 
 
 func (dc *distConnection) encodeDistHeaderAtomCache(buf []byte,
 	writerAtomCache map[etf.Atom]etf.CacheItem,
-	encodingAtomCache *etf.ListAtomCache) {
+	encodingAtomCache *etf.ListAtomCache) int {
 
 	n := encodingAtomCache.Len()
 	if n == 0 {
 		buf[0] = 0
-		return
+		return 1
 	}
 
 	buf[0] = byte(n) // write NumberOfAtomCache
@@ -1087,6 +1087,7 @@ func (dc *distConnection) encodeDistHeaderAtomCache(buf []byte,
 	flags := buf[1 : lenFlags+1]
 	flags[lenFlags-1] = 0 // clear last byte to make sure we have valid LongAtom flag
 
+	ibuf := lenFlags + 1
 	for i := 0; i < len(encodingAtomCache.L); i++ {
 		shift := uint((i & 0x01) * 4)
 		idxReference := byte(encodingAtomCache.L[i].ID >> 8) // SegmentIndex
@@ -1104,25 +1105,23 @@ func (dc *distConnection) encodeDistHeaderAtomCache(buf []byte,
 		flags[i/2] |= idxReference << shift
 
 		if cachedItem.Encoded {
-			b.WriteByte(idxInternal)
+			buf[ibuf] = idxInternal
+			ibuf++
 			continue
 		}
 
 		if encodingAtomCache.HasLongAtom {
 			// 1 (InternalSegmentIndex) + 2 (length) + name
-			allocLen := 1 + 2 + len(encodingAtomCache.L[i].Name)
-			buf := b.Extend(allocLen)
-			buf[0] = idxInternal
-			binary.BigEndian.PutUint16(buf[1:3], uint16(len(encodingAtomCache.L[i].Name)))
-			copy(buf[3:], encodingAtomCache.L[i].Name)
+			buf[ibuf] = idxInternal
+			binary.BigEndian.PutUint16(buf[ibuf+1:3], uint16(len(encodingAtomCache.L[i].Name)))
+			copy(buf[ibuf+3:], encodingAtomCache.L[i].Name)
+			ibuf = 1 + 2 + len(encodingAtomCache.L[i].Name)
 		} else {
-
 			// 1 (InternalSegmentIndex) + 1 (length) + name
-			allocLen := 1 + 1 + len(encodingAtomCache.L[i].Name)
-			buf := b.Extend(allocLen)
-			buf[0] = idxInternal
-			buf[1] = byte(len(encodingAtomCache.L[i].Name))
-			copy(buf[2:], encodingAtomCache.L[i].Name)
+			buf[ibuf] = idxInternal
+			buf[ibuf+1] = byte(len(encodingAtomCache.L[i].Name))
+			copy(buf[ibuf+2:], encodingAtomCache.L[i].Name)
+			ibuf = 1 + 1 + len(encodingAtomCache.L[i].Name)
 		}
 
 		cachedItem.Encoded = true
@@ -1134,7 +1133,7 @@ func (dc *distConnection) encodeDistHeaderAtomCache(buf []byte,
 		flags[lenFlags-1] |= 1 << shift // set LongAtom = 1
 	}
 
-	return 1 + lenFlags
+	return ibuf
 }
 
 func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOptions, peerFlags node.Flags) {
@@ -1170,7 +1169,7 @@ func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOpt
 		FlagBigPidRef:     peerFlags.EnableBigPidRef,
 	}
 
-	var lenControl, lenMessage, lenAtomCache, lenPacket, startDataPosition int
+	var lenPacketBuffer, lenAtomCacheBuf, lenPacket, startDataPosition int
 	var packetBuffer *bytes.Buffer
 	var message *sendMessage
 	var err error
@@ -1190,7 +1189,7 @@ func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOpt
 		compress = compressionEnabled && message.compression
 		compressed = false
 
-		lenControl, lenMessage, lenAtomCache, lenPacket = 0, 0, 0, 0
+		lenPacket, lenPacketBuffer, lenAtomCacheBuf = 0, 0, 0
 		startDataPosition = reservedHeaderSize
 
 		// clear header buffer
@@ -1246,12 +1245,9 @@ func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOpt
 		}
 
 		// encode Header Atom Cache if its enabled
-		if cacheEnabled && encodingAtomCache.Len() > 0 {
-			atomCacheBuffer := headerBuffer[:0]
-			dc.encodeDistHeaderAtomCache(headerBuffer[:], writerAtomCache, encodingAtomCache)
-			lenAtomCache = len(atomCacheBuffer)
-
-			if lenAtomCache > reservedHeaderSize-22 {
+		if cacheEnabled {
+			lenAtomCacheBuf = dc.encodeDistHeaderAtomCache(headerBuffer[:], writerAtomCache, encodingAtomCache)
+			if lenAtomCacheBuf > reservedHeaderSize-22 {
 				// are you serious? ))) what da hell you just sent?
 				// FIXME i'm gonna fix it if someone report about this issue :)
 				fmt.Println("WARNING: exceed atom header cache size limit. please report about this issue")
@@ -1259,20 +1255,15 @@ func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOpt
 				return
 			}
 
-			startDataPosition -= lenAtomCache
-			copy(packetBufferSlice[startDataPosition:], atomCacheBuffer)
-
-		} else {
-			lenAtomCache = 1
-			startDataPosition -= lenAtomCache
-			packetBufferSlice[startDataPosition] = byte(0)
+			startDataPosition -= lenAtomCacheBuf
+			copy(packetBufferSlice[startDataPosition:], headerBuffer[:lenAtomCacheBuf])
 		}
 
 		for {
 
 			// 4 (packet len) + 1 (dist header: 131) + 1 (dist header: protoDistMessage[Z]) + lenAtomCache
 			lenPacketBuffer = packetBuffer.Len() - reservedHeaderSize
-			lenPacket = 1 + 1 + lenAtomCache + (packetBuffer.Len() - reservedHeaderSize)
+			lenPacket = 1 + 1 + lenAtomCacheBuf + (packetBuffer.Len() - reservedHeaderSize)
 
 			if !fragmentationEnabled || lenPacket < options.FragmentationUnit {
 				// send as a single packet
@@ -1301,7 +1292,7 @@ func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOpt
 			numFragments := lenPacketBuffer/options.FragmentationUnit + 1
 
 			// 1 (dist header: 131) + 1 (dist header: protoDistFragment) + 8 (sequenceID) + 8 (fragmentID) + ...
-			lenPacket = 1 + 1 + 8 + 8 + lenAtomCache + options.FragmentationUnit
+			lenPacket = 1 + 1 + 8 + 8 + lenAtomCacheBuf + options.FragmentationUnit
 
 			// 4 (packet len) + 1 (dist header: 131) + 1 (dist header: protoDistFragment[Z]) + 8 (sequenceID) + 8 (fragmentID)
 			startDataPosition -= 22
