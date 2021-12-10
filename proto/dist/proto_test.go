@@ -2,6 +2,7 @@ package dist
 
 import (
 	"bytes"
+	"fmt"
 	"math/rand"
 	"reflect"
 	"testing"
@@ -150,6 +151,7 @@ func TestEncodeDistHeaderAtomCache(t *testing.T) {
 	lenb := l.encodeDistHeaderAtomCache(b[:], writerAtomCache, encodingAtomCache)
 
 	if !reflect.DeepEqual(b[:lenb], expected) {
+		fmt.Printf("expected %v got %v \n", expected, b[:lenb])
 		t.Fatal("incorrect value")
 	}
 

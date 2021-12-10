@@ -1115,13 +1115,13 @@ func (dc *distConnection) encodeDistHeaderAtomCache(buf []byte,
 			buf[ibuf] = idxInternal
 			binary.BigEndian.PutUint16(buf[ibuf+1:3], uint16(len(encodingAtomCache.L[i].Name)))
 			copy(buf[ibuf+3:], encodingAtomCache.L[i].Name)
-			ibuf = 1 + 2 + len(encodingAtomCache.L[i].Name)
+			ibuf += 1 + 2 + len(encodingAtomCache.L[i].Name)
 		} else {
 			// 1 (InternalSegmentIndex) + 1 (length) + name
 			buf[ibuf] = idxInternal
 			buf[ibuf+1] = byte(len(encodingAtomCache.L[i].Name))
 			copy(buf[ibuf+2:], encodingAtomCache.L[i].Name)
-			ibuf = 1 + 1 + len(encodingAtomCache.L[i].Name)
+			ibuf += 1 + 1 + len(encodingAtomCache.L[i].Name)
 		}
 
 		cachedItem.Encoded = true
