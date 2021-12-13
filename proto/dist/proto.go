@@ -41,10 +41,13 @@ const (
 	defaultCompressionThreshold = 1024 // bytes
 
 	// http://erlang.org/doc/apps/erts/erl_ext_dist.html#distribution_header
-	protoDist          = 131
-	protoDistMessage   = 68
-	protoDistFragment1 = 69
-	protoDistFragmentN = 70
+
+	protoDist           = 131
+  
+	protoDistCompressed = 80
+	protoDistMessage    = 68
+	protoDistFragment1  = 69
+	protoDistFragmentN  = 70
 
 	// ergo gzipped messages
 	protoDistMessageZ   = 200
@@ -655,6 +658,9 @@ func (dc *distConnection) decodeDist(packet []byte) (etf.Term, etf.Term, error) 
 		}
 
 		return control, message, nil
+	case protoDistMessageZ:
+		// compressed protoDistMessage
+		return nil, nil, nil
 
 	case protoDistMessageZ:
 		// compressed protoDistMessage
@@ -1158,6 +1164,9 @@ func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOpt
 	// FIXME make it configurable
 	compressionThreshold := defaultCompressionThreshold
 
+	// FIXME make it configurable
+	compressionThreshold := defaultCompressionThreshold
+
 	if cacheEnabled {
 		encodingAtomCache = etf.TakeListAtomCache()
 		defer etf.ReleaseListAtomCache(encodingAtomCache)
@@ -1203,6 +1212,10 @@ func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOpt
 		// do reserve for the header 8K, should be enough
 		packetBuffer.Write(headerBuffer[:])
 
+		// check whether compress is enabled for the peer and for this message
+		compress = compressionEnabled && message.compression
+		compressed = false
+
 		// clear encoding cache
 		if cacheEnabled {
 			encodingAtomCache.Reset()
@@ -1247,6 +1260,7 @@ func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOpt
 		}
 
 		packetBufferSlice := packetBuffer.Bytes()
+
 		// encode Header Atom Cache if its enabled
 		if cacheEnabled {
 			lenAtomCacheBuf = dc.encodeDistHeaderAtomCache(headerBuffer[:], writerAtomCache, encodingAtomCache)
@@ -1267,6 +1281,7 @@ func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOpt
 			// 4 (packet len) + 1 (dist header: 131) + 1 (dist header: protoDistMessage[Z]) + lenAtomCache
 			lenPacketBuffer = packetBuffer.Len() - reservedHeaderSize
 			lenPacket = 1 + 1 + lenAtomCacheBuf + (packetBuffer.Len() - reservedHeaderSize)
+
 
 			if !fragmentationEnabled || lenPacket < options.FragmentationUnit {
 				// send as a single packet
