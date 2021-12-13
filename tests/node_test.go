@@ -463,7 +463,7 @@ func TestNodeRemoteSpawn(t *testing.T) {
 	fmt.Println("OK")
 }
 
-func TestNodeResoveExtra(t *testing.T) {
+func TestNodeResolveExtra(t *testing.T) {
 	opts1 := node.Options{
 		Flags: node.DefaultFlags(),
 	}

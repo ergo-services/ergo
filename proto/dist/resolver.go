@@ -180,7 +180,7 @@ func (e *epmdResolver) Resolve(name string) (node.Route, error) {
 }
 
 func (e *epmdResolver) composeExtra(options node.ResolverOptions) {
-	buf := make([]byte, 6)
+	buf := make([]byte, 7)
 
 	// 2 bytes: ergoExtraMagic
 	binary.BigEndian.PutUint16(buf[0:2], uint16(ergoExtraMagic))
@@ -203,7 +203,7 @@ func (e *epmdResolver) composeExtra(options node.ResolverOptions) {
 }
 
 func (e *epmdResolver) readExtra(route *node.Route, buf []byte) {
-	if len(buf) < 6 {
+	if len(buf) < 7 {
 		return
 	}
 	extraLen := int(binary.BigEndian.Uint16(buf[0:2]))
