@@ -166,7 +166,7 @@ func (dp *distProto) Init(ctx context.Context, conn io.ReadWriter, peername stri
 	}
 
 	// create connection buffering
-	connection.flusher = newLinkFlusher(conn, defaultLatency)
+	connection.flusher = newLinkFlusher(conn, defaultLatency, flags.EnableSoftwareKeepAlive)
 
 	// do not use shared channels within intencive code parts, impacts on a performance
 	connection.receivers = receivers{
@@ -218,8 +218,8 @@ func (dp *distProto) Serve(ci node.ConnectionInterface, router node.CoreRouter) 
 		packetLength, err = connection.read(b)
 
 		// check message size
-		if packetLength > dp.options.MaxMessageSize {
-			fmt.Println("received message exceeded max limit")
+		if dp.options.MaxMessageSize > 0 && packetLength > dp.options.MaxMessageSize {
+			fmt.Println("received message exceeded max limit", dp.options.MaxMessageSize)
 			lib.ReleaseBuffer(b)
 			return
 		}
@@ -455,10 +455,11 @@ func (dc *distConnection) Proxy() error {
 func (dc *distConnection) read(b *bytes.Buffer) (int, error) {
 	// http://erlang.org/doc/apps/erts/erl_dist_protocol.html#protocol-between-connected-nodes
 	expectingBytes := 4
+	var connBuffer [16384]byte
 
 	for {
 		if b.Len() < expectingBytes {
-			n, e := b.ReadFrom(dc.conn)
+			n, e := dc.conn.Read(connBuffer[:])
 			if n == 0 {
 				// link was closed
 				return 0, nil
@@ -469,6 +470,8 @@ func (dc *distConnection) read(b *bytes.Buffer) (int, error) {
 				return 0, e
 			}
 
+			b.Write(connBuffer[:n])
+
 			// check onemore time if we should read more data
 			continue
 		}
@@ -478,6 +481,7 @@ func (dc *distConnection) read(b *bytes.Buffer) (int, error) {
 		if packetLength == 0 {
 			// it was "software" keepalive
 			expectingBytes = 4
+			b.Next(4)
 			continue
 		}
 
@@ -1198,7 +1202,6 @@ func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOpt
 		packetBuffer = lib.TakeBuffer()
 		// do reserve for the header 8K, should be enough
 		packetBuffer.Write(headerBuffer[:])
-		packetBufferSlice := packetBuffer.Bytes()
 
 		// clear encoding cache
 		if cacheEnabled {
@@ -1235,15 +1238,15 @@ func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOpt
 			zBuffer.Write(headerBuffer[:])
 			// gzipping packetBuffer
 			zWriter := gzip.NewWriter(zBuffer)
-			zWriter.Write(packetBufferSlice[reservedHeaderSize:])
+			zWriter.Write(packetBuffer.Bytes()[reservedHeaderSize:])
 			zWriter.Close()
 			// swap buffers
 			lib.ReleaseBuffer(packetBuffer)
 			packetBuffer = zBuffer
-			packetBufferSlice = zBuffer.Bytes()
 			compressed = true
 		}
 
+		packetBufferSlice := packetBuffer.Bytes()
 		// encode Header Atom Cache if its enabled
 		if cacheEnabled {
 			lenAtomCacheBuf = dc.encodeDistHeaderAtomCache(headerBuffer[:], writerAtomCache, encodingAtomCache)

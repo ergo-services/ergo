@@ -345,6 +345,9 @@ type Flags struct {
 	EnableCompression bool
 	// Proxy proxy support
 	EnableProxy bool
+	// Software keepalive enables sending keep alive messages if node doesn't support
+	// TCPConn.SetKeepAlive(true). For erlang peers this flag is mandatory.
+	EnableSoftwareKeepAlive bool
 }
 
 // Resolver defines resolving interface

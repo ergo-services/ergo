@@ -150,8 +150,10 @@ func (dh *DistHandshake) Start(conn io.ReadWriter, tls bool) (node.Flags, error)
 	defer timer.Stop()
 
 	asyncReadChannel := make(chan error, 2)
+	connBuffer := make([]byte, 1024)
 	asyncRead := func() {
-		_, e := b.ReadFrom(conn)
+		n, e := conn.Read(connBuffer)
+		b.Write(connBuffer[:n])
 		asyncReadChannel <- e
 	}
 
@@ -312,8 +314,10 @@ func (dh *DistHandshake) Accept(conn io.ReadWriter, tls bool) (string, node.Flag
 	defer timer.Stop()
 
 	asyncReadChannel := make(chan error, 2)
+	connBuffer := make([]byte, 1024)
 	asyncRead := func() {
-		_, e := b.ReadFrom(conn)
+		n, e := conn.Read(connBuffer)
+		b.Write(connBuffer[:n])
 		asyncReadChannel <- e
 	}
 

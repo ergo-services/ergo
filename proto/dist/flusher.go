@@ -10,21 +10,24 @@ import (
 var (
 	// KeepAlive packet is just 4 bytes with zero value
 	keepAlivePacket = []byte{0, 0, 0, 0}
+	keepAlivePeriod = 5 * time.Second
 )
 
-func newLinkFlusher(w io.Writer, latency time.Duration) *linkFlusher {
+func newLinkFlusher(w io.Writer, latency time.Duration, softwareKeepAlive bool) *linkFlusher {
 	return &linkFlusher{
-		latency: latency,
-		writer:  bufio.NewWriter(w),
-		w:       w, // in case if we skip buffering
+		latency:           latency,
+		writer:            bufio.NewWriter(w),
+		w:                 w, // in case if we skip buffering
+		softwareKeepAlive: softwareKeepAlive,
 	}
 }
 
 type linkFlusher struct {
-	mutex   sync.Mutex
-	latency time.Duration
-	writer  *bufio.Writer
-	w       io.Writer
+	mutex             sync.Mutex
+	latency           time.Duration
+	writer            *bufio.Writer
+	w                 io.Writer
+	softwareKeepAlive bool
 
 	timer   *time.Timer
 	pending bool
@@ -83,8 +86,19 @@ func (lf *linkFlusher) Write(b []byte) (int, error) {
 		lf.mutex.Lock()
 		defer lf.mutex.Unlock()
 
+		// if we have no pending data to send we should
+		// send a KeepAlive packet
+		if !lf.pending && lf.softwareKeepAlive {
+			lf.w.Write([]byte{0, 0, 0, 0})
+			lf.timer.Reset(keepAlivePeriod)
+			return
+		}
+
 		lf.writer.Flush()
 		lf.pending = false
+		if lf.softwareKeepAlive {
+			lf.timer.Reset(keepAlivePeriod)
+		}
 	})
 
 	return lenB, nil
