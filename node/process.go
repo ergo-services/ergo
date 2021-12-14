@@ -16,6 +16,20 @@ const (
 	DefaultProcessMailboxSize = 100
 )
 
+var (
+	syncReplyChannels = &sync.Pool{
+		New: func() interface{} {
+			return make(chan etf.Term, 2)
+		},
+	}
+
+	directChannels = &sync.Pool{
+		New: func() interface{} {
+			return make(chan gen.ProcessDirectMessage, 1)
+		},
+	}
+)
+
 type process struct {
 	coreInternal
 	sync.RWMutex
@@ -516,7 +530,7 @@ func (p *process) directRequest(request interface{}, timeout int) (interface{}, 
 
 	direct := gen.ProcessDirectMessage{
 		Message: request,
-		Reply:   make(chan gen.ProcessDirectMessage, 1),
+		Reply:   directChannels.Get().(chan gen.ProcessDirectMessage),
 	}
 
 	// sending request
@@ -530,6 +544,7 @@ func (p *process) directRequest(request interface{}, timeout int) (interface{}, 
 	// receiving response
 	select {
 	case response := <-direct.Reply:
+		directChannels.Put(direct.Reply)
 		if response.Err != nil {
 			return nil, response.Err
 		}
@@ -545,7 +560,7 @@ func (p *process) PutSyncRequest(ref etf.Ref) {
 	if p.reply == nil {
 		return
 	}
-	reply := make(chan etf.Term, 2)
+	reply := syncReplyChannels.Get().(chan etf.Term)
 	p.replyMutex.Lock()
 	p.reply[ref] = reply
 	p.replyMutex.Unlock()
@@ -568,7 +583,6 @@ func (p *process) PutSyncReply(ref etf.Ref, reply etf.Term) error {
 	select {
 	case rep <- reply:
 	}
-
 	return nil
 }
 
@@ -606,6 +620,7 @@ func (p *process) WaitSyncReply(ref etf.Ref, timeout int) (etf.Term, error) {
 	for {
 		select {
 		case m := <-reply:
+			syncReplyChannels.Put(reply)
 			return m, nil
 		case <-timer.C:
 			return nil, ErrTimeout

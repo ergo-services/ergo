@@ -1376,10 +1376,14 @@ func (dc *distConnection) send(msg *sendMessage) error {
 	s.Lock()
 	defer s.Unlock()
 
-	select {
-	case s.sendChannel <- msg:
-		return nil
-	default:
-		return ErrOverloadConnection
-	}
+	s.sendChannel <- msg
+	return nil
+
+	// TODO to decide whether to return error if channel is full
+	//select {
+	//case s.sendChannel <- msg:
+	//	return nil
+	//default:
+	//	return ErrOverloadConnection
+	//}
 }
