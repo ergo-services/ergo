@@ -41,7 +41,7 @@ const (
 	// node options
 	defaultListenBegin     uint16        = 15000
 	defaultListenEnd       uint16        = 65000
-	defaultKeepAlivePeriod time.Duration = 5
+	defaultKeepAlivePeriod time.Duration = 15
 
 	EnvKeyVersion     gen.EnvKey = "ergo:Version"
 	EnvKeyNode        gen.EnvKey = "ergo:Node"
@@ -50,6 +50,9 @@ const (
 	DefaultProtoRecvQueueLength   int = 100
 	DefaultProtoSendQueueLength   int = 100
 	DefaultProroFragmentationUnit int = 65000
+
+	DefaultCompressionLevel     int = -1
+	DefaultCompressionThreshold int = 1024
 )
 
 type Node interface {
@@ -204,7 +207,7 @@ type Options struct {
 	Resolver Resolver
 
 	// Compression enables compression for outgoing messages (if peer node has this feature enabled)
-	Compression bool
+	Compression Compression
 
 	// Handshake defines a handshake handler. By default is using
 	// DIST handshake created with dist.CreateHandshake(...)
@@ -233,6 +236,17 @@ type Cloud struct {
 
 type Proxy struct {
 	Enable bool
+}
+
+type Compression struct {
+	// Enable enables compression for all outgoing messages having size
+	// greater than the defined threshold.
+	Enable bool
+	// Level defines compression level. Value must be in range 1..9 or -1 for the default level
+	Level int
+	// Threshold defines the minimal message size for the compression.
+	// Messages less of this threshold will not be compressed.
+	Threshold int
 }
 
 // Connection
@@ -315,7 +329,7 @@ type ProtoOptions struct {
 	// FragmentationUnit defines unit size for the fragmentation feature. Default 65000
 	FragmentationUnit int
 	// Compression enables compression for the outgoing messages
-	Compression bool
+	Compression Compression
 	// Proxy defines proxy settings
 	Proxy Proxy
 	// Custom brings a custom set of options to the ProtoInterface.Serve handler

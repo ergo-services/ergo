@@ -1,6 +1,7 @@
 package dist
 
 import (
+	"compress/gzip"
 	"context"
 	"encoding/binary"
 	"fmt"
@@ -31,8 +32,6 @@ const (
 
 	defaultCleanTimeout  = 5 * time.Second  // for checkClean
 	defaultCleanDeadline = 30 * time.Second // for checkClean
-
-	defaultCompressionThreshold = 1024 // bytes
 
 	// http://erlang.org/doc/apps/erts/erl_ext_dist.html#distribution_header
 	protoDist           = 131
@@ -69,7 +68,7 @@ type distConnection struct {
 	flags node.Flags
 
 	// compression
-	compression bool
+	compression node.Compression
 
 	// socket
 	conn          io.ReadWriter
@@ -286,7 +285,7 @@ func (dc *distConnection) Send(from gen.Process, to etf.Pid, message etf.Term) e
 	var compression bool
 
 	if dc.flags.EnableCompression {
-		if dc.compression == true {
+		if dc.compression.Enable == true {
 			compression = true
 		} else {
 			compression = from.Compression()
@@ -304,7 +303,7 @@ func (dc *distConnection) SendReg(from gen.Process, to gen.ProcessID, message et
 	var compression bool
 
 	if dc.flags.EnableCompression {
-		if dc.compression == true {
+		if dc.compression.Enable == true {
 			compression = true
 		} else {
 			compression = from.Compression()
@@ -326,7 +325,7 @@ func (dc *distConnection) SendAlias(from gen.Process, to etf.Alias, message etf.
 	}
 
 	if dc.flags.EnableCompression {
-		if dc.compression == true {
+		if dc.compression.Enable == true {
 			compression = true
 		} else {
 			compression = from.Compression()
@@ -640,7 +639,8 @@ func (dc *distConnection) decodeDist(packet []byte) (etf.Term, etf.Term, error) 
 		return control, message, nil
 	case protoDistMessageZ:
 		// compressed protoDistMessage
-		return nil, nil, nil
+		fmt.Println("COMPRESSED MESSAGE")
+		return nil, nil, fmt.Errorf("XXX")
 
 	case protoDistFragment1, protoDistFragmentN:
 		first := packet[0] == protoDistFragment1
@@ -1148,8 +1148,7 @@ func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOpt
 	// of reallocation packetBuffer data
 	reserveHeaderAtomCache := 8192
 
-	// FIXME make it configurable
-	compressionThreshold := defaultCompressionThreshold
+	compressionThreshold := options.Compression.Threshold
 
 	if cacheEnabled {
 		encodingAtomCache = etf.TakeListAtomCache()
@@ -1218,16 +1217,19 @@ func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOpt
 
 		if compress && packetBuffer.Len() > (reserveHeaderAtomCache+compressionThreshold) {
 			//// take another buffer
-			//zBuffer := lib.TakeBuffer()
-			//zBuffer.Write(headerBuffer[:])
+			zBuffer := lib.TakeBuffer()
+			zBuffer.Allocate(reserveHeaderAtomCache)
 			//// gzipping packetBuffer
-			//zWriter := gzip.NewWriter(zBuffer)
-			//zWriter.Write(packetBuffer.Bytes()[reservedHeaderSize:])
-			//zWriter.Close()
-			//// swap buffers
-			//lib.ReleaseBuffer(packetBuffer)
-			//packetBuffer = zBuffer
-			//compressed = true
+			zWriter := gzip.NewWriter(zBuffer)
+			zWriter.Write(packetBuffer.B[reserveHeaderAtomCache:])
+			zWriter.Close()
+
+			// swap buffers only if gzipped data less than the original ones
+			if zBuffer.Len() < packetBuffer.Len() {
+				lib.ReleaseBuffer(packetBuffer)
+				packetBuffer = zBuffer
+				compressed = true
+			}
 		}
 
 		// encode Header Atom Cache if its enabled

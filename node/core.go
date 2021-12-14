@@ -28,7 +28,7 @@ type core struct {
 	env      map[gen.EnvKey]interface{}
 	mutexEnv sync.RWMutex
 
-	compression bool
+	compression Compression
 	tls         TLS
 
 	nextPID  uint64

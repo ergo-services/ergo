@@ -55,7 +55,7 @@ type process struct {
 	reply      map[etf.Ref]chan etf.Term
 
 	trapExit    bool
-	compression bool
+	compression Compression
 }
 
 type processOptions struct {
@@ -386,12 +386,42 @@ func (p *process) TrapExit() bool {
 
 // SetCompression
 func (p *process) SetCompression(enable bool) {
-	p.compression = enable
+	p.compression.Enable = enable
 }
 
 // Compression
 func (p *process) Compression() bool {
-	return p.compression
+	return p.compression.Enable
+}
+
+// CompressionLevel
+func (p *process) CompressionLevel() int {
+	return p.compression.Level
+}
+
+// SetCompressionLevel
+func (p *process) SetCompressionLevel(level int) {
+	if level < 1 || level > 9 {
+		p.compression.Level = DefaultCompressionLevel
+		return
+	}
+
+	p.compression.Level = level
+}
+
+// CompressionThreshold
+func (p *process) CompressionThreshold() int {
+	return p.compression.Threshold
+}
+
+// SetCompressionThreshold
+func (p *process) SetCompressionThreshold(threshold int) {
+	if threshold < DefaultCompressionThreshold {
+		p.compression.Threshold = DefaultCompressionThreshold
+		return
+	}
+
+	p.compression.Threshold = threshold
 }
 
 // Behavior
