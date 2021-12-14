@@ -180,59 +180,54 @@ func (e *epmdResolver) Resolve(name string) (node.Route, error) {
 }
 
 func (e *epmdResolver) composeExtra(options node.ResolverOptions) {
-	buf := make([]byte, 7)
+	buf := make([]byte, 6)
 
 	// 2 bytes: ergoExtraMagic
 	binary.BigEndian.PutUint16(buf[0:2], uint16(ergoExtraMagic))
 	// 1 byte Extra version
-	buf[3] = ergoExtraVersion1
+	buf[2] = ergoExtraVersion1
 	// 1 byte flag enabled TLS
 	if options.EnableTLS {
-		buf[4] = 1
+		buf[3] = 1
 	}
 	// 1 byte flag enabled proxy
 	if options.EnableProxy {
-		buf[5] = 1
+		buf[4] = 1
 	}
 
 	if options.EnableCompression {
-		buf[6] = 1
+		buf[5] = 1
 	}
 	e.extra = buf
 	return
 }
 
 func (e *epmdResolver) readExtra(route *node.Route, buf []byte) {
-	if len(buf) < 7 {
+	if len(buf) < 6 {
 		return
 	}
-	extraLen := int(binary.BigEndian.Uint16(buf[0:2]))
-	if extraLen < len(buf)+2 {
-		return
-	}
-	magic := binary.BigEndian.Uint16(buf[2:4])
+	magic := binary.BigEndian.Uint16(buf[0:2])
 	if uint16(ergoExtraMagic) != magic {
 		return
 	}
 
-	if buf[4] != ergoExtraVersion1 {
+	if buf[2] != ergoExtraVersion1 {
 		return
 	}
 
-	if buf[5] == 1 {
+	if buf[3] == 1 {
 		route.Options.EnableTLS = true
 	}
 
-	if buf[6] == 1 {
+	if buf[4] == 1 {
 		route.Options.EnableProxy = true
 	}
 
-	if buf[6] == 1 {
+	if buf[5] == 1 {
 		route.Options.EnableCompression = true
 	}
 
 	route.Options.IsErgo = true
-
 	return
 }
 
@@ -323,10 +318,11 @@ func (e *epmdResolver) sendPortPleaseReq(conn net.Conn, name string) error {
 func (e *epmdResolver) readPortResp(route *node.Route, c net.Conn) error {
 
 	buf := make([]byte, 1024)
-	_, err := c.Read(buf)
+	n, err := c.Read(buf)
 	if err != nil && err != io.EOF {
 		return fmt.Errorf("reading from link - %s", err)
 	}
+	buf = buf[:n]
 
 	if buf[0] == epmdPortResp && buf[1] == 0 {
 		p := binary.BigEndian.Uint16(buf[2:4])
@@ -334,7 +330,10 @@ func (e *epmdResolver) readPortResp(route *node.Route, c net.Conn) error {
 		route.Port = p
 		extraStart := 12 + int(nameLen)
 		// read extra data
-		e.readExtra(route, buf[extraStart:])
+		buf = buf[extraStart:]
+		extraLen := binary.BigEndian.Uint16(buf[:2])
+		buf = buf[2 : extraLen+2]
+		e.readExtra(route, buf)
 		return nil
 	} else if buf[1] > 0 {
 		return fmt.Errorf("desired node not found")

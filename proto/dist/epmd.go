@@ -73,6 +73,12 @@ func (e *epmd) handle(c net.Conn) {
 			e.nodesMutex.Unlock()
 			return
 		}
+		if len(buf) < 6 {
+			lib.Log("Too short")
+			return
+		}
+
+		buf = buf[:n]
 		// buf[0:1] - length
 		if uint16(n-2) != binary.BigEndian.Uint16(buf[0:2]) {
 			continue
@@ -201,8 +207,7 @@ func (e *epmd) sendPortPleaseResp(c net.Conn, name string, node registeredNode) 
 	copy(buf[12:offset], name)
 	// Extra
 	l := len(node.extra)
-	binary.BigEndian.PutUint16(buf[offset:offset+2], uint16(l))
-	copy(buf[offset+2:offset+2+l], node.extra)
+	copy(buf[offset:offset+l], node.extra)
 	// send
 	c.Write(buf)
 	return
