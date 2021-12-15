@@ -22,11 +22,6 @@ var (
 	ErrMissingInCache     = fmt.Errorf("missing in cache")
 	ErrMalformed          = fmt.Errorf("malformed")
 	ErrOverloadConnection = fmt.Errorf("connection buffer is overloaded")
-	gzipReaders           = &sync.Pool{
-		New: func() interface{} {
-			return nil
-		},
-	}
 )
 
 func init() {
@@ -664,14 +659,7 @@ func (dc *distConnection) decodeDist(packet []byte) (etf.Term, etf.Term, error) 
 		// read the length of unpacked data
 		lenUnpacked := int(binary.BigEndian.Uint32(packet[:4]))
 
-		// take the gzip reader from the pool
-		if r, ok := gzipReaders.Get().(*gzip.Reader); ok {
-			zReader = r
-			zReader.Reset(bytes.NewBuffer(packet[4:]))
-		} else {
-			zReader, _ = gzip.NewReader(bytes.NewBuffer(packet[4:]))
-		}
-		defer gzipReaders.Put(zReader)
+		zReader, _ = gzip.NewReader(bytes.NewBuffer(packet[4:]))
 
 		// take new buffer and allocate space for the unpacked data
 		zBuffer := lib.TakeBuffer()
@@ -1019,7 +1007,9 @@ func (dc *distConnection) decodeFragment(packet []byte) (*lib.Buffer, error) {
 
 	if fragmented.fragmentID == 1 && len(fragmented.disorderedSlices) == 0 {
 		// it was the last fragment
+		dc.fragmentsMutex.Lock()
 		delete(dc.fragments, sequenceID)
+		dc.fragmentsMutex.Unlock()
 		lib.ReleaseBuffer(fragmented.disordered)
 		return fragmented.buffer, nil
 	}
@@ -1220,6 +1210,7 @@ func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOpt
 	var message *sendMessage
 	var err error
 	var compress, compressed bool
+	var zWriter *gzip.Writer
 
 	// cancel connection context if something went wrong
 	// it will cause closing connection with stopping all
@@ -1306,18 +1297,20 @@ func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOpt
 			zBuffer := lib.TakeBuffer()
 			// allocate extra 4 bytes for the lenMessage (length of unpacked data)
 			zBuffer.Allocate(reserveHeaderAtomCache + 4)
-			//// gzipping packetBuffer
-			if zWriter, err := gzip.NewWriterLevel(zBuffer, message.compressionLevel); err == nil {
-				zWriter.Write(packetBuffer.B[reserveHeaderAtomCache:])
-				zWriter.Close()
+			level := message.compressionLevel
+			if level == -1 {
+				level = 0
+			}
+			zWriter, _ = gzip.NewWriterLevel(zBuffer, message.compressionLevel)
+			zWriter.Write(packetBuffer.B[reserveHeaderAtomCache:])
+			zWriter.Close()
 
-				// swap buffers only if gzipped data less than the original ones
-				if zBuffer.Len() < packetBuffer.Len() {
-					binary.BigEndian.PutUint32(zBuffer.B[reserveHeaderAtomCache:], uint32(lenMessage))
-					lenMessage = zBuffer.Len() - reserveHeaderAtomCache
-					packetBuffer, zBuffer = zBuffer, packetBuffer
-					compressed = true
-				}
+			// swap buffers only if gzipped data less than the original ones
+			if zBuffer.Len() < packetBuffer.Len() {
+				binary.BigEndian.PutUint32(zBuffer.B[reserveHeaderAtomCache:], uint32(lenMessage))
+				lenMessage = zBuffer.Len() - reserveHeaderAtomCache
+				packetBuffer, zBuffer = zBuffer, packetBuffer
+				compressed = true
 			}
 			lib.ReleaseBuffer(zBuffer)
 		}

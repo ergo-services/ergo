@@ -465,6 +465,7 @@ func TestNodeRemoteSpawn(t *testing.T) {
 }
 
 func TestNodeResolveExtra(t *testing.T) {
+	fmt.Printf("\n=== Test Node Resolve Extra \n")
 	opts1 := node.Options{
 		Flags: node.DefaultFlags(),
 	}
@@ -496,6 +497,7 @@ func TestNodeResolveExtra(t *testing.T) {
 	if route1.Options.EnableCompression {
 		t.Fatal("expected false value")
 	}
+	fmt.Println("OK")
 }
 
 type compressionServer struct {
@@ -524,12 +526,19 @@ func (c *compressionServer) HandleDirect(process *gen.ServerProcess, message int
 	return nil, gen.ErrUnsupportedRequest
 }
 func TestNodeCompression(t *testing.T) {
+	fmt.Printf("\n=== Test Node Compression \n")
 	opts1 := node.Options{}
 	opts1.Compression.Enable = true
 	opts1.Compression.Level = 5
-	node1, _ := ergo.StartNode("node1resolveExtra@localhost", "secret", opts1)
+	node1, e := ergo.StartNode("node1compression@localhost", "secret", opts1)
+	if e != nil {
+		t.Fatal(e)
+	}
 	defer node1.Stop()
-	node2, _ := ergo.StartNode("node2resolveExtra@localhost", "secret", node.Options{})
+	node2, e := ergo.StartNode("node2compression@localhost", "secret", node.Options{})
+	if e != nil {
+		t.Fatal(e)
+	}
 	defer node2.Stop()
 
 	n1p1, err := node1.Spawn("", gen.ProcessOptions{}, &compressionServer{})
@@ -560,8 +569,8 @@ func TestNodeCompression(t *testing.T) {
 
 	// will be fragmented
 	rnd := lib.RandomString(1024 * 1024)
-	blob = []byte(rnd)
-	//rand.Read(blob[:66000])
+	blob = []byte(rnd) // compression rate for random string around 50%
+	//rand.Read(blob[:66000]) // compression rate for 1MB of random data - 0 % (entropy too big)
 	md5sum = fmt.Sprint(md5.Sum(blob))
 	message = etf.Tuple{md5sum, blob}
 
@@ -576,6 +585,112 @@ func TestNodeCompression(t *testing.T) {
 	if result != etf.Atom("ok") {
 		t.Fatal(result)
 	}
+	fmt.Println("OK")
+}
+
+func BenchmarkNodeCompressionDisabled1MBempty(b *testing.B) {
+	node1name := fmt.Sprintf("nodeB1compressionDis_%d@localhost", b.N)
+	node2name := fmt.Sprintf("nodeB2compressionDis_%d@localhost", b.N)
+	node1, _ := ergo.StartNode(node1name, "bench", node.Options{})
+	node2, _ := ergo.StartNode(node2name, "bench", node.Options{})
+
+	bgs := &benchGS{}
+
+	empty := [1048576]byte{}
+	b.SetParallelism(15)
+	b.RunParallel(func(pb *testing.PB) {
+		p1, e1 := node1.Spawn("", gen.ProcessOptions{}, bgs)
+		if e1 != nil {
+			b.Fatal(e1)
+		}
+		p2, e2 := node2.Spawn("", gen.ProcessOptions{}, bgs)
+		if e2 != nil {
+			b.Fatal(e2)
+		}
+		b.ResetTimer()
+		for pb.Next() {
+			call := makeCall{
+				to:      p2.Self(),
+				message: empty,
+			}
+			_, e := p1.Direct(call)
+			if e != nil {
+				b.Fatal(e)
+			}
+		}
+
+	})
+}
+func BenchmarkNodeCompressionEnabled1MBempty(b *testing.B) {
+	node1name := fmt.Sprintf("nodeB1compressionEn_%d@localhost", b.N)
+	node2name := fmt.Sprintf("nodeB2compressionEn_%d@localhost", b.N)
+	node1, _ := ergo.StartNode(node1name, "bench", node.Options{})
+	node2, _ := ergo.StartNode(node2name, "bench", node.Options{})
+
+	bgs := &benchGS{}
+
+	empty := make([]byte, 1024*1024)
+	b.SetParallelism(15)
+	b.RunParallel(func(pb *testing.PB) {
+		p1, e1 := node1.Spawn("", gen.ProcessOptions{}, bgs)
+		if e1 != nil {
+			b.Fatal(e1)
+		}
+		p1.SetCompression(true)
+		p1.SetCompressionLevel(5)
+		p2, e2 := node2.Spawn("", gen.ProcessOptions{}, bgs)
+		if e2 != nil {
+			b.Fatal(e2)
+		}
+		b.ResetTimer()
+		for pb.Next() {
+			call := makeCall{
+				to:      p2.Self(),
+				message: empty,
+			}
+			_, e := p1.Direct(call)
+			if e != nil {
+				b.Fatal(e)
+			}
+		}
+
+	})
+}
+
+func BenchmarkNodeCompressionEnabled1MBstring(b *testing.B) {
+	node1name := fmt.Sprintf("nodeB1compressionEnStr_%d@localhost", b.N)
+	node2name := fmt.Sprintf("nodeB2compressionEnStr_%d@localhost", b.N)
+	node1, _ := ergo.StartNode(node1name, "bench", node.Options{})
+	node2, _ := ergo.StartNode(node2name, "bench", node.Options{})
+
+	bgs := &benchGS{}
+
+	randomString := []byte(lib.RandomString(1024 * 1024))
+	b.SetParallelism(15)
+	b.RunParallel(func(pb *testing.PB) {
+		p1, e1 := node1.Spawn("", gen.ProcessOptions{}, bgs)
+		if e1 != nil {
+			b.Fatal(e1)
+		}
+		p1.SetCompression(true)
+		p1.SetCompressionLevel(5)
+		p2, e2 := node2.Spawn("", gen.ProcessOptions{}, bgs)
+		if e2 != nil {
+			b.Fatal(e2)
+		}
+		b.ResetTimer()
+		for pb.Next() {
+			call := makeCall{
+				to:      p2.Self(),
+				message: randomString,
+			}
+			_, e := p1.Direct(call)
+			if e != nil {
+				b.Fatal(e)
+			}
+		}
+
+	})
 }
 
 type benchGS struct {
