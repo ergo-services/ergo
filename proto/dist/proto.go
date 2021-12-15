@@ -663,7 +663,6 @@ func (dc *distConnection) decodeDist(packet []byte) (etf.Term, etf.Term, error) 
 
 		// read the length of unpacked data
 		lenUnpacked := int(binary.BigEndian.Uint32(packet[:4]))
-		fmt.Println(dc.nodename, "COMPRESSED MESSAGE", lenUnpacked, len(packet))
 
 		// take the gzip reader from the pool
 		if r, ok := gzipReaders.Get().(*gzip.Reader); ok {
@@ -681,15 +680,11 @@ func (dc *distConnection) decodeDist(packet []byte) (etf.Term, etf.Term, error) 
 		// unzipping and decoding the data
 		for {
 			n, e := zReader.Read(zBuffer.B[total:])
-			total += n
-			fmt.Println(zBuffer.B[:10], zBuffer.B[total-10:total])
-			if total > lenUnpacked {
-				// could be a fork bomb
-				return nil, nil, fmt.Errorf("unpacked data exceeded declared size")
+			if n == 0 {
+				return nil, nil, fmt.Errorf("zbuffer too small")
 			}
-			fmt.Println("NNN", n, e, total)
+			total += n
 			if e == io.EOF {
-				fmt.Println("unzipped", len(zBuffer.B))
 				zReader.Close()
 				break
 			}
@@ -725,7 +720,6 @@ func (dc *distConnection) decodeDist(packet []byte) (etf.Term, etf.Term, error) 
 		return control, message, nil
 
 	case protoDistFragment1, protoDistFragmentN, protoDistFragment1Z, protoDistFragmentNZ:
-		fmt.Println(dc.nodename, "COMPRESSED FRAGMENT MESSAGE")
 		if len(packet) < 18 {
 			return nil, nil, fmt.Errorf("malformed fragment")
 		}
@@ -1307,7 +1301,6 @@ func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOpt
 		}
 		lenMessage = packetBuffer.Len() - reserveHeaderAtomCache
 
-		fmt.Println(dc.nodename, "COMPRESS", compressionEnabled, message.compression, message.compressionLevel)
 		if compress && packetBuffer.Len() > (reserveHeaderAtomCache+message.compressionThreshold) {
 			//// take another buffer
 			zBuffer := lib.TakeBuffer()
@@ -1319,7 +1312,6 @@ func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOpt
 				zWriter.Close()
 
 				// swap buffers only if gzipped data less than the original ones
-				fmt.Println("COMP vs ORIG len", zBuffer.Len()-reserveHeaderAtomCache, packetBuffer.Len()-reserveHeaderAtomCache)
 				if zBuffer.Len() < packetBuffer.Len() {
 					binary.BigEndian.PutUint32(zBuffer.B[reserveHeaderAtomCache:], uint32(lenMessage))
 					lenMessage = zBuffer.Len() - reserveHeaderAtomCache
