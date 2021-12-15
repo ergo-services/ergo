@@ -14,6 +14,7 @@ import (
 	"github.com/ergo-services/ergo"
 	"github.com/ergo-services/ergo/etf"
 	"github.com/ergo-services/ergo/gen"
+	"github.com/ergo-services/ergo/lib"
 	"github.com/ergo-services/ergo/node"
 	"github.com/ergo-services/ergo/proto/dist"
 )
@@ -494,6 +495,86 @@ func TestNodeResolveExtra(t *testing.T) {
 	}
 	if route1.Options.EnableCompression {
 		t.Fatal("expected false value")
+	}
+}
+
+type compressionServer struct {
+	gen.Server
+}
+
+func (c *compressionServer) Init(process *gen.ServerProcess, args ...etf.Term) error {
+	return nil
+}
+
+func (c *compressionServer) HandleCall(process *gen.ServerProcess, from gen.ServerFrom, message etf.Term) (etf.Term, gen.ServerStatus) {
+	blob := message.(etf.Tuple)[1].([]byte)
+	md5original := message.(etf.Tuple)[0].(string)
+	md5sum := fmt.Sprint(md5.Sum(blob))
+	result := etf.Atom("ok")
+	if !reflect.DeepEqual(md5original, md5sum) {
+		result = etf.Atom("mismatch")
+	}
+	return result, gen.ServerStatusOK
+}
+func (c *compressionServer) HandleDirect(process *gen.ServerProcess, message interface{}) (interface{}, error) {
+	switch m := message.(type) {
+	case makeCall:
+		return process.Call(m.to, m.message)
+	}
+	return nil, gen.ErrUnsupportedRequest
+}
+func TestNodeCompression(t *testing.T) {
+	opts1 := node.Options{}
+	opts1.Compression.Enable = true
+	opts1.Compression.Level = 5
+	node1, _ := ergo.StartNode("node1resolveExtra@localhost", "secret", opts1)
+	defer node1.Stop()
+	node2, _ := ergo.StartNode("node2resolveExtra@localhost", "secret", node.Options{})
+	defer node2.Stop()
+
+	n1p1, err := node1.Spawn("", gen.ProcessOptions{}, &compressionServer{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	n2p1, err := node2.Spawn("", gen.ProcessOptions{}, &compressionServer{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// empty data (no fragmentation)
+	blob := make([]byte, 1024*1024)
+	md5sum := fmt.Sprint(md5.Sum(blob))
+	message := etf.Tuple{md5sum, blob}
+
+	call := makeCall{
+		to:      n2p1.Self(),
+		message: message,
+	}
+	result, e := n1p1.Direct(call)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if result != etf.Atom("ok") {
+		t.Fatal(result)
+	}
+
+	// will be fragmented
+	rnd := lib.RandomString(1024 * 1024)
+	blob = []byte(rnd)
+	//rand.Read(blob[:66000])
+	md5sum = fmt.Sprint(md5.Sum(blob))
+	message = etf.Tuple{md5sum, blob}
+
+	call = makeCall{
+		to:      n2p1.Self(),
+		message: message,
+	}
+	result, e = n1p1.Direct(call)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if result != etf.Atom("ok") {
+		t.Fatal(result)
 	}
 }
 
