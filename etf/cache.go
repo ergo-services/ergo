@@ -15,7 +15,7 @@ type AtomCache struct {
 	stop      chan struct{}
 	lastID    int16
 	cacheList [maxCacheItems]Atom
-	sync.Mutex
+	sync.RWMutex
 }
 
 // CacheItem
@@ -57,9 +57,9 @@ func (a *AtomCache) Append(atom Atom) {
 
 // GetLastID
 func (a *AtomCache) GetLastID() int16 {
-	a.Lock()
+	a.RLock()
 	id := a.lastID
-	a.Unlock()
+	a.RUnlock()
 	return id
 }
 

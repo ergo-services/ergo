@@ -530,6 +530,10 @@ func TestNodeCompression(t *testing.T) {
 	opts1 := node.Options{}
 	opts1.Compression.Enable = true
 	opts1.Compression.Level = 5
+	// need 1 handler to make Atom cache work
+	protoOptions := node.DefaultProtoOptions()
+	protoOptions.NumHandlers = 1
+	opts1.Proto = dist.CreateProto("node1compression@localhost", protoOptions)
 	node1, e := ergo.StartNode("node1compression@localhost", "secret", opts1)
 	if e != nil {
 		t.Fatal(e)
@@ -550,23 +554,30 @@ func TestNodeCompression(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	fmt.Printf("... send 1MB compressed. no fragmentation: ")
 	// empty data (no fragmentation)
 	blob := make([]byte, 1024*1024)
 	md5sum := fmt.Sprint(md5.Sum(blob))
 	message := etf.Tuple{md5sum, blob}
 
+	// send 3 times. that is how atom cache is working -
+	// atoms are encoding from cache on 2nd or 3rd sending
 	call := makeCall{
 		to:      n2p1.Self(),
 		message: message,
 	}
-	result, e := n1p1.Direct(call)
-	if e != nil {
-		t.Fatal(e)
+	for i := 0; i < 3; i++ {
+		result, e := n1p1.Direct(call)
+		if e != nil {
+			t.Fatal(e)
+		}
+		if result != etf.Atom("ok") {
+			t.Fatal(result)
+		}
 	}
-	if result != etf.Atom("ok") {
-		t.Fatal(result)
-	}
+	fmt.Println("OK")
 
+	fmt.Printf("... send 1MB compressed. with fragmentation: ")
 	// will be fragmented
 	rnd := lib.RandomString(1024 * 1024)
 	blob = []byte(rnd) // compression rate for random string around 50%
@@ -578,12 +589,14 @@ func TestNodeCompression(t *testing.T) {
 		to:      n2p1.Self(),
 		message: message,
 	}
-	result, e = n1p1.Direct(call)
-	if e != nil {
-		t.Fatal(e)
-	}
-	if result != etf.Atom("ok") {
-		t.Fatal(result)
+	for i := 0; i < 3; i++ {
+		result, e := n1p1.Direct(call)
+		if e != nil {
+			t.Fatal(e)
+		}
+		if result != etf.Atom("ok") {
+			t.Fatal(result)
+		}
 	}
 	fmt.Println("OK")
 }
