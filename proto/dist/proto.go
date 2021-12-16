@@ -56,7 +56,6 @@ type fragmentedPacket struct {
 	disorderedSlices map[uint64][]byte
 	fragmentID       uint64
 	lastUpdate       time.Time
-	cache            []etf.Atom
 }
 
 type distConnection struct {
@@ -155,6 +154,7 @@ func (dp *distProto) Init(ctx context.Context, conn io.ReadWriter, peername stri
 		flags:       flags,
 		compression: dp.options.Compression,
 		conn:        conn,
+		fragments:   make(map[uint64]*fragmentedPacket),
 	}
 	connection.ctx, connection.cancelContext = context.WithCancel(ctx)
 
@@ -610,23 +610,23 @@ func (dc *distConnection) decodePacket(packet []byte) (etf.Term, etf.Term, error
 }
 
 func (dc *distConnection) decodeDist(packet []byte) (etf.Term, etf.Term, error) {
-	cache, packetMessage, err := dc.decodeDistHeaderAtomCache(packet[1:])
-	if err != nil {
-		return nil, nil, err
-	}
-
-re:
 	switch packet[0] {
 	case protoDistMessage:
 		var control, message etf.Term
 		var err error
+		var cache []etf.Atom
+
+		cache, packet, err = dc.decodeDistHeaderAtomCache(packet[1:])
+		if err != nil {
+			return nil, nil, err
+		}
 
 		decodeOptions := etf.DecodeOptions{
 			FlagBigPidRef: dc.flags.EnableBigPidRef,
 		}
 
 		// decode control message
-		control, packetMessage, err = etf.Decode(packetMessage, cache, decodeOptions)
+		control, packet, err = etf.Decode(packet, cache, decodeOptions)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -636,13 +636,13 @@ re:
 		}
 
 		// decode payload message
-		message, packetMessage, err = etf.Decode(packetMessage, cache, decodeOptions)
+		message, packet, err = etf.Decode(packet, cache, decodeOptions)
 		if err != nil {
 			return nil, nil, err
 		}
 
-		if len(packetMessage) != 0 {
-			return nil, nil, fmt.Errorf("packet has extra %d byte(s)", len(packetMessage))
+		if len(packet) != 0 {
+			return nil, nil, fmt.Errorf("packet has extra %d byte(s)", len(packet))
 		}
 
 		return control, message, nil
@@ -650,14 +650,20 @@ re:
 	case protoDistMessageZ:
 		var control, message etf.Term
 		var err error
+		var cache []etf.Atom
 		var zReader *gzip.Reader
 		var total int
 		// compressed protoDistMessage
 
-		// read the length of unpacked data
-		lenUnpacked := int(binary.BigEndian.Uint32(packetMessage[:4]))
+		cache, packet, err = dc.decodeDistHeaderAtomCache(packet[1:])
+		if err != nil {
+			return nil, nil, err
+		}
 
-		zReader, err = gzip.NewReader(bytes.NewBuffer(packetMessage[4:]))
+		// read the length of unpacked data
+		lenUnpacked := int(binary.BigEndian.Uint32(packet[:4]))
+
+		zReader, err = gzip.NewReader(bytes.NewBuffer(packet[4:]))
 		if err != nil {
 			return nil, nil, err
 		}
@@ -714,16 +720,12 @@ re:
 			return nil, nil, fmt.Errorf("malformed fragment")
 		}
 
-		assembled, c, err := dc.decodeFragment(packet)
-		if assembled != nil {
+		if assembled, err := dc.decodeFragment(packet); assembled != nil {
 			if err != nil {
 				return nil, nil, err
 			}
 			defer lib.ReleaseBuffer(assembled)
-			packet = assembled.B
-			packetMessage = assembled.B[2:]
-			cache = c
-			goto re
+			return dc.decodeDist(assembled.B)
 		} else {
 			if err != nil {
 				return nil, nil, err
@@ -931,19 +933,14 @@ func (dc *distConnection) handleMessage(control, message etf.Term) (err error) {
 	return fmt.Errorf("unsupported control message %#v", control)
 }
 
-func (dc *distConnection) decodeFragment(packet []byte) (*lib.Buffer, []etf.Atom, error) {
+func (dc *distConnection) decodeFragment(packet []byte) (*lib.Buffer, error) {
 	var first, compressed bool
 	var err error
-	var cache []etf.Atom
-
-	if dc.fragments == nil {
-		dc.fragments = make(map[uint64]*fragmentedPacket)
-	}
 
 	sequenceID := binary.BigEndian.Uint64(packet[1:9])
 	fragmentID := binary.BigEndian.Uint64(packet[9:17])
 	if fragmentID == 0 {
-		return nil, cache, fmt.Errorf("fragmentID can't be 0")
+		return nil, fmt.Errorf("fragmentID can't be 0")
 	}
 
 	switch packet[0] {
@@ -952,24 +949,22 @@ func (dc *distConnection) decodeFragment(packet []byte) (*lib.Buffer, []etf.Atom
 		// to get rid the case when we get the first fragment of the packet with
 		// cached atoms and the next packet is not the part of the fragmented packet,
 		// but with the ids were cached in the first fragment
-		cache, packet, err = dc.decodeDistHeaderAtomCache(packet[17:])
+		_, _, err = dc.decodeDistHeaderAtomCache(packet[17:])
 		if err != nil {
-			return nil, cache, err
+			return nil, err
 		}
 		first = true
 	case protoDistFragment1Z:
-		cache, packet, err = dc.decodeDistHeaderAtomCache(packet[17:])
+		_, _, err = dc.decodeDistHeaderAtomCache(packet[17:])
 		if err != nil {
-			return nil, cache, err
+			return nil, err
 		}
 		first = true
 		compressed = true
 	case protoDistFragmentNZ:
-		packet = packet[17:]
 		compressed = true
-	default:
-		packet = packet[17:]
 	}
+	packet = packet[17:]
 
 	dc.fragmentsMutex.Lock()
 	defer dc.fragmentsMutex.Unlock()
@@ -981,21 +976,15 @@ func (dc *distConnection) decodeFragment(packet []byte) (*lib.Buffer, []etf.Atom
 			disordered:       lib.TakeBuffer(),
 			disorderedSlices: make(map[uint64][]byte),
 			lastUpdate:       time.Now(),
-			cache:            cache,
 		}
 
 		// append new packet type with zero atom cache
 		if compressed {
-			fragmented.buffer.Append([]byte{protoDistMessageZ, 0})
+			fragmented.buffer.AppendByte(protoDistMessageZ)
 		} else {
-			fragmented.buffer.Append([]byte{protoDistMessage, 0})
+			fragmented.buffer.AppendByte(protoDistMessage)
 		}
 		dc.fragments[sequenceID] = fragmented
-	}
-
-	// in case if 1Z fragment is not the first one we must update cache value
-	if len(cache) > 0 {
-		fragmented.cache = cache
 	}
 
 	// until we get the first item everything will be treated as disordered
@@ -1034,16 +1023,16 @@ func (dc *distConnection) decodeFragment(packet []byte) (*lib.Buffer, []etf.Atom
 		// it was the last fragment
 		delete(dc.fragments, sequenceID)
 		lib.ReleaseBuffer(fragmented.disordered)
-		return fragmented.buffer, fragmented.cache, nil
+		return fragmented.buffer, nil
 	}
 
 	if dc.checkCleanPending {
-		return nil, cache, nil
+		return nil, nil
 	}
 
 	if dc.checkCleanTimer != nil {
 		dc.checkCleanTimer.Reset(dc.checkCleanTimeout)
-		return nil, cache, nil
+		return nil, nil
 	}
 
 	dc.checkCleanTimer = time.AfterFunc(dc.checkCleanTimeout, func() {
@@ -1073,7 +1062,7 @@ func (dc *distConnection) decodeFragment(packet []byte) (*lib.Buffer, []etf.Atom
 		dc.checkCleanTimer.Reset(dc.checkCleanTimeout)
 	})
 
-	return nil, cache, nil
+	return nil, nil
 }
 
 func (dc *distConnection) decodeDistHeaderAtomCache(packet []byte) ([]etf.Atom, []byte, error) {
