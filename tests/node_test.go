@@ -608,6 +608,9 @@ func BenchmarkNodeCompressionDisabled1MBempty(b *testing.B) {
 	node2, _ := ergo.StartNode(node2name, "bench", node.Options{})
 	defer node1.Stop()
 	defer node2.Stop()
+	if err := node1.Connect(node2.Name()); err != nil {
+		b.Fatal(err)
+	}
 
 	bgs := &benchGS{}
 
@@ -628,7 +631,7 @@ func BenchmarkNodeCompressionDisabled1MBempty(b *testing.B) {
 				to:      p2.Self(),
 				message: empty,
 			}
-			_, e := p1.DirectWithTimeout(call, 15)
+			_, e := p1.DirectWithTimeout(call, 30)
 			if e != nil {
 				b.Fatal(e)
 			}
@@ -643,11 +646,14 @@ func BenchmarkNodeCompressionEnabled1MBempty(b *testing.B) {
 	node2, _ := ergo.StartNode(node2name, "bench", node.Options{})
 	defer node1.Stop()
 	defer node2.Stop()
+	if err := node1.Connect(node2.Name()); err != nil {
+		b.Fatal(err)
+	}
 
 	bgs := &benchGS{}
 
 	var empty [1024 * 1024]byte
-	b.SetParallelism(15)
+	//b.SetParallelism(15)
 	b.RunParallel(func(pb *testing.PB) {
 		p1, e1 := node1.Spawn("", gen.ProcessOptions{}, bgs)
 		if e1 != nil {
@@ -665,9 +671,9 @@ func BenchmarkNodeCompressionEnabled1MBempty(b *testing.B) {
 				to:      p2.Self(),
 				message: empty,
 			}
-			_, e := p1.DirectWithTimeout(call, 15)
+			_, e := p1.DirectWithTimeout(call, 30)
 			if e != nil {
-				fmt.Println("P1 GOT ERR", p1.Self())
+				fmt.Printf("P1 GOT ERR %#v\n", p1.Self())
 				b.Fatal(e)
 			}
 		}
@@ -678,10 +684,19 @@ func BenchmarkNodeCompressionEnabled1MBempty(b *testing.B) {
 func BenchmarkNodeCompressionEnabled1MBstring(b *testing.B) {
 	node1name := fmt.Sprintf("nodeB1compressionEnStr_%d@localhost", b.N)
 	node2name := fmt.Sprintf("nodeB2compressionEnStr_%d@localhost", b.N)
-	node1, _ := ergo.StartNode(node1name, "bench", node.Options{})
-	node2, _ := ergo.StartNode(node2name, "bench", node.Options{})
+	node1, e := ergo.StartNode(node1name, "bench", node.Options{})
+	if e != nil {
+		b.Fatal(e)
+	}
+	node2, e := ergo.StartNode(node2name, "bench", node.Options{})
+	if e != nil {
+		b.Fatal(e)
+	}
 	defer node1.Stop()
 	defer node2.Stop()
+	if err := node1.Connect(node2.Name()); err != nil {
+		b.Fatal(err)
+	}
 
 	bgs := &benchGS{}
 
@@ -698,13 +713,22 @@ func BenchmarkNodeCompressionEnabled1MBstring(b *testing.B) {
 		if e2 != nil {
 			b.Fatal(e2)
 		}
+		call := makeCall{
+			to:      p2.Self(),
+			message: 1,
+		}
+		_, e := p1.DirectWithTimeout(call, 30)
+		if e != nil {
+			fmt.Println("TEST CALL FAILED")
+			b.Fatal(e)
+		}
 		b.ResetTimer()
 		for pb.Next() {
 			call := makeCall{
 				to:      p2.Self(),
 				message: randomString,
 			}
-			_, e := p1.DirectWithTimeout(call, 15)
+			_, e := p1.DirectWithTimeout(call, 30)
 			if e != nil {
 				b.Fatal(e)
 			}
@@ -723,7 +747,7 @@ func (b *benchGS) HandleCall(process *gen.ServerProcess, from gen.ServerFrom, me
 func (b *benchGS) HandleDirect(process *gen.ServerProcess, message interface{}) (interface{}, error) {
 	switch m := message.(type) {
 	case makeCall:
-		return process.CallWithTimeout(m.to, m.message, 15)
+		return process.CallWithTimeout(m.to, m.message, 30)
 	}
 	return nil, gen.ErrUnsupportedRequest
 }

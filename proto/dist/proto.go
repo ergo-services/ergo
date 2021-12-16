@@ -699,6 +699,7 @@ func (dc *distConnection) decodeDist(packet []byte) (etf.Term, etf.Term, error) 
 		// decode control message
 		control, packet, err = etf.Decode(packet, cache, decodeOptions)
 		if err != nil {
+			fmt.Println("CTLR")
 			return nil, nil, err
 		}
 		if len(packet) == 0 {
