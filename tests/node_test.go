@@ -606,10 +606,12 @@ func BenchmarkNodeCompressionDisabled1MBempty(b *testing.B) {
 	node2name := fmt.Sprintf("nodeB2compressionDis_%d@localhost", b.N)
 	node1, _ := ergo.StartNode(node1name, "bench", node.Options{})
 	node2, _ := ergo.StartNode(node2name, "bench", node.Options{})
+	defer node1.Stop()
+	defer node2.Stop()
 
 	bgs := &benchGS{}
 
-	empty := [1048576]byte{}
+	var empty [1024 * 1024]byte
 	b.SetParallelism(15)
 	b.RunParallel(func(pb *testing.PB) {
 		p1, e1 := node1.Spawn("", gen.ProcessOptions{}, bgs)
@@ -626,7 +628,7 @@ func BenchmarkNodeCompressionDisabled1MBempty(b *testing.B) {
 				to:      p2.Self(),
 				message: empty,
 			}
-			_, e := p1.Direct(call)
+			_, e := p1.DirectWithTimeout(call, 15)
 			if e != nil {
 				b.Fatal(e)
 			}
@@ -639,10 +641,12 @@ func BenchmarkNodeCompressionEnabled1MBempty(b *testing.B) {
 	node2name := fmt.Sprintf("nodeB2compressionEn_%d@localhost", b.N)
 	node1, _ := ergo.StartNode(node1name, "bench", node.Options{})
 	node2, _ := ergo.StartNode(node2name, "bench", node.Options{})
+	defer node1.Stop()
+	defer node2.Stop()
 
 	bgs := &benchGS{}
 
-	empty := make([]byte, 1024*1024)
+	var empty [1024 * 1024]byte
 	b.SetParallelism(15)
 	b.RunParallel(func(pb *testing.PB) {
 		p1, e1 := node1.Spawn("", gen.ProcessOptions{}, bgs)
@@ -661,8 +665,9 @@ func BenchmarkNodeCompressionEnabled1MBempty(b *testing.B) {
 				to:      p2.Self(),
 				message: empty,
 			}
-			_, e := p1.Direct(call)
+			_, e := p1.DirectWithTimeout(call, 15)
 			if e != nil {
+				fmt.Println("P1 GOT ERR", p1.Self())
 				b.Fatal(e)
 			}
 		}
@@ -675,6 +680,8 @@ func BenchmarkNodeCompressionEnabled1MBstring(b *testing.B) {
 	node2name := fmt.Sprintf("nodeB2compressionEnStr_%d@localhost", b.N)
 	node1, _ := ergo.StartNode(node1name, "bench", node.Options{})
 	node2, _ := ergo.StartNode(node2name, "bench", node.Options{})
+	defer node1.Stop()
+	defer node2.Stop()
 
 	bgs := &benchGS{}
 
@@ -697,7 +704,7 @@ func BenchmarkNodeCompressionEnabled1MBstring(b *testing.B) {
 				to:      p2.Self(),
 				message: randomString,
 			}
-			_, e := p1.Direct(call)
+			_, e := p1.DirectWithTimeout(call, 15)
 			if e != nil {
 				b.Fatal(e)
 			}
@@ -716,7 +723,7 @@ func (b *benchGS) HandleCall(process *gen.ServerProcess, from gen.ServerFrom, me
 func (b *benchGS) HandleDirect(process *gen.ServerProcess, message interface{}) (interface{}, error) {
 	switch m := message.(type) {
 	case makeCall:
-		return process.Call(m.to, m.message)
+		return process.CallWithTimeout(m.to, m.message, 15)
 	}
 	return nil, gen.ErrUnsupportedRequest
 }

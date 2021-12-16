@@ -149,12 +149,14 @@ type receivers struct {
 
 func (dp *distProto) Init(ctx context.Context, conn io.ReadWriter, peername string, flags node.Flags) (node.ConnectionInterface, error) {
 	connection := &distConnection{
-		nodename:    dp.nodename,
-		peername:    peername,
-		flags:       flags,
-		compression: dp.options.Compression,
-		conn:        conn,
-		fragments:   make(map[uint64]*fragmentedPacket),
+		nodename:           dp.nodename,
+		peername:           peername,
+		flags:              flags,
+		compression:        dp.options.Compression,
+		conn:               conn,
+		fragments:          make(map[uint64]*fragmentedPacket),
+		checkCleanTimeout:  defaultCleanTimeout,
+		checkCleanDeadline: defaultCleanDeadline,
 	}
 	connection.ctx, connection.cancelContext = context.WithCancel(ctx)
 
@@ -731,7 +733,6 @@ func (dc *distConnection) decodeDist(packet []byte) (etf.Term, etf.Term, error) 
 				return nil, nil, err
 			}
 		}
-
 		return nil, nil, nil
 	}
 
@@ -1039,17 +1040,16 @@ func (dc *distConnection) decodeFragment(packet []byte) (*lib.Buffer, error) {
 		dc.fragmentsMutex.Lock()
 		defer dc.fragmentsMutex.Unlock()
 
-		if dc.checkCleanTimeout == 0 {
-			dc.checkCleanTimeout = defaultCleanTimeout
-		}
-		if dc.checkCleanDeadline == 0 {
-			dc.checkCleanDeadline = defaultCleanDeadline
+		if len(dc.fragments) == 0 {
+			dc.checkCleanPending = false
+			return
 		}
 
 		valid := time.Now().Add(-dc.checkCleanDeadline)
 		for sequenceID, fragmented := range dc.fragments {
 			if fragmented.lastUpdate.Before(valid) {
 				// dropping  due to exceeded deadline
+				fmt.Println("DROP")
 				delete(dc.fragments, sequenceID)
 			}
 		}
