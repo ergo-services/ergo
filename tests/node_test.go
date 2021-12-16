@@ -673,7 +673,6 @@ func BenchmarkNodeCompressionEnabled1MBempty(b *testing.B) {
 			}
 			_, e := p1.DirectWithTimeout(call, 30)
 			if e != nil {
-				fmt.Printf("P1 GOT ERR %#v\n", p1.Self())
 				b.Fatal(e)
 			}
 		}
@@ -712,15 +711,6 @@ func BenchmarkNodeCompressionEnabled1MBstring(b *testing.B) {
 		p2, e2 := node2.Spawn("", gen.ProcessOptions{}, bgs)
 		if e2 != nil {
 			b.Fatal(e2)
-		}
-		call := makeCall{
-			to:      p2.Self(),
-			message: 1,
-		}
-		_, e := p1.DirectWithTimeout(call, 30)
-		if e != nil {
-			fmt.Println("TEST CALL FAILED")
-			b.Fatal(e)
 		}
 		b.ResetTimer()
 		for pb.Next() {

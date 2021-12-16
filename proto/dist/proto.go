@@ -22,10 +22,23 @@ var (
 	ErrMissingInCache     = fmt.Errorf("missing in cache")
 	ErrMalformed          = fmt.Errorf("malformed")
 	ErrOverloadConnection = fmt.Errorf("connection buffer is overloaded")
+	gzipReaders           = &sync.Pool{
+		New: func() interface{} {
+			return nil
+		},
+	}
+	gzipWriters = [10]*sync.Pool{}
 )
 
 func init() {
 	rand.Seed(time.Now().UTC().UnixNano())
+	for i := range gzipWriters {
+		gzipWriters[i] = &sync.Pool{
+			New: func() interface{} {
+				return nil
+			},
+		}
+	}
 }
 
 const (
@@ -665,10 +678,14 @@ func (dc *distConnection) decodeDist(packet []byte) (etf.Term, etf.Term, error) 
 		// read the length of unpacked data
 		lenUnpacked := int(binary.BigEndian.Uint32(packet[:4]))
 
-		zReader, err = gzip.NewReader(bytes.NewBuffer(packet[4:]))
-		if err != nil {
-			return nil, nil, err
+		// take the gzip reader from the pool
+		if r, ok := gzipReaders.Get().(*gzip.Reader); ok {
+			zReader = r
+			zReader.Reset(bytes.NewBuffer(packet[4:]))
+		} else {
+			zReader, _ = gzip.NewReader(bytes.NewBuffer(packet[4:]))
 		}
+		defer gzipReaders.Put(zReader)
 
 		// take new buffer and allocate space for the unpacked data
 		zBuffer := lib.TakeBuffer()
@@ -683,7 +700,6 @@ func (dc *distConnection) decodeDist(packet []byte) (etf.Term, etf.Term, error) 
 			}
 			total += n
 			if e == io.EOF {
-				zReader.Close()
 				break
 			}
 			if e != nil {
@@ -1312,9 +1328,15 @@ func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOpt
 			if level == -1 {
 				level = 0
 			}
-			zWriter, _ = gzip.NewWriterLevel(zBuffer, message.compressionLevel)
+			if w, ok := gzipWriters[level].Get().(*gzip.Writer); ok {
+				zWriter = w
+				zWriter.Reset(zBuffer)
+			} else {
+				zWriter, _ = gzip.NewWriterLevel(zBuffer, message.compressionLevel)
+			}
 			zWriter.Write(packetBuffer.B[reserveHeaderAtomCache:])
 			zWriter.Close()
+			gzipWriters[level].Put(zWriter)
 
 			// swap buffers only if gzipped data less than the original ones
 			if zBuffer.Len() < packetBuffer.Len() {
