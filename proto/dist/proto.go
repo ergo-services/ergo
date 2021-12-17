@@ -27,7 +27,12 @@ var (
 			return nil
 		},
 	}
-	gzipWriters = [10]*sync.Pool{}
+	gzipWriters  = [10]*sync.Pool{}
+	sendMessages = &sync.Pool{
+		New: func() interface{} {
+			return &sendMessage{}
+		},
+	}
 )
 
 func init() {
@@ -297,10 +302,10 @@ func (dp *distProto) Terminate(ci node.ConnectionInterface) {
 // node.Connection interface implementation
 
 func (dc *distConnection) Send(from gen.Process, to etf.Pid, message etf.Term) error {
-	msg := &sendMessage{
-		control: etf.Tuple{distProtoSEND, etf.Atom(""), to},
-		payload: message,
-	}
+	msg := sendMessages.Get().(*sendMessage)
+
+	msg.control = etf.Tuple{distProtoSEND, etf.Atom(""), to}
+	msg.payload = message
 	if dc.flags.EnableCompression {
 		msg.compression = from.Compression()
 		msg.compressionLevel = from.CompressionLevel()
@@ -310,10 +315,10 @@ func (dc *distConnection) Send(from gen.Process, to etf.Pid, message etf.Term) e
 	return dc.send(msg)
 }
 func (dc *distConnection) SendReg(from gen.Process, to gen.ProcessID, message etf.Term) error {
-	msg := &sendMessage{
-		control: etf.Tuple{distProtoREG_SEND, from.Self(), etf.Atom(""), etf.Atom(to.Name)},
-		payload: message,
-	}
+	msg := sendMessages.Get().(*sendMessage)
+
+	msg.control = etf.Tuple{distProtoREG_SEND, from.Self(), etf.Atom(""), etf.Atom(to.Name)}
+	msg.payload = message
 
 	if dc.flags.EnableCompression {
 		msg.compression = from.Compression()
@@ -327,10 +332,10 @@ func (dc *distConnection) SendAlias(from gen.Process, to etf.Alias, message etf.
 		return node.ErrUnsupported
 	}
 
-	msg := &sendMessage{
-		control: etf.Tuple{distProtoALIAS_SEND, from.Self(), to},
-		payload: message,
-	}
+	msg := sendMessages.Get().(*sendMessage)
+
+	msg.control = etf.Tuple{distProtoALIAS_SEND, from.Self(), to}
+	msg.payload = message
 
 	if dc.flags.EnableCompression {
 		msg.compression = from.Compression()
@@ -1246,6 +1251,8 @@ func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOpt
 		if message != nil {
 			message.control = nil
 			message.payload = nil
+			message.compression = false
+			sendMessages.Put(message)
 		}
 
 		message = <-send
