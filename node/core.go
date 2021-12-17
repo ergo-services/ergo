@@ -82,6 +82,12 @@ type coreRouterInternal interface {
 }
 
 func newCore(ctx context.Context, nodename string, options Options) (coreInternal, error) {
+	if options.Compression.Level < 1 || options.Compression.Level > 9 {
+		options.Compression.Level = DefaultCompressionLevel
+	}
+	if options.Compression.Threshold < DefaultCompressionThreshold {
+		options.Compression.Threshold = DefaultCompressionThreshold
+	}
 	c := &core{
 		ctx:     ctx,
 		env:     options.Env,

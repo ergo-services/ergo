@@ -22,35 +22,39 @@ const (
 
 	// distribution flags are defined here https://erlang.org/doc/apps/erts/erl_dist_protocol.html#distribution-flags
 	flagPublished          nodeFlagId = 0x1
-	flagAtomCache                     = 0x2
-	flagExtendedReferences            = 0x4
-	flagDistMonitor                   = 0x8
-	flagFunTags                       = 0x10
-	flagDistMonitorName               = 0x20
-	flagHiddenAtomCache               = 0x40
-	flagNewFunTags                    = 0x80
-	flagExtendedPidsPorts             = 0x100
-	flagExportPtrTag                  = 0x200
-	flagBitBinaries                   = 0x400
-	flagNewFloats                     = 0x800
-	flagUnicodeIO                     = 0x1000
-	flagDistHdrAtomCache              = 0x2000
-	flagSmallAtomTags                 = 0x4000
-	//flagCompressed = 0x8000 // erlang internal
-	flagUTF8Atoms         = 0x10000
-	flagMapTag            = 0x20000
-	flagBigCreation       = 0x40000
-	flagSendSender        = 0x80000 // since OTP.21 enable replacement for SEND (distProtoSEND by distProtoSEND_SENDER)
-	flagBigSeqTraceLabels = 0x100000
-	flagExitPayload       = 0x400000 // since OTP.22 enable replacement for EXIT, EXIT2, MONITOR_P_EXIT
-	flagFragments         = 0x800000
-	flagHandshake23       = 0x1000000 // new connection setup handshake (version 6) introduced in OTP 23
-	flagUnlinkID          = 0x2000000
+	flagAtomCache          nodeFlagId = 0x2
+	flagExtendedReferences nodeFlagId = 0x4
+	flagDistMonitor        nodeFlagId = 0x8
+	flagFunTags            nodeFlagId = 0x10
+	flagDistMonitorName    nodeFlagId = 0x20
+	flagHiddenAtomCache    nodeFlagId = 0x40
+	flagNewFunTags         nodeFlagId = 0x80
+	flagExtendedPidsPorts  nodeFlagId = 0x100
+	flagExportPtrTag       nodeFlagId = 0x200
+	flagBitBinaries        nodeFlagId = 0x400
+	flagNewFloats          nodeFlagId = 0x800
+	flagUnicodeIO          nodeFlagId = 0x1000
+	flagDistHdrAtomCache   nodeFlagId = 0x2000
+	flagSmallAtomTags      nodeFlagId = 0x4000
+	//	flagCompressed                   = 0x8000 // erlang uses this flag for the internal purposes
+	flagUTF8Atoms         nodeFlagId = 0x10000
+	flagMapTag            nodeFlagId = 0x20000
+	flagBigCreation       nodeFlagId = 0x40000
+	flagSendSender        nodeFlagId = 0x80000 // since OTP.21 enable replacement for SEND (distProtoSEND by distProtoSEND_SENDER)
+	flagBigSeqTraceLabels            = 0x100000
+	flagExitPayload       nodeFlagId = 0x400000 // since OTP.22 enable replacement for EXIT, EXIT2, MONITOR_P_EXIT
+	flagFragments         nodeFlagId = 0x800000
+	flagHandshake23       nodeFlagId = 0x1000000 // new connection setup handshake (version 6) introduced in OTP 23
+	flagUnlinkID          nodeFlagId = 0x2000000
 	// for 64bit flags
-	flagSpawn  = 1 << 32
-	flagNameMe = 1 << 33
-	flagV4NC   = 1 << 34
-	flagAlias  = 1 << 35
+	flagSpawn  nodeFlagId = 1 << 32
+	flagNameMe nodeFlagId = 1 << 33
+	flagV4NC   nodeFlagId = 1 << 34
+	flagAlias  nodeFlagId = 1 << 35
+
+	// ergo flags
+	flagCompression = 1 << 63
+	flagProxy       = 1 << 62
 )
 
 type nodeFlagId uint64
@@ -264,6 +268,8 @@ func (dh *DistHandshake) Start(conn io.ReadWriter, tls bool) (node.Flags, error)
 				peer_Flags.EnableAlias = peer_nodeFlags.isSet(flagAlias)
 				peer_Flags.EnableRemoteSpawn = peer_nodeFlags.isSet(flagSpawn)
 				peer_Flags.EnableBigPidRef = peer_nodeFlags.isSet(flagV4NC)
+				peer_Flags.EnableCompression = peer_nodeFlags.isSet(flagCompression)
+				peer_Flags.EnableProxy = peer_nodeFlags.isSet(flagProxy)
 				return peer_Flags, nil
 
 			case 's':
@@ -446,6 +452,8 @@ func (dh *DistHandshake) Accept(conn io.ReadWriter, tls bool) (string, node.Flag
 				peer_Flags.EnableAlias = peer_nodeFlags.isSet(flagAlias)
 				peer_Flags.EnableRemoteSpawn = peer_nodeFlags.isSet(flagSpawn)
 				peer_Flags.EnableBigPidRef = peer_nodeFlags.isSet(flagV4NC)
+				peer_Flags.EnableCompression = peer_nodeFlags.isSet(flagCompression)
+				peer_Flags.EnableProxy = peer_nodeFlags.isSet(flagProxy)
 
 				return peer_name, peer_Flags, nil
 
@@ -746,6 +754,8 @@ func composeFlags(flags node.Flags) nodeFlags {
 		flagUTF8Atoms,
 		flagMapTag,
 		flagHandshake23,
+		flagCompression,
+		flagProxy,
 	}
 
 	// optional flags

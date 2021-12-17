@@ -69,13 +69,6 @@ func StartWithContext(ctx context.Context, name string, cookie string, opts Opti
 		return nil, fmt.Errorf("Resolver must be defined if StaticRoutesOnly == false")
 	}
 
-	if opts.Compression.Level < 1 || opts.Compression.Level > 9 {
-		opts.Compression.Level = DefaultCompressionLevel
-	}
-	if opts.Compression.Threshold < DefaultCompressionThreshold {
-		opts.Compression.Threshold = DefaultCompressionThreshold
-	}
-
 	nodectx, nodestop := context.WithCancel(ctx)
 	node := &node{
 		name:     name,

@@ -81,9 +81,6 @@ type distConnection struct {
 	// peer flags
 	flags node.Flags
 
-	// compression
-	compression node.Compression
-
 	// socket
 	conn          io.ReadWriter
 	cancelContext context.CancelFunc
@@ -165,7 +162,6 @@ func (dp *distProto) Init(ctx context.Context, conn io.ReadWriter, peername stri
 		nodename:           dp.nodename,
 		peername:           peername,
 		flags:              flags,
-		compression:        dp.options.Compression,
 		conn:               conn,
 		fragments:          make(map[uint64]*fragmentedPacket),
 		checkCleanTimeout:  defaultCleanTimeout,
@@ -301,67 +297,45 @@ func (dp *distProto) Terminate(ci node.ConnectionInterface) {
 // node.Connection interface implementation
 
 func (dc *distConnection) Send(from gen.Process, to etf.Pid, message etf.Term) error {
-	var compression bool
-	var compressionLevel, compressionThreshold int
-
-	if dc.flags.EnableCompression {
-		if dc.compression.Enable == true {
-			compression = true
-			compressionLevel = dc.compression.Level
-			compressionThreshold = dc.compression.Threshold
-		} else {
-			compression = from.Compression()
-			compressionLevel = from.CompressionLevel()
-			compressionThreshold = from.CompressionThreshold()
-		}
-	}
-
 	msg := &sendMessage{
-		control:              etf.Tuple{distProtoSEND, etf.Atom(""), to},
-		payload:              message,
-		compression:          compression,
-		compressionLevel:     compressionLevel,
-		compressionThreshold: compressionThreshold,
+		control: etf.Tuple{distProtoSEND, etf.Atom(""), to},
+		payload: message,
 	}
+	if dc.flags.EnableCompression {
+		msg.compression = from.Compression()
+		msg.compressionLevel = from.CompressionLevel()
+		msg.compressionThreshold = from.CompressionThreshold()
+	}
+
 	return dc.send(msg)
 }
 func (dc *distConnection) SendReg(from gen.Process, to gen.ProcessID, message etf.Term) error {
-	var compression bool
-
-	if dc.flags.EnableCompression {
-		if dc.compression.Enable == true {
-			compression = true
-		} else {
-			compression = from.Compression()
-		}
+	msg := &sendMessage{
+		control: etf.Tuple{distProtoREG_SEND, from.Self(), etf.Atom(""), etf.Atom(to.Name)},
+		payload: message,
 	}
 
-	msg := &sendMessage{
-		control:     etf.Tuple{distProtoREG_SEND, from.Self(), etf.Atom(""), etf.Atom(to.Name)},
-		payload:     message,
-		compression: compression,
+	if dc.flags.EnableCompression {
+		msg.compression = from.Compression()
+		msg.compressionLevel = from.CompressionLevel()
+		msg.compressionThreshold = from.CompressionThreshold()
 	}
 	return dc.send(msg)
 }
 func (dc *distConnection) SendAlias(from gen.Process, to etf.Alias, message etf.Term) error {
-	var compression bool
-
 	if dc.flags.EnableAlias == false {
 		return node.ErrUnsupported
 	}
 
-	if dc.flags.EnableCompression {
-		if dc.compression.Enable == true {
-			compression = true
-		} else {
-			compression = from.Compression()
-		}
+	msg := &sendMessage{
+		control: etf.Tuple{distProtoALIAS_SEND, from.Self(), to},
+		payload: message,
 	}
 
-	msg := &sendMessage{
-		control:     etf.Tuple{distProtoALIAS_SEND, from.Self(), to},
-		payload:     message,
-		compression: compression,
+	if dc.flags.EnableCompression {
+		msg.compression = from.Compression()
+		msg.compressionLevel = from.CompressionLevel()
+		msg.compressionThreshold = from.CompressionThreshold()
 	}
 	return dc.send(msg)
 }
@@ -996,7 +970,7 @@ func (dc *distConnection) decodeFragment(packet []byte) (*lib.Buffer, error) {
 			lastUpdate:       time.Now(),
 		}
 
-		// append new packet type with zero atom cache
+		// append new packet type
 		if compressed {
 			fragmented.buffer.AppendByte(protoDistMessageZ)
 		} else {
@@ -1066,7 +1040,6 @@ func (dc *distConnection) decodeFragment(packet []byte) (*lib.Buffer, error) {
 		for sequenceID, fragmented := range dc.fragments {
 			if fragmented.lastUpdate.Before(valid) {
 				// dropping  due to exceeded deadline
-				fmt.Println("DROP")
 				delete(dc.fragments, sequenceID)
 			}
 		}
@@ -1270,6 +1243,11 @@ func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOpt
 	}
 
 	for {
+		if message != nil {
+			message.control = nil
+			message.payload = nil
+		}
+
 		message = <-send
 
 		if message == nil {

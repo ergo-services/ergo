@@ -30,10 +30,8 @@ const (
 	// epmdStopReq = 115
 
 	// Extra data
-	ergoExtraMagic       = 4411
-	ergoExtraVersion1    = 1
-	ergoExtraEnableTLS   = 100
-	ergoExtraEnableProxy = 101
+	ergoExtraMagic    = 4411
+	ergoExtraVersion1 = 1
 )
 
 // epmd implements resolver
@@ -180,7 +178,7 @@ func (e *epmdResolver) Resolve(name string) (node.Route, error) {
 }
 
 func (e *epmdResolver) composeExtra(options node.ResolverOptions) {
-	buf := make([]byte, 6)
+	buf := make([]byte, 4)
 
 	// 2 bytes: ergoExtraMagic
 	binary.BigEndian.PutUint16(buf[0:2], uint16(ergoExtraMagic))
@@ -190,20 +188,12 @@ func (e *epmdResolver) composeExtra(options node.ResolverOptions) {
 	if options.EnableTLS {
 		buf[3] = 1
 	}
-	// 1 byte flag enabled proxy
-	if options.EnableProxy {
-		buf[4] = 1
-	}
-
-	if options.EnableCompression {
-		buf[5] = 1
-	}
 	e.extra = buf
 	return
 }
 
 func (e *epmdResolver) readExtra(route *node.Route, buf []byte) {
-	if len(buf) < 6 {
+	if len(buf) < 4 {
 		return
 	}
 	magic := binary.BigEndian.Uint16(buf[0:2])
@@ -217,14 +207,6 @@ func (e *epmdResolver) readExtra(route *node.Route, buf []byte) {
 
 	if buf[3] == 1 {
 		route.Options.EnableTLS = true
-	}
-
-	if buf[4] == 1 {
-		route.Options.EnableProxy = true
-	}
-
-	if buf[5] == 1 {
-		route.Options.EnableCompression = true
 	}
 
 	route.Options.IsErgo = true

@@ -529,7 +529,6 @@ func TestNodeCompression(t *testing.T) {
 	fmt.Printf("\n=== Test Node Compression \n")
 	opts1 := node.Options{}
 	opts1.Compression.Enable = true
-	opts1.Compression.Level = 5
 	// need 1 handler to make Atom cache work
 	protoOptions := node.DefaultProtoOptions()
 	protoOptions.NumHandlers = 1
