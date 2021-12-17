@@ -469,6 +469,7 @@ func (dc *distConnection) read(b *lib.Buffer, max int) (int, error) {
 		if packetLength == 0 {
 			// it was "software" keepalive
 			expectingBytes = 4
+			b.Reset()
 			continue
 		}
 
