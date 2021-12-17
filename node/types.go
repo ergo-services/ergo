@@ -389,11 +389,9 @@ type Route struct {
 
 // RouteOptions
 type RouteOptions struct {
-	Cookie            string
-	EnableTLS         bool
-	EnableProxy       bool
-	EnableCompression bool
-	IsErgo            bool
+	Cookie    string
+	EnableTLS bool
+	IsErgo    bool
 
 	Cert      tls.Certificate
 	Handshake HandshakeInterface

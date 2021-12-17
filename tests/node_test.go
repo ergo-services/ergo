@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/ergo-services/ergo"
 	"github.com/ergo-services/ergo/etf"
@@ -466,36 +467,74 @@ func TestNodeRemoteSpawn(t *testing.T) {
 
 func TestNodeResolveExtra(t *testing.T) {
 	fmt.Printf("\n=== Test Node Resolve Extra \n")
-	opts1 := node.Options{
-		Flags: node.DefaultFlags(),
+	fmt.Printf("... starting node1 with disabled TLS: ")
+	node1, err := ergo.StartNode("node1resolveExtra@localhost", "secret", node.Options{})
+	if err != nil {
+		t.Fatal(err)
 	}
-	opts1.Flags.Enable = true
-	opts1.Flags.EnableProxy = true
-	opts1.Flags.EnableCompression = false
-	node1, _ := ergo.StartNode("node1resolveExtra@localhost", "secret", opts1)
 	defer node1.Stop()
-	node2, _ := ergo.StartNode("node2resolveExtra@localhost", "secret", node.Options{})
+	fmt.Println("OK")
+	opts := node.Options{}
+	opts.TLS.Enable = true
+	fmt.Printf("... starting node2 with enabled TLS: ")
+	node2, err := ergo.StartNode("node2resolveExtra@localhost", "secret", opts)
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer node2.Stop()
+	fmt.Println("OK")
 
-	route2, err := node1.Resolve("node2resolveExtra@localhost")
+	fmt.Printf("... node1 resolves node2 with enabled TLS: ")
+	route1, err := node1.Resolve("node2resolveExtra@localhost")
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	if route2.Options.EnableProxy {
-		t.Fatal("expected false value")
-	}
-
-	route1, err := node2.Resolve("node1resolveExtra@localhost")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if route1.Options.EnableProxy == false {
+	if route1.Options.EnableTLS == false {
 		t.Fatal("expected true value")
 	}
-	if route1.Options.EnableCompression {
-		t.Fatal("expected false value")
+	fmt.Println("OK")
+
+	fmt.Printf("... node2 resolves node1 with disabled TLS: ")
+	route2, err := node2.Resolve("node1resolveExtra@localhost")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if route2.Options.EnableTLS == true {
+		t.Fatal("expected true value")
+	}
+	fmt.Println("OK")
+
+	fmt.Printf("... node1 connect to node2: ")
+	if err := node1.Connect(node2.Name()); err != nil {
+		t.Fatal(err)
+	}
+	if len(node1.Nodes()) != 1 {
+		t.Fatal("no peers")
+	}
+	if node1.Nodes()[0] != node2.Name() {
+		t.Fatal("wrong peer")
+	}
+	fmt.Println("OK")
+
+	fmt.Printf("... disconnecting nodes: ")
+	time.Sleep(300 * time.Millisecond)
+	if err := node1.Disconnect(node2.Name()); err != nil {
+		t.Fatal(err)
+	}
+	if len(node1.Nodes()) > 0 {
+		t.Fatal("still connected")
+	}
+	fmt.Println("OK")
+
+	fmt.Printf("... node2 connect to node1: ")
+	if err := node2.Connect(node1.Name()); err != nil {
+		t.Fatal(err)
+	}
+	if len(node2.Nodes()) != 1 {
+		t.Fatal("no peers")
+	}
+	if node2.Nodes()[0] != node1.Name() {
+		t.Fatal("wrong peer")
 	}
 	fmt.Println("OK")
 }

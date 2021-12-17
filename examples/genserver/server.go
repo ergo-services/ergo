@@ -54,11 +54,6 @@ func (dgs *demo) HandleCall(process *gen.ServerProcess, from gen.ServerFrom, mes
 
 	case etf.List:
 		return message, gen.ServerStatusOK
-	case etf.Map:
-		process.SetCompression(true)
-		process.SetCompressionLevel(5)
-		message = make([]byte, 1024*1024)
-		return message, gen.ServerStatusOK
 	}
 	return reply, gen.ServerStatusOK
 }
