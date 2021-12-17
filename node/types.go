@@ -41,7 +41,7 @@ const (
 	// node options
 	defaultListenBegin     uint16        = 15000
 	defaultListenEnd       uint16        = 65000
-	defaultKeepAlivePeriod time.Duration = 5
+	defaultKeepAlivePeriod time.Duration = 15
 
 	EnvKeyVersion     gen.EnvKey = "ergo:Version"
 	EnvKeyNode        gen.EnvKey = "ergo:Node"
@@ -50,6 +50,9 @@ const (
 	DefaultProtoRecvQueueLength   int = 100
 	DefaultProtoSendQueueLength   int = 100
 	DefaultProroFragmentationUnit int = 65000
+
+	DefaultCompressionLevel     int = -1
+	DefaultCompressionThreshold int = 1024
 )
 
 type Node interface {
@@ -203,8 +206,8 @@ type Options struct {
 	// Resolver defines a resolving service (default is EPMD service, client and server)
 	Resolver Resolver
 
-	// Compression enables compression for outgoing messages
-	Compression bool
+	// Compression enables compression for outgoing messages (if peer node has this feature enabled)
+	Compression Compression
 
 	// Handshake defines a handshake handler. By default is using
 	// DIST handshake created with dist.CreateHandshake(...)
@@ -219,20 +222,31 @@ type Options struct {
 }
 
 type TLS struct {
-	Enabled    bool
+	Enable     bool
 	Server     tls.Certificate
 	Client     tls.Certificate
 	SkipVerify bool
 }
 
 type Cloud struct {
-	Enabled bool
-	ID      string
-	Cookie  string
+	Enable bool
+	ID     string
+	Cookie string
 }
 
 type Proxy struct {
-	Enabled bool
+	Enable bool
+}
+
+type Compression struct {
+	// Enable enables compression for all outgoing messages having size
+	// greater than the defined threshold.
+	Enable bool
+	// Level defines compression level. Value must be in range 1..9 or -1 for the default level
+	Level int
+	// Threshold defines the minimal message size for the compression.
+	// Messages less of this threshold will not be compressed.
+	Threshold int
 }
 
 // Connection
@@ -315,7 +329,7 @@ type ProtoOptions struct {
 	// FragmentationUnit defines unit size for the fragmentation feature. Default 65000
 	FragmentationUnit int
 	// Compression enables compression for the outgoing messages
-	Compression bool
+	Compression Compression
 	// Proxy defines proxy settings
 	Proxy Proxy
 	// Custom brings a custom set of options to the ProtoInterface.Serve handler
@@ -342,7 +356,12 @@ type Flags struct {
 	// EnableRemoteSpawn accepts remote spawn request
 	EnableRemoteSpawn bool
 	// Compression compression support
-	Compression bool
+	EnableCompression bool
+	// Proxy proxy support
+	EnableProxy bool
+	// Software keepalive enables sending keep alive messages if node doesn't support
+	// TCPConn.SetKeepAlive(true). For erlang peers this flag is mandatory.
+	EnableSoftwareKeepAlive bool
 }
 
 // Resolver defines resolving interface
@@ -353,26 +372,26 @@ type Resolver interface {
 
 // ResolverOptions defines resolving options
 type ResolverOptions struct {
-	NodeVersion      Version
-	HandshakeVersion HandshakeVersion
-	EnabledTLS       bool
-	EnabledProxy     bool
+	NodeVersion       Version
+	HandshakeVersion  HandshakeVersion
+	EnableTLS         bool
+	EnableProxy       bool
+	EnableCompression bool
 }
 
 // Route
 type Route struct {
-	Name string
-	Host string
-	Port uint16
-	RouteOptions
+	Name    string
+	Host    string
+	Port    uint16
+	Options RouteOptions
 }
 
 // RouteOptions
 type RouteOptions struct {
-	Cookie       string
-	EnabledTLS   bool
-	EnabledProxy bool
-	IsErgo       bool
+	Cookie    string
+	EnableTLS bool
+	IsErgo    bool
 
 	Cert      tls.Certificate
 	Handshake HandshakeInterface

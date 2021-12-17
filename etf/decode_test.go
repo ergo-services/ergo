@@ -655,12 +655,3 @@ func BenchmarkDecodeTupleRefPidWithAtomCache(b *testing.B) {
 		}
 	}
 }
-func BenchmarkDecodeFunction(b *testing.B) {
-	packet := packetFunction
-	for i := 0; i < b.N; i++ {
-		_, _, err := Decode(packet, []Atom{}, DecodeOptions{})
-		if err != nil {
-			b.Fatal(err)
-		}
-	}
-}

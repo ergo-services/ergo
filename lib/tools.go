@@ -164,6 +164,17 @@ func (b *Buffer) ReadDataFrom(r io.Reader, limit int) (int, error) {
 	return n, e
 }
 
+func (b *Buffer) Write(v []byte) (n int, err error) {
+	b.B = append(b.B, v...)
+	return len(v), nil
+}
+
+func (b *Buffer) Read(v []byte) (n int, err error) {
+	fmt.Println("REEEEEAD")
+	copy(v, b.B)
+	return len(b.B), io.EOF
+}
+
 func (b *Buffer) increase() {
 	cap1 := cap(b.B) * 8
 	b1 := make([]byte, cap(b.B), cap1)

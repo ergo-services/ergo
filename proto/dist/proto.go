@@ -1,6 +1,8 @@
 package dist
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/binary"
 	"fmt"
@@ -20,10 +22,28 @@ var (
 	ErrMissingInCache     = fmt.Errorf("missing in cache")
 	ErrMalformed          = fmt.Errorf("malformed")
 	ErrOverloadConnection = fmt.Errorf("connection buffer is overloaded")
+	gzipReaders           = &sync.Pool{
+		New: func() interface{} {
+			return nil
+		},
+	}
+	gzipWriters  = [10]*sync.Pool{}
+	sendMessages = &sync.Pool{
+		New: func() interface{} {
+			return &sendMessage{}
+		},
+	}
 )
 
 func init() {
 	rand.Seed(time.Now().UTC().UnixNano())
+	for i := range gzipWriters {
+		gzipWriters[i] = &sync.Pool{
+			New: func() interface{} {
+				return nil
+			},
+		}
+	}
 }
 
 const (
@@ -38,6 +58,14 @@ const (
 	protoDistMessage    = 68
 	protoDistFragment1  = 69
 	protoDistFragmentN  = 70
+
+	// ergo gzipped messages
+	protoDistMessageZ   = 200
+	protoDistFragment1Z = 201
+	protoDistFragmentNZ = 202
+
+	// ergo proxy message
+	protoDistProxy = 210
 )
 
 type fragmentedPacket struct {
@@ -57,9 +85,6 @@ type distConnection struct {
 
 	// peer flags
 	flags node.Flags
-
-	// compression
-	compression bool
 
 	// socket
 	conn          io.ReadWriter
@@ -124,9 +149,11 @@ type senderChannel struct {
 }
 
 type sendMessage struct {
-	control     etf.Term
-	payload     etf.Term
-	compression bool
+	control              etf.Term
+	payload              etf.Term
+	compression          bool
+	compressionLevel     int
+	compressionThreshold int
 }
 
 type receivers struct {
@@ -137,11 +164,13 @@ type receivers struct {
 
 func (dp *distProto) Init(ctx context.Context, conn io.ReadWriter, peername string, flags node.Flags) (node.ConnectionInterface, error) {
 	connection := &distConnection{
-		nodename:    dp.nodename,
-		peername:    peername,
-		flags:       flags,
-		compression: dp.options.Compression,
-		conn:        conn,
+		nodename:           dp.nodename,
+		peername:           peername,
+		flags:              flags,
+		conn:               conn,
+		fragments:          make(map[uint64]*fragmentedPacket),
+		checkCleanTimeout:  defaultCleanTimeout,
+		checkCleanDeadline: defaultCleanDeadline,
 	}
 	connection.ctx, connection.cancelContext = context.WithCancel(ctx)
 
@@ -151,7 +180,7 @@ func (dp *distProto) Init(ctx context.Context, conn io.ReadWriter, peername stri
 	}
 
 	// create connection buffering
-	connection.flusher = newLinkFlusher(conn, defaultLatency)
+	connection.flusher = newLinkFlusher(conn, defaultLatency, flags.EnableSoftwareKeepAlive)
 
 	// do not use shared channels within intencive code parts, impacts on a performance
 	connection.receivers = receivers{
@@ -273,60 +302,45 @@ func (dp *distProto) Terminate(ci node.ConnectionInterface) {
 // node.Connection interface implementation
 
 func (dc *distConnection) Send(from gen.Process, to etf.Pid, message etf.Term) error {
-	var compression bool
+	msg := sendMessages.Get().(*sendMessage)
 
-	if dc.flags.Compression {
-		if dc.compression == true {
-			compression = true
-		} else {
-			compression = from.Compression()
-		}
+	msg.control = etf.Tuple{distProtoSEND, etf.Atom(""), to}
+	msg.payload = message
+	if dc.flags.EnableCompression {
+		msg.compression = from.Compression()
+		msg.compressionLevel = from.CompressionLevel()
+		msg.compressionThreshold = from.CompressionThreshold()
 	}
 
-	msg := &sendMessage{
-		control:     etf.Tuple{distProtoSEND, etf.Atom(""), to},
-		payload:     message,
-		compression: compression,
-	}
 	return dc.send(msg)
 }
 func (dc *distConnection) SendReg(from gen.Process, to gen.ProcessID, message etf.Term) error {
-	var compression bool
+	msg := sendMessages.Get().(*sendMessage)
 
-	if dc.flags.Compression {
-		if dc.compression == true {
-			compression = true
-		} else {
-			compression = from.Compression()
-		}
-	}
+	msg.control = etf.Tuple{distProtoREG_SEND, from.Self(), etf.Atom(""), etf.Atom(to.Name)}
+	msg.payload = message
 
-	msg := &sendMessage{
-		control:     etf.Tuple{distProtoREG_SEND, from.Self(), etf.Atom(""), etf.Atom(to.Name)},
-		payload:     message,
-		compression: compression,
+	if dc.flags.EnableCompression {
+		msg.compression = from.Compression()
+		msg.compressionLevel = from.CompressionLevel()
+		msg.compressionThreshold = from.CompressionThreshold()
 	}
 	return dc.send(msg)
 }
 func (dc *distConnection) SendAlias(from gen.Process, to etf.Alias, message etf.Term) error {
-	var compression bool
-
 	if dc.flags.EnableAlias == false {
 		return node.ErrUnsupported
 	}
 
-	if dc.flags.Compression {
-		if dc.compression == true {
-			compression = true
-		} else {
-			compression = from.Compression()
-		}
-	}
+	msg := sendMessages.Get().(*sendMessage)
 
-	msg := &sendMessage{
-		control:     etf.Tuple{distProtoALIAS_SEND, from.Self(), to},
-		payload:     message,
-		compression: compression,
+	msg.control = etf.Tuple{distProtoALIAS_SEND, from.Self(), to}
+	msg.payload = message
+
+	if dc.flags.EnableCompression {
+		msg.compression = from.Compression()
+		msg.compressionLevel = from.CompressionLevel()
+		msg.compressionThreshold = from.CompressionThreshold()
 	}
 	return dc.send(msg)
 }
@@ -591,28 +605,18 @@ func (dc *distConnection) decodePacket(packet []byte) (etf.Term, etf.Term, error
 
 func (dc *distConnection) decodeDist(packet []byte) (etf.Term, etf.Term, error) {
 	switch packet[0] {
-	case protoDistCompressed:
-		// do we need it?
-		// zip.NewReader(...)
-		// ...unzipping to the new buffer b (lib.TakeBuffer)
-		// just in case: if b[0] == protoDistCompressed return error
-		// otherwise it will cause recursive call and im not sure if its ok
-		// return l.decodeDist(b)
-
 	case protoDistMessage:
 		var control, message etf.Term
-		var cache []etf.Atom
 		var err error
+		var cache []etf.Atom
 
 		cache, packet, err = dc.decodeDistHeaderAtomCache(packet[1:])
-
 		if err != nil {
 			return nil, nil, err
 		}
 
 		decodeOptions := etf.DecodeOptions{
-			// FIXME must be used from peer's flag
-			FlagBigPidRef: false,
+			FlagBigPidRef: dc.flags.EnableBigPidRef,
 		}
 
 		// decode control message
@@ -637,21 +641,84 @@ func (dc *distConnection) decodeDist(packet []byte) (etf.Term, etf.Term, error) 
 
 		return control, message, nil
 
-	case protoDistFragment1, protoDistFragmentN:
-		first := packet[0] == protoDistFragment1
+	case protoDistMessageZ:
+		var control, message etf.Term
+		var err error
+		var cache []etf.Atom
+		var zReader *gzip.Reader
+		var total int
+		// compressed protoDistMessage
+
+		cache, packet, err = dc.decodeDistHeaderAtomCache(packet[1:])
+		if err != nil {
+			return nil, nil, err
+		}
+
+		// read the length of unpacked data
+		lenUnpacked := int(binary.BigEndian.Uint32(packet[:4]))
+
+		// take the gzip reader from the pool
+		if r, ok := gzipReaders.Get().(*gzip.Reader); ok {
+			zReader = r
+			zReader.Reset(bytes.NewBuffer(packet[4:]))
+		} else {
+			zReader, _ = gzip.NewReader(bytes.NewBuffer(packet[4:]))
+		}
+		defer gzipReaders.Put(zReader)
+
+		// take new buffer and allocate space for the unpacked data
+		zBuffer := lib.TakeBuffer()
+		zBuffer.Allocate(lenUnpacked)
+		defer lib.ReleaseBuffer(zBuffer)
+
+		// unzipping and decoding the data
+		for {
+			n, e := zReader.Read(zBuffer.B[total:])
+			if n == 0 {
+				return nil, nil, fmt.Errorf("zbuffer too small")
+			}
+			total += n
+			if e == io.EOF {
+				break
+			}
+			if e != nil {
+				return nil, nil, e
+			}
+		}
+
+		packet = zBuffer.B
+		decodeOptions := etf.DecodeOptions{
+			FlagBigPidRef: dc.flags.EnableBigPidRef,
+		}
+
+		// decode control message
+		control, packet, err = etf.Decode(packet, cache, decodeOptions)
+		if err != nil {
+			fmt.Println("CTLR")
+			return nil, nil, err
+		}
+		if len(packet) == 0 {
+			return control, nil, nil
+		}
+
+		// decode payload message
+		message, packet, err = etf.Decode(packet, cache, decodeOptions)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		if len(packet) != 0 {
+			return nil, nil, fmt.Errorf("packet has extra %d byte(s)", len(packet))
+		}
+
+		return control, message, nil
+
+	case protoDistFragment1, protoDistFragmentN, protoDistFragment1Z, protoDistFragmentNZ:
 		if len(packet) < 18 {
 			return nil, nil, fmt.Errorf("malformed fragment")
 		}
 
-		// We should decode first fragment in order to process Atom Cache Header
-		// to get rid the case when we get the first fragment of the packet
-		// and the next packet is not the part of the fragmented packet, but with
-		// the ids were encoded in the first fragment
-		if first {
-			dc.decodeDistHeaderAtomCache(packet[1:])
-		}
-
-		if assembled, err := dc.decodeFragment(packet[1:], first); assembled != nil {
+		if assembled, err := dc.decodeFragment(packet); assembled != nil {
 			if err != nil {
 				return nil, nil, err
 			}
@@ -662,7 +729,6 @@ func (dc *distConnection) decodeDist(packet []byte) (etf.Term, etf.Term, error) 
 				return nil, nil, err
 			}
 		}
-
 		return nil, nil, nil
 	}
 
@@ -864,19 +930,41 @@ func (dc *distConnection) handleMessage(control, message etf.Term) (err error) {
 	return fmt.Errorf("unsupported control message %#v", control)
 }
 
-func (dc *distConnection) decodeFragment(packet []byte, first bool) (*lib.Buffer, error) {
-	dc.fragmentsMutex.Lock()
-	defer dc.fragmentsMutex.Unlock()
+func (dc *distConnection) decodeFragment(packet []byte) (*lib.Buffer, error) {
+	var first, compressed bool
+	var err error
 
-	if dc.fragments == nil {
-		dc.fragments = make(map[uint64]*fragmentedPacket)
-	}
-
-	sequenceID := binary.BigEndian.Uint64(packet)
-	fragmentID := binary.BigEndian.Uint64(packet[8:])
+	sequenceID := binary.BigEndian.Uint64(packet[1:9])
+	fragmentID := binary.BigEndian.Uint64(packet[9:17])
 	if fragmentID == 0 {
 		return nil, fmt.Errorf("fragmentID can't be 0")
 	}
+
+	switch packet[0] {
+	case protoDistFragment1:
+		// We should decode atom cache from the first fragment in order
+		// to get rid the case when we get the first fragment of the packet with
+		// cached atoms and the next packet is not the part of the fragmented packet,
+		// but with the ids were cached in the first fragment
+		_, _, err = dc.decodeDistHeaderAtomCache(packet[17:])
+		if err != nil {
+			return nil, err
+		}
+		first = true
+	case protoDistFragment1Z:
+		_, _, err = dc.decodeDistHeaderAtomCache(packet[17:])
+		if err != nil {
+			return nil, err
+		}
+		first = true
+		compressed = true
+	case protoDistFragmentNZ:
+		compressed = true
+	}
+	packet = packet[17:]
+
+	dc.fragmentsMutex.Lock()
+	defer dc.fragmentsMutex.Unlock()
 
 	fragmented, ok := dc.fragments[sequenceID]
 	if !ok {
@@ -886,7 +974,13 @@ func (dc *distConnection) decodeFragment(packet []byte, first bool) (*lib.Buffer
 			disorderedSlices: make(map[uint64][]byte),
 			lastUpdate:       time.Now(),
 		}
-		fragmented.buffer.AppendByte(protoDistMessage)
+
+		// append new packet type
+		if compressed {
+			fragmented.buffer.AppendByte(protoDistMessageZ)
+		} else {
+			fragmented.buffer.AppendByte(protoDistMessage)
+		}
 		dc.fragments[sequenceID] = fragmented
 	}
 
@@ -897,12 +991,12 @@ func (dc *distConnection) decodeFragment(packet []byte, first bool) (*lib.Buffer
 
 	if fragmented.fragmentID-fragmentID != 1 {
 		// got the next fragment. disordered
-		slice := fragmented.disordered.Extend(len(packet) - 16)
-		copy(slice, packet[16:])
+		slice := fragmented.disordered.Extend(len(packet))
+		copy(slice, packet)
 		fragmented.disorderedSlices[fragmentID] = slice
 	} else {
 		// order is correct. just append
-		fragmented.buffer.Append(packet[16:])
+		fragmented.buffer.Append(packet)
 		fragmented.fragmentID = fragmentID
 	}
 
@@ -942,11 +1036,9 @@ func (dc *distConnection) decodeFragment(packet []byte, first bool) (*lib.Buffer
 		dc.fragmentsMutex.Lock()
 		defer dc.fragmentsMutex.Unlock()
 
-		if dc.checkCleanTimeout == 0 {
-			dc.checkCleanTimeout = defaultCleanTimeout
-		}
-		if dc.checkCleanDeadline == 0 {
-			dc.checkCleanDeadline = defaultCleanDeadline
+		if len(dc.fragments) == 0 {
+			dc.checkCleanPending = false
+			return
 		}
 
 		valid := time.Now().Add(-dc.checkCleanDeadline)
@@ -1074,7 +1166,7 @@ func (dc *distConnection) encodeDistHeaderAtomCache(b *lib.Buffer,
 			idxReference |= 8 // set NewCacheEntryFlag
 		}
 
-		// we have to clear before reuse
+		// we have to clear it before reuse
 		if shift == 0 {
 			flags[i/2] = 0
 		}
@@ -1118,10 +1210,12 @@ func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOpt
 	var linkAtomCache *etf.AtomCache
 	var lastCacheID int16 = -1
 
-	var lenControl, lenMessage, lenAtomCache, lenPacket, startDataPosition int
+	var lenMessage, lenAtomCache, lenPacket, startDataPosition int
 	var atomCacheBuffer, packetBuffer *lib.Buffer
 	var message *sendMessage
 	var err error
+	var compress, compressed bool
+	var zWriter *gzip.Writer
 
 	// cancel connection context if something went wrong
 	// it will cause closing connection with stopping all
@@ -1130,6 +1224,7 @@ func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOpt
 
 	cacheEnabled := peerFlags.EnableHeaderAtomCache && dc.cacheOut != nil
 	fragmentationEnabled := peerFlags.EnableFragmentation && options.FragmentationUnit > 0
+	compressionEnabled := peerFlags.EnableCompression
 
 	// Header atom cache is encoded right after the control/message encoding process
 	// but should be stored as a first item in the packet.
@@ -1153,6 +1248,13 @@ func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOpt
 	}
 
 	for {
+		if message != nil {
+			message.control = nil
+			message.payload = nil
+			message.compression = false
+			sendMessages.Put(message)
+		}
+
 		message = <-send
 
 		if message == nil {
@@ -1161,15 +1263,26 @@ func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOpt
 		}
 
 		packetBuffer = lib.TakeBuffer()
-		lenControl, lenMessage, lenAtomCache, lenPacket, startDataPosition = 0, 0, 0, 0, reserveHeaderAtomCache
+		lenMessage, lenAtomCache, lenPacket = 0, 0, 0
+		startDataPosition = reserveHeaderAtomCache
 
 		// do reserve for the header 8K, should be enough
 		packetBuffer.Allocate(reserveHeaderAtomCache)
+
+		// check whether compress is enabled for the peer and for this message
+		compress = compressionEnabled && message.compression
+		compressed = false
 
 		// clear encoding cache
 		if cacheEnabled {
 			encodingAtomCache.Reset()
 		}
+
+		// We could use gzip writer for the encoder, but we don't know
+		// the actual size of the control/payload. For small data, gzipping
+		// is getting extremely inefficient. That's why it is cheaper to
+		// encode control/payload first and then decide whether to compress it
+		// according to a threshold value.
 
 		// encode Control
 		err = etf.Encode(message.control, packetBuffer, encodeOptions)
@@ -1178,7 +1291,6 @@ func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOpt
 			lib.ReleaseBuffer(packetBuffer)
 			continue
 		}
-		lenControl = packetBuffer.Len() - reserveHeaderAtomCache
 
 		// encode Message if present
 		if message.payload != nil {
@@ -1190,7 +1302,36 @@ func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOpt
 			}
 
 		}
-		lenMessage = packetBuffer.Len() - reserveHeaderAtomCache - lenControl
+		lenMessage = packetBuffer.Len() - reserveHeaderAtomCache
+
+		if compress && packetBuffer.Len() > (reserveHeaderAtomCache+message.compressionThreshold) {
+			//// take another buffer
+			zBuffer := lib.TakeBuffer()
+			// allocate extra 4 bytes for the lenMessage (length of unpacked data)
+			zBuffer.Allocate(reserveHeaderAtomCache + 4)
+			level := message.compressionLevel
+			if level == -1 {
+				level = 0
+			}
+			if w, ok := gzipWriters[level].Get().(*gzip.Writer); ok {
+				zWriter = w
+				zWriter.Reset(zBuffer)
+			} else {
+				zWriter, _ = gzip.NewWriterLevel(zBuffer, message.compressionLevel)
+			}
+			zWriter.Write(packetBuffer.B[reserveHeaderAtomCache:])
+			zWriter.Close()
+			gzipWriters[level].Put(zWriter)
+
+			// swap buffers only if gzipped data less than the original ones
+			if zBuffer.Len() < packetBuffer.Len() {
+				binary.BigEndian.PutUint32(zBuffer.B[reserveHeaderAtomCache:], uint32(lenMessage))
+				lenMessage = zBuffer.Len() - reserveHeaderAtomCache
+				packetBuffer, zBuffer = zBuffer, packetBuffer
+				compressed = true
+			}
+			lib.ReleaseBuffer(zBuffer)
+		}
 
 		// encode Header Atom Cache if its enabled
 		if cacheEnabled && encodingAtomCache.Len() > 0 {
@@ -1216,17 +1357,19 @@ func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOpt
 		}
 
 		for {
-
-			// 4 (packet len) + 1 (dist header: 131) + 1 (dist header: protoDistMessage) + lenAtomCache
-			lenPacket = 1 + 1 + lenAtomCache + lenControl + lenMessage
-
+			// 4 (packet len) + 1 (dist header: 131) + 1 (dist header: protoDistMessage[Z]) + lenAtomCache
+			lenPacket = 1 + 1 + lenAtomCache + lenMessage
 			if !fragmentationEnabled || lenPacket < options.FragmentationUnit {
 				// send as a single packet
 				startDataPosition -= 6
 
 				binary.BigEndian.PutUint32(packetBuffer.B[startDataPosition:], uint32(lenPacket))
-				packetBuffer.B[startDataPosition+4] = protoDist        // 131
-				packetBuffer.B[startDataPosition+5] = protoDistMessage // 68
+				packetBuffer.B[startDataPosition+4] = protoDist // 131
+				if compressed {
+					packetBuffer.B[startDataPosition+5] = protoDistMessageZ // 200
+				} else {
+					packetBuffer.B[startDataPosition+5] = protoDistMessage // 68
+				}
 				if _, err := dc.flusher.Write(packetBuffer.B[startDataPosition:]); err != nil {
 					return
 				}
@@ -1239,17 +1382,21 @@ func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOpt
 			// "The entire atom cache and control message has to be part of the starting fragment"
 
 			sequenceID := uint64(atomic.AddInt64(&dc.sequenceID, 1))
-			numFragments := lenMessage/options.FragmentationUnit + 1
+			numFragments := lenPacket/options.FragmentationUnit + 1
 
 			// 1 (dist header: 131) + 1 (dist header: protoDistFragment) + 8 (sequenceID) + 8 (fragmentID) + ...
-			lenPacket = 1 + 1 + 8 + 8 + lenAtomCache + lenControl + options.FragmentationUnit
+			lenPacket = 1 + 1 + 8 + 8 + lenAtomCache + options.FragmentationUnit
 
-			// 4 (packet len) + 1 (dist header: 131) + 1 (dist header: protoDistFragment) + 8 (sequenceID) + 8 (fragmentID)
+			// 4 (packet len) + 1 (dist header: 131) + 1 (dist header: protoDistFragment[Z]) + 8 (sequenceID) + 8 (fragmentID)
 			startDataPosition -= 22
 
 			binary.BigEndian.PutUint32(packetBuffer.B[startDataPosition:], uint32(lenPacket))
-			packetBuffer.B[startDataPosition+4] = protoDist          // 131
-			packetBuffer.B[startDataPosition+5] = protoDistFragment1 // 69
+			packetBuffer.B[startDataPosition+4] = protoDist // 131
+			if compressed {
+				packetBuffer.B[startDataPosition+5] = protoDistFragment1Z // 201
+			} else {
+				packetBuffer.B[startDataPosition+5] = protoDistFragment1 // 69
+			}
 
 			binary.BigEndian.PutUint64(packetBuffer.B[startDataPosition+6:], uint64(sequenceID))
 			binary.BigEndian.PutUint64(packetBuffer.B[startDataPosition+14:], uint64(numFragments))
@@ -1274,12 +1421,15 @@ func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOpt
 			}
 
 			binary.BigEndian.PutUint32(packetBuffer.B[startDataPosition:], uint32(lenPacket))
-			packetBuffer.B[startDataPosition+4] = protoDist          // 131
-			packetBuffer.B[startDataPosition+5] = protoDistFragmentN // 70
+			packetBuffer.B[startDataPosition+4] = protoDist // 131
+			if compressed {
+				packetBuffer.B[startDataPosition+5] = protoDistFragmentNZ // 202
+			} else {
+				packetBuffer.B[startDataPosition+5] = protoDistFragmentN // 70
+			}
 
 			binary.BigEndian.PutUint64(packetBuffer.B[startDataPosition+6:], uint64(sequenceID))
 			binary.BigEndian.PutUint64(packetBuffer.B[startDataPosition+14:], uint64(numFragments))
-
 			if _, err := dc.flusher.Write(packetBuffer.B[startDataPosition : startDataPosition+4+lenPacket]); err != nil {
 				return
 			}
@@ -1326,10 +1476,14 @@ func (dc *distConnection) send(msg *sendMessage) error {
 	s.Lock()
 	defer s.Unlock()
 
-	select {
-	case s.sendChannel <- msg:
-		return nil
-	default:
-		return ErrOverloadConnection
-	}
+	s.sendChannel <- msg
+	return nil
+
+	// TODO to decide whether to return error if channel is full
+	//select {
+	//case s.sendChannel <- msg:
+	//	return nil
+	//default:
+	//	return ErrOverloadConnection
+	//}
 }

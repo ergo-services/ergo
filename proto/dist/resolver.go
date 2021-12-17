@@ -30,10 +30,8 @@ const (
 	// epmdStopReq = 115
 
 	// Extra data
-	ergoExtraMagic        = 4411
-	ergoExtraVersion1     = 1
-	ergoExtraEnabledTLS   = 100
-	ergoExtraEnabledProxy = 101
+	ergoExtraMagic    = 4411
+	ergoExtraVersion1 = 1
 )
 
 // epmd implements resolver
@@ -76,6 +74,18 @@ func CreateResolverWithEPMD(ctx context.Context, host string, port uint16) node.
 		port:       port,
 	}
 	startServerEPMD(ctx, host, port)
+	return resolver
+}
+
+func CreateResolverWithRemoteEPMD(ctx context.Context, host string, port uint16) node.Resolver {
+	if port == 0 {
+		port = DefaultEPMDPort
+	}
+	resolver := &epmdResolver{
+		ctx:  ctx,
+		host: host,
+		port: port,
+	}
 	return resolver
 }
 
@@ -168,51 +178,38 @@ func (e *epmdResolver) Resolve(name string) (node.Route, error) {
 }
 
 func (e *epmdResolver) composeExtra(options node.ResolverOptions) {
-	buf := make([]byte, 5)
+	buf := make([]byte, 4)
 
 	// 2 bytes: ergoExtraMagic
 	binary.BigEndian.PutUint16(buf[0:2], uint16(ergoExtraMagic))
 	// 1 byte Extra version
-	buf[3] = ergoExtraVersion1
+	buf[2] = ergoExtraVersion1
 	// 1 byte flag enabled TLS
-	if options.EnabledTLS {
-		buf[4] = 1
-	}
-	// 1 byte flag enabled proxy
-	if options.EnabledProxy {
-		buf[5] = 1
+	if options.EnableTLS {
+		buf[3] = 1
 	}
 	e.extra = buf
 	return
 }
 
 func (e *epmdResolver) readExtra(route *node.Route, buf []byte) {
-	if len(buf) < 5 {
+	if len(buf) < 4 {
 		return
 	}
-	extraLen := int(binary.BigEndian.Uint16(buf[0:2]))
-	if extraLen < len(buf)+2 {
-		return
-	}
-	magic := binary.BigEndian.Uint16(buf[2:4])
+	magic := binary.BigEndian.Uint16(buf[0:2])
 	if uint16(ergoExtraMagic) != magic {
 		return
 	}
 
-	if buf[4] != ergoExtraVersion1 {
+	if buf[2] != ergoExtraVersion1 {
 		return
 	}
 
-	if buf[5] == 1 {
-		route.EnabledTLS = true
+	if buf[3] == 1 {
+		route.Options.EnableTLS = true
 	}
 
-	if buf[6] == 1 {
-		route.EnabledProxy = true
-	}
-
-	route.IsErgo = true
-
+	route.Options.IsErgo = true
 	return
 }
 
@@ -303,19 +300,22 @@ func (e *epmdResolver) sendPortPleaseReq(conn net.Conn, name string) error {
 func (e *epmdResolver) readPortResp(route *node.Route, c net.Conn) error {
 
 	buf := make([]byte, 1024)
-	_, err := c.Read(buf)
+	n, err := c.Read(buf)
 	if err != nil && err != io.EOF {
 		return fmt.Errorf("reading from link - %s", err)
 	}
+	buf = buf[:n]
 
 	if buf[0] == epmdPortResp && buf[1] == 0 {
 		p := binary.BigEndian.Uint16(buf[2:4])
-		// we don't use all the extra info for a while. FIXME (do we need it?)
 		nameLen := binary.BigEndian.Uint16(buf[10:12])
 		route.Port = p
 		extraStart := 12 + int(nameLen)
-
-		e.readExtra(route, buf[extraStart:])
+		// read extra data
+		buf = buf[extraStart:]
+		extraLen := binary.BigEndian.Uint16(buf[:2])
+		buf = buf[2 : extraLen+2]
+		e.readExtra(route, buf)
 		return nil
 	} else if buf[1] > 0 {
 		return fmt.Errorf("desired node not found")

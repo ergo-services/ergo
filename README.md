@@ -1,6 +1,5 @@
 <h1><a href="https://ergo.services"><img src=".github/images/logo.svg" alt="Ergo Framework" width="159" height="49"></a></h1>
 
-[![GitHub release](https://img.shields.io/github/release/ergo-services/ergo.svg)](https://github.com/ergo-services/ergo/releases/latest)
 [![Gitbook Documentation](https://img.shields.io/badge/GitBook-Documentation-f37f40?style=plastic&logo=gitbook&logoColor=white&style=flat)](https://docs.ergo.services)
 [![GoDoc](https://pkg.go.dev/badge/ergo-services/ergo)](https://pkg.go.dev/github.com/ergo-services/ergo)
 [![MIT license](https://img.shields.io/badge/license-MIT-brightgreen.svg)](https://opensource.org/licenses/MIT)
@@ -61,7 +60,7 @@ The goal of this project is to leverage Erlang/OTP experience with Golang perfor
 
 ### Versioning ###
 
-Golang introduced [v2 rule](https://go.dev/blog/v2-go-modules) a while ago to solve complicated dependency issues. We found this solution very controversial and there is still a lot of discussion around it. So, we decided to keep the old way for the versioning, but have to use the git tag with v1 as a major version (due to "v2 rule" restrictions) . As a starting point for the v2.0.0 we use git tag v1.999.200. Since now, the only "patch version" will be increased for the next releases (e.g. v2.0.1 will be tagged in git as v.1.999.201 and so on, but never be above git tag v1.999 until the moment when Golang developers change the versioning approach)
+Golang introduced [v2 rule](https://go.dev/blog/v2-go-modules) a while ago to solve complicated dependency issues. We found this solution very controversial and there is still a lot of discussion around it. So, we decided to keep the old way for the versioning, but have to use the git tag with v1 as a major version (due to "v2 rule" restrictions). Since now we use git tag pattern 1.999.XYZZ where X - major number, Y - minor, ZZ - patch version.
 
 ### Changelog ###
 

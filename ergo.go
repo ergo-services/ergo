@@ -31,7 +31,7 @@ func StartNodeWithContext(ctx context.Context, name string, cookie string, opts 
 	opts.Applications = append([]gen.ApplicationBehavior{&erlang.KernelApp{}}, opts.Applications...)
 
 	// add cloud support if it's enabled
-	if opts.Cloud.Enabled {
+	if opts.Cloud.Enable {
 		cloudApp := cloud.CreateApp(opts.Cloud)
 		opts.Applications = append([]gen.ApplicationBehavior{cloudApp}, opts.Applications...)
 	}

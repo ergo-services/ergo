@@ -428,6 +428,7 @@ func (n *node) RevokeRemoteSpawn(name string) error {
 
 // DefaultFlags
 func DefaultFlags() Flags {
+	// all features are enabled by default
 	return Flags{
 		EnableHeaderAtomCache: true,
 		EnableBigCreation:     true,
@@ -435,6 +436,8 @@ func DefaultFlags() Flags {
 		EnableFragmentation:   true,
 		EnableAlias:           true,
 		EnableRemoteSpawn:     true,
+		EnableCompression:     true,
+		EnableProxy:           true,
 	}
 
 }

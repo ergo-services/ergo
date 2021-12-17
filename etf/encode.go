@@ -41,17 +41,17 @@ type EncodeOptions struct {
 
 // Encode
 func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
-	defer func() {
-		// We should catch any panic happened during encoding Golang types.
-		if r := recover(); r != nil {
-			retErr = fmt.Errorf("%v", r)
-		}
-	}()
-
+	if lib.CatchPanic() {
+		defer func() {
+			// We should catch any panic happened during encoding Golang types.
+			if r := recover(); r != nil {
+				retErr = fmt.Errorf("%v", r)
+			}
+		}()
+	}
 	var stack, child *stackElement
 
 	cacheEnabled := options.LinkAtomCache != nil
-
 	cacheIndex := uint16(0)
 	if options.EncodingAtomCache != nil {
 		cacheIndex = uint16(len(options.EncodingAtomCache.L))
@@ -517,7 +517,6 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 					cacheIndex++
 					break
 				}
-
 				options.LinkAtomCache.Append(t)
 			}
 

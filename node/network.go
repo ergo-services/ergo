@@ -115,10 +115,11 @@ func newNetwork(ctx context.Context, nodename string, options Options, router Co
 	}
 
 	resolverOptions := ResolverOptions{
-		NodeVersion:      n.version,
-		HandshakeVersion: n.handshake.Version(),
-		EnabledTLS:       n.tls.Enabled,
-		EnabledProxy:     n.proxy.Enabled,
+		NodeVersion:       n.version,
+		HandshakeVersion:  n.handshake.Version(),
+		EnableTLS:         n.tls.Enable,
+		EnableProxy:       options.Flags.EnableProxy,
+		EnableCompression: options.Flags.EnableCompression,
 	}
 	if err := n.resolver.Register(nodename, port, resolverOptions); err != nil {
 		return nil, err
@@ -144,10 +145,10 @@ func (n *network) AddStaticRoute(name string, port uint16, options RouteOptions)
 	}
 
 	route := Route{
-		Name:         name,
-		Host:         ns[1],
-		Port:         port,
-		RouteOptions: options,
+		Name:    name,
+		Host:    ns[1],
+		Port:    port,
+		Options: options,
 	}
 
 	n.staticRoutesMutex.Lock()
@@ -266,7 +267,7 @@ func (n *network) listen(ctx context.Context, hostname string, begin uint16, end
 		if err != nil {
 			continue
 		}
-		if n.tls.Enabled {
+		if n.tls.Enable {
 			config := tls.Config{
 				Certificates:       []tls.Certificate{n.tls.Server},
 				InsecureSkipVerify: n.tls.SkipVerify,
@@ -287,12 +288,16 @@ func (n *network) listen(ctx context.Context, hostname string, begin uint16, end
 				}
 				lib.Log("[%s] NETWORK accepted new connection from %s", n.nodename, c.RemoteAddr().String())
 
-				peername, protoFlags, err := n.handshake.Accept(c, n.tls.Enabled)
+				peername, protoFlags, err := n.handshake.Accept(c, n.tls.Enable)
 				if err != nil {
 					lib.Log("[%s] Can't handshake with %s: %s", n.nodename, c.RemoteAddr().String(), err)
 					c.Close()
 					continue
 				}
+				// TODO we need to detect somehow whether to enable software keepalive.
+				// Erlang nodes are required to be receiving keepalive messages,
+				// but Ergo doesn't need it.
+				protoFlags.EnableSoftwareKeepAlive = true
 				connection, err := n.proto.Init(n.ctx, c, peername, protoFlags)
 				if err != nil {
 					c.Close()
@@ -349,10 +354,10 @@ func (n *network) connect(peername string) (ConnectionInterface, error) {
 		KeepAlive: defaultKeepAlivePeriod * time.Second,
 	}
 
-	if route.IsErgo == true {
+	if route.Options.IsErgo == true {
 		// rely on the route TLS settings if they were defined
-		if route.EnabledTLS {
-			if route.Cert.Certificate == nil {
+		if route.Options.EnableTLS {
+			if route.Options.Cert.Certificate == nil {
 				// use the local TLS settings
 				config := tls.Config{
 					Certificates:       []tls.Certificate{n.tls.Client},
@@ -366,7 +371,7 @@ func (n *network) connect(peername string) (ConnectionInterface, error) {
 			} else {
 				// use the route TLS settings
 				config := tls.Config{
-					Certificates: []tls.Certificate{route.Cert},
+					Certificates: []tls.Certificate{route.Options.Cert},
 				}
 				tlsdialer := tls.Dialer{
 					NetDialer: &dialer,
@@ -383,7 +388,7 @@ func (n *network) connect(peername string) (ConnectionInterface, error) {
 
 	} else {
 		// rely on the local TLS settings
-		if n.tls.Enabled {
+		if n.tls.Enable {
 			config := tls.Config{
 				Certificates:       []tls.Certificate{n.tls.Client},
 				InsecureSkipVerify: n.tls.SkipVerify,
@@ -406,7 +411,7 @@ func (n *network) connect(peername string) (ConnectionInterface, error) {
 	}
 
 	// handshake
-	handshake := route.Handshake
+	handshake := route.Options.Handshake
 	if handshake == nil {
 		// use default handshake
 		handshake = n.handshake
@@ -419,12 +424,16 @@ func (n *network) connect(peername string) (ConnectionInterface, error) {
 	}
 
 	// proto
-	proto := route.Proto
+	proto := route.Options.Proto
 	if proto == nil {
 		// use default proto
 		proto = n.proto
 	}
 
+	// TODO we need to detect somehow whether to enable software keepalive.
+	// Erlang nodes are required to be receiving keepalive messages,
+	// but Ergo doesn't need it.
+	protoFlags.EnableSoftwareKeepAlive = true
 	connection, err := n.proto.Init(n.ctx, c, peername, protoFlags)
 	if err != nil {
 		c.Close()

@@ -10,10 +10,12 @@ import (
 	"runtime"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/ergo-services/ergo"
 	"github.com/ergo-services/ergo/etf"
 	"github.com/ergo-services/ergo/gen"
+	"github.com/ergo-services/ergo/lib"
 	"github.com/ergo-services/ergo/node"
 	"github.com/ergo-services/ergo/proto/dist"
 )
@@ -322,7 +324,7 @@ func TestNodeDistHandshake(t *testing.T) {
 	}
 	node9Options5WithTLS := node.Options{
 		Handshake: dist.CreateHandshake(handshake5options),
-		TLS:       node.TLS{Enabled: true},
+		TLS:       node.TLS{Enable: true},
 	}
 	node9, e9 := ergo.StartNode("node9Handshake5@localhost", "secret", node9Options5WithTLS)
 	if e9 != nil {
@@ -330,7 +332,7 @@ func TestNodeDistHandshake(t *testing.T) {
 	}
 	node10Options5WithTLS := node.Options{
 		Handshake: dist.CreateHandshake(handshake5options),
-		TLS:       node.TLS{Enabled: true},
+		TLS:       node.TLS{Enable: true},
 	}
 	node10, e10 := ergo.StartNode("node10Handshake5@localhost", "secret", node10Options5WithTLS)
 	if e10 != nil {
@@ -338,7 +340,7 @@ func TestNodeDistHandshake(t *testing.T) {
 	}
 	node11Options5WithTLS := node.Options{
 		Handshake: dist.CreateHandshake(handshake5options),
-		TLS:       node.TLS{Enabled: true},
+		TLS:       node.TLS{Enable: true},
 	}
 	node11, e11 := ergo.StartNode("node11Handshake5@localhost", "secret", node11Options5WithTLS)
 	if e11 != nil {
@@ -346,7 +348,7 @@ func TestNodeDistHandshake(t *testing.T) {
 	}
 	node12Options6WithTLS := node.Options{
 		Handshake: dist.CreateHandshake(handshake6options),
-		TLS:       node.TLS{Enabled: true},
+		TLS:       node.TLS{Enable: true},
 	}
 	node12, e12 := ergo.StartNode("node12Handshake6@localhost", "secret", node12Options6WithTLS)
 	if e12 != nil {
@@ -356,7 +358,7 @@ func TestNodeDistHandshake(t *testing.T) {
 	// node14, _ := ergo.StartNode("node14Handshake5@localhost", "secret", nodeOptions5WithTLS)
 	node15Options6WithTLS := node.Options{
 		Handshake: dist.CreateHandshake(handshake6options),
-		TLS:       node.TLS{Enabled: true},
+		TLS:       node.TLS{Enable: true},
 	}
 	node15, e15 := ergo.StartNode("node15Handshake6@localhost", "secret", node15Options6WithTLS)
 	if e15 != nil {
@@ -364,7 +366,7 @@ func TestNodeDistHandshake(t *testing.T) {
 	}
 	node16Options6WithTLS := node.Options{
 		Handshake: dist.CreateHandshake(handshake6options),
-		TLS:       node.TLS{Enabled: true},
+		TLS:       node.TLS{Enable: true},
 	}
 	node16, e16 := ergo.StartNode("node16Handshake6@localhost", "secret", node16Options6WithTLS)
 	if e16 != nil {
@@ -463,6 +465,306 @@ func TestNodeRemoteSpawn(t *testing.T) {
 	fmt.Println("OK")
 }
 
+func TestNodeResolveExtra(t *testing.T) {
+	fmt.Printf("\n=== Test Node Resolve Extra \n")
+	fmt.Printf("... starting node1 with disabled TLS: ")
+	node1, err := ergo.StartNode("node1resolveExtra@localhost", "secret", node.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer node1.Stop()
+	fmt.Println("OK")
+	opts := node.Options{}
+	opts.TLS.Enable = true
+	fmt.Printf("... starting node2 with enabled TLS: ")
+	node2, err := ergo.StartNode("node2resolveExtra@localhost", "secret", opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer node2.Stop()
+	fmt.Println("OK")
+
+	fmt.Printf("... node1 resolves node2 with enabled TLS: ")
+	route1, err := node1.Resolve("node2resolveExtra@localhost")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if route1.Options.EnableTLS == false {
+		t.Fatal("expected true value")
+	}
+	fmt.Println("OK")
+
+	fmt.Printf("... node2 resolves node1 with disabled TLS: ")
+	route2, err := node2.Resolve("node1resolveExtra@localhost")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if route2.Options.EnableTLS == true {
+		t.Fatal("expected true value")
+	}
+	fmt.Println("OK")
+
+	fmt.Printf("... node1 connect to node2: ")
+	if err := node1.Connect(node2.Name()); err != nil {
+		t.Fatal(err)
+	}
+	if len(node1.Nodes()) != 1 {
+		t.Fatal("no peers")
+	}
+	if node1.Nodes()[0] != node2.Name() {
+		t.Fatal("wrong peer")
+	}
+	fmt.Println("OK")
+
+	fmt.Printf("... disconnecting nodes: ")
+	time.Sleep(300 * time.Millisecond)
+	if err := node1.Disconnect(node2.Name()); err != nil {
+		t.Fatal(err)
+	}
+	if len(node1.Nodes()) > 0 {
+		t.Fatal("still connected")
+	}
+	fmt.Println("OK")
+
+	fmt.Printf("... node2 connect to node1: ")
+	if err := node2.Connect(node1.Name()); err != nil {
+		t.Fatal(err)
+	}
+	if len(node2.Nodes()) != 1 {
+		t.Fatal("no peers")
+	}
+	if node2.Nodes()[0] != node1.Name() {
+		t.Fatal("wrong peer")
+	}
+	fmt.Println("OK")
+}
+
+type compressionServer struct {
+	gen.Server
+}
+
+func (c *compressionServer) Init(process *gen.ServerProcess, args ...etf.Term) error {
+	return nil
+}
+
+func (c *compressionServer) HandleCall(process *gen.ServerProcess, from gen.ServerFrom, message etf.Term) (etf.Term, gen.ServerStatus) {
+	blob := message.(etf.Tuple)[1].([]byte)
+	md5original := message.(etf.Tuple)[0].(string)
+	md5sum := fmt.Sprint(md5.Sum(blob))
+	result := etf.Atom("ok")
+	if !reflect.DeepEqual(md5original, md5sum) {
+		result = etf.Atom("mismatch")
+	}
+	return result, gen.ServerStatusOK
+}
+func (c *compressionServer) HandleDirect(process *gen.ServerProcess, message interface{}) (interface{}, error) {
+	switch m := message.(type) {
+	case makeCall:
+		return process.Call(m.to, m.message)
+	}
+	return nil, gen.ErrUnsupportedRequest
+}
+func TestNodeCompression(t *testing.T) {
+	fmt.Printf("\n=== Test Node Compression \n")
+	opts1 := node.Options{}
+	opts1.Compression.Enable = true
+	// need 1 handler to make Atom cache work
+	protoOptions := node.DefaultProtoOptions()
+	protoOptions.NumHandlers = 1
+	opts1.Proto = dist.CreateProto("node1compression@localhost", protoOptions)
+	node1, e := ergo.StartNode("node1compression@localhost", "secret", opts1)
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer node1.Stop()
+	node2, e := ergo.StartNode("node2compression@localhost", "secret", node.Options{})
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer node2.Stop()
+
+	n1p1, err := node1.Spawn("", gen.ProcessOptions{}, &compressionServer{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	n2p1, err := node2.Spawn("", gen.ProcessOptions{}, &compressionServer{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	fmt.Printf("... send 1MB compressed. no fragmentation: ")
+	// empty data (no fragmentation)
+	blob := make([]byte, 1024*1024)
+	md5sum := fmt.Sprint(md5.Sum(blob))
+	message := etf.Tuple{md5sum, blob}
+
+	// send 3 times. that is how atom cache is working -
+	// atoms are encoding from cache on 2nd or 3rd sending
+	call := makeCall{
+		to:      n2p1.Self(),
+		message: message,
+	}
+	for i := 0; i < 3; i++ {
+		result, e := n1p1.Direct(call)
+		if e != nil {
+			t.Fatal(e)
+		}
+		if result != etf.Atom("ok") {
+			t.Fatal(result)
+		}
+	}
+	fmt.Println("OK")
+
+	fmt.Printf("... send 1MB compressed. with fragmentation: ")
+	// will be fragmented
+	rnd := lib.RandomString(1024 * 1024)
+	blob = []byte(rnd) // compression rate for random string around 50%
+	//rand.Read(blob[:66000]) // compression rate for 1MB of random data - 0 % (entropy too big)
+	md5sum = fmt.Sprint(md5.Sum(blob))
+	message = etf.Tuple{md5sum, blob}
+
+	call = makeCall{
+		to:      n2p1.Self(),
+		message: message,
+	}
+	for i := 0; i < 3; i++ {
+		result, e := n1p1.Direct(call)
+		if e != nil {
+			t.Fatal(e)
+		}
+		if result != etf.Atom("ok") {
+			t.Fatal(result)
+		}
+	}
+	fmt.Println("OK")
+}
+
+func BenchmarkNodeCompressionDisabled1MBempty(b *testing.B) {
+	node1name := fmt.Sprintf("nodeB1compressionDis_%d@localhost", b.N)
+	node2name := fmt.Sprintf("nodeB2compressionDis_%d@localhost", b.N)
+	node1, _ := ergo.StartNode(node1name, "bench", node.Options{})
+	node2, _ := ergo.StartNode(node2name, "bench", node.Options{})
+	defer node1.Stop()
+	defer node2.Stop()
+	if err := node1.Connect(node2.Name()); err != nil {
+		b.Fatal(err)
+	}
+
+	bgs := &benchGS{}
+
+	var empty [1024 * 1024]byte
+	b.SetParallelism(15)
+	b.RunParallel(func(pb *testing.PB) {
+		p1, e1 := node1.Spawn("", gen.ProcessOptions{}, bgs)
+		if e1 != nil {
+			b.Fatal(e1)
+		}
+		p2, e2 := node2.Spawn("", gen.ProcessOptions{}, bgs)
+		if e2 != nil {
+			b.Fatal(e2)
+		}
+		b.ResetTimer()
+		for pb.Next() {
+			call := makeCall{
+				to:      p2.Self(),
+				message: empty,
+			}
+			_, e := p1.DirectWithTimeout(call, 30)
+			if e != nil {
+				b.Fatal(e)
+			}
+		}
+
+	})
+}
+func BenchmarkNodeCompressionEnabled1MBempty(b *testing.B) {
+	node1name := fmt.Sprintf("nodeB1compressionEn_%d@localhost", b.N)
+	node2name := fmt.Sprintf("nodeB2compressionEn_%d@localhost", b.N)
+	node1, _ := ergo.StartNode(node1name, "bench", node.Options{})
+	node2, _ := ergo.StartNode(node2name, "bench", node.Options{})
+	defer node1.Stop()
+	defer node2.Stop()
+	if err := node1.Connect(node2.Name()); err != nil {
+		b.Fatal(err)
+	}
+
+	bgs := &benchGS{}
+
+	var empty [1024 * 1024]byte
+	//b.SetParallelism(15)
+	b.RunParallel(func(pb *testing.PB) {
+		p1, e1 := node1.Spawn("", gen.ProcessOptions{}, bgs)
+		if e1 != nil {
+			b.Fatal(e1)
+		}
+		p1.SetCompression(true)
+		p1.SetCompressionLevel(5)
+		p2, e2 := node2.Spawn("", gen.ProcessOptions{}, bgs)
+		if e2 != nil {
+			b.Fatal(e2)
+		}
+		b.ResetTimer()
+		for pb.Next() {
+			call := makeCall{
+				to:      p2.Self(),
+				message: empty,
+			}
+			_, e := p1.DirectWithTimeout(call, 30)
+			if e != nil {
+				b.Fatal(e)
+			}
+		}
+
+	})
+}
+
+func BenchmarkNodeCompressionEnabled1MBstring(b *testing.B) {
+	node1name := fmt.Sprintf("nodeB1compressionEnStr_%d@localhost", b.N)
+	node2name := fmt.Sprintf("nodeB2compressionEnStr_%d@localhost", b.N)
+	node1, e := ergo.StartNode(node1name, "bench", node.Options{})
+	if e != nil {
+		b.Fatal(e)
+	}
+	node2, e := ergo.StartNode(node2name, "bench", node.Options{})
+	if e != nil {
+		b.Fatal(e)
+	}
+	defer node1.Stop()
+	defer node2.Stop()
+	if err := node1.Connect(node2.Name()); err != nil {
+		b.Fatal(err)
+	}
+
+	bgs := &benchGS{}
+
+	randomString := []byte(lib.RandomString(1024 * 1024))
+	b.SetParallelism(15)
+	b.RunParallel(func(pb *testing.PB) {
+		p1, e1 := node1.Spawn("", gen.ProcessOptions{}, bgs)
+		if e1 != nil {
+			b.Fatal(e1)
+		}
+		p1.SetCompression(true)
+		p1.SetCompressionLevel(5)
+		p2, e2 := node2.Spawn("", gen.ProcessOptions{}, bgs)
+		if e2 != nil {
+			b.Fatal(e2)
+		}
+		b.ResetTimer()
+		for pb.Next() {
+			call := makeCall{
+				to:      p2.Self(),
+				message: randomString,
+			}
+			_, e := p1.DirectWithTimeout(call, 30)
+			if e != nil {
+				b.Fatal(e)
+			}
+		}
+
+	})
+}
+
 type benchGS struct {
 	gen.Server
 }
@@ -473,7 +775,7 @@ func (b *benchGS) HandleCall(process *gen.ServerProcess, from gen.ServerFrom, me
 func (b *benchGS) HandleDirect(process *gen.ServerProcess, message interface{}) (interface{}, error) {
 	switch m := message.(type) {
 	case makeCall:
-		return process.Call(m.to, m.message)
+		return process.CallWithTimeout(m.to, m.message, 30)
 	}
 	return nil, gen.ErrUnsupportedRequest
 }
