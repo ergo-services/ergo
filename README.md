@@ -96,31 +96,6 @@ Here are the changes of latest release. For more details see the [ChangeLog](Cha
 
 Here is simple EndToEnd test demonstrates performance of messaging subsystem
 
-#### Sequential Process.Call using two processes running on a single and two nodes
-
-Hardware: laptop with Intel(R) Core(TM) i5-8265U (4 cores. 8 with HT)
-
-```
-❯❯❯❯ go test -bench=NodeSequential -run=XXX -benchtime=10s
-goos: linux
-goarch: amd64
-pkg: github.com/ergo-services/ergo
-BenchmarkNodeSequential/number-8 	  256108	     48578 ns/op
-BenchmarkNodeSequential/string-8 	  266906	     51531 ns/op
-BenchmarkNodeSequential/tuple_(PID)-8         	  233700	     58192 ns/op
-BenchmarkNodeSequential/binary_1MB-8          	    5617	   2092495 ns/op
-BenchmarkNodeSequentialSingleNode/number-8         	 2527580	      4857 ns/op
-BenchmarkNodeSequentialSingleNode/string-8         	 2519410	      4760 ns/op
-BenchmarkNodeSequentialSingleNode/tuple_(PID)-8    	 2524701	      4757 ns/op
-BenchmarkNodeSequentialSingleNode/binary_1MB-8     	 2521370	      4758 ns/op
-PASS
-ok  	github.com/ergo-services/ergo	120.720s
-```
-
-it means Ergo Framework provides around **25.000 sync requests per second** via localhost for simple data and around 4Gbit/sec for 1MB messages
-
-#### Parallel Process.Call using 120 pairs of processes running on a single and two nodes
-
 Hardware: workstation with AMD Ryzen Threadripper 3970X (64) @ 3.700GHz
 
 ```
