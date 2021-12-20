@@ -130,7 +130,7 @@ PASS
 ok      github.com/ergo-services/ergo/tests     56.708s
 ```
 
-It demonstrates **more than 2 times** improvements.
+It demonstrates **more than 2 times** improvement.
 
 
 #### Ergo Framework vs original Erlang/OTP
