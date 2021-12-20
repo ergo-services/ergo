@@ -115,7 +115,7 @@ these numbers show almost **500.000 sync requests per second** for the network m
 
 #### Compression
 
-This benchmark shows performance of compression for 1MB messages.
+This benchmark shows the performance of compression for sending 1MB message between two nodes (via a network).
 
 ```
 ❯❯❯❯ go test -bench=NodeCompression -run=XXX -benchtime=10s
