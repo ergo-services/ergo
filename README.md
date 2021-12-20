@@ -113,6 +113,26 @@ ok      github.com/ergo-services/ergo/tests  29.596s
 
 these numbers show almost **500.000 sync requests per second** for the network messaging via localhost and **10.000.000 sync requests per second** for the local messaging (within a node).
 
+#### Compression
+
+This benchmark shows performance of compression for 1MB messages.
+
+```
+❯❯❯❯ go test -bench=NodeCompression -run=XXX -benchtime=10s
+goos: linux
+goarch: amd64
+pkg: github.com/ergo-services/ergo/tests
+cpu: AMD Ryzen Threadripper 3970X 32-Core Processor
+BenchmarkNodeCompressionDisabled1MBempty-64         2400           4957483 ns/op
+BenchmarkNodeCompressionEnabled1MBempty-64          5769           2088051 ns/op
+BenchmarkNodeCompressionEnabled1MBstring-64         5202           2077099 ns/op
+PASS
+ok      github.com/ergo-services/ergo/tests     56.708s
+```
+
+It demonstrates **more than 2 times** improvements.
+
+
 #### Ergo Framework vs original Erlang/OTP
 
 Hardware: laptop with Intel(R) Core(TM) i5-8265U (4 cores. 8 with HT)
