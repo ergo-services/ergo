@@ -53,11 +53,10 @@ const (
 	defaultCleanDeadline = 30 * time.Second // for checkClean
 
 	// http://erlang.org/doc/apps/erts/erl_ext_dist.html#distribution_header
-	protoDist           = 131
-	protoDistCompressed = 80
-	protoDistMessage    = 68
-	protoDistFragment1  = 69
-	protoDistFragmentN  = 70
+	protoDist          = 131
+	protoDistMessage   = 68
+	protoDistFragment1 = 69
+	protoDistFragmentN = 70
 
 	// ergo gzipped messages
 	protoDistMessageZ   = 200
@@ -76,6 +75,11 @@ type fragmentedPacket struct {
 	lastUpdate       time.Time
 }
 
+type proxySession struct {
+	id    string
+	flags node.Flags
+}
+
 type distConnection struct {
 	node.Connection
 
@@ -89,6 +93,10 @@ type distConnection struct {
 	// socket
 	conn          io.ReadWriter
 	cancelContext context.CancelFunc
+
+	// proxy sessions (nodename -> session id)
+	proxySessions      map[string]proxySession
+	mutexProxySessions sync.RWMutex
 
 	// route incoming messages
 	router node.CoreRouter
@@ -154,6 +162,10 @@ type sendMessage struct {
 	compression          bool
 	compressionLevel     int
 	compressionThreshold int
+	proxy                bool
+	proxyTo              string
+	proxySession         string
+	proxySessionFlags    node.Flags
 }
 
 type receivers struct {
@@ -168,6 +180,7 @@ func (dp *distProto) Init(ctx context.Context, conn io.ReadWriter, peername stri
 		peername:           peername,
 		flags:              flags,
 		conn:               conn,
+		proxySessions:      make(map[string]proxySession),
 		fragments:          make(map[uint64]*fragmentedPacket),
 		checkCleanTimeout:  defaultCleanTimeout,
 		checkCleanDeadline: defaultCleanDeadline,
@@ -312,7 +325,7 @@ func (dc *distConnection) Send(from gen.Process, to etf.Pid, message etf.Term) e
 		msg.compressionThreshold = from.CompressionThreshold()
 	}
 
-	return dc.send(msg)
+	return dc.send(string(to.Node), msg)
 }
 func (dc *distConnection) SendReg(from gen.Process, to gen.ProcessID, message etf.Term) error {
 	msg := sendMessages.Get().(*sendMessage)
@@ -325,7 +338,7 @@ func (dc *distConnection) SendReg(from gen.Process, to gen.ProcessID, message et
 		msg.compressionLevel = from.CompressionLevel()
 		msg.compressionThreshold = from.CompressionThreshold()
 	}
-	return dc.send(msg)
+	return dc.send(to.Node, msg)
 }
 func (dc *distConnection) SendAlias(from gen.Process, to etf.Alias, message etf.Term) error {
 	if dc.flags.EnableAlias == false {
@@ -342,66 +355,66 @@ func (dc *distConnection) SendAlias(from gen.Process, to etf.Alias, message etf.
 		msg.compressionLevel = from.CompressionLevel()
 		msg.compressionThreshold = from.CompressionThreshold()
 	}
-	return dc.send(msg)
+	return dc.send(string(to.Node), msg)
 }
 
 func (dc *distConnection) Link(local etf.Pid, remote etf.Pid) error {
 	msg := &sendMessage{
 		control: etf.Tuple{distProtoLINK, local, remote},
 	}
-	return dc.send(msg)
+	return dc.send(string(remote.Node), msg)
 }
 func (dc *distConnection) Unlink(local etf.Pid, remote etf.Pid) error {
 	msg := &sendMessage{
 		control: etf.Tuple{distProtoUNLINK, local, remote},
 	}
-	return dc.send(msg)
+	return dc.send(string(remote.Node), msg)
 }
 func (dc *distConnection) LinkExit(to etf.Pid, terminated etf.Pid, reason string) error {
 	msg := &sendMessage{
 		control: etf.Tuple{distProtoEXIT, terminated, to, etf.Atom(reason)},
 	}
-	return dc.send(msg)
+	return dc.send(string(to.Node), msg)
 }
 
 func (dc *distConnection) Monitor(local etf.Pid, remote etf.Pid, ref etf.Ref) error {
 	msg := &sendMessage{
 		control: etf.Tuple{distProtoMONITOR, local, remote, ref},
 	}
-	return dc.send(msg)
+	return dc.send(string(remote.Node), msg)
 }
 func (dc *distConnection) MonitorReg(local etf.Pid, remote gen.ProcessID, ref etf.Ref) error {
 	msg := &sendMessage{
 		control: etf.Tuple{distProtoMONITOR, local, etf.Atom(remote.Name), ref},
 	}
-	return dc.send(msg)
+	return dc.send(remote.Node, msg)
 }
 func (dc *distConnection) Demonitor(local etf.Pid, remote etf.Pid, ref etf.Ref) error {
 	msg := &sendMessage{
 		control: etf.Tuple{distProtoDEMONITOR, local, remote, ref},
 	}
-	return dc.send(msg)
+	return dc.send(string(remote.Node), msg)
 }
 func (dc *distConnection) DemonitorReg(local etf.Pid, remote gen.ProcessID, ref etf.Ref) error {
 	msg := &sendMessage{
 		control: etf.Tuple{distProtoDEMONITOR, local, etf.Atom(remote.Name), ref},
 	}
-	return dc.send(msg)
+	return dc.send(remote.Node, msg)
 }
 func (dc *distConnection) MonitorExitReg(to etf.Pid, terminated gen.ProcessID, reason string, ref etf.Ref) error {
 	msg := &sendMessage{
 		control: etf.Tuple{distProtoMONITOR_EXIT, etf.Atom(terminated.Name), to, ref, etf.Atom(reason)},
 	}
-	return dc.send(msg)
+	return dc.send(string(to.Node), msg)
 }
 func (dc *distConnection) MonitorExit(to etf.Pid, terminated etf.Pid, reason string, ref etf.Ref) error {
 	msg := &sendMessage{
 		control: etf.Tuple{distProtoMONITOR_EXIT, terminated, to, ref, etf.Atom(reason)},
 	}
-	return dc.send(msg)
+	return dc.send(string(to.Node), msg)
 }
 
-func (dc *distConnection) SpawnRequest(behaviorName string, request gen.RemoteSpawnRequest, args ...etf.Term) error {
+func (dc *distConnection) SpawnRequest(nodeName string, behaviorName string, request gen.RemoteSpawnRequest, args ...etf.Term) error {
 	if dc.flags.EnableRemoteSpawn == false {
 		return node.ErrUnsupported
 	}
@@ -419,24 +432,37 @@ func (dc *distConnection) SpawnRequest(behaviorName string, request gen.RemoteSp
 		},
 		payload: args,
 	}
-	return dc.send(msg)
+	return dc.send(nodeName, msg)
 }
 
 func (dc *distConnection) SpawnReply(to etf.Pid, ref etf.Ref, pid etf.Pid) error {
 	msg := &sendMessage{
 		control: etf.Tuple{distProtoSPAWN_REPLY, ref, to, 0, pid},
 	}
-	return dc.send(msg)
+	return dc.send(string(to.Node), msg)
 }
 
 func (dc *distConnection) SpawnReplyError(to etf.Pid, ref etf.Ref, err error) error {
 	msg := &sendMessage{
 		control: etf.Tuple{distProtoSPAWN_REPLY, ref, to, 0, etf.Atom(err.Error())},
 	}
-	return dc.send(msg)
+	return dc.send(string(to.Node), msg)
 }
 
-func (dc *distConnection) Proxy() error {
+func (dc *distConnection) ProxyConnect(node string, digest string, salt string) error {
+	if dc.flags.EnableProxy == false {
+		return node.ErrPeerUnsupported
+	}
+	msg := &sendMessage{
+		control: etf.Tuple{ergoProtoPROXY, etf.Atom(dc.nodename), digest},
+	}
+	return nil
+}
+
+func (dc *distConnection) ProxyDisconnect(node string) error {
+	if dc.flags.EnableProxy == false {
+		return node.ErrPeerUnsupported
+	}
 	return nil
 }
 
@@ -921,6 +947,8 @@ func (dc *distConnection) handleMessage(control, message etf.Term) (err error) {
 				dc.router.RouteSpawnReply(to, ref, t.Element(5))
 				return nil
 
+			case ergoProtoPROXY:
+
 			default:
 				lib.Log("[%s] CONTROL unknown command [from %s]: %#v", dc.nodename, dc.peername, control)
 				return fmt.Errorf("unknown control command %#v", control)
@@ -1253,6 +1281,7 @@ func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOpt
 			message.control = nil
 			message.payload = nil
 			message.compression = false
+			message.proxy = false
 			sendMessages.Put(message)
 		}
 
@@ -1466,7 +1495,24 @@ func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOpt
 
 }
 
-func (dc *distConnection) send(msg *sendMessage) error {
+func (dc *distConnection) send(to string, msg *sendMessage) error {
+	if to != dc.peername {
+		if dc.flags.EnableProxy == false {
+			return node.ErrPeerUnsupported
+		}
+
+		dc.mutexProxySessions.RLock()
+		session, ok := dc.proxySessions[to]
+		dc.mutexProxySessions.RUnlock()
+		if !ok {
+			return node.ErrNoProxyRoute
+		}
+		msg.proxy = true
+		msg.proxyTo = to
+		msg.proxySession = session.id
+		msg.proxySessionFlags = session.flags
+	}
+
 	i := atomic.AddInt32(&dc.senders.i, 1)
 	n := i % dc.senders.n
 	s := dc.senders.sender[n]
@@ -1477,9 +1523,6 @@ func (dc *distConnection) send(msg *sendMessage) error {
 	s.Lock()
 	defer s.Unlock()
 
-	s.sendChannel <- msg
-	return nil
-
 	// TODO to decide whether to return error if channel is full
 	//select {
 	//case s.sendChannel <- msg:
@@ -1487,4 +1530,7 @@ func (dc *distConnection) send(msg *sendMessage) error {
 	//default:
 	//	return ErrOverloadConnection
 	//}
+
+	s.sendChannel <- msg
+	return nil
 }

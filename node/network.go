@@ -10,6 +10,7 @@ import (
 
 	"crypto/ecdsa"
 	"crypto/elliptic"
+	"crypto/md5"
 	"crypto/rand"
 	"crypto/tls"
 	"crypto/x509"
@@ -27,9 +28,16 @@ import (
 )
 
 type networkInternal interface {
+	// static route methods
 	AddStaticRoute(name string, port uint16, options RouteOptions) error
 	RemoveStaticRoute(name string) bool
 	StaticRoutes() []Route
+
+	// proxy route methods
+	//AddProxyRoute(name string, proxy string) error
+	//RemoveProxyRoute(name string) bool
+	//ProxyRoutes() []string
+
 	Resolve(peername string) (Route, error)
 	Connect(peername string) error
 	Disconnect(peername string) error
@@ -44,6 +52,7 @@ type networkInternal interface {
 type connectionInternal struct {
 	conn       net.Conn
 	connection ConnectionInterface
+	proxy      string
 }
 
 type network struct {
@@ -56,8 +65,11 @@ type network struct {
 	staticRoutes      map[string]Route
 	staticRoutesMutex sync.Mutex
 
+	proxyRoutes      map[string]ProxyRoute
+	proxyRoutesMutex sync.RWMutex
+
 	connections      map[string]connectionInternal
-	mutexConnections sync.RWMutex
+	connectionsMutex sync.RWMutex
 
 	remoteSpawn      map[string]gen.ProcessBehavior
 	remoteSpawnMutex sync.Mutex
@@ -78,6 +90,7 @@ func newNetwork(ctx context.Context, nodename string, options Options, router Co
 		ctx:          ctx,
 		staticOnly:   options.StaticRoutesOnly,
 		staticRoutes: make(map[string]Route),
+		proxyRoutes:  make(map[string]ProxyRoute),
 		connections:  make(map[string]connectionInternal),
 		remoteSpawn:  make(map[string]gen.ProcessBehavior),
 		resolver:     options.Resolver,
@@ -193,17 +206,48 @@ func (n *network) GetConnection(peername string) (ConnectionInterface, error) {
 	if peername == n.nodename {
 		return nil, fmt.Errorf("can't connect to itself")
 	}
-	n.mutexConnections.RLock()
-	connectionInternal, ok := n.connections[peername]
-	n.mutexConnections.RUnlock()
+	n.connectionsMutex.RLock()
+	ci, ok := n.connections[peername]
+	n.connectionsMutex.RUnlock()
 	if ok {
-		return connectionInternal.connection, nil
+		return ci.connection, nil
 	}
 
-	connection, err := n.connect(peername)
+	n.proxyRoutesMutex.RLock()
+	proxyRoute, is_proxy := n.proxyRoutes[peername]
+	n.proxyRoutesMutex.RUnlock()
+
+	if is_proxy == false {
+		connection, err := n.connect(peername)
+		if err != nil {
+			lib.Log("[%s] CORE no route to node %q: %s", n.nodename, peername, err)
+			return nil, ErrNoRoute
+		}
+		return connection, nil
+	}
+
+	connection, err := n.GetConnection(proxyRoute.Name)
 	if err != nil {
-		lib.Log("[%s] CORE no route to node %q: %s", n.nodename, peername, err)
-		return nil, ErrNoRoute
+		return nil, err
+	}
+	salt := lib.RandomString(32)
+	digest := generateProxyDigest(proxyRoute.cookie, peername, salt)
+	if err := connection.ProxyConnect(peername, digest, salt); err != nil {
+		return nil, err
+	}
+
+	ci = connectionInternal{
+		proxy:      proxyRoute.Name,
+		connection: connection,
+	}
+
+	if registered, err := n.registerConnection(peername, ci); err != nil {
+		// Race condition:
+		// There must be another goroutine which already created and registered
+		// proxy connection to this node.
+		// Close this proxy connection and use the already registered one
+		connection.ProxyDisconnect(peername)
+		return registered.connection, nil
 	}
 
 	return connection, nil
@@ -233,11 +277,16 @@ func (n *network) Connect(peername string) error {
 
 // Disconnect
 func (n *network) Disconnect(peername string) error {
-	n.mutexConnections.RLock()
+	n.connectionsMutex.RLock()
 	connectionInternal, ok := n.connections[peername]
-	n.mutexConnections.RUnlock()
+	n.connectionsMutex.RUnlock()
 	if !ok {
 		return ErrNoRoute
+	}
+
+	if connectionInternal.proxy != "" {
+		n.unregisterConnection(peername)
+		return connectionInternal.connection.ProxyDisconnect(peername)
 	}
 
 	connectionInternal.conn.Close()
@@ -247,8 +296,8 @@ func (n *network) Disconnect(peername string) error {
 // Nodes
 func (n *network) Nodes() []string {
 	list := []string{}
-	n.mutexConnections.RLock()
-	defer n.mutexConnections.RUnlock()
+	n.connectionsMutex.RLock()
+	defer n.connectionsMutex.RUnlock()
 
 	for name := range n.connections {
 		list = append(list, name)
@@ -466,8 +515,8 @@ func (n *network) connect(peername string) (ConnectionInterface, error) {
 
 func (n *network) registerConnection(peername string, ci connectionInternal) (connectionInternal, error) {
 	lib.Log("[%s] NETWORK registering peer %#v", n.nodename, peername)
-	n.mutexConnections.Lock()
-	defer n.mutexConnections.Unlock()
+	n.connectionsMutex.Lock()
+	defer n.connectionsMutex.Unlock()
 
 	if registered, exist := n.connections[peername]; exist {
 		// already registered
@@ -479,10 +528,10 @@ func (n *network) registerConnection(peername string, ci connectionInternal) (co
 
 func (n *network) unregisterConnection(peername string) {
 	lib.Log("[%s] NETWORK unregistering peer %v", n.nodename, peername)
-	n.mutexConnections.Lock()
+	n.connectionsMutex.Lock()
 	_, exist := n.connections[peername]
 	delete(n.connections, peername)
-	n.mutexConnections.Unlock()
+	n.connectionsMutex.Unlock()
 
 	if exist {
 		n.router.RouteNodeDown(peername)
@@ -579,7 +628,7 @@ func (c *Connection) MonitorExitReg(process gen.Process, reason string, ref etf.
 func (c *Connection) MonitorExit(to etf.Pid, terminated etf.Pid, reason string, ref etf.Ref) error {
 	return ErrUnsupported
 }
-func (c *Connection) SpawnRequest(behaviorName string, request gen.RemoteSpawnRequest, args ...etf.Term) error {
+func (c *Connection) SpawnRequest(nodeName string, behaviorName string, request gen.RemoteSpawnRequest, args ...etf.Term) error {
 	return ErrUnsupported
 }
 func (c *Connection) SpawnReply(to etf.Pid, ref etf.Ref, pid etf.Pid) error {
@@ -588,10 +637,10 @@ func (c *Connection) SpawnReply(to etf.Pid, ref etf.Ref, pid etf.Pid) error {
 func (c *Connection) SpawnReplyError(to etf.Pid, ref etf.Ref, err error) error {
 	return ErrUnsupported
 }
-func (c *Connection) Proxy() error {
+func (c *Connection) ProxyConnect(node string, digest string, salt string) error {
 	return ErrUnsupported
 }
-func (c *Connection) ProxyReg() error {
+func (c *Connection) ProxyDisconnect(node string) error {
 	return ErrUnsupported
 }
 
@@ -607,4 +656,13 @@ func (h *Handshake) Accept(c net.Conn) (string, Flags, error) {
 func (h *Handshake) Version() HandshakeVersion {
 	var v HandshakeVersion
 	return v
+}
+
+///
+func generateProxyDigest(secret, peer, salt string) string {
+	// md5(md5(md5(secret)+peer)+salt)
+	digest1 := md5.Sum(secret)
+	digest2 := md5.Sum(append(digest1, node))
+	digest3 := md5.Sum(append(digest2, salt))
+	return string(digest3)
 }

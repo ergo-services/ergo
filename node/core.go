@@ -78,6 +78,12 @@ type coreInternal interface {
 
 type coreRouterInternal interface {
 	CoreRouter
+	GetConnection(nodename string) (ConnectionInterface, error)
+
+	ProcessByPid(pid etf.Pid) gen.Process
+	ProcessByName(name string) gen.Process
+	ProcessByAlias(alias etf.Alias) gen.Process
+
 	processByPid(pid etf.Pid) *process
 }
 
@@ -624,7 +630,7 @@ func (c *core) UnregisterBehavior(group, name string) error {
 
 // ProcessInfo
 func (c *core) ProcessInfo(pid etf.Pid) (gen.ProcessInfo, error) {
-	p := c.ProcessByPid(pid)
+	p := c.processByPid(pid)
 	if p == nil {
 		return gen.ProcessInfo{}, fmt.Errorf("undefined")
 	}
@@ -847,7 +853,7 @@ func (c *core) RouteSpawnRequest(node string, behaviorName string, request gen.R
 	if err != nil {
 		return err
 	}
-	return connection.SpawnRequest(behaviorName, request, args...)
+	return connection.SpawnRequest(node, behaviorName, request, args...)
 }
 
 // RouteSpawnReply

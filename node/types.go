@@ -29,11 +29,13 @@ var (
 	ErrAliasUnknown         = fmt.Errorf("Unknown alias")
 	ErrAliasOwner           = fmt.Errorf("Not an owner")
 	ErrNoRoute              = fmt.Errorf("No route to node")
+	ErrNoProxyRoute         = fmt.Errorf("No proxy route to node")
 	ErrTaken                = fmt.Errorf("Resource is taken")
 	ErrTimeout              = fmt.Errorf("Timed out")
 	ErrFragmented           = fmt.Errorf("Fragmented data")
 
-	ErrUnsupported = fmt.Errorf("Not supported")
+	ErrUnsupported     = fmt.Errorf("Not supported")
+	ErrPeerUnsupported = fmt.Errorf("Peer does not support this feature")
 )
 
 // Distributed operations codes (http://www.erlang.org/doc/apps/erts/erl_dist_protocol.html)
@@ -142,12 +144,6 @@ type CoreRouter interface {
 	RouteSendReg(from etf.Pid, to gen.ProcessID, message etf.Term) error
 	// RouteSendAlias routes message by process alias
 	RouteSendAlias(from etf.Pid, to etf.Alias, message etf.Term) error
-
-	ProcessByPid(pid etf.Pid) gen.Process
-	ProcessByName(name string) gen.Process
-	ProcessByAlias(alias etf.Alias) gen.Process
-
-	GetConnection(nodename string) (ConnectionInterface, error)
 
 	RouteSpawnRequest(node string, behaviorName string, request gen.RemoteSpawnRequest, args ...etf.Term) error
 	RouteSpawnReply(to etf.Pid, ref etf.Ref, result etf.Term) error
@@ -272,11 +268,12 @@ type ConnectionInterface interface {
 	DemonitorReg(local etf.Pid, remote gen.ProcessID, ref etf.Ref) error
 	MonitorExitReg(to etf.Pid, terminated gen.ProcessID, reason string, ref etf.Ref) error
 
-	SpawnRequest(behaviorName string, request gen.RemoteSpawnRequest, args ...etf.Term) error
+	SpawnRequest(nodeName string, behaviorName string, request gen.RemoteSpawnRequest, args ...etf.Term) error
 	SpawnReply(to etf.Pid, ref etf.Ref, spawned etf.Pid) error
 	SpawnReplyError(to etf.Pid, ref etf.Ref, err error) error
 
-	Proxy() error
+	ProxyConnect(node string, secret string, ref etf.Ref) error
+	ProxyDisconnect(node string) error
 }
 
 // Handshake template struct for the custom Handshake implementation
@@ -397,6 +394,13 @@ type RouteOptions struct {
 	Handshake HandshakeInterface
 	Proto     ProtoInterface
 	Custom    CustomRouteOptions
+}
+
+// ProxyRoute
+type ProxyRoute struct {
+	Name   string
+	Proxy  string
+	Cookie string
 }
 
 // CustomRouteOptions a custom set of route options
