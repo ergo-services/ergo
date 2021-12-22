@@ -46,7 +46,7 @@ The goal of this project is to leverage Erlang/OTP experience with Golang perfor
 * Custom marshaling/unmarshaling via `Marshal` and `Unmarshal` interfaces
 * Encryption (TLS 1.3) support (including autogenerating self-signed certificates)
 * Compression support (with customization of compression level and threshold). It can be configured for the node or a particular process.
-* Proxy support (including access lists)
+* Proxy support (including access lists and end-to-end encryption, and linking/monitoring features support)
 * Tested and confirmed support Windows, Darwin (MacOS), Linux, FreeBSD.
 * Zero dependency
 

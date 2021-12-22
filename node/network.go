@@ -44,6 +44,7 @@ type networkInternal interface {
 	Nodes() []string
 
 	GetConnection(peername string) (ConnectionInterface, error)
+	getConnection(peername string) (ConnectionInterface, error)
 
 	connect(to string) (ConnectionInterface, error)
 	stopNetwork()
@@ -53,6 +54,11 @@ type connectionInternal struct {
 	conn       net.Conn
 	connection ConnectionInterface
 	proxy      string
+}
+
+type proxyRoute struct {
+	ProxyRoute
+	Flags
 }
 
 type network struct {
@@ -65,7 +71,7 @@ type network struct {
 	staticRoutes      map[string]Route
 	staticRoutesMutex sync.Mutex
 
-	proxyRoutes      map[string]ProxyRoute
+	proxyRoutes      map[string]proxyRoute
 	proxyRoutesMutex sync.RWMutex
 
 	connections      map[string]connectionInternal
@@ -90,7 +96,7 @@ func newNetwork(ctx context.Context, nodename string, options Options, router Co
 		ctx:          ctx,
 		staticOnly:   options.StaticRoutesOnly,
 		staticRoutes: make(map[string]Route),
-		proxyRoutes:  make(map[string]ProxyRoute),
+		proxyRoutes:  make(map[string]proxyRoute),
 		connections:  make(map[string]connectionInternal),
 		remoteSpawn:  make(map[string]gen.ProcessBehavior),
 		resolver:     options.Resolver,
@@ -201,11 +207,7 @@ func (n *network) StaticRoutes() []Route {
 	return routes
 }
 
-// GetConnection
-func (n *network) GetConnection(peername string) (ConnectionInterface, error) {
-	if peername == n.nodename {
-		return nil, fmt.Errorf("can't connect to itself")
-	}
+func (n *network) getConnection(peername string) (ConnectionInterface, error) {
 	n.connectionsMutex.RLock()
 	ci, ok := n.connections[peername]
 	n.connectionsMutex.RUnlock()
@@ -226,15 +228,38 @@ func (n *network) GetConnection(peername string) (ConnectionInterface, error) {
 		return connection, nil
 	}
 
-	connection, err := n.GetConnection(proxyRoute.Name)
+	connection, err := n.getConnection(proxyRoute.Name)
 	if err != nil {
 		return nil, err
 	}
-	salt := lib.RandomString(32)
-	digest := generateProxyDigest(proxyRoute.cookie, peername, salt)
-	if err := connection.ProxyConnect(peername, digest, salt); err != nil {
+
+}
+
+// GetConnection
+func (n *network) GetConnection(peername string) (ConnectionInterface, error) {
+	if peername == n.nodename {
+		return nil, fmt.Errorf("can't connect to itself")
+	}
+	n.connectionsMutex.RLock()
+	ci, ok := n.connections[peername]
+	n.connectionsMutex.RUnlock()
+	if ok {
+		return ci.connection, nil
+	}
+
+	ci, err := n.getConnection(peername)
+	if err != nil {
 		return nil, err
 	}
+
+	var salt [32]byte
+	rand.Read(salt[:])
+	digest := generateProxyDigest(proxyRoute.Cookie, peername, salt[:])
+	if err := connection.ProxyConnect(peername, digest[:], salt[:], proxyRoute.Encryption); err != nil {
+		return nil, err
+	}
+
+	// FIXME wait reply with Flags
 
 	ci = connectionInternal{
 		proxy:      proxyRoute.Name,
@@ -659,10 +684,10 @@ func (h *Handshake) Version() HandshakeVersion {
 }
 
 ///
-func generateProxyDigest(secret, peer, salt string) string {
-	// md5(md5(md5(secret)+peer)+salt)
-	digest1 := md5.Sum(secret)
+func generateProxyDigest(cookie string, peer string, salt []byte) [16]byte {
+	// md5(md5(md5(cookie)+peer)+salt)
+	digest1 := md5.Sum(cookie)
 	digest2 := md5.Sum(append(digest1, node))
 	digest3 := md5.Sum(append(digest2, salt))
-	return string(digest3)
+	return digest3
 }

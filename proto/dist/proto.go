@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/rsa"
+	"crypto/x509"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -96,7 +98,7 @@ type distConnection struct {
 
 	// proxy sessions (nodename -> session id)
 	proxySessions      map[string]proxySession
-	mutexProxySessions sync.RWMutex
+	proxySessionsMutex sync.RWMutex
 
 	// route incoming messages
 	router node.CoreRouter
@@ -166,6 +168,7 @@ type sendMessage struct {
 	proxyTo              string
 	proxySession         string
 	proxySessionFlags    node.Flags
+	proxySymmetricKey    []byte
 }
 
 type receivers struct {
@@ -449,14 +452,29 @@ func (dc *distConnection) SpawnReplyError(to etf.Pid, ref etf.Ref, err error) er
 	return dc.send(string(to.Node), msg)
 }
 
-func (dc *distConnection) ProxyConnect(node string, digest string, salt string) error {
+func (dc *distConnection) ProxyConnect(request gen.ProxyConnectRequest) error {
 	if dc.flags.EnableProxy == false {
 		return node.ErrPeerUnsupported
 	}
-	msg := &sendMessage{
-		control: etf.Tuple{ergoProtoPROXY, etf.Atom(dc.nodename), digest},
+	var pk []byte
+	if encryption {
+		privRSAKey, err := rsa.GenerateKey(rand.Reader, 2048)
+		pk, _ = x509.MarshalPKCS1PublicKey(&privRSAKey.PublicKey)
 	}
-	return nil
+	msg := &sendMessage{
+		control: etf.Tuple{distProtoPROXY_REQUEST,
+			etf.Atom(request.NodeFrom), // from node
+			etf.Atom(request.NodeTo),   // to node
+			request.Salt,               //
+			request.Digest,             //
+			request.PublicKey,          // public key for the end to end encryption
+		},
+	}
+	return dc.send(dc.peername, msg)
+}
+
+func (dc *distConnection) ProxyConnectReply(reply gen.ProxyConnectReply) error {
+
 }
 
 func (dc *distConnection) ProxyDisconnect(node string) error {
@@ -757,6 +775,10 @@ func (dc *distConnection) decodeDist(packet []byte) (etf.Term, etf.Term, error) 
 			}
 		}
 		return nil, nil, nil
+	case protoDistProxy:
+
+		// dc.router.RouteProxyMessage(dc.nodename, packet
+		return nil, nil, nil
 	}
 
 	return nil, nil, fmt.Errorf("unknown packet type %d", packet[0])
@@ -947,7 +969,25 @@ func (dc *distConnection) handleMessage(control, message etf.Term) (err error) {
 				dc.router.RouteSpawnReply(to, ref, t.Element(5))
 				return nil
 
-			case ergoProtoPROXY:
+			case distProtoPROXY_REQUEST:
+				// {101, NodeFrom, NodeTo, Salt, Digest, PublicKey}
+				lib.Log("[%s] PROXY REQUEST [from %s]: %#v", dc.nodename, dc.peername, control)
+				connectRequest := gen.ProxyConnectRequest{
+					NodeFrom:  string(t.Element(2).(etf.Atom)),
+					NodeTo:    string(t.Element(3).(etf.Atom)),
+					Salt:      t.Element(4).([]byte),
+					Digest:    t.Element(5).([]byte),
+					PublicKey: t.Element(6).([]byte),
+				}
+				dc.router.RouteProxyRequest(dc, connectRequest)
+				return nil
+
+			case distProtoPROXY_REPLY:
+				lib.Log("[%s] PROXY REPLY [from %s]: %#v", dc.nodename, dc.peername, control)
+				connectReply := gen.ProxyConnectReply{}
+				if err := dc.router.RouteProxyRepy(dc, connectReply); err == nil {
+					// register session id
+				}
 
 			default:
 				lib.Log("[%s] CONTROL unknown command [from %s]: %#v", dc.nodename, dc.peername, control)
@@ -1282,6 +1322,7 @@ func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOpt
 			message.payload = nil
 			message.compression = false
 			message.proxy = false
+			message.proxySymmetricKey = nil
 			sendMessages.Put(message)
 		}
 
@@ -1501,9 +1542,9 @@ func (dc *distConnection) send(to string, msg *sendMessage) error {
 			return node.ErrPeerUnsupported
 		}
 
-		dc.mutexProxySessions.RLock()
+		dc.proxySessionsMutex.RLock()
 		session, ok := dc.proxySessions[to]
-		dc.mutexProxySessions.RUnlock()
+		dc.proxySessionsMutex.RUnlock()
 		if !ok {
 			return node.ErrNoProxyRoute
 		}

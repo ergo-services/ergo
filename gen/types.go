@@ -240,6 +240,24 @@ type RemoteSpawnOptions struct {
 	Function string
 }
 
+// ProxyConnectRequest
+type ProxyConnectRequest struct {
+	NodeFrom  string
+	NodeTo    string
+	Salt      []byte
+	Digest    []byte // md5(md5(md5(Cookie)+NodeTo)+Salt)
+	PublicKey []byte
+}
+
+// ProxyConnectReply
+type ProxyConnectReply struct {
+	NodeFrom     string
+	NodeTo       string
+	SessionID    string // proxy session ID
+	Digest       []byte // md5(md5(md5(Cookie)+NodeFrom)+Salt)
+	SymmetricKey []byte // encrypted symmetric key using PublicKey from the ProxyConnectRequest
+}
+
 // ProcessChannels
 type ProcessChannels struct {
 	Mailbox      <-chan ProcessMailboxMessage

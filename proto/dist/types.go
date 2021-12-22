@@ -34,5 +34,7 @@ const (
 	distProtoUNLINK_ID_ACK          = 36
 
 	// ergo operations codes
-	ergoProtoPROXY = 1001
+	distProtoPROXY_REQUEST = 101
+	distProtoPROXY_REPLY   = 102
+	distProtoPROXY_EXIT    = 103
 )

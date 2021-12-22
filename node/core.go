@@ -2,6 +2,10 @@ package node
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/sha256"
+	"crypto/x509"
 	"fmt"
 	"runtime"
 	"strings"
@@ -817,8 +821,76 @@ func (c *core) RouteSendAlias(from etf.Pid, to etf.Alias, message etf.Term) erro
 }
 
 // RouteProxy
-func (c *core) RouteProxy() error {
-	// FIXME
+func (c *core) RouteProxyRequest(from ConnectionInterface, request gen.ProxyConnectRequest) error {
+	if request.NodeTo == c.nodename {
+		// create and register new proxy session
+		sessionID := lib.RandomString(32)
+
+		// TODO
+		proxyRoute := proxyRoute{}
+
+		digest := generateProxyDigest(proxyRoute.Cookie, request.NodeFrom, request.Salt)
+		reply := gen.ProxyConnectReply{
+			NodeFrom:  request.NodeFrom,
+			NodeTo:    request.NodeTo,
+			SessionID: sessionID,
+			Digest:    digest,
+		}
+
+		if len(request.PublicKey) > 0 {
+			pk, err := x509.ParsePKCS1PublicKey(request.PublicKey)
+			if err != nil {
+				// reply error
+				from.ProxyReply
+				return nil
+			}
+			label := []byte{""}
+			hash := sha256.New()
+			symmetricKey := make([]byte, 32)
+			rand.Read(symmetricKey)
+			cipherkey, err := rsa.EncryptOAEP(hash, rand.Reader, pk, symmetricKey, label)
+			if err != nil {
+				// reply error
+				from.ProxyReply
+				return nil
+			}
+			reply.SymmetricKey = cipherkey
+
+		}
+
+		from.ProxyReply
+		return nil
+	}
+
+	// send this request further
+	connection, err := c.getConnection(request.NodeTo)
+	if err != nil {
+		from.ProxyReply
+		return nil
+	}
+	err := connection.ProxyConnect(request)
+	if err != nil {
+		from.ProxyReply
+		return nil
+
+	}
+	return nil
+}
+
+func (c *core) RouteProxy(from ConnectionInterface, sessionID string, message []byte) error {
+	// check if this session is present on this node
+	c.proxySessionsMutex.RLock()
+	session, ok := c.proxySessions[sessionID]
+	c.proxySessionsMutex.RUnlock()
+	if !ok {
+		// send ProxyExit or just drop this message
+	}
+	if session.a == from {
+		session.b.Proxy(sessionID, message)
+		return nil
+	}
+
+	session.a.Proxy(sessionID, message)
 	return nil
 }
 

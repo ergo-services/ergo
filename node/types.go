@@ -398,9 +398,10 @@ type RouteOptions struct {
 
 // ProxyRoute
 type ProxyRoute struct {
-	Name   string
-	Proxy  string
-	Cookie string
+	Name       string
+	Proxy      string
+	Cookie     string
+	Encryption bool // use End-2-End encryption for the proxy session
 }
 
 // CustomRouteOptions a custom set of route options
