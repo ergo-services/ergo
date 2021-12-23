@@ -415,7 +415,7 @@ func (gsp *ServerProcess) waitCallbackOrDeferr(message interface{}) {
 			fmt.Printf("WARNING! deferred mailbox of %s[%q] is full. dropped message %v",
 				gsp.Self(), gsp.Name(), message)
 		}
-		return
+		//return
 
 	} else {
 		switch m := message.(type) {
