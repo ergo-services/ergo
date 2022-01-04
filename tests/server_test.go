@@ -432,19 +432,14 @@ func (gs *GSCallPanic) HandleDirect(process *gen.ServerProcess, message interfac
 	if !ok {
 		return nil, fmt.Errorf("not a pid")
 	}
-	fmt.Println("AAA1")
 	if _, err := process.CallWithTimeout(pids[0], "panic", 1); err == nil {
 		return nil, fmt.Errorf("must be error here")
-	} else {
-		fmt.Println("AAA1", err)
-
 	}
-	fmt.Println("AAA2")
+
 	v, err := process.Call(pids[1], "test")
 	if err != nil {
 		return nil, err
 	}
-	fmt.Println("AAA3")
 	if v.(string) != "ok" {
 		return nil, fmt.Errorf("wrong result %#v", v)
 	}

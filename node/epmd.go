@@ -89,8 +89,11 @@ func (e *epmd) Init(ctx context.Context, name string, port uint16, opts Options)
 				// trying to start embedded EPMD before we go further
 				Server(ctx, e.Port)
 			}
+			dialer := net.Dialer{
+				KeepAlive: 15 * time.Second,
+			}
 			dsn := net.JoinHostPort("", strconv.Itoa(int(e.Port)))
-			conn, err := net.Dial("tcp", dsn)
+			conn, err := dialer.Dial("tcp", dsn)
 			if err != nil {
 				ready <- err
 				return
