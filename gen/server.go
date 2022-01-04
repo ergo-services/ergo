@@ -279,6 +279,8 @@ func (gs *Server) ProcessLoop(ps ProcessState, started chan<- bool) string {
 		case direct := <-channels.Direct:
 			gsp.waitCallbackOrDeferr(direct)
 			continue
+		case gsp.waitReply = <-gsp.callbackWaitReply:
+			continue
 		}
 
 		lib.Log("[%s] GEN_SERVER %s got message from %s", gsp.NodeName(), gsp.Self(), fromPid)

@@ -409,6 +409,82 @@ func (gs *messageOrderGS) HandleDirect(process *gen.ServerProcess, message inter
 	return nil, fmt.Errorf("incorrect direct call")
 }
 
+type GSCallPanic struct {
+	gen.Server
+}
+
+func (gs *GSCallPanic) Init(process *gen.ServerProcess, args ...etf.Term) error {
+	return nil
+}
+
+func (gs *GSCallPanic) HandleCall(process *gen.ServerProcess, from gen.ServerFrom, message etf.Term) (etf.Term, gen.ServerStatus) {
+	m := message.(string)
+	if m == "panic" {
+		panic("test")
+	}
+
+	return "ok", gen.ServerStatusOK
+}
+
+func (gs *GSCallPanic) HandleDirect(process *gen.ServerProcess, message interface{}) (interface{}, error) {
+
+	pids, ok := message.([]etf.Pid)
+	if !ok {
+		return nil, fmt.Errorf("not a pid")
+	}
+	if _, err := process.CallWithTimeout(pids[0], "panic", 1); err == nil {
+		return nil, fmt.Errorf("must be error here")
+	}
+
+	v, err := process.Call(pids[1], "test")
+	if err != nil {
+		return nil, err
+	}
+	if v.(string) != "ok" {
+		return nil, fmt.Errorf("wrong result %#v", v)
+	}
+
+	return nil, nil
+}
+
+func TestServerCallServerWithPanic(t *testing.T) {
+	fmt.Printf("\n=== Test Server. Making a Call to Server with panic (issue 86) \n")
+	fmt.Printf("Starting node: nodeGSCallWithPanic1@localhost: ")
+	node1, err1 := ergo.StartNode("nodeGSCallWithPanic1@localhost", "cookies", node.Options{})
+	if err1 != nil {
+		t.Fatal("can't start node", err1)
+	} else {
+		fmt.Println("OK")
+	}
+	fmt.Printf("Starting node: nodeGSCallWithPanic2@localhost: ")
+	node2, err2 := ergo.StartNode("nodeGSCallWithPanic2@localhost", "cookies", node.Options{})
+	if err2 != nil {
+		t.Fatal("can't start node", err2)
+	} else {
+		fmt.Println("OK")
+	}
+
+	p1n1, err := node1.Spawn("", gen.ProcessOptions{}, &GSCallPanic{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p1n2, err := node2.Spawn("", gen.ProcessOptions{}, &GSCallPanic{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p2n2, err := node2.Spawn("", gen.ProcessOptions{}, &GSCallPanic{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	pids := []etf.Pid{p1n2.Self(), p2n2.Self()}
+
+	if _, err := p1n1.Direct(pids); err != nil {
+		t.Fatal(err)
+	}
+	fmt.Println("OK")
+}
+
 func TestServerMessageOrder(t *testing.T) {
 	fmt.Printf("\n=== Test Server message order\n")
 	fmt.Printf("Starting node: nodeGS1MessageOrder@localhost: ")
