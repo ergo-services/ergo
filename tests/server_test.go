@@ -432,22 +432,21 @@ func (gs *GSCallPanic) HandleDirect(process *gen.ServerProcess, message interfac
 	if !ok {
 		return nil, fmt.Errorf("not a pid")
 	}
-	fmt.Println("AAA1")
+	fmt.Println("    making a call p1node1 -> p1node2 (panic): ")
 	if _, err := process.CallWithTimeout(pids[0], "panic", 1); err == nil {
 		return nil, fmt.Errorf("must be error here")
 	} else {
-		fmt.Println("AAA1", err)
-
+		fmt.Println("OK")
 	}
-	fmt.Println("AAA2")
+	fmt.Printf("    making a call p1node1 -> p2node2: ")
 	v, err := process.Call(pids[1], "test")
 	if err != nil {
 		return nil, err
 	}
-	fmt.Println("AAA3")
 	if v.(string) != "ok" {
 		return nil, fmt.Errorf("wrong result %#v", v)
 	}
+	fmt.Println("OK")
 
 	return nil, nil
 }
@@ -469,15 +468,15 @@ func TestServerCallServerWithPanic(t *testing.T) {
 		fmt.Println("OK")
 	}
 
-	p1n1, err := node1.Spawn("", gen.ProcessOptions{}, &GSCallPanic{})
+	p1n1, err := node1.Spawn("p1node1", gen.ProcessOptions{}, &GSCallPanic{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	p1n2, err := node2.Spawn("", gen.ProcessOptions{}, &GSCallPanic{})
+	p1n2, err := node2.Spawn("p1node2", gen.ProcessOptions{}, &GSCallPanic{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	p2n2, err := node2.Spawn("", gen.ProcessOptions{}, &GSCallPanic{})
+	p2n2, err := node2.Spawn("2node2", gen.ProcessOptions{}, &GSCallPanic{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -487,7 +486,6 @@ func TestServerCallServerWithPanic(t *testing.T) {
 	if _, err := p1n1.Direct(pids); err != nil {
 		t.Fatal(err)
 	}
-	fmt.Println("OK")
 }
 
 func TestServerMessageOrder(t *testing.T) {
