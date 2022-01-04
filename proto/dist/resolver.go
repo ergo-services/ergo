@@ -103,45 +103,44 @@ func (e *epmdResolver) Register(name string, port uint16, options node.ResolverO
 
 	e.composeExtra(options)
 
-	conn, err := e.registerNode(options)
-	if err != nil {
-		return err
-	}
 	go func() {
-		buf := make([]byte, 1024)
+		buf := make([]byte, 16)
+
 		for {
-			_, err := conn.Read(buf)
-			if err == nil {
+			if e.ctx.Err() != nil {
+				// node is stopped
+				return
+			}
+
+			// try to start embedded EPMD server
+			if e.enableEPMD {
+				startServerEPMD(e.ctx, e.host, e.port)
+			}
+
+			// register this node on EPMD server
+			conn, err := e.registerNode(options)
+			if err != nil {
+				lib.Log("EPMD client: can't register node %q (%s). Retry in 3 seconds...", name, err)
+				time.Sleep(3 * time.Second)
 				continue
 			}
-			lib.Log("[%s] EPMD client: closing connection", name)
+			ctx, cancel := context.WithCancel(e.ctx)
 
-			// reconnect to the EPMD server
+			go func() {
+				<-ctx.Done()
+				conn.Close()
+			}()
+
 			for {
-				if e.ctx.Err() != nil {
-					// node is stopped
-					return
+				_, err := conn.Read(buf)
+				if err == nil {
+					continue
 				}
-
-				// try to start embedded EPMD server
-				if e.enableEPMD {
-					startServerEPMD(e.ctx, e.host, e.port)
-				}
-
-				if c, err := e.registerNode(options); err != nil {
-					lib.Log("EPMD client: can't register node %q (%s). Retry in 3 seconds...", name, err)
-					time.Sleep(3 * time.Second)
-				} else {
-					conn = c
-					break
-				}
+				cancel()
+				break
 			}
+			lib.Log("[%s] EPMD client: closing connection", name)
 		}
-	}()
-
-	go func() {
-		<-e.ctx.Done()
-		conn.Close()
 	}()
 
 	return nil
@@ -219,8 +218,11 @@ func (e *epmdResolver) registerNode(options node.ResolverOptions) (net.Conn, err
 	if resolverHost == "" {
 		resolverHost = e.nodeHost
 	}
+	dialer := net.Dialer{
+		KeepAlive: 15 * time.Second,
+	}
 	dsn := net.JoinHostPort(resolverHost, strconv.Itoa(int(e.port)))
-	conn, err := net.Dial("tcp", dsn)
+	conn, err := dialer.Dial("tcp", dsn)
 	if err != nil {
 		return nil, err
 	}
