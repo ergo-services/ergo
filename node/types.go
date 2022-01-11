@@ -38,7 +38,6 @@ var (
 	ErrPeerUnsupported = fmt.Errorf("Peer does not support this feature")
 )
 
-// Distributed operations codes (http://www.erlang.org/doc/apps/erts/erl_dist_protocol.html)
 const (
 	// node options
 	defaultListenBegin     uint16        = 15000
@@ -55,6 +54,8 @@ const (
 
 	DefaultCompressionLevel     int = -1
 	DefaultCompressionThreshold int = 1024
+
+	DefaultProxyMaxHop int = 8
 )
 
 type Node interface {
@@ -147,7 +148,8 @@ type CoreRouter interface {
 
 	RouteSpawnRequest(node string, behaviorName string, request gen.RemoteSpawnRequest, args ...etf.Term) error
 	RouteSpawnReply(to etf.Pid, ref etf.Ref, result etf.Term) error
-	RouteProxy() error
+
+	RouteProxy(from ConnectionInterface, sessionID string, message []byte) error
 
 	//
 	// implemented by monitor
@@ -168,6 +170,8 @@ type CoreRouter interface {
 	RouteMonitorExit(terminated etf.Pid, reason string, ref etf.Ref) error
 	// RouteNodeDown
 	RouteNodeDown(name string)
+	// RouteProxyDown
+	//RouteProxyDown(name string)
 }
 
 // Options defines bootstrapping options for the node
@@ -272,8 +276,8 @@ type ConnectionInterface interface {
 	SpawnReply(to etf.Pid, ref etf.Ref, spawned etf.Pid) error
 	SpawnReplyError(to etf.Pid, ref etf.Ref, err error) error
 
-	ProxyConnect(node string, secret string, ref etf.Ref) error
-	ProxyDisconnect(node string) error
+	ProxyConnect(connect ProxyConnectRequest) error
+	ProxyDisconnect(disconnect ProxyDisconnect) error
 }
 
 // Handshake template struct for the custom Handshake implementation
@@ -389,7 +393,6 @@ type RouteOptions struct {
 	Cookie    string
 	EnableTLS bool
 	IsErgo    bool
-
 	Cert      tls.Certificate
 	Handshake HandshakeInterface
 	Proto     ProtoInterface
@@ -398,10 +401,67 @@ type RouteOptions struct {
 
 // ProxyRoute
 type ProxyRoute struct {
-	Name       string
-	Proxy      string
-	Cookie     string
-	Encryption bool // use End-2-End encryption for the proxy session
+	Node   string
+	Proxy  string
+	Cookie string
+	Flags  ProxyFlags
+	MaxHop int // DefaultProxyMaxHop == 8
+}
+
+// ProxyFlags
+type ProxyFlags struct {
+	Enable            bool
+	EnableLink        bool
+	EnableMonitor     bool
+	EnableRemoteSpawn bool
+	EnableCompression bool
+	EnableEncryption  bool
+}
+
+// ProxyConnectRequest
+type ProxyConnectRequest struct {
+	ID        etf.Ref
+	From      string // From node
+	To        string // To node
+	Digest    []byte // md5(md5(md5(Cookie)+NodeTo)+PublicKey)
+	PublicKey []byte
+	Flags     ProxyFlags
+	Hop       int
+	Path      []string
+}
+
+// ProxyConnectReply
+type ProxyConnectReply struct {
+	ID        etf.Ref
+	From      string
+	To        string
+	Digest    []byte // md5(md5(md5(Cookie)+NodeFrom)+PublicKey)
+	Cipher    []byte // encrypted symmetric key using PublicKey from the ProxyConnectRequest
+	Flags     ProxyFlags
+	SessionID string // proxy session ID
+	Path      []string
+}
+
+// ProxyConnectError
+type ProxyConnectError struct {
+	ID     etf.Ref
+	From   string
+	Reason string
+	Path   []string
+}
+
+// ProxyDisconnect
+type ProxyDisconnect struct {
+	From      string // from node
+	SessionID string
+	Reason    string
+}
+
+// Proxy connection
+type ProxyConnection struct {
+	SessionID string
+	Flags     ProxyFlags
+	Key       []byte
 }
 
 // CustomRouteOptions a custom set of route options

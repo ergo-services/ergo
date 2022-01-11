@@ -4,8 +4,6 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
-	"crypto/rsa"
-	"crypto/x509"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -67,6 +65,8 @@ const (
 
 	// ergo proxy message
 	protoDistProxy = 210
+	// ergo proxy encrypted message
+	protoDistProxyX = 211
 )
 
 type fragmentedPacket struct {
@@ -75,11 +75,6 @@ type fragmentedPacket struct {
 	disorderedSlices map[uint64][]byte
 	fragmentID       uint64
 	lastUpdate       time.Time
-}
-
-type proxySession struct {
-	id    string
-	flags node.Flags
 }
 
 type distConnection struct {
@@ -95,10 +90,6 @@ type distConnection struct {
 	// socket
 	conn          io.ReadWriter
 	cancelContext context.CancelFunc
-
-	// proxy sessions (nodename -> session id)
-	proxySessions      map[string]proxySession
-	proxySessionsMutex sync.RWMutex
 
 	// route incoming messages
 	router node.CoreRouter
@@ -164,8 +155,7 @@ type sendMessage struct {
 	compression          bool
 	compressionLevel     int
 	compressionThreshold int
-	proxy                bool
-	proxyTo              string
+	proxy                string
 	proxySession         string
 	proxySessionFlags    node.Flags
 	proxySymmetricKey    []byte
@@ -456,32 +446,74 @@ func (dc *distConnection) ProxyConnect(request gen.ProxyConnectRequest) error {
 	if dc.flags.EnableProxy == false {
 		return node.ErrPeerUnsupported
 	}
-	var pk []byte
-	if encryption {
-		privRSAKey, err := rsa.GenerateKey(rand.Reader, 2048)
-		pk, _ = x509.MarshalPKCS1PublicKey(&privRSAKey.PublicKey)
-	}
+
 	msg := &sendMessage{
-		control: etf.Tuple{distProtoPROXY_REQUEST,
-			etf.Atom(request.NodeFrom), // from node
-			etf.Atom(request.NodeTo),   // to node
-			request.Salt,               //
-			request.Digest,             //
-			request.PublicKey,          // public key for the end to end encryption
+		control: etf.Tuple{distProtoPROXY_CONNECT_REQUEST,
+			request.ID,        // etf.Ref
+			request.From,      // from node
+			request.To,        // to node
+			request.Digest,    //
+			request.PublicKey, // public key for the sending symmetric key
+			proxyFlagsToUint64(request.ProxyFlags),
+			request.Hop,
+			request.Path,
 		},
 	}
 	return dc.send(dc.peername, msg)
 }
 
-func (dc *distConnection) ProxyConnectReply(reply gen.ProxyConnectReply) error {
-
-}
-
-func (dc *distConnection) ProxyDisconnect(node string) error {
+func (dc *distConnection) ProxyConnectReply(reply node.ProxyConnectReply) error {
 	if dc.flags.EnableProxy == false {
 		return node.ErrPeerUnsupported
 	}
-	return nil
+
+	msg := &sendMessage{
+		control: etf.Tuple{distProtoPROXY_CONNECT_REPLY,
+			request.ID,     // etf.Ref
+			request.From,   // from node
+			request.To,     // to node
+			request.Digest, //
+			request.Cipher, //
+			proxyFlagsToUint64(request.ProxyFlags),
+			request.SessionID,
+			request.Path,
+		},
+	}
+
+	return dc.send(dc.peername, msg)
+}
+
+func (dc *distConnection) ProxyConnectError(err node.ProxyConnectError) error {
+	if dc.flags.EnableProxy == false {
+		return node.ErrPeerUnsupported
+	}
+
+	msg := &sendMessage{
+		control: etf.Tuple{distProtoPROXY_CONNECT_ERROR,
+			err.ID,   // etf.Ref
+			err.From, // from node
+			err.Reason,
+			err.Path,
+		},
+	}
+
+	return dc.send(dc.peername, msg)
+}
+
+func (dc *distConnection) ProxyDisconnect(disconnect node.ProxyDisconnect) error {
+	if dc.flags.EnableProxy == false {
+		return node.ErrPeerUnsupported
+	}
+
+	msg := &sendMessage{
+		control: etf.Tuple{distProtoPROXY_DISCONNECT,
+			disconnect.From, // from node
+			disconnect.SessionID,
+			disconnect.Reason,
+		},
+	}
+
+	return dc.send(dc.peername, msg)
 }
 
 //
@@ -969,25 +1001,61 @@ func (dc *distConnection) handleMessage(control, message etf.Term) (err error) {
 				dc.router.RouteSpawnReply(to, ref, t.Element(5))
 				return nil
 
-			case distProtoPROXY_REQUEST:
+			case distProtoPROXY_CONNECT_REQUEST:
 				// {101, NodeFrom, NodeTo, Salt, Digest, PublicKey}
-				lib.Log("[%s] PROXY REQUEST [from %s]: %#v", dc.nodename, dc.peername, control)
+				lib.Log("[%s] PROXY CONNECT REQUEST [from %s]: %#v", dc.nodename, dc.peername, control)
 				connectRequest := gen.ProxyConnectRequest{
-					NodeFrom:  string(t.Element(2).(etf.Atom)),
-					NodeTo:    string(t.Element(3).(etf.Atom)),
-					Salt:      t.Element(4).([]byte),
-					Digest:    t.Element(5).([]byte),
-					PublicKey: t.Element(6).([]byte),
+					ID:        t.Element(1).(etf.Ref),
+					From:      t.Element(2).(string),
+					To:        t.Element(3).(string),
+					Digest:    t.Element(4).([]byte),
+					PublicKey: t.Element(5).([]byte),
+					Flags:     proxyFlagsFromUint64(t.Element(6).(uint64)),
+					Hop:       t.Element(7).(int),
+				}
+				for _, p := range t.Element(8).(etf.List) {
+					connectRequest.Path = append(connectRequest.Path, p.(string))
 				}
 				dc.router.RouteProxyRequest(dc, connectRequest)
 				return nil
 
-			case distProtoPROXY_REPLY:
-				lib.Log("[%s] PROXY REPLY [from %s]: %#v", dc.nodename, dc.peername, control)
-				connectReply := gen.ProxyConnectReply{}
-				if err := dc.router.RouteProxyRepy(dc, connectReply); err == nil {
-					// register session id
+			case distProtoPROXY_CONNECT_REPLY:
+				lib.Log("[%s] PROXY CONNECT REPLY [from %s]: %#v", dc.nodename, dc.peername, control)
+				connectReply := node.ProxyConnectReply{
+					ID:        t.Element(1).(etf.Ref),
+					From:      t.Element(2).(string),
+					To:        t.Element(3).(string),
+					Digest:    t.Element(4).([]byte),
+					Cipher:    t.Element(5).([]byte),
+					Flags:     proxyFlagsFromUint64(t.Element(6).(uint64)),
+					SessionID: t.Element(7).(string),
 				}
+				for _, p := range t.Element(8).(etf.List) {
+					connectReply.Path = append(connectReply.Path, p.(string))
+				}
+				dc.router.RouteProxyRepy(dc, connectReply)
+				return nil
+
+			case distProtoPROXY_CONNECT_ERROR:
+				lib.Log("[%s] PROXY CONNECT ERROR [from %s]: %#v", dc.nodename, dc.peername, control)
+				connectError := node.ProxyConnectError{
+					ID:     t.Element(1).(etf.Ref),
+					Reason: t.Element(2).(string),
+				}
+				for _, p := range t.Element(3).(etf.List) {
+					connectError.Path = append(connectError.Path, p.(string))
+				}
+				dc.router.RouteProxyError(dc, connectError)
+				return nil
+			case distProtoPROXY_DISCONNECT:
+				lib.Log("[%s] PROXY DISCONNECT [from %s]: %#v", dc.nodename, dc.peername, control)
+				proxyDisconnect := node.ProxyDisconnect{
+					From:      t.Element(1).(string),
+					SessionID: t.Element(2).(string),
+					Reason:    t.Element(3).(string),
+				}
+				dc.router.RouteProxyDisconnect(proxyDisconnect)
+				return nil
 
 			default:
 				lib.Log("[%s] CONTROL unknown command [from %s]: %#v", dc.nodename, dc.peername, control)
@@ -1574,4 +1642,29 @@ func (dc *distConnection) send(to string, msg *sendMessage) error {
 
 	s.sendChannel <- msg
 	return nil
+}
+
+func proxyFlagsToUint64(pf node.ProxyFlags) uint64 {
+	if pf.EnableFragmentation {
+		flags |= 1
+	}
+	if pf.EnableRemoteSpawn {
+		flags |= 1 << 1
+	}
+	if pf.EnableCompression {
+		flags |= 1 << 2
+	}
+	if pf.EnableEncryption {
+		flags |= 1 << 3
+	}
+	return flags
+}
+
+func proxyFlagsFromUint64(f uint64) node.ProxyFlags {
+	var pf ProxyFlags
+	pf.EnableFragmentation = f&1 > 0
+	pf.EnableRemoteSpawn = f&(1<<1) > 0
+	pf.EnableCompression = f&(1<<2) > 0
+	pf.EnableEncryption = f&(1<<3) > 0
+	return pf
 }

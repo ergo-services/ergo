@@ -12,6 +12,7 @@ import (
 	"crypto/elliptic"
 	"crypto/md5"
 	"crypto/rand"
+	"crypto/rsa"
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
@@ -25,6 +26,10 @@ import (
 
 	"strconv"
 	"strings"
+)
+
+var (
+	errProxyConnectionRequired = fmt.Errorf("proxy connection required")
 )
 
 type networkInternal interface {
@@ -51,14 +56,22 @@ type networkInternal interface {
 }
 
 type connectionInternal struct {
-	conn       net.Conn
+	// socket
+	conn net.Conn
+	// connection interface of the network connection
 	connection ConnectionInterface
-	proxy      string
+	// if this connection is proxy on top of the network connection it has proxy value
+	proxy ProxyConnection
+	// list of the proxy connection names which are established on top of the network connection.
+	// if the real connection is closed, we must notify all the processes having created links
+	// or monitors over this proxy connection
+	proxyConnections []string
 }
 
-type proxyRoute struct {
-	ProxyRoute
-	Flags
+type proxySession struct {
+	id string
+	a  ConnectionInterface
+	b  ConnectionInterface
 }
 
 type network struct {
@@ -71,11 +84,14 @@ type network struct {
 	staticRoutes      map[string]Route
 	staticRoutesMutex sync.Mutex
 
-	proxyRoutes      map[string]proxyRoute
+	proxyRoutes      map[string]ProxyRoute
 	proxyRoutesMutex sync.RWMutex
 
 	connections      map[string]connectionInternal
 	connectionsMutex sync.RWMutex
+
+	proxySessions      map[string]proxySession
+	proxySessionsMutex sync.RWMutex
 
 	remoteSpawn      map[string]gen.ProcessBehavior
 	remoteSpawnMutex sync.Mutex
@@ -90,20 +106,21 @@ type network struct {
 	proto     ProtoInterface
 }
 
-func newNetwork(ctx context.Context, nodename string, options Options, router CoreRouter) (networkInternal, error) {
+func newNetwork(ctx context.Context, nodename string, options Options, router coreRouterInternal) (networkInternal, error) {
 	n := &network{
-		nodename:     nodename,
-		ctx:          ctx,
-		staticOnly:   options.StaticRoutesOnly,
-		staticRoutes: make(map[string]Route),
-		proxyRoutes:  make(map[string]proxyRoute),
-		connections:  make(map[string]connectionInternal),
-		remoteSpawn:  make(map[string]gen.ProcessBehavior),
-		resolver:     options.Resolver,
-		handshake:    options.Handshake,
-		proto:        options.Proto,
-		router:       router,
-		creation:     options.Creation,
+		nodename:      nodename,
+		ctx:           ctx,
+		staticOnly:    options.StaticRoutesOnly,
+		staticRoutes:  make(map[string]Route),
+		proxyRoutes:   make(map[string]proxyRoute),
+		connections:   make(map[string]connectionInternal),
+		proxySessions: make(map[string]proxySession),
+		remoteSpawn:   make(map[string]gen.ProcessBehavior),
+		resolver:      options.Resolver,
+		handshake:     options.Handshake,
+		proto:         options.Proto,
+		router:        router,
+		creation:      options.Creation,
 	}
 
 	nn := strings.Split(nodename, "@")
@@ -228,42 +245,62 @@ func (n *network) getConnection(peername string) (ConnectionInterface, error) {
 		return connection, nil
 	}
 
-	connection, err := n.getConnection(proxyRoute.Name)
+	connection, err := n.getConnection(proxyRoute.Node)
 	if err != nil {
 		return nil, err
 	}
 
+	return connection, errProxyConnectionRequired
+
 }
 
 // GetConnection
-func (n *network) GetConnection(peername string) (ConnectionInterface, error) {
+func (n *network) GetConnection(peername string) (ConnectionInterface, ProxySession, error) {
+	var noproxy ProxyConnection
+
 	if peername == n.nodename {
-		return nil, fmt.Errorf("can't connect to itself")
+		// can't connect to itself
+		return nil, noproxy, ErrNoRoute
 	}
 	n.connectionsMutex.RLock()
 	ci, ok := n.connections[peername]
 	n.connectionsMutex.RUnlock()
 	if ok {
-		return ci.connection, nil
+		return ci.connection, ci.proxySession, nil
 	}
 
-	ci, err := n.getConnection(peername)
-	if err != nil {
-		return nil, err
+	connection, err := n.getConnection(peername)
+	if err == nil {
+		return connection, noproxy, nil
 	}
 
-	var salt [32]byte
-	rand.Read(salt[:])
-	digest := generateProxyDigest(proxyRoute.Cookie, peername, salt[:])
-	if err := connection.ProxyConnect(peername, digest[:], salt[:], proxyRoute.Encryption); err != nil {
-		return nil, err
+	if err != errProxyConnectionRequired {
+		return nil, noproxy, err
 	}
 
-	// FIXME wait reply with Flags
+	// make a proxy connection
 
-	ci = connectionInternal{
-		proxy:      proxyRoute.Name,
+	// generate new key
+	privKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	pubKey, _ = x509.MarshalPKCS1PublicKey(&privKey.PublicKey)
+	// create digest using cookie, peername and pubKey
+	digest := generateProxyDigest(proxyRoute.Cookie, peername, pubKey)
+
+	proxyRequest := gen.ProxyConnectRequest{
+		ID:       n.router.MakeRef(),
+		NodeFrom: n.nodename,
+		NodeTo:   peername,
+	}
+	if err := connection.ProxyConnect(proxyRequest); err != nil {
+		return nil, noproxy, err
+	}
+
+	// TODO wait reply with Flags
+	proxy := ProxyConnection{}
+
+	ci := connectionInternal{
 		connection: connection,
+		proxy:      proxy,
 	}
 
 	if registered, err := n.registerConnection(peername, ci); err != nil {
@@ -271,11 +308,16 @@ func (n *network) GetConnection(peername string) (ConnectionInterface, error) {
 		// There must be another goroutine which already created and registered
 		// proxy connection to this node.
 		// Close this proxy connection and use the already registered one
-		connection.ProxyDisconnect(peername)
-		return registered.connection, nil
+		disconnect := ProxyDisconnect{
+			From: n.nodename,
+			//SessionID: sessionID
+			Reason: "duplicate proxy session",
+		}
+		connection.ProxyDisconnect(disconnect)
+		return registered.connection, registered.proxySession, nil
 	}
 
-	return connection, nil
+	return connection, proxySession, nil
 }
 
 // Resolve
@@ -524,7 +566,10 @@ func (n *network) connect(peername string) (ConnectionInterface, error) {
 		// connection to this node.
 		// Close this connection and use the already registered one
 		c.Close()
-		return registered.connection, nil
+		if err == ErrTaken {
+			return registered.connection, nil
+		}
+		return nil, err
 	}
 
 	// run serving connection
@@ -684,10 +729,10 @@ func (h *Handshake) Version() HandshakeVersion {
 }
 
 ///
-func generateProxyDigest(cookie string, peer string, salt []byte) [16]byte {
-	// md5(md5(md5(cookie)+peer)+salt)
+func generateProxyDigest(cookie string, peer string, pubkey []byte) []byte {
+	// md5(md5(md5(cookie)+peer)+pubkey)
 	digest1 := md5.Sum(cookie)
 	digest2 := md5.Sum(append(digest1, node))
 	digest3 := md5.Sum(append(digest2, salt))
-	return digest3
+	return digest3[:]
 }

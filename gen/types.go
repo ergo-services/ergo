@@ -240,24 +240,6 @@ type RemoteSpawnOptions struct {
 	Function string
 }
 
-// ProxyConnectRequest
-type ProxyConnectRequest struct {
-	NodeFrom  string
-	NodeTo    string
-	Salt      []byte
-	Digest    []byte // md5(md5(md5(Cookie)+NodeTo)+Salt)
-	PublicKey []byte
-}
-
-// ProxyConnectReply
-type ProxyConnectReply struct {
-	NodeFrom     string
-	NodeTo       string
-	SessionID    string // proxy session ID
-	Digest       []byte // md5(md5(md5(Cookie)+NodeFrom)+Salt)
-	SymmetricKey []byte // encrypted symmetric key using PublicKey from the ProxyConnectRequest
-}
-
 // ProcessChannels
 type ProcessChannels struct {
 	Mailbox      <-chan ProcessMailboxMessage
@@ -361,6 +343,7 @@ func (p ProcessID) String() string {
 //  - the exit reason of the process
 //  - 'noproc' (process did not exist at the time of monitor creation)
 //  - 'noconnection' (no connection to the node where the monitored process resides)
+//  - 'noproxy' (no connection to the proxy this node had has a connection through. monitored process could be still alive)
 type MessageDown struct {
 	Ref       etf.Ref   // a monitor reference
 	ProcessID ProcessID // if monitor was created by name
@@ -374,7 +357,19 @@ type MessageNodeDown struct {
 	Name string
 }
 
+// MessageProxyDown delivers as a message to Server's HandleInfo callback of the process
+// that created monitor using MonitorNode if the connection to the node was through the proxy
+// nodes and one of them went down.
+type MessageProxyDown struct {
+	Name string
+}
+
 // MessageExit delievers to Server's HandleInfo callback on enabled trap exit using SetTrapExit(true)
+// Reason values:
+//  - the exit reason of the process
+//  - 'noproc' (process did not exist at the time of link creation)
+//  - 'noconnection' (no connection to the node where the linked process resides)
+//  - 'noproxy' (no connection to the proxy this node had has a connection through. linked process could be still alive)
 type MessageExit struct {
 	Pid    etf.Pid
 	Reason string

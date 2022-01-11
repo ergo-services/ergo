@@ -128,6 +128,13 @@ ok      github.com/ergo-services/ergo/tests     56.708s
 
 It demonstrates **more than 2 times** improvement.
 
+#### Proxy
+
+This benchmark demonstrates how proxy feature and e2e encryption impact a messaging performance.
+
+```
+```
+
 
 #### Ergo Framework vs original Erlang/OTP
 
