@@ -965,11 +965,11 @@ func BenchmarkNodeParallelSingleNode(b *testing.B) {
 	})
 }
 
-func BenchmarkNodeProxyAtoBnoproxy(b *testing.B) {
+func BenchmarkNodeProxyDisabled(b *testing.B) {
 }
-func BenchmarkNodeProxyAtoBviaC(b *testing.B) {
+func BenchmarkNodeProxyEnabled(b *testing.B) {
 }
-func BenchmarkNodeProxyAtoBviaCwithEncryption(b *testing.B) {
+func BenchmarkNodeProxyEnabledWithEncryption(b *testing.B) {
 }
 
 func benchCases() []benchCase {

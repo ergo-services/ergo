@@ -821,27 +821,27 @@ func (c *core) RouteSendAlias(from etf.Pid, to etf.Alias, message etf.Term) erro
 	return connection.SendAlias(p_from, to, message)
 }
 
-// RouteProxy
+// RouteProxyRequest
 func (c *core) RouteProxyRequest(from ConnectionInterface, request gen.ProxyConnectRequest) error {
 	if request.NodeTo != c.nodename {
 		// send this request further
 		if request.Hop < 1 {
 			lib.Log("[%s] CORE route proxy. Error: exceeded hop limit")
-			from.ProxyReply
+			from.ProxyConnectReply()
 			return nil
 		}
 		request.Hop--
 
 		connection, err := c.getConnection(request.To)
 		if err != nil {
-			from.ProxyReply
+			from.ProxyConnectReply()
 			return nil
 		}
 
 		if from == connection {
 			lib.Log("[%s] CORE route proxy. Error: proxy route points to the connection this request came from", c.nodename)
 			// loop detected
-			from.ProxyReply
+			from.ProxyConnectError()
 			return nil
 		}
 		for i := range request.Path {
@@ -849,13 +849,13 @@ func (c *core) RouteProxyRequest(from ConnectionInterface, request gen.ProxyConn
 				continue
 			}
 			lib.Log("[%s] CORE route proxy. Error: loop detected in proxy path %#v", c.nodename, request.Path)
-			from.ProxyReply
+			from.ProxyConnectError()
 			return nil
 		}
 		request.Path = append([]string{c.nodename}, request.Path)
 		err := connection.ProxyConnect(request)
 		if err != nil {
-			from.ProxyReply
+			from.ProxyConnectError()
 			return nil
 
 		}
@@ -879,7 +879,7 @@ func (c *core) RouteProxyRequest(from ConnectionInterface, request gen.ProxyConn
 	pk, err := x509.ParsePKCS1PublicKey(request.PublicKey)
 	if err != nil {
 		// reply error
-		from.ProxyReply
+		from.ProxyConnectError
 		return nil
 	}
 	hash := sha256.New()
@@ -888,16 +888,27 @@ func (c *core) RouteProxyRequest(from ConnectionInterface, request gen.ProxyConn
 	cipherkey, err := rsa.EncryptOAEP(hash, rand.Reader, pk, buf, nil)
 	if err != nil {
 		// reply error
-		from.ProxyReply
+		from.ProxyConnectError
 		return nil
 	}
 	reply.SymmetricKey = cipherkey
 
-	from.ProxyReply
+	from.ProxyConnectReply
 	return nil
 }
 
 func (c *core) RouteProxyReply(from ConnectionInterface, reply ProxyConnectReply) error {
+	if len(reply.Path) == 0 {
+
+	}
+	connection, err := c.getConnection(reply.Path)
+	c.proxySessionsMutex.Lock()
+	defer c.proxySessionsMutex.Unlock()
+	session := proxySession{
+		//a:,
+		b: from,
+	}
+	c.proxySession[reply.ID] = session
 	return nil
 }
 

@@ -39,9 +39,11 @@ type networkInternal interface {
 	StaticRoutes() []Route
 
 	// proxy route methods
-	//AddProxyRoute(name string, proxy string) error
+	//AddProxyRoute(name string, proxy ProxyRoute) error
+	//AddProxyTransitRoute(name string, proxy string) error
 	//RemoveProxyRoute(name string) bool
 	//ProxyRoutes() []string
+	// NodesIndirect() []string
 
 	Resolve(peername string) (Route, error)
 	Connect(peername string) error
@@ -68,10 +70,10 @@ type connectionInternal struct {
 	proxyConnections []string
 }
 
+// transit proxy session
 type proxySession struct {
-	id string
-	a  ConnectionInterface
-	b  ConnectionInterface
+	a ConnectionInterface
+	b ConnectionInterface
 }
 
 type network struct {
@@ -224,12 +226,15 @@ func (n *network) StaticRoutes() []Route {
 	return routes
 }
 
-func (n *network) getConnection(peername string) (ConnectionInterface, error) {
+func (n *network) getConnection(peername string) (connectionInternal, ProxyRoute, error) {
+	var noConnection connectionInternal
+	var noProxyRoute ProxyRoute
+
 	n.connectionsMutex.RLock()
-	ci, ok := n.connections[peername]
+	cInternal, ok := n.connections[peername]
 	n.connectionsMutex.RUnlock()
 	if ok {
-		return ci.connection, nil
+		return cInternal, noProxyRoute, nil
 	}
 
 	n.proxyRoutesMutex.RLock()
@@ -237,25 +242,25 @@ func (n *network) getConnection(peername string) (ConnectionInterface, error) {
 	n.proxyRoutesMutex.RUnlock()
 
 	if is_proxy == false {
-		connection, err := n.connect(peername)
+		cInternal, err := n.connect(peername)
 		if err != nil {
 			lib.Log("[%s] CORE no route to node %q: %s", n.nodename, peername, err)
-			return nil, ErrNoRoute
+			return noConnection, noProxyRoute, ErrNoRoute
 		}
-		return connection, nil
+		return cInternal, noProxyRoute, nil
 	}
 
-	connection, err := n.getConnection(proxyRoute.Node)
+	cInternal, err := n.getConnection(proxyRoute.Proxy)
 	if err != nil {
-		return nil, err
+		return noConnection, noProxyRoute, err
 	}
 
-	return connection, errProxyConnectionRequired
+	return cInternal, proxyRoute, errProxyConnectionRequired
 
 }
 
 // GetConnection
-func (n *network) GetConnection(peername string) (ConnectionInterface, ProxySession, error) {
+func (n *network) GetConnection(peername string) (ConnectionInterface, ProxyConnection, error) {
 	var noproxy ProxyConnection
 
 	if peername == n.nodename {
@@ -266,10 +271,10 @@ func (n *network) GetConnection(peername string) (ConnectionInterface, ProxySess
 	ci, ok := n.connections[peername]
 	n.connectionsMutex.RUnlock()
 	if ok {
-		return ci.connection, ci.proxySession, nil
+		return ci.connection, ci.proxy, nil
 	}
 
-	connection, err := n.getConnection(peername)
+	connection, proxyRoute, err := n.getConnection(peername)
 	if err == nil {
 		return connection, noproxy, nil
 	}
@@ -286,12 +291,13 @@ func (n *network) GetConnection(peername string) (ConnectionInterface, ProxySess
 	// create digest using cookie, peername and pubKey
 	digest := generateProxyDigest(proxyRoute.Cookie, peername, pubKey)
 
-	proxyRequest := gen.ProxyConnectRequest{
+	proxyRequest := ProxyConnectRequest{
 		ID:       n.router.MakeRef(),
 		NodeFrom: n.nodename,
 		NodeTo:   peername,
 	}
-	if err := connection.ProxyConnect(proxyRequest); err != nil {
+	proxy, err := connection.ProxyConnect(proxyRequest)
+	if err != nil {
 		return nil, noproxy, err
 	}
 
@@ -308,16 +314,16 @@ func (n *network) GetConnection(peername string) (ConnectionInterface, ProxySess
 		// There must be another goroutine which already created and registered
 		// proxy connection to this node.
 		// Close this proxy connection and use the already registered one
-		disconnect := ProxyDisconnect{
-			From: n.nodename,
-			//SessionID: sessionID
-			Reason: "duplicate proxy session",
+		disconnect := ProxyDisconnectRequest{
+			From:      n.nodename,
+			SessionID: proxy.SessionID,
+			Reason:    "duplicate proxy session",
 		}
 		connection.ProxyDisconnect(disconnect)
-		return registered.connection, registered.proxySession, nil
+		return registered.connection, registered.proxy, nil
 	}
 
-	return connection, proxySession, nil
+	return connection, proxy, nil
 }
 
 // Resolve
@@ -453,16 +459,17 @@ func (n *network) listen(ctx context.Context, hostname string, begin uint16, end
 	return 0, fmt.Errorf("Can't start listener. Port range is taken")
 }
 
-func (n *network) connect(peername string) (ConnectionInterface, error) {
+func (n *network) connect(peername string) (connectionInternal, error) {
 	var route Route
 	var c net.Conn
 	var err error
 	var enabledTLS bool
+	var ci connectionInternal
 
 	// resolve the route
 	route, err = n.resolver.Resolve(peername)
 	if err != nil {
-		return nil, err
+		return ci, err
 	}
 
 	HostPort := net.JoinHostPort(route.Host, strconv.Itoa(int(route.Port)))
@@ -523,7 +530,7 @@ func (n *network) connect(peername string) (ConnectionInterface, error) {
 
 	// check if we couldn't establish a connection with the node
 	if err != nil {
-		return nil, err
+		return ci, err
 	}
 
 	// handshake
@@ -536,7 +543,7 @@ func (n *network) connect(peername string) (ConnectionInterface, error) {
 	protoFlags, err := n.handshake.Start(c, enabledTLS)
 	if err != nil {
 		c.Close()
-		return nil, err
+		return ci, err
 	}
 
 	// proto
@@ -553,11 +560,11 @@ func (n *network) connect(peername string) (ConnectionInterface, error) {
 	connection, err := n.proto.Init(n.ctx, c, peername, protoFlags)
 	if err != nil {
 		c.Close()
-		return nil, err
+		return ci, err
 	}
 	cInternal := connectionInternal{
-		conn:       c,
-		connection: connection,
+		ci.conn:       c,
+		ci.connection: connection,
 	}
 
 	if registered, err := n.registerConnection(peername, cInternal); err != nil {
@@ -569,7 +576,7 @@ func (n *network) connect(peername string) (ConnectionInterface, error) {
 		if err == ErrTaken {
 			return registered.connection, nil
 		}
-		return nil, err
+		return ci, err
 	}
 
 	// run serving connection
@@ -580,7 +587,7 @@ func (n *network) connect(peername string) (ConnectionInterface, error) {
 		ci.conn.Close()
 	}(n.ctx, cInternal)
 
-	return connection, nil
+	return cInternale, nil
 }
 
 func (n *network) registerConnection(peername string, ci connectionInternal) (connectionInternal, error) {

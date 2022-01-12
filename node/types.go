@@ -276,8 +276,8 @@ type ConnectionInterface interface {
 	SpawnReply(to etf.Pid, ref etf.Ref, spawned etf.Pid) error
 	SpawnReplyError(to etf.Pid, ref etf.Ref, err error) error
 
-	ProxyConnect(connect ProxyConnectRequest) error
-	ProxyDisconnect(disconnect ProxyDisconnect) error
+	ProxyConnect(connect ProxyConnectRequest) (ProxyConnection, error)
+	ProxyDisconnect(disconnect ProxyDisconnectRequest) error
 }
 
 // Handshake template struct for the custom Handshake implementation
@@ -401,7 +401,6 @@ type RouteOptions struct {
 
 // ProxyRoute
 type ProxyRoute struct {
-	Node   string
 	Proxy  string
 	Cookie string
 	Flags  ProxyFlags
@@ -423,7 +422,7 @@ type ProxyConnectRequest struct {
 	ID        etf.Ref
 	From      string // From node
 	To        string // To node
-	Digest    []byte // md5(md5(md5(Cookie)+NodeTo)+PublicKey)
+	Digest    []byte // md5(md5(md5(Cookie)+To)+PublicKey)
 	PublicKey []byte
 	Flags     ProxyFlags
 	Hop       int
@@ -451,7 +450,7 @@ type ProxyConnectError struct {
 }
 
 // ProxyDisconnect
-type ProxyDisconnect struct {
+type ProxyDisconnectRequest struct {
 	From      string // from node
 	SessionID string
 	Reason    string

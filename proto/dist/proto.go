@@ -442,7 +442,7 @@ func (dc *distConnection) SpawnReplyError(to etf.Pid, ref etf.Ref, err error) er
 	return dc.send(string(to.Node), msg)
 }
 
-func (dc *distConnection) ProxyConnect(request gen.ProxyConnectRequest) error {
+func (dc *distConnection) ProxyConnect(request node.ProxyConnectRequest) error {
 	if dc.flags.EnableProxy == false {
 		return node.ErrPeerUnsupported
 	}
