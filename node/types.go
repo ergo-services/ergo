@@ -2,6 +2,7 @@ package node
 
 import (
 	"context"
+	"crypto/cipher"
 	"crypto/tls"
 	"fmt"
 	"io"
@@ -9,33 +10,37 @@ import (
 
 	"github.com/ergo-services/ergo/etf"
 	"github.com/ergo-services/ergo/gen"
+	"github.com/ergo-services/ergo/lib"
 )
 
 var (
-	ErrAppAlreadyLoaded     = fmt.Errorf("Application is already loaded")
-	ErrAppAlreadyStarted    = fmt.Errorf("Application is already started")
-	ErrAppUnknown           = fmt.Errorf("Unknown application name")
-	ErrAppIsNotRunning      = fmt.Errorf("Application is not running")
-	ErrNameUnknown          = fmt.Errorf("Unknown name")
-	ErrNameOwner            = fmt.Errorf("Not an owner")
-	ErrProcessBusy          = fmt.Errorf("Process is busy")
-	ErrProcessUnknown       = fmt.Errorf("Unknown process")
-	ErrProcessIncarnation   = fmt.Errorf("Process ID belongs to the previous incarnation")
-	ErrProcessTerminated    = fmt.Errorf("Process terminated")
-	ErrMonitorUnknown       = fmt.Errorf("Unknown monitor reference")
-	ErrSenderUnknown        = fmt.Errorf("Unknown sender")
-	ErrBehaviorUnknown      = fmt.Errorf("Unknown behavior")
-	ErrBehaviorGroupUnknown = fmt.Errorf("Unknown behavior group")
-	ErrAliasUnknown         = fmt.Errorf("Unknown alias")
-	ErrAliasOwner           = fmt.Errorf("Not an owner")
-	ErrNoRoute              = fmt.Errorf("No route to node")
-	ErrNoProxyRoute         = fmt.Errorf("No proxy route to node")
-	ErrTaken                = fmt.Errorf("Resource is taken")
-	ErrTimeout              = fmt.Errorf("Timed out")
-	ErrFragmented           = fmt.Errorf("Fragmented data")
+	ErrAppAlreadyLoaded     = fmt.Errorf("application is already loaded")
+	ErrAppAlreadyStarted    = fmt.Errorf("application is already started")
+	ErrAppUnknown           = fmt.Errorf("unknown application name")
+	ErrAppIsNotRunning      = fmt.Errorf("application is not running")
+	ErrNameUnknown          = fmt.Errorf("unknown name")
+	ErrNameOwner            = fmt.Errorf("not an owner")
+	ErrProcessBusy          = fmt.Errorf("process is busy")
+	ErrProcessUnknown       = fmt.Errorf("unknown process")
+	ErrProcessIncarnation   = fmt.Errorf("process ID belongs to the previous incarnation")
+	ErrProcessTerminated    = fmt.Errorf("process terminated")
+	ErrMonitorUnknown       = fmt.Errorf("unknown monitor reference")
+	ErrSenderUnknown        = fmt.Errorf("unknown sender")
+	ErrBehaviorUnknown      = fmt.Errorf("unknown behavior")
+	ErrBehaviorGroupUnknown = fmt.Errorf("unknown behavior group")
+	ErrAliasUnknown         = fmt.Errorf("unknown alias")
+	ErrAliasOwner           = fmt.Errorf("not an owner")
+	ErrNoRoute              = fmt.Errorf("no route to node")
+	ErrNoProxyRoute         = fmt.Errorf("no proxy route to node")
+	ErrTaken                = fmt.Errorf("resource is taken")
+	ErrTimeout              = fmt.Errorf("timed out")
+	ErrFragmented           = fmt.Errorf("fragmented data")
 
-	ErrUnsupported     = fmt.Errorf("Not supported")
-	ErrPeerUnsupported = fmt.Errorf("Peer does not support this feature")
+	ErrUnsupported     = fmt.Errorf("not supported")
+	ErrPeerUnsupported = fmt.Errorf("peer does not support this feature")
+
+	ErrProxySessionUnknown  = fmt.Errorf("unknown session id")
+	ErrProxySessionEndpoint = fmt.Error("this node is the endpoint for this session")
 )
 
 const (
@@ -149,8 +154,6 @@ type CoreRouter interface {
 	RouteSpawnRequest(node string, behaviorName string, request gen.RemoteSpawnRequest, args ...etf.Term) error
 	RouteSpawnReply(to etf.Pid, ref etf.Ref, result etf.Term) error
 
-	RouteProxy(from ConnectionInterface, sessionID string, message []byte) error
-
 	//
 	// implemented by monitor
 	//
@@ -170,8 +173,17 @@ type CoreRouter interface {
 	RouteMonitorExit(terminated etf.Pid, reason string, ref etf.Ref) error
 	// RouteNodeDown
 	RouteNodeDown(name string)
-	// RouteProxyDown
-	//RouteProxyDown(name string)
+
+	// RouteProxyConnectRequest
+	RouteProxyConnectRequest(from ConnectionInterface, request gen.ProxyConnectRequest) error
+	// RouteProxyConnectReply
+	RouteProxyConnectReply(from ConnectionInterface, reply ProxyConnectReply) error
+	// RouteProxyConnectError
+	RouteProxyConnectError(from ConnectionInterface, err ProxyConnectError) error
+	// RouteProxyDisconnect
+	RouteProxyDisconnect(from ConnectionInterface, disconnect ProxyDisconnect) error
+	// RouteProxy
+	RouteProxy(from ConnectionInterface, sessionID string, packet *lib.Buffer) (cipher.Block, error)
 }
 
 // Options defines bootstrapping options for the node
@@ -236,6 +248,7 @@ type Cloud struct {
 
 type Proxy struct {
 	Enable bool
+	Routes map[string]ProxyRoute
 }
 
 type Compression struct {
@@ -456,11 +469,18 @@ type ProxyDisconnectRequest struct {
 	Reason    string
 }
 
+// ProxyMessage
+type ProxyMessage struct {
+	SessionID string
+	Encrypted bool
+	Message   []byte
+}
+
 // Proxy connection
 type ProxyConnection struct {
 	SessionID string
 	Flags     ProxyFlags
-	Key       []byte
+	Key       cipher.Block
 }
 
 // CustomRouteOptions a custom set of route options

@@ -2,6 +2,7 @@ package node
 
 import (
 	"context"
+	"crypto/cipher"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
@@ -82,7 +83,7 @@ type coreInternal interface {
 
 type coreRouterInternal interface {
 	CoreRouter
-	GetConnection(nodename string) (ConnectionInterface, error)
+	getConnection(nodename string) (ConnectionInterface, ProxyConnection, error)
 	MakeRef
 
 	ProcessByPid(pid etf.Pid) gen.Process
@@ -737,7 +738,7 @@ func (c *core) RouteSend(from etf.Pid, to etf.Pid, message etf.Term) error {
 		lib.Log("[%s] CORE route message by pid (remote) %s failed. Unknown sender", c.nodename, to)
 		return ErrSenderUnknown
 	}
-	connection, err := c.GetConnection(string(to.Node))
+	connection, err := c.getConnection(string(to.Node))
 	if err != nil {
 		return err
 	}
@@ -774,7 +775,7 @@ func (c *core) RouteSendReg(from etf.Pid, to gen.ProcessID, message etf.Term) er
 		lib.Log("[%s] CORE route message by gen.ProcessID (remote) %s failed. Unknown sender", c.nodename, to)
 		return ErrSenderUnknown
 	}
-	connection, err := c.GetConnection(string(to.Node))
+	connection, err := c.getConnection(string(to.Node))
 	if err != nil {
 		return err
 	}
@@ -812,7 +813,7 @@ func (c *core) RouteSendAlias(from etf.Pid, to etf.Alias, message etf.Term) erro
 		lib.Log("[%s] CORE route message by alias (remote) %s failed. Unknown sender", c.nodename, to)
 		return ErrSenderUnknown
 	}
-	connection, err := c.GetConnection(string(to.Node))
+	connection, err := c.getConnection(string(to.Node))
 	if err != nil {
 		return err
 	}
@@ -822,26 +823,43 @@ func (c *core) RouteSendAlias(from etf.Pid, to etf.Alias, message etf.Term) erro
 }
 
 // RouteProxyRequest
-func (c *core) RouteProxyRequest(from ConnectionInterface, request gen.ProxyConnectRequest) error {
+func (c *core) RouteProxyConnectRequest(from ConnectionInterface, request ProxyConnectRequest) error {
 	if request.NodeTo != c.nodename {
-		// send this request further
+		// This node is transitional for this proxy connection,
+		// so send this request further with updating the Path and Hop values
+		// in this request and validating values before sending.
+
+		var errReply error
+		defer func() {
+			if errReply == nil {
+				return
+			}
+
+			err := ProxyConnectError{
+				ID:     request.ID,
+				From:   c.nodename,
+				Reason: errReply.Error(),
+				Path:   request.Path,
+			}
+			from.ProxyConnectError(err)
+		}()
+
 		if request.Hop < 1 {
 			lib.Log("[%s] CORE route proxy. Error: exceeded hop limit")
-			from.ProxyConnectReply()
+			//errReply = Err...
 			return nil
 		}
 		request.Hop--
 
-		connection, err := c.getConnection(request.To)
+		connection, err := c.getConnectionDirect(request.To)
 		if err != nil {
-			from.ProxyConnectReply()
+			//errReply = Err...
 			return nil
 		}
 
 		if from == connection {
 			lib.Log("[%s] CORE route proxy. Error: proxy route points to the connection this request came from", c.nodename)
-			// loop detected
-			from.ProxyConnectError()
+			// errReply = loop detected
 			return nil
 		}
 		for i := range request.Path {
@@ -849,20 +867,19 @@ func (c *core) RouteProxyRequest(from ConnectionInterface, request gen.ProxyConn
 				continue
 			}
 			lib.Log("[%s] CORE route proxy. Error: loop detected in proxy path %#v", c.nodename, request.Path)
-			from.ProxyConnectError()
+			//errReply = Err...
 			return nil
 		}
 		request.Path = append([]string{c.nodename}, request.Path)
-		err := connection.ProxyConnect(request)
-		if err != nil {
-			from.ProxyConnectError()
-			return nil
-
-		}
+		errReply = connection.ProxyConnect(request)
 		return nil
 	}
 
-	// create and register new proxy session
+	//
+	// handle proxy connect request
+	//
+
+	// generate new session ID
 	sessionID := lib.RandomString(32)
 
 	// TODO
@@ -891,55 +908,138 @@ func (c *core) RouteProxyRequest(from ConnectionInterface, request gen.ProxyConn
 		from.ProxyConnectError
 		return nil
 	}
-	reply.SymmetricKey = cipherkey
+	reply.Cipher = cipherkey
 
-	from.ProxyConnectReply
+	if err := from.ProxyConnectReply(reply); err != nil {
+		// can't send reply. ignore this connection request
+		return nil
+	}
+
+	// register proxy session
+	//session := proxySession{
+	//	//a: from,
+	//	b: nil, it must be always nil for the session endpoint
+	//}
 	return nil
 }
 
-func (c *core) RouteProxyReply(from ConnectionInterface, reply ProxyConnectReply) error {
-	if len(reply.Path) == 0 {
+func (c *core) RouteProxyConnectReply(from ConnectionInterface, reply ProxyConnectReply) error {
+	var errReply error
 
-	}
-	connection, err := c.getConnection(reply.Path)
 	c.proxySessionsMutex.Lock()
 	defer c.proxySessionsMutex.Unlock()
+
+	defer func() {
+		if errReply == nil {
+			return
+		}
+		lib.Log("[%s] CORE proxy connect reply ERROR %s (message: %#v)", c.nodename, errReplyreply)
+		disconnect := ProxyDisconnect{
+			From:      c.nodename,
+			SessionID: reply.SessionID,
+			Reason:    errReply.Error(),
+		}
+		from.ProxyDisconnect(disconnect)
+	}()
+
+	if _, exist := c.proxySession[reply.ID]; exist {
+		//errReply = Err... duplicate session id
+		return nil
+	}
+
+	if reply.To != c.nodename {
+		// send this reply further
+
+		if len(reply.Path) < 2 {
+			//errReply = Err...
+			return nil
+		}
+
+		connection, err := c.getConnection(reply.Path[0])
+		if err != nil {
+			//errReply = Err...
+			return nil
+		}
+		reply.Path = reply.Path[1:]
+
+		errReply = connection.ProxyConnectReply(reply)
+		if errReply != nil {
+			return nil
+		}
+
+		// register transit proxy session
+		session := proxySession{
+			a: from,
+			b: connection,
+		}
+		c.proxySession[reply.ID] = session
+
+		return nil
+	}
+
+	// check for the
+	//  - request ID
+
+	// register proxy session
 	session := proxySession{
-		//a:,
-		b: from,
+		a: from,
+		// b: nil, it must be always nil for the session endpoint
 	}
 	c.proxySession[reply.ID] = session
 	return nil
 }
 
-func (c *core) RouteProxyError(from ConnectionInterface, err ProxyConnectError) error {
+func (c *core) RouteProxyConnectError(from ConnectionInterface, err ProxyConnectError) error {
 	return nil
 }
 
-func (c *core) RouteProxyDisconnect(from ConnectionInterface, disconnect ProxyDisconnect) error {
-	return nil
+func (c *core) RouteProxyDisconnect(from ConnectionInterface, disconnect ProxyDisconnectRequest) error {
+	c.proxySessionsMutex.RLock()
+	session, ok := c.proxySessions[disconnect.SessionID]
+	c.proxySessionsMutex.RUnlock()
+	if !ok {
+		return ErrProxySessionUnknown
+	}
+
+	if from == nil || from == session.b {
+		// session.b is always nil for the proxy session endpoint
+		// or disconnection request received from another endpoint
+		session.a.ProxyDisconnect(disconnect)
+		return nil
+	}
+
+	if session.b == from {
+		session.b.ProxyDisconnect(disconnect)
+	}
+
+	// TODO there must be another error if none of a and b are not equal the 'from' value
+	return ErrProxySessionUnknown
 }
 
-func (c *core) RouteProxy(from ConnectionInterface, sessionID string, message []byte) error {
+func (c *core) RouteProxy(from ConnectionInterface, sessionID string, packet *lib.Buffer) (cipher.Block, error) {
 	// check if this session is present on this node
 	c.proxySessionsMutex.RLock()
-	session, ok := c.proxySessions[sessionID]
+	session, ok := c.proxySessions[message.SessionID]
 	c.proxySessionsMutex.RUnlock()
 	if !ok {
 		disconnect := ProxyDisconnect{
 			From:      c.nodename,
-			SessionID: sessionID,
-			Reason:    "unknown session id",
+			SessionID: message.SessionID,
+			Reason:    ErrProxySessionUnknown.Error(),
 		}
 		from.ProxyDisconnect(disconnect)
 		return nil
 	}
 	if session.a == from {
-		session.b.Proxy(sessionID, message)
+		session.b.ProxyMessage(message)
 		return nil
 	}
 
-	session.a.Proxy(sessionID, message)
+	session.a.ProxyMessage(message)
+
+	// TODO implement this
+	// return ErrProxySessionEndpoint
+
 	return nil
 }
 
@@ -947,7 +1047,7 @@ func (c *core) RouteProxy(from ConnectionInterface, sessionID string, message []
 func (c *core) RouteSpawnRequest(node string, behaviorName string, request gen.RemoteSpawnRequest, args ...etf.Term) error {
 	if node == c.nodename {
 		// get connection for reply
-		connection, err := c.GetConnection(string(request.From.Node))
+		connection, err := c.getConnection(string(request.From.Node))
 		if err != nil {
 			return err
 		}
@@ -970,7 +1070,7 @@ func (c *core) RouteSpawnRequest(node string, behaviorName string, request gen.R
 		return connection.SpawnReply(request.From, request.Ref, process.Self())
 	}
 
-	connection, err := c.GetConnection(node)
+	connection, err := c.getConnection(node)
 	if err != nil {
 		return err
 	}

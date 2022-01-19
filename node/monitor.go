@@ -103,7 +103,7 @@ func (m *monitor) monitorNode(by etf.Pid, node string, ref etf.Ref) {
 	m.ref2node[ref] = node
 	m.mutexNodes.Unlock()
 
-	_, err := m.router.GetConnection(node)
+	_, err := m.router.getConnection(node)
 	if err != nil {
 		m.RouteNodeDown(node)
 	}
@@ -421,7 +421,7 @@ func (m *monitor) RouteLink(pidA etf.Pid, pidB etf.Pid) error {
 	}
 
 	// linking with remote process
-	connection, err := m.router.GetConnection(string(pidB.Node))
+	connection, err := m.router.getConnection(string(pidB.Node))
 	if err != nil {
 		m.sendExit(pidA, pidB, "noconnection")
 		return err
@@ -478,7 +478,7 @@ func (m *monitor) RouteUnlink(pidA etf.Pid, pidB etf.Pid) error {
 	}
 
 	if pidB.Node != etf.Atom(m.nodename) {
-		connection, err := m.router.GetConnection(string(pidB.Node))
+		connection, err := m.router.getConnection(string(pidB.Node))
 		if err != nil {
 			m.sendExit(pidA, pidB, "noconnection")
 			return err
@@ -541,7 +541,7 @@ func (m *monitor) RouteMonitor(by etf.Pid, pid etf.Pid, ref etf.Ref) error {
 	}
 
 	if string(pid.Node) != m.nodename {
-		connection, err := m.router.GetConnection(string(pid.Node))
+		connection, err := m.router.getConnection(string(pid.Node))
 		if err != nil {
 			m.sendMonitorExit(by, pid, "noconnection", ref)
 			return err
@@ -573,7 +573,7 @@ func (m *monitor) RouteMonitorReg(by etf.Pid, process gen.ProcessID, ref etf.Ref
 		return m.sendMonitorExitReg(by, process, "noproc", ref)
 	}
 	if process.Node != m.nodename {
-		connection, err := m.router.GetConnection(process.Node)
+		connection, err := m.router.getConnection(process.Node)
 		if err != nil {
 			m.sendMonitorExitReg(by, process, "noconnection", ref)
 			return err
@@ -633,7 +633,7 @@ func (m *monitor) RouteDemonitor(by etf.Pid, ref etf.Ref) error {
 			delete(m.ref2name, ref)
 
 			if processID.Node != m.nodename {
-				connection, err := m.router.GetConnection(processID.Node)
+				connection, err := m.router.getConnection(processID.Node)
 				if err != nil {
 					return err
 				}
@@ -671,7 +671,7 @@ func (m *monitor) RouteDemonitor(by etf.Pid, ref etf.Ref) error {
 		delete(m.ref2pid, ref)
 
 		if string(pid.Node) != m.nodename {
-			connection, err := m.router.GetConnection(string(pid.Node))
+			connection, err := m.router.getConnection(string(pid.Node))
 			if err != nil {
 				return err
 			}
@@ -753,7 +753,7 @@ func (m *monitor) sendMonitorExit(to etf.Pid, terminated etf.Pid, reason string,
 			return nil
 		}
 
-		connection, err := m.router.GetConnection(string(to.Node))
+		connection, err := m.router.getConnection(string(to.Node))
 		if err != nil {
 			return err
 		}
@@ -779,7 +779,7 @@ func (m *monitor) sendMonitorExitReg(to etf.Pid, terminated gen.ProcessID, reaso
 			return nil
 		}
 
-		connection, err := m.router.GetConnection(string(to.Node))
+		connection, err := m.router.getConnection(string(to.Node))
 		if err != nil {
 			return err
 		}
@@ -803,7 +803,7 @@ func (m *monitor) sendExit(to etf.Pid, terminated etf.Pid, reason string) error 
 		if reason == "noconnection" {
 			return nil
 		}
-		connection, err := m.router.GetConnection(string(to.Node))
+		connection, err := m.router.getConnection(string(to.Node))
 		if err != nil {
 			return err
 		}

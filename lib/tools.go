@@ -76,11 +76,10 @@ func TakeBuffer() *Buffer {
 
 // ReleaseBuffer
 func ReleaseBuffer(b *Buffer) {
-	// do not return it to the pool if its grew up too big
-	if cap(b.B) > 65536 {
-		b.B = nil // for GC
-		b.original = nil
-		return
+	c := cap(b.B)
+	if c > DefaultBufferLength && c < 65536 {
+		// keep reallocated buffer as an original
+		b.original = b.B
 	}
 	b.B = b.original[:0]
 	buffers.Put(b)
@@ -170,7 +169,6 @@ func (b *Buffer) Write(v []byte) (n int, err error) {
 }
 
 func (b *Buffer) Read(v []byte) (n int, err error) {
-	fmt.Println("REEEEEAD")
 	copy(v, b.B)
 	return len(b.B), io.EOF
 }

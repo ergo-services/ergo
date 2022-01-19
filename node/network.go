@@ -50,8 +50,8 @@ type networkInternal interface {
 	Disconnect(peername string) error
 	Nodes() []string
 
-	GetConnection(peername string) (ConnectionInterface, error)
-	getConnection(peername string) (ConnectionInterface, error)
+	getConnection(peername string) (ConnectionInterface, ProxyConnection, error)
+	getConnectionDirect(peername string) (connectionInternal, error)
 
 	connect(to string) (ConnectionInterface, error)
 	stopNetwork()
@@ -226,41 +226,27 @@ func (n *network) StaticRoutes() []Route {
 	return routes
 }
 
-func (n *network) getConnection(peername string) (connectionInternal, ProxyRoute, error) {
+func (n *network) getConnectionDirect(peername string) (connectionInternal, error) {
 	var noConnection connectionInternal
-	var noProxyRoute ProxyRoute
 
 	n.connectionsMutex.RLock()
 	cInternal, ok := n.connections[peername]
 	n.connectionsMutex.RUnlock()
 	if ok {
-		return cInternal, noProxyRoute, nil
+		return cInternal, nil
 	}
 
-	n.proxyRoutesMutex.RLock()
-	proxyRoute, is_proxy := n.proxyRoutes[peername]
-	n.proxyRoutesMutex.RUnlock()
-
-	if is_proxy == false {
-		cInternal, err := n.connect(peername)
-		if err != nil {
-			lib.Log("[%s] CORE no route to node %q: %s", n.nodename, peername, err)
-			return noConnection, noProxyRoute, ErrNoRoute
-		}
-		return cInternal, noProxyRoute, nil
-	}
-
-	cInternal, err := n.getConnection(proxyRoute.Proxy)
+	cInternal, err := n.connect(peername)
 	if err != nil {
-		return noConnection, noProxyRoute, err
+		lib.Log("[%s] CORE no route to node %q: %s", n.nodename, peername, err)
+		return noConnection, ErrNoRoute
 	}
-
-	return cInternal, proxyRoute, errProxyConnectionRequired
+	return cInternal, nil
 
 }
 
-// GetConnection
-func (n *network) GetConnection(peername string) (ConnectionInterface, ProxyConnection, error) {
+// getConnection
+func (n *network) getConnection(peername string) (ConnectionInterface, ProxyConnection, error) {
 	var noproxy ProxyConnection
 
 	if peername == n.nodename {
@@ -274,16 +260,16 @@ func (n *network) GetConnection(peername string) (ConnectionInterface, ProxyConn
 		return ci.connection, ci.proxy, nil
 	}
 
-	connection, proxyRoute, err := n.getConnection(peername)
-	if err == nil {
-		return connection, noproxy, nil
+	n.proxyRoutesMutex.RLock()
+	proxyRoute, is_proxy := n.proxyRoutes[peername]
+	n.proxyRoutesMutex.RUnlock()
+	if is_proxy == false {
+		ci, err := n.getConnectionDirect(peername)
+		if err != nil {
+			return nil, noproxy, err
+		}
+		return ci, noproxy, nil
 	}
-
-	if err != errProxyConnectionRequired {
-		return nil, noproxy, err
-	}
-
-	// make a proxy connection
 
 	// generate new key
 	privKey, err := rsa.GenerateKey(rand.Reader, 2048)
@@ -291,15 +277,13 @@ func (n *network) GetConnection(peername string) (ConnectionInterface, ProxyConn
 	// create digest using cookie, peername and pubKey
 	digest := generateProxyDigest(proxyRoute.Cookie, peername, pubKey)
 
-	proxyRequest := ProxyConnectRequest{
+	request := ProxyConnectRequest{
 		ID:       n.router.MakeRef(),
 		NodeFrom: n.nodename,
 		NodeTo:   peername,
 	}
-	proxy, err := connection.ProxyConnect(proxyRequest)
-	if err != nil {
-		return nil, noproxy, err
-	}
+	// make a proxy connection
+	n.router.RouteProxyConnectRequest(request)
 
 	// TODO wait reply with Flags
 	proxy := ProxyConnection{}
@@ -344,25 +328,31 @@ func (n *network) Resolve(peername string) (Route, error) {
 
 // Connect
 func (n *network) Connect(peername string) error {
-	_, err := n.GetConnection(peername)
+	_, err := n.getConnection(peername)
 	return err
 }
 
 // Disconnect
 func (n *network) Disconnect(peername string) error {
 	n.connectionsMutex.RLock()
-	connectionInternal, ok := n.connections[peername]
+	ci, ok := n.connections[peername]
 	n.connectionsMutex.RUnlock()
 	if !ok {
 		return ErrNoRoute
 	}
 
-	if connectionInternal.proxy != "" {
+	if ci.conn == nil {
+		// this is proxy connection
 		n.unregisterConnection(peername)
-		return connectionInternal.connection.ProxyDisconnect(peername)
+		disconnect := ProxyDisconnect{
+			From:      n.nodename,
+			SessionID: ci.proxy.SessionID,
+			Reason:    "normal",
+		}
+		return n.router.RouteProxyDisconnect(nil, disconnect)
 	}
 
-	connectionInternal.conn.Close()
+	ci.conn.Close()
 	return nil
 }
 

@@ -780,7 +780,7 @@ func (b *benchGS) HandleDirect(process *gen.ServerProcess, message interface{}) 
 	return nil, gen.ErrUnsupportedRequest
 }
 
-func BenchmarkNodeSequential(b *testing.B) {
+func BenchmarkNodeSequentialNetwork(b *testing.B) {
 
 	node1name := fmt.Sprintf("nodeB1_%d@localhost", b.N)
 	node2name := fmt.Sprintf("nodeB2_%d@localhost", b.N)
@@ -824,7 +824,7 @@ func BenchmarkNodeSequential(b *testing.B) {
 	}
 }
 
-func BenchmarkNodeSequentialSingleNode(b *testing.B) {
+func BenchmarkNodeSequentialLocal(b *testing.B) {
 
 	node1name := fmt.Sprintf("nodeB1Local_%d@localhost", b.N)
 	node1, _ := ergo.StartNode(node1name, "bench", node.Options{})

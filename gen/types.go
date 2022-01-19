@@ -9,8 +9,8 @@ import (
 )
 
 var (
-	ErrUnsupportedRequest = fmt.Errorf("Unsupported request")
-	ErrServerTerminated   = fmt.Errorf("Server terminated")
+	ErrUnsupportedRequest = fmt.Errorf("unsupported request")
+	ErrServerTerminated   = fmt.Errorf("server terminated")
 )
 
 // EnvKey

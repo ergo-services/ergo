@@ -4,7 +4,10 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/aes"
+	"crypto/cipher"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"math/rand"
@@ -52,6 +55,11 @@ const (
 	defaultCleanTimeout  = 5 * time.Second  // for checkClean
 	defaultCleanDeadline = 30 * time.Second // for checkClean
 
+	// ergo proxy message
+	protoProxy = 141
+	// ergo proxy encrypted message
+	protoProxyX = 142
+
 	// http://erlang.org/doc/apps/erts/erl_ext_dist.html#distribution_header
 	protoDist          = 131
 	protoDistMessage   = 68
@@ -62,11 +70,6 @@ const (
 	protoDistMessageZ   = 200
 	protoDistFragment1Z = 201
 	protoDistFragmentNZ = 202
-
-	// ergo proxy message
-	protoDistProxy = 210
-	// ergo proxy encrypted message
-	protoDistProxyX = 211
 )
 
 type fragmentedPacket struct {
@@ -155,10 +158,6 @@ type sendMessage struct {
 	compression          bool
 	compressionLevel     int
 	compressionThreshold int
-	proxy                string
-	proxySession         string
-	proxySessionFlags    node.Flags
-	proxySymmetricKey    []byte
 }
 
 type receivers struct {
@@ -447,16 +446,21 @@ func (dc *distConnection) ProxyConnect(request node.ProxyConnectRequest) error {
 		return node.ErrPeerUnsupported
 	}
 
+	path := []etfAtom{}
+	for i := range request.Path {
+		path = append(path, request.Path[i])
+	}
+
 	msg := &sendMessage{
 		control: etf.Tuple{distProtoPROXY_CONNECT_REQUEST,
-			request.ID,        // etf.Ref
-			request.From,      // from node
-			request.To,        // to node
-			request.Digest,    //
-			request.PublicKey, // public key for the sending symmetric key
+			request.ID,             // etf.Ref
+			etf.Atom(request.From), // from node
+			etf.Atom(request.To),   // to node
+			request.Digest,         //
+			request.PublicKey,      // public key for the sending symmetric key
 			proxyFlagsToUint64(request.ProxyFlags),
 			request.Hop,
-			request.Path,
+			path,
 		},
 	}
 	return dc.send(dc.peername, msg)
@@ -467,16 +471,21 @@ func (dc *distConnection) ProxyConnectReply(reply node.ProxyConnectReply) error 
 		return node.ErrPeerUnsupported
 	}
 
+	path := []etfAtom{}
+	for i := range reply.Path {
+		path = append(path, reply.Path[i])
+	}
+
 	msg := &sendMessage{
 		control: etf.Tuple{distProtoPROXY_CONNECT_REPLY,
-			request.ID,     // etf.Ref
-			request.From,   // from node
-			request.To,     // to node
-			request.Digest, //
-			request.Cipher, //
+			request.ID,             // etf.Ref
+			etf.Atom(request.From), // from node
+			etf.Atom(request.To),   // to node
+			request.Digest,         //
+			request.Cipher,         //
 			proxyFlagsToUint64(request.ProxyFlags),
 			request.SessionID,
-			request.Path,
+			path,
 		},
 	}
 
@@ -488,12 +497,17 @@ func (dc *distConnection) ProxyConnectError(err node.ProxyConnectError) error {
 		return node.ErrPeerUnsupported
 	}
 
+	path := []etfAtom{}
+	for i := range reply.Path {
+		path = append(path, reply.Path[i])
+	}
+
 	msg := &sendMessage{
 		control: etf.Tuple{distProtoPROXY_CONNECT_ERROR,
-			err.ID,   // etf.Ref
-			err.From, // from node
+			err.ID,             // etf.Ref
+			etf.Atom(err.From), // from node
 			err.Reason,
-			err.Path,
+			path,
 		},
 	}
 
@@ -507,7 +521,7 @@ func (dc *distConnection) ProxyDisconnect(disconnect node.ProxyDisconnect) error
 
 	msg := &sendMessage{
 		control: etf.Tuple{distProtoPROXY_DISCONNECT,
-			disconnect.From, // from node
+			etf.Atom(disconnect.From), // from node
 			disconnect.SessionID,
 			disconnect.Reason,
 		},
@@ -606,7 +620,7 @@ func (dc *distConnection) receiver(recv <-chan *lib.Buffer) {
 		}
 
 		// read and decode received packet
-		control, message, err := dc.decodePacket(b.B)
+		control, message, err := dc.decodePacket(b)
 
 		if err == ErrMissingInCache {
 			if b == missing.b && missing.c > 100 {
@@ -646,7 +660,7 @@ func (dc *distConnection) receiver(recv <-chan *lib.Buffer) {
 		}
 
 		if control == nil {
-			// fragment
+			// fragment or proxy message
 			continue
 		}
 
@@ -664,7 +678,8 @@ func (dc *distConnection) receiver(recv <-chan *lib.Buffer) {
 	}
 }
 
-func (dc *distConnection) decodePacket(packet []byte) (etf.Term, etf.Term, error) {
+func (dc *distConnection) decodePacket(b *lib.Buffer) (etf.Term, etf.Term, error) {
+	packet := b.B
 	if len(packet) < 5 {
 		return nil, nil, fmt.Errorf("malformed packet")
 	}
@@ -672,7 +687,68 @@ func (dc *distConnection) decodePacket(packet []byte) (etf.Term, etf.Term, error
 	// [:3] length
 	switch packet[4] {
 	case protoDist:
+		// do not check the length. it was checked on the receiving this packet.
 		return dc.decodeDist(packet[5:])
+	case protoProxy:
+		sessionID := string(packet[5:37])
+		_, err := dc.router.RouteProxyMessage(sessionID, b)
+		switch err {
+		case nil:
+			// packet was sent further
+			// b will be released after sending
+			return nil, nil, nil
+		case node.ErrProxySessionEndpoint:
+			// this node is endpoint of this session
+			packet = b.B[37:]
+			control, payload, err := dc.decodeDist(packet)
+			if err != nil {
+				if err == ErrMissingInCache {
+					// will be deferred
+					b.B = b.B
+				}
+				return nil, nil, err
+			}
+		default:
+			lib.ReleaseBuffer(b)
+			// handle it
+			return nil, nil, nil
+		}
+
+	case protoProxyX:
+		sessionID := string(packet[5:37])
+		block, err := dc.router.RouteProxyMessage(sessionID, b)
+		switch err {
+		case nil:
+			// packet was sent further
+			// b will be released after sending
+			return nil, nil, nil
+
+		case node.ErrProxySessionEndpoint:
+			// this is endpoint of this session
+			b.B = b.B[37:]
+			packet = b.B
+			if (len(packet) % aes.BlockSize) != 0 {
+				return "", errors.New("blocksize must be multipe of decoded message length")
+			}
+			iv := packet[:aes.BlockSize]
+			msg := packet[aes.BlockSize:]
+			cfb := cipher.NewCFBDecrypter(block, iv)
+			cfb.XORKeyStream(msg, msg)
+
+			// check padding
+			length := len(msg)
+			unpadding := int(msg[length-1])
+			if unpadding > length {
+				return nil, errors.New("unpad error. This could happen when incorrect encryption key is used")
+			}
+			b.B = msg[:(length - unpadding)]
+			return dc.decodeDist(b.B)
+
+		default:
+			lib.ReleaseBuffer(b)
+			// handle it
+			return nil, nil, nil
+		}
 	default:
 		// unknown proto
 		return nil, nil, fmt.Errorf("unknown/unsupported proto")
@@ -807,9 +883,34 @@ func (dc *distConnection) decodeDist(packet []byte) (etf.Term, etf.Term, error) 
 			}
 		}
 		return nil, nil, nil
-	case protoDistProxy:
 
-		// dc.router.RouteProxyMessage(dc.nodename, packet
+	case protoDistProxy, protoDistProxyX:
+
+		message := node.ProxyMessage{
+			SessionID: string(packet[1:33]),
+			Encrypted: packet[0] == protoDistProxyX,
+			Message:   packet[33:],
+		}
+		if buf := dc.router.RouteProxyMessage(dc, message); buf != nil {
+			defer lib.ReleaseBuffer(buf)
+			control, message, err := dc.decodeDist(buf.B)
+			if err == ErrMissingInCache {
+				return nil, nil, err
+			}
+			if err != nil {
+				// malformed dist proto. close proxy session
+				disconnect := node.ProxyDisconnect{
+					From:      dc.nodename,
+					SessionID: sessionID,
+					Reason:    "Malformed Dist protocol",
+				}
+				// send this message both directions
+				dc.router.RouteProxyDisconnect(dc, disconnect)
+				dc.ProxyDisconnect(disconnect)
+				return nil, nil, nil
+			}
+			return control, message, nil
+		}
 		return nil, nil, nil
 	}
 
@@ -1006,32 +1107,32 @@ func (dc *distConnection) handleMessage(control, message etf.Term) (err error) {
 				lib.Log("[%s] PROXY CONNECT REQUEST [from %s]: %#v", dc.nodename, dc.peername, control)
 				connectRequest := gen.ProxyConnectRequest{
 					ID:        t.Element(1).(etf.Ref),
-					From:      t.Element(2).(string),
-					To:        t.Element(3).(string),
+					From:      string(t.Element(2).(etf.Atom)),
+					To:        string(t.Element(3).(etf.Atom)),
 					Digest:    t.Element(4).([]byte),
 					PublicKey: t.Element(5).([]byte),
 					Flags:     proxyFlagsFromUint64(t.Element(6).(uint64)),
 					Hop:       t.Element(7).(int),
 				}
 				for _, p := range t.Element(8).(etf.List) {
-					connectRequest.Path = append(connectRequest.Path, p.(string))
+					connectRequest.Path = append(connectRequest.Path, string(p.(etf.Atom)))
 				}
-				dc.router.RouteProxyRequest(dc, connectRequest)
+				dc.router.RouteProxyConnectRequest(dc, connectRequest)
 				return nil
 
 			case distProtoPROXY_CONNECT_REPLY:
 				lib.Log("[%s] PROXY CONNECT REPLY [from %s]: %#v", dc.nodename, dc.peername, control)
 				connectReply := node.ProxyConnectReply{
 					ID:        t.Element(1).(etf.Ref),
-					From:      t.Element(2).(string),
-					To:        t.Element(3).(string),
+					From:      string(t.Element(2).(etf.Atom)),
+					To:        string(t.Element(3).(etf.Atom)),
 					Digest:    t.Element(4).([]byte),
 					Cipher:    t.Element(5).([]byte),
 					Flags:     proxyFlagsFromUint64(t.Element(6).(uint64)),
 					SessionID: t.Element(7).(string),
 				}
 				for _, p := range t.Element(8).(etf.List) {
-					connectReply.Path = append(connectReply.Path, p.(string))
+					connectReply.Path = append(connectReply.Path, string(p.(etf.Atom)))
 				}
 				dc.router.RouteProxyRepy(dc, connectReply)
 				return nil
@@ -1040,17 +1141,18 @@ func (dc *distConnection) handleMessage(control, message etf.Term) (err error) {
 				lib.Log("[%s] PROXY CONNECT ERROR [from %s]: %#v", dc.nodename, dc.peername, control)
 				connectError := node.ProxyConnectError{
 					ID:     t.Element(1).(etf.Ref),
-					Reason: t.Element(2).(string),
+					From:   string(t.Element(2).(etf.Atom)),
+					Reason: t.Element(3).(string),
 				}
-				for _, p := range t.Element(3).(etf.List) {
-					connectError.Path = append(connectError.Path, p.(string))
+				for _, p := range t.Element(4).(etf.List) {
+					connectError.Path = append(connectError.Path, string(p.(etf.Atom)))
 				}
 				dc.router.RouteProxyError(dc, connectError)
 				return nil
 			case distProtoPROXY_DISCONNECT:
 				lib.Log("[%s] PROXY DISCONNECT [from %s]: %#v", dc.nodename, dc.peername, control)
-				proxyDisconnect := node.ProxyDisconnect{
-					From:      t.Element(1).(string),
+				proxyDisconnect := node.ProxyDisconnectRequest{
+					From:      string(t.Element(1).(etf.Atom)),
 					SessionID: t.Element(2).(string),
 					Reason:    t.Element(3).(string),
 				}
