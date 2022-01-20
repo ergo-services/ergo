@@ -31,7 +31,6 @@ var (
 	ErrAliasUnknown         = fmt.Errorf("unknown alias")
 	ErrAliasOwner           = fmt.Errorf("not an owner")
 	ErrNoRoute              = fmt.Errorf("no route to node")
-	ErrNoProxyRoute         = fmt.Errorf("no proxy route to node")
 	ErrTaken                = fmt.Errorf("resource is taken")
 	ErrTimeout              = fmt.Errorf("timed out")
 	ErrFragmented           = fmt.Errorf("fragmented data")
@@ -39,6 +38,10 @@ var (
 	ErrUnsupported     = fmt.Errorf("not supported")
 	ErrPeerUnsupported = fmt.Errorf("peer does not support this feature")
 
+	ErrProxyDisabled        = fmt.Errorf("proxy feature disabled")
+	ErrProxyNoRoute         = fmt.Errorf("no proxy route to node")
+	ErrProxyHopExceeded     = fmt.Errorf("proxy hop is exceeded")
+	ErrProxyLoopDetected    = fmt.Errorf("proxy loop detected")
 	ErrProxySessionUnknown  = fmt.Errorf("unknown session id")
 	ErrProxySessionEndpoint = fmt.Error("this node is the endpoint for this session")
 )
@@ -182,8 +185,10 @@ type CoreRouter interface {
 	RouteProxyConnectError(from ConnectionInterface, err ProxyConnectError) error
 	// RouteProxyDisconnect
 	RouteProxyDisconnect(from ConnectionInterface, disconnect ProxyDisconnect) error
-	// RouteProxy
-	RouteProxy(from ConnectionInterface, sessionID string, packet *lib.Buffer) (cipher.Block, error)
+	// RouteProxy returns ErrProxySessionEndpoint if this node is the endpoint of the
+	// proxy session. In this case, the packet must be handled on this node with
+	// provided ProxySession parameters.
+	RouteProxy(from ConnectionInterface, sessionID string, packet *lib.Buffer) (ProxySession, error)
 }
 
 // Options defines bootstrapping options for the node
@@ -229,8 +234,12 @@ type Options struct {
 	// DIST proto created with dist.CreateProto(...)
 	Proto ProtoInterface
 
-	// enable Ergo Cloud support
+	// Cloud enable Ergo Cloud support
 	Cloud Cloud
+
+	// Proxy enable proxy feature on this node. Disabling this option makes
+	// this node to reject any proxy request.
+	Proxy Proxy
 }
 
 type TLS struct {
@@ -291,6 +300,7 @@ type ConnectionInterface interface {
 
 	ProxyConnect(connect ProxyConnectRequest) (ProxyConnection, error)
 	ProxyDisconnect(disconnect ProxyDisconnectRequest) error
+	Proxy(packet *lib.Buffer) error
 }
 
 // Handshake template struct for the custom Handshake implementation
@@ -447,7 +457,7 @@ type ProxyConnectReply struct {
 	ID        etf.Ref
 	From      string
 	To        string
-	Digest    []byte // md5(md5(md5(Cookie)+NodeFrom)+PublicKey)
+	Digest    []byte // md5(md5(md5(Cookie)+To)+Cipher)
 	Cipher    []byte // encrypted symmetric key using PublicKey from the ProxyConnectRequest
 	Flags     ProxyFlags
 	SessionID string // proxy session ID
@@ -476,11 +486,12 @@ type ProxyMessage struct {
 	Message   []byte
 }
 
-// Proxy connection
-type ProxyConnection struct {
+// Proxy session
+type ProxySession struct {
 	SessionID string
-	Flags     ProxyFlags
-	Key       cipher.Block
+	NodeFlags ProxyFlags
+	PeerFlags ProxyFlags
+	Block     cipher.Block // made from symmetric key
 }
 
 // CustomRouteOptions a custom set of route options

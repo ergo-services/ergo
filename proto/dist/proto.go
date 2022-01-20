@@ -5,7 +5,6 @@ import (
 	"compress/gzip"
 	"context"
 	"crypto/aes"
-	"crypto/cipher"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -446,9 +445,9 @@ func (dc *distConnection) ProxyConnect(request node.ProxyConnectRequest) error {
 		return node.ErrPeerUnsupported
 	}
 
-	path := []etfAtom{}
+	path := []etf.Atom{}
 	for i := range request.Path {
-		path = append(path, request.Path[i])
+		path = append(path, etf.Atom(request.Path[i]))
 	}
 
 	msg := &sendMessage{
@@ -691,7 +690,7 @@ func (dc *distConnection) decodePacket(b *lib.Buffer) (etf.Term, etf.Term, error
 		return dc.decodeDist(packet[5:])
 	case protoProxy:
 		sessionID := string(packet[5:37])
-		_, err := dc.router.RouteProxyMessage(sessionID, b)
+		_, err := dc.router.RouteProxy(sessionID, b)
 		switch err {
 		case nil:
 			// packet was sent further
@@ -703,20 +702,28 @@ func (dc *distConnection) decodePacket(b *lib.Buffer) (etf.Term, etf.Term, error
 			control, payload, err := dc.decodeDist(packet)
 			if err != nil {
 				if err == ErrMissingInCache {
-					// will be deferred
-					b.B = b.B
+					// will be deferred.
+					// 37 - 5
+					// where:
+					// 37 = packet len (4) + protoProxy (1) + session id (32)
+					// reserving 5 bytes for: packet len(4) + protoDist (1)
+					// we don't update packet len value. it was already validated
+					// and will be ignored on the next dc.decodeDist call
+					b.B = b.B[32:]
+					b.B[4] = protoDist
 				}
 				return nil, nil, err
 			}
+			return control, payload, nil
 		default:
 			lib.ReleaseBuffer(b)
-			// handle it
+			// TODO handle it
 			return nil, nil, nil
 		}
 
 	case protoProxyX:
 		sessionID := string(packet[5:37])
-		block, err := dc.router.RouteProxyMessage(sessionID, b)
+		proxy, err := dc.router.RouteProxy(sessionID, b)
 		switch err {
 		case nil:
 			// packet was sent further
@@ -725,14 +732,13 @@ func (dc *distConnection) decodePacket(b *lib.Buffer) (etf.Term, etf.Term, error
 
 		case node.ErrProxySessionEndpoint:
 			// this is endpoint of this session
-			b.B = b.B[37:]
-			packet = b.B
+			packet = b.B[37:]
 			if (len(packet) % aes.BlockSize) != 0 {
 				return "", errors.New("blocksize must be multipe of decoded message length")
 			}
 			iv := packet[:aes.BlockSize]
 			msg := packet[aes.BlockSize:]
-			cfb := cipher.NewCFBDecrypter(block, iv)
+			cfb := proxy.Block.NewCFBDecrypter(block, iv)
 			cfb.XORKeyStream(msg, msg)
 
 			// check padding
@@ -741,12 +747,21 @@ func (dc *distConnection) decodePacket(b *lib.Buffer) (etf.Term, etf.Term, error
 			if unpadding > length {
 				return nil, errors.New("unpad error. This could happen when incorrect encryption key is used")
 			}
-			b.B = msg[:(length - unpadding)]
-			return dc.decodeDist(b.B)
+			packet = msg[:(length - unpadding)]
+			control, payload, err := dc.decodeDist(packet, proxy)
+			if err != nil {
+				if err == ErrMissingInCache {
+					// will be deferred
+					b.B = b.B[32+aes.BlockSize:]
+					b.B[4] = protoDist
+				}
+				return nil, nil, err
+			}
+			return control, payload, nil
 
 		default:
 			lib.ReleaseBuffer(b)
-			// handle it
+			// TODO handle it
 			return nil, nil, nil
 		}
 	default:
@@ -756,7 +771,7 @@ func (dc *distConnection) decodePacket(b *lib.Buffer) (etf.Term, etf.Term, error
 
 }
 
-func (dc *distConnection) decodeDist(packet []byte) (etf.Term, etf.Term, error) {
+func (dc *distConnection) decodeDist(packet []byte, proxy node.ProxySession) (etf.Term, etf.Term, error) {
 	switch packet[0] {
 	case protoDistMessage:
 		var control, message etf.Term
@@ -1105,7 +1120,7 @@ func (dc *distConnection) handleMessage(control, message etf.Term) (err error) {
 			case distProtoPROXY_CONNECT_REQUEST:
 				// {101, NodeFrom, NodeTo, Salt, Digest, PublicKey}
 				lib.Log("[%s] PROXY CONNECT REQUEST [from %s]: %#v", dc.nodename, dc.peername, control)
-				connectRequest := gen.ProxyConnectRequest{
+				request := gen.ProxyConnectRequest{
 					ID:        t.Element(1).(etf.Ref),
 					From:      string(t.Element(2).(etf.Atom)),
 					To:        string(t.Element(3).(etf.Atom)),
@@ -1115,9 +1130,17 @@ func (dc *distConnection) handleMessage(control, message etf.Term) (err error) {
 					Hop:       t.Element(7).(int),
 				}
 				for _, p := range t.Element(8).(etf.List) {
-					connectRequest.Path = append(connectRequest.Path, string(p.(etf.Atom)))
+					request.Path = append(request.Path, string(p.(etf.Atom)))
 				}
-				dc.router.RouteProxyConnectRequest(dc, connectRequest)
+				if err := dc.router.RouteProxyConnectRequest(dc, request); err != nil {
+					errReply := ProxyConnectError{
+						ID:     request.ID,
+						From:   dc.nodename,
+						Reason: err.Error(),
+						Path:   request.Path,
+					}
+					dc.ProxyConnectError(errReply)
+				}
 				return nil
 
 			case distProtoPROXY_CONNECT_REPLY:
@@ -1134,7 +1157,16 @@ func (dc *distConnection) handleMessage(control, message etf.Term) (err error) {
 				for _, p := range t.Element(8).(etf.List) {
 					connectReply.Path = append(connectReply.Path, string(p.(etf.Atom)))
 				}
-				dc.router.RouteProxyRepy(dc, connectReply)
+				if err := dc.router.RouteProxyRepy(dc, connectReply); err != nil {
+					lib.Log("[%s] PROXY CONNECT REPLY error %s (message: %#v)", dc.nodename, err, connectReply)
+					disconnect := ProxyDisconnect{
+						From:      dc.nodename,
+						SessionID: connectReply.SessionID,
+						Reason:    err.Error(),
+					}
+					dc.ProxyDisconnect(disconnect)
+				}
+
 				return nil
 
 			case distProtoPROXY_CONNECT_ERROR:
@@ -1707,23 +1739,6 @@ func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOpt
 }
 
 func (dc *distConnection) send(to string, msg *sendMessage) error {
-	if to != dc.peername {
-		if dc.flags.EnableProxy == false {
-			return node.ErrPeerUnsupported
-		}
-
-		dc.proxySessionsMutex.RLock()
-		session, ok := dc.proxySessions[to]
-		dc.proxySessionsMutex.RUnlock()
-		if !ok {
-			return node.ErrNoProxyRoute
-		}
-		msg.proxy = true
-		msg.proxyTo = to
-		msg.proxySession = session.id
-		msg.proxySessionFlags = session.flags
-	}
-
 	i := atomic.AddInt32(&dc.senders.i, 1)
 	n := i % dc.senders.n
 	s := dc.senders.sender[n]

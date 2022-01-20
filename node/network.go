@@ -28,10 +28,6 @@ import (
 	"strings"
 )
 
-var (
-	errProxyConnectionRequired = fmt.Errorf("proxy connection required")
-)
-
 type networkInternal interface {
 	// static route methods
 	AddStaticRoute(name string, port uint16, options RouteOptions) error
@@ -58,22 +54,16 @@ type networkInternal interface {
 }
 
 type connectionInternal struct {
-	// socket
+	// conn. has nil value for the proxy connection
 	conn net.Conn
 	// connection interface of the network connection
 	connection ConnectionInterface
-	// if this connection is proxy on top of the network connection it has proxy value
-	proxy ProxyConnection
+	// if this connection is proxy on top of the network connection it has proxy session id
+	proxySessionID string
 	// list of the proxy connection names which are established on top of the network connection.
 	// if the real connection is closed, we must notify all the processes having created links
 	// or monitors over this proxy connection
 	proxyConnections []string
-}
-
-// transit proxy session
-type proxySession struct {
-	a ConnectionInterface
-	b ConnectionInterface
 }
 
 type network struct {
@@ -92,9 +82,6 @@ type network struct {
 	connections      map[string]connectionInternal
 	connectionsMutex sync.RWMutex
 
-	proxySessions      map[string]proxySession
-	proxySessionsMutex sync.RWMutex
-
 	remoteSpawn      map[string]gen.ProcessBehavior
 	remoteSpawnMutex sync.Mutex
 
@@ -110,19 +97,18 @@ type network struct {
 
 func newNetwork(ctx context.Context, nodename string, options Options, router coreRouterInternal) (networkInternal, error) {
 	n := &network{
-		nodename:      nodename,
-		ctx:           ctx,
-		staticOnly:    options.StaticRoutesOnly,
-		staticRoutes:  make(map[string]Route),
-		proxyRoutes:   make(map[string]proxyRoute),
-		connections:   make(map[string]connectionInternal),
-		proxySessions: make(map[string]proxySession),
-		remoteSpawn:   make(map[string]gen.ProcessBehavior),
-		resolver:      options.Resolver,
-		handshake:     options.Handshake,
-		proto:         options.Proto,
-		router:        router,
-		creation:      options.Creation,
+		nodename:     nodename,
+		ctx:          ctx,
+		staticOnly:   options.StaticRoutesOnly,
+		staticRoutes: make(map[string]Route),
+		proxyRoutes:  make(map[string]proxyRoute),
+		connections:  make(map[string]connectionInternal),
+		remoteSpawn:  make(map[string]gen.ProcessBehavior),
+		resolver:     options.Resolver,
+		handshake:    options.Handshake,
+		proto:        options.Proto,
+		router:       router,
+		creation:     options.Creation,
 	}
 
 	nn := strings.Split(nodename, "@")
@@ -246,8 +232,8 @@ func (n *network) getConnectionDirect(peername string) (connectionInternal, erro
 }
 
 // getConnection
-func (n *network) getConnection(peername string) (ConnectionInterface, ProxyConnection, error) {
-	var noproxy ProxyConnection
+func (n *network) getConnection(peername string) (ConnectionInterface, ProxySession, error) {
+	var noproxy ProxySession
 
 	if peername == n.nodename {
 		// can't connect to itself
@@ -277,13 +263,29 @@ func (n *network) getConnection(peername string) (ConnectionInterface, ProxyConn
 	// create digest using cookie, peername and pubKey
 	digest := generateProxyDigest(proxyRoute.Cookie, peername, pubKey)
 
-	request := ProxyConnectRequest{
-		ID:       n.router.MakeRef(),
-		NodeFrom: n.nodename,
-		NodeTo:   peername,
+	flags := proxyRoute.Flags
+	if proxyRoute.Flags.Enable == false {
+		flags = DefaultProxyFlags()
 	}
+
+	if proxyRoute.MaxHop < 1 {
+		proxyRoute.MaxHop = DefaultProxyMaxHop
+	}
+
+	request := ProxyConnectRequest{
+		ID:        n.router.MakeRef(),
+		From:      n.nodename,
+		To:        peername,
+		Digest:    digest,
+		PublicKey: pubKey,
+		Flags:     flags,
+		Hop:       proxyRoute.MaxHop,
+	}
+
 	// make a proxy connection
-	n.router.RouteProxyConnectRequest(request)
+	if err := n.router.RouteProxyConnectRequest(nil, request); err != nil {
+		return nil, noproxy, err
+	}
 
 	// TODO wait reply with Flags
 	proxy := ProxyConnection{}

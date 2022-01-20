@@ -77,8 +77,12 @@ func TakeBuffer() *Buffer {
 // ReleaseBuffer
 func ReleaseBuffer(b *Buffer) {
 	c := cap(b.B)
+	// cO := cap(b.original)
+	// overlaps := c > 0 && cO > 0 && &(x[:c][c-1]) == &(y[:cO][cO-1])
 	if c > DefaultBufferLength && c < 65536 {
-		// keep reallocated buffer as an original
+		// reallocation happened. keep reallocated buffer as an original
+		// if it doesn't exceed the size of 65K (we don't want to keep
+		// too big slices)
 		b.original = b.B
 	}
 	b.B = b.original[:0]

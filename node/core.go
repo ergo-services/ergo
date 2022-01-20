@@ -2,7 +2,6 @@ package node
 
 import (
 	"context"
-	"crypto/cipher"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
@@ -33,8 +32,9 @@ type core struct {
 	env      map[gen.EnvKey]interface{}
 	mutexEnv sync.RWMutex
 
-	compression Compression
 	tls         TLS
+	compression Compression
+	proxy       Proxy
 
 	nextPID  uint64
 	uniqID   uint64
@@ -47,6 +47,9 @@ type core struct {
 	mutexAliases   sync.RWMutex
 	processes      map[uint64]*process
 	mutexProcesses sync.RWMutex
+
+	proxySessions      map[string]proxySession
+	proxySessionsMutex sync.RWMutex
 
 	behaviors      map[string]map[string]gen.RegisteredBehavior
 	mutexBehaviors sync.Mutex
@@ -93,6 +96,13 @@ type coreRouterInternal interface {
 	processByPid(pid etf.Pid) *process
 }
 
+// transit proxy session
+type proxySession struct {
+	a     ConnectionInterface
+	b     ConnectionInterface
+	proxy ProxySession
+}
+
 func newCore(ctx context.Context, nodename string, options Options) (coreInternal, error) {
 	if options.Compression.Level < 1 || options.Compression.Level > 9 {
 		options.Compression.Level = DefaultCompressionLevel
@@ -106,13 +116,15 @@ func newCore(ctx context.Context, nodename string, options Options) (coreInterna
 		nextPID: startPID,
 		uniqID:  uint64(time.Now().UnixNano()),
 		// keep node to get the process to access to the node's methods
-		nodename:    nodename,
-		compression: options.Compression,
-		creation:    options.Creation,
-		names:       make(map[string]etf.Pid),
-		aliases:     make(map[etf.Alias]*process),
-		processes:   make(map[uint64]*process),
-		behaviors:   make(map[string]map[string]gen.RegisteredBehavior),
+		nodename:      nodename,
+		compression:   options.Compression,
+		proxy:         options.Proxy,
+		creation:      options.Creation,
+		names:         make(map[string]etf.Pid),
+		aliases:       make(map[etf.Alias]*process),
+		processes:     make(map[uint64]*process),
+		proxySessions: make(map[string]proxySession),
+		behaviors:     make(map[string]map[string]gen.RegisteredBehavior),
 	}
 
 	corectx, corestop := context.WithCancel(ctx)
@@ -822,57 +834,42 @@ func (c *core) RouteSendAlias(from etf.Pid, to etf.Alias, message etf.Term) erro
 	return connection.SendAlias(p_from, to, message)
 }
 
-// RouteProxyRequest
+// RouteProxyConnectRequest
 func (c *core) RouteProxyConnectRequest(from ConnectionInterface, request ProxyConnectRequest) error {
-	if request.NodeTo != c.nodename {
-		// This node is transitional for this proxy connection,
-		// so send this request further with updating the Path and Hop values
-		// in this request and validating values before sending.
+	if request.To != c.nodename {
 
-		var errReply error
-		defer func() {
-			if errReply == nil {
-				return
-			}
-
-			err := ProxyConnectError{
-				ID:     request.ID,
-				From:   c.nodename,
-				Reason: errReply.Error(),
-				Path:   request.Path,
-			}
-			from.ProxyConnectError(err)
-		}()
+		// proxy feature must be enabled explicitly for the transitional requests
+		if from != nil && c.proxy.Enable == false {
+			return ErrProxyDisabled
+		}
 
 		if request.Hop < 1 {
 			lib.Log("[%s] CORE route proxy. Error: exceeded hop limit")
-			//errReply = Err...
-			return nil
+			return ErrProxyHopExceeded
 		}
 		request.Hop--
 
-		connection, err := c.getConnectionDirect(request.To)
+		ci, err := c.getConnectionDirect(request.To)
 		if err != nil {
-			//errReply = Err...
-			return nil
+			if err == ErrNoRoute {
+				return ErrProxyNoRoute
+			}
+			return err
 		}
 
-		if from == connection {
+		if from == ci.connection {
 			lib.Log("[%s] CORE route proxy. Error: proxy route points to the connection this request came from", c.nodename)
-			// errReply = loop detected
-			return nil
+			return ErrProxyLoopDetected
 		}
 		for i := range request.Path {
 			if c.nodename != request.Path {
 				continue
 			}
 			lib.Log("[%s] CORE route proxy. Error: loop detected in proxy path %#v", c.nodename, request.Path)
-			//errReply = Err...
-			return nil
+			return ErrProxyLoopDetected
 		}
 		request.Path = append([]string{c.nodename}, request.Path)
-		errReply = connection.ProxyConnect(request)
-		return nil
+		return ci.connection.ProxyConnect(request)
 	}
 
 	//
@@ -924,23 +921,13 @@ func (c *core) RouteProxyConnectRequest(from ConnectionInterface, request ProxyC
 }
 
 func (c *core) RouteProxyConnectReply(from ConnectionInterface, reply ProxyConnectReply) error {
-	var errReply error
 
 	c.proxySessionsMutex.Lock()
 	defer c.proxySessionsMutex.Unlock()
 
-	defer func() {
-		if errReply == nil {
-			return
-		}
-		lib.Log("[%s] CORE proxy connect reply ERROR %s (message: %#v)", c.nodename, errReplyreply)
-		disconnect := ProxyDisconnect{
-			From:      c.nodename,
-			SessionID: reply.SessionID,
-			Reason:    errReply.Error(),
-		}
-		from.ProxyDisconnect(disconnect)
-	}()
+	if c.proxy.Enabled == false {
+		return ErrProxyDisabled
+	}
 
 	if _, exist := c.proxySession[reply.ID]; exist {
 		//errReply = Err... duplicate session id
@@ -1016,7 +1003,8 @@ func (c *core) RouteProxyDisconnect(from ConnectionInterface, disconnect ProxyDi
 	return ErrProxySessionUnknown
 }
 
-func (c *core) RouteProxy(from ConnectionInterface, sessionID string, packet *lib.Buffer) (cipher.Block, error) {
+func (c *core) RouteProxy(from ConnectionInterface, sessionID string, packet *lib.Buffer) (ProxySession, error) {
+	var noproxy ProxySession
 	// check if this session is present on this node
 	c.proxySessionsMutex.RLock()
 	session, ok := c.proxySessions[message.SessionID]
@@ -1028,19 +1016,19 @@ func (c *core) RouteProxy(from ConnectionInterface, sessionID string, packet *li
 			Reason:    ErrProxySessionUnknown.Error(),
 		}
 		from.ProxyDisconnect(disconnect)
-		return nil
+		return noproxy, nil
 	}
 	if session.a == from {
 		session.b.ProxyMessage(message)
-		return nil
+		return noproxy, nil
 	}
 
 	session.a.ProxyMessage(message)
 
 	// TODO implement this
-	// return ErrProxySessionEndpoint
+	// return session, ErrProxySessionEndpoint
 
-	return nil
+	return noproxy, nil
 }
 
 // RouteSpawnRequest

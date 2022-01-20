@@ -430,6 +430,7 @@ func (n *node) RevokeRemoteSpawn(name string) error {
 func DefaultFlags() Flags {
 	// all features are enabled by default
 	return Flags{
+		Enable:                true,
 		EnableHeaderAtomCache: true,
 		EnableBigCreation:     true,
 		EnableBigPidRef:       true,
@@ -439,7 +440,17 @@ func DefaultFlags() Flags {
 		EnableCompression:     true,
 		EnableProxy:           true,
 	}
+}
 
+func DefaultProxyFlags() ProxyFlags {
+	return ProxyFlags{
+		Enable:            true,
+		EnableLink:        true,
+		EnableMonitor:     true,
+		EnableRemoteSpawn: true,
+		EnableCompression: false,
+		EnableEncryption:  false,
+	}
 }
 
 // DefaultProtoOptions
