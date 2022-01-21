@@ -2,6 +2,7 @@ package node
 
 import (
 	"context"
+	"crypto/aes"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
@@ -94,6 +95,7 @@ type coreRouterInternal interface {
 	ProcessByAlias(alias etf.Alias) gen.Process
 
 	processByPid(pid etf.Pid) *process
+	registerProxySession(id etf.Ref, proxy ProxySession)
 }
 
 // transit proxy session
@@ -861,6 +863,7 @@ func (c *core) RouteProxyConnectRequest(from ConnectionInterface, request ProxyC
 			lib.Log("[%s] CORE route proxy. Error: proxy route points to the connection this request came from", c.nodename)
 			return ErrProxyLoopDetected
 		}
+
 		for i := range request.Path {
 			if c.nodename != request.Path {
 				continue
@@ -868,6 +871,7 @@ func (c *core) RouteProxyConnectRequest(from ConnectionInterface, request ProxyC
 			lib.Log("[%s] CORE route proxy. Error: loop detected in proxy path %#v", c.nodename, request.Path)
 			return ErrProxyLoopDetected
 		}
+
 		request.Path = append([]string{c.nodename}, request.Path)
 		return ci.connection.ProxyConnect(request)
 	}
@@ -876,20 +880,7 @@ func (c *core) RouteProxyConnectRequest(from ConnectionInterface, request ProxyC
 	// handle proxy connect request
 	//
 
-	// generate new session ID
-	sessionID := lib.RandomString(32)
-
-	// TODO
-	proxyRoute := proxyRoute{}
-
-	digest := generateProxyDigest(proxyRoute.Cookie, request.NodeFrom, request.PublicKey)
-	reply := gen.ProxyConnectReply{
-		NodeFrom:  request.NodeFrom,
-		NodeTo:    request.NodeTo,
-		SessionID: sessionID,
-		Digest:    digest,
-	}
-
+	// do some encryption magic
 	pk, err := x509.ParsePKCS1PublicKey(request.PublicKey)
 	if err != nil {
 		// reply error
@@ -905,18 +896,37 @@ func (c *core) RouteProxyConnectRequest(from ConnectionInterface, request ProxyC
 		from.ProxyConnectError
 		return nil
 	}
-	reply.Cipher = cipherkey
+
+	sessionID := lib.RandomString(32)
+	digest := generateProxyDigest(proxyRoute.Cookie, request.NodeFrom, request.PublicKey)
+	flags := DefaultProxyFlags()
+
+	reply := ProxyConnectReply{
+		ID:        request.ID,
+		NodeFrom:  c.nodename,
+		NodeTo:    request.NodeFrom,
+		Digest:    digest,
+		Cipher:    cipherkey,
+		Flags:     flags,
+		SessionID: sessionID,
+		Digest:    digest,
+	}
 
 	if err := from.ProxyConnectReply(reply); err != nil {
 		// can't send reply. ignore this connection request
 		return nil
 	}
 
+	block := aes.NewCipher(buf)
+	proxy := ProxySession{
+		ID:        sessionID,
+		NodeFlags: request.Flags,
+		PeerFlags: reply.Flags,
+		Block:     aes.NewCipher(key),
+	}
+
 	// register proxy session
-	//session := proxySession{
-	//	//a: from,
-	//	b: nil, it must be always nil for the session endpoint
-	//}
+	c.registerProxySession(proxy)
 	return nil
 }
 
@@ -935,7 +945,7 @@ func (c *core) RouteProxyConnectReply(from ConnectionInterface, reply ProxyConne
 	}
 
 	if reply.To != c.nodename {
-		// send this reply further
+		// send this reply further and register this session
 
 		if len(reply.Path) < 2 {
 			//errReply = Err...
@@ -973,10 +983,16 @@ func (c *core) RouteProxyConnectReply(from ConnectionInterface, reply ProxyConne
 		// b: nil, it must be always nil for the session endpoint
 	}
 	c.proxySession[reply.ID] = session
+
+	// TODO
+	//c.putProxyReply(...)
+
 	return nil
 }
 
 func (c *core) RouteProxyConnectError(from ConnectionInterface, err ProxyConnectError) error {
+	// TODO
+	// c.cancelProxyRequest
 	return nil
 }
 
@@ -1084,4 +1100,8 @@ func (c *core) processByPid(pid etf.Pid) *process {
 	}
 	// unknown process
 	return nil
+}
+
+func (c *core) registerProxySession(id etf.Ref, proxy ProxySession) {
+
 }

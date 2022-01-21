@@ -38,6 +38,7 @@ var (
 	ErrUnsupported     = fmt.Errorf("not supported")
 	ErrPeerUnsupported = fmt.Errorf("peer does not support this feature")
 
+	ErrProxyUnknownRequest  = fmt.Errorf("unknown proxy request")
 	ErrProxyDisabled        = fmt.Errorf("proxy feature disabled")
 	ErrProxyNoRoute         = fmt.Errorf("no proxy route to node")
 	ErrProxyHopExceeded     = fmt.Errorf("proxy hop is exceeded")

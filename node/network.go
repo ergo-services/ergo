@@ -8,11 +8,13 @@ import (
 	"sync"
 	"time"
 
+	"crypto/aes"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/md5"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
@@ -66,6 +68,12 @@ type connectionInternal struct {
 	proxyConnections []string
 }
 
+type proxyConnectRequest struct {
+	request ProxyConnectRequest
+	reply   chan ProxyConnectReply
+	cancel  chan ProxyConnectError
+}
+
 type network struct {
 	nodename string
 	ctx      context.Context
@@ -85,12 +93,15 @@ type network struct {
 	remoteSpawn      map[string]gen.ProcessBehavior
 	remoteSpawnMutex sync.Mutex
 
+	proxyRequestMutex sync.RWMutex
+	proxyRequest      map[etf.Ref]proxyConnectRequest
+
 	tls      TLS
 	proxy    Proxy
 	version  Version
 	creation uint32
 
-	router    CoreRouter
+	router    coreRouterInternal
 	handshake HandshakeInterface
 	proto     ProtoInterface
 }
@@ -104,6 +115,7 @@ func newNetwork(ctx context.Context, nodename string, options Options, router co
 		proxyRoutes:  make(map[string]proxyRoute),
 		connections:  make(map[string]connectionInternal),
 		remoteSpawn:  make(map[string]gen.ProcessBehavior),
+		proxyRequest: make(map[etf.Ref]proxyConnectRequest),
 		resolver:     options.Resolver,
 		handshake:    options.Handshake,
 		proto:        options.Proto,
@@ -287,12 +299,41 @@ func (n *network) getConnection(peername string) (ConnectionInterface, ProxySess
 		return nil, noproxy, err
 	}
 
-	// TODO wait reply with Flags
-	proxy := ProxyConnection{}
+	n.putProxyRequest(request)
+	reply, err := n.waitProxyReply(request.ID, 5)
+	if err != nil {
+		return nil, noproxy, err
+	}
+
+	// decrypt cipher key using private key
+	hash := sha256.New()
+	key, err := rsa.DecryptOAEP(hash, rand.Reader, privKey, reply.Cipher, nil)
+	if err != nil {
+		disconnect := ProxyDisconnectRequest{
+			From:      n.nodename,
+			SessionID: reply.SessionID,
+			Reason:    "malformed key",
+		}
+		n.router.RouteProxyDisconnect(nil, disconnect)
+		return nil, noproxy, err
+	}
+
+	// check digest
+	checkDigest := generateProxiDigest(proxyRoute.Cookie, n.nodename, reply.Cipher)
+	if checkDigest != reply.Digest {
+		disconnect := ProxyDisconnectRequest{
+			From:      n.nodename,
+			SessionID: reply.SessionID,
+			Reason:    "digest mismatch",
+		}
+		n.router.RouteProxyDisconnect(nil, disconnect)
+
+		return nil, noproxy, nil
+	}
 
 	ci := connectionInternal{
-		connection: connection,
-		proxy:      proxy,
+		connection:     connection,
+		proxySessionID: reply.SessionID,
 	}
 
 	if registered, err := n.registerConnection(peername, ci); err != nil {
@@ -302,12 +343,21 @@ func (n *network) getConnection(peername string) (ConnectionInterface, ProxySess
 		// Close this proxy connection and use the already registered one
 		disconnect := ProxyDisconnectRequest{
 			From:      n.nodename,
-			SessionID: proxy.SessionID,
+			SessionID: reply.SessionID,
 			Reason:    "duplicate proxy session",
 		}
 		connection.ProxyDisconnect(disconnect)
 		return registered.connection, registered.proxy, nil
 	}
+
+	proxy := ProxySession{
+		ID:        reply.SessionID,
+		NodeFlags: request.Flags,
+		PeerFlags: reply.Flags,
+		Block:     aes.NewCipher(key),
+	}
+
+	n.router.registerProxySession(proxy)
 
 	return connection, proxy, nil
 }
@@ -605,6 +655,89 @@ func (n *network) unregisterConnection(peername string) {
 	if exist {
 		n.router.RouteNodeDown(peername)
 	}
+}
+
+func (n *network) putProxyRequest(request) {
+	n.proxyRequestMutex.Lock()
+	defer n.proxyRequestMutex.Unlock()
+
+	r := proxyConnectRequest{
+		request: request,
+		reply:   make(chan ProxyConnectReply),
+		cancel:  make(chan ProxyConnectError),
+	}
+	n.proxyRequest[request.ID] = r
+}
+
+func (n *network) cancelProxyRequest(err ProxyConnectError) {
+	n.proxyRequestMutex.Lock()
+	defer n.proxyRequestMutex.Unlock()
+
+	n.proxyRequestMutex.RLock()
+	r, found := n.proxyRequest[err.ID]
+	n.proxyRequestMutex.RUnlock()
+	if found == false {
+		return ErrProxyUnknownRequest
+	}
+
+	delete(n.proxyRequest, ref)
+	select {
+	case r.cancel <- err:
+	default:
+		return ErrProxyUnknownRequest
+	}
+	return nil
+}
+
+func (n *network) waitProxyReply(ref etf.Ref, timeout int) (ProxyConnectReply, error) {
+	var noreply ProxyConnectReply
+	n.proxyRequestMutex.RLock()
+	r, found := n.proxyRequest[ref]
+	n.proxyRequestMutex.RUnlock()
+
+	if found == false {
+		return noreply, ErrProxyUnknownRequest
+	}
+
+	defer func(ref etf.Ref) {
+		p.proxyRequestMutex.Lock()
+		delete(p.proxyRequest, ref)
+		p.proxyRequestMutex.Unlock()
+	}(ref)
+
+	timer := lib.TakeTimer()
+	defer lib.ReleaseTimer(timer)
+	timer.Reset(time.Second * time.Duration(timeout))
+
+	for {
+		select {
+		case reply := <-r.reply:
+			return reply, nil
+		case err := <-r.cancel:
+			return noreply, fmt.Errorf("[%s]", err.From, err.Reason)
+		case <-timer.C:
+			return noreply, ErrTimeout
+		case <-n.ctx.Done():
+			// node is on the way to terminate, it means connection is closed
+			// so it doesn't matter what kind of error will be returned
+			return noreply, ErrProxyUnknownRequest
+		}
+	}
+}
+
+func (n *network) putProxyReply(reply ProxyConnectReply) error {
+	n.proxyRequestMutex.RLock()
+	r, found := n.proxyRequest[ref]
+	n.proxyRequestMutex.RUnlock()
+	if found == false {
+		return ErrProxyUnknownRequest
+	}
+	select {
+	case r.reply <- reply:
+	default:
+		return ErrProxyUnknownRequest
+	}
+	return nil
 }
 
 func generateSelfSignedCert(version Version) (tls.Certificate, error) {
