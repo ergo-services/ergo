@@ -49,11 +49,17 @@ type core struct {
 	processes      map[uint64]*process
 	mutexProcesses sync.RWMutex
 
+	behaviors      map[string]map[string]gen.RegisteredBehavior
+	mutexBehaviors sync.Mutex
+
 	proxySessions      map[string]proxySession
 	proxySessionsMutex sync.RWMutex
 
-	behaviors      map[string]map[string]gen.RegisteredBehavior
-	mutexBehaviors sync.Mutex
+	proxyRoutes      map[string]ProxyRoute
+	proxyRoutesMutex sync.RWMutex
+
+	proxyConnectRequest      map[etf.Ref]proxyConnectRequest
+	proxyConnectRequestMutex sync.RWMutex
 }
 
 type coreInternal interface {
@@ -87,8 +93,7 @@ type coreInternal interface {
 
 type coreRouterInternal interface {
 	CoreRouter
-	getConnection(nodename string) (ConnectionInterface, ProxyConnection, error)
-	MakeRef
+	getConnection(nodename string) (ConnectionInterface, ProxySession, error)
 
 	ProcessByPid(pid etf.Pid) gen.Process
 	ProcessByName(name string) gen.Process
@@ -105,6 +110,13 @@ type proxySession struct {
 	proxy ProxySession
 }
 
+type proxyConnectRequest struct {
+	privateKey *rsa.PrivateKey
+	request    ProxyConnectRequest
+	session    chan ProxySession
+	cancel     chan ProxyConnectError
+}
+
 func newCore(ctx context.Context, nodename string, options Options) (coreInternal, error) {
 	if options.Compression.Level < 1 || options.Compression.Level > 9 {
 		options.Compression.Level = DefaultCompressionLevel
@@ -118,15 +130,18 @@ func newCore(ctx context.Context, nodename string, options Options) (coreInterna
 		nextPID: startPID,
 		uniqID:  uint64(time.Now().UnixNano()),
 		// keep node to get the process to access to the node's methods
-		nodename:      nodename,
-		compression:   options.Compression,
-		proxy:         options.Proxy,
-		creation:      options.Creation,
-		names:         make(map[string]etf.Pid),
-		aliases:       make(map[etf.Alias]*process),
-		processes:     make(map[uint64]*process),
-		proxySessions: make(map[string]proxySession),
-		behaviors:     make(map[string]map[string]gen.RegisteredBehavior),
+		nodename:    nodename,
+		compression: options.Compression,
+		proxy:       options.Proxy,
+		creation:    options.Creation,
+		names:       make(map[string]etf.Pid),
+		aliases:     make(map[etf.Alias]*process),
+		processes:   make(map[uint64]*process),
+		behaviors:   make(map[string]map[string]gen.RegisteredBehavior),
+
+		proxySessions:       make(map[string]proxySession),
+		proxyRoutes:         make(map[string]ProxyRoute),
+		proxyConnectRequest: make(map[etf.Ref]proxyConnectRequest),
 	}
 
 	corectx, corestop := context.WithCancel(ctx)
@@ -838,38 +853,93 @@ func (c *core) RouteSendAlias(from etf.Pid, to etf.Alias, message etf.Term) erro
 
 // RouteProxyConnectRequest
 func (c *core) RouteProxyConnectRequest(from ConnectionInterface, request ProxyConnectRequest) error {
+	// check if we have proxy route
+	c.proxyRoutesMutex.RLock()
+	route, has_route := c.proxyRoutes[request.To]
+	c.proxyRoutesMutex.RUnlock()
+
 	if request.To != c.nodename {
+		var ci connectionInternal
+		var err error
 
-		// proxy feature must be enabled explicitly for the transitional requests
-		if from != nil && c.proxy.Enable == false {
-			return ErrProxyDisabled
-		}
+		if from != nil {
+			//
+			// transit request
+			//
 
-		if request.Hop < 1 {
-			lib.Log("[%s] CORE route proxy. Error: exceeded hop limit")
-			return ErrProxyHopExceeded
-		}
-		request.Hop--
+			// proxy feature must be enabled explicitly for the transitional requests
+			if c.proxy.Enable == false {
+				lib.Log("[%s] CORE route proxy. Proxy feature is disabled on this node")
+				return ErrProxyDisabled
+			}
+			if request.Hop < 1 {
+				lib.Log("[%s] CORE route proxy. Error: exceeded hop limit")
+				return ErrProxyHopExceeded
+			}
+			request.Hop--
 
-		ci, err := c.getConnectionDirect(request.To)
-		if err != nil {
-			if err == ErrNoRoute {
+			for i := range request.Path {
+				if c.nodename != request.Path {
+					continue
+				}
+				lib.Log("[%s] CORE route proxy. Error: loop detected in proxy path %#v", c.nodename, request.Path)
+				return ErrProxyLoopDetected
+			}
+
+			// try to connect to the next-hop node
+			if has_route == false {
+				ci, err = c.getConnectionDirect(request.To)
+			} else {
+				ci, err = c.getConnectionDirect(route.Proxy)
+			}
+
+			if err != nil {
+				return err
+			}
+
+			if from == ci.connection {
+				lib.Log("[%s] CORE route proxy. Error: proxy route points to the connection this request came from", c.nodename)
+				return ErrProxyLoopDetected
+			}
+
+		} else {
+			if has_route == false {
+				// if it was invoked from getConnection ('from' == nil) there will
+				// be attempt to make direct connection using getConnectionDirect
 				return ErrProxyNoRoute
 			}
-			return err
-		}
 
-		if from == ci.connection {
-			lib.Log("[%s] CORE route proxy. Error: proxy route points to the connection this request came from", c.nodename)
-			return ErrProxyLoopDetected
-		}
-
-		for i := range request.Path {
-			if c.nodename != request.Path {
-				continue
+			//
+			// initiating proxy connection
+			//
+			ci, err = c.getConnectionDirect(route.Proxy)
+			if err != nil {
+				return err
 			}
-			lib.Log("[%s] CORE route proxy. Error: loop detected in proxy path %#v", c.nodename, request.Path)
-			return ErrProxyLoopDetected
+
+			privKey, _ := rsa.GenerateKey(rand.Reader, 2048)
+			pubKey, _ = x509.MarshalPKCS1PublicKey(&privKey.PublicKey)
+			request.PublicKey = pubKey
+
+			// create digest using nodename, cookie, peername and pubKey
+			request.Digest = generateProxyDigest(c.nodename, route.Cookie, peername, pubKey)
+
+			request.Flags = route.Flags
+			if request.Flags.Enable == false {
+				request.Flags = DefaultProxyFlags()
+			}
+
+			request.Hop = route.MaxHop
+			if request.Hop < 1 {
+				request.Hop = DefaultProxyMaxHop
+			}
+			connectRequest := proxyConnectRequest{
+				privateKey: privKey,
+				request:    request,
+				session:    make(chan ProxySession),
+				cancel:     make(chan ProxyConnectError),
+			}
+			c.putProxyConnectRequest(connectRequest)
 		}
 
 		request.Path = append([]string{c.nodename}, request.Path)
@@ -880,6 +950,24 @@ func (c *core) RouteProxyConnectRequest(from ConnectionInterface, request ProxyC
 	// handle proxy connect request
 	//
 
+	// check digest
+	// use the last item in the request.Path as a peername
+	if len(request.Path < 2) {
+		// reply error. there must be atleast 2 nodes - initiating and transit nodes
+		return nil
+	}
+	peername := request.Path[len(request.Path)-1]
+	cookie := c.proxy.Cookie
+	if has_route {
+		cookie = route.Cookie
+	}
+	checkDigest := generateProxyDigest(peername, cookie, c.nodename, request.PublicKey)
+	if request.Digest != checkDigest {
+		// reply error. digest mismatch
+		lib.Log("[%s] CORE route proxy. Proxy connect request has wrong digest")
+		return ErrProxyConnect
+	}
+
 	// do some encryption magic
 	pk, err := x509.ParsePKCS1PublicKey(request.PublicKey)
 	if err != nil {
@@ -888,9 +976,9 @@ func (c *core) RouteProxyConnectRequest(from ConnectionInterface, request ProxyC
 		return nil
 	}
 	hash := sha256.New()
-	buf := make([]byte, 32)
+	key := make([]byte, 32)
 	rand.Read(buf)
-	cipherkey, err := rsa.EncryptOAEP(hash, rand.Reader, pk, buf, nil)
+	cipherkey, err := rsa.EncryptOAEP(hash, rand.Reader, pk, key, nil)
 	if err != nil {
 		// reply error
 		from.ProxyConnectError
@@ -898,18 +986,21 @@ func (c *core) RouteProxyConnectRequest(from ConnectionInterface, request ProxyC
 	}
 
 	sessionID := lib.RandomString(32)
-	digest := generateProxyDigest(proxyRoute.Cookie, request.NodeFrom, request.PublicKey)
-	flags := DefaultProxyFlags()
+	digest := generateProxyDigest(c.nodename, c.proxy.Cookie, peername, key)
+	flags := c.proxy.Flags
+	if flags.Enable == false {
+		flags = DefaultProxyFlags()
+	}
 
 	reply := ProxyConnectReply{
 		ID:        request.ID,
-		NodeFrom:  c.nodename,
-		NodeTo:    request.NodeFrom,
+		To:        request.NodeFrom,
 		Digest:    digest,
 		Cipher:    cipherkey,
 		Flags:     flags,
 		SessionID: sessionID,
 		Digest:    digest,
+		Path:      request.Path[1:],
 	}
 
 	if err := from.ProxyConnectReply(reply); err != nil {
@@ -920,72 +1011,102 @@ func (c *core) RouteProxyConnectRequest(from ConnectionInterface, request ProxyC
 	block := aes.NewCipher(buf)
 	proxy := ProxySession{
 		ID:        sessionID,
-		NodeFlags: request.Flags,
-		PeerFlags: reply.Flags,
+		NodeFlags: reply.Flags,
+		PeerFlags: request.Flags,
 		Block:     aes.NewCipher(key),
 	}
 
 	// register proxy session
-	c.registerProxySession(proxy)
+	c.registerProxySession(nil, from, &proxy)
 	return nil
 }
 
 func (c *core) RouteProxyConnectReply(from ConnectionInterface, reply ProxyConnectReply) error {
 
-	c.proxySessionsMutex.Lock()
-	defer c.proxySessionsMutex.Unlock()
+	c.proxySessionsMutex.RLock()
+	_, duplicate := c.proxySession[reply.ID]
+	c.proxySessionsMutex.RUnlock()
+
+	if duplicate {
+		return ErrProxySessionDuplicate
+	}
+
+	if from == nil {
+		// from value can't be nil
+		return ErrProxyUnknownRequest
+	}
 
 	if c.proxy.Enabled == false {
 		return ErrProxyDisabled
 	}
 
-	if _, exist := c.proxySession[reply.ID]; exist {
-		//errReply = Err... duplicate session id
-		return nil
-	}
-
 	if reply.To != c.nodename {
 		// send this reply further and register this session
 
-		if len(reply.Path) < 2 {
-			//errReply = Err...
-			return nil
+		if len(reply.Path) < 1 {
+			return ErrProxyHopExceeded
 		}
 
-		connection, err := c.getConnection(reply.Path[0])
+		ci, err := c.getConnectionDirect(reply.Path[0])
 		if err != nil {
-			//errReply = Err...
-			return nil
+			return err
 		}
+		if ci.connection == from {
+			return ErrProxyLoopDetected
+		}
+
 		reply.Path = reply.Path[1:]
 
-		errReply = connection.ProxyConnectReply(reply)
-		if errReply != nil {
-			return nil
+		if err := ci.connection.ProxyConnectReply(reply); err != nil {
+			return err
 		}
 
 		// register transit proxy session
-		session := proxySession{
-			a: from,
-			b: connection,
-		}
-		c.proxySession[reply.ID] = session
-
-		return nil
+		return c.registerProxySession(reply.SessionID, from, ci.connection, nil)
 	}
 
-	// check for the
-	//  - request ID
-
-	// register proxy session
-	session := proxySession{
-		a: from,
-		// b: nil, it must be always nil for the session endpoint
+	// look up for the request we made earlier
+	r, found := c.getProxyConnectRequest(reply.SessionID)
+	if found == false {
+		return ErrProxyUnknownRequest
 	}
-	c.proxySession[reply.ID] = session
 
-	// TODO
-	//c.putProxyReply(...)
+	// decrypt cipher key using private key
+	hash := sha256.New()
+	key, err := rsa.DecryptOAEP(hash, rand.Reader, r.privateKey, reply.Cipher, nil)
+	if err != nil {
+		lib.Log("[%s] CORE route proxy. Proxy connect reply has invalid cipher")
+		return ErrProxyConnect
+	}
+
+	cookie := c.proxy.Cookie
+	// check if we should use proxy route cookie
+	c.proxyRoutesMutex.RLock()
+	route, has_route := c.proxyRoutes[request.proxyRequest.To]
+	c.proxyRoutesMutex.RUnlock()
+	if has_route {
+		cookie = route.Cookie
+	}
+	// check digest
+	checkDigest := generateProxiDigest(peername, cookie, c.nodename, key)
+	if checkDigest != reply.Digest {
+		lib.Log("[%s] CORE route proxy. Proxy connect reply has wrong digest")
+		return ErrProxyConnect
+	}
+
+	proxy := ProxySession{
+		ID:        reply.SessionID,
+		NodeFlags: r.request.Flags,
+		PeerFlags: reply.Flags,
+		Block:     aes.NewCipher(key),
+	}
+	if err := c.registerProxySession(reply.SessionID, nil, from, &proxy); err != nil {
+		return err
+	}
+
+	select {
+	case r.reply <- proxy:
+	}
 
 	return nil
 }
@@ -1104,4 +1225,77 @@ func (c *core) processByPid(pid etf.Pid) *process {
 
 func (c *core) registerProxySession(id etf.Ref, proxy ProxySession) {
 
+}
+
+func (c *core) putProxyConnectRequest(r proxyConnectRequest) error {
+	c.proxyConnectRequestMutex.Lock()
+	defer c.proxyConnectRequestMutex.Unlock()
+
+	_, exist := c.proxyConnectRequest[r.request.ID]
+	if exist {
+		return fmt.Errorf("dublicate proxy connect request id")
+	}
+	c.proxyConnectRequest[r.request.ID] = request
+	return nil
+}
+
+func (c *core) cancelProxyConnectRequest(err ProxyConnectError) {
+	c.proxyConnectRequestMutex.Lock()
+	defer c.proxyConnectRequestMutex.Unlock()
+
+	r, found := n.proxyConnectRequest[err.ID]
+	if found == false {
+		return ErrProxyUnknownRequest
+	}
+
+	delete(n.proxyRequest, ref)
+	select {
+	case r.cancel <- err:
+	default:
+		return ErrProxyUnknownRequest
+	}
+	return nil
+}
+
+func (c *core) waitProxySession(id etf.Ref, timeout int) (ProxySession, error) {
+	var noreply ProxyConnectReply
+	c.proxyConnectRequestMutex.RLock()
+	r, found := n.proxyConnectRequest[id]
+	c.proxyConnectRequestMutex.RUnlock()
+
+	if found == false {
+		return noreply, ErrProxyUnknownRequest
+	}
+
+	defer func(id etf.Ref) {
+		p.proxyConnectRequestMutex.Lock()
+		delete(p.proxyConnectRequest, id)
+		p.proxyConnectRequestMutex.Unlock()
+	}(id)
+
+	timer := lib.TakeTimer()
+	defer lib.ReleaseTimer(timer)
+	timer.Reset(time.Second * time.Duration(timeout))
+
+	for {
+		select {
+		case session := <-r.session:
+			return session, nil
+		case err := <-r.cancel:
+			return noreply, fmt.Errorf("[%s]", err.From, err.Reason)
+		case <-timer.C:
+			return noreply, ErrTimeout
+		case <-n.ctx.Done():
+			// node is on the way to terminate, it means connection is closed
+			// so it doesn't matter what kind of error will be returned
+			return noreply, ErrProxyUnknownRequest
+		}
+	}
+}
+
+func (c *core) getProxyConnectRequest(id etf.Ref) (proxyConnectRequest, bool) {
+	c.proxyConnectRequestMutex.RLock()
+	defer c.proxyConnectRequestMutex.RUnlock()
+	r, found := c.proxyConnectRequest[id]
+	return r, found
 }

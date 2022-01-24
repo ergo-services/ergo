@@ -13,8 +13,6 @@ import (
 	"crypto/elliptic"
 	"crypto/md5"
 	"crypto/rand"
-	"crypto/rsa"
-	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
@@ -36,23 +34,19 @@ type networkInternal interface {
 	RemoveStaticRoute(name string) bool
 	StaticRoutes() []Route
 
-	// proxy route methods
-	//AddProxyRoute(name string, proxy ProxyRoute) error
-	//AddProxyTransitRoute(name string, proxy string) error
-	//RemoveProxyRoute(name string) bool
-	//ProxyRoutes() []string
-	// NodesIndirect() []string
-
 	Resolve(peername string) (Route, error)
 	Connect(peername string) error
 	Disconnect(peername string) error
 	Nodes() []string
 
-	getConnection(peername string) (ConnectionInterface, ProxyConnection, error)
+	getConnection(peername string) (ConnectionInterface, ProxySession, error)
 	getConnectionDirect(peername string) (connectionInternal, error)
 
 	connect(to string) (ConnectionInterface, error)
 	stopNetwork()
+
+	putProxyRequest(request ProxyConnectRequest)
+	putProxyReply(reply ProxyConnectReply) error
 }
 
 type connectionInternal struct {
@@ -68,12 +62,6 @@ type connectionInternal struct {
 	proxyConnections []string
 }
 
-type proxyConnectRequest struct {
-	request ProxyConnectRequest
-	reply   chan ProxyConnectReply
-	cancel  chan ProxyConnectError
-}
-
 type network struct {
 	nodename string
 	ctx      context.Context
@@ -84,20 +72,13 @@ type network struct {
 	staticRoutes      map[string]Route
 	staticRoutesMutex sync.Mutex
 
-	proxyRoutes      map[string]ProxyRoute
-	proxyRoutesMutex sync.RWMutex
-
 	connections      map[string]connectionInternal
 	connectionsMutex sync.RWMutex
 
 	remoteSpawn      map[string]gen.ProcessBehavior
 	remoteSpawnMutex sync.Mutex
 
-	proxyRequestMutex sync.RWMutex
-	proxyRequest      map[etf.Ref]proxyConnectRequest
-
 	tls      TLS
-	proxy    Proxy
 	version  Version
 	creation uint32
 
@@ -244,99 +225,45 @@ func (n *network) getConnectionDirect(peername string) (connectionInternal, erro
 }
 
 // getConnection
-func (n *network) getConnection(peername string) (ConnectionInterface, ProxySession, error) {
-	var noproxy ProxySession
-
+func (n *network) getConnection(peername string) (ConnectionInterface, error) {
 	if peername == n.nodename {
 		// can't connect to itself
-		return nil, noproxy, ErrNoRoute
+		return nil, ErrNoRoute
 	}
 	n.connectionsMutex.RLock()
 	ci, ok := n.connections[peername]
 	n.connectionsMutex.RUnlock()
 	if ok {
-		return ci.connection, ci.proxy, nil
+		return ci.connection, nil
 	}
 
-	n.proxyRoutesMutex.RLock()
-	proxyRoute, is_proxy := n.proxyRoutes[peername]
-	n.proxyRoutesMutex.RUnlock()
-	if is_proxy == false {
-		ci, err := n.getConnectionDirect(peername)
-		if err != nil {
-			return nil, noproxy, err
-		}
-		return ci, noproxy, nil
-	}
-
-	// generate new key
-	privKey, err := rsa.GenerateKey(rand.Reader, 2048)
-	pubKey, _ = x509.MarshalPKCS1PublicKey(&privKey.PublicKey)
-	// create digest using cookie, peername and pubKey
-	digest := generateProxyDigest(proxyRoute.Cookie, peername, pubKey)
-
-	flags := proxyRoute.Flags
-	if proxyRoute.Flags.Enable == false {
-		flags = DefaultProxyFlags()
-	}
-
-	if proxyRoute.MaxHop < 1 {
-		proxyRoute.MaxHop = DefaultProxyMaxHop
-	}
-
+	// try to connect via proxy if there ProxyRoute was presented for this peer
 	request := ProxyConnectRequest{
-		ID:        n.router.MakeRef(),
-		From:      n.nodename,
-		To:        peername,
-		Digest:    digest,
-		PublicKey: pubKey,
-		Flags:     flags,
-		Hop:       proxyRoute.MaxHop,
+		ID: n.router.MakeRef(),
+		To: peername,
 	}
 
-	// make a proxy connection
 	if err := n.router.RouteProxyConnectRequest(nil, request); err != nil {
-		return nil, noproxy, err
-	}
-
-	n.putProxyRequest(request)
-	reply, err := n.waitProxyReply(request.ID, 5)
-	if err != nil {
-		return nil, noproxy, err
-	}
-
-	// decrypt cipher key using private key
-	hash := sha256.New()
-	key, err := rsa.DecryptOAEP(hash, rand.Reader, privKey, reply.Cipher, nil)
-	if err != nil {
-		disconnect := ProxyDisconnectRequest{
-			From:      n.nodename,
-			SessionID: reply.SessionID,
-			Reason:    "malformed key",
+		if err != ErrProxyNoRoute {
+			return nil, err
 		}
-		n.router.RouteProxyDisconnect(nil, disconnect)
-		return nil, noproxy, err
+
+		// there wasn't proxy presented. try to connect directly.
+		ci, err := n.getConnectionDirect(peername)
+		return ci.connection, err
 	}
 
-	// check digest
-	checkDigest := generateProxiDigest(proxyRoute.Cookie, n.nodename, reply.Cipher)
-	if checkDigest != reply.Digest {
-		disconnect := ProxyDisconnectRequest{
-			From:      n.nodename,
-			SessionID: reply.SessionID,
-			Reason:    "digest mismatch",
-		}
-		n.router.RouteProxyDisconnect(nil, disconnect)
-
-		return nil, noproxy, nil
+	proxySession, err := n.waitProxySession(request.ID, 5)
+	if err != nil {
+		return nil, err
 	}
 
-	ci := connectionInternal{
+	ciproxy := connectionInternal{
 		connection:     connection,
 		proxySessionID: reply.SessionID,
 	}
 
-	if registered, err := n.registerConnection(peername, ci); err != nil {
+	if registered, err := n.registerConnection(peername, ciproxy); err != nil {
 		// Race condition:
 		// There must be another goroutine which already created and registered
 		// proxy connection to this node.
@@ -347,7 +274,7 @@ func (n *network) getConnection(peername string) (ConnectionInterface, ProxySess
 			Reason:    "duplicate proxy session",
 		}
 		connection.ProxyDisconnect(disconnect)
-		return registered.connection, registered.proxy, nil
+		return registered.connection, nil
 	}
 
 	proxy := ProxySession{
@@ -657,89 +584,6 @@ func (n *network) unregisterConnection(peername string) {
 	}
 }
 
-func (n *network) putProxyRequest(request) {
-	n.proxyRequestMutex.Lock()
-	defer n.proxyRequestMutex.Unlock()
-
-	r := proxyConnectRequest{
-		request: request,
-		reply:   make(chan ProxyConnectReply),
-		cancel:  make(chan ProxyConnectError),
-	}
-	n.proxyRequest[request.ID] = r
-}
-
-func (n *network) cancelProxyRequest(err ProxyConnectError) {
-	n.proxyRequestMutex.Lock()
-	defer n.proxyRequestMutex.Unlock()
-
-	n.proxyRequestMutex.RLock()
-	r, found := n.proxyRequest[err.ID]
-	n.proxyRequestMutex.RUnlock()
-	if found == false {
-		return ErrProxyUnknownRequest
-	}
-
-	delete(n.proxyRequest, ref)
-	select {
-	case r.cancel <- err:
-	default:
-		return ErrProxyUnknownRequest
-	}
-	return nil
-}
-
-func (n *network) waitProxyReply(ref etf.Ref, timeout int) (ProxyConnectReply, error) {
-	var noreply ProxyConnectReply
-	n.proxyRequestMutex.RLock()
-	r, found := n.proxyRequest[ref]
-	n.proxyRequestMutex.RUnlock()
-
-	if found == false {
-		return noreply, ErrProxyUnknownRequest
-	}
-
-	defer func(ref etf.Ref) {
-		p.proxyRequestMutex.Lock()
-		delete(p.proxyRequest, ref)
-		p.proxyRequestMutex.Unlock()
-	}(ref)
-
-	timer := lib.TakeTimer()
-	defer lib.ReleaseTimer(timer)
-	timer.Reset(time.Second * time.Duration(timeout))
-
-	for {
-		select {
-		case reply := <-r.reply:
-			return reply, nil
-		case err := <-r.cancel:
-			return noreply, fmt.Errorf("[%s]", err.From, err.Reason)
-		case <-timer.C:
-			return noreply, ErrTimeout
-		case <-n.ctx.Done():
-			// node is on the way to terminate, it means connection is closed
-			// so it doesn't matter what kind of error will be returned
-			return noreply, ErrProxyUnknownRequest
-		}
-	}
-}
-
-func (n *network) putProxyReply(reply ProxyConnectReply) error {
-	n.proxyRequestMutex.RLock()
-	r, found := n.proxyRequest[ref]
-	n.proxyRequestMutex.RUnlock()
-	if found == false {
-		return ErrProxyUnknownRequest
-	}
-	select {
-	case r.reply <- reply:
-	default:
-		return ErrProxyUnknownRequest
-	}
-	return nil
-}
-
 func generateSelfSignedCert(version Version) (tls.Certificate, error) {
 	var cert = tls.Certificate{}
 	org := fmt.Sprintf("%s %s", version.Prefix, version.Release)
@@ -861,10 +705,11 @@ func (h *Handshake) Version() HandshakeVersion {
 }
 
 ///
-func generateProxyDigest(cookie string, peer string, pubkey []byte) []byte {
-	// md5(md5(md5(cookie)+peer)+pubkey)
-	digest1 := md5.Sum(cookie)
-	digest2 := md5.Sum(append(digest1, node))
-	digest3 := md5.Sum(append(digest2, salt))
-	return digest3[:]
+func generateProxyDigest(node string, cookie string, peer string, pubkey []byte) []byte {
+	// md5(md5(md5(md5(node)+cookie)+peer)+pubkey)
+	digest1 := md5.Sum(node)
+	digest2 := md5.Sum(append(digest1, cookie))
+	digest3 := md5.Sum(append(digest2, peer))
+	digest4 := md5.Sum(append(digest3, salt))
+	return digest4[:]
 }

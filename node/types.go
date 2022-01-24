@@ -38,13 +38,14 @@ var (
 	ErrUnsupported     = fmt.Errorf("not supported")
 	ErrPeerUnsupported = fmt.Errorf("peer does not support this feature")
 
-	ErrProxyUnknownRequest  = fmt.Errorf("unknown proxy request")
-	ErrProxyDisabled        = fmt.Errorf("proxy feature disabled")
-	ErrProxyNoRoute         = fmt.Errorf("no proxy route to node")
-	ErrProxyHopExceeded     = fmt.Errorf("proxy hop is exceeded")
-	ErrProxyLoopDetected    = fmt.Errorf("proxy loop detected")
-	ErrProxySessionUnknown  = fmt.Errorf("unknown session id")
-	ErrProxySessionEndpoint = fmt.Error("this node is the endpoint for this session")
+	ErrProxyUnknownRequest   = fmt.Errorf("unknown proxy request")
+	ErrProxyDisabled         = fmt.Errorf("proxy feature disabled")
+	ErrProxyNoRoute          = fmt.Errorf("no proxy route to node")
+	ErrProxyConnect          = fmt.Errorf("can't establish proxy connection")
+	ErrProxyHopExceeded      = fmt.Errorf("proxy hop is exceeded")
+	ErrProxyLoopDetected     = fmt.Errorf("proxy loop detected")
+	ErrProxySessionUnknown   = fmt.Errorf("unknown session id")
+	ErrProxySessionDuplicate = fmt.Errorf("session id is already exist")
 )
 
 const (
@@ -179,7 +180,7 @@ type CoreRouter interface {
 	RouteNodeDown(name string)
 
 	// RouteProxyConnectRequest
-	RouteProxyConnectRequest(from ConnectionInterface, request gen.ProxyConnectRequest) error
+	RouteProxyConnectRequest(from ConnectionInterface, request ProxyConnectRequest) error
 	// RouteProxyConnectReply
 	RouteProxyConnectReply(from ConnectionInterface, reply ProxyConnectReply) error
 	// RouteProxyConnectError
@@ -258,6 +259,8 @@ type Cloud struct {
 
 type Proxy struct {
 	Enable bool
+	Flags  ProxyFlags
+	Cookie string // set cookie for incoming connection
 	Routes map[string]ProxyRoute
 }
 
@@ -299,9 +302,10 @@ type ConnectionInterface interface {
 	SpawnReply(to etf.Pid, ref etf.Ref, spawned etf.Pid) error
 	SpawnReplyError(to etf.Pid, ref etf.Ref, err error) error
 
-	ProxyConnect(connect ProxyConnectRequest) (ProxyConnection, error)
+	ProxyConnect(connect ProxyConnectRequest) error
 	ProxyDisconnect(disconnect ProxyDisconnectRequest) error
-	Proxy(packet *lib.Buffer) error
+	ProxyRegisterSession(peer string, session ProxySession) error
+	ProxyPacket(packet *lib.Buffer) error
 }
 
 // Handshake template struct for the custom Handshake implementation
@@ -444,9 +448,8 @@ type ProxyFlags struct {
 // ProxyConnectRequest
 type ProxyConnectRequest struct {
 	ID        etf.Ref
-	From      string // From node
 	To        string // To node
-	Digest    []byte // md5(md5(md5(Cookie)+To)+PublicKey)
+	Digest    []byte // md5(md5(md5(md5(Node)+Cookie)+To)+PublicKey)
 	PublicKey []byte
 	Flags     ProxyFlags
 	Hop       int
@@ -456,9 +459,8 @@ type ProxyConnectRequest struct {
 // ProxyConnectReply
 type ProxyConnectReply struct {
 	ID        etf.Ref
-	From      string
 	To        string
-	Digest    []byte // md5(md5(md5(Cookie)+To)+Cipher)
+	Digest    []byte // md5(md5(md5(md5(Node)+Cookie)+To)+symmetric key)
 	Cipher    []byte // encrypted symmetric key using PublicKey from the ProxyConnectRequest
 	Flags     ProxyFlags
 	SessionID string // proxy session ID

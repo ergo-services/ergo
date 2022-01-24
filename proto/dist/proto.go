@@ -529,6 +529,14 @@ func (dc *distConnection) ProxyDisconnect(disconnect node.ProxyDisconnect) error
 	return dc.send(dc.peername, msg)
 }
 
+func (dc *distConnection) ProxyRegisterSession(peer string, session node.ProxySession) error {
+	return nil
+}
+
+func (dc *distConnection) ProxyPacket(packet *lib.Buffer) error {
+	return nil
+}
+
 //
 // internal
 //
@@ -1120,16 +1128,15 @@ func (dc *distConnection) handleMessage(control, message etf.Term) (err error) {
 			case distProtoPROXY_CONNECT_REQUEST:
 				// {101, NodeFrom, NodeTo, Salt, Digest, PublicKey}
 				lib.Log("[%s] PROXY CONNECT REQUEST [from %s]: %#v", dc.nodename, dc.peername, control)
-				request := gen.ProxyConnectRequest{
+				request := node.ProxyConnectRequest{
 					ID:        t.Element(1).(etf.Ref),
-					From:      string(t.Element(2).(etf.Atom)),
-					To:        string(t.Element(3).(etf.Atom)),
-					Digest:    t.Element(4).([]byte),
-					PublicKey: t.Element(5).([]byte),
-					Flags:     proxyFlagsFromUint64(t.Element(6).(uint64)),
-					Hop:       t.Element(7).(int),
+					To:        string(t.Element(2).(etf.Atom)),
+					Digest:    t.Element(3).([]byte),
+					PublicKey: t.Element(4).([]byte),
+					Flags:     proxyFlagsFromUint64(t.Element(5).(uint64)),
+					Hop:       t.Element(6).(int),
 				}
-				for _, p := range t.Element(8).(etf.List) {
+				for _, p := range t.Element(7).(etf.List) {
 					request.Path = append(request.Path, string(p.(etf.Atom)))
 				}
 				if err := dc.router.RouteProxyConnectRequest(dc, request); err != nil {

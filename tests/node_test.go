@@ -639,6 +639,30 @@ func TestNodeCompression(t *testing.T) {
 	fmt.Println("OK")
 }
 
+func TestNodeProxy(t *testing.T) {
+	fmt.Printf("\n=== Test Node Proxy\n")
+	opts1 := node.Options{}
+	node1, e := ergo.StartNode("node1proxy@localhost", "secret", opts1)
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer node1.Stop()
+	opts2 := node.Options{}
+	opts2.Proxy.Enable = true
+	node2, e := ergo.StartNode("node2proxy@localhost", "secret", opts2)
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer node2.Stop()
+	opts3 := node.Options{}
+	node3, e := ergo.StartNode("node3proxy@localhost", "secret", opts3)
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer node3.Stop()
+
+}
+
 func BenchmarkNodeCompressionDisabled1MBempty(b *testing.B) {
 	node1name := fmt.Sprintf("nodeB1compressionDis_%d@localhost", b.N)
 	node2name := fmt.Sprintf("nodeB2compressionDis_%d@localhost", b.N)
