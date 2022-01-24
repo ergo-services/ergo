@@ -8,7 +8,6 @@ import (
 	"sync"
 	"time"
 
-	"crypto/aes"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/md5"
@@ -39,14 +38,11 @@ type networkInternal interface {
 	Disconnect(peername string) error
 	Nodes() []string
 
-	getConnection(peername string) (ConnectionInterface, ProxySession, error)
+	getConnection(peername string) (ConnectionInterface, error)
 	getConnectionDirect(peername string) (connectionInternal, error)
 
-	connect(to string) (ConnectionInterface, error)
+	connect(to string) (connectionInternal, error)
 	stopNetwork()
-
-	putProxyRequest(request ProxyConnectRequest)
-	putProxyReply(reply ProxyConnectReply) error
 }
 
 type connectionInternal struct {
@@ -93,10 +89,8 @@ func newNetwork(ctx context.Context, nodename string, options Options, router co
 		ctx:          ctx,
 		staticOnly:   options.StaticRoutesOnly,
 		staticRoutes: make(map[string]Route),
-		proxyRoutes:  make(map[string]proxyRoute),
 		connections:  make(map[string]connectionInternal),
 		remoteSpawn:  make(map[string]gen.ProcessBehavior),
-		proxyRequest: make(map[etf.Ref]proxyConnectRequest),
 		resolver:     options.Resolver,
 		handshake:    options.Handshake,
 		proto:        options.Proto,
@@ -253,13 +247,14 @@ func (n *network) getConnection(peername string) (ConnectionInterface, error) {
 		return ci.connection, err
 	}
 
-	proxySession, err := n.waitProxySession(request.ID, 5)
+	proxySession, err := n.router.waitProxySession(request.ID, 5)
 	if err != nil {
 		return nil, err
 	}
 
 	ciproxy := connectionInternal{
-		connection:     connection,
+		// TODO
+		//connection:     connection,
 		proxySessionID: reply.SessionID,
 	}
 
@@ -277,16 +272,7 @@ func (n *network) getConnection(peername string) (ConnectionInterface, error) {
 		return registered.connection, nil
 	}
 
-	proxy := ProxySession{
-		ID:        reply.SessionID,
-		NodeFlags: request.Flags,
-		PeerFlags: reply.Flags,
-		Block:     aes.NewCipher(key),
-	}
-
-	n.router.registerProxySession(proxy)
-
-	return connection, proxy, nil
+	return connection, nil
 }
 
 // Resolve

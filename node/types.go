@@ -186,7 +186,7 @@ type CoreRouter interface {
 	// RouteProxyConnectError
 	RouteProxyConnectError(from ConnectionInterface, err ProxyConnectError) error
 	// RouteProxyDisconnect
-	RouteProxyDisconnect(from ConnectionInterface, disconnect ProxyDisconnect) error
+	RouteProxyDisconnectRequest(from ConnectionInterface, disconnect ProxyDisconnectRequest) error
 	// RouteProxy returns ErrProxySessionEndpoint if this node is the endpoint of the
 	// proxy session. In this case, the packet must be handled on this node with
 	// provided ProxySession parameters.
@@ -302,10 +302,11 @@ type ConnectionInterface interface {
 	SpawnReply(to etf.Pid, ref etf.Ref, spawned etf.Pid) error
 	SpawnReplyError(to etf.Pid, ref etf.Ref, err error) error
 
-	ProxyConnect(connect ProxyConnectRequest) error
+	ProxyConnectRequest(connect ProxyConnectRequest) error
+	ProxyConnectReply(reply ProxyConnectReply) error
 	ProxyDisconnect(disconnect ProxyDisconnectRequest) error
 	ProxyRegisterSession(peer string, session ProxySession) error
-	ProxyPacket(packet *lib.Buffer) error
+	Proxy(packet *lib.Buffer) error
 }
 
 // Handshake template struct for the custom Handshake implementation
@@ -491,7 +492,7 @@ type ProxyMessage struct {
 
 // Proxy session
 type ProxySession struct {
-	SessionID string
+	ID        string
 	NodeFlags ProxyFlags
 	PeerFlags ProxyFlags
 	Block     cipher.Block // made from symmetric key
