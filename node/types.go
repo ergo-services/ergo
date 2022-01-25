@@ -484,13 +484,6 @@ type ProxyDisconnect struct {
 	Reason    string
 }
 
-// ProxyMessage
-type ProxyMessage struct {
-	SessionID string
-	Encrypted bool
-	Message   []byte
-}
-
 // Proxy session
 type ProxySession struct {
 	ID        string

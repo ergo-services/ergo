@@ -53,8 +53,8 @@ type core struct {
 	behaviors      map[string]map[string]gen.RegisteredBehavior
 	mutexBehaviors sync.Mutex
 
-	proxySessions      map[string]proxySession
-	proxySessionsMutex sync.RWMutex
+	proxyTransitSessions      map[string]proxyTransitSession
+	proxyTransitSessionsMutex sync.RWMutex
 
 	proxyRoutes      map[string]ProxyRoute
 	proxyRoutesMutex sync.RWMutex
@@ -108,7 +108,7 @@ type coreRouterInternal interface {
 }
 
 // transit proxy session
-type proxySession struct {
+type proxyTransitSession struct {
 	a ConnectionInterface
 	b ConnectionInterface
 }
@@ -142,9 +142,9 @@ func newCore(ctx context.Context, nodename string, options Options) (coreInterna
 		processes:   make(map[uint64]*process),
 		behaviors:   make(map[string]map[string]gen.RegisteredBehavior),
 
-		proxySessions:       make(map[string]proxySession),
-		proxyRoutes:         make(map[string]ProxyRoute),
-		proxyConnectRequest: make(map[etf.Ref]proxyConnectRequest),
+		proxyTransitSessions: make(map[string]proxyTransitSession),
+		proxyRoutes:          make(map[string]ProxyRoute),
+		proxyConnectRequest:  make(map[etf.Ref]proxyConnectRequest),
 	}
 
 	corectx, corestop := context.WithCancel(ctx)
@@ -1025,9 +1025,9 @@ func (c *core) RouteProxyConnectRequest(from ConnectionInterface, request ProxyC
 
 func (c *core) RouteProxyConnectReply(from ConnectionInterface, reply ProxyConnectReply) error {
 
-	c.proxySessionsMutex.RLock()
-	_, duplicate := c.proxySessions[reply.SessionID]
-	c.proxySessionsMutex.RUnlock()
+	c.proxyTransitSessionsMutex.RLock()
+	_, duplicate := c.proxyTransitSessions[reply.SessionID]
+	c.proxyTransitSessionsMutex.RUnlock()
 
 	if duplicate {
 		return ErrProxySessionDuplicate
@@ -1125,43 +1125,45 @@ func (c *core) RouteProxyConnectError(from ConnectionInterface, err ProxyConnect
 }
 
 func (c *core) RouteProxyDisconnect(from ConnectionInterface, disconnect ProxyDisconnect) error {
-	c.proxySessionsMutex.RLock()
-	session, ok := c.proxySessions[disconnect.SessionID]
-	c.proxySessionsMutex.RUnlock()
+	c.proxyTransitSessionsMutex.RLock()
+	session, ok := c.proxyTransitSessions[disconnect.SessionID]
+	c.proxyTransitSessionsMutex.RUnlock()
 	if !ok {
 		return ErrProxySessionUnknown
 	}
 
-	if from == nil || from == session.b {
-		// session.b is always nil for the proxy session endpoint
-		// or disconnection request received from another endpoint
-		session.a.ProxyDisconnect(disconnect)
-		return nil
-	}
+	// TODO delete(c.proxyTransitSessions, disconnect.SessionID)
 
-	if session.b == from {
-		session.b.ProxyDisconnect(disconnect)
+	switch from {
+	case session.b:
+		return session.a.ProxyDisconnect(disconnect)
+	case session.a:
+		return session.b.ProxyDisconnect(disconnect)
+	default:
+		// TODO there must be another error if none of a and b are not equal the 'from' value
+		return ErrProxySessionUnknown
 	}
-
-	// TODO there must be another error if none of a and b are not equal the 'from' value
-	return ErrProxySessionUnknown
 }
 
 func (c *core) RouteProxy(from ConnectionInterface, sessionID string, packet *lib.Buffer) error {
 	// check if this session is present on this node
-	c.proxySessionsMutex.RLock()
-	session, ok := c.proxySessions[sessionID]
-	c.proxySessionsMutex.RUnlock()
+	c.proxyTransitSessionsMutex.RLock()
+	session, ok := c.proxyTransitSessions[sessionID]
+	c.proxyTransitSessionsMutex.RUnlock()
 
 	if !ok {
 		return ErrProxySessionUnknown
 	}
 
-	if session.a == from {
+	switch from {
+	case session.b:
+		return session.a.Proxy(packet)
+	case session.a:
 		return session.b.Proxy(packet)
+	default:
+		// TODO there must be another error if none of a and b are not equal the 'from' value
+		return ErrProxySessionUnknown
 	}
-
-	return session.a.Proxy(packet)
 }
 
 // RouteSpawnRequest
@@ -1226,13 +1228,13 @@ func (c *core) registerProxySession(id string, a, b ConnectionInterface, proxy *
 	}
 
 	// register transit proxy session
-	c.proxySessionsMutex.Lock()
-	defer c.proxySessionsMutex.Unlock()
-	_, exist := c.proxySessions[id]
+	c.proxyTransitSessionsMutex.Lock()
+	defer c.proxyTransitSessionsMutex.Unlock()
+	_, exist := c.proxyTransitSessions[id]
 	if exist {
 		return ErrProxySessionDuplicate
 	}
-	c.proxySessions[id] = proxySession{
+	c.proxyTransitSessions[id] = proxyTransitSession{
 		a: a,
 		b: b,
 	}
