@@ -186,11 +186,11 @@ type CoreRouter interface {
 	// RouteProxyConnectError
 	RouteProxyConnectError(from ConnectionInterface, err ProxyConnectError) error
 	// RouteProxyDisconnect
-	RouteProxyDisconnectRequest(from ConnectionInterface, disconnect ProxyDisconnectRequest) error
+	RouteProxyDisconnect(from ConnectionInterface, disconnect ProxyDisconnect) error
 	// RouteProxy returns ErrProxySessionEndpoint if this node is the endpoint of the
 	// proxy session. In this case, the packet must be handled on this node with
 	// provided ProxySession parameters.
-	RouteProxy(from ConnectionInterface, sessionID string, packet *lib.Buffer) (ProxySession, error)
+	RouteProxy(from ConnectionInterface, sessionID string, packet *lib.Buffer) error
 }
 
 // Options defines bootstrapping options for the node
@@ -304,8 +304,9 @@ type ConnectionInterface interface {
 
 	ProxyConnectRequest(connect ProxyConnectRequest) error
 	ProxyConnectReply(reply ProxyConnectReply) error
-	ProxyDisconnect(disconnect ProxyDisconnectRequest) error
-	ProxyRegisterSession(peer string, session ProxySession) error
+	ProxyDisconnect(disconnect ProxyDisconnect) error
+	ProxyRegisterSession(session ProxySession) error
+	ProxyUnregisterSession(id string) error
 	Proxy(packet *lib.Buffer) error
 }
 
@@ -477,7 +478,7 @@ type ProxyConnectError struct {
 }
 
 // ProxyDisconnect
-type ProxyDisconnectRequest struct {
+type ProxyDisconnect struct {
 	From      string // from node
 	SessionID string
 	Reason    string
@@ -495,6 +496,7 @@ type ProxySession struct {
 	ID        string
 	NodeFlags ProxyFlags
 	PeerFlags ProxyFlags
+	PeerName  string
 	Block     cipher.Block // made from symmetric key
 }
 

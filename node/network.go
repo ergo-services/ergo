@@ -252,27 +252,27 @@ func (n *network) getConnection(peername string) (ConnectionInterface, error) {
 		return nil, err
 	}
 
-	ciproxy := connectionInternal{
+	proxyci := connectionInternal{
 		// TODO
 		//connection:     connection,
-		proxySessionID: reply.SessionID,
+		proxySessionID: proxySession.ID,
 	}
 
-	if registered, err := n.registerConnection(peername, ciproxy); err != nil {
+	if registered, err := n.registerConnection(peername, proxyci); err != nil {
 		// Race condition:
 		// There must be another goroutine which already created and registered
 		// proxy connection to this node.
 		// Close this proxy connection and use the already registered one
-		disconnect := ProxyDisconnectRequest{
+		disconnect := ProxyDisconnect{
 			From:      n.nodename,
-			SessionID: reply.SessionID,
+			SessionID: proxySession.ID,
 			Reason:    "duplicate proxy session",
 		}
-		connection.ProxyDisconnect(disconnect)
+		ci.connection.ProxyDisconnect(disconnect)
 		return registered.connection, nil
 	}
 
-	return connection, nil
+	return ci.connection, nil
 }
 
 // Resolve
@@ -311,7 +311,7 @@ func (n *network) Disconnect(peername string) error {
 		n.unregisterConnection(peername)
 		disconnect := ProxyDisconnect{
 			From:      n.nodename,
-			SessionID: ci.proxy.SessionID,
+			SessionID: ci.proxySessionID,
 			Reason:    "normal",
 		}
 		return n.router.RouteProxyDisconnect(nil, disconnect)
@@ -518,8 +518,8 @@ func (n *network) connect(peername string) (connectionInternal, error) {
 		return ci, err
 	}
 	cInternal := connectionInternal{
-		ci.conn:       c,
-		ci.connection: connection,
+		conn:       c,
+		connection: connection,
 	}
 
 	if registered, err := n.registerConnection(peername, cInternal); err != nil {
@@ -529,7 +529,7 @@ func (n *network) connect(peername string) (connectionInternal, error) {
 		// Close this connection and use the already registered one
 		c.Close()
 		if err == ErrTaken {
-			return registered.connection, nil
+			return registered, nil
 		}
 		return ci, err
 	}
@@ -542,7 +542,7 @@ func (n *network) connect(peername string) (connectionInternal, error) {
 		ci.conn.Close()
 	}(n.ctx, cInternal)
 
-	return cInternale, nil
+	return cInternal, nil
 }
 
 func (n *network) registerConnection(peername string, ci connectionInternal) (connectionInternal, error) {
@@ -693,9 +693,9 @@ func (h *Handshake) Version() HandshakeVersion {
 ///
 func generateProxyDigest(node string, cookie string, peer string, pubkey []byte) []byte {
 	// md5(md5(md5(md5(node)+cookie)+peer)+pubkey)
-	digest1 := md5.Sum(node)
-	digest2 := md5.Sum(append(digest1, cookie))
-	digest3 := md5.Sum(append(digest2, peer))
-	digest4 := md5.Sum(append(digest3, salt))
+	digest1 := md5.Sum([]byte(node))
+	digest2 := md5.Sum(append(digest1[:], []byte(cookie)...))
+	digest3 := md5.Sum(append(digest2[:], []byte(peer)...))
+	digest4 := md5.Sum(append(digest3[:], pubkey...))
 	return digest4[:]
 }

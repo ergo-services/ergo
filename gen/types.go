@@ -320,6 +320,7 @@ type Core interface {
 	UnregisterBehavior(group, name string) error
 
 	// proxy route methods
+	// TODO
 	//AddProxyRoute(name string, proxy ProxyRoute) error
 	//AddProxyTransitRoute(name string, proxy string) error
 	//RemoveProxyRoute(name string) bool

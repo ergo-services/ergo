@@ -109,9 +109,8 @@ type coreRouterInternal interface {
 
 // transit proxy session
 type proxySession struct {
-	a     ConnectionInterface
-	b     ConnectionInterface
-	proxy ProxySession
+	a ConnectionInterface
+	b ConnectionInterface
 }
 
 type proxyConnectRequest struct {
@@ -1016,6 +1015,7 @@ func (c *core) RouteProxyConnectRequest(from ConnectionInterface, request ProxyC
 		ID:        sessionID,
 		NodeFlags: reply.Flags,
 		PeerFlags: request.Flags,
+		PeerName:  peername,
 		Block:     block,
 	}
 
@@ -1104,6 +1104,7 @@ func (c *core) RouteProxyConnectReply(from ConnectionInterface, reply ProxyConne
 		ID:        reply.SessionID,
 		NodeFlags: r.request.Flags,
 		PeerFlags: reply.Flags,
+		PeerName:  r.request.To,
 		Block:     block,
 	}
 	if err := c.registerProxySession(reply.SessionID, nil, from, &session); err != nil {
@@ -1123,7 +1124,7 @@ func (c *core) RouteProxyConnectError(from ConnectionInterface, err ProxyConnect
 	return nil
 }
 
-func (c *core) RouteProxyDisconnectRequest(from ConnectionInterface, disconnect ProxyDisconnectRequest) error {
+func (c *core) RouteProxyDisconnect(from ConnectionInterface, disconnect ProxyDisconnect) error {
 	c.proxySessionsMutex.RLock()
 	session, ok := c.proxySessions[disconnect.SessionID]
 	c.proxySessionsMutex.RUnlock()
@@ -1146,32 +1147,21 @@ func (c *core) RouteProxyDisconnectRequest(from ConnectionInterface, disconnect 
 	return ErrProxySessionUnknown
 }
 
-func (c *core) RouteProxy(from ConnectionInterface, sessionID string, packet *lib.Buffer) (ProxySession, error) {
-	var noproxy ProxySession
+func (c *core) RouteProxy(from ConnectionInterface, sessionID string, packet *lib.Buffer) error {
 	// check if this session is present on this node
 	c.proxySessionsMutex.RLock()
 	session, ok := c.proxySessions[sessionID]
 	c.proxySessionsMutex.RUnlock()
+
 	if !ok {
-		disconnect := ProxyDisconnectRequest{
-			From:      c.nodename,
-			SessionID: sessionID,
-			Reason:    ErrProxySessionUnknown.Error(),
-		}
-		from.ProxyDisconnect(disconnect)
-		return noproxy, nil
+		return ErrProxySessionUnknown
 	}
+
 	if session.a == from {
-		session.b.Proxy(packet)
-		return noproxy, nil
+		return session.b.Proxy(packet)
 	}
 
-	session.a.Proxy(packet)
-
-	// TODO implement this
-	// return session, ErrProxySessionEndpoint
-
-	return noproxy, nil
+	return session.a.Proxy(packet)
 }
 
 // RouteSpawnRequest
@@ -1230,6 +1220,23 @@ func (c *core) processByPid(pid etf.Pid) *process {
 }
 
 func (c *core) registerProxySession(id string, a, b ConnectionInterface, proxy *ProxySession) error {
+	if proxy != nil {
+		// do not register this session in core. its endpoint of this session
+		return b.ProxyRegisterSession(*proxy)
+	}
+
+	// register transit proxy session
+	c.proxySessionsMutex.Lock()
+	defer c.proxySessionsMutex.Unlock()
+	_, exist := c.proxySessions[id]
+	if exist {
+		return ErrProxySessionDuplicate
+	}
+	c.proxySessions[id] = proxySession{
+		a: a,
+		b: b,
+	}
+
 	return nil
 }
 
