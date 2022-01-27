@@ -45,7 +45,7 @@ var (
 	ErrProxyHopExceeded      = fmt.Errorf("proxy hop is exceeded")
 	ErrProxyLoopDetected     = fmt.Errorf("proxy loop detected")
 	ErrProxySessionUnknown   = fmt.Errorf("unknown session id")
-	ErrProxySessionDuplicate = fmt.Errorf("session id is already exist")
+	ErrProxySessionDuplicate = fmt.Errorf("session is already exist")
 )
 
 const (
@@ -108,9 +108,11 @@ type Node interface {
 	ProvideRemoteSpawn(name string, object gen.ProcessBehavior) error
 	RevokeRemoteSpawn(name string) error
 
-	// AddStaticRoute adds static route for the given node name which makes node skip resolving process
-	AddStaticRoute(name string, port uint16, options RouteOptions) error
-	// AddStaticRouteExt adds static route with extra options
+	// AddStaticPortRoute adds static route for the given node name which makes node skip resolving port process
+	AddStaticPortRoute(node string, port uint16, options RouteOptions) error
+	// AddStaticRoute adds static route for the given name
+	AddStaticRoute(node string, host string, port uint16, options RouteOptions) error
+	// Remove static route removes static route with given name
 	RemoveStaticRoute(name string) bool
 	// StaticRoutes returns list of routes added using AddStaticRoute
 	StaticRoutes() []Route
@@ -178,6 +180,10 @@ type CoreRouter interface {
 	RouteMonitorExit(terminated etf.Pid, reason string, ref etf.Ref) error
 	// RouteNodeDown
 	RouteNodeDown(name string)
+
+	//
+	// implemented by network
+	//
 
 	// RouteProxyConnectRequest
 	RouteProxyConnectRequest(from ConnectionInterface, request ProxyConnectRequest) error
@@ -412,7 +418,7 @@ type ResolverOptions struct {
 
 // Route
 type Route struct {
-	Name    string
+	Node    string
 	Host    string
 	Port    uint16
 	Options RouteOptions

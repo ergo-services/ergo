@@ -164,7 +164,7 @@ func (e *epmdResolver) Resolve(name string) (node.Route, error) {
 		return node.Route{}, err
 	}
 
-	route.Name = n[0]
+	route.Node = n[0]
 	route.Host = n[1]
 
 	err = e.readPortResp(&route, conn)
