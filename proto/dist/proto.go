@@ -446,7 +446,7 @@ func (dc *distConnection) SpawnReplyError(to etf.Pid, ref etf.Ref, err error) er
 	return dc.send(string(to.Node), msg)
 }
 
-func (dc *distConnection) ProxyConnect(request node.ProxyConnectRequest) error {
+func (dc *distConnection) ProxyConnectRequest(request node.ProxyConnectRequest) error {
 	if dc.flags.EnableProxy == false {
 		return node.ErrPeerUnsupported
 	}
@@ -475,7 +475,7 @@ func (dc *distConnection) ProxyConnectReply(reply node.ProxyConnectReply) error 
 		return node.ErrPeerUnsupported
 	}
 
-	path := []etf.Atom{}
+	path := etf.List{}
 	for i := range reply.Path {
 		path = append(path, etf.Atom(reply.Path[i]))
 	}
@@ -495,18 +495,18 @@ func (dc *distConnection) ProxyConnectReply(reply node.ProxyConnectReply) error 
 	return dc.send(dc.peername, msg)
 }
 
-func (dc *distConnection) ProxyConnectError(err node.ProxyConnectError) error {
+func (dc *distConnection) ProxyConnectCancel(err node.ProxyConnectCancel) error {
 	if dc.flags.EnableProxy == false {
 		return node.ErrPeerUnsupported
 	}
 
-	path := []etf.Atom{}
+	path := etf.List{}
 	for i := range err.Path {
 		path = append(path, etf.Atom(err.Path[i]))
 	}
 
 	msg := &sendMessage{
-		control: etf.Tuple{distProtoPROXY_CONNECT_ERROR,
+		control: etf.Tuple{distProtoPROXY_CONNECT_CANCEL,
 			err.ID,             // etf.Ref
 			etf.Atom(err.From), // from node
 			err.Reason,
@@ -688,7 +688,7 @@ func (dc *distConnection) receiver(recv <-chan *lib.Buffer) {
 		dChannel = deferrChannel
 
 		if err != nil {
-			fmt.Println("Malformed Dist proto at the link with", dc.peername, err)
+			fmt.Printf("[%s] Malformed Dist proto at the link with %s: %s\n", dc.nodename, dc.peername, err)
 			dc.cancelContext()
 			lib.ReleaseBuffer(b)
 			return
@@ -701,7 +701,8 @@ func (dc *distConnection) receiver(recv <-chan *lib.Buffer) {
 
 		// handle message
 		if err := dc.handleMessage(control, message); err != nil {
-			fmt.Printf("Malformed Control packet at the link with %s: %#v\n", dc.peername, control)
+			fmt.Println("JJJ", err)
+			fmt.Printf("[%s] Malformed Control packet at the link with %s: %#v\n", dc.nodename, dc.peername, control)
 			dc.cancelContext()
 			lib.ReleaseBuffer(b)
 			return
@@ -1117,80 +1118,100 @@ func (dc *distConnection) handleMessage(control, message etf.Term) (err error) {
 			case distProtoSPAWN_REPLY:
 				// {31, ReqId, To, Flags, Result}
 				lib.Log("[%s] CONTROL SPAWN_REPLY [from %s]: %#v", dc.nodename, dc.peername, control)
-				to := t.Element(3).(etf.Pid)
 				ref := t.Element(2).(etf.Ref)
+				to := t.Element(3).(etf.Pid)
 				dc.router.RouteSpawnReply(to, ref, t.Element(5))
 				return nil
 
 			case distProtoPROXY_CONNECT_REQUEST:
-				// {101, NodeFrom, NodeTo, Salt, Digest, PublicKey}
+				// {101, ID, To, Digest, PublicKey, Flags, Hop, Path}
 				lib.Log("[%s] PROXY CONNECT REQUEST [from %s]: %#v", dc.nodename, dc.peername, control)
 				request := node.ProxyConnectRequest{
-					ID:        t.Element(1).(etf.Ref),
-					To:        string(t.Element(2).(etf.Atom)),
-					Digest:    t.Element(3).([]byte),
-					PublicKey: t.Element(4).([]byte),
-					Flags:     proxyFlagsFromUint64(t.Element(5).(uint64)),
-					Hop:       t.Element(6).(int),
+					ID:        t.Element(2).(etf.Ref),
+					To:        string(t.Element(3).(etf.Atom)),
+					Digest:    t.Element(4).([]byte),
+					PublicKey: t.Element(5).([]byte),
+					// FIXME it will be int64 after using more than 32 flags
+					Flags: proxyFlagsFromUint64(uint64(t.Element(6).(int))),
+					Hop:   t.Element(7).(int),
 				}
-				for _, p := range t.Element(7).(etf.List) {
+				for _, p := range t.Element(8).(etf.List) {
 					request.Path = append(request.Path, string(p.(etf.Atom)))
 				}
 				if err := dc.router.RouteProxyConnectRequest(dc, request); err != nil {
-					errReply := node.ProxyConnectError{
+					errReply := node.ProxyConnectCancel{
 						ID:     request.ID,
 						From:   dc.nodename,
 						Reason: err.Error(),
 						Path:   request.Path,
 					}
-					dc.ProxyConnectError(errReply)
+					dc.ProxyConnectCancel(errReply)
 				}
 				return nil
 
 			case distProtoPROXY_CONNECT_REPLY:
+				// {102, ID, To, Digest, Cipher, Flags, SessionID, Path}
 				lib.Log("[%s] PROXY CONNECT REPLY [from %s]: %#v", dc.nodename, dc.peername, control)
 				connectReply := node.ProxyConnectReply{
-					ID:        t.Element(1).(etf.Ref),
-					To:        string(t.Element(3).(etf.Atom)),
-					Digest:    t.Element(4).([]byte),
-					Cipher:    t.Element(5).([]byte),
-					Flags:     proxyFlagsFromUint64(t.Element(6).(uint64)),
+					ID:     t.Element(2).(etf.Ref),
+					To:     string(t.Element(3).(etf.Atom)),
+					Digest: t.Element(4).([]byte),
+					Cipher: t.Element(5).([]byte),
+					// FIXME it will be int64 after using more than 32 flags
+					Flags:     proxyFlagsFromUint64(uint64(t.Element(6).(int))),
 					SessionID: t.Element(7).(string),
 				}
 				for _, p := range t.Element(8).(etf.List) {
 					connectReply.Path = append(connectReply.Path, string(p.(etf.Atom)))
 				}
 				if err := dc.router.RouteProxyConnectReply(dc, connectReply); err != nil {
+					fmt.Println("MMMMMMMMM", err)
 					lib.Log("[%s] PROXY CONNECT REPLY error %s (message: %#v)", dc.nodename, err, connectReply)
+					// send disconnect to clean up this session all the way to the
+					// destination node
 					disconnect := node.ProxyDisconnect{
 						From:      dc.nodename,
 						SessionID: connectReply.SessionID,
 						Reason:    err.Error(),
 					}
 					dc.ProxyDisconnect(disconnect)
+					if err == node.ErrNoRoute {
+						return nil
+					}
+
+					// send cancel message to the source node
+					cancel := node.ProxyConnectCancel{
+						ID:     connectReply.ID,
+						From:   dc.nodename,
+						Reason: err.Error(),
+						Path:   connectReply.Path,
+					}
+					fmt.Println("LLLLLLLLL", dc.nodename, cancel, dc.router.RouteProxyConnectCancel(dc, cancel))
 				}
 
 				return nil
 
-			case distProtoPROXY_CONNECT_ERROR:
-				lib.Log("[%s] PROXY CONNECT ERROR [from %s]: %#v", dc.nodename, dc.peername, control)
-				connectError := node.ProxyConnectError{
-					ID:     t.Element(1).(etf.Ref),
-					From:   string(t.Element(2).(etf.Atom)),
-					Reason: t.Element(3).(string),
+			case distProtoPROXY_CONNECT_CANCEL:
+				lib.Log("[%s] PROXY CONNECT CANCEL [from %s]: %#v", dc.nodename, dc.peername, control)
+				connectError := node.ProxyConnectCancel{
+					ID:     t.Element(2).(etf.Ref),
+					From:   string(t.Element(3).(etf.Atom)),
+					Reason: t.Element(4).(string),
 				}
-				for _, p := range t.Element(4).(etf.List) {
+				for _, p := range t.Element(5).(etf.List) {
 					connectError.Path = append(connectError.Path, string(p.(etf.Atom)))
 				}
-				dc.router.RouteProxyConnectError(dc, connectError)
+				dc.router.RouteProxyConnectCancel(dc, connectError)
 				return nil
+
 			case distProtoPROXY_DISCONNECT:
 				lib.Log("[%s] PROXY DISCONNECT [from %s]: %#v", dc.nodename, dc.peername, control)
 				proxyDisconnect := node.ProxyDisconnect{
-					From:      string(t.Element(1).(etf.Atom)),
-					SessionID: t.Element(2).(string),
-					Reason:    t.Element(3).(string),
+					From:      string(t.Element(2).(etf.Atom)),
+					SessionID: t.Element(3).(string),
+					Reason:    t.Element(4).(string),
 				}
+				fmt.Printf("[%s]BBBBBBBBBBB PROXY GOT DISCON %#v\n", dc.nodename, proxyDisconnect)
 				dc.router.RouteProxyDisconnect(dc, proxyDisconnect)
 				return nil
 

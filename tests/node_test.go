@@ -647,6 +647,11 @@ func TestNodeProxy(t *testing.T) {
 		t.Fatal(e)
 	}
 	defer node1.Stop()
+	route := node.ProxyRoute{
+		Proxy: "node2proxy@localhost",
+	}
+	node1.AddProxyRoute("node3proxy@localhost", route)
+
 	opts2 := node.Options{}
 	opts2.Proxy.Enable = true
 	node2, e := ergo.StartNode("node2proxy@localhost", "secret", opts2)
@@ -660,6 +665,10 @@ func TestNodeProxy(t *testing.T) {
 		t.Fatal(e)
 	}
 	defer node3.Stop()
+
+	if err := node1.Connect("node3proxy@localhost"); err != nil {
+		t.Fatal(err)
+	}
 
 }
 

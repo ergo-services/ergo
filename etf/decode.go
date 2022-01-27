@@ -199,7 +199,7 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 				return nil, nil, errMalformedInteger
 			}
 
-			term = int64(int32(binary.BigEndian.Uint32(packet[:4])))
+			term = int64(binary.BigEndian.Uint32(packet[:4]))
 			packet = packet[4:]
 
 		case ettSmallBig:

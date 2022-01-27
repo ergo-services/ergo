@@ -754,8 +754,6 @@ func composeFlags(flags node.Flags) nodeFlags {
 		flagUTF8Atoms,
 		flagMapTag,
 		flagHandshake23,
-		flagCompression,
-		flagProxy,
 	}
 
 	// optional flags
@@ -776,6 +774,12 @@ func composeFlags(flags node.Flags) nodeFlags {
 	}
 	if flags.EnableRemoteSpawn {
 		enabledFlags = append(enabledFlags, flagSpawn)
+	}
+	if flags.EnableCompression {
+		enabledFlags = append(enabledFlags, flagCompression)
+	}
+	if flags.EnableProxy {
+		enabledFlags = append(enabledFlags, flagProxy)
 	}
 	return toNodeFlags(enabledFlags...)
 }

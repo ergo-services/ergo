@@ -36,6 +36,6 @@ const (
 	// ergo operations codes
 	distProtoPROXY_CONNECT_REQUEST = 101
 	distProtoPROXY_CONNECT_REPLY   = 102
-	distProtoPROXY_CONNECT_ERROR   = 103
+	distProtoPROXY_CONNECT_CANCEL  = 103
 	distProtoPROXY_DISCONNECT      = 104
 )

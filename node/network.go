@@ -39,7 +39,8 @@ type networkInternal interface {
 
 	// add/remove proxy route
 	AddProxyRoute(node string, route ProxyRoute) error
-	RemoveProxyRoute(node string) error
+	AddProxyTransitRoute(name string, proxy string) error
+	RemoveProxyRoute(node string) bool
 	ProxyRoutes() []ProxyRoute
 
 	Resolve(peername string) (Route, error)
@@ -50,7 +51,7 @@ type networkInternal interface {
 	// core router methods
 	RouteProxyConnectRequest(from ConnectionInterface, request ProxyConnectRequest) error
 	RouteProxyConnectReply(from ConnectionInterface, reply ProxyConnectReply) error
-	RouteProxyConnectError(from ConnectionInterface, err ProxyConnectError) error
+	RouteProxyConnectCancel(from ConnectionInterface, cancel ProxyConnectCancel) error
 	RouteProxyDisconnect(from ConnectionInterface, disconnect ProxyDisconnect) error
 	RouteProxy(from ConnectionInterface, sessionID string, packet *lib.Buffer) error
 
@@ -233,12 +234,16 @@ func (n *network) StaticRoutes() []Route {
 	return routes
 }
 
-func (n *network) getConnectionDirect(peername string) (ConnectionInterface, error) {
+func (n *network) getConnectionDirect(peername string, connect bool) (ConnectionInterface, error) {
 	n.connectionsMutex.RLock()
 	ci, ok := n.connections[peername]
 	n.connectionsMutex.RUnlock()
 	if ok {
 		return ci.connection, nil
+	}
+
+	if connect == false {
+		return nil, ErrNoRoute
 	}
 
 	connection, err := n.connect(peername)
@@ -275,7 +280,7 @@ func (n *network) getConnection(peername string) (ConnectionInterface, error) {
 		}
 
 		// there wasn't proxy presented. try to connect directly.
-		connection, err := n.getConnectionDirect(peername)
+		connection, err := n.getConnectionDirect(peername, true)
 		return connection, err
 	}
 
@@ -382,9 +387,9 @@ func (n *network) RouteProxyConnectRequest(from ConnectionInterface, request Pro
 
 			// try to connect to the next-hop node
 			if has_route == false {
-				connection, err = n.getConnectionDirect(request.To)
+				connection, err = n.getConnectionDirect(request.To, true)
 			} else {
-				connection, err = n.getConnectionDirect(route.Proxy)
+				connection, err = n.getConnectionDirect(route.Proxy, true)
 			}
 
 			if err != nil {
@@ -408,7 +413,7 @@ func (n *network) RouteProxyConnectRequest(from ConnectionInterface, request Pro
 		//
 		// initiating proxy connection
 		//
-		connection, err = n.getConnectionDirect(route.Proxy)
+		connection, err = n.getConnectionDirect(route.Proxy, true)
 		if err != nil {
 			return err
 		}
@@ -433,7 +438,7 @@ func (n *network) RouteProxyConnectRequest(from ConnectionInterface, request Pro
 			privateKey: privKey,
 			request:    request,
 			connection: make(chan ConnectionInterface),
-			cancel:     make(chan ProxyConnectError),
+			cancel:     make(chan ProxyConnectCancel),
 		}
 		request.Path = append([]string{n.nodename}, request.Path...)
 		if err := connection.ProxyConnectRequest(request); err != nil {
@@ -536,18 +541,17 @@ func (n *network) RouteProxyConnectReply(from ConnectionInterface, reply ProxyCo
 		return ErrProxyUnknownRequest
 	}
 
-	if n.proxy.Enable == false {
-		return ErrProxyDisabled
-	}
-
 	if reply.To != n.nodename {
 		// send this reply further and register this session
+		if n.proxy.Enable == false {
+			return ErrProxyDisabled
+		}
 
-		if len(reply.Path) < 1 {
+		if len(reply.Path) == 0 {
 			return ErrProxyHopExceeded
 		}
 
-		connection, err := n.getConnectionDirect(reply.Path[0])
+		connection, err := n.getConnectionDirect(reply.Path[0], false)
 		if err != nil {
 			return err
 		}
@@ -564,10 +568,11 @@ func (n *network) RouteProxyConnectReply(from ConnectionInterface, reply ProxyCo
 		// register transit proxy session
 
 		n.proxyTransitSessionsMutex.Lock()
-		n.proxyTransitSessions[reply.SessionID] = proxyTransitSession{
+		session := proxyTransitSession{
 			a: from,
 			b: connection,
 		}
+		n.proxyTransitSessions[reply.SessionID] = session
 		n.proxyTransitSessionsMutex.Unlock()
 		return nil
 	}
@@ -634,9 +639,36 @@ func (n *network) RouteProxyConnectReply(from ConnectionInterface, reply ProxyCo
 	return nil
 }
 
-func (n *network) RouteProxyConnectError(from ConnectionInterface, err ProxyConnectError) error {
-	// TODO
-	// c.cancelProxyRequest
+func (n *network) RouteProxyConnectCancel(from ConnectionInterface, cancel ProxyConnectCancel) error {
+	if from == nil {
+		// from value can not be nil
+		return ErrProxyConnect
+	}
+
+	if len(cancel.Path) == 0 {
+		n.cancelProxyConnectRequest(cancel)
+		return nil
+	}
+
+	if cancel.Path[0] != n.nodename {
+		connection, err := n.getConnectionDirect(cancel.Path[0], false)
+		if err != nil {
+			return err
+		}
+
+		if connection == from {
+			return ErrProxyLoopDetected
+		}
+
+		cancel.Path = cancel.Path[1:]
+
+		if err := connection.ProxyConnectCancel(cancel); err != nil {
+			return err
+		}
+		return nil
+	}
+
+	n.cancelProxyConnectRequest(cancel)
 	return nil
 }
 
@@ -683,11 +715,32 @@ func (n *network) RouteProxy(from ConnectionInterface, sessionID string, packet 
 }
 
 func (n *network) AddProxyRoute(node string, route ProxyRoute) error {
+	n.proxyRoutesMutex.Lock()
+	defer n.proxyRoutesMutex.Unlock()
+
+	if _, exist := n.proxyRoutes[node]; exist {
+		return ErrTaken
+	}
+
+	n.proxyRoutes[node] = route
 	return nil
 }
 
-func (n *network) RemoveProxyRoute(node string) error {
-	return nil
+func (n *network) AddProxyTransitRoute(name string, proxy string) error {
+	route := ProxyRoute{
+		Proxy: name,
+	}
+	return n.AddProxyRoute(name, route)
+}
+
+func (n *network) RemoveProxyRoute(node string) bool {
+	n.proxyRoutesMutex.Lock()
+	defer n.proxyRoutesMutex.Unlock()
+	if _, exist := n.proxyRoutes[node]; exist == false {
+		return false
+	}
+	delete(n.proxyRoutes, node)
+	return true
 }
 
 func (n *network) ProxyRoutes() []ProxyRoute {
@@ -1023,18 +1076,18 @@ func (n *network) putProxyConnectRequest(r proxyConnectRequest) {
 	n.proxyConnectRequest[r.request.ID] = r
 }
 
-func (n *network) cancelProxyConnectRequest(err ProxyConnectError) {
+func (n *network) cancelProxyConnectRequest(cancel ProxyConnectCancel) {
 	n.proxyConnectRequestMutex.Lock()
 	defer n.proxyConnectRequestMutex.Unlock()
 
-	r, found := n.proxyConnectRequest[err.ID]
+	r, found := n.proxyConnectRequest[cancel.ID]
 	if found == false {
 		return
 	}
 
-	delete(n.proxyConnectRequest, err.ID)
+	delete(n.proxyConnectRequest, cancel.ID)
 	select {
-	case r.cancel <- err:
+	case r.cancel <- cancel:
 	default:
 	}
 	return
@@ -1064,7 +1117,7 @@ func (n *network) waitProxyConnection(id etf.Ref, timeout int) (ConnectionInterf
 		case connection := <-r.connection:
 			return connection, nil
 		case err := <-r.cancel:
-			return nil, fmt.Errorf("[%s]", err.From, err.Reason)
+			return nil, fmt.Errorf("[%s] %s", err.From, err.Reason)
 		case <-timer.C:
 			return nil, ErrTimeout
 		case <-n.ctx.Done():

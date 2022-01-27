@@ -318,15 +318,6 @@ type Core interface {
 	RegisteredBehaviorGroup(group string) []RegisteredBehavior
 	// UnregisterBehavior
 	UnregisterBehavior(group, name string) error
-
-	// proxy route methods
-	// TODO
-	//AddProxyRoute(name string, proxy ProxyRoute) error
-	//AddProxyTransitRoute(name string, proxy string) error
-	//RemoveProxyRoute(name string) bool
-	//ProxyRoutes() []string
-	// NodesIndirect() []string
-
 }
 
 // RegisteredBehavior

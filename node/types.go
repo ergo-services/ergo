@@ -117,6 +117,14 @@ type Node interface {
 	// StaticRoutes returns list of routes added using AddStaticRoute
 	StaticRoutes() []Route
 
+	AddProxyRoute(name string, proxy ProxyRoute) error
+	AddProxyTransitRoute(name string, proxy string) error
+	RemoveProxyRoute(name string) bool
+	ProxyRoutes() []ProxyRoute
+
+	// TODO
+	// NodesIndirect() []string
+
 	// Resolve
 	Resolve(peername string) (Route, error)
 
@@ -189,8 +197,8 @@ type CoreRouter interface {
 	RouteProxyConnectRequest(from ConnectionInterface, request ProxyConnectRequest) error
 	// RouteProxyConnectReply
 	RouteProxyConnectReply(from ConnectionInterface, reply ProxyConnectReply) error
-	// RouteProxyConnectError
-	RouteProxyConnectError(from ConnectionInterface, err ProxyConnectError) error
+	// RouteProxyConnectCancel
+	RouteProxyConnectCancel(from ConnectionInterface, cancel ProxyConnectCancel) error
 	// RouteProxyDisconnect
 	RouteProxyDisconnect(from ConnectionInterface, disconnect ProxyDisconnect) error
 	// RouteProxy returns ErrProxySessionEndpoint if this node is the endpoint of the
@@ -310,6 +318,7 @@ type ConnectionInterface interface {
 
 	ProxyConnectRequest(connect ProxyConnectRequest) error
 	ProxyConnectReply(reply ProxyConnectReply) error
+	ProxyConnectCancel(cancel ProxyConnectCancel) error
 	ProxyDisconnect(disconnect ProxyDisconnect) error
 	ProxyRegisterSession(session ProxySession) error
 	ProxyUnregisterSession(id string) error
@@ -394,7 +403,7 @@ type Flags struct {
 	EnableRemoteSpawn bool
 	// Compression compression support
 	EnableCompression bool
-	// Proxy proxy support
+	// Proxy enables support for incoming proxy connection
 	EnableProxy bool
 	// Software keepalive enables sending keep alive messages if node doesn't support
 	// TCPConn.SetKeepAlive(true). For erlang peers this flag is mandatory.
@@ -475,8 +484,8 @@ type ProxyConnectReply struct {
 	Path      []string
 }
 
-// ProxyConnectError
-type ProxyConnectError struct {
+// ProxyConnectCancel
+type ProxyConnectCancel struct {
 	ID     etf.Ref
 	From   string
 	Reason string

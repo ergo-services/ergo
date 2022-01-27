@@ -99,7 +99,7 @@ type proxyConnectRequest struct {
 	privateKey *rsa.PrivateKey
 	request    ProxyConnectRequest
 	connection chan ConnectionInterface
-	cancel     chan ProxyConnectError
+	cancel     chan ProxyConnectCancel
 }
 
 func newCore(ctx context.Context, nodename string, options Options) (coreInternal, error) {
