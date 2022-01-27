@@ -984,10 +984,22 @@ func (c *Connection) SpawnReply(to etf.Pid, ref etf.Ref, pid etf.Pid) error {
 func (c *Connection) SpawnReplyError(to etf.Pid, ref etf.Ref, err error) error {
 	return ErrUnsupported
 }
-func (c *Connection) ProxyConnect(node string, digest string, salt string) error {
+func (c *Connection) ProxyConnectRequest(connect ProxyConnectRequest) error {
 	return ErrUnsupported
 }
-func (c *Connection) ProxyDisconnect(node string) error {
+func (c *Connection) ProxyConnectReply(reply ProxyConnectReply) error {
+	return ErrUnsupported
+}
+func (c *Connection) ProxyDisconnect(disconnect ProxyDisconnect) error {
+	return ErrUnsupported
+}
+func (c *Connection) ProxyRegisterSession(session ProxySession) error {
+	return ErrUnsupported
+}
+func (c *Connection) ProxyUnregisterSession(id string) error {
+	return ErrUnsupported
+}
+func (c *Connection) Proxy(packet *lib.Buffer) error {
 	return ErrUnsupported
 }
 

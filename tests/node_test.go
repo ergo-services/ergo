@@ -219,7 +219,7 @@ func TestNodeStaticRoute(t *testing.T) {
 	}
 
 	// override route for nodeName2 with static port
-	e := node1.AddStaticRoute(nodeName2, nodeStaticPort, node.RouteOptions{})
+	e := node1.AddStaticPortRoute(nodeName2, nodeStaticPort, node.RouteOptions{})
 	if e != nil {
 		t.Fatal(e)
 	}
