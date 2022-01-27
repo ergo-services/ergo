@@ -1186,7 +1186,7 @@ func (dc *distConnection) handleMessage(control, message etf.Term) (err error) {
 						Reason: err.Error(),
 						Path:   connectReply.Path,
 					}
-					fmt.Println("LLLLLLLLL", dc.nodename, cancel, dc.router.RouteProxyConnectCancel(dc, cancel))
+					dc.router.RouteProxyConnectCancel(dc, cancel)
 				}
 
 				return nil
@@ -1211,7 +1211,6 @@ func (dc *distConnection) handleMessage(control, message etf.Term) (err error) {
 					SessionID: t.Element(3).(string),
 					Reason:    t.Element(4).(string),
 				}
-				fmt.Printf("[%s]BBBBBBBBBBB PROXY GOT DISCON %#v\n", dc.nodename, proxyDisconnect)
 				dc.router.RouteProxyDisconnect(dc, proxyDisconnect)
 				return nil
 

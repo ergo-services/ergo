@@ -670,6 +670,13 @@ func TestNodeProxy(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	fmt.Println("NODES", node1.Nodes(), node2.Nodes(), node3.Nodes())
+	if err := node3.Disconnect("node1proxy@localhost"); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(100 * time.Millisecond)
+	fmt.Println("NODES", node1.Nodes(), node2.Nodes(), node3.Nodes())
+
 }
 
 func BenchmarkNodeCompressionDisabled1MBempty(b *testing.B) {

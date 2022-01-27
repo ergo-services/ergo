@@ -331,7 +331,7 @@ func (n *network) Disconnect(node string) error {
 			SessionID: ci.proxySessionID,
 			Reason:    "normal",
 		}
-		return n.RouteProxyDisconnect(nil, disconnect)
+		return ci.connection.ProxyDisconnect(disconnect)
 	}
 
 	ci.conn.Close()
@@ -497,6 +497,14 @@ func (n *network) RouteProxyConnectRequest(from ConnectionInterface, request Pro
 		flags = DefaultProxyFlags()
 	}
 
+	cInternal := connectionInternal{
+		connection:     from,
+		proxySessionID: sessionID,
+	}
+	if _, err := n.registerConnection(peername, cInternal); err != nil {
+		return ErrProxySessionDuplicate
+	}
+
 	reply := ProxyConnectReply{
 		ID:        request.ID,
 		To:        peername,
@@ -510,6 +518,7 @@ func (n *network) RouteProxyConnectRequest(from ConnectionInterface, request Pro
 	if err := from.ProxyConnectReply(reply); err != nil {
 		// can't send reply. ignore this connection request
 		lib.Log("[%s] NETWORK proxy. Proxy connect request. Can't send reply: %s ", n.nodename, err)
+		n.unregisterConnection(peername)
 		return ErrProxyConnect
 	}
 
@@ -673,14 +682,27 @@ func (n *network) RouteProxyConnectCancel(from ConnectionInterface, cancel Proxy
 }
 
 func (n *network) RouteProxyDisconnect(from ConnectionInterface, disconnect ProxyDisconnect) error {
+
 	n.proxyTransitSessionsMutex.RLock()
 	session, ok := n.proxyTransitSessions[disconnect.SessionID]
 	n.proxyTransitSessionsMutex.RUnlock()
 	if !ok {
-		return ErrProxySessionUnknown
+		// check for the proxy connection endpoint
+		connection, err := n.getConnection(disconnect.From)
+		if err != nil {
+			return ErrProxySessionUnknown
+		}
+		if connection != from {
+			return ErrProxySessionUnknown
+		}
+
+		n.unregisterConnection(disconnect.From)
+		return nil
 	}
 
-	// TODO delete(c.proxyTransitSessions, disconnect.SessionID)
+	n.proxyTransitSessionsMutex.Lock()
+	delete(n.proxyTransitSessions, disconnect.SessionID)
+	n.proxyTransitSessionsMutex.Unlock()
 
 	switch from {
 	case session.b:
@@ -984,6 +1006,7 @@ func (n *network) unregisterConnection(peername string) {
 	delete(n.connections, peername)
 	n.connectionsMutex.Unlock()
 
+	// TODO handle proxy
 	if exist {
 		n.router.RouteNodeDown(peername)
 	}
