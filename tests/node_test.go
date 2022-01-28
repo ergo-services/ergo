@@ -671,7 +671,7 @@ func TestNodeProxy(t *testing.T) {
 	}
 
 	fmt.Println("NODES", node1.Nodes(), node2.Nodes(), node3.Nodes())
-	if err := node3.Disconnect("node1proxy@localhost"); err != nil {
+	if err := node3.Disconnect("node2proxy@localhost"); err != nil {
 		t.Fatal(err)
 	}
 	time.Sleep(100 * time.Millisecond)

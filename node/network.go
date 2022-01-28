@@ -702,15 +702,31 @@ func (n *network) RouteProxyDisconnect(from ConnectionInterface, disconnect Prox
 	n.proxyTransitSessionsMutex.RUnlock()
 	if !ok {
 		// check for the proxy connection endpoint
-		connection, err := n.getConnection(disconnect.From)
-		if err != nil {
+		var peername string
+		var found bool
+		var ci connectionInternal
+
+		// get peername by session id
+		n.connectionsMutex.RLock()
+		for p, c := range n.connections {
+			if c.proxySessionID == disconnect.SessionID {
+				found = true
+				peername = p
+				ci = c
+				break
+			}
+		}
+		if found == false {
+			n.connectionsMutex.RUnlock()
 			return ErrProxySessionUnknown
 		}
-		if connection != from {
+		n.connectionsMutex.RUnlock()
+
+		if ci.proxySessionID != disconnect.SessionID || ci.connection != from {
 			return ErrProxySessionUnknown
 		}
 
-		n.unregisterConnection(disconnect.From)
+		n.unregisterConnection(peername)
 		return nil
 	}
 
@@ -1043,6 +1059,7 @@ func (n *network) registerConnection(peername string, ci connectionInternal) (Co
 }
 
 func (n *network) unregisterConnection(peername string) {
+	fmt.Printf("[%s] NETWORK unregistering peer %v\n", n.nodename, peername)
 	lib.Log("[%s] NETWORK unregistering peer %v", n.nodename, peername)
 
 	n.connectionsMutex.Lock()
@@ -1080,7 +1097,7 @@ func (n *network) unregisterConnection(peername string) {
 		disconnect := ProxyDisconnect{
 			From:      n.nodename,
 			SessionID: ct[i],
-			Reason:    "connection closed with " + peername,
+			Reason:    "connection with " + peername + " closed on " + n.nodename,
 		}
 		n.RouteProxyDisconnect(ci.connection, disconnect)
 	}
