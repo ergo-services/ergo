@@ -64,9 +64,8 @@ type connectionInternal struct {
 	conn net.Conn
 	// connection interface of the network connection
 	connection ConnectionInterface
-	// if this connection is proxy on top of the network connection it has proxy session id
+	//
 	proxySessionID string
-	proxy          string
 }
 
 type network struct {
@@ -82,9 +81,10 @@ type network struct {
 	proxyRoutes      map[string]ProxyRoute
 	proxyRoutesMutex sync.RWMutex
 
-	connections      map[string]connectionInternal
-	connectionsProxy map[string][]string
-	connectionsMutex sync.RWMutex
+	connections        map[string]connectionInternal
+	connectionsProxy   map[ConnectionInterface][]string // peers via proxy
+	connectionsTransit map[ConnectionInterface][]string // transit session IDs
+	connectionsMutex   sync.RWMutex
 
 	proxyTransitSessions      map[string]proxyTransitSession
 	proxyTransitSessionsMutex sync.RWMutex
@@ -113,6 +113,8 @@ func newNetwork(ctx context.Context, nodename string, options Options, router co
 		staticRoutes:         make(map[string]Route),
 		proxyRoutes:          make(map[string]ProxyRoute),
 		connections:          make(map[string]connectionInternal),
+		connectionsProxy:     make(map[ConnectionInterface][]string),
+		connectionsTransit:   make(map[ConnectionInterface][]string),
 		proxyTransitSessions: make(map[string]proxyTransitSession),
 		proxyConnectRequest:  make(map[etf.Ref]proxyConnectRequest),
 		remoteSpawn:          make(map[string]gen.ProcessBehavior),
@@ -575,7 +577,6 @@ func (n *network) RouteProxyConnectReply(from ConnectionInterface, reply ProxyCo
 		}
 
 		// register transit proxy session
-
 		n.proxyTransitSessionsMutex.Lock()
 		session := proxyTransitSession{
 			a: from,
@@ -583,6 +584,19 @@ func (n *network) RouteProxyConnectReply(from ConnectionInterface, reply ProxyCo
 		}
 		n.proxyTransitSessions[reply.SessionID] = session
 		n.proxyTransitSessionsMutex.Unlock()
+
+		// keep session id for both connections in order
+		// to handle connection closing (we should
+		// send ProxyDisconnect if one of the connection
+		// closed
+		n.connectionsMutex.Lock()
+		sessions, _ := n.connectionsTransit[session.a]
+		sessions = append(sessions, reply.SessionID)
+		n.connectionsTransit[session.a] = sessions
+		sessions, _ = n.connectionsTransit[session.b]
+		sessions = append(sessions, reply.SessionID)
+		n.connectionsTransit[session.b] = sessions
+		n.connectionsMutex.Unlock()
 		return nil
 	}
 
@@ -704,13 +718,41 @@ func (n *network) RouteProxyDisconnect(from ConnectionInterface, disconnect Prox
 	delete(n.proxyTransitSessions, disconnect.SessionID)
 	n.proxyTransitSessionsMutex.Unlock()
 
+	// remove this session from the connections
+	n.connectionsMutex.Lock()
+	sessions, ok := n.connectionsTransit[session.a]
+	if ok {
+		for i := range sessions {
+			if sessions[i] == disconnect.SessionID {
+				sessions[i] = sessions[0]
+				sessions = sessions[1:]
+				n.connectionsTransit[session.a] = sessions
+				break
+			}
+		}
+	}
+	sessions, ok = n.connectionsTransit[session.b]
+	if ok {
+		for i := range sessions {
+			if sessions[i] == disconnect.SessionID {
+				sessions[i] = sessions[0]
+				sessions = sessions[1:]
+				n.connectionsTransit[session.b] = sessions
+				break
+			}
+		}
+	}
+	n.connectionsMutex.Unlock()
+
+	// send this message further
 	switch from {
 	case session.b:
 		return session.a.ProxyDisconnect(disconnect)
 	case session.a:
 		return session.b.ProxyDisconnect(disconnect)
 	default:
-		// TODO there must be another error if none of a and b are not equal the 'from' value
+		// shouldn't happen
+		panic("internal error")
 		return ErrProxySessionUnknown
 	}
 }
@@ -993,22 +1035,54 @@ func (n *network) registerConnection(peername string, ci connectionInternal) (Co
 	n.connections[peername] = ci
 	if ci.conn == nil {
 		// this is proxy connection
-		// TODO store peername in order to handle closing real connection
-		// proxyConnections, _ := n.connectionsProxy[ci.proxy]
+		p, _ := n.connectionsProxy[ci.connection]
+		p = append(p, peername)
+		n.connectionsProxy[ci.connection] = p
 	}
 	return ci.connection, nil
 }
 
 func (n *network) unregisterConnection(peername string) {
 	lib.Log("[%s] NETWORK unregistering peer %v", n.nodename, peername)
+
 	n.connectionsMutex.Lock()
-	_, exist := n.connections[peername]
+	ci, exist := n.connections[peername]
+	if exist == false {
+		n.connectionsMutex.Unlock()
+		return
+	}
 	delete(n.connections, peername)
+	n.router.RouteNodeDown(peername)
+
+	if ci.conn == nil {
+		// it was proxy connection
+		n.connectionsMutex.Unlock()
+		return
+	}
+	cp, _ := n.connectionsProxy[ci.connection]
+	// disconnect proxy connections
+	for _, p := range cp {
+		lib.Log("[%s] NETWORK unregistering peer (via proxy) %v", n.nodename, p)
+		delete(n.connections, p)
+		n.router.RouteNodeDown(p)
+	}
+
+	// disconnect transit proxy sessions
+	ct, exist := n.connectionsTransit[ci.connection]
+	if exist == false {
+		n.connectionsMutex.Unlock()
+		return
+	}
+	delete(n.connectionsTransit, ci.connection)
 	n.connectionsMutex.Unlock()
 
-	// TODO handle proxy
-	if exist {
-		n.router.RouteNodeDown(peername)
+	for i := range ct {
+		disconnect := ProxyDisconnect{
+			From:      n.nodename,
+			SessionID: ct[i],
+			Reason:    "connection closed with " + peername,
+		}
+		n.RouteProxyDisconnect(ci.connection, disconnect)
 	}
 }
 

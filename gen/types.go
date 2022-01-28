@@ -361,7 +361,9 @@ type MessageNodeDown struct {
 // that created monitor using MonitorNode if the connection to the node was through the proxy
 // nodes and one of them went down.
 type MessageProxyDown struct {
-	Name string
+	Name   string
+	Proxy  string
+	Reason string
 }
 
 // MessageExit delievers to Server's HandleInfo callback on enabled trap exit using SetTrapExit(true)
