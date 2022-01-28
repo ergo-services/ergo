@@ -171,6 +171,13 @@ func (n *network) stopNetwork() {
 	if n.listener != nil {
 		n.listener.Close()
 	}
+	n.connectionsMutex.Lock()
+	for _, ci := range n.connections {
+		if ci.conn != nil {
+			ci.conn.Close()
+		}
+	}
+	n.connectionsMutex.Unlock()
 }
 
 // AddStaticPortRoute adds a static route to the node with the given name
@@ -1059,7 +1066,6 @@ func (n *network) registerConnection(peername string, ci connectionInternal) (Co
 }
 
 func (n *network) unregisterConnection(peername string) {
-	fmt.Printf("[%s] NETWORK unregistering peer %v\n", n.nodename, peername)
 	lib.Log("[%s] NETWORK unregistering peer %v", n.nodename, peername)
 
 	n.connectionsMutex.Lock()
@@ -1097,7 +1103,7 @@ func (n *network) unregisterConnection(peername string) {
 		disconnect := ProxyDisconnect{
 			From:      n.nodename,
 			SessionID: ct[i],
-			Reason:    "connection with " + peername + " closed on " + n.nodename,
+			Reason:    "connection closed with " + peername,
 		}
 		n.RouteProxyDisconnect(ci.connection, disconnect)
 	}
