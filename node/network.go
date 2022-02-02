@@ -47,6 +47,7 @@ type networkInternal interface {
 	Connect(peername string) error
 	Disconnect(peername string) error
 	Nodes() []string
+	NodesIndirect() []string
 
 	// core router methods
 	RouteProxyConnectRequest(from ConnectionInterface, request ProxyConnectRequest) error
@@ -172,12 +173,13 @@ func (n *network) stopNetwork() {
 		n.listener.Close()
 	}
 	n.connectionsMutex.Lock()
+	defer n.connectionsMutex.Unlock()
 	for _, ci := range n.connections {
-		if ci.conn != nil {
-			ci.conn.Close()
+		if ci.conn == nil {
+			continue
 		}
+		ci.conn.Close()
 	}
-	n.connectionsMutex.Unlock()
 }
 
 // AddStaticPortRoute adds a static route to the node with the given name
@@ -334,12 +336,13 @@ func (n *network) Disconnect(node string) error {
 
 	if ci.conn == nil {
 		// this is proxy connection
-		n.unregisterConnection(node)
 		disconnect := ProxyDisconnect{
-			From:      n.nodename,
+			Node:      n.nodename,
+			Proxy:     n.nodename,
 			SessionID: ci.proxySessionID,
 			Reason:    "normal",
 		}
+		n.unregisterConnection(node, &disconnect)
 		return ci.connection.ProxyDisconnect(disconnect)
 	}
 
@@ -357,6 +360,20 @@ func (n *network) Nodes() []string {
 		list = append(list, node)
 	}
 	return list
+}
+
+func (n *network) NodesIndirect() []string {
+	list := []string{}
+	n.connectionsMutex.RLock()
+	defer n.connectionsMutex.RUnlock()
+
+	for node, ci := range n.connections {
+		if ci.conn == nil {
+			list = append(list, node)
+		}
+	}
+	return list
+
 }
 
 // RouteProxyConnectRequest
@@ -385,6 +402,10 @@ func (n *network) RouteProxyConnectRequest(from ConnectionInterface, request Pro
 				return ErrProxyHopExceeded
 			}
 			request.Hop--
+
+			if len(request.Path) > defaultProxyPathLimit {
+				return ErrProxyPathTooLong
+			}
 
 			for i := range request.Path {
 				if n.nodename != request.Path[i] {
@@ -449,7 +470,7 @@ func (n *network) RouteProxyConnectRequest(from ConnectionInterface, request Pro
 			connection: make(chan ConnectionInterface),
 			cancel:     make(chan ProxyConnectCancel),
 		}
-		request.Path = append([]string{n.nodename}, request.Path...)
+		request.Path = []string{n.nodename}
 		if err := connection.ProxyConnectRequest(request); err != nil {
 			return err
 		}
@@ -527,7 +548,7 @@ func (n *network) RouteProxyConnectRequest(from ConnectionInterface, request Pro
 	if err := from.ProxyConnectReply(reply); err != nil {
 		// can't send reply. ignore this connection request
 		lib.Log("[%s] NETWORK proxy. Proxy connect request. Can't send reply: %s ", n.nodename, err)
-		n.unregisterConnection(peername)
+		n.unregisterConnection(peername, nil)
 		return ErrProxyConnect
 	}
 
@@ -566,10 +587,14 @@ func (n *network) RouteProxyConnectReply(from ConnectionInterface, reply ProxyCo
 		}
 
 		if len(reply.Path) == 0 {
-			return ErrProxyHopExceeded
+			return ErrProxyUnknownRequest
+		}
+		if len(reply.Path) > defaultProxyPathLimit {
+			return ErrProxyPathTooLong
 		}
 
-		connection, err := n.getConnectionDirect(reply.Path[0], false)
+		next := reply.Path[0]
+		connection, err := n.getConnectionDirect(next, false)
 		if err != nil {
 			return err
 		}
@@ -578,6 +603,12 @@ func (n *network) RouteProxyConnectReply(from ConnectionInterface, reply ProxyCo
 		}
 
 		reply.Path = reply.Path[1:]
+		// check for the looping
+		for i := range reply.Path {
+			if reply.Path[i] == next {
+				return ErrProxyLoopDetected
+			}
+		}
 
 		if err := connection.ProxyConnectReply(reply); err != nil {
 			return err
@@ -595,7 +626,7 @@ func (n *network) RouteProxyConnectReply(from ConnectionInterface, reply ProxyCo
 		// keep session id for both connections in order
 		// to handle connection closing (we should
 		// send ProxyDisconnect if one of the connection
-		// closed
+		// was closed)
 		n.connectionsMutex.Lock()
 		sessions, _ := n.connectionsTransit[session.a]
 		sessions = append(sessions, reply.SessionID)
@@ -674,14 +705,17 @@ func (n *network) RouteProxyConnectCancel(from ConnectionInterface, cancel Proxy
 		// from value can not be nil
 		return ErrProxyConnect
 	}
-
 	if len(cancel.Path) == 0 {
 		n.cancelProxyConnectRequest(cancel)
 		return nil
 	}
 
-	if cancel.Path[0] != n.nodename {
-		connection, err := n.getConnectionDirect(cancel.Path[0], false)
+	next := cancel.Path[0]
+	if next != n.nodename {
+		if len(cancel.Path) > defaultProxyPathLimit {
+			return ErrProxyPathTooLong
+		}
+		connection, err := n.getConnectionDirect(next, false)
 		if err != nil {
 			return err
 		}
@@ -691,6 +725,12 @@ func (n *network) RouteProxyConnectCancel(from ConnectionInterface, cancel Proxy
 		}
 
 		cancel.Path = cancel.Path[1:]
+		// check for the looping
+		for i := range cancel.Path {
+			if cancel.Path[i] == next {
+				return ErrProxyLoopDetected
+			}
+		}
 
 		if err := connection.ProxyConnectCancel(cancel); err != nil {
 			return err
@@ -698,16 +738,15 @@ func (n *network) RouteProxyConnectCancel(from ConnectionInterface, cancel Proxy
 		return nil
 	}
 
-	n.cancelProxyConnectRequest(cancel)
-	return nil
+	return ErrProxyUnknownRequest
 }
 
 func (n *network) RouteProxyDisconnect(from ConnectionInterface, disconnect ProxyDisconnect) error {
 
 	n.proxyTransitSessionsMutex.RLock()
-	session, ok := n.proxyTransitSessions[disconnect.SessionID]
+	session, isTransitSession := n.proxyTransitSessions[disconnect.SessionID]
 	n.proxyTransitSessionsMutex.RUnlock()
-	if !ok {
+	if isTransitSession == false {
 		// check for the proxy connection endpoint
 		var peername string
 		var found bool
@@ -716,12 +755,13 @@ func (n *network) RouteProxyDisconnect(from ConnectionInterface, disconnect Prox
 		// get peername by session id
 		n.connectionsMutex.RLock()
 		for p, c := range n.connections {
-			if c.proxySessionID == disconnect.SessionID {
-				found = true
-				peername = p
-				ci = c
-				break
+			if c.proxySessionID != disconnect.SessionID {
+				continue
 			}
+			found = true
+			peername = p
+			ci = c
+			break
 		}
 		if found == false {
 			n.connectionsMutex.RUnlock()
@@ -733,7 +773,8 @@ func (n *network) RouteProxyDisconnect(from ConnectionInterface, disconnect Prox
 			return ErrProxySessionUnknown
 		}
 
-		n.unregisterConnection(peername)
+		disconnect.Node = peername
+		n.unregisterConnection(peername, &disconnect)
 		return nil
 	}
 
@@ -804,6 +845,12 @@ func (n *network) RouteProxy(from ConnectionInterface, sessionID string, packet 
 func (n *network) AddProxyRoute(node string, route ProxyRoute) error {
 	n.proxyRoutesMutex.Lock()
 	defer n.proxyRoutesMutex.Unlock()
+	if route.MaxHop > defaultProxyPathLimit {
+		return ErrProxyPathTooLong
+	}
+	if route.MaxHop < 1 {
+		route.MaxHop = DefaultProxyMaxHop
+	}
 
 	if _, exist := n.proxyRoutes[node]; exist {
 		return ErrTaken
@@ -900,7 +947,7 @@ func (n *network) listen(ctx context.Context, hostname string, begin uint16, end
 				// run serving connection
 				go func(ctx context.Context, ci connectionInternal) {
 					n.proto.Serve(ci.connection, n.router)
-					n.unregisterConnection(peername)
+					n.unregisterConnection(peername, nil)
 					n.proto.Terminate(ci.connection)
 					ci.conn.Close()
 				}(ctx, cInternal)
@@ -1038,7 +1085,7 @@ func (n *network) connect(peername string) (ConnectionInterface, error) {
 	// run serving connection
 	go func(ctx context.Context, ci connectionInternal) {
 		n.proto.Serve(ci.connection, n.router)
-		n.unregisterConnection(peername)
+		n.unregisterConnection(peername, nil)
 		n.proto.Terminate(ci.connection)
 		ci.conn.Close()
 	}(n.ctx, cInternal)
@@ -1065,7 +1112,7 @@ func (n *network) registerConnection(peername string, ci connectionInternal) (Co
 	return ci.connection, nil
 }
 
-func (n *network) unregisterConnection(peername string) {
+func (n *network) unregisterConnection(peername string, disconnect *ProxyDisconnect) {
 	lib.Log("[%s] NETWORK unregistering peer %v", n.nodename, peername)
 
 	n.connectionsMutex.Lock()
@@ -1075,38 +1122,46 @@ func (n *network) unregisterConnection(peername string) {
 		return
 	}
 	delete(n.connections, peername)
-	n.router.RouteNodeDown(peername)
+	n.router.RouteNodeDown(peername, disconnect)
 
 	if ci.conn == nil {
 		// it was proxy connection
 		n.connectionsMutex.Unlock()
 		return
 	}
+
 	cp, _ := n.connectionsProxy[ci.connection]
-	// disconnect proxy connections
 	for _, p := range cp {
 		lib.Log("[%s] NETWORK unregistering peer (via proxy) %v", n.nodename, p)
 		delete(n.connections, p)
-		n.router.RouteNodeDown(p)
 	}
 
-	// disconnect transit proxy sessions
-	ct, exist := n.connectionsTransit[ci.connection]
-	if exist == false {
-		n.connectionsMutex.Unlock()
-		return
-	}
+	ct, _ := n.connectionsTransit[ci.connection]
 	delete(n.connectionsTransit, ci.connection)
+
 	n.connectionsMutex.Unlock()
 
+	// send disconnect for the proxy sessions
+	for _, p := range cp {
+		disconnect := ProxyDisconnect{
+			Node:   p,
+			Proxy:  peername,
+			Reason: "connection closed",
+		}
+		n.router.RouteNodeDown(p, &disconnect)
+	}
+
+	// disconnect for the transit proxy sessions
 	for i := range ct {
 		disconnect := ProxyDisconnect{
-			From:      n.nodename,
+			Node:      peername,
+			Proxy:     peername,
 			SessionID: ct[i],
-			Reason:    "connection closed with " + peername,
+			Reason:    "connection closed",
 		}
 		n.RouteProxyDisconnect(ci.connection, disconnect)
 	}
+
 }
 
 //

@@ -3,6 +3,7 @@ package tests
 import (
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/ergo-services/ergo"
 	"github.com/ergo-services/ergo/etf"
@@ -745,6 +746,83 @@ func TestLinkLocalRemote(t *testing.T) {
 		t.Fatal("number of links has changed on the second Link call")
 	}
 	node1.Stop()
+}
+
+type proxyServer struct {
+	gen.Server
+}
+
+func (p *proxyServer) Init(process *gen.ServerProcess, args ...etf.Term) error {
+	return nil
+}
+
+func (p *proxyServer) HandleInfo(process *gen.ServerProcess, message etf.Term) gen.ServerStatus {
+	//fmt.Printf("[%#v] message:%#v\n", process.Self(), message)
+	return gen.ServerStatusOK
+}
+
+func TestMonitorNode(t *testing.T) {
+	fmt.Printf("\n=== Test Monitor Node via proxy\n")
+	fmt.Printf("... connect NodeA to NodeD via NodeB and NodeC: ")
+	optsA := node.Options{}
+	nodeA, e := ergo.StartNode("nodeAproxy@localhost", "secret", optsA)
+	if e != nil {
+		t.Fatal(e)
+	}
+	routeAtoDviaB := node.ProxyRoute{
+		Proxy: "nodeBproxy@localhost",
+	}
+	nodeA.AddProxyRoute("nodeDproxy@localhost", routeAtoDviaB)
+	optsB := node.Options{}
+	optsB.Proxy.Enable = true
+	nodeB, e := ergo.StartNode("nodeBproxy@localhost", "secret", optsB)
+	if e != nil {
+		t.Fatal(e)
+	}
+	routeBtoDviaC := node.ProxyRoute{
+		Proxy: "nodeCproxy@localhost",
+	}
+	nodeB.AddProxyRoute("nodeDproxy@localhost", routeBtoDviaC)
+
+	optsC := node.Options{}
+	optsC.Proxy.Enable = true
+	nodeC, e := ergo.StartNode("nodeCproxy@localhost", "secret", optsC)
+	if e != nil {
+		t.Fatal(e)
+	}
+
+	optsD := node.Options{}
+	nodeD, e := ergo.StartNode("nodeDproxy@localhost", "secret", optsD)
+	if e != nil {
+		t.Fatal(e)
+	}
+	fmt.Println("OK")
+	fmt.Printf("... ProcessA at NodeA creates monitor to NodeD, ProcessD at NodeD creates monitor to NodeA: ")
+
+	pA, err := nodeA.Spawn("", gen.ProcessOptions{}, &proxyServer{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pB, err := nodeB.Spawn("", gen.ProcessOptions{}, &proxyServer{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pD, err := nodeD.Spawn("", gen.ProcessOptions{}, &proxyServer{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pA.MonitorNode(nodeD.Name())
+	pB.MonitorNode(nodeC.Name())
+	pD.MonitorNode(nodeA.Name())
+
+	//fmt.Println(nodeA.Nodes(), nodeB.Nodes(), nodeC.Nodes(), nodeD.Nodes())
+	fmt.Println("OK")
+	fmt.Printf("... NodeC stopped. NodeA and NodeD must close its connection to each other: ")
+	nodeC.Stop()
+	time.Sleep(300 * time.Millisecond)
+	//fmt.Println(nodeA.Nodes(), nodeB.Nodes(), nodeC.Nodes(), nodeD.Nodes())
+	fmt.Println("OK")
+	nodeD.Stop()
 }
 
 // helpers

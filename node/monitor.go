@@ -34,7 +34,7 @@ type monitorInternal interface {
 	// RouteMonitorExit
 	RouteMonitorExit(terminated etf.Pid, reason string, ref etf.Ref) error
 	// RouteNodeDown
-	RouteNodeDown(name string)
+	RouteNodeDown(name string, disconnect *ProxyDisconnect)
 
 	// IsMonitor
 	IsMonitor(ref etf.Ref) bool
@@ -105,7 +105,7 @@ func (m *monitor) monitorNode(by etf.Pid, node string, ref etf.Ref) {
 
 	_, err := m.router.getConnection(node)
 	if err != nil {
-		m.RouteNodeDown(node)
+		m.RouteNodeDown(node, nil)
 	}
 }
 
@@ -143,7 +143,7 @@ func (m *monitor) demonitorNode(ref etf.Ref) bool {
 	return true
 }
 
-func (m *monitor) RouteNodeDown(name string) {
+func (m *monitor) RouteNodeDown(name string, disconnect *ProxyDisconnect) {
 	lib.Log("[%s] MONITOR NODE  down: %v", m.nodename, name)
 
 	// notify node monitors
@@ -151,8 +151,18 @@ func (m *monitor) RouteNodeDown(name string) {
 	if pids, ok := m.nodes[name]; ok {
 		for i := range pids {
 			lib.Log("[%s] MONITOR node down: %v. send notify to: %s", m.nodename, name, pids[i].pid)
-			message := gen.MessageNodeDown{Name: name}
+			if disconnect == nil {
+				message := gen.MessageNodeDown{Name: name}
+				m.router.RouteSend(etf.Pid{}, pids[i].pid, message)
+				continue
+			}
+			message := gen.MessageProxyDown{
+				Name:   disconnect.Node,
+				Proxy:  disconnect.Proxy,
+				Reason: disconnect.Reason,
+			}
 			m.router.RouteSend(etf.Pid{}, pids[i].pid, message)
+
 		}
 		delete(m.nodes, name)
 	}
@@ -167,7 +177,11 @@ func (m *monitor) RouteNodeDown(name string) {
 		for i := range ps {
 			// args: (to, terminated, reason, ref)
 			delete(m.ref2pid, ps[i].ref)
-			m.sendMonitorExit(ps[i].pid, pid, "noconnection", ps[i].ref)
+			if disconnect == nil || disconnect.Node == name {
+				m.sendMonitorExit(ps[i].pid, pid, "noconnection", ps[i].ref)
+				continue
+			}
+			m.sendMonitorExit(ps[i].pid, pid, "noproxy", ps[i].ref)
 		}
 		delete(m.processes, pid)
 	}
@@ -182,7 +196,11 @@ func (m *monitor) RouteNodeDown(name string) {
 		for i := range ps {
 			// args: (to, terminated, reason, ref)
 			delete(m.ref2name, ps[i].ref)
-			m.sendMonitorExitReg(ps[i].pid, processID, "noconnection", ps[i].ref)
+			if disconnect == nil || disconnect.Node == name {
+				m.sendMonitorExitReg(ps[i].pid, processID, "noconnection", ps[i].ref)
+				continue
+			}
+			m.sendMonitorExitReg(ps[i].pid, processID, "noproxy", ps[i].ref)
 		}
 		delete(m.names, processID)
 	}
@@ -196,7 +214,11 @@ func (m *monitor) RouteNodeDown(name string) {
 		}
 
 		for i := range pids {
-			m.sendExit(pids[i], link, "noconnection")
+			if disconnect == nil || disconnect.Node == name {
+				m.sendExit(pids[i], link, "noconnection")
+			} else {
+				m.sendExit(pids[i], link, "noproxy")
+			}
 			p, ok := m.links[pids[i]]
 
 			if !ok {

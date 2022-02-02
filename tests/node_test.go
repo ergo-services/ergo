@@ -639,44 +639,110 @@ func TestNodeCompression(t *testing.T) {
 	fmt.Println("OK")
 }
 
-func TestNodeProxy(t *testing.T) {
+func TestNodeProxyConnect(t *testing.T) {
 	fmt.Printf("\n=== Test Node Proxy\n")
-	opts1 := node.Options{}
-	node1, e := ergo.StartNode("node1proxy@localhost", "secret", opts1)
+	fmt.Printf("... connect NodeA to NodeC via NodeB: ")
+	optsA := node.Options{}
+	nodeA, e := ergo.StartNode("nodeAproxy@localhost", "secret", optsA)
 	if e != nil {
 		t.Fatal(e)
 	}
-	defer node1.Stop()
 	route := node.ProxyRoute{
-		Proxy: "node2proxy@localhost",
+		Proxy: "nodeBproxy@localhost",
 	}
-	node1.AddProxyRoute("node3proxy@localhost", route)
+	nodeA.AddProxyRoute("nodeCproxy@localhost", route)
 
-	opts2 := node.Options{}
-	opts2.Proxy.Enable = true
-	node2, e := ergo.StartNode("node2proxy@localhost", "secret", opts2)
+	optsB := node.Options{}
+	optsB.Proxy.Enable = true
+	nodeB, e := ergo.StartNode("nodeBproxy@localhost", "secret", optsB)
 	if e != nil {
 		t.Fatal(e)
 	}
-	defer node2.Stop()
-	opts3 := node.Options{}
-	node3, e := ergo.StartNode("node3proxy@localhost", "secret", opts3)
+	optsC := node.Options{}
+	nodeC, e := ergo.StartNode("nodeCproxy@localhost", "secret", optsC)
 	if e != nil {
 		t.Fatal(e)
 	}
-	defer node3.Stop()
 
-	if err := node1.Connect("node3proxy@localhost"); err != nil {
+	if err := nodeA.Connect("nodeCproxy@localhost"); err != nil {
 		t.Fatal(err)
 	}
 
-	fmt.Println("NODES", node1.Nodes(), node2.Nodes(), node3.Nodes())
-	node2.Stop()
-	//if err := node3.Disconnect("node2proxy@localhost"); err != nil {
-	//	t.Fatal(err)
-	//}
-	time.Sleep(500 * time.Millisecond)
-	fmt.Println("NODES", node1.Nodes(), node2.Nodes(), node3.Nodes())
+	indirectNodes := nodeA.NodesIndirect()
+	if len(indirectNodes) != 1 {
+		t.Fatal("wrong result:", indirectNodes)
+	}
+	if indirectNodes[0] != "nodeCproxy@localhost" {
+		t.Fatal("wrong result:", indirectNodes)
+	}
+	indirectNodes = nodeC.NodesIndirect()
+	if len(indirectNodes) != 1 {
+		t.Fatal("wrong result:", indirectNodes)
+	}
+	if indirectNodes[0] != "nodeAproxy@localhost" {
+		t.Fatal("wrong result:", indirectNodes)
+	}
+	if len(nodeB.NodesIndirect()) > 0 {
+		t.Fatal("wrong result:", nodeB.NodesIndirect())
+	}
+	fmt.Println("OK")
+
+	fmt.Printf("... disconnect NodeC from NodeA: ")
+	nodeC.Disconnect("nodeAproxy@localhost")
+	if len(nodeC.NodesIndirect()) > 0 {
+		t.Fatal("wrong result:", nodeC.NodesIndirect())
+	}
+
+	time.Sleep(100 * time.Millisecond)
+	if len(nodeA.NodesIndirect()) > 0 {
+		t.Fatal("wrong result:", nodeA.NodesIndirect())
+	}
+	fmt.Println("OK")
+	nodeB.Stop()
+	optsB.Proxy.Enable = false
+	nodeB, e = ergo.StartNode("nodeBproxy@localhost", "secret", optsB)
+	if e != nil {
+		t.Fatal(e)
+	}
+	fmt.Printf("... connect NodeA to NodeC via NodeB(transit proxy disabled): ")
+	e = nodeA.Connect("nodeCproxy@localhost")
+	if e == nil {
+		t.Fatal("must be error here")
+	}
+	errMessage := "[nodeBproxy@localhost] proxy feature disabled"
+	if e.Error() != errMessage {
+		t.Fatal(e)
+	}
+	fmt.Println("OK")
+	nodeB.Stop()
+	nodeC.Stop()
+
+	nodeB.Stop()
+	optsB.Proxy.Enable = true
+	nodeB, e = ergo.StartNode("nodeBproxy@localhost", "secret", optsB)
+	if e != nil {
+		t.Fatal(e)
+	}
+
+	optsC.Flags = node.DefaultFlags()
+	optsC.Flags.EnableProxy = false
+	nodeC, e = ergo.StartNode("nodeCproxy@localhost", "secret", optsC)
+	if e != nil {
+		t.Fatal(e)
+	}
+	fmt.Printf("... connect NodeA to NodeC (proxy feature support disabled) via NodeB: ")
+	e = nodeA.Connect("nodeCproxy@localhost")
+	if e == nil {
+		t.Fatal("must be error here")
+	}
+	errMessage = "[nodeBproxy@localhost] peer does not support this feature"
+	if e.Error() != errMessage {
+		t.Fatal(e)
+	}
+	fmt.Println("OK")
+	nodeA.Stop()
+	nodeB.Stop()
+	nodeC.Stop()
 
 }
 

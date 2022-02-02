@@ -44,6 +44,7 @@ var (
 	ErrProxyConnect          = fmt.Errorf("can't establish proxy connection")
 	ErrProxyHopExceeded      = fmt.Errorf("proxy hop is exceeded")
 	ErrProxyLoopDetected     = fmt.Errorf("proxy loop detected")
+	ErrProxyPathTooLong      = fmt.Errorf("proxy path too long")
 	ErrProxySessionUnknown   = fmt.Errorf("unknown session id")
 	ErrProxySessionDuplicate = fmt.Errorf("session is already exist")
 )
@@ -53,6 +54,7 @@ const (
 	defaultListenBegin     uint16        = 15000
 	defaultListenEnd       uint16        = 65000
 	defaultKeepAlivePeriod time.Duration = 15
+	defaultProxyPathLimit  int           = 32
 
 	EnvKeyVersion     gen.EnvKey = "ergo:Version"
 	EnvKeyNode        gen.EnvKey = "ergo:Node"
@@ -134,6 +136,8 @@ type Node interface {
 	Disconnect(nodename string) error
 	// Nodes returns the list of connected nodes
 	Nodes() []string
+	// NodesIndirect returns the list of nodes connected via proxies
+	NodesIndirect() []string
 
 	Links(process etf.Pid) []etf.Pid
 	Monitors(process etf.Pid) []etf.Pid
@@ -187,7 +191,7 @@ type CoreRouter interface {
 	RouteMonitorExitReg(terminated gen.ProcessID, reason string, ref etf.Ref) error
 	RouteMonitorExit(terminated etf.Pid, reason string, ref etf.Ref) error
 	// RouteNodeDown
-	RouteNodeDown(name string)
+	RouteNodeDown(name string, disconnect *ProxyDisconnect)
 
 	//
 	// implemented by network
@@ -494,7 +498,8 @@ type ProxyConnectCancel struct {
 
 // ProxyDisconnect
 type ProxyDisconnect struct {
-	From      string // from node
+	Node      string
+	Proxy     string
 	SessionID string
 	Reason    string
 }

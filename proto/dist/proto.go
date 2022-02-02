@@ -524,7 +524,8 @@ func (dc *distConnection) ProxyDisconnect(disconnect node.ProxyDisconnect) error
 
 	msg := &sendMessage{
 		control: etf.Tuple{distProtoPROXY_DISCONNECT,
-			etf.Atom(disconnect.From), // from node
+			etf.Atom(disconnect.Node),
+			etf.Atom(disconnect.Proxy),
 			disconnect.SessionID,
 			disconnect.Reason,
 		},
@@ -701,7 +702,6 @@ func (dc *distConnection) receiver(recv <-chan *lib.Buffer) {
 
 		// handle message
 		if err := dc.handleMessage(control, message); err != nil {
-			fmt.Println("JJJ", err)
 			fmt.Printf("[%s] Malformed Control packet at the link with %s: %#v\n", dc.nodename, dc.peername, control)
 			dc.cancelContext()
 			lib.ReleaseBuffer(b)
@@ -896,7 +896,6 @@ func (dc *distConnection) decodeDist(packet []byte, proxy *node.ProxySession) (e
 		// decode control message
 		control, packet, err = etf.Decode(packet, cache, decodeOptions)
 		if err != nil {
-			fmt.Println("CTLR")
 			return nil, nil, err
 		}
 		if len(packet) == 0 {
@@ -1143,7 +1142,7 @@ func (dc *distConnection) handleMessage(control, message etf.Term) (err error) {
 						ID:     request.ID,
 						From:   dc.nodename,
 						Reason: err.Error(),
-						Path:   request.Path,
+						Path:   request.Path[1:],
 					}
 					dc.ProxyConnectCancel(errReply)
 				}
@@ -1165,12 +1164,12 @@ func (dc *distConnection) handleMessage(control, message etf.Term) (err error) {
 					connectReply.Path = append(connectReply.Path, string(p.(etf.Atom)))
 				}
 				if err := dc.router.RouteProxyConnectReply(dc, connectReply); err != nil {
-					fmt.Println("MMMMMMMMM", err)
 					lib.Log("[%s] PROXY CONNECT REPLY error %s (message: %#v)", dc.nodename, err, connectReply)
 					// send disconnect to clean up this session all the way to the
 					// destination node
 					disconnect := node.ProxyDisconnect{
-						From:      dc.nodename,
+						Node:      dc.nodename,
+						Proxy:     dc.nodename,
 						SessionID: connectReply.SessionID,
 						Reason:    err.Error(),
 					}
@@ -1205,11 +1204,13 @@ func (dc *distConnection) handleMessage(control, message etf.Term) (err error) {
 				return nil
 
 			case distProtoPROXY_DISCONNECT:
+				// {104, Node, Proxy, SessionID, Reason}
 				lib.Log("[%s] PROXY DISCONNECT [from %s]: %#v", dc.nodename, dc.peername, control)
 				proxyDisconnect := node.ProxyDisconnect{
-					From:      string(t.Element(2).(etf.Atom)),
-					SessionID: t.Element(3).(string),
-					Reason:    t.Element(4).(string),
+					Node:      string(t.Element(2).(etf.Atom)),
+					Proxy:     string(t.Element(3).(etf.Atom)),
+					SessionID: t.Element(4).(string),
+					Reason:    t.Element(5).(string),
 				}
 				dc.router.RouteProxyDisconnect(dc, proxyDisconnect)
 				return nil
