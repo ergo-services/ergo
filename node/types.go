@@ -416,7 +416,7 @@ type Flags struct {
 
 // Resolver defines resolving interface
 type Resolver interface {
-	Register(nodename string, port uint16, options ResolverOptions) error
+	Register(ctx context.Context, nodename string, port uint16, options ResolverOptions) error
 	Resolve(peername string) (Route, error)
 }
 

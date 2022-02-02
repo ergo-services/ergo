@@ -161,7 +161,7 @@ func newNetwork(ctx context.Context, nodename string, options Options, router co
 		EnableProxy:       options.Flags.EnableProxy,
 		EnableCompression: options.Flags.EnableCompression,
 	}
-	if err := n.resolver.Register(nodename, port, resolverOptions); err != nil {
+	if err := n.resolver.Register(n.ctx, nodename, port, resolverOptions); err != nil {
 		return nil, err
 	}
 

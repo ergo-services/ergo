@@ -29,7 +29,7 @@ func TestNode(t *testing.T) {
 	ctx := context.Background()
 	opts := node.Options{
 		Listen:   25001,
-		Resolver: dist.CreateResolverWithEPMD(ctx, "", 24999),
+		Resolver: dist.CreateResolverWithLocalEPMD("", 24999),
 	}
 
 	node1, _ := ergo.StartNodeWithContext(ctx, "node@localhost", "cookies", opts)
@@ -215,7 +215,7 @@ func TestNodeStaticRoute(t *testing.T) {
 
 	nr, err := node1.Resolve(nodeName2)
 	if err != nil {
-		t.Fatal("Can't resolve port number for ", nodeName2)
+		t.Fatal("Can't resolve port number for ", nodeName2, err)
 	}
 
 	// override route for nodeName2 with static port
