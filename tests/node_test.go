@@ -740,6 +740,41 @@ func TestNodeProxyConnect(t *testing.T) {
 		t.Fatal(e)
 	}
 	fmt.Println("OK")
+	nodeC.Stop()
+
+	optsC = node.Options{}
+	optsC.Proxy.Cookie = "123"
+	nodeC, e = ergo.StartNode("nodeCproxy@localhost", "secret", optsC)
+	if e != nil {
+		t.Fatal(e)
+	}
+	fmt.Printf("... connect NodeA to NodeC (with wrong cookie) via NodeB: ")
+	e = nodeA.Connect("nodeCproxy@localhost")
+	if e == nil {
+		t.Fatal("must be error here")
+	}
+	errMessage = "[nodeCproxy@localhost] can't establish proxy connection"
+	if e.Error() != errMessage {
+		t.Fatal(e)
+	}
+	fmt.Println("OK")
+
+	fmt.Printf("... connect NodeA to NodeC (with correct cookie) via NodeB: ")
+	if nodeA.RemoveProxyRoute("nodeCproxy@localhost") == false {
+		t.Fatal("proxy route not found")
+	}
+	route = node.ProxyRoute{
+		Proxy:  "nodeBproxy@localhost",
+		Cookie: "123",
+	}
+	nodeA.AddProxyRoute("nodeCproxy@localhost", route)
+
+	e = nodeA.Connect("nodeCproxy@localhost")
+	if e != nil {
+		t.Fatal(e)
+	}
+
+	fmt.Println("OK")
 	nodeA.Stop()
 	nodeB.Stop()
 	nodeC.Stop()
