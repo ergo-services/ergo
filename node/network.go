@@ -392,6 +392,7 @@ func (n *network) RouteProxyConnectRequest(from ConnectionInterface, request Pro
 			// transit request
 			//
 
+			lib.Log("[%s] NETWORK transit proxy connection to %q via %q", n.nodename, request.To, route.Proxy)
 			// proxy feature must be enabled explicitly for the transitional requests
 			if n.proxy.Enable == false {
 				lib.Log("[%s] NETWORK proxy. Proxy feature is disabled on this node")
@@ -443,6 +444,7 @@ func (n *network) RouteProxyConnectRequest(from ConnectionInterface, request Pro
 		//
 		// initiating proxy connection
 		//
+		lib.Log("[%s] NETWORK initiate proxy connection to %q via %q", n.nodename, request.To, route.Proxy)
 		connection, err = n.getConnectionDirect(route.Proxy, true)
 		if err != nil {
 			return err
@@ -862,7 +864,7 @@ func (n *network) AddProxyRoute(node string, route ProxyRoute) error {
 
 func (n *network) AddProxyTransitRoute(name string, proxy string) error {
 	route := ProxyRoute{
-		Proxy: name,
+		Proxy: proxy,
 	}
 	return n.AddProxyRoute(name, route)
 }

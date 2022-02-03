@@ -354,6 +354,7 @@ type MessageDown struct {
 // MessageNodeDown delivers as a message to Server's HandleInfo callback of the process
 // that created monitor using MonitorNode
 type MessageNodeDown struct {
+	Ref  etf.Ref
 	Name string
 }
 
@@ -361,6 +362,7 @@ type MessageNodeDown struct {
 // that created monitor using MonitorNode if the connection to the node was through the proxy
 // nodes and one of them went down.
 type MessageProxyDown struct {
+	Ref    etf.Ref
 	Name   string
 	Proxy  string
 	Reason string

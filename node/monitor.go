@@ -152,11 +152,12 @@ func (m *monitor) RouteNodeDown(name string, disconnect *ProxyDisconnect) {
 		for i := range pids {
 			lib.Log("[%s] MONITOR node down: %v. send notify to: %s", m.nodename, name, pids[i].pid)
 			if disconnect == nil {
-				message := gen.MessageNodeDown{Name: name}
+				message := gen.MessageNodeDown{Ref: pids[i].ref, Name: name}
 				m.router.RouteSend(etf.Pid{}, pids[i].pid, message)
 				continue
 			}
 			message := gen.MessageProxyDown{
+				Ref:    pids[i].ref,
 				Name:   disconnect.Node,
 				Proxy:  disconnect.Proxy,
 				Reason: disconnect.Reason,

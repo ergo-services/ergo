@@ -2,6 +2,8 @@ package tests
 
 import (
 	"fmt"
+	"reflect"
+	"sort"
 	"testing"
 
 	"github.com/ergo-services/ergo"
@@ -748,28 +750,19 @@ func TestLinkLocalRemote(t *testing.T) {
 }
 
 func TestMonitorNode(t *testing.T) {
-	fmt.Printf("\n=== Test Monitor Node via proxy\n")
-	fmt.Printf("... connect NodeA to NodeD via NodeB and NodeC: ")
+	fmt.Printf("\n=== Test Monitor Node \n")
+	fmt.Printf("... start nodes A, B, C, D: ")
 	optsA := node.Options{}
 	nodeA, e := ergo.StartNode("monitornodeAproxy@localhost", "secret", optsA)
 	if e != nil {
 		t.Fatal(e)
 	}
-	routeAtoDviaB := node.ProxyRoute{
-		Proxy: "monitornodeBproxy@localhost",
-	}
-	nodeA.AddProxyRoute("monitornodeDproxy@localhost", routeAtoDviaB)
 	optsB := node.Options{}
 	optsB.Proxy.Enable = true
 	nodeB, e := ergo.StartNode("monitornodeBproxy@localhost", "secret", optsB)
 	if e != nil {
 		t.Fatal(e)
 	}
-	routeBtoDviaC := node.ProxyRoute{
-		Proxy: "monitornodeCproxy@localhost",
-	}
-	nodeB.AddProxyRoute("monitornodeDproxy@localhost", routeBtoDviaC)
-
 	optsC := node.Options{}
 	optsC.Proxy.Enable = true
 	nodeC, e := ergo.StartNode("monitornodeCproxy@localhost", "secret", optsC)
@@ -783,7 +776,6 @@ func TestMonitorNode(t *testing.T) {
 		t.Fatal(e)
 	}
 	fmt.Println("OK")
-	fmt.Printf("... ProcessA at NodeA creates monitor to NodeD, ProcessD at NodeD creates monitor to NodeA: ")
 
 	gsA := &testMonitor{
 		v: make(chan interface{}, 2),
@@ -794,39 +786,119 @@ func TestMonitorNode(t *testing.T) {
 	gsD := &testMonitor{
 		v: make(chan interface{}, 2),
 	}
+	fmt.Printf("... start processA on node A: ")
 	pA, err := nodeA.Spawn("", gen.ProcessOptions{}, gsA)
 	if err != nil {
 		t.Fatal(err)
 	}
 	waitForResultWithValue(t, gsA.v, pA.Self())
+	fmt.Printf("... start processB on node B: ")
 	pB, err := nodeB.Spawn("", gen.ProcessOptions{}, gsB)
 	if err != nil {
 		t.Fatal(err)
 	}
 	waitForResultWithValue(t, gsB.v, pB.Self())
+	fmt.Printf("... start processD on node D: ")
 	pD, err := nodeD.Spawn("", gen.ProcessOptions{}, gsD)
 	if err != nil {
 		t.Fatal(err)
 	}
 	waitForResultWithValue(t, gsD.v, pD.Self())
-	pA.MonitorNode(nodeD.Name())
-	pB.MonitorNode(nodeC.Name())
-	pD.MonitorNode(nodeA.Name())
-
-	//fmt.Println(nodeA.Nodes(), nodeB.Nodes(), nodeC.Nodes(), nodeD.Nodes())
+	fmt.Printf("... add proxy route on A to the node D via B: ")
+	routeAtoDviaB := node.ProxyRoute{
+		Proxy: nodeB.Name(),
+	}
+	if err := nodeA.AddProxyRoute(nodeD.Name(), routeAtoDviaB); err != nil {
+		t.Fatal(err)
+	}
 	fmt.Println("OK")
-	fmt.Printf("... NodeC stopped. NodeA and NodeD must close its connection to each other: ")
+
+	fmt.Printf("... add proxy transit route on B to the node D via C: ")
+	if err := nodeB.AddProxyTransitRoute(nodeD.Name(), nodeC.Name()); err != nil {
+		t.Fatal(err)
+	}
+	fmt.Println("OK")
+
+	fmt.Printf("... monitor D by processA (via proxy connection): ")
+	refA := pA.MonitorNode(nodeD.Name())
+	fmt.Println("OK")
+	fmt.Printf("... monitor A by processD (via proxy connection): ")
+	refD := pD.MonitorNode(nodeA.Name())
+	fmt.Println("OK")
+	fmt.Printf("... monitor C by processB (via direct connection): ")
+	refB := pB.MonitorNode(nodeC.Name())
+	fmt.Println("OK")
+	fmt.Printf("... check connectivity (A -> D via B and C, D -> A via C and B): ")
+	nodelist := []string{nodeB.Name(), nodeD.Name()}
+	nodesA := nodeA.Nodes()
+	sort.Strings(nodesA)
+	if reflect.DeepEqual(nodesA, nodelist) == false {
+		t.Fatal("node A has wrong peers", nodeA.Nodes())
+	}
+	if reflect.DeepEqual(nodeA.NodesIndirect(), []string{nodeD.Name()}) == false {
+		t.Fatal("node A has wrong proxy peer", nodeA.NodesIndirect())
+	}
+	nodelist = []string{nodeA.Name(), nodeC.Name()}
+	nodesB := nodeB.Nodes()
+	sort.Strings(nodesB)
+	if reflect.DeepEqual(nodesB, nodelist) == false {
+		t.Fatal("node B has wrong peers", nodeB.Nodes())
+	}
+	if reflect.DeepEqual(nodeB.NodesIndirect(), []string{}) == false {
+		t.Fatal("node B has wrong proxy peer", nodeB.NodesIndirect())
+	}
+	nodelist = []string{nodeB.Name(), nodeD.Name()}
+	nodesC := nodeC.Nodes()
+	sort.Strings(nodesC)
+	if reflect.DeepEqual(nodesC, nodelist) == false {
+		t.Fatal("node C has wrong peers", nodeC.Nodes())
+	}
+	if reflect.DeepEqual(nodeC.NodesIndirect(), []string{}) == false {
+		t.Fatal("node C has wrong proxy peer", nodeC.NodesIndirect())
+	}
+	nodelist = []string{nodeA.Name(), nodeC.Name()}
+	nodesD := nodeD.Nodes()
+	sort.Strings(nodesD)
+	if reflect.DeepEqual(nodesD, nodelist) == false {
+		t.Fatal("node D has wrong peers", nodeD.Nodes())
+	}
+	if reflect.DeepEqual(nodeD.NodesIndirect(), []string{nodeA.Name()}) == false {
+		t.Fatal("node D has wrong proxy peer", nodeD.NodesIndirect())
+	}
+	fmt.Println("OK")
+	fmt.Printf("... stop node C : ")
 	nodeC.Stop()
-	resultMessageProxyDown := gen.MessageProxyDown{Name: nodeA.Name(), Proxy: nodeC.Name(), Reason: "connection closed"}
+	fmt.Println("OK")
+	resultMessageProxyDown := gen.MessageProxyDown{Ref: refD, Name: nodeA.Name(), Proxy: nodeC.Name(), Reason: "connection closed"}
+	fmt.Printf("... processD must receive gen.MessageProxyDown: ")
 	waitForResultWithValue(t, gsD.v, resultMessageProxyDown)
-	resultMessageProxyDown = gen.MessageProxyDown{Name: nodeD.Name(), Proxy: nodeC.Name(), Reason: "connection closed"}
+	resultMessageProxyDown = gen.MessageProxyDown{Ref: refA, Name: nodeD.Name(), Proxy: nodeC.Name(), Reason: "connection closed"}
+	fmt.Printf("... processA must receive gen.MessageProxyDown: ")
 	waitForResultWithValue(t, gsA.v, resultMessageProxyDown)
-	resultMessageDown := gen.MessageNodeDown{Name: nodeC.Name()}
+	resultMessageDown := gen.MessageNodeDown{Ref: refB, Name: nodeC.Name()}
+	fmt.Printf("... processB must receive gen.MessageDown: ")
 	waitForResultWithValue(t, gsB.v, resultMessageDown)
 
-	fmt.Println(nodeA.Nodes(), nodeB.Nodes(), nodeC.Nodes(), nodeD.Nodes())
+	fmt.Printf("... check connectivity (A <-> B, C is down, D has no peers): ")
+	if reflect.DeepEqual(nodeA.Nodes(), []string{nodeB.Name()}) == false {
+		t.Fatal("node A has wrong peer", nodeA.Nodes())
+	}
+	if reflect.DeepEqual(nodeB.Nodes(), []string{nodeA.Name()}) == false {
+		t.Fatal("node B has wrong peer", nodeB.Nodes())
+	}
+	if nodeC.IsAlive() == true {
+		t.Fatal("node C is still alive")
+	}
+	if reflect.DeepEqual(nodeC.Nodes(), []string{}) == false {
+		t.Fatal("node C has peers", nodeC.Nodes())
+	}
+	if reflect.DeepEqual(nodeD.Nodes(), []string{}) == false {
+		t.Fatal("node D has peers", nodeD.Nodes())
+	}
 	fmt.Println("OK")
 	nodeD.Stop()
+	nodeA.Stop()
+	nodeB.Stop()
 }
 
 // helpers
