@@ -81,6 +81,10 @@ func main() {
 		return
 	}
 
+	if err := node.Connect("erl-demo@127.0.0.1"); err != nil {
+		panic(err)
+	}
+
 	// Initialize new instance of demo structure which implements Process behavior
 	demoGS := &demo{}
 

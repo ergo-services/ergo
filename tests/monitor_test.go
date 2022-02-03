@@ -3,7 +3,6 @@ package tests
 import (
 	"fmt"
 	"testing"
-	"time"
 
 	"github.com/ergo-services/ergo"
 	"github.com/ergo-services/ergo/etf"
@@ -748,69 +747,68 @@ func TestLinkLocalRemote(t *testing.T) {
 	node1.Stop()
 }
 
-type proxyServer struct {
-	gen.Server
-}
-
-func (p *proxyServer) Init(process *gen.ServerProcess, args ...etf.Term) error {
-	return nil
-}
-
-func (p *proxyServer) HandleInfo(process *gen.ServerProcess, message etf.Term) gen.ServerStatus {
-	//fmt.Printf("[%#v] message:%#v\n", process.Self(), message)
-	return gen.ServerStatusOK
-}
-
 func TestMonitorNode(t *testing.T) {
 	fmt.Printf("\n=== Test Monitor Node via proxy\n")
 	fmt.Printf("... connect NodeA to NodeD via NodeB and NodeC: ")
 	optsA := node.Options{}
-	nodeA, e := ergo.StartNode("nodeAproxy@localhost", "secret", optsA)
+	nodeA, e := ergo.StartNode("monitornodeAproxy@localhost", "secret", optsA)
 	if e != nil {
 		t.Fatal(e)
 	}
 	routeAtoDviaB := node.ProxyRoute{
-		Proxy: "nodeBproxy@localhost",
+		Proxy: "monitornodeBproxy@localhost",
 	}
-	nodeA.AddProxyRoute("nodeDproxy@localhost", routeAtoDviaB)
+	nodeA.AddProxyRoute("monitornodeDproxy@localhost", routeAtoDviaB)
 	optsB := node.Options{}
 	optsB.Proxy.Enable = true
-	nodeB, e := ergo.StartNode("nodeBproxy@localhost", "secret", optsB)
+	nodeB, e := ergo.StartNode("monitornodeBproxy@localhost", "secret", optsB)
 	if e != nil {
 		t.Fatal(e)
 	}
 	routeBtoDviaC := node.ProxyRoute{
-		Proxy: "nodeCproxy@localhost",
+		Proxy: "monitornodeCproxy@localhost",
 	}
-	nodeB.AddProxyRoute("nodeDproxy@localhost", routeBtoDviaC)
+	nodeB.AddProxyRoute("monitornodeDproxy@localhost", routeBtoDviaC)
 
 	optsC := node.Options{}
 	optsC.Proxy.Enable = true
-	nodeC, e := ergo.StartNode("nodeCproxy@localhost", "secret", optsC)
+	nodeC, e := ergo.StartNode("monitornodeCproxy@localhost", "secret", optsC)
 	if e != nil {
 		t.Fatal(e)
 	}
 
 	optsD := node.Options{}
-	nodeD, e := ergo.StartNode("nodeDproxy@localhost", "secret", optsD)
+	nodeD, e := ergo.StartNode("monitornodeDproxy@localhost", "secret", optsD)
 	if e != nil {
 		t.Fatal(e)
 	}
 	fmt.Println("OK")
 	fmt.Printf("... ProcessA at NodeA creates monitor to NodeD, ProcessD at NodeD creates monitor to NodeA: ")
 
-	pA, err := nodeA.Spawn("", gen.ProcessOptions{}, &proxyServer{})
+	gsA := &testMonitor{
+		v: make(chan interface{}, 2),
+	}
+	gsB := &testMonitor{
+		v: make(chan interface{}, 2),
+	}
+	gsD := &testMonitor{
+		v: make(chan interface{}, 2),
+	}
+	pA, err := nodeA.Spawn("", gen.ProcessOptions{}, gsA)
 	if err != nil {
 		t.Fatal(err)
 	}
-	pB, err := nodeB.Spawn("", gen.ProcessOptions{}, &proxyServer{})
+	waitForResultWithValue(t, gsA.v, pA.Self())
+	pB, err := nodeB.Spawn("", gen.ProcessOptions{}, gsB)
 	if err != nil {
 		t.Fatal(err)
 	}
-	pD, err := nodeD.Spawn("", gen.ProcessOptions{}, &proxyServer{})
+	waitForResultWithValue(t, gsB.v, pB.Self())
+	pD, err := nodeD.Spawn("", gen.ProcessOptions{}, gsD)
 	if err != nil {
 		t.Fatal(err)
 	}
+	waitForResultWithValue(t, gsD.v, pD.Self())
 	pA.MonitorNode(nodeD.Name())
 	pB.MonitorNode(nodeC.Name())
 	pD.MonitorNode(nodeA.Name())
@@ -819,8 +817,14 @@ func TestMonitorNode(t *testing.T) {
 	fmt.Println("OK")
 	fmt.Printf("... NodeC stopped. NodeA and NodeD must close its connection to each other: ")
 	nodeC.Stop()
-	time.Sleep(300 * time.Millisecond)
-	//fmt.Println(nodeA.Nodes(), nodeB.Nodes(), nodeC.Nodes(), nodeD.Nodes())
+	resultMessageProxyDown := gen.MessageProxyDown{Name: nodeA.Name(), Proxy: nodeC.Name(), Reason: "connection closed"}
+	waitForResultWithValue(t, gsD.v, resultMessageProxyDown)
+	resultMessageProxyDown = gen.MessageProxyDown{Name: nodeD.Name(), Proxy: nodeC.Name(), Reason: "connection closed"}
+	waitForResultWithValue(t, gsA.v, resultMessageProxyDown)
+	resultMessageDown := gen.MessageNodeDown{Name: nodeC.Name()}
+	waitForResultWithValue(t, gsB.v, resultMessageDown)
+
+	fmt.Println(nodeA.Nodes(), nodeB.Nodes(), nodeC.Nodes(), nodeD.Nodes())
 	fmt.Println("OK")
 	nodeD.Stop()
 }
