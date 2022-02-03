@@ -14,12 +14,16 @@ var (
 )
 
 func newLinkFlusher(w io.Writer, latency time.Duration, softwareKeepAlive bool) *linkFlusher {
-	return &linkFlusher{
+	lf := &linkFlusher{
 		latency:           latency,
 		writer:            bufio.NewWriter(w),
 		w:                 w, // in case if we skip buffering
 		softwareKeepAlive: softwareKeepAlive,
 	}
+	if softwareKeepAlive {
+		lf.Write(keepAlivePacket)
+	}
+	return lf
 }
 
 type linkFlusher struct {
@@ -89,7 +93,7 @@ func (lf *linkFlusher) Write(b []byte) (int, error) {
 		// if we have no pending data to send we should
 		// send a KeepAlive packet
 		if !lf.pending && lf.softwareKeepAlive {
-			lf.w.Write([]byte{0, 0, 0, 0})
+			lf.w.Write(keepAlivePacket)
 			lf.timer.Reset(keepAlivePeriod)
 			return
 		}
