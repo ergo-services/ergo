@@ -20,9 +20,27 @@ func newLinkFlusher(w io.Writer, latency time.Duration, softwareKeepAlive bool) 
 		w:                 w, // in case if we skip buffering
 		softwareKeepAlive: softwareKeepAlive,
 	}
-	if softwareKeepAlive {
-		lf.Write(keepAlivePacket)
-	}
+
+	lf.timer = time.AfterFunc(lf.latency, func() {
+
+		lf.mutex.Lock()
+		defer lf.mutex.Unlock()
+
+		// if we have no pending data to send we should
+		// send a KeepAlive packet
+		if lf.pending == false && lf.softwareKeepAlive {
+			lf.w.Write(keepAlivePacket)
+			lf.timer.Reset(keepAlivePeriod)
+			return
+		}
+
+		lf.writer.Flush()
+		lf.pending = false
+		if lf.softwareKeepAlive {
+			lf.timer.Reset(keepAlivePeriod)
+		}
+	})
+
 	return lf
 }
 
@@ -79,34 +97,9 @@ func (lf *linkFlusher) Write(b []byte) (int, error) {
 	}
 
 	lf.pending = true
-
-	if lf.timer != nil {
-		lf.timer.Reset(lf.latency)
-		return lenB, nil
-	}
-
-	lf.timer = time.AfterFunc(lf.latency, func() {
-
-		lf.mutex.Lock()
-		defer lf.mutex.Unlock()
-
-		// if we have no pending data to send we should
-		// send a KeepAlive packet
-		if !lf.pending && lf.softwareKeepAlive {
-			lf.w.Write(keepAlivePacket)
-			lf.timer.Reset(keepAlivePeriod)
-			return
-		}
-
-		lf.writer.Flush()
-		lf.pending = false
-		if lf.softwareKeepAlive {
-			lf.timer.Reset(keepAlivePeriod)
-		}
-	})
+	lf.timer.Reset(lf.latency)
 
 	return lenB, nil
-
 }
 
 func (lf *linkFlusher) Stop() {

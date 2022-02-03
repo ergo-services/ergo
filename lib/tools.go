@@ -91,6 +91,10 @@ func ReleaseBuffer(b *Buffer) {
 
 // Reset
 func (b *Buffer) Reset() {
+	c := cap(b.B)
+	if c > DefaultBufferLength && c < 65536 {
+		b.original = b.B
+	}
 	// use the original start point of the slice
 	b.B = b.original[:0]
 }

@@ -968,6 +968,7 @@ func (n *network) connect(peername string) (ConnectionInterface, error) {
 	var c net.Conn
 	var err error
 	var enabledTLS bool
+	lib.Log("[%s] NETWORK trying to connect to %#v", n.nodename, peername)
 
 	// resolve the route
 	route, err = n.resolver.Resolve(peername)
