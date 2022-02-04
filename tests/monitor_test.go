@@ -819,6 +819,12 @@ func TestMonitorNode(t *testing.T) {
 	}
 	fmt.Println("OK")
 
+	fmt.Println("QWERTY send")
+	pA.Send(pD.Self(), "QWERTY")
+	waitForResultWithValue(t, gsD.v, "QWERTY")
+	fmt.Println("QWERTY recv")
+	return
+
 	fmt.Printf("... monitor D by processA (via proxy connection): ")
 	refA := pA.MonitorNode(nodeD.Name())
 	fmt.Println("OK")
