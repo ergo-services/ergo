@@ -36,12 +36,14 @@ type networkInternal interface {
 	AddStaticPortRoute(node string, port uint16, options RouteOptions) error
 	RemoveStaticRoute(node string) bool
 	StaticRoutes() []Route
+	StaticRoute(name string) (Route, bool)
 
 	// add/remove proxy route
 	AddProxyRoute(node string, route ProxyRoute) error
 	AddProxyTransitRoute(name string, proxy string) error
 	RemoveProxyRoute(node string) bool
 	ProxyRoutes() []ProxyRoute
+	ProxyRoute(name string) (ProxyRoute, bool)
 
 	Resolve(peername string) (Route, error)
 	Connect(peername string) error
@@ -77,7 +79,7 @@ type network struct {
 	resolver          Resolver
 	staticOnly        bool
 	staticRoutes      map[string]Route
-	staticRoutesMutex sync.Mutex
+	staticRoutesMutex sync.RWMutex
 
 	proxyRoutes      map[string]ProxyRoute
 	proxyRoutesMutex sync.RWMutex
@@ -236,13 +238,20 @@ func (n *network) RemoveStaticRoute(node string) bool {
 func (n *network) StaticRoutes() []Route {
 	var routes []Route
 
-	n.staticRoutesMutex.Lock()
-	defer n.staticRoutesMutex.Unlock()
+	n.staticRoutesMutex.RLock()
+	defer n.staticRoutesMutex.RUnlock()
 	for _, v := range n.staticRoutes {
 		routes = append(routes, v)
 	}
 
 	return routes
+}
+
+func (n *network) StaticRoute(name string) (Route, bool) {
+	n.staticRoutesMutex.RLock()
+	defer n.staticRoutesMutex.RUnlock()
+	route, exist := n.staticRoutes[name]
+	return route, exist
 }
 
 func (n *network) getConnectionDirect(peername string, connect bool) (ConnectionInterface, error) {
@@ -881,7 +890,19 @@ func (n *network) RemoveProxyRoute(node string) bool {
 
 func (n *network) ProxyRoutes() []ProxyRoute {
 	var routes []ProxyRoute
+	n.proxyRoutesMutex.RLock()
+	defer n.proxyRoutesMutex.RUnlock()
+	for _, v := range n.proxyRoutes {
+		routes = append(routes, v)
+	}
 	return routes
+}
+
+func (n *network) ProxyRoute(name string) (ProxyRoute, bool) {
+	n.proxyRoutesMutex.RLock()
+	defer n.proxyRoutesMutex.RUnlock()
+	route, exist := n.proxyRoutes[name]
+	return route, exist
 }
 
 func (n *network) listen(ctx context.Context, hostname string, begin uint16, end uint16) (uint16, error) {

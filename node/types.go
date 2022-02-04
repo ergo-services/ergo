@@ -118,14 +118,14 @@ type Node interface {
 	RemoveStaticRoute(name string) bool
 	// StaticRoutes returns list of routes added using AddStaticRoute
 	StaticRoutes() []Route
+	// StaticRoute returns Route for the given name. Returns false if it doesn't exist.
+	StaticRoute(name string) (Route, bool)
 
 	AddProxyRoute(name string, proxy ProxyRoute) error
 	AddProxyTransitRoute(name string, proxy string) error
 	RemoveProxyRoute(name string) bool
 	ProxyRoutes() []ProxyRoute
-
-	// TODO
-	// NodesIndirect() []string
+	ProxyRoute(name string) (ProxyRoute, bool)
 
 	// Resolve
 	Resolve(peername string) (Route, error)
