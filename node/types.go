@@ -326,7 +326,7 @@ type ConnectionInterface interface {
 	ProxyDisconnect(disconnect ProxyDisconnect) error
 	ProxyRegisterSession(session ProxySession) error
 	ProxyUnregisterSession(id string) error
-	Proxy(packet *lib.Buffer) error
+	ProxyPacket(packet *lib.Buffer) error
 }
 
 // Handshake template struct for the custom Handshake implementation

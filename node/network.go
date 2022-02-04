@@ -844,11 +844,12 @@ func (n *network) RouteProxy(from ConnectionInterface, sessionID string, packet 
 
 	switch from {
 	case session.b:
-		return session.a.Proxy(packet)
+		return session.a.ProxyPacket(packet)
 	case session.a:
-		return session.b.Proxy(packet)
+		return session.b.ProxyPacket(packet)
 	default:
-		// TODO there must be another error if none of a and b are not equal the 'from' value
+		// shouldn't happen
+		panic("internal error")
 		return ErrProxySessionUnknown
 	}
 }
@@ -1150,6 +1151,7 @@ func (n *network) unregisterConnection(peername string, disconnect *ProxyDisconn
 
 	if ci.conn == nil {
 		// it was proxy connection
+		ci.connection.ProxyUnregisterSession(ci.proxySessionID)
 		n.connectionsMutex.Unlock()
 		return
 	}

@@ -79,6 +79,11 @@ type fragmentedPacket struct {
 	lastUpdate       time.Time
 }
 
+type proxySession struct {
+	session node.ProxySession
+	// atom cache
+}
+
 type distConnection struct {
 	node.Connection
 
@@ -94,8 +99,8 @@ type distConnection struct {
 	cancelContext context.CancelFunc
 
 	// proxy session (endpoints)
-	proxySessionsByID       map[string]node.ProxySession
-	proxySessionsByPeerName map[string]node.ProxySession
+	proxySessionsByID       map[string]proxySession
+	proxySessionsByPeerName map[string]proxySession
 	proxySessionsMutex      sync.RWMutex
 
 	// route incoming messages
@@ -157,11 +162,13 @@ type senderChannel struct {
 }
 
 type sendMessage struct {
+	packet               *lib.Buffer
 	control              etf.Term
 	payload              etf.Term
 	compression          bool
 	compressionLevel     int
 	compressionThreshold int
+	proxySession         *proxySession
 }
 
 type receivers struct {
@@ -176,8 +183,8 @@ func (dp *distProto) Init(ctx context.Context, conn io.ReadWriter, peername stri
 		peername:                peername,
 		flags:                   flags,
 		conn:                    conn,
-		proxySessionsByID:       make(map[string]node.ProxySession),
-		proxySessionsByPeerName: make(map[string]node.ProxySession),
+		proxySessionsByID:       make(map[string]proxySession),
+		proxySessionsByPeerName: make(map[string]proxySession),
 		fragments:               make(map[uint64]*fragmentedPacket),
 		checkCleanTimeout:       defaultCleanTimeout,
 		checkCleanDeadline:      defaultCleanDeadline,
@@ -352,6 +359,7 @@ func (dc *distConnection) SendAlias(from gen.Process, to etf.Alias, message etf.
 		msg.compressionLevel = from.CompressionLevel()
 		msg.compressionThreshold = from.CompressionThreshold()
 	}
+
 	return dc.send(string(to.Node), msg)
 }
 
@@ -545,25 +553,34 @@ func (dc *distConnection) ProxyRegisterSession(session node.ProxySession) error 
 	if exist {
 		return node.ErrProxySessionDuplicate
 	}
-	dc.proxySessionsByPeerName[session.PeerName] = session
-	dc.proxySessionsByID[session.ID] = session
+	ps := proxySession{
+		session: session,
+	}
+	dc.proxySessionsByPeerName[session.PeerName] = ps
+	dc.proxySessionsByID[session.ID] = ps
 	return nil
 }
 
 func (dc *distConnection) ProxyUnregisterSession(id string) error {
 	dc.proxySessionsMutex.Lock()
 	defer dc.proxySessionsMutex.Unlock()
-	session, exist := dc.proxySessionsByID[id]
+	ps, exist := dc.proxySessionsByID[id]
 	if exist == false {
 		return node.ErrProxySessionUnknown
 	}
-	delete(dc.proxySessionsByPeerName, session.PeerName)
-	delete(dc.proxySessionsByID, session.ID)
+	delete(dc.proxySessionsByPeerName, ps.session.PeerName)
+	delete(dc.proxySessionsByID, ps.session.ID)
 	return nil
 }
 
 func (dc *distConnection) ProxyPacket(packet *lib.Buffer) error {
-	return nil
+	if dc.flags.EnableProxy == false {
+		return node.ErrPeerUnsupported
+	}
+	msg := &sendMessage{
+		packet: packet,
+	}
+	return dc.send(dc.peername, msg)
 }
 
 //
@@ -732,7 +749,7 @@ func (dc *distConnection) decodePacket(b *lib.Buffer) (etf.Term, etf.Term, error
 	case protoProxy:
 		sessionID := string(packet[5:37])
 		dc.proxySessionsMutex.RLock()
-		session, exist := dc.proxySessionsByID[sessionID]
+		ps, exist := dc.proxySessionsByID[sessionID]
 		dc.proxySessionsMutex.RUnlock()
 		if exist == false {
 			// must be sent further
@@ -743,7 +760,7 @@ func (dc *distConnection) decodePacket(b *lib.Buffer) (etf.Term, etf.Term, error
 		}
 		// this node is endpoint of this session
 		packet = b.B[37:]
-		control, payload, err := dc.decodeDist(packet, &session)
+		control, payload, err := dc.decodeDist(packet, &ps)
 		if err != nil {
 			if err == ErrMissingInCache {
 				// will be deferred.
@@ -763,7 +780,7 @@ func (dc *distConnection) decodePacket(b *lib.Buffer) (etf.Term, etf.Term, error
 	case protoProxyX:
 		sessionID := string(packet[5:37])
 		dc.proxySessionsMutex.RLock()
-		session, exist := dc.proxySessionsByID[sessionID]
+		ps, exist := dc.proxySessionsByID[sessionID]
 		dc.proxySessionsMutex.RUnlock()
 		if exist == false {
 			// must be sent further
@@ -780,7 +797,7 @@ func (dc *distConnection) decodePacket(b *lib.Buffer) (etf.Term, etf.Term, error
 		}
 		iv := packet[:aes.BlockSize]
 		msg := packet[aes.BlockSize:]
-		cfb := cipher.NewCFBDecrypter(session.Block, iv)
+		cfb := cipher.NewCFBDecrypter(ps.session.Block, iv)
 		cfb.XORKeyStream(msg, msg)
 
 		// check padding
@@ -791,7 +808,7 @@ func (dc *distConnection) decodePacket(b *lib.Buffer) (etf.Term, etf.Term, error
 			//return nil, errors.New("unpad error. This could happen when incorrect encryption key is used")
 		}
 		packet = msg[:(length - unpadding)]
-		control, payload, err := dc.decodeDist(packet, &session)
+		control, payload, err := dc.decodeDist(packet, &ps)
 		if err != nil {
 			if err == ErrMissingInCache {
 				// will be deferred
@@ -809,7 +826,7 @@ func (dc *distConnection) decodePacket(b *lib.Buffer) (etf.Term, etf.Term, error
 
 }
 
-func (dc *distConnection) decodeDist(packet []byte, proxy *node.ProxySession) (etf.Term, etf.Term, error) {
+func (dc *distConnection) decodeDist(packet []byte, proxy *proxySession) (etf.Term, etf.Term, error) {
 	switch packet[0] {
 	case protoDistMessage:
 		var control, message etf.Term
@@ -1548,6 +1565,7 @@ func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOpt
 
 	for {
 		if message != nil {
+			message.packet = nil
 			message.control = nil
 			message.payload = nil
 			message.compression = false
@@ -1559,6 +1577,15 @@ func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOpt
 		if message == nil {
 			// channel was closed
 			return
+		}
+
+		if message.packet != nil {
+			// proxy packet
+			if _, err := dc.flusher.Write(message.packet.B); err != nil {
+				return
+			}
+			lib.ReleaseBuffer(message.packet)
+			continue
 		}
 
 		packetBuffer = lib.TakeBuffer()
@@ -1774,6 +1801,10 @@ func (dc *distConnection) send(to string, msg *sendMessage) error {
 	}
 	s.Lock()
 	defer s.Unlock()
+
+	if ps, ok := dc.proxySessionsByPeerName[to]; ok {
+		msg.proxySession = &ps
+	}
 
 	// TODO to decide whether to return error if channel is full
 	//select {
