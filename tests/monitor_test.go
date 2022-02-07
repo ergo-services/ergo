@@ -9,6 +9,7 @@ import (
 	"github.com/ergo-services/ergo"
 	"github.com/ergo-services/ergo/etf"
 	"github.com/ergo-services/ergo/gen"
+	"github.com/ergo-services/ergo/lib"
 	"github.com/ergo-services/ergo/node"
 )
 
@@ -819,10 +820,11 @@ func TestMonitorNode(t *testing.T) {
 	}
 	fmt.Println("OK")
 
-	fmt.Println("QWERTY send")
-	pA.Send(pD.Self(), "QWERTY")
-	waitForResultWithValue(t, gsD.v, "QWERTY")
-	fmt.Println("QWERTY recv")
+	fmt.Println("send random string")
+
+	randomString := []byte(lib.RandomString(1024 * 1024))
+	pA.Send(pD.Self(), randomString)
+	waitForResultWithValue(t, gsD.v, randomString)
 	return
 
 	fmt.Printf("... monitor D by processA (via proxy connection): ")

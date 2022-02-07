@@ -783,6 +783,7 @@ func (dc *distConnection) decodePacket(b *lib.Buffer) (etf.Term, etf.Term, error
 		return control, payload, nil
 
 	case protoProxyX:
+		fmt.Println("RECV ENC PROXY", dc.nodename)
 		sessionID := string(packet[5:37])
 		dc.proxySessionsMutex.RLock()
 		ps, exist := dc.proxySessionsByID[sessionID]
@@ -822,10 +823,12 @@ func (dc *distConnection) decodePacket(b *lib.Buffer) (etf.Term, etf.Term, error
 		if err != nil {
 			if err == ErrMissingInCache {
 				// will be deferred
+				// TODO make sure if this shift is correct
 				b.B = b.B[32+aes.BlockSize:]
 				b.B[4] = protoDist
 				return nil, nil, err
 			}
+			// TODO
 			// drop this proxy session. send back ProxyDisconnect
 			return nil, nil, nil
 		}
@@ -1539,7 +1542,6 @@ func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOpt
 
 	var lenMessage, lenAtomCache, lenPacket, startDataPosition int
 	var atomCacheBuffer, packetBuffer *lib.Buffer
-	var message *sendMessage
 	var err error
 	var compress, compressed bool
 	var zWriter *gzip.Writer
@@ -1577,14 +1579,38 @@ func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOpt
 		FlagBigPidRef:     peerFlags.EnableBigPidRef,
 	}
 
-	for {
-		if message != nil {
-			message.packet = nil
-			message.control = nil
-			message.payload = nil
-			message.compression = false
-			sendMessages.Put(message)
+	encrypt := func(data []byte, sessionID string, block cipher.Block) *lib.Buffer {
+		l := len(data)
+		padding := aes.BlockSize - l%aes.BlockSize
+		padtext := bytes.Repeat([]byte{byte(padding)}, padding)
+		data = append(data, padtext...)
+		l = len(data)
+
+		// take another buffer for encrypted message
+		xBuffer := lib.TakeBuffer()
+		// 4 (packet len) + 1 (protoProxyX) + 32 (sessionID) + aes.BlockSize + l
+		xBuffer.Allocate(4 + 1 + 32 + aes.BlockSize + l)
+
+		binary.BigEndian.PutUint32(xBuffer.B, uint32(xBuffer.Len()-4))
+		xBuffer.B[4] = protoProxyX
+		copy(xBuffer.B[5:], sessionID)
+		iv := xBuffer.B[4+1+32 : 4+1+32+aes.BlockSize]
+		if _, err := io.ReadFull(crand.Reader, iv); err != nil {
+			lib.ReleaseBuffer(xBuffer)
+			return nil
 		}
+		cfb := cipher.NewCFBEncrypter(block, iv)
+		cfb.XORKeyStream(xBuffer.B[4+1+32+aes.BlockSize:], data)
+		return xBuffer
+	}
+
+	message := &sendMessage{}
+	for {
+		message.packet = nil
+		message.control = nil
+		message.payload = nil
+		message.compression = false
+		sendMessages.Put(message)
 
 		message = <-send
 
@@ -1721,7 +1747,7 @@ func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOpt
 					break
 				}
 
-				// send proxy message
+				// wrap it as a proxy message
 				if message.proxy.session.PeerFlags.EnableEncryption == false {
 					// no encryption
 					// 4 (packet len) + protoProxy + sessionID
@@ -1738,28 +1764,13 @@ func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOpt
 				}
 
 				// send encrypted proxy message
-
-				// padding
-				l := len(packetBuffer.B[startDataPosition:])
-				padding := aes.BlockSize - l%aes.BlockSize
-				padtext := bytes.Repeat([]byte{byte(padding)}, padding)
-				packetBuffer.Append(padtext)
-				l = len(packetBuffer.B[startDataPosition:])
-
-				// take another buffer for encrypted message
-				xBuffer := lib.TakeBuffer()
-				// 4 (packet len) + protoProxy + sessionID + aes.BlockSize + l
-				xBuffer.Allocate(4 + 1 + 32 + aes.BlockSize + l)
-
-				binary.BigEndian.PutUint32(xBuffer.B, uint32(xBuffer.Len()-4))
-				xBuffer.B[4] = protoProxyX
-				copy(xBuffer.B[5:], message.proxy.session.ID)
-				iv := xBuffer.B[4+1+32 : 4+1+32+aes.BlockSize]
-				if _, err := io.ReadFull(crand.Reader, iv); err != nil {
+				fmt.Println("SEND ENC PROXY", dc.nodename)
+				xBuffer := encrypt(packetBuffer.B[startDataPosition:],
+					message.proxy.session.ID, message.proxy.session.Block)
+				if xBuffer == nil {
+					// can't encrypt message
 					return
 				}
-				cfb := cipher.NewCFBEncrypter(message.proxy.session.Block, iv)
-				cfb.XORKeyStream(xBuffer.B[4+1+32+aes.BlockSize:], packetBuffer.B[startDataPosition:])
 				if _, err := dc.flusher.Write(xBuffer.B); err != nil {
 					return
 				}
@@ -1781,8 +1792,6 @@ func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOpt
 			// 4 (packet len) + 1 (dist header: 131) + 1 (dist header: protoDistFragment[Z]) + 8 (sequenceID) + 8 (fragmentID)
 			startDataPosition -= 22
 
-			binary.BigEndian.PutUint32(packetBuffer.B[startDataPosition:], uint32(lenPacket))
-			packetBuffer.B[startDataPosition+4] = protoDist // 131
 			if compressed {
 				packetBuffer.B[startDataPosition+5] = protoDistFragment1Z // 201
 			} else {
@@ -1791,8 +1800,44 @@ func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOpt
 
 			binary.BigEndian.PutUint64(packetBuffer.B[startDataPosition+6:], uint64(sequenceID))
 			binary.BigEndian.PutUint64(packetBuffer.B[startDataPosition+14:], uint64(numFragments))
-			if _, err := dc.flusher.Write(packetBuffer.B[startDataPosition : startDataPosition+4+lenPacket]); err != nil {
-				return
+
+			if message.proxy == nil {
+				binary.BigEndian.PutUint32(packetBuffer.B[startDataPosition:], uint32(lenPacket))
+				packetBuffer.B[startDataPosition+4] = protoDist // 131
+				if _, err := dc.flusher.Write(packetBuffer.B[startDataPosition : startDataPosition+4+lenPacket]); err != nil {
+					return
+				}
+			} else {
+				// wrap it as a proxy message
+				if message.proxy.session.PeerFlags.EnableEncryption == false {
+					fmt.Println("SEND PROXY FRAG 1", dc.nodename)
+					// send proxy message
+					// shift left on 32 bytes for the session id
+					binary.BigEndian.PutUint32(packetBuffer.B[startDataPosition-32:], uint32(lenPacket+32))
+					packetBuffer.B[startDataPosition-32+4] = protoProxy // 141
+					copy(packetBuffer.B[startDataPosition-32+5:], message.proxy.session.ID)
+					if _, err := dc.flusher.Write(packetBuffer.B[startDataPosition-32 : startDataPosition+4+lenPacket]); err != nil {
+						return
+					}
+
+				} else {
+					// send encrypted proxy message
+					// encryption makes padding (up to aes.BlockSize = 16 bytes) so we should keep the data
+					tail16 := [16]byte{}
+					n := copy(tail16[:], packetBuffer.B[startDataPosition+4+lenPacket:])
+					xBuffer := encrypt(packetBuffer.B[startDataPosition+5:startDataPosition+4+lenPacket],
+						message.proxy.session.ID, message.proxy.session.Block)
+					if xBuffer == nil {
+						// can't encrypt message
+						return
+					}
+					if _, err := dc.flusher.Write(xBuffer.B); err != nil {
+						return
+					}
+					// resore tail
+					copy(packetBuffer.B[startDataPosition+4+lenPacket:], tail16[:n])
+					lib.ReleaseBuffer(xBuffer)
+				}
 			}
 
 			startDataPosition += 4 + lenPacket
@@ -1800,6 +1845,7 @@ func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOpt
 
 		nextFragment:
 
+			fmt.Println("SEND PROXY FRAG ", numFragments, dc.nodename)
 			if len(packetBuffer.B[startDataPosition:]) > options.FragmentationUnit {
 				lenPacket = 1 + 1 + 8 + 8 + options.FragmentationUnit
 				// reuse the previous 22 bytes for the next frame header
@@ -1811,8 +1857,6 @@ func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOpt
 				startDataPosition -= 22
 			}
 
-			binary.BigEndian.PutUint32(packetBuffer.B[startDataPosition:], uint32(lenPacket))
-			packetBuffer.B[startDataPosition+4] = protoDist // 131
 			if compressed {
 				packetBuffer.B[startDataPosition+5] = protoDistFragmentNZ // 202
 			} else {
@@ -1821,8 +1865,41 @@ func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOpt
 
 			binary.BigEndian.PutUint64(packetBuffer.B[startDataPosition+6:], uint64(sequenceID))
 			binary.BigEndian.PutUint64(packetBuffer.B[startDataPosition+14:], uint64(numFragments))
-			if _, err := dc.flusher.Write(packetBuffer.B[startDataPosition : startDataPosition+4+lenPacket]); err != nil {
-				return
+			if message.proxy == nil {
+				// send fragment
+				binary.BigEndian.PutUint32(packetBuffer.B[startDataPosition:], uint32(lenPacket))
+				packetBuffer.B[startDataPosition+4] = protoDist // 131
+				if _, err := dc.flusher.Write(packetBuffer.B[startDataPosition : startDataPosition+4+lenPacket]); err != nil {
+					return
+				}
+			} else {
+				// wrap it as a proxy message
+				if message.proxy.session.PeerFlags.EnableEncryption == false {
+					binary.BigEndian.PutUint32(packetBuffer.B[startDataPosition-32:], uint32(lenPacket+32))
+					packetBuffer.B[startDataPosition-32+4] = protoProxy // 141
+					copy(packetBuffer.B[startDataPosition-32+5:], message.proxy.session.ID)
+					if _, err := dc.flusher.Write(packetBuffer.B[startDataPosition-32 : startDataPosition+4+lenPacket]); err != nil {
+						return
+					}
+				} else {
+					// send encrypted proxy message
+					tail16 := [16]byte{}
+					n := copy(tail16[:], packetBuffer.B[startDataPosition+4+lenPacket:])
+					xBuffer := encrypt(packetBuffer.B[startDataPosition+5:startDataPosition+4+lenPacket],
+						message.proxy.session.ID, message.proxy.session.Block)
+					if xBuffer == nil {
+						// can't encrypt message
+						return
+					}
+					if _, err := dc.flusher.Write(xBuffer.B); err != nil {
+						return
+					}
+					// resore tail
+					copy(packetBuffer.B[startDataPosition+4+lenPacket:], tail16[:n])
+					lib.ReleaseBuffer(xBuffer)
+
+					lib.ReleaseBuffer(xBuffer)
+				}
 			}
 
 			startDataPosition += 4 + lenPacket
