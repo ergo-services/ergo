@@ -22,8 +22,8 @@ import (
 )
 
 var (
-	ErrMissingInCache = fmt.Errorf("missing in cache")
-	ErrMalformed      = fmt.Errorf("malformed")
+	errMissingInCache = fmt.Errorf("missing in cache")
+	errMalformed      = fmt.Errorf("malformed")
 	gzipReaders       = &sync.Pool{
 		New: func() interface{} {
 			return nil
@@ -679,7 +679,7 @@ func (dc *distConnection) receiver(recv <-chan *lib.Buffer) {
 		// read and decode received packet
 		control, message, err := dc.decodePacket(b)
 
-		if err == ErrMissingInCache {
+		if err == errMissingInCache {
 			if b == missing.b && missing.c > 100 {
 				fmt.Println("Error: Disordered data at the link with", dc.peername, ". Close connection")
 				dc.cancelContext()
@@ -764,7 +764,7 @@ func (dc *distConnection) decodePacket(b *lib.Buffer) (etf.Term, etf.Term, error
 		packet = b.B[37:]
 		control, payload, err := dc.decodeDist(packet, &ps)
 		if err != nil {
-			if err == ErrMissingInCache {
+			if err == errMissingInCache {
 				// will be deferred.
 				// 37 - 5
 				// where:
@@ -821,7 +821,7 @@ func (dc *distConnection) decodePacket(b *lib.Buffer) (etf.Term, etf.Term, error
 		packet = msg[:(length - unpadding)]
 		control, payload, err := dc.decodeDist(packet, &ps)
 		if err != nil {
-			if err == ErrMissingInCache {
+			if err == errMissingInCache {
 				// will be deferred
 				// TODO make sure if this shift is correct
 				b.B = b.B[32+aes.BlockSize:]
@@ -1403,7 +1403,7 @@ func (dc *distConnection) decodeDistHeaderAtomCache(packet []byte) ([]etf.Atom, 
 	flagsLen := references/2 + 1
 	if len(packet) < 1+flagsLen {
 		// malformed
-		return nil, nil, ErrMalformed
+		return nil, nil, errMalformed
 	}
 	flags := packet[1 : flagsLen+1]
 
@@ -1423,7 +1423,7 @@ func (dc *distConnection) decodeDistHeaderAtomCache(packet []byte) ([]etf.Atom, 
 	for i := 0; i < references; i++ {
 		if len(packet) < 1+headerAtomLength {
 			// malformed
-			return nil, nil, ErrMalformed
+			return nil, nil, errMalformed
 		}
 		shift = uint((i & 0x01) * 4)
 		flag := (flags[i/2] >> shift) & 0x0F
@@ -1441,7 +1441,7 @@ func (dc *distConnection) decodeDistHeaderAtomCache(packet []byte) ([]etf.Atom, 
 			packet = packet[1+headerAtomLength:]
 			if len(packet) < int(atomLen) {
 				// malformed
-				return nil, nil, ErrMalformed
+				return nil, nil, errMalformed
 			}
 			atom := etf.Atom(packet[:atomLen])
 			// store in temporary cache for decoding
@@ -1459,7 +1459,7 @@ func (dc *distConnection) decodeDistHeaderAtomCache(packet []byte) ([]etf.Atom, 
 		c := dc.cacheIn[idx]
 		dc.cacheInMutex.RUnlock()
 		if c == nil {
-			return cache, packet, ErrMissingInCache
+			return cache, packet, errMissingInCache
 		}
 		cache[i] = *c
 		packet = packet[1:]

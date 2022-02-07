@@ -823,6 +823,7 @@ func TestMonitorNode(t *testing.T) {
 	fmt.Println("send random string")
 
 	randomString := []byte(lib.RandomString(1024 * 1024))
+	pA.SetCompression(true)
 	pA.Send(pD.Self(), randomString)
 	waitForResultWithValue(t, gsD.v, randomString)
 	return
