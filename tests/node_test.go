@@ -773,11 +773,100 @@ func TestNodeProxyConnect(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-
 	fmt.Println("OK")
+
+	fmt.Printf("... connect NodeA to NodeD (with enabled encryption) via NodeB: ")
+	optsD := node.Options{}
+	optsD.Proxy.Cookie = "123"
+	optsD.Proxy.Flags = node.DefaultProxyFlags()
+	optsD.Proxy.Flags.EnableEncryption = true
+	nodeD, e := ergo.StartNode("nodeDproxy@localhost", "secret", optsD)
+	if e != nil {
+		t.Fatal(e)
+	}
+
+	route = node.ProxyRoute{
+		Proxy:  "nodeBproxy@localhost",
+		Cookie: "123",
+	}
+	nodeA.AddProxyRoute("nodeDproxy@localhost", route)
+	e = nodeA.Connect("nodeDproxy@localhost")
+	if e != nil {
+		t.Fatal(e)
+	}
+	fmt.Println("OK")
+
+	// use gen serv from test_monitor
+	gsA := &testMonitor{
+		v: make(chan interface{}, 2),
+	}
+	gsC := &testMonitor{
+		v: make(chan interface{}, 2),
+	}
+	gsD := &testMonitor{
+		v: make(chan interface{}, 2),
+	}
+	fmt.Printf("... start processA on NodeA: ")
+	pA, err := nodeA.Spawn("", gen.ProcessOptions{}, gsA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitForResultWithValue(t, gsA.v, pA.Self())
+	fmt.Printf("... start processC on NodeC: ")
+	pC, err := nodeC.Spawn("", gen.ProcessOptions{}, gsC)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitForResultWithValue(t, gsC.v, pC.Self())
+	fmt.Printf("... start processD on NodeD: ")
+	pD, err := nodeD.Spawn("", gen.ProcessOptions{}, gsD)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitForResultWithValue(t, gsD.v, pD.Self())
+
+	fmt.Printf("... processA send short message to processC: ")
+	pA.Send(pC.Self(), "test")
+	waitForResultWithValue(t, gsC.v, "test")
+
+	fmt.Printf("... processA send short message to processD (encrypted): ")
+	pA.Send(pD.Self(), "test")
+	waitForResultWithValue(t, gsD.v, "test")
+
+	randomString := []byte(lib.RandomString(1024 * 10))
+	pA.SetCompression(true)
+	fmt.Printf("... processA send 10K message to processC (compressed): ")
+	pA.Send(pC.Self(), randomString)
+	waitForResultWithValue(t, gsC.v, randomString)
+
+	fmt.Printf("... processA send 10K message to processD (compressed, encrypted): ")
+	pA.Send(pD.Self(), randomString)
+	waitForResultWithValue(t, gsD.v, randomString)
+
+	pA.SetCompression(false)
+	randomString = []byte(lib.RandomString(1024 * 100))
+	fmt.Printf("... processA send 100K message to processC (fragmented): ")
+	pA.Send(pC.Self(), randomString)
+	waitForResultWithValue(t, gsC.v, randomString)
+
+	fmt.Printf("... processA send 100K message to processD (fragmented, encrypted): ")
+	pA.Send(pD.Self(), randomString)
+	waitForResultWithValue(t, gsD.v, randomString)
+
+	pA.SetCompression(true)
+	randomString = []byte(lib.RandomString(1024 * 1024))
+	fmt.Printf("... processA send 1M message to processC (fragmented, compressed): ")
+	pA.Send(pC.Self(), randomString)
+	waitForResultWithValue(t, gsC.v, randomString)
+
+	fmt.Printf("... processA send 1M message to processD (fragmented, compressed, encrypted): ")
+	pA.Send(pD.Self(), randomString)
+	waitForResultWithValue(t, gsD.v, randomString)
+
 	nodeA.Stop()
 	nodeB.Stop()
 	nodeC.Stop()
+	nodeD.Stop()
 
 }
 

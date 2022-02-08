@@ -538,6 +538,12 @@ func (n *network) RouteProxyConnectRequest(from ConnectionInterface, request Pro
 		flags = DefaultProxyFlags()
 	}
 
+	// if one of the nodes want to use encryption then it must be used by both nodes
+	if request.Flags.EnableEncryption || flags.EnableEncryption {
+		request.Flags.EnableEncryption = true
+		flags.EnableEncryption = true
+	}
+
 	cInternal := connectionInternal{
 		connection:     from,
 		proxySessionID: sessionID,
@@ -691,6 +697,11 @@ func (n *network) RouteProxyConnectReply(from ConnectionInterface, reply ProxyCo
 		case r.connection <- registered:
 		}
 		return ErrProxySessionDuplicate
+	}
+	// if one of the nodes want to use encryption then it must be used by both nodes
+	if r.request.Flags.EnableEncryption || reply.Flags.EnableEncryption {
+		r.request.Flags.EnableEncryption = true
+		reply.Flags.EnableEncryption = true
 	}
 
 	session := ProxySession{

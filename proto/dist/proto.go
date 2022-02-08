@@ -747,7 +747,6 @@ func (dc *distConnection) decodePacket(b *lib.Buffer) (etf.Term, etf.Term, error
 		// do not check the length. it was checked on the receiving this packet.
 		return dc.decodeDist(packet[5:], nil)
 	case protoProxy:
-		fmt.Println("RECV PROXY", dc.nodename)
 		sessionID := string(packet[5:37])
 		dc.proxySessionsMutex.RLock()
 		ps, exist := dc.proxySessionsByID[sessionID]
@@ -783,7 +782,6 @@ func (dc *distConnection) decodePacket(b *lib.Buffer) (etf.Term, etf.Term, error
 		return control, payload, nil
 
 	case protoProxyX:
-		fmt.Println("RECV ENC PROXY", dc.nodename)
 		sessionID := string(packet[5:37])
 		dc.proxySessionsMutex.RLock()
 		ps, exist := dc.proxySessionsByID[sessionID]
@@ -1751,7 +1749,6 @@ func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOpt
 				if message.proxy.session.PeerFlags.EnableEncryption == false {
 					// no encryption
 					// 4 (packet len) + protoProxy + sessionID
-					fmt.Println("SEND PROXY", dc.nodename)
 					startDataPosition -= 1 + 4 + 32
 					l := len(packetBuffer.B[startDataPosition:]) - 4
 					binary.BigEndian.PutUint32(packetBuffer.B[startDataPosition:], uint32(l))
@@ -1764,7 +1761,6 @@ func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOpt
 				}
 
 				// send encrypted proxy message
-				fmt.Println("SEND ENC PROXY", dc.nodename)
 				xBuffer := encrypt(packetBuffer.B[startDataPosition:],
 					message.proxy.session.ID, message.proxy.session.Block)
 				if xBuffer == nil {
@@ -1810,7 +1806,6 @@ func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOpt
 			} else {
 				// wrap it as a proxy message
 				if message.proxy.session.PeerFlags.EnableEncryption == false {
-					fmt.Println("SEND PROXY FRAG 1", dc.nodename)
 					// send proxy message
 					// shift left on 32 bytes for the session id
 					binary.BigEndian.PutUint32(packetBuffer.B[startDataPosition-32:], uint32(lenPacket+32))
@@ -1845,7 +1840,6 @@ func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOpt
 
 		nextFragment:
 
-			fmt.Println("SEND PROXY FRAG ", numFragments, dc.nodename)
 			if len(packetBuffer.B[startDataPosition:]) > options.FragmentationUnit {
 				lenPacket = 1 + 1 + 8 + 8 + options.FragmentationUnit
 				// reuse the previous 22 bytes for the next frame header
@@ -1896,8 +1890,6 @@ func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOpt
 					}
 					// resore tail
 					copy(packetBuffer.B[startDataPosition+4+lenPacket:], tail16[:n])
-					lib.ReleaseBuffer(xBuffer)
-
 					lib.ReleaseBuffer(xBuffer)
 				}
 			}
