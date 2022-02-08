@@ -1196,11 +1196,314 @@ func BenchmarkNodeParallelSingleNode(b *testing.B) {
 	})
 }
 
-func BenchmarkNodeProxyDisabled(b *testing.B) {
+func BenchmarkNodeProxy_NodeA_to_NodeC_direct_Message_1K(b *testing.B) {
+	node1name := fmt.Sprintf("nodeB1ProxyDisabled%d@localhost", b.N)
+	node2name := fmt.Sprintf("nodeB2ProxyDisabled%d@localhost", b.N)
+	node1, _ := ergo.StartNode(node1name, "bench", node.Options{})
+	node2, _ := ergo.StartNode(node2name, "bench", node.Options{})
+	defer node1.Stop()
+	defer node2.Stop()
+
+	bgs := &benchGS{}
+
+	p1, e1 := node1.Spawn("", gen.ProcessOptions{}, bgs)
+	if e1 != nil {
+		b.Fatal(e1)
+	}
+	p2, e2 := node2.Spawn("", gen.ProcessOptions{}, bgs)
+	if e2 != nil {
+		b.Fatal(e2)
+	}
+
+	call := makeCall{
+		to:      p2.Self(),
+		message: "hi",
+	}
+	if _, e := p1.Direct(call); e != nil {
+		b.Fatal("single ping", e)
+	}
+
+	randomString := []byte(lib.RandomString(1024))
+	b.SetParallelism(15)
+	b.RunParallel(func(pb *testing.PB) {
+		p1, e1 := node1.Spawn("", gen.ProcessOptions{}, bgs)
+		if e1 != nil {
+			b.Fatal(e1)
+		}
+		p2, e2 := node2.Spawn("", gen.ProcessOptions{}, bgs)
+		if e2 != nil {
+			b.Fatal(e2)
+		}
+		b.ResetTimer()
+		for pb.Next() {
+			call := makeCall{
+				to:      p2.Self(),
+				message: randomString,
+			}
+			_, e := p1.Direct(call)
+			if e != nil {
+				b.Fatal(e)
+			}
+		}
+
+	})
 }
-func BenchmarkNodeProxyEnabled(b *testing.B) {
+func BenchmarkNodeProxy_NodeA_to_NodeC_via_NodeB_Message_1K(b *testing.B) {
+	node1name := fmt.Sprintf("nodeB1ProxyEnabled1K%d@localhost", b.N)
+	node2name := fmt.Sprintf("nodeB2ProxyEnabled1K%d@localhost", b.N)
+	node3name := fmt.Sprintf("nodeB3ProxyEnabled1K%d@localhost", b.N)
+	node1, _ := ergo.StartNode(node1name, "bench", node.Options{})
+	opts2 := node.Options{}
+	opts2.Proxy.Enable = true
+	node2, _ := ergo.StartNode(node2name, "bench", opts2)
+	node3, _ := ergo.StartNode(node3name, "bench", node.Options{})
+	defer node1.Stop()
+	defer node2.Stop()
+	defer node3.Stop()
+	route := node.ProxyRoute{
+		Proxy: node2.Name(),
+	}
+	node1.AddProxyRoute(node3.Name(), route)
+
+	bgs := &benchGS{}
+
+	p1, e1 := node1.Spawn("", gen.ProcessOptions{}, bgs)
+	if e1 != nil {
+		b.Fatal(e1)
+	}
+	p3, e3 := node3.Spawn("", gen.ProcessOptions{}, bgs)
+	if e3 != nil {
+		b.Fatal(e3)
+	}
+
+	call := makeCall{
+		to:      p3.Self(),
+		message: "hi",
+	}
+	if _, e := p1.Direct(call); e != nil {
+		b.Fatal("single ping", e)
+	}
+
+	randomString := []byte(lib.RandomString(1024))
+	b.SetParallelism(15)
+	b.RunParallel(func(pb *testing.PB) {
+		p1, e1 := node1.Spawn("", gen.ProcessOptions{}, bgs)
+		if e1 != nil {
+			b.Fatal(e1)
+		}
+		p3, e3 := node3.Spawn("", gen.ProcessOptions{}, bgs)
+		if e3 != nil {
+			b.Fatal(e3)
+		}
+		b.ResetTimer()
+		for pb.Next() {
+			call := makeCall{
+				to:      p3.Self(),
+				message: randomString,
+			}
+			_, e := p1.Direct(call)
+			if e != nil {
+				b.Fatal(e)
+			}
+		}
+
+	})
 }
-func BenchmarkNodeProxyEnabledWithEncryption(b *testing.B) {
+
+func BenchmarkNodeProxy_NodeA_to_NodeC_via_NodeB_Message_1K_Encrypted(b *testing.B) {
+	node1name := fmt.Sprintf("nodeB1ProxyEnabled1K%d@localhost", b.N)
+	node2name := fmt.Sprintf("nodeB2ProxyEnabled1K%d@localhost", b.N)
+	node3name := fmt.Sprintf("nodeB3ProxyEnabled1K%d@localhost", b.N)
+	opts1 := node.Options{}
+	opts1.Proxy.Flags = node.DefaultProxyFlags()
+	opts1.Proxy.Flags.EnableEncryption = true
+	node1, _ := ergo.StartNode(node1name, "bench", opts1)
+	opts2 := node.Options{}
+	opts2.Proxy.Enable = true
+	node2, _ := ergo.StartNode(node2name, "bench", opts2)
+	node3, _ := ergo.StartNode(node3name, "bench", node.Options{})
+	defer node1.Stop()
+	defer node2.Stop()
+	defer node3.Stop()
+	route := node.ProxyRoute{
+		Proxy: node2.Name(),
+	}
+	node1.AddProxyRoute(node3.Name(), route)
+
+	bgs := &benchGS{}
+
+	p1, e1 := node1.Spawn("", gen.ProcessOptions{}, bgs)
+	if e1 != nil {
+		b.Fatal(e1)
+	}
+	p3, e3 := node3.Spawn("", gen.ProcessOptions{}, bgs)
+	if e3 != nil {
+		b.Fatal(e3)
+	}
+
+	call := makeCall{
+		to:      p3.Self(),
+		message: "hi",
+	}
+	if _, e := p1.Direct(call); e != nil {
+		b.Fatal("single ping", e)
+	}
+
+	randomString := []byte(lib.RandomString(1024))
+	b.SetParallelism(15)
+	b.RunParallel(func(pb *testing.PB) {
+		p1, e1 := node1.Spawn("", gen.ProcessOptions{}, bgs)
+		if e1 != nil {
+			b.Fatal(e1)
+		}
+		p3, e3 := node3.Spawn("", gen.ProcessOptions{}, bgs)
+		if e3 != nil {
+			b.Fatal(e3)
+		}
+		b.ResetTimer()
+		for pb.Next() {
+			call := makeCall{
+				to:      p3.Self(),
+				message: randomString,
+			}
+			_, e := p1.Direct(call)
+			if e != nil {
+				b.Fatal(e)
+			}
+		}
+
+	})
+}
+
+func BenchmarkNodeProxy_NodeA_to_NodeC_via_NodeB_Message_1M_Compressed(b *testing.B) {
+	node1name := fmt.Sprintf("nodeB1ProxyEnabled1K%d@localhost", b.N)
+	node2name := fmt.Sprintf("nodeB2ProxyEnabled1K%d@localhost", b.N)
+	node3name := fmt.Sprintf("nodeB3ProxyEnabled1K%d@localhost", b.N)
+	opts1 := node.Options{}
+	opts1.Proxy.Flags = node.DefaultProxyFlags()
+	opts1.Proxy.Flags.EnableEncryption = false
+	node1, _ := ergo.StartNode(node1name, "bench", opts1)
+	opts2 := node.Options{}
+	opts2.Proxy.Enable = true
+	node2, _ := ergo.StartNode(node2name, "bench", opts2)
+	node3, _ := ergo.StartNode(node3name, "bench", node.Options{})
+	defer node1.Stop()
+	defer node2.Stop()
+	defer node3.Stop()
+	route := node.ProxyRoute{
+		Proxy: node2.Name(),
+	}
+	node1.AddProxyRoute(node3.Name(), route)
+
+	bgs := &benchGS{}
+
+	p1, e1 := node1.Spawn("", gen.ProcessOptions{}, bgs)
+	if e1 != nil {
+		b.Fatal(e1)
+	}
+	p3, e3 := node3.Spawn("", gen.ProcessOptions{}, bgs)
+	if e3 != nil {
+		b.Fatal(e3)
+	}
+
+	call := makeCall{
+		to:      p3.Self(),
+		message: "hi",
+	}
+	if _, e := p1.Direct(call); e != nil {
+		b.Fatal("single ping", e)
+	}
+
+	randomString := []byte(lib.RandomString(1024 * 1024))
+	b.SetParallelism(15)
+	b.RunParallel(func(pb *testing.PB) {
+		p1, e1 := node1.Spawn("", gen.ProcessOptions{}, bgs)
+		if e1 != nil {
+			b.Fatal(e1)
+		}
+		p3, e3 := node3.Spawn("", gen.ProcessOptions{}, bgs)
+		if e3 != nil {
+			b.Fatal(e3)
+		}
+		b.ResetTimer()
+		for pb.Next() {
+			call := makeCall{
+				to:      p3.Self(),
+				message: randomString,
+			}
+			_, e := p1.Direct(call)
+			if e != nil {
+				b.Fatal(e)
+			}
+		}
+
+	})
+}
+
+func BenchmarkNodeProxy_NodeA_to_NodeC_via_NodeB_Message_1M_CompressedEncrypted(b *testing.B) {
+	node1name := fmt.Sprintf("nodeB1ProxyEnabled1K%d@localhost", b.N)
+	node2name := fmt.Sprintf("nodeB2ProxyEnabled1K%d@localhost", b.N)
+	node3name := fmt.Sprintf("nodeB3ProxyEnabled1K%d@localhost", b.N)
+	opts1 := node.Options{}
+	opts1.Proxy.Flags = node.DefaultProxyFlags()
+	opts1.Proxy.Flags.EnableEncryption = true
+	node1, _ := ergo.StartNode(node1name, "bench", opts1)
+	opts2 := node.Options{}
+	opts2.Proxy.Enable = true
+	node2, _ := ergo.StartNode(node2name, "bench", opts2)
+	node3, _ := ergo.StartNode(node3name, "bench", node.Options{})
+	defer node1.Stop()
+	defer node2.Stop()
+	defer node3.Stop()
+	route := node.ProxyRoute{
+		Proxy: node2.Name(),
+	}
+	node1.AddProxyRoute(node3.Name(), route)
+
+	bgs := &benchGS{}
+
+	p1, e1 := node1.Spawn("", gen.ProcessOptions{}, bgs)
+	if e1 != nil {
+		b.Fatal(e1)
+	}
+	p3, e3 := node3.Spawn("", gen.ProcessOptions{}, bgs)
+	if e3 != nil {
+		b.Fatal(e3)
+	}
+
+	call := makeCall{
+		to:      p3.Self(),
+		message: "hi",
+	}
+	if _, e := p1.Direct(call); e != nil {
+		b.Fatal("single ping", e)
+	}
+
+	randomString := []byte(lib.RandomString(1024 * 1024))
+	b.SetParallelism(15)
+	b.RunParallel(func(pb *testing.PB) {
+		p1, e1 := node1.Spawn("", gen.ProcessOptions{}, bgs)
+		if e1 != nil {
+			b.Fatal(e1)
+		}
+		p1.SetCompression(true)
+		p3, e3 := node3.Spawn("", gen.ProcessOptions{}, bgs)
+		if e3 != nil {
+			b.Fatal(e3)
+		}
+		b.ResetTimer()
+		for pb.Next() {
+			call := makeCall{
+				to:      p3.Self(),
+				message: randomString,
+			}
+			_, e := p1.Direct(call)
+			if e != nil {
+				b.Fatal(e)
+			}
+		}
+
+	})
 }
 
 func benchCases() []benchCase {
