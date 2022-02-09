@@ -817,7 +817,7 @@ func (dc *distConnection) decodePacket(b *lib.Buffer) (*distMessage, error) {
 		if exist == false {
 			// must be send further
 			if err := dc.router.RouteProxy(dc, sessionID, b); err != nil {
-				// send back ProxyDisconnect
+				// drop proxy session
 				disconnect := node.ProxyDisconnect{
 					Node:      dc.nodename,
 					Proxy:     dc.nodename,
@@ -851,6 +851,7 @@ func (dc *distConnection) decodePacket(b *lib.Buffer) (*distMessage, error) {
 				SessionID: sessionID,
 				Reason:    err.Error(),
 			}
+			dc.router.RouteProxyDisconnect(dc, disconnect)
 			dc.ProxyDisconnect(disconnect)
 			return nil, nil
 		}
@@ -868,7 +869,7 @@ func (dc *distConnection) decodePacket(b *lib.Buffer) (*distMessage, error) {
 		if exist == false {
 			// must be send further
 			if err := dc.router.RouteProxy(dc, sessionID, b); err != nil {
-				// send back ProxyDisconnect
+				// drop proxy session
 				disconnect := node.ProxyDisconnect{
 					Node:      dc.nodename,
 					Proxy:     dc.nodename,
@@ -882,13 +883,14 @@ func (dc *distConnection) decodePacket(b *lib.Buffer) (*distMessage, error) {
 
 		packet = b.B[37:]
 		if (len(packet) % aes.BlockSize) != 0 {
-			// drop this proxy session. send back ProxyDisconnect
+			// drop this proxy session.
 			disconnect := node.ProxyDisconnect{
 				Node:      dc.nodename,
 				Proxy:     dc.nodename,
 				SessionID: sessionID,
 				Reason:    "wrong blocksize of the encrypted message",
 			}
+			dc.router.RouteProxyDisconnect(dc, disconnect)
 			dc.ProxyDisconnect(disconnect)
 			return nil, nil
 		}
@@ -901,13 +903,14 @@ func (dc *distConnection) decodePacket(b *lib.Buffer) (*distMessage, error) {
 		length := len(msg)
 		unpadding := int(msg[length-1])
 		if unpadding > length {
-			// drop this proxy session. send back ProxyDisconnect
+			// drop this proxy session.
 			disconnect := node.ProxyDisconnect{
 				Node:      dc.nodename,
 				Proxy:     dc.nodename,
 				SessionID: sessionID,
 				Reason:    "wrong padding of the encrypted message",
 			}
+			dc.router.RouteProxyDisconnect(dc, disconnect)
 			dc.ProxyDisconnect(disconnect)
 			return nil, nil
 		}
@@ -922,13 +925,14 @@ func (dc *distConnection) decodePacket(b *lib.Buffer) (*distMessage, error) {
 				b.B[4] = protoDist
 				return nil, err
 			}
-			// drop this proxy session. send back ProxyDisconnect
+			// drop this proxy session.
 			disconnect := node.ProxyDisconnect{
 				Node:      dc.nodename,
 				Proxy:     dc.nodename,
 				SessionID: sessionID,
 				Reason:    err.Error(),
 			}
+			dc.router.RouteProxyDisconnect(dc, disconnect)
 			dc.ProxyDisconnect(disconnect)
 			return nil, nil
 		}
@@ -1097,7 +1101,7 @@ func (dc *distConnection) handleMessage(message *distMessage) (err error) {
 					Node: dc.nodename,
 					Name: string(t.Element(4).(etf.Atom)),
 				}
-				dc.router.RouteSendReg(t.Element(2).(etf.Pid), to, message)
+				dc.router.RouteSendReg(t.Element(2).(etf.Pid), to, message.payload)
 				return nil
 
 			case distProtoSEND:

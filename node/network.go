@@ -1264,7 +1264,7 @@ func (c *Connection) ProxyRegisterSession(session ProxySession) error {
 func (c *Connection) ProxyUnregisterSession(id string) error {
 	return ErrUnsupported
 }
-func (c *Connection) Proxy(packet *lib.Buffer) error {
+func (c *Connection) ProxyPacket(packet *lib.Buffer) error {
 	return ErrUnsupported
 }
 
