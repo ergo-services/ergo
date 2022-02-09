@@ -817,8 +817,14 @@ func (dc *distConnection) decodePacket(b *lib.Buffer) (*distMessage, error) {
 		if exist == false {
 			// must be send further
 			if err := dc.router.RouteProxy(dc, sessionID, b); err != nil {
-				// TODO handle err
 				// send back ProxyDisconnect
+				disconnect := node.ProxyDisconnect{
+					Node:      dc.nodename,
+					Proxy:     dc.nodename,
+					SessionID: sessionID,
+					Reason:    err.Error(),
+				}
+				dc.ProxyDisconnect(disconnect)
 			}
 			return nil, nil
 		}
@@ -838,8 +844,14 @@ func (dc *distConnection) decodePacket(b *lib.Buffer) (*distMessage, error) {
 				b.B[4] = protoDist
 				return nil, err
 			}
-			// TODO
 			// drop this proxy session. send back ProxyDisconnect
+			disconnect := node.ProxyDisconnect{
+				Node:      dc.nodename,
+				Proxy:     dc.nodename,
+				SessionID: sessionID,
+				Reason:    err.Error(),
+			}
+			dc.ProxyDisconnect(disconnect)
 			return nil, nil
 		}
 		if control == nil {
@@ -856,17 +868,28 @@ func (dc *distConnection) decodePacket(b *lib.Buffer) (*distMessage, error) {
 		if exist == false {
 			// must be send further
 			if err := dc.router.RouteProxy(dc, sessionID, b); err != nil {
-				// TODO handle err
 				// send back ProxyDisconnect
+				disconnect := node.ProxyDisconnect{
+					Node:      dc.nodename,
+					Proxy:     dc.nodename,
+					SessionID: sessionID,
+					Reason:    err.Error(),
+				}
+				dc.ProxyDisconnect(disconnect)
 			}
 			return nil, nil
 		}
 
 		packet = b.B[37:]
 		if (len(packet) % aes.BlockSize) != 0 {
-			// TODO
-			//return "", errors.New("blocksize must be multipe of decoded message length")
 			// drop this proxy session. send back ProxyDisconnect
+			disconnect := node.ProxyDisconnect{
+				Node:      dc.nodename,
+				Proxy:     dc.nodename,
+				SessionID: sessionID,
+				Reason:    "wrong blocksize of the encrypted message",
+			}
+			dc.ProxyDisconnect(disconnect)
 			return nil, nil
 		}
 		iv := packet[:aes.BlockSize]
@@ -878,23 +901,35 @@ func (dc *distConnection) decodePacket(b *lib.Buffer) (*distMessage, error) {
 		length := len(msg)
 		unpadding := int(msg[length-1])
 		if unpadding > length {
-			// TODO
 			// drop this proxy session. send back ProxyDisconnect
-			//return nil, errors.New("unpad error. This could happen when incorrect encryption key is used")
+			disconnect := node.ProxyDisconnect{
+				Node:      dc.nodename,
+				Proxy:     dc.nodename,
+				SessionID: sessionID,
+				Reason:    "wrong padding of the encrypted message",
+			}
+			dc.ProxyDisconnect(disconnect)
 			return nil, nil
 		}
 		packet = msg[:(length - unpadding)]
 		control, payload, err := dc.decodeDist(packet, &ps)
 		if err != nil {
 			if err == errMissingInCache {
-				// will be deferred
 				// TODO make sure if this shift is correct
+				panic("TODO missing in cache")
+				// will be deferred
 				b.B = b.B[32+aes.BlockSize:]
 				b.B[4] = protoDist
 				return nil, err
 			}
-			// TODO
 			// drop this proxy session. send back ProxyDisconnect
+			disconnect := node.ProxyDisconnect{
+				Node:      dc.nodename,
+				Proxy:     dc.nodename,
+				SessionID: sessionID,
+				Reason:    err.Error(),
+			}
+			dc.ProxyDisconnect(disconnect)
 			return nil, nil
 		}
 		if control == nil {
