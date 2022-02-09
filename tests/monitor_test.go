@@ -421,8 +421,8 @@ func TestMonitorLocalRemoteByName(t *testing.T) {
 		by Pid		- equal_pids, already_linked, doesnt_exist, terminate, unlink
 */
 
-func TestLinkLocalLocal(t *testing.T) {
-	fmt.Printf("\n=== Test Link Local-Local\n")
+func TestLinkLocal(t *testing.T) {
+	fmt.Printf("\n=== Test Link Local\n")
 	fmt.Printf("Starting node: nodeL1LocalLocal@localhost: ")
 	node1, _ := ergo.StartNode("nodeL1LocalLocal@localhost", "cookies", node.Options{})
 	if node1 == nil {
@@ -564,8 +564,8 @@ func TestLinkLocalLocal(t *testing.T) {
 	Link
 		by Pid		- already_linked, doesnt_exist, terminate, unlink, node_down, node_unknown
 */
-func TestLinkLocalRemote(t *testing.T) {
-	fmt.Printf("\n=== Test Link Local-Remote by Pid\n")
+func TestLinkRemote(t *testing.T) {
+	fmt.Printf("\n=== Test Link Remote by Pid\n")
 	fmt.Printf("Starting nodes: nodeL1LocalRemoteByPid@localhost, nodeL2LocalRemoteByPid@localhost: ")
 	node1, _ := ergo.StartNode("nodeL1LocalRemoteByPid@localhost", "cookies", node.Options{})
 	node2, _ := ergo.StartNode("nodeL2LocalRemoteByPid@localhost", "cookies", node.Options{})
@@ -741,6 +741,216 @@ func TestLinkLocalRemote(t *testing.T) {
 	fmt.Printf("Testing Link process (by Pid only) Local-Remote: gs1 -> gs2. node_unknown: ")
 	node1gs1.Link(node2gs2.Self())
 	result = gen.MessageExit{Pid: node2gs2.Self(), Reason: "noconnection"}
+	waitForResultWithValue(t, gs1.v, result)
+
+	if ll1 != len(node1gs1.Links()) {
+		t.Fatal("number of links has changed on the second Link call")
+	}
+	node1.Stop()
+}
+
+func TestLinkRemoteProxy(t *testing.T) {
+	fmt.Printf("\n=== Test Link Remote Via Proxy\n")
+	fmt.Printf("Starting nodes: nodeL1RemoteViaProxy@localhost, nodeL2RemoteViaProxy@localhost, nodeL3RemoteViaProxy@localhost: ")
+	node1, err := ergo.StartNode("nodeL1RemoteViaProxy@localhost", "cookies", node.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	node2opts := node.Options{}
+	node2opts.Proxy.Enable = true
+	node2, err := ergo.StartNode("nodeL2RemoteViaProxy@localhost", "cookies", node2opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	node3, err := ergo.StartNode("nodeL3RemoteViaProxy@localhost", "cookies", node.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fmt.Println("OK")
+
+	route := node.ProxyRoute{
+		Proxy: node2.Name(),
+	}
+	node1.AddProxyRoute(node3.Name(), route)
+	fmt.Printf("    check connectivity of %s with %s via proxy %s: ", node1.Name(), node3.Name(), node2.Name())
+	if err := node1.Connect(node3.Name()); err != nil {
+		t.Fatal(err)
+	}
+	node1indirect := node1.NodesIndirect()
+	node3indirect := node3.NodesIndirect()
+	if len(node1indirect) != 1 || len(node3indirect) != 1 {
+		t.Fatal("wrong indirect nodes (node1:", node1indirect, "; node3:", node3indirect, ")")
+	}
+	if node1indirect[0] != node3.Name() || node3indirect[0] != node1.Name() {
+		t.Fatal("wrong indirect nodes (node1:", node1indirect, "; node3:", node3indirect, ")")
+	}
+	fmt.Println("OK")
+	gs1 := &testMonitor{
+		v: make(chan interface{}, 2),
+	}
+	gs3 := &testMonitor{
+		v: make(chan interface{}, 2),
+	}
+
+	// starting gen servers
+	fmt.Printf("    wait for start of gs1 on %#v: ", node1.Name())
+	node1gs1, _ := node1.Spawn("gs1", gen.ProcessOptions{}, gs1, nil)
+	waitForResultWithValue(t, gs1.v, node1gs1.Self())
+
+	fmt.Printf("    wait for start of gs3 on %#v: ", node3.Name())
+	node3gs3, _ := node3.Spawn("gs3", gen.ProcessOptions{}, gs3, nil)
+	waitForResultWithValue(t, gs3.v, node3gs3.Self())
+
+	fmt.Printf("Testing Link process Local-Proxy-Remote: gs1 -> gs3. unlink: ")
+	node1gs1.Link(node3gs3.Self())
+	// wait a bit since linking process is async
+	waitForTimeout(t, gs1.v)
+
+	if checkLinkPid(node1gs1, node3gs3.Self()) != nil {
+		t.Fatal("link missing on node1gs1")
+	}
+	if checkLinkPid(node3gs3, node1gs1.Self()) != nil {
+		t.Fatal("link missing on node3gs3 ")
+	}
+
+	node1gs1.Unlink(node3gs3.Self())
+	// wait a bit since unlinking process is async
+	waitForTimeout(t, gs1.v)
+	if err := checkCleanLinkPid(node1gs1, node3gs3.Self()); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkCleanLinkPid(node3gs3, node1gs1.Self()); err != nil {
+		t.Fatal(err)
+	}
+	fmt.Println("OK")
+
+	fmt.Printf("Testing Link process Local-Proxy-Remote: gs1 -> gs3. already_linked: ")
+	node1gs1.Link(node3gs3.Self())
+	if checkLinkPid(node1gs1, node3gs3.Self()) != nil {
+		t.Fatal("link missing on node1gs1")
+	}
+	// wait a bit since linking process is async
+	waitForTimeout(t, gs1.v)
+	if checkLinkPid(node3gs3, node1gs1.Self()) != nil {
+		t.Fatal("link missing on node3gs3")
+	}
+	ll1 := len(node1gs1.Links())
+	ll3 := len(node3gs3.Links())
+
+	node3gs3.Link(node1gs1.Self())
+	// wait a bit since linking process is async
+	waitForTimeout(t, gs3.v)
+
+	if ll1 != len(node1gs1.Links()) || ll3 != len(node3gs3.Links()) {
+		t.Fatal("number of links has changed on the second Link call")
+	}
+	fmt.Println("OK")
+
+	fmt.Printf("Testing Link process Local-Proxy-Remote: gs1 -> gs3. terminate (trap_exit = true): ")
+	// do not link these process since they are already linked after the previous test
+
+	node1gs1.SetTrapExit(true)
+
+	node3gs3.Exit("normal")
+	result := gen.MessageExit{Pid: node3gs3.Self(), Reason: "normal"}
+	waitForResultWithValue(t, gs1.v, result)
+
+	if err := checkCleanLinkPid(node1gs1, node3gs3.Self()); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkCleanLinkPid(node3gs3, node1gs1.Self()); err != nil {
+		t.Fatal(err)
+	}
+	if !node1gs1.IsAlive() {
+		t.Fatal("gs1 should be alive after gs3 exit due to enabled trap exit on gs1")
+	}
+
+	fmt.Printf("Testing Link process Local-Proxy-Remote: gs1 -> gs3. doesnt_exist: ")
+	ll1 = len(node1gs1.Links())
+	node1gs1.Link(node3gs3.Self())
+	result = gen.MessageExit{Pid: node3gs3.Self(), Reason: "noproc"}
+	waitForResultWithValue(t, gs1.v, result)
+	if ll1 != len(node1gs1.Links()) {
+		t.Fatal("number of links has changed on the second Link call")
+	}
+
+	fmt.Printf("    wait for start of gs3 on %#v: ", node1.Name())
+	node3gs3, _ = node3.Spawn("gs3", gen.ProcessOptions{}, gs3, nil)
+	waitForResultWithValue(t, gs3.v, node3gs3.Self())
+
+	node1gs1.SetTrapExit(false)
+	fmt.Printf("Testing Link process Local-Proxy-Remote: gs1 -> gs3. terminate (trap_exit = false): ")
+	node1gs1.Link(node3gs3.Self())
+	waitForTimeout(t, gs3.v)
+
+	if checkLinkPid(node1gs1, node3gs3.Self()) != nil {
+		t.Fatal("link missing on node1gs1")
+	}
+	if checkLinkPid(node3gs3, node1gs1.Self()) != nil {
+		t.Fatal("link missing on node3gs3")
+	}
+
+	node3gs3.Exit("normal")
+
+	// wait a bit to make sure if we receive anything (shouldnt receive)
+	waitForTimeout(t, gs1.v)
+
+	if err := checkCleanLinkPid(node1gs1, node3gs3.Self()); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkCleanLinkPid(node3gs3, node1gs1.Self()); err != nil {
+		t.Fatal(err)
+	}
+	if node1gs1.IsAlive() {
+		t.Fatal("gs1 shouldnt be alive after gs3 exit due to disable trap exit on gs1")
+	}
+	if node3gs3.IsAlive() {
+		t.Fatal("gs3 must be terminated")
+	}
+	fmt.Println("OK")
+
+	fmt.Printf("    wait for start of gs1 on %#v: ", node1.Name())
+	node1gs1, _ = node1.Spawn("gs1", gen.ProcessOptions{}, gs1, nil)
+	waitForResultWithValue(t, gs1.v, node1gs1.Self())
+	fmt.Printf("    wait for start of gs3 on %#v: ", node3.Name())
+	node3gs3, _ = node3.Spawn("gs3", gen.ProcessOptions{}, gs3, nil)
+	waitForResultWithValue(t, gs3.v, node3gs3.Self())
+
+	node1gs1.SetTrapExit(true)
+	fmt.Printf("Testing Link process Local-Proxy-Remote: gs1 -> gs3. node_down: ")
+	node1gs1.Link(node3gs3.Self())
+	waitForTimeout(t, gs1.v)
+
+	if checkLinkPid(node1gs1, node3gs3.Self()) != nil {
+		t.Fatal("link missing for node1gs1")
+	}
+	if checkCleanLinkPid(node3gs3, node1gs1.Self()) == nil {
+		t.Fatal("link missing for node3gs3")
+	}
+
+	// race conditioned case.
+	// processing of the process termination (on the remote peer) can be done faster than
+	// the link termination there, so MessageExit with "kill" reason will be arrived
+	// earlier.
+	node3.Stop()
+	result1 := gen.MessageExit{Pid: node3gs3.Self(), Reason: "noconnection"}
+	result2 := gen.MessageExit{Pid: node3gs3.Self(), Reason: "kill"}
+
+	waitForResultWithValueOrValue(t, gs1.v, result1, result2)
+
+	if err := checkCleanLinkPid(node1gs1, node3gs3.Self()); err != nil {
+		t.Fatal(err)
+	}
+	// must wait a bit
+	waitForTimeout(t, gs1.v)
+	if err := checkCleanLinkPid(node3gs3, node1gs1.Self()); err != nil {
+		t.Fatal(err)
+	}
+
+	ll1 = len(node1gs1.Links())
+	fmt.Printf("Testing Link process Local-Proxy-Remote: gs1 -> gs3. node_unknown: ")
+	node1gs1.Link(node3gs3.Self())
+	result = gen.MessageExit{Pid: node3gs3.Self(), Reason: "noconnection"}
 	waitForResultWithValue(t, gs1.v, result)
 
 	if ll1 != len(node1gs1.Links()) {
