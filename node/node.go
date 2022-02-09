@@ -448,7 +448,6 @@ func DefaultProxyFlags() ProxyFlags {
 		EnableLink:        true,
 		EnableMonitor:     true,
 		EnableRemoteSpawn: true,
-		EnableCompression: false,
 		EnableEncryption:  false,
 	}
 }

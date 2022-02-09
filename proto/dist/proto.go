@@ -323,11 +323,9 @@ func (dc *distConnection) Send(from gen.Process, to etf.Pid, message etf.Term) e
 
 	msg.control = etf.Tuple{distProtoSEND, etf.Atom(""), to}
 	msg.payload = message
-	if dc.flags.EnableCompression {
-		msg.compression = from.Compression()
-		msg.compressionLevel = from.CompressionLevel()
-		msg.compressionThreshold = from.CompressionThreshold()
-	}
+	msg.compression = from.Compression()
+	msg.compressionLevel = from.CompressionLevel()
+	msg.compressionThreshold = from.CompressionThreshold()
 
 	return dc.send(string(to.Node), msg)
 }
@@ -336,12 +334,9 @@ func (dc *distConnection) SendReg(from gen.Process, to gen.ProcessID, message et
 
 	msg.control = etf.Tuple{distProtoREG_SEND, from.Self(), etf.Atom(""), etf.Atom(to.Name)}
 	msg.payload = message
-
-	if dc.flags.EnableCompression {
-		msg.compression = from.Compression()
-		msg.compressionLevel = from.CompressionLevel()
-		msg.compressionThreshold = from.CompressionThreshold()
-	}
+	msg.compression = from.Compression()
+	msg.compressionLevel = from.CompressionLevel()
+	msg.compressionThreshold = from.CompressionThreshold()
 	return dc.send(to.Node, msg)
 }
 func (dc *distConnection) SendAlias(from gen.Process, to etf.Alias, message etf.Term) error {
@@ -353,23 +348,32 @@ func (dc *distConnection) SendAlias(from gen.Process, to etf.Alias, message etf.
 
 	msg.control = etf.Tuple{distProtoALIAS_SEND, from.Self(), to}
 	msg.payload = message
-
-	if dc.flags.EnableCompression {
-		msg.compression = from.Compression()
-		msg.compressionLevel = from.CompressionLevel()
-		msg.compressionThreshold = from.CompressionThreshold()
-	}
+	msg.compression = from.Compression()
+	msg.compressionLevel = from.CompressionLevel()
+	msg.compressionThreshold = from.CompressionThreshold()
 
 	return dc.send(string(to.Node), msg)
 }
 
 func (dc *distConnection) Link(local etf.Pid, remote etf.Pid) error {
+	dc.proxySessionsMutex.RLock()
+	ps, isProxy := dc.proxySessionsByPeerName[string(remote.Node)]
+	dc.proxySessionsMutex.RUnlock()
+	if isProxy && ps.session.PeerFlags.EnableLink == false {
+		return node.ErrPeerUnsupported
+	}
 	msg := &sendMessage{
 		control: etf.Tuple{distProtoLINK, local, remote},
 	}
 	return dc.send(string(remote.Node), msg)
 }
 func (dc *distConnection) Unlink(local etf.Pid, remote etf.Pid) error {
+	dc.proxySessionsMutex.RLock()
+	ps, isProxy := dc.proxySessionsByPeerName[string(remote.Node)]
+	dc.proxySessionsMutex.RUnlock()
+	if isProxy && ps.session.PeerFlags.EnableLink == false {
+		return node.ErrPeerUnsupported
+	}
 	msg := &sendMessage{
 		control: etf.Tuple{distProtoUNLINK, local, remote},
 	}
@@ -383,24 +387,48 @@ func (dc *distConnection) LinkExit(to etf.Pid, terminated etf.Pid, reason string
 }
 
 func (dc *distConnection) Monitor(local etf.Pid, remote etf.Pid, ref etf.Ref) error {
+	dc.proxySessionsMutex.RLock()
+	ps, isProxy := dc.proxySessionsByPeerName[string(remote.Node)]
+	dc.proxySessionsMutex.RUnlock()
+	if isProxy && ps.session.PeerFlags.EnableMonitor == false {
+		return node.ErrPeerUnsupported
+	}
 	msg := &sendMessage{
 		control: etf.Tuple{distProtoMONITOR, local, remote, ref},
 	}
 	return dc.send(string(remote.Node), msg)
 }
 func (dc *distConnection) MonitorReg(local etf.Pid, remote gen.ProcessID, ref etf.Ref) error {
+	dc.proxySessionsMutex.RLock()
+	ps, isProxy := dc.proxySessionsByPeerName[remote.Node]
+	dc.proxySessionsMutex.RUnlock()
+	if isProxy && ps.session.PeerFlags.EnableMonitor == false {
+		return node.ErrPeerUnsupported
+	}
 	msg := &sendMessage{
 		control: etf.Tuple{distProtoMONITOR, local, etf.Atom(remote.Name), ref},
 	}
 	return dc.send(remote.Node, msg)
 }
 func (dc *distConnection) Demonitor(local etf.Pid, remote etf.Pid, ref etf.Ref) error {
+	dc.proxySessionsMutex.RLock()
+	ps, isProxy := dc.proxySessionsByPeerName[string(remote.Node)]
+	dc.proxySessionsMutex.RUnlock()
+	if isProxy && ps.session.PeerFlags.EnableMonitor == false {
+		return node.ErrPeerUnsupported
+	}
 	msg := &sendMessage{
 		control: etf.Tuple{distProtoDEMONITOR, local, remote, ref},
 	}
 	return dc.send(string(remote.Node), msg)
 }
 func (dc *distConnection) DemonitorReg(local etf.Pid, remote gen.ProcessID, ref etf.Ref) error {
+	dc.proxySessionsMutex.RLock()
+	ps, isProxy := dc.proxySessionsByPeerName[remote.Node]
+	dc.proxySessionsMutex.RUnlock()
+	if isProxy && ps.session.PeerFlags.EnableMonitor == false {
+		return node.ErrPeerUnsupported
+	}
 	msg := &sendMessage{
 		control: etf.Tuple{distProtoDEMONITOR, local, etf.Atom(remote.Name), ref},
 	}
@@ -420,8 +448,17 @@ func (dc *distConnection) MonitorExit(to etf.Pid, terminated etf.Pid, reason str
 }
 
 func (dc *distConnection) SpawnRequest(nodeName string, behaviorName string, request gen.RemoteSpawnRequest, args ...etf.Term) error {
-	if dc.flags.EnableRemoteSpawn == false {
-		return node.ErrUnsupported
+	dc.proxySessionsMutex.RLock()
+	ps, isProxy := dc.proxySessionsByPeerName[nodeName]
+	dc.proxySessionsMutex.RUnlock()
+	if isProxy {
+		if ps.session.PeerFlags.EnableRemoteSpawn == false {
+			return node.ErrPeerUnsupported
+		}
+	} else {
+		if dc.flags.EnableRemoteSpawn == false {
+			return node.ErrPeerUnsupported
+		}
 	}
 
 	optlist := etf.List{}
@@ -635,6 +672,12 @@ type deferrMissing struct {
 	c int
 }
 
+type distMessage struct {
+	control etf.Term
+	payload etf.Term
+	proxy   *proxySession
+}
+
 func (dc *distConnection) receiver(recv <-chan *lib.Buffer) {
 	var b *lib.Buffer
 	var missing deferrMissing
@@ -677,7 +720,7 @@ func (dc *distConnection) receiver(recv <-chan *lib.Buffer) {
 		}
 
 		// read and decode received packet
-		control, message, err := dc.decodePacket(b)
+		message, err := dc.decodePacket(b)
 
 		if err == errMissingInCache {
 			if b == missing.b && missing.c > 100 {
@@ -716,17 +759,31 @@ func (dc *distConnection) receiver(recv <-chan *lib.Buffer) {
 			return
 		}
 
-		if control == nil {
+		if message == nil {
 			// fragment or proxy message
 			continue
 		}
 
 		// handle message
-		if err := dc.handleMessage(control, message); err != nil {
-			fmt.Printf("[%s] Malformed Control packet at the link with %s: %#v\n", dc.nodename, dc.peername, control)
-			dc.cancelContext()
-			lib.ReleaseBuffer(b)
-			return
+		if err := dc.handleMessage(message); err != nil {
+			if message.proxy == nil {
+				fmt.Printf("[%s] Malformed Control packet at the link with %s: %#v\n", dc.nodename, dc.peername, message.control)
+				dc.cancelContext()
+				lib.ReleaseBuffer(b)
+				return
+			}
+			// drop proxy session
+			fmt.Printf("[%s] Malformed Control packet at the proxy link with %s: %#v\n", dc.nodename, message.proxy.session.PeerName, message.control)
+			disconnect := node.ProxyDisconnect{
+				Node:      dc.nodename,
+				Proxy:     dc.nodename,
+				SessionID: message.proxy.session.ID,
+				Reason:    err.Error(),
+			}
+			// route it locally to unregister this session
+			dc.router.RouteProxyDisconnect(dc, disconnect)
+			// send it to the peer
+			dc.ProxyDisconnect(disconnect)
 		}
 
 		// we have to release this buffer
@@ -735,17 +792,23 @@ func (dc *distConnection) receiver(recv <-chan *lib.Buffer) {
 	}
 }
 
-func (dc *distConnection) decodePacket(b *lib.Buffer) (etf.Term, etf.Term, error) {
+func (dc *distConnection) decodePacket(b *lib.Buffer) (*distMessage, error) {
 	packet := b.B
 	if len(packet) < 5 {
-		return nil, nil, fmt.Errorf("malformed packet")
+		return nil, fmt.Errorf("malformed packet")
 	}
 
 	// [:3] length
 	switch packet[4] {
 	case protoDist:
 		// do not check the length. it was checked on the receiving this packet.
-		return dc.decodeDist(packet[5:], nil)
+		control, payload, err := dc.decodeDist(packet[5:], nil)
+		if control == nil {
+			return nil, err
+		}
+		message := &distMessage{control: control, payload: payload}
+		return message, err
+
 	case protoProxy:
 		sessionID := string(packet[5:37])
 		dc.proxySessionsMutex.RLock()
@@ -757,7 +820,7 @@ func (dc *distConnection) decodePacket(b *lib.Buffer) (etf.Term, etf.Term, error
 				// TODO handle err
 				// send back ProxyDisconnect
 			}
-			return nil, nil, nil
+			return nil, nil
 		}
 		// this node is endpoint of this session
 		packet = b.B[37:]
@@ -773,13 +836,17 @@ func (dc *distConnection) decodePacket(b *lib.Buffer) (etf.Term, etf.Term, error
 				// and will be ignored on the next dc.decodeDist call
 				b.B = b.B[32:]
 				b.B[4] = protoDist
-				return nil, nil, err
+				return nil, err
 			}
 			// TODO
 			// drop this proxy session. send back ProxyDisconnect
-			return nil, nil, nil
+			return nil, nil
 		}
-		return control, payload, nil
+		if control == nil {
+			return nil, nil
+		}
+		message := &distMessage{control: control, payload: payload, proxy: &ps}
+		return message, nil
 
 	case protoProxyX:
 		sessionID := string(packet[5:37])
@@ -792,7 +859,7 @@ func (dc *distConnection) decodePacket(b *lib.Buffer) (etf.Term, etf.Term, error
 				// TODO handle err
 				// send back ProxyDisconnect
 			}
-			return nil, nil, nil
+			return nil, nil
 		}
 
 		packet = b.B[37:]
@@ -800,7 +867,7 @@ func (dc *distConnection) decodePacket(b *lib.Buffer) (etf.Term, etf.Term, error
 			// TODO
 			//return "", errors.New("blocksize must be multipe of decoded message length")
 			// drop this proxy session. send back ProxyDisconnect
-			return nil, nil, nil
+			return nil, nil
 		}
 		iv := packet[:aes.BlockSize]
 		msg := packet[aes.BlockSize:]
@@ -814,7 +881,7 @@ func (dc *distConnection) decodePacket(b *lib.Buffer) (etf.Term, etf.Term, error
 			// TODO
 			// drop this proxy session. send back ProxyDisconnect
 			//return nil, errors.New("unpad error. This could happen when incorrect encryption key is used")
-			return nil, nil, nil
+			return nil, nil
 		}
 		packet = msg[:(length - unpadding)]
 		control, payload, err := dc.decodeDist(packet, &ps)
@@ -824,17 +891,21 @@ func (dc *distConnection) decodePacket(b *lib.Buffer) (etf.Term, etf.Term, error
 				// TODO make sure if this shift is correct
 				b.B = b.B[32+aes.BlockSize:]
 				b.B[4] = protoDist
-				return nil, nil, err
+				return nil, err
 			}
 			// TODO
 			// drop this proxy session. send back ProxyDisconnect
-			return nil, nil, nil
+			return nil, nil
 		}
-		return control, payload, nil
+		if control == nil {
+			return nil, nil
+		}
+		message := &distMessage{control: control, payload: payload, proxy: &ps}
+		return message, nil
 
 	default:
 		// unknown proto
-		return nil, nil, fmt.Errorf("unknown/unsupported proto")
+		return nil, fmt.Errorf("unknown/unsupported proto")
 	}
 
 }
@@ -842,7 +913,7 @@ func (dc *distConnection) decodePacket(b *lib.Buffer) (etf.Term, etf.Term, error
 func (dc *distConnection) decodeDist(packet []byte, proxy *proxySession) (etf.Term, etf.Term, error) {
 	switch packet[0] {
 	case protoDistMessage:
-		var control, message etf.Term
+		var control, payload etf.Term
 		var err error
 		var cache []etf.Atom
 
@@ -866,7 +937,7 @@ func (dc *distConnection) decodeDist(packet []byte, proxy *proxySession) (etf.Te
 		}
 
 		// decode payload message
-		message, packet, err = etf.Decode(packet, cache, decodeOptions)
+		payload, packet, err = etf.Decode(packet, cache, decodeOptions)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -875,10 +946,10 @@ func (dc *distConnection) decodeDist(packet []byte, proxy *proxySession) (etf.Te
 			return nil, nil, fmt.Errorf("packet has extra %d byte(s)", len(packet))
 		}
 
-		return control, message, nil
+		return control, payload, nil
 
 	case protoDistMessageZ:
-		var control, message etf.Term
+		var control, payload etf.Term
 		var err error
 		var cache []etf.Atom
 		var zReader *gzip.Reader
@@ -937,7 +1008,7 @@ func (dc *distConnection) decodeDist(packet []byte, proxy *proxySession) (etf.Te
 		}
 
 		// decode payload message
-		message, packet, err = etf.Decode(packet, cache, decodeOptions)
+		payload, packet, err = etf.Decode(packet, cache, decodeOptions)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -946,7 +1017,7 @@ func (dc *distConnection) decodeDist(packet []byte, proxy *proxySession) (etf.Te
 			return nil, nil, fmt.Errorf("packet has extra %d byte(s)", len(packet))
 		}
 
-		return control, message, nil
+		return control, payload, nil
 
 	case protoDistFragment1, protoDistFragmentN, protoDistFragment1Z, protoDistFragmentNZ:
 		if len(packet) < 18 {
@@ -970,7 +1041,7 @@ func (dc *distConnection) decodeDist(packet []byte, proxy *proxySession) (etf.Te
 	return nil, nil, fmt.Errorf("unknown packet type %d", packet[0])
 }
 
-func (dc *distConnection) handleMessage(control, message etf.Term) (err error) {
+func (dc *distConnection) handleMessage(message *distMessage) (err error) {
 	defer func() {
 		if lib.CatchPanic() {
 			if r := recover(); r != nil {
@@ -979,14 +1050,14 @@ func (dc *distConnection) handleMessage(control, message etf.Term) (err error) {
 		}
 	}()
 
-	switch t := control.(type) {
+	switch t := message.control.(type) {
 	case etf.Tuple:
 		switch act := t.Element(1).(type) {
 		case int:
 			switch act {
 			case distProtoREG_SEND:
 				// {6, FromPid, Unused, ToName}
-				lib.Log("[%s] CONTROL REG_SEND [from %s]: %#v", dc.nodename, dc.peername, control)
+				lib.Log("[%s] CONTROL REG_SEND [from %s]: %#v", dc.nodename, dc.peername, message.control)
 				to := gen.ProcessID{
 					Node: dc.nodename,
 					Name: string(t.Element(4).(etf.Atom)),
@@ -997,29 +1068,39 @@ func (dc *distConnection) handleMessage(control, message etf.Term) (err error) {
 			case distProtoSEND:
 				// {2, Unused, ToPid}
 				// SEND has no sender pid
-				lib.Log("[%s] CONTROL SEND [from %s]: %#v", dc.nodename, dc.peername, control)
-				dc.router.RouteSend(etf.Pid{}, t.Element(3).(etf.Pid), message)
+				lib.Log("[%s] CONTROL SEND [from %s]: %#v", dc.nodename, dc.peername, message.control)
+				dc.router.RouteSend(etf.Pid{}, t.Element(3).(etf.Pid), message.payload)
 				return nil
 
 			case distProtoLINK:
 				// {1, FromPid, ToPid}
-				lib.Log("[%s] CONTROL LINK [from %s]: %#v", dc.nodename, dc.peername, control)
+				lib.Log("[%s] CONTROL LINK [from %s]: %#v", dc.nodename, dc.peername, message.control)
+				if message.proxy != nil && message.proxy.session.NodeFlags.EnableLink == false {
+					// we didn't allow this feature. proxy session will be closed due to
+					// this violation of the contract
+					return node.ErrPeerUnsupported
+				}
 				dc.router.RouteLink(t.Element(2).(etf.Pid), t.Element(3).(etf.Pid))
 				return nil
 
 			case distProtoUNLINK:
 				// {4, FromPid, ToPid}
-				lib.Log("[%s] CONTROL UNLINK [from %s]: %#v", dc.nodename, dc.peername, control)
+				lib.Log("[%s] CONTROL UNLINK [from %s]: %#v", dc.nodename, dc.peername, message.control)
+				if message.proxy != nil && message.proxy.session.NodeFlags.EnableLink == false {
+					// we didn't allow this feature. proxy session will be closed due to
+					// this violation of the contract
+					return node.ErrPeerUnsupported
+				}
 				dc.router.RouteUnlink(t.Element(2).(etf.Pid), t.Element(3).(etf.Pid))
 				return nil
 
 			case distProtoNODE_LINK:
-				lib.Log("[%s] CONTROL NODE_LINK [from %s]: %#v", dc.nodename, dc.peername, control)
+				lib.Log("[%s] CONTROL NODE_LINK [from %s]: %#v", dc.nodename, dc.peername, message.control)
 				return nil
 
 			case distProtoEXIT:
 				// {3, FromPid, ToPid, Reason}
-				lib.Log("[%s] CONTROL EXIT [from %s]: %#v", dc.nodename, dc.peername, control)
+				lib.Log("[%s] CONTROL EXIT [from %s]: %#v", dc.nodename, dc.peername, message.control)
 				terminated := t.Element(2).(etf.Pid)
 				to := t.Element(3).(etf.Pid)
 				reason := fmt.Sprint(t.Element(4))
@@ -1027,13 +1108,18 @@ func (dc *distConnection) handleMessage(control, message etf.Term) (err error) {
 				return nil
 
 			case distProtoEXIT2:
-				lib.Log("[%s] CONTROL EXIT2 [from %s]: %#v", dc.nodename, dc.peername, control)
+				lib.Log("[%s] CONTROL EXIT2 [from %s]: %#v", dc.nodename, dc.peername, message.control)
 				return nil
 
 			case distProtoMONITOR:
 				// {19, FromPid, ToProc, Ref}, where FromPid = monitoring process
 				// and ToProc = monitored process pid or name (atom)
-				lib.Log("[%s] CONTROL MONITOR [from %s]: %#v", dc.nodename, dc.peername, control)
+				lib.Log("[%s] CONTROL MONITOR [from %s]: %#v", dc.nodename, dc.peername, message.control)
+				if message.proxy != nil && message.proxy.session.NodeFlags.EnableMonitor == false {
+					// we didn't allow this feature. proxy session will be closed due to
+					// this violation of the contract
+					return node.ErrPeerUnsupported
+				}
 
 				fromPid := t.Element(2).(etf.Pid)
 				ref := t.Element(4).(etf.Ref)
@@ -1058,7 +1144,12 @@ func (dc *distConnection) handleMessage(control, message etf.Term) (err error) {
 			case distProtoDEMONITOR:
 				// {20, FromPid, ToProc, Ref}, where FromPid = monitoring process
 				// and ToProc = monitored process pid or name (atom)
-				lib.Log("[%s] CONTROL DEMONITOR [from %s]: %#v", dc.nodename, dc.peername, control)
+				lib.Log("[%s] CONTROL DEMONITOR [from %s]: %#v", dc.nodename, dc.peername, message.control)
+				if message.proxy != nil && message.proxy.session.NodeFlags.EnableMonitor == false {
+					// we didn't allow this feature. proxy session will be closed due to
+					// this violation of the contract
+					return node.ErrPeerUnsupported
+				}
 				ref := t.Element(4).(etf.Ref)
 				fromPid := t.Element(2).(etf.Pid)
 				dc.router.RouteDemonitor(fromPid, ref)
@@ -1067,7 +1158,7 @@ func (dc *distConnection) handleMessage(control, message etf.Term) (err error) {
 			case distProtoMONITOR_EXIT:
 				// {21, FromProc, ToPid, Ref, Reason}, where FromProc = monitored process
 				// pid or name (atom), ToPid = monitoring process, and Reason = exit reason for the monitored process
-				lib.Log("[%s] CONTROL MONITOR_EXIT [from %s]: %#v", dc.nodename, dc.peername, control)
+				lib.Log("[%s] CONTROL MONITOR_EXIT [from %s]: %#v", dc.nodename, dc.peername, message.control)
 				reason := fmt.Sprint(t.Element(5))
 				ref := t.Element(4).(etf.Ref)
 				switch terminated := t.Element(2).(type) {
@@ -1083,29 +1174,34 @@ func (dc *distConnection) handleMessage(control, message etf.Term) (err error) {
 
 			// Not implemented yet, just stubs. TODO.
 			case distProtoSEND_SENDER:
-				lib.Log("[%s] CONTROL SEND_SENDER unsupported [from %s]: %#v", dc.nodename, dc.peername, control)
+				lib.Log("[%s] CONTROL SEND_SENDER unsupported [from %s]: %#v", dc.nodename, dc.peername, message.control)
 				return nil
 			case distProtoPAYLOAD_EXIT:
-				lib.Log("[%s] CONTROL PAYLOAD_EXIT unsupported [from %s]: %#v", dc.nodename, dc.peername, control)
+				lib.Log("[%s] CONTROL PAYLOAD_EXIT unsupported [from %s]: %#v", dc.nodename, dc.peername, message.control)
 				return nil
 			case distProtoPAYLOAD_EXIT2:
-				lib.Log("[%s] CONTROL PAYLOAD_EXIT2 unsupported [from %s]: %#v", dc.nodename, dc.peername, control)
+				lib.Log("[%s] CONTROL PAYLOAD_EXIT2 unsupported [from %s]: %#v", dc.nodename, dc.peername, message.control)
 				return nil
 			case distProtoPAYLOAD_MONITOR_P_EXIT:
-				lib.Log("[%s] CONTROL PAYLOAD_MONITOR_P_EXIT unsupported [from %s]: %#v", dc.nodename, dc.peername, control)
+				lib.Log("[%s] CONTROL PAYLOAD_MONITOR_P_EXIT unsupported [from %s]: %#v", dc.nodename, dc.peername, message.control)
 				return nil
 
 			// alias support
 			case distProtoALIAS_SEND:
 				// {33, FromPid, Alias}
-				lib.Log("[%s] CONTROL ALIAS_SEND [from %s]: %#v", dc.nodename, dc.peername, control)
+				lib.Log("[%s] CONTROL ALIAS_SEND [from %s]: %#v", dc.nodename, dc.peername, message.control)
 				alias := etf.Alias(t.Element(3).(etf.Ref))
-				dc.router.RouteSendAlias(t.Element(2).(etf.Pid), alias, message)
+				dc.router.RouteSendAlias(t.Element(2).(etf.Pid), alias, message.payload)
 				return nil
 
 			case distProtoSPAWN_REQUEST:
 				// {29, ReqId, From, GroupLeader, {Module, Function, Arity}, OptList}
-				lib.Log("[%s] CONTROL SPAWN_REQUEST [from %s]: %#v", dc.nodename, dc.peername, control)
+				lib.Log("[%s] CONTROL SPAWN_REQUEST [from %s]: %#v", dc.nodename, dc.peername, message.control)
+				if message.proxy != nil && message.proxy.session.NodeFlags.EnableRemoteSpawn == false {
+					// we didn't allow this feature. proxy session will be closed due to
+					// this violation of the contract
+					return node.ErrPeerUnsupported
+				}
 				registerName := ""
 				for _, option := range t.Element(6).(etf.List) {
 					name, ok := option.(etf.Tuple)
@@ -1125,8 +1221,8 @@ func (dc *distConnection) handleMessage(control, message etf.Term) (err error) {
 				module := mfa.Element(1).(etf.Atom)
 				function := mfa.Element(2).(etf.Atom)
 				var args etf.List
-				if str, ok := message.(string); !ok {
-					args, _ = message.(etf.List)
+				if str, ok := message.payload.(string); !ok {
+					args, _ = message.payload.(etf.List)
 				} else {
 					// stupid Erlang's strings :). [1,2,3,4,5] sends as a string.
 					// args can't be anything but etf.List.
@@ -1149,7 +1245,7 @@ func (dc *distConnection) handleMessage(control, message etf.Term) (err error) {
 
 			case distProtoSPAWN_REPLY:
 				// {31, ReqId, To, Flags, Result}
-				lib.Log("[%s] CONTROL SPAWN_REPLY [from %s]: %#v", dc.nodename, dc.peername, control)
+				lib.Log("[%s] CONTROL SPAWN_REPLY [from %s]: %#v", dc.nodename, dc.peername, message.control)
 				ref := t.Element(2).(etf.Ref)
 				to := t.Element(3).(etf.Pid)
 				dc.router.RouteSpawnReply(to, ref, t.Element(5))
@@ -1157,7 +1253,7 @@ func (dc *distConnection) handleMessage(control, message etf.Term) (err error) {
 
 			case distProtoPROXY_CONNECT_REQUEST:
 				// {101, ID, To, Digest, PublicKey, Flags, Hop, Path}
-				lib.Log("[%s] PROXY CONNECT REQUEST [from %s]: %#v", dc.nodename, dc.peername, control)
+				lib.Log("[%s] PROXY CONNECT REQUEST [from %s]: %#v", dc.nodename, dc.peername, message.control)
 				request := node.ProxyConnectRequest{
 					ID:        t.Element(2).(etf.Ref),
 					To:        string(t.Element(3).(etf.Atom)),
@@ -1183,7 +1279,7 @@ func (dc *distConnection) handleMessage(control, message etf.Term) (err error) {
 
 			case distProtoPROXY_CONNECT_REPLY:
 				// {102, ID, To, Digest, Cipher, Flags, SessionID, Path}
-				lib.Log("[%s] PROXY CONNECT REPLY [from %s]: %#v", dc.nodename, dc.peername, control)
+				lib.Log("[%s] PROXY CONNECT REPLY [from %s]: %#v", dc.nodename, dc.peername, message.control)
 				connectReply := node.ProxyConnectReply{
 					ID:     t.Element(2).(etf.Ref),
 					To:     string(t.Element(3).(etf.Atom)),
@@ -1224,7 +1320,7 @@ func (dc *distConnection) handleMessage(control, message etf.Term) (err error) {
 				return nil
 
 			case distProtoPROXY_CONNECT_CANCEL:
-				lib.Log("[%s] PROXY CONNECT CANCEL [from %s]: %#v", dc.nodename, dc.peername, control)
+				lib.Log("[%s] PROXY CONNECT CANCEL [from %s]: %#v", dc.nodename, dc.peername, message.control)
 				connectError := node.ProxyConnectCancel{
 					ID:     t.Element(2).(etf.Ref),
 					From:   string(t.Element(3).(etf.Atom)),
@@ -1238,7 +1334,7 @@ func (dc *distConnection) handleMessage(control, message etf.Term) (err error) {
 
 			case distProtoPROXY_DISCONNECT:
 				// {104, Node, Proxy, SessionID, Reason}
-				lib.Log("[%s] PROXY DISCONNECT [from %s]: %#v", dc.nodename, dc.peername, control)
+				lib.Log("[%s] PROXY DISCONNECT [from %s]: %#v", dc.nodename, dc.peername, message.control)
 				proxyDisconnect := node.ProxyDisconnect{
 					Node:      string(t.Element(2).(etf.Atom)),
 					Proxy:     string(t.Element(3).(etf.Atom)),
@@ -1249,13 +1345,13 @@ func (dc *distConnection) handleMessage(control, message etf.Term) (err error) {
 				return nil
 
 			default:
-				lib.Log("[%s] CONTROL unknown command [from %s]: %#v", dc.nodename, dc.peername, control)
-				return fmt.Errorf("unknown control command %#v", control)
+				lib.Log("[%s] CONTROL unknown command [from %s]: %#v", dc.nodename, dc.peername, message.control)
+				return fmt.Errorf("unknown control command %#v", message.control)
 			}
 		}
 	}
 
-	return fmt.Errorf("unsupported control message %#v", control)
+	return fmt.Errorf("unsupported control message %#v", message.control)
 }
 
 func (dc *distConnection) decodeFragment(packet []byte) (*lib.Buffer, error) {
@@ -1933,11 +2029,16 @@ func (dc *distConnection) send(to string, msg *sendMessage) error {
 		// connection was closed
 		return node.ErrNoRoute
 	}
-	s.Lock()
-	defer s.Unlock()
-
-	if ps, ok := dc.proxySessionsByPeerName[to]; ok {
+	dc.proxySessionsMutex.RLock()
+	ps, isProxy := dc.proxySessionsByPeerName[to]
+	dc.proxySessionsMutex.RUnlock()
+	if isProxy {
 		msg.proxy = &ps
+	} else {
+		// its direct sending, so have to make sure if this peer does support compression
+		if dc.flags.EnableCompression == false {
+			msg.compression = false
+		}
 	}
 
 	// TODO to decide whether to return error if channel is full
@@ -1947,6 +2048,9 @@ func (dc *distConnection) send(to string, msg *sendMessage) error {
 	//default:
 	//	return ErrOverloadConnection
 	//}
+
+	s.Lock()
+	defer s.Unlock()
 
 	s.sendChannel <- msg
 	return nil
@@ -1963,11 +2067,8 @@ func proxyFlagsToUint64(pf node.ProxyFlags) uint64 {
 	if pf.EnableRemoteSpawn {
 		flags |= 1 << 2
 	}
-	if pf.EnableCompression {
-		flags |= 1 << 3
-	}
 	if pf.EnableEncryption {
-		flags |= 1 << 4
+		flags |= 1 << 3
 	}
 	return flags
 }
@@ -1977,7 +2078,6 @@ func proxyFlagsFromUint64(f uint64) node.ProxyFlags {
 	flags.EnableLink = f&1 > 0
 	flags.EnableMonitor = f&(1<<1) > 0
 	flags.EnableRemoteSpawn = f&(1<<2) > 0
-	flags.EnableCompression = f&(1<<3) > 0
-	flags.EnableEncryption = f&(1<<4) > 0
+	flags.EnableEncryption = f&(1<<3) > 0
 	return flags
 }

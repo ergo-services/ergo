@@ -462,7 +462,6 @@ type ProxyFlags struct {
 	EnableLink        bool
 	EnableMonitor     bool
 	EnableRemoteSpawn bool
-	EnableCompression bool
 	EnableEncryption  bool
 }
 
