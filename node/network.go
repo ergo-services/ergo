@@ -1184,7 +1184,7 @@ func (n *network) unregisterConnection(peername string, disconnect *ProxyDisconn
 		disconnect := ProxyDisconnect{
 			Node:   peername,
 			Proxy:  n.nodename,
-			Reason: "connection closed",
+			Reason: "noconnection",
 		}
 		n.router.RouteNodeDown(p, &disconnect)
 	}
@@ -1195,7 +1195,7 @@ func (n *network) unregisterConnection(peername string, disconnect *ProxyDisconn
 			Node:      peername,
 			Proxy:     n.nodename,
 			SessionID: ct[i],
-			Reason:    "connection closed",
+			Reason:    "noconnection",
 		}
 		n.RouteProxyDisconnect(ci.connection, disconnect)
 	}

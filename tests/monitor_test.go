@@ -1126,10 +1126,10 @@ func TestMonitorNode(t *testing.T) {
 	fmt.Printf("... stop node C : ")
 	nodeC.Stop()
 	fmt.Println("OK")
-	resultMessageProxyDown := gen.MessageProxyDown{Ref: refD, Node: nodeC.Name(), Proxy: nodeD.Name(), Reason: "connection closed"}
+	resultMessageProxyDown := gen.MessageProxyDown{Ref: refD, Node: nodeC.Name(), Proxy: nodeD.Name(), Reason: "noconnection"}
 	fmt.Printf("... processD must receive gen.MessageProxyDown{Node: C, Proxy: D,...}: ")
 	waitForResultWithValue(t, gsD.v, resultMessageProxyDown)
-	resultMessageProxyDown = gen.MessageProxyDown{Ref: refA, Node: nodeC.Name(), Proxy: nodeB.Name(), Reason: "connection closed"}
+	resultMessageProxyDown = gen.MessageProxyDown{Ref: refA, Node: nodeC.Name(), Proxy: nodeB.Name(), Reason: "noconnection"}
 	fmt.Printf("... processA must receive gen.MessageProxyDown{Node: C, Proxy: B,...}: ")
 	waitForResultWithValue(t, gsA.v, resultMessageProxyDown)
 	resultMessageDown := gen.MessageNodeDown{Ref: refB, Name: nodeC.Name()}
