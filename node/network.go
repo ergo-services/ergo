@@ -874,6 +874,10 @@ func (n *network) AddProxyRoute(node string, route ProxyRoute) error {
 		route.MaxHop = DefaultProxyMaxHop
 	}
 
+	if route.Flags.Enable == false {
+		route.Flags = n.proxy.Flags
+	}
+
 	if _, exist := n.proxyRoutes[node]; exist {
 		return ErrTaken
 	}

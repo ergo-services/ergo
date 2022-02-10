@@ -423,10 +423,26 @@ func TestNodeDistHandshake(t *testing.T) {
 
 func TestNodeRemoteSpawn(t *testing.T) {
 	fmt.Printf("\n=== Test Node Remote Spawn\n")
-	node1, _ := ergo.StartNode("node1remoteSpawn@localhost", "secret", node.Options{})
-	node2, _ := ergo.StartNode("node2remoteSpawn@localhost", "secret", node.Options{})
+	node1opts := node.Options{}
+	node1opts.Proxy.Flags = node.DefaultProxyFlags()
+	node1opts.Proxy.Flags.EnableRemoteSpawn = false
+
+	node1, _ := ergo.StartNode("node1remoteSpawn@localhost", "secret", node1opts)
+	node2opts := node.Options{}
+	node2opts.Proxy.Enable = true
+	node2, _ := ergo.StartNode("node2remoteSpawn@localhost", "secret", node2opts)
+	node3, _ := ergo.StartNode("node3remoteSpawn@localhost", "secret", node.Options{})
+	route := node.ProxyRoute{
+		Proxy: node2.Name(),
+	}
+	node1.AddProxyRoute(node3.Name(), route)
 	defer node1.Stop()
 	defer node2.Stop()
+	defer node3.Stop()
+
+	if err := node1.Connect(node3.Name()); err != nil {
+		t.Fatal(err)
+	}
 
 	node2.ProvideRemoteSpawn("remote", &handshakeGenServer{})
 	process, err := node1.Spawn("gs1", gen.ProcessOptions{}, &handshakeGenServer{})
@@ -460,6 +476,31 @@ func TestNodeRemoteSpawn(t *testing.T) {
 	fmt.Printf("    process gs1@node1 request to spawn new process on node2 with unregistered behavior name (must be failed): ")
 	_, err = process.RemoteSpawn(node2.Name(), "randomname", opts, 1, 2, 3)
 	if err != node.ErrBehaviorUnknown {
+		t.Fatal(err)
+	}
+	fmt.Println("OK")
+
+	fmt.Printf("    process gs1@node1 request to spawn new process on node3 via proxy node2 and register this process with name 'remote': ")
+	node3.ProvideRemoteSpawn("remote", &handshakeGenServer{})
+	gotPid, err = process.RemoteSpawn(node3.Name(), "remote", opts, 1, 2, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p = node3.ProcessByName("remote")
+	if p == nil {
+		t.Fatal("can't find process 'remote' on node2")
+	}
+	if gotPid != p.Self() {
+		t.Fatal("process pid mismatch")
+	}
+	fmt.Println("OK")
+	fmt.Printf("    process gs3@node3 request to spawn new process on node1 via proxy node2 (node1 ProxyFlags.RemoteSpawn: false): ")
+	process3, err := node3.Spawn("gs3", gen.ProcessOptions{}, &handshakeGenServer{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	gotPid, err = process3.RemoteSpawn(node1.Name(), "remote", opts, 1, 2, 3)
+	if err != node.ErrPeerUnsupported {
 		t.Fatal(err)
 	}
 	fmt.Println("OK")
