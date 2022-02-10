@@ -1068,7 +1068,10 @@ func TestMonitorNode(t *testing.T) {
 	fmt.Println("OK")
 
 	fmt.Printf("... add proxy transit route on B to the node D via C: ")
-	if err := nodeB.AddProxyTransitRoute(nodeD.Name(), nodeC.Name()); err != nil {
+	route := node.ProxyRoute{
+		Proxy: nodeC.Name(),
+	}
+	if err := nodeB.AddProxyRoute(nodeD.Name(), route); err != nil {
 		t.Fatal(err)
 	}
 	fmt.Println("OK")

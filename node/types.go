@@ -122,7 +122,6 @@ type Node interface {
 	StaticRoute(name string) (Route, bool)
 
 	AddProxyRoute(name string, proxy ProxyRoute) error
-	AddProxyTransitRoute(name string, proxy string) error
 	RemoveProxyRoute(name string) bool
 	ProxyRoutes() []ProxyRoute
 	ProxyRoute(name string) (ProxyRoute, bool)

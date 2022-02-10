@@ -40,7 +40,6 @@ type networkInternal interface {
 
 	// add/remove proxy route
 	AddProxyRoute(node string, route ProxyRoute) error
-	AddProxyTransitRoute(name string, proxy string) error
 	RemoveProxyRoute(node string) bool
 	ProxyRoutes() []ProxyRoute
 	ProxyRoute(name string) (ProxyRoute, bool)
@@ -135,6 +134,9 @@ func newNetwork(ctx context.Context, nodename string, options Options, router co
 	}
 
 	n.version, _ = options.Env[EnvKeyVersion].(Version)
+	if n.proxy.Flags.Enable == false {
+		n.proxy.Flags = DefaultProxyFlags()
+	}
 
 	n.tls = options.TLS
 	selfSignedCert, err := generateSelfSignedCert(n.version)
@@ -468,7 +470,7 @@ func (n *network) RouteProxyConnectRequest(from ConnectionInterface, request Pro
 
 		request.Flags = route.Flags
 		if request.Flags.Enable == false {
-			request.Flags = DefaultProxyFlags()
+			request.Flags = n.proxy.Flags
 		}
 
 		request.Hop = route.MaxHop
@@ -502,8 +504,12 @@ func (n *network) RouteProxyConnectRequest(from ConnectionInterface, request Pro
 	}
 	peername := request.Path[len(request.Path)-1]
 	cookie := n.proxy.Cookie
+	flags := n.proxy.Flags
 	if has_route {
 		cookie = route.Cookie
+		if route.Flags.Enable == true {
+			flags = route.Flags
+		}
 	}
 	checkDigest := generateProxyDigest(peername, cookie, n.nodename, request.PublicKey)
 	if bytes.Equal(request.Digest, checkDigest) == false {
@@ -533,7 +539,6 @@ func (n *network) RouteProxyConnectRequest(from ConnectionInterface, request Pro
 
 	sessionID := lib.RandomString(32)
 	digest := generateProxyDigest(n.nodename, n.proxy.Cookie, peername, key)
-	flags := n.proxy.Flags
 	if flags.Enable == false {
 		flags = DefaultProxyFlags()
 	}
@@ -884,13 +889,6 @@ func (n *network) AddProxyRoute(node string, route ProxyRoute) error {
 
 	n.proxyRoutes[node] = route
 	return nil
-}
-
-func (n *network) AddProxyTransitRoute(name string, proxy string) error {
-	route := ProxyRoute{
-		Proxy: proxy,
-	}
-	return n.AddProxyRoute(name, route)
 }
 
 func (n *network) RemoveProxyRoute(node string) bool {
