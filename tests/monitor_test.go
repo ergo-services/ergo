@@ -419,6 +419,7 @@ func TestMonitorLocalProxyRemoteByPid(t *testing.T) {
 	fmt.Printf("\n=== Test Monitor Remote via Proxy by Pid\n")
 	fmt.Printf("Starting nodes: nodeM1ProxyRemoteByPid@localhost, nodeM2ProxyRemoteByPid@localhost, nodeM3ProxyRemoteByPid@localhost : ")
 	opts1 := node.Options{}
+	opts1.Proxy.Flags = node.DefaultProxyFlags()
 	opts1.Proxy.Flags.EnableMonitor = false
 	node1, err := ergo.StartNode("nodeM1ProxyRemoteByPid@localhost", "cookies", opts1)
 	if err != nil {
@@ -517,6 +518,35 @@ func TestMonitorLocalProxyRemoteByPid(t *testing.T) {
 	fmt.Printf("    wait for start of gs3 on %#v: ", node3.Name())
 	node3gs3, _ = node3.Spawn("gs3", gen.ProcessOptions{}, gs3, nil)
 	waitForResultWithValue(t, gs3.v, node3gs3.Self())
+
+	fmt.Printf("... by Pid Local-Proxy-Remote: gs3 -> gs1. monitor/(node1: ProxyFlags.EnableMonitor = false): ")
+
+	ref = node3gs3.MonitorProcess(node1gs1.Self())
+	result = gen.MessageDown{
+		Ref:    ref,
+		Pid:    node1gs1.Self(),
+		Reason: "noconnection",
+	}
+	waitForResultWithValue(t, gs3.v, result)
+
+	fmt.Printf("... by Pid Local-Proxy-Remote: gs1 -> gs3. monitor/ProxyDown: ")
+	ref = node1gs1.MonitorProcess(node3gs3.Self())
+	waitForTimeout(t, gs1.v)
+	node2.Stop()
+	result = gen.MessageDown{
+		Ref:    ref,
+		Pid:    node3gs3.Self(),
+		Reason: "noproxy",
+	}
+	waitForResultWithValue(t, gs1.v, result)
+	if err := checkCleanProcessRef(node1gs1, ref); err != nil {
+		t.Fatal(err)
+	}
+
+	node2, err = ergo.StartNode("nodeM2ProxyRemoteByPid@localhost", "cookies", opts2)
+	if err != nil {
+		t.Fatal("can't start node:", err, node2.Name())
+	}
 
 	fmt.Printf("... by Pid Local-Proxy-Remote: gs1 -> gs3. monitor/NodeDown: ")
 	ref = node1gs1.MonitorProcess(node3gs3.Self())
