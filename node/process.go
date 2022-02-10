@@ -323,19 +323,19 @@ func (p *process) WaitWithTimeout(d time.Duration) error {
 }
 
 // Link
-func (p *process) Link(with etf.Pid) {
+func (p *process) Link(with etf.Pid) error {
 	if p.behavior == nil {
-		return
+		return ErrProcessTerminated
 	}
-	p.RouteLink(p.self, with)
+	return p.RouteLink(p.self, with)
 }
 
 // Unlink
-func (p *process) Unlink(with etf.Pid) {
+func (p *process) Unlink(with etf.Pid) error {
 	if p.behavior == nil {
-		return
+		return ErrProcessTerminated
 	}
-	p.RouteUnlink(p.self, with)
+	return p.RouteUnlink(p.self, with)
 }
 
 // IsAlive

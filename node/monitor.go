@@ -158,7 +158,7 @@ func (m *monitor) RouteNodeDown(name string, disconnect *ProxyDisconnect) {
 			}
 			message := gen.MessageProxyDown{
 				Ref:    pids[i].ref,
-				Name:   disconnect.Node,
+				Node:   disconnect.Node,
 				Proxy:  disconnect.Proxy,
 				Reason: disconnect.Reason,
 			}
@@ -447,12 +447,12 @@ func (m *monitor) RouteLink(pidA etf.Pid, pidB etf.Pid) error {
 	connection, err := m.router.getConnection(string(pidB.Node))
 	if err != nil {
 		m.sendExit(pidA, pidB, "noconnection")
-		return err
+		return nil
 	}
 
 	if err := connection.Link(pidA, pidB); err != nil {
 		m.sendExit(pidA, pidB, err.Error())
-		return err
+		return nil
 	}
 
 	m.mutexLinks.Lock()

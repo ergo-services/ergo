@@ -795,7 +795,6 @@ func (n *network) RouteProxyDisconnect(from ConnectionInterface, disconnect Prox
 			return ErrProxySessionUnknown
 		}
 
-		disconnect.Node = peername
 		n.unregisterConnection(peername, &disconnect)
 		return nil
 	}
@@ -1181,8 +1180,8 @@ func (n *network) unregisterConnection(peername string, disconnect *ProxyDisconn
 	// send disconnect for the proxy sessions
 	for _, p := range cp {
 		disconnect := ProxyDisconnect{
-			Node:   p,
-			Proxy:  peername,
+			Node:   peername,
+			Proxy:  n.nodename,
 			Reason: "connection closed",
 		}
 		n.router.RouteNodeDown(p, &disconnect)
@@ -1192,7 +1191,7 @@ func (n *network) unregisterConnection(peername string, disconnect *ProxyDisconn
 	for i := range ct {
 		disconnect := ProxyDisconnect{
 			Node:      peername,
-			Proxy:     peername,
+			Proxy:     n.nodename,
 			SessionID: ct[i],
 			Reason:    "connection closed",
 		}

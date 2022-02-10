@@ -105,11 +105,11 @@ type Process interface {
 	// Repeated calls to Process.Link(Pid) have no effect. If one of the participants
 	// of a link terminates, it will send an exit signal to the other participant and caused
 	// termination of the last one. If process set a trap using Process.SetTrapExit(true) the exit signal transorms into the MessageExit and delivers as a regular message.
-	Link(with etf.Pid)
+	Link(with etf.Pid) error
 
 	// Unlink removes the link, if there is one, between the calling process and
 	// the process referred to by Pid.
-	Unlink(with etf.Pid)
+	Unlink(with etf.Pid) error
 
 	// IsAlive returns whether the process is alive
 	IsAlive() bool
@@ -363,7 +363,7 @@ type MessageNodeDown struct {
 // nodes and one of them went down.
 type MessageProxyDown struct {
 	Ref    etf.Ref
-	Name   string
+	Node   string
 	Proxy  string
 	Reason string
 }

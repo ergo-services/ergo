@@ -771,7 +771,10 @@ func TestLinkRemoteProxy(t *testing.T) {
 	route := node.ProxyRoute{
 		Proxy: node2.Name(),
 	}
+	route.Flags = node.DefaultProxyFlags()
+	route.Flags.EnableLink = false
 	node1.AddProxyRoute(node3.Name(), route)
+
 	fmt.Printf("    check connectivity of %s with %s via proxy %s: ", node1.Name(), node3.Name(), node2.Name())
 	if err := node1.Connect(node3.Name()); err != nil {
 		t.Fatal(err)
@@ -956,6 +959,47 @@ func TestLinkRemoteProxy(t *testing.T) {
 	if ll1 != len(node1gs1.Links()) {
 		t.Fatal("number of links has changed on the second Link call")
 	}
+
+	node3, err = ergo.StartNode("nodeL3RemoteViaProxy@localhost", "cookies", node.Options{})
+	fmt.Printf("    starting node: %s", node3.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	fmt.Println("OK")
+	fmt.Printf("    wait for start of gs3 on %#v: ", node3.Name())
+	node3gs3, _ = node3.Spawn("gs3", gen.ProcessOptions{}, gs3, nil)
+	waitForResultWithValue(t, gs3.v, node3gs3.Self())
+
+	if err := node1.Connect(node3.Name()); err != nil {
+		t.Fatal(err)
+	}
+
+	node3gs3.SetTrapExit(true)
+	fmt.Printf("Testing Proxy Local-Proxy-Remote for link gs3 -> gs1 (Node1 ProxyFlags.EnableLink = false): ")
+	node3gs3.Link(node1gs1.Self())
+	result = gen.MessageExit{Pid: node1gs1.Self(), Reason: node.ErrPeerUnsupported.Error()}
+	waitForResultWithValue(t, gs3.v, result)
+
+	node1gs1.Link(node3gs3.Self())
+	waitForTimeout(t, gs1.v)
+
+	if checkLinkPid(node1gs1, node3gs3.Self()) != nil {
+		t.Fatal("link missing for node1gs1")
+	}
+	if checkCleanLinkPid(node3gs3, node1gs1.Self()) == nil {
+		t.Fatal("link missing for node3gs3")
+	}
+	fmt.Println("Testing Proxy Down Local-Proxy-Remote for linked gs1 -> gs3 (trap_exit = true): ")
+	node2.Stop()
+
+	fmt.Printf("    wait for MessageExit with reason 'noproxy' on gs1: ")
+	result = gen.MessageExit{Pid: node3gs3.Self(), Reason: "noproxy"}
+	waitForResultWithValue(t, gs1.v, result)
+
+	fmt.Printf("    wait for MessageExit with reason 'noproxy' on gs3: ")
+	result = gen.MessageExit{Pid: node1gs1.Self(), Reason: "noproxy"}
+	waitForResultWithValue(t, gs3.v, result)
+
 	node1.Stop()
 }
 
@@ -1079,11 +1123,11 @@ func TestMonitorNode(t *testing.T) {
 	fmt.Printf("... stop node C : ")
 	nodeC.Stop()
 	fmt.Println("OK")
-	resultMessageProxyDown := gen.MessageProxyDown{Ref: refD, Name: nodeA.Name(), Proxy: nodeC.Name(), Reason: "connection closed"}
-	fmt.Printf("... processD must receive gen.MessageProxyDown: ")
+	resultMessageProxyDown := gen.MessageProxyDown{Ref: refD, Node: nodeC.Name(), Proxy: nodeD.Name(), Reason: "connection closed"}
+	fmt.Printf("... processD must receive gen.MessageProxyDown{Node: C, Proxy: D,...}: ")
 	waitForResultWithValue(t, gsD.v, resultMessageProxyDown)
-	resultMessageProxyDown = gen.MessageProxyDown{Ref: refA, Name: nodeD.Name(), Proxy: nodeC.Name(), Reason: "connection closed"}
-	fmt.Printf("... processA must receive gen.MessageProxyDown: ")
+	resultMessageProxyDown = gen.MessageProxyDown{Ref: refA, Node: nodeC.Name(), Proxy: nodeB.Name(), Reason: "connection closed"}
+	fmt.Printf("... processA must receive gen.MessageProxyDown{Node: C, Proxy: B,...}: ")
 	waitForResultWithValue(t, gsA.v, resultMessageProxyDown)
 	resultMessageDown := gen.MessageNodeDown{Ref: refB, Name: nodeC.Name()}
 	fmt.Printf("... processB must receive gen.MessageDown: ")
