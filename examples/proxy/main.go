@@ -46,7 +46,7 @@ func main() {
 	}
 	fmt.Println("OK")
 
-	fmt.Printf("Add static route on node2 to node3 with custom cookie to get access to the cluster 2...")
+	fmt.Printf("Add static route on node2 to node3 with custom cookie to get access to the cluster 2 ...")
 	routeOptions := node.RouteOptions{
 		Cookie: "secret2",
 	}
@@ -55,7 +55,7 @@ func main() {
 	}
 	fmt.Println("OK")
 
-	fmt.Printf("Add proxy route to node4 via node2 on node1 with proxy cookie = %q and enabled encryption... ", proxyCookie)
+	fmt.Printf("Add proxy route to node4 via node2 on node1 with proxy cookie = %q and enabled encryption ...", proxyCookie)
 	proxyRoute1 := node.ProxyRoute{
 		Proxy:  node2.Name(),
 		Cookie: proxyCookie,
@@ -67,7 +67,7 @@ func main() {
 	}
 	fmt.Println("OK")
 
-	fmt.Printf("Add proxy route to node4 via node3 on node2... ")
+	fmt.Printf("Add proxy route to node4 via node3 on node2 ...")
 	proxyRoute2 := node.ProxyRoute{
 		Proxy: node3.Name(),
 	}
@@ -76,7 +76,7 @@ func main() {
 	}
 	fmt.Println("OK")
 
-	fmt.Printf("Connect node1 to node4... ")
+	fmt.Printf("Connect node1 to node4 ...")
 	if err := node1.Connect(node4.Name()); err != nil {
 		panic(err)
 	}
