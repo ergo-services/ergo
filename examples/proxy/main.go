@@ -45,11 +45,10 @@ func main() {
 	}
 	fmt.Println("OK")
 
+	fmt.Printf("Add static route on node2 to node3 with custom cookie to get access to the cluster 2...")
 	routeOptions := node.RouteOptions{
 		Cookie: "secret2",
 	}
-
-	fmt.Printf("Add static route on node2 to node3 with custom cookie to get access to the cluster 2...")
 	if err := node2.AddStaticRouteOptions(node3.Name(), routeOptions); err != nil {
 		panic(err)
 	}
