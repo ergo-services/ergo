@@ -76,7 +76,7 @@ func main() {
 	}
 	fmt.Println("OK")
 
-	fmt.Printf("Connect node1 to node4...")
+	fmt.Printf("Connect node1 to node4... ")
 	if err := node1.Connect(node4.Name()); err != nil {
 		panic(err)
 	}
