@@ -379,8 +379,6 @@ type ProtoOptions struct {
 	RecvQueueLength int
 	// FragmentationUnit defines unit size for the fragmentation feature. Default 65000
 	FragmentationUnit int
-	// Compression enables compression for the outgoing messages
-	Compression Compression
 	// Custom brings a custom set of options to the ProtoInterface.Serve handler
 	Custom CustomProtoOptions
 }
