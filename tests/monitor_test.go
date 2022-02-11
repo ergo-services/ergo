@@ -525,7 +525,7 @@ func TestMonitorLocalProxyRemoteByPid(t *testing.T) {
 	result = gen.MessageDown{
 		Ref:    ref,
 		Pid:    node1gs1.Self(),
-		Reason: "noconnection",
+		Reason: "notallow",
 	}
 	waitForResultWithValue(t, gs3.v, result)
 
@@ -569,6 +569,170 @@ func TestMonitorLocalProxyRemoteByPid(t *testing.T) {
 	waitForResultWithValue(t, gs1.v, result)
 	if err := checkCleanProcessRef(node1gs1, ref); err != nil {
 		t.Fatal(err)
+	}
+	node1.Stop()
+}
+
+func TestMonitorLocalProxyRemoteByName(t *testing.T) {
+	fmt.Printf("\n=== Test Monitor Local-Proxy-Remote by Name\n")
+	fmt.Printf("Starting nodes: nodeM1ProxyRemoteByName@localhost, nodeM2RemoteByName@localhost, nodeM3RemoteByName@localhost: ")
+	opts1 := node.Options{}
+	opts1.Proxy.Flags = node.DefaultProxyFlags()
+	opts1.Proxy.Flags.EnableMonitor = false
+	node1, err := ergo.StartNode("nodeM1RemoteByName@localhost", "cookies", opts1)
+	if err != nil {
+		t.Fatal("can't start node:", err)
+	}
+	opts2 := node.Options{}
+	opts2.Proxy.Enable = true
+	node2, err := ergo.StartNode("nodeM2RemoteByName@localhost", "cookies", opts2)
+	if err != nil {
+		t.Fatal("can't start node:", err)
+	}
+	node3, err := ergo.StartNode("nodeM3RemoteByName@localhost", "cookies", node.Options{})
+	if err != nil {
+		t.Fatal("can't start node:", err)
+	}
+	route := node.ProxyRoute{
+		Proxy: node2.Name(),
+	}
+	node1.AddProxyRoute(node3.Name(), route)
+	node1.Connect(node3.Name())
+	fmt.Println("OK")
+
+	gs1 := &testMonitor{
+		v: make(chan interface{}, 2),
+	}
+	gs3 := &testMonitor{
+		v: make(chan interface{}, 2),
+	}
+
+	// starting gen servers
+	fmt.Printf("    wait for start of gs1 on %#v: ", node1.Name())
+	node1gs1, _ := node1.Spawn("gs1", gen.ProcessOptions{}, gs1, nil)
+	waitForResultWithValue(t, gs1.v, node1gs1.Self())
+
+	fmt.Printf("    wait for start of gs3 on %#v: ", node3.Name())
+	node3gs3, _ := node3.Spawn("gs3", gen.ProcessOptions{}, gs3, nil)
+	waitForResultWithValue(t, gs3.v, node3gs3.Self())
+
+	processID := gen.ProcessID{Name: "gs3", Node: node3.Name()}
+
+	fmt.Printf("... by gen.ProcessID{Name, Node} Local-Proxy-Remote: gs1 -> gs3. monitor/demonitor: ")
+	ref := node1gs1.MonitorProcess(processID)
+	// wait a bit for the MessageDown if something went wrong
+	waitForTimeout(t, gs1.v)
+	if err := checkCleanProcessRef(node1gs1, ref); err == nil {
+		t.Fatal("monitor reference has been lost on node 1")
+	}
+	if err := checkCleanProcessRef(node3gs3, ref); err == nil {
+		t.Fatal("monitor reference has been lost on node 3")
+	}
+	if found := node1gs1.DemonitorProcess(ref); found == false {
+		t.Fatal("lost monitoring reference on node1")
+	}
+	// Demonitoring is the async message with nothing as a feedback.
+	// use waitForTimeout just as a short timer
+	waitForTimeout(t, gs1.v)
+	if err := checkCleanProcessRef(node1gs1, ref); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkCleanProcessRef(node3gs3, ref); err != nil {
+		t.Fatal(err)
+	}
+	fmt.Println("OK")
+
+	fmt.Printf("... by gen.ProcessID{Name, Node} Local-Proxy-Remote: gs1 -> gs3. monitor/terminate: ")
+	ref = node1gs1.MonitorProcess(processID)
+	// wait a bit for the MessageDown if something went wrong
+	waitForTimeout(t, gs1.v)
+	if node1gs1.IsMonitor(ref) == false {
+		t.Fatal("monitor reference has been lost on node 1")
+	}
+	if node3gs3.IsMonitor(ref) == false {
+		t.Fatal("monitor reference has been lost on node 3")
+	}
+	node3gs3.Exit("normal")
+	result := gen.MessageDown{
+		Ref:       ref,
+		ProcessID: processID,
+		Reason:    "normal",
+	}
+	waitForResultWithValue(t, gs1.v, result)
+
+	if node1gs1.IsMonitor(ref) {
+		t.Fatal("monitor ref is still alive")
+	}
+	if node3gs3.IsMonitor(ref) {
+		t.Fatal("monitor ref is still alive")
+	}
+
+	fmt.Printf("... by gen.ProcessID{Name, Node} Local-Proxy-Remote: gs1 -> monitor unknown remote name: ")
+	ref = node1gs1.MonitorProcess(processID)
+	result = gen.MessageDown{
+		Ref:       ref,
+		ProcessID: processID,
+		Reason:    "noproc",
+	}
+	waitForResultWithValue(t, gs1.v, result)
+	if node1gs1.IsMonitor(ref) {
+		t.Fatal("monitor ref is still alive")
+	}
+
+	fmt.Printf("    wait for start of gs3 on %#v: ", node3.Name())
+	node3gs3, _ = node3.Spawn("gs3", gen.ProcessOptions{}, gs3, nil)
+	waitForResultWithValue(t, gs3.v, node3gs3.Self())
+
+	fmt.Printf("... by gen.ProcessID{Name, Node} Local-Proxy-Remote: gs3 -> gs1. monitor/(node1: ProxyFlags.EnableMonitor = false): ")
+
+	processID1 := gen.ProcessID{Name: node1gs1.Name(), Node: node1.Name()}
+	ref = node3gs3.MonitorProcess(processID1)
+	result = gen.MessageDown{
+		Ref:       ref,
+		ProcessID: processID1,
+		Reason:    "notallow",
+	}
+	waitForResultWithValue(t, gs3.v, result)
+
+	fmt.Printf("... by gen.ProcessID{Name, Node} Local-Proxy-Remote: gs1 -> gs3. monitor/ProxyDown: ")
+	ref = node1gs1.MonitorProcess(processID)
+	waitForTimeout(t, gs1.v)
+	node2.Stop()
+	result = gen.MessageDown{
+		Ref:       ref,
+		ProcessID: processID,
+		Reason:    "noproxy",
+	}
+	waitForResultWithValue(t, gs1.v, result)
+	if err := checkCleanProcessRef(node1gs1, ref); err != nil {
+		t.Fatal(err)
+	}
+
+	node2, err = ergo.StartNode("nodeM2RemoteByName@localhost", "cookies", opts2)
+	if err != nil {
+		t.Fatal("can't start node:", err, node2.Name())
+	}
+
+	fmt.Printf("... by gen.ProcessID{Name, Node} Local-Proxy-Remote: gs1 -> gs3. monitor/NodeDown: ")
+	ref = node1gs1.MonitorProcess(processID)
+	waitForTimeout(t, gs1.v)
+	node3.Stop()
+	result = gen.MessageDown{
+		Ref:       ref,
+		ProcessID: processID,
+		Reason:    "noconnection",
+	}
+	waitForResultWithValue(t, gs1.v, result)
+	if node1gs1.IsMonitor(ref) {
+		t.Fatal("monitor ref is still alive")
+	}
+
+	fmt.Printf("... by gen.ProcessID{Name, Node} Local-Proxy-Remote: gs1 -> gs3. monitor unknown node: ")
+	ref = node1gs1.MonitorProcess(processID)
+	result.Ref = ref
+	waitForResultWithValue(t, gs1.v, result)
+	if node1gs1.IsMonitor(ref) {
+		t.Fatal("monitor ref is still alive")
 	}
 	node1.Stop()
 }

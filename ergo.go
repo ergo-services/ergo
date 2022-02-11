@@ -37,11 +37,8 @@ func StartNodeWithContext(ctx context.Context, name string, cookie string, opts 
 	}
 
 	if opts.Handshake == nil {
-		handshakeOptions := dist.HandshakeOptions{
-			Cookie: cookie,
-		}
 		// create default handshake for the node (Erlang Dist Handshake)
-		opts.Handshake = dist.CreateHandshake(handshakeOptions)
+		opts.Handshake = dist.CreateHandshake(dist.HandshakeOptions{})
 	}
 
 	if opts.Proto == nil {

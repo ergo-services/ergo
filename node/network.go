@@ -33,7 +33,8 @@ import (
 type networkInternal interface {
 	// add/remove static route
 	AddStaticRoute(node string, host string, port uint16, options RouteOptions) error
-	AddStaticPortRoute(node string, port uint16, options RouteOptions) error
+	AddStaticRoutePort(node string, port uint16, options RouteOptions) error
+	AddStaticRouteOptions(node string, options RouteOptions) error
 	RemoveStaticRoute(node string) bool
 	StaticRoutes() []Route
 	StaticRoute(name string) (Route, bool)
@@ -72,6 +73,7 @@ type connectionInternal struct {
 
 type network struct {
 	nodename string
+	cookie   string
 	ctx      context.Context
 	listener net.Listener
 
@@ -107,9 +109,10 @@ type network struct {
 	remoteSpawnMutex sync.Mutex
 }
 
-func newNetwork(ctx context.Context, nodename string, options Options, router coreRouterInternal) (networkInternal, error) {
+func newNetwork(ctx context.Context, nodename string, cookie string, options Options, router coreRouterInternal) (networkInternal, error) {
 	n := &network{
 		nodename:             nodename,
+		cookie:               cookie,
 		ctx:                  ctx,
 		staticOnly:           options.StaticRoutesOnly,
 		staticRoutes:         make(map[string]Route),
@@ -186,9 +189,20 @@ func (n *network) stopNetwork() {
 	}
 }
 
-// AddStaticPortRoute adds a static route to the node with the given name
-func (n *network) AddStaticPortRoute(node string, port uint16, options RouteOptions) error {
+// AddStaticRouteOptions adds static options for the given node.
+func (n *network) AddStaticRouteOptions(node string, options RouteOptions) error {
+	if n.staticOnly {
+		return fmt.Errorf("can't be used if enabled StaticRoutesOnly")
+	}
+	return n.AddStaticRoute(node, "", 0, options)
+}
+
+// AddStaticRoutePort adds a static route to the node with the given name
+func (n *network) AddStaticRoutePort(node string, port uint16, options RouteOptions) error {
 	ns := strings.Split(node, "@")
+	if port < 1 {
+		return fmt.Errorf("port must be greater 0")
+	}
 	if len(ns) != 2 {
 		return fmt.Errorf("wrong FQDN")
 	}
@@ -201,8 +215,11 @@ func (n *network) AddStaticRoute(node string, host string, port uint16, options 
 	if len(strings.Split(node, "@")) != 2 {
 		return fmt.Errorf("wrong FQDN")
 	}
-	if _, err := net.LookupHost(host); err != nil {
-		return err
+
+	if port > 0 {
+		if _, err := net.LookupHost(host); err != nil {
+			return err
+		}
 	}
 
 	route := Route{
@@ -320,6 +337,12 @@ func (n *network) Resolve(node string) (Route, error) {
 	defer n.staticRoutesMutex.Unlock()
 
 	if r, ok := n.staticRoutes[node]; ok {
+		if r.Port == 0 {
+			// use static option for this route
+			route, err := n.resolver.Resolve(node)
+			route.Options = r.Options
+			return route, err
+		}
 		return r, nil
 	}
 
@@ -950,7 +973,7 @@ func (n *network) listen(ctx context.Context, hostname string, begin uint16, end
 				}
 				lib.Log("[%s] NETWORK accepted new connection from %s", n.nodename, c.RemoteAddr().String())
 
-				peername, protoFlags, err := n.handshake.Accept(c, n.tls.Enable)
+				peername, protoFlags, err := n.handshake.Accept(c, n.tls.Enable, n.cookie)
 				if err != nil {
 					lib.Log("[%s] Can't handshake with %s: %s", n.nodename, c.RemoteAddr().String(), err)
 					c.Close()
@@ -1007,7 +1030,7 @@ func (n *network) connect(peername string) (ConnectionInterface, error) {
 	lib.Log("[%s] NETWORK trying to connect to %#v", n.nodename, peername)
 
 	// resolve the route
-	route, err = n.resolver.Resolve(peername)
+	route, err = n.Resolve(peername)
 	if err != nil {
 		return nil, err
 	}
@@ -1080,7 +1103,12 @@ func (n *network) connect(peername string) (ConnectionInterface, error) {
 		handshake = n.handshake
 	}
 
-	protoFlags, err := n.handshake.Start(c, enabledTLS)
+	cookie := n.cookie
+	if route.Options.Cookie != "" {
+		cookie = route.Options.Cookie
+	}
+
+	protoFlags, err := n.handshake.Start(c, enabledTLS, cookie)
 	if err != nil {
 		c.Close()
 		return nil, err

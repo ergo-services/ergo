@@ -102,7 +102,7 @@ type proxyConnectRequest struct {
 	cancel     chan ProxyConnectCancel
 }
 
-func newCore(ctx context.Context, nodename string, options Options) (coreInternal, error) {
+func newCore(ctx context.Context, nodename string, cookie string, options Options) (coreInternal, error) {
 	if options.Compression.Level < 1 || options.Compression.Level > 9 {
 		options.Compression.Level = DefaultCompressionLevel
 	}
@@ -129,7 +129,7 @@ func newCore(ctx context.Context, nodename string, options Options) (coreInterna
 	c.ctx = corectx
 
 	c.monitorInternal = newMonitor(nodename, coreRouterInternal(c))
-	network, err := newNetwork(c.ctx, nodename, options, coreRouterInternal(c))
+	network, err := newNetwork(c.ctx, nodename, cookie, options, coreRouterInternal(c))
 	if err != nil {
 		corestop()
 		return nil, err

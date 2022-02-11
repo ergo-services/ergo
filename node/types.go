@@ -110,10 +110,12 @@ type Node interface {
 	ProvideRemoteSpawn(name string, object gen.ProcessBehavior) error
 	RevokeRemoteSpawn(name string) error
 
-	// AddStaticPortRoute adds static route for the given node name which makes node skip resolving port process
-	AddStaticPortRoute(node string, port uint16, options RouteOptions) error
 	// AddStaticRoute adds static route for the given name
 	AddStaticRoute(node string, host string, port uint16, options RouteOptions) error
+	// AddStaticRoutePort adds static route for the given node name which makes node skip resolving port process
+	AddStaticRoutePort(node string, port uint16, options RouteOptions) error
+	// AddStaticRouteOptions adds static route options for the given node name which does regular port resolving but applies static options
+	AddStaticRouteOptions(node string, options RouteOptions) error
 	// Remove static route removes static route with given name
 	RemoveStaticRoute(name string) bool
 	// StaticRoutes returns list of routes added using AddStaticRoute
@@ -339,10 +341,10 @@ type HandshakeInterface interface {
 	Init(nodename string, creation uint32, flags Flags) error
 	// Start initiates handshake process. Argument tls means the connection is wrapped by TLS
 	// Returns Flags received from the peer during handshake
-	Start(conn io.ReadWriter, tls bool) (Flags, error)
+	Start(conn io.ReadWriter, tls bool, cookie string) (Flags, error)
 	// Accept accepts handshake process initiated by another side of this connection.
 	// Returns the name of connected peer and Flags received from the peer.
-	Accept(conn io.ReadWriter, tls bool) (string, Flags, error)
+	Accept(conn io.ReadWriter, tls bool, cookie string) (string, Flags, error)
 	// Version handshake version. Must be implemented if this handshake is going to be used
 	// for the accepting connections (this method is used in registration on the Resolver)
 	Version() HandshakeVersion
@@ -379,8 +381,6 @@ type ProtoOptions struct {
 	FragmentationUnit int
 	// Compression enables compression for the outgoing messages
 	Compression Compression
-	// Proxy defines proxy settings
-	Proxy Proxy
 	// Custom brings a custom set of options to the ProtoInterface.Serve handler
 	Custom CustomProtoOptions
 }

@@ -219,7 +219,7 @@ func TestNodeStaticRoute(t *testing.T) {
 	}
 
 	// override route for nodeName2 with static port
-	e := node1.AddStaticPortRoute(nodeName2, nodeStaticPort, node.RouteOptions{})
+	e := node1.AddStaticRoutePort(nodeName2, nodeStaticPort, node.RouteOptions{})
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -257,17 +257,14 @@ func (h *handshakeGenServer) HandleDirect(process *gen.ServerProcess, message in
 
 func TestNodeDistHandshake(t *testing.T) {
 	fmt.Printf("\n=== Test Node Handshake versions\n")
-	cookie := "secret"
 
 	// handshake version 5
 	handshake5options := dist.HandshakeOptions{
-		Cookie:  cookie,
 		Version: dist.HandshakeVersion5,
 	}
 
 	// handshake version 6
 	handshake6options := dist.HandshakeOptions{
-		Cookie:  cookie,
 		Version: dist.HandshakeVersion6,
 	}
 

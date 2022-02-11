@@ -87,7 +87,7 @@ func StartWithContext(ctx context.Context, name string, cookie string, opts Opti
 	copyEnv[EnvKeyNode] = Node(node)
 	opts.Env = copyEnv
 
-	core, err := newCore(nodectx, name, opts)
+	core, err := newCore(nodectx, name, cookie, opts)
 	if err != nil {
 		return nil, err
 	}

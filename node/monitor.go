@@ -571,7 +571,11 @@ func (m *monitor) RouteMonitor(by etf.Pid, pid etf.Pid, ref etf.Ref) error {
 		}
 
 		if err := connection.Monitor(by, pid, ref); err != nil {
-			m.sendMonitorExit(by, pid, "noconnection", ref)
+			if err == ErrPeerUnsupported {
+				m.sendMonitorExit(by, pid, "notallow", ref)
+			} else {
+				m.sendMonitorExit(by, pid, "noconnection", ref)
+			}
 			return err
 		}
 	}
@@ -603,7 +607,11 @@ func (m *monitor) RouteMonitorReg(by etf.Pid, process gen.ProcessID, ref etf.Ref
 		}
 
 		if err := connection.MonitorReg(by, process, ref); err != nil {
-			m.sendMonitorExitReg(by, process, "noconnection", ref)
+			if err == ErrPeerUnsupported {
+				m.sendMonitorExitReg(by, process, "notallow", ref)
+			} else {
+				m.sendMonitorExitReg(by, process, "noconnection", ref)
+			}
 			return err
 		}
 	}

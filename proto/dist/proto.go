@@ -1206,6 +1206,9 @@ func (dc *distConnection) handleMessage(message *distMessage) (err error) {
 					return nil
 				case etf.Atom:
 					processID := gen.ProcessID{Name: string(terminated), Node: dc.peername}
+					if message.proxy != nil {
+						processID.Node = message.proxy.session.PeerName
+					}
 					dc.router.RouteMonitorExitReg(processID, reason, ref)
 					return nil
 				}
