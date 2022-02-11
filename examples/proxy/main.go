@@ -36,9 +36,10 @@ func main() {
 	}
 	fmt.Println("OK")
 
-	fmt.Printf("Starting node: node4 with Proxy.Cookie = \"abc\" (cluster 2) ...")
+	proxyCookie := "abc"
+	fmt.Printf("Starting node: node4 with Proxy.Cookie = %q (cluster 2) ...", proxyCookie)
 	opts4 := node.Options{}
-	opts4.Proxy.Cookie = "abc"
+	opts4.Proxy.Cookie = proxyCookie
 	node4, err := ergo.StartNode("node4@localhost", "secret2", opts4)
 	if err != nil {
 		panic(err)
@@ -54,10 +55,10 @@ func main() {
 	}
 	fmt.Println("OK")
 
-	fmt.Printf("Add proxy route to node4 via node2 on node1 with proxy cookie = \"abc\" and enabled encryption... ")
+	fmt.Printf("Add proxy route to node4 via node2 on node1 with proxy cookie = %q and enabled encryption... ", proxyCookie)
 	proxyRoute1 := node.ProxyRoute{
 		Proxy:  node2.Name(),
-		Cookie: "abc",
+		Cookie: proxyCookie,
 		Flags:  node.DefaultProxyFlags(),
 	}
 	proxyRoute1.Flags.EnableEncryption = true
