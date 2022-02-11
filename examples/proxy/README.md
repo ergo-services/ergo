@@ -1,6 +1,6 @@
 ## Demo proxy connection
 
-This example demonstrates how to connect two nodes belong two different clusters using proxy feature and make this connection end to end encrypted.
+This example demonstrates how to connect two nodes that belong to two different clusters by using the proxy feature and making this connection end-to-end encrypted.
 
 ![demo](demo.svg)
 
