@@ -11,7 +11,7 @@ import (
 func main() {
 	flag.Parse()
 
-	fmt.Printf("Starting node: node1 and p1 process (cluster 1) ...")
+	fmt.Printf("Starting node: node1 (cluster 1) ...")
 	node1, err := ergo.StartNode("node1@localhost", "secret1", node.Options{})
 	if err != nil {
 		panic(err)
@@ -36,7 +36,7 @@ func main() {
 	}
 	fmt.Println("OK")
 
-	fmt.Printf("Starting node: node4 and p4 process with Proxy.Cookie = \"abc\" (cluster 2) ...")
+	fmt.Printf("Starting node: node4 with Proxy.Cookie = \"abc\" (cluster 2) ...")
 	opts4 := node.Options{}
 	opts4.Proxy.Cookie = "abc"
 	node4, err := ergo.StartNode("node4@localhost", "secret2", opts4)
