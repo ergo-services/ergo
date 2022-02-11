@@ -9,8 +9,8 @@ Here is output of this example
 ```
 ❯❯❯❯ go run .
 Starting node: node1 (cluster 1) ...OK
-Starting node: node2 (cluster 1) with Proxy.Enabled = true ...OK
-Starting node: node3 (cluster 2) with Proxy.Enabled = true ...OK
+Starting node: node2 (cluster 1) with Proxy.Transit = true ...OK
+Starting node: node3 (cluster 2) with Proxy.Transit = true ...OK
 Starting node: node4 with Proxy.Cookie = "abc" (cluster 2) ...OK
 Add static route on node2 to node3 with custom cookie to get access to the cluster 2...OK
 Add proxy route to node4 via node2 on node1 with proxy cookie = "abc" and enabled encryption... OK
