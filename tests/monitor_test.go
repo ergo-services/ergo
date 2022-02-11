@@ -426,7 +426,7 @@ func TestMonitorLocalProxyRemoteByPid(t *testing.T) {
 		t.Fatal("can't start node:", err)
 	}
 	opts2 := node.Options{}
-	opts2.Proxy.Enable = true
+	opts2.Proxy.Transit = true
 	node2, err := ergo.StartNode("nodeM2ProxyRemoteByPid@localhost", "cookies", opts2)
 	if err != nil {
 		t.Fatal("can't start node:", err, node2.Name())
@@ -584,7 +584,7 @@ func TestMonitorLocalProxyRemoteByName(t *testing.T) {
 		t.Fatal("can't start node:", err)
 	}
 	opts2 := node.Options{}
-	opts2.Proxy.Enable = true
+	opts2.Proxy.Transit = true
 	node2, err := ergo.StartNode("nodeM2RemoteByName@localhost", "cookies", opts2)
 	if err != nil {
 		t.Fatal("can't start node:", err)
@@ -1079,7 +1079,7 @@ func TestLinkRemoteProxy(t *testing.T) {
 		t.Fatal(err)
 	}
 	node2opts := node.Options{}
-	node2opts.Proxy.Enable = true
+	node2opts.Proxy.Transit = true
 	node2, err := ergo.StartNode("nodeL2RemoteViaProxy@localhost", "cookies", node2opts)
 	if err != nil {
 		t.Fatal(err)
@@ -1334,13 +1334,13 @@ func TestMonitorNode(t *testing.T) {
 		t.Fatal(e)
 	}
 	optsB := node.Options{}
-	optsB.Proxy.Enable = true
+	optsB.Proxy.Transit = true
 	nodeB, e := ergo.StartNode("monitornodeBproxy@localhost", "secret", optsB)
 	if e != nil {
 		t.Fatal(e)
 	}
 	optsC := node.Options{}
-	optsC.Proxy.Enable = true
+	optsC.Proxy.Transit = true
 	nodeC, e := ergo.StartNode("monitornodeCproxy@localhost", "secret", optsC)
 	if e != nil {
 		t.Fatal(e)

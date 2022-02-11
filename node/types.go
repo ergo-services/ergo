@@ -39,7 +39,7 @@ var (
 	ErrPeerUnsupported = fmt.Errorf("peer does not support this feature")
 
 	ErrProxyUnknownRequest   = fmt.Errorf("unknown proxy request")
-	ErrProxyDisabled         = fmt.Errorf("proxy feature disabled")
+	ErrProxyTransitDisabled  = fmt.Errorf("proxy feature disabled")
 	ErrProxyNoRoute          = fmt.Errorf("no proxy route to node")
 	ErrProxyConnect          = fmt.Errorf("can't establish proxy connection")
 	ErrProxyHopExceeded      = fmt.Errorf("proxy hop is exceeded")
@@ -277,10 +277,10 @@ type Cloud struct {
 }
 
 type Proxy struct {
-	Enable bool
-	Flags  ProxyFlags
-	Cookie string // set cookie for incoming connection
-	Routes map[string]ProxyRoute
+	Transit bool
+	Flags   ProxyFlags
+	Cookie  string // set cookie for incoming connection
+	Routes  map[string]ProxyRoute
 }
 
 type Compression struct {

@@ -428,9 +428,9 @@ func (n *network) RouteProxyConnectRequest(from ConnectionInterface, request Pro
 
 			lib.Log("[%s] NETWORK transit proxy connection to %q via %q", n.nodename, request.To, route.Proxy)
 			// proxy feature must be enabled explicitly for the transitional requests
-			if n.proxy.Enable == false {
+			if n.proxy.Transit == false {
 				lib.Log("[%s] NETWORK proxy. Proxy feature is disabled on this node")
-				return ErrProxyDisabled
+				return ErrProxyTransitDisabled
 			}
 			if request.Hop < 1 {
 				lib.Log("[%s] NETWORK proxy. Error: exceeded hop limit")
@@ -627,8 +627,8 @@ func (n *network) RouteProxyConnectReply(from ConnectionInterface, reply ProxyCo
 
 	if reply.To != n.nodename {
 		// send this reply further and register this session
-		if n.proxy.Enable == false {
-			return ErrProxyDisabled
+		if n.proxy.Transit == false {
+			return ErrProxyTransitDisabled
 		}
 
 		if len(reply.Path) == 0 {

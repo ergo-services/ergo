@@ -426,7 +426,7 @@ func TestNodeRemoteSpawn(t *testing.T) {
 
 	node1, _ := ergo.StartNode("node1remoteSpawn@localhost", "secret", node1opts)
 	node2opts := node.Options{}
-	node2opts.Proxy.Enable = true
+	node2opts.Proxy.Transit = true
 	node2, _ := ergo.StartNode("node2remoteSpawn@localhost", "secret", node2opts)
 	node3, _ := ergo.StartNode("node3remoteSpawn@localhost", "secret", node.Options{})
 	route := node.ProxyRoute{
@@ -691,7 +691,7 @@ func TestNodeProxyConnect(t *testing.T) {
 	nodeA.AddProxyRoute("nodeCproxy@localhost", route)
 
 	optsB := node.Options{}
-	optsB.Proxy.Enable = true
+	optsB.Proxy.Transit = true
 	nodeB, e := ergo.StartNode("nodeBproxy@localhost", "secret", optsB)
 	if e != nil {
 		t.Fatal(e)
@@ -737,7 +737,7 @@ func TestNodeProxyConnect(t *testing.T) {
 	}
 	fmt.Println("OK")
 	nodeB.Stop()
-	optsB.Proxy.Enable = false
+	optsB.Proxy.Transit = false
 	nodeB, e = ergo.StartNode("nodeBproxy@localhost", "secret", optsB)
 	if e != nil {
 		t.Fatal(e)
@@ -756,7 +756,7 @@ func TestNodeProxyConnect(t *testing.T) {
 	nodeC.Stop()
 
 	nodeB.Stop()
-	optsB.Proxy.Enable = true
+	optsB.Proxy.Transit = true
 	nodeB, e = ergo.StartNode("nodeBproxy@localhost", "secret", optsB)
 	if e != nil {
 		t.Fatal(e)
@@ -1292,7 +1292,7 @@ func BenchmarkNodeProxy_NodeA_to_NodeC_via_NodeB_Message_1K(b *testing.B) {
 	node3name := fmt.Sprintf("nodeB3ProxyEnabled1K%d@localhost", b.N)
 	node1, _ := ergo.StartNode(node1name, "bench", node.Options{})
 	opts2 := node.Options{}
-	opts2.Proxy.Enable = true
+	opts2.Proxy.Transit = true
 	node2, _ := ergo.StartNode(node2name, "bench", opts2)
 	node3, _ := ergo.StartNode(node3name, "bench", node.Options{})
 	defer node1.Stop()
@@ -1357,7 +1357,7 @@ func BenchmarkNodeProxy_NodeA_to_NodeC_via_NodeB_Message_1K_Encrypted(b *testing
 	opts1.Proxy.Flags.EnableEncryption = true
 	node1, _ := ergo.StartNode(node1name, "bench", opts1)
 	opts2 := node.Options{}
-	opts2.Proxy.Enable = true
+	opts2.Proxy.Transit = true
 	node2, _ := ergo.StartNode(node2name, "bench", opts2)
 	node3, _ := ergo.StartNode(node3name, "bench", node.Options{})
 	defer node1.Stop()
@@ -1422,7 +1422,7 @@ func BenchmarkNodeProxy_NodeA_to_NodeC_via_NodeB_Message_1M_Compressed(b *testin
 	opts1.Proxy.Flags.EnableEncryption = false
 	node1, _ := ergo.StartNode(node1name, "bench", opts1)
 	opts2 := node.Options{}
-	opts2.Proxy.Enable = true
+	opts2.Proxy.Transit = true
 	node2, _ := ergo.StartNode(node2name, "bench", opts2)
 	node3, _ := ergo.StartNode(node3name, "bench", node.Options{})
 	defer node1.Stop()
@@ -1487,7 +1487,7 @@ func BenchmarkNodeProxy_NodeA_to_NodeC_via_NodeB_Message_1M_CompressedEncrypted(
 	opts1.Proxy.Flags.EnableEncryption = true
 	node1, _ := ergo.StartNode(node1name, "bench", opts1)
 	opts2 := node.Options{}
-	opts2.Proxy.Enable = true
+	opts2.Proxy.Transit = true
 	node2, _ := ergo.StartNode(node2name, "bench", opts2)
 	node3, _ := ergo.StartNode(node3name, "bench", node.Options{})
 	defer node1.Stop()

@@ -23,11 +23,11 @@
      inkscape:pagecheckerboard="0"
      inkscape:document-units="mm"
      showgrid="false"
-     inkscape:zoom="0.77771465"
-     inkscape:cx="234.019"
-     inkscape:cy="322.09757"
-     inkscape:window-width="1555"
-     inkscape:window-height="1085"
+     inkscape:zoom="1.5554293"
+     inkscape:cx="400.85397"
+     inkscape:cy="261.6641"
+     inkscape:window-width="2788"
+     inkscape:window-height="1196"
      inkscape:window-x="26"
      inkscape:window-y="23"
      inkscape:window-maximized="0"
@@ -80,7 +80,10 @@
        x="121.62505"
        y="10.327783"
        rx="7.1011391"
-       ry="7.1011391" />
+       ry="7.1011391"
+       inkscape:export-filename="/home/taras/devel/go/src/github.com/ergo-services/ergo/examples/proxy/demo.png"
+       inkscape:export-xdpi="90"
+       inkscape:export-ydpi="90" />
     <rect
        style="opacity:0.333947;fill:#a8d2b8;fill-opacity:1;stroke:#515151;stroke-width:0.207169;stroke-linecap:round;stroke-dasharray:0.207169, 0.207169"
        id="rect22089"
@@ -89,41 +92,59 @@
        x="4.6911249"
        y="10.363664"
        rx="7.1011391"
-       ry="7.1011391" />
+       ry="7.1011391"
+       inkscape:export-filename="/home/taras/devel/go/src/github.com/ergo-services/ergo/examples/proxy/demo.png"
+       inkscape:export-xdpi="90"
+       inkscape:export-ydpi="90" />
     <circle
        style="opacity:0.333947;fill:#6e6e6e;stroke:#515151;stroke-width:0.207169;stroke-linecap:round;stroke-dasharray:0.207169, 0.207169"
        id="path10799"
        cx="68.048546"
        cy="116.84288"
-       r="10.614832" />
+       r="10.614832"
+       inkscape:export-filename="/home/taras/devel/go/src/github.com/ergo-services/ergo/examples/proxy/demo.png"
+       inkscape:export-xdpi="90"
+       inkscape:export-ydpi="90" />
     <circle
        style="opacity:0.333947;fill:#6e6e6e;stroke:#515151;stroke-width:0.207169;stroke-linecap:round;stroke-dasharray:0.207169, 0.207169"
        id="circle10881"
        cx="79.817993"
        cy="68.860519"
-       r="10.614832" />
+       r="10.614832"
+       inkscape:export-filename="/home/taras/devel/go/src/github.com/ergo-services/ergo/examples/proxy/demo.png"
+       inkscape:export-xdpi="90"
+       inkscape:export-ydpi="90" />
     <circle
        style="opacity:0.333947;fill:#6e6e6e;stroke:#515151;stroke-width:0.207169;stroke-linecap:round;stroke-dasharray:0.207169, 0.207169"
        id="circle10883"
        cx="140.30338"
        cy="68.860519"
-       r="10.614832" />
+       r="10.614832"
+       inkscape:export-filename="/home/taras/devel/go/src/github.com/ergo-services/ergo/examples/proxy/demo.png"
+       inkscape:export-xdpi="90"
+       inkscape:export-ydpi="90" />
     <circle
        style="opacity:0.333947;fill:#6e6e6e;stroke:#515151;stroke-width:0.207169;stroke-linecap:round;stroke-dasharray:0.207169, 0.207169"
        id="circle10885"
        cx="152.26976"
        cy="116.84288"
-       r="10.614832" />
+       r="10.614832"
+       inkscape:export-filename="/home/taras/devel/go/src/github.com/ergo-services/ergo/examples/proxy/demo.png"
+       inkscape:export-xdpi="90"
+       inkscape:export-ydpi="90" />
     <path
        style="fill:none;stroke:#949494;stroke-width:0.282223;stroke-linecap:butt;stroke-linejoin:miter;stroke-miterlimit:4;stroke-dasharray:0.282223, 0.282223;stroke-dashoffset:0;stroke-opacity:1;enable-background:new"
        d="m 11.730745,98.712665 42.62067,-0.0043 6.52747,8.787415"
        id="path5219-3-5-51-0"
        inkscape:connector-curvature="0"
-       sodipodi:nodetypes="ccc" />
+       sodipodi:nodetypes="ccc"
+       inkscape:export-filename="/home/taras/devel/go/src/github.com/ergo-services/ergo/examples/proxy/demo.png"
+       inkscape:export-xdpi="90"
+       inkscape:export-ydpi="90" />
     <text
        inkscape:export-ydpi="90"
        inkscape:export-xdpi="90"
-       inkscape:export-filename="/home/fantom/Desktop/text19881.png"
+       inkscape:export-filename="/home/taras/devel/go/src/github.com/ergo-services/ergo/examples/proxy/demo.png"
        id="text10804"
        y="97.075035"
        x="13.986212"
@@ -142,7 +163,7 @@
     <text
        inkscape:export-ydpi="90"
        inkscape:export-xdpi="90"
-       inkscape:export-filename="/home/fantom/Desktop/text19881.png"
+       inkscape:export-filename="/home/taras/devel/go/src/github.com/ergo-services/ergo/examples/proxy/demo.png"
        id="text13502"
        y="118.86569"
        x="61.835472"
@@ -156,7 +177,7 @@
     <text
        inkscape:export-ydpi="90"
        inkscape:export-xdpi="90"
-       inkscape:export-filename="/home/fantom/Desktop/text19881.png"
+       inkscape:export-filename="/home/taras/devel/go/src/github.com/ergo-services/ergo/examples/proxy/demo.png"
        id="text17684"
        y="70.912636"
        x="73.165314"
@@ -170,7 +191,7 @@
     <text
        inkscape:export-ydpi="90"
        inkscape:export-xdpi="90"
-       inkscape:export-filename="/home/fantom/Desktop/text19881.png"
+       inkscape:export-filename="/home/taras/devel/go/src/github.com/ergo-services/ergo/examples/proxy/demo.png"
        id="text17790"
        y="70.912636"
        x="133.57251"
@@ -184,7 +205,7 @@
     <text
        inkscape:export-ydpi="90"
        inkscape:export-xdpi="90"
-       inkscape:export-filename="/home/fantom/Desktop/text19881.png"
+       inkscape:export-filename="/home/taras/devel/go/src/github.com/ergo-services/ergo/examples/proxy/demo.png"
        id="text19732"
        y="118.86569"
        x="145.72311"
@@ -200,11 +221,14 @@
        d="m 14.263958,56.496533 43.450891,-0.0043 11.598426,6.947807"
        id="path21936"
        inkscape:connector-curvature="0"
-       sodipodi:nodetypes="ccc" />
+       sodipodi:nodetypes="ccc"
+       inkscape:export-filename="/home/taras/devel/go/src/github.com/ergo-services/ergo/examples/proxy/demo.png"
+       inkscape:export-xdpi="90"
+       inkscape:export-ydpi="90" />
     <text
        inkscape:export-ydpi="90"
        inkscape:export-xdpi="90"
-       inkscape:export-filename="/home/fantom/Desktop/text19881.png"
+       inkscape:export-filename="/home/taras/devel/go/src/github.com/ergo-services/ergo/examples/proxy/demo.png"
        id="text21942"
        y="54.689495"
        x="15.319262"
@@ -225,11 +249,14 @@
        d="m 13.958304,32.217638 42.91799,-0.0043 16.912818,26.037893"
        id="path22046"
        inkscape:connector-curvature="0"
-       sodipodi:nodetypes="ccc" />
+       sodipodi:nodetypes="ccc"
+       inkscape:export-filename="/home/taras/devel/go/src/github.com/ergo-services/ergo/examples/proxy/demo.png"
+       inkscape:export-xdpi="90"
+       inkscape:export-ydpi="90" />
     <text
        inkscape:export-ydpi="90"
        inkscape:export-xdpi="90"
-       inkscape:export-filename="/home/fantom/Desktop/text19881.png"
+       inkscape:export-filename="/home/taras/devel/go/src/github.com/ergo-services/ergo/examples/proxy/demo.png"
        id="text25732"
        y="18.589987"
        x="19.68849"
@@ -243,7 +270,7 @@
     <text
        inkscape:export-ydpi="90"
        inkscape:export-xdpi="90"
-       inkscape:export-filename="/home/fantom/Desktop/text19881.png"
+       inkscape:export-filename="/home/taras/devel/go/src/github.com/ergo-services/ergo/examples/proxy/demo.png"
        id="text26900"
        y="18.589987"
        x="138.2417"
@@ -257,7 +284,7 @@
     <text
        inkscape:export-ydpi="90"
        inkscape:export-xdpi="90"
-       inkscape:export-filename="/home/fantom/Desktop/text19881.png"
+       inkscape:export-filename="/home/taras/devel/go/src/github.com/ergo-services/ergo/examples/proxy/demo.png"
        id="text33346"
        y="97.075035"
        x="171.15749"
@@ -276,7 +303,7 @@
     <text
        inkscape:export-ydpi="90"
        inkscape:export-xdpi="90"
-       inkscape:export-filename="/home/fantom/Desktop/text19881.png"
+       inkscape:export-filename="/home/taras/devel/go/src/github.com/ergo-services/ergo/examples/proxy/demo.png"
        id="text38932"
        y="30.335964"
        x="18.494263"
@@ -291,17 +318,20 @@
          y="35.451851"
          x="18.494263"
          sodipodi:role="line"
-         id="tspan38958">with Options.Proxy = true</tspan></text>
+         id="tspan38958">with Proxy.Transit = true</tspan></text>
     <path
        style="fill:none;stroke:#949494;stroke-width:0.282223;stroke-linecap:butt;stroke-linejoin:miter;stroke-miterlimit:4;stroke-dasharray:0.282223, 0.282223;stroke-dashoffset:0;stroke-opacity:1;enable-background:new"
        d="m 14.263958,44.499613 43.450891,-0.0043 13.248292,15.912108"
        id="path69369"
        inkscape:connector-curvature="0"
-       sodipodi:nodetypes="ccc" />
+       sodipodi:nodetypes="ccc"
+       inkscape:export-filename="/home/taras/devel/go/src/github.com/ergo-services/ergo/examples/proxy/demo.png"
+       inkscape:export-xdpi="90"
+       inkscape:export-ydpi="90" />
     <text
        inkscape:export-ydpi="90"
        inkscape:export-xdpi="90"
-       inkscape:export-filename="/home/fantom/Desktop/text19881.png"
+       inkscape:export-filename="/home/taras/devel/go/src/github.com/ergo-services/ergo/examples/proxy/demo.png"
        id="text69996"
        y="42.703873"
        x="15.319262"
@@ -322,11 +352,14 @@
        d="m 205.61639,32.217638 -42.91799,-0.0043 -16.91281,26.037893"
        id="path75211"
        inkscape:connector-curvature="0"
-       sodipodi:nodetypes="ccc" />
+       sodipodi:nodetypes="ccc"
+       inkscape:export-filename="/home/taras/devel/go/src/github.com/ergo-services/ergo/examples/proxy/demo.png"
+       inkscape:export-xdpi="90"
+       inkscape:export-ydpi="90" />
     <text
        inkscape:export-ydpi="90"
        inkscape:export-xdpi="90"
-       inkscape:export-filename="/home/fantom/Desktop/text19881.png"
+       inkscape:export-filename="/home/taras/devel/go/src/github.com/ergo-services/ergo/examples/proxy/demo.png"
        id="text75217"
        y="30.335964"
        x="166.12448"
@@ -341,32 +374,47 @@
          y="35.451851"
          x="166.12448"
          sodipodi:role="line"
-         id="tspan75215">with Options.Proxy = true</tspan></text>
+         id="tspan75215">with Proxy.Transit = true</tspan></text>
     <path
        style="fill:none;stroke:#949494;stroke-width:0.282223;stroke-linecap:butt;stroke-linejoin:miter;stroke-miterlimit:4;stroke-dasharray:0.282223, 0.282223;stroke-dashoffset:0;stroke-opacity:1;enable-background:new"
        d="m 207.88382,98.712665 -42.62067,-0.0043 -6.52747,8.787415"
        id="path76340"
        inkscape:connector-curvature="0"
-       sodipodi:nodetypes="ccc" />
+       sodipodi:nodetypes="ccc"
+       inkscape:export-filename="/home/taras/devel/go/src/github.com/ergo-services/ergo/examples/proxy/demo.png"
+       inkscape:export-xdpi="90"
+       inkscape:export-ydpi="90" />
     <path
        style="fill:none;stroke:#98c18f;stroke-width:1.065;stroke-linecap:butt;stroke-linejoin:miter;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1;marker-start:url(#DotS);marker-end:url(#DotS)"
        d="M 68.321641,108.5673 76.604864,77.126469"
        id="path85917"
-       sodipodi:nodetypes="cc" />
+       sodipodi:nodetypes="cc"
+       inkscape:export-filename="/home/taras/devel/go/src/github.com/ergo-services/ergo/examples/proxy/demo.png"
+       inkscape:export-xdpi="90"
+       inkscape:export-ydpi="90" />
     <path
        style="fill:none;stroke:#797979;stroke-width:1.065;stroke-linecap:butt;stroke-linejoin:miter;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1;marker-start:url(#DotS);marker-end:url(#DotS)"
        d="m 88.491816,68.797067 42.933754,0.192362"
        id="path86412"
-       sodipodi:nodetypes="cc" />
+       sodipodi:nodetypes="cc"
+       inkscape:export-filename="/home/taras/devel/go/src/github.com/ergo-services/ergo/examples/proxy/demo.png"
+       inkscape:export-xdpi="90"
+       inkscape:export-ydpi="90" />
     <path
        style="fill:none;stroke:#3d84b8;stroke-width:1.065;stroke-linecap:butt;stroke-linejoin:miter;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1;marker-start:url(#DotS);marker-end:url(#DotS)"
        d="M 152.18585,108.99188 143.80363,76.697225"
        id="path87644"
-       sodipodi:nodetypes="cc" />
+       sodipodi:nodetypes="cc"
+       inkscape:export-filename="/home/taras/devel/go/src/github.com/ergo-services/ergo/examples/proxy/demo.png"
+       inkscape:export-xdpi="90"
+       inkscape:export-ydpi="90" />
     <path
        style="fill:none;stroke:#ff5252;stroke-width:1.065;stroke-linecap:butt;stroke-linejoin:miter;stroke-miterlimit:4;stroke-dasharray:1.065, 1.065;stroke-dashoffset:0;stroke-opacity:1;marker-start:url(#DotS);marker-end:url(#DotS)"
        d="m 147.83693,110.05503 c 0,0 -7.66588,-37.454632 -12.02763,-35.006536 1.37844,-4.373375 -52.473122,-4.65891 -51.210638,0.06211 -4.071843,-1.981435 -12.29149,34.775986 -12.29149,34.775986"
        id="path87699"
-       sodipodi:nodetypes="cccc" />
+       sodipodi:nodetypes="cccc"
+       inkscape:export-filename="/home/taras/devel/go/src/github.com/ergo-services/ergo/examples/proxy/demo.png"
+       inkscape:export-xdpi="90"
+       inkscape:export-ydpi="90" />
   </g>
 </svg>

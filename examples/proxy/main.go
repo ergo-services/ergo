@@ -18,18 +18,18 @@ func main() {
 	}
 	fmt.Println("OK")
 
-	fmt.Printf("Starting node: node2 (cluster 1) with Proxy.Enabled = true ...")
+	fmt.Printf("Starting node: node2 (cluster 1) with Proxy.Transit = true ...")
 	opts2 := node.Options{}
-	opts2.Proxy.Enable = true
+	opts2.Proxy.Transit = true
 	node2, err := ergo.StartNode("node2@localhost", "secret1", opts2)
 	if err != nil {
 		panic(err)
 	}
 	fmt.Println("OK")
 
-	fmt.Printf("Starting node: node3 (cluster 2) with Proxy.Enabled = true ...")
+	fmt.Printf("Starting node: node3 (cluster 2) with Proxy.Transit = true ...")
 	opts3 := node.Options{}
-	opts3.Proxy.Enable = true
+	opts3.Proxy.Transit = true
 	node3, err := ergo.StartNode("node3@localhost", "secret2", opts3)
 	if err != nil {
 		panic(err)
