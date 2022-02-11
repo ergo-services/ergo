@@ -16,11 +16,6 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	//	saga1 := &Saga1{}
-	//	p1, err := node1.Spawn("saga1", gen.ProcessOptions{MailboxSize: 10000}, saga1)
-	//	if err != nil {
-	//		panic(err)
-	//	}
 	fmt.Println("OK")
 
 	fmt.Printf("Starting node: node2 (cluster 1) with Proxy.Enabled = true ...")
@@ -30,11 +25,6 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	//	saga2 := &Saga2{}
-	//	_, err = node2.Spawn("saga2", gen.ProcessOptions{MailboxSize: 10000}, saga2)
-	//	if err != nil {
-	//		panic(err)
-	//	}
 	fmt.Println("OK")
 
 	fmt.Printf("Starting node: node3 (cluster 2) with Proxy.Enabled = true ...")
@@ -44,11 +34,6 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	//	saga3 := &Saga3{}
-	//	_, err = node3.Spawn("saga3", gen.ProcessOptions{MailboxSize: 10000}, saga3)
-	//	if err != nil {
-	//		panic(err)
-	//	}
 	fmt.Println("OK")
 
 	fmt.Printf("Starting node: node4 and p4 process with Proxy.Cookie = \"abc\" (cluster 2) ...")
@@ -58,11 +43,6 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	//	saga4 := &Saga4{}
-	//	_, err = node4.Spawn("saga4", gen.ProcessOptions{MailboxSize: 10000}, saga4)
-	//	if err != nil {
-	//		panic(err)
-	//	}
 	fmt.Println("OK")
 
 	routeOptions := node.RouteOptions{
