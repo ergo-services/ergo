@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 
 	"github.com/ergo-services/ergo"
@@ -8,8 +9,10 @@ import (
 )
 
 func main() {
-	fmt.Printf("Starting node: node1@localhost and p1 process (cluster 1)...")
-	node1, err := ergo.StartNode("node1@localhost", "cluster1", node.Options{})
+	flag.Parse()
+
+	fmt.Printf("Starting node: node1 and p1 process (cluster 1) ...")
+	node1, err := ergo.StartNode("node1@localhost", "secret1", node.Options{})
 	if err != nil {
 		panic(err)
 	}
@@ -20,8 +23,10 @@ func main() {
 	//	}
 	fmt.Println("OK")
 
-	fmt.Printf("Starting node: node2@localhost (cluster 1)...")
-	node2, err := ergo.StartNode("node2@localhost", "cluster1", node.Options{})
+	fmt.Printf("Starting node: node2 (cluster 1) with Proxy.Enabled = true ...")
+	opts2 := node.Options{}
+	opts2.Proxy.Enable = true
+	node2, err := ergo.StartNode("node2@localhost", "secret1", opts2)
 	if err != nil {
 		panic(err)
 	}
@@ -32,8 +37,10 @@ func main() {
 	//	}
 	fmt.Println("OK")
 
-	fmt.Printf("Starting node: node3@localhost (cluster 2)...")
-	node3, err := ergo.StartNode("node3@localhost", "cluster2", node.Options{})
+	fmt.Printf("Starting node: node3 (cluster 2) with Proxy.Enabled = true ...")
+	opts3 := node.Options{}
+	opts3.Proxy.Enable = true
+	node3, err := ergo.StartNode("node3@localhost", "secret2", opts3)
 	if err != nil {
 		panic(err)
 	}
@@ -44,8 +51,10 @@ func main() {
 	//	}
 	fmt.Println("OK")
 
-	fmt.Printf("Starting node: node4@localhost and p4 process (cluster 2)...")
-	node4, err := ergo.StartNode("node4@localhost", "cluster2", node.Options{})
+	fmt.Printf("Starting node: node4 and p4 process with Proxy.Cookie = \"abc\" (cluster 2) ...")
+	opts4 := node.Options{}
+	opts4.Proxy.Cookie = "abc"
+	node4, err := ergo.StartNode("node4@localhost", "secret2", opts4)
 	if err != nil {
 		panic(err)
 	}
@@ -57,15 +66,45 @@ func main() {
 	fmt.Println("OK")
 
 	routeOptions := node.RouteOptions{
-		Cookie: "cluster2",
+		Cookie: "secret2",
 	}
-	if err := node2.AddStaticRouteOptions(node3.Name(), routeOptions); err != nil {
-		fmt.Println("ERR add ", err)
 
+	fmt.Printf("Add static route on node2 to node3 with custom cookie to get access to the cluster 2...")
+	if err := node2.AddStaticRouteOptions(node3.Name(), routeOptions); err != nil {
+		panic(err)
 	}
-	if err := node2.Connect(node3.Name()); err != nil {
-		fmt.Println("ERR", err)
+	fmt.Println("OK")
+
+	fmt.Printf("Add proxy route to node4 via node2 on node1 with proxy cookie = \"abc\" and enabled encryption... ")
+	proxyRoute1 := node.ProxyRoute{
+		Proxy:  node2.Name(),
+		Cookie: "abc",
+		Flags:  node.DefaultProxyFlags(),
 	}
+	proxyRoute1.Flags.EnableEncryption = true
+	if err := node1.AddProxyRoute(node4.Name(), proxyRoute1); err != nil {
+		panic(err)
+	}
+	fmt.Println("OK")
+
+	fmt.Printf("Add proxy route to node4 via node3 on node2... ")
+	proxyRoute2 := node.ProxyRoute{
+		Proxy: node3.Name(),
+	}
+	if err := node2.AddProxyRoute(node4.Name(), proxyRoute2); err != nil {
+		panic(err)
+	}
+	fmt.Println("OK")
+
+	fmt.Printf("Connect node1 to node4...")
+	if err := node1.Connect(node4.Name()); err != nil {
+		panic(err)
+	}
+	fmt.Println("OK")
+	fmt.Println("Peers on node1", node1.Nodes())
+	fmt.Println("Peers on node2", node2.Nodes())
+	fmt.Println("Peers on node3", node3.Nodes())
+	fmt.Println("Peers on node4", node4.Nodes())
 
 	node1.Stop()
 	node2.Stop()
