@@ -2,7 +2,7 @@
 
 This example demonstrates how to connect two nodes belonging to two different clusters by using the proxy feature and making this connection end-to-end encrypted.
 
-![demo](demo.svg)
+![demo](demo.png)
 
 Here is output of this example
 
