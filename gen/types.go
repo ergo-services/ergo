@@ -227,9 +227,10 @@ type ProcessOptions struct {
 	Fallback ProcessFallback
 }
 
+// ProcessFallback
 type ProcessFallback struct {
-	Process string
-	Tag     string
+	Name string
+	Tag  string
 }
 
 // RemoteSpawnRequest
@@ -390,6 +391,7 @@ type MessageExit struct {
 	Reason string
 }
 
+// MessageFallback delivers to the process specified as a fallback process in ProcessOptions.Fallback.Name if the mailbox has been overflowed
 type MessageFallback struct {
 	Process etf.Pid
 	Tag     string

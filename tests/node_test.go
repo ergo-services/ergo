@@ -606,8 +606,8 @@ func TestNodeProcessFallback(t *testing.T) {
 	popts1 := gen.ProcessOptions{
 		MailboxSize: 2,
 		Fallback: gen.ProcessFallback{
-			Process: "fp",
-			Tag:     "test_tag",
+			Name: "fp",
+			Tag:  "test_tag",
 		},
 	}
 	gsf := &failoverServer{

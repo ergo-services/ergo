@@ -732,7 +732,7 @@ func (c *core) RouteSend(from etf.Pid, to etf.Pid, message etf.Term) error {
 		case p.mailBox <- gen.ProcessMailboxMessage{From: from, Message: message}:
 		default:
 			c.mutexNames.RLock()
-			pid, found := c.names[p.fallback.Process]
+			pid, found := c.names[p.fallback.Name]
 			c.mutexNames.RUnlock()
 			if found == false {
 				lib.Warning("mailbox of %s[%q] is full. dropped message from %s", p.self, p.name, from)
