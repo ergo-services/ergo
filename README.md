@@ -64,8 +64,8 @@ Here are the changes of latest release. For more details see the [ChangeLog](Cha
 
 #### [v2.1.0](https://github.com/ergo-services/ergo/releases/tag/v1.999.2100) 2022-03-12 [tag version v1.999.2100] ####
 
-* Added compression support
-* Added proxy support. Here is example [examples/proxy](examples/proxy). `gen.MessageProxyDown` .. `noproxy`.
+* Introduced compression feature support
+* Introduced proxy feature support. Here is example [examples/proxy](examples/proxy). `gen.MessageProxyDown` .. `noproxy`.
 * Introduced new methods
   - `node.AddProxyRoute`/`node.RemoveProxyRoute`
   - `node.ProxyRoute`/`node.ProxyRoutes`
@@ -73,6 +73,7 @@ Here are the changes of latest release. For more details see the [ChangeLog](Cha
   - `gen.Process.SetCompression`/`gen.Process.Compression`
   - `gen.Process.SetCompressionLevel`/`gen.Process.CompressionLevel`
   - `gen.Process.SetCompressionThreshold`/`gen.Process.CompressionThreshold`
+  - `gen.Process.NodeUptime`/`gen.Process.NodeName`/`gen.Process.NodeStop`
 * **Important** `node.Options` has changed. Make sure to adjust your code.
 * Introduced `node.Proxy` in `node.Options` to configure proxy settings for the node.
 * Intfoduced `node.ProxyFlags` to enable/disable features of linking, monitoring, remote spawning for the peer connected through the proxy link.
@@ -81,8 +82,11 @@ Here are the changes of latest release. For more details see the [ChangeLog](Cha
   - `Resolver`
   - `Handshake`
   - `Proto`/`Connection`
-* Introduced `Fallback` options in `gen.ProcessOptions`. This feature allows forward messages to the fallback process if the mailbox is full. Forwarded messages are wrapping into `gen.MessageFallback` struct.
+* Introduced `gen.ProcessFallback` option in `gen.ProcessOptions`. This feature allows forward messages to the fallback process if the mailbox is full. Forwarded messages are wrapping into `gen.MessageFallback` struct.
 * Added `gen.ProcessOptions` to `gen.SupervisorChildSpec` and `gen.ApplicationChildSpec` in order customize options for the spawning child processes.
+* Improved handling messages. Send/Cast/Call return ErrProcessIncarnation if message is addressed to the process of previous incarnation (node restarted).
+* `gen.EnvKey`
+* default process env `node.EnvKeyNode`
 * Improved performance of local messaging (up to 10 times for some cases)
 * Fixed issue #89 (incorrect handling Call requests)
 * Fixed issues #87, #88 and #93 (closing network socket)
