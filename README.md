@@ -46,7 +46,7 @@ The goal of this project is to leverage Erlang/OTP experience with Golang perfor
 * Custom marshaling/unmarshaling via `Marshal` and `Unmarshal` interfaces
 * Encryption (TLS 1.3) support (including autogenerating self-signed certificates)
 * Compression support (with customization of compression level and threshold). It can be configured for the node or a particular process.
-* Proxy support (including access lists, end-to-end encryption, and linking/monitoring features)
+* Proxy support (end-to-end encryption, and linking/monitoring features)
 * Tested and confirmed support Windows, Darwin (MacOS), Linux, FreeBSD.
 * Zero dependency
 
@@ -62,30 +62,31 @@ Golang introduced [v2 rule](https://go.dev/blog/v2-go-modules) a while ago to so
 
 Here are the changes of latest release. For more details see the [ChangeLog](ChangeLog.md)
 
-#### [v2.0.0](https://github.com/ergo-services/ergo/releases/tag/v1.999.200) 2021-10-12 [tag version v1.999.200] ####
+#### [v2.1.0](https://github.com/ergo-services/ergo/releases/tag/v1.999.2100) 2022-03-12 [tag version v1.999.2100] ####
 
-* Added support of Erlang/OTP 24 (including [Alias](https://blog.erlang.org/My-OTP-24-Highlights/#eep-53-process-aliases) feature and [Remote Spawn](https://blog.erlang.org/OTP-23-Highlights/#distributed-spawn-and-the-new-erpc-module) introduced in Erlang/OTP 23)
-* **Important**: This release includes refined API (without backward compatibility) for a more convenient way to create OTP-designed microservices. Make sure to update your code.
-* **Important**: Project repository has been moved to [https://github.com/ergo-services/ergo](https://github.com/ergo-services/ergo). It is still available on the old URL [https://github.com/halturin/ergo](https://github.com/halturin/ergo) and GitHub will redirect all requests to the new one (thanks to GitHub for this feature).
-* Introduced new behavior `gen.Saga`. It implements Saga design pattern - a sequence of transactions that updates each service state and publishes the result (or cancels the transaction or triggers the next transaction step). `gen.Saga` also provides a feature of interim results (can be used as transaction progress or as a part of pipeline processing), time deadline (to limit transaction lifespan), two-phase commit (to make distributed transaction atomic). Here is example [examples/gensaga](examples/gensaga).
-* Introduced new methods `Process.Direct` and `Process.DirectWithTimeout` to make direct request to the actor (`gen.Server` or inherited object). If an actor has no implementation of `HandleDirect` callback it returns `ErrUnsupportedRequest` as a error.
-* Introduced new callback `HandleDirect` in the `gen.Server` interface as a handler for requests made by `Process.Direct` or `Process.DirectWithTimeout`. It should be easy to interact with actors from outside.
-* Introduced new types intended to be used to interact with Erlang/Elixir
-  * `etf.ListImproper` to support improper lists like `[a|b]` (a cons cell).
-  * `etf.String` (an alias for the Golang string) encodes as a binary in order to support Elixir string type (which is `binary()` type)
-  * `etf.Charlist` (an alias for the Golang string) encodes as a list of chars `[]rune` in order to support Erlang string type (which is `charlist()` type)
-* Introduced new methods `Node.ProvideRemoteSpawn`, `Node.RevokeRemoteSpawn`, `Process.RemoteSpawn`.
-* Introduced new interfaces `Marshaler` (method `MarshalETF`) and `Unmarshaler` (method `UnmarshalETF`) for the custom encoding/decoding data.
-* Improved performance for the local messaging (up to 3 times for some cases)
-* Added example [examples/http](examples/http) to demonsrate how HTTP server can be integrated into the Ergo node.
-* Added example [examples/gendemo](examples/gendemo) - how to create a custom behavior (design pattern) on top of the `gen.Server`. Take inspiration from the [gen/stage.go](gen/stage.go) or [gen/saga.go](gen/saga.go) design patterns.
-* Added support FreeBSD, OpenBSD, NetBSD, DragonFly.
-* Fixed RPC issue #45
-* Fixed internal timer issue #48
-* Fixed memory leaks #53
-* Fixed double panic issue #52
-* Fixed Atom Cache race conditioned issue #54
-* Fixed ETF encoder issues #64 #66
+* Added compression support
+* Added proxy support. Here is example [examples/proxy](examples/proxy). `gen.MessageProxyDown` .. `noproxy`.
+* Introduced new methods
+ - `node.AddProxyRoute`/`node.RemoveProxyRoute`
+ - `node.ProxyRoute`/`node.ProxyRoutes`
+ - `node.NodesIndirect`
+ - `gen.Process.SetCompression`/`gen.Process.Compression`
+ - `gen.Process.SetCompressionLevel`/`gen.Process.CompressionLevel`
+ - `gen.Process.SetCompressionThreshold`/`gen.Process.CompressionThreshold`
+* **Important** `node.Options` has changed. Make sure to adjust your code.
+* Introduced `node.Proxy` in `node.Options` to configure proxy settings for the node.
+* Intfoduced `node.ProxyFlags` to enable/disable features of linking, monitoring, remote spawning for the peer connected through the proxy link.
+* Introduced `node.Compression` in `node.Options` to configure compression settings for the spawned processes on this node.
+* Introduced new interfaces
+ - `Resolver`
+ - `Handshake`
+ - `Proto`/`Connection`
+* Introduced `Fallback` options in `gen.ProcessOptions`. This feature allows forward messages to the fallback process if the mailbox is full. Forwarded messages are wrapping into `gen.MessageFallback` struct.
+* Added `gen.ProcessOptions` to `gen.SupervisorChildSpec` and `gen.ApplicationChildSpec` in order customize options for the spawning child processes.
+* Improved performance of local messaging (up to 10 times for some cases)
+* Fixed issue #89 (incorrect handling Call requests)
+* Fixed issues #87, #88 and #93 (closing network socket)
+* Fixed issue #96 (silently drops message if mailbox is full)
 
 
 ### Benchmarks ###
