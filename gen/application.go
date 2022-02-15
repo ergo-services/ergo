@@ -59,6 +59,7 @@ type ApplicationSpec struct {
 // ApplicationChildSpec
 type ApplicationChildSpec struct {
 	Child   ProcessBehavior
+	Options ProcessOptions
 	Name    string
 	Args    []etf.Term
 	process Process
@@ -256,7 +257,7 @@ func (a *Application) startChildren(parent Process, children []ApplicationChildS
 	for i := range children {
 		// i know, it looks weird to use the funcion from supervisor file.
 		// will move it to somewhere else, but let it be there for a while.
-		p := startChild(parent, children[i].Name, children[i].Child, children[i].Args...)
+		p := startChild(parent, children[i].Name, children[i].Child, children[i].Options, children[i].Args...)
 		if p == nil {
 			return false
 		}

@@ -326,7 +326,7 @@ func (c *core) newProcess(name string, behavior gen.ProcessBehavior, opts proces
 		kill:    kill,
 
 		reply:    make(map[etf.Ref]chan etf.Term),
-		failover: opts.Failover,
+		fallback: opts.Fallback,
 	}
 
 	process.exit = func(from etf.Pid, reason string) error {
@@ -731,18 +731,18 @@ func (c *core) RouteSend(from etf.Pid, to etf.Pid, message etf.Term) error {
 		case p.mailBox <- gen.ProcessMailboxMessage{From: from, Message: message}:
 		default:
 			c.mutexNames.RLock()
-			pid, found := c.names[p.failover.Process]
+			pid, found := c.names[p.fallback.Process]
 			c.mutexNames.RUnlock()
 			if found == false {
 				lib.Warning("mailbox of %s[%q] is full. dropped message from %s", p.self, p.name, from)
 				return ErrProcessBusy
 			}
-			failover := gen.MessageFailover{
+			fbm := gen.MessageFallback{
 				Process: p.self,
-				Tag:     p.failover.Tag,
+				Tag:     p.fallback.Tag,
 				Message: message,
 			}
-			return c.RouteSend(from, pid, failover)
+			return c.RouteSend(from, pid, fbm)
 		}
 		return nil
 	}

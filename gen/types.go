@@ -220,14 +220,14 @@ type ProcessOptions struct {
 	// Env set the process environment variables
 	Env map[EnvKey]interface{}
 
-	// Failover defines the process to where messages will be forwarded
+	// Fallback defines the process to where messages will be forwarded
 	// if the mailbox is overflowed. The tag value could be used to
 	// differentiate the source processes. Forwarded messages are wrapped
-	// into the MessageFailover struct.
-	Failover ProcessFailover
+	// into the MessageFallback struct.
+	Fallback ProcessFallback
 }
 
-type ProcessFailover struct {
+type ProcessFallback struct {
 	Process string
 	Tag     string
 }
@@ -390,7 +390,7 @@ type MessageExit struct {
 	Reason string
 }
 
-type MessageFailover struct {
+type MessageFallback struct {
 	Process etf.Pid
 	Tag     string
 	Message etf.Term

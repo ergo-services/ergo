@@ -587,17 +587,17 @@ func (f *failoverServer) Init(process *gen.ServerProcess, args ...etf.Term) erro
 }
 func (f *failoverServer) HandleInfo(process *gen.ServerProcess, message etf.Term) gen.ServerStatus {
 	switch message.(type) {
-	case gen.MessageFailover:
+	case gen.MessageFallback:
 		f.v <- message
 	default:
 		time.Sleep(300 * time.Millisecond)
 	}
 	return gen.ServerStatusOK
 }
-func TestNodeProcessFailover(t *testing.T) {
-	fmt.Printf("\n=== Test Node Process Failover \n")
+func TestNodeProcessFallback(t *testing.T) {
+	fmt.Printf("\n=== Test Node Process Fallback\n")
 	fmt.Printf("... start node1: ")
-	node1, e := ergo.StartNode("node1processfailover@localhost", "secret", node.Options{})
+	node1, e := ergo.StartNode("node1processfallback@localhost", "secret", node.Options{})
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -605,7 +605,7 @@ func TestNodeProcessFailover(t *testing.T) {
 	fmt.Println("OK")
 	popts1 := gen.ProcessOptions{
 		MailboxSize: 2,
-		Failover: gen.ProcessFailover{
+		Fallback: gen.ProcessFallback{
 			Process: "fp",
 			Tag:     "test_tag",
 		},
@@ -614,7 +614,7 @@ func TestNodeProcessFailover(t *testing.T) {
 		v: make(chan interface{}, 2),
 	}
 
-	fmt.Printf("... start process p1 (with mailbox size = 2 and failover process = \"fp\"): ")
+	fmt.Printf("... start process p1 (with mailbox size = 2 and fallback process = \"fp\"): ")
 	p1, err := node1.Spawn("", popts1, &failoverServer{})
 	if err != nil {
 		t.Fatal(e)
@@ -626,14 +626,14 @@ func TestNodeProcessFailover(t *testing.T) {
 		t.Fatal(e)
 	}
 	fmt.Println("OK")
-	fmt.Printf("... sending 4 messages to p1 (4th must wrapped into gen.MessageFailover and forwarded to \"fp\" ): ")
+	fmt.Printf("... sending 4 messages to p1 (4th must wrapped into gen.MessageFallback and forwarded to \"fp\" ): ")
 	p1.Send(p1.Self(), "m1")
 	p1.Send(p1.Self(), "m2")
 	p1.Send(p1.Self(), "m3")
 	// bellow message must be forwarded
 	p1.Send(p1.Self(), "m4")
 
-	result := gen.MessageFailover{Process: p1.Self(), Tag: "test_tag", Message: "m4"}
+	result := gen.MessageFallback{Process: p1.Self(), Tag: "test_tag", Message: "m4"}
 	waitForResultWithValue(t, gsf.v, result)
 }
 
