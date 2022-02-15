@@ -419,7 +419,7 @@ func (sp *ServerProcess) waitCallbackOrDeferr(message interface{}) {
 		case sp.deferred <- deferred:
 			// do nothing
 		default:
-			fmt.Printf("WARNING! deferred mailbox of %s[%q] is full. dropped message %v",
+			lib.Warning("deferred mailbox of %s[%q] is full. dropped message %v",
 				sp.Self(), sp.Name(), message)
 		}
 
@@ -451,7 +451,7 @@ func (sp *ServerProcess) waitCallbackOrDeferr(message interface{}) {
 		// it was called just to read the channel sp.callbackWaitReply
 
 	default:
-		fmt.Printf("unknown message type in waitCallbackOrDeferr: %#v\n", message)
+		lib.Warning("unknown message type in waitCallbackOrDeferr: %#v\n", message)
 		return
 	}
 
@@ -474,7 +474,7 @@ func (sp *ServerProcess) waitCallbackOrDeferr(message interface{}) {
 func (sp *ServerProcess) panicHandler() {
 	if r := recover(); r != nil {
 		pc, fn, line, _ := runtime.Caller(2)
-		fmt.Printf("Warning: Server terminated %s[%q]. Panic reason: %#v at %s[%s:%d]\n",
+		lib.Warning("Server terminated %s[%q]. Panic reason: %#v at %s[%s:%d]\n",
 			sp.Self(), sp.Name(), r, runtime.FuncForPC(pc).Name(), fn, line)
 		sp.stop <- "panic"
 	}
@@ -571,13 +571,13 @@ func (gs *Server) Init(process *ServerProcess, args ...etf.Term) error {
 
 // HanldeCast
 func (gs *Server) HandleCast(process *ServerProcess, message etf.Term) ServerStatus {
-	fmt.Printf("Server [%s] HandleCast: unhandled message %#v \n", process.Name(), message)
+	lib.Warning("Server [%s] HandleCast: unhandled message %#v \n", process.Name(), message)
 	return ServerStatusOK
 }
 
 // HandleInfo
 func (gs *Server) HandleCall(process *ServerProcess, from ServerFrom, message etf.Term) (etf.Term, ServerStatus) {
-	fmt.Printf("Server [%s] HandleCall: unhandled message %#v from %#v \n", process.Name(), message, from)
+	lib.Warning("Server [%s] HandleCall: unhandled message %#v from %#v \n", process.Name(), message, from)
 	return "ok", ServerStatusOK
 }
 
@@ -588,7 +588,7 @@ func (gs *Server) HandleDirect(process *ServerProcess, message interface{}) (int
 
 // HandleInfo
 func (gs *Server) HandleInfo(process *ServerProcess, message etf.Term) ServerStatus {
-	fmt.Printf("Server [%s] HandleInfo: unhandled message %#v \n", process.Name(), message)
+	lib.Warning("Server [%s] HandleInfo: unhandled message %#v \n", process.Name(), message)
 	return ServerStatusOK
 }
 

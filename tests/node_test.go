@@ -577,6 +577,66 @@ func TestNodeResolveExtra(t *testing.T) {
 	fmt.Println("OK")
 }
 
+type failoverServer struct {
+	gen.Server
+	v chan interface{}
+}
+
+func (f *failoverServer) Init(process *gen.ServerProcess, args ...etf.Term) error {
+	return nil
+}
+func (f *failoverServer) HandleInfo(process *gen.ServerProcess, message etf.Term) gen.ServerStatus {
+	switch message.(type) {
+	case gen.MessageFailover:
+		f.v <- message
+	default:
+		time.Sleep(300 * time.Millisecond)
+	}
+	return gen.ServerStatusOK
+}
+func TestNodeProcessFailover(t *testing.T) {
+	fmt.Printf("\n=== Test Node Process Failover \n")
+	fmt.Printf("... start node1: ")
+	node1, e := ergo.StartNode("node1processfailover@localhost", "secret", node.Options{})
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer node1.Stop()
+	fmt.Println("OK")
+	popts1 := gen.ProcessOptions{
+		MailboxSize: 2,
+		Failover: gen.ProcessFailover{
+			Process: "fp",
+			Tag:     "test_tag",
+		},
+	}
+	gsf := &failoverServer{
+		v: make(chan interface{}, 2),
+	}
+
+	fmt.Printf("... start process p1 (with mailbox size = 2 and failover process = \"fp\"): ")
+	p1, err := node1.Spawn("", popts1, &failoverServer{})
+	if err != nil {
+		t.Fatal(e)
+	}
+	fmt.Println("OK")
+	fmt.Printf("... start failover process p2 (with name = \"fp\"): ")
+	_, err = node1.Spawn("fp", gen.ProcessOptions{}, gsf)
+	if err != nil {
+		t.Fatal(e)
+	}
+	fmt.Println("OK")
+	fmt.Printf("... sending 4 messages to p1 (4th must wrapped into gen.MessageFailover and forwarded to \"fp\" ): ")
+	p1.Send(p1.Self(), "m1")
+	p1.Send(p1.Self(), "m2")
+	p1.Send(p1.Self(), "m3")
+	// bellow message must be forwarded
+	p1.Send(p1.Self(), "m4")
+
+	result := gen.MessageFailover{Process: p1.Self(), Tag: "test_tag", Message: "m4"}
+	waitForResultWithValue(t, gsf.v, result)
+}
+
 type compressionServer struct {
 	gen.Server
 }

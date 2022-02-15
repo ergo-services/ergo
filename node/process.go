@@ -56,6 +56,8 @@ type process struct {
 
 	trapExit    bool
 	compression Compression
+
+	failover gen.ProcessFailover
 }
 
 type processOptions struct {

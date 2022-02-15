@@ -19,6 +19,7 @@ type Buffer struct {
 
 var (
 	ergoTrace     = false
+	ergoWarning   = false
 	ergoNoRecover = false
 
 	DefaultBufferLength = 16384
@@ -42,7 +43,8 @@ var (
 )
 
 func init() {
-	flag.BoolVar(&ergoTrace, "ergo.trace", false, "enable extended debug info")
+	flag.BoolVar(&ergoTrace, "ergo.trace", false, "enable/disable extended debug info")
+	flag.BoolVar(&ergoWarning, "ergo.warning", true, "enable/disable warning messages")
 	flag.BoolVar(&ergoNoRecover, "ergo.norecover", false, "disable panic catching")
 }
 
@@ -50,6 +52,13 @@ func init() {
 func Log(f string, a ...interface{}) {
 	if ergoTrace {
 		log.Printf(f, a...)
+	}
+}
+
+// Warning
+func Warning(f string, a ...interface{}) {
+	if ergoWarning {
+		log.Printf("WARNING! "+f, a...)
 	}
 }
 

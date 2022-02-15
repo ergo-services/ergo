@@ -234,7 +234,7 @@ func (dp *distProto) Init(ctx context.Context, conn io.ReadWriter, peername stri
 func (dp *distProto) Serve(ci node.ConnectionInterface, router node.CoreRouter) {
 	connection, ok := ci.(*distConnection)
 	if !ok {
-		fmt.Println("conn is not a *distConnection type")
+		lib.Warning("conn is not a *distConnection type")
 		return
 	}
 
@@ -252,7 +252,7 @@ func (dp *distProto) Serve(ci node.ConnectionInterface, router node.CoreRouter) 
 		if err != nil || packetLength == 0 {
 			// link was closed or got malformed data
 			if err != nil {
-				fmt.Println("link was closed", connection.peername, "error:", err)
+				lib.Warning("link was closed", connection.peername, "error:", err)
 			}
 			lib.ReleaseBuffer(b)
 			return
@@ -292,7 +292,7 @@ func (dp *distProto) Serve(ci node.ConnectionInterface, router node.CoreRouter) 
 func (dp *distProto) Terminate(ci node.ConnectionInterface) {
 	connection, ok := ci.(*distConnection)
 	if !ok {
-		fmt.Println("conn is not a *distConnection type")
+		lib.Warning("conn is not a *distConnection type")
 		return
 	}
 
@@ -724,7 +724,7 @@ func (dc *distConnection) receiver(recv <-chan *lib.Buffer) {
 
 		if err == errMissingInCache {
 			if b == missing.b && missing.c > 100 {
-				fmt.Println("Error: Disordered data at the link with", dc.peername, ". Close connection")
+				lib.Warning("Disordered data at the link with", dc.peername, ". Close connection")
 				dc.cancelContext()
 				lib.ReleaseBuffer(b)
 				return
@@ -743,7 +743,7 @@ func (dc *distConnection) receiver(recv <-chan *lib.Buffer) {
 				dChannel = nil
 				continue
 			default:
-				fmt.Println("Error: Mess at the link with", dc.peername, ". Close connection")
+				lib.Warning("Mess at the link with", dc.peername, ". Close connection")
 				dc.cancelContext()
 				lib.ReleaseBuffer(b)
 				return
@@ -753,7 +753,7 @@ func (dc *distConnection) receiver(recv <-chan *lib.Buffer) {
 		dChannel = deferrChannel
 
 		if err != nil {
-			fmt.Printf("[%s] Malformed Dist proto at the link with %s: %s\n", dc.nodename, dc.peername, err)
+			lib.Warning("[%s] Malformed Dist proto at the link with %s: %s\n", dc.nodename, dc.peername, err)
 			dc.cancelContext()
 			lib.ReleaseBuffer(b)
 			return
@@ -767,13 +767,13 @@ func (dc *distConnection) receiver(recv <-chan *lib.Buffer) {
 		// handle message
 		if err := dc.handleMessage(message); err != nil {
 			if message.proxy == nil {
-				fmt.Printf("[%s] Malformed Control packet at the link with %s: %#v\n", dc.nodename, dc.peername, message.control)
+				lib.Warning("[%s] Malformed Control packet at the link with %s: %#v\n", dc.nodename, dc.peername, message.control)
 				dc.cancelContext()
 				lib.ReleaseBuffer(b)
 				return
 			}
 			// drop proxy session
-			fmt.Printf("[%s] Malformed Control packet at the proxy link with %s: %#v\n", dc.nodename, message.proxy.session.PeerName, message.control)
+			lib.Warning("[%s] Malformed Control packet at the proxy link with %s: %#v\n", dc.nodename, message.proxy.session.PeerName, message.control)
 			disconnect := node.ProxyDisconnect{
 				Node:      dc.nodename,
 				Proxy:     dc.nodename,
@@ -1789,7 +1789,7 @@ func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOpt
 		// encode Control
 		err = etf.Encode(message.control, packetBuffer, encodeOptions)
 		if err != nil {
-			fmt.Println(err)
+			lib.Warning("can not encode control message: %s", err)
 			lib.ReleaseBuffer(packetBuffer)
 			continue
 		}
@@ -1798,7 +1798,7 @@ func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOpt
 		if message.payload != nil {
 			err = etf.Encode(message.payload, packetBuffer, encodeOptions)
 			if err != nil {
-				fmt.Println(err)
+				lib.Warning("can not encode payload message: %s", err)
 				lib.ReleaseBuffer(packetBuffer)
 				continue
 			}
@@ -1844,7 +1844,7 @@ func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOpt
 			if lenAtomCache > reserveHeaderAtomCache-22 {
 				// are you serious? ))) what da hell you just sent?
 				// FIXME i'm gonna fix it if someone report about this issue :)
-				fmt.Println("WARNING: exceed atom header cache size limit. please report about this issue")
+				lib.Warning("exceed atom header cache size limit. please report about this issue")
 				return
 			}
 

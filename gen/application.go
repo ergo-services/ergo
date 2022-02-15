@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/ergo-services/ergo/etf"
+	"github.com/ergo-services/ergo/lib"
 )
 
 type ApplicationStartType = string
@@ -134,7 +135,7 @@ func (a *Application) ProcessLoop(ps ProcessState, started chan<- bool) string {
 			if ex.From == ps.Self() {
 				childrenStopped := a.stopChildren(terminated, spec.Children, reason)
 				if !childrenStopped {
-					fmt.Printf("Warining: application can't be stopped. Some of the children are still running")
+					lib.Warning("application %q can't be stopped. Some of the children are still running", spec.Name)
 					continue
 				}
 				return ex.Reason
@@ -160,19 +161,19 @@ func (a *Application) ProcessLoop(ps ProcessState, started chan<- bool) string {
 			switch spec.StartType {
 			case ApplicationStartPermanent:
 				a.stopChildren(terminated, spec.Children, string(reason))
-				fmt.Printf("Application child %s (at %s) stopped with reason %s (permanent: node is shutting down)\n",
+				lib.Warning("Application child %s (at %s) stopped with reason %s (permanent: node is shutting down)",
 					terminated, ps.NodeName(), reason)
 				ps.NodeStop()
 				return "shutdown"
 
 			case ApplicationStartTransient:
 				if reason == "normal" || reason == "shutdown" {
-					fmt.Printf("Application child %s (at %s) stopped with reason %s (transient)\n",
+					lib.Warning("Application child %s (at %s) stopped with reason %s (transient)",
 						terminated, ps.NodeName(), reason)
 					continue
 				}
 				a.stopChildren(terminated, spec.Children, reason)
-				fmt.Printf("Application child %s (at %s) stopped with reason %s. (transient: node is shutting down)\n",
+				lib.Warning("Application child %s (at %s) stopped with reason %s. (transient: node is shutting down)",
 					terminated, ps.NodeName(), reason)
 				ps.NodeStop()
 				return string(reason)

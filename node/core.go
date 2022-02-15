@@ -268,10 +268,10 @@ func (c *core) deleteAlias(owner *process, alias etf.Alias) error {
 	p.Unlock()
 
 	// shouldn't reach this code. seems we got a bug
-	fmt.Println("Bug: Process lost its alias. Please, report this issue")
 	c.mutexAliases.Lock()
 	delete(c.aliases, alias)
 	c.mutexAliases.Unlock()
+	lib.Warning("Bug: Process lost its alias. Please, report this issue")
 
 	return ErrAliasUnknown
 }
@@ -325,7 +325,8 @@ func (c *core) newProcess(name string, behavior gen.ProcessBehavior, opts proces
 		context: processContext,
 		kill:    kill,
 
-		reply: make(map[etf.Ref]chan etf.Term),
+		reply:    make(map[etf.Ref]chan etf.Term),
+		failover: opts.Failover,
 	}
 
 	process.exit = func(from etf.Pid, reason string) error {
@@ -422,7 +423,7 @@ func (c *core) spawn(name string, opts processOptions, behavior gen.ProcessBehav
 			defer func() {
 				if rcv := recover(); rcv != nil {
 					pc, fn, line, _ := runtime.Caller(2)
-					fmt.Printf("Warning: initialization process failed %s[%q] %#v at %s[%s:%d]\n",
+					lib.Warning("initialization process failed %s[%q] %#v at %s[%s:%d]\n",
 						process.self, name, rcv, runtime.FuncForPC(pc).Name(), fn, line)
 					c.deleteProcess(process.self)
 					err = fmt.Errorf("panic")
@@ -477,7 +478,7 @@ func (c *core) spawn(name string, opts processOptions, behavior gen.ProcessBehav
 			defer func() {
 				if rcv := recover(); rcv != nil {
 					pc, fn, line, _ := runtime.Caller(2)
-					fmt.Printf("Warning: process terminated %s[%q] %#v at %s[%s:%d]\n",
+					lib.Warning("process terminated %s[%q] %#v at %s[%s:%d]\n",
 						process.self, name, rcv, runtime.FuncForPC(pc).Name(), fn, line)
 					cleanProcess("panic")
 				}
@@ -729,7 +730,19 @@ func (c *core) RouteSend(from etf.Pid, to etf.Pid, message etf.Term) error {
 		select {
 		case p.mailBox <- gen.ProcessMailboxMessage{From: from, Message: message}:
 		default:
-			return fmt.Errorf("WARNING! mailbox of %s is full. dropped message from %s", p.Self(), from)
+			c.mutexNames.RLock()
+			pid, found := c.names[p.failover.Process]
+			c.mutexNames.RUnlock()
+			if found == false {
+				lib.Warning("mailbox of %s[%q] is full. dropped message from %s", p.self, p.name, from)
+				return ErrProcessBusy
+			}
+			failover := gen.MessageFailover{
+				Process: p.self,
+				Tag:     p.failover.Tag,
+				Message: message,
+			}
+			return c.RouteSend(from, pid, failover)
 		}
 		return nil
 	}

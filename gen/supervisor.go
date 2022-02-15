@@ -195,8 +195,8 @@ func startChildren(supervisor Process, spec *SupervisorSpec) {
 	if len(spec.restarts) > int(spec.Strategy.Intensity) {
 		period := time.Now().Unix() - spec.restarts[0]
 		if period <= int64(spec.Strategy.Period) {
-			fmt.Printf("ERROR: Restart intensity is exceeded (%d restarts for %d seconds)\n",
-				spec.Strategy.Intensity, spec.Strategy.Period)
+			lib.Warning("Supervisor %q. Restart intensity is exceeded (%d restarts for %d seconds)",
+				spec.Name, spec.Strategy.Intensity, spec.Strategy.Period)
 			supervisor.Kill()
 			return
 		}

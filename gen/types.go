@@ -219,6 +219,17 @@ type ProcessOptions struct {
 	GroupLeader Process
 	// Env set the process environment variables
 	Env map[EnvKey]interface{}
+
+	// Failover defines the process to where messages will be forwarded
+	// if the mailbox is overflowed. The tag value could be used to
+	// differentiate the source processes. Forwarded messages are wrapped
+	// into the MessageFailover struct.
+	Failover ProcessFailover
+}
+
+type ProcessFailover struct {
+	Process string
+	Tag     string
 }
 
 // RemoteSpawnRequest
@@ -377,6 +388,12 @@ type MessageProxyDown struct {
 type MessageExit struct {
 	Pid    etf.Pid
 	Reason string
+}
+
+type MessageFailover struct {
+	Process etf.Pid
+	Tag     string
+	Message etf.Term
 }
 
 // RPC defines rpc function type
