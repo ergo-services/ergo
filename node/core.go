@@ -716,6 +716,7 @@ func (c *core) RouteSend(from etf.Pid, to etf.Pid, message etf.Term) error {
 	if string(to.Node) == c.nodename {
 		if to.Creation != c.creation {
 			// message is addressed to the previous incarnation of this PID
+			lib.Warning("message from %s is addressed to the previous incarnation of this PID %s", from, to)
 			return ErrProcessIncarnation
 		}
 		// local route
@@ -747,7 +748,7 @@ func (c *core) RouteSend(from etf.Pid, to etf.Pid, message etf.Term) error {
 		return nil
 	}
 
-	// do not allow to send from the alien node. Proxy request must be used.
+	// do not allow to send from the alien node.
 	if string(from.Node) != c.nodename {
 		return ErrSenderUnknown
 	}
