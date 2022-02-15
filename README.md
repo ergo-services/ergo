@@ -67,20 +67,20 @@ Here are the changes of latest release. For more details see the [ChangeLog](Cha
 * Added compression support
 * Added proxy support. Here is example [examples/proxy](examples/proxy). `gen.MessageProxyDown` .. `noproxy`.
 * Introduced new methods
- - `node.AddProxyRoute`/`node.RemoveProxyRoute`
- - `node.ProxyRoute`/`node.ProxyRoutes`
- - `node.NodesIndirect`
- - `gen.Process.SetCompression`/`gen.Process.Compression`
- - `gen.Process.SetCompressionLevel`/`gen.Process.CompressionLevel`
- - `gen.Process.SetCompressionThreshold`/`gen.Process.CompressionThreshold`
+  - `node.AddProxyRoute`/`node.RemoveProxyRoute`
+  - `node.ProxyRoute`/`node.ProxyRoutes`
+  - `node.NodesIndirect`
+  - `gen.Process.SetCompression`/`gen.Process.Compression`
+  - `gen.Process.SetCompressionLevel`/`gen.Process.CompressionLevel`
+  - `gen.Process.SetCompressionThreshold`/`gen.Process.CompressionThreshold`
 * **Important** `node.Options` has changed. Make sure to adjust your code.
 * Introduced `node.Proxy` in `node.Options` to configure proxy settings for the node.
 * Intfoduced `node.ProxyFlags` to enable/disable features of linking, monitoring, remote spawning for the peer connected through the proxy link.
 * Introduced `node.Compression` in `node.Options` to configure compression settings for the spawned processes on this node.
 * Introduced new interfaces
- - `Resolver`
- - `Handshake`
- - `Proto`/`Connection`
+  - `Resolver`
+  - `Handshake`
+  - `Proto`/`Connection`
 * Introduced `Fallback` options in `gen.ProcessOptions`. This feature allows forward messages to the fallback process if the mailbox is full. Forwarded messages are wrapping into `gen.MessageFallback` struct.
 * Added `gen.ProcessOptions` to `gen.SupervisorChildSpec` and `gen.ApplicationChildSpec` in order customize options for the spawning child processes.
 * Improved performance of local messaging (up to 10 times for some cases)
