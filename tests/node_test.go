@@ -586,12 +586,11 @@ func (f *failoverServer) Init(process *gen.ServerProcess, args ...etf.Term) erro
 	return nil
 }
 func (f *failoverServer) HandleInfo(process *gen.ServerProcess, message etf.Term) gen.ServerStatus {
-	switch message.(type) {
-	case gen.MessageFallback:
+	if _, yes := gen.IsMessageFallback(message); yes {
 		f.v <- message
-	default:
-		time.Sleep(300 * time.Millisecond)
+		return gen.ServerStatusOK
 	}
+	time.Sleep(300 * time.Millisecond)
 	return gen.ServerStatusOK
 }
 func TestNodeProcessFallback(t *testing.T) {

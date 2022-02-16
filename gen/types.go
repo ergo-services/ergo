@@ -433,3 +433,23 @@ func IsMessageExit(message etf.Term) (MessageExit, bool) {
 	}
 	return me, false
 }
+
+// IsMessageProxyDown
+func IsMessageProxyDown(message etf.Term) (MessageProxyDown, bool) {
+	var mpd MessageProxyDown
+	switch m := message.(type) {
+	case MessageProxyDown:
+		return m, true
+	}
+	return mpd, false
+}
+
+// IsMessageFallback
+func IsMessageFallback(message etf.Term) (MessageFallback, bool) {
+	var mf MessageFallback
+	switch m := message.(type) {
+	case MessageFallback:
+		return m, true
+	}
+	return mf, false
+}
