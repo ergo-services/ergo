@@ -97,10 +97,9 @@ func (cc *cloudClient) Terminate(process *gen.ServerProcess, reason string) {
 }
 
 func getCloudNodes() ([]CloudNode, error) {
-	var nodes []CloudNode
 	_, srv, err := net.LookupSRV("cloud", "dist", "ergo.services")
 	if err != nil {
-		return nodes, err
+		return nil, err
 	}
 	nodes := make([]CloudNode, len(srv))
 	for i := range srv {
