@@ -1672,8 +1672,8 @@ func (dc *distConnection) encodeDistHeaderAtomCache(b *lib.Buffer,
 
 func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOptions, peerFlags node.Flags) {
 	var encodingAtomCache *etf.ListAtomCache
-	var writerAtomCache map[etf.Atom]etf.CacheItem
-	var linkAtomCache *etf.AtomCache
+	var senderAtomCache map[etf.Atom]etf.CacheItem
+	var atomCache *etf.AtomCache
 	var lastCacheID int16 = -1
 
 	var lenMessage, lenAtomCache, lenPacket, startDataPosition int
@@ -1703,13 +1703,13 @@ func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOpt
 	if cacheEnabled {
 		encodingAtomCache = etf.TakeListAtomCache()
 		defer etf.ReleaseListAtomCache(encodingAtomCache)
-		writerAtomCache = make(map[etf.Atom]etf.CacheItem)
-		linkAtomCache = dc.cacheOut
+		senderAtomCache = make(map[etf.Atom]etf.CacheItem)
+		atomCache = dc.cacheOut
 	}
 
 	encodeOptions := etf.EncodeOptions{
-		LinkAtomCache:     linkAtomCache,
-		WriterAtomCache:   writerAtomCache,
+		AtomCache:         atomCache,
+		SenderAtomCache:   senderAtomCache,
 		EncodingAtomCache: encodingAtomCache,
 		FlagBigCreation:   peerFlags.EnableBigCreation,
 		FlagBigPidRef:     peerFlags.EnableBigPidRef,
@@ -1838,7 +1838,7 @@ func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOpt
 		// encode Header Atom Cache if its enabled
 		if cacheEnabled && encodingAtomCache.Len() > 0 {
 			atomCacheBuffer = lib.TakeBuffer()
-			dc.encodeDistHeaderAtomCache(atomCacheBuffer, writerAtomCache, encodingAtomCache)
+			dc.encodeDistHeaderAtomCache(atomCacheBuffer, senderAtomCache, encodingAtomCache)
 			lenAtomCache = atomCacheBuffer.Len()
 
 			if lenAtomCache > reserveHeaderAtomCache-22 {
@@ -2049,14 +2049,14 @@ func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOpt
 		}
 
 		// get updates from link AtomCache and update the local one (map writerAtomCache)
-		id := linkAtomCache.GetLastID()
+		id := atomCache.GetLastID()
 		if lastCacheID < id {
-			linkAtomCache.Lock()
-			for _, a := range linkAtomCache.ListSince(lastCacheID + 1) {
-				writerAtomCache[a] = etf.CacheItem{ID: lastCacheID + 1, Name: a, Encoded: false}
+			atomCache.Lock()
+			for _, a := range atomCache.ListSince(lastCacheID + 1) {
+				senderAtomCache[a] = etf.CacheItem{ID: lastCacheID + 1, Name: a, Encoded: false}
 				lastCacheID++
 			}
-			linkAtomCache.Unlock()
+			atomCache.Unlock()
 		}
 
 	}

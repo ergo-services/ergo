@@ -36,7 +36,7 @@ var (
 	listAtomCachePool = &sync.Pool{
 		New: func() interface{} {
 			l := &ListAtomCache{
-				L: make([]CacheItem, 0, 256),
+				L: make([]CacheItem, 0, 255),
 			}
 			l.original = l.L
 			return l

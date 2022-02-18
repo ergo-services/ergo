@@ -23,8 +23,8 @@ var (
 
 // EncodeOptions
 type EncodeOptions struct {
-	LinkAtomCache     *AtomCache
-	WriterAtomCache   map[Atom]CacheItem
+	AtomCache         *AtomCache
+	SenderAtomCache   map[Atom]CacheItem
 	EncodingAtomCache *ListAtomCache
 
 	// FlagBigPidRef The node accepts a larger amount of data in pids
@@ -51,15 +51,15 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 	}
 	var stack, child *stackElement
 
-	cacheEnabled := options.LinkAtomCache != nil
+	cacheEnabled := options.AtomCache != nil
 	cacheIndex := uint16(0)
 	if options.EncodingAtomCache != nil {
 		cacheIndex = uint16(len(options.EncodingAtomCache.L))
 	}
 
-	// Atom cache: (if its enabled: options.LinkAtomCache != nil)
+	// Atom cache: (if its enabled: options.AtomCache != nil)
 	// 1. check for an atom in options.WriterAtomCache (map)
-	// 2. if not found in WriterAtomCache call LinkAtomCache.Append(atom),
+	// 2. if not found in WriterAtomCache call AtomCache.Append(atom),
 	//    encode it as a regular atom (ettAtom*)
 	// 3. if found
 	//    add options.EncodingAtomCache[i] = CacheItem, where i is just a counter
@@ -270,7 +270,7 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 				}
 
 				// looking for CacheItem
-				ci, found := options.WriterAtomCache[value]
+				ci, found := options.SenderAtomCache[value]
 				if found {
 					options.EncodingAtomCache.Append(ci)
 					b.Append([]byte{ettCacheRef, byte(cacheIndex)})
@@ -278,7 +278,7 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 					break
 				}
 				// add it to the cache and encode as usual Atom
-				options.LinkAtomCache.Append(value)
+				options.AtomCache.Append(value)
 
 			}
 
@@ -510,14 +510,14 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 
 			if cacheEnabled && cacheIndex < 256 {
 				// looking for CacheItem
-				ci, found := options.WriterAtomCache[t]
+				ci, found := options.SenderAtomCache[t]
 				if found {
 					options.EncodingAtomCache.Append(ci)
 					b.Append([]byte{ettCacheRef, byte(cacheIndex)})
 					cacheIndex++
 					break
 				}
-				options.LinkAtomCache.Append(t)
+				options.AtomCache.Append(t)
 			}
 
 			// https://erlang.org/doc/apps/erts/erl_ext_dist.html#utf8_atoms
