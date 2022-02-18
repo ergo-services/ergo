@@ -10,12 +10,10 @@ const (
 
 // AtomCache
 type AtomCache struct {
+	sync.RWMutex
 	cacheMap  map[Atom]int16
-	update    chan Atom
-	stop      chan struct{}
 	id        int16
 	cacheList [maxCacheItems]Atom
-	sync.RWMutex
 }
 
 // CacheItem
@@ -25,15 +23,8 @@ type CacheItem struct {
 	Name    Atom
 }
 
-// EncodingAtomCache
-type EncodingAtomCache struct {
-	L           []CacheItem
-	original    []CacheItem
-	HasLongAtom bool
-}
-
 var (
-	listAtomCachePool = &sync.Pool{
+	encodingAtomCachePool = &sync.Pool{
 		New: func() interface{} {
 			l := &EncodingAtomCache{
 				L: make([]CacheItem, 0, 255),
@@ -44,13 +35,24 @@ var (
 	}
 )
 
+// NewAtomCache
+func NewAtomCache() *AtomCache {
+	return &AtomCache{
+		cacheMap: make(map[Atom]int16),
+		id:       -1,
+	}
+}
+
 // Append
 func (a *AtomCache) Append(atom Atom) {
-	a.RLock()
-	defer a.RUnlock()
-	if a.id < maxCacheItems {
-		a.update <- atom
+	a.Lock()
+	defer a.Unlock()
+	if _, exist := a.cacheMap[atom]; exist {
+		return
 	}
+	a.id++
+	a.cacheList[a.id] = atom
+	a.cacheMap[atom] = a.id
 }
 
 // LastID
@@ -60,67 +62,30 @@ func (a *AtomCache) LastID() int16 {
 	return a.id
 }
 
-func (a *AtomCache) Stop() {
-	close(a.stop)
-}
-
-// StartAtomCache
-func StartAtomCache() *AtomCache {
-	a := &AtomCache{
-		cacheMap: make(map[Atom]int16),
-		update:   make(chan Atom, 100),
-		stop:     make(chan struct{}, 1),
-		id:       -1,
-	}
-
-	go func() {
-		for {
-			select {
-			case atom := <-a.update:
-				if _, ok := a.cacheMap[atom]; ok {
-					// already exist
-					continue
-				}
-
-				a.Lock()
-				if a.id < maxCacheItems {
-					a.id++
-					a.cacheMap[atom] = a.id
-					a.cacheList[a.id] = atom
-				}
-				a.Unlock()
-
-			case <-a.stop:
-				return
-			}
-		}
-	}()
-
-	return a
-}
-
-// List
-func (a *AtomCache) List() [maxCacheItems]Atom {
-	a.Lock()
-	l := a.cacheList
-	a.Unlock()
-	return l
-}
-
 // ListSince
 func (a *AtomCache) ListSince(id int16) []Atom {
-	return a.cacheList[id:]
+	if id > a.id {
+		return nil
+	}
+	return a.cacheList[id:a.id]
+}
+
+// EncodingAtomCache
+type EncodingAtomCache struct {
+	L           []CacheItem
+	original    []CacheItem
+	HasLongAtom bool
 }
 
 // TakeEncodingAtomCache
 func TakeEncodingAtomCache() *EncodingAtomCache {
-	return listAtomCachePool.Get().(*EncodingAtomCache)
+	return encodingAtomCachePool.Get().(*EncodingAtomCache)
 }
 
 // ReleaseEncodingAtomCache
 func ReleaseEncodingAtomCache(l *EncodingAtomCache) {
 	l.L = l.original[:0]
-	listAtomCachePool.Put(l)
+	encodingAtomCachePool.Put(l)
 }
 
 // Reset

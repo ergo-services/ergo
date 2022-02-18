@@ -3,30 +3,25 @@ package etf
 import (
 	"reflect"
 	"testing"
-	"time"
 )
 
 func TestAtomCache(t *testing.T) {
 
-	a := StartAtomCache()
-	defer a.Stop()
+	a := NewAtomCache()
 
 	a.Append(Atom("test1"))
-	time.Sleep(100 * time.Millisecond)
 
 	if a.LastID() != 0 {
 		t.Fatal("LastID != 0", a.LastID())
 	}
 
 	a.Append(Atom("test1"))
-	time.Sleep(100 * time.Millisecond)
 
 	if a.LastID() != 0 {
 		t.Fatalf("LastID != 0")
 	}
 
 	a.Append(Atom("test2"))
-	time.Sleep(100 * time.Millisecond)
 
 	expected := []Atom{"test1", "test2"}
 	result := a.ListSince(0)
@@ -38,7 +33,7 @@ func TestAtomCache(t *testing.T) {
 	expectedArray[0] = "test1"
 	expectedArray[1] = "test2"
 
-	resultArray := a.List()
+	resultArray := a.ListSince(0)
 	if reflect.DeepEqual(resultArray, expectedArray) {
 		t.Fatal("got incorrect resultArray", result)
 	}

@@ -193,7 +193,7 @@ func (dp *distProto) Init(ctx context.Context, conn io.ReadWriter, peername stri
 
 	// initializing atom cache if its enabled
 	if flags.EnableHeaderAtomCache {
-		connection.cacheOut = etf.StartAtomCache()
+		connection.cacheOut = etf.NewAtomCache()
 	}
 
 	// create connection buffering
@@ -308,9 +308,6 @@ func (dp *distProto) Terminate(ci node.ConnectionInterface) {
 		if connection.receivers.recv[i] != nil {
 			close(connection.receivers.recv[i])
 		}
-	}
-	if connection.cacheOut != nil {
-		connection.cacheOut.Stop()
 	}
 	connection.flusher.Stop()
 	connection.cancelContext()
@@ -1671,25 +1668,18 @@ func (dc *distConnection) encodeDistHeaderAtomCache(b *lib.Buffer,
 }
 
 func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOptions, peerFlags node.Flags) {
-	var atomCache *etf.AtomCache
-	var senderAtomCache map[etf.Atom]etf.CacheItem
-	var encodingAtomCache *etf.EncodingAtomCache
 	var lastCacheID int16 = -1
 
 	var lenMessage, lenAtomCache, lenPacket, startDataPosition int
 	var atomCacheBuffer, packetBuffer *lib.Buffer
 	var err error
-	var compress, compressed bool
-	var zWriter *gzip.Writer
+	var compressed bool
+	var cacheEnabled, fragmentationEnabled, compressionEnabled, encryptionEnabled bool
 
 	// cancel connection context if something went wrong
 	// it will cause closing connection with stopping all
 	// goroutines around this connection
 	defer dc.cancelContext()
-
-	cacheEnabled := peerFlags.EnableHeaderAtomCache
-	fragmentationEnabled := peerFlags.EnableFragmentation && options.FragmentationUnit > 0
-	compressionEnabled := peerFlags.EnableCompression
 
 	// Header atom cache is encoded right after the control/message encoding process
 	// but should be stored as a first item in the packet.
@@ -1697,15 +1687,13 @@ func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOpt
 	// of reallocation packetBuffer data
 	reserveHeaderAtomCache := 8192
 
-	if cacheEnabled {
-		// atom cache of this connection
-		atomCache = dc.cacheOut
-		// atom cache of this sender
-		senderAtomCache = make(map[etf.Atom]etf.CacheItem)
-		// atom cache of this encoding
-		encodingAtomCache = etf.TakeEncodingAtomCache()
-		defer etf.ReleaseEncodingAtomCache(encodingAtomCache)
-	}
+	// atom cache of this connection
+	atomCache := dc.cacheOut
+	// atom cache of this sender
+	senderAtomCache := make(map[etf.Atom]etf.CacheItem)
+	// atom cache of this encoding
+	encodingAtomCache := etf.TakeEncodingAtomCache()
+	defer etf.ReleaseEncodingAtomCache(encodingAtomCache)
 
 	encodeOptions := etf.EncodeOptions{
 		// atom cache
@@ -1744,12 +1732,15 @@ func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOpt
 
 	message := &sendMessage{}
 	for {
+		// clean up and get back message struct to the pool
 		message.packet = nil
 		message.control = nil
 		message.payload = nil
 		message.compression = false
+		message.proxy = nil
 		sendMessages.Put(message)
 
+		// waiting for the next message
 		message = <-send
 
 		if message == nil {
@@ -1758,7 +1749,7 @@ func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOpt
 		}
 
 		if message.packet != nil {
-			// proxy packet
+			// transit proxy message
 			if _, err := dc.flusher.Write(message.packet.B); err != nil {
 				return
 			}
@@ -1773,13 +1764,35 @@ func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOpt
 		// do reserve for the header 8K, should be enough
 		packetBuffer.Allocate(reserveHeaderAtomCache)
 
+		// compression feature is always available for the proxy connection
 		// check whether compress is enabled for the peer and for this message
-		compress = compressionEnabled && message.compression
 		compressed = false
+		compressionEnabled = false
+		if message.compression {
+			if message.proxy != nil || peerFlags.EnableCompression {
+				compressionEnabled = true
+			}
+		}
 
-		// clear encoding cache
-		if cacheEnabled {
+		cacheEnabled = false
+		// atom cache feature is always available for the proxy connection
+		if message.proxy != nil || peerFlags.EnableHeaderAtomCache {
+			cacheEnabled = true
 			encodingAtomCache.Reset()
+		}
+
+		// fragmentation feature is always available for the proxy connection
+		fragmentationEnabled = false
+		if options.FragmentationUnit > 0 {
+			if message.proxy != nil || peerFlags.EnableFragmentation {
+				fragmentationEnabled = true
+			}
+		}
+
+		// encryption feature is only available for the proxy connection
+		encryptionEnabled = false
+		if message.proxy != nil && message.proxy.session.PeerFlags.EnableEncryption {
+			encryptionEnabled = true
 		}
 
 		// We could use gzip writer for the encoder, but we don't know
@@ -1808,7 +1821,9 @@ func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOpt
 		}
 		lenMessage = packetBuffer.Len() - reserveHeaderAtomCache
 
-		if compress && packetBuffer.Len() > (reserveHeaderAtomCache+message.compressionThreshold) {
+		if compressionEnabled && packetBuffer.Len() > (reserveHeaderAtomCache+message.compressionThreshold) {
+			var zWriter *gzip.Writer
+
 			//// take another buffer
 			zBuffer := lib.TakeBuffer()
 			// allocate extra 4 bytes for the lenMessage (length of unpacked data)
@@ -1885,8 +1900,8 @@ func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOpt
 					break
 				}
 
-				// wrap it as a proxy message
-				if message.proxy.session.PeerFlags.EnableEncryption == false {
+				// proxy message.
+				if encryptionEnabled == false {
 					// no encryption
 					// 4 (packet len) + protoProxy + sessionID
 					startDataPosition -= 1 + 4 + 32
@@ -1944,8 +1959,8 @@ func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOpt
 					return
 				}
 			} else {
-				// wrap it as a proxy message
-				if message.proxy.session.PeerFlags.EnableEncryption == false {
+				// proxy message
+				if encryptionEnabled == false {
 					// send proxy message
 					// shift left on 32 bytes for the session id
 					binary.BigEndian.PutUint32(packetBuffer.B[startDataPosition-32:], uint32(lenPacket+32))
@@ -2008,7 +2023,7 @@ func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOpt
 				}
 			} else {
 				// wrap it as a proxy message
-				if message.proxy.session.PeerFlags.EnableEncryption == false {
+				if encryptionEnabled == false {
 					binary.BigEndian.PutUint32(packetBuffer.B[startDataPosition-32:], uint32(lenPacket+32))
 					packetBuffer.B[startDataPosition-32+4] = protoProxy // 141
 					copy(packetBuffer.B[startDataPosition-32+5:], message.proxy.session.ID)
