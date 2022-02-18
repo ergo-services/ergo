@@ -122,16 +122,16 @@ func TestEncodeDistHeaderAtomCache(t *testing.T) {
 	b := lib.TakeBuffer()
 	defer lib.ReleaseBuffer(b)
 
-	writerAtomCache := make(map[etf.Atom]etf.CacheItem)
-	encodingAtomCache := etf.TakeListAtomCache()
-	defer etf.ReleaseListAtomCache(encodingAtomCache)
+	senderAtomCache := make(map[etf.Atom]etf.CacheItem)
+	encodingAtomCache := etf.TakeEncodingAtomCache()
+	defer etf.ReleaseEncodingAtomCache(encodingAtomCache)
 
-	writerAtomCache["reg"] = etf.CacheItem{ID: 1000, Encoded: false, Name: "reg"}
-	writerAtomCache["call"] = etf.CacheItem{ID: 499, Encoded: false, Name: "call"}
-	writerAtomCache["one_more_atom"] = etf.CacheItem{ID: 199, Encoded: true, Name: "one_more_atom"}
-	writerAtomCache["yet_another_atom"] = etf.CacheItem{ID: 2, Encoded: false, Name: "yet_another_atom"}
-	writerAtomCache["extra_atom"] = etf.CacheItem{ID: 10, Encoded: true, Name: "extra_atom"}
-	writerAtomCache["potato"] = etf.CacheItem{ID: 2017, Encoded: true, Name: "potato"}
+	senderAtomCache["reg"] = etf.CacheItem{ID: 1000, Encoded: false, Name: "reg"}
+	senderAtomCache["call"] = etf.CacheItem{ID: 499, Encoded: false, Name: "call"}
+	senderAtomCache["one_more_atom"] = etf.CacheItem{ID: 199, Encoded: true, Name: "one_more_atom"}
+	senderAtomCache["yet_another_atom"] = etf.CacheItem{ID: 2, Encoded: false, Name: "yet_another_atom"}
+	senderAtomCache["extra_atom"] = etf.CacheItem{ID: 10, Encoded: true, Name: "extra_atom"}
+	senderAtomCache["potato"] = etf.CacheItem{ID: 2017, Encoded: true, Name: "potato"}
 
 	// Encoded field is ignored here
 	encodingAtomCache.Append(etf.CacheItem{ID: 499, Name: "call"})
@@ -149,7 +149,7 @@ func TestEncodeDistHeaderAtomCache(t *testing.T) {
 	}
 
 	l := &distConnection{}
-	l.encodeDistHeaderAtomCache(b, writerAtomCache, encodingAtomCache)
+	l.encodeDistHeaderAtomCache(b, senderAtomCache, encodingAtomCache)
 
 	if !reflect.DeepEqual(b.B, expected) {
 		t.Fatal("incorrect value")
@@ -168,7 +168,7 @@ func TestEncodeDistHeaderAtomCache(t *testing.T) {
 		97, 110, 111, 116, 104, 101,
 		114, 95, 97, 116, 111, 109,
 	}
-	l.encodeDistHeaderAtomCache(b, writerAtomCache, encodingAtomCache)
+	l.encodeDistHeaderAtomCache(b, senderAtomCache, encodingAtomCache)
 
 	if !reflect.DeepEqual(b.B, expected) {
 		t.Fatal("incorrect value", b.B)
@@ -203,16 +203,16 @@ func BenchmarkEncodeDistHeaderAtomCache(b *testing.B) {
 	buf := lib.TakeBuffer()
 	defer lib.ReleaseBuffer(buf)
 
-	writerAtomCache := make(map[etf.Atom]etf.CacheItem)
-	encodingAtomCache := etf.TakeListAtomCache()
-	defer etf.ReleaseListAtomCache(encodingAtomCache)
+	senderAtomCache := make(map[etf.Atom]etf.CacheItem)
+	encodingAtomCache := etf.TakeEncodingAtomCache()
+	defer etf.ReleaseEncodingAtomCache(encodingAtomCache)
 
-	writerAtomCache["reg"] = etf.CacheItem{ID: 1000, Encoded: false, Name: "reg"}
-	writerAtomCache["call"] = etf.CacheItem{ID: 499, Encoded: false, Name: "call"}
-	writerAtomCache["one_more_atom"] = etf.CacheItem{ID: 199, Encoded: true, Name: "one_more_atom"}
-	writerAtomCache["yet_another_atom"] = etf.CacheItem{ID: 2, Encoded: false, Name: "yet_another_atom"}
-	writerAtomCache["extra_atom"] = etf.CacheItem{ID: 10, Encoded: true, Name: "extra_atom"}
-	writerAtomCache["potato"] = etf.CacheItem{ID: 2017, Encoded: true, Name: "potato"}
+	senderAtomCache["reg"] = etf.CacheItem{ID: 1000, Encoded: false, Name: "reg"}
+	senderAtomCache["call"] = etf.CacheItem{ID: 499, Encoded: false, Name: "call"}
+	senderAtomCache["one_more_atom"] = etf.CacheItem{ID: 199, Encoded: true, Name: "one_more_atom"}
+	senderAtomCache["yet_another_atom"] = etf.CacheItem{ID: 2, Encoded: false, Name: "yet_another_atom"}
+	senderAtomCache["extra_atom"] = etf.CacheItem{ID: 10, Encoded: true, Name: "extra_atom"}
+	senderAtomCache["potato"] = etf.CacheItem{ID: 2017, Encoded: true, Name: "potato"}
 
 	// Encoded field is ignored here
 	encodingAtomCache.Append(etf.CacheItem{ID: 499, Name: "call"})
@@ -221,7 +221,7 @@ func BenchmarkEncodeDistHeaderAtomCache(b *testing.B) {
 	encodingAtomCache.Append(etf.CacheItem{ID: 2017, Name: "potato"})
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		link.encodeDistHeaderAtomCache(buf, writerAtomCache, encodingAtomCache)
+		link.encodeDistHeaderAtomCache(buf, senderAtomCache, encodingAtomCache)
 	}
 }
 

@@ -1606,7 +1606,7 @@ func (dc *distConnection) decodeDistHeaderAtomCache(packet []byte) ([]etf.Atom, 
 
 func (dc *distConnection) encodeDistHeaderAtomCache(b *lib.Buffer,
 	senderAtomCache map[etf.Atom]etf.CacheItem,
-	encodingAtomCache *etf.ListAtomCache) {
+	encodingAtomCache *etf.EncodingAtomCache) {
 
 	n := encodingAtomCache.Len()
 	if n == 0 {
@@ -1673,7 +1673,7 @@ func (dc *distConnection) encodeDistHeaderAtomCache(b *lib.Buffer,
 func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOptions, peerFlags node.Flags) {
 	var atomCache *etf.AtomCache
 	var senderAtomCache map[etf.Atom]etf.CacheItem
-	var encodingAtomCache *etf.ListAtomCache
+	var encodingAtomCache *etf.EncodingAtomCache
 	var lastCacheID int16 = -1
 
 	var lenMessage, lenAtomCache, lenPacket, startDataPosition int
@@ -1703,8 +1703,8 @@ func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOpt
 		// atom cache of this sender
 		senderAtomCache = make(map[etf.Atom]etf.CacheItem)
 		// atom cache of this encoding
-		encodingAtomCache = etf.TakeListAtomCache()
-		defer etf.ReleaseListAtomCache(encodingAtomCache)
+		encodingAtomCache = etf.TakeEncodingAtomCache()
+		defer etf.ReleaseEncodingAtomCache(encodingAtomCache)
 	}
 
 	encodeOptions := etf.EncodeOptions{
@@ -2050,7 +2050,7 @@ func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOpt
 			continue
 		}
 
-		// get updates from link AtomCache and update the local one (map senderAtomCache)
+		// get updates from the connection AtomCache and update the sender's cache (senderAtomCache)
 		if lastCacheID < atomCache.LastID() {
 			atomCache.RLock()
 			for _, a := range atomCache.ListSince(lastCacheID + 1) {

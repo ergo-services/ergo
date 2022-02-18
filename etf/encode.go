@@ -25,7 +25,7 @@ var (
 type EncodeOptions struct {
 	AtomCache         *AtomCache
 	SenderAtomCache   map[Atom]CacheItem
-	EncodingAtomCache *ListAtomCache
+	EncodingAtomCache *EncodingAtomCache
 
 	// FlagBigPidRef The node accepts a larger amount of data in pids
 	// and references (node container types version 4).
@@ -263,7 +263,7 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 		switch t := term.(type) {
 		case bool:
 
-			if cacheEnabled && cacheIndex < 256 {
+			if cacheEnabled && cacheIndex < 255 {
 				value := Atom("false")
 				if t {
 					value = Atom("true")
@@ -508,7 +508,7 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 			// characters and are always encoded using the UTF-8 external
 			// formats ATOM_UTF8_EXT or SMALL_ATOM_UTF8_EXT.
 
-			if cacheEnabled && cacheIndex < 256 {
+			if cacheEnabled && cacheIndex < 255 {
 				// looking for CacheItem
 				ci, found := options.SenderAtomCache[t]
 				if found {

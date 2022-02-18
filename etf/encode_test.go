@@ -27,8 +27,8 @@ func TestEncodeBoolWithAtomCache(t *testing.T) {
 	defer lib.ReleaseBuffer(b)
 
 	senderAtomCache := make(map[Atom]CacheItem)
-	encodingAtomCache := TakeListAtomCache()
-	defer ReleaseListAtomCache(encodingAtomCache)
+	encodingAtomCache := TakeEncodingAtomCache()
+	defer ReleaseEncodingAtomCache(encodingAtomCache)
 	atomCache := StartAtomCache()
 	defer atomCache.Stop()
 	ci := CacheItem{ID: 499, Encoded: true, Name: "false"}
@@ -258,8 +258,8 @@ func TestEncodeAtomWithCache(t *testing.T) {
 	defer lib.ReleaseBuffer(b)
 
 	senderAtomCache := make(map[Atom]CacheItem)
-	encodingAtomCache := TakeListAtomCache()
-	defer ReleaseListAtomCache(encodingAtomCache)
+	encodingAtomCache := TakeEncodingAtomCache()
+	defer ReleaseEncodingAtomCache(encodingAtomCache)
 
 	atomCache := StartAtomCache()
 	defer atomCache.Stop()
@@ -738,8 +738,8 @@ func TestEncodePidWithAtomCache(t *testing.T) {
 	term := Pid{Node: "erl-demo@127.0.0.1", ID: 312, Creation: 2}
 
 	senderAtomCache := make(map[Atom]CacheItem)
-	encodingAtomCache := TakeListAtomCache()
-	defer ReleaseListAtomCache(encodingAtomCache)
+	encodingAtomCache := TakeEncodingAtomCache()
+	defer ReleaseEncodingAtomCache(encodingAtomCache)
 	atomCache := StartAtomCache()
 	defer atomCache.Stop()
 
@@ -947,8 +947,8 @@ func BenchmarkEncodeBoolWithAtomCache(b *testing.B) {
 	defer lib.ReleaseBuffer(buf)
 
 	senderAtomCache := make(map[Atom]CacheItem)
-	encodingAtomCache := TakeListAtomCache()
-	defer ReleaseListAtomCache(encodingAtomCache)
+	encodingAtomCache := TakeEncodingAtomCache()
+	defer ReleaseEncodingAtomCache(encodingAtomCache)
 	atomCache := StartAtomCache()
 	defer atomCache.Stop()
 
@@ -1043,8 +1043,8 @@ func BenchmarkEncodeAtomWithCache(b *testing.B) {
 	defer lib.ReleaseBuffer(buf)
 
 	senderAtomCache := make(map[Atom]CacheItem)
-	encodingAtomCache := TakeListAtomCache()
-	defer ReleaseListAtomCache(encodingAtomCache)
+	encodingAtomCache := TakeEncodingAtomCache()
+	defer ReleaseEncodingAtomCache(encodingAtomCache)
 	atomCache := StartAtomCache()
 	defer atomCache.Stop()
 
@@ -1266,8 +1266,8 @@ func BenchmarkEncodePidWithAtomCache(b *testing.B) {
 	term := Pid{Node: "erl-demo@127.0.0.1", ID: 312, Creation: 2}
 
 	senderAtomCache := make(map[Atom]CacheItem)
-	encodingAtomCache := TakeListAtomCache()
-	defer ReleaseListAtomCache(encodingAtomCache)
+	encodingAtomCache := TakeEncodingAtomCache()
+	defer ReleaseEncodingAtomCache(encodingAtomCache)
 	atomCache := StartAtomCache()
 	defer atomCache.Stop()
 
@@ -1321,8 +1321,8 @@ func BenchmarkEncodeRefWithAtomCache(b *testing.B) {
 	}
 
 	senderAtomCache := make(map[Atom]CacheItem)
-	encodingAtomCache := TakeListAtomCache()
-	defer ReleaseListAtomCache(encodingAtomCache)
+	encodingAtomCache := TakeEncodingAtomCache()
+	defer ReleaseEncodingAtomCache(encodingAtomCache)
 	atomCache := StartAtomCache()
 	defer atomCache.Stop()
 
@@ -1385,8 +1385,8 @@ func BenchmarkEncodeTupleRefPidWithAtomCache(b *testing.B) {
 			Creation: 2}}
 
 	senderAtomCache := make(map[Atom]CacheItem)
-	encodingAtomCache := TakeListAtomCache()
-	defer ReleaseListAtomCache(encodingAtomCache)
+	encodingAtomCache := TakeEncodingAtomCache()
+	defer ReleaseEncodingAtomCache(encodingAtomCache)
 	atomCache := StartAtomCache()
 	defer atomCache.Stop()
 
