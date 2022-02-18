@@ -23,7 +23,7 @@ var (
 
 // EncodeOptions
 type EncodeOptions struct {
-	AtomCache         *AtomCache
+	AtomCache         *AtomCacheOut
 	SenderAtomCache   map[Atom]CacheItem
 	EncodingAtomCache *EncodingAtomCache
 

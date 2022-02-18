@@ -81,7 +81,7 @@ type fragmentedPacket struct {
 
 type proxySession struct {
 	session node.ProxySession
-	// atom cache
+	cache   etf.AtomCache
 }
 
 type distConnection struct {
@@ -114,12 +114,8 @@ type distConnection struct {
 	// receivers list of channels for the receiving goroutines
 	receivers receivers
 
-	// atom cache for incoming messages
-	cacheIn      [2048]*etf.Atom
-	cacheInMutex sync.RWMutex
-
 	// atom cache for outgoing messages
-	cacheOut *etf.AtomCache
+	cache etf.AtomCache
 
 	// fragmentation sequence ID
 	sequenceID     int64
@@ -183,6 +179,7 @@ func (dp *distProto) Init(ctx context.Context, conn io.ReadWriter, peername stri
 		peername:                peername,
 		flags:                   flags,
 		conn:                    conn,
+		cache:                   etf.NewAtomCache(),
 		proxySessionsByID:       make(map[string]proxySession),
 		proxySessionsByPeerName: make(map[string]proxySession),
 		fragments:               make(map[uint64]*fragmentedPacket),
@@ -190,11 +187,6 @@ func (dp *distProto) Init(ctx context.Context, conn io.ReadWriter, peername stri
 		checkCleanDeadline:      defaultCleanDeadline,
 	}
 	connection.ctx, connection.cancelContext = context.WithCancel(ctx)
-
-	// initializing atom cache if its enabled
-	if flags.EnableHeaderAtomCache {
-		connection.cacheOut = etf.NewAtomCache()
-	}
 
 	// create connection buffering
 	connection.flusher = newLinkFlusher(conn, defaultLatency, flags.EnableSoftwareKeepAlive)
@@ -589,6 +581,7 @@ func (dc *distConnection) ProxyRegisterSession(session node.ProxySession) error 
 	}
 	ps := proxySession{
 		session: session,
+		cache:   etf.NewAtomCache(),
 	}
 	dc.proxySessionsByPeerName[session.PeerName] = ps
 	dc.proxySessionsByID[session.ID] = ps
@@ -953,13 +946,18 @@ func (dc *distConnection) decodeDist(packet []byte, proxy *proxySession) (etf.Te
 		var err error
 		var cache []etf.Atom
 
-		cache, packet, err = dc.decodeDistHeaderAtomCache(packet[1:])
+		cache, packet, err = dc.decodeDistHeaderAtomCache(packet[1:], proxy)
 		if err != nil {
 			return nil, nil, err
 		}
 
 		decodeOptions := etf.DecodeOptions{
 			FlagBigPidRef: dc.flags.EnableBigPidRef,
+			AtomCache:     dc.cache.In,
+		}
+		if proxy != nil {
+			decodeOptions.FlagBigPidRef = true
+			decodeOptions.AtomCache = proxy.cache.In
 		}
 
 		// decode control message
@@ -992,7 +990,7 @@ func (dc *distConnection) decodeDist(packet []byte, proxy *proxySession) (etf.Te
 		var total int
 		// compressed protoDistMessage
 
-		cache, packet, err = dc.decodeDistHeaderAtomCache(packet[1:])
+		cache, packet, err = dc.decodeDistHeaderAtomCache(packet[1:], proxy)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -1032,6 +1030,11 @@ func (dc *distConnection) decodeDist(packet []byte, proxy *proxySession) (etf.Te
 		packet = zBuffer.B
 		decodeOptions := etf.DecodeOptions{
 			FlagBigPidRef: dc.flags.EnableBigPidRef,
+			AtomCache:     dc.cache.In,
+		}
+		if proxy != nil {
+			decodeOptions.FlagBigPidRef = true
+			decodeOptions.AtomCache = proxy.cache.In
 		}
 
 		// decode control message
@@ -1060,7 +1063,7 @@ func (dc *distConnection) decodeDist(packet []byte, proxy *proxySession) (etf.Te
 			return nil, nil, fmt.Errorf("malformed fragment")
 		}
 
-		if assembled, err := dc.decodeFragment(packet); assembled != nil {
+		if assembled, err := dc.decodeFragment(packet, proxy); assembled != nil {
 			if err != nil {
 				return nil, nil, err
 			}
@@ -1393,7 +1396,7 @@ func (dc *distConnection) handleMessage(message *distMessage) (err error) {
 	return fmt.Errorf("unsupported control message %#v", message.control)
 }
 
-func (dc *distConnection) decodeFragment(packet []byte) (*lib.Buffer, error) {
+func (dc *distConnection) decodeFragment(packet []byte, proxy *proxySession) (*lib.Buffer, error) {
 	var first, compressed bool
 	var err error
 
@@ -1409,13 +1412,13 @@ func (dc *distConnection) decodeFragment(packet []byte) (*lib.Buffer, error) {
 		// to get rid the case when we get the first fragment of the packet with
 		// cached atoms and the next packet is not the part of the fragmented packet,
 		// but with the ids were cached in the first fragment
-		_, _, err = dc.decodeDistHeaderAtomCache(packet[17:])
+		_, _, err = dc.decodeDistHeaderAtomCache(packet[17:], proxy)
 		if err != nil {
 			return nil, err
 		}
 		first = true
 	case protoDistFragment1Z:
-		_, _, err = dc.decodeDistHeaderAtomCache(packet[17:])
+		_, _, err = dc.decodeDistHeaderAtomCache(packet[17:], proxy)
 		if err != nil {
 			return nil, err
 		}
@@ -1523,7 +1526,7 @@ func (dc *distConnection) decodeFragment(packet []byte) (*lib.Buffer, error) {
 	return nil, nil
 }
 
-func (dc *distConnection) decodeDistHeaderAtomCache(packet []byte) ([]etf.Atom, []byte, error) {
+func (dc *distConnection) decodeDistHeaderAtomCache(packet []byte, proxy *proxySession) ([]etf.Atom, []byte, error) {
 	// all the details are here https://erlang.org/doc/apps/erts/erl_ext_dist.html#normal-distribution-header
 
 	// number of atom references are present in package
@@ -1532,7 +1535,11 @@ func (dc *distConnection) decodeDistHeaderAtomCache(packet []byte) ([]etf.Atom, 
 		return nil, packet[1:], nil
 	}
 
-	cache := make([]etf.Atom, references)
+	cache := dc.cache.In
+	if proxy != nil {
+		cache = proxy.cache.In
+	}
+	cached := make([]etf.Atom, references)
 	flagsLen := references/2 + 1
 	if len(packet) < 1+flagsLen {
 		// malformed
@@ -1578,27 +1585,23 @@ func (dc *distConnection) decodeDistHeaderAtomCache(packet []byte) ([]etf.Atom, 
 			}
 			atom := etf.Atom(packet[:atomLen])
 			// store in temporary cache for decoding
-			cache[i] = atom
+			cached[i] = atom
 
 			// store in link' cache
-			dc.cacheInMutex.Lock()
-			dc.cacheIn[idx] = &atom
-			dc.cacheInMutex.Unlock()
+			cache.Atoms[idx] = &atom
 			packet = packet[atomLen:]
 			continue
 		}
 
-		dc.cacheInMutex.RLock()
-		c := dc.cacheIn[idx]
-		dc.cacheInMutex.RUnlock()
+		c := cache.Atoms[idx]
 		if c == nil {
-			return cache, packet, errMissingInCache
+			return cached, packet, errMissingInCache
 		}
-		cache[i] = *c
+		cached[i] = *c
 		packet = packet[1:]
 	}
 
-	return cache, packet, nil
+	return cached, packet, nil
 }
 
 func (dc *distConnection) encodeDistHeaderAtomCache(b *lib.Buffer,
@@ -1687,23 +1690,11 @@ func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOpt
 	// of reallocation packetBuffer data
 	reserveHeaderAtomCache := 8192
 
-	// atom cache of this connection
-	atomCache := dc.cacheOut
 	// atom cache of this sender
 	senderAtomCache := make(map[etf.Atom]etf.CacheItem)
 	// atom cache of this encoding
 	encodingAtomCache := etf.TakeEncodingAtomCache()
 	defer etf.ReleaseEncodingAtomCache(encodingAtomCache)
-
-	encodeOptions := etf.EncodeOptions{
-		// atom cache
-		AtomCache:         atomCache,
-		SenderAtomCache:   senderAtomCache,
-		EncodingAtomCache: encodingAtomCache,
-		// flags
-		FlagBigCreation: peerFlags.EnableBigCreation,
-		FlagBigPidRef:   peerFlags.EnableBigPidRef,
-	}
 
 	encrypt := func(data []byte, sessionID string, block cipher.Block) *lib.Buffer {
 		l := len(data)
@@ -1731,6 +1722,8 @@ func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOpt
 	}
 
 	message := &sendMessage{}
+	encodingOptions := etf.EncodeOptions{}
+
 	for {
 		// clean up and get back message struct to the pool
 		message.packet = nil
@@ -1795,6 +1788,24 @@ func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOpt
 			encryptionEnabled = true
 		}
 
+		if message.proxy == nil {
+			// use connection atom cache
+			encodingOptions.AtomCache = dc.cache.Out
+			encodingOptions.SenderAtomCache = senderAtomCache
+			encodingOptions.EncodingAtomCache = encodingAtomCache
+			// use connection flags
+			encodingOptions.FlagBigCreation = peerFlags.EnableBigCreation
+			encodingOptions.FlagBigPidRef = peerFlags.EnableBigPidRef
+
+		} else {
+			// use proxy connection atom cache
+			encodingOptions.AtomCache = message.proxy.cache.Out
+
+			// these flags are always enabled for the proxy connection
+			encodingOptions.FlagBigCreation = true
+			encodingOptions.FlagBigPidRef = true
+		}
+
 		// We could use gzip writer for the encoder, but we don't know
 		// the actual size of the control/payload. For small data, gzipping
 		// is getting extremely inefficient. That's why it is cheaper to
@@ -1802,7 +1813,7 @@ func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOpt
 		// according to a threshold value.
 
 		// encode Control
-		err = etf.Encode(message.control, packetBuffer, encodeOptions)
+		err = etf.Encode(message.control, packetBuffer, encodingOptions)
 		if err != nil {
 			lib.Warning("can not encode control message: %s", err)
 			lib.ReleaseBuffer(packetBuffer)
@@ -1811,7 +1822,7 @@ func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOpt
 
 		// encode Message if present
 		if message.payload != nil {
-			err = etf.Encode(message.payload, packetBuffer, encodeOptions)
+			err = etf.Encode(message.payload, packetBuffer, encodingOptions)
 			if err != nil {
 				lib.Warning("can not encode payload message: %s", err)
 				lib.ReleaseBuffer(packetBuffer)
@@ -2066,13 +2077,13 @@ func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOpt
 		}
 
 		// get updates from the connection AtomCache and update the sender's cache (senderAtomCache)
-		if lastCacheID < atomCache.LastID() {
-			atomCache.RLock()
-			for _, a := range atomCache.ListSince(lastCacheID + 1) {
+		if lastCacheID < encodingOptions.AtomCache.LastID() {
+			encodingOptions.AtomCache.RLock()
+			for _, a := range encodingOptions.AtomCache.ListSince(lastCacheID + 1) {
 				senderAtomCache[a] = etf.CacheItem{ID: lastCacheID + 1, Name: a, Encoded: false}
 				lastCacheID++
 			}
-			atomCache.RUnlock()
+			encodingOptions.AtomCache.RUnlock()
 		}
 
 	}

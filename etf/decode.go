@@ -60,6 +60,7 @@ var (
 // DecodeOptions
 type DecodeOptions struct {
 	FlagBigPidRef bool
+	AtomCache     *AtomCacheIn
 }
 
 // stackless implementation is speeding up decoding function up to x25 times

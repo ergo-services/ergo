@@ -8,8 +8,17 @@ const (
 	maxCacheItems = int16(2048)
 )
 
-// AtomCache
 type AtomCache struct {
+	In  *AtomCacheIn
+	Out *AtomCacheOut
+}
+
+type AtomCacheIn struct {
+	Atoms [maxCacheItems]*Atom
+}
+
+// AtomCache
+type AtomCacheOut struct {
 	sync.RWMutex
 	cacheMap  map[Atom]int16
 	id        int16
@@ -36,15 +45,18 @@ var (
 )
 
 // NewAtomCache
-func NewAtomCache() *AtomCache {
-	return &AtomCache{
-		cacheMap: make(map[Atom]int16),
-		id:       -1,
+func NewAtomCache() AtomCache {
+	return AtomCache{
+		In: &AtomCacheIn{},
+		Out: &AtomCacheOut{
+			cacheMap: make(map[Atom]int16),
+			id:       -1,
+		},
 	}
 }
 
 // Append
-func (a *AtomCache) Append(atom Atom) {
+func (a *AtomCacheOut) Append(atom Atom) {
 	a.Lock()
 	defer a.Unlock()
 	if _, exist := a.cacheMap[atom]; exist {
@@ -56,14 +68,14 @@ func (a *AtomCache) Append(atom Atom) {
 }
 
 // LastID
-func (a *AtomCache) LastID() int16 {
+func (a *AtomCacheOut) LastID() int16 {
 	a.RLock()
 	defer a.RUnlock()
 	return a.id
 }
 
 // ListSince
-func (a *AtomCache) ListSince(id int16) []Atom {
+func (a *AtomCacheOut) ListSince(id int16) []Atom {
 	if id > a.id {
 		return nil
 	}
