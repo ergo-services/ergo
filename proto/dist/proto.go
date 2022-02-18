@@ -1605,7 +1605,7 @@ func (dc *distConnection) decodeDistHeaderAtomCache(packet []byte) ([]etf.Atom, 
 }
 
 func (dc *distConnection) encodeDistHeaderAtomCache(b *lib.Buffer,
-	writerAtomCache map[etf.Atom]etf.CacheItem,
+	senderAtomCache map[etf.Atom]etf.CacheItem,
 	encodingAtomCache *etf.ListAtomCache) {
 
 	n := encodingAtomCache.Len()
@@ -1627,7 +1627,7 @@ func (dc *distConnection) encodeDistHeaderAtomCache(b *lib.Buffer,
 		idxReference := byte(encodingAtomCache.L[i].ID >> 8) // SegmentIndex
 		idxInternal := byte(encodingAtomCache.L[i].ID & 255) // InternalSegmentIndex
 
-		cachedItem := writerAtomCache[encodingAtomCache.L[i].Name]
+		cachedItem := senderAtomCache[encodingAtomCache.L[i].Name]
 		if !cachedItem.Encoded {
 			idxReference |= 8 // set NewCacheEntryFlag
 		}
@@ -1661,7 +1661,7 @@ func (dc *distConnection) encodeDistHeaderAtomCache(b *lib.Buffer,
 		}
 
 		cachedItem.Encoded = true
-		writerAtomCache[encodingAtomCache.L[i].Name] = cachedItem
+		senderAtomCache[encodingAtomCache.L[i].Name] = cachedItem
 	}
 
 	if encodingAtomCache.HasLongAtom {
@@ -1687,10 +1687,7 @@ func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOpt
 	// goroutines around this connection
 	defer dc.cancelContext()
 
-	// TODO rework atom cache
-	//cacheEnabled := peerFlags.EnableHeaderAtomCache && dc.cacheOut != nil
-	cacheEnabled := false
-
+	cacheEnabled := peerFlags.EnableHeaderAtomCache
 	fragmentationEnabled := peerFlags.EnableFragmentation && options.FragmentationUnit > 0
 	compressionEnabled := peerFlags.EnableCompression
 
@@ -1701,18 +1698,23 @@ func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOpt
 	reserveHeaderAtomCache := 8192
 
 	if cacheEnabled {
+		// atom cache of this connection
+		atomCache = dc.cacheOut
+		// atom cache of this sender
+		senderAtomCache = make(map[etf.Atom]etf.CacheItem)
+		// atom cache of this encoding
 		encodingAtomCache = etf.TakeListAtomCache()
 		defer etf.ReleaseListAtomCache(encodingAtomCache)
-		senderAtomCache = make(map[etf.Atom]etf.CacheItem)
-		atomCache = dc.cacheOut
 	}
 
 	encodeOptions := etf.EncodeOptions{
+		// atom cache
 		AtomCache:         atomCache,
 		SenderAtomCache:   senderAtomCache,
 		EncodingAtomCache: encodingAtomCache,
-		FlagBigCreation:   peerFlags.EnableBigCreation,
-		FlagBigPidRef:     peerFlags.EnableBigPidRef,
+		// flags
+		FlagBigCreation: peerFlags.EnableBigCreation,
+		FlagBigPidRef:   peerFlags.EnableBigPidRef,
 	}
 
 	encrypt := func(data []byte, sessionID string, block cipher.Block) *lib.Buffer {
@@ -2048,7 +2050,7 @@ func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOpt
 			continue
 		}
 
-		// get updates from link AtomCache and update the local one (map writerAtomCache)
+		// get updates from link AtomCache and update the local one (map senderAtomCache)
 		id := atomCache.GetLastID()
 		if lastCacheID < id {
 			atomCache.Lock()
