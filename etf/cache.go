@@ -46,21 +46,19 @@ var (
 
 // Append
 func (a *AtomCache) Append(atom Atom) {
-	a.Lock()
-	id := a.lastID
-	a.Unlock()
-	if id < maxCacheItems {
+	a.RLock()
+	update := a.lastID < maxCacheItems
+	a.RUnlock()
+	if update {
 		a.update <- atom
 	}
-	// otherwise ignore
 }
 
-// GetLastID
-func (a *AtomCache) GetLastID() int16 {
+// LastID
+func (a *AtomCache) LastID() int16 {
 	a.RLock()
-	id := a.lastID
-	a.RUnlock()
-	return id
+	defer a.RUnlock()
+	return a.lastID
 }
 
 func (a *AtomCache) Stop() {
