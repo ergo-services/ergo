@@ -9,22 +9,22 @@ func TestAtomCache(t *testing.T) {
 
 	a := NewAtomCache()
 
-	a.Append(Atom("test1"))
+	a.Out.Append(Atom("test1"))
 
-	if a.LastID() != 0 {
-		t.Fatal("LastID != 0", a.LastID())
+	if a.Out.LastID() != 0 {
+		t.Fatal("LastID != 0", a.Out.LastID())
 	}
 
-	a.Append(Atom("test1"))
+	a.Out.Append(Atom("test1"))
 
-	if a.LastID() != 0 {
+	if a.Out.LastID() != 0 {
 		t.Fatalf("LastID != 0")
 	}
 
-	a.Append(Atom("test2"))
+	a.Out.Append(Atom("test2"))
 
 	expected := []Atom{"test1", "test2"}
-	result := a.ListSince(0)
+	result := a.Out.ListSince(0)
 	if reflect.DeepEqual(result, expected) {
 		t.Fatal("got incorrect result", result)
 	}
@@ -33,7 +33,7 @@ func TestAtomCache(t *testing.T) {
 	expectedArray[0] = "test1"
 	expectedArray[1] = "test2"
 
-	resultArray := a.ListSince(0)
+	resultArray := a.Out.ListSince(0)
 	if reflect.DeepEqual(resultArray, expectedArray) {
 		t.Fatal("got incorrect resultArray", result)
 	}

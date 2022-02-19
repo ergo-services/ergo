@@ -35,7 +35,7 @@ func TestEncodeBoolWithAtomCache(t *testing.T) {
 	senderAtomCache["false"] = ci
 
 	encodeOptions := EncodeOptions{
-		AtomCache:         atomCache,
+		AtomCache:         atomCache.Out,
 		SenderAtomCache:   senderAtomCache,
 		EncodingAtomCache: encodingAtomCache,
 	}
@@ -266,7 +266,7 @@ func TestEncodeAtomWithCache(t *testing.T) {
 	senderAtomCache["cached atom"] = ci
 
 	encodeOptions := EncodeOptions{
-		AtomCache:         atomCache,
+		AtomCache:         atomCache.Out,
 		SenderAtomCache:   senderAtomCache,
 		EncodingAtomCache: encodingAtomCache,
 	}
@@ -743,7 +743,7 @@ func TestEncodePidWithAtomCache(t *testing.T) {
 	ci := CacheItem{ID: 2020, Encoded: true, Name: "erl-demo@127.0.0.1"}
 	senderAtomCache["erl-demo@127.0.0.1"] = ci
 	encodeOptions := EncodeOptions{
-		AtomCache:         atomCache,
+		AtomCache:         atomCache.Out,
 		SenderAtomCache:   senderAtomCache,
 		EncodingAtomCache: encodingAtomCache,
 	}
@@ -951,7 +951,7 @@ func BenchmarkEncodeBoolWithAtomCache(b *testing.B) {
 	senderAtomCache["false"] = CacheItem{ID: 499, Encoded: true, Name: "false"}
 
 	encodeOptions := EncodeOptions{
-		AtomCache:         atomCache,
+		AtomCache:         atomCache.Out,
 		SenderAtomCache:   senderAtomCache,
 		EncodingAtomCache: encodingAtomCache,
 	}
@@ -1047,7 +1047,7 @@ func BenchmarkEncodeAtomWithCache(b *testing.B) {
 	senderAtomCache["cached atom"] = ci
 
 	encodeOptions := EncodeOptions{
-		AtomCache:         atomCache,
+		AtomCache:         atomCache.Out,
 		SenderAtomCache:   senderAtomCache,
 		EncodingAtomCache: encodingAtomCache,
 	}
@@ -1269,7 +1269,7 @@ func BenchmarkEncodePidWithAtomCache(b *testing.B) {
 	senderAtomCache["erl-demo@127.0.0.1"] = ci
 
 	encodeOptions := EncodeOptions{
-		AtomCache:         atomCache,
+		AtomCache:         atomCache.Out,
 		SenderAtomCache:   senderAtomCache,
 		EncodingAtomCache: encodingAtomCache,
 	}
@@ -1323,7 +1323,7 @@ func BenchmarkEncodeRefWithAtomCache(b *testing.B) {
 	senderAtomCache["erl-demo@127.0.0.1"] = ci
 
 	encodeOptions := EncodeOptions{
-		AtomCache:         atomCache,
+		AtomCache:         atomCache.Out,
 		SenderAtomCache:   senderAtomCache,
 		EncodingAtomCache: encodingAtomCache,
 	}
@@ -1386,7 +1386,7 @@ func BenchmarkEncodeTupleRefPidWithAtomCache(b *testing.B) {
 	senderAtomCache["erl-demo@127.0.0.1"] = ci
 
 	encodeOptions := EncodeOptions{
-		AtomCache:         atomCache,
+		AtomCache:         atomCache.Out,
 		SenderAtomCache:   senderAtomCache,
 		EncodingAtomCache: encodingAtomCache,
 	}
