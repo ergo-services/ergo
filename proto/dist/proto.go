@@ -956,11 +956,9 @@ func (dc *distConnection) decodeDist(packet []byte, proxy *proxySession) (etf.Te
 
 		decodeOptions := etf.DecodeOptions{
 			FlagBigPidRef: dc.flags.EnableBigPidRef,
-			AtomCache:     dc.cache.In,
 		}
 		if proxy != nil {
 			decodeOptions.FlagBigPidRef = true
-			decodeOptions.AtomCache = proxy.cache.In
 		}
 
 		// decode control message
@@ -1033,11 +1031,9 @@ func (dc *distConnection) decodeDist(packet []byte, proxy *proxySession) (etf.Te
 		packet = zBuffer.B
 		decodeOptions := etf.DecodeOptions{
 			FlagBigPidRef: dc.flags.EnableBigPidRef,
-			AtomCache:     dc.cache.In,
 		}
 		if proxy != nil {
 			decodeOptions.FlagBigPidRef = true
-			decodeOptions.AtomCache = proxy.cache.In
 		}
 
 		// decode control message
