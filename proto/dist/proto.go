@@ -80,8 +80,9 @@ type fragmentedPacket struct {
 }
 
 type proxySession struct {
-	session node.ProxySession
-	cache   etf.AtomCache
+	session     node.ProxySession
+	cache       etf.AtomCache
+	senderCache []map[etf.Atom]etf.CacheItem
 }
 
 type distConnection struct {
@@ -217,7 +218,7 @@ func (dp *distProto) Init(ctx context.Context, conn io.ReadWriter, peername stri
 		connection.senders.sender[i] = &senderChannel{
 			sendChannel: send,
 		}
-		go connection.sender(send, dp.options, connection.flags)
+		go connection.sender(i, send, dp.options, connection.flags)
 	}
 
 	return connection, nil
@@ -582,6 +583,8 @@ func (dc *distConnection) ProxyRegisterSession(session node.ProxySession) error 
 	ps := proxySession{
 		session: session,
 		cache:   etf.NewAtomCache(),
+		// every sender should have its own senderAtomCache in the proxy session
+		senderCache: make([]map[etf.Atom]etf.CacheItem, len(dc.senders.sender)),
 	}
 	dc.proxySessionsByPeerName[session.PeerName] = ps
 	dc.proxySessionsByID[session.ID] = ps
@@ -1670,7 +1673,7 @@ func (dc *distConnection) encodeDistHeaderAtomCache(b *lib.Buffer,
 	}
 }
 
-func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOptions, peerFlags node.Flags) {
+func (dc *distConnection) sender(sender_id int, send <-chan *sendMessage, options node.ProtoOptions, peerFlags node.Flags) {
 	var lastCacheID int16 = -1
 
 	var lenMessage, lenAtomCache, lenPacket, startDataPosition int
@@ -1722,7 +1725,9 @@ func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOpt
 	}
 
 	message := &sendMessage{}
-	encodingOptions := etf.EncodeOptions{}
+	encodingOptions := etf.EncodeOptions{
+		EncodingAtomCache: encodingAtomCache,
+	}
 
 	for {
 		// clean up and get back message struct to the pool
@@ -1792,7 +1797,6 @@ func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOpt
 			// use connection atom cache
 			encodingOptions.AtomCache = dc.cache.Out
 			encodingOptions.SenderAtomCache = senderAtomCache
-			encodingOptions.EncodingAtomCache = encodingAtomCache
 			// use connection flags
 			encodingOptions.FlagBigCreation = peerFlags.EnableBigCreation
 			encodingOptions.FlagBigPidRef = peerFlags.EnableBigPidRef
@@ -1800,7 +1804,10 @@ func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOpt
 		} else {
 			// use proxy connection atom cache
 			encodingOptions.AtomCache = message.proxy.cache.Out
-
+			if message.proxy.senderCache[sender_id] == nil {
+				message.proxy.senderCache[sender_id] = make(map[etf.Atom]etf.CacheItem)
+			}
+			encodingOptions.SenderAtomCache = message.proxy.senderCache[sender_id]
 			// these flags are always enabled for the proxy connection
 			encodingOptions.FlagBigCreation = true
 			encodingOptions.FlagBigPidRef = true
@@ -2080,7 +2087,7 @@ func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOpt
 		if lastCacheID < encodingOptions.AtomCache.LastID() {
 			encodingOptions.AtomCache.RLock()
 			for _, a := range encodingOptions.AtomCache.ListSince(lastCacheID + 1) {
-				senderAtomCache[a] = etf.CacheItem{ID: lastCacheID + 1, Name: a, Encoded: false}
+				encodingOptions.SenderAtomCache[a] = etf.CacheItem{ID: lastCacheID + 1, Name: a, Encoded: false}
 				lastCacheID++
 			}
 			encodingOptions.AtomCache.RUnlock()
