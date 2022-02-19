@@ -945,7 +945,6 @@ func BenchmarkEncodeBoolWithAtomCache(b *testing.B) {
 
 	senderAtomCache := make(map[Atom]CacheItem)
 	encodingAtomCache := TakeEncodingAtomCache()
-	defer ReleaseEncodingAtomCache(encodingAtomCache)
 	atomCache := NewAtomCache()
 
 	senderAtomCache["false"] = CacheItem{ID: 499, Encoded: true, Name: "false"}
@@ -958,7 +957,6 @@ func BenchmarkEncodeBoolWithAtomCache(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		err := Encode(false, buf, encodeOptions)
-		encodingAtomCache.Reset()
 		buf.Reset()
 		if err != nil {
 			b.Fatal(err)
@@ -1040,7 +1038,6 @@ func BenchmarkEncodeAtomWithCache(b *testing.B) {
 
 	senderAtomCache := make(map[Atom]CacheItem)
 	encodingAtomCache := TakeEncodingAtomCache()
-	defer ReleaseEncodingAtomCache(encodingAtomCache)
 	atomCache := NewAtomCache()
 
 	ci := CacheItem{ID: 2020, Encoded: true, Name: "cached atom"}
@@ -1056,7 +1053,6 @@ func BenchmarkEncodeAtomWithCache(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		err := Encode(Atom("cached atom"), buf, encodeOptions)
 		buf.Reset()
-		encodingAtomCache.Reset()
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -1262,7 +1258,6 @@ func BenchmarkEncodePidWithAtomCache(b *testing.B) {
 
 	senderAtomCache := make(map[Atom]CacheItem)
 	encodingAtomCache := TakeEncodingAtomCache()
-	defer ReleaseEncodingAtomCache(encodingAtomCache)
 	atomCache := NewAtomCache()
 
 	ci := CacheItem{ID: 2020, Encoded: true, Name: "erl-demo@127.0.0.1"}
@@ -1278,7 +1273,6 @@ func BenchmarkEncodePidWithAtomCache(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		err := Encode(term, buf, encodeOptions)
 		buf.Reset()
-		encodingAtomCache.Reset()
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -1316,7 +1310,6 @@ func BenchmarkEncodeRefWithAtomCache(b *testing.B) {
 
 	senderAtomCache := make(map[Atom]CacheItem)
 	encodingAtomCache := TakeEncodingAtomCache()
-	defer ReleaseEncodingAtomCache(encodingAtomCache)
 	atomCache := NewAtomCache()
 
 	ci := CacheItem{ID: 2020, Encoded: true, Name: "erl-demo@127.0.0.1"}
@@ -1332,7 +1325,6 @@ func BenchmarkEncodeRefWithAtomCache(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		err := Encode(term, buf, encodeOptions)
 		buf.Reset()
-		encodingAtomCache.Reset()
 		if err != nil {
 			b.Fatal(err)
 		}

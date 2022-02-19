@@ -44,7 +44,7 @@ func StartNodeWithContext(ctx context.Context, name string, cookie string, opts 
 	if opts.Proto == nil {
 		// create default proto handler (Erlang Dist Proto)
 		protoOptions := node.DefaultProtoOptions()
-		opts.Proto = dist.CreateProto(name, protoOptions)
+		opts.Proto = dist.CreateProto(protoOptions)
 	}
 
 	if opts.StaticRoutesOnly == false && opts.Resolver == nil {

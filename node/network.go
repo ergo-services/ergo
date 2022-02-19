@@ -983,7 +983,7 @@ func (n *network) listen(ctx context.Context, hostname string, begin uint16, end
 				// Erlang nodes are required to be receiving keepalive messages,
 				// but Ergo doesn't need it.
 				protoFlags.EnableSoftwareKeepAlive = true
-				connection, err := n.proto.Init(n.ctx, c, peername, protoFlags)
+				connection, err := n.proto.Init(n.ctx, c, n.nodename, peername, protoFlags)
 				if err != nil {
 					c.Close()
 					continue
@@ -1125,7 +1125,7 @@ func (n *network) connect(peername string) (ConnectionInterface, error) {
 	// Erlang nodes are required to be receiving keepalive messages,
 	// but Ergo doesn't need it.
 	protoFlags.EnableSoftwareKeepAlive = true
-	connection, err := n.proto.Init(n.ctx, c, peername, protoFlags)
+	connection, err := n.proto.Init(n.ctx, c, n.nodename, peername, protoFlags)
 	if err != nil {
 		c.Close()
 		return nil, err

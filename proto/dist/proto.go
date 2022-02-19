@@ -136,10 +136,9 @@ type distProto struct {
 	options  node.ProtoOptions
 }
 
-func CreateProto(nodename string, options node.ProtoOptions) node.ProtoInterface {
+func CreateProto(options node.ProtoOptions) node.ProtoInterface {
 	return &distProto{
-		nodename: nodename,
-		options:  options,
+		options: options,
 	}
 }
 
@@ -174,9 +173,9 @@ type receivers struct {
 	i    int32
 }
 
-func (dp *distProto) Init(ctx context.Context, conn io.ReadWriter, peername string, flags node.Flags) (node.ConnectionInterface, error) {
+func (dp *distProto) Init(ctx context.Context, conn io.ReadWriter, nodename string, peername string, flags node.Flags) (node.ConnectionInterface, error) {
 	connection := &distConnection{
-		nodename:                dp.nodename,
+		nodename:                nodename,
 		peername:                peername,
 		flags:                   flags,
 		conn:                    conn,
@@ -1616,12 +1615,12 @@ func (dc *distConnection) encodeDistHeaderAtomCache(b *lib.Buffer,
 	b.AppendByte(byte(n)) // write NumberOfAtomCache
 
 	lenFlags := n/2 + 1
-	b.Extend(lenFlags)
-
-	flags := b.B[1 : lenFlags+1]
+	flags := b.Extend(lenFlags)
 	flags[lenFlags-1] = 0 // clear last byte to make sure we have valid LongAtom flag
 
 	for i := 0; i < len(encodingAtomCache.L); i++ {
+		encodingAtomCache.Delete(encodingAtomCache.L[i].Name)
+
 		shift := uint((i & 0x01) * 4)
 		idxReference := byte(encodingAtomCache.L[i].ID >> 8) // SegmentIndex
 		idxInternal := byte(encodingAtomCache.L[i].ID & 255) // InternalSegmentIndex
@@ -1869,19 +1868,23 @@ func (dc *distConnection) sender(sender_id int, send <-chan *sendMessage, option
 		// encode Header Atom Cache if its enabled
 		if cacheEnabled && encodingAtomCache.Len() > 0 {
 			atomCacheBuffer = lib.TakeBuffer()
+			atomCacheBuffer.Allocate(128)
 			dc.encodeDistHeaderAtomCache(atomCacheBuffer, senderAtomCache, encodingAtomCache)
-			lenAtomCache = atomCacheBuffer.Len()
+			lenAtomCache = atomCacheBuffer.Len() - 128
+			//fmt.Println("SENDER ID", sender_id, encodingAtomCache.Len(), lenAtomCache, encodingAtomCache)
+			//fmt.Println("CACHE", atomCacheBuffer.B[128:200])
 
-			if lenAtomCache > reserveHeaderAtomCache-22 {
-				// are you serious? ))) what da hell you just sent?
-				// FIXME i'm gonna fix it if someone report about this issue :)
-				lib.Warning("exceed atom header cache size limit. please report about this issue")
-				return
+			if lenAtomCache > reserveHeaderAtomCache-128 {
+				// we got huge atom cache
+				atomCacheBuffer.Append(packetBuffer.B[startDataPosition:])
+				startDataPosition = 128
+				lib.ReleaseBuffer(packetBuffer)
+				packetBuffer = atomCacheBuffer
+			} else {
+				startDataPosition -= lenAtomCache
+				copy(packetBuffer.B[startDataPosition:], atomCacheBuffer.B[128:])
+				lib.ReleaseBuffer(atomCacheBuffer)
 			}
-
-			startDataPosition -= lenAtomCache
-			copy(packetBuffer.B[startDataPosition:], atomCacheBuffer.B)
-			lib.ReleaseBuffer(atomCacheBuffer)
 
 		} else {
 			lenAtomCache = 1

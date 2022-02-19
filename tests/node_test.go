@@ -668,7 +668,7 @@ func TestNodeCompression(t *testing.T) {
 	// need 1 handler to make Atom cache work
 	protoOptions := node.DefaultProtoOptions()
 	protoOptions.NumHandlers = 1
-	opts1.Proto = dist.CreateProto("node1compression@localhost", protoOptions)
+	opts1.Proto = dist.CreateProto(protoOptions)
 	node1, e := ergo.StartNode("node1compression@localhost", "secret", opts1)
 	if e != nil {
 		t.Fatal(e)

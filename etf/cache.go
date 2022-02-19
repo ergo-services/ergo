@@ -1,6 +1,7 @@
 package etf
 
 import (
+	"fmt"
 	"sync"
 )
 
@@ -36,7 +37,8 @@ var (
 	encodingAtomCachePool = &sync.Pool{
 		New: func() interface{} {
 			l := &EncodingAtomCache{
-				L: make([]CacheItem, 0, 255),
+				L:     make([]CacheItem, 0, 255),
+				added: make(map[Atom]int16),
 			}
 			l.original = l.L
 			return l
@@ -59,6 +61,9 @@ func NewAtomCache() AtomCache {
 func (a *AtomCacheOut) Append(atom Atom) {
 	a.Lock()
 	defer a.Unlock()
+	if a.id > maxCacheItems-2 {
+		return
+	}
 	if _, exist := a.cacheMap[atom]; exist {
 		return
 	}
@@ -86,6 +91,7 @@ func (a *AtomCacheOut) ListSince(id int16) []Atom {
 type EncodingAtomCache struct {
 	L           []CacheItem
 	original    []CacheItem
+	added       map[Atom]int16
 	HasLongAtom bool
 }
 
@@ -97,6 +103,9 @@ func TakeEncodingAtomCache() *EncodingAtomCache {
 // ReleaseEncodingAtomCache
 func ReleaseEncodingAtomCache(l *EncodingAtomCache) {
 	l.L = l.original[:0]
+	if len(l.added) > 0 {
+		panic(fmt.Sprint("encoding atom is not empty on release: ", l.added))
+	}
 	encodingAtomCachePool.Put(l)
 }
 
@@ -104,14 +113,28 @@ func ReleaseEncodingAtomCache(l *EncodingAtomCache) {
 func (l *EncodingAtomCache) Reset() {
 	l.L = l.original[:0]
 	l.HasLongAtom = false
+	if len(l.added) > 0 {
+		panic(fmt.Sprint("encoding atom is not empty on reset: ", l.added))
+	}
 }
 
 // Append
-func (l *EncodingAtomCache) Append(a CacheItem) {
+func (l *EncodingAtomCache) Append(a CacheItem) (int16, bool) {
+	id, added := l.added[a.Name]
+	if added {
+		return id, false
+	}
+
 	l.L = append(l.L, a)
 	if !a.Encoded && len(a.Name) > 255 {
 		l.HasLongAtom = true
 	}
+	l.added[a.Name] = a.ID
+	return a.ID, true
+}
+func (l *EncodingAtomCache) Delete(atom Atom) {
+	// clean up in order to get rid of reallocation
+	delete(l.added, atom)
 }
 
 // Len

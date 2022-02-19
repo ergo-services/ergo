@@ -272,7 +272,10 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 				// looking for CacheItem
 				ci, found := options.SenderAtomCache[value]
 				if found {
-					options.EncodingAtomCache.Append(ci)
+					if i, added := options.EncodingAtomCache.Append(ci); added == false {
+						b.Append([]byte{ettCacheRef, byte(i)})
+						break
+					}
 					b.Append([]byte{ettCacheRef, byte(cacheIndex)})
 					cacheIndex++
 					break
@@ -508,23 +511,27 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 			// characters and are always encoded using the UTF-8 external
 			// formats ATOM_UTF8_EXT or SMALL_ATOM_UTF8_EXT.
 
-			if cacheEnabled && cacheIndex < 255 {
-				// looking for CacheItem
-				ci, found := options.SenderAtomCache[t]
-				if found {
-					options.EncodingAtomCache.Append(ci)
-					b.Append([]byte{ettCacheRef, byte(cacheIndex)})
-					cacheIndex++
-					break
-				}
-				options.AtomCache.Append(t)
-			}
-
 			// https://erlang.org/doc/apps/erts/erl_ext_dist.html#utf8_atoms
 			// The maximum number of allowed characters in an atom is 255.
 			// In the UTF-8 case, each character can need 4 bytes to be encoded.
 			if len([]rune(t)) > 255 {
 				return ErrAtomTooLong
+			}
+
+			if cacheEnabled && cacheIndex < 255 {
+				// looking for CacheItem
+				ci, found := options.SenderAtomCache[t]
+				if found {
+					if i, added := options.EncodingAtomCache.Append(ci); added == false {
+						b.Append([]byte{ettCacheRef, byte(i)})
+						break
+					}
+					b.Append([]byte{ettCacheRef, byte(cacheIndex)})
+					cacheIndex++
+					break
+				}
+
+				options.AtomCache.Append(t)
 			}
 
 			lenAtom := len(t)
