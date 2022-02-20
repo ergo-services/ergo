@@ -46,9 +46,8 @@ func TestMonitorLocalLocal(t *testing.T) {
 	node1, _ := ergo.StartNode("nodeM1LocalLocal@localhost", "cookies", node.Options{})
 	if node1 == nil {
 		t.Fatal("can't start node")
-	} else {
-		fmt.Println("OK")
 	}
+	fmt.Println("OK")
 	gs1 := &testMonitor{
 		v: make(chan interface{}, 2),
 	}

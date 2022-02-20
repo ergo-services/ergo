@@ -547,7 +547,7 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 			buf := b.Extend(1 + 2 + lenAtom)
 			buf[0] = ettAtomUTF8
 			binary.BigEndian.PutUint16(buf[1:3], uint16(lenAtom))
-			copy(b.B[3:], t)
+			copy(buf[3:], t)
 
 		case float32:
 			term = float64(t)
