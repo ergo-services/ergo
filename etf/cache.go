@@ -83,7 +83,6 @@ func (a *AtomCacheOut) LastID() int16 {
 // ListSince
 func (a *AtomCacheOut) ListSince(id int16) []Atom {
 	if id > a.id || int(id) > len(a.cacheList) {
-		fmt.Println("IIIII", id, a.id, a.cacheList)
 		return nil
 	}
 	if id < 0 {
