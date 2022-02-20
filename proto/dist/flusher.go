@@ -21,7 +21,7 @@ func newLinkFlusher(w io.Writer, latency time.Duration, softwareKeepAlive bool) 
 		softwareKeepAlive: softwareKeepAlive,
 	}
 
-	lf.timer = time.AfterFunc(lf.latency, func() {
+	lf.timer = time.AfterFunc(keepAlivePeriod, func() {
 
 		lf.mutex.Lock()
 		defer lf.mutex.Unlock()

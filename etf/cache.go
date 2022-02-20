@@ -58,18 +58,19 @@ func NewAtomCache() AtomCache {
 }
 
 // Append
-func (a *AtomCacheOut) Append(atom Atom) {
+func (a *AtomCacheOut) Append(atom Atom) (int16, bool) {
 	a.Lock()
 	defer a.Unlock()
 	if a.id > maxCacheItems-2 {
-		return
+		return 0, false
 	}
-	if _, exist := a.cacheMap[atom]; exist {
-		return
+	if id, exist := a.cacheMap[atom]; exist {
+		return id, false
 	}
 	a.id++
 	a.cacheList[a.id] = atom
 	a.cacheMap[atom] = a.id
+	return a.id, true
 }
 
 // LastID
@@ -81,10 +82,14 @@ func (a *AtomCacheOut) LastID() int16 {
 
 // ListSince
 func (a *AtomCacheOut) ListSince(id int16) []Atom {
-	if id > a.id {
+	if id > a.id || int(id) > len(a.cacheList) {
+		fmt.Println("IIIII", id, a.id, a.cacheList)
 		return nil
 	}
-	return a.cacheList[id:a.id]
+	if id < 0 {
+		id = 0
+	}
+	return a.cacheList[id : a.id+1]
 }
 
 // EncodingAtomCache
@@ -104,7 +109,7 @@ func TakeEncodingAtomCache() *EncodingAtomCache {
 func ReleaseEncodingAtomCache(l *EncodingAtomCache) {
 	l.L = l.original[:0]
 	if len(l.added) > 0 {
-		panic(fmt.Sprint("encoding atom is not empty on release: ", l.added))
+		panic(fmt.Sprint("encoding atom cache is not empty on release: ", l.added))
 	}
 	encodingAtomCachePool.Put(l)
 }
@@ -114,7 +119,7 @@ func (l *EncodingAtomCache) Reset() {
 	l.L = l.original[:0]
 	l.HasLongAtom = false
 	if len(l.added) > 0 {
-		panic(fmt.Sprint("encoding atom is not empty on reset: ", l.added))
+		panic(fmt.Sprint("encoding atom cache is not empty on reset: ", l.added))
 	}
 }
 
@@ -132,8 +137,10 @@ func (l *EncodingAtomCache) Append(a CacheItem) (int16, bool) {
 	l.added[a.Name] = a.ID
 	return a.ID, true
 }
+
+// Delete
 func (l *EncodingAtomCache) Delete(atom Atom) {
-	// clean up in order to get rid of reallocation
+	// clean up in order to get rid of map reallocation which is pretty expensive
 	delete(l.added, atom)
 }
 
