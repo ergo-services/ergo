@@ -1,10 +1,12 @@
 *~
-cmd/epmd/epmd
 coverage.txt
 coverage.html
+tests/coverage.txt
+tests/coverage.html
 *.swp
 tags
 .session
 cover.out
+tests/cover.out
 examples/sandbox
 

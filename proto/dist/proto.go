@@ -619,7 +619,6 @@ func (dc *distConnection) ProxyPacket(packet *lib.Buffer) error {
 func (dc *distConnection) read(b *lib.Buffer, max int) (int, error) {
 	// http://erlang.org/doc/apps/erts/erl_dist_protocol.html#protocol-between-connected-nodes
 	expectingBytes := 4
-
 	for {
 		if b.Len() < expectingBytes {
 			n, e := b.ReadDataFrom(dc.conn, max)
@@ -1058,15 +1057,16 @@ func (dc *distConnection) decodeDist(packet []byte, proxy *proxySession) (etf.Te
 
 	case protoDistFragment1, protoDistFragmentN, protoDistFragment1Z, protoDistFragmentNZ:
 		if len(packet) < 18 {
-			return nil, nil, fmt.Errorf("malformed fragment")
+			return nil, nil, fmt.Errorf("malformed fragment (too small)")
 		}
 
 		if assembled, err := dc.decodeFragment(packet, proxy); assembled != nil {
 			if err != nil {
 				return nil, nil, err
 			}
-			defer lib.ReleaseBuffer(assembled)
-			return dc.decodeDist(assembled.B, nil)
+			control, payload, err := dc.decodeDist(assembled.B, nil)
+			lib.ReleaseBuffer(assembled)
+			return control, payload, err
 		} else {
 			if err != nil {
 				return nil, nil, err
@@ -1525,6 +1525,7 @@ func (dc *distConnection) decodeFragment(packet []byte, proxy *proxySession) (*l
 }
 
 func (dc *distConnection) decodeDistHeaderAtomCache(packet []byte, proxy *proxySession) ([]etf.Atom, []byte, error) {
+	var err error
 	// all the details are here https://erlang.org/doc/apps/erts/erl_ext_dist.html#normal-distribution-header
 
 	// number of atom references are present in package
@@ -1593,13 +1594,16 @@ func (dc *distConnection) decodeDistHeaderAtomCache(packet []byte, proxy *proxyS
 
 		c := cache.Atoms[idx]
 		if c == nil {
-			return cached, packet, errMissingInCache
+			packet = packet[1:]
+			// decode the rest of this cache but set return err = errMissingInCache
+			err = errMissingInCache
+			continue
 		}
 		cached[i] = *c
 		packet = packet[1:]
 	}
 
-	return cached, packet, nil
+	return cached, packet, err
 }
 
 func (dc *distConnection) encodeDistHeaderAtomCache(b *lib.Buffer,
@@ -1607,18 +1611,18 @@ func (dc *distConnection) encodeDistHeaderAtomCache(b *lib.Buffer,
 	encodingAtomCache *etf.EncodingAtomCache) {
 
 	n := encodingAtomCache.Len()
+	b.AppendByte(byte(n)) // write NumberOfAtomCache
 	if n == 0 {
-		b.AppendByte(0)
 		return
 	}
 
-	b.AppendByte(byte(n)) // write NumberOfAtomCache
-
+	startPosition := len(b.B)
 	lenFlags := n/2 + 1
 	flags := b.Extend(lenFlags)
 	flags[lenFlags-1] = 0 // clear last byte to make sure we have valid LongAtom flag
 
 	for i := 0; i < len(encodingAtomCache.L); i++ {
+		// clean internal name cache
 		encodingAtomCache.Delete(encodingAtomCache.L[i].Name)
 
 		shift := uint((i & 0x01) * 4)
@@ -1630,7 +1634,9 @@ func (dc *distConnection) encodeDistHeaderAtomCache(b *lib.Buffer,
 			idxReference |= 8 // set NewCacheEntryFlag
 		}
 
-		// we have to clear it before reuse
+		// the 'flags' slice could be changed if b.B was reallocated during the encoding atoms
+		flags = b.B[startPosition : startPosition+lenFlags]
+		// clean it up before reuse
 		if shift == 0 {
 			flags[i/2] = 0
 		}
@@ -1649,7 +1655,6 @@ func (dc *distConnection) encodeDistHeaderAtomCache(b *lib.Buffer,
 			binary.BigEndian.PutUint16(buf[1:3], uint16(len(encodingAtomCache.L[i].Name)))
 			copy(buf[3:], encodingAtomCache.L[i].Name)
 		} else {
-
 			// 1 (InternalSegmentIndex) + 1 (length) + name
 			allocLen := 1 + 1 + len(encodingAtomCache.L[i].Name)
 			buf := b.Extend(allocLen)
@@ -1664,6 +1669,7 @@ func (dc *distConnection) encodeDistHeaderAtomCache(b *lib.Buffer,
 
 	if encodingAtomCache.HasLongAtom {
 		shift := uint((n & 0x01) * 4)
+		flags = b.B[startPosition : startPosition+lenFlags]
 		flags[lenFlags-1] |= 1 << shift // set LongAtom = 1
 	}
 }
@@ -1868,21 +1874,19 @@ func (dc *distConnection) sender(sender_id int, send <-chan *sendMessage, option
 		// encode Header Atom Cache if its enabled
 		if cacheEnabled && encodingAtomCache.Len() > 0 {
 			atomCacheBuffer = lib.TakeBuffer()
-			atomCacheBuffer.Allocate(128)
+			atomCacheBuffer.Allocate(1024)
 			dc.encodeDistHeaderAtomCache(atomCacheBuffer, senderAtomCache, encodingAtomCache)
-			lenAtomCache = atomCacheBuffer.Len() - 128
-			//fmt.Println("SENDER ID", sender_id, encodingAtomCache.Len(), lenAtomCache, encodingAtomCache)
-			//fmt.Println("CACHE", atomCacheBuffer.B[128:200])
 
-			if lenAtomCache > reserveHeaderAtomCache-128 {
+			lenAtomCache = atomCacheBuffer.Len() - 1024
+			if lenAtomCache > reserveHeaderAtomCache-1024 {
 				// we got huge atom cache
 				atomCacheBuffer.Append(packetBuffer.B[startDataPosition:])
-				startDataPosition = 128
+				startDataPosition = 1024
 				lib.ReleaseBuffer(packetBuffer)
 				packetBuffer = atomCacheBuffer
 			} else {
 				startDataPosition -= lenAtomCache
-				copy(packetBuffer.B[startDataPosition:], atomCacheBuffer.B[128:])
+				copy(packetBuffer.B[startDataPosition:], atomCacheBuffer.B[1024:])
 				lib.ReleaseBuffer(atomCacheBuffer)
 			}
 
@@ -1895,7 +1899,7 @@ func (dc *distConnection) sender(sender_id int, send <-chan *sendMessage, option
 		for {
 			// 4 (packet len) + 1 (dist header: 131) + 1 (dist header: protoDistMessage[Z]) + lenAtomCache
 			lenPacket = 1 + 1 + lenAtomCache + lenMessage
-			if !fragmentationEnabled || lenPacket < options.FragmentationUnit {
+			if !fragmentationEnabled || lenMessage < options.FragmentationUnit {
 				// send as a single packet
 				startDataPosition -= 1
 				if compressed {
@@ -1952,7 +1956,7 @@ func (dc *distConnection) sender(sender_id int, send <-chan *sendMessage, option
 			// "The entire atom cache and control message has to be part of the starting fragment"
 
 			sequenceID := uint64(atomic.AddInt64(&dc.sequenceID, 1))
-			numFragments := lenPacket/options.FragmentationUnit + 1
+			numFragments := lenMessage/options.FragmentationUnit + 1
 
 			// 1 (dist header: 131) + 1 (dist header: protoDistFragment) + 8 (sequenceID) + 8 (fragmentID) + ...
 			lenPacket = 1 + 1 + 8 + 8 + lenAtomCache + options.FragmentationUnit
@@ -2085,7 +2089,7 @@ func (dc *distConnection) sender(sender_id int, send <-chan *sendMessage, option
 		// get updates from the connection AtomCache and update the sender's cache (senderAtomCache)
 		if lastCacheID < encodingOptions.AtomCache.LastID() {
 			encodingOptions.AtomCache.RLock()
-			for _, a := range encodingOptions.AtomCache.ListSince(lastCacheID + 1) {
+			for _, a := range encodingOptions.AtomCache.ListSince(lastCacheID) {
 				encodingOptions.SenderAtomCache[a] = etf.CacheItem{ID: lastCacheID + 1, Name: a, Encoded: false}
 				lastCacheID++
 			}

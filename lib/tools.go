@@ -92,7 +92,7 @@ func ReleaseBuffer(b *Buffer) {
 		// reallocation happened. keep reallocated buffer as an original
 		// if it doesn't exceed the size of 65K (we don't want to keep
 		// too big slices)
-		b.original = b.B
+		b.original = b.B[:0]
 	}
 	b.B = b.original[:0]
 	buffers.Put(b)
@@ -102,7 +102,7 @@ func ReleaseBuffer(b *Buffer) {
 func (b *Buffer) Reset() {
 	c := cap(b.B)
 	if c > DefaultBufferLength && c < 65536 {
-		b.original = b.B
+		b.original = b.B[:0]
 	}
 	// use the original start point of the slice
 	b.B = b.original[:0]

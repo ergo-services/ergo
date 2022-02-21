@@ -7,7 +7,6 @@ import (
 	"math/rand"
 	"net"
 	"reflect"
-	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -160,40 +159,6 @@ func TestNodeFragmentation(t *testing.T) {
 		}()
 	}
 	wg.Wait()
-}
-
-func TestNodeAtomCache(t *testing.T) {
-
-	node1, _ := ergo.StartNode("nodeT1AtomCache@localhost", "secret", node.Options{})
-	node2, _ := ergo.StartNode("nodeT2AtomCache@localhost", "secret", node.Options{})
-
-	tgs := &benchGS{}
-	p1, e1 := node1.Spawn("", gen.ProcessOptions{}, tgs)
-	p2, e2 := node2.Spawn("", gen.ProcessOptions{}, tgs)
-
-	if e1 != nil {
-		t.Fatal(e1)
-	}
-	if e2 != nil {
-		t.Fatal(e2)
-	}
-
-	message := etf.Tuple{
-		etf.Atom("a1"),
-		etf.Atom("a2"),
-		etf.Atom("a3"),
-		etf.Atom("a4"),
-		etf.Atom("a5"),
-	}
-	for i := 0; i < 2*runtime.GOMAXPROCS(-1); i++ {
-		call := makeCall{
-			to:      p2.Self(),
-			message: message,
-		}
-		if _, e := p1.Direct(call); e != nil {
-			t.Fatal(e)
-		}
-	}
 }
 
 func TestNodeStaticRoute(t *testing.T) {

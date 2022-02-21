@@ -429,11 +429,11 @@ func (n *network) RouteProxyConnectRequest(from ConnectionInterface, request Pro
 			lib.Log("[%s] NETWORK transit proxy connection to %q via %q", n.nodename, request.To, route.Proxy)
 			// proxy feature must be enabled explicitly for the transitional requests
 			if n.proxy.Transit == false {
-				lib.Log("[%s] NETWORK proxy. Proxy feature is disabled on this node")
+				lib.Log("[%s] NETWORK proxy. Proxy feature is disabled on this node", n.nodename)
 				return ErrProxyTransitDisabled
 			}
 			if request.Hop < 1 {
-				lib.Log("[%s] NETWORK proxy. Error: exceeded hop limit")
+				lib.Log("[%s] NETWORK proxy. Error: exceeded hop limit", n.nodename)
 				return ErrProxyHopExceeded
 			}
 			request.Hop--
@@ -708,7 +708,7 @@ func (n *network) RouteProxyConnectReply(from ConnectionInterface, reply ProxyCo
 	// check digest
 	checkDigest := generateProxyDigest(r.request.To, cookie, n.nodename, key)
 	if bytes.Equal(checkDigest, reply.Digest) == false {
-		lib.Log("[%s] CORE route proxy. Proxy connect reply has wrong digest")
+		lib.Log("[%s] CORE route proxy. Proxy connect reply has wrong digest", n.nodename)
 		return ErrProxyConnect
 	}
 
@@ -866,7 +866,6 @@ func (n *network) RouteProxyDisconnect(from ConnectionInterface, disconnect Prox
 	default:
 		// shouldn't happen
 		panic("internal error")
-		return ErrProxySessionUnknown
 	}
 }
 
@@ -888,7 +887,6 @@ func (n *network) RouteProxy(from ConnectionInterface, sessionID string, packet 
 	default:
 		// shouldn't happen
 		panic("internal error")
-		return ErrProxySessionUnknown
 	}
 }
 

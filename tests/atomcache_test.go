@@ -47,20 +47,33 @@ func TestAtomCache(t *testing.T) {
 	waitForResultWithValue(t, gs1.v, node1gs1.Self())
 
 	fmt.Printf("    wait for start of gs2 on %#v: ", node2.Name())
-	node2gs2, _ := node1.Spawn("gs2", gen.ProcessOptions{}, gs2, nil)
+	node2gs2, _ := node2.Spawn("gs2", gen.ProcessOptions{}, gs2, nil)
 	waitForResultWithValue(t, gs2.v, node2gs2.Self())
 
-	atoms2K := [2100]etf.Atom{}
+	atoms2K := make(etf.List, 2100)
 	for i := range atoms2K {
-		atoms2K[i] = etf.Atom(fmt.Sprintf("проверкапроверкапроверкапроверкапроверкапроверкапроверкапроверкапроверкапроверкапроверкапроверкапроверкапроверкапроверкапроверкапроверкапроверкапроверкапроверкапроверкапроверкапроверкапроверкапроверкапроверкапроверкапроверкапроверкапроверка%d", i/10))
+		atoms2K[i] = etf.Atom(fmt.Sprintf("проверкапроверкапроверкапроверкапроверкапроверкапроверкапроверкапроверкапроверкапроверкапроверкапроверкапроверкапроверкапроверкапроверкапроверкапроверкапроверкапроверкапроверкапроверкапроверкапроверкапроверкапроверкапроверкапроверкапровер%d", i))
 	}
 
-	long := [66000]byte{}
+	long := make([]byte, 66000)
 	for i := range long {
 		long[i] = byte(i % 255)
 	}
 
-	result := atoms2K[:500]
+	result := etf.Tuple{atoms2K, long}
+	fmt.Println("   send 1: ")
+	node1gs1.Send(node2gs2.Self(), result)
+	waitForResultWithValue(t, gs2.v, result)
+	fmt.Println("   send 2: ")
+	node1gs1.Send(node2gs2.Self(), result)
+	waitForResultWithValue(t, gs2.v, result)
+	fmt.Println("   send 3: ")
+	node1gs1.Send(node2gs2.Self(), result)
+	waitForResultWithValue(t, gs2.v, result)
+	fmt.Println("   send 4: ")
+	node1gs1.Send(node2gs2.Self(), result)
+	waitForResultWithValue(t, gs2.v, result)
+	fmt.Println("   send 5: ")
 	node1gs1.Send(node2gs2.Self(), result)
 	waitForResultWithValue(t, gs2.v, result)
 
