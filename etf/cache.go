@@ -1,7 +1,6 @@
 package etf
 
 import (
-	"fmt"
 	"sync"
 )
 
@@ -112,7 +111,9 @@ func TakeEncodingAtomCache() *EncodingAtomCache {
 func ReleaseEncodingAtomCache(l *EncodingAtomCache) {
 	l.L = l.original[:0]
 	if len(l.added) > 0 {
-		panic(fmt.Sprint("encoding atom cache is not empty on release: ", l.added))
+		for k, _ := range l.added {
+			delete(l.added, k)
+		}
 	}
 	encodingAtomCachePool.Put(l)
 }
@@ -122,7 +123,9 @@ func (l *EncodingAtomCache) Reset() {
 	l.L = l.original[:0]
 	l.HasLongAtom = false
 	if len(l.added) > 0 {
-		panic(fmt.Sprint("encoding atom cache is not empty on reset: ", l.added))
+		for k, _ := range l.added {
+			delete(l.added, k)
+		}
 	}
 }
 
