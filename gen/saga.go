@@ -494,6 +494,8 @@ func (sp *SagaProcess) SendResult(id SagaTransactionID, result interface{}) erro
 		},
 	}
 
+	//fmt.Printf("SAGA RESULT %#v\n", message)
+
 	// send message to the parent saga
 	if err := sp.Send(tx.parents[0], message); err != nil {
 		return err

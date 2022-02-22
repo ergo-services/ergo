@@ -37,6 +37,9 @@ type EncodeOptions struct {
 	// FlagBigCreation The node understands big node creation tags NEW_PID_EXT,
 	// NEWER_REFERENCE_EXT.
 	FlagBigCreation bool
+
+	NodeName string
+	PeerName string
 }
 
 // Encode
@@ -52,9 +55,9 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 	var stack, child *stackElement
 
 	cacheEnabled := options.AtomCache != nil
-	cacheIndex := uint16(0)
-	if options.EncodingAtomCache != nil {
-		cacheIndex = uint16(len(options.EncodingAtomCache.L))
+	cacheIndex := int16(0)
+	if cacheEnabled {
+		cacheIndex = int16(len(options.EncodingAtomCache.L))
 	}
 
 	// Atom cache: (if its enabled: options.AtomCache != nil)
@@ -272,17 +275,15 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 				// looking for CacheItem
 				ci, found := options.SenderAtomCache[value]
 				if found {
-					if i, added := options.EncodingAtomCache.Append(ci); added == false {
+					if i, added := options.EncodingAtomCache.Append(ci); added == true {
 						b.Append([]byte{ettCacheRef, byte(i)})
+						cacheIndex = int16(i + 1)
 						break
 					}
-					b.Append([]byte{ettCacheRef, byte(cacheIndex)})
-					cacheIndex++
-					break
+				} else {
+					// add it to the cache and encode as usual Atom
+					options.AtomCache.Append(value)
 				}
-				// add it to the cache and encode as usual Atom
-				options.AtomCache.Append(value)
-
 			}
 
 			if t {
@@ -522,16 +523,15 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 				// looking for CacheItem
 				ci, found := options.SenderAtomCache[t]
 				if found {
-					if i, added := options.EncodingAtomCache.Append(ci); added == false {
+					if i, added := options.EncodingAtomCache.Append(ci); added == true {
 						b.Append([]byte{ettCacheRef, byte(i)})
+						cacheIndex = int16(i + 1)
 						break
 					}
-					b.Append([]byte{ettCacheRef, byte(cacheIndex)})
-					cacheIndex++
-					break
+				} else {
+					// add it to the cache and encode as usual Atom
+					options.AtomCache.Append(t)
 				}
-
-				options.AtomCache.Append(t)
 			}
 
 			lenAtom := len(t)

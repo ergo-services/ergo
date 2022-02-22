@@ -1728,6 +1728,8 @@ func (dc *distConnection) sender(sender_id int, send <-chan *sendMessage, option
 	message := &sendMessage{}
 	encodingOptions := etf.EncodeOptions{
 		EncodingAtomCache: encodingAtomCache,
+		NodeName:          dc.nodename,
+		PeerName:          dc.peername,
 	}
 
 	for {
@@ -2090,8 +2092,8 @@ func (dc *distConnection) sender(sender_id int, send <-chan *sendMessage, option
 		if lastCacheID < encodingOptions.AtomCache.LastID() {
 			encodingOptions.AtomCache.RLock()
 			for _, a := range encodingOptions.AtomCache.ListSince(lastCacheID) {
-				encodingOptions.SenderAtomCache[a] = etf.CacheItem{ID: lastCacheID + 1, Name: a, Encoded: false}
 				lastCacheID++
+				encodingOptions.SenderAtomCache[a] = etf.CacheItem{ID: lastCacheID, Name: a, Encoded: false}
 			}
 			encodingOptions.AtomCache.RUnlock()
 		}

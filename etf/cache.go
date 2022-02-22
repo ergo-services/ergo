@@ -38,7 +38,7 @@ var (
 		New: func() interface{} {
 			l := &EncodingAtomCache{
 				L:     make([]CacheItem, 0, 255),
-				added: make(map[Atom]int16),
+				added: make(map[Atom]uint8),
 			}
 			l.original = l.L
 			return l
@@ -61,15 +61,19 @@ func NewAtomCache() AtomCache {
 func (a *AtomCacheOut) Append(atom Atom) (int16, bool) {
 	a.Lock()
 	defer a.Unlock()
+
 	if a.id > maxCacheItems-2 {
 		return 0, false
 	}
+
 	if id, exist := a.cacheMap[atom]; exist {
 		return id, false
 	}
+
 	a.id++
 	a.cacheList[a.id] = atom
 	a.cacheMap[atom] = a.id
+
 	return a.id, true
 }
 
@@ -82,20 +86,20 @@ func (a *AtomCacheOut) LastID() int16 {
 
 // ListSince
 func (a *AtomCacheOut) ListSince(id int16) []Atom {
-	if id > a.id || int(id) > len(a.cacheList) {
-		return nil
-	}
 	if id < 0 {
 		id = 0
 	}
-	return a.cacheList[id : a.id+1]
+	if int(id) > len(a.cacheList)-1 {
+		return nil
+	}
+	return a.cacheList[id:]
 }
 
 // EncodingAtomCache
 type EncodingAtomCache struct {
 	L           []CacheItem
 	original    []CacheItem
-	added       map[Atom]int16
+	added       map[Atom]uint8
 	HasLongAtom bool
 }
 
@@ -123,7 +127,7 @@ func (l *EncodingAtomCache) Reset() {
 }
 
 // Append
-func (l *EncodingAtomCache) Append(a CacheItem) (int16, bool) {
+func (l *EncodingAtomCache) Append(a CacheItem) (uint8, bool) {
 	id, added := l.added[a.Name]
 	if added {
 		return id, false
@@ -133,8 +137,9 @@ func (l *EncodingAtomCache) Append(a CacheItem) (int16, bool) {
 	if !a.Encoded && len(a.Name) > 255 {
 		l.HasLongAtom = true
 	}
-	l.added[a.Name] = a.ID
-	return a.ID, true
+	id = uint8(len(l.L) - 1)
+	l.added[a.Name] = id
+	return id, true
 }
 
 // Delete

@@ -10,6 +10,7 @@ import (
 	"github.com/ergo-services/ergo/etf"
 	"github.com/ergo-services/ergo/gen"
 	"github.com/ergo-services/ergo/node"
+	"github.com/ergo-services/ergo/proto/dist"
 )
 
 // this test implemets distributed case of computing sum for the given
@@ -123,7 +124,7 @@ func (gs *testSaga1) HandleSagaDirect(process *gen.SagaProcess, message interfac
 	switch m := message.(type) {
 	case task:
 		values := splitSlice(m.value, m.split)
-		fmt.Printf("    process %v txs with %v value(s) each distributing them on Saga2 and Saga3: ", len(values), m.split)
+		fmt.Printf("    process %d txs with %v value(s) each distributing them on Saga2 and Saga3: ", len(values), m.split)
 		for i := range values {
 			txValue := taskTX{
 				value:  values[i],
@@ -238,21 +239,30 @@ func TestSagaDist(t *testing.T) {
 	fmt.Printf("\n=== Test GenSagaDist\n")
 
 	fmt.Printf("Starting node: nodeGenSagaDist01@localhost...")
-	node1, _ := ergo.StartNode("nodeGenSagaDist01@localhost", "cookies", node.Options{})
+	opts1 := node.Options{}
+	protoOptions := node.DefaultProtoOptions()
+	protoOptions.NumHandlers = 2
+	opts1.Proto = dist.CreateProto(protoOptions)
+	node1, _ := ergo.StartNode("nodeGenSagaDist01@localhost", "cookies", opts1)
 	if node1 == nil {
 		t.Fatal("can't start node")
 		return
 	}
 	fmt.Println("OK")
 	fmt.Printf("Starting node: nodeGenSagaDist02@localhost...")
-	node2, _ := ergo.StartNode("nodeGenSagaDist02@localhost", "cookies", node.Options{})
+	opts2 := node.Options{}
+	opts2.Proto = dist.CreateProto(protoOptions)
+	node2, _ := ergo.StartNode("nodeGenSagaDist02@localhost", "cookies", opts2)
 	if node2 == nil {
 		t.Fatal("can't start node")
 		return
 	}
 	fmt.Println("OK")
 	fmt.Printf("Starting node: nodeGenSagaDist03@localhost...")
-	node3, _ := ergo.StartNode("nodeGenSagaDist03@localhost", "cookies", node.Options{})
+	opts3 := node.Options{}
+	opts3.Proto = dist.CreateProto(protoOptions)
+	fmt.Printf("Starting node: nodeGenSagaDist02@localhost...")
+	node3, _ := ergo.StartNode("nodeGenSagaDist03@localhost", "cookies", opts3)
 	if node3 == nil {
 		t.Fatal("can't start node")
 		return
