@@ -853,6 +853,7 @@ func (dc *distConnection) decodePacket(b *lib.Buffer) (*distMessage, error) {
 		return message, nil
 
 	case protoProxyX:
+		fmt.Println("XXXXX", dc.nodename)
 		sessionID := string(packet[5:37])
 		dc.proxySessionsMutex.RLock()
 		ps, exist := dc.proxySessionsByID[sessionID]
@@ -982,6 +983,7 @@ func (dc *distConnection) decodeDist(packet []byte, proxy *proxySession) (etf.Te
 		return control, payload, nil
 
 	case protoDistMessageZ:
+		fmt.Println("ZZZZ", dc.nodename)
 		var control, payload etf.Term
 		var err error
 		var cache []etf.Atom
@@ -1587,6 +1589,7 @@ func (dc *distConnection) decodeDistHeaderAtomCache(packet []byte, proxy *proxyS
 			cached[i] = atom
 
 			// store in link' cache
+			fmt.Printf("CACHE ADD %d => %q\n", idx, atom)
 			cache.Atoms[idx] = &atom
 			packet = packet[atomLen:]
 			continue
@@ -1594,11 +1597,13 @@ func (dc *distConnection) decodeDistHeaderAtomCache(packet []byte, proxy *proxyS
 
 		c := cache.Atoms[idx]
 		if c == nil {
+			fmt.Printf("CACHE NULL %d \n", idx)
 			packet = packet[1:]
 			// decode the rest of this cache but set return err = errMissingInCache
 			err = errMissingInCache
 			continue
 		}
+		fmt.Printf("CACHE USE %d => %q\n", idx, *c)
 		cached[i] = *c
 		packet = packet[1:]
 	}
