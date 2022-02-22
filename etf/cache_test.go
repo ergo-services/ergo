@@ -28,13 +28,4 @@ func TestAtomCache(t *testing.T) {
 	if reflect.DeepEqual(result, expected) {
 		t.Fatal("got incorrect result", result)
 	}
-
-	expectedArray := make([]Atom, 2048)
-	expectedArray[0] = "test1"
-	expectedArray[1] = "test2"
-
-	resultArray := a.Out.ListSince(0)
-	if reflect.DeepEqual(resultArray, expectedArray) {
-		t.Fatal("got incorrect resultArray", result)
-	}
 }

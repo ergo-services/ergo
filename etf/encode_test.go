@@ -28,7 +28,6 @@ func TestEncodeBoolWithAtomCache(t *testing.T) {
 
 	senderAtomCache := make(map[Atom]CacheItem)
 	encodingAtomCache := TakeEncodingAtomCache()
-	defer ReleaseEncodingAtomCache(encodingAtomCache)
 	atomCache := NewAtomCache()
 	ci := CacheItem{ID: 499, Encoded: true, Name: "false"}
 
@@ -258,7 +257,6 @@ func TestEncodeAtomWithCache(t *testing.T) {
 
 	senderAtomCache := make(map[Atom]CacheItem)
 	encodingAtomCache := TakeEncodingAtomCache()
-	defer ReleaseEncodingAtomCache(encodingAtomCache)
 
 	atomCache := NewAtomCache()
 
@@ -737,7 +735,6 @@ func TestEncodePidWithAtomCache(t *testing.T) {
 
 	senderAtomCache := make(map[Atom]CacheItem)
 	encodingAtomCache := TakeEncodingAtomCache()
-	defer ReleaseEncodingAtomCache(encodingAtomCache)
 	atomCache := NewAtomCache()
 
 	ci := CacheItem{ID: 2020, Encoded: true, Name: "erl-demo@127.0.0.1"}
