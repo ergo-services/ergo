@@ -853,7 +853,6 @@ func (dc *distConnection) decodePacket(b *lib.Buffer) (*distMessage, error) {
 		return message, nil
 
 	case protoProxyX:
-		fmt.Println("XXXXX", dc.nodename)
 		sessionID := string(packet[5:37])
 		dc.proxySessionsMutex.RLock()
 		ps, exist := dc.proxySessionsByID[sessionID]
@@ -910,9 +909,8 @@ func (dc *distConnection) decodePacket(b *lib.Buffer) (*distMessage, error) {
 		control, payload, err := dc.decodeDist(packet, &ps)
 		if err != nil {
 			if err == errMissingInCache {
-				// TODO make sure if this shift is correct
-				panic("TODO missing in cache")
 				// will be deferred
+				// TODO make sure if this shift is correct
 				b.B = b.B[32+aes.BlockSize:]
 				b.B[4] = protoDist
 				return nil, err
@@ -983,7 +981,6 @@ func (dc *distConnection) decodeDist(packet []byte, proxy *proxySession) (etf.Te
 		return control, payload, nil
 
 	case protoDistMessageZ:
-		fmt.Println("ZZZZ", dc.nodename)
 		var control, payload etf.Term
 		var err error
 		var cache []etf.Atom
@@ -1589,7 +1586,6 @@ func (dc *distConnection) decodeDistHeaderAtomCache(packet []byte, proxy *proxyS
 			cached[i] = atom
 
 			// store in link' cache
-			fmt.Printf("CACHE ADD %d => %q\n", idx, atom)
 			cache.Atoms[idx] = &atom
 			packet = packet[atomLen:]
 			continue
@@ -1597,13 +1593,11 @@ func (dc *distConnection) decodeDistHeaderAtomCache(packet []byte, proxy *proxyS
 
 		c := cache.Atoms[idx]
 		if c == nil {
-			fmt.Printf("CACHE NULL %d \n", idx)
 			packet = packet[1:]
 			// decode the rest of this cache but set return err = errMissingInCache
 			err = errMissingInCache
 			continue
 		}
-		fmt.Printf("CACHE USE %d => %q\n", idx, *c)
 		cached[i] = *c
 		packet = packet[1:]
 	}
@@ -1680,8 +1674,6 @@ func (dc *distConnection) encodeDistHeaderAtomCache(b *lib.Buffer,
 }
 
 func (dc *distConnection) sender(sender_id int, send <-chan *sendMessage, options node.ProtoOptions, peerFlags node.Flags) {
-	var lastCacheID int16 = -1
-
 	var lenMessage, lenAtomCache, lenPacket, startDataPosition int
 	var atomCacheBuffer, packetBuffer *lib.Buffer
 	var err error
@@ -1882,7 +1874,7 @@ func (dc *distConnection) sender(sender_id int, send <-chan *sendMessage, option
 		if cacheEnabled && encodingAtomCache.Len() > 0 {
 			atomCacheBuffer = lib.TakeBuffer()
 			atomCacheBuffer.Allocate(1024)
-			dc.encodeDistHeaderAtomCache(atomCacheBuffer, senderAtomCache, encodingAtomCache)
+			dc.encodeDistHeaderAtomCache(atomCacheBuffer, encodingOptions.SenderAtomCache, encodingAtomCache)
 
 			lenAtomCache = atomCacheBuffer.Len() - 1024
 			if lenAtomCache > reserveHeaderAtomCache-1024 {
@@ -2094,14 +2086,20 @@ func (dc *distConnection) sender(sender_id int, send <-chan *sendMessage, option
 		}
 
 		// get updates from the connection AtomCache and update the sender's cache (senderAtomCache)
-		if lastCacheID < encodingOptions.AtomCache.LastID() {
-			encodingOptions.AtomCache.RLock()
-			for _, a := range encodingOptions.AtomCache.ListSince(lastCacheID) {
-				lastCacheID++
-				encodingOptions.SenderAtomCache[a] = etf.CacheItem{ID: lastCacheID, Name: a, Encoded: false}
-			}
-			encodingOptions.AtomCache.RUnlock()
+		lastAddedAtom, lastAddedID := encodingOptions.AtomCache.LastAdded()
+		if lastAddedID < 0 {
+			continue
 		}
+		if _, exist := encodingOptions.SenderAtomCache[lastAddedAtom]; exist {
+			continue
+		}
+
+		encodingOptions.AtomCache.RLock()
+		for _, a := range encodingOptions.AtomCache.ListSince(lastAddedID) {
+			encodingOptions.SenderAtomCache[a] = etf.CacheItem{ID: lastAddedID, Name: a, Encoded: false}
+			lastAddedID++
+		}
+		encodingOptions.AtomCache.RUnlock()
 
 	}
 

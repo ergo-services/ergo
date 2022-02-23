@@ -275,11 +275,10 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 				// looking for CacheItem
 				ci, found := options.SenderAtomCache[value]
 				if found {
-					if i, added := options.EncodingAtomCache.Append(ci); added == true {
-						b.Append([]byte{ettCacheRef, byte(i)})
-						cacheIndex = int16(i + 1)
-						break
-					}
+					i := options.EncodingAtomCache.Append(ci)
+					cacheIndex = int16(i + 1)
+					b.Append([]byte{ettCacheRef, byte(i)})
+					break
 				} else {
 					// add it to the cache and encode as usual Atom
 					options.AtomCache.Append(value)
@@ -523,11 +522,10 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 				// looking for CacheItem
 				ci, found := options.SenderAtomCache[t]
 				if found {
-					if i, added := options.EncodingAtomCache.Append(ci); added == true {
-						b.Append([]byte{ettCacheRef, byte(i)})
-						cacheIndex = int16(i + 1)
-						break
-					}
+					i := options.EncodingAtomCache.Append(ci)
+					cacheIndex = int16(i + 1)
+					b.Append([]byte{ettCacheRef, byte(i)})
+					break
 				} else {
 					// add it to the cache and encode as usual Atom
 					options.AtomCache.Append(t)

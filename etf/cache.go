@@ -77,10 +77,14 @@ func (a *AtomCacheOut) Append(atom Atom) (int16, bool) {
 }
 
 // LastID
-func (a *AtomCacheOut) LastID() int16 {
+func (a *AtomCacheOut) LastAdded() (Atom, int16) {
 	a.RLock()
 	defer a.RUnlock()
-	return a.id
+	l := len(a.cacheList)
+	if l == 0 {
+		return "", -1
+	}
+	return a.cacheList[l-1], int16(l - 1)
 }
 
 // ListSince
@@ -130,10 +134,10 @@ func (l *EncodingAtomCache) Reset() {
 }
 
 // Append
-func (l *EncodingAtomCache) Append(a CacheItem) (uint8, bool) {
+func (l *EncodingAtomCache) Append(a CacheItem) uint8 {
 	id, added := l.added[a.Name]
 	if added {
-		return id, false
+		return id
 	}
 
 	l.L = append(l.L, a)
@@ -142,7 +146,7 @@ func (l *EncodingAtomCache) Append(a CacheItem) (uint8, bool) {
 	}
 	id = uint8(len(l.L) - 1)
 	l.added[a.Name] = id
-	return id, true
+	return id
 }
 
 // Delete

@@ -62,12 +62,12 @@ type monitor struct {
 
 	// links
 	links      map[etf.Pid][]etf.Pid
-	mutexLinks sync.Mutex
+	mutexLinks sync.RWMutex
 
 	// monitors of nodes
 	nodes      map[string][]monitorItem
 	ref2node   map[etf.Ref]string
-	mutexNodes sync.Mutex
+	mutexNodes sync.RWMutex
 
 	nodename string
 	router   coreRouterInternal
@@ -147,7 +147,7 @@ func (m *monitor) RouteNodeDown(name string, disconnect *ProxyDisconnect) {
 	lib.Log("[%s] MONITOR NODE  down: %v", m.nodename, name)
 
 	// notify node monitors
-	m.mutexNodes.Lock()
+	m.mutexNodes.RLock()
 	if pids, ok := m.nodes[name]; ok {
 		for i := range pids {
 			lib.Log("[%s] MONITOR node down: %v. send notify to: %s", m.nodename, name, pids[i].pid)
@@ -167,7 +167,7 @@ func (m *monitor) RouteNodeDown(name string, disconnect *ProxyDisconnect) {
 		}
 		delete(m.nodes, name)
 	}
-	m.mutexNodes.Unlock()
+	m.mutexNodes.RUnlock()
 
 	// notify processes created monitors by pid
 	m.mutexProcesses.Lock()
@@ -313,8 +313,8 @@ func (m *monitor) handleTerminated(terminated etf.Pid, name string, reason strin
 }
 
 func (m *monitor) processLinks(process etf.Pid) []etf.Pid {
-	m.mutexLinks.Lock()
-	defer m.mutexLinks.Unlock()
+	m.mutexLinks.RLock()
+	defer m.mutexLinks.RUnlock()
 
 	if l, ok := m.links[process]; ok {
 		return l
@@ -324,8 +324,8 @@ func (m *monitor) processLinks(process etf.Pid) []etf.Pid {
 
 func (m *monitor) processMonitors(process etf.Pid) []etf.Pid {
 	monitors := []etf.Pid{}
-	m.mutexProcesses.Lock()
-	defer m.mutexProcesses.Unlock()
+	m.mutexProcesses.RLock()
+	defer m.mutexProcesses.RUnlock()
 
 	for p, by := range m.processes {
 		for b := range by {
@@ -339,8 +339,8 @@ func (m *monitor) processMonitors(process etf.Pid) []etf.Pid {
 
 func (m *monitor) processMonitorsByName(process etf.Pid) []gen.ProcessID {
 	monitors := []gen.ProcessID{}
-	m.mutexProcesses.Lock()
-	defer m.mutexProcesses.Unlock()
+	m.mutexProcesses.RLock()
+	defer m.mutexProcesses.RUnlock()
 
 	for processID, by := range m.names {
 		for b := range by {
@@ -354,8 +354,8 @@ func (m *monitor) processMonitorsByName(process etf.Pid) []gen.ProcessID {
 
 func (m *monitor) processMonitoredBy(process etf.Pid) []etf.Pid {
 	monitors := []etf.Pid{}
-	m.mutexProcesses.Lock()
-	defer m.mutexProcesses.Unlock()
+	m.mutexProcesses.RLock()
+	defer m.mutexProcesses.RUnlock()
 	if m, ok := m.processes[process]; ok {
 		for i := range m {
 			monitors = append(monitors, m[i].pid)
@@ -366,8 +366,8 @@ func (m *monitor) processMonitoredBy(process etf.Pid) []etf.Pid {
 }
 
 func (m *monitor) IsMonitor(ref etf.Ref) bool {
-	m.mutexProcesses.Lock()
-	defer m.mutexProcesses.Unlock()
+	m.mutexProcesses.RLock()
+	defer m.mutexProcesses.RUnlock()
 	if _, ok := m.ref2pid[ref]; ok {
 		return true
 	}
@@ -404,30 +404,31 @@ func (m *monitor) RouteLink(pidA etf.Pid, pidB etf.Pid) error {
 		return fmt.Errorf("Can not link to itself")
 	}
 
-	m.mutexLinks.Lock()
+	m.mutexLinks.RLock()
 	linksA := m.links[pidA]
-	m.mutexLinks.Unlock()
-
 	if pidA.Node == etf.Atom(m.nodename) {
 		// check if these processes are linked already (source)
 		for i := range linksA {
 			if linksA[i] == pidB {
+				m.mutexLinks.RUnlock()
 				return fmt.Errorf("Already linked")
 			}
 		}
 
 	}
+	m.mutexLinks.RUnlock()
 
 	// check if these processes are linked already (destination)
-	m.mutexLinks.Lock()
+	m.mutexLinks.RLock()
 	linksB := m.links[pidB]
-	m.mutexLinks.Unlock()
 
 	for i := range linksB {
 		if linksB[i] == pidA {
+			m.mutexLinks.RUnlock()
 			return fmt.Errorf("Already linked")
 		}
 	}
+	m.mutexLinks.RUnlock()
 
 	if pidB.Node == etf.Atom(m.nodename) {
 		// for the local process we should make sure if its alive

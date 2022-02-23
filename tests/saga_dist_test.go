@@ -327,9 +327,6 @@ func TestSagaDist(t *testing.T) {
 
 	// stop all nodes
 	node3.Stop()
-	node3.Wait()
 	node2.Stop()
-	node2.Wait()
 	node1.Stop()
-	node1.Wait()
 }

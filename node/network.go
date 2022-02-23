@@ -179,8 +179,8 @@ func (n *network) stopNetwork() {
 	if n.listener != nil {
 		n.listener.Close()
 	}
-	n.connectionsMutex.Lock()
-	defer n.connectionsMutex.Unlock()
+	n.connectionsMutex.RLock()
+	defer n.connectionsMutex.RUnlock()
 	for _, ci := range n.connections {
 		if ci.conn == nil {
 			continue
@@ -1185,15 +1185,17 @@ func (n *network) unregisterConnection(peername string, disconnect *ProxyDisconn
 		return
 	}
 	delete(n.connections, peername)
+	n.connectionsMutex.Unlock()
+
 	n.router.RouteNodeDown(peername, disconnect)
 
 	if ci.conn == nil {
 		// it was proxy connection
 		ci.connection.ProxyUnregisterSession(ci.proxySessionID)
-		n.connectionsMutex.Unlock()
 		return
 	}
 
+	n.connectionsMutex.Lock()
 	cp, _ := n.connectionsProxy[ci.connection]
 	for _, p := range cp {
 		lib.Log("[%s] NETWORK unregistering peer (via proxy) %v", n.nodename, p)
@@ -1202,7 +1204,6 @@ func (n *network) unregisterConnection(peername string, disconnect *ProxyDisconn
 
 	ct, _ := n.connectionsTransit[ci.connection]
 	delete(n.connectionsTransit, ci.connection)
-
 	n.connectionsMutex.Unlock()
 
 	// send disconnect for the proxy sessions
