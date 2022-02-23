@@ -38,8 +38,6 @@ const (
 type epmdResolver struct {
 	node.Resolver
 
-	ctx context.Context
-
 	// EPMD server
 	enableEPMD bool
 	host       string
@@ -55,41 +53,37 @@ type epmdResolver struct {
 	extra []byte
 }
 
-func CreateResolver(ctx context.Context) node.Resolver {
+func CreateResolver() node.Resolver {
 	resolver := &epmdResolver{
-		ctx:  ctx,
 		port: DefaultEPMDPort,
 	}
 	return resolver
 }
 
-func CreateResolverWithEPMD(ctx context.Context, host string, port uint16) node.Resolver {
+func CreateResolverWithLocalEPMD(host string, port uint16) node.Resolver {
 	if port == 0 {
 		port = DefaultEPMDPort
 	}
 	resolver := &epmdResolver{
-		ctx:        ctx,
 		enableEPMD: true,
 		host:       host,
 		port:       port,
 	}
-	startServerEPMD(ctx, host, port)
 	return resolver
 }
 
-func CreateResolverWithRemoteEPMD(ctx context.Context, host string, port uint16) node.Resolver {
+func CreateResolverWithRemoteEPMD(host string, port uint16) node.Resolver {
 	if port == 0 {
 		port = DefaultEPMDPort
 	}
 	resolver := &epmdResolver{
-		ctx:  ctx,
 		host: host,
 		port: port,
 	}
 	return resolver
 }
 
-func (e *epmdResolver) Register(name string, port uint16, options node.ResolverOptions) error {
+func (e *epmdResolver) Register(ctx context.Context, name string, port uint16, options node.ResolverOptions) error {
 	n := strings.Split(name, "@")
 	if len(n) != 2 {
 		return fmt.Errorf("(EMPD) FQDN for node name is required (example: node@hostname)")
@@ -102,19 +96,21 @@ func (e *epmdResolver) Register(name string, port uint16, options node.ResolverO
 	e.handshakeVersion = options.HandshakeVersion
 
 	e.composeExtra(options)
+	ready := make(chan error)
 
 	go func() {
 		buf := make([]byte, 16)
+		var reconnecting bool
 
 		for {
-			if e.ctx.Err() != nil {
+			if ctx.Err() != nil {
 				// node is stopped
 				return
 			}
 
 			// try to start embedded EPMD server
 			if e.enableEPMD {
-				startServerEPMD(e.ctx, e.host, e.port)
+				startServerEPMD(ctx, e.host, e.port)
 			}
 
 			// register this node on EPMD server
@@ -124,26 +120,30 @@ func (e *epmdResolver) Register(name string, port uint16, options node.ResolverO
 				time.Sleep(3 * time.Second)
 				continue
 			}
-			ctx, cancel := context.WithCancel(e.ctx)
 
 			go func() {
 				<-ctx.Done()
 				conn.Close()
 			}()
 
+			if reconnecting == false {
+				ready <- nil
+				reconnecting = true
+			}
+
 			for {
 				_, err := conn.Read(buf)
 				if err == nil {
 					continue
 				}
-				cancel()
 				break
 			}
 			lib.Log("[%s] EPMD client: closing connection", name)
 		}
 	}()
 
-	return nil
+	defer close(ready)
+	return <-ready
 }
 
 func (e *epmdResolver) Resolve(name string) (node.Route, error) {
@@ -164,7 +164,7 @@ func (e *epmdResolver) Resolve(name string) (node.Route, error) {
 		return node.Route{}, err
 	}
 
-	route.Name = n[0]
+	route.Node = n[0]
 	route.Host = n[1]
 
 	err = e.readPortResp(&route, conn)

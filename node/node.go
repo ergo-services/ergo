@@ -87,7 +87,7 @@ func StartWithContext(ctx context.Context, name string, cookie string, opts Opti
 	copyEnv[EnvKeyNode] = Node(node)
 	opts.Env = copyEnv
 
-	core, err := newCore(nodectx, name, opts)
+	core, err := newCore(nodectx, name, cookie, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -430,6 +430,7 @@ func (n *node) RevokeRemoteSpawn(name string) error {
 func DefaultFlags() Flags {
 	// all features are enabled by default
 	return Flags{
+		Enable:                true,
 		EnableHeaderAtomCache: true,
 		EnableBigCreation:     true,
 		EnableBigPidRef:       true,
@@ -439,7 +440,16 @@ func DefaultFlags() Flags {
 		EnableCompression:     true,
 		EnableProxy:           true,
 	}
+}
 
+func DefaultProxyFlags() ProxyFlags {
+	return ProxyFlags{
+		Enable:            true,
+		EnableLink:        true,
+		EnableMonitor:     true,
+		EnableRemoteSpawn: true,
+		EnableEncryption:  false,
+	}
 }
 
 // DefaultProtoOptions

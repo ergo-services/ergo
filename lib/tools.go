@@ -19,6 +19,7 @@ type Buffer struct {
 
 var (
 	ergoTrace     = false
+	ergoWarning   = false
 	ergoNoRecover = false
 
 	DefaultBufferLength = 16384
@@ -42,7 +43,8 @@ var (
 )
 
 func init() {
-	flag.BoolVar(&ergoTrace, "ergo.trace", false, "enable extended debug info")
+	flag.BoolVar(&ergoTrace, "ergo.trace", false, "enable/disable extended debug info")
+	flag.BoolVar(&ergoWarning, "ergo.warning", true, "enable/disable warning messages")
 	flag.BoolVar(&ergoNoRecover, "ergo.norecover", false, "disable panic catching")
 }
 
@@ -50,6 +52,13 @@ func init() {
 func Log(f string, a ...interface{}) {
 	if ergoTrace {
 		log.Printf(f, a...)
+	}
+}
+
+// Warning
+func Warning(f string, a ...interface{}) {
+	if ergoWarning {
+		log.Printf("WARNING! "+f, a...)
 	}
 }
 
@@ -76,11 +85,14 @@ func TakeBuffer() *Buffer {
 
 // ReleaseBuffer
 func ReleaseBuffer(b *Buffer) {
-	// do not return it to the pool if its grew up too big
-	if cap(b.B) > 65536 {
-		b.B = nil // for GC
-		b.original = nil
-		return
+	c := cap(b.B)
+	// cO := cap(b.original)
+	// overlaps := c > 0 && cO > 0 && &(x[:c][c-1]) == &(y[:cO][cO-1])
+	if c > DefaultBufferLength && c < 65536 {
+		// reallocation happened. keep reallocated buffer as an original
+		// if it doesn't exceed the size of 65K (we don't want to keep
+		// too big slices)
+		b.original = b.B[:0]
 	}
 	b.B = b.original[:0]
 	buffers.Put(b)
@@ -88,6 +100,10 @@ func ReleaseBuffer(b *Buffer) {
 
 // Reset
 func (b *Buffer) Reset() {
+	c := cap(b.B)
+	if c > DefaultBufferLength && c < 65536 {
+		b.original = b.B[:0]
+	}
 	// use the original start point of the slice
 	b.B = b.original[:0]
 }
@@ -170,7 +186,6 @@ func (b *Buffer) Write(v []byte) (n int, err error) {
 }
 
 func (b *Buffer) Read(v []byte) (n int, err error) {
-	fmt.Println("REEEEEAD")
 	copy(v, b.B)
 	return len(b.B), io.EOF
 }

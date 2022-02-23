@@ -23,9 +23,9 @@ var (
 
 // EncodeOptions
 type EncodeOptions struct {
-	LinkAtomCache     *AtomCache
-	WriterAtomCache   map[Atom]CacheItem
-	EncodingAtomCache *ListAtomCache
+	AtomCache         *AtomCacheOut
+	SenderAtomCache   map[Atom]CacheItem
+	EncodingAtomCache *EncodingAtomCache
 
 	// FlagBigPidRef The node accepts a larger amount of data in pids
 	// and references (node container types version 4).
@@ -37,6 +37,9 @@ type EncodeOptions struct {
 	// FlagBigCreation The node understands big node creation tags NEW_PID_EXT,
 	// NEWER_REFERENCE_EXT.
 	FlagBigCreation bool
+
+	NodeName string
+	PeerName string
 }
 
 // Encode
@@ -51,15 +54,15 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 	}
 	var stack, child *stackElement
 
-	cacheEnabled := options.LinkAtomCache != nil
-	cacheIndex := uint16(0)
-	if options.EncodingAtomCache != nil {
-		cacheIndex = uint16(len(options.EncodingAtomCache.L))
+	cacheEnabled := options.AtomCache != nil
+	cacheIndex := int16(0)
+	if cacheEnabled {
+		cacheIndex = int16(len(options.EncodingAtomCache.L))
 	}
 
-	// Atom cache: (if its enabled: options.LinkAtomCache != nil)
+	// Atom cache: (if its enabled: options.AtomCache != nil)
 	// 1. check for an atom in options.WriterAtomCache (map)
-	// 2. if not found in WriterAtomCache call LinkAtomCache.Append(atom),
+	// 2. if not found in WriterAtomCache call AtomCache.Append(atom),
 	//    encode it as a regular atom (ettAtom*)
 	// 3. if found
 	//    add options.EncodingAtomCache[i] = CacheItem, where i is just a counter
@@ -263,23 +266,23 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 		switch t := term.(type) {
 		case bool:
 
-			if cacheEnabled && cacheIndex < 256 {
+			if cacheEnabled && cacheIndex < 255 {
 				value := Atom("false")
 				if t {
 					value = Atom("true")
 				}
 
 				// looking for CacheItem
-				ci, found := options.WriterAtomCache[value]
+				ci, found := options.SenderAtomCache[value]
 				if found {
-					options.EncodingAtomCache.Append(ci)
-					b.Append([]byte{ettCacheRef, byte(cacheIndex)})
-					cacheIndex++
+					i := options.EncodingAtomCache.Append(ci)
+					cacheIndex = int16(i + 1)
+					b.Append([]byte{ettCacheRef, byte(i)})
 					break
+				} else {
+					// add it to the cache and encode as usual Atom
+					options.AtomCache.Append(value)
 				}
-				// add it to the cache and encode as usual Atom
-				options.LinkAtomCache.Append(value)
-
 			}
 
 			if t {
@@ -508,23 +511,25 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 			// characters and are always encoded using the UTF-8 external
 			// formats ATOM_UTF8_EXT or SMALL_ATOM_UTF8_EXT.
 
-			if cacheEnabled && cacheIndex < 256 {
-				// looking for CacheItem
-				ci, found := options.WriterAtomCache[t]
-				if found {
-					options.EncodingAtomCache.Append(ci)
-					b.Append([]byte{ettCacheRef, byte(cacheIndex)})
-					cacheIndex++
-					break
-				}
-				options.LinkAtomCache.Append(t)
-			}
-
 			// https://erlang.org/doc/apps/erts/erl_ext_dist.html#utf8_atoms
 			// The maximum number of allowed characters in an atom is 255.
 			// In the UTF-8 case, each character can need 4 bytes to be encoded.
 			if len([]rune(t)) > 255 {
 				return ErrAtomTooLong
+			}
+
+			if cacheEnabled && cacheIndex < 255 {
+				// looking for CacheItem
+				ci, found := options.SenderAtomCache[t]
+				if found {
+					i := options.EncodingAtomCache.Append(ci)
+					cacheIndex = int16(i + 1)
+					b.Append([]byte{ettCacheRef, byte(i)})
+					break
+				} else {
+					// add it to the cache and encode as usual Atom
+					options.AtomCache.Append(t)
+				}
 			}
 
 			lenAtom := len(t)
@@ -540,7 +545,7 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 			buf := b.Extend(1 + 2 + lenAtom)
 			buf[0] = ettAtomUTF8
 			binary.BigEndian.PutUint16(buf[1:3], uint16(lenAtom))
-			copy(b.B[3:], t)
+			copy(buf[3:], t)
 
 		case float32:
 			term = float64(t)

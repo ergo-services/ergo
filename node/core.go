@@ -2,6 +2,7 @@ package node
 
 import (
 	"context"
+	"crypto/rsa"
 	"fmt"
 	"runtime"
 	"strings"
@@ -28,8 +29,8 @@ type core struct {
 	env      map[gen.EnvKey]interface{}
 	mutexEnv sync.RWMutex
 
-	compression Compression
 	tls         TLS
+	compression Compression
 
 	nextPID  uint64
 	uniqID   uint64
@@ -78,10 +79,30 @@ type coreInternal interface {
 
 type coreRouterInternal interface {
 	CoreRouter
+	MakeRef() etf.Ref
+
+	ProcessByPid(pid etf.Pid) gen.Process
+	ProcessByName(name string) gen.Process
+	ProcessByAlias(alias etf.Alias) gen.Process
+
 	processByPid(pid etf.Pid) *process
+	getConnection(nodename string) (ConnectionInterface, error)
 }
 
-func newCore(ctx context.Context, nodename string, options Options) (coreInternal, error) {
+// transit proxy session
+type proxyTransitSession struct {
+	a ConnectionInterface
+	b ConnectionInterface
+}
+
+type proxyConnectRequest struct {
+	privateKey *rsa.PrivateKey
+	request    ProxyConnectRequest
+	connection chan ConnectionInterface
+	cancel     chan ProxyConnectCancel
+}
+
+func newCore(ctx context.Context, nodename string, cookie string, options Options) (coreInternal, error) {
 	if options.Compression.Level < 1 || options.Compression.Level > 9 {
 		options.Compression.Level = DefaultCompressionLevel
 	}
@@ -108,7 +129,7 @@ func newCore(ctx context.Context, nodename string, options Options) (coreInterna
 	c.ctx = corectx
 
 	c.monitorInternal = newMonitor(nodename, coreRouterInternal(c))
-	network, err := newNetwork(c.ctx, nodename, options, CoreRouter(c))
+	network, err := newNetwork(c.ctx, nodename, cookie, options, coreRouterInternal(c))
 	if err != nil {
 		corestop()
 		return nil, err
@@ -247,10 +268,10 @@ func (c *core) deleteAlias(owner *process, alias etf.Alias) error {
 	p.Unlock()
 
 	// shouldn't reach this code. seems we got a bug
-	fmt.Println("Bug: Process lost its alias. Please, report this issue")
 	c.mutexAliases.Lock()
 	delete(c.aliases, alias)
 	c.mutexAliases.Unlock()
+	lib.Warning("Bug: Process lost its alias. Please, report this issue")
 
 	return ErrAliasUnknown
 }
@@ -304,7 +325,8 @@ func (c *core) newProcess(name string, behavior gen.ProcessBehavior, opts proces
 		context: processContext,
 		kill:    kill,
 
-		reply: make(map[etf.Ref]chan etf.Term),
+		reply:    make(map[etf.Ref]chan etf.Term),
+		fallback: opts.Fallback,
 	}
 
 	process.exit = func(from etf.Pid, reason string) error {
@@ -401,7 +423,7 @@ func (c *core) spawn(name string, opts processOptions, behavior gen.ProcessBehav
 			defer func() {
 				if rcv := recover(); rcv != nil {
 					pc, fn, line, _ := runtime.Caller(2)
-					fmt.Printf("Warning: initialization process failed %s[%q] %#v at %s[%s:%d]\n",
+					lib.Warning("initialization process failed %s[%q] %#v at %s[%s:%d]\n",
 						process.self, name, rcv, runtime.FuncForPC(pc).Name(), fn, line)
 					c.deleteProcess(process.self)
 					err = fmt.Errorf("panic")
@@ -456,7 +478,7 @@ func (c *core) spawn(name string, opts processOptions, behavior gen.ProcessBehav
 			defer func() {
 				if rcv := recover(); rcv != nil {
 					pc, fn, line, _ := runtime.Caller(2)
-					fmt.Printf("Warning: process terminated %s[%q] %#v at %s[%s:%d]\n",
+					lib.Warning("process terminated %s[%q] %#v at %s[%s:%d]\n",
 						process.self, name, rcv, runtime.FuncForPC(pc).Name(), fn, line)
 					cleanProcess("panic")
 				}
@@ -624,7 +646,7 @@ func (c *core) UnregisterBehavior(group, name string) error {
 
 // ProcessInfo
 func (c *core) ProcessInfo(pid etf.Pid) (gen.ProcessInfo, error) {
-	p := c.ProcessByPid(pid)
+	p := c.processByPid(pid)
 	if p == nil {
 		return gen.ProcessInfo{}, fmt.Errorf("undefined")
 	}
@@ -694,6 +716,7 @@ func (c *core) RouteSend(from etf.Pid, to etf.Pid, message etf.Term) error {
 	if string(to.Node) == c.nodename {
 		if to.Creation != c.creation {
 			// message is addressed to the previous incarnation of this PID
+			lib.Warning("message from %s is addressed to the previous incarnation of this PID %s", from, to)
 			return ErrProcessIncarnation
 		}
 		// local route
@@ -708,12 +731,24 @@ func (c *core) RouteSend(from etf.Pid, to etf.Pid, message etf.Term) error {
 		select {
 		case p.mailBox <- gen.ProcessMailboxMessage{From: from, Message: message}:
 		default:
-			return fmt.Errorf("WARNING! mailbox of %s is full. dropped message from %s", p.Self(), from)
+			c.mutexNames.RLock()
+			pid, found := c.names[p.fallback.Name]
+			c.mutexNames.RUnlock()
+			if found == false {
+				lib.Warning("mailbox of %s[%q] is full. dropped message from %s", p.self, p.name, from)
+				return ErrProcessBusy
+			}
+			fbm := gen.MessageFallback{
+				Process: p.self,
+				Tag:     p.fallback.Tag,
+				Message: message,
+			}
+			return c.RouteSend(from, pid, fbm)
 		}
 		return nil
 	}
 
-	// do not allow to send from the alien node. Proxy request must be used.
+	// do not allow to send from the alien node.
 	if string(from.Node) != c.nodename {
 		return ErrSenderUnknown
 	}
@@ -726,7 +761,7 @@ func (c *core) RouteSend(from etf.Pid, to etf.Pid, message etf.Term) error {
 		lib.Log("[%s] CORE route message by pid (remote) %s failed. Unknown sender", c.nodename, to)
 		return ErrSenderUnknown
 	}
-	connection, err := c.GetConnection(string(to.Node))
+	connection, err := c.getConnection(string(to.Node))
 	if err != nil {
 		return err
 	}
@@ -750,7 +785,7 @@ func (c *core) RouteSendReg(from etf.Pid, to gen.ProcessID, message etf.Term) er
 		return c.RouteSend(from, pid, message)
 	}
 
-	// do not allow to send from the alien node. Proxy request must be used.
+	// do not allow to send from the alien node.
 	if string(from.Node) != c.nodename {
 		return ErrSenderUnknown
 	}
@@ -763,7 +798,7 @@ func (c *core) RouteSendReg(from etf.Pid, to gen.ProcessID, message etf.Term) er
 		lib.Log("[%s] CORE route message by gen.ProcessID (remote) %s failed. Unknown sender", c.nodename, to)
 		return ErrSenderUnknown
 	}
-	connection, err := c.GetConnection(string(to.Node))
+	connection, err := c.getConnection(string(to.Node))
 	if err != nil {
 		return err
 	}
@@ -801,7 +836,7 @@ func (c *core) RouteSendAlias(from etf.Pid, to etf.Alias, message etf.Term) erro
 		lib.Log("[%s] CORE route message by alias (remote) %s failed. Unknown sender", c.nodename, to)
 		return ErrSenderUnknown
 	}
-	connection, err := c.GetConnection(string(to.Node))
+	connection, err := c.getConnection(string(to.Node))
 	if err != nil {
 		return err
 	}
@@ -810,17 +845,11 @@ func (c *core) RouteSendAlias(from etf.Pid, to etf.Alias, message etf.Term) erro
 	return connection.SendAlias(p_from, to, message)
 }
 
-// RouteProxy
-func (c *core) RouteProxy() error {
-	// FIXME
-	return nil
-}
-
 // RouteSpawnRequest
 func (c *core) RouteSpawnRequest(node string, behaviorName string, request gen.RemoteSpawnRequest, args ...etf.Term) error {
 	if node == c.nodename {
 		// get connection for reply
-		connection, err := c.GetConnection(string(request.From.Node))
+		connection, err := c.getConnection(string(request.From.Node))
 		if err != nil {
 			return err
 		}
@@ -843,11 +872,11 @@ func (c *core) RouteSpawnRequest(node string, behaviorName string, request gen.R
 		return connection.SpawnReply(request.From, request.Ref, process.Self())
 	}
 
-	connection, err := c.GetConnection(node)
+	connection, err := c.getConnection(node)
 	if err != nil {
 		return err
 	}
-	return connection.SpawnRequest(behaviorName, request, args...)
+	return connection.SpawnRequest(node, behaviorName, request, args...)
 }
 
 // RouteSpawnReply

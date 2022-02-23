@@ -823,6 +823,20 @@ func waitForResultWithValue(t *testing.T, w chan interface{}, value interface{})
 	}
 }
 
+func waitForResultWithValueReturnError(t *testing.T, w chan interface{}, value interface{}) error {
+	select {
+	case v := <-w:
+		if reflect.DeepEqual(v, value) {
+			return nil
+		} else {
+			return fmt.Errorf("expected: %#v , got: %#v", value, v)
+		}
+
+	case <-time.After(time.Second * time.Duration(2)):
+		return fmt.Errorf("result timeout")
+	}
+}
+
 func waitForResultWithValueOrValue(t *testing.T, w chan interface{}, value1, value2 interface{}) {
 	select {
 	case v := <-w:

@@ -36,23 +36,19 @@ The goal of this project is to leverage Erlang/OTP experience with Golang perfor
   * Transient
 * `gen.Stage` behavior support (originated from Elixir's [GenStage](https://hexdocs.pm/gen_stage/GenStage.html)). This is abstraction built on top of `gen.Server` to provide a simple way to create a distributed Producer/Consumer architecture, while automatically managing the concept of backpressure. This implementation is fully compatible with Elixir's GenStage. Example is here [examples/genstage](examples/genstage) or just run `go run ./examples/genstage` to see it in action
 * `gen.Saga` behavior support. It implements Saga design pattern - a sequence of transactions that updates each service state and publishes the result (or cancels the transaction or triggers the next transaction step). `gen.Saga` also provides a feature of interim results (can be used as transaction progress or as a part of pipeline processing), time deadline (to limit transaction lifespan), two-phase commit (to make distributed transaction atomic). Here is example [examples/gensaga](examples/gensaga).
-* Connect to (accept connection from) any Erlang node within a cluster
+* Connect to (accept connection from) any Erlang/Elixir node within a cluster
 * Making sync request `ServerProcess.Call`, async - `ServerProcess.Cast` or `Process.Send` in fashion of `gen_server:call`, `gen_server:cast`, `erlang:send` accordingly
-* Monitor processes/nodes
-  * local -> local
-  * local -> remote
-  * remote -> local
-* Link processes
-  * local <-> local
-  * local <-> remote
-  * remote <-> local
+* Monitor processes/nodes, local/remote
+* Link processes local/remote
 * RPC callbacks support
 * [embedded EPMD](#epmd) (in order to get rid of erlang' dependencies)
-* Experimental [observer support](#observer)
 * Unmarshalling terms into the struct using `etf.TermIntoStruct`, `etf.TermProplistIntoStruct` or to the string using `etf.TermToString`
 * Custom marshaling/unmarshaling via `Marshal` and `Unmarshal` interfaces
 * Encryption (TLS 1.3) support (including autogenerating self-signed certificates)
+* Compression support (with customization of compression level and threshold). It can be configured for the node or a particular process.
+* Proxy support (end-to-end encryption, and linking/monitoring features)
 * Tested and confirmed support Windows, Darwin (MacOS), Linux, FreeBSD.
+* Zero dependency
 
 ### Requirements ###
 
@@ -66,60 +62,40 @@ Golang introduced [v2 rule](https://go.dev/blog/v2-go-modules) a while ago to so
 
 Here are the changes of latest release. For more details see the [ChangeLog](ChangeLog.md)
 
-#### [v2.0.0](https://github.com/ergo-services/ergo/releases/tag/v1.999.200) 2021-10-12 [tag version v1.999.200] ####
+#### [v2.1.0](https://github.com/ergo-services/ergo/releases/tag/v1.999.2100) 2022-03-12 [tag version v1.999.2100] ####
 
-* Added support of Erlang/OTP 24 (including [Alias](https://blog.erlang.org/My-OTP-24-Highlights/#eep-53-process-aliases) feature and [Remote Spawn](https://blog.erlang.org/OTP-23-Highlights/#distributed-spawn-and-the-new-erpc-module) introduced in Erlang/OTP 23)
-* **Important**: This release includes refined API (without backward compatibility) for a more convenient way to create OTP-designed microservices. Make sure to update your code.
-* **Important**: Project repository has been moved to [https://github.com/ergo-services/ergo](https://github.com/ergo-services/ergo). It is still available on the old URL [https://github.com/halturin/ergo](https://github.com/halturin/ergo) and GitHub will redirect all requests to the new one (thanks to GitHub for this feature).
-* Introduced new behavior `gen.Saga`. It implements Saga design pattern - a sequence of transactions that updates each service state and publishes the result (or cancels the transaction or triggers the next transaction step). `gen.Saga` also provides a feature of interim results (can be used as transaction progress or as a part of pipeline processing), time deadline (to limit transaction lifespan), two-phase commit (to make distributed transaction atomic). Here is example [examples/gensaga](examples/gensaga).
-* Introduced new methods `Process.Direct` and `Process.DirectWithTimeout` to make direct request to the actor (`gen.Server` or inherited object). If an actor has no implementation of `HandleDirect` callback it returns `ErrUnsupportedRequest` as a error.
-* Introduced new callback `HandleDirect` in the `gen.Server` interface as a handler for requests made by `Process.Direct` or `Process.DirectWithTimeout`. It should be easy to interact with actors from outside.
-* Introduced new types intended to be used to interact with Erlang/Elixir
-  * `etf.ListImproper` to support improper lists like `[a|b]` (a cons cell).
-  * `etf.String` (an alias for the Golang string) encodes as a binary in order to support Elixir string type (which is `binary()` type)
-  * `etf.Charlist` (an alias for the Golang string) encodes as a list of chars `[]rune` in order to support Erlang string type (which is `charlist()` type)
-* Introduced new methods `Node.ProvideRemoteSpawn`, `Node.RevokeRemoteSpawn`, `Process.RemoteSpawn`.
-* Introduced new interfaces `Marshaler` (method `MarshalETF`) and `Unmarshaler` (method `UnmarshalETF`) for the custom encoding/decoding data.
-* Improved performance for the local messaging (up to 3 times for some cases)
-* Added example [examples/http](examples/http) to demonsrate how HTTP server can be integrated into the Ergo node.
-* Added example [examples/gendemo](examples/gendemo) - how to create a custom behavior (design pattern) on top of the `gen.Server`. Take inspiration from the [gen/stage.go](gen/stage.go) or [gen/saga.go](gen/saga.go) design patterns.
-* Added support FreeBSD, OpenBSD, NetBSD, DragonFly.
-* Fixed RPC issue #45
-* Fixed internal timer issue #48
-* Fixed memory leaks #53
-* Fixed double panic issue #52
-* Fixed Atom Cache race conditioned issue #54
-* Fixed ETF encoder issues #64 #66
+* Introduced compression feature support
+* Introduced proxy feature support. Here is example [examples/proxy](examples/proxy). `gen.MessageProxyDown` .. `noproxy`.
+* Introduced new methods
+  - `node.AddProxyRoute`/`node.RemoveProxyRoute`
+  - `node.ProxyRoute`/`node.ProxyRoutes`
+  - `node.NodesIndirect`
+  - `gen.Process.SetCompression`/`gen.Process.Compression`
+  - `gen.Process.SetCompressionLevel`/`gen.Process.CompressionLevel`
+  - `gen.Process.SetCompressionThreshold`/`gen.Process.CompressionThreshold`
+  - `gen.Process.NodeUptime`/`gen.Process.NodeName`/`gen.Process.NodeStop`
+* **Important** `node.Options` has changed. Make sure to adjust your code.
+* Introduced `node.Proxy` in `node.Options` to configure proxy settings for the node.
+* Intfoduced `node.ProxyFlags` to enable/disable features of linking, monitoring, remote spawning for the peer connected through the proxy link.
+* Introduced `node.Compression` in `node.Options` to configure compression settings for the spawned processes on this node.
+* Introduced new interfaces
+  - `Resolver`
+  - `Handshake`
+  - `Proto`/`Connection`
+* Introduced `gen.ProcessFallback` option in `gen.ProcessOptions`. This feature allows forward messages to the fallback process if the mailbox is full. Forwarded messages are wrapping into `gen.MessageFallback` struct.
+* Added `gen.ProcessOptions` to `gen.SupervisorChildSpec` and `gen.ApplicationChildSpec` in order customize options for the spawning child processes.
+* Improved handling messages. Send/Cast/Call return ErrProcessIncarnation if message is addressed to the process of previous incarnation (node restarted).
+* `gen.EnvKey`
+* default process env `node.EnvKeyNode`
+* Improved performance of local messaging (up to 10 times for some cases)
+* Fixed issue #89 (incorrect handling Call requests)
+* Fixed issues #87, #88 and #93 (closing network socket)
+* Fixed issue #96 (silently drops message if mailbox is full)
 
 
 ### Benchmarks ###
 
 Here is simple EndToEnd test demonstrates performance of messaging subsystem
-
-#### Sequential Process.Call using two processes running on a single and two nodes
-
-Hardware: laptop with Intel(R) Core(TM) i5-8265U (4 cores. 8 with HT)
-
-```
-❯❯❯❯ go test -bench=NodeSequential -run=XXX -benchtime=10s
-goos: linux
-goarch: amd64
-pkg: github.com/ergo-services/ergo
-BenchmarkNodeSequential/number-8 	  256108	     48578 ns/op
-BenchmarkNodeSequential/string-8 	  266906	     51531 ns/op
-BenchmarkNodeSequential/tuple_(PID)-8         	  233700	     58192 ns/op
-BenchmarkNodeSequential/binary_1MB-8          	    5617	   2092495 ns/op
-BenchmarkNodeSequentialSingleNode/number-8         	 2527580	      4857 ns/op
-BenchmarkNodeSequentialSingleNode/string-8         	 2519410	      4760 ns/op
-BenchmarkNodeSequentialSingleNode/tuple_(PID)-8    	 2524701	      4757 ns/op
-BenchmarkNodeSequentialSingleNode/binary_1MB-8     	 2521370	      4758 ns/op
-PASS
-ok  	github.com/ergo-services/ergo	120.720s
-```
-
-it means Ergo Framework provides around **25.000 sync requests per second** via localhost for simple data and around 4Gbit/sec for 1MB messages
-
-#### Parallel Process.Call using 120 pairs of processes running on a single and two nodes
 
 Hardware: workstation with AMD Ryzen Threadripper 3970X (64) @ 3.700GHz
 
@@ -129,13 +105,41 @@ goos: linux
 goarch: amd64
 pkg: github.com/ergo-services/ergo/tests
 cpu: AMD Ryzen Threadripper 3970X 32-Core Processor
-BenchmarkNodeParallel-64                 4922430              2440 ns/op
-BenchmarkNodeParallelSingleNode-64      16293586               810.0 ns/op
+BenchmarkNodeParallel-64                 4738918              2532 ns/op
+BenchmarkNodeParallelSingleNode-64      100000000              429.8 ns/op
+
 PASS
 ok      github.com/ergo-services/ergo/tests  29.596s
 ```
 
-these numbers show almost **500.000 sync requests per second** for the network messaging via localhost and **1.600.000 sync requests per second** for the local messaging (within a node).
+these numbers show almost **500.000 sync requests per second** for the network messaging via localhost and **10.000.000 sync requests per second** for the local messaging (within a node).
+
+#### Compression
+
+This benchmark shows the performance of compression for sending 1MB message between two nodes (via a network).
+
+```
+❯❯❯❯ go test -bench=NodeCompression -run=XXX -benchtime=10s
+goos: linux
+goarch: amd64
+pkg: github.com/ergo-services/ergo/tests
+cpu: AMD Ryzen Threadripper 3970X 32-Core Processor
+BenchmarkNodeCompressionDisabled1MBempty-64         2400           4957483 ns/op
+BenchmarkNodeCompressionEnabled1MBempty-64          5769           2088051 ns/op
+BenchmarkNodeCompressionEnabled1MBstring-64         5202           2077099 ns/op
+PASS
+ok      github.com/ergo-services/ergo/tests     56.708s
+```
+
+It demonstrates **more than 2 times** improvement.
+
+#### Proxy
+
+This benchmark demonstrates how proxy feature and e2e encryption impact a messaging performance.
+
+```
+```
+
 
 #### Ergo Framework vs original Erlang/OTP
 

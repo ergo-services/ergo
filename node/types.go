@@ -2,6 +2,7 @@ package node
 
 import (
 	"context"
+	"crypto/cipher"
 	"crypto/tls"
 	"fmt"
 	"io"
@@ -9,39 +10,51 @@ import (
 
 	"github.com/ergo-services/ergo/etf"
 	"github.com/ergo-services/ergo/gen"
+	"github.com/ergo-services/ergo/lib"
 )
 
 var (
-	ErrAppAlreadyLoaded     = fmt.Errorf("Application is already loaded")
-	ErrAppAlreadyStarted    = fmt.Errorf("Application is already started")
-	ErrAppUnknown           = fmt.Errorf("Unknown application name")
-	ErrAppIsNotRunning      = fmt.Errorf("Application is not running")
-	ErrNameUnknown          = fmt.Errorf("Unknown name")
-	ErrNameOwner            = fmt.Errorf("Not an owner")
-	ErrProcessBusy          = fmt.Errorf("Process is busy")
-	ErrProcessUnknown       = fmt.Errorf("Unknown process")
-	ErrProcessIncarnation   = fmt.Errorf("Process ID belongs to the previous incarnation")
-	ErrProcessTerminated    = fmt.Errorf("Process terminated")
-	ErrMonitorUnknown       = fmt.Errorf("Unknown monitor reference")
-	ErrSenderUnknown        = fmt.Errorf("Unknown sender")
-	ErrBehaviorUnknown      = fmt.Errorf("Unknown behavior")
-	ErrBehaviorGroupUnknown = fmt.Errorf("Unknown behavior group")
-	ErrAliasUnknown         = fmt.Errorf("Unknown alias")
-	ErrAliasOwner           = fmt.Errorf("Not an owner")
-	ErrNoRoute              = fmt.Errorf("No route to node")
-	ErrTaken                = fmt.Errorf("Resource is taken")
-	ErrTimeout              = fmt.Errorf("Timed out")
-	ErrFragmented           = fmt.Errorf("Fragmented data")
+	ErrAppAlreadyLoaded     = fmt.Errorf("application is already loaded")
+	ErrAppAlreadyStarted    = fmt.Errorf("application is already started")
+	ErrAppUnknown           = fmt.Errorf("unknown application name")
+	ErrAppIsNotRunning      = fmt.Errorf("application is not running")
+	ErrNameUnknown          = fmt.Errorf("unknown name")
+	ErrNameOwner            = fmt.Errorf("not an owner")
+	ErrProcessBusy          = fmt.Errorf("process is busy")
+	ErrProcessUnknown       = fmt.Errorf("unknown process")
+	ErrProcessIncarnation   = fmt.Errorf("process ID belongs to the previous incarnation")
+	ErrProcessTerminated    = fmt.Errorf("process terminated")
+	ErrMonitorUnknown       = fmt.Errorf("unknown monitor reference")
+	ErrSenderUnknown        = fmt.Errorf("unknown sender")
+	ErrBehaviorUnknown      = fmt.Errorf("unknown behavior")
+	ErrBehaviorGroupUnknown = fmt.Errorf("unknown behavior group")
+	ErrAliasUnknown         = fmt.Errorf("unknown alias")
+	ErrAliasOwner           = fmt.Errorf("not an owner")
+	ErrNoRoute              = fmt.Errorf("no route to node")
+	ErrTaken                = fmt.Errorf("resource is taken")
+	ErrTimeout              = fmt.Errorf("timed out")
+	ErrFragmented           = fmt.Errorf("fragmented data")
 
-	ErrUnsupported = fmt.Errorf("Not supported")
+	ErrUnsupported     = fmt.Errorf("not supported")
+	ErrPeerUnsupported = fmt.Errorf("peer does not support this feature")
+
+	ErrProxyUnknownRequest   = fmt.Errorf("unknown proxy request")
+	ErrProxyTransitDisabled  = fmt.Errorf("proxy feature disabled")
+	ErrProxyNoRoute          = fmt.Errorf("no proxy route to node")
+	ErrProxyConnect          = fmt.Errorf("can't establish proxy connection")
+	ErrProxyHopExceeded      = fmt.Errorf("proxy hop is exceeded")
+	ErrProxyLoopDetected     = fmt.Errorf("proxy loop detected")
+	ErrProxyPathTooLong      = fmt.Errorf("proxy path too long")
+	ErrProxySessionUnknown   = fmt.Errorf("unknown session id")
+	ErrProxySessionDuplicate = fmt.Errorf("session is already exist")
 )
 
-// Distributed operations codes (http://www.erlang.org/doc/apps/erts/erl_dist_protocol.html)
 const (
 	// node options
 	defaultListenBegin     uint16        = 15000
 	defaultListenEnd       uint16        = 65000
 	defaultKeepAlivePeriod time.Duration = 15
+	defaultProxyPathLimit  int           = 32
 
 	EnvKeyVersion     gen.EnvKey = "ergo:Version"
 	EnvKeyNode        gen.EnvKey = "ergo:Node"
@@ -53,6 +66,8 @@ const (
 
 	DefaultCompressionLevel     int = -1
 	DefaultCompressionThreshold int = 1024
+
+	DefaultProxyMaxHop int = 8
 )
 
 type Node interface {
@@ -95,12 +110,23 @@ type Node interface {
 	ProvideRemoteSpawn(name string, object gen.ProcessBehavior) error
 	RevokeRemoteSpawn(name string) error
 
-	// AddStaticRoute adds static route for the given node name which makes node skip resolving process
-	AddStaticRoute(name string, port uint16, options RouteOptions) error
-	// AddStaticRouteExt adds static route with extra options
+	// AddStaticRoute adds static route for the given name
+	AddStaticRoute(node string, host string, port uint16, options RouteOptions) error
+	// AddStaticRoutePort adds static route for the given node name which makes node skip resolving port process
+	AddStaticRoutePort(node string, port uint16, options RouteOptions) error
+	// AddStaticRouteOptions adds static route options for the given node name which does regular port resolving but applies static options
+	AddStaticRouteOptions(node string, options RouteOptions) error
+	// Remove static route removes static route with given name
 	RemoveStaticRoute(name string) bool
 	// StaticRoutes returns list of routes added using AddStaticRoute
 	StaticRoutes() []Route
+	// StaticRoute returns Route for the given name. Returns false if it doesn't exist.
+	StaticRoute(name string) (Route, bool)
+
+	AddProxyRoute(name string, proxy ProxyRoute) error
+	RemoveProxyRoute(name string) bool
+	ProxyRoutes() []ProxyRoute
+	ProxyRoute(name string) (ProxyRoute, bool)
 
 	// Resolve
 	Resolve(peername string) (Route, error)
@@ -111,6 +137,8 @@ type Node interface {
 	Disconnect(nodename string) error
 	// Nodes returns the list of connected nodes
 	Nodes() []string
+	// NodesIndirect returns the list of nodes connected via proxies
+	NodesIndirect() []string
 
 	Links(process etf.Pid) []etf.Pid
 	Monitors(process etf.Pid) []etf.Pid
@@ -143,15 +171,8 @@ type CoreRouter interface {
 	// RouteSendAlias routes message by process alias
 	RouteSendAlias(from etf.Pid, to etf.Alias, message etf.Term) error
 
-	ProcessByPid(pid etf.Pid) gen.Process
-	ProcessByName(name string) gen.Process
-	ProcessByAlias(alias etf.Alias) gen.Process
-
-	GetConnection(nodename string) (ConnectionInterface, error)
-
 	RouteSpawnRequest(node string, behaviorName string, request gen.RemoteSpawnRequest, args ...etf.Term) error
 	RouteSpawnReply(to etf.Pid, ref etf.Ref, result etf.Term) error
-	RouteProxy() error
 
 	//
 	// implemented by monitor
@@ -171,7 +192,24 @@ type CoreRouter interface {
 	RouteMonitorExitReg(terminated gen.ProcessID, reason string, ref etf.Ref) error
 	RouteMonitorExit(terminated etf.Pid, reason string, ref etf.Ref) error
 	// RouteNodeDown
-	RouteNodeDown(name string)
+	RouteNodeDown(name string, disconnect *ProxyDisconnect)
+
+	//
+	// implemented by network
+	//
+
+	// RouteProxyConnectRequest
+	RouteProxyConnectRequest(from ConnectionInterface, request ProxyConnectRequest) error
+	// RouteProxyConnectReply
+	RouteProxyConnectReply(from ConnectionInterface, reply ProxyConnectReply) error
+	// RouteProxyConnectCancel
+	RouteProxyConnectCancel(from ConnectionInterface, cancel ProxyConnectCancel) error
+	// RouteProxyDisconnect
+	RouteProxyDisconnect(from ConnectionInterface, disconnect ProxyDisconnect) error
+	// RouteProxy returns ErrProxySessionEndpoint if this node is the endpoint of the
+	// proxy session. In this case, the packet must be handled on this node with
+	// provided ProxySession parameters.
+	RouteProxy(from ConnectionInterface, sessionID string, packet *lib.Buffer) error
 }
 
 // Options defines bootstrapping options for the node
@@ -217,8 +255,12 @@ type Options struct {
 	// DIST proto created with dist.CreateProto(...)
 	Proto ProtoInterface
 
-	// enable Ergo Cloud support
+	// Cloud enable Ergo Cloud support
 	Cloud Cloud
+
+	// Proxy enable proxy feature on this node. Disabling this option makes
+	// this node to reject any proxy request.
+	Proxy Proxy
 }
 
 type TLS struct {
@@ -235,7 +277,10 @@ type Cloud struct {
 }
 
 type Proxy struct {
-	Enable bool
+	Transit bool
+	Flags   ProxyFlags
+	Cookie  string // set cookie for incoming connection
+	Routes  map[string]ProxyRoute
 }
 
 type Compression struct {
@@ -272,11 +317,17 @@ type ConnectionInterface interface {
 	DemonitorReg(local etf.Pid, remote gen.ProcessID, ref etf.Ref) error
 	MonitorExitReg(to etf.Pid, terminated gen.ProcessID, reason string, ref etf.Ref) error
 
-	SpawnRequest(behaviorName string, request gen.RemoteSpawnRequest, args ...etf.Term) error
+	SpawnRequest(nodeName string, behaviorName string, request gen.RemoteSpawnRequest, args ...etf.Term) error
 	SpawnReply(to etf.Pid, ref etf.Ref, spawned etf.Pid) error
 	SpawnReplyError(to etf.Pid, ref etf.Ref, err error) error
 
-	Proxy() error
+	ProxyConnectRequest(connect ProxyConnectRequest) error
+	ProxyConnectReply(reply ProxyConnectReply) error
+	ProxyConnectCancel(cancel ProxyConnectCancel) error
+	ProxyDisconnect(disconnect ProxyDisconnect) error
+	ProxyRegisterSession(session ProxySession) error
+	ProxyUnregisterSession(id string) error
+	ProxyPacket(packet *lib.Buffer) error
 }
 
 // Handshake template struct for the custom Handshake implementation
@@ -290,10 +341,10 @@ type HandshakeInterface interface {
 	Init(nodename string, creation uint32, flags Flags) error
 	// Start initiates handshake process. Argument tls means the connection is wrapped by TLS
 	// Returns Flags received from the peer during handshake
-	Start(conn io.ReadWriter, tls bool) (Flags, error)
+	Start(conn io.ReadWriter, tls bool, cookie string) (Flags, error)
 	// Accept accepts handshake process initiated by another side of this connection.
 	// Returns the name of connected peer and Flags received from the peer.
-	Accept(conn io.ReadWriter, tls bool) (string, Flags, error)
+	Accept(conn io.ReadWriter, tls bool, cookie string) (string, Flags, error)
 	// Version handshake version. Must be implemented if this handshake is going to be used
 	// for the accepting connections (this method is used in registration on the Resolver)
 	Version() HandshakeVersion
@@ -309,7 +360,7 @@ type Proto struct {
 // Proto defines proto interface for the custom Proto implementation
 type ProtoInterface interface {
 	// Init initialize connection handler
-	Init(ctx context.Context, conn io.ReadWriter, peername string, flags Flags) (ConnectionInterface, error)
+	Init(ctx context.Context, conn io.ReadWriter, nodename string, peername string, flags Flags) (ConnectionInterface, error)
 	// Serve connection
 	Serve(connection ConnectionInterface, router CoreRouter)
 	// Terminate invoked once Serve callback is finished
@@ -328,10 +379,6 @@ type ProtoOptions struct {
 	RecvQueueLength int
 	// FragmentationUnit defines unit size for the fragmentation feature. Default 65000
 	FragmentationUnit int
-	// Compression enables compression for the outgoing messages
-	Compression Compression
-	// Proxy defines proxy settings
-	Proxy Proxy
 	// Custom brings a custom set of options to the ProtoInterface.Serve handler
 	Custom CustomProtoOptions
 }
@@ -357,7 +404,7 @@ type Flags struct {
 	EnableRemoteSpawn bool
 	// Compression compression support
 	EnableCompression bool
-	// Proxy proxy support
+	// Proxy enables support for incoming proxy connection
 	EnableProxy bool
 	// Software keepalive enables sending keep alive messages if node doesn't support
 	// TCPConn.SetKeepAlive(true). For erlang peers this flag is mandatory.
@@ -366,7 +413,7 @@ type Flags struct {
 
 // Resolver defines resolving interface
 type Resolver interface {
-	Register(nodename string, port uint16, options ResolverOptions) error
+	Register(ctx context.Context, nodename string, port uint16, options ResolverOptions) error
 	Resolve(peername string) (Route, error)
 }
 
@@ -381,7 +428,7 @@ type ResolverOptions struct {
 
 // Route
 type Route struct {
-	Name    string
+	Node    string
 	Host    string
 	Port    uint16
 	Options RouteOptions
@@ -392,11 +439,74 @@ type RouteOptions struct {
 	Cookie    string
 	EnableTLS bool
 	IsErgo    bool
-
 	Cert      tls.Certificate
 	Handshake HandshakeInterface
 	Proto     ProtoInterface
 	Custom    CustomRouteOptions
+}
+
+// ProxyRoute
+type ProxyRoute struct {
+	Proxy  string
+	Cookie string
+	Flags  ProxyFlags
+	MaxHop int // DefaultProxyMaxHop == 8
+}
+
+// ProxyFlags
+type ProxyFlags struct {
+	Enable            bool
+	EnableLink        bool
+	EnableMonitor     bool
+	EnableRemoteSpawn bool
+	EnableEncryption  bool
+}
+
+// ProxyConnectRequest
+type ProxyConnectRequest struct {
+	ID        etf.Ref
+	To        string // To node
+	Digest    []byte // md5(md5(md5(md5(Node)+Cookie)+To)+PublicKey)
+	PublicKey []byte
+	Flags     ProxyFlags
+	Hop       int
+	Path      []string
+}
+
+// ProxyConnectReply
+type ProxyConnectReply struct {
+	ID        etf.Ref
+	To        string
+	Digest    []byte // md5(md5(md5(md5(Node)+Cookie)+To)+symmetric key)
+	Cipher    []byte // encrypted symmetric key using PublicKey from the ProxyConnectRequest
+	Flags     ProxyFlags
+	SessionID string // proxy session ID
+	Path      []string
+}
+
+// ProxyConnectCancel
+type ProxyConnectCancel struct {
+	ID     etf.Ref
+	From   string
+	Reason string
+	Path   []string
+}
+
+// ProxyDisconnect
+type ProxyDisconnect struct {
+	Node      string
+	Proxy     string
+	SessionID string
+	Reason    string
+}
+
+// Proxy session
+type ProxySession struct {
+	ID        string
+	NodeFlags ProxyFlags
+	PeerFlags ProxyFlags
+	PeerName  string
+	Block     cipher.Block // made from symmetric key
 }
 
 // CustomRouteOptions a custom set of route options

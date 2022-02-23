@@ -93,7 +93,6 @@ type DistHandshake struct {
 type HandshakeOptions struct {
 	Timeout time.Duration
 	Version node.HandshakeVersion // 5 or 6
-	Cookie  string
 }
 
 func CreateHandshake(options HandshakeOptions) node.HandshakeInterface {
@@ -123,7 +122,7 @@ func (dh *DistHandshake) Version() node.HandshakeVersion {
 	return dh.options.Version
 }
 
-func (dh *DistHandshake) Start(conn io.ReadWriter, tls bool) (node.Flags, error) {
+func (dh *DistHandshake) Start(conn io.ReadWriter, tls bool, cookie string) (node.Flags, error) {
 
 	var peer_challenge uint32
 	var peer_nodeFlags nodeFlags
@@ -209,7 +208,7 @@ func (dh *DistHandshake) Start(conn io.ReadWriter, tls bool) (node.Flags, error)
 				}
 				b.Reset()
 
-				dh.composeChallengeReply(b, peer_challenge, tls)
+				dh.composeChallengeReply(b, peer_challenge, tls, cookie)
 
 				if e := b.WriteDataTo(conn); e != nil {
 					return peer_Flags, e
@@ -239,7 +238,7 @@ func (dh *DistHandshake) Start(conn io.ReadWriter, tls bool) (node.Flags, error)
 					}
 				}
 
-				dh.composeChallengeReply(b, peer_challenge, tls)
+				dh.composeChallengeReply(b, peer_challenge, tls, cookie)
 
 				if e := b.WriteDataTo(conn); e != nil {
 					return peer_Flags, e
@@ -255,7 +254,7 @@ func (dh *DistHandshake) Start(conn io.ReadWriter, tls bool) (node.Flags, error)
 				}
 
 				// 'a' + 16 (digest)
-				digest := genDigest(dh.challenge, dh.options.Cookie)
+				digest := genDigest(dh.challenge, cookie)
 				if bytes.Compare(buffer[1:17], digest) != 0 {
 					return peer_Flags, fmt.Errorf("malformed handshake ('a' digest)")
 				}
@@ -295,7 +294,7 @@ func (dh *DistHandshake) Start(conn io.ReadWriter, tls bool) (node.Flags, error)
 
 }
 
-func (dh *DistHandshake) Accept(conn io.ReadWriter, tls bool) (string, node.Flags, error) {
+func (dh *DistHandshake) Accept(conn io.ReadWriter, tls bool, cookie string) (string, node.Flags, error) {
 	var peer_challenge uint32
 	var peer_name string
 	var peer_nodeFlags nodeFlags
@@ -433,13 +432,13 @@ func (dh *DistHandshake) Accept(conn io.ReadWriter, tls bool) (string, node.Flag
 					return peer_name, peer_Flags, fmt.Errorf("malformed handshake ('r' length)")
 				}
 
-				peer_challenge, valid = dh.validateChallengeReply(buffer[1:])
+				peer_challenge, valid = dh.validateChallengeReply(buffer[1:], cookie)
 				if valid == false {
 					return peer_name, peer_Flags, fmt.Errorf("malformed handshake ('r' invalid reply)")
 				}
 				b.Reset()
 
-				dh.composeChallengeAck(b, peer_challenge, tls)
+				dh.composeChallengeAck(b, peer_challenge, tls, cookie)
 				if e := b.WriteDataTo(conn); e != nil {
 					return peer_name, peer_Flags, e
 				}
@@ -661,21 +660,21 @@ func (dh *DistHandshake) readComplement(msg []byte, peer_flags nodeFlags) nodeFl
 	return peer_flags
 }
 
-func (dh *DistHandshake) validateChallengeReply(b []byte) (uint32, bool) {
+func (dh *DistHandshake) validateChallengeReply(b []byte, cookie string) (uint32, bool) {
 	challenge := binary.BigEndian.Uint32(b[:4])
 	digestB := b[4:]
 
-	digestA := genDigest(dh.challenge, dh.options.Cookie)
+	digestA := genDigest(dh.challenge, cookie)
 	return challenge, bytes.Equal(digestA[:], digestB)
 }
 
-func (dh *DistHandshake) composeChallengeAck(b *lib.Buffer, peer_challenge uint32, tls bool) {
+func (dh *DistHandshake) composeChallengeAck(b *lib.Buffer, peer_challenge uint32, tls bool, cookie string) {
 	if tls {
 		b.Allocate(5)
 		dataLength := uint32(17) // 'a' + 16 (digest)
 		binary.BigEndian.PutUint32(b.B[0:4], dataLength)
 		b.B[4] = 'a'
-		digest := genDigest(peer_challenge, dh.options.Cookie)
+		digest := genDigest(peer_challenge, cookie)
 		b.Append(digest)
 		return
 	}
@@ -684,13 +683,13 @@ func (dh *DistHandshake) composeChallengeAck(b *lib.Buffer, peer_challenge uint3
 	dataLength := uint16(17) // 'a' + 16 (digest)
 	binary.BigEndian.PutUint16(b.B[0:2], dataLength)
 	b.B[2] = 'a'
-	digest := genDigest(peer_challenge, dh.options.Cookie)
+	digest := genDigest(peer_challenge, cookie)
 	b.Append(digest)
 }
 
-func (dh *DistHandshake) composeChallengeReply(b *lib.Buffer, challenge uint32, tls bool) {
+func (dh *DistHandshake) composeChallengeReply(b *lib.Buffer, challenge uint32, tls bool, cookie string) {
 	if tls {
-		digest := genDigest(challenge, dh.options.Cookie)
+		digest := genDigest(challenge, cookie)
 		b.Allocate(9)
 		dataLength := 5 + len(digest) // 1 (byte) + 4 (challenge) + 16 (digest)
 		binary.BigEndian.PutUint32(b.B[0:4], uint32(dataLength))
@@ -701,7 +700,7 @@ func (dh *DistHandshake) composeChallengeReply(b *lib.Buffer, challenge uint32, 
 	}
 
 	b.Allocate(7)
-	digest := genDigest(challenge, dh.options.Cookie)
+	digest := genDigest(challenge, cookie)
 	dataLength := 5 + len(digest) // 1 (byte) + 4 (challenge) + 16 (digest)
 	binary.BigEndian.PutUint16(b.B[0:2], uint16(dataLength))
 	b.B[2] = 'r'
@@ -754,8 +753,6 @@ func composeFlags(flags node.Flags) nodeFlags {
 		flagUTF8Atoms,
 		flagMapTag,
 		flagHandshake23,
-		flagCompression,
-		flagProxy,
 	}
 
 	// optional flags
@@ -776,6 +773,12 @@ func composeFlags(flags node.Flags) nodeFlags {
 	}
 	if flags.EnableRemoteSpawn {
 		enabledFlags = append(enabledFlags, flagSpawn)
+	}
+	if flags.EnableCompression {
+		enabledFlags = append(enabledFlags, flagCompression)
+	}
+	if flags.EnableProxy {
+		enabledFlags = append(enabledFlags, flagProxy)
 	}
 	return toNodeFlags(enabledFlags...)
 }

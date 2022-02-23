@@ -9,8 +9,8 @@ import (
 )
 
 var (
-	ErrUnsupportedRequest = fmt.Errorf("Unsupported request")
-	ErrServerTerminated   = fmt.Errorf("Server terminated")
+	ErrUnsupportedRequest = fmt.Errorf("unsupported request")
+	ErrServerTerminated   = fmt.Errorf("server terminated")
 )
 
 // EnvKey
@@ -105,11 +105,11 @@ type Process interface {
 	// Repeated calls to Process.Link(Pid) have no effect. If one of the participants
 	// of a link terminates, it will send an exit signal to the other participant and caused
 	// termination of the last one. If process set a trap using Process.SetTrapExit(true) the exit signal transorms into the MessageExit and delivers as a regular message.
-	Link(with etf.Pid)
+	Link(with etf.Pid) error
 
 	// Unlink removes the link, if there is one, between the calling process and
 	// the process referred to by Pid.
-	Unlink(with etf.Pid)
+	Unlink(with etf.Pid) error
 
 	// IsAlive returns whether the process is alive
 	IsAlive() bool
@@ -219,6 +219,18 @@ type ProcessOptions struct {
 	GroupLeader Process
 	// Env set the process environment variables
 	Env map[EnvKey]interface{}
+
+	// Fallback defines the process to where messages will be forwarded
+	// if the mailbox is overflowed. The tag value could be used to
+	// differentiate the source processes. Forwarded messages are wrapped
+	// into the MessageFallback struct.
+	Fallback ProcessFallback
+}
+
+// ProcessFallback
+type ProcessFallback struct {
+	Name string
+	Tag  string
 }
 
 // RemoteSpawnRequest
@@ -343,6 +355,7 @@ func (p ProcessID) String() string {
 //  - the exit reason of the process
 //  - 'noproc' (process did not exist at the time of monitor creation)
 //  - 'noconnection' (no connection to the node where the monitored process resides)
+//  - 'noproxy' (no connection to the proxy this node had has a connection through. monitored process could be still alive)
 type MessageDown struct {
 	Ref       etf.Ref   // a monitor reference
 	ProcessID ProcessID // if monitor was created by name
@@ -353,13 +366,36 @@ type MessageDown struct {
 // MessageNodeDown delivers as a message to Server's HandleInfo callback of the process
 // that created monitor using MonitorNode
 type MessageNodeDown struct {
+	Ref  etf.Ref
 	Name string
 }
 
+// MessageProxyDown delivers as a message to Server's HandleInfo callback of the process
+// that created monitor using MonitorNode if the connection to the node was through the proxy
+// nodes and one of them went down.
+type MessageProxyDown struct {
+	Ref    etf.Ref
+	Node   string
+	Proxy  string
+	Reason string
+}
+
 // MessageExit delievers to Server's HandleInfo callback on enabled trap exit using SetTrapExit(true)
+// Reason values:
+//  - the exit reason of the process
+//  - 'noproc' (process did not exist at the time of link creation)
+//  - 'noconnection' (no connection to the node where the linked process resides)
+//  - 'noproxy' (no connection to the proxy this node had has a connection through. linked process could be still alive)
 type MessageExit struct {
 	Pid    etf.Pid
 	Reason string
+}
+
+// MessageFallback delivers to the process specified as a fallback process in ProcessOptions.Fallback.Name if the mailbox has been overflowed
+type MessageFallback struct {
+	Process etf.Pid
+	Tag     string
+	Message etf.Term
 }
 
 // RPC defines rpc function type
@@ -396,4 +432,24 @@ func IsMessageExit(message etf.Term) (MessageExit, bool) {
 		return m, true
 	}
 	return me, false
+}
+
+// IsMessageProxyDown
+func IsMessageProxyDown(message etf.Term) (MessageProxyDown, bool) {
+	var mpd MessageProxyDown
+	switch m := message.(type) {
+	case MessageProxyDown:
+		return m, true
+	}
+	return mpd, false
+}
+
+// IsMessageFallback
+func IsMessageFallback(message etf.Term) (MessageFallback, bool) {
+	var mf MessageFallback
+	switch m := message.(type) {
+	case MessageFallback:
+		return m, true
+	}
+	return mf, false
 }

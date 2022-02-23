@@ -67,11 +67,7 @@ func main() {
 	time.Sleep(300 * time.Millisecond)
 
 	node1.Stop()
-	node1.Wait()
 	node2.Stop()
-	node2.Wait()
 	node3.Stop()
-	node3.Wait()
 	node4.Stop()
-	node4.Wait()
 }

@@ -1,11 +1,19 @@
 package cloud
 
 import (
+	"net"
+	"strings"
+
 	"github.com/ergo-services/ergo/etf"
 	"github.com/ergo-services/ergo/gen"
 	"github.com/ergo-services/ergo/lib"
 	"github.com/ergo-services/ergo/node"
 )
+
+type CloudNode struct {
+	Host string
+	Port uint16
+}
 
 type CloudApp struct {
 	gen.Application
@@ -86,4 +94,17 @@ func (cc *cloudClient) HandleInfo(process *gen.ServerProcess, message etf.Term) 
 func (cc *cloudClient) Terminate(process *gen.ServerProcess, reason string) {
 	lib.Log("CLOUD_CLIENT: Terminated with reason: %v", reason)
 	return
+}
+
+func getCloudNodes() ([]CloudNode, error) {
+	_, srv, err := net.LookupSRV("cloud", "dist", "ergo.services")
+	if err != nil {
+		return nil, err
+	}
+	nodes := make([]CloudNode, len(srv))
+	for i := range srv {
+		nodes[i].Host = strings.TrimSuffix(srv[i].Target, ".")
+		nodes[i].Port = srv[i].Port
+	}
+	return nodes, nil
 }

@@ -37,23 +37,19 @@ func StartNodeWithContext(ctx context.Context, name string, cookie string, opts 
 	}
 
 	if opts.Handshake == nil {
-		handshakeOptions := dist.HandshakeOptions{
-			Cookie: cookie,
-		}
 		// create default handshake for the node (Erlang Dist Handshake)
-		opts.Handshake = dist.CreateHandshake(handshakeOptions)
+		opts.Handshake = dist.CreateHandshake(dist.HandshakeOptions{})
 	}
 
 	if opts.Proto == nil {
 		// create default proto handler (Erlang Dist Proto)
 		protoOptions := node.DefaultProtoOptions()
-		protoOptions.Compression = opts.Compression
-		opts.Proto = dist.CreateProto(name, protoOptions)
+		opts.Proto = dist.CreateProto(protoOptions)
 	}
 
 	if opts.StaticRoutesOnly == false && opts.Resolver == nil {
 		// create default resolver (with enabled Erlang EPMD server)
-		opts.Resolver = dist.CreateResolverWithEPMD(ctx, "", dist.DefaultEPMDPort)
+		opts.Resolver = dist.CreateResolverWithLocalEPMD("", dist.DefaultEPMDPort)
 	}
 
 	return node.StartWithContext(ctx, name, cookie, opts)

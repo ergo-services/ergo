@@ -5,6 +5,7 @@ import (
 	"math/rand"
 
 	"github.com/ergo-services/ergo/etf"
+	"github.com/ergo-services/ergo/lib"
 )
 
 // StageDispatcherBehavior defined interface for the dispatcher
@@ -437,7 +438,7 @@ func (dp *dispatcherPartition) Dispatch(state interface{}, events etf.List) []St
 			}
 		}
 		// seems we dont have enough space to keep these events. discard the rest of them.
-		fmt.Println("Warning: dispatcherPartition. Event buffer is full. Discarding event: ", events[e])
+		lib.Warning("DispatcherPartition. Event buffer is full. Discarding event: ", events[e])
 		break
 	}
 

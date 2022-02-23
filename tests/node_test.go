@@ -7,7 +7,6 @@ import (
 	"math/rand"
 	"net"
 	"reflect"
-	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -29,7 +28,7 @@ func TestNode(t *testing.T) {
 	ctx := context.Background()
 	opts := node.Options{
 		Listen:   25001,
-		Resolver: dist.CreateResolverWithEPMD(ctx, "", 24999),
+		Resolver: dist.CreateResolverWithLocalEPMD("", 24999),
 	}
 
 	node1, _ := ergo.StartNodeWithContext(ctx, "node@localhost", "cookies", opts)
@@ -162,40 +161,6 @@ func TestNodeFragmentation(t *testing.T) {
 	wg.Wait()
 }
 
-func TestNodeAtomCache(t *testing.T) {
-
-	node1, _ := ergo.StartNode("nodeT1AtomCache@localhost", "secret", node.Options{})
-	node2, _ := ergo.StartNode("nodeT2AtomCache@localhost", "secret", node.Options{})
-
-	tgs := &benchGS{}
-	p1, e1 := node1.Spawn("", gen.ProcessOptions{}, tgs)
-	p2, e2 := node2.Spawn("", gen.ProcessOptions{}, tgs)
-
-	if e1 != nil {
-		t.Fatal(e1)
-	}
-	if e2 != nil {
-		t.Fatal(e2)
-	}
-
-	message := etf.Tuple{
-		etf.Atom("a1"),
-		etf.Atom("a2"),
-		etf.Atom("a3"),
-		etf.Atom("a4"),
-		etf.Atom("a5"),
-	}
-	for i := 0; i < 2*runtime.GOMAXPROCS(-1); i++ {
-		call := makeCall{
-			to:      p2.Self(),
-			message: message,
-		}
-		if _, e := p1.Direct(call); e != nil {
-			t.Fatal(e)
-		}
-	}
-}
-
 func TestNodeStaticRoute(t *testing.T) {
 	nodeName1 := "nodeT1StaticRoute@localhost"
 	nodeName2 := "nodeT2StaticRoute@localhost"
@@ -215,11 +180,11 @@ func TestNodeStaticRoute(t *testing.T) {
 
 	nr, err := node1.Resolve(nodeName2)
 	if err != nil {
-		t.Fatal("Can't resolve port number for ", nodeName2)
+		t.Fatal("Can't resolve port number for ", nodeName2, err)
 	}
 
 	// override route for nodeName2 with static port
-	e := node1.AddStaticRoute(nodeName2, nodeStaticPort, node.RouteOptions{})
+	e := node1.AddStaticRoutePort(nodeName2, nodeStaticPort, node.RouteOptions{})
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -257,17 +222,14 @@ func (h *handshakeGenServer) HandleDirect(process *gen.ServerProcess, message in
 
 func TestNodeDistHandshake(t *testing.T) {
 	fmt.Printf("\n=== Test Node Handshake versions\n")
-	cookie := "secret"
 
 	// handshake version 5
 	handshake5options := dist.HandshakeOptions{
-		Cookie:  cookie,
 		Version: dist.HandshakeVersion5,
 	}
 
 	// handshake version 6
 	handshake6options := dist.HandshakeOptions{
-		Cookie:  cookie,
 		Version: dist.HandshakeVersion6,
 	}
 
@@ -423,10 +385,26 @@ func TestNodeDistHandshake(t *testing.T) {
 
 func TestNodeRemoteSpawn(t *testing.T) {
 	fmt.Printf("\n=== Test Node Remote Spawn\n")
-	node1, _ := ergo.StartNode("node1remoteSpawn@localhost", "secret", node.Options{})
-	node2, _ := ergo.StartNode("node2remoteSpawn@localhost", "secret", node.Options{})
+	node1opts := node.Options{}
+	node1opts.Proxy.Flags = node.DefaultProxyFlags()
+	node1opts.Proxy.Flags.EnableRemoteSpawn = false
+
+	node1, _ := ergo.StartNode("node1remoteSpawn@localhost", "secret", node1opts)
+	node2opts := node.Options{}
+	node2opts.Proxy.Transit = true
+	node2, _ := ergo.StartNode("node2remoteSpawn@localhost", "secret", node2opts)
+	node3, _ := ergo.StartNode("node3remoteSpawn@localhost", "secret", node.Options{})
+	route := node.ProxyRoute{
+		Proxy: node2.Name(),
+	}
+	node1.AddProxyRoute(node3.Name(), route)
 	defer node1.Stop()
 	defer node2.Stop()
+	defer node3.Stop()
+
+	if err := node1.Connect(node3.Name()); err != nil {
+		t.Fatal(err)
+	}
 
 	node2.ProvideRemoteSpawn("remote", &handshakeGenServer{})
 	process, err := node1.Spawn("gs1", gen.ProcessOptions{}, &handshakeGenServer{})
@@ -460,6 +438,31 @@ func TestNodeRemoteSpawn(t *testing.T) {
 	fmt.Printf("    process gs1@node1 request to spawn new process on node2 with unregistered behavior name (must be failed): ")
 	_, err = process.RemoteSpawn(node2.Name(), "randomname", opts, 1, 2, 3)
 	if err != node.ErrBehaviorUnknown {
+		t.Fatal(err)
+	}
+	fmt.Println("OK")
+
+	fmt.Printf("    process gs1@node1 request to spawn new process on node3 via proxy node2 and register this process with name 'remote': ")
+	node3.ProvideRemoteSpawn("remote", &handshakeGenServer{})
+	gotPid, err = process.RemoteSpawn(node3.Name(), "remote", opts, 1, 2, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p = node3.ProcessByName("remote")
+	if p == nil {
+		t.Fatal("can't find process 'remote' on node2")
+	}
+	if gotPid != p.Self() {
+		t.Fatal("process pid mismatch")
+	}
+	fmt.Println("OK")
+	fmt.Printf("    process gs3@node3 request to spawn new process on node1 via proxy node2 (node1 ProxyFlags.RemoteSpawn: false): ")
+	process3, err := node3.Spawn("gs3", gen.ProcessOptions{}, &handshakeGenServer{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	gotPid, err = process3.RemoteSpawn(node1.Name(), "remote", opts, 1, 2, 3)
+	if err != node.ErrPeerUnsupported {
 		t.Fatal(err)
 	}
 	fmt.Println("OK")
@@ -539,6 +542,65 @@ func TestNodeResolveExtra(t *testing.T) {
 	fmt.Println("OK")
 }
 
+type failoverServer struct {
+	gen.Server
+	v chan interface{}
+}
+
+func (f *failoverServer) Init(process *gen.ServerProcess, args ...etf.Term) error {
+	return nil
+}
+func (f *failoverServer) HandleInfo(process *gen.ServerProcess, message etf.Term) gen.ServerStatus {
+	if _, yes := gen.IsMessageFallback(message); yes {
+		f.v <- message
+		return gen.ServerStatusOK
+	}
+	time.Sleep(300 * time.Millisecond)
+	return gen.ServerStatusOK
+}
+func TestNodeProcessFallback(t *testing.T) {
+	fmt.Printf("\n=== Test Node Process Fallback\n")
+	fmt.Printf("... start node1: ")
+	node1, e := ergo.StartNode("node1processfallback@localhost", "secret", node.Options{})
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer node1.Stop()
+	fmt.Println("OK")
+	popts1 := gen.ProcessOptions{
+		MailboxSize: 2,
+		Fallback: gen.ProcessFallback{
+			Name: "fp",
+			Tag:  "test_tag",
+		},
+	}
+	gsf := &failoverServer{
+		v: make(chan interface{}, 2),
+	}
+
+	fmt.Printf("... start process p1 (with mailbox size = 2 and fallback process = \"fp\"): ")
+	p1, err := node1.Spawn("", popts1, &failoverServer{})
+	if err != nil {
+		t.Fatal(e)
+	}
+	fmt.Println("OK")
+	fmt.Printf("... start failover process p2 (with name = \"fp\"): ")
+	_, err = node1.Spawn("fp", gen.ProcessOptions{}, gsf)
+	if err != nil {
+		t.Fatal(e)
+	}
+	fmt.Println("OK")
+	fmt.Printf("... sending 4 messages to p1 (4th must wrapped into gen.MessageFallback and forwarded to \"fp\" ): ")
+	p1.Send(p1.Self(), "m1")
+	p1.Send(p1.Self(), "m2")
+	p1.Send(p1.Self(), "m3")
+	// bellow message must be forwarded
+	p1.Send(p1.Self(), "m4")
+
+	result := gen.MessageFallback{Process: p1.Self(), Tag: "test_tag", Message: "m4"}
+	waitForResultWithValue(t, gsf.v, result)
+}
+
 type compressionServer struct {
 	gen.Server
 }
@@ -571,7 +633,7 @@ func TestNodeCompression(t *testing.T) {
 	// need 1 handler to make Atom cache work
 	protoOptions := node.DefaultProtoOptions()
 	protoOptions.NumHandlers = 1
-	opts1.Proto = dist.CreateProto("node1compression@localhost", protoOptions)
+	opts1.Proto = dist.CreateProto(protoOptions)
 	node1, e := ergo.StartNode("node1compression@localhost", "secret", opts1)
 	if e != nil {
 		t.Fatal(e)
@@ -637,6 +699,237 @@ func TestNodeCompression(t *testing.T) {
 		}
 	}
 	fmt.Println("OK")
+}
+
+func TestNodeProxyConnect(t *testing.T) {
+	fmt.Printf("\n=== Test Node Proxy\n")
+	fmt.Printf("... connect NodeA to NodeC via NodeB: ")
+	optsA := node.Options{}
+	nodeA, e := ergo.StartNode("nodeAproxy@localhost", "secret", optsA)
+	if e != nil {
+		t.Fatal(e)
+	}
+	route := node.ProxyRoute{
+		Proxy: "nodeBproxy@localhost",
+	}
+	nodeA.AddProxyRoute("nodeCproxy@localhost", route)
+
+	optsB := node.Options{}
+	optsB.Proxy.Transit = true
+	nodeB, e := ergo.StartNode("nodeBproxy@localhost", "secret", optsB)
+	if e != nil {
+		t.Fatal(e)
+	}
+	optsC := node.Options{}
+	nodeC, e := ergo.StartNode("nodeCproxy@localhost", "secret", optsC)
+	if e != nil {
+		t.Fatal(e)
+	}
+
+	if err := nodeA.Connect("nodeCproxy@localhost"); err != nil {
+		t.Fatal(err)
+	}
+
+	indirectNodes := nodeA.NodesIndirect()
+	if len(indirectNodes) != 1 {
+		t.Fatal("wrong result:", indirectNodes)
+	}
+	if indirectNodes[0] != "nodeCproxy@localhost" {
+		t.Fatal("wrong result:", indirectNodes)
+	}
+	indirectNodes = nodeC.NodesIndirect()
+	if len(indirectNodes) != 1 {
+		t.Fatal("wrong result:", indirectNodes)
+	}
+	if indirectNodes[0] != "nodeAproxy@localhost" {
+		t.Fatal("wrong result:", indirectNodes)
+	}
+	if len(nodeB.NodesIndirect()) > 0 {
+		t.Fatal("wrong result:", nodeB.NodesIndirect())
+	}
+	fmt.Println("OK")
+
+	fmt.Printf("... disconnect NodeC from NodeA: ")
+	nodeC.Disconnect("nodeAproxy@localhost")
+	if len(nodeC.NodesIndirect()) > 0 {
+		t.Fatal("wrong result:", nodeC.NodesIndirect())
+	}
+
+	time.Sleep(100 * time.Millisecond)
+	if len(nodeA.NodesIndirect()) > 0 {
+		t.Fatal("wrong result:", nodeA.NodesIndirect())
+	}
+	fmt.Println("OK")
+	nodeB.Stop()
+	optsB.Proxy.Transit = false
+	nodeB, e = ergo.StartNode("nodeBproxy@localhost", "secret", optsB)
+	if e != nil {
+		t.Fatal(e)
+	}
+	fmt.Printf("... connect NodeA to NodeC via NodeB(transit proxy disabled): ")
+	e = nodeA.Connect("nodeCproxy@localhost")
+	if e == nil {
+		t.Fatal("must be error here")
+	}
+	errMessage := "[nodeBproxy@localhost] proxy feature disabled"
+	if e.Error() != errMessage {
+		t.Fatal(e)
+	}
+	fmt.Println("OK")
+	nodeB.Stop()
+	nodeC.Stop()
+
+	nodeB.Stop()
+	optsB.Proxy.Transit = true
+	nodeB, e = ergo.StartNode("nodeBproxy@localhost", "secret", optsB)
+	if e != nil {
+		t.Fatal(e)
+	}
+
+	optsC.Flags = node.DefaultFlags()
+	optsC.Flags.EnableProxy = false
+	nodeC, e = ergo.StartNode("nodeCproxy@localhost", "secret", optsC)
+	if e != nil {
+		t.Fatal(e)
+	}
+	fmt.Printf("... connect NodeA to NodeC (proxy feature support disabled) via NodeB: ")
+	e = nodeA.Connect("nodeCproxy@localhost")
+	if e == nil {
+		t.Fatal("must be error here")
+	}
+	errMessage = "[nodeBproxy@localhost] peer does not support this feature"
+	if e.Error() != errMessage {
+		t.Fatal(e)
+	}
+	fmt.Println("OK")
+	nodeC.Stop()
+
+	optsC = node.Options{}
+	optsC.Proxy.Cookie = "123"
+	nodeC, e = ergo.StartNode("nodeCproxy@localhost", "secret", optsC)
+	if e != nil {
+		t.Fatal(e)
+	}
+	fmt.Printf("... connect NodeA to NodeC (with wrong cookie) via NodeB: ")
+	e = nodeA.Connect("nodeCproxy@localhost")
+	if e == nil {
+		t.Fatal("must be error here")
+	}
+	errMessage = "[nodeCproxy@localhost] can't establish proxy connection"
+	if e.Error() != errMessage {
+		t.Fatal(e)
+	}
+	fmt.Println("OK")
+
+	fmt.Printf("... connect NodeA to NodeC (with correct cookie) via NodeB: ")
+	if nodeA.RemoveProxyRoute("nodeCproxy@localhost") == false {
+		t.Fatal("proxy route not found")
+	}
+	route = node.ProxyRoute{
+		Proxy:  "nodeBproxy@localhost",
+		Cookie: "123",
+	}
+	nodeA.AddProxyRoute("nodeCproxy@localhost", route)
+
+	e = nodeA.Connect("nodeCproxy@localhost")
+	if e != nil {
+		t.Fatal(e)
+	}
+	fmt.Println("OK")
+
+	fmt.Printf("... connect NodeA to NodeD (with enabled encryption) via NodeB: ")
+	optsD := node.Options{}
+	optsD.Proxy.Cookie = "123"
+	optsD.Proxy.Flags = node.DefaultProxyFlags()
+	optsD.Proxy.Flags.EnableEncryption = true
+	nodeD, e := ergo.StartNode("nodeDproxy@localhost", "secret", optsD)
+	if e != nil {
+		t.Fatal(e)
+	}
+
+	route = node.ProxyRoute{
+		Proxy:  "nodeBproxy@localhost",
+		Cookie: "123",
+	}
+	nodeA.AddProxyRoute("nodeDproxy@localhost", route)
+	e = nodeA.Connect("nodeDproxy@localhost")
+	if e != nil {
+		t.Fatal(e)
+	}
+	fmt.Println("OK")
+
+	// use gen serv from test_monitor
+	gsA := &testMonitor{
+		v: make(chan interface{}, 2),
+	}
+	gsC := &testMonitor{
+		v: make(chan interface{}, 2),
+	}
+	gsD := &testMonitor{
+		v: make(chan interface{}, 2),
+	}
+	fmt.Printf("... start processA on NodeA: ")
+	pA, err := nodeA.Spawn("", gen.ProcessOptions{}, gsA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitForResultWithValue(t, gsA.v, pA.Self())
+	fmt.Printf("... start processC on NodeC: ")
+	pC, err := nodeC.Spawn("", gen.ProcessOptions{}, gsC)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitForResultWithValue(t, gsC.v, pC.Self())
+	fmt.Printf("... start processD on NodeD: ")
+	pD, err := nodeD.Spawn("", gen.ProcessOptions{}, gsD)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitForResultWithValue(t, gsD.v, pD.Self())
+
+	fmt.Printf("... processA send short message to processC: ")
+	pA.Send(pC.Self(), "test")
+	waitForResultWithValue(t, gsC.v, "test")
+
+	fmt.Printf("... processA send short message to processD (encrypted): ")
+	pA.Send(pD.Self(), "test")
+	waitForResultWithValue(t, gsD.v, "test")
+
+	randomString := []byte(lib.RandomString(1024 * 10))
+	pA.SetCompression(true)
+	fmt.Printf("... processA send 10K message to processC (compressed): ")
+	pA.Send(pC.Self(), randomString)
+	waitForResultWithValue(t, gsC.v, randomString)
+
+	fmt.Printf("... processA send 10K message to processD (compressed, encrypted): ")
+	pA.Send(pD.Self(), randomString)
+	waitForResultWithValue(t, gsD.v, randomString)
+
+	pA.SetCompression(false)
+	randomString = []byte(lib.RandomString(1024 * 100))
+	fmt.Printf("... processA send 100K message to processC (fragmented): ")
+	pA.Send(pC.Self(), randomString)
+	waitForResultWithValue(t, gsC.v, randomString)
+
+	fmt.Printf("... processA send 100K message to processD (fragmented, encrypted): ")
+	pA.Send(pD.Self(), randomString)
+	waitForResultWithValue(t, gsD.v, randomString)
+
+	pA.SetCompression(true)
+	randomString = []byte(lib.RandomString(1024 * 1024))
+	fmt.Printf("... processA send 1M message to processC (fragmented, compressed): ")
+	pA.Send(pC.Self(), randomString)
+	waitForResultWithValue(t, gsC.v, randomString)
+
+	fmt.Printf("... processA send 1M message to processD (fragmented, compressed, encrypted): ")
+	pA.Send(pD.Self(), randomString)
+	waitForResultWithValue(t, gsD.v, randomString)
+
+	nodeA.Stop()
+	nodeB.Stop()
+	nodeC.Stop()
+	nodeD.Stop()
+
 }
 
 func BenchmarkNodeCompressionDisabled1MBempty(b *testing.B) {
@@ -780,7 +1073,7 @@ func (b *benchGS) HandleDirect(process *gen.ServerProcess, message interface{}) 
 	return nil, gen.ErrUnsupportedRequest
 }
 
-func BenchmarkNodeSequential(b *testing.B) {
+func BenchmarkNodeSequentialNetwork(b *testing.B) {
 
 	node1name := fmt.Sprintf("nodeB1_%d@localhost", b.N)
 	node2name := fmt.Sprintf("nodeB2_%d@localhost", b.N)
@@ -824,7 +1117,7 @@ func BenchmarkNodeSequential(b *testing.B) {
 	}
 }
 
-func BenchmarkNodeSequentialSingleNode(b *testing.B) {
+func BenchmarkNodeSequentialLocal(b *testing.B) {
 
 	node1name := fmt.Sprintf("nodeB1Local_%d@localhost", b.N)
 	node1, _ := ergo.StartNode(node1name, "bench", node.Options{})
@@ -964,6 +1257,317 @@ func BenchmarkNodeParallelSingleNode(b *testing.B) {
 
 	})
 }
+
+func BenchmarkNodeProxy_NodeA_to_NodeC_direct_Message_1K(b *testing.B) {
+	node1name := fmt.Sprintf("nodeB1ProxyDisabled%d@localhost", b.N)
+	node2name := fmt.Sprintf("nodeB2ProxyDisabled%d@localhost", b.N)
+	node1, _ := ergo.StartNode(node1name, "bench", node.Options{})
+	node2, _ := ergo.StartNode(node2name, "bench", node.Options{})
+	defer node1.Stop()
+	defer node2.Stop()
+
+	bgs := &benchGS{}
+
+	p1, e1 := node1.Spawn("", gen.ProcessOptions{}, bgs)
+	if e1 != nil {
+		b.Fatal(e1)
+	}
+	p2, e2 := node2.Spawn("", gen.ProcessOptions{}, bgs)
+	if e2 != nil {
+		b.Fatal(e2)
+	}
+
+	call := makeCall{
+		to:      p2.Self(),
+		message: "hi",
+	}
+	if _, e := p1.Direct(call); e != nil {
+		b.Fatal("single ping", e)
+	}
+
+	randomString := []byte(lib.RandomString(1024))
+	b.SetParallelism(15)
+	b.RunParallel(func(pb *testing.PB) {
+		p1, e1 := node1.Spawn("", gen.ProcessOptions{}, bgs)
+		if e1 != nil {
+			b.Fatal(e1)
+		}
+		p2, e2 := node2.Spawn("", gen.ProcessOptions{}, bgs)
+		if e2 != nil {
+			b.Fatal(e2)
+		}
+		b.ResetTimer()
+		for pb.Next() {
+			call := makeCall{
+				to:      p2.Self(),
+				message: randomString,
+			}
+			_, e := p1.Direct(call)
+			if e != nil {
+				b.Fatal(e)
+			}
+		}
+
+	})
+}
+func BenchmarkNodeProxy_NodeA_to_NodeC_via_NodeB_Message_1K(b *testing.B) {
+	node1name := fmt.Sprintf("nodeB1ProxyEnabled1K%d@localhost", b.N)
+	node2name := fmt.Sprintf("nodeB2ProxyEnabled1K%d@localhost", b.N)
+	node3name := fmt.Sprintf("nodeB3ProxyEnabled1K%d@localhost", b.N)
+	node1, _ := ergo.StartNode(node1name, "bench", node.Options{})
+	opts2 := node.Options{}
+	opts2.Proxy.Transit = true
+	node2, _ := ergo.StartNode(node2name, "bench", opts2)
+	node3, _ := ergo.StartNode(node3name, "bench", node.Options{})
+	defer node1.Stop()
+	defer node2.Stop()
+	defer node3.Stop()
+	route := node.ProxyRoute{
+		Proxy: node2.Name(),
+	}
+	node1.AddProxyRoute(node3.Name(), route)
+
+	bgs := &benchGS{}
+
+	p1, e1 := node1.Spawn("", gen.ProcessOptions{}, bgs)
+	if e1 != nil {
+		b.Fatal(e1)
+	}
+	p3, e3 := node3.Spawn("", gen.ProcessOptions{}, bgs)
+	if e3 != nil {
+		b.Fatal(e3)
+	}
+
+	call := makeCall{
+		to:      p3.Self(),
+		message: "hi",
+	}
+	if _, e := p1.Direct(call); e != nil {
+		b.Fatal("single ping", e)
+	}
+
+	randomString := []byte(lib.RandomString(1024))
+	b.SetParallelism(15)
+	b.RunParallel(func(pb *testing.PB) {
+		p1, e1 := node1.Spawn("", gen.ProcessOptions{}, bgs)
+		if e1 != nil {
+			b.Fatal(e1)
+		}
+		p3, e3 := node3.Spawn("", gen.ProcessOptions{}, bgs)
+		if e3 != nil {
+			b.Fatal(e3)
+		}
+		b.ResetTimer()
+		for pb.Next() {
+			call := makeCall{
+				to:      p3.Self(),
+				message: randomString,
+			}
+			_, e := p1.Direct(call)
+			if e != nil {
+				b.Fatal(e)
+			}
+		}
+
+	})
+}
+
+func BenchmarkNodeProxy_NodeA_to_NodeC_via_NodeB_Message_1K_Encrypted(b *testing.B) {
+	node1name := fmt.Sprintf("nodeB1ProxyEnabled1K%d@localhost", b.N)
+	node2name := fmt.Sprintf("nodeB2ProxyEnabled1K%d@localhost", b.N)
+	node3name := fmt.Sprintf("nodeB3ProxyEnabled1K%d@localhost", b.N)
+	opts1 := node.Options{}
+	opts1.Proxy.Flags = node.DefaultProxyFlags()
+	opts1.Proxy.Flags.EnableEncryption = true
+	node1, _ := ergo.StartNode(node1name, "bench", opts1)
+	opts2 := node.Options{}
+	opts2.Proxy.Transit = true
+	node2, _ := ergo.StartNode(node2name, "bench", opts2)
+	node3, _ := ergo.StartNode(node3name, "bench", node.Options{})
+	defer node1.Stop()
+	defer node2.Stop()
+	defer node3.Stop()
+	route := node.ProxyRoute{
+		Proxy: node2.Name(),
+	}
+	node1.AddProxyRoute(node3.Name(), route)
+
+	bgs := &benchGS{}
+
+	p1, e1 := node1.Spawn("", gen.ProcessOptions{}, bgs)
+	if e1 != nil {
+		b.Fatal(e1)
+	}
+	p3, e3 := node3.Spawn("", gen.ProcessOptions{}, bgs)
+	if e3 != nil {
+		b.Fatal(e3)
+	}
+
+	call := makeCall{
+		to:      p3.Self(),
+		message: "hi",
+	}
+	if _, e := p1.Direct(call); e != nil {
+		b.Fatal("single ping", e)
+	}
+
+	randomString := []byte(lib.RandomString(1024))
+	b.SetParallelism(15)
+	b.RunParallel(func(pb *testing.PB) {
+		p1, e1 := node1.Spawn("", gen.ProcessOptions{}, bgs)
+		if e1 != nil {
+			b.Fatal(e1)
+		}
+		p3, e3 := node3.Spawn("", gen.ProcessOptions{}, bgs)
+		if e3 != nil {
+			b.Fatal(e3)
+		}
+		b.ResetTimer()
+		for pb.Next() {
+			call := makeCall{
+				to:      p3.Self(),
+				message: randomString,
+			}
+			_, e := p1.Direct(call)
+			if e != nil {
+				b.Fatal(e)
+			}
+		}
+
+	})
+}
+
+func BenchmarkNodeProxy_NodeA_to_NodeC_via_NodeB_Message_1M_Compressed(b *testing.B) {
+	node1name := fmt.Sprintf("nodeB1ProxyEnabled1K%d@localhost", b.N)
+	node2name := fmt.Sprintf("nodeB2ProxyEnabled1K%d@localhost", b.N)
+	node3name := fmt.Sprintf("nodeB3ProxyEnabled1K%d@localhost", b.N)
+	opts1 := node.Options{}
+	opts1.Proxy.Flags = node.DefaultProxyFlags()
+	opts1.Proxy.Flags.EnableEncryption = false
+	node1, _ := ergo.StartNode(node1name, "bench", opts1)
+	opts2 := node.Options{}
+	opts2.Proxy.Transit = true
+	node2, _ := ergo.StartNode(node2name, "bench", opts2)
+	node3, _ := ergo.StartNode(node3name, "bench", node.Options{})
+	defer node1.Stop()
+	defer node2.Stop()
+	defer node3.Stop()
+	route := node.ProxyRoute{
+		Proxy: node2.Name(),
+	}
+	node1.AddProxyRoute(node3.Name(), route)
+
+	bgs := &benchGS{}
+
+	p1, e1 := node1.Spawn("", gen.ProcessOptions{}, bgs)
+	if e1 != nil {
+		b.Fatal(e1)
+	}
+	p3, e3 := node3.Spawn("", gen.ProcessOptions{}, bgs)
+	if e3 != nil {
+		b.Fatal(e3)
+	}
+
+	call := makeCall{
+		to:      p3.Self(),
+		message: "hi",
+	}
+	if _, e := p1.Direct(call); e != nil {
+		b.Fatal("single ping", e)
+	}
+
+	randomString := []byte(lib.RandomString(1024 * 1024))
+	b.SetParallelism(15)
+	b.RunParallel(func(pb *testing.PB) {
+		p1, e1 := node1.Spawn("", gen.ProcessOptions{}, bgs)
+		if e1 != nil {
+			b.Fatal(e1)
+		}
+		p3, e3 := node3.Spawn("", gen.ProcessOptions{}, bgs)
+		if e3 != nil {
+			b.Fatal(e3)
+		}
+		b.ResetTimer()
+		for pb.Next() {
+			call := makeCall{
+				to:      p3.Self(),
+				message: randomString,
+			}
+			_, e := p1.Direct(call)
+			if e != nil {
+				b.Fatal(e)
+			}
+		}
+
+	})
+}
+
+func BenchmarkNodeProxy_NodeA_to_NodeC_via_NodeB_Message_1M_CompressedEncrypted(b *testing.B) {
+	node1name := fmt.Sprintf("nodeB1ProxyEnabled1K%d@localhost", b.N)
+	node2name := fmt.Sprintf("nodeB2ProxyEnabled1K%d@localhost", b.N)
+	node3name := fmt.Sprintf("nodeB3ProxyEnabled1K%d@localhost", b.N)
+	opts1 := node.Options{}
+	opts1.Proxy.Flags = node.DefaultProxyFlags()
+	opts1.Proxy.Flags.EnableEncryption = true
+	node1, _ := ergo.StartNode(node1name, "bench", opts1)
+	opts2 := node.Options{}
+	opts2.Proxy.Transit = true
+	node2, _ := ergo.StartNode(node2name, "bench", opts2)
+	node3, _ := ergo.StartNode(node3name, "bench", node.Options{})
+	defer node1.Stop()
+	defer node2.Stop()
+	defer node3.Stop()
+	route := node.ProxyRoute{
+		Proxy: node2.Name(),
+	}
+	node1.AddProxyRoute(node3.Name(), route)
+
+	bgs := &benchGS{}
+
+	p1, e1 := node1.Spawn("", gen.ProcessOptions{}, bgs)
+	if e1 != nil {
+		b.Fatal(e1)
+	}
+	p3, e3 := node3.Spawn("", gen.ProcessOptions{}, bgs)
+	if e3 != nil {
+		b.Fatal(e3)
+	}
+
+	call := makeCall{
+		to:      p3.Self(),
+		message: "hi",
+	}
+	if _, e := p1.Direct(call); e != nil {
+		b.Fatal("single ping", e)
+	}
+
+	randomString := []byte(lib.RandomString(1024 * 1024))
+	b.SetParallelism(15)
+	b.RunParallel(func(pb *testing.PB) {
+		p1, e1 := node1.Spawn("", gen.ProcessOptions{}, bgs)
+		if e1 != nil {
+			b.Fatal(e1)
+		}
+		p1.SetCompression(true)
+		p3, e3 := node3.Spawn("", gen.ProcessOptions{}, bgs)
+		if e3 != nil {
+			b.Fatal(e3)
+		}
+		b.ResetTimer()
+		for pb.Next() {
+			call := makeCall{
+				to:      p3.Self(),
+				message: randomString,
+			}
+			_, e := p1.Direct(call)
+			if e != nil {
+				b.Fatal(e)
+			}
+		}
+
+	})
+}
+
 func benchCases() []benchCase {
 	return []benchCase{
 		{"number", 12345},

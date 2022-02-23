@@ -4,6 +4,9 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/aes"
+	"crypto/cipher"
+	crand "crypto/rand"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -19,10 +22,9 @@ import (
 )
 
 var (
-	ErrMissingInCache     = fmt.Errorf("missing in cache")
-	ErrMalformed          = fmt.Errorf("malformed")
-	ErrOverloadConnection = fmt.Errorf("connection buffer is overloaded")
-	gzipReaders           = &sync.Pool{
+	errMissingInCache = fmt.Errorf("missing in cache")
+	errMalformed      = fmt.Errorf("malformed")
+	gzipReaders       = &sync.Pool{
 		New: func() interface{} {
 			return nil
 		},
@@ -52,20 +54,21 @@ const (
 	defaultCleanTimeout  = 5 * time.Second  // for checkClean
 	defaultCleanDeadline = 30 * time.Second // for checkClean
 
+	// ergo proxy message
+	protoProxy = 141
+	// ergo proxy encrypted message
+	protoProxyX = 142
+
 	// http://erlang.org/doc/apps/erts/erl_ext_dist.html#distribution_header
-	protoDist           = 131
-	protoDistCompressed = 80
-	protoDistMessage    = 68
-	protoDistFragment1  = 69
-	protoDistFragmentN  = 70
+	protoDist          = 131
+	protoDistMessage   = 68
+	protoDistFragment1 = 69
+	protoDistFragmentN = 70
 
 	// ergo gzipped messages
 	protoDistMessageZ   = 200
 	protoDistFragment1Z = 201
 	protoDistFragmentNZ = 202
-
-	// ergo proxy message
-	protoDistProxy = 210
 )
 
 type fragmentedPacket struct {
@@ -74,6 +77,12 @@ type fragmentedPacket struct {
 	disorderedSlices map[uint64][]byte
 	fragmentID       uint64
 	lastUpdate       time.Time
+}
+
+type proxySession struct {
+	session     node.ProxySession
+	cache       etf.AtomCache
+	senderCache []map[etf.Atom]etf.CacheItem
 }
 
 type distConnection struct {
@@ -90,6 +99,11 @@ type distConnection struct {
 	conn          io.ReadWriter
 	cancelContext context.CancelFunc
 
+	// proxy session (endpoints)
+	proxySessionsByID       map[string]proxySession
+	proxySessionsByPeerName map[string]proxySession
+	proxySessionsMutex      sync.RWMutex
+
 	// route incoming messages
 	router node.CoreRouter
 
@@ -101,12 +115,8 @@ type distConnection struct {
 	// receivers list of channels for the receiving goroutines
 	receivers receivers
 
-	// atom cache for incoming messages
-	cacheIn      [2048]*etf.Atom
-	cacheInMutex sync.RWMutex
-
 	// atom cache for outgoing messages
-	cacheOut *etf.AtomCache
+	cache etf.AtomCache
 
 	// fragmentation sequence ID
 	sequenceID     int64
@@ -126,10 +136,9 @@ type distProto struct {
 	options  node.ProtoOptions
 }
 
-func CreateProto(nodename string, options node.ProtoOptions) node.ProtoInterface {
+func CreateProto(options node.ProtoOptions) node.ProtoInterface {
 	return &distProto{
-		nodename: nodename,
-		options:  options,
+		options: options,
 	}
 }
 
@@ -149,11 +158,13 @@ type senderChannel struct {
 }
 
 type sendMessage struct {
+	packet               *lib.Buffer
 	control              etf.Term
 	payload              etf.Term
 	compression          bool
 	compressionLevel     int
 	compressionThreshold int
+	proxy                *proxySession
 }
 
 type receivers struct {
@@ -162,22 +173,20 @@ type receivers struct {
 	i    int32
 }
 
-func (dp *distProto) Init(ctx context.Context, conn io.ReadWriter, peername string, flags node.Flags) (node.ConnectionInterface, error) {
+func (dp *distProto) Init(ctx context.Context, conn io.ReadWriter, nodename string, peername string, flags node.Flags) (node.ConnectionInterface, error) {
 	connection := &distConnection{
-		nodename:           dp.nodename,
-		peername:           peername,
-		flags:              flags,
-		conn:               conn,
-		fragments:          make(map[uint64]*fragmentedPacket),
-		checkCleanTimeout:  defaultCleanTimeout,
-		checkCleanDeadline: defaultCleanDeadline,
+		nodename:                nodename,
+		peername:                peername,
+		flags:                   flags,
+		conn:                    conn,
+		cache:                   etf.NewAtomCache(),
+		proxySessionsByID:       make(map[string]proxySession),
+		proxySessionsByPeerName: make(map[string]proxySession),
+		fragments:               make(map[uint64]*fragmentedPacket),
+		checkCleanTimeout:       defaultCleanTimeout,
+		checkCleanDeadline:      defaultCleanDeadline,
 	}
 	connection.ctx, connection.cancelContext = context.WithCancel(ctx)
-
-	// initializing atom cache if its enabled
-	if flags.EnableHeaderAtomCache {
-		connection.cacheOut = etf.StartAtomCache()
-	}
 
 	// create connection buffering
 	connection.flusher = newLinkFlusher(conn, defaultLatency, flags.EnableSoftwareKeepAlive)
@@ -208,7 +217,7 @@ func (dp *distProto) Init(ctx context.Context, conn io.ReadWriter, peername stri
 		connection.senders.sender[i] = &senderChannel{
 			sendChannel: send,
 		}
-		go connection.sender(send, dp.options, connection.flags)
+		go connection.sender(i, send, dp.options, connection.flags)
 	}
 
 	return connection, nil
@@ -217,7 +226,7 @@ func (dp *distProto) Init(ctx context.Context, conn io.ReadWriter, peername stri
 func (dp *distProto) Serve(ci node.ConnectionInterface, router node.CoreRouter) {
 	connection, ok := ci.(*distConnection)
 	if !ok {
-		fmt.Println("conn is not a *distConnection type")
+		lib.Warning("conn is not a *distConnection type")
 		return
 	}
 
@@ -235,7 +244,7 @@ func (dp *distProto) Serve(ci node.ConnectionInterface, router node.CoreRouter) 
 		if err != nil || packetLength == 0 {
 			// link was closed or got malformed data
 			if err != nil {
-				fmt.Println("link was closed", connection.peername, "error:", err)
+				lib.Warning("link was closed", connection.peername, "error:", err)
 			}
 			lib.ReleaseBuffer(b)
 			return
@@ -275,7 +284,7 @@ func (dp *distProto) Serve(ci node.ConnectionInterface, router node.CoreRouter) 
 func (dp *distProto) Terminate(ci node.ConnectionInterface) {
 	connection, ok := ci.(*distConnection)
 	if !ok {
-		fmt.Println("conn is not a *distConnection type")
+		lib.Warning("conn is not a *distConnection type")
 		return
 	}
 
@@ -292,9 +301,6 @@ func (dp *distProto) Terminate(ci node.ConnectionInterface) {
 			close(connection.receivers.recv[i])
 		}
 	}
-	if connection.cacheOut != nil {
-		connection.cacheOut.Stop()
-	}
 	connection.flusher.Stop()
 	connection.cancelContext()
 }
@@ -306,26 +312,21 @@ func (dc *distConnection) Send(from gen.Process, to etf.Pid, message etf.Term) e
 
 	msg.control = etf.Tuple{distProtoSEND, etf.Atom(""), to}
 	msg.payload = message
-	if dc.flags.EnableCompression {
-		msg.compression = from.Compression()
-		msg.compressionLevel = from.CompressionLevel()
-		msg.compressionThreshold = from.CompressionThreshold()
-	}
+	msg.compression = from.Compression()
+	msg.compressionLevel = from.CompressionLevel()
+	msg.compressionThreshold = from.CompressionThreshold()
 
-	return dc.send(msg)
+	return dc.send(string(to.Node), msg)
 }
 func (dc *distConnection) SendReg(from gen.Process, to gen.ProcessID, message etf.Term) error {
 	msg := sendMessages.Get().(*sendMessage)
 
 	msg.control = etf.Tuple{distProtoREG_SEND, from.Self(), etf.Atom(""), etf.Atom(to.Name)}
 	msg.payload = message
-
-	if dc.flags.EnableCompression {
-		msg.compression = from.Compression()
-		msg.compressionLevel = from.CompressionLevel()
-		msg.compressionThreshold = from.CompressionThreshold()
-	}
-	return dc.send(msg)
+	msg.compression = from.Compression()
+	msg.compressionLevel = from.CompressionLevel()
+	msg.compressionThreshold = from.CompressionThreshold()
+	return dc.send(to.Node, msg)
 }
 func (dc *distConnection) SendAlias(from gen.Process, to etf.Alias, message etf.Term) error {
 	if dc.flags.EnableAlias == false {
@@ -336,74 +337,117 @@ func (dc *distConnection) SendAlias(from gen.Process, to etf.Alias, message etf.
 
 	msg.control = etf.Tuple{distProtoALIAS_SEND, from.Self(), to}
 	msg.payload = message
+	msg.compression = from.Compression()
+	msg.compressionLevel = from.CompressionLevel()
+	msg.compressionThreshold = from.CompressionThreshold()
 
-	if dc.flags.EnableCompression {
-		msg.compression = from.Compression()
-		msg.compressionLevel = from.CompressionLevel()
-		msg.compressionThreshold = from.CompressionThreshold()
-	}
-	return dc.send(msg)
+	return dc.send(string(to.Node), msg)
 }
 
 func (dc *distConnection) Link(local etf.Pid, remote etf.Pid) error {
+	dc.proxySessionsMutex.RLock()
+	ps, isProxy := dc.proxySessionsByPeerName[string(remote.Node)]
+	dc.proxySessionsMutex.RUnlock()
+	if isProxy && ps.session.PeerFlags.EnableLink == false {
+		return node.ErrPeerUnsupported
+	}
 	msg := &sendMessage{
 		control: etf.Tuple{distProtoLINK, local, remote},
 	}
-	return dc.send(msg)
+	return dc.send(string(remote.Node), msg)
 }
 func (dc *distConnection) Unlink(local etf.Pid, remote etf.Pid) error {
+	dc.proxySessionsMutex.RLock()
+	ps, isProxy := dc.proxySessionsByPeerName[string(remote.Node)]
+	dc.proxySessionsMutex.RUnlock()
+	if isProxy && ps.session.PeerFlags.EnableLink == false {
+		return node.ErrPeerUnsupported
+	}
 	msg := &sendMessage{
 		control: etf.Tuple{distProtoUNLINK, local, remote},
 	}
-	return dc.send(msg)
+	return dc.send(string(remote.Node), msg)
 }
 func (dc *distConnection) LinkExit(to etf.Pid, terminated etf.Pid, reason string) error {
 	msg := &sendMessage{
 		control: etf.Tuple{distProtoEXIT, terminated, to, etf.Atom(reason)},
 	}
-	return dc.send(msg)
+	return dc.send(string(to.Node), msg)
 }
 
 func (dc *distConnection) Monitor(local etf.Pid, remote etf.Pid, ref etf.Ref) error {
+	dc.proxySessionsMutex.RLock()
+	ps, isProxy := dc.proxySessionsByPeerName[string(remote.Node)]
+	dc.proxySessionsMutex.RUnlock()
+	if isProxy && ps.session.PeerFlags.EnableMonitor == false {
+		return node.ErrPeerUnsupported
+	}
 	msg := &sendMessage{
 		control: etf.Tuple{distProtoMONITOR, local, remote, ref},
 	}
-	return dc.send(msg)
+	return dc.send(string(remote.Node), msg)
 }
 func (dc *distConnection) MonitorReg(local etf.Pid, remote gen.ProcessID, ref etf.Ref) error {
+	dc.proxySessionsMutex.RLock()
+	ps, isProxy := dc.proxySessionsByPeerName[remote.Node]
+	dc.proxySessionsMutex.RUnlock()
+	if isProxy && ps.session.PeerFlags.EnableMonitor == false {
+		return node.ErrPeerUnsupported
+	}
 	msg := &sendMessage{
 		control: etf.Tuple{distProtoMONITOR, local, etf.Atom(remote.Name), ref},
 	}
-	return dc.send(msg)
+	return dc.send(remote.Node, msg)
 }
 func (dc *distConnection) Demonitor(local etf.Pid, remote etf.Pid, ref etf.Ref) error {
+	dc.proxySessionsMutex.RLock()
+	ps, isProxy := dc.proxySessionsByPeerName[string(remote.Node)]
+	dc.proxySessionsMutex.RUnlock()
+	if isProxy && ps.session.PeerFlags.EnableMonitor == false {
+		return node.ErrPeerUnsupported
+	}
 	msg := &sendMessage{
 		control: etf.Tuple{distProtoDEMONITOR, local, remote, ref},
 	}
-	return dc.send(msg)
+	return dc.send(string(remote.Node), msg)
 }
 func (dc *distConnection) DemonitorReg(local etf.Pid, remote gen.ProcessID, ref etf.Ref) error {
+	dc.proxySessionsMutex.RLock()
+	ps, isProxy := dc.proxySessionsByPeerName[remote.Node]
+	dc.proxySessionsMutex.RUnlock()
+	if isProxy && ps.session.PeerFlags.EnableMonitor == false {
+		return node.ErrPeerUnsupported
+	}
 	msg := &sendMessage{
 		control: etf.Tuple{distProtoDEMONITOR, local, etf.Atom(remote.Name), ref},
 	}
-	return dc.send(msg)
+	return dc.send(remote.Node, msg)
 }
 func (dc *distConnection) MonitorExitReg(to etf.Pid, terminated gen.ProcessID, reason string, ref etf.Ref) error {
 	msg := &sendMessage{
 		control: etf.Tuple{distProtoMONITOR_EXIT, etf.Atom(terminated.Name), to, ref, etf.Atom(reason)},
 	}
-	return dc.send(msg)
+	return dc.send(string(to.Node), msg)
 }
 func (dc *distConnection) MonitorExit(to etf.Pid, terminated etf.Pid, reason string, ref etf.Ref) error {
 	msg := &sendMessage{
 		control: etf.Tuple{distProtoMONITOR_EXIT, terminated, to, ref, etf.Atom(reason)},
 	}
-	return dc.send(msg)
+	return dc.send(string(to.Node), msg)
 }
 
-func (dc *distConnection) SpawnRequest(behaviorName string, request gen.RemoteSpawnRequest, args ...etf.Term) error {
-	if dc.flags.EnableRemoteSpawn == false {
-		return node.ErrUnsupported
+func (dc *distConnection) SpawnRequest(nodeName string, behaviorName string, request gen.RemoteSpawnRequest, args ...etf.Term) error {
+	dc.proxySessionsMutex.RLock()
+	ps, isProxy := dc.proxySessionsByPeerName[nodeName]
+	dc.proxySessionsMutex.RUnlock()
+	if isProxy {
+		if ps.session.PeerFlags.EnableRemoteSpawn == false {
+			return node.ErrPeerUnsupported
+		}
+	} else {
+		if dc.flags.EnableRemoteSpawn == false {
+			return node.ErrPeerUnsupported
+		}
 	}
 
 	optlist := etf.List{}
@@ -419,25 +463,153 @@ func (dc *distConnection) SpawnRequest(behaviorName string, request gen.RemoteSp
 		},
 		payload: args,
 	}
-	return dc.send(msg)
+	return dc.send(nodeName, msg)
 }
 
 func (dc *distConnection) SpawnReply(to etf.Pid, ref etf.Ref, pid etf.Pid) error {
 	msg := &sendMessage{
 		control: etf.Tuple{distProtoSPAWN_REPLY, ref, to, 0, pid},
 	}
-	return dc.send(msg)
+	return dc.send(string(to.Node), msg)
 }
 
 func (dc *distConnection) SpawnReplyError(to etf.Pid, ref etf.Ref, err error) error {
 	msg := &sendMessage{
 		control: etf.Tuple{distProtoSPAWN_REPLY, ref, to, 0, etf.Atom(err.Error())},
 	}
-	return dc.send(msg)
+	return dc.send(string(to.Node), msg)
 }
 
-func (dc *distConnection) Proxy() error {
+func (dc *distConnection) ProxyConnectRequest(request node.ProxyConnectRequest) error {
+	if dc.flags.EnableProxy == false {
+		return node.ErrPeerUnsupported
+	}
+
+	path := []etf.Atom{}
+	for i := range request.Path {
+		path = append(path, etf.Atom(request.Path[i]))
+	}
+
+	msg := &sendMessage{
+		control: etf.Tuple{distProtoPROXY_CONNECT_REQUEST,
+			request.ID,           // etf.Ref
+			etf.Atom(request.To), // to node
+			request.Digest,       //
+			request.PublicKey,    // public key for the sending symmetric key
+			proxyFlagsToUint64(request.Flags),
+			request.Hop,
+			path,
+		},
+	}
+	return dc.send(dc.peername, msg)
+}
+
+func (dc *distConnection) ProxyConnectReply(reply node.ProxyConnectReply) error {
+	if dc.flags.EnableProxy == false {
+		return node.ErrPeerUnsupported
+	}
+
+	path := etf.List{}
+	for i := range reply.Path {
+		path = append(path, etf.Atom(reply.Path[i]))
+	}
+
+	msg := &sendMessage{
+		control: etf.Tuple{distProtoPROXY_CONNECT_REPLY,
+			reply.ID,           // etf.Ref
+			etf.Atom(reply.To), // to node
+			reply.Digest,       //
+			reply.Cipher,       //
+			proxyFlagsToUint64(reply.Flags),
+			reply.SessionID,
+			path,
+		},
+	}
+
+	return dc.send(dc.peername, msg)
+}
+
+func (dc *distConnection) ProxyConnectCancel(err node.ProxyConnectCancel) error {
+	if dc.flags.EnableProxy == false {
+		return node.ErrPeerUnsupported
+	}
+
+	path := etf.List{}
+	for i := range err.Path {
+		path = append(path, etf.Atom(err.Path[i]))
+	}
+
+	msg := &sendMessage{
+		control: etf.Tuple{distProtoPROXY_CONNECT_CANCEL,
+			err.ID,             // etf.Ref
+			etf.Atom(err.From), // from node
+			err.Reason,
+			path,
+		},
+	}
+
+	return dc.send(dc.peername, msg)
+}
+
+func (dc *distConnection) ProxyDisconnect(disconnect node.ProxyDisconnect) error {
+	if dc.flags.EnableProxy == false {
+		return node.ErrPeerUnsupported
+	}
+
+	msg := &sendMessage{
+		control: etf.Tuple{distProtoPROXY_DISCONNECT,
+			etf.Atom(disconnect.Node),
+			etf.Atom(disconnect.Proxy),
+			disconnect.SessionID,
+			disconnect.Reason,
+		},
+	}
+
+	return dc.send(dc.peername, msg)
+}
+
+func (dc *distConnection) ProxyRegisterSession(session node.ProxySession) error {
+	dc.proxySessionsMutex.Lock()
+	defer dc.proxySessionsMutex.Unlock()
+	_, exist := dc.proxySessionsByPeerName[session.PeerName]
+	if exist {
+		return node.ErrProxySessionDuplicate
+	}
+	_, exist = dc.proxySessionsByID[session.ID]
+	if exist {
+		return node.ErrProxySessionDuplicate
+	}
+	ps := proxySession{
+		session: session,
+		cache:   etf.NewAtomCache(),
+		// every sender should have its own senderAtomCache in the proxy session
+		senderCache: make([]map[etf.Atom]etf.CacheItem, len(dc.senders.sender)),
+	}
+	dc.proxySessionsByPeerName[session.PeerName] = ps
+	dc.proxySessionsByID[session.ID] = ps
 	return nil
+}
+
+func (dc *distConnection) ProxyUnregisterSession(id string) error {
+	dc.proxySessionsMutex.Lock()
+	defer dc.proxySessionsMutex.Unlock()
+	ps, exist := dc.proxySessionsByID[id]
+	if exist == false {
+		return node.ErrProxySessionUnknown
+	}
+	delete(dc.proxySessionsByPeerName, ps.session.PeerName)
+	delete(dc.proxySessionsByID, ps.session.ID)
+	return nil
+}
+
+func (dc *distConnection) ProxyPacket(packet *lib.Buffer) error {
+	if dc.flags.EnableProxy == false {
+		return node.ErrPeerUnsupported
+	}
+	msg := &sendMessage{
+		packet: packet,
+	}
+	return dc.send(dc.peername, msg)
 }
 
 //
@@ -447,7 +619,6 @@ func (dc *distConnection) Proxy() error {
 func (dc *distConnection) read(b *lib.Buffer, max int) (int, error) {
 	// http://erlang.org/doc/apps/erts/erl_dist_protocol.html#protocol-between-connected-nodes
 	expectingBytes := 4
-
 	for {
 		if b.Len() < expectingBytes {
 			n, e := b.ReadDataFrom(dc.conn, max)
@@ -469,7 +640,11 @@ func (dc *distConnection) read(b *lib.Buffer, max int) (int, error) {
 		if packetLength == 0 {
 			// it was "software" keepalive
 			expectingBytes = 4
-			b.Reset()
+			if len(b.B) == 4 {
+				b.Reset()
+				continue
+			}
+			b.B = b.B[4:]
 			continue
 		}
 
@@ -486,6 +661,12 @@ func (dc *distConnection) read(b *lib.Buffer, max int) (int, error) {
 type deferrMissing struct {
 	b *lib.Buffer
 	c int
+}
+
+type distMessage struct {
+	control etf.Term
+	payload etf.Term
+	proxy   *proxySession
 }
 
 func (dc *distConnection) receiver(recv <-chan *lib.Buffer) {
@@ -530,11 +711,11 @@ func (dc *distConnection) receiver(recv <-chan *lib.Buffer) {
 		}
 
 		// read and decode received packet
-		control, message, err := dc.decodePacket(b.B)
+		message, err := dc.decodePacket(b)
 
-		if err == ErrMissingInCache {
+		if err == errMissingInCache {
 			if b == missing.b && missing.c > 100 {
-				fmt.Println("Error: Disordered data at the link with", dc.peername, ". Close connection")
+				lib.Warning("Disordered data at the link with", dc.peername, ". Close connection")
 				dc.cancelContext()
 				lib.ReleaseBuffer(b)
 				return
@@ -553,7 +734,7 @@ func (dc *distConnection) receiver(recv <-chan *lib.Buffer) {
 				dChannel = nil
 				continue
 			default:
-				fmt.Println("Error: Mess at the link with", dc.peername, ". Close connection")
+				lib.Warning("Mess at the link with", dc.peername, ". Close connection")
 				dc.cancelContext()
 				lib.ReleaseBuffer(b)
 				return
@@ -563,23 +744,37 @@ func (dc *distConnection) receiver(recv <-chan *lib.Buffer) {
 		dChannel = deferrChannel
 
 		if err != nil {
-			fmt.Println("Malformed Dist proto at the link with", dc.peername, err)
+			lib.Warning("[%s] Malformed Dist proto at the link with %s: %s\n", dc.nodename, dc.peername, err)
 			dc.cancelContext()
 			lib.ReleaseBuffer(b)
 			return
 		}
 
-		if control == nil {
-			// fragment
+		if message == nil {
+			// fragment or proxy message
 			continue
 		}
 
 		// handle message
-		if err := dc.handleMessage(control, message); err != nil {
-			fmt.Printf("Malformed Control packet at the link with %s: %#v\n", dc.peername, control)
-			dc.cancelContext()
-			lib.ReleaseBuffer(b)
-			return
+		if err := dc.handleMessage(message); err != nil {
+			if message.proxy == nil {
+				lib.Warning("[%s] Malformed Control packet at the link with %s: %#v\n", dc.nodename, dc.peername, message.control)
+				dc.cancelContext()
+				lib.ReleaseBuffer(b)
+				return
+			}
+			// drop proxy session
+			lib.Warning("[%s] Malformed Control packet at the proxy link with %s: %#v\n", dc.nodename, message.proxy.session.PeerName, message.control)
+			disconnect := node.ProxyDisconnect{
+				Node:      dc.nodename,
+				Proxy:     dc.nodename,
+				SessionID: message.proxy.session.ID,
+				Reason:    err.Error(),
+			}
+			// route it locally to unregister this session
+			dc.router.RouteProxyDisconnect(dc, disconnect)
+			// send it to the peer
+			dc.ProxyDisconnect(disconnect)
 		}
 
 		// we have to release this buffer
@@ -588,36 +783,179 @@ func (dc *distConnection) receiver(recv <-chan *lib.Buffer) {
 	}
 }
 
-func (dc *distConnection) decodePacket(packet []byte) (etf.Term, etf.Term, error) {
+func (dc *distConnection) decodePacket(b *lib.Buffer) (*distMessage, error) {
+	packet := b.B
 	if len(packet) < 5 {
-		return nil, nil, fmt.Errorf("malformed packet")
+		return nil, fmt.Errorf("malformed packet")
 	}
 
 	// [:3] length
 	switch packet[4] {
 	case protoDist:
-		return dc.decodeDist(packet[5:])
+		// do not check the length. it was checked on the receiving this packet.
+		control, payload, err := dc.decodeDist(packet[5:], nil)
+		if control == nil {
+			return nil, err
+		}
+		message := &distMessage{control: control, payload: payload}
+		return message, err
+
+	case protoProxy:
+		sessionID := string(packet[5:37])
+		dc.proxySessionsMutex.RLock()
+		ps, exist := dc.proxySessionsByID[sessionID]
+		dc.proxySessionsMutex.RUnlock()
+		if exist == false {
+			// must be send further
+			if err := dc.router.RouteProxy(dc, sessionID, b); err != nil {
+				// drop proxy session
+				disconnect := node.ProxyDisconnect{
+					Node:      dc.nodename,
+					Proxy:     dc.nodename,
+					SessionID: sessionID,
+					Reason:    err.Error(),
+				}
+				dc.ProxyDisconnect(disconnect)
+			}
+			return nil, nil
+		}
+		// this node is endpoint of this session
+		packet = b.B[37:]
+		control, payload, err := dc.decodeDist(packet, &ps)
+		if err != nil {
+			if err == errMissingInCache {
+				// will be deferred.
+				// 37 - 5
+				// where:
+				// 37 = packet len (4) + protoProxy (1) + session id (32)
+				// reserving 5 bytes for: packet len(4) + protoDist (1)
+				// we don't update packet len value. it was already validated
+				// and will be ignored on the next dc.decodeDist call
+				b.B = b.B[32:]
+				b.B[4] = protoDist
+				return nil, err
+			}
+			// drop this proxy session. send back ProxyDisconnect
+			disconnect := node.ProxyDisconnect{
+				Node:      dc.nodename,
+				Proxy:     dc.nodename,
+				SessionID: sessionID,
+				Reason:    err.Error(),
+			}
+			dc.router.RouteProxyDisconnect(dc, disconnect)
+			dc.ProxyDisconnect(disconnect)
+			return nil, nil
+		}
+		if control == nil {
+			return nil, nil
+		}
+		message := &distMessage{control: control, payload: payload, proxy: &ps}
+		return message, nil
+
+	case protoProxyX:
+		sessionID := string(packet[5:37])
+		dc.proxySessionsMutex.RLock()
+		ps, exist := dc.proxySessionsByID[sessionID]
+		dc.proxySessionsMutex.RUnlock()
+		if exist == false {
+			// must be send further
+			if err := dc.router.RouteProxy(dc, sessionID, b); err != nil {
+				// drop proxy session
+				disconnect := node.ProxyDisconnect{
+					Node:      dc.nodename,
+					Proxy:     dc.nodename,
+					SessionID: sessionID,
+					Reason:    err.Error(),
+				}
+				dc.ProxyDisconnect(disconnect)
+			}
+			return nil, nil
+		}
+
+		packet = b.B[37:]
+		if (len(packet) % aes.BlockSize) != 0 {
+			// drop this proxy session.
+			disconnect := node.ProxyDisconnect{
+				Node:      dc.nodename,
+				Proxy:     dc.nodename,
+				SessionID: sessionID,
+				Reason:    "wrong blocksize of the encrypted message",
+			}
+			dc.router.RouteProxyDisconnect(dc, disconnect)
+			dc.ProxyDisconnect(disconnect)
+			return nil, nil
+		}
+		iv := packet[:aes.BlockSize]
+		msg := packet[aes.BlockSize:]
+		cfb := cipher.NewCFBDecrypter(ps.session.Block, iv)
+		cfb.XORKeyStream(msg, msg)
+
+		// check padding
+		length := len(msg)
+		unpadding := int(msg[length-1])
+		if unpadding > length {
+			// drop this proxy session.
+			disconnect := node.ProxyDisconnect{
+				Node:      dc.nodename,
+				Proxy:     dc.nodename,
+				SessionID: sessionID,
+				Reason:    "wrong padding of the encrypted message",
+			}
+			dc.router.RouteProxyDisconnect(dc, disconnect)
+			dc.ProxyDisconnect(disconnect)
+			return nil, nil
+		}
+		packet = msg[:(length - unpadding)]
+		control, payload, err := dc.decodeDist(packet, &ps)
+		if err != nil {
+			if err == errMissingInCache {
+				// will be deferred
+				// TODO make sure if this shift is correct
+				b.B = b.B[32+aes.BlockSize:]
+				b.B[4] = protoDist
+				return nil, err
+			}
+			// drop this proxy session.
+			disconnect := node.ProxyDisconnect{
+				Node:      dc.nodename,
+				Proxy:     dc.nodename,
+				SessionID: sessionID,
+				Reason:    err.Error(),
+			}
+			dc.router.RouteProxyDisconnect(dc, disconnect)
+			dc.ProxyDisconnect(disconnect)
+			return nil, nil
+		}
+		if control == nil {
+			return nil, nil
+		}
+		message := &distMessage{control: control, payload: payload, proxy: &ps}
+		return message, nil
+
 	default:
 		// unknown proto
-		return nil, nil, fmt.Errorf("unknown/unsupported proto")
+		return nil, fmt.Errorf("unknown/unsupported proto")
 	}
 
 }
 
-func (dc *distConnection) decodeDist(packet []byte) (etf.Term, etf.Term, error) {
+func (dc *distConnection) decodeDist(packet []byte, proxy *proxySession) (etf.Term, etf.Term, error) {
 	switch packet[0] {
 	case protoDistMessage:
-		var control, message etf.Term
+		var control, payload etf.Term
 		var err error
 		var cache []etf.Atom
 
-		cache, packet, err = dc.decodeDistHeaderAtomCache(packet[1:])
+		cache, packet, err = dc.decodeDistHeaderAtomCache(packet[1:], proxy)
 		if err != nil {
 			return nil, nil, err
 		}
 
 		decodeOptions := etf.DecodeOptions{
 			FlagBigPidRef: dc.flags.EnableBigPidRef,
+		}
+		if proxy != nil {
+			decodeOptions.FlagBigPidRef = true
 		}
 
 		// decode control message
@@ -631,7 +969,7 @@ func (dc *distConnection) decodeDist(packet []byte) (etf.Term, etf.Term, error) 
 		}
 
 		// decode payload message
-		message, packet, err = etf.Decode(packet, cache, decodeOptions)
+		payload, packet, err = etf.Decode(packet, cache, decodeOptions)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -640,17 +978,17 @@ func (dc *distConnection) decodeDist(packet []byte) (etf.Term, etf.Term, error) 
 			return nil, nil, fmt.Errorf("packet has extra %d byte(s)", len(packet))
 		}
 
-		return control, message, nil
+		return control, payload, nil
 
 	case protoDistMessageZ:
-		var control, message etf.Term
+		var control, payload etf.Term
 		var err error
 		var cache []etf.Atom
 		var zReader *gzip.Reader
 		var total int
 		// compressed protoDistMessage
 
-		cache, packet, err = dc.decodeDistHeaderAtomCache(packet[1:])
+		cache, packet, err = dc.decodeDistHeaderAtomCache(packet[1:], proxy)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -691,11 +1029,13 @@ func (dc *distConnection) decodeDist(packet []byte) (etf.Term, etf.Term, error) 
 		decodeOptions := etf.DecodeOptions{
 			FlagBigPidRef: dc.flags.EnableBigPidRef,
 		}
+		if proxy != nil {
+			decodeOptions.FlagBigPidRef = true
+		}
 
 		// decode control message
 		control, packet, err = etf.Decode(packet, cache, decodeOptions)
 		if err != nil {
-			fmt.Println("CTLR")
 			return nil, nil, err
 		}
 		if len(packet) == 0 {
@@ -703,7 +1043,7 @@ func (dc *distConnection) decodeDist(packet []byte) (etf.Term, etf.Term, error) 
 		}
 
 		// decode payload message
-		message, packet, err = etf.Decode(packet, cache, decodeOptions)
+		payload, packet, err = etf.Decode(packet, cache, decodeOptions)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -712,19 +1052,20 @@ func (dc *distConnection) decodeDist(packet []byte) (etf.Term, etf.Term, error) 
 			return nil, nil, fmt.Errorf("packet has extra %d byte(s)", len(packet))
 		}
 
-		return control, message, nil
+		return control, payload, nil
 
 	case protoDistFragment1, protoDistFragmentN, protoDistFragment1Z, protoDistFragmentNZ:
 		if len(packet) < 18 {
-			return nil, nil, fmt.Errorf("malformed fragment")
+			return nil, nil, fmt.Errorf("malformed fragment (too small)")
 		}
 
-		if assembled, err := dc.decodeFragment(packet); assembled != nil {
+		if assembled, err := dc.decodeFragment(packet, proxy); assembled != nil {
 			if err != nil {
 				return nil, nil, err
 			}
-			defer lib.ReleaseBuffer(assembled)
-			return dc.decodeDist(assembled.B)
+			control, payload, err := dc.decodeDist(assembled.B, nil)
+			lib.ReleaseBuffer(assembled)
+			return control, payload, err
 		} else {
 			if err != nil {
 				return nil, nil, err
@@ -736,7 +1077,7 @@ func (dc *distConnection) decodeDist(packet []byte) (etf.Term, etf.Term, error) 
 	return nil, nil, fmt.Errorf("unknown packet type %d", packet[0])
 }
 
-func (dc *distConnection) handleMessage(control, message etf.Term) (err error) {
+func (dc *distConnection) handleMessage(message *distMessage) (err error) {
 	defer func() {
 		if lib.CatchPanic() {
 			if r := recover(); r != nil {
@@ -745,47 +1086,57 @@ func (dc *distConnection) handleMessage(control, message etf.Term) (err error) {
 		}
 	}()
 
-	switch t := control.(type) {
+	switch t := message.control.(type) {
 	case etf.Tuple:
 		switch act := t.Element(1).(type) {
 		case int:
 			switch act {
 			case distProtoREG_SEND:
 				// {6, FromPid, Unused, ToName}
-				lib.Log("[%s] CONTROL REG_SEND [from %s]: %#v", dc.nodename, dc.peername, control)
+				lib.Log("[%s] CONTROL REG_SEND [from %s]: %#v", dc.nodename, dc.peername, message.control)
 				to := gen.ProcessID{
 					Node: dc.nodename,
 					Name: string(t.Element(4).(etf.Atom)),
 				}
-				dc.router.RouteSendReg(t.Element(2).(etf.Pid), to, message)
+				dc.router.RouteSendReg(t.Element(2).(etf.Pid), to, message.payload)
 				return nil
 
 			case distProtoSEND:
 				// {2, Unused, ToPid}
 				// SEND has no sender pid
-				lib.Log("[%s] CONTROL SEND [from %s]: %#v", dc.nodename, dc.peername, control)
-				dc.router.RouteSend(etf.Pid{}, t.Element(3).(etf.Pid), message)
+				lib.Log("[%s] CONTROL SEND [from %s]: %#v", dc.nodename, dc.peername, message.control)
+				dc.router.RouteSend(etf.Pid{}, t.Element(3).(etf.Pid), message.payload)
 				return nil
 
 			case distProtoLINK:
 				// {1, FromPid, ToPid}
-				lib.Log("[%s] CONTROL LINK [from %s]: %#v", dc.nodename, dc.peername, control)
+				lib.Log("[%s] CONTROL LINK [from %s]: %#v", dc.nodename, dc.peername, message.control)
+				if message.proxy != nil && message.proxy.session.NodeFlags.EnableLink == false {
+					// we didn't allow this feature. proxy session will be closed due to
+					// this violation of the contract
+					return node.ErrPeerUnsupported
+				}
 				dc.router.RouteLink(t.Element(2).(etf.Pid), t.Element(3).(etf.Pid))
 				return nil
 
 			case distProtoUNLINK:
 				// {4, FromPid, ToPid}
-				lib.Log("[%s] CONTROL UNLINK [from %s]: %#v", dc.nodename, dc.peername, control)
+				lib.Log("[%s] CONTROL UNLINK [from %s]: %#v", dc.nodename, dc.peername, message.control)
+				if message.proxy != nil && message.proxy.session.NodeFlags.EnableLink == false {
+					// we didn't allow this feature. proxy session will be closed due to
+					// this violation of the contract
+					return node.ErrPeerUnsupported
+				}
 				dc.router.RouteUnlink(t.Element(2).(etf.Pid), t.Element(3).(etf.Pid))
 				return nil
 
 			case distProtoNODE_LINK:
-				lib.Log("[%s] CONTROL NODE_LINK [from %s]: %#v", dc.nodename, dc.peername, control)
+				lib.Log("[%s] CONTROL NODE_LINK [from %s]: %#v", dc.nodename, dc.peername, message.control)
 				return nil
 
 			case distProtoEXIT:
 				// {3, FromPid, ToPid, Reason}
-				lib.Log("[%s] CONTROL EXIT [from %s]: %#v", dc.nodename, dc.peername, control)
+				lib.Log("[%s] CONTROL EXIT [from %s]: %#v", dc.nodename, dc.peername, message.control)
 				terminated := t.Element(2).(etf.Pid)
 				to := t.Element(3).(etf.Pid)
 				reason := fmt.Sprint(t.Element(4))
@@ -793,13 +1144,18 @@ func (dc *distConnection) handleMessage(control, message etf.Term) (err error) {
 				return nil
 
 			case distProtoEXIT2:
-				lib.Log("[%s] CONTROL EXIT2 [from %s]: %#v", dc.nodename, dc.peername, control)
+				lib.Log("[%s] CONTROL EXIT2 [from %s]: %#v", dc.nodename, dc.peername, message.control)
 				return nil
 
 			case distProtoMONITOR:
 				// {19, FromPid, ToProc, Ref}, where FromPid = monitoring process
 				// and ToProc = monitored process pid or name (atom)
-				lib.Log("[%s] CONTROL MONITOR [from %s]: %#v", dc.nodename, dc.peername, control)
+				lib.Log("[%s] CONTROL MONITOR [from %s]: %#v", dc.nodename, dc.peername, message.control)
+				if message.proxy != nil && message.proxy.session.NodeFlags.EnableMonitor == false {
+					// we didn't allow this feature. proxy session will be closed due to
+					// this violation of the contract
+					return node.ErrPeerUnsupported
+				}
 
 				fromPid := t.Element(2).(etf.Pid)
 				ref := t.Element(4).(etf.Ref)
@@ -824,7 +1180,12 @@ func (dc *distConnection) handleMessage(control, message etf.Term) (err error) {
 			case distProtoDEMONITOR:
 				// {20, FromPid, ToProc, Ref}, where FromPid = monitoring process
 				// and ToProc = monitored process pid or name (atom)
-				lib.Log("[%s] CONTROL DEMONITOR [from %s]: %#v", dc.nodename, dc.peername, control)
+				lib.Log("[%s] CONTROL DEMONITOR [from %s]: %#v", dc.nodename, dc.peername, message.control)
+				if message.proxy != nil && message.proxy.session.NodeFlags.EnableMonitor == false {
+					// we didn't allow this feature. proxy session will be closed due to
+					// this violation of the contract
+					return node.ErrPeerUnsupported
+				}
 				ref := t.Element(4).(etf.Ref)
 				fromPid := t.Element(2).(etf.Pid)
 				dc.router.RouteDemonitor(fromPid, ref)
@@ -833,7 +1194,7 @@ func (dc *distConnection) handleMessage(control, message etf.Term) (err error) {
 			case distProtoMONITOR_EXIT:
 				// {21, FromProc, ToPid, Ref, Reason}, where FromProc = monitored process
 				// pid or name (atom), ToPid = monitoring process, and Reason = exit reason for the monitored process
-				lib.Log("[%s] CONTROL MONITOR_EXIT [from %s]: %#v", dc.nodename, dc.peername, control)
+				lib.Log("[%s] CONTROL MONITOR_EXIT [from %s]: %#v", dc.nodename, dc.peername, message.control)
 				reason := fmt.Sprint(t.Element(5))
 				ref := t.Element(4).(etf.Ref)
 				switch terminated := t.Element(2).(type) {
@@ -842,6 +1203,9 @@ func (dc *distConnection) handleMessage(control, message etf.Term) (err error) {
 					return nil
 				case etf.Atom:
 					processID := gen.ProcessID{Name: string(terminated), Node: dc.peername}
+					if message.proxy != nil {
+						processID.Node = message.proxy.session.PeerName
+					}
 					dc.router.RouteMonitorExitReg(processID, reason, ref)
 					return nil
 				}
@@ -849,29 +1213,34 @@ func (dc *distConnection) handleMessage(control, message etf.Term) (err error) {
 
 			// Not implemented yet, just stubs. TODO.
 			case distProtoSEND_SENDER:
-				lib.Log("[%s] CONTROL SEND_SENDER unsupported [from %s]: %#v", dc.nodename, dc.peername, control)
+				lib.Log("[%s] CONTROL SEND_SENDER unsupported [from %s]: %#v", dc.nodename, dc.peername, message.control)
 				return nil
 			case distProtoPAYLOAD_EXIT:
-				lib.Log("[%s] CONTROL PAYLOAD_EXIT unsupported [from %s]: %#v", dc.nodename, dc.peername, control)
+				lib.Log("[%s] CONTROL PAYLOAD_EXIT unsupported [from %s]: %#v", dc.nodename, dc.peername, message.control)
 				return nil
 			case distProtoPAYLOAD_EXIT2:
-				lib.Log("[%s] CONTROL PAYLOAD_EXIT2 unsupported [from %s]: %#v", dc.nodename, dc.peername, control)
+				lib.Log("[%s] CONTROL PAYLOAD_EXIT2 unsupported [from %s]: %#v", dc.nodename, dc.peername, message.control)
 				return nil
 			case distProtoPAYLOAD_MONITOR_P_EXIT:
-				lib.Log("[%s] CONTROL PAYLOAD_MONITOR_P_EXIT unsupported [from %s]: %#v", dc.nodename, dc.peername, control)
+				lib.Log("[%s] CONTROL PAYLOAD_MONITOR_P_EXIT unsupported [from %s]: %#v", dc.nodename, dc.peername, message.control)
 				return nil
 
 			// alias support
 			case distProtoALIAS_SEND:
 				// {33, FromPid, Alias}
-				lib.Log("[%s] CONTROL ALIAS_SEND [from %s]: %#v", dc.nodename, dc.peername, control)
+				lib.Log("[%s] CONTROL ALIAS_SEND [from %s]: %#v", dc.nodename, dc.peername, message.control)
 				alias := etf.Alias(t.Element(3).(etf.Ref))
-				dc.router.RouteSendAlias(t.Element(2).(etf.Pid), alias, message)
+				dc.router.RouteSendAlias(t.Element(2).(etf.Pid), alias, message.payload)
 				return nil
 
 			case distProtoSPAWN_REQUEST:
 				// {29, ReqId, From, GroupLeader, {Module, Function, Arity}, OptList}
-				lib.Log("[%s] CONTROL SPAWN_REQUEST [from %s]: %#v", dc.nodename, dc.peername, control)
+				lib.Log("[%s] CONTROL SPAWN_REQUEST [from %s]: %#v", dc.nodename, dc.peername, message.control)
+				if message.proxy != nil && message.proxy.session.NodeFlags.EnableRemoteSpawn == false {
+					// we didn't allow this feature. proxy session will be closed due to
+					// this violation of the contract
+					return node.ErrPeerUnsupported
+				}
 				registerName := ""
 				for _, option := range t.Element(6).(etf.List) {
 					name, ok := option.(etf.Tuple)
@@ -891,8 +1260,8 @@ func (dc *distConnection) handleMessage(control, message etf.Term) (err error) {
 				module := mfa.Element(1).(etf.Atom)
 				function := mfa.Element(2).(etf.Atom)
 				var args etf.List
-				if str, ok := message.(string); !ok {
-					args, _ = message.(etf.List)
+				if str, ok := message.payload.(string); !ok {
+					args, _ = message.payload.(etf.List)
 				} else {
 					// stupid Erlang's strings :). [1,2,3,4,5] sends as a string.
 					// args can't be anything but etf.List.
@@ -915,23 +1284,116 @@ func (dc *distConnection) handleMessage(control, message etf.Term) (err error) {
 
 			case distProtoSPAWN_REPLY:
 				// {31, ReqId, To, Flags, Result}
-				lib.Log("[%s] CONTROL SPAWN_REPLY [from %s]: %#v", dc.nodename, dc.peername, control)
-				to := t.Element(3).(etf.Pid)
+				lib.Log("[%s] CONTROL SPAWN_REPLY [from %s]: %#v", dc.nodename, dc.peername, message.control)
 				ref := t.Element(2).(etf.Ref)
+				to := t.Element(3).(etf.Pid)
 				dc.router.RouteSpawnReply(to, ref, t.Element(5))
 				return nil
 
+			case distProtoPROXY_CONNECT_REQUEST:
+				// {101, ID, To, Digest, PublicKey, Flags, Hop, Path}
+				lib.Log("[%s] PROXY CONNECT REQUEST [from %s]: %#v", dc.nodename, dc.peername, message.control)
+				request := node.ProxyConnectRequest{
+					ID:        t.Element(2).(etf.Ref),
+					To:        string(t.Element(3).(etf.Atom)),
+					Digest:    t.Element(4).([]byte),
+					PublicKey: t.Element(5).([]byte),
+					// FIXME it will be int64 after using more than 32 flags
+					Flags: proxyFlagsFromUint64(uint64(t.Element(6).(int))),
+					Hop:   t.Element(7).(int),
+				}
+				for _, p := range t.Element(8).(etf.List) {
+					request.Path = append(request.Path, string(p.(etf.Atom)))
+				}
+				if err := dc.router.RouteProxyConnectRequest(dc, request); err != nil {
+					errReply := node.ProxyConnectCancel{
+						ID:     request.ID,
+						From:   dc.nodename,
+						Reason: err.Error(),
+						Path:   request.Path[1:],
+					}
+					dc.ProxyConnectCancel(errReply)
+				}
+				return nil
+
+			case distProtoPROXY_CONNECT_REPLY:
+				// {102, ID, To, Digest, Cipher, Flags, SessionID, Path}
+				lib.Log("[%s] PROXY CONNECT REPLY [from %s]: %#v", dc.nodename, dc.peername, message.control)
+				connectReply := node.ProxyConnectReply{
+					ID:     t.Element(2).(etf.Ref),
+					To:     string(t.Element(3).(etf.Atom)),
+					Digest: t.Element(4).([]byte),
+					Cipher: t.Element(5).([]byte),
+					// FIXME it will be int64 after using more than 32 flags
+					Flags:     proxyFlagsFromUint64(uint64(t.Element(6).(int))),
+					SessionID: t.Element(7).(string),
+				}
+				for _, p := range t.Element(8).(etf.List) {
+					connectReply.Path = append(connectReply.Path, string(p.(etf.Atom)))
+				}
+				if err := dc.router.RouteProxyConnectReply(dc, connectReply); err != nil {
+					lib.Log("[%s] PROXY CONNECT REPLY error %s (message: %#v)", dc.nodename, err, connectReply)
+					// send disconnect to clean up this session all the way to the
+					// destination node
+					disconnect := node.ProxyDisconnect{
+						Node:      dc.nodename,
+						Proxy:     dc.nodename,
+						SessionID: connectReply.SessionID,
+						Reason:    err.Error(),
+					}
+					dc.ProxyDisconnect(disconnect)
+					if err == node.ErrNoRoute {
+						return nil
+					}
+
+					// send cancel message to the source node
+					cancel := node.ProxyConnectCancel{
+						ID:     connectReply.ID,
+						From:   dc.nodename,
+						Reason: err.Error(),
+						Path:   connectReply.Path,
+					}
+					dc.router.RouteProxyConnectCancel(dc, cancel)
+				}
+
+				return nil
+
+			case distProtoPROXY_CONNECT_CANCEL:
+				lib.Log("[%s] PROXY CONNECT CANCEL [from %s]: %#v", dc.nodename, dc.peername, message.control)
+				connectError := node.ProxyConnectCancel{
+					ID:     t.Element(2).(etf.Ref),
+					From:   string(t.Element(3).(etf.Atom)),
+					Reason: t.Element(4).(string),
+				}
+				for _, p := range t.Element(5).(etf.List) {
+					connectError.Path = append(connectError.Path, string(p.(etf.Atom)))
+				}
+				dc.router.RouteProxyConnectCancel(dc, connectError)
+				return nil
+
+			case distProtoPROXY_DISCONNECT:
+				// {104, Node, Proxy, SessionID, Reason}
+				lib.Log("[%s] PROXY DISCONNECT [from %s]: %#v", dc.nodename, dc.peername, message.control)
+				proxyDisconnect := node.ProxyDisconnect{
+					Node:      string(t.Element(2).(etf.Atom)),
+					Proxy:     string(t.Element(3).(etf.Atom)),
+					SessionID: t.Element(4).(string),
+					Reason:    t.Element(5).(string),
+				}
+				dc.router.RouteProxyDisconnect(dc, proxyDisconnect)
+				return nil
+
 			default:
-				lib.Log("[%s] CONTROL unknown command [from %s]: %#v", dc.nodename, dc.peername, control)
-				return fmt.Errorf("unknown control command %#v", control)
+				lib.Log("[%s] CONTROL unknown command [from %s]: %#v", dc.nodename, dc.peername, message.control)
+				return fmt.Errorf("unknown control command %#v", message.control)
 			}
 		}
 	}
 
-	return fmt.Errorf("unsupported control message %#v", control)
+	return fmt.Errorf("unsupported control message %#v", message.control)
 }
 
-func (dc *distConnection) decodeFragment(packet []byte) (*lib.Buffer, error) {
+func (dc *distConnection) decodeFragment(packet []byte, proxy *proxySession) (*lib.Buffer, error) {
 	var first, compressed bool
 	var err error
 
@@ -947,13 +1409,13 @@ func (dc *distConnection) decodeFragment(packet []byte) (*lib.Buffer, error) {
 		// to get rid the case when we get the first fragment of the packet with
 		// cached atoms and the next packet is not the part of the fragmented packet,
 		// but with the ids were cached in the first fragment
-		_, _, err = dc.decodeDistHeaderAtomCache(packet[17:])
+		_, _, err = dc.decodeDistHeaderAtomCache(packet[17:], proxy)
 		if err != nil {
 			return nil, err
 		}
 		first = true
 	case protoDistFragment1Z:
-		_, _, err = dc.decodeDistHeaderAtomCache(packet[17:])
+		_, _, err = dc.decodeDistHeaderAtomCache(packet[17:], proxy)
 		if err != nil {
 			return nil, err
 		}
@@ -1061,7 +1523,8 @@ func (dc *distConnection) decodeFragment(packet []byte) (*lib.Buffer, error) {
 	return nil, nil
 }
 
-func (dc *distConnection) decodeDistHeaderAtomCache(packet []byte) ([]etf.Atom, []byte, error) {
+func (dc *distConnection) decodeDistHeaderAtomCache(packet []byte, proxy *proxySession) ([]etf.Atom, []byte, error) {
+	var err error
 	// all the details are here https://erlang.org/doc/apps/erts/erl_ext_dist.html#normal-distribution-header
 
 	// number of atom references are present in package
@@ -1070,11 +1533,15 @@ func (dc *distConnection) decodeDistHeaderAtomCache(packet []byte) ([]etf.Atom, 
 		return nil, packet[1:], nil
 	}
 
-	cache := make([]etf.Atom, references)
+	cache := dc.cache.In
+	if proxy != nil {
+		cache = proxy.cache.In
+	}
+	cached := make([]etf.Atom, references)
 	flagsLen := references/2 + 1
 	if len(packet) < 1+flagsLen {
 		// malformed
-		return nil, nil, ErrMalformed
+		return nil, nil, errMalformed
 	}
 	flags := packet[1 : flagsLen+1]
 
@@ -1094,7 +1561,7 @@ func (dc *distConnection) decodeDistHeaderAtomCache(packet []byte) ([]etf.Atom, 
 	for i := 0; i < references; i++ {
 		if len(packet) < 1+headerAtomLength {
 			// malformed
-			return nil, nil, ErrMalformed
+			return nil, nil, errMalformed
 		}
 		shift = uint((i & 0x01) * 4)
 		flag := (flags[i/2] >> shift) & 0x0F
@@ -1112,62 +1579,63 @@ func (dc *distConnection) decodeDistHeaderAtomCache(packet []byte) ([]etf.Atom, 
 			packet = packet[1+headerAtomLength:]
 			if len(packet) < int(atomLen) {
 				// malformed
-				return nil, nil, ErrMalformed
+				return nil, nil, errMalformed
 			}
 			atom := etf.Atom(packet[:atomLen])
 			// store in temporary cache for decoding
-			cache[i] = atom
+			cached[i] = atom
 
 			// store in link' cache
-			dc.cacheInMutex.Lock()
-			dc.cacheIn[idx] = &atom
-			dc.cacheInMutex.Unlock()
+			cache.Atoms[idx] = &atom
 			packet = packet[atomLen:]
 			continue
 		}
 
-		dc.cacheInMutex.RLock()
-		c := dc.cacheIn[idx]
-		dc.cacheInMutex.RUnlock()
+		c := cache.Atoms[idx]
 		if c == nil {
-			return cache, packet, ErrMissingInCache
+			packet = packet[1:]
+			// decode the rest of this cache but set return err = errMissingInCache
+			err = errMissingInCache
+			continue
 		}
-		cache[i] = *c
+		cached[i] = *c
 		packet = packet[1:]
 	}
 
-	return cache, packet, nil
+	return cached, packet, err
 }
 
 func (dc *distConnection) encodeDistHeaderAtomCache(b *lib.Buffer,
-	writerAtomCache map[etf.Atom]etf.CacheItem,
-	encodingAtomCache *etf.ListAtomCache) {
+	senderAtomCache map[etf.Atom]etf.CacheItem,
+	encodingAtomCache *etf.EncodingAtomCache) {
 
 	n := encodingAtomCache.Len()
+	b.AppendByte(byte(n)) // write NumberOfAtomCache
 	if n == 0 {
-		b.AppendByte(0)
 		return
 	}
 
-	b.AppendByte(byte(n)) // write NumberOfAtomCache
-
+	startPosition := len(b.B)
 	lenFlags := n/2 + 1
-	b.Extend(lenFlags)
-
-	flags := b.B[1 : lenFlags+1]
+	flags := b.Extend(lenFlags)
 	flags[lenFlags-1] = 0 // clear last byte to make sure we have valid LongAtom flag
 
 	for i := 0; i < len(encodingAtomCache.L); i++ {
+		// clean internal name cache
+		encodingAtomCache.Delete(encodingAtomCache.L[i].Name)
+
 		shift := uint((i & 0x01) * 4)
 		idxReference := byte(encodingAtomCache.L[i].ID >> 8) // SegmentIndex
 		idxInternal := byte(encodingAtomCache.L[i].ID & 255) // InternalSegmentIndex
 
-		cachedItem := writerAtomCache[encodingAtomCache.L[i].Name]
+		cachedItem := senderAtomCache[encodingAtomCache.L[i].Name]
 		if !cachedItem.Encoded {
 			idxReference |= 8 // set NewCacheEntryFlag
 		}
 
-		// we have to clear it before reuse
+		// the 'flags' slice could be changed if b.B was reallocated during the encoding atoms
+		flags = b.B[startPosition : startPosition+lenFlags]
+		// clean it up before reuse
 		if shift == 0 {
 			flags[i/2] = 0
 		}
@@ -1186,7 +1654,6 @@ func (dc *distConnection) encodeDistHeaderAtomCache(b *lib.Buffer,
 			binary.BigEndian.PutUint16(buf[1:3], uint16(len(encodingAtomCache.L[i].Name)))
 			copy(buf[3:], encodingAtomCache.L[i].Name)
 		} else {
-
 			// 1 (InternalSegmentIndex) + 1 (length) + name
 			allocLen := 1 + 1 + len(encodingAtomCache.L[i].Name)
 			buf := b.Extend(allocLen)
@@ -1196,36 +1663,27 @@ func (dc *distConnection) encodeDistHeaderAtomCache(b *lib.Buffer,
 		}
 
 		cachedItem.Encoded = true
-		writerAtomCache[encodingAtomCache.L[i].Name] = cachedItem
+		senderAtomCache[encodingAtomCache.L[i].Name] = cachedItem
 	}
 
 	if encodingAtomCache.HasLongAtom {
 		shift := uint((n & 0x01) * 4)
+		flags = b.B[startPosition : startPosition+lenFlags]
 		flags[lenFlags-1] |= 1 << shift // set LongAtom = 1
 	}
 }
 
-func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOptions, peerFlags node.Flags) {
-	var encodingAtomCache *etf.ListAtomCache
-	var writerAtomCache map[etf.Atom]etf.CacheItem
-	var linkAtomCache *etf.AtomCache
-	var lastCacheID int16 = -1
-
+func (dc *distConnection) sender(sender_id int, send <-chan *sendMessage, options node.ProtoOptions, peerFlags node.Flags) {
 	var lenMessage, lenAtomCache, lenPacket, startDataPosition int
 	var atomCacheBuffer, packetBuffer *lib.Buffer
-	var message *sendMessage
 	var err error
-	var compress, compressed bool
-	var zWriter *gzip.Writer
+	var compressed bool
+	var cacheEnabled, fragmentationEnabled, compressionEnabled, encryptionEnabled bool
 
 	// cancel connection context if something went wrong
 	// it will cause closing connection with stopping all
 	// goroutines around this connection
 	defer dc.cancelContext()
-
-	cacheEnabled := peerFlags.EnableHeaderAtomCache && dc.cacheOut != nil
-	fragmentationEnabled := peerFlags.EnableFragmentation && options.FragmentationUnit > 0
-	compressionEnabled := peerFlags.EnableCompression
 
 	// Header atom cache is encoded right after the control/message encoding process
 	// but should be stored as a first item in the packet.
@@ -1233,34 +1691,68 @@ func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOpt
 	// of reallocation packetBuffer data
 	reserveHeaderAtomCache := 8192
 
-	if cacheEnabled {
-		encodingAtomCache = etf.TakeListAtomCache()
-		defer etf.ReleaseListAtomCache(encodingAtomCache)
-		writerAtomCache = make(map[etf.Atom]etf.CacheItem)
-		linkAtomCache = dc.cacheOut
+	// atom cache of this sender
+	senderAtomCache := make(map[etf.Atom]etf.CacheItem)
+	// atom cache of this encoding
+	encodingAtomCache := etf.TakeEncodingAtomCache()
+	defer etf.ReleaseEncodingAtomCache(encodingAtomCache)
+
+	encrypt := func(data []byte, sessionID string, block cipher.Block) *lib.Buffer {
+		l := len(data)
+		padding := aes.BlockSize - l%aes.BlockSize
+		padtext := bytes.Repeat([]byte{byte(padding)}, padding)
+		data = append(data, padtext...)
+		l = len(data)
+
+		// take another buffer for encrypted message
+		xBuffer := lib.TakeBuffer()
+		// 4 (packet len) + 1 (protoProxyX) + 32 (sessionID) + aes.BlockSize + l
+		xBuffer.Allocate(4 + 1 + 32 + aes.BlockSize + l)
+
+		binary.BigEndian.PutUint32(xBuffer.B, uint32(xBuffer.Len()-4))
+		xBuffer.B[4] = protoProxyX
+		copy(xBuffer.B[5:], sessionID)
+		iv := xBuffer.B[4+1+32 : 4+1+32+aes.BlockSize]
+		if _, err := io.ReadFull(crand.Reader, iv); err != nil {
+			lib.ReleaseBuffer(xBuffer)
+			return nil
+		}
+		cfb := cipher.NewCFBEncrypter(block, iv)
+		cfb.XORKeyStream(xBuffer.B[4+1+32+aes.BlockSize:], data)
+		return xBuffer
 	}
 
-	encodeOptions := etf.EncodeOptions{
-		LinkAtomCache:     linkAtomCache,
-		WriterAtomCache:   writerAtomCache,
+	message := &sendMessage{}
+	encodingOptions := etf.EncodeOptions{
 		EncodingAtomCache: encodingAtomCache,
-		FlagBigCreation:   peerFlags.EnableBigCreation,
-		FlagBigPidRef:     peerFlags.EnableBigPidRef,
+		NodeName:          dc.nodename,
+		PeerName:          dc.peername,
 	}
 
 	for {
-		if message != nil {
-			message.control = nil
-			message.payload = nil
-			message.compression = false
-			sendMessages.Put(message)
-		}
+		// clean up and get back message struct to the pool
+		message.packet = nil
+		message.control = nil
+		message.payload = nil
+		message.compression = false
+		message.proxy = nil
+		sendMessages.Put(message)
 
+		// waiting for the next message
 		message = <-send
 
 		if message == nil {
 			// channel was closed
 			return
+		}
+
+		if message.packet != nil {
+			// transit proxy message
+			if _, err := dc.flusher.Write(message.packet.B); err != nil {
+				return
+			}
+			lib.ReleaseBuffer(message.packet)
+			continue
 		}
 
 		packetBuffer = lib.TakeBuffer()
@@ -1270,13 +1762,55 @@ func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOpt
 		// do reserve for the header 8K, should be enough
 		packetBuffer.Allocate(reserveHeaderAtomCache)
 
+		// compression feature is always available for the proxy connection
 		// check whether compress is enabled for the peer and for this message
-		compress = compressionEnabled && message.compression
 		compressed = false
+		compressionEnabled = false
+		if message.compression {
+			if message.proxy != nil || peerFlags.EnableCompression {
+				compressionEnabled = true
+			}
+		}
 
-		// clear encoding cache
-		if cacheEnabled {
+		cacheEnabled = false
+		// atom cache feature is always available for the proxy connection
+		if message.proxy != nil || peerFlags.EnableHeaderAtomCache {
+			cacheEnabled = true
 			encodingAtomCache.Reset()
+		}
+
+		// fragmentation feature is always available for the proxy connection
+		fragmentationEnabled = false
+		if options.FragmentationUnit > 0 {
+			if message.proxy != nil || peerFlags.EnableFragmentation {
+				fragmentationEnabled = true
+			}
+		}
+
+		// encryption feature is only available for the proxy connection
+		encryptionEnabled = false
+		if message.proxy != nil && message.proxy.session.PeerFlags.EnableEncryption {
+			encryptionEnabled = true
+		}
+
+		if message.proxy == nil {
+			// use connection atom cache
+			encodingOptions.AtomCache = dc.cache.Out
+			encodingOptions.SenderAtomCache = senderAtomCache
+			// use connection flags
+			encodingOptions.FlagBigCreation = peerFlags.EnableBigCreation
+			encodingOptions.FlagBigPidRef = peerFlags.EnableBigPidRef
+
+		} else {
+			// use proxy connection atom cache
+			encodingOptions.AtomCache = message.proxy.cache.Out
+			if message.proxy.senderCache[sender_id] == nil {
+				message.proxy.senderCache[sender_id] = make(map[etf.Atom]etf.CacheItem)
+			}
+			encodingOptions.SenderAtomCache = message.proxy.senderCache[sender_id]
+			// these flags are always enabled for the proxy connection
+			encodingOptions.FlagBigCreation = true
+			encodingOptions.FlagBigPidRef = true
 		}
 
 		// We could use gzip writer for the encoder, but we don't know
@@ -1286,18 +1820,18 @@ func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOpt
 		// according to a threshold value.
 
 		// encode Control
-		err = etf.Encode(message.control, packetBuffer, encodeOptions)
+		err = etf.Encode(message.control, packetBuffer, encodingOptions)
 		if err != nil {
-			fmt.Println(err)
+			lib.Warning("can not encode control message: %s", err)
 			lib.ReleaseBuffer(packetBuffer)
 			continue
 		}
 
 		// encode Message if present
 		if message.payload != nil {
-			err = etf.Encode(message.payload, packetBuffer, encodeOptions)
+			err = etf.Encode(message.payload, packetBuffer, encodingOptions)
 			if err != nil {
-				fmt.Println(err)
+				lib.Warning("can not encode payload message: %s", err)
 				lib.ReleaseBuffer(packetBuffer)
 				continue
 			}
@@ -1305,7 +1839,9 @@ func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOpt
 		}
 		lenMessage = packetBuffer.Len() - reserveHeaderAtomCache
 
-		if compress && packetBuffer.Len() > (reserveHeaderAtomCache+message.compressionThreshold) {
+		if compressionEnabled && packetBuffer.Len() > (reserveHeaderAtomCache+message.compressionThreshold) {
+			var zWriter *gzip.Writer
+
 			//// take another buffer
 			zBuffer := lib.TakeBuffer()
 			// allocate extra 4 bytes for the lenMessage (length of unpacked data)
@@ -1337,19 +1873,21 @@ func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOpt
 		// encode Header Atom Cache if its enabled
 		if cacheEnabled && encodingAtomCache.Len() > 0 {
 			atomCacheBuffer = lib.TakeBuffer()
-			dc.encodeDistHeaderAtomCache(atomCacheBuffer, writerAtomCache, encodingAtomCache)
-			lenAtomCache = atomCacheBuffer.Len()
+			atomCacheBuffer.Allocate(1024)
+			dc.encodeDistHeaderAtomCache(atomCacheBuffer, encodingOptions.SenderAtomCache, encodingAtomCache)
 
-			if lenAtomCache > reserveHeaderAtomCache-22 {
-				// are you serious? ))) what da hell you just sent?
-				// FIXME i'm gonna fix it if someone report about this issue :)
-				fmt.Println("WARNING: exceed atom header cache size limit. please report about this issue")
-				return
+			lenAtomCache = atomCacheBuffer.Len() - 1024
+			if lenAtomCache > reserveHeaderAtomCache-1024 {
+				// we got huge atom cache
+				atomCacheBuffer.Append(packetBuffer.B[startDataPosition:])
+				startDataPosition = 1024
+				lib.ReleaseBuffer(packetBuffer)
+				packetBuffer = atomCacheBuffer
+			} else {
+				startDataPosition -= lenAtomCache
+				copy(packetBuffer.B[startDataPosition:], atomCacheBuffer.B[1024:])
+				lib.ReleaseBuffer(atomCacheBuffer)
 			}
-
-			startDataPosition -= lenAtomCache
-			copy(packetBuffer.B[startDataPosition:], atomCacheBuffer.B)
-			lib.ReleaseBuffer(atomCacheBuffer)
 
 		} else {
 			lenAtomCache = 1
@@ -1360,20 +1898,54 @@ func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOpt
 		for {
 			// 4 (packet len) + 1 (dist header: 131) + 1 (dist header: protoDistMessage[Z]) + lenAtomCache
 			lenPacket = 1 + 1 + lenAtomCache + lenMessage
-			if !fragmentationEnabled || lenPacket < options.FragmentationUnit {
+			if !fragmentationEnabled || lenMessage < options.FragmentationUnit {
 				// send as a single packet
-				startDataPosition -= 6
-
-				binary.BigEndian.PutUint32(packetBuffer.B[startDataPosition:], uint32(lenPacket))
-				packetBuffer.B[startDataPosition+4] = protoDist // 131
+				startDataPosition -= 1
 				if compressed {
-					packetBuffer.B[startDataPosition+5] = protoDistMessageZ // 200
+					packetBuffer.B[startDataPosition] = protoDistMessageZ // 200
 				} else {
-					packetBuffer.B[startDataPosition+5] = protoDistMessage // 68
+					packetBuffer.B[startDataPosition] = protoDistMessage // 68
 				}
-				if _, err := dc.flusher.Write(packetBuffer.B[startDataPosition:]); err != nil {
+
+				if message.proxy == nil {
+					// 4 (packet len) + 1 (protoDist)
+					startDataPosition -= 4 + 1
+
+					binary.BigEndian.PutUint32(packetBuffer.B[startDataPosition:], uint32(lenPacket))
+					packetBuffer.B[startDataPosition+4] = protoDist // 131
+
+					if _, err := dc.flusher.Write(packetBuffer.B[startDataPosition:]); err != nil {
+						return
+					}
+					break
+				}
+
+				// proxy message.
+				if encryptionEnabled == false {
+					// no encryption
+					// 4 (packet len) + protoProxy + sessionID
+					startDataPosition -= 1 + 4 + 32
+					l := len(packetBuffer.B[startDataPosition:]) - 4
+					binary.BigEndian.PutUint32(packetBuffer.B[startDataPosition:], uint32(l))
+					packetBuffer.B[startDataPosition+4] = protoProxy
+					copy(packetBuffer.B[startDataPosition+5:], message.proxy.session.ID)
+					if _, err := dc.flusher.Write(packetBuffer.B[startDataPosition:]); err != nil {
+						return
+					}
+					break
+				}
+
+				// send encrypted proxy message
+				xBuffer := encrypt(packetBuffer.B[startDataPosition:],
+					message.proxy.session.ID, message.proxy.session.Block)
+				if xBuffer == nil {
+					// can't encrypt message
 					return
 				}
+				if _, err := dc.flusher.Write(xBuffer.B); err != nil {
+					return
+				}
+				lib.ReleaseBuffer(xBuffer)
 				break
 			}
 
@@ -1383,7 +1955,7 @@ func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOpt
 			// "The entire atom cache and control message has to be part of the starting fragment"
 
 			sequenceID := uint64(atomic.AddInt64(&dc.sequenceID, 1))
-			numFragments := lenPacket/options.FragmentationUnit + 1
+			numFragments := lenMessage/options.FragmentationUnit + 1
 
 			// 1 (dist header: 131) + 1 (dist header: protoDistFragment) + 8 (sequenceID) + 8 (fragmentID) + ...
 			lenPacket = 1 + 1 + 8 + 8 + lenAtomCache + options.FragmentationUnit
@@ -1391,8 +1963,6 @@ func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOpt
 			// 4 (packet len) + 1 (dist header: 131) + 1 (dist header: protoDistFragment[Z]) + 8 (sequenceID) + 8 (fragmentID)
 			startDataPosition -= 22
 
-			binary.BigEndian.PutUint32(packetBuffer.B[startDataPosition:], uint32(lenPacket))
-			packetBuffer.B[startDataPosition+4] = protoDist // 131
 			if compressed {
 				packetBuffer.B[startDataPosition+5] = protoDistFragment1Z // 201
 			} else {
@@ -1401,8 +1971,43 @@ func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOpt
 
 			binary.BigEndian.PutUint64(packetBuffer.B[startDataPosition+6:], uint64(sequenceID))
 			binary.BigEndian.PutUint64(packetBuffer.B[startDataPosition+14:], uint64(numFragments))
-			if _, err := dc.flusher.Write(packetBuffer.B[startDataPosition : startDataPosition+4+lenPacket]); err != nil {
-				return
+
+			if message.proxy == nil {
+				binary.BigEndian.PutUint32(packetBuffer.B[startDataPosition:], uint32(lenPacket))
+				packetBuffer.B[startDataPosition+4] = protoDist // 131
+				if _, err := dc.flusher.Write(packetBuffer.B[startDataPosition : startDataPosition+4+lenPacket]); err != nil {
+					return
+				}
+			} else {
+				// proxy message
+				if encryptionEnabled == false {
+					// send proxy message
+					// shift left on 32 bytes for the session id
+					binary.BigEndian.PutUint32(packetBuffer.B[startDataPosition-32:], uint32(lenPacket+32))
+					packetBuffer.B[startDataPosition-32+4] = protoProxy // 141
+					copy(packetBuffer.B[startDataPosition-32+5:], message.proxy.session.ID)
+					if _, err := dc.flusher.Write(packetBuffer.B[startDataPosition-32 : startDataPosition+4+lenPacket]); err != nil {
+						return
+					}
+
+				} else {
+					// send encrypted proxy message
+					// encryption makes padding (up to aes.BlockSize = 16 bytes) so we should keep the data
+					tail16 := [16]byte{}
+					n := copy(tail16[:], packetBuffer.B[startDataPosition+4+lenPacket:])
+					xBuffer := encrypt(packetBuffer.B[startDataPosition+5:startDataPosition+4+lenPacket],
+						message.proxy.session.ID, message.proxy.session.Block)
+					if xBuffer == nil {
+						// can't encrypt message
+						return
+					}
+					if _, err := dc.flusher.Write(xBuffer.B); err != nil {
+						return
+					}
+					// resore tail
+					copy(packetBuffer.B[startDataPosition+4+lenPacket:], tail16[:n])
+					lib.ReleaseBuffer(xBuffer)
+				}
 			}
 
 			startDataPosition += 4 + lenPacket
@@ -1421,8 +2026,6 @@ func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOpt
 				startDataPosition -= 22
 			}
 
-			binary.BigEndian.PutUint32(packetBuffer.B[startDataPosition:], uint32(lenPacket))
-			packetBuffer.B[startDataPosition+4] = protoDist // 131
 			if compressed {
 				packetBuffer.B[startDataPosition+5] = protoDistFragmentNZ // 202
 			} else {
@@ -1431,8 +2034,39 @@ func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOpt
 
 			binary.BigEndian.PutUint64(packetBuffer.B[startDataPosition+6:], uint64(sequenceID))
 			binary.BigEndian.PutUint64(packetBuffer.B[startDataPosition+14:], uint64(numFragments))
-			if _, err := dc.flusher.Write(packetBuffer.B[startDataPosition : startDataPosition+4+lenPacket]); err != nil {
-				return
+			if message.proxy == nil {
+				// send fragment
+				binary.BigEndian.PutUint32(packetBuffer.B[startDataPosition:], uint32(lenPacket))
+				packetBuffer.B[startDataPosition+4] = protoDist // 131
+				if _, err := dc.flusher.Write(packetBuffer.B[startDataPosition : startDataPosition+4+lenPacket]); err != nil {
+					return
+				}
+			} else {
+				// wrap it as a proxy message
+				if encryptionEnabled == false {
+					binary.BigEndian.PutUint32(packetBuffer.B[startDataPosition-32:], uint32(lenPacket+32))
+					packetBuffer.B[startDataPosition-32+4] = protoProxy // 141
+					copy(packetBuffer.B[startDataPosition-32+5:], message.proxy.session.ID)
+					if _, err := dc.flusher.Write(packetBuffer.B[startDataPosition-32 : startDataPosition+4+lenPacket]); err != nil {
+						return
+					}
+				} else {
+					// send encrypted proxy message
+					tail16 := [16]byte{}
+					n := copy(tail16[:], packetBuffer.B[startDataPosition+4+lenPacket:])
+					xBuffer := encrypt(packetBuffer.B[startDataPosition+5:startDataPosition+4+lenPacket],
+						message.proxy.session.ID, message.proxy.session.Block)
+					if xBuffer == nil {
+						// can't encrypt message
+						return
+					}
+					if _, err := dc.flusher.Write(xBuffer.B); err != nil {
+						return
+					}
+					// resore tail
+					copy(packetBuffer.B[startDataPosition+4+lenPacket:], tail16[:n])
+					lib.ReleaseBuffer(xBuffer)
+				}
 			}
 
 			startDataPosition += 4 + lenPacket
@@ -1451,22 +2085,27 @@ func (dc *distConnection) sender(send <-chan *sendMessage, options node.ProtoOpt
 			continue
 		}
 
-		// get updates from link AtomCache and update the local one (map writerAtomCache)
-		id := linkAtomCache.GetLastID()
-		if lastCacheID < id {
-			linkAtomCache.Lock()
-			for _, a := range linkAtomCache.ListSince(lastCacheID + 1) {
-				writerAtomCache[a] = etf.CacheItem{ID: lastCacheID + 1, Name: a, Encoded: false}
-				lastCacheID++
-			}
-			linkAtomCache.Unlock()
+		// get updates from the connection AtomCache and update the sender's cache (senderAtomCache)
+		lastAddedAtom, lastAddedID := encodingOptions.AtomCache.LastAdded()
+		if lastAddedID < 0 {
+			continue
 		}
+		if _, exist := encodingOptions.SenderAtomCache[lastAddedAtom]; exist {
+			continue
+		}
+
+		encodingOptions.AtomCache.RLock()
+		for _, a := range encodingOptions.AtomCache.ListSince(lastAddedID) {
+			encodingOptions.SenderAtomCache[a] = etf.CacheItem{ID: lastAddedID, Name: a, Encoded: false}
+			lastAddedID++
+		}
+		encodingOptions.AtomCache.RUnlock()
 
 	}
 
 }
 
-func (dc *distConnection) send(msg *sendMessage) error {
+func (dc *distConnection) send(to string, msg *sendMessage) error {
 	i := atomic.AddInt32(&dc.senders.i, 1)
 	n := i % dc.senders.n
 	s := dc.senders.sender[n]
@@ -1474,11 +2113,17 @@ func (dc *distConnection) send(msg *sendMessage) error {
 		// connection was closed
 		return node.ErrNoRoute
 	}
-	s.Lock()
-	defer s.Unlock()
-
-	s.sendChannel <- msg
-	return nil
+	dc.proxySessionsMutex.RLock()
+	ps, isProxy := dc.proxySessionsByPeerName[to]
+	dc.proxySessionsMutex.RUnlock()
+	if isProxy {
+		msg.proxy = &ps
+	} else {
+		// its direct sending, so have to make sure if this peer does support compression
+		if dc.flags.EnableCompression == false {
+			msg.compression = false
+		}
+	}
 
 	// TODO to decide whether to return error if channel is full
 	//select {
@@ -1487,4 +2132,36 @@ func (dc *distConnection) send(msg *sendMessage) error {
 	//default:
 	//	return ErrOverloadConnection
 	//}
+
+	s.Lock()
+	defer s.Unlock()
+
+	s.sendChannel <- msg
+	return nil
+}
+
+func proxyFlagsToUint64(pf node.ProxyFlags) uint64 {
+	var flags uint64
+	if pf.EnableLink {
+		flags |= 1
+	}
+	if pf.EnableMonitor {
+		flags |= 1 << 1
+	}
+	if pf.EnableRemoteSpawn {
+		flags |= 1 << 2
+	}
+	if pf.EnableEncryption {
+		flags |= 1 << 3
+	}
+	return flags
+}
+
+func proxyFlagsFromUint64(f uint64) node.ProxyFlags {
+	var flags node.ProxyFlags
+	flags.EnableLink = f&1 > 0
+	flags.EnableMonitor = f&(1<<1) > 0
+	flags.EnableRemoteSpawn = f&(1<<2) > 0
+	flags.EnableEncryption = f&(1<<3) > 0
+	return flags
 }
