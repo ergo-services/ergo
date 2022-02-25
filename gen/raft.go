@@ -49,6 +49,12 @@ type RaftProcess struct {
 	behavior RaftBehavior
 }
 
+type RaftOptions struct {
+	ID string
+}
+
+type messageRaftVote struct{}
+
 //
 // default Raft callbacks
 //
@@ -67,7 +73,7 @@ func (r *Raft) Init(process *ServerProcess, args ...etf.Term) error {
 	}
 
 	// do not inherit parent State
-	raftProcess.Statr = nil
+	raftProcess.State = nil
 	options, err := behavior.InitRaft(raftProcess, args...)
 	if err != nil {
 		return err
@@ -84,11 +90,11 @@ func (r *Raft) HandleCall(process *ServerProcess, from ServerFrom, message etf.T
 	return rp.behavior.HandleRaftCall(rp, from, message)
 }
 
-func (r *Raft) HandleCast(process *SeerverProcess, message etf.Term) ServerStatus {
+func (r *Raft) HandleCast(process *ServerProcess, message etf.Term) ServerStatus {
 	var status RaftStatus
 	rp := process.State.(*RaftProcess)
 
-	switch m := message.(type) {
+	switch message.(type) {
 	case messageRaftVote:
 
 	default:
