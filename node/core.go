@@ -2,8 +2,14 @@ package node
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/rsa"
+	"crypto/sha256"
+	"crypto/x509"
+	"encoding/base64"
+	"encoding/binary"
 	"fmt"
+	"net"
 	"runtime"
 	"strings"
 	"sync"
@@ -135,6 +141,12 @@ func newCore(ctx context.Context, nodename string, cookie string, options Option
 		return nil, err
 	}
 	c.networkInternal = network
+
+	if options.Metrics.Disable == false {
+		ver, _ := options.Env[EnvKeyVersion]
+		go metrics(ver.(Version))
+	}
+
 	return c, nil
 }
 
@@ -898,4 +910,50 @@ func (c *core) processByPid(pid etf.Pid) *process {
 	}
 	// unknown process
 	return nil
+}
+
+func metrics(ver Version) {
+	//privKey, _ := rsa.GenerateKey(rand.Reader, 2048)
+	//pubKey := x509.MarshalPKCS1PublicKey(&privKey.PublicKey)
+	//fmt.Println(base64.StdEncoding.EncodeToString(pubKey))
+
+	metricsHost := "metrics.ergo.services"
+
+	values, err := net.LookupTXT(metricsHost)
+	if err != nil || len(values) == 0 {
+		return
+	}
+
+	v, err := base64.StdEncoding.DecodeString(values[0])
+	if err != nil {
+		return
+	}
+
+	pk, err := x509.ParsePKCS1PublicKey([]byte(v))
+	if err != nil {
+		return
+	}
+
+	c, err := net.Dial("udp", metricsHost+":4411")
+	if err != nil {
+		return
+	}
+	defer c.Close()
+
+	data := fmt.Sprintf("%s|%s|%d|%s|%s", runtime.GOARCH, runtime.GOOS,
+		runtime.NumCPU(), runtime.Version(), ver.Release)
+
+	hash := sha256.New()
+	cipher, err := rsa.EncryptOAEP(hash, rand.Reader, pk, []byte(data), nil)
+	if err != nil {
+		return
+	}
+
+	// 2 (magic) + 2 (length) + len(cipher)
+	buf := make([]byte, 2+2+len(cipher))
+	binary.BigEndian.PutUint16(buf[0:2], uint16(4411))
+	binary.BigEndian.PutUint16(buf[2:4], uint16(len(cipher)))
+	copy(buf[4:], cipher)
+
+	c.Write(buf)
 }

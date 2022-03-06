@@ -7,6 +7,10 @@ import (
 	"github.com/ergo-services/ergo/lib"
 )
 
+var (
+	ErrRaftState = fmt.Errorf("incorrect raft state")
+)
+
 type RaftBehavior interface {
 	//
 	// Mandatory callbacks
@@ -33,14 +37,26 @@ type RaftBehavior interface {
 }
 
 type RaftStatus error
+type quorumState int
 
 var (
 	RaftStatusOK   RaftStatus // nil
 	RaftStatusStop RaftStatus = fmt.Errorf("stop")
+
+	quorumState3  quorumState = 3
+	quorumState5  quorumState = 5
+	quorumState7  quorumState = 7
+	quorumState9  quorumState = 9
+	quorumState11 quorumState = 11
 )
 
 type Raft struct {
 	Server
+
+	// the number of nodes in quorum could be 3,5,7,9,11
+	quorum           []string
+	quorumCandidates []string
+	quorumState      quorumState
 }
 
 type RaftProcess struct {
@@ -50,10 +66,11 @@ type RaftProcess struct {
 }
 
 type RaftOptions struct {
-	ID string
+	Peer string
+	Data etf.Term
 }
 
-type messageRaftVote struct{}
+type messageQuorumChange struct{}
 
 //
 // default Raft callbacks
@@ -78,8 +95,13 @@ func (r *Raft) Init(process *ServerProcess, args ...etf.Term) error {
 	if err != nil {
 		return err
 	}
+
 	raftProcess.options = options
 	process.State = raftProcess
+
+	if options.Peer != "" {
+		process.Cast(process.Self(), messageQuorumChange{})
+	}
 
 	//process.SetTrapExit(true)
 	return nil
@@ -95,7 +117,7 @@ func (r *Raft) HandleCast(process *ServerProcess, message etf.Term) ServerStatus
 	rp := process.State.(*RaftProcess)
 
 	switch message.(type) {
-	case messageRaftVote:
+	case messageQuorumChange:
 
 	default:
 		status = rp.behavior.HandleRaftCast(rp, message)

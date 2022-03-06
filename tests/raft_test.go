@@ -1,6 +1,7 @@
 package tests
 
 import (
+	"encoding/gob"
 	"fmt"
 	"testing"
 
@@ -33,5 +34,13 @@ func TestRaft(t *testing.T) {
 	}
 	fmt.Println("OK")
 	defer node1.Stop()
+
+	rgs01, err := node1.Spawn("raft01", gen.ProcessOptions{}, &testRaft{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	fmt.Println("started raft01:", rgs01.Self())
+	gob.RegisterName("asdf", testRaft{})
 
 }
