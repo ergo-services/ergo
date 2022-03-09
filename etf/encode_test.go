@@ -366,6 +366,21 @@ func TestEncodeSlice(t *testing.T) {
 		fmt.Println("got", b.B)
 		t.Fatal("incorrect value")
 	}
+
+	b.Reset()
+
+	expected = []byte{108, 0, 0, 0, 3, 119, 1, 97, 119, 1, 98, 119, 1, 99, 106}
+	termAtoms := []Atom{Atom("a"), Atom("b"), Atom("c")}
+	err = Encode(termAtoms, b, EncodeOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !reflect.DeepEqual(b.B, expected) {
+		fmt.Println("exp", expected)
+		fmt.Println("got", b.B)
+		t.Fatal("incorrect value")
+	}
 }
 func TestEncodeListNested(t *testing.T) {
 	b := lib.TakeBuffer()

@@ -715,7 +715,7 @@ func (dc *distConnection) receiver(recv <-chan *lib.Buffer) {
 
 		if err == errMissingInCache {
 			if b == missing.b && missing.c > 100 {
-				lib.Warning("Disordered data at the link with", dc.peername, ". Close connection")
+				lib.Warning("Disordered data at the link with %q. Close connection", dc.peername)
 				dc.cancelContext()
 				lib.ReleaseBuffer(b)
 				return
@@ -734,7 +734,7 @@ func (dc *distConnection) receiver(recv <-chan *lib.Buffer) {
 				dChannel = nil
 				continue
 			default:
-				lib.Warning("Mess at the link with", dc.peername, ". Close connection")
+				lib.Warning("Mess at the link with %q. Close connection", dc.peername)
 				dc.cancelContext()
 				lib.ReleaseBuffer(b)
 				return
@@ -744,7 +744,7 @@ func (dc *distConnection) receiver(recv <-chan *lib.Buffer) {
 		dChannel = deferrChannel
 
 		if err != nil {
-			lib.Warning("[%s] Malformed Dist proto at the link with %s: %s\n", dc.nodename, dc.peername, err)
+			lib.Warning("[%s] Malformed Dist proto at the link with %s: %s", dc.nodename, dc.peername, err)
 			dc.cancelContext()
 			lib.ReleaseBuffer(b)
 			return
@@ -758,13 +758,13 @@ func (dc *distConnection) receiver(recv <-chan *lib.Buffer) {
 		// handle message
 		if err := dc.handleMessage(message); err != nil {
 			if message.proxy == nil {
-				lib.Warning("[%s] Malformed Control packet at the link with %s: %#v\n", dc.nodename, dc.peername, message.control)
+				lib.Warning("[%s] Malformed Control packet at the link with %s: %#v", dc.nodename, dc.peername, message.control)
 				dc.cancelContext()
 				lib.ReleaseBuffer(b)
 				return
 			}
 			// drop proxy session
-			lib.Warning("[%s] Malformed Control packet at the proxy link with %s: %#v\n", dc.nodename, message.proxy.session.PeerName, message.control)
+			lib.Warning("[%s] Malformed Control packet at the proxy link with %s: %#v", dc.nodename, message.proxy.session.PeerName, message.control)
 			disconnect := node.ProxyDisconnect{
 				Node:      dc.nodename,
 				Proxy:     dc.nodename,

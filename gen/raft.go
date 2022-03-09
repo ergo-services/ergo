@@ -37,43 +37,125 @@ type RaftBehavior interface {
 }
 
 type RaftStatus error
-type quorumState int
+type QuorumState int
 
 var (
 	RaftStatusOK   RaftStatus // nil
 	RaftStatusStop RaftStatus = fmt.Errorf("stop")
 
-	quorumState3  quorumState = 3
-	quorumState5  quorumState = 5
-	quorumState7  quorumState = 7
-	quorumState9  quorumState = 9
-	quorumState11 quorumState = 11
+	quorumState3  QuorumState = 3 // minimum quorum that could make leader election
+	quorumState5  QuorumState = 5
+	quorumState7  QuorumState = 7
+	quorumState9  QuorumState = 9
+	quorumState11 QuorumState = 11 // maximal quorum
 )
 
 type Raft struct {
 	Server
-
-	// the number of nodes in quorum could be 3,5,7,9,11
-	quorum           []string
-	quorumCandidates []string
-	quorumState      quorumState
 }
 
 type RaftProcess struct {
 	ServerProcess
 	options  RaftOptions
 	behavior RaftBehavior
+
+	quorum           Quorum
+	quorumCandidates map[etf.Pid]bool
+	quorumState      QuorumState
+}
+
+type Quorum struct {
+	ID etf.Ref
+	// the number of participants in quorum could be 3,5,7,9,11
+	Participants []etf.Pid
+	State        QuorumState
 }
 
 type RaftOptions struct {
-	Peer string
+	Peer ProcessID
 	Data etf.Term
 }
 
-type messageQuorumChange struct{}
+type messageRaft struct {
+	Request etf.Atom
+	Pid     etf.Pid
+	Command interface{}
+}
+
+type messageRaftQuorumJoin struct{}
+type messageRaftQuorumReply struct {
+	Peers []etf.Pid
+}
 
 //
-// default Raft callbacks
+// RaftProcess quorum routines and APIs
+//
+
+func (rp *RaftProcess) Quorum() Quorum {
+	q := Quorum{}
+	for _, pid := range rp.quorum.Participants {
+		q.Participants = append(q.Participants, pid)
+	}
+	q.ID = rp.quorum.ID
+	q.State = rp.quorum.State
+
+	return q
+}
+
+func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
+	switch m.Request {
+	case etf.Atom("$quorum_join"):
+		fmt.Println("GOT QUO JOIN", rp.Name(), m.Pid)
+		if _, exist := rp.quorumCandidates[m.Pid]; exist {
+			return RaftStatusOK
+		}
+		peers := []etf.Pid{}
+		for k, _ := range rp.quorumCandidates {
+			peers = append(peers, k)
+		}
+		reply := etf.Tuple{
+			etf.Atom("$quorum_join_reply"),
+			rp.Self(),
+			etf.Tuple{
+				peers,
+			},
+		}
+		rp.Cast(m.Pid, reply)
+		rp.quorumCandidates[m.Pid] = true
+		return RaftStatusOK
+
+	case etf.Atom("$quorum_join_reply"):
+		fmt.Println("GOT QUO JOIN REPL", rp.Name(), m.Pid)
+
+		reply := &messageRaftQuorumReply{}
+		if err := etf.TermIntoStruct(m.Command, &reply); err != nil {
+			return ErrUnsupportedRequest
+		}
+
+		if _, exist := rp.quorumCandidates[m.Pid]; exist {
+			return RaftStatusOK
+		}
+		rp.quorumCandidates[m.Pid] = true
+
+		for _, peer := range reply.Peers {
+			if _, exist := rp.quorumCandidates[peer]; exist {
+				continue
+			}
+			join := etf.Tuple{
+				etf.Atom("$quorum_join"),
+				rp.Self(),
+			}
+			rp.Cast(peer, join)
+
+		}
+		return RaftStatusOK
+	}
+
+	return ErrUnsupportedRequest
+}
+
+//
+// Server callbacks
 //
 
 func (r *Raft) Init(process *ServerProcess, args ...etf.Term) error {
@@ -85,8 +167,9 @@ func (r *Raft) Init(process *ServerProcess, args ...etf.Term) error {
 	}
 
 	raftProcess := &RaftProcess{
-		ServerProcess: *process,
-		behavior:      behavior,
+		ServerProcess:    *process,
+		behavior:         behavior,
+		quorumCandidates: make(map[etf.Pid]bool),
 	}
 
 	// do not inherit parent State
@@ -99,9 +182,16 @@ func (r *Raft) Init(process *ServerProcess, args ...etf.Term) error {
 	raftProcess.options = options
 	process.State = raftProcess
 
-	if options.Peer != "" {
-		process.Cast(process.Self(), messageQuorumChange{})
+	noPeer := ProcessID{}
+	if options.Peer == noPeer {
+		return nil
 	}
+
+	join := etf.Tuple{
+		etf.Atom("$quorum_join"),
+		process.Self(),
+	}
+	process.Cast(options.Peer, join)
 
 	//process.SetTrapExit(true)
 	return nil
@@ -113,42 +203,47 @@ func (r *Raft) HandleCall(process *ServerProcess, from ServerFrom, message etf.T
 }
 
 func (r *Raft) HandleCast(process *ServerProcess, message etf.Term) ServerStatus {
-	var status RaftStatus
+	var mRaft messageRaft
+
 	rp := process.State.(*RaftProcess)
 
-	switch message.(type) {
-	case messageQuorumChange:
-
-	default:
-		status = rp.behavior.HandleRaftCast(rp, message)
+	if err := etf.TermIntoStruct(message, &mRaft); err != nil {
+		return rp.behavior.HandleRaftInfo(rp, message)
 	}
 
+	status := rp.handleRaftRequest(mRaft)
 	switch status {
-	case RaftStatusOK:
+	case nil, RaftStatusOK:
 		return ServerStatusOK
 	case RaftStatusStop:
 		return ServerStatusStop
+	case ErrUnsupportedRequest:
+		return rp.behavior.HandleRaftInfo(rp, message)
 	default:
 		return ServerStatus(status)
 	}
 
 }
 
+//
+// default Raft callbacks
+//
+
 // HandleRaftCall
 func (r *Raft) HandleRaftCall(process *RaftProcess, from ServerFrom, message etf.Term) (etf.Term, ServerStatus) {
-	lib.Warning("HandleRaftCall: unhandled message (from %#v) %#v\n", from, message)
+	lib.Warning("HandleRaftCall: unhandled message (from %#v) %#v", from, message)
 	return etf.Atom("ok"), ServerStatusOK
 }
 
 // HandleRaftCast
 func (r *Raft) HandleRaftCast(process *RaftProcess, message etf.Term) ServerStatus {
-	lib.Warning("HandleRaftCast: unhandled message %#v\n", message)
+	lib.Warning("HandleRaftCast: unhandled message %#v", message)
 	return ServerStatusOK
 }
 
 // HandleRaftInfo
 func (r *Raft) HandleRaftInfo(process *RaftProcess, message etf.Term) ServerStatus {
-	lib.Warning("HandleRaftInfo: unhandled message %#v\n", message)
+	lib.Warning("HandleRaftInfo: unhandled message %#v", message)
 	return ServerStatusOK
 }
 

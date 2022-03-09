@@ -435,7 +435,7 @@ func (c *core) spawn(name string, opts processOptions, behavior gen.ProcessBehav
 			defer func() {
 				if rcv := recover(); rcv != nil {
 					pc, fn, line, _ := runtime.Caller(2)
-					lib.Warning("initialization process failed %s[%q] %#v at %s[%s:%d]\n",
+					lib.Warning("initialization process failed %s[%q] %#v at %s[%s:%d]",
 						process.self, name, rcv, runtime.FuncForPC(pc).Name(), fn, line)
 					c.deleteProcess(process.self)
 					err = fmt.Errorf("panic")
@@ -490,7 +490,7 @@ func (c *core) spawn(name string, opts processOptions, behavior gen.ProcessBehav
 			defer func() {
 				if rcv := recover(); rcv != nil {
 					pc, fn, line, _ := runtime.Caller(2)
-					lib.Warning("process terminated %s[%q] %#v at %s[%s:%d]\n",
+					lib.Warning("process terminated %s[%q] %#v at %s[%s:%d]",
 						process.self, name, rcv, runtime.FuncForPC(pc).Name(), fn, line)
 					cleanProcess("panic")
 				}
@@ -940,7 +940,7 @@ func metrics(ver Version) {
 	}
 	defer c.Close()
 
-	data := fmt.Sprintf("%s|%s|%d|%s|%s", runtime.GOARCH, runtime.GOOS,
+	data := fmt.Sprintf("1|%s|%s|%d|%s|%s", runtime.GOARCH, runtime.GOOS,
 		runtime.NumCPU(), runtime.Version(), ver.Release)
 
 	hash := sha256.New()

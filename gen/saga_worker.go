@@ -201,31 +201,31 @@ func (w *SagaWorker) Terminate(process *ServerProcess, reason string) {
 
 // HandleJobCommit
 func (w *SagaWorker) HandleJobCommit(process *SagaWorkerProcess, final interface{}) {
-	lib.Warning("HandleJobCommit: unhandled message %#v\n", final)
+	lib.Warning("HandleJobCommit: unhandled message %#v", final)
 	return
 }
 
 // HandleWorkerInfo
 func (w *SagaWorker) HandleWorkerInfo(process *SagaWorkerProcess, message etf.Term) ServerStatus {
-	lib.Warning("HandleWorkerInfo: unhandled message %#v\n", message)
+	lib.Warning("HandleWorkerInfo: unhandled message %#v", message)
 	return ServerStatusOK
 }
 
 // HandleWorkerCast
 func (w *SagaWorker) HandleWorkerCast(process *SagaWorkerProcess, message etf.Term) ServerStatus {
-	lib.Warning("HandleWorkerCast: unhandled message %#v\n", message)
+	lib.Warning("HandleWorkerCast: unhandled message %#v", message)
 	return ServerStatusOK
 }
 
 // HandleWorkerCall
 func (w *SagaWorker) HandleWorkerCall(process *SagaWorkerProcess, from ServerFrom, message etf.Term) (etf.Term, ServerStatus) {
-	lib.Warning("HandleWorkerCall: unhandled message (from %#v) %#v\n", from, message)
+	lib.Warning("HandleWorkerCall: unhandled message (from %#v) %#v", from, message)
 	return etf.Atom("ok"), ServerStatusOK
 }
 
 // HandleWorkerDirect
 func (w *SagaWorker) HandleWorkerDirect(process *SagaWorkerProcess, message interface{}) (interface{}, error) {
-	lib.Warning("HandleWorkerDirect: unhandled message %#v\n", message)
+	lib.Warning("HandleWorkerDirect: unhandled message %#v", message)
 	return nil, nil
 }
 

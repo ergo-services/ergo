@@ -89,7 +89,6 @@ var (
 	SagaStatusStop SagaStatus = fmt.Errorf("stop")
 
 	// internal
-	sagaStatusUnsupported SagaStatus = fmt.Errorf("unsupported")
 
 	ErrSagaTxEndOfLifespan   = fmt.Errorf("End of TX lifespan")
 	ErrSagaTxNextTimeout     = fmt.Errorf("Next saga timeout")
@@ -872,7 +871,7 @@ func (sp *SagaProcess) handleSagaRequest(m messageSaga) error {
 		}
 		return SagaStatusOK
 	}
-	return sagaStatusUnsupported
+	return ErrUnsupportedRequest
 }
 
 func (sp *SagaProcess) cancelTX(from etf.Pid, cancel messageSagaCancel, tx *SagaTransaction) {
@@ -1279,7 +1278,7 @@ func (gs *Saga) HandleInfo(process *ServerProcess, message etf.Term) ServerStatu
 		return ServerStatusOK
 	case SagaStatusStop:
 		return ServerStatusStop
-	case sagaStatusUnsupported:
+	case ErrUnsupportedRequest:
 		return sp.behavior.HandleSagaInfo(sp, message)
 	default:
 		return ServerStatus(status)
@@ -1292,13 +1291,13 @@ func (gs *Saga) HandleInfo(process *ServerProcess, message etf.Term) ServerStatu
 
 // HandleTxInterim
 func (gs *Saga) HandleTxInterim(process *SagaProcess, id SagaTransactionID, from SagaNextID, interim interface{}) SagaStatus {
-	lib.Warning("HandleTxInterim: [%v %v] unhandled message %#v\n", id, from, interim)
+	lib.Warning("HandleTxInterim: [%v %v] unhandled message %#v", id, from, interim)
 	return ServerStatusOK
 }
 
 // HandleTxCommit
 func (gs *Saga) HandleTxCommit(process *SagaProcess, id SagaTransactionID, final interface{}) SagaStatus {
-	lib.Warning("HandleTxCommit: [%v] unhandled message\n", id)
+	lib.Warning("HandleTxCommit: [%v] unhandled message", id)
 	return ServerStatusOK
 }
 
@@ -1309,19 +1308,19 @@ func (gs *Saga) HandleTxDone(process *SagaProcess, id SagaTransactionID, result 
 
 // HandleSagaCall
 func (gs *Saga) HandleSagaCall(process *SagaProcess, from ServerFrom, message etf.Term) (etf.Term, ServerStatus) {
-	lib.Warning("HandleSagaCall: unhandled message (from %#v) %#v\n", from, message)
+	lib.Warning("HandleSagaCall: unhandled message (from %#v) %#v", from, message)
 	return etf.Atom("ok"), ServerStatusOK
 }
 
 // HandleSagaCast
 func (gs *Saga) HandleSagaCast(process *SagaProcess, message etf.Term) ServerStatus {
-	lib.Warning("HandleSagaCast: unhandled message %#v\n", message)
+	lib.Warning("HandleSagaCast: unhandled message %#v", message)
 	return ServerStatusOK
 }
 
 // HandleSagaInfo
 func (gs *Saga) HandleSagaInfo(process *SagaProcess, message etf.Term) ServerStatus {
-	lib.Warning("HandleSagaInfo: unhandled message %#v\n", message)
+	lib.Warning("HandleSagaInfo: unhandled message %#v", message)
 	return ServerStatusOK
 }
 
@@ -1332,18 +1331,18 @@ func (gs *Saga) HandleSagaDirect(process *SagaProcess, message interface{}) (int
 
 // HandleJobResult
 func (gs *Saga) HandleJobResult(process *SagaProcess, id SagaTransactionID, from SagaJobID, result interface{}) SagaStatus {
-	lib.Warning("HandleJobResult: [%v %v] unhandled message %#v\n", id, from, result)
+	lib.Warning("HandleJobResult: [%v %v] unhandled message %#v", id, from, result)
 	return SagaStatusOK
 }
 
 // HandleJobInterim
 func (gs *Saga) HandleJobInterim(process *SagaProcess, id SagaTransactionID, from SagaJobID, interim interface{}) SagaStatus {
-	lib.Warning("HandleJobInterim: [%v %v] unhandled message %#v\n", id, from, interim)
+	lib.Warning("HandleJobInterim: [%v %v] unhandled message %#v", id, from, interim)
 	return SagaStatusOK
 }
 
 // HandleJobFailed
 func (gs *Saga) HandleJobFailed(process *SagaProcess, id SagaTransactionID, from SagaJobID, reason string) SagaStatus {
-	lib.Warning("HandleJobFailed: [%v %v] unhandled message. reason %q\n", id, from, reason)
+	lib.Warning("HandleJobFailed: [%v %v] unhandled message. reason %q", id, from, reason)
 	return nil
 }
