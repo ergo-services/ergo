@@ -382,6 +382,7 @@ func TestEncodeSlice(t *testing.T) {
 		t.Fatal("incorrect value")
 	}
 }
+
 func TestEncodeListNested(t *testing.T) {
 	b := lib.TakeBuffer()
 	defer lib.ReleaseBuffer(b)

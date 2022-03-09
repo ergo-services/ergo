@@ -60,7 +60,7 @@ type RaftProcess struct {
 	behavior RaftBehavior
 
 	quorum           Quorum
-	quorumCandidates map[etf.Pid]bool
+	quorumCandidates map[etf.Pid]etf.Ref
 	quorumState      QuorumState
 }
 
@@ -121,7 +121,8 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 			},
 		}
 		rp.Cast(m.Pid, reply)
-		rp.quorumCandidates[m.Pid] = true
+		mon := rp.MonitorProcess(m.Pid)
+		rp.quorumCandidates[m.Pid] = mon
 		return RaftStatusOK
 
 	case etf.Atom("$quorum_join_reply"):
@@ -135,7 +136,9 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 		if _, exist := rp.quorumCandidates[m.Pid]; exist {
 			return RaftStatusOK
 		}
-		rp.quorumCandidates[m.Pid] = true
+
+		mon := rp.MonitorProcess(m.Pid)
+		rp.quorumCandidates[m.Pid] = mon
 
 		for _, peer := range reply.Peers {
 			if _, exist := rp.quorumCandidates[peer]; exist {
@@ -169,7 +172,7 @@ func (r *Raft) Init(process *ServerProcess, args ...etf.Term) error {
 	raftProcess := &RaftProcess{
 		ServerProcess:    *process,
 		behavior:         behavior,
-		quorumCandidates: make(map[etf.Pid]bool),
+		quorumCandidates: make(map[etf.Pid]etf.Ref),
 	}
 
 	// do not inherit parent State
@@ -197,11 +200,13 @@ func (r *Raft) Init(process *ServerProcess, args ...etf.Term) error {
 	return nil
 }
 
+// HandleCall
 func (r *Raft) HandleCall(process *ServerProcess, from ServerFrom, message etf.Term) (etf.Term, ServerStatus) {
 	rp := process.State.(*RaftProcess)
 	return rp.behavior.HandleRaftCall(rp, from, message)
 }
 
+// HandleCast
 func (r *Raft) HandleCast(process *ServerProcess, message etf.Term) ServerStatus {
 	var mRaft messageRaft
 
@@ -223,6 +228,38 @@ func (r *Raft) HandleCast(process *ServerProcess, message etf.Term) ServerStatus
 		return ServerStatus(status)
 	}
 
+}
+
+// HandleInfo
+func (r *Raft) HandleInfo(process *ServerProcess, message etf.Term) ServerStatus {
+	var status RaftStatus
+
+	rp := process.State.(*RaftProcess)
+	switch m := message.(type) {
+	case MessageDown:
+		mon, exist := rp.quorumCandidates[m.Pid]
+		if m.Ref != mon {
+			status = rp.behavior.HandleRaftInfo(rp, message)
+			break
+		}
+		if exist == false {
+			break
+		}
+		delete(rp.quorumCandidates, m.Pid)
+		fmt.Println("REM CAND", m.Pid)
+
+	default:
+		status = rp.behavior.HandleRaftInfo(rp, message)
+	}
+
+	switch status {
+	case nil, RaftStatusOK:
+		return ServerStatusOK
+	case RaftStatusStop:
+		return ServerStatusStop
+	default:
+		return ServerStatus(status)
+	}
 }
 
 //
