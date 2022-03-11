@@ -68,6 +68,7 @@ func TestRaft(t *testing.T) {
 		t.Fatal(err)
 	}
 	fmt.Println("asdfasdfasd", rgs1.Name(), rgs2.Name(), rgs3.Name())
+	time.Sleep(3 * time.Second)
 	rgs2.Kill()
 	time.Sleep(3 * time.Second)
 
