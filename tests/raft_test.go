@@ -19,7 +19,6 @@ func (tr *testRaft) InitRaft(process *gen.RaftProcess, args ...etf.Term) (gen.Ra
 	var options gen.RaftOptions
 	if len(args) > 0 {
 		options.Peer = args[0].(gen.ProcessID)
-		fmt.Println("got peer", options.Peer)
 	}
 
 	return options, gen.RaftStatusOK
@@ -67,7 +66,9 @@ func TestRaft(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fmt.Println("asdfasdfasd", rgs1.Name(), rgs2.Name(), rgs3.Name())
+	fmt.Println("peer", rgs1.Name(), rgs1.Self())
+	fmt.Println("peer", rgs2.Name(), rgs2.Self())
+	fmt.Println("peer", rgs3.Name(), rgs3.Self())
 	time.Sleep(3 * time.Second)
 	rgs2.Kill()
 	time.Sleep(3 * time.Second)

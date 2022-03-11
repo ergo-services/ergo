@@ -2,7 +2,7 @@ package etf
 
 import (
 	"fmt"
-	"hash/fnv"
+	"hash/crc32"
 	"reflect"
 	"strings"
 )
@@ -99,7 +99,7 @@ type Function struct {
 }
 
 var (
-	hasher32 = fnv.New32a()
+	crc32q = crc32.MakeTable(0xD5828281)
 )
 
 // Export
@@ -179,9 +179,7 @@ func (p Pid) String() string {
 
 	n := uint32(0)
 	if p.Node != "" {
-		hasher32.Write([]byte(p.Node))
-		defer hasher32.Reset()
-		n = hasher32.Sum32()
+		n = crc32.Checksum([]byte(p.Node), crc32q)
 	}
 	return fmt.Sprintf("<%X.%d.%d>", n, int32(p.ID>>32), int32(p.ID))
 }
@@ -190,9 +188,7 @@ func (p Pid) String() string {
 func (r Ref) String() string {
 	n := uint32(0)
 	if r.Node != "" {
-		hasher32.Write([]byte(r.Node))
-		defer hasher32.Reset()
-		n = hasher32.Sum32()
+		n = crc32.Checksum([]byte(r.Node), crc32q)
 	}
 	return fmt.Sprintf("Ref#<%X.%d.%d.%d>", n, r.ID[0], r.ID[1], r.ID[2])
 }
@@ -201,9 +197,7 @@ func (r Ref) String() string {
 func (a Alias) String() string {
 	n := uint32(0)
 	if a.Node != "" {
-		hasher32.Write([]byte(a.Node))
-		defer hasher32.Reset()
-		n = hasher32.Sum32()
+		n = crc32.Checksum([]byte(a.Node), crc32q)
 	}
 	return fmt.Sprintf("Ref#<%X.%d.%d.%d>", n, a.ID[0], a.ID[1], a.ID[2])
 }
