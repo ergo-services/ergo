@@ -66,9 +66,24 @@ func TestRaft(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
+	fmt.Printf("Starting node: nodeGenRaft04@localhost...")
+	node4, err := ergo.StartNode("nodeGenRaft04@localhost", "cookies", node.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fmt.Println("OK")
+	defer node4.Stop()
+
+	rgs4, err := node4.Spawn("raft04", gen.ProcessOptions{}, &testRaft{}, peer)
+	if err != nil {
+		t.Fatal(err)
+	}
 	fmt.Println("peer", rgs1.Name(), rgs1.Self())
 	fmt.Println("peer", rgs2.Name(), rgs2.Self())
 	fmt.Println("peer", rgs3.Name(), rgs3.Self())
+	fmt.Println("peer", rgs4.Name(), rgs4.Self())
+
 	time.Sleep(3 * time.Second)
 	rgs2.Kill()
 	time.Sleep(3 * time.Second)
