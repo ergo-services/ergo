@@ -16,3 +16,5 @@
 ### Saga
   Generic saga behavior.
 
+### Raft
+  Generic raft behavior.

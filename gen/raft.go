@@ -343,7 +343,6 @@ func (rp *RaftProcess) quorumVote(from etf.Pid, change *messageRaftQuorumChange)
 	q.votes[from] = v
 
 	candidatesMatch := true
-	fmt.Println(rp.Name(), "AAA1", rp.quorumCandidates)
 	candidatesVoted := true
 	validFrom := false
 	for _, pid := range q.candidates {
@@ -354,7 +353,14 @@ func (rp *RaftProcess) quorumVote(from etf.Pid, change *messageRaftQuorumChange)
 			validFrom = true
 		}
 		if _, exist := rp.quorumCandidates[pid]; exist == false {
-			// TODO send join
+			// join this candidate
+			join := etf.Tuple{
+				etf.Atom("$quorum_join"),
+				rp.Self(),
+			}
+			rp.Cast(pid, join)
+
+			// can't join this quorum due to mismatch of candidates list
 			candidatesMatch = false
 		}
 		if v, _ := q.votes[pid]; v != 3 {
@@ -367,11 +373,9 @@ func (rp *RaftProcess) quorumVote(from etf.Pid, change *messageRaftQuorumChange)
 		return
 	}
 
-	fmt.Println(rp.Name(), "AAA2", candidatesMatch)
 	if candidatesMatch == false {
 		return
 	}
-	fmt.Println(rp.Name(), "AAA3", candidatesVoted)
 	if candidatesVoted == true {
 		if rp.quorumState != QuorumStateUnknown {
 			// let all prev quorum peers know that this peer is leaving it
@@ -404,7 +408,6 @@ func (rp *RaftProcess) quorumVote(from etf.Pid, change *messageRaftQuorumChange)
 	candidatesVoted = true
 	for _, pid := range q.candidates {
 		if pid == rp.Self() {
-			fmt.Println(rp.Name(), "AAA5 ign self", rp.Self())
 			continue // do not send to itself
 		}
 		v, _ := q.votes[pid]
@@ -416,11 +419,9 @@ func (rp *RaftProcess) quorumVote(from etf.Pid, change *messageRaftQuorumChange)
 		}
 
 		if v&1 > 0 {
-			fmt.Println(rp.Name(), "AAA5 ign voted", pid)
 			continue // already sent vote to this peer
 		}
 
-		fmt.Println(rp.Name(), "AAA5 send quo chg to", pid)
 		// send quorum change request to the others
 		quorumChange := etf.Tuple{
 			etf.Atom("$quorum_change"),
