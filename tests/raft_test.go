@@ -13,6 +13,7 @@ import (
 
 type testRaft struct {
 	gen.Raft
+	res chan interface{}
 }
 
 func (tr *testRaft) InitRaft(process *gen.RaftProcess, args ...etf.Term) (gen.RaftOptions, error) {
@@ -24,68 +25,57 @@ func (tr *testRaft) InitRaft(process *gen.RaftProcess, args ...etf.Term) (gen.Ra
 	return options, gen.RaftStatusOK
 }
 
+func (tr *testRaft) HandleQuorumChange(process *gen.RaftProcess, qs gen.RaftQuorumState) gen.RaftStatus {
+	fmt.Println("AAAA", process.Name(), qs)
+	//tr.res <- qs
+	return gen.RaftStatusOK
+}
+
 func TestRaft(t *testing.T) {
 	fmt.Printf("\n=== Test GenRaft\n")
-	fmt.Printf("Starting node: nodeGenRaft01@localhost...")
 
-	node1, err := ergo.StartNode("nodeGenRaft01@localhost", "cookies", node.Options{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	fmt.Println("OK")
-	defer node1.Stop()
+	fmt.Printf("Starting 13 nodes: nodeGenRaftXX@localhost...")
 
-	rgs1, err := node1.Spawn("raft01", gen.ProcessOptions{}, &testRaft{})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	fmt.Printf("Starting node: nodeGenRaft02@localhost...")
-	node2, err := ergo.StartNode("nodeGenRaft02@localhost", "cookies", node.Options{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	fmt.Println("OK")
-	defer node2.Stop()
-
-	peer := gen.ProcessID{Node: node1.Name(), Name: rgs1.Name()}
-	rgs2, err := node2.Spawn("raft02", gen.ProcessOptions{}, &testRaft{}, peer)
-	if err != nil {
-		t.Fatal(err)
+	var nodes [13]node.Node
+	for i := range nodes {
+		name := fmt.Sprintf("nodeGenRaft%0d@localhost", i)
+		node, err := ergo.StartNode(name, "cookies", node.Options{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		nodes[i] = node
 	}
 
-	fmt.Printf("Starting node: nodeGenRaft03@localhost...")
-	node3, err := ergo.StartNode("nodeGenRaft03@localhost", "cookies", node.Options{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	fmt.Println("OK")
-	defer node3.Stop()
+	defer func() {
+		for i := range nodes {
+			nodes[i].Stop()
+		}
+	}()
 
-	rgs3, err := node3.Spawn("raft03", gen.ProcessOptions{}, &testRaft{}, peer)
-	if err != nil {
-		t.Fatal(err)
+	var rafts [13]gen.Process
+	var results [13]chan interface{}
+	var args []etf.Term
+	var peer gen.ProcessID
+	for i := range rafts {
+		name := fmt.Sprintf("raft%0d", i)
+		if i == 0 {
+			args = nil
+		} else {
+			peer.Node = nodes[i-1].Name()
+			peer.Name = rafts[i-1].Name()
+			args = []etf.Term{peer}
+		}
+		tr := &testRaft{
+			res: make(chan interface{}, 2),
+		}
+		results[i] = tr.res
+		raft, err := nodes[i].Spawn(name, gen.ProcessOptions{}, tr, args...)
+		if err != nil {
+			t.Fatal(err)
+		}
+		rafts[i] = raft
 	}
 
-	fmt.Printf("Starting node: nodeGenRaft04@localhost...")
-	node4, err := ergo.StartNode("nodeGenRaft04@localhost", "cookies", node.Options{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	fmt.Println("OK")
-	defer node4.Stop()
-
-	rgs4, err := node4.Spawn("raft04", gen.ProcessOptions{}, &testRaft{}, peer)
-	if err != nil {
-		t.Fatal(err)
-	}
-	fmt.Println("peer", rgs1.Name(), rgs1.Self())
-	fmt.Println("peer", rgs2.Name(), rgs2.Self())
-	fmt.Println("peer", rgs3.Name(), rgs3.Self())
-	fmt.Println("peer", rgs4.Name(), rgs4.Self())
-
-	time.Sleep(3 * time.Second)
-	rgs2.Kill()
-	time.Sleep(3 * time.Second)
+	time.Sleep(10 * time.Second)
 
 }
