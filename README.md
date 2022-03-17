@@ -74,6 +74,7 @@ Here are the changes of latest release. For more details see the [ChangeLog](Cha
   - `gen.Process.SetCompressionLevel`/`gen.Process.CompressionLevel`
   - `gen.Process.SetCompressionThreshold`/`gen.Process.CompressionThreshold`
   - `gen.Process.NodeUptime`/`gen.Process.NodeName`/`gen.Process.NodeStop`
+  - `gen.ServerProcess.MessageCounter`
 * **Important** `node.Options` has changed. Make sure to adjust your code.
 * Introduced `node.Proxy` in `node.Options` to configure proxy settings for the node.
 * Intfoduced `node.ProxyFlags` to enable/disable features of linking, monitoring, remote spawning for the peer connected through the proxy link.

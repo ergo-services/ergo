@@ -69,7 +69,7 @@ type ServerProcess struct {
 	ProcessState
 
 	behavior        ServerBehavior
-	reductions      uint64 // total number of processed messages from mailBox
+	counter         uint64 // total number of processed messages from mailBox
 	currentFunction string
 	trapExit        bool
 
@@ -190,6 +190,12 @@ func (sp *ServerProcess) SendReply(from ServerFrom, reply etf.Term) error {
 	return sp.Send(to, rep)
 }
 
+// MessageCounter returns the number of messages handled by ServerProcess callbacks: HandleCall,
+// HandleCast, HandleInfo, HandleDirect
+func (sp *ServerProcess) MessageCounter() uint64 {
+	return sp.counter
+}
+
 // ProcessInit
 func (gs *Server) ProcessInit(p Process, args ...etf.Term) (ProcessState, error) {
 	behavior, ok := p.Behavior().(ServerBehavior)
@@ -289,8 +295,6 @@ func (gs *Server) ProcessLoop(ps ProcessState, started chan<- bool) string {
 		}
 
 		lib.Log("[%s] GEN_SERVER %s got message from %s", sp.NodeName(), sp.Self(), fromPid)
-
-		sp.reductions++
 
 		switch m := message.(type) {
 		case etf.Tuple:
@@ -429,21 +433,25 @@ func (sp *ServerProcess) waitCallbackOrDeferr(message interface{}) {
 	switch m := message.(type) {
 	case handleCallMessage:
 		go func() {
+			sp.counter++
 			sp.handleCall(m)
 			sp.callbackWaitReply <- nil
 		}()
 	case handleCastMessage:
 		go func() {
+			sp.counter++
 			sp.handleCast(m)
 			sp.callbackWaitReply <- nil
 		}()
 	case handleInfoMessage:
 		go func() {
+			sp.counter++
 			sp.handleInfo(m)
 			sp.callbackWaitReply <- nil
 		}()
 	case ProcessDirectMessage:
 		go func() {
+			sp.counter++
 			sp.handleDirect(m)
 			sp.callbackWaitReply <- nil
 		}()

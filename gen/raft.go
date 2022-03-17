@@ -170,7 +170,7 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 			},
 		}
 		rp.Cast(m.Pid, reply)
-		fmt.Println(rp.Name(), "GOT QUO JOIN ", peers)
+		fmt.Println(rp.Name(), "GOT QUO JOIN from", m.Pid, peers)
 		return RaftStatusOK
 
 	case etf.Atom("$quorum_join_reply"):
@@ -186,10 +186,10 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 		}
 
 		if rp.quorumCandidates.Add(rp, m.Pid, reply.LastUpdate) == false {
-			fmt.Println(rp.Name(), "GOT QUO JOIN REPL", rp.quorumCandidates.List())
 			return RaftStatusOK
 		}
 
+		fmt.Println(rp.Name(), "GOT QUO JOIN REPL from", m.Pid, "send peers", reply.Peers)
 		for _, peer := range reply.Peers {
 			if peer == rp.Self() {
 				continue
@@ -365,7 +365,7 @@ func (rp *RaftProcess) quorumChange() RaftStatus {
 	quorumCandidates = append(quorumCandidates, rp.Self())
 	candidates := rp.quorumCandidates.List()
 	quorumCandidates = append(quorumCandidates, candidates[:l]...)
-	fmt.Println(rp.Name(), "QUO VOTE", candidateRaftQuorumState, quorumCandidates)
+	fmt.Println(rp.Name(), "QUO VOTE INIT", candidateRaftQuorumState, quorumCandidates)
 
 	// send quorumVote to all candidates
 	quorumVote := etf.Tuple{
@@ -425,7 +425,7 @@ func (rp *RaftProcess) quorumVote(from etf.Pid, vote *messageRaftQuorumVote) Raf
 
 	// do not vote if requested quorum is less than existing one
 	if rp.quorum.State != RaftQuorumStateUnknown && vote.State < int(rp.quorum.State)+1 {
-		fmt.Println("SKIP VOTE", rp.Name())
+		fmt.Println(rp.Name(), "SKIP VOTE from", from)
 		if rp.quorum.Follow == false {
 			formed := etf.Tuple{
 				etf.Atom("$quorum_formed"),
@@ -526,8 +526,7 @@ func (rp *RaftProcess) quorumVote(from etf.Pid, vote *messageRaftQuorumVote) Raf
 			if pid == from {
 				validFrom = true
 				// mark as recv
-				v |= 2
-				q.votes[from] = v
+				q.votes[from] = v | 2
 			}
 		}
 
@@ -545,16 +544,17 @@ func (rp *RaftProcess) quorumVote(from etf.Pid, vote *messageRaftQuorumVote) Raf
 		}
 		v, _ := q.votes[pid]
 
-		if v&1 > 0 {
-			continue // already sent vote to this peer
-		}
-
 		// mark as sent
-		q.votes[pid] = v | 1
 		if v|1 != 3 {
 			candidatesVoted = false
 		}
 
+		// check if already sent vote to this peer
+		if v&1 > 0 {
+			continue
+		}
+
+		q.votes[pid] = v | 1
 		// send quorum change request to the others
 		quorumVote := etf.Tuple{
 			etf.Atom("$quorum_vote"),
@@ -565,6 +565,7 @@ func (rp *RaftProcess) quorumVote(from etf.Pid, vote *messageRaftQuorumVote) Raf
 				vote.Candidates,
 			},
 		}
+		fmt.Println(rp.Name(), "SEND QUO VOTE to", pid)
 		rp.Cast(pid, quorumVote)
 
 	}

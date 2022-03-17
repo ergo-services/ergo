@@ -204,7 +204,6 @@ type ProcessInfo struct {
 	Dictionary      etf.Map
 	TrapExit        bool
 	GroupLeader     etf.Pid
-	Reductions      uint64
 	Compression     bool
 }
 

@@ -75,7 +75,7 @@ func TestRaft(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		fmt.Println("started: ", raft.Name(), raft.Self())
+		fmt.Println(raft.Self(), raft.Name(), " - SSSSSSTARTED")
 		rafts[i] = raft
 	}
 

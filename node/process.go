@@ -188,6 +188,7 @@ func (p *process) Info() gen.ProcessInfo {
 		Status:          "running",
 		MessageQueueLen: len(p.mailBox),
 		TrapExit:        p.trapExit,
+		Compression:     p.compression.Enable,
 	}
 }
 
