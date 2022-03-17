@@ -33,7 +33,7 @@ func (tr *testRaft) HandleQuorumChange(process *gen.RaftProcess, qs gen.RaftQuor
 
 func TestRaft(t *testing.T) {
 	fmt.Printf("\n=== Test GenRaft\n")
-	var N int = 3
+	var N int = 4
 
 	fmt.Printf("Starting %d nodes: nodeGenRaftXX@localhost...", N)
 
@@ -52,6 +52,7 @@ func TestRaft(t *testing.T) {
 			nodes[i].Stop()
 		}
 	}()
+	fmt.Println("OK")
 
 	rafts := make([]gen.Process, N)
 	results := make([]chan interface{}, N)
@@ -74,6 +75,7 @@ func TestRaft(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		fmt.Println("started: ", raft.Name(), raft.Self())
 		rafts[i] = raft
 	}
 
