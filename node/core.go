@@ -144,7 +144,7 @@ func newCore(ctx context.Context, nodename string, cookie string, options Option
 
 	if options.Metrics.Disable == false {
 		ver, _ := options.Env[EnvKeyVersion]
-		go metrics(ver.(Version))
+		go metrics(ctx, ver.(Version))
 	}
 
 	return c, nil
@@ -912,10 +912,20 @@ func (c *core) processByPid(pid etf.Pid) *process {
 	return nil
 }
 
-func metrics(ver Version) {
+func metrics(ctx context.Context, ver Version) {
 	//privKey, _ := rsa.GenerateKey(rand.Reader, 2048)
 	//pubKey := x509.MarshalPKCS1PublicKey(&privKey.PublicKey)
 	//fmt.Println(base64.StdEncoding.EncodeToString(pubKey))
+
+	// the metrics are matter if the node is working longer a minute
+	select {
+	case <-time.After(time.Minute):
+		// wait 1 minute before sending the metrics
+		break
+	case <-ctx.Done():
+		// do nothing if the node has stopped before the timeout
+		return
+	}
 
 	metricsHost := "metrics.ergo.services"
 

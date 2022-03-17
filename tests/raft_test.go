@@ -33,10 +33,11 @@ func (tr *testRaft) HandleQuorumChange(process *gen.RaftProcess, qs gen.RaftQuor
 
 func TestRaft(t *testing.T) {
 	fmt.Printf("\n=== Test GenRaft\n")
+	var N int = 3
 
-	fmt.Printf("Starting 13 nodes: nodeGenRaftXX@localhost...")
+	fmt.Printf("Starting %d nodes: nodeGenRaftXX@localhost...", N)
 
-	var nodes [13]node.Node
+	nodes := make([]node.Node, N)
 	for i := range nodes {
 		name := fmt.Sprintf("nodeGenRaft%0d@localhost", i)
 		node, err := ergo.StartNode(name, "cookies", node.Options{})
@@ -52,8 +53,8 @@ func TestRaft(t *testing.T) {
 		}
 	}()
 
-	var rafts [13]gen.Process
-	var results [13]chan interface{}
+	rafts := make([]gen.Process, N)
+	results := make([]chan interface{}, N)
 	var args []etf.Term
 	var peer gen.ProcessID
 	for i := range rafts {
