@@ -119,7 +119,7 @@ type messageRaftQuorumReply struct {
 	LastUpdate int64
 	Peers      []etf.Pid
 }
-type messageRaftQuorumChange struct {
+type messageRaftQuorumVote struct {
 	ID         string
 	State      int
 	Candidates []etf.Pid
@@ -191,6 +191,9 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 		}
 
 		for _, peer := range reply.Peers {
+			if peer == rp.Self() {
+				continue
+			}
 			// check if we dont have some of them among the candidates
 			if _, exist := rp.quorumCandidates.Get(peer); exist {
 				continue
@@ -205,16 +208,16 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 		}
 		return RaftStatusOK
 
-	case etf.Atom("$quorum_change"):
-		change := &messageRaftQuorumChange{}
-		if err := etf.TermIntoStruct(m.Command, &change); err != nil {
+	case etf.Atom("$quorum_vote"):
+		vote := &messageRaftQuorumVote{}
+		if err := etf.TermIntoStruct(m.Command, &vote); err != nil {
 			return ErrUnsupportedRequest
 		}
-		if change.ID != rp.options.QuorumID {
+		if vote.ID != rp.options.QuorumID {
 			// ignore this request
 			return RaftStatusOK
 		}
-		return rp.quorumVote(m.Pid, change)
+		return rp.quorumVote(m.Pid, vote)
 
 	case etf.Atom("$quorum_leave"):
 		leave := &messageRaftQuorumLeave{}
@@ -260,6 +263,9 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 			if _, exist := duplicates[pid]; exist {
 				// duplicate found
 				return RaftStatusOK
+			}
+			if pid == rp.Self() {
+				continue
 			}
 			if _, exist := rp.quorumCandidates.Get(pid); exist {
 				continue
@@ -351,7 +357,7 @@ func (rp *RaftProcess) quorumChange() RaftStatus {
 			rp.quorum.State = RaftQuorumStateUnknown
 			return rp.behavior.HandleQuorumChange(rp, RaftQuorumStateUnknown)
 		}
-		fmt.Println(rp.Name(), "QUO CHG. NOT ENO CAND", rp.quorumCandidates)
+		fmt.Println(rp.Name(), "QUO VOTE. NOT ENO CAND", rp.quorumCandidates.List())
 		return RaftStatusOK
 	}
 
@@ -359,11 +365,11 @@ func (rp *RaftProcess) quorumChange() RaftStatus {
 	quorumCandidates = append(quorumCandidates, rp.Self())
 	candidates := rp.quorumCandidates.List()
 	quorumCandidates = append(quorumCandidates, candidates[:l]...)
-	fmt.Println(rp.Name(), "QUO CHG", l, quorumCandidates)
+	fmt.Println(rp.Name(), "QUO VOTE", candidateRaftQuorumState, quorumCandidates)
 
-	// send quorumChange to all candidates
-	quorumChange := etf.Tuple{
-		etf.Atom("$quorum_change"),
+	// send quorumVote to all candidates
+	quorumVote := etf.Tuple{
+		etf.Atom("$quorum_vote"),
 		rp.Self(),
 		etf.Tuple{
 			rp.options.QuorumID,
@@ -378,18 +384,18 @@ func (rp *RaftProcess) quorumChange() RaftStatus {
 	quorum.Peers = quorumCandidates
 	// do not send to itself
 	for _, pid := range quorumCandidates[1:] {
-		fmt.Println(rp.Name(), "SEND QUO CHG to", pid)
+		fmt.Println(rp.Name(), "SEND QUO VOTE to", pid)
 		quorum.votes[pid] = 1
-		rp.Cast(pid, quorumChange)
+		rp.Cast(pid, quorumVote)
 	}
 	rp.quorumVotes[candidateRaftQuorumState] = quorum
 	rp.CastAfter(rp.Self(), messageRaftQuorumCleanVote{state: quorum.State}, cleanVoteTimeout)
 	return RaftStatusOK
 }
 
-func (rp *RaftProcess) quorumVote(from etf.Pid, change *messageRaftQuorumChange) RaftStatus {
-	fmt.Println(rp.Name(), "QUO VOTE", from, change)
-	if change.State != len(change.Candidates) {
+func (rp *RaftProcess) quorumVote(from etf.Pid, vote *messageRaftQuorumVote) RaftStatus {
+	fmt.Println(rp.Name(), "QUO VOTE", from, vote)
+	if vote.State != len(vote.Candidates) {
 		lib.Warning("[%s] quorum state and number of candidates are mismatch. removing %s from quorum candidates list", rp.Self(), from)
 		rp.quorumCandidates.Remove(rp, from, etf.Ref{})
 		return RaftStatusOK
@@ -400,7 +406,7 @@ func (rp *RaftProcess) quorumVote(from etf.Pid, change *messageRaftQuorumChange)
 		return RaftStatusOK
 	}
 	candidatesRaftQuorumState := RaftQuorumStateUnknown
-	switch change.State {
+	switch vote.State {
 	case 3:
 		candidatesRaftQuorumState = RaftQuorumState3
 	case 5:
@@ -418,7 +424,7 @@ func (rp *RaftProcess) quorumVote(from etf.Pid, change *messageRaftQuorumChange)
 	}
 
 	// do not vote if requested quorum is less than existing one
-	if rp.quorum.State != RaftQuorumStateUnknown && change.State < int(rp.quorum.State)+1 {
+	if rp.quorum.State != RaftQuorumStateUnknown && vote.State < int(rp.quorum.State)+1 {
 		fmt.Println("SKIP VOTE", rp.Name())
 		if rp.quorum.Follow == false {
 			formed := etf.Tuple{
@@ -451,7 +457,7 @@ func (rp *RaftProcess) quorumVote(from etf.Pid, change *messageRaftQuorumChange)
 		validFrom := false
 		validTo := false
 		candidatesMatch := true
-		for _, pid := range change.Candidates {
+		for _, pid := range vote.Candidates {
 			if pid == rp.Self() {
 				validTo = true
 				continue
@@ -477,7 +483,7 @@ func (rp *RaftProcess) quorumVote(from etf.Pid, change *messageRaftQuorumChange)
 		}
 
 		if validFrom == false || validTo == false {
-			lib.Warning("[%s] got vote from %s with incorrect candidates list", from)
+			lib.Warning("[%s] got vote from %s with incorrect candidates list", rp.Name(), from)
 			rp.quorumCandidates.Remove(rp, from, etf.Ref{})
 			return RaftStatusOK
 		}
@@ -488,7 +494,7 @@ func (rp *RaftProcess) quorumVote(from etf.Pid, change *messageRaftQuorumChange)
 		}
 
 		q.State = candidatesRaftQuorumState
-		q.Peers = change.Candidates
+		q.Peers = vote.Candidates
 
 		rp.quorumVotes[candidatesRaftQuorumState] = q
 		rp.CastAfter(rp.Self(), messageRaftQuorumCleanVote{state: q.State}, cleanVoteTimeout)
@@ -498,13 +504,13 @@ func (rp *RaftProcess) quorumVote(from etf.Pid, change *messageRaftQuorumChange)
 		// and shouldn't have duplicates
 		duplicates := make(map[etf.Pid]bool)
 		validFrom := false
-		for _, pid := range change.Candidates {
+		for _, pid := range vote.Candidates {
 			if pid == rp.Self() {
 				continue
 			}
 			// check for duplicate
 			if _, exist := duplicates[pid]; exist {
-				lib.Warning("[%s] got vote with duplicates from %s: %#v", rp.Name(), from, change.Candidates)
+				lib.Warning("[%s] got vote with duplicates from %s: %#v", rp.Name(), from, vote.Candidates)
 				rp.quorumCandidates.Remove(rp, from, etf.Ref{})
 			}
 			duplicates[pid] = false
@@ -526,7 +532,7 @@ func (rp *RaftProcess) quorumVote(from etf.Pid, change *messageRaftQuorumChange)
 		}
 
 		if validFrom == false {
-			lib.Warning("[%s] got vote from %s which doesn't belongs offered quorum", from)
+			lib.Warning("[%s] got vote from %s which doesn't belongs offered quorum", rp.Name(), from)
 			rp.quorumCandidates.Remove(rp, from, etf.Ref{})
 			return RaftStatusOK
 		}
@@ -539,26 +545,27 @@ func (rp *RaftProcess) quorumVote(from etf.Pid, change *messageRaftQuorumChange)
 		}
 		v, _ := q.votes[pid]
 
+		if v&1 > 0 {
+			continue // already sent vote to this peer
+		}
+
 		// mark as sent
 		q.votes[pid] = v | 1
 		if v|1 != 3 {
 			candidatesVoted = false
 		}
 
-		if v&1 > 0 {
-			continue // already sent vote to this peer
-		}
 		// send quorum change request to the others
-		quorumChange := etf.Tuple{
-			etf.Atom("$quorum_change"),
+		quorumVote := etf.Tuple{
+			etf.Atom("$quorum_vote"),
 			rp.Self(),
 			etf.Tuple{
 				rp.options.QuorumID,
-				change.State,
-				change.Candidates,
+				vote.State,
+				vote.Candidates,
 			},
 		}
-		rp.Cast(pid, quorumChange)
+		rp.Cast(pid, quorumVote)
 
 	}
 
@@ -676,6 +683,10 @@ func (r *Raft) HandleCast(process *ServerProcess, message etf.Term) ServerStatus
 	default:
 		if err := etf.TermIntoStruct(message, &mRaft); err != nil {
 			return rp.behavior.HandleRaftInfo(rp, message)
+		}
+		if mRaft.Pid == process.Self() {
+			lib.Warning("[%s] got raft command from itself %#v", process.Self(), mRaft)
+			return ServerStatusOK
 		}
 		status = rp.handleRaftRequest(mRaft)
 	}
