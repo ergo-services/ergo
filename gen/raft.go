@@ -186,7 +186,7 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 		}
 
 		if rp.quorumCandidates.Add(rp, m.Pid, reply.LastUpdate) == false {
-			fmt.Println(rp.Name(), "GOT QUO JOIN REPL", rp.quorumCandidates)
+			fmt.Println(rp.Name(), "GOT QUO JOIN REPL", rp.quorumCandidates.List())
 			return RaftStatusOK
 		}
 
@@ -287,6 +287,7 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 		}
 		rp.quorum.Follow = true
 		rp.quorum.Peers = follow.Peers
+		fmt.Println(rp.Name(), "QUO FOLLOWER", rp.quorum.State, rp.quorum.Peers)
 		return RaftStatusOK
 	}
 
@@ -584,18 +585,18 @@ func (rp *RaftProcess) quorumVote(from etf.Pid, change *messageRaftQuorumChange)
 				rp.Cast(peer, quorumLeave)
 			}
 		}
-		rp.quorumFormed(candidatesRaftQuorumState, q.State, q.Peers)
+		rp.quorumFormed(q.State, q.Peers)
 		return rp.behavior.HandleQuorumChange(rp, rp.quorum.State)
 	}
 
 	return RaftStatusOK
 }
 
-func (rp *RaftProcess) quorumFormed(state RaftQuorumState, qs RaftQuorumState, candidates []etf.Pid) {
-	fmt.Println(rp.Name(), "QUO FORMED STATE:", qs, state)
-	rp.quorum.State = qs
-	rp.quorum.Peers = candidates
-	delete(rp.quorumVotes, qs)
+func (rp *RaftProcess) quorumFormed(state RaftQuorumState, peers []etf.Pid) {
+	fmt.Println(rp.Name(), "QUO FORMED STATE:", state, peers)
+	rp.quorum.State = state
+	rp.quorum.Peers = peers
+	delete(rp.quorumVotes, state)
 }
 
 //

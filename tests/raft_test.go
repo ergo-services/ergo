@@ -33,7 +33,7 @@ func (tr *testRaft) HandleQuorumChange(process *gen.RaftProcess, qs gen.RaftQuor
 
 func TestRaft(t *testing.T) {
 	fmt.Printf("\n=== Test GenRaft\n")
-	var N int = 4
+	var N int = 8
 
 	fmt.Printf("Starting %d nodes: nodeGenRaftXX@localhost...", N)
 
