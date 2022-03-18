@@ -26,14 +26,15 @@ func (tr *testRaft) InitRaft(process *gen.RaftProcess, args ...etf.Term) (gen.Ra
 }
 
 func (tr *testRaft) HandleQuorumChange(process *gen.RaftProcess, qs gen.RaftQuorumState) gen.RaftStatus {
-	fmt.Println("AAAA", process.Name(), qs)
+	q := process.Quorum()
+	fmt.Println("AAAA", process.Name(), "state:", qs, q.State, q.Follow)
 	//tr.res <- qs
 	return gen.RaftStatusOK
 }
 
 func TestRaft(t *testing.T) {
 	fmt.Printf("\n=== Test GenRaft\n")
-	var N int = 4
+	var N int = 15
 
 	fmt.Printf("Starting %d nodes: nodeGenRaftXX@localhost...", N)
 
@@ -59,7 +60,7 @@ func TestRaft(t *testing.T) {
 	var args []etf.Term
 	var peer gen.ProcessID
 	for i := range rafts {
-		name := fmt.Sprintf("raft%0d", i)
+		name := fmt.Sprintf("raft%0d", i+1)
 		if i == 0 {
 			args = nil
 		} else {
@@ -75,10 +76,11 @@ func TestRaft(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		fmt.Println(raft.Self(), raft.Name(), " - SSSSSSTARTED")
+		fmt.Println(raft.Self(), raft.Name(), " ----------")
 		rafts[i] = raft
+		time.Sleep(300 * time.Millisecond)
 	}
 
-	time.Sleep(10 * time.Second)
+	time.Sleep(20 * time.Second)
 
 }

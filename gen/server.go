@@ -190,7 +190,7 @@ func (sp *ServerProcess) SendReply(from ServerFrom, reply etf.Term) error {
 	return sp.Send(to, rep)
 }
 
-// MessageCounter returns the number of messages handled by ServerProcess callbacks: HandleCall,
+// MessageCounter returns the total number of messages handled by Server callbacks: HandleCall,
 // HandleCast, HandleInfo, HandleDirect
 func (sp *ServerProcess) MessageCounter() uint64 {
 	return sp.counter
