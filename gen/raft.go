@@ -60,7 +60,7 @@ var (
 	RaftQuorumState9       RaftQuorumState = 9
 	RaftQuorumState11      RaftQuorumState = 11 // maximal quorum
 
-	cleanVoteTimeout = 3 * time.Second
+	cleanVoteTimeout = 1 * time.Second
 )
 
 type Raft struct {
@@ -395,7 +395,9 @@ func (rp *RaftProcess) quorumVote(from etf.Pid, vote *messageRaftQuorumVote) Raf
 	}
 
 	if _, exist := rp.quorumCandidates.Get(from); exist == false {
-		lib.Warning("[%s] got vote from unknown peer %s", rp.Self(), from)
+		// there is a race conditioned case when we received a vote before
+		// the quorum_join_reply message. just ignore it. they will start
+		// another round of quorum forming
 		return RaftStatusOK
 	}
 	candidatesRaftQuorumState := RaftQuorumStateUnknown

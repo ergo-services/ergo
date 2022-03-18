@@ -78,7 +78,7 @@ func TestRaft(t *testing.T) {
 		}
 		fmt.Println(raft.Self(), raft.Name(), " ----------")
 		rafts[i] = raft
-		time.Sleep(300 * time.Millisecond)
+		//time.Sleep(300 * time.Millisecond)
 	}
 
 	time.Sleep(20 * time.Second)
