@@ -27,20 +27,32 @@ func (tr *testRaft) InitRaft(process *gen.RaftProcess, args ...etf.Term) (gen.Ra
 
 func (tr *testRaft) HandleQuorumChange(process *gen.RaftProcess, qs gen.RaftQuorumState) gen.RaftStatus {
 	q := process.Quorum()
-	fmt.Println("AAAA", process.Name(), "state:", qs, q.State, q.Follow)
+	fmt.Println("AAAA", process.Name(), "state:", q.State, q.Follow)
+	if sent, _ := process.State.(int); sent != 1 {
+		process.SendAfter(process.Self(), "ok", 7*time.Second)
+		process.State = 1
+	}
 	//tr.res <- qs
 	return gen.RaftStatusOK
 }
 
+func (tr *testRaft) HandleRaftInfo(process *gen.RaftProcess, message etf.Term) gen.ServerStatus {
+	q := process.Quorum()
+
+	fmt.Println("BBBB", process.Name(), "state:", q.State, q.Follow)
+	process.State = 0
+	return gen.ServerStatusOK
+}
+
 func TestRaft(t *testing.T) {
 	fmt.Printf("\n=== Test GenRaft\n")
-	var N int = 15
+	var N int = 8
 
 	fmt.Printf("Starting %d nodes: nodeGenRaftXX@localhost...", N)
 
 	nodes := make([]node.Node, N)
 	for i := range nodes {
-		name := fmt.Sprintf("nodeGenRaft%0d@localhost", i)
+		name := fmt.Sprintf("nodeGenRaft%02d@localhost", i)
 		node, err := ergo.StartNode(name, "cookies", node.Options{})
 		if err != nil {
 			t.Fatal(err)
@@ -60,7 +72,7 @@ func TestRaft(t *testing.T) {
 	var args []etf.Term
 	var peer gen.ProcessID
 	for i := range rafts {
-		name := fmt.Sprintf("raft%0d", i+1)
+		name := fmt.Sprintf("raft%02d", i+1)
 		if i == 0 {
 			args = nil
 		} else {

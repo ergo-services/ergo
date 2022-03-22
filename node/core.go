@@ -747,7 +747,9 @@ func (c *core) RouteSend(from etf.Pid, to etf.Pid, message etf.Term) error {
 			pid, found := c.names[p.fallback.Name]
 			c.mutexNames.RUnlock()
 			if found == false {
-				lib.Warning("mailbox of %s[%q] is full. dropped message from %s", p.self, p.name, from)
+				//lib.Warning("mailbox of %s[%q] is full. dropped message from %s", p.self, p.name, from)
+				//FIXME
+				lib.Warning("mailbox of %s[%q] is full. dropped message from %s %#v", p.self, p.name, from, message)
 				return ErrProcessBusy
 			}
 			fbm := gen.MessageFallback{
