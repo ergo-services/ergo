@@ -144,9 +144,9 @@ goos: linux
 goarch: amd64
 pkg: github.com/ergo-services/ergo/tests
 cpu: AMD Ryzen Threadripper 3970X 32-Core Processor
-BenchmarkNodeProxy_NodeA_to_NodeC_direct_Message_1K-64                     1908477       6337 ns/op
-BenchmarkNodeProxy_NodeA_to_NodeC_via_NodeB_Message_1K-64                  1700984       7062 ns/op
-BenchmarkNodeProxy_NodeA_to_NodeC_via_NodeB_Message_1K_Encrypted-64        1271125       9410 ns/op
+BenchmarkNodeProxy_NodeA_to_NodeC_direct_Message_1KB-64                     1908477       6337 ns/op
+BenchmarkNodeProxy_NodeA_to_NodeC_via_NodeB_Message_1KB-64                  1700984       7062 ns/op
+BenchmarkNodeProxy_NodeA_to_NodeC_via_NodeB_Message_1KB_Encrypted-64        1271125       9410 ns/op
 PASS
 ok      github.com/ergo-services/ergo/tests     45.649s
 
