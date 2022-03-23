@@ -60,7 +60,8 @@ var (
 	RaftQuorumState9       RaftQuorumState = 9
 	RaftQuorumState11      RaftQuorumState = 11 // maximal quorum
 
-	cleanVoteTimeout = 1 * time.Second
+	cleanVoteTimeout         = 1 * time.Second
+	quorumChangeDeferMaxTime = 700 // in millisecond. uses as max value in range of 50..
 )
 
 type Raft struct {
@@ -94,8 +95,9 @@ type Quorum struct {
 }
 type quorum struct {
 	Quorum
-	votes  map[etf.Pid]int // 1 - sent, 2 - recv, 3 - sent and recv
-	origin etf.Pid         // where the voting has come from. it must receive our voice in the last order
+	votes    map[etf.Pid]int // 1 - sent, 2 - recv, 3 - sent and recv
+	origin   etf.Pid         // where the voting has come from. it must receive our voice in the last order
+	lastVote int64           // time.Now().UnixMilli()
 }
 
 type RaftOptions struct {
@@ -213,7 +215,7 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 		}
 
 		if rp.quorumChangeDefer == false {
-			after := time.Duration(50+rand.Intn(450)) * time.Millisecond
+			after := time.Duration(50+rand.Intn(quorumChangeDeferMaxTime)) * time.Millisecond
 			rp.CastAfter(rp.Self(), messageRaftQuorumChangeDefer{}, after)
 			rp.quorumChangeDefer = true
 		}
@@ -286,7 +288,7 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 		}
 
 		if rp.quorumChangeDefer == false {
-			after := time.Duration(50+rand.Intn(450)) * time.Millisecond
+			after := time.Duration(50+rand.Intn(quorumChangeDeferMaxTime)) * time.Millisecond
 			rp.CastAfter(rp.Self(), messageRaftQuorumChangeDefer{}, after)
 			rp.quorumChangeDefer = true
 		}
@@ -511,7 +513,7 @@ func (rp *RaftProcess) quorumVote(from etf.Pid, vote *messageRaftQuorumVote) Raf
 			// do not create this voting if those peers aren't valid (haven't registered yet)
 			return RaftStatusOK
 		}
-
+		q.lastVote = time.Now().UnixMilli()
 		fmt.Println(rp.Name(), "QUO VOTE (NEW)", from, vote)
 		rp.quorumVotes[candidatesRaftQuorumState] = q
 		rp.CastAfter(rp.Self(), messageRaftQuorumCleanVote{state: q.State}, cleanVoteTimeout)
@@ -520,6 +522,7 @@ func (rp *RaftProcess) quorumVote(from etf.Pid, vote *messageRaftQuorumVote) Raf
 		if rp.quorumValidateVote(from, q, vote) == false {
 			return RaftStatusOK
 		}
+		q.lastVote = time.Now().UnixMilli()
 		fmt.Println(rp.Name(), "QUO VOTE", from, vote)
 	}
 
@@ -573,16 +576,27 @@ func (rp *RaftProcess) quorumValidateVote(from etf.Pid, q *quorum, vote *message
 		q.votes = make(map[etf.Pid]int)
 		newVote = true
 	}
-	for _, pid := range vote.Candidates {
+
+	if newVote == true && vote.Candidates[0] != from {
+		// ignore if the first vote has been received not from the initiator of this voting
+		return false
+	}
+
+	for i, pid := range vote.Candidates {
 		if pid == rp.Self() {
 			validTo = true
 			continue
 		}
 
+		// quorum peers must be matched with the vote's cadidates
+		if q.Peers[i] != vote.Candidates[i] {
+			candidatesMatch = false
+		}
+
 		// check if received vote has the same set of peers.
 		// if this is the first vote for the given q.State the pid
 		// will be added to the vote map
-		v, exist := q.votes[pid]
+		_, exist := q.votes[pid]
 		if exist == false {
 			if newVote {
 				q.votes[pid] = 0
@@ -593,15 +607,15 @@ func (rp *RaftProcess) quorumValidateVote(from etf.Pid, q *quorum, vote *message
 
 		if pid == from {
 			validFrom = true
-			// mark as recv
-			q.votes[from] = v | 2
 		}
+
 		if _, exist := duplicates[pid]; exist {
 			lib.Warning("[%s] got vote with duplicates from %s", rp.Name(), from)
 			rp.quorumCandidates.Remove(rp, from, etf.Ref{})
 			return false
 		}
 		duplicates[pid] = false
+
 		if _, exist := rp.quorumCandidates.Get(pid); exist == false {
 			candidatesMatch = false
 			rp.quorumJoin(pid)
@@ -620,6 +634,10 @@ func (rp *RaftProcess) quorumValidateVote(from etf.Pid, q *quorum, vote *message
 		rp.quorumCandidates.Remove(rp, from, etf.Ref{})
 		return false
 	}
+
+	// mark as recv
+	v, _ := q.votes[from]
+	q.votes[from] = v | 2
 
 	return true
 }
@@ -685,18 +703,30 @@ func (r *Raft) HandleCast(process *ServerProcess, message etf.Term) ServerStatus
 	rp := process.State.(*RaftProcess)
 	switch m := message.(type) {
 	case messageRaftQuorumCleanVote:
-		if q, exist := rp.quorumVotes[m.state]; exist {
+		q, exist := rp.quorumVotes[m.state]
+		if exist == true && q.lastVote > 0 {
+			diff := time.Duration(time.Now().UnixMilli()-q.lastVote) * time.Millisecond
+			// if voting is still in progress cast itself again with shifted timeout
+			// according to cleanVoteTimeout
+			if cleanVoteTimeout > diff {
+				nextCleanVoteTimeout := cleanVoteTimeout - diff
+				rp.CastAfter(rp.Self(), messageRaftQuorumCleanVote{state: q.State}, nextCleanVoteTimeout)
+				return ServerStatusOK
+			}
+		}
+		// TODO remove debug print
+		if q != nil {
 			fmt.Println(rp.Name(), "CLN VOTE", m.state, q.Peers)
 		}
 		delete(rp.quorumVotes, m.state)
 		if rp.quorum.Follow {
 			// seems they built quorum without this peer. keep waiting for
 			// the quorum change with the leaving or joining another candidate
-			break
+			return ServerStatusOK
 		}
 		if len(rp.quorumVotes) == 0 && rp.quorum.State == RaftQuorumStateUnknown {
 			// make another attempt to build new quorum
-			after := time.Duration(50+rand.Intn(450)) * time.Millisecond
+			after := time.Duration(50+rand.Intn(quorumChangeDeferMaxTime)) * time.Millisecond
 			rp.CastAfter(rp.Self(), messageRaftQuorumChangeDefer{}, after)
 			rp.quorumChangeDefer = true
 		}
@@ -759,7 +789,7 @@ func (r *Raft) HandleInfo(process *ServerProcess, message etf.Term) ServerStatus
 				// start to build new quorum
 				fmt.Println(rp.Name(), "QUO PEER DOWN", m.Pid)
 				rp.quorum.State = RaftQuorumStateUnknown
-				after := time.Duration(50+rand.Intn(450)) * time.Millisecond
+				after := time.Duration(50+rand.Intn(quorumChangeDeferMaxTime)) * time.Millisecond
 				rp.CastAfter(rp.Self(), messageRaftQuorumChangeDefer{}, after)
 			}
 
