@@ -136,7 +136,7 @@ It demonstrates **more than 2 times** improvement.
 
 #### Proxy
 
-This benchmark demonstrates how proxy feature and e2e encryption impact a messaging performance using 1Kb and 1Mb messages
+This benchmark demonstrates how proxy feature and e2e encryption impact a messaging performance.
 
 ```
 ❯❯❯❯ go test -bench=NodeProxy -run=XXX -benchtime=10s
@@ -147,10 +147,8 @@ cpu: AMD Ryzen Threadripper 3970X 32-Core Processor
 BenchmarkNodeProxy_NodeA_to_NodeC_direct_Message_1K-64                                   1908477              6337 ns/op
 BenchmarkNodeProxy_NodeA_to_NodeC_via_NodeB_Message_1K-64                                1700984              7062 ns/op
 BenchmarkNodeProxy_NodeA_to_NodeC_via_NodeB_Message_1K_Encrypted-64                      1271125              9410 ns/op
-BenchmarkNodeProxy_NodeA_to_NodeC_via_NodeB_Message_1M_Compressed-64                        9967           1082462 ns/op
-BenchmarkNodeProxy_NodeA_to_NodeC_via_NodeB_Message_1M_CompressedEncrypted-64               5892           1704610 ns/op
 PASS
-ok      github.com/ergo-services/ergo/tests     85.649s
+ok      github.com/ergo-services/ergo/tests     45.649s
 
 ```
 
