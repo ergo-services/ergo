@@ -309,10 +309,6 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 			rp.quorumChangeDefer = true
 		}
 
-		//if rp.quorum.Follow && rp.quorum.State == candidateQuorumState {
-		//	return RaftStatusOK
-		//}
-
 		// we do accept quorum if it was formed using
 		// the peers we got registered as candidates
 		if matchCandidates == true {
@@ -791,11 +787,6 @@ func (r *Raft) HandleCast(process *ServerProcess, message etf.Term) ServerStatus
 			fmt.Println(rp.Name(), "CLN VOTE", m.state, q.Peers)
 		}
 		delete(rp.quorumVotes, m.state)
-		//if rp.quorum.Follow {
-		//	// seems they built quorum without this peer. keep waiting for
-		//	// the quorum change with the leaving or joining another candidate
-		//	return ServerStatusOK
-		//}
 		if len(rp.quorumVotes) == 0 {
 			// increase timeout for the next attempt to build a new quorum
 			quorumChangeAttempt++
