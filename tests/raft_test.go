@@ -46,7 +46,7 @@ func (tr *testRaft) HandleRaftInfo(process *gen.RaftProcess, message etf.Term) g
 
 func TestRaft(t *testing.T) {
 	fmt.Printf("\n=== Test GenRaft\n")
-	var N int = 10
+	var N int = 15
 
 	fmt.Printf("Starting %d nodes: nodeGenRaftXX@localhost...", N)
 
@@ -93,6 +93,6 @@ func TestRaft(t *testing.T) {
 		//time.Sleep(300 * time.Millisecond)
 	}
 
-	time.Sleep(20 * time.Second)
+	time.Sleep(30 * time.Second)
 
 }

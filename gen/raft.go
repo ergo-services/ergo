@@ -250,10 +250,7 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 				return RaftStatusOK
 			}
 			if pid == rp.Self() {
-				fmt.Println(rp.Name(), "!!!!!!! GOT FORMED from", m.Pid)
-				matchCandidates = false
-				panic("AA")
-				continue
+				panic("raft internal error. got formed quorum message")
 			}
 			if _, exist := rp.quorumCandidates.Get(pid); exist {
 				continue
@@ -402,6 +399,12 @@ func (rp *RaftProcess) quorumChange() RaftStatus {
 }
 
 func (rp *RaftProcess) quorumSendVote(q *quorum) bool {
+	empty := etf.Pid{}
+	if q.origin == empty {
+		// do not send its vote until the origin vote will be received
+		return false
+	}
+
 	allVoted := true
 	quorumVote := etf.Tuple{
 		etf.Atom("$quorum_vote"),
@@ -504,11 +507,18 @@ func (rp *RaftProcess) quorumVote(from etf.Pid, vote *messageRaftQuorumVote) Raf
 			return RaftStatusOK
 		}
 
-		q = &quorum{
-			origin: from,
-		}
+		q = &quorum{}
 		q.State = candidatesRaftQuorumState
 		q.Peers = vote.Candidates
+
+		if from == vote.Candidates[0] {
+			// Origin vote (received from the peer initiated this voting process).
+			// Otherwise keep this field empty, which means this quorum
+			// will be overwritten if we get another voting from the peer
+			// initiated that voting (with a different set/order of peers)
+			q.origin = from
+		}
+
 		if rp.quorumValidateVote(from, q, vote) == false {
 			// do not create this voting if those peers aren't valid (haven't registered yet)
 			return RaftStatusOK
@@ -519,6 +529,26 @@ func (rp *RaftProcess) quorumVote(from etf.Pid, vote *messageRaftQuorumVote) Raf
 		rp.CastAfter(rp.Self(), messageRaftQuorumCleanVote{state: q.State}, cleanVoteTimeout)
 
 	} else {
+		empty := etf.Pid{}
+		if q.origin == empty && from == vote.Candidates[0] {
+			// got origin vote.
+			q.origin = from
+
+			// check if this vote has the same set of peers
+			same := true
+			for i := range q.Peers {
+				if vote.Candidates[i] != q.Peers[i] {
+					same = false
+					break
+				}
+			}
+			// if it differs overwrite quorum by the new voting
+			if same == false {
+				q.Peers = vote.Candidates
+				q.votes = nil
+			}
+		}
+
 		if rp.quorumValidateVote(from, q, vote) == false {
 			return RaftStatusOK
 		}
@@ -577,8 +607,8 @@ func (rp *RaftProcess) quorumValidateVote(from etf.Pid, q *quorum, vote *message
 		newVote = true
 	}
 
-	if newVote == true && vote.Candidates[0] != from {
-		// ignore if the first vote has been received not from the initiator of this voting
+	empty := etf.Pid{}
+	if q.origin != empty && newVote == true && vote.Candidates[0] != from {
 		return false
 	}
 
