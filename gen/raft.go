@@ -119,9 +119,11 @@ type messageRaftQuorumJoin struct {
 	LastUpdate int64
 }
 type messageRaftQuorumReply struct {
-	ID         string
-	LastUpdate int64
-	Peers      []etf.Pid
+	ID          string
+	LastUpdate  int64
+	Peers       []etf.Pid
+	QuorumState int
+	QuorumPeers []etf.Pid
 }
 type messageRaftQuorumVote struct {
 	ID         string
@@ -181,6 +183,8 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 				rp.options.QuorumID,
 				rp.options.LastUpdate,
 				peers,
+				int(rp.quorum.State),
+				rp.quorum.Peers,
 			},
 		}
 		rp.Cast(m.Pid, reply)
@@ -195,15 +199,17 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 		}
 
 		if reply.ID != rp.options.QuorumID {
-			// this peer belongs to another quorum id
+			// this peer belongs to another quorum id. ignore it.
 			return RaftStatusOK
 		}
 
 		if rp.quorumCandidates.Add(rp, m.Pid, reply.LastUpdate) == false {
+			// already present as a candidate
 			return RaftStatusOK
 		}
 
 		fmt.Println(rp.Name(), "GOT QUO JOIN REPL from", m.Pid, "got peers", reply.Peers)
+		canAcceptQuorum := true
 		for _, peer := range reply.Peers {
 			if peer == rp.Self() {
 				continue
@@ -213,8 +219,10 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 				continue
 			}
 			rp.quorumJoin(peer)
+			canAcceptQuorum = false
 		}
 
+		// try to rebuild quorum since the number of peers has changed
 		if rp.quorumChangeDefer == false {
 			quorumChangeAttempt = 1
 			maxTime := quorumChangeAttempt * quorumChangeDeferMaxTime
@@ -222,6 +230,16 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 			rp.CastAfter(rp.Self(), messageRaftQuorumChangeDefer{}, after)
 			rp.quorumChangeDefer = true
 		}
+
+		// accept quorum if this peer is belongs to the existing quorum
+		// and set membership to false
+		if canAcceptQuorum == true && RaftQuorumState(reply.QuorumState) != RaftQuorumStateUnknown {
+			rp.quorum.State = RaftQuorumState(reply.QuorumState)
+			rp.quorum.Peers = reply.QuorumPeers
+			rp.quorum.Follow = true
+			return rp.behavior.HandleQuorumChange(rp, rp.quorum.State)
+		}
+
 		return RaftStatusOK
 
 	case etf.Atom("$quorum_vote"):
@@ -236,11 +254,11 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 		return rp.quorumVote(m.Pid, vote)
 
 	case etf.Atom("$quorum_formed"):
-		fmt.Println(rp.Name(), "GOT QUO FORMED from", m.Pid)
 		follow := &messageRaftQuorumFollow{}
 		if err := etf.TermIntoStruct(m.Command, &follow); err != nil {
 			return ErrUnsupportedRequest
 		}
+		fmt.Println(rp.Name(), "GOT QUO FORMED from", m.Pid)
 		if follow.ID != rp.options.QuorumID {
 			// this process is not belong this quorum
 			return RaftStatusOK
@@ -283,10 +301,6 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 			return RaftStatusOK
 		}
 
-		if rp.quorum.Follow && rp.quorum.State == candidateQuorumState {
-			return RaftStatusOK
-		}
-
 		if rp.quorumChangeDefer == false {
 			quorumChangeAttempt = 1
 			maxTime := quorumChangeAttempt * quorumChangeDeferMaxTime
@@ -294,6 +308,10 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 			rp.CastAfter(rp.Self(), messageRaftQuorumChangeDefer{}, after)
 			rp.quorumChangeDefer = true
 		}
+
+		//if rp.quorum.Follow && rp.quorum.State == candidateQuorumState {
+		//	return RaftStatusOK
+		//}
 
 		// we do accept quorum if it was formed using
 		// the peers we got registered as candidates
@@ -373,6 +391,8 @@ func (rp *RaftProcess) quorumChange() RaftStatus {
 		// not enougth candidates to create a quorum
 		if rp.quorum.State != RaftQuorumStateUnknown {
 			rp.quorum.State = RaftQuorumStateUnknown
+			rp.quorum.Follow = false
+			rp.quorum.Peers = nil
 			return rp.behavior.HandleQuorumChange(rp, RaftQuorumStateUnknown)
 		}
 		fmt.Println(rp.Name(), "QUO VOTE. NOT ENO CAND", rp.quorumCandidates.List())
@@ -487,6 +507,22 @@ func (rp *RaftProcess) quorumVote(from etf.Pid, vote *messageRaftQuorumVote) Raf
 
 	// do not vote if requested quorum is less than existing one
 	if rp.quorum.State != RaftQuorumStateUnknown && candidatesRaftQuorumState <= rp.quorum.State {
+		// There is a case when a peer is involved in more than one voting,
+		// and this peer just sent a vote for another voting process which
+		// is still in progress.
+		// Do not send $quorum_voted message if this peer is already a member
+		// of accepted quorum
+		member := false
+		for _, pid := range rp.quorum.Peers {
+			if pid == from {
+				member = true
+				break
+			}
+		}
+		if member == true {
+			return RaftStatusOK
+		}
+
 		fmt.Println(rp.Name(), "SKIP VOTE from", from, candidatesRaftQuorumState, rp.quorum.State)
 		formed := etf.Tuple{
 			etf.Atom("$quorum_formed"),
@@ -755,12 +791,12 @@ func (r *Raft) HandleCast(process *ServerProcess, message etf.Term) ServerStatus
 			fmt.Println(rp.Name(), "CLN VOTE", m.state, q.Peers)
 		}
 		delete(rp.quorumVotes, m.state)
-		if rp.quorum.Follow {
-			// seems they built quorum without this peer. keep waiting for
-			// the quorum change with the leaving or joining another candidate
-			return ServerStatusOK
-		}
-		if len(rp.quorumVotes) == 0 && rp.quorum.State == RaftQuorumStateUnknown {
+		//if rp.quorum.Follow {
+		//	// seems they built quorum without this peer. keep waiting for
+		//	// the quorum change with the leaving or joining another candidate
+		//	return ServerStatusOK
+		//}
+		if len(rp.quorumVotes) == 0 {
 			// increase timeout for the next attempt to build a new quorum
 			quorumChangeAttempt++
 			maxTime := quorumChangeAttempt * quorumChangeDeferMaxTime
