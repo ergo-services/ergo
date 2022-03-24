@@ -114,6 +114,7 @@ type messageRaft struct {
 	Command interface{}
 }
 
+type messageRaftQuorumInit struct{}
 type messageRaftQuorumJoin struct {
 	ID         string
 	LastUpdate int64
@@ -171,11 +172,11 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 			return RaftStatusOK
 		}
 
-		peers := rp.quorumCandidates.List()
-		if rp.quorumCandidates.Add(rp, m.Pid, join.LastUpdate) == false {
-			return RaftStatusOK
-		}
+		rp.quorumCandidates.Add(rp, m.Pid, join.LastUpdate)
 
+		// send peer list even if this peer is already present in our candidates list
+		// just to exchange updated data
+		peers := rp.quorumCandidates.List()
 		reply := etf.Tuple{
 			etf.Atom("$quorum_join_reply"),
 			rp.Self(),
@@ -203,11 +204,6 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 			return RaftStatusOK
 		}
 
-		if rp.quorumCandidates.Add(rp, m.Pid, reply.LastUpdate) == false {
-			// already present as a candidate
-			return RaftStatusOK
-		}
-
 		fmt.Println(rp.Name(), "GOT QUO JOIN REPL from", m.Pid, "got peers", reply.Peers)
 		canAcceptQuorum := true
 		for _, peer := range reply.Peers {
@@ -220,6 +216,11 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 			}
 			rp.quorumJoin(peer)
 			canAcceptQuorum = false
+		}
+
+		if rp.quorumCandidates.Add(rp, m.Pid, reply.LastUpdate) == false {
+			// already present as a candidate
+			return RaftStatusOK
 		}
 
 		// try to rebuild quorum since the number of peers has changed
@@ -313,10 +314,20 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 		// the peers we got registered as candidates
 		if matchCandidates == true {
 			fmt.Println(rp.Name(), "QUO BUILT. NOT A MEMBER", rp.quorum.State, rp.quorum.Peers)
+			changed := false
+			if rp.quorum.State != candidateQuorumState {
+				changed = true
+			}
 			rp.quorum.State = candidateQuorumState
+			if rp.quorum.Member != false {
+				changed = true
+			}
 			rp.quorum.Member = false
 			rp.quorum.Peers = built.Peers
-			return rp.behavior.HandleQuorumChange(rp, rp.quorum.State)
+			if changed == true {
+				return rp.behavior.HandleQuorumChange(rp, rp.quorum.State)
+			}
+			return RaftStatusOK
 		}
 
 		if rp.quorum.State != RaftQuorumStateUnknown {
@@ -392,6 +403,9 @@ func (rp *RaftProcess) quorumChange() RaftStatus {
 			return rp.behavior.HandleQuorumChange(rp, RaftQuorumStateUnknown)
 		}
 		fmt.Println(rp.Name(), "QUO VOTE. NOT ENO CAND", rp.quorumCandidates.List())
+
+		// try send join_quorum again to receive an updated peer list
+		rp.CastAfter(rp.Self(), messageRaftQuorumInit{}, 5*time.Second)
 		return RaftStatusOK
 	}
 
@@ -745,10 +759,7 @@ func (r *Raft) Init(process *ServerProcess, args ...etf.Term) error {
 	raftProcess.options = options
 	process.State = raftProcess
 
-	for _, peer := range options.Peers {
-		raftProcess.quorumJoin(peer)
-	}
-
+	process.Cast(process.Self(), messageRaftQuorumInit{})
 	//process.SetTrapExit(true)
 	return nil
 }
@@ -766,6 +777,18 @@ func (r *Raft) HandleCast(process *ServerProcess, message etf.Term) ServerStatus
 
 	rp := process.State.(*RaftProcess)
 	switch m := message.(type) {
+	case messageRaftQuorumInit:
+		if rp.quorum.State != RaftQuorumStateUnknown {
+			return ServerStatusOK
+		}
+		if len(rp.quorumVotes) > 0 {
+			return ServerStatusOK
+		}
+		for _, peer := range rp.options.Peers {
+			rp.quorumJoin(peer)
+		}
+		return ServerStatusOK
+
 	case messageRaftQuorumCleanVote:
 		q, exist := rp.quorumVotes[m.state]
 		if exist == true && q.lastVote > 0 {
