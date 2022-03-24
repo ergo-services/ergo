@@ -90,7 +90,7 @@ type candidate struct {
 }
 
 type Quorum struct {
-	Follow bool // sets to 'true' if this quorum was build without this peer
+	Member bool
 	State  RaftQuorumState
 	Peers  []etf.Pid // the number of participants in quorum could be 3,5,7,9,11
 }
@@ -102,7 +102,7 @@ type quorum struct {
 }
 
 type RaftOptions struct {
-	Peer       ProcessID
+	Peers      []ProcessID
 	Data       etf.Term
 	LastUpdate int64
 	QuorumID   string
@@ -135,7 +135,7 @@ type messageRaftQuorumLeave struct {
 	ID    string
 	State int
 }
-type messageRaftQuorumFollow struct {
+type messageRaftQuorumBuilt struct {
 	ID    string
 	State int
 	Peers []etf.Pid
@@ -236,7 +236,7 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 		if canAcceptQuorum == true && RaftQuorumState(reply.QuorumState) != RaftQuorumStateUnknown {
 			rp.quorum.State = RaftQuorumState(reply.QuorumState)
 			rp.quorum.Peers = reply.QuorumPeers
-			rp.quorum.Follow = true
+			rp.quorum.Member = false
 			return rp.behavior.HandleQuorumChange(rp, rp.quorum.State)
 		}
 
@@ -253,25 +253,25 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 		}
 		return rp.quorumVote(m.Pid, vote)
 
-	case etf.Atom("$quorum_formed"):
-		follow := &messageRaftQuorumFollow{}
-		if err := etf.TermIntoStruct(m.Command, &follow); err != nil {
+	case etf.Atom("$quorum_built"):
+		built := &messageRaftQuorumBuilt{}
+		if err := etf.TermIntoStruct(m.Command, &built); err != nil {
 			return ErrUnsupportedRequest
 		}
-		fmt.Println(rp.Name(), "GOT QUO FORMED from", m.Pid)
-		if follow.ID != rp.options.QuorumID {
+		fmt.Println(rp.Name(), "GOT QUO BUILT from", m.Pid)
+		if built.ID != rp.options.QuorumID {
 			// this process is not belong this quorum
 			return RaftStatusOK
 		}
 		duplicates := make(map[etf.Pid]bool)
 		matchCandidates := true
-		for _, pid := range follow.Peers {
+		for _, pid := range built.Peers {
 			if _, exist := duplicates[pid]; exist {
 				// duplicate found
 				return RaftStatusOK
 			}
 			if pid == rp.Self() {
-				panic("raft internal error. got formed quorum message")
+				panic("raft internal error. got quorum built message")
 			}
 			if _, exist := rp.quorumCandidates.Get(pid); exist {
 				continue
@@ -279,13 +279,13 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 			rp.quorumJoin(pid)
 			matchCandidates = false
 		}
-		if len(follow.Peers) != follow.State {
+		if len(built.Peers) != built.State {
 			// ignore wrong peer list
 			lib.Warning("[%s] got quorum state doesn't match with the peer list", rp.Self())
 			return RaftStatusOK
 		}
 		candidateQuorumState := RaftQuorumStateUnknown
-		switch follow.State {
+		switch built.State {
 		case 11:
 			candidateQuorumState = RaftQuorumState11
 		case 9:
@@ -309,19 +309,19 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 			rp.quorumChangeDefer = true
 		}
 
-		// we do accept quorum if it was formed using
+		// we do accept quorum if it was built using
 		// the peers we got registered as candidates
 		if matchCandidates == true {
-			fmt.Println(rp.Name(), "QUO FOLLOWER", rp.quorum.State, rp.quorum.Peers)
+			fmt.Println(rp.Name(), "QUO BUILT. NOT A MEMBER", rp.quorum.State, rp.quorum.Peers)
 			rp.quorum.State = candidateQuorumState
-			rp.quorum.Follow = true
-			rp.quorum.Peers = follow.Peers
+			rp.quorum.Member = false
+			rp.quorum.Peers = built.Peers
 			return rp.behavior.HandleQuorumChange(rp, rp.quorum.State)
 		}
 
 		if rp.quorum.State != RaftQuorumStateUnknown {
 			rp.quorum.State = RaftQuorumStateUnknown
-			rp.quorum.Follow = false
+			rp.quorum.Member = false
 			rp.quorum.Peers = nil
 			return rp.behavior.HandleQuorumChange(rp, rp.quorum.State)
 		}
@@ -387,7 +387,7 @@ func (rp *RaftProcess) quorumChange() RaftStatus {
 		// not enougth candidates to create a quorum
 		if rp.quorum.State != RaftQuorumStateUnknown {
 			rp.quorum.State = RaftQuorumStateUnknown
-			rp.quorum.Follow = false
+			rp.quorum.Member = false
 			rp.quorum.Peers = nil
 			return rp.behavior.HandleQuorumChange(rp, RaftQuorumStateUnknown)
 		}
@@ -520,8 +520,8 @@ func (rp *RaftProcess) quorumVote(from etf.Pid, vote *messageRaftQuorumVote) Raf
 		}
 
 		fmt.Println(rp.Name(), "SKIP VOTE from", from, candidatesRaftQuorumState, rp.quorum.State)
-		formed := etf.Tuple{
-			etf.Atom("$quorum_formed"),
+		built := etf.Tuple{
+			etf.Atom("$quorum_built"),
 			rp.Self(),
 			etf.Tuple{
 				rp.options.QuorumID,
@@ -529,7 +529,7 @@ func (rp *RaftProcess) quorumVote(from etf.Pid, vote *messageRaftQuorumVote) Raf
 				rp.quorum.Peers,
 			},
 		}
-		rp.Cast(from, formed)
+		rp.Cast(from, built)
 		return RaftStatusOK
 	}
 
@@ -596,10 +596,10 @@ func (rp *RaftProcess) quorumVote(from etf.Pid, vote *messageRaftQuorumVote) Raf
 	// returns true if we got votes from all the peers whithin this quorum
 	if rp.quorumSendVote(q) == true {
 		//
-		// Quorum formed
+		// Quorum built
 		//
-		fmt.Println(rp.Name(), "QUO FORMED", q.State, q.Peers)
-		rp.quorum.Follow = false
+		fmt.Println(rp.Name(), "QUO BUILT", q.State, q.Peers)
+		rp.quorum.Member = true
 		rp.quorum.State = q.State
 		rp.quorum.Peers = q.Peers
 		delete(rp.quorumVotes, q.State)
@@ -615,8 +615,8 @@ func (rp *RaftProcess) quorumVote(from etf.Pid, vote *messageRaftQuorumVote) Raf
 				// this peer belongs to the quorum. skip it
 				continue
 			}
-			formed := etf.Tuple{
-				etf.Atom("$quorum_formed"),
+			built := etf.Tuple{
+				etf.Atom("$quorum_built"),
 				rp.Self(),
 				etf.Tuple{
 					rp.options.QuorumID,
@@ -624,7 +624,7 @@ func (rp *RaftProcess) quorumVote(from etf.Pid, vote *messageRaftQuorumVote) Raf
 					rp.quorum.Peers,
 				},
 			}
-			rp.Cast(peer, formed)
+			rp.Cast(peer, built)
 
 		}
 		return rp.behavior.HandleQuorumChange(rp, rp.quorum.State)
@@ -745,12 +745,9 @@ func (r *Raft) Init(process *ServerProcess, args ...etf.Term) error {
 	raftProcess.options = options
 	process.State = raftProcess
 
-	noPeer := ProcessID{}
-	if options.Peer == noPeer {
-		return nil
+	for _, peer := range options.Peers {
+		raftProcess.quorumJoin(peer)
 	}
-
-	raftProcess.quorumJoin(options.Peer)
 
 	//process.SetTrapExit(true)
 	return nil

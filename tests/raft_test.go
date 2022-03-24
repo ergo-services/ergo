@@ -19,7 +19,7 @@ type testRaft struct {
 func (tr *testRaft) InitRaft(process *gen.RaftProcess, args ...etf.Term) (gen.RaftOptions, error) {
 	var options gen.RaftOptions
 	if len(args) > 0 {
-		options.Peer = args[0].(gen.ProcessID)
+		options.Peers = args[0].([]gen.ProcessID)
 	}
 
 	return options, gen.RaftStatusOK
@@ -27,7 +27,7 @@ func (tr *testRaft) InitRaft(process *gen.RaftProcess, args ...etf.Term) (gen.Ra
 
 func (tr *testRaft) HandleQuorumChange(process *gen.RaftProcess, qs gen.RaftQuorumState) gen.RaftStatus {
 	q := process.Quorum()
-	fmt.Println("AAAA", process.Name(), "state:", q.State, q.Follow)
+	fmt.Println("AAAA", process.Name(), "state:", q.State, q.Member)
 	if sent, _ := process.State.(int); sent != 1 {
 		process.SendAfter(process.Self(), "ok", 7*time.Second)
 		process.State = 1
@@ -39,7 +39,7 @@ func (tr *testRaft) HandleQuorumChange(process *gen.RaftProcess, qs gen.RaftQuor
 func (tr *testRaft) HandleRaftInfo(process *gen.RaftProcess, message etf.Term) gen.ServerStatus {
 	q := process.Quorum()
 
-	fmt.Println("BBBB", process.Name(), "state:", q.State, q.Follow)
+	fmt.Println("BBBB", process.Name(), "state:", q.State, q.Member)
 	process.State = 0
 	return gen.ServerStatusOK
 }
@@ -78,7 +78,8 @@ func TestRaft(t *testing.T) {
 		} else {
 			peer.Node = nodes[i-1].Name()
 			peer.Name = rafts[i-1].Name()
-			args = []etf.Term{peer}
+			peers := []gen.ProcessID{peer}
+			args = []etf.Term{peers}
 		}
 		tr := &testRaft{
 			res: make(chan interface{}, 2),
