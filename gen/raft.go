@@ -61,7 +61,8 @@ var (
 	RaftQuorumState11      RaftQuorumState = 11 // maximal quorum
 
 	cleanVoteTimeout         = 1 * time.Second
-	quorumChangeDeferMaxTime = 700 // in millisecond. uses as max value in range of 50..
+	quorumChangeDeferMaxTime = 450 // in millisecond. uses as max value in range of 50..
+	quorumChangeAttempt      = 0
 )
 
 type Raft struct {
@@ -215,7 +216,9 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 		}
 
 		if rp.quorumChangeDefer == false {
-			after := time.Duration(50+rand.Intn(quorumChangeDeferMaxTime)) * time.Millisecond
+			quorumChangeAttempt = 1
+			maxTime := quorumChangeAttempt * quorumChangeDeferMaxTime
+			after := time.Duration(50+rand.Intn(maxTime)) * time.Millisecond
 			rp.CastAfter(rp.Self(), messageRaftQuorumChangeDefer{}, after)
 			rp.quorumChangeDefer = true
 		}
@@ -285,7 +288,9 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 		}
 
 		if rp.quorumChangeDefer == false {
-			after := time.Duration(50+rand.Intn(quorumChangeDeferMaxTime)) * time.Millisecond
+			quorumChangeAttempt = 1
+			maxTime := quorumChangeAttempt * quorumChangeDeferMaxTime
+			after := time.Duration(50+rand.Intn(maxTime)) * time.Millisecond
 			rp.CastAfter(rp.Self(), messageRaftQuorumChangeDefer{}, after)
 			rp.quorumChangeDefer = true
 		}
@@ -744,6 +749,7 @@ func (r *Raft) HandleCast(process *ServerProcess, message etf.Term) ServerStatus
 				return ServerStatusOK
 			}
 		}
+
 		// TODO remove debug print
 		if q != nil {
 			fmt.Println(rp.Name(), "CLN VOTE", m.state, q.Peers)
@@ -755,8 +761,12 @@ func (r *Raft) HandleCast(process *ServerProcess, message etf.Term) ServerStatus
 			return ServerStatusOK
 		}
 		if len(rp.quorumVotes) == 0 && rp.quorum.State == RaftQuorumStateUnknown {
+			// increase timeout for the next attempt to build a new quorum
+			quorumChangeAttempt++
+			maxTime := quorumChangeAttempt * quorumChangeDeferMaxTime
+
 			// make another attempt to build new quorum
-			after := time.Duration(50+rand.Intn(quorumChangeDeferMaxTime)) * time.Millisecond
+			after := time.Duration(50+rand.Intn(maxTime)) * time.Millisecond
 			rp.CastAfter(rp.Self(), messageRaftQuorumChangeDefer{}, after)
 			rp.quorumChangeDefer = true
 		}
@@ -819,7 +829,9 @@ func (r *Raft) HandleInfo(process *ServerProcess, message etf.Term) ServerStatus
 				// start to build new quorum
 				fmt.Println(rp.Name(), "QUO PEER DOWN", m.Pid)
 				rp.quorum.State = RaftQuorumStateUnknown
-				after := time.Duration(50+rand.Intn(quorumChangeDeferMaxTime)) * time.Millisecond
+				quorumChangeAttempt = 1
+				maxTime := quorumChangeAttempt * quorumChangeDeferMaxTime
+				after := time.Duration(50+rand.Intn(maxTime)) * time.Millisecond
 				rp.CastAfter(rp.Self(), messageRaftQuorumChangeDefer{}, after)
 			}
 
