@@ -4,7 +4,8 @@
 [![GoDoc](https://pkg.go.dev/badge/ergo-services/ergo)](https://pkg.go.dev/github.com/ergo-services/ergo)
 [![MIT license](https://img.shields.io/badge/license-MIT-brightgreen.svg)](https://opensource.org/licenses/MIT)
 [![Build Status](https://img.shields.io/github/workflow/status/ergo-services/ergo/TestLinuxWindowsMacOS)](https://github.com/ergo-services/ergo/actions/)
-[![Community](https://img.shields.io/badge/Telegram-Community-blue?style=flat&logo=telegram)](https://t.me/ErgoServices)
+[![Telegram Community](https://img.shields.io/badge/Telegram-Community-blue?style=flat&logo=telegram)](https://t.me/ErgoServices)
+[![Discord Community](https://img.shields.io/badge/Telegram-Community-blue?style=flat&logo=telegram)](https://discord.gg/sdscxKGV62)
 
 Technologies and design patterns of Erlang/OTP have been proven over the years. Now in Golang.
 Up to x5 times faster than original Erlang/OTP in terms of network messaging.
