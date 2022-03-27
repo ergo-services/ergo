@@ -21,15 +21,23 @@ type RaftBehavior interface {
 
 	InitRaft(process *RaftProcess, arr ...etf.Term) (RaftOptions, error)
 
+	// HandleAppend
+	HandleAppend(serial uint64, value etf.Term) RaftStatus
+
+	// HandleGet
+	HandleGet(serial uint64) (etf.Term, RaftStatus)
+	// HandleGetRange
+	HandleGetRange(serialFrom, serialTo uint64) ([]etf.Term, RaftStatus)
+
 	//
 	// Optional callbacks
 	//
 
-	// HandleQuorumChange
-	HandleQuorumChange(process *RaftProcess, qs RaftQuorumState) RaftStatus
+	// HandleQuorum
+	HandleQuorum(process *RaftProcess, qs RaftQuorumState) RaftStatus
 
-	// HandleLeaderChange
-	HandleLeaderChange(process *RaftProcess, leader etf.Pid) RaftStatus
+	// HandleLeader
+	HandleLeader(process *RaftProcess, leader etf.Pid) RaftStatus
 
 	//
 	// Server's callbacks
@@ -81,6 +89,10 @@ type RaftProcess struct {
 	quorumCandidates  *quorumCandidates
 	quorumVotes       map[RaftQuorumState]*quorum
 	quorumChangeDefer bool
+
+	leader      etf.Pid
+	leaderVotes map[etf.Pid]int
+	round       int // "log term" in terms of Raft spec
 }
 
 type quorumCandidates struct {
@@ -107,7 +119,7 @@ type quorum struct {
 type RaftOptions struct {
 	ID     string // raft cluster id
 	Peers  []ProcessID
-	Serial uint64 // serial number. using for leader election
+	Serial uint64 // serial number ("log id" in terms of Raft spec)
 }
 
 type messageRaft struct {
@@ -146,9 +158,10 @@ type messageRaftQuorumCleanVote struct {
 
 type messageRaftLeaderChange struct{}
 type messageRaftLeaderVote struct {
-	ID    string
-	State int
-	Vote  []etf.Pid // quorum members ordered by priority
+	ID     string
+	Serial uint64
+	State  int
+	Leader etf.Pid // quorum members ordered by priority
 }
 
 //
@@ -244,7 +257,7 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 			rp.quorum.State = RaftQuorumState(reply.QuorumState)
 			rp.quorum.Peers = reply.QuorumPeers
 			rp.quorum.Member = false
-			return rp.behavior.HandleQuorumChange(rp, rp.quorum.State)
+			return rp.behavior.HandleQuorum(rp, rp.quorum.State)
 		}
 
 		return RaftStatusOK
@@ -331,7 +344,7 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 			rp.quorum.Member = false
 			rp.quorum.Peers = built.Peers
 			if changed == true {
-				return rp.behavior.HandleQuorumChange(rp, rp.quorum.State)
+				return rp.behavior.HandleQuorum(rp, rp.quorum.State)
 			}
 			return RaftStatusOK
 		}
@@ -340,7 +353,7 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 			rp.quorum.State = RaftQuorumStateUnknown
 			rp.quorum.Member = false
 			rp.quorum.Peers = nil
-			return rp.behavior.HandleQuorumChange(rp, rp.quorum.State)
+			return rp.behavior.HandleQuorum(rp, rp.quorum.State)
 		}
 	}
 
@@ -406,7 +419,7 @@ func (rp *RaftProcess) quorumChange() RaftStatus {
 			rp.quorum.State = RaftQuorumStateUnknown
 			rp.quorum.Member = false
 			rp.quorum.Peers = nil
-			return rp.behavior.HandleQuorumChange(rp, RaftQuorumStateUnknown)
+			return rp.behavior.HandleQuorum(rp, RaftQuorumStateUnknown)
 		}
 		fmt.Println(rp.Name(), "QUO VOTE. NOT ENO CAND", rp.quorumCandidates.List())
 
@@ -651,7 +664,7 @@ func (rp *RaftProcess) quorumVote(from etf.Pid, vote *messageRaftQuorumVote) Raf
 
 		after := 300 * time.Millisecond
 		rp.CastAfter(rp.Self(), messageRaftLeaderChange{}, after)
-		return rp.behavior.HandleQuorumChange(rp, rp.quorum.State)
+		return rp.behavior.HandleQuorum(rp, rp.quorum.State)
 	}
 
 	return RaftStatusOK
@@ -749,6 +762,40 @@ func (rp *RaftProcess) quorumValidateVote(from etf.Pid, q *quorum, vote *message
 func (rp *RaftProcess) leaderChange() RaftStatus {
 	if rp.quorum.State == RaftQuorumStateUnknown {
 		return RaftStatusOK
+	}
+	mapPeers := make(map[etf.Pid]bool)
+	for _, p := range rp.quorum.Peers {
+		mapPeers[p] = true
+	}
+
+	vote := []etf.Pid{}
+	c := rp.quorumCandidates.List() // ordered by serial
+	for _, pid := range c {
+		// check if this candidate is a member of quorum
+		if _, exist := mapPeers[pid]; exist == false {
+			continue
+		}
+
+		vote = append(vote, pid)
+	}
+	// peers doesn't include itself
+	if len(vote)+1 != len(rp.quorum.Peers) {
+		// seems some of the member has left. do nothing
+		return RaftStatusOK
+	}
+
+	leaderVote := etf.Tuple{
+		etf.Atom("$leader_vote"),
+		rp.Self(),
+		etf.Tuple{
+			rp.options.ID,
+			rp.options.Serial,
+			int(rp.quorum.State),
+			rp.quorum.Peers,
+		},
+	}
+	for _, pid := range vote {
+		rp.Cast(pid, leaderVote)
 	}
 
 	return RaftStatusOK
@@ -929,13 +976,13 @@ func (r *Raft) HandleInfo(process *ServerProcess, message etf.Term) ServerStatus
 // default Raft callbacks
 //
 
-// HandleQuorumChange
-func (r *Raft) HandleQuorumChange(process *RaftProcess, qs RaftQuorumState) RaftStatus {
+// HandleQuorum
+func (r *Raft) HandleQuorum(process *RaftProcess, qs RaftQuorumState) RaftStatus {
 	return RaftStatusOK
 }
 
-// HandleLeaderChange
-func (r *Raft) HandleLeaderChange(process *RaftProcess, leader etf.Pid) RaftStatus {
+// HandleLeader
+func (r *Raft) HandleLeader(process *RaftProcess, leader etf.Pid) RaftStatus {
 	return RaftStatusOK
 }
 
