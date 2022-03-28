@@ -25,9 +25,8 @@ func (tr *testRaft) InitRaft(process *gen.RaftProcess, args ...etf.Term) (gen.Ra
 	return options, gen.RaftStatusOK
 }
 
-func (tr *testRaft) HandleQuorumChange(process *gen.RaftProcess, qs gen.RaftQuorumState) gen.RaftStatus {
-	q := process.Quorum()
-	fmt.Println("AAAA", process.Name(), "state:", q.State, q.Member)
+func (tr *testRaft) HandleQuorum(process *gen.RaftProcess, q gen.RaftQuorum) gen.RaftStatus {
+	fmt.Println("QQQ quorum", process.Name(), "state:", q.State, q.Member)
 	if sent, _ := process.State.(int); sent != 1 {
 		process.SendAfter(process.Self(), "ok", 7*time.Second)
 		process.State = 1
@@ -36,10 +35,25 @@ func (tr *testRaft) HandleQuorumChange(process *gen.RaftProcess, qs gen.RaftQuor
 	return gen.RaftStatusOK
 }
 
+func (tr *testRaft) HandleLeader(process *gen.RaftProcess, leader gen.RaftLeader) gen.RaftStatus {
+	fmt.Println("LLL leader", process.Name(), leader)
+	return gen.RaftStatusOK
+}
+
+func (tr *testRaft) HandleAppend(process *gen.RaftProcess, ref etf.Ref, serial uint64, value etf.Term) gen.RaftStatus {
+	fmt.Println("AAA append", ref, serial, value)
+	return gen.RaftStatusOK
+}
+
+func (tr *testRaft) HandleGet(process *gen.RaftProcess, serial uint64) (etf.Term, gen.RaftStatus) {
+	fmt.Println("GGG get", process.Name(), serial)
+	return nil, gen.RaftStatusOK
+}
+
 func (tr *testRaft) HandleRaftInfo(process *gen.RaftProcess, message etf.Term) gen.ServerStatus {
 	q := process.Quorum()
 
-	fmt.Println("BBBB", process.Name(), "state:", q.State, q.Member)
+	fmt.Println("III info", process.Name(), "state:", q.State, q.Member)
 	process.State = 0
 	return gen.ServerStatusOK
 }
