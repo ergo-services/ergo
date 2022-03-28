@@ -1,6 +1,7 @@
 package gen
 
 import (
+	"context"
 	"fmt"
 	"math/rand"
 	"sort"
@@ -10,8 +11,15 @@ import (
 	"github.com/ergo-services/ergo/lib"
 )
 
+const (
+	DefaultRaftGetTimeout    = 5 // in seconds
+	DefaultRaftAppendTimeout = 5 // in seconds
+)
+
 var (
-	ErrRaftState = fmt.Errorf("incorrect raft state")
+	ErrRaftState    = fmt.Errorf("incorrect raft state")
+	ErrRaftNoQuorum = fmt.Errorf("no quorum")
+	ErrRaftNoLeader = fmt.Errorf("no leader")
 )
 
 type RaftBehavior interface {
@@ -39,6 +47,9 @@ type RaftBehavior interface {
 
 	// HandleTimeout
 	HandleTimeout(process *RaftProcess, ref etf.Ref) RaftStatus
+
+	// HandleSerial
+	HandleSerial(process *RaftProcess, ref etf.Ref, serial uint64, value etf.Term) RaftStatus
 
 	//
 	// Server's callbacks
@@ -94,6 +105,8 @@ type RaftProcess struct {
 	leader      etf.Pid
 	leaderVotes map[etf.Pid]int
 	round       int // "log term" in terms of Raft spec
+
+	requests map[etf.Ref]context.CancelFunc
 }
 
 type quorumCandidates struct {
@@ -136,25 +149,25 @@ type messageRaft struct {
 
 type messageRaftQuorumInit struct{}
 type messageRaftQuorumJoin struct {
-	ID     string
+	ID     string // cluster id
 	Serial uint64
 }
 type messageRaftQuorumReply struct {
-	ID          string
+	ID          string // cluster id
 	Serial      uint64
 	Peers       []etf.Pid
 	QuorumState int
 	QuorumPeers []etf.Pid
 }
 type messageRaftQuorumVote struct {
-	ID         string
+	ID         string // cluster id
 	Serial     uint64
 	State      int
 	Candidates []etf.Pid
 }
 type messageRaftQuorumChange struct{}
 type messageRaftQuorumBuilt struct {
-	ID    string
+	ID    string // cluster id
 	State int
 	Peers []etf.Pid
 }
@@ -164,10 +177,30 @@ type messageRaftQuorumCleanVote struct {
 
 type messageRaftLeaderChange struct{}
 type messageRaftLeaderVote struct {
-	ID     string
+	ID     string // cluster id
 	Serial uint64
 	State  int
 	Leader etf.Pid // quorum members ordered by priority
+}
+
+type messageRaftRequestGet struct {
+	ID     string // cluster id
+	Ref    etf.Ref
+	Serial uint64
+}
+type messageRaftRequestReply struct {
+	ID     string // cluster id
+	Ref    etf.Ref
+	Serial uint64
+	Value  etf.Term
+}
+type messageRaftRequestAppend struct {
+	ID    string // cluster id
+	Ref   etf.Ref
+	Value etf.Term
+}
+type messageRaftRequestClean struct {
+	ref etf.Ref
 }
 
 //
@@ -185,20 +218,76 @@ func (rp *RaftProcess) Quorum() RaftQuorum {
 	return q
 }
 
-// Get
+// Get makes a request to the quorum member to get the data with the given serial number and
+// sets the timeout to the DefaultRaftGetTimeout = 5 sec. It returns ErrRaftNoQuorum if quorum
+// forming is still in progress.
 func (rp *RaftProcess) Get(serial uint64) (etf.Ref, error) {
-	ref := rp.MakeRef()
+	return rp.GetWithTimeout(serial, DefaultRaftGetTimeout)
+}
+
+// Get makes a request to the quorum member to get the data with the given serial number and
+// timeout in seconds. Returns a reference of this request. Once requested data has arrived
+// the callback HandleSerial will be invoked.
+// If a timeout occurred the callback HandleTimeout will be invoked.
+func (rp *RaftProcess) GetWithTimeout(serial uint64, timeout int) (etf.Ref, error) {
+	var ref etf.Ref
 	// TODO
+	if rp.quorum.State == RaftQuorumStateUnknown {
+		return ref, ErrRaftNoQuorum
+	}
+
+	// get random member of quorum and send the request
+	n := rand.Intn(len(rp.quorum.Peers) - 1)
+	peer := rp.quorum.Peers[n]
+	ref = rp.MakeRef()
+	requestGet := etf.Tuple{
+		etf.Atom("$request_get"),
+		rp.Self(),
+		etf.Tuple{
+			rp.options.ID,
+			ref,
+			serial,
+		},
+	}
+
+	if err := rp.Cast(peer, requestGet); err != nil {
+		return ref, err
+	}
+	cancel := rp.CastAfter(rp.Self, messageRaftRequestClean{ref: ref}, time.Duration(timeout)*time.Second)
+	rp.requests[ref] = cancel
 	return ref, nil
 }
 
 // Append
 func (rp *RaftProcess) Append(value etf.Term) (etf.Ref, error) {
-	// TODO
-	ref := rp.MakeRef()
+	return rp.AppendWithTimeout(value, DefaultRaftAppendTimeout)
+}
 
+// AppendWithTimeout
+func (rp *RaftProcess) AppendWithTimeout(value etf.Term, timeout int) (etf.Ref, error) {
+	var ref etf.Ref
+	noLeader := etf.Pid{}
+	if rp.leader == noLeader {
+		return ref, ErrRaftNoLeader
+	}
+	ref = rp.MakeRef()
+	dataAppend := etf.Tuple{
+		etf.Atom("$leader_append"),
+		rp.Self(),
+		etf.Tuple{
+			ref,
+			value,
+		},
+	}
+	if err := rp.Cast(rp.leader, dataAppend); err != nil {
+		return ref, err
+	}
+	cancel := rp.CastAfter(rp.Self, messageRaftRequestClean{ref: ref}, time.Duration(timeout)*time.Second)
+	rp.requests[ref] = cancel
 	return ref, nil
 }
+
+// private routines
 
 func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 	switch m.Request {
@@ -377,6 +466,78 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 			rp.quorum.Peers = nil
 			return rp.handleQuorum()
 		}
+
+	case etf.Atom("$request_get"):
+		requestGet := &messageRaftRequestGet{}
+		if err := etf.TermIntoStruct(m.Command, &requestGet); err != nil {
+			return ErrUnsupportedRequest
+		}
+
+		if rp.options.ID != requestGet.ID {
+			lib.Warning("[%s] got 'get' request being not a member of the given raft cluster (from %s)", rp.Self(), m.Pid)
+			return RaftStatusOK
+		}
+
+		if rp.quorum.Member == false {
+			// not a quorum member. couldn't handle this request
+			lib.Warning("[%s] got 'get' request being not a member of the quorum (from %s)", rp.Self(), m.Pid)
+			return RaftStatusOK
+		}
+
+		value, status := rp.behavior.HandleGet(rp, requestGet.Serial)
+		if status != RaftStatusOK {
+			// do nothing
+			return status
+		}
+
+		requestReply := etf.Tuple{
+			etf.Atom("$request_reply"),
+			rp.Self(),
+			etf.Tuple{
+				requestGet.Ref,
+				requestGet.Serial,
+				value,
+			},
+		}
+		rp.Cast(m.Pid, requestReply)
+		return RaftStatusOK
+
+	case etf.Atom("$request_reply"):
+		requestReply := &messageRaftRequestReply{}
+		if err := etf.TermIntoStruct(m.Command, &requestReply); err != nil {
+			return ErrUnsupportedRequest
+		}
+
+		if rp.options.ID != requestReply.ID {
+			lib.Warning("[%s] got 'reply' being not a member of the given raft cluster (from %s)", rp.Self(), m.Pid)
+			return RaftStatusOK
+		}
+		cancel, exist := rp.requests[requestReply.Ref]
+		if exist == false {
+			// might be timed out already. do nothing
+			return RaftStatusOK
+		}
+		// cancel timer
+		cancel()
+		// call HandleSerial
+		return rp.behavior.HandleSerial(rp, requestReply.Ref, requestReply.Serial, requestReply.Value)
+
+	case etf.Atom("$request_append"):
+		requestAppend := &messageRaftRequestAppend{}
+		if err := etf.TermIntoStruct(m.Command, &requestAppend); err != nil {
+			return ErrUnsupportedRequest
+		}
+
+		if rp.options.ID != requestAppend.ID {
+			lib.Warning("[%s] got 'append' request being not a member of the given raft cluster (from %s)", rp.Self(), m.Pid)
+			return RaftStatusOK
+		}
+		if rp.leader != rp.Self() {
+			// not a leader. couldn't handle this request
+			lib.Warning("[%s] got 'append' request being not a leader of the quorum (from %s)", rp.Self(), m.Pid)
+			return RaftStatusOK
+		}
+
 	}
 
 	return ErrUnsupportedRequest
@@ -845,6 +1006,7 @@ func (r *Raft) Init(process *ServerProcess, args ...etf.Term) error {
 		behavior:         behavior,
 		quorumCandidates: createQuorumCandidates(),
 		quorumVotes:      make(map[RaftQuorumState]*quorum),
+		requests:         make(map[etf.Ref]context.CancelFunc),
 	}
 
 	// do not inherit parent State
@@ -920,6 +1082,9 @@ func (r *Raft) HandleCast(process *ServerProcess, message etf.Term) ServerStatus
 		status = rp.quorumChange()
 	case messageRaftLeaderChange:
 		status = rp.leaderChange()
+	case messageRaftRequestClean:
+		delete(rp.requests, m.ref)
+		status = rp.behavior.HandleTimeout(rp, m.ref)
 	default:
 		if err := etf.TermIntoStruct(message, &mRaft); err != nil {
 			return rp.behavior.HandleRaftInfo(rp, message)
@@ -1010,6 +1175,12 @@ func (r *Raft) HandleQuorum(process *RaftProcess, quorum RaftQuorum) RaftStatus 
 
 // HandleLeader
 func (r *Raft) HandleLeader(process *RaftProcess, leader RaftLeader) RaftStatus {
+	return RaftStatusOK
+}
+
+// HandleSerial
+func (r *Raft) HandleSerial(process *RaftProcess, ref etf.Ref, serial uint64, value etf.Term) RaftStatus {
+	lib.Warning("HandleSerial: unhandled value message with ref %s and serial %d", ref, serial)
 	return RaftStatusOK
 }
 
