@@ -106,7 +106,8 @@ type RaftProcess struct {
 	leaderVotes map[etf.Pid]int
 	round       int // "log term" in terms of Raft spec
 
-	requests map[etf.Ref]context.CancelFunc
+	requests       map[etf.Ref]context.CancelFunc
+	requestsAppend map[etf.Ref]bool
 }
 
 type quorumCandidates struct {
@@ -186,6 +187,7 @@ type messageRaftLeaderVote struct {
 type messageRaftRequestGet struct {
 	ID     string // cluster id
 	Ref    etf.Ref
+	Origin etf.Pid
 	Serial uint64
 }
 type messageRaftRequestReply struct {
@@ -232,7 +234,6 @@ func (rp *RaftProcess) Get(serial uint64) (etf.Ref, error) {
 // If a timeout occurred the callback HandleTimeout will be invoked.
 func (rp *RaftProcess) GetWithTimeout(serial uint64, timeout int) (etf.Ref, error) {
 	var ref etf.Ref
-	// TODO
 	if rp.quorum.State == RaftQuorumStateUnknown {
 		return ref, ErrRaftNoQuorum
 	}
@@ -247,6 +248,7 @@ func (rp *RaftProcess) GetWithTimeout(serial uint64, timeout int) (etf.Ref, erro
 		etf.Tuple{
 			rp.options.ID,
 			ref,
+			rp.Self(), // origin
 			serial,
 		},
 	}
@@ -507,11 +509,48 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 			// do nothing
 			return status
 		}
+		if value == nil {
+			// not found.
+			if m.Pid != requestGet.Origin {
+				// its already forwarded request. just ignore it
+				return RaftStatusOK
+			}
+
+			// forward this request to another qourum member
+			forwardGet := etf.Tuple{
+				etf.Atom("$request_get"),
+				rp.Self(),
+				etf.Tuple{
+					requestGet.ID,
+					requestGet.Ref,
+					requestGet.Origin,
+					requestGet.Serial,
+				},
+			}
+
+			// exclude m.Pid and requestGet.Origin
+			peers := []etf.Pid{}
+			for _, pid := range rp.quorum.Peers {
+				if pid == m.Pid {
+					continue
+				}
+				if pid == requestGet.Origin {
+					continue
+				}
+				peers = append(peers, pid)
+			}
+
+			n := rand.Intn(len(peers) - 1)
+			peer := peers[n]
+			rp.Cast(peer, forwardGet)
+			return RaftStatusOK
+		}
 
 		requestReply := etf.Tuple{
-			etf.Atom("$request_get_reply"),
+			etf.Atom("$request_reply"),
 			rp.Self(),
 			etf.Tuple{
+				requestGet.ID,
 				requestGet.Ref,
 				requestGet.Serial,
 				value,
@@ -520,7 +559,7 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 		rp.Cast(m.Pid, requestReply)
 		return RaftStatusOK
 
-	case etf.Atom("$request_get_reply"):
+	case etf.Atom("$request_reply"):
 		requestReply := &messageRaftRequestReply{}
 		if err := etf.TermIntoStruct(m.Command, &requestReply); err != nil {
 			return ErrUnsupportedRequest
@@ -556,12 +595,6 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 			return RaftStatusOK
 		}
 
-		noLeader := etf.Pid{}
-		if rp.leader == noLeader {
-			// no leader. ignore it
-			return RaftStatusOK
-		}
-
 		//
 		// There are 3 options:
 		//
@@ -575,20 +608,45 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 			return rp.handleAppendLeader()
 		}
 
-		// 2) This process is not a leader but is a quorum member -> handleAppendQuorum()
+		// 2) This process is not a leader, is a quorum member, and request has
+		//    received from the leader -> handleAppendQuorum()
 		//   a) accept this request and reply with request_append_received
 		//   b) wait for the request_append_commit
 		//   c) call the callback HandleAppend
 		//   d) send request_append to the peers that are not in the quorum
-		if rp.quorum.Member == true {
+		if rp.quorum.Member == true && m.Pid == rp.leader {
 			return rp.handleAppendQuorum()
 		}
 
 		// 3) This process neither a leader or a quorum member.
-		// It seams the quorum has changed during the delivery this message.
-		// Forward this request to the quorum member
-		n := rand.Intn(len(rp.quorum.Peers) - 1)
-		peer := rp.quorum.Peers[n]
+		// Or this process is a quorum member but request has received not from
+		// the leader of this quorum.
+		// It also could happened if quorum has changed during the delivering this request.
+
+		// Forward this request to the quorum member (if this process not a quorum member)
+		// or to the leader (if this process is a quorum member)
+
+		// exclude requestAppend.Origin and m.Pid
+		peers := []etf.Pid{}
+		for _, pid := range rp.quorum.Peers {
+			if pid == m.Pid {
+				continue
+			}
+			if pid == requestAppend.Origin {
+				continue
+			}
+			peers = append(peers, pid)
+		}
+
+		n := rand.Intn(len(peers) - 1)
+		peer := peers[n]
+
+		if rp.quorum.Member == true {
+			// This request has received not from the quorum leader.
+			// Forward this request to the leader
+			peer = rp.leader
+		}
+
 		forwardAppend := etf.Tuple{
 			etf.Atom("$request_append"),
 			rp.Self(),
@@ -602,12 +660,24 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 		rp.Cast(peer, forwardAppend)
 		return RaftStatusOK
 
-	case etf.Atom("$request_append_reply"):
+	case etf.Atom("$request_append_ready"):
+		return RaftStatusOK
+
+	case etf.Atom("request_append_commit"):
 		return RaftStatusOK
 
 	}
 
 	return ErrUnsupportedRequest
+}
+
+func (rp *RaftProcess) handleAppendLeader() RaftStatus {
+
+	return RaftStatusOK
+}
+
+func (rp *RaftProcess) handleAppendQuorum() RaftStatus {
+	return RaftStatusOK
 }
 
 func (rp *RaftProcess) quorumJoin(peer interface{}) {
