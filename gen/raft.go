@@ -626,6 +626,29 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 		// Forward this request to the quorum member (if this process not a quorum member)
 		// or to the leader (if this process is a quorum member)
 
+		forwardAppend := etf.Tuple{
+			etf.Atom("$request_append"),
+			rp.Self(),
+			etf.Tuple{
+				requestAppend.ID,
+				requestAppend.Ref,
+				requestAppend.Origin,
+				requestAppend.Value,
+			},
+		}
+
+		if rp.quorum.Member == true {
+			noLeader := etf.Pid{}
+			if rp.leader == noLeader {
+				// no leader in this quorum yet. ignore this request
+				return RaftStatusOK
+			}
+			// This request has received not from the quorum leader.
+			// Forward this request to the leader
+			rp.Cast(rp.leader, forwardAppend)
+			return RaftStatusOK
+		}
+
 		// exclude requestAppend.Origin and m.Pid
 		peers := []etf.Pid{}
 		for _, pid := range rp.quorum.Peers {
@@ -637,26 +660,8 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 			}
 			peers = append(peers, pid)
 		}
-
 		n := rand.Intn(len(peers) - 1)
 		peer := peers[n]
-
-		if rp.quorum.Member == true {
-			// This request has received not from the quorum leader.
-			// Forward this request to the leader
-			peer = rp.leader
-		}
-
-		forwardAppend := etf.Tuple{
-			etf.Atom("$request_append"),
-			rp.Self(),
-			etf.Tuple{
-				requestAppend.ID,
-				requestAppend.Ref,
-				requestAppend.Origin,
-				requestAppend.Value,
-			},
-		}
 		rp.Cast(peer, forwardAppend)
 		return RaftStatusOK
 
