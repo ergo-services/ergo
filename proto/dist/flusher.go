@@ -10,7 +10,7 @@ import (
 var (
 	// KeepAlive packet is just 4 bytes with zero value
 	keepAlivePacket = []byte{0, 0, 0, 0}
-	keepAlivePeriod = 5 * time.Second
+	keepAlivePeriod = 15 * time.Second
 )
 
 func newLinkFlusher(w io.Writer, latency time.Duration, softwareKeepAlive bool) *linkFlusher {
