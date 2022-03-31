@@ -53,7 +53,7 @@ The goal of this project is to leverage Erlang/OTP experience with Golang perfor
 
 ### Requirements ###
 
-* Go 1.15.x and above
+* Go 1.17.x and above
 
 ### Versioning ###
 
@@ -93,6 +93,7 @@ Here are the changes of latest release. For more details see the [ChangeLog](Cha
 * Fixed issue #89 (incorrect handling Call requests)
 * Fixed issues #87, #88 and #93 (closing network socket)
 * Fixed issue #96 (silently drops message if mailbox is full)
+* Updated minimal Golang version to 1.17 (go.mod)
 
 
 ### Benchmarks ###

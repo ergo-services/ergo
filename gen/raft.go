@@ -35,11 +35,14 @@ type RaftBehavior interface {
 	HandleAppend(process *RaftProcess, ref etf.Ref, serial uint64, key string, value etf.Term) RaftStatus
 
 	// HandleGet
-	HandleGet(process *RaftProcess, serial uint64) (etf.Term, RaftStatus)
+	HandleGet(process *RaftProcess, serial uint64) (string, etf.Term, RaftStatus)
 
 	//
 	// Optional callbacks
 	//
+
+	// HandlePeer
+	HandlePeer(process *RaftProcess, peer etf.Pid, serial uint64) RaftStatus
 
 	// HandleQuorum
 	HandleQuorum(process *RaftProcess, quorum RaftQuorum) RaftStatus
@@ -208,6 +211,7 @@ type messageRaftRequestReply struct {
 	ID     string // cluster id
 	Ref    etf.Ref
 	Serial uint64
+	Key    string
 	Value  etf.Term
 }
 type messageRaftRequestAppend struct {
@@ -230,6 +234,14 @@ type messageRaftAppendCommit struct {
 	Ref    etf.Ref
 	Key    string
 	Serial uint64
+}
+
+type messageRaftAppendBroadcast struct {
+	ID     string
+	Ref    etf.Ref
+	Serial uint64
+	Key    string
+	Value  etf.Term
 }
 
 type messageRaftRequestClean struct {
@@ -317,14 +329,14 @@ func (rp *RaftProcess) AppendWithTimeout(key string, value etf.Term, timeout int
 		return ref, ErrRaftNoLeader
 	}
 	peer := rp.leader
-	t := time.Duration(timeout) * time.Second
-	deadline := time.Now().Add(t - t/int(rp.quorum.State)).UnixMilli()
+	t := int(time.Duration(timeout) * time.Second)
+	deadline := time.Now().Add(time.Duration(t - t/int(rp.quorum.State))).UnixMilli()
 	// if Member == false => rp.leader == noLeader
 	if rp.quorum.Member == false {
 		// this raft process runs as a Client. send this request to the quorum member
 		n := rand.Intn(len(rp.quorum.Peers) - 1)
 		peer = rp.quorum.Peers[n]
-		deadline = time.Now().Add(t - t/(int(rp.quorum.State)+1)).UnixMilli()
+		deadline = time.Now().Add(time.Duration(t - t/(int(rp.quorum.State)+1))).UnixMilli()
 	}
 	ref = rp.MakeRef()
 	after := time.Duration(timeout) * time.Second
@@ -355,6 +367,8 @@ func (rp *RaftProcess) AppendWithTimeout(key string, value etf.Term, timeout int
 		peers[pid] = true
 	}
 
+	clean := messageRaftAppendClean{key: key, ref: ref}
+	cancel := rp.CastAfter(rp.Self, clean, after)
 	requestAppend := &requestAppend{
 		ref:    ref,
 		origin: rp.Self(),
@@ -363,8 +377,6 @@ func (rp *RaftProcess) AppendWithTimeout(key string, value etf.Term, timeout int
 		cancel: cancel,
 	}
 	rp.requestsAppend[key] = requestAppend
-	clean := messageRaftAppendClean{key: key, ref: ref}
-	cancel := rp.CastAfter(rp.Self, clean, after)
 	return ref, nil
 }
 
@@ -406,7 +418,7 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 		}
 		rp.Cast(m.Pid, reply)
 		fmt.Println(rp.Name(), "GOT QUO JOIN from", m.Pid, "send peers", peers)
-		return RaftStatusOK
+		return rp.behavior.HandlePeer(rp, m.Pid, join.Serial)
 
 	case etf.Atom("$quorum_join_reply"):
 
@@ -438,6 +450,10 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 			// already present as a candidate
 			return RaftStatusOK
 		}
+		status := rp.behavior.HandlePeer(rp, m.Pid, reply.Serial)
+		if status != RaftStatusOK {
+			return status
+		}
 
 		// try to rebuild quorum since the number of peers has changed
 		if rp.quorumChangeDefer == false {
@@ -457,7 +473,6 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 			rp.leader = etf.Pid{} // no leader
 			return rp.handleQuorum()
 		}
-
 		return RaftStatusOK
 
 	case etf.Atom("$quorum_vote"):
@@ -578,7 +593,7 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 			return RaftStatusOK
 		}
 
-		value, status := rp.behavior.HandleGet(rp, requestGet.Serial)
+		key, value, status := rp.behavior.HandleGet(rp, requestGet.Serial)
 		if status != RaftStatusOK {
 			// do nothing
 			return status
@@ -602,7 +617,7 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 				},
 			}
 
-			// exclude m.Pid and requestGet.Origin
+			// get random quorum member excluding m.Pid and requestGet.Origin
 			peers := []etf.Pid{}
 			for _, pid := range rp.quorum.Peers {
 				if pid == m.Pid {
@@ -627,10 +642,18 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 				requestGet.ID,
 				requestGet.Ref,
 				requestGet.Serial,
+				key,
 				value,
 			},
 		}
-		rp.Cast(m.Pid, requestReply)
+		rp.Cast(requestGet.Origin, requestReply)
+
+		// update serial of this peer
+		if c, exist := rp.quorumCandidates.Get(requestGet.Origin); exist {
+			if c.serial < requestGet.Serial {
+				c.serial = requestGet.Serial
+			}
+		}
 		return RaftStatusOK
 
 	case etf.Atom("$request_reply"):
@@ -650,8 +673,12 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 		}
 		// cancel timer
 		cancel()
+		if rp.options.Serial < requestReply.Serial {
+			rp.options.Serial = requestReply.Serial
+		}
 		// call HandleSerial
-		return rp.behavior.HandleSerial(rp, requestReply.Ref, requestReply.Serial, requestReply.Value)
+		return rp.behavior.HandleSerial(rp, requestReply.Ref, requestReply.Serial,
+			requestReply.Key, requestReply.Value)
 
 	case etf.Atom("$request_append"):
 		requestAppend := &messageRaftRequestAppend{}
@@ -762,7 +789,7 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 			return RaftStatusOK
 		}
 
-		if requestAppend.ref != appendReady.ref {
+		if requestAppend.ref != appendReady.Ref {
 			// there might be timeout happened for the previous append request for this key
 			// and another append request arrived during previous append request handling
 			return RaftStatusOK
@@ -790,8 +817,8 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 
 		// received confirmations from all the peers are involved to this append handling.
 		// call HandleAppend
-		status := rp.behavior.HandleAppend(rp, requestAppend.Ref, rp.options.Serial+1,
-			requestAppend.Key, requestAppend.Value)
+		status := rp.behavior.HandleAppend(rp, requestAppend.ref, rp.options.Serial+1,
+			appendReady.Key, requestAppend.value)
 		switch status {
 		case RaftStatusOK:
 			rp.options.Serial++
@@ -801,8 +828,8 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 				rp.Self(),
 				etf.Tuple{
 					rp.options.ID,
-					requestAppend.Ref,
-					requestAppend.Key,
+					requestAppend.ref,
+					appendReady.Key,
 					rp.options.Serial,
 				},
 			}
@@ -811,9 +838,18 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 					continue
 				}
 				rp.Cast(pid, request)
+				if c, ok := rp.quorumCandidates.Get(pid); ok {
+					if c.serial < rp.options.Serial {
+						c.serial = rp.options.Serial
+					}
+				}
 			}
 			requestAppend.cancel()
 			delete(rp.requestsAppend, appendReady.Key)
+			if requestAppend.origin != rp.Self() {
+				return RaftStatusOK
+			}
+			rp.handleBroadcastCommit(appendReady.Key, requestAppend, rp.options.Serial)
 			return RaftStatusOK
 
 		case RaftStatusDiscard:
@@ -841,39 +877,89 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 			return RaftStatusOK
 		}
 
-		if requestAppend.origin != rp.Self {
+		if rp.options.Serial >= appendCommit.Serial {
+			lib.Warning("[%s] got append commit with serial (%d) greater or equal we have (%d). fork happened. stopping this process", rp.Self(), appendCommit.Serial, rp.options.Serial)
+			return fmt.Errorf("raft fork happened")
+		}
+
+		rp.options.Serial = appendCommit.Serial
+		status := rp.behavior.HandleAppend(rp, requestAppend.ref, appendCommit.Serial,
+			appendCommit.Key, requestAppend.value)
+		if status != RaftStatusOK {
+			return status
+		}
+
+		if requestAppend.origin != rp.Self() {
 			return RaftStatusOK
 		}
-		// the origin process is in charge of broadcasting this result amont
-		// the peers who aren't quorum members.
-		allPeers := rp.quorumCandidates.List()
-		for _, pid := range allPeers {
-			if _, exist := requestAppend.peers[pid]; exist {
-				continue
-			}
 
-		}
+		rp.handleBroadcastCommit(appendCommit.Key, requestAppend, appendCommit.Serial)
 
 		return RaftStatusOK
+
+	case etf.Atom("$requst_append_broadcast"):
+		broadcast := &messageRaftAppendBroadcast{}
+		if err := etf.TermIntoStruct(m.Command, &broadcast); err != nil {
+			return ErrUnsupportedRequest
+		}
+
+		if rp.options.ID != broadcast.ID {
+			lib.Warning("[%s] got 'append_broadcast' message being not a member of the given raft cluster (from %s)", rp.Self(), m.Pid)
+			return RaftStatusOK
+		}
+
+		rp.options.Serial = broadcast.Serial
+		return rp.behavior.HandleAppend(rp, broadcast.Ref, broadcast.Serial,
+			broadcast.Key, broadcast.Value)
 
 	}
 
 	return ErrUnsupportedRequest
 }
 
+func (rp *RaftProcess) handleBroadcastCommit(key string, request *requestAppend, serial uint64) {
+	// the origin process is in charge of broadcasting this result among
+	// the peers who aren't quorum members.
+	commit := etf.Tuple{
+		etf.Atom("$request_append_broadcast"),
+		rp.Self(),
+		etf.Tuple{
+			rp.options.ID,
+			request.ref,
+			serial,
+			key,
+			request.value,
+		},
+	}
+	allPeers := rp.quorumCandidates.List()
+	for _, pid := range allPeers {
+		if _, exist := request.peers[pid]; exist {
+			continue
+		}
+		if pid == rp.Self() {
+			continue
+		}
+		rp.Cast(pid, commit)
+		c, _ := rp.quorumCandidates.Get(pid)
+		if c.serial < serial {
+			c.serial = serial
+		}
+	}
+}
+
 func (rp *RaftProcess) handleAppendLeader(request *messageRaftRequestAppend) RaftStatus {
 
-	if _, exist := rp.requestAppend[request.Key]; exist {
+	if _, exist := rp.requestsAppend[request.Key]; exist {
 		// another append request with this key is still in progress. ignore it
 		return RaftStatusOK
 	}
 	now := time.Now().UnixMilli()
-	if now > request.Deadline {
+	if now >= request.Deadline {
 		// deadline has been passed. ignore this request
 		return RaftStatusOK
 	}
 
-	request := etf.Tuple{
+	sendRequestAppend := etf.Tuple{
 		etf.Atom("$request_append"),
 		rp.Self(),
 		etf.Tuple{
@@ -892,14 +978,14 @@ func (rp *RaftProcess) handleAppendLeader(request *messageRaftRequestAppend) Raf
 			continue
 		}
 		peers[pid] = false
-		if pid == origin {
+		if pid == request.Origin {
 			peers[pid] = true
 			continue
 		}
-		rp.Cast(pid, request)
+		rp.Cast(pid, sendRequestAppend)
 	}
 
-	after := time.Duration(deadline-now) * time.Millisecond
+	after := time.Duration(request.Deadline-now) * time.Millisecond
 	clean := messageRaftAppendClean{key: request.Key, ref: request.Ref}
 	cancel := rp.CastAfter(rp.Self(), clean, after)
 	requestAppend := &requestAppend{
@@ -909,7 +995,7 @@ func (rp *RaftProcess) handleAppendLeader(request *messageRaftRequestAppend) Raf
 		peers:  peers,
 		cancel: cancel,
 	}
-	rp.requestAppend[key] = requestAppend
+	rp.requestsAppend[request.Key] = requestAppend
 
 	return RaftStatusOK
 }
@@ -933,7 +1019,7 @@ func (rp *RaftProcess) handleAppendQuorum(request *messageRaftRequestAppend) Raf
 	rp.Cast(rp.leader, ready)
 	clean := messageRaftAppendClean{key: request.Key, ref: request.Ref}
 	after := time.Duration(DefaultRaftAppendTimeout) * time.Second
-	if d := (request.Deadline - time.Now.UnixMilli()) * time.Millisecond; d > after {
+	if d := time.Duration(request.Deadline-time.Now().UnixMilli()) * time.Millisecond; d > after {
 		after = d
 	}
 	cancel := rp.CastAfter(rp.Self, clean, after)
@@ -944,7 +1030,7 @@ func (rp *RaftProcess) handleAppendQuorum(request *messageRaftRequestAppend) Raf
 		value:  request.Value,
 		cancel: cancel,
 	}
-	rp.requestAppend[key] = requestAppend
+	rp.requestsAppend[request.Key] = requestAppend
 	return RaftStatusOK
 }
 
@@ -1493,7 +1579,7 @@ func (r *Raft) HandleCast(process *ServerProcess, message etf.Term) ServerStatus
 		delete(rp.requests, m.ref)
 		status = rp.behavior.HandleCancel(rp, m.ref, "timeout")
 	case messageRaftAppendClean:
-		request, exist := erp.requestsAppend[m.key]
+		request, exist := rp.requestsAppend[m.key]
 		if exist == false {
 			// do nothing
 			return ServerStatusOK
@@ -1501,8 +1587,8 @@ func (r *Raft) HandleCast(process *ServerProcess, message etf.Term) ServerStatus
 		if request.ref != m.ref {
 			return ServerStatusOK
 		}
-		if request.Origin == rp.Self() {
-			status = rp.behavior.HandleCancel(rp, request.Ref, "timeout")
+		if request.origin == rp.Self() {
+			status = rp.behavior.HandleCancel(rp, request.ref, "timeout")
 			break
 		}
 		delete(rp.requestsAppend, m.key)
@@ -1600,9 +1686,14 @@ func (r *Raft) HandleLeader(process *RaftProcess, leader RaftLeader) RaftStatus 
 	return RaftStatusOK
 }
 
+// HandlePeer
+func (r *Raft) HandlePeer(process *RaftProcess, peer etf.Pid, serial uint64) RaftStatus {
+	return RaftStatusOK
+}
+
 // HandleSerial
-func (r *Raft) HandleSerial(process *RaftProcess, ref etf.Ref, serial uint64, value etf.Term) RaftStatus {
-	lib.Warning("HandleSerial: unhandled value message with ref %s and serial %d", ref, serial)
+func (r *Raft) HandleSerial(process *RaftProcess, ref etf.Ref, serial uint64, key string, value etf.Term) RaftStatus {
+	lib.Warning("HandleSerial: unhandled key-value message with ref %s and serial %d", ref, serial)
 	return RaftStatusOK
 }
 

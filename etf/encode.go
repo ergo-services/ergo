@@ -421,30 +421,9 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 				t = -t
 			}
 
-			buf := []byte{ettSmallBig, 0, negative, 0, 0, 0, 0, 0, 0, 0, 0}
+			buf := []byte{ettSmallBig, 8, negative, 0, 0, 0, 0, 0, 0, 0, 0}
 			binary.LittleEndian.PutUint64(buf[3:], uint64(t))
-
-			switch {
-			case t < 4294967296:
-				buf[1] = 4
-				b.Append(buf[:7])
-
-			case t < 1099511627776:
-				buf[1] = 5
-				b.Append(buf[:8])
-
-			case t < 281474976710656:
-				buf[1] = 6
-				b.Append(buf[:9])
-
-			case t < 72057594037927936:
-				buf[1] = 7
-				b.Append(buf[:10])
-
-			default:
-				buf[1] = 8
-				b.Append(buf)
-			}
+			b.Append(buf)
 
 		case big.Int:
 			bytes := t.Bytes()

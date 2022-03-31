@@ -210,16 +210,19 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 			n := packet[0]
 			negative := packet[1] == 1 // sign
 
-			///// this block improve the performance at least 4 times
-			if n < 8 { // treat as an int64
+			///// this block improves performance at least 4 times
+			if n < 9 { // treat as an int64/uint64
 				le8 := make([]byte, 8)
 				copy(le8, packet[2:n+2])
 				smallBig := binary.LittleEndian.Uint64(le8)
-				if negative {
-					smallBig = -smallBig
+				if smallBig <= math.MaxInt64 {
+					if negative {
+						smallBig = -smallBig
+					}
+					term = int64(smallBig)
+				} else {
+					term = uint64(smallBig)
 				}
-
-				term = int64(smallBig)
 				packet = packet[n+2:]
 				break
 			}
