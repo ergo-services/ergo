@@ -215,14 +215,17 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 				le8 := make([]byte, 8)
 				copy(le8, packet[2:n+2])
 				smallBig := binary.LittleEndian.Uint64(le8)
-				if smallBig <= math.MaxInt64 {
-					if negative {
-						smallBig = -smallBig
-					}
+				if negative {
+					smallBig = -smallBig
 					term = int64(smallBig)
 				} else {
-					term = uint64(smallBig)
+					if smallBig > math.MaxInt64 {
+						term = uint64(smallBig)
+					} else {
+						term = int64(smallBig)
+					}
 				}
+
 				packet = packet[n+2:]
 				break
 			}

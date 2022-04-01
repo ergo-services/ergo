@@ -106,7 +106,7 @@ func integerCases() []integerCase {
 		{"int64::-127", int64(-127), []byte{ettInteger, 255, 255, 255, 129}},
 		{"int::-127", int(-127), []byte{ettInteger, 255, 255, 255, 129}},
 
-		// positive within range of int8 treats as ettSmallInteger
+		// positive within a range of int8 treats as ettSmallInteger
 		{"int8::127", int8(127), []byte{ettSmallInteger, 127}},
 		{"int16::127", int16(127), []byte{ettSmallInteger, 127}},
 		{"int32::127", int32(127), []byte{ettSmallInteger, 127}},

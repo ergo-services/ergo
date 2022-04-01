@@ -19,7 +19,9 @@ const (
 var (
 	ErrRaftState        = fmt.Errorf("incorrect raft state")
 	ErrRaftNoQuorum     = fmt.Errorf("no quorum")
+	ErrRaftNotMember    = fmt.Errorf("not a quorum member")
 	ErrRaftNoLeader     = fmt.Errorf("no leader")
+	ErrRaftNoSerial     = fmt.Errorf("no peers with requested serial")
 	ErrRaftBusy         = fmt.Errorf("another append request is in progress")
 	ErrRaftWrongTimeout = fmt.Errorf("wrong timeout value")
 )
@@ -90,6 +92,7 @@ var (
 	RaftQuorumState11      RaftQuorumState = 11 // maximal quorum
 
 	cleanVoteTimeout         = 1 * time.Second
+	cleanLeaderVoteTimeout   = 500 * time.Millisecond
 	quorumChangeDeferMaxTime = 450 // in millisecond. uses as max value in range of 50..
 	quorumChangeAttempt      = 0
 )
@@ -109,8 +112,8 @@ type RaftProcess struct {
 	quorumChangeDefer bool
 
 	leader      etf.Pid
-	leaderVotes map[etf.Pid]int
-	round       int // "log term" in terms of Raft spec
+	leaderVotes map[etf.Pid]int // 1 - vote received, 2 - decision received
+	round       int             // "log term" in terms of Raft spec
 
 	// get requests
 	requests map[etf.Ref]context.CancelFunc
@@ -251,20 +254,45 @@ type messageRaftAppendClean struct {
 	key string
 	ref etf.Ref
 }
+type messageRaftLeaderVotesClean struct{}
 
 //
 // RaftProcess quorum routines and APIs
 //
 
-// Quorum
-func (rp *RaftProcess) Quorum() RaftQuorum {
+// Quorum returns current quorum. It returns ErrRaftNoQuorum if quorum hasn't built yet.
+func (rp *RaftProcess) Quorum() (RaftQuorum, error) {
 	var q RaftQuorum
+	if rp.quorum.State == RaftQuorumStateUnknown {
+		return q, ErrRaftNoQuorum
+	}
 	q = rp.quorum
 	q.Peers = make([]etf.Pid, len(rp.quorum.Peers))
 	for i := range rp.quorum.Peers {
 		q.Peers[i] = rp.quorum.Peers[i]
 	}
 	return q
+}
+
+// Leader returns current leader in the quorum. It returns ErrRaftNotMember If this process is not a quorum or ErrRaftNoLeader if leader election is still in progress
+func (rp *RaftProcess) Leader() (RaftLeader, error) {
+	var leader RaftLeader
+
+	if rp.quorum.Member == false {
+		return leader, ErrRaftNotMember
+	}
+
+	noLeader := etf.Pid{}
+	if rp.leader == noLeader {
+		return leader, ErrRaftNoLeader
+	}
+	leader.Leader = rp.leader
+
+	// must be present in this map
+	c := rp.quorumCandidadtes[rp.leader]
+
+	leader.Serial = c.serial
+	return leader, nil
 }
 
 // Get makes a request to the quorum member to get the data with the given serial number and
@@ -284,9 +312,25 @@ func (rp *RaftProcess) GetWithTimeout(serial uint64, timeout int) (etf.Ref, erro
 		return ref, ErrRaftNoQuorum
 	}
 
+	peers := []etf.Pid{}
+	for _, pid := range rp.quorum.Peers {
+		if pid == rp.Self() {
+			continue
+		}
+		if c, ok := rp.quorumCandidates.Get(pid); ok {
+			if serial > c.serial {
+				continue
+			}
+			peers = append(peers, pid)
+		}
+	}
+	if len(peers) == 0 {
+		return ref, ErrRaftNoSerial
+	}
+
 	// get random member of quorum and send the request
-	n := rand.Intn(len(rp.quorum.Peers) - 1)
-	peer := rp.quorum.Peers[n]
+	n := rand.Intn(len(peers) - 1)
+	peer := peers[n]
 	ref = rp.MakeRef()
 	requestGet := etf.Tuple{
 		etf.Atom("$request_get"),
@@ -570,6 +614,31 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 			rp.leader = etf.Pid{} // no leader
 			return rp.handleQuorum()
 		}
+
+	case etf.Atom("$leader_vote"):
+		vote := &messageRaftLeaderVote{}
+		if err := etf.TermIntoStruct(m.Command, &vote); err != nil {
+			return ErrUnsupportedRequest
+		}
+
+		if rp.options.ID != vote.ID {
+			lib.Warning("[%s] got 'leader vote' message being not a member of the given raft cluster (from %s)", rp.Self(), m.Pid)
+			return RaftStatusOK
+		}
+
+		if rp.quorum.State == RaftQuorumStateUnknown {
+			// no quorum
+			return RaftStatusOK
+		}
+
+		if rp.leaderVotes == nil {
+			// start voting process
+			rp.leaderVotes = make(map[etf.Pid]int)
+			rp.round++
+			rp.CastAfter(rp.Self, messageRaftLeaderVotesClean{}, cleanLeaderVoteTimeout)
+		}
+
+		return RaftStatusOK
 
 	case etf.Atom("$request_get"):
 		requestGet := &messageRaftRequestGet{}
@@ -1593,6 +1662,8 @@ func (r *Raft) HandleCast(process *ServerProcess, message etf.Term) ServerStatus
 		}
 		delete(rp.requestsAppend, m.key)
 		return ServerStatusOK
+	case messageRaftLeaderVotesClean:
+		rp.leaderVotes = nil
 
 	default:
 		if err := etf.TermIntoStruct(message, &mRaft); err != nil {
