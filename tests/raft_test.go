@@ -59,9 +59,9 @@ func (tr *testRaft) HandleRaftInfo(process *gen.RaftProcess, message etf.Term) g
 	q := process.Quorum()
 
 	if q == nil {
-		fmt.Println("III info", process.Name(), "state: NONE")
+		fmt.Println("III info", process.Name(), "state: NONE", "message:", message)
 	} else {
-		fmt.Println("III info", process.Name(), "state:", q.State, q.Member)
+		fmt.Println("III info", process.Name(), "state:", q.State, q.Member, "message:", message)
 	}
 	process.State = 0
 	return gen.ServerStatusOK

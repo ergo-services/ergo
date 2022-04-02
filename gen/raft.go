@@ -655,6 +655,7 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 			rp.quorum = nil
 			return rp.handleQuorum()
 		}
+		return RaftStatusOK
 
 	case etf.Atom("$leader_vote"):
 		vote := &messageRaftLeaderVote{}
