@@ -109,9 +109,10 @@ type RaftProcess struct {
 	quorumVotes       map[RaftQuorumState]*quorum
 	quorumChangeDefer bool
 
-	leader   etf.Pid
-	election *leaderElection
-	round    int // "log term" in terms of Raft spec
+	leader            etf.Pid
+	leaderChangeDefer bool
+	election          *leaderElection
+	round             int // "log term" in terms of Raft spec
 
 	// get requests
 	requests map[etf.Ref]context.CancelFunc
@@ -149,6 +150,7 @@ type candidate struct {
 type RaftLeader struct {
 	Leader etf.Pid
 	Serial uint64
+	State  RaftQuorumState
 }
 
 type RaftQuorum struct {
@@ -302,14 +304,17 @@ func (rp *RaftProcess) Leader() *RaftLeader {
 		return nil
 	}
 	leader.Leader = rp.leader
-
-	// must be present among the peers
-	c, exist := rp.quorumCandidates.Get(rp.leader)
-	if exist == false {
-		panic("internal error. elected leader has been lost")
+	leader.State = rp.quorum.State
+	leader.Serial = rp.options.Serial
+	if rp.leader != rp.Self() {
+		// must be present among the peers
+		c, exist := rp.quorumCandidates.Get(rp.leader)
+		if exist == false {
+			panic("internal error. elected leader has been lost")
+		}
+		leader.Serial = c.serial
 	}
 
-	leader.Serial = c.serial
 	return &leader
 }
 
@@ -485,7 +490,7 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 			},
 		}
 		rp.Cast(m.Pid, reply)
-		fmt.Println(rp.Name(), "GOT QUO JOIN from", m.Pid, "send peers", peers)
+		//DBGQUO fmt.Println(rp.Name(), "GOT QUO JOIN from", m.Pid, "send peers", peers)
 		return rp.behavior.HandlePeer(rp, m.Pid, join.Serial)
 
 	case etf.Atom("$quorum_join_reply"):
@@ -500,7 +505,7 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 			return RaftStatusOK
 		}
 
-		fmt.Println(rp.Name(), "GOT QUO JOIN REPL from", m.Pid, "got peers", reply.Peers)
+		//DBGQUO fmt.Println(rp.Name(), "GOT QUO JOIN REPL from", m.Pid, "got peers", reply.Peers)
 		canAcceptQuorum := true
 		for _, peer := range reply.Peers {
 			if peer == rp.Self() {
@@ -568,7 +573,7 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 		if err := etf.TermIntoStruct(m.Command, &built); err != nil {
 			return ErrUnsupportedRequest
 		}
-		fmt.Println(rp.Name(), "GOT QUO BUILT from", m.Pid)
+		//DBGQUO fmt.Println(rp.Name(), "GOT QUO BUILT from", m.Pid)
 		if built.ID != rp.options.ID {
 			// this process is not belong this quorum
 			return RaftStatusOK
@@ -627,10 +632,10 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 				rp.quorum.State = candidateQuorumState
 				rp.quorum.Member = false
 				rp.quorum.Peers = built.Peers
-				fmt.Println(rp.Name(), "QUO BUILT. NOT A MEMBER", rp.quorum.State, rp.quorum.Peers)
+				//DBGQUO fmt.Println(rp.Name(), "QUO BUILT. NOT A MEMBER", rp.quorum.State, rp.quorum.Peers)
 				return rp.handleQuorum()
 			}
-			fmt.Println(rp.Name(), "QUO BUILT. NOT A MEMBER", rp.quorum.State, rp.quorum.Peers)
+			//DBGQUO fmt.Println(rp.Name(), "QUO BUILT. NOT A MEMBER", rp.quorum.State, rp.quorum.Peers)
 
 			changed := false
 			if rp.quorum.State != candidateQuorumState {
@@ -670,25 +675,10 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 		if rp.quorum == nil {
 			rp.election = nil
 			// no quorum
+			fmt.Println(rp.Self(), "LDR NO QUO got vote from", m.Pid, "round", vote.Round, "for", vote.Leader)
 			return RaftStatusOK
 		}
 
-		if rp.election == nil || vote.Round > rp.round {
-			// start new election
-			rp.election = &leaderElection{
-				votes:   make(map[etf.Pid]etf.Pid),
-				results: make(map[etf.Pid]bool),
-				round:   vote.Round,
-			}
-			rp.election.cancel = rp.CastAfter(rp.Self, messageRaftElectionClean{round: vote.Round}, cleanLeaderVoteTimeout)
-			rp.handleElectionVote()
-		}
-
-		if _, exist := rp.election.votes[vote.Leader]; exist {
-			lib.Warning("[%s] got duplicate vote for %s from %s during %d round", rp.Self(),
-				vote.Leader, m.Pid, rp.round)
-			return RaftStatusOK
-		}
 		// check if m.Pid is belongs to the quorum
 		belongs := false
 		for _, pid := range rp.quorum.Peers {
@@ -702,7 +692,44 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 			return RaftStatusOK
 		}
 
+		// start new election
+		new_election := false
+		switch {
+		case rp.election == nil:
+			new_election = true
+		case rp.election != nil:
+			// TODO case with existing leader whithin this quorum. if some of the quorum member
+			// got leader heartbeat timeout it starts new election but this process has no problem
+			// with the leader.
+			if rp.election.round > vote.Round {
+				// ignore vote if it has prev round number
+				return RaftStatusOK
+			}
+			if vote.Round > rp.election.round {
+				// overwrite election if it has greater round number
+				rp.election.cancel()
+				new_election = true
+			}
+		}
+		if new_election {
+			fmt.Println(rp.Self(), "LDR accept election from", m.Pid, "round", vote.Round, " with vote for:", vote.Leader)
+			rp.election = &leaderElection{
+				votes:   make(map[etf.Pid]etf.Pid),
+				results: make(map[etf.Pid]bool),
+				round:   vote.Round,
+			}
+			rp.election.cancel = rp.CastAfter(rp.Self, messageRaftElectionClean{round: vote.Round}, cleanLeaderVoteTimeout)
+			rp.handleElectionVote()
+		}
+
+		if _, exist := rp.election.votes[m.Pid]; exist {
+			lib.Warning("[%s] got duplicate vote for %s from %s during %d round", rp.Self(),
+				vote.Leader, m.Pid, rp.round)
+			return RaftStatusOK
+		}
+
 		rp.election.votes[m.Pid] = vote.Leader
+		fmt.Println(rp.Self(), "LDR got vote from", m.Pid, "for", vote.Leader, "round", vote.Round)
 		if len(rp.election.votes) != len(rp.quorum.Peers) {
 			// waiting for all votes from the quorum members)
 			return RaftStatusOK
@@ -728,7 +755,9 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 				leaderSplit = false
 			}
 		}
+		fmt.Println(rp.Self(), "LDR got all votes")
 		if leaderSplit {
+			fmt.Println(rp.Self(), "LDR got split voices on round", vote.Round)
 			// got more than one leader
 			// start new leader election with round++
 			rp.handleElectionStart(vote.Round + 1)
@@ -743,11 +772,13 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 			if rp.election.leader != leaderPid || rp.election.voted != leaderVoted {
 				// our result defers from the others which we already received
 				// start new leader election with round++
+				panic("AAA")
 				rp.handleElectionStart(vote.Round + 1)
 				return RaftStatusOK
 			}
 		}
 
+		fmt.Println(rp.Self(), "LDR election done. Leader", leaderPid, "with", leaderVoted, "voices")
 		rp.election.results[rp.Self()] = true
 
 		// send to all quorum members our choice
@@ -766,6 +797,7 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 				continue
 			}
 			rp.Cast(pid, elected)
+			fmt.Println(rp.Self(), "LDR elected", leaderPid, ". sent to", pid)
 		}
 
 		if len(rp.election.votes) != len(rp.election.results) {
@@ -798,6 +830,7 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 		if rp.quorum == nil {
 			rp.election = nil
 			// no quorum
+			fmt.Println(rp.Self, "LDR NO QUO but got election result", elected, "from", m.Pid)
 			return RaftStatusOK
 		}
 
@@ -858,13 +891,15 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 		}
 
 		// leader has been elected
+		rp.election.cancel() // cancel timer
 		rp.round = rp.election.round
-		rp.election = nil
 		if rp.leader != rp.election.leader {
 			rp.leader = rp.election.leader
+			rp.election = nil
 			l := rp.Leader()
 			return rp.behavior.HandleLeader(rp, l)
 		}
+		rp.election = nil
 		return RaftStatusOK
 
 	case etf.Atom("$request_get"):
@@ -1215,10 +1250,14 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 
 func (rp *RaftProcess) handleElectionStart(round int) {
 	if rp.election != nil {
+		if rp.election.round == round {
+			// already in progress
+			return
+		}
 		rp.election.cancel()
 		rp.election = nil
 	}
-
+	fmt.Println(rp.Self(), "LDR start. round", round, "Q", rp.quorum.State)
 	rp.election = &leaderElection{
 		votes:   make(map[etf.Pid]etf.Pid),
 		results: make(map[etf.Pid]bool),
@@ -1251,6 +1290,7 @@ func (rp *RaftProcess) handleElectionVote() {
 		break
 	}
 
+	fmt.Println(rp.Self(), "LDR voted for:", voted_for)
 	leaderVote := etf.Tuple{
 		etf.Atom("$leader_vote"),
 		rp.Self(),
@@ -1261,6 +1301,10 @@ func (rp *RaftProcess) handleElectionVote() {
 		},
 	}
 	for _, pid := range rp.quorum.Peers {
+		if pid == rp.Self() {
+			continue
+		}
+		fmt.Println(rp.Self(), "LDR sent vote for", voted_for, " to:", pid, "round", rp.election.round)
 		rp.Cast(pid, leaderVote)
 	}
 	rp.election.votes[rp.Self()] = voted_for
@@ -1384,7 +1428,7 @@ func (rp *RaftProcess) handleAppendQuorum(request *messageRaftRequestAppend) Raf
 }
 
 func (rp *RaftProcess) quorumJoin(peer interface{}) {
-	fmt.Println(rp.Name(), "send join to", peer)
+	//DBGQUO fmt.Println(rp.Name(), "send join to", peer)
 	join := etf.Tuple{
 		etf.Atom("$quorum_join"),
 		rp.Self(),
@@ -1442,7 +1486,7 @@ func (rp *RaftProcess) quorumChange() RaftStatus {
 			rp.quorum = nil
 			return rp.handleQuorum()
 		}
-		fmt.Println(rp.Name(), "QUO VOTE. NOT ENO CAND", rp.quorumCandidates.List())
+		//DBGQUO fmt.Println(rp.Name(), "QUO VOTE. NOT ENO CAND", rp.quorumCandidates.List())
 
 		// try send join_quorum again to receive an updated peer list
 		rp.CastAfter(rp.Self(), messageRaftQuorumInit{}, 5*time.Second)
@@ -1458,7 +1502,7 @@ func (rp *RaftProcess) quorumChange() RaftStatus {
 	quorumCandidates = append(quorumCandidates, rp.Self())
 	candidates := rp.quorumCandidates.List()
 	quorumCandidates = append(quorumCandidates, candidates[:l]...)
-	fmt.Println(rp.Name(), "QUO VOTE INIT", candidateRaftQuorumState, quorumCandidates)
+	//DBGQUO fmt.Println(rp.Name(), "QUO VOTE INIT", candidateRaftQuorumState, quorumCandidates)
 
 	// send quorumVote to all candidates (except itself)
 	quorum := &quorum{
@@ -1504,7 +1548,7 @@ func (rp *RaftProcess) quorumSendVote(q *quorum) bool {
 
 		// check if already sent vote to this peer
 		if v&1 == 0 {
-			fmt.Println(rp.Name(), "SEND VOTE to", pid, q.Peers)
+			//DBGQUO fmt.Println(rp.Name(), "SEND VOTE to", pid, q.Peers)
 			rp.Cast(pid, quorumVote)
 			// mark as sent
 			v |= 1
@@ -1518,7 +1562,7 @@ func (rp *RaftProcess) quorumSendVote(q *quorum) bool {
 
 	if allVoted == true && q.origin != rp.Self() {
 		// send vote to origin
-		fmt.Println(rp.Name(), "SEND VOTE to origin", q.origin, q.Peers)
+		//DBGQUO fmt.Println(rp.Name(), "SEND VOTE to origin", q.origin, q.Peers)
 		rp.Cast(q.origin, quorumVote)
 	}
 
@@ -1574,7 +1618,7 @@ func (rp *RaftProcess) quorumVote(from etf.Pid, vote *messageRaftQuorumVote) Raf
 			return RaftStatusOK
 		}
 
-		fmt.Println(rp.Name(), "SKIP VOTE from", from, candidatesRaftQuorumState, rp.quorum.State)
+		//DBGQUO fmt.Println(rp.Name(), "SKIP VOTE from", from, candidatesRaftQuorumState, rp.quorum.State)
 		built := etf.Tuple{
 			etf.Atom("$quorum_built"),
 			rp.Self(),
@@ -1616,7 +1660,7 @@ func (rp *RaftProcess) quorumVote(from etf.Pid, vote *messageRaftQuorumVote) Raf
 			return RaftStatusOK
 		}
 		q.lastVote = time.Now().UnixMilli()
-		fmt.Println(rp.Name(), "QUO VOTE (NEW)", from, vote)
+		//DBGQUO fmt.Println(rp.Name(), "QUO VOTE (NEW)", from, vote)
 		rp.quorumVotes[candidatesRaftQuorumState] = q
 		rp.CastAfter(rp.Self(), messageRaftQuorumCleanVote{state: q.State}, cleanVoteTimeout)
 
@@ -1645,7 +1689,7 @@ func (rp *RaftProcess) quorumVote(from etf.Pid, vote *messageRaftQuorumVote) Raf
 			return RaftStatusOK
 		}
 		q.lastVote = time.Now().UnixMilli()
-		fmt.Println(rp.Name(), "QUO VOTE", from, vote)
+		//DBGQUO fmt.Println(rp.Name(), "QUO VOTE", from, vote)
 	}
 
 	// returns true if we got votes from all the peers whithin this quorum
@@ -1653,7 +1697,7 @@ func (rp *RaftProcess) quorumVote(from etf.Pid, vote *messageRaftQuorumVote) Raf
 		//
 		// Quorum built
 		//
-		fmt.Println(rp.Name(), "QUO BUILT", q.State, q.Peers)
+		//DBGQUO fmt.Println(rp.Name(), "QUO BUILT", q.State, q.Peers)
 		if rp.quorum == nil {
 			rp.quorum = &RaftQuorum{}
 		}
@@ -1686,8 +1730,11 @@ func (rp *RaftProcess) quorumVote(from etf.Pid, vote *messageRaftQuorumVote) Raf
 
 		}
 
-		after := 300 * time.Millisecond
-		rp.CastAfter(rp.Self(), messageRaftLeaderChange{}, after)
+		if rp.leaderChangeDefer == false {
+			after := 300 * time.Millisecond
+			rp.CastAfter(rp.Self(), messageRaftLeaderChange{}, after)
+			rp.leaderChangeDefer = true
+		}
 		return rp.handleQuorum()
 	}
 
@@ -1781,7 +1828,7 @@ func (rp *RaftProcess) quorumValidateVote(from etf.Pid, q *quorum, vote *message
 
 	if candidatesMatch == false {
 		// can't accept this vote
-		fmt.Println(rp.Name(), "QUO CAND MISMATCH", from, vote.Candidates)
+		//DBGQUO fmt.Println(rp.Name(), "QUO CAND MISMATCH", from, vote.Candidates)
 		return false
 	}
 
@@ -1880,7 +1927,7 @@ func (r *Raft) HandleCast(process *ServerProcess, message etf.Term) ServerStatus
 
 		// TODO remove debug print
 		if q != nil {
-			fmt.Println(rp.Name(), "CLN VOTE", m.state, q.Peers)
+			//DBGQUO fmt.Println(rp.Name(), "CLN VOTE", m.state, q.Peers)
 		}
 		delete(rp.quorumVotes, m.state)
 		if len(rp.quorumVotes) == 0 {
@@ -1898,6 +1945,7 @@ func (r *Raft) HandleCast(process *ServerProcess, message etf.Term) ServerStatus
 		status = rp.quorumChange()
 
 	case messageRaftLeaderChange:
+		rp.leaderChangeDefer = false
 		rp.handleElectionStart(rp.round + 1)
 		return ServerStatusOK
 
@@ -1983,7 +2031,7 @@ func (r *Raft) HandleInfo(process *ServerProcess, message etf.Term) ServerStatus
 			}
 
 			// start to build new quorum
-			fmt.Println(rp.Name(), "QUO PEER DOWN", m.Pid)
+			//DBGQUO fmt.Println(rp.Name(), "QUO PEER DOWN", m.Pid)
 			quorumChangeAttempt = 1
 			maxTime := quorumChangeAttempt * quorumChangeDeferMaxTime
 			after := time.Duration(50+rand.Intn(maxTime)) * time.Millisecond

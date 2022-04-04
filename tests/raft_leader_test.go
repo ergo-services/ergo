@@ -11,12 +11,12 @@ import (
 	"github.com/ergo-services/ergo/node"
 )
 
-type testRaft struct {
+type testLeaderRaft struct {
 	gen.Raft
 	res chan interface{}
 }
 
-func (tr *testRaft) InitRaft(process *gen.RaftProcess, args ...etf.Term) (gen.RaftOptions, error) {
+func (tr *testLeaderRaft) InitRaft(process *gen.RaftProcess, args ...etf.Term) (gen.RaftOptions, error) {
 	var options gen.RaftOptions
 	if len(args) > 0 {
 		options.Peers = args[0].([]gen.ProcessID)
@@ -25,12 +25,12 @@ func (tr *testRaft) InitRaft(process *gen.RaftProcess, args ...etf.Term) (gen.Ra
 	return options, gen.RaftStatusOK
 }
 
-func (tr *testRaft) HandleQuorum(process *gen.RaftProcess, q *gen.RaftQuorum) gen.RaftStatus {
+func (tr *testLeaderRaft) HandleQuorum(process *gen.RaftProcess, q *gen.RaftQuorum) gen.RaftStatus {
 	if q == nil {
 		fmt.Println("QQQ quorum", process.Name(), "state: NONE")
 		return gen.RaftStatusOK
 	} else {
-		fmt.Println("QQQ quorum", process.Name(), "state:", q.State, q.Member)
+		fmt.Println("QQQ quorum", process.Name(), "state:", q.State, q.Member, q.Peers)
 	}
 	if sent, _ := process.State.(int); sent != 1 {
 		process.SendAfter(process.Self(), "ok", 7*time.Second)
@@ -40,22 +40,22 @@ func (tr *testRaft) HandleQuorum(process *gen.RaftProcess, q *gen.RaftQuorum) ge
 	return gen.RaftStatusOK
 }
 
-func (tr *testRaft) HandleLeader(process *gen.RaftProcess, leader *gen.RaftLeader) gen.RaftStatus {
+func (tr *testLeaderRaft) HandleLeader(process *gen.RaftProcess, leader *gen.RaftLeader) gen.RaftStatus {
 	fmt.Println("LLL leader", process.Name(), leader)
 	return gen.RaftStatusOK
 }
 
-func (tr *testRaft) HandleAppend(process *gen.RaftProcess, ref etf.Ref, serial uint64, key string, value etf.Term) gen.RaftStatus {
+func (tr *testLeaderRaft) HandleAppend(process *gen.RaftProcess, ref etf.Ref, serial uint64, key string, value etf.Term) gen.RaftStatus {
 	fmt.Println("AAA append", ref, serial, value)
 	return gen.RaftStatusOK
 }
 
-func (tr *testRaft) HandleGet(process *gen.RaftProcess, serial uint64) (string, etf.Term, gen.RaftStatus) {
+func (tr *testLeaderRaft) HandleGet(process *gen.RaftProcess, serial uint64) (string, etf.Term, gen.RaftStatus) {
 	fmt.Println("GGG get", process.Name(), serial)
 	return "", nil, gen.RaftStatusOK
 }
 
-func (tr *testRaft) HandleRaftInfo(process *gen.RaftProcess, message etf.Term) gen.ServerStatus {
+func (tr *testLeaderRaft) HandleRaftInfo(process *gen.RaftProcess, message etf.Term) gen.ServerStatus {
 	q := process.Quorum()
 
 	if q == nil {
@@ -67,9 +67,9 @@ func (tr *testRaft) HandleRaftInfo(process *gen.RaftProcess, message etf.Term) g
 	return gen.ServerStatusOK
 }
 
-func TestRaft(t *testing.T) {
+func TestRaftLeader(t *testing.T) {
 	fmt.Printf("\n=== Test GenRaft\n")
-	var N int = 15
+	var N int = 25
 
 	fmt.Printf("Starting %d nodes: nodeGenRaftXX@localhost...", N)
 
@@ -104,7 +104,7 @@ func TestRaft(t *testing.T) {
 			peers := []gen.ProcessID{peer}
 			args = []etf.Term{peers}
 		}
-		tr := &testRaft{
+		tr := &testLeaderRaft{
 			res: make(chan interface{}, 2),
 		}
 		results[i] = tr.res
