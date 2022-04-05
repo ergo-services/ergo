@@ -205,7 +205,9 @@ type messageRaftQuorumCleanVote struct {
 	state RaftQuorumState
 }
 
-type messageRaftLeaderChange struct{}
+type messageRaftLeaderChange struct {
+	round int
+}
 type messageRaftLeaderVote struct {
 	ID     string  // cluster id
 	Leader etf.Pid // offered leader
@@ -676,6 +678,11 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 			rp.election = nil
 			// no quorum
 			fmt.Println(rp.Self(), "LDR NO QUO got vote from", m.Pid, "round", vote.Round, "for", vote.Leader)
+			// Seems we have received leader_vote before the quorum_built message.
+			// Ignore this vote but update its round value to start a new leader election.
+			// Otherwise, the new election will be started with the same round value but without
+			// votes, which have been ignored before the quorum was built.
+			rp.round = vote.Round
 			return RaftStatusOK
 		}
 
@@ -688,7 +695,8 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 			}
 		}
 		if belongs == false {
-			lib.Warning("[%s] got vote from the peer which doesn't belongs to the quorum %s", rp.Self(), m.Pid)
+			lib.Warning("[%s] got vote from the peer, which doesn't belong to the quorum %s", rp.Self(), m.Pid)
+			rp.round = vote.Round
 			return RaftStatusOK
 		}
 
@@ -724,7 +732,7 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 
 		if _, exist := rp.election.votes[m.Pid]; exist {
 			lib.Warning("[%s] got duplicate vote for %s from %s during %d round", rp.Self(),
-				vote.Leader, m.Pid, rp.round)
+				vote.Leader, m.Pid, vote.Round)
 			return RaftStatusOK
 		}
 
@@ -755,9 +763,9 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 				leaderSplit = false
 			}
 		}
-		fmt.Println(rp.Self(), "LDR got all votes")
+		fmt.Println(rp.Self(), "LDR got all votes. round", vote.Round)
 		if leaderSplit {
-			fmt.Println(rp.Self(), "LDR got split voices on round", vote.Round)
+			fmt.Println(rp.Self(), "LDR got split voices. round", vote.Round)
 			// got more than one leader
 			// start new leader election with round++
 			rp.handleElectionStart(vote.Round + 1)
@@ -772,13 +780,13 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 			if rp.election.leader != leaderPid || rp.election.voted != leaderVoted {
 				// our result defers from the others which we already received
 				// start new leader election with round++
-				panic("AAA")
+				lib.Warning("[%s] got different result from %s. cheating detected", rp.Self(), m.Pid)
 				rp.handleElectionStart(vote.Round + 1)
 				return RaftStatusOK
 			}
 		}
 
-		fmt.Println(rp.Self(), "LDR election done. Leader", leaderPid, "with", leaderVoted, "voices")
+		fmt.Println(rp.Self(), "LDR election done. round", rp.election.round, "Leader", leaderPid, "with", leaderVoted, "voices")
 		rp.election.results[rp.Self()] = true
 
 		// send to all quorum members our choice
@@ -797,7 +805,7 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 				continue
 			}
 			rp.Cast(pid, elected)
-			fmt.Println(rp.Self(), "LDR elected", leaderPid, ". sent to", pid)
+			fmt.Println(rp.Self(), "LDR elected", leaderPid, ". sent to", pid, "wait the others")
 		}
 
 		if len(rp.election.votes) != len(rp.election.results) {
@@ -808,12 +816,14 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 		// leader has been elected
 
 		rp.round = rp.election.round
-		rp.election = nil
+		rp.election.cancel()
 		if rp.leader != rp.election.leader {
 			rp.leader = rp.election.leader
 			l := rp.Leader()
+			rp.election = nil
 			return rp.behavior.HandleLeader(rp, l)
 		}
+		rp.election = nil
 		return RaftStatusOK
 
 	case etf.Atom("$leader_elected"):
@@ -835,7 +845,7 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 		}
 
 		if rp.election == nil {
-			lib.Warning("[%s] got election result from %s which doesn't exist on this peer", rp.Self(), m.Pid)
+			lib.Warning("[%s] got election result from %s. no election on this peer", rp.Self(), m.Pid)
 			return RaftStatusOK
 		}
 
@@ -1304,7 +1314,7 @@ func (rp *RaftProcess) handleElectionVote() {
 		if pid == rp.Self() {
 			continue
 		}
-		fmt.Println(rp.Self(), "LDR sent vote for", voted_for, " to:", pid, "round", rp.election.round)
+		fmt.Println(rp.Self(), "LDR sent vote for", voted_for, "to", pid, "round", rp.election.round)
 		rp.Cast(pid, leaderVote)
 	}
 	rp.election.votes[rp.Self()] = voted_for
@@ -1732,7 +1742,8 @@ func (rp *RaftProcess) quorumVote(from etf.Pid, vote *messageRaftQuorumVote) Raf
 
 		if rp.leaderChangeDefer == false {
 			after := 300 * time.Millisecond
-			rp.CastAfter(rp.Self(), messageRaftLeaderChange{}, after)
+			fmt.Println("LLLLDR CHNG", rp.Self())
+			rp.CastAfter(rp.Self(), messageRaftLeaderChange{round: rp.round + 1}, after)
 			rp.leaderChangeDefer = true
 		}
 		return rp.handleQuorum()
@@ -1753,6 +1764,7 @@ func (rp *RaftProcess) handleQuorum() RaftStatus {
 		return status
 	}
 	if q != nil && q.Member == true {
+		fmt.Println("LLLLLDR ELE START", rp.Self())
 		rp.handleElectionStart(rp.round + 1)
 	}
 	if leaderChanged {
@@ -1945,8 +1957,16 @@ func (r *Raft) HandleCast(process *ServerProcess, message etf.Term) ServerStatus
 		status = rp.quorumChange()
 
 	case messageRaftLeaderChange:
-		rp.leaderChangeDefer = false
-		rp.handleElectionStart(rp.round + 1)
+		if rp.election != nil {
+			// election is already in progress
+			return ServerStatusOK
+		}
+		noLeader := etf.Pid{}
+		if rp.leader == noLeader {
+			// start new election if we have no leader yet
+			rp.leaderChangeDefer = false
+			rp.handleElectionStart(rp.round + 1)
+		}
 		return ServerStatusOK
 
 	case messageRaftRequestClean:
@@ -1975,8 +1995,10 @@ func (r *Raft) HandleCast(process *ServerProcess, message etf.Term) ServerStatus
 		}
 		if m.round != rp.election.round {
 			// new election round happened
+			fmt.Println(rp.Self(), "LDR clean election. skip. new election round", rp.election.round)
 			return ServerStatusOK
 		}
+		fmt.Println(rp.Self(), "LDR clean election. round", rp.election.round)
 		rp.election = nil
 		return ServerStatusOK
 

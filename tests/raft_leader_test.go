@@ -57,11 +57,10 @@ func (tr *testLeaderRaft) HandleGet(process *gen.RaftProcess, serial uint64) (st
 
 func (tr *testLeaderRaft) HandleRaftInfo(process *gen.RaftProcess, message etf.Term) gen.ServerStatus {
 	q := process.Quorum()
-
 	if q == nil {
 		fmt.Println("III info", process.Name(), "state: NONE", "message:", message)
 	} else {
-		fmt.Println("III info", process.Name(), "state:", q.State, q.Member, "message:", message)
+		fmt.Println("III info", process.Name(), "Q:", q.State, q.Member, "", process.Leader(), "message:", message)
 	}
 	process.State = 0
 	return gen.ServerStatusOK
@@ -69,7 +68,7 @@ func (tr *testLeaderRaft) HandleRaftInfo(process *gen.RaftProcess, message etf.T
 
 func TestRaftLeader(t *testing.T) {
 	fmt.Printf("\n=== Test GenRaft\n")
-	var N int = 25
+	var N int = 5
 
 	fmt.Printf("Starting %d nodes: nodeGenRaftXX@localhost...", N)
 
