@@ -834,7 +834,7 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 		}
 
 		// leader has been elected
-		fmt.Println(rp.Self, "LDR finished. leader", rp.election.leader, "round", rp.election.round, "quorum", rp.quorum.State)
+		fmt.Println(rp.Self(), "LDR finished. leader", rp.election.leader, "round", rp.election.round, "quorum", rp.quorum.State)
 		rp.round = rp.election.round
 		rp.election.cancel()
 		if rp.leader != rp.election.leader {
@@ -1283,6 +1283,10 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 }
 
 func (rp *RaftProcess) handleElectionStart(round int) {
+	if rp.quorum == nil {
+		// no quorum. can't start election
+		return
+	}
 	if rp.election != nil {
 		if rp.election.round >= round {
 			// already in progress

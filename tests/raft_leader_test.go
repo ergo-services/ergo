@@ -2,6 +2,7 @@ package tests
 
 import (
 	"fmt"
+	"math/rand"
 	"testing"
 	"time"
 
@@ -20,8 +21,10 @@ func (tr *testLeaderRaft) InitRaft(process *gen.RaftProcess, args ...etf.Term) (
 	var options gen.RaftOptions
 	if len(args) > 0 {
 		options.Peers = args[0].([]gen.ProcessID)
+		options.Serial = uint64(rand.Intn(10))
 	}
 
+	fmt.Println(process.Self(), process.Name(), " ----------", options.Serial)
 	return options, gen.RaftStatusOK
 }
 
@@ -68,7 +71,7 @@ func (tr *testLeaderRaft) HandleRaftInfo(process *gen.RaftProcess, message etf.T
 
 func TestRaftLeader(t *testing.T) {
 	fmt.Printf("\n=== Test GenRaft\n")
-	var N int = 25
+	var N int = 15
 
 	fmt.Printf("Starting %d nodes: nodeGenRaftXX@localhost...", N)
 
@@ -111,7 +114,6 @@ func TestRaftLeader(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		fmt.Println(raft.Self(), raft.Name(), " ----------")
 		rafts[i] = raft
 		//time.Sleep(300 * time.Millisecond)
 	}

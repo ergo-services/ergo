@@ -181,7 +181,7 @@ func (p Pid) String() string {
 	if p.Node != "" {
 		n = crc32.Checksum([]byte(p.Node), crc32q)
 	}
-	return fmt.Sprintf("<%X.%d.%d>", n, int32(p.ID>>32), int32(p.ID))
+	return fmt.Sprintf("<%08X.%d.%d>", n, int32(p.ID>>32), int32(p.ID))
 }
 
 // String
@@ -190,7 +190,7 @@ func (r Ref) String() string {
 	if r.Node != "" {
 		n = crc32.Checksum([]byte(r.Node), crc32q)
 	}
-	return fmt.Sprintf("Ref#<%X.%d.%d.%d>", n, r.ID[0], r.ID[1], r.ID[2])
+	return fmt.Sprintf("Ref#<%08X.%d.%d.%d>", n, r.ID[0], r.ID[1], r.ID[2])
 }
 
 // String
@@ -199,7 +199,7 @@ func (a Alias) String() string {
 	if a.Node != "" {
 		n = crc32.Checksum([]byte(a.Node), crc32q)
 	}
-	return fmt.Sprintf("Ref#<%X.%d.%d.%d>", n, a.ID[0], a.ID[1], a.ID[2])
+	return fmt.Sprintf("Ref#<%08X.%d.%d.%d>", n, a.ID[0], a.ID[1], a.ID[2])
 }
 
 // ProplistElement
