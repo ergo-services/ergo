@@ -90,7 +90,7 @@ var (
 	RaftQuorumState11 RaftQuorumState = 11 // maximal quorum
 
 	cleanVoteTimeout         = 1 * time.Second
-	cleanLeaderVoteTimeout   = 500 * time.Millisecond
+	cleanLeaderVoteTimeout   = 1 * time.Second
 	quorumChangeDeferMaxTime = 450 // in millisecond. uses as max value in range of 50..
 	quorumChangeAttempt      = 0
 )
@@ -625,13 +625,15 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 			rp.quorumChangeDefer = true
 		}
 
+		if built.Round > rp.round {
+			// update rp.round
+			rp.round = built.Round
+		}
+
 		// we do accept quorum if it was built using
 		// the peers we got registered as candidates
 		if matchCandidates == true {
 			rp.election = nil
-			if built.Round > rp.round {
-				rp.round = built.Round
-			}
 			if rp.quorum == nil {
 				rp.quorum = &RaftQuorum{}
 				rp.quorum.State = candidateQuorumState
@@ -872,6 +874,10 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 
 		if elected.Round != rp.election.round {
 			// round value must be the same. seemd another election is started
+			if elected.Round > rp.round {
+				// update round value to the greatest one
+				rp.round = elected.Round
+			}
 			return RaftStatusOK
 		}
 
@@ -1335,7 +1341,7 @@ func (rp *RaftProcess) handleElectionVote() {
 		break
 	}
 
-	fmt.Println(rp.Self(), "LDR voted for:", voted_for)
+	fmt.Println(rp.Self(), "LDR voted for:", voted_for, "quorum", rp.quorum.State)
 	leaderVote := etf.Tuple{
 		etf.Atom("$leader_vote"),
 		rp.Self(),
@@ -1350,7 +1356,7 @@ func (rp *RaftProcess) handleElectionVote() {
 		if pid == rp.Self() {
 			continue
 		}
-		fmt.Println(rp.Self(), "LDR sent vote for", voted_for, "to", pid, "round", rp.election.round)
+		fmt.Println(rp.Self(), "LDR sent vote for", voted_for, "to", pid, "round", rp.election.round, "quorum", rp.quorum.State)
 		rp.Cast(pid, leaderVote)
 	}
 	rp.election.votes[rp.Self()] = voted_for
