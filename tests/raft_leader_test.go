@@ -71,7 +71,7 @@ func (tr *testLeaderRaft) HandleRaftInfo(process *gen.RaftProcess, message etf.T
 
 func TestRaftLeader(t *testing.T) {
 	fmt.Printf("\n=== Test GenRaft\n")
-	var N int = 15
+	var N int = 10
 
 	fmt.Printf("Starting %d nodes: nodeGenRaftXX@localhost...", N)
 

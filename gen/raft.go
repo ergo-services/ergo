@@ -109,10 +109,9 @@ type RaftProcess struct {
 	quorumVotes       map[RaftQuorumState]*quorum
 	quorumChangeDefer bool
 
-	leader            etf.Pid
-	leaderChangeDefer bool
-	election          *leaderElection
-	round             int // "log term" in terms of Raft spec
+	leader   etf.Pid
+	election *leaderElection
+	round    int // "log term" in terms of Raft spec
 
 	// get requests
 	requests map[etf.Ref]context.CancelFunc
@@ -206,7 +205,6 @@ type messageRaftQuorumCleanVote struct {
 	state RaftQuorumState
 }
 
-type messageRaftLeaderChange struct{}
 type messageRaftLeaderVote struct {
 	ID     string  // cluster id
 	State  int     //quorum state
@@ -550,6 +548,7 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 			canAcceptQuorum = false
 		}
 		if canAcceptQuorum == true {
+			rp.election = nil
 			rp.quorum = &RaftQuorum{
 				State:  RaftQuorumState(reply.QuorumState),
 				Peers:  reply.QuorumPeers,
@@ -629,6 +628,7 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 		// we do accept quorum if it was built using
 		// the peers we got registered as candidates
 		if matchCandidates == true {
+			rp.election = nil
 			if built.Round > rp.round {
 				rp.round = built.Round
 			}
@@ -662,6 +662,7 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 
 		if rp.quorum != nil {
 			rp.quorum = nil
+			rp.election = nil
 			return rp.handleQuorum()
 		}
 		return RaftStatusOK
@@ -1287,6 +1288,10 @@ func (rp *RaftProcess) handleElectionStart(round int) {
 		// no quorum. can't start election
 		return
 	}
+	if rp.quorum.Member == false {
+		// not a quorum member
+		return
+	}
 	if rp.election != nil {
 		if rp.election.round >= round {
 			// already in progress
@@ -1773,12 +1778,7 @@ func (rp *RaftProcess) quorumVote(from etf.Pid, vote *messageRaftQuorumVote) Raf
 
 		}
 
-		if rp.leaderChangeDefer == false {
-			after := 300 * time.Millisecond
-			fmt.Println("LLLLDR CHNG", rp.Self())
-			rp.CastAfter(rp.Self(), messageRaftLeaderChange{}, after)
-			rp.leaderChangeDefer = true
-		}
+		rp.handleElectionStart(rp.round + 1)
 		return rp.handleQuorum()
 	}
 
@@ -1998,19 +1998,6 @@ func (r *Raft) HandleCast(process *ServerProcess, message etf.Term) ServerStatus
 		rp.quorumChangeDefer = false
 		status = rp.quorumChange()
 
-	case messageRaftLeaderChange:
-		if rp.election != nil {
-			// election is already in progress
-			return ServerStatusOK
-		}
-		noLeader := etf.Pid{}
-		if rp.leader == noLeader {
-			// start new election if we have no leader yet
-			rp.leaderChangeDefer = false
-			rp.handleElectionStart(rp.round + 1)
-		}
-		return ServerStatusOK
-
 	case messageRaftRequestClean:
 		delete(rp.requests, m.ref)
 		status = rp.behavior.HandleCancel(rp, m.ref, "timeout")
@@ -2105,6 +2092,7 @@ func (r *Raft) HandleInfo(process *ServerProcess, message etf.Term) ServerStatus
 			after := time.Duration(50+rand.Intn(maxTime)) * time.Millisecond
 			rp.CastAfter(rp.Self(), messageRaftQuorumChange{}, after)
 			rp.quorum = nil
+			rp.election = nil
 			rp.handleQuorum()
 			break
 		}
