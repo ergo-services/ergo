@@ -2027,8 +2027,12 @@ func (r *Raft) HandleCast(process *ServerProcess, message etf.Term) ServerStatus
 		delete(rp.requestsAppend, m.key)
 		return ServerStatusOK
 	case messageRaftElectionClean:
-		if rp.election == nil {
-			// do nothing
+		if rp.quorum == nil {
+			return ServerStatusOK
+		}
+		if rp.election == nil && rp.quorum.Member {
+			// restart election
+			rp.handleElectionStart(rp.round + 1)
 			return ServerStatusOK
 		}
 		if m.round != rp.election.round {
