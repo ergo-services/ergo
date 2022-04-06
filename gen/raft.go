@@ -210,6 +210,7 @@ type messageRaftLeaderChange struct {
 }
 type messageRaftLeaderVote struct {
 	ID     string  // cluster id
+	State  int     //quorum state
 	Leader etf.Pid // offered leader
 	Round  int
 }
@@ -686,6 +687,23 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 			return RaftStatusOK
 		}
 
+		if rp.quorum.State != RaftQuorumState(vote.State) {
+			// vote within another quorum. seems the quorum has been changed during this election.
+			// ignore it
+			if vote.Round > rp.round {
+				rp.round = vote.Round
+			}
+			return RaftStatusOK
+		}
+		if rp.election != nil && rp.election.round > vote.Round {
+			// ignore it. current election round is greater
+			return RaftStatusOK
+		}
+		if rp.round >= vote.Round {
+			// newbie is trying to start a new election :)
+			return RaftStatusOK
+		}
+
 		// check if m.Pid is belongs to the quorum
 		belongs := false
 		for _, pid := range rp.quorum.Peers {
@@ -694,7 +712,9 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 				break
 			}
 		}
+
 		if belongs == false {
+			// there might be a case if we got vote message before the quorum_built
 			lib.Warning("[%s] got vote from the peer, which doesn't belong to the quorum %s", rp.Self(), m.Pid)
 			rp.round = vote.Round
 			return RaftStatusOK
@@ -709,10 +729,6 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 			// TODO case with existing leader whithin this quorum. if some of the quorum member
 			// got leader heartbeat timeout it starts new election but this process has no problem
 			// with the leader.
-			if rp.election.round > vote.Round {
-				// ignore vote if it has prev round number
-				return RaftStatusOK
-			}
 			if vote.Round > rp.election.round {
 				// overwrite election if it has greater round number
 				rp.election.cancel()
@@ -1260,7 +1276,7 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 
 func (rp *RaftProcess) handleElectionStart(round int) {
 	if rp.election != nil {
-		if rp.election.round == round {
+		if rp.election.round >= round {
 			// already in progress
 			return
 		}
@@ -1306,6 +1322,7 @@ func (rp *RaftProcess) handleElectionVote() {
 		rp.Self(),
 		etf.Tuple{
 			rp.options.ID,
+			int(rp.quorum.State),
 			voted_for,
 			rp.election.round,
 		},
@@ -1763,14 +1780,23 @@ func (rp *RaftProcess) handleQuorum() RaftStatus {
 	if status != RaftStatusOK {
 		return status
 	}
-	if q != nil && q.Member == true {
-		fmt.Println("LLLLLDR ELE START", rp.Self())
-		rp.handleElectionStart(rp.round + 1)
-	}
+
 	if leaderChanged {
 		l := rp.Leader()
-		return rp.behavior.HandleLeader(rp, l)
+		status = rp.behavior.HandleLeader(rp, l)
+		if status != RaftStatusOK {
+			return status
+		}
 	}
+
+	if q == nil || q.Member == false {
+		return RaftStatusOK
+	}
+
+	if rp.election == nil {
+		rp.handleElectionStart(rp.round + 1)
+	}
+
 	return RaftStatusOK
 }
 
