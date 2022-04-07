@@ -766,6 +766,10 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 
 		rp.election.votes[m.Pid] = vote.Leader
 		fmt.Println(rp.Self(), "LDR got vote from", m.Pid, "for", vote.Leader, "round", vote.Round, "quorum", vote.State)
+		if len(rp.quorum.Peers) != len(rp.election.votes) {
+			// make sure if we got all votes
+			return RaftStatusOK
+		}
 		if len(rp.election.votes) != len(rp.quorum.Peers) {
 			// waiting for all votes from the quorum members)
 			return RaftStatusOK
