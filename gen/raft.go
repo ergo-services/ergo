@@ -688,13 +688,16 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 			// Ignore this vote but update its round value to start a new leader election.
 			// Otherwise, the new election will be started with the same round value but without
 			// votes, which have been ignored before the quorum was built.
-			rp.round = vote.Round
+			if vote.Round > rp.round {
+				rp.round = vote.Round
+			}
 			return RaftStatusOK
 		}
 
 		if rp.quorum.State != RaftQuorumState(vote.State) {
 			// vote within another quorum. seems the quorum has been changed during this election.
 			// ignore it
+			fmt.Println(rp.Self(), "LDR got vote from", m.Pid, "with another quorum", vote.State, "current quorum", rp.quorum.State)
 			if vote.Round > rp.round {
 				rp.round = vote.Round
 			}
@@ -702,10 +705,12 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 		}
 		if rp.election != nil && rp.election.round > vote.Round {
 			// ignore it. current election round is greater
+			fmt.Println(rp.Self(), "LDR got vote from", m.Pid, "with round", vote.Round, "current election round", rp.election.round)
 			return RaftStatusOK
 		}
-		if rp.round >= vote.Round {
+		if rp.round > vote.Round {
 			// newbie is trying to start a new election :)
+			fmt.Println(rp.Self(), "LDR got vote from newbie", m.Pid, "with round", vote.Round, "current round", rp.round)
 			return RaftStatusOK
 		}
 
@@ -874,6 +879,7 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 
 		if elected.Round != rp.election.round {
 			// round value must be the same. seemd another election is started
+			lib.Warning("[%s] got election result from %s with another round value %s (current election round %s)", rp.Self(), m.Pid, elected.Round, rp.election.round)
 			if elected.Round > rp.round {
 				// update round value to the greatest one
 				rp.round = elected.Round
