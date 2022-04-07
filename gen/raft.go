@@ -931,6 +931,11 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 		}
 		rp.election.results[m.Pid] = true
 
+		if len(rp.quorum.Peers) != len(rp.election.votes) {
+			// make sure if we got all votes
+			return RaftStatusOK
+		}
+
 		if len(rp.election.votes) != len(rp.election.results) {
 			// we should wait for result from all the election members
 			return RaftStatusOK
