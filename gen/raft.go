@@ -676,14 +676,14 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 		}
 
 		if rp.options.ID != vote.ID {
-			lib.Warning("[%s] got 'leader vote' message being not a member of the given raft cluster (from %s)", rp.Self(), m.Pid)
+			lib.Warning("[%s] ignore 'leader vote' message being not a member of the given raft cluster (from %s)", rp.Self(), m.Pid)
 			return RaftStatusOK
 		}
 
 		if rp.quorum == nil {
 			rp.election = nil
 			// no quorum
-			fmt.Println(rp.Self(), "LDR NO QUO got vote from", m.Pid, "round", vote.Round, "for", vote.Leader)
+			fmt.Println(rp.Self(), "LDR NO QUO ignore vote from", m.Pid, "round", vote.Round, "for", vote.Leader)
 			// Seems we have received leader_vote before the quorum_built message.
 			// Ignore this vote but update its round value to start a new leader election.
 			// Otherwise, the new election will be started with the same round value but without
@@ -697,7 +697,7 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 		if rp.quorum.State != RaftQuorumState(vote.State) {
 			// vote within another quorum. seems the quorum has been changed during this election.
 			// ignore it
-			fmt.Println(rp.Self(), "LDR got vote from", m.Pid, "with another quorum", vote.State, "current quorum", rp.quorum.State)
+			fmt.Println(rp.Self(), "LDR ignore vote from", m.Pid, "with another quorum", vote.State, "current quorum", rp.quorum.State)
 			if vote.Round > rp.round {
 				rp.round = vote.Round
 			}
@@ -705,12 +705,12 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 		}
 		if rp.election != nil && rp.election.round > vote.Round {
 			// ignore it. current election round is greater
-			fmt.Println(rp.Self(), "LDR got vote from", m.Pid, "with round", vote.Round, "current election round", rp.election.round)
+			fmt.Println(rp.Self(), "LDR ignore vote from", m.Pid, "with round", vote.Round, "current election round", rp.election.round)
 			return RaftStatusOK
 		}
 		if rp.round > vote.Round {
 			// newbie is trying to start a new election :)
-			fmt.Println(rp.Self(), "LDR got vote from newbie", m.Pid, "with round", vote.Round, "current round", rp.round)
+			fmt.Println(rp.Self(), "LDR ignore vote from newbie", m.Pid, "with round", vote.Round, "current round", rp.round)
 			return RaftStatusOK
 		}
 
@@ -725,7 +725,7 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 
 		if belongs == false {
 			// there might be a case if we got vote message before the quorum_built
-			lib.Warning("[%s] got vote from the peer, which doesn't belong to the quorum %s", rp.Self(), m.Pid)
+			lib.Warning("[%s] got ignore from the peer, which doesn't belong to the quorum %s", rp.Self(), m.Pid)
 			if vote.Round > rp.round {
 				rp.round = vote.Round
 			}
@@ -759,7 +759,7 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 		}
 
 		if _, exist := rp.election.votes[m.Pid]; exist {
-			lib.Warning("[%s] got duplicate vote for %s from %s during %d round", rp.Self(),
+			lib.Warning("[%s] ignore duplicate vote for %s from %s during %d round", rp.Self(),
 				vote.Leader, m.Pid, vote.Round)
 			return RaftStatusOK
 		}
@@ -861,25 +861,25 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 		}
 
 		if rp.options.ID != elected.ID {
-			lib.Warning("[%s] got 'leader elected' message being not a member of the given raft cluster (from %s)", rp.Self(), m.Pid)
+			lib.Warning("[%s] ignore 'leader elected' message being not a member of the given raft cluster (from %s)", rp.Self(), m.Pid)
 			return RaftStatusOK
 		}
 
 		if rp.quorum == nil {
 			rp.election = nil
 			// no quorum
-			fmt.Println(rp.Self, "LDR NO QUO but got election result", elected, "from", m.Pid)
+			fmt.Println(rp.Self, "LDR NO QUO ignore election result", elected, "from", m.Pid)
 			return RaftStatusOK
 		}
 
 		if rp.election == nil {
-			lib.Warning("[%s] got election result from %s. no election on this peer", rp.Self(), m.Pid)
+			lib.Warning("[%s] ignore election result from %s. no election on this peer", rp.Self(), m.Pid)
 			return RaftStatusOK
 		}
 
 		if elected.Round != rp.election.round {
 			// round value must be the same. seemd another election is started
-			lib.Warning("[%s] got election result from %s with another round value %s (current election round %s)", rp.Self(), m.Pid, elected.Round, rp.election.round)
+			lib.Warning("[%s] ignore election result from %s with another round value %s (current election round %s)", rp.Self(), m.Pid, elected.Round, rp.election.round)
 			if elected.Round > rp.round {
 				// update round value to the greatest one
 				rp.round = elected.Round
@@ -894,14 +894,14 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 		} else {
 			if rp.election.leader != elected.Leader || rp.election.voted != elected.Voted {
 				// elected leader must be the same in all election results
-				lib.Warning("[%s] got election result from %s with different leader which must be the same", rp.Self(), m.Pid)
+				lib.Warning("[%s] ignore election result from %s with different leader which must be the same", rp.Self(), m.Pid)
 				return RaftStatusOK
 			}
 		}
 
 		if _, exist := rp.election.results[m.Pid]; exist {
 			// duplicate
-			lib.Warning("[%s] got duplicate election result from %s during %d round", rp.Self(),
+			lib.Warning("[%s] ignore duplicate election result from %s during %d round", rp.Self(),
 				m.Pid, elected.Round)
 			return RaftStatusOK
 		}
@@ -921,7 +921,7 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 			}
 			if belongs == false {
 				// got from unknown peer
-				lib.Warning("[%s] got election result from %s which doesn't belong this quorum", rp.Self(), m.Pid)
+				lib.Warning("[%s] ignore election result from %s which doesn't belong this quorum", rp.Self(), m.Pid)
 				return RaftStatusOK
 			}
 
@@ -937,7 +937,7 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 		}
 
 		// leader has been elected
-		fmt.Println(rp.Self, "LDR finished. leader", rp.election.leader, "round", rp.election.round, "quorum", rp.quorum.State)
+		fmt.Println(rp.Self(), "LDR finished. leader", rp.election.leader, "round", rp.election.round, "quorum", rp.quorum.State)
 		rp.election.cancel() // cancel timer
 		rp.round = rp.election.round
 		if rp.leader != rp.election.leader {
