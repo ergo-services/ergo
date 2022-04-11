@@ -67,7 +67,7 @@ func (tr *testRaft) HandleRaftInfo(process *gen.RaftProcess, message etf.Term) g
 	}
 	if l := process.Leader(); l != nil && l.Leader == process.Self() {
 		fmt.Println("III i'm leader. freeze", process.Self())
-		time.Sleep(35 * time.Second)
+		time.Sleep(15 * time.Second)
 	}
 	process.State = 0
 	return gen.ServerStatusOK
@@ -75,7 +75,7 @@ func (tr *testRaft) HandleRaftInfo(process *gen.RaftProcess, message etf.Term) g
 
 func TestRaftLeader(t *testing.T) {
 	fmt.Printf("\n=== Test GenRaft\n")
-	var N int = 8
+	var N int = 4
 
 	fmt.Printf("Starting %d nodes: nodeGenRaftXX@localhost...", N)
 
@@ -122,6 +122,6 @@ func TestRaftLeader(t *testing.T) {
 		//time.Sleep(300 * time.Millisecond)
 	}
 
-	time.Sleep(50 * time.Second)
+	time.Sleep(80 * time.Second)
 
 }
