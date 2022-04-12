@@ -120,6 +120,7 @@ type RaftProcess struct {
 	// append requests
 	requestsAppend map[string]*requestAppend
 
+	// leader sends heartbeat messages and keep the last sending timestamp
 	heartbeatLeader int64
 	heartbeatCancel context.CancelFunc
 }
@@ -498,6 +499,16 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 			return RaftStatusOK
 		}
 
+		if rp.quorum != nil && rp.quorum.Member {
+			// if we got cluster join from a quorum member it means
+			// the quorum we had belonging is not exist anymore
+			if rp.isQuorumMember(m.Pid) == true {
+				rp.quorum = nil
+				rp.handleQuorum()
+				rp.quorumChangeStart(false)
+			}
+		}
+
 		rp.quorumCandidates.Set(rp, m.Pid)
 		rp.quorumCandidates.SetOnline(rp, m.Pid, join.Serial)
 
@@ -543,6 +554,15 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 
 		fmt.Println(rp.Name(), "GOT CLU JOIN REPL from", m.Pid, "got peers", reply.Peers)
 		canAcceptQuorum := true
+
+		// check if we already belong to another quorum
+		if rp.quorum != nil && rp.quorum.Member {
+			if len(reply.Peers) <= len(rp.quorum.Peers) {
+				canAcceptQuorum = false
+			}
+		}
+
+		// check peers
 		for _, peer := range reply.Peers {
 			if peer == rp.Self() {
 				continue
