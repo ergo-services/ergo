@@ -295,9 +295,9 @@ type messageRaftHeartbeat struct{}
 // RaftProcess quorum routines and APIs
 //
 
-// Join makes a join requst to the given peer
+// Join makes a join requst to the given peer, which is supposed to be in a raft cluster
 func (rp *RaftProcess) Join(peer interface{}) error {
-	fmt.Println(rp.Name(), "send join to", peer)
+	// QUODBG fmt.Println(rp.Name(), "CLU send join to", peer)
 	join := etf.Tuple{
 		etf.Atom("$cluster_join"),
 		rp.Self(),
@@ -541,7 +541,7 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 				quorumPeers,
 			},
 		}
-		fmt.Println(rp.Name(), "GOT CLU JOIN from", m.Pid, "send peers", peers)
+		// QUODBG fmt.Println(rp.Name(), "GOT CLU JOIN from", m.Pid, "send peers", peers)
 		rp.Cast(m.Pid, reply)
 		return RaftStatusOK
 
@@ -557,7 +557,7 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 			return RaftStatusOK
 		}
 
-		fmt.Println(rp.Name(), "GOT CLU JOIN REPL from", m.Pid, "got peers", reply.Peers)
+		// QUODBG fmt.Println(rp.Name(), "GOT CLU JOIN REPL from", m.Pid, "got peers", reply.Peers)
 		canAcceptQuorum := true
 
 		// check if we already belong to another quorum
@@ -583,8 +583,7 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 		rp.quorumCandidates.Set(rp, m.Pid)
 		rp.quorumCandidates.SetOnline(rp, m.Pid, reply.Serial)
 
-		status := rp.behavior.HandlePeer(rp, m.Pid, reply.Serial)
-		if status != RaftStatusOK {
+		if status := rp.behavior.HandlePeer(rp, m.Pid, reply.Serial); status != RaftStatusOK {
 			return status
 		}
 
@@ -628,7 +627,7 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 		if err := etf.TermIntoStruct(m.Command, &built); err != nil {
 			return ErrUnsupportedRequest
 		}
-		fmt.Println(rp.Name(), "GOT QUO BUILT from", m.Pid)
+		// QUODBG fmt.Println(rp.Name(), "GOT QUO BUILT from", m.Pid)
 		if built.ID != rp.options.ID {
 			// this process is not belong this quorum
 			return RaftStatusOK
@@ -689,10 +688,10 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 				rp.quorum.State = candidateQuorumState
 				rp.quorum.Member = false
 				rp.quorum.Peers = built.Peers
-				fmt.Println(rp.Name(), "QUO BUILT. NOT A MEMBER", rp.quorum.State, rp.quorum.Peers)
+				// QUODBG fmt.Println(rp.Name(), "QUO BUILT. NOT A MEMBER", rp.quorum.State, rp.quorum.Peers)
 				return rp.handleQuorum()
 			}
-			fmt.Println(rp.Name(), "QUO BUILT. NOT A MEMBER", rp.quorum.State, rp.quorum.Peers)
+			// QUODBG fmt.Println(rp.Name(), "QUO BUILT. NOT A MEMBER", rp.quorum.State, rp.quorum.Peers)
 
 			changed := false
 			if rp.quorum.State != candidateQuorumState {
@@ -731,11 +730,11 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 
 		c := rp.quorumCandidates.GetOnline(m.Pid)
 		if c == nil {
-			fmt.Println(rp.Self(), "HBT from unknown/offline peer", m.Pid)
+			// HRTDBG fmt.Println(rp.Self(), "HRT from unknown/offline peer", m.Pid)
 			rp.quorumCandidates.Set(rp, m.Pid)
 			return RaftStatusOK
 		}
-		fmt.Println(rp.Self(), "HBT from", m.Pid, "serial", c.serial)
+		// HRTDBG fmt.Println(rp.Self(), "HRT from", m.Pid, "serial", c.serial)
 		c.heartbeat = time.Now().Unix()
 		c.serial = heartbeat.Serial
 		c.failures = 0
@@ -759,7 +758,7 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 			return RaftStatusOK
 		}
 
-		fmt.Println(rp.Self(), "QUO got leave from", m.Pid, "due to", leave.DueToPid)
+		// QUODBG fmt.Println(rp.Self(), "QUO got leave from", m.Pid, "due to", leave.DueToPid)
 		rp.quorumCandidates.SetOffline(rp, leave.DueToPid)
 
 		member := rp.quorum.Member
@@ -1660,7 +1659,7 @@ func (rp *RaftProcess) quorumChange() RaftStatus {
 			rp.quorum = nil
 			return rp.handleQuorum()
 		}
-		fmt.Println(rp.Name(), "QUO VOTE. NOT ENO CAND", rp.quorumCandidates.List())
+		// QUODBG fmt.Println(rp.Name(), "QUO VOTE. NOT ENO CAND", rp.quorumCandidates.List())
 
 		// try send cluster_join again to receive an updated peer list
 		rp.CastAfter(rp.Self(), messageRaftClusterInit{}, 5*time.Second)
@@ -1677,7 +1676,7 @@ func (rp *RaftProcess) quorumChange() RaftStatus {
 	candidates := rp.quorumCandidates.List()
 	quorumCandidates = append(quorumCandidates, candidates[:l]...)
 	//DBGQUO
-	fmt.Println(rp.Name(), "QUO VOTE INIT", candidateRaftQuorumState, quorumCandidates)
+	// QUODBG fmt.Println(rp.Name(), "QUO VOTE INIT", candidateRaftQuorumState, quorumCandidates)
 
 	// send quorumVote to all candidates (except itself)
 	quorum := &quorum{
@@ -1723,7 +1722,7 @@ func (rp *RaftProcess) quorumSendVote(q *quorum) bool {
 
 		// check if already sent vote to this peer
 		if v&1 == 0 {
-			fmt.Println(rp.Name(), "SEND VOTE to", pid, q.Peers)
+			// QUODBG fmt.Println(rp.Name(), "SEND VOTE to", pid, q.Peers)
 			rp.Cast(pid, quorumVote)
 			// mark as sent
 			v |= 1
@@ -1737,7 +1736,7 @@ func (rp *RaftProcess) quorumSendVote(q *quorum) bool {
 
 	if allVoted == true && q.origin != rp.Self() {
 		// send vote to origin
-		fmt.Println(rp.Name(), "SEND VOTE to origin", q.origin, q.Peers)
+		// QUODBG fmt.Println(rp.Name(), "SEND VOTE to origin", q.origin, q.Peers)
 		rp.Cast(q.origin, quorumVote)
 	}
 
@@ -1796,7 +1795,7 @@ func (rp *RaftProcess) quorumVote(from etf.Pid, vote *messageRaftQuorumVote) Raf
 			return RaftStatusOK
 		}
 
-		fmt.Println(rp.Name(), "SKIP VOTE from", from, candidatesRaftQuorumState, rp.quorum.State)
+		// QUODBG fmt.Println(rp.Name(), "SKIP VOTE from", from, candidatesRaftQuorumState, rp.quorum.State)
 		built := etf.Tuple{
 			etf.Atom("$quorum_built"),
 			rp.Self(),
@@ -1839,7 +1838,7 @@ func (rp *RaftProcess) quorumVote(from etf.Pid, vote *messageRaftQuorumVote) Raf
 			return RaftStatusOK
 		}
 		q.lastVote = time.Now().UnixMilli()
-		fmt.Println(rp.Name(), "QUO VOTE (NEW)", from, vote)
+		// QUODBG fmt.Println(rp.Name(), "QUO VOTE (NEW)", from, vote)
 		rp.quorumVotes[candidatesRaftQuorumState] = q
 		rp.CastAfter(rp.Self(), messageRaftQuorumCleanVote{state: q.State}, cleanVoteTimeout)
 
@@ -1868,7 +1867,7 @@ func (rp *RaftProcess) quorumVote(from etf.Pid, vote *messageRaftQuorumVote) Raf
 			return RaftStatusOK
 		}
 		q.lastVote = time.Now().UnixMilli()
-		fmt.Println(rp.Name(), "QUO VOTE", from, vote)
+		// QUODBG fmt.Println(rp.Name(), "QUO VOTE", from, vote)
 	}
 
 	// returns true if we got votes from all the peers whithin this quorum
@@ -1876,7 +1875,7 @@ func (rp *RaftProcess) quorumVote(from etf.Pid, vote *messageRaftQuorumVote) Raf
 		//
 		// Quorum built
 		//
-		fmt.Println(rp.Name(), "QUO BUILT", q.State, q.Peers)
+		// QUODBG fmt.Println(rp.Name(), "QUO BUILT", q.State, q.Peers)
 		if rp.quorum == nil {
 			rp.quorum = &RaftQuorum{}
 		}
@@ -2021,7 +2020,7 @@ func (rp *RaftProcess) handleHeartbeat() {
 		rp.quorumCandidates.SetOffline(rp, rp.leader)
 	}
 
-	fmt.Println(rp.Self(), "HRT lost leader", rp.leader)
+	// HRTDBG fmt.Println(rp.Self(), "HRT lost leader", rp.leader)
 	leave := etf.Tuple{
 		etf.Atom("$quorum_leave"),
 		rp.Self(),
@@ -2118,7 +2117,7 @@ func (rp *RaftProcess) quorumValidateVote(from etf.Pid, q *quorum, vote *message
 
 	if candidatesMatch == false {
 		// can't accept this vote
-		fmt.Println(rp.Name(), "QUO CAND MISMATCH", from, vote.Candidates)
+		// QUODBG fmt.Println(rp.Name(), "QUO CAND MISMATCH", from, vote.Candidates)
 		return false
 	}
 
@@ -2217,7 +2216,7 @@ func (r *Raft) HandleCast(process *ServerProcess, message etf.Term) ServerStatus
 		}
 
 		if q != nil {
-			fmt.Println(rp.Name(), "CLN VOTE", m.state, q.Peers)
+			// QUODBG fmt.Println(rp.Name(), "CLN VOTE", m.state, q.Peers)
 			delete(rp.quorumVotes, m.state)
 			for _, peer := range q.Peers {
 				v, _ := q.votes[peer]
@@ -2234,7 +2233,7 @@ func (r *Raft) HandleCast(process *ServerProcess, message etf.Term) ServerStatus
 				}
 				c.failures++
 				if c.failures > 3 {
-					fmt.Println(rp.Self(), "too many failures with", peer)
+					// QUODBG fmt.Println(rp.Self(), "too many failures with", peer)
 					rp.quorumCandidates.SetOffline(rp, peer)
 				}
 			}
@@ -2339,7 +2338,7 @@ func (r *Raft) HandleInfo(process *ServerProcess, message etf.Term) ServerStatus
 			}
 
 			// start to build new quorum
-			fmt.Println(rp.Name(), "QUO PEER DOWN", m.Pid)
+			// QUODBG fmt.Println(rp.Name(), "QUO PEER DOWN", m.Pid)
 			rp.handleQuorum()
 			rp.quorumChangeStart(false)
 			break
@@ -2459,7 +2458,7 @@ func (qc *quorumCandidates) SetOffline(rp *RaftProcess, peer etf.Pid) {
 	if exist == false {
 		return
 	}
-	fmt.Println(rp.Self(), "peer", peer, "has left")
+	// QUODBG fmt.Println(rp.Self(), "peer", peer, "has left")
 	emptyRef := etf.Ref{}
 	if c.monitor != emptyRef {
 		rp.DemonitorProcess(c.monitor)
