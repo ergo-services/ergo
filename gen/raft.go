@@ -296,7 +296,7 @@ type messageRaftHeartbeat struct{}
 //
 
 // Join makes a join requst to the given peer
-func (rp *RaftProcess) Join(peer interface{}) {
+func (rp *RaftProcess) Join(peer interface{}) error {
 	fmt.Println(rp.Name(), "send join to", peer)
 	join := etf.Tuple{
 		etf.Atom("$cluster_join"),
@@ -305,7 +305,12 @@ func (rp *RaftProcess) Join(peer interface{}) {
 			rp.options.ID,
 		},
 	}
-	rp.Cast(peer, join)
+	return rp.Cast(peer, join)
+}
+
+// Peers returns list of the processes in the raft cluster. Note, this list is sorted by the Serial value on them in the descending order
+func (rp *RaftProcess) Peers() []etf.Pid {
+	return rp.quorumCandidates.List()
 }
 
 // Quorum returns current quorum. It returns nil if quorum hasn't built yet.
@@ -500,8 +505,8 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 		}
 
 		if rp.quorum != nil && rp.quorum.Member {
-			// if we got cluster join from a quorum member it means
-			// the quorum we had belonging is not exist anymore
+			// if we got $cluster_join from a quorum member, it means
+			// the quorum we had belonging is not existed anymore
 			if rp.isQuorumMember(m.Pid) == true {
 				rp.quorum = nil
 				rp.handleQuorum()
