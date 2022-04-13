@@ -107,7 +107,7 @@ func TestRaftLeader(t *testing.T) {
 		}
 		// start distributed raft processes and wait until
 		// they build a quorum and elect their leader
-		nodes, rafts, leaderSerial := startCluster(c.n, c.state)
+		nodes, rafts, leaderSerial := startRaftCluster(c.n, c.state)
 		ok := true
 		if c.n > 2 {
 			ok = false
@@ -143,7 +143,7 @@ func TestRaftLeader(t *testing.T) {
 
 }
 
-func startCluster(n int, state gen.RaftQuorumState) ([]node.Node, []*gen.RaftProcess, uint64) {
+func startRaftCluster(n int, state gen.RaftQuorumState) ([]node.Node, []*gen.RaftProcess, uint64) {
 	nodes := make([]node.Node, n)
 	for i := range nodes {
 		name := fmt.Sprintf("nodeGenRaftCluster%02dNode%02d@localhost", n, i)
