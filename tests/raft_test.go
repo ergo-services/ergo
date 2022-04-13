@@ -20,9 +20,9 @@ type testCaseRaft struct {
 
 var (
 	ql    string = "quorum of %2d members with 1 leader: "
-	qlf   string = "quorum of %2d members with 1 leader + 1 follower: "
+	qlf   string = "quorum of %2d members with 1 leader + %d follower(s): "
 	cases        = []testCaseRaft{
-		testCaseRaft{n: 2, name: "no quorum, no leader"},
+		testCaseRaft{n: 2, name: "no quorum, no leader: "},
 		testCaseRaft{n: 3, name: ql, state: gen.RaftQuorumState3},
 		testCaseRaft{n: 4, name: qlf, state: gen.RaftQuorumState3},
 		testCaseRaft{n: 5, name: ql, state: gen.RaftQuorumState5},
@@ -34,7 +34,7 @@ var (
 		testCaseRaft{n: 11, name: ql, state: gen.RaftQuorumState11},
 		testCaseRaft{n: 12, name: qlf, state: gen.RaftQuorumState11},
 		testCaseRaft{n: 15, name: qlf, state: gen.RaftQuorumState11},
-		testCaseRaft{n: 25, name: qlf, state: gen.RaftQuorumState11},
+		//testCaseRaft{n: 25, name: qlf, state: gen.RaftQuorumState11},
 	}
 )
 
@@ -93,7 +93,12 @@ func TestRaftLeader(t *testing.T) {
 		if c.n == 2 {
 			fmt.Printf(c.name)
 		} else {
-			fmt.Printf(c.name, c.state)
+			f := c.n - int(c.state)
+			if f == 0 {
+				fmt.Printf(c.name, c.state)
+			} else {
+				fmt.Printf(c.name, c.state, c.n-int(c.state))
+			}
 		}
 		// start distributed raft processes and wait until
 		// they build a quorum and elect their leader
