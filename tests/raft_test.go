@@ -34,6 +34,7 @@ var (
 		testCaseRaft{n: 11, name: ql, state: gen.RaftQuorumState11},
 		testCaseRaft{n: 12, name: qlf, state: gen.RaftQuorumState11},
 		testCaseRaft{n: 15, name: qlf, state: gen.RaftQuorumState11},
+		// 25 nodes work well, but quorum building takes some time too long
 		//testCaseRaft{n: 25, name: qlf, state: gen.RaftQuorumState11},
 	}
 )
@@ -103,8 +104,33 @@ func TestRaftLeader(t *testing.T) {
 		// start distributed raft processes and wait until
 		// they build a quorum and elect their leader
 		nodes, rafts, leaderSerial := startCluster(c.n, c.state)
-		fmt.Println("OK", len(nodes), len(rafts), leaderSerial)
+		ok := true
+		if c.n > 2 {
+			ok = false
+			for _, raft := range rafts {
+				q := raft.Quorum()
+				if q == nil {
+					continue
+				}
+				if q.Member == false {
+					continue
+				}
 
+				l := raft.Leader()
+				if l == nil {
+					continue
+				}
+				if l.Serial != leaderSerial {
+					t.Fatal("wrong leader serial")
+				}
+				ok = true
+				break
+			}
+		}
+		if ok == false {
+			t.Fatal("no quorum or leader found")
+		}
+		fmt.Println("OK")
 		// stop cluster
 		for _, node := range nodes {
 			node.Stop()
