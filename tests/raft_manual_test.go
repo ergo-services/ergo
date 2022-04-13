@@ -3,6 +3,11 @@
 
 // to run this test:
 //   go test -run TestRaft -ergo.norecover -tags manual
+//
+// enable debug printing in the gen/raft.go
+//   quorum building debuging: %s/\/\/ QUODBG //
+//   leader election debuging: %s/\/\/ LDRDBG //
+//   heartbeat debuging:       %s/\/\/ HRTDBG //
 
 package tests
 
