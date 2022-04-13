@@ -12,39 +12,63 @@ import (
 	"github.com/ergo-services/ergo/node"
 )
 
+type testCaseRaft struct {
+	n     int
+	state gen.RaftQuorumState
+	name  string
+}
+
+var (
+	ql    string = "quorum of %2d members with 1 leader: "
+	qlf   string = "quorum of %2d members with 1 leader + 1 follower: "
+	cases        = []testCaseRaft{
+		testCaseRaft{n: 2, name: "no quorum, no leader"},
+		testCaseRaft{n: 3, name: ql, state: gen.RaftQuorumState3},
+		testCaseRaft{n: 4, name: qlf, state: gen.RaftQuorumState3},
+		testCaseRaft{n: 5, name: ql, state: gen.RaftQuorumState5},
+		testCaseRaft{n: 6, name: qlf, state: gen.RaftQuorumState5},
+		testCaseRaft{n: 7, name: ql, state: gen.RaftQuorumState7},
+		testCaseRaft{n: 8, name: qlf, state: gen.RaftQuorumState7},
+		testCaseRaft{n: 9, name: ql, state: gen.RaftQuorumState9},
+		testCaseRaft{n: 10, name: qlf, state: gen.RaftQuorumState9},
+		testCaseRaft{n: 11, name: ql, state: gen.RaftQuorumState11},
+		testCaseRaft{n: 12, name: qlf, state: gen.RaftQuorumState11},
+		testCaseRaft{n: 15, name: qlf, state: gen.RaftQuorumState11},
+		testCaseRaft{n: 25, name: qlf, state: gen.RaftQuorumState11},
+	}
+)
+
 type testRaft struct {
 	gen.Raft
-	res chan interface{}
+	peers  []gen.ProcessID
+	serial uint64
+	qstate gen.RaftQuorumState
+	res    chan *gen.RaftProcess
 }
 
 func (tr *testRaft) InitRaft(process *gen.RaftProcess, args ...etf.Term) (gen.RaftOptions, error) {
 	var options gen.RaftOptions
-	if len(args) > 0 {
-		options.Peers = args[0].([]gen.ProcessID)
-		options.Serial = uint64(rand.Intn(10))
-	}
+	options.Peers = tr.peers
+	options.Serial = tr.serial
+	tr.res <- process
 
-	fmt.Println(process.Self(), process.Name(), " ----------", options.Serial)
 	return options, gen.RaftStatusOK
 }
 
-func (tr *testRaft) HandleQuorum(process *gen.RaftProcess, q *gen.RaftQuorum) gen.RaftStatus {
-	if q == nil {
-		fmt.Println("QQQ quorum", process.Name(), "state: NONE")
-		return gen.RaftStatusOK
-	} else {
-		fmt.Println("QQQ quorum", process.Name(), "state:", q.State, q.Member, q.Peers)
-	}
-	if sent, _ := process.State.(int); sent != 1 {
-		process.SendAfter(process.Self(), "ok", 7*time.Second)
-		process.State = 1
-	}
-	//tr.res <- qs
+func (tr *testRaft) HandleQuorum(process *gen.RaftProcess, quorum *gen.RaftQuorum) gen.RaftStatus {
+	//fmt.Println(process.Self(), "QQQ", quorum)
 	return gen.RaftStatusOK
 }
 
 func (tr *testRaft) HandleLeader(process *gen.RaftProcess, leader *gen.RaftLeader) gen.RaftStatus {
-	fmt.Println("LLL leader", process.Name(), leader)
+	//fmt.Println(process.Self(), "LLL", leader)
+	if leader != nil && leader.Leader == process.Self() {
+		// leader elected
+		if process.Quorum().State == tr.qstate {
+			tr.res <- nil
+		}
+
+	}
 	return gen.RaftStatusOK
 }
 
@@ -59,69 +83,91 @@ func (tr *testRaft) HandleGet(process *gen.RaftProcess, serial uint64) (string, 
 }
 
 func (tr *testRaft) HandleRaftInfo(process *gen.RaftProcess, message etf.Term) gen.ServerStatus {
-	q := process.Quorum()
-	if q == nil {
-		fmt.Println("III info", process.Name(), "state: NONE", "message:", message)
-	} else {
-		fmt.Println("III info", process.Name(), "Q:", q.State, q.Member, "", process.Leader(), "message:", message)
-	}
-	if l := process.Leader(); l != nil && l.Leader == process.Self() {
-		fmt.Println("III i'm leader. freeze", process.Self())
-		time.Sleep(15 * time.Second)
-	}
-	process.State = 0
 	return gen.ServerStatusOK
 }
 
 func TestRaftLeader(t *testing.T) {
-	fmt.Printf("\n=== Test GenRaft\n")
-	var N int = 4
+	fmt.Printf("\n=== Test GenRaft - build quorum, leader election\n")
+	for _, c := range cases {
+		fmt.Printf("    cluster with %2d distributed raft processes. ", c.n)
+		if c.n == 2 {
+			fmt.Printf(c.name)
+		} else {
+			fmt.Printf(c.name, c.state)
+		}
+		// start distributed raft processes and wait until
+		// they build a quorum and elect their leader
+		nodes, rafts, leaderSerial := startCluster(c.n, c.state)
+		fmt.Println("OK", len(nodes), len(rafts), leaderSerial)
 
-	fmt.Printf("Starting %d nodes: nodeGenRaftXX@localhost...", N)
+		// stop cluster
+		for _, node := range nodes {
+			node.Stop()
+		}
+	}
 
-	nodes := make([]node.Node, N)
+}
+
+func startCluster(n int, state gen.RaftQuorumState) ([]node.Node, []*gen.RaftProcess, uint64) {
+	nodes := make([]node.Node, n)
 	for i := range nodes {
-		name := fmt.Sprintf("nodeGenRaft%02d@localhost", i)
+		name := fmt.Sprintf("nodeGenRaftCluster%02dNode%02d@localhost", n, i)
 		node, err := ergo.StartNode(name, "cookies", node.Options{})
 		if err != nil {
-			t.Fatal(err)
+			panic(err)
 		}
 		nodes[i] = node
 	}
 
-	defer func() {
-		for i := range nodes {
-			nodes[i].Stop()
-		}
-	}()
-	fmt.Println("OK")
-
-	rafts := make([]gen.Process, N)
-	results := make([]chan interface{}, N)
-	var args []etf.Term
+	processes := make([]gen.Process, n)
+	result := make(chan *gen.RaftProcess, 1000)
+	leaderSerial := uint64(0)
 	var peer gen.ProcessID
-	for i := range rafts {
+	for i := range processes {
 		name := fmt.Sprintf("raft%02d", i+1)
-		if i == 0 {
-			args = nil
-		} else {
-			peer.Node = nodes[i-1].Name()
-			peer.Name = rafts[i-1].Name()
-			peers := []gen.ProcessID{peer}
-			args = []etf.Term{peers}
-		}
 		tr := &testRaft{
-			res: make(chan interface{}, 2),
+			res:    result,
+			serial: uint64(rand.Intn(10)),
+			qstate: state,
 		}
-		results[i] = tr.res
-		raft, err := nodes[i].Spawn(name, gen.ProcessOptions{}, tr, args...)
+		if tr.serial > leaderSerial {
+			leaderSerial = tr.serial
+		}
+		if i > 0 {
+			peer.Node = nodes[i-1].Name()
+			peer.Name = processes[i-1].Name()
+			tr.peers = []gen.ProcessID{peer}
+		}
+		p, err := nodes[i].Spawn(name, gen.ProcessOptions{}, tr)
 		if err != nil {
-			t.Fatal(err)
+			panic(err)
 		}
-		rafts[i] = raft
-		//time.Sleep(300 * time.Millisecond)
+		processes[i] = p
 	}
 
-	time.Sleep(80 * time.Second)
+	rafts := []*gen.RaftProcess{}
+wait:
+	select {
+	case r := <-result:
+		if r != nil {
+			rafts = append(rafts, r)
+		}
+		if len(rafts) < n {
+			goto wait
+		}
 
+		if n == 2 {
+			// no leader, no quorum
+			return nodes, rafts, leaderSerial
+		}
+
+		if r == nil {
+			// leader elected
+			return nodes, rafts, leaderSerial
+		}
+		goto wait
+
+	case <-time.After(30 * time.Second):
+		panic("can't start raft cluster")
+	}
 }

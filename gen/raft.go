@@ -784,7 +784,7 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 		if rp.quorum == nil {
 			rp.election = nil
 			// no quorum
-			//LDR fmt.Println(rp.Self(), "LDR NO QUO ignore vote from", m.Pid, "round", vote.Round, "for", vote.Leader)
+			// LDRDBG fmt.Println(rp.Self(), "LDR NO QUO ignore vote from", m.Pid, "round", vote.Round, "for", vote.Leader)
 			// Seems we have received leader_vote before the quorum_built message.
 			// Ignore this vote but update its round value to start a new leader election.
 			// Otherwise, the new election will be started with the same round value but without
@@ -798,7 +798,7 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 		if rp.quorum.State != RaftQuorumState(vote.State) {
 			// vote within another quorum. seems the quorum has been changed during this election.
 			// ignore it
-			//LDR fmt.Println(rp.Self(), "LDR ignore vote from", m.Pid, "with another quorum", vote.State, "current quorum", rp.quorum.State)
+			// LDRDBG fmt.Println(rp.Self(), "LDR ignore vote from", m.Pid, "with another quorum", vote.State, "current quorum", rp.quorum.State)
 			if vote.Round > rp.round {
 				rp.round = vote.Round
 			}
@@ -806,12 +806,12 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 		}
 		if rp.election != nil && rp.election.round > vote.Round {
 			// ignore it. current election round is greater
-			//LDR fmt.Println(rp.Self(), "LDR ignore vote from", m.Pid, "with round", vote.Round, "current election round", rp.election.round)
+			// LDRDBG fmt.Println(rp.Self(), "LDR ignore vote from", m.Pid, "with round", vote.Round, "current election round", rp.election.round)
 			return RaftStatusOK
 		}
 		if rp.round > vote.Round {
 			// newbie is trying to start a new election :)
-			//LDR fmt.Println(rp.Self(), "LDR ignore vote from newbie", m.Pid, "with round", vote.Round, "current round", rp.round)
+			// LDRDBG fmt.Println(rp.Self(), "LDR ignore vote from newbie", m.Pid, "with round", vote.Round, "current round", rp.round)
 			return RaftStatusOK
 		}
 
@@ -849,7 +849,7 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 			}
 		}
 		if new_election {
-			//LDR fmt.Println(rp.Self(), "LDR accept election from", m.Pid, "round", vote.Round, " with vote for:", vote.Leader)
+			// LDRDBG fmt.Println(rp.Self(), "LDR accept election from", m.Pid, "round", vote.Round, " with vote for:", vote.Leader)
 			rp.election = &leaderElection{
 				votes:   make(map[etf.Pid]etf.Pid),
 				results: make(map[etf.Pid]bool),
@@ -866,7 +866,7 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 		}
 
 		rp.election.votes[m.Pid] = vote.Leader
-		//LDR fmt.Println(rp.Self(), "LDR got vote from", m.Pid, "for", vote.Leader, "round", vote.Round, "quorum", vote.State)
+		// LDRDBG fmt.Println(rp.Self(), "LDR got vote from", m.Pid, "for", vote.Leader, "round", vote.Round, "quorum", vote.State)
 		if len(rp.quorum.Peers) != len(rp.election.votes) {
 			// make sure if we got all votes
 			return RaftStatusOK
@@ -896,9 +896,9 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 				leaderSplit = false
 			}
 		}
-		//LDR fmt.Println(rp.Self(), "LDR got all votes. round", vote.Round, "quorum", vote.State)
+		// LDRDBG fmt.Println(rp.Self(), "LDR got all votes. round", vote.Round, "quorum", vote.State)
 		if leaderSplit {
-			//LDR fmt.Println(rp.Self(), "LDR got split voices. round", vote.Round, "quorum", vote.State)
+			// LDRDBG fmt.Println(rp.Self(), "LDR got split voices. round", vote.Round, "quorum", vote.State)
 			// got more than one leader
 			// start new leader election with round++
 			rp.handleElectionStart(vote.Round + 1)
@@ -919,7 +919,7 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 			}
 		}
 
-		//LDR fmt.Println(rp.Self(), "LDR election done. round", rp.election.round, "Leader", leaderPid, "with", leaderVoted, "voices", "quorum", vote.State)
+		// LDRDBG fmt.Println(rp.Self(), "LDR election done. round", rp.election.round, "Leader", leaderPid, "with", leaderVoted, "voices", "quorum", vote.State)
 		rp.election.results[rp.Self()] = true
 
 		// send to all quorum members our choice
@@ -938,7 +938,7 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 				continue
 			}
 			rp.Cast(pid, elected)
-			//LDR fmt.Println(rp.Self(), "LDR elected", leaderPid, "sent result to", pid, "wait the others")
+			// LDRDBG fmt.Println(rp.Self(), "LDR elected", leaderPid, "sent result to", pid, "wait the others")
 		}
 
 		if len(rp.election.votes) != len(rp.election.results) {
@@ -947,7 +947,7 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 		}
 
 		// leader has been elected
-		//LDR fmt.Println(rp.Self(), "LDR finished. leader", rp.election.leader, "round", rp.election.round, "quorum", rp.quorum.State)
+		// LDRDBG fmt.Println(rp.Self(), "LDR finished. leader", rp.election.leader, "round", rp.election.round, "quorum", rp.quorum.State)
 		rp.round = rp.election.round
 		rp.election.cancel()
 		if rp.leader != rp.election.leader {
@@ -973,7 +973,7 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 		if rp.quorum == nil {
 			rp.election = nil
 			// no quorum
-			//LDR fmt.Println(rp.Self, "LDR NO QUO ignore election result", elected, "from", m.Pid)
+			// LDRDBG fmt.Println(rp.Self, "LDR NO QUO ignore election result", elected, "from", m.Pid)
 			return RaftStatusOK
 		}
 
@@ -1047,7 +1047,7 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 		}
 
 		// leader has been elected
-		//LDR fmt.Println(rp.Self(), "LDR finished. leader", rp.election.leader, "round", rp.election.round, "quorum", rp.quorum.State)
+		// LDRDBG fmt.Println(rp.Self(), "LDR finished. leader", rp.election.leader, "round", rp.election.round, "quorum", rp.quorum.State)
 		rp.election.cancel() // cancel timer
 		rp.round = rp.election.round
 		if rp.leader != rp.election.leader {
@@ -1426,7 +1426,7 @@ func (rp *RaftProcess) handleElectionStart(round int) {
 	if rp.round > round {
 		round = rp.round
 	}
-	//LDR fmt.Println(rp.Self(), "LDR start. round", round, "Q", rp.quorum.State)
+	// LDRDBG fmt.Println(rp.Self(), "LDR start. round", round, "Q", rp.quorum.State)
 	rp.election = &leaderElection{
 		votes:   make(map[etf.Pid]etf.Pid),
 		results: make(map[etf.Pid]bool),
@@ -1459,7 +1459,7 @@ func (rp *RaftProcess) handleElectionVote() {
 		break
 	}
 
-	//LDR fmt.Println(rp.Self(), "LDR voted for:", voted_for, "quorum", rp.quorum.State)
+	// LDRDBG fmt.Println(rp.Self(), "LDR voted for:", voted_for, "quorum", rp.quorum.State)
 	leaderVote := etf.Tuple{
 		etf.Atom("$leader_vote"),
 		rp.Self(),
@@ -1474,7 +1474,7 @@ func (rp *RaftProcess) handleElectionVote() {
 		if pid == rp.Self() {
 			continue
 		}
-		//LDR fmt.Println(rp.Self(), "LDR sent vote for", voted_for, "to", pid, "round", rp.election.round, "quorum", rp.quorum.State)
+		// LDRDBG fmt.Println(rp.Self(), "LDR sent vote for", voted_for, "to", pid, "round", rp.election.round, "quorum", rp.quorum.State)
 		rp.Cast(pid, leaderVote)
 	}
 	rp.election.votes[rp.Self()] = voted_for
@@ -2232,7 +2232,7 @@ func (r *Raft) HandleCast(process *ServerProcess, message etf.Term) ServerStatus
 					continue
 				}
 				c.failures++
-				if c.failures > 3 {
+				if c.failures > 10 {
 					// QUODBG fmt.Println(rp.Self(), "too many failures with", peer)
 					rp.quorumCandidates.SetOffline(rp, peer)
 				}
@@ -2276,10 +2276,10 @@ func (r *Raft) HandleCast(process *ServerProcess, message etf.Term) ServerStatus
 		}
 		if m.round != rp.election.round {
 			// new election round happened
-			//LDR fmt.Println(rp.Self(), "LDR clean election. skip. new election round", rp.election.round)
+			// LDRDBG fmt.Println(rp.Self(), "LDR clean election. skip. new election round", rp.election.round)
 			return ServerStatusOK
 		}
-		//LDR fmt.Println(rp.Self(), "LDR clean election. round", rp.election.round)
+		// LDRDBG fmt.Println(rp.Self(), "LDR clean election. round", rp.election.round)
 		rp.election = nil
 		return ServerStatusOK
 
@@ -2450,6 +2450,7 @@ func (qc *quorumCandidates) SetOnline(rp *RaftProcess, peer etf.Pid, serial uint
 	c.monitor = mon
 	c.joined = true
 	c.heartbeat = time.Now().Unix()
+	c.failures = 0
 	return true
 }
 
