@@ -30,13 +30,15 @@ var (
 		testCaseRaft{n: 5, name: ql, state: gen.RaftQuorumState5},
 		testCaseRaft{n: 6, name: qlf, state: gen.RaftQuorumState5},
 		testCaseRaft{n: 7, name: ql, state: gen.RaftQuorumState7},
-		testCaseRaft{n: 8, name: qlf, state: gen.RaftQuorumState7},
-		testCaseRaft{n: 9, name: ql, state: gen.RaftQuorumState9},
-		testCaseRaft{n: 10, name: qlf, state: gen.RaftQuorumState9},
-		testCaseRaft{n: 11, name: ql, state: gen.RaftQuorumState11},
-		testCaseRaft{n: 12, name: qlf, state: gen.RaftQuorumState11},
-		testCaseRaft{n: 15, name: qlf, state: gen.RaftQuorumState11},
-		// 25 nodes work well, but quorum building takes some time too long
+
+		//
+		// cases below are work well, but quorum building takes some time too long.
+		//testCaseRaft{n: 8, name: qlf, state: gen.RaftQuorumState7},
+		//testCaseRaft{n: 9, name: ql, state: gen.RaftQuorumState9},
+		//testCaseRaft{n: 10, name: qlf, state: gen.RaftQuorumState9},
+		//testCaseRaft{n: 11, name: ql, state: gen.RaftQuorumState11},
+		//testCaseRaft{n: 12, name: qlf, state: gen.RaftQuorumState11},
+		//testCaseRaft{n: 15, name: qlf, state: gen.RaftQuorumState11},
 		//testCaseRaft{n: 25, name: qlf, state: gen.RaftQuorumState11},
 	}
 )
