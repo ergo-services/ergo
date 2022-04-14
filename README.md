@@ -75,9 +75,9 @@ Here are the changes of latest release. For more details see the [ChangeLog](Cha
   - these options will be ignored if the receiver is running on either the Erlang or Elixir node
 * Introduced **proxy feature** support **with end-to-end encryption**.
   - `node.Node` new methods:
-    - `node.AddProxyRoute(...)`, `node.RemoveProxyRoute(...)`
-    - `node.ProxyRoute(...)`, `node.ProxyRoutes()`
-    - `node.NodesIndirect()`
+    - `AddProxyRoute(...)`, `RemoveProxyRoute(...)`
+    - `ProxyRoute(...)`, `ProxyRoutes()`
+    - `NodesIndirect()` returns list of connected nodes via proxy connection
   - `node.Options`:
     - `Proxy` for configuring proxy settings
   - includes support (over proxy connection): compression, fragmentation, linking/monitoring process, monitor node
