@@ -65,14 +65,14 @@ Here are the changes of latest release. For more details see the [ChangeLog](Cha
 
 #### [v2.1.0](https://github.com/ergo-services/ergo/releases/tag/v1.999.2100) 2022-04-19 [tag version v1.999.2100] ####
 
-* Introduced compression feature support. Here are new methods and options to manage this feature:
+* Introduced *compression feature* support. Here are new methods and options to manage this feature:
   - `gen.Process`:
     - `SetCompression(enable bool)`, `Compression() bool`
     - `SetCompressionLevel(level int)`, `CompressionLevel() int`
     - `SetCompressionThreshold(threshold int)`, `CompressionThreshold()`
   - `node.Options`:
     - `Compression` these settings are using as defaults for the spawning processes
-* Introduced proxy feature support with end-to-end encryption.
+* Introduced *proxy feature* support *with end-to-end encryption*.
   - `node.Node` new methods:
     - `node.AddProxyRoute(...)`, `node.RemoveProxyRoute(...)`
     - `node.ProxyRoute(...)`, `node.ProxyRoutes()`
@@ -81,8 +81,8 @@ Here are the changes of latest release. For more details see the [ChangeLog](Cha
     - `Proxy` for configuring proxy settings
   - includes support (over proxy connection): compression, fragmentation, linking/monitoring process, monitor node
   - example [examples/proxy](examples/proxy).
-* Introduced new behavior `gen.Raft`. It's improved implementation of [Raft consensus algorithm](https://raft.github.io). The key improvement is using quorum under the hood to manage the leader election process and make the Raft cluster more reliable. This implementation supports quorums of 3, 5, 7, 9, or 11 quorum members. Here is the example of this feature [example/raft](example/raft).
-* Introduced new interfaces to customize network layer
+* Introduced *new behavior `gen.Raft`*. It's improved implementation of [Raft consensus algorithm](https://raft.github.io). The key improvement is using quorum under the hood to manage the leader election process and make the Raft cluster more reliable. This implementation supports quorums of 3, 5, 7, 9, or 11 quorum members. Here is the example of this feature [example/raft](example/raft).
+* Introduced new *interfaces to customize network layer*
   - `Resolver` to replace EPMD routines with your solution (e.g. ZooKeeper or any other service registrar)
   - `Handshake` allows customizing authorization/authentication process
   - `Proto` provides the way to implement proprietary protocols (e.g. for IoT area)
