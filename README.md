@@ -105,7 +105,7 @@ Here are the changes of latest release. For more details see the [ChangeLog](Cha
 * Fixed issues #87, #88 and #93 (closing network socket)
 * Fixed issue #96 (silently drops message if mailbox is full)
 * Updated minimal requirement of Golang version to 1.17 (go.mod)
-* We still keep the rule "Zero Dependencies"
+* We still keep the rule **Zero Dependencies**
 
 
 ### Benchmarks ###
