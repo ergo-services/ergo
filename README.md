@@ -81,7 +81,7 @@ Here are the changes of latest release. For more details see the [ChangeLog](Cha
     - `Proxy`
   - includes support (over proxy connection): compression, fragmentation, linking/monitoring process, monitor node
   - example [examples/proxy](examples/proxy).
-* Introduces new behavior `gen.Raft`. It's improved implementation of [Raft consensus algorithm](https://raft.github.io). The key improvement is using quorum under the hood to manage the leader election process and make the Raft cluster more reliable. This implementation supports quorums of 3, 5, 7, 9 or 11 quorum members. Here is example of this feature [example/raft](example/raft).
+* Introduced new behavior `gen.Raft`. It's improved implementation of [Raft consensus algorithm](https://raft.github.io). The key improvement is using quorum under the hood to manage the leader election process and make the Raft cluster more reliable. This implementation supports quorums of 3, 5, 7, 9 or 11 quorum members. Here is example of this feature [example/raft](example/raft).
 * Other new features:
   - `gen.Process` new methods:
     - `NodeUptime()`
