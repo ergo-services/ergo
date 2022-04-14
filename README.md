@@ -47,7 +47,7 @@ The goal of this project is to leverage Erlang/OTP experience with Golang perfor
 * Custom marshaling/unmarshaling via `Marshal` and `Unmarshal` interfaces
 * Encryption (TLS 1.3) support (including autogenerating self-signed certificates)
 * Compression support (with customization of compression level and threshold). It can be configured for the node or a particular process.
-* Proxy support (end-to-end encryption, and linking/monitoring features)
+* Proxy support with end-to-end encryption, includeing compression/fragmentation/linking/monitoring features.
 * Tested and confirmed support Windows, Darwin (MacOS), Linux, FreeBSD.
 * Zero dependency
 
@@ -65,31 +65,43 @@ Here are the changes of latest release. For more details see the [ChangeLog](Cha
 
 #### [v2.1.0](https://github.com/ergo-services/ergo/releases/tag/v1.999.2100) 2022-03-12 [tag version v1.999.2100] ####
 
-* Introduced compression feature support
-* Introduced proxy feature support. Here is example [examples/proxy](examples/proxy). `gen.MessageProxyDown` .. `noproxy`.
-* Introduced new methods
-  - `node.AddProxyRoute`/`node.RemoveProxyRoute`
-  - `node.ProxyRoute`/`node.ProxyRoutes`
-  - `node.NodesIndirect`
-  - `gen.Process.SetCompression`/`gen.Process.Compression`
-  - `gen.Process.SetCompressionLevel`/`gen.Process.CompressionLevel`
-  - `gen.Process.SetCompressionThreshold`/`gen.Process.CompressionThreshold`
-  - `gen.Process.NodeUptime`/`gen.Process.NodeName`/`gen.Process.NodeStop`
-  - `gen.ServerProcess.MessageCounter`
-* **Important** `node.Options` has changed. Make sure to adjust your code.
-* Introduced `node.Proxy` in `node.Options` to configure proxy settings for the node.
-* Intfoduced `node.ProxyFlags` to enable/disable features of linking, monitoring, remote spawning for the peer connected through the proxy link.
-* Introduced `node.Compression` in `node.Options` to configure compression settings for the spawned processes on this node.
+* Introduced compression feature support. Here are new methods and options to manage this feature:
+  - `gen.Process`:
+    - `SetCompression(enable bool)`, `Compression() bool`
+    - `SetCompressionLevel(level int)`, `CompressionLevel() int`
+    - `SetCompressionThreshold(threshold int)`, `CompressionThreshold()`
+  - `node.Options`:
+    - `Compression` these setting are using as defaults for the spawning processes
+* Introduced proxy feature support with end-to-end encryption.
+  - `node.Node` new methods:
+    - `node.AddProxyRoute(...)`, `node.RemoveProxyRoute(...)`
+    - `node.ProxyRoute(...)`, `node.ProxyRoutes()`
+    - `node.NodesIndirect()`
+  - `node.Options`:
+    - `Proxy`
+  - includes support (over proxy connection): compression, fragmentation, linking/monitoring process, monitor node
+  - example [examples/proxy](examples/proxy).
+* Introduces new behavior `gen.Raft`. It's improved implementation of [Raft consensus algorithm](https://raft.github.io). The key improvement is using quorum under the hood to manage leader election process and to make raft cluster more reliable. This implementation supports quorums of 3, 5, 7, 9 or 11 quorum members. Here is example of this feature [example/raft](example/raft).
+* Other new features:
+  - `gen.Process` new methods:
+    - `NodeUptime()`
+	- `NodeName()`
+	- `NodeStop()`
+  - `gen.ServerProcess` new method:
+    - `MessageCounter()`
+  - `gen.ProcessOptions` new option:
+    - `ProcessFallback` this feature allows forward messages to the fallback process if the process mailbox is full. Forwarded messages are wrapping into `gen.MessageFallback` struct.
+  - `gen.SupervisorChildSpec` and `gen.ApplicationChildSpec` got option `gen.ProcessOptions` in order customize options for the spawning child processes.
+
 * Introduced new interfaces
   - `Resolver`
   - `Handshake`
   - `Proto`/`Connection`
-* Introduced `gen.ProcessFallback` option in `gen.ProcessOptions`. This feature allows forward messages to the fallback process if the mailbox is full. Forwarded messages are wrapping into `gen.MessageFallback` struct.
-* Added `gen.ProcessOptions` to `gen.SupervisorChildSpec` and `gen.ApplicationChildSpec` in order customize options for the spawning child processes.
 * Improved handling messages. Send/Cast/Call return ErrProcessIncarnation if message is addressed to the process of previous incarnation (node restarted).
-* `gen.EnvKey`
-* default process env `node.EnvKeyNode`
-* Improved performance of local messaging (up to 10 times for some cases)
+* Inroduced new type `gen.EnvKey` for the environment variables
+* All spawned processes now has `node.EnvKeyNode` variable to get access to the `node.Node` value.
+* **Important** `node.Options` has changed. Make sure to adjust your code.
+* Improved performance of local messaging (up to 8 times for some cases)
 * Fixed issue #89 (incorrect handling Call requests)
 * Fixed issues #87, #88 and #93 (closing network socket)
 * Fixed issue #96 (silently drops message if mailbox is full)
