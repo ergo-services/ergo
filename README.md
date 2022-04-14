@@ -97,7 +97,7 @@ Here are the changes of latest release. For more details see the [ChangeLog](Cha
   - `Resolver`
   - `Handshake`
   - `Proto`/`Connection`
-* Improved handling messages: methods `gen.Process.Send`, `gen.ServerProcess.Cast`, `gen.ServerProcess.Call` now return `node.ErrProcessIncarnation` if message is addressed to the process of previous incarnation (remote node restarted).
+* Improved sending messages: methods `gen.Process.Send`, `gen.ServerProcess.Cast`, `gen.ServerProcess.Call` now return `node.ErrProcessIncarnation` if message is addressed to the process of previous incarnation (remote node restarted).
 * Inroduced new type `gen.EnvKey` for the environment variables
 * All spawned processes now have `node.EnvKeyNode` variable to get access to the `node.Node` value.
 * **Important** `node.Options` has changed. Make sure to adjust your code.
