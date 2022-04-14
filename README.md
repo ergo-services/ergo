@@ -82,6 +82,10 @@ Here are the changes of latest release. For more details see the [ChangeLog](Cha
   - includes support (over proxy connection): compression, fragmentation, linking/monitoring process, monitor node
   - example [examples/proxy](examples/proxy).
 * Introduced new behavior `gen.Raft`. It's improved implementation of [Raft consensus algorithm](https://raft.github.io). The key improvement is using quorum under the hood to manage the leader election process and make the Raft cluster more reliable. This implementation supports quorums of 3, 5, 7, 9, or 11 quorum members. Here is the example of this feature [example/raft](example/raft).
+* Introduced new interfaces to customize network layer
+  - `Resolver` to replace EPMD routines with your solution (e.g. ZooKeeper or any other service registrar)
+  - `Handshake` allows to customize authorization/authentication process
+  - `Proto` provides the way to implement a proprietary protocols (e.g. for IoT area)
 * Other new features:
   - `gen.Process` new methods:
     - `NodeUptime()`
@@ -92,10 +96,6 @@ Here are the changes of latest release. For more details see the [ChangeLog](Cha
   - `gen.ProcessOptions` new option:
     - `ProcessFallback` this feature allows forward messages to the fallback process if the process mailbox is full. Forwarded messages are wrapping into `gen.MessageFallback` struct. Related to issue #96.
   - `gen.SupervisorChildSpec` and `gen.ApplicationChildSpec` got option `gen.ProcessOptions` in order customize options for the spawning child processes.
-* Introduced new interfaces to customize network layer
-  - `Resolver` to replace EPMD routines with your solution (e.g. ZooKeeper or any other service registrar)
-  - `Handshake` allows to customize authorization/authentication process
-  - `Proto` provides the way to implement a proprietary protocols (e.g. for IoT area)
 * Improved sending messages: methods `gen.Process.Send`, `gen.ServerProcess.Cast`, `gen.ServerProcess.Call` now return `node.ErrProcessIncarnation` if the message is addressed to the process of the previous incarnation (remote node has been restarted).
 * Inroduced new type `gen.EnvKey` for the environment variables
 * All spawned processes now have `node.EnvKeyNode` variable to get access to the `node.Node` value.
