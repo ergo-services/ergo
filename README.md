@@ -71,7 +71,7 @@ Here are the changes of latest release. For more details see the [ChangeLog](Cha
     - `SetCompressionLevel(level int)`, `CompressionLevel() int`
     - `SetCompressionThreshold(threshold int)`, `CompressionThreshold()`
   - `node.Options`:
-    - `Compression` these setting are using as defaults for the spawning processes
+    - `Compression` these settings are using as defaults for the spawning processes
 * Introduced proxy feature support with end-to-end encryption.
   - `node.Node` new methods:
     - `node.AddProxyRoute(...)`, `node.RemoveProxyRoute(...)`
