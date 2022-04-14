@@ -90,9 +90,7 @@ Here are the changes of latest release. For more details see the [ChangeLog](Cha
   - `Proto` provides the way to implement proprietary protocols (e.g. for IoT area)
 * Other new features:
   - `gen.Process` new methods:
-    - `NodeUptime()`
-	- `NodeName()`
-	- `NodeStop()`
+    - `NodeUptime()`, `NodeName()`, `NodeStop()`
   - `gen.ServerProcess` new method:
     - `MessageCounter()` shows how many messages have been handled by this process via callbacks
   - `gen.ProcessOptions` new option:
