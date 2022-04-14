@@ -102,8 +102,8 @@ Here are the changes of latest release. For more details see the [ChangeLog](Cha
 * All spawned processes now have `node.EnvKeyNode` variable to get access to the `node.Node` value.
 * **Important** `node.Options` has changed. Make sure to adjust your code.
 * Improved performance of local messaging (up to 8 times for some cases)
-* Fixed Issue #89 (incorrect handling Call requests)
-* Fixed Issues #87, #88 and #93 (closing network socket)
+* Fixed Issue#89 (incorrect handling Call requests)
+* Fixed Issue#87, #88 and #93 (closing network socket)
 * Fixed Issue #96 (silently drops message if mailbox is full)
 * Updated minimal requirement of Golang version to 1.17 (go.mod)
 
