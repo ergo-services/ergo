@@ -85,7 +85,7 @@ Here are the changes of latest release. For more details see the [ChangeLog](Cha
 * Introduced new interfaces to customize network layer
   - `Resolver` to replace EPMD routines with your solution (e.g. ZooKeeper or any other service registrar)
   - `Handshake` allows customizing authorization/authentication process
-  - `Proto` provides the way to implement a proprietary protocols (e.g. for IoT area)
+  - `Proto` provides the way to implement proprietary protocols (e.g. for IoT area)
 * Other new features:
   - `gen.Process` new methods:
     - `NodeUptime()`
