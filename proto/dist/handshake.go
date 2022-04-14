@@ -122,11 +122,11 @@ func (dh *DistHandshake) Version() node.HandshakeVersion {
 	return dh.options.Version
 }
 
-func (dh *DistHandshake) Start(conn io.ReadWriter, tls bool, cookie string) (node.Flags, error) {
+func (dh *DistHandshake) Start(conn io.ReadWriter, tls bool, cookie string) (node.HandshakeDetails, error) {
 
 	var peer_challenge uint32
 	var peer_nodeFlags nodeFlags
-	var peer_Flags node.Flags
+	var details node.HandshakeDetails
 
 	node_nodeFlags := composeFlags(dh.flags)
 
@@ -145,7 +145,7 @@ func (dh *DistHandshake) Start(conn io.ReadWriter, tls bool, cookie string) (nod
 		await = []byte{'s', 'N'}
 	}
 	if e := b.WriteDataTo(conn); e != nil {
-		return peer_Flags, e
+		return details, e
 	}
 
 	// define timeout for the handshaking
@@ -174,7 +174,7 @@ func (dh *DistHandshake) Start(conn io.ReadWriter, tls bool, cookie string) (nod
 
 		select {
 		case <-timer.C:
-			return peer_Flags, fmt.Errorf("handshake timeout")
+			return details, fmt.Errorf("handshake timeout")
 
 		case e := <-asyncReadChannel:
 			if e != nil {
@@ -186,32 +186,32 @@ func (dh *DistHandshake) Start(conn io.ReadWriter, tls bool, cookie string) (nod
 			buffer := b.B[expectingBytes:]
 
 			if len(buffer) < int(l) {
-				return peer_Flags, fmt.Errorf("malformed handshake (wrong packet length)")
+				return details, fmt.Errorf("malformed handshake (wrong packet length)")
 			}
 
 			// chech if we got correct message type regarding to 'await' value
 			if bytes.Count(await, buffer[0:1]) == 0 {
-				return peer_Flags, fmt.Errorf("malformed handshake (wrong response)")
+				return details, fmt.Errorf("malformed handshake (wrong response)")
 			}
 
 			switch buffer[0] {
 			case 'n':
 				// 'n' + 2 (version) + 4 (flags) + 4 (challenge) + name...
 				if len(b.B) < 12 {
-					return peer_Flags, fmt.Errorf("malformed handshake ('n')")
+					return details, fmt.Errorf("malformed handshake ('n')")
 				}
 
 				// ignore peer_name value if we initiate the connection
 				peer_challenge, _, peer_nodeFlags = dh.readChallenge(b.B[1:])
 				if peer_challenge == 0 {
-					return peer_Flags, fmt.Errorf("malformed handshake (mismatch handshake version")
+					return details, fmt.Errorf("malformed handshake (mismatch handshake version")
 				}
 				b.Reset()
 
 				dh.composeChallengeReply(b, peer_challenge, tls, cookie)
 
 				if e := b.WriteDataTo(conn); e != nil {
-					return peer_Flags, e
+					return details, e
 				}
 				// add 's' status for the case if we got it after 'n' or 'N' message
 				// yes, sometime it happens
@@ -223,7 +223,7 @@ func (dh *DistHandshake) Start(conn io.ReadWriter, tls bool, cookie string) (nod
 				// The new challenge message format (version 6)
 				// 8 (flags) + 4 (Creation) + 2 (NameLen) + Name
 				if len(buffer) < 16 {
-					return peer_Flags, fmt.Errorf("malformed handshake ('N' length)")
+					return details, fmt.Errorf("malformed handshake ('N' length)")
 				}
 
 				// ignore peer_name value if we initiate the connection
@@ -234,14 +234,14 @@ func (dh *DistHandshake) Start(conn io.ReadWriter, tls bool, cookie string) (nod
 					// upgrade handshake to version 6 by sending complement message
 					dh.composeComplement(b, node_nodeFlags, tls)
 					if e := b.WriteDataTo(conn); e != nil {
-						return peer_Flags, e
+						return details, e
 					}
 				}
 
 				dh.composeChallengeReply(b, peer_challenge, tls, cookie)
 
 				if e := b.WriteDataTo(conn); e != nil {
-					return peer_Flags, e
+					return details, e
 				}
 
 				// add 's' (send_status message) for the case if we got it after 'n' or 'N' message
@@ -250,30 +250,30 @@ func (dh *DistHandshake) Start(conn io.ReadWriter, tls bool, cookie string) (nod
 			case 'a':
 				// 'a' + 16 (digest)
 				if len(buffer) != 17 {
-					return peer_Flags, fmt.Errorf("malformed handshake ('a' length of digest)")
+					return details, fmt.Errorf("malformed handshake ('a' length of digest)")
 				}
 
 				// 'a' + 16 (digest)
 				digest := genDigest(dh.challenge, cookie)
 				if bytes.Compare(buffer[1:17], digest) != 0 {
-					return peer_Flags, fmt.Errorf("malformed handshake ('a' digest)")
+					return details, fmt.Errorf("malformed handshake ('a' digest)")
 				}
 
 				// handshaked
-				peer_Flags = node.DefaultFlags()
-				peer_Flags.EnableFragmentation = peer_nodeFlags.isSet(flagFragments)
-				peer_Flags.EnableBigCreation = peer_nodeFlags.isSet(flagBigCreation)
-				peer_Flags.EnableHeaderAtomCache = peer_nodeFlags.isSet(flagDistHdrAtomCache)
-				peer_Flags.EnableAlias = peer_nodeFlags.isSet(flagAlias)
-				peer_Flags.EnableRemoteSpawn = peer_nodeFlags.isSet(flagSpawn)
-				peer_Flags.EnableBigPidRef = peer_nodeFlags.isSet(flagV4NC)
-				peer_Flags.EnableCompression = peer_nodeFlags.isSet(flagCompression)
-				peer_Flags.EnableProxy = peer_nodeFlags.isSet(flagProxy)
-				return peer_Flags, nil
+				details.Flags = node.DefaultFlags()
+				details.Flags.EnableFragmentation = peer_nodeFlags.isSet(flagFragments)
+				details.Flags.EnableBigCreation = peer_nodeFlags.isSet(flagBigCreation)
+				details.Flags.EnableHeaderAtomCache = peer_nodeFlags.isSet(flagDistHdrAtomCache)
+				details.Flags.EnableAlias = peer_nodeFlags.isSet(flagAlias)
+				details.Flags.EnableRemoteSpawn = peer_nodeFlags.isSet(flagSpawn)
+				details.Flags.EnableBigPidRef = peer_nodeFlags.isSet(flagV4NC)
+				details.Flags.EnableCompression = peer_nodeFlags.isSet(flagCompression)
+				details.Flags.EnableProxy = peer_nodeFlags.isSet(flagProxy)
+				return details, nil
 
 			case 's':
 				if dh.readStatus(buffer[1:]) == false {
-					return peer_Flags, fmt.Errorf("handshake negotiation failed")
+					return details, fmt.Errorf("handshake negotiation failed")
 				}
 
 				await = []byte{'n', 'N'}
@@ -285,7 +285,7 @@ func (dh *DistHandshake) Start(conn io.ReadWriter, tls bool, cookie string) (nod
 				b.Reset()
 
 			default:
-				return peer_Flags, fmt.Errorf("malformed handshake ('%c' digest)", buffer[0])
+				return details, fmt.Errorf("malformed handshake ('%c' digest)", buffer[0])
 			}
 
 		}
@@ -294,7 +294,7 @@ func (dh *DistHandshake) Start(conn io.ReadWriter, tls bool, cookie string) (nod
 
 }
 
-func (dh *DistHandshake) Accept(conn io.ReadWriter, tls bool, cookie string) (string, node.Flags, error) {
+func (dh *DistHandshake) Accept(conn io.ReadWriter, tls bool, cookie string) (node.HandshakeDetails, error) {
 	var peer_challenge uint32
 	var peer_name string
 	var peer_nodeFlags nodeFlags

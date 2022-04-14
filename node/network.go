@@ -67,6 +67,8 @@ type connectionInternal struct {
 	conn net.Conn
 	// connection interface of the network connection
 	connection ConnectionInterface
+	// creation
+	creation uint32
 	//
 	proxySessionID string
 }
@@ -971,7 +973,7 @@ func (n *network) listen(ctx context.Context, hostname string, begin uint16, end
 				}
 				lib.Log("[%s] NETWORK accepted new connection from %s", n.nodename, c.RemoteAddr().String())
 
-				peername, protoFlags, err := n.handshake.Accept(c, n.tls.Enable, n.cookie)
+				details, err := n.handshake.Accept(c, n.tls.Enable, n.cookie)
 				if err != nil {
 					lib.Log("[%s] Can't handshake with %s: %s", n.nodename, c.RemoteAddr().String(), err)
 					c.Close()
@@ -980,8 +982,8 @@ func (n *network) listen(ctx context.Context, hostname string, begin uint16, end
 				// TODO we need to detect somehow whether to enable software keepalive.
 				// Erlang nodes are required to be receiving keepalive messages,
 				// but Ergo doesn't need it.
-				protoFlags.EnableSoftwareKeepAlive = true
-				connection, err := n.proto.Init(n.ctx, c, n.nodename, peername, protoFlags)
+				details.Flags.EnableSoftwareKeepAlive = true
+				connection, err := n.proto.Init(n.ctx, c, n.nodename, details)
 				if err != nil {
 					c.Close()
 					continue
@@ -990,6 +992,7 @@ func (n *network) listen(ctx context.Context, hostname string, begin uint16, end
 				cInternal := connectionInternal{
 					conn:       c,
 					connection: connection,
+					creation:   details.Creation,
 				}
 
 				if _, err := n.registerConnection(peername, cInternal); err != nil {
@@ -1106,7 +1109,7 @@ func (n *network) connect(peername string) (ConnectionInterface, error) {
 		cookie = route.Options.Cookie
 	}
 
-	protoFlags, err := n.handshake.Start(c, enabledTLS, cookie)
+	details, err := n.handshake.Start(c, enabledTLS, cookie)
 	if err != nil {
 		c.Close()
 		return nil, err
@@ -1122,8 +1125,8 @@ func (n *network) connect(peername string) (ConnectionInterface, error) {
 	// TODO we need to detect somehow whether to enable software keepalive.
 	// Erlang nodes are required to be receiving keepalive messages,
 	// but Ergo doesn't need it.
-	protoFlags.EnableSoftwareKeepAlive = true
-	connection, err := n.proto.Init(n.ctx, c, n.nodename, peername, protoFlags)
+	details.Flags.EnableSoftwareKeepAlive = true
+	connection, err := n.proto.Init(n.ctx, c, n.nodename, details)
 	if err != nil {
 		c.Close()
 		return nil, err
@@ -1131,6 +1134,7 @@ func (n *network) connect(peername string) (ConnectionInterface, error) {
 	cInternal := connectionInternal{
 		conn:       c,
 		connection: connection,
+		creation:   details.Creation,
 	}
 
 	if registered, err := n.registerConnection(peername, cInternal); err != nil {
