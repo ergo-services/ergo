@@ -81,25 +81,25 @@ Here are the changes of latest release. For more details see the [ChangeLog](Cha
     - `Proxy`
   - includes support (over proxy connection): compression, fragmentation, linking/monitoring process, monitor node
   - example [examples/proxy](examples/proxy).
-* Introduces new behavior `gen.Raft`. It's improved implementation of [Raft consensus algorithm](https://raft.github.io). The key improvement is using quorum under the hood to manage leader election process and to make raft cluster more reliable. This implementation supports quorums of 3, 5, 7, 9 or 11 quorum members. Here is example of this feature [example/raft](example/raft).
+* Introduces new behavior `gen.Raft`. It's improved implementation of [Raft consensus algorithm](https://raft.github.io). The key improvement is using quorum under the hood to manage the leader election process and make the Raft cluster more reliable. This implementation supports quorums of 3, 5, 7, 9 or 11 quorum members. Here is example of this feature [example/raft](example/raft).
 * Other new features:
   - `gen.Process` new methods:
     - `NodeUptime()`
 	- `NodeName()`
 	- `NodeStop()`
   - `gen.ServerProcess` new method:
-    - `MessageCounter()`
+    - `MessageCounter()` shows how many messages have been handled by this process via callbacks
   - `gen.ProcessOptions` new option:
-    - `ProcessFallback` this feature allows forward messages to the fallback process if the process mailbox is full. Forwarded messages are wrapping into `gen.MessageFallback` struct.
+    - `ProcessFallback` this feature allows forward messages to the fallback process if the process mailbox is full. Forwarded messages are wrapping into `gen.MessageFallback` struct. Related to issue #96.
   - `gen.SupervisorChildSpec` and `gen.ApplicationChildSpec` got option `gen.ProcessOptions` in order customize options for the spawning child processes.
 
 * Introduced new interfaces
   - `Resolver`
   - `Handshake`
   - `Proto`/`Connection`
-* Improved handling messages. Send/Cast/Call return ErrProcessIncarnation if message is addressed to the process of previous incarnation (node restarted).
+* Improved handling messages: methods `gen.Process.Send`, `gen.ServerProcess.Cast`, `gen.ServerProcess.Call` now return `node.ErrProcessIncarnation` if message is addressed to the process of previous incarnation (remote node restarted).
 * Inroduced new type `gen.EnvKey` for the environment variables
-* All spawned processes now has `node.EnvKeyNode` variable to get access to the `node.Node` value.
+* All spawned processes now have `node.EnvKeyNode` variable to get access to the `node.Node` value.
 * **Important** `node.Options` has changed. Make sure to adjust your code.
 * Improved performance of local messaging (up to 8 times for some cases)
 * Fixed issue #89 (incorrect handling Call requests)
