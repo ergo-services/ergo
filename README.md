@@ -99,8 +99,8 @@ Here are the changes of latest release. For more details see the [ChangeLog](Cha
 * Improved sending messages: methods `gen.Process.Send`, `gen.ServerProcess.Cast`, `gen.ServerProcess.Call` now return `node.ErrProcessIncarnation` if the message is addressed to the process of the previous incarnation (remote node has been restarted).
 * Inroduced new type `gen.EnvKey` for the environment variables
 * All spawned processes now have `node.EnvKeyNode` variable to get access to the `node.Node` value.
+* **Improved performance** of local messaging (**up to 8 times** for some cases)
 * **Important** `node.Options` has changed. Make sure to adjust your code.
-* Improved performance of local messaging (up to 8 times for some cases)
 * Fixed issue #89 (incorrect handling Call requests)
 * Fixed issues #87, #88 and #93 (closing network socket)
 * Fixed issue #96 (silently drops message if mailbox is full)
