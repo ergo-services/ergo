@@ -49,7 +49,7 @@ The goal of this project is to leverage Erlang/OTP experience with Golang perfor
 * Compression support (with customization of compression level and threshold). It can be configured for the node or a particular process.
 * Proxy support with end-to-end encryption, includeing compression/fragmentation/linking/monitoring features.
 * Tested and confirmed support Windows, Darwin (MacOS), Linux, FreeBSD.
-* Zero dependency
+* Zero dependencies. All features are implemented using the standard Golang library.
 
 ### Requirements ###
 
@@ -92,11 +92,10 @@ Here are the changes of latest release. For more details see the [ChangeLog](Cha
   - `gen.ProcessOptions` new option:
     - `ProcessFallback` this feature allows forward messages to the fallback process if the process mailbox is full. Forwarded messages are wrapping into `gen.MessageFallback` struct. Related to issue #96.
   - `gen.SupervisorChildSpec` and `gen.ApplicationChildSpec` got option `gen.ProcessOptions` in order customize options for the spawning child processes.
-
-* Introduced new interfaces
-  - `Resolver`
-  - `Handshake`
-  - `Proto`/`Connection`
+* Introduced new interfaces to customize network layer
+  - `Resolver` to replace EPMD routines with your solution (e.g. ZooKeeper or any other service registrar)
+  - `Handshake` allows to customize authorization/authentication process
+  - `Proto` provides the way to implement a proprietary protocols (e.g. for IoT area)
 * Improved sending messages: methods `gen.Process.Send`, `gen.ServerProcess.Cast`, `gen.ServerProcess.Call` now return `node.ErrProcessIncarnation` if the message is addressed to the process of the previous incarnation (remote node has been restarted).
 * Inroduced new type `gen.EnvKey` for the environment variables
 * All spawned processes now have `node.EnvKeyNode` variable to get access to the `node.Node` value.
@@ -106,6 +105,7 @@ Here are the changes of latest release. For more details see the [ChangeLog](Cha
 * Fixed issues #87, #88 and #93 (closing network socket)
 * Fixed issue #96 (silently drops message if mailbox is full)
 * Updated minimal requirement of Golang version to 1.17 (go.mod)
+* We still keep the rule "Zero Dependencies"
 
 
 ### Benchmarks ###
