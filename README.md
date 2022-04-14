@@ -63,7 +63,7 @@ Golang introduced [v2 rule](https://go.dev/blog/v2-go-modules) a while ago to so
 
 Here are the changes of latest release. For more details see the [ChangeLog](ChangeLog.md)
 
-#### [v2.1.0](https://github.com/ergo-services/ergo/releases/tag/v1.999.2100) 2022-04-19 [tag version v1.999.2100] ####
+#### [v2.1.0](https://github.com/ergo-services/ergo/releases/tag/v1.999.210) 2022-04-19 [tag version v1.999.210] ####
 
 * Introduced **compression feature** support. Here are new methods and options to manage this feature:
   - `gen.Process`:
