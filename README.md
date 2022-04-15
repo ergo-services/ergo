@@ -57,7 +57,7 @@ The goal of this project is to leverage Erlang/OTP experience with Golang perfor
 
 ### Versioning ###
 
-Golang introduced [v2 rule](https://go.dev/blog/v2-go-modules) a while ago to solve complicated dependency issues. We found this solution very controversial and there is still a lot of discussion around it. So, we decided to keep the old way for the versioning, but have to use the git tag with v1 as a major version (due to "v2 rule" restrictions). Since now we use git tag pattern 1.999.XYZZ where X - major number, Y - minor, ZZ - patch version.
+Golang introduced [v2 rule](https://go.dev/blog/v2-go-modules) a while ago to solve complicated dependency issues. We found this solution very controversial and there is still a lot of discussion around it. So, we decided to keep the old way for the versioning, but have to use the git tag with v1 as a major version (due to "v2 rule" restrictions). Since now we use git tag pattern 1.999.XYZ where X - major number, Y - minor, Z - patch version.
 
 ### Changelog ###
 
@@ -72,7 +72,7 @@ Here are the changes of latest release. For more details see the [ChangeLog](Cha
     - `SetCompressionThreshold(threshold int)`, `CompressionThreshold()`
   - `node.Options`:
     - `Compression` these settings are using as defaults for the spawning processes
-  - these options will be ignored if the receiver is running on either the Erlang or Elixir node
+  - these feature will be ignored if the receiver is running on either the Erlang or Elixir node
 * Introduced **proxy feature** support **with end-to-end encryption**.
   - `node.Node` new methods:
     - `AddProxyRoute(...)`, `RemoveProxyRoute(...)`
@@ -92,10 +92,10 @@ Here are the changes of latest release. For more details see the [ChangeLog](Cha
   - `gen.Process` new methods:
     - `NodeUptime()`, `NodeName()`, `NodeStop()`
   - `gen.ServerProcess` new method:
-    - `MessageCounter()` shows how many messages have been handled by this process via callbacks
+    - `MessageCounter()` shows how many messages have been handled by this process callbacks
   - `gen.ProcessOptions` new option:
     - `ProcessFallback` this feature allows forward messages to the fallback process if the process mailbox is full. Forwarded messages are wrapping into `gen.MessageFallback` struct. Related to issue #96.
-  - `gen.SupervisorChildSpec` and `gen.ApplicationChildSpec` got option `gen.ProcessOptions` in order customize options for the spawning child processes.
+  - `gen.SupervisorChildSpec` and `gen.ApplicationChildSpec` got option `gen.ProcessOptions` to customize options for the spawning child processes.
 * Improved sending messages by etf.Pid or etf.Alias: methods `gen.Process.Send`, `gen.ServerProcess.Cast`, `gen.ServerProcess.Call` now return `node.ErrProcessIncarnation` if a message is sending to the remote process of the previous incarnation (remote node has been restarted).
 * Inroduced new type `gen.EnvKey` for the environment variables
 * All spawned processes now have `node.EnvKeyNode` variable to get access to the `node.Node` value.
