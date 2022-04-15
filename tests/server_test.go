@@ -432,7 +432,7 @@ func (gs *GSCallPanic) HandleDirect(process *gen.ServerProcess, message interfac
 	if !ok {
 		return nil, fmt.Errorf("not a pid")
 	}
-	fmt.Println("    making a call p1node1 -> p1node2 (panic): ")
+	fmt.Printf("    making a call p1node1 -> p1node2 (panic): ")
 	if _, err := process.CallWithTimeout(pids[0], "panic", 1); err == nil {
 		return nil, fmt.Errorf("must be error here")
 	} else {
@@ -539,7 +539,6 @@ func TestServerMessageOrder(t *testing.T) {
 		}
 	}
 	waitForResultWithValue(t, gs2.res, 1000)
-	fmt.Println("OK")
 
 	fmt.Printf("    making Direct call with making a call from gs2 to gs3 1 time: ")
 	_, err := node1gs2.Direct(testCase3{n: 1})
@@ -564,7 +563,6 @@ func TestServerMessageOrder(t *testing.T) {
 		}
 	}
 	waitForResultWithValue(t, gs2.res, 123)
-	fmt.Println("OK")
 	node1gs3.Exit("normal")
 	node1.Stop()
 	node1.Wait()

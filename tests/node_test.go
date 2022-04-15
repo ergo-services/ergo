@@ -934,6 +934,146 @@ func TestNodeProxyConnect(t *testing.T) {
 
 }
 
+func TestNodeIncarnation(t *testing.T) {
+	fmt.Printf("\n=== Test Node Incarnation\n")
+	fmt.Printf("... start nodes: ")
+	optsA := node.Options{}
+	nodeA, e := ergo.StartNode("nodeAincarnation@localhost", "secret", optsA)
+	if e != nil {
+		t.Fatal(e)
+	}
+	route := node.ProxyRoute{
+		Proxy: "nodeBincarnation@localhost",
+	}
+	nodeA.AddProxyRoute("nodeCincarnation@localhost", route)
+	// add sleep to get Creation different value for the next node
+	time.Sleep(time.Second)
+	optsB := node.Options{}
+	optsB.Proxy.Transit = true
+	nodeB, e := ergo.StartNode("nodeBincarnation@localhost", "secret", optsB)
+	if e != nil {
+		t.Fatal(e)
+	}
+	time.Sleep(time.Second)
+	optsC := node.Options{}
+	nodeC, e := ergo.StartNode("nodeCincarnation@localhost", "secret", optsC)
+	if e != nil {
+		t.Fatal(e)
+	}
+
+	if err := nodeA.Connect("nodeCincarnation@localhost"); err != nil {
+		t.Fatal(err)
+	}
+
+	indirectNodes := nodeA.NodesIndirect()
+	if len(indirectNodes) != 1 {
+		t.Fatal("wrong result:", indirectNodes)
+	}
+	if indirectNodes[0] != "nodeCincarnation@localhost" {
+		t.Fatal("wrong result:", indirectNodes)
+	}
+	indirectNodes = nodeC.NodesIndirect()
+	if len(indirectNodes) != 1 {
+		t.Fatal("wrong result:", indirectNodes)
+	}
+	if indirectNodes[0] != "nodeAincarnation@localhost" {
+		t.Fatal("wrong result:", indirectNodes)
+	}
+	if len(nodeB.NodesIndirect()) > 0 {
+		t.Fatal("wrong result:", nodeB.NodesIndirect())
+	}
+	fmt.Println("OK")
+
+	// use gen serv from test_monitor
+	gsA := &testMonitor{
+		v: make(chan interface{}, 2),
+	}
+	gsB := &testMonitor{
+		v: make(chan interface{}, 2),
+	}
+	gsC := &testMonitor{
+		v: make(chan interface{}, 2),
+	}
+	fmt.Printf("... start processA on NodeA: ")
+	pA, err := nodeA.Spawn("", gen.ProcessOptions{}, gsA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitForResultWithValue(t, gsA.v, pA.Self())
+
+	fmt.Printf("... start processB on NodeB: ")
+	pB, err := nodeB.Spawn("", gen.ProcessOptions{}, gsB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitForResultWithValue(t, gsB.v, pB.Self())
+
+	fmt.Printf("... start processC on NodeC: ")
+	pC, err := nodeC.Spawn("", gen.ProcessOptions{}, gsC)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitForResultWithValue(t, gsC.v, pC.Self())
+
+	pidC := pC.Self()
+
+	fmt.Printf("... processA send a message to processC (via proxy): ")
+	if e := pA.Send(pidC, "test"); e != nil {
+		t.Fatal(e)
+	}
+	waitForResultWithValue(t, gsC.v, "test")
+	fmt.Printf("... processB send short message to processC: ")
+	if e := pB.Send(pidC, "test"); e != nil {
+		t.Fatal(e)
+	}
+	waitForResultWithValue(t, gsC.v, "test")
+	fmt.Printf("... restart nodeC and processC: ")
+	nodeC.Stop()
+	nodeC.Wait()
+	nodeC, e = ergo.StartNode("nodeCincarnation@localhost", "secret", optsC)
+	if e != nil {
+		t.Fatal(e)
+	}
+
+	if err := nodeA.Connect("nodeCincarnation@localhost"); err != nil {
+		t.Fatal(err)
+	}
+	pC, err = nodeC.Spawn("", gen.ProcessOptions{}, gsC)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitForResultWithValue(t, gsC.v, pC.Self())
+
+	fmt.Printf("... processA send a message to previous incarnation of processC (via proxy): ")
+	if e := pA.Send(pidC, "test"); e != node.ErrProcessIncarnation {
+		t.Fatal("must be ErrProcessIncarnation here", e)
+	}
+	fmt.Println("OK")
+	fmt.Printf("... processB send short message to previous incarnation of processC: ")
+	if e := pB.Send(pidC, "test"); e != node.ErrProcessIncarnation {
+		t.Fatal(e)
+	}
+	fmt.Println("OK")
+
+	indirectNodes = nodeA.NodesIndirect()
+	if len(indirectNodes) != 1 {
+		t.Fatal("wrong result:", indirectNodes)
+	}
+	if indirectNodes[0] != "nodeCincarnation@localhost" {
+		t.Fatal("wrong result:", indirectNodes)
+	}
+	indirectNodes = nodeC.NodesIndirect()
+	if len(indirectNodes) != 1 {
+		t.Fatal("wrong result:", indirectNodes)
+	}
+	if indirectNodes[0] != "nodeAincarnation@localhost" {
+		t.Fatal("wrong result:", indirectNodes)
+	}
+	if len(nodeB.NodesIndirect()) > 0 {
+		t.Fatal("wrong result:", nodeB.NodesIndirect())
+	}
+}
+
 func BenchmarkNodeCompressionDisabled1MBempty(b *testing.B) {
 	node1name := fmt.Sprintf("nodeB1compressionDis_%d@localhost", b.N)
 	node2name := fmt.Sprintf("nodeB2compressionDis_%d@localhost", b.N)
