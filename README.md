@@ -69,10 +69,10 @@ Here are the changes of latest release. For more details see the [ChangeLog](Cha
   - `gen.Process`:
     - `SetCompression(enable bool)`, `Compression() bool`
     - `SetCompressionLevel(level int)`, `CompressionLevel() int`
-    - `SetCompressionThreshold(threshold int)`, `CompressionThreshold()`
+    - `SetCompressionThreshold(threshold int)`, `CompressionThreshold() int`
   - `node.Options`:
     - `Compression` these settings are using as defaults for the spawning processes
-  - these feature will be ignored if the receiver is running on either the Erlang or Elixir node
+  - this feature will be ignored if the receiver is running on either the Erlang or Elixir node
 * Introduced **proxy feature** support **with end-to-end encryption**.
   - `node.Node` new methods:
     - `AddProxyRoute(...)`, `RemoveProxyRoute(...)`
@@ -80,11 +80,11 @@ Here are the changes of latest release. For more details see the [ChangeLog](Cha
     - `NodesIndirect()` returns list of connected nodes via proxy connection
   - `node.Options`:
     - `Proxy` for configuring proxy settings
-  - includes support (over proxy connection): compression, fragmentation, linking/monitoring process, monitor node
+  - includes support (over proxy connection): compression, fragmentation, link/monitor process, monitor node
   - example [examples/proxy](examples/proxy).
   - this feature is not available for the Erlang/Elixir nodes
-* Introduced **new behavior `gen.Raft`**. It's improved implementation of [Raft consensus algorithm](https://raft.github.io). The key improvement is using quorum under the hood to manage the leader election process and make the Raft cluster more reliable. This implementation supports quorums of 3, 5, 7, 9, or 11 quorum members. Here is the example of this feature [example/raft](example/raft).
-* Introduced new **interfaces to customize network layer**
+* Introduced **behavior `gen.Raft`**. It's improved implementation of [Raft consensus algorithm](https://raft.github.io). The key improvement is using quorum under the hood to manage the leader election process and make the Raft cluster more reliable. This implementation supports quorums of 3, 5, 7, 9, or 11 quorum members. Here is the example of this feature [example/raft](example/raft).
+* Introduced **interfaces to customize network layer**
   - `Resolver` to replace EPMD routines with your solution (e.g. ZooKeeper or any other service registrar)
   - `Handshake` allows customizing authorization/authentication process
   - `Proto` provides the way to implement proprietary protocols (e.g. for IoT area)
