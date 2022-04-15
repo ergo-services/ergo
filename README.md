@@ -69,7 +69,7 @@ Here are the changes of latest release. For more details see the [ChangeLog](Cha
   - `gen.Process`:
     - `SetCompression(enable bool)`, `Compression() bool`
     - `SetCompressionLevel(level int)`, `CompressionLevel() int`
-    - `SetCompressionThreshold(threshold int)`, `CompressionThreshold() int`
+    - `SetCompressionThreshold(threshold int)`, `CompressionThreshold() int` messages smaller than the threshold will be sent with no compression. Default compression threshold is 1024 bytes.
   - `node.Options`:
     - `Compression` these settings are using as defaults for the spawning processes
   - this feature will be ignored if the receiver is running on either the Erlang or Elixir node
