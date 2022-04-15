@@ -92,7 +92,7 @@ Here are the changes of latest release. For more details see the [ChangeLog](Cha
   - `gen.Process` new methods:
     - `NodeUptime()`, `NodeName()`, `NodeStop()`
   - `gen.ServerProcess` new method:
-    - `MessageCounter()` shows how many messages have been handled by this process callbacks
+    - `MessageCounter()` shows how many messages have been handled by the `gen.Server` callbacks
   - `gen.ProcessOptions` new option:
     - `ProcessFallback` this feature allows forward messages to the fallback process if the process mailbox is full. Forwarded messages are wrapping into `gen.MessageFallback` struct. Related to issue #96.
   - `gen.SupervisorChildSpec` and `gen.ApplicationChildSpec` got option `gen.ProcessOptions` to customize options for the spawning child processes.
