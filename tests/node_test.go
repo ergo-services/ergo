@@ -888,7 +888,9 @@ func TestNodeProxyConnect(t *testing.T) {
 	waitForResultWithValue(t, gsD.v, pD.Self())
 
 	fmt.Printf("... processA send short message to processC: ")
-	pA.Send(pC.Self(), "test")
+	if e := pA.Send(pC.Self(), "test"); e != nil {
+		t.Fatal(e)
+	}
 	waitForResultWithValue(t, gsC.v, "test")
 
 	fmt.Printf("... processA send short message to processD (encrypted): ")

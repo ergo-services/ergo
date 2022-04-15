@@ -95,6 +95,8 @@ type distConnection struct {
 	// peer flags
 	flags node.Flags
 
+	creation uint32
+
 	// socket
 	conn          io.ReadWriter
 	cancelContext context.CancelFunc
@@ -173,11 +175,12 @@ type receivers struct {
 	i    int32
 }
 
-func (dp *distProto) Init(ctx context.Context, conn io.ReadWriter, nodename string, peername string, flags node.Flags) (node.ConnectionInterface, error) {
+func (dp *distProto) Init(ctx context.Context, conn io.ReadWriter, nodename string, details node.HandshakeDetails) (node.ConnectionInterface, error) {
 	connection := &distConnection{
 		nodename:                nodename,
-		peername:                peername,
-		flags:                   flags,
+		peername:                details.Name,
+		flags:                   details.Flags,
+		creation:                details.Creation,
 		conn:                    conn,
 		cache:                   etf.NewAtomCache(),
 		proxySessionsByID:       make(map[string]proxySession),
@@ -189,7 +192,7 @@ func (dp *distProto) Init(ctx context.Context, conn io.ReadWriter, nodename stri
 	connection.ctx, connection.cancelContext = context.WithCancel(ctx)
 
 	// create connection buffering
-	connection.flusher = newLinkFlusher(conn, defaultLatency, flags.EnableSoftwareKeepAlive)
+	connection.flusher = newLinkFlusher(conn, defaultLatency, details.Flags.EnableSoftwareKeepAlive)
 
 	// do not use shared channels within intencive code parts, impacts on a performance
 	connection.receivers = receivers{
@@ -316,7 +319,7 @@ func (dc *distConnection) Send(from gen.Process, to etf.Pid, message etf.Term) e
 	msg.compressionLevel = from.CompressionLevel()
 	msg.compressionThreshold = from.CompressionThreshold()
 
-	return dc.send(string(to.Node), msg)
+	return dc.send(string(to.Node), to.Creation, msg)
 }
 func (dc *distConnection) SendReg(from gen.Process, to gen.ProcessID, message etf.Term) error {
 	msg := sendMessages.Get().(*sendMessage)
@@ -326,7 +329,7 @@ func (dc *distConnection) SendReg(from gen.Process, to gen.ProcessID, message et
 	msg.compression = from.Compression()
 	msg.compressionLevel = from.CompressionLevel()
 	msg.compressionThreshold = from.CompressionThreshold()
-	return dc.send(to.Node, msg)
+	return dc.send(to.Node, 0, msg)
 }
 func (dc *distConnection) SendAlias(from gen.Process, to etf.Alias, message etf.Term) error {
 	if dc.flags.EnableAlias == false {
@@ -341,7 +344,7 @@ func (dc *distConnection) SendAlias(from gen.Process, to etf.Alias, message etf.
 	msg.compressionLevel = from.CompressionLevel()
 	msg.compressionThreshold = from.CompressionThreshold()
 
-	return dc.send(string(to.Node), msg)
+	return dc.send(string(to.Node), to.Creation, msg)
 }
 
 func (dc *distConnection) Link(local etf.Pid, remote etf.Pid) error {
@@ -354,7 +357,7 @@ func (dc *distConnection) Link(local etf.Pid, remote etf.Pid) error {
 	msg := &sendMessage{
 		control: etf.Tuple{distProtoLINK, local, remote},
 	}
-	return dc.send(string(remote.Node), msg)
+	return dc.send(string(remote.Node), remote.Creation, msg)
 }
 func (dc *distConnection) Unlink(local etf.Pid, remote etf.Pid) error {
 	dc.proxySessionsMutex.RLock()
@@ -366,13 +369,13 @@ func (dc *distConnection) Unlink(local etf.Pid, remote etf.Pid) error {
 	msg := &sendMessage{
 		control: etf.Tuple{distProtoUNLINK, local, remote},
 	}
-	return dc.send(string(remote.Node), msg)
+	return dc.send(string(remote.Node), remote.Creation, msg)
 }
 func (dc *distConnection) LinkExit(to etf.Pid, terminated etf.Pid, reason string) error {
 	msg := &sendMessage{
 		control: etf.Tuple{distProtoEXIT, terminated, to, etf.Atom(reason)},
 	}
-	return dc.send(string(to.Node), msg)
+	return dc.send(string(to.Node), 0, msg)
 }
 
 func (dc *distConnection) Monitor(local etf.Pid, remote etf.Pid, ref etf.Ref) error {
@@ -385,7 +388,7 @@ func (dc *distConnection) Monitor(local etf.Pid, remote etf.Pid, ref etf.Ref) er
 	msg := &sendMessage{
 		control: etf.Tuple{distProtoMONITOR, local, remote, ref},
 	}
-	return dc.send(string(remote.Node), msg)
+	return dc.send(string(remote.Node), remote.Creation, msg)
 }
 func (dc *distConnection) MonitorReg(local etf.Pid, remote gen.ProcessID, ref etf.Ref) error {
 	dc.proxySessionsMutex.RLock()
@@ -397,7 +400,7 @@ func (dc *distConnection) MonitorReg(local etf.Pid, remote gen.ProcessID, ref et
 	msg := &sendMessage{
 		control: etf.Tuple{distProtoMONITOR, local, etf.Atom(remote.Name), ref},
 	}
-	return dc.send(remote.Node, msg)
+	return dc.send(remote.Node, 0, msg)
 }
 func (dc *distConnection) Demonitor(local etf.Pid, remote etf.Pid, ref etf.Ref) error {
 	dc.proxySessionsMutex.RLock()
@@ -409,7 +412,7 @@ func (dc *distConnection) Demonitor(local etf.Pid, remote etf.Pid, ref etf.Ref) 
 	msg := &sendMessage{
 		control: etf.Tuple{distProtoDEMONITOR, local, remote, ref},
 	}
-	return dc.send(string(remote.Node), msg)
+	return dc.send(string(remote.Node), remote.Creation, msg)
 }
 func (dc *distConnection) DemonitorReg(local etf.Pid, remote gen.ProcessID, ref etf.Ref) error {
 	dc.proxySessionsMutex.RLock()
@@ -421,19 +424,19 @@ func (dc *distConnection) DemonitorReg(local etf.Pid, remote gen.ProcessID, ref 
 	msg := &sendMessage{
 		control: etf.Tuple{distProtoDEMONITOR, local, etf.Atom(remote.Name), ref},
 	}
-	return dc.send(remote.Node, msg)
+	return dc.send(remote.Node, 0, msg)
 }
 func (dc *distConnection) MonitorExitReg(to etf.Pid, terminated gen.ProcessID, reason string, ref etf.Ref) error {
 	msg := &sendMessage{
 		control: etf.Tuple{distProtoMONITOR_EXIT, etf.Atom(terminated.Name), to, ref, etf.Atom(reason)},
 	}
-	return dc.send(string(to.Node), msg)
+	return dc.send(string(to.Node), to.Creation, msg)
 }
 func (dc *distConnection) MonitorExit(to etf.Pid, terminated etf.Pid, reason string, ref etf.Ref) error {
 	msg := &sendMessage{
 		control: etf.Tuple{distProtoMONITOR_EXIT, terminated, to, ref, etf.Atom(reason)},
 	}
-	return dc.send(string(to.Node), msg)
+	return dc.send(string(to.Node), to.Creation, msg)
 }
 
 func (dc *distConnection) SpawnRequest(nodeName string, behaviorName string, request gen.RemoteSpawnRequest, args ...etf.Term) error {
@@ -463,21 +466,21 @@ func (dc *distConnection) SpawnRequest(nodeName string, behaviorName string, req
 		},
 		payload: args,
 	}
-	return dc.send(nodeName, msg)
+	return dc.send(nodeName, 0, msg)
 }
 
 func (dc *distConnection) SpawnReply(to etf.Pid, ref etf.Ref, pid etf.Pid) error {
 	msg := &sendMessage{
 		control: etf.Tuple{distProtoSPAWN_REPLY, ref, to, 0, pid},
 	}
-	return dc.send(string(to.Node), msg)
+	return dc.send(string(to.Node), to.Creation, msg)
 }
 
 func (dc *distConnection) SpawnReplyError(to etf.Pid, ref etf.Ref, err error) error {
 	msg := &sendMessage{
 		control: etf.Tuple{distProtoSPAWN_REPLY, ref, to, 0, etf.Atom(err.Error())},
 	}
-	return dc.send(string(to.Node), msg)
+	return dc.send(string(to.Node), to.Creation, msg)
 }
 
 func (dc *distConnection) ProxyConnectRequest(request node.ProxyConnectRequest) error {
@@ -497,11 +500,12 @@ func (dc *distConnection) ProxyConnectRequest(request node.ProxyConnectRequest) 
 			request.Digest,       //
 			request.PublicKey,    // public key for the sending symmetric key
 			proxyFlagsToUint64(request.Flags),
+			request.Creation,
 			request.Hop,
 			path,
 		},
 	}
-	return dc.send(dc.peername, msg)
+	return dc.send(dc.peername, 0, msg)
 }
 
 func (dc *distConnection) ProxyConnectReply(reply node.ProxyConnectReply) error {
@@ -521,12 +525,13 @@ func (dc *distConnection) ProxyConnectReply(reply node.ProxyConnectReply) error 
 			reply.Digest,       //
 			reply.Cipher,       //
 			proxyFlagsToUint64(reply.Flags),
+			reply.Creation,
 			reply.SessionID,
 			path,
 		},
 	}
 
-	return dc.send(dc.peername, msg)
+	return dc.send(dc.peername, 0, msg)
 }
 
 func (dc *distConnection) ProxyConnectCancel(err node.ProxyConnectCancel) error {
@@ -548,7 +553,7 @@ func (dc *distConnection) ProxyConnectCancel(err node.ProxyConnectCancel) error 
 		},
 	}
 
-	return dc.send(dc.peername, msg)
+	return dc.send(dc.peername, 0, msg)
 }
 
 func (dc *distConnection) ProxyDisconnect(disconnect node.ProxyDisconnect) error {
@@ -565,7 +570,7 @@ func (dc *distConnection) ProxyDisconnect(disconnect node.ProxyDisconnect) error
 		},
 	}
 
-	return dc.send(dc.peername, msg)
+	return dc.send(dc.peername, 0, msg)
 }
 
 func (dc *distConnection) ProxyRegisterSession(session node.ProxySession) error {
@@ -609,7 +614,7 @@ func (dc *distConnection) ProxyPacket(packet *lib.Buffer) error {
 	msg := &sendMessage{
 		packet: packet,
 	}
-	return dc.send(dc.peername, msg)
+	return dc.send(dc.peername, 0, msg)
 }
 
 //
@@ -1299,10 +1304,11 @@ func (dc *distConnection) handleMessage(message *distMessage) (err error) {
 					Digest:    t.Element(4).([]byte),
 					PublicKey: t.Element(5).([]byte),
 					// FIXME it will be int64 after using more than 32 flags
-					Flags: proxyFlagsFromUint64(uint64(t.Element(6).(int))),
-					Hop:   t.Element(7).(int),
+					Flags:    proxyFlagsFromUint64(uint64(t.Element(6).(int))),
+					Creation: uint32(t.Element(7).(int64)),
+					Hop:      t.Element(8).(int),
 				}
-				for _, p := range t.Element(8).(etf.List) {
+				for _, p := range t.Element(9).(etf.List) {
 					request.Path = append(request.Path, string(p.(etf.Atom)))
 				}
 				if err := dc.router.RouteProxyConnectRequest(dc, request); err != nil {
@@ -1326,9 +1332,10 @@ func (dc *distConnection) handleMessage(message *distMessage) (err error) {
 					Cipher: t.Element(5).([]byte),
 					// FIXME it will be int64 after using more than 32 flags
 					Flags:     proxyFlagsFromUint64(uint64(t.Element(6).(int))),
-					SessionID: t.Element(7).(string),
+					Creation:  uint32(t.Element(7).(int64)),
+					SessionID: t.Element(8).(string),
 				}
-				for _, p := range t.Element(8).(etf.List) {
+				for _, p := range t.Element(9).(etf.List) {
 					connectReply.Path = append(connectReply.Path, string(p.(etf.Atom)))
 				}
 				if err := dc.router.RouteProxyConnectReply(dc, connectReply); err != nil {
@@ -2105,7 +2112,7 @@ func (dc *distConnection) sender(sender_id int, send <-chan *sendMessage, option
 
 }
 
-func (dc *distConnection) send(to string, msg *sendMessage) error {
+func (dc *distConnection) send(to string, creation uint32, msg *sendMessage) error {
 	i := atomic.AddInt32(&dc.senders.i, 1)
 	n := i % dc.senders.n
 	s := dc.senders.sender[n]
@@ -2116,13 +2123,19 @@ func (dc *distConnection) send(to string, msg *sendMessage) error {
 	dc.proxySessionsMutex.RLock()
 	ps, isProxy := dc.proxySessionsByPeerName[to]
 	dc.proxySessionsMutex.RUnlock()
+	peer_creation := dc.creation
 	if isProxy {
 		msg.proxy = &ps
+		peer_creation = ps.session.Creation
 	} else {
 		// its direct sending, so have to make sure if this peer does support compression
 		if dc.flags.EnableCompression == false {
 			msg.compression = false
 		}
+	}
+
+	if creation > 0 && creation != peer_creation {
+		return node.ErrProcessIncarnation
 	}
 
 	// TODO to decide whether to return error if channel is full

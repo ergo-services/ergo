@@ -133,14 +133,14 @@ type Process interface {
 
 	// SetCompressionLevel defines compression level. Value must be in range:
 	// 1 (best speed) ... 9 (best compression), or -1 for the default compression level
-	SetCompressionLevel(level int)
+	SetCompressionLevel(level int) bool
 
 	// CompressionThreshold returns compression threshold for the process
 	CompressionThreshold() int
 
 	// SetCompressionThreshold defines the minimal size for the message that must be compressed
 	// Value must be greater than DefaultCompressionThreshold (1024)
-	SetCompressionThreshold(threshold int)
+	SetCompressionThreshold(threshold int) bool
 
 	// MonitorNode creates monitor between the current process and node. If Node fails or does not exist,
 	// the message MessageNodeDown is delivered to the process.

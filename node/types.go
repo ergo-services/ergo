@@ -336,6 +336,8 @@ type ConnectionInterface interface {
 	ProxyRegisterSession(session ProxySession) error
 	ProxyUnregisterSession(id string) error
 	ProxyPacket(packet *lib.Buffer) error
+
+	Creation() uint32
 }
 
 // Handshake template struct for the custom Handshake implementation
@@ -363,6 +365,7 @@ type HandshakeDetails struct {
 	Name     string
 	Flags    Flags
 	Creation uint32
+	Version  int
 	Custom   HandshakeCustomDetails
 }
 
@@ -487,6 +490,7 @@ type ProxyConnectRequest struct {
 	Digest    []byte // md5(md5(md5(md5(Node)+Cookie)+To)+PublicKey)
 	PublicKey []byte
 	Flags     ProxyFlags
+	Creation  uint32
 	Hop       int
 	Path      []string
 }
@@ -498,6 +502,7 @@ type ProxyConnectReply struct {
 	Digest    []byte // md5(md5(md5(md5(Node)+Cookie)+To)+symmetric key)
 	Cipher    []byte // encrypted symmetric key using PublicKey from the ProxyConnectRequest
 	Flags     ProxyFlags
+	Creation  uint32
 	SessionID string // proxy session ID
 	Path      []string
 }
@@ -523,6 +528,7 @@ type ProxySession struct {
 	ID        string
 	NodeFlags ProxyFlags
 	PeerFlags ProxyFlags
+	Creation  uint32
 	PeerName  string
 	Block     cipher.Block // made from symmetric key
 }

@@ -403,13 +403,12 @@ func (p *process) CompressionLevel() int {
 }
 
 // SetCompressionLevel
-func (p *process) SetCompressionLevel(level int) {
+func (p *process) SetCompressionLevel(level int) bool {
 	if level < 1 || level > 9 {
-		p.compression.Level = DefaultCompressionLevel
-		return
+		return false
 	}
-
 	p.compression.Level = level
+	return true
 }
 
 // CompressionThreshold
@@ -418,13 +417,12 @@ func (p *process) CompressionThreshold() int {
 }
 
 // SetCompressionThreshold
-func (p *process) SetCompressionThreshold(threshold int) {
+func (p *process) SetCompressionThreshold(threshold int) bool {
 	if threshold < DefaultCompressionThreshold {
-		p.compression.Threshold = DefaultCompressionThreshold
-		return
+		return false
 	}
-
 	p.compression.Threshold = threshold
+	return true
 }
 
 // Behavior

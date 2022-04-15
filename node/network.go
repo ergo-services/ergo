@@ -67,8 +67,6 @@ type connectionInternal struct {
 	conn net.Conn
 	// connection interface of the network connection
 	connection ConnectionInterface
-	// creation
-	creation uint32
 	//
 	proxySessionID string
 }
@@ -311,8 +309,9 @@ func (n *network) getConnection(peername string) (ConnectionInterface, error) {
 
 	// try to connect via proxy if there ProxyRoute was presented for this peer
 	request := ProxyConnectRequest{
-		ID: n.router.MakeRef(),
-		To: peername,
+		ID:       n.router.MakeRef(),
+		To:       peername,
+		Creation: n.creation,
 	}
 
 	if err := n.RouteProxyConnectRequest(nil, request); err != nil {
@@ -502,6 +501,7 @@ func (n *network) RouteProxyConnectRequest(from ConnectionInterface, request Pro
 		if request.Hop < 1 {
 			request.Hop = DefaultProxyMaxHop
 		}
+		request.Creation = n.creation
 		connectRequest := proxyConnectRequest{
 			privateKey: privKey,
 			request:    request,
@@ -588,6 +588,7 @@ func (n *network) RouteProxyConnectRequest(from ConnectionInterface, request Pro
 		Digest:    digest,
 		Cipher:    cipherkey,
 		Flags:     flags,
+		Creation:  n.creation,
 		SessionID: sessionID,
 		Path:      request.Path[1:],
 	}
@@ -604,6 +605,7 @@ func (n *network) RouteProxyConnectRequest(from ConnectionInterface, request Pro
 		NodeFlags: reply.Flags,
 		PeerFlags: request.Flags,
 		PeerName:  peername,
+		Creation:  request.Creation,
 		Block:     block,
 	}
 
@@ -739,6 +741,7 @@ func (n *network) RouteProxyConnectReply(from ConnectionInterface, reply ProxyCo
 		NodeFlags: r.request.Flags,
 		PeerFlags: reply.Flags,
 		PeerName:  r.request.To,
+		Creation:  reply.Creation,
 		Block:     block,
 	}
 
@@ -992,10 +995,9 @@ func (n *network) listen(ctx context.Context, hostname string, begin uint16, end
 				cInternal := connectionInternal{
 					conn:       c,
 					connection: connection,
-					creation:   details.Creation,
 				}
 
-				if _, err := n.registerConnection(peername, cInternal); err != nil {
+				if _, err := n.registerConnection(details.Name, cInternal); err != nil {
 					// Race condition:
 					// There must be another goroutine which already created and registered
 					// connection to this node.
@@ -1007,7 +1009,7 @@ func (n *network) listen(ctx context.Context, hostname string, begin uint16, end
 				// run serving connection
 				go func(ctx context.Context, ci connectionInternal) {
 					n.proto.Serve(ci.connection, n.router)
-					n.unregisterConnection(peername, nil)
+					n.unregisterConnection(details.Name, nil)
 					n.proto.Terminate(ci.connection)
 					ci.conn.Close()
 				}(ctx, cInternal)
@@ -1023,15 +1025,15 @@ func (n *network) listen(ctx context.Context, hostname string, begin uint16, end
 	return 0, fmt.Errorf("Can't start listener. Port range is taken")
 }
 
-func (n *network) connect(peername string) (ConnectionInterface, error) {
+func (n *network) connect(node string) (ConnectionInterface, error) {
 	var route Route
 	var c net.Conn
 	var err error
 	var enabledTLS bool
-	lib.Log("[%s] NETWORK trying to connect to %#v", n.nodename, peername)
+	lib.Log("[%s] NETWORK trying to connect to %#v", n.nodename, node)
 
 	// resolve the route
-	route, err = n.Resolve(peername)
+	route, err = n.Resolve(node)
 	if err != nil {
 		return nil, err
 	}
@@ -1114,6 +1116,11 @@ func (n *network) connect(peername string) (ConnectionInterface, error) {
 		c.Close()
 		return nil, err
 	}
+	if details.Name != node {
+		err := fmt.Errorf("node %q introduced itself as %q", node, details.Name)
+		lib.Warning("%s", err)
+		return nil, err
+	}
 
 	// proto
 	proto := route.Options.Proto
@@ -1134,10 +1141,9 @@ func (n *network) connect(peername string) (ConnectionInterface, error) {
 	cInternal := connectionInternal{
 		conn:       c,
 		connection: connection,
-		creation:   details.Creation,
 	}
 
-	if registered, err := n.registerConnection(peername, cInternal); err != nil {
+	if registered, err := n.registerConnection(details.Name, cInternal); err != nil {
 		// Race condition:
 		// There must be another goroutine which already created and registered
 		// connection to this node.
@@ -1152,7 +1158,7 @@ func (n *network) connect(peername string) (ConnectionInterface, error) {
 	// run serving connection
 	go func(ctx context.Context, ci connectionInternal) {
 		n.proto.Serve(ci.connection, n.router)
-		n.unregisterConnection(peername, nil)
+		n.unregisterConnection(details.Name, nil)
 		n.proto.Terminate(ci.connection)
 		ci.conn.Close()
 	}(n.ctx, cInternal)
