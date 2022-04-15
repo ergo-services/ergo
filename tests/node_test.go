@@ -947,15 +947,15 @@ func TestNodeIncarnation(t *testing.T) {
 	}
 	nodeA.AddProxyRoute("nodeCincarnation@localhost", route)
 	// add sleep to get Creation different value for the next node
-	time.Sleep(time.Second)
 	optsB := node.Options{}
 	optsB.Proxy.Transit = true
 	nodeB, e := ergo.StartNode("nodeBincarnation@localhost", "secret", optsB)
 	if e != nil {
 		t.Fatal(e)
 	}
-	time.Sleep(time.Second)
-	optsC := node.Options{}
+	optsC := node.Options{
+		Creation: 1234,
+	}
 	nodeC, e := ergo.StartNode("nodeCincarnation@localhost", "secret", optsC)
 	if e != nil {
 		t.Fatal(e)
@@ -1030,6 +1030,8 @@ func TestNodeIncarnation(t *testing.T) {
 	fmt.Printf("... restart nodeC and processC: ")
 	nodeC.Stop()
 	nodeC.Wait()
+
+	optsC.Creation = 12345
 	nodeC, e = ergo.StartNode("nodeCincarnation@localhost", "secret", optsC)
 	if e != nil {
 		t.Fatal(e)

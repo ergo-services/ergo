@@ -2136,7 +2136,7 @@ func (dc *distConnection) send(to string, creation uint32, msg *sendMessage) err
 
 	// if this peer is Erlang OTP 22 (and earlier), peer_creation is always 0, so we
 	// must skip this checking.
-	if peer_creation > 0 && peer_creation != creation {
+	if creation > 0 && peer_creation > 0 && peer_creation != creation {
 		return node.ErrProcessIncarnation
 	}
 
