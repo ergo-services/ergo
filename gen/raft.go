@@ -999,7 +999,7 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 
 		if elected.Round != rp.election.round {
 			// round value must be the same. seemd another election is started
-			lib.Warning("[%s] ignore election result from %s with another round value %s (current election round %s)", rp.Self(), m.Pid, elected.Round, rp.election.round)
+			lib.Warning("[%s] ignore election result from %s with another round value %d (current election round %d)", rp.Self(), m.Pid, elected.Round, rp.election.round)
 			if elected.Round > rp.round {
 				// update round value to the greatest one
 				rp.round = elected.Round
@@ -1692,7 +1692,6 @@ func (rp *RaftProcess) quorumChange() RaftStatus {
 	quorumCandidates = append(quorumCandidates, rp.Self())
 	candidates := rp.quorumCandidates.List()
 	quorumCandidates = append(quorumCandidates, candidates[:l]...)
-	//DBGQUO
 	// QUODBG fmt.Println(rp.Name(), "QUO VOTE INIT", candidateRaftQuorumState, quorumCandidates)
 
 	// send quorumVote to all candidates (except itself)

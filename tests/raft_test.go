@@ -48,32 +48,42 @@ type testRaft struct {
 	peers  []gen.ProcessID
 	serial uint64
 	qstate gen.RaftQuorumState
-	res    chan *gen.RaftProcess
+	p      chan *gen.RaftProcess
+	q      chan *gen.RaftQuorum
+	l      chan *gen.RaftLeader
 }
 
 func (tr *testRaft) InitRaft(process *gen.RaftProcess, args ...etf.Term) (gen.RaftOptions, error) {
 	var options gen.RaftOptions
 	options.Peers = tr.peers
 	options.Serial = tr.serial
-	tr.res <- process
+	tr.p <- process
 
 	return options, gen.RaftStatusOK
 }
 
 func (tr *testRaft) HandleQuorum(process *gen.RaftProcess, quorum *gen.RaftQuorum) gen.RaftStatus {
-	//fmt.Println(process.Self(), "QQQ", quorum)
+	fmt.Println(process.Self(), "QQQ", quorum)
+	if quorum != nil {
+		tr.q <- quorum
+	}
 	return gen.RaftStatusOK
 }
 
 func (tr *testRaft) HandleLeader(process *gen.RaftProcess, leader *gen.RaftLeader) gen.RaftStatus {
-	//fmt.Println(process.Self(), "LLL", leader)
-	if leader != nil && leader.Leader == process.Self() {
-		// leader elected
-		if process.Quorum().State == tr.qstate {
-			tr.res <- nil
-		}
-
+	fmt.Println(process.Self(), "LLL", leader)
+	// leader elected within a quorum
+	q := process.Quorum()
+	if q == nil {
+		return gen.RaftStatusOK
 	}
+	if leader != nil && q.State == tr.qstate {
+		fmt.Println(process.Self(), "LLL1")
+		tr.l <- leader
+	} else {
+		fmt.Println(process.Self(), "LLL2")
+	}
+
 	return gen.RaftStatusOK
 }
 
@@ -160,13 +170,17 @@ func startRaftCluster(n int, state gen.RaftQuorumState) ([]node.Node, []*gen.Raf
 	}
 
 	processes := make([]gen.Process, n)
-	result := make(chan *gen.RaftProcess, 1000)
+	resultP := make(chan *gen.RaftProcess, 1000)
+	resultQ := make(chan *gen.RaftQuorum, 1000)
+	resultL := make(chan *gen.RaftLeader, 1000)
 	leaderSerial := uint64(0)
 	var peer gen.ProcessID
 	for i := range processes {
 		name := fmt.Sprintf("raft%02d", i+1)
 		tr := &testRaft{
-			res:    result,
+			p:      resultP,
+			q:      resultQ,
+			l:      resultL,
 			serial: uint64(rand.Intn(10)),
 			qstate: state,
 		}
@@ -186,12 +200,15 @@ func startRaftCluster(n int, state gen.RaftQuorumState) ([]node.Node, []*gen.Raf
 	}
 
 	rafts := []*gen.RaftProcess{}
+	// how many results with 'leader' should be awaiting
+	resultsL := 0
+	// how many results with 'quorum' should be awaiting
+	resultsQ := 0
 wait:
 	select {
-	case r := <-result:
-		if r != nil {
-			rafts = append(rafts, r)
-		}
+	case p := <-resultP:
+		rafts = append(rafts, p)
+
 		if len(rafts) < n {
 			goto wait
 		}
@@ -200,14 +217,45 @@ wait:
 			// no leader, no quorum
 			return nodes, rafts, leaderSerial
 		}
-
-		if r == nil {
-			// leader elected
-			return nodes, rafts, leaderSerial
-		}
 		goto wait
+
+	case q := <-resultQ:
+
+		if q.State != state {
+			goto wait
+		}
+
+		resultsQ++
+		if resultsQ < int(state) {
+			goto wait
+		}
+
+		if resultsL < int(state) {
+			goto wait
+		}
+		// all quorum members are received leader election result
+		return nodes, rafts, leaderSerial
+
+	case l := <-resultL:
+		if l.State != state {
+			goto wait
+		}
+
+		resultsL++
+		if resultsL < int(state) {
+			goto wait
+		}
+
+		if resultsQ < int(state) {
+			goto wait
+		}
+
+		// all quorum members are received leader election result
+		return nodes, rafts, leaderSerial
 
 	case <-time.After(30 * time.Second):
 		panic("can't start raft cluster")
 	}
+
+	return nil, nil, 0
 }

@@ -13,6 +13,7 @@ import (
 func TestRaftData(t *testing.T) {
 	nodes, rafts, leaderSerial := startRaftCluster(6, gen.RaftQuorumState5)
 
+	fmt.Println("leaderSerial", leaderSerial)
 	ref, err := rafts[0].Append("asdfkey", "asdfvalue")
 	if err != nil {
 		t.Fatal(err)
