@@ -33,7 +33,7 @@ type RaftBehavior interface {
 
 	InitRaft(process *RaftProcess, arr ...etf.Term) (RaftOptions, error)
 
-	// HandleAppend
+	// HandleAppend. Invokes on append request. To cancel this request by a leader, it must return RaftStatusDiscard.
 	HandleAppend(process *RaftProcess, ref etf.Ref, serial uint64, key string, value etf.Term) RaftStatus
 
 	// HandleGet
@@ -136,6 +136,7 @@ type leaderElection struct {
 
 type requestAppend struct {
 	ref    etf.Ref
+	from   etf.Pid
 	origin etf.Pid
 	value  etf.Term
 	peers  map[etf.Pid]bool
@@ -265,10 +266,11 @@ type messageRaftAppendReady struct {
 }
 
 type messageRaftAppendCommit struct {
-	ID     string // cluster id
-	Ref    etf.Ref
-	Key    string
-	Serial uint64
+	ID        string // cluster id
+	Ref       etf.Ref
+	Key       string
+	Serial    uint64
+	Broadcast etf.Pid // quorum member who is in charge of broadcasting
 }
 
 type messageRaftAppendBroadcast struct {
@@ -439,7 +441,7 @@ func (rp *RaftProcess) AppendWithTimeout(key string, value etf.Term, timeout int
 
 	// if Append request has made on a leader
 	if rp.leader == rp.Self() {
-		fmt.Println(rp.Self(), "DBGAPD append request made on a leader")
+		fmt.Println(rp.Self(), "DBGAPN append request", ref, "made on a leader")
 		dataAppend := &messageRaftRequestAppend{
 			Ref:      ref,
 			Origin:   rp.Self(),
@@ -447,42 +449,33 @@ func (rp *RaftProcess) AppendWithTimeout(key string, value etf.Term, timeout int
 			Value:    value,
 			Deadline: deadline,
 		}
-		rp.handleAppendLeader(dataAppend)
-	} else {
-		peer := rp.leader
-		// if Member == false => rp.leader == noLeader
-		if rp.quorum.Member == false {
-			// this raft process runs as a Client. send this request to the quorum member
-			n := rand.Intn(len(rp.quorum.Peers) - 1)
-			peer = rp.quorum.Peers[n]
-			deadline = time.Now().Add(time.Duration(t - t/(int(rp.quorum.State)+1))).UnixMilli()
-		}
-		dataAppend := etf.Tuple{
-			etf.Atom("$request_append"),
-			rp.Self(),
-			etf.Tuple{
-				rp.options.ID,
-				ref,
-				rp.Self(),
-				key,
-				value,
-				deadline,
-			},
-		}
-		if err := rp.Cast(peer, dataAppend); err != nil {
-			return ref, err
-		}
+		rp.handleAppendLeader(rp.Self(), dataAppend)
+		return ref, nil
 	}
 
-	// The origin process is in charge of broadcasting the result among
-	// all peers who aren't quorum members. So keep the quorum peers
-	// to exclude them from this broadcasting
-	peers := make(map[etf.Pid]bool)
-	for _, pid := range rp.quorum.Peers {
-		if pid == rp.Self() {
-			continue
-		}
-		peers[pid] = true
+	peer := rp.leader
+	// if Member == false => rp.leader == noLeader
+	if rp.quorum.Member == false {
+		// this raft process runs as a Client. send this request to the quorum member
+		n := rand.Intn(len(rp.quorum.Peers) - 1)
+		peer = rp.quorum.Peers[n]
+		deadline = time.Now().Add(time.Duration(t - t/(int(rp.quorum.State)+1))).UnixMilli()
+	}
+	dataAppend := etf.Tuple{
+		etf.Atom("$request_append"),
+		rp.Self(),
+		etf.Tuple{
+			rp.options.ID,
+			ref,
+			rp.Self(),
+			key,
+			value,
+			deadline,
+		},
+	}
+	fmt.Println(rp.Self(), "DPGAPN sent append", ref, "to the peer", peer)
+	if err := rp.Cast(peer, dataAppend); err != nil {
+		return ref, err
 	}
 
 	clean := messageRaftAppendClean{key: key, ref: ref}
@@ -492,7 +485,6 @@ func (rp *RaftProcess) AppendWithTimeout(key string, value etf.Term, timeout int
 		ref:    ref,
 		origin: rp.Self(),
 		value:  value,
-		peers:  peers,
 		cancel: cancel,
 	}
 	rp.requestsAppend[key] = requestAppend
@@ -575,9 +567,11 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 		// QUODBG fmt.Println(rp.Name(), "GOT CLU JOIN REPL from", m.Pid, "got peers", reply.Peers)
 		canAcceptQuorum := true
 
-		// check if we already belong to another quorum
-		if rp.quorum != nil && rp.quorum.Member {
-			if len(reply.Peers) <= len(rp.quorum.Peers) {
+		// check if there is another quorum in this cluster
+		if rp.quorum != nil {
+			// doesnt matter we compare the number of peers or quorum state
+			// reply.QuorumState <= rp.quorum.State
+			if len(reply.QuorumPeers) <= len(rp.quorum.Peers) {
 				canAcceptQuorum = false
 			}
 		}
@@ -1207,16 +1201,16 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 
 		// 1) This process is a leader -> handleAppendLeader()
 		//   a) increment serial. send this request to all quorum members (except the origin peer)
-		//   b) wait for the request_append_received from the quorum peers
+		//   b) wait for the request_append_ready from the quorum peers
 		//   c) call the callback HandleAppend
 		//   d) send request_append_commit(serial) to all quorum members (including the origin peer)
 		if rp.leader == rp.Self() {
-			return rp.handleAppendLeader(requestAppend)
+			return rp.handleAppendLeader(m.Pid, requestAppend)
 		}
 
 		// 2) This process is not a leader, is a quorum member, and request has
 		//    received from the leader -> handleAppendQuorum()
-		//   a) accept this request and reply with request_append_received
+		//   a) accept this request and reply with request_append_ready
 		//   b) wait for the request_append_commit
 		//   c) call the callback HandleAppend
 		//   d) send request_append to the peers that are not in the quorum
@@ -1239,12 +1233,14 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 				requestAppend.ID,
 				requestAppend.Ref,
 				requestAppend.Origin,
+				requestAppend.Key,
 				requestAppend.Value,
 				requestAppend.Deadline,
 			},
 		}
 
 		if rp.quorum.Member == true {
+			fmt.Println(rp.Self(), "DPGAPN forward $request_append", requestAppend.Ref, "to the leader", rp.leader)
 			noLeader := etf.Pid{}
 			if rp.leader == noLeader {
 				// no leader in this quorum yet. ignore this request
@@ -1269,6 +1265,7 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 		}
 		n := rand.Intn(len(peers) - 1)
 		peer := peers[n]
+		fmt.Println(rp.Self(), "DPGAPN forward $request_append", requestAppend.Ref, "to the quorum member", peer)
 		rp.Cast(peer, forwardAppend)
 		return RaftStatusOK
 
@@ -1336,6 +1333,7 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 					requestAppend.ref,
 					appendReady.Key,
 					rp.options.Serial,
+					requestAppend.from,
 				},
 			}
 			for pid, _ := range requestAppend.peers {
@@ -1343,7 +1341,7 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 					continue
 				}
 				rp.Cast(pid, request)
-				fmt.Println(rp.Self(), "DBGAPD sent append_commit to", pid)
+				fmt.Println(rp.Self(), "DBGAPN sent append_commit to", pid)
 				if c := rp.quorumCandidates.GetOnline(pid); c != nil {
 					if c.serial < rp.options.Serial {
 						c.serial = rp.options.Serial
@@ -1352,7 +1350,7 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 			}
 			requestAppend.cancel()
 			delete(rp.requestsAppend, appendReady.Key)
-			if requestAppend.origin != rp.Self() {
+			if requestAppend.from != rp.Self() {
 				return RaftStatusOK
 			}
 			rp.handleBroadcastCommit(appendReady.Key, requestAppend, rp.options.Serial)
@@ -1382,6 +1380,8 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 			// seems timeout happened and this request was cleaned up
 			return RaftStatusOK
 		}
+		requestAppend.cancel()
+		delete(rp.requestsAppend, appendCommit.Key)
 
 		if rp.options.Serial >= appendCommit.Serial {
 			lib.Warning("[%s] got append commit with serial (%d) greater or equal we have (%d). fork happened. stopping this process", rp.Self(), appendCommit.Serial, rp.options.Serial)
@@ -1391,17 +1391,16 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 		rp.options.Serial = appendCommit.Serial
 		status := rp.behavior.HandleAppend(rp, requestAppend.ref, appendCommit.Serial,
 			appendCommit.Key, requestAppend.value)
-		if status != RaftStatusOK {
+		if status == RaftStatusDiscard {
+			lib.Warning("[%s] RaftStatusDiscard can be used by a leader only", rp.Self())
+			status = RaftStatusOK
+		}
+		if appendCommit.Broadcast != rp.Self() {
 			return status
 		}
 
-		if requestAppend.origin != rp.Self() {
-			return RaftStatusOK
-		}
-
 		rp.handleBroadcastCommit(appendCommit.Key, requestAppend, appendCommit.Serial)
-
-		return RaftStatusOK
+		return status
 
 	case etf.Atom("$request_append_broadcast"):
 		broadcast := &messageRaftAppendBroadcast{}
@@ -1497,6 +1496,7 @@ func (rp *RaftProcess) handleElectionVote() {
 }
 
 func (rp *RaftProcess) handleBroadcastCommit(key string, request *requestAppend, serial uint64) {
+	fmt.Println(rp.Self(), "broadcasting", request.ref)
 	// the origin process is in charge of broadcasting this result among
 	// the peers who aren't quorum members.
 	commit := etf.Tuple{
@@ -1519,7 +1519,7 @@ func (rp *RaftProcess) handleBroadcastCommit(key string, request *requestAppend,
 			continue
 		}
 		rp.Cast(pid, commit)
-		fmt.Println(rp.Self(), "DBGAPD sent append_broadcast to", pid)
+		fmt.Println(rp.Self(), "DBGAPN sent append_broadcast", request.ref, "to", pid)
 		c := rp.quorumCandidates.GetOnline(pid)
 		if c != nil && c.serial < serial {
 			c.serial = serial
@@ -1527,8 +1527,8 @@ func (rp *RaftProcess) handleBroadcastCommit(key string, request *requestAppend,
 	}
 }
 
-func (rp *RaftProcess) handleAppendLeader(request *messageRaftRequestAppend) RaftStatus {
-	fmt.Println(rp.Self(), "DBGAPD append on leader", request.Key, request.Value)
+func (rp *RaftProcess) handleAppendLeader(from etf.Pid, request *messageRaftRequestAppend) RaftStatus {
+	fmt.Println(rp.Self(), "DBGAPN append", request.Ref, "on leader.", request.Key, request.Value)
 	if _, exist := rp.requestsAppend[request.Key]; exist {
 		// another append request with this key is still in progress. ignore it
 		return RaftStatusOK
@@ -1559,10 +1559,15 @@ func (rp *RaftProcess) handleAppendLeader(request *messageRaftRequestAppend) Raf
 		}
 		peers[pid] = false
 		if pid == request.Origin {
-			peers[pid] = true
+			peers[pid] = true // do not wait append_ready for the Origin
 			continue
 		}
 		rp.Cast(pid, sendRequestAppend)
+	}
+
+	// if 'from' is not a quorum member the leader is in charge of broadcasting
+	if _, exist := peers[from]; exist == false {
+		from = rp.Self()
 	}
 
 	after := time.Duration(request.Deadline-now) * time.Millisecond
@@ -1570,6 +1575,7 @@ func (rp *RaftProcess) handleAppendLeader(request *messageRaftRequestAppend) Raf
 	cancel := rp.CastAfter(rp.Self(), clean, after)
 	requestAppend := &requestAppend{
 		ref:    request.Ref,
+		from:   from,
 		origin: request.Origin,
 		value:  request.Value,
 		peers:  peers,
@@ -1581,7 +1587,7 @@ func (rp *RaftProcess) handleAppendLeader(request *messageRaftRequestAppend) Raf
 }
 
 func (rp *RaftProcess) handleAppendQuorum(request *messageRaftRequestAppend) RaftStatus {
-	fmt.Println(rp.Self(), "DBGAPD append on quorum member", request.Key, request.Value)
+	fmt.Println(rp.Self(), "DBGAPN append", request.Ref, "on a quorum member.", request.Key, request.Value)
 	if r, exist := rp.requestsAppend[request.Key]; exist {
 		r.cancel()
 		delete(rp.requestsAppend, request.Key)
@@ -1604,10 +1610,16 @@ func (rp *RaftProcess) handleAppendQuorum(request *messageRaftRequestAppend) Raf
 	}
 	cancel := rp.CastAfter(rp.Self, clean, after)
 
+	peers := make(map[etf.Pid]bool)
+	for _, pid := range rp.quorum.Peers {
+		peers[pid] = true
+	}
+
 	requestAppend := &requestAppend{
 		ref:    request.Ref,
 		origin: request.Origin,
 		value:  request.Value,
+		peers:  peers,
 		cancel: cancel,
 	}
 	rp.requestsAppend[request.Key] = requestAppend

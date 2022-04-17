@@ -88,7 +88,8 @@ func (tr *testRaft) HandleLeader(process *gen.RaftProcess, leader *gen.RaftLeade
 }
 
 func (tr *testRaft) HandleAppend(process *gen.RaftProcess, ref etf.Ref, serial uint64, key string, value etf.Term) gen.RaftStatus {
-	fmt.Println(process.Self(), "AAA append", ref, serial, value)
+
+	fmt.Println(process.Self(), "member:", process.Quorum().Member, "append", ref, serial, key, value)
 	return gen.RaftStatusOK
 }
 
@@ -246,7 +247,7 @@ wait:
 			goto wait
 		}
 
-		if resultsQ < int(state) {
+		if resultsQ < n {
 			goto wait
 		}
 
