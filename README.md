@@ -96,7 +96,7 @@ Here are the changes of latest release. For more details see the [ChangeLog](Cha
   - `gen.ProcessOptions` new option:
     - `ProcessFallback` allows forward messages to the fallback process if the process mailbox is full. Forwarded messages are wrapped into `gen.MessageFallback` struct. Related to issue #96.
   - `gen.SupervisorChildSpec` and `gen.ApplicationChildSpec` got option `gen.ProcessOptions` to customize options for the spawning child processes.
-* Improved sending messages by etf.Pid or etf.Alias: methods `gen.Process.Send`, `gen.ServerProcess.Cast`, `gen.ServerProcess.Call` now return `node.ErrProcessIncarnation` if a message is sending to the remote process of the previous incarnation (remote node has been restarted).
+* Improved sending messages by etf.Pid or etf.Alias: methods `gen.Process.Send`, `gen.ServerProcess.Cast`, `gen.ServerProcess.Call` now return `node.ErrProcessIncarnation` if a message is sending to the remote process of the previous incarnation (remote node has been restarted). Making monitor on a remote process of the previous incarnation triggers sending `gen.MessageDown` with reason `incarnation`.
 * Introduced type `gen.EnvKey` for the environment variables
 * All spawned processes now have the `node.EnvKeyNode` variable to get access to the `node.Node` value.
 * **Improved performance** of local messaging (**up to 8 times** for some cases)

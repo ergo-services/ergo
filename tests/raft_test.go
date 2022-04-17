@@ -32,7 +32,7 @@ var (
 		testCaseRaft{n: 7, name: ql, state: gen.RaftQuorumState7},
 
 		//
-		// cases below are work well, but quorum building takes some time too long.
+		// cases below are work well, but quorum building takes too long some time.
 		//testCaseRaft{n: 8, name: qlf, state: gen.RaftQuorumState7},
 		//testCaseRaft{n: 9, name: ql, state: gen.RaftQuorumState9},
 		//testCaseRaft{n: 10, name: qlf, state: gen.RaftQuorumState9},
@@ -78,13 +78,18 @@ func (tr *testRaft) HandleLeader(process *gen.RaftProcess, leader *gen.RaftLeade
 }
 
 func (tr *testRaft) HandleAppend(process *gen.RaftProcess, ref etf.Ref, serial uint64, key string, value etf.Term) gen.RaftStatus {
-	fmt.Println("AAA append", ref, serial, value)
+	fmt.Println(process.Self(), "AAA append", ref, serial, value)
 	return gen.RaftStatusOK
 }
 
 func (tr *testRaft) HandleGet(process *gen.RaftProcess, serial uint64) (string, etf.Term, gen.RaftStatus) {
 	fmt.Println("GGG get", process.Name(), serial)
 	return "", nil, gen.RaftStatusOK
+}
+
+func (tr *testRaft) HandleCancel(process *gen.RaftProcess, ref etf.Ref, reason string) gen.RaftStatus {
+	fmt.Println("CCC cancel", ref, reason)
+	return gen.RaftStatusOK
 }
 
 func (tr *testRaft) HandleRaftInfo(process *gen.RaftProcess, message etf.Term) gen.ServerStatus {
