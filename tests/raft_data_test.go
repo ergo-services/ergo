@@ -24,12 +24,15 @@ func TestRaftData(t *testing.T) {
 	nodes, rafts, leaderSerial := startRaftCluster(6, gen.RaftQuorumState5)
 
 	fmt.Println("leaderSerial", leaderSerial)
-	// case 1. F -> M
 	for _, raft := range rafts {
-		q := raft.Quorum()
-		if q.Member == true {
+		//q := raft.Quorum()
+		l := raft.Leader()
+		if l == nil || l.Leader != raft.Self() { // case 4
+			//if q.Member == true { // cases 1 and 2
+			//if q.Member == false { // case 3
 			continue
 		}
+
 		fmt.Println(raft.Self(), "!!!! peers", raft.Peers())
 		fmt.Println(raft.Self(), "!!!! quorum", raft.Quorum())
 		ref, err := raft.Append("asdfkey", "asdfvalue")
