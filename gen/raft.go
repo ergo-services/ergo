@@ -1373,21 +1373,24 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 			if requestAppend.from == rp.Self() {
 				rp.handleBroadcastCommit(appendReady.Key, requestAppend, rp.options.Serial)
 			}
-			if len(rp.requestAppendQueue) == 0 {
+			if len(rp.requestsAppendQueue) == 0 {
 				return RaftStatusOK
 			}
+
 			// handle queued append request
-			for i := range rp.requeststAppendQueue {
+			handled := 0
+			for i := range rp.requestsAppendQueue {
+				handled = i
 				queued := rp.requestsAppendQueue[i]
 				if queued.request.Deadline < time.Now().UnixMilli() {
 					// expired request
 					lib.Warning("[%s] append request %s is expired", rp.Self(), queued.request.Ref)
 					continue
 				}
-				rp.handleAppendRequest(queued.from, queued.request)
-				rp.requestsAppendQueue = rp.requestsAppendQueue[i+1:]
+				rp.handleAppendLeader(queued.from, queued.request)
 				break
 			}
+			rp.requestsAppendQueue = rp.requestsAppendQueue[handled+1:]
 			if len(rp.requestsAppendQueue) == 0 {
 				rp.requestsAppendQueue = nil
 			}
@@ -1572,8 +1575,8 @@ func (rp *RaftProcess) handleAppendLeader(from etf.Pid, request *messageRaftRequ
 			from:    from,
 			request: request,
 		}
-		rp.requestAppendQueue = append(rp.requestAppendQueue, queued)
-		lq := len(rp.requestAppendQueue)
+		rp.requestsAppendQueue = append(rp.requestsAppendQueue, queued)
+		lq := len(rp.requestsAppendQueue)
 		if lq > 10 {
 			lib.Warning("[%s] append request queue is getting long. queued request %d", rp.Self(), lq)
 		}
