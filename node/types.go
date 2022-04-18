@@ -261,10 +261,6 @@ type Options struct {
 	// Proxy enable proxy feature on this node. Disabling this option makes
 	// this node to reject any proxy request.
 	Proxy Proxy
-
-	// Metrics enables to gather basic information about the running environment
-	// (OS, Arch, Num CPU, Go version, Ergo version).
-	Metrics Metrics
 }
 
 type TLS struct {
