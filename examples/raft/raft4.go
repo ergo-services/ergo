@@ -20,6 +20,7 @@ func (r *Raft4) InitRaft(process *gen.RaftProcess, args ...etf.Term) (gen.RaftOp
 			gen.ProcessID{Name: "raft1", Node: "node1@localhost"},
 		},
 	}
+	fmt.Printf("Serial: %d PID: %s ...", opts.Serial, process.Self())
 
 	return opts, nil
 }

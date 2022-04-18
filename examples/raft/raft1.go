@@ -15,7 +15,10 @@ type Raft1 struct {
 }
 
 func (r *Raft1) InitRaft(process *gen.RaftProcess, args ...etf.Term) (gen.RaftOptions, error) {
-	opts := gen.RaftOptions{}
+	opts := gen.RaftOptions{
+		Serial: 1,
+	}
+	fmt.Printf("Serial: %d PID: %s ...", opts.Serial, process.Self())
 
 	return opts, nil
 }

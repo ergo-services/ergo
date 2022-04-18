@@ -22,6 +22,7 @@ func (r *Raft2) InitRaft(process *gen.RaftProcess, args ...etf.Term) (gen.RaftOp
 		Serial: 4,
 	}
 
+	fmt.Printf("Serial: %d PID: %s ...", opts.Serial, process.Self())
 	return opts, nil
 }
 func (r *Raft2) HandleQuorum(process *gen.RaftProcess, quorum *gen.RaftQuorum) gen.RaftStatus {
