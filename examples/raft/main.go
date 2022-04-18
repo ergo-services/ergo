@@ -9,9 +9,11 @@ import (
 	"github.com/ergo-services/ergo/node"
 )
 
+type messageAppend struct{}
+
 func main() {
 
-	fmt.Printf("Starting node: node1@localhost and Raft1 process...")
+	fmt.Printf("Starting node: node1@localhost and raft1 process...")
 	node1, err := ergo.StartNode("node1@localhost", "cookies", node.Options{})
 	if err != nil {
 		panic(err)

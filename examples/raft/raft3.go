@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/ergo-services/ergo/etf"
 	"github.com/ergo-services/ergo/gen"
@@ -19,12 +20,28 @@ func (r *Raft3) InitRaft(process *gen.RaftProcess, args ...etf.Term) (gen.RaftOp
 		Peers: []gen.ProcessID{
 			gen.ProcessID{Name: "raft1", Node: "node1@localhost"},
 		},
+		Serial: 4,
 	}
 
 	return opts, nil
 }
 func (r *Raft3) HandleQuorum(process *gen.RaftProcess, quorum *gen.RaftQuorum) gen.RaftStatus {
-	fmt.Println(process.Name(), "quorum built. quorum member:", quorum.Member, "state:", quorum.State)
+	fmt.Println(process.Self(), "Quorum built - State:", quorum.State, "Quorum member:", quorum.Member)
+
+	if quorum != nil && quorum.Member == false {
+		process.CastAfter(process.Self(), messageAppend{}, 300*time.Millisecond)
+	}
+	return gen.RaftStatusOK
+}
+func (r *Raft3) HandleLeader(process *gen.RaftProcess, leader *gen.RaftLeader) gen.RaftStatus {
+	if leader != nil && leader.Leader == process.Self() {
+		fmt.Println(process.Self(), "I'm a leader of this quorum")
+		return gen.RaftStatusOK
+	}
+
+	if leader != nil {
+		fmt.Println(process.Self(), "Leader elected:", leader.Leader, "with serial", leader.Serial)
+	}
 	return gen.RaftStatusOK
 }
 

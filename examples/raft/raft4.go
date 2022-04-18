@@ -24,7 +24,19 @@ func (r *Raft4) InitRaft(process *gen.RaftProcess, args ...etf.Term) (gen.RaftOp
 	return opts, nil
 }
 func (r *Raft4) HandleQuorum(process *gen.RaftProcess, quorum *gen.RaftQuorum) gen.RaftStatus {
-	fmt.Println(process.Name(), "quorum built. quorum member:", quorum.Member, "state:", quorum.State)
+	fmt.Println(process.Self(), "Quorum built - State:", quorum.State, "Quorum member:", quorum.Member)
+	return gen.RaftStatusOK
+}
+
+func (r *Raft4) HandleLeader(process *gen.RaftProcess, leader *gen.RaftLeader) gen.RaftStatus {
+	if leader != nil && leader.Leader == process.Self() {
+		fmt.Println(process.Self(), "I'm a leader of this quorum")
+		return gen.RaftStatusOK
+	}
+
+	if leader != nil {
+		fmt.Println(process.Self(), "Leader elected:", leader.Leader, "with serial", leader.Serial)
+	}
 	return gen.RaftStatusOK
 }
 
