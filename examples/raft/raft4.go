@@ -27,7 +27,7 @@ func (r *Raft4) InitRaft(process *gen.RaftProcess, args ...etf.Term) (gen.RaftOp
 func (r *Raft4) HandleQuorum(process *gen.RaftProcess, quorum *gen.RaftQuorum) gen.RaftStatus {
 	fmt.Println(process.Self(), "Quorum built - State:", quorum.State, "Quorum member:", quorum.Member)
 	if quorum.Member == false {
-		fmt.Println(process.Self(), "Since I'm not a quorum member, I won't receive any information about elected leader")
+		fmt.Println(process.Self(), "    since I'm not a quorum member, I won't receive any information about elected leader")
 	}
 	return gen.RaftStatusOK
 }
@@ -45,7 +45,7 @@ func (r *Raft4) HandleLeader(process *gen.RaftProcess, leader *gen.RaftLeader) g
 	s := process.Serial()
 	if s < leader.Serial {
 		fmt.Println(process.Self(), "Missing serials:", s+1, "..", leader.Serial)
-		for i := s; i < leader.Serial; i++ {
+		for i := s + 1; i <= leader.Serial; i++ {
 			req, e := process.Get(i)
 			if e != nil {
 				panic(e)
