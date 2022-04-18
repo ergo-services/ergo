@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ergo-services/ergo/etf"
 	"github.com/ergo-services/ergo/gen"
 )
 
@@ -22,7 +23,11 @@ import (
 
 func TestRaftData(t *testing.T) {
 	fmt.Printf("\n=== Test GenRaft - append/get data\n")
-	nodes, rafts, leaderSerial := startRaftCluster(6, gen.RaftQuorumState5)
+	server := &testRaft{
+		n:      6,
+		qstate: gen.RaftQuorumState5,
+	}
+	nodes, rafts, leaderSerial := startRaftCluster("get-data", server)
 
 	fmt.Printf("    append on a follower (send to the quorum member and forward to the leader: ")
 	fmt.Println("leaderSerial", leaderSerial)
@@ -33,13 +38,14 @@ func TestRaftData(t *testing.T) {
 			continue
 		}
 
-		// cases 1 and 2 - send to the quorum memver.
-		// we can't manage to send it to the leader
-		// since the follower has no info about the leader
+		// cases 1 and 2 - send to the quorum member.
+		// the follower isn't able to send it to the leader (case 2)
+		// since it has no info about the quorum leader
 		ref, err := raft.Append("asdfkey", "asdfvalue")
 		if err != nil {
 			t.Fatal(err)
 		}
+		checkAppend(t, server, ref, rafts, leaderSerial)
 		break
 	}
 	fmt.Printf("OK")
@@ -56,6 +62,7 @@ func TestRaftData(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		checkAppend(t, server, ref, rafts, leaderSerial)
 		break
 	}
 	fmt.Printf("OK")
@@ -72,6 +79,7 @@ func TestRaftData(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		checkAppend(t, server, ref, rafts, leaderSerial)
 		break
 	}
 	fmt.Printf("OK")
@@ -81,4 +89,19 @@ func TestRaftData(t *testing.T) {
 	for _, node := range nodes {
 		node.Stop()
 	}
+}
+
+func checkAppend(t *testing.T, server *testRaft, ref etf.Ref, rafts []*gen.RaftProcess, serial uint64) {
+	for {
+		select {
+		case result := <-server.a:
+			if result.serial != serial+1 {
+				t.Fatalf("wrong serial %d (must be %d)", result.serial, serial+1)
+			}
+		case <-time.After(30 * time.Second):
+			t.Fatal("append timeout")
+
+		}
+	}
+
 }

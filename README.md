@@ -294,6 +294,7 @@ There are options already defined that you might want to use
 
 * `-ergo.trace` - enable extended debug info
 * `-ergo.norecover` - disable panic catching
+* `-ergo.warning` - enable/disable warnings (default: enable)
 
 To enable Golang profiler just add `--tags debug` in your `go run` or `go build` like this:
 
