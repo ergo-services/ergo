@@ -118,7 +118,8 @@ type RaftProcess struct {
 	requests map[etf.Ref]context.CancelFunc
 
 	// append requests
-	requestsAppend map[string]*requestAppend
+	requestsAppend      map[string]*requestAppend
+	requestsAppendQueue []requestAppendQueued
 
 	// leader sends heartbeat messages and keep the last sending timestamp
 	heartbeatLeader int64
@@ -141,6 +142,11 @@ type requestAppend struct {
 	value  etf.Term
 	peers  map[etf.Pid]bool
 	cancel context.CancelFunc
+}
+
+type requestAppendQueued struct {
+	from    etf.Pid
+	request *messageRaftRequestAppend
 }
 
 type quorumCandidates struct {
@@ -1364,10 +1370,27 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 			}
 			requestAppend.cancel()
 			delete(rp.requestsAppend, appendReady.Key)
-			if requestAppend.from != rp.Self() {
+			if requestAppend.from == rp.Self() {
+				rp.handleBroadcastCommit(appendReady.Key, requestAppend, rp.options.Serial)
+			}
+			if len(rp.requestAppendQueue) == 0 {
 				return RaftStatusOK
 			}
-			rp.handleBroadcastCommit(appendReady.Key, requestAppend, rp.options.Serial)
+			// handle queued append request
+			for i := range rp.requeststAppendQueue {
+				queued := rp.requestsAppendQueue[i]
+				if queued.request.Deadline < time.Now().UnixMilli() {
+					// expired request
+					lib.Warning("[%s] append request %s is expired", rp.Self(), queued.request.Ref)
+					continue
+				}
+				rp.handleAppendRequest(queued.from, queued.request)
+				rp.requestsAppendQueue = rp.requestsAppendQueue[i+1:]
+				break
+			}
+			if len(rp.requestsAppendQueue) == 0 {
+				rp.requestsAppendQueue = nil
+			}
 			return RaftStatusOK
 
 		case RaftStatusDiscard:
@@ -1544,7 +1567,16 @@ func (rp *RaftProcess) handleBroadcastCommit(key string, request *requestAppend,
 func (rp *RaftProcess) handleAppendLeader(from etf.Pid, request *messageRaftRequestAppend) RaftStatus {
 	fmt.Println(rp.Self(), "DBGAPN handle append", request.Ref, "on leader.", request.Key, request.Value)
 	if _, exist := rp.requestsAppend[request.Key]; exist {
-		// another append request with this key is still in progress. ignore it
+		// another append request with this key is still in progress. append to the queue
+		queued := requestAppendQueued{
+			from:    from,
+			request: request,
+		}
+		rp.requestAppendQueue = append(rp.requestAppendQueue, queued)
+		lq := len(rp.requestAppendQueue)
+		if lq > 10 {
+			lib.Warning("[%s] append request queue is getting long. queued request %d", rp.Self(), lq)
+		}
 		return RaftStatusOK
 	}
 	now := time.Now().UnixMilli()
