@@ -41,7 +41,37 @@ var (
 		//testCaseRaft{n: 15, name: qlf, state: gen.RaftQuorumState11},
 		//testCaseRaft{n: 25, name: qlf, state: gen.RaftQuorumState11},
 	}
+
+	data = map[string]dataValueSerial{
+		"key0": dataValueSerial{"value0", 0},
+		"key1": dataValueSerial{"value1", 1},
+		"key2": dataValueSerial{"value2", 2},
+		"key3": dataValueSerial{"value3", 3},
+		"key4": dataValueSerial{"value4", 4},
+		"key5": dataValueSerial{"value5", 5},
+		"key6": dataValueSerial{"value6", 6},
+		"key7": dataValueSerial{"value7", 7},
+		"key8": dataValueSerial{"value8", 8},
+		"key9": dataValueSerial{"value9", 9},
+	}
+	keySerials = []string{
+		"key0",
+		"key1",
+		"key2",
+		"key3",
+		"key4",
+		"key5",
+		"key6",
+		"key7",
+		"key8",
+		"key9",
+	}
 )
+
+type dataValueSerial struct {
+	value  string
+	serial uint64
+}
 
 type testRaft struct {
 	gen.Raft
@@ -66,12 +96,26 @@ type raftArgs struct {
 	peers  []gen.ProcessID
 	serial uint64
 }
+type raftState struct {
+	data    map[string]dataValueSerial
+	serials []string
+}
 
 func (tr *testRaft) InitRaft(process *gen.RaftProcess, args ...etf.Term) (gen.RaftOptions, error) {
 	var options gen.RaftOptions
 	ra := args[0].(raftArgs)
 	options.Peers = ra.peers
 	options.Serial = ra.serial
+
+	state := &raftState{
+		data: make(map[string]dataValueSerial),
+	}
+	for i := 0; i < int(ra.serial)+1; i++ {
+		key := keySerials[i]
+		state.data[key] = data[key]
+		state.serials = append(state.serials, key)
+	}
+	process.State = state
 	tr.p <- process
 
 	return options, gen.RaftStatusOK
@@ -100,7 +144,7 @@ func (tr *testRaft) HandleLeader(process *gen.RaftProcess, leader *gen.RaftLeade
 }
 
 func (tr *testRaft) HandleAppend(process *gen.RaftProcess, ref etf.Ref, serial uint64, key string, value etf.Term) gen.RaftStatus {
-	fmt.Println(process.Self(), "HANDLE APPEND member:", process.Quorum().Member, "append", ref, serial, key, value)
+	//fmt.Println(process.Self(), "HANDLE APPEND member:", process.Quorum().Member, "append", ref, serial, key, value)
 
 	result := raftResult{
 		process: process,
@@ -115,19 +159,38 @@ func (tr *testRaft) HandleAppend(process *gen.RaftProcess, ref etf.Ref, serial u
 
 func (tr *testRaft) HandleGet(process *gen.RaftProcess, serial uint64) (string, etf.Term, gen.RaftStatus) {
 	var key string
-	var value etf.Term
-	fmt.Println(process.Self(), "HANDLE GET member:", process.Quorum().Member, "get", serial)
-	return key, value, gen.RaftStatusOK
+	//fmt.Println(process.Self(), "HANDLE GET member:", process.Quorum().Member, "get", serial)
+
+	state := process.State.(*raftState)
+	if len(state.serials) < int(serial) {
+		//	fmt.Println(process.Self(), "NO DATA for", serial)
+		return key, nil, gen.RaftStatusOK
+	}
+	key = state.serials[int(serial)]
+	data := state.data[key]
+	return key, data.value, gen.RaftStatusOK
 }
 
 func (tr *testRaft) HandleSerial(process *gen.RaftProcess, ref etf.Ref, serial uint64, key string, value etf.Term) gen.RaftStatus {
-	fmt.Println(process.Self(), "HANDLE SERIAL member:", process.Quorum().Member, "append", ref, serial, key, value)
+	//fmt.Println(process.Self(), "HANDLE SERIAL member:", process.Quorum().Member, "append", ref, serial, key, value)
 	result := raftResult{
 		process: process,
 		ref:     ref,
 		serial:  serial,
 		key:     key,
 		value:   value,
+	}
+	s := process.Serial()
+	if s != serial {
+		fmt.Println(process.Self(), "ERROR: disordered serial request")
+		tr.s <- raftResult{}
+		return gen.RaftStatusOK
+	}
+	state := process.State.(*raftState)
+	state.serials = append(state.serials, key)
+	state.data[key] = dataValueSerial{
+		value:  value.(string),
+		serial: serial,
 	}
 	tr.s <- result
 	return gen.RaftStatusOK
@@ -220,7 +283,7 @@ func startRaftCluster(name string, server *testRaft) ([]node.Node, []*gen.RaftPr
 	for i := range processes {
 		name := fmt.Sprintf("raft%02d", i+1)
 		args := raftArgs{
-			serial: uint64(rand.Intn(10)),
+			serial: uint64(rand.Intn(9)),
 		}
 		if args.serial > leaderSerial {
 			leaderSerial = args.serial
