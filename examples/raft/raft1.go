@@ -24,6 +24,9 @@ func (r *Raft1) InitRaft(process *gen.RaftProcess, args ...etf.Term) (gen.RaftOp
 }
 func (r *Raft1) HandleQuorum(process *gen.RaftProcess, quorum *gen.RaftQuorum) gen.RaftStatus {
 	fmt.Println(process.Self(), "Quorum built - State:", quorum.State, "Quorum member:", quorum.Member)
+	if quorum.Member == false {
+		fmt.Println(process.Self(), "Since I'm not a quorum member, I won't receive any information about elected leader")
+	}
 	return gen.RaftStatusOK
 }
 
@@ -36,6 +39,17 @@ func (r *Raft1) HandleLeader(process *gen.RaftProcess, leader *gen.RaftLeader) g
 	if leader != nil {
 		fmt.Println(process.Self(), "Leader elected:", leader.Leader, "with serial", leader.Serial)
 	}
+	s := process.Serial()
+	if s < leader.Serial {
+		fmt.Println(process.Self(), "Missing serials:", s+1, "..", leader.Serial)
+		for i := s; i < leader.Serial; i++ {
+			req, e := process.Get(i)
+			if e != nil {
+				panic(e)
+			}
+			fmt.Println(process.Self(), "    requested missing serial to the cluster:", i, " id:", req)
+		}
+	}
 	return gen.RaftStatusOK
 }
 
@@ -45,10 +59,16 @@ func (r *Raft1) HandleAppend(process *gen.RaftProcess, ref etf.Ref, serial uint6
 func (r *Raft1) HandleGet(process *gen.RaftProcess, serial uint64) (string, etf.Term, gen.RaftStatus) {
 	var key string
 	var value etf.Term
+	fmt.Println(process.Self(), "Received request for serial", serial)
 
 	return key, value, gen.RaftStatusOK
 }
 
 func (r *Raft1) HandleRaftInfo(process *gen.RaftProcess, message etf.Term) gen.ServerStatus {
 	return gen.ServerStatusOK
+}
+
+func (r *Raft1) HandleSerial(process *gen.RaftProcess, ref etf.Ref, serial uint64, key string, value etf.Term) gen.RaftStatus {
+	fmt.Println(process.Self(), "Received requested serial - ", ref, "serial", serial, "with key", key, " and value", value)
+	return gen.RaftStatusOK
 }

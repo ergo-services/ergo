@@ -1147,12 +1147,22 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 				if pid == requestGet.Origin {
 					continue
 				}
+				if pid == rp.Self() {
+					continue
+				}
 				peers = append(peers, pid)
 			}
 
-			n := rand.Intn(len(peers) - 1)
+			if len(peers) == 0 {
+				return RaftStatusOK
+			}
+
+			n := 0
+			if len(peers) > 1 {
+				n = rand.Intn(len(peers) - 1)
+			}
 			peer := peers[n]
-			fmt.Println(rp.Self(), "GET forward", requestGet.Ref, "to", peer, "serial", requestGet.Serial)
+			//fmt.Println(rp.Self(), "GET forward", requestGet.Ref, "to", peer, "serial", requestGet.Serial)
 			rp.Cast(peer, forwardGet)
 			return RaftStatusOK
 		}
