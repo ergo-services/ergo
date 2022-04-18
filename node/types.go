@@ -255,9 +255,6 @@ type Options struct {
 	// DIST proto created with dist.CreateProto(...)
 	Proto ProtoInterface
 
-	// Cloud enable Ergo Cloud support
-	Cloud Cloud
-
 	// Proxy enable proxy feature on this node. Disabling this option makes
 	// this node to reject any proxy request.
 	Proxy Proxy

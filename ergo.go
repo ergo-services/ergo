@@ -3,7 +3,6 @@ package ergo
 import (
 	"context"
 
-	"github.com/ergo-services/ergo/cloud"
 	"github.com/ergo-services/ergo/erlang"
 	"github.com/ergo-services/ergo/gen"
 	"github.com/ergo-services/ergo/node"
@@ -29,12 +28,6 @@ func StartNodeWithContext(ctx context.Context, name string, cookie string, opts 
 
 	// add erlang support application
 	opts.Applications = append([]gen.ApplicationBehavior{&erlang.KernelApp{}}, opts.Applications...)
-
-	// add cloud support if it's enabled
-	if opts.Cloud.Enable {
-		cloudApp := cloud.CreateApp(opts.Cloud)
-		opts.Applications = append([]gen.ApplicationBehavior{cloudApp}, opts.Applications...)
-	}
 
 	if opts.Handshake == nil {
 		// create default handshake for the node (Erlang Dist Handshake)
