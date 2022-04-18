@@ -100,6 +100,7 @@ func (tr *testRaft) HandleLeader(process *gen.RaftProcess, leader *gen.RaftLeade
 }
 
 func (tr *testRaft) HandleAppend(process *gen.RaftProcess, ref etf.Ref, serial uint64, key string, value etf.Term) gen.RaftStatus {
+	fmt.Println(process.Self(), "HANDLE APPEND member:", process.Quorum().Member, "append", ref, serial, key, value)
 
 	result := raftResult{
 		process: process,
@@ -109,7 +110,6 @@ func (tr *testRaft) HandleAppend(process *gen.RaftProcess, ref etf.Ref, serial u
 		value:   value,
 	}
 	tr.a <- result
-	fmt.Println(process.Self(), "HANDLE APPEND member:", process.Quorum().Member, "append", ref, serial, key, value)
 	return gen.RaftStatusOK
 }
 

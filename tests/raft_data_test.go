@@ -45,7 +45,7 @@ func TestRaftData(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		checkAppend(t, server, ref, rafts, leaderSerial)
+		leaderSerial = checkAppend(t, server, ref, rafts, leaderSerial)
 		break
 	}
 	fmt.Printf("OK")
@@ -62,7 +62,7 @@ func TestRaftData(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		checkAppend(t, server, ref, rafts, leaderSerial)
+		leaderSerial = checkAppend(t, server, ref, rafts, leaderSerial)
 		break
 	}
 	fmt.Printf("OK")
@@ -79,25 +79,38 @@ func TestRaftData(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		checkAppend(t, server, ref, rafts, leaderSerial)
+		leaderSerial = checkAppend(t, server, ref, rafts, leaderSerial)
 		break
 	}
 	fmt.Printf("OK")
 
-	time.Sleep(15 * time.Second)
 	fmt.Println("!!!stop nodes")
 	for _, node := range nodes {
 		node.Stop()
 	}
 }
 
-func checkAppend(t *testing.T, server *testRaft, ref etf.Ref, rafts []*gen.RaftProcess, serial uint64) {
+func checkAppend(t *testing.T, server *testRaft, ref etf.Ref, rafts []*gen.RaftProcess, serial uint64) uint64 {
+	appends := 0
 	for {
 		select {
 		case result := <-server.a:
 			if result.serial != serial+1 {
 				t.Fatalf("wrong serial %d (must be %d)", result.serial, serial+1)
 			}
+			appends++
+			fmt.Println("got append on ", result.process.Self(), "total appends", appends)
+			if appends != len(rafts) {
+				continue
+			}
+			// check serials
+			for _, r := range rafts {
+				s := r.Serial()
+				if s != serial+1 {
+					t.Fatalf("wrong serial %d on %s", s, r.Self())
+				}
+			}
+			return serial + 1
 		case <-time.After(30 * time.Second):
 			t.Fatal("append timeout")
 

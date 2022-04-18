@@ -1355,7 +1355,7 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 					continue
 				}
 				rp.Cast(pid, request)
-				fmt.Println(rp.Self(), "DBGAPN sent append_commit to", pid)
+				fmt.Println(rp.Self(), "DBGAPN sent append_commit to", pid, "with serial", rp.options.Serial)
 				if c := rp.quorumCandidates.GetOnline(pid); c != nil {
 					if c.serial < rp.options.Serial {
 						c.serial = rp.options.Serial
