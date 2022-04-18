@@ -32,7 +32,6 @@ func TestRaftAppend(t *testing.T) {
 	nodes, rafts, leaderSerial := startRaftCluster("append", server)
 
 	fmt.Printf("    append on a follower (send to the quorum member and forward to the leader: ")
-	fmt.Println("leaderSerial", leaderSerial)
 	for _, raft := range rafts {
 		q := raft.Quorum()
 		// find the follower
