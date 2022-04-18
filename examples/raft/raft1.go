@@ -1,6 +1,8 @@
 package main
 
 import (
+	"fmt"
+
 	"github.com/ergo-services/ergo/etf"
 	"github.com/ergo-services/ergo/gen"
 )
@@ -17,6 +19,11 @@ func (r *Raft1) InitRaft(process *gen.RaftProcess, args ...etf.Term) (gen.RaftOp
 
 	return opts, nil
 }
+func (r *Raft1) HandleQuorum(process *gen.RaftProcess, quorum *gen.RaftQuorum) gen.RaftStatus {
+	fmt.Println(process.Name(), "quorum built. quorum member:", quorum.Member, "state:", quorum.State)
+	return gen.RaftStatusOK
+}
+
 func (r *Raft1) HandleAppend(process *gen.RaftProcess, ref etf.Ref, serial uint64, key string, value etf.Term) gen.RaftStatus {
 	return gen.RaftStatusOK
 }
@@ -25,4 +32,8 @@ func (r *Raft1) HandleGet(process *gen.RaftProcess, serial uint64) (string, etf.
 	var value etf.Term
 
 	return key, value, gen.RaftStatusOK
+}
+
+func (r *Raft1) HandleRaftInfo(process *gen.RaftProcess, message etf.Term) gen.ServerStatus {
+	return gen.ServerStatusOK
 }

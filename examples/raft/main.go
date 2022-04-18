@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/ergo-services/ergo"
 	"github.com/ergo-services/ergo/gen"
@@ -21,9 +22,9 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	fmt.Println("OK")
+	fmt.Println(raft1_process.Self(), "OK")
 
-	fmt.Printf("Starting node: node2@localhost and Raft2 process...")
+	fmt.Printf("Starting node: node2@localhost and raft2 process...")
 	node2, err := ergo.StartNode("node2@localhost", "cookies", node.Options{})
 	if err != nil {
 		panic(err)
@@ -34,9 +35,9 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	fmt.Println("OK")
+	fmt.Println(raft2_process.Self(), "OK")
 
-	fmt.Printf("Starting node: node3@localhost and Raft3 process...")
+	fmt.Printf("Starting node: node3@localhost and raft3 process...")
 	node3, err := ergo.StartNode("node3@localhost", "cookies", node.Options{})
 	if err != nil {
 		panic(err)
@@ -47,9 +48,9 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	fmt.Println("OK")
+	fmt.Println(raft3_process.Self(), "OK")
 
-	fmt.Printf("Starting node: node4@localhost and Raft4 process...")
+	fmt.Printf("Starting node: node4@localhost and raft4 process...")
 	node4, err := ergo.StartNode("node4@localhost", "cookies", node.Options{})
 	if err != nil {
 		panic(err)
@@ -60,8 +61,6 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	fmt.Println("OK")
-
-	fmt.Println(raft1_process.Self(), raft2_process.Self(), raft3_process.Self(), raft4_process.Self())
-
+	fmt.Println(raft4_process.Self(), "OK")
+	time.Sleep(10 * time.Second)
 }
