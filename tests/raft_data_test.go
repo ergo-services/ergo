@@ -115,7 +115,7 @@ func TestRaftGet(t *testing.T) {
 			continue
 		}
 
-		fmt.Printf("    get serials on %s to reach the leader's serial (from %d to %d): ", raft.Self(), raft.Serial()+1, leaderSerial)
+		fmt.Printf("    get serials (%d...%d) on %s to reach the leader's serial: ", raft.Serial()+1, leaderSerial, raft.Self())
 		serial := raft.Serial()
 		gotFrom := []etf.Pid{}
 		for i := serial; i < leaderSerial; i++ {
