@@ -24,3 +24,6 @@ It implements Saga design pattern - a sequence of transactions that updates each
 
 ### Raft
   Generic raft behavior.
+
+It's improved implementation of [Raft consensus algorithm](https://raft.github.io). The key improvement is using quorum under the hood to manage the leader election process and make the Raft cluster more reliable. This implementation supports quorums of 3, 5, 7, 9, or 11 quorum members. Here is an example of this feature [examples/raft](examples/raft).
+
