@@ -255,9 +255,6 @@ type Options struct {
 	// DIST proto created with dist.CreateProto(...)
 	Proto ProtoInterface
 
-	// Cloud enable Ergo Cloud support
-	Cloud Cloud
-
 	// Proxy enable proxy feature on this node. Disabling this option makes
 	// this node to reject any proxy request.
 	Proxy Proxy
@@ -281,6 +278,10 @@ type Proxy struct {
 	Flags   ProxyFlags
 	Cookie  string // set cookie for incoming connection
 	Routes  map[string]ProxyRoute
+}
+
+type Metrics struct {
+	Disable bool
 }
 
 type Compression struct {
@@ -328,6 +329,8 @@ type ConnectionInterface interface {
 	ProxyRegisterSession(session ProxySession) error
 	ProxyUnregisterSession(id string) error
 	ProxyPacket(packet *lib.Buffer) error
+
+	Creation() uint32
 }
 
 // Handshake template struct for the custom Handshake implementation
@@ -340,15 +343,26 @@ type HandshakeInterface interface {
 	// Init initialize handshake.
 	Init(nodename string, creation uint32, flags Flags) error
 	// Start initiates handshake process. Argument tls means the connection is wrapped by TLS
-	// Returns Flags received from the peer during handshake
-	Start(conn io.ReadWriter, tls bool, cookie string) (Flags, error)
+	// Returns the name of connected peer, Flags and Creation wrapped into HandshakeDetails struct
+	Start(conn io.ReadWriter, tls bool, cookie string) (HandshakeDetails, error)
 	// Accept accepts handshake process initiated by another side of this connection.
-	// Returns the name of connected peer and Flags received from the peer.
-	Accept(conn io.ReadWriter, tls bool, cookie string) (string, Flags, error)
+	// Returns the name of connected peer, Flags and Creation wrapped into HandshakeDetails struct
+	Accept(conn io.ReadWriter, tls bool, cookie string) (HandshakeDetails, error)
 	// Version handshake version. Must be implemented if this handshake is going to be used
 	// for the accepting connections (this method is used in registration on the Resolver)
 	Version() HandshakeVersion
 }
+
+// HandshakeDetails
+type HandshakeDetails struct {
+	Name     string
+	Flags    Flags
+	Creation uint32
+	Version  int
+	Custom   HandshakeCustomDetails
+}
+
+type HandshakeCustomDetails interface{}
 
 type HandshakeVersion int
 
@@ -360,7 +374,7 @@ type Proto struct {
 // Proto defines proto interface for the custom Proto implementation
 type ProtoInterface interface {
 	// Init initialize connection handler
-	Init(ctx context.Context, conn io.ReadWriter, nodename string, peername string, flags Flags) (ConnectionInterface, error)
+	Init(ctx context.Context, conn io.ReadWriter, nodename string, details HandshakeDetails) (ConnectionInterface, error)
 	// Serve connection
 	Serve(connection ConnectionInterface, router CoreRouter)
 	// Terminate invoked once Serve callback is finished
@@ -469,6 +483,7 @@ type ProxyConnectRequest struct {
 	Digest    []byte // md5(md5(md5(md5(Node)+Cookie)+To)+PublicKey)
 	PublicKey []byte
 	Flags     ProxyFlags
+	Creation  uint32
 	Hop       int
 	Path      []string
 }
@@ -480,6 +495,7 @@ type ProxyConnectReply struct {
 	Digest    []byte // md5(md5(md5(md5(Node)+Cookie)+To)+symmetric key)
 	Cipher    []byte // encrypted symmetric key using PublicKey from the ProxyConnectRequest
 	Flags     ProxyFlags
+	Creation  uint32
 	SessionID string // proxy session ID
 	Path      []string
 }
@@ -505,6 +521,7 @@ type ProxySession struct {
 	ID        string
 	NodeFlags ProxyFlags
 	PeerFlags ProxyFlags
+	Creation  uint32
 	PeerName  string
 	Block     cipher.Block // made from symmetric key
 }

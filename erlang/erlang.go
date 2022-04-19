@@ -101,7 +101,7 @@ func processInfo(p gen.Process, pid etf.Pid, property etf.Term) etf.Term {
 			case etf.Atom("priority"):
 				// values = append(values, etf.Tuple{p[i], 0})
 			case etf.Atom("reductions"):
-				values = append(values, etf.Tuple{p[i], info.Reductions})
+				values = append(values, etf.Tuple{p[i], 0})
 			case etf.Atom("registered_name"):
 				values = append(values, etf.Tuple{p[i], process.Name()})
 			case etf.Atom("sequential_trace_token"):

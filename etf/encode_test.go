@@ -106,7 +106,7 @@ func integerCases() []integerCase {
 		{"int64::-127", int64(-127), []byte{ettInteger, 255, 255, 255, 129}},
 		{"int::-127", int(-127), []byte{ettInteger, 255, 255, 255, 129}},
 
-		// positive within range of int8 treats as ettSmallInteger
+		// positive within a range of int8 treats as ettSmallInteger
 		{"int8::127", int8(127), []byte{ettSmallInteger, 127}},
 		{"int16::127", int16(127), []byte{ettSmallInteger, 127}},
 		{"int32::127", int32(127), []byte{ettSmallInteger, 127}},
@@ -366,7 +366,23 @@ func TestEncodeSlice(t *testing.T) {
 		fmt.Println("got", b.B)
 		t.Fatal("incorrect value")
 	}
+
+	b.Reset()
+
+	expected = []byte{108, 0, 0, 0, 3, 119, 1, 97, 119, 1, 98, 119, 1, 99, 106}
+	termAtoms := []Atom{Atom("a"), Atom("b"), Atom("c")}
+	err = Encode(termAtoms, b, EncodeOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !reflect.DeepEqual(b.B, expected) {
+		fmt.Println("exp", expected)
+		fmt.Println("got", b.B)
+		t.Fatal("incorrect value")
+	}
 }
+
 func TestEncodeListNested(t *testing.T) {
 	b := lib.TakeBuffer()
 	defer lib.ReleaseBuffer(b)

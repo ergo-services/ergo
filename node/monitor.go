@@ -572,9 +572,12 @@ func (m *monitor) RouteMonitor(by etf.Pid, pid etf.Pid, ref etf.Ref) error {
 		}
 
 		if err := connection.Monitor(by, pid, ref); err != nil {
-			if err == ErrPeerUnsupported {
-				m.sendMonitorExit(by, pid, "notallow", ref)
-			} else {
+			switch err {
+			case ErrPeerUnsupported:
+				m.sendMonitorExit(by, pid, "unsupported", ref)
+			case ErrProcessIncarnation:
+				m.sendMonitorExit(by, pid, "incarnation", ref)
+			default:
 				m.sendMonitorExit(by, pid, "noconnection", ref)
 			}
 			return err
@@ -609,7 +612,7 @@ func (m *monitor) RouteMonitorReg(by etf.Pid, process gen.ProcessID, ref etf.Ref
 
 		if err := connection.MonitorReg(by, process, ref); err != nil {
 			if err == ErrPeerUnsupported {
-				m.sendMonitorExitReg(by, process, "notallow", ref)
+				m.sendMonitorExitReg(by, process, "unsupported", ref)
 			} else {
 				m.sendMonitorExitReg(by, process, "noconnection", ref)
 			}

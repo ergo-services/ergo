@@ -154,7 +154,7 @@ func sendProcInfo(p gen.Process, to etf.Pid) {
 				etf.Atom("etop_proc_info"), // record name #etop_proc_info
 				list[i].Self(),             // pid
 				0,                          // mem
-				info.Reductions,            // reds
+				0,                          // reds
 				etf.Atom(list[i].Name()),   // etf.Tuple{etf.Atom("ergo"), etf.Atom(list[i].Name()), 0}, // name
 				0,                          // runtime
 				info.CurrentFunction,       // etf.Tuple{etf.Atom("ergo"), etf.Atom(info.CurrentFunction), 0}, // cf

@@ -1,11 +1,11 @@
 <h1><a href="https://ergo.services"><img src=".github/images/logo.svg" alt="Ergo Framework" width="159" height="49"></a></h1>
 
-[![Gitbook Documentation](https://img.shields.io/badge/GitBook-Documentation-f37f40?style=plastic&logo=gitbook&logoColor=white&style=flat)](https://docs.ergo.services)
+<!--[![Gitbook Documentation](https://img.shields.io/badge/GitBook-Documentation-f37f40?style=plastic&logo=gitbook&logoColor=white&style=flat)](https://docs.ergo.services) -->
 [![GoDoc](https://pkg.go.dev/badge/ergo-services/ergo)](https://pkg.go.dev/github.com/ergo-services/ergo)
-[![MIT license](https://img.shields.io/badge/license-MIT-brightgreen.svg)](https://opensource.org/licenses/MIT)
 [![Build Status](https://img.shields.io/github/workflow/status/ergo-services/ergo/TestLinuxWindowsMacOS)](https://github.com/ergo-services/ergo/actions/)
-[![Go Report Card](https://goreportcard.com/badge/github.com/ergo-services/ergo)](https://goreportcard.com/report/github.com/ergo-services/ergo)
-[![Slack Community](https://img.shields.io/badge/Slack-Community-3f0e40?style=flat&logo=slack)](https://ergoservices.slack.com)
+[![Telegram Community](https://img.shields.io/badge/Telegram-Community-blue?style=flat&logo=telegram)](https://t.me/ErgoServices)
+[![Discord Community](https://img.shields.io/badge/Discord-Community-5865F2?style=flat&logo=discord&logoColor=white)](https://discord.gg/sdscxKGV62)
+[![MIT license](https://img.shields.io/badge/license-MIT-brightgreen.svg)](https://opensource.org/licenses/MIT)
 
 Technologies and design patterns of Erlang/OTP have been proven over the years. Now in Golang.
 Up to x5 times faster than original Erlang/OTP in terms of network messaging.
@@ -36,6 +36,7 @@ The goal of this project is to leverage Erlang/OTP experience with Golang perfor
   * Transient
 * `gen.Stage` behavior support (originated from Elixir's [GenStage](https://hexdocs.pm/gen_stage/GenStage.html)). This is abstraction built on top of `gen.Server` to provide a simple way to create a distributed Producer/Consumer architecture, while automatically managing the concept of backpressure. This implementation is fully compatible with Elixir's GenStage. Example is here [examples/genstage](examples/genstage) or just run `go run ./examples/genstage` to see it in action
 * `gen.Saga` behavior support. It implements Saga design pattern - a sequence of transactions that updates each service state and publishes the result (or cancels the transaction or triggers the next transaction step). `gen.Saga` also provides a feature of interim results (can be used as transaction progress or as a part of pipeline processing), time deadline (to limit transaction lifespan), two-phase commit (to make distributed transaction atomic). Here is example [examples/gensaga](examples/gensaga).
+* `gen.Raft` behavior support. It implements [Raft](https://raft.github.io/raft.pdf) consensus protocol.
 * Connect to (accept connection from) any Erlang/Elixir node within a cluster
 * Making sync request `ServerProcess.Call`, async - `ServerProcess.Cast` or `Process.Send` in fashion of `gen_server:call`, `gen_server:cast`, `erlang:send` accordingly
 * Monitor processes/nodes, local/remote
@@ -46,51 +47,65 @@ The goal of this project is to leverage Erlang/OTP experience with Golang perfor
 * Custom marshaling/unmarshaling via `Marshal` and `Unmarshal` interfaces
 * Encryption (TLS 1.3) support (including autogenerating self-signed certificates)
 * Compression support (with customization of compression level and threshold). It can be configured for the node or a particular process.
-* Proxy support (end-to-end encryption, and linking/monitoring features)
+* Proxy support with end-to-end encryption, includeing compression/fragmentation/linking/monitoring features.
 * Tested and confirmed support Windows, Darwin (MacOS), Linux, FreeBSD.
-* Zero dependency
+* Zero dependencies. All features are implemented using the standard Golang library.
 
 ### Requirements ###
 
-* Go 1.15.x and above
+* Go 1.17.x and above
 
 ### Versioning ###
 
-Golang introduced [v2 rule](https://go.dev/blog/v2-go-modules) a while ago to solve complicated dependency issues. We found this solution very controversial and there is still a lot of discussion around it. So, we decided to keep the old way for the versioning, but have to use the git tag with v1 as a major version (due to "v2 rule" restrictions). Since now we use git tag pattern 1.999.XYZZ where X - major number, Y - minor, ZZ - patch version.
+Golang introduced [v2 rule](https://go.dev/blog/v2-go-modules) a while ago to solve complicated dependency issues. We found this solution very controversial and there is still a lot of discussion around it. So, we decided to keep the old way for the versioning, but have to use the git tag with v1 as a major version (due to "v2 rule" restrictions). Since now we use git tag pattern 1.999.XYZ where X - major number, Y - minor, Z - patch version.
 
 ### Changelog ###
 
 Here are the changes of latest release. For more details see the [ChangeLog](ChangeLog.md)
 
-#### [v2.1.0](https://github.com/ergo-services/ergo/releases/tag/v1.999.2100) 2022-03-12 [tag version v1.999.2100] ####
+#### [v2.1.0](https://github.com/ergo-services/ergo/releases/tag/v1.999.210) 2022-04-19 [tag version v1.999.210] ####
 
-* Introduced compression feature support
-* Introduced proxy feature support. Here is example [examples/proxy](examples/proxy). `gen.MessageProxyDown` .. `noproxy`.
-* Introduced new methods
-  - `node.AddProxyRoute`/`node.RemoveProxyRoute`
-  - `node.ProxyRoute`/`node.ProxyRoutes`
-  - `node.NodesIndirect`
-  - `gen.Process.SetCompression`/`gen.Process.Compression`
-  - `gen.Process.SetCompressionLevel`/`gen.Process.CompressionLevel`
-  - `gen.Process.SetCompressionThreshold`/`gen.Process.CompressionThreshold`
-  - `gen.Process.NodeUptime`/`gen.Process.NodeName`/`gen.Process.NodeStop`
+* Introduced **compression feature** support. Here are new methods and options to manage this feature:
+  - `gen.Process`:
+    - `SetCompression(enable bool)`, `Compression() bool`
+    - `SetCompressionLevel(level int) bool`, `CompressionLevel() int`
+    - `SetCompressionThreshold(threshold int) bool`, `CompressionThreshold() int` messages smaller than the threshold will be sent with no compression. The default compression threshold is 1024 bytes.
+  - `node.Options`:
+    - `Compression` these settings are used as defaults for the spawning processes
+  - this feature will be ignored if the receiver is running on either the Erlang or Elixir node
+* Introduced **proxy feature** support **with end-to-end encryption**.
+  - `node.Node` new methods:
+    - `AddProxyRoute(...)`, `RemoveProxyRoute(...)`
+    - `ProxyRoute(...)`, `ProxyRoutes()`
+    - `NodesIndirect()` returns list of connected nodes via proxy connection
+  - `node.Options`:
+    - `Proxy` for configuring proxy settings
+  - includes support (over the proxy connection): compression, fragmentation, link/monitor process, monitor node
+  - example [examples/proxy](examples/proxy).
+  - this feature is not available for the Erlang/Elixir nodes
+* Introduced **behavior `gen.Raft`**. It's improved implementation of [Raft consensus algorithm](https://raft.github.io). The key improvement is using quorum under the hood to manage the leader election process and make the Raft cluster more reliable. This implementation supports quorums of 3, 5, 7, 9, or 11 quorum members. Here is an example of this feature [examples/raft](examples/raft).
+* Introduced **interfaces to customize network layer**
+  - `Resolver` to replace EPMD routines with your solution (e.g., ZooKeeper or any other service registrar)
+  - `Handshake` allows customizing authorization/authentication process
+  - `Proto` provides the way to implement proprietary protocols (e.g., IoT area)
+* Other new features:
+  - `gen.Process` new methods:
+    - `NodeUptime()`, `NodeName()`, `NodeStop()`
+  - `gen.ServerProcess` new method:
+    - `MessageCounter()` shows how many messages have been handled by the `gen.Server` callbacks
+  - `gen.ProcessOptions` new option:
+    - `ProcessFallback` allows forward messages to the fallback process if the process mailbox is full. Forwarded messages are wrapped into `gen.MessageFallback` struct. Related to issue #96.
+  - `gen.SupervisorChildSpec` and `gen.ApplicationChildSpec` got option `gen.ProcessOptions` to customize options for the spawning child processes.
+* Improved sending messages by etf.Pid or etf.Alias: methods `gen.Process.Send`, `gen.ServerProcess.Cast`, `gen.ServerProcess.Call` now return `node.ErrProcessIncarnation` if a message is sending to the remote process of the previous incarnation (remote node has been restarted). Making monitor on a remote process of the previous incarnation triggers sending `gen.MessageDown` with reason `incarnation`.
+* Introduced type `gen.EnvKey` for the environment variables
+* All spawned processes now have the `node.EnvKeyNode` variable to get access to the `node.Node` value.
+* **Improved performance** of local messaging (**up to 8 times** for some cases)
 * **Important** `node.Options` has changed. Make sure to adjust your code.
-* Introduced `node.Proxy` in `node.Options` to configure proxy settings for the node.
-* Intfoduced `node.ProxyFlags` to enable/disable features of linking, monitoring, remote spawning for the peer connected through the proxy link.
-* Introduced `node.Compression` in `node.Options` to configure compression settings for the spawned processes on this node.
-* Introduced new interfaces
-  - `Resolver`
-  - `Handshake`
-  - `Proto`/`Connection`
-* Introduced `gen.ProcessFallback` option in `gen.ProcessOptions`. This feature allows forward messages to the fallback process if the mailbox is full. Forwarded messages are wrapping into `gen.MessageFallback` struct.
-* Added `gen.ProcessOptions` to `gen.SupervisorChildSpec` and `gen.ApplicationChildSpec` in order customize options for the spawning child processes.
-* Improved handling messages. Send/Cast/Call return ErrProcessIncarnation if message is addressed to the process of previous incarnation (node restarted).
-* `gen.EnvKey`
-* default process env `node.EnvKeyNode`
-* Improved performance of local messaging (up to 10 times for some cases)
-* Fixed issue #89 (incorrect handling Call requests)
+* Fixed issue #89 (incorrect handling of Call requests)
 * Fixed issues #87, #88 and #93 (closing network socket)
-* Fixed issue #96 (silently drops message if mailbox is full)
+* Fixed issue #96 (silently drops message if process mailbox is full)
+* Updated minimal requirement of Golang version to 1.17 (go.mod)
+* We still keep the rule **Zero Dependencies**
 
 
 ### Benchmarks ###
@@ -138,6 +153,17 @@ It demonstrates **more than 2 times** improvement.
 This benchmark demonstrates how proxy feature and e2e encryption impact a messaging performance.
 
 ```
+❯❯❯❯ go test -bench=NodeProxy -run=XXX -benchtime=10s
+goos: linux
+goarch: amd64
+pkg: github.com/ergo-services/ergo/tests
+cpu: AMD Ryzen Threadripper 3970X 32-Core Processor
+BenchmarkNodeProxy_NodeA_to_NodeC_direct_Message_1KB-64                     1908477       6337 ns/op
+BenchmarkNodeProxy_NodeA_to_NodeC_via_NodeB_Message_1KB-64                  1700984       7062 ns/op
+BenchmarkNodeProxy_NodeA_to_NodeC_via_NodeB_Message_1KB_Encrypted-64        1271125       9410 ns/op
+PASS
+ok      github.com/ergo-services/ergo/tests     45.649s
+
 ```
 
 
@@ -268,6 +294,7 @@ There are options already defined that you might want to use
 
 * `-ergo.trace` - enable extended debug info
 * `-ergo.norecover` - disable panic catching
+* `-ergo.warning` - enable/disable warnings (default: enable)
 
 To enable Golang profiler just add `--tags debug` in your `go run` or `go build` like this:
 

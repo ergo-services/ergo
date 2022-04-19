@@ -69,7 +69,7 @@ type ServerProcess struct {
 	ProcessState
 
 	behavior        ServerBehavior
-	reductions      uint64 // total number of processed messages from mailBox
+	counter         uint64 // total number of processed messages from mailBox
 	currentFunction string
 	trapExit        bool
 
@@ -190,6 +190,12 @@ func (sp *ServerProcess) SendReply(from ServerFrom, reply etf.Term) error {
 	return sp.Send(to, rep)
 }
 
+// MessageCounter returns the total number of messages handled by Server callbacks: HandleCall,
+// HandleCast, HandleInfo, HandleDirect
+func (sp *ServerProcess) MessageCounter() uint64 {
+	return sp.counter
+}
+
 // ProcessInit
 func (gs *Server) ProcessInit(p Process, args ...etf.Term) (ProcessState, error) {
 	behavior, ok := p.Behavior().(ServerBehavior)
@@ -289,8 +295,6 @@ func (gs *Server) ProcessLoop(ps ProcessState, started chan<- bool) string {
 		}
 
 		lib.Log("[%s] GEN_SERVER %s got message from %s", sp.NodeName(), sp.Self(), fromPid)
-
-		sp.reductions++
 
 		switch m := message.(type) {
 		case etf.Tuple:
@@ -429,21 +433,25 @@ func (sp *ServerProcess) waitCallbackOrDeferr(message interface{}) {
 	switch m := message.(type) {
 	case handleCallMessage:
 		go func() {
+			sp.counter++
 			sp.handleCall(m)
 			sp.callbackWaitReply <- nil
 		}()
 	case handleCastMessage:
 		go func() {
+			sp.counter++
 			sp.handleCast(m)
 			sp.callbackWaitReply <- nil
 		}()
 	case handleInfoMessage:
 		go func() {
+			sp.counter++
 			sp.handleInfo(m)
 			sp.callbackWaitReply <- nil
 		}()
 	case ProcessDirectMessage:
 		go func() {
+			sp.counter++
 			sp.handleDirect(m)
 			sp.callbackWaitReply <- nil
 		}()
@@ -451,7 +459,7 @@ func (sp *ServerProcess) waitCallbackOrDeferr(message interface{}) {
 		// it was called just to read the channel sp.callbackWaitReply
 
 	default:
-		lib.Warning("unknown message type in waitCallbackOrDeferr: %#v\n", message)
+		lib.Warning("unknown message type in waitCallbackOrDeferr: %#v", message)
 		return
 	}
 
@@ -474,7 +482,7 @@ func (sp *ServerProcess) waitCallbackOrDeferr(message interface{}) {
 func (sp *ServerProcess) panicHandler() {
 	if r := recover(); r != nil {
 		pc, fn, line, _ := runtime.Caller(2)
-		lib.Warning("Server terminated %s[%q]. Panic reason: %#v at %s[%s:%d]\n",
+		lib.Warning("Server terminated %s[%q]. Panic reason: %#v at %s[%s:%d]",
 			sp.Self(), sp.Name(), r, runtime.FuncForPC(pc).Name(), fn, line)
 		sp.stop <- "panic"
 	}
@@ -571,13 +579,13 @@ func (gs *Server) Init(process *ServerProcess, args ...etf.Term) error {
 
 // HanldeCast
 func (gs *Server) HandleCast(process *ServerProcess, message etf.Term) ServerStatus {
-	lib.Warning("Server [%s] HandleCast: unhandled message %#v \n", process.Name(), message)
+	lib.Warning("Server [%s] HandleCast: unhandled message %#v", process.Name(), message)
 	return ServerStatusOK
 }
 
 // HandleInfo
 func (gs *Server) HandleCall(process *ServerProcess, from ServerFrom, message etf.Term) (etf.Term, ServerStatus) {
-	lib.Warning("Server [%s] HandleCall: unhandled message %#v from %#v \n", process.Name(), message, from)
+	lib.Warning("Server [%s] HandleCall: unhandled message %#v from %#v", process.Name(), message, from)
 	return "ok", ServerStatusOK
 }
 
@@ -588,7 +596,7 @@ func (gs *Server) HandleDirect(process *ServerProcess, message interface{}) (int
 
 // HandleInfo
 func (gs *Server) HandleInfo(process *ServerProcess, message etf.Term) ServerStatus {
-	lib.Warning("Server [%s] HandleInfo: unhandled message %#v \n", process.Name(), message)
+	lib.Warning("Server [%s] HandleInfo: unhandled message %#v", process.Name(), message)
 	return ServerStatusOK
 }
 

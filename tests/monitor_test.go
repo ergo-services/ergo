@@ -524,7 +524,7 @@ func TestMonitorLocalProxyRemoteByPid(t *testing.T) {
 	result = gen.MessageDown{
 		Ref:    ref,
 		Pid:    node1gs1.Self(),
-		Reason: "notallow",
+		Reason: "unsupported",
 	}
 	waitForResultWithValue(t, gs3.v, result)
 
@@ -689,7 +689,7 @@ func TestMonitorLocalProxyRemoteByName(t *testing.T) {
 	result = gen.MessageDown{
 		Ref:       ref,
 		ProcessID: processID1,
-		Reason:    "notallow",
+		Reason:    "unsupported",
 	}
 	waitForResultWithValue(t, gs3.v, result)
 

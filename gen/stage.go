@@ -533,7 +533,7 @@ func (gst *Stage) InitStage(process *StageProcess, args ...etf.Term) error {
 // HandleSagaCall
 func (gst *Stage) HandleStageCall(process *StageProcess, from ServerFrom, message etf.Term) (etf.Term, ServerStatus) {
 	// default callback if it wasn't implemented
-	lib.Warning("HandleStageCall: unhandled message (from %#v) %#v\n", from, message)
+	lib.Warning("HandleStageCall: unhandled message (from %#v) %#v", from, message)
 	return etf.Atom("ok"), ServerStatusOK
 }
 
@@ -546,14 +546,14 @@ func (gst *Stage) HandleStageDirect(process *StageProcess, message interface{}) 
 // HandleStageCast
 func (gst *Stage) HandleStageCast(process *StageProcess, message etf.Term) ServerStatus {
 	// default callback if it wasn't implemented
-	lib.Warning("HandleStageCast: unhandled message %#v\n", message)
+	lib.Warning("HandleStageCast: unhandled message %#v", message)
 	return ServerStatusOK
 }
 
 // HandleStageInfo
 func (gst *Stage) HandleStageInfo(process *StageProcess, message etf.Term) ServerStatus {
 	// default callback if it wasn't implemnted
-	lib.Warning("HandleStageInfo: unhandled message %#v\n", message)
+	lib.Warning("HandleStageInfo: unhandled message %#v", message)
 	return ServerStatusOK
 }
 
@@ -581,13 +581,13 @@ func (gst *Stage) HandleCanceled(process *StageProcess, subscription StageSubscr
 
 // HanndleEvents
 func (gst *Stage) HandleEvents(process *StageProcess, subscription StageSubscription, events etf.List) StageStatus {
-	lib.Warning("Stage HandleEvents: unhandled subscription (%#v) events %#v\n", subscription, events)
+	lib.Warning("Stage HandleEvents: unhandled subscription (%#v) events %#v", subscription, events)
 	return StageStatusOK
 }
 
 // HandleDemand
 func (gst *Stage) HandleDemand(process *StageProcess, subscription StageSubscription, count uint) (etf.List, StageStatus) {
-	lib.Warning("Stage HandleDemand: unhandled subscription (%#v) demand %#v\n", subscription, count)
+	lib.Warning("Stage HandleDemand: unhandled subscription (%#v) demand %#v", subscription, count)
 	return nil, StageStatusOK
 }
 
@@ -630,7 +630,7 @@ func handleConsumer(process *StageProcess, subscription StageSubscription, cmd s
 
 		subInternal, ok := process.producers[subscription.ID]
 		if !ok {
-			lib.Warning("consumer got %d events for unknown subscription %#v\n", numEvents, subscription)
+			lib.Warning("consumer got %d events for unknown subscription %#v", numEvents, subscription)
 			return etf.Atom("ok"), nil
 		}
 		subInternal.count--

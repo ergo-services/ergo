@@ -135,6 +135,7 @@ func newCore(ctx context.Context, nodename string, cookie string, options Option
 		return nil, err
 	}
 	c.networkInternal = network
+
 	return c, nil
 }
 
@@ -423,7 +424,7 @@ func (c *core) spawn(name string, opts processOptions, behavior gen.ProcessBehav
 			defer func() {
 				if rcv := recover(); rcv != nil {
 					pc, fn, line, _ := runtime.Caller(2)
-					lib.Warning("initialization process failed %s[%q] %#v at %s[%s:%d]\n",
+					lib.Warning("initialization process failed %s[%q] %#v at %s[%s:%d]",
 						process.self, name, rcv, runtime.FuncForPC(pc).Name(), fn, line)
 					c.deleteProcess(process.self)
 					err = fmt.Errorf("panic")
@@ -478,7 +479,7 @@ func (c *core) spawn(name string, opts processOptions, behavior gen.ProcessBehav
 			defer func() {
 				if rcv := recover(); rcv != nil {
 					pc, fn, line, _ := runtime.Caller(2)
-					lib.Warning("process terminated %s[%q] %#v at %s[%s:%d]\n",
+					lib.Warning("process terminated %s[%q] %#v at %s[%s:%d]",
 						process.self, name, rcv, runtime.FuncForPC(pc).Name(), fn, line)
 					cleanProcess("panic")
 				}
@@ -735,7 +736,9 @@ func (c *core) RouteSend(from etf.Pid, to etf.Pid, message etf.Term) error {
 			pid, found := c.names[p.fallback.Name]
 			c.mutexNames.RUnlock()
 			if found == false {
-				lib.Warning("mailbox of %s[%q] is full. dropped message from %s", p.self, p.name, from)
+				//lib.Warning("mailbox of %s[%q] is full. dropped message from %s", p.self, p.name, from)
+				//FIXME
+				lib.Warning("mailbox of %s[%q] is full. dropped message from %s %#v", p.self, p.name, from, message)
 				return ErrProcessBusy
 			}
 			fbm := gen.MessageFallback{

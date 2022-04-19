@@ -309,8 +309,9 @@ func (n *network) getConnection(peername string) (ConnectionInterface, error) {
 
 	// try to connect via proxy if there ProxyRoute was presented for this peer
 	request := ProxyConnectRequest{
-		ID: n.router.MakeRef(),
-		To: peername,
+		ID:       n.router.MakeRef(),
+		To:       peername,
+		Creation: n.creation,
 	}
 
 	if err := n.RouteProxyConnectRequest(nil, request); err != nil {
@@ -500,6 +501,7 @@ func (n *network) RouteProxyConnectRequest(from ConnectionInterface, request Pro
 		if request.Hop < 1 {
 			request.Hop = DefaultProxyMaxHop
 		}
+		request.Creation = n.creation
 		connectRequest := proxyConnectRequest{
 			privateKey: privKey,
 			request:    request,
@@ -586,6 +588,7 @@ func (n *network) RouteProxyConnectRequest(from ConnectionInterface, request Pro
 		Digest:    digest,
 		Cipher:    cipherkey,
 		Flags:     flags,
+		Creation:  n.creation,
 		SessionID: sessionID,
 		Path:      request.Path[1:],
 	}
@@ -602,6 +605,7 @@ func (n *network) RouteProxyConnectRequest(from ConnectionInterface, request Pro
 		NodeFlags: reply.Flags,
 		PeerFlags: request.Flags,
 		PeerName:  peername,
+		Creation:  request.Creation,
 		Block:     block,
 	}
 
@@ -737,6 +741,7 @@ func (n *network) RouteProxyConnectReply(from ConnectionInterface, reply ProxyCo
 		NodeFlags: r.request.Flags,
 		PeerFlags: reply.Flags,
 		PeerName:  r.request.To,
+		Creation:  reply.Creation,
 		Block:     block,
 	}
 
@@ -971,7 +976,7 @@ func (n *network) listen(ctx context.Context, hostname string, begin uint16, end
 				}
 				lib.Log("[%s] NETWORK accepted new connection from %s", n.nodename, c.RemoteAddr().String())
 
-				peername, protoFlags, err := n.handshake.Accept(c, n.tls.Enable, n.cookie)
+				details, err := n.handshake.Accept(c, n.tls.Enable, n.cookie)
 				if err != nil {
 					lib.Log("[%s] Can't handshake with %s: %s", n.nodename, c.RemoteAddr().String(), err)
 					c.Close()
@@ -980,8 +985,8 @@ func (n *network) listen(ctx context.Context, hostname string, begin uint16, end
 				// TODO we need to detect somehow whether to enable software keepalive.
 				// Erlang nodes are required to be receiving keepalive messages,
 				// but Ergo doesn't need it.
-				protoFlags.EnableSoftwareKeepAlive = true
-				connection, err := n.proto.Init(n.ctx, c, n.nodename, peername, protoFlags)
+				details.Flags.EnableSoftwareKeepAlive = true
+				connection, err := n.proto.Init(n.ctx, c, n.nodename, details)
 				if err != nil {
 					c.Close()
 					continue
@@ -992,7 +997,7 @@ func (n *network) listen(ctx context.Context, hostname string, begin uint16, end
 					connection: connection,
 				}
 
-				if _, err := n.registerConnection(peername, cInternal); err != nil {
+				if _, err := n.registerConnection(details.Name, cInternal); err != nil {
 					// Race condition:
 					// There must be another goroutine which already created and registered
 					// connection to this node.
@@ -1004,7 +1009,7 @@ func (n *network) listen(ctx context.Context, hostname string, begin uint16, end
 				// run serving connection
 				go func(ctx context.Context, ci connectionInternal) {
 					n.proto.Serve(ci.connection, n.router)
-					n.unregisterConnection(peername, nil)
+					n.unregisterConnection(details.Name, nil)
 					n.proto.Terminate(ci.connection)
 					ci.conn.Close()
 				}(ctx, cInternal)
@@ -1020,15 +1025,15 @@ func (n *network) listen(ctx context.Context, hostname string, begin uint16, end
 	return 0, fmt.Errorf("Can't start listener. Port range is taken")
 }
 
-func (n *network) connect(peername string) (ConnectionInterface, error) {
+func (n *network) connect(node string) (ConnectionInterface, error) {
 	var route Route
 	var c net.Conn
 	var err error
 	var enabledTLS bool
-	lib.Log("[%s] NETWORK trying to connect to %#v", n.nodename, peername)
+	lib.Log("[%s] NETWORK trying to connect to %#v", n.nodename, node)
 
 	// resolve the route
-	route, err = n.Resolve(peername)
+	route, err = n.Resolve(node)
 	if err != nil {
 		return nil, err
 	}
@@ -1106,9 +1111,14 @@ func (n *network) connect(peername string) (ConnectionInterface, error) {
 		cookie = route.Options.Cookie
 	}
 
-	protoFlags, err := n.handshake.Start(c, enabledTLS, cookie)
+	details, err := n.handshake.Start(c, enabledTLS, cookie)
 	if err != nil {
 		c.Close()
+		return nil, err
+	}
+	if details.Name != node {
+		err := fmt.Errorf("node %q introduced itself as %q", node, details.Name)
+		lib.Warning("%s", err)
 		return nil, err
 	}
 
@@ -1122,8 +1132,8 @@ func (n *network) connect(peername string) (ConnectionInterface, error) {
 	// TODO we need to detect somehow whether to enable software keepalive.
 	// Erlang nodes are required to be receiving keepalive messages,
 	// but Ergo doesn't need it.
-	protoFlags.EnableSoftwareKeepAlive = true
-	connection, err := n.proto.Init(n.ctx, c, n.nodename, peername, protoFlags)
+	details.Flags.EnableSoftwareKeepAlive = true
+	connection, err := n.proto.Init(n.ctx, c, n.nodename, details)
 	if err != nil {
 		c.Close()
 		return nil, err
@@ -1133,7 +1143,7 @@ func (n *network) connect(peername string) (ConnectionInterface, error) {
 		connection: connection,
 	}
 
-	if registered, err := n.registerConnection(peername, cInternal); err != nil {
+	if registered, err := n.registerConnection(details.Name, cInternal); err != nil {
 		// Race condition:
 		// There must be another goroutine which already created and registered
 		// connection to this node.
@@ -1148,7 +1158,7 @@ func (n *network) connect(peername string) (ConnectionInterface, error) {
 	// run serving connection
 	go func(ctx context.Context, ci connectionInternal) {
 		n.proto.Serve(ci.connection, n.router)
-		n.unregisterConnection(peername, nil)
+		n.unregisterConnection(details.Name, nil)
 		n.proto.Terminate(ci.connection)
 		ci.conn.Close()
 	}(n.ctx, cInternal)
