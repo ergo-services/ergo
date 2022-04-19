@@ -11,6 +11,10 @@ import (
 
 func main() {
 
+	fmt.Println("")
+	fmt.Println("to stop press Ctrl-C or wait 10 seconds...")
+	fmt.Println("")
+
 	fmt.Printf("Starting node: node1@localhost and raft1 process - ")
 	node1, err := ergo.StartNode("node1@localhost", "cookies", node.Options{})
 	if err != nil {
