@@ -2,9 +2,7 @@ package dist
 
 import (
 	"bytes"
-	"fmt"
 	"math/rand"
-	"net"
 	"reflect"
 	"testing"
 	"time"
@@ -13,110 +11,13 @@ import (
 	"github.com/ergo-services/ergo/lib"
 )
 
-func TestLinkRead(t *testing.T) {
-
-	server, client := net.Pipe()
-	defer func() {
-		server.Close()
-		client.Close()
-	}()
-
-	link := Link{
-		conn: server,
-	}
-
-	go client.Write([]byte{0, 0, 0, 0, 0, 0, 0, 1, 0})
-
-	// read keepalive answer on a client side
-	go func() {
-		bb := make([]byte, 10)
-		for {
-			_, e := client.Read(bb)
-			if e != nil {
-				return
-			}
-		}
-	}()
-
-	c := make(chan bool)
-	b := lib.TakeBuffer()
-	go func() {
-		link.Read(b)
-		close(c)
-	}()
-	select {
-	case <-c:
-		fmt.Println("OK", b.B)
-	case <-time.After(1000 * time.Millisecond):
-		t.Fatal("incorrect")
-	}
-
-}
-
-func TestComposeName(t *testing.T) {
-	//link := &Link{
-	//	Name:   "testName",
-	//	Cookie: "testCookie",
-	//	Hidden: false,
-
-	//	flags: toNodeFlag(PUBLISHED, UNICODE_IO, DIST_MONITOR, DIST_MONITOR_NAME,
-	//		EXTENDED_PIDS_PORTS, EXTENDED_REFERENCES,
-	//		DIST_HDR_ATOM_CACHE, HIDDEN_ATOM_CACHE, NEW_FUN_TAGS,
-	//		SMALL_ATOM_TAGS, UTF8_ATOMS, MAP_TAG, BIG_CREATION,
-	//		FRAGMENTS,
-	//	),
-
-	//	version: 5,
-	//}
-	//b := lib.TakeBuffer()
-	//defer lib.ReleaseBuffer(b)
-	//link.composeName(b)
-	//shouldBe := []byte{}
-
-	//if !bytes.Equal(b.B, shouldBe) {
-	//	t.Fatal("malform value")
-	//}
-
-}
-
-func TestReadName(t *testing.T) {
-
-}
-
-func TestComposeStatus(t *testing.T) {
-
-}
-
-func TestComposeChallenge(t *testing.T) {
-
-}
-
-func TestReadChallenge(t *testing.T) {
-
-}
-
-func TestValidateChallengeReply(t *testing.T) {
-
-}
-
-func TestComposeChallengeAck(t *testing.T) {
-
-}
-
-func TestComposeChalleneReply(t *testing.T) {
-
-}
-
-func TestValidateChallengeAck(t *testing.T) {
-
-}
-
 func TestDecodeDistHeaderAtomCache(t *testing.T) {
-	link := Link{}
+	c := &distConnection{}
+	c.cache = etf.NewAtomCache()
 	a1 := etf.Atom("atom1")
 	a2 := etf.Atom("atom2")
-	link.cacheIn[1034] = &a1
-	link.cacheIn[5] = &a2
+	c.cache.In.Atoms[1034] = &a1
+	c.cache.In.Atoms[5] = &a2
 	packet := []byte{
 		131, 68, // start dist header
 		5, 4, 137, 9, // 5 atoms and theirs flags
@@ -134,7 +35,7 @@ func TestDecodeDistHeaderAtomCache(t *testing.T) {
 	}
 
 	cacheExpected := []etf.Atom{"atom1", "atom2", "reg", "call", "set_get_state"}
-	cacheInExpected := link.cacheIn
+	cacheInExpected := c.cache.In.Atoms
 	a3 := etf.Atom("reg")
 	a4 := etf.Atom("call")
 	a5 := etf.Atom("set_get_state")
@@ -143,13 +44,13 @@ func TestDecodeDistHeaderAtomCache(t *testing.T) {
 	cacheInExpected[494] = &a5
 
 	packetExpected := packet[34:]
-	cache, packet1, _ := link.decodeDistHeaderAtomCache(packet[2:])
+	cache, packet1, _ := c.decodeDistHeaderAtomCache(packet[2:], nil)
 
 	if !bytes.Equal(packet1, packetExpected) {
 		t.Fatal("incorrect packet")
 	}
 
-	if !reflect.DeepEqual(link.cacheIn, cacheInExpected) {
+	if !reflect.DeepEqual(c.cache.In.Atoms, cacheInExpected) {
 		t.Fatal("incorrect cacheIn")
 	}
 
@@ -164,16 +65,16 @@ func TestEncodeDistHeaderAtomCache(t *testing.T) {
 	b := lib.TakeBuffer()
 	defer lib.ReleaseBuffer(b)
 
-	writerAtomCache := make(map[etf.Atom]etf.CacheItem)
-	encodingAtomCache := etf.TakeListAtomCache()
-	defer etf.ReleaseListAtomCache(encodingAtomCache)
+	senderAtomCache := make(map[etf.Atom]etf.CacheItem)
+	encodingAtomCache := etf.TakeEncodingAtomCache()
+	defer etf.ReleaseEncodingAtomCache(encodingAtomCache)
 
-	writerAtomCache["reg"] = etf.CacheItem{ID: 1000, Encoded: false, Name: "reg"}
-	writerAtomCache["call"] = etf.CacheItem{ID: 499, Encoded: false, Name: "call"}
-	writerAtomCache["one_more_atom"] = etf.CacheItem{ID: 199, Encoded: true, Name: "one_more_atom"}
-	writerAtomCache["yet_another_atom"] = etf.CacheItem{ID: 2, Encoded: false, Name: "yet_another_atom"}
-	writerAtomCache["extra_atom"] = etf.CacheItem{ID: 10, Encoded: true, Name: "extra_atom"}
-	writerAtomCache["potato"] = etf.CacheItem{ID: 2017, Encoded: true, Name: "potato"}
+	senderAtomCache["reg"] = etf.CacheItem{ID: 1000, Encoded: false, Name: "reg"}
+	senderAtomCache["call"] = etf.CacheItem{ID: 499, Encoded: false, Name: "call"}
+	senderAtomCache["one_more_atom"] = etf.CacheItem{ID: 199, Encoded: true, Name: "one_more_atom"}
+	senderAtomCache["yet_another_atom"] = etf.CacheItem{ID: 2, Encoded: false, Name: "yet_another_atom"}
+	senderAtomCache["extra_atom"] = etf.CacheItem{ID: 10, Encoded: true, Name: "extra_atom"}
+	senderAtomCache["potato"] = etf.CacheItem{ID: 2017, Encoded: true, Name: "potato"}
 
 	// Encoded field is ignored here
 	encodingAtomCache.Append(etf.CacheItem{ID: 499, Name: "call"})
@@ -190,8 +91,8 @@ func TestEncodeDistHeaderAtomCache(t *testing.T) {
 
 	}
 
-	l := &Link{}
-	l.encodeDistHeaderAtomCache(b, writerAtomCache, encodingAtomCache)
+	l := &distConnection{}
+	l.encodeDistHeaderAtomCache(b, senderAtomCache, encodingAtomCache)
 
 	if !reflect.DeepEqual(b.B, expected) {
 		t.Fatal("incorrect value")
@@ -210,7 +111,7 @@ func TestEncodeDistHeaderAtomCache(t *testing.T) {
 		97, 110, 111, 116, 104, 101,
 		114, 95, 97, 116, 111, 109,
 	}
-	l.encodeDistHeaderAtomCache(b, writerAtomCache, encodingAtomCache)
+	l.encodeDistHeaderAtomCache(b, senderAtomCache, encodingAtomCache)
 
 	if !reflect.DeepEqual(b.B, expected) {
 		t.Fatal("incorrect value", b.B)
@@ -218,7 +119,7 @@ func TestEncodeDistHeaderAtomCache(t *testing.T) {
 }
 
 func BenchmarkDecodeDistHeaderAtomCache(b *testing.B) {
-	link := &Link{}
+	link := &distConnection{}
 	packet := []byte{
 		131, 68, // start dist header
 		5, 4, 137, 9, // 5 atoms and theirs flags
@@ -236,25 +137,25 @@ func BenchmarkDecodeDistHeaderAtomCache(b *testing.B) {
 	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		link.decodeDistHeaderAtomCache(packet[2:])
+		link.decodeDistHeaderAtomCache(packet[2:], nil)
 	}
 }
 
 func BenchmarkEncodeDistHeaderAtomCache(b *testing.B) {
-	link := &Link{}
+	link := &distConnection{}
 	buf := lib.TakeBuffer()
 	defer lib.ReleaseBuffer(buf)
 
-	writerAtomCache := make(map[etf.Atom]etf.CacheItem)
-	encodingAtomCache := etf.TakeListAtomCache()
-	defer etf.ReleaseListAtomCache(encodingAtomCache)
+	senderAtomCache := make(map[etf.Atom]etf.CacheItem)
+	encodingAtomCache := etf.TakeEncodingAtomCache()
+	defer etf.ReleaseEncodingAtomCache(encodingAtomCache)
 
-	writerAtomCache["reg"] = etf.CacheItem{ID: 1000, Encoded: false, Name: "reg"}
-	writerAtomCache["call"] = etf.CacheItem{ID: 499, Encoded: false, Name: "call"}
-	writerAtomCache["one_more_atom"] = etf.CacheItem{ID: 199, Encoded: true, Name: "one_more_atom"}
-	writerAtomCache["yet_another_atom"] = etf.CacheItem{ID: 2, Encoded: false, Name: "yet_another_atom"}
-	writerAtomCache["extra_atom"] = etf.CacheItem{ID: 10, Encoded: true, Name: "extra_atom"}
-	writerAtomCache["potato"] = etf.CacheItem{ID: 2017, Encoded: true, Name: "potato"}
+	senderAtomCache["reg"] = etf.CacheItem{ID: 1000, Encoded: false, Name: "reg"}
+	senderAtomCache["call"] = etf.CacheItem{ID: 499, Encoded: false, Name: "call"}
+	senderAtomCache["one_more_atom"] = etf.CacheItem{ID: 199, Encoded: true, Name: "one_more_atom"}
+	senderAtomCache["yet_another_atom"] = etf.CacheItem{ID: 2, Encoded: false, Name: "yet_another_atom"}
+	senderAtomCache["extra_atom"] = etf.CacheItem{ID: 10, Encoded: true, Name: "extra_atom"}
+	senderAtomCache["potato"] = etf.CacheItem{ID: 2017, Encoded: true, Name: "potato"}
 
 	// Encoded field is ignored here
 	encodingAtomCache.Append(etf.CacheItem{ID: 499, Name: "call"})
@@ -263,38 +164,39 @@ func BenchmarkEncodeDistHeaderAtomCache(b *testing.B) {
 	encodingAtomCache.Append(etf.CacheItem{ID: 2017, Name: "potato"})
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		link.encodeDistHeaderAtomCache(buf, writerAtomCache, encodingAtomCache)
+		link.encodeDistHeaderAtomCache(buf, senderAtomCache, encodingAtomCache)
 	}
 }
 
 func TestDecodeFragment(t *testing.T) {
-	link := &Link{}
+	link := &distConnection{}
 
 	link.checkCleanTimeout = 50 * time.Millisecond
 	link.checkCleanDeadline = 150 * time.Millisecond
+	link.fragments = make(map[uint64]*fragmentedPacket)
 
 	// decode fragment with fragmentID=0 should return error
-	fragment0 := []byte{0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3}
-	if _, e := link.decodeFragment(fragment0, true); e == nil {
+	fragment0 := []byte{protoDistFragment1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3}
+	if _, e := link.decodeFragment(fragment0, nil); e == nil {
 		t.Fatal("should be error here")
 	}
 
-	fragment1 := []byte{0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 3, 1, 2, 3}
-	fragment2 := []byte{0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 2, 4, 5, 6}
-	fragment3 := []byte{0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 1, 7, 8, 9}
+	fragment1 := []byte{protoDistFragment1, 0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 3, 0, 1, 2, 3}
+	fragment2 := []byte{protoDistFragmentN, 0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 2, 4, 5, 6}
+	fragment3 := []byte{protoDistFragmentN, 0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 1, 7, 8, 9}
 
-	expected := []byte{68, 1, 2, 3, 4, 5, 6, 7, 8, 9}
+	expected := []byte{68, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9}
 
 	// add first fragment
-	if x, e := link.decodeFragment(fragment1, true); x != nil || e != nil {
-		t.Fatal("should be nil here", e)
+	if x, e := link.decodeFragment(fragment1, nil); x != nil || e != nil {
+		t.Fatal("should be nil here", x, e)
 	}
 	// add second one
-	if x, e := link.decodeFragment(fragment2, false); x != nil || e != nil {
+	if x, e := link.decodeFragment(fragment2, nil); x != nil || e != nil {
 		t.Fatal("should be nil here", e)
 	}
 	// add the last one. should return *lib.Buffer with assembled packet
-	if x, e := link.decodeFragment(fragment3, false); x == nil || e != nil {
+	if x, e := link.decodeFragment(fragment3, nil); x == nil || e != nil {
 		t.Fatal("shouldn't be nil here", e)
 	} else {
 		// x should be *lib.Buffer
@@ -313,7 +215,7 @@ func TestDecodeFragment(t *testing.T) {
 	link.checkCleanDeadline = 150 * time.Millisecond
 	// test lost fragment
 	// add the first fragment and wait 160ms
-	if x, e := link.decodeFragment(fragment1, true); x != nil || e != nil {
+	if x, e := link.decodeFragment(fragment1, nil); x != nil || e != nil {
 		t.Fatal("should be nil here", e)
 	}
 	if len(link.fragments) == 0 {
@@ -330,17 +232,17 @@ func TestDecodeFragment(t *testing.T) {
 	link.checkCleanTimeout = 0
 	link.checkCleanDeadline = 0
 	fragments := [][]byte{
-		[]byte{0, 0, 0, 0, 0, 0, 0, 6, 0, 0, 0, 0, 0, 0, 0, 9, 1, 2, 3},
-		[]byte{0, 0, 0, 0, 0, 0, 0, 6, 0, 0, 0, 0, 0, 0, 0, 8, 4, 5, 6},
-		[]byte{0, 0, 0, 0, 0, 0, 0, 6, 0, 0, 0, 0, 0, 0, 0, 7, 7, 8, 9},
-		[]byte{0, 0, 0, 0, 0, 0, 0, 6, 0, 0, 0, 0, 0, 0, 0, 6, 10, 11, 12},
-		[]byte{0, 0, 0, 0, 0, 0, 0, 6, 0, 0, 0, 0, 0, 0, 0, 5, 13, 14, 15},
-		[]byte{0, 0, 0, 0, 0, 0, 0, 6, 0, 0, 0, 0, 0, 0, 0, 4, 16, 17, 18},
-		[]byte{0, 0, 0, 0, 0, 0, 0, 6, 0, 0, 0, 0, 0, 0, 0, 3, 19, 20, 21},
-		[]byte{0, 0, 0, 0, 0, 0, 0, 6, 0, 0, 0, 0, 0, 0, 0, 2, 22, 23, 24},
-		[]byte{0, 0, 0, 0, 0, 0, 0, 6, 0, 0, 0, 0, 0, 0, 0, 1, 25, 26, 27},
+		{protoDistFragment1, 0, 0, 0, 0, 0, 0, 0, 6, 0, 0, 0, 0, 0, 0, 0, 9, 0, 1, 2, 3},
+		{protoDistFragmentN, 0, 0, 0, 0, 0, 0, 0, 6, 0, 0, 0, 0, 0, 0, 0, 8, 4, 5, 6},
+		{protoDistFragmentN, 0, 0, 0, 0, 0, 0, 0, 6, 0, 0, 0, 0, 0, 0, 0, 7, 7, 8, 9},
+		{protoDistFragmentN, 0, 0, 0, 0, 0, 0, 0, 6, 0, 0, 0, 0, 0, 0, 0, 6, 10, 11, 12},
+		{protoDistFragmentN, 0, 0, 0, 0, 0, 0, 0, 6, 0, 0, 0, 0, 0, 0, 0, 5, 13, 14, 15},
+		{protoDistFragmentN, 0, 0, 0, 0, 0, 0, 0, 6, 0, 0, 0, 0, 0, 0, 0, 4, 16, 17, 18},
+		{protoDistFragmentN, 0, 0, 0, 0, 0, 0, 0, 6, 0, 0, 0, 0, 0, 0, 0, 3, 19, 20, 21},
+		{protoDistFragmentN, 0, 0, 0, 0, 0, 0, 0, 6, 0, 0, 0, 0, 0, 0, 0, 2, 22, 23, 24},
+		{protoDistFragmentN, 0, 0, 0, 0, 0, 0, 0, 6, 0, 0, 0, 0, 0, 0, 0, 1, 25, 26, 27},
 	}
-	expected = []byte{68, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27}
+	expected = []byte{68, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27}
 
 	fragmentsReverse := make([][]byte, len(fragments))
 	l := len(fragments)
@@ -350,13 +252,8 @@ func TestDecodeFragment(t *testing.T) {
 
 	var result *lib.Buffer
 	var e error
-	var first bool
 	for i := range fragmentsReverse {
-		first = false
-		if fragmentsReverse[i][15] == byte(l) {
-			first = true
-		}
-		if result, e = link.decodeFragment(fragmentsReverse[i], first); e != nil {
+		if result, e = link.decodeFragment(fragmentsReverse[i], nil); e != nil {
 			t.Fatal(e)
 		}
 
@@ -382,11 +279,7 @@ func TestDecodeFragment(t *testing.T) {
 		}
 
 		for i := range fragmentsShuffle {
-			first = false
-			if fragmentsShuffle[i][15] == byte(l) {
-				first = true
-			}
-			if result, e = link.decodeFragment(fragmentsShuffle[i], first); e != nil {
+			if result, e = link.decodeFragment(fragmentsShuffle[i], nil); e != nil {
 				t.Fatal(e)
 			}
 

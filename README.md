@@ -1,10 +1,11 @@
 <h1><a href="https://ergo.services"><img src=".github/images/logo.svg" alt="Ergo Framework" width="159" height="49"></a></h1>
 
-[![GitHub release](https://img.shields.io/github/release/ergo-services/ergo.svg)](https://github.com/ergo-services/ergo/releases/latest)
-[![Go Report Card](https://goreportcard.com/badge/github.com/ergo-services/ergo)](https://goreportcard.com/report/github.com/ergo-services/ergo)
+<!--[![Gitbook Documentation](https://img.shields.io/badge/GitBook-Documentation-f37f40?style=plastic&logo=gitbook&logoColor=white&style=flat)](https://docs.ergo.services) -->
 [![GoDoc](https://pkg.go.dev/badge/ergo-services/ergo)](https://pkg.go.dev/github.com/ergo-services/ergo)
-[![MIT license](https://img.shields.io/badge/license-MIT-brightgreen.svg)](https://opensource.org/licenses/MIT)
 [![Build Status](https://img.shields.io/github/workflow/status/ergo-services/ergo/TestLinuxWindowsMacOS)](https://github.com/ergo-services/ergo/actions/)
+[![Telegram Community](https://img.shields.io/badge/Telegram-Community-blue?style=flat&logo=telegram)](https://t.me/ErgoServices)
+[![Discord Community](https://img.shields.io/badge/Discord-Community-5865F2?style=flat&logo=discord&logoColor=white)](https://discord.gg/sdscxKGV62)
+[![MIT license](https://img.shields.io/badge/license-MIT-brightgreen.svg)](https://opensource.org/licenses/MIT)
 
 Technologies and design patterns of Erlang/OTP have been proven over the years. Now in Golang.
 Up to x5 times faster than original Erlang/OTP in terms of network messaging.
@@ -35,90 +36,81 @@ The goal of this project is to leverage Erlang/OTP experience with Golang perfor
   * Transient
 * `gen.Stage` behavior support (originated from Elixir's [GenStage](https://hexdocs.pm/gen_stage/GenStage.html)). This is abstraction built on top of `gen.Server` to provide a simple way to create a distributed Producer/Consumer architecture, while automatically managing the concept of backpressure. This implementation is fully compatible with Elixir's GenStage. Example is here [examples/genstage](examples/genstage) or just run `go run ./examples/genstage` to see it in action
 * `gen.Saga` behavior support. It implements Saga design pattern - a sequence of transactions that updates each service state and publishes the result (or cancels the transaction or triggers the next transaction step). `gen.Saga` also provides a feature of interim results (can be used as transaction progress or as a part of pipeline processing), time deadline (to limit transaction lifespan), two-phase commit (to make distributed transaction atomic). Here is example [examples/gensaga](examples/gensaga).
-* Connect to (accept connection from) any Erlang node within a cluster
+* `gen.Raft` behavior support. It's improved implementation of [Raft consensus algorithm](https://raft.github.io). The key improvement is using quorum under the hood to manage the leader election process and make the Raft cluster more reliable. This implementation supports quorums of 3, 5, 7, 9, or 11 quorum members. Here is an example of this feature [examples/raft](examples/raft).
+* Connect to (accept connection from) any Erlang/Elixir node within a cluster
 * Making sync request `ServerProcess.Call`, async - `ServerProcess.Cast` or `Process.Send` in fashion of `gen_server:call`, `gen_server:cast`, `erlang:send` accordingly
-* Monitor processes/nodes
-  * local -> local
-  * local -> remote
-  * remote -> local
-* Link processes
-  * local <-> local
-  * local <-> remote
-  * remote <-> local
+* Monitor processes/nodes, local/remote
+* Link processes local/remote
 * RPC callbacks support
 * [embedded EPMD](#epmd) (in order to get rid of erlang' dependencies)
-* Experimental [observer support](#observer)
 * Unmarshalling terms into the struct using `etf.TermIntoStruct`, `etf.TermProplistIntoStruct` or to the string using `etf.TermToString`
 * Custom marshaling/unmarshaling via `Marshal` and `Unmarshal` interfaces
 * Encryption (TLS 1.3) support (including autogenerating self-signed certificates)
+* Compression support (with customization of compression level and threshold). It can be configured for the node or a particular process.
+* Proxy support with end-to-end encryption, includeing compression/fragmentation/linking/monitoring features.
 * Tested and confirmed support Windows, Darwin (MacOS), Linux, FreeBSD.
+* Zero dependencies. All features are implemented using the standard Golang library.
 
 ### Requirements ###
 
-* Go 1.15.x and above
+* Go 1.17.x and above
 
 ### Versioning ###
 
-Golang introduced [v2 rule](https://go.dev/blog/v2-go-modules) a while ago to solve complicated dependency issues. We found this solution very controversial and there is still a lot of discussion around it. So, we decided to keep the old way for the versioning, but have to use the git tag versioning with v1 as a major version (due to "v2 rule" restrictions) . As a starting point for the v2.0.0 we use git tag v1.999.200. Since now, the only "patch version" will be increased for the next releases (e.g. v2.0.1 will be tagged in git as v.1.999.201 and so on, but never be above git tag v1.999 until the moment when Golang developers change the versioning approach)
+Golang introduced [v2 rule](https://go.dev/blog/v2-go-modules) a while ago to solve complicated dependency issues. We found this solution very controversial and there is still a lot of discussion around it. So, we decided to keep the old way for the versioning, but have to use the git tag with v1 as a major version (due to "v2 rule" restrictions). Since now we use git tag pattern 1.999.XYZ where X - major number, Y - minor, Z - patch version.
 
 ### Changelog ###
 
 Here are the changes of latest release. For more details see the [ChangeLog](ChangeLog.md)
 
-#### [v2.0.0](https://github.com/ergo-services/ergo/releases/tag/v1.999.200) 2021-10-12 [tag version v1.999.200] ####
+#### [v2.1.0](https://github.com/ergo-services/ergo/releases/tag/v1.999.210) 2022-04-19 [tag version v1.999.210] ####
 
-* Added support of Erlang/OTP 24 (including [Alias](https://blog.erlang.org/My-OTP-24-Highlights/#eep-53-process-aliases) feature and [Remote Spawn](https://blog.erlang.org/OTP-23-Highlights/#distributed-spawn-and-the-new-erpc-module) introduced in Erlang/OTP 23)
-* **Important**: This release includes refined API (without backward compatibility) for a more convenient way to create OTP-designed microservices. Make sure to update your code.
-* **Important**: Project repository has been moved to [https://github.com/ergo-services/ergo](https://github.com/ergo-services/ergo). It is still available on the old URL [https://github.com/halturin/ergo](https://github.com/halturin/ergo) and GitHub will redirect all requests to the new one (thanks to GitHub for this feature).
-* Introduced new behavior `gen.Saga`. It implements Saga design pattern - a sequence of transactions that updates each service state and publishes the result (or cancels the transaction or triggers the next transaction step). `gen.Saga` also provides a feature of interim results (can be used as transaction progress or as a part of pipeline processing), time deadline (to limit transaction lifespan), two-phase commit (to make distributed transaction atomic). Here is example [examples/gensaga](examples/gensaga).
-* Introduced new methods `Process.Direct` and `Process.DirectWithTimeout` to make direct request to the actor (`gen.Server` or inherited object). If an actor has no implementation of `HandleDirect` callback it returns `ErrUnsupportedRequest` as a error.
-* Introduced new callback `HandleDirect` in the `gen.Server` interface as a handler for requests made by `Process.Direct` or `Process.DirectWithTimeout`. It should be easy to interact with actors from outside.
-* Introduced new types intended to be used to interact with Erlang/Elixir
-  * `etf.ListImproper` to support improper lists like `[a|b]` (a cons cell).
-  * `etf.String` (an alias for the Golang string) encodes as a binary in order to support Elixir string type (which is `binary()` type)
-  * `etf.Charlist` (an alias for the Golang string) encodes as a list of chars `[]rune` in order to support Erlang string type (which is `charlist()` type)
-* Introduced new methods `Node.ProvideRemoteSpawn`, `Node.RevokeRemoteSpawn`, `Process.RemoteSpawn`.
-* Introduced new interfaces `Marshaler` (method `MarshalETF`) and `Unmarshaler` (method `UnmarshalETF`) for the custom encoding/decoding data.
-* Improved performance for the local messaging (up to 3 times for some cases)
-* Added example [examples/http](examples/http) to demonsrate how HTTP server can be integrated into the Ergo node.
-* Added example [examples/gendemo](examples/gendemo) - how to create a custom behavior (design pattern) on top of the `gen.Server`. Take inspiration from the [gen/stage.go](gen/stage.go) or [gen/saga.go](gen/saga.go) design patterns.
-* Added support FreeBSD, OpenBSD, NetBSD, DragonFly.
-* Fixed RPC issue #45
-* Fixed internal timer issue #48
-* Fixed memory leaks #53
-* Fixed double panic issue #52
-* Fixed Atom Cache race conditioned issue #54
-* Fixed ETF encoder issues #64 #66
+* Introduced **compression feature** support. Here are new methods and options to manage this feature:
+  - `gen.Process`:
+    - `SetCompression(enable bool)`, `Compression() bool`
+    - `SetCompressionLevel(level int) bool`, `CompressionLevel() int`
+    - `SetCompressionThreshold(threshold int) bool`, `CompressionThreshold() int` messages smaller than the threshold will be sent with no compression. The default compression threshold is 1024 bytes.
+  - `node.Options`:
+    - `Compression` these settings are used as defaults for the spawning processes
+  - this feature will be ignored if the receiver is running on either the Erlang or Elixir node
+* Introduced **proxy feature** support **with end-to-end encryption**.
+  - `node.Node` new methods:
+    - `AddProxyRoute(...)`, `RemoveProxyRoute(...)`
+    - `ProxyRoute(...)`, `ProxyRoutes()`
+    - `NodesIndirect()` returns list of connected nodes via proxy connection
+  - `node.Options`:
+    - `Proxy` for configuring proxy settings
+  - includes support (over the proxy connection): compression, fragmentation, link/monitor process, monitor node
+  - example [examples/proxy](examples/proxy).
+  - this feature is not available for the Erlang/Elixir nodes
+* Introduced **behavior `gen.Raft`**. It's improved implementation of [Raft consensus algorithm](https://raft.github.io). The key improvement is using quorum under the hood to manage the leader election process and make the Raft cluster more reliable. This implementation supports quorums of 3, 5, 7, 9, or 11 quorum members. Here is an example of this feature [examples/raft](examples/raft).
+* Introduced **interfaces to customize network layer**
+  - `Resolver` to replace EPMD routines with your solution (e.g., ZooKeeper or any other service registrar)
+  - `Handshake` allows customizing authorization/authentication process
+  - `Proto` provides the way to implement proprietary protocols (e.g., IoT area)
+* Other new features:
+  - `gen.Process` new methods:
+    - `NodeUptime()`, `NodeName()`, `NodeStop()`
+  - `gen.ServerProcess` new method:
+    - `MessageCounter()` shows how many messages have been handled by the `gen.Server` callbacks
+  - `gen.ProcessOptions` new option:
+    - `ProcessFallback` allows forward messages to the fallback process if the process mailbox is full. Forwarded messages are wrapped into `gen.MessageFallback` struct. Related to issue #96.
+  - `gen.SupervisorChildSpec` and `gen.ApplicationChildSpec` got option `gen.ProcessOptions` to customize options for the spawning child processes.
+* Improved sending messages by etf.Pid or etf.Alias: methods `gen.Process.Send`, `gen.ServerProcess.Cast`, `gen.ServerProcess.Call` now return `node.ErrProcessIncarnation` if a message is sending to the remote process of the previous incarnation (remote node has been restarted). Making monitor on a remote process of the previous incarnation triggers sending `gen.MessageDown` with reason `incarnation`.
+* Introduced type `gen.EnvKey` for the environment variables
+* All spawned processes now have the `node.EnvKeyNode` variable to get access to the `node.Node` value.
+* **Improved performance** of local messaging (**up to 8 times** for some cases)
+* **Important** `node.Options` has changed. Make sure to adjust your code.
+* Fixed issue #89 (incorrect handling of Call requests)
+* Fixed issues #87, #88 and #93 (closing network socket)
+* Fixed issue #96 (silently drops message if process mailbox is full)
+* Updated minimal requirement of Golang version to 1.17 (go.mod)
+* We still keep the rule **Zero Dependencies**
 
 
 ### Benchmarks ###
 
 Here is simple EndToEnd test demonstrates performance of messaging subsystem
-
-#### Sequential Process.Call using two processes running on a single and two nodes
-
-Hardware: laptop with Intel(R) Core(TM) i5-8265U (4 cores. 8 with HT)
-
-```
-❯❯❯❯ go test -bench=NodeSequential -run=XXX -benchtime=10s
-goos: linux
-goarch: amd64
-pkg: github.com/ergo-services/ergo
-BenchmarkNodeSequential/number-8 	  256108	     48578 ns/op
-BenchmarkNodeSequential/string-8 	  266906	     51531 ns/op
-BenchmarkNodeSequential/tuple_(PID)-8         	  233700	     58192 ns/op
-BenchmarkNodeSequential/binary_1MB-8          	    5617	   2092495 ns/op
-BenchmarkNodeSequentialSingleNode/number-8         	 2527580	      4857 ns/op
-BenchmarkNodeSequentialSingleNode/string-8         	 2519410	      4760 ns/op
-BenchmarkNodeSequentialSingleNode/tuple_(PID)-8    	 2524701	      4757 ns/op
-BenchmarkNodeSequentialSingleNode/binary_1MB-8     	 2521370	      4758 ns/op
-PASS
-ok  	github.com/ergo-services/ergo	120.720s
-```
-
-it means Ergo Framework provides around **25.000 sync requests per second** via localhost for simple data and around 4Gbit/sec for 1MB messages
-
-#### Parallel Process.Call using 120 pairs of processes running on a single and two nodes
 
 Hardware: workstation with AMD Ryzen Threadripper 3970X (64) @ 3.700GHz
 
@@ -128,13 +120,52 @@ goos: linux
 goarch: amd64
 pkg: github.com/ergo-services/ergo/tests
 cpu: AMD Ryzen Threadripper 3970X 32-Core Processor
-BenchmarkNodeParallel-64                 4922430              2440 ns/op
-BenchmarkNodeParallelSingleNode-64      16293586               810.0 ns/op
+BenchmarkNodeParallel-64                 4738918              2532 ns/op
+BenchmarkNodeParallelSingleNode-64      100000000              429.8 ns/op
+
 PASS
 ok      github.com/ergo-services/ergo/tests  29.596s
 ```
 
-these numbers show almost **500.000 sync requests per second** for the network messaging via localhost and **1.600.000 sync requests per second** for the local messaging (within a node).
+these numbers show almost **500.000 sync requests per second** for the network messaging via localhost and **10.000.000 sync requests per second** for the local messaging (within a node).
+
+#### Compression
+
+This benchmark shows the performance of compression for sending 1MB message between two nodes (via a network).
+
+```
+❯❯❯❯ go test -bench=NodeCompression -run=XXX -benchtime=10s
+goos: linux
+goarch: amd64
+pkg: github.com/ergo-services/ergo/tests
+cpu: AMD Ryzen Threadripper 3970X 32-Core Processor
+BenchmarkNodeCompressionDisabled1MBempty-64         2400           4957483 ns/op
+BenchmarkNodeCompressionEnabled1MBempty-64          5769           2088051 ns/op
+BenchmarkNodeCompressionEnabled1MBstring-64         5202           2077099 ns/op
+PASS
+ok      github.com/ergo-services/ergo/tests     56.708s
+```
+
+It demonstrates **more than 2 times** improvement.
+
+#### Proxy
+
+This benchmark demonstrates how proxy feature and e2e encryption impact a messaging performance.
+
+```
+❯❯❯❯ go test -bench=NodeProxy -run=XXX -benchtime=10s
+goos: linux
+goarch: amd64
+pkg: github.com/ergo-services/ergo/tests
+cpu: AMD Ryzen Threadripper 3970X 32-Core Processor
+BenchmarkNodeProxy_NodeA_to_NodeC_direct_Message_1KB-64                     1908477       6337 ns/op
+BenchmarkNodeProxy_NodeA_to_NodeC_via_NodeB_Message_1KB-64                  1700984       7062 ns/op
+BenchmarkNodeProxy_NodeA_to_NodeC_via_NodeB_Message_1KB_Encrypted-64        1271125       9410 ns/op
+PASS
+ok      github.com/ergo-services/ergo/tests     45.649s
+
+```
+
 
 #### Ergo Framework vs original Erlang/OTP
 
@@ -263,6 +294,7 @@ There are options already defined that you might want to use
 
 * `-ergo.trace` - enable extended debug info
 * `-ergo.norecover` - disable panic catching
+* `-ergo.warning` - enable/disable warnings (default: enable)
 
 To enable Golang profiler just add `--tags debug` in your `go run` or `go build` like this:
 

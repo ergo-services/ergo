@@ -1,7 +1,6 @@
 package etf
 
 import (
-	"context"
 	"sync"
 )
 
@@ -10,30 +9,35 @@ const (
 )
 
 type AtomCache struct {
-	cacheMap  map[Atom]int16
-	update    chan Atom
-	lastID    int16
-	cacheList [maxCacheItems]Atom
-	sync.Mutex
+	In  *AtomCacheIn
+	Out *AtomCacheOut
 }
 
+type AtomCacheIn struct {
+	Atoms [maxCacheItems]*Atom
+}
+
+// AtomCache
+type AtomCacheOut struct {
+	sync.RWMutex
+	cacheMap  map[Atom]int16
+	id        int16
+	cacheList [maxCacheItems]Atom
+}
+
+// CacheItem
 type CacheItem struct {
 	ID      int16
 	Encoded bool
 	Name    Atom
 }
 
-type ListAtomCache struct {
-	L           []CacheItem
-	original    []CacheItem
-	HasLongAtom bool
-}
-
 var (
-	listAtomCachePool = &sync.Pool{
+	encodingAtomCachePool = &sync.Pool{
 		New: func() interface{} {
-			l := &ListAtomCache{
-				L: make([]CacheItem, 0, 256),
+			l := &EncodingAtomCache{
+				L:     make([]CacheItem, 0, 255),
+				added: make(map[Atom]uint8),
 			}
 			l.original = l.L
 			return l
@@ -41,88 +45,117 @@ var (
 	}
 )
 
-func (a *AtomCache) Append(atom Atom) {
-	a.Lock()
-	id := a.lastID
-	a.Unlock()
-	if id < maxCacheItems {
-		a.update <- atom
+// NewAtomCache
+func NewAtomCache() AtomCache {
+	return AtomCache{
+		In: &AtomCacheIn{},
+		Out: &AtomCacheOut{
+			cacheMap: make(map[Atom]int16),
+			id:       -1,
+		},
 	}
-	// otherwise ignore
 }
 
-func (a *AtomCache) GetLastID() int16 {
+// Append
+func (a *AtomCacheOut) Append(atom Atom) (int16, bool) {
 	a.Lock()
-	id := a.lastID
-	a.Unlock()
-	return id
-}
+	defer a.Unlock()
 
-func NewAtomCache(ctx context.Context) *AtomCache {
-	var id int16
-
-	a := &AtomCache{
-		cacheMap: make(map[Atom]int16),
-		update:   make(chan Atom, 100),
-		lastID:   -1,
+	if a.id > maxCacheItems-2 {
+		return 0, false
 	}
 
-	go func() {
-		for {
-			select {
-			case atom := <-a.update:
-				if _, ok := a.cacheMap[atom]; ok {
-					// already exist
-					continue
-				}
+	if id, exist := a.cacheMap[atom]; exist {
+		return id, false
+	}
 
-				id = a.lastID
-				id++
-				a.cacheMap[atom] = id
-				a.Lock()
-				a.cacheList[id] = atom
-				a.lastID = id
-				a.Unlock()
+	a.id++
+	a.cacheList[a.id] = atom
+	a.cacheMap[atom] = a.id
 
-			case <-ctx.Done():
-				return
-			}
-		}
-	}()
-
-	return a
+	return a.id, true
 }
 
-func (a *AtomCache) List() [maxCacheItems]Atom {
-	a.Lock()
-	l := a.cacheList
-	a.Unlock()
-	return l
+// LastID
+func (a *AtomCacheOut) LastAdded() (Atom, int16) {
+	a.RLock()
+	defer a.RUnlock()
+	l := len(a.cacheList)
+	if l == 0 {
+		return "", -1
+	}
+	return a.cacheList[l-1], int16(l - 1)
 }
 
-func (a *AtomCache) ListSince(id int16) []Atom {
+// ListSince
+func (a *AtomCacheOut) ListSince(id int16) []Atom {
+	if id < 0 {
+		id = 0
+	}
+	if int(id) > len(a.cacheList)-1 {
+		return nil
+	}
 	return a.cacheList[id:]
 }
 
-func TakeListAtomCache() *ListAtomCache {
-	return listAtomCachePool.Get().(*ListAtomCache)
+// EncodingAtomCache
+type EncodingAtomCache struct {
+	L           []CacheItem
+	original    []CacheItem
+	added       map[Atom]uint8
+	HasLongAtom bool
 }
 
-func ReleaseListAtomCache(l *ListAtomCache) {
-	l.L = l.original[:0]
-	listAtomCachePool.Put(l)
+// TakeEncodingAtomCache
+func TakeEncodingAtomCache() *EncodingAtomCache {
+	return encodingAtomCachePool.Get().(*EncodingAtomCache)
 }
-func (l *ListAtomCache) Reset() {
+
+// ReleaseEncodingAtomCache
+func ReleaseEncodingAtomCache(l *EncodingAtomCache) {
+	l.L = l.original[:0]
+	if len(l.added) > 0 {
+		for k, _ := range l.added {
+			delete(l.added, k)
+		}
+	}
+	encodingAtomCachePool.Put(l)
+}
+
+// Reset
+func (l *EncodingAtomCache) Reset() {
 	l.L = l.original[:0]
 	l.HasLongAtom = false
+	if len(l.added) > 0 {
+		for k, _ := range l.added {
+			delete(l.added, k)
+		}
+	}
 }
-func (l *ListAtomCache) Append(a CacheItem) {
+
+// Append
+func (l *EncodingAtomCache) Append(a CacheItem) uint8 {
+	id, added := l.added[a.Name]
+	if added {
+		return id
+	}
+
 	l.L = append(l.L, a)
 	if !a.Encoded && len(a.Name) > 255 {
 		l.HasLongAtom = true
 	}
+	id = uint8(len(l.L) - 1)
+	l.added[a.Name] = id
+	return id
 }
 
-func (l *ListAtomCache) Len() int {
+// Delete
+func (l *EncodingAtomCache) Delete(atom Atom) {
+	// clean up in order to get rid of map reallocation which is pretty expensive
+	delete(l.added, atom)
+}
+
+// Len
+func (l *EncodingAtomCache) Len() int {
 	return len(l.L)
 }

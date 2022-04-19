@@ -40,6 +40,7 @@ type ServerBehavior interface {
 	Terminate(process *ServerProcess, reason string)
 }
 
+// ServerStatus
 type ServerStatus error
 
 var (
@@ -48,6 +49,7 @@ var (
 	ServerStatusIgnore ServerStatus = fmt.Errorf("ignore")
 )
 
+// ServerStatusStopWithReason
 func ServerStatusStopWithReason(s string) ServerStatus {
 	return ServerStatus(fmt.Errorf(s))
 }
@@ -67,7 +69,7 @@ type ServerProcess struct {
 	ProcessState
 
 	behavior        ServerBehavior
-	reductions      uint64 // total number of processed messages from mailBox
+	counter         uint64 // total number of processed messages from mailBox
 	currentFunction string
 	trapExit        bool
 
@@ -108,18 +110,19 @@ func (sp *ServerProcess) Cast(to interface{}, message etf.Term) error {
 
 // Call makes outgoing sync request in fashion of 'gen_server:call'.
 // 'to' can be Pid, registered local name or gen.ProcessID{RegisteredName, NodeName}.
-// This method shouldn't be used outside of the actor. Use Direct method instead.
 func (sp *ServerProcess) Call(to interface{}, message etf.Term) (etf.Term, error) {
 	return sp.CallWithTimeout(to, message, DefaultCallTimeout)
 }
 
 // CallWithTimeout makes outgoing sync request in fashiod of 'gen_server:call' with given timeout.
-// This method shouldn't be used outside of the actor. Use DirectWithTimeout method instead.
 func (sp *ServerProcess) CallWithTimeout(to interface{}, message etf.Term, timeout int) (etf.Term, error) {
 	ref := sp.MakeRef()
 	from := etf.Tuple{sp.Self(), ref}
 	msg := etf.Term(etf.Tuple{etf.Atom("$gen_call"), from, message})
-	if err := sp.SendSyncRequest(ref, to, msg); err != nil {
+
+	sp.PutSyncRequest(ref)
+	if err := sp.Send(to, msg); err != nil {
+		sp.CancelSyncRequest(ref)
 		return nil, err
 	}
 	sp.callbackWaitReply <- &ref
@@ -187,6 +190,13 @@ func (sp *ServerProcess) SendReply(from ServerFrom, reply etf.Term) error {
 	return sp.Send(to, rep)
 }
 
+// MessageCounter returns the total number of messages handled by Server callbacks: HandleCall,
+// HandleCast, HandleInfo, HandleDirect
+func (sp *ServerProcess) MessageCounter() uint64 {
+	return sp.counter
+}
+
+// ProcessInit
 func (gs *Server) ProcessInit(p Process, args ...etf.Term) (ProcessState, error) {
 	behavior, ok := p.Behavior().(ServerBehavior)
 	if !ok {
@@ -196,7 +206,7 @@ func (gs *Server) ProcessInit(p Process, args ...etf.Term) (ProcessState, error)
 		Process: p,
 	}
 
-	gsp := &ServerProcess{
+	sp := &ServerProcess{
 		ProcessState: ps,
 		behavior:     behavior,
 
@@ -206,36 +216,37 @@ func (gs *Server) ProcessInit(p Process, args ...etf.Term) (ProcessState, error)
 		callbackWaitReply: make(chan *etf.Ref),
 	}
 
-	err := behavior.Init(gsp, args...)
+	err := behavior.Init(sp, args...)
 	if err != nil {
 		return ProcessState{}, err
 	}
-	ps.State = gsp
+	ps.State = sp
 	return ps, nil
 }
 
+// ProcessLoop
 func (gs *Server) ProcessLoop(ps ProcessState, started chan<- bool) string {
-	gsp, ok := ps.State.(*ServerProcess)
+	sp, ok := ps.State.(*ServerProcess)
 	if !ok {
 		return "ProcessLoop: not a ServerBehavior"
 	}
 
 	channels := ps.ProcessChannels()
-	gsp.mailbox = channels.Mailbox
-	gsp.original = channels.Mailbox
-	gsp.deferred = make(chan ProcessMailboxMessage, cap(channels.Mailbox))
-	gsp.currentFunction = "Server:loop"
-	gsp.stop = make(chan string, 2)
+	sp.mailbox = channels.Mailbox
+	sp.original = channels.Mailbox
+	sp.deferred = make(chan ProcessMailboxMessage, cap(channels.Mailbox))
+	sp.currentFunction = "Server:loop"
+	sp.stop = make(chan string, 2)
 
 	defer func() {
-		if gsp.waitReply == nil {
+		if sp.waitReply == nil {
 			return
 		}
-		// there is runnig callback goroutine waiting for reply. to get rid
+		// there is running callback goroutine that waiting for a reply. to get rid
 		// of infinity lock (of this callback goroutine) we must provide a reader
 		// for the callbackWaitReply channel (it writes a nil value to this channel
 		// on exit)
-		go gsp.waitCallbackOrDeferr(nil)
+		go sp.waitCallbackOrDeferr(nil)
 	}()
 
 	started <- true
@@ -245,8 +256,8 @@ func (gs *Server) ProcessLoop(ps ProcessState, started chan<- bool) string {
 
 		select {
 		case ex := <-channels.GracefulExit:
-			if !gsp.TrapExit() {
-				gsp.behavior.Terminate(gsp, ex.Reason)
+			if !sp.TrapExit() {
+				sp.behavior.Terminate(sp, ex.Reason)
 				return ex.Reason
 			}
 			// Enabled trap exit message. Transform exit signal
@@ -263,29 +274,27 @@ func (gs *Server) ProcessLoop(ps ProcessState, started chan<- bool) string {
 			ps.Send(ps.Self(), message)
 			continue
 
-		case reason := <-gsp.stop:
-			gsp.behavior.Terminate(gsp, reason)
+		case reason := <-sp.stop:
+			sp.behavior.Terminate(sp, reason)
 			return reason
 
-		case msg := <-gsp.mailbox:
-			gsp.mailbox = gsp.original
+		case msg := <-sp.mailbox:
+			sp.mailbox = sp.original
 			fromPid = msg.From
 			message = msg.Message
 
-		case <-gsp.Context().Done():
-			gsp.behavior.Terminate(gsp, "kill")
+		case <-sp.Context().Done():
+			sp.behavior.Terminate(sp, "kill")
 			return "kill"
 
 		case direct := <-channels.Direct:
-			gsp.waitCallbackOrDeferr(direct)
+			sp.waitCallbackOrDeferr(direct)
 			continue
-		case gsp.waitReply = <-gsp.callbackWaitReply:
+		case sp.waitReply = <-sp.callbackWaitReply:
 			continue
 		}
 
-		lib.Log("[%s] GEN_SERVER %s got message from %s", gsp.NodeName(), gsp.Self(), fromPid)
-
-		gsp.reductions++
+		lib.Log("[%s] GEN_SERVER %s got message from %s", sp.NodeName(), sp.Self(), fromPid)
 
 		switch m := message.(type) {
 		case etf.Tuple:
@@ -296,12 +305,12 @@ func (gs *Server) ProcessLoop(ps ProcessState, started chan<- bool) string {
 				if len(m) != 2 {
 					break
 				}
-				gsp.PutSyncReply(mtag, m.Element(2))
-				if gsp.waitReply != nil && *gsp.waitReply == mtag {
-					gsp.waitReply = nil
-					// continue read gsp.callbackWaitReply channel
+				sp.PutSyncReply(mtag, m.Element(2))
+				if sp.waitReply != nil && *sp.waitReply == mtag {
+					sp.waitReply = nil
+					// continue read sp.callbackWaitReply channel
 					// to wait for the exit from the callback call
-					gsp.waitCallbackOrDeferr(nil)
+					sp.waitCallbackOrDeferr(nil)
 					continue
 				}
 
@@ -361,7 +370,7 @@ func (gs *Server) ProcessLoop(ps ProcessState, started chan<- bool) string {
 						from:    from,
 						message: m.Element(3),
 					}
-					gsp.waitCallbackOrDeferr(callMessage)
+					sp.waitCallbackOrDeferr(callMessage)
 					continue
 
 				case etf.Atom("$gen_cast"):
@@ -372,110 +381,119 @@ func (gs *Server) ProcessLoop(ps ProcessState, started chan<- bool) string {
 					castMessage := handleCastMessage{
 						message: m.Element(2),
 					}
-					gsp.waitCallbackOrDeferr(castMessage)
+					sp.waitCallbackOrDeferr(castMessage)
 					continue
 				}
 			}
 
-			lib.Log("[%s] GEN_SERVER %#v got simple message %#v", gsp.NodeName(), gsp.Self(), message)
+			lib.Log("[%s] GEN_SERVER %#v got simple message %#v", sp.NodeName(), sp.Self(), message)
 			infoMessage := handleInfoMessage{
 				message: message,
 			}
-			gsp.waitCallbackOrDeferr(infoMessage)
+			sp.waitCallbackOrDeferr(infoMessage)
 
 		case handleCallMessage:
-			gsp.waitCallbackOrDeferr(message)
+			sp.waitCallbackOrDeferr(message)
 		case handleCastMessage:
-			gsp.waitCallbackOrDeferr(message)
+			sp.waitCallbackOrDeferr(message)
 		case handleInfoMessage:
-			gsp.waitCallbackOrDeferr(message)
+			sp.waitCallbackOrDeferr(message)
 		case ProcessDirectMessage:
-			gsp.waitCallbackOrDeferr(message)
+			sp.waitCallbackOrDeferr(message)
 
 		default:
 			lib.Log("m: %#v", m)
 			infoMessage := handleInfoMessage{
 				message: m,
 			}
-			gsp.waitCallbackOrDeferr(infoMessage)
+			sp.waitCallbackOrDeferr(infoMessage)
 		}
 	}
 }
 
 // ServerProcess handlers
 
-func (gsp *ServerProcess) waitCallbackOrDeferr(message interface{}) {
-	if gsp.waitReply != nil {
+func (sp *ServerProcess) waitCallbackOrDeferr(message interface{}) {
+	if sp.waitReply != nil {
 		// already waiting for reply. deferr this message
 		deferred := ProcessMailboxMessage{
 			Message: message,
 		}
 		select {
-		case gsp.deferred <- deferred:
+		case sp.deferred <- deferred:
 			// do nothing
 		default:
-			fmt.Printf("WARNING! deferred mailbox of %s[%q] is full. dropped message %v",
-				gsp.Self(), gsp.Name(), message)
+			lib.Warning("deferred mailbox of %s[%q] is full. dropped message %v",
+				sp.Self(), sp.Name(), message)
 		}
+
 		return
+	}
 
-	} else {
-		switch m := message.(type) {
-		case handleCallMessage:
-			go func() {
-				gsp.handleCall(m)
-				gsp.callbackWaitReply <- nil
-			}()
-		case handleCastMessage:
-			go func() {
-				gsp.handleCast(m)
-				gsp.callbackWaitReply <- nil
-			}()
-		case handleInfoMessage:
-			go func() {
-				gsp.handleInfo(m)
-				gsp.callbackWaitReply <- nil
-			}()
-		case ProcessDirectMessage:
-			go func() {
-				gsp.handleDirect(m)
-				gsp.callbackWaitReply <- nil
-			}()
+	switch m := message.(type) {
+	case handleCallMessage:
+		go func() {
+			sp.counter++
+			sp.handleCall(m)
+			sp.callbackWaitReply <- nil
+		}()
+	case handleCastMessage:
+		go func() {
+			sp.counter++
+			sp.handleCast(m)
+			sp.callbackWaitReply <- nil
+		}()
+	case handleInfoMessage:
+		go func() {
+			sp.counter++
+			sp.handleInfo(m)
+			sp.callbackWaitReply <- nil
+		}()
+	case ProcessDirectMessage:
+		go func() {
+			sp.counter++
+			sp.handleDirect(m)
+			sp.callbackWaitReply <- nil
+		}()
+	case nil:
+		// it was called just to read the channel sp.callbackWaitReply
 
-		}
+	default:
+		lib.Warning("unknown message type in waitCallbackOrDeferr: %#v", message)
+		return
 	}
 
 	select {
 
-	//case <-gsp.Context().Done():
+	//case <-sp.Context().Done():
 	// do not read the context state. otherwise the goroutine with running callback
 	// might lock forever on exit (or on making a Call request) as nobody read
 	// the callbackWaitReply channel.
 
-	case gsp.waitReply = <-gsp.callbackWaitReply:
+	case sp.waitReply = <-sp.callbackWaitReply:
 		// not nil value means callback made a Call request and waiting for reply
-		if gsp.waitReply == nil && len(gsp.deferred) > 0 {
-			gsp.mailbox = gsp.deferred
+		if sp.waitReply == nil && len(sp.deferred) > 0 {
+			sp.mailbox = sp.deferred
 		}
 		return
 	}
 }
 
-func (gsp *ServerProcess) panicHandler() {
+func (sp *ServerProcess) panicHandler() {
 	if r := recover(); r != nil {
 		pc, fn, line, _ := runtime.Caller(2)
-		fmt.Printf("Warning: Server terminated %s[%q]. Panic reason: %#v at %s[%s:%d]\n",
-			gsp.Self(), gsp.Name(), r, runtime.FuncForPC(pc).Name(), fn, line)
-		gsp.stop <- "panic"
+		lib.Warning("Server terminated %s[%q]. Panic reason: %#v at %s[%s:%d]",
+			sp.Self(), sp.Name(), r, runtime.FuncForPC(pc).Name(), fn, line)
+		sp.stop <- "panic"
 	}
 }
 
-func (gsp *ServerProcess) handleDirect(direct ProcessDirectMessage) {
+func (sp *ServerProcess) handleDirect(direct ProcessDirectMessage) {
 	if lib.CatchPanic() {
-		defer gsp.panicHandler()
+		defer sp.panicHandler()
 	}
 
-	reply, err := gsp.behavior.HandleDirect(gsp, direct.Message)
+	reply, err := sp.behavior.HandleDirect(sp, direct.Message)
 	if err != nil {
 		direct.Message = nil
 		direct.Err = err
@@ -489,93 +507,100 @@ func (gsp *ServerProcess) handleDirect(direct ProcessDirectMessage) {
 	return
 }
 
-func (gsp *ServerProcess) handleCall(m handleCallMessage) {
+func (sp *ServerProcess) handleCall(m handleCallMessage) {
 	if lib.CatchPanic() {
-		defer gsp.panicHandler()
+		defer sp.panicHandler()
 	}
 
-	cf := gsp.currentFunction
-	gsp.currentFunction = "Server:HandleCall"
-	reply, status := gsp.behavior.HandleCall(gsp, m.from, m.message)
-	gsp.currentFunction = cf
+	cf := sp.currentFunction
+	sp.currentFunction = "Server:HandleCall"
+	reply, status := sp.behavior.HandleCall(sp, m.from, m.message)
+	sp.currentFunction = cf
 	switch status {
 	case ServerStatusOK:
-		gsp.SendReply(m.from, reply)
+		sp.SendReply(m.from, reply)
 	case ServerStatusIgnore:
 		return
 	case ServerStatusStop:
-		gsp.stop <- "normal"
+		sp.stop <- "normal"
 
 	default:
-		gsp.stop <- status.Error()
+		sp.stop <- status.Error()
 	}
 }
 
-func (gsp *ServerProcess) handleCast(m handleCastMessage) {
+func (sp *ServerProcess) handleCast(m handleCastMessage) {
 	if lib.CatchPanic() {
-		defer gsp.panicHandler()
+		defer sp.panicHandler()
 	}
 
-	cf := gsp.currentFunction
-	gsp.currentFunction = "Server:HandleCast"
-	status := gsp.behavior.HandleCast(gsp, m.message)
-	gsp.currentFunction = cf
+	cf := sp.currentFunction
+	sp.currentFunction = "Server:HandleCast"
+	status := sp.behavior.HandleCast(sp, m.message)
+	sp.currentFunction = cf
 
 	switch status {
 	case ServerStatusOK, ServerStatusIgnore:
 		return
 	case ServerStatusStop:
-		gsp.stop <- "normal"
+		sp.stop <- "normal"
 	default:
-		gsp.stop <- status.Error()
+		sp.stop <- status.Error()
 	}
 }
 
-func (gsp *ServerProcess) handleInfo(m handleInfoMessage) {
+func (sp *ServerProcess) handleInfo(m handleInfoMessage) {
 	if lib.CatchPanic() {
-		defer gsp.panicHandler()
+		defer sp.panicHandler()
 	}
 
-	cf := gsp.currentFunction
-	gsp.currentFunction = "Server:HandleInfo"
-	status := gsp.behavior.HandleInfo(gsp, m.message)
-	gsp.currentFunction = cf
+	cf := sp.currentFunction
+	sp.currentFunction = "Server:HandleInfo"
+	status := sp.behavior.HandleInfo(sp, m.message)
+	sp.currentFunction = cf
 	switch status {
 	case ServerStatusOK, ServerStatusIgnore:
 		return
 	case ServerStatusStop:
-		gsp.stop <- "normal"
+		sp.stop <- "normal"
 	default:
-		gsp.stop <- status.Error()
+		sp.stop <- status.Error()
 	}
 }
 
 //
 // default callbacks for Server interface
 //
+
+// Init
 func (gs *Server) Init(process *ServerProcess, args ...etf.Term) error {
 	return nil
 }
 
+// HanldeCast
 func (gs *Server) HandleCast(process *ServerProcess, message etf.Term) ServerStatus {
-	fmt.Printf("Server [%s] HandleCast: unhandled message %#v \n", process.Name(), message)
+	lib.Warning("Server [%s] HandleCast: unhandled message %#v", process.Name(), message)
 	return ServerStatusOK
 }
 
+// HandleInfo
 func (gs *Server) HandleCall(process *ServerProcess, from ServerFrom, message etf.Term) (etf.Term, ServerStatus) {
-	fmt.Printf("Server [%s] HandleCall: unhandled message %#v from %#v \n", process.Name(), message, from)
+	lib.Warning("Server [%s] HandleCall: unhandled message %#v from %#v", process.Name(), message, from)
 	return "ok", ServerStatusOK
 }
 
+// HandleDirect
 func (gs *Server) HandleDirect(process *ServerProcess, message interface{}) (interface{}, error) {
 	return nil, ErrUnsupportedRequest
 }
 
+// HandleInfo
 func (gs *Server) HandleInfo(process *ServerProcess, message etf.Term) ServerStatus {
-	fmt.Printf("Server [%s] HandleInfo: unhandled message %#v \n", process.Name(), message)
+	lib.Warning("Server [%s] HandleInfo: unhandled message %#v", process.Name(), message)
 	return ServerStatusOK
 }
 
+// Terminate
 func (gs *Server) Terminate(process *ServerProcess, reason string) {
 	return
 }

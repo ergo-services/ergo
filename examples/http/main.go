@@ -19,21 +19,14 @@ var (
 )
 
 func init() {
-	flag.IntVar(&ListenRangeBegin, "listen_begin", 15151, "listen port range")
-	flag.IntVar(&ListenRangeEnd, "listen_end", 25151, "listen port range")
 	flag.StringVar(&NodeName, "name", "web@127.0.0.1", "node name")
-	flag.IntVar(&ListenEPMD, "epmd", 4369, "EPMD port")
 	flag.StringVar(&Cookie, "cookie", "123", "cookie for interaction with erlang cluster")
 }
 
 func main() {
 	flag.Parse()
 
-	opts := node.Options{
-		ListenRangeBegin: uint16(ListenRangeBegin),
-		ListenRangeEnd:   uint16(ListenRangeEnd),
-		EPMDPort:         uint16(ListenEPMD),
-	}
+	opts := node.Options{}
 
 	// Initialize new node with given name, cookie, listening port range and epmd port
 	nodeHTTP, _ := ergo.StartNode(NodeName, Cookie, opts)

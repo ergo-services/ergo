@@ -9,17 +9,26 @@ import (
 )
 
 var (
-	ErrUnsupportedRequest = fmt.Errorf("Unsupported request")
-	ErrServerTerminated   = fmt.Errorf("Server terminated")
+	ErrUnsupportedRequest = fmt.Errorf("unsupported request")
+	ErrServerTerminated   = fmt.Errorf("server terminated")
 )
 
+// EnvKey
+type EnvKey string
+
+// Process
 type Process interface {
-	Registrar
+	Core
 
 	// Spawn create a new process with parent
 	Spawn(name string, opts ProcessOptions, object ProcessBehavior, args ...etf.Term) (Process, error)
-	// RemoteSpawn creates a new process at a remote node. The object name is a regitered behavior on a remote name using RegisterBehavior(...). Init callback of the started remote process will receive gen.RemoteSpawnRequest as an argument.
+
+	// RemoteSpawn creates a new process at a remote node. The object name is a regitered
+	// behavior on a remote name using RegisterBehavior(...). The given options will stored
+	// in the process environment using node.EnvKeyRemoteSpawn as a key
 	RemoteSpawn(node string, object string, opts RemoteSpawnOptions, args ...etf.Term) (etf.Pid, error)
+	RemoteSpawnWithTimeout(timeout int, node string, object string, opts RemoteSpawnOptions, args ...etf.Term) (etf.Pid, error)
+
 	// Name returns process name used on starting.
 	Name() string
 
@@ -28,6 +37,15 @@ type Process interface {
 
 	// UnregisterName unregister named process. Unregistering name is allowed to the owner only
 	UnregisterName(name string) error
+
+	// NodeName returns node name
+	NodeName() string
+
+	// NodeStop stops the node
+	NodeStop()
+
+	// NodeUptime returns node lifespan
+	NodeUptime() int64
 
 	// Info returns process details
 	Info() ProcessInfo
@@ -55,7 +73,7 @@ type Process interface {
 	// Exit initiate a graceful stopping process
 	Exit(reason string) error
 
-	// Kill immidiately stops process
+	// Kill immediately stops process
 	Kill()
 
 	// CreateAlias creates a new alias for the Process
@@ -65,15 +83,15 @@ type Process interface {
 	DeleteAlias(alias etf.Alias) error
 
 	// ListEnv returns a map of configured environment variables.
-	// It also includes environment variables from the GroupLeader and Parent.
-	// which are overlapped by priority: Process(Parent(GroupLeader))
-	ListEnv() map[string]interface{}
+	// It also includes environment variables from the GroupLeader, Parent and Node.
+	// which are overlapped by priority: Process(Parent(GroupLeader(Node)))
+	ListEnv() map[EnvKey]interface{}
 
 	// SetEnv set environment variable with given name. Use nil value to remove variable with given name.
-	SetEnv(name string, value interface{})
+	SetEnv(name EnvKey, value interface{})
 
 	// Env returns value associated with given environment name.
-	Env(name string) interface{}
+	Env(name EnvKey) interface{}
 
 	// Wait waits until process stopped
 	Wait()
@@ -86,12 +104,12 @@ type Process interface {
 	// Links are bidirectional and there can only be one link between two processes.
 	// Repeated calls to Process.Link(Pid) have no effect. If one of the participants
 	// of a link terminates, it will send an exit signal to the other participant and caused
-	// termination of the last one (if this process hasn't set a trap using Process.SetTrapExit(true)).
-	Link(with etf.Pid)
+	// termination of the last one. If process set a trap using Process.SetTrapExit(true) the exit signal transorms into the MessageExit and delivers as a regular message.
+	Link(with etf.Pid) error
 
 	// Unlink removes the link, if there is one, between the calling process and
 	// the process referred to by Pid.
-	Unlink(with etf.Pid)
+	Unlink(with etf.Pid) error
 
 	// IsAlive returns whether the process is alive
 	IsAlive() bool
@@ -104,8 +122,28 @@ type Process interface {
 	// TrapExit returns whether the trap was enabled on this process
 	TrapExit() bool
 
+	// Compression returns true if compression is enabled for this process
+	Compression() bool
+
+	// SetCompression enables/disables compression for the messages sent outside of this node
+	SetCompression(enabled bool)
+
+	// CompressionLevel returns comression level for the process
+	CompressionLevel() int
+
+	// SetCompressionLevel defines compression level. Value must be in range:
+	// 1 (best speed) ... 9 (best compression), or -1 for the default compression level
+	SetCompressionLevel(level int) bool
+
+	// CompressionThreshold returns compression threshold for the process
+	CompressionThreshold() int
+
+	// SetCompressionThreshold defines the minimal size for the message that must be compressed
+	// Value must be greater than DefaultCompressionThreshold (1024)
+	SetCompressionThreshold(threshold int) bool
+
 	// MonitorNode creates monitor between the current process and node. If Node fails or does not exist,
-	// the message {nodedown, Node} is delivered to the process.
+	// the message MessageNodeDown is delivered to the process.
 	MonitorNode(name string) etf.Ref
 
 	// DemonitorNode removes monitor. Returns false if the given reference wasn't found
@@ -144,12 +182,10 @@ type Process interface {
 	// Aliases returns list of aliases of this process.
 	Aliases() []etf.Alias
 
-	// Methods below are intended to be used for the ProcessBehavior implementation
-
-	SendSyncRequestRaw(ref etf.Ref, node etf.Atom, messages ...etf.Term) error
-	PutSyncReply(ref etf.Ref, term etf.Term) error
-	SendSyncRequest(ref etf.Ref, to interface{}, message etf.Term) error
+	PutSyncRequest(ref etf.Ref)
+	CancelSyncRequest(ref etf.Ref)
 	WaitSyncReply(ref etf.Ref, timeout int) (etf.Term, error)
+	PutSyncReply(ref etf.Ref, term etf.Term) error
 	ProcessChannels() ProcessChannels
 }
 
@@ -168,67 +204,80 @@ type ProcessInfo struct {
 	Dictionary      etf.Map
 	TrapExit        bool
 	GroupLeader     etf.Pid
-	Reductions      uint64
+	Compression     bool
 }
 
+// ProcessOptions
 type ProcessOptions struct {
 	// Context allows mix the system context with the custom one. E.g. to limit
 	// the lifespan using context.WithTimeout
 	Context context.Context
-	// MailboxSize defines the lenght of message queue for the process
+	// MailboxSize defines the length of message queue for the process
 	MailboxSize uint16
 	// GroupLeader
 	GroupLeader Process
 	// Env set the process environment variables
-	Env map[string]interface{}
+	Env map[EnvKey]interface{}
+
+	// Fallback defines the process to where messages will be forwarded
+	// if the mailbox is overflowed. The tag value could be used to
+	// differentiate the source processes. Forwarded messages are wrapped
+	// into the MessageFallback struct.
+	Fallback ProcessFallback
+}
+
+// ProcessFallback
+type ProcessFallback struct {
+	Name string
+	Tag  string
+}
+
+// RemoteSpawnRequest
+type RemoteSpawnRequest struct {
+	From    etf.Pid
+	Ref     etf.Ref
+	Options RemoteSpawnOptions
 }
 
 // RemoteSpawnOptions defines options for RemoteSpawn method
 type RemoteSpawnOptions struct {
-	// RegisterName
-	RegisterName string
+	// Name register associated name with spawned process
+	Name string
 	// Monitor enables monitor on the spawned process using provided reference
 	Monitor etf.Ref
 	// Link enables link between the calling and spawned processes
 	Link bool
 	// Function in order to support {M,F,A} request to the Erlang node
 	Function string
-	// Timeout
-	Timeout int
 }
 
-// RemoteSpawnRequest stores in process environment ("ergo:RemoteSpawnRequest") if it was spawned by RemoteSpawn request
-type RemoteSpawnRequest struct {
-	// Ref request id
-	Ref etf.Ref
-	// PID of the process made RemoteSpawn request
-	From etf.Pid
-	// Function provided via RemoteSpawnOptions.Function
-	Function string
-}
-
+// ProcessChannels
 type ProcessChannels struct {
 	Mailbox      <-chan ProcessMailboxMessage
 	Direct       <-chan ProcessDirectMessage
 	GracefulExit <-chan ProcessGracefulExitRequest
 }
 
+// ProcessMailboxMessage
 type ProcessMailboxMessage struct {
 	From    etf.Pid
 	Message interface{}
 }
 
+// ProcessDirectMessage
 type ProcessDirectMessage struct {
 	Message interface{}
 	Err     error
 	Reply   chan ProcessDirectMessage
 }
 
+// ProcessGracefulExitRequest
 type ProcessGracefulExitRequest struct {
 	From   etf.Pid
 	Reason string
 }
 
+// ProcessState
 type ProcessState struct {
 	Process
 	State interface{}
@@ -239,42 +288,50 @@ type ProcessBehavior interface {
 	ProcessInit(Process, ...etf.Term) (ProcessState, error)
 	ProcessLoop(ProcessState, chan<- bool) string // method which implements control flow of process
 }
-type Registrar interface {
-	Monitor
 
-	NodeName() string
-	NodeStop()
+// Core the common set of methods provided by Process and node.Node interfaces
+type Core interface {
 
-	// ProcessByName returns Process struct for the given name.
-	// Returns nil if it doesn't exist (not found)
+	// ProcessByName returns Process for the given name.
+	// Returns nil if it doesn't exist (not found) or terminated.
 	ProcessByName(name string) Process
-	// ProcessByPid returns Process struct for the given Pid.
-	// Returns nil if it doesn't exist (not found)
+
+	// ProcessByPid returns Process for the given Pid.
+	// Returns nil if it doesn't exist (not found) or terminated.
 	ProcessByPid(pid etf.Pid) Process
 
-	// ProcessByAlias returns Process struct for the given alias.
-	// Returns nil if it doesn't exist (not found)
+	// ProcessByAlias returns Process for the given alias.
+	// Returns nil if it doesn't exist (not found) or terminated
 	ProcessByAlias(alias etf.Alias) Process
 
 	// ProcessInfo returns the details about given Pid
 	ProcessInfo(pid etf.Pid) (ProcessInfo, error)
+
+	// ProcessList returns the list of running processes
 	ProcessList() []Process
-	IsAlias(etf.Alias) bool
+
+	// MakeRef creates an unique reference within this node
 	MakeRef() etf.Ref
 
-	// IsProcessAlive returns true if the process with given pid is alive
-	IsProcessAlive(process Process) bool
+	// IsAlias checks whether the given alias is belongs to the alive process on this node.
+	// If the process died all aliases are cleaned up and this function returns
+	// false for the given alias. For alias from the remote node always returns false.
+	IsAlias(etf.Alias) bool
 
+	// IsMonitor returns true if the given references is a monitor
+	IsMonitor(ref etf.Ref) bool
+
+	// RegisterBehavior
 	RegisterBehavior(group, name string, behavior ProcessBehavior, data interface{}) error
+	// RegisteredBehavior
 	RegisteredBehavior(group, name string) (RegisteredBehavior, error)
+	// RegisteredBehaviorGroup
 	RegisteredBehaviorGroup(group string) []RegisteredBehavior
+	// UnregisterBehavior
 	UnregisterBehavior(group, name string) error
 }
 
-type Monitor interface {
-	IsMonitor(ref etf.Ref) bool
-}
-
+// RegisteredBehavior
 type RegisteredBehavior struct {
 	Behavior ProcessBehavior
 	Data     interface{}
@@ -286,12 +343,18 @@ type ProcessID struct {
 	Node string
 }
 
+// String string representaion of ProcessID value
+func (p ProcessID) String() string {
+	return fmt.Sprintf("<%s:%s>", p.Name, p.Node)
+}
+
 // MessageDown delivers as a message to Server's HandleInfo callback of the process
 // that created monitor using MonitorProcess.
 // Reason values:
 //  - the exit reason of the process
 //  - 'noproc' (process did not exist at the time of monitor creation)
 //  - 'noconnection' (no connection to the node where the monitored process resides)
+//  - 'noproxy' (no connection to the proxy this node had has a connection through. monitored process could be still alive)
 type MessageDown struct {
 	Ref       etf.Ref   // a monitor reference
 	ProcessID ProcessID // if monitor was created by name
@@ -302,13 +365,36 @@ type MessageDown struct {
 // MessageNodeDown delivers as a message to Server's HandleInfo callback of the process
 // that created monitor using MonitorNode
 type MessageNodeDown struct {
+	Ref  etf.Ref
 	Name string
 }
 
+// MessageProxyDown delivers as a message to Server's HandleInfo callback of the process
+// that created monitor using MonitorNode if the connection to the node was through the proxy
+// nodes and one of them went down.
+type MessageProxyDown struct {
+	Ref    etf.Ref
+	Node   string
+	Proxy  string
+	Reason string
+}
+
 // MessageExit delievers to Server's HandleInfo callback on enabled trap exit using SetTrapExit(true)
+// Reason values:
+//  - the exit reason of the process
+//  - 'noproc' (process did not exist at the time of link creation)
+//  - 'noconnection' (no connection to the node where the linked process resides)
+//  - 'noproxy' (no connection to the proxy this node had has a connection through. linked process could be still alive)
 type MessageExit struct {
 	Pid    etf.Pid
 	Reason string
+}
+
+// MessageFallback delivers to the process specified as a fallback process in ProcessOptions.Fallback.Name if the mailbox has been overflowed
+type MessageFallback struct {
+	Process etf.Pid
+	Tag     string
+	Message etf.Term
 }
 
 // RPC defines rpc function type
@@ -322,8 +408,12 @@ type MessageManageRPC struct {
 	Fun      RPC
 }
 
+// MessageDirectChildren type intended to be used in Process.Children which returns []etf.Pid
+// You can handle this type of message in your HandleDirect callback to enable Process.Children
+// support for your gen.Server actor.
 type MessageDirectChildren struct{}
 
+// IsMessageDown
 func IsMessageDown(message etf.Term) (MessageDown, bool) {
 	var md MessageDown
 	switch m := message.(type) {
@@ -333,6 +423,7 @@ func IsMessageDown(message etf.Term) (MessageDown, bool) {
 	return md, false
 }
 
+// IsMessageExit
 func IsMessageExit(message etf.Term) (MessageExit, bool) {
 	var me MessageExit
 	switch m := message.(type) {
@@ -340,4 +431,24 @@ func IsMessageExit(message etf.Term) (MessageExit, bool) {
 		return m, true
 	}
 	return me, false
+}
+
+// IsMessageProxyDown
+func IsMessageProxyDown(message etf.Term) (MessageProxyDown, bool) {
+	var mpd MessageProxyDown
+	switch m := message.(type) {
+	case MessageProxyDown:
+		return m, true
+	}
+	return mpd, false
+}
+
+// IsMessageFallback
+func IsMessageFallback(message etf.Term) (MessageFallback, bool) {
+	var mf MessageFallback
+	switch m := message.(type) {
+	case MessageFallback:
+		return m, true
+	}
+	return mf, false
 }

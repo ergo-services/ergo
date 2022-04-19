@@ -13,17 +13,19 @@ import (
 	"github.com/ergo-services/ergo/lib/osdep"
 )
 
+// KernelApp
 type KernelApp struct {
 	gen.Application
 }
 
+// Load
 func (nka *KernelApp) Load(args ...etf.Term) (gen.ApplicationSpec, error) {
 	return gen.ApplicationSpec{
 		Name:        "erlang",
 		Description: "Erlang support app",
 		Version:     "v.1.0",
 		Children: []gen.ApplicationChildSpec{
-			gen.ApplicationChildSpec{
+			{
 				Child: &netKernelSup{},
 				Name:  "net_kernel_sup",
 			},
@@ -31,32 +33,34 @@ func (nka *KernelApp) Load(args ...etf.Term) (gen.ApplicationSpec, error) {
 	}, nil
 }
 
+// Start
 func (nka *KernelApp) Start(p gen.Process, args ...etf.Term) {}
 
 type netKernelSup struct {
 	gen.Supervisor
 }
 
+// Init
 func (nks *netKernelSup) Init(args ...etf.Term) (gen.SupervisorSpec, error) {
 	return gen.SupervisorSpec{
 		Children: []gen.SupervisorChildSpec{
-			gen.SupervisorChildSpec{
+			{
 				Name:  "net_kernel",
 				Child: &netKernel{},
 			},
-			gen.SupervisorChildSpec{
+			{
 				Name:  "global_name_server",
 				Child: &globalNameServer{},
 			},
-			gen.SupervisorChildSpec{
+			{
 				Name:  "rex",
 				Child: &rex{},
 			},
-			gen.SupervisorChildSpec{
+			{
 				Name:  "observer_backend",
 				Child: &observerBackend{},
 			},
-			gen.SupervisorChildSpec{
+			{
 				Name:  "erlang",
 				Child: &erlang{},
 			},
@@ -75,12 +79,14 @@ type netKernel struct {
 	routinesCtx map[etf.Pid]context.CancelFunc
 }
 
+// Init
 func (nk *netKernel) Init(process *gen.ServerProcess, args ...etf.Term) error {
 	lib.Log("NET_KERNEL: Init: %#v", args)
 	nk.routinesCtx = make(map[etf.Pid]context.CancelFunc)
 	return nil
 }
 
+// HandleCall
 func (nk *netKernel) HandleCall(process *gen.ServerProcess, from gen.ServerFrom, message etf.Term) (reply etf.Term, status gen.ServerStatus) {
 	lib.Log("NET_KERNEL: HandleCall: %#v, From: %#v", message, from)
 	status = gen.ServerStatusOK
@@ -124,6 +130,7 @@ func (nk *netKernel) HandleCall(process *gen.ServerProcess, from gen.ServerFrom,
 	return
 }
 
+// HandleInfo
 func (nk *netKernel) HandleInfo(process *gen.ServerProcess, message etf.Term) gen.ServerStatus {
 	lib.Log("NET_KERNEL: HandleInfo: %#v", message)
 	switch m := message.(type) {
@@ -147,7 +154,7 @@ func sendProcInfo(p gen.Process, to etf.Pid) {
 				etf.Atom("etop_proc_info"), // record name #etop_proc_info
 				list[i].Self(),             // pid
 				0,                          // mem
-				info.Reductions,            // reds
+				0,                          // reds
 				etf.Atom(list[i].Name()),   // etf.Tuple{etf.Atom("ergo"), etf.Atom(list[i].Name()), 0}, // name
 				0,                          // runtime
 				info.CurrentFunction,       // etf.Tuple{etf.Atom("ergo"), etf.Atom(info.CurrentFunction), 0}, // cf

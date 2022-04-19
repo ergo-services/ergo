@@ -2,20 +2,30 @@ package etf
 
 import (
 	"fmt"
-	"hash/fnv"
+	"hash/crc32"
 	"reflect"
 	"strings"
 )
 
+// Term
 type Term interface{}
+
+// Tuple
 type Tuple []Term
+
+// List
 type List []Term
+
+// Alias
 type Alias Ref
 
 // ListImproper as a workaround for the Erlang's improper list [a|b]. Intended to be used to interact with Erlang.
 type ListImproper []Term
 
+// Atom
 type Atom string
+
+// Map
 type Map map[Term]Term
 
 // String this type is intended to be used to interact with Erlang. String value encodes as a binary (Erlang type: <<...>>)
@@ -24,18 +34,21 @@ type String string
 // Charlist this type is intended to be used to interact with Erlang. Charlist value encodes as a list of int32 numbers in order to support Erlang string with UTF-8 symbols on an Erlang side (Erlang type: [...])
 type Charlist string
 
+// Pid
 type Pid struct {
 	Node     Atom
 	ID       uint64
 	Creation uint32
 }
 
+// Port
 type Port struct {
 	Node     Atom
 	ID       uint32
 	Creation uint32
 }
 
+// Ref
 type Ref struct {
 	Node     Atom
 	Creation uint32
@@ -72,6 +85,7 @@ type Unmarshaler interface {
 	UnmarshalETF([]byte) error
 }
 
+// Function
 type Function struct {
 	Arity  byte
 	Unique [16]byte
@@ -85,9 +99,10 @@ type Function struct {
 }
 
 var (
-	hasher32 = fnv.New32a()
+	crc32q = crc32.MakeTable(0xD5828281)
 )
 
+// Export
 type Export struct {
 	Module   Atom
 	Function Atom
@@ -140,18 +155,22 @@ const (
 	ettFloat = byte(99) // legacy
 )
 
+// Element
 func (m Map) Element(k Term) Term {
 	return m[k]
 }
 
+// Element
 func (l List) Element(i int) Term {
 	return l[i-1]
 }
 
+// Element
 func (t Tuple) Element(i int) Term {
 	return t[i-1]
 }
 
+// String
 func (p Pid) String() string {
 	empty := Pid{}
 	if p == empty {
@@ -160,33 +179,30 @@ func (p Pid) String() string {
 
 	n := uint32(0)
 	if p.Node != "" {
-		hasher32.Write([]byte(p.Node))
-		defer hasher32.Reset()
-		n = hasher32.Sum32()
+		n = crc32.Checksum([]byte(p.Node), crc32q)
 	}
-	return fmt.Sprintf("<%X.%d.%d>", n, int32(p.ID>>32), int32(p.ID))
+	return fmt.Sprintf("<%08X.%d.%d>", n, int32(p.ID>>32), int32(p.ID))
 }
 
+// String
 func (r Ref) String() string {
 	n := uint32(0)
 	if r.Node != "" {
-		hasher32.Write([]byte(r.Node))
-		defer hasher32.Reset()
-		n = hasher32.Sum32()
+		n = crc32.Checksum([]byte(r.Node), crc32q)
 	}
-	return fmt.Sprintf("Ref#<%X.%d.%d.%d>", n, r.ID[0], r.ID[1], r.ID[2])
+	return fmt.Sprintf("Ref#<%08X.%d.%d.%d>", n, r.ID[0], r.ID[1], r.ID[2])
 }
 
+// String
 func (a Alias) String() string {
 	n := uint32(0)
 	if a.Node != "" {
-		hasher32.Write([]byte(a.Node))
-		defer hasher32.Reset()
-		n = hasher32.Sum32()
+		n = crc32.Checksum([]byte(a.Node), crc32q)
 	}
-	return fmt.Sprintf("Ref#<%X.%d.%d.%d>", n, a.ID[0], a.ID[1], a.ID[2])
+	return fmt.Sprintf("Ref#<%08X.%d.%d.%d>", n, a.ID[0], a.ID[1], a.ID[2])
 }
 
+// ProplistElement
 type ProplistElement struct {
 	Name  Atom
 	Value Term
@@ -215,7 +231,7 @@ func TermToString(t Term) (s string, ok bool) {
 	return
 }
 
-// ProplistIntoStruct transorms given term into the provided struct 'dest'.
+// TermProplistIntoStruct transorms given term into the provided struct 'dest'.
 // Proplist is the list of Tuple values with two items { Name , Value },
 // where Name can be string or Atom and Value must be the same type as
 // it has the field of 'dest' struct with the equivalent name. Its also
@@ -463,7 +479,7 @@ func setProplistField(list List, dest reflect.Value) error {
 	t := dest.Type()
 	numField := t.NumField()
 	fields := make([]reflect.StructField, numField)
-	for i, _ := range fields {
+	for i := range fields {
 		fields[i] = t.Field(i)
 	}
 
@@ -496,7 +512,7 @@ func setProplistElementField(proplist []ProplistElement, dest reflect.Value) err
 	t := dest.Type()
 	numField := t.NumField()
 	fields := make([]reflect.StructField, numField)
-	for i, _ := range fields {
+	for i := range fields {
 		fields[i] = t.Field(i)
 	}
 
@@ -554,7 +570,7 @@ func setMapStructField(term Map, dest reflect.Value) error {
 	t := dest.Type()
 	numField := t.NumField()
 	fields := make([]reflect.StructField, numField)
-	for i, _ := range fields {
+	for i := range fields {
 		fields[i] = t.Field(i)
 	}
 

@@ -11,6 +11,7 @@ import (
 	"time"
 )
 
+// Buffer
 type Buffer struct {
 	B        []byte
 	original []byte
@@ -18,6 +19,7 @@ type Buffer struct {
 
 var (
 	ergoTrace     = false
+	ergoWarning   = false
 	ergoNoRecover = false
 
 	DefaultBufferLength = 16384
@@ -41,69 +43,97 @@ var (
 )
 
 func init() {
-	flag.BoolVar(&ergoTrace, "ergo.trace", false, "enable extended debug info")
+	flag.BoolVar(&ergoTrace, "ergo.trace", false, "enable/disable extended debug info")
+	flag.BoolVar(&ergoWarning, "ergo.warning", true, "enable/disable warning messages")
 	flag.BoolVar(&ergoNoRecover, "ergo.norecover", false, "disable panic catching")
 }
 
+// Log
 func Log(f string, a ...interface{}) {
 	if ergoTrace {
 		log.Printf(f, a...)
 	}
 }
 
+// Warning
+func Warning(f string, a ...interface{}) {
+	if ergoWarning {
+		log.Printf("WARNING! "+f, a...)
+	}
+}
+
+// CatchPanic
 func CatchPanic() bool {
 	return ergoNoRecover == false
 }
 
+// TakeTimer
 func TakeTimer() *time.Timer {
 	return timers.Get().(*time.Timer)
 }
 
+// ReleaseTimer
 func ReleaseTimer(t *time.Timer) {
 	t.Stop()
 	timers.Put(t)
 }
 
+// TakeBuffer
 func TakeBuffer() *Buffer {
 	return buffers.Get().(*Buffer)
 }
 
+// ReleaseBuffer
 func ReleaseBuffer(b *Buffer) {
-	// do not return it to the pool if its grew up too big
-	if cap(b.B) > 65536 {
-		b.B = nil // for GC
-		b.original = nil
-		return
+	c := cap(b.B)
+	// cO := cap(b.original)
+	// overlaps := c > 0 && cO > 0 && &(x[:c][c-1]) == &(y[:cO][cO-1])
+	if c > DefaultBufferLength && c < 65536 {
+		// reallocation happened. keep reallocated buffer as an original
+		// if it doesn't exceed the size of 65K (we don't want to keep
+		// too big slices)
+		b.original = b.B[:0]
 	}
 	b.B = b.original[:0]
 	buffers.Put(b)
 }
 
+// Reset
 func (b *Buffer) Reset() {
+	c := cap(b.B)
+	if c > DefaultBufferLength && c < 65536 {
+		b.original = b.B[:0]
+	}
 	// use the original start point of the slice
 	b.B = b.original[:0]
 }
 
+// Set
 func (b *Buffer) Set(v []byte) {
 	b.B = append(b.B[:0], v...)
 }
 
+// AppendByte
 func (b *Buffer) AppendByte(v byte) {
 	b.B = append(b.B, v)
 }
 
+// Append
 func (b *Buffer) Append(v []byte) {
 	b.B = append(b.B, v...)
 }
 
+// String
 func (b *Buffer) String() string {
 	return string(b.B)
 }
 
+// Len
 func (b *Buffer) Len() int {
 	return len(b.B)
 }
 
+// WriteDataTo
 func (b *Buffer) WriteDataTo(w io.Writer) error {
 	l := len(b.B)
 	if l == 0 {
@@ -128,6 +158,7 @@ func (b *Buffer) WriteDataTo(w io.Writer) error {
 	return nil
 }
 
+// ReadDataFrom
 func (b *Buffer) ReadDataFrom(r io.Reader, limit int) (int, error) {
 	capB := cap(b.B)
 	lenB := len(b.B)
@@ -149,6 +180,16 @@ func (b *Buffer) ReadDataFrom(r io.Reader, limit int) (int, error) {
 	return n, e
 }
 
+func (b *Buffer) Write(v []byte) (n int, err error) {
+	b.B = append(b.B, v...)
+	return len(v), nil
+}
+
+func (b *Buffer) Read(v []byte) (n int, err error) {
+	copy(v, b.B)
+	return len(b.B), io.EOF
+}
+
 func (b *Buffer) increase() {
 	cap1 := cap(b.B) * 8
 	b1 := make([]byte, cap(b.B), cap1)
@@ -156,6 +197,7 @@ func (b *Buffer) increase() {
 	b.B = b1
 }
 
+// Allocate
 func (b *Buffer) Allocate(n int) {
 	for {
 		if cap(b.B) < n {
@@ -167,6 +209,7 @@ func (b *Buffer) Allocate(n int) {
 	}
 }
 
+// Extend
 func (b *Buffer) Extend(n int) []byte {
 	l := len(b.B)
 	e := l + n
@@ -180,6 +223,7 @@ func (b *Buffer) Extend(n int) []byte {
 	}
 }
 
+// RandomString
 func RandomString(length int) string {
 	buff := make([]byte, length/2)
 	rand.Read(buff)

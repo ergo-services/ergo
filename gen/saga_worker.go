@@ -4,8 +4,10 @@ import (
 	"fmt"
 
 	"github.com/ergo-services/ergo/etf"
+	"github.com/ergo-services/ergo/lib"
 )
 
+// SagaWorkerBehavior
 type SagaWorkerBehavior interface {
 	ServerBehavior
 	// Mandatory callbacks
@@ -39,10 +41,12 @@ type SagaWorkerBehavior interface {
 	HandleWorkerTerminate(process *SagaWorkerProcess, reason string)
 }
 
+// SagaWorker
 type SagaWorker struct {
 	Server
 }
 
+// SagaWorkerProcess
 type SagaWorkerProcess struct {
 	ServerProcess
 
@@ -123,6 +127,7 @@ func (wp *SagaWorkerProcess) SendInterim(interim interface{}) error {
 
 // Server callbacks
 
+// Init
 func (w *SagaWorker) Init(process *ServerProcess, args ...etf.Term) error {
 	behavior, ok := process.Behavior().(SagaWorkerBehavior)
 	if !ok {
@@ -136,6 +141,7 @@ func (w *SagaWorker) Init(process *ServerProcess, args ...etf.Term) error {
 	return nil
 }
 
+// HandleCast
 func (w *SagaWorker) HandleCast(process *ServerProcess, message etf.Term) ServerStatus {
 	wp := process.State.(*SagaWorkerProcess)
 	switch m := message.(type) {
@@ -166,20 +172,25 @@ func (w *SagaWorker) HandleCast(process *ServerProcess, message etf.Term) Server
 	}
 }
 
+// HandleCall
 func (w *SagaWorker) HandleCall(process *ServerProcess, from ServerFrom, message etf.Term) (etf.Term, ServerStatus) {
 	p := process.State.(*SagaWorkerProcess)
 	return p.behavior.HandleWorkerCall(p, from, message)
 }
 
+// HandleDirect
 func (w *SagaWorker) HandleDirect(process *ServerProcess, message interface{}) (interface{}, error) {
 	p := process.State.(*SagaWorkerProcess)
 	return p.behavior.HandleWorkerDirect(p, message)
 }
+
+// HandleInfo
 func (w *SagaWorker) HandleInfo(process *ServerProcess, message etf.Term) ServerStatus {
 	p := process.State.(*SagaWorkerProcess)
 	return p.behavior.HandleWorkerInfo(p, message)
 }
 
+// Terminate
 func (w *SagaWorker) Terminate(process *ServerProcess, reason string) {
 	p := process.State.(*SagaWorkerProcess)
 	p.behavior.HandleWorkerTerminate(p, reason)
@@ -187,27 +198,38 @@ func (w *SagaWorker) Terminate(process *ServerProcess, reason string) {
 }
 
 // default callbacks
+
+// HandleJobCommit
 func (w *SagaWorker) HandleJobCommit(process *SagaWorkerProcess, final interface{}) {
-	fmt.Printf("HandleJobCommit: unhandled message %#v\n", final)
+	lib.Warning("HandleJobCommit: unhandled message %#v", final)
 	return
 }
+
+// HandleWorkerInfo
 func (w *SagaWorker) HandleWorkerInfo(process *SagaWorkerProcess, message etf.Term) ServerStatus {
-	fmt.Printf("HandleWorkerInfo: unhandled message %#v\n", message)
+	lib.Warning("HandleWorkerInfo: unhandled message %#v", message)
 	return ServerStatusOK
 }
+
+// HandleWorkerCast
 func (w *SagaWorker) HandleWorkerCast(process *SagaWorkerProcess, message etf.Term) ServerStatus {
-	fmt.Printf("HandleWorkerCast: unhandled message %#v\n", message)
+	lib.Warning("HandleWorkerCast: unhandled message %#v", message)
 	return ServerStatusOK
 }
+
+// HandleWorkerCall
 func (w *SagaWorker) HandleWorkerCall(process *SagaWorkerProcess, from ServerFrom, message etf.Term) (etf.Term, ServerStatus) {
-	fmt.Printf("HandleWorkerCall: unhandled message (from %#v) %#v\n", from, message)
+	lib.Warning("HandleWorkerCall: unhandled message (from %#v) %#v", from, message)
 	return etf.Atom("ok"), ServerStatusOK
 }
+
+// HandleWorkerDirect
 func (w *SagaWorker) HandleWorkerDirect(process *SagaWorkerProcess, message interface{}) (interface{}, error) {
-	fmt.Printf("HandleWorkerDirect: unhandled message %#v\n", message)
+	lib.Warning("HandleWorkerDirect: unhandled message %#v", message)
 	return nil, nil
 }
 
+// HandleWorkerTerminate
 func (w *SagaWorker) HandleWorkerTerminate(process *SagaWorkerProcess, reason string) {
 	return
 }

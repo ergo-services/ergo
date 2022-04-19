@@ -84,19 +84,19 @@ func TestServer(t *testing.T) {
 		err: make(chan error, 2),
 	}
 
-	fmt.Printf("    wait for start of gs1 on %#v: ", node1.NodeName())
+	fmt.Printf("    wait for start of gs1 on %#v: ", node1.Name())
 	node1gs1, _ := node1.Spawn("gs1", gen.ProcessOptions{}, gs1, nil)
 	waitForResultWithValue(t, gs1.res, nil)
 
-	fmt.Printf("    wait for start of gs2 on %#v: ", node1.NodeName())
+	fmt.Printf("    wait for start of gs2 on %#v: ", node1.Name())
 	node1gs2, _ := node1.Spawn("gs2", gen.ProcessOptions{}, gs2, nil)
 	waitForResultWithValue(t, gs2.res, nil)
 
-	fmt.Printf("    wait for start of gs3 on %#v: ", node2.NodeName())
+	fmt.Printf("    wait for start of gs3 on %#v: ", node2.Name())
 	node2gs3, _ := node2.Spawn("gs3", gen.ProcessOptions{}, gs3, nil)
 	waitForResultWithValue(t, gs3.res, nil)
 
-	fmt.Printf("    wait for start of gsDirect on %#v: ", node2.NodeName())
+	fmt.Printf("    wait for start of gsDirect on %#v: ", node2.Name())
 	node2gsDirect, _ := node2.Spawn("gsDirect", gen.ProcessOptions{}, gsDirect, nil)
 	waitForResult(t, gsDirect.err)
 
@@ -219,7 +219,7 @@ func TestServer(t *testing.T) {
 	}
 
 	fmt.Printf("    process.Send (by Name) local (gs1) -> remote (gs3) : ")
-	processName := gen.ProcessID{Name: "gs3", Node: node2.NodeName()}
+	processName := gen.ProcessID{Name: "gs3", Node: node2.Name()}
 	node1gs1.Send(processName, etf.Atom("hi"))
 	waitForResultWithValue(t, gs3.res, etf.Atom("hi"))
 
@@ -319,7 +319,7 @@ func TestServer(t *testing.T) {
 	}
 	fmt.Println("OK")
 
-	fmt.Printf("Stopping nodes: %v, %v\n", node1.NodeName(), node2.NodeName())
+	fmt.Printf("Stopping nodes: %v, %v\n", node1.Name(), node2.Name())
 	node1.Stop()
 	node2.Stop()
 }
@@ -432,10 +432,13 @@ func (gs *GSCallPanic) HandleDirect(process *gen.ServerProcess, message interfac
 	if !ok {
 		return nil, fmt.Errorf("not a pid")
 	}
+	fmt.Printf("    making a call p1node1 -> p1node2 (panic): ")
 	if _, err := process.CallWithTimeout(pids[0], "panic", 1); err == nil {
 		return nil, fmt.Errorf("must be error here")
+	} else {
+		fmt.Println("OK")
 	}
-
+	fmt.Printf("    making a call p1node1 -> p2node2: ")
 	v, err := process.Call(pids[1], "test")
 	if err != nil {
 		return nil, err
@@ -443,6 +446,7 @@ func (gs *GSCallPanic) HandleDirect(process *gen.ServerProcess, message interfac
 	if v.(string) != "ok" {
 		return nil, fmt.Errorf("wrong result %#v", v)
 	}
+	fmt.Println("OK")
 
 	return nil, nil
 }
@@ -464,15 +468,15 @@ func TestServerCallServerWithPanic(t *testing.T) {
 		fmt.Println("OK")
 	}
 
-	p1n1, err := node1.Spawn("", gen.ProcessOptions{}, &GSCallPanic{})
+	p1n1, err := node1.Spawn("p1node1", gen.ProcessOptions{}, &GSCallPanic{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	p1n2, err := node2.Spawn("", gen.ProcessOptions{}, &GSCallPanic{})
+	p1n2, err := node2.Spawn("p1node2", gen.ProcessOptions{}, &GSCallPanic{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	p2n2, err := node2.Spawn("", gen.ProcessOptions{}, &GSCallPanic{})
+	p2n2, err := node2.Spawn("2node2", gen.ProcessOptions{}, &GSCallPanic{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -482,7 +486,6 @@ func TestServerCallServerWithPanic(t *testing.T) {
 	if _, err := p1n1.Direct(pids); err != nil {
 		t.Fatal(err)
 	}
-	fmt.Println("OK")
 }
 
 func TestServerMessageOrder(t *testing.T) {
@@ -507,21 +510,21 @@ func TestServerMessageOrder(t *testing.T) {
 		res: make(chan interface{}, 2),
 	}
 
-	fmt.Printf("    wait for start of gs1order on %#v: ", node1.NodeName())
+	fmt.Printf("    wait for start of gs1order on %#v: ", node1.Name())
 	node1gs1, err1 := node1.Spawn("gs1order", gen.ProcessOptions{}, gs1, nil)
 	if err1 != nil {
 		panic(err1)
 	}
 	waitForResultWithValue(t, gs1.res, nil)
 
-	fmt.Printf("    wait for start of gs2order on %#v: ", node1.NodeName())
+	fmt.Printf("    wait for start of gs2order on %#v: ", node1.Name())
 	node1gs2, err2 := node1.Spawn("gs2order", gen.ProcessOptions{}, gs2, nil)
 	if err2 != nil {
 		panic(err2)
 	}
 	waitForResultWithValue(t, gs2.res, nil)
 
-	fmt.Printf("    wait for start of gs3order on %#v: ", node1.NodeName())
+	fmt.Printf("    wait for start of gs3order on %#v: ", node1.Name())
 	node1gs3, err3 := node1.Spawn("gs3order", gen.ProcessOptions{}, gs3, nil)
 	if err3 != nil {
 		panic(err3)
@@ -536,7 +539,6 @@ func TestServerMessageOrder(t *testing.T) {
 		}
 	}
 	waitForResultWithValue(t, gs2.res, 1000)
-	fmt.Println("OK")
 
 	fmt.Printf("    making Direct call with making a call from gs2 to gs3 1 time: ")
 	_, err := node1gs2.Direct(testCase3{n: 1})
@@ -561,7 +563,6 @@ func TestServerMessageOrder(t *testing.T) {
 		}
 	}
 	waitForResultWithValue(t, gs2.res, 123)
-	fmt.Println("OK")
 	node1gs3.Exit("normal")
 	node1.Stop()
 	node1.Wait()
@@ -719,27 +720,27 @@ func TestServerMessageFlood(t *testing.T) {
 	gsdest := &messageFloodDestGS{
 		res: make(chan interface{}, 2),
 	}
-	fmt.Printf("    wait for start of gs1source on %#v: ", node1.NodeName())
+	fmt.Printf("    wait for start of gs1source on %#v: ", node1.Name())
 	gs1sourceProcess, _ := node1.Spawn("gs1source", gen.ProcessOptions{}, gs1source, nil)
 	waitForResultWithValue(t, gs1source.res, nil)
 
-	fmt.Printf("    wait for start of gs2source on %#v: ", node1.NodeName())
+	fmt.Printf("    wait for start of gs2source on %#v: ", node1.Name())
 	gs2sourceProcess, _ := node1.Spawn("gs2source", gen.ProcessOptions{}, gs2source, nil)
 	waitForResultWithValue(t, gs2source.res, nil)
 
-	fmt.Printf("    wait for start of gs3source on %#v: ", node1.NodeName())
+	fmt.Printf("    wait for start of gs3source on %#v: ", node1.Name())
 	gs3sourceProcess, _ := node1.Spawn("gs3source", gen.ProcessOptions{}, gs3source, nil)
 	waitForResultWithValue(t, gs3source.res, nil)
 
-	fmt.Printf("    wait for start of gs4source on %#v: ", node1.NodeName())
+	fmt.Printf("    wait for start of gs4source on %#v: ", node1.Name())
 	gs4sourceProcess, _ := node1.Spawn("gs4source", gen.ProcessOptions{}, gs4source, nil)
 	waitForResultWithValue(t, gs4source.res, nil)
 
-	fmt.Printf("    wait for start of gs5source on %#v: ", node1.NodeName())
+	fmt.Printf("    wait for start of gs5source on %#v: ", node1.Name())
 	gs5sourceProcess, _ := node1.Spawn("gs5source", gen.ProcessOptions{}, gs5source, nil)
 	waitForResultWithValue(t, gs5source.res, nil)
 
-	fmt.Printf("    wait for start of gsdest on %#v: ", node1.NodeName())
+	fmt.Printf("    wait for start of gsdest on %#v: ", node1.Name())
 	node1.Spawn("gsdest", gen.ProcessOptions{}, gsdest, nil)
 	waitForResultWithValue(t, gsdest.res, nil)
 
@@ -817,6 +818,20 @@ func waitForResultWithValue(t *testing.T, w chan interface{}, value interface{})
 
 	case <-time.After(time.Second * time.Duration(2)):
 		t.Fatal("result timeout")
+	}
+}
+
+func waitForResultWithValueReturnError(t *testing.T, w chan interface{}, value interface{}) error {
+	select {
+	case v := <-w:
+		if reflect.DeepEqual(v, value) {
+			return nil
+		} else {
+			return fmt.Errorf("expected: %#v , got: %#v", value, v)
+		}
+
+	case <-time.After(time.Second * time.Duration(2)):
+		return fmt.Errorf("result timeout")
 	}
 }
 

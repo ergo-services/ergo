@@ -16,14 +16,10 @@ type demoGenServ struct {
 }
 
 var (
-	GenServerName    string
-	NodeName         string
-	Cookie           string
-	err              error
-	ListenRangeBegin int
-	ListenRangeEnd   int = 35000
-	Listen           string
-	ListenEPMD       int
+	GenServerName string
+	NodeName      string
+	Cookie        string
+	err           error
 
 	EnableRPC bool
 )
@@ -33,15 +29,26 @@ func (dgs *demoGenServ) HandleCast(process *gen.ServerProcess, message etf.Term)
 	switch message {
 	case etf.Atom("stop"):
 		return gen.ServerStatusStopWithReason("stop they said")
+	case "test":
+		node := process.Env(node.EnvKeyNode).(node.Node)
+		n := node.Nodes()
+		fmt.Println("nodes: ", n)
+		if err := node.Disconnect(n[0]); err != nil {
+			fmt.Println("Cant disconnect", err)
+		}
+		if err := node.Connect(n[0]); err != nil {
+			fmt.Println("Cant connect", err)
+		}
 	}
 	return gen.ServerStatusOK
 }
 
-func (dgs *demoGenServ) HandleCall(state *gen.ServerProcess, from gen.ServerFrom, message etf.Term) (etf.Term, gen.ServerStatus) {
+func (dgs *demoGenServ) HandleCall(process *gen.ServerProcess, from gen.ServerFrom, message etf.Term) (etf.Term, gen.ServerStatus) {
 	fmt.Printf("HandleCall: %#v, From: %#v\n", message, from)
 
 	switch message {
 	case etf.Atom("hello"):
+		process.Cast(process.Self(), "test")
 		return etf.Term("hi"), gen.ServerStatusOK
 	}
 	reply := etf.Tuple{etf.Atom("error"), etf.Atom("unknown_request")}
@@ -49,11 +56,8 @@ func (dgs *demoGenServ) HandleCall(state *gen.ServerProcess, from gen.ServerFrom
 }
 
 func init() {
-	flag.IntVar(&ListenRangeBegin, "listen_begin", 15151, "listen port range")
-	flag.IntVar(&ListenRangeEnd, "listen_end", 25151, "listen port range")
 	flag.StringVar(&GenServerName, "gen_server_name", "example", "gen_server name")
 	flag.StringVar(&NodeName, "name", "demo@127.0.0.1", "node name")
-	flag.IntVar(&ListenEPMD, "epmd", 4369, "EPMD port")
 	flag.StringVar(&Cookie, "cookie", "123", "cookie for interaction with erlang cluster")
 }
 
@@ -61,19 +65,8 @@ func main() {
 	flag.Parse()
 
 	opts := node.Options{
-		ListenRangeBegin: uint16(ListenRangeBegin),
-		ListenRangeEnd:   uint16(ListenRangeEnd),
-		EPMDPort:         uint16(ListenEPMD),
-
 		// enables TLS encryption with self-signed certificate
-		TLSMode: node.TLSModeAuto,
-
-		// set TLSmode to TLSmodeStrict to use custom certificate
-		// TLSmode: ergo.TLSmodeStrict,
-		// TLScrtServer: "example.crt",
-		// TLSkeyServer: "example.key",
-		// TLScrtClient: "example.crt",
-		// TLSkeyClient: "example.key",
+		TLS: node.TLS{Enable: true},
 	}
 
 	// Initialize new node with given name, cookie, listening port range and epmd port

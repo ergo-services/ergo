@@ -1,7 +1,6 @@
 package etf
 
 import (
-	"context"
 	"fmt"
 	"math/big"
 	"reflect"
@@ -27,20 +26,16 @@ func TestEncodeBoolWithAtomCache(t *testing.T) {
 	b := lib.TakeBuffer()
 	defer lib.ReleaseBuffer(b)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	writerAtomCache := make(map[Atom]CacheItem)
-	encodingAtomCache := TakeListAtomCache()
-	defer ReleaseListAtomCache(encodingAtomCache)
-	linkAtomCache := NewAtomCache(ctx)
+	senderAtomCache := make(map[Atom]CacheItem)
+	encodingAtomCache := TakeEncodingAtomCache()
+	atomCache := NewAtomCache()
 	ci := CacheItem{ID: 499, Encoded: true, Name: "false"}
 
-	writerAtomCache["false"] = ci
+	senderAtomCache["false"] = ci
 
 	encodeOptions := EncodeOptions{
-		LinkAtomCache:     linkAtomCache,
-		WriterAtomCache:   writerAtomCache,
+		AtomCache:         atomCache.Out,
+		SenderAtomCache:   senderAtomCache,
 		EncodingAtomCache: encodingAtomCache,
 	}
 
@@ -75,71 +70,71 @@ func integerCases() []integerCase {
 		//
 		// unsigned integers
 		//
-		integerCase{"uint8::255", uint8(255), []byte{ettSmallInteger, 255}},
-		integerCase{"uint16::255", uint16(255), []byte{ettSmallInteger, 255}},
-		integerCase{"uint32::255", uint32(255), []byte{ettSmallInteger, 255}},
-		integerCase{"uint64::255", uint64(255), []byte{ettSmallInteger, 255}},
-		integerCase{"uint::255", uint(255), []byte{ettSmallInteger, 255}},
+		{"uint8::255", uint8(255), []byte{ettSmallInteger, 255}},
+		{"uint16::255", uint16(255), []byte{ettSmallInteger, 255}},
+		{"uint32::255", uint32(255), []byte{ettSmallInteger, 255}},
+		{"uint64::255", uint64(255), []byte{ettSmallInteger, 255}},
+		{"uint::255", uint(255), []byte{ettSmallInteger, 255}},
 
-		integerCase{"uint16::256", uint16(256), []byte{ettInteger, 0, 0, 1, 0}},
+		{"uint16::256", uint16(256), []byte{ettInteger, 0, 0, 1, 0}},
 
-		integerCase{"uint16::65535", uint16(65535), []byte{ettInteger, 0, 0, 255, 255}},
-		integerCase{"uint32::65535", uint32(65535), []byte{ettInteger, 0, 0, 255, 255}},
-		integerCase{"uint64::65535", uint64(65535), []byte{ettInteger, 0, 0, 255, 255}},
+		{"uint16::65535", uint16(65535), []byte{ettInteger, 0, 0, 255, 255}},
+		{"uint32::65535", uint32(65535), []byte{ettInteger, 0, 0, 255, 255}},
+		{"uint64::65535", uint64(65535), []byte{ettInteger, 0, 0, 255, 255}},
 
-		integerCase{"uint64::65536", uint64(65536), []byte{ettInteger, 0, 1, 0, 0}},
+		{"uint64::65536", uint64(65536), []byte{ettInteger, 0, 1, 0, 0}},
 
 		// treat as an int32
-		integerCase{"uint32::2147483647", uint32(2147483647), []byte{ettInteger, 127, 255, 255, 255}},
-		integerCase{"uint64::2147483647", uint64(2147483647), []byte{ettInteger, 127, 255, 255, 255}},
-		integerCase{"uint64::2147483648", uint64(2147483648), []byte{ettSmallBig, 4, 0, 0, 0, 0, 128}},
+		{"uint32::2147483647", uint32(2147483647), []byte{ettInteger, 127, 255, 255, 255}},
+		{"uint64::2147483647", uint64(2147483647), []byte{ettInteger, 127, 255, 255, 255}},
+		{"uint64::2147483648", uint64(2147483648), []byte{ettSmallBig, 4, 0, 0, 0, 0, 128}},
 
-		integerCase{"uint32::4294967295", uint32(4294967295), []byte{ettSmallBig, 4, 0, 255, 255, 255, 255}},
-		integerCase{"uint64::4294967295", uint64(4294967295), []byte{ettSmallBig, 4, 0, 255, 255, 255, 255}},
-		integerCase{"uint64::4294967296", uint64(4294967296), []byte{ettSmallBig, 5, 0, 0, 0, 0, 0, 1}},
+		{"uint32::4294967295", uint32(4294967295), []byte{ettSmallBig, 4, 0, 255, 255, 255, 255}},
+		{"uint64::4294967295", uint64(4294967295), []byte{ettSmallBig, 4, 0, 255, 255, 255, 255}},
+		{"uint64::4294967296", uint64(4294967296), []byte{ettSmallBig, 5, 0, 0, 0, 0, 0, 1}},
 
-		integerCase{"uint64::18446744073709551615", uint64(18446744073709551615), []byte{ettSmallBig, 8, 0, 255, 255, 255, 255, 255, 255, 255, 255}},
+		{"uint64::18446744073709551615", uint64(18446744073709551615), []byte{ettSmallBig, 8, 0, 255, 255, 255, 255, 255, 255, 255, 255}},
 
 		//
 		// signed integers
 		//
 
 		// negative is always ettInteger for the numbers within the range of int32
-		integerCase{"int8::-127", int8(-127), []byte{ettInteger, 255, 255, 255, 129}},
-		integerCase{"int16::-127", int16(-127), []byte{ettInteger, 255, 255, 255, 129}},
-		integerCase{"int32::-127", int32(-127), []byte{ettInteger, 255, 255, 255, 129}},
-		integerCase{"int64::-127", int64(-127), []byte{ettInteger, 255, 255, 255, 129}},
-		integerCase{"int::-127", int(-127), []byte{ettInteger, 255, 255, 255, 129}},
+		{"int8::-127", int8(-127), []byte{ettInteger, 255, 255, 255, 129}},
+		{"int16::-127", int16(-127), []byte{ettInteger, 255, 255, 255, 129}},
+		{"int32::-127", int32(-127), []byte{ettInteger, 255, 255, 255, 129}},
+		{"int64::-127", int64(-127), []byte{ettInteger, 255, 255, 255, 129}},
+		{"int::-127", int(-127), []byte{ettInteger, 255, 255, 255, 129}},
 
-		// positive within range of int8 treats as ettSmallInteger
-		integerCase{"int8::127", int8(127), []byte{ettSmallInteger, 127}},
-		integerCase{"int16::127", int16(127), []byte{ettSmallInteger, 127}},
-		integerCase{"int32::127", int32(127), []byte{ettSmallInteger, 127}},
-		integerCase{"int64::127", int64(127), []byte{ettSmallInteger, 127}},
+		// positive within a range of int8 treats as ettSmallInteger
+		{"int8::127", int8(127), []byte{ettSmallInteger, 127}},
+		{"int16::127", int16(127), []byte{ettSmallInteger, 127}},
+		{"int32::127", int32(127), []byte{ettSmallInteger, 127}},
+		{"int64::127", int64(127), []byte{ettSmallInteger, 127}},
 
 		// a positive int[16,32,64] value within the range of uint8 treats as an uint8
-		integerCase{"int16::128", int16(128), []byte{ettSmallInteger, 128}},
-		integerCase{"int32::128", int32(128), []byte{ettSmallInteger, 128}},
-		integerCase{"int64::128", int64(128), []byte{ettSmallInteger, 128}},
-		integerCase{"int::128", int(128), []byte{ettSmallInteger, 128}},
+		{"int16::128", int16(128), []byte{ettSmallInteger, 128}},
+		{"int32::128", int32(128), []byte{ettSmallInteger, 128}},
+		{"int64::128", int64(128), []byte{ettSmallInteger, 128}},
+		{"int::128", int(128), []byte{ettSmallInteger, 128}},
 
 		// whether its positive or negative value within the range of int16 its treating as an int32
-		integerCase{"int16::-32767", int16(-32767), []byte{ettInteger, 255, 255, 128, 1}},
-		integerCase{"int16::32767", int16(32767), []byte{ettInteger, 0, 0, 127, 255}},
+		{"int16::-32767", int16(-32767), []byte{ettInteger, 255, 255, 128, 1}},
+		{"int16::32767", int16(32767), []byte{ettInteger, 0, 0, 127, 255}},
 
 		// treat as an int32
-		integerCase{"int32::2147483647", int32(2147483647), []byte{ettInteger, 127, 255, 255, 255}},
-		integerCase{"int32::-2147483648", int32(-2147483648), []byte{ettInteger, 128, 0, 0, 0}},
-		integerCase{"int64::2147483647", int64(2147483647), []byte{ettInteger, 127, 255, 255, 255}},
-		integerCase{"int64::-2147483648", int64(-2147483648), []byte{ettInteger, 128, 0, 0, 0}},
+		{"int32::2147483647", int32(2147483647), []byte{ettInteger, 127, 255, 255, 255}},
+		{"int32::-2147483648", int32(-2147483648), []byte{ettInteger, 128, 0, 0, 0}},
+		{"int64::2147483647", int64(2147483647), []byte{ettInteger, 127, 255, 255, 255}},
+		{"int64::-2147483648", int64(-2147483648), []byte{ettInteger, 128, 0, 0, 0}},
 
-		integerCase{"int64::2147483648", int64(2147483648), []byte{ettSmallBig, 4, 0, 0, 0, 0, 128}},
+		{"int64::2147483648", int64(2147483648), []byte{ettSmallBig, 4, 0, 0, 0, 0, 128}},
 
 		// int64 treats as ettSmallBig whether its positive or negative
-		integerCase{"int64::9223372036854775807", int64(9223372036854775807), []byte{ettSmallBig, 8, 0, 255, 255, 255, 255, 255, 255, 255, 127}},
-		integerCase{"int64::-9223372036854775808", int64(-9223372036854775808), []byte{ettSmallBig, 8, 1, 0, 0, 0, 0, 0, 0, 0, 128}},
+		{"int64::9223372036854775807", int64(9223372036854775807), []byte{ettSmallBig, 8, 0, 255, 255, 255, 255, 255, 255, 255, 127}},
+		{"int64::-9223372036854775808", int64(-9223372036854775808), []byte{ettSmallBig, 8, 1, 0, 0, 0, 0, 0, 0, 0, 128}},
 
-		integerCase{"big.int::-9223372036854775807123456789", bigIntNegative, []byte{ettSmallBig, 12, 1, 21, 3, 193, 203, 255, 255, 255, 255, 255, 100, 205, 29}},
+		{"big.int::-9223372036854775807123456789", bigIntNegative, []byte{ettSmallBig, 12, 1, 21, 3, 193, 203, 255, 255, 255, 255, 255, 100, 205, 29}},
 	}
 }
 
@@ -260,20 +255,17 @@ func TestEncodeAtomWithCache(t *testing.T) {
 	b := lib.TakeBuffer()
 	defer lib.ReleaseBuffer(b)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	senderAtomCache := make(map[Atom]CacheItem)
+	encodingAtomCache := TakeEncodingAtomCache()
 
-	writerAtomCache := make(map[Atom]CacheItem)
-	encodingAtomCache := TakeListAtomCache()
-	defer ReleaseListAtomCache(encodingAtomCache)
-	linkAtomCache := NewAtomCache(ctx)
+	atomCache := NewAtomCache()
 
 	ci := CacheItem{ID: 2020, Encoded: true, Name: "cached atom"}
-	writerAtomCache["cached atom"] = ci
+	senderAtomCache["cached atom"] = ci
 
 	encodeOptions := EncodeOptions{
-		LinkAtomCache:     linkAtomCache,
-		WriterAtomCache:   writerAtomCache,
+		AtomCache:         atomCache.Out,
+		SenderAtomCache:   senderAtomCache,
 		EncodingAtomCache: encodingAtomCache,
 	}
 
@@ -374,7 +366,23 @@ func TestEncodeSlice(t *testing.T) {
 		fmt.Println("got", b.B)
 		t.Fatal("incorrect value")
 	}
+
+	b.Reset()
+
+	expected = []byte{108, 0, 0, 0, 3, 119, 1, 97, 119, 1, 98, 119, 1, 99, 106}
+	termAtoms := []Atom{Atom("a"), Atom("b"), Atom("c")}
+	err = Encode(termAtoms, b, EncodeOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !reflect.DeepEqual(b.B, expected) {
+		fmt.Println("exp", expected)
+		fmt.Println("got", b.B)
+		t.Fatal("incorrect value")
+	}
 }
+
 func TestEncodeListNested(t *testing.T) {
 	b := lib.TakeBuffer()
 	defer lib.ReleaseBuffer(b)
@@ -641,7 +649,7 @@ func TestEncodeStructWithTags(t *testing.T) {
 		Key1: "Hello World!",
 		Key2: []*Charlist{&value2, &value3, &value4},
 		Key3: &nested,
-		Key4: [][]*Charlist{[]*Charlist{&value2, &value3, &value4}, []*Charlist{&value2, &value3, &value4}},
+		Key4: [][]*Charlist{{&value2, &value3, &value4}, {&value2, &value3, &value4}},
 	}
 	err := Encode(term, b, EncodeOptions{})
 	if err != nil {
@@ -658,7 +666,7 @@ func TestEncodePid(t *testing.T) {
 	b := lib.TakeBuffer()
 	defer lib.ReleaseBuffer(b)
 
-	// V4NC disabled. max value for ID (15 bits), serial 0
+	// FlagBigPidRef disabled. max value for ID (15 bits), serial 0
 	expected := []byte{ettPid, 119, 18, 101, 114, 108, 45, 100, 101, 109, 111, 64, 49, 50,
 		55, 46, 48, 46, 48, 46, 49, 0, 0, 127, 255, 0, 0, 0, 0, 2}
 	term := Pid{Node: "erl-demo@127.0.0.1", ID: 32767, Creation: 2}
@@ -674,7 +682,7 @@ func TestEncodePid(t *testing.T) {
 		t.Fatal("incorrect value")
 	}
 
-	// V4NC disabled. overflowed 15 bit. ID 0, serial 1
+	// FlagBigPidRef disabled. overflowed 15 bit. ID 0, serial 1
 	b.Reset()
 	expected = []byte{ettPid, 119, 18, 101, 114, 108, 45, 100, 101, 109, 111, 64, 49, 50,
 		55, 46, 48, 46, 48, 46, 49, 0, 0, 0, 0, 0, 0, 0, 1, 2}
@@ -691,7 +699,7 @@ func TestEncodePid(t *testing.T) {
 		t.Fatal("incorrect value")
 	}
 
-	// BigCreation, V4NC enabled. max value for ID (32 bits), serial 0
+	// BigCreation, FlagBigPidRef enabled. max value for ID (32 bits), serial 0
 	b.Reset()
 	expected = []byte{ettNewPid, 119, 18, 101, 114, 108, 45, 100, 101, 109, 111, 64, 49, 50,
 		55, 46, 48, 46, 48, 46, 49, 255, 255, 255, 255, 0, 0, 0, 0, 0, 0, 0, 2}
@@ -699,7 +707,7 @@ func TestEncodePid(t *testing.T) {
 
 	options := EncodeOptions{
 		FlagBigCreation: true,
-		FlagV4NC:        true,
+		FlagBigPidRef:   true,
 	}
 	err = Encode(term, b, options)
 	if err != nil {
@@ -712,7 +720,7 @@ func TestEncodePid(t *testing.T) {
 		t.Fatal("incorrect value")
 	}
 
-	// BigCreation, V4NC enabled. max value for ID (32 bits), max value for Serial (32 bits)
+	// BigCreation, FlagBigPidRef enabled. max value for ID (32 bits), max value for Serial (32 bits)
 	b.Reset()
 	expected = []byte{ettNewPid, 119, 18, 101, 114, 108, 45, 100, 101, 109, 111, 64, 49, 50,
 		55, 46, 48, 46, 48, 46, 49, 255, 255, 255, 255, 255, 255, 255, 255, 0, 0, 0, 2}
@@ -720,7 +728,7 @@ func TestEncodePid(t *testing.T) {
 
 	options = EncodeOptions{
 		FlagBigCreation: true,
-		FlagV4NC:        true,
+		FlagBigPidRef:   true,
 	}
 	err = Encode(term, b, options)
 	if err != nil {
@@ -741,19 +749,15 @@ func TestEncodePidWithAtomCache(t *testing.T) {
 	expected := []byte{103, 82, 0, 0, 0, 1, 56, 0, 0, 0, 0, 2}
 	term := Pid{Node: "erl-demo@127.0.0.1", ID: 312, Creation: 2}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	writerAtomCache := make(map[Atom]CacheItem)
-	encodingAtomCache := TakeListAtomCache()
-	defer ReleaseListAtomCache(encodingAtomCache)
-	linkAtomCache := NewAtomCache(ctx)
+	senderAtomCache := make(map[Atom]CacheItem)
+	encodingAtomCache := TakeEncodingAtomCache()
+	atomCache := NewAtomCache()
 
 	ci := CacheItem{ID: 2020, Encoded: true, Name: "erl-demo@127.0.0.1"}
-	writerAtomCache["erl-demo@127.0.0.1"] = ci
+	senderAtomCache["erl-demo@127.0.0.1"] = ci
 	encodeOptions := EncodeOptions{
-		LinkAtomCache:     linkAtomCache,
-		WriterAtomCache:   writerAtomCache,
+		AtomCache:         atomCache.Out,
+		SenderAtomCache:   senderAtomCache,
 		EncodingAtomCache: encodingAtomCache,
 	}
 	err := Encode(term, b, encodeOptions)
@@ -777,7 +781,7 @@ func TestEncodeRef(t *testing.T) {
 	b := lib.TakeBuffer()
 	defer lib.ReleaseBuffer(b)
 
-	// FlagBigCreation = false, FlagV4NC = false
+	// FlagBigCreation = false, FlagBigPidRef = false
 	expected := []byte{ettNewRef, 0, 3, 119, 18, 101, 114, 108, 45, 100, 101, 109, 111, 64,
 		49, 50, 55, 46, 48, 46, 48, 46, 49, 3, 0, 1, 30, 228, 183, 192, 0, 1, 141,
 		122, 203, 35}
@@ -801,7 +805,7 @@ func TestEncodeRef(t *testing.T) {
 		t.Fatal("incorrect value")
 	}
 
-	// FlagBigCreation = true, FlagV4NC = false
+	// FlagBigCreation = true, FlagBigPidRef = false
 	b.Reset()
 	expected = []byte{ettNewerRef, 0, 3, 119, 18, 101, 114, 108, 45, 100, 101, 109, 111, 64,
 		49, 50, 55, 46, 48, 46, 48, 46, 49, 0, 0, 0, 8, 0, 1, 30, 228, 183, 192, 0, 1, 141,
@@ -831,7 +835,7 @@ func TestEncodeRef(t *testing.T) {
 	// FIXME Erlang 24 has a bug https://github.com/erlang/otp/issues/5097
 	// uncomment once they fix it
 	//
-	// FlagBigCreation = true, FlagV4NC = true
+	// FlagBigCreation = true, FlagBigPidRef = true
 	//b.Reset()
 	//expected = []byte{ettNewerRef, 0, 5, 119, 18, 101, 114, 108, 45, 100, 101, 109, 111, 64,
 	//	49, 50, 55, 46, 48, 46, 48, 46, 49, 0, 0, 0, 8, 0, 1, 30, 228, 183, 192, 0, 1, 141,
@@ -845,7 +849,7 @@ func TestEncodeRef(t *testing.T) {
 
 	//options = EncodeOptions{
 	//	FlagBigCreation: true,
-	//	FlagV4NC:        true,
+	//	FlagBigPidRef:        true,
 	//}
 	//err = Encode(term, b, options)
 	//if err != nil {
@@ -952,25 +956,20 @@ func BenchmarkEncodeBoolWithAtomCache(b *testing.B) {
 	buf := lib.TakeBuffer()
 	defer lib.ReleaseBuffer(buf)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	senderAtomCache := make(map[Atom]CacheItem)
+	encodingAtomCache := TakeEncodingAtomCache()
+	atomCache := NewAtomCache()
 
-	writerAtomCache := make(map[Atom]CacheItem)
-	encodingAtomCache := TakeListAtomCache()
-	defer ReleaseListAtomCache(encodingAtomCache)
-	linkAtomCache := NewAtomCache(ctx)
-
-	writerAtomCache["false"] = CacheItem{ID: 499, Encoded: true, Name: "false"}
+	senderAtomCache["false"] = CacheItem{ID: 499, Encoded: true, Name: "false"}
 
 	encodeOptions := EncodeOptions{
-		LinkAtomCache:     linkAtomCache,
-		WriterAtomCache:   writerAtomCache,
+		AtomCache:         atomCache.Out,
+		SenderAtomCache:   senderAtomCache,
 		EncodingAtomCache: encodingAtomCache,
 	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		err := Encode(false, buf, encodeOptions)
-		encodingAtomCache.Reset()
 		buf.Reset()
 		if err != nil {
 			b.Fatal(err)
@@ -1050,20 +1049,16 @@ func BenchmarkEncodeAtomWithCache(b *testing.B) {
 	buf := lib.TakeBuffer()
 	defer lib.ReleaseBuffer(buf)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	writerAtomCache := make(map[Atom]CacheItem)
-	encodingAtomCache := TakeListAtomCache()
-	defer ReleaseListAtomCache(encodingAtomCache)
-	linkAtomCache := NewAtomCache(ctx)
+	senderAtomCache := make(map[Atom]CacheItem)
+	encodingAtomCache := TakeEncodingAtomCache()
+	atomCache := NewAtomCache()
 
 	ci := CacheItem{ID: 2020, Encoded: true, Name: "cached atom"}
-	writerAtomCache["cached atom"] = ci
+	senderAtomCache["cached atom"] = ci
 
 	encodeOptions := EncodeOptions{
-		LinkAtomCache:     linkAtomCache,
-		WriterAtomCache:   writerAtomCache,
+		AtomCache:         atomCache.Out,
+		SenderAtomCache:   senderAtomCache,
 		EncodingAtomCache: encodingAtomCache,
 	}
 
@@ -1071,7 +1066,6 @@ func BenchmarkEncodeAtomWithCache(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		err := Encode(Atom("cached atom"), buf, encodeOptions)
 		buf.Reset()
-		encodingAtomCache.Reset()
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -1275,20 +1269,16 @@ func BenchmarkEncodePidWithAtomCache(b *testing.B) {
 
 	term := Pid{Node: "erl-demo@127.0.0.1", ID: 312, Creation: 2}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	writerAtomCache := make(map[Atom]CacheItem)
-	encodingAtomCache := TakeListAtomCache()
-	defer ReleaseListAtomCache(encodingAtomCache)
-	linkAtomCache := NewAtomCache(ctx)
+	senderAtomCache := make(map[Atom]CacheItem)
+	encodingAtomCache := TakeEncodingAtomCache()
+	atomCache := NewAtomCache()
 
 	ci := CacheItem{ID: 2020, Encoded: true, Name: "erl-demo@127.0.0.1"}
-	writerAtomCache["erl-demo@127.0.0.1"] = ci
+	senderAtomCache["erl-demo@127.0.0.1"] = ci
 
 	encodeOptions := EncodeOptions{
-		LinkAtomCache:     linkAtomCache,
-		WriterAtomCache:   writerAtomCache,
+		AtomCache:         atomCache.Out,
+		SenderAtomCache:   senderAtomCache,
 		EncodingAtomCache: encodingAtomCache,
 	}
 
@@ -1296,7 +1286,6 @@ func BenchmarkEncodePidWithAtomCache(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		err := Encode(term, buf, encodeOptions)
 		buf.Reset()
-		encodingAtomCache.Reset()
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -1332,20 +1321,16 @@ func BenchmarkEncodeRefWithAtomCache(b *testing.B) {
 		ID:       [5]uint32{73444, 3082813441, 2373634851},
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	writerAtomCache := make(map[Atom]CacheItem)
-	encodingAtomCache := TakeListAtomCache()
-	defer ReleaseListAtomCache(encodingAtomCache)
-	linkAtomCache := NewAtomCache(ctx)
+	senderAtomCache := make(map[Atom]CacheItem)
+	encodingAtomCache := TakeEncodingAtomCache()
+	atomCache := NewAtomCache()
 
 	ci := CacheItem{ID: 2020, Encoded: true, Name: "erl-demo@127.0.0.1"}
-	writerAtomCache["erl-demo@127.0.0.1"] = ci
+	senderAtomCache["erl-demo@127.0.0.1"] = ci
 
 	encodeOptions := EncodeOptions{
-		LinkAtomCache:     linkAtomCache,
-		WriterAtomCache:   writerAtomCache,
+		AtomCache:         atomCache.Out,
+		SenderAtomCache:   senderAtomCache,
 		EncodingAtomCache: encodingAtomCache,
 	}
 
@@ -1353,7 +1338,6 @@ func BenchmarkEncodeRefWithAtomCache(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		err := Encode(term, buf, encodeOptions)
 		buf.Reset()
-		encodingAtomCache.Reset()
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -1398,20 +1382,17 @@ func BenchmarkEncodeTupleRefPidWithAtomCache(b *testing.B) {
 			ID:       312,
 			Creation: 2}}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	writerAtomCache := make(map[Atom]CacheItem)
-	encodingAtomCache := TakeListAtomCache()
-	defer ReleaseListAtomCache(encodingAtomCache)
-	linkAtomCache := NewAtomCache(ctx)
+	senderAtomCache := make(map[Atom]CacheItem)
+	encodingAtomCache := TakeEncodingAtomCache()
+	defer ReleaseEncodingAtomCache(encodingAtomCache)
+	atomCache := NewAtomCache()
 
 	ci := CacheItem{ID: 2020, Encoded: true, Name: "erl-demo@127.0.0.1"}
-	writerAtomCache["erl-demo@127.0.0.1"] = ci
+	senderAtomCache["erl-demo@127.0.0.1"] = ci
 
 	encodeOptions := EncodeOptions{
-		LinkAtomCache:     linkAtomCache,
-		WriterAtomCache:   writerAtomCache,
+		AtomCache:         atomCache.Out,
+		SenderAtomCache:   senderAtomCache,
 		EncodingAtomCache: encodingAtomCache,
 	}
 

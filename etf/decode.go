@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"math"
 	"math/big"
+
+	"github.com/ergo-services/ergo/lib"
 )
 
 // linked list for decoding complex types like list/map/tuple
@@ -55,12 +57,12 @@ var (
 	errInternal  = fmt.Errorf("Internal error")
 )
 
+// DecodeOptions
 type DecodeOptions struct {
-	FlagV4NC        bool
-	FlagBigCreation bool
+	FlagBigPidRef bool
 }
 
-// stackless implementation is speeding up it up to x25 times
+// stackless implementation is speeding up decoding function up to x25 times
 
 // it might looks hard to understand the logic, but
 // there are only two stages
@@ -69,27 +71,30 @@ type DecodeOptions struct {
 //
 // see comments within this function
 
+// Decode
 func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, retByte []byte, retErr error) {
 	var term Term
 	var stack *stackElement
 	var child *stackElement
 	var t byte
-	defer func() {
-		// We should catch any panic happened during decoding the raw data.
-		// Some of the Erlang' types can not be supported in Golang.
-		// As an example: Erlang map with tuple as a key cause a panic
-		// in Golang runtime with message:
-		// 'panic: runtime error: hash of unhashable type etf.Tuple'
-		// The problem is in etf.Tuple type - it is interface type. At the same
-		// time Golang does support hashable key in map (like struct as a key),
-		// but it should be known implicitly. It means we can encode such kind
-		// of data, but can not to decode it back.
-		if r := recover(); r != nil {
-			retTerm = nil
-			retByte = nil
-			retErr = fmt.Errorf("%v", r)
-		}
-	}()
+	if lib.CatchPanic() {
+		defer func() {
+			// We should catch any panic happened during decoding the raw data.
+			// Some of the Erlang' types can not be supported in Golang.
+			// As an example: Erlang map with tuple as a key cause a panic
+			// in Golang runtime with message:
+			// 'panic: runtime error: hash of unhashable type etf.Tuple'
+			// The problem is in etf.Tuple type - it is interface type. At the same
+			// time Golang does support hashable key in map (like struct as a key),
+			// but it should be known implicitly. It means we can encode such kind
+			// of data, but can not to decode it back.
+			if r := recover(); r != nil {
+				retTerm = nil
+				retByte = nil
+				retErr = fmt.Errorf("%v", r)
+			}
+		}()
+	}
 
 	for {
 		child = nil
@@ -205,16 +210,22 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 			n := packet[0]
 			negative := packet[1] == 1 // sign
 
-			///// this block improve the performance at least 4 times
-			if n < 8 { // treat as an int64
+			///// this block improves performance at least 4 times
+			if n < 9 { // treat as an int64/uint64
 				le8 := make([]byte, 8)
 				copy(le8, packet[2:n+2])
 				smallBig := binary.LittleEndian.Uint64(le8)
 				if negative {
 					smallBig = -smallBig
+					term = int64(smallBig)
+				} else {
+					if smallBig > math.MaxInt64 {
+						term = uint64(smallBig)
+					} else {
+						term = int64(smallBig)
+					}
 				}
 
-				term = int64(smallBig)
 				packet = packet[n+2:]
 				break
 			}
@@ -525,7 +536,7 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 
 				id := uint64(binary.BigEndian.Uint32(packet[:4]))
 				serial := uint64(binary.BigEndian.Uint32(packet[4:8]))
-				if options.FlagV4NC {
+				if options.FlagBigPidRef {
 					id = id | (serial << 32)
 				} else {
 					// id 15 bits only 2**15 - 1 = 32767
@@ -554,7 +565,7 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 					Node:     name,
 					Creation: binary.BigEndian.Uint32(packet[8:12]),
 				}
-				if options.FlagV4NC {
+				if options.FlagBigPidRef {
 					id = id | (serial << 32)
 				} else {
 					// id 15 bits only 2**15 - 1 = 32767
@@ -578,7 +589,7 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 				if l > 5 {
 					return nil, nil, errMalformedRef
 				}
-				if l > 3 && !options.FlagV4NC {
+				if l > 3 && !options.FlagBigPidRef {
 					return nil, nil, errMalformedRef
 				}
 				stack.tmp = nil
@@ -621,7 +632,7 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 				if l > 5 {
 					return nil, nil, errMalformedRef
 				}
-				if l > 3 && !options.FlagV4NC {
+				if l > 3 && !options.FlagBigPidRef {
 					return nil, nil, errMalformedRef
 				}
 				stack.tmp = nil

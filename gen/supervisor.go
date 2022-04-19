@@ -14,6 +14,7 @@ type SupervisorBehavior interface {
 	Init(args ...etf.Term) (SupervisorSpec, error)
 }
 
+// SupervisorStrategy
 type SupervisorStrategy struct {
 	Type      SupervisorStrategyType
 	Intensity uint16
@@ -21,7 +22,10 @@ type SupervisorStrategy struct {
 	Restart   SupervisorStrategyRestart
 }
 
+// SupervisorStrategyType
 type SupervisorStrategyType = string
+
+// SupervisorStrategyRestart
 type SupervisorStrategyRestart = string
 
 const (
@@ -76,6 +80,7 @@ const (
 
 type supervisorChildState int
 
+// SupervisorSpec
 type SupervisorSpec struct {
 	Name     string
 	Children []SupervisorChildSpec
@@ -83,12 +88,13 @@ type SupervisorSpec struct {
 	restarts []int64
 }
 
+// SupervisorChildSpec
 type SupervisorChildSpec struct {
-	// Node to run child on remote node
-	Node    string
 	Name    string
 	Child   ProcessBehavior
+	Options ProcessOptions
 	Args    []etf.Term
+
 	state   supervisorChildState // for internal usage
 	process Process
 }
@@ -101,6 +107,7 @@ type messageStartChild struct {
 	args []etf.Term
 }
 
+// ProcessInit
 func (sv *Supervisor) ProcessInit(p Process, args ...etf.Term) (ProcessState, error) {
 	behavior, ok := p.Behavior().(SupervisorBehavior)
 	if !ok {
@@ -110,7 +117,7 @@ func (sv *Supervisor) ProcessInit(p Process, args ...etf.Term) (ProcessState, er
 	if err != nil {
 		return ProcessState{}, err
 	}
-	lib.Log("Supervisor spec %#v\n", spec)
+	lib.Log("[%s] SUPERVISOR %q with restart strategy: %s[%s] ", p.NodeName(), p.Name(), spec.Strategy.Type, spec.Strategy.Restart)
 
 	p.SetTrapExit(true)
 	return ProcessState{
@@ -119,6 +126,7 @@ func (sv *Supervisor) ProcessInit(p Process, args ...etf.Term) (ProcessState, er
 	}, nil
 }
 
+// ProcessLoop
 func (sv *Supervisor) ProcessLoop(ps ProcessState, started chan<- bool) string {
 	spec := ps.State.(*SupervisorSpec)
 	if spec.Strategy.Type != SupervisorStrategySimpleOneForOne {
@@ -187,8 +195,8 @@ func startChildren(supervisor Process, spec *SupervisorSpec) {
 	if len(spec.restarts) > int(spec.Strategy.Intensity) {
 		period := time.Now().Unix() - spec.restarts[0]
 		if period <= int64(spec.Strategy.Period) {
-			fmt.Printf("ERROR: Restart intensity is exceeded (%d restarts for %d seconds)\n",
-				spec.Strategy.Intensity, spec.Strategy.Period)
+			lib.Warning("Supervisor %q. Restart intensity is exceeded (%d restarts for %d seconds)",
+				spec.Name, spec.Strategy.Intensity, spec.Strategy.Period)
 			supervisor.Kill()
 			return
 		}
@@ -203,7 +211,7 @@ func startChildren(supervisor Process, spec *SupervisorSpec) {
 			continue
 		case supervisorChildStateStart:
 			spec.Children[i].state = supervisorChildStateRunning
-			process := startChild(supervisor, spec.Children[i].Name, spec.Children[i].Child, spec.Children[i].Args...)
+			process := startChild(supervisor, spec.Children[i].Name, spec.Children[i].Child, spec.Children[i].Options, spec.Children[i].Args...)
 			spec.Children[i].process = process
 		default:
 			panic("Incorrect supervisorChildState")
@@ -211,14 +219,11 @@ func startChildren(supervisor Process, spec *SupervisorSpec) {
 	}
 }
 
-func startChild(supervisor Process, name string, child ProcessBehavior, args ...etf.Term) Process {
-	opts := ProcessOptions{}
+func startChild(supervisor Process, name string, child ProcessBehavior, opts ProcessOptions, args ...etf.Term) Process {
 
+	opts.GroupLeader = supervisor
 	if leader := supervisor.GroupLeader(); leader != nil {
 		opts.GroupLeader = leader
-	} else {
-		// leader is not set
-		opts.GroupLeader = supervisor
 	}
 	process, err := supervisor.Spawn(name, opts, child, args...)
 
@@ -254,7 +259,7 @@ func handleDirect(supervisor Process, spec *SupervisorSpec, message interface{})
 		}
 		// Dinamically started child can't be registered with a name.
 		childSpec.Name = ""
-		process := startChild(supervisor, childSpec.Name, childSpec.Child, childSpec.Args...)
+		process := startChild(supervisor, childSpec.Name, childSpec.Child, childSpec.Options, childSpec.Args...)
 		childSpec.process = process
 		spec.Children = append(spec.Children, childSpec)
 		return process, nil
@@ -413,7 +418,7 @@ func handleMessageExit(p Process, exit ProcessGracefulExitRequest, spec *Supervi
 					break
 				}
 
-				process := startChild(p, spec.Children[i].Name, spec.Children[i].Child, spec.Children[i].Args...)
+				process := startChild(p, spec.Children[i].Name, spec.Children[i].Child, spec.Children[i].Options, spec.Children[i].Args...)
 				spec.Children[i].process = process
 				break
 			}

@@ -6,6 +6,7 @@ import (
 	"github.com/ergo-services/ergo/erlang"
 	"github.com/ergo-services/ergo/gen"
 	"github.com/ergo-services/ergo/node"
+	"github.com/ergo-services/ergo/proto/dist"
 )
 
 // StartNode create new node with name and cookie string
@@ -13,16 +14,36 @@ func StartNode(name string, cookie string, opts node.Options) (node.Node, error)
 	return StartNodeWithContext(context.Background(), name, cookie, opts)
 }
 
-// CreateNodeWithContext create new node with specified context, name and cookie string
+// StartNodeWithContext create new node with specified context, name and cookie string
 func StartNodeWithContext(ctx context.Context, name string, cookie string, opts node.Options) (node.Node, error) {
 	version := node.Version{
 		Release: Version,
 		Prefix:  VersionPrefix,
 		OTP:     VersionOTP,
 	}
+	if opts.Env == nil {
+		opts.Env = make(map[gen.EnvKey]interface{})
+	}
+	opts.Env[node.EnvKeyVersion] = version
 
 	// add erlang support application
 	opts.Applications = append([]gen.ApplicationBehavior{&erlang.KernelApp{}}, opts.Applications...)
 
-	return node.StartWithContext(context.WithValue(ctx, "version", version), name, cookie, opts)
+	if opts.Handshake == nil {
+		// create default handshake for the node (Erlang Dist Handshake)
+		opts.Handshake = dist.CreateHandshake(dist.HandshakeOptions{})
+	}
+
+	if opts.Proto == nil {
+		// create default proto handler (Erlang Dist Proto)
+		protoOptions := node.DefaultProtoOptions()
+		opts.Proto = dist.CreateProto(protoOptions)
+	}
+
+	if opts.StaticRoutesOnly == false && opts.Resolver == nil {
+		// create default resolver (with enabled Erlang EPMD server)
+		opts.Resolver = dist.CreateResolverWithLocalEPMD("", dist.DefaultEPMDPort)
+	}
+
+	return node.StartWithContext(ctx, name, cookie, opts)
 }

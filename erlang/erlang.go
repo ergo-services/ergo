@@ -12,11 +12,13 @@ type erlang struct {
 	gen.Server
 }
 
+// Init
 func (e *erlang) Init(process *gen.ServerProcess, args ...etf.Term) error {
 	lib.Log("ERLANG: Init: %#v", args)
 	return nil
 }
 
+// HandleCall
 func (e *erlang) HandleCall(process *gen.ServerProcess, from gen.ServerFrom, message etf.Term) (etf.Term, gen.ServerStatus) {
 	lib.Log("ERLANG: HandleCall: %#v, From: %#v", message, from)
 
@@ -99,7 +101,7 @@ func processInfo(p gen.Process, pid etf.Pid, property etf.Term) etf.Term {
 			case etf.Atom("priority"):
 				// values = append(values, etf.Tuple{p[i], 0})
 			case etf.Atom("reductions"):
-				values = append(values, etf.Tuple{p[i], info.Reductions})
+				values = append(values, etf.Tuple{p[i], 0})
 			case etf.Atom("registered_name"):
 				values = append(values, etf.Tuple{p[i], process.Name()})
 			case etf.Atom("sequential_trace_token"):

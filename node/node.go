@@ -3,6 +3,7 @@ package node
 import (
 	"context"
 	"fmt"
+	"runtime"
 	"strings"
 	"time"
 
@@ -12,109 +13,94 @@ import (
 )
 
 const (
-	appBehaviorGroup = "ergo:applications"
+	appBehaviorGroup    = "ergo:applications"
+	remoteBehaviorGroup = "ergo:remote"
 )
-
-type nodeInternal interface {
-	Node
-	registrarInternal
-}
 
 // node instance of created node using CreateNode
 type node struct {
-	registrarInternal
-	networkInternal
+	coreInternal
 
 	name     string
-	cookie   string
 	creation uint32
-	opts     Options
 	context  context.Context
 	stop     context.CancelFunc
 	version  Version
 }
 
 // StartWithContext create new node with specified context, name and cookie string
-func StartWithContext(ctx context.Context, name string, cookie string, opts Options) (nodeInternal, error) {
+func StartWithContext(ctx context.Context, name string, cookie string, opts Options) (Node, error) {
 
-	lib.Log("Start with name '%s' and cookie '%s'", name, cookie)
-	nodectx, nodestop := context.WithCancel(ctx)
-
-	// Creation must be > 0 so make 'or 0x1'
-	creation := uint32(time.Now().Unix()) | 1
-
-	node := &node{
-		cookie:   cookie,
-		context:  nodectx,
-		stop:     nodestop,
-		creation: creation,
-	}
-
-	if name == "" {
-		return nil, fmt.Errorf("Node name must be defined")
-	}
-	// set defaults
-	if opts.ListenRangeBegin == 0 {
-		opts.ListenRangeBegin = defaultListenRangeBegin
-	}
-	if opts.ListenRangeEnd == 0 {
-		opts.ListenRangeEnd = defaultListenRangeEnd
-	}
-	lib.Log("Listening range: %d...%d", opts.ListenRangeBegin, opts.ListenRangeEnd)
-
-	if opts.EPMDPort == 0 {
-		opts.EPMDPort = defaultEPMDPort
-	}
-	if opts.EPMDPort != 4369 {
-		lib.Log("Using custom EPMD port: %d", opts.EPMDPort)
-	}
-
-	if opts.SendQueueLength == 0 {
-		opts.SendQueueLength = defaultSendQueueLength
-	}
-
-	if opts.RecvQueueLength == 0 {
-		opts.RecvQueueLength = defaultRecvQueueLength
-	}
-
-	if opts.FragmentationUnit < 1500 {
-		opts.FragmentationUnit = defaultFragmentationUnit
-	}
-
-	// must be 5 or 6
-	if opts.HandshakeVersion != 5 && opts.HandshakeVersion != 6 {
-		opts.HandshakeVersion = defaultHandshakeVersion
-	}
-
-	if opts.Hidden {
-		lib.Log("Running as hidden node")
-	}
+	lib.Log("Start node with name %q and cookie %q", name, cookie)
 
 	if len(strings.Split(name, "@")) != 2 {
 		return nil, fmt.Errorf("incorrect FQDN node name (example: node@localhost)")
 	}
+	if opts.Creation == 0 {
+		opts.Creation = uint32(time.Now().Unix())
+	}
 
-	opts.cookie = cookie
-	opts.creation = creation
-	node.opts = opts
-	node.name = name
+	if opts.Flags.Enable == false {
+		opts.Flags = DefaultFlags()
+	}
 
-	registrar := newRegistrar(nodectx, name, creation, node)
-	network, err := newNetwork(nodectx, name, opts, registrar)
+	// set defaults listening port range
+	if opts.Listen > 0 {
+		opts.ListenBegin = opts.Listen
+		opts.ListenEnd = opts.Listen
+		lib.Log("Node listening port: %d", opts.Listen)
+	} else {
+		if opts.ListenBegin == 0 {
+			opts.ListenBegin = defaultListenBegin
+		}
+		if opts.ListenEnd == 0 {
+			opts.ListenEnd = defaultListenEnd
+		}
+		lib.Log("Node listening range: %d...%d", opts.ListenBegin, opts.ListenEnd)
+	}
+
+	if opts.Handshake == nil {
+		return nil, fmt.Errorf("Handshake must be defined")
+	}
+	if opts.Proto == nil {
+		return nil, fmt.Errorf("Proto must be defined")
+	}
+	if opts.StaticRoutesOnly == false && opts.Resolver == nil {
+		return nil, fmt.Errorf("Resolver must be defined if StaticRoutesOnly == false")
+	}
+
+	nodectx, nodestop := context.WithCancel(ctx)
+	node := &node{
+		name:     name,
+		context:  nodectx,
+		stop:     nodestop,
+		creation: opts.Creation,
+	}
+
+	// create a copy of envs
+	copyEnv := make(map[gen.EnvKey]interface{})
+	for k, v := range opts.Env {
+		copyEnv[k] = v
+	}
+
+	// set global variable 'ergo:Node'
+	copyEnv[EnvKeyNode] = Node(node)
+	opts.Env = copyEnv
+
+	core, err := newCore(nodectx, name, cookie, opts)
 	if err != nil {
 		return nil, err
 	}
+	node.coreInternal = core
 
-	node.registrarInternal = registrar
-	node.networkInternal = network
-
-	// load applications
 	for _, app := range opts.Applications {
+		// load applications
 		name, err := node.ApplicationLoad(app)
 		if err != nil {
 			nodestop()
 			return nil, err
 		}
+		// start applications
 		_, err = node.ApplicationStart(name)
 		if err != nil {
 			nodestop()
@@ -125,40 +111,12 @@ func StartWithContext(ctx context.Context, name string, cookie string, opts Opti
 	return node, nil
 }
 
-// IsAlive returns true if node is running
-func (n *node) IsAlive() bool {
-	return n.context.Err() == nil
-}
-
-// Wait waits until node stopped
-func (n *node) Wait() {
-	<-n.context.Done()
-}
-
-// Uptime return uptime in seconds
-func (n *node) Uptime() int64 {
-	return time.Now().Unix() - int64(n.creation)
-}
-
 // Version returns version of the node
 func (n *node) Version() Version {
 	return n.version
 }
 
-// WaitWithTimeout waits until node stopped. Return ErrTimeout
-// if given timeout is exceeded
-func (n *node) WaitWithTimeout(d time.Duration) error {
-
-	timer := time.NewTimer(d)
-	defer timer.Stop()
-
-	select {
-	case <-timer.C:
-		return ErrTimeout
-	case <-n.context.Done():
-		return nil
-	}
-}
+// Spawn
 func (n *node) Spawn(name string, opts gen.ProcessOptions, object gen.ProcessBehavior, args ...etf.Term) (gen.Process, error) {
 	// process started by node has no parent
 	options := processOptions{
@@ -167,19 +125,44 @@ func (n *node) Spawn(name string, opts gen.ProcessOptions, object gen.ProcessBeh
 	return n.spawn(name, options, object, args...)
 }
 
-func (n *node) Stop() {
-	n.stop()
+// RegisterName
+func (n *node) RegisterName(name string, pid etf.Pid) error {
+	return n.registerName(name, pid)
 }
 
+// UnregisterName
+func (n *node) UnregisterName(name string) error {
+	return n.unregisterName(name)
+}
+
+// Stop
+func (n *node) Stop() {
+	n.coreStop()
+}
+
+// Name
 func (n *node) Name() string {
 	return n.name
 }
 
-func (n *node) RegisterName(name string, pid etf.Pid) error {
-	return n.registerName(name, pid)
+// IsAlive
+func (n *node) IsAlive() bool {
+	return n.coreIsAlive()
 }
-func (n *node) UnregisterName(name string) error {
-	return n.unregisterName(name)
+
+// Uptime
+func (n *node) Uptime() int64 {
+	return n.coreUptime()
+}
+
+// Wait
+func (n *node) Wait() {
+	n.coreWait()
+}
+
+// WaitWithTimeout
+func (n *node) WaitWithTimeout(d time.Duration) error {
+	return n.coreWaitWithTimeout(d)
 }
 
 // LoadedApplications returns a list of loaded applications (including running applications)
@@ -328,8 +311,8 @@ func (n *node) applicationStart(startType, appName string, args ...etf.Term) (ge
 		}
 	}
 
-	env := map[string]interface{}{
-		"spec": spec,
+	env := map[gen.EnvKey]interface{}{
+		gen.EnvKeySpec: spec,
 	}
 	options := gen.ProcessOptions{
 		Env: env,
@@ -369,15 +352,23 @@ func (n *node) ApplicationStop(name string) error {
 	}
 	return nil
 }
+
+// Links
 func (n *node) Links(process etf.Pid) []etf.Pid {
 	return n.processLinks(process)
 }
+
+// Monitors
 func (n *node) Monitors(process etf.Pid) []etf.Pid {
 	return n.processMonitors(process)
 }
+
+// MonitorsByName
 func (n *node) MonitorsByName(process etf.Pid) []gen.ProcessID {
 	return n.processMonitorsByName(process)
 }
+
+// MonitoredBy
 func (n *node) MonitoredBy(process etf.Pid) []etf.Pid {
 	return n.processMonitoredBy(process)
 }
@@ -423,4 +414,51 @@ func (n *node) RevokeRPC(module, function string) error {
 	}
 
 	return nil
+}
+
+// ProvideRemoteSpawn
+func (n *node) ProvideRemoteSpawn(name string, behavior gen.ProcessBehavior) error {
+	return n.RegisterBehavior(remoteBehaviorGroup, name, behavior, nil)
+}
+
+// RevokeRemoteSpawn
+func (n *node) RevokeRemoteSpawn(name string) error {
+	return n.UnregisterBehavior(remoteBehaviorGroup, name)
+}
+
+// DefaultFlags
+func DefaultFlags() Flags {
+	// all features are enabled by default
+	return Flags{
+		Enable:                true,
+		EnableHeaderAtomCache: true,
+		EnableBigCreation:     true,
+		EnableBigPidRef:       true,
+		EnableFragmentation:   true,
+		EnableAlias:           true,
+		EnableRemoteSpawn:     true,
+		EnableCompression:     true,
+		EnableProxy:           true,
+	}
+}
+
+func DefaultProxyFlags() ProxyFlags {
+	return ProxyFlags{
+		Enable:            true,
+		EnableLink:        true,
+		EnableMonitor:     true,
+		EnableRemoteSpawn: true,
+		EnableEncryption:  false,
+	}
+}
+
+// DefaultProtoOptions
+func DefaultProtoOptions() ProtoOptions {
+	return ProtoOptions{
+		NumHandlers:       runtime.NumCPU(),
+		MaxMessageSize:    0, // no limit
+		SendQueueLength:   DefaultProtoSendQueueLength,
+		RecvQueueLength:   DefaultProtoRecvQueueLength,
+		FragmentationUnit: DefaultProroFragmentationUnit,
+	}
 }
