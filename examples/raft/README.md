@@ -3,10 +3,10 @@
 1. Starting 4 nodes with raft processes. They are connecting to each other to build a quorum. Since we use 4 raft processes, only 3 of them will be chosen for the quorum (gen.RaftQuorumState3). One of them becomes a follower (it won't receive the leader election result).
 2. Quorum is built (invoking HandleQuorum callback on each raft process). They start leader election among the quorum members.
 3. Leader is elected. Every quorum member receives information about the leader and its 'serial' (invoking HandleLeader callback on them).
-4. Raft process checks the missing serial on its storage and makes a Get request to the cluster to receive them.
+4. Raft process checks the missing serials on its storage and makes a Get request to the cluster to receive them.
 5. Follower makes an Append request to add a new key/value to the cluster (it sends to the quorum member, and the quorum member forwards it further to the leader)
 6. All cluster members receive the new key/value with the increased 'serial' by 1.
-7. Raft process checks the missing serial on its storage and makes a Get request to the cluster to receive them (follower had no chance to make this check since it doesn't receive information with the election leader result)
+7. Raft process checks the missing serials on its storage and makes a Get request to the cluster to receive them (follower had no chance to make this check since it doesn't receive information with the election leader result)
 
 
 
