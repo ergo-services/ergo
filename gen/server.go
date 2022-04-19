@@ -292,6 +292,8 @@ func (gs *Server) ProcessLoop(ps ProcessState, started chan<- bool) string {
 			continue
 		case sp.waitReply = <-sp.callbackWaitReply:
 			continue
+		case gsp.waitReply = <-gsp.callbackWaitReply:
+			continue
 		}
 
 		lib.Log("[%s] GEN_SERVER %s got message from %s", sp.NodeName(), sp.Self(), fromPid)
