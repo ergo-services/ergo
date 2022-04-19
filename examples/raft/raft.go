@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/ergo-services/ergo/etf"
 	"github.com/ergo-services/ergo/gen"
@@ -16,6 +17,11 @@ type Raft struct {
 
 	startSerial uint64
 	startPeers  []gen.ProcessID
+}
+
+type messageAppend struct {
+	key   string
+	value string
 }
 
 func (r *Raft) InitRaft(process *gen.RaftProcess, args ...etf.Term) (gen.RaftOptions, error) {
@@ -34,6 +40,8 @@ func (r *Raft) HandleQuorum(process *gen.RaftProcess, quorum *gen.RaftQuorum) ge
 	fmt.Println(process.Self(), "Quorum built - State:", quorum.State, "Quorum member:", quorum.Member)
 	if quorum.Member == false {
 		fmt.Println(process.Self(), "    since I'm not a quorum member, I won't receive any information about elected leader")
+		message := messageAppend{key: "key100", value: "value100"}
+		process.SendAfter(process.Self(), message, 500*time.Millisecond)
 	}
 	return gen.RaftStatusOK
 }
@@ -62,18 +70,39 @@ func (r *Raft) HandleLeader(process *gen.RaftProcess, leader *gen.RaftLeader) ge
 }
 
 func (r *Raft) HandleAppend(process *gen.RaftProcess, ref etf.Ref, serial uint64, key string, value etf.Term) gen.RaftStatus {
+	fmt.Printf("%s Received append request with serial %d, key %q and value %q\n", process.Self(), serial, key, value)
 	r.storage.Append(serial, key, value)
+	// check if storage has missing items
+	for i := uint64(1); i < serial; i++ {
+		_, v := r.storage.Read(i)
+		if v != nil {
+			continue
+		}
+		req, e := process.Get(i)
+		if e != nil {
+			panic(e)
+		}
+		fmt.Println(process.Self(), "Missing serial:", i, " requested missing serial to the cluster. id", req)
+	}
 	return gen.RaftStatusOK
 }
 func (r *Raft) HandleGet(process *gen.RaftProcess, serial uint64) (string, etf.Term, gen.RaftStatus) {
 	var key string
 	var value etf.Term
 	fmt.Println(process.Self(), "Received request for serial", serial)
-	key, value = r.storage.Get(serial)
+	key, value = r.storage.Read(serial)
 	return key, value, gen.RaftStatusOK
 }
 
 func (r *Raft) HandleRaftInfo(process *gen.RaftProcess, message etf.Term) gen.ServerStatus {
+	messageAppend, ok := message.(messageAppend)
+	if ok == false {
+		return gen.ServerStatusOK
+	}
+	if _, err := process.Append(messageAppend.key, messageAppend.value); err != nil {
+		fmt.Println("can't make append request", err)
+		return gen.ServerStatusOK
+	}
 	return gen.ServerStatusOK
 }
 

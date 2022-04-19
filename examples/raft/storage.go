@@ -50,7 +50,7 @@ func (s *storage) Init(n int) {
 	}
 }
 
-func (s *storage) Get(serial uint64) (string, etf.Term) {
+func (s *storage) Read(serial uint64) (string, etf.Term) {
 	var key string
 
 	key = s.idx[int(serial)]
