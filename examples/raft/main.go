@@ -9,8 +9,6 @@ import (
 	"github.com/ergo-services/ergo/node"
 )
 
-type messageAppend struct{}
-
 func main() {
 
 	fmt.Printf("Starting node: node1@localhost and raft1 process - ")
@@ -19,7 +17,7 @@ func main() {
 		panic(err)
 	}
 	defer node1.Stop()
-	raft1 := &Raft1{}
+	raft1 := &Raft{startSerial: 1}
 	_, err = node1.Spawn("raft1", gen.ProcessOptions{}, raft1)
 	if err != nil {
 		panic(err)
@@ -32,7 +30,10 @@ func main() {
 		panic(err)
 	}
 	defer node2.Stop()
-	raft2 := &Raft2{}
+	raft2 := &Raft{
+		startSerial: 4,
+		startPeers:  []gen.ProcessID{gen.ProcessID{Name: "raft1", Node: "node1@localhost"}},
+	}
 	_, err = node2.Spawn("raft2", gen.ProcessOptions{}, raft2)
 	if err != nil {
 		panic(err)
@@ -45,7 +46,10 @@ func main() {
 		panic(err)
 	}
 	defer node3.Stop()
-	raft3 := &Raft3{}
+	raft3 := &Raft{
+		startSerial: 4,
+		startPeers:  []gen.ProcessID{gen.ProcessID{Name: "raft1", Node: "node1@localhost"}},
+	}
 	_, err = node3.Spawn("raft3", gen.ProcessOptions{}, raft3)
 	if err != nil {
 		panic(err)
@@ -58,7 +62,10 @@ func main() {
 		panic(err)
 	}
 	defer node4.Stop()
-	raft4 := &Raft4{}
+	raft4 := &Raft{
+		startSerial: 0,
+		startPeers:  []gen.ProcessID{gen.ProcessID{Name: "raft1", Node: "node1@localhost"}},
+	}
 	_, err = node4.Spawn("raft4", gen.ProcessOptions{}, raft4)
 	if err != nil {
 		panic(err)
