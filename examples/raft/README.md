@@ -8,8 +8,6 @@
 6. All cluster members receive the new key/value with the increased 'serial' by 1.
 7. Raft process checks the missing serials on its storage and makes a Get request to the cluster to receive them (follower had no chance to make this check since it doesn't receive information with the election leader result)
 
-
-
 Here is output of this example
 
 ```
