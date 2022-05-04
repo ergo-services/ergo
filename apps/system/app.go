@@ -4,13 +4,21 @@ import (
 	"github.com/ergo-services/ergo/etf"
 	"github.com/ergo-services/ergo/gen"
 	"github.com/ergo-services/ergo/lib"
+	"github.com/ergo-services/ergo/node"
 )
 
-type SystemApp struct {
-	gen.Application
+func CreateApp(options node.System) gen.ApplicationBehavior {
+	return &systemApp{
+		options: options,
+	}
 }
 
-func (sa *SystemApp) Load(args ...etf.Term) (gen.ApplicationSpec, error) {
+type systemApp struct {
+	gen.Application
+	options node.System
+}
+
+func (sa *systemApp) Load(args ...etf.Term) (gen.ApplicationSpec, error) {
 	lib.Log("SYSTEM: Application load")
 	return gen.ApplicationSpec{
 		Name:        "system_app",
@@ -25,6 +33,6 @@ func (sa *SystemApp) Load(args ...etf.Term) (gen.ApplicationSpec, error) {
 	}, nil
 }
 
-func (sa *SystemApp) Start(p gen.Process, args ...etf.Term) {
+func (sa *systemApp) Start(p gen.Process, args ...etf.Term) {
 	lib.Log("SYSTEM: Application started")
 }

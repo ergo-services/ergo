@@ -13,13 +13,17 @@ import (
 	"github.com/ergo-services/ergo/lib/osdep"
 )
 
+func CreateApp() gen.ApplicationBehavior {
+	return &kernelApp{}
+}
+
 // KernelApp
-type KernelApp struct {
+type kernelApp struct {
 	gen.Application
 }
 
 // Load
-func (nka *KernelApp) Load(args ...etf.Term) (gen.ApplicationSpec, error) {
+func (nka *kernelApp) Load(args ...etf.Term) (gen.ApplicationSpec, error) {
 	return gen.ApplicationSpec{
 		Name:        "erlang",
 		Description: "Erlang support app",
@@ -34,7 +38,7 @@ func (nka *KernelApp) Load(args ...etf.Term) (gen.ApplicationSpec, error) {
 }
 
 // Start
-func (nka *KernelApp) Start(p gen.Process, args ...etf.Term) {}
+func (nka *kernelApp) Start(p gen.Process, args ...etf.Term) {}
 
 type netKernelSup struct {
 	gen.Supervisor

@@ -28,11 +28,12 @@ func StartNodeWithContext(ctx context.Context, name string, cookie string, opts 
 	}
 	opts.Env[node.EnvKeyVersion] = version
 
-	// add system application
-	opts.Applications = append([]gen.ApplicationBehavior{&system.SystemApp{}}, opts.Applications...)
-
-	// add erlang support application
-	opts.Applications = append([]gen.ApplicationBehavior{&erlang.KernelApp{}}, opts.Applications...)
+	// add default applicastions:
+	defaultApps := []gen.ApplicationBehavior{
+		system.CreateApp(opts.System), // system application (bus, metrics etc.)
+		erlang.CreateApp(),            // erlang support
+	}
+	opts.Applications = append(defaultApps, opts.Applications...)
 
 	// add cloud support if it's enabled
 	if opts.Cloud.Enable {

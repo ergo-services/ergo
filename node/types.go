@@ -261,6 +261,9 @@ type Options struct {
 	// Proxy enable proxy feature on this node. Disabling this option makes
 	// this node to reject any proxy request.
 	Proxy Proxy
+
+	// System options for the system application
+	System System
 }
 
 type TLS struct {
@@ -283,8 +286,7 @@ type Proxy struct {
 	Routes  map[string]ProxyRoute
 }
 
-type Metrics struct {
-	Disable bool
+type System struct {
 }
 
 type Compression struct {
