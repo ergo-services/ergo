@@ -343,8 +343,13 @@ type Handshake struct {
 
 // Handshake defines handshake interface
 type HandshakeInterface interface {
+	// Mandatory:
+
 	// Init initialize handshake.
 	Init(nodename string, creation uint32, flags Flags) error
+
+	// Optional:
+
 	// Start initiates handshake process. Argument tls means the connection is wrapped by TLS
 	// Returns the name of connected peer, Flags and Creation wrapped into HandshakeDetails struct
 	Start(conn io.ReadWriter, tls bool, cookie string) (HandshakeDetails, error)

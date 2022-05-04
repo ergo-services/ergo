@@ -3,8 +3,9 @@ package ergo
 import (
 	"context"
 
-	"github.com/ergo-services/ergo/cloud"
-	"github.com/ergo-services/ergo/erlang"
+	"github.com/ergo-services/ergo/apps/cloud"
+	"github.com/ergo-services/ergo/apps/erlang"
+	"github.com/ergo-services/ergo/apps/system"
 	"github.com/ergo-services/ergo/gen"
 	"github.com/ergo-services/ergo/node"
 	"github.com/ergo-services/ergo/proto/dist"
@@ -26,6 +27,9 @@ func StartNodeWithContext(ctx context.Context, name string, cookie string, opts 
 		opts.Env = make(map[gen.EnvKey]interface{})
 	}
 	opts.Env[node.EnvKeyVersion] = version
+
+	// add system application
+	opts.Applications = append([]gen.ApplicationBehavior{&system.SystemApp{}}, opts.Applications...)
 
 	// add erlang support application
 	opts.Applications = append([]gen.ApplicationBehavior{&erlang.KernelApp{}}, opts.Applications...)

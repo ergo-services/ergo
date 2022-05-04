@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/pem"
+	"io"
 	"math/big"
 	"sync"
 	"time"
@@ -1309,16 +1310,18 @@ func (c *Connection) ProxyPacket(packet *lib.Buffer) error {
 //
 // Handshake interface default callbacks
 //
-func (h *Handshake) Start(c net.Conn) (Flags, error) {
-	return Flags{}, ErrUnsupported
+func (h *Handshake) Start(conn io.ReadWriter, tls bool, cookie string) (HandshakeDetails, error) {
+	return HandshakeDetails{}, ErrUnsupported
 }
-func (h *Handshake) Accept(c net.Conn) (string, Flags, error) {
-	return "", Flags{}, ErrUnsupported
+func (h *Handshake) Accept(conn io.ReadWriter, tls bool, cookie string) (HandshakeDetails, error) {
+	return HandshakeDetails{}, ErrUnsupported
 }
 func (h *Handshake) Version() HandshakeVersion {
 	var v HandshakeVersion
 	return v
 }
+
+// internals
 
 func (n *network) putProxyConnectRequest(r proxyConnectRequest) {
 	n.proxyConnectRequestMutex.Lock()
