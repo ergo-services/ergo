@@ -101,6 +101,7 @@ type network struct {
 	proxy    Proxy
 	version  Version
 	creation uint32
+	flags    Flags
 
 	router    coreRouterInternal
 	handshake HandshakeInterface
@@ -124,6 +125,7 @@ func newNetwork(ctx context.Context, nodename string, cookie string, options Opt
 		proxyTransitSessions: make(map[string]proxyTransitSession),
 		proxyConnectRequest:  make(map[etf.Ref]proxyConnectRequest),
 		remoteSpawn:          make(map[string]gen.ProcessBehavior),
+		flags:                options.Flags,
 		proxy:                options.Proxy,
 		resolver:             options.Resolver,
 		handshake:            options.Handshake,
@@ -152,7 +154,7 @@ func newNetwork(ctx context.Context, nodename string, cookie string, options Opt
 		n.tls.Client = selfSignedCert
 	}
 
-	err = n.handshake.Init(n.nodename, n.creation, options.Flags)
+	err = n.handshake.Init(n.nodename, n.creation, n.flags)
 	if err != nil {
 		return nil, err
 	}
@@ -236,6 +238,12 @@ func (n *network) AddStaticRoute(node string, host string, port uint16, options 
 	_, exist := n.staticRoutes[node]
 	if exist {
 		return ErrTaken
+	}
+
+	if options.Handshake != nil {
+		if err := options.Handshake.Init(n.nodename, n.creation, n.flags); err != nil {
+			return err
+		}
 	}
 	n.staticRoutes[node] = route
 
@@ -1038,6 +1046,8 @@ func (n *network) connect(node string) (ConnectionInterface, error) {
 	if err != nil {
 		return nil, err
 	}
+	customHandshake := route.Options.Handshake != nil
+	lib.Log("[%s] NETWORK resolved %#v to %s:%d (custom handshake: %t)", n.nodename, node, route.Host, route.Port, customHandshake)
 
 	HostPort := net.JoinHostPort(route.Host, strconv.Itoa(int(route.Port)))
 	dialer := net.Dialer{
@@ -1112,7 +1122,7 @@ func (n *network) connect(node string) (ConnectionInterface, error) {
 		cookie = route.Options.Cookie
 	}
 
-	details, err := n.handshake.Start(c, enabledTLS, cookie)
+	details, err := handshake.Start(c, enabledTLS, cookie)
 	if err != nil {
 		c.Close()
 		return nil, err
@@ -1134,7 +1144,7 @@ func (n *network) connect(node string) (ConnectionInterface, error) {
 	// Erlang nodes are required to be receiving keepalive messages,
 	// but Ergo doesn't need it.
 	details.Flags.EnableSoftwareKeepAlive = true
-	connection, err := n.proto.Init(n.ctx, c, n.nodename, details)
+	connection, err := proto.Init(n.ctx, c, n.nodename, details)
 	if err != nil {
 		c.Close()
 		return nil, err
@@ -1158,9 +1168,9 @@ func (n *network) connect(node string) (ConnectionInterface, error) {
 
 	// run serving connection
 	go func(ctx context.Context, ci connectionInternal) {
-		n.proto.Serve(ci.connection, n.router)
+		proto.Serve(ci.connection, n.router)
 		n.unregisterConnection(details.Name, nil)
-		n.proto.Terminate(ci.connection)
+		proto.Terminate(ci.connection)
 		ci.conn.Close()
 	}(n.ctx, cInternal)
 

@@ -28,18 +28,18 @@ func StartNodeWithContext(ctx context.Context, name string, cookie string, opts 
 	}
 	opts.Env[node.EnvKeyVersion] = version
 
-	// add default applicastions:
+	// add default applications:
 	defaultApps := []gen.ApplicationBehavior{
 		system.CreateApp(opts.System), // system application (bus, metrics etc.)
 		erlang.CreateApp(),            // erlang support
 	}
-	opts.Applications = append(defaultApps, opts.Applications...)
 
 	// add cloud support if it's enabled
 	if opts.Cloud.Enable {
 		cloudApp := cloud.CreateApp(opts.Cloud)
-		opts.Applications = append([]gen.ApplicationBehavior{cloudApp}, opts.Applications...)
+		defaultApps = append(defaultApps, cloudApp)
 	}
+	opts.Applications = append(defaultApps, opts.Applications...)
 
 	if opts.Handshake == nil {
 		// create default handshake for the node (Erlang Dist Handshake)
