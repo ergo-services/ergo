@@ -15,8 +15,9 @@ import (
 )
 
 type CloudNode struct {
-	Node string
-	Port uint16
+	Node       string
+	Port       uint16
+	SkipVerify bool
 }
 
 type cloudClient struct {
@@ -71,6 +72,7 @@ func (cc *cloudClient) HandleCast(process *gen.ServerProcess, message etf.Term) 
 		routeOptions.TLS.Enable = true
 
 		for _, cloud := range cloudNodes {
+			routeOptions.TLS.SkipVerify = cloud.SkipVerify
 			fmt.Println("cloud node", cloud)
 			if err := thisNode.AddStaticRoutePort(cloud.Node, cloud.Port, routeOptions); err != nil {
 				if err != node.ErrTaken {
@@ -140,12 +142,12 @@ func getCloudNodes() ([]CloudNode, error) {
 
 			host := "localhost"
 			if hostport[0] != "" {
-				host = hostport[0]
 			}
 
 			node := CloudNode{
-				Node: "dist@" + host,
-				Port: uint16(port),
+				Node:       "dist@" + host,
+				Port:       uint16(port),
+				SkipVerify: true,
 			}
 			nodes = append(nodes, node)
 
