@@ -1430,9 +1430,6 @@ func generateSelfSignedCert(version Version) (tls.Certificate, error) {
 		Subject: pkix.Name{
 			Organization: []string{org},
 		},
-		Issuer: pkix.Name{
-			Organization: []string{"Ergo Framework"},
-		},
 		NotBefore: time.Now(),
 		NotAfter:  time.Now().Add(time.Hour * 24 * 365),
 		IsCA:      true,
