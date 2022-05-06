@@ -1430,7 +1430,7 @@ func generateSelfSignedCert(version Version) (tls.Certificate, error) {
 		Subject: pkix.Name{
 			CommonName: "localhost",
 		},
-		Subject: pkix.Name{
+		Issuer: pkix.Name{
 			Organization: []string{org},
 		},
 		NotBefore: time.Now(),
