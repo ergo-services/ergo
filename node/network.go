@@ -1429,6 +1429,7 @@ func generateSelfSignedCert(version Version) (tls.Certificate, error) {
 		SerialNumber: serialNumber,
 		Subject: pkix.Name{
 			Organization: []string{org},
+			CommonName:   "localhost",
 		},
 		NotBefore: time.Now(),
 		NotAfter:  time.Now().Add(time.Hour * 24 * 365),
@@ -1438,9 +1439,6 @@ func generateSelfSignedCert(version Version) (tls.Certificate, error) {
 		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 		BasicConstraintsValid: true,
 	}
-
-	template.IPAddresses = append(template.IPAddresses, net.ParseIP("127.0.0.1"))
-	template.DNSNames = append(template.DNSNames, "localhost")
 
 	certBytes, err1 := x509.CreateCertificate(rand.Reader, &template, &template,
 		&certPrivKey.PublicKey, certPrivKey)
