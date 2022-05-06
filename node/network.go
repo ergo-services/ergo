@@ -1428,8 +1428,10 @@ func generateSelfSignedCert(version Version) (tls.Certificate, error) {
 	template := x509.Certificate{
 		SerialNumber: serialNumber,
 		Subject: pkix.Name{
+			CommonName: "localhost",
+		},
+		Subject: pkix.Name{
 			Organization: []string{org},
-			CommonName:   "localhost",
 		},
 		NotBefore: time.Now(),
 		NotAfter:  time.Now().Add(time.Hour * 24 * 365),
