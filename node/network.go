@@ -1440,7 +1440,7 @@ func generateSelfSignedCert(version Version) (tls.Certificate, error) {
 	}
 
 	template.IPAddresses = append(template.IPAddresses, net.ParseIP("127.0.0.1"))
-	//template.DNSNames = append(template.DNSNames, "localhost")
+	template.DNSNames = append(template.DNSNames, "localhost")
 
 	certBytes, err1 := x509.CreateCertificate(rand.Reader, &template, &template,
 		&certPrivKey.PublicKey, certPrivKey)
