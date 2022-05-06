@@ -1428,8 +1428,8 @@ func generateSelfSignedCert(version Version) (tls.Certificate, error) {
 	template := x509.Certificate{
 		SerialNumber: serialNumber,
 		Subject: pkix.Name{
-			Organization:     []string{org},
-			OrganizationUnit: []string{"Ergo Framework"},
+			Organization:       []string{org},
+			OrganizationalUnit: []string{"Ergo Framework"},
 		},
 		NotBefore: time.Now(),
 		NotAfter:  time.Now().Add(time.Hour * 24 * 365),
