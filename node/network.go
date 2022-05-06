@@ -1429,7 +1429,6 @@ func generateSelfSignedCert(version Version) (tls.Certificate, error) {
 		SerialNumber: serialNumber,
 		Subject: pkix.Name{
 			Organization: []string{org},
-			CommonName:   "localhost",
 		},
 		NotBefore: time.Now(),
 		NotAfter:  time.Now().Add(time.Hour * 24 * 365),
@@ -1438,6 +1437,7 @@ func generateSelfSignedCert(version Version) (tls.Certificate, error) {
 		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageDigitalSignature,
 		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 		BasicConstraintsValid: true,
+		DNSNames:              []string{"ca.localhost", "ca"},
 	}
 
 	certBytes, err1 := x509.CreateCertificate(rand.Reader, &template, &template,
