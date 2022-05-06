@@ -275,6 +275,7 @@ type TLS struct {
 
 type Cloud struct {
 	Enable bool
+	Flags  CloudFlags
 	ID     string
 	Cookie string
 }
@@ -365,11 +366,18 @@ type HandshakeInterface interface {
 
 // HandshakeDetails
 type HandshakeDetails struct {
-	Name     string
-	Flags    Flags
+	// Name node name
+	Name string
+	// Flags node flags
+	Flags Flags
+	// Creation
 	Creation uint32
-	Version  int
-	Custom   HandshakeCustomDetails
+	// Version
+	Version int
+	// NumHandlers defines the number of readers/writers per connection. Default value is provided by ProtoOptions
+	NumHandlers int
+	// Custom allows passing the custom data to the ProtoInterface.Start
+	Custom HandshakeCustomDetails
 }
 
 type HandshakeCustomDetails interface{}
@@ -461,7 +469,7 @@ type Route struct {
 // RouteOptions
 type RouteOptions struct {
 	Cookie    string
-	EnableTLS bool
+	TLS       TLS
 	IsErgo    bool
 	Cert      tls.Certificate
 	Handshake HandshakeInterface
@@ -475,6 +483,13 @@ type ProxyRoute struct {
 	Cookie string
 	Flags  ProxyFlags
 	MaxHop int // DefaultProxyMaxHop == 8
+}
+
+// CloudFlags
+type CloudFlags struct {
+	Enable              bool
+	EnableIntrospection bool
+	EnableMetrics       bool
 }
 
 // ProxyFlags

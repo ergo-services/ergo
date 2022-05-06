@@ -13,6 +13,9 @@ type CloudApp struct {
 }
 
 func CreateApp(options node.Cloud) gen.ApplicationBehavior {
+	if options.Flags.Enable == false {
+		options.Flags = node.DefaultCloudFlags()
+	}
 	return &CloudApp{
 		options: options,
 	}

@@ -194,10 +194,15 @@ func (dp *distProto) Init(ctx context.Context, conn io.ReadWriter, nodename stri
 	// create connection buffering
 	connection.flusher = newLinkFlusher(conn, defaultLatency, details.Flags.EnableSoftwareKeepAlive)
 
+	numHandlers := dp.options.NumHandlers
+	if details.NumHandlers > 0 {
+		numHandlers = details.NumHandlers
+	}
+
 	// do not use shared channels within intencive code parts, impacts on a performance
 	connection.receivers = receivers{
-		recv: make([]chan *lib.Buffer, dp.options.NumHandlers),
-		n:    int32(dp.options.NumHandlers),
+		recv: make([]chan *lib.Buffer, numHandlers),
+		n:    int32(numHandlers),
 	}
 
 	// run readers for incoming messages
@@ -209,12 +214,12 @@ func (dp *distProto) Init(ctx context.Context, conn io.ReadWriter, nodename stri
 	}
 
 	connection.senders = senders{
-		sender: make([]*senderChannel, dp.options.NumHandlers),
-		n:      int32(dp.options.NumHandlers),
+		sender: make([]*senderChannel, numHandlers),
+		n:      int32(numHandlers),
 	}
 
 	// run readers/writers for incoming/outgoing messages
-	for i := 0; i < dp.options.NumHandlers; i++ {
+	for i := 0; i < numHandlers; i++ {
 		// run writer routines (encoder)
 		send := make(chan *sendMessage, dp.options.SendQueueLength)
 		connection.senders.sender[i] = &senderChannel{

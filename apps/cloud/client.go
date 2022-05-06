@@ -64,12 +64,14 @@ func (cc *cloudClient) HandleCast(process *gen.ServerProcess, message etf.Term) 
 
 		// add static route with custom handshake
 		thisNode := process.Env(node.EnvKeyNode).(node.Node)
+		routeOptions := node.RouteOptions{
+			IsErgo:    true,
+			Handshake: CreateHandshake(state.options),
+		}
+		routeOptions.TLS.Enable = true
 
 		for _, cloud := range cloudNodes {
 			fmt.Println("cloud node", cloud)
-			routeOptions := node.RouteOptions{
-				Handshake: CreateHandshake(state.options),
-			}
 			if err := thisNode.AddStaticRoutePort(cloud.Node, cloud.Port, routeOptions); err != nil {
 				if err != node.ErrTaken {
 					continue

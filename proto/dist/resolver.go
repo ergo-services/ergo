@@ -205,7 +205,7 @@ func (e *epmdResolver) readExtra(route *node.Route, buf []byte) {
 	}
 
 	if buf[3] == 1 {
-		route.Options.EnableTLS = true
+		route.Options.TLS.Enable = true
 	}
 
 	route.Options.IsErgo = true

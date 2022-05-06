@@ -442,6 +442,15 @@ func DefaultFlags() Flags {
 	}
 }
 
+// DefaultCloudFlags
+func DefaultCloudFlags() CloudFlags {
+	return CloudFlags{
+		Enable:              true,
+		EnableIntrospection: true,
+		EnableMetrics:       true,
+	}
+}
+
 func DefaultProxyFlags() ProxyFlags {
 	return ProxyFlags{
 		Enable:            true,

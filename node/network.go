@@ -148,7 +148,6 @@ func newNetwork(ctx context.Context, nodename string, cookie string, options Opt
 	selfSignedCert, err := generateSelfSignedCert(n.version)
 	if n.tls.Server.Certificate == nil {
 		n.tls.Server = selfSignedCert
-		n.tls.SkipVerify = true
 	}
 	if n.tls.Client.Certificate == nil {
 		n.tls.Client = selfSignedCert
@@ -1055,13 +1054,13 @@ func (n *network) connect(node string) (ConnectionInterface, error) {
 	}
 
 	if route.Options.IsErgo == true {
-		// rely on the route TLS settings if they were defined
-		if route.Options.EnableTLS {
-			if route.Options.Cert.Certificate == nil {
+		// use the route TLS settings if they were defined
+		if route.Options.TLS.Enable {
+			if route.Options.TLS.Client.Certificate == nil {
 				// use the local TLS settings
 				config := tls.Config{
 					Certificates:       []tls.Certificate{n.tls.Client},
-					InsecureSkipVerify: n.tls.SkipVerify,
+					InsecureSkipVerify: route.Options.TLS.SkipVerify,
 				}
 				tlsdialer := tls.Dialer{
 					NetDialer: &dialer,
@@ -1071,7 +1070,8 @@ func (n *network) connect(node string) (ConnectionInterface, error) {
 			} else {
 				// use the route TLS settings
 				config := tls.Config{
-					Certificates: []tls.Certificate{route.Options.Cert},
+					Certificates:       []tls.Certificate{route.Options.Cert},
+					InsecureSkipVerify: route.Options.TLS.SkipVerify,
 				}
 				tlsdialer := tls.Dialer{
 					NetDialer: &dialer,
@@ -1087,7 +1087,7 @@ func (n *network) connect(node string) (ConnectionInterface, error) {
 		}
 
 	} else {
-		// rely on the local TLS settings
+		// use the local TLS settings
 		if n.tls.Enable {
 			config := tls.Config{
 				Certificates:       []tls.Certificate{n.tls.Client},
@@ -1107,6 +1107,7 @@ func (n *network) connect(node string) (ConnectionInterface, error) {
 
 	// check if we couldn't establish a connection with the node
 	if err != nil {
+		lib.Warning("%s", err)
 		return nil, err
 	}
 
@@ -1431,7 +1432,7 @@ func generateSelfSignedCert(version Version) (tls.Certificate, error) {
 		},
 		NotBefore: time.Now(),
 		NotAfter:  time.Now().Add(time.Hour * 24 * 365),
-		//IsCA:        true,
+		IsCA:      true,
 
 		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageDigitalSignature,
 		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
@@ -1439,6 +1440,7 @@ func generateSelfSignedCert(version Version) (tls.Certificate, error) {
 	}
 
 	template.IPAddresses = append(template.IPAddresses, net.ParseIP("127.0.0.1"))
+	//template.DNSNames = append(template.DNSNames, "localhost")
 
 	certBytes, err1 := x509.CreateCertificate(rand.Reader, &template, &template,
 		&certPrivKey.PublicKey, certPrivKey)
