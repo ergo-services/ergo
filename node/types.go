@@ -281,10 +281,16 @@ type Cloud struct {
 }
 
 type Proxy struct {
+	// Transit allow use node as a proxy
 	Transit bool
-	Flags   ProxyFlags
-	Cookie  string // set cookie for incoming connection
-	Routes  map[string]ProxyRoute
+	// Accept incoming proxy connections
+	Accept bool
+	// Cookie sets cookie for incoming connections
+	Cookie string
+	// Flags sets options for incoming connections
+	Flags ProxyFlags
+	// Routes sets options for outgoing connections
+	Routes map[string]ProxyRoute
 }
 
 type System struct {
@@ -490,6 +496,7 @@ type CloudFlags struct {
 	Enable              bool
 	EnableIntrospection bool
 	EnableMetrics       bool
+	EnableRemoteSpawn   bool
 }
 
 // ProxyFlags

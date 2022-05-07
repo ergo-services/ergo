@@ -536,6 +536,12 @@ func (n *network) RouteProxyConnectRequest(from ConnectionInterface, request Pro
 		return ErrProxyConnect
 	}
 	peername := request.Path[len(request.Path)-1]
+
+	if n.proxy.Accept == false {
+		lib.Warning("[%s] Got proxy connect request from %q. Not allowed.", n.nodename, peername)
+		return ErrProxyConnect
+	}
+
 	cookie := n.proxy.Cookie
 	flags := n.proxy.Flags
 	if has_route {

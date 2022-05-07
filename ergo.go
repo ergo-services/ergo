@@ -7,6 +7,7 @@ import (
 	"github.com/ergo-services/ergo/apps/erlang"
 	"github.com/ergo-services/ergo/apps/system"
 	"github.com/ergo-services/ergo/gen"
+	"github.com/ergo-services/ergo/lib"
 	"github.com/ergo-services/ergo/node"
 	"github.com/ergo-services/ergo/proto/dist"
 )
@@ -38,6 +39,9 @@ func StartNodeWithContext(ctx context.Context, name string, cookie string, opts 
 	if opts.Cloud.Enable {
 		cloudApp := cloud.CreateApp(opts.Cloud)
 		defaultApps = append(defaultApps, cloudApp)
+		if opts.Proxy.Accept == false {
+			lib.Warning("Disabled option Proxy.Accept makes this node inaccessible to the other nodes within your cloud cluster, but it still allows initiate connection to the others with this option enabled.")
+		}
 	}
 	opts.Applications = append(defaultApps, opts.Applications...)
 
