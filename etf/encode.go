@@ -294,7 +294,11 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 				}
 
 				// a value
-				term = stack.term.(func(int) reflect.Value)(stack.i / 2).Interface()
+				fvalue := stack.term.(func(int) reflect.Value)(stack.i / 2)
+				if fvalue.CanInterface() == false {
+					return fmt.Errorf("struct has unexported field %q", fieldName)
+				}
+				term = fvalue.Interface()
 
 			default:
 

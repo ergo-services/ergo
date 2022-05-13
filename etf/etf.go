@@ -661,8 +661,6 @@ func RegisterType(t interface{}) error {
 }
 
 func RegisterTypeName(t interface{}, name Atom) error {
-	fmt.Println("REG TYPE: ", name)
-
 	tt := reflect.TypeOf(t)
 	ttk := tt.Kind()
 	switch ttk {
@@ -695,7 +693,7 @@ func RegisterTypeName(t interface{}, name Atom) error {
 				return fmt.Errorf("type %q must be registered first", name)
 			}
 		case reflect.Chan, reflect.Func, reflect.UnsafePointer, reflect.Complex64, reflect.Complex128:
-			return fmt.Errorf("type %q is not supported", name)
+			return fmt.Errorf("type %q is not supported", rt)
 		}
 		return nil
 	}
