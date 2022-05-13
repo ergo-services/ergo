@@ -120,6 +120,8 @@ type distConnection struct {
 	// atom cache for outgoing messages
 	cache etf.AtomCache
 
+	mapping etf.AtomMapping
+
 	// fragmentation sequence ID
 	sequenceID     int64
 	fragments      map[uint64]*fragmentedPacket
@@ -183,6 +185,7 @@ func (dp *distProto) Init(ctx context.Context, conn io.ReadWriter, nodename stri
 		creation:                details.Creation,
 		conn:                    conn,
 		cache:                   etf.NewAtomCache(),
+		mapping:                 details.AtomMapping,
 		proxySessionsByID:       make(map[string]proxySession),
 		proxySessionsByPeerName: make(map[string]proxySession),
 		fragments:               make(map[uint64]*fragmentedPacket),
@@ -206,7 +209,7 @@ func (dp *distProto) Init(ctx context.Context, conn io.ReadWriter, nodename stri
 	}
 
 	// run readers for incoming messages
-	for i := 0; i < dp.options.NumHandlers; i++ {
+	for i := 0; i < numHandlers; i++ {
 		// run packet reader routines (decoder)
 		recv := make(chan *lib.Buffer, dp.options.RecvQueueLength)
 		connection.receivers.recv[i] = recv
@@ -962,6 +965,7 @@ func (dc *distConnection) decodeDist(packet []byte, proxy *proxySession) (etf.Te
 		}
 
 		decodeOptions := etf.DecodeOptions{
+			AtomMapping:   dc.mapping,
 			FlagBigPidRef: dc.flags.EnableBigPidRef,
 		}
 		if proxy != nil {
@@ -1737,6 +1741,7 @@ func (dc *distConnection) sender(sender_id int, send <-chan *sendMessage, option
 	message := &sendMessage{}
 	encodingOptions := etf.EncodeOptions{
 		EncodingAtomCache: encodingAtomCache,
+		AtomMapping:       dc.mapping,
 		NodeName:          dc.nodename,
 		PeerName:          dc.peername,
 	}

@@ -5,7 +5,75 @@ import (
 	"hash/crc32"
 	"reflect"
 	"strings"
+	"sync"
 )
+
+var (
+	crc32q     = crc32.MakeTable(0xD5828281)
+	registered = registeredTypes{
+		typesEnc: make(map[Atom]*registerType),
+		typesDec: make(map[Atom]*registerType),
+	}
+
+	errRegTypeTaken = fmt.Errorf("type name taken")
+)
+
+// Erlang external term tags.
+const (
+	ettAtom          = byte(100) //deprecated
+	ettAtomUTF8      = byte(118)
+	ettSmallAtom     = byte(115) //deprecated
+	ettSmallAtomUTF8 = byte(119)
+	ettString        = byte(107)
+
+	ettCacheRef = byte(82)
+
+	ettNewFloat = byte(70)
+
+	ettSmallInteger = byte(97)
+	ettInteger      = byte(98)
+	ettLargeBig     = byte(111)
+	ettSmallBig     = byte(110)
+
+	ettList         = byte(108)
+	ettListImproper = byte(18) // to be able to encode improper lists like [a|b].
+	ettSmallTuple   = byte(104)
+	ettLargeTuple   = byte(105)
+
+	ettMap = byte(116)
+
+	ettBinary    = byte(109)
+	ettBitBinary = byte(77)
+
+	ettNil = byte(106)
+
+	ettPid      = byte(103)
+	ettNewPid   = byte(88) // since OTP 23, only when BIG_CREATION flag is set
+	ettNewRef   = byte(114)
+	ettNewerRef = byte(90) // since OTP 21, only when BIG_CREATION flag is set
+
+	ettExport = byte(113)
+	ettFun    = byte(117) // legacy, wont support it here
+	ettNewFun = byte(112)
+
+	ettPort    = byte(102)
+	ettNewPort = byte(89) // since OTP 23, only when BIG_CREATION flag is set
+
+	// ettRef        = byte(101) deprecated
+
+	ettFloat = byte(99) // legacy
+)
+
+type registeredTypes struct {
+	sync.RWMutex
+	typesEnc map[Atom]*registerType
+	typesDec map[Atom]*registerType
+}
+type registerType struct {
+	rtype  reflect.Type
+	name   Atom
+	origin Atom
+}
 
 // Term
 type Term interface{}
@@ -98,62 +166,12 @@ type Function struct {
 	FreeVars  []Term
 }
 
-var (
-	crc32q = crc32.MakeTable(0xD5828281)
-)
-
 // Export
 type Export struct {
 	Module   Atom
 	Function Atom
 	Arity    int
 }
-
-// Erlang external term tags.
-const (
-	ettAtom          = byte(100) //deprecated
-	ettAtomUTF8      = byte(118)
-	ettSmallAtom     = byte(115) //deprecated
-	ettSmallAtomUTF8 = byte(119)
-	ettString        = byte(107)
-
-	ettCacheRef = byte(82)
-
-	ettNewFloat = byte(70)
-
-	ettSmallInteger = byte(97)
-	ettInteger      = byte(98)
-	ettLargeBig     = byte(111)
-	ettSmallBig     = byte(110)
-
-	ettList         = byte(108)
-	ettListImproper = byte(18) // to be able to encode improper lists like [a|b].
-	ettSmallTuple   = byte(104)
-	ettLargeTuple   = byte(105)
-
-	ettMap = byte(116)
-
-	ettBinary    = byte(109)
-	ettBitBinary = byte(77)
-
-	ettNil = byte(106)
-
-	ettPid      = byte(103)
-	ettNewPid   = byte(88) // since OTP 23, only when BIG_CREATION flag is set
-	ettNewRef   = byte(114)
-	ettNewerRef = byte(90) // since OTP 21, only when BIG_CREATION flag is set
-
-	ettExport = byte(113)
-	ettFun    = byte(117) // legacy, wont support it here
-	ettNewFun = byte(112)
-
-	ettPort    = byte(102)
-	ettNewPort = byte(89) // since OTP 23, only when BIG_CREATION flag is set
-
-	// ettRef        = byte(101) deprecated
-
-	ettFloat = byte(99) // legacy
-)
 
 // Element
 func (m Map) Element(k Term) Term {
@@ -637,6 +655,101 @@ func setMapMapField(term Map, dest reflect.Value) error {
 	return nil
 }
 
+func RegisterType(t interface{}) error {
+	tt := reflect.TypeOf(t)
+	return RegisterTypeName(t, regTypeName(tt))
+}
+
+func RegisterTypeName(t interface{}, name Atom) error {
+	fmt.Println("REG TYPE: ", name)
+
+	tt := reflect.TypeOf(t)
+	ttk := tt.Kind()
+	switch ttk {
+	case reflect.Struct, reflect.Map, reflect.Slice, reflect.Array:
+		// supported types
+	default:
+		return fmt.Errorf("type %q is not supported", regTypeName(tt))
+	}
+
+	registered.Lock()
+	defer registered.Unlock()
+
+	_, taken := registered.typesDec[name]
+	if taken {
+		return errRegTypeTaken
+	}
+
+	origin := regTypeName(tt)
+	r, taken := registered.typesEnc[origin]
+	if taken {
+		return fmt.Errorf("type is already registered as %q", r.name)
+	}
+
+	checkIsRegistered := func(name Atom, rt reflect.Kind) error {
+		switch rt {
+		case reflect.Struct, reflect.Array, reflect.Slice, reflect.Map:
+			// check if this type is registered
+			_, taken := registered.typesEnc[name]
+			if taken == false {
+				return fmt.Errorf("type %q must be registered first", name)
+			}
+		case reflect.Chan, reflect.Func, reflect.UnsafePointer, reflect.Complex64, reflect.Complex128:
+			return fmt.Errorf("type %q is not supported", name)
+		}
+		return nil
+	}
+
+	switch ttk {
+	case reflect.Struct:
+		// check for unexported fields
+		tv := reflect.ValueOf(t)
+		for i := 0; i < tv.NumField(); i++ {
+			f := tv.Field(i)
+			if f.CanInterface() == false {
+				return fmt.Errorf("struct has unexported field(s)")
+			}
+
+			orig := regTypeName(f.Type())
+			if err := checkIsRegistered(orig, f.Kind()); err != nil {
+				return err
+			}
+		}
+	case reflect.Array, reflect.Slice, reflect.Map:
+		elem := tt.Elem()
+		orig := regTypeName(elem)
+		if err := checkIsRegistered(orig, elem.Kind()); err != nil {
+			return err
+		}
+	}
+
+	rt := &registerType{
+		rtype:  reflect.TypeOf(t),
+		name:   name,
+		origin: origin,
+	}
+	registered.typesEnc[origin] = rt
+	registered.typesDec[name] = rt
+	return nil
+}
+
+func UnregisterType(t interface{}) error {
+	tt := reflect.TypeOf(t)
+	return UnregisterTypeName(regTypeName(tt))
+}
+
+func UnregisterTypeName(name Atom) error {
+	registered.Lock()
+	defer registered.Unlock()
+	r, found := registered.typesDec[name]
+	if found == false {
+		return fmt.Errorf("not found")
+	}
+	delete(registered.typesDec, name)
+	delete(registered.typesEnc, r.origin)
+	return nil
+}
+
 type StructPopulatorError struct {
 	Type reflect.Type
 	Term Term
@@ -680,4 +793,8 @@ func convertCharlistToString(l List) (string, error) {
 		}
 	}
 	return string(runes), nil
+}
+
+func regTypeName(t reflect.Type) Atom {
+	return Atom("#" + t.PkgPath() + "/" + t.Name())
 }

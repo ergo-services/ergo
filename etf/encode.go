@@ -14,9 +14,13 @@ var (
 	ErrStringTooLong = fmt.Errorf("Encoding error. String too long. Max allowed length is 65535")
 	ErrAtomTooLong   = fmt.Errorf("Encoding error. Atom too long. Max allowed UTF-8 chars is 255")
 
-	goSlice  = byte(240) // internal type
-	goMap    = byte(241) // internal type
-	goStruct = byte(242) // internal type
+	// internal types
+	goSlice            = byte(240)
+	goMap              = byte(241)
+	goStruct           = byte(242)
+	goSliceRegistered  = byte(243)
+	goMapRegistered    = byte(244)
+	goStructRegistered = byte(245)
 
 	marshalerType = reflect.TypeOf((*Marshaler)(nil)).Elem()
 )
@@ -26,6 +30,7 @@ type EncodeOptions struct {
 	AtomCache         *AtomCacheOut
 	SenderAtomCache   map[Atom]CacheItem
 	EncodingAtomCache *EncodingAtomCache
+	AtomMapping       AtomMapping
 
 	// FlagBigPidRef The node accepts a larger amount of data in pids
 	// and references (node container types version 4).
@@ -222,6 +227,22 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 				}
 				term = key
 
+			case goMapRegistered:
+				if stack.i == 0 { // registered type name as a key
+					term = stack.tmp
+					break
+				}
+				if stack.i == 1 { // nil as a value for the key (registered type name)
+					term = nil
+					break
+				}
+				key := stack.term.([]reflect.Value)[(stack.i-2)/2]
+				if stack.i&0x01 == 0x01 { // a value
+					term = stack.reg.MapIndex(key).Interface()
+					break
+				}
+				term = key.Interface() // a key
+
 			case goMap:
 				key := stack.tmp.([]reflect.Value)[stack.i/2]
 				if stack.i&0x01 == 0x01 { // a value
@@ -230,6 +251,18 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 				}
 				term = key.Interface() // a key
 
+			case goSliceRegistered:
+				if stack.i == 0 {
+					term = stack.tmp
+					break
+				}
+				if stack.i == stack.children-1 {
+					// last item of list should be ettNil
+					term = nil
+					break
+				}
+				term = stack.term.(func(int) reflect.Value)(stack.i - 1).Interface()
+
 			case goSlice:
 				if stack.i == stack.children-1 {
 					// last item of list should be ettNil
@@ -237,6 +270,15 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 					break
 				}
 				term = stack.term.(func(int) reflect.Value)(stack.i).Interface()
+
+			case goStructRegistered:
+				if stack.i == 0 {
+					// first item must be a sturct name (stored in stack.tmp).
+					term = stack.tmp
+					break
+				}
+				// field value
+				term = stack.term.(func(int) reflect.Value)(stack.i - 1).Interface()
 
 			case goStruct:
 				field := stack.tmp.(func(int) reflect.StructField)(stack.i / 2)
@@ -510,6 +552,13 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 			// characters and are always encoded using the UTF-8 external
 			// formats ATOM_UTF8_EXT or SMALL_ATOM_UTF8_EXT.
 
+			// replace atom value if we have mapped value for it
+			options.AtomMapping.MutexOut.RLock()
+			if mapped, ok := options.AtomMapping.Out[t]; ok {
+				t = mapped
+			}
+			options.AtomMapping.MutexOut.RUnlock()
+
 			// https://erlang.org/doc/apps/erts/erl_ext_dist.html#utf8_atoms
 			// The maximum number of allowed characters in an atom is 255.
 			// In the UTF-8 case, each character can need 4 bytes to be encoded.
@@ -694,10 +743,36 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 
 		default:
 			v := reflect.ValueOf(t)
+			vt := reflect.TypeOf(t)
+			vtAtomName := regTypeName(vt)
+			registered.RLock()
+			rtype, typeIsRegistered := registered.typesEnc[vtAtomName]
+			registered.RUnlock()
 
 			switch v.Kind() {
 			case reflect.Struct:
 				lenStruct := v.NumField()
+				if typeIsRegistered {
+					// registered type. encode as a tuple with vtAtomName as the first element
+					vtAtomName = rtype.name
+					if lenStruct+1 < 255 {
+						b.Append([]byte{ettSmallTuple, byte(lenStruct + 1)})
+					} else {
+						buf := b.Extend(5)
+						buf[0] = ettLargeTuple
+						binary.BigEndian.PutUint32(buf[1:], uint32(lenStruct+1))
+					}
+					child = &stackElement{
+						parent:   stack,
+						termType: goStructRegistered,
+						term:     v.Field,
+						children: lenStruct + 1,
+						tmp:      vtAtomName,
+					}
+					break
+				}
+
+				// will be encoded as a ettMap
 				buf := b.Extend(5)
 				buf[0] = ettMap
 				binary.BigEndian.PutUint32(buf[1:], uint32(lenStruct))
@@ -716,6 +791,23 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 					b.AppendByte(ettNil)
 					continue
 				}
+
+				if typeIsRegistered {
+					vtAtomName = rtype.name
+					lenList++ // first element for the type name
+					buf := b.Extend(5)
+					buf[0] = ettList
+					binary.BigEndian.PutUint32(buf[1:], uint32(lenList))
+					child = &stackElement{
+						parent:   stack,
+						termType: goSliceRegistered,
+						term:     v.Index,
+						children: lenList + 1,
+						tmp:      vtAtomName,
+					}
+					break
+				}
+
 				buf := b.Extend(5)
 				buf[0] = ettList
 				binary.BigEndian.PutUint32(buf[1:], uint32(lenList))
@@ -728,6 +820,24 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 
 			case reflect.Map:
 				lenMap := v.Len()
+				if typeIsRegistered {
+					lenMap++
+					vtAtomName = rtype.name
+					buf := b.Extend(5)
+					buf[0] = ettMap
+					binary.BigEndian.PutUint32(buf[1:], uint32(lenMap))
+
+					child = &stackElement{
+						parent:   stack,
+						termType: goMapRegistered,
+						term:     v.MapKeys(),
+						children: lenMap * 2,
+						tmp:      vtAtomName,
+						reg:      v,
+					}
+					break
+				}
+
 				buf := b.Extend(5)
 				buf[0] = ettMap
 				binary.BigEndian.PutUint32(buf[1:], uint32(lenMap))

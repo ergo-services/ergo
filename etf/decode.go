@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"math/big"
+	"reflect"
 
 	"github.com/ergo-services/ergo/lib"
 )
@@ -18,7 +19,8 @@ type stackElement struct {
 	term     Term //value
 	i        int  // current
 	children int
-	tmp      Term // temporary value. uses as a temporary storage for a key of map
+	tmp      Term          // temporary value. used as a temporary storage for a key of map
+	reg      reflect.Value // used for registered types decoding
 }
 
 var (
@@ -59,6 +61,7 @@ var (
 
 // DecodeOptions
 type DecodeOptions struct {
+	AtomMapping   AtomMapping
 	FlagBigPidRef bool
 }
 
@@ -126,6 +129,14 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 			if len([]rune(atom)) > 255 {
 				return nil, nil, errMalformedAtomUTF8
 			}
+
+			// replace atom value if we have mapped value for it
+			options.AtomMapping.MutexIn.RLock()
+			if mapped, ok := options.AtomMapping.In[atom]; ok {
+				atom = mapped
+			}
+			options.AtomMapping.MutexIn.RUnlock()
+
 			term = atom
 			packet = packet[n+2:]
 
@@ -145,7 +156,14 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 			case "false":
 				term = false
 			default:
-				term = Atom(packet[1 : n+1])
+				atom := Atom(packet[1 : n+1])
+				// replace atom value if we have mapped value for it
+				options.AtomMapping.MutexIn.RLock()
+				if mapped, ok := options.AtomMapping.In[atom]; ok {
+					atom = mapped
+				}
+				options.AtomMapping.MutexIn.RUnlock()
+				term = atom
 			}
 			packet = packet[n+1:]
 
@@ -173,7 +191,14 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 			case "false":
 				term = false
 			default:
-				term = cache[int(packet[0])]
+				atom := cache[int(packet[0])]
+				// replace atom value if we have mapped value for it
+				options.AtomMapping.MutexIn.RLock()
+				if mapped, ok := options.AtomMapping.In[atom]; ok {
+					atom = mapped
+				}
+				options.AtomMapping.MutexIn.RUnlock()
+				term = atom
 			}
 			packet = packet[1:]
 
@@ -506,6 +531,30 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 				stack.term.(Tuple)[stack.i] = term
 				stack.i++
 
+				if stack.i == 1 {
+					// if the first value is atom, check for the registered type
+					structName, found := term.(Atom)
+					if found == false {
+						break
+					}
+					r, found := registered.typesDec[structName]
+					if found == false {
+						break
+					}
+					fmt.Println("FOUND REG TYPE", r.rtype)
+
+					stack.reg = reflect.New(r.rtype)
+
+					break
+				}
+
+				// it is not a registered struct
+				if stack.reg.IsValid() == false {
+					break
+				}
+
+				// try to fit the next value into the struct field.
+
 			case ettMap:
 				if stack.i&0x01 == 0x01 { // a value
 					stack.term.(Map)[stack.tmp] = term
@@ -788,7 +837,11 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 			continue
 		}
 
-		term = stack.term
+		if stack.reg.IsValid() {
+			term = stack.reg.Interface()
+		} else {
+			term = stack.term
+		}
 
 		// this term was the last element of List/Map/Tuple/...
 		// pop from the stack, but if its the root just finish

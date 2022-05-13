@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"io"
+	"net"
 	"time"
 
 	"github.com/ergo-services/ergo/etf"
@@ -274,10 +275,11 @@ type TLS struct {
 }
 
 type Cloud struct {
-	Enable bool
-	Flags  CloudFlags
-	ID     string
-	Cookie string
+	Enable    bool
+	Flags     CloudFlags
+	ClusterID string
+	Cookie    string
+	Timeout   time.Duration
 }
 
 type Proxy struct {
@@ -361,10 +363,10 @@ type HandshakeInterface interface {
 
 	// Start initiates handshake process. Argument tls means the connection is wrapped by TLS
 	// Returns the name of connected peer, Flags and Creation wrapped into HandshakeDetails struct
-	Start(conn io.ReadWriter, tls bool, cookie string) (HandshakeDetails, error)
+	Start(remote net.Addr, conn io.ReadWriter, tls bool, cookie string) (HandshakeDetails, error)
 	// Accept accepts handshake process initiated by another side of this connection.
 	// Returns the name of connected peer, Flags and Creation wrapped into HandshakeDetails struct
-	Accept(conn io.ReadWriter, tls bool, cookie string) (HandshakeDetails, error)
+	Accept(remote net.Addr, conn io.ReadWriter, tls bool, cookie string) (HandshakeDetails, error)
 	// Version handshake version. Must be implemented if this handshake is going to be used
 	// for the accepting connections (this method is used in registration on the Resolver)
 	Version() HandshakeVersion
@@ -382,6 +384,8 @@ type HandshakeDetails struct {
 	Version int
 	// NumHandlers defines the number of readers/writers per connection. Default value is provided by ProtoOptions
 	NumHandlers int
+	// AtomMapping
+	AtomMapping etf.AtomMapping
 	// Custom allows passing the custom data to the ProtoInterface.Start
 	Custom HandshakeCustomDetails
 }

@@ -56,6 +56,21 @@ func NewAtomCache() AtomCache {
 	}
 }
 
+type AtomMapping struct {
+	MutexIn  sync.RWMutex
+	In       map[Atom]Atom
+	MutexOut sync.RWMutex
+	Out      map[Atom]Atom
+}
+
+// NewAtomMapping
+func NewAtomMapping() AtomMapping {
+	return AtomMapping{
+		In:  make(map[Atom]Atom),
+		Out: make(map[Atom]Atom),
+	}
+}
+
 // Append
 func (a *AtomCacheOut) Append(atom Atom) (int16, bool) {
 	a.Lock()

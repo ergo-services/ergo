@@ -990,9 +990,15 @@ func (n *network) listen(ctx context.Context, hostname string, begin uint16, end
 				}
 				lib.Log("[%s] NETWORK accepted new connection from %s", n.nodename, c.RemoteAddr().String())
 
-				details, err := n.handshake.Accept(c, n.tls.Enable, n.cookie)
+				details, err := n.handshake.Accept(c.RemoteAddr(), c, n.tls.Enable, n.cookie)
 				if err != nil {
 					lib.Log("[%s] Can't handshake with %s: %s", n.nodename, c.RemoteAddr().String(), err)
+					c.Close()
+					continue
+				}
+				if details.Name == "" {
+					err := fmt.Errorf("remote node introduced itself as %q", details.Name)
+					lib.Warning("Handshake error: %s", err)
 					c.Close()
 					continue
 				}
@@ -1002,6 +1008,7 @@ func (n *network) listen(ctx context.Context, hostname string, begin uint16, end
 				details.Flags.EnableSoftwareKeepAlive = true
 				connection, err := n.proto.Init(n.ctx, c, n.nodename, details)
 				if err != nil {
+					lib.Warning("Proto error: %s", err)
 					c.Close()
 					continue
 				}
@@ -1113,7 +1120,7 @@ func (n *network) connect(node string) (ConnectionInterface, error) {
 
 	// check if we couldn't establish a connection with the node
 	if err != nil {
-		lib.Warning("%s", err)
+		lib.Warning("Could not connect to %q (%s): %s", node, HostPort, err)
 		return nil, err
 	}
 
@@ -1129,13 +1136,14 @@ func (n *network) connect(node string) (ConnectionInterface, error) {
 		cookie = route.Options.Cookie
 	}
 
-	details, err := handshake.Start(c, enabledTLS, cookie)
+	details, err := handshake.Start(c.RemoteAddr(), c, enabledTLS, cookie)
 	if err != nil {
+		lib.Warning("Handshake error: %s", err)
 		c.Close()
 		return nil, err
 	}
 	if details.Name != node {
-		err := fmt.Errorf("node %q introduced itself as %q", node, details.Name)
+		err := fmt.Errorf("Handshake error: node %q introduced itself as %q", node, details.Name)
 		lib.Warning("%s", err)
 		return nil, err
 	}
@@ -1154,6 +1162,7 @@ func (n *network) connect(node string) (ConnectionInterface, error) {
 	connection, err := proto.Init(n.ctx, c, n.nodename, details)
 	if err != nil {
 		c.Close()
+		lib.Warning("Proto error: %s", err)
 		return nil, err
 	}
 	cInternal := connectionInternal{
@@ -1327,10 +1336,10 @@ func (c *Connection) ProxyPacket(packet *lib.Buffer) error {
 //
 // Handshake interface default callbacks
 //
-func (h *Handshake) Start(conn io.ReadWriter, tls bool, cookie string) (HandshakeDetails, error) {
+func (h *Handshake) Start(remote net.Addr, conn io.ReadWriter, tls bool, cookie string) (HandshakeDetails, error) {
 	return HandshakeDetails{}, ErrUnsupported
 }
-func (h *Handshake) Accept(conn io.ReadWriter, tls bool, cookie string) (HandshakeDetails, error) {
+func (h *Handshake) Accept(remote net.Addr, conn io.ReadWriter, tls bool, cookie string) (HandshakeDetails, error) {
 	return HandshakeDetails{}, ErrUnsupported
 }
 func (h *Handshake) Version() HandshakeVersion {
