@@ -18,6 +18,8 @@ const (
 type ServerBehavior interface {
 	ProcessBehavior
 
+	// methods below are optional
+
 	// Init invoked on a start Server
 	Init(process *ServerProcess, args ...etf.Term) error
 
@@ -71,7 +73,6 @@ type ServerProcess struct {
 	behavior        ServerBehavior
 	counter         uint64 // total number of processed messages from mailBox
 	currentFunction string
-	trapExit        bool
 
 	mailbox  <-chan ProcessMailboxMessage
 	original <-chan ProcessMailboxMessage
