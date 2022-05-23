@@ -50,7 +50,7 @@ type ApplicationSpec struct {
 	Version      string
 	Lifespan     time.Duration
 	Applications []string
-	Environment  map[EnvKey]interface{}
+	Env          map[EnvKey]interface{}
 	Children     []ApplicationChildSpec
 	Process      Process
 	StartType    ApplicationStartType
@@ -87,8 +87,8 @@ func (a *Application) ProcessInit(p Process, args ...etf.Term) (ProcessState, er
 
 	p.SetTrapExit(true)
 
-	if spec.Environment != nil {
-		for k, v := range spec.Environment {
+	if spec.Env != nil {
+		for k, v := range spec.Env {
 			p.SetEnv(k, v)
 		}
 	}

@@ -31,7 +31,7 @@ func (da *demoApp) Load(args ...etf.Term) (gen.ApplicationSpec, error) {
 		Name:        "demoApp",
 		Description: "Demo Applicatoin",
 		Version:     "v.1.0",
-		Environment: map[gen.EnvKey]interface{}{
+		Env: map[gen.EnvKey]interface{}{
 			"envName1": 123,
 			"envName2": "Hello world",
 		},
@@ -127,6 +127,13 @@ func main() {
 
 	// Initialize new node with given name, cookie, listening port range and epmd port
 	demoNode, _ := ergo.StartNode(NodeName, Cookie, opts)
+
+	ppp, eee := demoNode.Spawn("", gen.ProcessOptions{}, &demoApp{})
+	if eee != nil {
+		fmt.Println("AAAAAA", eee)
+		panic(eee)
+	}
+	fmt.Println("PPP", ppp.Self())
 
 	// start application
 	if _, err := demoNode.ApplicationLoad(&demoApp{}); err != nil {

@@ -492,7 +492,7 @@ func TestNodeResolveExtra(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if route1.Options.EnableTLS == false {
+	if route1.Options.TLS.Enable == false {
 		t.Fatal("expected true value")
 	}
 	fmt.Println("OK")
@@ -502,7 +502,7 @@ func TestNodeResolveExtra(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if route2.Options.EnableTLS == true {
+	if route2.Options.TLS.Enable == true {
 		t.Fatal("expected true value")
 	}
 	fmt.Println("OK")
