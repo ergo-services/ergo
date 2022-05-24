@@ -17,7 +17,9 @@ type WebBehavior interface {
 	HandleWebCall(process *WebProcess, from ServerFrom, message etf.Term) (etf.Term, ServerStatus)
 	HandleWebCast(process *WebProcess, message etf.Term) ServerStatus
 	HandleWebInfo(process *WebProcess, message etf.Term) ServerStatus
-	HandleWebDirect(process *WebProcess, message interface{}) (interface{}, error)
+	HandleWebDirect(process *WebProcess, ref etf.Ref, message interface{}) (interface{}, DirectStatus)
+
+	HandleWebTerminate(process *WebProcess, reason string)
 }
 
 type WebStatus error
@@ -64,12 +66,18 @@ type WebRouteGroup struct {
 
 type webMessageTest struct{}
 
+type WebMessageRequest struct {
+	Request  *http.Request
+	Response http.ResponseWriter
+}
+
 //
 // Server callbacks
 //
 
 func (web *Web) Init(process *ServerProcess, args ...etf.Term) error {
 
+	behavior := process.Behavior().(WebBehavior)
 	behavior, ok := process.Behavior().(WebBehavior)
 	if !ok {
 		return fmt.Errorf("Web: not a WebBehavior")
@@ -97,6 +105,10 @@ func (web *Web) Init(process *ServerProcess, args ...etf.Term) error {
 		}
 	}
 
+	if err := webProcess.makeRouteHandler(); err != nil {
+		return err
+	}
+
 	lc := net.ListenConfig{}
 	ctx := process.Context()
 	hostPort := net.JoinHostPort(options.Host, strconv.Itoa(int(options.Port)))
@@ -112,35 +124,23 @@ func (web *Web) Init(process *ServerProcess, args ...etf.Term) error {
 		listener = tls.NewListener(listener, &config)
 	}
 
+	httpServer := http.Server{}
+
+	// start acceptor
+	go func() {
+		err := httpServer.Serve(listener)
+		process.Exit(err.Error())
+	}()
+
 	// Golang's listener is weird. It takes the context in the Listen method
-	// but doesn't use it at all. So making a little workaround to handle
-	// process context cancelation. Maybe one day they fix it.
+	// but doesn't use it at all. HTTP server has the same issue.
+	// So making a little workaround to handle process context cancelation.
+	// Maybe one day they fix it.
 	go func() {
 		// this goroutine will be alive until the process context is canceled.
 		select {
 		case <-ctx.Done():
-			listener.Close()
-		}
-	}()
-
-	// start acceptor
-	go func() {
-		defer listener.Close()
-		for {
-			c, err := listener.Accept()
-			if err != nil {
-				if ctx.Err() != nil {
-					// process has been stopped
-					return
-				}
-				lib.Warning("[%s] stopping gen.Web process due to listener error: %s", process.Self(), err.Error())
-				process.Exit(err.Error())
-				return
-			}
-
-			// handle accepted connection
-			//TODO
-			fmt.Println("got connection from", c.RemoteAddr())
+			httpServer.Close()
 		}
 	}()
 
@@ -157,14 +157,14 @@ func (web *Web) HandleCall(process *ServerProcess, from ServerFrom, message etf.
 }
 
 // HandleDirect
-func (web *Web) HandleDirect(process *ServerProcess, message interface{}) (interface{}, error) {
+func (web *Web) HandleDirect(process *ServerProcess, ref etf.Ref, message interface{}) (interface{}, DirectStatus) {
 	webp := process.State.(*WebProcess)
 	switch m := message.(type) {
 	case webMessageTest:
 		fmt.Println("got m", m)
-		return nil, nil
+		return nil, DirectStatusOK
 	default:
-		return webp.behavior.HandleWebDirect(webp, message)
+		return webp.behavior.HandleWebDirect(webp, ref, message)
 	}
 }
 
@@ -235,6 +235,20 @@ func (web *Web) HandleWebInfo(process *WebProcess, message etf.Term) ServerStatu
 }
 
 // HandleWebDirect
-func (web *Web) HandleWebDirect(process *WebProcess, message interface{}) (interface{}, error) {
+func (web *Web) HandleWebDirect(process *WebProcess, ref etf.Ref, message interface{}) (interface{}, DirectStatus) {
 	return nil, ErrUnsupportedRequest
+}
+
+// HandleWebTerminate
+func (w *Web) HandleWebTerminate(process *WebProcess, reason string) {
+	return
+}
+
+//
+// WebProcess
+//
+
+func (wp *WebProcess) makeRouteHandler() error {
+
+	return nil
 }

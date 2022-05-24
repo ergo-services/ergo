@@ -73,7 +73,7 @@ type SagaBehavior interface {
 	HandleSagaInfo(process *SagaProcess, message etf.Term) ServerStatus
 	// HandleSagaDirect this callback is invoked on Process.Direct. This method is optional
 	// for the implementation
-	HandleSagaDirect(process *SagaProcess, message interface{}) (interface{}, error)
+	HandleSagaDirect(process *SagaProcess, ref etf.Ref, message interface{}) (interface{}, DirectStatus)
 }
 
 const (
@@ -1156,14 +1156,14 @@ func (gs *Saga) HandleCall(process *ServerProcess, from ServerFrom, message etf.
 }
 
 // HandleDirect
-func (gs *Saga) HandleDirect(process *ServerProcess, message interface{}) (interface{}, error) {
+func (gs *Saga) HandleDirect(process *ServerProcess, ref etf.Ref, message interface{}) (interface{}, DirectStatus) {
 	sp := process.State.(*SagaProcess)
 	switch m := message.(type) {
 	case sagaSetMaxTransactions:
 		sp.options.MaxTransactions = m.max
-		return nil, nil
+		return nil, DirectStatusOK
 	default:
-		return sp.behavior.HandleSagaDirect(sp, message)
+		return sp.behavior.HandleSagaDirect(sp, ref, message)
 	}
 }
 
@@ -1323,7 +1323,7 @@ func (gs *Saga) HandleSagaInfo(process *SagaProcess, message etf.Term) ServerSta
 }
 
 // HandleSagaDirect
-func (gs *Saga) HandleSagaDirect(process *SagaProcess, message interface{}) (interface{}, error) {
+func (gs *Saga) HandleSagaDirect(process *SagaProcess, ref etf.Ref, message interface{}) (interface{}, DirectStatus) {
 	return nil, ErrUnsupportedRequest
 }
 

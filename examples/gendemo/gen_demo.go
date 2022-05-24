@@ -118,15 +118,15 @@ func (gd *Demo) HandleCall(process *gen.ServerProcess, from gen.ServerFrom, mess
 	return process.Behavior().(DemoBehavior).HandleDemoCall(demo, from, message)
 }
 
-func (gd *Demo) HandleDirect(process *gen.ServerProcess, message interface{}) (interface{}, error) {
+func (gd *Demo) HandleDirect(process *gen.ServerProcess, ref etf.Ref, message interface{}) (interface{}, gen.DirectStatus) {
 	demo := process.State.(*DemoProcess)
 	switch message.(type) {
 	case messageGetStat:
-		return demo.counter, nil
+		return demo.counter, gen.DirectStatusOK
 	case messageHello:
 		process.Behavior().(DemoBehavior).HandleHello(demo)
 		demo.counter++
-		return nil, nil
+		return nil, gen.DirectStatusOK
 	default:
 		return process.Behavior().(DemoBehavior).HandleDemoDirect(demo, message)
 	}

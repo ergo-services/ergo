@@ -90,7 +90,7 @@ type StageBehavior interface {
 	HandleStageCall(process *StageProcess, from ServerFrom, message etf.Term) (etf.Term, ServerStatus)
 	// HandleStageDirect this callback is invoked on Process.Direct. This method is optional
 	// for the implementation
-	HandleStageDirect(process *StageProcess, message interface{}) (interface{}, error)
+	HandleStageDirect(process *StageProcess, ref etf.Ref, message interface{}) (interface{}, DirectStatus)
 	// HandleStageCast this callback is invoked on ServerProcess.Cast. This method is optional
 	// for the implementation
 	HandleStageCast(process *StageProcess, message etf.Term) ServerStatus
@@ -439,7 +439,7 @@ func (gst *Stage) HandleCall(process *ServerProcess, from ServerFrom, message et
 	return stageProcess.behavior.HandleStageCall(stageProcess, from, message)
 }
 
-func (gst *Stage) HandleDirect(process *ServerProcess, message interface{}) (interface{}, error) {
+func (gst *Stage) HandleDirect(process *ServerProcess, ref etf.Ref, message interface{}) (interface{}, DirectStatus) {
 	stageProcess := process.State.(*StageProcess)
 	switch m := message.(type) {
 	case setManualDemand:
@@ -452,7 +452,7 @@ func (gst *Stage) HandleDirect(process *ServerProcess, message interface{}) (int
 			sendDemand(process, subInternal.Producer, m.subscription, defaultAutoDemandCount)
 			subInternal.count += defaultAutoDemandCount
 		}
-		return nil, nil
+		return nil, DirectStatusOK
 
 	case setCancelMode:
 		subInternal, ok := stageProcess.producers[m.subscription.ID]
@@ -460,12 +460,12 @@ func (gst *Stage) HandleDirect(process *ServerProcess, message interface{}) (int
 			return nil, fmt.Errorf("unknown subscription")
 		}
 		subInternal.options.Cancel = m.cancel
-		return nil, nil
+		return nil, DirectStatusOK
 
 	case setForwardDemand:
 		stageProcess.options.DisableForwarding = !m.forward
 		if !m.forward {
-			return nil, nil
+			return nil, DirectStatusOK
 		}
 
 		// create demand with count = 0, which will be ignored but start
@@ -477,10 +477,10 @@ func (gst *Stage) HandleDirect(process *ServerProcess, message interface{}) (int
 		}
 		process.Send(process.Self(), msg)
 
-		return nil, nil
+		return nil, DirectStatusOK
 
 	default:
-		return stageProcess.behavior.HandleStageDirect(stageProcess, message)
+		return stageProcess.behavior.HandleStageDirect(stageProcess, ref, message)
 	}
 
 }

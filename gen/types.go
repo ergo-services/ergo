@@ -266,6 +266,7 @@ type ProcessMailboxMessage struct {
 
 // ProcessDirectMessage
 type ProcessDirectMessage struct {
+	Ref     etf.Ref
 	Message interface{}
 	Err     error
 	Reply   chan ProcessDirectMessage

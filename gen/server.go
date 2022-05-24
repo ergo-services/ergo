@@ -32,7 +32,7 @@ type ServerBehavior interface {
 	HandleCall(process *ServerProcess, from ServerFrom, message etf.Term) (etf.Term, ServerStatus)
 
 	// HandleDirect invoked on a direct request made with Process.Direct
-	HandleDirect(process *ServerProcess, message interface{}) (interface{}, error)
+	HandleDirect(process *ServerProcess, ref etf.Ref, message interface{}) (interface{}, DirectStatus)
 
 	// HandleInfo invoked if Server received message sent with Process.Send.
 	HandleInfo(process *ServerProcess, message etf.Term) ServerStatus
@@ -44,11 +44,15 @@ type ServerBehavior interface {
 
 // ServerStatus
 type ServerStatus error
+type DirectStatus error
 
 var (
 	ServerStatusOK     ServerStatus = nil
 	ServerStatusStop   ServerStatus = fmt.Errorf("stop")
 	ServerStatusIgnore ServerStatus = fmt.Errorf("ignore")
+
+	DirectStatusOK     DirectStatus = nil
+	DirectStatusIgnore DirectStatus = fmt.Errorf("ignore")
 )
 
 // ServerStatusStopWithReason
@@ -494,7 +498,10 @@ func (sp *ServerProcess) handleDirect(direct ProcessDirectMessage) {
 		defer sp.panicHandler()
 	}
 
-	reply, err := sp.behavior.HandleDirect(sp, direct.Message)
+	cf := sp.currentFunction
+	sp.currentFunction = "Server:HandleDirect"
+	reply, err := sp.behavior.HandleDirect(sp, direct.Ref, direct.Message)
+	sp.currentFunction = cf
 	if err != nil {
 		direct.Message = nil
 		direct.Err = err
@@ -591,7 +598,7 @@ func (gs *Server) HandleCall(process *ServerProcess, from ServerFrom, message et
 }
 
 // HandleDirect
-func (gs *Server) HandleDirect(process *ServerProcess, message interface{}) (interface{}, error) {
+func (gs *Server) HandleDirect(process *ServerProcess, ref etf.Ref, message interface{}) (interface{}, DirectStatus) {
 	return nil, ErrUnsupportedRequest
 }
 

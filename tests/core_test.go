@@ -20,7 +20,7 @@ func (trg *TestCoreGenserver) HandleCall(process *gen.ServerProcess, from gen.Se
 	return message, gen.ServerStatusOK
 }
 
-func (trg *TestCoreGenserver) HandleDirect(process *gen.ServerProcess, message interface{}) (interface{}, error) {
+func (trg *TestCoreGenserver) HandleDirect(process *gen.ServerProcess, ref etf.Ref, message interface{}) (interface{}, gen.DirectStatus) {
 	switch m := message.(type) {
 	case makeCall:
 		return process.Call(m.to, m.message)

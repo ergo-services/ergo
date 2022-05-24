@@ -33,7 +33,7 @@ func (tgs *testServer) HandleInfo(process *gen.ServerProcess, message etf.Term) 
 	return gen.ServerStatusOK
 }
 
-func (tgs *testServer) HandleDirect(process *gen.ServerProcess, message interface{}) (interface{}, error) {
+func (tgs *testServer) HandleDirect(process *gen.ServerProcess, ref etf.Ref, message interface{}) (interface{}, gen.DirectStatus) {
 	switch m := message.(type) {
 	case makeCall:
 		return process.Call(m.to, m.message)
@@ -56,8 +56,8 @@ func (tgsd *testServerDirect) Init(process *gen.ServerProcess, args ...etf.Term)
 	tgsd.err <- nil
 	return nil
 }
-func (tgsd *testServerDirect) HandleDirect(process *gen.ServerProcess, message interface{}) (interface{}, error) {
-	return message, nil
+func (tgsd *testServerDirect) HandleDirect(process *gen.ServerProcess, ref etf.Ref, message interface{}) (interface{}, gen.DirectStatus) {
+	return message, gen.DirectStatusOK
 }
 
 func TestServer(t *testing.T) {
@@ -391,7 +391,7 @@ func (gs *messageOrderGS) HandleCall(process *gen.ServerProcess, from gen.Server
 	return nil, fmt.Errorf("incorrect call")
 }
 
-func (gs *messageOrderGS) HandleDirect(process *gen.ServerProcess, message interface{}) (interface{}, error) {
+func (gs *messageOrderGS) HandleDirect(process *gen.ServerProcess, ref etf.Ref, message interface{}) (interface{}, gen.DirectStatus) {
 	switch m := message.(type) {
 	case testCase3:
 		for i := 0; i < m.n; i++ {
@@ -403,7 +403,7 @@ func (gs *messageOrderGS) HandleDirect(process *gen.ServerProcess, message inter
 				panic("wrong result")
 			}
 		}
-		return nil, nil
+		return nil, gen.DirectStatusOK
 
 	}
 	return nil, fmt.Errorf("incorrect direct call")
@@ -426,7 +426,7 @@ func (gs *GSCallPanic) HandleCall(process *gen.ServerProcess, from gen.ServerFro
 	return "ok", gen.ServerStatusOK
 }
 
-func (gs *GSCallPanic) HandleDirect(process *gen.ServerProcess, message interface{}) (interface{}, error) {
+func (gs *GSCallPanic) HandleDirect(process *gen.ServerProcess, ref etf.Ref, message interface{}) (interface{}, gen.DirectStatus) {
 
 	pids, ok := message.([]etf.Pid)
 	if !ok {
@@ -448,7 +448,7 @@ func (gs *GSCallPanic) HandleDirect(process *gen.ServerProcess, message interfac
 	}
 	fmt.Println("OK")
 
-	return nil, nil
+	return nil, gen.DirectStatusOK
 }
 
 func TestServerCallServerWithPanic(t *testing.T) {

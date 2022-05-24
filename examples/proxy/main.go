@@ -40,6 +40,7 @@ func main() {
 	fmt.Printf("Starting node: node4 (cluster 2) with Proxy.Cookie = %q ...", proxyCookie)
 	opts4 := node.Options{}
 	opts4.Proxy.Cookie = proxyCookie
+	opts4.Proxy.Accept = true
 	node4, err := ergo.StartNode("node4@localhost", "secret2", opts4)
 	if err != nil {
 		panic(err)

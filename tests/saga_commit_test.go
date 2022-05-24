@@ -104,7 +104,7 @@ type testSagaCommitSendRes struct {
 	id gen.SagaTransactionID
 }
 
-func (gs *testSagaCommit1) HandleSagaDirect(process *gen.SagaProcess, message interface{}) (interface{}, error) {
+func (gs *testSagaCommit1) HandleSagaDirect(process *gen.SagaProcess, ref etf.Ref, message interface{}) (interface{}, gen.DirectStatus) {
 
 	switch m := message.(type) {
 	case testSagaCommitStartTx:

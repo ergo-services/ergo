@@ -3,7 +3,6 @@ package main
 import (
 	"flag"
 	"fmt"
-	"time"
 
 	"github.com/ergo-services/ergo"
 	"github.com/ergo-services/ergo/gen"
@@ -40,9 +39,9 @@ func main() {
 	}
 
 	fmt.Println("Started Web Process with PID:", p.Self(), "TLS:", WebEnableTLS)
-	time.Sleep(5 * time.Second)
-	fmt.Println("Stoping process")
-	p.Kill()
+	//time.Sleep(5 * time.Second)
+	//fmt.Println("Stoping process")
+	//p.Kill()
 
 	node.Wait()
 }

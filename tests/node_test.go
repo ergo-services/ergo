@@ -93,7 +93,7 @@ type makeCast struct {
 	message interface{}
 }
 
-func (f *testFragmentationGS) HandleDirect(process *gen.ServerProcess, message interface{}) (interface{}, error) {
+func (f *testFragmentationGS) HandleDirect(process *gen.ServerProcess, ref etf.Ref, message interface{}) (interface{}, gen.DirectStatus) {
 	switch m := message.(type) {
 	case makeCall:
 		return process.Call(m.to, m.message)
@@ -212,7 +212,7 @@ func (h *handshakeGenServer) Init(process *gen.ServerProcess, args ...etf.Term) 
 func (h *handshakeGenServer) HandleCall(process *gen.ServerProcess, from gen.ServerFrom, message etf.Term) (etf.Term, gen.ServerStatus) {
 	return "pass", gen.ServerStatusOK
 }
-func (h *handshakeGenServer) HandleDirect(process *gen.ServerProcess, message interface{}) (interface{}, error) {
+func (h *handshakeGenServer) HandleDirect(process *gen.ServerProcess, ref etf.Ref, message interface{}) (interface{}, gen.DirectStatus) {
 	switch m := message.(type) {
 	case makeCall:
 		return process.Call(m.to, m.message)
@@ -286,7 +286,7 @@ func TestNodeDistHandshake(t *testing.T) {
 	}
 	node9Options5WithTLS := node.Options{
 		Handshake: dist.CreateHandshake(handshake5options),
-		TLS:       node.TLS{Enable: true},
+		TLS:       node.TLS{Enable: true, SkipVerify: true},
 	}
 	node9, e9 := ergo.StartNode("node9Handshake5@localhost", "secret", node9Options5WithTLS)
 	if e9 != nil {
@@ -294,7 +294,7 @@ func TestNodeDistHandshake(t *testing.T) {
 	}
 	node10Options5WithTLS := node.Options{
 		Handshake: dist.CreateHandshake(handshake5options),
-		TLS:       node.TLS{Enable: true},
+		TLS:       node.TLS{Enable: true, SkipVerify: true},
 	}
 	node10, e10 := ergo.StartNode("node10Handshake5@localhost", "secret", node10Options5WithTLS)
 	if e10 != nil {
@@ -302,7 +302,7 @@ func TestNodeDistHandshake(t *testing.T) {
 	}
 	node11Options5WithTLS := node.Options{
 		Handshake: dist.CreateHandshake(handshake5options),
-		TLS:       node.TLS{Enable: true},
+		TLS:       node.TLS{Enable: true, SkipVerify: true},
 	}
 	node11, e11 := ergo.StartNode("node11Handshake5@localhost", "secret", node11Options5WithTLS)
 	if e11 != nil {
@@ -310,7 +310,7 @@ func TestNodeDistHandshake(t *testing.T) {
 	}
 	node12Options6WithTLS := node.Options{
 		Handshake: dist.CreateHandshake(handshake6options),
-		TLS:       node.TLS{Enable: true},
+		TLS:       node.TLS{Enable: true, SkipVerify: true},
 	}
 	node12, e12 := ergo.StartNode("node12Handshake6@localhost", "secret", node12Options6WithTLS)
 	if e12 != nil {
@@ -320,7 +320,7 @@ func TestNodeDistHandshake(t *testing.T) {
 	// node14, _ := ergo.StartNode("node14Handshake5@localhost", "secret", nodeOptions5WithTLS)
 	node15Options6WithTLS := node.Options{
 		Handshake: dist.CreateHandshake(handshake6options),
-		TLS:       node.TLS{Enable: true},
+		TLS:       node.TLS{Enable: true, SkipVerify: true},
 	}
 	node15, e15 := ergo.StartNode("node15Handshake6@localhost", "secret", node15Options6WithTLS)
 	if e15 != nil {
@@ -328,7 +328,7 @@ func TestNodeDistHandshake(t *testing.T) {
 	}
 	node16Options6WithTLS := node.Options{
 		Handshake: dist.CreateHandshake(handshake6options),
-		TLS:       node.TLS{Enable: true},
+		TLS:       node.TLS{Enable: true, SkipVerify: true},
 	}
 	node16, e16 := ergo.StartNode("node16Handshake6@localhost", "secret", node16Options6WithTLS)
 	if e16 != nil {
@@ -393,7 +393,9 @@ func TestNodeRemoteSpawn(t *testing.T) {
 	node2opts := node.Options{}
 	node2opts.Proxy.Transit = true
 	node2, _ := ergo.StartNode("node2remoteSpawn@localhost", "secret", node2opts)
-	node3, _ := ergo.StartNode("node3remoteSpawn@localhost", "secret", node.Options{})
+	node3opts := node.Options{}
+	node3opts.Proxy.Accept = true
+	node3, _ := ergo.StartNode("node3remoteSpawn@localhost", "secret", node3opts)
 	route := node.ProxyRoute{
 		Proxy: node2.Name(),
 	}
@@ -471,16 +473,18 @@ func TestNodeRemoteSpawn(t *testing.T) {
 func TestNodeResolveExtra(t *testing.T) {
 	fmt.Printf("\n=== Test Node Resolve Extra \n")
 	fmt.Printf("... starting node1 with disabled TLS: ")
-	node1, err := ergo.StartNode("node1resolveExtra@localhost", "secret", node.Options{})
+	opts1 := node.Options{}
+	opts1.TLS.SkipVerify = true
+	node1, err := ergo.StartNode("node1resolveExtra@localhost", "secret", opts1)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer node1.Stop()
 	fmt.Println("OK")
-	opts := node.Options{}
-	opts.TLS.Enable = true
+	opts2 := node.Options{}
+	opts2.TLS.Enable = true
 	fmt.Printf("... starting node2 with enabled TLS: ")
-	node2, err := ergo.StartNode("node2resolveExtra@localhost", "secret", opts)
+	node2, err := ergo.StartNode("node2resolveExtra@localhost", "secret", opts2)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -619,7 +623,7 @@ func (c *compressionServer) HandleCall(process *gen.ServerProcess, from gen.Serv
 	}
 	return result, gen.ServerStatusOK
 }
-func (c *compressionServer) HandleDirect(process *gen.ServerProcess, message interface{}) (interface{}, error) {
+func (c *compressionServer) HandleDirect(process *gen.ServerProcess, ref etf.Ref, message interface{}) (interface{}, gen.DirectStatus) {
 	switch m := message.(type) {
 	case makeCall:
 		return process.Call(m.to, m.message)
@@ -721,6 +725,7 @@ func TestNodeProxyConnect(t *testing.T) {
 		t.Fatal(e)
 	}
 	optsC := node.Options{}
+	optsC.Proxy.Accept = true
 	nodeC, e := ergo.StartNode("nodeCproxy@localhost", "secret", optsC)
 	if e != nil {
 		t.Fatal(e)
@@ -806,6 +811,7 @@ func TestNodeProxyConnect(t *testing.T) {
 
 	optsC = node.Options{}
 	optsC.Proxy.Cookie = "123"
+	optsC.Proxy.Accept = true
 	nodeC, e = ergo.StartNode("nodeCproxy@localhost", "secret", optsC)
 	if e != nil {
 		t.Fatal(e)
@@ -840,6 +846,7 @@ func TestNodeProxyConnect(t *testing.T) {
 	fmt.Printf("... connect NodeA to NodeD (with enabled encryption) via NodeB: ")
 	optsD := node.Options{}
 	optsD.Proxy.Cookie = "123"
+	optsD.Proxy.Accept = true
 	optsD.Proxy.Flags = node.DefaultProxyFlags()
 	optsD.Proxy.Flags.EnableEncryption = true
 	nodeD, e := ergo.StartNode("nodeDproxy@localhost", "secret", optsD)
@@ -956,6 +963,7 @@ func TestNodeIncarnation(t *testing.T) {
 	optsC := node.Options{
 		Creation: 1234,
 	}
+	optsC.Proxy.Accept = true
 	nodeC, e := ergo.StartNode("nodeCincarnation@localhost", "secret", optsC)
 	if e != nil {
 		t.Fatal(e)
@@ -1209,7 +1217,7 @@ type benchGS struct {
 func (b *benchGS) HandleCall(process *gen.ServerProcess, from gen.ServerFrom, message etf.Term) (etf.Term, gen.ServerStatus) {
 	return etf.Atom("ok"), gen.ServerStatusOK
 }
-func (b *benchGS) HandleDirect(process *gen.ServerProcess, message interface{}) (interface{}, error) {
+func (b *benchGS) HandleDirect(process *gen.ServerProcess, ref etf.Ref, message interface{}) (interface{}, gen.DirectStatus) {
 	switch m := message.(type) {
 	case makeCall:
 		return process.CallWithTimeout(m.to, m.message, 30)

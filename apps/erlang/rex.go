@@ -87,7 +87,7 @@ func (r *rex) HandleInfo(process *gen.ServerProcess, message etf.Term) gen.Serve
 }
 
 // HandleDirect
-func (r *rex) HandleDirect(process *gen.ServerProcess, message interface{}) (interface{}, error) {
+func (r *rex) HandleDirect(process *gen.ServerProcess, ref etf.Ref, message interface{}) (interface{}, gen.DirectStatus) {
 	switch m := message.(type) {
 	case gen.MessageManageRPC:
 		mf := modFun{
@@ -100,13 +100,13 @@ func (r *rex) HandleDirect(process *gen.ServerProcess, message interface{}) (int
 				return nil, node.ErrTaken
 			}
 			r.methods[mf] = m.Fun
-			return nil, nil
+			return nil, gen.DirectStatusOK
 		}
 
 		// revoke RPC
 		if _, ok := r.methods[mf]; ok {
 			delete(r.methods, mf)
-			return nil, nil
+			return nil, gen.DirectStatusOK
 		}
 		return nil, fmt.Errorf("unknown RPC name")
 

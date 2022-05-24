@@ -1069,7 +1069,7 @@ func (n *network) connect(node string) (ConnectionInterface, error) {
 				// use the local TLS settings
 				config := tls.Config{
 					Certificates:       []tls.Certificate{n.tls.Client},
-					InsecureSkipVerify: route.Options.TLS.SkipVerify,
+					InsecureSkipVerify: n.tls.SkipVerify,
 				}
 				tlsdialer := tls.Dialer{
 					NetDialer: &dialer,
@@ -1080,7 +1080,7 @@ func (n *network) connect(node string) (ConnectionInterface, error) {
 				// use the route TLS settings
 				config := tls.Config{
 					Certificates:       []tls.Certificate{route.Options.Cert},
-					InsecureSkipVerify: route.Options.TLS.SkipVerify,
+					InsecureSkipVerify: n.tls.SkipVerify,
 				}
 				tlsdialer := tls.Dialer{
 					NetDialer: &dialer,
