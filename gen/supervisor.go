@@ -157,15 +157,7 @@ func (sv *Supervisor) ProcessLoop(ps ProcessState, started chan<- bool) string {
 
 		case direct := <-chs.Direct:
 			value, err := handleDirect(ps, spec, direct.Message)
-			if err != nil {
-				direct.Message = nil
-				direct.Err = err
-				direct.Reply <- direct
-				continue
-			}
-			direct.Message = value
-			direct.Err = nil
-			direct.Reply <- direct
+			ps.PutSyncReply(direct.Ref, value, err)
 
 		case <-chs.Mailbox:
 			// do nothing

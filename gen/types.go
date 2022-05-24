@@ -185,7 +185,7 @@ type Process interface {
 	PutSyncRequest(ref etf.Ref)
 	CancelSyncRequest(ref etf.Ref)
 	WaitSyncReply(ref etf.Ref, timeout int) (etf.Term, error)
-	PutSyncReply(ref etf.Ref, term etf.Term) error
+	PutSyncReply(ref etf.Ref, term etf.Term, err error) error
 	ProcessChannels() ProcessChannels
 }
 
@@ -269,7 +269,6 @@ type ProcessDirectMessage struct {
 	Ref     etf.Ref
 	Message interface{}
 	Err     error
-	Reply   chan ProcessDirectMessage
 }
 
 // ProcessGracefulExitRequest

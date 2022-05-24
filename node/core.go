@@ -326,7 +326,7 @@ func (c *core) newProcess(name string, behavior gen.ProcessBehavior, opts proces
 		context: processContext,
 		kill:    kill,
 
-		reply:    make(map[etf.Ref]chan etf.Term),
+		reply:    make(map[etf.Ref]chan syncReplyMessage),
 		fallback: opts.Fallback,
 	}
 
@@ -889,7 +889,7 @@ func (c *core) RouteSpawnReply(to etf.Pid, ref etf.Ref, result etf.Term) error {
 		// seems process terminated
 		return ErrProcessTerminated
 	}
-	process.PutSyncReply(ref, result)
+	process.PutSyncReply(ref, result, nil)
 	return nil
 }
 

@@ -57,7 +57,20 @@ func (tgsd *testServerDirect) Init(process *gen.ServerProcess, args ...etf.Term)
 	return nil
 }
 func (tgsd *testServerDirect) HandleDirect(process *gen.ServerProcess, ref etf.Ref, message interface{}) (interface{}, gen.DirectStatus) {
+	switch m := message.(type) {
+	case asyncDirect:
+		m.ref = ref
+		process.Cast(process.Self(), m)
+		return nil, gen.DirectStatusIgnore
+	}
 	return message, gen.DirectStatusOK
+}
+func (tgsd *testServerDirect) HandleCast(process *gen.ServerProcess, message etf.Term) gen.ServerStatus {
+	switch m := message.(type) {
+	case asyncDirect:
+		process.Reply(m.ref, m.val, nil)
+	}
+	return gen.ServerStatusOK
 }
 
 func TestServer(t *testing.T) {
@@ -281,7 +294,7 @@ func TestServer(t *testing.T) {
 	}
 
 	fmt.Printf("    process.Direct (without HandleDirect implementation): ")
-	if _, err := node1gs1.Direct(nil); err == nil {
+	if _, err := node1gs1.Direct(nil); err != gen.ErrUnsupportedRequest {
 		t.Fatal("must be ErrUnsupportedRequest")
 	} else {
 		fmt.Println("OK")
@@ -294,6 +307,19 @@ func TestServer(t *testing.T) {
 			fmt.Println("OK")
 		} else {
 			e := fmt.Errorf("expected: %#v , got: %#v", v, v1)
+			t.Fatal(e)
+		}
+	}
+	fmt.Printf("    process.Direct (with HandleDirect implementation with async reply): ")
+
+	av := etf.Atom("async direct")
+	if v1, err := node2gsDirect.Direct(asyncDirect{val: av}); err != nil {
+		t.Fatal(err)
+	} else {
+		if av == v1 {
+			fmt.Println("OK")
+		} else {
+			e := fmt.Errorf("expected: %#v , got: %#v", av, v1)
 			t.Fatal(e)
 		}
 	}

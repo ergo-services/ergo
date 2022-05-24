@@ -89,15 +89,15 @@ func TestApplicationBasics(t *testing.T) {
 
 	la := mynode.LoadedApplications()
 
-	// there is yet another default application - KernelApp. thats why it
-	// should be equal 2.
-	if len(la) != 2 {
+	// there are default applications - KernelApp, SystemApp thats why it
+	// should be equal 3.
+	if len(la) != 3 {
 		t.Fatal("total number of loaded application mismatch")
 	}
 	fmt.Println("OK")
 
 	wa := mynode.WhichApplications()
-	if len(wa) > 1 {
+	if len(wa) > 2 {
 		t.Fatal("total number of running application mismatch")
 	}
 
@@ -106,7 +106,7 @@ func TestApplicationBasics(t *testing.T) {
 		t.Fatal(err)
 	}
 	la = mynode.LoadedApplications()
-	if len(la) > 1 {
+	if len(la) > 2 {
 		t.Fatal("total number of loaded application mismatch")
 	}
 	fmt.Println("OK")
@@ -131,9 +131,9 @@ func TestApplicationBasics(t *testing.T) {
 	}
 	fmt.Println("OK")
 
-	fmt.Printf("... check total number of running applications (should be 2 including KernelApp): ")
+	fmt.Printf("... check total number of running applications (should be 3 including KernelApp, SystemApp): ")
 	wa = mynode.WhichApplications()
-	if n := len(wa); n != 2 {
+	if n := len(wa); n != 3 {
 		t.Fatal(n)
 	}
 	fmt.Println("OK")
@@ -215,7 +215,7 @@ func TestApplicationBasics(t *testing.T) {
 		t.Fatal(e)
 	}
 	wa = mynode.WhichApplications()
-	if len(wa) != 1 {
+	if len(wa) != 2 {
 		fmt.Println("waa: ", wa)
 		t.Fatal("total number of running application mismatch")
 	}

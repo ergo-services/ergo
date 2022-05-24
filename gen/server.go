@@ -195,6 +195,11 @@ func (sp *ServerProcess) SendReply(from ServerFrom, reply etf.Term) error {
 	return sp.Send(to, rep)
 }
 
+// Reply handling process.Direct(...) calls can be done asynchronously using gen.DirectStatusIgnore as a returning status in the HandleDirect callback. In this case, the returning of value can be postponed until you reply to this call manually, using this method. It returns node.ErrReferenceUnknown if a caller has canceled this request due to timeout.
+func (sp *ServerProcess) Reply(ref etf.Ref, reply etf.Term, err error) error {
+	return sp.PutSyncReply(ref, reply, err)
+}
+
 // MessageCounter returns the total number of messages handled by Server callbacks: HandleCall,
 // HandleCast, HandleInfo, HandleDirect
 func (sp *ServerProcess) MessageCounter() uint64 {
@@ -310,7 +315,7 @@ func (gs *Server) ProcessLoop(ps ProcessState, started chan<- bool) string {
 				if len(m) != 2 {
 					break
 				}
-				sp.PutSyncReply(mtag, m.Element(2))
+				sp.PutSyncReply(mtag, m.Element(2), nil)
 				if sp.waitReply != nil && *sp.waitReply == mtag {
 					sp.waitReply = nil
 					// continue read sp.callbackWaitReply channel
@@ -500,19 +505,14 @@ func (sp *ServerProcess) handleDirect(direct ProcessDirectMessage) {
 
 	cf := sp.currentFunction
 	sp.currentFunction = "Server:HandleDirect"
-	reply, err := sp.behavior.HandleDirect(sp, direct.Ref, direct.Message)
+	reply, status := sp.behavior.HandleDirect(sp, direct.Ref, direct.Message)
 	sp.currentFunction = cf
-	if err != nil {
-		direct.Message = nil
-		direct.Err = err
-		direct.Reply <- direct
+	switch status {
+	case DirectStatusIgnore:
 		return
+	default:
+		sp.PutSyncReply(direct.Ref, reply, status)
 	}
-
-	direct.Message = reply
-	direct.Err = nil
-	direct.Reply <- direct
-	return
 }
 
 func (sp *ServerProcess) handleCall(m handleCallMessage) {

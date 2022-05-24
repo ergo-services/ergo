@@ -19,16 +19,15 @@ const (
 var (
 	syncReplyChannels = &sync.Pool{
 		New: func() interface{} {
-			return make(chan etf.Term, 2)
-		},
-	}
-
-	directChannels = &sync.Pool{
-		New: func() interface{} {
-			return make(chan gen.ProcessDirectMessage, 1)
+			return make(chan syncReplyMessage, 2)
 		},
 	}
 )
+
+type syncReplyMessage struct {
+	value etf.Term
+	err   error
+}
 
 type process struct {
 	coreInternal
@@ -52,7 +51,7 @@ type process struct {
 	exit    processExitFunc
 
 	replyMutex sync.RWMutex
-	reply      map[etf.Ref]chan etf.Term
+	reply      map[etf.Ref]chan syncReplyMessage
 
 	trapExit    bool
 	compression Compression
@@ -366,7 +365,7 @@ func (p *process) NodeUptime() int64 {
 
 // Children
 func (p *process) Children() ([]etf.Pid, error) {
-	c, err := p.directRequest(gen.MessageDirectChildren{}, 5)
+	c, err := p.Direct(gen.MessageDirectChildren{})
 	if err != nil {
 		return []etf.Pid{}, err
 	}
@@ -437,15 +436,37 @@ func (p *process) Behavior() gen.ProcessBehavior {
 
 // Direct
 func (p *process) Direct(request interface{}) (interface{}, error) {
-	return p.directRequest(request, gen.DefaultCallTimeout)
+	return p.DirectWithTimeout(request, gen.DefaultCallTimeout)
 }
 
 // DirectWithTimeout
 func (p *process) DirectWithTimeout(request interface{}, timeout int) (interface{}, error) {
 	if timeout < 1 {
-		timeout = 5
+		timeout = gen.DefaultCallTimeout
 	}
-	return p.directRequest(request, timeout)
+
+	if p.direct == nil {
+		return nil, ErrProcessTerminated
+	}
+
+	timer := lib.TakeTimer()
+	defer lib.ReleaseTimer(timer)
+
+	direct := gen.ProcessDirectMessage{
+		Ref:     p.MakeRef(),
+		Message: request,
+	}
+
+	// sending request
+	select {
+	case p.direct <- direct:
+		timer.Reset(time.Second * time.Duration(timeout))
+	case <-timer.C:
+		return nil, ErrProcessBusy
+	}
+
+	p.PutSyncRequest(direct.Ref)
+	return p.WaitSyncReply(direct.Ref, timeout)
 }
 
 // MonitorNode
@@ -551,68 +572,33 @@ func (p *process) Spawn(name string, opts gen.ProcessOptions, behavior gen.Proce
 	return p.spawn(name, options, behavior, args...)
 }
 
-func (p *process) directRequest(request interface{}, timeout int) (interface{}, error) {
-	if p.direct == nil {
-		return nil, ErrProcessTerminated
-	}
-
-	timer := lib.TakeTimer()
-	defer lib.ReleaseTimer(timer)
-
-	direct := gen.ProcessDirectMessage{
-		Message: request,
-		Reply:   directChannels.Get().(chan gen.ProcessDirectMessage),
-	}
-
-	// sending request
-	select {
-	case p.direct <- direct:
-		timer.Reset(time.Second * time.Duration(timeout))
-	case <-timer.C:
-		return nil, ErrProcessBusy
-	}
-
-	// receiving response
-	select {
-	case response := <-direct.Reply:
-		directChannels.Put(direct.Reply)
-		if response.Err != nil {
-			return nil, response.Err
-		}
-
-		return response.Message, nil
-	case <-timer.C:
-		return nil, ErrTimeout
-	}
-}
-
 // PutSyncRequest
 func (p *process) PutSyncRequest(ref etf.Ref) {
 	if p.reply == nil {
 		return
 	}
-	reply := syncReplyChannels.Get().(chan etf.Term)
+	reply := syncReplyChannels.Get().(chan syncReplyMessage)
 	p.replyMutex.Lock()
 	p.reply[ref] = reply
 	p.replyMutex.Unlock()
 }
 
 // PutSyncReply
-func (p *process) PutSyncReply(ref etf.Ref, reply etf.Term) error {
+func (p *process) PutSyncReply(ref etf.Ref, reply etf.Term, err error) error {
 	if p.reply == nil {
 		return ErrProcessTerminated
 	}
 
 	p.replyMutex.RLock()
 	rep, ok := p.reply[ref]
-	p.replyMutex.RUnlock()
+	defer p.replyMutex.RUnlock()
 
 	if !ok {
-		// ignore this reply, no process waiting for it
-		return nil
+		// no process waiting for it
+		return ErrReferenceUnknown
 	}
 	select {
-	case rep <- reply:
+	case rep <- syncReplyMessage{value: reply, err: err}:
 	}
 	return nil
 }
@@ -634,7 +620,7 @@ func (p *process) WaitSyncReply(ref etf.Ref, timeout int) (etf.Term, error) {
 	reply, wait_for_reply := p.reply[ref]
 	p.replyMutex.RUnlock()
 
-	if !wait_for_reply {
+	if wait_for_reply == false {
 		return nil, fmt.Errorf("Unknown request")
 	}
 
@@ -652,7 +638,7 @@ func (p *process) WaitSyncReply(ref etf.Ref, timeout int) (etf.Term, error) {
 		select {
 		case m := <-reply:
 			syncReplyChannels.Put(reply)
-			return m, nil
+			return m.value, m.err
 		case <-timer.C:
 			return nil, ErrTimeout
 		case <-p.context.Done():

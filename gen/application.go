@@ -195,14 +195,10 @@ func (a *Application) ProcessLoop(ps ProcessState, started chan<- bool) string {
 					pids = append(pids, spec.Children[i].process.Self())
 				}
 
-				direct.Message = pids
-				direct.Err = nil
-				direct.Reply <- direct
+				ps.PutSyncReply(direct.Ref, pids, nil)
 
 			default:
-				direct.Message = nil
-				direct.Err = ErrUnsupportedRequest
-				direct.Reply <- direct
+				ps.PutSyncReply(direct.Ref, nil, ErrUnsupportedRequest)
 			}
 
 		case <-ps.Context().Done():

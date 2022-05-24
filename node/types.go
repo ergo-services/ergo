@@ -35,6 +35,7 @@ var (
 	ErrTaken                = fmt.Errorf("resource is taken")
 	ErrTimeout              = fmt.Errorf("timed out")
 	ErrFragmented           = fmt.Errorf("fragmented data")
+	ErrReferenceUnknown     = fmt.Errorf("unknown reference")
 
 	ErrUnsupported     = fmt.Errorf("not supported")
 	ErrPeerUnsupported = fmt.Errorf("peer does not support this feature")

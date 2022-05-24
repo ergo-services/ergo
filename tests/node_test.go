@@ -93,6 +93,11 @@ type makeCast struct {
 	message interface{}
 }
 
+type asyncDirect struct {
+	ref etf.Ref
+	val etf.Term
+}
+
 func (f *testFragmentationGS) HandleDirect(process *gen.ServerProcess, ref etf.Ref, message interface{}) (interface{}, gen.DirectStatus) {
 	switch m := message.(type) {
 	case makeCall:
