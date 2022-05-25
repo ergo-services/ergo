@@ -88,7 +88,7 @@ func (wp *WebProcess) StartWebHandler(handler WebHandlerBehavior) http.Handler {
 
 func (wp *WebProcess) StartWebHandlerPool(web WebHandlerBehavior, options WebHandlerPoolOptions) http.Handler {
 	handler, err := web.initHandler(wp, web, options)
-	if err == nil {
+	if err != nil {
 		name := reflect.ValueOf(web).Elem().Type().Name()
 		lib.Warning("[%s] can not initialaze WebHandler (%s): %s", wp.Self(), name, err)
 
