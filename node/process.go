@@ -11,11 +11,6 @@ import (
 	"github.com/ergo-services/ergo/lib"
 )
 
-const (
-	// DefaultProcessMailboxSize
-	DefaultProcessMailboxSize = 100
-)
-
 var (
 	syncReplyChannels = &sync.Pool{
 		New: func() interface{} {
@@ -462,6 +457,8 @@ func (p *process) DirectWithTimeout(request interface{}, timeout int) (interface
 	case p.direct <- direct:
 		timer.Reset(time.Second * time.Duration(timeout))
 	case <-timer.C:
+		return nil, ErrTimeout
+	default:
 		return nil, ErrProcessBusy
 	}
 

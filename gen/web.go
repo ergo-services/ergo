@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"reflect"
 	"strconv"
 
 	"github.com/ergo-services/ergo/etf"
@@ -17,7 +18,6 @@ type WebBehavior interface {
 	HandleWebCall(process *WebProcess, from ServerFrom, message etf.Term) (etf.Term, ServerStatus)
 	HandleWebCast(process *WebProcess, message etf.Term) ServerStatus
 	HandleWebInfo(process *WebProcess, message etf.Term) ServerStatus
-	HandleWebDirect(process *WebProcess, ref etf.Ref, message interface{}) (interface{}, DirectStatus)
 
 	HandleWebTerminate(process *WebProcess, reason string)
 }
@@ -38,11 +38,10 @@ type Web struct {
 }
 
 type WebOptions struct {
-	Host        string
-	Port        uint16 // default port 8080, for TLS - 8443
-	Cert        tls.Certificate
-	RouteGroups []WebRouteGroup
-	Routes      []WebRoute
+	Host    string
+	Port    uint16 // default port 8080, for TLS - 8443
+	Cert    tls.Certificate
+	Handler http.Handler
 }
 
 type WebProcess struct {
@@ -71,13 +70,39 @@ type WebMessageRequest struct {
 	Response http.ResponseWriter
 }
 
+type defaultHandler struct {
+}
+
+func (dh *defaultHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotFound)
+	fmt.Fprintf(w, "Handler is not initialized\n")
+}
+
+//
+// WebProcess API
+//
+
+func (wp *WebProcess) StartWebHandler(handler WebHandlerBehavior) http.Handler {
+	return wp.StartWebHandlerPool(handler, WebHandlerPoolOptions{})
+}
+
+func (wp *WebProcess) StartWebHandlerPool(web WebHandlerBehavior, options WebHandlerPoolOptions) http.Handler {
+	handler, err := web.initHandler(wp, web, options)
+	if err == nil {
+		name := reflect.ValueOf(web).Elem().Type().Name()
+		lib.Warning("[%s] can not initialaze WebHandler (%s): %s", wp.Self(), name, err)
+
+		return &defaultHandler{}
+	}
+	return handler
+}
+
 //
 // Server callbacks
 //
 
 func (web *Web) Init(process *ServerProcess, args ...etf.Term) error {
 
-	behavior := process.Behavior().(WebBehavior)
 	behavior, ok := process.Behavior().(WebBehavior)
 	if !ok {
 		return fmt.Errorf("Web: not a WebBehavior")
@@ -105,10 +130,6 @@ func (web *Web) Init(process *ServerProcess, args ...etf.Term) error {
 		}
 	}
 
-	if err := webProcess.makeRouteHandler(); err != nil {
-		return err
-	}
-
 	lc := net.ListenConfig{}
 	ctx := process.Context()
 	hostPort := net.JoinHostPort(options.Host, strconv.Itoa(int(options.Port)))
@@ -124,7 +145,9 @@ func (web *Web) Init(process *ServerProcess, args ...etf.Term) error {
 		listener = tls.NewListener(listener, &config)
 	}
 
-	httpServer := http.Server{}
+	httpServer := http.Server{
+		Handler: options.Handler,
+	}
 
 	// start acceptor
 	go func() {
@@ -158,27 +181,13 @@ func (web *Web) HandleCall(process *ServerProcess, from ServerFrom, message etf.
 
 // HandleDirect
 func (web *Web) HandleDirect(process *ServerProcess, ref etf.Ref, message interface{}) (interface{}, DirectStatus) {
-	webp := process.State.(*WebProcess)
-	switch m := message.(type) {
-	case webMessageTest:
-		fmt.Println("got m", m)
-		return nil, DirectStatusOK
-	default:
-		return webp.behavior.HandleWebDirect(webp, ref, message)
-	}
+	return nil, DirectStatusOK
 }
 
 // HandleCast
 func (web *Web) HandleCast(process *ServerProcess, message etf.Term) ServerStatus {
-	var status WebStatus
 	webp := process.State.(*WebProcess)
-	switch m := message.(type) {
-	case webMessageTest:
-		fmt.Println("got m", m)
-		return ServerStatusOK
-	default:
-		status = webp.behavior.HandleWebCast(webp, message)
-	}
+	status := webp.behavior.HandleWebCast(webp, message)
 
 	switch status {
 	case WebStatusOK:
@@ -192,15 +201,8 @@ func (web *Web) HandleCast(process *ServerProcess, message etf.Term) ServerStatu
 
 // HandleInfo
 func (web *Web) HandleInfo(process *ServerProcess, message etf.Term) ServerStatus {
-	var status WebStatus
 	webp := process.State.(*WebProcess)
-	switch m := message.(type) {
-	case webMessageTest:
-		fmt.Println("got m", m)
-		return ServerStatusOK
-	default:
-		status = webp.behavior.HandleWebInfo(webp, message)
-	}
+	status := webp.behavior.HandleWebInfo(webp, message)
 
 	switch status {
 	case WebStatusOK:
@@ -234,11 +236,6 @@ func (web *Web) HandleWebInfo(process *WebProcess, message etf.Term) ServerStatu
 	return ServerStatusOK
 }
 
-// HandleWebDirect
-func (web *Web) HandleWebDirect(process *WebProcess, ref etf.Ref, message interface{}) (interface{}, DirectStatus) {
-	return nil, ErrUnsupportedRequest
-}
-
 // HandleWebTerminate
 func (w *Web) HandleWebTerminate(process *WebProcess, reason string) {
 	return
@@ -247,8 +244,3 @@ func (w *Web) HandleWebTerminate(process *WebProcess, reason string) {
 //
 // WebProcess
 //
-
-func (wp *WebProcess) makeRouteHandler() error {
-
-	return nil
-}

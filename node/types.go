@@ -58,6 +58,9 @@ const (
 	defaultKeepAlivePeriod time.Duration = 15
 	defaultProxyPathLimit  int           = 32
 
+	DefaultProcessMailboxSize   int = 100
+	DefaultProcessDirectboxSize int = 10
+
 	EnvKeyVersion     gen.EnvKey = "ergo:Version"
 	EnvKeyNode        gen.EnvKey = "ergo:Node"
 	EnvKeyRemoteSpawn gen.EnvKey = "ergo:RemoteSpawn"

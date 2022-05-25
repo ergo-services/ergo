@@ -214,6 +214,8 @@ type ProcessOptions struct {
 	Context context.Context
 	// MailboxSize defines the length of message queue for the process
 	MailboxSize uint16
+	// DirectboxSize defines the length of message queue for the direct requests
+	DirectboxSize uint16
 	// GroupLeader
 	GroupLeader Process
 	// Env set the process environment variables

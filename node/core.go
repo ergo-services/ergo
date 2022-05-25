@@ -286,6 +286,10 @@ func (c *core) newProcess(name string, behavior gen.ProcessBehavior, opts proces
 	if opts.MailboxSize > 0 {
 		mailboxSize = int(opts.MailboxSize)
 	}
+	directboxSize := DefaultProcessDirectboxSize
+	if opts.DirectboxSize > 0 {
+		directboxSize = int(opts.DirectboxSize)
+	}
 
 	processContext, kill = context.WithCancel(c.ctx)
 	if opts.Context != nil {
@@ -321,7 +325,7 @@ func (c *core) newProcess(name string, behavior gen.ProcessBehavior, opts proces
 
 		mailBox:      make(chan gen.ProcessMailboxMessage, mailboxSize),
 		gracefulExit: make(chan gen.ProcessGracefulExitRequest, mailboxSize),
-		direct:       make(chan gen.ProcessDirectMessage),
+		direct:       make(chan gen.ProcessDirectMessage, directboxSize),
 
 		context: processContext,
 		kill:    kill,
