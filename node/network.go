@@ -47,6 +47,9 @@ type networkInternal interface {
 	Nodes() []string
 	NodesIndirect() []string
 
+	// stats
+	NetworkStats(name string) (NetworkStats, error)
+
 	// core router methods
 	RouteProxyConnectRequest(from ConnectionInterface, request ProxyConnectRequest) error
 	RouteProxyConnectReply(from ConnectionInterface, reply ProxyConnectReply) error
@@ -56,6 +59,14 @@ type networkInternal interface {
 
 	getConnection(peername string) (ConnectionInterface, error)
 	stopNetwork()
+
+	networkStats() internalNetworkStats
+}
+
+type internalNetworkStats struct {
+	transitConnections int
+	proxyConnections   int
+	connections        int
 }
 
 type connectionInternal struct {
@@ -412,7 +423,20 @@ func (n *network) NodesIndirect() []string {
 		}
 	}
 	return list
+}
 
+func (n *network) NetworkStats(name string) (NetworkStats, error) {
+	var stats NetworkStats
+	n.connectionsMutex.RLock()
+	ci, found := n.connections[name]
+	n.connectionsMutex.RUnlock()
+
+	if found == false {
+		return stats, ErrUnknown
+	}
+
+	stats = ci.connection.Stats()
+	return stats, nil
 }
 
 // RouteProxyConnectRequest
@@ -1328,6 +1352,9 @@ func (c *Connection) ProxyUnregisterSession(id string) error {
 func (c *Connection) ProxyPacket(packet *lib.Buffer) error {
 	return ErrUnsupported
 }
+func (c *Connection) Stats() NetworkStats {
+	return NetworkStats{}
+}
 
 //
 // Handshake interface default callbacks
@@ -1408,6 +1435,14 @@ func (n *network) getProxyConnectRequest(id etf.Ref) (proxyConnectRequest, bool)
 	defer n.proxyConnectRequestMutex.RUnlock()
 	r, found := n.proxyConnectRequest[id]
 	return r, found
+}
+
+func (n *network) networkStats() internalNetworkStats {
+	stats := internalNetworkStats{}
+	stats.transitConnections = len(n.connectionsTransit)
+	stats.proxyConnections = len(n.connectionsProxy)
+	stats.connections = len(n.connections)
+	return stats
 }
 
 //

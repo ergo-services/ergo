@@ -38,6 +38,7 @@ var (
 	ErrReferenceUnknown     = fmt.Errorf("unknown reference")
 
 	ErrUnsupported     = fmt.Errorf("not supported")
+	ErrUnknown         = fmt.Errorf("unknown")
 	ErrPeerUnsupported = fmt.Errorf("peer does not support this feature")
 
 	ErrProxyUnknownRequest   = fmt.Errorf("unknown proxy request")
@@ -144,11 +145,16 @@ type Node interface {
 	Nodes() []string
 	// NodesIndirect returns the list of nodes connected via proxies
 	NodesIndirect() []string
+	// NetworkStats returns network statistics of the connection with the node. Returns error
+	// ErrUnknown if connection with given node is not established.
+	NetworkStats(name string) (NetworkStats, error)
 
 	Links(process etf.Pid) []etf.Pid
 	Monitors(process etf.Pid) []etf.Pid
 	MonitorsByName(process etf.Pid) []gen.ProcessID
 	MonitoredBy(process etf.Pid) []etf.Pid
+
+	Stats() NodeStats
 
 	Stop()
 	Wait()
@@ -349,6 +355,7 @@ type ConnectionInterface interface {
 	ProxyPacket(packet *lib.Buffer) error
 
 	Creation() uint32
+	Stats() NetworkStats
 }
 
 // Handshake template struct for the custom Handshake implementation
@@ -568,3 +575,33 @@ type ProxySession struct {
 
 // CustomRouteOptions a custom set of route options
 type CustomRouteOptions interface{}
+
+type NetworkStats struct {
+	NodeName        string
+	BytesIn         uint64
+	BytesOut        uint64
+	TransitBytesIn  uint64
+	TransitBytesOut uint64
+	MessagesIn      uint64
+	MessagesOut     uint64
+}
+
+type NodeStats struct {
+	TotalProcesses    uint64
+	TotalReferences   uint64
+	RunningProcesses  uint64
+	RegisteredNames   uint64
+	RegisteredAliases uint64
+
+	MonitorsByPid  uint64
+	MonitorsByName uint64
+	MonitorsNodes  uint64
+	Links          uint64
+
+	LoadedApplications  uint64
+	RunningApplications uint64
+
+	NetworkConnections uint64
+	ProxyConnections   uint64
+	TransitConnections uint64
+}

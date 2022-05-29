@@ -15,8 +15,9 @@ import (
 	"github.com/ergo-services/ergo/lib"
 )
 
-const (
-	startPID = 1000
+var (
+	startPID    = uint64(1000)
+	startUniqID = uint64(time.Now().UnixNano())
 )
 
 type core struct {
@@ -75,6 +76,18 @@ type coreInternal interface {
 
 	coreWait()
 	coreWaitWithTimeout(d time.Duration) error
+
+	monitorStats() internalMonitorStats
+	networkStats() internalNetworkStats
+	coreStats() internalCoreStats
+}
+
+type internalCoreStats struct {
+	totalProcesses  uint64
+	totalReferences uint64
+	processes       int
+	aliases         int
+	names           int
 }
 
 type coreRouterInternal interface {
@@ -113,7 +126,7 @@ func newCore(ctx context.Context, nodename string, cookie string, options Option
 		ctx:     ctx,
 		env:     options.Env,
 		nextPID: startPID,
-		uniqID:  uint64(time.Now().UnixNano()),
+		uniqID:  startUniqID,
 		// keep node to get the process to access to the node's methods
 		nodename:    nodename,
 		compression: options.Compression,
@@ -905,4 +918,14 @@ func (c *core) processByPid(pid etf.Pid) *process {
 	}
 	// unknown process
 	return nil
+}
+
+func (c *core) coreStats() internalCoreStats {
+	stats := internalCoreStats{}
+	stats.totalProcesses = c.nextPID - startPID
+	stats.totalReferences = c.uniqID - startUniqID
+	stats.processes = len(c.processes)
+	stats.aliases = len(c.aliases)
+	stats.names = len(c.names)
+	return stats
 }

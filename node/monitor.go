@@ -48,6 +48,15 @@ type monitorInternal interface {
 	processMonitors(process etf.Pid) []etf.Pid
 	processMonitorsByName(process etf.Pid) []gen.ProcessID
 	processMonitoredBy(process etf.Pid) []etf.Pid
+
+	monitorStats() internalMonitorStats
+}
+
+type internalMonitorStats struct {
+	monitorsByPid  int
+	monitorsByName int
+	monitorsNodes  int
+	links          int
 }
 
 type monitor struct {
@@ -851,4 +860,13 @@ func (m *monitor) sendExit(to etf.Pid, terminated etf.Pid, reason string) error 
 		return nil
 	}
 	return ErrProcessUnknown
+}
+
+func (m *monitor) monitorStats() internalMonitorStats {
+	stats := internalMonitorStats{}
+	stats.monitorsByPid = len(m.processes)
+	stats.monitorsByName = len(m.names)
+	stats.monitorsNodes = len(m.nodes)
+	stats.links = len(m.links)
+	return stats
 }

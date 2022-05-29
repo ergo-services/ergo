@@ -160,6 +160,33 @@ func (n *node) Wait() {
 	n.coreWait()
 }
 
+func (n *node) Stats() NodeStats {
+	stats := NodeStats{}
+
+	coreStats := n.coreStats()
+	stats.TotalProcesses = coreStats.totalProcesses
+	stats.TotalReferences = coreStats.totalReferences
+	stats.RunningProcesses = uint64(coreStats.processes)
+	stats.RegisteredNames = uint64(coreStats.names)
+	stats.RegisteredAliases = uint64(coreStats.aliases)
+
+	monStats := n.monitorStats()
+	stats.MonitorsByPid = uint64(monStats.monitorsByPid)
+	stats.MonitorsByName = uint64(monStats.monitorsByName)
+	stats.MonitorsNodes = uint64(monStats.monitorsNodes)
+	stats.Links = uint64(monStats.links)
+
+	stats.LoadedApplications = uint64(len(n.LoadedApplications()))
+	stats.RunningApplications = uint64(len(n.WhichApplications()))
+
+	netStats := n.networkStats()
+	stats.NetworkConnections = uint64(netStats.connections)
+	stats.ProxyConnections = uint64(netStats.proxyConnections)
+	stats.TransitConnections = uint64(netStats.transitConnections)
+
+	return stats
+}
+
 // WaitWithTimeout
 func (n *node) WaitWithTimeout(d time.Duration) error {
 	return n.coreWaitWithTimeout(d)

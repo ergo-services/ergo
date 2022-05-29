@@ -132,6 +132,9 @@ type distConnection struct {
 	checkCleanTimer    *time.Timer
 	checkCleanTimeout  time.Duration // default is 5 seconds
 	checkCleanDeadline time.Duration // how long we wait for the next fragment of the certain sequenceID. Default is 30 seconds
+
+	// stats
+	stats node.NetworkStats
 }
 
 type distProto struct {
@@ -193,6 +196,8 @@ func (dp *distProto) Init(ctx context.Context, conn io.ReadWriter, nodename stri
 		checkCleanDeadline:      defaultCleanDeadline,
 	}
 	connection.ctx, connection.cancelContext = context.WithCancel(ctx)
+
+	connection.stats.NodeName = details.Name
 
 	// create connection buffering
 	connection.flusher = newLinkFlusher(conn, defaultLatency, details.Flags.EnableSoftwareKeepAlive)
@@ -790,6 +795,8 @@ func (dc *distConnection) receiver(recv <-chan *lib.Buffer) {
 			dc.ProxyDisconnect(disconnect)
 		}
 
+		atomic.AddUint64(&dc.stats.MessagesIn, 1)
+
 		// we have to release this buffer
 		lib.ReleaseBuffer(b)
 
@@ -810,6 +817,8 @@ func (dc *distConnection) decodePacket(b *lib.Buffer) (*distMessage, error) {
 		if control == nil {
 			return nil, err
 		}
+		atomic.AddUint64(&dc.stats.BytesIn, uint64(b.Len()))
+
 		message := &distMessage{control: control, payload: payload}
 		return message, err
 
@@ -829,9 +838,12 @@ func (dc *distConnection) decodePacket(b *lib.Buffer) (*distMessage, error) {
 					Reason:    err.Error(),
 				}
 				dc.ProxyDisconnect(disconnect)
+				return nil, nil
 			}
+			atomic.AddUint64(&dc.stats.TransitBytesIn, uint64(b.Len()))
 			return nil, nil
 		}
+
 		// this node is endpoint of this session
 		packet = b.B[37:]
 		control, payload, err := dc.decodeDist(packet, &ps)
@@ -859,6 +871,9 @@ func (dc *distConnection) decodePacket(b *lib.Buffer) (*distMessage, error) {
 			dc.ProxyDisconnect(disconnect)
 			return nil, nil
 		}
+
+		atomic.AddUint64(&dc.stats.BytesIn, uint64(b.Len()))
+
 		if control == nil {
 			return nil, nil
 		}
@@ -866,6 +881,7 @@ func (dc *distConnection) decodePacket(b *lib.Buffer) (*distMessage, error) {
 		return message, nil
 
 	case protoProxyX:
+		atomic.AddUint64(&dc.stats.BytesIn, uint64(b.Len()))
 		sessionID := string(packet[5:37])
 		dc.proxySessionsMutex.RLock()
 		ps, exist := dc.proxySessionsByID[sessionID]
@@ -881,7 +897,9 @@ func (dc *distConnection) decodePacket(b *lib.Buffer) (*distMessage, error) {
 					Reason:    err.Error(),
 				}
 				dc.ProxyDisconnect(disconnect)
+				return nil, nil
 			}
+			atomic.AddUint64(&dc.stats.TransitBytesIn, uint64(b.Len()))
 			return nil, nil
 		}
 
@@ -898,6 +916,8 @@ func (dc *distConnection) decodePacket(b *lib.Buffer) (*distMessage, error) {
 			dc.ProxyDisconnect(disconnect)
 			return nil, nil
 		}
+		atomic.AddUint64(&dc.stats.BytesIn, uint64(b.Len()))
+
 		iv := packet[:aes.BlockSize]
 		msg := packet[aes.BlockSize:]
 		cfb := cipher.NewCFBDecrypter(ps.session.Block, iv)
@@ -923,7 +943,6 @@ func (dc *distConnection) decodePacket(b *lib.Buffer) (*distMessage, error) {
 		if err != nil {
 			if err == errMissingInCache {
 				// will be deferred
-				// TODO make sure if this shift is correct
 				b.B = b.B[32+aes.BlockSize:]
 				b.B[4] = protoDist
 				return nil, err
@@ -939,6 +958,7 @@ func (dc *distConnection) decodePacket(b *lib.Buffer) (*distMessage, error) {
 			dc.ProxyDisconnect(disconnect)
 			return nil, nil
 		}
+		atomic.AddUint64(&dc.stats.BytesIn, uint64(b.Len()))
 		if control == nil {
 			return nil, nil
 		}
@@ -1765,12 +1785,16 @@ func (dc *distConnection) sender(sender_id int, send <-chan *sendMessage, option
 
 		if message.packet != nil {
 			// transit proxy message
-			if _, err := dc.flusher.Write(message.packet.B); err != nil {
+			bytesOut, err := dc.flusher.Write(message.packet.B)
+			if err != nil {
 				return
 			}
+			atomic.AddUint64(&dc.stats.TransitBytesOut, uint64(bytesOut))
 			lib.ReleaseBuffer(message.packet)
 			continue
 		}
+
+		atomic.AddUint64(&dc.stats.MessagesOut, 1)
 
 		packetBuffer = lib.TakeBuffer()
 		lenMessage, lenAtomCache, lenPacket = 0, 0, 0
@@ -1931,9 +1955,11 @@ func (dc *distConnection) sender(sender_id int, send <-chan *sendMessage, option
 					binary.BigEndian.PutUint32(packetBuffer.B[startDataPosition:], uint32(lenPacket))
 					packetBuffer.B[startDataPosition+4] = protoDist // 131
 
-					if _, err := dc.flusher.Write(packetBuffer.B[startDataPosition:]); err != nil {
+					bytesOut, err := dc.flusher.Write(packetBuffer.B[startDataPosition:])
+					if err != nil {
 						return
 					}
+					atomic.AddUint64(&dc.stats.BytesOut, uint64(bytesOut))
 					break
 				}
 
@@ -1946,9 +1972,11 @@ func (dc *distConnection) sender(sender_id int, send <-chan *sendMessage, option
 					binary.BigEndian.PutUint32(packetBuffer.B[startDataPosition:], uint32(l))
 					packetBuffer.B[startDataPosition+4] = protoProxy
 					copy(packetBuffer.B[startDataPosition+5:], message.proxy.session.ID)
-					if _, err := dc.flusher.Write(packetBuffer.B[startDataPosition:]); err != nil {
+					bytesOut, err := dc.flusher.Write(packetBuffer.B[startDataPosition:])
+					if err != nil {
 						return
 					}
+					atomic.AddUint64(&dc.stats.BytesOut, uint64(bytesOut))
 					break
 				}
 
@@ -1959,9 +1987,11 @@ func (dc *distConnection) sender(sender_id int, send <-chan *sendMessage, option
 					// can't encrypt message
 					return
 				}
-				if _, err := dc.flusher.Write(xBuffer.B); err != nil {
+				bytesOut, err := dc.flusher.Write(xBuffer.B)
+				if err != nil {
 					return
 				}
+				atomic.AddUint64(&dc.stats.BytesOut, uint64(bytesOut))
 				lib.ReleaseBuffer(xBuffer)
 				break
 			}
@@ -1992,9 +2022,11 @@ func (dc *distConnection) sender(sender_id int, send <-chan *sendMessage, option
 			if message.proxy == nil {
 				binary.BigEndian.PutUint32(packetBuffer.B[startDataPosition:], uint32(lenPacket))
 				packetBuffer.B[startDataPosition+4] = protoDist // 131
-				if _, err := dc.flusher.Write(packetBuffer.B[startDataPosition : startDataPosition+4+lenPacket]); err != nil {
+				bytesOut, err := dc.flusher.Write(packetBuffer.B[startDataPosition : startDataPosition+4+lenPacket])
+				if err != nil {
 					return
 				}
+				atomic.AddUint64(&dc.stats.BytesOut, uint64(bytesOut))
 			} else {
 				// proxy message
 				if encryptionEnabled == false {
@@ -2003,9 +2035,11 @@ func (dc *distConnection) sender(sender_id int, send <-chan *sendMessage, option
 					binary.BigEndian.PutUint32(packetBuffer.B[startDataPosition-32:], uint32(lenPacket+32))
 					packetBuffer.B[startDataPosition-32+4] = protoProxy // 141
 					copy(packetBuffer.B[startDataPosition-32+5:], message.proxy.session.ID)
-					if _, err := dc.flusher.Write(packetBuffer.B[startDataPosition-32 : startDataPosition+4+lenPacket]); err != nil {
+					bytesOut, err := dc.flusher.Write(packetBuffer.B[startDataPosition-32 : startDataPosition+4+lenPacket])
+					if err != nil {
 						return
 					}
+					atomic.AddUint64(&dc.stats.BytesOut, uint64(bytesOut))
 
 				} else {
 					// send encrypted proxy message
@@ -2018,9 +2052,12 @@ func (dc *distConnection) sender(sender_id int, send <-chan *sendMessage, option
 						// can't encrypt message
 						return
 					}
-					if _, err := dc.flusher.Write(xBuffer.B); err != nil {
+					bytesOut, err := dc.flusher.Write(xBuffer.B)
+					if err != nil {
 						return
 					}
+					atomic.AddUint64(&dc.stats.BytesOut, uint64(bytesOut))
+
 					// resore tail
 					copy(packetBuffer.B[startDataPosition+4+lenPacket:], tail16[:n])
 					lib.ReleaseBuffer(xBuffer)
@@ -2055,18 +2092,22 @@ func (dc *distConnection) sender(sender_id int, send <-chan *sendMessage, option
 				// send fragment
 				binary.BigEndian.PutUint32(packetBuffer.B[startDataPosition:], uint32(lenPacket))
 				packetBuffer.B[startDataPosition+4] = protoDist // 131
-				if _, err := dc.flusher.Write(packetBuffer.B[startDataPosition : startDataPosition+4+lenPacket]); err != nil {
+				bytesOut, err := dc.flusher.Write(packetBuffer.B[startDataPosition : startDataPosition+4+lenPacket])
+				if err != nil {
 					return
 				}
+				atomic.AddUint64(&dc.stats.BytesOut, uint64(bytesOut))
 			} else {
 				// wrap it as a proxy message
 				if encryptionEnabled == false {
 					binary.BigEndian.PutUint32(packetBuffer.B[startDataPosition-32:], uint32(lenPacket+32))
 					packetBuffer.B[startDataPosition-32+4] = protoProxy // 141
 					copy(packetBuffer.B[startDataPosition-32+5:], message.proxy.session.ID)
-					if _, err := dc.flusher.Write(packetBuffer.B[startDataPosition-32 : startDataPosition+4+lenPacket]); err != nil {
+					bytesOut, err := dc.flusher.Write(packetBuffer.B[startDataPosition-32 : startDataPosition+4+lenPacket])
+					if err != nil {
 						return
 					}
+					atomic.AddUint64(&dc.stats.BytesOut, uint64(bytesOut))
 				} else {
 					// send encrypted proxy message
 					tail16 := [16]byte{}
@@ -2077,9 +2118,11 @@ func (dc *distConnection) sender(sender_id int, send <-chan *sendMessage, option
 						// can't encrypt message
 						return
 					}
-					if _, err := dc.flusher.Write(xBuffer.B); err != nil {
+					bytesOut, err := dc.flusher.Write(xBuffer.B)
+					if err != nil {
 						return
 					}
+					atomic.AddUint64(&dc.stats.BytesOut, uint64(bytesOut))
 					// resore tail
 					copy(packetBuffer.B[startDataPosition+4+lenPacket:], tail16[:n])
 					lib.ReleaseBuffer(xBuffer)
@@ -2163,6 +2206,10 @@ func (dc *distConnection) send(to string, creation uint32, msg *sendMessage) err
 
 	s.sendChannel <- msg
 	return nil
+}
+
+func (dc *distConnection) Stats() node.NetworkStats {
+	return dc.stats
 }
 
 func proxyFlagsToUint64(pf node.ProxyFlags) uint64 {

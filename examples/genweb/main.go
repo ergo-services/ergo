@@ -27,7 +27,7 @@ func main() {
 	opts := node.Options{}
 
 	// Initialize new node with given name, cookie, listening port range and epmd port
-	node, err := ergo.StartNode("web@localhost", "secret", opts)
+	node, err := ergo.StartNode("web@127.0.0.1", "secret", opts)
 	if err != nil {
 		panic(err)
 	}
