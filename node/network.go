@@ -243,7 +243,7 @@ func (n *network) AddStaticRoute(node string, host string, port uint16, options 
 
 	_, exist := n.staticRoutes[node]
 	if exist {
-		return ErrTaken
+		return lib.ErrTaken
 	}
 
 	if options.Handshake != nil {
@@ -297,13 +297,13 @@ func (n *network) getConnectionDirect(peername string, connect bool) (Connection
 	}
 
 	if connect == false {
-		return nil, ErrNoRoute
+		return nil, lib.ErrNoRoute
 	}
 
 	connection, err := n.connect(peername)
 	if err != nil {
 		lib.Log("[%s] CORE no route to node %q: %s", n.nodename, peername, err)
-		return nil, ErrNoRoute
+		return nil, lib.ErrNoRoute
 	}
 	return connection, nil
 
@@ -313,7 +313,7 @@ func (n *network) getConnectionDirect(peername string, connect bool) (Connection
 func (n *network) getConnection(peername string) (ConnectionInterface, error) {
 	if peername == n.nodename {
 		// can't connect to itself
-		return nil, ErrNoRoute
+		return nil, lib.ErrNoRoute
 	}
 	n.connectionsMutex.RLock()
 	ci, ok := n.connections[peername]
@@ -330,7 +330,7 @@ func (n *network) getConnection(peername string) (ConnectionInterface, error) {
 	}
 
 	if err := n.RouteProxyConnectRequest(nil, request); err != nil {
-		if err != ErrProxyNoRoute {
+		if err != lib.ErrProxyNoRoute {
 			return nil, err
 		}
 
@@ -363,7 +363,7 @@ func (n *network) Resolve(node string) (Route, error) {
 	}
 
 	if n.staticOnly {
-		return Route{}, ErrNoRoute
+		return Route{}, lib.ErrNoRoute
 	}
 
 	return n.resolver.Resolve(node)
@@ -381,7 +381,7 @@ func (n *network) Disconnect(node string) error {
 	ci, ok := n.connections[node]
 	n.connectionsMutex.RUnlock()
 	if !ok {
-		return ErrNoRoute
+		return lib.ErrNoRoute
 	}
 
 	if ci.conn == nil {
@@ -432,7 +432,7 @@ func (n *network) NetworkStats(name string) (NetworkStats, error) {
 	n.connectionsMutex.RUnlock()
 
 	if found == false {
-		return stats, ErrUnknown
+		return stats, lib.ErrUnknown
 	}
 
 	stats = ci.connection.Stats()
@@ -459,16 +459,16 @@ func (n *network) RouteProxyConnectRequest(from ConnectionInterface, request Pro
 			// proxy feature must be enabled explicitly for the transitional requests
 			if n.proxy.Transit == false {
 				lib.Log("[%s] NETWORK proxy. Proxy feature is disabled on this node", n.nodename)
-				return ErrProxyTransitDisabled
+				return lib.ErrProxyTransitDisabled
 			}
 			if request.Hop < 1 {
 				lib.Log("[%s] NETWORK proxy. Error: exceeded hop limit", n.nodename)
-				return ErrProxyHopExceeded
+				return lib.ErrProxyHopExceeded
 			}
 			request.Hop--
 
 			if len(request.Path) > defaultProxyPathLimit {
-				return ErrProxyPathTooLong
+				return lib.ErrProxyPathTooLong
 			}
 
 			for i := range request.Path {
@@ -476,7 +476,7 @@ func (n *network) RouteProxyConnectRequest(from ConnectionInterface, request Pro
 					continue
 				}
 				lib.Log("[%s] NETWORK proxy. Error: loop detected in proxy path %#v", n.nodename, request.Path)
-				return ErrProxyLoopDetected
+				return lib.ErrProxyLoopDetected
 			}
 
 			// try to connect to the next-hop node
@@ -492,7 +492,7 @@ func (n *network) RouteProxyConnectRequest(from ConnectionInterface, request Pro
 
 			if from == connection {
 				lib.Log("[%s] NETWORK proxy. Error: proxy route points to the connection this request came from", n.nodename)
-				return ErrProxyLoopDetected
+				return lib.ErrProxyLoopDetected
 			}
 			request.Path = append([]string{n.nodename}, request.Path...)
 			return connection.ProxyConnectRequest(request)
@@ -501,7 +501,7 @@ func (n *network) RouteProxyConnectRequest(from ConnectionInterface, request Pro
 		if has_route == false {
 			// if it was invoked from getConnection ('from' == nil) there will
 			// be attempt to make direct connection using getConnectionDirect
-			return ErrProxyNoRoute
+			return lib.ErrProxyNoRoute
 		}
 
 		//
@@ -553,13 +553,13 @@ func (n *network) RouteProxyConnectRequest(from ConnectionInterface, request Pro
 	if len(request.Path) < 2 {
 		// reply error. there must be atleast 2 nodes - initiating and transit nodes
 		lib.Log("[%s] NETWORK proxy. Proxy connect request has wrong path (too short)", n.nodename)
-		return ErrProxyConnect
+		return lib.ErrProxyConnect
 	}
 	peername := request.Path[len(request.Path)-1]
 
 	if n.proxy.Accept == false {
 		lib.Warning("[%s] Got proxy connect request from %q. Not allowed.", n.nodename, peername)
-		return ErrProxyConnect
+		return lib.ErrProxyConnect
 	}
 
 	cookie := n.proxy.Cookie
@@ -574,14 +574,14 @@ func (n *network) RouteProxyConnectRequest(from ConnectionInterface, request Pro
 	if bytes.Equal(request.Digest, checkDigest) == false {
 		// reply error. digest mismatch
 		lib.Log("[%s] NETWORK proxy. Proxy connect request has wrong digest", n.nodename)
-		return ErrProxyConnect
+		return lib.ErrProxyConnect
 	}
 
 	// do some encryption magic
 	pk, err := x509.ParsePKCS1PublicKey(request.PublicKey)
 	if err != nil {
 		lib.Log("[%s] NETWORK proxy. Proxy connect request has wrong public key", n.nodename)
-		return ErrProxyConnect
+		return lib.ErrProxyConnect
 	}
 	hash := sha256.New()
 	key := make([]byte, 32)
@@ -589,7 +589,7 @@ func (n *network) RouteProxyConnectRequest(from ConnectionInterface, request Pro
 	cipherkey, err := rsa.EncryptOAEP(hash, rand.Reader, pk, key, nil)
 	if err != nil {
 		lib.Log("[%s] NETWORK proxy. Proxy connect request. Can't encrypt: %s ", n.nodename, err)
-		return ErrProxyConnect
+		return lib.ErrProxyConnect
 	}
 	block, err := aes.NewCipher(key)
 	if err != nil {
@@ -613,7 +613,7 @@ func (n *network) RouteProxyConnectRequest(from ConnectionInterface, request Pro
 		proxySessionID: sessionID,
 	}
 	if _, err := n.registerConnection(peername, cInternal); err != nil {
-		return ErrProxySessionDuplicate
+		return lib.ErrProxySessionDuplicate
 	}
 
 	reply := ProxyConnectReply{
@@ -631,7 +631,7 @@ func (n *network) RouteProxyConnectRequest(from ConnectionInterface, request Pro
 		// can't send reply. ignore this connection request
 		lib.Log("[%s] NETWORK proxy. Proxy connect request. Can't send reply: %s ", n.nodename, err)
 		n.unregisterConnection(peername, nil)
-		return ErrProxyConnect
+		return lib.ErrProxyConnect
 	}
 
 	session := ProxySession{
@@ -655,25 +655,25 @@ func (n *network) RouteProxyConnectReply(from ConnectionInterface, reply ProxyCo
 	n.proxyTransitSessionsMutex.RUnlock()
 
 	if duplicate {
-		return ErrProxySessionDuplicate
+		return lib.ErrProxySessionDuplicate
 	}
 
 	if from == nil {
 		// from value can't be nil
-		return ErrProxyUnknownRequest
+		return lib.ErrProxyUnknownRequest
 	}
 
 	if reply.To != n.nodename {
 		// send this reply further and register this session
 		if n.proxy.Transit == false {
-			return ErrProxyTransitDisabled
+			return lib.ErrProxyTransitDisabled
 		}
 
 		if len(reply.Path) == 0 {
-			return ErrProxyUnknownRequest
+			return lib.ErrProxyUnknownRequest
 		}
 		if len(reply.Path) > defaultProxyPathLimit {
-			return ErrProxyPathTooLong
+			return lib.ErrProxyPathTooLong
 		}
 
 		next := reply.Path[0]
@@ -682,14 +682,14 @@ func (n *network) RouteProxyConnectReply(from ConnectionInterface, reply ProxyCo
 			return err
 		}
 		if connection == from {
-			return ErrProxyLoopDetected
+			return lib.ErrProxyLoopDetected
 		}
 
 		reply.Path = reply.Path[1:]
 		// check for the looping
 		for i := range reply.Path {
 			if reply.Path[i] == next {
-				return ErrProxyLoopDetected
+				return lib.ErrProxyLoopDetected
 			}
 		}
 
@@ -724,7 +724,7 @@ func (n *network) RouteProxyConnectReply(from ConnectionInterface, reply ProxyCo
 	// look up for the request we made earlier
 	r, found := n.getProxyConnectRequest(reply.ID)
 	if found == false {
-		return ErrProxyUnknownRequest
+		return lib.ErrProxyUnknownRequest
 	}
 
 	// decrypt cipher key using private key
@@ -732,7 +732,7 @@ func (n *network) RouteProxyConnectReply(from ConnectionInterface, reply ProxyCo
 	key, err := rsa.DecryptOAEP(hash, rand.Reader, r.privateKey, reply.Cipher, nil)
 	if err != nil {
 		lib.Log("[%s] CORE route proxy. Proxy connect reply has invalid cipher", n.nodename)
-		return ErrProxyConnect
+		return lib.ErrProxyConnect
 	}
 
 	cookie := n.proxy.Cookie
@@ -747,7 +747,7 @@ func (n *network) RouteProxyConnectReply(from ConnectionInterface, reply ProxyCo
 	checkDigest := generateProxyDigest(r.request.To, cookie, n.nodename, key)
 	if bytes.Equal(checkDigest, reply.Digest) == false {
 		lib.Log("[%s] CORE route proxy. Proxy connect reply has wrong digest", n.nodename)
-		return ErrProxyConnect
+		return lib.ErrProxyConnect
 	}
 
 	block, err := aes.NewCipher(key)
@@ -762,7 +762,7 @@ func (n *network) RouteProxyConnectReply(from ConnectionInterface, reply ProxyCo
 		select {
 		case r.connection <- registered:
 		}
-		return ErrProxySessionDuplicate
+		return lib.ErrProxySessionDuplicate
 	}
 	// if one of the nodes want to use encryption then it must be used by both nodes
 	if r.request.Flags.EnableEncryption || reply.Flags.EnableEncryption {
@@ -792,7 +792,7 @@ func (n *network) RouteProxyConnectReply(from ConnectionInterface, reply ProxyCo
 func (n *network) RouteProxyConnectCancel(from ConnectionInterface, cancel ProxyConnectCancel) error {
 	if from == nil {
 		// from value can not be nil
-		return ErrProxyConnect
+		return lib.ErrProxyConnect
 	}
 	if len(cancel.Path) == 0 {
 		n.cancelProxyConnectRequest(cancel)
@@ -802,7 +802,7 @@ func (n *network) RouteProxyConnectCancel(from ConnectionInterface, cancel Proxy
 	next := cancel.Path[0]
 	if next != n.nodename {
 		if len(cancel.Path) > defaultProxyPathLimit {
-			return ErrProxyPathTooLong
+			return lib.ErrProxyPathTooLong
 		}
 		connection, err := n.getConnectionDirect(next, false)
 		if err != nil {
@@ -810,14 +810,14 @@ func (n *network) RouteProxyConnectCancel(from ConnectionInterface, cancel Proxy
 		}
 
 		if connection == from {
-			return ErrProxyLoopDetected
+			return lib.ErrProxyLoopDetected
 		}
 
 		cancel.Path = cancel.Path[1:]
 		// check for the looping
 		for i := range cancel.Path {
 			if cancel.Path[i] == next {
-				return ErrProxyLoopDetected
+				return lib.ErrProxyLoopDetected
 			}
 		}
 
@@ -827,7 +827,7 @@ func (n *network) RouteProxyConnectCancel(from ConnectionInterface, cancel Proxy
 		return nil
 	}
 
-	return ErrProxyUnknownRequest
+	return lib.ErrProxyUnknownRequest
 }
 
 func (n *network) RouteProxyDisconnect(from ConnectionInterface, disconnect ProxyDisconnect) error {
@@ -854,12 +854,12 @@ func (n *network) RouteProxyDisconnect(from ConnectionInterface, disconnect Prox
 		}
 		if found == false {
 			n.connectionsMutex.RUnlock()
-			return ErrProxySessionUnknown
+			return lib.ErrProxySessionUnknown
 		}
 		n.connectionsMutex.RUnlock()
 
 		if ci.proxySessionID != disconnect.SessionID || ci.connection != from {
-			return ErrProxySessionUnknown
+			return lib.ErrProxySessionUnknown
 		}
 
 		n.unregisterConnection(peername, &disconnect)
@@ -915,7 +915,7 @@ func (n *network) RouteProxy(from ConnectionInterface, sessionID string, packet 
 	n.proxyTransitSessionsMutex.RUnlock()
 
 	if !ok {
-		return ErrProxySessionUnknown
+		return lib.ErrProxySessionUnknown
 	}
 
 	switch from {
@@ -933,7 +933,7 @@ func (n *network) AddProxyRoute(node string, route ProxyRoute) error {
 	n.proxyRoutesMutex.Lock()
 	defer n.proxyRoutesMutex.Unlock()
 	if route.MaxHop > defaultProxyPathLimit {
-		return ErrProxyPathTooLong
+		return lib.ErrProxyPathTooLong
 	}
 	if route.MaxHop < 1 {
 		route.MaxHop = DefaultProxyMaxHop
@@ -944,7 +944,7 @@ func (n *network) AddProxyRoute(node string, route ProxyRoute) error {
 	}
 
 	if _, exist := n.proxyRoutes[node]; exist {
-		return ErrTaken
+		return lib.ErrTaken
 	}
 
 	n.proxyRoutes[node] = route
@@ -1196,7 +1196,7 @@ func (n *network) connect(node string) (ConnectionInterface, error) {
 		// connection to this node.
 		// Close this connection and use the already registered one
 		c.Close()
-		if err == ErrTaken {
+		if err == lib.ErrTaken {
 			return registered, nil
 		}
 		return nil, err
@@ -1220,7 +1220,7 @@ func (n *network) registerConnection(peername string, ci connectionInternal) (Co
 
 	if registered, exist := n.connections[peername]; exist {
 		// already registered
-		return registered.connection, ErrTaken
+		return registered.connection, lib.ErrTaken
 	}
 	n.connections[peername] = ci
 	if ci.conn == nil {
@@ -1290,67 +1290,67 @@ func (n *network) unregisterConnection(peername string, disconnect *ProxyDisconn
 // Connection interface default callbacks
 //
 func (c *Connection) Send(from gen.Process, to etf.Pid, message etf.Term) error {
-	return ErrUnsupported
+	return lib.ErrUnsupported
 }
 func (c *Connection) SendReg(from gen.Process, to gen.ProcessID, message etf.Term) error {
-	return ErrUnsupported
+	return lib.ErrUnsupported
 }
 func (c *Connection) SendAlias(from gen.Process, to etf.Alias, message etf.Term) error {
-	return ErrUnsupported
+	return lib.ErrUnsupported
 }
 func (c *Connection) Link(local gen.Process, remote etf.Pid) error {
-	return ErrUnsupported
+	return lib.ErrUnsupported
 }
 func (c *Connection) Unlink(local gen.Process, remote etf.Pid) error {
-	return ErrUnsupported
+	return lib.ErrUnsupported
 }
 func (c *Connection) LinkExit(local etf.Pid, remote etf.Pid, reason string) error {
-	return ErrUnsupported
+	return lib.ErrUnsupported
 }
 func (c *Connection) Monitor(local gen.Process, remote etf.Pid, ref etf.Ref) error {
-	return ErrUnsupported
+	return lib.ErrUnsupported
 }
 func (c *Connection) MonitorReg(local gen.Process, remote gen.ProcessID, ref etf.Ref) error {
-	return ErrUnsupported
+	return lib.ErrUnsupported
 }
 func (c *Connection) Demonitor(by etf.Pid, process etf.Pid, ref etf.Ref) error {
-	return ErrUnsupported
+	return lib.ErrUnsupported
 }
 func (c *Connection) DemonitorReg(by etf.Pid, process gen.ProcessID, ref etf.Ref) error {
-	return ErrUnsupported
+	return lib.ErrUnsupported
 }
 func (c *Connection) MonitorExitReg(process gen.Process, reason string, ref etf.Ref) error {
-	return ErrUnsupported
+	return lib.ErrUnsupported
 }
 func (c *Connection) MonitorExit(to etf.Pid, terminated etf.Pid, reason string, ref etf.Ref) error {
-	return ErrUnsupported
+	return lib.ErrUnsupported
 }
 func (c *Connection) SpawnRequest(nodeName string, behaviorName string, request gen.RemoteSpawnRequest, args ...etf.Term) error {
-	return ErrUnsupported
+	return lib.ErrUnsupported
 }
 func (c *Connection) SpawnReply(to etf.Pid, ref etf.Ref, pid etf.Pid) error {
-	return ErrUnsupported
+	return lib.ErrUnsupported
 }
 func (c *Connection) SpawnReplyError(to etf.Pid, ref etf.Ref, err error) error {
-	return ErrUnsupported
+	return lib.ErrUnsupported
 }
 func (c *Connection) ProxyConnectRequest(connect ProxyConnectRequest) error {
-	return ErrUnsupported
+	return lib.ErrUnsupported
 }
 func (c *Connection) ProxyConnectReply(reply ProxyConnectReply) error {
-	return ErrUnsupported
+	return lib.ErrUnsupported
 }
 func (c *Connection) ProxyDisconnect(disconnect ProxyDisconnect) error {
-	return ErrUnsupported
+	return lib.ErrUnsupported
 }
 func (c *Connection) ProxyRegisterSession(session ProxySession) error {
-	return ErrUnsupported
+	return lib.ErrUnsupported
 }
 func (c *Connection) ProxyUnregisterSession(id string) error {
-	return ErrUnsupported
+	return lib.ErrUnsupported
 }
 func (c *Connection) ProxyPacket(packet *lib.Buffer) error {
-	return ErrUnsupported
+	return lib.ErrUnsupported
 }
 func (c *Connection) Stats() NetworkStats {
 	return NetworkStats{}
@@ -1360,10 +1360,10 @@ func (c *Connection) Stats() NetworkStats {
 // Handshake interface default callbacks
 //
 func (h *Handshake) Start(remote net.Addr, conn io.ReadWriter, tls bool, cookie string) (HandshakeDetails, error) {
-	return HandshakeDetails{}, ErrUnsupported
+	return HandshakeDetails{}, lib.ErrUnsupported
 }
 func (h *Handshake) Accept(remote net.Addr, conn io.ReadWriter, tls bool, cookie string) (HandshakeDetails, error) {
-	return HandshakeDetails{}, ErrUnsupported
+	return HandshakeDetails{}, lib.ErrUnsupported
 }
 func (h *Handshake) Version() HandshakeVersion {
 	var v HandshakeVersion
@@ -1401,7 +1401,7 @@ func (n *network) waitProxyConnection(id etf.Ref, timeout int) (ConnectionInterf
 	n.proxyConnectRequestMutex.RUnlock()
 
 	if found == false {
-		return nil, ErrProxyUnknownRequest
+		return nil, lib.ErrProxyUnknownRequest
 	}
 
 	defer func(id etf.Ref) {
@@ -1421,11 +1421,11 @@ func (n *network) waitProxyConnection(id etf.Ref, timeout int) (ConnectionInterf
 		case err := <-r.cancel:
 			return nil, fmt.Errorf("[%s] %s", err.From, err.Reason)
 		case <-timer.C:
-			return nil, ErrTimeout
+			return nil, lib.ErrTimeout
 		case <-n.ctx.Done():
 			// node is on the way to terminate, it means connection is closed
 			// so it doesn't matter what kind of error will be returned
-			return nil, ErrProxyUnknownRequest
+			return nil, lib.ErrProxyUnknownRequest
 		}
 	}
 }

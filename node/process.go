@@ -74,7 +74,7 @@ func (p *process) Name() string {
 // RegisterName
 func (p *process) RegisterName(name string) error {
 	if p.behavior == nil {
-		return ErrProcessTerminated
+		return lib.ErrProcessTerminated
 	}
 	return p.registerName(name, p.self)
 }
@@ -82,14 +82,14 @@ func (p *process) RegisterName(name string) error {
 // UnregisterName
 func (p *process) UnregisterName(name string) error {
 	if p.behavior == nil {
-		return ErrProcessTerminated
+		return lib.ErrProcessTerminated
 	}
 	prc := p.ProcessByName(name)
 	if prc == nil {
-		return ErrNameUnknown
+		return lib.ErrNameUnknown
 	}
 	if prc.Self() != p.self {
-		return ErrNameOwner
+		return lib.ErrNameOwner
 	}
 	return p.unregisterName(name)
 }
@@ -105,7 +105,7 @@ func (p *process) Kill() {
 // Exit
 func (p *process) Exit(reason string) error {
 	if p.behavior == nil {
-		return ErrProcessTerminated
+		return lib.ErrProcessTerminated
 	}
 	return p.exit(p.self, reason)
 }
@@ -189,7 +189,7 @@ func (p *process) Info() gen.ProcessInfo {
 // Send
 func (p *process) Send(to interface{}, message etf.Term) error {
 	if p.behavior == nil {
-		return ErrProcessTerminated
+		return lib.ErrProcessTerminated
 	}
 	switch receiver := to.(type) {
 	case etf.Pid:
@@ -231,7 +231,7 @@ func (p *process) SendAfter(to interface{}, message etf.Term, after time.Duratio
 // CreateAlias
 func (p *process) CreateAlias() (etf.Alias, error) {
 	if p.behavior == nil {
-		return etf.Alias{}, ErrProcessTerminated
+		return etf.Alias{}, lib.ErrProcessTerminated
 	}
 	return p.newAlias(p)
 }
@@ -239,7 +239,7 @@ func (p *process) CreateAlias() (etf.Alias, error) {
 // DeleteAlias
 func (p *process) DeleteAlias(alias etf.Alias) error {
 	if p.behavior == nil {
-		return ErrProcessTerminated
+		return lib.ErrProcessTerminated
 	}
 	return p.deleteAlias(p, alias)
 }
@@ -313,7 +313,7 @@ func (p *process) WaitWithTimeout(d time.Duration) error {
 
 	select {
 	case <-timer.C:
-		return ErrTimeout
+		return lib.ErrTimeout
 	case <-p.context.Done():
 		return nil
 	}
@@ -322,7 +322,7 @@ func (p *process) WaitWithTimeout(d time.Duration) error {
 // Link
 func (p *process) Link(with etf.Pid) error {
 	if p.behavior == nil {
-		return ErrProcessTerminated
+		return lib.ErrProcessTerminated
 	}
 	return p.RouteLink(p.self, with)
 }
@@ -330,7 +330,7 @@ func (p *process) Link(with etf.Pid) error {
 // Unlink
 func (p *process) Unlink(with etf.Pid) error {
 	if p.behavior == nil {
-		return ErrProcessTerminated
+		return lib.ErrProcessTerminated
 	}
 	return p.RouteUnlink(p.self, with)
 }
@@ -441,7 +441,7 @@ func (p *process) DirectWithTimeout(request interface{}, timeout int) (interface
 	}
 
 	if p.direct == nil {
-		return nil, ErrProcessTerminated
+		return nil, lib.ErrProcessTerminated
 	}
 
 	timer := lib.TakeTimer()
@@ -457,9 +457,9 @@ func (p *process) DirectWithTimeout(request interface{}, timeout int) (interface
 	case p.direct <- direct:
 		timer.Reset(time.Second * time.Duration(timeout))
 	case <-timer.C:
-		return nil, ErrTimeout
+		return nil, lib.ErrTimeout
 	default:
-		return nil, ErrProcessBusy
+		return nil, lib.ErrProcessBusy
 	}
 
 	p.PutSyncRequest(direct.Ref)
@@ -549,10 +549,10 @@ func (p *process) RemoteSpawnWithTimeout(timeout int, node string, object string
 		return r, nil
 	case etf.Atom:
 		switch string(r) {
-		case ErrTaken.Error():
-			return etf.Pid{}, ErrTaken
-		case ErrBehaviorUnknown.Error():
-			return etf.Pid{}, ErrBehaviorUnknown
+		case lib.ErrTaken.Error():
+			return etf.Pid{}, lib.ErrTaken
+		case lib.ErrBehaviorUnknown.Error():
+			return etf.Pid{}, lib.ErrBehaviorUnknown
 		}
 		return etf.Pid{}, fmt.Errorf(string(r))
 	}
@@ -583,7 +583,7 @@ func (p *process) PutSyncRequest(ref etf.Ref) {
 // PutSyncReply
 func (p *process) PutSyncReply(ref etf.Ref, reply etf.Term, err error) error {
 	if p.reply == nil {
-		return ErrProcessTerminated
+		return lib.ErrProcessTerminated
 	}
 
 	p.replyMutex.RLock()
@@ -592,7 +592,7 @@ func (p *process) PutSyncReply(ref etf.Ref, reply etf.Term, err error) error {
 
 	if !ok {
 		// no process waiting for it
-		return ErrReferenceUnknown
+		return lib.ErrReferenceUnknown
 	}
 	select {
 	case rep <- syncReplyMessage{value: reply, err: err}:
@@ -610,7 +610,7 @@ func (p *process) CancelSyncRequest(ref etf.Ref) {
 // WaitSyncReply
 func (p *process) WaitSyncReply(ref etf.Ref, timeout int) (etf.Term, error) {
 	if p.reply == nil {
-		return nil, ErrProcessTerminated
+		return nil, lib.ErrProcessTerminated
 	}
 
 	p.replyMutex.RLock()
@@ -637,9 +637,9 @@ func (p *process) WaitSyncReply(ref etf.Ref, timeout int) (etf.Term, error) {
 			syncReplyChannels.Put(reply)
 			return m.value, m.err
 		case <-timer.C:
-			return nil, ErrTimeout
+			return nil, lib.ErrTimeout
 		case <-p.context.Done():
-			return nil, ErrProcessTerminated
+			return nil, lib.ErrProcessTerminated
 		}
 	}
 

@@ -177,7 +177,7 @@ func (c *core) coreWaitWithTimeout(d time.Duration) error {
 
 	select {
 	case <-timer.C:
-		return ErrTimeout
+		return lib.ErrTimeout
 	case <-c.ctx.Done():
 		return nil
 	}
@@ -226,7 +226,7 @@ func (c *core) newAlias(p *process) (etf.Alias, error) {
 	_, exist := c.processes[p.self.ID]
 	c.mutexProcesses.RUnlock()
 	if !exist {
-		return alias, ErrProcessUnknown
+		return alias, lib.ErrProcessUnknown
 	}
 
 	alias = etf.Alias(c.MakeRef())
@@ -250,7 +250,7 @@ func (c *core) deleteAlias(owner *process, alias etf.Alias) error {
 	c.mutexAliases.Unlock()
 
 	if alias_exist == false {
-		return ErrAliasUnknown
+		return lib.ErrAliasUnknown
 	}
 
 	c.mutexProcesses.RLock()
@@ -258,10 +258,10 @@ func (c *core) deleteAlias(owner *process, alias etf.Alias) error {
 	c.mutexProcesses.RUnlock()
 
 	if process_exist == false {
-		return ErrProcessUnknown
+		return lib.ErrProcessUnknown
 	}
 	if p.self != owner.self {
-		return ErrAliasOwner
+		return lib.ErrAliasOwner
 	}
 
 	p.Lock()
@@ -287,7 +287,7 @@ func (c *core) deleteAlias(owner *process, alias etf.Alias) error {
 	c.mutexAliases.Unlock()
 	lib.Warning("Bug: Process lost its alias. Please, report this issue")
 
-	return ErrAliasUnknown
+	return lib.ErrAliasUnknown
 }
 
 func (c *core) newProcess(name string, behavior gen.ProcessBehavior, opts processOptions) (*process, error) {
@@ -351,7 +351,7 @@ func (c *core) newProcess(name string, behavior gen.ProcessBehavior, opts proces
 		lib.Log("[%s] EXIT from %s to %s with reason: %s", c.nodename, from, pid, reason)
 		if processContext.Err() != nil {
 			// process is already died
-			return ErrProcessUnknown
+			return lib.ErrProcessUnknown
 		}
 
 		ex := gen.ProcessGracefulExitRequest{
@@ -365,7 +365,7 @@ func (c *core) newProcess(name string, behavior gen.ProcessBehavior, opts proces
 		select {
 		case process.gracefulExit <- ex:
 		default:
-			return ErrProcessBusy
+			return lib.ErrProcessBusy
 		}
 
 		// let the process decide whether to stop itself, otherwise its going to be killed
@@ -380,7 +380,7 @@ func (c *core) newProcess(name string, behavior gen.ProcessBehavior, opts proces
 		c.mutexNames.Lock()
 		if _, exist := c.names[name]; exist {
 			c.mutexNames.Unlock()
-			return nil, ErrTaken
+			return nil, lib.ErrTaken
 		}
 		c.names[name] = process.self
 		c.mutexNames.Unlock()
@@ -521,7 +521,7 @@ func (c *core) registerName(name string, pid etf.Pid) error {
 	defer c.mutexNames.Unlock()
 	if _, ok := c.names[name]; ok {
 		// already registered
-		return ErrTaken
+		return lib.ErrTaken
 	}
 	c.names[name] = pid
 	return nil
@@ -535,7 +535,7 @@ func (c *core) unregisterName(name string) error {
 		delete(c.names, name)
 		return nil
 	}
-	return ErrNameUnknown
+	return lib.ErrNameUnknown
 }
 
 // ListEnv
@@ -588,7 +588,7 @@ func (c *core) RegisterBehavior(group, name string, behavior gen.ProcessBehavior
 
 	_, exist = groupBehaviors[name]
 	if exist {
-		return ErrTaken
+		return lib.ErrTaken
 	}
 
 	rb := gen.RegisteredBehavior{
@@ -610,12 +610,12 @@ func (c *core) RegisteredBehavior(group, name string) (gen.RegisteredBehavior, e
 
 	groupBehaviors, exist = c.behaviors[group]
 	if !exist {
-		return rb, ErrBehaviorGroupUnknown
+		return rb, lib.ErrBehaviorGroupUnknown
 	}
 
 	rb, exist = groupBehaviors[name]
 	if !exist {
-		return rb, ErrBehaviorUnknown
+		return rb, lib.ErrBehaviorUnknown
 	}
 	return rb, nil
 }
@@ -651,7 +651,7 @@ func (c *core) UnregisterBehavior(group, name string) error {
 
 	groupBehaviors, exist = c.behaviors[group]
 	if !exist {
-		return ErrBehaviorUnknown
+		return lib.ErrBehaviorUnknown
 	}
 	delete(groupBehaviors, name)
 
@@ -735,7 +735,7 @@ func (c *core) RouteSend(from etf.Pid, to etf.Pid, message etf.Term) error {
 		if to.Creation != c.creation {
 			// message is addressed to the previous incarnation of this PID
 			lib.Warning("message from %s is addressed to the previous incarnation of this PID %s", from, to)
-			return ErrProcessIncarnation
+			return lib.ErrProcessIncarnation
 		}
 		// local route
 		c.mutexProcesses.RLock()
@@ -743,7 +743,7 @@ func (c *core) RouteSend(from etf.Pid, to etf.Pid, message etf.Term) error {
 		c.mutexProcesses.RUnlock()
 		if !exist {
 			lib.Log("[%s] CORE route message by pid (local) %s failed. Unknown process", c.nodename, to)
-			return ErrProcessUnknown
+			return lib.ErrProcessUnknown
 		}
 		lib.Log("[%s] CORE route message by pid (local) %s", c.nodename, to)
 		select {
@@ -756,7 +756,7 @@ func (c *core) RouteSend(from etf.Pid, to etf.Pid, message etf.Term) error {
 				//lib.Warning("mailbox of %s[%q] is full. dropped message from %s", p.self, p.name, from)
 				//FIXME
 				lib.Warning("mailbox of %s[%q] is full. dropped message from %s %#v", p.self, p.name, from, message)
-				return ErrProcessBusy
+				return lib.ErrProcessBusy
 			}
 			fbm := gen.MessageFallback{
 				Process: p.self,
@@ -770,7 +770,7 @@ func (c *core) RouteSend(from etf.Pid, to etf.Pid, message etf.Term) error {
 
 	// do not allow to send from the alien node.
 	if string(from.Node) != c.nodename {
-		return ErrSenderUnknown
+		return lib.ErrSenderUnknown
 	}
 
 	// sending to remote node
@@ -779,7 +779,7 @@ func (c *core) RouteSend(from etf.Pid, to etf.Pid, message etf.Term) error {
 	c.mutexProcesses.RUnlock()
 	if !exist {
 		lib.Log("[%s] CORE route message by pid (remote) %s failed. Unknown sender", c.nodename, to)
-		return ErrSenderUnknown
+		return lib.ErrSenderUnknown
 	}
 	connection, err := c.getConnection(string(to.Node))
 	if err != nil {
@@ -799,7 +799,7 @@ func (c *core) RouteSendReg(from etf.Pid, to gen.ProcessID, message etf.Term) er
 		c.mutexNames.RUnlock()
 		if !ok {
 			lib.Log("[%s] CORE route message by gen.ProcessID (local) %s failed. Unknown process", c.nodename, to)
-			return ErrProcessUnknown
+			return lib.ErrProcessUnknown
 		}
 		lib.Log("[%s] CORE route message by gen.ProcessID (local) %s", c.nodename, to)
 		return c.RouteSend(from, pid, message)
@@ -807,7 +807,7 @@ func (c *core) RouteSendReg(from etf.Pid, to gen.ProcessID, message etf.Term) er
 
 	// do not allow to send from the alien node.
 	if string(from.Node) != c.nodename {
-		return ErrSenderUnknown
+		return lib.ErrSenderUnknown
 	}
 
 	// send to remote node
@@ -816,7 +816,7 @@ func (c *core) RouteSendReg(from etf.Pid, to gen.ProcessID, message etf.Term) er
 	c.mutexProcesses.RUnlock()
 	if !exist {
 		lib.Log("[%s] CORE route message by gen.ProcessID (remote) %s failed. Unknown sender", c.nodename, to)
-		return ErrSenderUnknown
+		return lib.ErrSenderUnknown
 	}
 	connection, err := c.getConnection(string(to.Node))
 	if err != nil {
@@ -837,7 +837,7 @@ func (c *core) RouteSendAlias(from etf.Pid, to etf.Alias, message etf.Term) erro
 		c.mutexAliases.RUnlock()
 		if !ok {
 			lib.Log("[%s] CORE route message by alias (local) %s failed. Unknown process", c.nodename, to)
-			return ErrProcessUnknown
+			return lib.ErrProcessUnknown
 		}
 		lib.Log("[%s] CORE route message by alias (local) %s", c.nodename, to)
 		return c.RouteSend(from, process.self, message)
@@ -845,7 +845,7 @@ func (c *core) RouteSendAlias(from etf.Pid, to etf.Alias, message etf.Term) erro
 
 	// do not allow to send from the alien node. Proxy request must be used.
 	if string(from.Node) != c.nodename {
-		return ErrSenderUnknown
+		return lib.ErrSenderUnknown
 	}
 
 	// send to remote node
@@ -854,7 +854,7 @@ func (c *core) RouteSendAlias(from etf.Pid, to etf.Alias, message etf.Term) erro
 	c.mutexProcesses.RUnlock()
 	if !exist {
 		lib.Log("[%s] CORE route message by alias (remote) %s failed. Unknown sender", c.nodename, to)
-		return ErrSenderUnknown
+		return lib.ErrSenderUnknown
 	}
 	connection, err := c.getConnection(string(to.Node))
 	if err != nil {
@@ -904,7 +904,7 @@ func (c *core) RouteSpawnReply(to etf.Pid, ref etf.Ref, result etf.Term) error {
 	process := c.processByPid(to)
 	if process == nil {
 		// seems process terminated
-		return ErrProcessTerminated
+		return lib.ErrProcessTerminated
 	}
 	process.PutSyncReply(ref, result, nil)
 	return nil

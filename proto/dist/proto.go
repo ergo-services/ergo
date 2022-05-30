@@ -346,7 +346,7 @@ func (dc *distConnection) SendReg(from gen.Process, to gen.ProcessID, message et
 }
 func (dc *distConnection) SendAlias(from gen.Process, to etf.Alias, message etf.Term) error {
 	if dc.flags.EnableAlias == false {
-		return node.ErrUnsupported
+		return lib.ErrUnsupported
 	}
 
 	msg := sendMessages.Get().(*sendMessage)
@@ -365,7 +365,7 @@ func (dc *distConnection) Link(local etf.Pid, remote etf.Pid) error {
 	ps, isProxy := dc.proxySessionsByPeerName[string(remote.Node)]
 	dc.proxySessionsMutex.RUnlock()
 	if isProxy && ps.session.PeerFlags.EnableLink == false {
-		return node.ErrPeerUnsupported
+		return lib.ErrPeerUnsupported
 	}
 	msg := &sendMessage{
 		control: etf.Tuple{distProtoLINK, local, remote},
@@ -377,7 +377,7 @@ func (dc *distConnection) Unlink(local etf.Pid, remote etf.Pid) error {
 	ps, isProxy := dc.proxySessionsByPeerName[string(remote.Node)]
 	dc.proxySessionsMutex.RUnlock()
 	if isProxy && ps.session.PeerFlags.EnableLink == false {
-		return node.ErrPeerUnsupported
+		return lib.ErrPeerUnsupported
 	}
 	msg := &sendMessage{
 		control: etf.Tuple{distProtoUNLINK, local, remote},
@@ -396,7 +396,7 @@ func (dc *distConnection) Monitor(local etf.Pid, remote etf.Pid, ref etf.Ref) er
 	ps, isProxy := dc.proxySessionsByPeerName[string(remote.Node)]
 	dc.proxySessionsMutex.RUnlock()
 	if isProxy && ps.session.PeerFlags.EnableMonitor == false {
-		return node.ErrPeerUnsupported
+		return lib.ErrPeerUnsupported
 	}
 	msg := &sendMessage{
 		control: etf.Tuple{distProtoMONITOR, local, remote, ref},
@@ -408,7 +408,7 @@ func (dc *distConnection) MonitorReg(local etf.Pid, remote gen.ProcessID, ref et
 	ps, isProxy := dc.proxySessionsByPeerName[remote.Node]
 	dc.proxySessionsMutex.RUnlock()
 	if isProxy && ps.session.PeerFlags.EnableMonitor == false {
-		return node.ErrPeerUnsupported
+		return lib.ErrPeerUnsupported
 	}
 	msg := &sendMessage{
 		control: etf.Tuple{distProtoMONITOR, local, etf.Atom(remote.Name), ref},
@@ -420,7 +420,7 @@ func (dc *distConnection) Demonitor(local etf.Pid, remote etf.Pid, ref etf.Ref) 
 	ps, isProxy := dc.proxySessionsByPeerName[string(remote.Node)]
 	dc.proxySessionsMutex.RUnlock()
 	if isProxy && ps.session.PeerFlags.EnableMonitor == false {
-		return node.ErrPeerUnsupported
+		return lib.ErrPeerUnsupported
 	}
 	msg := &sendMessage{
 		control: etf.Tuple{distProtoDEMONITOR, local, remote, ref},
@@ -432,7 +432,7 @@ func (dc *distConnection) DemonitorReg(local etf.Pid, remote gen.ProcessID, ref 
 	ps, isProxy := dc.proxySessionsByPeerName[remote.Node]
 	dc.proxySessionsMutex.RUnlock()
 	if isProxy && ps.session.PeerFlags.EnableMonitor == false {
-		return node.ErrPeerUnsupported
+		return lib.ErrPeerUnsupported
 	}
 	msg := &sendMessage{
 		control: etf.Tuple{distProtoDEMONITOR, local, etf.Atom(remote.Name), ref},
@@ -458,11 +458,11 @@ func (dc *distConnection) SpawnRequest(nodeName string, behaviorName string, req
 	dc.proxySessionsMutex.RUnlock()
 	if isProxy {
 		if ps.session.PeerFlags.EnableRemoteSpawn == false {
-			return node.ErrPeerUnsupported
+			return lib.ErrPeerUnsupported
 		}
 	} else {
 		if dc.flags.EnableRemoteSpawn == false {
-			return node.ErrPeerUnsupported
+			return lib.ErrPeerUnsupported
 		}
 	}
 
@@ -498,7 +498,7 @@ func (dc *distConnection) SpawnReplyError(to etf.Pid, ref etf.Ref, err error) er
 
 func (dc *distConnection) ProxyConnectRequest(request node.ProxyConnectRequest) error {
 	if dc.flags.EnableProxy == false {
-		return node.ErrPeerUnsupported
+		return lib.ErrPeerUnsupported
 	}
 
 	path := []etf.Atom{}
@@ -523,7 +523,7 @@ func (dc *distConnection) ProxyConnectRequest(request node.ProxyConnectRequest) 
 
 func (dc *distConnection) ProxyConnectReply(reply node.ProxyConnectReply) error {
 	if dc.flags.EnableProxy == false {
-		return node.ErrPeerUnsupported
+		return lib.ErrPeerUnsupported
 	}
 
 	path := etf.List{}
@@ -549,7 +549,7 @@ func (dc *distConnection) ProxyConnectReply(reply node.ProxyConnectReply) error 
 
 func (dc *distConnection) ProxyConnectCancel(err node.ProxyConnectCancel) error {
 	if dc.flags.EnableProxy == false {
-		return node.ErrPeerUnsupported
+		return lib.ErrPeerUnsupported
 	}
 
 	path := etf.List{}
@@ -571,7 +571,7 @@ func (dc *distConnection) ProxyConnectCancel(err node.ProxyConnectCancel) error 
 
 func (dc *distConnection) ProxyDisconnect(disconnect node.ProxyDisconnect) error {
 	if dc.flags.EnableProxy == false {
-		return node.ErrPeerUnsupported
+		return lib.ErrPeerUnsupported
 	}
 
 	msg := &sendMessage{
@@ -591,11 +591,11 @@ func (dc *distConnection) ProxyRegisterSession(session node.ProxySession) error 
 	defer dc.proxySessionsMutex.Unlock()
 	_, exist := dc.proxySessionsByPeerName[session.PeerName]
 	if exist {
-		return node.ErrProxySessionDuplicate
+		return lib.ErrProxySessionDuplicate
 	}
 	_, exist = dc.proxySessionsByID[session.ID]
 	if exist {
-		return node.ErrProxySessionDuplicate
+		return lib.ErrProxySessionDuplicate
 	}
 	ps := proxySession{
 		session: session,
@@ -613,7 +613,7 @@ func (dc *distConnection) ProxyUnregisterSession(id string) error {
 	defer dc.proxySessionsMutex.Unlock()
 	ps, exist := dc.proxySessionsByID[id]
 	if exist == false {
-		return node.ErrProxySessionUnknown
+		return lib.ErrProxySessionUnknown
 	}
 	delete(dc.proxySessionsByPeerName, ps.session.PeerName)
 	delete(dc.proxySessionsByID, ps.session.ID)
@@ -622,7 +622,7 @@ func (dc *distConnection) ProxyUnregisterSession(id string) error {
 
 func (dc *distConnection) ProxyPacket(packet *lib.Buffer) error {
 	if dc.flags.EnableProxy == false {
-		return node.ErrPeerUnsupported
+		return lib.ErrPeerUnsupported
 	}
 	msg := &sendMessage{
 		packet: packet,
@@ -1148,7 +1148,7 @@ func (dc *distConnection) handleMessage(message *distMessage) (err error) {
 				if message.proxy != nil && message.proxy.session.NodeFlags.EnableLink == false {
 					// we didn't allow this feature. proxy session will be closed due to
 					// this violation of the contract
-					return node.ErrPeerUnsupported
+					return lib.ErrPeerUnsupported
 				}
 				dc.router.RouteLink(t.Element(2).(etf.Pid), t.Element(3).(etf.Pid))
 				return nil
@@ -1159,7 +1159,7 @@ func (dc *distConnection) handleMessage(message *distMessage) (err error) {
 				if message.proxy != nil && message.proxy.session.NodeFlags.EnableLink == false {
 					// we didn't allow this feature. proxy session will be closed due to
 					// this violation of the contract
-					return node.ErrPeerUnsupported
+					return lib.ErrPeerUnsupported
 				}
 				dc.router.RouteUnlink(t.Element(2).(etf.Pid), t.Element(3).(etf.Pid))
 				return nil
@@ -1188,7 +1188,7 @@ func (dc *distConnection) handleMessage(message *distMessage) (err error) {
 				if message.proxy != nil && message.proxy.session.NodeFlags.EnableMonitor == false {
 					// we didn't allow this feature. proxy session will be closed due to
 					// this violation of the contract
-					return node.ErrPeerUnsupported
+					return lib.ErrPeerUnsupported
 				}
 
 				fromPid := t.Element(2).(etf.Pid)
@@ -1218,7 +1218,7 @@ func (dc *distConnection) handleMessage(message *distMessage) (err error) {
 				if message.proxy != nil && message.proxy.session.NodeFlags.EnableMonitor == false {
 					// we didn't allow this feature. proxy session will be closed due to
 					// this violation of the contract
-					return node.ErrPeerUnsupported
+					return lib.ErrPeerUnsupported
 				}
 				ref := t.Element(4).(etf.Ref)
 				fromPid := t.Element(2).(etf.Pid)
@@ -1273,7 +1273,7 @@ func (dc *distConnection) handleMessage(message *distMessage) (err error) {
 				if message.proxy != nil && message.proxy.session.NodeFlags.EnableRemoteSpawn == false {
 					// we didn't allow this feature. proxy session will be closed due to
 					// this violation of the contract
-					return node.ErrPeerUnsupported
+					return lib.ErrPeerUnsupported
 				}
 				registerName := ""
 				for _, option := range t.Element(6).(etf.List) {
@@ -1378,7 +1378,7 @@ func (dc *distConnection) handleMessage(message *distMessage) (err error) {
 						Reason:    err.Error(),
 					}
 					dc.ProxyDisconnect(disconnect)
-					if err == node.ErrNoRoute {
+					if err == lib.ErrNoRoute {
 						return nil
 					}
 
@@ -2171,7 +2171,7 @@ func (dc *distConnection) send(to string, creation uint32, msg *sendMessage) err
 	s := dc.senders.sender[n]
 	if s == nil {
 		// connection was closed
-		return node.ErrNoRoute
+		return lib.ErrNoRoute
 	}
 	dc.proxySessionsMutex.RLock()
 	ps, isProxy := dc.proxySessionsByPeerName[to]
@@ -2190,7 +2190,7 @@ func (dc *distConnection) send(to string, creation uint32, msg *sendMessage) err
 	// if this peer is Erlang OTP 22 (and earlier), peer_creation is always 0, so we
 	// must skip this checking.
 	if creation > 0 && peer_creation > 0 && peer_creation != creation {
-		return node.ErrProcessIncarnation
+		return lib.ErrProcessIncarnation
 	}
 
 	// TODO to decide whether to return error if channel is full

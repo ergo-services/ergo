@@ -75,7 +75,7 @@ func (cc *cloudClient) HandleCast(process *gen.ServerProcess, message etf.Term) 
 			routeOptions.TLS.SkipVerify = cloud.SkipVerify
 			fmt.Println("cloud node", cloud)
 			if err := thisNode.AddStaticRoutePort(cloud.Node, cloud.Port, routeOptions); err != nil {
-				if err != node.ErrTaken {
+				if err != lib.ErrTaken {
 					continue
 				}
 			}

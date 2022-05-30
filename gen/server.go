@@ -599,7 +599,7 @@ func (gs *Server) HandleCall(process *ServerProcess, from ServerFrom, message et
 
 // HandleDirect
 func (gs *Server) HandleDirect(process *ServerProcess, ref etf.Ref, message interface{}) (interface{}, DirectStatus) {
-	return nil, ErrUnsupportedRequest
+	return nil, lib.ErrUnsupportedRequest
 }
 
 // HandleInfo

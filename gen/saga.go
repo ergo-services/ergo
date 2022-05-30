@@ -284,7 +284,7 @@ type sagaSetMaxTransactions struct {
 // SetMaxTransactions set maximum transactions fo the saga
 func (gs *Saga) SetMaxTransactions(process Process, max uint) error {
 	if !process.IsAlive() {
-		return ErrServerTerminated
+		return lib.ErrServerTerminated
 	}
 	message := sagaSetMaxTransactions{
 		max: max,
@@ -631,7 +631,7 @@ func (sp *SagaProcess) handleSagaRequest(m messageSaga) error {
 		nextMessage := messageSagaNext{}
 
 		if err := etf.TermIntoStruct(m.Command, &nextMessage); err != nil {
-			return ErrUnsupportedRequest
+			return lib.ErrUnsupportedRequest
 		}
 
 		// Check if exceed the number of transaction on this saga
@@ -723,7 +723,7 @@ func (sp *SagaProcess) handleSagaRequest(m messageSaga) error {
 	case "$saga_cancel":
 		cancel := messageSagaCancel{}
 		if err := etf.TermIntoStruct(m.Command, &cancel); err != nil {
-			return ErrUnsupportedRequest
+			return lib.ErrUnsupportedRequest
 		}
 
 		tx, exist := sp.txs[SagaTransactionID(cancel.TransactionID)]
@@ -774,7 +774,7 @@ func (sp *SagaProcess) handleSagaRequest(m messageSaga) error {
 	case etf.Atom("$saga_result"):
 		result := messageSagaResult{}
 		if err := etf.TermIntoStruct(m.Command, &result); err != nil {
-			return ErrUnsupportedRequest
+			return lib.ErrUnsupportedRequest
 		}
 
 		transactionID := SagaTransactionID(result.TransactionID)
@@ -825,7 +825,7 @@ func (sp *SagaProcess) handleSagaRequest(m messageSaga) error {
 	case etf.Atom("$saga_interim"):
 		interim := messageSagaResult{}
 		if err := etf.TermIntoStruct(m.Command, &interim); err != nil {
-			return ErrUnsupportedRequest
+			return lib.ErrUnsupportedRequest
 		}
 		next_id := SagaNextID(interim.Origin)
 		sp.mutexNext.Lock()
@@ -851,7 +851,7 @@ func (sp *SagaProcess) handleSagaRequest(m messageSaga) error {
 		// propagate Commit signal if 2PC is enabled
 		commit := messageSagaCommit{}
 		if err := etf.TermIntoStruct(m.Command, &commit); err != nil {
-			return ErrUnsupportedRequest
+			return lib.ErrUnsupportedRequest
 		}
 		transactionID := SagaTransactionID(commit.TransactionID)
 		sp.mutexTXS.Lock()
@@ -869,7 +869,7 @@ func (sp *SagaProcess) handleSagaRequest(m messageSaga) error {
 		}
 		return SagaStatusOK
 	}
-	return ErrUnsupportedRequest
+	return lib.ErrUnsupportedRequest
 }
 
 func (sp *SagaProcess) cancelTX(from etf.Pid, cancel messageSagaCancel, tx *SagaTransaction) {
@@ -1276,7 +1276,7 @@ func (gs *Saga) HandleInfo(process *ServerProcess, message etf.Term) ServerStatu
 		return ServerStatusOK
 	case SagaStatusStop:
 		return ServerStatusStop
-	case ErrUnsupportedRequest:
+	case lib.ErrUnsupportedRequest:
 		return sp.behavior.HandleSagaInfo(sp, message)
 	default:
 		return ServerStatus(status)
@@ -1324,7 +1324,7 @@ func (gs *Saga) HandleSagaInfo(process *SagaProcess, message etf.Term) ServerSta
 
 // HandleSagaDirect
 func (gs *Saga) HandleSagaDirect(process *SagaProcess, ref etf.Ref, message interface{}) (interface{}, DirectStatus) {
-	return nil, ErrUnsupportedRequest
+	return nil, lib.ErrUnsupportedRequest
 }
 
 // HandleJobResult

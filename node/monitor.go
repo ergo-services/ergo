@@ -444,7 +444,7 @@ func (m *monitor) RouteLink(pidA etf.Pid, pidB etf.Pid) error {
 		// otherwise send 'EXIT' message with 'noproc' as a reason
 		if p := m.router.processByPid(pidB); p == nil {
 			m.sendExit(pidA, pidB, "noproc")
-			return ErrProcessUnknown
+			return lib.ErrProcessUnknown
 		}
 		m.mutexLinks.Lock()
 		m.links[pidA] = append(linksA, pidB)
@@ -582,9 +582,9 @@ func (m *monitor) RouteMonitor(by etf.Pid, pid etf.Pid, ref etf.Ref) error {
 
 		if err := connection.Monitor(by, pid, ref); err != nil {
 			switch err {
-			case ErrPeerUnsupported:
+			case lib.ErrPeerUnsupported:
 				m.sendMonitorExit(by, pid, "unsupported", ref)
-			case ErrProcessIncarnation:
+			case lib.ErrProcessIncarnation:
 				m.sendMonitorExit(by, pid, "incarnation", ref)
 			default:
 				m.sendMonitorExit(by, pid, "noconnection", ref)
@@ -620,7 +620,7 @@ func (m *monitor) RouteMonitorReg(by etf.Pid, process gen.ProcessID, ref etf.Ref
 		}
 
 		if err := connection.MonitorReg(by, process, ref); err != nil {
-			if err == ErrPeerUnsupported {
+			if err == lib.ErrPeerUnsupported {
 				m.sendMonitorExitReg(by, process, "unsupported", ref)
 			} else {
 				m.sendMonitorExitReg(by, process, "noconnection", ref)
@@ -654,7 +654,7 @@ func (m *monitor) RouteDemonitor(by etf.Pid, ref etf.Ref) error {
 		processID, knownRefByName := m.ref2name[ref]
 		if knownRefByName == false {
 			// unknown monitor reference
-			return ErrMonitorUnknown
+			return lib.ErrMonitorUnknown
 		}
 		items := m.names[processID]
 
@@ -859,7 +859,7 @@ func (m *monitor) sendExit(to etf.Pid, terminated etf.Pid, reason string) error 
 		p.exit(terminated, reason)
 		return nil
 	}
-	return ErrProcessUnknown
+	return lib.ErrProcessUnknown
 }
 
 func (m *monitor) monitorStats() internalMonitorStats {

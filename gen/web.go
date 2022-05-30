@@ -66,6 +66,7 @@ type WebRouteGroup struct {
 type webMessageTest struct{}
 
 type WebMessageRequest struct {
+	Canceled int32
 	Request  *http.Request
 	Response http.ResponseWriter
 }
@@ -82,11 +83,7 @@ func (dh *defaultHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // WebProcess API
 //
 
-func (wp *WebProcess) StartWebHandler(handler WebHandlerBehavior) http.Handler {
-	return wp.StartWebHandlerPool(handler, WebHandlerPoolOptions{})
-}
-
-func (wp *WebProcess) StartWebHandlerPool(web WebHandlerBehavior, options WebHandlerPoolOptions) http.Handler {
+func (wp *WebProcess) StartWebHandler(web WebHandlerBehavior, options WebHandlerOptions) http.Handler {
 	handler, err := web.initHandler(wp, web, options)
 	if err != nil {
 		name := reflect.ValueOf(web).Elem().Type().Name()

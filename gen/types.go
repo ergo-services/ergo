@@ -8,11 +8,6 @@ import (
 	"github.com/ergo-services/ergo/etf"
 )
 
-var (
-	ErrUnsupportedRequest = fmt.Errorf("unsupported request")
-	ErrServerTerminated   = fmt.Errorf("server terminated")
-)
-
 // EnvKey
 type EnvKey string
 

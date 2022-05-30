@@ -540,7 +540,7 @@ func (gst *Stage) HandleStageCall(process *StageProcess, from ServerFrom, messag
 // HandleStageDirect
 func (gst *Stage) HandleStageDirect(process *StageProcess, message interface{}) (interface{}, error) {
 	// default callback if it wasn't implemented
-	return nil, ErrUnsupportedRequest
+	return nil, lib.ErrUnsupportedRequest
 }
 
 // HandleStageCast

@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/cipher"
 	"crypto/tls"
-	"fmt"
 	"io"
 	"net"
 	"time"
@@ -12,44 +11,6 @@ import (
 	"github.com/ergo-services/ergo/etf"
 	"github.com/ergo-services/ergo/gen"
 	"github.com/ergo-services/ergo/lib"
-)
-
-var (
-	ErrAppAlreadyLoaded     = fmt.Errorf("application is already loaded")
-	ErrAppAlreadyStarted    = fmt.Errorf("application is already started")
-	ErrAppUnknown           = fmt.Errorf("unknown application name")
-	ErrAppIsNotRunning      = fmt.Errorf("application is not running")
-	ErrNameUnknown          = fmt.Errorf("unknown name")
-	ErrNameOwner            = fmt.Errorf("not an owner")
-	ErrProcessBusy          = fmt.Errorf("process is busy")
-	ErrProcessUnknown       = fmt.Errorf("unknown process")
-	ErrProcessIncarnation   = fmt.Errorf("process ID belongs to the previous incarnation")
-	ErrProcessTerminated    = fmt.Errorf("process terminated")
-	ErrMonitorUnknown       = fmt.Errorf("unknown monitor reference")
-	ErrSenderUnknown        = fmt.Errorf("unknown sender")
-	ErrBehaviorUnknown      = fmt.Errorf("unknown behavior")
-	ErrBehaviorGroupUnknown = fmt.Errorf("unknown behavior group")
-	ErrAliasUnknown         = fmt.Errorf("unknown alias")
-	ErrAliasOwner           = fmt.Errorf("not an owner")
-	ErrNoRoute              = fmt.Errorf("no route to node")
-	ErrTaken                = fmt.Errorf("resource is taken")
-	ErrTimeout              = fmt.Errorf("timed out")
-	ErrFragmented           = fmt.Errorf("fragmented data")
-	ErrReferenceUnknown     = fmt.Errorf("unknown reference")
-
-	ErrUnsupported     = fmt.Errorf("not supported")
-	ErrUnknown         = fmt.Errorf("unknown")
-	ErrPeerUnsupported = fmt.Errorf("peer does not support this feature")
-
-	ErrProxyUnknownRequest   = fmt.Errorf("unknown proxy request")
-	ErrProxyTransitDisabled  = fmt.Errorf("proxy feature disabled")
-	ErrProxyNoRoute          = fmt.Errorf("no proxy route to node")
-	ErrProxyConnect          = fmt.Errorf("can't establish proxy connection")
-	ErrProxyHopExceeded      = fmt.Errorf("proxy hop is exceeded")
-	ErrProxyLoopDetected     = fmt.Errorf("proxy loop detected")
-	ErrProxyPathTooLong      = fmt.Errorf("proxy path too long")
-	ErrProxySessionUnknown   = fmt.Errorf("unknown session id")
-	ErrProxySessionDuplicate = fmt.Errorf("session is already exist")
 )
 
 const (

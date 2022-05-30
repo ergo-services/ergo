@@ -97,7 +97,7 @@ func (r *rex) HandleDirect(process *gen.ServerProcess, ref etf.Ref, message inte
 		// provide RPC
 		if m.Provide {
 			if _, ok := r.methods[mf]; ok {
-				return nil, node.ErrTaken
+				return nil, lib.ErrTaken
 			}
 			r.methods[mf] = m.Fun
 			return nil, gen.DirectStatusOK
@@ -111,7 +111,7 @@ func (r *rex) HandleDirect(process *gen.ServerProcess, ref etf.Ref, message inte
 		return nil, fmt.Errorf("unknown RPC name")
 
 	default:
-		return nil, gen.ErrUnsupportedRequest
+		return nil, lib.ErrUnsupportedRequest
 	}
 }
 

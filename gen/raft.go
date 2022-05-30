@@ -526,7 +526,7 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 	case etf.Atom("$cluster_join"):
 		join := &messageRaftClusterJoin{}
 		if err := etf.TermIntoStruct(m.Command, &join); err != nil {
-			return ErrUnsupportedRequest
+			return lib.ErrUnsupportedRequest
 		}
 
 		if join.ID != rp.options.ID {
@@ -579,7 +579,7 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 
 		reply := &messageRaftClusterJoinReply{}
 		if err := etf.TermIntoStruct(m.Command, &reply); err != nil {
-			return ErrUnsupportedRequest
+			return lib.ErrUnsupportedRequest
 		}
 
 		if reply.ID != rp.options.ID {
@@ -646,7 +646,7 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 	case etf.Atom("$quorum_vote"):
 		vote := &messageRaftQuorumVote{}
 		if err := etf.TermIntoStruct(m.Command, &vote); err != nil {
-			return ErrUnsupportedRequest
+			return lib.ErrUnsupportedRequest
 		}
 		if vote.ID != rp.options.ID {
 			// ignore this request
@@ -657,7 +657,7 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 	case etf.Atom("$quorum_built"):
 		built := &messageRaftQuorumBuilt{}
 		if err := etf.TermIntoStruct(m.Command, &built); err != nil {
-			return ErrUnsupportedRequest
+			return lib.ErrUnsupportedRequest
 		}
 		// QUODBG fmt.Println(rp.Name(), "GOT QUO BUILT from", m.Pid)
 		if built.ID != rp.options.ID {
@@ -753,7 +753,7 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 	case etf.Atom("$leader_heartbeat"):
 		heartbeat := &messageRaftLeaderHeartbeat{}
 		if err := etf.TermIntoStruct(m.Command, &heartbeat); err != nil {
-			return ErrUnsupportedRequest
+			return lib.ErrUnsupportedRequest
 		}
 
 		if rp.options.ID != heartbeat.ID {
@@ -775,7 +775,7 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 	case etf.Atom("$quorum_leave"):
 		leave := &messageRaftQuorumLeave{}
 		if err := etf.TermIntoStruct(m.Command, &leave); err != nil {
-			return ErrUnsupportedRequest
+			return lib.ErrUnsupportedRequest
 		}
 		if rp.quorum == nil {
 			return RaftStatusOK
@@ -805,7 +805,7 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 	case etf.Atom("$leader_vote"):
 		vote := &messageRaftLeaderVote{}
 		if err := etf.TermIntoStruct(m.Command, &vote); err != nil {
-			return ErrUnsupportedRequest
+			return lib.ErrUnsupportedRequest
 		}
 
 		if rp.options.ID != vote.ID {
@@ -994,7 +994,7 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 	case etf.Atom("$leader_elected"):
 		elected := &messageRaftLeaderElected{}
 		if err := etf.TermIntoStruct(m.Command, &elected); err != nil {
-			return ErrUnsupportedRequest
+			return lib.ErrUnsupportedRequest
 		}
 
 		if rp.options.ID != elected.ID {
@@ -1094,7 +1094,7 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 	case etf.Atom("$request_get"):
 		requestGet := &messageRaftRequestGet{}
 		if err := etf.TermIntoStruct(m.Command, &requestGet); err != nil {
-			return ErrUnsupportedRequest
+			return lib.ErrUnsupportedRequest
 		}
 
 		if rp.options.ID != requestGet.ID {
@@ -1193,7 +1193,7 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 	case etf.Atom("$request_reply"):
 		requestReply := &messageRaftRequestReply{}
 		if err := etf.TermIntoStruct(m.Command, &requestReply); err != nil {
-			return ErrUnsupportedRequest
+			return lib.ErrUnsupportedRequest
 		}
 
 		if rp.options.ID != requestReply.ID {
@@ -1217,7 +1217,7 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 	case etf.Atom("$request_append"):
 		requestAppend := &messageRaftRequestAppend{}
 		if err := etf.TermIntoStruct(m.Command, &requestAppend); err != nil {
-			return ErrUnsupportedRequest
+			return lib.ErrUnsupportedRequest
 		}
 
 		if rp.options.ID != requestAppend.ID {
@@ -1307,7 +1307,7 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 	case etf.Atom("$request_append_ready"):
 		appendReady := &messageRaftAppendReady{}
 		if err := etf.TermIntoStruct(m.Command, &appendReady); err != nil {
-			return ErrUnsupportedRequest
+			return lib.ErrUnsupportedRequest
 		}
 
 		if rp.options.ID != appendReady.ID {
@@ -1422,7 +1422,7 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 	case etf.Atom("$request_append_commit"):
 		appendCommit := &messageRaftAppendCommit{}
 		if err := etf.TermIntoStruct(m.Command, &appendCommit); err != nil {
-			return ErrUnsupportedRequest
+			return lib.ErrUnsupportedRequest
 		}
 
 		if rp.options.ID != appendCommit.ID {
@@ -1460,7 +1460,7 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 	case etf.Atom("$request_append_broadcast"):
 		broadcast := &messageRaftAppendBroadcast{}
 		if err := etf.TermIntoStruct(m.Command, &broadcast); err != nil {
-			return ErrUnsupportedRequest
+			return lib.ErrUnsupportedRequest
 		}
 
 		if rp.options.ID != broadcast.ID {
@@ -1474,7 +1474,7 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 
 	}
 
-	return ErrUnsupportedRequest
+	return lib.ErrUnsupportedRequest
 }
 
 func (rp *RaftProcess) handleElectionStart(round int) {
@@ -2389,7 +2389,7 @@ func (r *Raft) HandleCast(process *ServerProcess, message etf.Term) ServerStatus
 			return ServerStatusOK
 		}
 		status = rp.handleRaftRequest(mRaft)
-		if status == ErrUnsupportedRequest {
+		if status == lib.ErrUnsupportedRequest {
 			status = rp.behavior.HandleRaftCast(rp, message)
 		}
 	}
@@ -2399,7 +2399,7 @@ func (r *Raft) HandleCast(process *ServerProcess, message etf.Term) ServerStatus
 		return ServerStatusOK
 	case RaftStatusStop:
 		return ServerStatusStop
-	case ErrUnsupportedRequest:
+	case lib.ErrUnsupportedRequest:
 		return rp.behavior.HandleRaftInfo(rp, message)
 	default:
 		return ServerStatus(status)
@@ -2505,7 +2505,7 @@ func (r *Raft) HandleRaftInfo(process *RaftProcess, message etf.Term) ServerStat
 
 // HandleRaftDirect
 func (r *Raft) HandleRaftDirect(process *RaftProcess, message interface{}) (interface{}, error) {
-	return nil, ErrUnsupportedRequest
+	return nil, lib.ErrUnsupportedRequest
 }
 
 //

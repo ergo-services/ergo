@@ -233,11 +233,11 @@ func (n *node) listApplications(onlyRunning bool) []gen.ApplicationInfo {
 func (n *node) ApplicationInfo(name string) (gen.ApplicationInfo, error) {
 	rb, err := n.RegisteredBehavior(appBehaviorGroup, name)
 	if err != nil {
-		return gen.ApplicationInfo{}, ErrAppUnknown
+		return gen.ApplicationInfo{}, lib.ErrAppUnknown
 	}
 	spec, ok := rb.Data.(*gen.ApplicationSpec)
 	if !ok {
-		return gen.ApplicationInfo{}, ErrAppUnknown
+		return gen.ApplicationInfo{}, lib.ErrAppUnknown
 	}
 
 	pid := etf.Pid{}
@@ -273,15 +273,15 @@ func (n *node) ApplicationLoad(app gen.ApplicationBehavior, args ...etf.Term) (s
 func (n *node) ApplicationUnload(appName string) error {
 	rb, err := n.RegisteredBehavior(appBehaviorGroup, appName)
 	if err != nil {
-		return ErrAppUnknown
+		return lib.ErrAppUnknown
 	}
 
 	spec, ok := rb.Data.(*gen.ApplicationSpec)
 	if !ok {
-		return ErrAppUnknown
+		return lib.ErrAppUnknown
 	}
 	if spec.Process != nil {
-		return ErrAppAlreadyStarted
+		return lib.ErrAppAlreadyStarted
 	}
 
 	return n.UnregisterBehavior(appBehaviorGroup, appName)
@@ -312,12 +312,12 @@ func (n *node) ApplicationStart(appName string, args ...etf.Term) (gen.Process, 
 func (n *node) applicationStart(startType, appName string, args ...etf.Term) (gen.Process, error) {
 	rb, err := n.RegisteredBehavior(appBehaviorGroup, appName)
 	if err != nil {
-		return nil, ErrAppUnknown
+		return nil, lib.ErrAppUnknown
 	}
 
 	spec, ok := rb.Data.(*gen.ApplicationSpec)
 	if !ok {
-		return nil, ErrAppUnknown
+		return nil, lib.ErrAppUnknown
 	}
 
 	spec.StartType = startType
@@ -328,12 +328,12 @@ func (n *node) applicationStart(startType, appName string, args ...etf.Term) (ge
 	defer spec.Unlock()
 
 	if spec.Process != nil {
-		return nil, ErrAppAlreadyStarted
+		return nil, lib.ErrAppAlreadyStarted
 	}
 
 	// start dependencies
 	for _, depAppName := range spec.Applications {
-		if _, e := n.ApplicationStart(depAppName); e != nil && e != ErrAppAlreadyStarted {
+		if _, e := n.ApplicationStart(depAppName); e != nil && e != lib.ErrAppAlreadyStarted {
 			return nil, e
 		}
 	}
@@ -356,18 +356,18 @@ func (n *node) applicationStart(startType, appName string, args ...etf.Term) (ge
 func (n *node) ApplicationStop(name string) error {
 	rb, err := n.RegisteredBehavior(appBehaviorGroup, name)
 	if err != nil {
-		return ErrAppUnknown
+		return lib.ErrAppUnknown
 	}
 
 	spec, ok := rb.Data.(*gen.ApplicationSpec)
 	if !ok {
-		return ErrAppUnknown
+		return lib.ErrAppUnknown
 	}
 
 	spec.Lock()
 	defer spec.Unlock()
 	if spec.Process == nil {
-		return ErrAppIsNotRunning
+		return lib.ErrAppIsNotRunning
 	}
 
 	if e := spec.Process.Exit("normal"); e != nil {
@@ -375,7 +375,7 @@ func (n *node) ApplicationStop(name string) error {
 	}
 	// we should wait until children process stopped.
 	if e := spec.Process.WaitWithTimeout(5 * time.Second); e != nil {
-		return ErrProcessBusy
+		return lib.ErrProcessBusy
 	}
 	return nil
 }

@@ -259,7 +259,7 @@ func handleDirect(supervisor Process, spec *SupervisorSpec, message interface{})
 	default:
 	}
 
-	return nil, ErrUnsupportedRequest
+	return nil, lib.ErrUnsupportedRequest
 }
 
 func handleMessageExit(p Process, exit ProcessGracefulExitRequest, spec *SupervisorSpec, wait []etf.Pid) []etf.Pid {

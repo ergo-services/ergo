@@ -198,7 +198,7 @@ func (a *Application) ProcessLoop(ps ProcessState, started chan<- bool) string {
 				ps.PutSyncReply(direct.Ref, pids, nil)
 
 			default:
-				ps.PutSyncReply(direct.Ref, nil, ErrUnsupportedRequest)
+				ps.PutSyncReply(direct.Ref, nil, lib.ErrUnsupportedRequest)
 			}
 
 		case <-ps.Context().Done():
