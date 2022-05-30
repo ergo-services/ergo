@@ -924,8 +924,17 @@ func (c *core) coreStats() internalCoreStats {
 	stats := internalCoreStats{}
 	stats.totalProcesses = c.nextPID - startPID
 	stats.totalReferences = c.uniqID - startUniqID
+
+	c.mutexProcesses.RLock()
 	stats.processes = len(c.processes)
+	c.mutexProcesses.RUnlock()
+
+	c.mutexAliases.RLock()
 	stats.aliases = len(c.aliases)
+	c.mutexAliases.RUnlock()
+
+	c.mutexNames.RLock()
 	stats.names = len(c.names)
+	c.mutexNames.RUnlock()
 	return stats
 }

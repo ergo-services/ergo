@@ -864,9 +864,20 @@ func (m *monitor) sendExit(to etf.Pid, terminated etf.Pid, reason string) error 
 
 func (m *monitor) monitorStats() internalMonitorStats {
 	stats := internalMonitorStats{}
+	m.mutexProcesses.RLock()
 	stats.monitorsByPid = len(m.processes)
+	m.mutexProcesses.RUnlock()
+
+	m.mutexNames.RLock()
 	stats.monitorsByName = len(m.names)
+	m.mutexNames.RUnlock()
+
+	m.mutexNodes.RLock()
 	stats.monitorsNodes = len(m.nodes)
+	m.mutexNodes.RUnlock()
+
+	m.mutexLinks.RLock()
 	stats.links = len(m.links)
+	m.mutexLinks.RUnlock()
 	return stats
 }

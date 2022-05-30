@@ -19,23 +19,32 @@ import (
 	"github.com/ergo-services/ergo/node"
 )
 
+var (
+	defaultMetricsPeriod = time.Minute
+)
+
 type systemMetrics struct {
 	gen.Server
 }
 
-type systemMetricsState struct{}
+type systemMetricsState struct {
+	// gather last 10 stats
+	stats [10]nodeFullStats
+	i     int
+}
 type messageSystemAnonInfo struct{}
-type messageSystemGatherStat struct{}
+type messageSystemGatherStats struct{}
 
 type nodeFullStats struct {
-	utime    int64
-	stime    int64
-	maxProcs int
-	cpus     int
+	timestamp int64
+	utime     int64
+	stime     int64
 
-	memAlloc uint64
-	memFrees uint64
-	memSys   uint64
+	memAlloc      uint64
+	memTotalAlloc uint64
+	memFrees      uint64
+	memSys        uint64
+	memNumGC      uint32
 
 	node    node.NodeStats
 	network []node.NetworkStats
@@ -45,22 +54,26 @@ func (sb *systemMetrics) Init(process *gen.ServerProcess, args ...etf.Term) erro
 	lib.Log("SYSTEM_METRICS: Init: %#v", args)
 
 	process.State = &systemMetricsState{}
-	process.CastAfter(process.Self(), messageSystemAnonInfo{}, 10*time.Second)
+	process.CastAfter(process.Self(), messageSystemAnonInfo{}, defaultMetricsPeriod)
 	return nil
 }
 
 func (sb *systemMetrics) HandleCast(process *gen.ServerProcess, message etf.Term) gen.ServerStatus {
 	lib.Log("SYSTEM_METRICS: HandleCast: %#v", message)
+	state := process.State.(*systemMetricsState)
 	switch message.(type) {
 	case messageSystemAnonInfo:
-		fmt.Println("ANON")
 		ver := process.Env(node.EnvKeyVersion).(node.Version)
 		sendAnonInfo(process.NodeName(), ver)
-		process.CastAfter(process.Self(), messageSystemGatherStat{}, 10*time.Second)
-	case messageSystemGatherStat:
-		fmt.Println("GATHER")
-		gatherStat(process)
-		process.CastAfter(process.Self(), messageSystemGatherStat{}, 10*time.Second)
+		process.CastAfter(process.Self(), messageSystemGatherStats{}, defaultMetricsPeriod)
+	case messageSystemGatherStats:
+		stats := gatherStats(process)
+		if state.i > len(state.stats)-1 {
+			state.i = 0
+		}
+		state.stats[state.i] = stats
+		state.i++
+		process.CastAfter(process.Self(), messageSystemGatherStats{}, defaultMetricsPeriod)
 	}
 	return gen.ServerStatusOK
 }
@@ -111,20 +124,20 @@ func sendAnonInfo(name string, ver node.Version) {
 	c.Write(buf)
 }
 
-func gatherStat(process *gen.ServerProcess) nodeFullStats {
+func gatherStats(process *gen.ServerProcess) nodeFullStats {
 	fullStats := nodeFullStats{}
 
 	// CPU (windows doesn't support this feature)
 	fullStats.utime, fullStats.stime = osdep.ResourceUsage()
-	fullStats.maxProcs = runtime.GOMAXPROCS(0)
-	fullStats.cpus = runtime.NumCPU()
 
 	// Memory
 	mem := runtime.MemStats{}
 	runtime.ReadMemStats(&mem)
-	fullStats.memAlloc = mem.HeapAlloc
+	fullStats.memAlloc = mem.Alloc
+	fullStats.memTotalAlloc = mem.TotalAlloc
 	fullStats.memSys = mem.Sys
 	fullStats.memFrees = mem.Frees
+	fullStats.memNumGC = mem.NumGC
 
 	// Network
 	node := process.Env(node.EnvKeyNode).(node.Node)
@@ -137,6 +150,7 @@ func gatherStat(process *gen.ServerProcess) nodeFullStats {
 	}
 
 	fullStats.node = node.Stats()
+	fullStats.timestamp = time.Now().Unix()
 	//fmt.Printf("STATS %#v \n", fullStats)
 	return fullStats
 }

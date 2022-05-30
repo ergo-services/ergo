@@ -1439,9 +1439,14 @@ func (n *network) getProxyConnectRequest(id etf.Ref) (proxyConnectRequest, bool)
 
 func (n *network) networkStats() internalNetworkStats {
 	stats := internalNetworkStats{}
-	stats.transitConnections = len(n.connectionsTransit)
+	n.proxyTransitSessionsMutex.RLock()
+	stats.transitConnections = len(n.proxyTransitSessions)
+	n.proxyTransitSessionsMutex.RUnlock()
+
+	n.connectionsMutex.RLock()
 	stats.proxyConnections = len(n.connectionsProxy)
 	stats.connections = len(n.connections)
+	n.connectionsMutex.RUnlock()
 	return stats
 }
 
