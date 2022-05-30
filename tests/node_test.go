@@ -103,7 +103,7 @@ func (f *testFragmentationGS) HandleDirect(process *gen.ServerProcess, ref etf.R
 	case makeCall:
 		return process.Call(m.to, m.message)
 	}
-	return nil, gen.ErrUnsupportedRequest
+	return nil, lib.ErrUnsupportedRequest
 }
 
 func TestNodeFragmentation(t *testing.T) {
@@ -222,7 +222,7 @@ func (h *handshakeGenServer) HandleDirect(process *gen.ServerProcess, ref etf.Re
 	case makeCall:
 		return process.Call(m.to, m.message)
 	}
-	return nil, gen.ErrUnsupportedRequest
+	return nil, lib.ErrUnsupportedRequest
 }
 
 func TestNodeDistHandshake(t *testing.T) {
@@ -438,13 +438,13 @@ func TestNodeRemoteSpawn(t *testing.T) {
 
 	fmt.Printf("    process gs1@node1 request to spawn new process on node2 with the same name (must be failed): ")
 	_, err = process.RemoteSpawn(node2.Name(), "remote", opts, 1, 2, 3)
-	if err != node.ErrTaken {
+	if err != lib.ErrTaken {
 		t.Fatal(err)
 	}
 	fmt.Println("OK")
 	fmt.Printf("    process gs1@node1 request to spawn new process on node2 with unregistered behavior name (must be failed): ")
 	_, err = process.RemoteSpawn(node2.Name(), "randomname", opts, 1, 2, 3)
-	if err != node.ErrBehaviorUnknown {
+	if err != lib.ErrBehaviorUnknown {
 		t.Fatal(err)
 	}
 	fmt.Println("OK")
@@ -469,7 +469,7 @@ func TestNodeRemoteSpawn(t *testing.T) {
 		t.Fatal(err)
 	}
 	gotPid, err = process3.RemoteSpawn(node1.Name(), "remote", opts, 1, 2, 3)
-	if err != node.ErrPeerUnsupported {
+	if err != lib.ErrPeerUnsupported {
 		t.Fatal(err)
 	}
 	fmt.Println("OK")
@@ -633,7 +633,7 @@ func (c *compressionServer) HandleDirect(process *gen.ServerProcess, ref etf.Ref
 	case makeCall:
 		return process.Call(m.to, m.message)
 	}
-	return nil, gen.ErrUnsupportedRequest
+	return nil, lib.ErrUnsupportedRequest
 }
 func TestNodeCompression(t *testing.T) {
 	fmt.Printf("\n=== Test Node Compression \n")
@@ -1060,12 +1060,12 @@ func TestNodeIncarnation(t *testing.T) {
 	waitForResultWithValue(t, gsC.v, pC.Self())
 
 	fmt.Printf("... processA send a message to previous incarnation of processC (via proxy): ")
-	if e := pA.Send(pidC, "test"); e != node.ErrProcessIncarnation {
+	if e := pA.Send(pidC, "test"); e != lib.ErrProcessIncarnation {
 		t.Fatal("must be ErrProcessIncarnation here", e)
 	}
 	fmt.Println("OK")
 	fmt.Printf("... processB send short message to previous incarnation of processC: ")
-	if e := pB.Send(pidC, "test"); e != node.ErrProcessIncarnation {
+	if e := pB.Send(pidC, "test"); e != lib.ErrProcessIncarnation {
 		t.Fatal(e)
 	}
 	fmt.Println("OK")
@@ -1227,7 +1227,7 @@ func (b *benchGS) HandleDirect(process *gen.ServerProcess, ref etf.Ref, message 
 	case makeCall:
 		return process.CallWithTimeout(m.to, m.message, 30)
 	}
-	return nil, gen.ErrUnsupportedRequest
+	return nil, lib.ErrUnsupportedRequest
 }
 
 func BenchmarkNodeSequentialNetwork(b *testing.B) {

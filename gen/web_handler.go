@@ -43,8 +43,13 @@ type WebHandler struct {
 	behavior WebHandlerBehavior
 	options  WebHandlerOptions
 	mutex    sync.Mutex
-	pool     []Process
+	pool     []handlerProcess
 	counter  uint64
+}
+
+type handlerProcess struct {
+	process  Process
+	failures int32
 }
 
 type WebHandlerOptions struct {
@@ -110,7 +115,10 @@ func (wh *WebHandler) initHandler(parent Process, handler WebHandlerBehavior, op
 		if err != nil {
 			return wh, err
 		}
-		wh.pool = append(wh.pool, p)
+		hp := handlerProcess{
+			process: p,
+		}
+		wh.pool = append(wh.pool, hp)
 	}
 	return wh, nil
 }
@@ -132,41 +140,32 @@ func (wh *WebHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// attempts
 	for a := uint64(0); a < l; a++ {
 		i := (c + a) % l
-		handler := wh.pool[i]
-		_, err := handler.DirectWithTimeout(mr, wh.options.Timeout)
+		hp := wh.pool[i]
+		_, err := hp.process.DirectWithTimeout(mr, wh.options.Timeout)
 		switch err {
+		case nil:
+			return
+		case lib.ErrProcessTerminated:
+			continue
 		case lib.ErrTimeout:
 			fmt.Println("AAAAAAAAAAA")
 			atomic.AddInt32(&mr.Canceled, 1)
+			f := atomic.AddInt32(&hp.failures, 1)
+			if f > 5 {
+				hp.process.Kill()
+			}
+		case lib.ErrProcessBusy:
+			continue
 		default:
-			fmt.Println("AAAAAAAAAAA", err)
-
-		}
-		// must be
-		// if err == ErrProcessBusy {
-		// 	continue
-		// }
-		// if err == ErrTimout {
-		// 	handler.failures++
-		//  if handler.failures > 5 {
-		//   handler.Kill()
-		//   start new process and put it in the poll at index i
-		// }
-		// }
-		//
-		if err == nil {
-			return
-		}
-		fmt.Println("ERR", err)
-		if err != nil {
+			lib.Warning("WebHandler %s return error: %s", hp.process.Self(), err)
 			continue
 		}
 	}
 
 	// all handlers are busy
 
-	if wh.options.NumHandlers == 0 {
-		// pool is disabled
+	if wh.options.NumHandlers == 1 {
+		// no process to handle this request
 		w.WriteHeader(http.StatusServiceUnavailable) // 503
 		return
 	}
@@ -189,7 +188,10 @@ func (wh *WebHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		lib.Warning("can not extend WebHandler pool: %s", err)
 	}
-	wh.pool = append(wh.pool, p)
+	hp := handlerProcess{
+		process: p,
+	}
+	wh.pool = append(wh.pool, hp)
 }
 
 func (wh *WebHandler) Init(process *ServerProcess, args ...etf.Term) error {

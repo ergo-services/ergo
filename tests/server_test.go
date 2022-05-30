@@ -9,6 +9,7 @@ import (
 	"github.com/ergo-services/ergo"
 	"github.com/ergo-services/ergo/etf"
 	"github.com/ergo-services/ergo/gen"
+	"github.com/ergo-services/ergo/lib"
 	"github.com/ergo-services/ergo/node"
 )
 
@@ -41,7 +42,7 @@ func (tgs *testServer) HandleDirect(process *gen.ServerProcess, ref etf.Ref, mes
 		return nil, process.Cast(m.to, m.message)
 
 	}
-	return nil, gen.ErrUnsupportedRequest
+	return nil, lib.ErrUnsupportedRequest
 }
 func (tgs *testServer) Terminate(process *gen.ServerProcess, reason string) {
 	tgs.res <- reason
@@ -294,7 +295,7 @@ func TestServer(t *testing.T) {
 	}
 
 	fmt.Printf("    process.Direct (without HandleDirect implementation): ")
-	if _, err := node1gs1.Direct(nil); err != gen.ErrUnsupportedRequest {
+	if _, err := node1gs1.Direct(nil); err != lib.ErrUnsupportedRequest {
 		t.Fatal("must be ErrUnsupportedRequest")
 	} else {
 		fmt.Println("OK")

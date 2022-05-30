@@ -9,6 +9,7 @@ import (
 	"github.com/ergo-services/ergo"
 	"github.com/ergo-services/ergo/etf"
 	"github.com/ergo-services/ergo/gen"
+	"github.com/ergo-services/ergo/lib"
 	"github.com/ergo-services/ergo/node"
 )
 
@@ -126,7 +127,7 @@ func TestApplicationBasics(t *testing.T) {
 	fmt.Println("OK")
 
 	fmt.Printf("... try to unload started application (shouldn't be able): ")
-	if e := mynode.ApplicationUnload("testapp1"); e != node.ErrAppAlreadyStarted {
+	if e := mynode.ApplicationUnload("testapp1"); e != lib.ErrAppAlreadyStarted {
 		t.Fatal(e)
 	}
 	fmt.Println("OK")
@@ -371,7 +372,7 @@ func TestApplicationTypeTransient(t *testing.T) {
 		t.Fatal(e)
 	}
 
-	if e := p1.WaitWithTimeout(100 * time.Millisecond); e != node.ErrTimeout {
+	if e := p1.WaitWithTimeout(100 * time.Millisecond); e != lib.ErrTimeout {
 		t.Fatal("application testapp1 should be alive here")
 	}
 
@@ -455,7 +456,7 @@ func TestApplicationTypeTemporary(t *testing.T) {
 		t.Fatal(e)
 	}
 
-	if e := mynode.WaitWithTimeout(100 * time.Millisecond); e != node.ErrTimeout {
+	if e := mynode.WaitWithTimeout(100 * time.Millisecond); e != lib.ErrTimeout {
 		t.Fatal("node should be alive here")
 	}
 

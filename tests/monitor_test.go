@@ -9,6 +9,7 @@ import (
 	"github.com/ergo-services/ergo"
 	"github.com/ergo-services/ergo/etf"
 	"github.com/ergo-services/ergo/gen"
+	"github.com/ergo-services/ergo/lib"
 	"github.com/ergo-services/ergo/node"
 )
 
@@ -1306,7 +1307,7 @@ func TestLinkRemoteProxy(t *testing.T) {
 	node3gs3.SetTrapExit(true)
 	fmt.Printf("Testing Proxy Local-Proxy-Remote for link gs3 -> gs1 (Node1 ProxyFlags.EnableLink = false): ")
 	node3gs3.Link(node1gs1.Self())
-	result = gen.MessageExit{Pid: node1gs1.Self(), Reason: node.ErrPeerUnsupported.Error()}
+	result = gen.MessageExit{Pid: node1gs1.Self(), Reason: lib.ErrPeerUnsupported.Error()}
 	waitForResultWithValue(t, gs3.v, result)
 
 	node1gs1.Link(node3gs3.Self())

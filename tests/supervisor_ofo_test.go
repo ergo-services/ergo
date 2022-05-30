@@ -31,6 +31,7 @@ import (
 	"github.com/ergo-services/ergo"
 	"github.com/ergo-services/ergo/etf"
 	"github.com/ergo-services/ergo/gen"
+	"github.com/ergo-services/ergo/lib"
 	"github.com/ergo-services/ergo/node"
 )
 
@@ -91,7 +92,7 @@ func (tsv *testSupervisorGenServer) HandleDirect(process *gen.ServerProcess, ref
 	case makeCast:
 		return nil, process.Cast(m.to, m.message)
 	}
-	return nil, gen.ErrUnsupportedRequest
+	return nil, lib.ErrUnsupportedRequest
 }
 
 func (tsv *testSupervisorGenServer) Terminate(process *gen.ServerProcess, reason string) {

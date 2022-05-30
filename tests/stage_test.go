@@ -8,6 +8,7 @@ import (
 	"github.com/ergo-services/ergo"
 	"github.com/ergo-services/ergo/etf"
 	"github.com/ergo-services/ergo/gen"
+	"github.com/ergo-services/ergo/lib"
 	"github.com/ergo-services/ergo/node"
 )
 
@@ -114,7 +115,7 @@ func (s *StageProducerTest) HandleStageDirect(process *gen.StageProcess, ref etf
 		return nil, process.Cast(m.to, m.message)
 
 	default:
-		return nil, gen.ErrUnsupportedRequest
+		return nil, lib.ErrUnsupportedRequest
 	}
 }
 
@@ -170,7 +171,7 @@ func (s *StageConsumerTest) HandleStageDirect(p *gen.StageProcess, ref etf.Ref, 
 	case makeCast:
 		return nil, p.Cast(m.to, m.message)
 	}
-	return nil, gen.ErrUnsupportedRequest
+	return nil, lib.ErrUnsupportedRequest
 }
 
 func (gs *StageConsumerTest) Subscribe(p gen.Process, producer etf.Term, opts gen.StageSubscribeOptions) (gen.StageSubscription, error) {
