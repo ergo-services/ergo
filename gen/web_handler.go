@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"runtime"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -16,7 +17,7 @@ var (
 	WebHandlerStatusOK   WebHandlerStatus = nil
 	WebHandlerStatusWait WebHandlerStatus = fmt.Errorf("wait")
 
-	defaultIdleTimeout = 15
+	defaultRequestsQueueLength = 10
 )
 
 type WebHandlerStatus error
@@ -43,24 +44,20 @@ type WebHandler struct {
 	behavior WebHandlerBehavior
 	options  WebHandlerOptions
 	mutex    sync.Mutex
-	pool     []handlerProcess
+	pool     []Process
 	counter  uint64
-}
-
-type handlerProcess struct {
-	process  Process
-	failures int32
 }
 
 type WebHandlerOptions struct {
 	// Timeout for request
 	Timeout int
+	// RequestsQueueLength defines how many parallel requests can be directed to this process. Default value is 10.
+	RequestsQueueLength int
 	// NumHandlers defines how many handlers should be started in the pool. Default 1
 	NumHandlers int
 	// NumHandlers defines how big this pool could growth.
 	MaxHandlers int
-	// IdleTimeout defines how long the process in the pool can be alive with no requests. This option
-	// affects the only extra processes
+	// IdleTimeout defines how long (in seconds) keep this process alive with no requests. Zero value disables this timeout.
 	IdleTimeout int
 }
 
@@ -70,15 +67,18 @@ type WebHandlerProcess struct {
 	lastRequest int64
 }
 
-type messageWebHandlerIdleCheck struct{}
-
-type handlerArgs struct {
-	idleTimeout int
+type webMessageRequest struct {
+	WebMessageRequest
+	canceled bool
+	ref      etf.Ref
+}
+type WebMessageRequest struct {
+	Request  *http.Request
+	Response http.ResponseWriter
 }
 
-//
-//
-//
+type messageWebHandlerIdleCheck struct{}
+
 func (wh *WebHandler) initHandler(parent Process, handler WebHandlerBehavior, options WebHandlerOptions) (http.Handler, error) {
 	cpu := runtime.NumCPU()
 	if options.MaxHandlers < 1 {
@@ -98,27 +98,24 @@ func (wh *WebHandler) initHandler(parent Process, handler WebHandlerBehavior, op
 		options.Timeout = DefaultCallTimeout
 	}
 
-	if options.IdleTimeout < 1 {
-		options.IdleTimeout = defaultIdleTimeout
+	if options.IdleTimeout < 0 {
+		options.IdleTimeout = 0
+	}
+
+	if options.RequestsQueueLength < 1 {
+		options.RequestsQueueLength = defaultRequestsQueueLength
 	}
 
 	wh.parent = parent
 	wh.behavior = handler
 	wh.options = options
 
-	opts := ProcessOptions{
-		Context: parent.Context(),
-	}
-
 	for i := 0; i < options.NumHandlers; i++ {
-		p, err := parent.Spawn("", opts, handler)
-		if err != nil {
-			return wh, err
+		p := wh.startHandler()
+		if p == nil {
+			return nil, fmt.Errorf("can not initialize handlers")
 		}
-		hp := handlerProcess{
-			process: p,
-		}
-		wh.pool = append(wh.pool, hp)
+		wh.pool = append(wh.pool, p)
 	}
 	return wh, nil
 }
@@ -132,70 +129,96 @@ func (wh *WebHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	/// MUTEX for the mr message to get rid of race condition - response writer
 	// shouldn't be used once we exit from this callback
 	///
-	mr := WebMessageRequest{
-		Request:  r,
-		Response: w,
+	mr := webMessageRequest{}
+	mr.Request = r
+	mr.Response = w
+	mr.ref = wh.parent.MakeRef()
+
+	timeout := wh.options.Timeout
+	if t := r.Header.Get("Request-Timeout"); t != "" {
+		intT, err := strconv.Atoi(t)
+		if err == nil && intT > 0 {
+			timeout = intT
+		}
 	}
 
 	// attempts
 	for a := uint64(0); a < l; a++ {
 		i := (c + a) % l
-		hp := wh.pool[i]
-		_, err := hp.process.DirectWithTimeout(mr, wh.options.Timeout)
+		p := wh.pool[i]
+		_, err := p.DirectWithTimeout(&mr, timeout)
 		switch err {
 		case nil:
 			return
+
 		case lib.ErrProcessTerminated:
-			continue
-		case lib.ErrTimeout:
-			fmt.Println("AAAAAAAAAAA")
-			atomic.AddInt32(&mr.Canceled, 1)
-			f := atomic.AddInt32(&hp.failures, 1)
-			if f > 5 {
-				hp.process.Kill()
+			p1 := p
+			p = wh.startHandler()
+			if p == nil {
+				w.WriteHeader(http.StatusServiceUnavailable) // 503
+				return
 			}
+			fmt.Println(mr.ref, "REPLACING terminated", i, p1.Self(), " with new", p.Self())
+			wh.pool[i] = p
+			_, err := p.DirectWithTimeout(&mr, timeout)
+			if err != nil {
+				lib.Warning("WebHandler %s return error: %s", p.Self(), err)
+				w.WriteHeader(http.StatusInternalServerError)
+			}
+			return
+
+		case lib.ErrTimeout:
+			mr.canceled = true
+			//w.WriteHeader(http.StatusRequestTimeout)
+			return
 		case lib.ErrProcessBusy:
+			fmt.Println(mr.ref, "PROCESS BUSY", p.Self(), "i", i)
 			continue
 		default:
-			lib.Warning("WebHandler %s return error: %s", hp.process.Self(), err)
+			lib.Warning("WebHandler %s return error: %s", p.Self(), err)
 			continue
 		}
 	}
 
 	// all handlers are busy
 
-	if wh.options.NumHandlers == 1 {
-		// no process to handle this request
-		w.WriteHeader(http.StatusServiceUnavailable) // 503
-		return
-	}
-
-	// we have reached the limit
 	if l+1 > uint64(wh.options.MaxHandlers) {
+		// we have reached the limit
+		fmt.Println(mr.ref, "LIMIT REACHED")
 		w.WriteHeader(http.StatusServiceUnavailable) // 503
 		return
 	}
 
-	opts := ProcessOptions{
-		Context: wh.parent.Context(),
+	p := wh.startHandler()
+	if p == nil {
+		w.WriteHeader(http.StatusServiceUnavailable) // 503
 	}
-
-	args := handlerArgs{
-		idleTimeout: wh.options.IdleTimeout,
-	}
-
-	p, err := wh.parent.Spawn("", opts, wh.behavior, args)
+	fmt.Println(mr.ref, "EXPAND HANDLERS POOL with", p.Self())
+	wh.pool = append(wh.pool, p)
+	_, err := p.DirectWithTimeout(&mr, timeout)
+	mr.canceled = true
 	if err != nil {
-		lib.Warning("can not extend WebHandler pool: %s", err)
+		lib.Warning("WebHandler %s return error: %s", p.Self(), err)
+		w.WriteHeader(http.StatusInternalServerError)
 	}
-	hp := handlerProcess{
-		process: p,
+}
+
+func (wh *WebHandler) startHandler() Process {
+	opts := ProcessOptions{
+		Context:       wh.parent.Context(),
+		DirectboxSize: uint16(wh.options.RequestsQueueLength),
 	}
-	wh.pool = append(wh.pool, hp)
+
+	p, err := wh.parent.Spawn("", opts, wh.behavior)
+	if err != nil {
+		lib.Warning("can not start WebHandler: %s", err)
+		return nil
+	}
+	return p
 }
 
 func (wh *WebHandler) Init(process *ServerProcess, args ...etf.Term) error {
-	fmt.Println("Started new WebHandler process", process.Self())
+	fmt.Println(time.Now(), "Started new WebHandler process", process.Self())
 
 	behavior, ok := process.Behavior().(WebHandlerBehavior)
 	if !ok {
@@ -210,15 +233,10 @@ func (wh *WebHandler) Init(process *ServerProcess, args ...etf.Term) error {
 	handlerProcess.State = nil
 	process.State = handlerProcess
 
-	if args == nil {
-		return nil
-	}
-
-	ha, ok := args[0].(handlerArgs)
 	if ok == false {
 		return fmt.Errorf("Web: wrong args for the WebHandlerBehavior")
 	}
-	if ha.idleTimeout > 0 {
+	if wh.options.IdleTimeout > 0 {
 		process.CastAfter(process.Self(), messageWebHandlerIdleCheck{}, 5*time.Second)
 	}
 
@@ -240,11 +258,19 @@ func (wh *WebHandler) HandleCast(process *ServerProcess, message etf.Term) Serve
 func (wh *WebHandler) HandleDirect(process *ServerProcess, ref etf.Ref, message interface{}) (interface{}, DirectStatus) {
 	whp := process.State.(*WebHandlerProcess)
 	switch m := message.(type) {
-	case WebMessageRequest:
+	case *webMessageRequest:
 		whp.lastRequest = time.Now().Unix()
-		whp.behavior.HandleRequest(whp, m)
+		if m.canceled {
+			fmt.Println(m.ref, "canceled", process.Self())
+			return nil, DirectStatusOK
+		}
+		whp.behavior.HandleRequest(whp, m.WebMessageRequest)
 	}
 	return nil, DirectStatusOK
+}
+
+func (wh *WebHandler) Terminate(process *ServerProcess, reason string) {
+	fmt.Println(time.Now(), "STOPPING", process.Self())
 }
 
 // HandleWebHandlerCall

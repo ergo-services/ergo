@@ -28,10 +28,12 @@ func (w *web) InitWeb(process *gen.WebProcess, args ...etf.Term) (gen.WebOptions
 	}
 
 	mux := http.NewServeMux()
-	root := process.StartWebHandler(&rootHandler{}, gen.WebHandlerOptions{})
 	whOptions := gen.WebHandlerOptions{
-		NumHandlers: 4,
+		NumHandlers:         64,
+		IdleTimeout:         10,
+		RequestsQueueLength: 6,
 	}
+	root := process.StartWebHandler(&rootHandler{}, whOptions)
 	user := process.StartWebHandler(&userHandler{}, whOptions)
 	mux.Handle("/", root)
 	mux.Handle("/root", root)
@@ -48,6 +50,7 @@ type userHandler struct {
 func (u *userHandler) HandleRequest(process *gen.WebHandlerProcess, request gen.WebMessageRequest) gen.WebHandlerStatus {
 	fmt.Println("user handle request", process.Self())
 	time.Sleep(10 * time.Second)
+	request.Response.WriteHeader(http.StatusOK)
 	return gen.WebHandlerStatusOK
 }
 
@@ -56,7 +59,7 @@ type rootHandler struct {
 }
 
 func (r *rootHandler) HandleRequest(process *gen.WebHandlerProcess, request gen.WebMessageRequest) gen.WebHandlerStatus {
-	fmt.Println("root handle request", process.Self())
-	request.Response.WriteHeader(http.StatusNotFound)
+	//fmt.Println("root handle request", process.Self())
+	request.Response.WriteHeader(http.StatusOK)
 	return gen.WebHandlerStatusOK
 }

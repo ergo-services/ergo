@@ -65,12 +65,6 @@ type WebRouteGroup struct {
 
 type webMessageTest struct{}
 
-type WebMessageRequest struct {
-	Canceled int32
-	Request  *http.Request
-	Response http.ResponseWriter
-}
-
 type defaultHandler struct {
 }
 
