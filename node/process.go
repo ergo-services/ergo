@@ -158,7 +158,9 @@ func (p *process) Aliases() []etf.Alias {
 
 // Info
 func (p *process) Info() gen.ProcessInfo {
+	p.RLock()
 	if p.behavior == nil {
+		p.RUnlock()
 		return gen.ProcessInfo{}
 	}
 
@@ -166,6 +168,8 @@ func (p *process) Info() gen.ProcessInfo {
 	if p.groupLeader != nil {
 		gl = p.groupLeader.Self()
 	}
+	p.RUnlock()
+
 	links := p.Links()
 	monitors := p.Monitors()
 	monitorsByName := p.MonitorsByName()
@@ -188,9 +192,13 @@ func (p *process) Info() gen.ProcessInfo {
 
 // Send
 func (p *process) Send(to interface{}, message etf.Term) error {
+	p.RLock()
 	if p.behavior == nil {
+		p.RUnlock()
 		return lib.ErrProcessTerminated
 	}
+	p.RUnlock()
+
 	switch receiver := to.(type) {
 	case etf.Pid:
 		return p.RouteSend(p.self, receiver, message)
@@ -207,40 +215,49 @@ func (p *process) Send(to interface{}, message etf.Term) error {
 }
 
 // SendAfter
-func (p *process) SendAfter(to interface{}, message etf.Term, after time.Duration) context.CancelFunc {
-	//TODO: should we control the number of timers/goroutines have been created this way?
-	ctx, cancel := context.WithCancel(p.context)
-	go func() {
-		// to prevent of timer leaks due to its not GCed until the timer fires
-		timer := time.NewTimer(after)
-		defer timer.Stop()
-		defer cancel()
+func (p *process) SendAfter(to interface{}, message etf.Term, after time.Duration) gen.CancelFunc {
 
-		select {
-		case <-ctx.Done():
-			return
-		case <-timer.C:
-			if p.IsAlive() {
-				p.Send(to, message)
-			}
-		}
-	}()
-	return cancel
+	timer := time.AfterFunc(after, func() { p.Send(to, message) })
+	return timer.Stop
+	//TODO: should we control the number of timers/goroutines have been created this way?
+	//ctx, cancel := context.WithCancel(p.context)
+	//go func() {
+	//	// to prevent of timer leaks due to its not GCed until the timer fires
+	//	timer := time.NewTimer(after)
+	//	defer timer.Stop()
+	//	defer cancel()
+
+	//	select {
+	//	case <-ctx.Done():
+	//		return
+	//	case <-timer.C:
+	//		if p.IsAlive() {
+	//			p.Send(to, message)
+	//		}
+	//	}
+	//}()
+	//return cancel
 }
 
 // CreateAlias
 func (p *process) CreateAlias() (etf.Alias, error) {
+	p.RLock()
 	if p.behavior == nil {
+		p.RUnlock()
 		return etf.Alias{}, lib.ErrProcessTerminated
 	}
+	p.RUnlock()
 	return p.newAlias(p)
 }
 
 // DeleteAlias
 func (p *process) DeleteAlias(alias etf.Alias) error {
+	p.RLock()
 	if p.behavior == nil {
+		p.RUnlock()
 		return lib.ErrProcessTerminated
 	}
+	p.RUnlock()
 	return p.deleteAlias(p, alias)
 }
 
@@ -272,6 +289,7 @@ func (p *process) ListEnv() map[gen.EnvKey]interface{} {
 func (p *process) SetEnv(name gen.EnvKey, value interface{}) {
 	p.Lock()
 	defer p.Unlock()
+
 	if value == nil {
 		delete(p.env, name)
 		return
@@ -321,22 +339,30 @@ func (p *process) WaitWithTimeout(d time.Duration) error {
 
 // Link
 func (p *process) Link(with etf.Pid) error {
+	p.RLock()
 	if p.behavior == nil {
+		p.RUnlock()
 		return lib.ErrProcessTerminated
 	}
+	p.RUnlock()
 	return p.RouteLink(p.self, with)
 }
 
 // Unlink
 func (p *process) Unlink(with etf.Pid) error {
+	p.RLock()
 	if p.behavior == nil {
+		p.RUnlock()
 		return lib.ErrProcessTerminated
 	}
+	p.RUnlock()
 	return p.RouteUnlink(p.self, with)
 }
 
 // IsAlive
 func (p *process) IsAlive() bool {
+	p.RLock()
+	defer p.RUnlock()
 	if p.behavior == nil {
 		return false
 	}
@@ -421,8 +447,9 @@ func (p *process) SetCompressionThreshold(threshold int) bool {
 
 // Behavior
 func (p *process) Behavior() gen.ProcessBehavior {
-	p.Lock()
-	defer p.Unlock()
+	p.RLock()
+	defer p.RUnlock()
+
 	if p.behavior == nil {
 		return nil
 	}
@@ -440,29 +467,23 @@ func (p *process) DirectWithTimeout(request interface{}, timeout int) (interface
 		timeout = gen.DefaultCallTimeout
 	}
 
-	if p.direct == nil {
-		return nil, lib.ErrProcessTerminated
-	}
-
-	timer := lib.TakeTimer()
-	defer lib.ReleaseTimer(timer)
-
 	direct := gen.ProcessDirectMessage{
 		Ref:     p.MakeRef(),
 		Message: request,
 	}
 
+	if err := p.PutSyncRequest(direct.Ref); err != nil {
+		return nil, err
+	}
+
 	// sending request
 	select {
 	case p.direct <- direct:
-		timer.Reset(time.Second * time.Duration(timeout))
-	case <-timer.C:
-		return nil, lib.ErrTimeout
 	default:
+		p.CancelSyncRequest(direct.Ref)
 		return nil, lib.ErrProcessBusy
 	}
 
-	p.PutSyncRequest(direct.Ref)
 	return p.WaitSyncReply(direct.Ref, timeout)
 }
 
@@ -570,21 +591,29 @@ func (p *process) Spawn(name string, opts gen.ProcessOptions, behavior gen.Proce
 }
 
 // PutSyncRequest
-func (p *process) PutSyncRequest(ref etf.Ref) {
+func (p *process) PutSyncRequest(ref etf.Ref) error {
+	p.RLock()
 	if p.reply == nil {
-		return
+		p.RUnlock()
+		return lib.ErrProcessTerminated
 	}
+	p.RUnlock()
+
 	reply := syncReplyChannels.Get().(chan syncReplyMessage)
 	p.replyMutex.Lock()
 	p.reply[ref] = reply
 	p.replyMutex.Unlock()
+	return nil
 }
 
 // PutSyncReply
 func (p *process) PutSyncReply(ref etf.Ref, reply etf.Term, err error) error {
+	p.RLock()
 	if p.reply == nil {
+		p.RUnlock()
 		return lib.ErrProcessTerminated
 	}
+	p.RUnlock()
 
 	p.replyMutex.RLock()
 	rep, ok := p.reply[ref]
@@ -602,6 +631,13 @@ func (p *process) PutSyncReply(ref etf.Ref, reply etf.Term, err error) error {
 
 // CancelSyncRequest
 func (p *process) CancelSyncRequest(ref etf.Ref) {
+	p.RLock()
+	if p.reply == nil {
+		p.RUnlock()
+		return
+	}
+	p.RUnlock()
+
 	p.replyMutex.Lock()
 	delete(p.reply, ref)
 	p.replyMutex.Unlock()
@@ -609,9 +645,12 @@ func (p *process) CancelSyncRequest(ref etf.Ref) {
 
 // WaitSyncReply
 func (p *process) WaitSyncReply(ref etf.Ref, timeout int) (etf.Term, error) {
+	p.RLock()
 	if p.reply == nil {
+		p.RUnlock()
 		return nil, lib.ErrProcessTerminated
 	}
+	p.RUnlock()
 
 	p.replyMutex.RLock()
 	reply, wait_for_reply := p.reply[ref]
@@ -634,6 +673,7 @@ func (p *process) WaitSyncReply(ref etf.Ref, timeout int) (etf.Term, error) {
 	for {
 		select {
 		case m := <-reply:
+			// get back 'reply' struct to the pool
 			syncReplyChannels.Put(reply)
 			return m.value, m.err
 		case <-timer.C:

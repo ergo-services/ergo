@@ -62,8 +62,9 @@ type Process interface {
 	// SendAfter starts a timer. When the timer expires, the message sends to the process
 	// identified by 'to'.  'to' can be a Pid, registered local name or
 	// gen.ProcessID{RegisteredName, NodeName}. Returns cancel function in order to discard
-	// sending a message
-	SendAfter(to interface{}, message etf.Term, after time.Duration) context.CancelFunc
+	// sending a message. CancelFunc returns bool value. If it returns false, than the timer has
+	// already expired and the message has been sent.
+	SendAfter(to interface{}, message etf.Term, after time.Duration) CancelFunc
 
 	// Exit initiate a graceful stopping process
 	Exit(reason string) error
@@ -177,7 +178,7 @@ type Process interface {
 	// Aliases returns list of aliases of this process.
 	Aliases() []etf.Alias
 
-	PutSyncRequest(ref etf.Ref)
+	PutSyncRequest(ref etf.Ref) error
 	CancelSyncRequest(ref etf.Ref)
 	WaitSyncReply(ref etf.Ref, timeout int) (etf.Term, error)
 	PutSyncReply(ref etf.Ref, term etf.Term, err error) error
@@ -449,3 +450,5 @@ func IsMessageFallback(message etf.Term) (MessageFallback, bool) {
 	}
 	return mf, false
 }
+
+type CancelFunc func() bool

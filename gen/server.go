@@ -1,7 +1,6 @@
 package gen
 
 import (
-	"context"
 	"fmt"
 	"runtime"
 	"time"
@@ -101,7 +100,7 @@ type handleInfoMessage struct {
 }
 
 // CastAfter a simple wrapper for Process.SendAfter to send a message in fashion of 'gen_server:cast'
-func (sp *ServerProcess) CastAfter(to interface{}, message etf.Term, after time.Duration) context.CancelFunc {
+func (sp *ServerProcess) CastAfter(to interface{}, message etf.Term, after time.Duration) CancelFunc {
 	msg := etf.Term(etf.Tuple{etf.Atom("$gen_cast"), message})
 	return sp.SendAfter(to, msg, after)
 }

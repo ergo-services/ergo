@@ -1,7 +1,6 @@
 package gen
 
 import (
-	"context"
 	"fmt"
 	"math"
 	"sync"
@@ -169,7 +168,7 @@ type SagaTransaction struct {
 	parents []etf.Pid // sagas trace
 
 	done        bool // do not allow send result more than once if 2PC is set
-	cancelTimer context.CancelFunc
+	cancelTimer CancelFunc
 }
 
 // SagaNextID
@@ -194,7 +193,7 @@ type SagaNext struct {
 
 	// internal
 	done        bool // for 2PC case
-	cancelTimer context.CancelFunc
+	cancelTimer CancelFunc
 }
 
 // SagaJobID
@@ -218,7 +217,7 @@ type SagaJob struct {
 	commit      bool
 	worker      Process
 	done        bool
-	cancelTimer context.CancelFunc
+	cancelTimer CancelFunc
 }
 
 // SagaJobOptions

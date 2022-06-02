@@ -50,23 +50,7 @@ type WebProcess struct {
 	behavior WebBehavior
 }
 
-type WebMiddlewareFunc func(http.Handler) http.Handler
-
-type WebRoute struct {
-	EndPoint     string
-	HandlerGroup string
-	Middleware   WebMiddlewareFunc
-}
-
-type WebRouteGroup struct {
-	Name       string
-	Middleware WebMiddlewareFunc
-}
-
-type webMessageTest struct{}
-
-type defaultHandler struct {
-}
+type defaultHandler struct{}
 
 func (dh *defaultHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotFound)

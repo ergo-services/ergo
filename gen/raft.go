@@ -1,7 +1,6 @@
 package gen
 
 import (
-	"context"
 	"fmt"
 	"math/rand"
 	"sort"
@@ -115,7 +114,7 @@ type RaftProcess struct {
 	round    int // "log term" in terms of Raft spec
 
 	// get requests
-	requests map[etf.Ref]context.CancelFunc
+	requests map[etf.Ref]CancelFunc
 
 	// append requests
 	requestsAppend      map[string]*requestAppend
@@ -123,7 +122,7 @@ type RaftProcess struct {
 
 	// leader sends heartbeat messages and keep the last sending timestamp
 	heartbeatLeader int64
-	heartbeatCancel context.CancelFunc
+	heartbeatCancel CancelFunc
 }
 
 type leaderElection struct {
@@ -132,7 +131,7 @@ type leaderElection struct {
 	round   int
 	leader  etf.Pid // leader elected
 	voted   int     // number of peers voted for the leader
-	cancel  context.CancelFunc
+	cancel  CancelFunc
 }
 
 type requestAppend struct {
@@ -141,7 +140,7 @@ type requestAppend struct {
 	origin etf.Pid
 	value  etf.Term
 	peers  map[etf.Pid]bool
-	cancel context.CancelFunc
+	cancel CancelFunc
 }
 
 type requestAppendQueued struct {
@@ -2249,7 +2248,7 @@ func (r *Raft) Init(process *ServerProcess, args ...etf.Term) error {
 		behavior:         behavior,
 		quorumCandidates: createQuorumCandidates(),
 		quorumVotes:      make(map[RaftQuorumState]*quorum),
-		requests:         make(map[etf.Ref]context.CancelFunc),
+		requests:         make(map[etf.Ref]CancelFunc),
 		requestsAppend:   make(map[string]*requestAppend),
 	}
 

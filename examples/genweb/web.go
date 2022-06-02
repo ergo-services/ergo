@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"net/http"
-	"time"
 
 	"github.com/ergo-services/ergo/etf"
 	"github.com/ergo-services/ergo/gen"
@@ -29,9 +28,10 @@ func (w *web) InitWeb(process *gen.WebProcess, args ...etf.Term) (gen.WebOptions
 
 	mux := http.NewServeMux()
 	whOptions := gen.WebHandlerOptions{
-		NumHandlers:         64,
-		IdleTimeout:         10,
-		RequestsQueueLength: 6,
+		MaxHandlers:        200,
+		IdleTimeout:        10,
+		RequestQueueLength: 3,
+		RequestTimeout:     20,
 	}
 	root := process.StartWebHandler(&rootHandler{}, whOptions)
 	user := process.StartWebHandler(&userHandler{}, whOptions)
@@ -49,7 +49,6 @@ type userHandler struct {
 
 func (u *userHandler) HandleRequest(process *gen.WebHandlerProcess, request gen.WebMessageRequest) gen.WebHandlerStatus {
 	fmt.Println("user handle request", process.Self())
-	time.Sleep(10 * time.Second)
 	request.Response.WriteHeader(http.StatusOK)
 	return gen.WebHandlerStatusOK
 }

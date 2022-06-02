@@ -922,8 +922,8 @@ func (c *core) processByPid(pid etf.Pid) *process {
 
 func (c *core) coreStats() internalCoreStats {
 	stats := internalCoreStats{}
-	stats.totalProcesses = c.nextPID - startPID
-	stats.totalReferences = c.uniqID - startUniqID
+	stats.totalProcesses = atomic.LoadUint64(&c.nextPID) - startPID
+	stats.totalReferences = atomic.LoadUint64(&c.uniqID) - startUniqID
 
 	c.mutexProcesses.RLock()
 	stats.processes = len(c.processes)

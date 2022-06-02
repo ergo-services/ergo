@@ -3,6 +3,7 @@ package tests
 import (
 	"fmt"
 	"reflect"
+	"sync"
 	"testing"
 	"time"
 
@@ -63,6 +64,8 @@ func (tgsd *testServerDirect) HandleDirect(process *gen.ServerProcess, ref etf.R
 		m.ref = ref
 		process.Cast(process.Self(), m)
 		return nil, gen.DirectStatusIgnore
+	case syncDirect:
+		return m.val, gen.DirectStatusOK
 	}
 	return message, gen.DirectStatusOK
 }
@@ -349,6 +352,53 @@ func TestServer(t *testing.T) {
 	fmt.Printf("Stopping nodes: %v, %v\n", node1.Name(), node2.Name())
 	node1.Stop()
 	node2.Stop()
+}
+func TestServerDirect(t *testing.T) {
+	fmt.Printf("\n=== Test Server Direct\n")
+	fmt.Printf("Starting node: nodeGS1Direct@localhost: ")
+	node1, _ := ergo.StartNode("nodeGS1Direct@localhost", "cookies", node.Options{})
+	if node1 == nil {
+		t.Fatal("can't start nodes")
+	} else {
+		fmt.Println("OK")
+	}
+	defer node1.Stop()
+
+	gsDirect := &testServerDirect{
+		err: make(chan error, 2),
+	}
+
+	fmt.Printf("    wait for start of gsDirect on %#v: ", node1.Name())
+	node1gsDirect, _ := node1.Spawn("gsDirect", gen.ProcessOptions{}, gsDirect, nil)
+	waitForResult(t, gsDirect.err)
+
+	var wg sync.WaitGroup
+
+	fmt.Println("   process.Direct with 1000 goroutines:")
+	direct := func() {
+		v := etf.Atom("sync direct")
+		defer wg.Done()
+	repeat:
+		if v1, err := node1gsDirect.Direct(syncDirect{val: v}); err != nil {
+			if err == lib.ErrProcessBusy {
+				goto repeat
+			}
+			t.Fatal(err)
+		} else {
+			if v != v1 {
+				e := fmt.Errorf("expected: %#v , got: %#v", v, v1)
+				t.Fatal(e)
+			}
+		}
+	}
+	n := 1000
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go direct()
+	}
+
+	wg.Wait()
+	fmt.Println("OK")
 }
 
 type messageOrderGS struct {
