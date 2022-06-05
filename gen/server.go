@@ -194,7 +194,10 @@ func (sp *ServerProcess) SendReply(from ServerFrom, reply etf.Term) error {
 	return sp.Send(to, rep)
 }
 
-// Reply handling process.Direct(...) calls can be done asynchronously using gen.DirectStatusIgnore as a returning status in the HandleDirect callback. In this case, the returning of value can be postponed until you reply to this call manually, using this method. It returns node.ErrReferenceUnknown if a caller has canceled this request due to timeout.
+// Reply the handling process.Direct(...) calls can be done asynchronously
+// using gen.DirectStatusIgnore as a returning status in the HandleDirect callback.
+// In this case, you must reply manualy using gen.ServerProcess.Reply method in any other
+// callback. If a caller has canceled this request due to timeout it returns lib.ErrReferenceUnknown
 func (sp *ServerProcess) Reply(ref etf.Ref, reply etf.Term, err error) error {
 	return sp.PutSyncReply(ref, reply, err)
 }

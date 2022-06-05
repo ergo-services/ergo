@@ -130,10 +130,8 @@ func main() {
 
 	ppp, eee := demoNode.Spawn("", gen.ProcessOptions{}, &demoApp{})
 	if eee != nil {
-		fmt.Println("AAAAAA", eee)
 		panic(eee)
 	}
-	fmt.Println("PPP", ppp.Self())
 
 	// start application
 	if _, err := demoNode.ApplicationLoad(&demoApp{}); err != nil {

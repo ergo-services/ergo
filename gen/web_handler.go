@@ -80,6 +80,7 @@ type WebHandlerProcess struct {
 }
 
 type WebMessageRequest struct {
+	Ref      etf.Ref
 	Request  *http.Request
 	Response http.ResponseWriter
 }
@@ -88,7 +89,6 @@ type webMessageRequest struct {
 	sync.Mutex
 	WebMessageRequest
 	requestState int // 0 - initial, 1 - canceled, 2 - handled
-	ref          etf.Ref
 }
 
 type optsWebHandler struct {
@@ -155,7 +155,6 @@ func (wh *WebHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	mr := webMessageRequestPool.Get().(*webMessageRequest)
 	mr.Request = r
 	mr.Response = w
-	mr.ref = wh.parent.MakeRef()
 	mr.requestState = 0
 
 	timeout := wh.options.RequestTimeout
@@ -218,8 +217,8 @@ func (wh *WebHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			wh.mutex.Lock()
 			// if its already replaced by the other goroutine just use the started handler only once
 			// and do not put in the pool
-			if wh.pool[i] == pold {
-				fmt.Println(mr.ref, "REPLACING terminated", i, pold.Self(), " with new", p.Self())
+			if pold != nil && wh.pool[i] == pold {
+				fmt.Println(mr.Ref, "REPLACING terminated", i, pold.Self(), " with new", p.Self())
 				wh.pool[i] = p
 			}
 			wh.mutex.Unlock()
@@ -240,7 +239,7 @@ func (wh *WebHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusGatewayTimeout)
 			return
 		case lib.ErrProcessBusy:
-			//log.Println(mr.ref, "PROCESS BUSY", p.Self(), "i", i)
+			//log.Println(mr.Ref, "PROCESS BUSY", p.Self(), "i", i)
 			continue
 		default:
 			lib.Warning("WebHandler %s return error: %s", p.Self(), err)
@@ -278,7 +277,7 @@ func (wh *WebHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	wh.mutex.Lock()
 	wh.pool = append(wh.pool, p)
-	log.Println(mr.ref, "EXPAND HANDLERS POOL with", p.Self(), "total", len(wh.pool))
+	log.Println(mr.Ref, "EXPAND HANDLERS POOL with", p.Self(), "total", len(wh.pool))
 	wh.mutex.Unlock()
 
 	_, err := p.DirectWithTimeout(mr, timeout)
@@ -350,6 +349,9 @@ func (wh *WebHandler) HandleCast(process *ServerProcess, message etf.Term) Serve
 			return ServerStatusStop
 		}
 		process.CastAfter(process.Self(), messageWebHandlerIdleCheck{}, 5*time.Second)
+
+	default:
+		return whp.behavior.HandleWebHandlerCast(whp, message)
 	}
 	return ServerStatusOK
 }
@@ -363,11 +365,11 @@ func (wh *WebHandler) HandleDirect(process *ServerProcess, ref etf.Ref, message 
 		m.Lock()
 		defer m.Unlock()
 		if m.requestState != 0 || m.Request.Context().Err() != nil { // canceled
-			log.Println(m.ref, "canceled", process.Self(), "handled", whp.counter)
+			log.Println(m.Ref, "canceled", process.Self(), "handled", whp.counter)
 			return nil, DirectStatusOK
 		}
 		m.requestState = 2 // handled
-
+		m.Ref = ref
 		status := whp.behavior.HandleRequest(whp, m.WebMessageRequest)
 		switch status {
 		case WebHandlerStatusDone:
