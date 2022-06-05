@@ -10,21 +10,21 @@ import (
 	"github.com/ergo-services/ergo/node"
 )
 
-type MyDemo struct {
-	Demo
+type MyCustom struct {
+	Custom
 }
 
-func (md *MyDemo) InitDemo(process *DemoProcess, args ...etf.Term) error {
-	fmt.Printf("Started instance of MyDemo with PID %s and args %v\n", process.Self(), args)
+func (md *MyCustom) InitCustom(process *CustomProcess, args ...etf.Term) error {
+	fmt.Printf("Started instance of MyCustom with PID %s and args %v\n", process.Self(), args)
 	return nil
 }
 
-func (md *MyDemo) HandleHello(process *DemoProcess) DemoStatus {
+func (md *MyCustom) HandleHello(process *CustomProcess) CustomStatus {
 	fmt.Println("got Hello")
-	return DemoStatusOK
+	return CustomStatusOK
 }
 
-func (md *MyDemo) HandleDemoDirect(process *DemoProcess, message interface{}) (interface{}, error) {
+func (md *MyCustom) HandleCustomDirect(process *CustomProcess, message interface{}) (interface{}, error) {
 
 	fmt.Println("Say hi to increase counter twice")
 	process.Hi()
@@ -40,7 +40,7 @@ func main() {
 		return
 	}
 
-	demo := &MyDemo{}
+	demo := &MyCustom{}
 	// Spawn a new process with arguments
 	process, e := node.Spawn("demo", gen.ProcessOptions{}, demo, 1, 2, 3)
 	if e != nil {
