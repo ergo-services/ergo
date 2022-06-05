@@ -100,45 +100,45 @@ func (dp *CustomProcess) Hi() CustomStatus {
 // gen.Server callbacks
 //
 func (d *Custom) Init(process *gen.ServerProcess, args ...etf.Term) error {
-	demo := &CustomProcess{
+	custom := &CustomProcess{
 		ServerProcess: *process,
 	}
 	// do not inherit parent State
-	demo.State = nil
+	custom.State = nil
 
-	if err := process.Behavior().(CustomBehavior).InitCustom(demo, args...); err != nil {
+	if err := process.Behavior().(CustomBehavior).InitCustom(custom, args...); err != nil {
 		return err
 	}
-	process.State = demo
+	process.State = custom
 	return nil
 }
 
 func (gd *Custom) HandleCall(process *gen.ServerProcess, from gen.ServerFrom, message etf.Term) (etf.Term, gen.ServerStatus) {
-	demo := process.State.(*CustomProcess)
-	return process.Behavior().(CustomBehavior).HandleCustomCall(demo, from, message)
+	custom := process.State.(*CustomProcess)
+	return process.Behavior().(CustomBehavior).HandleCustomCall(custom, from, message)
 }
 
 func (gd *Custom) HandleDirect(process *gen.ServerProcess, ref etf.Ref, message interface{}) (interface{}, gen.DirectStatus) {
-	demo := process.State.(*CustomProcess)
+	custom := process.State.(*CustomProcess)
 	switch message.(type) {
 	case messageGetStat:
-		return demo.counter, gen.DirectStatusOK
+		return custom.counter, gen.DirectStatusOK
 	case messageHello:
-		process.Behavior().(CustomBehavior).HandleHello(demo)
-		demo.counter++
+		process.Behavior().(CustomBehavior).HandleHello(custom)
+		custom.counter++
 		return nil, gen.DirectStatusOK
 	default:
-		return process.Behavior().(CustomBehavior).HandleCustomDirect(demo, message)
+		return process.Behavior().(CustomBehavior).HandleCustomDirect(custom, message)
 	}
 
 }
 
 func (gd *Custom) HandleCast(process *gen.ServerProcess, message etf.Term) gen.ServerStatus {
-	demo := process.State.(*CustomProcess)
-	return process.Behavior().(CustomBehavior).HandleCustomCast(demo, message)
+	custom := process.State.(*CustomProcess)
+	return process.Behavior().(CustomBehavior).HandleCustomCast(custom, message)
 }
 
 func (gd *Custom) HandleInfo(process *gen.ServerProcess, message etf.Term) gen.ServerStatus {
-	demo := process.State.(*CustomProcess)
-	return process.Behavior().(CustomBehavior).HandleCustomInfo(demo, message)
+	custom := process.State.(*CustomProcess)
+	return process.Behavior().(CustomBehavior).HandleCustomInfo(custom, message)
 }
