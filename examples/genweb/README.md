@@ -1,6 +1,6 @@
 ## Web demo scenario ##
 
-This example implements a simple application which starts two child processes - webServer and timeServer.
+This example implements a simple application that starts two child processes - webServer and timeServer.
 
 ```
 webNode (node.Node) main.go  -> webApp (gen.Application) app.go
@@ -13,7 +13,6 @@ webNode (node.Node) main.go  -> webApp (gen.Application) app.go
                           -> timeServer (gen.Server) time.go
 ```
 
-### webServer (web.go) ###
-
-### web ###
-### webServer ###
+`webServer` implements gen.Web behavior and defines options for the HTTP server and dynamic pool of HTTP handlers. There are two HTTP endpoints:
+ * '/' - simple response with "Hello"
+ * '/time' - demonstrates async handling HTTP requests using `timeServer`
