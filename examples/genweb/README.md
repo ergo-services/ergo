@@ -16,3 +16,5 @@ webNode (node.Node) main.go  -> webApp (gen.Application) app.go
 `webServer` implements gen.Web behavior and defines options for the HTTP server and dynamic pool of HTTP handlers. There are two HTTP endpoints:
  * `/` - simple response with "Hello"
  * `/time/` - demonstrates async handling HTTP requests using `timeServer`
+
+By default, it starts HTTP server on port 8080 so you can check it using your web-browser [](http://localhost:8080).
