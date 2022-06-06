@@ -18,11 +18,11 @@ func (wa *webApp) Load(args ...etf.Term) (gen.ApplicationSpec, error) {
 		Version:     "v.1.0",
 		Children: []gen.ApplicationChildSpec{
 			gen.ApplicationChildSpec{
-				Child: &webServer{},
+				Child: &webServer{}, // web.go
 				Name:  "web",
 			},
 			gen.ApplicationChildSpec{
-				Child: &timeServer{},
+				Child: &timeServer{}, // time.go
 				Name:  "time",
 			},
 		},

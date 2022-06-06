@@ -29,7 +29,9 @@ func main() {
 	flag.Parse()
 
 	opts := node.Options{
-		Applications: []gen.ApplicationBehavior{&webApp{}},
+		Applications: []gen.ApplicationBehavior{
+			&webApp{}, // app.go
+		},
 	}
 
 	webNode, err := ergo.StartNode("web@127.0.0.1", "secret", opts)
