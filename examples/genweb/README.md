@@ -17,4 +17,4 @@ webNode (node.Node) main.go  -> webApp (gen.Application) app.go
  * `/` - simple response with "Hello"
  * `/time/` - demonstrates async handling HTTP requests using `timeServer`
 
-By default, it starts HTTP server on port 8080 so you can check it using your web-browser [](http://localhost:8080).
+By default, it starts HTTP server on port 8080 so you can check it using your web-browser [http://localhost:8080](http://localhost:8080).
