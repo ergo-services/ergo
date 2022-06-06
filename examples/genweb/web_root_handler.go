@@ -12,5 +12,6 @@ type rootHandler struct {
 
 func (r *rootHandler) HandleRequest(process *gen.WebHandlerProcess, request gen.WebMessageRequest) gen.WebHandlerStatus {
 	request.Response.WriteHeader(http.StatusOK)
+	request.Response.Write([]byte("Hello"))
 	return gen.WebHandlerStatusDone
 }
