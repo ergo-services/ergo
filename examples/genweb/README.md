@@ -5,12 +5,12 @@ This example implements a simple application which starts two child processes - 
 ```
 webNode (node.Node) main.go  -> webApp (gen.Application) app.go
                          |
-						  -> webServer (gen.Web) web.go
-						 |       |
-						 |        ->> url '/' handler (gen.WebHandler) web_root_handler.go
-						 |        ->> url '/time/' handler (gen.WebHandler) web_time_handler.go
-						 |
-						  -> timeServer (gen.Server) time.go
+                          -> webServer (gen.Web) web.go
+                         |       |
+                         |        ->> url '/' handler (gen.WebHandler) web_root_handler.go
+                         |        ->> url '/time/' handler (gen.WebHandler) web_time_handler.go
+                         |
+                          -> timeServer (gen.Server) time.go
 ```
 
 ### webServer (web.go) ###
