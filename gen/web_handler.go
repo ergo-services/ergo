@@ -341,6 +341,11 @@ func (wh *WebHandler) Init(process *ServerProcess, args ...etf.Term) error {
 	return nil
 }
 
+func (wh *WebHandler) HandleCall(process *ServerProcess, from ServerFrom, message etf.Term) (etf.Term, ServerStatus) {
+	whp := process.State.(*WebHandlerProcess)
+	return whp.behavior.HandleWebHandlerCall(whp, from, message)
+}
+
 func (wh *WebHandler) HandleCast(process *ServerProcess, message etf.Term) ServerStatus {
 	whp := process.State.(*WebHandlerProcess)
 	switch message.(type) {
@@ -354,6 +359,11 @@ func (wh *WebHandler) HandleCast(process *ServerProcess, message etf.Term) Serve
 		return whp.behavior.HandleWebHandlerCast(whp, message)
 	}
 	return ServerStatusOK
+}
+
+func (wh *WebHandler) HandleInfo(process *ServerProcess, message etf.Term) ServerStatus {
+	whp := process.State.(*WebHandlerProcess)
+	return whp.behavior.HandleWebHandlerInfo(whp, message)
 }
 
 func (wh *WebHandler) HandleDirect(process *ServerProcess, ref etf.Ref, message interface{}) (interface{}, DirectStatus) {
