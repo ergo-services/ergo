@@ -72,7 +72,7 @@ func (q *QueueMPSC) Len() int64 {
 	return atomic.LoadInt64(&q.length)
 }
 
-// Tail returns the tail item of the queue
+// Item returns the tail item of the queue. Returns nil if queue is empty.
 func (q *QueueMPSC) Item() ItemMPSC {
 	item := (*itemMPSC)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&q.tail.next))))
 	if item == nil {
@@ -95,7 +95,7 @@ func (i *itemMPSC) Value() interface{} {
 	return i.value
 }
 
-// Clear sets the value to nil
+// Clear sets the value to nil. It doesn't remove this item from the queue. Can be used in a signle consumer (goroutine) only.
 func (i *itemMPSC) Clear() {
 	i.value = nil
 }
