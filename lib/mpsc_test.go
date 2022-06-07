@@ -1,7 +1,6 @@
 package lib
 
 import (
-	"fmt"
 	"sync"
 	"testing"
 )
@@ -19,7 +18,6 @@ func TestMPSCsequential(t *testing.T) {
 		if queue.Push(v) == false {
 			t.Fatal("can't push value into the queue")
 		}
-		fmt.Println("PUT", v)
 	}
 	if queue.Len() != l {
 		t.Fatal("queue length must be 10")
@@ -33,7 +31,6 @@ func TestMPSCsequential(t *testing.T) {
 	item := queue.Item()
 	for i := int64(0); i < l; i++ {
 		v, ok := item.Value().(vv)
-		fmt.Println("V", v)
 		if ok == false || v.v != i+100 {
 			t.Fatal("incorrect value. expected", i+100, "got", v)
 		}
@@ -52,7 +49,6 @@ func TestMPSCsequential(t *testing.T) {
 			t.Fatal("there must be value")
 		}
 		v, ok := value.(vv)
-		fmt.Println("V", v)
 		if ok == false || v.v != i+100 {
 			t.Fatal("incorrect value. expected", i+100, "got", v)
 		}
@@ -63,6 +59,23 @@ func TestMPSCsequential(t *testing.T) {
 		t.Fatal("queue length must be 0")
 	}
 
+	// check Clear method
+	if ok := queue.Push(vv{v: 100}); ok == false {
+		t.Fatal("must be true here")
+	}
+
+	item = queue.Item()
+	if item == nil {
+		t.Fatal("item is nil")
+	}
+	item.Clear()
+	value, ok := queue.Pop()
+	if ok == false {
+		t.Fatal("must be true here")
+	}
+	if value != nil {
+		t.Fatal("must be nil here")
+	}
 }
 
 func TestMPSCparallel(t *testing.T) {

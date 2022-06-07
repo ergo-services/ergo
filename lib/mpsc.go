@@ -30,6 +30,7 @@ func NewQueueMPSC(limit int64) *QueueMPSC {
 type ItemMPSC interface {
 	Next() ItemMPSC
 	Value() interface{}
+	Clear()
 }
 
 type itemMPSC struct {
@@ -92,4 +93,9 @@ func (i *itemMPSC) Next() ItemMPSC {
 // Value returns stored value of the queue item
 func (i *itemMPSC) Value() interface{} {
 	return i.value
+}
+
+// Clear sets the value to nil
+func (i *itemMPSC) Clear() {
+	i.value = nil
 }
