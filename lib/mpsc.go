@@ -1,4 +1,4 @@
-// this is lock-free MPSC queue (Multiple Producers Single Consumer) implementation
+// this is a lock-free implementation of MPSC queue (Multiple Producers Single Consumer)
 
 package lib
 
@@ -7,64 +7,66 @@ import (
 	"unsafe"
 )
 
-type MPSC struct {
-	head *item
-	tail *item
+type QueueMPSC struct {
+	head *itemMPSC
+	tail *itemMPSC
 }
 
-func NewMPSC() *MPSC {
-	return &MPSC{}
+func NewQueueMPSC() *QueueMPSC {
+	return &QueueMPSC{}
 }
 
-type Item interface {
-	Next() Item
-	Prev() Item
+type ItemMPSC interface {
+	Next() ItemMPSC
+	Prev() ItemMPSC
 	Value() interface{}
 }
 
-type item struct {
+type itemMPSC struct {
 	value interface{}
-	prev  *item
-	next  *item
+	prev  *itemMPSC
+	next  *itemMPSC
 }
 
-// Push place given value in the queue head (FIFO)
-func (mpsc *MPSC) Push(value interface{}) {
-	i := &item{
+// Push place the given value in the queue head (FIFO)
+func (q *QueueMPSC) Push(value interface{}) {
+	i := &itemMPSC{
 		value: value,
 	}
-	i.prev = (*item)(atomic.SwapPointer((*unsafe.Pointer)(unsafe.Pointer(&mpsc.head)), unsafe.Pointer(i)))
+	i.prev = (*itemMPSC)(atomic.SwapPointer((*unsafe.Pointer)(unsafe.Pointer(&q.head)), unsafe.Pointer(i)))
 	atomic.StorePointer((*unsafe.Pointer)(unsafe.Pointer(&i.prev.next)), unsafe.Pointer(i))
 }
 
-// Pop takes the item from the queue tail. Returns nil if queue is empty
-func (mpsc *MPSC) Pop() interface{} {
-	item := (*item)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&mpsc.tail.next))))
+// Pop takes the item from the queue tail. Returns nil if the queue is empty. Can be used in a single consumer (goroutine) only.
+func (q *QueueMPSC) Pop() interface{} {
+	item := (*itemMPSC)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&q.tail.next))))
 	if item == nil {
 		return nil
 	}
 	return item.value
 }
 
-func (mpsc *MPSC) Head() Item {
-	return (*item)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&mpsc.head))))
+// Head returns the head item of the queue
+func (q *QueueMPSC) Head() ItemMPSC {
+	return (*itemMPSC)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&q.head))))
 }
-func (mpsc *MPSC) Tail() Item {
-	return (*item)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&mpsc.tail))))
+
+// Tail returns the tail item of the queue
+func (q *QueueMPSC) Tail() ItemMPSC {
+	return (*itemMPSC)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&q.tail))))
 }
 
 // Next provides walking through the queue. Returns nil if the last item is reached.
-func (i *item) Next() Item {
-	return (*item)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&i.next))))
-
+func (i *itemMPSC) Next() ItemMPSC {
+	return (*itemMPSC)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&i.next))))
 }
 
 // Next provides walking through the queue. Returns nil if the first item is reached.
-func (i *item) Prev() Item {
-	return (*item)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&i.prev))))
+func (i *itemMPSC) Prev() ItemMPSC {
+	return (*itemMPSC)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&i.prev))))
 }
 
 // Value returns stored value of the queue item
-func (i *item) Value() interface{} {
+func (i *itemMPSC) Value() interface{} {
 	return i.value
 }
