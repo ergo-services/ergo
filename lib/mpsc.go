@@ -45,8 +45,8 @@ func (q *QueueMPSC) Push(value interface{}) bool {
 	i := &itemMPSC{
 		value: value,
 	}
-	prev := (*itemMPSC)(atomic.SwapPointer((*unsafe.Pointer)(unsafe.Pointer(&q.head)), unsafe.Pointer(i)))
-	atomic.StorePointer((*unsafe.Pointer)(unsafe.Pointer(&prev.next)), unsafe.Pointer(i))
+	old_head := (*itemMPSC)(atomic.SwapPointer((*unsafe.Pointer)(unsafe.Pointer(&q.head)), unsafe.Pointer(i)))
+	atomic.StorePointer((*unsafe.Pointer)(unsafe.Pointer(&old_head.next)), unsafe.Pointer(i))
 	atomic.AddInt64(&q.length, 1)
 	return true
 }
@@ -56,12 +56,12 @@ func (q *QueueMPSC) Pop() (interface{}, bool) {
 	if q.Len() == 0 {
 		return nil, false
 	}
-	next := (*itemMPSC)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&q.tail.next))))
+	tail_next := (*itemMPSC)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&q.tail.next))))
 
-	value := next.value
-	next.value = nil
+	value := tail_next.value
+	tail_next.value = nil
+	q.tail = tail_next
 	atomic.AddInt64(&q.length, -1)
-	q.tail = next
 	return value, true
 }
 
