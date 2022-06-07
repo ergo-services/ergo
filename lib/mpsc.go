@@ -54,12 +54,13 @@ func (q *QueueMPSC) Push(value interface{}) bool {
 // Pop takes the item from the queue tail. Returns false if the queue is empty. Can be used in a single consumer (goroutine) only.
 func (q *QueueMPSC) Pop() (interface{}, bool) {
 	if q.Len() == 0 {
+		// queue is empty
 		return nil, false
 	}
 	tail_next := (*itemMPSC)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&q.tail.next))))
 
 	value := tail_next.value
-	tail_next.value = nil
+	tail_next.value = nil // let the GC free this item
 	q.tail = tail_next
 	atomic.AddInt64(&q.length, -1)
 	return value, true
