@@ -24,11 +24,7 @@ type QueueMPSC interface {
 	Push(value interface{}) bool
 	Pop() (interface{}, bool)
 	Item() ItemMPSC
-}
-type QueueLimitMPSC interface {
-	Push(value interface{}) bool
-	Pop() (interface{}, bool)
-	Item() ItemMPSC
+	// Len returns the number of items in the queue
 	Len() int64
 }
 
@@ -40,7 +36,7 @@ func NewQueueMPSC() QueueMPSC {
 	}
 }
 
-func NewQueueLimitMPSC(limit int64) QueueLimitMPSC {
+func NewQueueLimitMPSC(limit int64) QueueMPSC {
 	if limit < 1 {
 		limit = math.MaxInt64
 	}
@@ -75,12 +71,10 @@ func (q *queueMPSC) Push(value interface{}) bool {
 
 // Push place the given value in the queue head (FIFO). Returns false if exceeded the limit
 func (q *queueLimitMPSC) Push(value interface{}) bool {
-	if q.limit > 0 {
-		if q.Len()+1 > q.limit {
-			return false
-		}
-		atomic.AddInt64(&q.length, 1)
+	if q.Len()+1 > q.limit {
+		return false
 	}
+	atomic.AddInt64(&q.length, 1)
 	i := &itemMPSC{
 		value: value,
 	}
@@ -111,18 +105,16 @@ func (q *queueLimitMPSC) Pop() (interface{}, bool) {
 	value := tail_next.value
 	tail_next.value = nil // let the GC free this item
 	q.tail = tail_next
-	if q.limit > 0 {
-		atomic.AddInt64(&q.length, -1)
-	}
+	atomic.AddInt64(&q.length, -1)
 	return value, true
 }
 
-// Len returns the number of items in the queue
-func (q *queueLimitMPSC) Len() int64 {
-	if q.limit > 0 {
-		return atomic.LoadInt64(&q.length)
-	}
+func (q *queueMPSC) Len() int64 {
 	return -1
+}
+
+func (q *queueLimitMPSC) Len() int64 {
+	return atomic.LoadInt64(&q.length)
 }
 
 // Item returns the tail item of the queue. Returns nil if queue is empty.
