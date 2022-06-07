@@ -3,67 +3,89 @@
 package lib
 
 import (
+	"math"
 	"sync/atomic"
 	"unsafe"
 )
 
 type QueueMPSC struct {
-	head *itemMPSC
-	tail *itemMPSC
+	head   *itemMPSC
+	tail   *itemMPSC
+	length int64
+	limit  int64
 }
 
-func NewQueueMPSC() *QueueMPSC {
-	return &QueueMPSC{}
+func NewQueueMPSC(limit int64) *QueueMPSC {
+	if limit < 1 {
+		limit = math.MaxInt64
+	}
+	emptyItem := &itemMPSC{}
+	return &QueueMPSC{
+		limit: limit,
+		head:  emptyItem,
+		tail:  emptyItem,
+	}
 }
 
 type ItemMPSC interface {
 	Next() ItemMPSC
-	Prev() ItemMPSC
 	Value() interface{}
 }
 
 type itemMPSC struct {
 	value interface{}
-	prev  *itemMPSC
 	next  *itemMPSC
 }
 
-// Push place the given value in the queue head (FIFO)
-func (q *QueueMPSC) Push(value interface{}) {
+// Push place the given value in the queue head (FIFO). Returns false if exceeded the limit
+func (q *QueueMPSC) Push(value interface{}) bool {
+	if q.Len()+1 > q.limit {
+		return false
+	}
 	i := &itemMPSC{
 		value: value,
 	}
-	i.prev = (*itemMPSC)(atomic.SwapPointer((*unsafe.Pointer)(unsafe.Pointer(&q.head)), unsafe.Pointer(i)))
-	atomic.StorePointer((*unsafe.Pointer)(unsafe.Pointer(&i.prev.next)), unsafe.Pointer(i))
+	prev := (*itemMPSC)(atomic.SwapPointer((*unsafe.Pointer)(unsafe.Pointer(&q.head)), unsafe.Pointer(i)))
+	atomic.StorePointer((*unsafe.Pointer)(unsafe.Pointer(&prev.next)), unsafe.Pointer(i))
+	atomic.AddInt64(&q.length, 1)
+	return true
 }
 
-// Pop takes the item from the queue tail. Returns nil if the queue is empty. Can be used in a single consumer (goroutine) only.
-func (q *QueueMPSC) Pop() interface{} {
+// Pop takes the item from the queue tail. Returns false if the queue is empty. Can be used in a single consumer (goroutine) only.
+func (q *QueueMPSC) Pop() (interface{}, bool) {
+	if q.Len() == 0 {
+		return nil, false
+	}
+	next := (*itemMPSC)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&q.tail.next))))
+
+	value := next.value
+	next.value = nil
+	atomic.AddInt64(&q.length, -1)
+	q.tail = next
+	return value, true
+}
+
+// Len returns the number of items in the queue
+func (q *QueueMPSC) Len() int64 {
+	return atomic.LoadInt64(&q.length)
+}
+
+// Tail returns the tail item of the queue
+func (q *QueueMPSC) Item() ItemMPSC {
 	item := (*itemMPSC)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&q.tail.next))))
 	if item == nil {
 		return nil
 	}
-	return item.value
-}
-
-// Head returns the head item of the queue
-func (q *QueueMPSC) Head() ItemMPSC {
-	return (*itemMPSC)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&q.head))))
-}
-
-// Tail returns the tail item of the queue
-func (q *QueueMPSC) Tail() ItemMPSC {
-	return (*itemMPSC)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&q.tail))))
+	return item
 }
 
 // Next provides walking through the queue. Returns nil if the last item is reached.
 func (i *itemMPSC) Next() ItemMPSC {
-	return (*itemMPSC)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&i.next))))
-}
-
-// Next provides walking through the queue. Returns nil if the first item is reached.
-func (i *itemMPSC) Prev() ItemMPSC {
-	return (*itemMPSC)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&i.prev))))
+	next := (*itemMPSC)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&i.next))))
+	if next == nil {
+		return nil
+	}
+	return next
 }
 
 // Value returns stored value of the queue item
