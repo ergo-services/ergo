@@ -19,6 +19,6 @@ webNode (node.Node) main.go  -> webApp (gen.Application) app.go
 
 By default, it starts HTTP server on port 8080 so you can check it using your web-browser [http://localhost:8080/](http://localhost:8080/) or [http://localhost:8080/time/](http://localhost:8080/time/).
 
-You may also want to benchmark using the popular tool [wrk](https://github.com/wg/wrk):
+You may also want to benchmark this example on your hardware using the popular tool [wrk](https://github.com/wg/wrk):
 
 `wrk -t32 -c5000 --latency http://localhost:8080/`
