@@ -184,6 +184,9 @@ func (wh *WebHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			atomic.SwapPointer((*unsafe.Pointer)(unsafe.Pointer(&wh.pool[i])), unsafe.Pointer(&p))
 			goto respawned
 
+		case lib.ErrProcessBusy:
+			continue
+
 		case lib.ErrTimeout:
 			mr.Lock()
 			if mr.requestState == 2 {
@@ -197,8 +200,6 @@ func (wh *WebHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusGatewayTimeout)
 			return
 
-		case lib.ErrProcessBusy:
-			continue
 		default:
 			lib.Warning("WebHandler %s return error: %s", p.Self(), err)
 			mr.Lock()

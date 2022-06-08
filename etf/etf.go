@@ -73,6 +73,7 @@ type registerType struct {
 	rtype  reflect.Type
 	name   Atom
 	origin Atom
+	strict bool
 }
 
 // Term
@@ -655,12 +656,12 @@ func setMapMapField(term Map, dest reflect.Value) error {
 	return nil
 }
 
-func RegisterType(t interface{}) error {
+func RegisterType(t interface{}, strict bool) error {
 	tt := reflect.TypeOf(t)
-	return RegisterTypeName(t, regTypeName(tt))
+	return RegisterTypeName(t, regTypeName(tt), strict)
 }
 
-func RegisterTypeName(t interface{}, name Atom) error {
+func RegisterTypeName(t interface{}, name Atom, strict bool) error {
 	tt := reflect.TypeOf(t)
 	ttk := tt.Kind()
 	switch ttk {
@@ -668,6 +669,11 @@ func RegisterTypeName(t interface{}, name Atom) error {
 		// supported types
 	default:
 		return fmt.Errorf("type %q is not supported", regTypeName(tt))
+	}
+
+	lname := len([]rune(name))
+	if lname > 255 {
+		return fmt.Errorf("type name %q is too long. characters number %d (limit: 255)", name, lname)
 	}
 
 	registered.Lock()
@@ -725,6 +731,7 @@ func RegisterTypeName(t interface{}, name Atom) error {
 		rtype:  reflect.TypeOf(t),
 		name:   name,
 		origin: origin,
+		strict: strict,
 	}
 	registered.typesEnc[origin] = rt
 	registered.typesDec[name] = rt

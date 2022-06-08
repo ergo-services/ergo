@@ -913,6 +913,76 @@ func TestEncodeGoPtrNil(t *testing.T) {
 	}
 }
 
+type regTypeStruct1 struct {
+	a int
+}
+type regTypeStruct2 struct {
+	A int
+	B regTypeStruct3
+}
+type regTypeStruct3 struct {
+	C string
+}
+
+type regTypeMap map[string]regTypeStruct3
+type regTypeSlice []regTypeStruct3
+type regTypeArray [5]regTypeStruct3
+
+func TestEncodeRegisteredType(t *testing.T) {
+	var tmp int
+
+	// only struct/map/slice/array types are supported
+	if err := RegisterType(tmp, false); err == nil {
+		t.Fatal("must be error here")
+	}
+
+	// only struct with no unexported fields
+	if err := RegisterType(regTypeStruct1{}, false); err == nil {
+		t.Fatal("must be error here")
+	}
+
+	// all nested struct must be registered first
+	if err := RegisterType(regTypeStruct2{}, false); err == nil {
+		t.Fatal("must be error here")
+	}
+
+	if err := RegisterType(regTypeStruct3{}, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := RegisterType(regTypeStruct2{}, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := RegisterType(regTypeMap{}, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := RegisterType(regTypeSlice{}, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := RegisterType(regTypeArray{}, false); err != nil {
+		t.Fatal(err)
+	}
+
+	b := lib.TakeBuffer()
+	defer lib.ReleaseBuffer(b)
+
+	x := regTypeStruct2{}
+	x.A = 123
+	x.B.C = "hello"
+
+	expected := []byte{ettSmallTuple, 3, ettSmallAtomUTF8, 49, 35, 103, 105, 116, 104, 117, 98, 46, 99, 111, 109, 47, 101, 114, 103, 111, 45, 115, 101, 114, 118, 105, 99, 101, 115, 47, 101, 114, 103, 111, 47, 101, 116, 102, 47, 114, 101, 103, 84, 121, 112, 101, 83, 116, 114, 117, 99, 116, 50, ettSmallInteger, 123, ettSmallTuple, 2, ettSmallAtomUTF8, 49, 35, 103, 105, 116, 104, 117, 98, 46, 99, 111, 109, 47, 101, 114, 103, 111, 45, 115, 101, 114, 118, 105, 99, 101, 115, 47, 101, 114, 103, 111, 47, 101, 116, 102, 47, 114, 101, 103, 84, 121, 112, 101, 83, 116, 114, 117, 99, 116, 51, ettString, 0, 5, 104, 101, 108, 108, 111}
+	err := Encode(x, b, EncodeOptions{})
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !reflect.DeepEqual(b.B, expected) {
+		fmt.Println("exp", expected)
+		fmt.Println("got", b.B)
+		t.Fatal("incorrect value")
+	}
+}
+
 type testMarshal struct{}
 
 func (testMarshal) MarshalETF() ([]byte, error) {
