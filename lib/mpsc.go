@@ -59,7 +59,7 @@ type itemMPSC struct {
 	next  *itemMPSC
 }
 
-// Push place the given value in the queue head (FIFO). Returns false if exceeded the limit
+// Push place the given value in the queue head (FIFO). Returns always true
 func (q *queueMPSC) Push(value interface{}) bool {
 	i := &itemMPSC{
 		value: value,
@@ -96,6 +96,7 @@ func (q *queueMPSC) Pop() (interface{}, bool) {
 	return value, true
 }
 
+// Pop takes the item from the queue tail. Returns false if the queue is empty. Can be used in a single consumer (goroutine) only.
 func (q *queueLimitMPSC) Pop() (interface{}, bool) {
 	tail_next := (*itemMPSC)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&q.tail.next))))
 	if tail_next == nil {
@@ -109,10 +110,12 @@ func (q *queueLimitMPSC) Pop() (interface{}, bool) {
 	return value, true
 }
 
+// Len returns -1 for the queue with no limit
 func (q *queueMPSC) Len() int64 {
 	return -1
 }
 
+// Len returns queue length
 func (q *queueLimitMPSC) Len() int64 {
 	return atomic.LoadInt64(&q.length)
 }

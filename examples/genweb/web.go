@@ -27,12 +27,12 @@ func (w *webServer) InitWeb(process *gen.WebProcess, args ...etf.Term) (gen.WebO
 
 	mux := http.NewServeMux()
 	whOptions := gen.WebHandlerOptions{
-		MaxHandlers:    200,
+		NumHandlers:    50,
 		IdleTimeout:    10,
 		RequestTimeout: 20,
 	}
 	webRoot := process.StartWebHandler(&rootHandler{}, whOptions)
-	webTime := process.StartWebHandler(&timeHandler{}, whOptions)
+	webTime := process.StartWebHandler(&timeHandler{}, gen.WebHandlerOptions{})
 	mux.Handle("/", webRoot)
 	mux.Handle("/time/", webTime)
 	options.Handler = mux
