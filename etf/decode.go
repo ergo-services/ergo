@@ -522,6 +522,43 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 
 			switch stack.termType {
 			case ettList:
+				if stack.i == 0 {
+					// if the first value is atom, check for the registered type
+					if typeName, isAtom := term.(Atom); isAtom == true {
+						registered.RLock()
+						r, found := registered.typesDec[typeName]
+						registered.RUnlock()
+						if found == true {
+							reg := reflect.Indirect(reflect.New(r.rtype))
+							if r.rtype.Kind() == reflect.Slice {
+								reg = reflect.MakeSlice(r.rtype, stack.children-1, stack.children-1)
+							}
+							stack.reg = &reg
+							stack.strict = r.strict
+							if r.strict == false {
+								stack.term.(List)[stack.i] = term
+							}
+							stack.i++
+							break
+						}
+					}
+				}
+
+				if stack.reg != nil {
+					fmt.Println("JJJ", stack.i+1, stack.children, term)
+					if stack.i+1 == stack.children && t == ettNil {
+						if stack.strict == true {
+							break
+						}
+					} else {
+						set_field = true
+						field = stack.reg.Index(stack.i - 1)
+						if stack.strict == true {
+							break
+						}
+					}
+				}
+
 				stack.term.(List)[stack.i] = term
 				stack.i++
 				// remove the last element for proper list (its ettNil)
@@ -533,9 +570,9 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 
 				if stack.i == 0 {
 					// if the first value is atom, check for the registered type
-					if structName, isAtom := term.(Atom); isAtom == true {
+					if typeName, isAtom := term.(Atom); isAtom == true {
 						registered.RLock()
-						r, found := registered.typesDec[structName]
+						r, found := registered.typesDec[typeName]
 						registered.RUnlock()
 						if found == true {
 							reg := reflect.Indirect(reflect.New(r.rtype))
@@ -545,7 +582,6 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 								stack.term.(Tuple)[stack.i] = term
 							}
 							stack.i++
-							// do not use the first element since it's a type name
 							break
 						}
 					}
@@ -562,7 +598,37 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 				stack.i++
 
 			case ettMap:
+				if stack.i == 0 {
+					// if the first key is atom, check for the registered type
+					if typeName, isAtom := term.(Atom); isAtom == true {
+						registered.RLock()
+						r, found := registered.typesDec[typeName]
+						registered.RUnlock()
+						if found == true {
+							//reg := reflect.MakeMapWithSize(r.rtype, stack.children/2)
+							reg := reflect.Indirect(reflect.New(r.rtype))
+							stack.reg = &reg
+							stack.strict = r.strict
+							if r.strict == false {
+								if stack.i&0x01 == 0x01 { // a value
+									stack.term.(Map)[stack.tmp] = term
+								} else {
+									stack.tmp = term
+								}
+							}
+							stack.i++
+							break
+						}
+					}
+				}
+				if stack.i == 1 && stack.reg != nil && stack.strict == true {
+					// skip it. the value of the key which is the registered type
+					stack.i++
+					break
+
+				}
 				if stack.i&0x01 == 0x01 { // a value
+					set_field = true
 					stack.term.(Map)[stack.tmp] = term
 					stack.i++
 					break
@@ -1184,6 +1250,11 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 						field.SetString(v)
 					case Atom:
 						field.SetString(string(v))
+					default:
+						if stack.strict {
+							return nil, nil, errMalformed
+						}
+						stack.reg = nil
 					}
 				case reflect.Bool:
 					b, ok := term.(bool)
@@ -1196,14 +1267,31 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 					}
 					field.SetBool(b)
 
+				case reflect.Map:
+					destkey := reflect.Indirect(reflect.New(stack.reg.Type().Key()))
+					destval := reflect.Indirect(reflect.New(stack.reg.Type().Elem()))
+					stack.reg.SetMapIndex(destkey, destval)
+
 				default:
 					if stack.strict {
 						field.Set(reflect.ValueOf(term))
 					} else {
-						// FIXME wrap
-						field.Set(reflect.ValueOf(term))
+						// wrap it to catch the panic
+						setValue := func(f reflect.Value, v interface{}) (ok bool) {
+							if lib.CatchPanic() {
+								defer func() {
+									if r := recover(); r != nil {
+										ok = false
+									}
+								}()
+							}
+							f.Set(reflect.ValueOf(v))
+							return true
+						}
+						if setValue(field, term) == false {
+							stack.reg = nil
+						}
 
-						// stack.reg on fail
 					}
 				}
 
