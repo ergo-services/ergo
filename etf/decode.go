@@ -545,7 +545,6 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 				}
 
 				if stack.reg != nil {
-					fmt.Println("JJJ", stack.i+1, stack.children, term)
 					if stack.i+1 == stack.children && t == ettNil {
 						if stack.strict == true {
 							break
@@ -605,8 +604,7 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 						r, found := registered.typesDec[typeName]
 						registered.RUnlock()
 						if found == true {
-							//reg := reflect.MakeMapWithSize(r.rtype, stack.children/2)
-							reg := reflect.Indirect(reflect.New(r.rtype))
+							reg := reflect.MakeMapWithSize(r.rtype, stack.children/2)
 							stack.reg = &reg
 							stack.strict = r.strict
 							if r.strict == false {
@@ -628,7 +626,10 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 
 				}
 				if stack.i&0x01 == 0x01 { // a value
-					set_field = true
+					if stack.i > 1 {
+						set_field = true
+						field = *stack.reg
+					}
 					stack.term.(Map)[stack.tmp] = term
 					stack.i++
 					break
@@ -1268,8 +1269,8 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 					field.SetBool(b)
 
 				case reflect.Map:
-					destkey := reflect.Indirect(reflect.New(stack.reg.Type().Key()))
-					destval := reflect.Indirect(reflect.New(stack.reg.Type().Elem()))
+					destkey := reflect.ValueOf(stack.tmp)
+					destval := reflect.ValueOf(term)
 					stack.reg.SetMapIndex(destkey, destval)
 
 				default:
