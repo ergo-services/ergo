@@ -837,7 +837,7 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 						term:     v.MapKeys(),
 						children: lenMap * 2,
 						tmp:      vtAtomName,
-						reg:      v,
+						reg:      &v,
 					}
 					break
 				}
