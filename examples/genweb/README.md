@@ -13,7 +13,7 @@ webNode (node.Node) main.go  -> webApp (gen.Application) app.go
                           -> timeServer (gen.Server) time.go
 ```
 
-`webServer` implements gen.Web behavior and defines options for the HTTP server and dynamic pool of HTTP handlers. There are two HTTP endpoints:
+`webServer` implements gen.Web behavior and defines options for the HTTP server and HTTP handlers with two endpoints:
  * `/` - simple response with "Hello"
  * `/time/` - demonstrates async handling HTTP requests using `timeServer`
 

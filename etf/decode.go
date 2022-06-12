@@ -531,7 +531,7 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 						if found == true {
 							reg := reflect.Indirect(reflect.New(r.rtype))
 							if r.rtype.Kind() == reflect.Slice {
-								reg = reflect.MakeSlice(r.rtype, stack.children-1, stack.children-1)
+								reg = reflect.MakeSlice(r.rtype, stack.children-2, stack.children-1)
 							}
 							stack.reg = &reg
 							stack.strict = r.strict
@@ -545,16 +545,19 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 				}
 
 				if stack.reg != nil {
-					if stack.i+1 == stack.children && t == ettNil {
-						if stack.strict == true {
-							break
+					if stack.i+1 == stack.children {
+						if t != ettNil {
+							x := reflect.Append(*stack.reg, reflect.ValueOf(term))
+							stack.reg = &x
 						}
 					} else {
 						set_field = true
 						field = stack.reg.Index(stack.i - 1)
-						if stack.strict == true {
-							break
-						}
+					}
+
+					if stack.strict == true {
+						stack.i++
+						break
 					}
 				}
 
@@ -590,6 +593,7 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 					set_field = true
 					field = stack.reg.Field(stack.i - 1)
 					if stack.strict == true {
+						stack.i++
 						break
 					}
 				}
@@ -917,7 +921,7 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 						if v > int(math.MaxInt8) || v < int(math.MinInt8) {
 							// overflows
 							if stack.strict {
-								return nil, nil, errMalformed
+								panic("overflows int8")
 							}
 							stack.reg = nil
 							break
@@ -927,7 +931,7 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 						if v > int64(math.MaxInt8) || v < int64(math.MinInt8) {
 							// overflows
 							if stack.strict {
-								return nil, nil, errMalformed
+								panic("overflows int8")
 							}
 							stack.reg = nil
 							break
@@ -937,7 +941,7 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 						if v > uint64(math.MaxInt8) {
 							// overflows
 							if stack.strict {
-								return nil, nil, errMalformed
+								panic("overflows int8")
 							}
 							stack.reg = nil
 							break
@@ -951,7 +955,7 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 						if v > int(math.MaxInt16) || v < int(math.MinInt16) {
 							// overflows
 							if stack.strict {
-								return nil, nil, errMalformed
+								panic("overflows int16")
 							}
 							stack.reg = nil
 							break
@@ -961,7 +965,7 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 						if v > int64(math.MaxInt16) || v < int64(math.MinInt16) {
 							// overflows
 							if stack.strict {
-								return nil, nil, errMalformed
+								panic("overflows int16")
 							}
 							stack.reg = nil
 							break
@@ -971,7 +975,7 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 						if v > uint64(math.MaxInt16) {
 							// overflows
 							if stack.strict {
-								return nil, nil, errMalformed
+								panic("overflows int16")
 							}
 							stack.reg = nil
 							break
@@ -985,7 +989,7 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 						if v > int(math.MaxInt32) || v < int(math.MinInt32) {
 							// overflows
 							if stack.strict {
-								return nil, nil, errMalformed
+								panic("overflows int32")
 							}
 							stack.reg = nil
 							break
@@ -995,7 +999,7 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 						if v > int64(math.MaxInt32) || v < int64(math.MinInt32) {
 							// overflows
 							if stack.strict {
-								return nil, nil, errMalformed
+								panic("overflows int32")
 							}
 							stack.reg = nil
 							break
@@ -1005,7 +1009,7 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 						if v > uint64(math.MaxInt32) {
 							// overflows
 							if stack.strict {
-								return nil, nil, errMalformed
+								panic("overflows int32")
 							}
 							stack.reg = nil
 							break
@@ -1022,7 +1026,7 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 						if v > uint64(math.MaxInt64) {
 							// overflows
 							if stack.strict {
-								return nil, nil, errMalformed
+								panic("overflows int64")
 							}
 							stack.reg = nil
 							break
@@ -1037,7 +1041,7 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 						if v > int64(math.MaxInt) {
 							// overflows
 							if stack.strict {
-								return nil, nil, errMalformed
+								panic("overflows int")
 							}
 							stack.reg = nil
 							break
@@ -1047,6 +1051,7 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 						if v > uint64(math.MaxInt) {
 							// overflows
 							if stack.strict {
+								panic("overflows int")
 								return nil, nil, errMalformed
 							}
 							stack.reg = nil
@@ -1061,7 +1066,7 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 						if v > int(math.MaxUint8) || v < 0 {
 							// overflows
 							if stack.strict {
-								return nil, nil, errMalformed
+								panic("overflows uint8")
 							}
 							stack.reg = nil
 							break
@@ -1071,7 +1076,7 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 						if v > int64(math.MaxUint8) || v < 0 {
 							// overflows
 							if stack.strict {
-								return nil, nil, errMalformed
+								panic("overflows uint8")
 							}
 							stack.reg = nil
 							break
@@ -1081,7 +1086,7 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 						if v > uint64(math.MaxUint8) {
 							// overflows
 							if stack.strict {
-								return nil, nil, errMalformed
+								panic("overflows uint8")
 							}
 							stack.reg = nil
 							break
@@ -1095,7 +1100,7 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 						if v > int(math.MaxUint16) || v < 0 {
 							// overflows
 							if stack.strict {
-								return nil, nil, errMalformed
+								panic("overflows uint16")
 							}
 							stack.reg = nil
 							break
@@ -1105,7 +1110,7 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 						if v > int64(math.MaxUint16) || v < 0 {
 							// overflows
 							if stack.strict {
-								return nil, nil, errMalformed
+								panic("overflows uint16")
 							}
 							stack.reg = nil
 							break
@@ -1115,7 +1120,7 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 						if v > uint64(math.MaxUint16) {
 							// overflows
 							if stack.strict {
-								return nil, nil, errMalformed
+								panic("overflows uint16")
 							}
 							stack.reg = nil
 							break
@@ -1128,7 +1133,7 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 						if v > int(math.MaxUint32) || v < 0 {
 							// overflows
 							if stack.strict {
-								return nil, nil, errMalformed
+								panic("overflows uint32")
 							}
 							stack.reg = nil
 							break
@@ -1138,7 +1143,7 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 						if v > int64(math.MaxUint32) || v < 0 {
 							// overflows
 							if stack.strict {
-								return nil, nil, errMalformed
+								panic("overflows uint32")
 							}
 							stack.reg = nil
 							break
@@ -1148,7 +1153,7 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 						if v > uint64(math.MaxUint32) {
 							// overflows
 							if stack.strict {
-								return nil, nil, errMalformed
+								panic("overflows uint32")
 							}
 							stack.reg = nil
 							break
@@ -1162,7 +1167,7 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 						if v < 0 {
 							// overflows
 							if stack.strict {
-								return nil, nil, errMalformed
+								panic("overflows uint64")
 							}
 							stack.reg = nil
 							break
@@ -1172,7 +1177,7 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 						if v < 0 {
 							// overflows
 							if stack.strict {
-								return nil, nil, errMalformed
+								panic("overflows uint64")
 							}
 							stack.reg = nil
 							break
@@ -1188,7 +1193,7 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 						if v < 0 {
 							// overflows
 							if stack.strict {
-								return nil, nil, errMalformed
+								panic("overflows uint")
 							}
 							stack.reg = nil
 							break
@@ -1198,7 +1203,7 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 						if v > int64(math.MaxInt) || v < 0 {
 							// overflows
 							if stack.strict {
-								return nil, nil, errMalformed
+								panic("overflows uint")
 							}
 							stack.reg = nil
 							break
@@ -1208,7 +1213,7 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 						if v > uint64(math.MaxUint) {
 							// overflows
 							if stack.strict {
-								return nil, nil, errMalformed
+								panic("overflows uint")
 							}
 							stack.reg = nil
 							break
@@ -1217,9 +1222,9 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 					}
 				case reflect.Float32:
 					f, ok := term.(float64)
-					if ok == false || float64(float32(f)) != f {
+					if ok == false {
 						if stack.strict {
-							return nil, nil, errMalformed
+							panic("wrong float value")
 						}
 						stack.reg = nil
 						break
@@ -1230,7 +1235,7 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 					f64, ok := term.(float64)
 					if ok == false {
 						if stack.strict {
-							return nil, nil, errMalformed
+							panic("wrong float64")
 						}
 						stack.reg = nil
 						break
@@ -1242,7 +1247,11 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 					case List:
 						s, err := convertCharlistToString(v)
 						if err != nil {
-							return nil, nil, err
+							if stack.strict {
+								panic("can't convert charlist into string")
+							}
+							stack.reg = nil
+							break
 						}
 						field.SetString(s)
 					case []byte:
@@ -1253,7 +1262,7 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 						field.SetString(string(v))
 					default:
 						if stack.strict {
-							return nil, nil, errMalformed
+							panic("wrong string value")
 						}
 						stack.reg = nil
 					}
@@ -1261,7 +1270,7 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 					b, ok := term.(bool)
 					if !ok {
 						if stack.strict {
-							return nil, nil, errMalformed
+							panic("wrong bool value")
 						}
 						stack.reg = nil
 						break
