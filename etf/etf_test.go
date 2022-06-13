@@ -584,3 +584,107 @@ func TestTermIntoStructUnmarshal(t *testing.T) {
 		t.Errorf("got %v, want %v", dst1, src1)
 	}
 }
+
+func TestRegisterType(t *testing.T) {
+	type ccc []string
+	type ddd [3]bool
+	type aaa struct {
+		A   string
+		B   int
+		B8  int8
+		B16 int16
+		B32 int32
+		B64 int64
+
+		BU   uint
+		BU8  uint8
+		BU16 uint16
+		BU32 uint32
+		BU64 uint64
+
+		C   float32
+		C64 float64
+		D   ddd
+	}
+	type bbb map[aaa]ccc
+
+	src := bbb{
+		aaa{
+			A:    "aa",
+			B:    -11,
+			B8:   -18,
+			B16:  -1116,
+			B32:  -1132,
+			B64:  -1164,
+			BU:   0xb,
+			BU8:  0x12,
+			BU16: 0x45c,
+			BU32: 0x46c,
+			BU64: 0x48c,
+			C:    -11.22,
+			C64:  1164.22,
+			D:    ddd{true, false, false}}: ccc{"a1", "a2", "a3"},
+		aaa{
+			A:    "bb",
+			B:    -22,
+			B8:   -28,
+			B16:  -2216,
+			B32:  -2232,
+			B64:  -2264,
+			BU:   0x16,
+			BU8:  0x1c,
+			BU16: 0x8a8,
+			BU32: 0x8b8,
+			BU64: 0x8d8,
+			C:    -22.22,
+			C64:  2264.22,
+			D:    ddd{false, true, false}}: ccc{"b1", "b2", "b3"},
+		aaa{
+			A:    "cc",
+			B:    -33,
+			B8:   -38,
+			B16:  -3316,
+			B32:  -3332,
+			B64:  -3364,
+			BU:   0x21,
+			BU8:  0x26,
+			BU16: 0xcf4,
+			BU32: 0xd04,
+			BU64: 0xd24,
+			C:    -33.22,
+			C64:  3364.22,
+			D:    ddd{false, false, true}}: ccc{"c1", "c2", "c3"},
+	}
+
+	buf := lib.TakeBuffer()
+	defer lib.ReleaseBuffer(buf)
+
+	if _, err := RegisterType(ddd{}, RegisterTypeOptions{Strict: true}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := RegisterType(aaa{}, RegisterTypeOptions{Strict: true}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := RegisterType(ccc{}, RegisterTypeOptions{Strict: true}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := RegisterType(bbb{}, RegisterTypeOptions{Strict: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := Encode(src, buf, EncodeOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	dst, _, err := Decode(buf.B, []Atom{}, DecodeOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, ok := dst.(bbb); !ok {
+		t.Fatal("wrong term result")
+	}
+
+	if !reflect.DeepEqual(src, dst) {
+		t.Errorf("got %v, want %v", dst, src)
+	}
+}

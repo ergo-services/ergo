@@ -932,33 +932,33 @@ func TestEncodeRegisteredType(t *testing.T) {
 	var tmp int
 
 	// only struct/map/slice/array types are supported
-	if err := RegisterType(tmp, false); err == nil {
+	if _, err := RegisterType(tmp, RegisterTypeOptions{}); err == nil {
 		t.Fatal("must be error here")
 	}
 
 	// only struct with no unexported fields
-	if err := RegisterType(regTypeStruct1{}, false); err == nil {
+	if _, err := RegisterType(regTypeStruct1{}, RegisterTypeOptions{}); err == nil {
 		t.Fatal("must be error here")
 	}
 
 	// all nested struct must be registered first
-	if err := RegisterType(regTypeStruct2{}, false); err == nil {
+	if _, err := RegisterType(regTypeStruct2{}, RegisterTypeOptions{}); err == nil {
 		t.Fatal("must be error here")
 	}
 
-	if err := RegisterType(regTypeStruct3{}, false); err != nil {
+	if _, err := RegisterType(regTypeStruct3{}, RegisterTypeOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	if err := RegisterType(regTypeStruct2{}, false); err != nil {
+	if _, err := RegisterType(regTypeStruct2{}, RegisterTypeOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	if err := RegisterType(regTypeMap{}, false); err != nil {
+	if _, err := RegisterType(regTypeMap{}, RegisterTypeOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	if err := RegisterType(regTypeSlice{}, false); err != nil {
+	if _, err := RegisterType(regTypeSlice{}, RegisterTypeOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	if err := RegisterType(regTypeArray{}, false); err != nil {
+	if _, err := RegisterType(regTypeArray{}, RegisterTypeOptions{}); err != nil {
 		t.Fatal(err)
 	}
 

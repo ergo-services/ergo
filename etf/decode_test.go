@@ -487,10 +487,10 @@ func TestDecodeRegisteredType(t *testing.T) {
 		A uint8
 		B *regTypeStruct3
 	}
-	if err := RegisterType(regTypeStruct3{}, false); err != nil {
+	if _, err := RegisterType(regTypeStruct3{}, RegisterTypeOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	if err := RegisterType(regTypeStruct4{}, false); err != nil {
+	if _, err := RegisterType(regTypeStruct4{}, RegisterTypeOptions{}); err != nil {
 		t.Fatal(err)
 	}
 
