@@ -299,7 +299,7 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 		case int8:
 			if t < 0 {
 				term = int32(t)
-				continue
+				goto recasting
 			}
 
 			b.Append([]byte{ettSmallInteger, uint8(t)})
