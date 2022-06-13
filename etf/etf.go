@@ -665,7 +665,17 @@ func RegisterTypeName(t interface{}, name Atom, strict bool) error {
 	tt := reflect.TypeOf(t)
 	ttk := tt.Kind()
 	switch ttk {
-	case reflect.Struct, reflect.Map, reflect.Slice, reflect.Array:
+	case reflect.Struct, reflect.Slice, reflect.Array:
+	case reflect.Map:
+		// Using pointers for the network messaging is meaningless.
+		// Supporting this feature in the maps is getting the decoding process a bit overloaded.
+		// But they still can be used for the other types, even being meaningless.
+		if tt.Key().Kind() == reflect.Ptr {
+			return fmt.Errorf("pointer as a key for the map is not supported")
+		}
+		if tt.Elem().Kind() == reflect.Ptr {
+			return fmt.Errorf("pointer as a value for the map is not supported")
+		}
 		// supported types
 	default:
 		return fmt.Errorf("type %q is not supported", regTypeName(tt))
