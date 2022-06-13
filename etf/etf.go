@@ -6,6 +6,8 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+
+	"github.com/ergo-services/ergo/lib"
 )
 
 var (
@@ -14,8 +16,6 @@ var (
 		typesEnc: make(map[Atom]*registerType),
 		typesDec: make(map[Atom]*registerType),
 	}
-
-	errRegTypeTaken = fmt.Errorf("type name taken")
 )
 
 // Erlang external term tags.
@@ -656,14 +656,33 @@ func setMapMapField(term Map, dest reflect.Value) error {
 	return nil
 }
 
-func RegisterType(t interface{}, strict bool) error {
-	tt := reflect.TypeOf(t)
-	return RegisterTypeName(t, regTypeName(tt), strict)
+// RegisterTypeOptins defines custom name for the registering type.
+// Leaving the Name option empty makes the name automatically generated.
+// Strict option defines whether the decoding process causes panic
+// if the decoding value doesn't fit the destination object.
+type RegisterTypeOptions struct {
+	Name   Atom
+	Strict bool
 }
 
-func RegisterTypeName(t interface{}, name Atom, strict bool) error {
+// RegisterType registers new type with the given options. It returns a Name
+// of the registered type, which can be used in the UnregisterType function
+// for unregistering this type.
+// Returns an error if this type can not be registered.
+func RegisterType(t interface{}, options RegisterTypeOptions) (Atom, error) {
 	tt := reflect.TypeOf(t)
 	ttk := tt.Kind()
+
+	name := options.Name
+	origin := regTypeName(tt)
+	if name == "" {
+		name = origin
+	}
+	lname := len([]rune(name))
+	if lname > 255 {
+		return name, fmt.Errorf("type name %q is too long. characters number %d (limit: 255)", name, lname)
+	}
+
 	switch ttk {
 	case reflect.Struct, reflect.Slice, reflect.Array:
 	case reflect.Map:
@@ -671,19 +690,14 @@ func RegisterTypeName(t interface{}, name Atom, strict bool) error {
 		// Supporting this feature in the maps is getting the decoding process a bit overloaded.
 		// But they still can be used for the other types, even being meaningless.
 		if tt.Key().Kind() == reflect.Ptr {
-			return fmt.Errorf("pointer as a key for the map is not supported")
+			return name, fmt.Errorf("pointer as a key for the map is not supported")
 		}
 		if tt.Elem().Kind() == reflect.Ptr {
-			return fmt.Errorf("pointer as a value for the map is not supported")
+			return name, fmt.Errorf("pointer as a value for the map is not supported")
 		}
 		// supported types
 	default:
-		return fmt.Errorf("type %q is not supported", regTypeName(tt))
-	}
-
-	lname := len([]rune(name))
-	if lname > 255 {
-		return fmt.Errorf("type name %q is too long. characters number %d (limit: 255)", name, lname)
+		return name, fmt.Errorf("type %q is not supported", regTypeName(tt))
 	}
 
 	registered.Lock()
@@ -691,13 +705,12 @@ func RegisterTypeName(t interface{}, name Atom, strict bool) error {
 
 	_, taken := registered.typesDec[name]
 	if taken {
-		return errRegTypeTaken
+		return name, lib.ErrTaken
 	}
 
-	origin := regTypeName(tt)
 	r, taken := registered.typesEnc[origin]
 	if taken {
-		return fmt.Errorf("type is already registered as %q", r.name)
+		return name, fmt.Errorf("type is already registered as %q", r.name)
 	}
 
 	checkIsRegistered := func(name Atom, rt reflect.Kind) error {
@@ -721,19 +734,19 @@ func RegisterTypeName(t interface{}, name Atom, strict bool) error {
 		for i := 0; i < tv.NumField(); i++ {
 			f := tv.Field(i)
 			if f.CanInterface() == false {
-				return fmt.Errorf("struct has unexported field(s)")
+				return name, fmt.Errorf("struct has unexported field(s)")
 			}
 
 			orig := regTypeName(f.Type())
 			if err := checkIsRegistered(orig, f.Kind()); err != nil {
-				return err
+				return name, err
 			}
 		}
 	case reflect.Array, reflect.Slice, reflect.Map:
 		elem := tt.Elem()
 		orig := regTypeName(elem)
 		if err := checkIsRegistered(orig, elem.Kind()); err != nil {
-			return err
+			return name, err
 		}
 	}
 
@@ -741,24 +754,20 @@ func RegisterTypeName(t interface{}, name Atom, strict bool) error {
 		rtype:  reflect.TypeOf(t),
 		name:   name,
 		origin: origin,
-		strict: strict,
+		strict: options.Strict,
 	}
 	registered.typesEnc[origin] = rt
 	registered.typesDec[name] = rt
-	return nil
+	return name, nil
 }
 
-func UnregisterType(t interface{}) error {
-	tt := reflect.TypeOf(t)
-	return UnregisterTypeName(regTypeName(tt))
-}
-
-func UnregisterTypeName(name Atom) error {
+// UnregisterType unregisters type with a given name.
+func UnregisterType(name Atom) error {
 	registered.Lock()
 	defer registered.Unlock()
 	r, found := registered.typesDec[name]
 	if found == false {
-		return fmt.Errorf("not found")
+		return lib.ErrUnknown
 	}
 	delete(registered.typesDec, name)
 	delete(registered.typesEnc, r.origin)
