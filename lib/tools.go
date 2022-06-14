@@ -12,6 +12,7 @@ import (
 	"encoding/pem"
 	"flag"
 	"fmt"
+	"hash/crc32"
 	"io"
 	"log"
 	"math/big"
@@ -48,6 +49,8 @@ var (
 	}
 
 	ErrTooLarge = fmt.Errorf("Too large")
+
+	CRC32Q = crc32.MakeTable(0xD5828281)
 )
 
 func init() {

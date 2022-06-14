@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"fmt"
+	"hash/crc32"
 	"net"
 	"runtime"
 	"time"
@@ -106,8 +107,10 @@ func sendAnonInfo(name string, ver node.Version) {
 	}
 	defer c.Close()
 
-	data := fmt.Sprintf("1|%s|%s|%s|%d|%s|%s", name, runtime.GOARCH, runtime.GOOS,
+	nameHash := crc32.Checksum([]byte(name), lib.CRC32Q)
+	data := fmt.Sprintf("1|%x|%s|%s|%d|%s|%s", nameHash, runtime.GOARCH, runtime.GOOS,
 		runtime.NumCPU(), runtime.Version(), ver.Release)
+	fmt.Println("DATA", data)
 
 	hash := sha256.New()
 	cipher, err := rsa.EncryptOAEP(hash, rand.Reader, pk, []byte(data), nil)

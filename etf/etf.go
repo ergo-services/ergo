@@ -11,7 +11,6 @@ import (
 )
 
 var (
-	crc32q     = crc32.MakeTable(0xD5828281)
 	registered = registeredTypes{
 		typesEnc: make(map[Atom]*registerType),
 		typesDec: make(map[Atom]*registerType),
@@ -198,7 +197,7 @@ func (p Pid) String() string {
 
 	n := uint32(0)
 	if p.Node != "" {
-		n = crc32.Checksum([]byte(p.Node), crc32q)
+		n = crc32.Checksum([]byte(p.Node), lib.CRC32Q)
 	}
 	return fmt.Sprintf("<%08X.%d.%d>", n, int32(p.ID>>32), int32(p.ID))
 }
@@ -207,7 +206,7 @@ func (p Pid) String() string {
 func (r Ref) String() string {
 	n := uint32(0)
 	if r.Node != "" {
-		n = crc32.Checksum([]byte(r.Node), crc32q)
+		n = crc32.Checksum([]byte(r.Node), lib.CRC32Q)
 	}
 	return fmt.Sprintf("Ref#<%08X.%d.%d.%d>", n, r.ID[0], r.ID[1], r.ID[2])
 }
@@ -216,7 +215,7 @@ func (r Ref) String() string {
 func (a Alias) String() string {
 	n := uint32(0)
 	if a.Node != "" {
-		n = crc32.Checksum([]byte(a.Node), crc32q)
+		n = crc32.Checksum([]byte(a.Node), lib.CRC32Q)
 	}
 	return fmt.Sprintf("Ref#<%08X.%d.%d.%d>", n, a.ID[0], a.ID[1], a.ID[2])
 }
