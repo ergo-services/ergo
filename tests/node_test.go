@@ -32,6 +32,12 @@ func TestNode(t *testing.T) {
 	}
 
 	node1, _ := ergo.StartNodeWithContext(ctx, "node@localhost", "cookies", opts)
+	optsTaken := node.Options{
+		Resolver: dist.CreateResolverWithLocalEPMD("", 24999),
+	}
+	if _, err := ergo.StartNodeWithContext(ctx, "node@localhost", "cookies", optsTaken); err == nil {
+		t.Fatal("must be failed here")
+	}
 
 	if conn, err := net.Dial("tcp", ":25001"); err != nil {
 		fmt.Println("Connect to the node' listening port FAILED")
