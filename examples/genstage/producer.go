@@ -34,14 +34,11 @@ func (p *Producer) InitStage(process *gen.StageProcess, args ...etf.Term) (gen.S
 	return options, nil
 }
 func (p *Producer) HandleDemand(process *gen.StageProcess, subscription gen.StageSubscription, count uint) (etf.List, gen.StageStatus) {
-	fmt.Println("Producer: just got demand for", count, "pack of events from", subscription.Pid)
-	for i := 0; i < int(count); i++ {
-		n := rand.Intn(9) + 1
-		numbers := generateNumbers(n)
-		fmt.Println("Producer. Generate random numbers and send them to consumers...", numbers)
-		process.SendEvents(numbers)
-		time.Sleep(500 * time.Millisecond)
-	}
+	fmt.Println("Producer: just got demand for", count, "event(s) from", subscription.Pid)
+	numbers := generateNumbers(int(count) + 3)
+	fmt.Println("Producer. Generate random numbers and send them to consumers...", numbers)
+	process.SendEvents(numbers)
+	time.Sleep(500 * time.Millisecond)
 	return nil, gen.StageStatusOK
 }
 

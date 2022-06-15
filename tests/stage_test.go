@@ -38,6 +38,13 @@ type newSubscription struct {
 	producer etf.Term
 	opts     gen.StageSubscribeOptions
 }
+type demandHandle struct {
+	enable bool
+}
+type autoDemand struct {
+	subscription gen.StageSubscription
+	enable       bool
+}
 
 //
 // a simple Stage Producer
@@ -97,8 +104,33 @@ func (gs *StageProducerTest) Subscribe(p gen.Process, producer etf.Term, opts ge
 	return s.(gen.StageSubscription), nil
 }
 
+func (gs *StageProducerTest) SetDemandHandle(p gen.Process, enable bool) error {
+	message := demandHandle{
+		enable: enable,
+	}
+	_, err := p.Direct(message)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+func (gs *StageProducerTest) SetAutoDemand(p gen.Process, subscription gen.StageSubscription, enable bool) error {
+	message := autoDemand{
+		subscription: subscription,
+		enable:       enable,
+	}
+	_, err := p.Direct(message)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 func (s *StageProducerTest) HandleStageDirect(process *gen.StageProcess, message interface{}) (interface{}, error) {
 	switch m := message.(type) {
+	case demandHandle:
+		process.SetDemandHandle(m.enable)
+		return nil, nil
 	case newSubscription:
 		return process.Subscribe(m.producer, m.opts)
 	case sendEvents:
@@ -161,6 +193,9 @@ func (s *StageConsumerTest) HandleStageDirect(p *gen.StageProcess, message inter
 	case demandRequest:
 		err := p.Ask(m.subscription, m.count)
 		return nil, err
+	case autoDemand:
+		err := p.SetAutoDemand(m.subscription, m.enable)
+		return nil, err
 
 	case cancelSubscription:
 		err := p.Cancel(m.subscription, m.reason)
@@ -171,6 +206,22 @@ func (s *StageConsumerTest) HandleStageDirect(p *gen.StageProcess, message inter
 		return nil, p.Cast(m.to, m.message)
 	}
 	return nil, gen.ErrUnsupportedRequest
+}
+
+func (s *StageConsumerTest) HandleStageTerminate(p *gen.StageProcess, reason string) {
+	//fmt.Println("StageConsumerTest process terminated with reason", reason)
+}
+
+func (gs *StageConsumerTest) SetAutoDemand(p gen.Process, subscription gen.StageSubscription, enable bool) error {
+	message := autoDemand{
+		subscription: subscription,
+		enable:       enable,
+	}
+	_, err := p.Direct(message)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func (gs *StageConsumerTest) Subscribe(p gen.Process, producer etf.Term, opts gen.StageSubscribeOptions) (gen.StageSubscription, error) {
@@ -332,6 +383,9 @@ func TestStageSimple(t *testing.T) {
 	events := etf.List{
 		"a", "b", "c", "d", "e",
 	}
+	fmt.Printf("... Consumer sent 'Ask' request with count = 4 (min 2, max 4) : ")
+	consumer.Ask(consumerProcess, sub4, 4)
+	waitForResultWithValue(t, producer.value, etf.Tuple{sub4, uint(4)})
 	fmt.Printf("... Producer sent 5 events. Consumer should receive 4: ")
 	producer.SendEvents(producerProcess, events)
 	expected := etf.Tuple{"events", sub4, events[0:4]}
@@ -341,21 +395,23 @@ func TestStageSimple(t *testing.T) {
 	}
 	fmt.Printf("... Producer sent 1 event. Consumer shouldn't receive anything until make yet another 'Ask' request: ")
 	producer.SendEvents(producerProcess, events)
-	expected = etf.Tuple{"events", sub4, etf.List{"e", "f"}}
 	waitForTimeout(t, consumer.value) // shouldn't receive anything here
 	fmt.Println("OK")
-	fmt.Printf("... Consumer sent 'Ask' request with count = 1 (min 2, max 4) : ")
-	consumer.Ask(consumerProcess, sub4, 1)
+	fmt.Printf("1... Consumer sent 'Ask' request with count = 1 (min 2, max 4) : ")
+	if err := consumer.Ask(consumerProcess, sub4, 1); err != nil {
+		t.Fatal(err)
+	}
 	waitForResultWithValue(t, producer.value, etf.Tuple{sub4, uint(1)})
 	fmt.Printf("... Consumer should receive 2 events: ")
+	expected = etf.Tuple{"events", sub4, etf.List{"e", "f"}}
 	waitForResultWithValue(t, consumer.value, expected)
 
 	// case 6:
 	//    - ask, disable forwarding, send events, ask, enable forwarding
 	//    keep this subscription for the next case
 
-	fmt.Printf("... Disable forwarding demand on Producer: ")
-	if err := producer.DisableForwardDemand(producerProcess); err != nil {
+	fmt.Printf("... Disable handling demand on Producer: ")
+	if err := producer.SetDemandHandle(producerProcess, false); err != nil {
 		t.Fatal(err)
 	}
 	fmt.Println("OK")
@@ -372,18 +428,18 @@ func TestStageSimple(t *testing.T) {
 	waitForTimeout(t, consumer.value) // shouldn't receive anything here
 	fmt.Println("OK")
 	fmt.Printf("... Consumer sent yet another 'Ask'. Stage shouldn't call HandleDemand as well: ")
-	consumer.Ask(consumerProcess, sub4, 2)
+	consumer.Ask(consumerProcess, sub4, 9)
 	waitForTimeout(t, producer.value) // shouldn't receive anything here
 	fmt.Println("OK")
 
-	fmt.Printf("... Enable forwarding demand on Producer: ")
-	if err := producer.EnableForwardDemand(producerProcess); err != nil {
+	fmt.Printf("... Enable handling demand on Producer: ")
+	if err := producer.SetDemandHandle(producerProcess, true); err != nil {
 		t.Fatal(err)
 	}
 	fmt.Println("OK")
-	fmt.Printf("... Producer should receive demands count =1 and count =2: ")
+	fmt.Printf("... Producer should receive demands count =1 and count =9: ")
 	expected1 := etf.Tuple{sub4, uint(1)}
-	expected2 := etf.Tuple{sub4, uint(2)}
+	expected2 := etf.Tuple{sub4, uint(9)}
 	waitForResultWithMultiValue(t, producer.value, etf.List{expected1, expected2})
 	fmt.Printf("... Customer should receive 3 messages with 4, 4 and 2 events: ")
 	expected1 = etf.Tuple{"events", sub4, etf.List{"a", "b", "c", "d"}}
@@ -397,15 +453,15 @@ func TestStageSimple(t *testing.T) {
 	// case 7:
 	//    - enable auto demand, send events, try to ask (should get error), disable auto demands
 	fmt.Printf("... Enable AutoDemand on the Producer (should fail): ")
-	if err := producer.EnableAutoDemand(producerProcess, sub4); err == nil {
+	if err := producer.SetAutoDemand(producerProcess, sub4, true); err == nil {
 		t.Fatal("should fail here")
 	}
 	fmt.Println("OK")
 	fmt.Printf("... Enable AutoDemand on the Consumer. Producer should receive demand with count %d: ", defaultAutoDemandCount)
-	if err := consumer.EnableAutoDemand(consumerProcess, sub4); err != nil {
+	if err := consumer.SetAutoDemand(consumerProcess, sub4, true); err != nil {
 		t.Fatal(err)
 	}
-	waitForResultWithValue(t, producer.value, etf.Tuple{sub4, uint(3)})
+	waitForResultWithValue(t, producer.value, etf.Tuple{sub4, subOpts.MaxDemand})
 	fmt.Printf("... Customer sent 'Ask' request (should fail): ")
 	if err := consumer.Ask(consumerProcess, sub4, 2); err == nil {
 		t.Fatal("should fail here")
@@ -418,8 +474,8 @@ func TestStageSimple(t *testing.T) {
 	fmt.Printf("... Producer sent 5 events. Consumer should receive 4. Demands counter = 2 now: ")
 	expected = etf.Tuple{"events", sub4, etf.List{"a", "b", "c", "d"}}
 	waitForResultWithValue(t, consumer.value, expected)
-	fmt.Printf("... Consumer should send auto demand with count 3: ")
-	waitForResultWithValue(t, producer.value, etf.Tuple{sub4, uint(3)})
+	fmt.Printf("... Consumer should send auto demand with count %d: ", subOpts.MaxDemand)
+	waitForResultWithValue(t, producer.value, etf.Tuple{sub4, subOpts.MaxDemand})
 
 	node.Stop()
 }
@@ -471,9 +527,11 @@ func TestStageDistributed(t *testing.T) {
 	fmt.Printf("... Consumer@node2 handled subscription confirmation from Producer@node1: ")
 	waitForResultWithValue(t, consumer.value, sub)
 
-	fmt.Printf("... Consumer@node2 sent 'Ask' request with count = 1 (min 2, max 4) : ")
-	consumer.Ask(consumerProcess, sub, 1)
-	waitForResultWithValue(t, producer.value, etf.Tuple{sub, uint(1)})
+	fmt.Printf("... Consumer@node2 sent 'Ask' request with count = 4 (min 2, max 4) : ")
+	if err := consumer.Ask(consumerProcess, sub, 4); err != nil {
+		t.Fatal(err)
+	}
+	waitForResultWithValue(t, producer.value, etf.Tuple{sub, uint(4)})
 	waitForTimeout(t, consumer.value) // shouldn't receive anything here
 	events := etf.List{
 		"a", "b", "c", "d", "e",
@@ -620,7 +678,7 @@ func TestStageDispatcherDemand(t *testing.T) {
 	fmt.Println("OK")
 	sub1, _ := consumer.Subscribe(consumer1Process, "stageProducer", subOpts)
 	fmt.Printf("... Producer handled subscription request from Consumer1: ")
-	expected1 := etf.Tuple{sub1, uint(3)}
+	expected1 := etf.Tuple{sub1, uint(subOpts.MaxDemand)}
 	expected2 := sub1
 	waitForResultWithMultiValue(t, producer.value, etf.List{expected1, expected2})
 
@@ -635,7 +693,7 @@ func TestStageDispatcherDemand(t *testing.T) {
 	fmt.Println("OK")
 	sub2, _ := consumer.Subscribe(consumer2Process, "stageProducer", subOpts)
 	fmt.Printf("... Producer handled subscription request from Consumer2: ")
-	expected1 = etf.Tuple{sub2, uint(3)}
+	expected1 = etf.Tuple{sub2, uint(subOpts.MaxDemand)}
 	expected2 = sub2
 	waitForResultWithMultiValue(t, producer.value, etf.List{expected1, expected2})
 	fmt.Printf("... Consumer2 handled subscription confirmation from Producer: ")
@@ -649,7 +707,7 @@ func TestStageDispatcherDemand(t *testing.T) {
 	fmt.Println("OK")
 	sub3, _ := consumer.Subscribe(consumer3Process, "stageProducer", subOpts)
 	fmt.Printf("... Producer handled subscription request from Consumer3: ")
-	expected1 = etf.Tuple{sub3, uint(3)}
+	expected1 = etf.Tuple{sub3, uint(subOpts.MaxDemand)}
 	expected2 = sub3
 	waitForResultWithMultiValue(t, producer.value, etf.List{expected1, expected2})
 	fmt.Printf("... Consumer3 handled subscription confirmation from Producer: ")
@@ -724,7 +782,7 @@ func TestStageDispatcherBroadcast(t *testing.T) {
 	fmt.Println("OK")
 	sub1, _ := consumer1.Subscribe(consumer1Process, "stageProducer", subOpts)
 	fmt.Printf("... Producer handled subscription request from Consumer1: ")
-	expected1 := etf.Tuple{sub1, uint(3)}
+	expected1 := etf.Tuple{sub1, uint(subOpts.MaxDemand)}
 	expected2 := sub1
 	waitForResultWithMultiValue(t, producer.value, etf.List{expected1, expected2})
 
@@ -739,7 +797,7 @@ func TestStageDispatcherBroadcast(t *testing.T) {
 	fmt.Println("OK")
 	sub2, _ := consumer2.Subscribe(consumer2Process, "stageProducer", subOpts)
 	fmt.Printf("... Producer handled subscription request from Consumer2: ")
-	expected1 = etf.Tuple{sub2, uint(3)}
+	expected1 = etf.Tuple{sub2, uint(subOpts.MaxDemand)}
 	expected2 = sub2
 	waitForResultWithMultiValue(t, producer.value, etf.List{expected1, expected2})
 	fmt.Printf("... Consumer2 handled subscription confirmation from Producer: ")
@@ -753,7 +811,7 @@ func TestStageDispatcherBroadcast(t *testing.T) {
 	fmt.Println("OK")
 	sub3, _ := consumer3.Subscribe(consumer3Process, "stageProducer", subOpts)
 	fmt.Printf("... Producer handled subscription request from Consumer3: ")
-	expected1 = etf.Tuple{sub3, uint(3)}
+	expected1 = etf.Tuple{sub3, uint(subOpts.MaxDemand)}
 	expected2 = sub3
 	waitForResultWithMultiValue(t, producer.value, etf.List{expected1, expected2})
 	fmt.Printf("... Consumer3 handled subscription confirmation from Producer: ")
@@ -849,7 +907,7 @@ func TestStageDispatcherPartition(t *testing.T) {
 	fmt.Println("OK")
 	sub1, _ := consumer1.Subscribe(consumer1Process, "stageProducer", subOpts1)
 	fmt.Printf("... Producer handled subscription request from Consumer1: ")
-	expected1 := etf.Tuple{sub1, uint(3)}
+	expected1 := etf.Tuple{sub1, uint(subOpts1.MaxDemand)}
 	expected2 := sub1
 	waitForResultWithMultiValue(t, producer.value, etf.List{expected1, expected2})
 
@@ -864,7 +922,7 @@ func TestStageDispatcherPartition(t *testing.T) {
 	fmt.Println("OK")
 	sub2, _ := consumer2.Subscribe(consumer2Process, "stageProducer", subOpts2)
 	fmt.Printf("... Producer handled subscription request from Consumer2: ")
-	expected1 = etf.Tuple{sub2, uint(3)}
+	expected1 = etf.Tuple{sub2, uint(subOpts2.MaxDemand)}
 	expected2 = sub2
 	waitForResultWithMultiValue(t, producer.value, etf.List{expected1, expected2})
 	fmt.Printf("... Consumer2 handled subscription confirmation from Producer: ")
@@ -878,7 +936,7 @@ func TestStageDispatcherPartition(t *testing.T) {
 	fmt.Println("OK")
 	sub3, _ := consumer3.Subscribe(consumer3Process, "stageProducer", subOpts3)
 	fmt.Printf("... Producer handled subscription request from Consumer3: ")
-	expected1 = etf.Tuple{sub3, uint(3)}
+	expected1 = etf.Tuple{sub3, uint(subOpts3.MaxDemand)}
 	expected2 = sub3
 	waitForResultWithMultiValue(t, producer.value, etf.List{expected1, expected2})
 	fmt.Printf("... Consumer3 handled subscription confirmation from Producer: ")
