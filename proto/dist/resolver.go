@@ -116,7 +116,11 @@ func (e *epmdResolver) Register(ctx context.Context, name string, port uint16, o
 			// register this node on EPMD server
 			conn, err := e.registerNode(options)
 			if err != nil {
-				lib.Log("EPMD client: can't register node %q (%s). Retry in 3 seconds...", name, err)
+				if reconnecting == false {
+					ready <- err
+					break
+				}
+				lib.Warning("EPMD client: can't register node %q (%s). Retry in 3 seconds...", name, err)
 				time.Sleep(3 * time.Second)
 				continue
 			}
@@ -281,10 +285,13 @@ func (e *epmdResolver) readAliveResp(conn net.Conn) error {
 	switch buf[0] {
 	case epmdAliveResp, epmdAliveRespX:
 	default:
-		return fmt.Errorf("Malformed EPMD response %v", buf)
+		return fmt.Errorf("malformed EPMD response %v", buf)
 	}
 	if buf[1] != 0 {
-		return fmt.Errorf("Can't register %q. Code: %v", e.nodeName, buf[1])
+		if buf[1] == 1 {
+			return fmt.Errorf("can not register node with %q, name is taken", e.nodeName)
+		}
+		return fmt.Errorf("can not register %q, code: %v", e.nodeName, buf[1])
 	}
 	return nil
 }

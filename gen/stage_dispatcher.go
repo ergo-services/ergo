@@ -182,7 +182,8 @@ func (dd *dispatcherDemand) Dispatch(state interface{}, events etf.List) []Stage
 				continue
 			}
 		}
-		// seems we dont have enough space to keep these events.
+		// dont have enough space to keep these events.
+		lib.Warning("DispatcherDemand. Event buffer is full. Discarding event: ", events[e])
 		break
 	}
 
@@ -194,11 +195,12 @@ func (dd *dispatcherDemand) Dispatch(state interface{}, events etf.List) []Stage
 	dispatchItems := []StageDispatchItem{}
 	nextDemand := st.i
 	for {
-		countLeft := uint(0)
+		left := uint(0)
 		for range st.order {
 			if st.i > len(st.order)-1 {
 				st.i = 0
 			}
+
 			if len(st.events) == 0 {
 				// have nothing to dispatch
 				break
@@ -208,21 +210,26 @@ func (dd *dispatcherDemand) Dispatch(state interface{}, events etf.List) []Stage
 			demand := st.demands[pid]
 			st.i++
 
+			if demand.count < demand.minDemand {
+				break
+			}
+
 			if demand.count == 0 || len(st.events) < int(demand.minDemand) {
 				continue
 			}
 
 			nextDemand = st.i
 			item := makeDispatchItem(st.events, demand)
-			demand.count--
 			dispatchItems = append(dispatchItems, item)
+
+			demand.count -= uint(len(item.events))
+			left += demand.count
 
 			if len(st.events) < int(demand.minDemand) {
 				continue
 			}
-			countLeft += demand.count
 		}
-		if countLeft > 0 && len(st.events) > 0 {
+		if left > 0 && len(st.events) > 0 {
 			continue
 		}
 		break
@@ -297,16 +304,18 @@ func (db *dispatcherBroadcast) Dispatch(state interface{}, events etf.List) []St
 				continue
 			}
 		}
-		// seems we dont have enough space to keep these events.
+		// dont have enough space to keep these events.
+		lib.Warning("DispatcherBroadcast. Event buffer is full. Discarding event: ", events[e])
 		break
 	}
 
 	demand := &demand{
 		minDemand: st.minDemand,
 		maxDemand: st.maxDemand,
+		count:     st.broadcasts,
 	}
 
-	dispatchItems := []StageDispatchItem{}
+	items := []StageDispatchItem{}
 	for {
 		if st.broadcasts == 0 {
 			break
@@ -321,12 +330,12 @@ func (db *dispatcherBroadcast) Dispatch(state interface{}, events etf.List) []St
 				subscription: d.subscription,
 				events:       broadcast_item.events,
 			}
-			dispatchItems = append(dispatchItems, item)
-			d.count--
+			items = append(items, item)
+			d.count -= uint(len(item.events))
 		}
 		st.broadcasts--
 	}
-	return dispatchItems
+	return items
 }
 
 // Subscribe
@@ -361,7 +370,8 @@ func (db *dispatcherBroadcast) Subscribe(state interface{}, subscription StageSu
 		st.minDemand = opts.MinDemand
 	}
 	st.demands[subscription.Pid] = newDemand
-	// we should stop broadcast events until this subscription make a demand
+
+	// we should stop broadcast events until this subscription make a new demand
 	st.broadcasts = 0
 	return nil
 }
@@ -437,7 +447,7 @@ func (dp *dispatcherPartition) Dispatch(state interface{}, events etf.List) []St
 				continue
 			}
 		}
-		// seems we dont have enough space to keep these events. discard the rest of them.
+		// dont have enough space to keep these events. discard the rest of them.
 		lib.Warning("DispatcherPartition. Event buffer is full. Discarding event: ", events[e])
 		break
 	}
@@ -472,7 +482,7 @@ func (dp *dispatcherPartition) Dispatch(state interface{}, events etf.List) []St
 
 				nextDemand = st.i[partition]
 				item := makeDispatchItem(st.events[partition], demand)
-				demand.count--
+				demand.count -= uint(len(st.events[partition]))
 				dispatchItems = append(dispatchItems, item)
 				if len(st.events[partition]) < int(demand.minDemand) {
 					continue
@@ -513,15 +523,13 @@ func makeDispatchItem(events chan etf.Term, d *demand) StageDispatchItem {
 		subscription: d.subscription,
 	}
 
-	i := uint(0)
-	for {
+	for i := uint(0); i < d.count; i++ {
+		if i == d.maxDemand {
+			break
+		}
 		select {
 		case e := <-events:
 			item.events = append(item.events, e)
-			i++
-			if i == d.maxDemand {
-				break
-			}
 			continue
 		default:
 			// we dont have events in the buffer
