@@ -127,7 +127,7 @@ func (gs *StageProducerTest) SetAutoDemand(p gen.Process, subscription gen.Stage
 	return nil
 }
 
-func (s *StageProducerTest) HandleStageDirect(process *gen.StageProcess, message interface{}) (interface{}, error) {
+func (s *StageProducerTest) HandleStageDirect(process *gen.StageProcess, ref etf.Ref, message interface{}) (interface{}, gen.DirectStatus) {
 	switch m := message.(type) {
 	case demandHandle:
 		process.SetDemandHandle(m.enable)

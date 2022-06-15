@@ -467,7 +467,7 @@ func (gst *Stage) HandleCall(process *ServerProcess, from ServerFrom, message et
 
 func (gst *Stage) HandleDirect(process *ServerProcess, ref etf.Ref, message interface{}) (interface{}, DirectStatus) {
 	stageProcess := process.State.(*StageProcess)
-	return stageProcess.behavior.HandleStageDirect(stageProcess, message)
+	return stageProcess.behavior.HandleStageDirect(stageProcess, ref, message)
 }
 
 func (gst *Stage) HandleCast(process *ServerProcess, message etf.Term) ServerStatus {

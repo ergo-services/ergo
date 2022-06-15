@@ -630,7 +630,7 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 
 				}
 				if stack.i&0x01 == 0x01 { // a value
-					if stack.i > 1 {
+					if stack.i > 1 && stack.reg != nil {
 						set_field = true
 						field = *stack.reg
 					}
