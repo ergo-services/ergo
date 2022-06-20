@@ -5,7 +5,6 @@ import (
 	"crypto/md5"
 	"encoding/binary"
 	"fmt"
-	"io"
 	"net"
 	"time"
 
@@ -115,7 +114,7 @@ func (ch *cloudHandshake) Init(nodename string, creation uint32, flags node.Flag
 	return nil
 }
 
-func (ch *cloudHandshake) Start(remote net.Addr, conn io.ReadWriter, tls bool, cookie string) (node.HandshakeDetails, error) {
+func (ch *cloudHandshake) Start(remote net.Addr, conn lib.NetReadWriter, tls bool, cookie string) (node.HandshakeDetails, error) {
 	var details node.HandshakeDetails
 
 	fmt.Println("START HANDSHAKE with", remote)

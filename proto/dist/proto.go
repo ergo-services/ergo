@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"math/rand"
+	"net"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -98,7 +99,7 @@ type distConnection struct {
 	creation uint32
 
 	// socket
-	conn          io.ReadWriter
+	conn          lib.NetReadWriter
 	cancelContext context.CancelFunc
 
 	// proxy session (endpoints)
@@ -180,7 +181,7 @@ type receivers struct {
 	i    int32
 }
 
-func (dp *distProto) Init(ctx context.Context, conn io.ReadWriter, nodename string, details node.HandshakeDetails) (node.ConnectionInterface, error) {
+func (dp *distProto) Init(ctx context.Context, conn lib.NetReadWriter, nodename string, details node.HandshakeDetails) (node.ConnectionInterface, error) {
 	connection := &distConnection{
 		nodename:                nodename,
 		peername:                details.Name,
@@ -200,7 +201,7 @@ func (dp *distProto) Init(ctx context.Context, conn io.ReadWriter, nodename stri
 	connection.stats.NodeName = details.Name
 
 	// create connection buffering
-	connection.flusher = newLinkFlusher(conn, defaultLatency, details.Flags.EnableSoftwareKeepAlive)
+	connection.flusher = newLinkFlusher(conn, defaultLatency)
 
 	numHandlers := dp.options.NumHandlers
 	if details.NumHandlers > 0 {
@@ -639,8 +640,18 @@ func (dc *distConnection) read(b *lib.Buffer, max int) (int, error) {
 	expectingBytes := 4
 	for {
 		if b.Len() < expectingBytes {
+			// if no data is received during the 4 * keepAlivePeriod the remote node
+			// seems to be stuck.
+			deadline := true
+			if err := dc.conn.SetReadDeadline(time.Now().Add(4 * keepAlivePeriod)); err != nil {
+				deadline = false
+			}
+
 			n, e := b.ReadDataFrom(dc.conn, max)
 			if n == 0 {
+				if err, ok := e.(net.Error); deadline && ok && err.Timeout() {
+					lib.Warning("Node %q not responding. Drop connection", dc.peername)
+				}
 				// link was closed
 				return 0, nil
 			}

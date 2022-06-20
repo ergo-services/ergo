@@ -5,7 +5,6 @@ import (
 	"crypto/md5"
 	"encoding/binary"
 	"fmt"
-	"io"
 	"math/rand"
 	"net"
 	"time"
@@ -123,7 +122,7 @@ func (dh *DistHandshake) Version() node.HandshakeVersion {
 	return dh.options.Version
 }
 
-func (dh *DistHandshake) Start(remote net.Addr, conn io.ReadWriter, tls bool, cookie string) (node.HandshakeDetails, error) {
+func (dh *DistHandshake) Start(remote net.Addr, conn lib.NetReadWriter, tls bool, cookie string) (node.HandshakeDetails, error) {
 
 	var details node.HandshakeDetails
 
@@ -283,7 +282,7 @@ func (dh *DistHandshake) Start(remote net.Addr, conn io.ReadWriter, tls bool, co
 
 }
 
-func (dh *DistHandshake) Accept(remote net.Addr, conn io.ReadWriter, tls bool, cookie string) (node.HandshakeDetails, error) {
+func (dh *DistHandshake) Accept(remote net.Addr, conn lib.NetReadWriter, tls bool, cookie string) (node.HandshakeDetails, error) {
 	var details node.HandshakeDetails
 
 	b := lib.TakeBuffer()

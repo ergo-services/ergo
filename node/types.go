@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/cipher"
 	"crypto/tls"
-	"io"
 	"net"
 	"time"
 
@@ -335,10 +334,10 @@ type HandshakeInterface interface {
 
 	// Start initiates handshake process. Argument tls means the connection is wrapped by TLS
 	// Returns the name of connected peer, Flags and Creation wrapped into HandshakeDetails struct
-	Start(remote net.Addr, conn io.ReadWriter, tls bool, cookie string) (HandshakeDetails, error)
+	Start(remote net.Addr, conn lib.NetReadWriter, tls bool, cookie string) (HandshakeDetails, error)
 	// Accept accepts handshake process initiated by another side of this connection.
 	// Returns the name of connected peer, Flags and Creation wrapped into HandshakeDetails struct
-	Accept(remote net.Addr, conn io.ReadWriter, tls bool, cookie string) (HandshakeDetails, error)
+	Accept(remote net.Addr, conn lib.NetReadWriter, tls bool, cookie string) (HandshakeDetails, error)
 	// Version handshake version. Must be implemented if this handshake is going to be used
 	// for the accepting connections (this method is used in registration on the Resolver)
 	Version() HandshakeVersion
@@ -374,7 +373,7 @@ type Proto struct {
 // Proto defines proto interface for the custom Proto implementation
 type ProtoInterface interface {
 	// Init initialize connection handler
-	Init(ctx context.Context, conn io.ReadWriter, nodename string, details HandshakeDetails) (ConnectionInterface, error)
+	Init(ctx context.Context, conn lib.NetReadWriter, nodename string, details HandshakeDetails) (ConnectionInterface, error)
 	// Serve connection
 	Serve(connection ConnectionInterface, router CoreRouter)
 	// Terminate invoked once Serve callback is finished
@@ -420,9 +419,6 @@ type Flags struct {
 	EnableCompression bool
 	// Proxy enables support for incoming proxy connection
 	EnableProxy bool
-	// Software keepalive enables sending keep alive messages if node doesn't support
-	// TCPConn.SetKeepAlive(true). For erlang peers this flag is mandatory.
-	EnableSoftwareKeepAlive bool
 }
 
 // Resolver defines resolving interface

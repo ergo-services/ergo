@@ -3,7 +3,6 @@ package node
 import (
 	"bytes"
 	"context"
-	"io"
 	"sync"
 	"time"
 
@@ -1022,10 +1021,6 @@ func (n *network) listen(ctx context.Context, hostname string, begin uint16, end
 					c.Close()
 					continue
 				}
-				// TODO we need to detect somehow whether to enable software keepalive.
-				// Erlang nodes are required to be receiving keepalive messages,
-				// but Ergo doesn't need it.
-				details.Flags.EnableSoftwareKeepAlive = true
 				connection, err := n.proto.Init(n.ctx, c, n.nodename, details)
 				if err != nil {
 					lib.Warning("Proto error: %s", err)
@@ -1045,6 +1040,13 @@ func (n *network) listen(ctx context.Context, hostname string, begin uint16, end
 					// Close this connection and use the already registered connection
 					c.Close()
 					continue
+				}
+
+				// enable keep alive on this connection
+				if tcp, ok := c.(*net.TCPConn); ok {
+					tcp.SetKeepAlive(true)
+					tcp.SetKeepAlivePeriod(15 * time.Second)
+					tcp.SetNoDelay(true)
 				}
 
 				// run serving connection
@@ -1175,10 +1177,6 @@ func (n *network) connect(node string) (ConnectionInterface, error) {
 		proto = n.proto
 	}
 
-	// TODO we need to detect somehow whether to enable software keepalive.
-	// Erlang nodes are required to be receiving keepalive messages,
-	// but Ergo doesn't need it.
-	details.Flags.EnableSoftwareKeepAlive = true
 	connection, err := proto.Init(n.ctx, c, n.nodename, details)
 	if err != nil {
 		c.Close()
@@ -1200,6 +1198,13 @@ func (n *network) connect(node string) (ConnectionInterface, error) {
 			return registered, nil
 		}
 		return nil, err
+	}
+
+	// enable keep alive on this connection
+	if tcp, ok := c.(*net.TCPConn); ok {
+		tcp.SetKeepAlive(true)
+		tcp.SetKeepAlivePeriod(5 * time.Second)
+		tcp.SetNoDelay(true)
 	}
 
 	// run serving connection
@@ -1359,10 +1364,10 @@ func (c *Connection) Stats() NetworkStats {
 //
 // Handshake interface default callbacks
 //
-func (h *Handshake) Start(remote net.Addr, conn io.ReadWriter, tls bool, cookie string) (HandshakeDetails, error) {
+func (h *Handshake) Start(remote net.Addr, conn lib.NetReadWriter, tls bool, cookie string) (HandshakeDetails, error) {
 	return HandshakeDetails{}, lib.ErrUnsupported
 }
-func (h *Handshake) Accept(remote net.Addr, conn io.ReadWriter, tls bool, cookie string) (HandshakeDetails, error) {
+func (h *Handshake) Accept(remote net.Addr, conn lib.NetReadWriter, tls bool, cookie string) (HandshakeDetails, error) {
 	return HandshakeDetails{}, lib.ErrUnsupported
 }
 func (h *Handshake) Version() HandshakeVersion {
