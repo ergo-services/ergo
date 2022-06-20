@@ -217,6 +217,11 @@ func startChild(supervisor Process, name string, child ProcessBehavior, opts Pro
 	if leader := supervisor.GroupLeader(); leader != nil {
 		opts.GroupLeader = leader
 	}
+
+	// Child process shouldn't ignore supervisor termination (via TrapExit).
+	// Using the supervisor's Context makes the child terminate if the supervisor is terminated.
+	opts.Context = supervisor.Context()
+
 	process, err := supervisor.Spawn(name, opts, child, args...)
 
 	if err != nil {
