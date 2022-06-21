@@ -219,24 +219,6 @@ func (p *process) SendAfter(to interface{}, message etf.Term, after time.Duratio
 
 	timer := time.AfterFunc(after, func() { p.Send(to, message) })
 	return timer.Stop
-	//TODO: should we control the number of timers/goroutines have been created this way?
-	//ctx, cancel := context.WithCancel(p.context)
-	//go func() {
-	//	// to prevent of timer leaks due to its not GCed until the timer fires
-	//	timer := time.NewTimer(after)
-	//	defer timer.Stop()
-	//	defer cancel()
-
-	//	select {
-	//	case <-ctx.Done():
-	//		return
-	//	case <-timer.C:
-	//		if p.IsAlive() {
-	//			p.Send(to, message)
-	//		}
-	//	}
-	//}()
-	//return cancel
 }
 
 // CreateAlias
@@ -485,6 +467,26 @@ func (p *process) DirectWithTimeout(request interface{}, timeout int) (interface
 	}
 
 	return p.WaitSyncReply(direct.Ref, timeout)
+}
+
+func (p *process) RegisterEvent(event gen.Event, messages ...gen.EventMessage) error {
+	return p.registerEvent(p.self, event, messages)
+}
+
+func (p *process) UnregisterEvent(event gen.Event) error {
+	return p.unregisterEvent(p.self, event)
+}
+
+func (p *process) MonitorEvent(event gen.Event) error {
+	return p.monitorEvent(p.self, event)
+}
+
+func (p *process) DemonitorEvent(event gen.Event) error {
+	return p.demonitorEvent(p.self, event)
+}
+
+func (p *process) SendEventMessage(event gen.Event, message gen.EventMessage) error {
+	return p.sendEvent(p.self, event, message)
 }
 
 // MonitorNode

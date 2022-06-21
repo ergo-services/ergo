@@ -1489,6 +1489,266 @@ func TestMonitorNode(t *testing.T) {
 	nodeB.Stop()
 }
 
+type testMonitorEvent struct {
+	gen.Server
+	v chan interface{}
+}
+
+type testEventCmdRegister struct {
+	event    gen.Event
+	messages []gen.EventMessage
+}
+type testEventCmdUnregister struct {
+	event gen.Event
+}
+type testEventCmdMonitor struct {
+	event gen.Event
+}
+type testEventCmdSend struct {
+	event   gen.Event
+	message gen.EventMessage
+}
+
+type testMessageEventA struct {
+	value string
+}
+
+func (tgs *testMonitorEvent) Init(process *gen.ServerProcess, args ...etf.Term) error {
+	tgs.v <- process.Self()
+	return nil
+}
+func (tgs *testMonitorEvent) HandleDirect(process *gen.ServerProcess, ref etf.Ref, message interface{}) (interface{}, gen.DirectStatus) {
+	switch cmd := message.(type) {
+	case testEventCmdRegister:
+		return nil, process.RegisterEvent(cmd.event, cmd.messages...)
+	case testEventCmdUnregister:
+		return nil, process.UnregisterEvent(cmd.event)
+	case testEventCmdMonitor:
+		return nil, process.MonitorEvent(cmd.event)
+	case testEventCmdSend:
+		return nil, process.SendEventMessage(cmd.event, cmd.message)
+
+	default:
+		return nil, fmt.Errorf("unknown cmd")
+
+	}
+}
+
+func (tgs *testMonitorEvent) HandleInfo(process *gen.ServerProcess, message etf.Term) gen.ServerStatus {
+	tgs.v <- message
+	return gen.ServerStatusOK
+}
+
+func TestMonitorEvents(t *testing.T) {
+	fmt.Printf("\n=== Test Monitor Events\n")
+	fmt.Printf("Starting node: nodeM1Events@localhost: ")
+	node1, _ := ergo.StartNode("nodeM1Events@localhost", "cookies", node.Options{})
+	if node1 == nil {
+		t.Fatal("can't start node")
+	}
+	defer node1.Stop()
+
+	fmt.Println("OK")
+	gs1 := &testMonitorEvent{
+		v: make(chan interface{}, 2),
+	}
+	gs2 := &testMonitorEvent{
+		v: make(chan interface{}, 2),
+	}
+	// starting gen servers
+
+	fmt.Printf("    wait for start of gs1 on %#v: ", node1.Name())
+	node1gs1, err := node1.Spawn("gs1", gen.ProcessOptions{}, gs1, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitForResultWithValue(t, gs1.v, node1gs1.Self())
+
+	fmt.Printf("    wait for start of gs2 on %#v: ", node1.Name())
+	node1gs2, err := node1.Spawn("gs2", gen.ProcessOptions{}, gs2, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitForResultWithValue(t, gs2.v, node1gs2.Self())
+	fmt.Printf("... register new event : ")
+	cmd := testEventCmdRegister{
+		event:    "testEvent",
+		messages: []gen.EventMessage{testMessageEventA{}},
+	}
+	_, err = node1gs1.Direct(cmd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fmt.Println("OK")
+
+	fmt.Printf("... register new event with the same name: ")
+	_, err = node1gs1.Direct(cmd)
+	if err != lib.ErrTaken {
+		t.Fatal(err)
+	}
+	fmt.Println("OK")
+
+	fmt.Printf("... unregister unknown event: ")
+	cmd1 := testEventCmdUnregister{
+		event: "unknownEvent",
+	}
+	_, err = node1gs1.Direct(cmd1)
+	if err != lib.ErrEventUnknown {
+		t.Fatal(err)
+	}
+	fmt.Println("OK")
+
+	fmt.Printf("... unregister event by not an owner: ")
+	cmd1 = testEventCmdUnregister{
+		event: "testEvent",
+	}
+	_, err = node1gs2.Direct(cmd1)
+	if err != lib.ErrEventOwner {
+		t.Fatal(err)
+	}
+	fmt.Println("OK")
+
+	fmt.Printf("... unregister event by the owner: ")
+	cmd1 = testEventCmdUnregister{
+		event: "testEvent",
+	}
+	_, err = node1gs1.Direct(cmd1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fmt.Println("OK")
+
+	fmt.Printf("... monitor unknown event: ")
+	cmd2 := testEventCmdMonitor{
+		event: "testEvent",
+	}
+	_, err = node1gs2.Direct(cmd2)
+	if err != lib.ErrEventUnknown {
+		t.Fatal(err)
+	}
+	fmt.Println("OK")
+
+	fmt.Printf("... monitor event: ")
+	cmd = testEventCmdRegister{
+		event:    "testEvent",
+		messages: []gen.EventMessage{testMessageEventA{}},
+	}
+	_, err = node1gs1.Direct(cmd)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cmd2 = testEventCmdMonitor{
+		event: "testEvent",
+	}
+	_, err = node1gs2.Direct(cmd2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fmt.Println("OK")
+
+	fmt.Printf("... monitor event itself: ")
+	cmd2 = testEventCmdMonitor{
+		event: "testEvent",
+	}
+	_, err = node1gs1.Direct(cmd2)
+	if err != lib.ErrEventSelf {
+		t.Fatal(err)
+	}
+	fmt.Println("OK")
+
+	fmt.Printf("... send unknown event: ")
+	msg := testMessageEventA{value: "test"}
+	cmd3 := testEventCmdSend{
+		event:   "unknownEvent",
+		message: msg,
+	}
+	_, err = node1gs1.Direct(cmd3)
+	if err != lib.ErrEventUnknown {
+		t.Fatal(err)
+	}
+	fmt.Println("OK")
+
+	fmt.Printf("... send event with wrong message type: ")
+	msgWrong := "wrong type"
+	cmd3 = testEventCmdSend{
+		event:   "testEvent",
+		message: msgWrong,
+	}
+	_, err = node1gs1.Direct(cmd3)
+	if err != lib.ErrEventMismatch {
+		t.Fatal(err)
+	}
+	fmt.Println("OK")
+
+	fmt.Printf("... send event by not an owner: ")
+	cmd3 = testEventCmdSend{
+		event:   "testEvent",
+		message: msg,
+	}
+	_, err = node1gs2.Direct(cmd3)
+	if err != lib.ErrEventOwner {
+		t.Fatal(err)
+	}
+	fmt.Println("OK")
+
+	fmt.Printf("... send event: ")
+	cmd3 = testEventCmdSend{
+		event:   "testEvent",
+		message: msg,
+	}
+	_, err = node1gs1.Direct(cmd3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitForResultWithValue(t, gs2.v, msg)
+	fmt.Println("OK")
+
+	fmt.Printf("... monitor event twice: ")
+	cmd2 = testEventCmdMonitor{
+		event: "testEvent",
+	}
+	_, err = node1gs2.Direct(cmd2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fmt.Println("OK")
+
+	fmt.Printf("... send event. must be received twice: ")
+	cmd3 = testEventCmdSend{
+		event:   "testEvent",
+		message: msg,
+	}
+	_, err = node1gs1.Direct(cmd3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fmt.Println("OK")
+	fmt.Printf("... receive first event message: ")
+	waitForResultWithValue(t, gs2.v, msg)
+	fmt.Printf("... receive second event message: ")
+	waitForResultWithValue(t, gs2.v, msg)
+
+	down := gen.MessageEventDown{
+		Event:  "testEvent",
+		Reason: "unregistered",
+	}
+	fmt.Printf("... unregister event owner. must be received gen.MessageEventDown twice with reason 'unregistered': ")
+	cmd1 = testEventCmdUnregister{
+		event: "testEvent",
+	}
+	_, err = node1gs1.Direct(cmd1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fmt.Println("OK")
+	fmt.Printf("... receive first event down message: ")
+	waitForResultWithValue(t, gs2.v, down)
+	fmt.Printf("... receive second event down message: ")
+	waitForResultWithValue(t, gs2.v, down)
+
+}
+
 // helpers
 func checkCleanProcessRef(p gen.Process, ref etf.Ref) error {
 	if p.IsMonitor(ref) {

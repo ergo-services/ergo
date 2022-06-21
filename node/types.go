@@ -34,6 +34,9 @@ const (
 	DefaultCompressionThreshold int = 1024
 
 	DefaultProxyMaxHop int = 8
+
+	EventNetwork     gen.Event = "network"
+	EventApplication gen.Event = "application"
 )
 
 type Node interface {

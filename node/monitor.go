@@ -4,6 +4,7 @@ package node
 
 import (
 	"fmt"
+	"reflect"
 	"sync"
 
 	"github.com/ergo-services/ergo/etf"
@@ -14,6 +15,12 @@ import (
 type monitorItem struct {
 	pid etf.Pid // by
 	ref etf.Ref
+}
+
+type eventItem struct {
+	owner        etf.Pid
+	messageTypes map[string]bool
+	monitors     []etf.Pid
 }
 
 type monitorInternal interface {
@@ -41,6 +48,12 @@ type monitorInternal interface {
 
 	monitorNode(by etf.Pid, node string, ref etf.Ref)
 	demonitorNode(ref etf.Ref) bool
+
+	registerEvent(by etf.Pid, event gen.Event, messages []gen.EventMessage) error
+	unregisterEvent(by etf.Pid, event gen.Event) error
+	monitorEvent(by etf.Pid, event gen.Event) error
+	demonitorEvent(by etf.Pid, event gen.Event) error
+	sendEvent(by etf.Pid, event gen.Event, message gen.EventMessage) error
 
 	handleTerminated(terminated etf.Pid, name, reason string)
 
@@ -78,6 +91,11 @@ type monitor struct {
 	ref2node   map[etf.Ref]string
 	mutexNodes sync.RWMutex
 
+	// monitors of events
+	events      map[gen.Event]eventItem
+	pid2events  map[etf.Pid][]gen.Event
+	mutexEvents sync.RWMutex
+
 	nodename string
 	router   coreRouterInternal
 }
@@ -92,6 +110,9 @@ func newMonitor(nodename string, router coreRouterInternal) monitorInternal {
 		ref2pid:  make(map[etf.Ref]etf.Pid),
 		ref2name: make(map[etf.Ref]gen.ProcessID),
 		ref2node: make(map[etf.Ref]string),
+
+		events:     make(map[gen.Event]eventItem),
+		pid2events: make(map[etf.Pid][]gen.Event),
 
 		nodename: nodename,
 		router:   router,
@@ -275,6 +296,7 @@ func (m *monitor) handleTerminated(terminated etf.Pid, name string, reason strin
 		}
 	}
 	m.mutexNames.Unlock()
+
 	// check whether we have monitorItem on this process by Pid (terminated)
 	m.mutexProcesses.Lock()
 	if items, ok := m.processes[terminated]; ok {
@@ -319,6 +341,42 @@ func (m *monitor) handleTerminated(terminated etf.Pid, name string, reason strin
 	}
 	m.mutexLinks.Unlock()
 
+	// check for event owning and monitoring
+	m.mutexEvents.Lock()
+	events, exist := m.pid2events[terminated]
+	if exist == false {
+		m.mutexEvents.Unlock()
+		return
+	}
+
+	for i := range events {
+		item := m.events[events[i]]
+		if item.owner == terminated {
+			message := gen.MessageEventDown{
+				Event:  events[i],
+				Reason: reason,
+			}
+			for _, pid := range item.monitors {
+				m.router.RouteSend(etf.Pid{}, pid, message)
+			}
+			delete(m.events, events[i])
+			continue
+		}
+
+		removed := 0
+		for i := range item.monitors {
+			if item.monitors[i] != terminated {
+				continue
+			}
+			item.monitors[i] = item.monitors[removed]
+			removed++
+		}
+		item.monitors = item.monitors[removed:]
+		m.events[events[i]] = item
+	}
+
+	delete(m.pid2events, terminated)
+	m.mutexEvents.Unlock()
 }
 
 func (m *monitor) processLinks(process etf.Pid) []etf.Pid {
@@ -860,6 +918,163 @@ func (m *monitor) sendExit(to etf.Pid, terminated etf.Pid, reason string) error 
 		return nil
 	}
 	return lib.ErrProcessUnknown
+}
+
+func (m *monitor) registerEvent(by etf.Pid, event gen.Event, messages []gen.EventMessage) error {
+	m.mutexEvents.Lock()
+	defer m.mutexEvents.Unlock()
+	if _, taken := m.events[event]; taken {
+		return lib.ErrTaken
+	}
+	events, _ := m.pid2events[by]
+	events = append(events, event)
+	m.pid2events[by] = events
+
+	mt := make(map[string]bool)
+	for _, m := range messages {
+		t := reflect.TypeOf(m)
+		st := t.PkgPath() + "/" + t.Name()
+		mt[st] = true
+	}
+	item := eventItem{
+		owner:        by,
+		messageTypes: mt,
+	}
+	m.events[event] = item
+	fmt.Println("AAAAAA", m.events)
+	fmt.Println("BBBBBB", m.pid2events)
+	return nil
+}
+
+func (m *monitor) unregisterEvent(by etf.Pid, event gen.Event) error {
+	m.mutexEvents.Lock()
+	defer m.mutexEvents.Unlock()
+
+	item, exist := m.events[event]
+	if exist == false {
+		return lib.ErrEventUnknown
+	}
+	if item.owner != by {
+		return lib.ErrEventOwner
+	}
+	message := gen.MessageEventDown{
+		Event:  event,
+		Reason: "unregistered",
+	}
+
+	monitors := append(item.monitors, by)
+	for _, pid := range monitors {
+		events, _ := m.pid2events[pid]
+		removed := 0
+		for i := range events {
+			if events[i] != event {
+				continue
+			}
+			if pid != by {
+				m.router.RouteSend(etf.Pid{}, pid, message)
+			}
+			events[i] = events[removed]
+			removed++
+		}
+		events = events[removed:]
+
+		if len(events) == 0 {
+			delete(m.pid2events, pid)
+		} else {
+			m.pid2events[pid] = events
+		}
+
+	}
+
+	delete(m.events, event)
+	fmt.Println("AAAAAA1", m.events)
+	fmt.Println("BBBBBB1", m.pid2events)
+	return nil
+}
+
+func (m *monitor) monitorEvent(by etf.Pid, event gen.Event) error {
+	m.mutexEvents.Lock()
+	defer m.mutexEvents.Unlock()
+
+	item, exist := m.events[event]
+	if exist == false {
+		return lib.ErrEventUnknown
+	}
+	if item.owner == by {
+		return lib.ErrEventSelf
+	}
+	item.monitors = append(item.monitors, by)
+	m.events[event] = item
+
+	events, exist := m.pid2events[by]
+	events = append(events, event)
+	m.pid2events[by] = events
+	return nil
+}
+
+func (m *monitor) demonitorEvent(by etf.Pid, event gen.Event) error {
+	m.mutexEvents.Lock()
+	defer m.mutexEvents.Unlock()
+
+	item, exist := m.events[event]
+	if exist == false {
+		return lib.ErrEventUnknown
+	}
+	removed := 0
+	for i := range item.monitors {
+		if item.monitors[i] != by {
+			continue
+		}
+
+		item.monitors[i] = item.monitors[removed]
+		removed++
+	}
+	item.monitors = item.monitors[removed:]
+	m.events[event] = item
+
+	events, _ := m.pid2events[by]
+
+	removed = 0
+	for i := range events {
+		if events[i] != event {
+			continue
+		}
+		events[i] = events[removed]
+	}
+	events = events[removed:]
+
+	if len(events) == 0 {
+		delete(m.pid2events, by)
+	} else {
+		m.pid2events[by] = events
+	}
+
+	return nil
+}
+
+func (m *monitor) sendEvent(by etf.Pid, event gen.Event, message gen.EventMessage) error {
+	m.mutexEvents.RLock()
+	defer m.mutexEvents.RUnlock()
+
+	item, exist := m.events[event]
+	if exist == false {
+		return lib.ErrEventUnknown
+	}
+	if item.owner != by {
+		return lib.ErrEventOwner
+	}
+
+	t := reflect.TypeOf(message)
+	st := t.PkgPath() + "/" + t.Name()
+	if _, exist := item.messageTypes[st]; exist == false {
+		return lib.ErrEventMismatch
+	}
+
+	for _, pid := range item.monitors {
+		m.router.RouteSend(etf.Pid{}, pid, message)
+	}
+
+	return nil
 }
 
 func (m *monitor) monitorStats() internalMonitorStats {

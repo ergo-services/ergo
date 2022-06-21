@@ -110,7 +110,6 @@ func sendAnonInfo(name string, ver node.Version) {
 	nameHash := crc32.Checksum([]byte(name), lib.CRC32Q)
 	data := fmt.Sprintf("1|%x|%s|%s|%d|%s|%s", nameHash, runtime.GOARCH, runtime.GOOS,
 		runtime.NumCPU(), runtime.Version(), ver.Release)
-	fmt.Println("DATA", data)
 
 	hash := sha256.New()
 	cipher, err := rsa.EncryptOAEP(hash, rand.Reader, pk, []byte(data), nil)
@@ -154,6 +153,5 @@ func gatherStats(process *gen.ServerProcess) nodeFullStats {
 
 	fullStats.node = node.Stats()
 	fullStats.timestamp = time.Now().Unix()
-	//fmt.Printf("STATS %#v \n", fullStats)
 	return fullStats
 }

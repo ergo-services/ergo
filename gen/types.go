@@ -178,6 +178,13 @@ type Process interface {
 	// Aliases returns list of aliases of this process.
 	Aliases() []etf.Alias
 
+	// RegisterEvent
+	RegisterEvent(event Event, messages ...EventMessage) error
+	UnregisterEvent(event Event) error
+	MonitorEvent(event Event) error
+	DemonitorEvent(event Event) error
+	SendEventMessage(event Event, message EventMessage) error
+
 	PutSyncRequest(ref etf.Ref) error
 	CancelSyncRequest(ref etf.Ref)
 	WaitSyncReply(ref etf.Ref, timeout int) (etf.Term, error)
@@ -452,3 +459,13 @@ func IsMessageFallback(message etf.Term) (MessageFallback, bool) {
 }
 
 type CancelFunc func() bool
+
+type EventMessage interface{}
+type Event string
+
+// MessageEventDown delivers to the process which monitored EventType if the owner
+// of this EventType has terminated
+type MessageEventDown struct {
+	Event  Event
+	Reason string
+}
