@@ -35,8 +35,7 @@ const (
 
 	DefaultProxyMaxHop int = 8
 
-	EventNetwork     gen.Event = "network"
-	EventApplication gen.Event = "application"
+	EventNetwork gen.Event = "network"
 )
 
 type Node interface {
@@ -564,4 +563,10 @@ type NodeStats struct {
 	NetworkConnections uint64
 	ProxyConnections   uint64
 	TransitConnections uint64
+}
+
+type MessageEventNetwork struct {
+	PeerName string
+	Online   bool
+	Proxy    bool
 }

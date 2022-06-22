@@ -1228,12 +1228,19 @@ func (n *network) registerConnection(peername string, ci connectionInternal) (Co
 		return registered.connection, lib.ErrTaken
 	}
 	n.connections[peername] = ci
+
+	event := MessageEventNetwork{
+		PeerName: peername,
+		Online:   true,
+	}
 	if ci.conn == nil {
 		// this is proxy connection
 		p, _ := n.connectionsProxy[ci.connection]
 		p = append(p, peername)
 		n.connectionsProxy[ci.connection] = p
+		event.Proxy = true
 	}
+	n.router.sendEvent(corePID, EventNetwork, event)
 	return ci.connection, nil
 }
 
@@ -1250,18 +1257,28 @@ func (n *network) unregisterConnection(peername string, disconnect *ProxyDisconn
 	n.connectionsMutex.Unlock()
 
 	n.router.RouteNodeDown(peername, disconnect)
+	event := MessageEventNetwork{
+		PeerName: peername,
+		Online:   false,
+	}
 
 	if ci.conn == nil {
 		// it was proxy connection
 		ci.connection.ProxyUnregisterSession(ci.proxySessionID)
+		event.Proxy = true
+		n.router.sendEvent(corePID, EventNetwork, event)
 		return
 	}
+	n.router.sendEvent(corePID, EventNetwork, event)
 
 	n.connectionsMutex.Lock()
 	cp, _ := n.connectionsProxy[ci.connection]
 	for _, p := range cp {
 		lib.Log("[%s] NETWORK unregistering peer (via proxy) %v", n.nodename, p)
 		delete(n.connections, p)
+		event.PeerName = p
+		event.Proxy = true
+		n.router.sendEvent(corePID, EventNetwork, event)
 	}
 
 	ct, _ := n.connectionsTransit[ci.connection]

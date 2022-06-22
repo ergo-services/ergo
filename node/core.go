@@ -18,6 +18,8 @@ import (
 var (
 	startPID    = uint64(1000)
 	startUniqID = uint64(time.Now().UnixNano())
+
+	corePID = etf.Pid{}
 )
 
 type core struct {
@@ -100,6 +102,7 @@ type coreRouterInternal interface {
 
 	processByPid(pid etf.Pid) *process
 	getConnection(nodename string) (ConnectionInterface, error)
+	sendEvent(pid etf.Pid, event gen.Event, message gen.EventMessage) error
 }
 
 // transit proxy session
@@ -137,6 +140,12 @@ func newCore(ctx context.Context, nodename string, cookie string, options Option
 		behaviors:   make(map[string]map[string]gen.RegisteredBehavior),
 	}
 
+	corePID = etf.Pid{
+		Node:     etf.Atom(c.nodename),
+		ID:       1,
+		Creation: c.creation,
+	}
+
 	corectx, corestop := context.WithCancel(ctx)
 	c.stop = corestop
 	c.ctx = corectx
@@ -148,6 +157,8 @@ func newCore(ctx context.Context, nodename string, cookie string, options Option
 		return nil, err
 	}
 	c.networkInternal = network
+
+	c.registerEvent(corePID, EventNetwork, []gen.EventMessage{MessageEventNetwork{}})
 
 	return c, nil
 }
