@@ -345,21 +345,37 @@ func (m *monitor) handleTerminated(terminated etf.Pid, name string, reason strin
 	m.mutexEvents.Lock()
 	events, exist := m.pid2events[terminated]
 	if exist == false {
+		// this process hasn't been involved in any events
 		m.mutexEvents.Unlock()
 		return
 	}
 
-	for i := range events {
-		item := m.events[events[i]]
+	for _, e := range events {
+		item := m.events[e]
 		if item.owner == terminated {
 			message := gen.MessageEventDown{
-				Event:  events[i],
+				Event:  e,
 				Reason: reason,
 			}
 			for _, pid := range item.monitors {
-				m.router.RouteSend(etf.Pid{}, pid, message)
+				pidevents := m.pid2events[pid]
+				removed := 0
+				for i := range pidevents {
+					if pidevents[i] != e {
+						continue
+					}
+					m.router.RouteSend(etf.Pid{}, pid, message)
+					pidevents[i] = pidevents[removed]
+					removed++
+				}
+				pidevents = pidevents[removed:]
+				if len(pidevents) == 0 {
+					delete(m.pid2events, pid)
+				} else {
+					m.pid2events[pid] = pidevents
+				}
 			}
-			delete(m.events, events[i])
+			delete(m.events, e)
 			continue
 		}
 
@@ -372,7 +388,7 @@ func (m *monitor) handleTerminated(terminated etf.Pid, name string, reason strin
 			removed++
 		}
 		item.monitors = item.monitors[removed:]
-		m.events[events[i]] = item
+		m.events[e] = item
 	}
 
 	delete(m.pid2events, terminated)
@@ -941,8 +957,6 @@ func (m *monitor) registerEvent(by etf.Pid, event gen.Event, messages []gen.Even
 		messageTypes: mt,
 	}
 	m.events[event] = item
-	fmt.Println("AAAAAA", m.events)
-	fmt.Println("BBBBBB", m.pid2events)
 	return nil
 }
 
@@ -987,8 +1001,6 @@ func (m *monitor) unregisterEvent(by etf.Pid, event gen.Event) error {
 	}
 
 	delete(m.events, event)
-	fmt.Println("AAAAAA1", m.events)
-	fmt.Println("BBBBBB1", m.pid2events)
 	return nil
 }
 

@@ -1555,6 +1555,9 @@ func TestMonitorEvents(t *testing.T) {
 	gs2 := &testMonitorEvent{
 		v: make(chan interface{}, 2),
 	}
+	gs3 := &testMonitorEvent{
+		v: make(chan interface{}, 2),
+	}
 	// starting gen servers
 
 	fmt.Printf("    wait for start of gs1 on %#v: ", node1.Name())
@@ -1570,6 +1573,14 @@ func TestMonitorEvents(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitForResultWithValue(t, gs2.v, node1gs2.Self())
+
+	fmt.Printf("    wait for start of gs3 on %#v: ", node1.Name())
+	node1gs3, err := node1.Spawn("gs3", gen.ProcessOptions{}, gs3, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitForResultWithValue(t, gs3.v, node1gs3.Self())
+
 	fmt.Printf("... register new event : ")
 	cmd := testEventCmdRegister{
 		event:    "testEvent",
@@ -1702,7 +1713,6 @@ func TestMonitorEvents(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitForResultWithValue(t, gs2.v, msg)
-	fmt.Println("OK")
 
 	fmt.Printf("... monitor event twice: ")
 	cmd2 = testEventCmdMonitor{
@@ -1747,6 +1757,29 @@ func TestMonitorEvents(t *testing.T) {
 	fmt.Printf("... receive second event down message: ")
 	waitForResultWithValue(t, gs2.v, down)
 
+	cmd = testEventCmdRegister{
+		event:    "testEvent",
+		messages: []gen.EventMessage{testMessageEventA{}},
+	}
+	_, err = node1gs3.Direct(cmd)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cmd2 = testEventCmdMonitor{
+		event: "testEvent",
+	}
+	_, err = node1gs2.Direct(cmd2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fmt.Printf("... terminate event owner. must be received gen.MessageEventDown with reason 'kill': ")
+	node1gs3.Kill()
+	down = gen.MessageEventDown{
+		Event:  "testEvent",
+		Reason: "kill",
+	}
+	waitForResultWithValue(t, gs2.v, down)
 }
 
 // helpers
