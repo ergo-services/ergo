@@ -48,6 +48,10 @@ func (cc *cloudClient) Init(process *gen.ServerProcess, args ...etf.Term) error 
 	}
 
 	process.Cast(process.Self(), messageCloudClientConnect{})
+	if err := process.RegisterEvent(EventCloud, []gen.EventMessage{MessageEventCloud{}}); err != nil {
+		lib.Warning("can't register event %q: %s", EventCloud, err)
+	}
+
 	return nil
 }
 
@@ -84,6 +88,10 @@ func (cc *cloudClient) HandleCast(process *gen.ServerProcess, message etf.Term) 
 				continue
 			}
 
+			event := MessageEventCloud{
+				Online: true,
+			}
+			process.SendEventMessage(EventCloud, event)
 			state.monitor = process.MonitorNode(cloud.Node)
 			state.node = cloud.Node
 			return gen.ServerStatusOK
@@ -107,6 +115,10 @@ func (cc *cloudClient) HandleInfo(process *gen.ServerProcess, message etf.Term) 
 		thisNode := process.Env(node.EnvKeyNode).(node.Node)
 		state.cleanup(thisNode)
 
+		event := MessageEventCloud{
+			Online: false,
+		}
+		process.SendEventMessage(EventCloud, event)
 		// lost connection with the cloud node. try to connect again
 		process.Cast(process.Self(), messageCloudClientConnect{})
 	}

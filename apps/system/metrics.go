@@ -54,8 +54,12 @@ type nodeFullStats struct {
 func (sb *systemMetrics) Init(process *gen.ServerProcess, args ...etf.Term) error {
 	lib.Log("SYSTEM_METRICS: Init: %#v", args)
 
+	options := args[0].(node.System)
 	process.State = &systemMetricsState{}
-	process.CastAfter(process.Self(), messageSystemAnonInfo{}, defaultMetricsPeriod)
+	if options.DisableAnonMetrics == false {
+		process.CastAfter(process.Self(), messageSystemAnonInfo{}, defaultMetricsPeriod)
+	}
+	process.CastAfter(process.Self(), messageSystemGatherStats{}, defaultMetricsPeriod)
 	return nil
 }
 
@@ -66,7 +70,7 @@ func (sb *systemMetrics) HandleCast(process *gen.ServerProcess, message etf.Term
 	case messageSystemAnonInfo:
 		ver := process.Env(node.EnvKeyVersion).(node.Version)
 		sendAnonInfo(process.NodeName(), ver)
-		process.CastAfter(process.Self(), messageSystemGatherStats{}, defaultMetricsPeriod)
+
 	case messageSystemGatherStats:
 		stats := gatherStats(process)
 		if state.i > len(state.stats)-1 {
@@ -82,6 +86,8 @@ func (sb *systemMetrics) HandleCast(process *gen.ServerProcess, message etf.Term
 func (sb *systemMetrics) Terminate(process *gen.ServerProcess, reason string) {
 	lib.Log("SYSTEM_METRICS: Terminate with reason %q", reason)
 }
+
+// private routines
 
 func sendAnonInfo(name string, ver node.Version) {
 	metricsHost := "metrics.ergo.services"
@@ -108,7 +114,7 @@ func sendAnonInfo(name string, ver node.Version) {
 	defer c.Close()
 
 	nameHash := crc32.Checksum([]byte(name), lib.CRC32Q)
-	data := fmt.Sprintf("1|%x|%s|%s|%d|%s|%s", nameHash, runtime.GOARCH, runtime.GOOS,
+	data := fmt.Sprintf("1|%08X|%s|%s|%d|%s|%s", nameHash, runtime.GOARCH, runtime.GOOS,
 		runtime.NumCPU(), runtime.Version(), ver.Release)
 
 	hash := sha256.New()
@@ -122,7 +128,6 @@ func sendAnonInfo(name string, ver node.Version) {
 	binary.BigEndian.PutUint16(buf[0:2], uint16(4411))
 	binary.BigEndian.PutUint16(buf[2:4], uint16(len(cipher)))
 	copy(buf[4:], cipher)
-
 	c.Write(buf)
 }
 

@@ -268,6 +268,7 @@ type Proxy struct {
 }
 
 type System struct {
+	DisableAnonMetrics bool
 }
 
 type Compression struct {

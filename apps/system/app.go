@@ -28,6 +28,7 @@ func (sa *systemApp) Load(args ...etf.Term) (gen.ApplicationSpec, error) {
 			gen.ApplicationChildSpec{
 				Child: &systemAppSup{},
 				Name:  "system_app_sup",
+				Args:  []etf.Term{sa.options},
 			},
 		},
 	}, nil
