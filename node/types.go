@@ -255,7 +255,7 @@ type Cloud struct {
 }
 
 type Proxy struct {
-	// Transit allow use node as a proxy
+	// Transit allows to use this node as a proxy
 	Transit bool
 	// Accept incoming proxy connections
 	Accept bool
