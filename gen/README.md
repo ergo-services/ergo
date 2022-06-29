@@ -17,6 +17,11 @@ A supervisor is responsible for starting, stopping, and monitoring its child pro
 
   The Web API Gateway pattern is also sometimes known as the "Backend For Frontend" (BFF)  because you build it while thinking about the needs of the client app. Therefore, BFF sits between the client apps and the microservices. It acts as a reverse proxy, routing requests from clients to services. Here is example [examples/genweb](/examples/genweb).
 
+### TCP
+  Socket acceptor pool for TCP protocols.
+
+  This behavior aims to provide everything you need to accept TCP connections and process packets with a small code base and low latency while being easy to use
+
 
 ### Stage
   Generic stage behavior (originated from Elixir's [GenStage](https://hexdocs.pm/gen_stage/GenStage.html)).

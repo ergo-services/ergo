@@ -47,10 +47,11 @@ func (cc *cloudClient) Init(process *gen.ServerProcess, args ...etf.Term) error 
 		options: cloudOptions,
 	}
 
-	process.Cast(process.Self(), messageCloudClientConnect{})
 	if err := process.RegisterEvent(EventCloud, []gen.EventMessage{MessageEventCloud{}}); err != nil {
 		lib.Warning("can't register event %q: %s", EventCloud, err)
 	}
+
+	process.Cast(process.Self(), messageCloudClientConnect{})
 
 	return nil
 }
@@ -64,7 +65,7 @@ func (cc *cloudClient) HandleCast(process *gen.ServerProcess, message etf.Term) 
 		// initiate connection with the cloud
 		cloudNodes, err := getCloudNodes()
 		if err != nil {
-			lib.Log("CLOUD_CLIENT: can't resolve cloud nodes", err)
+			lib.Warning("can't resolve cloud nodes: %s", err)
 		}
 
 		// add static route with custom handshake
@@ -77,7 +78,6 @@ func (cc *cloudClient) HandleCast(process *gen.ServerProcess, message etf.Term) 
 			}
 			routeOptions.TLS.Enable = true
 			routeOptions.TLS.SkipVerify = cloud.SkipVerify
-			fmt.Println("cloud node", cloud)
 			if err := thisNode.AddStaticRoutePort(cloud.Node, cloud.Port, routeOptions); err != nil {
 				if err != lib.ErrTaken {
 					continue
@@ -98,7 +98,7 @@ func (cc *cloudClient) HandleCast(process *gen.ServerProcess, message etf.Term) 
 		}
 
 		// cloud nodes aren't available. make another attempt in 3 seconds
-		process.CastAfter(process.Self(), messageCloudClientConnect{}, 3*time.Second)
+		process.CastAfter(process.Self(), messageCloudClientConnect{}, 5*time.Second)
 	}
 	return gen.ServerStatusOK
 }

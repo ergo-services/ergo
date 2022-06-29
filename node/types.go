@@ -426,17 +426,19 @@ type Flags struct {
 
 // Resolver defines resolving interface
 type Resolver interface {
-	Register(ctx context.Context, nodename string, port uint16, options ResolverOptions) error
+	Register(ctx context.Context, nodename string, options ResolveOptions) error
 	Resolve(peername string) (Route, error)
 }
 
-// ResolverOptions defines resolving options
-type ResolverOptions struct {
+// ResolveOptions defines resolving options
+type ResolveOptions struct {
+	Port              uint16
 	NodeVersion       Version
 	HandshakeVersion  HandshakeVersion
 	EnableTLS         bool
 	EnableProxy       bool
 	EnableCompression bool
+	Proxy             string
 }
 
 // Route

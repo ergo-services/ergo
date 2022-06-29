@@ -83,7 +83,7 @@ func CreateResolverWithRemoteEPMD(host string, port uint16) node.Resolver {
 	return resolver
 }
 
-func (e *epmdResolver) Register(ctx context.Context, name string, port uint16, options node.ResolverOptions) error {
+func (e *epmdResolver) Register(ctx context.Context, name string, options node.ResolveOptions) error {
 	n := strings.Split(name, "@")
 	if len(n) != 2 {
 		return fmt.Errorf("(EMPD) FQDN for node name is required (example: node@hostname)")
@@ -92,7 +92,7 @@ func (e *epmdResolver) Register(ctx context.Context, name string, port uint16, o
 	e.name = name
 	e.nodeName = n[0]
 	e.nodeHost = n[1]
-	e.nodePort = port
+	e.nodePort = options.Port
 	e.handshakeVersion = options.HandshakeVersion
 
 	e.composeExtra(options)
@@ -180,7 +180,7 @@ func (e *epmdResolver) Resolve(name string) (node.Route, error) {
 
 }
 
-func (e *epmdResolver) composeExtra(options node.ResolverOptions) {
+func (e *epmdResolver) composeExtra(options node.ResolveOptions) {
 	buf := make([]byte, 4)
 
 	// 2 bytes: ergoExtraMagic
@@ -216,7 +216,7 @@ func (e *epmdResolver) readExtra(route *node.Route, buf []byte) {
 	return
 }
 
-func (e *epmdResolver) registerNode(options node.ResolverOptions) (net.Conn, error) {
+func (e *epmdResolver) registerNode(options node.ResolveOptions) (net.Conn, error) {
 	//
 	resolverHost := e.host
 	if resolverHost == "" {

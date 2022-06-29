@@ -53,7 +53,7 @@ type cloudHandshake struct {
 }
 
 type messageM2 struct {
-	flags     uint64
+	flags     cloudFlags // flags from the cloud
 	creation  uint32
 	challenge string
 	peername  string
@@ -70,8 +70,8 @@ type messageMX struct {
 	// id = 0 - malformed message from the cloud
 	//      1 - incorrect cluster name or cookie value
 	//      2 - taken (this node is already presented in the cloud cluster)
-	//      3 - suspended
-	//      4 - blocked
+	//      3 - suspended account
+	//      4 - account is blocked
 	// informing messages have id above 100
 	id          int
 	description string
@@ -83,7 +83,7 @@ func createHandshake(options node.Cloud) node.HandshakeInterface {
 	}
 	return &cloudHandshake{
 		options:   options,
-		challenge: lib.RandomString(32),
+		challenge: lib.RandomString(64),
 	}
 }
 
@@ -142,6 +142,7 @@ func (ch *cloudHandshake) Start(remote net.Addr, conn lib.NetReadWriter, tls boo
 
 	expectingBytes := 2
 	await := []byte{messageTypeM2, messageTypeMX}
+	m2 := messageM2{}
 
 	for {
 		go asyncRead()
@@ -165,12 +166,29 @@ func (ch *cloudHandshake) Start(remote net.Addr, conn lib.NetReadWriter, tls boo
 			}
 
 			// check if we got correct message type regarding to 'await' value
-			if bytes.Count(await, buffer[1:2]) == 0 {
+			if bytes.Count(await, buffer[0:1]) == 0 {
 				return details, fmt.Errorf("malformed handshake (wrong response)")
 			}
 
-			switch buffer[1] {
+			switch buffer[0] {
 			case messageTypeM2:
+				var err error
+				m2, err = ch.readM2(buffer[1:])
+				if err != nil {
+					fmt.Println("got M2 error", err)
+					return details, err
+				}
+				b.Reset()
+				fmt.Println("got M2 ", m2)
+
+				digest := genDigest(ch.options.ClusterID, m2.challenge, ch.options.Cookie)
+				ch.composeMessageM3(b, digest[:])
+				if e := b.WriteDataTo(conn); e != nil {
+					return details, e
+				}
+				b.Reset()
+				await = []byte{messageTypeM4}
+
 			case messageTypeM4:
 			case messageTypeMX:
 				//message, _ := ch.readMX(buffer[2:])
@@ -198,6 +216,7 @@ func (ch *cloudHandshake) composeMessageM1(b *lib.Buffer) {
 	b.B[3] = byte(clientVersion)
 	flags := ch.composeFlags()
 	binary.BigEndian.PutUint64(b.B[4:12], flags.toUint64())
+	binary.BigEndian.PutUint32(b.B[12:16], ch.creation)
 	b.Append([]byte(ch.options.ClusterID))
 	b.Append([]byte(ch.nodename))
 	l := b.Len() - 2
@@ -206,17 +225,26 @@ func (ch *cloudHandshake) composeMessageM1(b *lib.Buffer) {
 
 func (ch *cloudHandshake) composeMessageM3(b *lib.Buffer, digest []byte) {
 	// header: 2 (packet len) + 1 (message type)
-	// body: 32 (challengeB) + 16 (digestA)
+	// body: 64 (challengeB) + 16 (digestA)
 	b.Allocate(2 + 1)
-	binary.BigEndian.PutUint16(b.B[0:2], 1+32+16) // uint16
+	binary.BigEndian.PutUint16(b.B[0:2], 1+64+16) // uint16
 	b.B[2] = messageTypeM3
 	b.Append([]byte(ch.challenge))
 	b.Append(digest)
 }
 
-func (ch *cloudHandshake) readM2() (messageM2, error) {
-	// body: 8 (flags) + 4 (creation) + 32 (challengeA) + nodename
+func (ch *cloudHandshake) readM2(buffer []byte) (messageM2, error) {
+	// body: 8 (flags) + 4 (creation) + 64 (challengeA) + nodename
 	var m2 messageM2
+
+	if len(buffer) < 80 {
+		return m2, fmt.Errorf("too small M2")
+	}
+
+	m2.flags = cloudFlags(binary.BigEndian.Uint64(buffer[:8]))
+	m2.creation = binary.BigEndian.Uint32(buffer[8:12])
+	m2.challenge = string(buffer[12:76])
+	m2.peername = string(buffer[76:])
 
 	return m2, nil
 }

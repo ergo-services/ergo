@@ -65,7 +65,7 @@ type WebHandlerOptions struct {
 	RequestTimeout int
 	// RequestQueueLength defines how many parallel requests can be directed to this process. Default value is 10.
 	RequestQueueLength int
-	// NumHandlers defines how many handlers could be started in the main pool. Default 1
+	// NumHandlers defines how many handlers will be started. Default 1
 	NumHandlers int
 	// IdleTimeout defines how long (in seconds) keep the started handler alive with no requests. Zero value makes handler not stop.
 	IdleTimeout int

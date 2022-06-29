@@ -169,14 +169,15 @@ func newNetwork(ctx context.Context, nodename string, cookie string, options Opt
 		return nil, err
 	}
 
-	resolverOptions := ResolverOptions{
+	resolverOptions := ResolveOptions{
+		Port:              port,
 		NodeVersion:       n.version,
 		HandshakeVersion:  n.handshake.Version(),
 		EnableTLS:         n.tls.Enable,
 		EnableProxy:       options.Flags.EnableProxy,
 		EnableCompression: options.Flags.EnableCompression,
 	}
-	if err := n.resolver.Register(n.ctx, nodename, port, resolverOptions); err != nil {
+	if err := n.resolver.Register(n.ctx, nodename, resolverOptions); err != nil {
 		return nil, err
 	}
 
@@ -1011,7 +1012,7 @@ func (n *network) listen(ctx context.Context, hostname string, begin uint16, end
 
 				details, err := n.handshake.Accept(c.RemoteAddr(), c, n.tls.Enable, n.cookie)
 				if err != nil {
-					lib.Log("[%s] Can't handshake with %s: %s", n.nodename, c.RemoteAddr().String(), err)
+					lib.Warning("[%s] Can't handshake with %s: %s", n.nodename, c.RemoteAddr().String(), err)
 					c.Close()
 					continue
 				}
@@ -1040,13 +1041,6 @@ func (n *network) listen(ctx context.Context, hostname string, begin uint16, end
 					// Close this connection and use the already registered connection
 					c.Close()
 					continue
-				}
-
-				// enable keep alive on this connection
-				if tcp, ok := c.(*net.TCPConn); ok {
-					tcp.SetKeepAlive(true)
-					tcp.SetKeepAlivePeriod(15 * time.Second)
-					tcp.SetNoDelay(true)
 				}
 
 				// run serving connection

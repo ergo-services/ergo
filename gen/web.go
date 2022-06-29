@@ -18,8 +18,6 @@ type WebBehavior interface {
 	HandleWebCall(process *WebProcess, from ServerFrom, message etf.Term) (etf.Term, ServerStatus)
 	HandleWebCast(process *WebProcess, message etf.Term) ServerStatus
 	HandleWebInfo(process *WebProcess, message etf.Term) ServerStatus
-
-	HandleWebTerminate(process *WebProcess, reason string)
 }
 
 type WebStatus error
@@ -48,6 +46,7 @@ type WebProcess struct {
 	ServerProcess
 	options  WebOptions
 	behavior WebBehavior
+	listener net.Listener
 }
 
 type defaultHandler struct{}
@@ -143,6 +142,7 @@ func (web *Web) Init(process *ServerProcess, args ...etf.Term) error {
 	}()
 
 	webProcess.options = options
+	webProcess.listener = listener
 	process.State = webProcess
 
 	return nil
@@ -189,6 +189,11 @@ func (web *Web) HandleInfo(process *ServerProcess, message etf.Term) ServerStatu
 	}
 }
 
+func (web *Web) Terminate(process *ServerProcess, reason string) {
+	webp := process.State.(*WebProcess)
+	webp.listener.Close()
+}
+
 //
 // default Web callbacks
 //
@@ -210,12 +215,3 @@ func (web *Web) HandleWebInfo(process *WebProcess, message etf.Term) ServerStatu
 	lib.Warning("HandleWebInfo: unhandled message %#v", message)
 	return ServerStatusOK
 }
-
-// HandleWebTerminate
-func (w *Web) HandleWebTerminate(process *WebProcess, reason string) {
-	return
-}
-
-//
-// WebProcess
-//
