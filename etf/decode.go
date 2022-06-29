@@ -1130,10 +1130,10 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 				case reflect.Uint32:
 					switch v := term.(type) {
 					case int:
-						if v > int(math.MaxUint32) || v < 0 {
+						if v > int(math.MaxInt) || v < 0 {
 							// overflows
 							if stack.strict {
-								panic("overflows uint32")
+								panic("overflows int")
 							}
 							stack.reg = nil
 							break

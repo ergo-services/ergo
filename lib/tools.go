@@ -15,6 +15,7 @@ import (
 	"hash/crc32"
 	"io"
 	"log"
+	"math"
 	"math/big"
 	"sync"
 	"time"
@@ -174,7 +175,7 @@ func (b *Buffer) ReadDataFrom(r io.Reader, limit int) (int, error) {
 	capB := cap(b.B)
 	lenB := len(b.B)
 	if limit == 0 {
-		limit = 4294967000
+		limit = math.MaxInt
 	}
 	// if buffer becomes too large
 	if lenB > limit {
