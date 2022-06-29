@@ -918,7 +918,7 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 				case reflect.Int8:
 					switch v := term.(type) {
 					case int:
-						if v > int(math.MaxInt8) || v < int(math.MinInt8) {
+						if v > math.MaxInt8 || v < math.MinInt8 {
 							// overflows
 							if stack.strict {
 								panic("overflows int8")
@@ -928,7 +928,7 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 						}
 						field.SetInt(int64(v))
 					case int64:
-						if v > int64(math.MaxInt8) || v < int64(math.MinInt8) {
+						if v > math.MaxInt8 || v < math.MinInt8 {
 							// overflows
 							if stack.strict {
 								panic("overflows int8")
@@ -938,7 +938,7 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 						}
 						field.SetInt(v)
 					case uint64:
-						if v > uint64(math.MaxInt8) {
+						if v > math.MaxInt8 {
 							// overflows
 							if stack.strict {
 								panic("overflows int8")
@@ -952,7 +952,7 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 				case reflect.Int16:
 					switch v := term.(type) {
 					case int:
-						if v > int(math.MaxInt16) || v < int(math.MinInt16) {
+						if v > math.MaxInt16 || v < math.MinInt16 {
 							// overflows
 							if stack.strict {
 								panic("overflows int16")
@@ -962,7 +962,7 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 						}
 						field.SetInt(int64(v))
 					case int64:
-						if v > int64(math.MaxInt16) || v < int64(math.MinInt16) {
+						if v > math.MaxInt16 || v < math.MinInt16 {
 							// overflows
 							if stack.strict {
 								panic("overflows int16")
@@ -972,7 +972,7 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 						}
 						field.SetInt(v)
 					case uint64:
-						if v > uint64(math.MaxInt16) {
+						if v > math.MaxInt16 {
 							// overflows
 							if stack.strict {
 								panic("overflows int16")
@@ -986,7 +986,7 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 				case reflect.Int32:
 					switch v := term.(type) {
 					case int:
-						if v > int(math.MaxInt32) || v < int(math.MinInt32) {
+						if v > math.MaxInt32 || v < math.MinInt32 {
 							// overflows
 							if stack.strict {
 								panic("overflows int32")
@@ -996,7 +996,7 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 						}
 						field.SetInt(int64(v))
 					case int64:
-						if v > int64(math.MaxInt32) || v < int64(math.MinInt32) {
+						if v > math.MaxInt32 || v < math.MinInt32 {
 							// overflows
 							if stack.strict {
 								panic("overflows int32")
@@ -1006,7 +1006,7 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 						}
 						field.SetInt(v)
 					case uint64:
-						if v > uint64(math.MaxInt32) {
+						if v > math.MaxInt32 {
 							// overflows
 							if stack.strict {
 								panic("overflows int32")
@@ -1023,7 +1023,7 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 					case int64:
 						field.SetInt(v)
 					case uint64:
-						if v > uint64(math.MaxInt64) {
+						if v > math.MaxInt64 {
 							// overflows
 							if stack.strict {
 								panic("overflows int64")
@@ -1038,7 +1038,7 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 					case int:
 						field.SetInt(int64(v))
 					case int64:
-						if v > int64(math.MaxInt) {
+						if v > math.MaxInt {
 							// overflows
 							if stack.strict {
 								panic("overflows int")
@@ -1048,7 +1048,7 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 						}
 						field.SetInt(v)
 					case uint64:
-						if v > uint64(math.MaxInt) {
+						if v > math.MaxInt {
 							// overflows
 							if stack.strict {
 								panic("overflows int")
@@ -1063,7 +1063,7 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 				case reflect.Uint8:
 					switch v := term.(type) {
 					case int:
-						if v > int(math.MaxUint8) || v < 0 {
+						if int64(v) > math.MaxUint8 || v < 0 {
 							// overflows
 							if stack.strict {
 								panic("overflows uint8")
@@ -1073,7 +1073,7 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 						}
 						field.SetUint(uint64(v))
 					case int64:
-						if v > int64(math.MaxUint8) || v < 0 {
+						if v > math.MaxUint8 || v < 0 {
 							// overflows
 							if stack.strict {
 								panic("overflows uint8")
@@ -1083,7 +1083,7 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 						}
 						field.SetUint(uint64(v))
 					case uint64:
-						if v > uint64(math.MaxUint8) {
+						if v > math.MaxUint8 {
 							// overflows
 							if stack.strict {
 								panic("overflows uint8")
@@ -1097,7 +1097,7 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 				case reflect.Uint16:
 					switch v := term.(type) {
 					case int:
-						if v > int(math.MaxUint16) || v < 0 {
+						if int64(v) > math.MaxUint16 || v < 0 {
 							// overflows
 							if stack.strict {
 								panic("overflows uint16")
@@ -1107,7 +1107,7 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 						}
 						field.SetUint(uint64(v))
 					case int64:
-						if v > int64(math.MaxUint16) || v < 0 {
+						if v > math.MaxUint16 || v < 0 {
 							// overflows
 							if stack.strict {
 								panic("overflows uint16")
@@ -1117,7 +1117,7 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 						}
 						field.SetUint(uint64(v))
 					case uint64:
-						if v > uint64(math.MaxUint16) {
+						if v > math.MaxUint16 {
 							// overflows
 							if stack.strict {
 								panic("overflows uint16")
@@ -1130,17 +1130,17 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 				case reflect.Uint32:
 					switch v := term.(type) {
 					case int:
-						if v > int(math.MaxInt) || v < 0 {
+						if int64(v) > math.MaxUint32 || v < 0 {
 							// overflows
 							if stack.strict {
-								panic("overflows int")
+								panic("overflows uint32")
 							}
 							stack.reg = nil
 							break
 						}
 						field.SetUint(uint64(v))
 					case int64:
-						if v > int64(math.MaxUint32) || v < 0 {
+						if v > math.MaxUint32 || v < 0 {
 							// overflows
 							if stack.strict {
 								panic("overflows uint32")
@@ -1150,7 +1150,7 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 						}
 						field.SetUint(uint64(v))
 					case uint64:
-						if v > uint64(math.MaxUint32) {
+						if v > math.MaxUint32 {
 							// overflows
 							if stack.strict {
 								panic("overflows uint32")
@@ -1200,7 +1200,7 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 						}
 						field.SetUint(uint64(v))
 					case int64:
-						if v > int64(math.MaxInt) || v < 0 {
+						if v > math.MaxInt || v < 0 {
 							// overflows
 							if stack.strict {
 								panic("overflows uint")
@@ -1210,7 +1210,7 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 						}
 						field.SetUint(uint64(v))
 					case uint64:
-						if v > uint64(math.MaxUint) {
+						if v > math.MaxUint {
 							// overflows
 							if stack.strict {
 								panic("overflows uint")
