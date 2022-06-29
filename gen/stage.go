@@ -433,6 +433,7 @@ func (gst *Stage) Init(process *ServerProcess, args ...etf.Term) error {
 	// do not inherit parent State
 	stageProcess.State = nil
 
+	behavior := process.Behavior().(StageBehavior)
 	behavior, ok := process.Behavior().(StageBehavior)
 	if !ok {
 		return fmt.Errorf("Stage: not a StageBehavior")
@@ -528,7 +529,7 @@ func (gst *Stage) HandleStageCall(process *StageProcess, from ServerFrom, messag
 }
 
 // HandleStageDirect
-func (gst *Stage) HandleStageDirect(process *StageProcess, message interface{}) (interface{}, error) {
+func (gst *Stage) HandleStageDirect(process *StageProcess, ref etf.Ref, message interface{}) (interface{}, DirectStatus) {
 	// default callback if it wasn't implemented
 	return nil, lib.ErrUnsupportedRequest
 }

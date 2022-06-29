@@ -1,11 +1,15 @@
 package gen
 
 import (
+	"context"
 	"crypto/tls"
 	"fmt"
 	"net"
+	"reflect"
 	"strconv"
+	"sync/atomic"
 	"time"
+	"unsafe"
 
 	"github.com/ergo-services/ergo/etf"
 	"github.com/ergo-services/ergo/lib"
@@ -37,12 +41,22 @@ type TCPOptions struct {
 	Port            uint16
 	Cert            tls.Certificate
 	KeepAlivePeriod int
+	Handler         TCPHandlerBehavior
+	// QueueLength defines how many parallel requests can be directed to this process. Default value is 10.
+	QueueLength int
+	// NumHandlers defines how many handlers will be started. Default 1
+	NumHandlers int
+	// IdleTimeout defines how long (in seconds) keeps the started handler alive with no packets. Zero value makes the handler non-stop.
+	IdleTimeout int
 }
 
 type TCPProcess struct {
 	ServerProcess
 	options  TCPOptions
 	behavior TCPBehavior
+
+	pool    []*Process
+	counter uint64
 }
 
 //
@@ -64,6 +78,14 @@ func (tcp *TCP) Init(process *ServerProcess, args ...etf.Term) error {
 
 	options, err := behavior.InitTCP(tcpProcess, args...)
 	if err != nil {
+		return err
+	}
+	if options.Handler == nil {
+		return fmt.Errorf("TCP handler must be defined")
+	}
+	tcpProcess.options = options
+
+	if err := tcpProcess.initHandlers(); err != nil {
 		return err
 	}
 
@@ -94,8 +116,26 @@ func (tcp *TCP) Init(process *ServerProcess, args ...etf.Term) error {
 
 	// start acceptor
 	go func() {
-		err := tcp.serve(listener)
-		process.Exit(err.Error())
+		var err error
+		var c net.Conn
+		defer func() {
+			if err == nil {
+				process.Exit("normal")
+				return
+			}
+			process.Exit(err.Error())
+		}()
+
+		for {
+			c, err = listener.Accept()
+			if err != nil {
+				if ctx.Err() == nil {
+					continue
+				}
+				return
+			}
+			go tcpProcess.serve(ctx, c)
+		}
 	}()
 
 	// Golang's listener is weird. It takes the context in the Listen method
@@ -110,9 +150,7 @@ func (tcp *TCP) Init(process *ServerProcess, args ...etf.Term) error {
 		}
 	}()
 
-	tcpProcess.options = options
 	process.State = tcpProcess
-
 	return nil
 }
 
@@ -140,7 +178,65 @@ func (tcp *TCP) HandleTCPInfo(process *WebProcess, message etf.Term) ServerStatu
 
 // internal
 
-func (tcp *TCP) serve(listener net.Listener) error {
+func (tcpp *TCPProcess) serve(ctx context.Context, c net.Conn) error {
+	var p Process
 
+	l := uint64(tcpp.options.NumHandlers)
+	// make round robin using the counter value
+	cnt := atomic.AddUint64(&tcpp.counter, 1)
+
+	// attempts
+	for a := uint64(0); a < l; a++ {
+		i := (cnt + a) % l
+
+		p = *(*Process)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&tcpp.pool[i]))))
+		fmt.Println("PPP", p)
+	}
+
+	// all handlers are busy
+	name := reflect.ValueOf(tcpp.behavior).Elem().Type().Name()
+	lib.Warning("too many packets for %s", name)
 	return nil
+}
+
+func (tcpp *TCPProcess) initHandlers() error {
+	if tcpp.options.NumHandlers < 1 {
+		tcpp.options.NumHandlers = 1
+	}
+	if tcpp.options.IdleTimeout < 0 {
+		tcpp.options.IdleTimeout = 0
+	}
+
+	if tcpp.options.QueueLength < 1 {
+		tcpp.options.QueueLength = defaultQueueLength
+	}
+
+	c := atomic.AddUint64(&tcpp.counter, 1)
+	if c > 1 {
+		return fmt.Errorf("you can not use the same object more than once")
+	}
+
+	for i := 0; i < tcpp.options.NumHandlers; i++ {
+		p := tcpp.startHandler(i, tcpp.options.IdleTimeout)
+		if p == nil {
+			return fmt.Errorf("can not initialize handlers")
+		}
+		tcpp.pool = append(tcpp.pool, &p)
+	}
+	return nil
+}
+
+func (tcpp *TCPProcess) startHandler(id int, idleTimeout int) Process {
+	opts := ProcessOptions{
+		Context:       tcpp.Context(),
+		DirectboxSize: uint16(tcpp.options.QueueLength),
+	}
+
+	optsHandler := optsTCPHandler{id: id, idleTimeout: idleTimeout}
+	p, err := tcpp.Spawn("", opts, tcpp.options.Handler, optsHandler)
+	if err != nil {
+		lib.Warning("can not start TCPHandler: %s", err)
+		return nil
+	}
+	return p
 }
