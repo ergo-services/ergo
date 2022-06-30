@@ -49,7 +49,6 @@ type TCPHandlerProcess struct {
 	behavior TCPHandlerBehavior
 
 	lastPacket  int64
-	counter     int64
 	idleTimeout int
 	id          int
 }
@@ -141,18 +140,31 @@ func (tcph *TCPHandler) HandleDirect(process *ServerProcess, ref etf.Ref, messag
 	switch m := message.(type) {
 	case *messageTCPHandlerPacket:
 		tcpp.lastPacket = time.Now().Unix()
-		tcpp.counter++
 		return tcpp.behavior.HandlePacket(tcpp, m.packet, m.connection)
-	case *messageTCPHandlerConnect:
+	case messageTCPHandlerConnect:
 		return nil, tcpp.behavior.HandleConnect(tcpp, m.connection)
-	case *messageTCPHandlerDisconnect:
+	case messageTCPHandlerDisconnect:
 		tcpp.behavior.HandleDisconnect(tcpp, m.connection)
 		return nil, DirectStatusOK
-	case *messageTCPHandlerTimeout:
+	case messageTCPHandlerTimeout:
 		return nil, tcpp.behavior.HandleTimeout(tcpp, m.connection)
 	default:
 		return nil, DirectStatusOK
 	}
+}
+
+//
+// default callbacks
+//
+
+func (tcph *TCPHandler) HandleConnect(process *TCPHandlerProcess, conn TCPConnection) TCPHandlerStatus {
+	return TCPHandlerStatusOK
+}
+func (tcph *TCPHandler) HandleDisconnect(process *TCPHandlerProcess, conn TCPConnection) {
+	return
+}
+func (tcph *TCPHandler) HandleTimeout(process *TCPHandlerProcess, conn TCPConnection) TCPHandlerStatus {
+	return TCPHandlerStatusOK
 }
 
 // HandleTCPHandlerCall

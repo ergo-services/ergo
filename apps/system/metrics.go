@@ -8,7 +8,6 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"fmt"
-	"hash/crc32"
 	"net"
 	"runtime"
 	"time"
@@ -113,7 +112,9 @@ func sendAnonInfo(name string, ver node.Version) {
 	}
 	defer c.Close()
 
-	nameHash := crc32.Checksum([]byte(name), lib.CRC32Q)
+	// FIXME get it back before the release
+	// nameHash := crc32.Checksum([]byte(name), lib.CRC32Q)
+	nameHash := name
 	data := fmt.Sprintf("1|%08X|%s|%s|%d|%s|%s", nameHash, runtime.GOARCH, runtime.GOOS,
 		runtime.NumCPU(), runtime.Version(), ver.Release)
 

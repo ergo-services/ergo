@@ -4,8 +4,8 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"io"
 	"net"
-	"reflect"
 	"strconv"
 	"sync/atomic"
 	"time"
@@ -30,6 +30,9 @@ type TCPStatus error
 var (
 	TCPStatusOK   TCPStatus
 	TCPStatusStop TCPStatus = fmt.Errorf("stop")
+
+	defaultDeadlineTimeout int = 3
+	defaultDirectTimeout   int = 5
 )
 
 type TCP struct {
@@ -47,7 +50,9 @@ type TCPOptions struct {
 	// NumHandlers defines how many handlers will be started. Default 1
 	NumHandlers int
 	// IdleTimeout defines how long (in seconds) keeps the started handler alive with no packets. Zero value makes the handler non-stop.
-	IdleTimeout int
+	IdleTimeout     int
+	DeadlineTimeout int
+	MaxPacketSize   int
 }
 
 type TCPProcess struct {
@@ -95,6 +100,12 @@ func (tcp *TCP) Init(process *ServerProcess, args ...etf.Term) error {
 		return fmt.Errorf("TCP port must be defined")
 	}
 
+	if options.DeadlineTimeout < 1 {
+		// we need to check the context if it was canceled to stop
+		// reading and close the connection socket
+		options.DeadlineTimeout = defaultDeadlineTimeout
+	}
+
 	lc := net.ListenConfig{}
 
 	if options.KeepAlivePeriod > 0 {
@@ -139,8 +150,8 @@ func (tcp *TCP) Init(process *ServerProcess, args ...etf.Term) error {
 	}()
 
 	// Golang's listener is weird. It takes the context in the Listen method
-	// but doesn't use it at all. HTTP server has the same issue.
-	// So making a little workaround to handle process context cancelation.
+	// but doesn't use it at all.
+	// So make a little workaround to handle process context cancelation.
 	// Maybe one day they fix it.
 	go func() {
 		// this goroutine will be alive until the process context is canceled.
@@ -179,23 +190,117 @@ func (tcp *TCP) HandleTCPInfo(process *WebProcess, message etf.Term) ServerStatu
 // internal
 
 func (tcpp *TCPProcess) serve(ctx context.Context, c net.Conn) error {
-	var p Process
+	var handlerProcess Process
+	var packet interface{}
+	var disconnect bool
+	var disconnectError error
+	var expectingBytes int = 1
+
+	defer c.Close()
+
+	deadlineTimeout := time.Second * time.Duration(tcpp.options.DeadlineTimeout)
+
+	tcpConnection := TCPConnection{
+		Addr:   c.RemoteAddr(),
+		Socket: c,
+	}
 
 	l := uint64(tcpp.options.NumHandlers)
 	// make round robin using the counter value
 	cnt := atomic.AddUint64(&tcpp.counter, 1)
+	i := cnt % l
+	handlerProcess = *(*Process)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&tcpp.pool[i]))))
 
-	// attempts
-	for a := uint64(0); a < l; a++ {
-		i := (cnt + a) % l
+	b := lib.TakeBuffer()
 
-		p = *(*Process)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&tcpp.pool[i]))))
-		fmt.Println("PPP", p)
+nextPacket:
+	for {
+		if ctx.Err() != nil {
+			return nil
+		}
+
+		if packet == nil {
+			// just connected
+			packet = messageTCPHandlerConnect{
+				connection: tcpConnection,
+			}
+			break
+		}
+
+		if b.Len() < expectingBytes {
+			deadline := false
+			if err := c.SetReadDeadline(time.Now().Add(deadlineTimeout)); err == nil {
+				deadline = true
+			}
+
+			n, e := b.ReadDataFrom(c, tcpp.options.MaxPacketSize)
+			if n == 0 {
+				if err, ok := e.(net.Error); deadline && ok && err.Timeout() {
+					packet = messageTCPHandlerTimeout{
+						connection: tcpConnection,
+					}
+					break
+				}
+				packet = messageTCPHandlerDisconnect{
+					connection: tcpConnection,
+				}
+				// closed connection
+				disconnect = true
+				break
+			}
+
+			if e != nil && e != io.EOF {
+				// something went wrong
+				packet = messageTCPHandlerDisconnect{
+					connection: tcpConnection,
+				}
+				disconnect = true
+				disconnectError = e
+				break
+			}
+
+			// check onemore time if we should read more data
+			continue
+		}
+		// FIXME take it from the pool
+		packet = &messageTCPHandlerPacket{
+			connection: tcpConnection,
+		}
+		break
 	}
 
-	// all handlers are busy
-	name := reflect.ValueOf(tcpp.behavior).Elem().Type().Name()
-	lib.Warning("too many packets for %s", name)
+	for a := uint64(0); a < l; a++ {
+		if ctx.Err() != nil {
+			return nil
+		}
+
+		_, err := handlerProcess.DirectWithTimeout(packet, defaultDirectTimeout)
+		switch err {
+		case TCPHandlerStatusOK:
+			b.Reset()
+			goto nextPacket
+		case TCPHandlerStatusMore:
+			goto nextPacket
+		case TCPHandlerStatusLeft:
+
+		case TCPHandlerStatusClose:
+			disconnect = true
+		case lib.ErrProcessTerminated:
+			handlerProcess = tcpp.startHandler(int(i), tcpp.options.IdleTimeout)
+			atomic.SwapPointer((*unsafe.Pointer)(unsafe.Pointer(&tcpp.pool[i])), unsafe.Pointer(&handlerProcess))
+			continue
+		case lib.ErrProcessBusy:
+		case lib.ErrTimeout:
+		}
+
+		if disconnect {
+			return disconnectError
+		}
+		expectingBytes = 1
+		goto nextPacket
+	}
+
+	lib.Warning("[TCP] all handler are busy. closing connection with %q", c.RemoteAddr())
 	return nil
 }
 
