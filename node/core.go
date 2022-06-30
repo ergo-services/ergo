@@ -389,7 +389,7 @@ func (c *core) newProcess(name string, behavior gen.ProcessBehavior, opts proces
 		if _, exist := c.names[name]; exist {
 			c.mutexNames.Unlock()
 			process.kill() // cancel context
-			return nil, ErrTaken
+			return nil, lib.ErrTaken
 		}
 		c.names[name] = process.self
 		c.mutexNames.Unlock()
