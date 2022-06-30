@@ -296,7 +296,6 @@ func (gs *Server) ProcessLoop(ps ProcessState, started chan<- bool) string {
 			message = msg.Message
 
 		case <-sp.Context().Done():
-			fmt.Println("PROC KILL", sp.Self())
 			sp.behavior.Terminate(sp, "kill")
 			return "kill"
 

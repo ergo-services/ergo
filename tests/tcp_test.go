@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"net"
 	"testing"
-	"time"
 
 	"github.com/ergo-services/ergo"
 	"github.com/ergo-services/ergo/etf"
@@ -128,12 +127,11 @@ func TestTCP(t *testing.T) {
 	waitForResultWithValue(t, resChan, []byte{21, 22, 23, 24, 25, 26, 27, 28, 29, 30})
 
 	tcpProcess.Kill()
-	if _, err := conn.Write([]byte{1, 2, 3}); err != nil {
-		t.Fatal(err)
+	tcpProcess.Wait()
+
+	fmt.Printf("...stopping process (gen.TCP): ")
+	if _, err := net.Dial("tcp", "localhost:10101"); err == nil {
+		t.Fatal("error must be here")
 	}
-
-	fmt.Println("DDDDDDDDDONE")
-
-	time.Sleep(10 * time.Second)
-
+	fmt.Println("OK")
 }

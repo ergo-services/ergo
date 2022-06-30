@@ -162,7 +162,6 @@ func (tcph *TCPHandler) HandleDirect(process *ServerProcess, ref etf.Ref, messag
 }
 
 func (tcph *TCPHandler) Terminate(process *ServerProcess, reason string) {
-	fmt.Println("TERMINATED", process.Self())
 	tcpp := process.State.(*TCPHandlerProcess)
 	tcpp.behavior.HandleTCPHandlerTerminate(tcpp, reason)
 }

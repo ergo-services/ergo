@@ -62,8 +62,9 @@ type TCPProcess struct {
 	options  TCPOptions
 	behavior TCPBehavior
 
-	pool    []*Process
-	counter uint64
+	pool     []*Process
+	counter  uint64
+	listener net.Listener
 }
 
 //
@@ -126,6 +127,7 @@ func (tcp *TCP) Init(process *ServerProcess, args ...etf.Term) error {
 		}
 		listener = tls.NewListener(listener, &config)
 	}
+	tcpProcess.listener = listener
 
 	// start acceptor
 	go func() {
@@ -151,25 +153,14 @@ func (tcp *TCP) Init(process *ServerProcess, args ...etf.Term) error {
 		}
 	}()
 
-	// Golang's listener is weird. It takes the context in the Listen method
-	// but doesn't use it at all.
-	// So make a little workaround to handle process context cancelation.
-	// Maybe one day they fix it.
-	go func() {
-		// this goroutine will be alive until the process context is canceled.
-		select {
-		case <-ctx.Done():
-			listener.Close()
-		}
-	}()
-
 	process.State = tcpProcess
 	return nil
 }
 
 func (tcp *TCP) Terminate(process *ServerProcess, reason string) {
-	fmt.Println("TCP TERMINATED")
-
+	p := process.State.(*TCPProcess)
+	p.listener.Close()
+	p.behavior.HandleTCPTerminate(p, reason)
 }
 
 //
