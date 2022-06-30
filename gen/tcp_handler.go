@@ -168,23 +168,23 @@ func (tcph *TCPHandler) HandleTimeout(process *TCPHandlerProcess, conn TCPConnec
 }
 
 // HandleTCPHandlerCall
-func (tcph *TCPHandler) HandleTCPHandlerCall(process *WebHandlerProcess, from ServerFrom, message etf.Term) (etf.Term, ServerStatus) {
+func (tcph *TCPHandler) HandleTCPHandlerCall(process *TCPHandlerProcess, from ServerFrom, message etf.Term) (etf.Term, ServerStatus) {
 	lib.Warning("HandleTCPHandlerCall: unhandled message (from %#v) %#v", from, message)
 	return etf.Atom("ok"), ServerStatusOK
 }
 
 // HandleTCPHandlerCast
-func (tcph *TCPHandler) HandleTCPHandlerCast(process *WebHandlerProcess, message etf.Term) ServerStatus {
+func (tcph *TCPHandler) HandleTCPHandlerCast(process *TCPHandlerProcess, message etf.Term) ServerStatus {
 	lib.Warning("HandleTCPHandlerCast: unhandled message %#v", message)
 	return ServerStatusOK
 }
 
 // HandleTCPHandlerInfo
-func (tcph *TCPHandler) HandleTCPHandlerInfo(process *WebHandlerProcess, message etf.Term) ServerStatus {
+func (tcph *TCPHandler) HandleTCPHandlerInfo(process *TCPHandlerProcess, message etf.Term) ServerStatus {
 	lib.Warning("HandleTCPHandlerInfo: unhandled message %#v", message)
 	return ServerStatusOK
 }
-func (tcph *TCPHandler) HandleTCPHandlerTerminate(process *WebHandlerProcess, reason string, count int64) {
+func (tcph *TCPHandler) HandleTCPHandlerTerminate(process *TCPHandlerProcess, reason string) {
 	return
 }
 

@@ -71,6 +71,7 @@ type TCPProcess struct {
 //
 func (tcp *TCP) Init(process *ServerProcess, args ...etf.Term) error {
 
+	behavior := process.Behavior().(TCPBehavior)
 	behavior, ok := process.Behavior().(TCPBehavior)
 	if !ok {
 		return fmt.Errorf("Web: not a TCPBehavior")
@@ -172,21 +173,24 @@ func (tcp *TCP) Init(process *ServerProcess, args ...etf.Term) error {
 //
 
 // HandleWebCall
-func (tcp *TCP) HandleTCPCall(process *WebProcess, from ServerFrom, message etf.Term) (etf.Term, ServerStatus) {
+func (tcp *TCP) HandleTCPCall(process *TCPProcess, from ServerFrom, message etf.Term) (etf.Term, ServerStatus) {
 	lib.Warning("HandleTCPCall: unhandled message (from %#v) %#v", from, message)
 	return etf.Atom("ok"), ServerStatusOK
 }
 
 // HandleWebCast
-func (tcp *TCP) HandleTCPCast(process *WebProcess, message etf.Term) ServerStatus {
+func (tcp *TCP) HandleTCPCast(process *TCPProcess, message etf.Term) ServerStatus {
 	lib.Warning("HandleTCPCast: unhandled message %#v", message)
 	return ServerStatusOK
 }
 
 // HandleWebInfo
-func (tcp *TCP) HandleTCPInfo(process *WebProcess, message etf.Term) ServerStatus {
+func (tcp *TCP) HandleTCPInfo(process *TCPProcess, message etf.Term) ServerStatus {
 	lib.Warning("HandleTCPInfo: unhandled message %#v", message)
 	return ServerStatusOK
+}
+func (tcp *TCP) HandleTCPTerminate(process *TCPProcess, reason string) {
+	return
 }
 
 // internal
@@ -211,6 +215,7 @@ func (tcpp *TCPProcess) serve(ctx context.Context, c net.Conn) error {
 	l := uint64(tcpp.options.NumHandlers)
 	// make round robin using the counter value
 	cnt := atomic.AddUint64(&tcpp.counter, 1)
+	// choose process as a handler for the packet received on this connection
 	handlerProcessID = int(cnt % l)
 	handlerProcess = *(*Process)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&tcpp.pool[handlerProcessID]))))
 
