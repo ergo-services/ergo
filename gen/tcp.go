@@ -53,6 +53,8 @@ type TCPOptions struct {
 	IdleTimeout     int
 	DeadlineTimeout int
 	MaxPacketSize   int
+	// ExtraHandlers enables starting new handlers if all handlers in the pool are busy.
+	ExtraHandlers bool
 }
 
 type TCPProcess struct {
@@ -191,6 +193,7 @@ func (tcp *TCP) HandleTCPInfo(process *WebProcess, message etf.Term) ServerStatu
 
 func (tcpp *TCPProcess) serve(ctx context.Context, c net.Conn) error {
 	var handlerProcess Process
+	var handlerProcessID int
 	var packet interface{}
 	var disconnect bool
 	var disconnectError error
@@ -208,8 +211,8 @@ func (tcpp *TCPProcess) serve(ctx context.Context, c net.Conn) error {
 	l := uint64(tcpp.options.NumHandlers)
 	// make round robin using the counter value
 	cnt := atomic.AddUint64(&tcpp.counter, 1)
-	i := cnt % l
-	handlerProcess = *(*Process)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&tcpp.pool[i]))))
+	handlerProcessID = int(cnt % l)
+	handlerProcess = *(*Process)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&tcpp.pool[handlerProcessID]))))
 
 	b := lib.TakeBuffer()
 
@@ -269,28 +272,61 @@ nextPacket:
 		break
 	}
 
+retry:
 	for a := uint64(0); a < l; a++ {
 		if ctx.Err() != nil {
 			return nil
 		}
 
-		_, err := handlerProcess.DirectWithTimeout(packet, defaultDirectTimeout)
+		nbytesInt, err := handlerProcess.DirectWithTimeout(packet, defaultDirectTimeout)
 		switch err {
 		case TCPHandlerStatusOK:
 			b.Reset()
 			goto nextPacket
 		case TCPHandlerStatusMore:
+			nbytes, _ := nbytesInt.(int)
+			expectingBytes += nbytes
 			goto nextPacket
+
 		case TCPHandlerStatusLeft:
+			tail, _ := nbytesInt.(int)
+			if tail < 1 {
+				b.Reset()
+				expectingBytes = 1
+				goto nextPacket
+			}
+			// copy tail to the new buffer
+			b1 := lib.TakeBuffer()
+			head := b.Len() - tail
+			b1.Set(b.B[head:])
+			lib.ReleaseBuffer(b)
+			b = b1
+			expectingBytes = tail + 1
+			goto nextPacket
 
 		case TCPHandlerStatusClose:
 			disconnect = true
 		case lib.ErrProcessTerminated:
-			handlerProcess = tcpp.startHandler(int(i), tcpp.options.IdleTimeout)
-			atomic.SwapPointer((*unsafe.Pointer)(unsafe.Pointer(&tcpp.pool[i])), unsafe.Pointer(&handlerProcess))
+			if handlerProcessID == -1 {
+				// it was an extra handler do not restart. try to use the existing one
+				cnt = atomic.AddUint64(&tcpp.counter, 1)
+				handlerProcessID = int(cnt % l)
+				handlerProcess = *(*Process)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&tcpp.pool[handlerProcessID]))))
+				goto retry
+			}
+
+			// respawn terminated process
+			handlerProcess = tcpp.startHandler(handlerProcessID, tcpp.options.IdleTimeout)
+			atomic.SwapPointer((*unsafe.Pointer)(unsafe.Pointer(&tcpp.pool[handlerProcessID])), unsafe.Pointer(&handlerProcess))
 			continue
 		case lib.ErrProcessBusy:
+			handlerProcessID = int((a + cnt) % l)
+			handlerProcess = *(*Process)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&tcpp.pool[handlerProcessID]))))
+			continue
 		case lib.ErrTimeout:
+			lib.Warning("[TCP] callback timeout. closing connection with %q", c.RemoteAddr())
+			disconnect = true
+			disconnectError = err
 		}
 
 		if disconnect {
@@ -300,8 +336,22 @@ nextPacket:
 		goto nextPacket
 	}
 
-	lib.Warning("[TCP] all handler are busy. closing connection with %q", c.RemoteAddr())
-	return nil
+	// create a new handler. we should eather to make a call HandleDisconnect or
+	// run this connection with the extra handler with idle timeout = 5 second
+	handlerProcessID = -1
+	handlerProcess = tcpp.startHandler(handlerProcessID, 5)
+	if tcpp.options.ExtraHandlers == false {
+		packet = messageTCPHandlerDisconnect{
+			connection: tcpConnection,
+		}
+
+		handlerProcess.DirectWithTimeout(packet, defaultDirectTimeout)
+		lib.Warning("[TCP] all handlers are busy. closing connection with %q", c.RemoteAddr())
+		handlerProcess.Kill()
+		return fmt.Errorf("all handlers are busy")
+	}
+
+	goto retry
 }
 
 func (tcpp *TCPProcess) initHandlers() error {
