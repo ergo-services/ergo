@@ -74,7 +74,7 @@ func (tcp *TCP) Init(process *ServerProcess, args ...etf.Term) error {
 	behavior := process.Behavior().(TCPBehavior)
 	behavior, ok := process.Behavior().(TCPBehavior)
 	if !ok {
-		return fmt.Errorf("Web: not a TCPBehavior")
+		return fmt.Errorf("not a TCPBehavior")
 	}
 
 	tcpProcess := &TCPProcess{
@@ -89,10 +89,15 @@ func (tcp *TCP) Init(process *ServerProcess, args ...etf.Term) error {
 		return err
 	}
 	if options.Handler == nil {
-		return fmt.Errorf("TCP handler must be defined")
+		return fmt.Errorf("handler must be defined")
 	}
-	tcpProcess.options = options
+	if options.DeadlineTimeout < 1 {
+		// we need to check the context if it was canceled to stop
+		// reading and close the connection socket
+		options.DeadlineTimeout = defaultDeadlineTimeout
+	}
 
+	tcpProcess.options = options
 	if err := tcpProcess.initHandlers(); err != nil {
 		return err
 	}
@@ -101,12 +106,6 @@ func (tcp *TCP) Init(process *ServerProcess, args ...etf.Term) error {
 
 	if options.Port == 0 {
 		return fmt.Errorf("TCP port must be defined")
-	}
-
-	if options.DeadlineTimeout < 1 {
-		// we need to check the context if it was canceled to stop
-		// reading and close the connection socket
-		options.DeadlineTimeout = defaultDeadlineTimeout
 	}
 
 	lc := net.ListenConfig{}
@@ -168,25 +167,30 @@ func (tcp *TCP) Init(process *ServerProcess, args ...etf.Term) error {
 	return nil
 }
 
+func (tcp *TCP) Terminate(process *ServerProcess, reason string) {
+	fmt.Println("TCP TERMINATED")
+
+}
+
 //
 // default TCP callbacks
 //
 
 // HandleWebCall
 func (tcp *TCP) HandleTCPCall(process *TCPProcess, from ServerFrom, message etf.Term) (etf.Term, ServerStatus) {
-	lib.Warning("HandleTCPCall: unhandled message (from %#v) %#v", from, message)
+	lib.Warning("[gen.TCP] HandleTCPCall: unhandled message (from %#v) %#v", from, message)
 	return etf.Atom("ok"), ServerStatusOK
 }
 
 // HandleWebCast
 func (tcp *TCP) HandleTCPCast(process *TCPProcess, message etf.Term) ServerStatus {
-	lib.Warning("HandleTCPCast: unhandled message %#v", message)
+	lib.Warning("[gen.TCP] HandleTCPCast: unhandled message %#v", message)
 	return ServerStatusOK
 }
 
 // HandleWebInfo
 func (tcp *TCP) HandleTCPInfo(process *TCPProcess, message etf.Term) ServerStatus {
-	lib.Warning("HandleTCPInfo: unhandled message %#v", message)
+	lib.Warning("[gen.TCP] HandleTCPInfo: unhandled message %#v", message)
 	return ServerStatusOK
 }
 func (tcp *TCP) HandleTCPTerminate(process *TCPProcess, reason string) {
@@ -273,6 +277,7 @@ nextPacket:
 		// FIXME take it from the pool
 		packet = &messageTCPHandlerPacket{
 			connection: tcpConnection,
+			packet:     b.B,
 		}
 		break
 	}
@@ -288,25 +293,25 @@ retry:
 		case TCPHandlerStatusOK:
 			b.Reset()
 			goto nextPacket
-		case TCPHandlerStatusMore:
-			nbytes, _ := nbytesInt.(int)
-			expectingBytes += nbytes
-			goto nextPacket
-
-		case TCPHandlerStatusLeft:
-			tail, _ := nbytesInt.(int)
-			if tail < 1 {
+		case TCPHandlerStatusNext:
+			next, _ := nbytesInt.(messageTCPHandlerPacketResult)
+			if next.left > 0 {
+				if b.Len() > next.left {
+					b1 := lib.TakeBuffer()
+					head := b.Len() - next.left
+					b1.Set(b.B[head:])
+					lib.ReleaseBuffer(b)
+					b = b1
+				}
+			} else {
 				b.Reset()
-				expectingBytes = 1
-				goto nextPacket
 			}
-			// copy tail to the new buffer
-			b1 := lib.TakeBuffer()
-			head := b.Len() - tail
-			b1.Set(b.B[head:])
-			lib.ReleaseBuffer(b)
-			b = b1
-			expectingBytes = tail + 1
+			expectingBytes = b.Len() + next.await
+			if expectingBytes == 0 {
+				expectingBytes++
+			}
+
+			//fmt.Println("TCP NEXT", next, expectingBytes)
 			goto nextPacket
 
 		case TCPHandlerStatusClose:
@@ -328,8 +333,8 @@ retry:
 			handlerProcessID = int((a + cnt) % l)
 			handlerProcess = *(*Process)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&tcpp.pool[handlerProcessID]))))
 			continue
-		case lib.ErrTimeout:
-			lib.Warning("[TCP] callback timeout. closing connection with %q", c.RemoteAddr())
+		default:
+			lib.Warning("[gen.TCP] error on handling packet: %s. closing connection with %q", err, c.RemoteAddr())
 			disconnect = true
 			disconnectError = err
 		}
@@ -351,7 +356,7 @@ retry:
 		}
 
 		handlerProcess.DirectWithTimeout(packet, defaultDirectTimeout)
-		lib.Warning("[TCP] all handlers are busy. closing connection with %q", c.RemoteAddr())
+		lib.Warning("[gen.TCP] all handlers are busy. closing connection with %q", c.RemoteAddr())
 		handlerProcess.Kill()
 		return fmt.Errorf("all handlers are busy")
 	}
@@ -395,7 +400,7 @@ func (tcpp *TCPProcess) startHandler(id int, idleTimeout int) Process {
 	optsHandler := optsTCPHandler{id: id, idleTimeout: idleTimeout}
 	p, err := tcpp.Spawn("", opts, tcpp.options.Handler, optsHandler)
 	if err != nil {
-		lib.Warning("can not start TCPHandler: %s", err)
+		lib.Warning("[gen.TCP] can not start TCPHandler: %s", err)
 		return nil
 	}
 	return p

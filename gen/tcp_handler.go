@@ -14,8 +14,7 @@ type TCPHandlerStatus error
 
 var (
 	TCPHandlerStatusOK    TCPHandlerStatus = nil
-	TCPHandlerStatusMore  TCPHandlerStatus = fmt.Errorf("more")
-	TCPHandlerStatusLeft  TCPHandlerStatus = fmt.Errorf("left")
+	TCPHandlerStatusNext  TCPHandlerStatus = fmt.Errorf("next")
 	TCPHandlerStatusClose TCPHandlerStatus = fmt.Errorf("close")
 
 	defaultQueueLength = 10
@@ -25,7 +24,7 @@ type TCPHandlerBehavior interface {
 	ServerBehavior
 
 	// Mandatory callback
-	HandlePacket(process *TCPHandlerProcess, packet []byte, conn TCPConnection) (int, TCPHandlerStatus)
+	HandlePacket(process *TCPHandlerProcess, packet []byte, conn TCPConnection) (int, int, TCPHandlerStatus)
 
 	// Optional callbacks
 	HandleConnect(process *TCPHandlerProcess, conn TCPConnection) TCPHandlerStatus
@@ -67,6 +66,10 @@ type messageTCPHandlerIdleCheck struct{}
 type messageTCPHandlerPacket struct {
 	packet     []byte
 	connection TCPConnection
+}
+type messageTCPHandlerPacketResult struct {
+	left  int
+	await int
 }
 type messageTCPHandlerConnect struct {
 	connection TCPConnection
@@ -140,7 +143,12 @@ func (tcph *TCPHandler) HandleDirect(process *ServerProcess, ref etf.Ref, messag
 	switch m := message.(type) {
 	case *messageTCPHandlerPacket:
 		tcpp.lastPacket = time.Now().Unix()
-		return tcpp.behavior.HandlePacket(tcpp, m.packet, m.connection)
+		left, await, err := tcpp.behavior.HandlePacket(tcpp, m.packet, m.connection)
+		res := messageTCPHandlerPacketResult{
+			left:  left,
+			await: await,
+		}
+		return res, err
 	case messageTCPHandlerConnect:
 		return nil, tcpp.behavior.HandleConnect(tcpp, m.connection)
 	case messageTCPHandlerDisconnect:
@@ -151,6 +159,12 @@ func (tcph *TCPHandler) HandleDirect(process *ServerProcess, ref etf.Ref, messag
 	default:
 		return nil, DirectStatusOK
 	}
+}
+
+func (tcph *TCPHandler) Terminate(process *ServerProcess, reason string) {
+	fmt.Println("TERMINATED", process.Self())
+	tcpp := process.State.(*TCPHandlerProcess)
+	tcpp.behavior.HandleTCPHandlerTerminate(tcpp, reason)
 }
 
 //
