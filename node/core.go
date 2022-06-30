@@ -303,9 +303,6 @@ func (c *core) deleteAlias(owner *process, alias etf.Alias) error {
 
 func (c *core) newProcess(name string, behavior gen.ProcessBehavior, opts processOptions) (*process, error) {
 
-	var processContext context.Context
-	var kill context.CancelFunc
-
 	mailboxSize := DefaultProcessMailboxSize
 	if opts.MailboxSize > 0 {
 		mailboxSize = int(opts.MailboxSize)
@@ -315,9 +312,9 @@ func (c *core) newProcess(name string, behavior gen.ProcessBehavior, opts proces
 		directboxSize = int(opts.DirectboxSize)
 	}
 
-	processContext, kill = context.WithCancel(c.ctx)
+	processContext, kill := context.WithCancel(c.ctx)
 	if opts.Context != nil {
-		processContext = context.WithValue(processContext, "context", processContext)
+		processContext, _ = context.WithCancel(opts.Context)
 	}
 
 	pid := c.newPID()
@@ -380,7 +377,7 @@ func (c *core) newProcess(name string, behavior gen.ProcessBehavior, opts proces
 		}
 
 		// let the process decide whether to stop itself, otherwise its going to be killed
-		if !process.trapExit {
+		if process.trapExit == false {
 			process.kill()
 		}
 		return nil
@@ -391,7 +388,8 @@ func (c *core) newProcess(name string, behavior gen.ProcessBehavior, opts proces
 		c.mutexNames.Lock()
 		if _, exist := c.names[name]; exist {
 			c.mutexNames.Unlock()
-			return nil, lib.ErrTaken
+			process.kill() // cancel context
+			return nil, ErrTaken
 		}
 		c.names[name] = process.self
 		c.mutexNames.Unlock()
@@ -478,7 +476,7 @@ func (c *core) spawn(name string, opts processOptions, behavior gen.ProcessBehav
 		c.deleteProcess(process.self)
 		// invoke cancel context to prevent memory leaks
 		// and propagate context canelation
-		process.Kill()
+		process.kill()
 		// notify all the linked process and monitors
 		c.handleTerminated(process.self, name, reason)
 		// make the rest empty
