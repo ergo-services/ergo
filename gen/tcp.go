@@ -284,6 +284,9 @@ retry:
 		case TCPHandlerStatusOK:
 			b.Reset()
 		case TCPHandlerStatusNext:
+			if disconnect {
+				return disconnectError
+			}
 			next, _ := nbytesInt.(messageTCPHandlerPacketResult)
 			if next.left > 0 {
 				if b.Len() > next.left {
@@ -305,7 +308,7 @@ retry:
 			goto nextPacket
 
 		case TCPHandlerStatusClose:
-			disconnect = true
+			return disconnectError
 		case lib.ErrProcessTerminated:
 			if handlerProcessID == -1 {
 				// it was an extra handler do not restart. try to use the existing one
@@ -325,13 +328,9 @@ retry:
 			continue
 		default:
 			lib.Warning("[gen.TCP] error on handling packet: %s. closing connection with %q", err, c.RemoteAddr())
-			disconnect = true
-			disconnectError = err
+			return err
 		}
 
-		if disconnect {
-			return disconnectError
-		}
 		expectingBytes = 1
 		goto nextPacket
 	}
