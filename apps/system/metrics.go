@@ -115,7 +115,8 @@ func sendAnonInfo(name string, ver node.Version) {
 	// FIXME get it back before the release
 	// nameHash := crc32.Checksum([]byte(name), lib.CRC32Q)
 	nameHash := name
-	data := fmt.Sprintf("1|%08X|%s|%s|%d|%s|%s", nameHash, runtime.GOARCH, runtime.GOOS,
+	data := fmt.Sprintf("1|%s|%s|%s|%d|%s|%s", nameHash, runtime.GOARCH, runtime.GOOS,
+		//data := fmt.Sprintf("1|%08X|%s|%s|%d|%s|%s", nameHash, runtime.GOARCH, runtime.GOOS,
 		runtime.NumCPU(), runtime.Version(), ver.Release)
 
 	hash := sha256.New()

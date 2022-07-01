@@ -283,7 +283,6 @@ retry:
 		switch err {
 		case TCPHandlerStatusOK:
 			b.Reset()
-			goto nextPacket
 		case TCPHandlerStatusNext:
 			next, _ := nbytesInt.(messageTCPHandlerPacketResult)
 			if next.left > 0 {
