@@ -202,7 +202,7 @@ func (tcpp *TCPProcess) serve(ctx context.Context, c net.Conn) error {
 
 	deadlineTimeout := time.Second * time.Duration(tcpp.options.DeadlineTimeout)
 
-	tcpConnection := TCPConnection{
+	tcpConnection := &TCPConnection{
 		Addr:   c.RemoteAddr(),
 		Socket: c,
 	}

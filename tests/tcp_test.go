@@ -25,12 +25,12 @@ type messageTestTCPStatusNext struct {
 	await int
 }
 
-func (r *testTCPHandler) HandleConnect(process *gen.TCPHandlerProcess, conn gen.TCPConnection) gen.TCPHandlerStatus {
+func (r *testTCPHandler) HandleConnect(process *gen.TCPHandlerProcess, conn *gen.TCPConnection) gen.TCPHandlerStatus {
 	resChan <- messageTestTCPConnect{}
 	return gen.TCPHandlerStatusOK
 }
 
-func (r *testTCPHandler) HandlePacket(process *gen.TCPHandlerProcess, packet []byte, conn gen.TCPConnection) (int, int, gen.TCPHandlerStatus) {
+func (r *testTCPHandler) HandlePacket(process *gen.TCPHandlerProcess, packet []byte, conn *gen.TCPConnection) (int, int, gen.TCPHandlerStatus) {
 	l := len(packet)
 	//fmt.Println("GOT", process.Self(), packet, l, "bytes", l%10)
 	if l < 10 {

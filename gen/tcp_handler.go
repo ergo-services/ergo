@@ -24,12 +24,12 @@ type TCPHandlerBehavior interface {
 	ServerBehavior
 
 	// Mandatory callback
-	HandlePacket(process *TCPHandlerProcess, packet []byte, conn TCPConnection) (int, int, TCPHandlerStatus)
+	HandlePacket(process *TCPHandlerProcess, packet []byte, conn *TCPConnection) (int, int, TCPHandlerStatus)
 
 	// Optional callbacks
-	HandleConnect(process *TCPHandlerProcess, conn TCPConnection) TCPHandlerStatus
-	HandleDisconnect(process *TCPHandlerProcess, conn TCPConnection)
-	HandleTimeout(process *TCPHandlerProcess, conn TCPConnection) TCPHandlerStatus
+	HandleConnect(process *TCPHandlerProcess, conn *TCPConnection) TCPHandlerStatus
+	HandleDisconnect(process *TCPHandlerProcess, conn *TCPConnection)
+	HandleTimeout(process *TCPHandlerProcess, conn *TCPConnection) TCPHandlerStatus
 
 	HandleTCPHandlerCall(process *TCPHandlerProcess, from ServerFrom, message etf.Term) (etf.Term, ServerStatus)
 	HandleTCPHandlerCast(process *TCPHandlerProcess, message etf.Term) ServerStatus
@@ -60,26 +60,27 @@ type optsTCPHandler struct {
 type TCPConnection struct {
 	Addr   net.Addr
 	Socket io.Writer
+	State  interface{}
 }
 
 type messageTCPHandlerIdleCheck struct{}
 type messageTCPHandlerPacket struct {
 	packet     []byte
-	connection TCPConnection
+	connection *TCPConnection
 }
 type messageTCPHandlerPacketResult struct {
 	left  int
 	await int
 }
 type messageTCPHandlerConnect struct {
-	connection TCPConnection
+	connection *TCPConnection
 }
 type messageTCPHandlerDisconnect struct {
-	connection TCPConnection
+	connection *TCPConnection
 }
 
 type messageTCPHandlerTimeout struct {
-	connection TCPConnection
+	connection *TCPConnection
 }
 
 func (tcph *TCPHandler) Init(process *ServerProcess, args ...etf.Term) error {
@@ -170,13 +171,13 @@ func (tcph *TCPHandler) Terminate(process *ServerProcess, reason string) {
 // default callbacks
 //
 
-func (tcph *TCPHandler) HandleConnect(process *TCPHandlerProcess, conn TCPConnection) TCPHandlerStatus {
+func (tcph *TCPHandler) HandleConnect(process *TCPHandlerProcess, conn *TCPConnection) TCPHandlerStatus {
 	return TCPHandlerStatusOK
 }
-func (tcph *TCPHandler) HandleDisconnect(process *TCPHandlerProcess, conn TCPConnection) {
+func (tcph *TCPHandler) HandleDisconnect(process *TCPHandlerProcess, conn *TCPConnection) {
 	return
 }
-func (tcph *TCPHandler) HandleTimeout(process *TCPHandlerProcess, conn TCPConnection) TCPHandlerStatus {
+func (tcph *TCPHandler) HandleTimeout(process *TCPHandlerProcess, conn *TCPConnection) TCPHandlerStatus {
 	return TCPHandlerStatusOK
 }
 
