@@ -214,8 +214,8 @@ type Options struct {
 	// makes resolving localy only for nodes added using gen.AddStaticRoute
 	StaticRoutesOnly bool
 
-	// Resolver defines a resolving service (default is EPMD service, client and server)
-	Resolver Resolver
+	// Registrar defines a registrar service (default is EPMD service, client and server)
+	Registrar Registrar
 
 	// Compression enables compression for outgoing messages (if peer node has this feature enabled)
 	Compression Compression
@@ -424,14 +424,14 @@ type Flags struct {
 	EnableProxy bool
 }
 
-// Resolver defines resolving interface
-type Resolver interface {
-	Register(ctx context.Context, nodename string, options ResolveOptions) error
+// Registrar defines registrar interface
+type Registrar interface {
+	Register(ctx context.Context, nodename string, options RegistrarOptions) error
 	Resolve(peername string) (Route, error)
 }
 
-// ResolveOptions defines resolving options
-type ResolveOptions struct {
+// RegistrarOptions defines resolving options
+type RegistrarOptions struct {
 	Port              uint16
 	NodeVersion       Version
 	HandshakeVersion  HandshakeVersion

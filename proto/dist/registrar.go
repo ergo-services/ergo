@@ -34,9 +34,9 @@ const (
 	ergoExtraVersion1 = 1
 )
 
-// epmd implements resolver
-type epmdResolver struct {
-	node.Resolver
+// epmd implements registrar interface
+type epmdRegistrar struct {
+	node.Registrar
 
 	// EPMD server
 	enableEPMD bool
@@ -53,37 +53,37 @@ type epmdResolver struct {
 	extra []byte
 }
 
-func CreateResolver() node.Resolver {
-	resolver := &epmdResolver{
+func CreateRegistrar() node.Registrar {
+	registrar := &epmdRegistrar{
 		port: DefaultEPMDPort,
 	}
-	return resolver
+	return registrar
 }
 
-func CreateResolverWithLocalEPMD(host string, port uint16) node.Resolver {
+func CreateRegistrarWithLocalEPMD(host string, port uint16) node.Registrar {
 	if port == 0 {
 		port = DefaultEPMDPort
 	}
-	resolver := &epmdResolver{
+	registrar := &epmdRegistrar{
 		enableEPMD: true,
 		host:       host,
 		port:       port,
 	}
-	return resolver
+	return registrar
 }
 
-func CreateResolverWithRemoteEPMD(host string, port uint16) node.Resolver {
+func CreateRegistrarWithRemoteEPMD(host string, port uint16) node.Registrar {
 	if port == 0 {
 		port = DefaultEPMDPort
 	}
-	resolver := &epmdResolver{
+	registrar := &epmdRegistrar{
 		host: host,
 		port: port,
 	}
-	return resolver
+	return registrar
 }
 
-func (e *epmdResolver) Register(ctx context.Context, name string, options node.ResolveOptions) error {
+func (e *epmdRegistrar) Register(ctx context.Context, name string, options node.RegistrarOptions) error {
 	n := strings.Split(name, "@")
 	if len(n) != 2 {
 		return fmt.Errorf("(EMPD) FQDN for node name is required (example: node@hostname)")
@@ -150,7 +150,7 @@ func (e *epmdResolver) Register(ctx context.Context, name string, options node.R
 	return <-ready
 }
 
-func (e *epmdResolver) Resolve(name string) (node.Route, error) {
+func (e *epmdRegistrar) Resolve(name string) (node.Route, error) {
 	var route node.Route
 
 	n := strings.Split(name, "@")
@@ -180,7 +180,7 @@ func (e *epmdResolver) Resolve(name string) (node.Route, error) {
 
 }
 
-func (e *epmdResolver) composeExtra(options node.ResolveOptions) {
+func (e *epmdRegistrar) composeExtra(options node.RegistrarOptions) {
 	buf := make([]byte, 4)
 
 	// 2 bytes: ergoExtraMagic
@@ -195,7 +195,7 @@ func (e *epmdResolver) composeExtra(options node.ResolveOptions) {
 	return
 }
 
-func (e *epmdResolver) readExtra(route *node.Route, buf []byte) {
+func (e *epmdRegistrar) readExtra(route *node.Route, buf []byte) {
 	if len(buf) < 4 {
 		return
 	}
@@ -216,16 +216,16 @@ func (e *epmdResolver) readExtra(route *node.Route, buf []byte) {
 	return
 }
 
-func (e *epmdResolver) registerNode(options node.ResolveOptions) (net.Conn, error) {
+func (e *epmdRegistrar) registerNode(options node.RegistrarOptions) (net.Conn, error) {
 	//
-	resolverHost := e.host
-	if resolverHost == "" {
-		resolverHost = e.nodeHost
+	registrarHost := e.host
+	if registrarHost == "" {
+		registrarHost = e.nodeHost
 	}
 	dialer := net.Dialer{
 		KeepAlive: 15 * time.Second,
 	}
-	dsn := net.JoinHostPort(resolverHost, strconv.Itoa(int(e.port)))
+	dsn := net.JoinHostPort(registrarHost, strconv.Itoa(int(e.port)))
 	conn, err := dialer.Dial("tcp", dsn)
 	if err != nil {
 		return nil, err
@@ -245,7 +245,7 @@ func (e *epmdResolver) registerNode(options node.ResolveOptions) (net.Conn, erro
 	return conn, nil
 }
 
-func (e *epmdResolver) sendAliveReq(conn net.Conn) error {
+func (e *epmdRegistrar) sendAliveReq(conn net.Conn) error {
 	buf := make([]byte, 2+14+len(e.nodeName)+len(e.extra))
 	binary.BigEndian.PutUint16(buf[0:2], uint16(len(buf)-2))
 	buf[2] = byte(epmdAliveReq)
@@ -277,7 +277,7 @@ func (e *epmdResolver) sendAliveReq(conn net.Conn) error {
 	return nil
 }
 
-func (e *epmdResolver) readAliveResp(conn net.Conn) error {
+func (e *epmdRegistrar) readAliveResp(conn net.Conn) error {
 	buf := make([]byte, 16)
 	if _, err := conn.Read(buf); err != nil {
 		return err
@@ -296,7 +296,7 @@ func (e *epmdResolver) readAliveResp(conn net.Conn) error {
 	return nil
 }
 
-func (e *epmdResolver) sendPortPleaseReq(conn net.Conn, name string) error {
+func (e *epmdRegistrar) sendPortPleaseReq(conn net.Conn, name string) error {
 	buflen := uint16(2 + len(name) + 1)
 	buf := make([]byte, buflen)
 	binary.BigEndian.PutUint16(buf[0:2], uint16(len(buf)-2))
@@ -306,7 +306,7 @@ func (e *epmdResolver) sendPortPleaseReq(conn net.Conn, name string) error {
 	return err
 }
 
-func (e *epmdResolver) readPortResp(route *node.Route, c net.Conn) error {
+func (e *epmdRegistrar) readPortResp(route *node.Route, c net.Conn) error {
 
 	buf := make([]byte, 1024)
 	n, err := c.Read(buf)

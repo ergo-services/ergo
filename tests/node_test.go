@@ -27,15 +27,15 @@ type benchCase struct {
 func TestNode(t *testing.T) {
 	ctx := context.Background()
 	opts := node.Options{
-		Listen:   25001,
-		Resolver: dist.CreateResolverWithLocalEPMD("", 24999),
+		Listen:    25001,
+		Registrar: dist.CreateRegistrarWithLocalEPMD("", 24999),
 	}
 
-	node1, _ := ergo.StartNodeWithContext(ctx, "node@localhost", "cookies", opts)
+	node1, _ := ergo.StartNodeWithContext(ctx, "node123@localhost", "cookies", opts)
 	optsTaken := node.Options{
-		Resolver: dist.CreateResolverWithLocalEPMD("", 24999),
+		Registrar: dist.CreateRegistrarWithLocalEPMD("", 24999),
 	}
-	if _, err := ergo.StartNodeWithContext(ctx, "node@localhost", "cookies", optsTaken); err == nil {
+	if _, err := ergo.StartNodeWithContext(ctx, "node123@localhost", "cookies", optsTaken); err == nil {
 		t.Fatal("must be failed here")
 	}
 

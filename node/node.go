@@ -65,8 +65,8 @@ func StartWithContext(ctx context.Context, name string, cookie string, opts Opti
 	if opts.Proto == nil {
 		return nil, fmt.Errorf("Proto must be defined")
 	}
-	if opts.StaticRoutesOnly == false && opts.Resolver == nil {
-		return nil, fmt.Errorf("Resolver must be defined if StaticRoutesOnly == false")
+	if opts.StaticRoutesOnly == false && opts.Registrar == nil {
+		return nil, fmt.Errorf("Registrar must be defined if StaticRoutesOnly == false")
 	}
 
 	nodectx, nodestop := context.WithCancel(ctx)

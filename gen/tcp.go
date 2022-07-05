@@ -42,7 +42,7 @@ type TCP struct {
 type TCPOptions struct {
 	Host            string
 	Port            uint16
-	Cert            tls.Certificate
+	TLS             *tls.Config
 	KeepAlivePeriod int
 	Handler         TCPHandlerBehavior
 	// QueueLength defines how many parallel requests can be directed to this process. Default value is 10.
@@ -103,8 +103,6 @@ func (tcp *TCP) Init(process *ServerProcess, args ...etf.Term) error {
 		return err
 	}
 
-	tlsEnabled := options.Cert.Certificate != nil
-
 	if options.Port == 0 {
 		return fmt.Errorf("TCP port must be defined")
 	}
@@ -115,17 +113,14 @@ func (tcp *TCP) Init(process *ServerProcess, args ...etf.Term) error {
 		lc.KeepAlive = time.Duration(options.KeepAlivePeriod) * time.Second
 	}
 	ctx := process.Context()
-	hostPort := net.JoinHostPort(options.Host, strconv.Itoa(int(options.Port)))
+	hostPort := net.JoinHostPort("", strconv.Itoa(int(options.Port)))
 	listener, err := lc.Listen(ctx, "tcp", hostPort)
 	if err != nil {
 		return err
 	}
 
-	if tlsEnabled {
-		config := tls.Config{
-			Certificates: []tls.Certificate{options.Cert},
-		}
-		listener = tls.NewListener(listener, &config)
+	if options.TLS != nil {
+		listener = tls.NewListener(listener, options.TLS)
 	}
 	tcpProcess.listener = listener
 

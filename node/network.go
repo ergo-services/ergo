@@ -3,6 +3,7 @@ package node
 import (
 	"bytes"
 	"context"
+	"io"
 	"sync"
 	"time"
 
@@ -83,7 +84,7 @@ type network struct {
 	ctx      context.Context
 	listener net.Listener
 
-	resolver          Resolver
+	registrar         Registrar
 	staticOnly        bool
 	staticRoutes      map[string]Route
 	staticRoutesMutex sync.RWMutex
@@ -132,7 +133,7 @@ func newNetwork(ctx context.Context, nodename string, cookie string, options Opt
 		remoteSpawn:          make(map[string]gen.ProcessBehavior),
 		flags:                options.Flags,
 		proxy:                options.Proxy,
-		resolver:             options.Resolver,
+		registrar:            options.Registrar,
 		handshake:            options.Handshake,
 		proto:                options.Proto,
 		router:               router,
@@ -169,7 +170,7 @@ func newNetwork(ctx context.Context, nodename string, cookie string, options Opt
 		return nil, err
 	}
 
-	resolverOptions := ResolveOptions{
+	registrarOptions := RegistrarOptions{
 		Port:              port,
 		NodeVersion:       n.version,
 		HandshakeVersion:  n.handshake.Version(),
@@ -177,7 +178,7 @@ func newNetwork(ctx context.Context, nodename string, cookie string, options Opt
 		EnableProxy:       options.Flags.EnableProxy,
 		EnableCompression: options.Flags.EnableCompression,
 	}
-	if err := n.resolver.Register(n.ctx, nodename, resolverOptions); err != nil {
+	if err := n.registrar.Register(n.ctx, nodename, registrarOptions); err != nil {
 		return nil, err
 	}
 
@@ -355,7 +356,7 @@ func (n *network) Resolve(node string) (Route, error) {
 	if r, ok := n.staticRoutes[node]; ok {
 		if r.Port == 0 {
 			// use static option for this route
-			route, err := n.resolver.Resolve(node)
+			route, err := n.registrar.Resolve(node)
 			route.Options = r.Options
 			return route, err
 		}
@@ -366,7 +367,7 @@ func (n *network) Resolve(node string) (Route, error) {
 		return Route{}, lib.ErrNoRoute
 	}
 
-	return n.resolver.Resolve(node)
+	return n.registrar.Resolve(node)
 }
 
 // Connect
@@ -1002,6 +1003,9 @@ func (n *network) listen(ctx context.Context, hostname string, begin uint16, end
 			for {
 				c, err := listener.Accept()
 				if err != nil {
+					if err == io.EOF {
+						return
+					}
 					if ctx.Err() == nil {
 						continue
 					}
@@ -1012,7 +1016,9 @@ func (n *network) listen(ctx context.Context, hostname string, begin uint16, end
 
 				details, err := n.handshake.Accept(c.RemoteAddr(), c, n.tls.Enable, n.cookie)
 				if err != nil {
-					lib.Warning("[%s] Can't handshake with %s: %s", n.nodename, c.RemoteAddr().String(), err)
+					if err != io.EOF {
+						lib.Warning("[%s] Can't haaandshake with %s: %s", n.nodename, c.RemoteAddr().String(), err)
+					}
 					c.Close()
 					continue
 				}

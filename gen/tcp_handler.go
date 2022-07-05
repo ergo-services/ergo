@@ -154,7 +154,7 @@ func (tcph *TCPHandler) HandleDirect(process *ServerProcess, ref etf.Ref, messag
 		return nil, tcpp.behavior.HandleConnect(tcpp, m.connection)
 	case messageTCPHandlerDisconnect:
 		tcpp.behavior.HandleDisconnect(tcpp, m.connection)
-		return nil, DirectStatusOK
+		return nil, TCPHandlerStatusClose
 	case messageTCPHandlerTimeout:
 		return nil, tcpp.behavior.HandleTimeout(tcpp, m.connection)
 	default:
