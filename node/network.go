@@ -170,7 +170,7 @@ func newNetwork(ctx context.Context, nodename string, cookie string, options Opt
 		return nil, err
 	}
 
-	registrarOptions := RegistrarOptions{
+	registerOptions := RegisterOptions{
 		Port:              port,
 		NodeVersion:       n.version,
 		HandshakeVersion:  n.handshake.Version(),
@@ -178,7 +178,7 @@ func newNetwork(ctx context.Context, nodename string, cookie string, options Opt
 		EnableProxy:       options.Flags.EnableProxy,
 		EnableCompression: options.Flags.EnableCompression,
 	}
-	if err := n.registrar.Register(n.ctx, nodename, registrarOptions); err != nil {
+	if err := n.registrar.Register(n.ctx, nodename, registerOptions); err != nil {
 		return nil, err
 	}
 

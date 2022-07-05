@@ -83,7 +83,7 @@ func CreateRegistrarWithRemoteEPMD(host string, port uint16) node.Registrar {
 	return registrar
 }
 
-func (e *epmdRegistrar) Register(ctx context.Context, name string, options node.RegistrarOptions) error {
+func (e *epmdRegistrar) Register(ctx context.Context, name string, options node.RegisterOptions) error {
 	n := strings.Split(name, "@")
 	if len(n) != 2 {
 		return fmt.Errorf("(EMPD) FQDN for node name is required (example: node@hostname)")
@@ -180,7 +180,7 @@ func (e *epmdRegistrar) Resolve(name string) (node.Route, error) {
 
 }
 
-func (e *epmdRegistrar) composeExtra(options node.RegistrarOptions) {
+func (e *epmdRegistrar) composeExtra(options node.RegisterOptions) {
 	buf := make([]byte, 4)
 
 	// 2 bytes: ergoExtraMagic
@@ -216,7 +216,7 @@ func (e *epmdRegistrar) readExtra(route *node.Route, buf []byte) {
 	return
 }
 
-func (e *epmdRegistrar) registerNode(options node.RegistrarOptions) (net.Conn, error) {
+func (e *epmdRegistrar) registerNode(options node.RegisterOptions) (net.Conn, error) {
 	//
 	registrarHost := e.host
 	if registrarHost == "" {

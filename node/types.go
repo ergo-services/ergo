@@ -426,12 +426,12 @@ type Flags struct {
 
 // Registrar defines registrar interface
 type Registrar interface {
-	Register(ctx context.Context, nodename string, options RegistrarOptions) error
+	Register(ctx context.Context, nodename string, options RegisterOptions) error
 	Resolve(peername string) (Route, error)
 }
 
-// RegistrarOptions defines resolving options
-type RegistrarOptions struct {
+// RegisterOptions defines resolving options
+type RegisterOptions struct {
 	Port              uint16
 	NodeVersion       Version
 	HandshakeVersion  HandshakeVersion
