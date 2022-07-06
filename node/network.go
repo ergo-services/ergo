@@ -154,6 +154,8 @@ func newNetwork(ctx context.Context, nodename string, cookie string, options Opt
 		return nil, err
 	}
 
+	n.version, _ = options.Env[EnvKeyVersion].(Version)
+
 	if err := n.listen(ctx, nn[1], options); err != nil {
 		return nil, err
 	}
@@ -976,6 +978,7 @@ func (n *network) listen(ctx context.Context, hostname string, options Options) 
 
 		registerOptions := RegisterOptions{
 			Port:              port,
+			Creation:          n.creation,
 			NodeVersion:       n.version,
 			HandshakeVersion:  n.handshake.Version(),
 			EnableTLS:         tlsEnabled,

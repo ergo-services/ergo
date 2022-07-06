@@ -426,6 +426,7 @@ type Registrar interface {
 // RegisterOptions defines resolving options
 type RegisterOptions struct {
 	Port              uint16
+	Creation          uint32
 	NodeVersion       Version
 	HandshakeVersion  HandshakeVersion
 	EnableTLS         bool
