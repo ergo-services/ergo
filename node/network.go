@@ -103,7 +103,7 @@ type network struct {
 	proxyConnectRequest      map[etf.Ref]proxyConnectRequest
 	proxyConnectRequestMutex sync.RWMutex
 
-	tls      TLS
+	tls      *tls.Config
 	proxy    Proxy
 	version  Version
 	creation uint32
@@ -122,6 +122,7 @@ func newNetwork(ctx context.Context, nodename string, cookie string, options Opt
 		nodename:             nodename,
 		cookie:               cookie,
 		ctx:                  ctx,
+		tls:                  options.TLS,
 		staticOnly:           options.StaticRoutesOnly,
 		staticRoutes:         make(map[string]Route),
 		proxyRoutes:          make(map[string]ProxyRoute),
@@ -145,40 +146,15 @@ func newNetwork(ctx context.Context, nodename string, cookie string, options Opt
 		return nil, fmt.Errorf("(EMPD) FQDN for node name is required (example: node@hostname)")
 	}
 
-	n.version, _ = options.Env[EnvKeyVersion].(Version)
 	if n.proxy.Flags.Enable == false {
 		n.proxy.Flags = DefaultProxyFlags()
 	}
 
-	n.tls = options.TLS
-	org := fmt.Sprintf("%s %s", n.version.Prefix, n.version.Release)
-	selfSignedCert, err := lib.GenerateSelfSignedCert(org)
-	if n.tls.Server.Certificate == nil {
-		n.tls.Server = selfSignedCert
-	}
-	if n.tls.Client.Certificate == nil {
-		n.tls.Client = selfSignedCert
-	}
-
-	err = n.handshake.Init(n.nodename, n.creation, n.flags)
-	if err != nil {
+	if err := n.handshake.Init(n.nodename, n.creation, n.flags); err != nil {
 		return nil, err
 	}
 
-	port, err := n.listen(ctx, nn[1], options.ListenBegin, options.ListenEnd)
-	if err != nil {
-		return nil, err
-	}
-
-	registerOptions := RegisterOptions{
-		Port:              port,
-		NodeVersion:       n.version,
-		HandshakeVersion:  n.handshake.Version(),
-		EnableTLS:         n.tls.Enable,
-		EnableProxy:       options.Flags.EnableProxy,
-		EnableCompression: options.Flags.EnableCompression,
-	}
-	if err := n.registrar.Register(n.ctx, nodename, registerOptions); err != nil {
+	if err := n.listen(ctx, nn[1], options); err != nil {
 		return nil, err
 	}
 
@@ -979,23 +955,40 @@ func (n *network) ProxyRoute(name string) (ProxyRoute, bool) {
 	return route, exist
 }
 
-func (n *network) listen(ctx context.Context, hostname string, begin uint16, end uint16) (uint16, error) {
+func (n *network) listen(ctx context.Context, hostname string, options Options) error {
 
 	lc := net.ListenConfig{
 		KeepAlive: defaultKeepAlivePeriod * time.Second,
 	}
-	for port := begin; port <= end; port++ {
+	tlsEnabled := false
+	if n.tls != nil {
+		if n.tls.Certificates != nil {
+			tlsEnabled = true
+		}
+	}
+
+	for port := options.ListenBegin; port <= options.ListenEnd; port++ {
 		hostPort := net.JoinHostPort(hostname, strconv.Itoa(int(port)))
 		listener, err := lc.Listen(ctx, "tcp", hostPort)
 		if err != nil {
 			continue
 		}
-		if n.tls.Enable {
-			config := tls.Config{
-				Certificates:       []tls.Certificate{n.tls.Server},
-				InsecureSkipVerify: n.tls.SkipVerify,
-			}
-			listener = tls.NewListener(listener, &config)
+
+		registerOptions := RegisterOptions{
+			Port:              port,
+			NodeVersion:       n.version,
+			HandshakeVersion:  n.handshake.Version(),
+			EnableTLS:         tlsEnabled,
+			EnableProxy:       options.Flags.EnableProxy,
+			EnableCompression: options.Flags.EnableCompression,
+		}
+
+		if err := n.registrar.Register(n.ctx, n.nodename, registerOptions); err != nil {
+			return err
+		}
+
+		if tlsEnabled {
+			listener = tls.NewListener(listener, options.TLS)
 		}
 		n.listener = listener
 
@@ -1014,10 +1007,10 @@ func (n *network) listen(ctx context.Context, hostname string, begin uint16, end
 				}
 				lib.Log("[%s] NETWORK accepted new connection from %s", n.nodename, c.RemoteAddr().String())
 
-				details, err := n.handshake.Accept(c.RemoteAddr(), c, n.tls.Enable, n.cookie)
+				details, err := n.handshake.Accept(c.RemoteAddr(), c, tlsEnabled, n.cookie)
 				if err != nil {
 					if err != io.EOF {
-						lib.Warning("[%s] Can't haaandshake with %s: %s", n.nodename, c.RemoteAddr().String(), err)
+						lib.Warning("[%s] Can't handshake with %s: %s", n.nodename, c.RemoteAddr().String(), err)
 					}
 					c.Close()
 					continue
@@ -1060,23 +1053,19 @@ func (n *network) listen(ctx context.Context, hostname string, begin uint16, end
 			}
 		}()
 
-		// return port number this node listenig on for the incoming connections
-		return port, nil
+		return nil
 	}
 
 	// all ports within a given range are taken
-	return 0, fmt.Errorf("Can't start listener. Port range is taken")
+	return fmt.Errorf("Can't start listener. Port range is taken")
 }
 
 func (n *network) connect(node string) (ConnectionInterface, error) {
-	var route Route
 	var c net.Conn
-	var err error
-	var enabledTLS bool
 	lib.Log("[%s] NETWORK trying to connect to %#v", n.nodename, node)
 
 	// resolve the route
-	route, err = n.Resolve(node)
+	route, err := n.Resolve(node)
 	if err != nil {
 		return nil, err
 	}
@@ -1088,52 +1077,33 @@ func (n *network) connect(node string) (ConnectionInterface, error) {
 		KeepAlive: defaultKeepAlivePeriod * time.Second,
 	}
 
+	tlsEnabled := route.Options.TLS != nil
+
 	if route.Options.IsErgo == true {
 		// use the route TLS settings if they were defined
-		if route.Options.TLS.Enable {
-			if route.Options.TLS.Client.Certificate == nil {
-				// use the local TLS settings
-				config := tls.Config{
-					Certificates:       []tls.Certificate{n.tls.Client},
-					InsecureSkipVerify: n.tls.SkipVerify,
-				}
-				tlsdialer := tls.Dialer{
-					NetDialer: &dialer,
-					Config:    &config,
-				}
-				c, err = tlsdialer.DialContext(n.ctx, "tcp", HostPort)
-			} else {
-				// use the route TLS settings
-				config := tls.Config{
-					Certificates:       []tls.Certificate{route.Options.Cert},
-					InsecureSkipVerify: n.tls.SkipVerify,
-				}
-				tlsdialer := tls.Dialer{
-					NetDialer: &dialer,
-					Config:    &config,
-				}
-				c, err = tlsdialer.DialContext(n.ctx, "tcp", HostPort)
+		if tlsEnabled {
+			if n.tls != nil {
+				route.Options.TLS.InsecureSkipVerify = n.tls.InsecureSkipVerify
 			}
-			enabledTLS = true
-
+			// use the local TLS settings
+			tlsdialer := tls.Dialer{
+				NetDialer: &dialer,
+				Config:    route.Options.TLS,
+			}
+			c, err = tlsdialer.DialContext(n.ctx, "tcp", HostPort)
 		} else {
 			// TLS disabled on a remote node
 			c, err = dialer.DialContext(n.ctx, "tcp", HostPort)
 		}
-
 	} else {
-		// use the local TLS settings
-		if n.tls.Enable {
-			config := tls.Config{
-				Certificates:       []tls.Certificate{n.tls.Client},
-				InsecureSkipVerify: n.tls.SkipVerify,
-			}
+		// this is an Erlang/Elixir node. use the local TLS settings
+		tlsEnabled = n.tls != nil
+		if tlsEnabled {
 			tlsdialer := tls.Dialer{
 				NetDialer: &dialer,
-				Config:    &config,
+				Config:    n.tls,
 			}
 			c, err = tlsdialer.DialContext(n.ctx, "tcp", HostPort)
-			enabledTLS = true
 
 		} else {
 			c, err = dialer.DialContext(n.ctx, "tcp", HostPort)
@@ -1158,7 +1128,7 @@ func (n *network) connect(node string) (ConnectionInterface, error) {
 		cookie = route.Options.Cookie
 	}
 
-	details, err := handshake.Start(c.RemoteAddr(), c, enabledTLS, cookie)
+	details, err := handshake.Start(c.RemoteAddr(), c, tlsEnabled, cookie)
 	if err != nil {
 		lib.Warning("Handshake error: %s", err)
 		c.Close()

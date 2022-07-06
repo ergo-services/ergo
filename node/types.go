@@ -208,7 +208,7 @@ type Options struct {
 	ListenEnd   uint16
 
 	// TLS settings
-	TLS TLS
+	TLS *tls.Config
 
 	// StaticRoutesOnly disables resolving service (default is EPMD client) and
 	// makes resolving localy only for nodes added using gen.AddStaticRoute
@@ -237,13 +237,6 @@ type Options struct {
 
 	// System options for the system application
 	System System
-}
-
-type TLS struct {
-	Enable     bool
-	Server     tls.Certificate
-	Client     tls.Certificate
-	SkipVerify bool
 }
 
 type Cloud struct {
@@ -452,9 +445,8 @@ type Route struct {
 // RouteOptions
 type RouteOptions struct {
 	Cookie    string
-	TLS       TLS
+	TLS       *tls.Config
 	IsErgo    bool
-	Cert      tls.Certificate
 	Handshake HandshakeInterface
 	Proto     ProtoInterface
 	Custom    CustomRouteOptions

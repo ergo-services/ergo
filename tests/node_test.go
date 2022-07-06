@@ -3,6 +3,7 @@ package tests
 import (
 	"context"
 	"crypto/md5"
+	"crypto/tls"
 	"fmt"
 	"math/rand"
 	"net"
@@ -238,6 +239,11 @@ func (h *handshakeGenServer) HandleDirect(process *gen.ServerProcess, ref etf.Re
 func TestNodeDistHandshake(t *testing.T) {
 	fmt.Printf("\n=== Test Node Handshake versions\n")
 
+	cert, err := lib.GenerateSelfSignedCert("localhost")
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	// handshake version 5
 	handshake5options := dist.HandshakeOptions{
 		Version: dist.HandshakeVersion5,
@@ -301,7 +307,7 @@ func TestNodeDistHandshake(t *testing.T) {
 	}
 	node9Options5WithTLS := node.Options{
 		Handshake: dist.CreateHandshake(handshake5options),
-		TLS:       node.TLS{Enable: true, SkipVerify: true},
+		TLS:       &tls.Config{Certificates: []tls.Certificate{cert}, InsecureSkipVerify: true},
 	}
 	node9, e9 := ergo.StartNode("node9Handshake5@localhost", "secret", node9Options5WithTLS)
 	if e9 != nil {
@@ -309,7 +315,7 @@ func TestNodeDistHandshake(t *testing.T) {
 	}
 	node10Options5WithTLS := node.Options{
 		Handshake: dist.CreateHandshake(handshake5options),
-		TLS:       node.TLS{Enable: true, SkipVerify: true},
+		TLS:       &tls.Config{Certificates: []tls.Certificate{cert}, InsecureSkipVerify: true},
 	}
 	node10, e10 := ergo.StartNode("node10Handshake5@localhost", "secret", node10Options5WithTLS)
 	if e10 != nil {
@@ -317,7 +323,7 @@ func TestNodeDistHandshake(t *testing.T) {
 	}
 	node11Options5WithTLS := node.Options{
 		Handshake: dist.CreateHandshake(handshake5options),
-		TLS:       node.TLS{Enable: true, SkipVerify: true},
+		TLS:       &tls.Config{Certificates: []tls.Certificate{cert}, InsecureSkipVerify: true},
 	}
 	node11, e11 := ergo.StartNode("node11Handshake5@localhost", "secret", node11Options5WithTLS)
 	if e11 != nil {
@@ -325,7 +331,7 @@ func TestNodeDistHandshake(t *testing.T) {
 	}
 	node12Options6WithTLS := node.Options{
 		Handshake: dist.CreateHandshake(handshake6options),
-		TLS:       node.TLS{Enable: true, SkipVerify: true},
+		TLS:       &tls.Config{Certificates: []tls.Certificate{cert}, InsecureSkipVerify: true},
 	}
 	node12, e12 := ergo.StartNode("node12Handshake6@localhost", "secret", node12Options6WithTLS)
 	if e12 != nil {
@@ -335,7 +341,7 @@ func TestNodeDistHandshake(t *testing.T) {
 	// node14, _ := ergo.StartNode("node14Handshake5@localhost", "secret", nodeOptions5WithTLS)
 	node15Options6WithTLS := node.Options{
 		Handshake: dist.CreateHandshake(handshake6options),
-		TLS:       node.TLS{Enable: true, SkipVerify: true},
+		TLS:       &tls.Config{Certificates: []tls.Certificate{cert}, InsecureSkipVerify: true},
 	}
 	node15, e15 := ergo.StartNode("node15Handshake6@localhost", "secret", node15Options6WithTLS)
 	if e15 != nil {
@@ -343,7 +349,7 @@ func TestNodeDistHandshake(t *testing.T) {
 	}
 	node16Options6WithTLS := node.Options{
 		Handshake: dist.CreateHandshake(handshake6options),
-		TLS:       node.TLS{Enable: true, SkipVerify: true},
+		TLS:       &tls.Config{Certificates: []tls.Certificate{cert}, InsecureSkipVerify: true},
 	}
 	node16, e16 := ergo.StartNode("node16Handshake6@localhost", "secret", node16Options6WithTLS)
 	if e16 != nil {
@@ -486,18 +492,24 @@ func TestNodeRemoteSpawn(t *testing.T) {
 }
 
 func TestNodeResolveExtra(t *testing.T) {
+	cert, err := lib.GenerateSelfSignedCert("localhost")
+	if err != nil {
+		t.Fatal(err)
+	}
 	fmt.Printf("\n=== Test Node Resolve Extra \n")
 	fmt.Printf("... starting node1 with disabled TLS: ")
-	opts1 := node.Options{}
-	opts1.TLS.SkipVerify = true
+	opts1 := node.Options{
+		TLS: &tls.Config{InsecureSkipVerify: true},
+	}
 	node1, err := ergo.StartNode("node1resolveExtra@localhost", "secret", opts1)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer node1.Stop()
 	fmt.Println("OK")
-	opts2 := node.Options{}
-	opts2.TLS.Enable = true
+	opts2 := node.Options{
+		TLS: &tls.Config{Certificates: []tls.Certificate{cert}, InsecureSkipVerify: true},
+	}
 	fmt.Printf("... starting node2 with enabled TLS: ")
 	node2, err := ergo.StartNode("node2resolveExtra@localhost", "secret", opts2)
 	if err != nil {
@@ -511,8 +523,8 @@ func TestNodeResolveExtra(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if route1.Options.TLS.Enable == false {
-		t.Fatal("expected true value")
+	if route1.Options.TLS == nil {
+		t.Fatal("expected TLS value")
 	}
 	fmt.Println("OK")
 
@@ -521,8 +533,8 @@ func TestNodeResolveExtra(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if route2.Options.TLS.Enable == true {
-		t.Fatal("expected true value")
+	if route2.Options.TLS != nil {
+		t.Fatal("expected nil value for TLS")
 	}
 	fmt.Println("OK")
 

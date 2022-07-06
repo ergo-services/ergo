@@ -2,6 +2,7 @@ package dist
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -209,7 +210,7 @@ func (e *epmdRegistrar) readExtra(route *node.Route, buf []byte) {
 	}
 
 	if buf[3] == 1 {
-		route.Options.TLS.Enable = true
+		route.Options.TLS = &tls.Config{}
 	}
 
 	route.Options.IsErgo = true

@@ -1,6 +1,7 @@
 package cloud
 
 import (
+	"crypto/tls"
 	"fmt"
 	"net"
 	"os"
@@ -76,8 +77,9 @@ func (cc *cloudClient) HandleCast(process *gen.ServerProcess, message etf.Term) 
 				IsErgo:    true,
 				Handshake: createHandshake(state.options),
 			}
-			routeOptions.TLS.Enable = true
-			routeOptions.TLS.SkipVerify = cloud.SkipVerify
+			routeOptions.TLS = &tls.Config{
+				InsecureSkipVerify: cloud.SkipVerify,
+			}
 			if err := thisNode.AddStaticRoutePort(cloud.Node, cloud.Port, routeOptions); err != nil {
 				if err != lib.ErrTaken {
 					continue
