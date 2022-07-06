@@ -268,7 +268,7 @@ func (gs *Server) ProcessLoop(ps ProcessState, started chan<- bool) string {
 
 		select {
 		case ex := <-channels.GracefulExit:
-			if !sp.TrapExit() {
+			if sp.TrapExit() == false {
 				sp.behavior.Terminate(sp, ex.Reason)
 				return ex.Reason
 			}

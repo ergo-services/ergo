@@ -962,7 +962,7 @@ func (n *network) listen(ctx context.Context, hostname string, options Options) 
 	}
 	tlsEnabled := false
 	if n.tls != nil {
-		if n.tls.Certificates != nil {
+		if n.tls.Certificates != nil || n.tls.GetCertificate != nil {
 			tlsEnabled = true
 		}
 	}

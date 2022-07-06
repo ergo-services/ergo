@@ -125,7 +125,6 @@ func newCore(ctx context.Context, nodename string, cookie string, options Option
 		options.Compression.Threshold = DefaultCompressionThreshold
 	}
 	c := &core{
-		ctx:     ctx,
 		env:     options.Env,
 		nextPID: startPID,
 		uniqID:  startUniqID,
@@ -147,7 +146,7 @@ func newCore(ctx context.Context, nodename string, cookie string, options Option
 
 	corectx, corestop := context.WithCancel(ctx)
 	c.stop = corestop
-	c.ctx = corectx
+	c.ctx = context.WithValue(corectx, c, c)
 
 	c.monitorInternal = newMonitor(nodename, coreRouterInternal(c))
 	network, err := newNetwork(c.ctx, nodename, cookie, options, coreRouterInternal(c))
@@ -302,6 +301,8 @@ func (c *core) deleteAlias(owner *process, alias etf.Alias) error {
 
 func (c *core) newProcess(name string, behavior gen.ProcessBehavior, opts processOptions) (*process, error) {
 
+	var processContext context.Context
+	var kill context.CancelFunc
 	mailboxSize := DefaultProcessMailboxSize
 	if opts.MailboxSize > 0 {
 		mailboxSize = int(opts.MailboxSize)
@@ -311,9 +312,13 @@ func (c *core) newProcess(name string, behavior gen.ProcessBehavior, opts proces
 		directboxSize = int(opts.DirectboxSize)
 	}
 
-	processContext, kill := context.WithCancel(c.ctx)
 	if opts.Context != nil {
-		processContext, _ = context.WithCancel(opts.Context)
+		if opts.Context.Value(c) != c {
+			return nil, fmt.Errorf("not a Process context")
+		}
+		processContext, kill = context.WithCancel(opts.Context)
+	} else {
+		processContext, kill = context.WithCancel(c.ctx)
 	}
 
 	pid := c.newPID()
@@ -452,6 +457,7 @@ func (c *core) spawn(name string, opts processOptions, behavior gen.ProcessBehav
 					lib.Warning("initialization process failed %s[%q] %#v at %s[%s:%d]",
 						process.self, name, rcv, runtime.FuncForPC(pc).Name(), fn, line)
 					c.deleteProcess(process.self)
+					process.kill()
 					err = fmt.Errorf("panic")
 				}
 			}()

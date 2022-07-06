@@ -38,7 +38,7 @@ type Web struct {
 type WebOptions struct {
 	Host    string
 	Port    uint16 // default port 8080, for TLS - 8443
-	Cert    tls.Certificate
+	TLS     *tls.Config
 	Handler http.Handler
 }
 
@@ -94,7 +94,13 @@ func (web *Web) Init(process *ServerProcess, args ...etf.Term) error {
 		return err
 	}
 
-	tlsEnabled := options.Cert.Certificate != nil
+	tlsEnabled := false
+	if options.TLS != nil {
+		if options.TLS.Certificates == nil {
+			return fmt.Errorf("TLS config has no certificates")
+		}
+		tlsEnabled = true
+	}
 
 	if options.Port == 0 {
 		if tlsEnabled {
@@ -113,10 +119,7 @@ func (web *Web) Init(process *ServerProcess, args ...etf.Term) error {
 	}
 
 	if tlsEnabled {
-		config := tls.Config{
-			Certificates: []tls.Certificate{options.Cert},
-		}
-		listener = tls.NewListener(listener, &config)
+		listener = tls.NewListener(listener, options.TLS)
 	}
 
 	httpServer := http.Server{

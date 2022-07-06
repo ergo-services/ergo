@@ -120,6 +120,9 @@ func (tcp *TCP) Init(process *ServerProcess, args ...etf.Term) error {
 	}
 
 	if options.TLS != nil {
+		if options.TLS.Certificates == nil && options.TLS.GetCertificate == nil {
+			return fmt.Errorf("TLS connnnfig has no certificates")
+		}
 		listener = tls.NewListener(listener, options.TLS)
 	}
 	tcpProcess.listener = listener
