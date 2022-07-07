@@ -178,7 +178,11 @@ func (e *epmdRegistrar) Resolve(name string) (node.Route, error) {
 	}
 
 	return route, nil
+}
 
+func (e *epmdRegistrar) ResolveProxy(name string) (node.ProxyRoute, error) {
+	var route node.ProxyRoute
+	return route, lib.ErrProxyNoRoute
 }
 
 func (e *epmdRegistrar) composeExtra(options node.RegisterOptions) {

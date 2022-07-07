@@ -58,12 +58,13 @@ func main() {
 
 	fmt.Printf("Add proxy route to node4 via node2 on node1 with proxy cookie = %q and enabled encryption ...", proxyCookie)
 	proxyRoute1 := node.ProxyRoute{
+		Node:   node4.Name(),
 		Proxy:  node2.Name(),
 		Cookie: proxyCookie,
 		Flags:  node.DefaultProxyFlags(),
 	}
 	proxyRoute1.Flags.EnableEncryption = true
-	if err := node1.AddProxyRoute(node4.Name(), proxyRoute1); err != nil {
+	if err := node1.AddProxyRoute(proxyRoute1); err != nil {
 		panic(err)
 	}
 	fmt.Println("OK")

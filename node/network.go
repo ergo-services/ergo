@@ -36,12 +36,14 @@ type networkInternal interface {
 	StaticRoute(name string) (Route, bool)
 
 	// add/remove proxy route
-	AddProxyRoute(node string, route ProxyRoute) error
+	AddProxyRoute(route ProxyRoute) error
 	RemoveProxyRoute(node string) bool
 	ProxyRoutes() []ProxyRoute
 	ProxyRoute(name string) (ProxyRoute, bool)
 
 	Resolve(peername string) (Route, error)
+	ResolveProxy(peername string) (ProxyRoute, error)
+
 	Connect(peername string) error
 	Disconnect(peername string) error
 	Nodes() []string
@@ -328,8 +330,8 @@ func (n *network) getConnection(peername string) (ConnectionInterface, error) {
 
 // Resolve
 func (n *network) Resolve(node string) (Route, error) {
-	n.staticRoutesMutex.Lock()
-	defer n.staticRoutesMutex.Unlock()
+	n.staticRoutesMutex.RLock()
+	defer n.staticRoutesMutex.RUnlock()
 
 	if r, ok := n.staticRoutes[node]; ok {
 		if r.Port == 0 {
@@ -346,6 +348,16 @@ func (n *network) Resolve(node string) (Route, error) {
 	}
 
 	return n.registrar.Resolve(node)
+}
+
+// ResolveProxy
+func (n *network) ResolveProxy(node string) (ProxyRoute, error) {
+	n.proxyRoutesMutex.RLock()
+	defer n.proxyRoutesMutex.RUnlock()
+	if r, ok := n.proxyRoutes[node]; ok {
+		return r, nil
+	}
+	return n.registrar.ResolveProxy(node)
 }
 
 // Connect
@@ -908,7 +920,7 @@ func (n *network) RouteProxy(from ConnectionInterface, sessionID string, packet 
 	}
 }
 
-func (n *network) AddProxyRoute(node string, route ProxyRoute) error {
+func (n *network) AddProxyRoute(route ProxyRoute) error {
 	n.proxyRoutesMutex.Lock()
 	defer n.proxyRoutesMutex.Unlock()
 	if route.MaxHop > defaultProxyPathLimit {
@@ -922,11 +934,11 @@ func (n *network) AddProxyRoute(node string, route ProxyRoute) error {
 		route.Flags = n.proxy.Flags
 	}
 
-	if _, exist := n.proxyRoutes[node]; exist {
+	if _, exist := n.proxyRoutes[route.Node]; exist {
 		return lib.ErrTaken
 	}
 
-	n.proxyRoutes[node] = route
+	n.proxyRoutes[route.Node] = route
 	return nil
 }
 

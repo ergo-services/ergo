@@ -477,9 +477,10 @@ func TestAtomCacheLess255UniqViaProxy(t *testing.T) {
 
 	fmt.Printf("    connect %s with %s via proxy %s: ", node1.Name(), node2.Name(), nodeT.Name())
 	route := node.ProxyRoute{
+		Node:  node2.Name(),
 		Proxy: nodeT.Name(),
 	}
-	node1.AddProxyRoute(node2.Name(), route)
+	node1.AddProxyRoute(route)
 
 	if err := node1.Connect(node2.Name()); err != nil {
 		t.Fatal(err)
@@ -610,9 +611,10 @@ func TestAtomCacheMore255UniqViaProxy(t *testing.T) {
 
 	fmt.Printf("    connect %s with %s via proxy %s: ", node1.Name(), node2.Name(), nodeT.Name())
 	route := node.ProxyRoute{
+		Node:  node2.Name(),
 		Proxy: nodeT.Name(),
 	}
-	node1.AddProxyRoute(node2.Name(), route)
+	node1.AddProxyRoute(route)
 
 	if err := node1.Connect(node2.Name()); err != nil {
 		t.Fatal(err)
@@ -747,9 +749,10 @@ func TestAtomCacheLess255UniqViaProxyWithEncryption(t *testing.T) {
 
 	fmt.Printf("    connect %s with %s via proxy %s: ", node1.Name(), node2.Name(), nodeT.Name())
 	route := node.ProxyRoute{
+		Node:  node2.Name(),
 		Proxy: nodeT.Name(),
 	}
-	node1.AddProxyRoute(node2.Name(), route)
+	node1.AddProxyRoute(route)
 
 	if err := node1.Connect(node2.Name()); err != nil {
 		t.Fatal(err)
@@ -884,9 +887,10 @@ func TestAtomCacheMore255UniqViaProxyWithEncryption(t *testing.T) {
 
 	fmt.Printf("    connect %s with %s via proxy %s: ", node1.Name(), node2.Name(), nodeT.Name())
 	route := node.ProxyRoute{
+		Node:  node2.Name(),
 		Proxy: nodeT.Name(),
 	}
-	node1.AddProxyRoute(node2.Name(), route)
+	node1.AddProxyRoute(route)
 
 	if err := node1.Connect(node2.Name()); err != nil {
 		t.Fatal(err)
@@ -1021,9 +1025,10 @@ func TestAtomCacheLess255UniqViaProxyWithEncryptionCompression(t *testing.T) {
 
 	fmt.Printf("    connect %s with %s via proxy %s: ", node1.Name(), node2.Name(), nodeT.Name())
 	route := node.ProxyRoute{
+		Node:  node2.Name(),
 		Proxy: nodeT.Name(),
 	}
-	node1.AddProxyRoute(node2.Name(), route)
+	node1.AddProxyRoute(route)
 
 	if err := node1.Connect(node2.Name()); err != nil {
 		t.Fatal(err)
@@ -1160,9 +1165,10 @@ func TestAtomCacheMore255UniqViaProxyWithEncryptionCompression(t *testing.T) {
 
 	fmt.Printf("    connect %s with %s via proxy %s: ", node1.Name(), node2.Name(), nodeT.Name())
 	route := node.ProxyRoute{
+		Node:  node2.Name(),
 		Proxy: nodeT.Name(),
 	}
-	node1.AddProxyRoute(node2.Name(), route)
+	node1.AddProxyRoute(route)
 
 	if err := node1.Connect(node2.Name()); err != nil {
 		t.Fatal(err)

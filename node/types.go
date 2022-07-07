@@ -91,13 +91,18 @@ type Node interface {
 	// StaticRoute returns Route for the given name. Returns false if it doesn't exist.
 	StaticRoute(name string) (Route, bool)
 
-	AddProxyRoute(name string, proxy ProxyRoute) error
+	AddProxyRoute(proxy ProxyRoute) error
 	RemoveProxyRoute(name string) bool
+	// ProxyRoutes returns list of proxy routes added using AddProxyRoute
 	ProxyRoutes() []ProxyRoute
+	// ProxyRoute returns proxy route added using AddProxyRoute
 	ProxyRoute(name string) (ProxyRoute, bool)
 
 	// Resolve
 	Resolve(peername string) (Route, error)
+	// ResolveProxy resolves proxy route. Checks for the proxy route added using AddProxyRoute.
+	// If it wasn't found makes request to the registrar.
+	ResolveProxy(peername string) (ProxyRoute, error)
 
 	// Connect sets up a connection to node
 	Connect(nodename string) error
@@ -421,6 +426,7 @@ type Flags struct {
 type Registrar interface {
 	Register(ctx context.Context, nodename string, options RegisterOptions) error
 	Resolve(peername string) (Route, error)
+	ResolveProxy(peername string) (ProxyRoute, error)
 }
 
 // RegisterOptions defines resolving options
@@ -450,11 +456,11 @@ type RouteOptions struct {
 	IsErgo    bool
 	Handshake HandshakeInterface
 	Proto     ProtoInterface
-	Custom    CustomRouteOptions
 }
 
 // ProxyRoute
 type ProxyRoute struct {
+	Node   string
 	Proxy  string
 	Cookie string
 	Flags  ProxyFlags
@@ -527,9 +533,6 @@ type ProxySession struct {
 	PeerName  string
 	Block     cipher.Block // made from symmetric key
 }
-
-// CustomRouteOptions a custom set of route options
-type CustomRouteOptions interface{}
 
 type NetworkStats struct {
 	NodeName        string

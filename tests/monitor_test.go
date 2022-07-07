@@ -439,9 +439,10 @@ func TestMonitorLocalProxyRemoteByPid(t *testing.T) {
 	}
 
 	route := node.ProxyRoute{
+		Node:  node3.Name(),
 		Proxy: node2.Name(),
 	}
-	node1.AddProxyRoute(node3.Name(), route)
+	node1.AddProxyRoute(route)
 	node1.Connect(node3.Name())
 	fmt.Println("OK")
 
@@ -598,9 +599,10 @@ func TestMonitorLocalProxyRemoteByName(t *testing.T) {
 		t.Fatal("can't start node:", err)
 	}
 	route := node.ProxyRoute{
+		Node:  node3.Name(),
 		Proxy: node2.Name(),
 	}
-	node1.AddProxyRoute(node3.Name(), route)
+	node1.AddProxyRoute(route)
 	node1.Connect(node3.Name())
 	fmt.Println("OK")
 
@@ -1097,11 +1099,12 @@ func TestLinkRemoteProxy(t *testing.T) {
 	fmt.Println("OK")
 
 	route := node.ProxyRoute{
+		Node:  node3.Name(),
 		Proxy: node2.Name(),
 	}
 	route.Flags = node.DefaultProxyFlags()
 	route.Flags.EnableLink = false
-	node1.AddProxyRoute(node3.Name(), route)
+	node1.AddProxyRoute(route)
 
 	fmt.Printf("    check connectivity of %s with %s via proxy %s: ", node1.Name(), node3.Name(), node2.Name())
 	if err := node1.Connect(node3.Name()); err != nil {
@@ -1391,18 +1394,20 @@ func TestMonitorNode(t *testing.T) {
 	waitForResultWithValue(t, gsD.v, pD.Self())
 	fmt.Printf("... add proxy route on A to the node D via B: ")
 	routeAtoDviaB := node.ProxyRoute{
+		Node:  nodeD.Name(),
 		Proxy: nodeB.Name(),
 	}
-	if err := nodeA.AddProxyRoute(nodeD.Name(), routeAtoDviaB); err != nil {
+	if err := nodeA.AddProxyRoute(routeAtoDviaB); err != nil {
 		t.Fatal(err)
 	}
 	fmt.Println("OK")
 
 	fmt.Printf("... add proxy transit route on B to the node D via C: ")
 	route := node.ProxyRoute{
+		Node:  nodeD.Name(),
 		Proxy: nodeC.Name(),
 	}
-	if err := nodeB.AddProxyRoute(nodeD.Name(), route); err != nil {
+	if err := nodeB.AddProxyRoute(route); err != nil {
 		t.Fatal(err)
 	}
 	fmt.Println("OK")
