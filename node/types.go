@@ -425,8 +425,11 @@ type Flags struct {
 // Registrar defines registrar interface
 type Registrar interface {
 	Register(ctx context.Context, nodename string, options RegisterOptions) error
+	RegisterProxy(proxy ProxyRoute) error
+	UnregisterProxy(peername string) error
 	Resolve(peername string) (Route, error)
 	ResolveProxy(peername string) (ProxyRoute, error)
+	Config() (interface{}, error)
 }
 
 // RegisterOptions defines resolving options

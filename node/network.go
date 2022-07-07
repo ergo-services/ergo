@@ -355,6 +355,13 @@ func (n *network) ResolveProxy(node string) (ProxyRoute, error) {
 	n.proxyRoutesMutex.RLock()
 	defer n.proxyRoutesMutex.RUnlock()
 	if r, ok := n.proxyRoutes[node]; ok {
+		if r.Proxy == "" {
+			route, err := n.registrar.ResolveProxy(node)
+			if err != nil {
+				return route, err
+			}
+			r.Proxy = route.Proxy
+		}
 		return r, nil
 	}
 	return n.registrar.ResolveProxy(node)
@@ -433,9 +440,8 @@ func (n *network) NetworkStats(name string) (NetworkStats, error) {
 // RouteProxyConnectRequest
 func (n *network) RouteProxyConnectRequest(from ConnectionInterface, request ProxyConnectRequest) error {
 	// check if we have proxy route
-	n.proxyRoutesMutex.RLock()
-	route, has_route := n.proxyRoutes[request.To]
-	n.proxyRoutesMutex.RUnlock()
+	route, err_route := n.ResolveProxy(request.To)
+	has_route := err_route == nil
 
 	if request.To != n.nodename {
 		var connection ConnectionInterface

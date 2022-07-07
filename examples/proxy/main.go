@@ -71,9 +71,10 @@ func main() {
 
 	fmt.Printf("Add proxy route to node4 via node3 on node2 ...")
 	proxyRoute2 := node.ProxyRoute{
+		Node:  node4.Name(),
 		Proxy: node3.Name(),
 	}
-	if err := node2.AddProxyRoute(node4.Name(), proxyRoute2); err != nil {
+	if err := node2.AddProxyRoute(proxyRoute2); err != nil {
 		panic(err)
 	}
 	fmt.Println("OK")

@@ -37,8 +37,6 @@ const (
 
 // epmd implements registrar interface
 type epmdRegistrar struct {
-	node.Registrar
-
 	// EPMD server
 	enableEPMD bool
 	host       string
@@ -183,6 +181,15 @@ func (e *epmdRegistrar) Resolve(name string) (node.Route, error) {
 func (e *epmdRegistrar) ResolveProxy(name string) (node.ProxyRoute, error) {
 	var route node.ProxyRoute
 	return route, lib.ErrProxyNoRoute
+}
+func (e *epmdRegistrar) RegisterProxy(proxy node.ProxyRoute) error {
+	return lib.ErrUnsupported
+}
+func (e *epmdRegistrar) UnregisterProxy(name string) error {
+	return lib.ErrUnsupported
+}
+func (e *epmdRegistrar) Config() (interface{}, error) {
+	return nil, lib.ErrUnsupported
 }
 
 func (e *epmdRegistrar) composeExtra(options node.RegisterOptions) {
