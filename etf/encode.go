@@ -791,10 +791,6 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 
 			case reflect.Array, reflect.Slice:
 				lenList := v.Len()
-				if lenList == 0 {
-					b.AppendByte(ettNil)
-					continue
-				}
 
 				if typeIsRegistered {
 					vtAtomName = rtype.name
@@ -810,6 +806,11 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 						tmp:      vtAtomName,
 					}
 					break
+				}
+
+				if lenList == 0 {
+					b.AppendByte(ettNil)
+					continue
 				}
 
 				buf := b.Extend(5)

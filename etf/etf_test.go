@@ -653,7 +653,7 @@ func TestRegisterType(t *testing.T) {
 			BU64: 0xd24,
 			C:    -33.22,
 			C64:  3364.22,
-			D:    ddd{false, false, true}}: ccc{"c1", "c2", "c3"},
+			D:    ddd{false, false, true}}: ccc{}, //test empty list
 	}
 
 	buf := lib.TakeBuffer()
