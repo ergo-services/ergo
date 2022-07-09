@@ -11,6 +11,7 @@ var (
 	ErrNameOwner            = fmt.Errorf("not an owner")
 	ErrProcessBusy          = fmt.Errorf("process is busy")
 	ErrProcessUnknown       = fmt.Errorf("unknown process")
+	ErrProcessContext       = fmt.Errorf("not a Process context")
 	ErrProcessIncarnation   = fmt.Errorf("process ID belongs to the previous incarnation")
 	ErrProcessTerminated    = fmt.Errorf("process terminated")
 	ErrMonitorUnknown       = fmt.Errorf("unknown monitor reference")

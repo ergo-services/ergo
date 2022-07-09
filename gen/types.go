@@ -212,8 +212,9 @@ type ProcessInfo struct {
 
 // ProcessOptions
 type ProcessOptions struct {
-	// Context allows mix the system context with the custom one. E.g. to limit
-	// the lifespan using context.WithTimeout
+	// Context allows mixing the system context with the custom one. E.g., to limit
+	// the lifespan using context.WithTimeout. This context MUST be based on the
+	// other Process' context. Otherwise, you get the error lib.ErrProcessContext
 	Context context.Context
 	// MailboxSize defines the length of message queue for the process
 	MailboxSize uint16

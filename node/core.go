@@ -314,7 +314,7 @@ func (c *core) newProcess(name string, behavior gen.ProcessBehavior, opts proces
 
 	if opts.Context != nil {
 		if opts.Context.Value(c) != c {
-			return nil, fmt.Errorf("not a Process context")
+			return nil, lib.ErrProcessContext
 		}
 		processContext, kill = context.WithCancel(opts.Context)
 	} else {
