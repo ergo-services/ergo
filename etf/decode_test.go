@@ -483,15 +483,23 @@ func TestDecodeFunction(t *testing.T) {
 }
 
 func TestDecodeRegisteredType(t *testing.T) {
+	type regTypeStruct3 struct {
+		C string
+	}
 	type regTypeStruct4 struct {
 		A uint8
 		B *regTypeStruct3
 	}
-	if _, err := RegisterType(regTypeStruct3{}, RegisterTypeOptions{}); err != nil {
+	if a, err := RegisterType(regTypeStruct3{}, RegisterTypeOptions{}); err != nil {
 		t.Fatal(err)
+	} else {
+		defer UnregisterType(a)
 	}
-	if _, err := RegisterType(regTypeStruct4{}, RegisterTypeOptions{}); err != nil {
+
+	if a, err := RegisterType(regTypeStruct4{}, RegisterTypeOptions{}); err != nil {
 		t.Fatal(err)
+	} else {
+		defer UnregisterType(a)
 	}
 
 	expected := regTypeStruct4{}

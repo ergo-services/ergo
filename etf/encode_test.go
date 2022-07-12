@@ -913,23 +913,21 @@ func TestEncodeGoPtrNil(t *testing.T) {
 	}
 }
 
-type regTypeStruct1 struct {
-	a int
-}
-type regTypeStruct2 struct {
-	A int
-	B regTypeStruct3
-}
-type regTypeStruct3 struct {
-	C string
-}
-
-type regTypeMap map[string]regTypeStruct3
-type regTypeSlice []regTypeStruct3
-type regTypeArray [5]regTypeStruct3
-
 func TestEncodeRegisteredType(t *testing.T) {
 	var tmp int
+	type regTypeStruct1 struct {
+		a int
+	}
+	type regTypeStruct3 struct {
+		C string
+	}
+	type regTypeStruct2 struct {
+		A int
+		B regTypeStruct3
+	}
+	type regTypeMap map[string]regTypeStruct3
+	type regTypeSlice []regTypeStruct3
+	type regTypeArray [5]regTypeStruct3
 
 	// only struct/map/slice/array types are supported
 	if _, err := RegisterType(tmp, RegisterTypeOptions{}); err == nil {
@@ -946,20 +944,33 @@ func TestEncodeRegisteredType(t *testing.T) {
 		t.Fatal("must be error here")
 	}
 
-	if _, err := RegisterType(regTypeStruct3{}, RegisterTypeOptions{}); err != nil {
+	if a, err := RegisterType(regTypeStruct3{}, RegisterTypeOptions{}); err != nil {
 		t.Fatal(err)
+	} else {
+		defer UnregisterType(a)
 	}
-	if _, err := RegisterType(regTypeStruct2{}, RegisterTypeOptions{}); err != nil {
+	if a, err := RegisterType(regTypeStruct2{}, RegisterTypeOptions{}); err != nil {
 		t.Fatal(err)
+	} else {
+		defer UnregisterType(a)
 	}
-	if _, err := RegisterType(regTypeMap{}, RegisterTypeOptions{}); err != nil {
+
+	if a, err := RegisterType(regTypeMap{}, RegisterTypeOptions{}); err != nil {
 		t.Fatal(err)
+	} else {
+		defer UnregisterType(a)
 	}
-	if _, err := RegisterType(regTypeSlice{}, RegisterTypeOptions{}); err != nil {
+
+	if a, err := RegisterType(regTypeSlice{}, RegisterTypeOptions{}); err != nil {
 		t.Fatal(err)
+	} else {
+		defer UnregisterType(a)
 	}
-	if _, err := RegisterType(regTypeArray{}, RegisterTypeOptions{}); err != nil {
+
+	if a, err := RegisterType(regTypeArray{}, RegisterTypeOptions{}); err != nil {
 		t.Fatal(err)
+	} else {
+		defer UnregisterType(a)
 	}
 
 	b := lib.TakeBuffer()
