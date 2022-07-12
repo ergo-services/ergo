@@ -441,7 +441,10 @@ func (n *network) NetworkStats(name string) (NetworkStats, error) {
 func (n *network) RouteProxyConnectRequest(from ConnectionInterface, request ProxyConnectRequest) error {
 	// check if we have proxy route
 	route, err_route := n.ResolveProxy(request.To)
-	has_route := err_route == nil
+	has_route := false
+	if err_route == nil && route.Proxy != n.nodename {
+		has_route = true
+	}
 
 	if request.To != n.nodename {
 		var connection ConnectionInterface
@@ -1005,6 +1008,7 @@ func (n *network) listen(ctx context.Context, hostname string, options Options) 
 		}
 
 		if err := n.registrar.Register(n.ctx, n.nodename, registerOptions); err != nil {
+			listener.Close()
 			return err
 		}
 
@@ -1078,7 +1082,7 @@ func (n *network) listen(ctx context.Context, hostname string, options Options) 
 	}
 
 	// all ports within a given range are taken
-	return fmt.Errorf("Can't start listener. Port range is taken")
+	return fmt.Errorf("can not start listener (port range is taken)")
 }
 
 func (n *network) connect(node string) (ConnectionInterface, error) {

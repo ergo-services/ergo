@@ -1278,6 +1278,10 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 					field.SetBool(b)
 
 				case reflect.Map:
+					if stack.tmp == nil {
+						field.Set(reflect.ValueOf(term))
+						break
+					}
 					destkey := reflect.ValueOf(stack.tmp)
 					destval := reflect.ValueOf(term)
 					stack.reg.SetMapIndex(destkey, destval)

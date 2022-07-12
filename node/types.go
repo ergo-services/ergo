@@ -99,15 +99,15 @@ type Node interface {
 	ProxyRoute(name string) (ProxyRoute, bool)
 
 	// Resolve
-	Resolve(peername string) (Route, error)
+	Resolve(node string) (Route, error)
 	// ResolveProxy resolves proxy route. Checks for the proxy route added using AddProxyRoute.
 	// If it wasn't found makes request to the registrar.
-	ResolveProxy(peername string) (ProxyRoute, error)
+	ResolveProxy(node string) (ProxyRoute, error)
 
 	// Connect sets up a connection to node
-	Connect(nodename string) error
+	Connect(node string) error
 	// Disconnect close connection to the node
-	Disconnect(nodename string) error
+	Disconnect(node string) error
 	// Nodes returns the list of connected nodes
 	Nodes() []string
 	// NodesIndirect returns the list of nodes connected via proxies
@@ -425,11 +425,16 @@ type Flags struct {
 // Registrar defines registrar interface
 type Registrar interface {
 	Register(ctx context.Context, nodename string, options RegisterOptions) error
-	RegisterProxy(proxy ProxyRoute) error
+	RegisterProxy(nodename string, maxhop int, flags ProxyFlags) error
 	UnregisterProxy(peername string) error
 	Resolve(peername string) (Route, error)
 	ResolveProxy(peername string) (ProxyRoute, error)
-	Config() (interface{}, error)
+	Config() (RegistrarConfig, error)
+}
+
+type RegistrarConfig struct {
+	Version int
+	Config  map[string]etf.Term
 }
 
 // RegisterOptions defines resolving options

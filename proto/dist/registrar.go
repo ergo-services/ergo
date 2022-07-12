@@ -182,14 +182,15 @@ func (e *epmdRegistrar) ResolveProxy(name string) (node.ProxyRoute, error) {
 	var route node.ProxyRoute
 	return route, lib.ErrProxyNoRoute
 }
-func (e *epmdRegistrar) RegisterProxy(proxy node.ProxyRoute) error {
+func (e *epmdRegistrar) RegisterProxy(name string, maxhop int, flags node.ProxyFlags) error {
 	return lib.ErrUnsupported
 }
 func (e *epmdRegistrar) UnregisterProxy(name string) error {
 	return lib.ErrUnsupported
 }
-func (e *epmdRegistrar) Config() (interface{}, error) {
-	return nil, lib.ErrUnsupported
+func (e *epmdRegistrar) Config() (node.RegistrarConfig, error) {
+	var cfg node.RegistrarConfig
+	return cfg, lib.ErrUnsupported
 }
 
 func (e *epmdRegistrar) composeExtra(options node.RegisterOptions) {
