@@ -736,6 +736,11 @@ func RegisterType(t interface{}, options RegisterTypeOptions) (Atom, error) {
 				return name, fmt.Errorf("struct has unexported field(s)")
 			}
 
+			if f.Type().Kind() == reflect.Slice && f.Type().Elem().Kind() == reflect.Uint8 {
+				// []byte
+				continue
+			}
+
 			orig := regTypeName(f.Type())
 			if err := checkIsRegistered(orig, f.Kind()); err != nil {
 				return name, err

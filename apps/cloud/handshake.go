@@ -2,8 +2,10 @@ package cloud
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
+	"hash"
 	"io"
 	"net"
 	"time"
@@ -27,9 +29,10 @@ type Handshake struct {
 }
 
 type handshakeDetails struct {
-	cookie  string
-	digest  [16]byte
-	details node.HandshakeDetails
+	cookieHash   []byte
+	digestRemote []byte
+	details      node.HandshakeDetails
+	hash         hash.Hash
 }
 
 func createHandshake(options node.Cloud) (node.HandshakeInterface, error) {
@@ -74,11 +77,12 @@ func (ch *Handshake) Init(nodename string, creation uint32, flags node.Flags) er
 }
 
 func (ch *Handshake) Start(remote net.Addr, conn lib.NetReadWriter, tls bool, cookie string) (node.HandshakeDetails, error) {
+	hash := sha256.New()
 	handshake := &handshakeDetails{
-		cookie: cookie,
+		cookieHash: hash.Sum([]byte(cookie)),
+		hash:       hash,
 	}
 	handshake.details.Flags = ch.flags
-	handshake.digest = GenDigest(ch.nodename, ch.options.Cluster, cookie)
 
 	fmt.Println("START HANDSHAKE with", remote)
 	ch.sendV1Auth(conn)
@@ -199,9 +203,9 @@ func (ch *Handshake) sendV1Challenge(socket io.Writer, handshake *handshakeDetai
 	b := lib.TakeBuffer()
 	defer lib.ReleaseBuffer(b)
 
-	digest := GenDigest(ch.nodename, string(handshake.digest[:]), handshake.cookie)
+	digest := GenDigest(handshake.hash, []byte(ch.nodename), handshake.digestRemote, handshake.cookieHash)
 	message := MessageHandshakeV1Challenge{
-		Digest: string(digest[:]),
+		Digest: digest,
 	}
 	b.Allocate(1 + 1 + 2)
 	b.B[0] = ProtoHandshakeV1
@@ -228,11 +232,11 @@ func (ch *Handshake) handleV1AuthReply(buffer []byte, handshake *handshakeDetail
 		return fmt.Errorf("malformed MessageHandshakeV1AuthReply message: %#v", m)
 	}
 
-	digest := GenDigest(message.Node, ch.options.Cluster, handshake.cookie)
-	if message.Digest != string(digest[:]) {
+	digest := GenDigest(handshake.hash, []byte(message.Node), []byte(ch.options.Cluster), handshake.cookieHash)
+	if bytes.Compare(message.Digest, digest) != 0 {
 		return fmt.Errorf("wrong digest")
 	}
-	handshake.digest = digest
+	handshake.digestRemote = digest
 	handshake.details.Name = message.Node
 	handshake.details.Creation = message.Creation
 

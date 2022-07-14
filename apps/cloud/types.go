@@ -1,7 +1,7 @@
 package cloud
 
 import (
-	"crypto/md5"
+	"hash"
 
 	"github.com/ergo-services/ergo/etf"
 	"github.com/ergo-services/ergo/gen"
@@ -43,9 +43,12 @@ func RegisterTypes() error {
 	return nil
 }
 
-func GenDigest(a, b, c string) [16]byte {
-	digest := md5.Sum([]byte(a + b + c))
-	return digest
+func GenDigest(h hash.Hash, items ...[]byte) []byte {
+	x := []byte{}
+	for _, i := range items {
+		x = append(x, i...)
+	}
+	return h.Sum(x)
 }
 
 // client -> cloud
@@ -60,12 +63,12 @@ type MessageHandshakeV1Auth struct {
 type MessageHandshakeV1AuthReply struct {
 	Node     string
 	Creation uint32
-	Digest   string
+	Digest   []byte
 }
 
 // client -> cloud
 type MessageHandshakeV1Challenge struct {
-	Digest string
+	Digest []byte
 }
 
 // cloud -> client
