@@ -495,6 +495,6 @@ func DefaultProtoOptions() ProtoOptions {
 		MaxMessageSize:    0, // no limit
 		SendQueueLength:   DefaultProtoSendQueueLength,
 		RecvQueueLength:   DefaultProtoRecvQueueLength,
-		FragmentationUnit: DefaultProroFragmentationUnit,
+		FragmentationUnit: DefaultProtoFragmentationUnit,
 	}
 }

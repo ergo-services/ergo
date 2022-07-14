@@ -2,104 +2,63 @@ package cloud
 
 import (
 	"bytes"
-	"crypto/md5"
 	"encoding/binary"
 	"fmt"
+	"io"
 	"net"
 	"time"
 
+	"github.com/ergo-services/ergo/etf"
 	"github.com/ergo-services/ergo/lib"
 	"github.com/ergo-services/ergo/node"
 )
 
-type cloudFlagID uint64
-type cloudFlags cloudFlagID
-
-func (f cloudFlags) toUint64() uint64 {
-	return uint64(f)
-}
-
-func toCloudFlags(f ...cloudFlagID) cloudFlags {
-	var flags uint64
-	for _, v := range f {
-		flags |= uint64(v)
-	}
-	return cloudFlags(flags)
-}
-
 const (
-	clientVersion int = 1
-
-	flagIntrospection cloudFlagID = 0x1
-	flagMetrics       cloudFlagID = 0x2
-	flagRemoteSpawn   cloudFlagID = 0x3
-
 	defaultHandshakeTimeout = 5 * time.Second
-
-	messageTypeM1 = byte(1)
-	messageTypeM2 = byte(2)
-	messageTypeM3 = byte(3)
-	messageTypeM4 = byte(4)
-	messageTypeMX = byte(100)
+	clusterNameLengthMax    = 128
 )
 
-type cloudHandshake struct {
+type Handshake struct {
 	node.Handshake
-	nodename  string
-	creation  uint32
-	options   node.Cloud
-	flags     node.Flags
-	challenge string
+	nodename string
+	creation uint32
+	options  node.Cloud
+	flags    node.Flags
 }
 
-type messageM2 struct {
-	flags     cloudFlags // flags from the cloud
-	creation  uint32
-	challenge string
-	peername  string
-}
-type messageM4 struct {
-	digest     string
-	updatename string // use this name to present itself instead of the original one within this connection
-	warnings   int    // number warning message must be received after this message
+type handshakeDetails struct {
+	cookie  string
+	digest  [16]byte
+	details node.HandshakeDetails
 }
 
-// message
-type messageMX struct {
-	// error messages
-	// id = 0 - malformed message from the cloud
-	//      1 - incorrect cluster name or cookie value
-	//      2 - taken (this node is already presented in the cloud cluster)
-	//      3 - suspended account
-	//      4 - account is blocked
-	// informing messages have id above 100
-	id          int
-	description string
-}
-
-func createHandshake(options node.Cloud) node.HandshakeInterface {
+func createHandshake(options node.Cloud) (node.HandshakeInterface, error) {
 	if options.Timeout == 0 {
 		options.Timeout = defaultHandshakeTimeout
 	}
-	return &cloudHandshake{
-		options:   options,
-		challenge: lib.RandomString(64),
+
+	if err := RegisterTypes(); err != nil {
+		return nil, err
 	}
+
+	return &Handshake{
+		options: options,
+	}, nil
 }
 
-func (ch *cloudHandshake) Init(nodename string, creation uint32, flags node.Flags) error {
+func (ch *Handshake) Init(nodename string, creation uint32, flags node.Flags) error {
 	if flags.EnableProxy == false {
-		s := "Proxy feature must be enabled for the cloud connection"
+		s := "proxy feature must be enabled for the cloud connection"
 		lib.Warning(s)
 		return fmt.Errorf(s)
 	}
-	if ch.options.ClusterID == "" {
-		s := "Options Cloud.Cluster can not be empty"
+	if ch.options.Cluster == "" {
+		s := "option Cloud.Cluster can not be empty"
 		lib.Warning(s)
 		return fmt.Errorf(s)
 	}
-	if len(ch.options.ClusterID) != 32 {
-		s := "Options Cloud.Cluster has wrong value"
+	if len(ch.options.Cluster) > clusterNameLengthMax {
+		s := "option Cloud.Cluster has too long name"
 		lib.Warning(s)
 		return fmt.Errorf(s)
 	}
@@ -114,166 +73,197 @@ func (ch *cloudHandshake) Init(nodename string, creation uint32, flags node.Flag
 	return nil
 }
 
-func (ch *cloudHandshake) Start(remote net.Addr, conn lib.NetReadWriter, tls bool, cookie string) (node.HandshakeDetails, error) {
-	var details node.HandshakeDetails
+func (ch *Handshake) Start(remote net.Addr, conn lib.NetReadWriter, tls bool, cookie string) (node.HandshakeDetails, error) {
+	handshake := &handshakeDetails{
+		cookie: cookie,
+	}
+	handshake.details.Flags = ch.flags
+	handshake.digest = GenDigest(ch.nodename, ch.options.Cluster, cookie)
 
 	fmt.Println("START HANDSHAKE with", remote)
-
-	details.Flags = ch.flags
-
-	b := lib.TakeBuffer()
-	defer lib.ReleaseBuffer(b)
-
-	ch.composeMessageM1(b)
-	if e := b.WriteDataTo(conn); e != nil {
-		return details, e
-	}
-	b.Reset()
+	ch.sendV1Auth(conn)
 
 	// define timeout for the handshaking
 	timer := time.NewTimer(ch.options.Timeout)
 	defer timer.Stop()
 
+	b := lib.TakeBuffer()
+	defer lib.ReleaseBuffer(b)
+
 	asyncReadChannel := make(chan error, 2)
 	asyncRead := func() {
-		_, err := b.ReadDataFrom(conn, 512)
+		_, err := b.ReadDataFrom(conn, 1024)
 		asyncReadChannel <- err
 	}
 
-	expectingBytes := 2
-	await := []byte{messageTypeM2, messageTypeMX}
-	m2 := messageM2{}
+	expectingBytes := 4
+	await := []byte{ProtoHandshakeV1AuthReply, ProtoHandshakeV1Error}
 
 	for {
 		go asyncRead()
 		select {
 		case <-timer.C:
-			return details, fmt.Errorf("timeout")
+			return handshake.details, fmt.Errorf("timeout")
 		case err := <-asyncReadChannel:
 			if err != nil {
-				return details, err
+				return handshake.details, err
 			}
 
 			if b.Len() < expectingBytes {
 				continue
 			}
 
-			l := binary.BigEndian.Uint16(b.B[expectingBytes-2 : expectingBytes])
-			buffer := b.B[expectingBytes:]
+			if b.B[0] != ProtoHandshakeV1 {
+				return handshake.details, fmt.Errorf("malformed handshake proto")
+			}
 
-			if len(buffer) < int(l) {
-				return details, fmt.Errorf("malformed handshake (wrong packet length)")
+			l := int(binary.BigEndian.Uint16(b.B[2:4]))
+			buffer := b.B[4 : l+4]
+
+			if len(buffer) != l {
+				return handshake.details, fmt.Errorf("malformed handshake (wrong packet length)")
 			}
 
 			// check if we got correct message type regarding to 'await' value
-			if bytes.Count(await, buffer[0:1]) == 0 {
-				return details, fmt.Errorf("malformed handshake (wrong response)")
+			if bytes.Count(await, b.B[1:2]) == 0 {
+				return handshake.details, fmt.Errorf("malformed handshake sequence")
 			}
 
-			switch buffer[0] {
-			case messageTypeM2:
-				var err error
-				m2, err = ch.readM2(buffer[1:])
-				if err != nil {
-					fmt.Println("got M2 error", err)
-					return details, err
-				}
-				b.Reset()
-				fmt.Println("got M2 ", m2)
-
-				digest := genDigest(ch.options.ClusterID, m2.challenge, ch.options.Cookie)
-				ch.composeMessageM3(b, digest[:])
-				if e := b.WriteDataTo(conn); e != nil {
-					return details, e
-				}
-				b.Reset()
-				await = []byte{messageTypeM4}
-
-			case messageTypeM4:
-			case messageTypeMX:
-				//message, _ := ch.readMX(buffer[2:])
-				return details, fmt.Errorf("malformed handshake (message type %d)", buffer[0])
-			default:
-				return details, fmt.Errorf("malformed handshake (message type %d)", buffer[0])
+			await, err = ch.handle(conn, b.B[1], buffer, handshake)
+			if err != nil {
+				return handshake.details, err
 			}
+
+			b.Reset()
+		}
+
+		if await == nil {
+			// handshaked
+			break
 		}
 	}
 
-	return details, nil
+	return handshake.details, nil
 }
 
-func genDigest(cluster, challenge, cookie string) [16]byte {
-	s := cluster + challenge + cookie
-	digest := md5.Sum([]byte(s))
-	return digest
+func (ch *Handshake) handle(socket io.Writer, messageType byte, buffer []byte, details *handshakeDetails) ([]byte, error) {
+	switch messageType {
+	case ProtoHandshakeV1AuthReply:
+		if err := ch.handleV1AuthReply(buffer, details); err != nil {
+			return nil, err
+		}
+		if err := ch.sendV1Challenge(socket, details); err != nil {
+			return nil, err
+		}
+		return []byte{ProtoHandshakeV1ChallengeAccept, ProtoHandshakeV1Error}, nil
+
+	case ProtoHandshakeV1ChallengeAccept:
+		if err := ch.handleV1ChallegeAccept(buffer, details); err != nil {
+			return nil, err
+		}
+		return nil, nil
+
+	case ProtoHandshakeV1Error:
+		return nil, ch.handleV1Error(buffer)
+
+	default:
+		return nil, fmt.Errorf("unknown message type")
+	}
 }
 
-func (ch *cloudHandshake) composeMessageM1(b *lib.Buffer) {
-	// header: 2 (packet len) + 1 (message type)
-	// body: 1 (client version) + 8 (flags) + 4 (creation) + 32 (cluster id) + nodename
-	b.Allocate(2 + 1 + 1 + 8 + 4)
-	b.B[2] = messageTypeM1
-	b.B[3] = byte(clientVersion)
-	flags := ch.composeFlags()
-	binary.BigEndian.PutUint64(b.B[4:12], flags.toUint64())
-	binary.BigEndian.PutUint32(b.B[12:16], ch.creation)
-	b.Append([]byte(ch.options.ClusterID))
-	b.Append([]byte(ch.nodename))
-	l := b.Len() - 2
-	binary.BigEndian.PutUint16(b.B[0:2], uint16(l)) // uint16
-}
+func (ch *Handshake) sendV1Auth(socket io.Writer) error {
+	b := lib.TakeBuffer()
+	defer lib.ReleaseBuffer(b)
 
-func (ch *cloudHandshake) composeMessageM3(b *lib.Buffer, digest []byte) {
-	// header: 2 (packet len) + 1 (message type)
-	// body: 64 (challengeB) + 16 (digestA)
-	b.Allocate(2 + 1)
-	binary.BigEndian.PutUint16(b.B[0:2], 1+64+16) // uint16
-	b.B[2] = messageTypeM3
-	b.Append([]byte(ch.challenge))
-	b.Append(digest)
-}
-
-func (ch *cloudHandshake) readM2(buffer []byte) (messageM2, error) {
-	// body: 8 (flags) + 4 (creation) + 64 (challengeA) + nodename
-	var m2 messageM2
-
-	if len(buffer) < 80 {
-		return m2, fmt.Errorf("too small M2")
+	message := MessageHandshakeV1Auth{
+		Node:     ch.nodename,
+		Cluster:  ch.options.Cluster,
+		Creation: ch.creation,
+		Flags:    ch.options.Flags,
+	}
+	b.Allocate(1 + 1 + 2)
+	b.B[0] = ProtoHandshakeV1
+	b.B[1] = ProtoHandshakeV1Auth
+	if err := etf.Encode(message, b, etf.EncodeOptions{}); err != nil {
+		return err
+	}
+	binary.BigEndian.PutUint16(b.B[2:4], uint16(b.Len()-4))
+	if err := b.WriteDataTo(socket); err != nil {
+		return err
 	}
 
-	m2.flags = cloudFlags(binary.BigEndian.Uint64(buffer[:8]))
-	m2.creation = binary.BigEndian.Uint32(buffer[8:12])
-	m2.challenge = string(buffer[12:76])
-	m2.peername = string(buffer[76:])
-
-	return m2, nil
+	return nil
 }
 
-func (ch *cloudHandshake) readM4() (messageM4, error) {
-	// body: 16 (digestB) + updatename
-	var m4 messageM4
+func (ch *Handshake) sendV1Challenge(socket io.Writer, handshake *handshakeDetails) error {
+	b := lib.TakeBuffer()
+	defer lib.ReleaseBuffer(b)
 
-	return m4, nil
+	digest := GenDigest(ch.nodename, string(handshake.digest[:]), handshake.cookie)
+	message := MessageHandshakeV1Challenge{
+		Digest: string(digest[:]),
+	}
+	b.Allocate(1 + 1 + 2)
+	b.B[0] = ProtoHandshakeV1
+	b.B[1] = ProtoHandshakeV1Challenge
+	if err := etf.Encode(message, b, etf.EncodeOptions{}); err != nil {
+		return err
+	}
+	binary.BigEndian.PutUint16(b.B[2:4], uint16(b.Len()-4))
+	if err := b.WriteDataTo(socket); err != nil {
+		return err
+	}
+
+	return nil
+
 }
 
-func (ch *cloudHandshake) readMX(buffer []byte) (messageMX, error) {
-	var mx messageMX
+func (ch *Handshake) handleV1AuthReply(buffer []byte, handshake *handshakeDetails) error {
+	m, _, err := etf.Decode(buffer, nil, etf.DecodeOptions{})
+	if err != nil {
+		return fmt.Errorf("malformed MessageHandshakeV1AuthReply message: %s", err)
+	}
+	message, ok := m.(MessageHandshakeV1AuthReply)
+	if ok == false {
+		return fmt.Errorf("malformed MessageHandshakeV1AuthReply message: %#v", m)
+	}
 
-	return mx, nil
+	digest := GenDigest(message.Node, ch.options.Cluster, handshake.cookie)
+	if message.Digest != string(digest[:]) {
+		return fmt.Errorf("wrong digest")
+	}
+	handshake.digest = digest
+	handshake.details.Name = message.Node
+	handshake.details.Creation = message.Creation
+
+	return nil
 }
 
-func (ch *cloudHandshake) composeFlags() cloudFlags {
-	flags := ch.options.Flags
-	enabledFlags := []cloudFlagID{}
+func (ch *Handshake) handleV1ChallegeAccept(buffer []byte, handshake *handshakeDetails) error {
+	m, _, err := etf.Decode(buffer, nil, etf.DecodeOptions{})
+	if err != nil {
+		return fmt.Errorf("malformed MessageHandshakeV1ChallengeAccept message: %s", err)
+	}
+	message, ok := m.(MessageHandshakeV1ChallengeAccept)
+	if ok == false {
+		return fmt.Errorf("malformed MessageHandshakeV1ChallengeAccept message: %#v", m)
+	}
 
-	if flags.EnableIntrospection {
-		enabledFlags = append(enabledFlags, flagIntrospection)
+	mapping := etf.NewAtomMapping()
+	mapping.In[etf.Atom(message.Node)] = etf.Atom(ch.nodename)
+	mapping.Out[etf.Atom(ch.nodename)] = etf.Atom(message.Node)
+	handshake.details.AtomMapping = mapping
+	return nil
+}
+
+func (ch *Handshake) handleV1Error(buffer []byte) error {
+	m, _, err := etf.Decode(buffer, nil, etf.DecodeOptions{})
+	if err != nil {
+		return fmt.Errorf("malformed MessageHandshakeV1Error message: %s", err)
 	}
-	if flags.EnableMetrics {
-		enabledFlags = append(enabledFlags, flagMetrics)
+	message, ok := m.(MessageHandshakeV1Error)
+	if ok == false {
+		return fmt.Errorf("malformed MessageHandshakeV1Error message: %#v", m)
 	}
-	if flags.EnableRemoteSpawn {
-		enabledFlags = append(enabledFlags, flagRemoteSpawn)
-	}
-	return toCloudFlags(enabledFlags...)
+	return fmt.Errorf(message.Reason)
 }

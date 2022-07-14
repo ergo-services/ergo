@@ -28,7 +28,7 @@ const (
 
 	DefaultProtoRecvQueueLength   int = 100
 	DefaultProtoSendQueueLength   int = 100
-	DefaultProroFragmentationUnit int = 65000
+	DefaultProtoFragmentationUnit int = 65000
 
 	DefaultCompressionLevel     int = -1
 	DefaultCompressionThreshold int = 1024
@@ -245,11 +245,11 @@ type Options struct {
 }
 
 type Cloud struct {
-	Enable    bool
-	Flags     CloudFlags
-	ClusterID string
-	Cookie    string
-	Timeout   time.Duration
+	Enable  bool
+	Cluster string
+	Cookie  string
+	Flags   CloudFlags
+	Timeout time.Duration
 }
 
 type Proxy struct {

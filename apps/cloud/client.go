@@ -26,9 +26,10 @@ type cloudClient struct {
 }
 
 type cloudClientState struct {
-	options node.Cloud
-	monitor etf.Ref
-	node    string
+	options   node.Cloud
+	handshake node.HandshakeInterface
+	monitor   etf.Ref
+	node      string
 }
 
 type messageCloudClientConnect struct{}
@@ -44,8 +45,14 @@ func (cc *cloudClient) Init(process *gen.ServerProcess, args ...etf.Term) error 
 		return fmt.Errorf("wrong args for the cloud client")
 	}
 
+	handshake, err := createHandshake(cloudOptions)
+	if err != nil {
+		return fmt.Errorf("can not create HandshakeInterface for the cloud client: %s", err)
+	}
+
 	process.State = &cloudClientState{
-		options: cloudOptions,
+		options:   cloudOptions,
+		handshake: handshake,
 	}
 
 	if err := process.RegisterEvent(EventCloud, []gen.EventMessage{MessageEventCloud{}}); err != nil {
@@ -75,7 +82,7 @@ func (cc *cloudClient) HandleCast(process *gen.ServerProcess, message etf.Term) 
 		for _, cloud := range cloudNodes {
 			routeOptions := node.RouteOptions{
 				IsErgo:    true,
-				Handshake: createHandshake(state.options),
+				Handshake: state.handshake,
 			}
 			routeOptions.TLS = &tls.Config{
 				InsecureSkipVerify: cloud.SkipVerify,
