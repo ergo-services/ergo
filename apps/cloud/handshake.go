@@ -142,6 +142,7 @@ func (ch *Handshake) Start(remote net.Addr, conn lib.NetReadWriter, tls bool, co
 		}
 
 		if await == nil {
+			fmt.Println("HANDSHAKED with", handshake.details.Name)
 			// handshaked
 			break
 		}

@@ -81,6 +81,7 @@ func (cc *cloudClient) HandleCast(process *gen.ServerProcess, message etf.Term) 
 
 		for _, cloud := range cloudNodes {
 			routeOptions := node.RouteOptions{
+				Cookie:    state.options.Cookie,
 				IsErgo:    true,
 				Handshake: state.handshake,
 			}
