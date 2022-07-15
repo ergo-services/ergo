@@ -29,6 +29,8 @@ var (
 	ErrFragmented           = fmt.Errorf("fragmented data")
 	ErrReferenceUnknown     = fmt.Errorf("unknown reference")
 
+	ErrRouteName = fmt.Errorf("incorrect route name")
+
 	ErrTimeout         = fmt.Errorf("timed out")
 	ErrUnsupported     = fmt.Errorf("not supported")
 	ErrUnknown         = fmt.Errorf("unknown")

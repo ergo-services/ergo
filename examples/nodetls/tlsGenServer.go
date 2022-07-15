@@ -1,12 +1,14 @@
 package main
 
 import (
+	"crypto/tls"
 	"flag"
 	"fmt"
 
 	"github.com/ergo-services/ergo"
 	"github.com/ergo-services/ergo/etf"
 	"github.com/ergo-services/ergo/gen"
+	"github.com/ergo-services/ergo/lib"
 	"github.com/ergo-services/ergo/node"
 )
 
@@ -64,9 +66,15 @@ func init() {
 func main() {
 	flag.Parse()
 
-	opts := node.Options{
-		// enables TLS encryption with self-signed certificate
-		TLS: node.TLS{Enable: true},
+	opts := node.Options{}
+	// enables TLS encryption with self-signed certificate
+	cert, err := lib.GenerateSelfSignedCert("gen.Web demo")
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	opts.TLS = &tls.Config{
+		Certificates: []tls.Certificate{cert},
 	}
 
 	// Initialize new node with given name, cookie, listening port range and epmd port

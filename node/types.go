@@ -468,7 +468,8 @@ type RouteOptions struct {
 
 // ProxyRoute
 type ProxyRoute struct {
-	Node   string
+	// Name can be either nodename (example@domain) or domain (@domain)
+	Name   string
 	Proxy  string
 	Cookie string
 	Flags  ProxyFlags

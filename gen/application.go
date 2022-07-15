@@ -78,6 +78,7 @@ type ApplicationInfo struct {
 
 // ProcessInit
 func (a *Application) ProcessInit(p Process, args ...etf.Term) (ProcessState, error) {
+	spec := p.Env(EnvKeySpec).(*ApplicationSpec)
 	spec, ok := p.Env(EnvKeySpec).(*ApplicationSpec)
 	if !ok {
 		return ProcessState{}, fmt.Errorf("ProcessInit: not an ApplicationBehavior")

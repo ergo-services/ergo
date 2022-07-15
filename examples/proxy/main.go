@@ -58,7 +58,7 @@ func main() {
 
 	fmt.Printf("Add proxy route to node4 via node2 on node1 with proxy cookie = %q and enabled encryption ...", proxyCookie)
 	proxyRoute1 := node.ProxyRoute{
-		Node:   node4.Name(),
+		Name:   node4.Name(),
 		Proxy:  node2.Name(),
 		Cookie: proxyCookie,
 		Flags:  node.DefaultProxyFlags(),
@@ -71,7 +71,7 @@ func main() {
 
 	fmt.Printf("Add proxy route to node4 via node3 on node2 ...")
 	proxyRoute2 := node.ProxyRoute{
-		Node:  node4.Name(),
+		Name:  node4.Name(),
 		Proxy: node3.Name(),
 	}
 	if err := node2.AddProxyRoute(proxyRoute2); err != nil {

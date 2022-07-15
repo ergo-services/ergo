@@ -3,6 +3,7 @@ package node
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"io"
 	"sync"
 	"time"
@@ -37,7 +38,7 @@ type networkInternal interface {
 
 	// add/remove proxy route
 	AddProxyRoute(route ProxyRoute) error
-	RemoveProxyRoute(node string) bool
+	RemoveProxyRoute(name string) bool
 	ProxyRoutes() []ProxyRoute
 	ProxyRoute(name string) (ProxyRoute, bool)
 
@@ -300,6 +301,7 @@ func (n *network) getConnection(peername string) (ConnectionInterface, error) {
 	ci, ok := n.connections[peername]
 	n.connectionsMutex.RUnlock()
 	if ok {
+		lib.Log("[%s] genConnection found active connection with %s", n.nodename, peername)
 		return ci.connection, nil
 	}
 
@@ -351,20 +353,29 @@ func (n *network) Resolve(node string) (Route, error) {
 }
 
 // ResolveProxy
-func (n *network) ResolveProxy(node string) (ProxyRoute, error) {
+func (n *network) ResolveProxy(name string) (ProxyRoute, error) {
 	n.proxyRoutesMutex.RLock()
 	defer n.proxyRoutesMutex.RUnlock()
-	if r, ok := n.proxyRoutes[node]; ok {
-		if r.Proxy == "" {
-			route, err := n.registrar.ResolveProxy(node)
-			if err != nil {
-				return route, err
-			}
-			r.Proxy = route.Proxy
+	route, found := n.proxyRoutes[name]
+	if found == false {
+		sn := strings.Split(name, "@")
+		if len(sn) != 2 {
+			return route, lib.ErrUnknown
 		}
-		return r, nil
+		domain := "@" + sn[1]
+		route, found = n.proxyRoutes[domain]
 	}
-	return n.registrar.ResolveProxy(node)
+	if found == false {
+		return n.registrar.ResolveProxy(name)
+	}
+	if route.Proxy == "" {
+		r, err := n.registrar.ResolveProxy(name)
+		if err != nil {
+			return route, err
+		}
+		route.Proxy = r.Proxy
+	}
+	return route, nil
 }
 
 // Connect
@@ -439,23 +450,30 @@ func (n *network) NetworkStats(name string) (NetworkStats, error) {
 
 // RouteProxyConnectRequest
 func (n *network) RouteProxyConnectRequest(from ConnectionInterface, request ProxyConnectRequest) error {
-	// check if we have proxy route
-	route, err_route := n.ResolveProxy(request.To)
-	has_route := false
-	if err_route == nil && route.Proxy != n.nodename {
-		has_route = true
-	}
-
 	if request.To != n.nodename {
-		var connection ConnectionInterface
 		var err error
+		var connection ConnectionInterface
+		//
+		// outgoing proxy request
+		//
+
+		// check if we already have
+		n.connectionsMutex.RLock()
+		if ci, exist := n.connections[request.To]; exist {
+			connection = ci.connection
+		}
+		n.connectionsMutex.RUnlock()
 
 		if from != nil {
 			//
 			// transit request
 			//
+			if from == connection {
+				lib.Log("[%s] NETWORK proxy. Error: proxy route points to the connection this request came from", n.nodename)
+				return lib.ErrProxyLoopDetected
+			}
+			lib.Log("[%s] NETWORK transit proxy connection to %q", n.nodename, request.To)
 
-			lib.Log("[%s] NETWORK transit proxy connection to %q via %q", n.nodename, request.To, route.Proxy)
 			// proxy feature must be enabled explicitly for the transitional requests
 			if n.proxy.Transit == false {
 				lib.Log("[%s] NETWORK proxy. Proxy feature is disabled on this node", n.nodename)
@@ -479,53 +497,61 @@ func (n *network) RouteProxyConnectRequest(from ConnectionInterface, request Pro
 				return lib.ErrProxyLoopDetected
 			}
 
-			// try to connect to the next-hop node
-			if has_route == false {
-				connection, err = n.getConnectionDirect(request.To, true)
-			} else {
-				connection, err = n.getConnectionDirect(route.Proxy, true)
+			if connection == nil {
+				// check if we have proxy route
+				route, err_route := n.ResolveProxy(request.To)
+				if err_route == nil && route.Proxy != n.nodename {
+					// proxy request goes to the next hop
+					connection, err = n.getConnectionDirect(route.Proxy, true)
+				} else {
+					connection, err = n.getConnectionDirect(request.To, true)
+				}
+
+				if err != nil {
+					return err
+				}
 			}
 
+			request.Path = append([]string{n.nodename}, request.Path...)
+			err = connection.ProxyConnectRequest(request)
+			return err
+		}
+
+		if connection == nil {
+			route, err_route := n.ResolveProxy(request.To)
+			if err_route != nil {
+				// if it was invoked from getConnection ('from' == nil) there will
+				// be attempt to make direct connection using getConnectionDirect
+				return lib.ErrProxyNoRoute
+			}
+
+			// initiating proxy connection
+			lib.Log("[%s] NETWORK initiate proxy connection to %q via %q", n.nodename, request.To, route.Proxy)
+			connection, err = n.getConnectionDirect(route.Proxy, true)
 			if err != nil {
 				return err
 			}
 
-			if from == connection {
-				lib.Log("[%s] NETWORK proxy. Error: proxy route points to the connection this request came from", n.nodename)
-				return lib.ErrProxyLoopDetected
+		}
+
+		cookie := n.proxy.Cookie
+		flags := n.proxy.Flags
+		if route, err_route := n.ResolveProxy(request.To); err_route == nil {
+			cookie = route.Cookie
+			if request.Flags.Enable == false {
+				flags = route.Flags
 			}
-			request.Path = append([]string{n.nodename}, request.Path...)
-			return connection.ProxyConnectRequest(request)
 		}
-
-		if has_route == false {
-			// if it was invoked from getConnection ('from' == nil) there will
-			// be attempt to make direct connection using getConnectionDirect
-			return lib.ErrProxyNoRoute
-		}
-
-		//
-		// initiating proxy connection
-		//
-		lib.Log("[%s] NETWORK initiate proxy connection to %q via %q", n.nodename, request.To, route.Proxy)
-		connection, err = n.getConnectionDirect(route.Proxy, true)
-		if err != nil {
-			return err
-		}
-
 		privKey, _ := rsa.GenerateKey(rand.Reader, 2048)
 		pubKey := x509.MarshalPKCS1PublicKey(&privKey.PublicKey)
 		request.PublicKey = pubKey
+		request.Flags = flags
 
-		// create digest using nodename, cookie, peername and pubKey
-		request.Digest = generateProxyDigest(n.nodename, route.Cookie, request.To, pubKey)
+		// create digest using creation, cookie and pubKey.
+		// we can't use neither n.nodename or request.To, or request.ID -
+		// - anything that contains nodename or peername, because of etf.AtomMapping.
+		request.Digest = generateProxyDigest(n.creation, cookie, pubKey)
 
-		request.Flags = route.Flags
-		if request.Flags.Enable == false {
-			request.Flags = n.proxy.Flags
-		}
-
-		request.Hop = route.MaxHop
 		if request.Hop < 1 {
 			request.Hop = DefaultProxyMaxHop
 		}
@@ -564,13 +590,13 @@ func (n *network) RouteProxyConnectRequest(from ConnectionInterface, request Pro
 
 	cookie := n.proxy.Cookie
 	flags := n.proxy.Flags
-	if has_route {
+	if route, err_route := n.ResolveProxy(peername); err_route == nil {
 		cookie = route.Cookie
-		if route.Flags.Enable == true {
+		if request.Flags.Enable == false {
 			flags = route.Flags
 		}
 	}
-	checkDigest := generateProxyDigest(peername, cookie, n.nodename, request.PublicKey)
+	checkDigest := generateProxyDigest(request.Creation, cookie, request.PublicKey)
 	if bytes.Equal(request.Digest, checkDigest) == false {
 		// reply error. digest mismatch
 		lib.Log("[%s] NETWORK proxy. Proxy connect request has wrong digest", n.nodename)
@@ -597,7 +623,7 @@ func (n *network) RouteProxyConnectRequest(from ConnectionInterface, request Pro
 	}
 
 	sessionID := lib.RandomString(32)
-	digest := generateProxyDigest(n.nodename, n.proxy.Cookie, peername, key)
+	digest := generateProxyDigest(n.creation, n.proxy.Cookie, key)
 	if flags.Enable == false {
 		flags = DefaultProxyFlags()
 	}
@@ -744,7 +770,7 @@ func (n *network) RouteProxyConnectReply(from ConnectionInterface, reply ProxyCo
 		cookie = route.Cookie
 	}
 	// check digest
-	checkDigest := generateProxyDigest(r.request.To, cookie, n.nodename, key)
+	checkDigest := generateProxyDigest(reply.Creation, cookie, key)
 	if bytes.Equal(checkDigest, reply.Digest) == false {
 		lib.Log("[%s] CORE route proxy. Proxy connect reply has wrong digest", n.nodename)
 		return lib.ErrProxyConnect
@@ -943,21 +969,32 @@ func (n *network) AddProxyRoute(route ProxyRoute) error {
 		route.Flags = n.proxy.Flags
 	}
 
-	if _, exist := n.proxyRoutes[route.Node]; exist {
+	if s := strings.Split(route.Name, "@"); len(s) == 2 {
+		if s[0] == "" {
+			// must be domain name
+			if strings.HasPrefix(route.Name, "@") == false {
+				return lib.ErrRouteName
+			}
+		}
+	} else {
+		return lib.ErrRouteName
+	}
+
+	if _, exist := n.proxyRoutes[route.Name]; exist {
 		return lib.ErrTaken
 	}
 
-	n.proxyRoutes[route.Node] = route
+	n.proxyRoutes[route.Name] = route
 	return nil
 }
 
-func (n *network) RemoveProxyRoute(node string) bool {
+func (n *network) RemoveProxyRoute(name string) bool {
 	n.proxyRoutesMutex.Lock()
 	defer n.proxyRoutesMutex.Unlock()
-	if _, exist := n.proxyRoutes[node]; exist == false {
+	if _, exist := n.proxyRoutes[name]; exist == false {
 		return false
 	}
-	delete(n.proxyRoutes, node)
+	delete(n.proxyRoutes, name)
 	return true
 }
 
@@ -1266,6 +1303,9 @@ func (n *network) unregisterConnection(peername string, disconnect *ProxyDisconn
 	}
 	n.router.sendEvent(corePID, EventNetwork, event)
 
+	// we must unregister this peer for the proxy connection via this node
+	n.registrar.UnregisterProxy(peername)
+
 	n.connectionsMutex.Lock()
 	cp, _ := n.connectionsProxy[ci.connection]
 	for _, p := range cp {
@@ -1471,11 +1511,12 @@ func (n *network) networkStats() internalNetworkStats {
 // internals
 //
 
-func generateProxyDigest(node string, cookie string, peer string, pubkey []byte) []byte {
+func generateProxyDigest(creation uint32, cookie string, pubkey []byte) []byte {
 	// md5(md5(md5(md5(node)+cookie)+peer)+pubkey)
-	digest1 := md5.Sum([]byte(node))
+	c := [4]byte{}
+	binary.BigEndian.PutUint32(c[:], creation)
+	digest1 := md5.Sum([]byte(c[:]))
 	digest2 := md5.Sum(append(digest1[:], []byte(cookie)...))
-	digest3 := md5.Sum(append(digest2[:], []byte(peer)...))
-	digest4 := md5.Sum(append(digest3[:], pubkey...))
-	return digest4[:]
+	digest3 := md5.Sum(append(digest2[:], pubkey...))
+	return digest3[:]
 }

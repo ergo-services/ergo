@@ -32,6 +32,7 @@ type handshakeDetails struct {
 	cookieHash   []byte
 	digestRemote []byte
 	details      node.HandshakeDetails
+	mapName      string
 	hash         hash.Hash
 }
 
@@ -84,7 +85,6 @@ func (ch *Handshake) Start(remote net.Addr, conn lib.NetReadWriter, tls bool, co
 	}
 	handshake.details.Flags = ch.flags
 
-	fmt.Println("START HANDSHAKE with", remote)
 	ch.sendV1Auth(conn)
 
 	// define timeout for the handshaking
@@ -142,7 +142,6 @@ func (ch *Handshake) Start(remote net.Addr, conn lib.NetReadWriter, tls bool, co
 		}
 
 		if await == nil {
-			fmt.Println("HANDSHAKED with", handshake.details.Name)
 			// handshaked
 			break
 		}
@@ -258,6 +257,7 @@ func (ch *Handshake) handleV1ChallegeAccept(buffer []byte, handshake *handshakeD
 	mapping.In[etf.Atom(message.Node)] = etf.Atom(ch.nodename)
 	mapping.Out[etf.Atom(ch.nodename)] = etf.Atom(message.Node)
 	handshake.details.AtomMapping = mapping
+	handshake.mapName = message.Node
 	return nil
 }
 

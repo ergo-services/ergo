@@ -128,7 +128,7 @@ func main() {
 	// Initialize new node with given name, cookie, listening port range and epmd port
 	demoNode, _ := ergo.StartNode(NodeName, Cookie, opts)
 
-	ppp, eee := demoNode.Spawn("", gen.ProcessOptions{}, &demoApp{})
+	_, eee := demoNode.Spawn("", gen.ProcessOptions{}, &demoApp{})
 	if eee != nil {
 		panic(eee)
 	}

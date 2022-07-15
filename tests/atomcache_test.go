@@ -477,7 +477,7 @@ func TestAtomCacheLess255UniqViaProxy(t *testing.T) {
 
 	fmt.Printf("    connect %s with %s via proxy %s: ", node1.Name(), node2.Name(), nodeT.Name())
 	route := node.ProxyRoute{
-		Node:  node2.Name(),
+		Name:  node2.Name(),
 		Proxy: nodeT.Name(),
 	}
 	node1.AddProxyRoute(route)
@@ -611,7 +611,7 @@ func TestAtomCacheMore255UniqViaProxy(t *testing.T) {
 
 	fmt.Printf("    connect %s with %s via proxy %s: ", node1.Name(), node2.Name(), nodeT.Name())
 	route := node.ProxyRoute{
-		Node:  node2.Name(),
+		Name:  node2.Name(),
 		Proxy: nodeT.Name(),
 	}
 	node1.AddProxyRoute(route)
@@ -749,7 +749,7 @@ func TestAtomCacheLess255UniqViaProxyWithEncryption(t *testing.T) {
 
 	fmt.Printf("    connect %s with %s via proxy %s: ", node1.Name(), node2.Name(), nodeT.Name())
 	route := node.ProxyRoute{
-		Node:  node2.Name(),
+		Name:  node2.Name(),
 		Proxy: nodeT.Name(),
 	}
 	node1.AddProxyRoute(route)
@@ -887,7 +887,7 @@ func TestAtomCacheMore255UniqViaProxyWithEncryption(t *testing.T) {
 
 	fmt.Printf("    connect %s with %s via proxy %s: ", node1.Name(), node2.Name(), nodeT.Name())
 	route := node.ProxyRoute{
-		Node:  node2.Name(),
+		Name:  node2.Name(),
 		Proxy: nodeT.Name(),
 	}
 	node1.AddProxyRoute(route)
@@ -1025,7 +1025,7 @@ func TestAtomCacheLess255UniqViaProxyWithEncryptionCompression(t *testing.T) {
 
 	fmt.Printf("    connect %s with %s via proxy %s: ", node1.Name(), node2.Name(), nodeT.Name())
 	route := node.ProxyRoute{
-		Node:  node2.Name(),
+		Name:  node2.Name(),
 		Proxy: nodeT.Name(),
 	}
 	node1.AddProxyRoute(route)
@@ -1165,7 +1165,7 @@ func TestAtomCacheMore255UniqViaProxyWithEncryptionCompression(t *testing.T) {
 
 	fmt.Printf("    connect %s with %s via proxy %s: ", node1.Name(), node2.Name(), nodeT.Name())
 	route := node.ProxyRoute{
-		Node:  node2.Name(),
+		Name:  node2.Name(),
 		Proxy: nodeT.Name(),
 	}
 	node1.AddProxyRoute(route)

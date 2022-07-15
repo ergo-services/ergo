@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/tls"
 	"net/http"
 
 	"github.com/ergo-services/ergo/etf"
@@ -22,7 +23,9 @@ func (w *webServer) InitWeb(process *gen.WebProcess, args ...etf.Term) (gen.WebO
 		if err != nil {
 			return options, err
 		}
-		options.Cert = cert
+		options.TLS = &tls.Config{
+			Certificates: []tls.Certificate{cert},
+		}
 	}
 
 	mux := http.NewServeMux()

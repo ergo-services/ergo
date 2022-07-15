@@ -98,12 +98,20 @@ func (cc *cloudClient) HandleCast(process *gen.ServerProcess, message etf.Term) 
 				continue
 			}
 
+			// add proxy domain route
+			proxyRoute := node.ProxyRoute{
+				Name:   "@" + state.options.Cluster,
+				Proxy:  cloud.Node,
+				Cookie: state.options.Cookie,
+			}
+			thisNode.AddProxyRoute(proxyRoute)
+
+			state.monitor = process.MonitorNode(cloud.Node)
+			state.node = cloud.Node
 			event := MessageEventCloud{
 				Online: true,
 			}
 			process.SendEventMessage(EventCloud, event)
-			state.monitor = process.MonitorNode(cloud.Node)
-			state.node = cloud.Node
 			return gen.ServerStatusOK
 		}
 
@@ -138,12 +146,14 @@ func (cc *cloudClient) HandleInfo(process *gen.ServerProcess, message etf.Term) 
 func (cc *cloudClient) Terminate(process *gen.ServerProcess, reason string) {
 	state := process.State.(*cloudClientState)
 	thisNode := process.Env(node.EnvKeyNode).(node.Node)
+	thisNode.RemoveProxyRoute("@" + state.options.Cluster)
 	thisNode.Disconnect(state.node)
 	state.cleanup(thisNode)
 }
 
 func (ccs *cloudClientState) cleanup(node node.Node) {
 	node.RemoveStaticRoute(ccs.node)
+	node.RemoveProxyRoute("@" + ccs.options.Cluster)
 	ccs.node = ""
 }
 

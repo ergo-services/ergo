@@ -439,7 +439,7 @@ func TestMonitorLocalProxyRemoteByPid(t *testing.T) {
 	}
 
 	route := node.ProxyRoute{
-		Node:  node3.Name(),
+		Name:  node3.Name(),
 		Proxy: node2.Name(),
 	}
 	node1.AddProxyRoute(route)
@@ -599,7 +599,7 @@ func TestMonitorLocalProxyRemoteByName(t *testing.T) {
 		t.Fatal("can't start node:", err)
 	}
 	route := node.ProxyRoute{
-		Node:  node3.Name(),
+		Name:  node3.Name(),
 		Proxy: node2.Name(),
 	}
 	node1.AddProxyRoute(route)
@@ -1099,7 +1099,7 @@ func TestLinkRemoteProxy(t *testing.T) {
 	fmt.Println("OK")
 
 	route := node.ProxyRoute{
-		Node:  node3.Name(),
+		Name:  node3.Name(),
 		Proxy: node2.Name(),
 	}
 	route.Flags = node.DefaultProxyFlags()
@@ -1394,7 +1394,7 @@ func TestMonitorNode(t *testing.T) {
 	waitForResultWithValue(t, gsD.v, pD.Self())
 	fmt.Printf("... add proxy route on A to the node D via B: ")
 	routeAtoDviaB := node.ProxyRoute{
-		Node:  nodeD.Name(),
+		Name:  nodeD.Name(),
 		Proxy: nodeB.Name(),
 	}
 	if err := nodeA.AddProxyRoute(routeAtoDviaB); err != nil {
@@ -1404,7 +1404,7 @@ func TestMonitorNode(t *testing.T) {
 
 	fmt.Printf("... add proxy transit route on B to the node D via C: ")
 	route := node.ProxyRoute{
-		Node:  nodeD.Name(),
+		Name:  nodeD.Name(),
 		Proxy: nodeC.Name(),
 	}
 	if err := nodeB.AddProxyRoute(route); err != nil {

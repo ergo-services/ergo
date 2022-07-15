@@ -418,7 +418,7 @@ func TestNodeRemoteSpawn(t *testing.T) {
 	node3opts.Proxy.Accept = true
 	node3, _ := ergo.StartNode("node3remoteSpawn@localhost", "secret", node3opts)
 	route := node.ProxyRoute{
-		Node:  node3.Name(),
+		Name:  node3.Name(),
 		Proxy: node2.Name(),
 	}
 	node1.AddProxyRoute(route)
@@ -742,7 +742,7 @@ func TestNodeProxyConnect(t *testing.T) {
 		t.Fatal(e)
 	}
 	route := node.ProxyRoute{
-		Node:  "nodeCproxy@localhost",
+		Name:  "nodeCproxy@localhost",
 		Proxy: "nodeBproxy@localhost",
 	}
 	nodeA.AddProxyRoute(route)
@@ -861,7 +861,7 @@ func TestNodeProxyConnect(t *testing.T) {
 		t.Fatal("proxy route not found")
 	}
 	route = node.ProxyRoute{
-		Node:   "nodeCproxy@localhost",
+		Name:   "nodeCproxy@localhost",
 		Proxy:  "nodeBproxy@localhost",
 		Cookie: "123",
 	}
@@ -885,7 +885,7 @@ func TestNodeProxyConnect(t *testing.T) {
 	}
 
 	route = node.ProxyRoute{
-		Node:   "nodeDproxy@localhost",
+		Name:   "nodeDproxy@localhost",
 		Proxy:  "nodeBproxy@localhost",
 		Cookie: "123",
 	}
@@ -981,7 +981,7 @@ func TestNodeIncarnation(t *testing.T) {
 		t.Fatal(e)
 	}
 	route := node.ProxyRoute{
-		Node:  "nodeCincarnation@localhost",
+		Name:  "nodeCincarnation@localhost",
 		Proxy: "nodeBincarnation@localhost",
 	}
 	nodeA.AddProxyRoute(route)
@@ -1507,7 +1507,7 @@ func BenchmarkNodeProxy_NodeA_to_NodeC_via_NodeB_Message_1K(b *testing.B) {
 	defer node2.Stop()
 	defer node3.Stop()
 	route := node.ProxyRoute{
-		Node:  node3.Name(),
+		Name:  node3.Name(),
 		Proxy: node2.Name(),
 	}
 	node1.AddProxyRoute(route)
@@ -1573,7 +1573,7 @@ func BenchmarkNodeProxy_NodeA_to_NodeC_via_NodeB_Message_1K_Encrypted(b *testing
 	defer node2.Stop()
 	defer node3.Stop()
 	route := node.ProxyRoute{
-		Node:  node3.Name(),
+		Name:  node3.Name(),
 		Proxy: node2.Name(),
 	}
 	node1.AddProxyRoute(route)
@@ -1639,7 +1639,7 @@ func BenchmarkNodeProxy_NodeA_to_NodeC_via_NodeB_Message_1M_Compressed(b *testin
 	defer node2.Stop()
 	defer node3.Stop()
 	route := node.ProxyRoute{
-		Node:  node3.Name(),
+		Name:  node3.Name(),
 		Proxy: node2.Name(),
 	}
 	node1.AddProxyRoute(route)
@@ -1705,7 +1705,7 @@ func BenchmarkNodeProxy_NodeA_to_NodeC_via_NodeB_Message_1M_CompressedEncrypted(
 	defer node2.Stop()
 	defer node3.Stop()
 	route := node.ProxyRoute{
-		Node:  node3.Name(),
+		Name:  node3.Name(),
 		Proxy: node2.Name(),
 	}
 	node1.AddProxyRoute(route)
