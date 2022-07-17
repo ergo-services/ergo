@@ -35,5 +35,5 @@ func (sa *systemApp) Load(args ...etf.Term) (gen.ApplicationSpec, error) {
 }
 
 func (sa *systemApp) Start(p gen.Process, args ...etf.Term) {
-	lib.Log("SYSTEM: Application started")
+	lib.Log("[%s] SYSTEM: Application started", p.NodeName())
 }

@@ -44,21 +44,6 @@ func StartWithContext(ctx context.Context, name string, cookie string, opts Opti
 		opts.Flags = DefaultFlags()
 	}
 
-	// set defaults listening port range
-	if opts.Listen > 0 {
-		opts.ListenBegin = opts.Listen
-		opts.ListenEnd = opts.Listen
-		lib.Log("Node listening port: %d", opts.Listen)
-	} else {
-		if opts.ListenBegin == 0 {
-			opts.ListenBegin = defaultListenBegin
-		}
-		if opts.ListenEnd == 0 {
-			opts.ListenEnd = defaultListenEnd
-		}
-		lib.Log("Node listening range: %d...%d", opts.ListenBegin, opts.ListenEnd)
-	}
-
 	if opts.Handshake == nil {
 		return nil, fmt.Errorf("Handshake must be defined")
 	}
@@ -497,4 +482,8 @@ func DefaultProtoOptions() ProtoOptions {
 		RecvQueueLength:   DefaultProtoRecvQueueLength,
 		FragmentationUnit: DefaultProtoFragmentationUnit,
 	}
+}
+
+func DefaultListener() Listener {
+	return Listener{}
 }

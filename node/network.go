@@ -82,10 +82,10 @@ type connectionInternal struct {
 }
 
 type network struct {
-	nodename string
-	cookie   string
-	ctx      context.Context
-	listener net.Listener
+	nodename  string
+	cookie    string
+	ctx       context.Context
+	listeners []net.Listener
 
 	registrar         Registrar
 	staticOnly        bool
@@ -144,31 +144,70 @@ func newNetwork(ctx context.Context, nodename string, cookie string, options Opt
 		creation:             options.Creation,
 	}
 
-	nn := strings.Split(nodename, "@")
-	if len(nn) != 2 {
-		return nil, fmt.Errorf("(EMPD) FQDN for node name is required (example: node@hostname)")
+	splitNodeHost := strings.Split(nodename, "@")
+	if len(splitNodeHost) != 2 {
+		return nil, fmt.Errorf("FQDN for node name is required (example: node@hostname)")
 	}
 
 	if n.proxy.Flags.Enable == false {
 		n.proxy.Flags = DefaultProxyFlags()
 	}
 
-	if err := n.handshake.Init(n.nodename, n.creation, n.flags); err != nil {
-		return nil, err
-	}
-
 	n.version, _ = options.Env[EnvKeyVersion].(Version)
 
-	if err := n.listen(ctx, nn[1], options); err != nil {
-		return nil, err
+	if len(options.Listeners) == 0 {
+		return nil, fmt.Errorf("no listeners defined")
+	}
+	for i, lo := range options.Listeners {
+		if lo.TLS == nil {
+			lo.TLS = options.TLS
+		}
+		if lo.Handshake == nil {
+			lo.Handshake = options.Handshake
+		}
+		if lo.Proto == nil {
+			lo.Proto = options.Proto
+		}
+		if lo.Flags.Enable == false {
+			lo.Flags = options.Flags
+		}
+		if lo.Cookie == "" {
+			lo.Cookie = cookie
+		}
+
+		if err := lo.Handshake.Init(n.nodename, n.creation, lo.Flags); err != nil {
+			return nil, err
+		}
+
+		if lo.Listen > 0 {
+			lo.ListenBegin = lo.Listen
+			lo.ListenEnd = lo.Listen
+			lib.Log("Node listener[%d] port: %d", i, lo.Listen)
+		} else {
+			if lo.ListenBegin == 0 {
+				lo.ListenBegin = defaultListenBegin
+			}
+			if lo.ListenEnd == 0 {
+				lo.ListenEnd = defaultListenEnd
+			}
+			lib.Log("Node listener[%d] port range: %d...%d", i, lo.ListenBegin, lo.ListenEnd)
+		}
+		register := i == 0
+		listener, err := n.listen(ctx, splitNodeHost[1], lo, register)
+		if err != nil {
+			// close all listening sockets
+			n.stopNetwork()
+			return nil, err
+		}
+		n.listeners = append(n.listeners, listener)
 	}
 
 	return n, nil
 }
 
 func (n *network) stopNetwork() {
-	if n.listener != nil {
-		n.listener.Close()
+	for _, l := range n.listeners {
+		l.Close()
 	}
 	n.connectionsMutex.RLock()
 	defer n.connectionsMutex.RUnlock()
@@ -301,7 +340,7 @@ func (n *network) getConnection(peername string) (ConnectionInterface, error) {
 	ci, ok := n.connections[peername]
 	n.connectionsMutex.RUnlock()
 	if ok {
-		lib.Log("[%s] genConnection found active connection with %s", n.nodename, peername)
+		lib.Log("[%s] NETWORK found active connection with %s", n.nodename, peername)
 		return ci.connection, nil
 	}
 
@@ -1015,14 +1054,14 @@ func (n *network) ProxyRoute(name string) (ProxyRoute, bool) {
 	return route, exist
 }
 
-func (n *network) listen(ctx context.Context, hostname string, options Options) error {
+func (n *network) listen(ctx context.Context, hostname string, options Listener, register bool) (net.Listener, error) {
 
 	lc := net.ListenConfig{
 		KeepAlive: defaultKeepAlivePeriod * time.Second,
 	}
 	tlsEnabled := false
-	if n.tls != nil {
-		if n.tls.Certificates != nil || n.tls.GetCertificate != nil {
+	if options.TLS != nil {
+		if options.TLS.Certificates != nil || options.TLS.GetCertificate != nil {
 			tlsEnabled = true
 		}
 	}
@@ -1034,25 +1073,26 @@ func (n *network) listen(ctx context.Context, hostname string, options Options) 
 			continue
 		}
 
-		registerOptions := RegisterOptions{
-			Port:              port,
-			Creation:          n.creation,
-			NodeVersion:       n.version,
-			HandshakeVersion:  n.handshake.Version(),
-			EnableTLS:         tlsEnabled,
-			EnableProxy:       options.Flags.EnableProxy,
-			EnableCompression: options.Flags.EnableCompression,
-		}
+		if register && n.registrar != nil {
+			registerOptions := RegisterOptions{
+				Port:              port,
+				Creation:          n.creation,
+				NodeVersion:       n.version,
+				HandshakeVersion:  options.Handshake.Version(),
+				EnableTLS:         tlsEnabled,
+				EnableProxy:       options.Flags.EnableProxy,
+				EnableCompression: options.Flags.EnableCompression,
+			}
 
-		if err := n.registrar.Register(n.ctx, n.nodename, registerOptions); err != nil {
-			listener.Close()
-			return err
+			if err := n.registrar.Register(n.ctx, n.nodename, registerOptions); err != nil {
+				listener.Close()
+				return nil, err
+			}
 		}
 
 		if tlsEnabled {
 			listener = tls.NewListener(listener, options.TLS)
 		}
-		n.listener = listener
 
 		go func() {
 			for {
@@ -1069,7 +1109,7 @@ func (n *network) listen(ctx context.Context, hostname string, options Options) 
 				}
 				lib.Log("[%s] NETWORK accepted new connection from %s", n.nodename, c.RemoteAddr().String())
 
-				details, err := n.handshake.Accept(c.RemoteAddr(), c, tlsEnabled, n.cookie)
+				details, err := options.Handshake.Accept(c.RemoteAddr(), c, tlsEnabled, options.Cookie)
 				if err != nil {
 					if err != io.EOF {
 						lib.Warning("[%s] Can't handshake with %s: %s", n.nodename, c.RemoteAddr().String(), err)
@@ -1083,7 +1123,7 @@ func (n *network) listen(ctx context.Context, hostname string, options Options) 
 					c.Close()
 					continue
 				}
-				connection, err := n.proto.Init(n.ctx, c, n.nodename, details)
+				connection, err := options.Proto.Init(n.ctx, c, n.nodename, details)
 				if err != nil {
 					lib.Warning("Proto error: %s", err)
 					c.Close()
@@ -1106,20 +1146,20 @@ func (n *network) listen(ctx context.Context, hostname string, options Options) 
 
 				// run serving connection
 				go func(ctx context.Context, ci connectionInternal) {
-					n.proto.Serve(ci.connection, n.router)
+					options.Proto.Serve(ci.connection, n.router)
 					n.unregisterConnection(details.Name, nil)
-					n.proto.Terminate(ci.connection)
+					options.Proto.Terminate(ci.connection)
 					ci.conn.Close()
 				}(ctx, cInternal)
 
 			}
 		}()
 
-		return nil
+		return listener, nil
 	}
 
 	// all ports within a given range are taken
-	return fmt.Errorf("can not start listener (port range is taken)")
+	return nil, fmt.Errorf("can not start listener (port range is taken)")
 }
 
 func (n *network) connect(node string) (ConnectionInterface, error) {

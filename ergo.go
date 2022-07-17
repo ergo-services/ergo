@@ -61,5 +61,10 @@ func StartNodeWithContext(ctx context.Context, name string, cookie string, opts 
 		opts.Registrar = dist.CreateRegistrarWithLocalEPMD("", dist.DefaultEPMDPort)
 	}
 
+	if len(opts.Listeners) == 0 {
+		listener := node.DefaultListener()
+		opts.Listeners = append(opts.Listeners, listener)
+	}
+
 	return node.StartWithContext(ctx, name, cookie, opts)
 }

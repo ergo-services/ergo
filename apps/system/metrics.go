@@ -51,7 +51,7 @@ type nodeFullStats struct {
 }
 
 func (sb *systemMetrics) Init(process *gen.ServerProcess, args ...etf.Term) error {
-	lib.Log("SYSTEM_METRICS: Init: %#v", args)
+	lib.Log("[%s] SYSTEM_METRICS: Init: %#v", process.NodeName(), args)
 
 	options := args[0].(node.System)
 	process.State = &systemMetricsState{}
@@ -63,7 +63,7 @@ func (sb *systemMetrics) Init(process *gen.ServerProcess, args ...etf.Term) erro
 }
 
 func (sb *systemMetrics) HandleCast(process *gen.ServerProcess, message etf.Term) gen.ServerStatus {
-	lib.Log("SYSTEM_METRICS: HandleCast: %#v", message)
+	lib.Log("[%s] SYSTEM_METRICS: HandleCast: %#v", process.NodeName(), message)
 	state := process.State.(*systemMetricsState)
 	switch message.(type) {
 	case messageSystemAnonInfo:
@@ -83,7 +83,7 @@ func (sb *systemMetrics) HandleCast(process *gen.ServerProcess, message etf.Term
 }
 
 func (sb *systemMetrics) Terminate(process *gen.ServerProcess, reason string) {
-	lib.Log("SYSTEM_METRICS: Terminate with reason %q", reason)
+	lib.Log("[%s] SYSTEM_METRICS: Terminate with reason %q", process.NodeName(), reason)
 }
 
 // private routines

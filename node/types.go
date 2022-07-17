@@ -201,16 +201,13 @@ type Options struct {
 	// Creation. Default value: uint32(time.Now().Unix())
 	Creation uint32
 
-	// Flags defines enabled options for the running node
-	Flags Flags
+	// Listeners node can have multiple listening interface at once. If this list is empty
+	// the default listener will be using. Only the first listener will be registered on
+	// the Registrar
+	Listeners []Listener
 
-	// Listen defines a listening port number for accepting incoming connections.
-	Listen uint16
-	// ListenBegin and ListenEnd define a range of the port numbers where
-	// the node looking for available free port number for the listening.
-	// Default values 15000 and 65000 accordingly
-	ListenBegin uint16
-	ListenEnd   uint16
+	// Flags defines option flags of this node for the outgoing connection
+	Flags Flags
 
 	// TLS settings
 	TLS *tls.Config
@@ -222,7 +219,7 @@ type Options struct {
 	// Registrar defines a registrar service (default is EPMD service, client and server)
 	Registrar Registrar
 
-	// Compression enables compression for outgoing messages (if peer node has this feature enabled)
+	// Compression defines default compression options for the spawning processes.
 	Compression Compression
 
 	// Handshake defines a handshake handler. By default is using
@@ -236,12 +233,33 @@ type Options struct {
 	// Cloud enable Ergo Cloud support
 	Cloud Cloud
 
-	// Proxy enable proxy feature on this node. Disabling this option makes
-	// this node to reject any proxy request.
+	// Proxy options
 	Proxy Proxy
 
 	// System options for the system application
 	System System
+}
+
+type Listener struct {
+	// Cookie cookie for the incoming connection to this listener. Leave it empty in
+	// case of using the node's cookie.
+	Cookie string
+	// Listen defines a listening port number for accepting incoming connections.
+	Listen uint16
+	// ListenBegin and ListenEnd define a range of the port numbers where
+	// the node looking for available free port number for the listening.
+	// Default values 15000 and 65000 accordingly
+	ListenBegin uint16
+	ListenEnd   uint16
+	// Handshake if its nil the default TLS (Options.TLS) will be using
+	TLS *tls.Config
+	// Handshake if its nil the default Handshake (Options.Handshake) will be using
+	Handshake HandshakeInterface
+	// Proto if its nil the default Proto (Options.Proto) will be using
+	Proto ProtoInterface
+	// Flags defines option flags of this node for the incoming connection
+	// on this port. If its disabled the default Flags (Options.Flags) will be using
+	Flags Flags
 }
 
 type Cloud struct {

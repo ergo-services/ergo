@@ -38,5 +38,5 @@ func (ca *CloudApp) Load(args ...etf.Term) (gen.ApplicationSpec, error) {
 }
 
 func (ca *CloudApp) Start(p gen.Process, args ...etf.Term) {
-	lib.Log("CLOUD_CLIENT: Application started")
+	lib.Log("[%s] CLOUD_CLIENT: Application started", p.NodeName())
 }

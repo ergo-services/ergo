@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -35,7 +36,7 @@ type cloudClientState struct {
 type messageCloudClientConnect struct{}
 
 func (cc *cloudClient) Init(process *gen.ServerProcess, args ...etf.Term) error {
-	lib.Log("CLOUD_CLIENT: Init: %#v", args)
+	lib.Log("[%s] CLOUD_CLIENT: Init: %#v", process.NodeName(), args)
 	if len(args) == 0 {
 		return fmt.Errorf("no args to start cloud client")
 	}
@@ -65,7 +66,7 @@ func (cc *cloudClient) Init(process *gen.ServerProcess, args ...etf.Term) error 
 }
 
 func (cc *cloudClient) HandleCast(process *gen.ServerProcess, message etf.Term) gen.ServerStatus {
-	lib.Log("CLOUD_CLIENT: HandleCast: %#v", message)
+	lib.Log("[%s] CLOUD_CLIENT: HandleCast: %#v", process.NodeName(), message)
 	switch message.(type) {
 	case messageCloudClientConnect:
 		state := process.State.(*cloudClientState)
@@ -122,7 +123,7 @@ func (cc *cloudClient) HandleCast(process *gen.ServerProcess, message etf.Term) 
 }
 
 func (cc *cloudClient) HandleInfo(process *gen.ServerProcess, message etf.Term) gen.ServerStatus {
-	lib.Log("CLOUD_CLIENT: HandleInfo: %#v", message)
+	lib.Log("[%s] CLOUD_CLIENT: HandleInfo: %#v", process.NodeName(), message)
 	state := process.State.(*cloudClientState)
 
 	switch m := message.(type) {
@@ -162,22 +163,35 @@ func getCloudNodes() ([]CloudNode, error) {
 	if entries := strings.Fields(os.Getenv("ERGO_SERVICES_CLOUD")); len(entries) > 0 {
 		nodes := []CloudNode{}
 		for _, entry := range entries {
-			hostport := strings.Split(entry, ":")
-			if len(hostport) != 2 {
-				continue
-			}
-
-			port, err := strconv.Atoi(hostport[1])
-			if err != nil {
-				continue
-			}
-
+			re := regexp.MustCompile("[@:]+")
+			nameHostPort := re.Split(entry, -1)
+			name := "dist"
 			host := "localhost"
-			if hostport[0] != "" {
+			port := 4411
+			switch len(nameHostPort) {
+			case 2:
+				// either abc@def or abc:def
+				if p, err := strconv.Atoi(nameHostPort[1]); err == nil {
+					port = p
+				} else {
+					name = nameHostPort[0]
+					host = nameHostPort[1]
+				}
+			case 3:
+				if p, err := strconv.Atoi(nameHostPort[2]); err == nil {
+					port = p
+				} else {
+					continue
+				}
+				name = nameHostPort[0]
+				host = nameHostPort[1]
+
+			default:
+				continue
 			}
 
 			node := CloudNode{
-				Node:       "dist@" + host,
+				Node:       name + "@" + host,
 				Port:       uint16(port),
 				SkipVerify: true,
 			}
