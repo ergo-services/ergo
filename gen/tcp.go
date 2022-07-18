@@ -165,19 +165,19 @@ func (tcp *TCP) Terminate(process *ServerProcess, reason string) {
 // default TCP callbacks
 //
 
-// HandleWebCall
+// HandleTCPCall
 func (tcp *TCP) HandleTCPCall(process *TCPProcess, from ServerFrom, message etf.Term) (etf.Term, ServerStatus) {
 	lib.Warning("[gen.TCP] HandleTCPCall: unhandled message (from %#v) %#v", from, message)
 	return etf.Atom("ok"), ServerStatusOK
 }
 
-// HandleWebCast
+// HandleTCPCast
 func (tcp *TCP) HandleTCPCast(process *TCPProcess, message etf.Term) ServerStatus {
 	lib.Warning("[gen.TCP] HandleTCPCast: unhandled message %#v", message)
 	return ServerStatusOK
 }
 
-// HandleWebInfo
+// HandleTCPInfo
 func (tcp *TCP) HandleTCPInfo(process *TCPProcess, message etf.Term) ServerStatus {
 	lib.Warning("[gen.TCP] HandleTCPInfo: unhandled message %#v", message)
 	return ServerStatusOK

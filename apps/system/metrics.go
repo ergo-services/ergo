@@ -7,7 +7,6 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/binary"
-	"fmt"
 	"net"
 	"runtime"
 	"time"
@@ -52,7 +51,9 @@ type nodeFullStats struct {
 
 func (sb *systemMetrics) Init(process *gen.ServerProcess, args ...etf.Term) error {
 	lib.Log("[%s] SYSTEM_METRICS: Init: %#v", process.NodeName(), args)
-
+	if err := RegisterTypes(); err != nil {
+		return err
+	}
 	options := args[0].(node.System)
 	process.State = &systemMetricsState{}
 	if options.DisableAnonMetrics == false {
@@ -115,21 +116,34 @@ func sendAnonInfo(name string, ver node.Version) {
 	// FIXME get it back before the release
 	// nameHash := crc32.Checksum([]byte(name), lib.CRC32Q)
 	nameHash := name
-	data := fmt.Sprintf("1|%s|%s|%s|%d|%s|%s", nameHash, runtime.GOARCH, runtime.GOOS,
-		//data := fmt.Sprintf("1|%08X|%s|%s|%d|%s|%s", nameHash, runtime.GOARCH, runtime.GOOS,
-		runtime.NumCPU(), runtime.Version(), ver.Release)
+
+	b := lib.TakeBuffer()
+	defer lib.ReleaseBuffer(b)
+
+	message := MessageSystemAnonMetrics{
+		Name:           nameHash,
+		Arch:           runtime.GOARCH,
+		OS:             runtime.GOOS,
+		NumCPU:         runtime.NumCPU(),
+		RuntimeVersion: runtime.Version,
+		ErgoVersion:    ver.Release,
+	}
+	if err := etf.Encode(message, b, etf.EncodeOptions{}); err != nil {
+		return err
+	}
 
 	hash := sha256.New()
-	cipher, err := rsa.EncryptOAEP(hash, rand.Reader, pk, []byte(data), nil)
+	cipher, err := rsa.EncryptOAEP(hash, rand.Reader, pk, b.B, nil)
 	if err != nil {
 		return
 	}
 
-	// 2 (magic: 4411) + 2 (length) + len(cipher)
-	buf := make([]byte, 2+2+len(cipher))
-	binary.BigEndian.PutUint16(buf[0:2], uint16(4411))
-	binary.BigEndian.PutUint16(buf[2:4], uint16(len(cipher)))
-	copy(buf[4:], cipher)
+	// 2 (magic: 1144) + 2 (length) + len(cipher)
+	b.Reset()
+	b.Allocate(4)
+	b.Append(cipher)
+	binary.BigEndian.PutUint16(b.B[0:2], uint16(1144))
+	binary.BigEndian.PutUint16(b.B[2:4], uint16(len(cipher)))
 	c.Write(buf)
 }
 
