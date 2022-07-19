@@ -6,12 +6,12 @@ import (
 )
 
 type MessageSystemAnonMetrics struct {
-	Name           string
-	Arch           string
-	OS             string
-	NumCPU         int
-	RuntimeVersion string
-	ErgoVersion    string
+	Name        string
+	Arch        string
+	OS          string
+	NumCPU      int
+	GoVersion   string
+	ErgoVersion string
 }
 
 func RegisterTypes() error {

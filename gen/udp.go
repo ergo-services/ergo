@@ -29,7 +29,8 @@ var (
 	UDPStatusOK   UDPStatus
 	UDPStatusStop UDPStatus = fmt.Errorf("stop")
 
-	defaultDeadlineTimeout int = 3
+	defaultUDPDeadlineTimeout int = 3
+	defaultUDPQueueLength     int = 10
 )
 
 type UDP struct {
@@ -44,6 +45,7 @@ type UDPOptions struct {
 	NumHandlers     int
 	IdleTimeout     int
 	DeadlineTimeout int
+	QueueLength     int
 	MaxPacketSize   int
 	ExtraHandlers   bool
 }
@@ -89,6 +91,10 @@ func (udp *UDP) Init(process *ServerProcess, args ...etf.Term) error {
 		return fmt.Errorf("handler must be defined")
 	}
 
+	if options.QueueLength == 0 {
+		options.QueueLength = defaultUDPQueueLength
+	}
+
 	udpProcess.options = options
 	if err := udpProcess.initHandlers(); err != nil {
 		return err
@@ -100,7 +106,7 @@ func (udp *UDP) Init(process *ServerProcess, args ...etf.Term) error {
 	if options.DeadlineTimeout < 1 {
 		// we need to check the context if it was canceled to stop
 		// reading and close the connection socket
-		options.DeadlineTimeout = defaultDeadlineTimeout
+		options.DeadlineTimeout = defaultUDPDeadlineTimeout
 	}
 
 	lc := net.ListenConfig{}
@@ -120,7 +126,7 @@ func (udp *UDP) Init(process *ServerProcess, args ...etf.Term) error {
 }
 func (udp *UDP) Terminate(process *ServerProcess, reason string) {
 	p := process.State.(*UDPProcess)
-	p.listener.Close()
+	p.packetConn.Close()
 	p.behavior.HandleUDPTerminate(p, reason)
 }
 
@@ -176,8 +182,8 @@ func (udpp *UDPProcess) initHandlers() error {
 
 func (udpp *UDPProcess) startHandler(id int, idleTimeout int) Process {
 	opts := ProcessOptions{
-		Context:       udpp.Context(),
-		DirectboxSize: uint16(udpp.options.QueueLength),
+		Context:     udpp.Context(),
+		MailboxSize: uint16(udpp.options.QueueLength),
 	}
 
 	optsHandler := optsUDPHandler{id: id, idleTimeout: idleTimeout}
@@ -189,14 +195,14 @@ func (udpp *UDPProcess) startHandler(id int, idleTimeout int) Process {
 	return p
 }
 
-func (udpp *UDPProcess) serve(process *gen.ServerProcess) {
+func (udpp *UDPProcess) serve() {
 	defer func() {
 		udpp.packetConn.Close()
 	}()
 
-	ctx := process.Context()
+	ctx := udpp.Context()
 	deadlineTimeout := time.Second * time.Duration(udpp.options.DeadlineTimeout)
-	buf := make([]byte, packetMaxLength)
+	buf := make([]byte, udpp.options.MaxPacketSize)
 	stopserve := false
 
 	l := uint64(udpp.options.NumHandlers)
@@ -211,7 +217,7 @@ func (udpp *UDPProcess) serve(process *gen.ServerProcess) {
 			return nil
 		}
 		deadline := false
-		if err := c.SetReadDeadline(time.Now().Add(deadlineTimeout)); err == nil {
+		if err := udpp.packetConn.SetReadDeadline(time.Now().Add(deadlineTimeout)); err == nil {
 			deadline = true
 		}
 		//buf = buf[:0]
@@ -227,5 +233,13 @@ func (udpp *UDPProcess) serve(process *gen.ServerProcess) {
 			fmt.Println("GOT ERR", a, err)
 		}
 
+		packet = messageUDPHandlerPacket{}
+		break
+	}
+
+	for a := uint64(0); a < l; a++ {
+		if ctx.Err() != nil {
+			return nil
+		}
 	}
 }

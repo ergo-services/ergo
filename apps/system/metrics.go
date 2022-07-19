@@ -121,12 +121,12 @@ func sendAnonInfo(name string, ver node.Version) {
 	defer lib.ReleaseBuffer(b)
 
 	message := MessageSystemAnonMetrics{
-		Name:           nameHash,
-		Arch:           runtime.GOARCH,
-		OS:             runtime.GOOS,
-		NumCPU:         runtime.NumCPU(),
-		RuntimeVersion: runtime.Version,
-		ErgoVersion:    ver.Release,
+		Name:        nameHash,
+		Arch:        runtime.GOARCH,
+		OS:          runtime.GOOS,
+		NumCPU:      runtime.NumCPU(),
+		GoVersion:   runtime.Version,
+		ErgoVersion: ver.Release,
 	}
 	if err := etf.Encode(message, b, etf.EncodeOptions{}); err != nil {
 		return err

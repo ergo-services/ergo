@@ -12,7 +12,7 @@ type UDPHandlerBehavior interface {
 	ServerBehavior
 
 	// Mandatory callback
-	HandlePacket(process *UDPHandlerProcess, packet []byte, conn *UDPConnection)
+	HandlePacket(process *UDPHandlerProcess, data []byte, packet *UDPPacket)
 
 	// Optional callbacks
 	HandleTimeout(process *UDPHandlerProcess)
