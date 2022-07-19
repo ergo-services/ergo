@@ -125,11 +125,11 @@ func sendAnonInfo(name string, ver node.Version) {
 		Arch:        runtime.GOARCH,
 		OS:          runtime.GOOS,
 		NumCPU:      runtime.NumCPU(),
-		GoVersion:   runtime.Version,
+		GoVersion:   runtime.Version(),
 		ErgoVersion: ver.Release,
 	}
 	if err := etf.Encode(message, b, etf.EncodeOptions{}); err != nil {
-		return err
+		return
 	}
 
 	hash := sha256.New()
@@ -144,7 +144,7 @@ func sendAnonInfo(name string, ver node.Version) {
 	b.Append(cipher)
 	binary.BigEndian.PutUint16(b.B[0:2], uint16(1144))
 	binary.BigEndian.PutUint16(b.B[2:4], uint16(len(cipher)))
-	c.Write(buf)
+	c.Write(b.B)
 }
 
 func gatherStats(process *gen.ServerProcess) nodeFullStats {

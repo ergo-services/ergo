@@ -12,7 +12,7 @@ type UDPHandlerBehavior interface {
 	ServerBehavior
 
 	// Mandatory callback
-	HandlePacket(process *UDPHandlerProcess, data []byte, packet *UDPPacket)
+	HandlePacket(process *UDPHandlerProcess, data []byte, packet UDPPacket)
 
 	// Optional callbacks
 	HandleTimeout(process *UDPHandlerProcess)
@@ -44,6 +44,7 @@ type messageUDPHandlerIdleCheck struct{}
 type messageUDPHandlerPacket struct {
 	data   *lib.Buffer
 	packet UDPPacket
+	n      int
 }
 type messageUDPHandlerTimeout struct{}
 
@@ -91,14 +92,14 @@ func (udph *UDPHandler) HandleCast(process *ServerProcess, message etf.Term) Ser
 			return ServerStatusStop
 		}
 		process.CastAfter(process.Self(), messageUDPHandlerIdleCheck{}, 5*time.Second)
+
 	case messageUDPHandlerPacket:
 		udpp.lastPacket = time.Now().Unix()
-		tcpp.behavior.HandlePacket(tcpp, m.data.B, m.packet)
+		udpp.behavior.HandlePacket(udpp, m.data.B[:m.n], m.packet)
 		lib.ReleaseBuffer(m.data)
 
 	case messageUDPHandlerTimeout:
-		fmt.Println("UDP SOCKET TIMEOUT")
-		tcpp.behavior.HandleTimeout(tcpp)
+		udpp.behavior.HandleTimeout(udpp)
 
 	default:
 		return udpp.behavior.HandleUDPHandlerCast(udpp, message)
@@ -120,7 +121,7 @@ func (udph *UDPHandler) Terminate(process *ServerProcess, reason string) {
 // default callbacks
 //
 
-func (udph *UDPHandler) HandleTimeout(process *UDPHandlerProcess, conn *UDPConnection) {
+func (udph *UDPHandler) HandleTimeout(process *UDPHandlerProcess) {
 	return
 }
 

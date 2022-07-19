@@ -31,6 +31,7 @@ var (
 
 	defaultUDPDeadlineTimeout int = 3
 	defaultUDPQueueLength     int = 10
+	defaultUDPMaxPacketSize       = int(65000)
 )
 
 type UDP struct {
@@ -95,6 +96,16 @@ func (udp *UDP) Init(process *ServerProcess, args ...etf.Term) error {
 		options.QueueLength = defaultUDPQueueLength
 	}
 
+	if options.DeadlineTimeout < 1 {
+		// we need to check the context if it was canceled to stop
+		// reading and close the connection socket
+		options.DeadlineTimeout = defaultUDPDeadlineTimeout
+	}
+
+	if options.MaxPacketSize == 0 {
+		options.MaxPacketSize = defaultUDPMaxPacketSize
+	}
+
 	udpProcess.options = options
 	if err := udpProcess.initHandlers(); err != nil {
 		return err
@@ -103,14 +114,8 @@ func (udp *UDP) Init(process *ServerProcess, args ...etf.Term) error {
 	if options.Port == 0 {
 		return fmt.Errorf("UDP port must be defined")
 	}
-	if options.DeadlineTimeout < 1 {
-		// we need to check the context if it was canceled to stop
-		// reading and close the connection socket
-		options.DeadlineTimeout = defaultUDPDeadlineTimeout
-	}
 
 	lc := net.ListenConfig{}
-	ctx := process.Context()
 	hostPort := net.JoinHostPort("", strconv.Itoa(int(options.Port)))
 	pconn, err := lc.ListenPacket(process.Context(), "udp", hostPort)
 	if err != nil {
@@ -196,14 +201,17 @@ func (udpp *UDPProcess) startHandler(id int, idleTimeout int) Process {
 }
 
 func (udpp *UDPProcess) serve() {
-	defer func() {
-		udpp.packetConn.Close()
-	}()
+	var handlerProcess Process
+	var handlerProcessID int
+	var packet interface{}
+	defer udpp.packetConn.Close()
+
+	writer := &writer{
+		pconn: udpp.packetConn,
+	}
 
 	ctx := udpp.Context()
 	deadlineTimeout := time.Second * time.Duration(udpp.options.DeadlineTimeout)
-	buf := make([]byte, udpp.options.MaxPacketSize)
-	stopserve := false
 
 	l := uint64(udpp.options.NumHandlers)
 	// make round robin using the counter value
@@ -212,34 +220,82 @@ func (udpp *UDPProcess) serve() {
 	handlerProcessID = int(cnt % l)
 	handlerProcess = *(*Process)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&udpp.pool[handlerProcessID]))))
 
+nextPacket:
 	for {
 		if ctx.Err() != nil {
-			return nil
+			return
 		}
 		deadline := false
 		if err := udpp.packetConn.SetReadDeadline(time.Now().Add(deadlineTimeout)); err == nil {
 			deadline = true
 		}
-		//buf = buf[:0]
-		n, a, err := udpp.packetConn.ReadFrom(buf)
+		buf := lib.TakeBuffer()
+		buf.Allocate(udpp.options.MaxPacketSize)
+		n, a, err := udpp.packetConn.ReadFrom(buf.B)
 		if n == 0 {
-			if err, ok := e.(net.Error); deadline && ok && err.Timeout() {
+			if err, ok := err.(net.Error); deadline && ok && err.Timeout() {
 				packet = messageUDPHandlerTimeout{}
 				break
 			}
-			stopserve = true
+			// stop serving and close this socket
+			return
 		}
 		if err != nil {
-			fmt.Println("GOT ERR", a, err)
+			lib.Warning("[gen.UDP] got error on receiving packet from %q: %s", a, err)
 		}
 
-		packet = messageUDPHandlerPacket{}
+		writer.addr = a
+		packet = messageUDPHandlerPacket{
+			data: buf,
+			packet: UDPPacket{
+				Addr:   a,
+				Socket: writer,
+			},
+			n: n,
+		}
 		break
 	}
 
+retry:
 	for a := uint64(0); a < l; a++ {
 		if ctx.Err() != nil {
-			return nil
+			return
 		}
+
+		err := udpp.Cast(handlerProcess.Self(), packet)
+		switch err {
+		case nil:
+			break
+		case lib.ErrProcessUnknown:
+			if handlerProcessID == -1 {
+				// it was an extra handler do not restart. try to use the existing one
+				cnt = atomic.AddUint64(&udpp.counter, 1)
+				handlerProcessID = int(cnt % l)
+				handlerProcess = *(*Process)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&udpp.pool[handlerProcessID]))))
+				goto retry
+			}
+
+			// respawn terminated process
+			handlerProcess = udpp.startHandler(handlerProcessID, udpp.options.IdleTimeout)
+			atomic.SwapPointer((*unsafe.Pointer)(unsafe.Pointer(&udpp.pool[handlerProcessID])), unsafe.Pointer(&handlerProcess))
+			continue
+
+		case lib.ErrProcessBusy:
+			handlerProcessID = int((a + cnt) % l)
+			handlerProcess = *(*Process)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&udpp.pool[handlerProcessID]))))
+			continue
+		default:
+			lib.Warning("[gen.UDP] error on handling packet %#v: %s", packet, err)
+		}
+		goto nextPacket
 	}
+}
+
+type writer struct {
+	pconn net.PacketConn
+	addr  net.Addr
+}
+
+func (w *writer) Write(data []byte) (int, error) {
+	return w.pconn.WriteTo(data, w.addr)
 }
