@@ -20,8 +20,12 @@ A supervisor is responsible for starting, stopping, and monitoring its child pro
 ### TCP
   Socket acceptor pool for TCP protocols.
 
-  This behavior aims to provide everything you need to accept TCP connections and process packets with a small code base and low latency while being easy to use
+  This behavior aims to provide everything you need to accept TCP connections and process packets with a small code base and low latency while being easy to use.
 
+### UDP
+  UDP acceptor pool for UDP protocols
+
+  This behavior provides the same feature set as TCP but for handling UDP packets using pool of handlers.
 
 ### Stage
   Generic stage behavior (originated from Elixir's [GenStage](https://hexdocs.pm/gen_stage/GenStage.html)).
