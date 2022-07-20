@@ -10,8 +10,8 @@ This example implements a simple application that starts one server and one supe
     |     - demoServer01
     |     - demoServer02
     |     - demoServer03
-	|
-	 - demoServer
+    |
+     - demoServer
 ```
 
 Here is output of this example:
