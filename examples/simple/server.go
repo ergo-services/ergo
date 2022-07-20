@@ -20,7 +20,7 @@ func (s *simple) HandleInfo(process *gen.ServerProcess, message etf.Term) gen.Se
 		return gen.ServerStatusStop
 	}
 	// sending message with delay 1 second
-	fmt.Println("increase this value by 1 and it to itself")
+	fmt.Println("increase this value by 1 and send it to itself again")
 	process.SendAfter(process.Self(), value+1, time.Second)
 	return gen.ServerStatusOK
 }
