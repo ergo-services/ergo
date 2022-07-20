@@ -280,8 +280,6 @@ retry:
 		nbytesInt, err := handlerProcess.DirectWithTimeout(packet, defaultDirectTimeout)
 		switch err {
 		case TCPHandlerStatusOK:
-			b.Reset()
-		case TCPHandlerStatusNext:
 			if disconnect {
 				return disconnectError
 			}

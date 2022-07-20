@@ -14,7 +14,6 @@ type TCPHandlerStatus error
 
 var (
 	TCPHandlerStatusOK    TCPHandlerStatus = nil
-	TCPHandlerStatusNext  TCPHandlerStatus = fmt.Errorf("next")
 	TCPHandlerStatusClose TCPHandlerStatus = fmt.Errorf("close")
 
 	defaultQueueLength = 10

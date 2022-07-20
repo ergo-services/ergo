@@ -38,14 +38,14 @@ func (r *testTCPHandler) HandlePacket(process *gen.TCPHandlerProcess, packet []b
 			left:  l,
 			await: 10 - l,
 		}
-		return l, 10 - l, gen.TCPHandlerStatusNext
+		return l, 10 - l, gen.TCPHandlerStatusOK
 	}
 	if l > 10 {
 		resChan <- messageTestTCPStatusNext{
 			left:  l % 10,
 			await: 10 - (l % 10),
 		}
-		return l % 10, 10 - (l % 10), gen.TCPHandlerStatusNext
+		return l % 10, 10 - (l % 10), gen.TCPHandlerStatusOK
 	}
 	resChan <- packet
 	return 0, 0, gen.TCPHandlerStatusOK
