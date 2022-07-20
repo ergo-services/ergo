@@ -1,4 +1,4 @@
-## Simple demo scenario ##
+## Server demo scenario ##
 
 This example implements simple server which sends a message to itself.
 
