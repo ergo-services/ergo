@@ -11,6 +11,7 @@ import (
 
 func main() {
 	flag.Parse()
+
 	fmt.Println("")
 	fmt.Println("to stop press Ctrl-C")
 	fmt.Println("")
