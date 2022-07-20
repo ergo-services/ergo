@@ -34,5 +34,5 @@ func (da *demoApp) Load(args ...etf.Term) (gen.ApplicationSpec, error) {
 }
 
 func (da *demoApp) Start(process gen.Process, args ...etf.Term) {
-	fmt.Println("Application started!")
+	fmt.Printf("Application started with Pid %s!\n", process.Self())
 }

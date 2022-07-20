@@ -40,5 +40,6 @@ Started new process
         Name: "demoServer"
         Parent: <1A1F7F53.0.1011>
         Args:[]etf.Term(nil)
-Application started!
+Application started with Pid <1A1F7F53.0.1011>!
+
 ```
