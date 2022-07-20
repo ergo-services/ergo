@@ -1,6 +1,6 @@
 ## UDP demo scenario ##
 
-This example implements a simple application that starts the child process udpServer
+This example implements a simple application that starts the child process with UDP server
 
 Here is output of this example:
 ```
