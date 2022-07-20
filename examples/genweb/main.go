@@ -16,8 +16,8 @@ var (
 )
 
 func init() {
-	flag.IntVar(&WebListenPort, "port", 0, "listen port number. Default port 8080, for TLS 8443")
-	flag.StringVar(&WebListenHost, "host", "", "listen on host")
+	flag.IntVar(&WebListenPort, "port", 8080, "listen port number. Default port 8080, for TLS 8443")
+	flag.StringVar(&WebListenHost, "host", "localhost", "listen on host")
 	flag.BoolVar(&WebEnableTLS, "tls", false, "enable TLS")
 }
 
