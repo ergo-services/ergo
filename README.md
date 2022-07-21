@@ -74,8 +74,8 @@ Here are the changes of latest release. For more details see the [ChangeLog](Cha
 * Predefined set of errors has moved to lib package
 * Updated `gen.ServerBehavior.HandleDirect` method (got extra argument `etf.Ref` to distinguish the requests). This change allows you to handle these requests asynchronously using method `gen.ServerProcess.Reply(...)`
 * Updated `node.Options`. Now it has field `Listeners` (type `node.Listener`). It allows you to start any number of listeners with custom options - `Port`, `TLS` settings, or custom `Handshake`/`Proto` interfaces
-* fixed build on 32-bit arch
-* fix freezing on ARM arch #102
+* Fixed build on 32-bit arch
+* Fixed freezing on ARM arch #102
 * Fixed problem with encoding negative int8
 * Fixed #103 (there was an issue on interop with Elixir's GenStage)
 * Fixed node stuck on start if it uses the name which is already taken in EPMD
