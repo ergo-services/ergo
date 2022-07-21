@@ -4,49 +4,12 @@ import (
 	"context"
 	"crypto/cipher"
 	"crypto/tls"
-	"fmt"
-	"io"
+	"net"
 	"time"
 
 	"github.com/ergo-services/ergo/etf"
 	"github.com/ergo-services/ergo/gen"
 	"github.com/ergo-services/ergo/lib"
-)
-
-var (
-	ErrAppAlreadyLoaded     = fmt.Errorf("application is already loaded")
-	ErrAppAlreadyStarted    = fmt.Errorf("application is already started")
-	ErrAppUnknown           = fmt.Errorf("unknown application name")
-	ErrAppIsNotRunning      = fmt.Errorf("application is not running")
-	ErrNameUnknown          = fmt.Errorf("unknown name")
-	ErrNameOwner            = fmt.Errorf("not an owner")
-	ErrProcessBusy          = fmt.Errorf("process is busy")
-	ErrProcessUnknown       = fmt.Errorf("unknown process")
-	ErrProcessIncarnation   = fmt.Errorf("process ID belongs to the previous incarnation")
-	ErrProcessTerminated    = fmt.Errorf("process terminated")
-	ErrMonitorUnknown       = fmt.Errorf("unknown monitor reference")
-	ErrSenderUnknown        = fmt.Errorf("unknown sender")
-	ErrBehaviorUnknown      = fmt.Errorf("unknown behavior")
-	ErrBehaviorGroupUnknown = fmt.Errorf("unknown behavior group")
-	ErrAliasUnknown         = fmt.Errorf("unknown alias")
-	ErrAliasOwner           = fmt.Errorf("not an owner")
-	ErrNoRoute              = fmt.Errorf("no route to node")
-	ErrTaken                = fmt.Errorf("resource is taken")
-	ErrTimeout              = fmt.Errorf("timed out")
-	ErrFragmented           = fmt.Errorf("fragmented data")
-
-	ErrUnsupported     = fmt.Errorf("not supported")
-	ErrPeerUnsupported = fmt.Errorf("peer does not support this feature")
-
-	ErrProxyUnknownRequest   = fmt.Errorf("unknown proxy request")
-	ErrProxyTransitDisabled  = fmt.Errorf("proxy feature disabled")
-	ErrProxyNoRoute          = fmt.Errorf("no proxy route to node")
-	ErrProxyConnect          = fmt.Errorf("can't establish proxy connection")
-	ErrProxyHopExceeded      = fmt.Errorf("proxy hop is exceeded")
-	ErrProxyLoopDetected     = fmt.Errorf("proxy loop detected")
-	ErrProxyPathTooLong      = fmt.Errorf("proxy path too long")
-	ErrProxySessionUnknown   = fmt.Errorf("unknown session id")
-	ErrProxySessionDuplicate = fmt.Errorf("session is already exist")
 )
 
 const (
@@ -56,18 +19,23 @@ const (
 	defaultKeepAlivePeriod time.Duration = 15
 	defaultProxyPathLimit  int           = 32
 
+	DefaultProcessMailboxSize   int = 100
+	DefaultProcessDirectboxSize int = 10
+
 	EnvKeyVersion     gen.EnvKey = "ergo:Version"
 	EnvKeyNode        gen.EnvKey = "ergo:Node"
 	EnvKeyRemoteSpawn gen.EnvKey = "ergo:RemoteSpawn"
 
 	DefaultProtoRecvQueueLength   int = 100
 	DefaultProtoSendQueueLength   int = 100
-	DefaultProroFragmentationUnit int = 65000
+	DefaultProtoFragmentationUnit int = 65000
 
 	DefaultCompressionLevel     int = -1
 	DefaultCompressionThreshold int = 1024
 
 	DefaultProxyMaxHop int = 8
+
+	EventNetwork gen.Event = "network"
 )
 
 type Node interface {
@@ -123,27 +91,37 @@ type Node interface {
 	// StaticRoute returns Route for the given name. Returns false if it doesn't exist.
 	StaticRoute(name string) (Route, bool)
 
-	AddProxyRoute(name string, proxy ProxyRoute) error
+	AddProxyRoute(proxy ProxyRoute) error
 	RemoveProxyRoute(name string) bool
+	// ProxyRoutes returns list of proxy routes added using AddProxyRoute
 	ProxyRoutes() []ProxyRoute
+	// ProxyRoute returns proxy route added using AddProxyRoute
 	ProxyRoute(name string) (ProxyRoute, bool)
 
 	// Resolve
-	Resolve(peername string) (Route, error)
+	Resolve(node string) (Route, error)
+	// ResolveProxy resolves proxy route. Checks for the proxy route added using AddProxyRoute.
+	// If it wasn't found makes request to the registrar.
+	ResolveProxy(node string) (ProxyRoute, error)
 
 	// Connect sets up a connection to node
-	Connect(nodename string) error
+	Connect(node string) error
 	// Disconnect close connection to the node
-	Disconnect(nodename string) error
+	Disconnect(node string) error
 	// Nodes returns the list of connected nodes
 	Nodes() []string
 	// NodesIndirect returns the list of nodes connected via proxies
 	NodesIndirect() []string
+	// NetworkStats returns network statistics of the connection with the node. Returns error
+	// ErrUnknown if connection with given node is not established.
+	NetworkStats(name string) (NetworkStats, error)
 
 	Links(process etf.Pid) []etf.Pid
 	Monitors(process etf.Pid) []etf.Pid
 	MonitorsByName(process etf.Pid) []gen.ProcessID
 	MonitoredBy(process etf.Pid) []etf.Pid
+
+	Stats() NodeStats
 
 	Stop()
 	Wait()
@@ -223,28 +201,25 @@ type Options struct {
 	// Creation. Default value: uint32(time.Now().Unix())
 	Creation uint32
 
-	// Flags defines enabled options for the running node
+	// Listeners node can have multiple listening interface at once. If this list is empty
+	// the default listener will be using. Only the first listener will be registered on
+	// the Registrar
+	Listeners []Listener
+
+	// Flags defines option flags of this node for the outgoing connection
 	Flags Flags
 
-	// Listen defines a listening port number for accepting incoming connections.
-	Listen uint16
-	// ListenBegin and ListenEnd define a range of the port numbers where
-	// the node looking for available free port number for the listening.
-	// Default values 15000 and 65000 accordingly
-	ListenBegin uint16
-	ListenEnd   uint16
-
 	// TLS settings
-	TLS TLS
+	TLS *tls.Config
 
 	// StaticRoutesOnly disables resolving service (default is EPMD client) and
 	// makes resolving localy only for nodes added using gen.AddStaticRoute
 	StaticRoutesOnly bool
 
-	// Resolver defines a resolving service (default is EPMD service, client and server)
-	Resolver Resolver
+	// Registrar defines a registrar service (default is EPMD service, client and server)
+	Registrar Registrar
 
-	// Compression enables compression for outgoing messages (if peer node has this feature enabled)
+	// Compression defines default compression options for the spawning processes.
 	Compression Compression
 
 	// Handshake defines a handshake handler. By default is using
@@ -255,33 +230,61 @@ type Options struct {
 	// DIST proto created with dist.CreateProto(...)
 	Proto ProtoInterface
 
-	// Proxy enable proxy feature on this node. Disabling this option makes
-	// this node to reject any proxy request.
+	// Cloud enable Ergo Cloud support
+	Cloud Cloud
+
+	// Proxy options
 	Proxy Proxy
+
+	// System options for the system application
+	System System
 }
 
-type TLS struct {
-	Enable     bool
-	Server     tls.Certificate
-	Client     tls.Certificate
-	SkipVerify bool
+type Listener struct {
+	// Cookie cookie for the incoming connection to this listener. Leave it empty in
+	// case of using the node's cookie.
+	Cookie string
+	// Listen defines a listening port number for accepting incoming connections.
+	Listen uint16
+	// ListenBegin and ListenEnd define a range of the port numbers where
+	// the node looking for available free port number for the listening.
+	// Default values 15000 and 65000 accordingly
+	ListenBegin uint16
+	ListenEnd   uint16
+	// Handshake if its nil the default TLS (Options.TLS) will be using
+	TLS *tls.Config
+	// Handshake if its nil the default Handshake (Options.Handshake) will be using
+	Handshake HandshakeInterface
+	// Proto if its nil the default Proto (Options.Proto) will be using
+	Proto ProtoInterface
+	// Flags defines option flags of this node for the incoming connection
+	// on this port. If its disabled the default Flags (Options.Flags) will be using
+	Flags Flags
 }
 
 type Cloud struct {
-	Enable bool
-	ID     string
-	Cookie string
+	Enable  bool
+	Cluster string
+	Cookie  string
+	Flags   CloudFlags
+	Timeout time.Duration
 }
 
 type Proxy struct {
+	// Transit allows to use this node as a proxy
 	Transit bool
-	Flags   ProxyFlags
-	Cookie  string // set cookie for incoming connection
-	Routes  map[string]ProxyRoute
+	// Accept incoming proxy connections
+	Accept bool
+	// Cookie sets cookie for incoming connections
+	Cookie string
+	// Flags sets options for incoming connections
+	Flags ProxyFlags
+	// Routes sets options for outgoing connections
+	Routes map[string]ProxyRoute
 }
 
-type Metrics struct {
-	Disable bool
+type System struct {
+	DisableAnonMetrics bool
 }
 
 type Compression struct {
@@ -331,6 +334,7 @@ type ConnectionInterface interface {
 	ProxyPacket(packet *lib.Buffer) error
 
 	Creation() uint32
+	Stats() NetworkStats
 }
 
 // Handshake template struct for the custom Handshake implementation
@@ -340,14 +344,19 @@ type Handshake struct {
 
 // Handshake defines handshake interface
 type HandshakeInterface interface {
+	// Mandatory:
+
 	// Init initialize handshake.
 	Init(nodename string, creation uint32, flags Flags) error
+
+	// Optional:
+
 	// Start initiates handshake process. Argument tls means the connection is wrapped by TLS
 	// Returns the name of connected peer, Flags and Creation wrapped into HandshakeDetails struct
-	Start(conn io.ReadWriter, tls bool, cookie string) (HandshakeDetails, error)
+	Start(remote net.Addr, conn lib.NetReadWriter, tls bool, cookie string) (HandshakeDetails, error)
 	// Accept accepts handshake process initiated by another side of this connection.
 	// Returns the name of connected peer, Flags and Creation wrapped into HandshakeDetails struct
-	Accept(conn io.ReadWriter, tls bool, cookie string) (HandshakeDetails, error)
+	Accept(remote net.Addr, conn lib.NetReadWriter, tls bool, cookie string) (HandshakeDetails, error)
 	// Version handshake version. Must be implemented if this handshake is going to be used
 	// for the accepting connections (this method is used in registration on the Resolver)
 	Version() HandshakeVersion
@@ -355,11 +364,20 @@ type HandshakeInterface interface {
 
 // HandshakeDetails
 type HandshakeDetails struct {
-	Name     string
-	Flags    Flags
+	// Name node name
+	Name string
+	// Flags node flags
+	Flags Flags
+	// Creation
 	Creation uint32
-	Version  int
-	Custom   HandshakeCustomDetails
+	// Version
+	Version int
+	// NumHandlers defines the number of readers/writers per connection. Default value is provided by ProtoOptions
+	NumHandlers int
+	// AtomMapping
+	AtomMapping etf.AtomMapping
+	// Custom allows passing the custom data to the ProtoInterface.Start
+	Custom HandshakeCustomDetails
 }
 
 type HandshakeCustomDetails interface{}
@@ -374,7 +392,7 @@ type Proto struct {
 // Proto defines proto interface for the custom Proto implementation
 type ProtoInterface interface {
 	// Init initialize connection handler
-	Init(ctx context.Context, conn io.ReadWriter, nodename string, details HandshakeDetails) (ConnectionInterface, error)
+	Init(ctx context.Context, conn lib.NetReadWriter, nodename string, details HandshakeDetails) (ConnectionInterface, error)
 	// Serve connection
 	Serve(connection ConnectionInterface, router CoreRouter)
 	// Terminate invoked once Serve callback is finished
@@ -420,24 +438,33 @@ type Flags struct {
 	EnableCompression bool
 	// Proxy enables support for incoming proxy connection
 	EnableProxy bool
-	// Software keepalive enables sending keep alive messages if node doesn't support
-	// TCPConn.SetKeepAlive(true). For erlang peers this flag is mandatory.
-	EnableSoftwareKeepAlive bool
 }
 
-// Resolver defines resolving interface
-type Resolver interface {
-	Register(ctx context.Context, nodename string, port uint16, options ResolverOptions) error
+// Registrar defines registrar interface
+type Registrar interface {
+	Register(ctx context.Context, nodename string, options RegisterOptions) error
+	RegisterProxy(nodename string, maxhop int, flags ProxyFlags) error
+	UnregisterProxy(peername string) error
 	Resolve(peername string) (Route, error)
+	ResolveProxy(peername string) (ProxyRoute, error)
+	Config() (RegistrarConfig, error)
 }
 
-// ResolverOptions defines resolving options
-type ResolverOptions struct {
+type RegistrarConfig struct {
+	Version int
+	Config  map[string]etf.Term
+}
+
+// RegisterOptions defines resolving options
+type RegisterOptions struct {
+	Port              uint16
+	Creation          uint32
 	NodeVersion       Version
 	HandshakeVersion  HandshakeVersion
 	EnableTLS         bool
 	EnableProxy       bool
 	EnableCompression bool
+	Proxy             string
 }
 
 // Route
@@ -451,20 +478,28 @@ type Route struct {
 // RouteOptions
 type RouteOptions struct {
 	Cookie    string
-	EnableTLS bool
+	TLS       *tls.Config
 	IsErgo    bool
-	Cert      tls.Certificate
 	Handshake HandshakeInterface
 	Proto     ProtoInterface
-	Custom    CustomRouteOptions
 }
 
 // ProxyRoute
 type ProxyRoute struct {
+	// Name can be either nodename (example@domain) or domain (@domain)
+	Name   string
 	Proxy  string
 	Cookie string
 	Flags  ProxyFlags
 	MaxHop int // DefaultProxyMaxHop == 8
+}
+
+// CloudFlags
+type CloudFlags struct {
+	Enable              bool
+	EnableIntrospection bool
+	EnableMetrics       bool
+	EnableRemoteSpawn   bool
 }
 
 // ProxyFlags
@@ -526,5 +561,38 @@ type ProxySession struct {
 	Block     cipher.Block // made from symmetric key
 }
 
-// CustomRouteOptions a custom set of route options
-type CustomRouteOptions interface{}
+type NetworkStats struct {
+	NodeName        string
+	BytesIn         uint64
+	BytesOut        uint64
+	TransitBytesIn  uint64
+	TransitBytesOut uint64
+	MessagesIn      uint64
+	MessagesOut     uint64
+}
+
+type NodeStats struct {
+	TotalProcesses    uint64
+	TotalReferences   uint64
+	RunningProcesses  uint64
+	RegisteredNames   uint64
+	RegisteredAliases uint64
+
+	MonitorsByPid  uint64
+	MonitorsByName uint64
+	MonitorsNodes  uint64
+	Links          uint64
+
+	LoadedApplications  uint64
+	RunningApplications uint64
+
+	NetworkConnections uint64
+	ProxyConnections   uint64
+	TransitConnections uint64
+}
+
+type MessageEventNetwork struct {
+	PeerName string
+	Online   bool
+	Proxy    bool
+}

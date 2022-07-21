@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 
 	"github.com/ergo-services/ergo"
@@ -9,6 +10,12 @@ import (
 )
 
 func main() {
+	flag.Parse()
+
+	fmt.Println("")
+	fmt.Println("to stop press Ctrl-C")
+	fmt.Println("")
+
 	// create nodes for producer and consumers
 	fmt.Println("Starting nodes 'node_abc@localhost' and 'node_def@localhost'")
 	node_abc, _ := ergo.StartNode("node_abc@localhost", "cookies", node.Options{})

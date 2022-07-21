@@ -157,15 +157,7 @@ func (sv *Supervisor) ProcessLoop(ps ProcessState, started chan<- bool) string {
 
 		case direct := <-chs.Direct:
 			value, err := handleDirect(ps, spec, direct.Message)
-			if err != nil {
-				direct.Message = nil
-				direct.Err = err
-				direct.Reply <- direct
-				continue
-			}
-			direct.Message = value
-			direct.Err = nil
-			direct.Reply <- direct
+			ps.PutSyncReply(direct.Ref, value, err)
 
 		case <-chs.Mailbox:
 			// do nothing
@@ -225,6 +217,11 @@ func startChild(supervisor Process, name string, child ProcessBehavior, opts Pro
 	if leader := supervisor.GroupLeader(); leader != nil {
 		opts.GroupLeader = leader
 	}
+
+	// Child process shouldn't ignore supervisor termination (via TrapExit).
+	// Using the supervisor's Context makes the child terminate if the supervisor is terminated.
+	opts.Context = supervisor.Context()
+
 	process, err := supervisor.Spawn(name, opts, child, args...)
 
 	if err != nil {
@@ -267,7 +264,7 @@ func handleDirect(supervisor Process, spec *SupervisorSpec, message interface{})
 	default:
 	}
 
-	return nil, ErrUnsupportedRequest
+	return nil, lib.ErrUnsupportedRequest
 }
 
 func handleMessageExit(p Process, exit ProcessGracefulExitRequest, spec *SupervisorSpec, wait []etf.Pid) []etf.Pid {

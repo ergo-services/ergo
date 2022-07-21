@@ -9,6 +9,7 @@ import (
 	"github.com/ergo-services/ergo"
 	"github.com/ergo-services/ergo/etf"
 	"github.com/ergo-services/ergo/gen"
+	"github.com/ergo-services/ergo/lib"
 	"github.com/ergo-services/ergo/node"
 )
 
@@ -27,7 +28,7 @@ func (a *testApplication) Load(args ...etf.Term) (gen.ApplicationSpec, error) {
 		Name:        name,
 		Description: "My Test Applicatoin",
 		Version:     "v.0.1",
-		Environment: map[gen.EnvKey]interface{}{
+		Env: map[gen.EnvKey]interface{}{
 			"envName1": 123,
 			"envName2": "Hello world",
 		},
@@ -89,15 +90,15 @@ func TestApplicationBasics(t *testing.T) {
 
 	la := mynode.LoadedApplications()
 
-	// there is yet another default application - KernelApp. thats why it
-	// should be equal 2.
-	if len(la) != 2 {
+	// there are default applications - KernelApp, SystemApp thats why it
+	// should be equal 3.
+	if len(la) != 3 {
 		t.Fatal("total number of loaded application mismatch")
 	}
 	fmt.Println("OK")
 
 	wa := mynode.WhichApplications()
-	if len(wa) > 1 {
+	if len(wa) > 2 {
 		t.Fatal("total number of running application mismatch")
 	}
 
@@ -106,7 +107,7 @@ func TestApplicationBasics(t *testing.T) {
 		t.Fatal(err)
 	}
 	la = mynode.LoadedApplications()
-	if len(la) > 1 {
+	if len(la) > 2 {
 		t.Fatal("total number of loaded application mismatch")
 	}
 	fmt.Println("OK")
@@ -126,14 +127,14 @@ func TestApplicationBasics(t *testing.T) {
 	fmt.Println("OK")
 
 	fmt.Printf("... try to unload started application (shouldn't be able): ")
-	if e := mynode.ApplicationUnload("testapp1"); e != node.ErrAppAlreadyStarted {
+	if e := mynode.ApplicationUnload("testapp1"); e != lib.ErrAppAlreadyStarted {
 		t.Fatal(e)
 	}
 	fmt.Println("OK")
 
-	fmt.Printf("... check total number of running applications (should be 2 including KernelApp): ")
+	fmt.Printf("... check total number of running applications (should be 3 including KernelApp, SystemApp): ")
 	wa = mynode.WhichApplications()
-	if n := len(wa); n != 2 {
+	if n := len(wa); n != 3 {
 		t.Fatal(n)
 	}
 	fmt.Println("OK")
@@ -215,7 +216,7 @@ func TestApplicationBasics(t *testing.T) {
 		t.Fatal(e)
 	}
 	wa = mynode.WhichApplications()
-	if len(wa) != 1 {
+	if len(wa) != 2 {
 		fmt.Println("waa: ", wa)
 		t.Fatal("total number of running application mismatch")
 	}
@@ -371,7 +372,7 @@ func TestApplicationTypeTransient(t *testing.T) {
 		t.Fatal(e)
 	}
 
-	if e := p1.WaitWithTimeout(100 * time.Millisecond); e != node.ErrTimeout {
+	if e := p1.WaitWithTimeout(100 * time.Millisecond); e != lib.ErrTimeout {
 		t.Fatal("application testapp1 should be alive here")
 	}
 
@@ -455,7 +456,7 @@ func TestApplicationTypeTemporary(t *testing.T) {
 		t.Fatal(e)
 	}
 
-	if e := mynode.WaitWithTimeout(100 * time.Millisecond); e != node.ErrTimeout {
+	if e := mynode.WaitWithTimeout(100 * time.Millisecond); e != lib.ErrTimeout {
 		t.Fatal("node should be alive here")
 	}
 

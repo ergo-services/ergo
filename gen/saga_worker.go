@@ -35,7 +35,7 @@ type SagaWorkerBehavior interface {
 	HandleWorkerCall(process *SagaWorkerProcess, from ServerFrom, message etf.Term) (etf.Term, ServerStatus)
 	// HandleWorkerDirect this callback is invoked on Process.Direct. This method is optional
 	// for the implementation
-	HandleWorkerDirect(process *SagaWorkerProcess, message interface{}) (interface{}, error)
+	HandleWorkerDirect(process *SagaWorkerProcess, ref etf.Ref, message interface{}) (interface{}, DirectStatus)
 
 	// HandleWorkerTerminate this callback invoked on a process termination
 	HandleWorkerTerminate(process *SagaWorkerProcess, reason string)
@@ -179,9 +179,9 @@ func (w *SagaWorker) HandleCall(process *ServerProcess, from ServerFrom, message
 }
 
 // HandleDirect
-func (w *SagaWorker) HandleDirect(process *ServerProcess, message interface{}) (interface{}, error) {
+func (w *SagaWorker) HandleDirect(process *ServerProcess, ref etf.Ref, message interface{}) (interface{}, DirectStatus) {
 	p := process.State.(*SagaWorkerProcess)
-	return p.behavior.HandleWorkerDirect(p, message)
+	return p.behavior.HandleWorkerDirect(p, ref, message)
 }
 
 // HandleInfo
@@ -224,9 +224,9 @@ func (w *SagaWorker) HandleWorkerCall(process *SagaWorkerProcess, from ServerFro
 }
 
 // HandleWorkerDirect
-func (w *SagaWorker) HandleWorkerDirect(process *SagaWorkerProcess, message interface{}) (interface{}, error) {
+func (w *SagaWorker) HandleWorkerDirect(process *SagaWorkerProcess, ref etf.Ref, message interface{}) (interface{}, DirectStatus) {
 	lib.Warning("HandleWorkerDirect: unhandled message %#v", message)
-	return nil, nil
+	return nil, DirectStatusOK
 }
 
 // HandleWorkerTerminate

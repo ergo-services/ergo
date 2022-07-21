@@ -13,12 +13,11 @@ var (
 	keepAlivePeriod = 15 * time.Second
 )
 
-func newLinkFlusher(w io.Writer, latency time.Duration, softwareKeepAlive bool) *linkFlusher {
+func newLinkFlusher(w io.Writer, latency time.Duration) *linkFlusher {
 	lf := &linkFlusher{
-		latency:           latency,
-		writer:            bufio.NewWriter(w),
-		w:                 w, // in case if we skip buffering
-		softwareKeepAlive: softwareKeepAlive,
+		latency: latency,
+		writer:  bufio.NewWriter(w),
+		w:       w, // in case if we skip buffering
 	}
 
 	lf.timer = time.AfterFunc(keepAlivePeriod, func() {
@@ -28,7 +27,7 @@ func newLinkFlusher(w io.Writer, latency time.Duration, softwareKeepAlive bool) 
 
 		// if we have no pending data to send we should
 		// send a KeepAlive packet
-		if lf.pending == false && lf.softwareKeepAlive {
+		if lf.pending == false {
 			lf.w.Write(keepAlivePacket)
 			lf.timer.Reset(keepAlivePeriod)
 			return
@@ -36,20 +35,17 @@ func newLinkFlusher(w io.Writer, latency time.Duration, softwareKeepAlive bool) 
 
 		lf.writer.Flush()
 		lf.pending = false
-		if lf.softwareKeepAlive {
-			lf.timer.Reset(keepAlivePeriod)
-		}
+		lf.timer.Reset(keepAlivePeriod)
 	})
 
 	return lf
 }
 
 type linkFlusher struct {
-	mutex             sync.Mutex
-	latency           time.Duration
-	writer            *bufio.Writer
-	w                 io.Writer
-	softwareKeepAlive bool
+	mutex   sync.Mutex
+	latency time.Duration
+	writer  *bufio.Writer
+	w       io.Writer
 
 	timer   *time.Timer
 	pending bool

@@ -120,6 +120,7 @@ func (e *epmd) handle(c net.Conn) {
 				tcp.SetNoDelay(true)
 			}
 			continue
+
 		case epmdPortPleaseReq:
 			requestedName := string(buf[3:n])
 
@@ -134,9 +135,11 @@ func (e *epmd) handle(c net.Conn) {
 			}
 			e.sendPortPleaseResp(c, requestedName, node)
 			return
+
 		case epmdNamesReq:
 			e.sendNamesResp(c, buf[3:n])
 			return
+
 		default:
 			lib.Log("unknown EPMD request")
 			return

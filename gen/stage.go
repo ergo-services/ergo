@@ -89,7 +89,7 @@ type StageBehavior interface {
 	HandleStageCall(process *StageProcess, from ServerFrom, message etf.Term) (etf.Term, ServerStatus)
 	// HandleStageDirect this callback is invoked on Process.Direct. This method is optional
 	// for the implementation
-	HandleStageDirect(process *StageProcess, message interface{}) (interface{}, error)
+	HandleStageDirect(process *StageProcess, ref etf.Ref, message interface{}) (interface{}, DirectStatus)
 	// HandleStageCast this callback is invoked on ServerProcess.Cast. This method is optional
 	// for the implementation
 	HandleStageCast(process *StageProcess, message etf.Term) ServerStatus
@@ -433,6 +433,7 @@ func (gst *Stage) Init(process *ServerProcess, args ...etf.Term) error {
 	// do not inherit parent State
 	stageProcess.State = nil
 
+	behavior := process.Behavior().(StageBehavior)
 	behavior, ok := process.Behavior().(StageBehavior)
 	if !ok {
 		return fmt.Errorf("Stage: not a StageBehavior")
@@ -465,9 +466,9 @@ func (gst *Stage) HandleCall(process *ServerProcess, from ServerFrom, message et
 	return stageProcess.behavior.HandleStageCall(stageProcess, from, message)
 }
 
-func (gst *Stage) HandleDirect(process *ServerProcess, message interface{}) (interface{}, error) {
+func (gst *Stage) HandleDirect(process *ServerProcess, ref etf.Ref, message interface{}) (interface{}, DirectStatus) {
 	stageProcess := process.State.(*StageProcess)
-	return stageProcess.behavior.HandleStageDirect(stageProcess, message)
+	return stageProcess.behavior.HandleStageDirect(stageProcess, ref, message)
 }
 
 func (gst *Stage) HandleCast(process *ServerProcess, message etf.Term) ServerStatus {
@@ -528,9 +529,9 @@ func (gst *Stage) HandleStageCall(process *StageProcess, from ServerFrom, messag
 }
 
 // HandleStageDirect
-func (gst *Stage) HandleStageDirect(process *StageProcess, message interface{}) (interface{}, error) {
+func (gst *Stage) HandleStageDirect(process *StageProcess, ref etf.Ref, message interface{}) (interface{}, DirectStatus) {
 	// default callback if it wasn't implemented
-	return nil, ErrUnsupportedRequest
+	return nil, lib.ErrUnsupportedRequest
 }
 
 // HandleStageCast

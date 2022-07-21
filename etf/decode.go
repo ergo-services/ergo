@@ -5,20 +5,21 @@ import (
 	"fmt"
 	"math"
 	"math/big"
+	"reflect"
 
 	"github.com/ergo-services/ergo/lib"
 )
 
 // linked list for decoding complex types like list/map/tuple
 type stackElement struct {
-	parent *stackElement
-
-	termType byte
-
-	term     Term //value
-	i        int  // current
+	parent   *stackElement
+	reg      *reflect.Value // used for registered types decoding
+	term     Term           //value
+	tmp      Term           // temporary value. used as a temporary storage for a key of map
+	i        int            // current
 	children int
-	tmp      Term // temporary value. uses as a temporary storage for a key of map
+	termType byte
+	strict   bool // if encoding/decoding registered types must be strict
 }
 
 var (
@@ -59,6 +60,7 @@ var (
 
 // DecodeOptions
 type DecodeOptions struct {
+	AtomMapping   AtomMapping
 	FlagBigPidRef bool
 }
 
@@ -126,6 +128,14 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 			if len([]rune(atom)) > 255 {
 				return nil, nil, errMalformedAtomUTF8
 			}
+
+			// replace atom value if we have mapped value for it
+			options.AtomMapping.MutexIn.RLock()
+			if mapped, ok := options.AtomMapping.In[atom]; ok {
+				atom = mapped
+			}
+			options.AtomMapping.MutexIn.RUnlock()
+
 			term = atom
 			packet = packet[n+2:]
 
@@ -145,7 +155,14 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 			case "false":
 				term = false
 			default:
-				term = Atom(packet[1 : n+1])
+				atom := Atom(packet[1 : n+1])
+				// replace atom value if we have mapped value for it
+				options.AtomMapping.MutexIn.RLock()
+				if mapped, ok := options.AtomMapping.In[atom]; ok {
+					atom = mapped
+				}
+				options.AtomMapping.MutexIn.RUnlock()
+				term = atom
 			}
 			packet = packet[n+1:]
 
@@ -173,7 +190,14 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 			case "false":
 				term = false
 			default:
-				term = cache[int(packet[0])]
+				atom := cache[int(packet[0])]
+				// replace atom value if we have mapped value for it
+				options.AtomMapping.MutexIn.RLock()
+				if mapped, ok := options.AtomMapping.In[atom]; ok {
+					atom = mapped
+				}
+				options.AtomMapping.MutexIn.RUnlock()
+				term = atom
 			}
 			packet = packet[1:]
 
@@ -493,8 +517,50 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 		// Stage 2
 	processStack:
 		if stack != nil {
+			var field reflect.Value
+			var set_field bool
+
 			switch stack.termType {
 			case ettList:
+				if stack.i == 0 {
+					// if the first value is atom, check for the registered type
+					if typeName, isAtom := term.(Atom); isAtom == true {
+						registered.RLock()
+						r, found := registered.typesDec[typeName]
+						registered.RUnlock()
+						if found == true {
+							reg := reflect.Indirect(reflect.New(r.rtype))
+							if r.rtype.Kind() == reflect.Slice {
+								reg = reflect.MakeSlice(r.rtype, stack.children-2, stack.children-1)
+							}
+							stack.reg = &reg
+							stack.strict = r.strict
+							if r.strict == false {
+								stack.term.(List)[stack.i] = term
+							}
+							stack.i++
+							break
+						}
+					}
+				}
+
+				if stack.reg != nil {
+					if stack.i+1 == stack.children {
+						if t != ettNil {
+							x := reflect.Append(*stack.reg, reflect.ValueOf(term))
+							stack.reg = &x
+						}
+					} else {
+						set_field = true
+						field = stack.reg.Index(stack.i - 1)
+					}
+
+					if stack.strict == true {
+						stack.i++
+						break
+					}
+				}
+
 				stack.term.(List)[stack.i] = term
 				stack.i++
 				// remove the last element for proper list (its ettNil)
@@ -503,11 +569,71 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 				}
 
 			case ettSmallTuple, ettLargeTuple:
+
+				if stack.i == 0 {
+					// if the first value is atom, check for the registered type
+					if typeName, isAtom := term.(Atom); isAtom == true {
+						registered.RLock()
+						r, found := registered.typesDec[typeName]
+						registered.RUnlock()
+						if found == true {
+							reg := reflect.Indirect(reflect.New(r.rtype))
+							stack.reg = &reg
+							stack.strict = r.strict
+							if r.strict == false {
+								stack.term.(Tuple)[stack.i] = term
+							}
+							stack.i++
+							break
+						}
+					}
+				}
+
+				if stack.reg != nil {
+					set_field = true
+					field = stack.reg.Field(stack.i - 1)
+					if stack.strict == true {
+						stack.i++
+						break
+					}
+				}
 				stack.term.(Tuple)[stack.i] = term
 				stack.i++
 
 			case ettMap:
+				if stack.i == 0 {
+					// if the first key is atom, check for the registered type
+					if typeName, isAtom := term.(Atom); isAtom == true {
+						registered.RLock()
+						r, found := registered.typesDec[typeName]
+						registered.RUnlock()
+						if found == true {
+							reg := reflect.MakeMapWithSize(r.rtype, stack.children/2)
+							stack.reg = &reg
+							stack.strict = r.strict
+							if r.strict == false {
+								if stack.i&0x01 == 0x01 { // a value
+									stack.term.(Map)[stack.tmp] = term
+								} else {
+									stack.tmp = term
+								}
+							}
+							stack.i++
+							break
+						}
+					}
+				}
+				if stack.i == 1 && stack.reg != nil && stack.strict == true {
+					// skip it. the value of the key which is the registered type
+					stack.i++
+					break
+
+				}
 				if stack.i&0x01 == 0x01 { // a value
+					if stack.i > 1 && stack.reg != nil {
+						set_field = true
+						field = *stack.reg
+					}
 					stack.term.(Map)[stack.tmp] = term
 					stack.i++
 					break
@@ -781,6 +907,410 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 			default:
 				return nil, nil, errInternal
 			}
+
+			if set_field {
+				if field.Kind() == reflect.Ptr {
+					pfield := reflect.New(field.Type().Elem())
+					field.Set(pfield)
+					field = pfield.Elem()
+				}
+				switch field.Kind() {
+				case reflect.Int8:
+					switch v := term.(type) {
+					case int:
+						if v > math.MaxInt8 || v < math.MinInt8 {
+							// overflows
+							if stack.strict {
+								panic("overflows int8")
+							}
+							stack.reg = nil
+							break
+						}
+						field.SetInt(int64(v))
+					case int64:
+						if v > math.MaxInt8 || v < math.MinInt8 {
+							// overflows
+							if stack.strict {
+								panic("overflows int8")
+							}
+							stack.reg = nil
+							break
+						}
+						field.SetInt(v)
+					case uint64:
+						if v > math.MaxInt8 {
+							// overflows
+							if stack.strict {
+								panic("overflows int8")
+							}
+							stack.reg = nil
+							break
+						}
+						field.SetInt(int64(v))
+					}
+
+				case reflect.Int16:
+					switch v := term.(type) {
+					case int:
+						if v > math.MaxInt16 || v < math.MinInt16 {
+							// overflows
+							if stack.strict {
+								panic("overflows int16")
+							}
+							stack.reg = nil
+							break
+						}
+						field.SetInt(int64(v))
+					case int64:
+						if v > math.MaxInt16 || v < math.MinInt16 {
+							// overflows
+							if stack.strict {
+								panic("overflows int16")
+							}
+							stack.reg = nil
+							break
+						}
+						field.SetInt(v)
+					case uint64:
+						if v > math.MaxInt16 {
+							// overflows
+							if stack.strict {
+								panic("overflows int16")
+							}
+							stack.reg = nil
+							break
+						}
+						field.SetInt(int64(v))
+					}
+
+				case reflect.Int32:
+					switch v := term.(type) {
+					case int:
+						if v > math.MaxInt32 || v < math.MinInt32 {
+							// overflows
+							if stack.strict {
+								panic("overflows int32")
+							}
+							stack.reg = nil
+							break
+						}
+						field.SetInt(int64(v))
+					case int64:
+						if v > math.MaxInt32 || v < math.MinInt32 {
+							// overflows
+							if stack.strict {
+								panic("overflows int32")
+							}
+							stack.reg = nil
+							break
+						}
+						field.SetInt(v)
+					case uint64:
+						if v > math.MaxInt32 {
+							// overflows
+							if stack.strict {
+								panic("overflows int32")
+							}
+							stack.reg = nil
+							break
+						}
+						field.SetInt(int64(v))
+					}
+				case reflect.Int64:
+					switch v := term.(type) {
+					case int:
+						field.SetInt(int64(v))
+					case int64:
+						field.SetInt(v)
+					case uint64:
+						if v > math.MaxInt64 {
+							// overflows
+							if stack.strict {
+								panic("overflows int64")
+							}
+							stack.reg = nil
+							break
+						}
+						field.SetInt(int64(v))
+					}
+				case reflect.Int:
+					switch v := term.(type) {
+					case int:
+						field.SetInt(int64(v))
+					case int64:
+						if v > math.MaxInt {
+							// overflows
+							if stack.strict {
+								panic("overflows int")
+							}
+							stack.reg = nil
+							break
+						}
+						field.SetInt(v)
+					case uint64:
+						if v > math.MaxInt {
+							// overflows
+							if stack.strict {
+								panic("overflows int")
+								return nil, nil, errMalformed
+							}
+							stack.reg = nil
+							break
+						}
+						field.SetInt(int64(v))
+					}
+
+				case reflect.Uint8:
+					switch v := term.(type) {
+					case int:
+						if int64(v) > math.MaxUint8 || v < 0 {
+							// overflows
+							if stack.strict {
+								panic("overflows uint8")
+							}
+							stack.reg = nil
+							break
+						}
+						field.SetUint(uint64(v))
+					case int64:
+						if v > math.MaxUint8 || v < 0 {
+							// overflows
+							if stack.strict {
+								panic("overflows uint8")
+							}
+							stack.reg = nil
+							break
+						}
+						field.SetUint(uint64(v))
+					case uint64:
+						if v > math.MaxUint8 {
+							// overflows
+							if stack.strict {
+								panic("overflows uint8")
+							}
+							stack.reg = nil
+							break
+						}
+						field.SetUint(v)
+					}
+
+				case reflect.Uint16:
+					switch v := term.(type) {
+					case int:
+						if int64(v) > math.MaxUint16 || v < 0 {
+							// overflows
+							if stack.strict {
+								panic("overflows uint16")
+							}
+							stack.reg = nil
+							break
+						}
+						field.SetUint(uint64(v))
+					case int64:
+						if v > math.MaxUint16 || v < 0 {
+							// overflows
+							if stack.strict {
+								panic("overflows uint16")
+							}
+							stack.reg = nil
+							break
+						}
+						field.SetUint(uint64(v))
+					case uint64:
+						if v > math.MaxUint16 {
+							// overflows
+							if stack.strict {
+								panic("overflows uint16")
+							}
+							stack.reg = nil
+							break
+						}
+						field.SetUint(v)
+					}
+				case reflect.Uint32:
+					switch v := term.(type) {
+					case int:
+						if int64(v) > math.MaxUint32 || v < 0 {
+							// overflows
+							if stack.strict {
+								panic("overflows uint32")
+							}
+							stack.reg = nil
+							break
+						}
+						field.SetUint(uint64(v))
+					case int64:
+						if v > math.MaxUint32 || v < 0 {
+							// overflows
+							if stack.strict {
+								panic("overflows uint32")
+							}
+							stack.reg = nil
+							break
+						}
+						field.SetUint(uint64(v))
+					case uint64:
+						if v > math.MaxUint32 {
+							// overflows
+							if stack.strict {
+								panic("overflows uint32")
+							}
+							stack.reg = nil
+							break
+						}
+						field.SetUint(v)
+					}
+
+				case reflect.Uint64:
+					switch v := term.(type) {
+					case int:
+						if v < 0 {
+							// overflows
+							if stack.strict {
+								panic("overflows uint64")
+							}
+							stack.reg = nil
+							break
+						}
+						field.SetUint(uint64(v))
+					case int64:
+						if v < 0 {
+							// overflows
+							if stack.strict {
+								panic("overflows uint64")
+							}
+							stack.reg = nil
+							break
+						}
+						field.SetUint(uint64(v))
+					case uint64:
+						field.SetUint(v)
+					}
+
+				case reflect.Uint:
+					switch v := term.(type) {
+					case int:
+						if v < 0 {
+							// overflows
+							if stack.strict {
+								panic("overflows uint")
+							}
+							stack.reg = nil
+							break
+						}
+						field.SetUint(uint64(v))
+					case int64:
+						if v > math.MaxInt || v < 0 {
+							// overflows
+							if stack.strict {
+								panic("overflows uint")
+							}
+							stack.reg = nil
+							break
+						}
+						field.SetUint(uint64(v))
+					case uint64:
+						if v > math.MaxUint {
+							// overflows
+							if stack.strict {
+								panic("overflows uint")
+							}
+							stack.reg = nil
+							break
+						}
+						field.SetUint(v)
+					}
+				case reflect.Float32:
+					f, ok := term.(float64)
+					if ok == false {
+						if stack.strict {
+							panic("wrong float value")
+						}
+						stack.reg = nil
+						break
+					}
+					field.SetFloat(f)
+
+				case reflect.Float64:
+					f64, ok := term.(float64)
+					if ok == false {
+						if stack.strict {
+							panic("wrong float64")
+						}
+						stack.reg = nil
+						break
+					}
+					field.SetFloat(f64)
+
+				case reflect.String:
+					switch v := term.(type) {
+					case List:
+						s, err := convertCharlistToString(v)
+						if err != nil {
+							if stack.strict {
+								panic("can't convert charlist into string")
+							}
+							stack.reg = nil
+							break
+						}
+						field.SetString(s)
+					case []byte:
+						field.SetString(string(v))
+					case string:
+						field.SetString(v)
+					case Atom:
+						field.SetString(string(v))
+					default:
+						if stack.strict {
+							panic("wrong string value")
+						}
+						stack.reg = nil
+					}
+				case reflect.Bool:
+					b, ok := term.(bool)
+					if !ok {
+						if stack.strict {
+							panic("wrong bool value")
+						}
+						stack.reg = nil
+						break
+					}
+					field.SetBool(b)
+
+				case reflect.Map:
+					if stack.tmp == nil {
+						field.Set(reflect.ValueOf(term))
+						break
+					}
+					destkey := reflect.ValueOf(stack.tmp)
+					destval := reflect.ValueOf(term)
+					stack.reg.SetMapIndex(destkey, destval)
+
+				default:
+					if stack.strict {
+						field.Set(reflect.ValueOf(term))
+					} else {
+						// wrap it to catch the panic
+						setValue := func(f reflect.Value, v interface{}) (ok bool) {
+							if lib.CatchPanic() {
+								defer func() {
+									if r := recover(); r != nil {
+										ok = false
+									}
+								}()
+							}
+							f.Set(reflect.ValueOf(v))
+							return true
+						}
+						if setValue(field, term) == false {
+							stack.reg = nil
+						}
+
+					}
+				}
+
+			}
+
 		}
 
 		// we are still decoding children of Lis/Map/Tuple/...
@@ -788,7 +1318,11 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 			continue
 		}
 
-		term = stack.term
+		if stack.reg != nil {
+			term = (*stack.reg).Interface()
+		} else {
+			term = stack.term
+		}
 
 		// this term was the last element of List/Map/Tuple/...
 		// pop from the stack, but if its the root just finish

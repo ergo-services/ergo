@@ -5,8 +5,10 @@ import (
 	"encoding/hex"
 	"flag"
 	"fmt"
+	"hash/crc32"
 	"io"
 	"log"
+	"math"
 	"sync"
 	"time"
 )
@@ -40,6 +42,8 @@ var (
 	}
 
 	ErrTooLarge = fmt.Errorf("Too large")
+
+	CRC32Q = crc32.MakeTable(0xD5828281)
 )
 
 func init() {
@@ -163,7 +167,7 @@ func (b *Buffer) ReadDataFrom(r io.Reader, limit int) (int, error) {
 	capB := cap(b.B)
 	lenB := len(b.B)
 	if limit == 0 {
-		limit = 4294967000
+		limit = math.MaxInt
 	}
 	// if buffer becomes too large
 	if lenB > limit {

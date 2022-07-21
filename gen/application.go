@@ -50,7 +50,7 @@ type ApplicationSpec struct {
 	Version      string
 	Lifespan     time.Duration
 	Applications []string
-	Environment  map[EnvKey]interface{}
+	Env          map[EnvKey]interface{}
 	Children     []ApplicationChildSpec
 	Process      Process
 	StartType    ApplicationStartType
@@ -78,6 +78,7 @@ type ApplicationInfo struct {
 
 // ProcessInit
 func (a *Application) ProcessInit(p Process, args ...etf.Term) (ProcessState, error) {
+	spec := p.Env(EnvKeySpec).(*ApplicationSpec)
 	spec, ok := p.Env(EnvKeySpec).(*ApplicationSpec)
 	if !ok {
 		return ProcessState{}, fmt.Errorf("ProcessInit: not an ApplicationBehavior")
@@ -87,8 +88,8 @@ func (a *Application) ProcessInit(p Process, args ...etf.Term) (ProcessState, er
 
 	p.SetTrapExit(true)
 
-	if spec.Environment != nil {
-		for k, v := range spec.Environment {
+	if spec.Env != nil {
+		for k, v := range spec.Env {
 			p.SetEnv(k, v)
 		}
 	}
@@ -195,14 +196,10 @@ func (a *Application) ProcessLoop(ps ProcessState, started chan<- bool) string {
 					pids = append(pids, spec.Children[i].process.Self())
 				}
 
-				direct.Message = pids
-				direct.Err = nil
-				direct.Reply <- direct
+				ps.PutSyncReply(direct.Ref, pids, nil)
 
 			default:
-				direct.Message = nil
-				direct.Err = ErrUnsupportedRequest
-				direct.Reply <- direct
+				ps.PutSyncReply(direct.Ref, nil, lib.ErrUnsupportedRequest)
 			}
 
 		case <-ps.Context().Done():

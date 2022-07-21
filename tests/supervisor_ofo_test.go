@@ -31,6 +31,7 @@ import (
 	"github.com/ergo-services/ergo"
 	"github.com/ergo-services/ergo/etf"
 	"github.com/ergo-services/ergo/gen"
+	"github.com/ergo-services/ergo/lib"
 	"github.com/ergo-services/ergo/node"
 )
 
@@ -84,14 +85,14 @@ func (tsv *testSupervisorGenServer) HandleCall(process *gen.ServerProcess, from 
 	return message, gen.ServerStatusOK
 }
 
-func (tsv *testSupervisorGenServer) HandleDirect(process *gen.ServerProcess, message interface{}) (interface{}, error) {
+func (tsv *testSupervisorGenServer) HandleDirect(process *gen.ServerProcess, ref etf.Ref, message interface{}) (interface{}, gen.DirectStatus) {
 	switch m := message.(type) {
 	case makeCall:
 		return process.Call(m.to, m.message)
 	case makeCast:
 		return nil, process.Cast(m.to, m.message)
 	}
-	return nil, gen.ErrUnsupportedRequest
+	return nil, lib.ErrUnsupportedRequest
 }
 
 func (tsv *testSupervisorGenServer) Terminate(process *gen.ServerProcess, reason string) {

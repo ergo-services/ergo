@@ -3,21 +3,18 @@ package node
 import (
 	"bytes"
 	"context"
-	"encoding/pem"
-	"math/big"
+	"encoding/binary"
+	"io"
 	"sync"
 	"time"
 
 	"crypto/aes"
-	"crypto/ecdsa"
-	"crypto/elliptic"
 	"crypto/md5"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
-	"crypto/x509/pkix"
 	"fmt"
 
 	"github.com/ergo-services/ergo/etf"
@@ -40,16 +37,21 @@ type networkInternal interface {
 	StaticRoute(name string) (Route, bool)
 
 	// add/remove proxy route
-	AddProxyRoute(node string, route ProxyRoute) error
-	RemoveProxyRoute(node string) bool
+	AddProxyRoute(route ProxyRoute) error
+	RemoveProxyRoute(name string) bool
 	ProxyRoutes() []ProxyRoute
 	ProxyRoute(name string) (ProxyRoute, bool)
 
 	Resolve(peername string) (Route, error)
+	ResolveProxy(peername string) (ProxyRoute, error)
+
 	Connect(peername string) error
 	Disconnect(peername string) error
 	Nodes() []string
 	NodesIndirect() []string
+
+	// stats
+	NetworkStats(name string) (NetworkStats, error)
 
 	// core router methods
 	RouteProxyConnectRequest(from ConnectionInterface, request ProxyConnectRequest) error
@@ -60,6 +62,14 @@ type networkInternal interface {
 
 	getConnection(peername string) (ConnectionInterface, error)
 	stopNetwork()
+
+	networkStats() internalNetworkStats
+}
+
+type internalNetworkStats struct {
+	transitConnections int
+	proxyConnections   int
+	connections        int
 }
 
 type connectionInternal struct {
@@ -72,12 +82,12 @@ type connectionInternal struct {
 }
 
 type network struct {
-	nodename string
-	cookie   string
-	ctx      context.Context
-	listener net.Listener
+	nodename  string
+	cookie    string
+	ctx       context.Context
+	listeners []net.Listener
 
-	resolver          Resolver
+	registrar         Registrar
 	staticOnly        bool
 	staticRoutes      map[string]Route
 	staticRoutesMutex sync.RWMutex
@@ -96,10 +106,11 @@ type network struct {
 	proxyConnectRequest      map[etf.Ref]proxyConnectRequest
 	proxyConnectRequestMutex sync.RWMutex
 
-	tls      TLS
+	tls      *tls.Config
 	proxy    Proxy
 	version  Version
 	creation uint32
+	flags    Flags
 
 	router    coreRouterInternal
 	handshake HandshakeInterface
@@ -114,6 +125,7 @@ func newNetwork(ctx context.Context, nodename string, cookie string, options Opt
 		nodename:             nodename,
 		cookie:               cookie,
 		ctx:                  ctx,
+		tls:                  options.TLS,
 		staticOnly:           options.StaticRoutesOnly,
 		staticRoutes:         make(map[string]Route),
 		proxyRoutes:          make(map[string]ProxyRoute),
@@ -123,61 +135,79 @@ func newNetwork(ctx context.Context, nodename string, cookie string, options Opt
 		proxyTransitSessions: make(map[string]proxyTransitSession),
 		proxyConnectRequest:  make(map[etf.Ref]proxyConnectRequest),
 		remoteSpawn:          make(map[string]gen.ProcessBehavior),
+		flags:                options.Flags,
 		proxy:                options.Proxy,
-		resolver:             options.Resolver,
+		registrar:            options.Registrar,
 		handshake:            options.Handshake,
 		proto:                options.Proto,
 		router:               router,
 		creation:             options.Creation,
 	}
 
-	nn := strings.Split(nodename, "@")
-	if len(nn) != 2 {
-		return nil, fmt.Errorf("(EMPD) FQDN for node name is required (example: node@hostname)")
+	splitNodeHost := strings.Split(nodename, "@")
+	if len(splitNodeHost) != 2 {
+		return nil, fmt.Errorf("FQDN for node name is required (example: node@hostname)")
 	}
 
-	n.version, _ = options.Env[EnvKeyVersion].(Version)
 	if n.proxy.Flags.Enable == false {
 		n.proxy.Flags = DefaultProxyFlags()
 	}
 
-	n.tls = options.TLS
-	selfSignedCert, err := generateSelfSignedCert(n.version)
-	if n.tls.Server.Certificate == nil {
-		n.tls.Server = selfSignedCert
-		n.tls.SkipVerify = true
-	}
-	if n.tls.Client.Certificate == nil {
-		n.tls.Client = selfSignedCert
-	}
+	n.version, _ = options.Env[EnvKeyVersion].(Version)
 
-	err = n.handshake.Init(n.nodename, n.creation, options.Flags)
-	if err != nil {
-		return nil, err
+	if len(options.Listeners) == 0 {
+		return nil, fmt.Errorf("no listeners defined")
 	}
+	for i, lo := range options.Listeners {
+		if lo.TLS == nil {
+			lo.TLS = options.TLS
+		}
+		if lo.Handshake == nil {
+			lo.Handshake = options.Handshake
+		}
+		if lo.Proto == nil {
+			lo.Proto = options.Proto
+		}
+		if lo.Flags.Enable == false {
+			lo.Flags = options.Flags
+		}
+		if lo.Cookie == "" {
+			lo.Cookie = cookie
+		}
 
-	port, err := n.listen(ctx, nn[1], options.ListenBegin, options.ListenEnd)
-	if err != nil {
-		return nil, err
-	}
+		if err := lo.Handshake.Init(n.nodename, n.creation, lo.Flags); err != nil {
+			return nil, err
+		}
 
-	resolverOptions := ResolverOptions{
-		NodeVersion:       n.version,
-		HandshakeVersion:  n.handshake.Version(),
-		EnableTLS:         n.tls.Enable,
-		EnableProxy:       options.Flags.EnableProxy,
-		EnableCompression: options.Flags.EnableCompression,
-	}
-	if err := n.resolver.Register(n.ctx, nodename, port, resolverOptions); err != nil {
-		return nil, err
+		if lo.Listen > 0 {
+			lo.ListenBegin = lo.Listen
+			lo.ListenEnd = lo.Listen
+			lib.Log("Node listener[%d] port: %d", i, lo.Listen)
+		} else {
+			if lo.ListenBegin == 0 {
+				lo.ListenBegin = defaultListenBegin
+			}
+			if lo.ListenEnd == 0 {
+				lo.ListenEnd = defaultListenEnd
+			}
+			lib.Log("Node listener[%d] port range: %d...%d", i, lo.ListenBegin, lo.ListenEnd)
+		}
+		register := i == 0
+		listener, err := n.listen(ctx, splitNodeHost[1], lo, register)
+		if err != nil {
+			// close all listening sockets
+			n.stopNetwork()
+			return nil, err
+		}
+		n.listeners = append(n.listeners, listener)
 	}
 
 	return n, nil
 }
 
 func (n *network) stopNetwork() {
-	if n.listener != nil {
-		n.listener.Close()
+	for _, l := range n.listeners {
+		l.Close()
 	}
 	n.connectionsMutex.RLock()
 	defer n.connectionsMutex.RUnlock()
@@ -234,7 +264,13 @@ func (n *network) AddStaticRoute(node string, host string, port uint16, options 
 
 	_, exist := n.staticRoutes[node]
 	if exist {
-		return ErrTaken
+		return lib.ErrTaken
+	}
+
+	if options.Handshake != nil {
+		if err := options.Handshake.Init(n.nodename, n.creation, n.flags); err != nil {
+			return err
+		}
 	}
 	n.staticRoutes[node] = route
 
@@ -282,13 +318,13 @@ func (n *network) getConnectionDirect(peername string, connect bool) (Connection
 	}
 
 	if connect == false {
-		return nil, ErrNoRoute
+		return nil, lib.ErrNoRoute
 	}
 
 	connection, err := n.connect(peername)
 	if err != nil {
 		lib.Log("[%s] CORE no route to node %q: %s", n.nodename, peername, err)
-		return nil, ErrNoRoute
+		return nil, lib.ErrNoRoute
 	}
 	return connection, nil
 
@@ -298,12 +334,13 @@ func (n *network) getConnectionDirect(peername string, connect bool) (Connection
 func (n *network) getConnection(peername string) (ConnectionInterface, error) {
 	if peername == n.nodename {
 		// can't connect to itself
-		return nil, ErrNoRoute
+		return nil, lib.ErrNoRoute
 	}
 	n.connectionsMutex.RLock()
 	ci, ok := n.connections[peername]
 	n.connectionsMutex.RUnlock()
 	if ok {
+		lib.Log("[%s] NETWORK found active connection with %s", n.nodename, peername)
 		return ci.connection, nil
 	}
 
@@ -315,7 +352,7 @@ func (n *network) getConnection(peername string) (ConnectionInterface, error) {
 	}
 
 	if err := n.RouteProxyConnectRequest(nil, request); err != nil {
-		if err != ErrProxyNoRoute {
+		if err != lib.ErrProxyNoRoute {
 			return nil, err
 		}
 
@@ -334,13 +371,13 @@ func (n *network) getConnection(peername string) (ConnectionInterface, error) {
 
 // Resolve
 func (n *network) Resolve(node string) (Route, error) {
-	n.staticRoutesMutex.Lock()
-	defer n.staticRoutesMutex.Unlock()
+	n.staticRoutesMutex.RLock()
+	defer n.staticRoutesMutex.RUnlock()
 
 	if r, ok := n.staticRoutes[node]; ok {
 		if r.Port == 0 {
 			// use static option for this route
-			route, err := n.resolver.Resolve(node)
+			route, err := n.registrar.Resolve(node)
 			route.Options = r.Options
 			return route, err
 		}
@@ -348,10 +385,36 @@ func (n *network) Resolve(node string) (Route, error) {
 	}
 
 	if n.staticOnly {
-		return Route{}, ErrNoRoute
+		return Route{}, lib.ErrNoRoute
 	}
 
-	return n.resolver.Resolve(node)
+	return n.registrar.Resolve(node)
+}
+
+// ResolveProxy
+func (n *network) ResolveProxy(name string) (ProxyRoute, error) {
+	n.proxyRoutesMutex.RLock()
+	defer n.proxyRoutesMutex.RUnlock()
+	route, found := n.proxyRoutes[name]
+	if found == false {
+		sn := strings.Split(name, "@")
+		if len(sn) != 2 {
+			return route, lib.ErrUnknown
+		}
+		domain := "@" + sn[1]
+		route, found = n.proxyRoutes[domain]
+	}
+	if found == false {
+		return n.registrar.ResolveProxy(name)
+	}
+	if route.Proxy == "" {
+		r, err := n.registrar.ResolveProxy(name)
+		if err != nil {
+			return route, err
+		}
+		route.Proxy = r.Proxy
+	}
+	return route, nil
 }
 
 // Connect
@@ -366,7 +429,7 @@ func (n *network) Disconnect(node string) error {
 	ci, ok := n.connections[node]
 	n.connectionsMutex.RUnlock()
 	if !ok {
-		return ErrNoRoute
+		return lib.ErrNoRoute
 	}
 
 	if ci.conn == nil {
@@ -408,39 +471,61 @@ func (n *network) NodesIndirect() []string {
 		}
 	}
 	return list
+}
 
+func (n *network) NetworkStats(name string) (NetworkStats, error) {
+	var stats NetworkStats
+	n.connectionsMutex.RLock()
+	ci, found := n.connections[name]
+	n.connectionsMutex.RUnlock()
+
+	if found == false {
+		return stats, lib.ErrUnknown
+	}
+
+	stats = ci.connection.Stats()
+	return stats, nil
 }
 
 // RouteProxyConnectRequest
 func (n *network) RouteProxyConnectRequest(from ConnectionInterface, request ProxyConnectRequest) error {
-	// check if we have proxy route
-	n.proxyRoutesMutex.RLock()
-	route, has_route := n.proxyRoutes[request.To]
-	n.proxyRoutesMutex.RUnlock()
-
 	if request.To != n.nodename {
-		var connection ConnectionInterface
 		var err error
+		var connection ConnectionInterface
+		//
+		// outgoing proxy request
+		//
+
+		// check if we already have
+		n.connectionsMutex.RLock()
+		if ci, exist := n.connections[request.To]; exist {
+			connection = ci.connection
+		}
+		n.connectionsMutex.RUnlock()
 
 		if from != nil {
 			//
 			// transit request
 			//
+			if from == connection {
+				lib.Log("[%s] NETWORK proxy. Error: proxy route points to the connection this request came from", n.nodename)
+				return lib.ErrProxyLoopDetected
+			}
+			lib.Log("[%s] NETWORK transit proxy connection to %q", n.nodename, request.To)
 
-			lib.Log("[%s] NETWORK transit proxy connection to %q via %q", n.nodename, request.To, route.Proxy)
 			// proxy feature must be enabled explicitly for the transitional requests
 			if n.proxy.Transit == false {
 				lib.Log("[%s] NETWORK proxy. Proxy feature is disabled on this node", n.nodename)
-				return ErrProxyTransitDisabled
+				return lib.ErrProxyTransitDisabled
 			}
 			if request.Hop < 1 {
 				lib.Log("[%s] NETWORK proxy. Error: exceeded hop limit", n.nodename)
-				return ErrProxyHopExceeded
+				return lib.ErrProxyHopExceeded
 			}
 			request.Hop--
 
 			if len(request.Path) > defaultProxyPathLimit {
-				return ErrProxyPathTooLong
+				return lib.ErrProxyPathTooLong
 			}
 
 			for i := range request.Path {
@@ -448,56 +533,64 @@ func (n *network) RouteProxyConnectRequest(from ConnectionInterface, request Pro
 					continue
 				}
 				lib.Log("[%s] NETWORK proxy. Error: loop detected in proxy path %#v", n.nodename, request.Path)
-				return ErrProxyLoopDetected
+				return lib.ErrProxyLoopDetected
 			}
 
-			// try to connect to the next-hop node
-			if has_route == false {
-				connection, err = n.getConnectionDirect(request.To, true)
-			} else {
-				connection, err = n.getConnectionDirect(route.Proxy, true)
+			if connection == nil {
+				// check if we have proxy route
+				route, err_route := n.ResolveProxy(request.To)
+				if err_route == nil && route.Proxy != n.nodename {
+					// proxy request goes to the next hop
+					connection, err = n.getConnectionDirect(route.Proxy, true)
+				} else {
+					connection, err = n.getConnectionDirect(request.To, true)
+				}
+
+				if err != nil {
+					return err
+				}
 			}
 
+			request.Path = append([]string{n.nodename}, request.Path...)
+			err = connection.ProxyConnectRequest(request)
+			return err
+		}
+
+		if connection == nil {
+			route, err_route := n.ResolveProxy(request.To)
+			if err_route != nil {
+				// if it was invoked from getConnection ('from' == nil) there will
+				// be attempt to make direct connection using getConnectionDirect
+				return lib.ErrProxyNoRoute
+			}
+
+			// initiating proxy connection
+			lib.Log("[%s] NETWORK initiate proxy connection to %q via %q", n.nodename, request.To, route.Proxy)
+			connection, err = n.getConnectionDirect(route.Proxy, true)
 			if err != nil {
 				return err
 			}
 
-			if from == connection {
-				lib.Log("[%s] NETWORK proxy. Error: proxy route points to the connection this request came from", n.nodename)
-				return ErrProxyLoopDetected
+		}
+
+		cookie := n.proxy.Cookie
+		flags := n.proxy.Flags
+		if route, err_route := n.ResolveProxy(request.To); err_route == nil {
+			cookie = route.Cookie
+			if request.Flags.Enable == false {
+				flags = route.Flags
 			}
-			request.Path = append([]string{n.nodename}, request.Path...)
-			return connection.ProxyConnectRequest(request)
 		}
-
-		if has_route == false {
-			// if it was invoked from getConnection ('from' == nil) there will
-			// be attempt to make direct connection using getConnectionDirect
-			return ErrProxyNoRoute
-		}
-
-		//
-		// initiating proxy connection
-		//
-		lib.Log("[%s] NETWORK initiate proxy connection to %q via %q", n.nodename, request.To, route.Proxy)
-		connection, err = n.getConnectionDirect(route.Proxy, true)
-		if err != nil {
-			return err
-		}
-
 		privKey, _ := rsa.GenerateKey(rand.Reader, 2048)
 		pubKey := x509.MarshalPKCS1PublicKey(&privKey.PublicKey)
 		request.PublicKey = pubKey
+		request.Flags = flags
 
-		// create digest using nodename, cookie, peername and pubKey
-		request.Digest = generateProxyDigest(n.nodename, route.Cookie, request.To, pubKey)
+		// create digest using creation, cookie and pubKey.
+		// we can't use neither n.nodename or request.To, or request.ID -
+		// - anything that contains nodename or peername, because of etf.AtomMapping.
+		request.Digest = generateProxyDigest(n.creation, cookie, pubKey)
 
-		request.Flags = route.Flags
-		if request.Flags.Enable == false {
-			request.Flags = n.proxy.Flags
-		}
-
-		request.Hop = route.MaxHop
 		if request.Hop < 1 {
 			request.Hop = DefaultProxyMaxHop
 		}
@@ -525,29 +618,35 @@ func (n *network) RouteProxyConnectRequest(from ConnectionInterface, request Pro
 	if len(request.Path) < 2 {
 		// reply error. there must be atleast 2 nodes - initiating and transit nodes
 		lib.Log("[%s] NETWORK proxy. Proxy connect request has wrong path (too short)", n.nodename)
-		return ErrProxyConnect
+		return lib.ErrProxyConnect
 	}
 	peername := request.Path[len(request.Path)-1]
+
+	if n.proxy.Accept == false {
+		lib.Warning("[%s] Got proxy connect request from %q. Not allowed.", n.nodename, peername)
+		return lib.ErrProxyConnect
+	}
+
 	cookie := n.proxy.Cookie
 	flags := n.proxy.Flags
-	if has_route {
+	if route, err_route := n.ResolveProxy(peername); err_route == nil {
 		cookie = route.Cookie
-		if route.Flags.Enable == true {
+		if request.Flags.Enable == false {
 			flags = route.Flags
 		}
 	}
-	checkDigest := generateProxyDigest(peername, cookie, n.nodename, request.PublicKey)
+	checkDigest := generateProxyDigest(request.Creation, cookie, request.PublicKey)
 	if bytes.Equal(request.Digest, checkDigest) == false {
 		// reply error. digest mismatch
 		lib.Log("[%s] NETWORK proxy. Proxy connect request has wrong digest", n.nodename)
-		return ErrProxyConnect
+		return lib.ErrProxyConnect
 	}
 
 	// do some encryption magic
 	pk, err := x509.ParsePKCS1PublicKey(request.PublicKey)
 	if err != nil {
 		lib.Log("[%s] NETWORK proxy. Proxy connect request has wrong public key", n.nodename)
-		return ErrProxyConnect
+		return lib.ErrProxyConnect
 	}
 	hash := sha256.New()
 	key := make([]byte, 32)
@@ -555,7 +654,7 @@ func (n *network) RouteProxyConnectRequest(from ConnectionInterface, request Pro
 	cipherkey, err := rsa.EncryptOAEP(hash, rand.Reader, pk, key, nil)
 	if err != nil {
 		lib.Log("[%s] NETWORK proxy. Proxy connect request. Can't encrypt: %s ", n.nodename, err)
-		return ErrProxyConnect
+		return lib.ErrProxyConnect
 	}
 	block, err := aes.NewCipher(key)
 	if err != nil {
@@ -563,7 +662,7 @@ func (n *network) RouteProxyConnectRequest(from ConnectionInterface, request Pro
 	}
 
 	sessionID := lib.RandomString(32)
-	digest := generateProxyDigest(n.nodename, n.proxy.Cookie, peername, key)
+	digest := generateProxyDigest(n.creation, n.proxy.Cookie, key)
 	if flags.Enable == false {
 		flags = DefaultProxyFlags()
 	}
@@ -579,7 +678,7 @@ func (n *network) RouteProxyConnectRequest(from ConnectionInterface, request Pro
 		proxySessionID: sessionID,
 	}
 	if _, err := n.registerConnection(peername, cInternal); err != nil {
-		return ErrProxySessionDuplicate
+		return lib.ErrProxySessionDuplicate
 	}
 
 	reply := ProxyConnectReply{
@@ -597,7 +696,7 @@ func (n *network) RouteProxyConnectRequest(from ConnectionInterface, request Pro
 		// can't send reply. ignore this connection request
 		lib.Log("[%s] NETWORK proxy. Proxy connect request. Can't send reply: %s ", n.nodename, err)
 		n.unregisterConnection(peername, nil)
-		return ErrProxyConnect
+		return lib.ErrProxyConnect
 	}
 
 	session := ProxySession{
@@ -621,25 +720,25 @@ func (n *network) RouteProxyConnectReply(from ConnectionInterface, reply ProxyCo
 	n.proxyTransitSessionsMutex.RUnlock()
 
 	if duplicate {
-		return ErrProxySessionDuplicate
+		return lib.ErrProxySessionDuplicate
 	}
 
 	if from == nil {
 		// from value can't be nil
-		return ErrProxyUnknownRequest
+		return lib.ErrProxyUnknownRequest
 	}
 
 	if reply.To != n.nodename {
 		// send this reply further and register this session
 		if n.proxy.Transit == false {
-			return ErrProxyTransitDisabled
+			return lib.ErrProxyTransitDisabled
 		}
 
 		if len(reply.Path) == 0 {
-			return ErrProxyUnknownRequest
+			return lib.ErrProxyUnknownRequest
 		}
 		if len(reply.Path) > defaultProxyPathLimit {
-			return ErrProxyPathTooLong
+			return lib.ErrProxyPathTooLong
 		}
 
 		next := reply.Path[0]
@@ -648,14 +747,14 @@ func (n *network) RouteProxyConnectReply(from ConnectionInterface, reply ProxyCo
 			return err
 		}
 		if connection == from {
-			return ErrProxyLoopDetected
+			return lib.ErrProxyLoopDetected
 		}
 
 		reply.Path = reply.Path[1:]
 		// check for the looping
 		for i := range reply.Path {
 			if reply.Path[i] == next {
-				return ErrProxyLoopDetected
+				return lib.ErrProxyLoopDetected
 			}
 		}
 
@@ -690,7 +789,7 @@ func (n *network) RouteProxyConnectReply(from ConnectionInterface, reply ProxyCo
 	// look up for the request we made earlier
 	r, found := n.getProxyConnectRequest(reply.ID)
 	if found == false {
-		return ErrProxyUnknownRequest
+		return lib.ErrProxyUnknownRequest
 	}
 
 	// decrypt cipher key using private key
@@ -698,7 +797,7 @@ func (n *network) RouteProxyConnectReply(from ConnectionInterface, reply ProxyCo
 	key, err := rsa.DecryptOAEP(hash, rand.Reader, r.privateKey, reply.Cipher, nil)
 	if err != nil {
 		lib.Log("[%s] CORE route proxy. Proxy connect reply has invalid cipher", n.nodename)
-		return ErrProxyConnect
+		return lib.ErrProxyConnect
 	}
 
 	cookie := n.proxy.Cookie
@@ -710,10 +809,10 @@ func (n *network) RouteProxyConnectReply(from ConnectionInterface, reply ProxyCo
 		cookie = route.Cookie
 	}
 	// check digest
-	checkDigest := generateProxyDigest(r.request.To, cookie, n.nodename, key)
+	checkDigest := generateProxyDigest(reply.Creation, cookie, key)
 	if bytes.Equal(checkDigest, reply.Digest) == false {
 		lib.Log("[%s] CORE route proxy. Proxy connect reply has wrong digest", n.nodename)
-		return ErrProxyConnect
+		return lib.ErrProxyConnect
 	}
 
 	block, err := aes.NewCipher(key)
@@ -728,7 +827,7 @@ func (n *network) RouteProxyConnectReply(from ConnectionInterface, reply ProxyCo
 		select {
 		case r.connection <- registered:
 		}
-		return ErrProxySessionDuplicate
+		return lib.ErrProxySessionDuplicate
 	}
 	// if one of the nodes want to use encryption then it must be used by both nodes
 	if r.request.Flags.EnableEncryption || reply.Flags.EnableEncryption {
@@ -758,7 +857,7 @@ func (n *network) RouteProxyConnectReply(from ConnectionInterface, reply ProxyCo
 func (n *network) RouteProxyConnectCancel(from ConnectionInterface, cancel ProxyConnectCancel) error {
 	if from == nil {
 		// from value can not be nil
-		return ErrProxyConnect
+		return lib.ErrProxyConnect
 	}
 	if len(cancel.Path) == 0 {
 		n.cancelProxyConnectRequest(cancel)
@@ -768,7 +867,7 @@ func (n *network) RouteProxyConnectCancel(from ConnectionInterface, cancel Proxy
 	next := cancel.Path[0]
 	if next != n.nodename {
 		if len(cancel.Path) > defaultProxyPathLimit {
-			return ErrProxyPathTooLong
+			return lib.ErrProxyPathTooLong
 		}
 		connection, err := n.getConnectionDirect(next, false)
 		if err != nil {
@@ -776,14 +875,14 @@ func (n *network) RouteProxyConnectCancel(from ConnectionInterface, cancel Proxy
 		}
 
 		if connection == from {
-			return ErrProxyLoopDetected
+			return lib.ErrProxyLoopDetected
 		}
 
 		cancel.Path = cancel.Path[1:]
 		// check for the looping
 		for i := range cancel.Path {
 			if cancel.Path[i] == next {
-				return ErrProxyLoopDetected
+				return lib.ErrProxyLoopDetected
 			}
 		}
 
@@ -793,7 +892,7 @@ func (n *network) RouteProxyConnectCancel(from ConnectionInterface, cancel Proxy
 		return nil
 	}
 
-	return ErrProxyUnknownRequest
+	return lib.ErrProxyUnknownRequest
 }
 
 func (n *network) RouteProxyDisconnect(from ConnectionInterface, disconnect ProxyDisconnect) error {
@@ -820,12 +919,12 @@ func (n *network) RouteProxyDisconnect(from ConnectionInterface, disconnect Prox
 		}
 		if found == false {
 			n.connectionsMutex.RUnlock()
-			return ErrProxySessionUnknown
+			return lib.ErrProxySessionUnknown
 		}
 		n.connectionsMutex.RUnlock()
 
 		if ci.proxySessionID != disconnect.SessionID || ci.connection != from {
-			return ErrProxySessionUnknown
+			return lib.ErrProxySessionUnknown
 		}
 
 		n.unregisterConnection(peername, &disconnect)
@@ -881,7 +980,7 @@ func (n *network) RouteProxy(from ConnectionInterface, sessionID string, packet 
 	n.proxyTransitSessionsMutex.RUnlock()
 
 	if !ok {
-		return ErrProxySessionUnknown
+		return lib.ErrProxySessionUnknown
 	}
 
 	switch from {
@@ -895,11 +994,11 @@ func (n *network) RouteProxy(from ConnectionInterface, sessionID string, packet 
 	}
 }
 
-func (n *network) AddProxyRoute(node string, route ProxyRoute) error {
+func (n *network) AddProxyRoute(route ProxyRoute) error {
 	n.proxyRoutesMutex.Lock()
 	defer n.proxyRoutesMutex.Unlock()
 	if route.MaxHop > defaultProxyPathLimit {
-		return ErrProxyPathTooLong
+		return lib.ErrProxyPathTooLong
 	}
 	if route.MaxHop < 1 {
 		route.MaxHop = DefaultProxyMaxHop
@@ -909,21 +1008,32 @@ func (n *network) AddProxyRoute(node string, route ProxyRoute) error {
 		route.Flags = n.proxy.Flags
 	}
 
-	if _, exist := n.proxyRoutes[node]; exist {
-		return ErrTaken
+	if s := strings.Split(route.Name, "@"); len(s) == 2 {
+		if s[0] == "" {
+			// must be domain name
+			if strings.HasPrefix(route.Name, "@") == false {
+				return lib.ErrRouteName
+			}
+		}
+	} else {
+		return lib.ErrRouteName
 	}
 
-	n.proxyRoutes[node] = route
+	if _, exist := n.proxyRoutes[route.Name]; exist {
+		return lib.ErrTaken
+	}
+
+	n.proxyRoutes[route.Name] = route
 	return nil
 }
 
-func (n *network) RemoveProxyRoute(node string) bool {
+func (n *network) RemoveProxyRoute(name string) bool {
 	n.proxyRoutesMutex.Lock()
 	defer n.proxyRoutesMutex.Unlock()
-	if _, exist := n.proxyRoutes[node]; exist == false {
+	if _, exist := n.proxyRoutes[name]; exist == false {
 		return false
 	}
-	delete(n.proxyRoutes, node)
+	delete(n.proxyRoutes, name)
 	return true
 }
 
@@ -944,30 +1054,53 @@ func (n *network) ProxyRoute(name string) (ProxyRoute, bool) {
 	return route, exist
 }
 
-func (n *network) listen(ctx context.Context, hostname string, begin uint16, end uint16) (uint16, error) {
+func (n *network) listen(ctx context.Context, hostname string, options Listener, register bool) (net.Listener, error) {
 
 	lc := net.ListenConfig{
 		KeepAlive: defaultKeepAlivePeriod * time.Second,
 	}
-	for port := begin; port <= end; port++ {
+	tlsEnabled := false
+	if options.TLS != nil {
+		if options.TLS.Certificates != nil || options.TLS.GetCertificate != nil {
+			tlsEnabled = true
+		}
+	}
+
+	for port := options.ListenBegin; port <= options.ListenEnd; port++ {
 		hostPort := net.JoinHostPort(hostname, strconv.Itoa(int(port)))
 		listener, err := lc.Listen(ctx, "tcp", hostPort)
 		if err != nil {
 			continue
 		}
-		if n.tls.Enable {
-			config := tls.Config{
-				Certificates:       []tls.Certificate{n.tls.Server},
-				InsecureSkipVerify: n.tls.SkipVerify,
+
+		if register && n.registrar != nil {
+			registerOptions := RegisterOptions{
+				Port:              port,
+				Creation:          n.creation,
+				NodeVersion:       n.version,
+				HandshakeVersion:  options.Handshake.Version(),
+				EnableTLS:         tlsEnabled,
+				EnableProxy:       options.Flags.EnableProxy,
+				EnableCompression: options.Flags.EnableCompression,
 			}
-			listener = tls.NewListener(listener, &config)
+
+			if err := n.registrar.Register(n.ctx, n.nodename, registerOptions); err != nil {
+				listener.Close()
+				return nil, err
+			}
 		}
-		n.listener = listener
+
+		if tlsEnabled {
+			listener = tls.NewListener(listener, options.TLS)
+		}
 
 		go func() {
 			for {
 				c, err := listener.Accept()
 				if err != nil {
+					if err == io.EOF {
+						return
+					}
 					if ctx.Err() == nil {
 						continue
 					}
@@ -976,18 +1109,23 @@ func (n *network) listen(ctx context.Context, hostname string, begin uint16, end
 				}
 				lib.Log("[%s] NETWORK accepted new connection from %s", n.nodename, c.RemoteAddr().String())
 
-				details, err := n.handshake.Accept(c, n.tls.Enable, n.cookie)
+				details, err := options.Handshake.Accept(c.RemoteAddr(), c, tlsEnabled, options.Cookie)
 				if err != nil {
-					lib.Log("[%s] Can't handshake with %s: %s", n.nodename, c.RemoteAddr().String(), err)
+					if err != io.EOF {
+						lib.Warning("[%s] Can't handshake with %s: %s", n.nodename, c.RemoteAddr().String(), err)
+					}
 					c.Close()
 					continue
 				}
-				// TODO we need to detect somehow whether to enable software keepalive.
-				// Erlang nodes are required to be receiving keepalive messages,
-				// but Ergo doesn't need it.
-				details.Flags.EnableSoftwareKeepAlive = true
-				connection, err := n.proto.Init(n.ctx, c, n.nodename, details)
+				if details.Name == "" {
+					err := fmt.Errorf("remote node introduced itself as %q", details.Name)
+					lib.Warning("Handshake error: %s", err)
+					c.Close()
+					continue
+				}
+				connection, err := options.Proto.Init(n.ctx, c, n.nodename, details)
 				if err != nil {
+					lib.Warning("Proto error: %s", err)
 					c.Close()
 					continue
 				}
@@ -1008,86 +1146,66 @@ func (n *network) listen(ctx context.Context, hostname string, begin uint16, end
 
 				// run serving connection
 				go func(ctx context.Context, ci connectionInternal) {
-					n.proto.Serve(ci.connection, n.router)
+					options.Proto.Serve(ci.connection, n.router)
 					n.unregisterConnection(details.Name, nil)
-					n.proto.Terminate(ci.connection)
+					options.Proto.Terminate(ci.connection)
 					ci.conn.Close()
 				}(ctx, cInternal)
 
 			}
 		}()
 
-		// return port number this node listenig on for the incoming connections
-		return port, nil
+		return listener, nil
 	}
 
 	// all ports within a given range are taken
-	return 0, fmt.Errorf("Can't start listener. Port range is taken")
+	return nil, fmt.Errorf("can not start listener (port range is taken)")
 }
 
 func (n *network) connect(node string) (ConnectionInterface, error) {
-	var route Route
 	var c net.Conn
-	var err error
-	var enabledTLS bool
 	lib.Log("[%s] NETWORK trying to connect to %#v", n.nodename, node)
 
 	// resolve the route
-	route, err = n.Resolve(node)
+	route, err := n.Resolve(node)
 	if err != nil {
 		return nil, err
 	}
+	customHandshake := route.Options.Handshake != nil
+	lib.Log("[%s] NETWORK resolved %#v to %s:%d (custom handshake: %t)", n.nodename, node, route.Host, route.Port, customHandshake)
 
 	HostPort := net.JoinHostPort(route.Host, strconv.Itoa(int(route.Port)))
 	dialer := net.Dialer{
 		KeepAlive: defaultKeepAlivePeriod * time.Second,
 	}
 
-	if route.Options.IsErgo == true {
-		// rely on the route TLS settings if they were defined
-		if route.Options.EnableTLS {
-			if route.Options.Cert.Certificate == nil {
-				// use the local TLS settings
-				config := tls.Config{
-					Certificates:       []tls.Certificate{n.tls.Client},
-					InsecureSkipVerify: n.tls.SkipVerify,
-				}
-				tlsdialer := tls.Dialer{
-					NetDialer: &dialer,
-					Config:    &config,
-				}
-				c, err = tlsdialer.DialContext(n.ctx, "tcp", HostPort)
-			} else {
-				// use the route TLS settings
-				config := tls.Config{
-					Certificates: []tls.Certificate{route.Options.Cert},
-				}
-				tlsdialer := tls.Dialer{
-					NetDialer: &dialer,
-					Config:    &config,
-				}
-				c, err = tlsdialer.DialContext(n.ctx, "tcp", HostPort)
-			}
-			enabledTLS = true
+	tlsEnabled := route.Options.TLS != nil
 
+	if route.Options.IsErgo == true {
+		// use the route TLS settings if they were defined
+		if tlsEnabled {
+			if n.tls != nil {
+				route.Options.TLS.InsecureSkipVerify = n.tls.InsecureSkipVerify
+			}
+			// use the local TLS settings
+			tlsdialer := tls.Dialer{
+				NetDialer: &dialer,
+				Config:    route.Options.TLS,
+			}
+			c, err = tlsdialer.DialContext(n.ctx, "tcp", HostPort)
 		} else {
 			// TLS disabled on a remote node
 			c, err = dialer.DialContext(n.ctx, "tcp", HostPort)
 		}
-
 	} else {
-		// rely on the local TLS settings
-		if n.tls.Enable {
-			config := tls.Config{
-				Certificates:       []tls.Certificate{n.tls.Client},
-				InsecureSkipVerify: n.tls.SkipVerify,
-			}
+		// this is an Erlang/Elixir node. use the local TLS settings
+		tlsEnabled = n.tls != nil
+		if tlsEnabled {
 			tlsdialer := tls.Dialer{
 				NetDialer: &dialer,
-				Config:    &config,
+				Config:    n.tls,
 			}
 			c, err = tlsdialer.DialContext(n.ctx, "tcp", HostPort)
-			enabledTLS = true
 
 		} else {
 			c, err = dialer.DialContext(n.ctx, "tcp", HostPort)
@@ -1096,6 +1214,7 @@ func (n *network) connect(node string) (ConnectionInterface, error) {
 
 	// check if we couldn't establish a connection with the node
 	if err != nil {
+		lib.Warning("Could not connect to %q (%s): %s", node, HostPort, err)
 		return nil, err
 	}
 
@@ -1111,13 +1230,14 @@ func (n *network) connect(node string) (ConnectionInterface, error) {
 		cookie = route.Options.Cookie
 	}
 
-	details, err := n.handshake.Start(c, enabledTLS, cookie)
+	details, err := handshake.Start(c.RemoteAddr(), c, tlsEnabled, cookie)
 	if err != nil {
+		lib.Warning("Handshake error: %s", err)
 		c.Close()
 		return nil, err
 	}
 	if details.Name != node {
-		err := fmt.Errorf("node %q introduced itself as %q", node, details.Name)
+		err := fmt.Errorf("Handshake error: node %q introduced itself as %q", node, details.Name)
 		lib.Warning("%s", err)
 		return nil, err
 	}
@@ -1129,13 +1249,10 @@ func (n *network) connect(node string) (ConnectionInterface, error) {
 		proto = n.proto
 	}
 
-	// TODO we need to detect somehow whether to enable software keepalive.
-	// Erlang nodes are required to be receiving keepalive messages,
-	// but Ergo doesn't need it.
-	details.Flags.EnableSoftwareKeepAlive = true
-	connection, err := n.proto.Init(n.ctx, c, n.nodename, details)
+	connection, err := proto.Init(n.ctx, c, n.nodename, details)
 	if err != nil {
 		c.Close()
+		lib.Warning("Proto error: %s", err)
 		return nil, err
 	}
 	cInternal := connectionInternal{
@@ -1149,17 +1266,24 @@ func (n *network) connect(node string) (ConnectionInterface, error) {
 		// connection to this node.
 		// Close this connection and use the already registered one
 		c.Close()
-		if err == ErrTaken {
+		if err == lib.ErrTaken {
 			return registered, nil
 		}
 		return nil, err
 	}
 
+	// enable keep alive on this connection
+	if tcp, ok := c.(*net.TCPConn); ok {
+		tcp.SetKeepAlive(true)
+		tcp.SetKeepAlivePeriod(5 * time.Second)
+		tcp.SetNoDelay(true)
+	}
+
 	// run serving connection
 	go func(ctx context.Context, ci connectionInternal) {
-		n.proto.Serve(ci.connection, n.router)
+		proto.Serve(ci.connection, n.router)
 		n.unregisterConnection(details.Name, nil)
-		n.proto.Terminate(ci.connection)
+		proto.Terminate(ci.connection)
 		ci.conn.Close()
 	}(n.ctx, cInternal)
 
@@ -1173,15 +1297,22 @@ func (n *network) registerConnection(peername string, ci connectionInternal) (Co
 
 	if registered, exist := n.connections[peername]; exist {
 		// already registered
-		return registered.connection, ErrTaken
+		return registered.connection, lib.ErrTaken
 	}
 	n.connections[peername] = ci
+
+	event := MessageEventNetwork{
+		PeerName: peername,
+		Online:   true,
+	}
 	if ci.conn == nil {
 		// this is proxy connection
 		p, _ := n.connectionsProxy[ci.connection]
 		p = append(p, peername)
 		n.connectionsProxy[ci.connection] = p
+		event.Proxy = true
 	}
+	n.router.sendEvent(corePID, EventNetwork, event)
 	return ci.connection, nil
 }
 
@@ -1198,18 +1329,31 @@ func (n *network) unregisterConnection(peername string, disconnect *ProxyDisconn
 	n.connectionsMutex.Unlock()
 
 	n.router.RouteNodeDown(peername, disconnect)
+	event := MessageEventNetwork{
+		PeerName: peername,
+		Online:   false,
+	}
 
 	if ci.conn == nil {
 		// it was proxy connection
 		ci.connection.ProxyUnregisterSession(ci.proxySessionID)
+		event.Proxy = true
+		n.router.sendEvent(corePID, EventNetwork, event)
 		return
 	}
+	n.router.sendEvent(corePID, EventNetwork, event)
+
+	// we must unregister this peer for the proxy connection via this node
+	n.registrar.UnregisterProxy(peername)
 
 	n.connectionsMutex.Lock()
 	cp, _ := n.connectionsProxy[ci.connection]
 	for _, p := range cp {
 		lib.Log("[%s] NETWORK unregistering peer (via proxy) %v", n.nodename, p)
 		delete(n.connections, p)
+		event.PeerName = p
+		event.Proxy = true
+		n.router.sendEvent(corePID, EventNetwork, event)
 	}
 
 	ct, _ := n.connectionsTransit[ci.connection]
@@ -1243,82 +1387,87 @@ func (n *network) unregisterConnection(peername string, disconnect *ProxyDisconn
 // Connection interface default callbacks
 //
 func (c *Connection) Send(from gen.Process, to etf.Pid, message etf.Term) error {
-	return ErrUnsupported
+	return lib.ErrUnsupported
 }
 func (c *Connection) SendReg(from gen.Process, to gen.ProcessID, message etf.Term) error {
-	return ErrUnsupported
+	return lib.ErrUnsupported
 }
 func (c *Connection) SendAlias(from gen.Process, to etf.Alias, message etf.Term) error {
-	return ErrUnsupported
+	return lib.ErrUnsupported
 }
 func (c *Connection) Link(local gen.Process, remote etf.Pid) error {
-	return ErrUnsupported
+	return lib.ErrUnsupported
 }
 func (c *Connection) Unlink(local gen.Process, remote etf.Pid) error {
-	return ErrUnsupported
+	return lib.ErrUnsupported
 }
 func (c *Connection) LinkExit(local etf.Pid, remote etf.Pid, reason string) error {
-	return ErrUnsupported
+	return lib.ErrUnsupported
 }
 func (c *Connection) Monitor(local gen.Process, remote etf.Pid, ref etf.Ref) error {
-	return ErrUnsupported
+	return lib.ErrUnsupported
 }
 func (c *Connection) MonitorReg(local gen.Process, remote gen.ProcessID, ref etf.Ref) error {
-	return ErrUnsupported
+	return lib.ErrUnsupported
 }
 func (c *Connection) Demonitor(by etf.Pid, process etf.Pid, ref etf.Ref) error {
-	return ErrUnsupported
+	return lib.ErrUnsupported
 }
 func (c *Connection) DemonitorReg(by etf.Pid, process gen.ProcessID, ref etf.Ref) error {
-	return ErrUnsupported
+	return lib.ErrUnsupported
 }
 func (c *Connection) MonitorExitReg(process gen.Process, reason string, ref etf.Ref) error {
-	return ErrUnsupported
+	return lib.ErrUnsupported
 }
 func (c *Connection) MonitorExit(to etf.Pid, terminated etf.Pid, reason string, ref etf.Ref) error {
-	return ErrUnsupported
+	return lib.ErrUnsupported
 }
 func (c *Connection) SpawnRequest(nodeName string, behaviorName string, request gen.RemoteSpawnRequest, args ...etf.Term) error {
-	return ErrUnsupported
+	return lib.ErrUnsupported
 }
 func (c *Connection) SpawnReply(to etf.Pid, ref etf.Ref, pid etf.Pid) error {
-	return ErrUnsupported
+	return lib.ErrUnsupported
 }
 func (c *Connection) SpawnReplyError(to etf.Pid, ref etf.Ref, err error) error {
-	return ErrUnsupported
+	return lib.ErrUnsupported
 }
 func (c *Connection) ProxyConnectRequest(connect ProxyConnectRequest) error {
-	return ErrUnsupported
+	return lib.ErrUnsupported
 }
 func (c *Connection) ProxyConnectReply(reply ProxyConnectReply) error {
-	return ErrUnsupported
+	return lib.ErrUnsupported
 }
 func (c *Connection) ProxyDisconnect(disconnect ProxyDisconnect) error {
-	return ErrUnsupported
+	return lib.ErrUnsupported
 }
 func (c *Connection) ProxyRegisterSession(session ProxySession) error {
-	return ErrUnsupported
+	return lib.ErrUnsupported
 }
 func (c *Connection) ProxyUnregisterSession(id string) error {
-	return ErrUnsupported
+	return lib.ErrUnsupported
 }
 func (c *Connection) ProxyPacket(packet *lib.Buffer) error {
-	return ErrUnsupported
+	return lib.ErrUnsupported
+}
+func (c *Connection) Stats() NetworkStats {
+	return NetworkStats{}
 }
 
 //
 // Handshake interface default callbacks
 //
-func (h *Handshake) Start(c net.Conn) (Flags, error) {
-	return Flags{}, ErrUnsupported
+func (h *Handshake) Start(remote net.Addr, conn lib.NetReadWriter, tls bool, cookie string) (HandshakeDetails, error) {
+	return HandshakeDetails{}, lib.ErrUnsupported
 }
-func (h *Handshake) Accept(c net.Conn) (string, Flags, error) {
-	return "", Flags{}, ErrUnsupported
+func (h *Handshake) Accept(remote net.Addr, conn lib.NetReadWriter, tls bool, cookie string) (HandshakeDetails, error) {
+	return HandshakeDetails{}, lib.ErrUnsupported
 }
 func (h *Handshake) Version() HandshakeVersion {
 	var v HandshakeVersion
 	return v
 }
+
+// internals
 
 func (n *network) putProxyConnectRequest(r proxyConnectRequest) {
 	n.proxyConnectRequestMutex.Lock()
@@ -1349,7 +1498,7 @@ func (n *network) waitProxyConnection(id etf.Ref, timeout int) (ConnectionInterf
 	n.proxyConnectRequestMutex.RUnlock()
 
 	if found == false {
-		return nil, ErrProxyUnknownRequest
+		return nil, lib.ErrProxyUnknownRequest
 	}
 
 	defer func(id etf.Ref) {
@@ -1369,11 +1518,11 @@ func (n *network) waitProxyConnection(id etf.Ref, timeout int) (ConnectionInterf
 		case err := <-r.cancel:
 			return nil, fmt.Errorf("[%s] %s", err.From, err.Reason)
 		case <-timer.C:
-			return nil, ErrTimeout
+			return nil, lib.ErrTimeout
 		case <-n.ctx.Done():
 			// node is on the way to terminate, it means connection is closed
 			// so it doesn't matter what kind of error will be returned
-			return nil, ErrProxyUnknownRequest
+			return nil, lib.ErrProxyUnknownRequest
 		}
 	}
 }
@@ -1385,66 +1534,29 @@ func (n *network) getProxyConnectRequest(id etf.Ref) (proxyConnectRequest, bool)
 	return r, found
 }
 
+func (n *network) networkStats() internalNetworkStats {
+	stats := internalNetworkStats{}
+	n.proxyTransitSessionsMutex.RLock()
+	stats.transitConnections = len(n.proxyTransitSessions)
+	n.proxyTransitSessionsMutex.RUnlock()
+
+	n.connectionsMutex.RLock()
+	stats.proxyConnections = len(n.connectionsProxy)
+	stats.connections = len(n.connections)
+	n.connectionsMutex.RUnlock()
+	return stats
+}
+
 //
 // internals
 //
 
-func generateProxyDigest(node string, cookie string, peer string, pubkey []byte) []byte {
+func generateProxyDigest(creation uint32, cookie string, pubkey []byte) []byte {
 	// md5(md5(md5(md5(node)+cookie)+peer)+pubkey)
-	digest1 := md5.Sum([]byte(node))
+	c := [4]byte{}
+	binary.BigEndian.PutUint32(c[:], creation)
+	digest1 := md5.Sum([]byte(c[:]))
 	digest2 := md5.Sum(append(digest1[:], []byte(cookie)...))
-	digest3 := md5.Sum(append(digest2[:], []byte(peer)...))
-	digest4 := md5.Sum(append(digest3[:], pubkey...))
-	return digest4[:]
-}
-
-func generateSelfSignedCert(version Version) (tls.Certificate, error) {
-	var cert = tls.Certificate{}
-	org := fmt.Sprintf("%s %s", version.Prefix, version.Release)
-	certPrivKey, err := ecdsa.GenerateKey(elliptic.P521(), rand.Reader)
-	if err != nil {
-		return cert, err
-	}
-	serialNumberLimit := new(big.Int).Lsh(big.NewInt(1), 128)
-	serialNumber, err := rand.Int(rand.Reader, serialNumberLimit)
-	if err != nil {
-		return cert, err
-	}
-
-	template := x509.Certificate{
-		SerialNumber: serialNumber,
-		Subject: pkix.Name{
-			Organization: []string{org},
-		},
-		NotBefore: time.Now(),
-		NotAfter:  time.Now().Add(time.Hour * 24 * 365),
-		//IsCA:        true,
-
-		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageDigitalSignature,
-		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
-		BasicConstraintsValid: true,
-	}
-
-	template.IPAddresses = append(template.IPAddresses, net.ParseIP("127.0.0.1"))
-
-	certBytes, err1 := x509.CreateCertificate(rand.Reader, &template, &template,
-		&certPrivKey.PublicKey, certPrivKey)
-	if err1 != nil {
-		return cert, err1
-	}
-
-	certPEM := new(bytes.Buffer)
-	pem.Encode(certPEM, &pem.Block{
-		Type:  "CERTIFICATE",
-		Bytes: certBytes,
-	})
-
-	certPrivKeyPEM := new(bytes.Buffer)
-	x509Encoded, _ := x509.MarshalECPrivateKey(certPrivKey)
-	pem.Encode(certPrivKeyPEM, &pem.Block{
-		Type:  "RSA PRIVATE KEY",
-		Bytes: x509Encoded,
-	})
-
-	return tls.X509KeyPair(certPEM.Bytes(), certPrivKeyPEM.Bytes())
+	digest3 := md5.Sum(append(digest2[:], pubkey...))
+	return digest3[:]
 }

@@ -1,12 +1,11 @@
 <h1><a href="https://ergo.services"><img src=".github/images/logo.svg" alt="Ergo Framework" width="159" height="49"></a></h1>
 
-<!--[![Gitbook Documentation](https://img.shields.io/badge/GitBook-Documentation-f37f40?style=plastic&logo=gitbook&logoColor=white&style=flat)](https://docs.ergo.services) -->
+[![Gitbook Documentation](https://img.shields.io/badge/GitBook-Documentation-f37f40?style=plastic&logo=gitbook&logoColor=white&style=flat)](https://docs.ergo.services)
 [![GoDoc](https://pkg.go.dev/badge/ergo-services/ergo)](https://pkg.go.dev/github.com/ergo-services/ergo)
-[![Build Status](https://img.shields.io/github/workflow/status/ergo-services/ergo/TestLinuxWindowsMacOS)](https://github.com/ergo-services/ergo/actions/)
+[![MIT license](https://img.shields.io/badge/license-MIT-brightgreen.svg)](https://opensource.org/licenses/MIT)
 [![Telegram Community](https://img.shields.io/badge/Telegram-Community-blue?style=flat&logo=telegram)](https://t.me/ergo_services)
 [![Discord Community](https://img.shields.io/badge/Discord-Community-5865F2?style=flat&logo=discord&logoColor=white)](https://discord.gg/sdscxKGV62)
 [![Twitter](https://img.shields.io/badge/Twitter-ergo__services-1DA1F2?style=flat&logo=twitter&logoColor=white)](https://twitter.com/ergo_services)
-[![MIT license](https://img.shields.io/badge/license-MIT-brightgreen.svg)](https://opensource.org/licenses/MIT)
 
 Technologies and design patterns of Erlang/OTP have been proven over the years. Now in Golang.
 Up to x5 times faster than original Erlang/OTP in terms of network messaging.
@@ -37,7 +36,7 @@ The goal of this project is to leverage Erlang/OTP experience with Golang perfor
   * Transient
 * `gen.Stage` behavior support (originated from Elixir's [GenStage](https://hexdocs.pm/gen_stage/GenStage.html)). This is abstraction built on top of `gen.Server` to provide a simple way to create a distributed Producer/Consumer architecture, while automatically managing the concept of backpressure. This implementation is fully compatible with Elixir's GenStage. Example is here [examples/genstage](examples/genstage) or just run `go run ./examples/genstage` to see it in action
 * `gen.Saga` behavior support. It implements Saga design pattern - a sequence of transactions that updates each service state and publishes the result (or cancels the transaction or triggers the next transaction step). `gen.Saga` also provides a feature of interim results (can be used as transaction progress or as a part of pipeline processing), time deadline (to limit transaction lifespan), two-phase commit (to make distributed transaction atomic). Here is example [examples/gensaga](examples/gensaga).
-* `gen.Raft` behavior support. It's improved implementation of [Raft consensus algorithm](https://raft.github.io). The key improvement is using quorum under the hood to manage the leader election process and make the Raft cluster more reliable. This implementation supports quorums of 3, 5, 7, 9, or 11 quorum members. Here is an example of this feature [examples/raft](examples/raft).
+* `gen.Raft` behavior support. It's improved implementation of [Raft consensus algorithm](https://raft.github.io). The key improvement is using quorum under the hood to manage the leader election process and make the Raft cluster more reliable. This implementation supports quorums of 3, 5, 7, 9, or 11 quorum members. Here is an example of this feature [examples/genraft](examples/genraft).
 * Connect to (accept connection from) any Erlang/Elixir node within a cluster
 * Making sync request `ServerProcess.Call`, async - `ServerProcess.Cast` or `Process.Send` in fashion of `gen_server:call`, `gen_server:cast`, `erlang:send` accordingly
 * Monitor processes/nodes, local/remote
@@ -64,50 +63,23 @@ Golang introduced [v2 rule](https://go.dev/blog/v2-go-modules) a while ago to so
 
 Here are the changes of latest release. For more details see the [ChangeLog](ChangeLog.md)
 
-#### [v2.1.0](https://github.com/ergo-services/ergo/releases/tag/v1.999.210) 2022-04-19 [tag version v1.999.210] ####
+#### [v2.2.0](https://github.com/ergo-services/ergo/releases/tag/v1.999.220) 2022-10-XX [tag version v1.999.220] ####
 
-* Introduced **compression feature** support. Here are new methods and options to manage this feature:
-  - `gen.Process`:
-    - `SetCompression(enable bool)`, `Compression() bool`
-    - `SetCompressionLevel(level int) bool`, `CompressionLevel() int`
-    - `SetCompressionThreshold(threshold int) bool`, `CompressionThreshold() int` messages smaller than the threshold will be sent with no compression. The default compression threshold is 1024 bytes.
-  - `node.Options`:
-    - `Compression` these settings are used as defaults for the spawning processes
-  - this feature will be ignored if the receiver is running on either the Erlang or Elixir node
-* Introduced **proxy feature** support **with end-to-end encryption**.
-  - `node.Node` new methods:
-    - `AddProxyRoute(...)`, `RemoveProxyRoute(...)`
-    - `ProxyRoute(...)`, `ProxyRoutes()`
-    - `NodesIndirect()` returns list of connected nodes via proxy connection
-  - `node.Options`:
-    - `Proxy` for configuring proxy settings
-  - includes support (over the proxy connection): compression, fragmentation, link/monitor process, monitor node
-  - example [examples/proxy](examples/proxy).
-  - this feature is not available for the Erlang/Elixir nodes
-* Introduced **behavior `gen.Raft`**. It's improved implementation of [Raft consensus algorithm](https://raft.github.io). The key improvement is using quorum under the hood to manage the leader election process and make the Raft cluster more reliable. This implementation supports quorums of 3, 5, 7, 9, or 11 quorum members. Here is an example of this feature [examples/raft](examples/raft).
-* Introduced **interfaces to customize network layer**
-  - `Resolver` to replace EPMD routines with your solution (e.g., ZooKeeper or any other service registrar)
-  - `Handshake` allows customizing authorization/authentication process
-  - `Proto` provides the way to implement proprietary protocols (e.g., IoT area)
-* Other new features:
-  - `gen.Process` new methods:
-    - `NodeUptime()`, `NodeName()`, `NodeStop()`
-  - `gen.ServerProcess` new method:
-    - `MessageCounter()` shows how many messages have been handled by the `gen.Server` callbacks
-  - `gen.ProcessOptions` new option:
-    - `ProcessFallback` allows forward messages to the fallback process if the process mailbox is full. Forwarded messages are wrapped into `gen.MessageFallback` struct. Related to issue #96.
-  - `gen.SupervisorChildSpec` and `gen.ApplicationChildSpec` got option `gen.ProcessOptions` to customize options for the spawning child processes.
-* Improved sending messages by etf.Pid or etf.Alias: methods `gen.Process.Send`, `gen.ServerProcess.Cast`, `gen.ServerProcess.Call` now return `node.ErrProcessIncarnation` if a message is sending to the remote process of the previous incarnation (remote node has been restarted). Making monitor on a remote process of the previous incarnation triggers sending `gen.MessageDown` with reason `incarnation`.
-* Introduced type `gen.EnvKey` for the environment variables
-* All spawned processes now have the `node.EnvKeyNode` variable to get access to the `node.Node` value.
-* **Improved performance** of local messaging (**up to 8 times** for some cases)
-* **Important** `node.Options` has changed. Make sure to adjust your code.
-* Fixed issue #89 (incorrect handling of Call requests)
-* Fixed issues #87, #88 and #93 (closing network socket)
-* Fixed issue #96 (silently drops message if process mailbox is full)
-* Updated minimal requirement of Golang version to 1.17 (go.mod)
-* We still keep the rule **Zero Dependencies**
-
+* Introduced `gen.Web` behavior. It implements **Web API Gateway pattern** is also sometimes known as the "Backend For Frontend" (BFF). See example [examples/genweb](examples/genweb)
+* Introduced `gen.TCP` behavior - **socket acceptor pool for TCP protocols**. It provides everything you need to accept TCP connections and process packets with a small code base and low latency. Here is simple example [examples/gentcp](examples/gentcp)
+* Introduced `gen.UDP` - the same as `gen.TCP`, but for UDP protocols. Example is here [examples/genudp](examples/genudp)
+* Introduced **Events**. This is a simple pub/sub feature within a node - any `gen.Process` can become a producer by registering a new event `gen.Event` using method `gen.Process.RegisterEvent`, while the others can subscribe to these events using `gen.Process.MonitorEvent`. This feature behaves in a monitor manner but only works within a node. You may also want to subscribe to a system event - `node.EventNetwork` to receive event notification on connect/disconnect any peers. Subscriber process will also receive `gen.MessageEventDown` if a producer process went down (terminated)
+* Introduced **Cloud Client** - allows connecting to the cloud platform [https://ergo.sevices](https://ergo.services). You may want to register your email there, and we will inform you about the platform launch day
+* Introduced **type registration** for the ETF encoding/decoding. This feature allows you to get rid of manually decoding with `etf.TermIntoStruct` for the receiving messages. Register your type using `etf.RegisterType(...)`, and you will be receiving messages in a native type
+* Predefined set of errors has moved to the `lib` package
+* Updated `gen.ServerBehavior.HandleDirect` method (got extra argument `etf.Ref` to distinguish the requests). This change allows you to handle these requests asynchronously using method `gen.ServerProcess.Reply(...)`
+* Updated `node.Options`. Now it has field `Listeners` (type `node.Listener`). It allows you to start any number of listeners with custom options - `Port`, `TLS` settings, or custom `Handshake`/`Proto` interfaces
+* Fixed build on 32-bit arch
+* Fixed freezing on ARM arch #102
+* Fixed problem with encoding negative int8
+* Fixed #103 (there was an issue on interop with Elixir's GenStage)
+* Fixed node stuck on start if it uses the name which is already taken in EPMD
+* Fixed incorrect `gen.ProcessOptions.Context` handling
 
 ### Benchmarks ###
 

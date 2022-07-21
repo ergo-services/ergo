@@ -120,7 +120,7 @@ func (gs *testSaga1) HandleTxDone(process *gen.SagaProcess, id gen.SagaTransacti
 
 	return nil, gen.SagaStatusOK
 }
-func (gs *testSaga1) HandleSagaDirect(process *gen.SagaProcess, message interface{}) (interface{}, error) {
+func (gs *testSaga1) HandleSagaDirect(process *gen.SagaProcess, ref etf.Ref, message interface{}) (interface{}, gen.DirectStatus) {
 	switch m := message.(type) {
 	case task:
 		values := splitSlice(m.value, m.split)

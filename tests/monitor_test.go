@@ -9,6 +9,7 @@ import (
 	"github.com/ergo-services/ergo"
 	"github.com/ergo-services/ergo/etf"
 	"github.com/ergo-services/ergo/gen"
+	"github.com/ergo-services/ergo/lib"
 	"github.com/ergo-services/ergo/node"
 )
 
@@ -430,15 +431,18 @@ func TestMonitorLocalProxyRemoteByPid(t *testing.T) {
 	if err != nil {
 		t.Fatal("can't start node:", err, node2.Name())
 	}
-	node3, err := ergo.StartNode("nodeM3ProxyRemoteByPid@localhost", "cookies", node.Options{})
+	opts3 := node.Options{}
+	opts3.Proxy.Accept = true
+	node3, err := ergo.StartNode("nodeM3ProxyRemoteByPid@localhost", "cookies", opts3)
 	if err != nil {
 		t.Fatal("can't start node:", err)
 	}
 
 	route := node.ProxyRoute{
+		Name:  node3.Name(),
 		Proxy: node2.Name(),
 	}
-	node1.AddProxyRoute(node3.Name(), route)
+	node1.AddProxyRoute(route)
 	node1.Connect(node3.Name())
 	fmt.Println("OK")
 
@@ -588,14 +592,17 @@ func TestMonitorLocalProxyRemoteByName(t *testing.T) {
 	if err != nil {
 		t.Fatal("can't start node:", err)
 	}
-	node3, err := ergo.StartNode("nodeM3RemoteByName@localhost", "cookies", node.Options{})
+	opts3 := node.Options{}
+	opts3.Proxy.Accept = true
+	node3, err := ergo.StartNode("nodeM3RemoteByName@localhost", "cookies", opts3)
 	if err != nil {
 		t.Fatal("can't start node:", err)
 	}
 	route := node.ProxyRoute{
+		Name:  node3.Name(),
 		Proxy: node2.Name(),
 	}
-	node1.AddProxyRoute(node3.Name(), route)
+	node1.AddProxyRoute(route)
 	node1.Connect(node3.Name())
 	fmt.Println("OK")
 
@@ -1083,18 +1090,21 @@ func TestLinkRemoteProxy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	node3, err := ergo.StartNode("nodeL3RemoteViaProxy@localhost", "cookies", node.Options{})
+	node3opts := node.Options{}
+	node3opts.Proxy.Accept = true
+	node3, err := ergo.StartNode("nodeL3RemoteViaProxy@localhost", "cookies", node3opts)
 	if err != nil {
 		t.Fatal(err)
 	}
 	fmt.Println("OK")
 
 	route := node.ProxyRoute{
+		Name:  node3.Name(),
 		Proxy: node2.Name(),
 	}
 	route.Flags = node.DefaultProxyFlags()
 	route.Flags.EnableLink = false
-	node1.AddProxyRoute(node3.Name(), route)
+	node1.AddProxyRoute(route)
 
 	fmt.Printf("    check connectivity of %s with %s via proxy %s: ", node1.Name(), node3.Name(), node2.Name())
 	if err := node1.Connect(node3.Name()); err != nil {
@@ -1281,7 +1291,9 @@ func TestLinkRemoteProxy(t *testing.T) {
 		t.Fatal("number of links has changed on the second Link call")
 	}
 
-	node3, err = ergo.StartNode("nodeL3RemoteViaProxy@localhost", "cookies", node.Options{})
+	node3opts = node.Options{}
+	node3opts.Proxy.Accept = true
+	node3, err = ergo.StartNode("nodeL3RemoteViaProxy@localhost", "cookies", node3opts)
 	fmt.Printf("    starting node: %s", node3.Name())
 	if err != nil {
 		t.Fatal(err)
@@ -1298,7 +1310,7 @@ func TestLinkRemoteProxy(t *testing.T) {
 	node3gs3.SetTrapExit(true)
 	fmt.Printf("Testing Proxy Local-Proxy-Remote for link gs3 -> gs1 (Node1 ProxyFlags.EnableLink = false): ")
 	node3gs3.Link(node1gs1.Self())
-	result = gen.MessageExit{Pid: node1gs1.Self(), Reason: node.ErrPeerUnsupported.Error()}
+	result = gen.MessageExit{Pid: node1gs1.Self(), Reason: lib.ErrPeerUnsupported.Error()}
 	waitForResultWithValue(t, gs3.v, result)
 
 	node1gs1.Link(node3gs3.Self())
@@ -1346,6 +1358,7 @@ func TestMonitorNode(t *testing.T) {
 	}
 
 	optsD := node.Options{}
+	optsD.Proxy.Accept = true
 	nodeD, e := ergo.StartNode("monitornodeDproxy@localhost", "secret", optsD)
 	if e != nil {
 		t.Fatal(e)
@@ -1381,18 +1394,20 @@ func TestMonitorNode(t *testing.T) {
 	waitForResultWithValue(t, gsD.v, pD.Self())
 	fmt.Printf("... add proxy route on A to the node D via B: ")
 	routeAtoDviaB := node.ProxyRoute{
+		Name:  nodeD.Name(),
 		Proxy: nodeB.Name(),
 	}
-	if err := nodeA.AddProxyRoute(nodeD.Name(), routeAtoDviaB); err != nil {
+	if err := nodeA.AddProxyRoute(routeAtoDviaB); err != nil {
 		t.Fatal(err)
 	}
 	fmt.Println("OK")
 
 	fmt.Printf("... add proxy transit route on B to the node D via C: ")
 	route := node.ProxyRoute{
+		Name:  nodeD.Name(),
 		Proxy: nodeC.Name(),
 	}
-	if err := nodeB.AddProxyRoute(nodeD.Name(), route); err != nil {
+	if err := nodeB.AddProxyRoute(route); err != nil {
 		t.Fatal(err)
 	}
 	fmt.Println("OK")
@@ -1477,6 +1492,299 @@ func TestMonitorNode(t *testing.T) {
 	nodeD.Stop()
 	nodeA.Stop()
 	nodeB.Stop()
+}
+
+type testMonitorEvent struct {
+	gen.Server
+	v chan interface{}
+}
+
+type testEventCmdRegister struct {
+	event    gen.Event
+	messages []gen.EventMessage
+}
+type testEventCmdUnregister struct {
+	event gen.Event
+}
+type testEventCmdMonitor struct {
+	event gen.Event
+}
+type testEventCmdSend struct {
+	event   gen.Event
+	message gen.EventMessage
+}
+
+type testMessageEventA struct {
+	value string
+}
+
+func (tgs *testMonitorEvent) Init(process *gen.ServerProcess, args ...etf.Term) error {
+	tgs.v <- process.Self()
+	return nil
+}
+func (tgs *testMonitorEvent) HandleDirect(process *gen.ServerProcess, ref etf.Ref, message interface{}) (interface{}, gen.DirectStatus) {
+	switch cmd := message.(type) {
+	case testEventCmdRegister:
+		return nil, process.RegisterEvent(cmd.event, cmd.messages...)
+	case testEventCmdUnregister:
+		return nil, process.UnregisterEvent(cmd.event)
+	case testEventCmdMonitor:
+		return nil, process.MonitorEvent(cmd.event)
+	case testEventCmdSend:
+		return nil, process.SendEventMessage(cmd.event, cmd.message)
+
+	default:
+		return nil, fmt.Errorf("unknown cmd")
+
+	}
+}
+
+func (tgs *testMonitorEvent) HandleInfo(process *gen.ServerProcess, message etf.Term) gen.ServerStatus {
+	tgs.v <- message
+	return gen.ServerStatusOK
+}
+
+func TestMonitorEvents(t *testing.T) {
+	fmt.Printf("\n=== Test Monitor Events\n")
+	fmt.Printf("Starting node: nodeM1Events@localhost: ")
+	node1, _ := ergo.StartNode("nodeM1Events@localhost", "cookies", node.Options{})
+	if node1 == nil {
+		t.Fatal("can't start node")
+	}
+	defer node1.Stop()
+
+	fmt.Println("OK")
+	gs1 := &testMonitorEvent{
+		v: make(chan interface{}, 2),
+	}
+	gs2 := &testMonitorEvent{
+		v: make(chan interface{}, 2),
+	}
+	gs3 := &testMonitorEvent{
+		v: make(chan interface{}, 2),
+	}
+	// starting gen servers
+
+	fmt.Printf("    wait for start of gs1 on %#v: ", node1.Name())
+	node1gs1, err := node1.Spawn("gs1", gen.ProcessOptions{}, gs1, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitForResultWithValue(t, gs1.v, node1gs1.Self())
+
+	fmt.Printf("    wait for start of gs2 on %#v: ", node1.Name())
+	node1gs2, err := node1.Spawn("gs2", gen.ProcessOptions{}, gs2, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitForResultWithValue(t, gs2.v, node1gs2.Self())
+
+	fmt.Printf("    wait for start of gs3 on %#v: ", node1.Name())
+	node1gs3, err := node1.Spawn("gs3", gen.ProcessOptions{}, gs3, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitForResultWithValue(t, gs3.v, node1gs3.Self())
+
+	fmt.Printf("... register new event : ")
+	cmd := testEventCmdRegister{
+		event:    "testEvent",
+		messages: []gen.EventMessage{testMessageEventA{}},
+	}
+	_, err = node1gs1.Direct(cmd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fmt.Println("OK")
+
+	fmt.Printf("... register new event with the same name: ")
+	_, err = node1gs1.Direct(cmd)
+	if err != lib.ErrTaken {
+		t.Fatal(err)
+	}
+	fmt.Println("OK")
+
+	fmt.Printf("... unregister unknown event: ")
+	cmd1 := testEventCmdUnregister{
+		event: "unknownEvent",
+	}
+	_, err = node1gs1.Direct(cmd1)
+	if err != lib.ErrEventUnknown {
+		t.Fatal(err)
+	}
+	fmt.Println("OK")
+
+	fmt.Printf("... unregister event by not an owner: ")
+	cmd1 = testEventCmdUnregister{
+		event: "testEvent",
+	}
+	_, err = node1gs2.Direct(cmd1)
+	if err != lib.ErrEventOwner {
+		t.Fatal(err)
+	}
+	fmt.Println("OK")
+
+	fmt.Printf("... unregister event by the owner: ")
+	cmd1 = testEventCmdUnregister{
+		event: "testEvent",
+	}
+	_, err = node1gs1.Direct(cmd1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fmt.Println("OK")
+
+	fmt.Printf("... monitor unknown event: ")
+	cmd2 := testEventCmdMonitor{
+		event: "testEvent",
+	}
+	_, err = node1gs2.Direct(cmd2)
+	if err != lib.ErrEventUnknown {
+		t.Fatal(err)
+	}
+	fmt.Println("OK")
+
+	fmt.Printf("... monitor event: ")
+	cmd = testEventCmdRegister{
+		event:    "testEvent",
+		messages: []gen.EventMessage{testMessageEventA{}},
+	}
+	_, err = node1gs1.Direct(cmd)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cmd2 = testEventCmdMonitor{
+		event: "testEvent",
+	}
+	_, err = node1gs2.Direct(cmd2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fmt.Println("OK")
+
+	fmt.Printf("... monitor event itself: ")
+	cmd2 = testEventCmdMonitor{
+		event: "testEvent",
+	}
+	_, err = node1gs1.Direct(cmd2)
+	if err != lib.ErrEventSelf {
+		t.Fatal(err)
+	}
+	fmt.Println("OK")
+
+	fmt.Printf("... send unknown event: ")
+	msg := testMessageEventA{value: "test"}
+	cmd3 := testEventCmdSend{
+		event:   "unknownEvent",
+		message: msg,
+	}
+	_, err = node1gs1.Direct(cmd3)
+	if err != lib.ErrEventUnknown {
+		t.Fatal(err)
+	}
+	fmt.Println("OK")
+
+	fmt.Printf("... send event with wrong message type: ")
+	msgWrong := "wrong type"
+	cmd3 = testEventCmdSend{
+		event:   "testEvent",
+		message: msgWrong,
+	}
+	_, err = node1gs1.Direct(cmd3)
+	if err != lib.ErrEventMismatch {
+		t.Fatal(err)
+	}
+	fmt.Println("OK")
+
+	fmt.Printf("... send event by not an owner: ")
+	cmd3 = testEventCmdSend{
+		event:   "testEvent",
+		message: msg,
+	}
+	_, err = node1gs2.Direct(cmd3)
+	if err != lib.ErrEventOwner {
+		t.Fatal(err)
+	}
+	fmt.Println("OK")
+
+	fmt.Printf("... send event: ")
+	cmd3 = testEventCmdSend{
+		event:   "testEvent",
+		message: msg,
+	}
+	_, err = node1gs1.Direct(cmd3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitForResultWithValue(t, gs2.v, msg)
+
+	fmt.Printf("... monitor event twice: ")
+	cmd2 = testEventCmdMonitor{
+		event: "testEvent",
+	}
+	_, err = node1gs2.Direct(cmd2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fmt.Println("OK")
+
+	fmt.Printf("... send event. must be received twice: ")
+	cmd3 = testEventCmdSend{
+		event:   "testEvent",
+		message: msg,
+	}
+	_, err = node1gs1.Direct(cmd3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fmt.Println("OK")
+	fmt.Printf("... receive first event message: ")
+	waitForResultWithValue(t, gs2.v, msg)
+	fmt.Printf("... receive second event message: ")
+	waitForResultWithValue(t, gs2.v, msg)
+
+	down := gen.MessageEventDown{
+		Event:  "testEvent",
+		Reason: "unregistered",
+	}
+	fmt.Printf("... unregister event owner. must be received gen.MessageEventDown twice with reason 'unregistered': ")
+	cmd1 = testEventCmdUnregister{
+		event: "testEvent",
+	}
+	_, err = node1gs1.Direct(cmd1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fmt.Println("OK")
+	fmt.Printf("... receive first event down message: ")
+	waitForResultWithValue(t, gs2.v, down)
+	fmt.Printf("... receive second event down message: ")
+	waitForResultWithValue(t, gs2.v, down)
+
+	cmd = testEventCmdRegister{
+		event:    "testEvent",
+		messages: []gen.EventMessage{testMessageEventA{}},
+	}
+	_, err = node1gs3.Direct(cmd)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cmd2 = testEventCmdMonitor{
+		event: "testEvent",
+	}
+	_, err = node1gs2.Direct(cmd2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fmt.Printf("... terminate event owner. must be received gen.MessageEventDown with reason 'kill': ")
+	node1gs3.Kill()
+	down = gen.MessageEventDown{
+		Event:  "testEvent",
+		Reason: "kill",
+	}
+	waitForResultWithValue(t, gs2.v, down)
 }
 
 // helpers

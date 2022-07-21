@@ -464,6 +464,7 @@ func TestAtomCacheLess255UniqViaProxy(t *testing.T) {
 
 	fmt.Printf("Starting node: nodeAtomCache2Less255ViaProxy@localhost with NubHandlers = 2: ")
 	opts2 := node.Options{}
+	opts2.Proxy.Accept = true
 	opts2.Proto = dist.CreateProto(protoOptions)
 	node2, e := ergo.StartNode("nodeAtomCache2Less255ViaProxy@localhost", "cookie", opts2)
 	if e != nil {
@@ -476,9 +477,10 @@ func TestAtomCacheLess255UniqViaProxy(t *testing.T) {
 
 	fmt.Printf("    connect %s with %s via proxy %s: ", node1.Name(), node2.Name(), nodeT.Name())
 	route := node.ProxyRoute{
+		Name:  node2.Name(),
 		Proxy: nodeT.Name(),
 	}
-	node1.AddProxyRoute(node2.Name(), route)
+	node1.AddProxyRoute(route)
 
 	if err := node1.Connect(node2.Name()); err != nil {
 		t.Fatal(err)
@@ -596,6 +598,7 @@ func TestAtomCacheMore255UniqViaProxy(t *testing.T) {
 
 	fmt.Printf("Starting node: nodeAtomCache2More255ViaProxy@localhost with NubHandlers = 2: ")
 	opts2 := node.Options{}
+	opts2.Proxy.Accept = true
 	opts2.Proto = dist.CreateProto(protoOptions)
 	node2, e := ergo.StartNode("nodeAtomCache2More255ViaProxy@localhost", "cookie", opts2)
 	if e != nil {
@@ -608,9 +611,10 @@ func TestAtomCacheMore255UniqViaProxy(t *testing.T) {
 
 	fmt.Printf("    connect %s with %s via proxy %s: ", node1.Name(), node2.Name(), nodeT.Name())
 	route := node.ProxyRoute{
+		Name:  node2.Name(),
 		Proxy: nodeT.Name(),
 	}
-	node1.AddProxyRoute(node2.Name(), route)
+	node1.AddProxyRoute(route)
 
 	if err := node1.Connect(node2.Name()); err != nil {
 		t.Fatal(err)
@@ -732,6 +736,7 @@ func TestAtomCacheLess255UniqViaProxyWithEncryption(t *testing.T) {
 
 	fmt.Printf("Starting node: nodeAtomCache2Less255ViaProxyEnc@localhost with NubHandlers = 2: ")
 	opts2 := node.Options{}
+	opts2.Proxy.Accept = true
 	opts2.Proto = dist.CreateProto(protoOptions)
 	node2, e := ergo.StartNode("nodeAtomCache2Less255ViaProxyEnc@localhost", "cookie", opts2)
 	if e != nil {
@@ -744,9 +749,10 @@ func TestAtomCacheLess255UniqViaProxyWithEncryption(t *testing.T) {
 
 	fmt.Printf("    connect %s with %s via proxy %s: ", node1.Name(), node2.Name(), nodeT.Name())
 	route := node.ProxyRoute{
+		Name:  node2.Name(),
 		Proxy: nodeT.Name(),
 	}
-	node1.AddProxyRoute(node2.Name(), route)
+	node1.AddProxyRoute(route)
 
 	if err := node1.Connect(node2.Name()); err != nil {
 		t.Fatal(err)
@@ -868,6 +874,7 @@ func TestAtomCacheMore255UniqViaProxyWithEncryption(t *testing.T) {
 
 	fmt.Printf("Starting node: nodeAtomCache2More255ViaProxyEnc@localhost with NubHandlers = 2: ")
 	opts2 := node.Options{}
+	opts2.Proxy.Accept = true
 	opts2.Proto = dist.CreateProto(protoOptions)
 	node2, e := ergo.StartNode("nodeAtomCache2More255ViaProxyEnc@localhost", "cookie", opts2)
 	if e != nil {
@@ -880,9 +887,10 @@ func TestAtomCacheMore255UniqViaProxyWithEncryption(t *testing.T) {
 
 	fmt.Printf("    connect %s with %s via proxy %s: ", node1.Name(), node2.Name(), nodeT.Name())
 	route := node.ProxyRoute{
+		Name:  node2.Name(),
 		Proxy: nodeT.Name(),
 	}
-	node1.AddProxyRoute(node2.Name(), route)
+	node1.AddProxyRoute(route)
 
 	if err := node1.Connect(node2.Name()); err != nil {
 		t.Fatal(err)
@@ -1004,6 +1012,7 @@ func TestAtomCacheLess255UniqViaProxyWithEncryptionCompression(t *testing.T) {
 
 	fmt.Printf("Starting node: nodeAtomCache2Less255ViaProxyEncComp@localhost with NubHandlers = 2: ")
 	opts2 := node.Options{}
+	opts2.Proxy.Accept = true
 	opts2.Proto = dist.CreateProto(protoOptions)
 	node2, e := ergo.StartNode("nodeAtomCache2Less255ViaProxyEncComp@localhost", "cookie", opts2)
 	if e != nil {
@@ -1016,9 +1025,10 @@ func TestAtomCacheLess255UniqViaProxyWithEncryptionCompression(t *testing.T) {
 
 	fmt.Printf("    connect %s with %s via proxy %s: ", node1.Name(), node2.Name(), nodeT.Name())
 	route := node.ProxyRoute{
+		Name:  node2.Name(),
 		Proxy: nodeT.Name(),
 	}
-	node1.AddProxyRoute(node2.Name(), route)
+	node1.AddProxyRoute(route)
 
 	if err := node1.Connect(node2.Name()); err != nil {
 		t.Fatal(err)
@@ -1142,6 +1152,7 @@ func TestAtomCacheMore255UniqViaProxyWithEncryptionCompression(t *testing.T) {
 
 	fmt.Printf("Starting node: nodeAtomCache2More255ViaProxyEncComp@localhost with NubHandlers = 2: ")
 	opts2 := node.Options{}
+	opts2.Proxy.Accept = true
 	opts2.Proto = dist.CreateProto(protoOptions)
 	node2, e := ergo.StartNode("nodeAtomCache2More255ViaProxyEncComp@localhost", "cookie", opts2)
 	if e != nil {
@@ -1154,9 +1165,10 @@ func TestAtomCacheMore255UniqViaProxyWithEncryptionCompression(t *testing.T) {
 
 	fmt.Printf("    connect %s with %s via proxy %s: ", node1.Name(), node2.Name(), nodeT.Name())
 	route := node.ProxyRoute{
+		Name:  node2.Name(),
 		Proxy: nodeT.Name(),
 	}
-	node1.AddProxyRoute(node2.Name(), route)
+	node1.AddProxyRoute(route)
 
 	if err := node1.Connect(node2.Name()); err != nil {
 		t.Fatal(err)
