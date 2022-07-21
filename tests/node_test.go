@@ -27,8 +27,11 @@ type benchCase struct {
 
 func TestNode(t *testing.T) {
 	ctx := context.Background()
+	listener := node.Listener{
+		Listen: 25001,
+	}
 	opts := node.Options{
-		Listen:    25001,
+		Listeners: []node.Listener{listener},
 		Registrar: dist.CreateRegistrarWithLocalEPMD("", 24999),
 	}
 

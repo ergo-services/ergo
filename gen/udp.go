@@ -123,7 +123,7 @@ func (udp *UDP) Init(process *ServerProcess, args ...etf.Term) error {
 	}
 
 	udpProcess.packetConn = pconn
-	udpProcess.State = udpProcess
+	process.State = udpProcess
 
 	// start serving
 	go udpProcess.serve()
