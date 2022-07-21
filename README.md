@@ -65,17 +65,15 @@ Here are the changes of latest release. For more details see the [ChangeLog](Cha
 
 #### [v2.2.0](https://github.com/ergo-services/ergo/releases/tag/v1.999.220) 2022-10-XX [tag version v1.999.220] ####
 
-* Introduced gen.Web
-* Introduced gen.TCP
-* Introduced gen.UDP
-* Introduced cloud client
-* Introduced System application
-* Introduced etf TypeRegister
-* updated examples
-* errors moved to lib package
-* updated HandleDirect method in gen.ServerBehavior allows handle this kind of requests asynchronously(added method Reply)
-* Introduced Events ( methods RegisterEvent,UnregisterEvent, MonitorEvent, DemonitorEvent, SendEventMessage; message gen.MessageEventDown)
-* updated node.Options Listeners
+* Introduced gen.Web behavior. It implements Web API Gateway pattern is also sometimes known as the "Backend For Frontend" (BFF).
+* Introduced gen.TCP behavior - socket acceptor pool for TCP protocols. It provides everything you need to accept TCP connections and process packets with a small code base and low latency
+* Introduced gen.UDP - the same as gen.TCP, but for UDP protocol
+* Introduced Events. This is a simple pub/sub feature within a node —any gen.Process can become a producer by registering a new event (method gen.Process.RegisterEvent), while the others can subscribe to these events using gen.Process.MonitorEvent. This feature behaves in a monitor manner but only works within a node. You may also want to subscribe to a system event - node.EventNetwork to receive event notification on connect/disconnect any peers. Subscriber process will also receive gen.MessageEventDown if a producer process went down (terminated).
+* Introduced Cloud Client - allows connecting to the cloud platform [https://ergo.sevices](https://ergo.services). You may want to register your email there, and we will inform you about the platform launch day.
+* Introduced type registration for the ETF encoding/decoding. This feature allows you to get rid of manually decoding with etf.TermIntoStruct for the receiving messages. Register your type using etf.RegisterType(...), and you will be receiving messages in a native type.
+* Predefined set of errors has moved to lib package.
+* Updated HandleDirect method in gen.ServerBehavior (got extra argument etf.Ref to distinguish the requests). This change allows you to handle these requests asynchronously using method gen.ServerProcess.Reply(...).
+* Updated node.Options. Now it has field Listeners (node.Listener type). It allows you to start any number of listeners with custom options - Port, TLS settings, or custom Handshake/Proto interfaces.
 * fixed build on 32-bit arch
 * fix freezing on ARM arch #102.
 * Fixed problem with encoding negative int8
