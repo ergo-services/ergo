@@ -63,50 +63,25 @@ Golang introduced [v2 rule](https://go.dev/blog/v2-go-modules) a while ago to so
 
 Here are the changes of latest release. For more details see the [ChangeLog](ChangeLog.md)
 
-#### [v2.1.0](https://github.com/ergo-services/ergo/releases/tag/v1.999.210) 2022-04-19 [tag version v1.999.210] ####
+#### [v2.2.0](https://github.com/ergo-services/ergo/releases/tag/v1.999.220) 2022-10-XX [tag version v1.999.220] ####
 
-* Introduced **compression feature** support. Here are new methods and options to manage this feature:
-  - `gen.Process`:
-    - `SetCompression(enable bool)`, `Compression() bool`
-    - `SetCompressionLevel(level int) bool`, `CompressionLevel() int`
-    - `SetCompressionThreshold(threshold int) bool`, `CompressionThreshold() int` messages smaller than the threshold will be sent with no compression. The default compression threshold is 1024 bytes.
-  - `node.Options`:
-    - `Compression` these settings are used as defaults for the spawning processes
-  - this feature will be ignored if the receiver is running on either the Erlang or Elixir node
-* Introduced **proxy feature** support **with end-to-end encryption**.
-  - `node.Node` new methods:
-    - `AddProxyRoute(...)`, `RemoveProxyRoute(...)`
-    - `ProxyRoute(...)`, `ProxyRoutes()`
-    - `NodesIndirect()` returns list of connected nodes via proxy connection
-  - `node.Options`:
-    - `Proxy` for configuring proxy settings
-  - includes support (over the proxy connection): compression, fragmentation, link/monitor process, monitor node
-  - example [examples/proxy](examples/proxy).
-  - this feature is not available for the Erlang/Elixir nodes
-* Introduced **behavior `gen.Raft`**. It's improved implementation of [Raft consensus algorithm](https://raft.github.io). The key improvement is using quorum under the hood to manage the leader election process and make the Raft cluster more reliable. This implementation supports quorums of 3, 5, 7, 9, or 11 quorum members. Here is an example of this feature [examples/genraft](examples/genraft).
-* Introduced **interfaces to customize network layer**
-  - `Resolver` to replace EPMD routines with your solution (e.g., ZooKeeper or any other service registrar)
-  - `Handshake` allows customizing authorization/authentication process
-  - `Proto` provides the way to implement proprietary protocols (e.g., IoT area)
-* Other new features:
-  - `gen.Process` new methods:
-    - `NodeUptime()`, `NodeName()`, `NodeStop()`
-  - `gen.ServerProcess` new method:
-    - `MessageCounter()` shows how many messages have been handled by the `gen.Server` callbacks
-  - `gen.ProcessOptions` new option:
-    - `ProcessFallback` allows forward messages to the fallback process if the process mailbox is full. Forwarded messages are wrapped into `gen.MessageFallback` struct. Related to issue #96.
-  - `gen.SupervisorChildSpec` and `gen.ApplicationChildSpec` got option `gen.ProcessOptions` to customize options for the spawning child processes.
-* Improved sending messages by etf.Pid or etf.Alias: methods `gen.Process.Send`, `gen.ServerProcess.Cast`, `gen.ServerProcess.Call` now return `node.ErrProcessIncarnation` if a message is sending to the remote process of the previous incarnation (remote node has been restarted). Making monitor on a remote process of the previous incarnation triggers sending `gen.MessageDown` with reason `incarnation`.
-* Introduced type `gen.EnvKey` for the environment variables
-* All spawned processes now have the `node.EnvKeyNode` variable to get access to the `node.Node` value.
-* **Improved performance** of local messaging (**up to 8 times** for some cases)
-* **Important** `node.Options` has changed. Make sure to adjust your code.
-* Fixed issue #89 (incorrect handling of Call requests)
-* Fixed issues #87, #88 and #93 (closing network socket)
-* Fixed issue #96 (silently drops message if process mailbox is full)
-* Updated minimal requirement of Golang version to 1.17 (go.mod)
-* We still keep the rule **Zero Dependencies**
-
+* Introduced gen.Web
+* Introduced gen.TCP
+* Introduced gen.UDP
+* Introduced cloud client
+* Introduced System application
+* Introduced etf TypeRegister
+* updated examples
+* errors moved to lib package
+* updated HandleDirect method in gen.ServerBehavior allows handle this kind of requests asynchronously(added method Reply)
+* Introduced Events ( methods RegisterEvent,UnregisterEvent, MonitorEvent, DemonitorEvent, SendEventMessage; message gen.MessageEventDown)
+* updated node.Options Listeners
+* fixed build on 32-bit arch
+* fix freezing on ARM arch #102.
+* Fixed problem with encoding negative int8
+* Fixed #103 (there was an issue on interop with Elixir's GenStage)
+* Fixed node stuck on start if it uses the name which is already taken in EPMD
+* Fixed incorrect gen.ProcessOptions.Context handling
 
 ### Benchmarks ###
 
