@@ -52,7 +52,7 @@ func (th *timeHandler) HandleWebHandlerCast(process *gen.WebHandlerProcess, mess
 		delete(state.asyncRequests, m.ref)
 		timeResult := fmt.Sprintf("time: %s", m.time)
 		request.Response.Write([]byte(timeResult))
-		process.Reply(m.ref, m.time, nil)
+		process.Reply(m.ref, nil, nil)
 
 	}
 	return gen.ServerStatusOK

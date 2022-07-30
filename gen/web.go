@@ -13,8 +13,10 @@ import (
 )
 
 type WebBehavior interface {
+	// mandatory method
 	InitWeb(process *WebProcess, args ...etf.Term) (WebOptions, error)
 
+	// optional methods
 	HandleWebCall(process *WebProcess, from ServerFrom, message etf.Term) (etf.Term, ServerStatus)
 	HandleWebCast(process *WebProcess, message etf.Term) ServerStatus
 	HandleWebInfo(process *WebProcess, message etf.Term) ServerStatus
@@ -33,6 +35,7 @@ var (
 
 type Web struct {
 	Server
+	WebBehavior
 }
 
 type WebOptions struct {
@@ -96,7 +99,7 @@ func (web *Web) Init(process *ServerProcess, args ...etf.Term) error {
 
 	tlsEnabled := false
 	if options.TLS != nil {
-		if options.TLS.Certificates == nil {
+		if options.TLS.Certificates == nil && options.TLS.GetCertificate == nil {
 			return fmt.Errorf("TLS config has no certificates")
 		}
 		tlsEnabled = true
