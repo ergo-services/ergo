@@ -63,7 +63,7 @@ Golang introduced [v2 rule](https://go.dev/blog/v2-go-modules) a while ago to so
 
 Here are the changes of latest release. For more details see the [ChangeLog](ChangeLog.md)
 
-#### [v2.2.0](https://github.com/ergo-services/ergo/releases/tag/v1.999.220) 2022-10-XX [tag version v1.999.220] ####
+#### [v2.2.0](https://github.com/ergo-services/ergo/releases/tag/v1.999.220) 2022-10-18 [tag version v1.999.220] ####
 
 * Introduced `gen.Web` behavior. It implements **Web API Gateway pattern** is also sometimes known as the "Backend For Frontend" (BFF). See example [examples/genweb](examples/genweb)
 * Introduced `gen.TCP` behavior - **socket acceptor pool for TCP protocols**. It provides everything you need to accept TCP connections and process packets with a small code base and low latency. Here is simple example [examples/gentcp](examples/gentcp)
