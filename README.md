@@ -165,7 +165,7 @@ Here you can see this feature in action using one of the [examples](examples/):
 
 ### Examples ###
 
-Code below is a simple implementation of gen.Server pattern [examples/simple](examples/simple)
+Code below is a simple implementation of gen.Server pattern [examples/server](examples/server)
 
 ```golang
 package main
@@ -174,13 +174,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/ergo-services/ergo"
 	"github.com/ergo-services/ergo/etf"
 	"github.com/ergo-services/ergo/gen"
-	"github.com/ergo-services/ergo/node"
 )
 
-// simple implementation of Server
 type simple struct {
 	gen.Server
 }
@@ -191,25 +188,10 @@ func (s *simple) HandleInfo(process *gen.ServerProcess, message etf.Term) gen.Se
 	if value > 104 {
 		return gen.ServerStatusStop
 	}
-	// sending message with delay
-	process.SendAfter(process.Self(), value+1, time.Duration(1*time.Second))
+	// sending message with delay 1 second
+	fmt.Println("increase this value by 1 and send it to itself again")
+	process.SendAfter(process.Self(), value+1, time.Second)
 	return gen.ServerStatusOK
-}
-
-func main() {
-	// create a new node
-	node, _ := ergo.StartNode("node@localhost", "cookies", node.Options{})
-
-	// spawn a new process of gen.Server
-	process, _ := node.Spawn("gs1", gen.ProcessOptions{}, &simple{})
-
-	// send a message to itself
-	process.Send(process.Self(), 100)
-
-	// wait for the process termination.
-	process.Wait()
-	fmt.Println("exited")
-	node.Stop()
 }
 
 ```
@@ -234,9 +216,13 @@ See `examples/` for more details
 * [gen.Server](examples/genserver)
 * [gen.Stage](examples/genstage)
 * [gen.Saga](examples/gensaga)
-* [gen.Demo](examples/gendemo)
-* [Node with TLS](examples/nodetls)
-* [Node with HTTP server](examples/http)
+* [gen.Raft](examples/genraft)
+* [gen.Custom](examples/gencustom)
+* [gen.Web](examples/genweb)
+* [gen.TCP](examples/gentcp)
+* [gen.UDP](examples/genudp)
+* [erlang](examples/erlang)
+* [proxy](examples/proxy)
 
 ### Elixir Phoenix Users ###
 
