@@ -63,12 +63,12 @@ Golang introduced [v2 rule](https://go.dev/blog/v2-go-modules) a while ago to so
 
 Here are the changes of latest release. For more details see the [ChangeLog](ChangeLog.md)
 
-#### [v2.2.0](https://github.com/ergo-services/ergo/releases/tag/v1.999.220) 2022-10-XX [tag version v1.999.220] ####
+#### [v2.2.0](https://github.com/ergo-services/ergo/releases/tag/v1.999.220) 2022-10-18 [tag version v1.999.220] ####
 
 * Introduced `gen.Web` behavior. It implements **Web API Gateway pattern** is also sometimes known as the "Backend For Frontend" (BFF). See example [examples/genweb](examples/genweb)
 * Introduced `gen.TCP` behavior - **socket acceptor pool for TCP protocols**. It provides everything you need to accept TCP connections and process packets with a small code base and low latency. Here is simple example [examples/gentcp](examples/gentcp)
 * Introduced `gen.UDP` - the same as `gen.TCP`, but for UDP protocols. Example is here [examples/genudp](examples/genudp)
-* Introduced **Events**. This is a simple pub/sub feature within a node - any `gen.Process` can become a producer by registering a new event `gen.Event` using method `gen.Process.RegisterEvent`, while the others can subscribe to these events using `gen.Process.MonitorEvent`. This feature behaves in a monitor manner but only works within a node. You may also want to subscribe to a system event - `node.EventNetwork` to receive event notification on connect/disconnect any peers. Subscriber process will also receive `gen.MessageEventDown` if a producer process went down (terminated)
+* Introduced **Events**. This is a simple pub/sub feature within a node - any `gen.Process` can become a producer by registering a new event `gen.Event` using method `gen.Process.RegisterEvent`, while the others can subscribe to these events using `gen.Process.MonitorEvent`. Subscriber process will also receive `gen.MessageEventDown` if a producer process went down (terminated). This feature behaves in a monitor manner but only works within a node. You may also want to subscribe to a system event - `node.EventNetwork` to receive event notification on connect/disconnect any peers.
 * Introduced **Cloud Client** - allows connecting to the cloud platform [https://ergo.sevices](https://ergo.services). You may want to register your email there, and we will inform you about the platform launch day
 * Introduced **type registration** for the ETF encoding/decoding. This feature allows you to get rid of manually decoding with `etf.TermIntoStruct` for the receiving messages. Register your type using `etf.RegisterType(...)`, and you will be receiving messages in a native type
 * Predefined set of errors has moved to the `lib` package
@@ -155,17 +155,9 @@ sources of these benchmarks are [here](https://github.com/halturin/ergobenchmark
 
 The one thing that makes embedded EPMD different is the behavior of handling connection hangs - if ergo' node is running as an EPMD client and lost connection, it tries either to run its own embedded EPMD service or to restore the lost connection.
 
-### Observer ###
-
-It's a standard Erlang tool. Observer is a graphical tool for observing the characteristics of Erlang systems. The tool Observer displays system information, application supervisor trees, process information.
-
-Here you can see this feature in action using one of the [examples](examples/):
-
-![observer demo](.github/images/observer.gif)
-
 ### Examples ###
 
-Code below is a simple implementation of gen.Server pattern [examples/simple](examples/simple)
+Code below is a simple implementation of gen.Server pattern [examples/server](examples/server)
 
 ```golang
 package main
@@ -174,13 +166,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/ergo-services/ergo"
 	"github.com/ergo-services/ergo/etf"
 	"github.com/ergo-services/ergo/gen"
-	"github.com/ergo-services/ergo/node"
 )
 
-// simple implementation of Server
 type simple struct {
 	gen.Server
 }
@@ -191,25 +180,10 @@ func (s *simple) HandleInfo(process *gen.ServerProcess, message etf.Term) gen.Se
 	if value > 104 {
 		return gen.ServerStatusStop
 	}
-	// sending message with delay
-	process.SendAfter(process.Self(), value+1, time.Duration(1*time.Second))
+	// sending message with delay 1 second
+	fmt.Println("increase this value by 1 and send it to itself again")
+	process.SendAfter(process.Self(), value+1, time.Second)
 	return gen.ServerStatusOK
-}
-
-func main() {
-	// create a new node
-	node, _ := ergo.StartNode("node@localhost", "cookies", node.Options{})
-
-	// spawn a new process of gen.Server
-	process, _ := node.Spawn("gs1", gen.ProcessOptions{}, &simple{})
-
-	// send a message to itself
-	process.Send(process.Self(), 100)
-
-	// wait for the process termination.
-	process.Wait()
-	fmt.Println("exited")
-	node.Stop()
 }
 
 ```
@@ -234,9 +208,13 @@ See `examples/` for more details
 * [gen.Server](examples/genserver)
 * [gen.Stage](examples/genstage)
 * [gen.Saga](examples/gensaga)
-* [gen.Demo](examples/gendemo)
-* [Node with TLS](examples/nodetls)
-* [Node with HTTP server](examples/http)
+* [gen.Raft](examples/genraft)
+* [gen.Custom](examples/gencustom)
+* [gen.Web](examples/genweb)
+* [gen.TCP](examples/gentcp)
+* [gen.UDP](examples/genudp)
+* [erlang](examples/erlang)
+* [proxy](examples/proxy)
 
 ### Elixir Phoenix Users ###
 

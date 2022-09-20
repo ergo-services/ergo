@@ -60,7 +60,9 @@ func ServerStatusStopWithReason(s string) ServerStatus {
 }
 
 // Server is implementation of ProcessBehavior interface for Server objects
-type Server struct{}
+type Server struct {
+	ServerBehavior
+}
 
 // ServerFrom
 type ServerFrom struct {
