@@ -155,14 +155,6 @@ sources of these benchmarks are [here](https://github.com/halturin/ergobenchmark
 
 The one thing that makes embedded EPMD different is the behavior of handling connection hangs - if ergo' node is running as an EPMD client and lost connection, it tries either to run its own embedded EPMD service or to restore the lost connection.
 
-### Observer ###
-
-It's a standard Erlang tool. Observer is a graphical tool for observing the characteristics of Erlang systems. The tool Observer displays system information, application supervisor trees, process information.
-
-Here you can see this feature in action using one of the [examples](examples/):
-
-![observer demo](.github/images/observer.gif)
-
 ### Examples ###
 
 Code below is a simple implementation of gen.Server pattern [examples/server](examples/server)
