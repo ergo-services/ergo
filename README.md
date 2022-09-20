@@ -157,7 +157,7 @@ The one thing that makes embedded EPMD different is the behavior of handling con
 
 ### Examples ###
 
-Code below is a simple implementation of gen.Server pattern [examples/server](examples/server)
+Code below is a simple implementation of gen.Server pattern [examples/genserver](examples/genserver)
 
 ```golang
 package main
