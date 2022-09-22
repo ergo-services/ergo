@@ -744,6 +744,8 @@ func TestNodeProxyConnect(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
+	defer nodeA.Stop()
+
 	route := node.ProxyRoute{
 		Name:  "nodeCproxy@localhost",
 		Proxy: "nodeBproxy@localhost",
@@ -756,12 +758,14 @@ func TestNodeProxyConnect(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
+	defer nodeB.Stop()
 	optsC := node.Options{}
 	optsC.Proxy.Accept = true
 	nodeC, e := ergo.StartNode("nodeCproxy@localhost", "secret", optsC)
 	if e != nil {
 		t.Fatal(e)
 	}
+	defer nodeC.Stop()
 
 	if err := nodeA.Connect("nodeCproxy@localhost"); err != nil {
 		t.Fatal(err)
@@ -886,6 +890,7 @@ func TestNodeProxyConnect(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
+	defer nodeD.Stop()
 
 	route = node.ProxyRoute{
 		Name:   "nodeDproxy@localhost",
@@ -967,12 +972,6 @@ func TestNodeProxyConnect(t *testing.T) {
 	fmt.Printf("... processA send 1M message to processD (fragmented, compressed, encrypted): ")
 	pA.Send(pD.Self(), randomString)
 	waitForResultWithValue(t, gsD.v, randomString)
-
-	nodeA.Stop()
-	nodeB.Stop()
-	nodeC.Stop()
-	nodeD.Stop()
-
 }
 
 func TestNodeIncarnation(t *testing.T) {
@@ -983,6 +982,7 @@ func TestNodeIncarnation(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
+	defer nodeA.Stop()
 	route := node.ProxyRoute{
 		Name:  "nodeCincarnation@localhost",
 		Proxy: "nodeBincarnation@localhost",
@@ -995,6 +995,7 @@ func TestNodeIncarnation(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
+	defer nodeB.Stop()
 	optsC := node.Options{
 		Creation: 1234,
 	}
@@ -1003,6 +1004,7 @@ func TestNodeIncarnation(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
+	defer nodeC.Stop()
 
 	if err := nodeA.Connect("nodeCincarnation@localhost"); err != nil {
 		t.Fatal(err)
