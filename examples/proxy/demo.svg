@@ -8,7 +8,10 @@
    version="1.1"
    id="svg10716"
    sodipodi:docname="demo.svg"
-   inkscape:version="1.1.1 (3bf5ae0d25, 2021-09-20)"
+   inkscape:version="1.2.1 (9c6d41e410, 2022-07-14)"
+   inkscape:export-filename="demo.png"
+   inkscape:export-xdpi="90"
+   inkscape:export-ydpi="90"
    xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
    xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
    xmlns="http://www.w3.org/2000/svg"
@@ -24,8 +27,8 @@
      inkscape:document-units="mm"
      showgrid="false"
      inkscape:zoom="1.5554293"
-     inkscape:cx="400.85397"
-     inkscape:cy="261.6641"
+     inkscape:cx="373.20886"
+     inkscape:cy="262.307"
      inkscape:window-width="2788"
      inkscape:window-height="1196"
      inkscape:window-x="26"
@@ -35,7 +38,9 @@
      fit-margin-top="0"
      fit-margin-left="0"
      fit-margin-right="0"
-     fit-margin-bottom="0" />
+     fit-margin-bottom="0"
+     inkscape:showpageshadow="2"
+     inkscape:deskcolor="#d1d1d1" />
   <defs
      id="defs10713">
     <marker
@@ -72,6 +77,14 @@
      inkscape:groupmode="layer"
      id="layer1"
      transform="translate(-4.5875404,-10.224198)">
+    <rect
+       style="fill:#ffffff;fill-opacity:1;stroke:#8d8d8d;stroke-width:0.264999;stroke-linecap:round;stroke-dasharray:0.264583, 0.79375"
+       id="rect347"
+       width="217.92863"
+       height="134.14357"
+       x="0.69377428"
+       y="8.0434237"
+       ry="0" />
     <rect
        style="opacity:0.333947;fill:#a8c4d2;fill-opacity:1;stroke:#515151;stroke-width:0.207169;stroke-linecap:round;stroke-dasharray:0.207169, 0.207169"
        id="rect23766"
