@@ -10,6 +10,7 @@ var (
 	ErrNameUnknown          = fmt.Errorf("unknown name")
 	ErrNameOwner            = fmt.Errorf("not an owner")
 	ErrProcessBusy          = fmt.Errorf("process is busy")
+	ErrProcessMailboxFull   = fmt.Errorf("process mailbox is full")
 	ErrProcessUnknown       = fmt.Errorf("unknown process")
 	ErrProcessContext       = fmt.Errorf("not a Process context")
 	ErrProcessIncarnation   = fmt.Errorf("process ID belongs to the previous incarnation")
