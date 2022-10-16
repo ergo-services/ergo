@@ -213,6 +213,7 @@ See `examples/` for more details
 * [gen.Web](examples/genweb)
 * [gen.TCP](examples/gentcp)
 * [gen.UDP](examples/genudp)
+* [events](examples/events)
 * [erlang](examples/erlang)
 * [proxy](examples/proxy)
 
