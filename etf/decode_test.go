@@ -1,6 +1,7 @@
 package etf
 
 import (
+	"fmt"
 	"math/big"
 	"reflect"
 	"testing"
@@ -477,6 +478,47 @@ func TestDecodeFunction(t *testing.T) {
 	_, _, err := Decode(packet, []Atom{}, DecodeOptions{})
 	if err != nil {
 		t.Fatal(err)
+	}
+
+}
+
+func TestDecodeRegisteredType(t *testing.T) {
+	type regTypeStruct3 struct {
+		C string
+	}
+	type regTypeStruct4 struct {
+		A uint8
+		B *regTypeStruct3
+	}
+	if a, err := RegisterType(regTypeStruct3{}, RegisterTypeOptions{}); err != nil {
+		t.Fatal(err)
+	} else {
+		defer UnregisterType(a)
+	}
+
+	if a, err := RegisterType(regTypeStruct4{}, RegisterTypeOptions{}); err != nil {
+		t.Fatal(err)
+	} else {
+		defer UnregisterType(a)
+	}
+
+	expected := regTypeStruct4{}
+	expected.A = 123
+	expected.B = &regTypeStruct3{
+		C: "hello",
+	}
+
+	packet := []byte{ettSmallTuple, 3, ettSmallAtomUTF8, 49, 35, 103, 105, 116, 104, 117, 98, 46, 99, 111, 109, 47, 101, 114, 103, 111, 45, 115, 101, 114, 118, 105, 99, 101, 115, 47, 101, 114, 103, 111, 47, 101, 116, 102, 47, 114, 101, 103, 84, 121, 112, 101, 83, 116, 114, 117, 99, 116, 52, ettSmallInteger, 123, ettSmallTuple, 2, ettSmallAtomUTF8, 49, 35, 103, 105, 116, 104, 117, 98, 46, 99, 111, 109, 47, 101, 114, 103, 111, 45, 115, 101, 114, 118, 105, 99, 101, 115, 47, 101, 114, 103, 111, 47, 101, 116, 102, 47, 114, 101, 103, 84, 121, 112, 101, 83, 116, 114, 117, 99, 116, 51, ettString, 0, 5, 104, 101, 108, 108, 111}
+
+	term, _, err := Decode(packet, []Atom{}, DecodeOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	switch tt := term.(type) {
+	case regTypeStruct4:
+		fmt.Printf("TERM: %v %#v %#v\n", tt, tt, tt.B)
+	default:
+		t.Fatal("unknown type", tt)
 	}
 
 }

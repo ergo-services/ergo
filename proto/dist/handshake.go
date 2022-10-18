@@ -5,8 +5,8 @@ import (
 	"crypto/md5"
 	"encoding/binary"
 	"fmt"
-	"io"
 	"math/rand"
+	"net"
 	"time"
 
 	"github.com/ergo-services/ergo/lib"
@@ -122,7 +122,7 @@ func (dh *DistHandshake) Version() node.HandshakeVersion {
 	return dh.options.Version
 }
 
-func (dh *DistHandshake) Start(conn io.ReadWriter, tls bool, cookie string) (node.HandshakeDetails, error) {
+func (dh *DistHandshake) Start(remote net.Addr, conn lib.NetReadWriter, tls bool, cookie string) (node.HandshakeDetails, error) {
 
 	var details node.HandshakeDetails
 
@@ -185,7 +185,7 @@ func (dh *DistHandshake) Start(conn io.ReadWriter, tls bool, cookie string) (nod
 				return details, fmt.Errorf("malformed handshake (wrong packet length)")
 			}
 
-			// chech if we got correct message type regarding to 'await' value
+			// check if we got correct message type regarding to 'await' value
 			if bytes.Count(await, buffer[0:1]) == 0 {
 				return details, fmt.Errorf("malformed handshake (wrong response)")
 			}
@@ -282,7 +282,7 @@ func (dh *DistHandshake) Start(conn io.ReadWriter, tls bool, cookie string) (nod
 
 }
 
-func (dh *DistHandshake) Accept(conn io.ReadWriter, tls bool, cookie string) (node.HandshakeDetails, error) {
+func (dh *DistHandshake) Accept(remote net.Addr, conn lib.NetReadWriter, tls bool, cookie string) (node.HandshakeDetails, error) {
 	var details node.HandshakeDetails
 
 	b := lib.TakeBuffer()

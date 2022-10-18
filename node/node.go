@@ -44,29 +44,14 @@ func StartWithContext(ctx context.Context, name string, cookie string, opts Opti
 		opts.Flags = DefaultFlags()
 	}
 
-	// set defaults listening port range
-	if opts.Listen > 0 {
-		opts.ListenBegin = opts.Listen
-		opts.ListenEnd = opts.Listen
-		lib.Log("Node listening port: %d", opts.Listen)
-	} else {
-		if opts.ListenBegin == 0 {
-			opts.ListenBegin = defaultListenBegin
-		}
-		if opts.ListenEnd == 0 {
-			opts.ListenEnd = defaultListenEnd
-		}
-		lib.Log("Node listening range: %d...%d", opts.ListenBegin, opts.ListenEnd)
-	}
-
 	if opts.Handshake == nil {
 		return nil, fmt.Errorf("Handshake must be defined")
 	}
 	if opts.Proto == nil {
 		return nil, fmt.Errorf("Proto must be defined")
 	}
-	if opts.StaticRoutesOnly == false && opts.Resolver == nil {
-		return nil, fmt.Errorf("Resolver must be defined if StaticRoutesOnly == false")
+	if opts.StaticRoutesOnly == false && opts.Registrar == nil {
+		return nil, fmt.Errorf("Registrar must be defined if StaticRoutesOnly == false")
 	}
 
 	nodectx, nodestop := context.WithCancel(ctx)
@@ -160,6 +145,33 @@ func (n *node) Wait() {
 	n.coreWait()
 }
 
+func (n *node) Stats() NodeStats {
+	stats := NodeStats{}
+
+	coreStats := n.coreStats()
+	stats.TotalProcesses = coreStats.totalProcesses
+	stats.TotalReferences = coreStats.totalReferences
+	stats.RunningProcesses = uint64(coreStats.processes)
+	stats.RegisteredNames = uint64(coreStats.names)
+	stats.RegisteredAliases = uint64(coreStats.aliases)
+
+	monStats := n.monitorStats()
+	stats.MonitorsByPid = uint64(monStats.monitorsByPid)
+	stats.MonitorsByName = uint64(monStats.monitorsByName)
+	stats.MonitorsNodes = uint64(monStats.monitorsNodes)
+	stats.Links = uint64(monStats.links)
+
+	stats.LoadedApplications = uint64(len(n.LoadedApplications()))
+	stats.RunningApplications = uint64(len(n.WhichApplications()))
+
+	netStats := n.networkStats()
+	stats.NetworkConnections = uint64(netStats.connections)
+	stats.ProxyConnections = uint64(netStats.proxyConnections)
+	stats.TransitConnections = uint64(netStats.transitConnections)
+
+	return stats
+}
+
 // WaitWithTimeout
 func (n *node) WaitWithTimeout(d time.Duration) error {
 	return n.coreWaitWithTimeout(d)
@@ -206,11 +218,11 @@ func (n *node) listApplications(onlyRunning bool) []gen.ApplicationInfo {
 func (n *node) ApplicationInfo(name string) (gen.ApplicationInfo, error) {
 	rb, err := n.RegisteredBehavior(appBehaviorGroup, name)
 	if err != nil {
-		return gen.ApplicationInfo{}, ErrAppUnknown
+		return gen.ApplicationInfo{}, lib.ErrAppUnknown
 	}
 	spec, ok := rb.Data.(*gen.ApplicationSpec)
 	if !ok {
-		return gen.ApplicationInfo{}, ErrAppUnknown
+		return gen.ApplicationInfo{}, lib.ErrAppUnknown
 	}
 
 	pid := etf.Pid{}
@@ -246,15 +258,15 @@ func (n *node) ApplicationLoad(app gen.ApplicationBehavior, args ...etf.Term) (s
 func (n *node) ApplicationUnload(appName string) error {
 	rb, err := n.RegisteredBehavior(appBehaviorGroup, appName)
 	if err != nil {
-		return ErrAppUnknown
+		return lib.ErrAppUnknown
 	}
 
 	spec, ok := rb.Data.(*gen.ApplicationSpec)
 	if !ok {
-		return ErrAppUnknown
+		return lib.ErrAppUnknown
 	}
 	if spec.Process != nil {
-		return ErrAppAlreadyStarted
+		return lib.ErrAppAlreadyStarted
 	}
 
 	return n.UnregisterBehavior(appBehaviorGroup, appName)
@@ -285,12 +297,12 @@ func (n *node) ApplicationStart(appName string, args ...etf.Term) (gen.Process, 
 func (n *node) applicationStart(startType, appName string, args ...etf.Term) (gen.Process, error) {
 	rb, err := n.RegisteredBehavior(appBehaviorGroup, appName)
 	if err != nil {
-		return nil, ErrAppUnknown
+		return nil, lib.ErrAppUnknown
 	}
 
 	spec, ok := rb.Data.(*gen.ApplicationSpec)
 	if !ok {
-		return nil, ErrAppUnknown
+		return nil, lib.ErrAppUnknown
 	}
 
 	spec.StartType = startType
@@ -301,12 +313,12 @@ func (n *node) applicationStart(startType, appName string, args ...etf.Term) (ge
 	defer spec.Unlock()
 
 	if spec.Process != nil {
-		return nil, ErrAppAlreadyStarted
+		return nil, lib.ErrAppAlreadyStarted
 	}
 
 	// start dependencies
 	for _, depAppName := range spec.Applications {
-		if _, e := n.ApplicationStart(depAppName); e != nil && e != ErrAppAlreadyStarted {
+		if _, e := n.ApplicationStart(depAppName); e != nil && e != lib.ErrAppAlreadyStarted {
 			return nil, e
 		}
 	}
@@ -329,18 +341,18 @@ func (n *node) applicationStart(startType, appName string, args ...etf.Term) (ge
 func (n *node) ApplicationStop(name string) error {
 	rb, err := n.RegisteredBehavior(appBehaviorGroup, name)
 	if err != nil {
-		return ErrAppUnknown
+		return lib.ErrAppUnknown
 	}
 
 	spec, ok := rb.Data.(*gen.ApplicationSpec)
 	if !ok {
-		return ErrAppUnknown
+		return lib.ErrAppUnknown
 	}
 
 	spec.Lock()
 	defer spec.Unlock()
 	if spec.Process == nil {
-		return ErrAppIsNotRunning
+		return lib.ErrAppIsNotRunning
 	}
 
 	if e := spec.Process.Exit("normal"); e != nil {
@@ -348,7 +360,7 @@ func (n *node) ApplicationStop(name string) error {
 	}
 	// we should wait until children process stopped.
 	if e := spec.Process.WaitWithTimeout(5 * time.Second); e != nil {
-		return ErrProcessBusy
+		return lib.ErrProcessBusy
 	}
 	return nil
 }
@@ -442,6 +454,15 @@ func DefaultFlags() Flags {
 	}
 }
 
+// DefaultCloudFlags
+func DefaultCloudFlags() CloudFlags {
+	return CloudFlags{
+		Enable:              true,
+		EnableIntrospection: true,
+		EnableMetrics:       true,
+	}
+}
+
 func DefaultProxyFlags() ProxyFlags {
 	return ProxyFlags{
 		Enable:            true,
@@ -459,6 +480,10 @@ func DefaultProtoOptions() ProtoOptions {
 		MaxMessageSize:    0, // no limit
 		SendQueueLength:   DefaultProtoSendQueueLength,
 		RecvQueueLength:   DefaultProtoRecvQueueLength,
-		FragmentationUnit: DefaultProroFragmentationUnit,
+		FragmentationUnit: DefaultProtoFragmentationUnit,
 	}
+}
+
+func DefaultListener() Listener {
+	return Listener{}
 }

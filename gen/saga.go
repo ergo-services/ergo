@@ -1,7 +1,6 @@
 package gen
 
 import (
-	"context"
 	"fmt"
 	"math"
 	"sync"
@@ -73,7 +72,7 @@ type SagaBehavior interface {
 	HandleSagaInfo(process *SagaProcess, message etf.Term) ServerStatus
 	// HandleSagaDirect this callback is invoked on Process.Direct. This method is optional
 	// for the implementation
-	HandleSagaDirect(process *SagaProcess, message interface{}) (interface{}, error)
+	HandleSagaDirect(process *SagaProcess, ref etf.Ref, message interface{}) (interface{}, DirectStatus)
 }
 
 const (
@@ -169,7 +168,7 @@ type SagaTransaction struct {
 	parents []etf.Pid // sagas trace
 
 	done        bool // do not allow send result more than once if 2PC is set
-	cancelTimer context.CancelFunc
+	cancelTimer CancelFunc
 }
 
 // SagaNextID
@@ -194,7 +193,7 @@ type SagaNext struct {
 
 	// internal
 	done        bool // for 2PC case
-	cancelTimer context.CancelFunc
+	cancelTimer CancelFunc
 }
 
 // SagaJobID
@@ -218,7 +217,7 @@ type SagaJob struct {
 	commit      bool
 	worker      Process
 	done        bool
-	cancelTimer context.CancelFunc
+	cancelTimer CancelFunc
 }
 
 // SagaJobOptions
@@ -284,7 +283,7 @@ type sagaSetMaxTransactions struct {
 // SetMaxTransactions set maximum transactions fo the saga
 func (gs *Saga) SetMaxTransactions(process Process, max uint) error {
 	if !process.IsAlive() {
-		return ErrServerTerminated
+		return lib.ErrServerTerminated
 	}
 	message := sagaSetMaxTransactions{
 		max: max,
@@ -493,8 +492,6 @@ func (sp *SagaProcess) SendResult(id SagaTransactionID, result interface{}) erro
 		},
 	}
 
-	//fmt.Printf("SAGA RESULT %#v\n", message)
-
 	// send message to the parent saga
 	if err := sp.Send(tx.parents[0], message); err != nil {
 		return err
@@ -633,7 +630,7 @@ func (sp *SagaProcess) handleSagaRequest(m messageSaga) error {
 		nextMessage := messageSagaNext{}
 
 		if err := etf.TermIntoStruct(m.Command, &nextMessage); err != nil {
-			return ErrUnsupportedRequest
+			return lib.ErrUnsupportedRequest
 		}
 
 		// Check if exceed the number of transaction on this saga
@@ -725,7 +722,7 @@ func (sp *SagaProcess) handleSagaRequest(m messageSaga) error {
 	case "$saga_cancel":
 		cancel := messageSagaCancel{}
 		if err := etf.TermIntoStruct(m.Command, &cancel); err != nil {
-			return ErrUnsupportedRequest
+			return lib.ErrUnsupportedRequest
 		}
 
 		tx, exist := sp.txs[SagaTransactionID(cancel.TransactionID)]
@@ -776,7 +773,7 @@ func (sp *SagaProcess) handleSagaRequest(m messageSaga) error {
 	case etf.Atom("$saga_result"):
 		result := messageSagaResult{}
 		if err := etf.TermIntoStruct(m.Command, &result); err != nil {
-			return ErrUnsupportedRequest
+			return lib.ErrUnsupportedRequest
 		}
 
 		transactionID := SagaTransactionID(result.TransactionID)
@@ -827,7 +824,7 @@ func (sp *SagaProcess) handleSagaRequest(m messageSaga) error {
 	case etf.Atom("$saga_interim"):
 		interim := messageSagaResult{}
 		if err := etf.TermIntoStruct(m.Command, &interim); err != nil {
-			return ErrUnsupportedRequest
+			return lib.ErrUnsupportedRequest
 		}
 		next_id := SagaNextID(interim.Origin)
 		sp.mutexNext.Lock()
@@ -853,7 +850,7 @@ func (sp *SagaProcess) handleSagaRequest(m messageSaga) error {
 		// propagate Commit signal if 2PC is enabled
 		commit := messageSagaCommit{}
 		if err := etf.TermIntoStruct(m.Command, &commit); err != nil {
-			return ErrUnsupportedRequest
+			return lib.ErrUnsupportedRequest
 		}
 		transactionID := SagaTransactionID(commit.TransactionID)
 		sp.mutexTXS.Lock()
@@ -871,7 +868,7 @@ func (sp *SagaProcess) handleSagaRequest(m messageSaga) error {
 		}
 		return SagaStatusOK
 	}
-	return ErrUnsupportedRequest
+	return lib.ErrUnsupportedRequest
 }
 
 func (sp *SagaProcess) cancelTX(from etf.Pid, cancel messageSagaCancel, tx *SagaTransaction) {
@@ -1158,14 +1155,14 @@ func (gs *Saga) HandleCall(process *ServerProcess, from ServerFrom, message etf.
 }
 
 // HandleDirect
-func (gs *Saga) HandleDirect(process *ServerProcess, message interface{}) (interface{}, error) {
+func (gs *Saga) HandleDirect(process *ServerProcess, ref etf.Ref, message interface{}) (interface{}, DirectStatus) {
 	sp := process.State.(*SagaProcess)
 	switch m := message.(type) {
 	case sagaSetMaxTransactions:
 		sp.options.MaxTransactions = m.max
-		return nil, nil
+		return nil, DirectStatusOK
 	default:
-		return sp.behavior.HandleSagaDirect(sp, message)
+		return sp.behavior.HandleSagaDirect(sp, ref, message)
 	}
 }
 
@@ -1278,7 +1275,7 @@ func (gs *Saga) HandleInfo(process *ServerProcess, message etf.Term) ServerStatu
 		return ServerStatusOK
 	case SagaStatusStop:
 		return ServerStatusStop
-	case ErrUnsupportedRequest:
+	case lib.ErrUnsupportedRequest:
 		return sp.behavior.HandleSagaInfo(sp, message)
 	default:
 		return ServerStatus(status)
@@ -1325,8 +1322,8 @@ func (gs *Saga) HandleSagaInfo(process *SagaProcess, message etf.Term) ServerSta
 }
 
 // HandleSagaDirect
-func (gs *Saga) HandleSagaDirect(process *SagaProcess, message interface{}) (interface{}, error) {
-	return nil, ErrUnsupportedRequest
+func (gs *Saga) HandleSagaDirect(process *SagaProcess, ref etf.Ref, message interface{}) (interface{}, DirectStatus) {
+	return nil, lib.ErrUnsupportedRequest
 }
 
 // HandleJobResult

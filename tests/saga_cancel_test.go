@@ -100,7 +100,7 @@ func (gs *testSagaCancel1) HandleTxResult(process *gen.SagaProcess, id gen.SagaT
 	return gen.SagaStatusOK
 }
 
-func (gs *testSagaCancel1) HandleSagaDirect(process *gen.SagaProcess, message interface{}) (interface{}, error) {
+func (gs *testSagaCancel1) HandleSagaDirect(process *gen.SagaProcess, ref etf.Ref, message interface{}) (interface{}, gen.DirectStatus) {
 
 	process.StartTransaction(gen.SagaTransactionOptions{}, message)
 	return nil, nil
@@ -252,7 +252,7 @@ func (gs *testSagaCancel2) HandleSagaInfo(process *gen.SagaProcess, message etf.
 	return gen.ServerStatusOK
 }
 
-func (gs *testSagaCancel2) HandleSagaDirect(process *gen.SagaProcess, message interface{}) (interface{}, error) {
+func (gs *testSagaCancel2) HandleSagaDirect(process *gen.SagaProcess, ref etf.Ref, message interface{}) (interface{}, gen.DirectStatus) {
 
 	switch m := message.(type) {
 	case testSagaStartTX:

@@ -125,7 +125,7 @@ type taskTX struct {
 	chunks int
 }
 
-func (gs *testSaga) HandleSagaDirect(process *gen.SagaProcess, message interface{}) (interface{}, error) {
+func (gs *testSaga) HandleSagaDirect(process *gen.SagaProcess, ref etf.Ref, message interface{}) (interface{}, gen.DirectStatus) {
 	switch m := message.(type) {
 	case task:
 		values := splitSlice(m.value, m.split)
@@ -138,7 +138,7 @@ func (gs *testSaga) HandleSagaDirect(process *gen.SagaProcess, message interface
 			process.StartTransaction(gen.SagaTransactionOptions{}, txValue)
 		}
 
-		return nil, nil
+		return nil, gen.DirectStatusOK
 	}
 
 	return nil, fmt.Errorf("unknown request %#v", message)

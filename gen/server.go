@@ -1,7 +1,6 @@
 package gen
 
 import (
-	"context"
 	"fmt"
 	"runtime"
 	"time"
@@ -18,6 +17,8 @@ const (
 type ServerBehavior interface {
 	ProcessBehavior
 
+	// methods below are optional
+
 	// Init invoked on a start Server
 	Init(process *ServerProcess, args ...etf.Term) error
 
@@ -30,7 +31,7 @@ type ServerBehavior interface {
 	HandleCall(process *ServerProcess, from ServerFrom, message etf.Term) (etf.Term, ServerStatus)
 
 	// HandleDirect invoked on a direct request made with Process.Direct
-	HandleDirect(process *ServerProcess, message interface{}) (interface{}, error)
+	HandleDirect(process *ServerProcess, ref etf.Ref, message interface{}) (interface{}, DirectStatus)
 
 	// HandleInfo invoked if Server received message sent with Process.Send.
 	HandleInfo(process *ServerProcess, message etf.Term) ServerStatus
@@ -42,11 +43,15 @@ type ServerBehavior interface {
 
 // ServerStatus
 type ServerStatus error
+type DirectStatus error
 
 var (
 	ServerStatusOK     ServerStatus = nil
 	ServerStatusStop   ServerStatus = fmt.Errorf("stop")
 	ServerStatusIgnore ServerStatus = fmt.Errorf("ignore")
+
+	DirectStatusOK     DirectStatus = nil
+	DirectStatusIgnore DirectStatus = fmt.Errorf("ignore")
 )
 
 // ServerStatusStopWithReason
@@ -55,7 +60,9 @@ func ServerStatusStopWithReason(s string) ServerStatus {
 }
 
 // Server is implementation of ProcessBehavior interface for Server objects
-type Server struct{}
+type Server struct {
+	ServerBehavior
+}
 
 // ServerFrom
 type ServerFrom struct {
@@ -71,7 +78,6 @@ type ServerProcess struct {
 	behavior        ServerBehavior
 	counter         uint64 // total number of processed messages from mailBox
 	currentFunction string
-	trapExit        bool
 
 	mailbox  <-chan ProcessMailboxMessage
 	original <-chan ProcessMailboxMessage
@@ -96,7 +102,7 @@ type handleInfoMessage struct {
 }
 
 // CastAfter a simple wrapper for Process.SendAfter to send a message in fashion of 'gen_server:cast'
-func (sp *ServerProcess) CastAfter(to interface{}, message etf.Term, after time.Duration) context.CancelFunc {
+func (sp *ServerProcess) CastAfter(to interface{}, message etf.Term, after time.Duration) CancelFunc {
 	msg := etf.Term(etf.Tuple{etf.Atom("$gen_cast"), message})
 	return sp.SendAfter(to, msg, after)
 }
@@ -190,6 +196,14 @@ func (sp *ServerProcess) SendReply(from ServerFrom, reply etf.Term) error {
 	return sp.Send(to, rep)
 }
 
+// Reply the handling process.Direct(...) calls can be done asynchronously
+// using gen.DirectStatusIgnore as a returning status in the HandleDirect callback.
+// In this case, you must reply manualy using gen.ServerProcess.Reply method in any other
+// callback. If a caller has canceled this request due to timeout it returns lib.ErrReferenceUnknown
+func (sp *ServerProcess) Reply(ref etf.Ref, reply etf.Term, err error) error {
+	return sp.PutSyncReply(ref, reply, err)
+}
+
 // MessageCounter returns the total number of messages handled by Server callbacks: HandleCall,
 // HandleCast, HandleInfo, HandleDirect
 func (sp *ServerProcess) MessageCounter() uint64 {
@@ -256,7 +270,7 @@ func (gs *Server) ProcessLoop(ps ProcessState, started chan<- bool) string {
 
 		select {
 		case ex := <-channels.GracefulExit:
-			if !sp.TrapExit() {
+			if sp.TrapExit() == false {
 				sp.behavior.Terminate(sp, ex.Reason)
 				return ex.Reason
 			}
@@ -305,7 +319,7 @@ func (gs *Server) ProcessLoop(ps ProcessState, started chan<- bool) string {
 				if len(m) != 2 {
 					break
 				}
-				sp.PutSyncReply(mtag, m.Element(2))
+				sp.PutSyncReply(mtag, m.Element(2), nil)
 				if sp.waitReply != nil && *sp.waitReply == mtag {
 					sp.waitReply = nil
 					// continue read sp.callbackWaitReply channel
@@ -493,18 +507,16 @@ func (sp *ServerProcess) handleDirect(direct ProcessDirectMessage) {
 		defer sp.panicHandler()
 	}
 
-	reply, err := sp.behavior.HandleDirect(sp, direct.Message)
-	if err != nil {
-		direct.Message = nil
-		direct.Err = err
-		direct.Reply <- direct
+	cf := sp.currentFunction
+	sp.currentFunction = "Server:HandleDirect"
+	reply, status := sp.behavior.HandleDirect(sp, direct.Ref, direct.Message)
+	sp.currentFunction = cf
+	switch status {
+	case DirectStatusIgnore:
 		return
+	default:
+		sp.PutSyncReply(direct.Ref, reply, status)
 	}
-
-	direct.Message = reply
-	direct.Err = nil
-	direct.Reply <- direct
-	return
 }
 
 func (sp *ServerProcess) handleCall(m handleCallMessage) {
@@ -590,8 +602,8 @@ func (gs *Server) HandleCall(process *ServerProcess, from ServerFrom, message et
 }
 
 // HandleDirect
-func (gs *Server) HandleDirect(process *ServerProcess, message interface{}) (interface{}, error) {
-	return nil, ErrUnsupportedRequest
+func (gs *Server) HandleDirect(process *ServerProcess, ref etf.Ref, message interface{}) (interface{}, DirectStatus) {
+	return nil, lib.ErrUnsupportedRequest
 }
 
 // HandleInfo

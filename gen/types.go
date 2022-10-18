@@ -8,11 +8,6 @@ import (
 	"github.com/ergo-services/ergo/etf"
 )
 
-var (
-	ErrUnsupportedRequest = fmt.Errorf("unsupported request")
-	ErrServerTerminated   = fmt.Errorf("server terminated")
-)
-
 // EnvKey
 type EnvKey string
 
@@ -67,8 +62,9 @@ type Process interface {
 	// SendAfter starts a timer. When the timer expires, the message sends to the process
 	// identified by 'to'.  'to' can be a Pid, registered local name or
 	// gen.ProcessID{RegisteredName, NodeName}. Returns cancel function in order to discard
-	// sending a message
-	SendAfter(to interface{}, message etf.Term, after time.Duration) context.CancelFunc
+	// sending a message. CancelFunc returns bool value. If it returns false, than the timer has
+	// already expired and the message has been sent.
+	SendAfter(to interface{}, message etf.Term, after time.Duration) CancelFunc
 
 	// Exit initiate a graceful stopping process
 	Exit(reason string) error
@@ -182,10 +178,17 @@ type Process interface {
 	// Aliases returns list of aliases of this process.
 	Aliases() []etf.Alias
 
-	PutSyncRequest(ref etf.Ref)
+	// RegisterEvent
+	RegisterEvent(event Event, messages ...EventMessage) error
+	UnregisterEvent(event Event) error
+	MonitorEvent(event Event) error
+	DemonitorEvent(event Event) error
+	SendEventMessage(event Event, message EventMessage) error
+
+	PutSyncRequest(ref etf.Ref) error
 	CancelSyncRequest(ref etf.Ref)
 	WaitSyncReply(ref etf.Ref, timeout int) (etf.Term, error)
-	PutSyncReply(ref etf.Ref, term etf.Term) error
+	PutSyncReply(ref etf.Ref, term etf.Term, err error) error
 	ProcessChannels() ProcessChannels
 }
 
@@ -209,11 +212,14 @@ type ProcessInfo struct {
 
 // ProcessOptions
 type ProcessOptions struct {
-	// Context allows mix the system context with the custom one. E.g. to limit
-	// the lifespan using context.WithTimeout
+	// Context allows mixing the system context with the custom one. E.g., to limit
+	// the lifespan using context.WithTimeout. This context MUST be based on the
+	// other Process' context. Otherwise, you get the error lib.ErrProcessContext
 	Context context.Context
 	// MailboxSize defines the length of message queue for the process
 	MailboxSize uint16
+	// DirectboxSize defines the length of message queue for the direct requests
+	DirectboxSize uint16
 	// GroupLeader
 	GroupLeader Process
 	// Env set the process environment variables
@@ -266,9 +272,9 @@ type ProcessMailboxMessage struct {
 
 // ProcessDirectMessage
 type ProcessDirectMessage struct {
+	Ref     etf.Ref
 	Message interface{}
 	Err     error
-	Reply   chan ProcessDirectMessage
 }
 
 // ProcessGracefulExitRequest
@@ -451,4 +457,16 @@ func IsMessageFallback(message etf.Term) (MessageFallback, bool) {
 		return m, true
 	}
 	return mf, false
+}
+
+type CancelFunc func() bool
+
+type EventMessage interface{}
+type Event string
+
+// MessageEventDown delivers to the process which monitored EventType if the owner
+// of this EventType has terminated
+type MessageEventDown struct {
+	Event  Event
+	Reason string
 }

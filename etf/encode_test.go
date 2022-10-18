@@ -913,6 +913,87 @@ func TestEncodeGoPtrNil(t *testing.T) {
 	}
 }
 
+func TestEncodeRegisteredType(t *testing.T) {
+	var tmp int
+	type regTypeStruct1 struct {
+		a int
+	}
+	type regTypeStruct3 struct {
+		C string
+	}
+	type regTypeStruct2 struct {
+		A int
+		B regTypeStruct3
+	}
+	type regTypeMap map[string]regTypeStruct3
+	type regTypeSlice []regTypeStruct3
+	type regTypeArray [5]regTypeStruct3
+
+	// only struct/map/slice/array types are supported
+	if _, err := RegisterType(tmp, RegisterTypeOptions{}); err == nil {
+		t.Fatal("must be error here")
+	}
+
+	// only struct with no unexported fields
+	if _, err := RegisterType(regTypeStruct1{}, RegisterTypeOptions{}); err == nil {
+		t.Fatal("must be error here")
+	}
+
+	// all nested struct must be registered first
+	if _, err := RegisterType(regTypeStruct2{}, RegisterTypeOptions{}); err == nil {
+		t.Fatal("must be error here")
+	}
+
+	if a, err := RegisterType(regTypeStruct3{}, RegisterTypeOptions{}); err != nil {
+		t.Fatal(err)
+	} else {
+		defer UnregisterType(a)
+	}
+	if a, err := RegisterType(regTypeStruct2{}, RegisterTypeOptions{}); err != nil {
+		t.Fatal(err)
+	} else {
+		defer UnregisterType(a)
+	}
+
+	if a, err := RegisterType(regTypeMap{}, RegisterTypeOptions{}); err != nil {
+		t.Fatal(err)
+	} else {
+		defer UnregisterType(a)
+	}
+
+	if a, err := RegisterType(regTypeSlice{}, RegisterTypeOptions{}); err != nil {
+		t.Fatal(err)
+	} else {
+		defer UnregisterType(a)
+	}
+
+	if a, err := RegisterType(regTypeArray{}, RegisterTypeOptions{}); err != nil {
+		t.Fatal(err)
+	} else {
+		defer UnregisterType(a)
+	}
+
+	b := lib.TakeBuffer()
+	defer lib.ReleaseBuffer(b)
+
+	x := regTypeStruct2{}
+	x.A = 123
+	x.B.C = "hello"
+
+	expected := []byte{ettSmallTuple, 3, ettSmallAtomUTF8, 49, 35, 103, 105, 116, 104, 117, 98, 46, 99, 111, 109, 47, 101, 114, 103, 111, 45, 115, 101, 114, 118, 105, 99, 101, 115, 47, 101, 114, 103, 111, 47, 101, 116, 102, 47, 114, 101, 103, 84, 121, 112, 101, 83, 116, 114, 117, 99, 116, 50, ettSmallInteger, 123, ettSmallTuple, 2, ettSmallAtomUTF8, 49, 35, 103, 105, 116, 104, 117, 98, 46, 99, 111, 109, 47, 101, 114, 103, 111, 45, 115, 101, 114, 118, 105, 99, 101, 115, 47, 101, 114, 103, 111, 47, 101, 116, 102, 47, 114, 101, 103, 84, 121, 112, 101, 83, 116, 114, 117, 99, 116, 51, ettString, 0, 5, 104, 101, 108, 108, 111}
+	err := Encode(x, b, EncodeOptions{})
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !reflect.DeepEqual(b.B, expected) {
+		fmt.Println("exp", expected)
+		fmt.Println("got", b.B)
+		t.Fatal("incorrect value")
+	}
+}
+
 type testMarshal struct{}
 
 func (testMarshal) MarshalETF() ([]byte, error) {

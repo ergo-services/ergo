@@ -11,24 +11,18 @@ import (
 	"github.com/ergo-services/ergo/lib"
 )
 
-const (
-	// DefaultProcessMailboxSize
-	DefaultProcessMailboxSize = 100
-)
-
 var (
 	syncReplyChannels = &sync.Pool{
 		New: func() interface{} {
-			return make(chan etf.Term, 2)
-		},
-	}
-
-	directChannels = &sync.Pool{
-		New: func() interface{} {
-			return make(chan gen.ProcessDirectMessage, 1)
+			return make(chan syncReplyMessage, 2)
 		},
 	}
 )
+
+type syncReplyMessage struct {
+	value etf.Term
+	err   error
+}
 
 type process struct {
 	coreInternal
@@ -52,7 +46,7 @@ type process struct {
 	exit    processExitFunc
 
 	replyMutex sync.RWMutex
-	reply      map[etf.Ref]chan etf.Term
+	reply      map[etf.Ref]chan syncReplyMessage
 
 	trapExit    bool
 	compression Compression
@@ -80,7 +74,7 @@ func (p *process) Name() string {
 // RegisterName
 func (p *process) RegisterName(name string) error {
 	if p.behavior == nil {
-		return ErrProcessTerminated
+		return lib.ErrProcessTerminated
 	}
 	return p.registerName(name, p.self)
 }
@@ -88,14 +82,14 @@ func (p *process) RegisterName(name string) error {
 // UnregisterName
 func (p *process) UnregisterName(name string) error {
 	if p.behavior == nil {
-		return ErrProcessTerminated
+		return lib.ErrProcessTerminated
 	}
 	prc := p.ProcessByName(name)
 	if prc == nil {
-		return ErrNameUnknown
+		return lib.ErrNameUnknown
 	}
 	if prc.Self() != p.self {
-		return ErrNameOwner
+		return lib.ErrNameOwner
 	}
 	return p.unregisterName(name)
 }
@@ -111,7 +105,7 @@ func (p *process) Kill() {
 // Exit
 func (p *process) Exit(reason string) error {
 	if p.behavior == nil {
-		return ErrProcessTerminated
+		return lib.ErrProcessTerminated
 	}
 	return p.exit(p.self, reason)
 }
@@ -164,7 +158,9 @@ func (p *process) Aliases() []etf.Alias {
 
 // Info
 func (p *process) Info() gen.ProcessInfo {
+	p.RLock()
 	if p.behavior == nil {
+		p.RUnlock()
 		return gen.ProcessInfo{}
 	}
 
@@ -172,6 +168,8 @@ func (p *process) Info() gen.ProcessInfo {
 	if p.groupLeader != nil {
 		gl = p.groupLeader.Self()
 	}
+	p.RUnlock()
+
 	links := p.Links()
 	monitors := p.Monitors()
 	monitorsByName := p.MonitorsByName()
@@ -194,9 +192,13 @@ func (p *process) Info() gen.ProcessInfo {
 
 // Send
 func (p *process) Send(to interface{}, message etf.Term) error {
+	p.RLock()
 	if p.behavior == nil {
-		return ErrProcessTerminated
+		p.RUnlock()
+		return lib.ErrProcessTerminated
 	}
+	p.RUnlock()
+
 	switch receiver := to.(type) {
 	case etf.Pid:
 		return p.RouteSend(p.self, receiver, message)
@@ -213,40 +215,31 @@ func (p *process) Send(to interface{}, message etf.Term) error {
 }
 
 // SendAfter
-func (p *process) SendAfter(to interface{}, message etf.Term, after time.Duration) context.CancelFunc {
-	//TODO: should we control the number of timers/goroutines have been created this way?
-	ctx, cancel := context.WithCancel(p.context)
-	go func() {
-		// to prevent of timer leaks due to its not GCed until the timer fires
-		timer := time.NewTimer(after)
-		defer timer.Stop()
-		defer cancel()
+func (p *process) SendAfter(to interface{}, message etf.Term, after time.Duration) gen.CancelFunc {
 
-		select {
-		case <-ctx.Done():
-			return
-		case <-timer.C:
-			if p.IsAlive() {
-				p.Send(to, message)
-			}
-		}
-	}()
-	return cancel
+	timer := time.AfterFunc(after, func() { p.Send(to, message) })
+	return timer.Stop
 }
 
 // CreateAlias
 func (p *process) CreateAlias() (etf.Alias, error) {
+	p.RLock()
 	if p.behavior == nil {
-		return etf.Alias{}, ErrProcessTerminated
+		p.RUnlock()
+		return etf.Alias{}, lib.ErrProcessTerminated
 	}
+	p.RUnlock()
 	return p.newAlias(p)
 }
 
 // DeleteAlias
 func (p *process) DeleteAlias(alias etf.Alias) error {
+	p.RLock()
 	if p.behavior == nil {
-		return ErrProcessTerminated
+		p.RUnlock()
+		return lib.ErrProcessTerminated
 	}
+	p.RUnlock()
 	return p.deleteAlias(p, alias)
 }
 
@@ -278,6 +271,7 @@ func (p *process) ListEnv() map[gen.EnvKey]interface{} {
 func (p *process) SetEnv(name gen.EnvKey, value interface{}) {
 	p.Lock()
 	defer p.Unlock()
+
 	if value == nil {
 		delete(p.env, name)
 		return
@@ -319,7 +313,7 @@ func (p *process) WaitWithTimeout(d time.Duration) error {
 
 	select {
 	case <-timer.C:
-		return ErrTimeout
+		return lib.ErrTimeout
 	case <-p.context.Done():
 		return nil
 	}
@@ -327,22 +321,30 @@ func (p *process) WaitWithTimeout(d time.Duration) error {
 
 // Link
 func (p *process) Link(with etf.Pid) error {
+	p.RLock()
 	if p.behavior == nil {
-		return ErrProcessTerminated
+		p.RUnlock()
+		return lib.ErrProcessTerminated
 	}
+	p.RUnlock()
 	return p.RouteLink(p.self, with)
 }
 
 // Unlink
 func (p *process) Unlink(with etf.Pid) error {
+	p.RLock()
 	if p.behavior == nil {
-		return ErrProcessTerminated
+		p.RUnlock()
+		return lib.ErrProcessTerminated
 	}
+	p.RUnlock()
 	return p.RouteUnlink(p.self, with)
 }
 
 // IsAlive
 func (p *process) IsAlive() bool {
+	p.RLock()
+	defer p.RUnlock()
 	if p.behavior == nil {
 		return false
 	}
@@ -366,7 +368,7 @@ func (p *process) NodeUptime() int64 {
 
 // Children
 func (p *process) Children() ([]etf.Pid, error) {
-	c, err := p.directRequest(gen.MessageDirectChildren{}, 5)
+	c, err := p.Direct(gen.MessageDirectChildren{})
 	if err != nil {
 		return []etf.Pid{}, err
 	}
@@ -427,8 +429,9 @@ func (p *process) SetCompressionThreshold(threshold int) bool {
 
 // Behavior
 func (p *process) Behavior() gen.ProcessBehavior {
-	p.Lock()
-	defer p.Unlock()
+	p.RLock()
+	defer p.RUnlock()
+
 	if p.behavior == nil {
 		return nil
 	}
@@ -437,15 +440,53 @@ func (p *process) Behavior() gen.ProcessBehavior {
 
 // Direct
 func (p *process) Direct(request interface{}) (interface{}, error) {
-	return p.directRequest(request, gen.DefaultCallTimeout)
+	return p.DirectWithTimeout(request, gen.DefaultCallTimeout)
 }
 
 // DirectWithTimeout
 func (p *process) DirectWithTimeout(request interface{}, timeout int) (interface{}, error) {
 	if timeout < 1 {
-		timeout = 5
+		timeout = gen.DefaultCallTimeout
 	}
-	return p.directRequest(request, timeout)
+
+	direct := gen.ProcessDirectMessage{
+		Ref:     p.MakeRef(),
+		Message: request,
+	}
+
+	if err := p.PutSyncRequest(direct.Ref); err != nil {
+		return nil, err
+	}
+
+	// sending request
+	select {
+	case p.direct <- direct:
+	default:
+		p.CancelSyncRequest(direct.Ref)
+		return nil, lib.ErrProcessBusy
+	}
+
+	return p.WaitSyncReply(direct.Ref, timeout)
+}
+
+func (p *process) RegisterEvent(event gen.Event, messages ...gen.EventMessage) error {
+	return p.registerEvent(p.self, event, messages)
+}
+
+func (p *process) UnregisterEvent(event gen.Event) error {
+	return p.unregisterEvent(p.self, event)
+}
+
+func (p *process) MonitorEvent(event gen.Event) error {
+	return p.monitorEvent(p.self, event)
+}
+
+func (p *process) DemonitorEvent(event gen.Event) error {
+	return p.demonitorEvent(p.self, event)
+}
+
+func (p *process) SendEventMessage(event gen.Event, message gen.EventMessage) error {
+	return p.sendEvent(p.self, event, message)
 }
 
 // MonitorNode
@@ -531,10 +572,10 @@ func (p *process) RemoteSpawnWithTimeout(timeout int, node string, object string
 		return r, nil
 	case etf.Atom:
 		switch string(r) {
-		case ErrTaken.Error():
-			return etf.Pid{}, ErrTaken
-		case ErrBehaviorUnknown.Error():
-			return etf.Pid{}, ErrBehaviorUnknown
+		case lib.ErrTaken.Error():
+			return etf.Pid{}, lib.ErrTaken
+		case lib.ErrBehaviorUnknown.Error():
+			return etf.Pid{}, lib.ErrBehaviorUnknown
 		}
 		return etf.Pid{}, fmt.Errorf(string(r))
 	}
@@ -551,74 +592,54 @@ func (p *process) Spawn(name string, opts gen.ProcessOptions, behavior gen.Proce
 	return p.spawn(name, options, behavior, args...)
 }
 
-func (p *process) directRequest(request interface{}, timeout int) (interface{}, error) {
-	if p.direct == nil {
-		return nil, ErrProcessTerminated
-	}
-
-	timer := lib.TakeTimer()
-	defer lib.ReleaseTimer(timer)
-
-	direct := gen.ProcessDirectMessage{
-		Message: request,
-		Reply:   directChannels.Get().(chan gen.ProcessDirectMessage),
-	}
-
-	// sending request
-	select {
-	case p.direct <- direct:
-		timer.Reset(time.Second * time.Duration(timeout))
-	case <-timer.C:
-		return nil, ErrProcessBusy
-	}
-
-	// receiving response
-	select {
-	case response := <-direct.Reply:
-		directChannels.Put(direct.Reply)
-		if response.Err != nil {
-			return nil, response.Err
-		}
-
-		return response.Message, nil
-	case <-timer.C:
-		return nil, ErrTimeout
-	}
-}
-
 // PutSyncRequest
-func (p *process) PutSyncRequest(ref etf.Ref) {
+func (p *process) PutSyncRequest(ref etf.Ref) error {
+	p.RLock()
 	if p.reply == nil {
-		return
+		p.RUnlock()
+		return lib.ErrProcessTerminated
 	}
-	reply := syncReplyChannels.Get().(chan etf.Term)
+	p.RUnlock()
+
+	reply := syncReplyChannels.Get().(chan syncReplyMessage)
 	p.replyMutex.Lock()
 	p.reply[ref] = reply
 	p.replyMutex.Unlock()
+	return nil
 }
 
 // PutSyncReply
-func (p *process) PutSyncReply(ref etf.Ref, reply etf.Term) error {
+func (p *process) PutSyncReply(ref etf.Ref, reply etf.Term, err error) error {
+	p.RLock()
 	if p.reply == nil {
-		return ErrProcessTerminated
+		p.RUnlock()
+		return lib.ErrProcessTerminated
 	}
+	p.RUnlock()
 
 	p.replyMutex.RLock()
 	rep, ok := p.reply[ref]
-	p.replyMutex.RUnlock()
+	defer p.replyMutex.RUnlock()
 
 	if !ok {
-		// ignore this reply, no process waiting for it
-		return nil
+		// no process waiting for it
+		return lib.ErrReferenceUnknown
 	}
 	select {
-	case rep <- reply:
+	case rep <- syncReplyMessage{value: reply, err: err}:
 	}
 	return nil
 }
 
 // CancelSyncRequest
 func (p *process) CancelSyncRequest(ref etf.Ref) {
+	p.RLock()
+	if p.reply == nil {
+		p.RUnlock()
+		return
+	}
+	p.RUnlock()
+
 	p.replyMutex.Lock()
 	delete(p.reply, ref)
 	p.replyMutex.Unlock()
@@ -626,15 +647,18 @@ func (p *process) CancelSyncRequest(ref etf.Ref) {
 
 // WaitSyncReply
 func (p *process) WaitSyncReply(ref etf.Ref, timeout int) (etf.Term, error) {
+	p.RLock()
 	if p.reply == nil {
-		return nil, ErrProcessTerminated
+		p.RUnlock()
+		return nil, lib.ErrProcessTerminated
 	}
+	p.RUnlock()
 
 	p.replyMutex.RLock()
 	reply, wait_for_reply := p.reply[ref]
 	p.replyMutex.RUnlock()
 
-	if !wait_for_reply {
+	if wait_for_reply == false {
 		return nil, fmt.Errorf("Unknown request")
 	}
 
@@ -651,12 +675,13 @@ func (p *process) WaitSyncReply(ref etf.Ref, timeout int) (etf.Term, error) {
 	for {
 		select {
 		case m := <-reply:
+			// get back 'reply' struct to the pool
 			syncReplyChannels.Put(reply)
-			return m, nil
+			return m.value, m.err
 		case <-timer.C:
-			return nil, ErrTimeout
+			return nil, lib.ErrTimeout
 		case <-p.context.Done():
-			return nil, ErrProcessTerminated
+			return nil, lib.ErrProcessTerminated
 		}
 	}
 

@@ -8,6 +8,7 @@ import (
 	"github.com/ergo-services/ergo"
 	"github.com/ergo-services/ergo/etf"
 	"github.com/ergo-services/ergo/gen"
+	"github.com/ergo-services/ergo/lib"
 	"github.com/ergo-services/ergo/node"
 )
 
@@ -20,12 +21,12 @@ func (trg *TestCoreGenserver) HandleCall(process *gen.ServerProcess, from gen.Se
 	return message, gen.ServerStatusOK
 }
 
-func (trg *TestCoreGenserver) HandleDirect(process *gen.ServerProcess, message interface{}) (interface{}, error) {
+func (trg *TestCoreGenserver) HandleDirect(process *gen.ServerProcess, ref etf.Ref, message interface{}) (interface{}, gen.DirectStatus) {
 	switch m := message.(type) {
 	case makeCall:
 		return process.Call(m.to, m.message)
 	}
-	return nil, gen.ErrUnsupportedRequest
+	return nil, lib.ErrUnsupportedRequest
 }
 
 func TestCore(t *testing.T) {
@@ -108,7 +109,7 @@ func TestCore(t *testing.T) {
 	fmt.Println("OK")
 
 	fmt.Printf("...try to unregister 'test' related to %v using gs2 process (not allowed): ", node1gs1.Self())
-	if err := node1gs2.UnregisterName("test"); err != node.ErrNameOwner {
+	if err := node1gs2.UnregisterName("test"); err != lib.ErrNameOwner {
 		t.Fatal("not allowed to unregister by not an owner")
 	}
 	fmt.Println("OK")
@@ -177,7 +178,7 @@ func TestCoreAlias(t *testing.T) {
 	fmt.Println("OK")
 
 	fmt.Printf("    Delete gs1 alias by gs2 (not allowed): ")
-	if err := node1gs2.DeleteAlias(alias); err != node.ErrAliasOwner {
+	if err := node1gs2.DeleteAlias(alias); err != lib.ErrAliasOwner {
 		t.Fatal(" expected ErrAliasOwner, got:", err)
 	}
 	fmt.Println("OK")
@@ -215,7 +216,7 @@ func TestCoreAlias(t *testing.T) {
 
 	fmt.Printf("    Create gs1 alias on a stopped process (shouldn't be allowed): ")
 	alias, err = node1gs1.CreateAlias()
-	if err != node.ErrProcessTerminated {
+	if err != lib.ErrProcessTerminated {
 		t.Fatal(err)
 	}
 	fmt.Println("OK")

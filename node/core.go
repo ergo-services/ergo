@@ -15,8 +15,11 @@ import (
 	"github.com/ergo-services/ergo/lib"
 )
 
-const (
-	startPID = 1000
+var (
+	startPID    = uint64(1000)
+	startUniqID = uint64(time.Now().UnixNano())
+
+	corePID = etf.Pid{}
 )
 
 type core struct {
@@ -29,7 +32,6 @@ type core struct {
 	env      map[gen.EnvKey]interface{}
 	mutexEnv sync.RWMutex
 
-	tls         TLS
 	compression Compression
 
 	nextPID  uint64
@@ -75,6 +77,18 @@ type coreInternal interface {
 
 	coreWait()
 	coreWaitWithTimeout(d time.Duration) error
+
+	monitorStats() internalMonitorStats
+	networkStats() internalNetworkStats
+	coreStats() internalCoreStats
+}
+
+type internalCoreStats struct {
+	totalProcesses  uint64
+	totalReferences uint64
+	processes       int
+	aliases         int
+	names           int
 }
 
 type coreRouterInternal interface {
@@ -87,6 +101,7 @@ type coreRouterInternal interface {
 
 	processByPid(pid etf.Pid) *process
 	getConnection(nodename string) (ConnectionInterface, error)
+	sendEvent(pid etf.Pid, event gen.Event, message gen.EventMessage) error
 }
 
 // transit proxy session
@@ -110,10 +125,9 @@ func newCore(ctx context.Context, nodename string, cookie string, options Option
 		options.Compression.Threshold = DefaultCompressionThreshold
 	}
 	c := &core{
-		ctx:     ctx,
 		env:     options.Env,
 		nextPID: startPID,
-		uniqID:  uint64(time.Now().UnixNano()),
+		uniqID:  startUniqID,
 		// keep node to get the process to access to the node's methods
 		nodename:    nodename,
 		compression: options.Compression,
@@ -124,9 +138,15 @@ func newCore(ctx context.Context, nodename string, cookie string, options Option
 		behaviors:   make(map[string]map[string]gen.RegisteredBehavior),
 	}
 
+	corePID = etf.Pid{
+		Node:     etf.Atom(c.nodename),
+		ID:       1,
+		Creation: c.creation,
+	}
+
 	corectx, corestop := context.WithCancel(ctx)
 	c.stop = corestop
-	c.ctx = corectx
+	c.ctx = context.WithValue(corectx, c, c)
 
 	c.monitorInternal = newMonitor(nodename, coreRouterInternal(c))
 	network, err := newNetwork(c.ctx, nodename, cookie, options, coreRouterInternal(c))
@@ -135,6 +155,8 @@ func newCore(ctx context.Context, nodename string, cookie string, options Option
 		return nil, err
 	}
 	c.networkInternal = network
+
+	c.registerEvent(corePID, EventNetwork, []gen.EventMessage{MessageEventNetwork{}})
 
 	return c, nil
 }
@@ -164,7 +186,7 @@ func (c *core) coreWaitWithTimeout(d time.Duration) error {
 
 	select {
 	case <-timer.C:
-		return ErrTimeout
+		return lib.ErrTimeout
 	case <-c.ctx.Done():
 		return nil
 	}
@@ -213,7 +235,7 @@ func (c *core) newAlias(p *process) (etf.Alias, error) {
 	_, exist := c.processes[p.self.ID]
 	c.mutexProcesses.RUnlock()
 	if !exist {
-		return alias, ErrProcessUnknown
+		return alias, lib.ErrProcessUnknown
 	}
 
 	alias = etf.Alias(c.MakeRef())
@@ -237,7 +259,7 @@ func (c *core) deleteAlias(owner *process, alias etf.Alias) error {
 	c.mutexAliases.Unlock()
 
 	if alias_exist == false {
-		return ErrAliasUnknown
+		return lib.ErrAliasUnknown
 	}
 
 	c.mutexProcesses.RLock()
@@ -245,10 +267,10 @@ func (c *core) deleteAlias(owner *process, alias etf.Alias) error {
 	c.mutexProcesses.RUnlock()
 
 	if process_exist == false {
-		return ErrProcessUnknown
+		return lib.ErrProcessUnknown
 	}
 	if p.self != owner.self {
-		return ErrAliasOwner
+		return lib.ErrAliasOwner
 	}
 
 	p.Lock()
@@ -274,19 +296,29 @@ func (c *core) deleteAlias(owner *process, alias etf.Alias) error {
 	c.mutexAliases.Unlock()
 	lib.Warning("Bug: Process lost its alias. Please, report this issue")
 
-	return ErrAliasUnknown
+	return lib.ErrAliasUnknown
 }
 
 func (c *core) newProcess(name string, behavior gen.ProcessBehavior, opts processOptions) (*process, error) {
 
+	var processContext context.Context
+	var kill context.CancelFunc
 	mailboxSize := DefaultProcessMailboxSize
 	if opts.MailboxSize > 0 {
 		mailboxSize = int(opts.MailboxSize)
 	}
+	directboxSize := DefaultProcessDirectboxSize
+	if opts.DirectboxSize > 0 {
+		directboxSize = int(opts.DirectboxSize)
+	}
 
-	processContext, kill := context.WithCancel(c.ctx)
 	if opts.Context != nil {
-		processContext, _ = context.WithCancel(opts.Context)
+		if opts.Context.Value(c) != c {
+			return nil, lib.ErrProcessContext
+		}
+		processContext, kill = context.WithCancel(opts.Context)
+	} else {
+		processContext, kill = context.WithCancel(c.ctx)
 	}
 
 	pid := c.newPID()
@@ -318,12 +350,12 @@ func (c *core) newProcess(name string, behavior gen.ProcessBehavior, opts proces
 
 		mailBox:      make(chan gen.ProcessMailboxMessage, mailboxSize),
 		gracefulExit: make(chan gen.ProcessGracefulExitRequest, mailboxSize),
-		direct:       make(chan gen.ProcessDirectMessage),
+		direct:       make(chan gen.ProcessDirectMessage, directboxSize),
 
 		context: processContext,
 		kill:    kill,
 
-		reply:    make(map[etf.Ref]chan etf.Term),
+		reply:    make(map[etf.Ref]chan syncReplyMessage),
 		fallback: opts.Fallback,
 	}
 
@@ -331,7 +363,7 @@ func (c *core) newProcess(name string, behavior gen.ProcessBehavior, opts proces
 		lib.Log("[%s] EXIT from %s to %s with reason: %s", c.nodename, from, pid, reason)
 		if processContext.Err() != nil {
 			// process is already died
-			return ErrProcessUnknown
+			return lib.ErrProcessUnknown
 		}
 
 		ex := gen.ProcessGracefulExitRequest{
@@ -345,7 +377,7 @@ func (c *core) newProcess(name string, behavior gen.ProcessBehavior, opts proces
 		select {
 		case process.gracefulExit <- ex:
 		default:
-			return ErrProcessBusy
+			return lib.ErrProcessBusy
 		}
 
 		// let the process decide whether to stop itself, otherwise its going to be killed
@@ -361,7 +393,7 @@ func (c *core) newProcess(name string, behavior gen.ProcessBehavior, opts proces
 		if _, exist := c.names[name]; exist {
 			c.mutexNames.Unlock()
 			process.kill() // cancel context
-			return nil, ErrTaken
+			return nil, lib.ErrTaken
 		}
 		c.names[name] = process.self
 		c.mutexNames.Unlock()
@@ -425,6 +457,7 @@ func (c *core) spawn(name string, opts processOptions, behavior gen.ProcessBehav
 					lib.Warning("initialization process failed %s[%q] %#v at %s[%s:%d]",
 						process.self, name, rcv, runtime.FuncForPC(pc).Name(), fn, line)
 					c.deleteProcess(process.self)
+					process.kill()
 					err = fmt.Errorf("panic")
 				}
 			}()
@@ -502,7 +535,7 @@ func (c *core) registerName(name string, pid etf.Pid) error {
 	defer c.mutexNames.Unlock()
 	if _, ok := c.names[name]; ok {
 		// already registered
-		return ErrTaken
+		return lib.ErrTaken
 	}
 	c.names[name] = pid
 	return nil
@@ -516,7 +549,7 @@ func (c *core) unregisterName(name string) error {
 		delete(c.names, name)
 		return nil
 	}
-	return ErrNameUnknown
+	return lib.ErrNameUnknown
 }
 
 // ListEnv
@@ -569,7 +602,7 @@ func (c *core) RegisterBehavior(group, name string, behavior gen.ProcessBehavior
 
 	_, exist = groupBehaviors[name]
 	if exist {
-		return ErrTaken
+		return lib.ErrTaken
 	}
 
 	rb := gen.RegisteredBehavior{
@@ -591,12 +624,12 @@ func (c *core) RegisteredBehavior(group, name string) (gen.RegisteredBehavior, e
 
 	groupBehaviors, exist = c.behaviors[group]
 	if !exist {
-		return rb, ErrBehaviorGroupUnknown
+		return rb, lib.ErrBehaviorGroupUnknown
 	}
 
 	rb, exist = groupBehaviors[name]
 	if !exist {
-		return rb, ErrBehaviorUnknown
+		return rb, lib.ErrBehaviorUnknown
 	}
 	return rb, nil
 }
@@ -632,7 +665,7 @@ func (c *core) UnregisterBehavior(group, name string) error {
 
 	groupBehaviors, exist = c.behaviors[group]
 	if !exist {
-		return ErrBehaviorUnknown
+		return lib.ErrBehaviorUnknown
 	}
 	delete(groupBehaviors, name)
 
@@ -716,7 +749,7 @@ func (c *core) RouteSend(from etf.Pid, to etf.Pid, message etf.Term) error {
 		if to.Creation != c.creation {
 			// message is addressed to the previous incarnation of this PID
 			lib.Warning("message from %s is addressed to the previous incarnation of this PID %s", from, to)
-			return ErrProcessIncarnation
+			return lib.ErrProcessIncarnation
 		}
 		// local route
 		c.mutexProcesses.RLock()
@@ -724,7 +757,7 @@ func (c *core) RouteSend(from etf.Pid, to etf.Pid, message etf.Term) error {
 		c.mutexProcesses.RUnlock()
 		if !exist {
 			lib.Log("[%s] CORE route message by pid (local) %s failed. Unknown process", c.nodename, to)
-			return ErrProcessUnknown
+			return lib.ErrProcessUnknown
 		}
 		lib.Log("[%s] CORE route message by pid (local) %s", c.nodename, to)
 		select {
@@ -734,10 +767,8 @@ func (c *core) RouteSend(from etf.Pid, to etf.Pid, message etf.Term) error {
 			pid, found := c.names[p.fallback.Name]
 			c.mutexNames.RUnlock()
 			if found == false {
-				//lib.Warning("mailbox of %s[%q] is full. dropped message from %s", p.self, p.name, from)
-				//FIXME
-				lib.Warning("mailbox of %s[%q] is full. dropped message from %s %#v", p.self, p.name, from, message)
-				return ErrProcessBusy
+				lib.Warning("mailbox of %s[%q] is full. dropped message from %s", p.self, p.name, from)
+				return lib.ErrProcessMailboxFull
 			}
 			fbm := gen.MessageFallback{
 				Process: p.self,
@@ -751,7 +782,7 @@ func (c *core) RouteSend(from etf.Pid, to etf.Pid, message etf.Term) error {
 
 	// do not allow to send from the alien node.
 	if string(from.Node) != c.nodename {
-		return ErrSenderUnknown
+		return lib.ErrSenderUnknown
 	}
 
 	// sending to remote node
@@ -760,7 +791,7 @@ func (c *core) RouteSend(from etf.Pid, to etf.Pid, message etf.Term) error {
 	c.mutexProcesses.RUnlock()
 	if !exist {
 		lib.Log("[%s] CORE route message by pid (remote) %s failed. Unknown sender", c.nodename, to)
-		return ErrSenderUnknown
+		return lib.ErrSenderUnknown
 	}
 	connection, err := c.getConnection(string(to.Node))
 	if err != nil {
@@ -780,7 +811,7 @@ func (c *core) RouteSendReg(from etf.Pid, to gen.ProcessID, message etf.Term) er
 		c.mutexNames.RUnlock()
 		if !ok {
 			lib.Log("[%s] CORE route message by gen.ProcessID (local) %s failed. Unknown process", c.nodename, to)
-			return ErrProcessUnknown
+			return lib.ErrProcessUnknown
 		}
 		lib.Log("[%s] CORE route message by gen.ProcessID (local) %s", c.nodename, to)
 		return c.RouteSend(from, pid, message)
@@ -788,7 +819,7 @@ func (c *core) RouteSendReg(from etf.Pid, to gen.ProcessID, message etf.Term) er
 
 	// do not allow to send from the alien node.
 	if string(from.Node) != c.nodename {
-		return ErrSenderUnknown
+		return lib.ErrSenderUnknown
 	}
 
 	// send to remote node
@@ -797,7 +828,7 @@ func (c *core) RouteSendReg(from etf.Pid, to gen.ProcessID, message etf.Term) er
 	c.mutexProcesses.RUnlock()
 	if !exist {
 		lib.Log("[%s] CORE route message by gen.ProcessID (remote) %s failed. Unknown sender", c.nodename, to)
-		return ErrSenderUnknown
+		return lib.ErrSenderUnknown
 	}
 	connection, err := c.getConnection(string(to.Node))
 	if err != nil {
@@ -818,7 +849,7 @@ func (c *core) RouteSendAlias(from etf.Pid, to etf.Alias, message etf.Term) erro
 		c.mutexAliases.RUnlock()
 		if !ok {
 			lib.Log("[%s] CORE route message by alias (local) %s failed. Unknown process", c.nodename, to)
-			return ErrProcessUnknown
+			return lib.ErrProcessUnknown
 		}
 		lib.Log("[%s] CORE route message by alias (local) %s", c.nodename, to)
 		return c.RouteSend(from, process.self, message)
@@ -826,7 +857,7 @@ func (c *core) RouteSendAlias(from etf.Pid, to etf.Alias, message etf.Term) erro
 
 	// do not allow to send from the alien node. Proxy request must be used.
 	if string(from.Node) != c.nodename {
-		return ErrSenderUnknown
+		return lib.ErrSenderUnknown
 	}
 
 	// send to remote node
@@ -835,7 +866,7 @@ func (c *core) RouteSendAlias(from etf.Pid, to etf.Alias, message etf.Term) erro
 	c.mutexProcesses.RUnlock()
 	if !exist {
 		lib.Log("[%s] CORE route message by alias (remote) %s failed. Unknown sender", c.nodename, to)
-		return ErrSenderUnknown
+		return lib.ErrSenderUnknown
 	}
 	connection, err := c.getConnection(string(to.Node))
 	if err != nil {
@@ -885,9 +916,9 @@ func (c *core) RouteSpawnReply(to etf.Pid, ref etf.Ref, result etf.Term) error {
 	process := c.processByPid(to)
 	if process == nil {
 		// seems process terminated
-		return ErrProcessTerminated
+		return lib.ErrProcessTerminated
 	}
-	process.PutSyncReply(ref, result)
+	process.PutSyncReply(ref, result, nil)
 	return nil
 }
 
@@ -899,4 +930,23 @@ func (c *core) processByPid(pid etf.Pid) *process {
 	}
 	// unknown process
 	return nil
+}
+
+func (c *core) coreStats() internalCoreStats {
+	stats := internalCoreStats{}
+	stats.totalProcesses = atomic.LoadUint64(&c.nextPID) - startPID
+	stats.totalReferences = atomic.LoadUint64(&c.uniqID) - startUniqID
+
+	c.mutexProcesses.RLock()
+	stats.processes = len(c.processes)
+	c.mutexProcesses.RUnlock()
+
+	c.mutexAliases.RLock()
+	stats.aliases = len(c.aliases)
+	c.mutexAliases.RUnlock()
+
+	c.mutexNames.RLock()
+	stats.names = len(c.names)
+	c.mutexNames.RUnlock()
+	return stats
 }

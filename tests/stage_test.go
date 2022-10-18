@@ -8,6 +8,7 @@ import (
 	"github.com/ergo-services/ergo"
 	"github.com/ergo-services/ergo/etf"
 	"github.com/ergo-services/ergo/gen"
+	"github.com/ergo-services/ergo/lib"
 	"github.com/ergo-services/ergo/node"
 )
 
@@ -126,7 +127,7 @@ func (gs *StageProducerTest) SetAutoDemand(p gen.Process, subscription gen.Stage
 	return nil
 }
 
-func (s *StageProducerTest) HandleStageDirect(process *gen.StageProcess, message interface{}) (interface{}, error) {
+func (s *StageProducerTest) HandleStageDirect(process *gen.StageProcess, ref etf.Ref, message interface{}) (interface{}, gen.DirectStatus) {
 	switch m := message.(type) {
 	case demandHandle:
 		process.SetDemandHandle(m.enable)
@@ -146,7 +147,7 @@ func (s *StageProducerTest) HandleStageDirect(process *gen.StageProcess, message
 		return nil, process.Cast(m.to, m.message)
 
 	default:
-		return nil, gen.ErrUnsupportedRequest
+		return nil, lib.ErrUnsupportedRequest
 	}
 }
 
@@ -186,7 +187,7 @@ func (gs *StageConsumerTest) HandleStageInfo(process *gen.StageProcess, message 
 	return gen.ServerStatusOK
 }
 
-func (s *StageConsumerTest) HandleStageDirect(p *gen.StageProcess, message interface{}) (interface{}, error) {
+func (s *StageConsumerTest) HandleStageDirect(p *gen.StageProcess, ref etf.Ref, message interface{}) (interface{}, gen.DirectStatus) {
 	switch m := message.(type) {
 	case newSubscription:
 		return p.Subscribe(m.producer, m.opts)
@@ -205,7 +206,7 @@ func (s *StageConsumerTest) HandleStageDirect(p *gen.StageProcess, message inter
 	case makeCast:
 		return nil, p.Cast(m.to, m.message)
 	}
-	return nil, gen.ErrUnsupportedRequest
+	return nil, lib.ErrUnsupportedRequest
 }
 
 func (s *StageConsumerTest) HandleStageTerminate(p *gen.StageProcess, reason string) {

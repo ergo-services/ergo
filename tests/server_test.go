@@ -3,12 +3,14 @@ package tests
 import (
 	"fmt"
 	"reflect"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/ergo-services/ergo"
 	"github.com/ergo-services/ergo/etf"
 	"github.com/ergo-services/ergo/gen"
+	"github.com/ergo-services/ergo/lib"
 	"github.com/ergo-services/ergo/node"
 )
 
@@ -33,7 +35,7 @@ func (tgs *testServer) HandleInfo(process *gen.ServerProcess, message etf.Term) 
 	return gen.ServerStatusOK
 }
 
-func (tgs *testServer) HandleDirect(process *gen.ServerProcess, message interface{}) (interface{}, error) {
+func (tgs *testServer) HandleDirect(process *gen.ServerProcess, ref etf.Ref, message interface{}) (interface{}, gen.DirectStatus) {
 	switch m := message.(type) {
 	case makeCall:
 		return process.Call(m.to, m.message)
@@ -41,7 +43,7 @@ func (tgs *testServer) HandleDirect(process *gen.ServerProcess, message interfac
 		return nil, process.Cast(m.to, m.message)
 
 	}
-	return nil, gen.ErrUnsupportedRequest
+	return nil, lib.ErrUnsupportedRequest
 }
 func (tgs *testServer) Terminate(process *gen.ServerProcess, reason string) {
 	tgs.res <- reason
@@ -56,8 +58,23 @@ func (tgsd *testServerDirect) Init(process *gen.ServerProcess, args ...etf.Term)
 	tgsd.err <- nil
 	return nil
 }
-func (tgsd *testServerDirect) HandleDirect(process *gen.ServerProcess, message interface{}) (interface{}, error) {
-	return message, nil
+func (tgsd *testServerDirect) HandleDirect(process *gen.ServerProcess, ref etf.Ref, message interface{}) (interface{}, gen.DirectStatus) {
+	switch m := message.(type) {
+	case asyncDirect:
+		m.ref = ref
+		process.Cast(process.Self(), m)
+		return nil, gen.DirectStatusIgnore
+	case syncDirect:
+		return m.val, gen.DirectStatusOK
+	}
+	return message, gen.DirectStatusOK
+}
+func (tgsd *testServerDirect) HandleCast(process *gen.ServerProcess, message etf.Term) gen.ServerStatus {
+	switch m := message.(type) {
+	case asyncDirect:
+		process.Reply(m.ref, m.val, nil)
+	}
+	return gen.ServerStatusOK
 }
 
 func TestServer(t *testing.T) {
@@ -281,7 +298,7 @@ func TestServer(t *testing.T) {
 	}
 
 	fmt.Printf("    process.Direct (without HandleDirect implementation): ")
-	if _, err := node1gs1.Direct(nil); err == nil {
+	if _, err := node1gs1.Direct(nil); err != lib.ErrUnsupportedRequest {
 		t.Fatal("must be ErrUnsupportedRequest")
 	} else {
 		fmt.Println("OK")
@@ -294,6 +311,19 @@ func TestServer(t *testing.T) {
 			fmt.Println("OK")
 		} else {
 			e := fmt.Errorf("expected: %#v , got: %#v", v, v1)
+			t.Fatal(e)
+		}
+	}
+	fmt.Printf("    process.Direct (with HandleDirect implementation with async reply): ")
+
+	av := etf.Atom("async direct")
+	if v1, err := node2gsDirect.Direct(asyncDirect{val: av}); err != nil {
+		t.Fatal(err)
+	} else {
+		if av == v1 {
+			fmt.Println("OK")
+		} else {
+			e := fmt.Errorf("expected: %#v , got: %#v", av, v1)
 			t.Fatal(e)
 		}
 	}
@@ -322,6 +352,53 @@ func TestServer(t *testing.T) {
 	fmt.Printf("Stopping nodes: %v, %v\n", node1.Name(), node2.Name())
 	node1.Stop()
 	node2.Stop()
+}
+func TestServerDirect(t *testing.T) {
+	fmt.Printf("\n=== Test Server Direct\n")
+	fmt.Printf("Starting node: nodeGS1Direct@localhost: ")
+	node1, _ := ergo.StartNode("nodeGS1Direct@localhost", "cookies", node.Options{})
+	if node1 == nil {
+		t.Fatal("can't start nodes")
+	} else {
+		fmt.Println("OK")
+	}
+	defer node1.Stop()
+
+	gsDirect := &testServerDirect{
+		err: make(chan error, 2),
+	}
+
+	fmt.Printf("    wait for start of gsDirect on %#v: ", node1.Name())
+	node1gsDirect, _ := node1.Spawn("gsDirect", gen.ProcessOptions{}, gsDirect, nil)
+	waitForResult(t, gsDirect.err)
+
+	var wg sync.WaitGroup
+
+	fmt.Println("   process.Direct with 1000 goroutines:")
+	direct := func() {
+		v := etf.Atom("sync direct")
+		defer wg.Done()
+	repeat:
+		if v1, err := node1gsDirect.Direct(syncDirect{val: v}); err != nil {
+			if err == lib.ErrProcessBusy {
+				goto repeat
+			}
+			t.Fatal(err)
+		} else {
+			if v != v1 {
+				e := fmt.Errorf("expected: %#v , got: %#v", v, v1)
+				t.Fatal(e)
+			}
+		}
+	}
+	n := 1000
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go direct()
+	}
+
+	wg.Wait()
+	fmt.Println("OK")
 }
 
 type messageOrderGS struct {
@@ -391,7 +468,7 @@ func (gs *messageOrderGS) HandleCall(process *gen.ServerProcess, from gen.Server
 	return nil, fmt.Errorf("incorrect call")
 }
 
-func (gs *messageOrderGS) HandleDirect(process *gen.ServerProcess, message interface{}) (interface{}, error) {
+func (gs *messageOrderGS) HandleDirect(process *gen.ServerProcess, ref etf.Ref, message interface{}) (interface{}, gen.DirectStatus) {
 	switch m := message.(type) {
 	case testCase3:
 		for i := 0; i < m.n; i++ {
@@ -403,7 +480,7 @@ func (gs *messageOrderGS) HandleDirect(process *gen.ServerProcess, message inter
 				panic("wrong result")
 			}
 		}
-		return nil, nil
+		return nil, gen.DirectStatusOK
 
 	}
 	return nil, fmt.Errorf("incorrect direct call")
@@ -426,7 +503,7 @@ func (gs *GSCallPanic) HandleCall(process *gen.ServerProcess, from gen.ServerFro
 	return "ok", gen.ServerStatusOK
 }
 
-func (gs *GSCallPanic) HandleDirect(process *gen.ServerProcess, message interface{}) (interface{}, error) {
+func (gs *GSCallPanic) HandleDirect(process *gen.ServerProcess, ref etf.Ref, message interface{}) (interface{}, gen.DirectStatus) {
 
 	pids, ok := message.([]etf.Pid)
 	if !ok {
@@ -448,7 +525,7 @@ func (gs *GSCallPanic) HandleDirect(process *gen.ServerProcess, message interfac
 	}
 	fmt.Println("OK")
 
-	return nil, nil
+	return nil, gen.DirectStatusOK
 }
 
 func TestServerCallServerWithPanic(t *testing.T) {

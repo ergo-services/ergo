@@ -3,8 +3,11 @@ package ergo
 import (
 	"context"
 
-	"github.com/ergo-services/ergo/erlang"
+	"github.com/ergo-services/ergo/apps/cloud"
+	"github.com/ergo-services/ergo/apps/erlang"
+	"github.com/ergo-services/ergo/apps/system"
 	"github.com/ergo-services/ergo/gen"
+	"github.com/ergo-services/ergo/lib"
 	"github.com/ergo-services/ergo/node"
 	"github.com/ergo-services/ergo/proto/dist"
 )
@@ -26,8 +29,21 @@ func StartNodeWithContext(ctx context.Context, name string, cookie string, opts 
 	}
 	opts.Env[node.EnvKeyVersion] = version
 
-	// add erlang support application
-	opts.Applications = append([]gen.ApplicationBehavior{&erlang.KernelApp{}}, opts.Applications...)
+	// add default applications:
+	defaultApps := []gen.ApplicationBehavior{
+		system.CreateApp(opts.System), // system application (bus, metrics etc.)
+		erlang.CreateApp(),            // erlang support
+	}
+
+	// add cloud support if it's enabled
+	if opts.Cloud.Enable {
+		cloudApp := cloud.CreateApp(opts.Cloud)
+		defaultApps = append(defaultApps, cloudApp)
+		if opts.Proxy.Accept == false {
+			lib.Warning("Disabled option Proxy.Accept makes this node inaccessible to the other nodes within your cloud cluster, but it still allows initiate connection to the others with this option enabled.")
+		}
+	}
+	opts.Applications = append(defaultApps, opts.Applications...)
 
 	if opts.Handshake == nil {
 		// create default handshake for the node (Erlang Dist Handshake)
@@ -40,9 +56,14 @@ func StartNodeWithContext(ctx context.Context, name string, cookie string, opts 
 		opts.Proto = dist.CreateProto(protoOptions)
 	}
 
-	if opts.StaticRoutesOnly == false && opts.Resolver == nil {
-		// create default resolver (with enabled Erlang EPMD server)
-		opts.Resolver = dist.CreateResolverWithLocalEPMD("", dist.DefaultEPMDPort)
+	if opts.StaticRoutesOnly == false && opts.Registrar == nil {
+		// create default registrar (with enabled Erlang EPMD server)
+		opts.Registrar = dist.CreateRegistrarWithLocalEPMD("", dist.DefaultEPMDPort)
+	}
+
+	if len(opts.Listeners) == 0 {
+		listener := node.DefaultListener()
+		opts.Listeners = append(opts.Listeners, listener)
 	}
 
 	return node.StartWithContext(ctx, name, cookie, opts)
