@@ -229,8 +229,6 @@ func TestDecodeFragment(t *testing.T) {
 		t.Fatal("fragments should be empty")
 	}
 
-	link.checkCleanTimeout = 0
-	link.checkCleanDeadline = 0
 	fragments := [][]byte{
 		{protoDistFragment1, 0, 0, 0, 0, 0, 0, 0, 6, 0, 0, 0, 0, 0, 0, 0, 9, 0, 1, 2, 3},
 		{protoDistFragmentN, 0, 0, 0, 0, 0, 0, 0, 6, 0, 0, 0, 0, 0, 0, 0, 8, 4, 5, 6},
@@ -253,6 +251,10 @@ func TestDecodeFragment(t *testing.T) {
 	var result *lib.Buffer
 	var e error
 	for i := range fragmentsReverse {
+		if i == l-1 {
+			link.checkCleanTimeout = 0
+			link.checkCleanDeadline = 0
+		}
 		if result, e = link.decodeFragment(fragmentsReverse[i], nil); e != nil {
 			t.Fatal(e)
 		}
@@ -278,7 +280,13 @@ func TestDecodeFragment(t *testing.T) {
 			fragmentsShuffle[v] = fragments[i]
 		}
 
+		link.checkCleanTimeout = 50 * time.Millisecond
+		link.checkCleanDeadline = 150 * time.Millisecond
 		for i := range fragmentsShuffle {
+			if i == l-1 {
+				link.checkCleanTimeout = 0
+				link.checkCleanDeadline = 0
+			}
 			if result, e = link.decodeFragment(fragmentsShuffle[i], nil); e != nil {
 				t.Fatal(e)
 			}
