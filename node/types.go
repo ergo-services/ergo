@@ -452,7 +452,12 @@ type Registrar interface {
 
 type RegistrarConfig struct {
 	Version int
-	Config  map[string]etf.Term
+	Config  map[string]RegistrarConfigItem
+}
+
+type RegistrarConfigItem struct {
+	LastUpdate int64 // timestamp
+	Value      etf.Term
 }
 
 // RegisterOptions defines resolving options
