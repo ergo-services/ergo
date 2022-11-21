@@ -113,6 +113,9 @@ type distConnection struct {
 	// writer
 	flusher *linkFlusher
 
+	// buffer
+	buffer *lib.Buffer
+
 	// senders list of channels for the sending goroutines
 	senders senders
 	// receivers list of channels for the receiving goroutines
@@ -187,6 +190,7 @@ func (dp *distProto) Init(ctx context.Context, conn lib.NetReadWriter, nodename 
 		peername:                details.Name,
 		flags:                   details.Flags,
 		creation:                details.Creation,
+		buffer:                  details.Buffer,
 		conn:                    conn,
 		cache:                   etf.NewAtomCache(),
 		mapping:                 details.AtomMapping,
@@ -253,7 +257,11 @@ func (dp *distProto) Serve(ci node.ConnectionInterface, router node.CoreRouter) 
 	var err error
 	var packetLength int
 
-	b := lib.TakeBuffer()
+	b := connection.buffer // not nil if we got extra data withing the handshake process
+	if b == nil {
+		b = lib.TakeBuffer()
+	}
+
 	for {
 		packetLength, err = connection.read(b, dp.options.MaxMessageSize)
 
