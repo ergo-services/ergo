@@ -376,6 +376,8 @@ type HandshakeDetails struct {
 	NumHandlers int
 	// AtomMapping
 	AtomMapping etf.AtomMapping
+	// Buffer keeps data received along with the handshake
+	Buffer *lib.Buffer
 	// Custom allows passing the custom data to the ProtoInterface.Start
 	Custom HandshakeCustomDetails
 }
