@@ -259,7 +259,7 @@ func (dh *DistHandshake) Start(remote net.Addr, conn lib.NetReadWriter, tls bool
 				// check if we got DIST packet with the final handshake data.
 				if len(buffer) > 17 {
 					details.Buffer = lib.TakeBuffer()
-					details.Buffer.Set(buffer[18:])
+					details.Buffer.Set(buffer[17:])
 				}
 
 				// handshaked
