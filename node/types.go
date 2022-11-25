@@ -449,17 +449,12 @@ type Registrar interface {
 	UnregisterProxy(peername string) error
 	Resolve(peername string) (Route, error)
 	ResolveProxy(peername string) (ProxyRoute, error)
-	Config() (RegistrarConfig, error)
+	Config() RegistrarConfig
 }
 
 type RegistrarConfig struct {
 	Version int
-	Config  map[string]RegistrarConfigItem
-}
-
-type RegistrarConfigItem struct {
-	LastUpdate int64 // timestamp
-	Value      etf.Term
+	Config  etf.Term
 }
 
 // RegisterOptions defines resolving options
