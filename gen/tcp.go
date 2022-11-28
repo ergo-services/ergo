@@ -152,6 +152,7 @@ func (tcp *TCP) Init(process *ServerProcess, args ...etf.Term) error {
 	process.State = tcpProcess
 	return nil
 }
+
 func (tcp *TCP) HandleCall(process *ServerProcess, from ServerFrom, message etf.Term) (etf.Term, ServerStatus) {
 	tcpp := process.State.(*TCPProcess)
 	return tcpp.behavior.HandleTCPCall(tcpp, from, message)
