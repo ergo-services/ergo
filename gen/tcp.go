@@ -67,9 +67,7 @@ type TCPProcess struct {
 	listener net.Listener
 }
 
-//
 // Server callbacks
-//
 func (tcp *TCP) Init(process *ServerProcess, args ...etf.Term) error {
 
 	behavior := process.Behavior().(TCPBehavior)
@@ -153,6 +151,20 @@ func (tcp *TCP) Init(process *ServerProcess, args ...etf.Term) error {
 
 	process.State = tcpProcess
 	return nil
+}
+func (tcp *TCP) HandleCall(process *ServerProcess, from ServerFrom, message etf.Term) (etf.Term, ServerStatus) {
+	tcpp := process.State.(*TCPProcess)
+	return tcpp.behavior.HandleTCPCall(tcpp, from, message)
+}
+
+func (tcp *TCP) HandleCast(process *ServerProcess, message etf.Term) ServerStatus {
+	tcpp := process.State.(*TCPProcess)
+	return tcpp.behavior.HandleTCPCast(tcpp, message)
+}
+
+func (tcp *TCP) HandleInfo(process *ServerProcess, message etf.Term) ServerStatus {
+	tcpp := process.State.(*TCPProcess)
+	return tcpp.behavior.HandleTCPInfo(tcpp, message)
 }
 
 func (tcp *TCP) Terminate(process *ServerProcess, reason string) {
