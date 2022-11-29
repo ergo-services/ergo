@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ergo-services/ergo/etf"
 	"github.com/ergo-services/ergo/lib"
 	"github.com/ergo-services/ergo/node"
 )
@@ -191,6 +192,9 @@ func (e *epmdRegistrar) UnregisterProxy(name string) error {
 func (e *epmdRegistrar) Config() node.RegistrarConfig {
 	return node.RegistrarConfig{}
 }
+
+// just stub
+func (e *epmdRegistrar) SetConfigUpdateCallback(func(string, etf.Term) error) {}
 
 func (e *epmdRegistrar) composeExtra(options node.RegisterOptions) {
 	buf := make([]byte, 4)
