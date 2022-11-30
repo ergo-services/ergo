@@ -453,6 +453,7 @@ type Registrar interface {
 	Resolve(peername string) (Route, error)
 	ResolveProxy(peername string) (ProxyRoute, error)
 	Config() (RegistrarConfig, error)
+	ConfigItem(name string) (etf.Term, error)
 	SetConfigUpdateCallback(func(name string, value etf.Term) error) error
 }
 

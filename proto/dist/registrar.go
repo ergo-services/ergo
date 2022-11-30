@@ -199,6 +199,9 @@ func (e *epmdRegistrar) UnregisterProxy(name string) error {
 func (e *epmdRegistrar) Config() (node.RegistrarConfig, error) {
 	return node.RegistrarConfig{}, lib.ErrUnsupported
 }
+func (e *epmdRegistrar) ConfigItem(name string) (etf.Term, error) {
+	return nil, lib.ErrUnsupported
+}
 
 // just stub
 func (e *epmdRegistrar) SetConfigUpdateCallback(func(string, etf.Term) error) error {
