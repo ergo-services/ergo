@@ -104,6 +104,9 @@ type Node interface {
 	// If it wasn't found makes request to the registrar.
 	ResolveProxy(node string) (ProxyRoute, error)
 
+	// Returns Registrar interface
+	Registrar() Registrar
+
 	// Connect sets up a connection to node
 	Connect(node string) error
 	// Disconnect close connection to the node
@@ -449,8 +452,8 @@ type Registrar interface {
 	UnregisterProxy(peername string) error
 	Resolve(peername string) (Route, error)
 	ResolveProxy(peername string) (ProxyRoute, error)
-	Config() RegistrarConfig
-	SetConfigUpdateCallback(func(name string, value etf.Term) error)
+	Config() (RegistrarConfig, error)
+	SetConfigUpdateCallback(func(name string, value etf.Term) error) error
 }
 
 type RegistrarConfig struct {

@@ -42,6 +42,7 @@ type networkInternal interface {
 	ProxyRoutes() []ProxyRoute
 	ProxyRoute(name string) (ProxyRoute, bool)
 
+	Registrar() Registrar
 	Resolve(peername string) (Route, error)
 	ResolveProxy(peername string) (ProxyRoute, error)
 
@@ -415,6 +416,11 @@ func (n *network) ResolveProxy(name string) (ProxyRoute, error) {
 		route.Proxy = r.Proxy
 	}
 	return route, nil
+}
+
+// Registrar
+func (n *network) Registrar() Registrar {
+	return n.registrar
 }
 
 // Connect
@@ -1383,9 +1389,7 @@ func (n *network) unregisterConnection(peername string, disconnect *ProxyDisconn
 
 }
 
-//
 // Connection interface default callbacks
-//
 func (c *Connection) Send(from gen.Process, to etf.Pid, message etf.Term) error {
 	return lib.ErrUnsupported
 }
@@ -1453,9 +1457,7 @@ func (c *Connection) Stats() NetworkStats {
 	return NetworkStats{}
 }
 
-//
 // Handshake interface default callbacks
-//
 func (h *Handshake) Start(remote net.Addr, conn lib.NetReadWriter, tls bool, cookie string) (HandshakeDetails, error) {
 	return HandshakeDetails{}, lib.ErrUnsupported
 }

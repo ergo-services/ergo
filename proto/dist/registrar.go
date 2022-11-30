@@ -9,6 +9,7 @@ import (
 	"net"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/ergo-services/ergo/etf"
@@ -50,7 +51,8 @@ type epmdRegistrar struct {
 	nodeHost         string
 	handshakeVersion node.HandshakeVersion
 
-	extra []byte
+	running int32
+	extra   []byte
 }
 
 func CreateRegistrar() node.Registrar {
@@ -84,6 +86,10 @@ func CreateRegistrarWithRemoteEPMD(host string, port uint16) node.Registrar {
 }
 
 func (e *epmdRegistrar) Register(ctx context.Context, name string, options node.RegisterOptions) error {
+	if atomic.CompareAndSwapInt32(&e.running, 0, 1) == false {
+		return fmt.Errorf("registrar is already running")
+	}
+
 	n := strings.Split(name, "@")
 	if len(n) != 2 {
 		return fmt.Errorf("(EMPD) FQDN for node name is required (example: node@hostname)")
@@ -99,6 +105,7 @@ func (e *epmdRegistrar) Register(ctx context.Context, name string, options node.
 	ready := make(chan error)
 
 	go func() {
+		defer atomic.StoreInt32(&e.running, 0)
 		buf := make([]byte, 16)
 		var reconnecting bool
 
@@ -189,12 +196,14 @@ func (e *epmdRegistrar) RegisterProxy(name string, maxhop int, flags node.ProxyF
 func (e *epmdRegistrar) UnregisterProxy(name string) error {
 	return lib.ErrUnsupported
 }
-func (e *epmdRegistrar) Config() node.RegistrarConfig {
-	return node.RegistrarConfig{}
+func (e *epmdRegistrar) Config() (node.RegistrarConfig, error) {
+	return node.RegistrarConfig{}, lib.ErrUnsupported
 }
 
 // just stub
-func (e *epmdRegistrar) SetConfigUpdateCallback(func(string, etf.Term) error) {}
+func (e *epmdRegistrar) SetConfigUpdateCallback(func(string, etf.Term) error) error {
+	return lib.ErrUnsupported
+}
 
 func (e *epmdRegistrar) composeExtra(options node.RegisterOptions) {
 	buf := make([]byte, 4)
