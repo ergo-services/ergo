@@ -69,8 +69,6 @@ type TCPProcess struct {
 
 // Server callbacks
 func (tcp *TCP) Init(process *ServerProcess, args ...etf.Term) error {
-
-	behavior := process.Behavior().(TCPBehavior)
 	behavior, ok := process.Behavior().(TCPBehavior)
 	if !ok {
 		return fmt.Errorf("not a TCPBehavior")
