@@ -1092,7 +1092,7 @@ func (n *network) listen(ctx context.Context, hostname string, options Listener,
 
 			if err := n.registrar.Register(n.ctx, n.nodename, registerOptions); err != nil {
 				listener.Close()
-				return nil, err
+				return nil, fmt.Errorf("can not register this node: %s", err)
 			}
 		}
 
