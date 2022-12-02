@@ -1287,7 +1287,11 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 					stack.reg.SetMapIndex(destkey, destval)
 
 				default:
+
 					if stack.strict {
+						if field.Type().Name() == "Alias" {
+							term = Alias(term.(Ref))
+						}
 						field.Set(reflect.ValueOf(term))
 					} else {
 						// wrap it to catch the panic
@@ -1298,6 +1302,9 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 										ok = false
 									}
 								}()
+							}
+							if field.Type().Name() == "Alias" {
+								v = Alias(v.(Ref))
 							}
 							f.Set(reflect.ValueOf(v))
 							return true
