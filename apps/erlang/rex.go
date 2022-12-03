@@ -80,6 +80,53 @@ func (r *rex) HandleCall(process *gen.ServerProcess, from gen.ServerFrom, messag
 	return reply, gen.ServerStatusOK
 }
 
+// HandleCast
+func (r *rex) HandleCast(process *gen.ServerProcess, message etf.Term) gen.ServerStatus {
+	lib.Log("REX: HandleCast: %#v", message)
+	switch m := message.(type) {
+	case etf.Tuple:
+		//etf.Tuple{"cast", "observer_backend", "sys_info",
+		//           etf.List{}, etf.Pid{Node:"erl-examplenode@127.0.0.1", Id:0x46, Serial:0x0, Creation:0x2}}
+		switch m.Element(1) {
+		case etf.Atom("cast"):
+			module := m.Element(2).(etf.Atom)
+			function := m.Element(3).(etf.Atom)
+			args := m.Element(4).(etf.List)
+			reply := r.handleRPC(process, module, function, args)
+			if reply != nil {
+				checkBadRPCAndWarning(reply)
+				return gen.ServerStatusOK
+			}
+
+			to := gen.ProcessID{Name: string(module), Node: process.NodeName()}
+			m := etf.Tuple{m.Element(3), m.Element(4)}
+			err := process.Cast(to, m)
+			if err != nil {
+				reply = etf.Term(etf.Tuple{etf.Atom("error"), err})
+				checkBadRPCAndWarning(reply)
+			}
+			return gen.ServerStatusOK
+
+		}
+	}
+
+	reply := etf.Term(etf.Tuple{etf.Atom("badrpc"), etf.Atom("unknown")})
+	checkBadRPCAndWarning(reply)
+	return gen.ServerStatusOK
+}
+
+func checkBadRPCAndWarning(reply interface{}) {
+	switch rep := reply.(type) {
+	case etf.Tuple:
+		switch rep.Element(1) {
+		case etf.Atom("badrpc"):
+			lib.Warning("badrpc: %s", rep)
+		case etf.Atom("error"):
+			lib.Warning("error: %s", rep)
+		}
+	}
+}
+
 // HandleInfo
 func (r *rex) HandleInfo(process *gen.ServerProcess, message etf.Term) gen.ServerStatus {
 	// add this handler to suppres any messages from erlang
