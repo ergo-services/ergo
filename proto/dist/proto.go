@@ -1322,8 +1322,12 @@ func (dc *distConnection) handleMessage(message *distMessage) (err error) {
 					}
 				}
 
-				if registerName == "" && module == etf.Atom("erpc") {
-					registerName = "erpc"
+				if registerName == "" {
+					if module == etf.Atom("erpc") {
+						registerName = "erpc"
+					} else {
+						return fmt.Errorf("malformed spawn request")
+					}
 				}
 
 				spawnRequestOptions := gen.RemoteSpawnOptions{
