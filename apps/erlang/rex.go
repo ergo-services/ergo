@@ -226,6 +226,12 @@ type erpcMFA struct {
 	f  etf.Atom
 	a  etf.List
 }
+
+type erpcCastMFA struct {
+	m etf.Atom
+	f etf.Atom
+	a etf.List
+}
 type erpc struct {
 	gen.Server
 }
@@ -233,38 +239,54 @@ type erpc struct {
 // Init
 func (e *erpc) Init(process *gen.ServerProcess, args ...etf.Term) error {
 	lib.Log("ERPC [%v]: Init: %#v", process.Self(), args)
-	mfa := erpcMFA{
-		id: args[0].(etf.Ref),
-		m:  args[1].(etf.Atom),
-		f:  args[2].(etf.Atom),
-		a:  args[3].(etf.List),
+	if len(args) == 3 {
+		//erpc:cast/4
+		mfa := erpcCastMFA{
+			m: args[0].(etf.Atom),
+			f: args[1].(etf.Atom),
+			a: args[2].(etf.List),
+		}
+		process.Cast(process.Self(), mfa)
+		return nil
+	} else {
+		//erpc:call/4
+		mfa := erpcMFA{
+			id: args[0].(etf.Ref),
+			m:  args[1].(etf.Atom),
+			f:  args[2].(etf.Atom),
+			a:  args[3].(etf.List),
+		}
+		process.Cast(process.Self(), mfa)
+		return nil
 	}
-	process.Cast(process.Self(), mfa)
-	return nil
 
 }
 
 // HandleCast
 func (e *erpc) HandleCast(process *gen.ServerProcess, message etf.Term) gen.ServerStatus {
 	lib.Log("ERPC [%v]: HandleCast: %#v", process.Self(), message)
-	mfa := message.(erpcMFA)
-	rsr := process.Env("ergo:RemoteSpawnRequest").(gen.RemoteSpawnRequest)
+	switch mfa := message.(type) {
+	case erpcCastMFA:
+		cast := etf.Tuple{etf.Atom("cast"), mfa.m, mfa.f, mfa.a}
+		process.Cast("rex", cast)
+	case erpcMFA:
+		rsr := process.Env("ergo:RemoteSpawnRequest").(gen.RemoteSpawnRequest)
 
-	call := etf.Tuple{etf.Atom("call"), mfa.m, mfa.f, mfa.a}
-	value, _ := process.Call("rex", call)
+		call := etf.Tuple{etf.Atom("call"), mfa.m, mfa.f, mfa.a}
+		value, _ := process.Call("rex", call)
 
-	reply := etf.Tuple{
-		etf.Atom("DOWN"),
-		rsr.Ref,
-		etf.Atom("process"),
-		process.Self(),
-		etf.Tuple{
-			mfa.id,
-			etf.Atom("return"),
-			value,
-		},
+		reply := etf.Tuple{
+			etf.Atom("DOWN"),
+			rsr.Ref,
+			etf.Atom("process"),
+			process.Self(),
+			etf.Tuple{
+				mfa.id,
+				etf.Atom("return"),
+				value,
+			},
+		}
+		process.Send(rsr.From, reply)
 	}
-	process.Send(rsr.From, reply)
-
 	return gen.ServerStatusStop
 }
