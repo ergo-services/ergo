@@ -9,6 +9,10 @@ import (
 	"io"
 	"log"
 	"math"
+	"path/filepath"
+	"runtime"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -55,15 +59,31 @@ func init() {
 // Log
 func Log(f string, a ...interface{}) {
 	if ergoTrace {
-		log.Printf(f, a...)
+		richPrintf(f, a...)
 	}
 }
 
 // Warning
 func Warning(f string, a ...interface{}) {
 	if ergoWarning {
-		log.Printf("WARNING! "+f, a...)
+		richPrintf("WARNING! "+f, a...)
 	}
+}
+
+// Print more log information
+func richPrintf(formating string, args ...interface{}) {
+	goID, fileName, line, funcName := 0, "unknown", 0, "unknown"
+	var buf [64]byte
+	n := runtime.Stack(buf[:], false)
+	idField := strings.Fields(strings.TrimPrefix(string(buf[:n]), "goroutine "))[0]
+	goID, _ = strconv.Atoi(idField)
+	pc, fileName, line, ok := runtime.Caller(2)
+	if ok {
+		funcName = runtime.FuncForPC(pc).Name()
+		funcName = filepath.Base(funcName)
+		fileName = filepath.Base(fileName)
+	}
+	log.Printf("[Go#%d]%s:%d %s %s\n", goID, fileName, line, funcName, fmt.Sprintf(formating, args...))
 }
 
 // CatchPanic
