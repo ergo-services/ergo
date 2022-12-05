@@ -86,7 +86,7 @@ func printf(formating string, args ...interface{}) {
 			funcName = filepath.Base(funcName)
 			fileName = filepath.Base(fileName)
 		}
-		log.Printf("[Go#%d]%s:%d %s %s\n", goID, fileName, line, funcName, fmt.Sprintf(formating, args...))
+		log.Printf("<Go#%d>@%s:%d %s %s\n", goID, fileName, line, funcName, fmt.Sprintf(formating, args...))
 	} else {
 		log.Printf(formating, args...)
 	}
