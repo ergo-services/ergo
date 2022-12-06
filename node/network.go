@@ -1183,6 +1183,7 @@ func (n *network) connect(node string) (ConnectionInterface, error) {
 	HostPort := net.JoinHostPort(route.Host, strconv.Itoa(int(route.Port)))
 	dialer := net.Dialer{
 		KeepAlive: defaultKeepAlivePeriod * time.Second,
+		Timeout:   3 * time.Second, // timeout to establish TCP-connection
 	}
 
 	tlsEnabled := route.Options.TLS != nil

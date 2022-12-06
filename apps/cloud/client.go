@@ -95,7 +95,9 @@ func (cc *cloudClient) HandleCast(process *gen.ServerProcess, message etf.Term) 
 				}
 			}
 
+			lib.Log("[%s] CLOUD_CLIENT: trying to connect with: ", cloud.Node)
 			if err := thisNode.Connect(cloud.Node); err != nil {
+				lib.Log("[%s] CLOUD_CLIENT: failed with reason: ", err)
 				continue
 			}
 

@@ -79,7 +79,10 @@ func TakeTimer() *time.Timer {
 // ReleaseTimer
 func ReleaseTimer(t *time.Timer) {
 	if !t.Stop() {
-		<-t.C
+		select {
+		case <-t.C:
+		default:
+		}
 	}
 	timers.Put(t)
 }
