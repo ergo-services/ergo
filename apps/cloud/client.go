@@ -127,7 +127,7 @@ func (cc *cloudClient) HandleInfo(process *gen.ServerProcess, message etf.Term) 
 	state := process.State.(*cloudClientState)
 
 	switch m := message.(type) {
-	case gen.MessageDown:
+	case gen.MessageNodeDown:
 		if m.Ref != state.monitor {
 			return gen.ServerStatusOK
 		}
