@@ -55,6 +55,7 @@ func init() {
 	// flag.BoolVar(&ergoTrace, "ergo.trace", false, "enable/disable extended debug info")
 	flag.BoolVar(&ergoTrace, "ergo.trace", false, "enable/disable extended debug info")
 	flag.BoolVar(&ergoWarning, "ergo.warning", true, "enable/disable warning messages")
+	// flag.BoolVar(&ergoNoRecover, "ergo.norecover", false, "disable panic catching")
 	flag.BoolVar(&ergoNoRecover, "ergo.norecover", false, "disable panic catching")
 	flag.BoolVar(&ergoDebug, "ergo.debug", false, "enable/disable debug messages")
 }
