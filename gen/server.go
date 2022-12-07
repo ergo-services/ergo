@@ -165,6 +165,7 @@ func (sp *ServerProcess) CastRPC(node, module, function string, args ...etf.Term
 		etf.Atom(module),
 		etf.Atom(function),
 		etf.List(args),
+		sp.Self(),
 	}
 	to := ProcessID{"rex", node}
 	return sp.Cast(to, message)
