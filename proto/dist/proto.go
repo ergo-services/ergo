@@ -1297,12 +1297,11 @@ func (dc *distConnection) handleMessage(message *distMessage) (err error) {
 				registerName := ""
 				for _, option := range t.Element(6).(etf.List) {
 					name, ok := option.(etf.Tuple)
-					if !ok || len(name) != 2 {
-						return fmt.Errorf("malformed spawn request")
-					}
-					switch name.Element(1) {
-					case etf.Atom("name"):
-						registerName = string(name.Element(2).(etf.Atom))
+					if ok || len(name) == 2 {
+						switch name.Element(1) {
+						case etf.Atom("name"):
+							registerName = string(name.Element(2).(etf.Atom))
+						}
 					}
 				}
 
@@ -1320,6 +1319,14 @@ func (dc *distConnection) handleMessage(message *distMessage) (err error) {
 					// args can't be anything but etf.List.
 					for i := range []byte(str) {
 						args = append(args, str[i])
+					}
+				}
+
+				if registerName == "" {
+					if module == etf.Atom("erpc") {
+						registerName = "erpc"
+					} else {
+						return fmt.Errorf("malformed spawn request")
 					}
 				}
 

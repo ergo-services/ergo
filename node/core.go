@@ -894,7 +894,7 @@ func (c *core) RouteSpawnRequest(node string, behaviorName string, request gen.R
 
 		// spawn new process
 		process_opts := processOptions{}
-		process_opts.Env = map[gen.EnvKey]interface{}{EnvKeyRemoteSpawn: request.Options}
+		process_opts.Env = map[gen.EnvKey]interface{}{EnvKeyRemoteSpawn: request.Options, "ergo:RemoteSpawnRequest": request}
 		process, err_spawn := c.spawn(request.Options.Name, process_opts, b.Behavior, args...)
 
 		// reply
