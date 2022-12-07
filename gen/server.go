@@ -151,7 +151,7 @@ func (sp *ServerProcess) CallRPCWithTimeout(timeout int, node, module, function 
 		etf.Atom(module),
 		etf.Atom(function),
 		etf.List(args),
-		sp.Self(),
+		etf.Atom("user"),
 	}
 	to := ProcessID{"rex", node}
 	return sp.CallWithTimeout(to, message, timeout)
@@ -165,7 +165,7 @@ func (sp *ServerProcess) CastRPC(node, module, function string, args ...etf.Term
 		etf.Atom(module),
 		etf.Atom(function),
 		etf.List(args),
-		sp.Self(),
+		etf.Atom("user"),
 	}
 	to := ProcessID{"rex", node}
 	return sp.Cast(to, message)
