@@ -23,10 +23,10 @@ type stackElement struct {
 }
 
 var (
-	termNil = make(List, 0)
-
 	biggestInt = big.NewInt(0xfffffffffffffff)
 	lowestInt  = big.NewInt(-0xfffffffffffffff)
+
+	termNil = make(List, 0)
 
 	errMalformedAtomUTF8      = fmt.Errorf("Malformed ETF. ettAtomUTF8")
 	errMalformedSmallAtomUTF8 = fmt.Errorf("Malformed ETF. ettSmallAtomUTF8")
@@ -407,7 +407,13 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 			packet = packet[n+4:]
 
 		case ettNil:
-			term = termNil
+			// for registered types we should use a nil value
+			// otherwise - treat it as an empty list
+			if stack.reg != nil {
+				term = nil
+			} else {
+				term = termNil
+			}
 
 		case ettPid, ettNewPid:
 			child = &stackElement{
@@ -908,12 +914,13 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 				return nil, nil, errInternal
 			}
 
-			if set_field {
-				if field.Kind() == reflect.Ptr {
-					pfield := reflect.New(field.Type().Elem())
-					field.Set(pfield)
-					field = pfield.Elem()
-				}
+			if field.Kind() == reflect.Ptr {
+				pfield := reflect.New(field.Type().Elem())
+				field.Set(pfield)
+				field = pfield.Elem()
+			}
+
+			if set_field && term != nil {
 				switch field.Kind() {
 				case reflect.Int8:
 					switch v := term.(type) {
@@ -1287,7 +1294,6 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 					stack.reg.SetMapIndex(destkey, destval)
 
 				default:
-
 					if stack.strict {
 						if field.Type().Name() == "Alias" {
 							term = Alias(term.(Ref))

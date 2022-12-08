@@ -1,7 +1,6 @@
 package etf
 
 import (
-	"fmt"
 	"math/big"
 	"reflect"
 	"testing"
@@ -417,6 +416,7 @@ func TestDecodeComplex(t *testing.T) {
 
 	result := term.(Tuple)
 	if !reflect.DeepEqual(expected, result) {
+		t.Errorf("got %#v, want %#v", result, expected)
 		t.Fatal("result != expected")
 	}
 }
@@ -516,7 +516,7 @@ func TestDecodeRegisteredType(t *testing.T) {
 	}
 	switch tt := term.(type) {
 	case regTypeStruct4:
-		fmt.Printf("TERM: %v %#v %#v\n", tt, tt, tt.B)
+		//fmt.Printf("TERM: %v %#v %#v\n", tt, tt, tt.B)
 	default:
 		t.Fatal("unknown type", tt)
 	}
