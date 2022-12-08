@@ -85,8 +85,12 @@ func StartWithContext(ctx context.Context, name string, cookie string, opts Opti
 			nodestop()
 			return nil, err
 		}
+
+		// get startTpye
+		startType := getAppStartType(node, name)
+
 		// start applications
-		_, err = node.ApplicationStart(name)
+		_, err = node.applicationStart(startType, name)
 		if err != nil {
 			nodestop()
 			return nil, err
@@ -94,6 +98,25 @@ func StartWithContext(ctx context.Context, name string, cookie string, opts Opti
 	}
 
 	return node, nil
+}
+
+func getAppStartType(node Node, name string) gen.ApplicationStartType {
+	rb, err := node.RegisteredBehavior(appBehaviorGroup, name)
+	if err != nil {
+		return gen.ApplicationStartTemporary
+	}
+	spec, ok := rb.Data.(*gen.ApplicationSpec)
+	if !ok {
+		return gen.ApplicationStartTemporary
+	}
+	switch spec.StartType {
+	case gen.ApplicationStartPermanent:
+		return gen.ApplicationStartPermanent
+	case gen.ApplicationStartTransient:
+		return gen.ApplicationStartTransient
+	default:
+		return gen.ApplicationStartTemporary
+	}
 }
 
 // Version returns version of the node
