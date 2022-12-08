@@ -954,6 +954,11 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 							break
 						}
 						field.SetInt(int64(v))
+					default:
+						if stack.strict {
+							panic("wrong int8 value")
+						}
+						stack.reg = nil
 					}
 
 				case reflect.Int16:
@@ -988,6 +993,11 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 							break
 						}
 						field.SetInt(int64(v))
+					default:
+						if stack.strict {
+							panic("wrong int16 value")
+						}
+						stack.reg = nil
 					}
 
 				case reflect.Int32:
@@ -1022,6 +1032,11 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 							break
 						}
 						field.SetInt(int64(v))
+					default:
+						if stack.strict {
+							panic("wrong int32 value")
+						}
+						stack.reg = nil
 					}
 				case reflect.Int64:
 					switch v := term.(type) {
@@ -1039,6 +1054,11 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 							break
 						}
 						field.SetInt(int64(v))
+					default:
+						if stack.strict {
+							panic("wrong int64 value")
+						}
+						stack.reg = nil
 					}
 				case reflect.Int:
 					switch v := term.(type) {
@@ -1065,6 +1085,11 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 							break
 						}
 						field.SetInt(int64(v))
+					default:
+						if stack.strict {
+							panic("wrong int value")
+						}
+						stack.reg = nil
 					}
 
 				case reflect.Uint8:
@@ -1099,6 +1124,11 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 							break
 						}
 						field.SetUint(v)
+					default:
+						if stack.strict {
+							panic("wrong uint8 value")
+						}
+						stack.reg = nil
 					}
 
 				case reflect.Uint16:
@@ -1133,6 +1163,11 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 							break
 						}
 						field.SetUint(v)
+					default:
+						if stack.strict {
+							panic("wrong uint16 value")
+						}
+						stack.reg = nil
 					}
 				case reflect.Uint32:
 					switch v := term.(type) {
@@ -1166,6 +1201,11 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 							break
 						}
 						field.SetUint(v)
+					default:
+						if stack.strict {
+							panic("wrong uint32 value")
+						}
+						stack.reg = nil
 					}
 
 				case reflect.Uint64:
@@ -1192,6 +1232,11 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 						field.SetUint(uint64(v))
 					case uint64:
 						field.SetUint(v)
+					default:
+						if stack.strict {
+							panic("wrong uint64 value")
+						}
+						stack.reg = nil
 					}
 
 				case reflect.Uint:
@@ -1226,6 +1271,11 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 							break
 						}
 						field.SetUint(v)
+					default:
+						if stack.strict {
+							panic("wrong uint value")
+						}
+						stack.reg = nil
 					}
 				case reflect.Float32:
 					f, ok := term.(float64)
