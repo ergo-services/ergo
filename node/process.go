@@ -214,6 +214,31 @@ func (p *process) Send(to interface{}, message etf.Term) error {
 	return fmt.Errorf("Unknown receiver type")
 }
 
+// CastAfter
+func (p *process) CastAfter(to interface{}, message etf.Term, after time.Duration) gen.CancelFunc {
+	msg := etf.Term(etf.Tuple{etf.Atom("$gen_cast"), message})
+	return p.SendAfter(to, msg, after)
+}
+
+// Cast
+func (p *process) Cast(to interface{}, message etf.Term) error {
+	msg := etf.Term(etf.Tuple{etf.Atom("$gen_cast"), message})
+	return p.Send(to, msg)
+}
+
+// CastRPC
+func (p *process) CastRPC(node, module, function string, args ...etf.Term) error {
+	lib.Log("[%s] RPC casting: %s:%s:%s", p.NodeName(), node, module, function)
+	message := etf.Tuple{
+		etf.Atom("cast"),
+		etf.Atom(module),
+		etf.Atom(function),
+		etf.List(args),
+	}
+	to := gen.ProcessID{Name: "rex", Node: node}
+	return p.Cast(to, message)
+}
+
 // SendAfter
 func (p *process) SendAfter(to interface{}, message etf.Term, after time.Duration) gen.CancelFunc {
 

@@ -3,7 +3,6 @@ package gen
 import (
 	"fmt"
 	"runtime"
-	"time"
 
 	"github.com/ergo-services/ergo/etf"
 	"github.com/ergo-services/ergo/lib"
@@ -101,19 +100,6 @@ type handleInfoMessage struct {
 	message etf.Term
 }
 
-// CastAfter a simple wrapper for Process.SendAfter to send a message in fashion of 'gen_server:cast'
-func (sp *ServerProcess) CastAfter(to interface{}, message etf.Term, after time.Duration) CancelFunc {
-	msg := etf.Term(etf.Tuple{etf.Atom("$gen_cast"), message})
-	return sp.SendAfter(to, msg, after)
-}
-
-// Cast sends a message in fashion of 'gen_server:cast'. 'to' can be a Pid, registered local name
-// or gen.ProcessID{RegisteredName, NodeName}
-func (sp *ServerProcess) Cast(to interface{}, message etf.Term) error {
-	msg := etf.Term(etf.Tuple{etf.Atom("$gen_cast"), message})
-	return sp.Send(to, msg)
-}
-
 // Call makes outgoing sync request in fashion of 'gen_server:call'.
 // 'to' can be Pid, registered local name or gen.ProcessID{RegisteredName, NodeName}.
 func (sp *ServerProcess) Call(to interface{}, message etf.Term) (etf.Term, error) {
@@ -155,19 +141,6 @@ func (sp *ServerProcess) CallRPCWithTimeout(timeout int, node, module, function 
 	}
 	to := ProcessID{"rex", node}
 	return sp.CallWithTimeout(to, message, timeout)
-}
-
-// CastRPC evaluate rpc cast with given node/MFA
-func (sp *ServerProcess) CastRPC(node, module, function string, args ...etf.Term) error {
-	lib.Log("[%s] RPC casting: %s:%s:%s", sp.NodeName(), node, module, function)
-	message := etf.Tuple{
-		etf.Atom("cast"),
-		etf.Atom(module),
-		etf.Atom(function),
-		etf.List(args),
-	}
-	to := ProcessID{"rex", node}
-	return sp.Cast(to, message)
 }
 
 // SendReply sends a reply message to the sender made ServerProcess.Call request.

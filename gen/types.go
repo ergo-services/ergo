@@ -55,6 +55,16 @@ type Process interface {
 	// DirectWithTimeout make a direct request to the actor with the given timeout (in seconds)
 	DirectWithTimeout(request interface{}, timeout int) (interface{}, error)
 
+	// Cast sends a message in fashion of 'gen_server:cast'. 'to' can be a Pid, registered local name
+	// or gen.ProcessID{RegisteredName, NodeName}
+	Cast(to interface{}, message etf.Term) error
+
+	// CastAfter a simple wrapper for Process.SendAfter to send a message in fashion of 'gen_server:cast'
+	CastAfter(to interface{}, message etf.Term, after time.Duration) CancelFunc
+
+	// CastRPC evaluate rpc cast with given node/MFA
+	CastRPC(node, module, function string, args ...etf.Term) error
+
 	// Send sends a message in fashion of 'erlang:send'. The value of 'to' can be a Pid, registered local name
 	// or gen.ProcessID{RegisteredName, NodeName}
 	Send(to interface{}, message etf.Term) error
@@ -357,10 +367,10 @@ func (p ProcessID) String() string {
 // MessageDown delivers as a message to Server's HandleInfo callback of the process
 // that created monitor using MonitorProcess.
 // Reason values:
-//  - the exit reason of the process
-//  - 'noproc' (process did not exist at the time of monitor creation)
-//  - 'noconnection' (no connection to the node where the monitored process resides)
-//  - 'noproxy' (no connection to the proxy this node had has a connection through. monitored process could be still alive)
+//   - the exit reason of the process
+//   - 'noproc' (process did not exist at the time of monitor creation)
+//   - 'noconnection' (no connection to the node where the monitored process resides)
+//   - 'noproxy' (no connection to the proxy this node had has a connection through. monitored process could be still alive)
 type MessageDown struct {
 	Ref       etf.Ref   // a monitor reference
 	ProcessID ProcessID // if monitor was created by name
@@ -387,10 +397,10 @@ type MessageProxyDown struct {
 
 // MessageExit delievers to Server's HandleInfo callback on enabled trap exit using SetTrapExit(true)
 // Reason values:
-//  - the exit reason of the process
-//  - 'noproc' (process did not exist at the time of link creation)
-//  - 'noconnection' (no connection to the node where the linked process resides)
-//  - 'noproxy' (no connection to the proxy this node had has a connection through. linked process could be still alive)
+//   - the exit reason of the process
+//   - 'noproc' (process did not exist at the time of link creation)
+//   - 'noconnection' (no connection to the node where the linked process resides)
+//   - 'noproxy' (no connection to the proxy this node had has a connection through. linked process could be still alive)
 type MessageExit struct {
 	Pid    etf.Pid
 	Reason string
