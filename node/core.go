@@ -759,6 +759,19 @@ func (c *core) RouteSend(from etf.Pid, to etf.Pid, message etf.Term) error {
 			lib.Log("[%s] CORE route message by pid (local) %s failed. Unknown process", c.nodename, to)
 			return lib.ErrProcessUnknown
 		}
+		// send gen call reply
+		switch m := message.(type) {
+		case etf.Tuple:
+			switch mtag := m.Element(1).(type) {
+			case etf.Ref:
+				// check if we waiting for reply
+				if len(m) != 2 {
+					return nil
+				}
+				p.PutSyncReply(mtag, m.Element(2), nil)
+				return nil
+			}
+		}
 		lib.Log("[%s] CORE route message by pid (local) %s", c.nodename, to)
 		select {
 		case p.mailBox <- gen.ProcessMailboxMessage{From: from, Message: message}:

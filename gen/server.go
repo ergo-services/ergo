@@ -79,13 +79,9 @@ type ServerProcess struct {
 	counter         uint64 // total number of processed messages from mailBox
 	currentFunction string
 
-	mailbox  <-chan ProcessMailboxMessage
-	original <-chan ProcessMailboxMessage
-	deferred chan ProcessMailboxMessage
+	mailbox <-chan ProcessMailboxMessage
 
-	waitReply         *etf.Ref
-	callbackWaitReply chan *etf.Ref
-	stop              chan string
+	stop chan string
 }
 
 type handleCallMessage struct {
@@ -131,7 +127,6 @@ func (sp *ServerProcess) CallWithTimeout(to interface{}, message etf.Term, timeo
 		sp.CancelSyncRequest(ref)
 		return nil, err
 	}
-	sp.callbackWaitReply <- &ref
 	value, err := sp.WaitSyncReply(ref, timeout)
 	return value, err
 
@@ -227,7 +222,6 @@ func (gs *Server) ProcessInit(p Process, args ...etf.Term) (ProcessState, error)
 		// callbackWaitReply must be defined here, otherwise making a Call request
 		// will not be able in the inherited object (locks on trying to send
 		// a message to the nil channel)
-		callbackWaitReply: make(chan *etf.Ref),
 	}
 
 	err := behavior.Init(sp, args...)
@@ -247,21 +241,8 @@ func (gs *Server) ProcessLoop(ps ProcessState, started chan<- bool) string {
 
 	channels := ps.ProcessChannels()
 	sp.mailbox = channels.Mailbox
-	sp.original = channels.Mailbox
-	sp.deferred = make(chan ProcessMailboxMessage, cap(channels.Mailbox))
 	sp.currentFunction = "Server:loop"
 	sp.stop = make(chan string, 2)
-
-	defer func() {
-		if sp.waitReply == nil {
-			return
-		}
-		// there is running callback goroutine that waiting for a reply. to get rid
-		// of infinity lock (of this callback goroutine) we must provide a reader
-		// for the callbackWaitReply channel (it writes a nil value to this channel
-		// on exit)
-		go sp.waitCallbackOrDeferr(nil)
-	}()
 
 	started <- true
 	for {
@@ -293,7 +274,6 @@ func (gs *Server) ProcessLoop(ps ProcessState, started chan<- bool) string {
 			return reason
 
 		case msg := <-sp.mailbox:
-			sp.mailbox = sp.original
 			fromPid = msg.From
 			message = msg.Message
 
@@ -304,8 +284,6 @@ func (gs *Server) ProcessLoop(ps ProcessState, started chan<- bool) string {
 		case direct := <-channels.Direct:
 			sp.waitCallbackOrDeferr(direct)
 			continue
-		case sp.waitReply = <-sp.callbackWaitReply:
-			continue
 		}
 
 		lib.Log("[%s] GEN_SERVER %s got message from %s", sp.NodeName(), sp.Self(), fromPid)
@@ -314,20 +292,6 @@ func (gs *Server) ProcessLoop(ps ProcessState, started chan<- bool) string {
 		case etf.Tuple:
 
 			switch mtag := m.Element(1).(type) {
-			case etf.Ref:
-				// check if we waiting for reply
-				if len(m) != 2 {
-					break
-				}
-				sp.PutSyncReply(mtag, m.Element(2), nil)
-				if sp.waitReply != nil && *sp.waitReply == mtag {
-					sp.waitReply = nil
-					// continue read sp.callbackWaitReply channel
-					// to wait for the exit from the callback call
-					sp.waitCallbackOrDeferr(nil)
-					continue
-				}
-
 			case etf.Atom:
 				switch mtag {
 				case etf.Atom("$gen_call"):
@@ -428,47 +392,20 @@ func (gs *Server) ProcessLoop(ps ProcessState, started chan<- bool) string {
 // ServerProcess handlers
 
 func (sp *ServerProcess) waitCallbackOrDeferr(message interface{}) {
-	if sp.waitReply != nil {
-		// already waiting for reply. deferr this message
-		deferred := ProcessMailboxMessage{
-			Message: message,
-		}
-		select {
-		case sp.deferred <- deferred:
-			// do nothing
-		default:
-			lib.Warning("deferred mailbox of %s[%q] is full. dropped message %v",
-				sp.Self(), sp.Name(), message)
-		}
-
-		return
-	}
 
 	switch m := message.(type) {
 	case handleCallMessage:
-		go func() {
-			sp.counter++
-			sp.handleCall(m)
-			sp.callbackWaitReply <- nil
-		}()
+		sp.counter++
+		sp.handleCall(m)
 	case handleCastMessage:
-		go func() {
-			sp.counter++
-			sp.handleCast(m)
-			sp.callbackWaitReply <- nil
-		}()
+		sp.counter++
+		sp.handleCast(m)
 	case handleInfoMessage:
-		go func() {
-			sp.counter++
-			sp.handleInfo(m)
-			sp.callbackWaitReply <- nil
-		}()
+		sp.counter++
+		sp.handleInfo(m)
 	case ProcessDirectMessage:
-		go func() {
-			sp.counter++
-			sp.handleDirect(m)
-			sp.callbackWaitReply <- nil
-		}()
+		sp.counter++
+		sp.handleDirect(m)
 	case nil:
 		// it was called just to read the channel sp.callbackWaitReply
 
@@ -477,20 +414,6 @@ func (sp *ServerProcess) waitCallbackOrDeferr(message interface{}) {
 		return
 	}
 
-	select {
-
-	//case <-sp.Context().Done():
-	// do not read the context state. otherwise the goroutine with running callback
-	// might lock forever on exit (or on making a Call request) as nobody read
-	// the callbackWaitReply channel.
-
-	case sp.waitReply = <-sp.callbackWaitReply:
-		// not nil value means callback made a Call request and waiting for reply
-		if sp.waitReply == nil && len(sp.deferred) > 0 {
-			sp.mailbox = sp.deferred
-		}
-		return
-	}
 }
 
 func (sp *ServerProcess) panicHandler() {
