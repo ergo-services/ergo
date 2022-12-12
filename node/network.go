@@ -1073,7 +1073,7 @@ func (n *network) listen(ctx context.Context, hostname string, options Listener,
 	}
 
 	for port := options.ListenBegin; port <= options.ListenEnd; port++ {
-		if lo.Hostname != "" {
+		if options.Hostname != "" {
 			hostname = options.Hostname
 		}
 
