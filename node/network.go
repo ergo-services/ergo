@@ -1073,6 +1073,10 @@ func (n *network) listen(ctx context.Context, hostname string, options Listener,
 	}
 
 	for port := options.ListenBegin; port <= options.ListenEnd; port++ {
+		if lo.Hostname != "" {
+			hostname = options.Hostname
+		}
+
 		hostPort := net.JoinHostPort(hostname, strconv.Itoa(int(port)))
 		listener, err := lc.Listen(ctx, "tcp", hostPort)
 		if err != nil {

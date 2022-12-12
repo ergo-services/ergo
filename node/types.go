@@ -247,6 +247,8 @@ type Listener struct {
 	// Cookie cookie for the incoming connection to this listener. Leave it empty in
 	// case of using the node's cookie.
 	Cookie string
+	// Hostname defines an interface for the listener. Default: takes from the node name.
+	Hostname string
 	// Listen defines a listening port number for accepting incoming connections.
 	Listen uint16
 	// ListenBegin and ListenEnd define a range of the port numbers where
