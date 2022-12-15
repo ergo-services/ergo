@@ -1078,6 +1078,7 @@ func (n *network) listen(ctx context.Context, hostname string, options Listener,
 		}
 
 		hostPort := net.JoinHostPort(hostname, strconv.Itoa(int(port)))
+		lib.Log("[%s] NETWORK trying to start listener on %q", n.nodename, hostPort)
 		listener, err := lc.Listen(ctx, "tcp", hostPort)
 		if err != nil {
 			continue

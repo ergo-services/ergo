@@ -640,7 +640,16 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 						set_field = true
 						field = *stack.reg
 					}
-					stack.term.(Map)[stack.tmp] = term
+					// Erlang can use any value as a key in the map.
+					// OTP 25 sends a message to the 'global_name_server' process
+					// with etf.Tuple as a key in the map, so it caused a panic
+					// and this connection is dropping.
+					switch stack.tmp.(type) {
+					case Tuple:
+						lib.Warning("Erlang sent a etf.Tuple as a map key: %#v => %#v. Ignored this item. Ergo doesn't support it.", stack.tmp, term)
+					default:
+						stack.term.(Map)[stack.tmp] = term
+					}
 					stack.i++
 					break
 				}
