@@ -80,6 +80,8 @@ type connectionInternal struct {
 	connection ConnectionInterface
 	//
 	proxySessionID string
+	//
+	proxyTransitTo map[string]bool
 }
 
 type network struct {
@@ -498,6 +500,7 @@ func (n *network) RouteProxyConnectRequest(from ConnectionInterface, request Pro
 	if request.To != n.nodename {
 		var err error
 		var connection ConnectionInterface
+		var proxyTransitTo map[string]bool
 		//
 		// outgoing proxy request
 		//
@@ -506,6 +509,7 @@ func (n *network) RouteProxyConnectRequest(from ConnectionInterface, request Pro
 		n.connectionsMutex.RLock()
 		if ci, exist := n.connections[request.To]; exist {
 			connection = ci.connection
+			proxyTransitTo = ci.proxyTransitTo
 		}
 		n.connectionsMutex.RUnlock()
 
@@ -524,6 +528,17 @@ func (n *network) RouteProxyConnectRequest(from ConnectionInterface, request Pro
 				lib.Log("[%s] NETWORK proxy. Proxy feature is disabled on this node", n.nodename)
 				return lib.ErrProxyTransitDisabled
 			}
+
+			if proxyTransitTo != nil {
+				if proxyTransitTo[request.To] == false {
+					nodeHost := strings.Split(request.To, "@")
+					if len(nodeHost) != 2 || proxyTransitTo[nodeHost[1]] == false {
+						lib.Log("[%s] NETWORK proxy. Proxy connection is restricted (to: %s)", n.nodename, request.To)
+						return lib.ErrProxyTransitRestricted
+					}
+				}
+			}
+
 			if request.Hop < 1 {
 				lib.Log("[%s] NETWORK proxy. Error: exceeded hop limit", n.nodename)
 				return lib.ErrProxyHopExceeded
@@ -1144,6 +1159,13 @@ func (n *network) listen(ctx context.Context, hostname string, options Listener,
 				cInternal := connectionInternal{
 					conn:       c,
 					connection: connection,
+				}
+
+				if len(details.ProxyTransit.AllowTo) > 0 {
+					cInternal.proxyTransitTo = make(map[string]bool)
+					for _, to := range details.ProxyTransit.AllowTo {
+						cInternal.proxyTransitTo[to] = true
+					}
 				}
 
 				if _, err := n.registerConnection(details.Name, cInternal); err != nil {

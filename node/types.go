@@ -381,6 +381,8 @@ type HandshakeDetails struct {
 	NumHandlers int
 	// AtomMapping
 	AtomMapping etf.AtomMapping
+	// ProxyTransit allows to restrict proxy connection requests for this connection
+	ProxyTransit ProxyTransit
 	// Buffer keeps data received along with the handshake
 	Buffer *lib.Buffer
 	// Custom allows passing the custom data to the ProtoInterface.Start
@@ -518,6 +520,11 @@ type ProxyFlags struct {
 	EnableMonitor     bool
 	EnableRemoteSpawn bool
 	EnableEncryption  bool
+}
+
+// ProxyTransit
+type ProxyTransit struct {
+	AllowTo []string
 }
 
 // ProxyConnectRequest
