@@ -935,6 +935,8 @@ func (dc *distConnection) decodePacket(b *lib.Buffer) (*distMessage, error) {
 			dc.ProxyDisconnect(disconnect)
 			return nil, nil
 		}
+
+		// BUG? double counted. see below
 		atomic.AddUint64(&dc.stats.BytesIn, uint64(b.Len()))
 
 		iv := packet[:aes.BlockSize]
@@ -977,6 +979,7 @@ func (dc *distConnection) decodePacket(b *lib.Buffer) (*distMessage, error) {
 			dc.ProxyDisconnect(disconnect)
 			return nil, nil
 		}
+		// BUG? double counted. see above
 		atomic.AddUint64(&dc.stats.BytesIn, uint64(b.Len()))
 		if control == nil {
 			return nil, nil

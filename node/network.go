@@ -1377,9 +1377,6 @@ func (n *network) unregisterConnection(peername string, disconnect *ProxyDisconn
 	}
 	n.router.sendEvent(corePID, EventNetwork, event)
 
-	// we must unregister this peer for the proxy connection via this node
-	n.registrar.UnregisterProxy(peername)
-
 	n.connectionsMutex.Lock()
 	cp, _ := n.connectionsProxy[ci.connection]
 	for _, p := range cp {
