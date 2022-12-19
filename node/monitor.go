@@ -1082,6 +1082,7 @@ func (m *monitor) sendEvent(by etf.Pid, event gen.Event, message gen.EventMessag
 		return lib.ErrEventMismatch
 	}
 
+	// TODO clean up terminated subscribers
 	for _, pid := range item.monitors {
 		m.router.RouteSend(etf.Pid{}, pid, message)
 	}
