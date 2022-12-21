@@ -8,5 +8,5 @@ tags
 .session
 cover.out
 tests/cover.out
-examples/sandbox
+sandbox
 
