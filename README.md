@@ -216,6 +216,7 @@ See `examples/` for more details
 * [events](https://github.com/ergo-services/examples/tree/master/events)
 * [erlang](https://github.com/ergo-services/examples/tree/master/erlang)
 * [proxy](https://github.com/ergo-services/examples/tree/master/proxy)
+* [cloud](https://github.com/ergo-services/examples/tree/master/cloud)
 
 ### Elixir Phoenix Users ###
 
