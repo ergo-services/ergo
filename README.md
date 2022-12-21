@@ -201,7 +201,7 @@ HandleInfo: 105
 exited
 ```
 
-See `examples/` for more details
+See [https://github.com/ergo-services/examples](https://github.com/ergo-services/examples/) for more details
 
 * [gen.Application](https://github.com/ergo-services/examples/tree/master/application)
 * [gen.Supervisor](https://github.com/ergo-services/examples/tree/master/supervisor)
