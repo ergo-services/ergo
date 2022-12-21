@@ -34,9 +34,9 @@ The goal of this project is to leverage Erlang/OTP experience with Golang perfor
   * Permanent
   * Temporary
   * Transient
-* `gen.Stage` behavior support (originated from Elixir's [GenStage](https://hexdocs.pm/gen_stage/GenStage.html)). This is abstraction built on top of `gen.Server` to provide a simple way to create a distributed Producer/Consumer architecture, while automatically managing the concept of backpressure. This implementation is fully compatible with Elixir's GenStage. Example is here [examples/genstage]https://github.com/ergo-services/examples/tree/master/genstage) or just run `go run ./examples/genstage` to see it in action
-* `gen.Saga` behavior support. It implements Saga design pattern - a sequence of transactions that updates each service state and publishes the result (or cancels the transaction or triggers the next transaction step). `gen.Saga` also provides a feature of interim results (can be used as transaction progress or as a part of pipeline processing), time deadline (to limit transaction lifespan), two-phase commit (to make distributed transaction atomic). Here is example [examples/gensaga]https://github.com/ergo-services/examples/tree/master/gensaga).
-* `gen.Raft` behavior support. It's improved implementation of [Raft consensus algorithm](https://raft.github.io). The key improvement is using quorum under the hood to manage the leader election process and make the Raft cluster more reliable. This implementation supports quorums of 3, 5, 7, 9, or 11 quorum members. Here is an example of this feature [examples/genraft]https://github.com/ergo-services/examples/tree/master/genraft).
+* `gen.Stage` behavior support (originated from Elixir's [GenStage](https://hexdocs.pm/gen_stage/GenStage.html)). This is abstraction built on top of `gen.Server` to provide a simple way to create a distributed Producer/Consumer architecture, while automatically managing the concept of backpressure. This implementation is fully compatible with Elixir's GenStage. Example is here [examples/genstage](https://github.com/ergo-services/examples/tree/master/genstage) or just run `go run ./examples/genstage` to see it in action
+* `gen.Saga` behavior support. It implements Saga design pattern - a sequence of transactions that updates each service state and publishes the result (or cancels the transaction or triggers the next transaction step). `gen.Saga` also provides a feature of interim results (can be used as transaction progress or as a part of pipeline processing), time deadline (to limit transaction lifespan), two-phase commit (to make distributed transaction atomic). Here is example [examples/gensaga](https://github.com/ergo-services/examples/tree/master/gensaga).
+* `gen.Raft` behavior support. It's improved implementation of [Raft consensus algorithm](https://raft.github.io). The key improvement is using quorum under the hood to manage the leader election process and make the Raft cluster more reliable. This implementation supports quorums of 3, 5, 7, 9, or 11 quorum members. Here is an example of this feature [examples/genraft](https://github.com/ergo-services/examples/tree/master/genraft).
 * Connect to (accept connection from) any Erlang/Elixir node within a cluster
 * Making sync request `ServerProcess.Call`, async - `ServerProcess.Cast` or `Process.Send` in fashion of `gen_server:call`, `gen_server:cast`, `erlang:send` accordingly
 * Monitor processes/nodes, local/remote
@@ -65,10 +65,10 @@ Here are the changes of latest release. For more details see the [ChangeLog](Cha
 
 #### [v2.2.0](https://github.com/ergo-services/ergo/releases/tag/v1.999.220) 2022-10-18 [tag version v1.999.220] ####
 
-* Introduced `gen.Web` behavior. It implements **Web API Gateway pattern** is also sometimes known as the "Backend For Frontend" (BFF). See example [examples/genweb]https://github.com/ergo-services/examples/tree/master/genweb)
-* Introduced `gen.TCP` behavior - **socket acceptor pool for TCP protocols**. It provides everything you need to accept TCP connections and process packets with a small code base and low latency. Here is simple example [examples/gentcp]https://github.com/ergo-services/examples/tree/master/gentcp)
-* Introduced `gen.UDP` - the same as `gen.TCP`, but for UDP protocols. Example is here [examples/genudp]https://github.com/ergo-services/examples/tree/master/genudp)
-* Introduced **Events**. This is a simple pub/sub feature within a node - any `gen.Process` can become a producer by registering a new event `gen.Event` using method `gen.Process.RegisterEvent`, while the others can subscribe to these events using `gen.Process.MonitorEvent`. Subscriber process will also receive `gen.MessageEventDown` if a producer process went down (terminated). This feature behaves in a monitor manner but only works within a node. You may also want to subscribe to a system event - `node.EventNetwork` to receive event notification on connect/disconnect any peers. Here is simple example of this feature [examples/events]https://github.com/ergo-services/examples/tree/master/events)
+* Introduced `gen.Web` behavior. It implements **Web API Gateway pattern** is also sometimes known as the "Backend For Frontend" (BFF). See example [examples/genweb](https://github.com/ergo-services/examples/tree/master/genweb)
+* Introduced `gen.TCP` behavior - **socket acceptor pool for TCP protocols**. It provides everything you need to accept TCP connections and process packets with a small code base and low latency. Here is simple example [examples/gentcp](https://github.com/ergo-services/examples/tree/master/gentcp)
+* Introduced `gen.UDP` - the same as `gen.TCP`, but for UDP protocols. Example is here [examples/genudp](https://github.com/ergo-services/examples/tree/master/genudp)
+* Introduced **Events**. This is a simple pub/sub feature within a node - any `gen.Process` can become a producer by registering a new event `gen.Event` using method `gen.Process.RegisterEvent`, while the others can subscribe to these events using `gen.Process.MonitorEvent`. Subscriber process will also receive `gen.MessageEventDown` if a producer process went down (terminated). This feature behaves in a monitor manner but only works within a node. You may also want to subscribe to a system event - `node.EventNetwork` to receive event notification on connect/disconnect any peers. Here is simple example of this feature [examples/events](https://github.com/ergo-services/examples/tree/master/events)
 * Introduced **Cloud Client** - allows connecting to the cloud platform [https://ergo.sevices](https://ergo.services). You may want to register your email there, and we will inform you about the platform launch day
 * Introduced **type registration** for the ETF encoding/decoding. This feature allows you to get rid of manually decoding with `etf.TermIntoStruct` for the receiving messages. Register your type using `etf.RegisterType(...)`, and you will be receiving messages in a native type
 * Predefined set of errors has moved to the `lib` package
@@ -157,7 +157,7 @@ The one thing that makes embedded EPMD different is the behavior of handling con
 
 ### Examples ###
 
-Code below is a simple implementation of gen.Server pattern [examples/genserver]https://github.com/ergo-services/examples/tree/master/genserver)
+Code below is a simple implementation of gen.Server pattern [examples/genserver](https://github.com/ergo-services/examples/tree/master/genserver)
 
 ```golang
 package main
@@ -203,19 +203,19 @@ exited
 
 See `examples/` for more details
 
-* [gen.Application]https://github.com/ergo-services/examples/tree/master/application)
-* [gen.Supervisor]https://github.com/ergo-services/examples/tree/master/supervisor)
-* [gen.Server]https://github.com/ergo-services/examples/tree/master/genserver)
-* [gen.Stage]https://github.com/ergo-services/examples/tree/master/genstage)
-* [gen.Saga]https://github.com/ergo-services/examples/tree/master/gensaga)
-* [gen.Raft]https://github.com/ergo-services/examples/tree/master/genraft)
-* [gen.Custom]https://github.com/ergo-services/examples/tree/master/gencustom)
-* [gen.Web]https://github.com/ergo-services/examples/tree/master/genweb)
-* [gen.TCP]https://github.com/ergo-services/examples/tree/master/gentcp)
-* [gen.UDP]https://github.com/ergo-services/examples/tree/master/genudp)
-* [events]https://github.com/ergo-services/examples/tree/master/events)
-* [erlang]https://github.com/ergo-services/examples/tree/master/erlang)
-* [proxy]https://github.com/ergo-services/examples/tree/master/proxy)
+* [gen.Application](https://github.com/ergo-services/examples/tree/master/application)
+* [gen.Supervisor](https://github.com/ergo-services/examples/tree/master/supervisor)
+* [gen.Server](https://github.com/ergo-services/examples/tree/master/genserver)
+* [gen.Stage](https://github.com/ergo-services/examples/tree/master/genstage)
+* [gen.Saga](https://github.com/ergo-services/examples/tree/master/gensaga)
+* [gen.Raft](https://github.com/ergo-services/examples/tree/master/genraft)
+* [gen.Custom](https://github.com/ergo-services/examples/tree/master/gencustom)
+* [gen.Web](https://github.com/ergo-services/examples/tree/master/genweb)
+* [gen.TCP](https://github.com/ergo-services/examples/tree/master/gentcp)
+* [gen.UDP](https://github.com/ergo-services/examples/tree/master/genudp)
+* [events](https://github.com/ergo-services/examples/tree/master/events)
+* [erlang](https://github.com/ergo-services/examples/tree/master/erlang)
+* [proxy](https://github.com/ergo-services/examples/tree/master/proxy)
 
 ### Elixir Phoenix Users ###
 
