@@ -107,6 +107,14 @@ type messageStartChild struct {
 	args []etf.Term
 }
 
+type messageStartChildBySpec struct {
+	childSpec SupervisorChildSpec
+}
+
+type messageStopChildByName struct {
+	processName string
+}
+
 // ProcessInit
 func (sv *Supervisor) ProcessInit(p Process, args ...etf.Term) (ProcessState, error) {
 	behavior, ok := p.Behavior().(SupervisorBehavior)
@@ -180,6 +188,45 @@ func (sv *Supervisor) StartChild(supervisor Process, name string, args ...etf.Te
 		return nil, fmt.Errorf("internal error: can't start child %#v", value)
 	}
 	return process, nil
+}
+
+// StartChildBySpec dynamically adds child spec and starts a child process with given spec which is undefined by Init call.
+// not surport simple_one_for_one strategy type.
+// Similar to erlang[supervisor:start_child/2].
+func StartChildBySpec(supervisor Process, spec SupervisorChildSpec) (Process, error) {
+	if spec.state != supervisorChildStateStart {
+		return nil, fmt.Errorf("spec state is invalid %#v", spec.state)
+	}
+	message := messageStartChildBySpec{
+		childSpec: spec,
+	}
+	value, err := supervisor.Direct(message)
+	if err != nil {
+		return nil, err
+	}
+	process, ok := value.(Process)
+	if !ok {
+		return nil, fmt.Errorf("internal error: can't start child %#v", value)
+	}
+	return process, nil
+}
+
+// StopChildByName dynamically deletes child spec and stop a child process with given process name.
+// not surport simple_one_for_one strategy type.
+// Similar to erlang[supervisor:terminate_child(Sup, ID), supervisor:delete_child(Sup, ID)].
+func StopChildByName(supervisor Process, processName string) (SupervisorChildSpec, error) {
+	message := messageStopChildByName{
+		processName: processName,
+	}
+	value, err := supervisor.Direct(message)
+	if err != nil {
+		return SupervisorChildSpec{}, err
+	}
+	childSpec, ok := value.(SupervisorChildSpec)
+	if !ok {
+		return SupervisorChildSpec{}, fmt.Errorf("internal error:%#v", value)
+	}
+	return childSpec, nil
 }
 
 func startChildren(supervisor Process, spec *SupervisorSpec) {
@@ -260,6 +307,42 @@ func handleDirect(supervisor Process, spec *SupervisorSpec, message interface{})
 		childSpec.process = process
 		spec.Children = append(spec.Children, childSpec)
 		return process, nil
+
+	case messageStartChildBySpec:
+		if spec.Strategy.Type == SupervisorStrategySimpleOneForOne {
+			return nil, fmt.Errorf("startSpecChild not surport simple_one_for_one")
+		}
+		childSpec := m.childSpec
+		_, err := lookupSpecByName(childSpec.Name, spec.Children)
+		if err == nil {
+			return nil, fmt.Errorf("%s specChild is exist", childSpec.Name)
+		}
+		childSpec.state = supervisorChildStateRunning
+		process := startChild(supervisor, childSpec.Name, childSpec.Child, childSpec.Options, childSpec.Args...)
+		childSpec.process = process
+		spec.Children = append(spec.Children, childSpec)
+		return process, nil
+
+	case messageStopChildByName:
+		if spec.Strategy.Type == SupervisorStrategySimpleOneForOne {
+			return nil, fmt.Errorf("startSpecChild not surport simple_one_for_one")
+		}
+		processName := m.processName
+		childSpec, err := lookupSpecByName(processName, spec.Children)
+		if err != nil {
+			return nil, err
+		}
+		childProc := childSpec.process
+		if childSpec.state != supervisorChildStateRunning && childProc != nil {
+			return nil, fmt.Errorf("childSpec:%v can not stop", childSpec)
+		}
+		//delete spec
+		supervisor.Unlink(childProc.Self())
+		spec.Children = deleteSpecByName(processName, spec.Children)
+		//terminate child
+		//Similar to erlang[supervisor:shutdown/1](exit(Pid, shutdown)).
+		childProc.Exit("shutdown")
+		return childSpec, nil
 
 	default:
 	}
@@ -445,4 +528,14 @@ func lookupSpecByName(specName string, spec []SupervisorChildSpec) (SupervisorCh
 		}
 	}
 	return SupervisorChildSpec{}, fmt.Errorf("unknown child")
+}
+
+func deleteSpecByName(specName string, spec []SupervisorChildSpec) []SupervisorChildSpec {
+	ret := make([]SupervisorChildSpec, 0, len(spec))
+	for i := range spec {
+		if spec[i].Name != specName {
+			ret = append(ret, spec[i])
+		}
+	}
+	return ret
 }
