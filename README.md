@@ -19,7 +19,7 @@ The goal of this project is to leverage Erlang/OTP experience with Golang perfor
 
 ### Cloud ###
 
-You can join your services made with Ergo Framework into a single cluster with transparent networking using our **Cloud Overlay Network** feature - cloud-agnostic feature makes you free of vendor-locked network connectivity (GCP/AWS/Azure/etc). Read more in this article [https://https://medium.com/@ergo-services/cloud-overlay-network](https://https://medium.com/@ergo-services/cloud-overlay-network).
+You can join your services made with Ergo Framework into a single cluster with transparent networking using our **Cloud Overlay Network**. This is a cloud-based feature to join all your distributed services into a single cluster where they can connect to each other smoothly, no matter where they run - AWS, Azure or GCP, or anywhere else. All these connections are secured with end-to-end encryption. Read more in this article [https://https://medium.com/@ergo-services/cloud-overlay-network](https://https://medium.com/@ergo-services/cloud-overlay-network).
 
 ### Features ###
 
@@ -69,7 +69,7 @@ Here are the changes of latest release. For more details see the [ChangeLog](Cha
 
 #### [v2.2.1](https://github.com/ergo-services/ergo/releases/tag/v1.999.221) 2023-01-18 [tag version v1.999.221] ####
 
-* Now you can join your services made with Ergo Framework into a single cluster with transparent networking using our **Cloud Overlay Network** feature - cloud-agnostic feature makes you free of vendor-locked network connectivity (GCP/AWS/Azure/etc). Read more in this article [https://https://medium.com/@ergo-services/cloud-overlay-network](https://https://medium.com/@ergo-services/cloud-overlay-network). Here is an example of this feature in action [examples/cloud](https://github.com/ergo-services/examples/tree/master/cloud)
+* Nod you can join your services made with Ergo Framework into a single cluster with transparent networking using our **Cloud Overlay Network**. This is a cloud-based feature to join all your distributed services into a single cluster where they can connect to each other smoothly, no matter where they run - AWS, Azure or GCP, or anywhere else. All these connections are secured with end-to-end encryption. Read more in this article [https://https://medium.com/@ergo-services/cloud-overlay-network](https://https://medium.com/@ergo-services/cloud-overlay-network). Here is an example of this feature in action [examples/cloud](https://github.com/ergo-services/examples/tree/master/cloud)
 * `examples` moved to https://github.com/ergo-services/examples
 * Added support Erlang OTP/25
 * Improved handling `nil` values for the registered types
