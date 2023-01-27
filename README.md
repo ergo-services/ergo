@@ -17,6 +17,10 @@ The easiest way to create an OTP-designed application in Golang.
 
 The goal of this project is to leverage Erlang/OTP experience with Golang performance. Ergo Framework implements [DIST protocol](https://erlang.org/doc/apps/erts/erl_dist_protocol.html), [ETF data format](https://erlang.org/doc/apps/erts/erl_ext_dist.html) and [OTP design patterns](https://erlang.org/doc/design_principles/des_princ.html) `gen.Server`, `gen.Supervisor`, `gen.Application` which makes you able to create distributed, high performance and reliable microservice solutions having native integration with Erlang infrastructure
 
+### Cloud ###
+
+You can join your services made with Ergo Framework into a single cluster with transparent networking using our **Cloud Overlay Network** feature - cloud-agnostic feature makes you free of vendor-locked network connectivity (GCP/AWS/Azure/etc). Read more in this article [https://https://medium.com/@ergo-services/cloud-overlay-network](https://https://medium.com/@ergo-services/cloud-overlay-network). Here is an example of this feature in action [examples/cloud](https://github.com/ergo-services/examples/tree/master/cloud)
+
 ### Features ###
 
 ![image](https://user-images.githubusercontent.com/118860/113710255-c57d5500-96e3-11eb-9970-20f49008a990.png)
@@ -75,6 +79,7 @@ Here are the changes of latest release. For more details see the [ChangeLog](Cha
 * Fixed ETF registering type with `etf.Pid`, `etf.Alias` or `etf.Ref` value types
 * Fixed Cloud client
 * Fixed #117 (incorrect hanshake process finalization)
+* Fixed #139 (panic of the gen.Stage partition dispatcher)
 
 #### [v2.2.0](https://github.com/ergo-services/ergo/releases/tag/v1.999.220) 2022-10-18 [tag version v1.999.220] ####
 

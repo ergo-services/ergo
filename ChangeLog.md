@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 This format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+#### [v2.2.1](https://github.com/ergo-services/ergo/releases/tag/v1.999.221) 2023-01-18 [tag version v1.999.221] ####
+
+* Now you can join your services made with Ergo Framework into a single cluster with transparent networking using our **Cloud Overlay Network** feature - cloud-agnostic feature makes you free of vendor-locked network connectivity (GCP/AWS/Azure/etc). Read more in this article [https://https://medium.com/@ergo-services/cloud-overlay-network](https://https://medium.com/@ergo-services/cloud-overlay-network). Here is an example of this feature in action [examples/cloud](https://github.com/ergo-services/examples/tree/master/cloud)
+* `examples` moved to https://github.com/ergo-services/examples
+* Added support Erlang OTP/25
+* Improved handling `nil` values for the registered types
+* Improved self-signed certificate generation
+* Introduced `ergo.debug` option that enables extended debug information for `lib.Log(...)`/`lib.Warning(...)`
+* Fixed `gen.TCP` and `gen.UDP` (missing callbacks)
+* Fixed ETF registering type with `etf.Pid`, `etf.Alias` or `etf.Ref` value types
+* Fixed Cloud client
+* Fixed #117 (incorrect hanshake process finalization)
+* Fixed #139 (panic of the gen.Stage partition dispatcher)
+
 #### [v2.2.0](https://github.com/ergo-services/ergo/releases/tag/v1.999.220) 2022-10-18 [tag version v1.999.220] ####
 
 * Introduced `gen.Web` behavior. It implements **Web API Gateway pattern** is also sometimes known as the "Backend For Frontend" (BFF). See example [examples/genweb](https://github.com/ergo-services/examples/tree/master/genweb)
