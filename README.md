@@ -19,7 +19,7 @@ The goal of this project is to leverage Erlang/OTP experience with Golang perfor
 
 ### Cloud ###
 
-You can join your services made with Ergo Framework into a single cluster with transparent networking using our **Cloud Overlay Network** feature - cloud-agnostic feature makes you free of vendor-locked network connectivity (GCP/AWS/Azure/etc). Read more in this article [https://https://medium.com/@ergo-services/cloud-overlay-network](https://https://medium.com/@ergo-services/cloud-overlay-network). Here is an example of this feature in action [examples/cloud](https://github.com/ergo-services/examples/tree/master/cloud)
+You can join your services made with Ergo Framework into a single cluster with transparent networking using our **Cloud Overlay Network** feature - cloud-agnostic feature makes you free of vendor-locked network connectivity (GCP/AWS/Azure/etc). Read more in this article [https://https://medium.com/@ergo-services/cloud-overlay-network](https://https://medium.com/@ergo-services/cloud-overlay-network).
 
 ### Features ###
 
