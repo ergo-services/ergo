@@ -510,6 +510,7 @@ func (dp *dispatcherPartition) Subscribe(state interface{}, subscription StageSu
 		subscription: subscription,
 		minDemand:    opts.MinDemand,
 		maxDemand:    opts.MaxDemand,
+		partition:    opts.Partition,
 	}
 	st.demands[subscription.Pid] = newDemand
 	st.order[opts.Partition] = append(st.order[opts.Partition], subscription.Pid)
