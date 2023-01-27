@@ -214,10 +214,16 @@ func getCloudNodes() ([]CloudNode, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	nodes := make([]CloudNode, len(srv))
 	for i := range srv {
 		nodes[i].Node = "dist@" + strings.TrimSuffix(srv[i].Target, ".")
 		nodes[i].Port = srv[i].Port
+	}
+
+	// return only 3 of them
+	if len(nodes) > 3 {
+		return nodes[:3], nil
 	}
 	return nodes, nil
 }

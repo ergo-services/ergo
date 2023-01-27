@@ -148,7 +148,7 @@ func newNetwork(ctx context.Context, nodename string, cookie string, options Opt
 	}
 
 	splitNodeHost := strings.Split(nodename, "@")
-	if len(splitNodeHost) != 2 {
+	if len(splitNodeHost) != 2 || splitNodeHost[0] == "" || splitNodeHost[1] == "" {
 		return nil, fmt.Errorf("FQDN for node name is required (example: node@hostname)")
 	}
 
