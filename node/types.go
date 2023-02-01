@@ -380,7 +380,7 @@ type HandshakeDetails struct {
 	// NumHandlers defines the number of readers/writers per connection. Default value is provided by ProtoOptions
 	NumHandlers int
 	// AtomMapping
-	AtomMapping etf.AtomMapping
+	AtomMapping *etf.AtomMapping
 	// ProxyTransit allows to restrict proxy connection requests for this connection
 	ProxyTransit ProxyTransit
 	// Buffer keeps data received along with the handshake

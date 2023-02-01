@@ -30,7 +30,7 @@ type EncodeOptions struct {
 	AtomCache         *AtomCacheOut
 	SenderAtomCache   map[Atom]CacheItem
 	EncodingAtomCache *EncodingAtomCache
-	AtomMapping       AtomMapping
+	AtomMapping       *AtomMapping
 
 	// FlagBigPidRef The node accepts a larger amount of data in pids
 	// and references (node container types version 4).
@@ -557,11 +557,13 @@ func Encode(term Term, b *lib.Buffer, options EncodeOptions) (retErr error) {
 			// formats ATOM_UTF8_EXT or SMALL_ATOM_UTF8_EXT.
 
 			// replace atom value if we have mapped value for it
-			options.AtomMapping.MutexOut.RLock()
-			if mapped, ok := options.AtomMapping.Out[t]; ok {
-				t = mapped
+			if options.AtomMapping != nil {
+				options.AtomMapping.MutexOut.RLock()
+				if mapped, ok := options.AtomMapping.Out[t]; ok {
+					t = mapped
+				}
+				options.AtomMapping.MutexOut.RUnlock()
 			}
-			options.AtomMapping.MutexOut.RUnlock()
 
 			// https://erlang.org/doc/apps/erts/erl_ext_dist.html#utf8_atoms
 			// The maximum number of allowed characters in an atom is 255.

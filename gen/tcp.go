@@ -337,9 +337,6 @@ retry:
 			lib.Warning("[gen.TCP] error on handling packet: %s. closing connection with %q", err, c.RemoteAddr())
 			return err
 		}
-
-		expectingBytes = 1
-		goto nextPacket
 	}
 
 	// create a new handler. we should eather to make a call HandleDisconnect or

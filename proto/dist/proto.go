@@ -124,7 +124,7 @@ type distConnection struct {
 	// atom cache for outgoing messages
 	cache etf.AtomCache
 
-	mapping etf.AtomMapping
+	mapping *etf.AtomMapping
 
 	// fragmentation sequence ID
 	sequenceID     int64

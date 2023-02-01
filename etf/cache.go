@@ -64,8 +64,8 @@ type AtomMapping struct {
 }
 
 // NewAtomMapping
-func NewAtomMapping() AtomMapping {
-	return AtomMapping{
+func NewAtomMapping() *AtomMapping {
+	return &AtomMapping{
 		In:  make(map[Atom]Atom),
 		Out: make(map[Atom]Atom),
 	}

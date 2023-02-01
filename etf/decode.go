@@ -60,7 +60,7 @@ var (
 
 // DecodeOptions
 type DecodeOptions struct {
-	AtomMapping   AtomMapping
+	AtomMapping   *AtomMapping
 	FlagBigPidRef bool
 }
 
@@ -130,11 +130,13 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 			}
 
 			// replace atom value if we have mapped value for it
-			options.AtomMapping.MutexIn.RLock()
-			if mapped, ok := options.AtomMapping.In[atom]; ok {
-				atom = mapped
+			if options.AtomMapping != nil {
+				options.AtomMapping.MutexIn.RLock()
+				if mapped, ok := options.AtomMapping.In[atom]; ok {
+					atom = mapped
+				}
+				options.AtomMapping.MutexIn.RUnlock()
 			}
-			options.AtomMapping.MutexIn.RUnlock()
 
 			term = atom
 			packet = packet[n+2:]
@@ -157,11 +159,13 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 			default:
 				atom := Atom(packet[1 : n+1])
 				// replace atom value if we have mapped value for it
-				options.AtomMapping.MutexIn.RLock()
-				if mapped, ok := options.AtomMapping.In[atom]; ok {
-					atom = mapped
+				if options.AtomMapping != nil {
+					options.AtomMapping.MutexIn.RLock()
+					if mapped, ok := options.AtomMapping.In[atom]; ok {
+						atom = mapped
+					}
+					options.AtomMapping.MutexIn.RUnlock()
 				}
-				options.AtomMapping.MutexIn.RUnlock()
 				term = atom
 			}
 			packet = packet[n+1:]
@@ -192,11 +196,13 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 			default:
 				atom := cache[int(packet[0])]
 				// replace atom value if we have mapped value for it
-				options.AtomMapping.MutexIn.RLock()
-				if mapped, ok := options.AtomMapping.In[atom]; ok {
-					atom = mapped
+				if options.AtomMapping != nil {
+					options.AtomMapping.MutexIn.RLock()
+					if mapped, ok := options.AtomMapping.In[atom]; ok {
+						atom = mapped
+					}
+					options.AtomMapping.MutexIn.RUnlock()
 				}
-				options.AtomMapping.MutexIn.RUnlock()
 				term = atom
 			}
 			packet = packet[1:]
@@ -1088,7 +1094,6 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 							// overflows
 							if stack.strict {
 								panic("overflows int")
-								return nil, nil, errMalformed
 							}
 							stack.reg = nil
 							break
