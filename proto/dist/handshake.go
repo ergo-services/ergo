@@ -246,7 +246,7 @@ func (dh *DistHandshake) Start(remote net.Addr, conn lib.NetReadWriter, tls bool
 
 			case 'a':
 				// 'a' + 16 (digest)
-				if len(buffer) != 17 {
+				if len(buffer) < 17 {
 					return details, fmt.Errorf("malformed handshake ('a' length of digest)")
 				}
 
@@ -254,6 +254,12 @@ func (dh *DistHandshake) Start(remote net.Addr, conn lib.NetReadWriter, tls bool
 				digest := genDigest(dh.challenge, cookie)
 				if bytes.Compare(buffer[1:17], digest) != 0 {
 					return details, fmt.Errorf("malformed handshake ('a' digest)")
+				}
+
+				// check if we got DIST packet with the final handshake data.
+				if len(buffer) > 17 {
+					details.Buffer = lib.TakeBuffer()
+					details.Buffer.Set(buffer[17:])
 				}
 
 				// handshaked
@@ -785,12 +791,16 @@ func composeFlags(flags node.Flags) nodeFlags {
 		flagPublished,
 		flagUnicodeIO,
 		flagDistMonitor,
+		flagNewFloats,
+		flagBitBinaries,
 		flagDistMonitorName,
 		flagExtendedPidsPorts,
 		flagExtendedReferences,
 		flagAtomCache,
 		flagHiddenAtomCache,
+		flagFunTags,
 		flagNewFunTags,
+		flagExportPtrTag,
 		flagSmallAtomTags,
 		flagUTF8Atoms,
 		flagMapTag,

@@ -21,7 +21,9 @@ const (
 )
 
 type MessageEventCloud struct {
-	Online bool
+	Cluster string
+	Online  bool
+	Proxy   string
 }
 
 func RegisterTypes() error {

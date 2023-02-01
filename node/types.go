@@ -104,6 +104,9 @@ type Node interface {
 	// If it wasn't found makes request to the registrar.
 	ResolveProxy(node string) (ProxyRoute, error)
 
+	// Returns Registrar interface
+	Registrar() Registrar
+
 	// Connect sets up a connection to node
 	Connect(node string) error
 	// Disconnect close connection to the node
@@ -244,6 +247,8 @@ type Listener struct {
 	// Cookie cookie for the incoming connection to this listener. Leave it empty in
 	// case of using the node's cookie.
 	Cookie string
+	// Hostname defines an interface for the listener. Default: takes from the node name.
+	Hostname string
 	// Listen defines a listening port number for accepting incoming connections.
 	Listen uint16
 	// ListenBegin and ListenEnd define a range of the port numbers where
@@ -375,7 +380,11 @@ type HandshakeDetails struct {
 	// NumHandlers defines the number of readers/writers per connection. Default value is provided by ProtoOptions
 	NumHandlers int
 	// AtomMapping
-	AtomMapping etf.AtomMapping
+	AtomMapping *etf.AtomMapping
+	// ProxyTransit allows to restrict proxy connection requests for this connection
+	ProxyTransit ProxyTransit
+	// Buffer keeps data received along with the handshake
+	Buffer *lib.Buffer
 	// Custom allows passing the custom data to the ProtoInterface.Start
 	Custom HandshakeCustomDetails
 }
@@ -448,11 +457,13 @@ type Registrar interface {
 	Resolve(peername string) (Route, error)
 	ResolveProxy(peername string) (ProxyRoute, error)
 	Config() (RegistrarConfig, error)
+	ConfigItem(name string) (etf.Term, error)
+	SetConfigUpdateCallback(func(name string, value etf.Term) error) error
 }
 
 type RegistrarConfig struct {
 	Version int
-	Config  map[string]etf.Term
+	Config  etf.Term
 }
 
 // RegisterOptions defines resolving options
@@ -509,6 +520,11 @@ type ProxyFlags struct {
 	EnableMonitor     bool
 	EnableRemoteSpawn bool
 	EnableEncryption  bool
+}
+
+// ProxyTransit
+type ProxyTransit struct {
+	AllowTo []string
 }
 
 // ProxyConnectRequest

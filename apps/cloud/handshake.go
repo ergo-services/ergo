@@ -102,6 +102,7 @@ func (ch *Handshake) Start(remote net.Addr, conn lib.NetReadWriter, tls bool, co
 
 	expectingBytes := 4
 	await := []byte{ProtoHandshakeV1AuthReply, ProtoHandshakeV1Error}
+	rest := []byte{}
 
 	for {
 		go asyncRead()
@@ -133,9 +134,15 @@ func (ch *Handshake) Start(remote net.Addr, conn lib.NetReadWriter, tls bool, co
 				return handshake.details, fmt.Errorf("malformed handshake sequence")
 			}
 
-			await, err = ch.handle(conn, b.B[1], buffer, handshake)
+			await, rest, err = ch.handle(conn, b.B[1], buffer, handshake)
 			if err != nil {
 				return handshake.details, err
+			}
+
+			if await == nil && rest != nil {
+				// handshaked with some extra data. keep them for the Proto handler
+				handshake.details.Buffer = lib.TakeBuffer()
+				handshake.details.Buffer.Set(rest)
 			}
 
 			b.Reset()
@@ -150,28 +157,29 @@ func (ch *Handshake) Start(remote net.Addr, conn lib.NetReadWriter, tls bool, co
 	return handshake.details, nil
 }
 
-func (ch *Handshake) handle(socket io.Writer, messageType byte, buffer []byte, details *handshakeDetails) ([]byte, error) {
+func (ch *Handshake) handle(socket io.Writer, messageType byte, buffer []byte, details *handshakeDetails) ([]byte, []byte, error) {
 	switch messageType {
 	case ProtoHandshakeV1AuthReply:
 		if err := ch.handleV1AuthReply(buffer, details); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if err := ch.sendV1Challenge(socket, details); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
-		return []byte{ProtoHandshakeV1ChallengeAccept, ProtoHandshakeV1Error}, nil
+		return []byte{ProtoHandshakeV1ChallengeAccept, ProtoHandshakeV1Error}, nil, nil
 
 	case ProtoHandshakeV1ChallengeAccept:
-		if err := ch.handleV1ChallegeAccept(buffer, details); err != nil {
-			return nil, err
+		rest, err := ch.handleV1ChallegeAccept(buffer, details)
+		if err != nil {
+			return nil, nil, err
 		}
-		return nil, nil
+		return nil, rest, err
 
 	case ProtoHandshakeV1Error:
-		return nil, ch.handleV1Error(buffer)
+		return nil, nil, ch.handleV1Error(buffer)
 
 	default:
-		return nil, fmt.Errorf("unknown message type")
+		return nil, nil, fmt.Errorf("unknown message type")
 	}
 }
 
@@ -234,7 +242,7 @@ func (ch *Handshake) handleV1AuthReply(buffer []byte, handshake *handshakeDetail
 
 	digest := GenDigest(handshake.hash, []byte(message.Node), []byte(ch.options.Cluster), handshake.cookieHash)
 	if bytes.Compare(message.Digest, digest) != 0 {
-		return fmt.Errorf("wrong digest")
+		return fmt.Errorf("authorization failed")
 	}
 	handshake.digestRemote = digest
 	handshake.details.Name = message.Node
@@ -243,14 +251,14 @@ func (ch *Handshake) handleV1AuthReply(buffer []byte, handshake *handshakeDetail
 	return nil
 }
 
-func (ch *Handshake) handleV1ChallegeAccept(buffer []byte, handshake *handshakeDetails) error {
-	m, _, err := etf.Decode(buffer, nil, etf.DecodeOptions{})
+func (ch *Handshake) handleV1ChallegeAccept(buffer []byte, handshake *handshakeDetails) ([]byte, error) {
+	m, rest, err := etf.Decode(buffer, nil, etf.DecodeOptions{})
 	if err != nil {
-		return fmt.Errorf("malformed MessageHandshakeV1ChallengeAccept message: %s", err)
+		return nil, fmt.Errorf("malformed MessageHandshakeV1ChallengeAccept message: %s", err)
 	}
 	message, ok := m.(MessageHandshakeV1ChallengeAccept)
 	if ok == false {
-		return fmt.Errorf("malformed MessageHandshakeV1ChallengeAccept message: %#v", m)
+		return nil, fmt.Errorf("malformed MessageHandshakeV1ChallengeAccept message: %#v", m)
 	}
 
 	mapping := etf.NewAtomMapping()
@@ -258,7 +266,7 @@ func (ch *Handshake) handleV1ChallegeAccept(buffer []byte, handshake *handshakeD
 	mapping.Out[etf.Atom(ch.nodename)] = etf.Atom(message.Node)
 	handshake.details.AtomMapping = mapping
 	handshake.mapName = message.Node
-	return nil
+	return rest, nil
 }
 
 func (ch *Handshake) handleV1Error(buffer []byte) error {

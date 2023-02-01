@@ -23,10 +23,10 @@ type stackElement struct {
 }
 
 var (
-	termNil = make(List, 0)
-
 	biggestInt = big.NewInt(0xfffffffffffffff)
 	lowestInt  = big.NewInt(-0xfffffffffffffff)
+
+	termNil = make(List, 0)
 
 	errMalformedAtomUTF8      = fmt.Errorf("Malformed ETF. ettAtomUTF8")
 	errMalformedSmallAtomUTF8 = fmt.Errorf("Malformed ETF. ettSmallAtomUTF8")
@@ -60,7 +60,7 @@ var (
 
 // DecodeOptions
 type DecodeOptions struct {
-	AtomMapping   AtomMapping
+	AtomMapping   *AtomMapping
 	FlagBigPidRef bool
 }
 
@@ -130,11 +130,13 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 			}
 
 			// replace atom value if we have mapped value for it
-			options.AtomMapping.MutexIn.RLock()
-			if mapped, ok := options.AtomMapping.In[atom]; ok {
-				atom = mapped
+			if options.AtomMapping != nil {
+				options.AtomMapping.MutexIn.RLock()
+				if mapped, ok := options.AtomMapping.In[atom]; ok {
+					atom = mapped
+				}
+				options.AtomMapping.MutexIn.RUnlock()
 			}
-			options.AtomMapping.MutexIn.RUnlock()
 
 			term = atom
 			packet = packet[n+2:]
@@ -157,11 +159,13 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 			default:
 				atom := Atom(packet[1 : n+1])
 				// replace atom value if we have mapped value for it
-				options.AtomMapping.MutexIn.RLock()
-				if mapped, ok := options.AtomMapping.In[atom]; ok {
-					atom = mapped
+				if options.AtomMapping != nil {
+					options.AtomMapping.MutexIn.RLock()
+					if mapped, ok := options.AtomMapping.In[atom]; ok {
+						atom = mapped
+					}
+					options.AtomMapping.MutexIn.RUnlock()
 				}
-				options.AtomMapping.MutexIn.RUnlock()
 				term = atom
 			}
 			packet = packet[n+1:]
@@ -192,11 +196,13 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 			default:
 				atom := cache[int(packet[0])]
 				// replace atom value if we have mapped value for it
-				options.AtomMapping.MutexIn.RLock()
-				if mapped, ok := options.AtomMapping.In[atom]; ok {
-					atom = mapped
+				if options.AtomMapping != nil {
+					options.AtomMapping.MutexIn.RLock()
+					if mapped, ok := options.AtomMapping.In[atom]; ok {
+						atom = mapped
+					}
+					options.AtomMapping.MutexIn.RUnlock()
 				}
-				options.AtomMapping.MutexIn.RUnlock()
 				term = atom
 			}
 			packet = packet[1:]
@@ -407,7 +413,13 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 			packet = packet[n+4:]
 
 		case ettNil:
-			term = termNil
+			// for registered types we should use a nil value
+			// otherwise - treat it as an empty list
+			if stack.reg != nil {
+				term = nil
+			} else {
+				term = termNil
+			}
 
 		case ettPid, ettNewPid:
 			child = &stackElement{
@@ -634,7 +646,16 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 						set_field = true
 						field = *stack.reg
 					}
-					stack.term.(Map)[stack.tmp] = term
+					// Erlang can use any value as a key in the map.
+					// OTP 25 sends a message to the 'global_name_server' process
+					// with etf.Tuple as a key in the map, so it caused a panic
+					// and this connection is dropping.
+					switch stack.tmp.(type) {
+					case Tuple:
+						lib.Warning("Erlang sent a etf.Tuple as a map key: %#v => %#v. Ignored this item. Ergo doesn't support it.", stack.tmp, term)
+					default:
+						stack.term.(Map)[stack.tmp] = term
+					}
 					stack.i++
 					break
 				}
@@ -908,12 +929,13 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 				return nil, nil, errInternal
 			}
 
-			if set_field {
-				if field.Kind() == reflect.Ptr {
-					pfield := reflect.New(field.Type().Elem())
-					field.Set(pfield)
-					field = pfield.Elem()
-				}
+			if field.Kind() == reflect.Ptr {
+				pfield := reflect.New(field.Type().Elem())
+				field.Set(pfield)
+				field = pfield.Elem()
+			}
+
+			if set_field && term != nil {
 				switch field.Kind() {
 				case reflect.Int8:
 					switch v := term.(type) {
@@ -947,6 +969,11 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 							break
 						}
 						field.SetInt(int64(v))
+					default:
+						if stack.strict {
+							panic("wrong int8 value")
+						}
+						stack.reg = nil
 					}
 
 				case reflect.Int16:
@@ -981,6 +1008,11 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 							break
 						}
 						field.SetInt(int64(v))
+					default:
+						if stack.strict {
+							panic("wrong int16 value")
+						}
+						stack.reg = nil
 					}
 
 				case reflect.Int32:
@@ -1015,6 +1047,11 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 							break
 						}
 						field.SetInt(int64(v))
+					default:
+						if stack.strict {
+							panic("wrong int32 value")
+						}
+						stack.reg = nil
 					}
 				case reflect.Int64:
 					switch v := term.(type) {
@@ -1032,6 +1069,11 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 							break
 						}
 						field.SetInt(int64(v))
+					default:
+						if stack.strict {
+							panic("wrong int64 value")
+						}
+						stack.reg = nil
 					}
 				case reflect.Int:
 					switch v := term.(type) {
@@ -1052,12 +1094,16 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 							// overflows
 							if stack.strict {
 								panic("overflows int")
-								return nil, nil, errMalformed
 							}
 							stack.reg = nil
 							break
 						}
 						field.SetInt(int64(v))
+					default:
+						if stack.strict {
+							panic("wrong int value")
+						}
+						stack.reg = nil
 					}
 
 				case reflect.Uint8:
@@ -1092,6 +1138,11 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 							break
 						}
 						field.SetUint(v)
+					default:
+						if stack.strict {
+							panic("wrong uint8 value")
+						}
+						stack.reg = nil
 					}
 
 				case reflect.Uint16:
@@ -1126,6 +1177,11 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 							break
 						}
 						field.SetUint(v)
+					default:
+						if stack.strict {
+							panic("wrong uint16 value")
+						}
+						stack.reg = nil
 					}
 				case reflect.Uint32:
 					switch v := term.(type) {
@@ -1159,6 +1215,11 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 							break
 						}
 						field.SetUint(v)
+					default:
+						if stack.strict {
+							panic("wrong uint32 value")
+						}
+						stack.reg = nil
 					}
 
 				case reflect.Uint64:
@@ -1185,6 +1246,11 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 						field.SetUint(uint64(v))
 					case uint64:
 						field.SetUint(v)
+					default:
+						if stack.strict {
+							panic("wrong uint64 value")
+						}
+						stack.reg = nil
 					}
 
 				case reflect.Uint:
@@ -1219,6 +1285,11 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 							break
 						}
 						field.SetUint(v)
+					default:
+						if stack.strict {
+							panic("wrong uint value")
+						}
+						stack.reg = nil
 					}
 				case reflect.Float32:
 					f, ok := term.(float64)
@@ -1288,6 +1359,9 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 
 				default:
 					if stack.strict {
+						if field.Type().Name() == "Alias" {
+							term = Alias(term.(Ref))
+						}
 						field.Set(reflect.ValueOf(term))
 					} else {
 						// wrap it to catch the panic
@@ -1298,6 +1372,9 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 										ok = false
 									}
 								}()
+							}
+							if field.Type().Name() == "Alias" {
+								v = Alias(v.(Ref))
 							}
 							f.Set(reflect.ValueOf(v))
 							return true

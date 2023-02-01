@@ -66,9 +66,7 @@ type UDPPacket struct {
 	Socket io.Writer
 }
 
-//
 // Server callbacks
-//
 func (udp *UDP) Init(process *ServerProcess, args ...etf.Term) error {
 
 	behavior := process.Behavior().(UDPBehavior)
@@ -129,6 +127,22 @@ func (udp *UDP) Init(process *ServerProcess, args ...etf.Term) error {
 	go udpProcess.serve()
 	return nil
 }
+
+func (udp *UDP) HandleCall(process *ServerProcess, from ServerFrom, message etf.Term) (etf.Term, ServerStatus) {
+	udpp := process.State.(*UDPProcess)
+	return udpp.behavior.HandleUDPCall(udpp, from, message)
+}
+
+func (udp *UDP) HandleCast(process *ServerProcess, message etf.Term) ServerStatus {
+	udpp := process.State.(*UDPProcess)
+	return udpp.behavior.HandleUDPCast(udpp, message)
+}
+
+func (udp *UDP) HandleInfo(process *ServerProcess, message etf.Term) ServerStatus {
+	udpp := process.State.(*UDPProcess)
+	return udpp.behavior.HandleUDPInfo(udpp, message)
+}
+
 func (udp *UDP) Terminate(process *ServerProcess, reason string) {
 	p := process.State.(*UDPProcess)
 	p.packetConn.Close()

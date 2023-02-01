@@ -9,6 +9,10 @@ import (
 	"io"
 	"log"
 	"math"
+	"path/filepath"
+	"runtime"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -23,6 +27,7 @@ var (
 	ergoTrace     = false
 	ergoWarning   = false
 	ergoNoRecover = false
+	ergoDebug     = false
 
 	DefaultBufferLength = 16384
 	buffers             = &sync.Pool{
@@ -47,22 +52,43 @@ var (
 )
 
 func init() {
-	flag.BoolVar(&ergoTrace, "ergo.trace", false, "enable/disable extended debug info")
+	flag.BoolVar(&ergoTrace, "ergo.trace", false, "enable/disable extended node logging info")
 	flag.BoolVar(&ergoWarning, "ergo.warning", true, "enable/disable warning messages")
 	flag.BoolVar(&ergoNoRecover, "ergo.norecover", false, "disable panic catching")
+	flag.BoolVar(&ergoDebug, "ergo.debug", false, "enable/disable debug messages")
 }
 
 // Log
 func Log(f string, a ...interface{}) {
 	if ergoTrace {
-		log.Printf(f, a...)
+		printf(f, a...)
 	}
 }
 
 // Warning
 func Warning(f string, a ...interface{}) {
 	if ergoWarning {
-		log.Printf("WARNING! "+f, a...)
+		printf("WARNING! "+f, a...)
+	}
+}
+
+// Print log information
+func printf(formating string, args ...interface{}) {
+	if ergoDebug {
+		goID, fileName, line, funcName := 0, "unknown", 0, "unknown"
+		var buf [64]byte
+		n := runtime.Stack(buf[:], false)
+		idField := strings.Fields(strings.TrimPrefix(string(buf[:n]), "goroutine "))[0]
+		goID, _ = strconv.Atoi(idField)
+		pc, fileName, line, ok := runtime.Caller(2)
+		if ok {
+			funcName = runtime.FuncForPC(pc).Name()
+			funcName = filepath.Base(funcName)
+			fileName = filepath.Base(fileName)
+		}
+		log.Printf("<Go#%d>@%s:%d %s %s\n", goID, fileName, line, funcName, fmt.Sprintf(formating, args...))
+	} else {
+		log.Printf(formating, args...)
 	}
 }
 
@@ -78,7 +104,12 @@ func TakeTimer() *time.Timer {
 
 // ReleaseTimer
 func ReleaseTimer(t *time.Timer) {
-	t.Stop()
+	if !t.Stop() {
+		select {
+		case <-t.C:
+		default:
+		}
+	}
 	timers.Put(t)
 }
 

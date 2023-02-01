@@ -605,6 +605,10 @@ func TestRegisterType(t *testing.T) {
 		C   float32
 		C64 float64
 		D   ddd
+
+		T1 Pid
+		T2 Ref
+		T3 Alias
 	}
 	type bbb map[aaa]ccc
 
@@ -623,7 +627,11 @@ func TestRegisterType(t *testing.T) {
 			BU64: 0x48c,
 			C:    -11.22,
 			C64:  1164.22,
-			D:    ddd{true, false, false}}: ccc{"a1", "a2", "a3"},
+			D:    ddd{true, false, false},
+			T1:   Pid{Node: Atom("nodepid11"), ID: 123, Creation: 456},
+			T2:   Ref{Node: Atom("noderef11"), Creation: 123, ID: [5]uint32{4, 5, 6, 0, 0}},
+			T3:   Alias{Node: Atom("nodealias11"), Creation: 123, ID: [5]uint32{4, 5, 6, 0, 0}},
+		}: ccc{"a1", "a2", "a3"},
 		aaa{
 			A:    "bb",
 			B:    -22,
@@ -638,7 +646,11 @@ func TestRegisterType(t *testing.T) {
 			BU64: 0x8d8,
 			C:    -22.22,
 			C64:  2264.22,
-			D:    ddd{false, true, false}}: ccc{"b1", "b2", "b3"},
+			D:    ddd{false, true, false},
+			T1:   Pid{Node: Atom("nodepid22"), ID: 123, Creation: 456},
+			T2:   Ref{Node: Atom("noderef22"), Creation: 123, ID: [5]uint32{4, 5, 6, 0, 0}},
+			T3:   Alias{Node: Atom("nodealias22"), Creation: 123, ID: [5]uint32{4, 5, 6, 0, 0}},
+		}: ccc{"b1", "b2", "b3"},
 		aaa{
 			A:    "cc",
 			B:    -33,
@@ -653,11 +665,25 @@ func TestRegisterType(t *testing.T) {
 			BU64: 0xd24,
 			C:    -33.22,
 			C64:  3364.22,
-			D:    ddd{false, false, true}}: ccc{}, //test empty list
+			D:    ddd{false, false, true},
+			T1:   Pid{Node: Atom("nodepid33"), ID: 123, Creation: 456},
+			T2:   Ref{Node: Atom("noderef33"), Creation: 123, ID: [5]uint32{4, 5, 6, 0, 0}},
+			T3:   Alias{Node: Atom("nodealias33"), Creation: 123, ID: [5]uint32{4, 5, 6, 0, 0}},
+		}: ccc{}, //test empty list
 	}
 
 	buf := lib.TakeBuffer()
 	defer lib.ReleaseBuffer(buf)
+
+	if _, err := RegisterType(Pid{}, RegisterTypeOptions{Strict: true}); err == nil {
+		t.Fatal("shouldn't be registered")
+	}
+	if _, err := RegisterType(Ref{}, RegisterTypeOptions{Strict: true}); err == nil {
+		t.Fatal("shouldn't be registered")
+	}
+	if _, err := RegisterType(Alias{}, RegisterTypeOptions{Strict: true}); err == nil {
+		t.Fatal("shouldn't be registered")
+	}
 
 	if _, err := RegisterType(ddd{}, RegisterTypeOptions{Strict: true}); err != nil {
 		t.Fatal(err)
@@ -672,10 +698,17 @@ func TestRegisterType(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := Encode(src, buf, EncodeOptions{}); err != nil {
+	encodeOptions := EncodeOptions{
+		FlagBigPidRef:   true,
+		FlagBigCreation: true,
+	}
+	if err := Encode(src, buf, encodeOptions); err != nil {
 		t.Fatal(err)
 	}
-	dst, _, err := Decode(buf.B, []Atom{}, DecodeOptions{})
+	decodeOptions := DecodeOptions{
+		FlagBigPidRef: true,
+	}
+	dst, _, err := Decode(buf.B, []Atom{}, decodeOptions)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -685,6 +718,6 @@ func TestRegisterType(t *testing.T) {
 	}
 
 	if !reflect.DeepEqual(src, dst) {
-		t.Errorf("got %v, want %v", dst, src)
+		t.Errorf("got:\n%#v\n\nwant:\n%#v\n", dst, src)
 	}
 }

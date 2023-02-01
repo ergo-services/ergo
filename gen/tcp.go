@@ -67,12 +67,8 @@ type TCPProcess struct {
 	listener net.Listener
 }
 
-//
 // Server callbacks
-//
 func (tcp *TCP) Init(process *ServerProcess, args ...etf.Term) error {
-
-	behavior := process.Behavior().(TCPBehavior)
 	behavior, ok := process.Behavior().(TCPBehavior)
 	if !ok {
 		return fmt.Errorf("not a TCPBehavior")
@@ -153,6 +149,21 @@ func (tcp *TCP) Init(process *ServerProcess, args ...etf.Term) error {
 
 	process.State = tcpProcess
 	return nil
+}
+
+func (tcp *TCP) HandleCall(process *ServerProcess, from ServerFrom, message etf.Term) (etf.Term, ServerStatus) {
+	tcpp := process.State.(*TCPProcess)
+	return tcpp.behavior.HandleTCPCall(tcpp, from, message)
+}
+
+func (tcp *TCP) HandleCast(process *ServerProcess, message etf.Term) ServerStatus {
+	tcpp := process.State.(*TCPProcess)
+	return tcpp.behavior.HandleTCPCast(tcpp, message)
+}
+
+func (tcp *TCP) HandleInfo(process *ServerProcess, message etf.Term) ServerStatus {
+	tcpp := process.State.(*TCPProcess)
+	return tcpp.behavior.HandleTCPInfo(tcpp, message)
 }
 
 func (tcp *TCP) Terminate(process *ServerProcess, reason string) {
@@ -326,9 +337,6 @@ retry:
 			lib.Warning("[gen.TCP] error on handling packet: %s. closing connection with %q", err, c.RemoteAddr())
 			return err
 		}
-
-		expectingBytes = 1
-		goto nextPacket
 	}
 
 	// create a new handler. we should eather to make a call HandleDisconnect or
