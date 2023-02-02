@@ -10,12 +10,13 @@ import (
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"math/big"
+	"net"
 	"sync"
 	"time"
 )
 
 // GenerateSelfSignedCert
-func GenerateSelfSignedCert(org string) (tls.Certificate, error) {
+func GenerateSelfSignedCert(org string, hosts ...string) (tls.Certificate, error) {
 	var cert = tls.Certificate{}
 	certPrivKey, err := ecdsa.GenerateKey(elliptic.P521(), rand.Reader)
 	if err != nil {
@@ -39,6 +40,14 @@ func GenerateSelfSignedCert(org string) (tls.Certificate, error) {
 		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageDigitalSignature,
 		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 		BasicConstraintsValid: true,
+	}
+
+	for _, h := range hosts {
+		if ip := net.ParseIP(h); ip != nil {
+			template.IPAddresses = append(template.IPAddresses, ip)
+		} else {
+			template.DNSNames = append(template.DNSNames, h)
+		}
 	}
 
 	certBytes, err1 := x509.CreateCertificate(rand.Reader, &template, &template,

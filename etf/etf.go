@@ -126,14 +126,13 @@ type Ref struct {
 // Marshaler interface implemented by types that can marshal themselves into valid ETF binary
 // Interface implementation must be over the object e.g. (MyObject) UnmarshalETF:
 //
-// 	type MyObject struct{}
+//		type MyObject struct{}
 //
-// 	func (m MyObject) MarshalETF() ([]byte, error) {
-// 		var encoded []byte
-// 		... encoding routine ...
-// 		return encoded, nil
-// }
-//
+//		func (m MyObject) MarshalETF() ([]byte, error) {
+//			var encoded []byte
+//			... encoding routine ...
+//			return encoded, nil
+//	}
 type Marshaler interface {
 	MarshalETF() ([]byte, error)
 }
@@ -142,13 +141,13 @@ type Marshaler interface {
 // Returns error ErrEmpty for []byte{}.
 // Interface implementation must be over pointer to the object e.g. (*MyObject) UnmarshalETF:
 //
-// 	type MyObject struct{}
+//	type MyObject struct{}
 //
-// 	func (m *MyObject) UnmarshalETF(b []byte) error {
-// 		var err error
-// 		... decoding routine ...
-// 		return err
-// 	}
+//	func (m *MyObject) UnmarshalETF(b []byte) error {
+//		var err error
+//		... decoding routine ...
+//		return err
+//	}
 type Unmarshaler interface {
 	UnmarshalETF([]byte) error
 }
@@ -669,6 +668,10 @@ type RegisterTypeOptions struct {
 // for unregistering this type.
 // Returns an error if this type can not be registered.
 func RegisterType(t interface{}, options RegisterTypeOptions) (Atom, error) {
+	switch t.(type) {
+	case Pid, Ref, Alias:
+		return "", fmt.Errorf("types Pid, Ref, Alias can not be registered")
+	}
 	tt := reflect.TypeOf(t)
 	ttk := tt.Kind()
 
@@ -734,6 +737,12 @@ func RegisterType(t interface{}, options RegisterTypeOptions) (Atom, error) {
 			f := tv.Field(i)
 			if f.CanInterface() == false {
 				return name, fmt.Errorf("struct has unexported field(s)")
+			}
+
+			switch f.Interface().(type) {
+			case Pid, Ref, Alias:
+				// ignore this types
+				continue
 			}
 
 			if f.Type().Kind() == reflect.Slice && f.Type().Elem().Kind() == reflect.Uint8 {

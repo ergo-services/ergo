@@ -56,7 +56,7 @@ func (cc *cloudClient) Init(process *gen.ServerProcess, args ...etf.Term) error 
 		handshake: handshake,
 	}
 
-	if err := process.RegisterEvent(EventCloud, []gen.EventMessage{MessageEventCloud{}}); err != nil {
+	if err := process.RegisterEvent(EventCloud, MessageEventCloud{}); err != nil {
 		lib.Warning("can't register event %q: %s", EventCloud, err)
 	}
 
@@ -95,7 +95,9 @@ func (cc *cloudClient) HandleCast(process *gen.ServerProcess, message etf.Term) 
 				}
 			}
 
+			lib.Log("[%s] CLOUD_CLIENT: trying to connect with: %s", process.NodeName(), cloud.Node)
 			if err := thisNode.Connect(cloud.Node); err != nil {
+				lib.Log("[%s] CLOUD_CLIENT: failed with reason: ", err)
 				continue
 			}
 
@@ -110,9 +112,14 @@ func (cc *cloudClient) HandleCast(process *gen.ServerProcess, message etf.Term) 
 			state.monitor = process.MonitorNode(cloud.Node)
 			state.node = cloud.Node
 			event := MessageEventCloud{
-				Online: true,
+				Cluster: proxyRoute.Name,
+				Online:  true,
+				Proxy:   cloud.Node,
 			}
-			process.SendEventMessage(EventCloud, event)
+			if err := process.SendEventMessage(EventCloud, event); err != nil {
+				lib.Log("[%s] CLOUD_CLIENT: failed to send event (%s) %#v: %s",
+					process.NodeName(), EventCloud, event, err)
+			}
 			return gen.ServerStatusOK
 		}
 
@@ -127,7 +134,7 @@ func (cc *cloudClient) HandleInfo(process *gen.ServerProcess, message etf.Term) 
 	state := process.State.(*cloudClientState)
 
 	switch m := message.(type) {
-	case gen.MessageDown:
+	case gen.MessageNodeDown:
 		if m.Ref != state.monitor {
 			return gen.ServerStatusOK
 		}
@@ -207,10 +214,16 @@ func getCloudNodes() ([]CloudNode, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	nodes := make([]CloudNode, len(srv))
 	for i := range srv {
 		nodes[i].Node = "dist@" + strings.TrimSuffix(srv[i].Target, ".")
 		nodes[i].Port = srv[i].Port
+	}
+
+	// return only 3 of them
+	if len(nodes) > 3 {
+		return nodes[:3], nil
 	}
 	return nodes, nil
 }

@@ -113,6 +113,9 @@ type distConnection struct {
 	// writer
 	flusher *linkFlusher
 
+	// buffer
+	buffer *lib.Buffer
+
 	// senders list of channels for the sending goroutines
 	senders senders
 	// receivers list of channels for the receiving goroutines
@@ -121,7 +124,7 @@ type distConnection struct {
 	// atom cache for outgoing messages
 	cache etf.AtomCache
 
-	mapping etf.AtomMapping
+	mapping *etf.AtomMapping
 
 	// fragmentation sequence ID
 	sequenceID     int64
@@ -187,6 +190,7 @@ func (dp *distProto) Init(ctx context.Context, conn lib.NetReadWriter, nodename 
 		peername:                details.Name,
 		flags:                   details.Flags,
 		creation:                details.Creation,
+		buffer:                  details.Buffer,
 		conn:                    conn,
 		cache:                   etf.NewAtomCache(),
 		mapping:                 details.AtomMapping,
@@ -253,7 +257,11 @@ func (dp *distProto) Serve(ci node.ConnectionInterface, router node.CoreRouter) 
 	var err error
 	var packetLength int
 
-	b := lib.TakeBuffer()
+	b := connection.buffer // not nil if we got extra data withing the handshake process
+	if b == nil {
+		b = lib.TakeBuffer()
+	}
+
 	for {
 		packetLength, err = connection.read(b, dp.options.MaxMessageSize)
 
@@ -927,6 +935,8 @@ func (dc *distConnection) decodePacket(b *lib.Buffer) (*distMessage, error) {
 			dc.ProxyDisconnect(disconnect)
 			return nil, nil
 		}
+
+		// BUG? double counted. see below
 		atomic.AddUint64(&dc.stats.BytesIn, uint64(b.Len()))
 
 		iv := packet[:aes.BlockSize]
@@ -969,6 +979,7 @@ func (dc *distConnection) decodePacket(b *lib.Buffer) (*distMessage, error) {
 			dc.ProxyDisconnect(disconnect)
 			return nil, nil
 		}
+		// BUG? double counted. see above
 		atomic.AddUint64(&dc.stats.BytesIn, uint64(b.Len()))
 		if control == nil {
 			return nil, nil

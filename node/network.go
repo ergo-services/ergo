@@ -42,6 +42,7 @@ type networkInternal interface {
 	ProxyRoutes() []ProxyRoute
 	ProxyRoute(name string) (ProxyRoute, bool)
 
+	Registrar() Registrar
 	Resolve(peername string) (Route, error)
 	ResolveProxy(peername string) (ProxyRoute, error)
 
@@ -79,6 +80,8 @@ type connectionInternal struct {
 	connection ConnectionInterface
 	//
 	proxySessionID string
+	//
+	proxyTransitTo map[string]bool
 }
 
 type network struct {
@@ -145,7 +148,7 @@ func newNetwork(ctx context.Context, nodename string, cookie string, options Opt
 	}
 
 	splitNodeHost := strings.Split(nodename, "@")
-	if len(splitNodeHost) != 2 {
+	if len(splitNodeHost) != 2 || splitNodeHost[0] == "" || splitNodeHost[1] == "" {
 		return nil, fmt.Errorf("FQDN for node name is required (example: node@hostname)")
 	}
 
@@ -417,6 +420,11 @@ func (n *network) ResolveProxy(name string) (ProxyRoute, error) {
 	return route, nil
 }
 
+// Registrar
+func (n *network) Registrar() Registrar {
+	return n.registrar
+}
+
 // Connect
 func (n *network) Connect(node string) error {
 	_, err := n.getConnection(node)
@@ -492,6 +500,7 @@ func (n *network) RouteProxyConnectRequest(from ConnectionInterface, request Pro
 	if request.To != n.nodename {
 		var err error
 		var connection ConnectionInterface
+		var proxyTransitTo map[string]bool
 		//
 		// outgoing proxy request
 		//
@@ -500,6 +509,7 @@ func (n *network) RouteProxyConnectRequest(from ConnectionInterface, request Pro
 		n.connectionsMutex.RLock()
 		if ci, exist := n.connections[request.To]; exist {
 			connection = ci.connection
+			proxyTransitTo = ci.proxyTransitTo
 		}
 		n.connectionsMutex.RUnlock()
 
@@ -518,6 +528,17 @@ func (n *network) RouteProxyConnectRequest(from ConnectionInterface, request Pro
 				lib.Log("[%s] NETWORK proxy. Proxy feature is disabled on this node", n.nodename)
 				return lib.ErrProxyTransitDisabled
 			}
+
+			if proxyTransitTo != nil {
+				if proxyTransitTo[request.To] == false {
+					nodeHost := strings.Split(request.To, "@")
+					if len(nodeHost) != 2 || proxyTransitTo[nodeHost[1]] == false {
+						lib.Log("[%s] NETWORK proxy. Proxy connection is restricted (to: %s)", n.nodename, request.To)
+						return lib.ErrProxyTransitRestricted
+					}
+				}
+			}
+
 			if request.Hop < 1 {
 				lib.Log("[%s] NETWORK proxy. Error: exceeded hop limit", n.nodename)
 				return lib.ErrProxyHopExceeded
@@ -1067,7 +1088,12 @@ func (n *network) listen(ctx context.Context, hostname string, options Listener,
 	}
 
 	for port := options.ListenBegin; port <= options.ListenEnd; port++ {
+		if options.Hostname != "" {
+			hostname = options.Hostname
+		}
+
 		hostPort := net.JoinHostPort(hostname, strconv.Itoa(int(port)))
+		lib.Log("[%s] NETWORK trying to start listener on %q", n.nodename, hostPort)
 		listener, err := lc.Listen(ctx, "tcp", hostPort)
 		if err != nil {
 			continue
@@ -1086,7 +1112,7 @@ func (n *network) listen(ctx context.Context, hostname string, options Listener,
 
 			if err := n.registrar.Register(n.ctx, n.nodename, registerOptions); err != nil {
 				listener.Close()
-				return nil, err
+				return nil, fmt.Errorf("can not register this node: %s", err)
 			}
 		}
 
@@ -1135,6 +1161,13 @@ func (n *network) listen(ctx context.Context, hostname string, options Listener,
 					connection: connection,
 				}
 
+				if len(details.ProxyTransit.AllowTo) > 0 {
+					cInternal.proxyTransitTo = make(map[string]bool)
+					for _, to := range details.ProxyTransit.AllowTo {
+						cInternal.proxyTransitTo[to] = true
+					}
+				}
+
 				if _, err := n.registerConnection(details.Name, cInternal); err != nil {
 					// Race condition:
 					// There must be another goroutine which already created and registered
@@ -1177,6 +1210,7 @@ func (n *network) connect(node string) (ConnectionInterface, error) {
 	HostPort := net.JoinHostPort(route.Host, strconv.Itoa(int(route.Port)))
 	dialer := net.Dialer{
 		KeepAlive: defaultKeepAlivePeriod * time.Second,
+		Timeout:   3 * time.Second, // timeout to establish TCP-connection
 	}
 
 	tlsEnabled := route.Options.TLS != nil
@@ -1343,9 +1377,6 @@ func (n *network) unregisterConnection(peername string, disconnect *ProxyDisconn
 	}
 	n.router.sendEvent(corePID, EventNetwork, event)
 
-	// we must unregister this peer for the proxy connection via this node
-	n.registrar.UnregisterProxy(peername)
-
 	n.connectionsMutex.Lock()
 	cp, _ := n.connectionsProxy[ci.connection]
 	for _, p := range cp {
@@ -1383,9 +1414,7 @@ func (n *network) unregisterConnection(peername string, disconnect *ProxyDisconn
 
 }
 
-//
 // Connection interface default callbacks
-//
 func (c *Connection) Send(from gen.Process, to etf.Pid, message etf.Term) error {
 	return lib.ErrUnsupported
 }
@@ -1453,9 +1482,7 @@ func (c *Connection) Stats() NetworkStats {
 	return NetworkStats{}
 }
 
-//
 // Handshake interface default callbacks
-//
 func (h *Handshake) Start(remote net.Addr, conn lib.NetReadWriter, tls bool, cookie string) (HandshakeDetails, error) {
 	return HandshakeDetails{}, lib.ErrUnsupported
 }
