@@ -224,6 +224,7 @@ See [https://github.com/ergo-services/examples](https://github.com/ergo-services
 * [gen.Application](https://github.com/ergo-services/examples/tree/master/application)
 * [gen.Supervisor](https://github.com/ergo-services/examples/tree/master/supervisor)
 * [gen.Server](https://github.com/ergo-services/examples/tree/master/genserver)
+* [gen.Pool](https://github.com/ergo-services/examples/tree/master/genpool)
 * [gen.Stage](https://github.com/ergo-services/examples/tree/master/genstage)
 * [gen.Saga](https://github.com/ergo-services/examples/tree/master/gensaga)
 * [gen.Raft](https://github.com/ergo-services/examples/tree/master/genraft)
