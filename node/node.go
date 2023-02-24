@@ -287,14 +287,20 @@ func (n *node) ApplicationStartTransient(appName string, args ...etf.Term) (gen.
 	return n.applicationStart(gen.ApplicationStartTransient, appName, args...)
 }
 
-// ApplicationStart start Application with start type ApplicationStartTemporary
+// ApplicationStartTemporary start Application with start type ApplicationStartTemporary
 // If an application terminates, this is reported but no other applications
 // are terminated
-func (n *node) ApplicationStart(appName string, args ...etf.Term) (gen.Process, error) {
+func (n *node) ApplicationStartTemporary(appName string, args ...etf.Term) (gen.Process, error) {
 	return n.applicationStart(gen.ApplicationStartTemporary, appName, args...)
 }
 
-func (n *node) applicationStart(startType, appName string, args ...etf.Term) (gen.Process, error) {
+// ApplicationStart start Application with start type defined in the gen.ApplicationSpec.StartType
+// on the loading application
+func (n *node) ApplicationStart(appName string, args ...etf.Term) (gen.Process, error) {
+	return n.applicationStart("", appName, args...)
+}
+
+func (n *node) applicationStart(startType gen.ApplicationStartType, appName string, args ...etf.Term) (gen.Process, error) {
 	rb, err := n.RegisteredBehavior(appBehaviorGroup, appName)
 	if err != nil {
 		return nil, lib.ErrAppUnknown
@@ -305,7 +311,9 @@ func (n *node) applicationStart(startType, appName string, args ...etf.Term) (ge
 		return nil, lib.ErrAppUnknown
 	}
 
-	spec.StartType = startType
+	if startType != "" {
+		spec.StartType = startType
+	}
 
 	// to prevent race condition on starting application we should
 	// make sure that nobodyelse starting it
@@ -324,7 +332,7 @@ func (n *node) applicationStart(startType, appName string, args ...etf.Term) (ge
 	}
 
 	env := map[gen.EnvKey]interface{}{
-		gen.EnvKeySpec: spec,
+		gen.EnvKeyAppSpec: spec,
 	}
 	options := gen.ProcessOptions{
 		Env: env,

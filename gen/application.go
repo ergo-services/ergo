@@ -18,21 +18,21 @@ const (
 
 	// ApplicationStartPermanent If a permanent application terminates,
 	// all other applications and the runtime system (node) are also terminated.
-	ApplicationStartPermanent = "permanent"
+	ApplicationStartPermanent ApplicationStartType = "permanent"
 
 	// ApplicationStartTemporary If a temporary application terminates,
 	// this is reported but no other applications are terminated.
-	ApplicationStartTemporary = "temporary"
+	ApplicationStartTemporary ApplicationStartType = "temporary"
 
 	// ApplicationStartTransient If a transient application terminates
 	// with reason normal, this is reported but no other applications are
 	// terminated. If a transient application terminates abnormally, that
 	// is with any other reason than normal, all other applications and
 	// the runtime system (node) are also terminated.
-	ApplicationStartTransient = "transient"
+	ApplicationStartTransient ApplicationStartType = "transient"
 
-	// EnvKeySpec
-	EnvKeySpec EnvKey = "ergo:AppSpec"
+	// EnvKeyAppSpec
+	EnvKeyAppSpec EnvKey = "ergo:AppSpec"
 )
 
 // ApplicationBehavior interface
@@ -78,13 +78,13 @@ type ApplicationInfo struct {
 
 // ProcessInit
 func (a *Application) ProcessInit(p Process, args ...etf.Term) (ProcessState, error) {
-	spec := p.Env(EnvKeySpec).(*ApplicationSpec)
-	spec, ok := p.Env(EnvKeySpec).(*ApplicationSpec)
+	spec := p.Env(EnvKeyAppSpec).(*ApplicationSpec)
+	spec, ok := p.Env(EnvKeyAppSpec).(*ApplicationSpec)
 	if !ok {
 		return ProcessState{}, fmt.Errorf("ProcessInit: not an ApplicationBehavior")
 	}
 	// remove variable from the env
-	p.SetEnv(EnvKeySpec, nil)
+	p.SetEnv(EnvKeyAppSpec, nil)
 
 	p.SetTrapExit(true)
 
