@@ -393,49 +393,6 @@ func (n *node) MonitoredBy(process etf.Pid) []etf.Pid {
 	return n.processMonitoredBy(process)
 }
 
-// ProvideRPC register given module/function as RPC method
-func (n *node) ProvideRPC(module string, function string, fun gen.RPC) error {
-	lib.Log("[%s] RPC provide: %s:%s %#v", n.name, module, function, fun)
-	rex := n.ProcessByName("rex")
-	if rex == nil {
-		return fmt.Errorf("RPC is disabled")
-	}
-
-	message := gen.MessageManageRPC{
-		Provide:  true,
-		Module:   module,
-		Function: function,
-		Fun:      fun,
-	}
-	if _, err := rex.Direct(message); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-// RevokeRPC unregister given module/function
-func (n *node) RevokeRPC(module, function string) error {
-	lib.Log("[%s] RPC revoke: %s:%s", n.name, module, function)
-
-	rex := n.ProcessByName("rex")
-	if rex == nil {
-		return fmt.Errorf("RPC is disabled")
-	}
-
-	message := gen.MessageManageRPC{
-		Provide:  false,
-		Module:   module,
-		Function: function,
-	}
-
-	if _, err := rex.Direct(message); err != nil {
-		return err
-	}
-
-	return nil
-}
-
 // ProvideRemoteSpawn
 func (n *node) ProvideRemoteSpawn(name string, behavior gen.ProcessBehavior) error {
 	return n.RegisterBehavior(remoteBehaviorGroup, name, behavior, nil)

@@ -73,8 +73,6 @@ type Node interface {
 	ApplicationStartTransient(appName string, args ...etf.Term) (gen.Process, error)
 	ApplicationStop(appName string) error
 
-	ProvideRPC(module string, function string, fun gen.RPC) error
-	RevokeRPC(module, function string) error
 	ProvideRemoteSpawn(name string, object gen.ProcessBehavior) error
 	RevokeRemoteSpawn(name string) error
 

@@ -137,39 +137,6 @@ func (sp *ServerProcess) CallWithTimeout(to interface{}, message etf.Term, timeo
 
 }
 
-// CallRPC evaluate rpc call with given node/MFA
-func (sp *ServerProcess) CallRPC(node, module, function string, args ...etf.Term) (etf.Term, error) {
-	return sp.CallRPCWithTimeout(DefaultCallTimeout, node, module, function, args...)
-}
-
-// CallRPCWithTimeout evaluate rpc call with given node/MFA and timeout
-func (sp *ServerProcess) CallRPCWithTimeout(timeout int, node, module, function string, args ...etf.Term) (etf.Term, error) {
-	lib.Log("[%s] RPC calling: %s:%s:%s", sp.NodeName(), node, module, function)
-
-	message := etf.Tuple{
-		etf.Atom("call"),
-		etf.Atom(module),
-		etf.Atom(function),
-		etf.List(args),
-		sp.Self(),
-	}
-	to := ProcessID{"rex", node}
-	return sp.CallWithTimeout(to, message, timeout)
-}
-
-// CastRPC evaluate rpc cast with given node/MFA
-func (sp *ServerProcess) CastRPC(node, module, function string, args ...etf.Term) error {
-	lib.Log("[%s] RPC casting: %s:%s:%s", sp.NodeName(), node, module, function)
-	message := etf.Tuple{
-		etf.Atom("cast"),
-		etf.Atom(module),
-		etf.Atom(function),
-		etf.List(args),
-	}
-	to := ProcessID{"rex", node}
-	return sp.Cast(to, message)
-}
-
 // SendReply sends a reply message to the sender made ServerProcess.Call request.
 // Useful for the case with dispatcher and pool of workers: Dispatcher process
 // forwards Call requests (asynchronously) within a HandleCall callback to the worker(s)
