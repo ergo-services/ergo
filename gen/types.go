@@ -403,17 +403,6 @@ type MessageFallback struct {
 	Message etf.Term
 }
 
-// RPC defines rpc function type
-type RPC func(...etf.Term) etf.Term
-
-// MessageManageRPC is using to manage RPC feature provides by "rex" process
-type MessageManageRPC struct {
-	Provide  bool
-	Module   string
-	Function string
-	Fun      RPC
-}
-
 // MessageDirectChildren type intended to be used in Process.Children which returns []etf.Pid
 // You can handle this type of message in your HandleDirect callback to enable Process.Children
 // support for your gen.Server actor.

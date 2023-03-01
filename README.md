@@ -19,36 +19,30 @@ The goal of this project is to leverage Erlang/OTP experience with Golang perfor
 
 ### Cloud ###
 
-You can join your services made with Ergo Framework into a single cluster with transparent networking using our **Cloud Overlay Network** where they can connect to each other smoothly, no matter where they run - AWS, Azure or GCP, or anywhere else. All these connections are secured with end-to-end encryption. Read more in this article [https://blog.ergo.services/cloud-overlay-network-3a133d47efe5](https://blog.ergo.services/cloud-overlay-network-3a133d47efe5).
+Distributed Cloud is coming. With Ergo Framework you can join your services into a single cluster with transparent networking using our **Cloud Overlay Network** where they can connect to each other smoothly, no matter where they run - AWS, Azure or GCP, or anywhere else. All these connections are secured with end-to-end encryption. Read more in this article [https://blog.ergo.services/cloud-overlay-network-3a133d47efe5](https://blog.ergo.services/cloud-overlay-network-3a133d47efe5).
 
 ### Features ###
 
 ![image](https://user-images.githubusercontent.com/118860/113710255-c57d5500-96e3-11eb-9970-20f49008a990.png)
 
-* Support Erlang 25 (including [Alias](https://blog.erlang.org/My-OTP-24-Highlights/#eep-53-process-aliases) and [Remote Spawn](https://blog.erlang.org/OTP-23-Highlights/#distributed-spawn-and-the-new-erpc-module) features)
+* Support Erlang 25 - allows you connect your node to (and accept connection from) any Erlang/Elixir node within a cluster
 * Spawn Erlang-like processes
 * Register/unregister processes with simple atom
-* `gen.Server` behavior support (with atomic state)
-* `gen.Supervisor` behavior support with all known [restart strategies](https://erlang.org/doc/design_principles/sup_princ.html#restart-strategy) support
-  * One For One
-  * One For All
-  * Rest For One
-  * Simple One For One
-* `gen.Application` behavior support with all known [starting types](https://erlang.org/doc/design_principles/applications.html#application-start-types) support
-  * Permanent
-  * Temporary
-  * Transient
-* `gen.Stage` behavior support (originated from Elixir's [GenStage](https://hexdocs.pm/gen_stage/GenStage.html)). This is abstraction built on top of `gen.Server` to provide a simple way to create a distributed Producer/Consumer architecture, while automatically managing the concept of backpressure. This implementation is fully compatible with Elixir's GenStage. Example is here [examples/genstage](https://github.com/ergo-services/examples/tree/master/genstage) or just run `go run ./examples/genstage` to see it in action
-* `gen.Saga` behavior support. It implements Saga design pattern - a sequence of transactions that updates each service state and publishes the result (or cancels the transaction or triggers the next transaction step). `gen.Saga` also provides a feature of interim results (can be used as transaction progress or as a part of pipeline processing), time deadline (to limit transaction lifespan), two-phase commit (to make distributed transaction atomic). Here is example [examples/gensaga](https://github.com/ergo-services/examples/tree/master/gensaga).
-* `gen.Raft` behavior support. It's improved implementation of [Raft consensus algorithm](https://raft.github.io). The key improvement is using quorum under the hood to manage the leader election process and make the Raft cluster more reliable. This implementation supports quorums of 3, 5, 7, 9, or 11 quorum members. Here is an example of this feature [examples/genraft](https://github.com/ergo-services/examples/tree/master/genraft).
-* Connect to (accept connection from) any Erlang/Elixir node within a cluster
-* Making sync request `ServerProcess.Call`, async - `ServerProcess.Cast` or `Process.Send` in fashion of `gen_server:call`, `gen_server:cast`, `erlang:send` accordingly
-* Monitor processes/nodes, local/remote
-* Link processes local/remote
-* RPC callbacks support
-* [embedded EPMD](#epmd) (in order to get rid of erlang' dependencies)
-* Unmarshalling terms into the struct using `etf.TermIntoStruct`, `etf.TermProplistIntoStruct` or to the string using `etf.TermToString`
-* Custom marshaling/unmarshaling via `Marshal` and `Unmarshal` interfaces
+* Set of ready-to-use disign patterns (behaviors)
+  * `gen.Server` behavior with atomic state and Erlang's gen_server support to make sync request `ServerProcess.Call`, async - `ServerProcess.Cast` or `Process.Send` in fashion of `gen_server:call`, `gen_server:cast`, `erlang:send` accordingly
+  * `gen.Supervisor` behavior with all known [restart strategies](https://erlang.org/doc/design_principles/sup_princ.html#restart-strategy) (One For One, One For All, Rest For One, Simple One For One)
+  * `gen.Application` behavior with all known [starting types](https://erlang.org/doc/design_principles/applications.html#application-start-types) (Permanent, Temporary, Transient)
+  * `gen.Pool` a basic design pattern with a pool of workers. All messages/requests received by the pool process are forwarded to the workers using the "Round Robin" algorithm. The worker process is automatically restarting on termination
+  * `gen.TCP` - socket acceptor pool for TCP protocols. This behavior aims to provide everything you need to accept TCP connections and process packets with a small code base and low latency while being easy to use.
+  * `gen.UDP` - acceptor pool for UDP protocols. This behavior provides the same feature set as TCP but for handling UDP packets using pool of handlers
+  * `gen.Web` - Web API Gateway behavior. This behavior allows you to listen HTTP port and handle HTTP-request using pool of workers.
+  * `gen.Stage` behavior support (originated from Elixir's [GenStage](https://hexdocs.pm/gen_stage/GenStage.html)). This is abstraction built on top of `gen.Server` to provide a simple way to create a distributed Producer/Consumer architecture, while automatically managing the concept of backpressure. This implementation is fully compatible with Elixir's GenStage. Example is here [examples/genstage](https://github.com/ergo-services/examples/tree/master/genstage) or just run `go run ./examples/genstage` to see it in action
+  * `gen.Saga` behavior support. It implements Saga design pattern - a sequence of transactions that updates each service state and publishes the result (or cancels the transaction or triggers the next transaction step). `gen.Saga` also provides a feature of interim results (can be used as transaction progress or as a part of pipeline processing), time deadline (to limit transaction lifespan), two-phase commit (to make distributed transaction atomic). Here is example [examples/gensaga](https://github.com/ergo-services/examples/tree/master/gensaga).
+  * `gen.Raft` behavior support. It's improved implementation of [Raft consensus algorithm](https://raft.github.io). The key improvement is using quorum under the hood to manage the leader election process and make the Raft cluster more reliable. This implementation supports quorums of 3, 5, 7, 9, or 11 quorum members. Here is an example of this feature [examples/genraft](https://github.com/ergo-services/examples/tree/master/genraft)
+* Monitor processes/nodes, local/remote with Erlang support
+* Link processes local/remote with Erlang support
+* [embedded EPMD](#epmd) (in order to get rid of erlang' dependencies) with Erlang support
+* Unmarshalling terms into the struct using `etf.TermIntoStruct`, `etf.TermProplistIntoStruct` or to the string using `etf.TermToString` including custom marshaling/unmarshaling via `Marshal` and `Unmarshal` interfaces. But it's highly recommended to use `etf.RegisterType` so you will be receiving messages in a native Golang-type
 * Encryption (TLS 1.3) support (including autogenerating self-signed certificates)
 * Compression support (with customization of compression level and threshold). It can be configured for the node or a particular process.
 * Proxy support with end-to-end encryption, includeing compression/fragmentation/linking/monitoring features.
@@ -67,6 +61,13 @@ Golang introduced [v2 rule](https://go.dev/blog/v2-go-modules) a while ago to so
 
 Here are the changes of latest release. For more details see the [ChangeLog](ChangeLog.md)
 
+#### [v2.2.2](https://github.com/ergo-services/ergo/releases/tag/v1.999.222) 2023-03-01 [tag version v1.999.222] ####
+
+* Introduced `gen.Pool`. This behavior implements a basic design pattern with a pool of workers. All messages/requests received by the pool process are forwarded to the workers using the "Round Robin" algorithm. The worker process is automatically restarting on termination. See example here [examples/genpool](https://github.com/ergo-services/examples/tree/master/genpool)
+* Removed Erlang RPC support. A while ago Erlang has changed the way of handling this kind of request making this feature more similar to the regular `gen.Server`. So, there is no reason to keep supporting it. Use a regular way of messaging instead - `gen.Server`. 
+* Fixed issue #130 (`StartType` option in `gen.ApplicationSpec` is ignored for the autostarting applications)
+* Fixed issue #143 (incorrect cleaning up the aliases belonging to the terminated process)
+
 #### [v2.2.1](https://github.com/ergo-services/ergo/releases/tag/v1.999.221) 2023-02-01 [tag version v1.999.221] ####
 
 * Now you can join your services made with Ergo Framework into a single cluster with transparent networking using our **Cloud Overlay Network** where they can connect to each other smoothly, no matter where they run - AWS, Azure or GCP, or anywhere else. All these connections are secured with end-to-end encryption. Read more in this article [https://blog.ergo.services/cloud-overlay-network-3a133d47efe5](https://blog.ergo.services/cloud-overlay-network-3a133d47efe5). Here is an example of this feature in action [examples/cloud](https://github.com/ergo-services/examples/tree/master/cloud)
@@ -80,24 +81,6 @@ Here are the changes of latest release. For more details see the [ChangeLog](Cha
 * Fixed Cloud client
 * Fixed #117 (incorrect hanshake process finalization)
 * Fixed #139 (panic of the gen.Stage partition dispatcher)
-
-#### [v2.2.0](https://github.com/ergo-services/ergo/releases/tag/v1.999.220) 2022-10-18 [tag version v1.999.220] ####
-
-* Introduced `gen.Web` behavior. It implements **Web API Gateway pattern** is also sometimes known as the "Backend For Frontend" (BFF). See example [examples/genweb](https://github.com/ergo-services/examples/tree/master/genweb)
-* Introduced `gen.TCP` behavior - **socket acceptor pool for TCP protocols**. It provides everything you need to accept TCP connections and process packets with a small code base and low latency. Here is simple example [examples/gentcp](https://github.com/ergo-services/examples/tree/master/gentcp)
-* Introduced `gen.UDP` - the same as `gen.TCP`, but for UDP protocols. Example is here [examples/genudp](https://github.com/ergo-services/examples/tree/master/genudp)
-* Introduced **Events**. This is a simple pub/sub feature within a node - any `gen.Process` can become a producer by registering a new event `gen.Event` using method `gen.Process.RegisterEvent`, while the others can subscribe to these events using `gen.Process.MonitorEvent`. Subscriber process will also receive `gen.MessageEventDown` if a producer process went down (terminated). This feature behaves in a monitor manner but only works within a node. You may also want to subscribe to a system event - `node.EventNetwork` to receive event notification on connect/disconnect any peers. Here is simple example of this feature [examples/events](https://github.com/ergo-services/examples/tree/master/events)
-* Introduced **Cloud Client** - allows connecting to the cloud platform [https://ergo.sevices](https://ergo.services). You may want to register your email there, and we will inform you about the platform launch day
-* Introduced **type registration** for the ETF encoding/decoding. This feature allows you to get rid of manually decoding with `etf.TermIntoStruct` for the receiving messages. Register your type using `etf.RegisterType(...)`, and you will be receiving messages in a native type
-* Predefined set of errors has moved to the `lib` package
-* Updated `gen.ServerBehavior.HandleDirect` method (got extra argument `etf.Ref` to distinguish the requests). This change allows you to handle these requests asynchronously using method `gen.ServerProcess.Reply(...)`
-* Updated `node.Options`. Now it has field `Listeners` (type `node.Listener`). It allows you to start any number of listeners with custom options - `Port`, `TLS` settings, or custom `Handshake`/`Proto` interfaces
-* Fixed build on 32-bit arch
-* Fixed freezing on ARM arch #102
-* Fixed problem with encoding negative int8
-* Fixed #103 (there was an issue on interop with Elixir's GenStage)
-* Fixed node stuck on start if it uses the name which is already taken in EPMD
-* Fixed incorrect `gen.ProcessOptions.Context` handling
 
 ### Benchmarks ###
 
@@ -224,6 +207,7 @@ See [https://github.com/ergo-services/examples](https://github.com/ergo-services
 * [gen.Application](https://github.com/ergo-services/examples/tree/master/application)
 * [gen.Supervisor](https://github.com/ergo-services/examples/tree/master/supervisor)
 * [gen.Server](https://github.com/ergo-services/examples/tree/master/genserver)
+* [gen.Pool](https://github.com/ergo-services/examples/tree/master/genpool)
 * [gen.Stage](https://github.com/ergo-services/examples/tree/master/genstage)
 * [gen.Saga](https://github.com/ergo-services/examples/tree/master/gensaga)
 * [gen.Raft](https://github.com/ergo-services/examples/tree/master/genraft)
@@ -307,4 +291,4 @@ is your company using Ergo? add your company logo/name here
 
 ### Commercial support
 
-please, visit https://ergo.services for more information
+please, contact ceo@ergo.services for more information

@@ -433,7 +433,7 @@ func (c *core) deleteProcess(pid etf.Pid) {
 	c.mutexNames.Unlock()
 
 	c.mutexAliases.Lock()
-	for alias := range c.aliases {
+	for _, alias := range p.aliases {
 		delete(c.aliases, alias)
 	}
 	c.mutexAliases.Unlock()
