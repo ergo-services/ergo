@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 This format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+#### [v2.2.2](https://github.com/ergo-services/ergo/releases/tag/v1.999.222) 2023-03-01 [tag version v1.999.222] ####
+
+* Introduced `gen.Pool`. This behavior implements a basic design pattern with a pool of workers. All messages/requests received by the pool process are forwarded to the workers using the "Round Robin" algorithm. The worker process is automatically restarting on termination. See example here [examples/genpool](https://github.com/ergo-services/examples/tree/master/genpool)
+* Removed Erlang RPC support. A while ago Erlang has changed the way of handling this kind of request making this feature more similar to the regular `gen.Server`. So, there is no reason to keep supporting it. Use a regular way of messaging instead - `gen.Server`. 
+* Fixed issue #130 (`StartType` option in `gen.ApplicationSpec` is ignored for the autostarting applications)
+* Fixed issue #143 (incorrect cleaning up the aliases belonging to the terminated process)
+
 #### [v2.2.1](https://github.com/ergo-services/ergo/releases/tag/v1.999.221) 2023-01-18 [tag version v1.999.221] ####
 
 * Now you can join your services made with Ergo Framework into a single cluster with transparent networking using our **Cloud Overlay Network** where they can connect to each other smoothly, no matter where they run - AWS, Azure or GCP, or anywhere else. All these connections are secured with end-to-end encryption. Read more in this article [https://https://medium.com/@ergo-services/cloud-overlay-network](https://https://medium.com/@ergo-services/cloud-overlay-network). Here is an example of this feature in action [examples/cloud](https://github.com/ergo-services/examples/tree/master/cloud)
@@ -106,7 +113,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * Fixed Atom Cache race conditioned issue #54
 * Fixed ETF encoder issues #64 #66
 
-#### [1.2.0](https://github.com/ergo-services/ergo/releases/tag/v1.2.0) - 2021-04-07 ####
+#### [v1.2.0](https://github.com/ergo-services/ergo/releases/tag/v1.2.0) - 2021-04-07 [tag version v1.2.0] ####
 
 * Added TLS support. Introduced new option `TLSmode` in `ergo.NodeOptions` with the following values:
   - `ergo.TLSmodeDisabled` default value. encryption is disabled
@@ -126,14 +133,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * Fixed issue with termination linked processes
 * Fixed platform-dependent issues. Now Ergo Framework has tested and confirmed support of Linux, MacOS, Windows.
 
-#### [1.1.0](https://github.com/ergo-services/ergo/releases/tag/1.1.0) - 2020-04-23 ####
+#### [v1.1.0](https://github.com/ergo-services/ergo/releases/tag/v1.1.0) - 2020-04-23 [tag version v1.1.0] ####
 
 * Fragmentation support (which was introduced in Erlang/OTP 22)
 * Completely rewritten network subsystem (DIST/ETF).
 * Improved performance in terms of network messaging (outperforms original Erlang/OTP up to x5 times. See [Benchmarks](#benchmarks))
 
-#### [1.0.0](https://github.com/ergo-services/ergo/releases/tag/1.0.0) - 2020-03-03 ####
-## There is a bunch of changes we deliver with this release
+#### [v1.0.0](https://github.com/ergo-services/ergo/releases/tag/1.0.0) - 2020-03-03 [tag version 1.0.0] ####
 
 * We have changed the name - Ergo (or Ergo Framework). GitHub's repo has been
 renamed as well. We also created cloned repo `ergonode` to support users of
@@ -149,7 +155,7 @@ the new one.
 * Improved ETF TermIntoStruct decoder
 * Improved code structure and readability
 
-#### [0.2.0](https://github.com/ergo-services/ergo/releases/tag/0.2.0) - 2019-02-23 ####
+#### [v0.2.0](https://github.com/ergo-services/ergo/releases/tag/0.2.0) - 2019-02-23 [tag version 0.2.0] ####
 * Now we make versioning releases
 * Improve node creation. Now you can specify the listening port range. See 'Usage' for details
 * Add embedded EPMD. Trying to start internal epmd service on starting ergonode.
