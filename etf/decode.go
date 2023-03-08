@@ -19,7 +19,11 @@ type stackElement struct {
 	i        int            // current
 	children int
 	termType byte
-	strict   bool // if encoding/decoding registered types must be strict
+
+	regKeyKind   reflect.Kind // we should align key and value types for maps (int*, float*)
+	regValueKind reflect.Kind // in case of decoding into value with registered type
+
+	strict bool // if encoding/decoding registered types must be strict
 }
 
 var (
@@ -207,30 +211,108 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 			}
 			packet = packet[1:]
 
-		case ettNewFloat:
-			if len(packet) < 8 {
-				return nil, nil, errMalformedNewFloat
-			}
-			bits := binary.BigEndian.Uint64(packet[:8])
-
-			term = math.Float64frombits(bits)
-			packet = packet[8:]
-
 		case ettSmallInteger:
 			if len(packet) == 0 {
 				return nil, nil, errMalformedSmallInteger
 			}
 
-			term = int(packet[0])
+			i := int(packet[0])
+			term = int(i)
 			packet = packet[1:]
+
+			if stack == nil {
+				break
+			}
+
+			t := stack.regKeyKind
+			if stack.i&0x01 == 1 {
+				t = stack.regValueKind
+			}
+			switch t {
+			case reflect.Invalid:
+				// not registered type
+				break
+			case reflect.Int64:
+				term = int64(i)
+			case reflect.Int:
+				term = i
+			case reflect.Int8:
+				if i > math.MaxInt8 || i < math.MinInt8 {
+					panic("overflows int8")
+				}
+				term = int8(i)
+			case reflect.Int16:
+				term = int16(i)
+			case reflect.Int32:
+				term = int32(i)
+			case reflect.Uint:
+				term = uint(i)
+			case reflect.Uint8:
+				term = uint8(i)
+			case reflect.Uint16:
+				term = uint16(i)
+			case reflect.Uint32:
+				term = uint32(i)
+			default:
+				panic("destination value is not an int* or overflows")
+			}
 
 		case ettInteger:
 			if len(packet) < 4 {
 				return nil, nil, errMalformedInteger
 			}
 
-			term = int64(int32(binary.BigEndian.Uint32(packet[:4])))
+			// negatives are encoded as ettSmallBig so the value shouldn't be
+			// greater int32
+			i := int32(binary.BigEndian.Uint32(packet[:4]))
+			term = int64(i)
 			packet = packet[4:]
+
+			if stack == nil {
+				break
+			}
+
+			t := stack.regKeyKind
+			if stack.i&0x01 == 1 {
+				t = stack.regValueKind
+			}
+			switch t {
+			case reflect.Invalid:
+				// not registered type
+				break
+			case reflect.Int64:
+				term = int64(i)
+			case reflect.Int:
+				term = int(i)
+			case reflect.Int8:
+				if i > math.MaxInt8 || i < math.MinInt8 {
+					panic("overflows int8")
+				}
+				term = int8(i)
+			case reflect.Int16:
+				if i > math.MaxInt16 || i < math.MinInt16 {
+					panic("overflows int16")
+				}
+				term = int16(i)
+			case reflect.Int32:
+				term = i
+			case reflect.Uint:
+				term = uint(i)
+			case reflect.Uint8:
+				if i > math.MaxUint8 {
+					panic("overflows uint")
+				}
+				term = uint8(i)
+			case reflect.Uint16:
+				if i > math.MaxUint16 {
+					panic("overflows uint")
+				}
+				term = uint16(i)
+			case reflect.Uint32:
+				term = uint32(i)
+			default:
+				panic("destination value is not an int* or overflows")
+			}
 
 		case ettSmallBig:
 			if len(packet) == 0 {
@@ -246,8 +328,7 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 				copy(le8, packet[2:n+2])
 				smallBig := binary.LittleEndian.Uint64(le8)
 				if negative {
-					smallBig = -smallBig
-					term = int64(smallBig)
+					term = int64(-smallBig)
 				} else {
 					if smallBig > math.MaxInt64 {
 						term = uint64(smallBig)
@@ -255,8 +336,116 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 						term = int64(smallBig)
 					}
 				}
-
 				packet = packet[n+2:]
+
+				if stack == nil {
+					break
+				}
+
+				t := stack.regKeyKind
+				if stack.i&0x01 == 1 {
+					t = stack.regValueKind
+				}
+				switch t {
+				case reflect.Invalid:
+					// not registered type
+					break
+				case reflect.Int64:
+					if negative {
+						if smallBig > -math.MinInt64 {
+							panic("overflows int64")
+						}
+						term = int64(-smallBig)
+					} else {
+						if smallBig > math.MaxInt64 {
+							panic("overflows int64")
+						}
+						term = int64(smallBig)
+					}
+				case reflect.Int:
+					if negative {
+						if smallBig > -math.MinInt {
+							panic("overflows int")
+						}
+						term = int(-smallBig)
+					} else {
+						if smallBig > math.MaxInt {
+							panic("overflows int")
+						}
+						term = int(smallBig)
+					}
+				case reflect.Int8:
+					if negative {
+						if smallBig > -math.MinInt8 {
+							panic("overflows int8")
+						}
+						term = int8(-smallBig)
+					} else {
+						if smallBig > math.MaxInt8 {
+							panic("overflows int8")
+						}
+						term = int8(smallBig)
+					}
+				case reflect.Int16:
+					if negative {
+						if smallBig > -math.MinInt16 {
+							panic("overflows int16")
+						}
+						term = int16(-smallBig)
+					} else {
+						if smallBig > math.MaxInt16 {
+							panic("overflows int16")
+						}
+						term = int16(smallBig)
+					}
+				case reflect.Int32:
+					if negative {
+						if smallBig > -math.MinInt32 {
+							panic("overflows int32")
+						}
+						term = int32(-smallBig)
+					} else {
+						if smallBig > math.MaxInt32 {
+							panic("overflows int32")
+						}
+						term = int32(smallBig)
+					}
+				case reflect.Uint:
+					if negative {
+						panic("signed integer value")
+					}
+					if smallBig > math.MaxUint {
+						panic("overflows uint")
+					}
+					term = uint(smallBig)
+				case reflect.Uint8:
+					if negative {
+						panic("signed integer value")
+					}
+					if smallBig > math.MaxUint8 {
+						panic("overflows uint8")
+					}
+					term = uint8(smallBig)
+				case reflect.Uint16:
+					if negative {
+						panic("signed integer value")
+					}
+					if smallBig > math.MaxUint16 {
+						panic("overflows uint16")
+					}
+					term = uint16(smallBig)
+				case reflect.Uint32:
+					if negative {
+						panic("signed integer value")
+					}
+					if smallBig > math.MaxUint32 {
+						panic("overflows uint32")
+					}
+					term = uint32(smallBig)
+				default:
+					panic("destination value is not an int* or overflows")
+				}
+
 				break
 			}
 			/////
@@ -498,6 +687,39 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 			term = b
 			packet = packet[n+5:]
 
+		case ettNewFloat:
+			if len(packet) < 8 {
+				return nil, nil, errMalformedNewFloat
+			}
+			bits := binary.BigEndian.Uint64(packet[:8])
+
+			f := math.Float64frombits(bits)
+			term = f
+			packet = packet[8:]
+
+			if stack == nil {
+				break
+			}
+
+			t := stack.regKeyKind
+			if stack.i&0x01 == 1 {
+				t = stack.regValueKind
+			}
+			switch t {
+			case reflect.Invalid:
+				// not registered type
+				break
+			case reflect.Float64:
+				break
+			case reflect.Float32:
+				if f > math.MaxFloat32 {
+					panic("overflows float32")
+				}
+				term = float32(f)
+			default:
+				panic("destination value is not an float* or overflows")
+			}
+
 		case ettFloat:
 			if len(packet) < 31 {
 				return nil, nil, errMalformedFloat
@@ -509,6 +731,29 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 			}
 			term = f
 			packet = packet[31:]
+
+			if stack == nil {
+				break
+			}
+
+			t := stack.regKeyKind
+			if stack.i&0x01 == 1 {
+				t = stack.regValueKind
+			}
+			switch t {
+			case reflect.Invalid:
+				// not registered type
+				break
+			case reflect.Float64:
+				break
+			case reflect.Float32:
+				if f > math.MaxFloat32 {
+					panic("overflows float32")
+				}
+				term = float32(f)
+			default:
+				panic("destination value is not an float* or overflows")
+			}
 
 		default:
 			term = nil
@@ -541,11 +786,18 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 						r, found := registered.typesDec[typeName]
 						registered.RUnlock()
 						if found == true {
-							reg := reflect.Indirect(reflect.New(r.rtype))
-							if r.rtype.Kind() == reflect.Slice {
-								reg = reflect.MakeSlice(r.rtype, stack.children-2, stack.children-1)
+							switch r.rtype.Kind() {
+							case reflect.Slice:
+								reg := reflect.MakeSlice(r.rtype, stack.children-2, stack.children-1)
+								stack.reg = &reg
+							case reflect.Array:
+								reg := reflect.Indirect(reflect.New(r.rtype))
+								stack.reg = &reg
+							default:
+								if r.strict {
+									panic("destination value of registered type is not a slice/array")
+								}
 							}
-							stack.reg = &reg
 							stack.strict = r.strict
 							if r.strict == false {
 								stack.term.(List)[stack.i] = term
@@ -620,8 +872,20 @@ func Decode(packet []byte, cache []Atom, options DecodeOptions) (retTerm Term, r
 						r, found := registered.typesDec[typeName]
 						registered.RUnlock()
 						if found == true {
-							reg := reflect.MakeMapWithSize(r.rtype, stack.children/2)
-							stack.reg = &reg
+							if r.rtype.Kind() == reflect.Map {
+								reg := reflect.MakeMapWithSize(r.rtype, stack.children/2)
+								if r.rtype.Key().Kind() != reflect.Interface {
+									stack.regKeyKind = r.rtype.Key().Kind()
+								}
+								if r.rtype.Elem().Kind() != reflect.Interface {
+									stack.regValueKind = r.rtype.Elem().Kind()
+								}
+								stack.reg = &reg
+							} else {
+								if r.strict {
+									panic("destination value of registered type is not a map")
+								}
+							}
 							stack.strict = r.strict
 							if r.strict == false {
 								if stack.i&0x01 == 0x01 { // a value

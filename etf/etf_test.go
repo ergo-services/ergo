@@ -585,6 +585,178 @@ func TestTermIntoStructUnmarshal(t *testing.T) {
 	}
 }
 
+func TestRegisterSlice(t *testing.T) {
+	type sliceString []string
+	type sliceInt []int
+	type sliceInt8 []int8
+	type sliceInt16 []int16
+	type sliceInt32 []int32
+	type sliceInt64 []int64
+	type sliceUint []uint
+	type sliceUint8 []uint8
+	type sliceUint16 []uint16
+	type sliceUint32 []uint32
+	type sliceUint64 []uint64
+	type sliceFloat32 []float32
+	type sliceFloat64 []float64
+
+	type allInOneSlices struct {
+		A sliceString
+		B sliceInt
+		C sliceInt8
+		D sliceInt16
+		E sliceInt32
+		F sliceInt64
+		G sliceUint
+		H sliceUint8
+		I sliceUint16
+		K sliceUint32
+		L sliceUint64
+		M sliceFloat32
+		O sliceFloat64
+	}
+	types := []interface{}{
+		sliceString{},
+		sliceInt{},
+		sliceInt8{},
+		sliceInt16{},
+		sliceInt32{},
+		sliceInt64{},
+		sliceUint{},
+		sliceUint8{},
+		sliceUint16{},
+		sliceUint32{},
+		sliceUint64{},
+		sliceFloat32{},
+		sliceFloat64{},
+		allInOneSlices{},
+	}
+	if err := registerTypes(types); err != nil {
+		t.Fatal(err)
+	}
+
+	src := allInOneSlices{
+		A: sliceString{"Hello", "World"},
+		B: sliceInt{-1, 2, -3, 4, -5},
+		C: sliceInt8{-1, 2, -3, 4, -5},
+		D: sliceInt16{-1, 2, -3, 4, -5},
+		E: sliceInt32{-1, 2, -3, 4, -5},
+		F: sliceInt64{-1, 2, -3, 4, -5},
+		G: sliceUint{1, 2, 3, 4, 5},
+		H: sliceUint8{1, 2, 3, 4, 5},
+		I: sliceUint16{1, 2, 3, 4, 5},
+		K: sliceUint32{1, 2, 3, 4, 5},
+		L: sliceUint64{1, 2, 3, 4, 5},
+		M: sliceFloat32{1.1, -2.2, 3.3, -4.4, 5.5},
+		O: sliceFloat64{1.1, -2.2, 3.3, -4.4, 5.5},
+	}
+
+	buf := lib.TakeBuffer()
+	defer lib.ReleaseBuffer(buf)
+
+	encodeOptions := EncodeOptions{
+		FlagBigPidRef:   true,
+		FlagBigCreation: true,
+	}
+	if err := Encode(src, buf, encodeOptions); err != nil {
+		t.Fatal(err)
+	}
+	decodeOptions := DecodeOptions{
+		FlagBigPidRef: true,
+	}
+	dst, _, err := Decode(buf.B, []Atom{}, decodeOptions)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, ok := dst.(allInOneSlices); !ok {
+		t.Fatalf("wrong term result: %#v\n", dst)
+	}
+
+	if !reflect.DeepEqual(src, dst) {
+		t.Errorf("got:\n%#v\n\nwant:\n%#v\n", dst, src)
+	}
+}
+
+func TestRegisterMap(t *testing.T) {
+	type mapIntString map[int]string
+	type mapStringInt map[string]int
+	type mapInt8Int map[int8]int
+	type mapFloat32Int32 map[float32]int32
+	type mapFloat64Int32 map[float64]int32
+	type mapInt32Float32 map[int32]float32
+	type mapInt32Float64 map[int32]float64
+
+	type allInOne struct {
+		A mapIntString
+		B mapStringInt
+		C mapInt8Int
+		D mapFloat32Int32
+		E mapFloat64Int32
+		F mapInt32Float32
+		G mapInt32Float64
+	}
+
+	types := []interface{}{
+		mapIntString{},
+		mapStringInt{},
+		mapInt8Int{},
+		mapFloat32Int32{},
+		mapFloat64Int32{},
+		mapInt32Float32{},
+		mapInt32Float64{},
+		allInOne{},
+	}
+	if err := registerTypes(types); err != nil {
+		t.Fatal(err)
+	}
+
+	src := allInOne{
+		A: make(mapIntString),
+		B: make(mapStringInt),
+		C: make(mapInt8Int),
+		D: make(mapFloat32Int32),
+		E: make(mapFloat64Int32),
+		F: make(mapInt32Float32),
+		G: make(mapInt32Float64),
+	}
+
+	src.A[1] = "Hello"
+	src.B["Hello"] = 1
+	src.C[1] = 1
+	src.D[3.14] = 1
+	src.E[3.15] = 1
+	src.F[1] = 3.15
+	src.G[1] = 3.15
+
+	buf := lib.TakeBuffer()
+	defer lib.ReleaseBuffer(buf)
+
+	encodeOptions := EncodeOptions{
+		FlagBigPidRef:   true,
+		FlagBigCreation: true,
+	}
+	if err := Encode(src, buf, encodeOptions); err != nil {
+		t.Fatal(err)
+	}
+	decodeOptions := DecodeOptions{
+		FlagBigPidRef: true,
+	}
+	dst, _, err := Decode(buf.B, []Atom{}, decodeOptions)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, ok := dst.(allInOne); !ok {
+		t.Fatalf("wrong term result: %#v\n", dst)
+	}
+
+	if !reflect.DeepEqual(src, dst) {
+		t.Errorf("got:\n%#v\n\nwant:\n%#v\n", dst, src)
+	}
+
+}
+
 func TestRegisterType(t *testing.T) {
 	type ccc []string
 	type ddd [3]bool
@@ -685,16 +857,13 @@ func TestRegisterType(t *testing.T) {
 		t.Fatal("shouldn't be registered")
 	}
 
-	if _, err := RegisterType(ddd{}, RegisterTypeOptions{Strict: true}); err != nil {
-		t.Fatal(err)
+	types := []interface{}{
+		ddd{},
+		aaa{},
+		ccc{},
+		bbb{},
 	}
-	if _, err := RegisterType(aaa{}, RegisterTypeOptions{Strict: true}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := RegisterType(ccc{}, RegisterTypeOptions{Strict: true}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := RegisterType(bbb{}, RegisterTypeOptions{Strict: true}); err != nil {
+	if err := registerTypes(types); err != nil {
 		t.Fatal(err)
 	}
 
@@ -720,4 +889,15 @@ func TestRegisterType(t *testing.T) {
 	if !reflect.DeepEqual(src, dst) {
 		t.Errorf("got:\n%#v\n\nwant:\n%#v\n", dst, src)
 	}
+}
+
+func registerTypes(types []interface{}) error {
+	rtOpts := RegisterTypeOptions{Strict: true}
+
+	for _, t := range types {
+		if _, err := RegisterType(t, rtOpts); err != nil && err != lib.ErrTaken {
+			return err
+		}
+	}
+	return nil
 }
