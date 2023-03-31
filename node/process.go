@@ -594,31 +594,35 @@ func (p *process) Spawn(name string, opts gen.ProcessOptions, behavior gen.Proce
 
 // PutSyncRequest
 func (p *process) PutSyncRequest(ref etf.Ref) error {
+	var preply map[etf.Ref]chan syncReplyMessage
 	p.RLock()
-	if p.reply == nil {
-		p.RUnlock()
+	preply = p.reply
+	p.RUnlock()
+
+	if preply == nil {
 		return lib.ErrProcessTerminated
 	}
-	p.RUnlock()
 
 	reply := syncReplyChannels.Get().(chan syncReplyMessage)
 	p.replyMutex.Lock()
-	p.reply[ref] = reply
+	preply[ref] = reply
 	p.replyMutex.Unlock()
 	return nil
 }
 
 // PutSyncReply
 func (p *process) PutSyncReply(ref etf.Ref, reply etf.Term, err error) error {
+	var preply map[etf.Ref]chan syncReplyMessage
 	p.RLock()
-	if p.reply == nil {
-		p.RUnlock()
-		return lib.ErrProcessTerminated
-	}
+	preply = p.reply
 	p.RUnlock()
 
+	if preply == nil {
+		return lib.ErrProcessTerminated
+	}
+
 	p.replyMutex.RLock()
-	rep, ok := p.reply[ref]
+	rep, ok := preply[ref]
 	defer p.replyMutex.RUnlock()
 
 	if !ok {
@@ -633,29 +637,33 @@ func (p *process) PutSyncReply(ref etf.Ref, reply etf.Term, err error) error {
 
 // CancelSyncRequest
 func (p *process) CancelSyncRequest(ref etf.Ref) {
+	var preply map[etf.Ref]chan syncReplyMessage
 	p.RLock()
-	if p.reply == nil {
-		p.RUnlock()
-		return
-	}
+	preply = p.reply
 	p.RUnlock()
 
+	if preply == nil {
+		return
+	}
+
 	p.replyMutex.Lock()
-	delete(p.reply, ref)
+	delete(preply, ref)
 	p.replyMutex.Unlock()
 }
 
 // WaitSyncReply
 func (p *process) WaitSyncReply(ref etf.Ref, timeout int) (etf.Term, error) {
+	var preply map[etf.Ref]chan syncReplyMessage
 	p.RLock()
-	if p.reply == nil {
-		p.RUnlock()
-		return nil, lib.ErrProcessTerminated
-	}
+	preply = p.reply
 	p.RUnlock()
 
+	if preply == nil {
+		return nil, lib.ErrProcessTerminated
+	}
+
 	p.replyMutex.RLock()
-	reply, wait_for_reply := p.reply[ref]
+	reply, wait_for_reply := preply[ref]
 	p.replyMutex.RUnlock()
 
 	if wait_for_reply == false {
@@ -664,7 +672,7 @@ func (p *process) WaitSyncReply(ref etf.Ref, timeout int) (etf.Term, error) {
 
 	defer func(ref etf.Ref) {
 		p.replyMutex.Lock()
-		delete(p.reply, ref)
+		delete(preply, ref)
 		p.replyMutex.Unlock()
 	}(ref)
 
