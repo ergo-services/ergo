@@ -61,10 +61,17 @@ Golang introduced [v2 rule](https://go.dev/blog/v2-go-modules) a while ago to so
 
 Here are the changes of latest release. For more details see the [ChangeLog](ChangeLog.md)
 
+#### [v2.2.3](https://github.com/ergo-services/ergo/releases/tag/v1.999.223) 2023-04-02 [tag version v1.999.223] ####
+
+This release includes fixes:
+- Improved `gen.TCP`. Issue #152
+- Fixed incorrect decoding registered map type using etf.RegisterType
+- Fixed race condition on process termination. Issue #153
+
 #### [v2.2.2](https://github.com/ergo-services/ergo/releases/tag/v1.999.222) 2023-03-01 [tag version v1.999.222] ####
 
 * Introduced `gen.Pool`. This behavior implements a basic design pattern with a pool of workers. All messages/requests received by the pool process are forwarded to the workers using the "Round Robin" algorithm. The worker process is automatically restarting on termination. See example here [examples/genpool](https://github.com/ergo-services/examples/tree/master/genpool)
-* Removed Erlang RPC support. A while ago Erlang has changed the way of handling this kind of request making this feature more similar to the regular `gen.Server`. So, there is no reason to keep supporting it. Use a regular way of messaging instead - `gen.Server`. 
+* Removed Erlang RPC support. A while ago Erlang has changed the way of handling this kind of request making this feature more similar to the regular `gen.Server`. So, there is no reason to keep supporting it. Use a regular way of messaging instead - `gen.Server`.
 * Fixed issue #130 (`StartType` option in `gen.ApplicationSpec` is ignored for the autostarting applications)
 * Fixed issue #143 (incorrect cleaning up the aliases belonging to the terminated process)
 

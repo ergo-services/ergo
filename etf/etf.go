@@ -665,7 +665,7 @@ type RegisterTypeOptions struct {
 
 // RegisterType registers new type with the given options. It returns a Name
 // of the registered type, which can be used in the UnregisterType function
-// for unregistering this type.
+// for unregistering this type. Supported types: struct, slice, array, map.
 // Returns an error if this type can not be registered.
 func RegisterType(t interface{}, options RegisterTypeOptions) (Atom, error) {
 	switch t.(type) {

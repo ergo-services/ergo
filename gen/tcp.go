@@ -204,6 +204,8 @@ func (tcpp *TCPProcess) serve(ctx context.Context, c net.Conn) error {
 	var handlerProcessID int
 	var packet interface{}
 	var disconnect bool
+	var deadline bool
+	var timeout bool
 	var disconnectError error
 	var expectingBytes int = 1
 
@@ -240,7 +242,7 @@ nextPacket:
 		}
 
 		if b.Len() < expectingBytes {
-			deadline := false
+			deadline = false
 			if err := c.SetReadDeadline(time.Now().Add(deadlineTimeout)); err == nil {
 				deadline = true
 			}
@@ -251,6 +253,7 @@ nextPacket:
 					packet = messageTCPHandlerTimeout{
 						connection: tcpConnection,
 					}
+					timeout = true
 					break
 				}
 				packet = messageTCPHandlerDisconnect{
@@ -294,6 +297,10 @@ retry:
 			if disconnect {
 				return disconnectError
 			}
+			if timeout {
+				timeout = false
+				goto nextPacket
+			}
 			next, _ := nbytesInt.(messageTCPHandlerPacketResult)
 			if next.left > 0 {
 				if b.Len() > next.left {
@@ -311,7 +318,6 @@ retry:
 				expectingBytes++
 			}
 
-			//fmt.Println("TCP NEXT", next, expectingBytes)
 			goto nextPacket
 
 		case TCPHandlerStatusClose:
