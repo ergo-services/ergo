@@ -8,6 +8,8 @@ import (
 )
 
 type PoolBehavior interface {
+	ServerBehavior
+
 	InitPool(process *PoolProcess, args ...etf.Term) (PoolOptions, error)
 }
 

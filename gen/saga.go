@@ -12,6 +12,8 @@ import (
 
 // SagaBehavior interface
 type SagaBehavior interface {
+	ServerBehavior
+
 	//
 	// Mandatory callbacks
 	//

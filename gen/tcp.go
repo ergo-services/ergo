@@ -16,6 +16,8 @@ import (
 )
 
 type TCPBehavior interface {
+	ServerBehavior
+
 	InitTCP(process *TCPProcess, args ...etf.Term) (TCPOptions, error)
 
 	HandleTCPCall(process *TCPProcess, from ServerFrom, message etf.Term) (etf.Term, ServerStatus)

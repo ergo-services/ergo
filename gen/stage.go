@@ -50,6 +50,7 @@ var (
 
 // StageBehavior interface for the Stage inmplementation
 type StageBehavior interface {
+	ServerBehavior
 
 	// InitStage
 	InitStage(process *StageProcess, args ...etf.Term) (StageOptions, error)
@@ -421,9 +422,7 @@ func (p *StageProcess) Cancel(subscription StageSubscription, reason string) err
 
 }
 
-//
 // gen.Server callbacks
-//
 func (gst *Stage) Init(process *ServerProcess, args ...etf.Term) error {
 	stageProcess := &StageProcess{
 		ServerProcess: *process,

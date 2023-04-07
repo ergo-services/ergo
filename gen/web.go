@@ -13,6 +13,7 @@ import (
 )
 
 type WebBehavior interface {
+	ServerBehavior
 	// mandatory method
 	InitWeb(process *WebProcess, args ...etf.Term) (WebOptions, error)
 
@@ -35,7 +36,6 @@ var (
 
 type Web struct {
 	Server
-	WebBehavior
 }
 
 type WebOptions struct {

@@ -26,6 +26,7 @@ var (
 )
 
 type RaftBehavior interface {
+	ServerBehavior
 	//
 	// Mandatory callbacks
 	//

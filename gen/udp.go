@@ -14,6 +14,8 @@ import (
 )
 
 type UDPBehavior interface {
+	ServerBehavior
+
 	InitUDP(process *UDPProcess, args ...etf.Term) (UDPOptions, error)
 
 	HandleUDPCall(process *UDPProcess, from ServerFrom, message etf.Term) (etf.Term, ServerStatus)
