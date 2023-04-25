@@ -225,7 +225,7 @@ func startChild(supervisor Process, name string, child ProcessBehavior, opts Pro
 	process, err := supervisor.Spawn(name, opts, child, args...)
 
 	if err != nil {
-		panic(err)
+		panic(err.Error())
 	}
 
 	supervisor.Link(process.Self())
@@ -321,13 +321,16 @@ func handleMessageExit(p Process, exit ProcessGracefulExitRequest, spec *Supervi
 			}
 
 			spec.Children[i].process = nil
-			if child.Self() == terminated {
-				if haveToDisableChild(spec.Strategy.Restart, reason) {
-					spec.Children[i].state = supervisorChildStateDisabled
-				} else {
-					spec.Children[i].state = supervisorChildStateStart
-				}
+			if haveToDisableChild(spec.Strategy.Restart, reason) {
+				spec.Children[i].state = supervisorChildStateDisabled
+				break
+			}
 
+			if spec.Children[i].state == supervisorChildStateDisabled {
+				continue
+			}
+			spec.Children[i].state = supervisorChildStateStart
+			if child.Self() == terminated {
 				if len(spec.Children) == i+1 && len(wait) == 0 {
 					// it was the last one. nothing to waiting for
 					startChildren(p, spec)
@@ -335,11 +338,6 @@ func handleMessageExit(p Process, exit ProcessGracefulExitRequest, spec *Supervi
 				continue
 			}
 
-			if haveToDisableChild(spec.Strategy.Restart, "restart") {
-				spec.Children[i].state = supervisorChildStateDisabled
-			} else {
-				spec.Children[i].state = supervisorChildStateStart
-			}
 			child.Exit("restart")
 
 			wait = append(wait, child.Self())
@@ -357,6 +355,7 @@ func handleMessageExit(p Process, exit ProcessGracefulExitRequest, spec *Supervi
 				spec.Children[i].process = nil
 				if haveToDisableChild(spec.Strategy.Restart, reason) {
 					spec.Children[i].state = supervisorChildStateDisabled
+					break
 				} else {
 					spec.Children[i].state = supervisorChildStateStart
 				}
@@ -420,6 +419,18 @@ func handleMessageExit(p Process, exit ProcessGracefulExitRequest, spec *Supervi
 				break
 			}
 		}
+	}
+	// check if all children are disabled. stop this process with reason "normal"
+	shouldStop := true
+	for i := range spec.Children {
+		if spec.Children[i].state == supervisorChildStateDisabled {
+			continue
+		}
+		shouldStop = false
+		break
+	}
+	if shouldStop {
+		p.Exit("normal")
 	}
 	return wait
 }

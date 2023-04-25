@@ -196,7 +196,6 @@ func (tr *testRaft) HandleSerial(process *gen.RaftProcess, ref etf.Ref, serial u
 	return gen.RaftStatusOK
 }
 func (tr *testRaft) HandleCancel(process *gen.RaftProcess, ref etf.Ref, reason string) gen.RaftStatus {
-	fmt.Println("CCC cancel", ref, reason)
 	return gen.RaftStatusOK
 }
 

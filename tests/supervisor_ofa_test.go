@@ -157,8 +157,8 @@ func TestSupervisorOneForAll(t *testing.T) {
 	testCases = []ChildrenTestCase{
 		{
 			reason:   "normal",
-			statuses: []string{"empty", "new", "new"},
-			events:   5, // waiting for 3 terminates and 2 starts
+			statuses: []string{"empty", "old", "old"},
+			events:   1, // waiting for 1 terminate
 		},
 		{
 			reason:   "abnormal",
@@ -167,12 +167,12 @@ func TestSupervisorOneForAll(t *testing.T) {
 		},
 		{
 			reason:   "shutdown",
-			statuses: []string{"empty", "new", "empty"},
-			events:   3, // waiting for 2 terminates and 1 start
+			statuses: []string{"empty", "old", "empty"},
+			events:   1, // waiting for 1 terminate
 		},
 	}
 	for i := range children {
-		fmt.Printf("... stopping child %d with '%s' reason and waiting for restarting all of them ... ", i+1, testCases[i].reason)
+		fmt.Printf("... stopping child %d with '%s' reason and waiting for restarting all of them if reason != normal ... ", i+1, testCases[i].reason)
 		processSV.Send(children[i], testCases[i].reason) // stopping child
 
 		if children1, err := waitNeventsSupervisorChildren(sv.ch, testCases[i].events, children); err != nil {
@@ -213,18 +213,18 @@ func TestSupervisorOneForAll(t *testing.T) {
 	testCases = []ChildrenTestCase{
 		{
 			reason:   "normal",
-			statuses: []string{"empty", "empty", "empty"},
-			events:   3, // waiting for 3 terminates
+			statuses: []string{"empty", "old", "old"},
+			events:   1, // waiting for 1 terminate
 		},
 		{
 			reason:   "abnormal",
-			statuses: []string{"empty", "empty", "empty"},
-			events:   3, // waiting for 3 terminates
+			statuses: []string{"old", "empty", "old"},
+			events:   1, // waiting for 1 terminate
 		},
 		{
 			reason:   "shutdown",
-			statuses: []string{"empty", "empty", "empty"},
-			events:   3, // waiting for 3 terminate
+			statuses: []string{"old", "old", "empty"},
+			events:   1, // waiting for 1 terminate
 		},
 	}
 
@@ -241,7 +241,7 @@ func TestSupervisorOneForAll(t *testing.T) {
 			fmt.Println("OK")
 		}
 
-		fmt.Printf("... stopping child %d with '%s' reason and waiting for restarting all of them ... ", i+1, testCases[i].reason)
+		fmt.Printf("... stopping child %d with '%s' reason and no one should be restarted ... ", i+1, testCases[i].reason)
 		processSV.Send(children[i], testCases[i].reason) // stopping child
 
 		if children1, err := waitNeventsSupervisorChildren(sv.ch, testCases[i].events, children); err != nil {
@@ -258,7 +258,7 @@ func TestSupervisorOneForAll(t *testing.T) {
 
 		fmt.Printf("Stopping supervisor 'testSupervisorTemporary' (%s)... ", gen.SupervisorStrategyRestartTemporary)
 		processSV.Exit("x")
-		if children1, err := waitNeventsSupervisorChildren(sv.ch, 0, children); err != nil {
+		if children1, err := waitNeventsSupervisorChildren(sv.ch, len(children)-testCases[i].events, children); err != nil {
 			t.Fatal(err)
 		} else {
 			statuses := []string{"empty", "empty", "empty"}

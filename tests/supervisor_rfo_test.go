@@ -165,8 +165,8 @@ func TestSupervisorRestForOne(t *testing.T) {
 		},
 		{
 			reason:   "normal",
-			statuses: []string{"old", "empty", "new"},
-			events:   3, // waiting for 2 terminates and 1 starts
+			statuses: []string{"old", "empty", "old"},
+			events:   1, // waiting for 1 terminate
 		},
 		{
 			reason:   "shutdown",
@@ -175,7 +175,7 @@ func TestSupervisorRestForOne(t *testing.T) {
 		},
 	}
 	for i := range children {
-		fmt.Printf("... stopping child %d with '%s' reason and waiting for restarting rest of them ... ", i+1, testCases[i].reason)
+		fmt.Printf("... stopping child %d with '%s' reason and waiting for restarting if reason != normal ... ", i+1, testCases[i].reason)
 		processSV.Send(children[i], testCases[i].reason) // stopping child
 
 		if children1, err := waitNeventsSupervisorChildren(sv.ch, testCases[i].events, children); err != nil {
@@ -216,13 +216,13 @@ func TestSupervisorRestForOne(t *testing.T) {
 	testCases = []ChildrenTestCase{
 		{
 			reason:   "normal",
-			statuses: []string{"empty", "empty", "empty"},
-			events:   3, // waiting for 3 terminates
+			statuses: []string{"empty", "old", "old"},
+			events:   1, // waiting for 1 terminate
 		},
 		{
 			reason:   "abnormal",
-			statuses: []string{"old", "empty", "empty"},
-			events:   2, // waiting for 2 terminates
+			statuses: []string{"old", "empty", "old"},
+			events:   1, // waiting for 1 terminate
 		},
 		{
 			reason:   "shutdown",
