@@ -112,6 +112,13 @@ Golang introduced [v2 rule](https://go.dev/blog/v2-go-modules) a while ago to so
 
 Here are the changes of latest release. For more details see the [ChangeLog](ChangeLog.md)
 
+#### [v2.2.4](https://github.com/ergo-services/ergo/releases/tag/v1.999.224) 2023-05-01 [tag version v1.999.224] ####
+
+This release includes fixes:
+- Fixed incorrect handling of gen.SupervisorStrategyRestartTransient restart strategy in gen.Supervisor
+- Fixed missing ServerBehavior in [Pool,Raft,Saga,Stage,TCP,UDP,Web] behavior interfaces
+- Introduced new tool for boilerplate code generation `ergo` - https://github.com/ergo-services/tools. You may read more information about this tool with great example in our article https://blog.ergo.services/quick-start-1094d56d4e2
+
 #### [v2.2.3](https://github.com/ergo-services/ergo/releases/tag/v1.999.223) 2023-04-02 [tag version v1.999.223] ####
 
 This release includes fixes:
