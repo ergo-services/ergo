@@ -21,6 +21,57 @@ The goal of this project is to leverage Erlang/OTP experience with Golang perfor
 
 Distributed Cloud is coming. With Ergo Framework you can join your services into a single cluster with transparent networking using our **Cloud Overlay Network** where they can connect to each other smoothly, no matter where they run - AWS, Azure or GCP, or anywhere else. All these connections are secured with end-to-end encryption. Read more in this article [https://blog.ergo.services/cloud-overlay-network-3a133d47efe5](https://blog.ergo.services/cloud-overlay-network-3a133d47efe5).
 
+### Quick start ###
+
+First, you need to install the boilerplate code generation tool `ergo` - https://github.com/ergo-services/tools using command below
+
+`go install ergo.services/tools/ergo@latest`
+
+And then, you can create your project with just one command. Here is example:
+
+   Supervision tree
+   ```
+   mynode
+   |- myapp
+   |   |
+   |    `- mysup
+   |        |
+   |         `- myactor
+   |- myweb
+   `- myactor2
+   ```
+
+   To generate project for this design use the following command:
+
+   `ergo -init MyNode -with-app MyApp -with-sup MyApp:MySup -with-actor MySup:MyActor -with-web "MyWeb{port:8000,handlers:3}" -with-actor MyActor2`
+
+   as a result you will get generated project:
+
+   ```
+      mynode/
+      |-- apps/
+      |   `-- myapp/
+      |       |-- myactor.go
+      |       |-- myapp.go
+      |       `-- mysup.go
+      |-- cmd/
+      |   |-- myactor2.go
+      |   |-- mynode.go
+      |   |-- myweb.go
+      |   `-- myweb_handler.go
+      |-- README.md
+      |-- go.mod
+      `-- go.sum
+   ```
+
+   to try it:
+   ```
+   $ cd mynode
+   $ go run ./cmd/
+   ```
+
+   You may also read our article about this tool with a great example https://blog.ergo.services/quick-start-1094d56d4e2
+
 ### Features ###
 
 ![image](https://user-images.githubusercontent.com/118860/113710255-c57d5500-96e3-11eb-9970-20f49008a990.png)
