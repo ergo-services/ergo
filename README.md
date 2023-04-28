@@ -115,8 +115,8 @@ Here are the changes of latest release. For more details see the [ChangeLog](Cha
 #### [v2.2.4](https://github.com/ergo-services/ergo/releases/tag/v1.999.224) 2023-05-01 [tag version v1.999.224] ####
 
 This release includes fixes:
-- Fixed incorrect handling of gen.SupervisorStrategyRestartTransient restart strategy in gen.Supervisor
-- Fixed missing ServerBehavior in [Pool,Raft,Saga,Stage,TCP,UDP,Web] behavior interfaces
+- Fixed incorrect handling of `gen.SupervisorStrategyRestartTransient` restart strategy in `gen.Supervisor`
+- Fixed missing `ServerBehavior` in [`gen.Pool`,`gen.Raft`,`gen.Saga`,`gen.Stage`,`gen.TCP`,`gen.UDP`,`gen.Web`] behavior interfaces
 - Introduced new tool for boilerplate code generation `ergo` - https://github.com/ergo-services/tools. You may read more information about this tool with great example in our article https://blog.ergo.services/quick-start-1094d56d4e2
 
 ### Benchmarks ###
