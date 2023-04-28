@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 This release includes fixes:
 - Fixed incorrect handling of `gen.SupervisorStrategyRestartTransient` restart strategy in `gen.Supervisor`
 - Fixed missing `ServerBehavior` in [`gen.Pool`, `gen.Raft`, `gen.Saga`, `gen.Stage`, `gen.TCP`, `gen.UDP`, `gen.Web`] behavior interfaces
-- Introduced new tool for boilerplate code generation `ergo` - https://github.com/ergo-services/tools. You may read more information about this tool with great example in our article https://blog.ergo.services/quick-start-1094d56d4e2
+- Introduced the new tool for boilerplate code generation - `ergo` https://github.com/ergo-services/tools. You may read more information about this tool in our article with a great example https://blog.ergo.services/quick-start-1094d56d4e2
 
 #### [v2.2.3](https://github.com/ergo-services/ergo/releases/tag/v1.999.223) 2023-04-02 [tag version v1.999.223] ####
 
