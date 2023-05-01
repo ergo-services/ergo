@@ -21,6 +21,57 @@ The goal of this project is to leverage Erlang/OTP experience with Golang perfor
 
 Distributed Cloud is coming. With Ergo Framework you can join your services into a single cluster with transparent networking using our **Cloud Overlay Network** where they can connect to each other smoothly, no matter where they run - AWS, Azure or GCP, or anywhere else. All these connections are secured with end-to-end encryption. Read more in this article [https://blog.ergo.services/cloud-overlay-network-3a133d47efe5](https://blog.ergo.services/cloud-overlay-network-3a133d47efe5).
 
+### Quick start ###
+
+First, you need to install the boilerplate code generation tool `ergo` - https://github.com/ergo-services/tools using command below
+
+`go install ergo.services/tools/ergo@latest`
+
+And then, you can create your project with just one command. Here is example:
+
+   Supervision tree
+   ```
+   mynode
+   |- myapp
+   |   |
+   |    `- mysup
+   |        |
+   |         `- myactor
+   |- myweb
+   `- myactor2
+   ```
+
+   To generate project for this design use the following command:
+
+   `ergo -init MyNode -with-app MyApp -with-sup MyApp:MySup -with-actor MySup:MyActor -with-web "MyWeb{port:8000,handlers:3}" -with-actor MyActor2`
+
+   as a result you will get generated project:
+
+   ```
+      mynode/
+      |-- apps/
+      |   `-- myapp/
+      |       |-- myactor.go
+      |       |-- myapp.go
+      |       `-- mysup.go
+      |-- cmd/
+      |   |-- myactor2.go
+      |   |-- mynode.go
+      |   |-- myweb.go
+      |   `-- myweb_handler.go
+      |-- README.md
+      |-- go.mod
+      `-- go.sum
+   ```
+
+   to try it:
+   ```
+   $ cd mynode
+   $ go run ./cmd/
+   ```
+
+   You may also read our article about this tool with a great example https://blog.ergo.services/quick-start-1094d56d4e2
+
 ### Features ###
 
 ![image](https://user-images.githubusercontent.com/118860/113710255-c57d5500-96e3-11eb-9970-20f49008a990.png)
@@ -61,33 +112,12 @@ Golang introduced [v2 rule](https://go.dev/blog/v2-go-modules) a while ago to so
 
 Here are the changes of latest release. For more details see the [ChangeLog](ChangeLog.md)
 
-#### [v2.2.3](https://github.com/ergo-services/ergo/releases/tag/v1.999.223) 2023-04-02 [tag version v1.999.223] ####
+#### [v2.2.4](https://github.com/ergo-services/ergo/releases/tag/v1.999.224) 2023-05-01 [tag version v1.999.224] ####
 
 This release includes fixes:
-- Improved `gen.TCP`. Issue #152
-- Fixed incorrect decoding registered map type using etf.RegisterType
-- Fixed race condition on process termination. Issue #153
-
-#### [v2.2.2](https://github.com/ergo-services/ergo/releases/tag/v1.999.222) 2023-03-01 [tag version v1.999.222] ####
-
-* Introduced `gen.Pool`. This behavior implements a basic design pattern with a pool of workers. All messages/requests received by the pool process are forwarded to the workers using the "Round Robin" algorithm. The worker process is automatically restarting on termination. See example here [examples/genpool](https://github.com/ergo-services/examples/tree/master/genpool)
-* Removed Erlang RPC support. A while ago Erlang has changed the way of handling this kind of request making this feature more similar to the regular `gen.Server`. So, there is no reason to keep supporting it. Use a regular way of messaging instead - `gen.Server`.
-* Fixed issue #130 (`StartType` option in `gen.ApplicationSpec` is ignored for the autostarting applications)
-* Fixed issue #143 (incorrect cleaning up the aliases belonging to the terminated process)
-
-#### [v2.2.1](https://github.com/ergo-services/ergo/releases/tag/v1.999.221) 2023-02-01 [tag version v1.999.221] ####
-
-* Now you can join your services made with Ergo Framework into a single cluster with transparent networking using our **Cloud Overlay Network** where they can connect to each other smoothly, no matter where they run - AWS, Azure or GCP, or anywhere else. All these connections are secured with end-to-end encryption. Read more in this article [https://blog.ergo.services/cloud-overlay-network-3a133d47efe5](https://blog.ergo.services/cloud-overlay-network-3a133d47efe5). Here is an example of this feature in action [examples/cloud](https://github.com/ergo-services/examples/tree/master/cloud)
-* `examples` moved to https://github.com/ergo-services/examples
-* Added support Erlang OTP/25
-* Improved handling `nil` values for the registered types using `etf.RegisterType(...)`
-* Improved self-signed certificate generation
-* Introduced `ergo.debug` option that enables extended debug information for `lib.Log(...)`/`lib.Warning(...)`
-* Fixed `gen.TCP` and `gen.UDP` (missing callbacks)
-* Fixed ETF registering type with `etf.Pid`, `etf.Alias` or `etf.Ref` value types
-* Fixed Cloud client
-* Fixed #117 (incorrect hanshake process finalization)
-* Fixed #139 (panic of the gen.Stage partition dispatcher)
+- Fixed incorrect handling of `gen.SupervisorStrategyRestartTransient` restart strategy in `gen.Supervisor`
+- Fixed missing `ServerBehavior` in [`gen.Pool`, `gen.Raft`, `gen.Saga`, `gen.Stage`, `gen.TCP`, `gen.UDP`, `gen.Web`] behavior interfaces
+- Introduced the new tool for boilerplate code generation - `ergo` https://github.com/ergo-services/tools. You may read more information about this tool in our article with a great example https://blog.ergo.services/quick-start-1094d56d4e2
 
 ### Benchmarks ###
 
