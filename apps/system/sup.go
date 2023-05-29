@@ -12,7 +12,7 @@ type systemAppSup struct {
 func (sas *systemAppSup) Init(args ...etf.Term) (gen.SupervisorSpec, error) {
 	return gen.SupervisorSpec{
 		Children: []gen.SupervisorChildSpec{
-			gen.SupervisorChildSpec{
+			{
 				Name:  "system_metrics",
 				Child: &systemMetrics{},
 				Args:  args,

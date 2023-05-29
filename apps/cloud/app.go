@@ -28,7 +28,7 @@ func (ca *CloudApp) Load(args ...etf.Term) (gen.ApplicationSpec, error) {
 		Description: "Ergo Cloud Support Application",
 		Version:     "v.1.0",
 		Children: []gen.ApplicationChildSpec{
-			gen.ApplicationChildSpec{
+			{
 				Child: &cloudAppSup{},
 				Name:  "cloud_app_sup",
 				Args:  []etf.Term{ca.options},

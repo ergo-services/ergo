@@ -151,9 +151,7 @@ func (s *StageProducerTest) HandleStageDirect(process *gen.StageProcess, ref etf
 	}
 }
 
-//
 // a simple Stage Consumer
-//
 type StageConsumerTest struct {
 	gen.Stage
 	value chan interface{}

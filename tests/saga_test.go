@@ -12,9 +12,7 @@ import (
 	"github.com/ergo-services/ergo/node"
 )
 
-//
 // Worker
-//
 type testSagaWorker struct {
 	gen.SagaWorker
 }
@@ -31,9 +29,7 @@ func (w *testSagaWorker) HandleJobCancel(process *gen.SagaWorkerProcess, reason 
 	return
 }
 
-//
 // Saga
-//
 type testSaga struct {
 	gen.Saga
 	res    chan interface{}

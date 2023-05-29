@@ -1371,7 +1371,7 @@ func (rp *RaftProcess) handleRaftRequest(m messageRaft) error {
 					requestAppend.from,
 				},
 			}
-			for pid, _ := range requestAppend.peers {
+			for pid := range requestAppend.peers {
 				if pid == rp.Self() {
 					continue
 				}

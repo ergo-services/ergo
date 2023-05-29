@@ -25,9 +25,7 @@ import (
 // Saga1 creates a slice of int numbers, split it and sends to the Saga2 and Saga3.
 // Each saga runs on a separated node.
 
-//
 // Saga1
-//
 type testSaga1 struct {
 	gen.Saga
 	res    chan interface{}
@@ -215,9 +213,7 @@ func (gs *testSagaN) HandleJobResult(process *gen.SagaProcess, id gen.SagaTransa
 	return gen.SagaStatusOK
 }
 
-//
 // SagaWorkerN
-//
 type testSagaWorkerN struct {
 	gen.SagaWorker
 }
