@@ -33,7 +33,7 @@ func TestTermIntoStruct_Slice(t *testing.T) {
 		want [][]float32
 		term Term
 	}{
-		{[][]float32{[]float32{1.23, 2.34, 3.45}, []float32{4.56, 5.67, 6.78}, []float32{7.89, 8.91, 9.12}}, List{List{1.23, 2.34, 3.45}, List{4.56, 5.67, 6.78}, List{7.89, 8.91, 9.12}}},
+		{[][]float32{{1.23, 2.34, 3.45}, {4.56, 5.67, 6.78}, {7.89, 8.91, 9.12}}, List{List{1.23, 2.34, 3.45}, List{4.56, 5.67, 6.78}, List{7.89, 8.91, 9.12}}},
 	}
 	dest1 := [][]float32{}
 
@@ -106,7 +106,7 @@ func TestTermIntoStruct_Struct(t *testing.T) {
 
 	dest := testStruct{}
 	tests := []testItem{
-		testItem{
+		{
 			Want: testStruct{
 				AA: testAA{
 					A: []bool{true, false, false, true, false},
@@ -200,8 +200,8 @@ func TestTermIntoStruct_Map(t *testing.T) {
 	}
 
 	wantFlSt := map[float64]St{
-		3.45: St{67, 8.91},
-		7.65: St{43, 2.19},
+		3.45: {67, 8.91},
+		7.65: {43, 2.19},
 	}
 	termFlSt := Map{
 		3.45: Tuple{67, 8.91},
@@ -216,13 +216,13 @@ func TestTermIntoStruct_Map(t *testing.T) {
 	}
 
 	wantSliceSI := []map[bool][]int8{
-		map[bool][]int8{
-			true:  []int8{1, 2, 3, 4, 5},
-			false: []int8{11, 22, 33, 44, 55},
+		{
+			true:  {1, 2, 3, 4, 5},
+			false: {11, 22, 33, 44, 55},
 		},
-		map[bool][]int8{
-			true:  []int8{21, 22, 23, 24, 25},
-			false: []int8{-11, -22, -33, -44, -55},
+		{
+			true:  {21, 22, 23, 24, 25},
+			false: {-11, -22, -33, -44, -55},
 		},
 	}
 	termSliceSI := List{
@@ -330,9 +330,9 @@ func TestTermProplistIntoStruct(t *testing.T) {
 	}
 
 	termSliceProplistElements := []ProplistElement{
-		ProplistElement{Atom("a"), List{false, true, true}},
-		ProplistElement{"b", 3233},
-		ProplistElement{Atom("c"), "hello world"},
+		{Atom("a"), List{false, true, true}},
+		{"b", 3233},
+		{Atom("c"), "hello world"},
 	}
 
 	if err := TermProplistIntoStruct(termSliceProplistElements, &dest); err != nil {
@@ -376,7 +376,7 @@ func TestTermIntoStructCharlistString(t *testing.T) {
 		Key1: "Hello World!",
 		Key2: []*Charlist{&value2, &value3, &value4},
 		Key3: &nested,
-		Key4: [][]*Charlist{[]*Charlist{&value2, &value3, &value4}, []*Charlist{&value2, &value3, &value4}},
+		Key4: [][]*Charlist{{&value2, &value3, &value4}, {&value2, &value3, &value4}},
 	}
 	err := Encode(term, b, EncodeOptions{})
 	if err != nil {

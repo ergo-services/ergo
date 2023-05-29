@@ -35,11 +35,12 @@ func (tgs *testMonitor) HandleInfo(process *gen.ServerProcess, message etf.Term)
 }
 
 /*
-	Test cases for Local-Local
-	Monitor
-		by Pid		- doesnt_exist, terminate, demonitor
-		by Name		- doesnt_exist, terminate, demonitor
-		by Tuple	- doesnt_exist, terminate, demonitor
+Test cases for Local-Local
+Monitor
+
+	by Pid		- doesnt_exist, terminate, demonitor
+	by Name		- doesnt_exist, terminate, demonitor
+	by Tuple	- doesnt_exist, terminate, demonitor
 */
 func TestMonitorLocalLocal(t *testing.T) {
 	fmt.Printf("\n=== Test Monitor Local-Local\n")
@@ -888,9 +889,10 @@ func TestLinkLocal(t *testing.T) {
 }
 
 /*
-	Test cases for Local-Remote
-	Link
-		by Pid		- already_linked, doesnt_exist, terminate, unlink, node_down, node_unknown
+Test cases for Local-Remote
+Link
+
+	by Pid		- already_linked, doesnt_exist, terminate, unlink, node_down, node_unknown
 */
 func TestLinkRemote(t *testing.T) {
 	fmt.Printf("\n=== Test Link Remote by Pid\n")

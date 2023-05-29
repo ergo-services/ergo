@@ -12,7 +12,7 @@ type cloudAppSup struct {
 func (cas *cloudAppSup) Init(args ...etf.Term) (gen.SupervisorSpec, error) {
 	return gen.SupervisorSpec{
 		Children: []gen.SupervisorChildSpec{
-			gen.SupervisorChildSpec{
+			{
 				Name:  "cloud_client",
 				Child: &cloudClient{},
 				Args:  args,

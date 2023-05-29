@@ -24,12 +24,12 @@ var (
 	ql    string = "quorum of %2d members with 1 leader: "
 	qlf   string = "quorum of %2d members with 1 leader + %d follower(s): "
 	cases        = []testCaseRaft{
-		testCaseRaft{n: 2, name: "no quorum, no leader: "},
-		testCaseRaft{n: 3, name: ql, state: gen.RaftQuorumState3},
-		testCaseRaft{n: 4, name: qlf, state: gen.RaftQuorumState3},
-		testCaseRaft{n: 5, name: ql, state: gen.RaftQuorumState5},
-		testCaseRaft{n: 6, name: qlf, state: gen.RaftQuorumState5},
-		testCaseRaft{n: 7, name: ql, state: gen.RaftQuorumState7},
+		{n: 2, name: "no quorum, no leader: "},
+		{n: 3, name: ql, state: gen.RaftQuorumState3},
+		{n: 4, name: qlf, state: gen.RaftQuorumState3},
+		{n: 5, name: ql, state: gen.RaftQuorumState5},
+		{n: 6, name: qlf, state: gen.RaftQuorumState5},
+		{n: 7, name: ql, state: gen.RaftQuorumState7},
 
 		//
 		// cases below are work well, but quorum building takes too long some time.
@@ -43,16 +43,16 @@ var (
 	}
 
 	data = map[string]dataValueSerial{
-		"key0": dataValueSerial{"value0", 0},
-		"key1": dataValueSerial{"value1", 1},
-		"key2": dataValueSerial{"value2", 2},
-		"key3": dataValueSerial{"value3", 3},
-		"key4": dataValueSerial{"value4", 4},
-		"key5": dataValueSerial{"value5", 5},
-		"key6": dataValueSerial{"value6", 6},
-		"key7": dataValueSerial{"value7", 7},
-		"key8": dataValueSerial{"value8", 8},
-		"key9": dataValueSerial{"value9", 9},
+		"key0": {"value0", 0},
+		"key1": {"value1", 1},
+		"key2": {"value2", 2},
+		"key3": {"value3", 3},
+		"key4": {"value4", 4},
+		"key5": {"value5", 5},
+		"key6": {"value6", 6},
+		"key7": {"value7", 7},
+		"key8": {"value8", 8},
+		"key9": {"value9", 9},
 	}
 	keySerials = []string{
 		"key0",
