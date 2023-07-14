@@ -2,7 +2,6 @@ package etf
 
 import (
 	"bytes"
-	"fmt"
 	"reflect"
 	"testing"
 	"time"
@@ -516,7 +515,7 @@ type myTime struct {
 }
 
 func (m myTime) MarshalETF() ([]byte, error) {
-	s := fmt.Sprintf("%s", m.Time.Format(time.RFC3339))
+	s := m.Time.Format(time.RFC3339)
 	return []byte(s), nil
 }
 
@@ -534,7 +533,7 @@ func TestTermIntoStructUnmarshal(t *testing.T) {
 	var src, dest myTime
 
 	now := time.Now()
-	s := fmt.Sprintf("%s", now.Format(time.RFC3339))
+	s := now.Format(time.RFC3339)
 	now, _ = time.Parse(time.RFC3339, s)
 
 	src.Time = now
