@@ -241,7 +241,7 @@ func (ch *Handshake) handleV1AuthReply(buffer []byte, handshake *handshakeDetail
 	}
 
 	digest := GenDigest(handshake.hash, []byte(message.Node), []byte(ch.options.Cluster), handshake.cookieHash)
-	if bytes.Compare(message.Digest, digest) != 0 {
+	if bytes.Equal(message.Digest, digest) == false {
 		return fmt.Errorf("authorization failed")
 	}
 	handshake.digestRemote = digest
