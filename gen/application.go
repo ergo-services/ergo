@@ -115,7 +115,11 @@ func (a *Application) ProcessInit(p Process, args ...etf.Term) (ProcessState, er
 // ProcessLoop
 func (a *Application) ProcessLoop(ps ProcessState, started chan<- bool) string {
 	spec := ps.State.(*ApplicationSpec)
-	defer func() { spec.Process = nil }()
+	defer func() {
+		spec.Mutex.Lock()
+		spec.Process = nil
+		spec.Mutex.Unlock()
+	}()
 
 	if spec.Lifespan == 0 {
 		spec.Lifespan = time.Hour * 24 * 365 * 100 // let's define default lifespan 100 years :)
