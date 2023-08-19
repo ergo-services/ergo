@@ -196,7 +196,9 @@ func (n *node) listApplications(onlyRunning bool) []gen.ApplicationInfo {
 			continue
 		}
 
+		spec.Mutex.Lock()
 		if onlyRunning && spec.Process == nil {
+			spec.Mutex.Unlock()
 			// list only started apps
 			continue
 		}
@@ -209,6 +211,8 @@ func (n *node) listApplications(onlyRunning bool) []gen.ApplicationInfo {
 		if spec.Process != nil {
 			appInfo.PID = spec.Process.Self()
 		}
+		spec.Mutex.Unlock()
+
 		info = append(info, appInfo)
 	}
 	return info
