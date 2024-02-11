@@ -13,36 +13,36 @@ const (
 	Name gen.Atom = "system_inspect"
 
 	inspectNode           = "inspect_node"
-	inspectNodePeriod     = 15 * time.Second
-	inspectNodeIdlePeriod = 10 * time.Second
+	inspectNodePeriod     = time.Second
+	inspectNodeIdlePeriod = 5 * time.Second
 
 	inspectProcessList           = "inspect_process_list"
-	inspectProcessListPeriod     = 15 * time.Second
-	inspectProcessListIdlePeriod = 10 * time.Second
+	inspectProcessListPeriod     = time.Second
+	inspectProcessListIdlePeriod = 5 * time.Second
 
 	inspectProcess           = "inspect_process"
-	inspectProcessPeriod     = 15 * time.Second
-	inspectProcessIdlePeriod = 10 * time.Second
+	inspectProcessPeriod     = time.Second
+	inspectProcessIdlePeriod = 5 * time.Second
 
 	inspectProcessState           = "inspect_process_state"
-	inspectProcessStatePeriod     = 15 * time.Second
-	inspectProcessStateIdlePeriod = 10 * time.Second
+	inspectProcessStatePeriod     = time.Second
+	inspectProcessStateIdlePeriod = 5 * time.Second
 
 	inspectMeta           = "inspect_meta"
-	inspectMetaPeriod     = 15 * time.Second
-	inspectMetaIdlePeriod = 10 * time.Second
+	inspectMetaPeriod     = time.Second
+	inspectMetaIdlePeriod = 5 * time.Second
 
 	inspectMetaState           = "inspect_meta_state"
-	inspectMetaStatePeriod     = 15 * time.Second
-	inspectMetaStateIdlePeriod = 10 * time.Second
+	inspectMetaStatePeriod     = time.Second
+	inspectMetaStateIdlePeriod = 5 * time.Second
 
 	inspectNetwork           = "inspect_network"
-	inspectNetworkPeriod     = 15 * time.Second
-	inspectNetworkIdlePeriod = 10 * time.Second
+	inspectNetworkPeriod     = time.Second
+	inspectNetworkIdlePeriod = 5 * time.Second
 
 	inspectConnection           = "inspect_connection"
-	inspectConnectionPeriod     = 15 * time.Second
-	inspectConnectionIdlePeriod = 10 * time.Second
+	inspectConnectionPeriod     = time.Second
+	inspectConnectionIdlePeriod = 5 * time.Second
 
 	inspectLog           = "inspect_log"
 	inspectLogIdlePeriod = 10 * time.Second
