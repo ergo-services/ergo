@@ -279,6 +279,10 @@ func (cl CompressionLevel) String() string {
 	}
 }
 
+func (cl CompressionLevel) MarshalJSON() ([]byte, error) {
+	return []byte("\"" + cl.String() + "\""), nil
+}
+
 func (ct CompressionType) ID() uint8 {
 	switch ct {
 	case CompressionTypeLZW:
