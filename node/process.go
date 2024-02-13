@@ -93,7 +93,7 @@ func (p *process) Parent() gen.PID {
 }
 
 func (p *process) Uptime() int64 {
-	if p.isStateIRW() == false {
+	if p.isAlive() == false {
 		return 0
 	}
 	return time.Now().Unix() - p.creation
