@@ -2,6 +2,7 @@ package inspect
 
 import (
 	"fmt"
+	"slices"
 
 	"ergo.services/ergo/act"
 	"ergo.services/ergo/gen"
@@ -25,7 +26,7 @@ func (ipl *iprocess_list) Init(args ...any) error {
 	ipl.start = args[0].(int)
 	ipl.limit = args[1].(int)
 	ipl.Log().SetLogger("default")
-	ipl.Log().Debug("process list inspector started. %d...+%d", ipl.start, ipl.limit)
+	ipl.Log().Debug("process list inspector started. %d...%d", ipl.start, ipl.start+ipl.limit-1)
 	// RegisterEvent is not allowed here
 	ipl.Send(ipl.PID(), register{})
 	return nil
@@ -43,6 +44,10 @@ func (ipl *iprocess_list) HandleMessage(from gen.PID, message any) error {
 		if err != nil {
 			return err
 		}
+
+		slices.SortStableFunc(list, func(a, b gen.ProcessShortInfo) int {
+			return int(a.PID.ID - b.PID.ID)
+		})
 
 		ev := MessageInspectProcessList{
 			Node:      ipl.Node().Name(),
@@ -71,7 +76,7 @@ func (ipl *iprocess_list) HandleMessage(from gen.PID, message any) error {
 			Notify: true,
 			Buffer: 1, // keep the last event
 		}
-		evname := gen.Atom(fmt.Sprintf("%s_%d_+%d", inspectProcessList, ipl.start, ipl.limit))
+		evname := gen.Atom(fmt.Sprintf("%s_%d_%d", inspectProcessList, ipl.start, ipl.start+ipl.limit-1))
 		token, err := ipl.RegisterEvent(evname, eopts)
 		if err != nil {
 			ipl.Log().Error("unable to register event: %s", err)

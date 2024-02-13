@@ -639,23 +639,28 @@ func (n *node) ProcessListShortInfo(start, limit int) ([]gen.ProcessShortInfo, e
 		return nil, gen.ErrNodeTerminated
 	}
 
-	if start < 0 || limit < 0 {
+	if start < 1000 || limit < 0 {
 		return psi, gen.ErrIncorrect
 	}
-	ustart := uint64(start)
 	if limit == 0 {
-		limit = 1000
+		limit = 100
 	}
+	ustart := uint64(start)
+	uend := uint64(start + limit - 1)
 
 	n.processes.Range(func(_, v any) bool {
+		if limit < 1 {
+			// done
+			return false
+		}
 		process := v.(*process)
 		if process.pid.ID < ustart {
 			// skip
 			return true
 		}
-		if limit < 0 {
-			// done
-			return false
+		if process.pid.ID > uend {
+			// skip
+			return true
 		}
 
 		info := gen.ProcessShortInfo{
