@@ -634,19 +634,19 @@ func (n *node) ProcessList() ([]gen.PID, error) {
 }
 
 func (n *node) ProcessListShortInfo(start, limit int) ([]gen.ProcessShortInfo, error) {
-	var psi []gen.ProcessShortInfo
 	if n.isRunning() == false {
 		return nil, gen.ErrNodeTerminated
 	}
 
 	if start < 1000 || limit < 0 {
-		return psi, gen.ErrIncorrect
+		return nil, gen.ErrIncorrect
 	}
 	if limit == 0 {
 		limit = 100
 	}
 	ustart := uint64(start)
 	uend := uint64(start + limit - 1)
+	psi := []gen.ProcessShortInfo{}
 
 	n.processes.Range(func(_, v any) bool {
 		if limit < 1 {
