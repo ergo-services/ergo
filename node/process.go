@@ -173,7 +173,7 @@ func (p *process) SpawnMeta(behavior gen.MetaBehavior, options gen.MetaOptions) 
 	m := &meta{
 		p:        p,
 		behavior: behavior,
-		state:    int32(gen.MetaHandleStateSleep),
+		state:    int32(gen.MetaStateSleep),
 	}
 	switch options.SendPriority {
 	case gen.MessagePriorityHigh:

@@ -356,19 +356,6 @@ type ProcessOptionsExtra struct {
 	Args []any
 }
 
-// MetaInfo
-type MetaInfo struct {
-	ID          Alias
-	Parent      PID
-	Application Atom
-	Behavior    string
-	MailboxSize int64
-	MessagesIn  uint64
-	MessagesOut uint64
-	LogLevel    LogLevel
-	Uptime      int64
-}
-
 // ProcessInfo
 type ProcessInfo struct {
 	// PID process ID

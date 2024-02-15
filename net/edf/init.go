@@ -15,6 +15,7 @@ var (
 		gen.Env(""),
 		gen.LogLevel(0),
 		gen.ProcessState(0),
+		gen.MetaState(0),
 		gen.NetworkMode(0),
 		gen.MessagePriority(0),
 		gen.CompressionType(""),

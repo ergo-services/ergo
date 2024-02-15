@@ -364,8 +364,10 @@ func (n *node) MetaInfo(m gen.Alias) (gen.MetaInfo, error) {
 	info.MailboxSize = mp.main.Size()
 	info.MessagesIn = mp.messagesIn
 	info.MessagesOut = mp.messagesOut
+	info.MessagePriority = mp.priority
 	info.Uptime = time.Now().Unix() - mp.creation
 	info.LogLevel = mp.log.Level()
+	info.State = gen.MetaState(mp.state)
 	return info, nil
 }
 

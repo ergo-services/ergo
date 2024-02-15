@@ -80,10 +80,10 @@ func (m *meta) start() {
 				pc, fn, line, _ := runtime.Caller(2)
 				m.log.Panic("meta process %s terminated - %#v at %s[%s:%d]", m.id,
 					rcv, runtime.FuncForPC(pc).Name(), fn, line)
-				old := atomic.SwapInt32(&m.state, int32(gen.MetaHandleStateTerminated))
-				if old != int32(gen.MetaHandleStateTerminated) {
+				old := atomic.SwapInt32(&m.state, int32(gen.MetaStateTerminated))
+				if old != int32(gen.MetaStateTerminated) {
 					m.p.node.aliases.Delete(m.id)
-					atomic.StoreInt32(&m.state, int32(gen.MetaHandleStateTerminated))
+					atomic.StoreInt32(&m.state, int32(gen.MetaStateTerminated))
 					reason := gen.TerminateMetaPanic
 					m.p.node.RouteTerminateAlias(m.id, reason)
 					m.behavior.Terminate(reason)
@@ -96,8 +96,8 @@ func (m *meta) start() {
 	m.creation = time.Now().Unix()
 	reason := m.behavior.Start()
 	// meta process terminated
-	old := atomic.SwapInt32(&m.state, int32(gen.MetaHandleStateTerminated))
-	if old != int32(gen.MetaHandleStateTerminated) {
+	old := atomic.SwapInt32(&m.state, int32(gen.MetaStateTerminated))
+	if old != int32(gen.MetaStateTerminated) {
 		m.p.node.aliases.Delete(m.id)
 		if reason == nil {
 			reason = gen.TerminateMetaNormal
@@ -111,7 +111,7 @@ func (m *meta) handle() {
 	var reason error
 	var result any
 
-	if atomic.CompareAndSwapInt32(&m.state, int32(gen.MetaHandleStateSleep), int32(gen.MetaHandleStateRunning)) == false {
+	if atomic.CompareAndSwapInt32(&m.state, int32(gen.MetaStateSleep), int32(gen.MetaStateRunning)) == false {
 		// running or terminated
 		return
 	}
@@ -126,8 +126,8 @@ func (m *meta) handle() {
 					m.log.Panic("meta process %s terminated - %#v at %s[%s:%d]", m.id,
 						rcv, runtime.FuncForPC(pc).Name(), fn, line)
 
-					old := atomic.SwapInt32(&m.state, int32(gen.MetaHandleStateTerminated))
-					if old != int32(gen.MetaHandleStateTerminated) {
+					old := atomic.SwapInt32(&m.state, int32(gen.MetaStateTerminated))
+					if old != int32(gen.MetaStateTerminated) {
 						m.p.node.aliases.Delete(m.id)
 						reason = gen.TerminateMetaPanic
 						m.p.node.RouteTerminateAlias(m.id, reason)
@@ -142,7 +142,7 @@ func (m *meta) handle() {
 			reason = nil
 			result = nil
 
-			if gen.MetaHandleState(atomic.LoadInt32(&m.state)) != gen.MetaHandleStateRunning {
+			if gen.MetaState(atomic.LoadInt32(&m.state)) != gen.MetaStateRunning {
 				// terminated
 				break
 			}
@@ -213,8 +213,8 @@ func (m *meta) handle() {
 			}
 
 			// terminated
-			old := atomic.SwapInt32(&m.state, int32(gen.MetaHandleStateTerminated))
-			if old != int32(gen.MetaHandleStateTerminated) {
+			old := atomic.SwapInt32(&m.state, int32(gen.MetaStateTerminated))
+			if old != int32(gen.MetaStateTerminated) {
 				m.p.node.aliases.Delete(m.id)
 				m.p.node.RouteTerminateAlias(m.id, reason)
 				m.behavior.Terminate(reason)
@@ -222,7 +222,7 @@ func (m *meta) handle() {
 			return
 		}
 
-		if atomic.CompareAndSwapInt32(&m.state, int32(gen.MetaHandleStateRunning), int32(gen.MetaHandleStateSleep)) == false {
+		if atomic.CompareAndSwapInt32(&m.state, int32(gen.MetaStateRunning), int32(gen.MetaStateSleep)) == false {
 			// terminated. seems the main loop is stopped. do nothing.
 			return
 		}
@@ -236,7 +236,7 @@ func (m *meta) handle() {
 		}
 
 		// got some... try to use this goroutine
-		if atomic.CompareAndSwapInt32(&m.state, int32(gen.MetaHandleStateSleep), int32(gen.MetaHandleStateRunning)) == false {
+		if atomic.CompareAndSwapInt32(&m.state, int32(gen.MetaStateSleep), int32(gen.MetaStateRunning)) == false {
 			// another goroutine is already running
 			return
 		}
