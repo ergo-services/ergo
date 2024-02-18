@@ -143,7 +143,7 @@ func (i *inspect) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error
 		if r.Limit < 1 {
 			r.Limit = 1000
 		}
-		pname := gen.Atom(fmt.Sprintf("%s_%d..+%d", inspectProcessList, r.Start, r.Limit))
+		pname := gen.Atom(fmt.Sprintf("%s_%d_%d", inspectProcessList, r.Start, r.Start+r.Limit-1))
 		_, err := i.SpawnRegister(pname, factory_iprocess_list, opts, r.Start, r.Limit)
 		if err != nil && err != gen.ErrTaken {
 			return err, nil

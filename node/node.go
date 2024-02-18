@@ -611,7 +611,8 @@ func (n *node) Info() (gen.NodeInfo, error) {
 
 	var mstat runtime.MemStats
 	runtime.ReadMemStats(&mstat)
-	info.MemoryUsed = mstat.Alloc
+	info.MemoryUsed = mstat.Sys
+	info.MemoryAlloc = mstat.Alloc
 
 	utime, stime := osdep.ResourceUsage()
 	info.UserTime = utime

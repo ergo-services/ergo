@@ -328,7 +328,9 @@ type NodeInfo struct {
 	ApplicationsTotal   int64
 	ApplicationsRunning int64
 
-	MemoryUsed uint64
+	MemoryUsed  uint64
+	MemoryAlloc uint64
+
 	UserTime   int64
 	SystemTime int64
 }
