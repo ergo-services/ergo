@@ -38,7 +38,7 @@ type network struct {
 	skipverify bool
 
 	node      *node
-	registrar gen.RegistrarClient
+	registrar gen.Registrar
 
 	listeners []*listener
 
@@ -793,7 +793,7 @@ func (n *network) start(options gen.NetworkOptions) error {
 	n.skipverify = options.InsecureSkipVerify
 	n.registrar = options.Registrar
 	if n.registrar == nil {
-		n.registrar = registrar.CreateClient(registrar.Options{})
+		n.registrar = registrar.Create(registrar.Options{})
 	}
 
 	n.node.validateLicenses(n.registrar.Version())
@@ -847,7 +847,22 @@ func (n *network) start(options gen.NetworkOptions) error {
 		options.Listeners = append(options.Listeners, l)
 	}
 
+	appRoutes := []gen.ApplicationRoute{}
+	for _, app := range n.node.Applications(true) {
+		info, err := n.node.ApplicationInfo(app)
+		if err != nil {
+			continue
+		}
+		r := gen.ApplicationRoute{
+			Node:   n.node.Name(),
+			Name:   info.Name,
+			Weight: info.Weight,
+			Mode:   info.Mode,
+		}
+		appRoutes = append(appRoutes, r)
+	}
 	routes := []gen.Route{}
+
 	for _, l := range options.Listeners {
 		if l.Handshake == nil {
 			l.Handshake = n.defaultHandshake
@@ -881,22 +896,30 @@ func (n *network) start(options gen.NetworkOptions) error {
 			ProtoVersion:     listener.proto.Version(),
 		}
 		n.node.validateLicenses(r.HandshakeVersion, r.ProtoVersion)
-		routes = append(routes, r)
-	}
-
-	appRoutes := []gen.ApplicationRoute{}
-	for _, app := range n.node.Applications(true) {
-		info, err := n.node.ApplicationInfo(app)
-		if err != nil {
+		if l.Registrar == nil {
+			routes = append(routes, r)
 			continue
 		}
-		r := gen.ApplicationRoute{
-			Node:   n.node.Name(),
-			Name:   info.Name,
-			Weight: info.Weight,
-			Mode:   info.Mode,
+
+		// custom reistrar for this listener
+		registerRoutes := gen.RegisterRoutes{
+			Routes:            []gen.Route{r},
+			ApplicationRoutes: appRoutes,
 		}
-		appRoutes = append(appRoutes, r)
+		registrarInfo := l.Registrar.Info()
+
+		// TODO it returns static routes. they need to be handled
+		_, err = l.Registrar.Register(n.node, registerRoutes)
+		if err != nil {
+			// stop listeners
+			for i := range n.listeners {
+				n.listeners[i].l.Close()
+			}
+			return fmt.Errorf("unable to register node on %s (%s): %s", registrarInfo.Server, registrarInfo.Version, err)
+		}
+		listener.registrarCustom = true
+		listener.registrarServer = registrarInfo.Server
+		listener.registrarVersion = registrarInfo.Version
 	}
 
 	registerRoutes := gen.RegisterRoutes{
@@ -907,6 +930,17 @@ func (n *network) start(options gen.NetworkOptions) error {
 	static, err := n.registrar.Register(n.node, registerRoutes)
 	if err != nil {
 		return fmt.Errorf("unable to register node: %s", err)
+	}
+
+	// update registrar info in the listeners
+	registrarInfo := n.registrar.Info()
+	for i := range n.listeners {
+		if n.listeners[i].registrarServer != "" {
+			continue
+		}
+
+		n.listeners[i].registrarServer = registrarInfo.Server
+		n.listeners[i].registrarVersion = registrarInfo.Version
 	}
 
 	// add static routes

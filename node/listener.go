@@ -15,6 +15,10 @@ type listener struct {
 	flags          gen.NetworkFlags
 	maxmessagesize int
 
+	registrarCustom  bool
+	registrarServer  string
+	registrarVersion gen.Version
+
 	handshake gen.NetworkHandshake
 	proto     gen.NetworkProto
 }
@@ -57,6 +61,9 @@ func (l *listener) Info() gen.AcceptorInfo {
 		MaxMessageSize:   l.maxmessagesize,
 		Flags:            l.flags,
 		TLS:              l.tls,
+		CustomRegistrar:  l.registrarCustom,
+		RegistrarServer:  l.registrarServer,
+		RegistrarVersion: l.registrarVersion,
 		HandshakeVersion: l.handshake.Version(),
 		ProtoVersion:     l.proto.Version(),
 	}

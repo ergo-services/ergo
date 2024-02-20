@@ -18,7 +18,7 @@ type Options struct {
 	DisableServer bool
 }
 
-func CreateClient(options Options) gen.RegistrarClient {
+func Create(options Options) gen.Registrar {
 	if options.Port == 0 {
 		options.Port = defaultRegistrarPort
 	}
@@ -180,15 +180,18 @@ func (c *client) Event() (gen.Event, error) {
 	return gen.Event{}, gen.ErrUnsupported
 }
 func (c *client) Info() gen.RegistrarInfo {
-	return gen.RegistrarInfo{
-		LocalServer: c.server != nil,
-		Version:     c.Version(),
+	info := gen.RegistrarInfo{
+		EmbeddedServer: c.server != nil,
+		Version:        c.Version(),
 	}
+	conn := c.conn
+	if conn != nil {
+		info.Server = conn.RemoteAddr().String()
+	} else {
+		info.Server = c.server.lReg.Addr().String()
+	}
+	return info
 }
-
-//
-// gen.RegistrarClient interface implementation
-//
 
 func (c *client) Register(node gen.NodeRegistrar, routes gen.RegisterRoutes) (gen.StaticRoutes, error) {
 	var static gen.StaticRoutes
@@ -214,6 +217,7 @@ func (c *client) Register(node gen.NodeRegistrar, routes gen.RegisterRoutes) (ge
 		go c.serve(rc)
 	}
 
+	c.conn = rc
 	c.terminated = false
 	return static, nil
 }

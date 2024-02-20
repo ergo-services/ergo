@@ -2,6 +2,9 @@ package gen
 
 // Registrar interface
 type Registrar interface {
+	// Register invokes on network start
+	Register(node NodeRegistrar, routes RegisterRoutes) (StaticRoutes, error)
+
 	// Resolver returns the gen.Resolver interface
 	Resolver() Resolver
 
@@ -36,6 +39,11 @@ type Registrar interface {
 	Event() (Event, error)
 	// Info return short information about the registrar
 	Info() RegistrarInfo
+
+	// Terminate invokes on network stop.
+	Terminate()
+
+	Version() Version
 }
 
 // Resolver interface
@@ -51,7 +59,8 @@ type Resolver interface {
 }
 
 type RegistrarInfo struct {
-	LocalServer                bool
+	Server                     string
+	EmbeddedServer             bool
 	SupportRegisterProxy       bool
 	SupportRegisterApplication bool
 	SupportConfig              bool
@@ -64,19 +73,11 @@ type AcceptorInfo struct {
 	MaxMessageSize   int
 	Flags            NetworkFlags
 	TLS              bool
+	CustomRegistrar  bool
+	RegistrarServer  string
+	RegistrarVersion Version
 	HandshakeVersion Version
 	ProtoVersion     Version
-}
-
-type RegistrarClient interface {
-	Registrar
-
-	// Register invokes on network start
-	Register(node NodeRegistrar, routes RegisterRoutes) (StaticRoutes, error)
-	// Terminate invokes on network stop.
-	Terminate()
-
-	Version() Version
 }
 
 type RegisterRoutes struct {

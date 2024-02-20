@@ -182,7 +182,7 @@ type NetworkOptions struct {
 	// Flags
 	Flags NetworkFlags
 	// Registrar
-	Registrar RegistrarClient
+	Registrar Registrar
 	// Listeners node can have multiple listening interface at once. If this list is empty
 	// the default listener will be using. Only the first listener will be registered on
 	// the Registrar
@@ -287,6 +287,7 @@ type Listener struct {
 	CertManager        CertManager
 	InsecureSkipVerify bool
 
+	Registrar Registrar
 	Handshake NetworkHandshake
 	Proto     NetworkProto
 }
