@@ -38,7 +38,7 @@ type WebBehavior interface {
 	HandleEvent(message gen.MessageEvent) error
 
 	// HandleInspect invoked on the request made with gen.Process.Inspect(...)
-	HandleInspect(from gen.PID) map[string]string
+	HandleInspect(from gen.PID, item ...string) map[string]string
 }
 
 type Web struct {
@@ -211,7 +211,7 @@ func (w *Web) ProcessRun() (rr error) {
 			}
 
 		case gen.MailboxMessageTypeInspect:
-			result := w.behavior.HandleInspect(message.From)
+			result := w.behavior.HandleInspect(message.From, message.Message.([]string)...)
 			w.SendResponse(message.From, message.Ref, result)
 		}
 
@@ -241,6 +241,6 @@ func (w *Web) HandleEvent(message gen.MessageEvent) error {
 }
 
 func (w *Web) Terminate(reason error) {}
-func (w *Web) HandleInspect(from gen.PID) map[string]string {
+func (w *Web) HandleInspect(from gen.PID, item ...string) map[string]string {
 	return nil
 }

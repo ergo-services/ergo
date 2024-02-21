@@ -40,7 +40,7 @@ type MetaBehavior interface {
 	HandleCall(from PID, ref Ref, request any) (any, error)
 	Terminate(reason error)
 
-	HandleInspect(from PID) map[string]string
+	HandleInspect(from PID, item ...string) map[string]string
 }
 
 type MetaProcess interface {

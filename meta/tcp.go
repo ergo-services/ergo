@@ -206,7 +206,7 @@ func (t *tcps) Terminate(reason error) {
 	t.Log().Error("terminated abnormaly: %s", reason)
 }
 
-func (t *tcps) HandleInspect(from gen.PID) map[string]string {
+func (t *tcps) HandleInspect(from gen.PID, item ...string) map[string]string {
 	return map[string]string{
 		"listener": t.listener.Addr().String(),
 	}
@@ -332,7 +332,7 @@ func (t *tcpc) Terminate(reason error) {
 	t.Log().Error("terminated abnormaly: %s", reason)
 }
 
-func (t *tcpc) HandleInspect(from gen.PID) map[string]string {
+func (t *tcpc) HandleInspect(from gen.PID, item ...string) map[string]string {
 	return map[string]string{
 		"local":  t.conn.LocalAddr().String(),
 		"remote": t.conn.RemoteAddr().String(),

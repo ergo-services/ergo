@@ -45,7 +45,7 @@ type ActorBehavior interface {
 	HandleEvent(message gen.MessageEvent) error
 
 	// HandleInspect invoked on the request made with gen.Process.Inspect(...)
-	HandleInspect(from gen.PID) map[string]string
+	HandleInspect(from gen.PID, item ...string) map[string]string
 }
 
 // Actor implementats ProcessBehavior interface and provides callbacks for
@@ -285,7 +285,7 @@ func (a *Actor) ProcessRun() (rr error) {
 			}
 
 		case gen.MailboxMessageTypeInspect:
-			result := a.behavior.HandleInspect(message.From)
+			result := a.behavior.HandleInspect(message.From, message.Message.([]string)...)
 			a.SendResponse(message.From, message.Ref, result)
 		}
 
@@ -314,7 +314,7 @@ func (a *Actor) HandleMessage(from gen.PID, message any) error {
 	return nil
 }
 
-func (a *Actor) HandleInspect(from gen.PID) map[string]string {
+func (a *Actor) HandleInspect(from gen.PID, item ...string) map[string]string {
 	return nil
 }
 

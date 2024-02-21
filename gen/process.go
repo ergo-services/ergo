@@ -202,9 +202,9 @@ type Process interface {
 	CallAlias(to Alias, message any, timeout int) (any, error)
 
 	// Inspect sends inspect request to the process.
-	Inspect(target PID) (map[string]string, error)
+	Inspect(target PID, item ...string) (map[string]string, error)
 	// Inspect sends inspect request to the meta process.
-	InspectMeta(meta Alias) (map[string]string, error)
+	InspectMeta(meta Alias, item ...string) (map[string]string, error)
 
 	// RegisterEvent registers a new event. Returns a reference as the token
 	// for sending events. Unregistering the event is allowed to the process

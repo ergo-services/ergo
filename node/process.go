@@ -846,7 +846,7 @@ func (p *process) CallAlias(to gen.Alias, message any, timeout int) (any, error)
 	return p.waitResponse(ref, timeout)
 }
 
-func (p *process) Inspect(target gen.PID) (map[string]string, error) {
+func (p *process) Inspect(target gen.PID, item ...string) (map[string]string, error) {
 	if p.isStateRW() == false {
 		return nil, gen.ErrNotAllowed
 	}
@@ -867,6 +867,7 @@ func (p *process) Inspect(target gen.PID) (map[string]string, error) {
 	qm.Ref = ref
 	qm.From = p.pid
 	qm.Type = gen.MailboxMessageTypeInspect
+	qm.Message = item
 
 	if ok := targetp.mailbox.Urgent.Push(qm); ok == false {
 		return nil, gen.ErrProcessMailboxFull
@@ -887,7 +888,7 @@ func (p *process) Inspect(target gen.PID) (map[string]string, error) {
 	return value.(map[string]string), nil
 }
 
-func (p *process) InspectMeta(alias gen.Alias) (map[string]string, error) {
+func (p *process) InspectMeta(alias gen.Alias, item ...string) (map[string]string, error) {
 	if p.isStateRW() == false {
 		return nil, gen.ErrNotAllowed
 	}
@@ -914,6 +915,7 @@ func (p *process) InspectMeta(alias gen.Alias) (map[string]string, error) {
 	qm.Ref = ref
 	qm.From = p.pid
 	qm.Type = gen.MailboxMessageTypeInspect
+	qm.Message = item
 
 	if ok := m.system.Push(qm); ok == false {
 		return nil, gen.ErrProcessMailboxFull

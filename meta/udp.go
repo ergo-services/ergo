@@ -141,7 +141,7 @@ func (u *udp) Terminate(reason error) {
 	u.pc.Close()
 }
 
-func (u *udp) HandleInspect(from gen.PID) map[string]string {
+func (u *udp) HandleInspect(from gen.PID, item ...string) map[string]string {
 	return map[string]string{
 		"listener": u.pc.LocalAddr().String(),
 	}

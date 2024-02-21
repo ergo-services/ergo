@@ -75,7 +75,7 @@ func (w *web) Terminate(reason error) {
 	w.listener.Close()
 }
 
-func (w *web) HandleInspect(from gen.PID) map[string]string {
+func (w *web) HandleInspect(from gen.PID, item ...string) map[string]string {
 	return map[string]string{
 		"listener": w.listener.Addr().String(),
 	}
@@ -165,7 +165,7 @@ func (w *webhandler) Terminate(reason error) {
 	close(w.ch)
 }
 
-func (w *webhandler) HandleInspect(from gen.PID) map[string]string {
+func (w *webhandler) HandleInspect(from gen.PID, item ...string) map[string]string {
 	if w.MetaProcess != nil {
 		w.Log().Error("ignored inspect request from %s", from)
 	}

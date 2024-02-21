@@ -189,7 +189,7 @@ func (m *meta) handle() {
 					m.p.node.RouteSendResponse(m.p.pid, message.From, message.Ref, options, result)
 				}
 			case gen.MailboxMessageTypeInspect:
-				result := m.behavior.HandleInspect(message.From)
+				result := m.behavior.HandleInspect(message.From, message.Message.([]string)...)
 				options := gen.MessageOptions{
 					Priority:         m.p.priority,
 					Compression:      m.p.compression,

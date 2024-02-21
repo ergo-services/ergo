@@ -78,7 +78,7 @@ func (tm *testMeta) Terminate(reason error) {
 	}
 }
 
-func (tm *testMeta) HandleInspect(from gen.PID) map[string]string {
+func (tm *testMeta) HandleInspect(from gen.PID, item ...string) map[string]string {
 	tm.Log().Info("got inspect request from %s", from)
 	result := map[string]string{
 		from.String(): "ok",

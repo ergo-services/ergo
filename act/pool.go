@@ -39,7 +39,7 @@ type PoolBehavior interface {
 	HandleEvent(message gen.MessageEvent) error
 
 	// HandleInspect invoked on the request made with gen.Process.Inspect(...)
-	HandleInspect(from gen.PID) map[string]string
+	HandleInspect(from gen.PID, item ...string) map[string]string
 }
 
 type Pool struct {
@@ -260,7 +260,7 @@ func (p *Pool) ProcessRun() (rr error) {
 			}
 
 		case gen.MailboxMessageTypeInspect:
-			result := p.behavior.HandleInspect(message.From)
+			result := p.behavior.HandleInspect(message.From, message.Message.([]string)...)
 			p.SendResponse(message.From, message.Ref, result)
 		}
 
@@ -288,7 +288,7 @@ func (p *Pool) HandleEvent(message gen.MessageEvent) error {
 	p.Log().Warning("Pool.HandleEvent: unhandled event message %#v", message)
 	return nil
 }
-func (p *Pool) HandleInspect(from gen.PID) map[string]string {
+func (p *Pool) HandleInspect(from gen.PID, item ...string) map[string]string {
 	return nil
 }
 

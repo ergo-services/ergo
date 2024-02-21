@@ -49,7 +49,7 @@ type SupervisorBehavior interface {
 	HandleEvent(message gen.MessageEvent) error
 
 	// HandleInspect invoked on the request made with gen.Process.Inspect(...)
-	HandleInspect(from gen.PID) map[string]string
+	HandleInspect(from gen.PID, item ...string) map[string]string
 }
 
 type Supervisor struct {
@@ -499,7 +499,7 @@ func (s *Supervisor) ProcessRun() (rr error) {
 			}
 
 		case gen.MailboxMessageTypeInspect:
-			result := s.behavior.HandleInspect(message.From)
+			result := s.behavior.HandleInspect(message.From, message.Message.([]string)...)
 			s.SendResponse(message.From, message.Ref, result)
 		}
 	}
@@ -533,7 +533,7 @@ func (s *Supervisor) HandleEvent(message gen.MessageEvent) error {
 	return nil
 }
 
-func (s *Supervisor) HandleInspect(from gen.PID) map[string]string {
+func (s *Supervisor) HandleInspect(from gen.PID, item ...string) map[string]string {
 	return nil
 }
 
