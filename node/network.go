@@ -40,7 +40,7 @@ type network struct {
 	node      *node
 	registrar gen.Registrar
 
-	listeners []*listener
+	acceptors []*acceptor
 
 	defaultHandshake gen.NetworkHandshake
 	defaultProto     gen.NetworkProto
@@ -105,7 +105,7 @@ func (n *network) Acceptors() ([]gen.Acceptor, error) {
 	if n.running.Load() == false {
 		return nil, gen.ErrNetworkStopped
 	}
-	for _, acceptor := range n.listeners {
+	for _, acceptor := range n.acceptors {
 		acceptors = append(acceptors, acceptor)
 	}
 	return acceptors, nil
@@ -415,7 +415,7 @@ func (n *network) Info() (gen.NetworkInfo, error) {
 	info.Mode = n.mode
 	info.Registrar = n.registrar.Info()
 
-	for _, acceptor := range n.listeners {
+	for _, acceptor := range n.acceptors {
 		info.Acceptors = append(info.Acceptors, acceptor.Info())
 	}
 	info.MaxMessageSize = n.maxmessagesize
@@ -760,8 +760,8 @@ func (n *network) stop() error {
 	n.registrar.Terminate()
 	n.registrar = nil
 
-	// stop listeners
-	for _, listener := range n.listeners {
+	// stop acceptors
+	for _, listener := range n.acceptors {
 		listener.l.Close()
 	}
 
@@ -880,20 +880,20 @@ func (n *network) start(options gen.NetworkOptions) error {
 			l.Flags = options.Flags
 		}
 
-		listener, err := n.startListener(l)
+		acceptor, err := n.startAcceptor(l)
 		if err != nil {
-			// stop listeners
-			for i := range n.listeners {
-				n.listeners[i].l.Close()
+			// stop acceptors
+			for i := range n.acceptors {
+				n.acceptors[i].l.Close()
 			}
 			return err
 		}
-		n.listeners = append(n.listeners, listener)
+		n.acceptors = append(n.acceptors, acceptor)
 		r := gen.Route{
-			Port:             listener.port,
-			TLS:              listener.tls,
-			HandshakeVersion: listener.handshake.Version(),
-			ProtoVersion:     listener.proto.Version(),
+			Port:             acceptor.port,
+			TLS:              acceptor.tls,
+			HandshakeVersion: acceptor.handshake.Version(),
+			ProtoVersion:     acceptor.proto.Version(),
 		}
 		n.node.validateLicenses(r.HandshakeVersion, r.ProtoVersion)
 		if l.Registrar == nil {
@@ -911,15 +911,15 @@ func (n *network) start(options gen.NetworkOptions) error {
 		// TODO it returns static routes. they need to be handled
 		_, err = l.Registrar.Register(n.node, registerRoutes)
 		if err != nil {
-			// stop listeners
-			for i := range n.listeners {
-				n.listeners[i].l.Close()
+			// stop acceptors
+			for i := range n.acceptors {
+				n.acceptors[i].l.Close()
 			}
 			return fmt.Errorf("unable to register node on %s (%s): %s", registrarInfo.Server, registrarInfo.Version, err)
 		}
-		listener.registrarCustom = true
-		listener.registrarServer = registrarInfo.Server
-		listener.registrarVersion = registrarInfo.Version
+		acceptor.registrarCustom = true
+		acceptor.registrarServer = registrarInfo.Server
+		acceptor.registrarVersion = registrarInfo.Version
 	}
 
 	registerRoutes := gen.RegisterRoutes{
@@ -932,15 +932,15 @@ func (n *network) start(options gen.NetworkOptions) error {
 		return fmt.Errorf("unable to register node: %s", err)
 	}
 
-	// update registrar info in the listeners
+	// update registrar info in the acceptors
 	registrarInfo := n.registrar.Info()
-	for i := range n.listeners {
-		if n.listeners[i].registrarServer != "" {
+	for i := range n.acceptors {
+		if n.acceptors[i].registrarCustom {
 			continue
 		}
 
-		n.listeners[i].registrarServer = registrarInfo.Server
-		n.listeners[i].registrarVersion = registrarInfo.Version
+		n.acceptors[i].registrarServer = registrarInfo.Server
+		n.acceptors[i].registrarVersion = registrarInfo.Version
 	}
 
 	// add static routes
@@ -962,7 +962,7 @@ func (n *network) start(options gen.NetworkOptions) error {
 	return nil
 }
 
-func (n *network) startListener(l gen.Listener) (*listener, error) {
+func (n *network) startAcceptor(l gen.Listener) (*acceptor, error) {
 	lc := net.ListenConfig{
 		KeepAlive: gen.DefaultKeepAlivePeriod,
 	}
@@ -988,7 +988,7 @@ func (n *network) startListener(l gen.Listener) (*listener, error) {
 		pend = pstart
 	}
 
-	listener := &listener{
+	acceptor := &acceptor{
 		bs:             bs,
 		proto:          l.Proto,
 		handshake:      l.Handshake,
@@ -996,7 +996,7 @@ func (n *network) startListener(l gen.Listener) (*listener, error) {
 		maxmessagesize: l.MaxMessageSize,
 	}
 	if l.Cookie == "" {
-		listener.cookie = n.cookie
+		acceptor.cookie = n.cookie
 	}
 
 	for i := pstart; i < pend+1; i++ {
@@ -1006,13 +1006,13 @@ func (n *network) startListener(l gen.Listener) (*listener, error) {
 			continue
 		}
 
-		listener.port = i
-		listener.l = lcl
+		acceptor.port = i
+		acceptor.l = lcl
 		break
 	}
 
-	if listener.l == nil {
-		return listener, fmt.Errorf("no available ports in range %d..%d", pstart, pend)
+	if acceptor.l == nil {
+		return acceptor, fmt.Errorf("no available ports in range %d..%d", pstart, pend)
 	}
 
 	if cert != nil {
@@ -1020,43 +1020,43 @@ func (n *network) startListener(l gen.Listener) (*listener, error) {
 			GetCertificate:     cert.GetCertificateFunc(),
 			InsecureSkipVerify: l.InsecureSkipVerify,
 		}
-		listener.l = tls.NewListener(listener.l, config)
+		acceptor.l = tls.NewListener(acceptor.l, config)
 	}
 
-	listener.flags = l.Flags
-	if listener.flags.Enable == false {
-		listener.flags = gen.DefaultNetworkFlags
+	acceptor.flags = l.Flags
+	if acceptor.flags.Enable == false {
+		acceptor.flags = gen.DefaultNetworkFlags
 	}
 
-	go n.listen(listener)
+	go n.accept(acceptor)
 
 	if lib.Trace() {
 		n.node.Log().Trace("started listener on %s with handshake %s and proto %s (TLS: %t)",
-			listener.l.Addr(),
-			listener.handshake.Version(),
-			listener.proto.Version(), cert != nil,
+			acceptor.l.Addr(),
+			acceptor.handshake.Version(),
+			acceptor.proto.Version(), cert != nil,
 		)
 	}
 
-	n.RegisterHandshake(listener.handshake)
-	n.RegisterProto(listener.proto)
+	n.RegisterHandshake(acceptor.handshake)
+	n.RegisterProto(acceptor.proto)
 
-	return listener, nil
+	return acceptor, nil
 }
 
-func (n *network) listen(ls *listener) {
+func (n *network) accept(a *acceptor) {
 	hopts := gen.HandshakeOptions{
-		Cookie:         ls.cookie,
-		Flags:          ls.flags,
-		MaxMessageSize: ls.maxmessagesize,
+		Cookie:         a.cookie,
+		Flags:          a.flags,
+		MaxMessageSize: a.maxmessagesize,
 	}
 	for {
-		c, err := ls.l.Accept()
+		c, err := a.l.Accept()
 		if err != nil {
 			if err == io.EOF {
 				return
 			}
-			n.node.Log().Error("listener %s got error: %s", ls.l.Addr(), err)
+			n.node.Log().Error("listener %s got error: %s", a.l.Addr(), err)
 			return
 		}
 		if lib.Trace() {
@@ -1067,7 +1067,7 @@ func (n *network) listen(ls *listener) {
 			hopts.Cookie = n.cookie
 		}
 
-		result, err := ls.handshake.Accept(n.node, c, hopts)
+		result, err := a.handshake.Accept(n.node, c, hopts)
 		if err != nil {
 			if err != io.EOF {
 				n.node.Log().Warning("unable to handshake with %s: %s", c.RemoteAddr().String(), err)
@@ -1104,7 +1104,7 @@ func (n *network) listen(ls *listener) {
 			Creation: result.PeerCreation,
 		}
 		log.setSource(logSource)
-		conn, err := ls.proto.NewConnection(n.node, result, log)
+		conn, err := a.proto.NewConnection(n.node, result, log)
 		if err != nil {
 			n.node.Log().Warning("unable to create new connection: %s", err)
 			c.Close()
@@ -1117,7 +1117,7 @@ func (n *network) listen(ls *listener) {
 			continue
 		}
 		conn.Join(c, result.ConnectionID, nil, result.Tail)
-		go n.serve(ls.proto, conn, nil)
+		go n.serve(a.proto, conn, nil)
 	}
 }
 
