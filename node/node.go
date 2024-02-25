@@ -1156,7 +1156,9 @@ func (n *node) LoggerAddPID(pid gen.PID, name string, filter ...gen.LogLevel) er
 		return err
 	}
 
-	n.log.Trace("node.LoggerAddPID added new process logger %s with name %q", pid, name)
+	if lib.Trace() {
+		n.log.Trace("node.LoggerAddPID added new process logger %s with name %q", pid, name)
+	}
 	return nil
 }
 
@@ -1184,7 +1186,9 @@ func (n *node) LoggerAdd(name string, logger gen.LoggerBehavior, filter ...gen.L
 		}
 	}
 
-	n.log.Trace("node.LoggerAdd added new logger with name %q", name)
+	if lib.Trace() {
+		n.log.Trace("node.LoggerAdd added new logger with name %q", name)
+	}
 	return nil
 }
 
@@ -1336,7 +1340,9 @@ func (n *node) spawn(factory gen.ProcessFactory, options gen.ProcessOptionsExtra
 	for k, v := range options.ParentEnv {
 		p.SetEnv(k, v)
 	}
-	n.log.Trace("...spawn new process %s (parent %s, %s) using %#v", p.pid, p.parent, p.name, factory)
+	if lib.Trace() {
+		n.log.Trace("...spawn new process %s (parent %s, %s) using %#v", p.pid, p.parent, p.name, factory)
+	}
 
 	for k, v := range options.Env {
 		p.SetEnv(k, v)
@@ -1612,7 +1618,9 @@ func (n *node) validateLicenses(versions ...gen.Version) {
 			continue
 
 		case "":
-			n.Log().Trace("undefined license for %s", version)
+			if lib.Trace() {
+				n.Log().Trace("undefined license for %s", version)
+			}
 			continue
 
 		case gen.LicenseBSL1:
@@ -1632,7 +1640,9 @@ func (n *node) validateLicenses(versions ...gen.Version) {
 				version, version.License)
 
 		default:
-			n.Log().Trace("unhandled license %q for %s", version.License, version)
+			if lib.Trace() {
+				n.Log().Trace("unhandled license %q for %s", version.License, version)
+			}
 		}
 	}
 }

@@ -1031,7 +1031,7 @@ func (n *network) startAcceptor(l gen.Listener) (*acceptor, error) {
 	go n.accept(acceptor)
 
 	if lib.Trace() {
-		n.node.Log().Trace("started listener on %s with handshake %s and proto %s (TLS: %t)",
+		n.node.Log().Trace("started acceptor on %s with handshake %s and proto %s (TLS: %t)",
 			acceptor.l.Addr(),
 			acceptor.handshake.Version(),
 			acceptor.proto.Version(), cert != nil,

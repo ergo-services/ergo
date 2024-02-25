@@ -108,10 +108,14 @@ func (e *enp) Serve(c gen.Connection, dial gen.NetworkDial) error {
 
 		n := i % len(conn.pool_dsn)
 		dsn := conn.pool_dsn[n]
-		conn.log.Trace("dialing %s (pool: %d of %d)", dsn, i+1, conn.pool_size)
+		if lib.Trace() {
+			conn.log.Trace("dialing %s (pool: %d of %d)", dsn, i+1, conn.pool_size)
+		}
 		nc, tail, err := dial(dsn, conn.id)
 		if err != nil {
-			conn.log.Trace("dialing %s failed: %s", dsn, err)
+			if lib.Trace() {
+				conn.log.Trace("dialing %s failed: %s", dsn, err)
+			}
 			continue
 		}
 

@@ -65,7 +65,9 @@ type MessageInspectProcessList struct {
 
 // node logs
 
-type RequestInspectLog struct{}
+type RequestInspectLog struct {
+	Levels []gen.LogLevel
+}
 type ResponseInspectLog struct {
 	Event gen.Event
 }

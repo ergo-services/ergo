@@ -1234,10 +1234,14 @@ func (c *connection) Join(conn net.Conn, id string, dial gen.NetworkDial, tail [
 
 	c.wg.Add(1)
 	go func() {
-		defer c.log.Trace("connection %s left the pool", conn.RemoteAddr().String())
+		if lib.Trace() {
+			defer c.log.Trace("connection %s left the pool", conn.RemoteAddr().String())
+		}
 
 	re: // reconnected
-		c.log.Trace("joined new connection %s to the pool", conn.RemoteAddr().String())
+		if lib.Trace() {
+			c.log.Trace("joined new connection %s to the pool", conn.RemoteAddr().String())
+		}
 
 		c.serve(pi.connection, tail)
 
@@ -1349,7 +1353,9 @@ func (c *connection) serve(conn net.Conn, tail []byte) {
 		if order := int(buf.B[6]); order > 0 {
 			qN = order % recvNQ
 		}
-		c.log.Trace("received message. put it to pool[%d] of %s...", qN, conn.RemoteAddr())
+		if lib.Trace() {
+			c.log.Trace("received message. put it to pool[%d] of %s...", qN, conn.RemoteAddr())
+		}
 		queue := c.recvQueues[qN]
 		atomic.AddInt64(&c.allocatedInQueues, int64(buf.Cap()))
 
@@ -1374,7 +1380,9 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC) {
 		}()
 	}
 
-	c.log.Trace("start handling the message queue")
+	if lib.Trace() {
+		c.log.Trace("start handling the message queue")
+	}
 	for {
 		v, ok := q.Pop()
 		if ok == false {
@@ -2111,7 +2119,10 @@ func (c *connection) read(conn net.Conn, buf *lib.Buffer) (*lib.Buffer, error) {
 			return nil, fmt.Errorf("received too long message (len: %d, limit: %d)", l, c.node_maxmessagesize)
 		}
 
-		c.log.Trace("...recv buf.Len: %d, packet %d (expect: %d)", buf.Len(), l, expect)
+		if lib.Trace() {
+			c.log.Trace("...recv buf.Len: %d, packet %d (expect: %d)", buf.Len(), l, expect)
+		}
+
 		if buf.Len() < l {
 			expect = l
 			continue

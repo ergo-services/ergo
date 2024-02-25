@@ -14,11 +14,14 @@ func factory_ilog() gen.ProcessBehavior {
 type ilog struct {
 	act.Actor
 	token gen.Ref
+	event gen.Atom
 
+	levels     []gen.LogLevel
 	generating bool
 }
 
 func (il *ilog) Init(args ...any) error {
+	il.levels = args[0].([]gen.LogLevel)
 	il.Log().SetLogger("default")
 	il.Log().Debug("log inspector started")
 	// RegisterEvent is not allowed here
@@ -34,7 +37,7 @@ func (il *ilog) HandleMessage(from gen.PID, message any) error {
 	case requestInspect:
 		response := ResponseInspectLog{
 			Event: gen.Event{
-				Name: inspectLog,
+				Name: il.event,
 				Node: il.Node().Name(),
 			},
 		}
@@ -44,11 +47,13 @@ func (il *ilog) HandleMessage(from gen.PID, message any) error {
 		eopts := gen.EventOptions{
 			Notify: true,
 		}
-		token, err := il.RegisterEvent(inspectLog, eopts)
+		evname := gen.Atom(fmt.Sprintf("%s_%s", string(il.Name()), il.PID()))
+		token, err := il.RegisterEvent(evname, eopts)
 		if err != nil {
 			return err
 		}
 
+		il.event = evname
 		il.token = token
 		il.SendAfter(il.PID(), shutdown{}, inspectLogIdlePeriod)
 
@@ -61,7 +66,7 @@ func (il *ilog) HandleMessage(from gen.PID, message any) error {
 	case gen.MessageEventStart: // got first subscriber
 		// register this process as a logger
 		il.Log().Debug("add this process as a logger")
-		il.Node().LoggerAddPID(il.PID(), il.PID().String(), inspectLogFilter...)
+		il.Node().LoggerAddPID(il.PID(), il.PID().String(), il.levels...)
 		// we cant use Log() method while this process registered as a logger
 		il.generating = true
 
@@ -88,7 +93,7 @@ func (il *ilog) HandleLog(message gen.MessageLog) error {
 			Level:     message.Level,
 			Message:   fmt.Sprintf(message.Format, message.Args...),
 		}
-		if err := il.SendEvent(inspectLog, il.token, ev); err != nil {
+		if err := il.SendEvent(il.event, il.token, ev); err != nil {
 			return gen.TerminateReasonNormal
 		}
 	case gen.MessageLogProcess:
@@ -101,7 +106,7 @@ func (il *ilog) HandleLog(message gen.MessageLog) error {
 			Level:     message.Level,
 			Message:   fmt.Sprintf(message.Format, message.Args...),
 		}
-		if err := il.SendEvent(inspectLog, il.token, ev); err != nil {
+		if err := il.SendEvent(il.event, il.token, ev); err != nil {
 			return gen.TerminateReasonNormal
 		}
 
@@ -116,7 +121,7 @@ func (il *ilog) HandleLog(message gen.MessageLog) error {
 			Message:   fmt.Sprintf(message.Format, message.Args...),
 		}
 
-		if err := il.SendEvent(inspectLog, il.token, ev); err != nil {
+		if err := il.SendEvent(il.event, il.token, ev); err != nil {
 			return gen.TerminateReasonNormal
 		}
 	case gen.MessageLogNetwork:
@@ -127,7 +132,7 @@ func (il *ilog) HandleLog(message gen.MessageLog) error {
 			Level:     message.Level,
 			Message:   fmt.Sprintf(message.Format, message.Args...),
 		}
-		if err := il.SendEvent(inspectLog, il.token, ev); err != nil {
+		if err := il.SendEvent(il.event, il.token, ev); err != nil {
 			return gen.TerminateReasonNormal
 		}
 	}

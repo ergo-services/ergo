@@ -3,6 +3,7 @@ package inspect
 import (
 	"errors"
 	"fmt"
+	"sort"
 	"time"
 
 	"ergo.services/ergo/act"
@@ -215,7 +216,35 @@ func (i *inspect) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error
 		opts := gen.ProcessOptions{
 			LinkParent: true,
 		}
-		_, err := i.SpawnRegister(inspectLog, factory_ilog, opts)
+
+		name := "diwep"
+		levels := r.Levels
+		if len(r.Levels) > 0 {
+			b := []byte{}
+			sort.Slice(r.Levels, func(i, j int) bool {
+				return r.Levels[i] < r.Levels[j]
+			})
+			for i := range r.Levels {
+				switch r.Levels[i] {
+				case gen.LogLevelDebug:
+					b = append(b, 'd')
+				case gen.LogLevelInfo:
+					b = append(b, 'i')
+				case gen.LogLevelWarning:
+					b = append(b, 'w')
+				case gen.LogLevelError:
+					b = append(b, 'e')
+				case gen.LogLevelPanic:
+					b = append(b, 'p')
+				}
+			}
+			name = string(b)
+		} else {
+			levels = inspectLogFilter
+		}
+
+		pname := gen.Atom(fmt.Sprintf("%s_%s", inspectLog, name))
+		_, err := i.SpawnRegister(pname, factory_ilog, opts, levels)
 		if err != nil && err != gen.ErrTaken {
 			return err, nil
 		}
@@ -224,7 +253,7 @@ func (i *inspect) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error
 			pid: from,
 			ref: ref,
 		}
-		i.Send(inspectLog, forward)
+		i.Send(pname, forward)
 		return nil, nil // no reply
 
 	// do commands
