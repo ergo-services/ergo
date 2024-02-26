@@ -54,16 +54,13 @@ func (a *application) start(mode gen.ApplicationMode, options gen.ApplicationOpt
 	// start items
 	for _, item := range a.spec.Group {
 		opts := gen.ProcessOptionsExtra{
+			Register:       item.Name,
 			ProcessOptions: item.Options,
 			ParentPID:      options.CorePID,
 			ParentLeader:   options.CorePID,
 			ParentLogLevel: options.CoreLogLevel,
 			ParentEnv:      appEnv,
 			Application:    a.spec.Name,
-		}
-
-		if item.Name != "" {
-			opts.Register = item.Name
 		}
 
 		opts.Args = item.Args

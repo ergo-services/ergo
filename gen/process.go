@@ -422,6 +422,8 @@ type ProcessInfo struct {
 	LogLevel LogLevel
 	// KeepNetworkOrder
 	KeepNetworkOrder bool
+	// ImportantDelivery // this feature will be enabled in the future releasse, added for backward compatibility
+	ImportantDelivery bool
 }
 
 // ProcessShortInfo
