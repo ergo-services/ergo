@@ -1,7 +1,9 @@
 package inspect
 
 import (
+	"cmp"
 	"runtime"
+	"slices"
 
 	"ergo.services/ergo/act"
 	"ergo.services/ergo/gen"
@@ -39,6 +41,9 @@ func (in *inode) HandleMessage(from gen.PID, message any) error {
 		if err != nil {
 			return err
 		}
+		slices.SortStableFunc(info.Loggers, func(a, b gen.LoggerInfo) int {
+			return cmp.Compare(a.Name, b.Name)
+		})
 
 		ev := MessageInspectNode{
 			Node: in.Node().Name(),
