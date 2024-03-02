@@ -211,6 +211,23 @@ func (i *inspect) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error
 		i.Send(pname, forward)
 		return nil, nil // no reply
 
+	case RequestInspectMetaState:
+		opts := gen.ProcessOptions{
+			LinkParent: true,
+		}
+		pname := gen.Atom(fmt.Sprintf("%s_%s", inspectMetaState, r.Meta))
+		_, err := i.SpawnRegister(pname, factory_imeta_state, opts, r.Meta)
+		if err != nil && err != gen.ErrTaken {
+			return err, nil
+		}
+		// forward this request
+		forward := requestInspect{
+			pid: from,
+			ref: ref,
+		}
+		i.Send(pname, forward)
+		return nil, nil // no reply
+
 	case RequestInspectLog:
 		// try to spawn node inspector process
 		opts := gen.ProcessOptions{

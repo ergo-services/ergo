@@ -145,8 +145,22 @@ type ResponseInspectMeta struct {
 }
 
 type MessageInspectMeta struct {
+	Node       gen.Atom
+	Info       gen.MetaInfo
+	Terminated bool
+}
+
+// meta state
+type RequestInspectMetaState struct {
+	Meta gen.Alias
+}
+type ResponseInspectMetaState struct {
+	Event gen.Event
+}
+
+type MessageInspectMetaState struct {
 	Node  gen.Atom
-	Info  gen.MetaInfo
+	Meta  gen.Alias
 	State map[string]string
 }
 
