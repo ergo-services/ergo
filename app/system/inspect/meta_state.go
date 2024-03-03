@@ -47,6 +47,9 @@ func (ims *imeta_state) HandleMessage(from gen.PID, message any) error {
 			ims.SendAfter(ims.PID(), generate{}, inspectMetaStatePeriod)
 			return nil
 		}
+		if state == nil {
+			state = map[string]string{}
+		}
 
 		ev := MessageInspectMetaState{
 			Node:  ims.Node().Name(),
