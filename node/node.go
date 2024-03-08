@@ -391,6 +391,7 @@ func (n *node) ProcessInfo(pid gen.PID) (gen.ProcessInfo, error) {
 	info.MailboxSize = p.mailbox.Main.Size()
 	info.MessagesIn = atomic.LoadUint64(&p.messagesIn)
 	info.MessagesOut = atomic.LoadUint64(&p.messagesOut)
+	info.RunningTime = atomic.LoadUint64(&p.runningTime)
 	info.Compression = p.compression
 	info.MessagePriority = p.priority
 	info.Uptime = p.Uptime()
@@ -673,6 +674,7 @@ func (n *node) ProcessListShortInfo(start, limit int) ([]gen.ProcessShortInfo, e
 			Behavior:    process.sbehavior,
 			MessagesIn:  process.messagesIn,
 			MessagesOut: process.messagesOut,
+			RunningTime: process.runningTime,
 			Uptime:      process.Uptime(),
 			State:       process.State(),
 			Parent:      process.parent,

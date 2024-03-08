@@ -372,6 +372,8 @@ type ProcessInfo struct {
 	MessagesIn uint64
 	// MessagesOut total number of messages this process sent
 	MessagesOut uint64
+	// RunningTime how long this process was in 'running' state in ns
+	RunningTime uint64
 	// Compression
 	Compression Compression
 	// MessagePriority priority for the sending messages
@@ -440,6 +442,8 @@ type ProcessShortInfo struct {
 	MessagesIn uint64
 	// Messages total number of messages this process sent
 	MessagesOut uint64
+	// RunningTime how long this process was in 'running' state in ns
+	RunningTime uint64
 	// Uptime of the process in seconds
 	Uptime int64
 	// State shows current state of the process

@@ -187,7 +187,9 @@ func (c *client) Info() gen.RegistrarInfo {
 	conn := c.conn
 	if conn != nil {
 		info.Server = conn.RemoteAddr().String()
-	} else {
+		return info
+	}
+	if info.EmbeddedServer {
 		info.Server = c.server.lReg.Addr().String()
 	}
 	return info
@@ -217,7 +219,6 @@ func (c *client) Register(node gen.NodeRegistrar, routes gen.RegisterRoutes) (ge
 		go c.serve(rc)
 	}
 
-	c.conn = rc
 	c.terminated = false
 	return static, nil
 }

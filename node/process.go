@@ -44,6 +44,7 @@ type process struct {
 
 	messagesIn  uint64
 	messagesOut uint64
+	runningTime uint64
 
 	compression gen.Compression
 
@@ -1491,8 +1492,10 @@ func (p *process) run() {
 			}()
 		}
 	next:
+		startTime := time.Now().UnixNano()
 		// handle mailbox
 		if err := p.behavior.ProcessRun(); err != nil {
+			p.runningTime = p.runningTime + uint64(time.Now().UnixNano()-startTime)
 			e := errors.Unwrap(err)
 			if e == nil {
 				e = err
@@ -1510,6 +1513,9 @@ func (p *process) run() {
 			p.behavior.ProcessTerminate(err)
 			return
 		}
+
+		// count the running time
+		p.runningTime = p.runningTime + uint64(time.Now().UnixNano()-startTime)
 
 		// change running state to sleep
 		if atomic.CompareAndSwapInt32(&p.state, int32(gen.ProcessStateRunning), int32(gen.ProcessStateSleep)) == false {
