@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"time"
 
+	"ergo.services/ergo/app/system/inspect"
 	"ergo.services/ergo/gen"
 )
 
@@ -31,6 +32,7 @@ var (
 		gen.Compression{},
 		gen.ProcessFallback{},
 		gen.ProcessInfo{},
+		gen.ProcessShortInfo{},
 		gen.ProcessOptions{},
 		gen.ProcessOptionsExtra{},
 		gen.ApplicationOptions{},
@@ -41,6 +43,7 @@ var (
 		gen.NetworkProxyFlags{},
 		gen.NetworkSpawnInfo{},
 		gen.NetworkApplicationStartInfo{},
+		gen.RemoteNodeInfo{},
 		gen.RouteInfo{},
 		gen.ProxyRouteInfo{},
 		gen.Route{},
@@ -51,6 +54,67 @@ var (
 		gen.AcceptorInfo{},
 		gen.NetworkInfo{},
 		gen.MessageEvent{},
+
+		// inspector messages
+
+		inspect.RequestInspectNode{},
+		inspect.ResponseInspectNode{},
+		inspect.MessageInspectNode{},
+
+		inspect.RequestInspectNetwork{},
+		inspect.ResponseInspectNetwork{},
+		inspect.MessageInspectNetwork{},
+
+		inspect.RequestInspectConnection{},
+		inspect.ResponseInspectConnection{},
+		inspect.MessageInspectConnection{},
+
+		inspect.RequestInspectProcessList{},
+		inspect.ResponseInspectProcessList{},
+		inspect.MessageInspectProcessList{},
+
+		inspect.RequestInspectLog{},
+		inspect.ResponseInspectLog{},
+		inspect.MessageInspectLogNode{},
+		inspect.MessageInspectLogNetwork{},
+		inspect.MessageInspectLogProcess{},
+		inspect.MessageInspectLogMeta{},
+
+		inspect.RequestInspectProcess{},
+		inspect.ResponseInspectProcess{},
+		inspect.MessageInspectProcess{},
+
+		inspect.RequestInspectProcessState{},
+		inspect.ResponseInspectProcessState{},
+		inspect.MessageInspectProcessState{},
+
+		inspect.RequestInspectMeta{},
+		inspect.ResponseInspectMeta{},
+		inspect.MessageInspectMeta{},
+
+		inspect.RequestInspectMetaState{},
+		inspect.ResponseInspectMetaState{},
+		inspect.MessageInspectMetaState{},
+
+		inspect.RequestDoSend{},
+		inspect.ResponseDoSend{},
+
+		inspect.RequestDoSendMeta{},
+		inspect.ResponseDoSendMeta{},
+
+		inspect.RequestDoSendExit{},
+		inspect.ResponseDoSendExit{},
+
+		inspect.RequestDoSendExitMeta{},
+		inspect.ResponseDoSendExitMeta{},
+
+		inspect.RequestDoKill{},
+		inspect.ResponseDoKill{},
+
+		inspect.RequestDoSetLogLevel{},
+		inspect.RequestDoSetLogLevelProcess{},
+		inspect.RequestDoSetLogLevelMeta{},
+		inspect.ResponseDoSetLogLevel{},
 	}
 
 	// register standard errors of the Ergo Framework
