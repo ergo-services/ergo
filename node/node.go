@@ -1388,7 +1388,7 @@ func (n *node) spawn(factory gen.ProcessFactory, options gen.ProcessOptionsExtra
 			options.LogLevel = options.ParentLogLevel
 		} else {
 			// node's log level
-			options.LogLevel = p.node.log.level
+			options.LogLevel = n.log.level
 		}
 	}
 	p.log = createLog(options.LogLevel, n.dolog)

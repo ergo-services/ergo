@@ -207,6 +207,7 @@ func (c *client) Register(node gen.NodeRegistrar, routes gen.RegisterRoutes) (ge
 
 	if len(c.routes) == 0 {
 		// hidden mode. do not register node
+		c.terminated = false
 		return static, nil
 	}
 

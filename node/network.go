@@ -21,13 +21,17 @@ import (
 )
 
 func createNetwork(node *node) *network {
-	return &network{
+	n := &network{
 		node:             node,
 		staticRoutes:     &staticRoutes{},
 		staticProxies:    &staticProxies{},
 		defaultHandshake: handshake.Create(handshake.Options{}),
 		defaultProto:     proto.Create(),
 	}
+	// register standard handshake and proto
+	n.RegisterHandshake(n.defaultHandshake)
+	n.RegisterProto(n.defaultProto)
+	return n
 }
 
 type network struct {
