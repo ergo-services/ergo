@@ -259,6 +259,7 @@ func (n *node) Spawn(factory gen.ProcessFactory, options gen.ProcessOptions, arg
 		Args:           args,
 		ParentPID:      n.corePID,
 		ParentLeader:   n.corePID,
+		ParentLogLevel: n.log.level,
 		ParentEnv:      n.EnvList(),
 	}
 
@@ -278,6 +279,7 @@ func (n *node) SpawnRegister(register gen.Atom, factory gen.ProcessFactory, opti
 		Args:           args,
 		ParentPID:      n.corePID,
 		ParentLeader:   n.corePID,
+		ParentLogLevel: n.log.level,
 		ParentEnv:      n.EnvList(),
 	}
 	return n.spawn(factory, opts)
@@ -1383,13 +1385,8 @@ func (n *node) spawn(factory gen.ProcessFactory, options gen.ProcessOptionsExtra
 	p.behavior = behavior
 
 	if options.LogLevel == gen.LogLevelDefault {
-		if options.ParentPID != empty {
-			// parent's log level
-			options.LogLevel = options.ParentLogLevel
-		} else {
-			// node's log level
-			options.LogLevel = n.log.level
-		}
+		// parent's log level
+		options.LogLevel = options.ParentLogLevel
 	}
 	p.log = createLog(options.LogLevel, n.dolog)
 	p.log.setSource(gen.MessageLogProcess{PID: p.pid, Name: p.name})
