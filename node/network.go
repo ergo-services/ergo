@@ -131,6 +131,14 @@ func (n *network) GetNode(name gen.Atom) (gen.RemoteNode, error) {
 	return c.Node(), nil
 }
 
+func (n *network) GetNodeWithRoute(name gen.Atom, route gen.NetworkRoute) (gen.RemoteNode, error) {
+	c, err := n.connect(name, route)
+	if err != nil {
+		return nil, err
+	}
+	return c.Node(), nil
+}
+
 func (n *network) AddRoute(match string, route gen.NetworkRoute, weight int) error {
 	var emptyVersion gen.Version
 	if route.Route.HandshakeVersion == emptyVersion {
@@ -670,10 +678,18 @@ func (n *network) connect(name gen.Atom, route gen.NetworkRoute) (gen.Connection
 	}
 
 	hopts := gen.HandshakeOptions{
-		Cookie:         n.cookie,
-		Flags:          n.flags,
+		Cookie:         route.Cookie,
+		Flags:          route.Flags,
 		MaxMessageSize: n.maxmessagesize,
 	}
+
+	if hopts.Cookie == "" {
+		hopts.Cookie = n.cookie
+	}
+	if hopts.Flags.Enable == false {
+		hopts.Flags = n.flags
+	}
+
 	result, err := handshake.Start(n.node, conn, hopts)
 	if err != nil {
 		conn.Close()

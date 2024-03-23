@@ -20,6 +20,8 @@ type Network interface {
 	// GetNode attempts to connect to the given node if the connection doesn't exist.
 	// Otherwise, it returns the existing connection.
 	GetNode(name Atom) (RemoteNode, error)
+	// GetNodeWithRoute attempts to connect to the given node using provided route
+	GetNodeWithRoute(name Atom, route NetworkRoute) (RemoteNode, error)
 
 	AddRoute(match string, route NetworkRoute, weight int) error
 	RemoveRoute(match string) error

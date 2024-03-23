@@ -3,6 +3,7 @@ package inspect
 import (
 	"ergo.services/ergo/act"
 	"ergo.services/ergo/gen"
+	"slices"
 )
 
 func factory_inetwork() gen.ProcessBehavior {
@@ -34,6 +35,7 @@ func (in *inetwork) HandleMessage(from gen.PID, message any) error {
 		in.Log().Debug("generating event")
 
 		info, err := in.Node().Network().Info()
+		slices.Sort(info.Nodes)
 		ev := MessageInspectNetwork{
 			Node:    in.Node().Name(),
 			Stopped: err == gen.ErrNetworkStopped,
