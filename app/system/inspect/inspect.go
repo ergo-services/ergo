@@ -277,7 +277,7 @@ func (i *inspect) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error
 
 	case RequestDoSend:
 		response := ResponseDoSend{
-			Error: i.SendPID(r.PID, r.Message),
+			Error: i.SendWithPriority(r.PID, r.Message, r.Priority),
 		}
 		return response, nil
 

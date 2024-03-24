@@ -167,9 +167,11 @@ type MessageInspectMetaState struct {
 // do send
 
 type RequestDoSend struct {
-	PID     gen.PID
-	Message any
+	PID      gen.PID
+	Priority gen.MessagePriority
+	Message  any
 }
+
 type ResponseDoSend struct {
 	Error error
 }
