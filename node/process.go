@@ -1610,7 +1610,7 @@ retry:
 			// out earlier and we made another request with the new reference - Ref.
 			// just drop it and wait one more time
 			if lib.Trace() {
-				p.log.Trace("got late response on request with ref %s. dropped", r.ref)
+				p.log.Trace("got late response on request with ref %s (exp %s). dropped", r.ref, ref)
 			}
 			goto retry
 		}

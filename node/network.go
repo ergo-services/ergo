@@ -132,6 +132,18 @@ func (n *network) GetNode(name gen.Atom) (gen.RemoteNode, error) {
 }
 
 func (n *network) GetNodeWithRoute(name gen.Atom, route gen.NetworkRoute) (gen.RemoteNode, error) {
+	var emptyVersion gen.Version
+
+	if route.Route.HandshakeVersion == emptyVersion {
+		route.Route.HandshakeVersion = n.defaultHandshake.Version()
+	}
+
+	if route.Route.ProtoVersion == emptyVersion {
+		route.Route.ProtoVersion = n.defaultProto.Version()
+	}
+
+	route.InsecureSkipVerify = n.skipverify
+
 	c, err := n.connect(name, route)
 	if err != nil {
 		return nil, err
@@ -431,6 +443,8 @@ func (n *network) Info() (gen.NetworkInfo, error) {
 		info.Acceptors = append(info.Acceptors, acceptor.Info())
 	}
 	info.MaxMessageSize = n.maxmessagesize
+	info.HandshakeVersion = n.defaultHandshake.Version()
+	info.ProtoVersion = n.defaultProto.Version()
 
 	n.connections.Range(func(k, _ any) bool {
 		node := k.(gen.Atom)
@@ -658,9 +672,8 @@ func (n *network) connect(name gen.Atom, route gen.NetworkRoute) (gen.Connection
 		Timeout:   3 * time.Second, // timeout to establish TCP-connection
 	}
 
-	if route.Cert != nil {
+	if route.Route.TLS {
 		tlsconfig := &tls.Config{
-			GetCertificate:     route.Cert.GetCertificateFunc(),
 			InsecureSkipVerify: route.InsecureSkipVerify,
 		}
 		tlsdialer := tls.Dialer{

@@ -348,9 +348,11 @@ type NetworkProto interface {
 type NetworkInfo struct {
 	Mode NetworkMode
 
-	Registrar      RegistrarInfo
-	Acceptors      []AcceptorInfo
-	MaxMessageSize int
+	Registrar        RegistrarInfo
+	Acceptors        []AcceptorInfo
+	MaxMessageSize   int
+	HandshakeVersion Version
+	ProtoVersion     Version
 
 	Nodes []Atom
 

@@ -1804,7 +1804,7 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC) {
 		case protoMessageResponse:
 			ref := gen.Ref{
 				Node:     c.core.Name(),
-				Creation: c.peer_creation,
+				Creation: c.core.Creation(),
 			}
 			idFrom := binary.BigEndian.Uint64(buf.B[8:16])
 			priority := gen.MessagePriority(buf.B[16])
