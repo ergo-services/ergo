@@ -11,7 +11,6 @@ import (
 	"encoding/pem"
 	"math/big"
 	"net"
-	"sync"
 	"time"
 )
 
@@ -70,30 +69,4 @@ func GenerateSelfSignedCert(org string, hosts ...string) (tls.Certificate, error
 	})
 
 	return tls.X509KeyPair(certPEM.Bytes(), certPrivKeyPEM.Bytes())
-}
-
-type CertUpdater struct {
-	sync.RWMutex
-	cert *tls.Certificate
-}
-
-func CreateCertUpdater(cert tls.Certificate) *CertUpdater {
-	return &CertUpdater{
-		cert: &cert,
-	}
-}
-
-func (cu *CertUpdater) Update(cert tls.Certificate) {
-	cu.Lock()
-	defer cu.Unlock()
-
-	cu.cert = &cert
-}
-
-func (cu *CertUpdater) GetCertificateFunc() func(*tls.ClientHelloInfo) (*tls.Certificate, error) {
-	return func(ch *tls.ClientHelloInfo) (*tls.Certificate, error) {
-		cu.RLock()
-		defer cu.RUnlock()
-		return cu.cert, nil
-	}
 }

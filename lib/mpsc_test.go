@@ -15,7 +15,7 @@ func TestMPSCsequential(t *testing.T) {
 		v int64
 	}
 	l := int64(10)
-	queue := NewQueueLimitMPSC(l)
+	queue := NewQueueLimitMPSC(l, false)
 	// append to the queue
 	for i := int64(0); i < l; i++ {
 		v := vv{v: i + 100}
@@ -88,7 +88,7 @@ func TestMPSCparallel(t *testing.T) {
 		v int64
 	}
 	l := int64(100000)
-	queue := NewQueueLimitMPSC(l)
+	queue := NewQueueLimitMPSC(l, false)
 	sum := int64(0)
 	// append to the queue
 	var wg sync.WaitGroup
@@ -98,7 +98,7 @@ func TestMPSCparallel(t *testing.T) {
 		wg.Add(1)
 		go func(v vv) {
 			if queue.Push(v) == false {
-				t.Fatal("can't push value into the queue")
+				panic("can't push value into the queue")
 			}
 			wg.Done()
 		}(v)
@@ -189,7 +189,7 @@ func BenchmarkMPSC(b *testing.B) {
 	queues := map[string]testQueue{
 		"Chan queue           ": newChanQueue(),
 		"MPSC queue           ": NewQueueMPSC(),
-		"MPSC with limit queue": NewQueueLimitMPSC(0),
+		"MPSC with limit queue": NewQueueLimitMPSC(0, false),
 	}
 
 	length := 1 << 12

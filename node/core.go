@@ -1,952 +1,1520 @@
 package node
 
 import (
-	"context"
-	"crypto/rsa"
-	"fmt"
-	"runtime"
-	"strings"
-	"sync"
 	"sync/atomic"
-	"time"
 
-	"github.com/ergo-services/ergo/etf"
-	"github.com/ergo-services/ergo/gen"
-	"github.com/ergo-services/ergo/lib"
+	"ergo.services/ergo/gen"
+	"ergo.services/ergo/lib"
 )
 
-var (
-	startPID    = uint64(1000)
-	startUniqID = uint64(time.Now().UnixNano())
+// gen.Core interface implementation
 
-	corePID = etf.Pid{}
-)
+func (n *node) RouteSendPID(from gen.PID, to gen.PID, options gen.MessageOptions, message any) error {
+	var queue lib.QueueMPSC
 
-type core struct {
-	monitorInternal
-	networkInternal
-
-	ctx  context.Context
-	stop context.CancelFunc
-
-	env      map[gen.EnvKey]interface{}
-	mutexEnv sync.RWMutex
-
-	compression Compression
-
-	nextPID  uint64
-	uniqID   uint64
-	nodename string
-	creation uint32
-
-	names          map[string]etf.Pid
-	mutexNames     sync.RWMutex
-	aliases        map[etf.Alias]*process
-	mutexAliases   sync.RWMutex
-	processes      map[uint64]*process
-	mutexProcesses sync.RWMutex
-
-	behaviors      map[string]map[string]gen.RegisteredBehavior
-	mutexBehaviors sync.Mutex
-}
-
-type coreInternal interface {
-	gen.Core
-	CoreRouter
-
-	// core environment
-	ListEnv() map[gen.EnvKey]interface{}
-	SetEnv(name gen.EnvKey, value interface{})
-	Env(name gen.EnvKey) interface{}
-
-	monitorInternal
-	networkInternal
-
-	spawn(name string, opts processOptions, behavior gen.ProcessBehavior, args ...etf.Term) (gen.Process, error)
-
-	registerName(name string, pid etf.Pid) error
-	unregisterName(name string) error
-
-	newAlias(p *process) (etf.Alias, error)
-	deleteAlias(owner *process, alias etf.Alias) error
-
-	coreNodeName() string
-	coreStop()
-	coreUptime() int64
-	coreIsAlive() bool
-
-	coreWait()
-	coreWaitWithTimeout(d time.Duration) error
-
-	monitorStats() internalMonitorStats
-	networkStats() internalNetworkStats
-	coreStats() internalCoreStats
-}
-
-type internalCoreStats struct {
-	totalProcesses  uint64
-	totalReferences uint64
-	processes       int
-	aliases         int
-	names           int
-}
-
-type coreRouterInternal interface {
-	CoreRouter
-	MakeRef() etf.Ref
-
-	ProcessByPid(pid etf.Pid) gen.Process
-	ProcessByName(name string) gen.Process
-	ProcessByAlias(alias etf.Alias) gen.Process
-
-	processByPid(pid etf.Pid) *process
-	getConnection(nodename string) (ConnectionInterface, error)
-	sendEvent(pid etf.Pid, event gen.Event, message gen.EventMessage) error
-}
-
-// transit proxy session
-type proxyTransitSession struct {
-	a ConnectionInterface
-	b ConnectionInterface
-}
-
-type proxyConnectRequest struct {
-	privateKey *rsa.PrivateKey
-	request    ProxyConnectRequest
-	connection chan ConnectionInterface
-	cancel     chan ProxyConnectCancel
-}
-
-func newCore(ctx context.Context, nodename string, cookie string, options Options) (coreInternal, error) {
-	if options.Compression.Level < 1 || options.Compression.Level > 9 {
-		options.Compression.Level = DefaultCompressionLevel
-	}
-	if options.Compression.Threshold < DefaultCompressionThreshold {
-		options.Compression.Threshold = DefaultCompressionThreshold
-	}
-	c := &core{
-		env:     options.Env,
-		nextPID: startPID,
-		uniqID:  startUniqID,
-		// keep node to get the process to access to the node's methods
-		nodename:    nodename,
-		compression: options.Compression,
-		creation:    options.Creation,
-		names:       make(map[string]etf.Pid),
-		aliases:     make(map[etf.Alias]*process),
-		processes:   make(map[uint64]*process),
-		behaviors:   make(map[string]map[string]gen.RegisteredBehavior),
+	if n.isRunning() == false {
+		return gen.ErrNodeTerminated
 	}
 
-	corePID = etf.Pid{
-		Node:     etf.Atom(c.nodename),
-		ID:       1,
-		Creation: c.creation,
+	if lib.Trace() {
+		n.log.Trace("RouteSendPID from %s to %s", from, to)
 	}
 
-	corectx, corestop := context.WithCancel(ctx)
-	c.stop = corestop
-	c.ctx = context.WithValue(corectx, c, c)
-
-	c.monitorInternal = newMonitor(nodename, coreRouterInternal(c))
-	network, err := newNetwork(c.ctx, nodename, cookie, options, coreRouterInternal(c))
-	if err != nil {
-		corestop()
-		return nil, err
-	}
-	c.networkInternal = network
-
-	c.registerEvent(corePID, EventNetwork, []gen.EventMessage{MessageEventNetwork{}})
-
-	return c, nil
-}
-
-func (c *core) coreNodeName() string {
-	return c.nodename
-}
-
-func (c *core) coreStop() {
-	c.stop()
-	c.stopNetwork()
-}
-
-func (c *core) coreUptime() int64 {
-	return time.Now().Unix() - int64(c.creation)
-}
-
-func (c *core) coreWait() {
-	<-c.ctx.Done()
-}
-
-// WaitWithTimeout waits until node stopped. Return ErrTimeout
-// if given timeout is exceeded
-func (c *core) coreWaitWithTimeout(d time.Duration) error {
-	timer := time.NewTimer(d)
-	defer timer.Stop()
-
-	select {
-	case <-timer.C:
-		return lib.ErrTimeout
-	case <-c.ctx.Done():
-		return nil
-	}
-}
-
-// IsAlive returns true if node is running
-func (c *core) coreIsAlive() bool {
-	return c.ctx.Err() == nil
-}
-
-func (c *core) newPID() etf.Pid {
-	// http://erlang.org/doc/apps/erts/erl_ext_dist.html#pid_ext
-	// https://stackoverflow.com/questions/243363/can-someone-explain-the-structure-of-a-pid-in-erlang
-	i := atomic.AddUint64(&c.nextPID, 1)
-	return etf.Pid{
-		Node:     etf.Atom(c.nodename),
-		ID:       i,
-		Creation: c.creation,
-	}
-
-}
-
-// MakeRef returns atomic reference etf.Ref within this node
-func (c *core) MakeRef() (ref etf.Ref) {
-	ref.Node = etf.Atom(c.nodename)
-	ref.Creation = c.creation
-	nt := atomic.AddUint64(&c.uniqID, 1)
-	ref.ID[0] = uint32(uint64(nt) & ((2 << 17) - 1))
-	ref.ID[1] = uint32(uint64(nt) >> 46)
-	return
-}
-
-// IsAlias
-func (c *core) IsAlias(alias etf.Alias) bool {
-	c.mutexAliases.RLock()
-	_, ok := c.aliases[alias]
-	c.mutexAliases.RUnlock()
-	return ok
-}
-
-func (c *core) newAlias(p *process) (etf.Alias, error) {
-	var alias etf.Alias
-
-	// chech if its alive
-	c.mutexProcesses.RLock()
-	_, exist := c.processes[p.self.ID]
-	c.mutexProcesses.RUnlock()
-	if !exist {
-		return alias, lib.ErrProcessUnknown
-	}
-
-	alias = etf.Alias(c.MakeRef())
-	lib.Log("[%s] CORE create process alias for %v: %s", c.nodename, p.self, alias)
-
-	c.mutexAliases.Lock()
-	c.aliases[alias] = p
-	c.mutexAliases.Unlock()
-
-	p.Lock()
-	p.aliases = append(p.aliases, alias)
-	p.Unlock()
-	return alias, nil
-}
-
-func (c *core) deleteAlias(owner *process, alias etf.Alias) error {
-	lib.Log("[%s] CORE delete process alias %v for %v", c.nodename, alias, owner.self)
-
-	c.mutexAliases.Lock()
-	p, alias_exist := c.aliases[alias]
-	c.mutexAliases.Unlock()
-
-	if alias_exist == false {
-		return lib.ErrAliasUnknown
-	}
-
-	c.mutexProcesses.RLock()
-	_, process_exist := c.processes[owner.self.ID]
-	c.mutexProcesses.RUnlock()
-
-	if process_exist == false {
-		return lib.ErrProcessUnknown
-	}
-	if p.self != owner.self {
-		return lib.ErrAliasOwner
-	}
-
-	p.Lock()
-	for i := range p.aliases {
-		if alias != p.aliases[i] {
-			continue
-		}
-		// remove it from the global alias list
-		c.mutexAliases.Lock()
-		delete(c.aliases, alias)
-		c.mutexAliases.Unlock()
-		// remove it from the process alias list
-		p.aliases[i] = p.aliases[0]
-		p.aliases = p.aliases[1:]
-		p.Unlock()
-		return nil
-	}
-	p.Unlock()
-
-	// shouldn't reach this code. seems we got a bug
-	c.mutexAliases.Lock()
-	delete(c.aliases, alias)
-	c.mutexAliases.Unlock()
-	lib.Warning("Bug: Process lost its alias. Please, report this issue")
-
-	return lib.ErrAliasUnknown
-}
-
-func (c *core) newProcess(name string, behavior gen.ProcessBehavior, opts processOptions) (*process, error) {
-
-	var processContext context.Context
-	var kill context.CancelFunc
-	mailboxSize := DefaultProcessMailboxSize
-	if opts.MailboxSize > 0 {
-		mailboxSize = int(opts.MailboxSize)
-	}
-	directboxSize := DefaultProcessDirectboxSize
-	if opts.DirectboxSize > 0 {
-		directboxSize = int(opts.DirectboxSize)
-	}
-
-	if opts.Context != nil {
-		if opts.Context.Value(c) != c {
-			return nil, lib.ErrProcessContext
-		}
-		processContext, kill = context.WithCancel(opts.Context)
-	} else {
-		processContext, kill = context.WithCancel(c.ctx)
-	}
-
-	pid := c.newPID()
-
-	env := make(map[gen.EnvKey]interface{})
-	// inherite the node environment
-	c.mutexEnv.RLock()
-	for k, v := range c.env {
-		env[k] = v
-	}
-	c.mutexEnv.RUnlock()
-
-	// merge the custom ones
-	for k, v := range opts.Env {
-		env[k] = v
-	}
-
-	process := &process{
-		coreInternal: c,
-
-		self:        pid,
-		name:        name,
-		behavior:    behavior,
-		env:         env,
-		compression: c.compression,
-
-		parent:      opts.parent,
-		groupLeader: opts.GroupLeader,
-
-		mailBox:      make(chan gen.ProcessMailboxMessage, mailboxSize),
-		gracefulExit: make(chan gen.ProcessGracefulExitRequest, mailboxSize),
-		direct:       make(chan gen.ProcessDirectMessage, directboxSize),
-
-		context: processContext,
-		kill:    kill,
-
-		reply:    make(map[etf.Ref]chan syncReplyMessage),
-		fallback: opts.Fallback,
-	}
-
-	process.exit = func(from etf.Pid, reason string) error {
-		lib.Log("[%s] EXIT from %s to %s with reason: %s", c.nodename, from, pid, reason)
-		if processContext.Err() != nil {
-			// process is already died
-			return lib.ErrProcessUnknown
-		}
-
-		ex := gen.ProcessGracefulExitRequest{
-			From:   from,
-			Reason: reason,
-		}
-
-		// use select just in case if this process isn't been started yet
-		// or ProcessLoop is already exited (has been set to nil)
-		// otherwise it cause infinity lock
-		select {
-		case process.gracefulExit <- ex:
-		default:
-			return lib.ErrProcessBusy
-		}
-
-		// let the process decide whether to stop itself, otherwise its going to be killed
-		if process.trapExit == false {
-			process.kill()
-		}
-		return nil
-	}
-
-	if name != "" {
-		lib.Log("[%s] CORE registering name (%s): %s", c.nodename, pid, name)
-		c.mutexNames.Lock()
-		if _, exist := c.names[name]; exist {
-			c.mutexNames.Unlock()
-			process.kill() // cancel context
-			return nil, lib.ErrTaken
-		}
-		c.names[name] = process.self
-		c.mutexNames.Unlock()
-	}
-
-	lib.Log("[%s] CORE registering process: %s", c.nodename, pid)
-	c.mutexProcesses.Lock()
-	c.processes[process.self.ID] = process
-	c.mutexProcesses.Unlock()
-
-	return process, nil
-}
-
-func (c *core) deleteProcess(pid etf.Pid) {
-	c.mutexProcesses.Lock()
-	p, exist := c.processes[pid.ID]
-	if !exist {
-		c.mutexProcesses.Unlock()
-		return
-	}
-	lib.Log("[%s] CORE unregistering process: %s", c.nodename, p.self)
-	delete(c.processes, pid.ID)
-	c.mutexProcesses.Unlock()
-
-	c.mutexNames.Lock()
-	if (p.name) != "" {
-		lib.Log("[%s] CORE unregistering name (%s): %s", c.nodename, p.self, p.name)
-		delete(c.names, p.name)
-	}
-
-	// delete names registered with this pid
-	for name, pid := range c.names {
-		if p.self == pid {
-			delete(c.names, name)
-		}
-	}
-	c.mutexNames.Unlock()
-
-	c.mutexAliases.Lock()
-	for _, alias := range p.aliases {
-		delete(c.aliases, alias)
-	}
-	c.mutexAliases.Unlock()
-
-	return
-}
-
-func (c *core) spawn(name string, opts processOptions, behavior gen.ProcessBehavior, args ...etf.Term) (gen.Process, error) {
-
-	process, err := c.newProcess(name, behavior, opts)
-	if err != nil {
-		return nil, err
-	}
-	lib.Log("[%s] CORE spawn a new process %s (registered name: %q)", c.nodename, process.self, name)
-
-	initProcess := func() (ps gen.ProcessState, err error) {
-		if lib.CatchPanic() {
-			defer func() {
-				if rcv := recover(); rcv != nil {
-					pc, fn, line, _ := runtime.Caller(2)
-					lib.Warning("initialization process failed %s[%q] %#v at %s[%s:%d]",
-						process.self, name, rcv, runtime.FuncForPC(pc).Name(), fn, line)
-					c.deleteProcess(process.self)
-					process.kill()
-					err = fmt.Errorf("panic")
-				}
-			}()
-		}
-
-		ps, err = behavior.ProcessInit(process, args...)
-		return
-	}
-
-	processState, err := initProcess()
-	if err != nil {
-		return nil, err
-	}
-
-	started := make(chan bool)
-	defer close(started)
-
-	cleanProcess := func(reason string) {
-		// set gracefulExit to nil before we start termination handling
-		process.gracefulExit = nil
-		c.deleteProcess(process.self)
-		// invoke cancel context to prevent memory leaks
-		// and propagate context canelation
-		process.kill()
-		// notify all the linked process and monitors
-		c.handleTerminated(process.self, name, reason)
-		// make the rest empty
-		process.Lock()
-		process.aliases = []etf.Alias{}
-
-		// Do not clean self and name. Sometimes its good to know what pid
-		// (and what name) was used by the dead process. (gen.Applications is using it)
-		// process.name = ""
-		// process.self = etf.Pid{}
-
-		process.behavior = nil
-		process.parent = nil
-		process.groupLeader = nil
-		process.exit = nil
-		process.kill = nil
-		process.mailBox = nil
-		process.direct = nil
-		process.env = nil
-		process.reply = nil
-		process.Unlock()
-	}
-
-	go func(ps gen.ProcessState) {
-		if lib.CatchPanic() {
-			defer func() {
-				if rcv := recover(); rcv != nil {
-					pc, fn, line, _ := runtime.Caller(2)
-					lib.Warning("process terminated %s[%q] %#v at %s[%s:%d]",
-						process.self, name, rcv, runtime.FuncForPC(pc).Name(), fn, line)
-					cleanProcess("panic")
-				}
-			}()
-		}
-
-		// start process loop
-		reason := behavior.ProcessLoop(ps, started)
-		// process stopped
-		cleanProcess(reason)
-
-	}(processState)
-
-	// wait for the starting process loop
-	<-started
-	return process, nil
-}
-
-func (c *core) registerName(name string, pid etf.Pid) error {
-	lib.Log("[%s] CORE registering name %s", c.nodename, name)
-	c.mutexNames.Lock()
-	defer c.mutexNames.Unlock()
-	if _, ok := c.names[name]; ok {
-		// already registered
-		return lib.ErrTaken
-	}
-	c.names[name] = pid
-	return nil
-}
-
-func (c *core) unregisterName(name string) error {
-	lib.Log("[%s] CORE unregistering name %s", c.nodename, name)
-	c.mutexNames.Lock()
-	defer c.mutexNames.Unlock()
-	if _, ok := c.names[name]; ok {
-		delete(c.names, name)
-		return nil
-	}
-	return lib.ErrNameUnknown
-}
-
-// ListEnv
-func (c *core) ListEnv() map[gen.EnvKey]interface{} {
-	c.mutexEnv.RLock()
-	defer c.mutexEnv.RUnlock()
-
-	env := make(map[gen.EnvKey]interface{})
-	for key, value := range c.env {
-		env[key] = value
-	}
-
-	return env
-}
-
-// SetEnv
-func (c *core) SetEnv(name gen.EnvKey, value interface{}) {
-	c.mutexEnv.Lock()
-	defer c.mutexEnv.Unlock()
-	if strings.HasPrefix(string(name), "ergo:") {
-		return
-	}
-	c.env[name] = value
-}
-
-// Env
-func (c *core) Env(name gen.EnvKey) interface{} {
-	c.mutexEnv.RLock()
-	defer c.mutexEnv.RUnlock()
-	if value, ok := c.env[name]; ok {
-		return value
-	}
-	return nil
-}
-
-// RegisterBehavior
-func (c *core) RegisterBehavior(group, name string, behavior gen.ProcessBehavior, data interface{}) error {
-	lib.Log("[%s] CORE registering behavior %q in group %q ", c.nodename, name, group)
-	var groupBehaviors map[string]gen.RegisteredBehavior
-	var exist bool
-
-	c.mutexBehaviors.Lock()
-	defer c.mutexBehaviors.Unlock()
-
-	groupBehaviors, exist = c.behaviors[group]
-	if !exist {
-		groupBehaviors = make(map[string]gen.RegisteredBehavior)
-		c.behaviors[group] = groupBehaviors
-	}
-
-	_, exist = groupBehaviors[name]
-	if exist {
-		return lib.ErrTaken
-	}
-
-	rb := gen.RegisteredBehavior{
-		Behavior: behavior,
-		Data:     data,
-	}
-	groupBehaviors[name] = rb
-	return nil
-}
-
-// RegisteredBehavior
-func (c *core) RegisteredBehavior(group, name string) (gen.RegisteredBehavior, error) {
-	var groupBehaviors map[string]gen.RegisteredBehavior
-	var rb gen.RegisteredBehavior
-	var exist bool
-
-	c.mutexBehaviors.Lock()
-	defer c.mutexBehaviors.Unlock()
-
-	groupBehaviors, exist = c.behaviors[group]
-	if !exist {
-		return rb, lib.ErrBehaviorGroupUnknown
-	}
-
-	rb, exist = groupBehaviors[name]
-	if !exist {
-		return rb, lib.ErrBehaviorUnknown
-	}
-	return rb, nil
-}
-
-// RegisteredBehaviorGroup
-func (c *core) RegisteredBehaviorGroup(group string) []gen.RegisteredBehavior {
-	var groupBehaviors map[string]gen.RegisteredBehavior
-	var exist bool
-	var listrb []gen.RegisteredBehavior
-
-	c.mutexBehaviors.Lock()
-	defer c.mutexBehaviors.Unlock()
-
-	groupBehaviors, exist = c.behaviors[group]
-	if !exist {
-		return listrb
-	}
-
-	for _, v := range groupBehaviors {
-		listrb = append(listrb, v)
-	}
-	return listrb
-}
-
-// UnregisterBehavior
-func (c *core) UnregisterBehavior(group, name string) error {
-	lib.Log("[%s] CORE unregistering behavior %s in group %s ", c.nodename, name, group)
-	var groupBehaviors map[string]gen.RegisteredBehavior
-	var exist bool
-
-	c.mutexBehaviors.Lock()
-	defer c.mutexBehaviors.Unlock()
-
-	groupBehaviors, exist = c.behaviors[group]
-	if !exist {
-		return lib.ErrBehaviorUnknown
-	}
-	delete(groupBehaviors, name)
-
-	// remove group if its empty
-	if len(groupBehaviors) == 0 {
-		delete(c.behaviors, group)
-	}
-	return nil
-}
-
-// ProcessInfo
-func (c *core) ProcessInfo(pid etf.Pid) (gen.ProcessInfo, error) {
-	p := c.processByPid(pid)
-	if p == nil {
-		return gen.ProcessInfo{}, fmt.Errorf("undefined")
-	}
-
-	return p.Info(), nil
-}
-
-// ProcessByPid
-func (c *core) ProcessByPid(pid etf.Pid) gen.Process {
-	p := c.processByPid(pid)
-	if p == nil {
-		return nil
-	}
-	return p
-}
-
-// ProcessByAlias
-func (c *core) ProcessByAlias(alias etf.Alias) gen.Process {
-	c.mutexAliases.RLock()
-	defer c.mutexAliases.RUnlock()
-	if p, ok := c.aliases[alias]; ok && p.IsAlive() {
-		return p
-	}
-	// unknown process
-	return nil
-}
-
-// ProcessByName
-func (c *core) ProcessByName(name string) gen.Process {
-	var pid etf.Pid
-	if name != "" {
-		// requesting Process by name
-		c.mutexNames.RLock()
-
-		if p, ok := c.names[name]; ok {
-			pid = p
-		} else {
-			c.mutexNames.RUnlock()
-			return nil
-		}
-		c.mutexNames.RUnlock()
-	}
-
-	return c.ProcessByPid(pid)
-}
-
-// ProcessList
-func (c *core) ProcessList() []gen.Process {
-	list := []gen.Process{}
-	c.mutexProcesses.RLock()
-	for _, p := range c.processes {
-		list = append(list, p)
-	}
-	c.mutexProcesses.RUnlock()
-	return list
-}
-
-//
-// implementation of CoreRouter interface:
-// RouteSend
-// RouteSendReg
-// RouteSendAlias
-//
-
-// RouteSend implements RouteSend method of Router interface
-func (c *core) RouteSend(from etf.Pid, to etf.Pid, message etf.Term) error {
-	if string(to.Node) == c.nodename {
-		if to.Creation != c.creation {
-			// message is addressed to the previous incarnation of this PID
-			lib.Warning("message from %s is addressed to the previous incarnation of this PID %s", from, to)
-			return lib.ErrProcessIncarnation
-		}
-		// local route
-		c.mutexProcesses.RLock()
-		p, exist := c.processes[to.ID]
-		c.mutexProcesses.RUnlock()
-		if !exist {
-			lib.Log("[%s] CORE route message by pid (local) %s failed. Unknown process", c.nodename, to)
-			return lib.ErrProcessUnknown
-		}
-		lib.Log("[%s] CORE route message by pid (local) %s", c.nodename, to)
-		select {
-		case p.mailBox <- gen.ProcessMailboxMessage{From: from, Message: message}:
-		default:
-			c.mutexNames.RLock()
-			pid, found := c.names[p.fallback.Name]
-			c.mutexNames.RUnlock()
-			if found == false {
-				lib.Warning("mailbox of %s[%q] is full. dropped message from %s", p.self, p.name, from)
-				return lib.ErrProcessMailboxFull
-			}
-			fbm := gen.MessageFallback{
-				Process: p.self,
-				Tag:     p.fallback.Tag,
-				Message: message,
-			}
-			return c.RouteSend(from, pid, fbm)
-		}
-		return nil
-	}
-
-	// do not allow to send from the alien node.
-	if string(from.Node) != c.nodename {
-		return lib.ErrSenderUnknown
-	}
-
-	// sending to remote node
-	c.mutexProcesses.RLock()
-	p_from, exist := c.processes[from.ID]
-	c.mutexProcesses.RUnlock()
-	if !exist {
-		lib.Log("[%s] CORE route message by pid (remote) %s failed. Unknown sender", c.nodename, to)
-		return lib.ErrSenderUnknown
-	}
-	connection, err := c.getConnection(string(to.Node))
-	if err != nil {
-		return err
-	}
-
-	lib.Log("[%s] CORE route message by pid (remote) %s", c.nodename, to)
-	return connection.Send(p_from, to, message)
-}
-
-// RouteSendReg implements RouteSendReg method of Router interface
-func (c *core) RouteSendReg(from etf.Pid, to gen.ProcessID, message etf.Term) error {
-	if to.Node == c.nodename {
-		// local route
-		c.mutexNames.RLock()
-		pid, ok := c.names[to.Name]
-		c.mutexNames.RUnlock()
-		if !ok {
-			lib.Log("[%s] CORE route message by gen.ProcessID (local) %s failed. Unknown process", c.nodename, to)
-			return lib.ErrProcessUnknown
-		}
-		lib.Log("[%s] CORE route message by gen.ProcessID (local) %s", c.nodename, to)
-		return c.RouteSend(from, pid, message)
-	}
-
-	// do not allow to send from the alien node.
-	if string(from.Node) != c.nodename {
-		return lib.ErrSenderUnknown
-	}
-
-	// send to remote node
-	c.mutexProcesses.RLock()
-	p_from, exist := c.processes[from.ID]
-	c.mutexProcesses.RUnlock()
-	if !exist {
-		lib.Log("[%s] CORE route message by gen.ProcessID (remote) %s failed. Unknown sender", c.nodename, to)
-		return lib.ErrSenderUnknown
-	}
-	connection, err := c.getConnection(string(to.Node))
-	if err != nil {
-		return err
-	}
-
-	lib.Log("[%s] CORE route message by gen.ProcessID (remote) %s", c.nodename, to)
-	return connection.SendReg(p_from, to, message)
-}
-
-// RouteSendAlias implements RouteSendAlias method of Router interface
-func (c *core) RouteSendAlias(from etf.Pid, to etf.Alias, message etf.Term) error {
-
-	if string(to.Node) == c.nodename {
-		// local route by alias
-		c.mutexAliases.RLock()
-		process, ok := c.aliases[to]
-		c.mutexAliases.RUnlock()
-		if !ok {
-			lib.Log("[%s] CORE route message by alias (local) %s failed. Unknown process", c.nodename, to)
-			return lib.ErrProcessUnknown
-		}
-		lib.Log("[%s] CORE route message by alias (local) %s", c.nodename, to)
-		return c.RouteSend(from, process.self, message)
-	}
-
-	// do not allow to send from the alien node. Proxy request must be used.
-	if string(from.Node) != c.nodename {
-		return lib.ErrSenderUnknown
-	}
-
-	// send to remote node
-	c.mutexProcesses.RLock()
-	p_from, exist := c.processes[from.ID]
-	c.mutexProcesses.RUnlock()
-	if !exist {
-		lib.Log("[%s] CORE route message by alias (remote) %s failed. Unknown sender", c.nodename, to)
-		return lib.ErrSenderUnknown
-	}
-	connection, err := c.getConnection(string(to.Node))
-	if err != nil {
-		return err
-	}
-
-	lib.Log("[%s] CORE route message by alias (remote) %s", c.nodename, to)
-	return connection.SendAlias(p_from, to, message)
-}
-
-// RouteSpawnRequest
-func (c *core) RouteSpawnRequest(node string, behaviorName string, request gen.RemoteSpawnRequest, args ...etf.Term) error {
-	if node == c.nodename {
-		// get connection for reply
-		connection, err := c.getConnection(string(request.From.Node))
+	if to.Node != n.name {
+		// remote
+		connection, err := n.network.GetConnection(to.Node)
 		if err != nil {
 			return err
 		}
-
-		// check if we have registered behavior with given name
-		b, err := c.RegisteredBehavior(remoteBehaviorGroup, behaviorName)
-		if err != nil {
-			return connection.SpawnReplyError(request.From, request.Ref, err)
-		}
-
-		// spawn new process
-		process_opts := processOptions{}
-		process_opts.Env = map[gen.EnvKey]interface{}{EnvKeyRemoteSpawn: request.Options}
-		process, err_spawn := c.spawn(request.Options.Name, process_opts, b.Behavior, args...)
-
-		// reply
-		if err_spawn != nil {
-			return connection.SpawnReplyError(request.From, request.Ref, err_spawn)
-		}
-		return connection.SpawnReply(request.From, request.Ref, process.Self())
+		return connection.SendPID(from, to, options, message)
 	}
 
-	connection, err := c.getConnection(node)
+	// local
+	value, found := n.processes.Load(to)
+	if found == false {
+		return gen.ErrProcessUnknown
+	}
+	p := value.(*process)
+
+	if alive := p.isAlive(); alive == false {
+		return gen.ErrProcessTerminated
+	}
+
+	switch options.Priority {
+	case gen.MessagePriorityHigh:
+		queue = p.mailbox.System
+	case gen.MessagePriorityMax:
+		queue = p.mailbox.Urgent
+	default:
+		queue = p.mailbox.Main
+	}
+
+	qm := gen.TakeMailboxMessage()
+	qm.From = from
+	qm.Type = gen.MailboxMessageTypeRegular
+	qm.Target = to
+	qm.Message = message
+
+	if ok := queue.Push(qm); ok == false {
+		if p.fallback.Enable == false {
+			return gen.ErrProcessMailboxFull
+		}
+
+		if p.fallback.Name == p.name {
+			return gen.ErrProcessMailboxFull
+		}
+
+		fbm := gen.MessageFallback{
+			PID:     p.pid,
+			Tag:     p.fallback.Tag,
+			Message: message,
+		}
+		fbto := gen.ProcessID{Name: p.fallback.Name, Node: n.name}
+		return n.RouteSendProcessID(from, fbto, options, fbm)
+	}
+	atomic.AddUint64(&p.messagesIn, 1)
+	p.run()
+	return nil
+}
+
+func (n *node) RouteSendProcessID(from gen.PID, to gen.ProcessID, options gen.MessageOptions, message any) error {
+	var queue lib.QueueMPSC
+
+	if n.isRunning() == false {
+		return gen.ErrNodeTerminated
+	}
+
+	if lib.Trace() {
+		n.log.Trace("RouteSendProcessID from %s to %s", from, to)
+	}
+
+	if to.Node != n.name {
+		// remote
+		connection, err := n.network.GetConnection(to.Node)
+		if err != nil {
+			return err
+		}
+		return connection.SendProcessID(from, to, options, message)
+	}
+
+	value, found := n.names.Load(to.Name)
+	if found == false {
+		return gen.ErrProcessUnknown
+	}
+	p := value.(*process)
+
+	if alive := p.isAlive(); alive == false {
+		return gen.ErrProcessTerminated
+	}
+
+	switch options.Priority {
+	case gen.MessagePriorityHigh:
+		queue = p.mailbox.System
+	case gen.MessagePriorityMax:
+		queue = p.mailbox.Urgent
+	default:
+		queue = p.mailbox.Main
+	}
+
+	qm := gen.TakeMailboxMessage()
+	qm.From = from
+	qm.Type = gen.MailboxMessageTypeRegular
+	qm.Target = to.Name
+	qm.Message = message
+
+	if ok := queue.Push(qm); ok == false {
+		if p.fallback.Enable == false {
+			return gen.ErrProcessMailboxFull
+		}
+
+		if p.fallback.Name == p.name {
+			return gen.ErrProcessMailboxFull
+		}
+
+		fbm := gen.MessageFallback{
+			PID:     p.pid,
+			Tag:     p.fallback.Tag,
+			Message: message,
+		}
+		fbto := gen.ProcessID{Name: p.fallback.Name, Node: n.name}
+		return n.RouteSendProcessID(from, fbto, options, fbm)
+	}
+
+	atomic.AddUint64(&p.messagesIn, 1)
+	p.run()
+	return nil
+}
+
+func (n *node) RouteSendAlias(from gen.PID, to gen.Alias, options gen.MessageOptions, message any) error {
+	var queue lib.QueueMPSC
+
+	if n.isRunning() == false {
+		return gen.ErrNodeTerminated
+	}
+
+	if lib.Trace() {
+		n.log.Trace("RouteSendAlias from %s to %s", from, to)
+	}
+
+	if to.Node != n.name {
+		// remote
+		connection, err := n.network.GetConnection(to.Node)
+		if err != nil {
+			return err
+		}
+		return connection.SendAlias(from, to, options, message)
+	}
+
+	value, found := n.aliases.Load(to)
+	if found == false {
+		return gen.ErrProcessUnknown
+	}
+	p := value.(*process)
+
+	if alive := p.isAlive(); alive == false {
+		return gen.ErrProcessTerminated
+	}
+
+	qm := gen.TakeMailboxMessage()
+	qm.From = from
+	qm.Type = gen.MailboxMessageTypeRegular
+	qm.Target = to
+	qm.Message = message
+
+	// check if this message should be delivered to the meta process
+	if value, found := p.metas.Load(to); found {
+		m := value.(*meta)
+		if ok := m.main.Push(qm); ok == false {
+			return gen.ErrMetaMailboxFull
+		}
+		atomic.AddUint64(&m.messagesIn, 1)
+		m.handle()
+		return nil
+	}
+
+	switch options.Priority {
+	case gen.MessagePriorityHigh:
+		queue = p.mailbox.System
+	case gen.MessagePriorityMax:
+		queue = p.mailbox.Urgent
+	default:
+		queue = p.mailbox.Main
+	}
+
+	if ok := queue.Push(qm); ok == false {
+		if p.fallback.Enable == false {
+			return gen.ErrProcessMailboxFull
+		}
+
+		if p.fallback.Name == p.name {
+			return gen.ErrProcessMailboxFull
+		}
+
+		fbm := gen.MessageFallback{
+			PID:     p.pid,
+			Tag:     p.fallback.Tag,
+			Message: message,
+		}
+		fbto := gen.ProcessID{Name: p.fallback.Name, Node: n.name}
+		return n.RouteSendProcessID(from, fbto, options, fbm)
+	}
+
+	atomic.AddUint64(&p.messagesIn, 1)
+	p.run()
+	return nil
+}
+
+func (n *node) RouteSendEvent(from gen.PID, token gen.Ref, options gen.MessageOptions, message gen.MessageEvent) error {
+	if n.isRunning() == false {
+		return gen.ErrNodeTerminated
+	}
+
+	if lib.Trace() {
+		n.log.Trace("RouteSendEvent from %s with token %s", from, token)
+	}
+
+	if from.Node == n.name {
+		// local producer. check if sender is allowed to send this event
+		value, found := n.events.Load(message.Event)
+		if found == false {
+			return gen.ErrEventUnknown
+		}
+		event := value.(*eventOwner)
+		if event.token != token {
+			return gen.ErrEventOwner
+		}
+
+		if event.last != nil {
+			event.last.Push(message)
+		}
+	}
+
+	consumers := append(n.links.consumers(message.Event), n.monitors.consumers(message.Event)...)
+	remote := make(map[gen.Atom]bool)
+	// local delivery
+	for _, pid := range consumers {
+		if pid.Node == n.name {
+			n.sendEventMessage(from, pid, options.Priority, message)
+			continue
+		}
+		if from.Node != n.name {
+			// event came here from the remote process. so there must be the local
+			// subscribers only.  otherwise there is a bug
+			panic("unable to route event from remote to the remote")
+		}
+		remote[pid.Node] = true
+	}
+
+	for k := range remote {
+		connection, err := n.network.GetConnection(k)
+		if err != nil {
+			continue
+		}
+		connection.SendEvent(from, options, message)
+	}
+	return nil
+}
+
+func (n *node) RouteSendExit(from gen.PID, to gen.PID, reason error) error {
+	if n.isRunning() == false {
+		return gen.ErrNodeTerminated
+	}
+	if reason == nil {
+		return gen.ErrIncorrect
+	}
+
+	if lib.Trace() {
+		n.log.Trace("RouteSendExit from %s to %s with reason %q", from, to, reason)
+	}
+
+	if to.Node != n.name {
+		// remote
+		connection, err := n.network.GetConnection(to.Node)
+		if err != nil {
+			return err
+		}
+		return connection.SendExit(from, to, reason)
+	}
+
+	message := gen.MessageExitPID{
+		PID:    from,
+		Reason: reason,
+	}
+	return n.sendExitMessage(from, to, message)
+
+}
+
+func (n *node) RouteSendResponse(from gen.PID, to gen.PID, ref gen.Ref, options gen.MessageOptions, message any) error {
+	if n.isRunning() == false {
+		return gen.ErrNodeTerminated
+	}
+
+	if lib.Trace() {
+		n.log.Trace("RouteSendResponse from %s to %s with ref %q", from, to, ref)
+	}
+
+	if to.Node != n.name {
+		// remote
+		connection, err := n.network.GetConnection(to.Node)
+		if err != nil {
+			return err
+		}
+		return connection.SendResponse(from, to, ref, options, message)
+	}
+	value, loaded := n.processes.Load(to)
+	if loaded == false {
+		return gen.ErrProcessUnknown
+	}
+	p := value.(*process)
+
+	select {
+	case p.response <- response{ref: ref, message: message}:
+		return nil
+	default:
+		// process doesn't wait for a response anymore
+		return gen.ErrResponseIgnored
+	}
+}
+
+func (n *node) RouteCallPID(ref gen.Ref, from gen.PID, to gen.PID, options gen.MessageOptions, message any) error {
+	var queue lib.QueueMPSC
+
+	if n.isRunning() == false {
+		return gen.ErrNodeTerminated
+	}
+	// not allowed to make a call request to itself
+	if from == to {
+		return gen.ErrNotAllowed
+	}
+
+	if lib.Trace() {
+		n.log.Trace("RouteCallPID from %s to %s with ref %q", from, to, ref)
+	}
+
+	if to.Node != n.name {
+		// remote
+		connection, err := n.network.GetConnection(to.Node)
+		if err != nil {
+			return err
+		}
+		return connection.CallPID(ref, from, to, options, message)
+	}
+
+	// local
+	value, found := n.processes.Load(to)
+	if found == false {
+		return gen.ErrProcessUnknown
+	}
+	p := value.(*process)
+
+	if alive := p.isAlive(); alive == false {
+		return gen.ErrProcessTerminated
+	}
+
+	switch options.Priority {
+	case gen.MessagePriorityHigh:
+		queue = p.mailbox.System
+	case gen.MessagePriorityMax:
+		queue = p.mailbox.Urgent
+	default:
+		queue = p.mailbox.Main
+	}
+
+	qm := gen.TakeMailboxMessage()
+	qm.Ref = ref
+	qm.From = from
+	qm.Type = gen.MailboxMessageTypeRequest
+	qm.Message = message
+
+	if ok := queue.Push(qm); ok == false {
+		return gen.ErrProcessMailboxFull
+	}
+	atomic.AddUint64(&p.messagesIn, 1)
+	p.run()
+	return nil
+}
+
+func (n *node) RouteCallProcessID(ref gen.Ref, from gen.PID, to gen.ProcessID, options gen.MessageOptions, message any) error {
+	var queue lib.QueueMPSC
+
+	if n.isRunning() == false {
+		return gen.ErrNodeTerminated
+	}
+	if lib.Trace() {
+		n.log.Trace("RouteCallProcessID from %s to %s with ref %q", from, to, ref)
+	}
+
+	if to.Node != n.name {
+		// remote
+		connection, err := n.network.GetConnection(to.Node)
+		if err != nil {
+			return err
+		}
+		return connection.CallProcessID(ref, from, to, options, message)
+	}
+
+	value, found := n.names.Load(to.Name)
+	if found == false {
+		return gen.ErrProcessUnknown
+	}
+	p := value.(*process)
+	if alive := p.isAlive(); alive == false {
+		return gen.ErrProcessTerminated
+	}
+
+	switch options.Priority {
+	case gen.MessagePriorityHigh:
+		queue = p.mailbox.System
+	case gen.MessagePriorityMax:
+		queue = p.mailbox.Urgent
+	default:
+		queue = p.mailbox.Main
+	}
+
+	qm := gen.TakeMailboxMessage()
+	qm.Ref = ref
+	qm.From = from
+	qm.Type = gen.MailboxMessageTypeRequest
+	qm.Target = to.Name
+	qm.Message = message
+
+	if ok := queue.Push(qm); ok == false {
+		return gen.ErrProcessMailboxFull
+	}
+	atomic.AddUint64(&p.messagesIn, 1)
+	p.run()
+	return nil
+}
+
+func (n *node) RouteCallAlias(ref gen.Ref, from gen.PID, to gen.Alias, options gen.MessageOptions, message any) error {
+	var queue lib.QueueMPSC
+
+	if n.isRunning() == false {
+		return gen.ErrNodeTerminated
+	}
+
+	if lib.Trace() {
+		n.log.Trace("RouteCallAlias from %s to %s with ref %q", from, to, ref)
+	}
+
+	if to.Node != n.name {
+		// remote
+		connection, err := n.network.GetConnection(to.Node)
+		if err != nil {
+			return err
+		}
+		return connection.CallAlias(ref, from, to, options, message)
+	}
+
+	value, found := n.aliases.Load(to)
+	if found == false {
+		return gen.ErrProcessUnknown
+	}
+	p := value.(*process)
+	if alive := p.isAlive(); alive == false {
+		return gen.ErrProcessTerminated
+	}
+
+	qm := gen.TakeMailboxMessage()
+	qm.Ref = ref
+	qm.From = from
+	qm.Type = gen.MailboxMessageTypeRequest
+	qm.Target = to
+	qm.Message = message
+
+	// check if this request should be delivered to the meta process
+	if value, found := p.metas.Load(to); found {
+		m := value.(*meta)
+		if ok := m.main.Push(qm); ok == false {
+			return gen.ErrMetaMailboxFull
+		}
+		atomic.AddUint64(&m.messagesIn, 1)
+		m.handle()
+		return nil
+	}
+
+	switch options.Priority {
+	case gen.MessagePriorityHigh:
+		queue = p.mailbox.System
+	case gen.MessagePriorityMax:
+		queue = p.mailbox.Urgent
+	default:
+		queue = p.mailbox.Main
+	}
+	if ok := queue.Push(qm); ok == false {
+		return gen.ErrProcessMailboxFull
+	}
+	atomic.AddUint64(&p.messagesIn, 1)
+	p.run()
+	return nil
+}
+
+func (n *node) RouteLinkPID(pid gen.PID, target gen.PID) error {
+	if n.isRunning() == false {
+		return gen.ErrNodeTerminated
+	}
+
+	if lib.Trace() {
+		n.log.Trace("RouteLinkPID %s with %s", pid, target)
+	}
+
+	if n.name == target.Node {
+		// local target
+		if _, exist := n.processes.Load(target); exist == false {
+			return gen.ErrProcessUnknown
+		}
+		n.links.registerConsumer(target, pid)
+		return nil
+	}
+
+	// remote target
+	connection, err := n.network.GetConnection(target.Node)
 	if err != nil {
 		return err
 	}
-	return connection.SpawnRequest(node, behaviorName, request, args...)
-}
 
-// RouteSpawnReply
-func (c *core) RouteSpawnReply(to etf.Pid, ref etf.Ref, result etf.Term) error {
-	process := c.processByPid(to)
-	if process == nil {
-		// seems process terminated
-		return lib.ErrProcessTerminated
+	if err := connection.LinkPID(pid, target); err != nil {
+		return err
 	}
-	process.PutSyncReply(ref, result, nil)
+
+	n.links.registerConsumer(target, pid)
 	return nil
 }
 
-func (c *core) processByPid(pid etf.Pid) *process {
-	c.mutexProcesses.RLock()
-	defer c.mutexProcesses.RUnlock()
-	if p, ok := c.processes[pid.ID]; ok && p.IsAlive() {
-		return p
+func (n *node) RouteUnlinkPID(pid gen.PID, target gen.PID) error {
+	if n.isRunning() == false {
+		return gen.ErrNodeTerminated
 	}
-	// unknown process
+
+	if lib.Trace() {
+		n.log.Trace("RouteUnlinkPID %s with %s ", pid, target)
+	}
+
+	if n.name == target.Node {
+		// local target
+		if _, exist := n.processes.Load(target); exist == false {
+			return gen.ErrProcessUnknown
+		}
+		n.links.unregisterConsumer(target, pid)
+		return nil
+	}
+
+	// remote target
+	connection, err := n.network.GetConnection(target.Node)
+	if err != nil {
+		return err
+	}
+
+	if err := connection.UnlinkPID(pid, target); err != nil {
+		return nil
+	}
+	n.links.unregisterConsumer(target, pid)
 	return nil
 }
 
-func (c *core) coreStats() internalCoreStats {
-	stats := internalCoreStats{}
-	stats.totalProcesses = atomic.LoadUint64(&c.nextPID) - startPID
-	stats.totalReferences = atomic.LoadUint64(&c.uniqID) - startUniqID
+func (n *node) RouteLinkProcessID(pid gen.PID, target gen.ProcessID) error {
+	if n.isRunning() == false {
+		return gen.ErrNodeTerminated
+	}
 
-	c.mutexProcesses.RLock()
-	stats.processes = len(c.processes)
-	c.mutexProcesses.RUnlock()
+	if lib.Trace() {
+		n.log.Trace("RouteLinkProcessID %s with %s", pid, target)
+	}
 
-	c.mutexAliases.RLock()
-	stats.aliases = len(c.aliases)
-	c.mutexAliases.RUnlock()
+	if n.name == target.Node {
+		// local target
+		if _, exist := n.names.Load(target.Name); exist == false {
+			return gen.ErrProcessUnknown
+		}
+		n.links.registerConsumer(target, pid)
+		return nil
+	}
 
-	c.mutexNames.RLock()
-	stats.names = len(c.names)
-	c.mutexNames.RUnlock()
-	return stats
+	// remote target
+	connection, err := n.network.GetConnection(target.Node)
+	if err != nil {
+		return err
+	}
+
+	if err := connection.LinkProcessID(pid, target); err != nil {
+		return err
+	}
+	n.links.registerConsumer(target, pid)
+	return nil
+}
+
+func (n *node) RouteUnlinkProcessID(pid gen.PID, target gen.ProcessID) error {
+	if n.isRunning() == false {
+		return gen.ErrNodeTerminated
+	}
+	if lib.Trace() {
+		n.log.Trace("RouteUnlinkProcessID %s with %s", pid, target)
+	}
+	if n.name == target.Node {
+		// local target
+		if _, exist := n.names.Load(target.Name); exist == false {
+			return gen.ErrProcessUnknown
+		}
+		n.links.unregisterConsumer(target, pid)
+		return nil
+	}
+
+	// remote target
+	connection, err := n.network.GetConnection(target.Node)
+	if err != nil {
+		return err
+	}
+
+	if err := connection.UnlinkProcessID(pid, target); err != nil {
+		return err
+	}
+	n.links.unregisterConsumer(target, pid)
+	return nil
+}
+
+func (n *node) RouteLinkAlias(pid gen.PID, target gen.Alias) error {
+	if n.isRunning() == false {
+		return gen.ErrNodeTerminated
+	}
+
+	if lib.Trace() {
+		n.log.Trace("RouteLinkAlias %s with %s using %s", pid, target)
+	}
+
+	if n.name == target.Node {
+		// local target
+		if _, exist := n.aliases.Load(target); exist == false {
+			return gen.ErrAliasUnknown
+		}
+		n.links.registerConsumer(target, pid)
+		return nil
+	}
+
+	// remote target
+	connection, err := n.network.GetConnection(target.Node)
+	if err != nil {
+		return err
+	}
+
+	if err := connection.LinkAlias(pid, target); err != nil {
+		return err
+	}
+	n.links.registerConsumer(target, pid)
+	return nil
+}
+
+func (n *node) RouteUnlinkAlias(pid gen.PID, target gen.Alias) error {
+	if n.isRunning() == false {
+		return gen.ErrNodeTerminated
+	}
+
+	if lib.Trace() {
+		n.log.Trace("RouteUnlinkAlias %s with %s", pid, target)
+	}
+
+	if n.name == target.Node {
+		// local target
+		if _, exist := n.aliases.Load(target); exist == false {
+			return gen.ErrAliasUnknown
+		}
+		n.links.unregisterConsumer(target, pid)
+		return nil
+	}
+
+	// remote target
+	connection, err := n.network.GetConnection(target.Node)
+	if err != nil {
+		return err
+	}
+
+	if err := connection.UnlinkAlias(pid, target); err != nil {
+		return err
+	}
+
+	n.links.unregisterConsumer(target, pid)
+	return nil
+}
+
+func (n *node) RouteLinkEvent(pid gen.PID, target gen.Event) ([]gen.MessageEvent, error) {
+
+	if n.isRunning() == false {
+		return nil, gen.ErrNodeTerminated
+	}
+
+	if lib.Trace() {
+		n.log.Trace("RouteLinkEvent %s with %s", pid, target)
+	}
+
+	if n.name == target.Node {
+		var lastEventMessages []gen.MessageEvent
+		// local target
+		value, exist := n.events.Load(target)
+		if exist == false {
+			return nil, gen.ErrEventUnknown
+		}
+
+		event := value.(*eventOwner)
+		n.links.registerConsumer(target, pid)
+
+		if event.last != nil {
+			// load last N events
+			item := event.last.Item()
+			for {
+				if item == nil {
+					break
+				}
+				v := item.Value().(gen.MessageEvent)
+				lastEventMessages = append(lastEventMessages, v)
+				item = item.Next()
+			}
+		}
+
+		c := atomic.AddInt32(&event.consumers, 1)
+		if event.notify == false || c > 1 {
+			return lastEventMessages, nil
+		}
+
+		options := gen.MessageOptions{
+			Priority: gen.MessagePriorityHigh,
+		}
+		message := gen.MessageEventStart{
+			Name: target.Name,
+		}
+		n.RouteSendPID(n.corePID, event.producer, options, message)
+		return lastEventMessages, nil
+	}
+
+	// remote target
+	connection, err := n.network.GetConnection(target.Node)
+	if err != nil {
+		return nil, err
+	}
+
+	lastEventMessages, err := connection.LinkEvent(pid, target)
+	if err != nil {
+		return nil, err
+	}
+
+	n.links.registerConsumer(target, pid)
+	return lastEventMessages, nil
+}
+
+func (n *node) RouteUnlinkEvent(pid gen.PID, target gen.Event) error {
+	if n.isRunning() == false {
+		return gen.ErrNodeTerminated
+	}
+
+	if lib.Trace() {
+		n.log.Trace("RouteUnlinkEvent %s with %s", pid, target)
+	}
+
+	if n.name == target.Node {
+		// local target
+		value, exist := n.events.Load(target)
+		if exist == false {
+			return gen.ErrEventUnknown
+		}
+		event := value.(*eventOwner)
+		n.links.unregisterConsumer(target, pid)
+
+		c := atomic.AddInt32(&event.consumers, -1)
+		if event.notify == false || c > 0 {
+			return nil
+		}
+
+		// notify producer
+		options := gen.MessageOptions{
+			Priority: gen.MessagePriorityHigh,
+		}
+		message := gen.MessageEventStop{
+			Name: target.Name,
+		}
+		n.RouteSendPID(n.corePID, event.producer, options, message)
+		return nil
+	}
+
+	// remote target
+	connection, err := n.network.GetConnection(target.Node)
+	if err != nil {
+		return err
+	}
+
+	if err := connection.UnlinkEvent(pid, target); err != nil {
+		return err
+	}
+	n.links.unregisterConsumer(target, pid)
+	return nil
+}
+
+func (n *node) RouteMonitorPID(pid gen.PID, target gen.PID) error {
+	if n.isRunning() == false {
+		return gen.ErrNodeTerminated
+	}
+
+	if lib.Trace() {
+		n.log.Trace("RouteMonitor %s to %s", pid, target)
+	}
+
+	if n.name == target.Node {
+		// local target
+		if _, exist := n.processes.Load(target); exist == false {
+			return gen.ErrProcessUnknown
+		}
+		n.monitors.registerConsumer(target, pid)
+		return nil
+	}
+
+	// remote target
+	connection, err := n.network.GetConnection(target.Node)
+	if err != nil {
+		return err
+	}
+
+	if err := connection.MonitorPID(pid, target); err != nil {
+		return err
+	}
+	n.monitors.registerConsumer(target, pid)
+	return nil
+}
+
+func (n *node) RouteDemonitorPID(pid gen.PID, target gen.PID) error {
+	if n.isRunning() == false {
+		return gen.ErrNodeTerminated
+	}
+
+	if lib.Trace() {
+		n.log.Trace("RouteDemonitor %s to %s", pid, target)
+	}
+
+	if n.name == target.Node {
+		// local target
+		if _, exist := n.processes.Load(target); exist == false {
+			return gen.ErrProcessUnknown
+		}
+		n.monitors.unregisterConsumer(target, pid)
+		return nil
+	}
+
+	// remote target
+	connection, err := n.network.GetConnection(target.Node)
+	if err != nil {
+		return err
+	}
+
+	if err := connection.DemonitorPID(pid, target); err != nil {
+		return err
+	}
+	n.monitors.unregisterConsumer(target, pid)
+	return nil
+}
+
+func (n *node) RouteMonitorProcessID(pid gen.PID, target gen.ProcessID) error {
+	if n.isRunning() == false {
+		return gen.ErrNodeTerminated
+	}
+
+	if lib.Trace() {
+		n.log.Trace("RouteMonitorProcessID %s to %s", pid, target)
+	}
+
+	if n.name == target.Node {
+		// local target
+		if _, exist := n.names.Load(target.Name); exist == false {
+			return gen.ErrProcessUnknown
+		}
+		n.monitors.registerConsumer(target, pid)
+		return nil
+	}
+
+	// remote target
+	connection, err := n.network.GetConnection(target.Node)
+	if err != nil {
+		return err
+	}
+
+	if err := connection.MonitorProcessID(pid, target); err != nil {
+		return err
+	}
+	n.monitors.registerConsumer(target, pid)
+	return nil
+}
+
+func (n *node) RouteDemonitorProcessID(pid gen.PID, target gen.ProcessID) error {
+	if n.isRunning() == false {
+		return gen.ErrNodeTerminated
+	}
+
+	if lib.Trace() {
+		n.log.Trace("RouteDemonitorProcessID %s to %s", pid, target)
+	}
+
+	if n.name == target.Node {
+		// local target
+		if _, exist := n.names.Load(target.Name); exist == false {
+			return gen.ErrProcessUnknown
+		}
+		n.monitors.unregisterConsumer(target, pid)
+		return nil
+	}
+
+	// remote target
+	connection, err := n.network.GetConnection(target.Node)
+	if err != nil {
+		return err
+	}
+
+	if err := connection.DemonitorProcessID(pid, target); err != nil {
+		return err
+	}
+
+	n.monitors.unregisterConsumer(target, pid)
+	return nil
+}
+
+func (n *node) RouteMonitorAlias(pid gen.PID, target gen.Alias) error {
+	if n.isRunning() == false {
+		return gen.ErrNodeTerminated
+	}
+
+	if lib.Trace() {
+		n.log.Trace("RouteMonitorAlias %s to %s", pid, target)
+	}
+
+	if n.name == target.Node {
+		// local target
+		if _, exist := n.aliases.Load(target); exist == false {
+			return gen.ErrAliasUnknown
+		}
+		n.monitors.registerConsumer(target, pid)
+		return nil
+	}
+
+	// remote target
+	connection, err := n.network.GetConnection(target.Node)
+	if err != nil {
+		return err
+	}
+
+	if err := connection.MonitorAlias(pid, target); err != nil {
+		return err
+	}
+
+	n.monitors.registerConsumer(target, pid)
+	return nil
+}
+
+func (n *node) RouteDemonitorAlias(pid gen.PID, target gen.Alias) error {
+	if n.isRunning() == false {
+		return gen.ErrNodeTerminated
+	}
+
+	if lib.Trace() {
+		n.log.Trace("RouteDemonitorAlias %s to %s", pid, target)
+	}
+
+	if n.name == target.Node {
+		// local target
+		if _, exist := n.aliases.Load(target); exist == false {
+			return gen.ErrAliasUnknown
+		}
+		n.monitors.unregisterConsumer(target, pid)
+		return nil
+	}
+
+	// remote target
+	connection, err := n.network.GetConnection(target.Node)
+	if err != nil {
+		return err
+	}
+
+	if err := connection.DemonitorAlias(pid, target); err != nil {
+		return err
+	}
+
+	n.monitors.unregisterConsumer(target, pid)
+	return nil
+}
+
+func (n *node) RouteMonitorEvent(pid gen.PID, target gen.Event) ([]gen.MessageEvent, error) {
+
+	if n.isRunning() == false {
+		return nil, gen.ErrNodeTerminated
+	}
+
+	if lib.Trace() {
+		n.log.Trace("RouteMonitorEvent %s to %s", pid, target)
+	}
+
+	if n.name == target.Node {
+		var lastEventMessages []gen.MessageEvent
+		// local target
+		value, exist := n.events.Load(target)
+		if exist == false {
+			return nil, gen.ErrEventUnknown
+		}
+		event := value.(*eventOwner)
+		n.monitors.registerConsumer(target, pid)
+
+		if event.last != nil {
+			// load last N events
+			item := event.last.Item()
+			for {
+				if item == nil {
+					break
+				}
+				v := item.Value().(gen.MessageEvent)
+				lastEventMessages = append(lastEventMessages, v)
+				item = item.Next()
+			}
+		}
+
+		c := atomic.AddInt32(&event.consumers, 1)
+		if event.notify == false || c > 1 {
+			return lastEventMessages, nil
+		}
+
+		options := gen.MessageOptions{
+			Priority: gen.MessagePriorityHigh,
+		}
+		message := gen.MessageEventStart{
+			Name: target.Name,
+		}
+		n.RouteSendPID(n.corePID, event.producer, options, message)
+		return lastEventMessages, nil
+	}
+
+	// remote target
+	connection, err := n.network.GetConnection(target.Node)
+	if err != nil {
+		return nil, err
+	}
+
+	lastEventMessages, err := connection.MonitorEvent(pid, target)
+	if err != nil {
+		return nil, err
+	}
+
+	n.monitors.registerConsumer(target, pid)
+	return lastEventMessages, nil
+}
+
+func (n *node) RouteDemonitorEvent(pid gen.PID, target gen.Event) error {
+	if n.isRunning() == false {
+		return gen.ErrNodeTerminated
+	}
+
+	if lib.Trace() {
+		n.log.Trace("RouteDemonitorEvent %s to %s", pid, target)
+	}
+
+	if n.name == target.Node {
+		// local target
+		value, exist := n.events.Load(target)
+		if exist == false {
+			return gen.ErrEventUnknown
+		}
+		n.monitors.unregisterConsumer(target, pid)
+
+		// notify producer
+		event := value.(*eventOwner)
+		c := atomic.AddInt32(&event.consumers, -1)
+		if event.notify == false || c > 0 {
+			return nil
+		}
+
+		options := gen.MessageOptions{
+			Priority: gen.MessagePriorityHigh,
+		}
+		message := gen.MessageEventStop{
+			Name: target.Name,
+		}
+		n.RouteSendPID(n.corePID, event.producer, options, message)
+		return nil
+	}
+
+	// remote target
+	connection, err := n.network.GetConnection(target.Node)
+	if err != nil {
+		return err
+	}
+
+	if err := connection.DemonitorEvent(pid, target); err != nil {
+		return err
+	}
+
+	n.monitors.unregisterConsumer(target, pid)
+	return nil
+}
+
+func (n *node) RouteTerminatePID(target gen.PID, reason error) error {
+	if n.isRunning() == false {
+		return gen.ErrNodeTerminated
+	}
+
+	if lib.Trace() {
+		n.log.Trace("RouteTerminatePID %s with reason %q", target, reason)
+	}
+
+	remote := make(map[gen.Atom]bool)
+	messageExit := gen.MessageExitPID{
+		PID:    target,
+		Reason: reason,
+	}
+	for _, pid := range n.links.unregister(target) {
+		if pid.Node != n.name {
+			remote[pid.Node] = true
+		}
+		n.sendExitMessage(target, pid, messageExit)
+	}
+
+	messageDown := gen.MessageDownPID{
+		PID:    target,
+		Reason: reason,
+	}
+	messageOptions := gen.MessageOptions{
+		Priority: gen.MessagePriorityHigh,
+	}
+	for _, pid := range n.monitors.unregister(target) {
+		if pid.Node != n.name {
+			remote[pid.Node] = true
+		}
+		n.RouteSendPID(target, pid, messageOptions, messageDown)
+	}
+
+	if target.Node != n.name && len(remote) > 0 {
+		panic("bug")
+	}
+
+	for name := range remote {
+		if connection, err := n.network.GetConnection(name); err == nil {
+			connection.SendTerminatePID(target, reason)
+		}
+	}
+	return nil
+}
+
+func (n *node) RouteTerminateProcessID(target gen.ProcessID, reason error) error {
+	if n.isRunning() == false {
+		return gen.ErrNodeTerminated
+	}
+
+	if lib.Trace() {
+		n.log.Trace("RouteTerminateProcessID %s with reason %q", target, reason)
+	}
+
+	remote := make(map[gen.Atom]bool)
+	messageExit := gen.MessageExitProcessID{
+		ProcessID: target,
+		Reason:    reason,
+	}
+	for _, pid := range n.links.unregister(target) {
+		if pid.Node != n.name {
+			remote[pid.Node] = true
+		}
+		n.sendExitMessage(n.corePID, pid, messageExit)
+	}
+
+	messageDown := gen.MessageDownProcessID{
+		ProcessID: target,
+		Reason:    reason,
+	}
+	messageOptions := gen.MessageOptions{
+		Priority: gen.MessagePriorityHigh,
+	}
+	for _, pid := range n.monitors.unregister(target) {
+		if pid.Node != n.name {
+			remote[pid.Node] = true
+		}
+		n.RouteSendPID(n.corePID, pid, messageOptions, messageDown)
+	}
+
+	if target.Node != n.name && len(remote) > 0 {
+		panic("bug")
+	}
+
+	for name := range remote {
+		if connection, err := n.network.GetConnection(name); err == nil {
+			connection.SendTerminateProcessID(target, reason)
+		}
+	}
+	return nil
+}
+
+func (n *node) RouteTerminateEvent(target gen.Event, reason error) error {
+	if n.isRunning() == false {
+		return gen.ErrNodeTerminated
+	}
+
+	if lib.Trace() {
+		n.log.Trace("RouteTerminateEvent %s with reason %q", target, reason)
+	}
+
+	remote := make(map[gen.Atom]bool)
+	messageExit := gen.MessageExitEvent{
+		Event:  target,
+		Reason: reason,
+	}
+	for _, pid := range n.links.unregister(target) {
+		if pid.Node != n.name {
+			remote[pid.Node] = true
+		}
+		n.sendExitMessage(n.corePID, pid, messageExit)
+	}
+
+	messageDown := gen.MessageDownEvent{
+		Event:  target,
+		Reason: reason,
+	}
+	messageOptions := gen.MessageOptions{
+		Priority: gen.MessagePriorityHigh,
+	}
+	for _, pid := range n.monitors.unregister(target) {
+		if pid.Node != n.name {
+			remote[pid.Node] = true
+		}
+		n.RouteSendPID(n.corePID, pid, messageOptions, messageDown)
+	}
+
+	if target.Node != n.name && len(remote) > 0 {
+		panic("bug")
+	}
+
+	for name := range remote {
+		if connection, err := n.network.GetConnection(name); err == nil {
+			connection.SendTerminateEvent(target, reason)
+		}
+	}
+	return nil
+}
+
+func (n *node) RouteTerminateAlias(target gen.Alias, reason error) error {
+	if n.isRunning() == false {
+		return gen.ErrNodeTerminated
+	}
+
+	if lib.Trace() {
+		n.log.Trace("RouteTerminateAlias %s with reason %q", target, reason)
+	}
+
+	remote := make(map[gen.Atom]bool)
+	messageExit := gen.MessageExitAlias{
+		Alias:  target,
+		Reason: reason,
+	}
+	for _, pid := range n.links.unregister(target) {
+		if pid.Node != n.name {
+			remote[pid.Node] = true
+		}
+		n.sendExitMessage(n.corePID, pid, messageExit)
+	}
+
+	messageDown := gen.MessageDownAlias{
+		Alias:  target,
+		Reason: reason,
+	}
+	messageOptions := gen.MessageOptions{
+		Priority: gen.MessagePriorityHigh,
+	}
+	for _, pid := range n.monitors.unregister(target) {
+		if pid.Node != n.name {
+			remote[pid.Node] = true
+		}
+		n.RouteSendPID(n.corePID, pid, messageOptions, messageDown)
+	}
+
+	if target.Node != n.name && len(remote) > 0 {
+		panic("bug")
+	}
+
+	for name := range remote {
+		if connection, err := n.network.GetConnection(name); err == nil {
+			connection.SendTerminateAlias(target, reason)
+		}
+	}
+	return nil
+}
+
+func (n *node) RouteSpawn(node gen.Atom, name gen.Atom, options gen.ProcessOptionsExtra, source gen.Atom) (gen.PID, error) {
+	var empty gen.PID
+
+	if n.isRunning() == false {
+		return empty, gen.ErrNodeTerminated
+	}
+
+	if lib.Trace() {
+		n.log.Trace("RouteSpawn %s from %s to %s", name, options.ParentPID, node)
+	}
+
+	if node != n.name {
+		// remote
+		connection, err := n.network.GetConnection(node)
+		if err != nil {
+			return empty, err
+		}
+		return connection.RemoteSpawn(name, options)
+	}
+
+	factory, err := n.network.getEnabledSpawn(name, source)
+	if err != nil {
+		return empty, err
+	}
+
+	return n.spawn(factory, options)
+}
+
+func (n *node) RouteApplicationStart(name gen.Atom, mode gen.ApplicationMode, options gen.ApplicationOptionsExtra, source gen.Atom) error {
+	if n.isRunning() == false {
+		return gen.ErrNodeTerminated
+	}
+
+	if lib.Trace() {
+		n.log.Trace("RouteApplicationStart %s with mode %s requested by %s", name, mode, source)
+	}
+
+	if err := n.network.isEnabledApplicationStart(name, source); err != nil {
+		return err
+	}
+
+	v, exist := n.applications.Load(name)
+	if exist == false {
+		return gen.ErrApplicationUnknown
+	}
+	app := v.(*application)
+	return app.start(mode, options)
+}
+
+func (n *node) RouteNodeDown(name gen.Atom, reason error) {
+	// handle links
+	for _, target := range n.links.targetsNodeDown(name) {
+		var message any
+		switch t := target.(type) {
+		case gen.PID:
+			message = gen.MessageExitPID{
+				PID:    t,
+				Reason: gen.ErrNoConnection,
+			}
+
+		case gen.ProcessID:
+			message = gen.MessageExitProcessID{
+				ProcessID: t,
+				Reason:    gen.ErrNoConnection,
+			}
+
+		case gen.Alias:
+			message = gen.MessageExitAlias{
+				Alias:  t,
+				Reason: gen.ErrNoConnection,
+			}
+
+		case gen.Event:
+			message = gen.MessageExitEvent{
+				Event:  t,
+				Reason: gen.ErrNoConnection,
+			}
+
+		case gen.Atom:
+			message = gen.MessageExitNode{
+				Name: name,
+			}
+
+		default:
+			// bug
+			continue
+		}
+		for _, pid := range n.links.unregister(target) {
+			n.sendExitMessage(n.corePID, pid, message)
+		}
+	}
+
+	// handle monitors
+	for _, target := range n.monitors.targetsNodeDown(name) {
+		var message any
+		switch t := target.(type) {
+		case gen.PID:
+			message = gen.MessageDownPID{
+				PID:    t,
+				Reason: gen.ErrNoConnection,
+			}
+
+		case gen.ProcessID:
+			message = gen.MessageDownProcessID{
+				ProcessID: t,
+				Reason:    gen.ErrNoConnection,
+			}
+
+		case gen.Alias:
+			message = gen.MessageDownAlias{
+				Alias:  t,
+				Reason: gen.ErrNoConnection,
+			}
+
+		case gen.Event:
+			message = gen.MessageDownEvent{
+				Event:  t,
+				Reason: gen.ErrNoConnection,
+			}
+
+		case gen.Atom:
+			message = gen.MessageDownNode{
+				Name: name,
+			}
+
+		default:
+			// bug
+			continue
+		}
+		messageOptions := gen.MessageOptions{
+			Priority: gen.MessagePriorityHigh,
+		}
+		for _, pid := range n.monitors.unregister(target) {
+			n.RouteSendPID(n.corePID, pid, messageOptions, message)
+		}
+	}
+
+	// TODO
+	// handle n.events with remote consumers (need to be cleaned up)
+}
+
+func (n *node) MakeRef() gen.Ref {
+	var ref gen.Ref
+	ref.Node = n.name
+	ref.Creation = n.creation
+	id := atomic.AddUint64(&n.uniqID, 1)
+	ref.ID[0] = uint32(id & ((2 << 17) - 1))
+	ref.ID[1] = uint32(id >> 46)
+	return ref
+}
+
+func (n *node) PID() gen.PID {
+	return n.corePID
+}
+
+func (n *node) LogLevel() gen.LogLevel {
+	return n.log.Level()
+}
+
+func (n *node) Creation() int64 {
+	return n.creation
+}
+
+func (n *node) sendExitMessage(from gen.PID, to gen.PID, message any) error {
+	value, loaded := n.processes.Load(to)
+	if loaded == false {
+		return gen.ErrProcessUnknown
+	}
+	p := value.(*process)
+
+	if lib.Trace() {
+		n.log.Trace("...sendExitMessage from %s to %s ", from, to)
+	}
+
+	// graceful shutdown via messaging
+	qm := gen.TakeMailboxMessage()
+	qm.From = from
+	qm.Type = gen.MailboxMessageTypeExit
+	qm.Message = message
+
+	if ok := p.mailbox.Urgent.Push(qm); ok == false {
+		return gen.ErrProcessMailboxFull
+	}
+
+	atomic.AddUint64(&p.messagesIn, 1)
+	p.run()
+	return nil
+}
+
+func (n *node) sendEventMessage(from gen.PID, to gen.PID, priority gen.MessagePriority, message gen.MessageEvent) error {
+	var queue lib.QueueMPSC
+
+	value, loaded := n.processes.Load(to)
+	if loaded == false {
+		return gen.ErrProcessUnknown
+	}
+	p := value.(*process)
+
+	switch priority {
+	case gen.MessagePriorityHigh:
+		queue = p.mailbox.System
+	case gen.MessagePriorityMax:
+		queue = p.mailbox.Urgent
+	default:
+		queue = p.mailbox.Main
+	}
+
+	if lib.Trace() {
+		n.log.Trace("...sendEventMessage from %s to %s ", from, to)
+	}
+
+	qm := gen.TakeMailboxMessage()
+	qm.From = from
+	qm.Type = gen.MailboxMessageTypeEvent
+	qm.Message = message
+
+	if ok := queue.Push(qm); ok == false {
+		return gen.ErrProcessMailboxFull
+	}
+
+	atomic.AddUint64(&p.messagesIn, 1)
+	p.run()
+	return nil
 }

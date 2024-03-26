@@ -1,3 +1,3 @@
-module github.com/ergo-services/ergo
+module ergo.services/ergo
 
-go 1.17
+go 1.20
