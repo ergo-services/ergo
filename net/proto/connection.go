@@ -1723,7 +1723,6 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC) {
 				l := int(buf.B[25])
 				message.Event.Name = gen.Atom(buf.B[26 : 26+l])
 				data = buf.B[26+l:]
-				fmt.Printf("DECODING event header: %#v\n", buf.B[:26+l])
 			} else {
 				id := binary.BigEndian.Uint16(buf.B[25:27])
 				if c.decodeOptions.AtomCache == nil {
@@ -1746,8 +1745,6 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC) {
 					message.Event.Name = v.(gen.Atom)
 				}
 			}
-
-			fmt.Printf("DECODING event data: %#v\n", data)
 
 			msg, tail, err := edf.Decode(data, c.decodeOptions)
 			if releaseBuffer {
