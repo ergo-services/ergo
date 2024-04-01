@@ -102,13 +102,14 @@ func (t *target) targetsNodeDown(node gen.Atom) []any {
 		// remove remote consumers (belonging to the node that went down)
 		pc := v.(*consumers)
 		pc.Lock()
-		for i, pid := range pc.list {
-			if pid.Node != node {
+		list := []gen.PID{}
+		for _, pid := range pc.list {
+			if pid.Node == node {
 				continue
 			}
-			pc.list[0] = pc.list[i]
-			pc.list = pc.list[1:]
+			list = append(list, pid)
 		}
+		pc.list = list
 		pc.Unlock()
 
 		return true

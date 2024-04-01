@@ -2,6 +2,7 @@ package inspect
 
 import (
 	"cmp"
+	"fmt"
 	"runtime"
 	"slices"
 
@@ -40,6 +41,10 @@ func (in *inode) HandleMessage(from gen.PID, message any) error {
 		info, err := in.Node().Info()
 		if err != nil {
 			return err
+		}
+
+		for k, v := range info.Env {
+			info.Env[k] = fmt.Sprintf("%#v", v)
 		}
 		slices.SortStableFunc(info.Loggers, func(a, b gen.LoggerInfo) int {
 			return cmp.Compare(a.Name, b.Name)

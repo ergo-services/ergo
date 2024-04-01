@@ -51,6 +51,10 @@ func (ip *iprocess) HandleMessage(from gen.PID, message any) error {
 			return gen.TerminateReasonNormal
 		}
 
+		for k, v := range info.Env {
+			info.Env[k] = fmt.Sprintf("%#v", v)
+		}
+
 		if err != nil {
 			ip.Log().Error("unable to inspect process %s: %s", ip.pid, err)
 			// will try next time (seems to be busy)

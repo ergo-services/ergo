@@ -270,7 +270,9 @@ func (n *node) RouteSendEvent(from gen.PID, token gen.Ref, options gen.MessageOp
 		if err != nil {
 			continue
 		}
-		connection.SendEvent(from, options, message)
+		if err := connection.SendEvent(from, options, message); err != nil {
+			n.log.Error("unable to send event message to the remote consumer on %s: %s", k, err)
+		}
 	}
 	return nil
 }
@@ -1431,8 +1433,8 @@ func (n *node) RouteNodeDown(name gen.Atom, reason error) {
 		}
 	}
 
+	// handle n.events with remote consumers
 	// TODO
-	// handle n.events with remote consumers (need to be cleaned up)
 }
 
 func (n *node) MakeRef() gen.Ref {
