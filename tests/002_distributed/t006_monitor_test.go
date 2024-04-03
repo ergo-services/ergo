@@ -188,7 +188,6 @@ func (t *t6) MonitoringPIDNodeDown(input any) {
 		}
 
 		if err := t.MonitorPID(pid); err != nil {
-			fmt.Println("AAA1 err", err)
 			t.testcase.err <- err
 			return
 		}

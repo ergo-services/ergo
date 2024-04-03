@@ -327,6 +327,7 @@ func registerType(tov reflect.Type) error {
 			}
 			state = state.child
 			for i := 0; i < n; i++ {
+				state.encodeType = false
 				if err := enc.Encode(value.Index(i), b, state); err != nil {
 					return err
 				}
@@ -415,6 +416,7 @@ func registerType(tov reflect.Type) error {
 			}
 			state = state.child
 			for i := 0; i < value.Len(); i++ {
+				state.encodeType = false
 				if err := enc.Encode(value.Index(i), b, state); err != nil {
 					return err
 				}

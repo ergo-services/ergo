@@ -230,6 +230,7 @@ func getEncoder(t reflect.Type, state *stateEncode) (*encoder, error) {
 			binary.BigEndian.PutUint32(buf, uint32(n))
 
 			for i := 0; i < n; i++ {
+				state.encodeType = false
 				if err := encItem.Encode(value.Index(i), b, state); err != nil {
 					return err
 				}
@@ -284,6 +285,7 @@ func getEncoder(t reflect.Type, state *stateEncode) (*encoder, error) {
 			state = state.child
 
 			for i := 0; i < l; i++ {
+				state.encodeType = false
 				if err := encItem.Encode(value.Index(i), b, state); err != nil {
 					return err
 				}

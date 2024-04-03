@@ -3881,3 +3881,37 @@ func TestEncodeRegArrayRegArray(t *testing.T) {
 		t.Fatal("incorrect value")
 	}
 }
+
+func TestEncodeStructWithMap(t *testing.T) {
+	// there was a bug with such kind of data
+	type BugInfo struct {
+		Env     map[gen.Env]any
+		Loggers []gen.LoggerInfo
+	}
+	in := BugInfo{
+		Env: map[gen.Env]any{
+			"x": "y",
+		},
+		Loggers: []gen.LoggerInfo{
+			gen.LoggerInfo{},
+		},
+	}
+	if err := RegisterTypeOf(in); err != nil {
+		panic(err)
+	}
+
+	b := lib.TakeBuffer()
+	if err := Encode(in, b, Options{}); err != nil {
+		t.Fatal(err)
+	}
+	value, _, err := Decode(b.B, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !reflect.DeepEqual(value, in) {
+		fmt.Println("exp", in)
+		fmt.Println("got", value)
+		t.Fatal("incorrect value")
+	}
+}
