@@ -650,6 +650,10 @@ func (n *network) GetConnection(name gen.Atom) (gen.Connection, error) {
 func (n *network) connect(name gen.Atom, route gen.NetworkRoute) (gen.Connection, error) {
 	var dial func(network, addr string) (net.Conn, error)
 
+	if n.running.Load() == false {
+		return nil, gen.ErrNetworkStopped
+	}
+
 	vhandshake, found := n.handshakes.Load(route.Route.HandshakeVersion.String())
 	if found == false {
 		return nil, fmt.Errorf("no handshake handler for %s", route.Route.HandshakeVersion)
