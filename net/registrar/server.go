@@ -152,7 +152,7 @@ func (s *server) terminate() {
 	s.RLock()
 	defer s.RUnlock()
 
-	for k, _ := range s.registered {
+	for k := range s.registered {
 		k.(net.Conn).Close()
 	}
 

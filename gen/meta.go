@@ -66,6 +66,7 @@ type MetaInfo struct {
 	Application     Atom
 	Behavior        string
 	MailboxSize     int64
+	MailboxQueues   MailboxQueues
 	MessagePriority MessagePriority
 	MessagesIn      uint64
 	MessagesOut     uint64

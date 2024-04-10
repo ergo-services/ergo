@@ -925,6 +925,7 @@ func (n *network) start(options gen.NetworkOptions) error {
 			}
 			return err
 		}
+
 		n.acceptors = append(n.acceptors, acceptor)
 		r := gen.Route{
 			Port:             acceptor.port,
@@ -934,10 +935,12 @@ func (n *network) start(options gen.NetworkOptions) error {
 		}
 		n.node.validateLicenses(r.HandshakeVersion, r.ProtoVersion)
 		if l.Registrar == nil {
+			acceptor.registrarInfo = n.registrar.Info
 			routes = append(routes, r)
 			continue
 		}
 
+		acceptor.registrarInfo = l.Registrar.Info
 		// custom reistrar for this listener
 		registerRoutes := gen.RegisterRoutes{
 			Routes:            []gen.Route{r},
@@ -955,8 +958,6 @@ func (n *network) start(options gen.NetworkOptions) error {
 			return fmt.Errorf("unable to register node on %s (%s): %s", registrarInfo.Server, registrarInfo.Version, err)
 		}
 		acceptor.registrarCustom = true
-		acceptor.registrarServer = registrarInfo.Server
-		acceptor.registrarVersion = registrarInfo.Version
 	}
 
 	registerRoutes := gen.RegisterRoutes{
@@ -967,17 +968,6 @@ func (n *network) start(options gen.NetworkOptions) error {
 	static, err := n.registrar.Register(n.node, registerRoutes)
 	if err != nil {
 		return fmt.Errorf("unable to register node: %s", err)
-	}
-
-	// update registrar info in the acceptors
-	registrarInfo := n.registrar.Info()
-	for i := range n.acceptors {
-		if n.acceptors[i].registrarCustom {
-			continue
-		}
-
-		n.acceptors[i].registrarServer = registrarInfo.Server
-		n.acceptors[i].registrarVersion = registrarInfo.Version
 	}
 
 	// add static routes

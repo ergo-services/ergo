@@ -364,6 +364,8 @@ func (n *node) MetaInfo(m gen.Alias) (gen.MetaInfo, error) {
 	info.Application = p.application
 	info.Behavior = mp.sbehavior
 	info.MailboxSize = mp.main.Size()
+	info.MailboxQueues.Main = mp.main.Len()
+	info.MailboxQueues.System = mp.system.Len()
 	info.MessagesIn = mp.messagesIn
 	info.MessagesOut = mp.messagesOut
 	info.MessagePriority = mp.priority
@@ -391,6 +393,10 @@ func (n *node) ProcessInfo(pid gen.PID) (gen.ProcessInfo, error) {
 	info.Application = p.application
 	info.Behavior = p.sbehavior
 	info.MailboxSize = p.mailbox.Main.Size()
+	info.MailboxQueues.Main = p.mailbox.Main.Len()
+	info.MailboxQueues.Urgent = p.mailbox.Urgent.Len()
+	info.MailboxQueues.System = p.mailbox.System.Len()
+	info.MailboxQueues.Log = p.mailbox.Log.Len()
 	info.MessagesIn = atomic.LoadUint64(&p.messagesIn)
 	info.MessagesOut = atomic.LoadUint64(&p.messagesOut)
 	info.RunningTime = atomic.LoadUint64(&p.runningTime)

@@ -15,9 +15,8 @@ type acceptor struct {
 	flags          gen.NetworkFlags
 	maxmessagesize int
 
-	registrarCustom  bool
-	registrarServer  string
-	registrarVersion gen.Version
+	registrarCustom bool
+	registrarInfo   func() gen.RegistrarInfo
 
 	handshake gen.NetworkHandshake
 	proto     gen.NetworkProto
@@ -56,15 +55,21 @@ func (a *acceptor) SetMaxMessageSize(size int) {
 }
 
 func (a *acceptor) Info() gen.AcceptorInfo {
-	return gen.AcceptorInfo{
+	info := gen.AcceptorInfo{
 		Interface:        a.l.Addr().String(),
 		MaxMessageSize:   a.maxmessagesize,
 		Flags:            a.flags,
 		TLS:              a.tls,
 		CustomRegistrar:  a.registrarCustom,
-		RegistrarServer:  a.registrarServer,
-		RegistrarVersion: a.registrarVersion,
 		HandshakeVersion: a.handshake.Version(),
 		ProtoVersion:     a.proto.Version(),
 	}
+	regInfo := a.registrarInfo()
+	if regInfo.EmbeddedServer {
+		info.RegistrarServer = "(embedded) " + regInfo.Server
+	} else {
+		info.RegistrarServer = regInfo.Server
+	}
+	info.RegistrarVersion = regInfo.Version
+	return info
 }

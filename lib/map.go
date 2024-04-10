@@ -40,3 +40,17 @@ func (m *Map[K, V]) Range(f func(k K, v V) bool) {
 	}
 	m.RUnlock()
 }
+
+func (m *Map[K, V]) LoadOrStore(key K, value V) (V, bool) {
+	m.Lock()
+	if m.m == nil {
+		m.m = make(map[K]V)
+	}
+	if x, exist := m.m[key]; exist {
+		m.Unlock()
+		return x, true
+	}
+	m.m[key] = value
+	m.Unlock()
+	return value, false
+}

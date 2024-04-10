@@ -9,9 +9,10 @@ import (
 )
 
 type queueMPSC struct {
-	lock uint32
-	head *itemMPSC
-	tail *itemMPSC
+	lock   uint32
+	head   *itemMPSC
+	tail   *itemMPSC
+	length int64
 }
 
 type queueLimitMPSC struct {
@@ -77,6 +78,7 @@ func (q *queueMPSC) Push(value any) bool {
 	i := &itemMPSC{
 		value: value,
 	}
+	atomic.AddInt64(&q.length, 1)
 	old_head := (*itemMPSC)(atomic.SwapPointer((*unsafe.Pointer)(unsafe.Pointer(&q.head)), unsafe.Pointer(i)))
 	atomic.StorePointer((*unsafe.Pointer)(unsafe.Pointer(&old_head.next)), unsafe.Pointer(i))
 	return true
@@ -115,6 +117,7 @@ func (q *queueMPSC) Pop() (any, bool) {
 	// to handle process mailbox (invoking Item() method).
 	// nothing serios, but we should use atomic operation here to set the q.tail
 	q.tail = tail_next
+	atomic.AddInt64(&q.length, -1)
 	return value, true
 }
 
@@ -132,9 +135,8 @@ func (q *queueLimitMPSC) Pop() (any, bool) {
 	return value, true
 }
 
-// Len returns -1 for the queue with no limit
 func (q *queueMPSC) Len() int64 {
-	return -1
+	return atomic.LoadInt64(&q.length)
 }
 
 func (q *queueMPSC) Size() int64 {

@@ -367,7 +367,8 @@ type ProcessInfo struct {
 	// Behavior
 	Behavior string
 	// MailboxSize
-	MailboxSize int64
+	MailboxSize   int64
+	MailboxQueues MailboxQueues
 	// MessagesIn total number of messages this process received
 	MessagesIn uint64
 	// MessagesOut total number of messages this process sent
@@ -468,4 +469,11 @@ type ProcessMailbox struct {
 	System lib.QueueMPSC
 	Urgent lib.QueueMPSC
 	Log    lib.QueueMPSC
+}
+
+type MailboxQueues struct {
+	Main   int64
+	System int64
+	Urgent int64
+	Log    int64
 }

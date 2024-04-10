@@ -31,6 +31,7 @@ var (
 		gen.NodeInfo{},
 		gen.Compression{},
 		gen.ProcessFallback{},
+		gen.MailboxQueues{},
 		gen.ProcessInfo{},
 		gen.ProcessShortInfo{},
 		gen.ProcessOptions{},
