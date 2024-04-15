@@ -15,10 +15,12 @@ import (
 
 type handshake struct {
 	poolsize int // how many TCP links accepts withing the connection
+	flags    gen.NetworkFlags
 }
 
 type Options struct {
-	PoolSize int
+	PoolSize     int
+	NetworkFlags gen.NetworkFlags
 }
 
 func Create(options Options) gen.NetworkHandshake {
@@ -27,7 +29,12 @@ func Create(options Options) gen.NetworkHandshake {
 	}
 	return &handshake{
 		poolsize: options.PoolSize,
+		flags:    options.NetworkFlags,
 	}
+}
+
+func (h *handshake) NetworkFlags() gen.NetworkFlags {
+	return h.flags
 }
 
 func (h *handshake) Version() gen.Version {

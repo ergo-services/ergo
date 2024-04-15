@@ -914,7 +914,10 @@ func (n *network) start(options gen.NetworkOptions) error {
 		}
 
 		if l.Flags.Enable == false {
-			l.Flags = options.Flags
+			l.Flags = l.Handshake.NetworkFlags()
+			if l.Flags.Enable == false {
+				l.Flags = options.Flags
+			}
 		}
 
 		acceptor, err := n.startAcceptor(l)

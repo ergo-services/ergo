@@ -296,6 +296,7 @@ type Listener struct {
 
 // Handshake defines handshake interface
 type NetworkHandshake interface {
+	NetworkFlags() NetworkFlags
 	// Start initiates handshake process.
 	// Cert value has CertManager that was used to create this connection
 	Start(NodeHandshake, net.Conn, HandshakeOptions) (HandshakeResult, error)
