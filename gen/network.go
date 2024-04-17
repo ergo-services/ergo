@@ -186,8 +186,7 @@ type NetworkOptions struct {
 	// Registrar
 	Registrar Registrar
 	// Listeners node can have multiple listening interface at once. If this list is empty
-	// the default listener will be using. Only the first listener will be registered on
-	// the Registrar
+	// the default listener will be using.
 	Listeners []Listener
 	// InsecureSkipVerify skips the certificate verification
 	InsecureSkipVerify bool
@@ -278,7 +277,11 @@ type Listener struct {
 	// PortRange a range of the ports for the attempts to start listening:
 	//   Starting from: <Port>
 	//   Ending at: <Port> + <PortRange>
-	PortRange  uint16
+	PortRange uint16
+	// TCP defines the TCP network. By default will be used IPv4 only.
+	// For IPv6 use "tcp6". To listen on any available address use "tcp"
+	TCP string
+	// BufferSize defines buffer size for the TCP connection
 	BufferSize int
 	// MaxMessageSize allows overriding the gen.NetworkOptions.MaxMessageSize setting
 	// for the connections accepted by this listener

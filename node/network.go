@@ -872,9 +872,11 @@ func (n *network) start(options gen.NetworkOptions) error {
 		return nil
 	}
 
+	nodehost := strings.Split(string(n.node.name), "@")
+
 	if len(options.Listeners) == 0 {
 		l := gen.Listener{
-			Host:           "localhost",
+			Host:           nodehost[1],
 			Port:           gen.DefaultPort,
 			CertManager:    n.node.CertManager(),
 			Cookie:         options.Cookie,
@@ -918,6 +920,17 @@ func (n *network) start(options gen.NetworkOptions) error {
 			if l.Flags.Enable == false {
 				l.Flags = options.Flags
 			}
+		}
+
+		switch l.TCP {
+		case "tcp":
+		case "tcp6":
+		default:
+			l.TCP = "tcp4"
+		}
+
+		if l.Host == "" {
+			l.Host = nodehost[1]
 		}
 
 		acceptor, err := n.startAcceptor(l)
@@ -1031,8 +1044,13 @@ func (n *network) startAcceptor(l gen.Listener) (*acceptor, error) {
 
 	for i := pstart; i < pend+1; i++ {
 		hp := net.JoinHostPort(l.Host, strconv.Itoa(int(i)))
-		lcl, err := lc.Listen(context.Background(), "tcp", hp)
+		lcl, err := lc.Listen(context.Background(), l.TCP, hp)
 		if err != nil {
+			if e, ok := err.(*net.OpError); ok {
+				if _, ok := e.Err.(*net.DNSError); ok {
+					return nil, err
+				}
+			}
 			continue
 		}
 
@@ -1042,7 +1060,8 @@ func (n *network) startAcceptor(l gen.Listener) (*acceptor, error) {
 	}
 
 	if acceptor.l == nil {
-		return acceptor, fmt.Errorf("no available ports in range %d..%d", pstart, pend)
+		return acceptor, fmt.Errorf("unable to assign requested address %s: no available ports in range %d..%d",
+			l.Host, pstart, pend)
 	}
 
 	if cert != nil {
