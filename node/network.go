@@ -134,6 +134,30 @@ func (n *network) GetNode(name gen.Atom) (gen.RemoteNode, error) {
 func (n *network) GetNodeWithRoute(name gen.Atom, route gen.NetworkRoute) (gen.RemoteNode, error) {
 	var emptyVersion gen.Version
 
+	route.InsecureSkipVerify = n.skipverify
+
+	if route.Resolver != nil {
+		resolved, err := route.Resolver.Resolve(name)
+		if err != nil {
+			return nil, err
+		}
+		route.Route.Port = resolved[0].Port
+		route.Route.TLS = resolved[0].TLS
+		if route.Route.HandshakeVersion == emptyVersion {
+			route.Route.HandshakeVersion = resolved[0].HandshakeVersion
+		}
+		if route.Route.ProtoVersion == emptyVersion {
+			route.Route.ProtoVersion = resolved[0].ProtoVersion
+		}
+		if route.Route.Host == "" {
+			route.Route.Host = resolved[0].Host
+		}
+	}
+
+	if route.Route.Port == 0 {
+		return nil, gen.ErrNoRoute
+	}
+
 	if route.Route.HandshakeVersion == emptyVersion {
 		route.Route.HandshakeVersion = n.defaultHandshake.Version()
 	}
@@ -141,8 +165,6 @@ func (n *network) GetNodeWithRoute(name gen.Atom, route gen.NetworkRoute) (gen.R
 	if route.Route.ProtoVersion == emptyVersion {
 		route.Route.ProtoVersion = n.defaultProto.Version()
 	}
-
-	route.InsecureSkipVerify = n.skipverify
 
 	c, err := n.connect(name, route)
 	if err != nil {
