@@ -81,9 +81,9 @@ func (e *enp) NewConnection(core gen.Core, result gen.HandshakeResult, log gen.L
 	return conn, nil
 }
 
-func (e *enp) Serve(c gen.Connection, dial gen.NetworkDial) error {
+func (e *enp) Serve(c gen.Connection, redial gen.NetworkDial) error {
 	conn := c.(*connection)
-	if dial == nil {
+	if redial == nil {
 		// accepted connection. no dialer.
 		conn.wait()
 		return nil
@@ -111,7 +111,7 @@ func (e *enp) Serve(c gen.Connection, dial gen.NetworkDial) error {
 		if lib.Trace() {
 			conn.log.Trace("dialing %s (pool: %d of %d)", dsn, i+1, conn.pool_size)
 		}
-		nc, tail, err := dial(dsn, conn.id)
+		nc, tail, err := redial(dsn, conn.id)
 		if err != nil {
 			if lib.Trace() {
 				conn.log.Trace("dialing %s failed: %s", dsn, err)
@@ -119,7 +119,7 @@ func (e *enp) Serve(c gen.Connection, dial gen.NetworkDial) error {
 			continue
 		}
 
-		if err := conn.Join(nc, conn.id, dial, tail); err != nil {
+		if err := conn.Join(nc, conn.id, redial, tail); err != nil {
 			conn.log.Error("unable to join %s: %s", nc.RemoteAddr().String(), err)
 		}
 	}

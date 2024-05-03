@@ -48,6 +48,7 @@ type MessageAccept struct {
 	ID       string
 	PoolSize int
 	PoolDSN  []string
+	Digest   string // TODO should be used on a JOIN process (hash id:cookie)
 }
 
 type ConnectionOptions struct {

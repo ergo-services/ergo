@@ -757,7 +757,7 @@ func (n *network) connect(name gen.Atom, route gen.NetworkRoute) (gen.Connection
 		return nil, err
 	}
 
-	ndial := func(dsn, id string) (net.Conn, []byte, error) {
+	redial := func(dsn, id string) (net.Conn, []byte, error) {
 		c, err := dial("tcp", dsn)
 		if err != nil {
 			return nil, nil, err
@@ -778,13 +778,13 @@ func (n *network) connect(name gen.Atom, route gen.NetworkRoute) (gen.Connection
 		return nil, err
 	}
 
-	pconn.Join(conn, result.ConnectionID, ndial, result.Tail)
-	go n.serve(proto, pconn, ndial)
+	pconn.Join(conn, result.ConnectionID, redial, result.Tail)
+	go n.serve(proto, pconn, redial)
 
 	return pconn, nil
 }
 
-func (n *network) serve(proto gen.NetworkProto, conn gen.Connection, dial gen.NetworkDial) {
+func (n *network) serve(proto gen.NetworkProto, conn gen.Connection, redial gen.NetworkDial) {
 	name := conn.Node().Name()
 	if lib.Recover() {
 		defer func() {
@@ -796,7 +796,7 @@ func (n *network) serve(proto gen.NetworkProto, conn gen.Connection, dial gen.Ne
 		}()
 	}
 
-	err := proto.Serve(conn, dial)
+	err := proto.Serve(conn, redial)
 	n.unregisterConnection(name, err)
 	conn.Terminate(err)
 }
