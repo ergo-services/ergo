@@ -430,7 +430,7 @@ func (n *network) RegisterHandshake(handshake gen.NetworkHandshake) {
 		n.node.Log().Error("unable to register nil value as a handshake")
 		return
 	}
-	_, exist := n.handshakes.LoadOrStore(handshake.Version().String(), handshake)
+	_, exist := n.handshakes.LoadOrStore(handshake.Version().Str(), handshake)
 	if exist == false {
 		if lib.Trace() {
 			n.node.Log().Trace("registered handshake %s", handshake.Version())
@@ -443,7 +443,7 @@ func (n *network) RegisterProto(proto gen.NetworkProto) {
 		n.node.Log().Error("unable to register nil value as a proto ")
 		return
 	}
-	_, exist := n.protos.LoadOrStore(proto.Version().String(), proto)
+	_, exist := n.protos.LoadOrStore(proto.Version().Str(), proto)
 	if exist == false {
 		if lib.Trace() {
 			n.node.Log().Trace("registered proto %s", proto.Version())
@@ -676,11 +676,11 @@ func (n *network) connect(name gen.Atom, route gen.NetworkRoute) (gen.Connection
 		return nil, gen.ErrNetworkStopped
 	}
 
-	vhandshake, found := n.handshakes.Load(route.Route.HandshakeVersion.String())
+	vhandshake, found := n.handshakes.Load(route.Route.HandshakeVersion.Str())
 	if found == false {
 		return nil, fmt.Errorf("no handshake handler for %s", route.Route.HandshakeVersion)
 	}
-	vproto, found := n.protos.Load(route.Route.ProtoVersion.String())
+	vproto, found := n.protos.Load(route.Route.ProtoVersion.Str())
 	if found == false {
 		return nil, fmt.Errorf("no proto handler for %s", route.Route.ProtoVersion)
 	}

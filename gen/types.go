@@ -135,9 +135,13 @@ type Version struct {
 
 func (v Version) String() string {
 	if v.Commit == "" {
-		return fmt.Sprintf("%s:%s", v.Name, v.Release)
+		return v.Str()
 	}
 	return fmt.Sprintf("%s:%s[%s]", v.Name, v.Release, v.Commit)
+}
+
+func (v Version) Str() string {
+	return fmt.Sprintf("%s:%s", v.Name, v.Release)
 }
 
 // LogLevel
