@@ -55,21 +55,28 @@ func (e *enp) NewConnection(core gen.Core, result gen.HandshakeResult, log gen.L
 		pool_dsn:  opts.PoolDSN,
 
 		encodeOptions: edf.Options{
-			AtomMapping: opts.EncodeAtomMapping,
-			AtomCache:   opts.EncodeAtomCache,
-			RegCache:    opts.EncodeRegCache,
-			ErrCache:    opts.EncodeErrCache,
-			Cache:       new(sync.Map),
+			AtomCache: opts.EncodeAtomCache,
+			RegCache:  opts.EncodeRegCache,
+			ErrCache:  opts.EncodeErrCache,
+			Cache:     new(sync.Map),
 		},
 
 		decodeOptions: edf.Options{
-			AtomMapping: opts.DecodeAtomMapping,
-			AtomCache:   opts.DecodeAtomCache,
-			RegCache:    opts.DecodeRegCache,
-			ErrCache:    opts.DecodeErrCache,
-			Cache:       new(sync.Map),
+			AtomCache: opts.DecodeAtomCache,
+			RegCache:  opts.DecodeRegCache,
+			ErrCache:  opts.DecodeErrCache,
+			Cache:     new(sync.Map),
 		},
 		requests: make(map[gen.Ref]chan MessageResult),
+	}
+
+	if len(result.AtomMapping) > 0 {
+		conn.encodeOptions.AtomMapping = &sync.Map{}
+		conn.decodeOptions.AtomMapping = &sync.Map{}
+		for k, v := range result.AtomMapping {
+			conn.encodeOptions.AtomMapping.Store(k, v)
+			conn.decodeOptions.AtomMapping.Store(v, k)
+		}
 	}
 
 	// init recv queues. create 4 recv queues per connection

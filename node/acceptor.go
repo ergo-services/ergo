@@ -7,19 +7,21 @@ import (
 )
 
 type acceptor struct {
-	l              net.Listener
-	bs             int
-	cookie         string
-	port           uint16
-	tls            bool
-	flags          gen.NetworkFlags
-	maxmessagesize int
+	l                net.Listener
+	bs               int
+	cookie           string
+	port             uint16
+	tls              bool
+	flags            gen.NetworkFlags
+	max_message_size int
 
-	registrarCustom bool
-	registrarInfo   func() gen.RegistrarInfo
+	registrar_custom bool
+	registrar_info   func() gen.RegistrarInfo
 
 	handshake gen.NetworkHandshake
 	proto     gen.NetworkProto
+
+	atom_mapping map[gen.Atom]gen.Atom
 }
 
 // gen.Acceptor interface implementation
@@ -44,27 +46,28 @@ func (a *acceptor) SetNetworkFlags(flags gen.NetworkFlags) {
 }
 
 func (a *acceptor) MaxMessageSize() int {
-	return a.maxmessagesize
+	return a.max_message_size
 }
 
 func (a *acceptor) SetMaxMessageSize(size int) {
 	if size < 0 {
 		size = 0
 	}
-	a.maxmessagesize = size
+	a.max_message_size = size
+
 }
 
 func (a *acceptor) Info() gen.AcceptorInfo {
 	info := gen.AcceptorInfo{
 		Interface:        a.l.Addr().String(),
-		MaxMessageSize:   a.maxmessagesize,
+		MaxMessageSize:   a.max_message_size,
 		Flags:            a.flags,
 		TLS:              a.tls,
-		CustomRegistrar:  a.registrarCustom,
+		CustomRegistrar:  a.registrar_custom,
 		HandshakeVersion: a.handshake.Version(),
 		ProtoVersion:     a.proto.Version(),
 	}
-	regInfo := a.registrarInfo()
+	regInfo := a.registrar_info()
 	if regInfo.EmbeddedServer {
 		info.RegistrarServer = "(embedded) " + regInfo.Server
 	} else {

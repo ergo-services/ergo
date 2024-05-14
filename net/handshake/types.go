@@ -55,15 +55,13 @@ type ConnectionOptions struct {
 	PoolSize int
 	PoolDSN  []string
 
-	EncodeAtomMapping *sync.Map
-	EncodeAtomCache   *sync.Map
-	EncodeRegCache    *sync.Map
-	EncodeErrCache    *sync.Map
+	EncodeAtomCache *sync.Map
+	EncodeRegCache  *sync.Map
+	EncodeErrCache  *sync.Map
 
-	DecodeAtomMapping *sync.Map
-	DecodeAtomCache   *sync.Map
-	DecodeRegCache    *sync.Map
-	DecodeErrCache    *sync.Map
+	DecodeAtomCache *sync.Map
+	DecodeRegCache  *sync.Map
+	DecodeErrCache  *sync.Map
 }
 
 func init() {

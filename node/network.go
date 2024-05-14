@@ -740,6 +740,15 @@ func (n *network) connect(name gen.Atom, route gen.NetworkRoute) (gen.Connection
 		return nil, fmt.Errorf("remote node %s introduced itself as %s", name, result.Peer)
 	}
 
+	mapping := make(map[gen.Atom]gen.Atom)
+	for k, v := range route.AtomMapping {
+		mapping[k] = v
+	}
+	for k, v := range result.AtomMapping {
+		mapping[k] = v
+	}
+	result.AtomMapping = mapping
+
 	if route.LogLevel == gen.LogLevelDefault {
 		route.LogLevel = n.node.Log().Level()
 	}
@@ -973,12 +982,12 @@ func (n *network) start(options gen.NetworkOptions) error {
 		}
 		n.node.validateLicenses(r.HandshakeVersion, r.ProtoVersion)
 		if l.Registrar == nil {
-			acceptor.registrarInfo = n.registrar.Info
+			acceptor.registrar_info = n.registrar.Info
 			routes = append(routes, r)
 			continue
 		}
 
-		acceptor.registrarInfo = l.Registrar.Info
+		acceptor.registrar_info = l.Registrar.Info
 		// custom reistrar for this listener
 		registerRoutes := gen.RegisterRoutes{
 			Routes:            []gen.Route{r},
@@ -995,7 +1004,7 @@ func (n *network) start(options gen.NetworkOptions) error {
 			}
 			return fmt.Errorf("unable to register node on %s (%s): %s", registrarInfo.Server, registrarInfo.Version, err)
 		}
-		acceptor.registrarCustom = true
+		acceptor.registrar_custom = true
 	}
 
 	registerRoutes := gen.RegisterRoutes{
@@ -1054,14 +1063,18 @@ func (n *network) startAcceptor(l gen.Listener) (*acceptor, error) {
 	}
 
 	acceptor := &acceptor{
-		bs:             bs,
-		proto:          l.Proto,
-		handshake:      l.Handshake,
-		tls:            cert != nil,
-		maxmessagesize: l.MaxMessageSize,
+		bs:               bs,
+		proto:            l.Proto,
+		handshake:        l.Handshake,
+		tls:              cert != nil,
+		max_message_size: l.MaxMessageSize,
+		atom_mapping:     make(map[gen.Atom]gen.Atom),
 	}
 	if l.Cookie == "" {
 		acceptor.cookie = n.cookie
+	}
+	for k, v := range l.AtomMapping {
+		acceptor.atom_mapping[k] = v
 	}
 
 	for i := pstart; i < pend+1; i++ {
@@ -1119,7 +1132,7 @@ func (n *network) accept(a *acceptor) {
 	hopts := gen.HandshakeOptions{
 		Cookie:         a.cookie,
 		Flags:          a.flags,
-		MaxMessageSize: a.maxmessagesize,
+		MaxMessageSize: a.max_message_size,
 	}
 	for {
 		c, err := a.l.Accept()
@@ -1152,6 +1165,17 @@ func (n *network) accept(a *acceptor) {
 			c.Close()
 			continue
 		}
+
+		// update atom mapping: a.atom_mapping + result.AtomMapping
+		mapping := make(map[gen.Atom]gen.Atom)
+		for k, v := range a.atom_mapping {
+			mapping[k] = v
+		}
+		for k, v := range result.AtomMapping {
+			mapping[k] = v
+		}
+		result.AtomMapping = mapping
+
 		// check if we already have connection with this node
 		if v, exist := n.connections.Load(result.Peer); exist {
 			conn := v.(gen.Connection)

@@ -114,5 +114,12 @@ func (h *handshake) Start(node gen.NodeHandshake, conn net.Conn, options gen.Han
 	}
 	result.Custom = custom
 
+	if len(h.atom_mapping) > 0 {
+		result.AtomMapping = make(map[gen.Atom]gen.Atom)
+		for k, v := range h.atom_mapping {
+			result.AtomMapping[k] = v
+		}
+	}
+
 	return result, nil
 }

@@ -39,9 +39,11 @@ const (
 	// any structured message (link/monitor/spawn/etc...)
 	protoMessageAny byte = 199
 
+	// order: compressed -> encrypted -> fragmented -> proxy
 	protoMessageZ byte = 200 // compressed
-	protoMessageF byte = 201 // fragmented
-	protoMessageP byte = 202 // proxy
+	protoMessageE byte = 201 // encrypted
+	protoMessageF byte = 202 // fragmented
+	protoMessageP byte = 203 // proxy
 
 	// TODO
 	// protoFragmentSize int = 65000
@@ -168,7 +170,7 @@ type MessageApplicationStart struct {
 	Ref     gen.Ref
 }
 
-//
+// TODO
 // for updating cache
 //
 

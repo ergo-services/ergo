@@ -287,7 +287,8 @@ type Listener struct {
 	// for the connections accepted by this listener
 	MaxMessageSize int
 
-	Flags NetworkFlags
+	Flags       NetworkFlags
+	AtomMapping map[Atom]Atom
 
 	CertManager        CertManager
 	InsecureSkipVerify bool
@@ -329,6 +330,8 @@ type HandshakeResult struct {
 
 	NodeFlags          NetworkFlags
 	NodeMaxMessageSize int
+
+	AtomMapping map[Atom]Atom
 
 	// Tail if something is left in the buffer after the handshaking we should
 	// pass it to the proto handler
@@ -387,6 +390,8 @@ type NetworkRoute struct {
 	Cert               CertManager
 	InsecureSkipVerify bool
 	Flags              NetworkFlags
+
+	AtomMapping map[Atom]Atom
 
 	LogLevel LogLevel
 }

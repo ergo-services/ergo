@@ -14,22 +14,32 @@ import (
 )
 
 type handshake struct {
-	poolsize int // how many TCP links accepts withing the connection
-	flags    gen.NetworkFlags
+	poolsize     int // how many TCP links accepts withing the connection
+	flags        gen.NetworkFlags
+	atom_mapping map[gen.Atom]gen.Atom
 }
 
 type Options struct {
 	PoolSize     int
 	NetworkFlags gen.NetworkFlags
+	AtomMapping  map[gen.Atom]gen.Atom
 }
 
 func Create(options Options) gen.NetworkHandshake {
+	var mapping map[gen.Atom]gen.Atom
 	if options.PoolSize < 1 {
 		options.PoolSize = defaultPoolSize
 	}
+	if len(options.AtomMapping) > 0 {
+		mapping = make(map[gen.Atom]gen.Atom)
+		for k, v := range options.AtomMapping {
+			mapping[k] = v
+		}
+	}
 	return &handshake{
-		poolsize: options.PoolSize,
-		flags:    options.NetworkFlags,
+		poolsize:     options.PoolSize,
+		flags:        options.NetworkFlags,
+		atom_mapping: mapping,
 	}
 }
 
