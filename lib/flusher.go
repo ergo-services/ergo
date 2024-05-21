@@ -12,6 +12,31 @@ const (
 	latency time.Duration = 300 * time.Nanosecond
 )
 
+func NewFlusherWithKeepAlive(conn net.Conn, keepalive []byte, keepalivePeriod time.Duration) io.Writer {
+	f := &flusher{
+		writer: bufio.NewWriter(conn),
+	}
+	f.timer = time.AfterFunc(latency, func() {
+		f.Lock()
+		defer f.Unlock()
+
+		if f.pending == false {
+			// nothing to write. send keepalive.
+			f.writer.Write(keepalive)
+			f.writer.Flush()
+			f.timer.Reset(keepalivePeriod)
+			return
+		}
+
+		f.writer.Flush()
+		f.pending = false
+		f.timer.Reset(latency)
+	})
+
+	return f
+
+}
+
 func NewFlusher(conn net.Conn) io.Writer {
 	f := &flusher{
 		writer: bufio.NewWriter(conn),
