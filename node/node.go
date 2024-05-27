@@ -686,7 +686,6 @@ func (n *node) ProcessListShortInfo(start, limit int) ([]gen.ProcessShortInfo, e
 			MessagesIn:      process.messagesIn,
 			MessagesOut:     process.messagesOut,
 			MessagesMailbox: uint64(messagesMailbox),
-			MailboxSize:     process.mailbox.Main.Size(),
 			RunningTime:     process.runningTime,
 			Uptime:          process.Uptime(),
 			State:           process.State(),

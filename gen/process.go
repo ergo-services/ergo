@@ -445,8 +445,6 @@ type ProcessShortInfo struct {
 	MessagesOut uint64
 	// MessagesMailbox total number of messages in mailbox queues
 	MessagesMailbox uint64
-	// MailboxSize size of mailbox queues.
-	MailboxSize int64
 	// RunningTime how long this process was in 'running' state in ns
 	RunningTime uint64
 	// Uptime of the process in seconds
