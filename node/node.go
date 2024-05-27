@@ -657,42 +657,46 @@ func (n *node) ProcessListShortInfo(start, limit int) ([]gen.ProcessShortInfo, e
 		limit = 100
 	}
 	ustart := uint64(start)
-	uend := uint64(start + limit - 1)
 	psi := []gen.ProcessShortInfo{}
+	pid := n.corePID
 
-	n.processes.Range(func(_, v any) bool {
-		if limit < 1 {
-			// done
-			return false
+	for limit > 0 {
+
+		if ustart > n.nextID {
+			break
+		}
+
+		pid.ID = ustart
+		ustart++
+		v, found := n.processes.Load(pid)
+		if found == false {
+			continue
 		}
 		process := v.(*process)
-		if process.pid.ID < ustart {
-			// skip
-			return true
-		}
-		if process.pid.ID > uend {
-			// skip
-			return true
-		}
+		messagesMailbox := process.mailbox.Main.Len() +
+			process.mailbox.System.Len() +
+			process.mailbox.Urgent.Len() +
+			process.mailbox.Log.Len()
 
 		info := gen.ProcessShortInfo{
-			PID:         process.pid,
-			Name:        process.name,
-			Application: process.application,
-			Behavior:    process.sbehavior,
-			MessagesIn:  process.messagesIn,
-			MessagesOut: process.messagesOut,
-			RunningTime: process.runningTime,
-			Uptime:      process.Uptime(),
-			State:       process.State(),
-			Parent:      process.parent,
-			Leader:      process.leader,
-			LogLevel:    process.log.Level(),
+			PID:             process.pid,
+			Name:            process.name,
+			Application:     process.application,
+			Behavior:        process.sbehavior,
+			MessagesIn:      process.messagesIn,
+			MessagesOut:     process.messagesOut,
+			MessagesMailbox: uint64(messagesMailbox),
+			MailboxSize:     process.mailbox.Main.Size(),
+			RunningTime:     process.runningTime,
+			Uptime:          process.Uptime(),
+			State:           process.State(),
+			Parent:          process.parent,
+			Leader:          process.leader,
+			LogLevel:        process.log.Level(),
 		}
 		psi = append(psi, info)
 		limit--
-		return true
-	})
+	}
 
 	return psi, nil
 

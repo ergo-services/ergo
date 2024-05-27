@@ -439,10 +439,14 @@ type ProcessShortInfo struct {
 	Application Atom
 	// Behavior
 	Behavior string
-	// Messages total number of messages this process received
+	// MessagesIn total number of messages this process received
 	MessagesIn uint64
-	// Messages total number of messages this process sent
+	// MessagesOut total number of messages this process sent
 	MessagesOut uint64
+	// MessagesMailbox total number of messages in mailbox queues
+	MessagesMailbox uint64
+	// MailboxSize size of mailbox queues.
+	MailboxSize int64
 	// RunningTime how long this process was in 'running' state in ns
 	RunningTime uint64
 	// Uptime of the process in seconds
