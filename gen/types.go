@@ -134,6 +134,9 @@ type Version struct {
 }
 
 func (v Version) String() string {
+	if v.Name == "" {
+		return ""
+	}
 	if v.Commit == "" {
 		return v.Str()
 	}
@@ -141,6 +144,9 @@ func (v Version) String() string {
 }
 
 func (v Version) Str() string {
+	if v.Name == "" {
+		return ""
+	}
 	return fmt.Sprintf("%s:%s", v.Name, v.Release)
 }
 

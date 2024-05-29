@@ -23,7 +23,10 @@ func NewFlusherWithKeepAlive(conn net.Conn, keepalive []byte, keepalivePeriod ti
 		if f.pending == false {
 			// nothing to write. send keepalive.
 			f.writer.Write(keepalive)
-			f.writer.Flush()
+			if err := f.writer.Flush(); err != nil {
+				return
+			}
+
 			f.timer.Reset(keepalivePeriod)
 			return
 		}
