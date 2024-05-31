@@ -234,14 +234,16 @@ func (s *server) serveConn(conn net.Conn) {
 	}
 
 	conn.SetReadDeadline(time.Time{})
+	defer s.unregisterNode(routes.Node, conn)
 	for {
-		if _, err := conn.Read(buf); err != nil {
+		n, err := conn.Read(buf)
+		if err != nil {
 			return
 		}
 
-		// disconnected. unregister this node
-		s.unregisterNode(routes.Node, conn)
-		return
+		if n > 0 {
+			s.log.Warning("(registrar) misbehavior in reg link with %s, received %d bytes. ignored", routes.Node, n)
+		}
 	}
 }
 
