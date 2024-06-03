@@ -349,12 +349,12 @@ func encodeRef(value reflect.Value, b *lib.Buffer, state *stateEncode) error {
 	}
 	r := value.Interface().(gen.Ref)
 	writeAtom(r.Node, b, state)
-	// 8 (creation) + 12 ([3]uint32)
-	buf := b.Extend(8 + 12)
+	// 8 (creation) + 24 ([3]uint64)
+	buf := b.Extend(8 + 24)
 	binary.BigEndian.PutUint64(buf[0:8], uint64(r.Creation))
-	binary.BigEndian.PutUint32(buf[8:12], r.ID[0])
-	binary.BigEndian.PutUint32(buf[12:16], r.ID[1])
-	binary.BigEndian.PutUint32(buf[16:20], r.ID[2])
+	binary.BigEndian.PutUint64(buf[8:16], r.ID[0])
+	binary.BigEndian.PutUint64(buf[16:24], r.ID[1])
+	binary.BigEndian.PutUint64(buf[24:32], r.ID[2])
 	return nil
 }
 
@@ -364,12 +364,12 @@ func encodeAlias(value reflect.Value, b *lib.Buffer, state *stateEncode) error {
 	}
 	a := value.Interface().(gen.Alias)
 	writeAtom(a.Node, b, state)
-	// 8 (creation) + 12 ([3]uint32)
-	buf := b.Extend(8 + 12)
+	// 8 (creation) + 24 ([3]uint64)
+	buf := b.Extend(8 + 24)
 	binary.BigEndian.PutUint64(buf[0:8], uint64(a.Creation))
-	binary.BigEndian.PutUint32(buf[8:12], a.ID[0])
-	binary.BigEndian.PutUint32(buf[12:16], a.ID[1])
-	binary.BigEndian.PutUint32(buf[16:20], a.ID[2])
+	binary.BigEndian.PutUint64(buf[8:16], a.ID[0])
+	binary.BigEndian.PutUint64(buf[16:24], a.ID[1])
+	binary.BigEndian.PutUint64(buf[24:32], a.ID[2])
 	return nil
 }
 

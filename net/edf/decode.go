@@ -495,15 +495,15 @@ func decodeRef(value *reflect.Value, packet []byte, state *stateDecode) (*reflec
 		return nil, nil, err
 	}
 
-	// 8 (creation) + 12 ([3]uint32)
-	if len(packet) < 20 {
+	// 8 (creation) + 24 ([3]uint64)
+	if len(packet) < 32 {
 		return nil, nil, errDecodeEOD
 	}
 	ref.Creation = int64(binary.BigEndian.Uint64(packet[:8]))
-	ref.ID[0] = binary.BigEndian.Uint32(packet[8:12])
-	ref.ID[1] = binary.BigEndian.Uint32(packet[12:16])
-	ref.ID[2] = binary.BigEndian.Uint32(packet[16:20])
-	packet = packet[20:]
+	ref.ID[0] = binary.BigEndian.Uint64(packet[8:16])
+	ref.ID[1] = binary.BigEndian.Uint64(packet[16:24])
+	ref.ID[2] = binary.BigEndian.Uint64(packet[24:32])
+	packet = packet[32:]
 
 	v := reflect.ValueOf(ref)
 	if value == nil {
@@ -533,15 +533,15 @@ func decodeAlias(value *reflect.Value, packet []byte, state *stateDecode) (*refl
 		return nil, nil, err
 	}
 
-	// 8 (creation) + 12 ([3]uint32)
-	if len(packet) < 20 {
+	// 8 (creation) + 24 ([3]uint64)
+	if len(packet) < 32 {
 		return nil, nil, errDecodeEOD
 	}
 	alias.Creation = int64(binary.BigEndian.Uint64(packet[:8]))
-	alias.ID[0] = binary.BigEndian.Uint32(packet[8:12])
-	alias.ID[1] = binary.BigEndian.Uint32(packet[12:16])
-	alias.ID[2] = binary.BigEndian.Uint32(packet[16:20])
-	packet = packet[20:]
+	alias.ID[0] = binary.BigEndian.Uint64(packet[8:16])
+	alias.ID[1] = binary.BigEndian.Uint64(packet[16:24])
+	alias.ID[2] = binary.BigEndian.Uint64(packet[24:32])
+	packet = packet[32:]
 
 	v := reflect.ValueOf(alias)
 	if value == nil {

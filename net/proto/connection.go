@@ -368,8 +368,8 @@ func (c *connection) SendAlias(from gen.PID, to gen.Alias, options gen.MessageOp
 	}
 
 	buf := lib.TakeBuffer()
-	// 8 (header) + 8 (process id from) + 1 priority + 12 (alias id [3]uint32)
-	buf.Allocate(8 + 8 + 1 + 12)
+	// 8 (header) + 8 (process id from) + 1 priority + 24 (alias id [3]uint64)
+	buf.Allocate(8 + 8 + 1 + 24)
 
 	if err := edf.Encode(message, buf, c.encodeOptions); err != nil {
 		return err
@@ -390,9 +390,9 @@ func (c *connection) SendAlias(from gen.PID, to gen.Alias, options gen.MessageOp
 	buf.B[7] = protoMessageAlias
 	binary.BigEndian.PutUint64(buf.B[8:16], from.ID)
 	buf.B[16] = byte(options.Priority) // usual value 0, 1, or 2, so just cast it
-	binary.BigEndian.PutUint32(buf.B[17:21], to.ID[0])
-	binary.BigEndian.PutUint32(buf.B[21:25], to.ID[1])
-	binary.BigEndian.PutUint32(buf.B[25:29], to.ID[2])
+	binary.BigEndian.PutUint64(buf.B[17:25], to.ID[0])
+	binary.BigEndian.PutUint64(buf.B[25:33], to.ID[1])
+	binary.BigEndian.PutUint64(buf.B[33:41], to.ID[2])
 
 	return c.send(buf, order, options.Compression)
 }
@@ -504,8 +504,8 @@ func (c *connection) SendResponse(from gen.PID, to gen.PID, ref gen.Ref, options
 	}
 
 	buf := lib.TakeBuffer()
-	// 8 (header) + 8 (process id from) + 1 priority + 8 (process id to) + 12 (ref [3]uint32)
-	buf.Allocate(8 + 8 + 1 + 8 + 12)
+	// 8 (header) + 8 (process id from) + 1 priority + 8 (process id to) + 24 (ref [3]uint64)
+	buf.Allocate(8 + 8 + 1 + 8 + 24)
 
 	if err := edf.Encode(response, buf, c.encodeOptions); err != nil {
 		return err
@@ -527,9 +527,9 @@ func (c *connection) SendResponse(from gen.PID, to gen.PID, ref gen.Ref, options
 	binary.BigEndian.PutUint64(buf.B[8:16], from.ID)
 	buf.B[16] = byte(options.Priority) // usual value 0, 1, or 2, so just cast it
 	binary.BigEndian.PutUint64(buf.B[17:25], to.ID)
-	binary.BigEndian.PutUint32(buf.B[25:29], ref.ID[0])
-	binary.BigEndian.PutUint32(buf.B[29:33], ref.ID[1])
-	binary.BigEndian.PutUint32(buf.B[33:37], ref.ID[2])
+	binary.BigEndian.PutUint64(buf.B[25:33], ref.ID[0])
+	binary.BigEndian.PutUint64(buf.B[33:41], ref.ID[1])
+	binary.BigEndian.PutUint64(buf.B[41:49], ref.ID[2])
 
 	return c.send(buf, order, options.Compression)
 }
@@ -612,8 +612,8 @@ func (c *connection) SendTerminateAlias(target gen.Alias, reason error) error {
 		return gen.ErrProcessIncarnation
 	}
 	buf := lib.TakeBuffer()
-	// 8 (header) + 1 priority + 12 (target alias id [3]uint32)
-	buf.Allocate(8 + 1 + 12)
+	// 8 (header) + 1 priority + 24 (target alias id [3]uint64)
+	buf.Allocate(8 + 1 + 24)
 
 	if err := edf.Encode(reason, buf, c.encodeOptions); err != nil {
 		return err
@@ -625,9 +625,9 @@ func (c *connection) SendTerminateAlias(target gen.Alias, reason error) error {
 	buf.B[6] = 0
 	buf.B[7] = protoMessageTerminateAlias
 	buf.B[8] = byte(gen.MessagePriorityHigh)
-	binary.BigEndian.PutUint32(buf.B[9:13], target.ID[0])
-	binary.BigEndian.PutUint32(buf.B[13:17], target.ID[1])
-	binary.BigEndian.PutUint32(buf.B[17:21], target.ID[2])
+	binary.BigEndian.PutUint64(buf.B[9:17], target.ID[0])
+	binary.BigEndian.PutUint64(buf.B[17:25], target.ID[1])
+	binary.BigEndian.PutUint64(buf.B[25:33], target.ID[2])
 
 	return c.send(buf, 0, gen.Compression{})
 }
@@ -696,8 +696,8 @@ func (c *connection) CallPID(ref gen.Ref, from gen.PID, to gen.PID, options gen.
 	}
 
 	buf := lib.TakeBuffer()
-	// 8 (header) + 8 (process id from) + 1 priority + 12 (request ref) + 8 (process id to)
-	buf.Allocate(8 + 8 + 1 + 12 + 8)
+	// 8 (header) + 8 (process id from) + 1 priority + 24 (request ref) + 8 (process id to)
+	buf.Allocate(8 + 8 + 1 + 24 + 8)
 
 	if err := edf.Encode(message, buf, c.encodeOptions); err != nil {
 		return err
@@ -713,10 +713,10 @@ func (c *connection) CallPID(ref gen.Ref, from gen.PID, to gen.PID, options gen.
 	buf.B[7] = protoRequestPID
 	binary.BigEndian.PutUint64(buf.B[8:16], from.ID)
 	buf.B[16] = byte(options.Priority)
-	binary.BigEndian.PutUint32(buf.B[17:21], ref.ID[0])
-	binary.BigEndian.PutUint32(buf.B[21:25], ref.ID[1])
-	binary.BigEndian.PutUint32(buf.B[25:29], ref.ID[2])
-	binary.BigEndian.PutUint64(buf.B[29:37], to.ID)
+	binary.BigEndian.PutUint64(buf.B[17:25], ref.ID[0])
+	binary.BigEndian.PutUint64(buf.B[25:33], ref.ID[1])
+	binary.BigEndian.PutUint64(buf.B[33:41], ref.ID[2])
+	binary.BigEndian.PutUint64(buf.B[41:49], to.ID)
 
 	return c.send(buf, order, options.Compression)
 }
@@ -748,11 +748,11 @@ func (c *connection) CallProcessID(ref gen.Ref, from gen.PID, to gen.ProcessID, 
 
 	buf := lib.TakeBuffer()
 	if toNameCached > 0 {
-		// 8 (header) + 8 (process id from) + 1 priority + 12 (request ref)  + 2 (cache id)
-		buf.Allocate(8 + 8 + 1 + 12 + 2)
+		// 8 (header) + 8 (process id from) + 1 priority + 24 (request ref)  + 2 (cache id)
+		buf.Allocate(8 + 8 + 1 + 24 + 2)
 	} else {
-		// 8 (header) + 8 (process id from) + 1 priority + 12 (request ref) +1 (size(bname)) + bname
-		buf.Allocate(8 + 8 + 1 + 12 + 1 + len(bname))
+		// 8 (header) + 8 (process id from) + 1 priority + 24 (request ref) +1 (size(bname)) + bname
+		buf.Allocate(8 + 8 + 1 + 24 + 1 + len(bname))
 	}
 
 	if err := edf.Encode(message, buf, c.encodeOptions); err != nil {
@@ -769,17 +769,17 @@ func (c *connection) CallProcessID(ref gen.Ref, from gen.PID, to gen.ProcessID, 
 	buf.B[6] = order // use the same order for the peer
 	binary.BigEndian.PutUint64(buf.B[8:16], from.ID)
 	buf.B[16] = byte(options.Priority)
-	binary.BigEndian.PutUint32(buf.B[17:21], ref.ID[0])
-	binary.BigEndian.PutUint32(buf.B[21:25], ref.ID[1])
-	binary.BigEndian.PutUint32(buf.B[25:29], ref.ID[2])
+	binary.BigEndian.PutUint64(buf.B[17:25], ref.ID[0])
+	binary.BigEndian.PutUint64(buf.B[25:33], ref.ID[1])
+	binary.BigEndian.PutUint64(buf.B[33:41], ref.ID[2])
 
 	if toNameCached > 0 {
 		buf.B[7] = protoRequestNameCache
-		binary.BigEndian.PutUint16(buf.B[29:31], toNameCached)
+		binary.BigEndian.PutUint16(buf.B[41:43], toNameCached)
 	} else {
 		buf.B[7] = protoRequestName
-		buf.B[29] = byte(len(bname))
-		copy(buf.B[30:], bname)
+		buf.B[41] = byte(len(bname))
+		copy(buf.B[42:], bname)
 	}
 
 	return c.send(buf, order, options.Compression)
@@ -797,8 +797,8 @@ func (c *connection) CallAlias(ref gen.Ref, from gen.PID, to gen.Alias, options 
 	}
 
 	buf := lib.TakeBuffer()
-	// 8 (header) + 8 (process id from) + 1 priority + 12 (request ref) + 12 (alias id to)
-	buf.Allocate(8 + 8 + 1 + 12 + 12)
+	// 8 (header) + 8 (process id from) + 1 priority + 24 (request ref) + 24 (alias id to)
+	buf.Allocate(8 + 8 + 1 + 24 + 24)
 
 	if err := edf.Encode(message, buf, c.encodeOptions); err != nil {
 		return err
@@ -815,12 +815,12 @@ func (c *connection) CallAlias(ref gen.Ref, from gen.PID, to gen.Alias, options 
 	buf.B[7] = protoRequestAlias
 	binary.BigEndian.PutUint64(buf.B[8:16], from.ID)
 	buf.B[16] = byte(options.Priority)
-	binary.BigEndian.PutUint32(buf.B[17:21], ref.ID[0])
-	binary.BigEndian.PutUint32(buf.B[21:25], ref.ID[1])
-	binary.BigEndian.PutUint32(buf.B[25:29], ref.ID[2])
-	binary.BigEndian.PutUint32(buf.B[29:33], to.ID[0])
-	binary.BigEndian.PutUint32(buf.B[33:37], to.ID[1])
-	binary.BigEndian.PutUint32(buf.B[37:41], to.ID[2])
+	binary.BigEndian.PutUint64(buf.B[17:25], ref.ID[0])
+	binary.BigEndian.PutUint64(buf.B[25:33], ref.ID[1])
+	binary.BigEndian.PutUint64(buf.B[33:41], ref.ID[2])
+	binary.BigEndian.PutUint64(buf.B[41:49], to.ID[0])
+	binary.BigEndian.PutUint64(buf.B[49:57], to.ID[1])
+	binary.BigEndian.PutUint64(buf.B[57:65], to.ID[2])
 
 	return c.send(buf, order, options.Compression)
 }
@@ -1517,13 +1517,13 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC) {
 		case protoMessageAlias:
 			idFrom := binary.BigEndian.Uint64(buf.B[8:16])
 			priority := gen.MessagePriority(buf.B[16])
-			idTo := [3]uint32{
-				binary.BigEndian.Uint32(buf.B[17:21]),
-				binary.BigEndian.Uint32(buf.B[21:25]),
-				binary.BigEndian.Uint32(buf.B[25:29]),
+			idTo := [3]uint64{
+				binary.BigEndian.Uint64(buf.B[17:25]),
+				binary.BigEndian.Uint64(buf.B[25:33]),
+				binary.BigEndian.Uint64(buf.B[33:41]),
 			}
 
-			msg, tail, err := edf.Decode(buf.B[29:], c.decodeOptions)
+			msg, tail, err := edf.Decode(buf.B[41:], c.decodeOptions)
 			if releaseBuffer {
 				lib.ReleaseBuffer(buf)
 			}
@@ -1560,12 +1560,12 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC) {
 			}
 			idFrom := binary.BigEndian.Uint64(buf.B[8:16])
 			priority := gen.MessagePriority(buf.B[16])
-			ref.ID[0] = binary.BigEndian.Uint32(buf.B[17:21])
-			ref.ID[1] = binary.BigEndian.Uint32(buf.B[21:25])
-			ref.ID[2] = binary.BigEndian.Uint32(buf.B[25:29])
-			idTO := binary.BigEndian.Uint64(buf.B[29:37])
+			ref.ID[0] = binary.BigEndian.Uint64(buf.B[17:25])
+			ref.ID[1] = binary.BigEndian.Uint64(buf.B[25:33])
+			ref.ID[2] = binary.BigEndian.Uint64(buf.B[33:41])
+			idTO := binary.BigEndian.Uint64(buf.B[41:49])
 
-			msg, tail, err := edf.Decode(buf.B[37:], c.decodeOptions)
+			msg, tail, err := edf.Decode(buf.B[49:], c.decodeOptions)
 			if releaseBuffer {
 				lib.ReleaseBuffer(buf)
 			}
@@ -1608,9 +1608,9 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC) {
 				Node:     c.peer,
 				Creation: c.peer_creation,
 			}
-			ref.ID[0] = binary.BigEndian.Uint32(buf.B[17:21])
-			ref.ID[1] = binary.BigEndian.Uint32(buf.B[21:25])
-			ref.ID[2] = binary.BigEndian.Uint32(buf.B[25:29])
+			ref.ID[0] = binary.BigEndian.Uint64(buf.B[17:25])
+			ref.ID[1] = binary.BigEndian.Uint64(buf.B[25:33])
+			ref.ID[2] = binary.BigEndian.Uint64(buf.B[33:41])
 
 			to := gen.ProcessID{
 				Node: c.core.Name(),
@@ -1618,11 +1618,11 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC) {
 
 			var data []byte
 			if buf.B[7] == protoRequestName {
-				l := int(buf.B[29])
-				to.Name = gen.Atom(buf.B[30 : 30+l])
-				data = buf.B[30+l:]
+				l := int(buf.B[41])
+				to.Name = gen.Atom(buf.B[42 : 42+l])
+				data = buf.B[42+l:]
 			} else {
-				id := binary.BigEndian.Uint16(buf.B[29:31])
+				id := binary.BigEndian.Uint16(buf.B[41:43])
 				if c.decodeOptions.AtomCache == nil {
 					c.log.Error("received message with cached atom value %d, but cache is nil (message ignored). please, report this bug", id)
 					lib.ReleaseBuffer(buf)
@@ -1637,7 +1637,7 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC) {
 				}
 
 				to.Name = v.(gen.Atom)
-				data = buf.B[31:]
+				data = buf.B[43:]
 			}
 
 			msg, tail, err := edf.Decode(data, c.decodeOptions)
@@ -1672,14 +1672,14 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC) {
 			}
 			idFrom := binary.BigEndian.Uint64(buf.B[8:16])
 			priority := gen.MessagePriority(buf.B[16])
-			ref.ID[0] = binary.BigEndian.Uint32(buf.B[17:21])
-			ref.ID[1] = binary.BigEndian.Uint32(buf.B[21:25])
-			ref.ID[2] = binary.BigEndian.Uint32(buf.B[25:29])
-			to.ID[0] = binary.BigEndian.Uint32(buf.B[29:33])
-			to.ID[1] = binary.BigEndian.Uint32(buf.B[33:37])
-			to.ID[2] = binary.BigEndian.Uint32(buf.B[37:41])
+			ref.ID[0] = binary.BigEndian.Uint64(buf.B[17:25])
+			ref.ID[1] = binary.BigEndian.Uint64(buf.B[25:33])
+			ref.ID[2] = binary.BigEndian.Uint64(buf.B[33:41])
+			to.ID[0] = binary.BigEndian.Uint64(buf.B[41:49])
+			to.ID[1] = binary.BigEndian.Uint64(buf.B[49:57])
+			to.ID[2] = binary.BigEndian.Uint64(buf.B[57:65])
 
-			msg, tail, err := edf.Decode(buf.B[41:], c.decodeOptions)
+			msg, tail, err := edf.Decode(buf.B[65:], c.decodeOptions)
 			if releaseBuffer {
 				lib.ReleaseBuffer(buf)
 			}
@@ -1809,11 +1809,11 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC) {
 			idFrom := binary.BigEndian.Uint64(buf.B[8:16])
 			priority := gen.MessagePriority(buf.B[16])
 			idTO := binary.BigEndian.Uint64(buf.B[17:25])
-			ref.ID[0] = binary.BigEndian.Uint32(buf.B[25:29])
-			ref.ID[1] = binary.BigEndian.Uint32(buf.B[29:33])
-			ref.ID[2] = binary.BigEndian.Uint32(buf.B[33:37])
+			ref.ID[0] = binary.BigEndian.Uint64(buf.B[25:33])
+			ref.ID[1] = binary.BigEndian.Uint64(buf.B[33:41])
+			ref.ID[2] = binary.BigEndian.Uint64(buf.B[41:49])
 
-			msg, tail, err := edf.Decode(buf.B[37:], c.decodeOptions)
+			msg, tail, err := edf.Decode(buf.B[49:], c.decodeOptions)
 			if releaseBuffer {
 				lib.ReleaseBuffer(buf)
 			}
@@ -1991,11 +1991,11 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC) {
 				Creation: c.peer_creation,
 			}
 			// priority := gen.MessagePriority(buf.B[8]) // ignored
-			target.ID[0] = binary.BigEndian.Uint32(buf.B[9:13])
-			target.ID[1] = binary.BigEndian.Uint32(buf.B[13:17])
-			target.ID[2] = binary.BigEndian.Uint32(buf.B[17:21])
+			target.ID[0] = binary.BigEndian.Uint64(buf.B[9:17])
+			target.ID[1] = binary.BigEndian.Uint64(buf.B[17:25])
+			target.ID[2] = binary.BigEndian.Uint64(buf.B[25:33])
 
-			msg, tail, err := edf.Decode(buf.B[21:], c.decodeOptions)
+			msg, tail, err := edf.Decode(buf.B[33:], c.decodeOptions)
 			if releaseBuffer {
 				lib.ReleaseBuffer(buf)
 			}

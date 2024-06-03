@@ -74,7 +74,7 @@ func (p ProcessID) MarshalJSON() ([]byte, error) {
 type Ref struct {
 	Node     Atom
 	Creation int64
-	ID       [3]uint32
+	ID       [3]uint64
 }
 
 // String
