@@ -1433,7 +1433,7 @@ func (n *node) RouteNodeDown(name gen.Atom, reason error) {
 		}
 	}
 
-	// handle n.events with remote consumers
+	// handle n.events with remote consumers from this node (clean up)
 	// TODO
 }
 

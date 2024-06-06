@@ -367,7 +367,8 @@ type ProcessInfo struct {
 	// Behavior
 	Behavior string
 	// MailboxSize
-	MailboxSize   int64
+	MailboxSize int64
+	// MailboxQueues
 	MailboxQueues MailboxQueues
 	// MessagesIn total number of messages this process received
 	MessagesIn uint64

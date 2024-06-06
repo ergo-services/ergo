@@ -103,16 +103,18 @@ type MessageLog struct {
 
 // MessageLogProcess
 type MessageLogProcess struct {
-	Node Atom
-	PID  PID
-	Name Atom
+	Node     Atom
+	PID      PID
+	Name     Atom
+	Behavior string
 }
 
 // MessageLogMeta
 type MessageLogMeta struct {
-	Node   Atom
-	Parent PID
-	Meta   Alias
+	Node     Atom
+	Parent   PID
+	Meta     Alias
+	Behavior string
 }
 
 // MessageLogNode

@@ -193,16 +193,23 @@ func (p *process) SpawnMeta(behavior gen.MetaBehavior, options gen.MetaOptions) 
 	}
 
 	m.id = gen.Alias(p.node.MakeRef())
+	m.sbehavior = strings.TrimPrefix(reflect.TypeOf(behavior).String(), "*")
+
 	if options.LogLevel == gen.LogLevelDefault {
 		options.LogLevel = p.log.Level()
 	}
 	m.log = createLog(options.LogLevel, p.node.dolog)
-	m.log.setSource(gen.MessageLogMeta{Node: p.node.name, Parent: p.pid, Meta: m.id})
+	logSource := gen.MessageLogMeta{
+		Node:     p.node.name,
+		Parent:   p.pid,
+		Meta:     m.id,
+		Behavior: m.sbehavior,
+	}
+	m.log.setSource(logSource)
 
 	if err := m.init(); err != nil {
 		return alias, err
 	}
-	m.sbehavior = strings.TrimPrefix(reflect.TypeOf(behavior).String(), "*")
 
 	// register to be able routing messages to this meta process
 	p.metas.Store(m.id, m)

@@ -1392,13 +1392,21 @@ func (n *node) spawn(factory gen.ProcessFactory, options gen.ProcessOptionsExtra
 		return p.pid, errors.New("factory function must return non nil value")
 	}
 	p.behavior = behavior
+	p.sbehavior = strings.TrimPrefix(reflect.TypeOf(behavior).String(), "*")
 
 	if options.LogLevel == gen.LogLevelDefault {
 		// parent's log level
 		options.LogLevel = options.ParentLogLevel
 	}
 	p.log = createLog(options.LogLevel, n.dolog)
-	p.log.setSource(gen.MessageLogProcess{PID: p.pid, Name: p.name})
+
+	logSource := gen.MessageLogProcess{
+		Node:     p.pid.Node,
+		PID:      p.pid,
+		Name:     p.name,
+		Behavior: p.sbehavior,
+	}
+	p.log.setSource(logSource)
 
 	if err := behavior.ProcessInit(p, options.Args...); err != nil {
 		n.names.Delete(p.name)
@@ -1456,8 +1464,6 @@ func (n *node) spawn(factory gen.ProcessFactory, options gen.ProcessOptionsExtra
 	if p.application != system.Name {
 		n.waitprocesses.Add(1)
 	}
-
-	p.sbehavior = strings.TrimPrefix(reflect.TypeOf(behavior).String(), "*")
 
 	// process could send a message to itself during initialization
 	// so we should run this process to make sure this message is handled
