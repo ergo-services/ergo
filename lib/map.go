@@ -38,6 +38,11 @@ func (m *Map[K, V]) Delete(key K) {
 	m.Unlock()
 }
 
+// DeleteNoLock to be used within RangeLock method
+func (m *Map[K, V]) DeleteNoLock(key K) {
+	delete(m.m, key)
+}
+
 func (m *Map[K, V]) Range(f func(k K, v V) bool) {
 	m.RLock()
 	for mk, mv := range m.m {
@@ -46,6 +51,18 @@ func (m *Map[K, V]) Range(f func(k K, v V) bool) {
 		}
 	}
 	m.RUnlock()
+}
+
+// RangeLock locks map during iterating. You can use DeleteNoLock/StoreNoLock
+// within your f-function
+func (m *Map[K, V]) RangeLock(f func(k K, v V) bool) {
+	m.Lock()
+	for mk, mv := range m.m {
+		if f(mk, mv) == false {
+			break
+		}
+	}
+	m.Unlock()
 }
 
 func (m *Map[K, V]) Len() int {
