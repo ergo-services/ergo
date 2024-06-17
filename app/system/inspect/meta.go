@@ -7,11 +7,11 @@ import (
 	"ergo.services/ergo/gen"
 )
 
-func factory_imeta() gen.ProcessBehavior {
-	return &imeta{}
+func factory_meta() gen.ProcessBehavior {
+	return &meta{}
 }
 
-type imeta struct {
+type meta struct {
 	act.Actor
 	token gen.Ref
 
@@ -20,7 +20,7 @@ type imeta struct {
 	meta       gen.Alias
 }
 
-func (im *imeta) Init(args ...any) error {
+func (im *meta) Init(args ...any) error {
 	im.meta = args[0].(gen.Alias)
 	im.Log().SetLogger("default")
 	im.Log().Debug("meta process inspector started. pid %s", im.meta)
@@ -29,7 +29,7 @@ func (im *imeta) Init(args ...any) error {
 	return nil
 }
 
-func (im *imeta) HandleMessage(from gen.PID, message any) error {
+func (im *meta) HandleMessage(from gen.PID, message any) error {
 	switch m := message.(type) {
 	case generate:
 		if im.generating == false {
@@ -114,6 +114,6 @@ func (im *imeta) HandleMessage(from gen.PID, message any) error {
 	return nil
 }
 
-func (im *imeta) Terminate(reason error) {
+func (im *meta) Terminate(reason error) {
 	im.Log().Debug("meta %s inspector terminated: %s", im.meta, reason)
 }

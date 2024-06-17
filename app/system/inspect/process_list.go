@@ -8,11 +8,11 @@ import (
 	"ergo.services/ergo/gen"
 )
 
-func factory_iprocess_list() gen.ProcessBehavior {
-	return &iprocess_list{}
+func factory_process_list() gen.ProcessBehavior {
+	return &process_list{}
 }
 
-type iprocess_list struct {
+type process_list struct {
 	act.Actor
 	token gen.Ref
 
@@ -22,7 +22,7 @@ type iprocess_list struct {
 	event      gen.Atom
 }
 
-func (ipl *iprocess_list) Init(args ...any) error {
+func (ipl *process_list) Init(args ...any) error {
 	ipl.start = args[0].(int)
 	ipl.limit = args[1].(int)
 	ipl.Log().SetLogger("default")
@@ -31,7 +31,7 @@ func (ipl *iprocess_list) Init(args ...any) error {
 	ipl.Send(ipl.PID(), register{})
 	return nil
 }
-func (ipl *iprocess_list) HandleMessage(from gen.PID, message any) error {
+func (ipl *process_list) HandleMessage(from gen.PID, message any) error {
 	switch m := message.(type) {
 	case generate:
 		if ipl.generating == false {
@@ -114,6 +114,6 @@ func (ipl *iprocess_list) HandleMessage(from gen.PID, message any) error {
 	return nil
 }
 
-func (ipl *iprocess_list) Terminate(reason error) {
+func (ipl *process_list) Terminate(reason error) {
 	ipl.Log().Debug("process list inspector terminated: %s", reason)
 }

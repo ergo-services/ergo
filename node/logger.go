@@ -10,21 +10,21 @@ import (
 //
 
 func createProcessLogger(queue lib.QueueMPSC, run func()) gen.LoggerBehavior {
-	return &processLogger{
+	return &process_logger{
 		queue: queue,
 		run:   run,
 	}
 }
 
-type processLogger struct {
+type process_logger struct {
 	queue lib.QueueMPSC
 	level gen.LogLevel
 	run   func()
 }
 
-func (p *processLogger) Log(message gen.MessageLog) {
+func (p *process_logger) Log(message gen.MessageLog) {
 	p.queue.Push(message)
 	p.run()
 }
 
-func (p *processLogger) Terminate() {}
+func (p *process_logger) Terminate() {}

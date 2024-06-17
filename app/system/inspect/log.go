@@ -7,11 +7,11 @@ import (
 	"ergo.services/ergo/gen"
 )
 
-func factory_ilog() gen.ProcessBehavior {
-	return &ilog{}
+func factory_log() gen.ProcessBehavior {
+	return &log{}
 }
 
-type ilog struct {
+type log struct {
 	act.Actor
 	token gen.Ref
 	event gen.Atom
@@ -20,7 +20,7 @@ type ilog struct {
 	generating bool
 }
 
-func (il *ilog) Init(args ...any) error {
+func (il *log) Init(args ...any) error {
 	il.levels = args[0].([]gen.LogLevel)
 	il.Log().SetLogger("default")
 	il.Log().Debug("log inspector started")
@@ -32,7 +32,7 @@ func (il *ilog) Init(args ...any) error {
 // as soon this process registered as a logger it is not able to use Log()
 // method anymore
 
-func (il *ilog) HandleMessage(from gen.PID, message any) error {
+func (il *log) HandleMessage(from gen.PID, message any) error {
 	switch m := message.(type) {
 	case requestInspect:
 		response := ResponseInspectLog{
@@ -82,7 +82,7 @@ func (il *ilog) HandleMessage(from gen.PID, message any) error {
 	return nil
 }
 
-func (il *ilog) HandleLog(message gen.MessageLog) error {
+func (il *log) HandleLog(message gen.MessageLog) error {
 	switch m := message.Source.(type) {
 	case gen.MessageLogNode:
 		// handle message
@@ -141,7 +141,7 @@ func (il *ilog) HandleLog(message gen.MessageLog) error {
 	return nil
 }
 
-func (il *ilog) Terminate(reason error) {
+func (il *log) Terminate(reason error) {
 	// since this process is already unregistered
 	// it is also unregistered as a logger
 	// so we can use Log() here

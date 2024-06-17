@@ -173,7 +173,7 @@ func (s *supSOFO) childTerminated(name gen.Atom, pid gen.PID, reason error) supA
 		action.reason = reason
 	}
 
-	for pid, _ := range s.pids {
+	for pid := range s.pids {
 		action.terminate = append(action.terminate, pid)
 		s.wait[pid] = true
 	}

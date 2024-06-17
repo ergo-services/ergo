@@ -19,7 +19,7 @@ func (sa *systemApp) Load(node gen.Node, args ...any) (gen.ApplicationSpec, erro
 		Name:        Name,
 		Description: "System Application",
 		Group: []gen.ApplicationMemberSpec{
-			gen.ApplicationMemberSpec{
+			{
 				Factory: factory_sup,
 				Name:    "system_sup",
 			},

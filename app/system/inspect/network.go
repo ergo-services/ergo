@@ -6,18 +6,18 @@ import (
 	"slices"
 )
 
-func factory_inetwork() gen.ProcessBehavior {
-	return &inetwork{}
+func factory_network() gen.ProcessBehavior {
+	return &network{}
 }
 
-type inetwork struct {
+type network struct {
 	act.Actor
 	token gen.Ref
 
 	generating bool
 }
 
-func (in *inetwork) Init(args ...any) error {
+func (in *network) Init(args ...any) error {
 	in.Log().SetLogger("default")
 	in.Log().Debug("network inspector started")
 	// RegisterEvent is not allowed here
@@ -25,7 +25,7 @@ func (in *inetwork) Init(args ...any) error {
 	return nil
 }
 
-func (in *inetwork) HandleMessage(from gen.PID, message any) error {
+func (in *network) HandleMessage(from gen.PID, message any) error {
 	switch m := message.(type) {
 	case generate:
 		if in.generating == false {
@@ -103,6 +103,6 @@ func (in *inetwork) HandleMessage(from gen.PID, message any) error {
 	return nil
 }
 
-func (in *inetwork) Terminate(reason error) {
+func (in *network) Terminate(reason error) {
 	in.Log().Debug("network inspector terminated: %s", reason)
 }

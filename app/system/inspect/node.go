@@ -10,18 +10,18 @@ import (
 	"ergo.services/ergo/gen"
 )
 
-func factory_inode() gen.ProcessBehavior {
-	return &inode{}
+func factory_node() gen.ProcessBehavior {
+	return &node{}
 }
 
-type inode struct {
+type node struct {
 	act.Actor
 	token gen.Ref
 
 	generating bool
 }
 
-func (in *inode) Init(args ...any) error {
+func (in *node) Init(args ...any) error {
 	in.Log().SetLogger("default")
 	in.Log().Debug("node inspector started")
 	// RegisterEvent is not allowed here
@@ -29,7 +29,7 @@ func (in *inode) Init(args ...any) error {
 	return nil
 }
 
-func (in *inode) HandleMessage(from gen.PID, message any) error {
+func (in *node) HandleMessage(from gen.PID, message any) error {
 	switch m := message.(type) {
 	case generate:
 		if in.generating == false {
@@ -121,6 +121,6 @@ func (in *inode) HandleMessage(from gen.PID, message any) error {
 	return nil
 }
 
-func (in *inode) Terminate(reason error) {
+func (in *node) Terminate(reason error) {
 	in.Log().Debug("node inspector terminated: %s", reason)
 }

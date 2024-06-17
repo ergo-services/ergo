@@ -7,11 +7,11 @@ import (
 	"ergo.services/ergo/gen"
 )
 
-func factory_iconnection() gen.ProcessBehavior {
-	return &iconnection{}
+func factory_connection() gen.ProcessBehavior {
+	return &connection{}
 }
 
-type iconnection struct {
+type connection struct {
 	act.Actor
 	token gen.Ref
 
@@ -20,7 +20,7 @@ type iconnection struct {
 	remote     gen.Atom
 }
 
-func (ic *iconnection) Init(args ...any) error {
+func (ic *connection) Init(args ...any) error {
 	ic.remote = args[0].(gen.Atom)
 	ic.Log().SetLogger("default")
 	ic.Log().Debug("connection inspector started")
@@ -29,7 +29,7 @@ func (ic *iconnection) Init(args ...any) error {
 	return nil
 }
 
-func (ic *iconnection) HandleMessage(from gen.PID, message any) error {
+func (ic *connection) HandleMessage(from gen.PID, message any) error {
 	switch m := message.(type) {
 	case generate:
 		if ic.generating == false {
@@ -119,6 +119,6 @@ func (ic *iconnection) HandleMessage(from gen.PID, message any) error {
 	return nil
 }
 
-func (ic *iconnection) Terminate(reason error) {
+func (ic *connection) Terminate(reason error) {
 	ic.Log().Debug("network inspector terminated: %s", reason)
 }

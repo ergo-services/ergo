@@ -28,7 +28,7 @@ func (cm *certManager) Update(cert tls.Certificate) {
 }
 
 func (cm *certManager) GetCertificateFunc() func(*tls.ClientHelloInfo) (*tls.Certificate, error) {
-	return func(ch *tls.ClientHelloInfo) (*tls.Certificate, error) {
+	return func(*tls.ClientHelloInfo) (*tls.Certificate, error) {
 		cm.RLock()
 		defer cm.RUnlock()
 		return cm.cert, nil

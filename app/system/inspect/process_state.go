@@ -7,11 +7,11 @@ import (
 	"ergo.services/ergo/gen"
 )
 
-func factory_iprocess_state() gen.ProcessBehavior {
-	return &iprocess_state{}
+func factory_process_state() gen.ProcessBehavior {
+	return &process_state{}
 }
 
-type iprocess_state struct {
+type process_state struct {
 	act.Actor
 	token gen.Ref
 
@@ -20,7 +20,7 @@ type iprocess_state struct {
 	pid        gen.PID
 }
 
-func (ips *iprocess_state) Init(args ...any) error {
+func (ips *process_state) Init(args ...any) error {
 	ips.pid = args[0].(gen.PID)
 	ips.Log().SetLogger("default")
 	ips.Log().Debug("process state inspector started. pid %s", ips.pid)
@@ -29,7 +29,7 @@ func (ips *iprocess_state) Init(args ...any) error {
 	return nil
 }
 
-func (ips *iprocess_state) HandleMessage(from gen.PID, message any) error {
+func (ips *process_state) HandleMessage(from gen.PID, message any) error {
 	switch m := message.(type) {
 	case generate:
 		if ips.generating == false {
@@ -114,6 +114,6 @@ func (ips *iprocess_state) HandleMessage(from gen.PID, message any) error {
 	return nil
 }
 
-func (ips *iprocess_state) Terminate(reason error) {
+func (ips *process_state) Terminate(reason error) {
 	ips.Log().Debug("process state %s inspector terminated: %s", ips.pid, reason)
 }
