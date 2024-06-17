@@ -16,6 +16,13 @@ func (m *Map[K, V]) Load(key K) (V, bool) {
 	return v, found
 }
 
+func (m *Map[K, V]) LoadAndDelete(key K) (V, bool) {
+	m.Lock()
+	v, found := m.m[key]
+	m.Unlock()
+	return v, found
+}
+
 func (m *Map[K, V]) Store(key K, value V) {
 	m.Lock()
 	if m.m == nil {
@@ -25,21 +32,10 @@ func (m *Map[K, V]) Store(key K, value V) {
 	m.Unlock()
 }
 
-func (m *Map[K, V]) StoreNoLock(key K, value V) {
-	if m.m == nil {
-		m.m = make(map[K]V)
-	}
-	m.m[key] = value
-}
-
 func (m *Map[K, V]) Delete(key K) {
 	m.Lock()
 	delete(m.m, key)
 	m.Unlock()
-}
-
-func (m *Map[K, V]) DeleteNoLock(key K) {
-	delete(m.m, key)
 }
 
 func (m *Map[K, V]) Range(f func(k K, v V) bool) {
@@ -50,16 +46,6 @@ func (m *Map[K, V]) Range(f func(k K, v V) bool) {
 		}
 	}
 	m.RUnlock()
-}
-
-func (m *Map[K, V]) RangeLock(f func(k K, v V) bool) {
-	m.Lock()
-	for mk, mv := range m.m {
-		if f(mk, mv) == false {
-			break
-		}
-	}
-	m.Unlock()
 }
 
 func (m *Map[K, V]) Len() int {

@@ -7,127 +7,116 @@ import (
 )
 
 func createTarget() *target {
-	return &target{}
-}
-
-type consumers struct {
-	sync.RWMutex
-	list []gen.PID
+	return &target{
+		c: make(map[any][]gen.PID),
+	}
 }
 
 type target struct {
-	c sync.Map // consumers
+	sync.RWMutex
+	c map[any][]gen.PID // consumers
 }
 
 // returns true if registered first consumer of the target
 func (t *target) registerConsumer(target any, consumer gen.PID) bool {
-	pc := &consumers{}
-	first := true
+	t.Lock()
+	defer t.Unlock()
 
-	if value, exist := t.c.LoadOrStore(target, pc); exist {
-		pc = value.(*consumers)
-		first = false
-	}
+	list := t.c[target]
+	list = append(list, consumer)
+	t.c[target] = list
 
-	pc.Lock()
-	defer pc.Unlock()
-	pc.list = append(pc.list, consumer)
-
+	first := len(list) == 1
 	return first
 }
 
 // returns true if unregistered consumer was the last one
 func (t *target) unregisterConsumer(target any, consumer gen.PID) bool {
-	value, exist := t.c.Load(target)
+	t.Lock()
+	defer t.Unlock()
+
+	list, exist := t.c[target]
 	if exist == false {
 		return false
 	}
 
-	pc := value.(*consumers)
-	pc.Lock()
-	defer pc.Unlock()
-
-	for i, pid := range pc.list {
+	for i, pid := range list {
 		if pid != consumer {
 			continue
 		}
-		pc.list[0] = pc.list[i]
-		pc.list = pc.list[1:]
+		list[0] = list[i]
+		list = list[1:]
+		if len(list) == 0 {
+			delete(t.c, target)
+			return true
+		}
+		t.c[target] = list
 		break
 	}
+
 	return false
 }
 
 func (t *target) unregister(target any) []gen.PID {
-	var list []gen.PID
+	t.Lock()
+	defer t.Unlock()
 
-	value, exist := t.c.LoadAndDelete(target)
+	list, exist := t.c[target]
 	if exist == false {
 		return list
 	}
-	pc := value.(*consumers)
-	return pc.list
+	delete(t.c, target)
+	return list
 }
 
 func (t *target) targetsNodeDown(node gen.Atom) []any {
 	var targets []any
-	t.c.Range(func(k, v any) bool {
+
+	t.Lock()
+	defer t.Unlock()
+
+	for k, list := range t.c {
 		switch tt := k.(type) {
 		case gen.PID:
 			if tt.Node == node {
 				targets = append(targets, tt)
-				return true
 			}
 		case gen.ProcessID:
 			if tt.Node == node {
 				targets = append(targets, tt)
-				return true
 			}
 		case gen.Alias:
 			if tt.Node == node {
 				targets = append(targets, k)
-				return true
 			}
 		case gen.Event:
 			if tt.Node == node {
 				targets = append(targets, k)
-				return true
 			}
 		case gen.Atom:
 			if tt == node {
 				targets = append(targets, k)
-				return true
 			}
 		}
+
 		// remove remote consumers (belonging to the node that went down)
-		pc := v.(*consumers)
-		pc.Lock()
-		list := []gen.PID{}
-		for _, pid := range pc.list {
+		newlist := []gen.PID{}
+		for _, pid := range list {
 			if pid.Node == node {
+				// skip it
 				continue
 			}
-			list = append(list, pid)
+			newlist = append(newlist, pid)
 		}
-		pc.list = list
-		pc.Unlock()
 
-		return true
-	})
+		t.c[k] = newlist
+	}
+
 	return targets
 }
 
 func (t *target) consumers(target any) []gen.PID {
-	var list []gen.PID
-
-	value, exist := t.c.Load(target)
-	if exist == false {
-		return list
-	}
-	pc := value.(*consumers)
-
-	pc.RLock()
-	defer pc.RUnlock()
-
-	return pc.list
+	t.RLock()
+	defer t.RUnlock()
+	return t.c[target]
 }
