@@ -30,7 +30,7 @@ type QueueMPSC interface {
 	Item() ItemMPSC
 	// Len returns the number of items in the queue
 	Len() int64
-	// Size returns the limig for the queue. -1 - for unlimited
+	// Size returns the limit for the queue. -1 - for unlimited
 	Size() int64
 
 	Lock() bool

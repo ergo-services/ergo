@@ -1,9 +1,10 @@
 package act
 
 import (
-	"errors"
 	"fmt"
+	"reflect"
 	"runtime"
+	"strings"
 
 	"ergo.services/ergo/gen"
 	"ergo.services/ergo/lib"
@@ -101,7 +102,8 @@ func (a *Actor) ProcessInit(process gen.Process, args ...any) (rr error) {
 	var ok bool
 
 	if a.behavior, ok = process.Behavior().(ActorBehavior); ok == false {
-		return errors.New("ProcessInit: not an ActorBehavior")
+		unknown := strings.TrimPrefix(reflect.TypeOf(process.Behavior()).String(), "*")
+		return fmt.Errorf("ProcessInit: not an ActorBehavior %s", unknown)
 	}
 
 	if lib.Recover() {

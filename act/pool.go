@@ -1,9 +1,10 @@
 package act
 
 import (
-	"errors"
 	"fmt"
+	"reflect"
 	"runtime"
+	"strings"
 
 	"ergo.services/ergo/gen"
 	"ergo.services/ergo/lib"
@@ -99,7 +100,8 @@ func (p *Pool) ProcessInit(process gen.Process, args ...any) (rr error) {
 	var ok bool
 
 	if p.behavior, ok = process.Behavior().(PoolBehavior); ok == false {
-		return errors.New("ProcessInit: not a PoolBehavior")
+		unknown := strings.TrimPrefix(reflect.TypeOf(process.Behavior()).String(), "*")
+		return fmt.Errorf("ProcessInit: not a PoolBehavior %s", unknown)
 	}
 	p.Process = process
 	p.mailbox = process.Mailbox()

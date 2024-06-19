@@ -1,10 +1,11 @@
 package act
 
 import (
-	"errors"
 	"fmt"
 	"net/http"
+	"reflect"
 	"runtime"
+	"strings"
 
 	"ergo.services/ergo/gen"
 	"ergo.services/ergo/lib"
@@ -61,7 +62,8 @@ func (w *Web) ProcessInit(process gen.Process, args ...any) (rr error) {
 	var ok bool
 
 	if w.behavior, ok = process.Behavior().(WebBehavior); ok == false {
-		return errors.New("ProcessInit: not a WebBehavior")
+		unknown := strings.TrimPrefix(reflect.TypeOf(process.Behavior()).String(), "*")
+		return fmt.Errorf("ProcessInit: not a WebBehavior %s", unknown)
 	}
 	w.Process = process
 	w.mailbox = process.Mailbox()

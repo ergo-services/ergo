@@ -16,7 +16,8 @@ func NewFlusherWithKeepAlive(conn net.Conn, keepalive []byte, keepalivePeriod ti
 	f := &flusher{
 		writer: bufio.NewWriter(conn),
 	}
-	f.timer = time.AfterFunc(latency, func() {
+	// first time it should be longer
+	f.timer = time.AfterFunc(latency*10, func() {
 		f.Lock()
 		defer f.Unlock()
 

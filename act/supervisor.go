@@ -1,10 +1,11 @@
 package act
 
 import (
-	"errors"
 	"fmt"
+	"reflect"
 	"runtime"
 	"sort"
+	"strings"
 	"time"
 
 	"ergo.services/ergo/gen"
@@ -260,7 +261,8 @@ func (s *Supervisor) ProcessInit(process gen.Process, args ...any) (rr error) {
 	var ok bool
 
 	if s.behavior, ok = process.Behavior().(SupervisorBehavior); ok == false {
-		return errors.New("ProcessInit: not a SupervisorBehavior")
+		unknown := strings.TrimPrefix(reflect.TypeOf(process.Behavior()).String(), "*")
+		return fmt.Errorf("ProcessInit: not a SupervisorBehavior %s", unknown)
 	}
 
 	s.Process = process
@@ -288,7 +290,7 @@ func (s *Supervisor) ProcessInit(process gen.Process, args ...any) (rr error) {
 		SupervisorStrategyPermanent:
 		break
 	default:
-		return errors.New("unknown supervisor restart strategy")
+		return fmt.Errorf("unknown supervisor restart strategy")
 	}
 
 	// validate restart options
@@ -301,7 +303,7 @@ func (s *Supervisor) ProcessInit(process gen.Process, args ...any) (rr error) {
 
 	// validate child spec list
 	if len(spec.Children) == 0 {
-		return errors.New("children list can not be empty")
+		return fmt.Errorf("children list can not be empty")
 	}
 
 	s.handleChild = spec.EnableHandleChild
@@ -328,7 +330,7 @@ func (s *Supervisor) ProcessInit(process gen.Process, args ...any) (rr error) {
 	case SupervisorTypeSimpleOneForOne:
 		s.sup = createSupSimpleOneForOne()
 	default:
-		return errors.New("unknown supervisor type")
+		return fmt.Errorf("unknown supervisor type")
 	}
 
 	action, err := s.sup.init(spec)
@@ -682,11 +684,11 @@ func supCheckRestartIntensity(restarts []int64, period int, intensity int) ([]in
 
 func validateChildSpec(s SupervisorChildSpec) error {
 	if s.Name == "" {
-		return errors.New("invalid child spec Name")
+		return fmt.Errorf("invalid child spec Name")
 	}
 
 	if s.Factory == nil {
-		return errors.New("child spec Factory is nil")
+		return fmt.Errorf("child spec Factory is nil")
 	}
 
 	return nil
