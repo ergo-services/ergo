@@ -819,8 +819,13 @@ func (n *node) RouteMonitorPID(pid gen.PID, target gen.PID) error {
 
 	if n.name == target.Node {
 		// local target
-		if _, exist := n.processes.Load(target); exist == false {
+		if v, exist := n.processes.Load(target); exist == false {
 			return gen.ErrProcessUnknown
+		} else {
+			p := v.(*process)
+			if p.State() == gen.ProcessStateTerminated {
+				return gen.ErrProcessTerminated
+			}
 		}
 		n.monitors.registerConsumer(target, pid)
 		return nil
@@ -881,8 +886,13 @@ func (n *node) RouteMonitorProcessID(pid gen.PID, target gen.ProcessID) error {
 
 	if n.name == target.Node {
 		// local target
-		if _, exist := n.names.Load(target.Name); exist == false {
+		if v, exist := n.names.Load(target.Name); exist == false {
 			return gen.ErrProcessUnknown
+		} else {
+			p := v.(*process)
+			if p.State() == gen.ProcessStateTerminated {
+				return gen.ErrProcessTerminated
+			}
 		}
 		n.monitors.registerConsumer(target, pid)
 		return nil
