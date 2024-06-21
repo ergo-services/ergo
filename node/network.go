@@ -1140,7 +1140,8 @@ func (n *network) accept(a *acceptor) {
 			if err == io.EOF {
 				return
 			}
-			n.node.Log().Error("listener %s got error: %s", a.l.Addr(), err)
+			n.node.Log().Info("acceptor %s terminated (handshake: %s, proto: %s)",
+				a.l.Addr(), a.handshake.Version(), a.proto.Version())
 			return
 		}
 		if lib.Trace() {
