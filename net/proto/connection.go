@@ -1197,9 +1197,14 @@ func (c *connection) RemoteSpawn(name gen.Atom, options gen.ProcessOptionsExtra)
 	c.requestsMutex.Lock()
 	c.requests[ref] = ch
 	c.requestsMutex.Unlock()
+
 	if err := c.sendAny(message, order, 0, gen.Compression{}); err != nil {
+		c.requestsMutex.Lock()
+		delete(c.requests, ref)
+		c.requestsMutex.Unlock()
 		return pid, err
 	}
+
 	result := c.waitResult(ref, ch)
 	if result.Error != nil {
 		return pid, result.Error

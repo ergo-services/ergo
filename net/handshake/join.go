@@ -29,8 +29,15 @@ func (h *handshake) Join(node gen.NodeHandshake, conn net.Conn, id string, optio
 		conn.Close()
 		return nil, err
 	}
-	if _, ok := v.(MessageAccept); ok == false {
+	accept, ok := v.(MessageAccept)
+	if ok == false {
 		return nil, fmt.Errorf("malformed handshake Accept message")
+	}
+
+	hash = sha256.New()
+	hash.Write([]byte(fmt.Sprintf("%s:%s", message.Digest, options.Cookie)))
+	if accept.Digest != fmt.Sprintf("%x", hash.Sum(nil)) {
+		return nil, fmt.Errorf("incorrect accept digest")
 	}
 
 	return tail, nil

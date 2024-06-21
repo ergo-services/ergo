@@ -48,7 +48,13 @@ func (h *handshake) Accept(node gen.NodeHandshake, conn net.Conn, options gen.Ha
 		}
 		result.ConnectionID = m.ConnectionID
 		result.Custom = ConnectionOptions{}
-		if err := h.writeMessage(conn, MessageAccept{}); err != nil {
+
+		hash = sha256.New()
+		hash.Write([]byte(fmt.Sprintf("%s:%s", m.Digest, options.Cookie)))
+		accept := MessageAccept{
+			Digest: fmt.Sprintf("%x", hash.Sum(nil)),
+		}
+		if err := h.writeMessage(conn, accept); err != nil {
 			return result, err
 		}
 		if len(h.atom_mapping) > 0 {
