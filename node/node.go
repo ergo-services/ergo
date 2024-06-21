@@ -1609,18 +1609,17 @@ func (n *node) unregisterEvent(name gen.Atom, pid gen.PID) error {
 
 	n.log.Trace("...unregisterEvent %s for %s", name, pid)
 	ev := gen.Event{Name: name, Node: n.name}
-	value, exist := n.events.LoadAndDelete(ev)
+	value, exist := n.events.Load(ev)
 	if exist == false {
 		return gen.ErrEventUnknown
 	}
 
 	event := value.(*eventOwner)
 	if event.producer != pid {
-		// put it back
-		n.events.LoadOrStore(ev, value)
 		return gen.ErrEventOwner
 	}
 
+	n.events.Delete(ev)
 	n.RouteTerminateEvent(ev, gen.ErrUnregistered)
 	return nil
 }

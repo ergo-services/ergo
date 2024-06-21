@@ -1432,9 +1432,6 @@ func (n *node) RouteNodeDown(name gen.Atom, reason error) {
 			n.RouteSendPID(n.corePID, pid, messageOptions, message)
 		}
 	}
-
-	// handle n.events with remote consumers from this node (clean up)
-	// TODO
 }
 
 func (n *node) MakeRef() gen.Ref {
