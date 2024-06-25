@@ -39,10 +39,10 @@ func (tt *tcp) Init(args ...any) error {
 	}
 
 	// TCP server with no Process
-	opt := meta.TCPOptions{
+	opt := meta.TCPServerOptions{
 		Port: port,
 	}
-	if metatcp, err := meta.CreateTCP(opt); err != nil {
+	if metatcp, err := meta.CreateTCPServer(opt); err != nil {
 		tt.Log().Error("unable to create tcp meta-process: %s", err)
 		return nil
 	} else {
@@ -56,11 +56,11 @@ func (tt *tcp) Init(args ...any) error {
 	}
 
 	// TCP server with Process
-	opt = meta.TCPOptions{
+	opt = meta.TCPServerOptions{
 		Port:        port + 1,
 		ProcessPool: []gen.Atom{"handler1", "handler2"},
 	}
-	if metatcp, err := meta.CreateTCP(opt); err != nil {
+	if metatcp, err := meta.CreateTCPServer(opt); err != nil {
 		tt.Log().Error("unable to create tcp meta-process: %s", err)
 		return nil
 	} else {
@@ -280,10 +280,10 @@ func (c *tcpclient) HandleMessage(from gen.PID, message any) error {
 		switch m {
 		case 1:
 			// create tcp conn
-			opt := meta.TCPClientOptions{
+			opt := meta.TCPConnectionOptions{
 				Port: c.port,
 			}
-			client, err := meta.CreateTCPClient(opt)
+			client, err := meta.CreateTCPConnection(opt)
 			if err != nil {
 				c.Log().Error("unable to create tcp client: %s", err)
 				c.tc.err <- err

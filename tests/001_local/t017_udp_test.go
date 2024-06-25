@@ -60,10 +60,10 @@ func (u *udp) Init(args ...any) error {
 	}
 
 	// UDP server with no Process
-	opt := meta.UDPOptions{
+	opt := meta.UDPServerOptions{
 		Port: 17171,
 	}
-	if metaudp, err := meta.CreateUDP(opt); err != nil {
+	if metaudp, err := meta.CreateUDPServer(opt); err != nil {
 		u.Log().Error("unable to create udp meta-process: %s", err)
 		return nil
 	} else {
@@ -75,11 +75,11 @@ func (u *udp) Init(args ...any) error {
 	}
 
 	// UDP server with Process
-	opt = meta.UDPOptions{
+	opt = meta.UDPServerOptions{
 		Port:    18181,
 		Process: "handler",
 	}
-	if metaudp, err := meta.CreateUDP(opt); err != nil {
+	if metaudp, err := meta.CreateUDPServer(opt); err != nil {
 		u.Log().Error("unable to create udp meta-process: %s", err)
 		return nil
 	} else {

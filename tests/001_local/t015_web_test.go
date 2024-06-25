@@ -1,6 +1,7 @@
 package local
 
 import (
+	"bytes"
 	"fmt"
 	"net/http"
 	"reflect"
@@ -31,61 +32,64 @@ func factory_t15web() gen.ProcessBehavior {
 }
 
 type t15web struct {
-	act.Web
+	act.Actor
 
 	tc *testcase
 }
 
-func factory_t15handler() gen.ProcessBehavior {
-	return &t15handler{}
+func factory_t15worker() gen.ProcessBehavior {
+	return &t15worker{}
 }
 
-type t15handler struct {
-	act.Actor
+type t15worker struct {
+	act.WebWorker
 }
 
-func (t *t15handler) HandleMessage(from gen.PID, message any) error {
-	switch m := message.(type) {
-	case meta.MessageWebRequest:
-		defer m.Done()
-		t.Log().Info("got http request from %s", from)
-		m.Response.WriteHeader(http.StatusAccepted)
-	default:
-		t.Log().Info("got unknown message from %s: %#v", from, message)
-	}
-
+func (t *t15worker) HandleGet(from gen.PID, writer http.ResponseWriter, request *http.Request) error {
+	writer.WriteHeader(http.StatusAccepted)
 	return nil
 }
 
-func (t *t15web) Init(args ...any) (act.WebOptions, error) {
-	var options act.WebOptions
-
-	options.Port = 12121
-	options.Host = "localhost"
+func (t *t15web) Init(args ...any) error {
 
 	mux := http.NewServeMux()
 
+	// root
 	handler1 := meta.CreateWebHandler(meta.WebHandlerOptions{}) // returns http.StatusNoContent
 	if _, err := t.SpawnMeta(handler1, gen.MetaOptions{}); err != nil {
-		return options, err
+		return err
 	}
 	mux.Handle("/", handler1)
 
+	// /test
 	opt := meta.WebHandlerOptions{
-		Process: "handler", // must forward request to this process
+		Worker: "webworker", // must forward request to this process
 	}
 	handler2 := meta.CreateWebHandler(opt) // returns http.StatusAccepted
 	if _, err := t.SpawnMeta(handler2, gen.MetaOptions{}); err != nil {
-		return options, err
+		return err
 	}
-	mux.Handle("/handler", handler2)
+	mux.Handle("/test", handler2)
 
-	handler3 := meta.CreateWebHandler(meta.WebHandlerOptions{})
 	// do not start. check the case with no meta process
+	handler3 := meta.CreateWebHandler(meta.WebHandlerOptions{})
 	mux.Handle("/nometaprocess", handler3) // returns http.StatusBadGateway
 
-	options.Handler = mux
-	return options, nil
+	// create and spawn web server meta process
+	serverOptions := meta.WebServerOptions{
+		Port:    12121,
+		Host:    "localhost",
+		Handler: mux,
+	}
+
+	webserver, err := meta.CreateWebServer(serverOptions)
+	if err != nil {
+		return err
+	}
+	if _, err := t.SpawnMeta(webserver, gen.MetaOptions{}); err != nil {
+		return nil
+	}
+	return nil
 }
 
 func (t *t15web) HandleMessage(from gen.PID, message any) error {
@@ -130,8 +134,8 @@ func (t *t15) TestBasic(input any) {
 		return
 	}
 
-	// start handler-process
-	handlerpid, err := t.SpawnRegister("handler", factory_t15handler, gen.ProcessOptions{})
+	// start webworker-process
+	webworkerpid, err := t.SpawnRegister("webworker", factory_t15worker, gen.ProcessOptions{})
 	if err != nil {
 		t.Log().Error("unable to spawn handler process: %s", err)
 		t.testcase.err <- err
@@ -155,8 +159,8 @@ func (t *t15) TestBasic(input any) {
 	}
 
 	// must be handler by handler-process and return http.StatusAccepted
-	url = "http://localhost:12121/handler"
-	t.Log().Info("making request to %q. must be handled by %s (handler)", url, handlerpid)
+	url = "http://localhost:12121/test"
+	t.Log().Info("making GET request to %q. must be handled by %s (webworker)", url, webworkerpid)
 	r, err = http.Get(url)
 	if err != nil {
 		t.Log().Error("unable to make web request / : %s", err)
@@ -170,6 +174,19 @@ func (t *t15) TestBasic(input any) {
 		return
 	}
 
+	t.Log().Info("making POST request to %q. must be handled by %s (webworker)", url, webworkerpid)
+	r, err = http.Post(url, "", bytes.NewBuffer([]byte{1, 2, 3}))
+	if err != nil {
+		t.Log().Error("unable to make web request / : %s", err)
+		t.testcase.err <- err
+		return
+	}
+
+	if r.StatusCode != http.StatusNotImplemented {
+		t.Log().Error("incorrect status code for /: %d (exp: %d)", r.StatusCode, http.StatusNotImplemented)
+		t.testcase.err <- errIncorrect
+		return
+	}
 	// must be handler by meta-process itself and return http.StatusBadGateway
 	url = "http://localhost:12121/nometaprocess"
 	t.Log().Info("making request to %q. must be handled by meta-process itself", url)
@@ -186,11 +203,12 @@ func (t *t15) TestBasic(input any) {
 		return
 	}
 
-	// kill handlerpid and make request to the handler url. must be http.StatusBadGateway
-	t.Node().Kill(handlerpid)
+	// kill webworkierpid process and make request to the handler url.
+	// must be http.StatusBadGateway
+	t.Node().Kill(webworkerpid)
 
-	url = "http://localhost:12121/handler"
-	t.Log().Info("making request to %q. must be handled by meta-process (handler-process was killed)", url)
+	url = "http://localhost:12121/test"
+	t.Log().Info("making request to %q. must be handled by meta-process (worker-process was killed)", url)
 	r, err = http.Get(url)
 	if err != nil {
 		t.Log().Error("unable to make web request / : %s", err)
@@ -210,7 +228,7 @@ func (t *t15) TestBasic(input any) {
 func TestT15Web(t *testing.T) {
 	nopt := gen.NodeOptions{}
 	nopt.Log.DefaultLogger.Disable = true
-	//nopt.Log.Level = gen.LogLevelTrace
+	// nopt.Log.Level = gen.LogLevelTrace
 	node, err := node.Start("t15Webnode@localhost", nopt, gen.Version{})
 	if err != nil {
 		t.Fatal(err)

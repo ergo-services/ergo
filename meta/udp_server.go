@@ -17,14 +17,14 @@ const (
 	defaultUDPBufferSize int = 65000
 )
 
-func CreateUDP(options UDPOptions) (gen.MetaBehavior, error) {
+func CreateUDPServer(options UDPServerOptions) (gen.MetaBehavior, error) {
 	hp := net.JoinHostPort(options.Host, strconv.Itoa(int(options.Port)))
 	pc, err := net.ListenPacket("udp", hp)
 	if err != nil {
 		return nil, err
 	}
 
-	mb := &udp{
+	mb := &udpserver{
 		pc: pc,
 	}
 	if options.BufferSize < 1 {
@@ -49,21 +49,7 @@ func CreateUDP(options UDPOptions) (gen.MetaBehavior, error) {
 	return mb, nil
 }
 
-type UDPOptions struct {
-	Host       string
-	Port       uint16
-	Process    gen.Atom
-	BufferSize int
-	BufferPool *sync.Pool
-}
-
-type MessageUDP struct {
-	ID   gen.Alias
-	Addr net.Addr
-	Data []byte
-}
-
-type udp struct {
+type udpserver struct {
 	gen.MetaProcess
 	pc         net.PacketConn
 	bufferSize int
@@ -74,12 +60,12 @@ type udp struct {
 	stopnoproc bool
 }
 
-func (u *udp) Init(process gen.MetaProcess) error {
+func (u *udpserver) Init(process gen.MetaProcess) error {
 	u.MetaProcess = process
 	return nil
 }
 
-func (u *udp) Start() error {
+func (u *udpserver) Start() error {
 	var buf []byte
 	var to any
 
@@ -119,7 +105,7 @@ func (u *udp) Start() error {
 	}
 }
 
-func (u *udp) HandleMessage(from gen.PID, message any) error {
+func (u *udpserver) HandleMessage(from gen.PID, message any) error {
 	switch m := message.(type) {
 	case MessageUDP:
 		_, err := u.pc.WriteTo(m.Data, m.Addr)
@@ -133,15 +119,15 @@ func (u *udp) HandleMessage(from gen.PID, message any) error {
 	return nil
 }
 
-func (u *udp) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error) {
+func (u *udpserver) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error) {
 	return nil, nil
 }
 
-func (u *udp) Terminate(reason error) {
+func (u *udpserver) Terminate(reason error) {
 	u.pc.Close()
 }
 
-func (u *udp) HandleInspect(from gen.PID, item ...string) map[string]string {
+func (u *udpserver) HandleInspect(from gen.PID, item ...string) map[string]string {
 	return map[string]string{
 		"listener": u.pc.LocalAddr().String(),
 	}
