@@ -20,13 +20,13 @@ type WebWorkerBehavior interface {
 	// Init invoked on a spawn WebWorker for the initializing.
 	Init(args ...any) error
 
-	// HandleMessage invoked if Web received a message sent with gen.Process.Send(...).
+	// HandleMessage invoked if WebWorker received a message sent with gen.Process.Send(...).
 	// Non-nil value of the returning error will cause termination of this process.
 	// To stop this process normally, return gen.TerminateReasonNormal
 	// or any other for abnormal termination.
 	HandleMessage(from gen.PID, message any) error
 
-	// HandleCall invoked if Web got a synchronous request made with gen.Process.Call(...).
+	// HandleCall invoked if WebWorker got a synchronous request made with gen.Process.Call(...).
 	// Return nil as a result to handle this request asynchronously and
 	// to provide the result later using the gen.Process.SendResponse(...) method.
 	HandleCall(from gen.PID, ref gen.Ref, request any) (any, error)
