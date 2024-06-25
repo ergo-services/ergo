@@ -87,7 +87,7 @@ func (t *t15web) Init(args ...any) error {
 		return err
 	}
 	if _, err := t.SpawnMeta(webserver, gen.MetaOptions{}); err != nil {
-		return nil
+		return err
 	}
 	return nil
 }
