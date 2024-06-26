@@ -129,10 +129,18 @@ func (u *udpserver) Terminate(reason error) {
 }
 
 func (u *udpserver) HandleInspect(from gen.PID, item ...string) map[string]string {
+	var to any
 	bytesIn := atomic.LoadUint64(&u.bytesIn)
 	bytesOut := atomic.LoadUint64(&u.bytesOut)
+
+	if u.process == "" {
+		to = u.Parent()
+	} else {
+		to = u.process
+	}
 	return map[string]string{
 		"listener":  u.pc.LocalAddr().String(),
+		"process":   fmt.Sprintf("%s", to),
 		"bytes in":  fmt.Sprintf("%d", bytesIn),
 		"bytes out": fmt.Sprintf("%d", bytesOut),
 	}

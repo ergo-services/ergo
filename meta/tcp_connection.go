@@ -157,7 +157,7 @@ func (t *tcpconnection) HandleMessage(from gen.PID, message any) error {
 				break
 			}
 		}
-		atomic.AddUint64(&t.bytesOut, uint64(l))
+		atomic.AddUint64(&t.bytesOut, uint64(lenD))
 		if t.bufpool != nil {
 			t.bufpool.Put(m.Data)
 		}
@@ -180,12 +180,18 @@ func (t *tcpconnection) Terminate(reason error) {
 }
 
 func (t *tcpconnection) HandleInspect(from gen.PID, item ...string) map[string]string {
+	var to any
 	bytesIn := atomic.LoadUint64(&t.bytesIn)
 	bytesOut := atomic.LoadUint64(&t.bytesOut)
+	if t.process == "" {
+		to = t.Parent()
+	} else {
+		to = t.process
+	}
 	return map[string]string{
 		"local":     t.conn.LocalAddr().String(),
 		"remote":    t.conn.RemoteAddr().String(),
-		"process":   t.process.String(),
+		"process":   fmt.Sprintf("%s", to),
 		"bytes in":  fmt.Sprintf("%d", bytesIn),
 		"bytes out": fmt.Sprintf("%d", bytesOut),
 	}
