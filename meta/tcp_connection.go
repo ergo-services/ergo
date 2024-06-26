@@ -167,7 +167,7 @@ func (t *tcpconnection) HandleCall(from gen.PID, ref gen.Ref, request any) (any,
 
 func (t *tcpconnection) Terminate(reason error) {
 	defer t.conn.Close()
-	if reason == nil || reason == gen.TerminateReasonNormal {
+	if reason == nil || reason == gen.TerminateMetaNormal {
 		return
 	}
 	t.Log().Error("terminated abnormaly: %s", reason)
@@ -175,7 +175,8 @@ func (t *tcpconnection) Terminate(reason error) {
 
 func (t *tcpconnection) HandleInspect(from gen.PID, item ...string) map[string]string {
 	return map[string]string{
-		"local":  t.conn.LocalAddr().String(),
-		"remote": t.conn.RemoteAddr().String(),
+		"local":   t.conn.LocalAddr().String(),
+		"remote":  t.conn.RemoteAddr().String(),
+		"process": t.process.String(),
 	}
 }
