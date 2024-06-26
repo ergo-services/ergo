@@ -2,9 +2,11 @@ package meta
 
 import (
 	"errors"
+	"fmt"
 	"net"
 	"strconv"
 	"sync"
+	"sync/atomic"
 
 	"ergo.services/ergo/gen"
 )
@@ -56,8 +58,8 @@ type udpserver struct {
 	process    gen.Atom
 	bufpool    *sync.Pool
 
-	// TODO add to UDPOptions
-	stopnoproc bool
+	bytesIn  uint64
+	bytesOut uint64
 }
 
 func (u *udpserver) Init(process gen.MetaProcess) error {
@@ -91,12 +93,10 @@ func (u *udpserver) Start() error {
 				Data: buf[:n],
 				Addr: addr,
 			}
+			atomic.AddUint64(&u.bytesIn, uint64(n))
 
 			if err := u.Send(to, packet); err != nil {
 				u.Log().Error("unable to send MessageUDP to %s: %s", to, err)
-				if u.stopnoproc {
-					return err
-				}
 			}
 		}
 		if err != nil {
@@ -108,10 +108,11 @@ func (u *udpserver) Start() error {
 func (u *udpserver) HandleMessage(from gen.PID, message any) error {
 	switch m := message.(type) {
 	case MessageUDP:
-		_, err := u.pc.WriteTo(m.Data, m.Addr)
+		n, err := u.pc.WriteTo(m.Data, m.Addr)
 		if u.bufpool != nil {
 			u.bufpool.Put(m.Data)
 		}
+		atomic.AddUint64(&u.bytesOut, uint64(n))
 		return err
 	default:
 		u.Log().Error("unsupported message from %s. ignored", from)
@@ -128,7 +129,11 @@ func (u *udpserver) Terminate(reason error) {
 }
 
 func (u *udpserver) HandleInspect(from gen.PID, item ...string) map[string]string {
+	bytesIn := atomic.LoadUint64(&u.bytesIn)
+	bytesOut := atomic.LoadUint64(&u.bytesOut)
 	return map[string]string{
-		"listener": u.pc.LocalAddr().String(),
+		"listener":  u.pc.LocalAddr().String(),
+		"bytes in":  fmt.Sprintf("%d", bytesIn),
+		"bytes out": fmt.Sprintf("%d", bytesOut),
 	}
 }

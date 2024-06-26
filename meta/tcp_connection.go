@@ -2,9 +2,11 @@ package meta
 
 import (
 	"crypto/tls"
+	"fmt"
 	"net"
 	"strconv"
 	"sync"
+	"sync/atomic"
 
 	"ergo.services/ergo/gen"
 )
@@ -63,6 +65,8 @@ type tcpconnection struct {
 	conn       net.Conn
 	bufpool    *sync.Pool
 	bufferSize int
+	bytesIn    uint64
+	bytesOut   uint64
 }
 
 func (t *tcpconnection) Init(process gen.MetaProcess) error {
@@ -129,6 +133,7 @@ func (t *tcpconnection) Start() error {
 			ID:   id,
 			Data: buf[:n],
 		}
+		atomic.AddUint64(&t.bytesIn, uint64(n))
 		if err := t.Send(to, message); err != nil {
 			t.Log().Error("unable to send MessageTCP: %s", err)
 			return err
@@ -152,6 +157,7 @@ func (t *tcpconnection) HandleMessage(from gen.PID, message any) error {
 				break
 			}
 		}
+		atomic.AddUint64(&t.bytesOut, uint64(l))
 		if t.bufpool != nil {
 			t.bufpool.Put(m.Data)
 		}
@@ -174,9 +180,13 @@ func (t *tcpconnection) Terminate(reason error) {
 }
 
 func (t *tcpconnection) HandleInspect(from gen.PID, item ...string) map[string]string {
+	bytesIn := atomic.LoadUint64(&t.bytesIn)
+	bytesOut := atomic.LoadUint64(&t.bytesOut)
 	return map[string]string{
-		"local":   t.conn.LocalAddr().String(),
-		"remote":  t.conn.RemoteAddr().String(),
-		"process": t.process.String(),
+		"local":     t.conn.LocalAddr().String(),
+		"remote":    t.conn.RemoteAddr().String(),
+		"process":   t.process.String(),
+		"bytes in":  fmt.Sprintf("%d", bytesIn),
+		"bytes out": fmt.Sprintf("%d", bytesOut),
 	}
 }
