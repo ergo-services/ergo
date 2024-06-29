@@ -183,11 +183,15 @@ type NetworkOptions struct {
 	Cookie string
 	// Flags
 	Flags NetworkFlags
-	// Registrar
+	// Registrar default registrar for outgoing connections
 	Registrar Registrar
-	// Listeners node can have multiple listening interface at once. If this list is empty
-	// the default listener will be using.
-	Listeners []Listener
+	// Handshake default handshake if registrar returned Route with no handshake version
+	Handshake NetworkHandshake
+	// Proto default proto if registrar returned Route with no proto version
+	Proto NetworkProto
+
+	// Acceptors node can have multiple acceptors at once
+	Acceptors []AcceptorOptions
 	// InsecureSkipVerify skips the certificate verification
 	InsecureSkipVerify bool
 	// MaxMessageSize limit the message size for the incoming messages.
@@ -266,7 +270,7 @@ type RemoteNodeInfo struct {
 	TransitBytesOut uint64
 }
 
-type Listener struct {
+type AcceptorOptions struct {
 	// Cookie cookie for the incoming connection to this listener. Leave it empty in
 	// case of using the node's cookie.
 	Cookie string

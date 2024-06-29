@@ -829,8 +829,8 @@ func (n *network) stop() error {
 	n.registrar = nil
 
 	// stop acceptors
-	for _, listener := range n.acceptors {
-		listener.l.Close()
+	for _, a := range n.acceptors {
+		a.l.Close()
 	}
 
 	n.connections.Range(func(_, v any) bool {
@@ -905,8 +905,8 @@ func (n *network) start(options gen.NetworkOptions) error {
 
 	nodehost := strings.Split(string(n.node.name), "@")
 
-	if len(options.Listeners) == 0 {
-		l := gen.Listener{
+	if len(options.Acceptors) == 0 {
+		a := gen.AcceptorOptions{
 			Host:           nodehost[1],
 			Port:           gen.DefaultPort,
 			CertManager:    n.node.CertManager(),
@@ -914,7 +914,7 @@ func (n *network) start(options gen.NetworkOptions) error {
 			MaxMessageSize: options.MaxMessageSize,
 			Flags:          options.Flags,
 		}
-		options.Listeners = append(options.Listeners, l)
+		options.Acceptors = append(options.Acceptors, a)
 	}
 
 	appRoutes := []gen.ApplicationRoute{}
@@ -933,38 +933,38 @@ func (n *network) start(options gen.NetworkOptions) error {
 	}
 	routes := []gen.Route{}
 
-	for _, l := range options.Listeners {
-		if l.Handshake == nil {
-			l.Handshake = n.defaultHandshake
+	for _, a := range options.Acceptors {
+		if a.Handshake == nil {
+			a.Handshake = n.defaultHandshake
 		}
 
-		if l.Proto == nil {
-			l.Proto = n.defaultProto
+		if a.Proto == nil {
+			a.Proto = n.defaultProto
 		}
 
-		if l.MaxMessageSize == 0 {
-			l.MaxMessageSize = options.MaxMessageSize
+		if a.MaxMessageSize == 0 {
+			a.MaxMessageSize = options.MaxMessageSize
 		}
 
-		if l.Flags.Enable == false {
-			l.Flags = l.Handshake.NetworkFlags()
-			if l.Flags.Enable == false {
-				l.Flags = options.Flags
+		if a.Flags.Enable == false {
+			a.Flags = a.Handshake.NetworkFlags()
+			if a.Flags.Enable == false {
+				a.Flags = options.Flags
 			}
 		}
 
-		switch l.TCP {
+		switch a.TCP {
 		case "tcp":
 		case "tcp6":
 		default:
-			l.TCP = "tcp4"
+			a.TCP = "tcp4"
 		}
 
-		if l.Host == "" {
-			l.Host = nodehost[1]
+		if a.Host == "" {
+			a.Host = nodehost[1]
 		}
 
-		acceptor, err := n.startAcceptor(l)
+		acceptor, err := n.startAcceptor(a)
 		if err != nil {
 			// stop acceptors
 			for i := range n.acceptors {
@@ -981,22 +981,22 @@ func (n *network) start(options gen.NetworkOptions) error {
 			ProtoVersion:     acceptor.proto.Version(),
 		}
 		n.node.validateLicenses(r.HandshakeVersion, r.ProtoVersion)
-		if l.Registrar == nil {
+		if a.Registrar == nil {
 			acceptor.registrar_info = n.registrar.Info
 			routes = append(routes, r)
 			continue
 		}
 
-		acceptor.registrar_info = l.Registrar.Info
-		// custom reistrar for this listener
+		acceptor.registrar_info = a.Registrar.Info
+		// custom reistrar for this acceptor
 		registerRoutes := gen.RegisterRoutes{
 			Routes:            []gen.Route{r},
 			ApplicationRoutes: appRoutes,
 		}
-		registrarInfo := l.Registrar.Info()
+		registrarInfo := a.Registrar.Info()
 
 		// TODO it returns static routes. they need to be handled
-		_, err = l.Registrar.Register(n.node, registerRoutes)
+		_, err = a.Registrar.Register(n.node, registerRoutes)
 		if err != nil {
 			// stop acceptors
 			for i := range n.acceptors {
@@ -1036,25 +1036,25 @@ func (n *network) start(options gen.NetworkOptions) error {
 	return nil
 }
 
-func (n *network) startAcceptor(l gen.Listener) (*acceptor, error) {
+func (n *network) startAcceptor(a gen.AcceptorOptions) (*acceptor, error) {
 	lc := net.ListenConfig{
 		KeepAlive: gen.DefaultKeepAlivePeriod,
 	}
 
-	cert := l.CertManager
+	cert := a.CertManager
 	if cert == nil {
 		cert = n.node.CertManager()
 	}
-	bs := l.BufferSize
+	bs := a.BufferSize
 	if bs < 1 {
 		bs = gen.DefaultTCPBufferSize
 	}
 
-	pstart := l.Port
+	pstart := a.Port
 	if pstart == 0 {
 		pstart = gen.DefaultPort
 	}
-	pend := l.PortRange
+	pend := a.PortRange
 	if pend == 0 {
 		pend = 50000
 	}
@@ -1064,22 +1064,22 @@ func (n *network) startAcceptor(l gen.Listener) (*acceptor, error) {
 
 	acceptor := &acceptor{
 		bs:               bs,
-		proto:            l.Proto,
-		handshake:        l.Handshake,
+		proto:            a.Proto,
+		handshake:        a.Handshake,
 		tls:              cert != nil,
-		max_message_size: l.MaxMessageSize,
+		max_message_size: a.MaxMessageSize,
 		atom_mapping:     make(map[gen.Atom]gen.Atom),
 	}
-	if l.Cookie == "" {
+	if a.Cookie == "" {
 		acceptor.cookie = n.cookie
 	}
-	for k, v := range l.AtomMapping {
+	for k, v := range a.AtomMapping {
 		acceptor.atom_mapping[k] = v
 	}
 
 	for i := pstart; i < pend+1; i++ {
-		hp := net.JoinHostPort(l.Host, strconv.Itoa(int(i)))
-		lcl, err := lc.Listen(context.Background(), l.TCP, hp)
+		hp := net.JoinHostPort(a.Host, strconv.Itoa(int(i)))
+		lcl, err := lc.Listen(context.Background(), a.TCP, hp)
 		if err != nil {
 			if e, ok := err.(*net.OpError); ok {
 				if _, ok := e.Err.(*net.DNSError); ok {
@@ -1096,18 +1096,18 @@ func (n *network) startAcceptor(l gen.Listener) (*acceptor, error) {
 
 	if acceptor.l == nil {
 		return acceptor, fmt.Errorf("unable to assign requested address %s: no available ports in range %d..%d",
-			l.Host, pstart, pend)
+			a.Host, pstart, pend)
 	}
 
 	if cert != nil {
 		config := &tls.Config{
 			GetCertificate:     cert.GetCertificateFunc(),
-			InsecureSkipVerify: l.InsecureSkipVerify,
+			InsecureSkipVerify: a.InsecureSkipVerify,
 		}
 		acceptor.l = tls.NewListener(acceptor.l, config)
 	}
 
-	acceptor.flags = l.Flags
+	acceptor.flags = a.Flags
 	if acceptor.flags.Enable == false {
 		acceptor.flags = gen.DefaultNetworkFlags
 	}
