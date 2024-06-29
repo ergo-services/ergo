@@ -185,9 +185,9 @@ type NetworkOptions struct {
 	Flags NetworkFlags
 	// Registrar default registrar for outgoing connections
 	Registrar Registrar
-	// Handshake default handshake if registrar returned Route with no handshake version
+	// Handshake set default handshake
 	Handshake NetworkHandshake
-	// Proto default proto if registrar returned Route with no proto version
+	// Proto set default proto
 	Proto NetworkProto
 
 	// Acceptors node can have multiple acceptors at once

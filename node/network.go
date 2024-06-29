@@ -917,6 +917,13 @@ func (n *network) start(options gen.NetworkOptions) error {
 		options.Acceptors = append(options.Acceptors, a)
 	}
 
+	if options.Handshake != nil {
+		n.defaultHandshake = options.Handshake
+	}
+	if options.Proto != nil {
+		n.defaultProto = options.Proto
+	}
+
 	appRoutes := []gen.ApplicationRoute{}
 	for _, app := range n.node.Applications(true) {
 		info, err := n.node.ApplicationInfo(app)
