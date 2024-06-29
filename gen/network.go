@@ -152,7 +152,7 @@ const (
 	// incomming connections
 	NetworkModeEnabled NetworkMode = 0
 
-	// NerworkModeHidden makes node to start network with disabled listener(s) for the incomming connections.
+	// NerworkModeHidden makes node to start network with disabled acceptor(s) for the incomming connections.
 	NetworkModeHidden NetworkMode = 1
 
 	// NetworkModeDisabled disables networking for the node entirely.
@@ -271,7 +271,7 @@ type RemoteNodeInfo struct {
 }
 
 type AcceptorOptions struct {
-	// Cookie cookie for the incoming connection to this listener. Leave it empty in
+	// Cookie cookie for the incoming connection to this acceptor. Leave it empty in
 	// case of using the node's cookie.
 	Cookie string
 	// Hostname defines an interface for the listener. Default: takes from the node name.
@@ -287,8 +287,7 @@ type AcceptorOptions struct {
 	TCP string
 	// BufferSize defines buffer size for the TCP connection
 	BufferSize int
-	// MaxMessageSize allows overriding the gen.NetworkOptions.MaxMessageSize setting
-	// for the connections accepted by this listener
+	// MaxMessageSize set max message size. overrides gen.NetworkOptions.MaxMessageSize
 	MaxMessageSize int
 
 	Flags       NetworkFlags
