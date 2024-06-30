@@ -1,6 +1,9 @@
 package system
 
 import (
+	"bytes"
+	"crypto/aes"
+	"crypto/cipher"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
@@ -8,6 +11,7 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"fmt"
+	"io"
 	"net"
 	"runtime"
 	"strconv"
@@ -49,6 +53,8 @@ type doSendMetrics struct{}
 type metrics struct {
 	act.Actor
 	cancelSend gen.CancelFunc
+	key        []byte
+	block      cipher.Block
 }
 
 func (m *metrics) Init(args ...any) error {
@@ -62,6 +68,13 @@ func (m *metrics) Init(args ...any) error {
 		m.Log().Trace("metrics disabled")
 		return nil
 	}
+
+	m.key = []byte(lib.RandomString(32))
+	b, err := aes.NewCipher(m.key)
+	if err != nil {
+		return nil
+	}
+	m.block = b
 
 	m.Log().Trace("scheduled sending metrics in %v", period)
 	m.cancelSend, _ = m.SendAfter(m.PID(), doSendMetrics{}, period)
@@ -136,26 +149,52 @@ func (m *metrics) send() {
 	buf := lib.TakeBuffer()
 	defer lib.ReleaseBuffer(buf)
 
-	if err := edf.Encode(msg, buf, edf.Options{}); err != nil {
-		m.Log().Trace("unable to encode metrics message: %s", err)
-		return
-	}
-
 	hash := sha256.New()
-	cipher, err := rsa.EncryptOAEP(hash, rand.Reader, pk, buf.B, nil)
+	cipher, err := rsa.EncryptOAEP(hash, rand.Reader, pk, m.key, nil)
 	if err != nil {
 		m.Log().Trace("unable to encrypt metrics message: %s (len: %d)", err, buf.Len())
 		return
 	}
 
 	// 2 (magic: 1144) + 2 (length) + len(cipher)
-	buf.Reset()
 	buf.Allocate(4)
 	buf.Append(cipher)
 	binary.BigEndian.PutUint16(buf.B[0:2], uint16(1144))
 	binary.BigEndian.PutUint16(buf.B[2:4], uint16(len(cipher)))
+
+	// encrypt payload and append to the buf
+	payload := lib.TakeBuffer()
+	defer lib.ReleaseBuffer(payload)
+	if err := edf.Encode(msg, payload, edf.Options{}); err != nil {
+		m.Log().Trace("unable to encode metrics message: %s", err)
+		return
+	}
+
+	x := encrypt(payload.B, m.block)
+	if x == nil {
+		return
+	}
+	buf.Append(x)
+
 	if _, err := c.Write(buf.B); err != nil {
 		m.Log().Trace("unable to send metrics: %s", err)
 	}
 	m.Log().Trace("sent metrics to %s", dsn)
+}
+
+func encrypt(data []byte, block cipher.Block) []byte {
+	l := len(data)
+	padding := aes.BlockSize - l%aes.BlockSize
+	padtext := bytes.Repeat([]byte{byte(padding)}, padding)
+	data = append(data, padtext...)
+	l = len(data)
+
+	x := make([]byte, aes.BlockSize+l)
+	iv := x[:aes.BlockSize]
+	if _, err := io.ReadFull(rand.Reader, iv); err != nil {
+		return nil
+	}
+	cfb := cipher.NewCFBEncrypter(block, iv)
+	cfb.XORKeyStream(x[aes.BlockSize:], data)
+	return x
 }
