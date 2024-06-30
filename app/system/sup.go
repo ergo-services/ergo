@@ -26,7 +26,6 @@ func (s *sup) Init(args ...any) (act.SupervisorSpec, error) {
 		Children: []act.SupervisorChildSpec{
 			{
 				Factory: factory_metrics,
-				Name:    "system_metrics",
 				Options: metricsOptions,
 			},
 			{
