@@ -16,18 +16,12 @@ type sup struct {
 
 func (s *sup) Init(args ...any) (act.SupervisorSpec, error) {
 
-	var metricsOptions gen.ProcessOptions
-
-	if _, trace := s.Env(TRACE_METRICS); trace {
-		metricsOptions.LogLevel = gen.LogLevelTrace
-	}
 	spec := act.SupervisorSpec{
 		Type: act.SupervisorTypeOneForOne,
 		Children: []act.SupervisorChildSpec{
 			{
 				Factory: factory_metrics,
 				Name:    "system_metrics",
-				Options: metricsOptions,
 			},
 			{
 				Factory: inspect.Factory,

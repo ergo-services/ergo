@@ -28,7 +28,6 @@ const (
 	period time.Duration = time.Second * 300
 
 	DISABLE_METRICS gen.Env = "disable_metrics"
-	TRACE_METRICS   gen.Env = "trace_metrics"
 )
 
 type MessageMetrics struct {
