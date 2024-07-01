@@ -197,23 +197,23 @@ type NetworkOptions struct {
 	// MaxMessageSize limit the message size for the incoming messages.
 	MaxMessageSize int
 	// ProxyAccept options for incomming proxy connections
-	ProxyAccept ProxyAccept
+	ProxyAccept ProxyAcceptOptions
 	// ProxyTransit options for the proxy connections through this node
-	ProxyTransit ProxyTransit
+	ProxyTransit ProxyTransitOptions
 
 	// TODO
 	// FragmentationUnit chunck size in bytes
 	//FragmentationUnit int
 }
 
-type ProxyAccept struct {
+type ProxyAcceptOptions struct {
 	// Cookie sets cookie for incoming connections
 	Cookie string
 	// Flags sets options for incoming connections
 	Flags NetworkProxyFlags
 }
 
-type ProxyTransit struct {
+type ProxyTransitOptions struct {
 	// TODO
 	// proxy Routes
 	// access control
