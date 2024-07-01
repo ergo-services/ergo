@@ -109,7 +109,7 @@ type Node interface {
 
 	CertManager() CertManager
 
-	Security() Security
+	Security() SecurityOptions
 
 	Stop()
 	StopForce()
@@ -215,15 +215,15 @@ type NodeOptions struct {
 	Network NetworkOptions
 	// CertManager
 	CertManager CertManager
-	// Security flags
-	Security Security
+	// Security options
+	Security SecurityOptions
 	// Log options for the defaulf logger
 	Log LogOptions
 	// Version sets the version details for your node
 	Version Version
 }
 
-type Security struct {
+type SecurityOptions struct {
 	ExposeEnvInfo bool
 	// ExposeEnvRemoteSpawn makes remote spawned process inherit env from the parent process/node
 	ExposeEnvRemoteSpawn            bool

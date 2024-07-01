@@ -31,7 +31,7 @@ type node struct {
 
 	env sync.Map // env name gen.Env -> any
 
-	security    gen.Security
+	security    gen.SecurityOptions
 	certmanager gen.CertManager
 
 	corePID gen.PID
@@ -246,7 +246,7 @@ func (n *node) CertManager() gen.CertManager {
 	return n.certmanager
 }
 
-func (n *node) Security() gen.Security {
+func (n *node) Security() gen.SecurityOptions {
 	return n.security
 }
 

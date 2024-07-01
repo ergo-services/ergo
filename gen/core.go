@@ -58,6 +58,6 @@ type Core interface {
 
 	PID() PID
 	LogLevel() LogLevel
-	Security() Security
+	Security() SecurityOptions
 	EnvList() map[Env]any
 }
