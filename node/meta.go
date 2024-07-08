@@ -64,7 +64,7 @@ func (m *meta) init() (r error) {
 				pc, fn, line, _ := runtime.Caller(2)
 				m.log.Panic("init meta %s failed - %#v at %s[%s:%d]", m.id,
 					rcv, runtime.FuncForPC(pc).Name(), fn, line)
-				r = gen.TerminateMetaPanic
+				r = gen.TerminateReasonPanic
 			}
 		}()
 	}
@@ -84,7 +84,7 @@ func (m *meta) start() {
 				if old != int32(gen.MetaStateTerminated) {
 					m.p.node.aliases.Delete(m.id)
 					atomic.StoreInt32(&m.state, int32(gen.MetaStateTerminated))
-					reason := gen.TerminateMetaPanic
+					reason := gen.TerminateReasonPanic
 					m.p.node.RouteTerminateAlias(m.id, reason)
 					m.behavior.Terminate(reason)
 				}
@@ -100,7 +100,7 @@ func (m *meta) start() {
 	if old != int32(gen.MetaStateTerminated) {
 		m.p.node.aliases.Delete(m.id)
 		if reason == nil {
-			reason = gen.TerminateMetaNormal
+			reason = gen.TerminateReasonNormal
 		}
 		m.p.node.RouteTerminateAlias(m.id, reason)
 		m.behavior.Terminate(reason)
@@ -129,7 +129,7 @@ func (m *meta) handle() {
 					old := atomic.SwapInt32(&m.state, int32(gen.MetaStateTerminated))
 					if old != int32(gen.MetaStateTerminated) {
 						m.p.node.aliases.Delete(m.id)
-						reason = gen.TerminateMetaPanic
+						reason = gen.TerminateReasonPanic
 						m.p.node.RouteTerminateAlias(m.id, reason)
 						m.behavior.Terminate(reason)
 					}
@@ -185,7 +185,7 @@ func (m *meta) handle() {
 					}
 					continue
 				}
-				if reason == gen.TerminateMetaNormal && result != nil {
+				if reason == gen.TerminateReasonNormal && result != nil {
 					m.p.node.RouteSendResponse(m.p.pid, message.From, message.Ref, options, result)
 				}
 			case gen.MailboxMessageTypeInspect:

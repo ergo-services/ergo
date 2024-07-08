@@ -1,7 +1,6 @@
 package gen
 
 import (
-	"errors"
 	"fmt"
 )
 
@@ -27,11 +26,6 @@ func (p MetaState) String() string {
 func (p MetaState) MarshalJSON() ([]byte, error) {
 	return []byte("\"" + p.String() + "\""), nil
 }
-
-var (
-	TerminateMetaNormal error = errors.New("normal")
-	TerminateMetaPanic  error = errors.New("meta panic")
-)
 
 type MetaBehavior interface {
 	Init(process MetaProcess) error
