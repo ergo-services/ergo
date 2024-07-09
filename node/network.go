@@ -1189,10 +1189,10 @@ func (n *network) accept(a *acceptor) {
 			conn := v.(gen.Connection)
 			if err := conn.Join(c, result.ConnectionID, nil, result.Tail); err != nil {
 				if err == gen.ErrUnsupported {
-					n.node.Log().Warning("unable to accept connection with %s (already exist)",
+					n.node.Log().Warning("unable to accept connection with %s (join is not supported)",
 						result.Peer)
 				} else {
-					n.node.Log().Warning("unable to join %s to the existing connection with %s: %s",
+					n.node.Log().Trace("unable to join %s to the existing connection with %s: %s",
 						c.RemoteAddr(), result.Peer, err)
 				}
 				c.Close()
