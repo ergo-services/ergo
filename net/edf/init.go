@@ -55,6 +55,8 @@ var (
 		gen.AcceptorInfo{},
 		gen.NetworkInfo{},
 		gen.MessageEvent{},
+		gen.MessageEventStart{},
+		gen.MessageEventStop{},
 
 		// inspector messages
 
