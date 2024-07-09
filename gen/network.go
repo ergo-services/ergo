@@ -238,8 +238,8 @@ type NetworkFlags struct {
 	EnableImportantDelivery bool
 }
 
-// use custom marshaling NetworkFlags. we must be able to extend this structure
-// introducing new features.
+// use custom marshaling for NetworkFlags. we must be able to extend this structure
+// by introducing new features.
 func (nf NetworkFlags) MarshalEDF(w io.Writer) error {
 	var flags uint64
 	var buf [8]byte
