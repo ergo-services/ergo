@@ -1,7 +1,9 @@
 package gen
 
 import (
+	"encoding/binary"
 	"fmt"
+	"io"
 	"net"
 )
 
@@ -234,6 +236,53 @@ type NetworkFlags struct {
 	EnableProxyAccept bool
 	// EnableImportantDelivery TODO will be implemented in the future release
 	EnableImportantDelivery bool
+}
+
+// use custom marshaling NetworkFlags. we must be able to extend this structure
+// introducing new features.
+func (nf NetworkFlags) MarshalEDF(w io.Writer) error {
+	var flags uint64
+	var buf [8]byte
+	if nf.Enable == false {
+		w.Write(buf[:])
+		return nil
+	}
+	flags = 1 // nf.Enable = true
+	if nf.EnableRemoteSpawn == true {
+		flags |= 2
+	}
+	if nf.EnableRemoteApplicationStart == true {
+		flags |= 4
+	}
+	if nf.EnableProxyTransit == true {
+		flags |= 8
+	}
+	if nf.EnableProxyAccept == true {
+		flags |= 16
+	}
+	if nf.EnableImportantDelivery == true {
+		flags |= 32
+	}
+	binary.BigEndian.PutUint64(buf[:], flags)
+	w.Write(buf[:])
+	return nil
+}
+
+func (nf *NetworkFlags) UnmarshalEDF(buf []byte) error {
+	if len(buf) < 8 {
+		return fmt.Errorf("unable to unmarshal NetworkFlags")
+	}
+	flags := binary.BigEndian.Uint64(buf)
+	nf.Enable = (flags & 1) > 0
+	if nf.Enable == false {
+		return nil
+	}
+	nf.EnableRemoteSpawn = (flags & 2) > 0
+	nf.EnableRemoteApplicationStart = (flags & 4) > 0
+	nf.EnableProxyTransit = (flags & 8) > 0
+	nf.EnableProxyAccept = (flags & 16) > 0
+	nf.EnableImportantDelivery = (flags & 32) > 0
+	return nil
 }
 
 // NetworkProxyFlags
