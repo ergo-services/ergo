@@ -10,6 +10,7 @@ import (
 )
 
 type meta struct {
+	// fields were reordered to have small memory footprint
 	behavior gen.MetaBehavior
 
 	main   lib.QueueMPSC
