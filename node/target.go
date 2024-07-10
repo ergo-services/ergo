@@ -13,8 +13,8 @@ func createTarget() *target {
 }
 
 type target struct {
-	sync.RWMutex
 	c map[any][]gen.PID // consumers
+	sync.RWMutex
 }
 
 // returns true if registered first consumer of the target

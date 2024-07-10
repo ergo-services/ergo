@@ -67,8 +67,8 @@ type process struct {
 }
 
 type response struct {
-	ref     gen.Ref
 	message any
+	ref     gen.Ref
 }
 
 // gen.Process implementation
