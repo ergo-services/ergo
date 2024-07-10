@@ -10,22 +10,24 @@ import (
 )
 
 type meta struct {
-	id        gen.Alias
-	behavior  gen.MetaBehavior
-	sbehavior string
+	behavior gen.MetaBehavior
 
-	main        lib.QueueMPSC
-	system      lib.QueueMPSC
+	main   lib.QueueMPSC
+	system lib.QueueMPSC
+
+	p   *process
+	log *log
+
+	sbehavior string
+	id        gen.Alias
+
 	messagesIn  uint64
 	messagesOut uint64
 
-	p        *process
 	priority gen.MessagePriority
-	log      *log
-	state    int32
 
-	// used for the meta process Uptime method only
-	creation int64
+	creation int64 // used for the meta process Uptime method only
+	state    int32
 }
 
 func (m *meta) ID() gen.Alias {
