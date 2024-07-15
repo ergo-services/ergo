@@ -46,8 +46,12 @@ type PoolBehavior interface {
 type Pool struct {
 	gen.Process
 
-	behavior PoolBehavior
-	mailbox  gen.ProcessMailbox
+	behavior        PoolBehavior
+	mailbox         gen.ProcessMailbox
+	sWorkerBehavior string
+	forwarded       uint64
+	restarts        uint64
+	unhandled       uint64
 
 	options PoolOptions
 	pool    lib.QueueMPSC
@@ -138,6 +142,10 @@ func (p *Pool) ProcessInit(process gen.Process, args ...any) (rr error) {
 		}
 
 		p.pool.Push(pid)
+		if i == 0 {
+			pi, _ := p.Node().ProcessInfo(pid)
+			p.sWorkerBehavior = pi.Behavior
+		}
 	}
 
 	return nil
@@ -291,7 +299,14 @@ func (p *Pool) HandleEvent(message gen.MessageEvent) error {
 	return nil
 }
 func (p *Pool) HandleInspect(from gen.PID, item ...string) map[string]string {
-	return nil
+	return map[string]string{
+		"pool_size":           fmt.Sprintf("%d", p.options.PoolSize),
+		"worker_behavior":     p.sWorkerBehavior,
+		"worker_mailbox_size": fmt.Sprintf("%d", p.options.WorkerMailboxSize),
+		"worker_restarts":     fmt.Sprintf("%d", p.restarts),
+		"messages_forwarded":  fmt.Sprintf("%d", p.forwarded),
+		"messages_unhandled":  fmt.Sprintf("%d", p.unhandled),
+	}
 }
 
 // private
@@ -307,6 +322,7 @@ func (p *Pool) forward(message *gen.MailboxMessage) {
 		if err == nil {
 			// back to pool
 			p.pool.Push(v)
+			p.forwarded++
 			return
 		}
 		if err == gen.ErrProcessUnknown || err == gen.ErrProcessTerminated {
@@ -322,6 +338,8 @@ func (p *Pool) forward(message *gen.MailboxMessage) {
 			}
 			p.Forward(pid, message, gen.MessagePriorityNormal)
 			p.pool.Push(pid)
+			p.forwarded++
+			p.restarts++
 			return
 		}
 
@@ -329,4 +347,5 @@ func (p *Pool) forward(message *gen.MailboxMessage) {
 		p.pool.Push(v)
 	}
 	p.Log().Error("no available worker process. ignored message from %s", message.From)
+	p.unhandled++
 }

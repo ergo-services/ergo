@@ -1449,9 +1449,7 @@ func (n *node) spawn(factory gen.ProcessFactory, options gen.ProcessOptionsExtra
 		return p.pid, err
 	}
 
-	if options.ParentPID != empty && options.LinkParent {
-		// method LinkPID is not allowed to be used in the initialization state,
-		// so we do linking manually.
+	if options.LinkParent {
 		n.links.registerConsumer(p.parent, p.pid)
 		p.targets.Store(p.parent, true)
 	}
