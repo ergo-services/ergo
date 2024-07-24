@@ -105,7 +105,6 @@ type ApplicationRoute struct {
 	Name   Atom
 	Weight int
 	Mode   ApplicationMode
-	State  string
 }
 
 type StaticRoutes struct {
