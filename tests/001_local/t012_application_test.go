@@ -146,7 +146,7 @@ func (t *t12) TestBasic(input any) {
 	defer node.Stop()
 
 	// check autostarted app
-	if apps := node.Applications(true); len(apps) != 1 || apps[0] != "test_app" {
+	if apps := node.ApplicationsRunning(); len(apps) != 1 || apps[0] != "test_app" {
 		t.Log().Error("incorrect application list: %s", apps)
 		t.testcase.err <- errIncorrect
 		return
@@ -253,19 +253,19 @@ func (t *t12) TestBasic(input any) {
 	}
 
 	// stop app and check
-	if err := node.ApplicationStop("test_app", false); err != nil {
+	if err := node.ApplicationStop("test_app"); err != nil {
 		t.Log().Error("unable to stop application: %s", err)
 		t.testcase.err <- err
 		return
 	}
 
-	if apps := node.Applications(true); len(apps) != 0 {
+	if apps := node.ApplicationsRunning(); len(apps) != 0 {
 		t.Log().Error("incorrect application list: %s", apps)
 		t.testcase.err <- errIncorrect
 		return
 	}
 	// check the app. must be still loaded
-	if apps := node.Applications(false); len(apps) != 1 || apps[0] != "test_app" {
+	if apps := node.Applications(); len(apps) != 1 || apps[0] != "test_app" {
 		t.Log().Error("incorrect application list: %s", apps)
 		t.testcase.err <- errIncorrect
 		return
@@ -278,7 +278,7 @@ func (t *t12) TestBasic(input any) {
 		return
 	}
 
-	if l := node.Applications(false); len(l) != 0 {
+	if l := node.Applications(); len(l) != 0 {
 		t.Log().Error("incorrect application list: %v", l)
 		t.testcase.err <- err
 		return
@@ -312,7 +312,7 @@ func (t *t12) TestBasic(input any) {
 	}
 
 	// check application list (running)
-	if l := node.Applications(true); len(l) != 2 {
+	if l := node.ApplicationsRunning(); len(l) != 2 {
 		t.Log().Error("incorrect application list: %v", l)
 		t.testcase.err <- errIncorrect
 	}

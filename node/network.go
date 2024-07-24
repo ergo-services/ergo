@@ -451,6 +451,18 @@ func (n *network) RegisterProto(proto gen.NetworkProto) {
 	}
 }
 
+func (n *network) Nodes() []gen.Atom {
+	var nodes []gen.Atom
+
+	n.connections.Range(func(k, _ any) bool {
+		node := k.(gen.Atom)
+		nodes = append(nodes, node)
+		return true
+	})
+
+	return nodes
+}
+
 func (n *network) Info() (gen.NetworkInfo, error) {
 	var info gen.NetworkInfo
 
@@ -925,7 +937,7 @@ func (n *network) start(options gen.NetworkOptions) error {
 	}
 
 	appRoutes := []gen.ApplicationRoute{}
-	for _, app := range n.node.Applications(true) {
+	for _, app := range n.node.Applications() {
 		info, err := n.node.ApplicationInfo(app)
 		if err != nil {
 			continue
@@ -935,6 +947,7 @@ func (n *network) start(options gen.NetworkOptions) error {
 			Name:   info.Name,
 			Weight: info.Weight,
 			Mode:   info.Mode,
+			State:  info.State,
 		}
 		appRoutes = append(appRoutes, r)
 	}

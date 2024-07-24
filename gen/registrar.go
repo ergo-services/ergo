@@ -16,14 +16,10 @@ type Registrar interface {
 	UnregisterProxy(to Atom) error
 
 	// RegisterApplication registers the application on the registrar
-	// (if the registrar does support this feature). Node does it
-	// automatically upon starting an application, so you don't have
-	// to worry about that.
+	// (if the registrar does support this feature).
 	RegisterApplication(route ApplicationRoute) error
 	// UnregisterApplication unregisters the given application.
-	// (if the registrar does support this feature). Node does it
-	// automatically upon stopping an application, so you don't have
-	// to worry about that.
+	// (if the registrar does support this feature).
 	UnregisterApplication(name Atom, reason error) error
 
 	// Nodes returns a list of the nodes registered on the registrar
@@ -53,8 +49,8 @@ type Resolver interface {
 	// Resolve resolves the proxy routes for the given node name
 	ResolveProxy(node Atom) ([]ProxyRoute, error)
 	// Resolve resolves the applications routes for the given application.
-	// This information allows you to know where the given application is running.
-	// (if the registrar does support this feature).
+	// This information allows you to know where the given application is running
+	// or loaded.
 	ResolveApplication(name Atom) ([]ApplicationRoute, error)
 }
 
@@ -109,6 +105,7 @@ type ApplicationRoute struct {
 	Name   Atom
 	Weight int
 	Mode   ApplicationMode
+	State  string
 }
 
 type StaticRoutes struct {

@@ -25,6 +25,10 @@ type Network interface {
 	// GetNodeWithRoute attempts to connect to the given node using provided route
 	GetNodeWithRoute(name Atom, route NetworkRoute) (RemoteNode, error)
 
+	// Nodes return list of connected nodes
+	Nodes() []Atom
+
+	// AddRoute add static route
 	AddRoute(match string, route NetworkRoute, weight int) error
 	RemoveRoute(match string) error
 	Route(name Atom) ([]NetworkRoute, error)

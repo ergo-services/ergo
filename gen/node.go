@@ -92,16 +92,19 @@ type Node interface {
 	// The default waiting time is 5 seconds. Returns error gen.ErrApplicationStopping
 	// if application is still stopping. Once the application is stopped it can be unloaded
 	// from the node using ApplicationUnload.
-	// Use argument force to kill all children, no awaiting the termination of children processes.
-	ApplicationStop(name Atom, force bool) error
+	ApplicationStop(name Atom) error
+
+	// ApplicationStopForce force to kill all children, no awaiting the termination of children processes.
+	ApplicationStopForce(name Atom) error
 
 	// ApplicationStopWithTimeout stops the given applications, awaiting all children to be stopped
 	// during the given period of time. Returns gen.ErrApplicationStopping on timeout.
 	ApplicationStopWithTimeout(name Atom, timeout time.Duration) error
 
-	// Applications return list of application. If argument running is true
-	// it returns the list of running applications only
-	Applications(running bool) []Atom
+	// Applications return list of all applications (loaded and started).
+	Applications() []Atom
+	// ApplicationsRunning return list of all running applications
+	ApplicationsRunning() []Atom
 
 	NetworkStart(options NetworkOptions) error
 	NetworkStop() error

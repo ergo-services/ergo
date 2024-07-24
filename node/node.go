@@ -58,6 +58,8 @@ type node struct {
 	wait          chan struct{}
 
 	licenses sync.Map
+
+	coreEventsToken gen.Ref
 }
 
 type eventOwner struct {
@@ -143,6 +145,8 @@ func Start(name gen.Atom, options gen.NodeOptions, frameworkVersion gen.Version)
 		}
 		node.LoggerAdd(lo.Name, lo.Logger, lo.Filter...)
 	}
+
+	node.coreEventsToken, _ = node.RegisterEvent(gen.CoreEvent, gen.EventOptions{})
 
 	node.validateLicenses(node.version)
 	node.network = createNetwork(node)
@@ -615,8 +619,8 @@ func (n *node) Info() (gen.NodeInfo, error) {
 		return true
 	})
 
-	info.ApplicationsTotal = int64(len(n.Applications(false)))
-	info.ApplicationsRunning = int64(len(n.Applications(true)))
+	info.ApplicationsTotal = int64(len(n.Applications()))
+	info.ApplicationsRunning = int64(len(n.ApplicationsRunning()))
 
 	var mstat runtime.MemStats
 	runtime.ReadMemStats(&mstat)
@@ -1097,7 +1101,7 @@ func (n *node) ApplicationStartTemporary(name gen.Atom, options gen.ApplicationO
 	return app.start(gen.ApplicationModeTemporary, opts)
 }
 
-func (n *node) ApplicationStop(name gen.Atom, force bool) error {
+func (n *node) ApplicationStop(name gen.Atom) error {
 	v, exist := n.applications.Load(name)
 	if exist == false {
 		return gen.ErrApplicationUnknown
@@ -1109,7 +1113,22 @@ func (n *node) ApplicationStop(name gen.Atom, force bool) error {
 	}
 
 	app := v.(*application)
-	return app.stop(force, 5*time.Second)
+	return app.stop(false, 5*time.Second)
+}
+
+func (n *node) ApplicationStopForce(name gen.Atom) error {
+	v, exist := n.applications.Load(name)
+	if exist == false {
+		return gen.ErrApplicationUnknown
+	}
+
+	// system app can not be stopped
+	if name == system.Name {
+		return gen.ErrNotAllowed
+	}
+
+	app := v.(*application)
+	return app.stop(true, 0)
 }
 
 func (n *node) ApplicationStopWithTimeout(name gen.Atom, timeout time.Duration) error {
@@ -1121,17 +1140,23 @@ func (n *node) ApplicationStopWithTimeout(name gen.Atom, timeout time.Duration) 
 	return app.stop(false, timeout)
 }
 
-func (n *node) Applications(running bool) []gen.Atom {
+func (n *node) Applications() []gen.Atom {
 	apps := []gen.Atom{}
 	n.applications.Range(func(_, v any) bool {
 		app := v.(*application)
-		if running {
-			if app.isRunning() {
-				apps = append(apps, app.spec.Name)
-			}
-			return true
-		}
 		apps = append(apps, app.spec.Name)
+		return true
+	})
+	return apps
+}
+
+func (n *node) ApplicationsRunning() []gen.Atom {
+	apps := []gen.Atom{}
+	n.applications.Range(func(_, v any) bool {
+		app := v.(*application)
+		if app.isRunning() {
+			apps = append(apps, app.spec.Name)
+		}
 		return true
 	})
 	return apps

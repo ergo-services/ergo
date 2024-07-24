@@ -61,3 +61,7 @@ type Core interface {
 	Security() SecurityOptions
 	EnvList() map[Env]any
 }
+
+const (
+	CoreEvent Atom = "core"
+)

@@ -89,6 +89,7 @@ func (a *application) start(mode gen.ApplicationMode, options gen.ApplicationOpt
 		Name:   a.spec.Name,
 		Weight: a.spec.Weight,
 		Mode:   a.mode,
+		State:  "running",
 	}
 	network := a.node.Network()
 	if network.Mode() != gen.NetworkModeEnabled {
