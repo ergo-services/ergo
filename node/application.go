@@ -8,12 +8,6 @@ import (
 	"ergo.services/ergo/gen"
 )
 
-const (
-	appStateLoaded   int32 = 1
-	appStateRunning  int32 = 2
-	appStateStopping int32 = 3
-)
-
 type application struct {
 	spec     gen.ApplicationSpec
 	node     *node
@@ -22,15 +16,16 @@ type application struct {
 	mode     gen.ApplicationMode
 
 	started int64
-
+	parent  gen.Atom
 	state   int32
 	stopped chan struct{}
 	reason  error
 }
 
 func (a *application) start(mode gen.ApplicationMode, options gen.ApplicationOptionsExtra) error {
-	if swapped := atomic.CompareAndSwapInt32(&a.state, appStateLoaded, appStateRunning); swapped == false {
-		if atomic.LoadInt32(&a.state) == appStateRunning {
+	if swapped := atomic.CompareAndSwapInt32(&a.state,
+		int32(gen.ApplicationStateLoaded), int32(gen.ApplicationStateRunning)); swapped == false {
+		if atomic.LoadInt32(&a.state) == int32(gen.ApplicationStateRunning) {
 			return gen.ErrApplicationRunning
 		}
 		return gen.ErrApplicationState
@@ -81,45 +76,33 @@ func (a *application) start(mode gen.ApplicationMode, options gen.ApplicationOpt
 	a.stopped = make(chan struct{})
 	a.node.log.Info("application %s (%s) started", a.spec.Name, a.mode)
 	a.mode = mode
+	a.parent = options.CorePID.Node
 
 	a.started = time.Now().Unix()
 	a.behavior.Start(mode)
-	appRoute := gen.ApplicationRoute{
-		Node:   a.node.name,
-		Name:   a.spec.Name,
-		Weight: a.spec.Weight,
-		Mode:   a.mode,
-	}
-	network := a.node.Network()
-	if network.Mode() != gen.NetworkModeEnabled {
-		return nil
-	}
-	if reg, err := network.Registrar(); err == nil {
-		reg.RegisterApplication(appRoute)
-	}
+	a.registerAppRoute()
+
 	return nil
 }
 
 func (a *application) stop(force bool, timeout time.Duration) error {
-	if swapped := atomic.CompareAndSwapInt32(&a.state, appStateRunning, appStateStopping); swapped == false {
+	if swapped := atomic.CompareAndSwapInt32(&a.state,
+		int32(gen.ApplicationStateRunning),
+		int32(gen.ApplicationStateStopping)); swapped == false {
 		state := atomic.LoadInt32(&a.state)
-		if state == appStateLoaded {
+		if state == int32(gen.ApplicationStateLoaded) {
 			return nil // already stopped
 		}
 
 		if force == false {
-			if state == appStateStopping {
+			if state == int32(gen.ApplicationStateStopping) {
 				return gen.ErrApplicationStopping
 			}
 			return gen.ErrApplicationState
 		}
 	}
-	network := a.node.Network()
-	if network.Mode() == gen.NetworkModeEnabled {
-		if reg, err := network.Registrar(); err == nil {
-			reg.UnregisterApplication(a.spec.Name, gen.TerminateReasonShutdown)
-		}
-	}
+
+	a.registerAppRoute() // new state of the app
 
 	// update mode to prevent triggering 'permantent' mode
 	a.mode = gen.ApplicationModeTemporary
@@ -157,8 +140,8 @@ func (a *application) terminate(pid gen.PID, reason error) {
 
 	switch a.mode {
 	case gen.ApplicationModePermanent:
-		state := atomic.SwapInt32(&a.state, appStateStopping)
-		if state == appStateStopping {
+		state := atomic.SwapInt32(&a.state, int32(gen.ApplicationStateStopping))
+		if state == int32(gen.ApplicationStateStopping) {
 			// already in stopping
 			break
 		}
@@ -176,8 +159,8 @@ func (a *application) terminate(pid gen.PID, reason error) {
 		}
 		a.node.Log().Info("application %s (%s) will be stopped due to termination of %s with reason: %s", a.spec.Name, a.mode, pid, reason)
 
-		state := atomic.SwapInt32(&a.state, appStateStopping)
-		if state == appStateStopping {
+		state := atomic.SwapInt32(&a.state, int32(gen.ApplicationStateStopping))
+		if state == int32(gen.ApplicationStateStopping) {
 			// already in stopping
 			break
 		}
@@ -206,14 +189,17 @@ func (a *application) terminate(pid gen.PID, reason error) {
 		a.reason = gen.TerminateReasonNormal
 	}
 
-	old := atomic.SwapInt32(&a.state, appStateLoaded)
-	if old == appStateLoaded {
+	old := atomic.SwapInt32(&a.state, int32(gen.ApplicationStateLoaded))
+	if old == int32(gen.ApplicationStateLoaded) {
 		return
 	}
 	if a.stopped != nil {
 		close(a.stopped)
 	}
+
 	a.started = 0
+	a.parent = ""
+
 	a.node.log.Info("application %s (%s) stopped with reason %s", a.spec.Name, a.mode, a.reason)
 	a.behavior.Terminate(a.reason)
 
@@ -221,9 +207,7 @@ func (a *application) terminate(pid gen.PID, reason error) {
 	if network.Mode() != gen.NetworkModeEnabled {
 		return
 	}
-	if reg, err := network.Registrar(); err == nil {
-		reg.UnregisterApplication(a.spec.Name, a.reason)
-	}
+	a.registerAppRoute() // new state for the app
 	return
 }
 
@@ -250,22 +234,41 @@ func (a *application) info() gen.ApplicationInfo {
 		}
 	}
 
-	switch atomic.LoadInt32(&a.state) {
-	case appStateRunning:
-		info.State = "running"
-	case appStateLoaded:
-		info.State = "loaded"
-	case appStateStopping:
-		info.State = "stopping"
-	}
-
+	info.State = gen.ApplicationState(atomic.LoadInt32(&a.state))
 	return info
 }
 
 func (a *application) tryUnload() bool {
-	return atomic.CompareAndSwapInt32(&a.state, appStateLoaded, 0)
+	return atomic.CompareAndSwapInt32(&a.state, int32(gen.ApplicationStateLoaded), 0)
 }
 
 func (a *application) isRunning() bool {
-	return atomic.LoadInt32(&a.state) == appStateRunning
+	return atomic.LoadInt32(&a.state) == int32(gen.ApplicationStateRunning)
+}
+
+func (a *application) registerAppRoute() {
+	appRoute := gen.ApplicationRoute{
+		Node:   a.node.name,
+		Name:   a.spec.Name,
+		Weight: a.spec.Weight,
+		Mode:   a.mode,
+		State:  gen.ApplicationState(a.state),
+	}
+	network := a.node.Network()
+	if network.Mode() != gen.NetworkModeEnabled {
+		return
+	}
+	if reg, err := network.Registrar(); err == nil {
+		reg.RegisterApplication(appRoute)
+	}
+}
+
+func (a *application) unregisterAppRoute() {
+	network := a.node.Network()
+	if network.Mode() != gen.NetworkModeEnabled {
+		return
+	}
+	if reg, err := network.Registrar(); err == nil {
+		reg.UnregisterApplication(a.spec.Name)
+	}
 }

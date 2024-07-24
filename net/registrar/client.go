@@ -164,7 +164,7 @@ func (c *client) UnregisterProxy(to gen.Atom) error {
 func (c *client) RegisterApplication(route gen.ApplicationRoute) error {
 	return gen.ErrUnsupported
 }
-func (c *client) UnregisterApplication(name gen.Atom, reason error) error {
+func (c *client) UnregisterApplication(name gen.Atom) error {
 	return gen.ErrUnsupported
 }
 func (c *client) Nodes() ([]gen.Atom, error) {

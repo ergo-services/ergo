@@ -1,19 +1,16 @@
 package gen
 
 type ApplicationMode int
+type ApplicationState int32
 
 const (
-	// TODO add details here
-	// ApplicationModeTemporary
 	ApplicationModeTemporary ApplicationMode = 1
-
-	// TODO
-	// ApplicationModeTransient
 	ApplicationModeTransient ApplicationMode = 2
-
-	// TODO
-	// ApplicationModePermanent
 	ApplicationModePermanent ApplicationMode = 3
+
+	ApplicationStateLoaded   ApplicationState = 1
+	ApplicationStateRunning  ApplicationState = 2
+	ApplicationStateStopping ApplicationState = 3
 )
 
 func (am ApplicationMode) String() string {
@@ -25,10 +22,25 @@ func (am ApplicationMode) String() string {
 	default:
 		return "temporary"
 	}
-
 }
+
 func (am ApplicationMode) MarshalJSON() ([]byte, error) {
 	return []byte("\"" + am.String() + "\""), nil
+}
+
+func (as ApplicationState) String() string {
+	switch as {
+	case ApplicationStateStopping:
+		return "stopping"
+	case ApplicationStateRunning:
+		return "running"
+	default:
+		return "loaded"
+	}
+}
+
+func (as ApplicationState) MarshalJSON() ([]byte, error) {
+	return []byte("\"" + as.String() + "\""), nil
 }
 
 type ApplicationBehavior interface {
@@ -86,7 +98,8 @@ type ApplicationInfo struct {
 	Env         map[Env]any
 	Depends     ApplicationDepends
 	Mode        ApplicationMode
-	State       string
+	State       ApplicationState
+	Parent      Atom
 	Uptime      int64
 	Group       []PID
 }

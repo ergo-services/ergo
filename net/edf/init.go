@@ -22,6 +22,7 @@ var (
 		gen.CompressionType(""),
 		gen.CompressionLevel(0),
 		gen.ApplicationMode(0),
+		gen.ApplicationState(0),
 
 		gen.Version{},
 

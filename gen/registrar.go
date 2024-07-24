@@ -20,7 +20,7 @@ type Registrar interface {
 	RegisterApplication(route ApplicationRoute) error
 	// UnregisterApplication unregisters the given application.
 	// (if the registrar does support this feature).
-	UnregisterApplication(name Atom, reason error) error
+	UnregisterApplication(name Atom) error
 
 	// Nodes returns a list of the nodes registered on the registrar
 	Nodes() ([]Atom, error)
@@ -105,6 +105,7 @@ type ApplicationRoute struct {
 	Name   Atom
 	Weight int
 	Mode   ApplicationMode
+	State  ApplicationState
 }
 
 type StaticRoutes struct {

@@ -991,11 +991,14 @@ func (n *node) ApplicationLoad(app gen.ApplicationBehavior, args ...any) (name g
 		spec:     spec,
 		node:     n,
 		behavior: app,
-		state:    appStateLoaded,
+		state:    int32(gen.ApplicationStateLoaded),
+		mode:     spec.Mode,
 	}
 	if _, exist := n.applications.LoadOrStore(spec.Name, a); exist {
 		return spec.Name, gen.ErrTaken
 	}
+
+	a.registerAppRoute()
 
 	return spec.Name, nil
 }
