@@ -748,8 +748,8 @@ func (p *process) SendResponse(to gen.PID, ref gen.Ref, message any) error {
 }
 
 func (p *process) CallWithPriority(to any, request any, priority gen.MessagePriority) (any, error) {
-	var prev gen.MessagePriority
-	prev, p.priority = p.priority, priority
+	prev := p.priority
+	p.priority = priority
 	value, err := p.CallWithTimeout(to, request, gen.DefaultRequestTimeout)
 	p.priority = prev
 	return value, err
