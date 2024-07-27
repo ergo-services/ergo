@@ -1,11 +1,13 @@
 package node
 
 import (
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"ergo.services/ergo/gen"
+	"ergo.services/ergo/lib"
 )
 
 type application struct {
@@ -67,6 +69,7 @@ func (a *application) start(mode gen.ApplicationMode, options gen.ApplicationOpt
 				a.node.Kill(pid)
 				return true
 			})
+			atomic.StoreInt32(&a.state, int32(gen.ApplicationStateLoaded))
 			return err
 		}
 
@@ -79,6 +82,18 @@ func (a *application) start(mode gen.ApplicationMode, options gen.ApplicationOpt
 	a.parent = options.CorePID.Node
 
 	a.started = time.Now().Unix()
+
+	if lib.Recover() {
+		defer func() {
+			if r := recover(); r != nil {
+				// keep application running even if panic happened in Start callback handler
+				pc, fn, line, _ := runtime.Caller(2)
+				a.node.log.Panic("Application Start handler failed. Panic reason: %#v at %s[%s:%d]",
+					r, runtime.FuncForPC(pc).Name(), fn, line)
+			}
+		}()
+	}
+
 	a.behavior.Start(mode)
 	a.registerAppRoute()
 
@@ -201,6 +216,17 @@ func (a *application) terminate(pid gen.PID, reason error) {
 	a.parent = ""
 
 	a.node.log.Info("application %s (%s) stopped with reason %s", a.spec.Name, a.mode, a.reason)
+
+	if lib.Recover() {
+		defer func() {
+			if r := recover(); r != nil {
+				pc, fn, line, _ := runtime.Caller(2)
+				a.node.log.Panic("Application Terminate handler failed. Panic reason: %#v at %s[%s:%d]",
+					r, runtime.FuncForPC(pc).Name(), fn, line)
+			}
+		}()
+	}
+
 	a.behavior.Terminate(a.reason)
 
 	network := a.node.Network()
@@ -259,7 +285,7 @@ func (a *application) registerAppRoute() {
 		return
 	}
 	if reg, err := network.Registrar(); err == nil {
-		reg.RegisterApplication(appRoute)
+		reg.RegisterApplicationRoute(appRoute)
 	}
 }
 
@@ -269,6 +295,6 @@ func (a *application) unregisterAppRoute() {
 		return
 	}
 	if reg, err := network.Registrar(); err == nil {
-		reg.UnregisterApplication(a.spec.Name)
+		reg.UnregisterApplicationRoute(a.spec.Name)
 	}
 }

@@ -15,12 +15,12 @@ type Registrar interface {
 	// (if the registrar does support this feature)
 	UnregisterProxy(to Atom) error
 
-	// RegisterApplication registers the application on the registrar
+	// RegisterApplicationRoute registers the application on the registrar
 	// (if the registrar does support this feature).
-	RegisterApplication(route ApplicationRoute) error
+	RegisterApplicationRoute(route ApplicationRoute) error
 	// UnregisterApplication unregisters the given application.
 	// (if the registrar does support this feature).
-	UnregisterApplication(name Atom) error
+	UnregisterApplicationRoute(name Atom) error
 
 	// Nodes returns a list of the nodes registered on the registrar
 	Nodes() ([]Atom, error)
