@@ -1025,6 +1025,7 @@ func (n *node) ApplicationUnload(name gen.Atom) error {
 		return gen.ErrApplicationRunning
 	}
 	n.applications.Delete(name)
+	app.unregisterAppRoute()
 	return nil
 }
 
@@ -1465,6 +1466,7 @@ func (n *node) spawn(factory gen.ProcessFactory, options gen.ProcessOptionsExtra
 			qm := gen.TakeMailboxMessage()
 			qm.From = p.pid
 			qm.Type = gen.MailboxMessageTypeExit
+			qm.Message = err
 
 			if ok := m.system.Push(qm); ok == false {
 				p.log.Error("unable to stop meta process %s. mailbox is full", m.id)
