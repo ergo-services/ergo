@@ -269,12 +269,6 @@ func (c *connection) SendPID(from gen.PID, to gen.PID, options gen.MessageOption
 	order := uint8(from.ID % 255)
 	orderPeer := uint8(to.ID % 255)
 	if options.KeepNetworkOrder == false {
-		// not allowed to use 'important' flag
-		// along with disabled 'network order'
-		if options.ImportantDelivery {
-			return gen.ErrNotAllowed
-		}
-
 		order = uint8(0)
 		orderPeer = uint8(0)
 	}
@@ -335,12 +329,6 @@ func (c *connection) SendProcessID(from gen.PID, to gen.ProcessID, options gen.M
 
 	order := uint8(from.ID % 255)
 	if options.KeepNetworkOrder == false {
-		// not allowed to use 'important' flag
-		// along with disabled 'network order'
-		if options.ImportantDelivery {
-			return gen.ErrNotAllowed
-		}
-
 		order = uint8(0)
 	}
 
@@ -401,12 +389,6 @@ func (c *connection) SendAlias(from gen.PID, to gen.Alias, options gen.MessageOp
 	order := uint8(from.ID % 255)
 	orderPeer := uint8(to.ID[1] % 255)
 	if options.KeepNetworkOrder == false {
-		// not allowed to use 'important' flag
-		// along with disabled 'network order'
-		if options.ImportantDelivery {
-			return gen.ErrNotAllowed
-		}
-
 		order = uint8(0)
 		orderPeer = uint8(0)
 	}

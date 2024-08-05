@@ -157,14 +157,6 @@ func (t *t3) TestSendImportantRemotePID(input any) {
 		return
 	}
 
-	// test send important with disabled network order
-	t.SetKeepNetworkOrder(false)
-	if err := t.SendImportant(pid, pingvalue); err != gen.ErrNotAllowed {
-		t.testcase.err <- gen.ErrIncorrect
-		return
-	}
-	t.SetKeepNetworkOrder(true)
-
 	t.testcase.err <- nil
 }
 
