@@ -22,11 +22,12 @@ const (
 	protoMessageExit       byte = 107
 
 	// for requests made with Call* methods
-	protoRequestPID       byte = 121
-	protoRequestName      byte = 122
-	protoRequestNameCache byte = 123
-	protoRequestAlias     byte = 124
-	protoMessageResponse  byte = 129
+	protoRequestPID           byte = 121
+	protoRequestName          byte = 122
+	protoRequestNameCache     byte = 123
+	protoRequestAlias         byte = 124
+	protoMessageResponse      byte = 129
+	protoMessageResponseError byte = 130
 
 	// termination messages
 	protoMessageTerminatePID        byte = 181
@@ -183,7 +184,7 @@ type MessageUpdateCache struct {
 }
 
 //
-// result message for "any" requests (link/monitor/spawn etc...)
+// result message for "any" requests (link/monitor/spawn etc...),
 //
 
 type MessageResult struct {

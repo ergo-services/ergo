@@ -91,6 +91,38 @@ func (t *t4) TestCallRemotePID(input any) {
 	t.testcase.err <- nil
 }
 
+func (t *t4) TestCallImportantRemotePID(input any) {
+	var pingvalue any
+	defer func() {
+		t.testcase = nil
+	}()
+
+	pid, err := t.RemoteSpawn(t.remote, "pong", gen.ProcessOptions{})
+	if err != nil {
+		t.testcase.err <- err
+		return
+	}
+
+	pingvalue = 123
+	pong, err := t.CallImportant(pid, pingvalue)
+	if err != nil {
+		t.testcase.err <- err
+		return
+	}
+	if reflect.DeepEqual(pingvalue, pong) == false {
+		t.testcase.err <- fmt.Errorf("pong value mismatch")
+		return
+	}
+	// unknown pid
+	pid.ID = 10000
+	if _, err := t.CallImportant(pid, pingvalue); err != gen.ErrProcessUnknown {
+		t.testcase.err <- gen.ErrIncorrect
+		return
+	}
+
+	t.testcase.err <- nil
+}
+
 func (t *t4) TestCallRemoteProcessID(input any) {
 	var pingvalue any
 	defer func() {
@@ -113,6 +145,39 @@ func (t *t4) TestCallRemoteProcessID(input any) {
 	}
 	if reflect.DeepEqual(pingvalue, pong) == false {
 		t.testcase.err <- fmt.Errorf("pong value mismatch")
+		return
+	}
+
+	t.testcase.err <- nil
+}
+
+func (t *t4) TestCallImportantRemoteProcessID(input any) {
+	var pingvalue any
+	defer func() {
+		t.testcase = nil
+	}()
+
+	regName := gen.Atom("regpongimportant")
+	_, err := t.RemoteSpawnRegister(t.remote, "pong", regName, gen.ProcessOptions{})
+	if err != nil {
+		t.testcase.err <- err
+		return
+	}
+
+	pingvalue = 123.456
+	pingProcessID := gen.ProcessID{Name: regName, Node: t.remote}
+	pong, err := t.CallImportant(pingProcessID, pingvalue)
+	if err != nil {
+		t.testcase.err <- err
+		return
+	}
+	if reflect.DeepEqual(pingvalue, pong) == false {
+		t.testcase.err <- fmt.Errorf("pong value mismatch")
+		return
+	}
+	pingProcessID.Name = "unknown_process"
+	if _, err := t.CallImportant(pingProcessID, pingvalue); err != gen.ErrProcessUnknown {
+		t.testcase.err <- gen.ErrIncorrect
 		return
 	}
 
@@ -151,6 +216,50 @@ func (t *t4) TestCallRemoteAlias(input any) {
 
 	if reflect.DeepEqual(pingvalue, pong) == false {
 		t.testcase.err <- fmt.Errorf("pong value mismatch")
+		return
+	}
+
+	t.testcase.err <- nil
+}
+
+func (t *t4) TestCallImportantRemoteAlias(input any) {
+	var pingvalue any
+	defer func() {
+		t.testcase = nil
+	}()
+
+	pid, err := t.RemoteSpawn(t.remote, "pong", gen.ProcessOptions{})
+	if err != nil {
+		t.testcase.err <- err
+		return
+	}
+
+	pingvalue = "test value"
+	if _, err := t.CallImportant(pid, pingvalue); err != nil {
+		t.testcase.err <- err
+		return
+	}
+
+	emptyAlias := gen.Alias{}
+	if t4pongAlias == emptyAlias {
+		t.testcase.err <- fmt.Errorf("alias hasn't been created")
+		return
+	}
+
+	pong, err := t.CallImportant(t4pongAlias, pingvalue)
+	if err != nil {
+		t.testcase.err <- err
+		return
+	}
+
+	if reflect.DeepEqual(pingvalue, pong) == false {
+		t.testcase.err <- fmt.Errorf("pong value mismatch")
+		return
+	}
+
+	t4pongAlias.ID[1] = 0 // unknown alias
+	if _, err := t.CallImportant(t4pongAlias, pingvalue); err != gen.ErrProcessUnknown {
+		t.testcase.err <- gen.ErrIncorrect
 		return
 	}
 
@@ -196,8 +305,11 @@ func TestT4CallRemote(t *testing.T) {
 
 	t4cases := []*testcase{
 		{"TestCallRemotePID", nil, nil, make(chan error)},
+		{"TestCallImportantRemotePID", nil, nil, make(chan error)},
 		{"TestCallRemoteProcessID", nil, nil, make(chan error)},
+		{"TestCallImportantRemoteProcessID", nil, nil, make(chan error)},
 		{"TestCallRemoteAlias", nil, nil, make(chan error)},
+		{"TestCallImportantRemoteAlias", nil, nil, make(chan error)},
 	}
 	for _, tc := range t4cases {
 		t.Run(tc.name, func(t *testing.T) {

@@ -260,9 +260,21 @@ func (c *connection) SendPID(from gen.PID, to gen.PID, options gen.MessageOption
 		return gen.ErrProcessIncarnation
 	}
 
+	if options.ImportantDelivery {
+		if c.peer_flags.EnableImportantDelivery == false {
+			return gen.ErrUnsupported
+		}
+	}
+
 	order := uint8(from.ID % 255)
 	orderPeer := uint8(to.ID % 255)
 	if options.KeepNetworkOrder == false {
+		// not allowed to use 'important' flag
+		// along with disabled 'network order'
+		if options.ImportantDelivery {
+			return gen.ErrNotAllowed
+		}
+
 		order = uint8(0)
 		orderPeer = uint8(0)
 	}
@@ -285,7 +297,17 @@ func (c *connection) SendPID(from gen.PID, to gen.PID, options gen.MessageOption
 	buf.B[6] = orderPeer
 	buf.B[7] = protoMessagePID
 	binary.BigEndian.PutUint64(buf.B[8:16], from.ID)
+
 	buf.B[16] = byte(options.Priority) // usual value 0, 1, or 2, so just cast it
+	if options.ImportantDelivery {
+		if c.peer_flags.EnableImportantDelivery == false {
+			lib.ReleaseBuffer(buf)
+			return gen.ErrUnsupported
+		}
+		// set important flag
+		buf.B[16] |= 128
+	}
+
 	binary.BigEndian.PutUint64(buf.B[17:25], to.ID)
 
 	return c.send(buf, order, options.Compression)
@@ -313,6 +335,12 @@ func (c *connection) SendProcessID(from gen.PID, to gen.ProcessID, options gen.M
 
 	order := uint8(from.ID % 255)
 	if options.KeepNetworkOrder == false {
+		// not allowed to use 'important' flag
+		// along with disabled 'network order'
+		if options.ImportantDelivery {
+			return gen.ErrNotAllowed
+		}
+
 		order = uint8(0)
 	}
 
@@ -342,7 +370,16 @@ func (c *connection) SendProcessID(from gen.PID, to gen.ProcessID, options gen.M
 	binary.BigEndian.PutUint32(buf.B[2:6], uint32(buf.Len()))
 	buf.B[6] = order // use the same order for the peer
 	binary.BigEndian.PutUint64(buf.B[8:16], from.ID)
+
 	buf.B[16] = byte(options.Priority) // usual value 0, 1, or 2, so just cast it
+	if options.ImportantDelivery {
+		if c.peer_flags.EnableImportantDelivery == false {
+			lib.ReleaseBuffer(buf)
+			return gen.ErrUnsupported
+		}
+		// set important flag
+		buf.B[16] |= 128
+	}
 
 	if toNameCached > 0 {
 		buf.B[7] = protoMessageNameCache
@@ -360,9 +397,16 @@ func (c *connection) SendAlias(from gen.PID, to gen.Alias, options gen.MessageOp
 	if to.Creation != c.peer_creation {
 		return gen.ErrProcessIncarnation
 	}
+
 	order := uint8(from.ID % 255)
 	orderPeer := uint8(to.ID[1] % 255)
 	if options.KeepNetworkOrder == false {
+		// not allowed to use 'important' flag
+		// along with disabled 'network order'
+		if options.ImportantDelivery {
+			return gen.ErrNotAllowed
+		}
+
 		order = uint8(0)
 		orderPeer = uint8(0)
 	}
@@ -389,7 +433,17 @@ func (c *connection) SendAlias(from gen.PID, to gen.Alias, options gen.MessageOp
 	buf.B[6] = orderPeer
 	buf.B[7] = protoMessageAlias
 	binary.BigEndian.PutUint64(buf.B[8:16], from.ID)
+
 	buf.B[16] = byte(options.Priority) // usual value 0, 1, or 2, so just cast it
+	if options.ImportantDelivery {
+		if c.peer_flags.EnableImportantDelivery == false {
+			lib.ReleaseBuffer(buf)
+			return gen.ErrUnsupported
+		}
+		// set important flag
+		buf.B[16] |= 128
+	}
+
 	binary.BigEndian.PutUint64(buf.B[17:25], to.ID[0])
 	binary.BigEndian.PutUint64(buf.B[25:33], to.ID[1])
 	binary.BigEndian.PutUint64(buf.B[33:41], to.ID[2])
@@ -524,6 +578,52 @@ func (c *connection) SendResponse(from gen.PID, to gen.PID, ref gen.Ref, options
 	binary.BigEndian.PutUint32(buf.B[2:6], uint32(buf.Len()))
 	buf.B[6] = orderPeer
 	buf.B[7] = protoMessageResponse
+	binary.BigEndian.PutUint64(buf.B[8:16], from.ID)
+	buf.B[16] = byte(options.Priority) // usual value 0, 1, or 2, so just cast it
+	binary.BigEndian.PutUint64(buf.B[17:25], to.ID)
+	binary.BigEndian.PutUint64(buf.B[25:33], ref.ID[0])
+	binary.BigEndian.PutUint64(buf.B[33:41], ref.ID[1])
+	binary.BigEndian.PutUint64(buf.B[41:49], ref.ID[2])
+
+	return c.send(buf, order, options.Compression)
+}
+
+func (c *connection) SendResponseError(from gen.PID, to gen.PID, ref gen.Ref, options gen.MessageOptions, err error) error {
+	if to.Creation != c.peer_creation {
+		return gen.ErrProcessIncarnation
+	}
+
+	order := uint8(from.ID % 255)
+	orderPeer := uint8(to.ID % 255)
+	if options.KeepNetworkOrder == false {
+		order = uint8(0)
+		orderPeer = uint8(0)
+	}
+
+	buf := lib.TakeBuffer()
+	// 8 (header) + 8 (process id from) + 1 priority + 8 (process id to) + 24 (ref [3]uint64) + 1 (err code)
+	buf.Allocate(8 + 8 + 1 + 8 + 24 + 1)
+	switch err {
+	case nil:
+		buf.B[49] = 0
+	case gen.ErrProcessUnknown:
+		buf.B[49] = 1
+	case gen.ErrProcessMailboxFull:
+		buf.B[49] = 2
+	case gen.ErrProcessTerminated:
+		buf.B[49] = 3
+	default:
+		buf.B[49] = 255
+		if e := edf.Encode(err, buf, c.encodeOptions); e != nil {
+			return e
+		}
+	}
+
+	buf.B[0] = protoMagic
+	buf.B[1] = protoVersion
+	binary.BigEndian.PutUint32(buf.B[2:6], uint32(buf.Len()))
+	buf.B[6] = orderPeer
+	buf.B[7] = protoMessageResponseError
 	binary.BigEndian.PutUint64(buf.B[8:16], from.ID)
 	buf.B[16] = byte(options.Priority) // usual value 0, 1, or 2, so just cast it
 	binary.BigEndian.PutUint64(buf.B[17:25], to.ID)
@@ -688,6 +788,7 @@ func (c *connection) CallPID(ref gen.Ref, from gen.PID, to gen.PID, options gen.
 	if to.Creation != c.peer_creation {
 		return gen.ErrProcessIncarnation
 	}
+
 	order := uint8(from.ID % 255)
 	orderPeer := uint8(to.ID % 255)
 	if options.KeepNetworkOrder == false {
@@ -712,7 +813,17 @@ func (c *connection) CallPID(ref gen.Ref, from gen.PID, to gen.PID, options gen.
 	buf.B[6] = orderPeer
 	buf.B[7] = protoRequestPID
 	binary.BigEndian.PutUint64(buf.B[8:16], from.ID)
+
 	buf.B[16] = byte(options.Priority)
+	if options.ImportantDelivery {
+		if c.peer_flags.EnableImportantDelivery == false {
+			lib.ReleaseBuffer(buf)
+			return gen.ErrUnsupported
+		}
+		// set important flag
+		buf.B[16] |= 128
+	}
+
 	binary.BigEndian.PutUint64(buf.B[17:25], ref.ID[0])
 	binary.BigEndian.PutUint64(buf.B[25:33], ref.ID[1])
 	binary.BigEndian.PutUint64(buf.B[33:41], ref.ID[2])
@@ -768,7 +879,17 @@ func (c *connection) CallProcessID(ref gen.Ref, from gen.PID, to gen.ProcessID, 
 	binary.BigEndian.PutUint32(buf.B[2:6], uint32(buf.Len()))
 	buf.B[6] = order // use the same order for the peer
 	binary.BigEndian.PutUint64(buf.B[8:16], from.ID)
+
 	buf.B[16] = byte(options.Priority)
+	if options.ImportantDelivery {
+		if c.peer_flags.EnableImportantDelivery == false {
+			lib.ReleaseBuffer(buf)
+			return gen.ErrUnsupported
+		}
+		// set important flag
+		buf.B[16] |= 128
+	}
+
 	binary.BigEndian.PutUint64(buf.B[17:25], ref.ID[0])
 	binary.BigEndian.PutUint64(buf.B[25:33], ref.ID[1])
 	binary.BigEndian.PutUint64(buf.B[33:41], ref.ID[2])
@@ -786,9 +907,11 @@ func (c *connection) CallProcessID(ref gen.Ref, from gen.PID, to gen.ProcessID, 
 }
 
 func (c *connection) CallAlias(ref gen.Ref, from gen.PID, to gen.Alias, options gen.MessageOptions, message any) error {
+
 	if to.Creation != c.peer_creation {
 		return gen.ErrProcessIncarnation
 	}
+
 	order := uint8(from.ID % 255)
 	orderPeer := uint8(to.ID[1] % 255)
 	if options.KeepNetworkOrder == false {
@@ -814,7 +937,17 @@ func (c *connection) CallAlias(ref gen.Ref, from gen.PID, to gen.Alias, options 
 	buf.B[6] = orderPeer
 	buf.B[7] = protoRequestAlias
 	binary.BigEndian.PutUint64(buf.B[8:16], from.ID)
+
 	buf.B[16] = byte(options.Priority)
+	if options.ImportantDelivery {
+		if c.peer_flags.EnableImportantDelivery == false {
+			lib.ReleaseBuffer(buf)
+			return gen.ErrUnsupported
+		}
+		// set important flag
+		buf.B[16] |= 128
+	}
+
 	binary.BigEndian.PutUint64(buf.B[17:25], ref.ID[0])
 	binary.BigEndian.PutUint64(buf.B[25:33], ref.ID[1])
 	binary.BigEndian.PutUint64(buf.B[33:41], ref.ID[2])
@@ -843,6 +976,9 @@ func (c *connection) LinkPID(pid gen.PID, target gen.PID) error {
 	c.requests[ref] = ch
 	c.requestsMutex.Unlock()
 	if err := c.sendAny(message, order, orderPeer, gen.Compression{}); err != nil {
+		c.requestsMutex.Lock()
+		delete(c.requests, ref)
+		c.requestsMutex.Unlock()
 		return err
 	}
 	result := c.waitResult(ref, ch)
@@ -866,6 +1002,9 @@ func (c *connection) UnlinkPID(pid gen.PID, target gen.PID) error {
 	c.requests[ref] = ch
 	c.requestsMutex.Unlock()
 	if err := c.sendAny(message, order, orderPeer, gen.Compression{}); err != nil {
+		c.requestsMutex.Lock()
+		delete(c.requests, ref)
+		c.requestsMutex.Unlock()
 		return err
 	}
 	result := c.waitResult(ref, ch)
@@ -885,6 +1024,9 @@ func (c *connection) LinkProcessID(pid gen.PID, target gen.ProcessID) error {
 	c.requests[ref] = ch
 	c.requestsMutex.Unlock()
 	if err := c.sendAny(message, order, 0, gen.Compression{}); err != nil {
+		c.requestsMutex.Lock()
+		delete(c.requests, ref)
+		c.requestsMutex.Unlock()
 		return err
 	}
 	result := c.waitResult(ref, ch)
@@ -905,6 +1047,9 @@ func (c *connection) UnlinkProcessID(pid gen.PID, target gen.ProcessID) error {
 	c.requests[ref] = ch
 	c.requestsMutex.Unlock()
 	if err := c.sendAny(message, order, 0, gen.Compression{}); err != nil {
+		c.requestsMutex.Lock()
+		delete(c.requests, ref)
+		c.requestsMutex.Unlock()
 		return err
 	}
 	result := c.waitResult(ref, ch)
@@ -929,6 +1074,9 @@ func (c *connection) LinkAlias(pid gen.PID, target gen.Alias) error {
 	c.requests[ref] = ch
 	c.requestsMutex.Unlock()
 	if err := c.sendAny(message, order, orderPeer, gen.Compression{}); err != nil {
+		c.requestsMutex.Lock()
+		delete(c.requests, ref)
+		c.requestsMutex.Unlock()
 		return err
 	}
 	result := c.waitResult(ref, ch)
@@ -953,6 +1101,9 @@ func (c *connection) UnlinkAlias(pid gen.PID, target gen.Alias) error {
 	c.requests[ref] = ch
 	c.requestsMutex.Unlock()
 	if err := c.sendAny(message, order, orderPeer, gen.Compression{}); err != nil {
+		c.requestsMutex.Lock()
+		delete(c.requests, ref)
+		c.requestsMutex.Unlock()
 		return err
 	}
 	result := c.waitResult(ref, ch)
@@ -972,6 +1123,9 @@ func (c *connection) LinkEvent(pid gen.PID, target gen.Event) ([]gen.MessageEven
 	c.requests[ref] = ch
 	c.requestsMutex.Unlock()
 	if err := c.sendAny(message, order, 0, gen.Compression{}); err != nil {
+		c.requestsMutex.Lock()
+		delete(c.requests, ref)
+		c.requestsMutex.Unlock()
 		return nil, err
 	}
 	result := c.waitResult(ref, ch)
@@ -998,6 +1152,9 @@ func (c *connection) UnlinkEvent(pid gen.PID, target gen.Event) error {
 	c.requests[ref] = ch
 	c.requestsMutex.Unlock()
 	if err := c.sendAny(message, order, 0, gen.Compression{}); err != nil {
+		c.requestsMutex.Lock()
+		delete(c.requests, ref)
+		c.requestsMutex.Unlock()
 		return err
 	}
 	result := c.waitResult(ref, ch)
@@ -1020,6 +1177,9 @@ func (c *connection) MonitorPID(pid gen.PID, target gen.PID) error {
 	c.requests[ref] = ch
 	c.requestsMutex.Unlock()
 	if err := c.sendAny(message, order, 0, gen.Compression{}); err != nil {
+		c.requestsMutex.Lock()
+		delete(c.requests, ref)
+		c.requestsMutex.Unlock()
 		return err
 	}
 	result := c.waitResult(ref, ch)
@@ -1042,6 +1202,9 @@ func (c *connection) DemonitorPID(pid gen.PID, target gen.PID) error {
 	c.requests[ref] = ch
 	c.requestsMutex.Unlock()
 	if err := c.sendAny(message, order, 0, gen.Compression{}); err != nil {
+		c.requestsMutex.Lock()
+		delete(c.requests, ref)
+		c.requestsMutex.Unlock()
 		return err
 	}
 	result := c.waitResult(ref, ch)
@@ -1061,6 +1224,9 @@ func (c *connection) MonitorProcessID(pid gen.PID, target gen.ProcessID) error {
 	c.requests[ref] = ch
 	c.requestsMutex.Unlock()
 	if err := c.sendAny(message, order, 0, gen.Compression{}); err != nil {
+		c.requestsMutex.Lock()
+		delete(c.requests, ref)
+		c.requestsMutex.Unlock()
 		return err
 	}
 	result := c.waitResult(ref, ch)
@@ -1080,6 +1246,9 @@ func (c *connection) DemonitorProcessID(pid gen.PID, target gen.ProcessID) error
 	c.requests[ref] = ch
 	c.requestsMutex.Unlock()
 	if err := c.sendAny(message, order, 0, gen.Compression{}); err != nil {
+		c.requestsMutex.Lock()
+		delete(c.requests, ref)
+		c.requestsMutex.Unlock()
 		return err
 	}
 	result := c.waitResult(ref, ch)
@@ -1103,6 +1272,9 @@ func (c *connection) MonitorAlias(pid gen.PID, target gen.Alias) error {
 	c.requests[ref] = ch
 	c.requestsMutex.Unlock()
 	if err := c.sendAny(message, order, orderPeer, gen.Compression{}); err != nil {
+		c.requestsMutex.Lock()
+		delete(c.requests, ref)
+		c.requestsMutex.Unlock()
 		return err
 	}
 	result := c.waitResult(ref, ch)
@@ -1126,6 +1298,9 @@ func (c *connection) DemonitorAlias(pid gen.PID, target gen.Alias) error {
 	c.requests[ref] = ch
 	c.requestsMutex.Unlock()
 	if err := c.sendAny(message, order, orderPeer, gen.Compression{}); err != nil {
+		c.requestsMutex.Lock()
+		delete(c.requests, ref)
+		c.requestsMutex.Unlock()
 		return err
 	}
 	result := c.waitResult(ref, ch)
@@ -1145,6 +1320,9 @@ func (c *connection) MonitorEvent(pid gen.PID, target gen.Event) ([]gen.MessageE
 	c.requests[ref] = ch
 	c.requestsMutex.Unlock()
 	if err := c.sendAny(message, order, 0, gen.Compression{}); err != nil {
+		c.requestsMutex.Lock()
+		delete(c.requests, ref)
+		c.requestsMutex.Unlock()
 		return nil, err
 	}
 	result := c.waitResult(ref, ch)
@@ -1171,6 +1349,9 @@ func (c *connection) DemonitorEvent(pid gen.PID, target gen.Event) error {
 	c.requests[ref] = ch
 	c.requestsMutex.Unlock()
 	if err := c.sendAny(message, order, 0, gen.Compression{}); err != nil {
+		c.requestsMutex.Lock()
+		delete(c.requests, ref)
+		c.requestsMutex.Unlock()
 		return err
 	}
 	result := c.waitResult(ref, ch)
@@ -1420,9 +1601,13 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC) {
 	re:
 		switch buf.B[7] {
 		case protoMessagePID: // process id
-			// TODO: check the buf len
+			if buf.Len() < 30 {
+				c.log.Error("malformed message (too small MessagePID)")
+				continue
+			}
 			idFrom := binary.BigEndian.Uint64(buf.B[8:16])
-			priority := gen.MessagePriority(buf.B[16])
+			priority := gen.MessagePriority(buf.B[16] & 3)
+			important := (buf.B[16] & 128) > 0
 			idTO := binary.BigEndian.Uint64(buf.B[17:25])
 
 			msg, tail, err := edf.Decode(buf.B[25:], c.decodeOptions)
@@ -1453,17 +1638,45 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC) {
 			opts := gen.MessageOptions{
 				Priority: priority,
 			}
-			c.core.RouteSendPID(from, to, opts, msg)
+
+			err = c.core.RouteSendPID(from, to, opts, msg)
+			if important == false {
+				continue
+			}
+			if c.node_flags.EnableImportantDelivery == false {
+				continue
+			}
+			ref := gen.Ref{
+				Creation: c.peer_creation,
+			}
+			ref.ID[2] = from.ID
+			c.SendResponseError(to, from, ref, opts, err)
 
 		case protoMessageName, protoMessageNameCache: // name, chached name
-			// TODO: check the buf len
 			var toName gen.Atom
 			var data []byte
+
+			if buf.Len() < 18 {
+				c.log.Error("malformed message (too small MessageName*)")
+				continue
+			}
+
 			if buf.B[7] == protoMessageName {
 				l := int(buf.B[17])
+				if buf.Len() < 18+l {
+					c.log.Error("malformed message (too small MessageName)")
+					continue
+				}
+
 				toName = gen.Atom(buf.B[18 : 18+l])
 				data = buf.B[18+l:]
+
 			} else {
+				if buf.Len() < 20 {
+					c.log.Error("malformed message (too small MessageNameCache)")
+					continue
+				}
+
 				id := binary.BigEndian.Uint16(buf.B[17:19])
 				if c.decodeOptions.AtomCache == nil {
 					c.log.Error("received message with cached atom value %d, but cache is nil (message ignored). please, report this bug", id)
@@ -1482,7 +1695,8 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC) {
 				data = buf.B[19:]
 			}
 			idFrom := binary.BigEndian.Uint64(buf.B[8:16])
-			priority := gen.MessagePriority(buf.B[16])
+			priority := gen.MessagePriority(buf.B[16] & 3)
+			important := (buf.B[16] & 128) > 0
 
 			msg, tail, err := edf.Decode(data, c.decodeOptions)
 			if releaseBuffer {
@@ -1517,11 +1731,30 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC) {
 			opts := gen.MessageOptions{
 				Priority: priority,
 			}
-			c.core.RouteSendProcessID(from, to, opts, msg)
+
+			err = c.core.RouteSendProcessID(from, to, opts, msg)
+			if important == false {
+				continue
+			}
+			if c.node_flags.EnableImportantDelivery == false {
+				continue
+			}
+
+			ref := gen.Ref{
+				Creation: c.peer_creation,
+			}
+			ref.ID[2] = from.ID
+			c.SendResponseError(gen.PID{}, from, ref, opts, err)
 
 		case protoMessageAlias:
+			if buf.Len() < 41 {
+				c.log.Error("malformed message (too small MessageAlias)")
+				continue
+			}
+
 			idFrom := binary.BigEndian.Uint64(buf.B[8:16])
-			priority := gen.MessagePriority(buf.B[16])
+			priority := gen.MessagePriority(buf.B[16] & 3)
+			important := (buf.B[16] & 128) > 0
 			idTo := [3]uint64{
 				binary.BigEndian.Uint64(buf.B[17:25]),
 				binary.BigEndian.Uint64(buf.B[25:33]),
@@ -1556,15 +1789,36 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC) {
 			opts := gen.MessageOptions{
 				Priority: priority,
 			}
-			c.core.RouteSendAlias(from, to, opts, msg)
+			err = c.core.RouteSendAlias(from, to, opts, msg)
+
+			if important == false {
+				continue
+			}
+			if c.node_flags.EnableImportantDelivery == false {
+				continue
+			}
+
+			ref := gen.Ref{
+				Creation: c.peer_creation,
+			}
+			ref.ID[2] = from.ID
+			c.SendResponseError(gen.PID{}, from, ref, opts, err)
 
 		case protoRequestPID:
+			if buf.Len() < 50 {
+				c.log.Error("malformed message (too small RequestPID)")
+				continue
+			}
+
 			ref := gen.Ref{
 				Node:     c.peer,
 				Creation: c.peer_creation,
 			}
 			idFrom := binary.BigEndian.Uint64(buf.B[8:16])
-			priority := gen.MessagePriority(buf.B[16])
+
+			priority := gen.MessagePriority(buf.B[16] & 3)
+			important := (buf.B[16] & 128) > 0
+
 			ref.ID[0] = binary.BigEndian.Uint64(buf.B[17:25])
 			ref.ID[1] = binary.BigEndian.Uint64(buf.B[25:33])
 			ref.ID[2] = binary.BigEndian.Uint64(buf.B[33:41])
@@ -1598,17 +1852,35 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC) {
 			opts := gen.MessageOptions{
 				Priority: priority,
 			}
-			c.core.RouteCallPID(ref, from, to, opts, msg)
+
+			err = c.core.RouteCallPID(ref, from, to, opts, msg)
+			if err == nil {
+				continue
+			}
+
+			if important == false {
+				continue
+			}
+
+			if c.node_flags.EnableImportantDelivery == false {
+				continue
+			}
+
+			c.SendResponseError(to, from, ref, opts, err)
 
 		case protoRequestName, protoRequestNameCache:
+			if buf.Len() < 43 {
+				c.log.Error("malformed message (too small RequestName*)")
+				continue
+			}
 			from := gen.PID{
 				Node:     c.peer,
 				Creation: c.peer_creation,
 				ID:       binary.BigEndian.Uint64(buf.B[8:16]),
 			}
-			options := gen.MessageOptions{
-				Priority: gen.MessagePriority(buf.B[16]),
-			}
+			priority := gen.MessagePriority(buf.B[16] & 3)
+			important := (buf.B[16] & 128) > 0
+
 			ref := gen.Ref{
 				Node:     c.peer,
 				Creation: c.peer_creation,
@@ -1624,8 +1896,14 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC) {
 			var data []byte
 			if buf.B[7] == protoRequestName {
 				l := int(buf.B[41])
+				if buf.Len() < 42+l {
+					c.log.Error("malformed message (too small RequestName)")
+					continue
+				}
+
 				to.Name = gen.Atom(buf.B[42 : 42+l])
 				data = buf.B[42+l:]
+
 			} else {
 				id := binary.BigEndian.Uint16(buf.B[41:43])
 				if c.decodeOptions.AtomCache == nil {
@@ -1664,9 +1942,30 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC) {
 					to.Name = v.(gen.Atom)
 				}
 			}
-			c.core.RouteCallProcessID(ref, from, to, options, msg)
+			opts := gen.MessageOptions{
+				Priority: priority,
+			}
+
+			err = c.core.RouteCallProcessID(ref, from, to, opts, msg)
+			if err == nil {
+				continue
+			}
+
+			if important == false {
+				continue
+			}
+
+			if c.node_flags.EnableImportantDelivery == false {
+				continue
+			}
+
+			c.SendResponseError(gen.PID{}, from, ref, opts, err)
 
 		case protoRequestAlias:
+			if buf.Len() < 66 {
+				c.log.Error("malformed message (too small RequestAlias)")
+				continue
+			}
 			ref := gen.Ref{
 				Node:     c.peer,
 				Creation: c.peer_creation,
@@ -1676,7 +1975,10 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC) {
 				Creation: c.core.Creation(),
 			}
 			idFrom := binary.BigEndian.Uint64(buf.B[8:16])
-			priority := gen.MessagePriority(buf.B[16])
+
+			priority := gen.MessagePriority(buf.B[16] & 3)
+			important := (buf.B[16] & 128) > 0
+
 			ref.ID[0] = binary.BigEndian.Uint64(buf.B[17:25])
 			ref.ID[1] = binary.BigEndian.Uint64(buf.B[25:33])
 			ref.ID[2] = binary.BigEndian.Uint64(buf.B[33:41])
@@ -1707,9 +2009,26 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC) {
 			opts := gen.MessageOptions{
 				Priority: priority,
 			}
-			c.core.RouteCallAlias(ref, from, to, opts, msg)
+			err = c.core.RouteCallAlias(ref, from, to, opts, msg)
+			if err == nil {
+				continue
+			}
+
+			if important == false {
+				continue
+			}
+
+			if c.node_flags.EnableImportantDelivery == false {
+				continue
+			}
+
+			c.SendResponseError(gen.PID{}, from, ref, opts, err)
 
 		case protoMessageEvent, protoMessageEventCache:
+			if buf.Len() < 28 {
+				c.log.Error("malformed message (too small MessageEvent*)")
+				continue
+			}
 			from := gen.PID{
 				Node:     c.peer,
 				Creation: c.peer_creation,
@@ -1726,8 +2045,13 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC) {
 			var data []byte
 			if buf.B[7] == protoMessageEvent {
 				l := int(buf.B[25])
+				if buf.Len() < 26+l {
+					c.log.Error("malformed message (too small MessageEvent)")
+					continue
+				}
 				message.Event.Name = gen.Atom(buf.B[26 : 26+l])
 				data = buf.B[26+l:]
+
 			} else {
 				id := binary.BigEndian.Uint16(buf.B[25:27])
 				if c.decodeOptions.AtomCache == nil {
@@ -1769,6 +2093,11 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC) {
 			c.core.RouteSendEvent(from, gen.Ref{}, options, message)
 
 		case protoMessageExit:
+			if buf.Len() < 26 {
+				c.log.Error("malformed message (too small MessageExit)")
+				continue
+			}
+
 			idFrom := binary.BigEndian.Uint64(buf.B[8:16])
 			// priority := gen.MessagePriority(buf.B[16]) ignored
 			idTO := binary.BigEndian.Uint64(buf.B[17:25])
@@ -1807,6 +2136,11 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC) {
 			c.core.RouteSendExit(from, to, reason)
 
 		case protoMessageResponse:
+			if buf.Len() < 49 {
+				c.log.Error("malformed message (too small MessageResponse)")
+				continue
+			}
+
 			ref := gen.Ref{
 				Node:     c.core.Name(),
 				Creation: c.core.Creation(),
@@ -1848,7 +2182,81 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC) {
 			}
 			c.core.RouteSendResponse(from, to, ref, opts, msg)
 
+		case protoMessageResponseError:
+			if buf.Len() < 50 {
+				c.log.Error("malformed message (too small MessageResponseError)")
+				continue
+			}
+
+			ref := gen.Ref{
+				Node:     c.core.Name(),
+				Creation: c.core.Creation(),
+			}
+			idFrom := binary.BigEndian.Uint64(buf.B[8:16])
+			priority := gen.MessagePriority(buf.B[16])
+			idTO := binary.BigEndian.Uint64(buf.B[17:25])
+			ref.ID[0] = binary.BigEndian.Uint64(buf.B[25:33])
+			ref.ID[1] = binary.BigEndian.Uint64(buf.B[33:41])
+			ref.ID[2] = binary.BigEndian.Uint64(buf.B[41:49])
+
+			from := gen.PID{
+				Node:     c.peer,
+				ID:       idFrom,
+				Creation: c.peer_creation,
+			}
+			to := gen.PID{
+				Node:     c.core.Name(),
+				ID:       idTO,
+				Creation: c.core.Creation(),
+			}
+			opts := gen.MessageOptions{
+				Priority: priority,
+			}
+
+			var r error // result
+			switch buf.B[49] {
+			case 0:
+				break
+			case 1:
+				r = gen.ErrProcessUnknown
+			case 2:
+				r = gen.ErrProcessMailboxFull
+			case 3:
+				r = gen.ErrProcessTerminated
+			case 255:
+				var ok bool
+
+				msg, tail, err := edf.Decode(buf.B[50:], c.decodeOptions)
+				if releaseBuffer {
+					lib.ReleaseBuffer(buf)
+				}
+
+				if err != nil {
+					c.log.Error("unable to decode received message: %s", err)
+					continue
+				}
+
+				if len(tail) > 0 {
+					c.log.Warning("message has extra bytes: %#v", tail)
+				}
+
+				r, ok = msg.(error)
+				if ok == false {
+					c.log.Error("received incorrect response error")
+					continue
+				}
+
+			default:
+				c.log.Error("received incorrect response error id")
+				continue
+			}
+			c.core.RouteSendResponseError(from, to, ref, opts, r)
+
 		case protoMessageTerminatePID:
+			if buf.Len() < 18 {
+				c.log.Error("malformed message (too small MessageTerminatePID)")
+				continue
+			}
 			// priority := gen.MessagePriority(buf.B[8]) ignored
 			idTarget := binary.BigEndian.Uint64(buf.B[9:17])
 			msg, tail, err := edf.Decode(buf.B[17:], c.decodeOptions)
@@ -1880,12 +2288,22 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC) {
 
 		case protoMessageTerminateName, protoMessageTerminateNameCache:
 			var data []byte
+
+			if buf.Len() < 12 {
+				c.log.Error("malformed message (too small MessageTerminateName*)")
+				continue
+			}
+
 			processid := gen.ProcessID{
 				Node: c.peer,
 			}
 			// priority := gen.MessagePriority(buf.B[8]) ignored
 			if buf.B[7] == protoMessageTerminateName {
 				l := int(buf.B[9])
+				if buf.Len() < 10+l {
+					c.log.Error("malformed message (too small MessageTerminateName)")
+					continue
+				}
 				processid.Name = gen.Atom(buf.B[10 : 10+l])
 				data = buf.B[10+l:]
 			} else {
@@ -1936,12 +2354,22 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC) {
 
 		case protoMessageTerminateEvent, protoMessageTerminateEventCache:
 			var data []byte
+
+			if buf.Len() < 12 {
+				c.log.Error("malformed message (too small MessageTerminateEvent*)")
+				continue
+			}
+
 			event := gen.Event{
 				Node: c.peer,
 			}
 			// priority := gen.MessagePriority(buf.B[8]) ignored
 			if buf.B[7] == protoMessageTerminateEvent {
 				l := int(buf.B[9])
+				if buf.Len() < 10+l {
+					c.log.Error("malformed message (too small MessageTerminateEvent)")
+					continue
+				}
 				event.Name = gen.Atom(buf.B[10 : 10+l])
 				data = buf.B[10+l:]
 			} else {
@@ -1991,6 +2419,11 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC) {
 			c.core.RouteTerminateEvent(event, reason)
 
 		case protoMessageTerminateAlias:
+			if buf.Len() < 34 {
+				c.log.Error("malformed message (too small MessageTerminateAlias)")
+				continue
+			}
+
 			target := gen.Alias{
 				Node:     c.peer,
 				Creation: c.peer_creation,
@@ -2023,6 +2456,11 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC) {
 			c.core.RouteTerminateAlias(target, reason)
 
 		case protoMessageAny:
+			if buf.Len() < 9 {
+				c.log.Error("malformed message (too small MessageAny)")
+				continue
+			}
+
 			msg, tail, err := edf.Decode(buf.B[8:], c.decodeOptions)
 			lib.ReleaseBuffer(buf)
 
@@ -2038,6 +2476,10 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC) {
 			c.routeMessage(msg)
 
 		case protoMessageZ:
+			if buf.Len() < 10 {
+				c.log.Error("malformed message (too small MessageZ)")
+				continue
+			}
 			skipBytes := 9 // proto header for compressed message
 			switch buf.B[8] {
 			case gen.CompressionTypeGZIP.ID():

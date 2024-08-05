@@ -99,7 +99,7 @@ func (t *t3) TestSendRemotePID(input any) {
 		return
 	}
 
-	t3pongCh = make(chan any)
+	t3pongCh = make(chan any, 1)
 	pingvalue = 123
 	if err := t.Send(pid, pingvalue); err != nil {
 		t.testcase.err <- err
@@ -120,6 +120,54 @@ func (t *t3) TestSendRemotePID(input any) {
 	t.testcase.err <- nil
 }
 
+func (t *t3) TestSendImportantRemotePID(input any) {
+	var pingvalue any
+	defer func() {
+		t.testcase = nil
+	}()
+
+	pid, err := t.RemoteSpawn(t.remote, "pong", gen.ProcessOptions{})
+	if err != nil {
+		t.testcase.err <- err
+		return
+	}
+
+	t3pongCh = make(chan any, 1)
+	pingvalue = 123
+	if err := t.SendImportant(pid, pingvalue); err != nil {
+		t.testcase.err <- err
+		return
+	}
+
+	select {
+	case pong := <-t3pongCh:
+		if reflect.DeepEqual(pingvalue, pong) == false {
+			t.testcase.err <- fmt.Errorf("pong value mismatch")
+			return
+		}
+	case <-time.NewTimer(time.Second).C:
+		t.testcase.err <- gen.ErrTimeout
+		return
+	}
+
+	// send to unknown pid
+	pid.ID = 100000 // unknown pid
+	if err := t.SendImportant(pid, pingvalue); err != gen.ErrProcessUnknown {
+		t.testcase.err <- gen.ErrIncorrect
+		return
+	}
+
+	// test send important with disabled network order
+	t.SetKeepNetworkOrder(false)
+	if err := t.SendImportant(pid, pingvalue); err != gen.ErrNotAllowed {
+		t.testcase.err <- gen.ErrIncorrect
+		return
+	}
+	t.SetKeepNetworkOrder(true)
+
+	t.testcase.err <- nil
+}
+
 func (t *t3) TestSendRemoteProcessID(input any) {
 	var pingvalue any
 	defer func() {
@@ -133,7 +181,7 @@ func (t *t3) TestSendRemoteProcessID(input any) {
 		return
 	}
 
-	t3pongCh = make(chan any)
+	t3pongCh = make(chan any, 1)
 	pingvalue = 123.456
 	pingProcessID := gen.ProcessID{Name: regName, Node: t.remote}
 	if err := t.Send(pingProcessID, pingvalue); err != nil {
@@ -149,6 +197,47 @@ func (t *t3) TestSendRemoteProcessID(input any) {
 		}
 	case <-time.NewTimer(time.Second).C:
 		t.testcase.err <- gen.ErrTimeout
+		return
+	}
+
+	t.testcase.err <- nil
+}
+
+func (t *t3) TestSendImportantRemoteProcessID(input any) {
+	var pingvalue any
+	defer func() {
+		t.testcase = nil
+	}()
+
+	regName := gen.Atom("regpongimportant")
+	_, err := t.RemoteSpawnRegister(t.remote, "pong", regName, gen.ProcessOptions{})
+	if err != nil {
+		t.testcase.err <- err
+		return
+	}
+
+	t3pongCh = make(chan any, 1)
+	pingvalue = 123.456
+	pingProcessID := gen.ProcessID{Name: regName, Node: t.remote}
+	if err := t.SendImportant(pingProcessID, pingvalue); err != nil {
+		t.testcase.err <- err
+		return
+	}
+
+	select {
+	case pong := <-t3pongCh:
+		if reflect.DeepEqual(pingvalue, pong) == false {
+			t.testcase.err <- fmt.Errorf("pong value mismatch")
+			return
+		}
+	case <-time.NewTimer(time.Second).C:
+		t.testcase.err <- gen.ErrTimeout
+		return
+	}
+
+	pingProcessID.Name = "unknown_name"
+	if err := t.SendImportant(pingProcessID, pingvalue); err != gen.ErrProcessUnknown {
+		t.testcase.err <- gen.ErrIncorrect
 		return
 	}
 
@@ -203,6 +292,66 @@ func (t *t3) TestSendRemoteAlias(input any) {
 		}
 	case <-time.NewTimer(time.Second).C:
 		t.testcase.err <- gen.ErrTimeout
+		return
+	}
+
+	t.testcase.err <- nil
+}
+
+func (t *t3) TestSendImportantRemoteAlias(input any) {
+	var pingvalue any
+	defer func() {
+		t.testcase = nil
+	}()
+
+	pid, err := t.RemoteSpawn(t.remote, "pong", gen.ProcessOptions{})
+	if err != nil {
+		t.testcase.err <- err
+		return
+	}
+
+	t3pongCh = make(chan any, 1)
+	pingvalue = "test value"
+	if err := t.SendImportant(pid, pingvalue); err != nil {
+		t.testcase.err <- err
+		return
+	}
+
+	select {
+	case pong := <-t3pongCh:
+		if reflect.DeepEqual(pingvalue, pong) == false {
+			t.testcase.err <- fmt.Errorf("pong value mismatch")
+			return
+		}
+	case <-time.NewTimer(time.Second).C:
+		t.testcase.err <- gen.ErrTimeout
+		return
+	}
+
+	emptyAlias := gen.Alias{}
+	if t3pongAlias == emptyAlias {
+		t.testcase.err <- fmt.Errorf("alias hasn't been created")
+		return
+	}
+	if err := t.SendImportant(t3pongAlias, pingvalue); err != nil {
+		t.testcase.err <- err
+		return
+	}
+
+	select {
+	case pong := <-t3pongCh:
+		if reflect.DeepEqual(pingvalue, pong) == false {
+			t.testcase.err <- fmt.Errorf("pong value mismatch")
+			return
+		}
+	case <-time.NewTimer(time.Second).C:
+		t.testcase.err <- gen.ErrTimeout
+		return
+	}
+
+	t3pongAlias.ID[1] = 0 // unknown alias
+	if err := t.SendImportant(t3pongAlias, pingvalue); err != gen.ErrProcessUnknown {
+		t.testcase.err <- err
 		return
 	}
 
@@ -337,7 +486,7 @@ func TestT3SendRemote(t *testing.T) {
 	options1.Network.Cookie = "123"
 	options1.Network.MaxMessageSize = 567
 	options1.Log.DefaultLogger.Disable = true
-	// options1.Log.Level = gen.LogLevelTrace
+	options1.Log.Level = gen.LogLevelTrace
 	node1, err := ergo.StartNode("distT0node1SendRemote@localhost", options1)
 	if err != nil {
 		t.Fatal(err)
@@ -371,8 +520,11 @@ func TestT3SendRemote(t *testing.T) {
 
 	t3cases := []*testcase{
 		{"TestSendRemotePID", nil, nil, make(chan error)},
+		{"TestSendImportantRemotePID", nil, nil, make(chan error)},
 		{"TestSendRemoteProcessID", nil, nil, make(chan error)},
+		{"TestSendImportantRemoteProcessID", nil, nil, make(chan error)},
 		{"TestSendRemoteAlias", nil, nil, make(chan error)},
+		{"TestSendImportantRemoteAlias", nil, nil, make(chan error)},
 		{"TestSendRemoteTooLarge", nil, nil, make(chan error)},
 		{"TestSendRemoteCompress", nil, nil, make(chan error)},
 		{"TestSendRemoteExit", nil, nil, make(chan error)},

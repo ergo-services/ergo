@@ -41,6 +41,8 @@ type MetaProcess interface {
 	ID() Alias
 	Parent() PID
 	Send(to any, message any) error
+	SendImportant(to any, message any) error
+	SendWithPriority(to any, message any, priority MessagePriority) error
 	Spawn(behavior MetaBehavior, options MetaOptions) (Alias, error)
 	Env(name Env) (any, bool)
 	EnvList() map[Env]any

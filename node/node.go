@@ -415,6 +415,7 @@ func (n *node) ProcessInfo(pid gen.PID) (gen.ProcessInfo, error) {
 	info.Events = p.Events()
 	info.LogLevel = p.log.Level()
 	info.KeepNetworkOrder = p.keeporder
+	info.ImportantDelivery = p.important
 
 	if n.security.ExposeEnvInfo {
 		info.Env = p.EnvList()
@@ -1347,6 +1348,7 @@ func (n *node) spawn(factory gen.ProcessFactory, options gen.ProcessOptionsExtra
 		parent:      options.ParentPID,
 		leader:      options.ParentLeader,
 		application: options.Application,
+		important:   options.ImportantDelivery,
 	}
 
 	if options.Register != "" {

@@ -40,8 +40,27 @@ func (m *meta) Parent() gen.PID {
 }
 
 func (m *meta) Send(to any, message any) error {
+	if err := m.p.Send(to, message); err != nil {
+		return err
+	}
 	atomic.AddUint64(&m.messagesOut, 1)
-	return m.p.Send(to, message)
+	return nil
+}
+
+func (m *meta) SendImportant(to any, message any) error {
+	if err := m.p.SendImportant(to, message); err != nil {
+		return err
+	}
+	atomic.AddUint64(&m.messagesOut, 1)
+	return nil
+}
+
+func (m *meta) SendWithPriority(to any, message any, priority gen.MessagePriority) error {
+	if err := m.p.SendWithPriority(to, message, priority); err != nil {
+		return err
+	}
+	atomic.AddUint64(&m.messagesOut, 1)
+	return nil
 }
 
 func (m *meta) Spawn(behavior gen.MetaBehavior, options gen.MetaOptions) (gen.Alias, error) {

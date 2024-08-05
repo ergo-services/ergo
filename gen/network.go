@@ -106,6 +106,7 @@ type Connection interface {
 	SendEvent(from PID, options MessageOptions, message MessageEvent) error
 	SendExit(from PID, to PID, reason error) error
 	SendResponse(from PID, to PID, ref Ref, options MessageOptions, response any) error
+	SendResponseError(from PID, to PID, ref Ref, options MessageOptions, err error) error
 
 	// target terminated
 	SendTerminatePID(target PID, reason error) error
@@ -238,7 +239,7 @@ type NetworkFlags struct {
 	EnableProxyTransit bool
 	// EnableProxyAccept enables support for incoming proxy connection
 	EnableProxyAccept bool
-	// EnableImportantDelivery TODO will be implemented in the future release
+	// EnableImportantDelivery enables support 'important' flag
 	EnableImportantDelivery bool
 }
 

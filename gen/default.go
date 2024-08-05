@@ -30,6 +30,7 @@ var (
 		EnableRemoteApplicationStart: true,
 		EnableProxyTransit:           false,
 		EnableProxyAccept:            true,
+		EnableImportantDelivery:      true,
 	}
 
 	DefaultNetworkProxyFlags = NetworkProxyFlags{
@@ -37,6 +38,7 @@ var (
 		EnableRemoteSpawn:            false,
 		EnableRemoteApplicationStart: false,
 		EnableEncryption:             false,
+		EnableImportantDelivery:      true,
 	}
 
 	DefaultLogLevels = []LogLevel{

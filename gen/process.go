@@ -156,6 +156,11 @@ type Process interface {
 	// KeepNetworkOrder returns true if it was enabled, otherwise - false. Enabled by default.
 	KeepNetworkOrder() bool
 
+	// SetImportantDelivery enables/disables important flag for sending messages. This flag makes remote node to send confirmation that message was delivered into the process mailbox
+	SetImportantDelivery(important bool) error
+	// ImportantDelivery returns true if flag ImportantDelivery was set for this process
+	ImportantDelivery() bool
+
 	// CreateAlias creates a new alias associated with this process
 	CreateAlias() (Alias, error)
 
@@ -174,6 +179,7 @@ type Process interface {
 	SendProcessID(to ProcessID, message any) error
 	SendAlias(to Alias, message any) error
 	SendWithPriority(to any, message any, priority MessagePriority) error
+	SendImportant(to any, message any) error
 
 	// SendAfter starts a timer. When the timer expires, the message sends to the process
 	// identified by 'to'. Returns cancel function in order to discard
@@ -192,11 +198,13 @@ type Process interface {
 	SendExitMeta(meta Alias, reason error) error
 
 	SendResponse(to PID, ref Ref, message any) error
+	SendResponseError(to PID, ref Ref, err error) error
 
 	// Call makes a sync request
 	Call(to any, message any) (any, error)
 	CallWithTimeout(to any, message any, timeout int) (any, error)
 	CallWithPriority(to any, message any, priority MessagePriority) (any, error)
+	CallImportant(to any, message any) (any, error)
 	CallPID(to PID, message any, timeout int) (any, error)
 	CallProcessID(to ProcessID, message any, timeout int) (any, error)
 	CallAlias(to Alias, message any, timeout int) (any, error)
@@ -294,9 +302,10 @@ const MessagePriorityHigh MessagePriority = 1
 const MessagePriorityMax MessagePriority = 2
 
 type MessageOptions struct {
-	Priority         MessagePriority
-	Compression      Compression
-	KeepNetworkOrder bool
+	Priority          MessagePriority
+	Compression       Compression
+	KeepNetworkOrder  bool
+	ImportantDelivery bool
 }
 
 // ProcessOptions
@@ -320,6 +329,9 @@ type ProcessOptions struct {
 	// With MessagePriorityMax - makes delivering to the Mailbox.Urgent
 	// By default, messages are delivering to the Mailbox.Main.
 	SendPriority MessagePriority
+
+	// ImportantDelivery enables important flag for sending messages. This flag makes remote node to send confirmation that message was delivered into the process mailbox
+	ImportantDelivery bool
 
 	// Fallback defines the process to where messages will be forwarded
 	// if the mailbox is overflowed. The tag value could be used to
@@ -426,7 +438,7 @@ type ProcessInfo struct {
 	LogLevel LogLevel
 	// KeepNetworkOrder
 	KeepNetworkOrder bool
-	// ImportantDelivery // this feature will be enabled in the future releasse, added for backward compatibility
+	// ImportantDelivery
 	ImportantDelivery bool
 }
 

@@ -9,6 +9,7 @@ type Core interface {
 	RouteSendEvent(from PID, token Ref, options MessageOptions, message MessageEvent) error
 	RouteSendExit(from PID, to PID, reason error) error
 	RouteSendResponse(from PID, to PID, ref Ref, options MessageOptions, message any) error
+	RouteSendResponseError(from PID, to PID, ref Ref, options MessageOptions, err error) error
 
 	// call requests
 	RouteCallPID(ref Ref, from PID, to PID, options MessageOptions, message any) error

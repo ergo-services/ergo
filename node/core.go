@@ -338,6 +338,39 @@ func (n *node) RouteSendResponse(from gen.PID, to gen.PID, ref gen.Ref, options 
 	}
 }
 
+func (n *node) RouteSendResponseError(from gen.PID, to gen.PID, ref gen.Ref, options gen.MessageOptions, err error) error {
+	if n.isRunning() == false {
+		return gen.ErrNodeTerminated
+	}
+
+	if lib.Trace() {
+		n.log.Trace("RouteSendResponseError from %s to %s with ref %q", from, to, ref)
+	}
+
+	if to.Node != n.name {
+		// remote
+		connection, e := n.network.GetConnection(to.Node)
+		if e != nil {
+			return e
+		}
+		return connection.SendResponseError(from, to, ref, options, err)
+	}
+
+	value, loaded := n.processes.Load(to)
+	if loaded == false {
+		return gen.ErrProcessUnknown
+	}
+	p := value.(*process)
+
+	select {
+	case p.response <- response{ref: ref, err: err}:
+		return nil
+	default:
+		// process doesn't wait for a response anymore
+		return gen.ErrResponseIgnored
+	}
+}
+
 func (n *node) RouteCallPID(ref gen.Ref, from gen.PID, to gen.PID, options gen.MessageOptions, message any) error {
 	var queue lib.QueueMPSC
 
