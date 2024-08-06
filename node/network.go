@@ -995,7 +995,7 @@ func (n *network) start(options gen.NetworkOptions) error {
 		n.acceptors = append(n.acceptors, acceptor)
 		r := gen.Route{
 			Port:             acceptor.port,
-			TLS:              acceptor.tls,
+			TLS:              acceptor.cert_manager != nil,
 			HandshakeVersion: acceptor.handshake.Version(),
 			ProtoVersion:     acceptor.proto.Version(),
 		}
@@ -1060,9 +1060,9 @@ func (n *network) startAcceptor(a gen.AcceptorOptions) (*acceptor, error) {
 		KeepAlive: gen.DefaultKeepAlivePeriod,
 	}
 
-	cert := a.CertManager
-	if cert == nil {
-		cert = n.node.CertManager()
+	cert_manager := a.CertManager
+	if cert_manager == nil {
+		cert_manager = n.node.CertManager()
 	}
 	bs := a.BufferSize
 	if bs < 1 {
@@ -1085,7 +1085,7 @@ func (n *network) startAcceptor(a gen.AcceptorOptions) (*acceptor, error) {
 		bs:               bs,
 		proto:            a.Proto,
 		handshake:        a.Handshake,
-		tls:              cert != nil,
+		cert_manager:     cert_manager,
 		max_message_size: a.MaxMessageSize,
 		atom_mapping:     make(map[gen.Atom]gen.Atom),
 	}
@@ -1118,9 +1118,9 @@ func (n *network) startAcceptor(a gen.AcceptorOptions) (*acceptor, error) {
 			a.Host, pstart, pend)
 	}
 
-	if cert != nil {
+	if acceptor.cert_manager != nil {
 		config := &tls.Config{
-			GetCertificate:     cert.GetCertificateFunc(),
+			GetCertificate:     acceptor.cert_manager.GetCertificateFunc(),
 			InsecureSkipVerify: a.InsecureSkipVerify,
 		}
 		acceptor.l = tls.NewListener(acceptor.l, config)
@@ -1137,7 +1137,7 @@ func (n *network) startAcceptor(a gen.AcceptorOptions) (*acceptor, error) {
 		n.node.Log().Trace("started acceptor on %s with handshake %s and proto %s (TLS: %t)",
 			acceptor.l.Addr(),
 			acceptor.handshake.Version(),
-			acceptor.proto.Version(), cert != nil,
+			acceptor.proto.Version(), acceptor.cert_manager != nil,
 		)
 	}
 
@@ -1152,6 +1152,7 @@ func (n *network) accept(a *acceptor) {
 		Cookie:         a.cookie,
 		Flags:          a.flags,
 		MaxMessageSize: a.max_message_size,
+		CertManager:    a.cert_manager,
 	}
 	for {
 		c, err := a.l.Accept()

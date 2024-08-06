@@ -7,15 +7,18 @@ import (
 	"time"
 
 	"ergo.services/ergo/gen"
+	"ergo.services/ergo/lib"
 )
 
 func (h *handshake) Join(node gen.NodeHandshake, conn net.Conn, id string, options gen.HandshakeOptions) ([]byte, error) {
+	salt := lib.RandomString(64)
 	hash := sha256.New()
-	hash.Write([]byte(fmt.Sprintf("%s:%s", id, options.Cookie)))
+	hash.Write([]byte(fmt.Sprintf("%s:%s:%s", id, salt, options.Cookie)))
 	digest := fmt.Sprintf("%x", hash.Sum(nil))
 	message := MessageJoin{
 		Node:         node.Name(),
 		ConnectionID: id,
+		Salt:         salt,
 		Digest:       digest,
 	}
 
@@ -37,7 +40,16 @@ func (h *handshake) Join(node gen.NodeHandshake, conn net.Conn, id string, optio
 	hash = sha256.New()
 	hash.Write([]byte(fmt.Sprintf("%s:%s", message.Digest, options.Cookie)))
 	if accept.Digest != fmt.Sprintf("%x", hash.Sum(nil)) {
-		return nil, fmt.Errorf("incorrect accept digest")
+		return nil, fmt.Errorf("incorrect digest (join)")
+	}
+
+	if fp := h.getRemoteTLSFingerprint(conn); fp != nil {
+		hash = sha256.New()
+		hash.Write([]byte(fmt.Sprintf("%s:%s:%s", digest, salt, options.Cookie)))
+		hash.Write(fp)
+		if accept.DigestCert != fmt.Sprintf("%x", hash.Sum(nil)) {
+			return nil, fmt.Errorf("incorrect cert digest (join)")
+		}
 	}
 
 	return tail, nil

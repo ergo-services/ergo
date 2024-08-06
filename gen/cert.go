@@ -8,6 +8,7 @@ import (
 type CertManager interface {
 	Update(cert tls.Certificate)
 	GetCertificateFunc() func(*tls.ClientHelloInfo) (*tls.Certificate, error)
+	GetCertificate() tls.Certificate
 }
 
 type certManager struct {
@@ -33,4 +34,10 @@ func (cm *certManager) GetCertificateFunc() func(*tls.ClientHelloInfo) (*tls.Cer
 		defer cm.RUnlock()
 		return cm.cert, nil
 	}
+}
+
+func (cm *certManager) GetCertificate() tls.Certificate {
+	cm.RLock()
+	defer cm.RUnlock()
+	return *cm.cert
 }

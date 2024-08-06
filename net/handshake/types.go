@@ -21,13 +21,15 @@ var (
 )
 
 type MessageHello struct {
-	Salt   string
-	Digest string
+	Salt       string
+	Digest     string
+	DigestCert string
 }
 
 type MessageJoin struct {
 	Node         gen.Atom
 	ConnectionID string
+	Salt         string
 	Digest       string
 }
 
@@ -42,13 +44,15 @@ type MessageIntroduce struct {
 	AtomCache map[uint16]gen.Atom
 	RegCache  map[uint16]string
 	ErrCache  map[uint16]error
+	Digest    string
 }
 
 type MessageAccept struct {
-	ID       string
-	PoolSize int
-	PoolDSN  []string
-	Digest   string
+	ID         string
+	PoolSize   int
+	PoolDSN    []string
+	Digest     string
+	DigestCert string
 }
 
 type ConnectionOptions struct {

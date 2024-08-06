@@ -373,6 +373,7 @@ type NetworkHandshake interface {
 type HandshakeOptions struct {
 	Cookie         string
 	Flags          NetworkFlags
+	CertManager    CertManager
 	MaxMessageSize int
 }
 

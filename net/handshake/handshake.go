@@ -14,15 +14,17 @@ import (
 )
 
 type handshake struct {
-	poolsize     int // how many TCP links accepts withing the connection
-	flags        gen.NetworkFlags
-	atom_mapping map[gen.Atom]gen.Atom
+	poolsize            int // how many TCP links accepts withing the connection
+	disable_fingerprint bool
+	flags               gen.NetworkFlags
+	atom_mapping        map[gen.Atom]gen.Atom
 }
 
 type Options struct {
-	PoolSize     int
-	NetworkFlags gen.NetworkFlags
-	AtomMapping  map[gen.Atom]gen.Atom
+	PoolSize              int
+	DisableTLSFingerprint bool
+	NetworkFlags          gen.NetworkFlags
+	AtomMapping           map[gen.Atom]gen.Atom
 }
 
 func Create(options Options) gen.NetworkHandshake {
@@ -37,9 +39,10 @@ func Create(options Options) gen.NetworkHandshake {
 		}
 	}
 	return &handshake{
-		poolsize:     options.PoolSize,
-		flags:        options.NetworkFlags,
-		atom_mapping: mapping,
+		poolsize:            options.PoolSize,
+		disable_fingerprint: options.DisableTLSFingerprint,
+		flags:               options.NetworkFlags,
+		atom_mapping:        mapping,
 	}
 }
 

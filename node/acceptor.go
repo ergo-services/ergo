@@ -11,7 +11,7 @@ type acceptor struct {
 	bs               int
 	cookie           string
 	port             uint16
-	tls              bool
+	cert_manager     gen.CertManager
 	flags            gen.NetworkFlags
 	max_message_size int
 
@@ -62,7 +62,7 @@ func (a *acceptor) Info() gen.AcceptorInfo {
 		Interface:        a.l.Addr().String(),
 		MaxMessageSize:   a.max_message_size,
 		Flags:            a.flags,
-		TLS:              a.tls,
+		TLS:              a.cert_manager != nil,
 		CustomRegistrar:  a.registrar_custom,
 		HandshakeVersion: a.handshake.Version(),
 		ProtoVersion:     a.proto.Version(),

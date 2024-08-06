@@ -1,7 +1,9 @@
 package handshake
 
 import (
+	"crypto/sha1"
 	"crypto/sha256"
+	"crypto/tls"
 	"fmt"
 	"net"
 	"time"
@@ -18,6 +20,7 @@ func (h *handshake) Start(node gen.NodeHandshake, conn net.Conn, options gen.Han
 	salt := lib.RandomString(64)
 	hash := sha256.New()
 	hash.Write([]byte(fmt.Sprintf("%s:%s", salt, options.Cookie)))
+
 	digest := fmt.Sprintf("%x", hash.Sum(nil))
 
 	hello := MessageHello{
@@ -40,8 +43,18 @@ func (h *handshake) Start(node gen.NodeHandshake, conn net.Conn, options gen.Han
 	}
 	hash = sha256.New()
 	hash.Write([]byte(fmt.Sprintf("%s:%s:%s", hello2.Salt, hello.Digest, options.Cookie)))
+
 	if hello2.Digest != fmt.Sprintf("%x", hash.Sum(nil)) {
 		return result, fmt.Errorf("incorrect digest")
+	}
+
+	if fp := h.getRemoteTLSFingerprint(conn); fp != nil {
+		hash = sha256.New()
+		hash.Write([]byte(fmt.Sprintf("%s:%s:%s", hello2.Salt, hello.Salt, options.Cookie)))
+		hash.Write(fp)
+		if hello2.DigestCert != fmt.Sprintf("%x", hash.Sum(nil)) {
+			return result, fmt.Errorf("incorrect cert digest")
+		}
 	}
 
 	intro := MessageIntroduce{
@@ -56,6 +69,10 @@ func (h *handshake) Start(node gen.NodeHandshake, conn net.Conn, options gen.Han
 		RegCache:  edf.GetRegCache(),
 		ErrCache:  edf.GetErrCache(),
 	}
+
+	hash = sha256.New()
+	hash.Write([]byte(fmt.Sprintf("%s:%s", hello2.Salt, options.Cookie)))
+	intro.Digest = fmt.Sprintf("%x", hash.Sum(nil))
 
 	if err := h.writeMessage(conn, intro); err != nil {
 		return result, err
@@ -122,4 +139,20 @@ func (h *handshake) Start(node gen.NodeHandshake, conn net.Conn, options gen.Han
 	}
 
 	return result, nil
+}
+
+func (h *handshake) getRemoteTLSFingerprint(conn net.Conn) []byte {
+	if h.disable_fingerprint {
+		return nil
+	}
+	c, ok := conn.(*tls.Conn)
+	if ok == false {
+		return nil
+	}
+	certs := c.ConnectionState().PeerCertificates
+	if len(certs) == 0 {
+		return nil
+	}
+	fp := sha1.Sum(certs[0].Raw)
+	return fp[:]
 }

@@ -1,7 +1,9 @@
 package handshake
 
 import (
+	"crypto/sha1"
 	"crypto/sha256"
+	"crypto/tls"
 	"fmt"
 	"net"
 	"time"
@@ -13,6 +15,7 @@ import (
 
 func (h *handshake) Accept(node gen.NodeHandshake, conn net.Conn, options gen.HandshakeOptions) (gen.HandshakeResult, error) {
 	var result gen.HandshakeResult
+	var salt string
 	result.HandshakeVersion = h.Version()
 
 	v, tail, err := h.readMessage(conn, time.Second, nil)
@@ -25,16 +28,25 @@ func (h *handshake) Accept(node gen.NodeHandshake, conn net.Conn, options gen.Ha
 		hash.Write([]byte(fmt.Sprintf("%s:%s", m.Salt, options.Cookie)))
 
 		if m.Digest != fmt.Sprintf("%x", hash.Sum(nil)) {
-			return result, fmt.Errorf("incorrect digest")
+			return result, fmt.Errorf("incorrect digest (accept stage 'hello')")
 		}
 
-		salt := lib.RandomString(64)
+		salt = lib.RandomString(64)
 		hash = sha256.New()
 		hash.Write([]byte(fmt.Sprintf("%s:%s:%s", salt, m.Digest, options.Cookie)))
+
 		hello := MessageHello{
 			Salt:   salt,
 			Digest: fmt.Sprintf("%x", hash.Sum(nil)),
 		}
+
+		if fp := h.getLocalTLSFingerprint(conn, options.CertManager); fp != nil {
+			hash = sha256.New()
+			hash.Write([]byte(fmt.Sprintf("%s:%s:%s", salt, m.Salt, options.Cookie)))
+			hash.Write(fp)
+			hello.DigestCert = fmt.Sprintf("%x", hash.Sum(nil))
+		}
+
 		if err := h.writeMessage(conn, hello); err != nil {
 			return result, err
 		}
@@ -42,7 +54,7 @@ func (h *handshake) Accept(node gen.NodeHandshake, conn net.Conn, options gen.Ha
 	case MessageJoin:
 		result.Peer = m.Node
 		hash := sha256.New()
-		hash.Write([]byte(fmt.Sprintf("%s:%s", m.ConnectionID, options.Cookie)))
+		hash.Write([]byte(fmt.Sprintf("%s:%s:%s", m.ConnectionID, m.Salt, options.Cookie)))
 		if m.Digest != fmt.Sprintf("%x", hash.Sum(nil)) {
 			return result, fmt.Errorf("incorrect join digest")
 		}
@@ -53,6 +65,12 @@ func (h *handshake) Accept(node gen.NodeHandshake, conn net.Conn, options gen.Ha
 		hash.Write([]byte(fmt.Sprintf("%s:%s", m.Digest, options.Cookie)))
 		accept := MessageAccept{
 			Digest: fmt.Sprintf("%x", hash.Sum(nil)),
+		}
+		if fp := h.getLocalTLSFingerprint(conn, options.CertManager); fp != nil {
+			hash = sha256.New()
+			hash.Write([]byte(fmt.Sprintf("%s:%s:%s", m.Digest, m.Salt, options.Cookie)))
+			hash.Write(fp)
+			accept.DigestCert = fmt.Sprintf("%x", hash.Sum(nil))
 		}
 		if err := h.writeMessage(conn, accept); err != nil {
 			return result, err
@@ -82,6 +100,11 @@ func (h *handshake) Accept(node gen.NodeHandshake, conn net.Conn, options gen.Ha
 
 	if intro.Node == node.Name() {
 		return result, fmt.Errorf("malformed handshake Introduce message (same name)")
+	}
+	hash := sha256.New()
+	hash.Write([]byte(fmt.Sprintf("%s:%s", salt, options.Cookie)))
+	if intro.Digest != fmt.Sprintf("%x", hash.Sum(nil)) {
+		return result, fmt.Errorf("incorrect digest (accept stage 'introduce')")
 	}
 
 	accept := MessageAccept{}
@@ -140,4 +163,13 @@ func (h *handshake) Accept(node gen.NodeHandshake, conn net.Conn, options gen.Ha
 	result.Custom = custom
 
 	return result, nil
+}
+
+func (h *handshake) getLocalTLSFingerprint(conn net.Conn, cm gen.CertManager) []byte {
+	if _, tls := conn.(*tls.Conn); tls == false {
+		return nil
+	}
+	cert := cm.GetCertificate()
+	fp := sha1.Sum(cert.Certificate[0])
+	return fp[:]
 }
