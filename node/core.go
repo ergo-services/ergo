@@ -331,6 +331,7 @@ func (n *node) RouteSendResponse(from gen.PID, to gen.PID, ref gen.Ref, options 
 
 	select {
 	case p.response <- response{ref: ref, message: message}:
+		atomic.AddUint64(&p.messagesIn, 1)
 		return nil
 	default:
 		// process doesn't wait for a response anymore
@@ -364,6 +365,7 @@ func (n *node) RouteSendResponseError(from gen.PID, to gen.PID, ref gen.Ref, opt
 
 	select {
 	case p.response <- response{ref: ref, err: err}:
+		atomic.AddUint64(&p.messagesIn, 1)
 		return nil
 	default:
 		// process doesn't wait for a response anymore
