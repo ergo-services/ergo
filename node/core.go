@@ -362,6 +362,33 @@ func (n *node) RouteSendResponseError(from gen.PID, to gen.PID, ref gen.Ref, opt
 		return gen.ErrProcessUnknown
 	}
 	p := value.(*process)
+	if ref.ID[0] == 0 {
+		// Its a response (confirmation) for the Send* with 'important' flag.
+		// Since Send* methods have no refs to match the sending message with
+		// a confirmation response for it, the process is using a "fake" ref
+		// for that.
+		// Fake ref is just gen.Ref with filled out Creation, Node fields and
+		// ID[2] with its own PID.
+		// There is a race condition for the following case:
+		//    1. Sending message with the important flag enabled
+		//    2. Waiting for confirmation with fake ref (which is not uniq
+		//       since has ID[2] == process.PID)
+		//    3. Got timeout
+		//    4. Send again
+		//    5. waiting for confirmation with  a fake ref which has
+		//       the same value as used for the previous sending
+		//    6. received confirmation for the first sending which basically
+		//       has the same value. Boom!
+		//
+		// To get rid of this RC, the process is using its counter of outgoing
+		// messages in the ref.ID[0] place to distinguish message/confirmation.
+		// If timeout has happened and process has sent another message with
+		// enabled "important" flag, the value of messagesOut is increased,
+		// so this late confirmation will be ignored, since this ref is not
+		// the one this process is waiting for.
+		mout := atomic.LoadUint64(&p.messagesOut)
+		ref.ID[0] = mout
+	}
 
 	select {
 	case p.response <- response{ref: ref, err: err}:

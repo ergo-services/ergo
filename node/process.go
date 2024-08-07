@@ -584,7 +584,7 @@ func (p *process) SendPID(to gen.PID, message any) error {
 	if err := p.node.RouteSendPID(p.pid, to, options, message); err != nil {
 		return err
 	}
-	atomic.AddUint64(&p.messagesOut, 1)
+	mout := atomic.AddUint64(&p.messagesOut, 1)
 
 	if options.ImportantDelivery == false {
 		return nil
@@ -602,6 +602,7 @@ func (p *process) SendPID(to gen.PID, message any) error {
 		Node:     p.node.name,
 		Creation: p.node.creation,
 	}
+	ref.ID[0] = mout
 	ref.ID[2] = p.pid.ID
 
 	_, err := p.waitResponse(ref, gen.DefaultRequestTimeout)
@@ -627,7 +628,7 @@ func (p *process) SendProcessID(to gen.ProcessID, message any) error {
 		return err
 	}
 
-	atomic.AddUint64(&p.messagesOut, 1)
+	mout := atomic.AddUint64(&p.messagesOut, 1)
 	if options.ImportantDelivery == false {
 		return nil
 	}
@@ -644,6 +645,7 @@ func (p *process) SendProcessID(to gen.ProcessID, message any) error {
 		Node:     p.node.name,
 		Creation: p.node.creation,
 	}
+	ref.ID[0] = mout
 	ref.ID[2] = p.pid.ID
 
 	_, err := p.waitResponse(ref, gen.DefaultRequestTimeout)
@@ -669,7 +671,7 @@ func (p *process) SendAlias(to gen.Alias, message any) error {
 		return err
 	}
 
-	atomic.AddUint64(&p.messagesOut, 1)
+	mout := atomic.AddUint64(&p.messagesOut, 1)
 
 	if options.ImportantDelivery == false {
 		return nil
@@ -687,6 +689,7 @@ func (p *process) SendAlias(to gen.Alias, message any) error {
 		Node:     p.node.name,
 		Creation: p.node.creation,
 	}
+	ref.ID[0] = mout
 	ref.ID[2] = p.pid.ID
 
 	_, err := p.waitResponse(ref, gen.DefaultRequestTimeout)
