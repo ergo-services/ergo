@@ -105,8 +105,8 @@ type Connection interface {
 
 	SendEvent(from PID, options MessageOptions, message MessageEvent) error
 	SendExit(from PID, to PID, reason error) error
-	SendResponse(from PID, to PID, ref Ref, options MessageOptions, response any) error
-	SendResponseError(from PID, to PID, ref Ref, options MessageOptions, err error) error
+	SendResponse(from PID, to PID, options MessageOptions, response any) error
+	SendResponseError(from PID, to PID, options MessageOptions, err error) error
 
 	// target terminated
 	SendTerminatePID(target PID, reason error) error
@@ -115,9 +115,9 @@ type Connection interface {
 	SendTerminateEvent(target Event, reason error) error
 
 	// Methods for sending sync request to the remote process
-	CallPID(ref Ref, from PID, to PID, options MessageOptions, message any) error
-	CallProcessID(ref Ref, from PID, to ProcessID, options MessageOptions, message any) error
-	CallAlias(ref Ref, from PID, to Alias, options MessageOptions, message any) error
+	CallPID(from PID, to PID, options MessageOptions, message any) error
+	CallProcessID(from PID, to ProcessID, options MessageOptions, message any) error
+	CallAlias(from PID, to Alias, options MessageOptions, message any) error
 
 	// Links
 	LinkPID(pid PID, target PID) error

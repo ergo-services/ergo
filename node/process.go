@@ -581,10 +581,20 @@ func (p *process) SendPID(to gen.PID, message any) error {
 		KeepNetworkOrder:  p.keeporder,
 		ImportantDelivery: p.important,
 	}
+
+	if options.ImportantDelivery {
+		ref := p.node.MakeRef()
+		options.Ref = ref
+		options.Ref.ID[0] = ref.ID[0] + ref.ID[1] + ref.ID[2]
+		options.Ref.ID[1] = 0
+		options.Ref.ID[2] = 0
+	}
+
 	if err := p.node.RouteSendPID(p.pid, to, options, message); err != nil {
 		return err
 	}
-	mout := atomic.AddUint64(&p.messagesOut, 1)
+
+	atomic.AddUint64(&p.messagesOut, 1)
 
 	if options.ImportantDelivery == false {
 		return nil
@@ -598,14 +608,7 @@ func (p *process) SendPID(to gen.PID, message any) error {
 	// sent to remote node and 'important' flag was set. waiting for response
 	// from the remote node
 
-	ref := gen.Ref{
-		Node:     p.node.name,
-		Creation: p.node.creation,
-	}
-	ref.ID[0] = mout
-	ref.ID[2] = p.pid.ID
-
-	_, err := p.waitResponse(ref, gen.DefaultRequestTimeout)
+	_, err := p.waitResponse(options.Ref, gen.DefaultRequestTimeout)
 	return err
 }
 
@@ -624,11 +627,21 @@ func (p *process) SendProcessID(to gen.ProcessID, message any) error {
 		KeepNetworkOrder:  p.keeporder,
 		ImportantDelivery: p.important,
 	}
+
+	if options.ImportantDelivery {
+		ref := p.node.MakeRef()
+		options.Ref = ref
+		options.Ref.ID[0] = ref.ID[0] + ref.ID[1] + ref.ID[2]
+		options.Ref.ID[1] = 0
+		options.Ref.ID[2] = 0
+	}
+
 	if err := p.node.RouteSendProcessID(p.pid, to, options, message); err != nil {
 		return err
 	}
 
-	mout := atomic.AddUint64(&p.messagesOut, 1)
+	atomic.AddUint64(&p.messagesOut, 1)
+
 	if options.ImportantDelivery == false {
 		return nil
 	}
@@ -641,14 +654,7 @@ func (p *process) SendProcessID(to gen.ProcessID, message any) error {
 	// sent to remote node and 'important' flag was set. waiting for response
 	// from the remote node
 
-	ref := gen.Ref{
-		Node:     p.node.name,
-		Creation: p.node.creation,
-	}
-	ref.ID[0] = mout
-	ref.ID[2] = p.pid.ID
-
-	_, err := p.waitResponse(ref, gen.DefaultRequestTimeout)
+	_, err := p.waitResponse(options.Ref, gen.DefaultRequestTimeout)
 	return err
 }
 
@@ -667,11 +673,20 @@ func (p *process) SendAlias(to gen.Alias, message any) error {
 		KeepNetworkOrder:  p.keeporder,
 		ImportantDelivery: p.important,
 	}
+
+	if options.ImportantDelivery {
+		ref := p.node.MakeRef()
+		options.Ref = ref
+		options.Ref.ID[0] = ref.ID[0] + ref.ID[1] + ref.ID[2]
+		options.Ref.ID[1] = 0
+		options.Ref.ID[2] = 0
+	}
+
 	if err := p.node.RouteSendAlias(p.pid, to, options, message); err != nil {
 		return err
 	}
 
-	mout := atomic.AddUint64(&p.messagesOut, 1)
+	atomic.AddUint64(&p.messagesOut, 1)
 
 	if options.ImportantDelivery == false {
 		return nil
@@ -685,14 +700,7 @@ func (p *process) SendAlias(to gen.Alias, message any) error {
 	// sent to remote node and 'important' flag was set. waiting for response
 	// from the remote node
 
-	ref := gen.Ref{
-		Node:     p.node.name,
-		Creation: p.node.creation,
-	}
-	ref.ID[0] = mout
-	ref.ID[2] = p.pid.ID
-
-	_, err := p.waitResponse(ref, gen.DefaultRequestTimeout)
+	_, err := p.waitResponse(options.Ref, gen.DefaultRequestTimeout)
 	return err
 }
 
@@ -830,12 +838,13 @@ func (p *process) SendResponse(to gen.PID, ref gen.Ref, message any) error {
 		p.log.Trace("SendResponse to %s with %s", to, ref)
 	}
 	options := gen.MessageOptions{
+		Ref:              ref,
 		Priority:         p.priority,
 		Compression:      p.compression,
 		KeepNetworkOrder: p.keeporder,
 	}
 	atomic.AddUint64(&p.messagesOut, 1)
-	return p.node.RouteSendResponse(p.pid, to, ref, options, message)
+	return p.node.RouteSendResponse(p.pid, to, options, message)
 }
 
 func (p *process) SendResponseError(to gen.PID, ref gen.Ref, err error) error {
@@ -846,12 +855,13 @@ func (p *process) SendResponseError(to gen.PID, ref gen.Ref, err error) error {
 		p.log.Trace("SendResponseError to %s with %s", to, ref)
 	}
 	options := gen.MessageOptions{
+		Ref:              ref,
 		Priority:         p.priority,
 		Compression:      p.compression,
 		KeepNetworkOrder: p.keeporder,
 	}
 	atomic.AddUint64(&p.messagesOut, 1)
-	return p.node.RouteSendResponseError(p.pid, to, ref, options, err)
+	return p.node.RouteSendResponseError(p.pid, to, options, err)
 }
 
 func (p *process) CallWithPriority(to any, request any, priority gen.MessagePriority) (any, error) {
@@ -899,8 +909,8 @@ func (p *process) CallPID(to gen.PID, message any, timeout int) (any, error) {
 		return nil, gen.ErrNotAllowed
 	}
 
-	ref := p.node.MakeRef()
 	options := gen.MessageOptions{
+		Ref:               p.node.MakeRef(),
 		Priority:          p.priority,
 		Compression:       p.compression,
 		KeepNetworkOrder:  p.keeporder,
@@ -908,10 +918,10 @@ func (p *process) CallPID(to gen.PID, message any, timeout int) (any, error) {
 	}
 
 	if lib.Trace() {
-		p.log.Trace("CallPID to %s with %s", to, ref)
+		p.log.Trace("CallPID to %s with %s", to, options.Ref)
 	}
 
-	if err := p.node.RouteCallPID(ref, p.pid, to, options, message); err != nil {
+	if err := p.node.RouteCallPID(p.pid, to, options, message); err != nil {
 		return nil, err
 	}
 
@@ -919,7 +929,7 @@ func (p *process) CallPID(to gen.PID, message any, timeout int) (any, error) {
 	if timeout < 1 {
 		timeout = gen.DefaultRequestTimeout
 	}
-	return p.waitResponse(ref, timeout)
+	return p.waitResponse(options.Ref, timeout)
 }
 
 func (p *process) CallProcessID(to gen.ProcessID, message any, timeout int) (any, error) {
@@ -927,24 +937,24 @@ func (p *process) CallProcessID(to gen.ProcessID, message any, timeout int) (any
 		return nil, gen.ErrNotAllowed
 	}
 
-	ref := p.node.MakeRef()
 	options := gen.MessageOptions{
+		Ref:               p.node.MakeRef(),
 		Priority:          p.priority,
 		Compression:       p.compression,
 		KeepNetworkOrder:  p.keeporder,
 		ImportantDelivery: p.important,
 	}
 	if lib.Trace() {
-		p.log.Trace("CallProcessID %s with %s", to, ref)
+		p.log.Trace("CallProcessID %s with %s", to, options.Ref)
 	}
-	if err := p.node.RouteCallProcessID(ref, p.pid, to, options, message); err != nil {
+	if err := p.node.RouteCallProcessID(p.pid, to, options, message); err != nil {
 		return nil, err
 	}
 	atomic.AddUint64(&p.messagesOut, 1)
 	if timeout < 1 {
 		timeout = gen.DefaultRequestTimeout
 	}
-	return p.waitResponse(ref, timeout)
+	return p.waitResponse(options.Ref, timeout)
 }
 
 func (p *process) CallAlias(to gen.Alias, message any, timeout int) (any, error) {
@@ -952,8 +962,8 @@ func (p *process) CallAlias(to gen.Alias, message any, timeout int) (any, error)
 		return nil, gen.ErrNotAllowed
 	}
 
-	ref := p.node.MakeRef()
 	options := gen.MessageOptions{
+		Ref:               p.node.MakeRef(),
 		Priority:          p.priority,
 		Compression:       p.compression,
 		KeepNetworkOrder:  p.keeporder,
@@ -961,21 +971,26 @@ func (p *process) CallAlias(to gen.Alias, message any, timeout int) (any, error)
 	}
 
 	if lib.Trace() {
-		p.log.Trace("CallAlias %s with %s", to, ref)
+		p.log.Trace("CallAlias %s with %s", to, options.Ref)
 	}
 
-	if err := p.node.RouteCallAlias(ref, p.pid, to, options, message); err != nil {
+	if err := p.node.RouteCallAlias(p.pid, to, options, message); err != nil {
 		return nil, err
 	}
 	atomic.AddUint64(&p.messagesOut, 1)
 	if timeout < 1 {
 		timeout = gen.DefaultRequestTimeout
 	}
-	return p.waitResponse(ref, timeout)
+	return p.waitResponse(options.Ref, timeout)
 }
 
 func (p *process) Inspect(target gen.PID, item ...string) (map[string]string, error) {
 	if p.isStateRW() == false {
+		return nil, gen.ErrNotAllowed
+	}
+
+	if target.Node != p.pid.Node {
+		// inspecting remote process is not allowed
 		return nil, gen.ErrNotAllowed
 	}
 
@@ -1018,6 +1033,11 @@ func (p *process) Inspect(target gen.PID, item ...string) (map[string]string, er
 
 func (p *process) InspectMeta(alias gen.Alias, item ...string) (map[string]string, error) {
 	if p.isStateRW() == false {
+		return nil, gen.ErrNotAllowed
+	}
+
+	if alias.Node != p.pid.Node {
+		// inspecting remote meta process is not allowed
 		return nil, gen.ErrNotAllowed
 	}
 

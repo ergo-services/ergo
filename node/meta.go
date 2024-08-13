@@ -197,27 +197,29 @@ func (m *meta) handle() {
 			case gen.MailboxMessageTypeRequest:
 				result, reason = m.behavior.HandleCall(message.From, message.Ref, message.Message)
 				options := gen.MessageOptions{
+					Ref:              message.Ref,
 					Priority:         m.p.priority,
 					Compression:      m.p.compression,
 					KeepNetworkOrder: m.p.keeporder,
 				}
 				if reason == nil {
 					if result != nil {
-						m.p.node.RouteSendResponse(m.p.pid, message.From, message.Ref, options, result)
+						m.p.node.RouteSendResponse(m.p.pid, message.From, options, result)
 					}
 					continue
 				}
 				if reason == gen.TerminateReasonNormal && result != nil {
-					m.p.node.RouteSendResponse(m.p.pid, message.From, message.Ref, options, result)
+					m.p.node.RouteSendResponse(m.p.pid, message.From, options, result)
 				}
 			case gen.MailboxMessageTypeInspect:
 				result := m.behavior.HandleInspect(message.From, message.Message.([]string)...)
 				options := gen.MessageOptions{
+					Ref:              message.Ref,
 					Priority:         m.p.priority,
 					Compression:      m.p.compression,
 					KeepNetworkOrder: m.p.keeporder,
 				}
-				m.p.node.RouteSendResponse(m.p.pid, message.From, message.Ref, options, result)
+				m.p.node.RouteSendResponse(m.p.pid, message.From, options, result)
 				atomic.AddUint64(&m.messagesOut, 1)
 				continue
 

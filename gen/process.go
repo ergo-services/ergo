@@ -302,6 +302,7 @@ const MessagePriorityHigh MessagePriority = 1
 const MessagePriorityMax MessagePriority = 2
 
 type MessageOptions struct {
+	Ref               Ref
 	Priority          MessagePriority
 	Compression       Compression
 	KeepNetworkOrder  bool

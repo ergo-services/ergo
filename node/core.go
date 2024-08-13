@@ -306,13 +306,13 @@ func (n *node) RouteSendExit(from gen.PID, to gen.PID, reason error) error {
 
 }
 
-func (n *node) RouteSendResponse(from gen.PID, to gen.PID, ref gen.Ref, options gen.MessageOptions, message any) error {
+func (n *node) RouteSendResponse(from gen.PID, to gen.PID, options gen.MessageOptions, message any) error {
 	if n.isRunning() == false {
 		return gen.ErrNodeTerminated
 	}
 
 	if lib.Trace() {
-		n.log.Trace("RouteSendResponse from %s to %s with ref %q", from, to, ref)
+		n.log.Trace("RouteSendResponse from %s to %s with ref %q", from, to, options.Ref)
 	}
 
 	if to.Node != n.name {
@@ -321,7 +321,7 @@ func (n *node) RouteSendResponse(from gen.PID, to gen.PID, ref gen.Ref, options 
 		if err != nil {
 			return err
 		}
-		return connection.SendResponse(from, to, ref, options, message)
+		return connection.SendResponse(from, to, options, message)
 	}
 	value, loaded := n.processes.Load(to)
 	if loaded == false {
@@ -330,7 +330,7 @@ func (n *node) RouteSendResponse(from gen.PID, to gen.PID, ref gen.Ref, options 
 	p := value.(*process)
 
 	select {
-	case p.response <- response{ref: ref, message: message}:
+	case p.response <- response{ref: options.Ref, message: message}:
 		atomic.AddUint64(&p.messagesIn, 1)
 		return nil
 	default:
@@ -339,13 +339,13 @@ func (n *node) RouteSendResponse(from gen.PID, to gen.PID, ref gen.Ref, options 
 	}
 }
 
-func (n *node) RouteSendResponseError(from gen.PID, to gen.PID, ref gen.Ref, options gen.MessageOptions, err error) error {
+func (n *node) RouteSendResponseError(from gen.PID, to gen.PID, options gen.MessageOptions, err error) error {
 	if n.isRunning() == false {
 		return gen.ErrNodeTerminated
 	}
 
 	if lib.Trace() {
-		n.log.Trace("RouteSendResponseError from %s to %s with ref %q", from, to, ref)
+		n.log.Trace("RouteSendResponseError from %s to %s with ref %q", from, to, options.Ref)
 	}
 
 	if to.Node != n.name {
@@ -354,7 +354,7 @@ func (n *node) RouteSendResponseError(from gen.PID, to gen.PID, ref gen.Ref, opt
 		if e != nil {
 			return e
 		}
-		return connection.SendResponseError(from, to, ref, options, err)
+		return connection.SendResponseError(from, to, options, err)
 	}
 
 	value, loaded := n.processes.Load(to)
@@ -362,36 +362,9 @@ func (n *node) RouteSendResponseError(from gen.PID, to gen.PID, ref gen.Ref, opt
 		return gen.ErrProcessUnknown
 	}
 	p := value.(*process)
-	if ref.ID[0] == 0 {
-		// Its a response (confirmation) for the Send* with 'important' flag.
-		// Since Send* methods have no refs to match the sending message with
-		// a confirmation response for it, the process is using a "fake" ref
-		// for that.
-		// Fake ref is just gen.Ref with filled out Creation, Node fields and
-		// ID[2] with its own PID.
-		// There is a race condition for the following case:
-		//    1. Sending message with the important flag enabled
-		//    2. Waiting for confirmation with fake ref (which is not uniq
-		//       since has ID[2] == process.PID)
-		//    3. Got timeout
-		//    4. Send again
-		//    5. waiting for confirmation with  a fake ref which has
-		//       the same value as used for the previous sending
-		//    6. received confirmation for the first sending which basically
-		//       has the same value. Boom!
-		//
-		// To get rid of this RC, the process is using its counter of outgoing
-		// messages in the ref.ID[0] place to distinguish message/confirmation.
-		// If timeout has happened and process has sent another message with
-		// enabled "important" flag, the value of messagesOut is increased,
-		// so this late confirmation will be ignored, since this ref is not
-		// the one this process is waiting for.
-		mout := atomic.LoadUint64(&p.messagesOut)
-		ref.ID[0] = mout
-	}
 
 	select {
-	case p.response <- response{ref: ref, err: err}:
+	case p.response <- response{ref: options.Ref, err: err}:
 		atomic.AddUint64(&p.messagesIn, 1)
 		return nil
 	default:
@@ -400,7 +373,7 @@ func (n *node) RouteSendResponseError(from gen.PID, to gen.PID, ref gen.Ref, opt
 	}
 }
 
-func (n *node) RouteCallPID(ref gen.Ref, from gen.PID, to gen.PID, options gen.MessageOptions, message any) error {
+func (n *node) RouteCallPID(from gen.PID, to gen.PID, options gen.MessageOptions, message any) error {
 	var queue lib.QueueMPSC
 
 	if n.isRunning() == false {
@@ -412,7 +385,7 @@ func (n *node) RouteCallPID(ref gen.Ref, from gen.PID, to gen.PID, options gen.M
 	}
 
 	if lib.Trace() {
-		n.log.Trace("RouteCallPID from %s to %s with ref %q", from, to, ref)
+		n.log.Trace("RouteCallPID from %s to %s with ref %q", from, to, options.Ref)
 	}
 
 	if to.Node != n.name {
@@ -421,7 +394,7 @@ func (n *node) RouteCallPID(ref gen.Ref, from gen.PID, to gen.PID, options gen.M
 		if err != nil {
 			return err
 		}
-		return connection.CallPID(ref, from, to, options, message)
+		return connection.CallPID(from, to, options, message)
 	}
 
 	// local
@@ -445,7 +418,7 @@ func (n *node) RouteCallPID(ref gen.Ref, from gen.PID, to gen.PID, options gen.M
 	}
 
 	qm := gen.TakeMailboxMessage()
-	qm.Ref = ref
+	qm.Ref = options.Ref
 	qm.From = from
 	qm.Type = gen.MailboxMessageTypeRequest
 	qm.Message = message
@@ -458,14 +431,14 @@ func (n *node) RouteCallPID(ref gen.Ref, from gen.PID, to gen.PID, options gen.M
 	return nil
 }
 
-func (n *node) RouteCallProcessID(ref gen.Ref, from gen.PID, to gen.ProcessID, options gen.MessageOptions, message any) error {
+func (n *node) RouteCallProcessID(from gen.PID, to gen.ProcessID, options gen.MessageOptions, message any) error {
 	var queue lib.QueueMPSC
 
 	if n.isRunning() == false {
 		return gen.ErrNodeTerminated
 	}
 	if lib.Trace() {
-		n.log.Trace("RouteCallProcessID from %s to %s with ref %q", from, to, ref)
+		n.log.Trace("RouteCallProcessID from %s to %s with ref %q", from, to, options.Ref)
 	}
 
 	if to.Node != n.name {
@@ -474,7 +447,7 @@ func (n *node) RouteCallProcessID(ref gen.Ref, from gen.PID, to gen.ProcessID, o
 		if err != nil {
 			return err
 		}
-		return connection.CallProcessID(ref, from, to, options, message)
+		return connection.CallProcessID(from, to, options, message)
 	}
 
 	value, found := n.names.Load(to.Name)
@@ -496,7 +469,7 @@ func (n *node) RouteCallProcessID(ref gen.Ref, from gen.PID, to gen.ProcessID, o
 	}
 
 	qm := gen.TakeMailboxMessage()
-	qm.Ref = ref
+	qm.Ref = options.Ref
 	qm.From = from
 	qm.Type = gen.MailboxMessageTypeRequest
 	qm.Target = to.Name
@@ -510,7 +483,7 @@ func (n *node) RouteCallProcessID(ref gen.Ref, from gen.PID, to gen.ProcessID, o
 	return nil
 }
 
-func (n *node) RouteCallAlias(ref gen.Ref, from gen.PID, to gen.Alias, options gen.MessageOptions, message any) error {
+func (n *node) RouteCallAlias(from gen.PID, to gen.Alias, options gen.MessageOptions, message any) error {
 	var queue lib.QueueMPSC
 
 	if n.isRunning() == false {
@@ -518,7 +491,7 @@ func (n *node) RouteCallAlias(ref gen.Ref, from gen.PID, to gen.Alias, options g
 	}
 
 	if lib.Trace() {
-		n.log.Trace("RouteCallAlias from %s to %s with ref %q", from, to, ref)
+		n.log.Trace("RouteCallAlias from %s to %s with ref %q", from, to, options.Ref)
 	}
 
 	if to.Node != n.name {
@@ -527,7 +500,7 @@ func (n *node) RouteCallAlias(ref gen.Ref, from gen.PID, to gen.Alias, options g
 		if err != nil {
 			return err
 		}
-		return connection.CallAlias(ref, from, to, options, message)
+		return connection.CallAlias(from, to, options, message)
 	}
 
 	value, found := n.aliases.Load(to)
@@ -540,7 +513,7 @@ func (n *node) RouteCallAlias(ref gen.Ref, from gen.PID, to gen.Alias, options g
 	}
 
 	qm := gen.TakeMailboxMessage()
-	qm.Ref = ref
+	qm.Ref = options.Ref
 	qm.From = from
 	qm.Type = gen.MailboxMessageTypeRequest
 	qm.Target = to

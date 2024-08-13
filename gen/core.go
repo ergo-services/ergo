@@ -8,13 +8,13 @@ type Core interface {
 
 	RouteSendEvent(from PID, token Ref, options MessageOptions, message MessageEvent) error
 	RouteSendExit(from PID, to PID, reason error) error
-	RouteSendResponse(from PID, to PID, ref Ref, options MessageOptions, message any) error
-	RouteSendResponseError(from PID, to PID, ref Ref, options MessageOptions, err error) error
+	RouteSendResponse(from PID, to PID, options MessageOptions, message any) error
+	RouteSendResponseError(from PID, to PID, options MessageOptions, err error) error
 
 	// call requests
-	RouteCallPID(ref Ref, from PID, to PID, options MessageOptions, message any) error
-	RouteCallProcessID(ref Ref, from PID, to ProcessID, options MessageOptions, message any) error
-	RouteCallAlias(ref Ref, from PID, to Alias, options MessageOptions, message any) error
+	RouteCallPID(from PID, to PID, options MessageOptions, message any) error
+	RouteCallProcessID(from PID, to ProcessID, options MessageOptions, message any) error
+	RouteCallAlias(from PID, to Alias, options MessageOptions, message any) error
 
 	// linking requests
 	RouteLinkPID(pid PID, target PID) error
