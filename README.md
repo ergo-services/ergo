@@ -59,10 +59,10 @@ Supervision tree
 ```
   mynode
   ├─ myapp
-  │   │
-  │   └─ mysup
-  │        │
-  │        └─ myactor
+  │  │
+  │  └─ mysup
+  │     │
+  │     └─ myactor
   ├─ myweb
   └─ myactor2
 ```
