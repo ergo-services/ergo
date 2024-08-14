@@ -30,12 +30,12 @@ To inspect the node, network stack, running applications, and processes, you can
 
 <img src="https://github.com/user-attachments/assets/cfbbe431-f136-4cb2-aa56-51c6edeee354" width="500">
 
-
 To install the Observer tool, you need to have the Go compiler version 1.20 or higher. Run the following command:
 
 ```
 $ go install ergo.services/tools/observer@latest
 ```
+
 You can also embed the [Observer application](https://docs.ergo.services/application/observer) into your node. To see it in action, see example `demo` at https://github.com/ergo-services/examples. For more information https://docs.ergo.services/tools/observer 
 
 
