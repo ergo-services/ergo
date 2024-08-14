@@ -58,13 +58,13 @@ Supervision tree
 
 ```
   mynode
-  |- myapp
-  |   |
-  |    `- mysup
-  |        |
-  |         `- myactor
-  |- myweb
-  `- myactor2
+  ├─ myapp
+  │   │
+  │   └─ mysup
+  │        │
+  │        └─ myactor
+  ├─ myweb
+  └─ myactor2
 ```
 
 To generate project for this design use the following command:
