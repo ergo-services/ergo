@@ -25,6 +25,8 @@ The Ergo Framework is an implementation of ideas, technologies, and design patte
 
 6. **Reliability and Fault Tolerance**: The framework is designed to minimize failures and ensure automatic recovery, featuring a supervisor tree structure to manage and restart failed actors, which is crucial for mission-critical applications.
 
+In the https://github.com/ergo-services/examples repository, you will find examples that demonstrate a range of the framework's capabilities.
+
 ### Observer ###
 To inspect the node, network stack, running applications, and processes, you can use the [observer](https://github.com/ergo-services/tools/) tool
 
