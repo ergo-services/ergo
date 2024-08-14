@@ -81,9 +81,12 @@ as a result you will get generated project:
 
 ```
   mynode
-  ├─ apps
+  ├── apps
   │  └── myapp
-  ├─ cmd
+  │     ├── myactor.go
+  │     ├── myapp.go
+  │     └── mysup.go
+  ├── cmd
   │  ├── myactor2.go
   │  ├── mynode.go
   │  ├── myweb.go
