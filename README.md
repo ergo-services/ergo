@@ -28,7 +28,7 @@ In the https://github.com/ergo-services/examples repository, you will find examp
 ### Observer ###
 To inspect the node, network stack, running applications, and processes, you can use the [observer](https://github.com/ergo-services/tools/) tool
 
-<img src="https://github.com/user-attachments/assets/cfbbe431-f136-4cb2-aa56-51c6edeee354" width="500">
+<img src="https://github.com/user-attachments/assets/1cb83305-6c56-4eb7-b567-76f3c551c176" width="500">
 
 To install the Observer tool, you need to have the Go compiler version 1.20 or higher. Run the following command:
 
