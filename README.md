@@ -11,17 +11,19 @@ The Ergo Framework is an implementation of ideas, technologies, and design patte
 
 ### Features ###
 
-1. **Actor Model**: Enables the creation of scalable and fault-tolerant systems using isolated actors that interact through message passing. Actors can exchange asynchronous messages as well as perform synchronous requests, offering flexibility in communication patterns.
+1. **Actor Model**: enables the creation of scalable and fault-tolerant systems using isolated actors that interact through message passing. Actors can exchange asynchronous messages as well as perform synchronous requests, offering flexibility in communication patterns.
 
-2. **Network Transparency**: Actors can interact regardless of their physical location, supported by a high-performance implementation of the [network stack](https://docs.ergo.services/networking/network-stack), which simplifies the creation of distributed systems.
+2. **Network Transparency**: actors can interact regardless of their physical location, supported by a high-performance implementation of the [network stack](https://docs.ergo.services/networking/network-stack), which simplifies the creation of distributed systems.
 
 3. **Observability**: framework includes built-in observability features, including [service discovery](https://docs.ergo.services/networking/service-discovering), allowing nodes to automatically register themselves and find routes to remote nodes. This mechanism simplifies managing distributed systems by enabling seamless communication and interaction between nodes across the network.
 
 4. **Ready-to-use Components**: A set of [ready-to-use actors](https://docs.ergo.services/actors) simplifying development, including state management and error handling.
 
-5. **Support for Distributed Systems**: Built-in mechanisms for creating and managing clustered systems and distributed events (publish/subscribe mechanism), enabling easy scaling and efficient message broadcasting across your cluster.
+5. **Support for Distributed Systems**: framework includes built-in mechanisms for creating and managing clustered systems, distributed events (publish/subscribe mechanism), remote actor spawning, and remote application startup. These features enable easy scaling, efficient message broadcasting across your cluster, and the ability to manage distributed components seamlessly.
 
-6. **Reliability and Fault Tolerance**: The framework is designed to minimize failures and ensure automatic recovery, featuring a supervisor tree structure to manage and restart failed actors, which is crucial for mission-critical applications.
+6. **Reliability and Fault Tolerance**: the framework is designed to minimize failures and ensure automatic recovery, featuring a supervisor tree structure to manage and restart failed actors, which is crucial for mission-critical applications.
+   
+7. **Flexibility**: This framework offers convenient interfaces for customizing network stack components, creating and integrating custom loggers, managing SSL certificates, and more.
 
 In the https://github.com/ergo-services/examples repository, you will find examples that demonstrate a range of the framework's capabilities.
 
