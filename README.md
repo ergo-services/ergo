@@ -128,7 +128,7 @@ This version marks a significant milestone in the evolution of the Ergo Framewor
 
 Alongside the release of Ergo Framework 3.0.0, new tools and an additional components library are also introduced:
 
-- Tools (observer, saturn) https://github.com/ergo-services/
+- Tools (observer, saturn) https://github.com/ergo-services/tools
 - Loggers (rotate, colored) - https://github.com/ergo-services/logger
 - Meta (websocket) - https://github.com/ergo-services/meta
 - Application (observer) - https://github.com/ergo-services/application
