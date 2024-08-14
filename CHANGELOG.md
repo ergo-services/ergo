@@ -4,6 +4,24 @@ All notable changes to this project will be documented in this file.
 This format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+#### [v3.0.0](https://github.com/ergo-services/ergo/releases/tag/v1.999.300) 2024-09-01 [tag version v1.999.300] ####
+
+This version marks a significant milestone in the evolution of the Ergo Framework. The framework's design has been completely overhauled, and this version was built from the ground up. It includes:
+
+- Significant API Improvements: The `gen.Process`, `gen.Node`, and `gen.Network` interfaces have been enhanced with numerous convenient methods.
+- A New Network Stack: This version introduces a completely new network stack for improved performance and flexibility.
+
+Alongside the release of Ergo Framework 3.0.0, new tools and an additional components library are also introduced:
+
+Tools (observer, saturn) - https://github.com/ergo-services/
+Loggers (rotate, colored) - https://github.com/ergo-services/logger
+Meta (websocket) - https://github.com/ergo-services/meta
+Application (observer) - https://github.com/ergo-services/application
+Registrar (client Saturn) - https://github.com/ergo-services/registrar
+Proto (erlang23) - https://github.com/ergo-services/proto
+
+Finally, we've published comprehensive documentation for the framework, providing detailed guides to assist you in leveraging all the capabilities of Ergo Framework effectively.
+
 #### [v2.2.4](https://github.com/ergo-services/ergo/releases/tag/v1.999.224) 2023-05-01 [tag version v1.999.224] ####
 
 This release includes fixes:
