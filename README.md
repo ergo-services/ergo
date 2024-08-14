@@ -124,7 +124,7 @@ Fully detailed changelog see in the [ChangeLog](ChangeLog.md) file.
 This version marks a significant milestone in the evolution of the Ergo Framework. The framework's design has been completely overhauled, and this version was built from the ground up. It includes:
 
 - Significant API Improvements: The `gen.Process`, `gen.Node`, and `gen.Network` interfaces have been enhanced with numerous convenient methods.
-- A New Network Stack: This version introduces a completely new network stack for improved performance and flexibility.
+- A New Network Stack: This version introduces a completely new network stack for improved performance and flexibility. See https://github.com/ergo-services/benchmarks for the details
 
 Alongside the release of Ergo Framework 3.0.0, new tools and an additional components library are also introduced:
 
