@@ -119,6 +119,25 @@ Starting from version 3.0.0, support for the Erlang network stack has been moved
 
 Fully detailed changelog see in the [ChangeLog](ChangeLog.md) file.
 
+#### [v3.0.0](https://github.com/ergo-services/ergo/releases/tag/v1.999.300) 2024-09-01 [tag version v1.999.300] ####
+
+This version marks a significant milestone in the evolution of the Ergo Framework. The framework's design has been completely overhauled, and this version was built from the ground up. It includes:
+
+- Significant API Improvements: The `gen.Process`, `gen.Node`, and `gen.Network` interfaces have been enhanced with numerous convenient methods.
+- A New Network Stack: This version introduces a completely new network stack for improved performance and flexibility.
+
+Alongside the release of Ergo Framework 3.0.0, new tools and an additional components library are also introduced:
+
+- Tools (observer, saturn) https://github.com/ergo-services/
+- Loggers (rotate, colored) - https://github.com/ergo-services/logger
+- Meta (websocket) - https://github.com/ergo-services/meta
+- Application (observer) - https://github.com/ergo-services/application
+- Registrar (client Saturn) - https://github.com/ergo-services/registrar
+- Proto (erlang23) - https://github.com/ergo-services/proto
+
+Finally, we've published comprehensive documentation for the framework, providing detailed guides to assist you in leveraging all the capabilities of Ergo Framework effectively.
+
+
 ### Benchmarks ###
 
 You can find available benchmarks in the following repository https://github.com/ergo-services/benchmarks.
