@@ -2499,13 +2499,15 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC) {
 				continue
 			}
 
-		case protoMessageF:
-			// TODO fragmentation
-			// TODO check the message size after assembling
-		case protoMessageP:
-			// TODO proxy
+		// case protoMessageF:
+		// TODO fragmentation
+		// TODO check the message size after assembling
+
+		// case protoMessageP:
+		// TODO proxy
+
 		default:
-			c.log.Error("unknown message type %d, ignored", buf.B[6])
+			c.log.Error("unknown/unsupported message type %d, ignored", buf.B[6])
 			lib.ReleaseBuffer(buf)
 		}
 
