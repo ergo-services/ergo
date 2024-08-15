@@ -28,6 +28,7 @@ var (
 		Enable:                       true,
 		EnableRemoteSpawn:            true,
 		EnableRemoteApplicationStart: true,
+		EnableFragmentation:          false,
 		EnableProxyTransit:           false,
 		EnableProxyAccept:            true,
 		EnableImportantDelivery:      true,
@@ -37,6 +38,7 @@ var (
 		Enable:                       true,
 		EnableRemoteSpawn:            false,
 		EnableRemoteApplicationStart: false,
+		EnableFragmentation:          false,
 		EnableEncryption:             false,
 		EnableImportantDelivery:      true,
 	}

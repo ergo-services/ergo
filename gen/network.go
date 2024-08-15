@@ -235,6 +235,8 @@ type NetworkFlags struct {
 	EnableRemoteSpawn bool
 	// EnableRemoteApplicationStart accepts remote request to start application
 	EnableRemoteApplicationStart bool
+	// EnableFragmentation enables support fragmentation messages
+	EnableFragmentation bool
 	// EnableProxyTransit enables support for transit proxy connection
 	EnableProxyTransit bool
 	// EnableProxyAccept enables support for incoming proxy connection
@@ -260,14 +262,17 @@ func (nf NetworkFlags) MarshalEDF(w io.Writer) error {
 	if nf.EnableRemoteApplicationStart == true {
 		flags |= 4
 	}
-	if nf.EnableProxyTransit == true {
+	if nf.EnableFragmentation == true {
 		flags |= 8
 	}
-	if nf.EnableProxyAccept == true {
+	if nf.EnableProxyTransit == true {
 		flags |= 16
 	}
-	if nf.EnableImportantDelivery == true {
+	if nf.EnableProxyAccept == true {
 		flags |= 32
+	}
+	if nf.EnableImportantDelivery == true {
+		flags |= 64
 	}
 	binary.BigEndian.PutUint64(buf[:], flags)
 	w.Write(buf[:])
@@ -285,9 +290,10 @@ func (nf *NetworkFlags) UnmarshalEDF(buf []byte) error {
 	}
 	nf.EnableRemoteSpawn = (flags & 2) > 0
 	nf.EnableRemoteApplicationStart = (flags & 4) > 0
-	nf.EnableProxyTransit = (flags & 8) > 0
-	nf.EnableProxyAccept = (flags & 16) > 0
-	nf.EnableImportantDelivery = (flags & 32) > 0
+	nf.EnableFragmentation = (flags & 8) > 0
+	nf.EnableProxyTransit = (flags & 16) > 0
+	nf.EnableProxyAccept = (flags & 32) > 0
+	nf.EnableImportantDelivery = (flags & 64) > 0
 	return nil
 }
 
@@ -296,6 +302,7 @@ type NetworkProxyFlags struct {
 	Enable                       bool
 	EnableRemoteSpawn            bool
 	EnableRemoteApplicationStart bool
+	EnableFragmentation          bool
 	EnableEncryption             bool
 	EnableImportantDelivery      bool
 }
