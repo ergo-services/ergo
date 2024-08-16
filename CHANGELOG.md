@@ -20,7 +20,7 @@ Alongside the release of Ergo Framework 3.0.0, new tools and an additional compo
 - Registrar (client Saturn) - https://github.com/ergo-services/registrar
 - Proto (erlang23) - https://github.com/ergo-services/proto
 
-Finally, we've published comprehensive documentation for the framework, providing detailed guides to assist you in leveraging all the capabilities of Ergo Framework effectively. Its available at https://docs.ergo.service.
+Finally, we've published comprehensive documentation for the framework, providing detailed guides to assist you in leveraging all the capabilities of Ergo Framework effectively. Its available at https://docs.ergo.services.
 
 #### [v2.2.4](https://github.com/ergo-services/ergo/releases/tag/v1.999.224) 2023-05-01 [tag version v1.999.224] ####
 
