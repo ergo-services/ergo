@@ -23,7 +23,7 @@ The Ergo Framework is an implementation of ideas, technologies, and design patte
 
 6. **Reliability and Fault Tolerance**: the framework is designed to minimize failures and ensure automatic recovery, featuring a supervisor tree structure to manage and restart failed actors, which is crucial for mission-critical applications.
    
-7. **Flexibility**: This framework offers convenient interfaces for customizing network stack components, creating and integrating custom loggers, managing SSL certificates, and more.
+7. **Flexibility**: This framework offers convenient interfaces for customizing [network stack components](https://docs.ergo.services/networking/network-stack#network-stack-interfaces), creating and integrating custom [loggers](https://docs.ergo.services/basics/logging), [managing SSL certificates](https://docs.ergo.services/basics/certmanager), and more.
 
 In the https://github.com/ergo-services/examples repository, you will find examples that demonstrate a range of the framework's capabilities.
 
