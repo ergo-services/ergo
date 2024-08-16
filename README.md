@@ -13,7 +13,7 @@ The Ergo Framework is an implementation of ideas, technologies, and design patte
 
 1. **Actor Model**: enables the creation of scalable and fault-tolerant systems using isolated actors that interact through message passing. Actors can exchange asynchronous messages as well as perform synchronous requests, offering flexibility in communication patterns.
 
-2. **Network Transparency**: actors can interact regardless of their physical location, supported by a high-performance implementation of the [network stack](https://docs.ergo.services/networking/network-stack), which simplifies the creation of distributed systems.
+2. **Network Transparency**: actors can interact regardless of their physical location, supported by a [high-performance](https://github.com/ergo-services/benchmarks) implementation of the [network stack](https://docs.ergo.services/networking/network-stack), which simplifies the creation of distributed systems.
 
 3. **Observability**: framework includes built-in observability features, including [service discovery](https://docs.ergo.services/networking/service-discovering) and [static routes](https://docs.ergo.services/networking/static-routes), allowing nodes to automatically register themselves and find routes to remote nodes. This mechanism simplifies managing distributed systems by enabling seamless communication and interaction between nodes across the network.
 
