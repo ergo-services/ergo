@@ -117,7 +117,7 @@ Starting from version 3.0.0, support for the Erlang network stack has been moved
 
 ### Changelog ###
 
-Fully detailed changelog see in the [ChangeLog](ChangeLog.md) file.
+Fully detailed changelog see in the [ChangeLog](CHANGELOG.md) file.
 
 #### [v3.0.0](https://github.com/ergo-services/ergo/releases/tag/v1.999.300) 2024-09-04 [tag version v1.999.300] ####
 
