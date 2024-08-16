@@ -38,7 +38,6 @@ var (
 		Enable:                       true,
 		EnableRemoteSpawn:            false,
 		EnableRemoteApplicationStart: false,
-		EnableFragmentation:          false,
 		EnableEncryption:             false,
 		EnableImportantDelivery:      true,
 	}

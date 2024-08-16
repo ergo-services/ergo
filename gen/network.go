@@ -302,7 +302,6 @@ type NetworkProxyFlags struct {
 	Enable                       bool
 	EnableRemoteSpawn            bool
 	EnableRemoteApplicationStart bool
-	EnableFragmentation          bool
 	EnableEncryption             bool
 	EnableImportantDelivery      bool
 }
