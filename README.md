@@ -38,7 +38,7 @@ To install the Observer tool, you need to have the Go compiler version 1.20 or h
 $ go install ergo.services/tools/observer@latest
 ```
 
-You can also embed the [Observer application](https://docs.ergo.services/application/observer) into your node. To see it in action, see example `demo` at https://github.com/ergo-services/examples. For more information https://docs.ergo.services/tools/observer 
+You can also embed the [Observer application](https://docs.ergo.services/extra-library/applications/observer) into your node. To see it in action, see example `demo` at https://github.com/ergo-services/examples. For more information https://docs.ergo.services/tools/observer 
 
 
 
