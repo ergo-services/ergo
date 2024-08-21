@@ -306,6 +306,16 @@ type NetworkProxyFlags struct {
 	EnableImportantDelivery      bool
 }
 
+func (npf NetworkProxyFlags) MarshalEDF(w io.Writer) error {
+	// TODO
+	return nil
+}
+
+func (npf *NetworkProxyFlags) UnmarshalEDF(buf []byte) error {
+	// TODO
+	return nil
+}
+
 type RemoteNodeInfo struct {
 	Node             Atom
 	Uptime           int64

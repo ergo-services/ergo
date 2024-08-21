@@ -3,11 +3,14 @@ package node
 import (
 	"errors"
 	"fmt"
+	"os"
+	"os/signal"
 	"reflect"
 	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"ergo.services/ergo/app/system"
@@ -60,6 +63,8 @@ type node struct {
 	licenses sync.Map
 
 	coreEventsToken gen.Ref
+
+	ctrlc chan os.Signal
 }
 
 type eventOwner struct {
@@ -1318,6 +1323,68 @@ func (n *node) dolog(message gen.MessageLog, loggername string) {
 			return true
 		})
 	}
+}
+
+func (n *node) SetCTRLC(enable bool) {
+	if enable == true && n.ctrlc != nil {
+		// already set up
+		return
+	}
+
+	if enable == false && n.ctrlc != nil {
+		close(n.ctrlc)
+		n.ctrlc = nil
+		n.Log().Info("(CRTL+C) disabled for %s", n.name)
+		return
+	}
+
+	go func() {
+		n.ctrlc = make(chan os.Signal)
+		signal.Notify(n.ctrlc, os.Interrupt, syscall.SIGTERM)
+		n.Log().Info("(CRTL+C) enabled for %s", n.name)
+
+		n.Log().Info("         press Ctrl+C to enable/disable debug logging level for %s", n.name)
+		n.Log().Info("         press Ctrl+C twice to stop %s gracefully", n.name)
+		ctrlcTime := time.Now().Unix()
+		level := n.Log().Level()
+		debug := false
+		for {
+			sig := <-n.ctrlc
+			if sig == nil {
+				// closed channel. disable ctrlc
+				signal.Reset()
+
+				return
+			}
+
+			now := time.Now().Unix()
+			if now-ctrlcTime == 0 {
+				signal.Reset()
+				n.Log().Info("(CRTL+C) stopping %s (graceful shutdown)...", n.name)
+				n.Stop()
+				return
+			}
+
+			ctrlcTime = now
+
+			if n.Log().Level() != gen.LogLevelDebug {
+				// ignore
+				continue
+			}
+
+			if debug {
+				n.Log().Info("(CRTL+C) disabling debug level for %s", n.name)
+				n.Log().SetLevel(level)
+				debug = false
+				continue
+			}
+
+			n.Log().Info("(CRTL+C) enabling debug level for %s", n.name)
+			level = n.Log().Level()
+			n.Log().SetLevel(gen.LogLevelDebug)
+			debug = true
+		}
+	}()
 }
 
 //

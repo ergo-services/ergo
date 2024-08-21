@@ -188,6 +188,9 @@ type Node interface {
 	// and as a parent PID for the spawned process by the node
 	PID() PID
 	Creation() int64
+
+	// SetCTRLC allows you to catch Ctrl+C and enable/disable debug level for the node
+	SetCTRLC(enable bool)
 }
 
 // NodeRegistrar bridge interface from Node to the Registrar
