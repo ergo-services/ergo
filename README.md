@@ -28,7 +28,7 @@ The Ergo Framework is an implementation of ideas, technologies, and design patte
 In the https://github.com/ergo-services/examples repository, you will find examples that demonstrate a range of the framework's capabilities.
 
 ### Observer ###
-To inspect the node, network stack, running applications, and processes, you can use the [observer](https://github.com/ergo-services/tools/) tool
+To inspect the node, network stack, running applications, and processes, you can use the [`observer`](https://github.com/ergo-services/tools/) tool
 
 <img src="https://github.com/user-attachments/assets/1cb83305-6c56-4eb7-b567-76f3c551c176" width="500">
 
@@ -44,7 +44,7 @@ You can also embed the [Observer application](https://docs.ergo.services/extra-l
 
 ### Quick start ###
 
-For a quick start, use the [ergo](https://docs.ergo.services/tools/ergo) tool — a command-line utility designed to simplify the process of generating boilerplate code for your project based on the Ergo Framework. With this tool, you can rapidly create a complete project structure, including applications, actors, supervisors, network components, and more. It offers a set of arguments that allow you to customize the project according to specific requirements, ensuring it is ready for immediate development.
+For a quick start, use the [`ergo`](https://docs.ergo.services/tools/ergo) tool — a command-line utility designed to simplify the process of generating boilerplate code for your project based on the Ergo Framework. With this tool, you can rapidly create a complete project structure, including applications, actors, supervisors, network components, and more. It offers a set of arguments that allow you to customize the project according to specific requirements, ensuring it is ready for immediate development.
 
 To install use the following command:
 
