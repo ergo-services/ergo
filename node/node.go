@@ -1367,11 +1367,6 @@ func (n *node) SetCTRLC(enable bool) {
 
 			ctrlcTime = now
 
-			if n.Log().Level() != gen.LogLevelDebug {
-				// ignore
-				continue
-			}
-
 			if debug {
 				n.Log().Info("(CRTL+C) disabling debug level for %s", n.name)
 				n.Log().SetLevel(level)

@@ -189,7 +189,8 @@ type Node interface {
 	PID() PID
 	Creation() int64
 
-	// SetCTRLC allows you to catch Ctrl+C and enable/disable debug level for the node
+	// SetCTRLC allows you to catch Ctrl+C to enable/disable debug level for the node
+	// Twice Ctrl+C - to stop node gracefully
 	SetCTRLC(enable bool)
 }
 
