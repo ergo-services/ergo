@@ -144,7 +144,7 @@ You can find available benchmarks in the following repository https://github.com
 
 * Messaging performance (local, network)
 
-* Memory consumption (demonstrates framework memory footprint) per process.
+* Memory consumption per process (demonstrates framework memory footprint).
 
 ### Development and debugging ###
 
