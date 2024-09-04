@@ -1,5 +1,4 @@
 //go:build debug
-// +build debug
 
 package ergo
 
@@ -9,5 +8,7 @@ import (
 )
 
 func init() {
-	go http.ListenAndServe("0.0.0.0:9009", nil)
+	// start profiler
+	dsn := "localhost:9009"
+	go http.ListenAndServe(dsn, nil)
 }

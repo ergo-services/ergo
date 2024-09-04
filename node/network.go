@@ -1,1589 +1,1258 @@
 package node
 
 import (
-	"bytes"
 	"context"
-	"encoding/binary"
-	"io"
-	"sync"
-	"time"
-
-	"crypto/aes"
-	"crypto/md5"
-	"crypto/rand"
-	"crypto/rsa"
-	"crypto/sha256"
 	"crypto/tls"
-	"crypto/x509"
 	"fmt"
-
-	"github.com/ergo-services/ergo/etf"
-	"github.com/ergo-services/ergo/gen"
-	"github.com/ergo-services/ergo/lib"
-
+	"io"
 	"net"
-
+	"reflect"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	"ergo.services/ergo/gen"
+	"ergo.services/ergo/lib"
+	"ergo.services/ergo/net/handshake"
+	"ergo.services/ergo/net/proto"
+	"ergo.services/ergo/net/registrar"
 )
 
-type networkInternal interface {
-	// add/remove static route
-	AddStaticRoute(node string, host string, port uint16, options RouteOptions) error
-	AddStaticRoutePort(node string, port uint16, options RouteOptions) error
-	AddStaticRouteOptions(node string, options RouteOptions) error
-	RemoveStaticRoute(node string) bool
-	StaticRoutes() []Route
-	StaticRoute(name string) (Route, bool)
-
-	// add/remove proxy route
-	AddProxyRoute(route ProxyRoute) error
-	RemoveProxyRoute(name string) bool
-	ProxyRoutes() []ProxyRoute
-	ProxyRoute(name string) (ProxyRoute, bool)
-
-	Registrar() Registrar
-	Resolve(peername string) (Route, error)
-	ResolveProxy(peername string) (ProxyRoute, error)
-
-	Connect(peername string) error
-	Disconnect(peername string) error
-	Nodes() []string
-	NodesIndirect() []string
-
-	// stats
-	NetworkStats(name string) (NetworkStats, error)
-
-	// core router methods
-	RouteProxyConnectRequest(from ConnectionInterface, request ProxyConnectRequest) error
-	RouteProxyConnectReply(from ConnectionInterface, reply ProxyConnectReply) error
-	RouteProxyConnectCancel(from ConnectionInterface, cancel ProxyConnectCancel) error
-	RouteProxyDisconnect(from ConnectionInterface, disconnect ProxyDisconnect) error
-	RouteProxy(from ConnectionInterface, sessionID string, packet *lib.Buffer) error
-
-	getConnection(peername string) (ConnectionInterface, error)
-	stopNetwork()
-
-	networkStats() internalNetworkStats
-}
-
-type internalNetworkStats struct {
-	transitConnections int
-	proxyConnections   int
-	connections        int
-}
-
-type connectionInternal struct {
-	// conn. has nil value for the proxy connection
-	conn net.Conn
-	// connection interface of the network connection
-	connection ConnectionInterface
-	//
-	proxySessionID string
-	//
-	proxyTransitTo map[string]bool
+func createNetwork(node *node) *network {
+	n := &network{
+		node:             node,
+		staticRoutes:     &staticRoutes{},
+		staticProxies:    &staticProxies{},
+		defaultHandshake: handshake.Create(handshake.Options{}),
+		defaultProto:     proto.Create(),
+	}
+	// register standard handshake and proto
+	n.RegisterHandshake(n.defaultHandshake)
+	n.RegisterProto(n.defaultProto)
+	return n
 }
 
 type network struct {
-	nodename  string
-	cookie    string
-	ctx       context.Context
-	listeners []net.Listener
+	running atomic.Bool
 
-	registrar         Registrar
-	staticOnly        bool
-	staticRoutes      map[string]Route
-	staticRoutesMutex sync.RWMutex
+	mode       gen.NetworkMode
+	flags      gen.NetworkFlags
+	skipverify bool
 
-	proxyRoutes      map[string]ProxyRoute
-	proxyRoutesMutex sync.RWMutex
+	node      *node
+	registrar gen.Registrar
 
-	connections        map[string]connectionInternal
-	connectionsProxy   map[ConnectionInterface][]string // peers via proxy
-	connectionsTransit map[ConnectionInterface][]string // transit session IDs
-	connectionsMutex   sync.RWMutex
+	acceptors []*acceptor
 
-	proxyTransitSessions      map[string]proxyTransitSession
-	proxyTransitSessionsMutex sync.RWMutex
+	defaultHandshake gen.NetworkHandshake
+	defaultProto     gen.NetworkProto
 
-	proxyConnectRequest      map[etf.Ref]proxyConnectRequest
-	proxyConnectRequestMutex sync.RWMutex
+	handshakes sync.Map // .Version().String() -> handshake
+	protos     sync.Map // .Version().String() -> proto
 
-	tls      *tls.Config
-	proxy    Proxy
-	version  Version
-	creation uint32
-	flags    Flags
+	cookie         string
+	maxmessagesize int
 
-	router    coreRouterInternal
-	handshake HandshakeInterface
-	proto     ProtoInterface
+	staticRoutes  *staticRoutes
+	staticProxies *staticProxies
 
-	remoteSpawn      map[string]gen.ProcessBehavior
-	remoteSpawnMutex sync.Mutex
+	enableSpawn    sync.Map
+	enableAppStart sync.Map
+
+	connections sync.Map // gen.Atom (peer name) => gen.Connection
 }
 
-func newNetwork(ctx context.Context, nodename string, cookie string, options Options, router coreRouterInternal) (networkInternal, error) {
-	n := &network{
-		nodename:             nodename,
-		cookie:               cookie,
-		ctx:                  ctx,
-		tls:                  options.TLS,
-		staticOnly:           options.StaticRoutesOnly,
-		staticRoutes:         make(map[string]Route),
-		proxyRoutes:          make(map[string]ProxyRoute),
-		connections:          make(map[string]connectionInternal),
-		connectionsProxy:     make(map[ConnectionInterface][]string),
-		connectionsTransit:   make(map[ConnectionInterface][]string),
-		proxyTransitSessions: make(map[string]proxyTransitSession),
-		proxyConnectRequest:  make(map[etf.Ref]proxyConnectRequest),
-		remoteSpawn:          make(map[string]gen.ProcessBehavior),
-		flags:                options.Flags,
-		proxy:                options.Proxy,
-		registrar:            options.Registrar,
-		handshake:            options.Handshake,
-		proto:                options.Proto,
-		router:               router,
-		creation:             options.Creation,
+func (n *network) Registrar() (gen.Registrar, error) {
+	if n.running.Load() == false {
+		return nil, gen.ErrNetworkStopped
 	}
-
-	splitNodeHost := strings.Split(nodename, "@")
-	if len(splitNodeHost) != 2 || splitNodeHost[0] == "" || splitNodeHost[1] == "" {
-		return nil, fmt.Errorf("FQDN for node name is required (example: node@hostname)")
-	}
-
-	if n.proxy.Flags.Enable == false {
-		n.proxy.Flags = DefaultProxyFlags()
-	}
-
-	n.version, _ = options.Env[EnvKeyVersion].(Version)
-
-	if len(options.Listeners) == 0 {
-		return nil, fmt.Errorf("no listeners defined")
-	}
-	for i, lo := range options.Listeners {
-		if lo.TLS == nil {
-			lo.TLS = options.TLS
-		}
-		if lo.Handshake == nil {
-			lo.Handshake = options.Handshake
-		}
-		if lo.Proto == nil {
-			lo.Proto = options.Proto
-		}
-		if lo.Flags.Enable == false {
-			lo.Flags = options.Flags
-		}
-		if lo.Cookie == "" {
-			lo.Cookie = cookie
-		}
-
-		if err := lo.Handshake.Init(n.nodename, n.creation, lo.Flags); err != nil {
-			return nil, err
-		}
-
-		if lo.Listen > 0 {
-			lo.ListenBegin = lo.Listen
-			lo.ListenEnd = lo.Listen
-			lib.Log("Node listener[%d] port: %d", i, lo.Listen)
-		} else {
-			if lo.ListenBegin == 0 {
-				lo.ListenBegin = defaultListenBegin
-			}
-			if lo.ListenEnd == 0 {
-				lo.ListenEnd = defaultListenEnd
-			}
-			lib.Log("Node listener[%d] port range: %d...%d", i, lo.ListenBegin, lo.ListenEnd)
-		}
-		register := i == 0
-		listener, err := n.listen(ctx, splitNodeHost[1], lo, register)
-		if err != nil {
-			// close all listening sockets
-			n.stopNetwork()
-			return nil, err
-		}
-		n.listeners = append(n.listeners, listener)
-	}
-
-	return n, nil
+	return n.registrar, nil
 }
 
-func (n *network) stopNetwork() {
-	for _, l := range n.listeners {
-		l.Close()
-	}
-	n.connectionsMutex.RLock()
-	defer n.connectionsMutex.RUnlock()
-	for _, ci := range n.connections {
-		if ci.conn == nil {
-			continue
-		}
-		ci.conn.Close()
-	}
+func (n *network) Cookie() string {
+	return n.cookie
 }
-
-// AddStaticRouteOptions adds static options for the given node.
-func (n *network) AddStaticRouteOptions(node string, options RouteOptions) error {
-	if n.staticOnly {
-		return fmt.Errorf("can't be used if enabled StaticRoutesOnly")
+func (n *network) SetCookie(cookie string) error {
+	n.cookie = cookie
+	if lib.Trace() {
+		n.node.Log().Trace("updated cookie")
 	}
-	return n.AddStaticRoute(node, "", 0, options)
-}
-
-// AddStaticRoutePort adds a static route to the node with the given name
-func (n *network) AddStaticRoutePort(node string, port uint16, options RouteOptions) error {
-	ns := strings.Split(node, "@")
-	if port < 1 {
-		return fmt.Errorf("port must be greater 0")
-	}
-	if len(ns) != 2 {
-		return fmt.Errorf("wrong FQDN")
-	}
-	return n.AddStaticRoute(node, ns[1], port, options)
-
-}
-
-// AddStaticRoute adds a static route to the node with the given name
-func (n *network) AddStaticRoute(node string, host string, port uint16, options RouteOptions) error {
-	if len(strings.Split(node, "@")) != 2 {
-		return fmt.Errorf("wrong FQDN")
-	}
-
-	if port > 0 {
-		if _, err := net.LookupHost(host); err != nil {
-			return err
-		}
-	}
-
-	route := Route{
-		Node:    node,
-		Host:    host,
-		Port:    port,
-		Options: options,
-	}
-
-	n.staticRoutesMutex.Lock()
-	defer n.staticRoutesMutex.Unlock()
-
-	_, exist := n.staticRoutes[node]
-	if exist {
-		return lib.ErrTaken
-	}
-
-	if options.Handshake != nil {
-		if err := options.Handshake.Init(n.nodename, n.creation, n.flags); err != nil {
-			return err
-		}
-	}
-	n.staticRoutes[node] = route
-
 	return nil
 }
 
-// RemoveStaticRoute removes static route record. Returns false if it doesn't exist.
-func (n *network) RemoveStaticRoute(node string) bool {
-	n.staticRoutesMutex.Lock()
-	defer n.staticRoutesMutex.Unlock()
-	_, exist := n.staticRoutes[node]
-	if exist {
-		delete(n.staticRoutes, node)
-		return true
-	}
-	return false
+func (n *network) NetworkFlags() gen.NetworkFlags {
+	return n.flags
 }
 
-// StaticRoutes returns list of static routes added with AddStaticRoute
-func (n *network) StaticRoutes() []Route {
-	var routes []Route
-
-	n.staticRoutesMutex.RLock()
-	defer n.staticRoutesMutex.RUnlock()
-	for _, v := range n.staticRoutes {
-		routes = append(routes, v)
+func (n *network) SetNetworkFlags(flags gen.NetworkFlags) {
+	if flags.Enable == false {
+		flags = gen.DefaultNetworkFlags
 	}
-
-	return routes
+	n.flags = flags
 }
 
-func (n *network) StaticRoute(name string) (Route, bool) {
-	n.staticRoutesMutex.RLock()
-	defer n.staticRoutesMutex.RUnlock()
-	route, exist := n.staticRoutes[name]
-	return route, exist
+func (n *network) MaxMessageSize() int {
+	return n.maxmessagesize
 }
 
-func (n *network) getConnectionDirect(peername string, connect bool) (ConnectionInterface, error) {
-	n.connectionsMutex.RLock()
-	ci, ok := n.connections[peername]
-	n.connectionsMutex.RUnlock()
-	if ok {
-		return ci.connection, nil
+func (n *network) SetMaxMessageSize(size int) {
+	if size < 0 {
+		size = 0
 	}
-
-	if connect == false {
-		return nil, lib.ErrNoRoute
-	}
-
-	connection, err := n.connect(peername)
-	if err != nil {
-		lib.Log("[%s] CORE no route to node %q: %s", n.nodename, peername, err)
-		return nil, lib.ErrNoRoute
-	}
-	return connection, nil
-
+	n.maxmessagesize = size
 }
 
-// getConnection
-func (n *network) getConnection(peername string) (ConnectionInterface, error) {
-	if peername == n.nodename {
-		// can't connect to itself
-		return nil, lib.ErrNoRoute
+func (n *network) Acceptors() ([]gen.Acceptor, error) {
+	var acceptors []gen.Acceptor
+	if n.running.Load() == false {
+		return nil, gen.ErrNetworkStopped
 	}
-	n.connectionsMutex.RLock()
-	ci, ok := n.connections[peername]
-	n.connectionsMutex.RUnlock()
-	if ok {
-		lib.Log("[%s] NETWORK found active connection with %s", n.nodename, peername)
-		return ci.connection, nil
+	for _, acceptor := range n.acceptors {
+		acceptors = append(acceptors, acceptor)
 	}
+	return acceptors, nil
+}
 
-	// try to connect via proxy if there ProxyRoute was presented for this peer
-	request := ProxyConnectRequest{
-		ID:       n.router.MakeRef(),
-		To:       peername,
-		Creation: n.creation,
-	}
-
-	if err := n.RouteProxyConnectRequest(nil, request); err != nil {
-		if err != lib.ErrProxyNoRoute {
-			return nil, err
-		}
-
-		// there wasn't proxy presented. try to connect directly.
-		connection, err := n.getConnectionDirect(peername, true)
-		return connection, err
-	}
-
-	connection, err := n.waitProxyConnection(request.ID, 5)
+func (n *network) Node(name gen.Atom) (gen.RemoteNode, error) {
+	c, err := n.Connection(name)
 	if err != nil {
 		return nil, err
 	}
-
-	return connection, nil
+	return c.Node(), nil
 }
 
-// Resolve
-func (n *network) Resolve(node string) (Route, error) {
-	n.staticRoutesMutex.RLock()
-	defer n.staticRoutesMutex.RUnlock()
-
-	if r, ok := n.staticRoutes[node]; ok {
-		if r.Port == 0 {
-			// use static option for this route
-			route, err := n.registrar.Resolve(node)
-			route.Options = r.Options
-			return route, err
-		}
-		return r, nil
+func (n *network) GetNode(name gen.Atom) (gen.RemoteNode, error) {
+	c, err := n.GetConnection(name)
+	if err != nil {
+		return nil, err
 	}
-
-	if n.staticOnly {
-		return Route{}, lib.ErrNoRoute
-	}
-
-	return n.registrar.Resolve(node)
+	return c.Node(), nil
 }
 
-// ResolveProxy
-func (n *network) ResolveProxy(name string) (ProxyRoute, error) {
-	n.proxyRoutesMutex.RLock()
-	defer n.proxyRoutesMutex.RUnlock()
-	route, found := n.proxyRoutes[name]
-	if found == false {
-		sn := strings.Split(name, "@")
-		if len(sn) != 2 {
-			return route, lib.ErrUnknown
-		}
-		domain := "@" + sn[1]
-		route, found = n.proxyRoutes[domain]
-	}
-	if found == false {
-		return n.registrar.ResolveProxy(name)
-	}
-	if route.Proxy == "" {
-		r, err := n.registrar.ResolveProxy(name)
+func (n *network) GetNodeWithRoute(name gen.Atom, route gen.NetworkRoute) (gen.RemoteNode, error) {
+	var emptyVersion gen.Version
+
+	route.InsecureSkipVerify = n.skipverify
+
+	if route.Resolver != nil {
+		resolved, err := route.Resolver.Resolve(name)
 		if err != nil {
-			return route, err
+			return nil, err
 		}
-		route.Proxy = r.Proxy
-	}
-	return route, nil
-}
-
-// Registrar
-func (n *network) Registrar() Registrar {
-	return n.registrar
-}
-
-// Connect
-func (n *network) Connect(node string) error {
-	_, err := n.getConnection(node)
-	return err
-}
-
-// Disconnect
-func (n *network) Disconnect(node string) error {
-	n.connectionsMutex.RLock()
-	ci, ok := n.connections[node]
-	n.connectionsMutex.RUnlock()
-	if !ok {
-		return lib.ErrNoRoute
-	}
-
-	if ci.conn == nil {
-		// this is proxy connection
-		disconnect := ProxyDisconnect{
-			Node:      n.nodename,
-			Proxy:     n.nodename,
-			SessionID: ci.proxySessionID,
-			Reason:    "normal",
+		route.Route.Port = resolved[0].Port
+		route.Route.TLS = resolved[0].TLS
+		if route.Route.HandshakeVersion == emptyVersion {
+			route.Route.HandshakeVersion = resolved[0].HandshakeVersion
 		}
-		n.unregisterConnection(node, &disconnect)
-		return ci.connection.ProxyDisconnect(disconnect)
+		if route.Route.ProtoVersion == emptyVersion {
+			route.Route.ProtoVersion = resolved[0].ProtoVersion
+		}
+		if route.Route.Host == "" {
+			route.Route.Host = resolved[0].Host
+		}
 	}
 
-	ci.conn.Close()
+	if route.Route.Port == 0 {
+		return nil, gen.ErrNoRoute
+	}
+
+	if route.Route.HandshakeVersion == emptyVersion {
+		route.Route.HandshakeVersion = n.defaultHandshake.Version()
+	}
+
+	if route.Route.ProtoVersion == emptyVersion {
+		route.Route.ProtoVersion = n.defaultProto.Version()
+	}
+
+	c, err := n.connect(name, route)
+	if err != nil {
+		return nil, err
+	}
+	return c.Node(), nil
+}
+
+func (n *network) AddRoute(match string, route gen.NetworkRoute, weight int) error {
+	var emptyVersion gen.Version
+	if route.Route.HandshakeVersion == emptyVersion {
+		route.Route.HandshakeVersion = n.defaultHandshake.Version()
+	}
+	if route.Route.ProtoVersion == emptyVersion {
+		route.Route.ProtoVersion = n.defaultProto.Version()
+	}
+	if err := n.staticRoutes.add(match, route, weight); err != nil {
+		return err
+	}
+	if lib.Trace() {
+		n.node.Log().Trace("added static route %s with weight %d", match, weight)
+	}
 	return nil
 }
 
-// Nodes
-func (n *network) Nodes() []string {
-	list := []string{}
-	n.connectionsMutex.RLock()
-	defer n.connectionsMutex.RUnlock()
-
-	for node := range n.connections {
-		list = append(list, node)
+func (n *network) RemoveRoute(match string) error {
+	if err := n.staticRoutes.remove(match); err != nil {
+		return err
 	}
-	return list
+	if lib.Trace() {
+		n.node.Log().Trace("removed static route %s", match)
+	}
+	return nil
 }
 
-func (n *network) NodesIndirect() []string {
-	list := []string{}
-	n.connectionsMutex.RLock()
-	defer n.connectionsMutex.RUnlock()
-
-	for node, ci := range n.connections {
-		if ci.conn == nil {
-			list = append(list, node)
-		}
+func (n *network) Route(name gen.Atom) ([]gen.NetworkRoute, error) {
+	if routes, found := n.staticRoutes.lookup(string(name)); found {
+		return routes, nil
 	}
-	return list
+	return nil, gen.ErrNoRoute
 }
 
-func (n *network) NetworkStats(name string) (NetworkStats, error) {
-	var stats NetworkStats
-	n.connectionsMutex.RLock()
-	ci, found := n.connections[name]
-	n.connectionsMutex.RUnlock()
-
-	if found == false {
-		return stats, lib.ErrUnknown
-	}
-
-	stats = ci.connection.Stats()
-	return stats, nil
-}
-
-// RouteProxyConnectRequest
-func (n *network) RouteProxyConnectRequest(from ConnectionInterface, request ProxyConnectRequest) error {
-	if request.To != n.nodename {
-		var err error
-		var connection ConnectionInterface
-		var proxyTransitTo map[string]bool
-		//
-		// outgoing proxy request
-		//
-
-		// check if we already have
-		n.connectionsMutex.RLock()
-		if ci, exist := n.connections[request.To]; exist {
-			connection = ci.connection
-			proxyTransitTo = ci.proxyTransitTo
-		}
-		n.connectionsMutex.RUnlock()
-
-		if from != nil {
-			//
-			// transit request
-			//
-			if from == connection {
-				lib.Log("[%s] NETWORK proxy. Error: proxy route points to the connection this request came from", n.nodename)
-				return lib.ErrProxyLoopDetected
-			}
-			lib.Log("[%s] NETWORK transit proxy connection to %q", n.nodename, request.To)
-
-			// proxy feature must be enabled explicitly for the transitional requests
-			if n.proxy.Transit == false {
-				lib.Log("[%s] NETWORK proxy. Proxy feature is disabled on this node", n.nodename)
-				return lib.ErrProxyTransitDisabled
-			}
-
-			if proxyTransitTo != nil {
-				if proxyTransitTo[request.To] == false {
-					nodeHost := strings.Split(request.To, "@")
-					if len(nodeHost) != 2 || proxyTransitTo[nodeHost[1]] == false {
-						lib.Log("[%s] NETWORK proxy. Proxy connection is restricted (to: %s)", n.nodename, request.To)
-						return lib.ErrProxyTransitRestricted
-					}
-				}
-			}
-
-			if request.Hop < 1 {
-				lib.Log("[%s] NETWORK proxy. Error: exceeded hop limit", n.nodename)
-				return lib.ErrProxyHopExceeded
-			}
-			request.Hop--
-
-			if len(request.Path) > defaultProxyPathLimit {
-				return lib.ErrProxyPathTooLong
-			}
-
-			for i := range request.Path {
-				if n.nodename != request.Path[i] {
-					continue
-				}
-				lib.Log("[%s] NETWORK proxy. Error: loop detected in proxy path %#v", n.nodename, request.Path)
-				return lib.ErrProxyLoopDetected
-			}
-
-			if connection == nil {
-				// check if we have proxy route
-				route, err_route := n.ResolveProxy(request.To)
-				if err_route == nil && route.Proxy != n.nodename {
-					// proxy request goes to the next hop
-					connection, err = n.getConnectionDirect(route.Proxy, true)
-				} else {
-					connection, err = n.getConnectionDirect(request.To, true)
-				}
-
-				if err != nil {
-					return err
-				}
-			}
-
-			request.Path = append([]string{n.nodename}, request.Path...)
-			err = connection.ProxyConnectRequest(request)
-			return err
-		}
-
-		if connection == nil {
-			route, err_route := n.ResolveProxy(request.To)
-			if err_route != nil {
-				// if it was invoked from getConnection ('from' == nil) there will
-				// be attempt to make direct connection using getConnectionDirect
-				return lib.ErrProxyNoRoute
-			}
-
-			// initiating proxy connection
-			lib.Log("[%s] NETWORK initiate proxy connection to %q via %q", n.nodename, request.To, route.Proxy)
-			connection, err = n.getConnectionDirect(route.Proxy, true)
-			if err != nil {
-				return err
-			}
-
-		}
-
-		cookie := n.proxy.Cookie
-		flags := n.proxy.Flags
-		if route, err_route := n.ResolveProxy(request.To); err_route == nil {
-			cookie = route.Cookie
-			if request.Flags.Enable == false {
-				flags = route.Flags
-			}
-		}
-		privKey, _ := rsa.GenerateKey(rand.Reader, 2048)
-		pubKey := x509.MarshalPKCS1PublicKey(&privKey.PublicKey)
-		request.PublicKey = pubKey
-		request.Flags = flags
-
-		// create digest using creation, cookie and pubKey.
-		// we can't use neither n.nodename or request.To, or request.ID -
-		// - anything that contains nodename or peername, because of etf.AtomMapping.
-		request.Digest = generateProxyDigest(n.creation, cookie, pubKey)
-
-		if request.Hop < 1 {
-			request.Hop = DefaultProxyMaxHop
-		}
-		request.Creation = n.creation
-		connectRequest := proxyConnectRequest{
-			privateKey: privKey,
-			request:    request,
-			connection: make(chan ConnectionInterface),
-			cancel:     make(chan ProxyConnectCancel),
-		}
-		request.Path = []string{n.nodename}
-		if err := connection.ProxyConnectRequest(request); err != nil {
-			return err
-		}
-		n.putProxyConnectRequest(connectRequest)
-		return nil
-	}
-
-	//
-	// handle proxy connect request
-	//
-
-	// check digest
-	// use the last item in the request.Path as a peername
-	if len(request.Path) < 2 {
-		// reply error. there must be atleast 2 nodes - initiating and transit nodes
-		lib.Log("[%s] NETWORK proxy. Proxy connect request has wrong path (too short)", n.nodename)
-		return lib.ErrProxyConnect
-	}
-	peername := request.Path[len(request.Path)-1]
-
-	if n.proxy.Accept == false {
-		lib.Warning("[%s] Got proxy connect request from %q. Not allowed.", n.nodename, peername)
-		return lib.ErrProxyConnect
-	}
-
-	cookie := n.proxy.Cookie
-	flags := n.proxy.Flags
-	if route, err_route := n.ResolveProxy(peername); err_route == nil {
-		cookie = route.Cookie
-		if request.Flags.Enable == false {
-			flags = route.Flags
-		}
-	}
-	checkDigest := generateProxyDigest(request.Creation, cookie, request.PublicKey)
-	if bytes.Equal(request.Digest, checkDigest) == false {
-		// reply error. digest mismatch
-		lib.Log("[%s] NETWORK proxy. Proxy connect request has wrong digest", n.nodename)
-		return lib.ErrProxyConnect
-	}
-
-	// do some encryption magic
-	pk, err := x509.ParsePKCS1PublicKey(request.PublicKey)
-	if err != nil {
-		lib.Log("[%s] NETWORK proxy. Proxy connect request has wrong public key", n.nodename)
-		return lib.ErrProxyConnect
-	}
-	hash := sha256.New()
-	key := make([]byte, 32)
-	rand.Read(key)
-	cipherkey, err := rsa.EncryptOAEP(hash, rand.Reader, pk, key, nil)
-	if err != nil {
-		lib.Log("[%s] NETWORK proxy. Proxy connect request. Can't encrypt: %s ", n.nodename, err)
-		return lib.ErrProxyConnect
-	}
-	block, err := aes.NewCipher(key)
-	if err != nil {
+func (n *network) AddProxyRoute(match string, route gen.NetworkProxyRoute, weight int) error {
+	if err := n.staticProxies.add(match, route, weight); err != nil {
 		return err
 	}
 
-	sessionID := lib.RandomString(32)
-	digest := generateProxyDigest(n.creation, n.proxy.Cookie, key)
-	if flags.Enable == false {
-		flags = DefaultProxyFlags()
+	if lib.Trace() {
+		n.node.Log().Trace("added static proxy route %s with weight %d", match, weight)
 	}
-
-	// if one of the nodes want to use encryption then it must be used by both nodes
-	if request.Flags.EnableEncryption || flags.EnableEncryption {
-		request.Flags.EnableEncryption = true
-		flags.EnableEncryption = true
-	}
-
-	cInternal := connectionInternal{
-		connection:     from,
-		proxySessionID: sessionID,
-	}
-	if _, err := n.registerConnection(peername, cInternal); err != nil {
-		return lib.ErrProxySessionDuplicate
-	}
-
-	reply := ProxyConnectReply{
-		ID:        request.ID,
-		To:        peername,
-		Digest:    digest,
-		Cipher:    cipherkey,
-		Flags:     flags,
-		Creation:  n.creation,
-		SessionID: sessionID,
-		Path:      request.Path[1:],
-	}
-
-	if err := from.ProxyConnectReply(reply); err != nil {
-		// can't send reply. ignore this connection request
-		lib.Log("[%s] NETWORK proxy. Proxy connect request. Can't send reply: %s ", n.nodename, err)
-		n.unregisterConnection(peername, nil)
-		return lib.ErrProxyConnect
-	}
-
-	session := ProxySession{
-		ID:        sessionID,
-		NodeFlags: reply.Flags,
-		PeerFlags: request.Flags,
-		PeerName:  peername,
-		Creation:  request.Creation,
-		Block:     block,
-	}
-
-	// register proxy session
-	from.ProxyRegisterSession(session)
 	return nil
 }
 
-func (n *network) RouteProxyConnectReply(from ConnectionInterface, reply ProxyConnectReply) error {
-
-	n.proxyTransitSessionsMutex.RLock()
-	_, duplicate := n.proxyTransitSessions[reply.SessionID]
-	n.proxyTransitSessionsMutex.RUnlock()
-
-	if duplicate {
-		return lib.ErrProxySessionDuplicate
-	}
-
-	if from == nil {
-		// from value can't be nil
-		return lib.ErrProxyUnknownRequest
-	}
-
-	if reply.To != n.nodename {
-		// send this reply further and register this session
-		if n.proxy.Transit == false {
-			return lib.ErrProxyTransitDisabled
-		}
-
-		if len(reply.Path) == 0 {
-			return lib.ErrProxyUnknownRequest
-		}
-		if len(reply.Path) > defaultProxyPathLimit {
-			return lib.ErrProxyPathTooLong
-		}
-
-		next := reply.Path[0]
-		connection, err := n.getConnectionDirect(next, false)
-		if err != nil {
-			return err
-		}
-		if connection == from {
-			return lib.ErrProxyLoopDetected
-		}
-
-		reply.Path = reply.Path[1:]
-		// check for the looping
-		for i := range reply.Path {
-			if reply.Path[i] == next {
-				return lib.ErrProxyLoopDetected
-			}
-		}
-
-		if err := connection.ProxyConnectReply(reply); err != nil {
-			return err
-		}
-
-		// register transit proxy session
-		n.proxyTransitSessionsMutex.Lock()
-		session := proxyTransitSession{
-			a: from,
-			b: connection,
-		}
-		n.proxyTransitSessions[reply.SessionID] = session
-		n.proxyTransitSessionsMutex.Unlock()
-
-		// keep session id for both connections in order
-		// to handle connection closing (we should
-		// send ProxyDisconnect if one of the connection
-		// was closed)
-		n.connectionsMutex.Lock()
-		sessions, _ := n.connectionsTransit[session.a]
-		sessions = append(sessions, reply.SessionID)
-		n.connectionsTransit[session.a] = sessions
-		sessions, _ = n.connectionsTransit[session.b]
-		sessions = append(sessions, reply.SessionID)
-		n.connectionsTransit[session.b] = sessions
-		n.connectionsMutex.Unlock()
-		return nil
-	}
-
-	// look up for the request we made earlier
-	r, found := n.getProxyConnectRequest(reply.ID)
-	if found == false {
-		return lib.ErrProxyUnknownRequest
-	}
-
-	// decrypt cipher key using private key
-	hash := sha256.New()
-	key, err := rsa.DecryptOAEP(hash, rand.Reader, r.privateKey, reply.Cipher, nil)
-	if err != nil {
-		lib.Log("[%s] CORE route proxy. Proxy connect reply has invalid cipher", n.nodename)
-		return lib.ErrProxyConnect
-	}
-
-	cookie := n.proxy.Cookie
-	// check if we should use proxy route cookie
-	n.proxyRoutesMutex.RLock()
-	route, has_route := n.proxyRoutes[r.request.To]
-	n.proxyRoutesMutex.RUnlock()
-	if has_route {
-		cookie = route.Cookie
-	}
-	// check digest
-	checkDigest := generateProxyDigest(reply.Creation, cookie, key)
-	if bytes.Equal(checkDigest, reply.Digest) == false {
-		lib.Log("[%s] CORE route proxy. Proxy connect reply has wrong digest", n.nodename)
-		return lib.ErrProxyConnect
-	}
-
-	block, err := aes.NewCipher(key)
-	if err != nil {
+func (n *network) RemoveProxyRoute(match string) error {
+	if err := n.staticProxies.remove(match); err != nil {
 		return err
 	}
-	cInternal := connectionInternal{
-		connection:     from,
-		proxySessionID: reply.SessionID,
+	if lib.Trace() {
+		n.node.Log().Trace("removed static proxy route %s", match)
 	}
-	if registered, err := n.registerConnection(r.request.To, cInternal); err != nil {
-		select {
-		case r.connection <- registered:
+	return nil
+}
+
+func (n *network) ProxyRoute(name gen.Atom) ([]gen.NetworkProxyRoute, error) {
+
+	if routes, found := n.staticProxies.lookup(string(name)); found {
+		return routes, nil
+	}
+	return nil, gen.ErrNoRoute
+}
+
+type enableSpawn struct {
+	sync.RWMutex
+	factory  gen.ProcessFactory
+	behavior string
+	nodes    map[gen.Atom]bool
+}
+
+func (n *network) EnableSpawn(name gen.Atom, factory gen.ProcessFactory, nodes ...gen.Atom) error {
+
+	if factory == nil {
+		return gen.ErrIncorrect
+	}
+
+	enable := &enableSpawn{
+		factory:  factory,
+		nodes:    make(map[gen.Atom]bool),
+		behavior: strings.TrimPrefix(reflect.TypeOf(factory()).String(), "*"),
+	}
+
+	v, exist := n.enableSpawn.LoadOrStore(name, enable)
+	if exist {
+		enable = v.(*enableSpawn)
+		if reflect.TypeOf(enable.factory()) != reflect.TypeOf(factory()) {
+			return fmt.Errorf("%s associated with another process factory", name)
 		}
-		return lib.ErrProxySessionDuplicate
 	}
-	// if one of the nodes want to use encryption then it must be used by both nodes
-	if r.request.Flags.EnableEncryption || reply.Flags.EnableEncryption {
-		r.request.Flags.EnableEncryption = true
-		reply.Flags.EnableEncryption = true
+	enable.Lock()
+	if len(nodes) == 0 {
+		// allow any node to spawn this process (make nodes map empty)
+		enable.nodes = make(map[gen.Atom]bool)
+	} else {
+		for _, nn := range nodes {
+			enable.nodes[nn] = true
+		}
 	}
-
-	session := ProxySession{
-		ID:        reply.SessionID,
-		NodeFlags: r.request.Flags,
-		PeerFlags: reply.Flags,
-		PeerName:  r.request.To,
-		Creation:  reply.Creation,
-		Block:     block,
-	}
-
-	// register proxy session
-	from.ProxyRegisterSession(session)
-
-	select {
-	case r.connection <- from:
-	}
+	enable.Unlock()
 
 	return nil
 }
 
-func (n *network) RouteProxyConnectCancel(from ConnectionInterface, cancel ProxyConnectCancel) error {
-	if from == nil {
-		// from value can not be nil
-		return lib.ErrProxyConnect
+func (n *network) getEnabledSpawn(name gen.Atom, source gen.Atom) (gen.ProcessFactory, error) {
+	v, found := n.enableSpawn.Load(name)
+	if found == false {
+		return nil, gen.ErrNameUnknown
 	}
-	if len(cancel.Path) == 0 {
-		n.cancelProxyConnectRequest(cancel)
-		return nil
+	enable := v.(*enableSpawn)
+	allowed := true
+	enable.RLock()
+	if len(enable.nodes) > 0 {
+		allowed = enable.nodes[source]
 	}
-
-	next := cancel.Path[0]
-	if next != n.nodename {
-		if len(cancel.Path) > defaultProxyPathLimit {
-			return lib.ErrProxyPathTooLong
-		}
-		connection, err := n.getConnectionDirect(next, false)
-		if err != nil {
-			return err
-		}
-
-		if connection == from {
-			return lib.ErrProxyLoopDetected
-		}
-
-		cancel.Path = cancel.Path[1:]
-		// check for the looping
-		for i := range cancel.Path {
-			if cancel.Path[i] == next {
-				return lib.ErrProxyLoopDetected
-			}
-		}
-
-		if err := connection.ProxyConnectCancel(cancel); err != nil {
-			return err
-		}
-		return nil
+	enable.RUnlock()
+	if allowed == false {
+		return nil, gen.ErrNotAllowed
 	}
-
-	return lib.ErrProxyUnknownRequest
+	return enable.factory, nil
 }
 
-func (n *network) RouteProxyDisconnect(from ConnectionInterface, disconnect ProxyDisconnect) error {
+func (n *network) listEnabledSpawn() []gen.NetworkSpawnInfo {
+	info := []gen.NetworkSpawnInfo{}
 
-	n.proxyTransitSessionsMutex.RLock()
-	session, isTransitSession := n.proxyTransitSessions[disconnect.SessionID]
-	n.proxyTransitSessionsMutex.RUnlock()
-	if isTransitSession == false {
-		// check for the proxy connection endpoint
-		var peername string
-		var found bool
-		var ci connectionInternal
-
-		// get peername by session id
-		n.connectionsMutex.RLock()
-		for p, c := range n.connections {
-			if c.proxySessionID != disconnect.SessionID {
+	n.enableSpawn.Range(func(k, v any) bool {
+		enable := v.(*enableSpawn)
+		nsi := gen.NetworkSpawnInfo{
+			Name:     k.(gen.Atom),
+			Behavior: enable.behavior,
+		}
+		enable.RLock()
+		for peer, en := range enable.nodes {
+			if en == false {
 				continue
 			}
-			found = true
-			peername = p
-			ci = c
-			break
+			nsi.Nodes = append(nsi.Nodes, peer)
 		}
-		if found == false {
-			n.connectionsMutex.RUnlock()
-			return lib.ErrProxySessionUnknown
-		}
-		n.connectionsMutex.RUnlock()
+		enable.RUnlock()
+		info = append(info, nsi)
+		return true
+	})
+	return info
+}
 
-		if ci.proxySessionID != disconnect.SessionID || ci.connection != from {
-			return lib.ErrProxySessionUnknown
+func (n *network) DisableSpawn(name gen.Atom, nodes ...gen.Atom) error {
+	if len(nodes) == 0 {
+		if _, exist := n.enableSpawn.LoadAndDelete(name); exist == false {
+			return gen.ErrUnknown
 		}
-
-		n.unregisterConnection(peername, &disconnect)
 		return nil
 	}
-
-	n.proxyTransitSessionsMutex.Lock()
-	delete(n.proxyTransitSessions, disconnect.SessionID)
-	n.proxyTransitSessionsMutex.Unlock()
-
-	// remove this session from the connections
-	n.connectionsMutex.Lock()
-	sessions, ok := n.connectionsTransit[session.a]
-	if ok {
-		for i := range sessions {
-			if sessions[i] == disconnect.SessionID {
-				sessions[i] = sessions[0]
-				sessions = sessions[1:]
-				n.connectionsTransit[session.a] = sessions
-				break
-			}
-		}
+	v, exist := n.enableSpawn.Load(name)
+	if exist == false {
+		return gen.ErrUnknown
 	}
-	sessions, ok = n.connectionsTransit[session.b]
-	if ok {
-		for i := range sessions {
-			if sessions[i] == disconnect.SessionID {
-				sessions[i] = sessions[0]
-				sessions = sessions[1:]
-				n.connectionsTransit[session.b] = sessions
-				break
-			}
-		}
+	enable := v.(*enableSpawn)
+	enable.Lock()
+	for _, nn := range nodes {
+		enable.nodes[nn] = false
 	}
-	n.connectionsMutex.Unlock()
-
-	// send this message further
-	switch from {
-	case session.b:
-		return session.a.ProxyDisconnect(disconnect)
-	case session.a:
-		return session.b.ProxyDisconnect(disconnect)
-	default:
-		// shouldn't happen
-		panic("internal error")
-	}
-}
-
-func (n *network) RouteProxy(from ConnectionInterface, sessionID string, packet *lib.Buffer) error {
-	// check if this session is present on this node
-	n.proxyTransitSessionsMutex.RLock()
-	session, ok := n.proxyTransitSessions[sessionID]
-	n.proxyTransitSessionsMutex.RUnlock()
-
-	if !ok {
-		return lib.ErrProxySessionUnknown
-	}
-
-	switch from {
-	case session.b:
-		return session.a.ProxyPacket(packet)
-	case session.a:
-		return session.b.ProxyPacket(packet)
-	default:
-		// shouldn't happen
-		panic("internal error")
-	}
-}
-
-func (n *network) AddProxyRoute(route ProxyRoute) error {
-	n.proxyRoutesMutex.Lock()
-	defer n.proxyRoutesMutex.Unlock()
-	if route.MaxHop > defaultProxyPathLimit {
-		return lib.ErrProxyPathTooLong
-	}
-	if route.MaxHop < 1 {
-		route.MaxHop = DefaultProxyMaxHop
-	}
-
-	if route.Flags.Enable == false {
-		route.Flags = n.proxy.Flags
-	}
-
-	if s := strings.Split(route.Name, "@"); len(s) == 2 {
-		if s[0] == "" {
-			// must be domain name
-			if strings.HasPrefix(route.Name, "@") == false {
-				return lib.ErrRouteName
-			}
-		}
-	} else {
-		return lib.ErrRouteName
-	}
-
-	if _, exist := n.proxyRoutes[route.Name]; exist {
-		return lib.ErrTaken
-	}
-
-	n.proxyRoutes[route.Name] = route
+	enable.Unlock()
 	return nil
 }
 
-func (n *network) RemoveProxyRoute(name string) bool {
-	n.proxyRoutesMutex.Lock()
-	defer n.proxyRoutesMutex.Unlock()
-	if _, exist := n.proxyRoutes[name]; exist == false {
-		return false
-	}
-	delete(n.proxyRoutes, name)
-	return true
+type enableAppStart struct {
+	sync.RWMutex
+	nodes map[gen.Atom]bool
 }
 
-func (n *network) ProxyRoutes() []ProxyRoute {
-	var routes []ProxyRoute
-	n.proxyRoutesMutex.RLock()
-	defer n.proxyRoutesMutex.RUnlock()
-	for _, v := range n.proxyRoutes {
-		routes = append(routes, v)
+func (n *network) EnableApplicationStart(name gen.Atom, nodes ...gen.Atom) error {
+	enable := &enableAppStart{
+		nodes: make(map[gen.Atom]bool),
 	}
-	return routes
+
+	v, exist := n.enableAppStart.LoadOrStore(name, enable)
+	if exist {
+		enable = v.(*enableAppStart)
+	}
+	enable.Lock()
+	if len(nodes) == 0 {
+		// allow any node to start this app (make nodes map empty)
+		enable.nodes = make(map[gen.Atom]bool)
+	} else {
+		for _, nn := range nodes {
+			enable.nodes[nn] = true
+		}
+	}
+	enable.Unlock()
+
+	return nil
 }
 
-func (n *network) ProxyRoute(name string) (ProxyRoute, bool) {
-	n.proxyRoutesMutex.RLock()
-	defer n.proxyRoutesMutex.RUnlock()
-	route, exist := n.proxyRoutes[name]
-	return route, exist
+func (n *network) isEnabledApplicationStart(name gen.Atom, source gen.Atom) error {
+	v, found := n.enableAppStart.Load(name)
+	if found == false {
+		return gen.ErrNameUnknown
+	}
+	enable := v.(*enableAppStart)
+	allowed := true
+	enable.RLock()
+	if len(enable.nodes) > 0 {
+		allowed = enable.nodes[source]
+	}
+	enable.RUnlock()
+	if allowed == false {
+		return gen.ErrNotAllowed
+	}
+	return nil
 }
 
-func (n *network) listen(ctx context.Context, hostname string, options Listener, register bool) (net.Listener, error) {
+func (n *network) listEnabledApplicationStart() []gen.NetworkApplicationStartInfo {
+	info := []gen.NetworkApplicationStartInfo{}
 
-	lc := net.ListenConfig{
-		KeepAlive: defaultKeepAlivePeriod * time.Second,
+	n.enableAppStart.Range(func(k, v any) bool {
+		nas := gen.NetworkApplicationStartInfo{
+			Name: k.(gen.Atom),
+		}
+		enable := v.(*enableAppStart)
+		enable.RLock()
+		for peer, en := range enable.nodes {
+			if en == false {
+				continue
+			}
+			nas.Nodes = append(nas.Nodes, peer)
+		}
+		enable.RUnlock()
+		info = append(info, nas)
+		return true
+	})
+	return info
+}
+
+func (n *network) DisableApplicationStart(name gen.Atom, nodes ...gen.Atom) error {
+	if len(nodes) == 0 {
+		if _, exist := n.enableAppStart.LoadAndDelete(name); exist == false {
+			return gen.ErrUnknown
+		}
+		return nil
 	}
-	tlsEnabled := false
-	if options.TLS != nil {
-		if options.TLS.Certificates != nil || options.TLS.GetCertificate != nil {
-			tlsEnabled = true
+	v, exist := n.enableAppStart.Load(name)
+	if exist == false {
+		return gen.ErrUnknown
+	}
+	enable := v.(*enableAppStart)
+	enable.Lock()
+	for _, nn := range nodes {
+		delete(enable.nodes, nn)
+	}
+	enable.Unlock()
+	return nil
+}
+
+func (n *network) RegisterHandshake(handshake gen.NetworkHandshake) {
+	if handshake == nil {
+		n.node.Log().Error("unable to register nil value as a handshake")
+		return
+	}
+	_, exist := n.handshakes.LoadOrStore(handshake.Version().Str(), handshake)
+	if exist == false {
+		if lib.Trace() {
+			n.node.Log().Trace("registered handshake %s", handshake.Version())
 		}
 	}
+}
 
-	for port := options.ListenBegin; port <= options.ListenEnd; port++ {
-		if options.Hostname != "" {
-			hostname = options.Hostname
+func (n *network) RegisterProto(proto gen.NetworkProto) {
+	if proto == nil {
+		n.node.Log().Error("unable to register nil value as a proto ")
+		return
+	}
+	_, exist := n.protos.LoadOrStore(proto.Version().Str(), proto)
+	if exist == false {
+		if lib.Trace() {
+			n.node.Log().Trace("registered proto %s", proto.Version())
 		}
+	}
+}
 
-		hostPort := net.JoinHostPort(hostname, strconv.Itoa(int(port)))
-		lib.Log("[%s] NETWORK trying to start listener on %q", n.nodename, hostPort)
-		listener, err := lc.Listen(ctx, "tcp", hostPort)
-		if err != nil {
-			continue
+func (n *network) Nodes() []gen.Atom {
+	var nodes []gen.Atom
+
+	n.connections.Range(func(k, _ any) bool {
+		node := k.(gen.Atom)
+		nodes = append(nodes, node)
+		return true
+	})
+
+	return nodes
+}
+
+func (n *network) Info() (gen.NetworkInfo, error) {
+	var info gen.NetworkInfo
+
+	if n.running.Load() == false {
+		return info, gen.ErrNetworkStopped
+	}
+
+	info.Mode = n.mode
+	info.Registrar = n.registrar.Info()
+
+	for _, acceptor := range n.acceptors {
+		info.Acceptors = append(info.Acceptors, acceptor.Info())
+	}
+	info.MaxMessageSize = n.maxmessagesize
+	info.HandshakeVersion = n.defaultHandshake.Version()
+	info.ProtoVersion = n.defaultProto.Version()
+
+	n.connections.Range(func(k, _ any) bool {
+		node := k.(gen.Atom)
+		info.Nodes = append(info.Nodes, node)
+		return true
+	})
+
+	info.Routes = n.staticRoutes.info()
+	info.ProxyRoutes = n.staticProxies.info()
+
+	info.Flags = n.flags
+
+	info.EnabledSpawn = n.listEnabledSpawn()
+	info.EnabledApplicationStart = n.listEnabledApplicationStart()
+
+	return info, nil
+}
+
+func (n *network) Mode() gen.NetworkMode {
+	return n.mode
+}
+
+//
+// internals
+//
+
+// Connection and GetConnection aren't exposed via gen.Network
+func (n *network) Connection(name gen.Atom) (gen.Connection, error) {
+	v, found := n.connections.Load(name)
+	if found == false {
+		return nil, gen.ErrNoConnection
+	}
+	return v.(gen.Connection), nil
+}
+
+func (n *network) GetConnection(name gen.Atom) (gen.Connection, error) {
+	v, found := n.connections.Load(name)
+	if found {
+		return v.(gen.Connection), nil
+	}
+
+	if lib.Trace() {
+		n.node.Log().Trace("trying to make connection with %s", name)
+	}
+	// check the static routes
+	if sroutes, found := n.staticRoutes.lookup(string(name)); found {
+		if lib.Trace() {
+			n.node.Log().Trace("found %s static route[s] for %s", len(sroutes), name)
 		}
-
-		if register && n.registrar != nil {
-			registerOptions := RegisterOptions{
-				Port:              port,
-				Creation:          n.creation,
-				NodeVersion:       n.version,
-				HandshakeVersion:  options.Handshake.Version(),
-				EnableTLS:         tlsEnabled,
-				EnableProxy:       options.Flags.EnableProxy,
-				EnableCompression: options.Flags.EnableCompression,
+		for i, sroute := range sroutes {
+			sroute.InsecureSkipVerify = n.skipverify
+			if sroute.Resolver == nil {
+				if lib.Trace() {
+					n.node.Log().Trace("use static route to %s (%d)", name, i+1)
+				}
+				if c, err := n.connect(name, sroute); err == nil {
+					return c, nil
+				} else {
+					if lib.Trace() {
+						n.node.Log().Trace("unable to connect to %s using static route: %s", name, err)
+					}
+				}
+				continue
 			}
 
-			if err := n.registrar.Register(n.ctx, n.nodename, registerOptions); err != nil {
-				listener.Close()
-				return nil, fmt.Errorf("can not register this node: %s", err)
+			if lib.Trace() {
+				n.node.Log().Trace("use static route to %s with resolver (%d)", name, i+1)
+			}
+			nr, err := sroute.Resolver.Resolve(name)
+			if err != nil {
+				if lib.Trace() {
+					n.node.Log().Trace("failed to resolve %s: %s", name, err)
+				}
+				continue
+			}
+
+			for _, route := range nr {
+				nroute := gen.NetworkRoute{
+					Route:              route,
+					InsecureSkipVerify: n.skipverify,
+				}
+				if nroute.Route.TLS && nroute.Cert == nil {
+					nroute.Cert = n.node.certmanager
+				}
+				if nroute.Cookie == "" {
+					nroute.Cookie = n.cookie
+				}
+				if c, err := n.connect(name, nroute); err == nil {
+					return c, nil
+				} else {
+					if lib.Trace() {
+						n.node.Log().Trace("unable to connect to %s using static route (with resolver): %s", name, err)
+					}
+				}
 			}
 		}
-
-		if tlsEnabled {
-			listener = tls.NewListener(listener, options.TLS)
-		}
-
-		go func() {
-			for {
-				c, err := listener.Accept()
-				if err != nil {
-					if err == io.EOF {
-						return
-					}
-					if ctx.Err() == nil {
-						continue
-					}
-					lib.Log(err.Error())
-					return
-				}
-				lib.Log("[%s] NETWORK accepted new connection from %s", n.nodename, c.RemoteAddr().String())
-
-				details, err := options.Handshake.Accept(c.RemoteAddr(), c, tlsEnabled, options.Cookie)
-				if err != nil {
-					if err != io.EOF {
-						lib.Warning("[%s] Can't handshake with %s: %s", n.nodename, c.RemoteAddr().String(), err)
-					}
-					c.Close()
-					continue
-				}
-				if details.Name == "" {
-					err := fmt.Errorf("remote node introduced itself as %q", details.Name)
-					lib.Warning("Handshake error: %s", err)
-					c.Close()
-					continue
-				}
-				connection, err := options.Proto.Init(n.ctx, c, n.nodename, details)
-				if err != nil {
-					lib.Warning("Proto error: %s", err)
-					c.Close()
-					continue
-				}
-
-				cInternal := connectionInternal{
-					conn:       c,
-					connection: connection,
-				}
-
-				if len(details.ProxyTransit.AllowTo) > 0 {
-					cInternal.proxyTransitTo = make(map[string]bool)
-					for _, to := range details.ProxyTransit.AllowTo {
-						cInternal.proxyTransitTo[to] = true
-					}
-				}
-
-				if _, err := n.registerConnection(details.Name, cInternal); err != nil {
-					// Race condition:
-					// There must be another goroutine which already created and registered
-					// connection to this node.
-					// Close this connection and use the already registered connection
-					c.Close()
-					continue
-				}
-
-				// run serving connection
-				go func(ctx context.Context, ci connectionInternal) {
-					options.Proto.Serve(ci.connection, n.router)
-					n.unregisterConnection(details.Name, nil)
-					options.Proto.Terminate(ci.connection)
-					ci.conn.Close()
-				}(ctx, cInternal)
-
-			}
-		}()
-
-		return listener, nil
+		return nil, gen.ErrNoRoute
 	}
 
-	// all ports within a given range are taken
-	return nil, fmt.Errorf("can not start listener (port range is taken)")
+	// check the static proxy routes
+	if proutes, found := n.staticProxies.lookup(string(name)); found {
+		if lib.Trace() {
+			n.node.Log().Trace("found %d static proxy route[s] for %s", len(proutes), name)
+		}
+		for i, proute := range proutes {
+			if proute.Resolver == nil {
+				if lib.Trace() {
+					n.node.Log().Trace("use static proxy route to %s (%d)", name, i+1)
+				}
+				if c, err := n.connectProxy(name, proute); err == nil {
+					return c, nil
+				}
+				continue
+			}
+
+			if lib.Trace() {
+				n.node.Log().Trace("use static proxy route to %s with resolver (%d)", name, i+1)
+			}
+			pr, err := proute.Resolver.ResolveProxy(name)
+			if err != nil {
+				if lib.Trace() {
+					n.node.Log().Trace("failed to resolve proxy for %s: %s", name, err)
+				}
+				continue
+			}
+
+			for _, route := range pr {
+				nproute := gen.NetworkProxyRoute{
+					Route: route,
+				}
+				if c, err := n.connectProxy(name, nproute); err == nil {
+					return c, nil
+				} else {
+					if lib.Trace() {
+						n.node.Log().Trace("unable to connect to %s using proxy route: %s", name, err)
+					}
+				}
+			}
+		}
+		return nil, gen.ErrNoRoute
+	}
+
+	// resolve it
+	if nr, err := n.registrar.Resolver().Resolve(name); err == nil {
+		if lib.Trace() {
+			n.node.Log().Trace("resolved %d route[s] for %s", len(nr), name)
+		}
+
+		for _, route := range nr {
+			nroute := gen.NetworkRoute{
+				Route:              route,
+				InsecureSkipVerify: n.skipverify,
+				Cookie:             n.cookie,
+			}
+
+			if route.TLS {
+				nroute.Cert = n.node.certmanager
+			}
+
+			if c, err := n.connect(name, nroute); err == nil {
+				return c, nil
+			} else {
+				if lib.Trace() {
+					n.node.Log().Trace("unable to connect to %s: %s", name, err)
+				}
+			}
+		}
+		if lib.Trace() {
+			n.node.Log().Trace("unable to connect to %s directly, looking up proxies...", name)
+		}
+	}
+
+	// resolve proxy
+	if pr, err := n.registrar.Resolver().ResolveProxy(name); err == nil {
+		if lib.Trace() {
+			n.node.Log().Trace("resolved %d proxy routes for %s", len(pr), name)
+		}
+
+		// check if we already have connection with the proxy, so use it
+		// for the proxy connection
+		for _, route := range pr {
+			// check if we have connection to the proxy node
+			if _, err := n.Connection(route.Proxy); err != nil {
+				continue
+			}
+			// try to use the existing connection to the proxy node
+			nproute := gen.NetworkProxyRoute{
+				Route: route,
+			}
+			if c, err := n.connectProxy(name, nproute); err == nil {
+				return c, nil
+			} else {
+				if lib.Trace() {
+					n.node.Log().Trace("unable to connect to %s using resolve proxy: %s", name, err)
+				}
+			}
+		}
+	}
+
+	return nil, gen.ErrNoRoute
 }
 
-func (n *network) connect(node string) (ConnectionInterface, error) {
-	var c net.Conn
-	lib.Log("[%s] NETWORK trying to connect to %#v", n.nodename, node)
+func (n *network) connect(name gen.Atom, route gen.NetworkRoute) (gen.Connection, error) {
+	var dial func(network, addr string) (net.Conn, error)
 
-	// resolve the route
-	route, err := n.Resolve(node)
-	if err != nil {
-		return nil, err
+	if n.running.Load() == false {
+		return nil, gen.ErrNetworkStopped
 	}
-	customHandshake := route.Options.Handshake != nil
-	lib.Log("[%s] NETWORK resolved %#v to %s:%d (custom handshake: %t)", n.nodename, node, route.Host, route.Port, customHandshake)
 
-	HostPort := net.JoinHostPort(route.Host, strconv.Itoa(int(route.Port)))
-	dialer := net.Dialer{
-		KeepAlive: defaultKeepAlivePeriod * time.Second,
+	vhandshake, found := n.handshakes.Load(route.Route.HandshakeVersion.Str())
+	if found == false {
+		return nil, fmt.Errorf("no handshake handler for %s", route.Route.HandshakeVersion)
+	}
+	vproto, found := n.protos.Load(route.Route.ProtoVersion.Str())
+	if found == false {
+		return nil, fmt.Errorf("no proto handler for %s", route.Route.ProtoVersion)
+	}
+
+	handshake := vhandshake.(gen.NetworkHandshake)
+	proto := vproto.(gen.NetworkProto)
+
+	if lib.Trace() {
+		n.node.Log().Trace("trying to connect to %s (%s:%d, tls:%v)",
+			name, route.Route.Host, route.Route.Port, route.Route.TLS)
+	}
+
+	dialer := &net.Dialer{
+		KeepAlive: gen.DefaultKeepAlivePeriod,
 		Timeout:   3 * time.Second, // timeout to establish TCP-connection
 	}
 
-	tlsEnabled := route.Options.TLS != nil
-
-	if route.Options.IsErgo == true {
-		// use the route TLS settings if they were defined
-		if tlsEnabled {
-			if n.tls != nil {
-				route.Options.TLS.InsecureSkipVerify = n.tls.InsecureSkipVerify
-			}
-			// use the local TLS settings
-			tlsdialer := tls.Dialer{
-				NetDialer: &dialer,
-				Config:    route.Options.TLS,
-			}
-			c, err = tlsdialer.DialContext(n.ctx, "tcp", HostPort)
-		} else {
-			// TLS disabled on a remote node
-			c, err = dialer.DialContext(n.ctx, "tcp", HostPort)
+	if route.Route.TLS {
+		tlsconfig := &tls.Config{
+			InsecureSkipVerify: route.InsecureSkipVerify,
 		}
+		tlsdialer := tls.Dialer{
+			NetDialer: dialer,
+			Config:    tlsconfig,
+		}
+		dial = tlsdialer.Dial
 	} else {
-		// this is an Erlang/Elixir node. use the local TLS settings
-		tlsEnabled = n.tls != nil
-		if tlsEnabled {
-			tlsdialer := tls.Dialer{
-				NetDialer: &dialer,
-				Config:    n.tls,
+		dial = dialer.Dial
+	}
+	dsn := net.JoinHostPort(route.Route.Host, strconv.Itoa(int(route.Route.Port)))
+	conn, err := dial("tcp", dsn)
+	if err != nil {
+		return nil, err
+	}
+
+	hopts := gen.HandshakeOptions{
+		Cookie:         route.Cookie,
+		Flags:          route.Flags,
+		MaxMessageSize: n.maxmessagesize,
+	}
+
+	if hopts.Cookie == "" {
+		hopts.Cookie = n.cookie
+	}
+	if hopts.Flags.Enable == false {
+		hopts.Flags = n.flags
+	}
+
+	result, err := handshake.Start(n.node, conn, hopts)
+	if err != nil {
+		conn.Close()
+		return nil, err
+	}
+
+	if result.Peer != name {
+		conn.Close()
+		return nil, fmt.Errorf("remote node %s introduced itself as %s", name, result.Peer)
+	}
+
+	mapping := make(map[gen.Atom]gen.Atom)
+	for k, v := range route.AtomMapping {
+		mapping[k] = v
+	}
+	for k, v := range result.AtomMapping {
+		mapping[k] = v
+	}
+	result.AtomMapping = mapping
+
+	if route.LogLevel == gen.LogLevelDefault {
+		route.LogLevel = n.node.Log().Level()
+	}
+	log := createLog(route.LogLevel, n.node.dolog)
+	logSource := gen.MessageLogNetwork{
+		Node:     n.node.name,
+		Peer:     result.Peer,
+		Creation: result.PeerCreation,
+	}
+	log.setSource(logSource)
+
+	pconn, err := proto.NewConnection(n.node, result, log)
+	if err != nil {
+		conn.Close()
+		return nil, err
+	}
+
+	redial := func(dsn, id string) (net.Conn, []byte, error) {
+		c, err := dial("tcp", dsn)
+		if err != nil {
+			return nil, nil, err
+		}
+		tail, err := handshake.Join(n.node, c, id, hopts)
+		if err != nil {
+			return nil, nil, err
+		}
+		return c, tail, nil
+	}
+
+	if c, err := n.registerConnection(result.Peer, pconn); err != nil {
+		if err == gen.ErrTaken {
+			return c, nil
+		}
+		pconn.Terminate(err)
+		conn.Close()
+		return nil, err
+	}
+
+	pconn.Join(conn, result.ConnectionID, redial, result.Tail)
+	go n.serve(proto, pconn, redial)
+
+	return pconn, nil
+}
+
+func (n *network) serve(proto gen.NetworkProto, conn gen.Connection, redial gen.NetworkDial) {
+	name := conn.Node().Name()
+	if lib.Recover() {
+		defer func() {
+			if r := recover(); r != nil {
+				n.node.log.Panic("connection with %s (%s) terminated abnormally: %v", name, name.CRC32(), r)
+				n.unregisterConnection(name, gen.TerminateReasonPanic)
+				conn.Terminate(gen.TerminateReasonPanic)
 			}
-			c, err = tlsdialer.DialContext(n.ctx, "tcp", HostPort)
-
-		} else {
-			c, err = dialer.DialContext(n.ctx, "tcp", HostPort)
-		}
+		}()
 	}
 
-	// check if we couldn't establish a connection with the node
+	err := proto.Serve(conn, redial)
+	n.unregisterConnection(name, err)
+	conn.Terminate(err)
+}
+
+func (n *network) connectProxy(name gen.Atom, route gen.NetworkProxyRoute) (gen.Connection, error) {
+	if lib.Trace() {
+		n.node.Log().Trace("trying to connect to %s (via proxy %s)", name, route.Route.Proxy)
+	}
+	// TODO will be implemented later
+	n.node.log.Warning("proxy feature is not implemented yet")
+
+	return nil, gen.ErrUnsupported
+}
+
+func (n *network) stop() error {
+	if swapped := n.running.CompareAndSwap(true, false); swapped == false {
+		return fmt.Errorf("network stack is already stopped")
+	}
+
+	n.registrar.Terminate()
+	n.registrar = nil
+
+	// stop acceptors
+	for _, a := range n.acceptors {
+		a.l.Close()
+	}
+
+	n.connections.Range(func(_, v any) bool {
+		c := v.(gen.Connection)
+		c.Terminate(gen.TerminateReasonNormal)
+		return true
+	})
+
+	return nil
+}
+
+func (n *network) start(options gen.NetworkOptions) error {
+	if swapped := n.running.CompareAndSwap(false, true); swapped == false {
+		return fmt.Errorf("network stack is already running")
+	}
+
+	n.mode = options.Mode
+	if options.Mode == gen.NetworkModeDisabled {
+		n.running.Store(false)
+		n.node.log.Info("network is disabled")
+		return nil
+	}
+
+	if lib.Trace() {
+		n.node.log.Trace("starting network...")
+	}
+
+	n.skipverify = options.InsecureSkipVerify
+	n.registrar = options.Registrar
+	if n.registrar == nil {
+		n.registrar = registrar.Create(registrar.Options{})
+	}
+
+	n.node.validateLicenses(n.registrar.Version())
+
+	if options.Cookie == "" {
+		n.node.log.Warning("cookie is empty (gen.NetworkOptions), used randomized value")
+		options.Cookie = lib.RandomString(16)
+	}
+	n.cookie = options.Cookie
+	n.maxmessagesize = options.MaxMessageSize
+
+	if options.Flags.Enable == false {
+		options.Flags = gen.DefaultNetworkFlags
+	}
+	n.flags = options.Flags
+
+	if options.Mode == gen.NetworkModeHidden {
+		static, err := n.registrar.Register(n.node, gen.RegisterRoutes{})
+		if err != nil {
+			return err
+		}
+
+		// add static routes
+		for match, route := range static.Routes {
+			if err := n.AddRoute(match, route, 0); err != nil {
+				n.node.log.Error("unable to add static route %q from the registrar, ignored", match)
+			}
+		}
+		// add static proxy routes
+		for match, route := range static.Proxies {
+			if err := n.AddProxyRoute(match, route, 0); err != nil {
+				n.node.log.Error("unable to add static proxy route %q from the registrar, ignored", match)
+			}
+		}
+
+		if lib.Trace() {
+			n.node.log.Trace("network started (hidden) with registrar %s", n.registrar.Version())
+		}
+		return nil
+	}
+
+	nodehost := strings.Split(string(n.node.name), "@")
+
+	if len(options.Acceptors) == 0 {
+		a := gen.AcceptorOptions{
+			Host:           nodehost[1],
+			Port:           gen.DefaultPort,
+			CertManager:    n.node.CertManager(),
+			Cookie:         options.Cookie,
+			MaxMessageSize: options.MaxMessageSize,
+			Flags:          options.Flags,
+		}
+		options.Acceptors = append(options.Acceptors, a)
+	}
+
+	if options.Handshake != nil {
+		n.defaultHandshake = options.Handshake
+	}
+	if options.Proto != nil {
+		n.defaultProto = options.Proto
+	}
+
+	appRoutes := []gen.ApplicationRoute{}
+	for _, app := range n.node.Applications() {
+		info, err := n.node.ApplicationInfo(app)
+		if err != nil {
+			continue
+		}
+		r := gen.ApplicationRoute{
+			Node:   n.node.Name(),
+			Name:   info.Name,
+			Weight: info.Weight,
+			Mode:   info.Mode,
+		}
+		appRoutes = append(appRoutes, r)
+	}
+	routes := []gen.Route{}
+
+	for _, a := range options.Acceptors {
+		if a.Handshake == nil {
+			a.Handshake = n.defaultHandshake
+		}
+
+		if a.Proto == nil {
+			a.Proto = n.defaultProto
+		}
+
+		if a.MaxMessageSize == 0 {
+			a.MaxMessageSize = options.MaxMessageSize
+		}
+
+		if a.Flags.Enable == false {
+			a.Flags = a.Handshake.NetworkFlags()
+			if a.Flags.Enable == false {
+				a.Flags = options.Flags
+			}
+		}
+
+		switch a.TCP {
+		case "tcp":
+		case "tcp6":
+		default:
+			a.TCP = "tcp4"
+		}
+
+		if a.Host == "" {
+			a.Host = nodehost[1]
+		}
+
+		acceptor, err := n.startAcceptor(a)
+		if err != nil {
+			// stop acceptors
+			for i := range n.acceptors {
+				n.acceptors[i].l.Close()
+			}
+			return err
+		}
+
+		n.acceptors = append(n.acceptors, acceptor)
+		r := gen.Route{
+			Port:             acceptor.port,
+			TLS:              acceptor.cert_manager != nil,
+			HandshakeVersion: acceptor.handshake.Version(),
+			ProtoVersion:     acceptor.proto.Version(),
+		}
+		n.node.validateLicenses(r.HandshakeVersion, r.ProtoVersion)
+		if a.Registrar == nil {
+			acceptor.registrar_info = n.registrar.Info
+			routes = append(routes, r)
+			continue
+		}
+
+		acceptor.registrar_info = a.Registrar.Info
+		// custom reistrar for this acceptor
+		registerRoutes := gen.RegisterRoutes{
+			Routes:            []gen.Route{r},
+			ApplicationRoutes: appRoutes,
+		}
+		registrarInfo := a.Registrar.Info()
+
+		// TODO it returns static routes. they need to be handled
+		_, err = a.Registrar.Register(n.node, registerRoutes)
+		if err != nil {
+			// stop acceptors
+			for i := range n.acceptors {
+				n.acceptors[i].l.Close()
+			}
+			return fmt.Errorf("unable to register node on %s (%s): %s", registrarInfo.Server, registrarInfo.Version, err)
+		}
+		acceptor.registrar_custom = true
+	}
+
+	registerRoutes := gen.RegisterRoutes{
+		Routes:            routes,
+		ApplicationRoutes: appRoutes,
+	}
+
+	static, err := n.registrar.Register(n.node, registerRoutes)
 	if err != nil {
-		lib.Warning("Could not connect to %q (%s): %s", node, HostPort, err)
-		return nil, err
+		return fmt.Errorf("unable to register node: %s", err)
 	}
 
-	// handshake
-	handshake := route.Options.Handshake
-	if handshake == nil {
-		// use default handshake
-		handshake = n.handshake
-	}
-
-	cookie := n.cookie
-	if route.Options.Cookie != "" {
-		cookie = route.Options.Cookie
-	}
-
-	details, err := handshake.Start(c.RemoteAddr(), c, tlsEnabled, cookie)
-	if err != nil {
-		lib.Warning("Handshake error: %s", err)
-		c.Close()
-		return nil, err
-	}
-	if details.Name != node {
-		err := fmt.Errorf("Handshake error: node %q introduced itself as %q", node, details.Name)
-		lib.Warning("%s", err)
-		return nil, err
-	}
-
-	// proto
-	proto := route.Options.Proto
-	if proto == nil {
-		// use default proto
-		proto = n.proto
-	}
-
-	connection, err := proto.Init(n.ctx, c, n.nodename, details)
-	if err != nil {
-		c.Close()
-		lib.Warning("Proto error: %s", err)
-		return nil, err
-	}
-	cInternal := connectionInternal{
-		conn:       c,
-		connection: connection,
-	}
-
-	if registered, err := n.registerConnection(details.Name, cInternal); err != nil {
-		// Race condition:
-		// There must be another goroutine which already created and registered
-		// connection to this node.
-		// Close this connection and use the already registered one
-		c.Close()
-		if err == lib.ErrTaken {
-			return registered, nil
+	// add static routes
+	for match, route := range static.Routes {
+		if err := n.AddRoute(match, route, 0); err != nil {
+			n.node.log.Error("unable to add static route %q from the registrar, ignored", match)
 		}
-		return nil, err
 	}
-
-	// enable keep alive on this connection
-	if tcp, ok := c.(*net.TCPConn); ok {
-		tcp.SetKeepAlive(true)
-		tcp.SetKeepAlivePeriod(5 * time.Second)
-		tcp.SetNoDelay(true)
-	}
-
-	// run serving connection
-	go func(ctx context.Context, ci connectionInternal) {
-		proto.Serve(ci.connection, n.router)
-		n.unregisterConnection(details.Name, nil)
-		proto.Terminate(ci.connection)
-		ci.conn.Close()
-	}(n.ctx, cInternal)
-
-	return connection, nil
-}
-
-func (n *network) registerConnection(peername string, ci connectionInternal) (ConnectionInterface, error) {
-	lib.Log("[%s] NETWORK registering peer %#v", n.nodename, peername)
-	n.connectionsMutex.Lock()
-	defer n.connectionsMutex.Unlock()
-
-	if registered, exist := n.connections[peername]; exist {
-		// already registered
-		return registered.connection, lib.ErrTaken
-	}
-	n.connections[peername] = ci
-
-	event := MessageEventNetwork{
-		PeerName: peername,
-		Online:   true,
-	}
-	if ci.conn == nil {
-		// this is proxy connection
-		p, _ := n.connectionsProxy[ci.connection]
-		p = append(p, peername)
-		n.connectionsProxy[ci.connection] = p
-		event.Proxy = true
-	}
-	n.router.sendEvent(corePID, EventNetwork, event)
-	return ci.connection, nil
-}
-
-func (n *network) unregisterConnection(peername string, disconnect *ProxyDisconnect) {
-	lib.Log("[%s] NETWORK unregistering peer %v", n.nodename, peername)
-
-	n.connectionsMutex.Lock()
-	ci, exist := n.connections[peername]
-	if exist == false {
-		n.connectionsMutex.Unlock()
-		return
-	}
-	delete(n.connections, peername)
-	n.connectionsMutex.Unlock()
-
-	n.router.RouteNodeDown(peername, disconnect)
-	event := MessageEventNetwork{
-		PeerName: peername,
-		Online:   false,
-	}
-
-	if ci.conn == nil {
-		// it was proxy connection
-		ci.connection.ProxyUnregisterSession(ci.proxySessionID)
-		event.Proxy = true
-		n.router.sendEvent(corePID, EventNetwork, event)
-		return
-	}
-	n.router.sendEvent(corePID, EventNetwork, event)
-
-	n.connectionsMutex.Lock()
-	cp, _ := n.connectionsProxy[ci.connection]
-	for _, p := range cp {
-		lib.Log("[%s] NETWORK unregistering peer (via proxy) %v", n.nodename, p)
-		delete(n.connections, p)
-		event.PeerName = p
-		event.Proxy = true
-		n.router.sendEvent(corePID, EventNetwork, event)
-	}
-
-	ct, _ := n.connectionsTransit[ci.connection]
-	delete(n.connectionsTransit, ci.connection)
-	n.connectionsMutex.Unlock()
-
-	// send disconnect for the proxy sessions
-	for _, p := range cp {
-		disconnect := ProxyDisconnect{
-			Node:   peername,
-			Proxy:  n.nodename,
-			Reason: "noconnection",
+	// add static proxy routes
+	for match, route := range static.Proxies {
+		if err := n.AddProxyRoute(match, route, 0); err != nil {
+			n.node.log.Error("unable to add static proxy route %q from the registrar, ignored", match)
 		}
-		n.router.RouteNodeDown(p, &disconnect)
 	}
 
-	// disconnect for the transit proxy sessions
-	for i := range ct {
-		disconnect := ProxyDisconnect{
-			Node:      peername,
-			Proxy:     n.nodename,
-			SessionID: ct[i],
-			Reason:    "noconnection",
+	if lib.Trace() {
+		n.node.log.Trace("network started with registrar %s", n.registrar.Version())
+	}
+	return nil
+}
+
+func (n *network) startAcceptor(a gen.AcceptorOptions) (*acceptor, error) {
+	lc := net.ListenConfig{
+		KeepAlive: gen.DefaultKeepAlivePeriod,
+	}
+
+	cert_manager := a.CertManager
+	if cert_manager == nil {
+		cert_manager = n.node.CertManager()
+	}
+	bs := a.BufferSize
+	if bs < 1 {
+		bs = gen.DefaultTCPBufferSize
+	}
+
+	pstart := a.Port
+	if pstart == 0 {
+		pstart = gen.DefaultPort
+	}
+	pend := a.PortRange
+	if pend == 0 {
+		pend = 50000
+	}
+	if pend < pstart {
+		pend = pstart
+	}
+
+	acceptor := &acceptor{
+		bs:               bs,
+		proto:            a.Proto,
+		handshake:        a.Handshake,
+		cert_manager:     cert_manager,
+		max_message_size: a.MaxMessageSize,
+		atom_mapping:     make(map[gen.Atom]gen.Atom),
+	}
+	if a.Cookie == "" {
+		acceptor.cookie = n.cookie
+	}
+	for k, v := range a.AtomMapping {
+		acceptor.atom_mapping[k] = v
+	}
+
+	for i := pstart; i < pend+1; i++ {
+		hp := net.JoinHostPort(a.Host, strconv.Itoa(int(i)))
+		lcl, err := lc.Listen(context.Background(), a.TCP, hp)
+		if err != nil {
+			if e, ok := err.(*net.OpError); ok {
+				if _, ok := e.Err.(*net.DNSError); ok {
+					return nil, err
+				}
+			}
+			continue
 		}
-		n.RouteProxyDisconnect(ci.connection, disconnect)
+
+		acceptor.port = i
+		acceptor.l = lcl
+		break
 	}
 
-}
-
-// Connection interface default callbacks
-func (c *Connection) Send(from gen.Process, to etf.Pid, message etf.Term) error {
-	return lib.ErrUnsupported
-}
-func (c *Connection) SendReg(from gen.Process, to gen.ProcessID, message etf.Term) error {
-	return lib.ErrUnsupported
-}
-func (c *Connection) SendAlias(from gen.Process, to etf.Alias, message etf.Term) error {
-	return lib.ErrUnsupported
-}
-func (c *Connection) Link(local gen.Process, remote etf.Pid) error {
-	return lib.ErrUnsupported
-}
-func (c *Connection) Unlink(local gen.Process, remote etf.Pid) error {
-	return lib.ErrUnsupported
-}
-func (c *Connection) LinkExit(local etf.Pid, remote etf.Pid, reason string) error {
-	return lib.ErrUnsupported
-}
-func (c *Connection) Monitor(local gen.Process, remote etf.Pid, ref etf.Ref) error {
-	return lib.ErrUnsupported
-}
-func (c *Connection) MonitorReg(local gen.Process, remote gen.ProcessID, ref etf.Ref) error {
-	return lib.ErrUnsupported
-}
-func (c *Connection) Demonitor(by etf.Pid, process etf.Pid, ref etf.Ref) error {
-	return lib.ErrUnsupported
-}
-func (c *Connection) DemonitorReg(by etf.Pid, process gen.ProcessID, ref etf.Ref) error {
-	return lib.ErrUnsupported
-}
-func (c *Connection) MonitorExitReg(process gen.Process, reason string, ref etf.Ref) error {
-	return lib.ErrUnsupported
-}
-func (c *Connection) MonitorExit(to etf.Pid, terminated etf.Pid, reason string, ref etf.Ref) error {
-	return lib.ErrUnsupported
-}
-func (c *Connection) SpawnRequest(nodeName string, behaviorName string, request gen.RemoteSpawnRequest, args ...etf.Term) error {
-	return lib.ErrUnsupported
-}
-func (c *Connection) SpawnReply(to etf.Pid, ref etf.Ref, pid etf.Pid) error {
-	return lib.ErrUnsupported
-}
-func (c *Connection) SpawnReplyError(to etf.Pid, ref etf.Ref, err error) error {
-	return lib.ErrUnsupported
-}
-func (c *Connection) ProxyConnectRequest(connect ProxyConnectRequest) error {
-	return lib.ErrUnsupported
-}
-func (c *Connection) ProxyConnectReply(reply ProxyConnectReply) error {
-	return lib.ErrUnsupported
-}
-func (c *Connection) ProxyDisconnect(disconnect ProxyDisconnect) error {
-	return lib.ErrUnsupported
-}
-func (c *Connection) ProxyRegisterSession(session ProxySession) error {
-	return lib.ErrUnsupported
-}
-func (c *Connection) ProxyUnregisterSession(id string) error {
-	return lib.ErrUnsupported
-}
-func (c *Connection) ProxyPacket(packet *lib.Buffer) error {
-	return lib.ErrUnsupported
-}
-func (c *Connection) Stats() NetworkStats {
-	return NetworkStats{}
-}
-
-// Handshake interface default callbacks
-func (h *Handshake) Start(remote net.Addr, conn lib.NetReadWriter, tls bool, cookie string) (HandshakeDetails, error) {
-	return HandshakeDetails{}, lib.ErrUnsupported
-}
-func (h *Handshake) Accept(remote net.Addr, conn lib.NetReadWriter, tls bool, cookie string) (HandshakeDetails, error) {
-	return HandshakeDetails{}, lib.ErrUnsupported
-}
-func (h *Handshake) Version() HandshakeVersion {
-	var v HandshakeVersion
-	return v
-}
-
-// internals
-
-func (n *network) putProxyConnectRequest(r proxyConnectRequest) {
-	n.proxyConnectRequestMutex.Lock()
-	defer n.proxyConnectRequestMutex.Unlock()
-	n.proxyConnectRequest[r.request.ID] = r
-}
-
-func (n *network) cancelProxyConnectRequest(cancel ProxyConnectCancel) {
-	n.proxyConnectRequestMutex.Lock()
-	defer n.proxyConnectRequestMutex.Unlock()
-
-	r, found := n.proxyConnectRequest[cancel.ID]
-	if found == false {
-		return
+	if acceptor.l == nil {
+		return acceptor, fmt.Errorf("unable to assign requested address %s: no available ports in range %d..%d",
+			a.Host, pstart, pend)
 	}
 
-	delete(n.proxyConnectRequest, cancel.ID)
-	select {
-	case r.cancel <- cancel:
-	default:
+	if acceptor.cert_manager != nil {
+		config := &tls.Config{
+			GetCertificate:     acceptor.cert_manager.GetCertificateFunc(),
+			InsecureSkipVerify: a.InsecureSkipVerify,
+		}
+		acceptor.l = tls.NewListener(acceptor.l, config)
 	}
-	return
+
+	acceptor.flags = a.Flags
+	if acceptor.flags.Enable == false {
+		acceptor.flags = gen.DefaultNetworkFlags
+	}
+
+	go n.accept(acceptor)
+
+	if lib.Trace() {
+		n.node.Log().Trace("started acceptor on %s with handshake %s and proto %s (TLS: %t)",
+			acceptor.l.Addr(),
+			acceptor.handshake.Version(),
+			acceptor.proto.Version(), acceptor.cert_manager != nil,
+		)
+	}
+
+	n.RegisterHandshake(acceptor.handshake)
+	n.RegisterProto(acceptor.proto)
+
+	return acceptor, nil
 }
 
-func (n *network) waitProxyConnection(id etf.Ref, timeout int) (ConnectionInterface, error) {
-	n.proxyConnectRequestMutex.RLock()
-	r, found := n.proxyConnectRequest[id]
-	n.proxyConnectRequestMutex.RUnlock()
-
-	if found == false {
-		return nil, lib.ErrProxyUnknownRequest
+func (n *network) accept(a *acceptor) {
+	hopts := gen.HandshakeOptions{
+		Cookie:         a.cookie,
+		Flags:          a.flags,
+		MaxMessageSize: a.max_message_size,
+		CertManager:    a.cert_manager,
 	}
-
-	defer func(id etf.Ref) {
-		n.proxyConnectRequestMutex.Lock()
-		delete(n.proxyConnectRequest, id)
-		n.proxyConnectRequestMutex.Unlock()
-	}(id)
-
-	timer := lib.TakeTimer()
-	defer lib.ReleaseTimer(timer)
-	timer.Reset(time.Second * time.Duration(timeout))
-
 	for {
-		select {
-		case connection := <-r.connection:
-			return connection, nil
-		case err := <-r.cancel:
-			return nil, fmt.Errorf("[%s] %s", err.From, err.Reason)
-		case <-timer.C:
-			return nil, lib.ErrTimeout
-		case <-n.ctx.Done():
-			// node is on the way to terminate, it means connection is closed
-			// so it doesn't matter what kind of error will be returned
-			return nil, lib.ErrProxyUnknownRequest
+		c, err := a.l.Accept()
+		if err != nil {
+			if err == io.EOF {
+				return
+			}
+			n.node.Log().Info("acceptor %s terminated (handshake: %s, proto: %s)",
+				a.l.Addr(), a.handshake.Version(), a.proto.Version())
+			return
 		}
+		if lib.Trace() {
+			n.node.Log().Trace("accepted new TCP-connection from %s", c.RemoteAddr().String())
+		}
+
+		if hopts.Cookie == "" {
+			hopts.Cookie = n.cookie
+		}
+
+		result, err := a.handshake.Accept(n.node, c, hopts)
+		if err != nil {
+			if err != io.EOF {
+				n.node.Log().Warning("unable to handshake with %s: %s", c.RemoteAddr().String(), err)
+			}
+			c.Close()
+			continue
+		}
+
+		if result.Peer == "" {
+			n.node.Log().Warning("%s is not introduced itself, close connection", c.RemoteAddr().String())
+			c.Close()
+			continue
+		}
+
+		// update atom mapping: a.atom_mapping + result.AtomMapping
+		mapping := make(map[gen.Atom]gen.Atom)
+		for k, v := range a.atom_mapping {
+			mapping[k] = v
+		}
+		for k, v := range result.AtomMapping {
+			mapping[k] = v
+		}
+		result.AtomMapping = mapping
+
+		// check if we already have connection with this node
+		if v, exist := n.connections.Load(result.Peer); exist {
+			conn := v.(gen.Connection)
+			if err := conn.Join(c, result.ConnectionID, nil, result.Tail); err != nil {
+				if err == gen.ErrUnsupported {
+					n.node.Log().Warning("unable to accept connection with %s (join is not supported)",
+						result.Peer)
+				} else {
+					n.node.Log().Trace("unable to join %s to the existing connection with %s: %s",
+						c.RemoteAddr(), result.Peer, err)
+				}
+				c.Close()
+			}
+			continue
+		}
+
+		log := createLog(n.node.Log().Level(), n.node.dolog)
+		logSource := gen.MessageLogNetwork{
+			Node:     n.node.name,
+			Peer:     result.Peer,
+			Creation: result.PeerCreation,
+		}
+		log.setSource(logSource)
+		conn, err := a.proto.NewConnection(n.node, result, log)
+		if err != nil {
+			n.node.Log().Warning("unable to create new connection: %s", err)
+			c.Close()
+			continue
+		}
+
+		if _, err := n.registerConnection(result.Peer, conn); err != nil {
+			n.node.Log().Warning("unable to register new connection with %s: %s", result.Peer, err)
+			c.Close()
+			continue
+		}
+		conn.Join(c, result.ConnectionID, nil, result.Tail)
+		go n.serve(a.proto, conn, nil)
 	}
 }
 
-func (n *network) getProxyConnectRequest(id etf.Ref) (proxyConnectRequest, bool) {
-	n.proxyConnectRequestMutex.RLock()
-	defer n.proxyConnectRequestMutex.RUnlock()
-	r, found := n.proxyConnectRequest[id]
-	return r, found
+func (n *network) registerConnection(name gen.Atom, conn gen.Connection) (gen.Connection, error) {
+	if v, exist := n.connections.LoadOrStore(name, conn); exist {
+		return v.(gen.Connection), gen.ErrTaken
+	}
+	n.node.log.Info("new connection with %s (%s)", name, name.CRC32())
+	// TODO create event gen.MessageNetworkEvent
+	return conn, nil
 }
 
-func (n *network) networkStats() internalNetworkStats {
-	stats := internalNetworkStats{}
-	n.proxyTransitSessionsMutex.RLock()
-	stats.transitConnections = len(n.proxyTransitSessions)
-	n.proxyTransitSessionsMutex.RUnlock()
-
-	n.connectionsMutex.RLock()
-	stats.proxyConnections = len(n.connectionsProxy)
-	stats.connections = len(n.connections)
-	n.connectionsMutex.RUnlock()
-	return stats
-}
-
-//
-// internals
-//
-
-func generateProxyDigest(creation uint32, cookie string, pubkey []byte) []byte {
-	// md5(md5(md5(md5(node)+cookie)+peer)+pubkey)
-	c := [4]byte{}
-	binary.BigEndian.PutUint32(c[:], creation)
-	digest1 := md5.Sum([]byte(c[:]))
-	digest2 := md5.Sum(append(digest1[:], []byte(cookie)...))
-	digest3 := md5.Sum(append(digest2[:], pubkey...))
-	return digest3[:]
+func (n *network) unregisterConnection(name gen.Atom, reason error) {
+	n.connections.Delete(name)
+	if reason != nil {
+		n.node.log.Info("connection with %s (%s) terminated with reason: %s", name, name.CRC32(), reason)
+	} else {
+		n.node.log.Info("connection with %s (%s) terminated", name, name.CRC32())
+	}
+	n.node.RouteNodeDown(name, reason)
+	// TODO create event gen.MessageNetworkEvent
 }

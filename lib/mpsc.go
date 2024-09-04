@@ -9,23 +9,32 @@ import (
 )
 
 type queueMPSC struct {
-	head *itemMPSC
-	tail *itemMPSC
+	lock   uint32
+	head   *itemMPSC
+	tail   *itemMPSC
+	length int64
 }
 
 type queueLimitMPSC struct {
+	lock   uint32
 	head   *itemMPSC
 	tail   *itemMPSC
 	length int64
 	limit  int64
+	flush  bool
 }
 
 type QueueMPSC interface {
-	Push(value interface{}) bool
-	Pop() (interface{}, bool)
+	Push(value any) bool
+	Pop() (any, bool)
 	Item() ItemMPSC
 	// Len returns the number of items in the queue
 	Len() int64
+	// Size returns the limit for the queue. -1 - for unlimited
+	Size() int64
+
+	Lock() bool
+	Unlock() bool
 }
 
 func NewQueueMPSC() QueueMPSC {
@@ -36,13 +45,18 @@ func NewQueueMPSC() QueueMPSC {
 	}
 }
 
-func NewQueueLimitMPSC(limit int64) QueueMPSC {
+// NewQueueLimitMPSC creates MPSC queue with limited length. Enabling "flush" options
+// makes this queue flush out the tail item if the limit has been reached.
+// Warning: enabled "flush" option also makes this queue unusable
+// for the concurrent environment
+func NewQueueLimitMPSC(limit int64, flush bool) QueueMPSC {
 	if limit < 1 {
 		limit = math.MaxInt64
 	}
 	emptyItem := &itemMPSC{}
 	return &queueLimitMPSC{
 		limit: limit,
+		flush: flush,
 		head:  emptyItem,
 		tail:  emptyItem,
 	}
@@ -50,30 +64,36 @@ func NewQueueLimitMPSC(limit int64) QueueMPSC {
 
 type ItemMPSC interface {
 	Next() ItemMPSC
-	Value() interface{}
+	Value() any
 	Clear()
 }
 
 type itemMPSC struct {
-	value interface{}
+	value any
 	next  *itemMPSC
 }
 
 // Push place the given value in the queue head (FIFO). Returns always true
-func (q *queueMPSC) Push(value interface{}) bool {
+func (q *queueMPSC) Push(value any) bool {
 	i := &itemMPSC{
 		value: value,
 	}
+	atomic.AddInt64(&q.length, 1)
 	old_head := (*itemMPSC)(atomic.SwapPointer((*unsafe.Pointer)(unsafe.Pointer(&q.head)), unsafe.Pointer(i)))
 	atomic.StorePointer((*unsafe.Pointer)(unsafe.Pointer(&old_head.next)), unsafe.Pointer(i))
 	return true
 }
 
 // Push place the given value in the queue head (FIFO). Returns false if exceeded the limit
-func (q *queueLimitMPSC) Push(value interface{}) bool {
+func (q *queueLimitMPSC) Push(value any) bool {
 	if q.Len()+1 > q.limit {
-		return false
+		if q.flush == false {
+			return false
+		}
+		// flush one item to keep the length within the limit
+		q.Pop()
 	}
+
 	atomic.AddInt64(&q.length, 1)
 	i := &itemMPSC{
 		value: value,
@@ -84,7 +104,7 @@ func (q *queueLimitMPSC) Push(value interface{}) bool {
 }
 
 // Pop takes the item from the queue tail. Returns false if the queue is empty. Can be used in a single consumer (goroutine) only.
-func (q *queueMPSC) Pop() (interface{}, bool) {
+func (q *queueMPSC) Pop() (any, bool) {
 	tail_next := (*itemMPSC)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&q.tail.next))))
 	if tail_next == nil {
 		return nil, false
@@ -92,12 +112,17 @@ func (q *queueMPSC) Pop() (interface{}, bool) {
 
 	value := tail_next.value
 	tail_next.value = nil // let the GC free this item
+
+	// TODO a little race condition happens with node.process.go:1500 within the running a new goroutine
+	// to handle process mailbox (invoking Item() method).
+	// nothing serios, but we should use atomic operation here to set the q.tail
 	q.tail = tail_next
+	atomic.AddInt64(&q.length, -1)
 	return value, true
 }
 
 // Pop takes the item from the queue tail. Returns false if the queue is empty. Can be used in a single consumer (goroutine) only.
-func (q *queueLimitMPSC) Pop() (interface{}, bool) {
+func (q *queueLimitMPSC) Pop() (any, bool) {
 	tail_next := (*itemMPSC)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&q.tail.next))))
 	if tail_next == nil {
 		return nil, false
@@ -110,14 +135,38 @@ func (q *queueLimitMPSC) Pop() (interface{}, bool) {
 	return value, true
 }
 
-// Len returns -1 for the queue with no limit
 func (q *queueMPSC) Len() int64 {
-	return -1
+	return atomic.LoadInt64(&q.length)
+}
+
+func (q *queueMPSC) Size() int64 {
+	return -1 // unlimited
+}
+
+func (q *queueMPSC) Lock() bool {
+	return atomic.SwapUint32(&q.lock, 1) == 0
+}
+
+func (q *queueMPSC) Unlock() bool {
+	return atomic.SwapUint32(&q.lock, 0) == 1
+
 }
 
 // Len returns queue length
 func (q *queueLimitMPSC) Len() int64 {
 	return atomic.LoadInt64(&q.length)
+}
+
+func (q *queueLimitMPSC) Size() int64 {
+	return q.limit
+}
+func (q *queueLimitMPSC) Lock() bool {
+	return atomic.SwapUint32(&q.lock, 1) == 0
+}
+
+func (q *queueLimitMPSC) Unlock() bool {
+	return atomic.SwapUint32(&q.lock, 0) == 1
+
 }
 
 // Item returns the tail item of the queue. Returns nil if queue is empty.
@@ -152,7 +201,7 @@ func (i *itemMPSC) Next() ItemMPSC {
 }
 
 // Value returns stored value of the queue item
-func (i *itemMPSC) Value() interface{} {
+func (i *itemMPSC) Value() any {
 	return i.value
 }
 
