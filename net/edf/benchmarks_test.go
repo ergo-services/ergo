@@ -261,7 +261,7 @@ func BenchmarkEncodeRef(b *testing.B) {
 	value := gen.Ref{
 		Node:     "demo@127.0.0.1",
 		Creation: 2,
-		ID:       [3]uint32{73444, 3082813441, 2373634851},
+		ID:       [3]uint64{73444, 3082813441, 2373634851},
 	}
 
 	for i := 0; i < b.N; i++ {
@@ -280,7 +280,7 @@ func BenchmarkEncodeRefGob(b *testing.B) {
 	value := gen.Ref{
 		Node:     "demo@127.0.0.1",
 		Creation: 2,
-		ID:       [3]uint32{73444, 3082813441, 2373634851},
+		ID:       [3]uint64{73444, 3082813441, 2373634851},
 	}
 
 	b.ResetTimer()
@@ -557,7 +557,7 @@ func BenchmarkDecodeRef(b *testing.B) {
 	value := gen.Ref{
 		Node:     "demo@127.0.0.1",
 		Creation: 2,
-		ID:       [3]uint32{73444, 3082813441, 2373634851},
+		ID:       [3]uint64{73444, 3082813441, 2373634851},
 	}
 	if err := Encode(value, buf, Options{}); err != nil {
 		b.Fatal(err)
