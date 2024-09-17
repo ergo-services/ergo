@@ -1,8 +1,10 @@
 package meta
 
 import (
-	"ergo.services/ergo/gen"
 	"sync"
+	"time"
+
+	"ergo.services/ergo/gen"
 )
 
 type MessagePortStarted struct {
@@ -21,11 +23,23 @@ type MessagePort struct {
 	Data []byte
 }
 
+type MessagePortError struct {
+	ID   gen.Alias
+	Tag  string
+	Data []byte
+}
+
 type PortOptions struct {
-	Cmd        string
-	Args       []string
-	Tag        string
-	Process    gen.Atom
-	BufferSize int
-	BufferPool *sync.Pool
+	Cmd            string
+	Args           []string
+	Tag            string
+	Process        gen.Atom
+	ReadBufferSize int
+	ReadBufferPool *sync.Pool
+
+	// WriteBuffer enables buffering for outgoing data. It improves performance
+	// in case of writing a lot of small data chunks
+	WriteBuffer                bool
+	WriteBufferKeepAlive       []byte
+	WriteBufferKeepAlivePeriod time.Duration
 }
