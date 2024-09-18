@@ -17,23 +17,43 @@ type MessagePortTerminated struct {
 	Tag string
 }
 
-type MessagePort struct {
+type MessagePortText struct {
+	ID   gen.Alias
+	Tag  string
+	Text string
+}
+
+type MessagePortData struct {
 	ID   gen.Alias
 	Tag  string
 	Data []byte
 }
 
 type MessagePortError struct {
-	ID   gen.Alias
-	Tag  string
-	Data []byte
+	ID    gen.Alias
+	Tag   string
+	Error string
 }
 
 type PortOptions struct {
-	Cmd            string
-	Args           []string
-	Tag            string
-	Process        gen.Atom
+	Cmd     string
+	Args    []string
+	Tag     string
+	Process gen.Atom
+	Stream  PortStreamOptions
+}
+
+type PortStreamOptions struct {
+	Enable bool
+
+	ChunkFixedLength int
+
+	ChunkHeaderSize                 int
+	ChunkHeaderLengthPosition       int // within the header
+	ChunkHeaderLengthSize           int // 1, 2 or 4
+	ChunkHeaderLengthIncludesHeader bool
+	ChunkMaxLength                  int
+
 	ReadBufferSize int
 	ReadBufferPool *sync.Pool
 

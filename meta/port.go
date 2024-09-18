@@ -1,12 +1,11 @@
 package meta
 
 import (
+	"bufio"
 	"fmt"
 	"io"
 	"os/exec"
-	"sync"
 	"sync/atomic"
-	"time"
 
 	"ergo.services/ergo/gen"
 	"ergo.services/ergo/lib"
@@ -25,49 +24,62 @@ func CreatePort(options PortOptions) (gen.MetaBehavior, error) {
 		return nil, fmt.Errorf("empty options.Cmd")
 	}
 
-	// check sync.Pool
-	if options.ReadBufferPool != nil {
-		b := options.ReadBufferPool.Get()
-		if _, ok := b.([]byte); ok == false {
-			return nil, fmt.Errorf("options.BufferPool must be pool of []byte values")
+	if options.Stream.Enable == true {
+		// check sync.Pool
+		if options.Stream.ReadBufferPool != nil {
+			b := options.Stream.ReadBufferPool.Get()
+			if _, ok := b.([]byte); ok == false {
+				return nil, fmt.Errorf("options.BufferPool must be pool of []byte values")
+			}
+			// get it back to the pool
+			options.Stream.ReadBufferPool.Put(b)
 		}
-		// get it back to the pool
-		options.ReadBufferPool.Put(b)
-	}
 
-	if options.ReadBufferSize < 1 {
-		options.ReadBufferSize = defaultBufferSize
-	}
+		if options.Stream.ReadBufferSize < 1 {
+			options.Stream.ReadBufferSize = defaultBufferSize
+		}
 
-	if options.WriteBufferKeepAlive != nil {
-		if options.WriteBufferKeepAlivePeriod == 0 {
-			return nil, fmt.Errorf("enabled KeepAlive options with zero Period")
+		if options.Stream.WriteBufferKeepAlive != nil {
+			if options.Stream.WriteBufferKeepAlivePeriod == 0 {
+				return nil, fmt.Errorf("enabled KeepAlive options with zero Period")
+			}
+		}
+
+		if options.Stream.ChunkFixedLength == 0 {
+			// dynamic length
+			if options.Stream.ChunkHeaderSize == 0 {
+				return nil, fmt.Errorf("option ChunkHeaderSize must be defined for dynamic chunk size")
+			}
+
+			if options.Stream.ChunkHeaderLengthPosition > options.Stream.ChunkHeaderSize {
+				return nil, fmt.Errorf("option ChunkHeaderLengthPosition is out of ChunkHeaderSize bounds")
+			}
+
+			switch options.Stream.ChunkHeaderLengthSize {
+			case 1:
+			case 2:
+			case 4:
+			default:
+				return nil, fmt.Errorf("option ChunkHeaderLengthSize must be either: 1, 2, or 4 bytes")
+			}
 		}
 	}
 
 	p := &port{
-		command:        options.Cmd,
-		args:           options.Args,
-		tag:            options.Tag,
-		process:        options.Process,
-		readBufferPool: options.ReadBufferPool,
-		readBufferSize: options.ReadBufferSize,
-		writeBuffer:    options.WriteBuffer,
+		command: options.Cmd,
+		args:    options.Args,
+		tag:     options.Tag,
+		process: options.Process,
+		stream:  options.Stream,
 	}
 	return p, nil
 }
 
 type port struct {
 	gen.MetaProcess
-	tag            string
-	process        gen.Atom
-	readBufferSize int
-	readBufferPool *sync.Pool
-
-	writeBuffer                bool
-	writeBufferKeepAlive       []byte
-	writeBufferKeepAlivePeriod time.Duration
-
+	tag      string
+	process  gen.Atom
+	stream   PortStreamOptions
 	bytesIn  uint64
 	bytesOut uint64
 	command  string
@@ -85,16 +97,7 @@ func (p *port) Init(process gen.MetaProcess) error {
 }
 
 func (p *port) Start() error {
-	var buf []byte
 	var to any
-
-	id := p.ID()
-
-	if p.process == "" {
-		to = p.Parent()
-	} else {
-		to = p.process
-	}
 
 	cmd := exec.Command(p.command, p.args...)
 
@@ -128,18 +131,24 @@ func (p *port) Start() error {
 	}
 	p.cmd = cmd
 
-	if p.writeBuffer {
-		if p.writeBufferKeepAlive != nil {
-			p.in = lib.NewFlusherWithKeepAlive(p.in, p.writeBufferKeepAlive, p.writeBufferKeepAlivePeriod)
+	if p.stream.WriteBuffer {
+		if p.stream.WriteBufferKeepAlive != nil {
+			p.in = lib.NewFlusherWithKeepAlive(p.in, p.stream.WriteBufferKeepAlive, p.stream.WriteBufferKeepAlivePeriod)
 		} else {
 			p.in = lib.NewFlusher(p.in)
 		}
 	}
 
+	if p.process == "" {
+		to = p.Parent()
+	} else {
+		to = p.process
+	}
+
 	defer func() {
 		p.cmd.Process.Kill()
 		message := MessagePortTerminated{
-			ID:  id,
+			ID:  p.ID(),
 			Tag: p.tag,
 		}
 		if err := p.Send(to, message); err != nil {
@@ -149,49 +158,41 @@ func (p *port) Start() error {
 	}()
 
 	message := MessagePortStarted{
-		ID:  id,
+		ID:  p.ID(),
 		Tag: p.tag,
 	}
 	if err := p.Send(to, message); err != nil {
 		p.Log().Error("unable to send MessagePortStarted to %v: %s", to, err)
 		return err
 	}
-	for {
-		if p.readBufferPool == nil {
-			buf = make([]byte, p.readBufferSize)
-		} else {
-			buf = p.readBufferPool.Get().([]byte)
-		}
 
-	retry:
-		n, err := p.out.Read(buf)
-		if err != nil {
-			if n == 0 {
-				// closed connection
-				return nil
-			}
-
-			p.Log().Error("unable to read from stdin: %s", err)
-			return err
-		}
-		if n == 0 {
-			goto retry // use goto to get rid of buffer reallocation
-		}
-		message := MessagePort{
-			ID:   id,
-			Data: buf[:n],
-		}
-		atomic.AddUint64(&p.bytesIn, uint64(n))
-		if err := p.Send(to, message); err != nil {
-			p.Log().Error("unable to send MessagePort: %s", err)
-			return err
-		}
+	go p.readErr(to)
+	if p.stream.Enable {
+		return p.readStdoutData(to)
 	}
+	return p.readStdoutText(to)
 }
 
 func (p *port) HandleMessage(from gen.PID, message any) error {
 	switch m := message.(type) {
-	case MessagePort:
+	case *MessagePortText:
+		data := []byte(m.Text)
+		l := len(m.Text)
+		lenD := l
+		for {
+			n, e := p.in.Write(data[lenD-l:])
+			if e != nil {
+				return e
+			}
+			// check if something left
+			l -= n
+			if l == 0 {
+				break
+			}
+		}
+		atomic.AddUint64(&p.bytesOut, uint64(lenD))
+
+	case MessagePortData:
 		l := len(m.Data)
 		lenD := l
 		for {
@@ -206,12 +207,14 @@ func (p *port) HandleMessage(from gen.PID, message any) error {
 			}
 		}
 		atomic.AddUint64(&p.bytesOut, uint64(lenD))
-		if p.readBufferPool != nil {
-			p.readBufferPool.Put(m.Data)
+		if p.stream.ReadBufferPool != nil {
+			p.stream.ReadBufferPool.Put(m.Data)
 		}
+
 	default:
 		p.Log().Error("unsupported message type '%T' from %s. ignored", message, from)
 	}
+
 	return nil
 }
 
@@ -240,5 +243,85 @@ func (p *port) HandleInspect(from gen.PID, item ...string) map[string]string {
 		"pwd":      p.cmd.Dir,
 		"bytesIn":  fmt.Sprintf("%d", p.bytesIn),
 		"bytesOut": fmt.Sprintf("%d", p.bytesOut),
+	}
+}
+
+func (p *port) readStdoutData(to any) error {
+	var buf []byte
+
+	id := p.ID()
+
+	out := bufio.NewReader(p.out)
+	for {
+		if p.stream.ReadBufferPool == nil {
+			buf = make([]byte, p.stream.ReadBufferSize)
+		} else {
+			buf = p.stream.ReadBufferPool.Get().([]byte)
+		}
+
+	retry:
+		n, err := out.Read(buf)
+		if err != nil {
+			if n == 0 {
+				// closed connection
+				return nil
+			}
+
+			p.Log().Error("unable to read from stdin: %s", err)
+			return err
+		}
+		if n == 0 {
+			goto retry // use goto to get rid of buffer reallocation
+		}
+		message := MessagePortData{
+			ID:   id,
+			Tag:  p.tag,
+			Data: buf[:n],
+		}
+		atomic.AddUint64(&p.bytesIn, uint64(n))
+		if err := p.Send(to, message); err != nil {
+			p.Log().Error("unable to send MessagePort: %s", err)
+			return err
+		}
+	}
+}
+
+func (p *port) readStdoutText(to any) error {
+	id := p.ID()
+	out := bufio.NewScanner(p.out)
+
+	for out.Scan() {
+		txt := out.Text()
+		message := MessagePortText{
+			ID:   id,
+			Tag:  p.tag,
+			Text: txt,
+		}
+		atomic.AddUint64(&p.bytesIn, uint64(len(txt)))
+		if err := p.Send(to, message); err != nil {
+			p.Log().Error("unable to send MessagePortError: %s", err)
+			return err
+		}
+	}
+
+	return out.Err()
+}
+
+func (p *port) readErr(to any) {
+	id := p.ID()
+	out := bufio.NewScanner(p.errout)
+
+	for out.Scan() {
+		txt := out.Text()
+		message := MessagePortError{
+			ID:    id,
+			Tag:   p.tag,
+			Error: txt,
+		}
+		atomic.AddUint64(&p.bytesIn, uint64(len(txt)))
+		if err := p.Send(to, message); err != nil {
+			p.Log().Error("unable to send MessagePortError: %s", err)
+			return
+		}
 	}
 }
