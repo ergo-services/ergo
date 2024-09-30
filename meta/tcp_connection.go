@@ -30,7 +30,7 @@ func CreateTCPConnection(options TCPConnectionOptions) (gen.MetaBehavior, error)
 		if options.KeepAlivePeriod > 0 {
 			dialer.KeepAlive = options.KeepAlivePeriod
 		}
-		c, err := net.Dial("tcp", hp)
+		c, err := dialer.Dial("tcp", hp)
 		if err != nil {
 			return nil, err
 		}
