@@ -700,6 +700,10 @@ func (n *network) connect(name gen.Atom, route gen.NetworkRoute) (gen.Connection
 	handshake := vhandshake.(gen.NetworkHandshake)
 	proto := vproto.(gen.NetworkProto)
 
+	if route.Route.Host == "" {
+		route.Route.Host = name.Host()
+	}
+
 	if lib.Trace() {
 		n.node.Log().Trace("trying to connect to %s (%s:%d, tls:%v)",
 			name, route.Route.Host, route.Route.Port, route.Route.TLS)
