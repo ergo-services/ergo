@@ -166,7 +166,9 @@ func (p *port) Start() error {
 		return err
 	}
 
-	go p.readErr(to)
+	// run stderr reader
+	go p.readStderr(to)
+
 	if p.stream.Enable {
 		return p.readStdoutData(to)
 	}
@@ -175,7 +177,7 @@ func (p *port) Start() error {
 
 func (p *port) HandleMessage(from gen.PID, message any) error {
 	switch m := message.(type) {
-	case *MessagePortText:
+	case MessagePortText:
 		data := []byte(m.Text)
 		l := len(m.Text)
 		lenD := l
@@ -248,19 +250,22 @@ func (p *port) HandleInspect(from gen.PID, item ...string) map[string]string {
 
 func (p *port) readStdoutData(to any) error {
 	var buf []byte
+	var chunk []byte
 
 	id := p.ID()
 
-	out := bufio.NewReader(p.out)
-	for {
-		if p.stream.ReadBufferPool == nil {
-			buf = make([]byte, p.stream.ReadBufferSize)
-		} else {
-			buf = p.stream.ReadBufferPool.Get().([]byte)
-		}
+	buf = make([]byte, p.stream.ReadBufferSize)
 
-	retry:
-		n, err := out.Read(buf)
+	if p.stream.ReadBufferPool == nil {
+		chunk = make([]byte, p.stream.ReadBufferSize)
+	} else {
+		chunk = p.stream.ReadBufferPool.Get().([]byte)
+	}
+
+	// out := bufio.NewReader(p.out)
+
+	for {
+		n, err := p.out.Read(buf)
 		if err != nil {
 			if n == 0 {
 				// closed connection
@@ -270,18 +275,48 @@ func (p *port) readStdoutData(to any) error {
 			p.Log().Error("unable to read from stdin: %s", err)
 			return err
 		}
+
 		if n == 0 {
-			goto retry // use goto to get rid of buffer reallocation
+			continue
 		}
-		message := MessagePortData{
-			ID:   id,
-			Tag:  p.tag,
-			Data: buf[:n],
+
+		if p.stream.ChunkFixedLength > 0 {
+			i := 0
+		next:
+			if len(chunk)+(n-i) < p.stream.ChunkFixedLength {
+				chunk = append(chunk, buf[i:n]...)
+				continue
+			}
+
+			tail := len(chunk) + (n - i) - p.stream.ChunkFixedLength
+			chunk = append(chunk, buf[i:tail]...)
+
+			// send chunk
+			message := MessagePortData{
+				ID:   id,
+				Tag:  p.tag,
+				Data: chunk,
+			}
+			atomic.AddUint64(&p.bytesIn, uint64(n))
+
+			if err := p.Send(to, message); err != nil {
+				p.Log().Error("unable to send MessagePort: %s", err)
+				return err
+			}
+
+			// next chunk
+			if p.stream.ReadBufferPool == nil {
+				chunk = make([]byte, p.stream.ChunkFixedLength)
+			} else {
+				chunk = p.stream.ReadBufferPool.Get().([]byte)
+			}
+			i = tail
+			goto next
 		}
-		atomic.AddUint64(&p.bytesIn, uint64(n))
-		if err := p.Send(to, message); err != nil {
-			p.Log().Error("unable to send MessagePort: %s", err)
-			return err
+
+		if len(chunk)+len(buf) < p.stream.ChunkHeaderSize {
+			chunk = append(chunk, buf[:n]...)
+			continue
 		}
 	}
 }
@@ -307,7 +342,7 @@ func (p *port) readStdoutText(to any) error {
 	return out.Err()
 }
 
-func (p *port) readErr(to any) {
+func (p *port) readStderr(to any) {
 	id := p.ID()
 	out := bufio.NewScanner(p.errout)
 
