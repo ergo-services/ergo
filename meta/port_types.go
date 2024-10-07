@@ -32,7 +32,7 @@ type MessagePortData struct {
 type MessagePortError struct {
 	ID    gen.Alias
 	Tag   string
-	Error string
+	Error error
 }
 
 type PortOptions struct {
@@ -40,10 +40,10 @@ type PortOptions struct {
 	Args    []string
 	Tag     string
 	Process gen.Atom
-	Stream  PortStreamOptions
+	Binary  PortBinaryOptions
 }
 
-type PortStreamOptions struct {
+type PortBinaryOptions struct {
 	Enable bool
 
 	ChunkFixedLength int

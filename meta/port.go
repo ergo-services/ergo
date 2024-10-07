@@ -2,6 +2,7 @@ package meta
 
 import (
 	"bufio"
+	"encoding/binary"
 	"fmt"
 	"io"
 	"os/exec"
@@ -24,38 +25,38 @@ func CreatePort(options PortOptions) (gen.MetaBehavior, error) {
 		return nil, fmt.Errorf("empty options.Cmd")
 	}
 
-	if options.Stream.Enable == true {
+	if options.Binary.Enable == true {
 		// check sync.Pool
-		if options.Stream.ReadBufferPool != nil {
-			b := options.Stream.ReadBufferPool.Get()
+		if options.Binary.ReadBufferPool != nil {
+			b := options.Binary.ReadBufferPool.Get()
 			if _, ok := b.([]byte); ok == false {
 				return nil, fmt.Errorf("options.BufferPool must be pool of []byte values")
 			}
 			// get it back to the pool
-			options.Stream.ReadBufferPool.Put(b)
+			options.Binary.ReadBufferPool.Put(b)
 		}
 
-		if options.Stream.ReadBufferSize < 1 {
-			options.Stream.ReadBufferSize = defaultBufferSize
+		if options.Binary.ReadBufferSize < 1 {
+			options.Binary.ReadBufferSize = defaultBufferSize
 		}
 
-		if options.Stream.WriteBufferKeepAlive != nil {
-			if options.Stream.WriteBufferKeepAlivePeriod == 0 {
+		if options.Binary.WriteBufferKeepAlive != nil {
+			if options.Binary.WriteBufferKeepAlivePeriod == 0 {
 				return nil, fmt.Errorf("enabled KeepAlive options with zero Period")
 			}
 		}
 
-		if options.Stream.ChunkFixedLength == 0 {
+		if options.Binary.ChunkFixedLength == 0 {
 			// dynamic length
-			if options.Stream.ChunkHeaderSize == 0 {
+			if options.Binary.ChunkHeaderSize == 0 {
 				return nil, fmt.Errorf("option ChunkHeaderSize must be defined for dynamic chunk size")
 			}
 
-			if options.Stream.ChunkHeaderLengthPosition > options.Stream.ChunkHeaderSize {
-				return nil, fmt.Errorf("option ChunkHeaderLengthPosition is out of ChunkHeaderSize bounds")
+			if options.Binary.ChunkHeaderLengthSize+options.Binary.ChunkHeaderLengthPosition > options.Binary.ChunkHeaderSize {
+				return nil, fmt.Errorf("option ChunkHeaderLengthPosition + ...LengthSize is out of ChunkHeaderSize bounds")
 			}
 
-			switch options.Stream.ChunkHeaderLengthSize {
+			switch options.Binary.ChunkHeaderLengthSize {
 			case 1:
 			case 2:
 			case 4:
@@ -70,7 +71,7 @@ func CreatePort(options PortOptions) (gen.MetaBehavior, error) {
 		args:    options.Args,
 		tag:     options.Tag,
 		process: options.Process,
-		stream:  options.Stream,
+		binary:  options.Binary,
 	}
 	return p, nil
 }
@@ -79,7 +80,7 @@ type port struct {
 	gen.MetaProcess
 	tag      string
 	process  gen.Atom
-	stream   PortStreamOptions
+	binary   PortBinaryOptions
 	bytesIn  uint64
 	bytesOut uint64
 	command  string
@@ -131,9 +132,9 @@ func (p *port) Start() error {
 	}
 	p.cmd = cmd
 
-	if p.stream.WriteBuffer {
-		if p.stream.WriteBufferKeepAlive != nil {
-			p.in = lib.NewFlusherWithKeepAlive(p.in, p.stream.WriteBufferKeepAlive, p.stream.WriteBufferKeepAlivePeriod)
+	if p.binary.WriteBuffer {
+		if p.binary.WriteBufferKeepAlive != nil {
+			p.in = lib.NewFlusherWithKeepAlive(p.in, p.binary.WriteBufferKeepAlive, p.binary.WriteBufferKeepAlivePeriod)
 		} else {
 			p.in = lib.NewFlusher(p.in)
 		}
@@ -169,7 +170,7 @@ func (p *port) Start() error {
 	// run stderr reader
 	go p.readStderr(to)
 
-	if p.stream.Enable {
+	if p.binary.Enable {
 		return p.readStdoutData(to)
 	}
 	return p.readStdoutText(to)
@@ -209,8 +210,8 @@ func (p *port) HandleMessage(from gen.PID, message any) error {
 			}
 		}
 		atomic.AddUint64(&p.bytesOut, uint64(lenD))
-		if p.stream.ReadBufferPool != nil {
-			p.stream.ReadBufferPool.Put(m.Data)
+		if p.binary.ReadBufferPool != nil {
+			p.binary.ReadBufferPool.Put(m.Data)
 		}
 
 	default:
@@ -254,21 +255,23 @@ func (p *port) readStdoutData(to any) error {
 
 	id := p.ID()
 
-	buf = make([]byte, p.stream.ReadBufferSize)
+	buf = make([]byte, p.binary.ReadBufferSize)
 
-	if p.stream.ReadBufferPool == nil {
-		chunk = make([]byte, p.stream.ReadBufferSize)
+	if p.binary.ReadBufferPool == nil {
+		chunk = make([]byte, p.binary.ReadBufferSize)
 	} else {
-		chunk = p.stream.ReadBufferPool.Get().([]byte)
+		chunk = p.binary.ReadBufferPool.Get().([]byte)
 	}
 
-	// out := bufio.NewReader(p.out)
+	l := 0                          // current chunk length
+	le := p.binary.ChunkFixedLength // expecting chunk length
 
 	for {
+
 		n, err := p.out.Read(buf)
 		if err != nil {
 			if n == 0 {
-				// closed connection
+				// closed stdin
 				return nil
 			}
 
@@ -280,16 +283,19 @@ func (p *port) readStdoutData(to any) error {
 			continue
 		}
 
-		if p.stream.ChunkFixedLength > 0 {
-			i := 0
-		next:
-			if len(chunk)+(n-i) < p.stream.ChunkFixedLength {
-				chunk = append(chunk, buf[i:n]...)
-				continue
-			}
+		l += n
 
-			tail := len(chunk) + (n - i) - p.stream.ChunkFixedLength
-			chunk = append(chunk, buf[i:tail]...)
+	next:
+		if l < le {
+			// need more data
+			chunk = append(chunk, buf[:n]...)
+			continue
+		}
+
+		if p.binary.ChunkFixedLength > 0 {
+
+			tail := l - le
+			chunk = append(chunk, buf[:tail]...)
 
 			// send chunk
 			message := MessagePortData{
@@ -304,17 +310,56 @@ func (p *port) readStdoutData(to any) error {
 				return err
 			}
 
-			// next chunk
-			if p.stream.ReadBufferPool == nil {
-				chunk = make([]byte, p.stream.ChunkFixedLength)
+			// prepare next chunk
+			if p.binary.ReadBufferPool == nil {
+				chunk = make([]byte, p.binary.ChunkFixedLength)
 			} else {
-				chunk = p.stream.ReadBufferPool.Get().([]byte)
+				chunk = p.binary.ReadBufferPool.Get().([]byte)
 			}
-			i = tail
+
+			if tail == 0 {
+				l = 0
+				continue
+			}
+
+			copy(buf, buf[tail:])
+			l = tail
 			goto next
 		}
 
-		if len(chunk)+len(buf) < p.stream.ChunkHeaderSize {
+		// check if we got the header
+		if l < p.binary.ChunkHeaderSize {
+			chunk = append(chunk, buf[:n]...)
+			continue
+		}
+
+		// read length value for the chunk
+		if le == 0 {
+			pos := p.binary.ChunkHeaderLengthPosition
+			switch p.binary.ChunkHeaderLengthSize {
+			case 1:
+				le = int(chunk[pos])
+			case 2:
+				le = int(binary.BigEndian.Uint16(chunk[pos : pos+2]))
+			case 4:
+				le = int(binary.BigEndian.Uint32(chunk[pos : pos+4]))
+			default:
+				// shouldn't reach this code
+				panic("bug")
+			}
+
+			if p.binary.ChunkMaxLength > 0 {
+				if le > p.binary.ChunkMaxLength {
+					p.Log().Error("chunk size %d is exceeded the limit (ChumkMaxLenth: %d)", le, p.binary.ChunkMaxLength)
+					return gen.ErrTooLarge
+				}
+			}
+
+			goto next
+		}
+
+		fmt.Printf("LEN chunk %d LEN buf %d ChunkHeaderSize %d", len(chunk), len(buf), p.binary.ChunkHeaderSize)
+		if len(chunk)+len(buf) < p.binary.ChunkHeaderSize {
 			chunk = append(chunk, buf[:n]...)
 			continue
 		}
@@ -351,7 +396,7 @@ func (p *port) readStderr(to any) {
 		message := MessagePortError{
 			ID:    id,
 			Tag:   p.tag,
-			Error: txt,
+			Error: fmt.Errorf(txt),
 		}
 		atomic.AddUint64(&p.bytesIn, uint64(len(txt)))
 		if err := p.Send(to, message); err != nil {
