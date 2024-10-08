@@ -327,9 +327,9 @@ func (p *port) readStdoutData(to any) error {
 			goto next
 		}
 
+		chunk = append(chunk, buf[:n]...)
 		// check if we got the header
 		if l < p.binary.ChunkHeaderSize {
-			chunk = append(chunk, buf[:n]...)
 			continue
 		}
 
@@ -354,8 +354,10 @@ func (p *port) readStdoutData(to any) error {
 					return gen.ErrTooLarge
 				}
 			}
+		}
 
-			goto next
+		if l < le {
+			continue
 		}
 
 		fmt.Printf("LEN chunk %d LEN buf %d ChunkHeaderSize %d", len(chunk), len(buf), p.binary.ChunkHeaderSize)
