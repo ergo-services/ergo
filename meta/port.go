@@ -258,7 +258,7 @@ func (p *port) readStdoutData(to any) error {
 	buf = make([]byte, p.binary.ReadBufferSize)
 
 	if p.binary.ReadBufferPool == nil {
-		chunk = make([]byte, p.binary.ReadBufferSize)
+		chunk = make([]byte, 0, p.binary.ReadBufferSize)
 	} else {
 		chunk = p.binary.ReadBufferPool.Get().([]byte)
 	}
@@ -268,6 +268,7 @@ func (p *port) readStdoutData(to any) error {
 
 	for {
 
+		fmt.Println("...read", len(buf))
 		n, err := p.out.Read(buf)
 		if err != nil {
 			if n == 0 {
@@ -295,7 +296,8 @@ func (p *port) readStdoutData(to any) error {
 		if p.binary.ChunkFixedLength > 0 {
 
 			tail := l - le
-			chunk = append(chunk, buf[:tail]...)
+			chunk = append(chunk, buf[:le]...)
+			fmt.Println("l le", l, le, buf[:le])
 
 			// send chunk
 			message := MessagePortData{
@@ -312,7 +314,7 @@ func (p *port) readStdoutData(to any) error {
 
 			// prepare next chunk
 			if p.binary.ReadBufferPool == nil {
-				chunk = make([]byte, p.binary.ChunkFixedLength)
+				chunk = make([]byte, 0, p.binary.ChunkFixedLength)
 			} else {
 				chunk = p.binary.ReadBufferPool.Get().([]byte)
 			}
