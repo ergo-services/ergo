@@ -31,7 +31,7 @@ In the https://github.com/ergo-services/examples repository, you will find examp
 
 On a 64-core processor, Ergo Framework demonstrates a performance of **nearly 5 million messages per second over the network**
 
-![image](https://github.com/user-attachments/assets/0ce31b7b-0074-48cb-b161-ad1b2127da12)
+![image](https://github.com/user-attachments/assets/c8946c04-6e50-418b-b832-1ee165c5d1be)
 
 You can find available benchmarks in the following repository https://github.com/ergo-services/benchmarks.
 
