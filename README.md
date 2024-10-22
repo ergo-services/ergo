@@ -29,7 +29,7 @@ In the https://github.com/ergo-services/examples repository, you will find examp
 
 ### Benchmarks ###
 
-On a 64-core processor, Ergo Framework demonstrates a performance of ***over 21 million messages per second locally** and **nearly 5 million messages per second over the network**.
+On a 64-core processor, Ergo Framework demonstrates a performance of **over 21 million messages per second locally** and **nearly 5 million messages per second over the network**.
 
 ![image](https://github.com/user-attachments/assets/813900ad-ff79-4cc7-b1e6-396c5781acb1)
 
