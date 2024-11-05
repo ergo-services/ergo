@@ -57,9 +57,7 @@ func CreatePort(options PortOptions) (gen.MetaBehavior, error) {
 			}
 
 			switch options.Binary.ChunkHeaderLengthSize {
-			case 1:
-			case 2:
-			case 4:
+			case 1, 2, 4:
 			default:
 				return nil, fmt.Errorf("option ChunkHeaderLengthSize must be either: 1, 2, or 4 bytes")
 			}
@@ -263,12 +261,10 @@ func (p *port) readStdoutData(to any) error {
 		chunk = p.binary.ReadBufferPool.Get().([]byte)
 	}
 
-	l := 0                          // current chunk length
-	le := p.binary.ChunkFixedLength // expecting chunk length
+	cl := p.binary.ChunkFixedLength // chunk length
 
 	for {
 
-		fmt.Println("...read", len(buf))
 		n, err := p.out.Read(buf)
 		if err != nil {
 			if n == 0 {
@@ -283,87 +279,77 @@ func (p *port) readStdoutData(to any) error {
 		if n == 0 {
 			continue
 		}
-
-		l += n
+		atomic.AddUint64(&p.bytesIn, uint64(n))
+		chunk = append(chunk, buf[:n]...)
 
 	next:
-		if l < le {
-			// need more data
-			chunk = append(chunk, buf[:n]...)
-			continue
-		}
 
-		if p.binary.ChunkFixedLength > 0 {
-
-			tail := l - le
-			chunk = append(chunk, buf[:le]...)
-			fmt.Println("l le", l, le, buf[:le])
-
-			// send chunk
-			message := MessagePortData{
-				ID:   id,
-				Tag:  p.tag,
-				Data: chunk,
-			}
-			atomic.AddUint64(&p.bytesIn, uint64(n))
-
-			if err := p.Send(to, message); err != nil {
-				p.Log().Error("unable to send MessagePort: %s", err)
-				return err
-			}
-
-			// prepare next chunk
-			if p.binary.ReadBufferPool == nil {
-				chunk = make([]byte, 0, p.binary.ChunkFixedLength)
-			} else {
-				chunk = p.binary.ReadBufferPool.Get().([]byte)
-			}
-
-			if tail == 0 {
-				l = 0
+		// read length value for the chunk
+		if cl == 0 {
+			// check if we got the header
+			if len(chunk) < p.binary.ChunkHeaderSize {
 				continue
 			}
 
-			copy(buf, buf[tail:])
-			l = tail
-			goto next
-		}
-
-		// check if we got the header
-		if l < p.binary.ChunkHeaderSize {
-			chunk = append(chunk, buf[:n]...)
-			continue
-		}
-
-		// read length value for the chunk
-		if le == 0 {
 			pos := p.binary.ChunkHeaderLengthPosition
 			switch p.binary.ChunkHeaderLengthSize {
 			case 1:
-				le = int(chunk[pos])
+				cl = int(chunk[pos])
 			case 2:
-				le = int(binary.BigEndian.Uint16(chunk[pos : pos+2]))
+				cl = int(binary.BigEndian.Uint16(chunk[pos : pos+2]))
 			case 4:
-				le = int(binary.BigEndian.Uint32(chunk[pos : pos+4]))
+				cl = int(binary.BigEndian.Uint32(chunk[pos : pos+4]))
 			default:
 				// shouldn't reach this code
 				panic("bug")
 			}
 
+			if p.binary.ChunkHeaderLengthIncludesHeader == false {
+				cl += p.binary.ChunkHeaderSize
+			}
+
 			if p.binary.ChunkMaxLength > 0 {
-				if le > p.binary.ChunkMaxLength {
-					p.Log().Error("chunk size %d is exceeded the limit (ChumkMaxLenth: %d)", le, p.binary.ChunkMaxLength)
+				if cl > p.binary.ChunkMaxLength {
+					p.Log().Error("chunk size %d is exceeded the limit (ChumkMaxLenth: %d)", cl, p.binary.ChunkMaxLength)
 					return gen.ErrTooLarge
 				}
 			}
+
 		}
 
-		tail := le - len(chunk)
-		if tail < 1 {
-			chunk = append(chunk, buf[:n]...)
+		if len(chunk) < cl {
 			continue
 		}
-		chunk = append(chunk, buf[:tail]...)
+
+		// send chunk
+		message := MessagePortData{
+			ID:   id,
+			Tag:  p.tag,
+			Data: chunk[:cl],
+		}
+
+		if err := p.Send(to, message); err != nil {
+			p.Log().Error("unable to send MessagePort: %s", err)
+			return err
+		}
+
+		tail := chunk[cl:]
+
+		// prepare next chunk
+		if p.binary.ReadBufferPool == nil {
+			chunk = make([]byte, 0, p.binary.ChunkFixedLength)
+		} else {
+			chunk = p.binary.ReadBufferPool.Get().([]byte)
+		}
+
+		if p.binary.ChunkFixedLength == 0 {
+			cl = 0
+		}
+
+		if len(tail) > 0 {
+			chunk = append(chunk, tail...)
+			goto next
+		}
 
 	}
 }

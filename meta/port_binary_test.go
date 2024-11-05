@@ -31,42 +31,88 @@ func TestPortBinaryWithHeader(t *testing.T) {
 	p.binary.ReadBufferSize = 50
 
 	go func() {
-		fmt.Println("starting readStdoutData")
 		p.readStdoutData("x")
-		fmt.Println("stopped readStdoutData")
 	}()
 
 	//            chunk1......  chunk2................  chunk3...........
 	buf := []byte{0, 0, 1, 100, 0, 0, 3, 101, 102, 103, 0, 0, 2, 104, 105}
+	//            buf1...........  buf2..........  buf3..................
 	buf1 := buf[:5]
 	buf2 := buf[5:9]
 	buf3 := buf[9:]
 
-	fmt.Println("writing", buf1)
 	w.Write(buf1) // chunk1 + tail
-	fmt.Println("wrote", buf1)
 	if err := mp.waitFor([]byte{0, 0, 1, 100}); err != nil {
 		panic(err)
 	}
 
-	fmt.Println("writing", buf2)
 	w.Write(buf2) // not enough for the chunk2
 	if err := mp.waitFor([]byte{}); err != gen.ErrTimeout {
 		panic("malformed")
 	}
 
 	w.Write(buf3) // expecting chunk2 and chunk3
-	if err := mp.waitFor([]byte{0, 0, 3, 101, 102, 103}); err != gen.ErrTimeout {
-		panic("malformed chunk2")
+	if err := mp.waitFor([]byte{0, 0, 3, 101, 102, 103}); err != nil {
+		panic(err)
 	}
-	if err := mp.waitFor([]byte{0, 0, 2, 104, 105}); err != gen.ErrTimeout {
-		panic("malformed chunk3")
+	if err := mp.waitFor([]byte{0, 0, 2, 104, 105}); err != nil {
+		panic(err)
 	}
 	if err := mp.waitFor([]byte{}); err != gen.ErrTimeout {
 		panic("malformed. must be timeout here")
 	}
 }
 
+func TestPortBinaryFixedLength(t *testing.T) {
+	r, w := io.Pipe()
+	p := port{
+		out: r,
+	}
+	mp := &mockMetaProcess{
+		result: make(chan any),
+	}
+
+	p.MetaProcess = mp
+	p.binary.Enable = true
+	p.binary.ChunkFixedLength = 3
+	p.binary.ReadBufferSize = 50
+
+	go func() {
+		p.readStdoutData("x")
+	}()
+
+	//            chunk1.......  chunk2.......  chunk3.......
+	buf := []byte{100, 101, 102, 103, 104, 105, 106, 107, 108}
+	//            buf1....  buf2.......... buf3..............
+	buf1 := buf[:2]
+	buf2 := buf[2:5]
+	buf3 := buf[5:]
+
+	w.Write(buf1) // not enough for the chunk1
+	if err := mp.waitFor([]byte{}); err != gen.ErrTimeout {
+		panic(err)
+	}
+
+	w.Write(buf2) // expecting chunk1
+	if err := mp.waitFor([]byte{100, 101, 102}); err != nil {
+		panic(err)
+	}
+	// not enough for the chunk2
+	if err := mp.waitFor([]byte{103, 104, 105}); err != gen.ErrTimeout {
+		panic("malformed")
+	}
+
+	w.Write(buf3) // expecting chunk2 and chunk3
+	if err := mp.waitFor([]byte{103, 104, 105}); err != nil {
+		panic(err)
+	}
+	if err := mp.waitFor([]byte{106, 107, 108}); err != nil {
+		panic(err)
+	}
+	if err := mp.waitFor([]byte{}); err != gen.ErrTimeout {
+		panic("malformed. must be timeout here")
+	}
+}
 func (m *mockMetaProcess) waitFor(expecting []byte) error {
 	select {
 	case r := <-m.result:
@@ -96,7 +142,7 @@ func (m *mockMetaProcess) Parent() gen.PID { return gen.PID{} }
 func (m *mockMetaProcess) Send(to any, message any) error {
 	select {
 	case m.result <- message:
-	default:
+	case <-time.After(100 * time.Millisecond):
 		panic("no reader")
 	}
 	return nil
