@@ -30,7 +30,7 @@ func CreatePort(options PortOptions) (gen.MetaBehavior, error) {
 		if options.Binary.ReadBufferPool != nil {
 			b := options.Binary.ReadBufferPool.Get()
 			if _, ok := b.([]byte); ok == false {
-				return nil, fmt.Errorf("options.BufferPool must be pool of []byte values")
+				return nil, fmt.Errorf("ReadBufferPool must be a pool of []byte values")
 			}
 			// get it back to the pool
 			options.Binary.ReadBufferPool.Put(b)
@@ -49,17 +49,17 @@ func CreatePort(options PortOptions) (gen.MetaBehavior, error) {
 		if options.Binary.ChunkFixedLength == 0 {
 			// dynamic length
 			if options.Binary.ChunkHeaderSize == 0 {
-				return nil, fmt.Errorf("option ChunkHeaderSize must be defined for dynamic chunk size")
+				return nil, fmt.Errorf("ChunkHeaderSize must be defined for dynamic chunk size")
 			}
 
 			if options.Binary.ChunkHeaderLengthSize+options.Binary.ChunkHeaderLengthPosition > options.Binary.ChunkHeaderSize {
-				return nil, fmt.Errorf("option ChunkHeaderLengthPosition + ...LengthSize is out of ChunkHeaderSize bounds")
+				return nil, fmt.Errorf("ChunkHeaderLengthPosition + ...LengthSize is out of ChunkHeaderSize bounds")
 			}
 
 			switch options.Binary.ChunkHeaderLengthSize {
 			case 1, 2, 4:
 			default:
-				return nil, fmt.Errorf("option ChunkHeaderLengthSize must be either: 1, 2, or 4 bytes")
+				return nil, fmt.Errorf("ChunkHeaderLengthSize must be either: 1, 2, or 4 bytes")
 			}
 		}
 	}
@@ -146,22 +146,22 @@ func (p *port) Start() error {
 
 	defer func() {
 		p.cmd.Process.Kill()
-		message := MessagePortTerminated{
+		message := MessagePortTerminate{
 			ID:  p.ID(),
 			Tag: p.tag,
 		}
 		if err := p.Send(to, message); err != nil {
-			p.Log().Error("unable to send MessagePortTerminated to %s: %s", to, err)
+			p.Log().Error("unable to send MessagePortTerminate to %s: %s", to, err)
 			return
 		}
 	}()
 
-	message := MessagePortStarted{
+	message := MessagePortStart{
 		ID:  p.ID(),
 		Tag: p.tag,
 	}
 	if err := p.Send(to, message); err != nil {
-		p.Log().Error("unable to send MessagePortStarted to %v: %s", to, err)
+		p.Log().Error("unable to send MessagePortStart to %v: %s", to, err)
 		return err
 	}
 

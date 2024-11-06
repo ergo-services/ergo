@@ -7,12 +7,12 @@ import (
 	"ergo.services/ergo/gen"
 )
 
-type MessagePortStarted struct {
+type MessagePortStart struct {
 	ID  gen.Alias
 	Tag string
 }
 
-type MessagePortTerminated struct {
+type MessagePortTerminate struct {
 	ID  gen.Alias
 	Tag string
 }
