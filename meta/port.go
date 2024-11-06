@@ -26,10 +26,12 @@ func CreatePort(options PortOptions) (gen.MetaBehavior, error) {
 	}
 
 	p := &port{
-		command: options.Cmd,
-		args:    options.Args,
-		tag:     options.Tag,
-		process: options.Process,
+		command:  options.Cmd,
+		args:     options.Args,
+		tag:      options.Tag,
+		process:  options.Process,
+		splitOut: options.SplitFuncOut,
+		splitErr: options.SplitFuncErr,
 	}
 
 	if options.Binary.Enable == false {
@@ -82,6 +84,8 @@ type port struct {
 	gen.MetaProcess
 	tag      string
 	process  gen.Atom
+	splitOut bufio.SplitFunc
+	splitErr bufio.SplitFunc
 	binary   PortBinaryOptions
 	bytesIn  uint64
 	bytesOut uint64
@@ -405,6 +409,9 @@ func (p *port) readStdoutData(to any) error {
 func (p *port) readStdoutText(to any) error {
 	id := p.ID()
 	out := bufio.NewScanner(p.out)
+	if p.splitOut != nil {
+		out.Split(p.splitOut)
+	}
 
 	for out.Scan() {
 		txt := out.Text()
@@ -426,6 +433,9 @@ func (p *port) readStdoutText(to any) error {
 func (p *port) readStderr(to any) {
 	id := p.ID()
 	out := bufio.NewScanner(p.errout)
+	if p.splitErr != nil {
+		out.Split(p.splitErr)
+	}
 
 	for out.Scan() {
 		txt := out.Text()
