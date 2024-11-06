@@ -46,6 +46,8 @@ type PortOptions struct {
 type PortBinaryOptions struct {
 	Enable bool
 
+	EnableAutoChunk bool
+
 	ChunkFixedLength int
 
 	ChunkHeaderSize                 int
