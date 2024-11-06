@@ -224,14 +224,18 @@ func (p *port) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error) {
 }
 
 func (p *port) Terminate(reason error) {
+	if p.cmd != nil {
+		p.out.Close()
+		p.errout.Close()
+		if p.cmd.Process != nil {
+			p.cmd.Process.Kill()
+		}
+		p.cmd.Wait()
+	}
 	if reason == nil || reason == gen.TerminateReasonNormal {
 		return
 	}
 	p.Log().Error("terminated abnormaly: %s", reason)
-	if p.cmd != nil {
-		p.cmd.Process.Kill()
-		p.cmd.Wait()
-	}
 }
 
 func (p *port) HandleInspect(from gen.PID, item ...string) map[string]string {
