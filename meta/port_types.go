@@ -59,9 +59,9 @@ type PortBinaryOptions struct {
 	ReadBufferSize int
 	ReadBufferPool *sync.Pool
 
-	// WriteBuffer enables buffering for outgoing data. It improves performance
+	// EnableWriteBuffer enables buffering for outgoing data. It improves performance
 	// in case of writing a lot of small data chunks
-	WriteBuffer                bool
+	EnableWriteBuffer          bool
 	WriteBufferKeepAlive       []byte
 	WriteBufferKeepAlivePeriod time.Duration
 }

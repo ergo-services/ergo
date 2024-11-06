@@ -89,7 +89,7 @@ type port struct {
 	args     []string
 
 	cmd    *exec.Cmd
-	in     io.Writer
+	in     io.WriteCloser
 	out    io.ReadCloser
 	errout io.ReadCloser
 }
@@ -107,21 +107,21 @@ func (p *port) Start() error {
 	in, err := cmd.StdinPipe()
 	if err != nil {
 		p.Log().Error("unable to get stdin: %s", err)
-		cmd.Process.Kill()
 		return err
 	}
 
 	out, err := cmd.StdoutPipe()
 	if err != nil {
 		p.Log().Error("unable to get stdout: %s", err)
-		cmd.Process.Kill()
+		in.Close()
 		return err
 	}
 
 	errout, err := cmd.StderrPipe()
 	if err != nil {
 		p.Log().Error("unable to get stderr: %s", err)
-		cmd.Process.Kill()
+		out.Close()
+		in.Close()
 		return err
 	}
 
@@ -134,12 +134,22 @@ func (p *port) Start() error {
 	}
 	p.cmd = cmd
 
-	if p.binary.WriteBuffer {
-		if p.binary.WriteBufferKeepAlive != nil {
-			p.in = lib.NewFlusherWithKeepAlive(p.in, p.binary.WriteBufferKeepAlive, p.binary.WriteBufferKeepAlivePeriod)
-		} else {
-			p.in = lib.NewFlusher(p.in)
+	if p.binary.EnableWriteBuffer {
+		type wrapCloser struct {
+			io.Writer
+			io.Closer
 		}
+		sc := &wrapCloser{
+			Closer: p.in,
+		}
+
+		if p.binary.WriteBufferKeepAlive != nil {
+			sc.Writer = lib.NewFlusherWithKeepAlive(p.in, p.binary.WriteBufferKeepAlive, p.binary.WriteBufferKeepAlivePeriod)
+		} else {
+			sc.Writer = lib.NewFlusher(p.in)
+		}
+
+		p.in = sc
 	}
 
 	if p.process == "" {
@@ -229,6 +239,7 @@ func (p *port) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error) {
 
 func (p *port) Terminate(reason error) {
 	if p.cmd != nil {
+		p.in.Close()
 		p.out.Close()
 		p.errout.Close()
 		if p.cmd.Process != nil {
