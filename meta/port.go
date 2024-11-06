@@ -25,52 +25,56 @@ func CreatePort(options PortOptions) (gen.MetaBehavior, error) {
 		return nil, fmt.Errorf("empty options.Cmd")
 	}
 
-	if options.Binary.Enable == true {
-		// check sync.Pool
-		if options.Binary.ReadBufferPool != nil {
-			b := options.Binary.ReadBufferPool.Get()
-			if _, ok := b.([]byte); ok == false {
-				return nil, fmt.Errorf("ReadBufferPool must be a pool of []byte values")
-			}
-			// get it back to the pool
-			options.Binary.ReadBufferPool.Put(b)
-		}
-
-		if options.Binary.ReadBufferSize < 1 {
-			options.Binary.ReadBufferSize = defaultBufferSize
-		}
-
-		if options.Binary.WriteBufferKeepAlive != nil {
-			if options.Binary.WriteBufferKeepAlivePeriod == 0 {
-				return nil, fmt.Errorf("enabled KeepAlive options with zero Period")
-			}
-		}
-
-		if options.Binary.ChunkFixedLength == 0 {
-			// dynamic length
-			if options.Binary.ChunkHeaderSize == 0 {
-				return nil, fmt.Errorf("ChunkHeaderSize must be defined for dynamic chunk size")
-			}
-
-			if options.Binary.ChunkHeaderLengthSize+options.Binary.ChunkHeaderLengthPosition > options.Binary.ChunkHeaderSize {
-				return nil, fmt.Errorf("ChunkHeaderLengthPosition + ...LengthSize is out of ChunkHeaderSize bounds")
-			}
-
-			switch options.Binary.ChunkHeaderLengthSize {
-			case 1, 2, 4:
-			default:
-				return nil, fmt.Errorf("ChunkHeaderLengthSize must be either: 1, 2, or 4 bytes")
-			}
-		}
-	}
-
 	p := &port{
 		command: options.Cmd,
 		args:    options.Args,
 		tag:     options.Tag,
 		process: options.Process,
-		binary:  options.Binary,
 	}
+
+	if options.Binary.Enable == false {
+		return p, nil
+	}
+
+	p.binary = options.Binary
+
+	// check sync.Pool
+	if options.Binary.ReadBufferPool != nil {
+		b := options.Binary.ReadBufferPool.Get()
+		if _, ok := b.([]byte); ok == false {
+			return nil, fmt.Errorf("ReadBufferPool must be a pool of []byte values")
+		}
+		// get it back to the pool
+		options.Binary.ReadBufferPool.Put(b)
+	}
+
+	if options.Binary.ReadBufferSize < 1 {
+		options.Binary.ReadBufferSize = defaultBufferSize
+	}
+
+	if options.Binary.WriteBufferKeepAlive != nil {
+		if options.Binary.WriteBufferKeepAlivePeriod == 0 {
+			return nil, fmt.Errorf("enabled KeepAlive options with zero Period")
+		}
+	}
+
+	if options.Binary.ChunkFixedLength == 0 {
+		// dynamic length
+		if options.Binary.ChunkHeaderSize == 0 {
+			return nil, fmt.Errorf("ChunkHeaderSize must be defined for dynamic chunk size")
+		}
+
+		if options.Binary.ChunkHeaderLengthSize+options.Binary.ChunkHeaderLengthPosition > options.Binary.ChunkHeaderSize {
+			return nil, fmt.Errorf("ChunkHeaderLengthPosition + ...LengthSize is out of ChunkHeaderSize bounds")
+		}
+
+		switch options.Binary.ChunkHeaderLengthSize {
+		case 1, 2, 4:
+		default:
+			return nil, fmt.Errorf("ChunkHeaderLengthSize must be either: 1, 2, or 4 bytes")
+		}
+	}
+
 	return p, nil
 }
 
@@ -284,7 +288,34 @@ func (p *port) readStdoutData(to any) error {
 		if n == 0 {
 			continue
 		}
+
 		atomic.AddUint64(&p.bytesIn, uint64(n))
+
+		if p.binary.EnableAutoChunk == false {
+			// send chunk
+			message := MessagePortData{
+				ID:   id,
+				Tag:  p.tag,
+				Data: buf[:n],
+			}
+
+			if err := p.Send(to, message); err != nil {
+				p.Log().Error("unable to send MessagePort: %s", err)
+				return err
+			}
+
+			if p.binary.ReadBufferPool == nil {
+				buf = make([]byte, p.binary.ReadBufferSize)
+				continue
+			}
+
+			if buf = p.binary.ReadBufferPool.Get().([]byte); len(buf) == 0 {
+				buf = make([]byte, p.binary.ReadBufferSize)
+			}
+			continue
+		}
+
+		// chunking...
 		chunk = append(chunk, buf[:n]...)
 
 	next:
