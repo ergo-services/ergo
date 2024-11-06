@@ -146,22 +146,22 @@ func (p *port) Start() error {
 
 	defer func() {
 		p.cmd.Process.Kill()
-		message := MessagePortTerminated{
+		message := MessagePortTerminate{
 			ID:  p.ID(),
 			Tag: p.tag,
 		}
 		if err := p.Send(to, message); err != nil {
-			p.Log().Error("unable to send MessagePortTerminated to %s: %s", to, err)
+			p.Log().Error("unable to send MessagePortTerminate to %s: %s", to, err)
 			return
 		}
 	}()
 
-	message := MessagePortStarted{
+	message := MessagePortStart{
 		ID:  p.ID(),
 		Tag: p.tag,
 	}
 	if err := p.Send(to, message); err != nil {
-		p.Log().Error("unable to send MessagePortStarted to %v: %s", to, err)
+		p.Log().Error("unable to send MessagePortStart to %v: %s", to, err)
 		return err
 	}
 
