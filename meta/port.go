@@ -30,7 +30,7 @@ func CreatePort(options PortOptions) (gen.MetaBehavior, error) {
 		if options.Binary.ReadBufferPool != nil {
 			b := options.Binary.ReadBufferPool.Get()
 			if _, ok := b.([]byte); ok == false {
-				return nil, fmt.Errorf("options.BufferPool must be pool of []byte values")
+				return nil, fmt.Errorf("options.Binary.ReadBufferPool must be a pool of []byte values")
 			}
 			// get it back to the pool
 			options.Binary.ReadBufferPool.Put(b)
