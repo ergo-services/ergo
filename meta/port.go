@@ -263,6 +263,7 @@ func (p *port) readStdoutData(to any) error {
 		chunk = make([]byte, 0, p.binary.ReadBufferSize)
 	} else {
 		chunk = p.binary.ReadBufferPool.Get().([]byte)
+		chunk = chunk[:0]
 	}
 
 	cl := p.binary.ChunkFixedLength // chunk length
@@ -344,6 +345,7 @@ func (p *port) readStdoutData(to any) error {
 			chunk = make([]byte, 0, p.binary.ChunkFixedLength)
 		} else {
 			chunk = p.binary.ReadBufferPool.Get().([]byte)
+			chunk = chunk[:0]
 		}
 
 		if p.binary.ChunkFixedLength == 0 {
