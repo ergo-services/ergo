@@ -43,10 +43,14 @@ func (ic *connection) HandleMessage(from gen.PID, message any) error {
 			Disconnected: true,
 		}
 
-		if remote, err := ic.Node().Network().Node(ic.remote); err == nil {
-			ev.Disconnected = false
-			ev.Info = remote.Info()
+		remote, err := ic.Node().Network().Node(ic.remote)
+		if err != nil {
+			ic.SendEvent(ic.event, ic.token, ev)
+			return gen.TerminateReasonNormal
 		}
+
+		ev.Disconnected = false
+		ev.Info = remote.Info()
 
 		if err := ic.SendEvent(ic.event, ic.token, ev); err != nil {
 			ic.Log().Error("unable to send event %q: %s", inspectNetwork, err)

@@ -27,6 +27,18 @@ The Ergo Framework is an implementation of ideas, technologies, and design patte
 
 In the https://github.com/ergo-services/examples repository, you will find examples that demonstrate a range of the framework's capabilities.
 
+### Benchmarks ###
+
+On a 64-core processor, Ergo Framework demonstrates a performance of **over 21 million messages per second locally** and **nearly 5 million messages per second over the network**.
+
+![image](https://github.com/user-attachments/assets/813900ad-ff79-4cc7-b1e6-396c5781acb1)
+
+You can find available benchmarks in the following repository https://github.com/ergo-services/benchmarks.
+
+* Messaging performance (local, network)
+
+* Memory consumption per process (demonstrates framework memory footprint).
+
 ### Observer ###
 To inspect the node, network stack, running applications, and processes, you can use the [`observer`](https://github.com/ergo-services/tools/) tool
 
@@ -136,15 +148,6 @@ Alongside the release of Ergo Framework 3.0.0, new tools and an additional compo
 - Proto (erlang23) - https://github.com/ergo-services/proto
 
 Finally, we've published comprehensive documentation for the framework, providing detailed guides to assist you in leveraging all the capabilities of Ergo Framework effectively. Its available at https://docs.ergo.services.
-
-
-### Benchmarks ###
-
-You can find available benchmarks in the following repository https://github.com/ergo-services/benchmarks.
-
-* Messaging performance (local, network)
-
-* Memory consumption per process (demonstrates framework memory footprint).
 
 ### Development and debugging ###
 
