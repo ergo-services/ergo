@@ -38,8 +38,6 @@ func CreatePort(options PortOptions) (gen.MetaBehavior, error) {
 		return p, nil
 	}
 
-	p.binary = options.Binary
-
 	// check sync.Pool
 	if options.Binary.ReadBufferPool != nil {
 		b := options.Binary.ReadBufferPool.Get()
@@ -76,6 +74,7 @@ func CreatePort(options PortOptions) (gen.MetaBehavior, error) {
 			return nil, fmt.Errorf("ChunkHeaderLengthSize must be either: 1, 2, or 4 bytes")
 		}
 	}
+	p.binary = options.Binary
 
 	return p, nil
 }
@@ -99,44 +98,41 @@ type port struct {
 }
 
 func (p *port) Init(process gen.MetaProcess) error {
+	var err error
+
 	p.MetaProcess = process
+	p.cmd = exec.Command(p.command, p.args...)
+
+	if p.in, err = p.cmd.StdinPipe(); err != nil {
+		p.Log().Error("unable to get stdin: %s", err)
+		return err
+	}
+
+	if p.out, err = p.cmd.StdoutPipe(); err != nil {
+		p.Log().Error("unable to get stdout: %s", err)
+		p.in.Close()
+		return err
+	}
+
+	if p.errout, err = p.cmd.StderrPipe(); err != nil {
+		p.Log().Error("unable to get stderr: %s", err)
+		p.out.Close()
+		p.in.Close()
+		return err
+	}
+
 	return nil
 }
 
 func (p *port) Start() error {
 	var to any
 
-	cmd := exec.Command(p.command, p.args...)
-
-	in, err := cmd.StdinPipe()
-	if err != nil {
-		p.Log().Error("unable to get stdin: %s", err)
+	if err := p.cmd.Start(); err != nil {
+		p.out.Close()
+		p.in.Close()
+		p.errout.Close()
 		return err
 	}
-
-	out, err := cmd.StdoutPipe()
-	if err != nil {
-		p.Log().Error("unable to get stdout: %s", err)
-		in.Close()
-		return err
-	}
-
-	errout, err := cmd.StderrPipe()
-	if err != nil {
-		p.Log().Error("unable to get stderr: %s", err)
-		out.Close()
-		in.Close()
-		return err
-	}
-
-	p.in = in
-	p.out = out
-	p.errout = errout
-
-	if err := cmd.Start(); err != nil {
-		return err
-	}
-	p.cmd = cmd
 
 	if p.binary.EnableWriteBuffer {
 		type wrapCloser struct {
@@ -169,7 +165,8 @@ func (p *port) Start() error {
 			Tag: p.tag,
 		}
 		if err := p.Send(to, message); err != nil {
-			p.Log().Error("unable to send MessagePortTerminate to %s: %s", to, err)
+			// gen.ErrNotAllowed means parent process was terminated
+			p.Log().Trace("unable to send MessagePortTerminate to %s: %s", to, err)
 			return
 		}
 	}()
