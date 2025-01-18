@@ -28,11 +28,8 @@ func main() {
 	s := fmt.Sprintf("%s pong", string(buf[4:l+4]))
 	copy(buf[4:], s)
 
-	// fmt.Fprintf(os.Stderr, "OOOOK(in) -> %s\n", s)
-
 	ls := len(s)
 	binary.BigEndian.PutUint32(buf[:4], uint32(ls))
-	// fmt.Fprintf(os.Stderr, "OOOOK(out) -> %s\n", buf[:ls+4])
 
 	os.Stdout.Write(buf[:ls+4])
 }
