@@ -110,6 +110,8 @@ type Node interface {
 	NetworkStop() error
 	Network() Network
 
+	Cron() Cron
+
 	CertManager() CertManager
 
 	Security() SecurityOptions
@@ -220,6 +222,8 @@ type NodeOptions struct {
 	Env map[Env]any
 	// Network
 	Network NetworkOptions
+	// Cron
+	Cron CronOptions
 	// CertManager
 	CertManager CertManager
 	// Security options
