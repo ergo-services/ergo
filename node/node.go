@@ -54,6 +54,8 @@ type node struct {
 
 	network *network
 
+	cron *cron
+
 	loggers map[gen.LogLevel]*sync.Map // level -> name -> gen.LoggerBehavior
 	log     *log
 
@@ -181,6 +183,13 @@ func Start(name gen.Atom, options gen.NodeOptions, frameworkVersion gen.Version)
 
 	edf.RegisterAtom(name)
 	node.log.Info("node %s built with %q successfully started", node.name, node.framework)
+	node.cron = createCron(node)
+	for _, job := range options.Cron.Jobs {
+		if err := node.cron.AddJob(job); err != nil {
+			node.StopForce()
+			return nil, err
+		}
+	}
 	return node, nil
 }
 
@@ -733,6 +742,13 @@ func (n *node) Network() gen.Network {
 	return n.network
 }
 
+func (n *node) Cron() gen.Cron {
+	if n.isRunning() == false {
+		return nil
+	}
+	return n.cron
+}
+
 func (n *node) Stop() {
 	n.stop(false)
 }
@@ -781,6 +797,7 @@ func (n *node) stop(force bool) {
 		n.waitprocesses.Wait()
 	}
 
+	n.cron.terminate()
 	n.NetworkStop()
 	atomic.StoreInt64(&n.creation, 0)
 	n.log.Info("node %s stopped", n.name)

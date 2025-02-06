@@ -128,3 +128,16 @@ type MessageLogNetwork struct {
 	Peer     Atom
 	Creation int64
 }
+
+type MessageCron struct {
+	Node Atom
+	Job  Atom
+	Time time.Time
+}
+
+type MessageCronFallback struct {
+	Job  Atom
+	Tag  string
+	Time time.Time
+	Err  error
+}

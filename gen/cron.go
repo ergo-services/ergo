@@ -5,10 +5,11 @@ import (
 )
 
 type CronOptions struct {
+	Jobs []CronJob
 }
 
 type Cron interface {
-	AddJob(job Job) error
+	AddJob(job CronJob) error
 	RemoveJob(name Atom) error
 	EnableJob(name Atom) error
 	DisableJob(name Atom) error
@@ -17,26 +18,28 @@ type Cron interface {
 	Info() CronInfo
 }
 
-type Job struct {
+type CronJob struct {
 	// Name job name
 	Name Atom
 	// Spec time spec in "crontab" format
 	Spec string
-	// Action can be either JobActionMessage, JobActionSpawn, JobActionRemoteSpawn
+	// Location defines timezone
+	Location *time.Location
+	// Action can be either CronActionMessage, CronActionSpawn, CronActionRemoteSpawn
 	Action any
 }
 
-type JobActionMessage struct {
-	// Process can be either gen.PID, gen.ProcessID, gen.Atom, gen.Alias. Local or remote.
-	Process any
+type CronActionMessage struct {
+	// Process defines where to send MessageCron. Can be local or remote one.
+	Process ProcessID
 
 	// Fallback process name if Process isn't reachable ()
 	Fallback ProcessFallback
 }
 
-type JobActionSpawn struct {
-	// Name use registered name for the spawned process
-	Name Atom
+type CronActionSpawn struct {
+	// Register use registered name for the spawned process
+	Register Atom
 	// ProcessFactory
 	ProcessFactory ProcessFactory
 	// ProcessOptions
@@ -47,11 +50,14 @@ type JobActionSpawn struct {
 	// Fallback process name if Process isn't reachable ()
 	Fallback ProcessFallback
 }
-type JobActionRemoteSpawn struct {
+type CronActionRemoteSpawn struct {
 	// Node remote node name
 	Node Atom
-	// Name use registered name for the spawned process
-	Name           Atom
+	// Name of the remote process factory
+	Name Atom
+
+	// Register use registered name for the spawned process
+	Register       Atom
 	ProcessOptions ProcessOptions
 	Args           []any
 
@@ -59,9 +65,9 @@ type JobActionRemoteSpawn struct {
 	Fallback ProcessFallback
 }
 
-type JobSpawn struct {
-	Enable bool
+type CronInfo struct {
+	Jobs []CronJobInfo
 }
 
-type CronInfo struct {
+type CronJobInfo struct {
 }
