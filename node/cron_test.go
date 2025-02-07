@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"reflect"
 	"testing"
+	"time"
 
 	"ergo.services/ergo/gen"
 )
@@ -12,8 +13,48 @@ type testCaseCronSpecField struct {
 	name   string
 	in     string
 	field  cronField
-	out    []cronMask
+	out    cronSpecMask
 	outerr error
+}
+type testCaseCronField struct {
+	name   string
+	spec   string
+	out    []time.Time
+	outerr error
+}
+
+func TestCronParse1(t *testing.T) {
+	cases := []testCaseCronField{
+		{"aaa", "51-55 * * * 2L",
+			nil,
+			nil,
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name+":"+c.spec, func(t *testing.T) {
+			job := gen.CronJob{Name: "testJob", Spec: c.spec}
+			mask, err := cronParseSpec(job)
+			if err != nil {
+				if c.outerr != nil {
+					if err.Error() == c.outerr.Error() {
+						return
+					}
+					t.Fatalf("exp: <<%v>> got: <<%v>>", c.outerr, err)
+				}
+				t.Fatal(err)
+			}
+			now := time.Now().Truncate(time.Minute)
+			for i := 0; i < 30; i++ {
+				now = now.Add(time.Hour * 24)
+				now1 := now
+				for i := 0; i < 10; i++ {
+					now1 = now1.Add(time.Minute)
+					fmt.Printf("now: %s run: %v\n",
+						now1, mask.IsRunAt(now1))
+				}
+			}
+		})
+	}
 }
 
 func TestCronParseSpecField(t *testing.T) {

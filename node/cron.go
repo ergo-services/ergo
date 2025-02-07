@@ -185,7 +185,7 @@ type cronJob struct {
 	disable bool
 
 	job  gen.CronJob
-	mask []cronMask
+	mask cronSpecMask
 
 	next    time.Time
 	last    time.Time

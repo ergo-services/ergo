@@ -3,7 +3,6 @@ package node
 import (
 	"ergo.services/ergo/gen"
 	"fmt"
-	"math"
 	"regexp"
 	"strconv"
 	"strings"
@@ -18,6 +17,7 @@ type cronField struct {
 }
 
 type cronMask uint64
+type cronSpecMask []cronMask
 
 const (
 	// use 4 bits (0..15)
@@ -49,28 +49,92 @@ const (
 	cronMask7 = cronMask(254) // 0b11111110
 )
 
+func (csm cronSpecMask) IsRunAt(t time.Time) bool {
+
+	for _, cm := range csm {
+		if cm.IsRunAt(t) == false {
+			return false
+		}
+	}
+	return true
+}
+
+func (cm cronMask) MaskType() uint64 {
+	return uint64(cm & cronMaskType)
+}
+
 func (cm cronMask) IsRunAt(t time.Time) bool {
-	cmt := cm & cronMaskType
-	switch cmt {
+	switch cm.MaskType() {
 	case cronMaskTypeMin:
+		m := t.Minute()
+		if cm&(1<<m) > 0 {
+			return true
+		}
 
 	case cronMaskTypeHour:
+		h := t.Hour()
+		if cm&(1<<h) > 0 {
+			return true
+		}
 
 	case cronMaskTypeDay:
+		d := t.Day()
+		if cm&(1<<d) > 0 {
+			return true
+		}
 
 	case cronMaskTypeMonth:
+		m := t.Month()
+		if cm&(1<<m) > 0 {
+			return true
+		}
 
 	case cronMaskTypeWeekDay:
+		wd := t.Weekday()
+		if wd == 0 {
+			wd = 7
+		}
+		if cm&(1<<wd) > 0 {
+			return true
+		}
 
 	case cronMaskTypeLastDM:
+		last := t.AddDate(0, 1, -t.Day()).Day()
+		return last == t.Day()
 
 	case cronMaskTypeLastDW:
+		wd := int(cm & 15)
+		twd := int(t.Weekday())
+		if twd == 0 {
+			twd = 7
+		}
+		if wd != twd {
+			return false
+		}
+		tm := t.Month()
+		m := t.Add(time.Hour * 7 * 24).Month()
+		if tm == m {
+			return true
+		}
 
 	case cronMaskTypeNDW:
+		wd := int(cm & 255)
+		twd := int(t.Weekday())
+		if twd == 0 {
+			twd = 7
+		}
+		if wd != twd {
+			return false
+		}
+		n := int((cm >> 8) & 255)
+		tn := t.Day() / 7
+		if tn == n {
+			return true
+		}
 
 	default:
 		// shouldnt happen
-		e := fmt.Sprintf("unknown cronMaskType %d", cmt>>60)
+		e := fmt.Sprintf("unknown cronMaskType %d", cm.MaskType()>>60)
 		panic(e)
 	}
 	return false
@@ -114,7 +178,7 @@ var (
 	}
 )
 
-func cronParseSpec(job gen.CronJob) ([]cronMask, error) {
+func cronParseSpec(job gen.CronJob) (cronSpecMask, error) {
 	spec := job.Spec
 
 	// @daily, @hourly, @monthly, @weekly
@@ -161,16 +225,15 @@ func cronParseSpec(job gen.CronJob) ([]cronMask, error) {
 		return nil, err
 	}
 
-	// kind of weird thing in the crontab spec:
-	// 1 1 * * * - run every day at 01:01
-	// 1 1 1 * * - run on day 1 of the month at 01:01
-	// 1 1 * * 1 - run every monday at 01:01 <-- weird behavior since the 'day' field has '*'
-	// 1 1 1 * 1 - run every monday at 01:01, and on day 1 of the month
-	if maskW[0]&cronMaskTypeWeekDay != cronMaskTypeWeekDay {
-		// 'day of the week' differs from the default one ('*'),
-		// so check if the 'day' field has default one - remove it
-		// to get rid of triggering on every day
-		if maskD[0]&cronMaskTypeDay == cronMaskTypeDay {
+	if maskW[0] == cronFieldWeekDay.mask {
+		// default '*'. remove it
+		maskW = maskW[1:]
+	}
+
+	if maskD[0] == cronFieldDay.mask {
+		// default '*'
+		if len(maskW) > 0 {
+			// remove it
 			maskD = maskD[1:]
 		}
 	}
@@ -188,9 +251,9 @@ func cronParseSpec(job gen.CronJob) ([]cronMask, error) {
 	return mask, nil
 }
 
-func cronParseSpecField(f string, field cronField) ([]cronMask, error) {
+func cronParseSpecField(f string, field cronField) (cronSpecMask, error) {
 	// default mask with cleaned bits
-	result := []cronMask{field.mask & cronMaskType}
+	result := cronSpecMask{field.mask & cronMaskType}
 	mtype := result[0] & cronMaskType
 
 	fieldOptions := strings.Split(f, ",")
@@ -207,7 +270,7 @@ func cronParseSpecField(f string, field cronField) ([]cronMask, error) {
 					return nil, fmt.Errorf("wildcard '*' is used along with the others in %q", f)
 				}
 				// return default mask
-				return []cronMask{field.mask}, nil
+				return cronSpecMask{field.mask}, nil
 
 			case "L":
 				// last day of month/week

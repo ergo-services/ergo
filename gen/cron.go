@@ -33,7 +33,8 @@ type CronActionMessage struct {
 	// Process defines where to send MessageCron. Can be local or remote one.
 	Process ProcessID
 
-	// Fallback process name if Process isn't reachable ()
+	// Fallback process name if Process isn't reachable.
+	// MessageCronFallback will be sent with the details.
 	Fallback ProcessFallback
 }
 
@@ -47,7 +48,8 @@ type CronActionSpawn struct {
 	// Args
 	Args []any
 
-	// Fallback process name if Process isn't reachable ()
+	// Fallback process name if the spawning process has failed.
+	// MessageCronFallback will be sent with the details.
 	Fallback ProcessFallback
 }
 type CronActionRemoteSpawn struct {
@@ -61,7 +63,8 @@ type CronActionRemoteSpawn struct {
 	ProcessOptions ProcessOptions
 	Args           []any
 
-	// Fallback process name if Process isn't reachable ()
+	// Fallback process name if the spawning process has failed.
+	// MessageCronFallback will be sent with the details.
 	Fallback ProcessFallback
 }
 
