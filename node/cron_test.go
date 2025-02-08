@@ -13,7 +13,7 @@ type testCaseCronSpecField struct {
 	name   string
 	in     string
 	field  cronField
-	out    cronSpecMask
+	out    cronMaskList
 	outerr error
 }
 type testCaseCronField struct {
@@ -25,7 +25,8 @@ type testCaseCronField struct {
 
 func TestCronParse1(t *testing.T) {
 	cases := []testCaseCronField{
-		{"aaa", "51-55 * * * 2L",
+		// {"aaa", "1 19 3 * 3#2",
+		{"aaa", "1 19 * * 3#2",
 			nil,
 			nil,
 		},
@@ -43,16 +44,17 @@ func TestCronParse1(t *testing.T) {
 				}
 				t.Fatal(err)
 			}
-			now := time.Now().Truncate(time.Minute)
-			for i := 0; i < 30; i++ {
-				now = now.Add(time.Hour * 24)
-				now1 := now
-				for i := 0; i < 10; i++ {
-					now1 = now1.Add(time.Minute)
-					fmt.Printf("now: %s run: %v\n",
-						now1, mask.IsRunAt(now1))
+			// now := time.Now().Truncate(time.Minute)
+			now, _ := time.Parse(time.RFC3339, "2025-01-01T00:00:00Z")
+			// for i := 0; i < 30; i++ {
+			for i := 0; i < 60*24*30*12; i++ {
+				now = now.Add(time.Minute)
+				if mask.IsRunAt(now) == false {
+					continue
 				}
+				fmt.Println("run at", now)
 			}
+			// }
 		})
 	}
 }
@@ -63,7 +65,7 @@ func TestCronParseSpecField(t *testing.T) {
 		// allowed: *, d, d-d, */d
 		{"wildcard", "*", cronFieldMin,
 			[]cronMask{
-				cronMaskTypeMin | cronMask60,
+				cronMaskTypeMin,
 			},
 			nil,
 		},

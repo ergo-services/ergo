@@ -162,19 +162,11 @@ func (c *cron) scheduleJob(cj *cronJob) {
 	if cj.disable == true {
 		return
 	}
-	now := time.Now()
-	// spoolNextRun := now.Add(time.Minute).Truncate(time.Minute)
-	jobNextRun := now
-
-	for _, cm := range cj.mask {
-		if cm.IsRunAt(now) == false {
-			continue
-		}
-
-		c.spool.Push(cj)
-		break
+	spoolNextRun := time.Now().Add(time.Minute).Truncate(time.Minute)
+	if cj.mask.IsRunAt(spoolNextRun) == false {
+		return
 	}
-	cj.next = jobNextRun
+	c.spool.Push(cj)
 }
 
 // internal job
@@ -187,7 +179,6 @@ type cronJob struct {
 	job  gen.CronJob
 	mask cronSpecMask
 
-	next    time.Time
 	last    time.Time
 	lastErr error
 }

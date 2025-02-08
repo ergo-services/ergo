@@ -17,7 +17,12 @@ type cronField struct {
 }
 
 type cronMask uint64
-type cronSpecMask []cronMask
+type cronMaskList []cronMask
+type cronSpecMask struct {
+	MinHourMonth cronMaskList
+	Day          cronMaskList
+	WeekDay      cronMaskList
+}
 
 const (
 	// use 4 bits (0..15)
@@ -32,26 +37,32 @@ const (
 	cronMaskTypeMonth   = 13 << 60
 	cronMaskTypeWeekDay = 14 << 60
 	cronMaskType        = 15 << 60
-
-	// mins (0..59)
-	cronMask60 = cronMask(1152921504606846975) // 0b111111111111111111111111111111111111111111111111111111111111
-
-	// hours (0..23)
-	cronMask24 = cronMask(16777215) // 0b111111111111111111111111
-
-	// days 1..31
-	cronMask31 = cronMask(4294967294) // 0b11111111111111111111111111111110
-
-	// months 1..12
-	cronMask12 = cronMask(4094) // 0b111111111110
-
-	// day of weeks 1..7 (mon..sun)
-	cronMask7 = cronMask(254) // 0b11111110
 )
 
 func (csm cronSpecMask) IsRunAt(t time.Time) bool {
+	x := append(csm.MinHourMonth, csm.Day...)
+	if x.IsRunAt(t) == true {
+		return true
+	}
 
-	for _, cm := range csm {
+	x = append(csm.MinHourMonth, csm.WeekDay...)
+	if x.IsRunAt(t) == true {
+		return true
+	}
+	return false
+	// if csm.Day.IsRunAt(t) == false && csm.WeekDay.IsRunAt(t) == false {
+	// 	return false
+	// }
+	// if csm.MinHourMonth.IsRunAt(t) == false {
+	// 	return false
+	// }
+	//
+	// return true
+}
+
+func (cml cronMaskList) IsRunAt(t time.Time) bool {
+
+	for _, cm := range cml {
 		if cm.IsRunAt(t) == false {
 			return false
 		}
@@ -113,21 +124,21 @@ func (cm cronMask) IsRunAt(t time.Time) bool {
 		}
 		tm := t.Month()
 		m := t.Add(time.Hour * 7 * 24).Month()
-		if tm == m {
+		if tm != m {
 			return true
 		}
 
 	case cronMaskTypeNDW:
-		wd := int(cm & 255)
 		twd := int(t.Weekday())
 		if twd == 0 {
 			twd = 7
 		}
+		wd := int((cm >> 8) & 255)
 		if wd != twd {
 			return false
 		}
-		n := int((cm >> 8) & 255)
-		tn := t.Day() / 7
+		n := int(cm & 255)
+		tn := (t.Day() / 7) + 1
 		if tn == n {
 			return true
 		}
@@ -144,41 +155,42 @@ var (
 	cronFieldMin = cronField{
 		min:  0,
 		max:  59,
-		mask: cronMaskTypeMin | cronMask60, // default '*'
+		mask: cronMaskTypeMin,
 		// allowed: *, d, d-d, */d, d-d/d
 		reg: regexp.MustCompile(`^(?:\*$|\*/\d+|\d+-\d+|\d+-\d+/\d+|\d+)$`),
 	}
 	cronFieldHour = cronField{
 		min:  0,
 		max:  23,
-		mask: cronMaskTypeHour | cronMask24, // default '*'
+		mask: cronMaskTypeHour,
 		// allowed: *, d, d-d, */d, d-d/d
 		reg: regexp.MustCompile(`^(?:\*$|\*/\d+|\d+-\d+|\d+-\d+/\d+|\d+)$`),
 	}
 	cronFieldDay = cronField{
 		min:  1,
 		max:  31,
-		mask: cronMaskTypeDay | cronMask31, // default '*'
+		mask: cronMaskTypeDay,
 		// allowed: *, d, d-d, */d, d-d/d, L
 		reg: regexp.MustCompile(`^(?:\*$|\*/\d+|\d+-\d+|\d+-\d+/\d+|L|\d+)$`),
 	}
 	cronFieldMonth = cronField{
 		min:  1,
 		max:  12,
-		mask: cronMaskTypeMonth | cronMask12, // default '*'
+		mask: cronMaskTypeMonth,
 		// allowed: *, d, d-d, */d
 		reg: regexp.MustCompile(`^(?:\*$|\*/\d+|\d+-\d+|\d+)$`),
 	}
 	cronFieldWeekDay = cronField{
 		min:  1,
 		max:  7,
-		mask: cronMaskTypeWeekDay | cronMask7, // default '*'
+		mask: cronMaskTypeWeekDay,
 		// allowed: * or d, d-d, dL, d#d
-		reg: regexp.MustCompile(`^(?:\*$|\d+-\d+|[1-7]L|\d+|[1-5]#[1-5])$`),
+		reg: regexp.MustCompile(`^(?:\*$|\d+-\d+|[1-7]L|\d+|[1-7]#[1-5])$`),
 	}
 )
 
 func cronParseSpec(job gen.CronJob) (cronSpecMask, error) {
+	var mask cronSpecMask
 	spec := job.Spec
 
 	// @daily, @hourly, @monthly, @weekly
@@ -197,64 +209,51 @@ func cronParseSpec(job gen.CronJob) (cronSpecMask, error) {
 	//  * * * * *
 	fields := strings.Fields(spec)
 	if len(fields) != 5 {
-		return nil, fmt.Errorf("incorrect cron spec format")
+		return mask, fmt.Errorf("incorrect cron spec format")
 	}
 
 	// parse min field
-	mask, err := cronParseSpecField(fields[0], cronFieldMin)
+	m, err := cronParseSpecField(fields[0], cronFieldMin)
 	if err != nil {
-		return nil, err
+		return mask, err
 	}
+	mask.MinHourMonth = append(mask.MinHourMonth, m...)
 
 	// parse hour field
-	maskH, err := cronParseSpecField(fields[1], cronFieldHour)
+	m, err = cronParseSpecField(fields[1], cronFieldHour)
 	if err != nil {
-		return nil, err
+		return mask, err
 	}
-	mask = append(mask, maskH...)
-
-	// parse day field
-	maskD, err := cronParseSpecField(fields[2], cronFieldDay)
-	if err != nil {
-		return nil, err
-	}
-
-	// parse weekday field
-	maskW, err := cronParseSpecField(fields[4], cronFieldWeekDay)
-	if err != nil {
-		return nil, err
-	}
-
-	if maskW[0] == cronFieldWeekDay.mask {
-		// default '*'. remove it
-		maskW = maskW[1:]
-	}
-
-	if maskD[0] == cronFieldDay.mask {
-		// default '*'
-		if len(maskW) > 0 {
-			// remove it
-			maskD = maskD[1:]
-		}
-	}
-
-	mask = append(mask, maskD...)
-	mask = append(mask, maskW...)
+	mask.MinHourMonth = append(mask.MinHourMonth, m...)
 
 	// parse month field
-	maskM, err := cronParseSpecField(fields[3], cronFieldMonth)
+	m, err = cronParseSpecField(fields[3], cronFieldMonth)
 	if err != nil {
-		return nil, err
+		return mask, err
 	}
-	mask = append(mask, maskM...)
+	mask.MinHourMonth = append(mask.MinHourMonth, m...)
+
+	// parse day field
+	m, err = cronParseSpecField(fields[2], cronFieldDay)
+	if err != nil {
+		return mask, err
+	}
+	mask.Day = m
+
+	// parse weekday field
+	m, err = cronParseSpecField(fields[4], cronFieldWeekDay)
+	if err != nil {
+		return mask, err
+	}
+	mask.WeekDay = m
 
 	return mask, nil
 }
 
-func cronParseSpecField(f string, field cronField) (cronSpecMask, error) {
+func cronParseSpecField(f string, field cronField) (cronMaskList, error) {
 	// default mask with cleaned bits
-	result := cronSpecMask{field.mask & cronMaskType}
-	mtype := result[0] & cronMaskType
+	result := cronMaskList{field.mask}
+	mtype := field.mask
 
 	fieldOptions := strings.Split(f, ",")
 	for _, fo := range fieldOptions {
@@ -269,8 +268,8 @@ func cronParseSpecField(f string, field cronField) (cronSpecMask, error) {
 				if len(fieldOptions) > 1 {
 					return nil, fmt.Errorf("wildcard '*' is used along with the others in %q", f)
 				}
-				// return default mask
-				return cronSpecMask{field.mask}, nil
+				// return empty mask
+				return cronMaskList{}, nil
 
 			case "L":
 				// last day of month/week
@@ -336,19 +335,19 @@ func cronParseSpecField(f string, field cronField) (cronSpecMask, error) {
 				continue
 			}
 
-			// n#w
+			// w#n
 			if l := strings.Split(sm, "#"); len(l) == 2 {
-				n, err := cronParseInt(l[0], field.min, field.max)
+				w, err := cronParseInt(l[0], field.min, field.max)
 				if err != nil {
 					return nil, fmt.Errorf("incorrect value: %v in %q: %w", fo, f, err)
 				}
-				w, err := cronParseInt(l[1], field.min, field.max)
+				n, err := cronParseInt(l[1], field.min, field.max)
 				if err != nil {
 					return nil, fmt.Errorf("incorrect value: %v in %q: %w", fo, f, err)
 				}
 				ndw := cronMaskTypeNDW
-				ndw |= n << 8
-				ndw |= w
+				ndw |= w << 8
+				ndw |= n
 				result = append(result, cronMask(ndw))
 				continue
 			}
