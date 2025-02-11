@@ -182,9 +182,7 @@ func TestCronParseSpecField(t *testing.T) {
 		// min
 		// allowed: *, d, d-d, */d
 		{"wildcard", "*", cronFieldMin,
-			[]cronMask{
-				cronMaskTypeMin,
-			},
+			[]cronMask{},
 			nil,
 		},
 		{"seq", "0,59,3", cronFieldMin,
