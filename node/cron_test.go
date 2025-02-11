@@ -17,47 +17,162 @@ type testCaseCronSpecField struct {
 	outerr error
 }
 type testCaseCronField struct {
-	name   string
-	spec   string
-	out    []time.Time
-	outerr error
+	spec string
+	out  []time.Time
 }
 
 func TestCronParse1(t *testing.T) {
+	timeParse := func(s string) time.Time {
+		t, _ := time.Parse(time.RFC3339, s)
+		return t
+	}
 	cases := []testCaseCronField{
-		// {"aaa", "1 19 * * 3#2",
-		// {"aaa", "1 19 3 * 3#2",
-		// {"aaa", "1 19 3 * *",
-		// {"aaa", "1 19 */7,L * *",
-		{"aaa", "1 19 * * 1#1,7L",
-			nil,
-			nil,
+		{"1 19 * * 3#2",
+			[]time.Time{
+				timeParse("2025-01-08T19:01:00Z"),
+				timeParse("2025-02-12T19:01:00Z"),
+				timeParse("2025-03-12T19:01:00Z"),
+				timeParse("2025-04-09T19:01:00Z"),
+				timeParse("2025-05-14T19:01:00Z"),
+				timeParse("2025-06-11T19:01:00Z"),
+				timeParse("2025-07-09T19:01:00Z"),
+				timeParse("2025-08-13T19:01:00Z"),
+				timeParse("2025-09-10T19:01:00Z"),
+				timeParse("2025-10-08T19:01:00Z"),
+				timeParse("2025-11-12T19:01:00Z"),
+				timeParse("2025-12-10T19:01:00Z"),
+			},
+		},
+		{"1 19 3 * 3#2",
+			[]time.Time{
+				timeParse("2025-01-03T19:01:00Z"),
+				timeParse("2025-01-08T19:01:00Z"),
+				timeParse("2025-02-03T19:01:00Z"),
+				timeParse("2025-02-12T19:01:00Z"),
+				timeParse("2025-03-03T19:01:00Z"),
+				timeParse("2025-03-12T19:01:00Z"),
+				timeParse("2025-04-03T19:01:00Z"),
+				timeParse("2025-04-09T19:01:00Z"),
+				timeParse("2025-05-03T19:01:00Z"),
+				timeParse("2025-05-14T19:01:00Z"),
+				timeParse("2025-06-03T19:01:00Z"),
+				timeParse("2025-06-11T19:01:00Z"),
+				timeParse("2025-07-03T19:01:00Z"),
+				timeParse("2025-07-09T19:01:00Z"),
+				timeParse("2025-08-03T19:01:00Z"),
+				timeParse("2025-08-13T19:01:00Z"),
+				timeParse("2025-09-03T19:01:00Z"),
+				timeParse("2025-09-10T19:01:00Z"),
+				timeParse("2025-10-03T19:01:00Z"),
+				timeParse("2025-10-08T19:01:00Z"),
+				timeParse("2025-11-03T19:01:00Z"),
+				timeParse("2025-11-12T19:01:00Z"),
+				timeParse("2025-12-03T19:01:00Z"),
+				timeParse("2025-12-10T19:01:00Z"),
+			},
+		},
+		{"1 19 3 * *",
+			[]time.Time{
+				timeParse("2025-01-03T19:01:00Z"),
+				timeParse("2025-02-03T19:01:00Z"),
+				timeParse("2025-03-03T19:01:00Z"),
+				timeParse("2025-04-03T19:01:00Z"),
+				timeParse("2025-05-03T19:01:00Z"),
+				timeParse("2025-06-03T19:01:00Z"),
+				timeParse("2025-07-03T19:01:00Z"),
+				timeParse("2025-08-03T19:01:00Z"),
+				timeParse("2025-09-03T19:01:00Z"),
+				timeParse("2025-10-03T19:01:00Z"),
+				timeParse("2025-11-03T19:01:00Z"),
+				timeParse("2025-12-03T19:01:00Z"),
+			},
+		},
+		{"1 19 */15,L 2,7 *",
+			[]time.Time{
+				timeParse("2025-02-01T19:01:00Z"),
+				timeParse("2025-02-16T19:01:00Z"),
+				timeParse("2025-02-28T19:01:00Z"),
+				timeParse("2025-07-01T19:01:00Z"),
+				timeParse("2025-07-16T19:01:00Z"),
+				timeParse("2025-07-31T19:01:00Z"),
+			},
+		},
+		{"1 19 * * 1#1,7L",
+			[]time.Time{
+				timeParse("2025-01-06T19:01:00Z"),
+				timeParse("2025-01-26T19:01:00Z"),
+				timeParse("2025-02-03T19:01:00Z"),
+				timeParse("2025-02-23T19:01:00Z"),
+				timeParse("2025-03-03T19:01:00Z"),
+				timeParse("2025-03-30T19:01:00Z"),
+				timeParse("2025-04-07T19:01:00Z"),
+				timeParse("2025-04-27T19:01:00Z"),
+				timeParse("2025-05-05T19:01:00Z"),
+				timeParse("2025-05-25T19:01:00Z"),
+				timeParse("2025-06-02T19:01:00Z"),
+				timeParse("2025-06-29T19:01:00Z"),
+				timeParse("2025-07-07T19:01:00Z"),
+				timeParse("2025-07-27T19:01:00Z"),
+				timeParse("2025-08-04T19:01:00Z"),
+				timeParse("2025-08-31T19:01:00Z"),
+				timeParse("2025-09-01T19:01:00Z"),
+				timeParse("2025-09-28T19:01:00Z"),
+				timeParse("2025-10-06T19:01:00Z"),
+				timeParse("2025-10-26T19:01:00Z"),
+				timeParse("2025-11-03T19:01:00Z"),
+				timeParse("2025-11-30T19:01:00Z"),
+				timeParse("2025-12-01T19:01:00Z"),
+				timeParse("2025-12-28T19:01:00Z"),
+			},
+		},
+		{"1 19 10-13/3 * *",
+			[]time.Time{
+				timeParse("2025-01-10T19:01:00Z"),
+				timeParse("2025-01-13T19:01:00Z"),
+				timeParse("2025-02-10T19:01:00Z"),
+				timeParse("2025-02-13T19:01:00Z"),
+				timeParse("2025-03-10T19:01:00Z"),
+				timeParse("2025-03-13T19:01:00Z"),
+				timeParse("2025-04-10T19:01:00Z"),
+				timeParse("2025-04-13T19:01:00Z"),
+				timeParse("2025-05-10T19:01:00Z"),
+				timeParse("2025-05-13T19:01:00Z"),
+				timeParse("2025-06-10T19:01:00Z"),
+				timeParse("2025-06-13T19:01:00Z"),
+				timeParse("2025-07-10T19:01:00Z"),
+				timeParse("2025-07-13T19:01:00Z"),
+				timeParse("2025-08-10T19:01:00Z"),
+				timeParse("2025-08-13T19:01:00Z"),
+				timeParse("2025-09-10T19:01:00Z"),
+				timeParse("2025-09-13T19:01:00Z"),
+				timeParse("2025-10-10T19:01:00Z"),
+				timeParse("2025-10-13T19:01:00Z"),
+				timeParse("2025-11-10T19:01:00Z"),
+				timeParse("2025-11-13T19:01:00Z"),
+				timeParse("2025-12-10T19:01:00Z"),
+				timeParse("2025-12-13T19:01:00Z"),
+			},
 		},
 	}
 	for _, c := range cases {
-		t.Run(c.name+":"+c.spec, func(t *testing.T) {
+		t.Run(c.spec, func(t *testing.T) {
 			job := gen.CronJob{Name: "testJob", Spec: c.spec}
 			mask, err := cronParseSpec(job)
-			fmt.Println("MASK:", mask)
 			if err != nil {
-				if c.outerr != nil {
-					if err.Error() == c.outerr.Error() {
-						return
-					}
-					t.Fatalf("exp: <<%v>> got: <<%v>>", c.outerr, err)
-				}
 				t.Fatal(err)
 			}
-			// now := time.Now().Truncate(time.Minute)
 			now, _ := time.Parse(time.RFC3339, "2025-01-01T00:00:00Z")
+			out := []time.Time{}
 			for i := 0; i < 60*24*365; i++ {
 				now = now.Add(time.Minute)
 				if mask.IsRunAt(now) == false {
 					continue
 				}
-				fmt.Println("run at", now)
+				out = append(out, now)
 			}
-			// }
+			if reflect.DeepEqual(out, c.out) == false {
+				t.Fatalf("mismatch result")
+			}
 		})
 	}
 }
