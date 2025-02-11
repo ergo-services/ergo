@@ -40,34 +40,42 @@ const (
 )
 
 func (csm cronSpecMask) IsRunAt(t time.Time) bool {
-	x := append(csm.MinHourMonth, csm.Day...)
-	if x.IsRunAt(t) == true {
-		return true
+	if len(csm.Day) == 0 && csm.WeekDay.IsRunAt(t) == false {
+		return false
 	}
 
-	x = append(csm.MinHourMonth, csm.WeekDay...)
-	if x.IsRunAt(t) == true {
-		return true
+	if len(csm.WeekDay) == 0 && csm.Day.IsRunAt(t) == false {
+		return false
 	}
-	return false
-	// if csm.Day.IsRunAt(t) == false && csm.WeekDay.IsRunAt(t) == false {
-	// 	return false
-	// }
-	// if csm.MinHourMonth.IsRunAt(t) == false {
-	// 	return false
-	// }
-	//
-	// return true
+
+	if csm.Day.IsRunAt(t) == false && csm.WeekDay.IsRunAt(t) == false {
+		return false
+	}
+
+	if csm.MinHourMonth.IsRunAt(t) == false {
+		return false
+	}
+
+	return true
 }
 
 func (cml cronMaskList) IsRunAt(t time.Time) bool {
-
+	run := true
 	for _, cm := range cml {
-		if cm.IsRunAt(t) == false {
-			return false
+		switch cm.MaskType() {
+		case cronMaskTypeMin, cronMaskTypeHour, cronMaskTypeMonth:
+			if cm.IsRunAt(t) == false {
+				return false
+			}
+			continue
 		}
+		run = cm.IsRunAt(t)
+		if run == true {
+			return true
+		}
+
 	}
-	return true
+	return run
 }
 
 func (cm cronMask) MaskType() uint64 {
@@ -138,7 +146,7 @@ func (cm cronMask) IsRunAt(t time.Time) bool {
 			return false
 		}
 		n := int(cm & 255)
-		tn := (t.Day() / 7) + 1
+		tn := ((t.Day() - 1) / 7) + 1
 		if tn == n {
 			return true
 		}

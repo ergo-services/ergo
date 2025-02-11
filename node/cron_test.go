@@ -25,8 +25,11 @@ type testCaseCronField struct {
 
 func TestCronParse1(t *testing.T) {
 	cases := []testCaseCronField{
+		// {"aaa", "1 19 * * 3#2",
 		// {"aaa", "1 19 3 * 3#2",
-		{"aaa", "1 19 * * 3#2",
+		// {"aaa", "1 19 3 * *",
+		// {"aaa", "1 19 */7,L * *",
+		{"aaa", "1 19 * * 1#1,7L",
 			nil,
 			nil,
 		},
@@ -35,6 +38,7 @@ func TestCronParse1(t *testing.T) {
 		t.Run(c.name+":"+c.spec, func(t *testing.T) {
 			job := gen.CronJob{Name: "testJob", Spec: c.spec}
 			mask, err := cronParseSpec(job)
+			fmt.Println("MASK:", mask)
 			if err != nil {
 				if c.outerr != nil {
 					if err.Error() == c.outerr.Error() {
@@ -46,8 +50,7 @@ func TestCronParse1(t *testing.T) {
 			}
 			// now := time.Now().Truncate(time.Minute)
 			now, _ := time.Parse(time.RFC3339, "2025-01-01T00:00:00Z")
-			// for i := 0; i < 30; i++ {
-			for i := 0; i < 60*24*30*12; i++ {
+			for i := 0; i < 60*24*365; i++ {
 				now = now.Add(time.Minute)
 				if mask.IsRunAt(now) == false {
 					continue
