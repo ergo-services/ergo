@@ -259,7 +259,7 @@ func cronParseSpec(job gen.CronJob) (cronSpecMask, error) {
 }
 
 func cronParseSpecField(f string, field cronField) (cronMaskList, error) {
-	// default mask with cleaned bits
+	// add empty mask
 	result := cronMaskList{field.mask}
 	mtype := field.mask
 
