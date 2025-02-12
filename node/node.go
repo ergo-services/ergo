@@ -183,7 +183,7 @@ func Start(name gen.Atom, options gen.NodeOptions, frameworkVersion gen.Version)
 
 	edf.RegisterAtom(name)
 	node.log.Info("node %s built with %q successfully started", node.name, node.framework)
-	node.cron = createCron(node)
+	node.cron = createCron(node, node.network)
 	for _, job := range options.Cron.Jobs {
 		if err := node.cron.AddJob(job); err != nil {
 			node.StopForce()

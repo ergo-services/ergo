@@ -13,8 +13,6 @@ type Cron interface {
 	RemoveJob(name Atom) error
 	EnableJob(name Atom) error
 	DisableJob(name Atom) error
-	// Jobs() []Job
-	// Job(name Atom) (Job, error)
 	Info() CronInfo
 }
 
