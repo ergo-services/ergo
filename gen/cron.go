@@ -25,15 +25,17 @@ type CronJob struct {
 	Location *time.Location
 	// Action can be either CronActionMessage, CronActionSpawn, CronActionRemoteSpawn
 	Action any
+
+	// Fallback
+	// MessageCronFallback will be sent with the details if action has failed
+	Fallback ProcessFallback
 }
 
 type CronActionMessage struct {
 	// Process defines where to send MessageCron. Can be local or remote one.
 	Process ProcessID
 
-	// Fallback process name if Process isn't reachable.
-	// MessageCronFallback will be sent with the details.
-	Fallback ProcessFallback
+	Priority MessagePriority
 }
 
 type CronActionSpawn struct {
@@ -45,11 +47,8 @@ type CronActionSpawn struct {
 	ProcessOptions ProcessOptions
 	// Args
 	Args []any
-
-	// Fallback process name if the spawning process has failed.
-	// MessageCronFallback will be sent with the details.
-	Fallback ProcessFallback
 }
+
 type CronActionRemoteSpawn struct {
 	// Node remote node name
 	Node Atom
@@ -60,15 +59,20 @@ type CronActionRemoteSpawn struct {
 	Register       Atom
 	ProcessOptions ProcessOptions
 	Args           []any
-
-	// Fallback process name if the spawning process has failed.
-	// MessageCronFallback will be sent with the details.
-	Fallback ProcessFallback
 }
 
 type CronInfo struct {
-	Jobs []CronJobInfo
+	Next  time.Time
+	Spool []Atom
+	Jobs  []CronJobInfo
 }
 
 type CronJobInfo struct {
+	Disabled bool
+	Name     Atom
+	Spec     string
+	Action   any
+	LastRun  time.Time
+	LastErr  error
+	Fallback ProcessFallback
 }

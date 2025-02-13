@@ -839,12 +839,16 @@ func (n *node) WaitWithTimeout(timeout time.Duration) error {
 }
 
 func (n *node) Send(to any, message any) error {
+	return n.SendWithPriority(to, message, gen.MessagePriorityNormal)
+}
+
+func (n *node) SendWithPriority(to any, message any, priority gen.MessagePriority) error {
 	if n.isRunning() == false {
 		return gen.ErrNodeTerminated
 	}
 
 	options := gen.MessageOptions{
-		Priority: gen.MessagePriorityNormal,
+		Priority: priority,
 	}
 
 	switch t := to.(type) {

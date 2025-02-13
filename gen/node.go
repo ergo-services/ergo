@@ -130,6 +130,9 @@ type Node interface {
 	// Send sends a message to the given process.
 	Send(to any, message any) error
 
+	// SendWithPriority sends a message with the given priority
+	SendWithPriority(to any, message any, priority MessagePriority) error
+
 	// SendEvent sends event message to the subscribers (to the processes that made link/monitor
 	// on this event). Event must be registered with RegisterEvent method.
 	SendEvent(name Atom, token Ref, options MessageOptions, message any) error
