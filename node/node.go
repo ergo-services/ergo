@@ -1403,7 +1403,7 @@ func (n *node) spawn(factory gen.ProcessFactory, options gen.ProcessOptionsExtra
 
 	p := &process{
 		node:        n,
-		response:    make(chan response),
+		response:    make(chan response, 10),
 		creation:    time.Now().Unix(),
 		keeporder:   true,
 		state:       int32(gen.ProcessStateInit),
