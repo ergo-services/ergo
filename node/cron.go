@@ -4,31 +4,15 @@ import (
 	"ergo.services/ergo/gen"
 	"ergo.services/ergo/lib"
 	"fmt"
+	"runtime"
 	"sync"
 	"time"
 )
 
 const cronLogPrefix = "(cron) "
 
-type cronNode interface {
-	Name() gen.Atom
-	Log() gen.Log
-	IsAlive() bool
-
-	Send(to any, message any) error
-	SendWithPriority(to any, message any, priority gen.MessagePriority) error
-	Spawn(factory gen.ProcessFactory, options gen.ProcessOptions, args ...any) (gen.PID, error)
-	SpawnRegister(register gen.Atom, factory gen.ProcessFactory, options gen.ProcessOptions, args ...any) (gen.PID, error)
-}
-
-type cronNetwork interface {
-	GetNode(name gen.Atom) (gen.RemoteNode, error)
-}
-
 type cron struct {
-	cronNode
-	cronNetwork
-
+	node gen.Node
 	sync.RWMutex
 
 	jobs  map[gen.Atom]*cronJob
@@ -38,12 +22,11 @@ type cron struct {
 	next  time.Time
 }
 
-func createCron(node cronNode, network cronNetwork) *cron {
+func createCron(node gen.Node) *cron {
 	c := &cron{
-		cronNode:    node,
-		cronNetwork: network,
-		jobs:        make(map[gen.Atom]*cronJob),
-		spool:       lib.NewQueueMPSC(),
+		node:  node,
+		jobs:  make(map[gen.Atom]*cronJob),
+		spool: lib.NewQueueMPSC(),
 	}
 
 	// run every minute
@@ -69,8 +52,59 @@ func createCron(node cronNode, network cronNetwork) *cron {
 				continue
 			}
 
+			// check if actionTime is actually now:
+			// - no time adjustment happened,
+			// - no Day Light Saving happened
+			nowInLocation := time.Now().In(cj.job.Location).Truncate(time.Minute)
+			actionTimeInLocation := actionTime.In(cj.job.Location).Truncate(time.Minute)
+			if nowInLocation != actionTimeInLocation {
+				// do nothing
+				c.node.Log().Debug(cronLogPrefix+"ignore job %s action time != now",
+					cj.job.Name)
+				return
+			}
+
 			// DO the job
-			go cj.do(actionTime)
+			go func() {
+				if lib.Recover() {
+					defer func() {
+						if r := recover(); r != nil {
+							pc, fn, line, _ := runtime.Caller(2)
+							c.node.Log().Panic("panic in cron action for job %s: %#v at %s[%s:%d]",
+								cj.job.Name, r, runtime.FuncForPC(pc).Name(), fn, line)
+						}
+					}()
+				}
+
+				cj.last = actionTimeInLocation
+				cj.lastErr = cj.job.Action.Do(cj.job.Name, c.node, actionTime)
+				if cj.lastErr == nil {
+					c.node.Log().Info(cronLogPrefix+"%s has completed (action time: %s)",
+						cj.job.Name, cj.last)
+					return
+				}
+
+				c.node.Log().Error(cronLogPrefix+"job %s has failed (action time: %s): %s", cj.job.Name, cj.last, cj.lastErr)
+
+				if cj.job.Fallback.Enable == false {
+					return
+				}
+
+				messageFallback := gen.MessageCronFallback{
+					Job:  cj.job.Name,
+					Tag:  cj.job.Fallback.Tag,
+					Time: cj.last,
+					Err:  cj.lastErr,
+				}
+				if err := c.node.Send(cj.job.Fallback.Name, messageFallback); err != nil {
+					c.node.Log().Error(
+						cronLogPrefix+"fallback process %s for %s is unreachable: %s",
+						cj.job.Fallback.Name, cj.job.Name, err,
+					)
+				}
+				c.node.Log().Info(cronLogPrefix+"sent fallback message to %s (job: %s)",
+					cj.job.Fallback.Name, cj.job.Name)
+			}()
 		}
 
 		now := time.Now()
@@ -88,25 +122,8 @@ func (c *cron) AddJob(job gen.CronJob) error {
 		return fmt.Errorf("empty job name")
 	}
 
-	switch ac := job.Action.(type) {
-	case gen.CronActionMessage:
-		if ac.Process.Name == "" {
-			return fmt.Errorf("incorrect value in gen.CronActionMessage.Process")
-		}
-
-	case gen.CronActionSpawn:
-		if ac.ProcessFactory == nil {
-			return fmt.Errorf("nil value in gen.CronActionSpawn.ProcessFactory")
-		}
-	case gen.CronActionRemoteSpawn:
-		if ac.Node == "" {
-			return fmt.Errorf("empty Node value in gen.CronActionRemoteSpawn")
-		}
-		if ac.Name == "" {
-			return fmt.Errorf("empty Name value in gen.CronActionRemoteSpawn")
-		}
-	default:
-		return fmt.Errorf("unknown action type %T", job.Action)
+	if job.Action == nil {
+		return fmt.Errorf("empty action")
 	}
 
 	if job.Location == nil {
@@ -119,10 +136,8 @@ func (c *cron) AddJob(job gen.CronJob) error {
 	}
 
 	cj := &cronJob{
-		job:         job,
-		cronNode:    c.cronNode,
-		cronNetwork: c.cronNetwork,
-		mask:        mask,
+		job:  job,
+		mask: mask,
 	}
 
 	c.Lock()
@@ -173,14 +188,37 @@ func (c *cron) DisableJob(name gen.Atom) error {
 	return nil
 }
 
+func (c *cron) JobInfo(name gen.Atom) (gen.CronJobInfo, error) {
+	var jobInfo gen.CronJobInfo
+	c.RLock()
+	defer c.RUnlock()
+	v, found := c.jobs[name]
+	if found == false {
+		return jobInfo, gen.ErrUnknown
+	}
+	jobInfo.Name = v.job.Name
+	jobInfo.Spec = v.job.Spec
+	jobInfo.Location = v.job.Location.String()
+	jobInfo.ActionInfo = v.job.Action.Info()
+	jobInfo.Disabled = v.disable
+	jobInfo.LastRun = v.last
+	if v.lastErr != nil {
+		jobInfo.LastErr = v.lastErr.Error()
+	}
+	jobInfo.Fallback = v.job.Fallback
+	return jobInfo, nil
+}
+
 func (c *cron) Info() gen.CronInfo {
 	var info gen.CronInfo
 	c.RLock()
 	defer c.RUnlock()
 
 	info.Next = c.next
+	info.Spool = []gen.Atom{}
+	info.Jobs = []gen.CronJobInfo{}
 
-	for item := c.spool.Item(); item != nil; item.Next() {
+	for item := c.spool.Item(); item != nil; item = item.Next() {
 		cj := item.Value().(*cronJob)
 		if cj.disable == true {
 			continue
@@ -192,10 +230,13 @@ func (c *cron) Info() gen.CronInfo {
 		var jobInfo gen.CronJobInfo
 		jobInfo.Name = v.job.Name
 		jobInfo.Spec = v.job.Spec
-		jobInfo.Action = v.job.Action
+		jobInfo.Location = v.job.Location.String()
+		jobInfo.ActionInfo = v.job.Action.Info()
 		jobInfo.Disabled = v.disable
 		jobInfo.LastRun = v.last
-		jobInfo.LastErr = v.lastErr
+		if v.lastErr != nil {
+			jobInfo.LastErr = v.lastErr.Error()
+		}
 		jobInfo.Fallback = v.job.Fallback
 
 		info.Jobs = append(info.Jobs, jobInfo)
@@ -233,9 +274,6 @@ func (c *cron) scheduleJob(cj *cronJob) {
 // internal job
 
 type cronJob struct {
-	cronNode
-	cronNetwork
-
 	disable bool
 
 	job gen.CronJob
@@ -244,125 +282,4 @@ type cronJob struct {
 
 	last    time.Time
 	lastErr error
-}
-
-func (cj *cronJob) do(actionTime time.Time) {
-
-	if cj.disable {
-		return
-	}
-
-	// check if actionTime is actually now:
-	// - no time adjustment happened,
-	// - no Day Light Saving happened
-	nowInLocation := time.Now().In(cj.job.Location).Truncate(time.Minute)
-	actionTimeInLocation := actionTime.In(cj.job.Location).Truncate(time.Minute)
-	if nowInLocation != actionTimeInLocation {
-		// do nothing
-		cj.Log().Debug("ignore job %s action time != now", cj.job.Name)
-		return
-	}
-
-	switch action := cj.job.Action.(type) {
-	case gen.CronActionMessage:
-		message := gen.MessageCron{
-			Node: cj.Name(),
-			Job:  cj.job.Name,
-			Time: actionTimeInLocation,
-		}
-
-		err := cj.SendWithPriority(action.Process, message, action.Priority)
-		cj.last = actionTime
-		if err == nil {
-			cj.lastErr = nil
-			cj.Log().Info(cronLogPrefix+"%q has completed (sent message to: %s)",
-				message.Job, action.Process)
-			return
-		}
-
-		cj.lastErr = fmt.Errorf("unable to send cron message: %w", err)
-		cj.Log().Error(cronLogPrefix+"%s", cj.lastErr)
-
-		if cj.job.Fallback.Enable == false {
-			return
-		}
-		messageFallback := gen.MessageCronFallback{
-			Job:  cj.job.Name,
-			Tag:  cj.job.Fallback.Tag,
-			Time: actionTimeInLocation,
-			Err:  cj.lastErr,
-		}
-		if err := cj.Send(cj.job.Fallback.Name, messageFallback); err != nil {
-			cj.Log().Error(cronLogPrefix+"fallback process for %q is unreachable: %s", cj.job.Name, err)
-		}
-
-	case gen.CronActionSpawn:
-		var err error
-		var pid gen.PID
-
-		if action.Register == "" {
-			pid, err = cj.Spawn(action.ProcessFactory, action.ProcessOptions, action.Args...)
-		} else {
-			pid, err = cj.SpawnRegister(action.Register, action.ProcessFactory, action.ProcessOptions, action.Args...)
-		}
-
-		if err == nil {
-			cj.lastErr = nil
-			cj.Log().Info(cronLogPrefix+"%q has completed (spawned process %s)", cj.job.Name, pid)
-			return
-		}
-
-		cj.lastErr = fmt.Errorf("unable to spawn process: %w", err)
-		cj.Log().Error(cronLogPrefix+"%s", cj.lastErr)
-
-		if cj.job.Fallback.Enable == false {
-			return
-		}
-		messageFallback := gen.MessageCronFallback{
-			Job:  cj.job.Name,
-			Tag:  cj.job.Fallback.Tag,
-			Time: actionTimeInLocation,
-			Err:  cj.lastErr,
-		}
-		if err := cj.Send(cj.job.Fallback.Name, messageFallback); err != nil {
-			cj.Log().Error(cronLogPrefix+"fallback process for %q is unreachable: %s", cj.job.Name, err)
-		}
-
-	case gen.CronActionRemoteSpawn:
-
-		remote, err := cj.GetNode(action.Node)
-		if err == nil {
-			var e error
-			var pid gen.PID
-
-			if action.Register == "" {
-				pid, e = remote.Spawn(action.Name, action.ProcessOptions, action.Args...)
-			} else {
-				pid, e = remote.SpawnRegister(action.Register, action.Name, action.ProcessOptions, action.Args...)
-			}
-
-			if e == nil {
-				cj.lastErr = nil
-				cj.Log().Info(cronLogPrefix+"%q has completed (spawned remote process %s on %s)", cj.job.Name, action.Node, pid)
-				return
-			}
-			err = e
-		}
-
-		cj.lastErr = fmt.Errorf("unable to spawn remote process %s on %s: %w", action.Name, action.Node, err)
-		cj.Log().Error(cronLogPrefix+"%s", cj.lastErr)
-
-		if cj.job.Fallback.Enable == false {
-			return
-		}
-		messageFallback := gen.MessageCronFallback{
-			Job:  cj.job.Name,
-			Tag:  cj.job.Fallback.Tag,
-			Time: actionTimeInLocation,
-			Err:  cj.lastErr,
-		}
-		if err := cj.Send(cj.job.Fallback.Name, messageFallback); err != nil {
-			cj.Log().Error(cronLogPrefix+"fallback process for %q is unreachable: %s", cj.job.Name, err)
-		}
-	}
 }

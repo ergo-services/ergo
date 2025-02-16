@@ -29,9 +29,11 @@ var (
 		gen.ApplicationDepends{},
 
 		gen.LoggerInfo{},
+		gen.ProcessFallback{},
+		gen.CronJobInfo{},
+		gen.CronInfo{},
 		gen.NodeInfo{},
 		gen.Compression{},
-		gen.ProcessFallback{},
 		gen.MailboxQueues{},
 		gen.ProcessInfo{},
 		gen.ProcessShortInfo{},

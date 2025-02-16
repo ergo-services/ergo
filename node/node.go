@@ -183,7 +183,7 @@ func Start(name gen.Atom, options gen.NodeOptions, frameworkVersion gen.Version)
 
 	edf.RegisterAtom(name)
 	node.log.Info("node %s built with %q successfully started", node.name, node.framework)
-	node.cron = createCron(node, node.network)
+	node.cron = createCron(node)
 	for _, job := range options.Cron.Jobs {
 		if err := node.cron.AddJob(job); err != nil {
 			node.StopForce()
@@ -579,6 +579,7 @@ func (n *node) Info() (gen.NodeInfo, error) {
 	info.Framework = n.framework
 	info.Commercial = n.Commercial()
 	info.LogLevel = n.log.Level()
+	info.Cron = n.cron.Info()
 
 	mli := make(map[string]int)
 	for _, level := range gen.DefaultLogLevels {
@@ -1424,7 +1425,7 @@ func (n *node) spawn(factory gen.ProcessFactory, options gen.ProcessOptionsExtra
 
 	p := &process{
 		node:        n,
-		response:    make(chan response),
+		response:    make(chan response, 10),
 		creation:    time.Now().Unix(),
 		keeporder:   true,
 		state:       int32(gen.ProcessStateInit),

@@ -13,7 +13,9 @@ type Cron interface {
 	RemoveJob(name Atom) error
 	EnableJob(name Atom) error
 	DisableJob(name Atom) error
+
 	Info() CronInfo
+	JobInfo(name Atom) (CronJobInfo, error)
 }
 
 type CronJob struct {
@@ -23,42 +25,10 @@ type CronJob struct {
 	Spec string
 	// Location defines timezone
 	Location *time.Location
-	// Action can be either CronActionMessage, CronActionSpawn, CronActionRemoteSpawn
-	Action any
-
+	// Action
+	Action CronAction
 	// Fallback
-	// MessageCronFallback will be sent with the details if action has failed
 	Fallback ProcessFallback
-}
-
-type CronActionMessage struct {
-	// Process defines where to send MessageCron. Can be local or remote one.
-	Process ProcessID
-
-	Priority MessagePriority
-}
-
-type CronActionSpawn struct {
-	// Register use registered name for the spawned process
-	Register Atom
-	// ProcessFactory
-	ProcessFactory ProcessFactory
-	// ProcessOptions
-	ProcessOptions ProcessOptions
-	// Args
-	Args []any
-}
-
-type CronActionRemoteSpawn struct {
-	// Node remote node name
-	Node Atom
-	// Name of the remote process factory
-	Name Atom
-
-	// Register use registered name for the spawned process
-	Register       Atom
-	ProcessOptions ProcessOptions
-	Args           []any
 }
 
 type CronInfo struct {
@@ -68,11 +38,12 @@ type CronInfo struct {
 }
 
 type CronJobInfo struct {
-	Disabled bool
-	Name     Atom
-	Spec     string
-	Action   any
-	LastRun  time.Time
-	LastErr  error
-	Fallback ProcessFallback
+	Disabled   bool
+	Name       Atom
+	Spec       string
+	Location   string
+	ActionInfo string
+	LastRun    time.Time
+	LastErr    string
+	Fallback   ProcessFallback
 }

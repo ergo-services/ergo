@@ -330,6 +330,7 @@ type NodeInfo struct {
 	Env      map[Env]any // gen.NodeOptions.Security.ExposeEnvInfo must be enabled to reveal this data
 	LogLevel LogLevel
 	Loggers  []LoggerInfo
+	Cron     CronInfo
 
 	ProcessesTotal   int64
 	ProcessesRunning int64
