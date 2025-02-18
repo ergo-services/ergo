@@ -22,6 +22,19 @@ type cron struct {
 	next  time.Time
 }
 
+// internal job
+
+type cronJob struct {
+	disable bool
+
+	job gen.CronJob
+
+	mask cronSpecMask
+
+	last    time.Time
+	lastErr error
+}
+
 func createCron(node gen.Node) *cron {
 	c := &cron{
 		node:  node,
@@ -270,17 +283,4 @@ func (c *cron) scheduleJob(cj *cronJob) {
 		return
 	}
 	c.spool.Push(cj)
-}
-
-// internal job
-
-type cronJob struct {
-	disable bool
-
-	job gen.CronJob
-
-	mask cronSpecMask
-
-	last    time.Time
-	lastErr error
 }
