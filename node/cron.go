@@ -224,6 +224,7 @@ func (c *cron) JobInfo(name gen.Atom) (gen.CronJobInfo, error) {
 
 func (c *cron) Info() gen.CronInfo {
 	var info gen.CronInfo
+
 	c.RLock()
 	defer c.RUnlock()
 
@@ -256,6 +257,35 @@ func (c *cron) Info() gen.CronInfo {
 	}
 
 	return info
+}
+
+func (c *cron) Schedule(since time.Time, period time.Duration) []gen.CronSchedule {
+	var schedule []gen.CronSchedule
+
+	c.RLock()
+	defer c.RUnlock()
+
+	start := since.Truncate(time.Minute)
+	end := start.Add(period)
+
+	for now := start; now.Before(end); now = now.Add(time.Minute) {
+		cronSchedule := gen.CronSchedule{
+			Time: now,
+		}
+		for _, v := range c.jobs {
+			nowLocation := now.In(v.job.Location)
+			if v.mask.IsRunAt(nowLocation) == false {
+				continue
+			}
+			cronSchedule.Jobs = append(cronSchedule.Jobs, v.job.Name)
+		}
+
+		if len(cronSchedule.Jobs) > 0 {
+			schedule = append(schedule, cronSchedule)
+		}
+	}
+
+	return schedule
 }
 
 func (c *cron) terminate() {

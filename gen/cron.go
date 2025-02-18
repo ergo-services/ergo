@@ -16,6 +16,8 @@ type Cron interface {
 
 	Info() CronInfo
 	JobInfo(name Atom) (CronJobInfo, error)
+
+	Schedule(since time.Time, duration time.Duration) []CronSchedule
 }
 
 type CronJob struct {
@@ -35,6 +37,11 @@ type CronInfo struct {
 	Next  time.Time
 	Spool []Atom
 	Jobs  []CronJobInfo
+}
+
+type CronSchedule struct {
+	Time time.Time
+	Jobs []Atom
 }
 
 type CronJobInfo struct {
