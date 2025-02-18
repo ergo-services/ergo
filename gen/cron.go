@@ -9,14 +9,21 @@ type CronOptions struct {
 }
 
 type Cron interface {
+	// AddJob adds new job
 	AddJob(job CronJob) error
+	// RemoveJob removes new job
 	RemoveJob(name Atom) error
+	// EnableJob allows you to enable previously disabled job
 	EnableJob(name Atom) error
+	// DisableJob disables job
 	DisableJob(name Atom) error
 
+	// Info returns information about the jobs, spool of jobs for the next run
 	Info() CronInfo
+	// JobInfo returns infourmation for the given job
 	JobInfo(name Atom) (CronJobInfo, error)
 
+	// Schedule returns a list of jobs planned to be run for the given period of time
 	Schedule(since time.Time, duration time.Duration) []CronSchedule
 }
 
