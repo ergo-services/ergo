@@ -147,9 +147,9 @@ func (c *cron) AddJob(job gen.CronJob) error {
 	}
 
 	c.jobs[job.Name] = cj
+	c.scheduleJob(cj)
 	c.Unlock()
 
-	c.scheduleJob(cj)
 	return nil
 }
 
@@ -260,6 +260,7 @@ func (c *cron) schedule(next time.Time) {
 
 func (c *cron) scheduleJob(cj *cronJob) {
 	// cron must be locked before invoking this func
+	// to get rid of concurrent access to the c.next value
 
 	next := c.next.In(cj.job.Location)
 	if cj.disable == true {
