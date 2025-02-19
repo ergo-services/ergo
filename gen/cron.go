@@ -25,6 +25,7 @@ type Cron interface {
 
 	// Schedule returns a list of jobs planned to be run for the given period
 	Schedule(since time.Time, duration time.Duration) []CronSchedule
+	// JobSchedule returns a list of scheduled run times for the given job and period.
 	JobSchedule(job Atom, since time.Time, duration time.Duration) ([]time.Time, error)
 }
 
