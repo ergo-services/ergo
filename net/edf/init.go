@@ -32,6 +32,7 @@ var (
 		gen.ProcessFallback{},
 		gen.CronJobInfo{},
 		gen.CronInfo{},
+		gen.CronSchedule{},
 		gen.NodeInfo{},
 		gen.Compression{},
 		gen.MailboxQueues{},
