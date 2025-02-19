@@ -288,6 +288,30 @@ func (c *cron) Schedule(since time.Time, period time.Duration) []gen.CronSchedul
 	return schedule
 }
 
+func (c *cron) JobSchedule(job gen.Atom, since time.Time, period time.Duration) ([]time.Time, error) {
+	var schedule []time.Time
+	c.RLock()
+	v, found := c.jobs[job]
+	if found == false {
+		c.RUnlock()
+		return nil, gen.ErrUnknown
+	}
+	defer c.RUnlock()
+
+	start := since.Truncate(time.Minute)
+	end := start.Add(period)
+
+	for now := start; now.Before(end); now = now.Add(time.Minute) {
+		nowLocation := now.In(v.job.Location)
+		if v.mask.IsRunAt(nowLocation) == false {
+			continue
+		}
+		schedule = append(schedule, now)
+	}
+
+	return schedule, nil
+}
+
 func (c *cron) terminate() {
 	c.timer.Stop()
 }

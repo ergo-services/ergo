@@ -20,11 +20,12 @@ type Cron interface {
 
 	// Info returns information about the jobs, spool of jobs for the next run
 	Info() CronInfo
-	// JobInfo returns infourmation for the given job
+	// JobInfo returns information for the given job
 	JobInfo(name Atom) (CronJobInfo, error)
 
-	// Schedule returns a list of jobs planned to be run for the given period of time
+	// Schedule returns a list of jobs planned to be run for the given period
 	Schedule(since time.Time, duration time.Duration) []CronSchedule
+	JobSchedule(job Atom, since time.Time, duration time.Duration) ([]time.Time, error)
 }
 
 type CronJob struct {
