@@ -7,6 +7,12 @@ import (
 	"time"
 )
 
+const (
+	CronEnvNodeName      = Env("CRON_NODE_NAME")
+	CronEnvJobName       = Env("CRON_JOB_NAME")
+	CronEnvJobActionTime = Env("CRON_JOB_ACTION_TIME")
+)
+
 type CronAction interface {
 	Do(job Atom, node Node, atime time.Time) error
 	Info() string
@@ -60,6 +66,10 @@ func CreateCronActionSpawn(factory ProcessFactory, options CronActionSpawnOption
 		panic("nil value as ProcessFactory")
 	}
 
+	if options.ProcessOptions.Env == nil {
+		options.ProcessOptions.Env = make(map[Env]any)
+	}
+
 	cas := &cronActionSpawn{
 		factory: factory,
 		options: options,
@@ -77,13 +87,24 @@ func CreateCronActionSpawn(factory ProcessFactory, options CronActionSpawnOption
 }
 
 func (cas *cronActionSpawn) Do(job Atom, node Node, atime time.Time) error {
+	processOptions := cas.options.ProcessOptions
+
+	// clone env
+	processOptions.Env = make(map[Env]any)
+	for k, v := range cas.options.ProcessOptions.Env {
+		processOptions.Env[k] = v
+	}
+	processOptions.Env[CronEnvNodeName] = node.Name()
+	processOptions.Env[CronEnvJobName] = job
+	processOptions.Env[CronEnvJobActionTime] = atime
+
 	if cas.options.Register == "" {
-		_, err := node.Spawn(cas.factory, cas.options.ProcessOptions,
+		_, err := node.Spawn(cas.factory, processOptions,
 			cas.options.Args...)
 		return err
 	}
 	_, err := node.SpawnRegister(cas.options.Register, cas.factory,
-		cas.options.ProcessOptions, cas.options.Args...)
+		processOptions, cas.options.Args...)
 	return err
 }
 
@@ -122,13 +143,25 @@ func (cars *cronActionRemoteSpawn) Do(job Atom, node Node, atime time.Time) erro
 	if err != nil {
 		return err
 	}
+
+	processOptions := cars.options.ProcessOptions
+
+	// clone env
+	processOptions.Env = make(map[Env]any)
+	for k, v := range cars.options.ProcessOptions.Env {
+		processOptions.Env[k] = v
+	}
+	processOptions.Env[CronEnvNodeName] = node.Name()
+	processOptions.Env[CronEnvJobName] = job
+	processOptions.Env[CronEnvJobActionTime] = atime
+
 	if cars.options.Register == "" {
-		_, err := remote.Spawn(cars.name, cars.options.ProcessOptions,
+		_, err := remote.Spawn(cars.name, processOptions,
 			cars.options.Args...)
 		return err
 	}
 	_, err = remote.SpawnRegister(cars.options.Register, cars.name,
-		cars.options.ProcessOptions, cars.options.Args...)
+		processOptions, cars.options.Args...)
 	return err
 }
 
