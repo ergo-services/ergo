@@ -114,7 +114,9 @@ func createCron(node gen.Node) *cron {
 						cronLogPrefix+"fallback process %s for %s is unreachable: %s",
 						cj.job.Fallback.Name, cj.job.Name, err,
 					)
+					return
 				}
+
 				c.node.Log().Info(cronLogPrefix+"sent fallback message to %s (job: %s)",
 					cj.job.Fallback.Name, cj.job.Name)
 			}()

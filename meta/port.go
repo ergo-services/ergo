@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"sync/atomic"
 
@@ -32,6 +33,9 @@ func CreatePort(options PortOptions) (gen.MetaBehavior, error) {
 		process:  options.Process,
 		splitOut: options.SplitFuncOut,
 		splitErr: options.SplitFuncErr,
+		envMeta:  options.EnableEnvMeta,
+		envOS:    options.EnableEnvOS,
+		env:      options.Env,
 	}
 
 	if options.Binary.Enable == false {
@@ -90,6 +94,9 @@ type port struct {
 	bytesOut uint64
 	command  string
 	args     []string
+	envMeta  bool
+	envOS    bool
+	env      map[gen.Env]string
 
 	cmd    *exec.Cmd
 	in     io.WriteCloser
@@ -120,6 +127,27 @@ func (p *port) Init(process gen.MetaProcess) error {
 		p.in.Close()
 		return err
 	}
+
+	// from the OS
+	if p.envOS == true {
+		p.cmd.Env = os.Environ()
+	}
+
+	// from the meta process
+	if p.envMeta == true {
+		env := []string{}
+		for n, v := range p.EnvList() {
+			env = append(env, fmt.Sprintf("%s=%v", n, v))
+		}
+		p.cmd.Env = append(p.cmd.Env, env...)
+	}
+
+	// from options
+	env := []string{}
+	for n, v := range p.env {
+		env = append(env, fmt.Sprintf("%s=%v", n, v))
+	}
+	p.cmd.Env = append(p.cmd.Env, env...)
 
 	return nil
 }
@@ -391,9 +419,10 @@ func (p *port) readStdoutData(to any) error {
 			chunk = chunk[:0]
 		}
 
-		if p.binary.ChunkFixedLength == 0 {
-			cl = 0
-		}
+		// if p.binary.ChunkFixedLength == 0 {
+		// 	cl = 0
+		// }
+		cl = p.binary.ChunkFixedLength
 
 		if len(tail) > 0 {
 			chunk = append(chunk, tail...)

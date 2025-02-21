@@ -37,13 +37,16 @@ type MessagePortError struct {
 }
 
 type PortOptions struct {
-	Cmd          string
-	Args         []string
-	Tag          string
-	Process      gen.Atom
-	SplitFuncOut bufio.SplitFunc
-	SplitFuncErr bufio.SplitFunc
-	Binary       PortBinaryOptions
+	Cmd           string
+	Args          []string
+	Env           map[gen.Env]string
+	EnableEnvMeta bool
+	EnableEnvOS   bool
+	Tag           string
+	Process       gen.Atom
+	SplitFuncOut  bufio.SplitFunc
+	SplitFuncErr  bufio.SplitFunc
+	Binary        PortBinaryOptions
 }
 
 type PortBinaryOptions struct {
