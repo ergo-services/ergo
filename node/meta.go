@@ -184,6 +184,7 @@ func (m *meta) handle() {
 			}
 
 			if message != nil {
+				// release previously handled mailbox message
 				gen.ReleaseMailboxMessage(message)
 				message = nil
 			}

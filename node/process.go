@@ -797,6 +797,10 @@ func (p *process) SendExitMeta(alias gen.Alias, reason error) error {
 		return gen.ErrNotAllowed
 	}
 
+	if reason == nil {
+		return gen.ErrIncorrect
+	}
+
 	value, found := p.node.aliases.Load(alias)
 	if found == false {
 		return gen.ErrAliasUnknown
