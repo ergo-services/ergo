@@ -176,7 +176,6 @@ func (p *process) SpawnMeta(behavior gen.MetaBehavior, options gen.MetaOptions) 
 	m := &meta{
 		p:        p,
 		behavior: behavior,
-		state:    int32(gen.MetaStateSleep),
 	}
 	switch options.SendPriority {
 	case gen.MessagePriorityHigh:
@@ -796,6 +795,10 @@ func (p *process) SendExit(to gen.PID, reason error) error {
 func (p *process) SendExitMeta(alias gen.Alias, reason error) error {
 	if p.isStateRW() == false {
 		return gen.ErrNotAllowed
+	}
+
+	if reason == nil {
+		return gen.ErrIncorrect
 	}
 
 	value, found := p.node.aliases.Load(alias)

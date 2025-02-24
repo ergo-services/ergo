@@ -110,6 +110,8 @@ type Node interface {
 	NetworkStop() error
 	Network() Network
 
+	Cron() Cron
+
 	CertManager() CertManager
 
 	Security() SecurityOptions
@@ -127,6 +129,9 @@ type Node interface {
 
 	// Send sends a message to the given process.
 	Send(to any, message any) error
+
+	// SendWithPriority sends a message with the given priority
+	SendWithPriority(to any, message any, priority MessagePriority) error
 
 	// SendEvent sends event message to the subscribers (to the processes that made link/monitor
 	// on this event). Event must be registered with RegisterEvent method.
@@ -220,6 +225,8 @@ type NodeOptions struct {
 	Env map[Env]any
 	// Network
 	Network NetworkOptions
+	// Cron
+	Cron CronOptions
 	// CertManager
 	CertManager CertManager
 	// Security options
@@ -323,6 +330,7 @@ type NodeInfo struct {
 	Env      map[Env]any // gen.NodeOptions.Security.ExposeEnvInfo must be enabled to reveal this data
 	LogLevel LogLevel
 	Loggers  []LoggerInfo
+	Cron     CronInfo
 
 	ProcessesTotal   int64
 	ProcessesRunning int64
