@@ -37,37 +37,33 @@ type MessagePortError struct {
 }
 
 type PortOptions struct {
-	Cmd           string
-	Args          []string
-	Env           map[gen.Env]string
-	EnableEnvMeta bool
-	EnableEnvOS   bool
-	Tag           string
-	Process       gen.Atom
-	SplitFuncOut  bufio.SplitFunc
-	SplitFuncErr  bufio.SplitFunc
-	Binary        PortBinaryOptions
+	Cmd             string
+	Args            []string
+	Env             map[gen.Env]string
+	EnableEnvMeta   bool
+	EnableEnvOS     bool
+	Tag             string
+	Process         gen.Atom
+	SplitFuncStdout bufio.SplitFunc
+	SplitFuncStderr bufio.SplitFunc
+	Binary          PortBinaryOptions
+}
+
+type PortChunkOptions struct {
+	Enable                     bool
+	FixedLength                int
+	HeaderSize                 int
+	HeaderLengthPosition       int // within the header
+	HeaderLengthSize           int // 1, 2 or 4
+	HeaderLengthIncludesHeader bool
+	MaxLength                  int
 }
 
 type PortBinaryOptions struct {
-	Enable bool
-
-	EnableAutoChunk bool
-
-	ChunkFixedLength int
-
-	ChunkHeaderSize                 int
-	ChunkHeaderLengthPosition       int // within the header
-	ChunkHeaderLengthSize           int // 1, 2 or 4
-	ChunkHeaderLengthIncludesHeader bool
-	ChunkMaxLength                  int
-
-	ReadBufferSize int
-	ReadBufferPool *sync.Pool
-
-	// EnableWriteBuffer enables buffering for outgoing data. It improves performance
-	// in case of writing a lot of small data chunks
-	EnableWriteBuffer          bool
+	Enable                     bool
+	Chunk                      PortChunkOptions
+	ReadBufferSize             int
+	ReadBufferPool             *sync.Pool
 	WriteBufferKeepAlive       []byte
 	WriteBufferKeepAlivePeriod time.Duration
 }

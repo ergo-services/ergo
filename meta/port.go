@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	defaultBufferSize int = 65535
+	defaultBufferSize int = 8192
 )
 
 //
@@ -31,8 +31,8 @@ func CreatePort(options PortOptions) (gen.MetaBehavior, error) {
 		args:     options.Args,
 		tag:      options.Tag,
 		process:  options.Process,
-		splitOut: options.SplitFuncOut,
-		splitErr: options.SplitFuncErr,
+		splitOut: options.SplitFuncStdout,
+		splitErr: options.SplitFuncStderr,
 		envMeta:  options.EnableEnvMeta,
 		envOS:    options.EnableEnvOS,
 		env:      options.Env,
@@ -56,26 +56,28 @@ func CreatePort(options PortOptions) (gen.MetaBehavior, error) {
 		options.Binary.ReadBufferSize = defaultBufferSize
 	}
 
-	if options.Binary.WriteBufferKeepAlive != nil {
+	if len(options.Binary.WriteBufferKeepAlive) > 0 {
+		// enabled keepalive message
 		if options.Binary.WriteBufferKeepAlivePeriod == 0 {
 			return nil, fmt.Errorf("enabled KeepAlive options with zero Period")
 		}
 	}
 
-	if options.Binary.ChunkFixedLength == 0 {
+	if options.Binary.Chunk.FixedLength == 0 {
 		// dynamic length
-		if options.Binary.ChunkHeaderSize == 0 {
-			return nil, fmt.Errorf("ChunkHeaderSize must be defined for dynamic chunk size")
+		if options.Binary.Chunk.HeaderSize == 0 {
+			return nil, fmt.Errorf("Chunk.HeaderSize must be non-zero for dynamic chunk size")
 		}
 
-		if options.Binary.ChunkHeaderLengthSize+options.Binary.ChunkHeaderLengthPosition > options.Binary.ChunkHeaderSize {
-			return nil, fmt.Errorf("ChunkHeaderLengthPosition + ...LengthSize is out of ChunkHeaderSize bounds")
+		hl := options.Binary.Chunk.HeaderLengthSize + options.Binary.Chunk.HeaderLengthPosition
+		if hl > options.Binary.Chunk.HeaderSize {
+			return nil, fmt.Errorf("Chunk.HeaderLengthPosition + ...LengthSize is out of Chunk.HeaderSize bounds")
 		}
 
-		switch options.Binary.ChunkHeaderLengthSize {
+		switch options.Binary.Chunk.HeaderLengthSize {
 		case 1, 2, 4:
 		default:
-			return nil, fmt.Errorf("ChunkHeaderLengthSize must be either: 1, 2, or 4 bytes")
+			return nil, fmt.Errorf("Chunk.HeaderLengthSize must be either: 1, 2, or 4 bytes")
 		}
 	}
 	p.binary = options.Binary
@@ -162,23 +164,22 @@ func (p *port) Start() error {
 		return err
 	}
 
-	if p.binary.EnableWriteBuffer {
-		type wrapCloser struct {
-			io.Writer
-			io.Closer
-		}
-		sc := &wrapCloser{
-			Closer: p.in,
-		}
-
-		if p.binary.WriteBufferKeepAlive != nil {
-			sc.Writer = lib.NewFlusherWithKeepAlive(p.in, p.binary.WriteBufferKeepAlive, p.binary.WriteBufferKeepAlivePeriod)
-		} else {
-			sc.Writer = lib.NewFlusher(p.in)
-		}
-
-		p.in = sc
+	type wrapCloser struct {
+		io.Writer
+		io.Closer
 	}
+	sc := &wrapCloser{
+		Closer: p.in,
+	}
+
+	if len(p.binary.WriteBufferKeepAlive) > 0 {
+		// keepalive enabled
+		sc.Writer = lib.NewFlusherWithKeepAlive(p.in, p.binary.WriteBufferKeepAlive, p.binary.WriteBufferKeepAlivePeriod)
+	} else {
+		sc.Writer = lib.NewFlusher(p.in)
+	}
+
+	p.in = sc
 
 	if p.process == "" {
 		to = p.Parent()
@@ -284,14 +285,16 @@ func (p *port) Terminate(reason error) {
 
 func (p *port) HandleInspect(from gen.PID, item ...string) map[string]string {
 	return map[string]string{
-		"tag":      p.tag,
-		"cmd":      p.cmd.Args[0],
-		"args":     fmt.Sprint(p.cmd.Args[1:]),
-		"pid":      fmt.Sprint(p.cmd.Process.Pid),
-		"env":      fmt.Sprint(p.cmd.Env),
-		"pwd":      p.cmd.Dir,
-		"bytesIn":  fmt.Sprintf("%d", p.bytesIn),
-		"bytesOut": fmt.Sprintf("%d", p.bytesOut),
+		"tag":          p.tag,
+		"cmd":          p.cmd.Args[0],
+		"binary":       fmt.Sprint(p.binary.Enable),
+		"binary.chunk": fmt.Sprint(p.binary.Chunk.Enable),
+		"args":         fmt.Sprint(p.cmd.Args[1:]),
+		"pid":          fmt.Sprint(p.cmd.Process.Pid),
+		"env":          fmt.Sprint(p.cmd.Env),
+		"pwd":          p.cmd.Dir,
+		"bytesIn":      fmt.Sprintf("%d", p.bytesIn),
+		"bytesOut":     fmt.Sprintf("%d", p.bytesOut),
 	}
 }
 
@@ -310,7 +313,7 @@ func (p *port) readStdoutData(to any) error {
 		chunk = chunk[:0]
 	}
 
-	cl := p.binary.ChunkFixedLength // chunk length
+	cl := p.binary.Chunk.FixedLength // chunk length
 
 	for {
 
@@ -331,8 +334,8 @@ func (p *port) readStdoutData(to any) error {
 
 		atomic.AddUint64(&p.bytesIn, uint64(n))
 
-		if p.binary.EnableAutoChunk == false {
-			// send chunk
+		if p.binary.Chunk.Enable == false {
+			// send current buffer
 			message := MessagePortData{
 				ID:   id,
 				Tag:  p.tag,
@@ -363,12 +366,12 @@ func (p *port) readStdoutData(to any) error {
 		// read length value for the chunk
 		if cl == 0 {
 			// check if we got the header
-			if len(chunk) < p.binary.ChunkHeaderSize {
+			if len(chunk) < p.binary.Chunk.HeaderSize {
 				continue
 			}
 
-			pos := p.binary.ChunkHeaderLengthPosition
-			switch p.binary.ChunkHeaderLengthSize {
+			pos := p.binary.Chunk.HeaderLengthPosition
+			switch p.binary.Chunk.HeaderLengthSize {
 			case 1:
 				cl = int(chunk[pos])
 			case 2:
@@ -380,13 +383,13 @@ func (p *port) readStdoutData(to any) error {
 				panic("bug")
 			}
 
-			if p.binary.ChunkHeaderLengthIncludesHeader == false {
-				cl += p.binary.ChunkHeaderSize
+			if p.binary.Chunk.HeaderLengthIncludesHeader == false {
+				cl += p.binary.Chunk.HeaderSize
 			}
 
-			if p.binary.ChunkMaxLength > 0 {
-				if cl > p.binary.ChunkMaxLength {
-					p.Log().Error("chunk size %d is exceeded the limit (ChumkMaxLenth: %d)", cl, p.binary.ChunkMaxLength)
+			if p.binary.Chunk.MaxLength > 0 {
+				if cl > p.binary.Chunk.MaxLength {
+					p.Log().Error("chunk size %d is exceeded the limit (Chunk.MaxLenth: %d)", cl, p.binary.Chunk.MaxLength)
 					return gen.ErrTooLarge
 				}
 			}
@@ -413,16 +416,13 @@ func (p *port) readStdoutData(to any) error {
 
 		// prepare next chunk
 		if p.binary.ReadBufferPool == nil {
-			chunk = make([]byte, 0, p.binary.ChunkFixedLength)
+			chunk = make([]byte, 0, p.binary.Chunk.FixedLength)
 		} else {
 			chunk = p.binary.ReadBufferPool.Get().([]byte)
 			chunk = chunk[:0]
 		}
 
-		// if p.binary.ChunkFixedLength == 0 {
-		// 	cl = 0
-		// }
-		cl = p.binary.ChunkFixedLength
+		cl = p.binary.Chunk.FixedLength
 
 		if len(tail) > 0 {
 			chunk = append(chunk, tail...)

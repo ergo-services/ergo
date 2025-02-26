@@ -25,10 +25,10 @@ func TestPortBinaryWithHeader(t *testing.T) {
 
 	p.MetaProcess = mp
 	p.binary.Enable = true
-	p.binary.EnableAutoChunk = true
-	p.binary.ChunkHeaderSize = 3
-	p.binary.ChunkHeaderLengthSize = 1
-	p.binary.ChunkHeaderLengthPosition = 2
+	p.binary.Chunk.Enable = true
+	p.binary.Chunk.HeaderSize = 3
+	p.binary.Chunk.HeaderLengthSize = 1
+	p.binary.Chunk.HeaderLengthPosition = 2
 	p.binary.ReadBufferSize = 50
 
 	go func() {
@@ -75,8 +75,8 @@ func TestPortBinaryFixedLength(t *testing.T) {
 
 	p.MetaProcess = mp
 	p.binary.Enable = true
-	p.binary.EnableAutoChunk = true
-	p.binary.ChunkFixedLength = 3
+	p.binary.Chunk.Enable = true
+	p.binary.Chunk.FixedLength = 3
 	p.binary.ReadBufferSize = 50
 
 	go func() {

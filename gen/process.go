@@ -216,8 +216,8 @@ type Process interface {
 
 	// RegisterEvent registers a new event. Returns a reference as the token
 	// for sending events. Unregistering the event is allowed to the process
-	// that registered it. Sending an event can be done in any other process
-	// by using the registered event name with the provided token (delegation of
+	// that registered it. Sending an event can be done by any other process
+	// using the registered event name with the provided token (delegation of
 	// event sending feature).
 	RegisterEvent(name Atom, options EventOptions) (Ref, error)
 
