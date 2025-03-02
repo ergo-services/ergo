@@ -6,9 +6,9 @@ import (
 	"errors"
 	"net"
 	"strconv"
-	"sync"
 
 	"ergo.services/ergo/gen"
+	"ergo.services/ergo/lib"
 )
 
 //
@@ -16,24 +16,28 @@ import (
 //
 
 func CreateTCPServer(options TCPServerOptions) (gen.MetaBehavior, error) {
+
+	if err := options.ReadChunk.IsValid(); err != nil {
+		return nil, err
+	}
+
 	lc := net.ListenConfig{
 		KeepAlive: -1, // disabled
 	}
-	if options.KeepAlivePeriod > 0 {
-		lc.KeepAlive = options.KeepAlivePeriod
-	}
-	if options.BufferSize < 1 {
-		options.BufferSize = gen.DefaultTCPBufferSize
-	}
+	lc.KeepAlive = options.Advanced.KeepAlivePeriod
 
 	// check sync.Pool
-	if options.BufferPool != nil {
-		b := options.BufferPool.Get()
+	if options.ReadBufferPool != nil {
+		b := options.ReadBufferPool.Get()
 		if _, ok := b.([]byte); ok == false {
-			return nil, errors.New("options.BufferPool must be pool of []byte values")
+			return nil, errors.New("options.ReadBufferPool must be pool of []byte values")
 		}
 		// get it back to the pool
-		options.BufferPool.Put(b)
+		options.ReadBufferPool.Put(b)
+	}
+
+	if options.ReadBufferSize < 1 {
+		options.ReadBufferSize = gen.DefaultTCPBufferSize
 	}
 
 	hp := net.JoinHostPort(options.Host, strconv.Itoa(int(options.Port)))
@@ -51,10 +55,8 @@ func CreateTCPServer(options TCPServerOptions) (gen.MetaBehavior, error) {
 	}
 
 	s := &tcpserver{
-		bufpool:    options.BufferPool,
-		listener:   listener,
-		procpool:   options.ProcessPool,
-		bufferSize: options.BufferSize,
+		listener: listener,
+		options:  options,
 	}
 
 	return s, nil
@@ -62,10 +64,8 @@ func CreateTCPServer(options TCPServerOptions) (gen.MetaBehavior, error) {
 
 type tcpserver struct {
 	gen.MetaProcess
-	procpool   []gen.Atom
-	bufpool    *sync.Pool
-	listener   net.Listener
-	bufferSize int
+	options  TCPServerOptions
+	listener net.Listener
 }
 
 func (t *tcpserver) Init(process gen.MetaProcess) error {
@@ -74,30 +74,43 @@ func (t *tcpserver) Init(process gen.MetaProcess) error {
 }
 
 func (t *tcpserver) Start() error {
-	i := 0
+	options := TCPConnectionOptions{
+		ReadChunk:                  t.options.ReadChunk,
+		ReadBufferSize:             t.options.ReadBufferSize,
+		ReadBufferPool:             t.options.ReadBufferPool,
+		WriteBufferKeepAlive:       t.options.WriteBufferKeepAlive,
+		WriteBufferKeepAlivePeriod: t.options.WriteBufferKeepAlivePeriod,
+		Advanced:                   t.options.Advanced,
+	}
 
-	for {
+	for i := 0; ; i++ {
 		conn, err := t.listener.Accept()
 		if err != nil {
 			return err
 		}
 
 		c := &tcpconnection{
-			conn:       conn,
-			bufpool:    t.bufpool,
-			bufferSize: t.bufferSize,
+			conn:    conn,
+			options: options,
 		}
-		if len(t.procpool) > 0 {
-			l := len(t.procpool)
-			c.process = t.procpool[i%l]
+
+		if len(c.options.WriteBufferKeepAlive) > 0 {
+			// keepalive enabled
+			c.connWriter = lib.NewFlusherWithKeepAlive(conn,
+				c.options.WriteBufferKeepAlive,
+				c.options.WriteBufferKeepAlivePeriod)
+		} else {
+			c.connWriter = lib.NewFlusher(conn)
+		}
+
+		if l := len(t.options.ProcessPool); l > 0 {
+			c.options.Process = t.options.ProcessPool[i%l]
 		}
 
 		if _, err := t.Spawn(c, gen.MetaOptions{}); err != nil {
 			conn.Close()
 			t.Log().Error("unable to spawn meta process: %s", err)
 		}
-		i++
-
 	}
 }
 func (t *tcpserver) HandleMessage(from gen.PID, message any) error {
@@ -118,9 +131,14 @@ func (t *tcpserver) HandleCall(from gen.PID, ref gen.Ref, request any) (any, err
 func (t *tcpserver) Terminate(reason error) {
 	defer t.listener.Close()
 
-	if reason == nil || reason == gen.TerminateReasonNormal {
+	if reason == nil {
 		return
 	}
+
+	if reason == gen.TerminateReasonShutdown || reason == gen.TerminateReasonNormal {
+		return
+	}
+
 	t.Log().Error("terminated abnormaly: %s", reason)
 }
 

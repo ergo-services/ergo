@@ -49,21 +49,11 @@ type PortOptions struct {
 	Binary          PortBinaryOptions
 }
 
-type PortChunkOptions struct {
-	Enable                     bool
-	FixedLength                int
-	HeaderSize                 int
-	HeaderLengthPosition       int // within the header
-	HeaderLengthSize           int // 1, 2 or 4
-	HeaderLengthIncludesHeader bool
-	MaxLength                  int
-}
-
 type PortBinaryOptions struct {
 	Enable                     bool
-	Chunk                      PortChunkOptions
 	ReadBufferSize             int
 	ReadBufferPool             *sync.Pool
+	ReadChunk                  ChunkOptions
 	WriteBufferKeepAlive       []byte
 	WriteBufferKeepAlivePeriod time.Duration
 }

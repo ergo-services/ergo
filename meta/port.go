@@ -23,19 +23,11 @@ const (
 
 func CreatePort(options PortOptions) (gen.MetaBehavior, error) {
 	if options.Cmd == "" {
-		return nil, fmt.Errorf("empty options.Cmd")
+		return nil, fmt.Errorf("empty Cmd option")
 	}
 
 	p := &port{
-		command:  options.Cmd,
-		args:     options.Args,
-		tag:      options.Tag,
-		process:  options.Process,
-		splitOut: options.SplitFuncStdout,
-		splitErr: options.SplitFuncStderr,
-		envMeta:  options.EnableEnvMeta,
-		envOS:    options.EnableEnvOS,
-		env:      options.Env,
+		options: options,
 	}
 
 	if options.Binary.Enable == false {
@@ -43,64 +35,42 @@ func CreatePort(options PortOptions) (gen.MetaBehavior, error) {
 	}
 
 	// check sync.Pool
-	if options.Binary.ReadBufferPool != nil {
-		b := options.Binary.ReadBufferPool.Get()
+	if p.options.Binary.ReadBufferPool != nil {
+		b := p.options.Binary.ReadBufferPool.Get()
 		if _, ok := b.([]byte); ok == false {
 			return nil, fmt.Errorf("ReadBufferPool must be a pool of []byte values")
 		}
 		// get it back to the pool
-		options.Binary.ReadBufferPool.Put(b)
+		p.options.Binary.ReadBufferPool.Put(b)
 	}
 
-	if options.Binary.ReadBufferSize < 1 {
-		options.Binary.ReadBufferSize = defaultBufferSize
+	if p.options.Binary.ReadBufferSize < 1 {
+		p.options.Binary.ReadBufferSize = defaultBufferSize
 	}
 
-	if len(options.Binary.WriteBufferKeepAlive) > 0 {
+	if len(p.options.Binary.WriteBufferKeepAlive) > 0 {
 		// enabled keepalive message
-		if options.Binary.WriteBufferKeepAlivePeriod == 0 {
-			return nil, fmt.Errorf("enabled KeepAlive options with zero Period")
+		if p.options.Binary.WriteBufferKeepAlivePeriod == 0 {
+			return nil, fmt.Errorf("enabled WriteBufferKeepAlive options with zero Period")
 		}
 	}
 
-	if options.Binary.Chunk.FixedLength == 0 {
-		// dynamic length
-		if options.Binary.Chunk.HeaderSize == 0 {
-			return nil, fmt.Errorf("Chunk.HeaderSize must be non-zero for dynamic chunk size")
-		}
-
-		hl := options.Binary.Chunk.HeaderLengthSize + options.Binary.Chunk.HeaderLengthPosition
-		if hl > options.Binary.Chunk.HeaderSize {
-			return nil, fmt.Errorf("Chunk.HeaderLengthPosition + ...LengthSize is out of Chunk.HeaderSize bounds")
-		}
-
-		switch options.Binary.Chunk.HeaderLengthSize {
-		case 1, 2, 4:
-		default:
-			return nil, fmt.Errorf("Chunk.HeaderLengthSize must be either: 1, 2, or 4 bytes")
-		}
+	if err := p.options.Binary.ReadChunk.IsValid(); err != nil {
+		return nil, err
 	}
-	p.binary = options.Binary
 
 	return p, nil
 }
 
 type port struct {
 	gen.MetaProcess
-	tag      string
-	process  gen.Atom
-	splitOut bufio.SplitFunc
-	splitErr bufio.SplitFunc
-	binary   PortBinaryOptions
+	cmd *exec.Cmd
+
+	options PortOptions
+
 	bytesIn  uint64
 	bytesOut uint64
-	command  string
-	args     []string
-	envMeta  bool
-	envOS    bool
-	env      map[gen.Env]string
 
-	cmd    *exec.Cmd
 	in     io.WriteCloser
 	out    io.ReadCloser
 	errout io.ReadCloser
@@ -110,7 +80,7 @@ func (p *port) Init(process gen.MetaProcess) error {
 	var err error
 
 	p.MetaProcess = process
-	p.cmd = exec.Command(p.command, p.args...)
+	p.cmd = exec.Command(p.options.Cmd, p.options.Args...)
 
 	if p.in, err = p.cmd.StdinPipe(); err != nil {
 		p.Log().Error("unable to get stdin: %s", err)
@@ -131,12 +101,12 @@ func (p *port) Init(process gen.MetaProcess) error {
 	}
 
 	// from the OS
-	if p.envOS == true {
+	if p.options.EnableEnvOS == true {
 		p.cmd.Env = os.Environ()
 	}
 
 	// from the meta process
-	if p.envMeta == true {
+	if p.options.EnableEnvMeta == true {
 		env := []string{}
 		for n, v := range p.EnvList() {
 			env = append(env, fmt.Sprintf("%s=%v", n, v))
@@ -146,7 +116,7 @@ func (p *port) Init(process gen.MetaProcess) error {
 
 	// from options
 	env := []string{}
-	for n, v := range p.env {
+	for n, v := range p.options.Env {
 		env = append(env, fmt.Sprintf("%s=%v", n, v))
 	}
 	p.cmd.Env = append(p.cmd.Env, env...)
@@ -164,34 +134,17 @@ func (p *port) Start() error {
 		return err
 	}
 
-	type wrapCloser struct {
-		io.Writer
-		io.Closer
-	}
-	sc := &wrapCloser{
-		Closer: p.in,
-	}
-
-	if len(p.binary.WriteBufferKeepAlive) > 0 {
-		// keepalive enabled
-		sc.Writer = lib.NewFlusherWithKeepAlive(p.in, p.binary.WriteBufferKeepAlive, p.binary.WriteBufferKeepAlivePeriod)
-	} else {
-		sc.Writer = lib.NewFlusher(p.in)
-	}
-
-	p.in = sc
-
-	if p.process == "" {
+	if p.options.Process == "" {
 		to = p.Parent()
 	} else {
-		to = p.process
+		to = p.options.Process
 	}
 
 	defer func() {
 		p.cmd.Process.Kill()
 		message := MessagePortTerminate{
 			ID:  p.ID(),
-			Tag: p.tag,
+			Tag: p.options.Tag,
 		}
 		if err := p.Send(to, message); err != nil {
 			// gen.ErrNotAllowed means parent process was terminated
@@ -202,7 +155,7 @@ func (p *port) Start() error {
 
 	message := MessagePortStart{
 		ID:  p.ID(),
-		Tag: p.tag,
+		Tag: p.options.Tag,
 	}
 	if err := p.Send(to, message); err != nil {
 		p.Log().Error("unable to send MessagePortStart to %v: %s", to, err)
@@ -212,10 +165,38 @@ func (p *port) Start() error {
 	// run stderr reader
 	go p.readStderr(to)
 
-	if p.binary.Enable {
+	if p.options.Binary.Enable == false {
+		return p.readStdoutText(to)
+	}
+
+	//
+	// binary mode
+	//
+
+	// create flusher for the writer. use wrapper to meet the io.WriterCloser
+	type wrapCloser struct {
+		io.Writer
+		io.Closer
+	}
+	sc := &wrapCloser{
+		Closer: p.in,
+	}
+
+	if len(p.options.Binary.WriteBufferKeepAlive) > 0 {
+		// keepalive enabled
+		sc.Writer = lib.NewFlusherWithKeepAlive(p.in,
+			p.options.Binary.WriteBufferKeepAlive,
+			p.options.Binary.WriteBufferKeepAlivePeriod)
+	} else {
+		sc.Writer = lib.NewFlusher(p.in)
+	}
+	p.in = sc
+
+	if p.options.Binary.ReadChunk.Enable == false {
 		return p.readStdoutData(to)
 	}
-	return p.readStdoutText(to)
+
+	return p.readStdoutDataChunk(to)
 }
 
 func (p *port) HandleMessage(from gen.PID, message any) error {
@@ -252,8 +233,8 @@ func (p *port) HandleMessage(from gen.PID, message any) error {
 			}
 		}
 		atomic.AddUint64(&p.bytesOut, uint64(lenD))
-		if p.binary.ReadBufferPool != nil {
-			p.binary.ReadBufferPool.Put(m.Data)
+		if p.options.Binary.ReadBufferPool != nil {
+			p.options.Binary.ReadBufferPool.Put(m.Data)
 		}
 
 	default:
@@ -277,43 +258,106 @@ func (p *port) Terminate(reason error) {
 		}
 		p.cmd.Wait()
 	}
-	if reason == nil || reason == gen.TerminateReasonNormal {
+
+	if reason == nil {
 		return
 	}
+
+	if reason == gen.TerminateReasonShutdown || reason == gen.TerminateReasonNormal {
+		return
+	}
+
 	p.Log().Error("terminated abnormaly: %s", reason)
 }
 
 func (p *port) HandleInspect(from gen.PID, item ...string) map[string]string {
 	return map[string]string{
-		"tag":          p.tag,
-		"cmd":          p.cmd.Args[0],
-		"binary":       fmt.Sprint(p.binary.Enable),
-		"binary.chunk": fmt.Sprint(p.binary.Chunk.Enable),
-		"args":         fmt.Sprint(p.cmd.Args[1:]),
-		"pid":          fmt.Sprint(p.cmd.Process.Pid),
-		"env":          fmt.Sprint(p.cmd.Env),
-		"pwd":          p.cmd.Dir,
-		"bytesIn":      fmt.Sprintf("%d", p.bytesIn),
-		"bytesOut":     fmt.Sprintf("%d", p.bytesOut),
+		"tag":               p.options.Tag,
+		"cmd":               p.cmd.Args[0],
+		"binary":            fmt.Sprint(p.options.Binary.Enable),
+		"binary.read_chunk": fmt.Sprint(p.options.Binary.ReadChunk.Enable),
+		"args":              fmt.Sprint(p.cmd.Args[1:]),
+		"pid":               fmt.Sprint(p.cmd.Process.Pid),
+		"env":               fmt.Sprint(p.cmd.Env),
+		"pwd":               p.cmd.Dir,
+		"bytesIn":           fmt.Sprintf("%d", p.bytesIn),
+		"bytesOut":          fmt.Sprintf("%d", p.bytesOut),
 	}
 }
 
 func (p *port) readStdoutData(to any) error {
 	var buf []byte
+
+	id := p.ID()
+
+	for {
+		if p.options.Binary.ReadBufferPool == nil {
+			buf = make([]byte, p.options.Binary.ReadBufferSize)
+		} else {
+			buf = p.options.Binary.ReadBufferPool.Get().([]byte)
+			if len(buf) == 0 {
+				if cap(buf) == 0 {
+					buf = make([]byte, p.options.Binary.ReadBufferSize)
+				} else {
+					buf = buf[0:cap(buf)]
+				}
+			}
+		}
+
+	next:
+		n, err := p.out.Read(buf)
+		if err != nil {
+			if n == 0 {
+				// closed stdin
+				return nil
+			}
+
+			p.Log().Error("unable to read from stdin: %s", err)
+			return err
+		}
+
+		if n == 0 {
+			goto next
+		}
+
+		atomic.AddUint64(&p.bytesIn, uint64(n))
+
+		message := MessagePortData{
+			ID:   id,
+			Tag:  p.options.Tag,
+			Data: buf[:n],
+		}
+
+		if err := p.Send(to, message); err != nil {
+			p.Log().Error("unable to send MessagePort: %s", err)
+			return err
+		}
+
+		if p.options.Binary.ReadBufferPool == nil {
+			buf = make([]byte, p.options.Binary.ReadBufferSize)
+			continue
+		}
+
+		buf = p.options.Binary.ReadBufferPool.Get().([]byte)
+	}
+}
+
+func (p *port) readStdoutDataChunk(to any) error {
+	var buf []byte
 	var chunk []byte
 
 	id := p.ID()
 
-	buf = make([]byte, p.binary.ReadBufferSize)
+	buf = make([]byte, p.options.Binary.ReadBufferSize)
 
-	if p.binary.ReadBufferPool == nil {
-		chunk = make([]byte, 0, p.binary.ReadBufferSize)
+	if p.options.Binary.ReadBufferPool == nil {
+		chunk = make([]byte, 0, p.options.Binary.ReadBufferSize)
 	} else {
-		chunk = p.binary.ReadBufferPool.Get().([]byte)
+		chunk = p.options.Binary.ReadBufferPool.Get().([]byte)
 		chunk = chunk[:0]
 	}
 
-	cl := p.binary.Chunk.FixedLength // chunk length
+	cl := p.options.Binary.ReadChunk.FixedLength // chunk length
 
 	for {
 
@@ -334,31 +378,6 @@ func (p *port) readStdoutData(to any) error {
 
 		atomic.AddUint64(&p.bytesIn, uint64(n))
 
-		if p.binary.Chunk.Enable == false {
-			// send current buffer
-			message := MessagePortData{
-				ID:   id,
-				Tag:  p.tag,
-				Data: buf[:n],
-			}
-
-			if err := p.Send(to, message); err != nil {
-				p.Log().Error("unable to send MessagePort: %s", err)
-				return err
-			}
-
-			if p.binary.ReadBufferPool == nil {
-				buf = make([]byte, p.binary.ReadBufferSize)
-				continue
-			}
-
-			if buf = p.binary.ReadBufferPool.Get().([]byte); len(buf) == 0 {
-				buf = make([]byte, p.binary.ReadBufferSize)
-			}
-			continue
-		}
-
-		// chunking...
 		chunk = append(chunk, buf[:n]...)
 
 	next:
@@ -366,12 +385,12 @@ func (p *port) readStdoutData(to any) error {
 		// read length value for the chunk
 		if cl == 0 {
 			// check if we got the header
-			if len(chunk) < p.binary.Chunk.HeaderSize {
+			if len(chunk) < p.options.Binary.ReadChunk.HeaderSize {
 				continue
 			}
 
-			pos := p.binary.Chunk.HeaderLengthPosition
-			switch p.binary.Chunk.HeaderLengthSize {
+			pos := p.options.Binary.ReadChunk.HeaderLengthPosition
+			switch p.options.Binary.ReadChunk.HeaderLengthSize {
 			case 1:
 				cl = int(chunk[pos])
 			case 2:
@@ -383,13 +402,13 @@ func (p *port) readStdoutData(to any) error {
 				panic("bug")
 			}
 
-			if p.binary.Chunk.HeaderLengthIncludesHeader == false {
-				cl += p.binary.Chunk.HeaderSize
+			if p.options.Binary.ReadChunk.HeaderLengthIncludesHeader == false {
+				cl += p.options.Binary.ReadChunk.HeaderSize
 			}
 
-			if p.binary.Chunk.MaxLength > 0 {
-				if cl > p.binary.Chunk.MaxLength {
-					p.Log().Error("chunk size %d is exceeded the limit (Chunk.MaxLenth: %d)", cl, p.binary.Chunk.MaxLength)
+			if p.options.Binary.ReadChunk.MaxLength > 0 {
+				if cl > p.options.Binary.ReadChunk.MaxLength {
+					p.Log().Error("chunk size %d is exceeded the limit (chunk MaxLenth: %d)", cl, p.options.Binary.ReadChunk.MaxLength)
 					return gen.ErrTooLarge
 				}
 			}
@@ -403,7 +422,7 @@ func (p *port) readStdoutData(to any) error {
 		// send chunk
 		message := MessagePortData{
 			ID:   id,
-			Tag:  p.tag,
+			Tag:  p.options.Tag,
 			Data: chunk[:cl],
 		}
 
@@ -415,14 +434,14 @@ func (p *port) readStdoutData(to any) error {
 		tail := chunk[cl:]
 
 		// prepare next chunk
-		if p.binary.ReadBufferPool == nil {
-			chunk = make([]byte, 0, p.binary.Chunk.FixedLength)
+		if p.options.Binary.ReadBufferPool == nil {
+			chunk = make([]byte, 0, p.options.Binary.ReadChunk.FixedLength)
 		} else {
-			chunk = p.binary.ReadBufferPool.Get().([]byte)
+			chunk = p.options.Binary.ReadBufferPool.Get().([]byte)
 			chunk = chunk[:0]
 		}
 
-		cl = p.binary.Chunk.FixedLength
+		cl = p.options.Binary.ReadChunk.FixedLength
 
 		if len(tail) > 0 {
 			chunk = append(chunk, tail...)
@@ -435,15 +454,15 @@ func (p *port) readStdoutData(to any) error {
 func (p *port) readStdoutText(to any) error {
 	id := p.ID()
 	out := bufio.NewScanner(p.out)
-	if p.splitOut != nil {
-		out.Split(p.splitOut)
+	if p.options.SplitFuncStdout != nil {
+		out.Split(p.options.SplitFuncStdout)
 	}
 
 	for out.Scan() {
 		txt := out.Text()
 		message := MessagePortText{
 			ID:   id,
-			Tag:  p.tag,
+			Tag:  p.options.Tag,
 			Text: txt,
 		}
 		atomic.AddUint64(&p.bytesIn, uint64(len(txt)))
@@ -459,15 +478,15 @@ func (p *port) readStdoutText(to any) error {
 func (p *port) readStderr(to any) {
 	id := p.ID()
 	out := bufio.NewScanner(p.errout)
-	if p.splitErr != nil {
-		out.Split(p.splitErr)
+	if p.options.SplitFuncStderr != nil {
+		out.Split(p.options.SplitFuncStderr)
 	}
 
 	for out.Scan() {
 		txt := out.Text()
 		message := MessagePortError{
 			ID:    id,
-			Tag:   p.tag,
+			Tag:   p.options.Tag,
 			Error: fmt.Errorf(txt),
 		}
 		atomic.AddUint64(&p.bytesIn, uint64(len(txt)))

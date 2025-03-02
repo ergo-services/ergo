@@ -24,15 +24,15 @@ func TestPortBinaryWithHeader(t *testing.T) {
 	}
 
 	p.MetaProcess = mp
-	p.binary.Enable = true
-	p.binary.Chunk.Enable = true
-	p.binary.Chunk.HeaderSize = 3
-	p.binary.Chunk.HeaderLengthSize = 1
-	p.binary.Chunk.HeaderLengthPosition = 2
-	p.binary.ReadBufferSize = 50
+	p.options.Binary.Enable = true
+	p.options.Binary.ReadChunk.Enable = true
+	p.options.Binary.ReadChunk.HeaderSize = 3
+	p.options.Binary.ReadChunk.HeaderLengthSize = 1
+	p.options.Binary.ReadChunk.HeaderLengthPosition = 2
+	p.options.Binary.ReadBufferSize = 50
 
 	go func() {
-		p.readStdoutData("x")
+		p.readStdoutDataChunk("x")
 	}()
 
 	//            chunk1......  chunk2................  chunk3...........
@@ -74,13 +74,13 @@ func TestPortBinaryFixedLength(t *testing.T) {
 	}
 
 	p.MetaProcess = mp
-	p.binary.Enable = true
-	p.binary.Chunk.Enable = true
-	p.binary.Chunk.FixedLength = 3
-	p.binary.ReadBufferSize = 50
+	p.options.Binary.Enable = true
+	p.options.Binary.ReadChunk.Enable = true
+	p.options.Binary.ReadChunk.FixedLength = 3
+	p.options.Binary.ReadBufferSize = 50
 
 	go func() {
-		p.readStdoutData("x")
+		p.readStdoutDataChunk("x")
 	}()
 
 	//            chunk1.......  chunk2.......  chunk3.......

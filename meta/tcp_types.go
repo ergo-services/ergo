@@ -27,18 +27,32 @@ type TCPConnectionOptions struct {
 	Port               uint16
 	Process            gen.Atom
 	CertManager        gen.CertManager
-	BufferSize         int
-	BufferPool         *sync.Pool
-	KeepAlivePeriod    time.Duration
 	InsecureSkipVerify bool
+
+	ReadBufferSize             int
+	ReadBufferPool             *sync.Pool
+	ReadChunk                  ChunkOptions
+	WriteBufferKeepAlive       []byte
+	WriteBufferKeepAlivePeriod time.Duration
+
+	Advanced TCPAdvancedOptions
 }
 type TCPServerOptions struct {
 	Host               string
 	Port               uint16
 	ProcessPool        []gen.Atom
 	CertManager        gen.CertManager
-	BufferSize         int
-	BufferPool         *sync.Pool
-	KeepAlivePeriod    time.Duration
 	InsecureSkipVerify bool
+
+	ReadBufferSize             int
+	ReadBufferPool             *sync.Pool
+	ReadChunk                  ChunkOptions
+	WriteBufferKeepAlive       []byte
+	WriteBufferKeepAlivePeriod time.Duration
+
+	Advanced TCPAdvancedOptions
+}
+
+type TCPAdvancedOptions struct {
+	KeepAlivePeriod time.Duration
 }
