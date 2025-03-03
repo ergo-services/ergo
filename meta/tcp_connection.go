@@ -172,7 +172,6 @@ func (t *tcpconnection) readDataChunk(to any) error {
 
 	id := t.ID()
 
-	t.Log().Info("RRR DataChunk %v", t.options.ReadBufferSize)
 	buf = make([]byte, t.options.ReadBufferSize)
 
 	if t.options.ReadBufferPool == nil {
@@ -279,7 +278,6 @@ func (t *tcpconnection) readDataChunk(to any) error {
 func (t *tcpconnection) HandleMessage(from gen.PID, message any) error {
 	switch m := message.(type) {
 	case MessageTCP:
-		t.Log().Info("MMMMM %v", m.Data)
 		l, err := t.connWriter.Write(m.Data)
 		if err != nil {
 			return err
