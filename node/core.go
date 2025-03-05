@@ -847,6 +847,13 @@ func (n *node) RouteUnlinkEvent(pid gen.PID, target gen.Event) error {
 	return nil
 }
 
+func (n *node) RouteMonitorPID1(pid gen.PID, target gen.PID) error {
+	return nil
+}
+func (n *node) RouteDemonitorPID1(pid gen.PID, target gen.PID) error {
+	return nil
+}
+
 func (n *node) RouteMonitorPID(pid gen.PID, target gen.PID) error {
 	if n.isRunning() == false {
 		return gen.ErrNodeTerminated
