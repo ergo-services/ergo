@@ -240,6 +240,10 @@ func registerType(tov reflect.Type) error {
 		for i := 0; i < nf; i++ {
 			ft := tov.Field(i).Type
 
+			if tov.Field(i).IsExported() == false {
+				return fmt.Errorf("struct %s has unexported field(s)", tov.Name())
+			}
+
 			enc, err := getEncoder(ft, &stateEncode{})
 			if err != nil {
 				return fmt.Errorf("(struct field encode) type %v must be registered first: %s", ft, err)
