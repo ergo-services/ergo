@@ -118,7 +118,7 @@ func (t *tcpserver) HandleCall(from gen.PID, ref gen.Ref, request any) (any, err
 func (t *tcpserver) Terminate(reason error) {
 	defer t.listener.Close()
 
-	if reason == nil || reason == gen.TerminateReasonNormal {
+	if reason == nil || reason == gen.TerminateReasonNormal || reason == gen.TerminateReasonShutdown {
 		return
 	}
 	t.Log().Error("terminated abnormaly: %s", reason)
