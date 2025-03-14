@@ -589,7 +589,6 @@ func (s *Supervisor) handleAction(action supAction) error {
 			return nil
 
 		case supActionTerminate:
-			s.behavior.Terminate(action.reason)
 			return action.reason
 
 		default:
