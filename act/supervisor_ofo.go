@@ -311,7 +311,7 @@ func (s *supOFO) childTerminated(name gen.Atom, pid gen.PID, reason error) supAc
 		if cs.pid == empty {
 			continue
 		}
-		action.terminate = append(action.terminate, pid)
+		action.terminate = append(action.terminate, cs.pid)
 	}
 	action.do = supActionTerminateChildren
 	action.reason = ErrSupervisorRestartsExceeded

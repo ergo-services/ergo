@@ -778,13 +778,15 @@ func (n *node) stop(force bool) {
 
 	n.processes.Range(func(_, v any) bool {
 		p := v.(*process)
-		// do not kill system app processes
-		if p.application == system.Name {
-			return true
-		}
 
 		if force {
 			n.Kill(p.pid)
+			return true
+		}
+
+		if p.application != "" {
+			// Do nothing if it belons to the app.
+			// It has to be terminated via app.stop
 			return true
 		}
 
