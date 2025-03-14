@@ -49,11 +49,11 @@ func RegisterTypeOf(v any) error {
 		return fmt.Errorf("unable to register a type of Ergo Framework")
 
 	case encoding.BinaryUnmarshaler:
-		return fmt.Errorf("BinaryUnmarshaler method of %v must be a method of *%v", tov, tov)
+		return fmt.Errorf("UnmarshalBinary method of %v must be a method of *%v", tov, tov)
 
 	case encoding.BinaryMarshaler:
 		if reflect.PointerTo(tov).Implements(reflect.TypeOf((*encoding.BinaryUnmarshaler)(nil)).Elem()) == false {
-			return fmt.Errorf("BinaryUnmarshaler method of %v must be a method of *%v", tov, tov)
+			return fmt.Errorf("UnmarshalBinary method of %v must be a method of *%v", tov, tov)
 		}
 		name := regTypeName(tov)
 
