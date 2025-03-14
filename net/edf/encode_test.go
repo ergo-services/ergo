@@ -2621,6 +2621,46 @@ func TestEncodeSlice3D(t *testing.T) {
 	lib.ReleaseBuffer(b)
 }
 
+type testBinaryMarshal struct{}
+
+func (testBinaryMarshal) MarshalBinary() ([]byte, error) {
+	return []byte{100, 101, 102, 103, 104}, nil
+}
+
+func (*testBinaryMarshal) UnmarshalBinary(b []byte) error {
+	return nil
+}
+
+func TestEncodeBinaryMarshal(t *testing.T) {
+	var value testBinaryMarshal
+
+	b := lib.TakeBuffer()
+	defer lib.ReleaseBuffer(b)
+
+	if err := Encode(value, b, Options{}); err == nil {
+		t.Fatal("incorrect value")
+	}
+	b.Reset()
+
+	if err := RegisterTypeOf(value); err != nil {
+		t.Fatal(err)
+	}
+	regCache := new(sync.Map)
+	regCache.Store(reflect.TypeOf(value), []byte{edtReg, 0x13, 0x88})
+
+	if err := Encode(value, b, Options{RegCache: regCache}); err != nil {
+		t.Fatal(err)
+	}
+	expect := []byte{edtReg, 0x13, 0x88,
+		0, 0, 0, 5,
+		100, 101, 102, 103, 104}
+	if !reflect.DeepEqual(b.B, expect) {
+		fmt.Printf("exp %#v\n", expect)
+		fmt.Printf("got %#v\n", b.B)
+		t.Fatal("incorrect value")
+	}
+}
+
 type testMarshal struct{}
 
 func (testMarshal) MarshalEDF(w io.Writer) error {
