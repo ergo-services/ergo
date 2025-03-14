@@ -315,6 +315,9 @@ func (c *cron) JobSchedule(job gen.Atom, since time.Time, period time.Duration) 
 }
 
 func (c *cron) terminate() {
+	if c.timer == nil {
+		return
+	}
 	c.timer.Stop()
 }
 
