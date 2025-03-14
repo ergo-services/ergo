@@ -794,11 +794,14 @@ func (n *node) stop(force bool) {
 		return true
 	})
 
+	if n.cron != nil {
+		n.cron.terminate()
+	}
+
 	if force == false {
 		n.waitprocesses.Wait()
 	}
 
-	n.cron.terminate()
 	n.NetworkStop()
 	atomic.StoreInt64(&n.creation, 0)
 	n.log.Info("node %s stopped", n.name)
