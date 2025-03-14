@@ -583,8 +583,14 @@ func (s *Supervisor) handleAction(action supAction) error {
 			// on disabling child spec
 			s.state = supStateStrategy
 			for _, pid := range action.terminate {
-				s.SendExit(pid, action.reason)
-				s.Log().Info("Supervisor: terminate children %s", pid)
+				// TODO
+				// Child is disabling if exceeded restart limits. basically we dont need
+				// to send exit again.
+				// Current workaround: SendExit return error if its terminated already,
+				// so dont log misleading message
+				if err := s.SendExit(pid, action.reason); err == nil {
+					s.Log().Info("Supervisor: terminate children %s", pid)
+				}
 			}
 			return nil
 
