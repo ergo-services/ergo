@@ -48,6 +48,62 @@ func RegisterTypeOf(v any) error {
 	case gen.Atom, gen.PID, gen.ProcessID, gen.Event, gen.Ref, gen.Alias, time.Time:
 		return fmt.Errorf("unable to register a type of Ergo Framework")
 
+	case Unmarshaler:
+		return fmt.Errorf("UnmarshalEDF method of %v must be a method of *%v", tov, tov)
+
+	case Marshaler:
+		// unmarshaling must be implemented as a method of a pointer to the object
+		if reflect.PointerTo(tov).Implements(reflect.TypeOf((*Unmarshaler)(nil)).Elem()) == false {
+			return fmt.Errorf("UnmarshalEDF method of %v must be a method of *%v", tov, tov)
+		}
+		name := regTypeName(tov)
+
+		fenc := func(value reflect.Value, b *lib.Buffer, _ *stateEncode) error {
+			v := value.Interface().(Marshaler)
+			buf := b.Extend(4)
+			l := b.Len()
+			if err := v.MarshalEDF(b); err != nil {
+				return err
+			}
+
+			lenBinary := b.Len() - l
+			if int64(lenBinary) > int64(math.MaxUint32-1) {
+				return ErrBinaryTooLong
+			}
+			binary.BigEndian.PutUint32(buf, uint32(lenBinary))
+			return nil
+		}
+		encoders.Store(tov, regEncoder(name, fenc))
+
+		fdec := func(value *reflect.Value, packet []byte, state *stateDecode) (*reflect.Value, []byte, error) {
+			if len(packet) < 4 {
+				return nil, nil, errDecodeEOD
+			}
+
+			l := binary.BigEndian.Uint32(packet)
+			if len(packet) < int(l+4) {
+				return nil, nil, errDecodeEOD
+			}
+
+			if value == nil {
+				v := reflect.Indirect(reflect.New(state.decoder.Type))
+				value = &v
+			}
+
+			v := value.Addr().Interface().(Unmarshaler)
+			if err := v.UnmarshalEDF(packet[4 : l+4]); err != nil {
+				return nil, nil, err
+			}
+
+			packet = packet[l+4:]
+			return value, packet, nil
+		}
+		dec := &decoder{tov, fdec}
+		decoders.Store(name, dec)
+		decoders.Store(tov, dec)
+		addRegCache(tov)
+		return nil
+
 	case encoding.BinaryUnmarshaler:
 		return fmt.Errorf("UnmarshalBinary method of %v must be a method of *%v", tov, tov)
 
@@ -106,61 +162,6 @@ func RegisterTypeOf(v any) error {
 		addRegCache(tov)
 		return nil
 
-	case Unmarshaler:
-		return fmt.Errorf("UnmarshalEDF method of %v must be a method of *%v", tov, tov)
-
-	case Marshaler:
-		// unmarshaling must be implemented as a method of a pointer to the object
-		if reflect.PointerTo(tov).Implements(reflect.TypeOf((*Unmarshaler)(nil)).Elem()) == false {
-			return fmt.Errorf("UnmarshalEDF method of %v must be a method of *%v", tov, tov)
-		}
-		name := regTypeName(tov)
-
-		fenc := func(value reflect.Value, b *lib.Buffer, _ *stateEncode) error {
-			v := value.Interface().(Marshaler)
-			buf := b.Extend(4)
-			l := b.Len()
-			if err := v.MarshalEDF(b); err != nil {
-				return err
-			}
-
-			lenBinary := b.Len() - l
-			if int64(lenBinary) > int64(math.MaxUint32-1) {
-				return ErrBinaryTooLong
-			}
-			binary.BigEndian.PutUint32(buf, uint32(lenBinary))
-			return nil
-		}
-		encoders.Store(tov, regEncoder(name, fenc))
-
-		fdec := func(value *reflect.Value, packet []byte, state *stateDecode) (*reflect.Value, []byte, error) {
-			if len(packet) < 4 {
-				return nil, nil, errDecodeEOD
-			}
-
-			l := binary.BigEndian.Uint32(packet)
-			if len(packet) < int(l+4) {
-				return nil, nil, errDecodeEOD
-			}
-
-			if value == nil {
-				v := reflect.Indirect(reflect.New(state.decoder.Type))
-				value = &v
-			}
-
-			v := value.Addr().Interface().(Unmarshaler)
-			if err := v.UnmarshalEDF(packet[4 : l+4]); err != nil {
-				return nil, nil, err
-			}
-
-			packet = packet[l+4:]
-			return value, packet, nil
-		}
-		dec := &decoder{tov, fdec}
-		decoders.Store(name, dec)
-		decoders.Store(tov, dec)
-		addRegCache(tov)
-		return nil
 	}
 
 	return registerType(tov)
