@@ -1523,11 +1523,12 @@ func (p *process) DemonitorEvent(target gen.Event) error {
 		return gen.ErrTargetUnknown
 	}
 
+	p.targets.Delete(target)
+
 	if err := p.node.RouteDemonitorEvent(p.pid, target); err != nil {
 		return err
 	}
 
-	p.targets.Delete(target)
 	return nil
 }
 
