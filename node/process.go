@@ -834,7 +834,7 @@ func (p *process) SendExitMeta(alias gen.Alias, reason error) error {
 }
 
 func (p *process) SendResponse(to gen.PID, ref gen.Ref, message any) error {
-	if p.isStateRW() == false {
+	if p.isAlive() == false {
 		return gen.ErrNotAllowed
 	}
 	if lib.Trace() {
@@ -851,7 +851,7 @@ func (p *process) SendResponse(to gen.PID, ref gen.Ref, message any) error {
 }
 
 func (p *process) SendResponseError(to gen.PID, ref gen.Ref, err error) error {
-	if p.isStateRW() == false {
+	if p.isAlive() == false {
 		return gen.ErrNotAllowed
 	}
 	if lib.Trace() {
