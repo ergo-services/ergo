@@ -2187,7 +2187,7 @@ func TestEncodeSliceAny(t *testing.T) {
 	lib.ReleaseBuffer(b)
 }
 
-func TestEncodeSliceNil(t *testing.T) {
+func TestEncodeSliceOfNil(t *testing.T) {
 	b := lib.TakeBuffer()
 	value := []any{nil, nil, nil}
 	expect := []byte{edtType, 0, 2,
@@ -2266,6 +2266,25 @@ func TestEncodeSliceNest(t *testing.T) {
 		t.Fatal("incorrect value")
 	}
 
+}
+
+func TestEncodeSliceNil(t *testing.T) {
+	b := lib.TakeBuffer()
+	var value []string
+	expect := []byte{edtType, 0, 2,
+		edtSlice,
+		edtString,
+		edtNil,
+	}
+
+	if err := Encode(value, b, Options{}); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(b.B, expect) {
+		fmt.Printf("exp %#v\n", expect)
+		fmt.Printf("got %#v\n", b.B)
+		t.Fatal("incorrect value")
+	}
 }
 
 func TestEncodeSliceSlice(t *testing.T) {
@@ -3059,6 +3078,26 @@ func TestEncodeMap(t *testing.T) {
 			fmt.Printf("got %#v\n", b.B)
 			t.Fatal("incorrect value")
 		}
+	}
+}
+
+func TestEncodeMapNil(t *testing.T) {
+	b := lib.TakeBuffer()
+	var value map[int]string
+	expect := []byte{edtType, 0, 3,
+		edtMap,
+		edtInt,
+		edtString,
+		edtNil,
+	}
+
+	if err := Encode(value, b, Options{}); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(b.B, expect) {
+		fmt.Printf("exp %#v\n", expect)
+		fmt.Printf("got %#v\n", b.B)
+		t.Fatal("incorrect value")
 	}
 }
 

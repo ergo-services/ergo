@@ -57,6 +57,10 @@ func Decode(packet []byte, options Options) (_ any, _ []byte, ret error) {
 	if err != nil {
 		return nil, nil, fmt.Errorf("malformed EDF: %w", err)
 	}
+
+	if value == nil {
+		return v.Interface(), packet, nil
+	}
 	return value.Interface(), packet, nil
 }
 
