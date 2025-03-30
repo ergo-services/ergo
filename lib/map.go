@@ -19,6 +19,9 @@ func (m *Map[K, V]) Load(key K) (V, bool) {
 func (m *Map[K, V]) LoadAndDelete(key K) (V, bool) {
 	m.Lock()
 	v, found := m.m[key]
+	if found {
+		delete(m.m, key)
+	}
 	m.Unlock()
 	return v, found
 }
