@@ -238,7 +238,12 @@ func registerType(tov reflect.Type) error {
 
 		nf := tov.NumField()
 		for i := 0; i < nf; i++ {
-			ft := tov.Field(i).Type
+			f := tov.Field(i)
+			ft := f.Type
+
+			if f.IsExported() == false {
+				return fmt.Errorf("struct %s has unexported field(s)", tov.Name())
+			}
 
 			enc, err := getEncoder(ft, &stateEncode{})
 			if err != nil {

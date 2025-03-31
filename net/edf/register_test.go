@@ -32,6 +32,11 @@ type testRegStruct struct{ A bool }
 type testRegSlice []bool
 type testRegArray [3]bool
 
+type testRegStructUnexported struct {
+	A bool
+	b bool // unexported field
+}
+
 type regCases struct {
 	name  string
 	value any
@@ -133,6 +138,56 @@ func TestRegCacheTypes(t *testing.T) {
 				fmt.Printf("exp (%T) %#v\n", c.value, c.value)
 				fmt.Printf("got (%T) %#v\n", value, value)
 				t.Fatal("incorrect value")
+			}
+		})
+	}
+}
+
+type regErrorCases struct {
+	name        string
+	value       any
+	expectedErr string
+}
+
+func registerErrorCases() []regErrorCases {
+	return []regErrorCases{
+		{
+			name:        "struct with unexported fields",
+			value:       testRegStructUnexported{A: true, b: false},
+			expectedErr: fmt.Sprintf("struct %s has unexported field(s)", "testRegStructUnexported"),
+		},
+		{
+			name:        "regular type bool",
+			value:       true,
+			expectedErr: "unable to register a regular type",
+		},
+		{
+			name:        "regular type string",
+			value:       "test",
+			expectedErr: "unable to register a regular type",
+		},
+		{
+			name:        "pointer type",
+			value:       &testRegStruct{},
+			expectedErr: "pointer type is not supported",
+		},
+		{
+			name:        "ergo framework type",
+			value:       gen.Atom("test"),
+			expectedErr: "unable to register a type of Ergo Framework",
+		},
+	}
+}
+
+func TestRegTypeErrors(t *testing.T) {
+	for _, c := range registerErrorCases() {
+		t.Run(c.name, func(t *testing.T) {
+			err := RegisterTypeOf(c.value)
+			if err == nil {
+				t.Fatalf("expected error for %s", c.name)
+			}
+			if err.Error() != c.expectedErr {
+				t.Fatalf("expected error message '%s', got '%s'", c.expectedErr, err.Error())
 			}
 		})
 	}
