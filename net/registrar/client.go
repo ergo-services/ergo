@@ -59,8 +59,7 @@ func (c *client) Resolve(name gen.Atom) ([]gen.Route, error) {
 		return nil, fmt.Errorf("registrar client terminated")
 	}
 
-	srv := c.server
-	if srv != nil {
+	if srv := c.server; name.Host() == c.node.Name().Host() && srv != nil {
 		c.node.Log().Trace("resolving %s using local registrar server", name)
 		return srv.resolve(name, true)
 	}
