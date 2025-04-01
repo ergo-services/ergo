@@ -443,7 +443,7 @@ func (t *t16) TestClient(input any) {
 
 func TestT16TCP(t *testing.T) {
 	nopt := gen.NodeOptions{}
-	nopt.Log.DefaultLogger.Disable = true
+	// nopt.Log.DefaultLogger.Disable = true
 	// nopt.Log.Level = gen.LogLevelTrace
 	node, err := ergo.StartNode("t16node@localhost", nopt)
 	if err != nil {
