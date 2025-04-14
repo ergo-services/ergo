@@ -17,7 +17,7 @@ type DefaultLoggerOptions struct {
 	IncludeBehavior bool
 	// IncludeName includes registered process name to the log message
 	IncludeName bool
-	// IncludeFields includes associated fileds to the log message
+	// IncludeFields includes associated fields to the log message
 	IncludeFields bool
 	// Filter enables filtering log messages.
 	Filter []LogLevel
