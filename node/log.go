@@ -1,8 +1,6 @@
 package node
 
 import (
-	"fmt"
-	"runtime"
 	"time"
 
 	"ergo.services/ergo/gen"
