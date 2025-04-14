@@ -10,9 +10,6 @@ type Log interface {
 	Fields() []LogField
 	AddFields(fields ...LogField)
 
-	EnableStackTrace(depth int, levels ...LogLevel)
-	DisableStackTrace()
-
 	Trace(format string, args ...any)
 	Debug(format string, args ...any)
 	Info(format string, args ...any)
