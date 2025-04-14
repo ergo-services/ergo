@@ -17,6 +17,8 @@ type DefaultLoggerOptions struct {
 	IncludeBehavior bool
 	// IncludeName includes registered process name to the log message
 	IncludeName bool
+	// IncludeFields includes associated fileds to the log message
+	IncludeFields bool
 	// Filter enables filtering log messages.
 	Filter []LogLevel
 	// Output defines output for the log messages. By default it uses os.Stdout
@@ -39,6 +41,7 @@ func CreateDefaultLogger(options DefaultLoggerOptions) LoggerBehavior {
 	l.format = options.TimeFormat
 	l.includeBehavior = options.IncludeBehavior
 	l.includeName = options.IncludeName
+	l.includeFields = options.IncludeFields
 
 	return &l
 }
@@ -48,6 +51,7 @@ type defaultLogger struct {
 	format          string
 	includeBehavior bool
 	includeName     bool
+	includeFields   bool
 }
 
 func (l *defaultLogger) Log(m MessageLog) {
@@ -82,6 +86,11 @@ func (l *defaultLogger) Log(m MessageLog) {
 		source = src.Meta.String()
 	default:
 		panic(fmt.Sprintf("unknown log source type: %#v", m.Source))
+	}
+
+	if l.includeFields && len(m.Fields) > 0 {
+		m.Format += " | %s"
+		m.Args = append(m.Args, m.Fields)
 	}
 
 	message := fmt.Sprintf(m.Format, m.Args...)

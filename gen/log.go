@@ -1,5 +1,9 @@
 package gen
 
+import (
+	"fmt"
+)
+
 type Log interface {
 	Level() LogLevel
 	SetLevel(level LogLevel) error
@@ -21,6 +25,10 @@ type Log interface {
 type LogField struct {
 	Name  string
 	Value any
+}
+
+func (lf LogField) String() string {
+	return fmt.Sprintf("%s:%v", lf.Name, lf.Value)
 }
 
 type LoggerBehavior interface {
