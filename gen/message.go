@@ -94,11 +94,13 @@ type MessageEvent struct {
 
 // MessageLog
 type MessageLog struct {
-	Time   time.Time
-	Level  LogLevel
-	Source any // MessageLogProcess, MessageLogNode, MessageLogNetwork, MessageLogMeta
-	Format string
-	Args   []any
+	Time       time.Time
+	Level      LogLevel
+	Source     any // MessageLogProcess, MessageLogNode, MessageLogNetwork, MessageLogMeta
+	Format     string
+	Args       []any
+	Fields     []LogField
+	StackTrace []string
 }
 
 // MessageLogProcess
