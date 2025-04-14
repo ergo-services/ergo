@@ -56,6 +56,32 @@ func (l *log) AddFields(fields ...gen.LogField) {
 	l.fields = append(l.fields, fields...)
 }
 
+func (l *log) DeleteFields(fields ...string) {
+	if len(fields) == 0 {
+		return
+	}
+
+	filter := make(map[string]bool)
+	for _, f := range fields {
+		filter[f] = true
+	}
+
+	newFields := []gen.LogField{}
+	for _, f := range l.fields {
+		if _, found := filter[f.Name]; found {
+			continue
+		}
+		newFields = append(newFields, f)
+	}
+
+	if len(newFields) > 0 {
+		l.fields = newFields
+		return
+	}
+
+	l.fields = nil
+}
+
 func (l *log) Trace(format string, args ...any) {
 	l.write(gen.LogLevelTrace, format, args)
 }

@@ -13,6 +13,7 @@ type Log interface {
 
 	Fields() []LogField
 	AddFields(fields ...LogField)
+	DeleteFields(fields ...string)
 
 	Trace(format string, args ...any)
 	Debug(format string, args ...any)
