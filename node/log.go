@@ -18,14 +18,11 @@ func createLog(level gen.LogLevel, dolog func(gen.MessageLog, string)) *log {
 }
 
 type log struct {
-	level            gen.LogLevel
-	logger           string
-	source           any
-	fields           []gen.LogField
-	stacktrace       bool
-	stacktraceLevels map[gen.LogLevel]bool
-	stacktraceDepth  int
-	dolog            func(gen.MessageLog, string)
+	level  gen.LogLevel
+	logger string
+	source any
+	fields []gen.LogField
+	dolog  func(gen.MessageLog, string)
 }
 
 func (l *log) Level() gen.LogLevel {
@@ -49,26 +46,6 @@ func (l *log) Logger() string {
 
 func (l *log) SetLogger(name string) {
 	l.logger = name
-}
-
-func (l *log) EnableStackTrace(depth int, levels ...gen.LogLevel) {
-	l.stacktrace = true
-	if len(levels) == 0 {
-		levels = []gen.LogLevel{gen.LogLevelPanic}
-	}
-	if depth < 1 {
-		depth = 10
-	}
-
-	l.stacktraceLevels = make(map[gen.LogLevel]bool)
-	for _, lev := range levels {
-		l.stacktraceLevels[lev] = true
-	}
-}
-
-func (l *log) DisableStackTrace() {
-	l.stacktrace = false
-	l.stacktraceLevels = nil
 }
 
 func (l *log) Fields() []gen.LogField {
@@ -126,30 +103,6 @@ func (l *log) write(level gen.LogLevel, format string, args []any) {
 		Format: format,
 		Args:   args,
 		Fields: l.fields,
-	}
-
-	if l.stacktrace == false {
-		l.dolog(m, l.logger)
-		return
-	}
-
-	if _, found := l.stacktraceLevels[level]; found == false {
-		l.dolog(m, l.logger)
-		return
-	}
-
-	stack := make([]uintptr, l.stacktraceDepth)
-	n := runtime.Callers(2, stack)
-	nstack := stack[:n]
-	frames := runtime.CallersFrames(nstack)
-
-	for {
-		frame, more := frames.Next()
-		line := fmt.Sprintf("%s %s:%d", frame.Function, frame.File, frame.Line)
-		m.StackTrace = append(m.StackTrace, line)
-		if more == false {
-			break
-		}
 	}
 
 	l.dolog(m, l.logger)
