@@ -194,8 +194,8 @@ type Node interface {
 	PID() PID
 	Creation() int64
 
-	// SetCTRLC allows you to catch Ctrl+C to enable/disable debug level for the node
-	// Twice Ctrl+C - to stop node gracefully
+	// SetCTRLC enables or disables handling of the SIGTERM signal.
+	// When enabled, receiving SIGTERM triggers a graceful shutdown of the node
 	SetCTRLC(enable bool)
 }
 
