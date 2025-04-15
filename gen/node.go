@@ -202,10 +202,13 @@ type Node interface {
 // NodeRegistrar bridge interface from Node to the Registrar
 type NodeRegistrar interface {
 	Name() Atom
+	Creation() int64
 	RegisterEvent(name Atom, options EventOptions) (Ref, error)
 	UnregisterEvent(name Atom) error
 	SendEvent(name Atom, token Ref, options MessageOptions, message any) error
 	Log() Log
+	Stop()
+	StopForce()
 }
 
 // NodeHandshake bridge interface from Node to the Handshake
