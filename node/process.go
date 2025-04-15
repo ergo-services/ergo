@@ -176,7 +176,6 @@ func (p *process) SpawnMeta(behavior gen.MetaBehavior, options gen.MetaOptions) 
 	m := &meta{
 		p:        p,
 		behavior: behavior,
-		state:    int32(gen.MetaStateSleep),
 	}
 	switch options.SendPriority {
 	case gen.MessagePriorityHigh:
@@ -798,6 +797,10 @@ func (p *process) SendExitMeta(alias gen.Alias, reason error) error {
 		return gen.ErrNotAllowed
 	}
 
+	if reason == nil {
+		return gen.ErrIncorrect
+	}
+
 	value, found := p.node.aliases.Load(alias)
 	if found == false {
 		return gen.ErrAliasUnknown
@@ -831,7 +834,7 @@ func (p *process) SendExitMeta(alias gen.Alias, reason error) error {
 }
 
 func (p *process) SendResponse(to gen.PID, ref gen.Ref, message any) error {
-	if p.isStateRW() == false {
+	if p.isAlive() == false {
 		return gen.ErrNotAllowed
 	}
 	if lib.Trace() {
@@ -848,7 +851,7 @@ func (p *process) SendResponse(to gen.PID, ref gen.Ref, message any) error {
 }
 
 func (p *process) SendResponseError(to gen.PID, ref gen.Ref, err error) error {
-	if p.isStateRW() == false {
+	if p.isAlive() == false {
 		return gen.ErrNotAllowed
 	}
 	if lib.Trace() {
@@ -1520,11 +1523,12 @@ func (p *process) DemonitorEvent(target gen.Event) error {
 		return gen.ErrTargetUnknown
 	}
 
+	p.targets.Delete(target)
+
 	if err := p.node.RouteDemonitorEvent(p.pid, target); err != nil {
 		return err
 	}
 
-	p.targets.Delete(target)
 	return nil
 }
 

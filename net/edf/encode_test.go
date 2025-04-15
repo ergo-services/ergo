@@ -2187,7 +2187,7 @@ func TestEncodeSliceAny(t *testing.T) {
 	lib.ReleaseBuffer(b)
 }
 
-func TestEncodeSliceNil(t *testing.T) {
+func TestEncodeSliceOfNil(t *testing.T) {
 	b := lib.TakeBuffer()
 	value := []any{nil, nil, nil}
 	expect := []byte{edtType, 0, 2,
@@ -2266,6 +2266,25 @@ func TestEncodeSliceNest(t *testing.T) {
 		t.Fatal("incorrect value")
 	}
 
+}
+
+func TestEncodeSliceNil(t *testing.T) {
+	b := lib.TakeBuffer()
+	var value []string
+	expect := []byte{edtType, 0, 2,
+		edtSlice,
+		edtString,
+		edtNil,
+	}
+
+	if err := Encode(value, b, Options{}); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(b.B, expect) {
+		fmt.Printf("exp %#v\n", expect)
+		fmt.Printf("got %#v\n", b.B)
+		t.Fatal("incorrect value")
+	}
 }
 
 func TestEncodeSliceSlice(t *testing.T) {
@@ -2619,6 +2638,46 @@ func TestEncodeSlice3D(t *testing.T) {
 	}
 
 	lib.ReleaseBuffer(b)
+}
+
+type testBinaryMarshal struct{}
+
+func (testBinaryMarshal) MarshalBinary() ([]byte, error) {
+	return []byte{100, 101, 102, 103, 104}, nil
+}
+
+func (*testBinaryMarshal) UnmarshalBinary(b []byte) error {
+	return nil
+}
+
+func TestEncodeBinaryMarshal(t *testing.T) {
+	var value testBinaryMarshal
+
+	b := lib.TakeBuffer()
+	defer lib.ReleaseBuffer(b)
+
+	if err := Encode(value, b, Options{}); err == nil {
+		t.Fatal("incorrect value")
+	}
+	b.Reset()
+
+	if err := RegisterTypeOf(value); err != nil {
+		t.Fatal(err)
+	}
+	regCache := new(sync.Map)
+	regCache.Store(reflect.TypeOf(value), []byte{edtReg, 0x13, 0x88})
+
+	if err := Encode(value, b, Options{RegCache: regCache}); err != nil {
+		t.Fatal(err)
+	}
+	expect := []byte{edtReg, 0x13, 0x88,
+		0, 0, 0, 5,
+		100, 101, 102, 103, 104}
+	if !reflect.DeepEqual(b.B, expect) {
+		fmt.Printf("exp %#v\n", expect)
+		fmt.Printf("got %#v\n", b.B)
+		t.Fatal("incorrect value")
+	}
 }
 
 type testMarshal struct{}
@@ -3019,6 +3078,26 @@ func TestEncodeMap(t *testing.T) {
 			fmt.Printf("got %#v\n", b.B)
 			t.Fatal("incorrect value")
 		}
+	}
+}
+
+func TestEncodeMapNil(t *testing.T) {
+	b := lib.TakeBuffer()
+	var value map[int]string
+	expect := []byte{edtType, 0, 3,
+		edtMap,
+		edtInt,
+		edtString,
+		edtNil,
+	}
+
+	if err := Encode(value, b, Options{}); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(b.B, expect) {
+		fmt.Printf("exp %#v\n", expect)
+		fmt.Printf("got %#v\n", b.B)
+		t.Fatal("incorrect value")
 	}
 }
 

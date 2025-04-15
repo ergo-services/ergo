@@ -37,22 +37,32 @@ func (im *meta) HandleMessage(from gen.PID, message any) error {
 			break // cancelled
 		}
 		im.Log().Debug("generating event")
+		ev := MessageInspectMeta{
+			Node:       im.Node().Name(),
+			Terminated: true,
+		}
 
 		info, err := im.MetaInfo(im.meta)
-		if err != nil {
-			if err == gen.ErrMetaUnknown || err == gen.ErrProcessTerminated {
-				return gen.TerminateReasonNormal
+		switch err {
+		case nil:
+			break
+		case gen.ErrNodeTerminated:
+			return err
+		case gen.ErrProcessUnknown, gen.ErrMetaUnknown:
+			if err := im.SendEvent(im.event, im.token, ev); err != nil {
+				im.Log().Error("unable to send event %q: %s", im.event, err)
 			}
+			return gen.TerminateReasonNormal
+		default:
 			im.Log().Error("unable to inspect meta process %s: %s", im.meta, err)
 			// will try next time
 			im.SendAfter(im.PID(), generate{}, inspectMetaPeriod)
 			return nil
+
 		}
 
-		ev := MessageInspectMeta{
-			Node: im.Node().Name(),
-			Info: info,
-		}
+		ev.Terminated = false
+		ev.Info = info
 
 		if err := im.SendEvent(im.event, im.token, ev); err != nil {
 			im.Log().Error("unable to send event %q: %s", im.event, err)

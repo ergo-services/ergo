@@ -54,6 +54,8 @@ type node struct {
 
 	network *network
 
+	cron *cron
+
 	loggers map[gen.LogLevel]*sync.Map // level -> name -> gen.LoggerBehavior
 	log     *log
 
@@ -64,7 +66,8 @@ type node struct {
 
 	coreEventsToken gen.Ref
 
-	ctrlc chan os.Signal
+	enableCTRLC atomic.Bool
+	ctrlc       chan os.Signal
 }
 
 type eventOwner struct {
@@ -181,6 +184,17 @@ func Start(name gen.Atom, options gen.NodeOptions, frameworkVersion gen.Version)
 
 	edf.RegisterAtom(name)
 	node.log.Info("node %s built with %q successfully started", node.name, node.framework)
+	node.cron = createCron(node)
+	for _, job := range options.Cron.Jobs {
+		if err := node.cron.AddJob(job); err != nil {
+			node.StopForce()
+			return nil, err
+		}
+	}
+
+	// enable SIGTERM
+	node.SetCTRLC(true)
+
 	return node, nil
 }
 
@@ -570,6 +584,7 @@ func (n *node) Info() (gen.NodeInfo, error) {
 	info.Framework = n.framework
 	info.Commercial = n.Commercial()
 	info.LogLevel = n.log.Level()
+	info.Cron = n.cron.Info()
 
 	mli := make(map[string]int)
 	for _, level := range gen.DefaultLogLevels {
@@ -733,6 +748,13 @@ func (n *node) Network() gen.Network {
 	return n.network
 }
 
+func (n *node) Cron() gen.Cron {
+	if n.isRunning() == false {
+		return nil
+	}
+	return n.cron
+}
+
 func (n *node) Stop() {
 	n.stop(false)
 }
@@ -761,13 +783,15 @@ func (n *node) stop(force bool) {
 
 	n.processes.Range(func(_, v any) bool {
 		p := v.(*process)
-		// do not kill system app processes
-		if p.application == system.Name {
-			return true
-		}
 
 		if force {
 			n.Kill(p.pid)
+			return true
+		}
+
+		if p.application != "" {
+			// Do nothing if it belons to the app.
+			// It has to be terminated via app.stop
 			return true
 		}
 
@@ -776,6 +800,10 @@ func (n *node) stop(force bool) {
 		n.RouteSendExit(p.parent, p.pid, gen.TerminateReasonShutdown)
 		return true
 	})
+
+	if n.cron != nil {
+		n.cron.terminate()
+	}
 
 	if force == false {
 		n.waitprocesses.Wait()
@@ -822,12 +850,16 @@ func (n *node) WaitWithTimeout(timeout time.Duration) error {
 }
 
 func (n *node) Send(to any, message any) error {
+	return n.SendWithPriority(to, message, gen.MessagePriorityNormal)
+}
+
+func (n *node) SendWithPriority(to any, message any, priority gen.MessagePriority) error {
 	if n.isRunning() == false {
 		return gen.ErrNodeTerminated
 	}
 
 	options := gen.MessageOptions{
-		Priority: gen.MessagePriorityNormal,
+		Priority: priority,
 	}
 
 	switch t := to.(type) {
@@ -1326,59 +1358,32 @@ func (n *node) dolog(message gen.MessageLog, loggername string) {
 }
 
 func (n *node) SetCTRLC(enable bool) {
-	if enable == true && n.ctrlc != nil {
-		// already set up
-		return
-	}
 
-	if enable == false && n.ctrlc != nil {
-		close(n.ctrlc)
-		n.ctrlc = nil
-		n.Log().Info("(CRTL+C) disabled for %s", n.name)
+	if swapped := n.enableCTRLC.CompareAndSwap(!enable, enable); swapped == false {
+		n.Log().Info("handling SIGTERM is already set: %t", enable)
 		return
 	}
 
 	go func() {
-		n.ctrlc = make(chan os.Signal)
-		signal.Notify(n.ctrlc, os.Interrupt, syscall.SIGTERM)
-		n.Log().Info("(CRTL+C) enabled for %s", n.name)
-
-		n.Log().Info("         press Ctrl+C to enable/disable debug logging level for %s", n.name)
-		n.Log().Info("         press Ctrl+C twice to stop %s gracefully", n.name)
-		ctrlcTime := time.Now().Unix()
-		level := n.Log().Level()
-		debug := false
-		for {
-			sig := <-n.ctrlc
-			if sig == nil {
-				// closed channel. disable ctrlc
-				signal.Reset()
-
-				return
+		if n.enableCTRLC.Load() == false {
+			if n.ctrlc != nil {
+				close(n.ctrlc)
+				n.ctrlc = nil
 			}
-
-			now := time.Now().Unix()
-			if now-ctrlcTime == 0 {
-				signal.Reset()
-				n.Log().Info("(CRTL+C) stopping %s (graceful shutdown)...", n.name)
-				n.Stop()
-				return
-			}
-
-			ctrlcTime = now
-
-			if debug {
-				n.Log().Info("(CRTL+C) disabling debug level for %s", n.name)
-				n.Log().SetLevel(level)
-				debug = false
-				continue
-			}
-
-			n.Log().Info("(CRTL+C) enabling debug level for %s", n.name)
-			level = n.Log().Level()
-			n.Log().SetLevel(gen.LogLevelDebug)
-			debug = true
+			return
 		}
+
+		n.ctrlc = make(chan os.Signal, 1)
+		signal.Notify(n.ctrlc, os.Interrupt, syscall.SIGTERM)
+
+		sig := <-n.ctrlc
+		if sig == nil {
+			// closed channel. disable ctrlc
+			signal.Reset()
+			return
+		}
+		n.Log().Info("node %s is starting a graceful shutdown...", n.name)
+		n.Stop()
 	}()
 }
 
