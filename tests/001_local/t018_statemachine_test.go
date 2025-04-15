@@ -57,10 +57,10 @@ type t18data struct {
 	count int
 }
 
-type t18transition1 struct {
+type t18transitionState1toState2 struct {
 }
 
-type t18transition2 struct {
+type t18transitionState2toState1 struct {
 }
 
 func (sm *t18statemachine) Init(args ...any) (act.StateMachineSpec[t18data], error) {
@@ -72,7 +72,7 @@ func (sm *t18statemachine) Init(args ...any) (act.StateMachineSpec[t18data], err
 	return spec, nil
 }
 
-func state1to2(sm *act.StateMachine[t18data], message t18transition1) error {
+func state1to2(sm *act.StateMachine[t18data], message t18transitionState1toState2) error {
 	sm.SetCurrentState(gen.Atom("state2"))
 	data := sm.Data()
 	data.count++
@@ -80,7 +80,7 @@ func state1to2(sm *act.StateMachine[t18data], message t18transition1) error {
 	return nil
 }
 
-func state2to1(sm *act.StateMachine[t18data], message t18transition2) error {
+func state2to1(sm *act.StateMachine[t18data], message t18transitionState2toState1) error {
 	sm.SetCurrentState(gen.Atom("state1"))
 	data := sm.Data()
 	data.count++
@@ -101,7 +101,7 @@ func (t *t18) TestStateMachine(input any) {
 	}
 
 	// send message to transition from state 1 to 2
-	err = t.Send(pid, t18transition1{})
+	err = t.Send(pid, t18transitionState1toState2{})
 
 	if err != nil {
 		t.Log().Error("sending to the statemachine process failed: %s", err)
@@ -110,7 +110,7 @@ func (t *t18) TestStateMachine(input any) {
 	}
 
 	// send call to transition from state 2 to 1
-	state, err := t.Call(pid, t18transition2{})
+	state, err := t.Call(pid, t18transitionState2toState1{})
 	if err != nil {
 		t.Log().Error("call to the statemachine process failed: %s", err)
 		t.testcase.err <- err
@@ -118,6 +118,15 @@ func (t *t18) TestStateMachine(input any) {
 	}
 	if state != gen.Atom("state1") {
 		t.testcase.err <- fmt.Errorf("expected state1, got %v", state)
+		return
+	}
+
+	// statemachine process should crash on invalid state transition
+	err = t.testcase.expectProcessToTerminate(pid, t, func(p gen.Process) error {
+		return p.Send(pid, t18transitionState2toState1{}) // we are in state1
+	})
+	if err != nil {
+		t.testcase.err <- err
 		return
 	}
 
