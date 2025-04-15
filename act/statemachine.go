@@ -44,14 +44,14 @@ type StateMachine[D any] struct {
 
 	currentState   gen.Atom
 	data           D
-	stateCallbacks map[gen.Atom]map[string]interface{}
+	stateCallbacks map[gen.Atom]map[string]any
 }
 
 type StateCallback[D any, M any] func(*StateMachine[D], M) error
 
 type StateMachineSpec[D any] struct {
 	initialState   gen.Atom
-	stateCallbacks map[gen.Atom]map[string]interface{}
+	stateCallbacks map[gen.Atom]map[string]any
 }
 
 type AddCallback[D any] func(*StateMachineSpec[D])
@@ -59,7 +59,7 @@ type AddCallback[D any] func(*StateMachineSpec[D])
 func NewStateMachineSpec[D any](initialState gen.Atom, callbacks ...AddCallback[D]) StateMachineSpec[D] {
 	spec := StateMachineSpec[D]{
 		initialState:   initialState,
-		stateCallbacks: make(map[gen.Atom]map[string]interface{}),
+		stateCallbacks: make(map[gen.Atom]map[string]any),
 	}
 	for _, cb := range callbacks {
 		cb(&spec)
@@ -71,7 +71,7 @@ func WithStateCallback[D any, M any](state gen.Atom, callback func(*StateMachine
 	typeName := reflect.TypeOf((*M)(nil)).Elem().String()
 	return func(s *StateMachineSpec[D]) {
 		if _, exists := s.stateCallbacks[state]; exists == false {
-			s.stateCallbacks[state] = make(map[string]interface{})
+			s.stateCallbacks[state] = make(map[string]any)
 		}
 		s.stateCallbacks[state][typeName] = callback
 	}
@@ -307,7 +307,7 @@ func typeName(message *gen.MailboxMessage) string {
 	return reflect.TypeOf(message.Message).String()
 }
 
-func (sm *StateMachine[D]) lookupCallback(messageType string) (interface{}, bool) {
+func (sm *StateMachine[D]) lookupCallback(messageType string) (any, bool) {
 	if stateCallbacks, exists := sm.stateCallbacks[sm.currentState]; exists == true {
 		if callback, exists := stateCallbacks[messageType]; exists == true {
 			return callback, true
