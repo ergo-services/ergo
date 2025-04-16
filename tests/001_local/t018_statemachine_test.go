@@ -65,6 +65,7 @@ type t18transitionState2toState1 struct {
 
 func (sm *t18statemachine) Init(args ...any) (act.StateMachineSpec[t18data], error) {
 	spec := act.NewStateMachineSpec(gen.Atom("state1"),
+		act.WithData(t18data{count: 1}),
 		act.WithStateMessageHandler(gen.Atom("state1"), state1to2),
 		act.WithStateCallHandler(gen.Atom("state2"), state2to1),
 	)
@@ -110,16 +111,16 @@ func (t *t18) TestStateMachine(input any) {
 	}
 
 	// send call to transition from result 2 to 1 (not working yet)
-	//	result, err := t.Call(pid, t18transitionState2toState1{})
-	//	if err != nil {
-	//		t.Log().Error("call to the statemachine process failed: %s", err)
-	//		t.testcase.err <- err
-	//		return
-	//	}
-	//	if result != 1 {
-	//		t.testcase.err <- fmt.Errorf("expected 1, got %v", result)
-	//		return
-	//	}
+	//  result, err := t.Call(pid, t18transitionState2toState1{})
+	//  if err != nil {
+	//      t.Log().Error("call to the statemachine process failed: %s", err)
+	//      t.testcase.err <- err
+	//      return
+	//  }
+	//  if result != 3 {
+	//      t.testcase.err <- fmt.Errorf("expected 3, got %v", result)
+	//      return
+	//  }
 
 	// statemachine process should crash on invalid state transition
 	err = t.testcase.expectProcessToTerminate(pid, t, func(p gen.Process) error {

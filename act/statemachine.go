@@ -54,6 +54,7 @@ type StateCallHandler[D any, M any, R any] func(*StateMachine[D], M) (R, error)
 
 type StateMachineSpec[D any] struct {
 	initialState         gen.Atom
+	data                 D
 	stateMessageHandlers map[gen.Atom]map[string]any
 	stateCallHandlers    map[gen.Atom]map[string]any
 }
@@ -70,6 +71,12 @@ func NewStateMachineSpec[D any](initialState gen.Atom, options ...Option[D]) Sta
 		cb(&spec)
 	}
 	return spec
+}
+
+func WithData[D any](data D) Option[D] {
+	return func(s *StateMachineSpec[D]) {
+		s.data = data
+	}
 }
 
 func WithStateMessageHandler[D any, M any](state gen.Atom, callback StateMessageHandler[D, M]) Option[D] {
