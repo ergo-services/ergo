@@ -42,38 +42,53 @@ type StateMachine[D any] struct {
 
 	spec StateMachineSpec[D]
 
-	currentState   gen.Atom
-	data           D
-	stateCallbacks map[gen.Atom]map[string]any
+	currentState         gen.Atom
+	data                 D
+	stateMessageHandlers map[gen.Atom]map[string]any
+	stateCallHandlers    map[gen.Atom]map[string]any
 }
 
-type StateCallback[D any, M any] func(*StateMachine[D], M) error
+type StateMessageHandler[D any, M any] func(*StateMachine[D], M) error
+
+type StateCallHandler[D any, M any, R any] func(*StateMachine[D], M) (R, error)
 
 type StateMachineSpec[D any] struct {
-	initialState   gen.Atom
-	stateCallbacks map[gen.Atom]map[string]any
+	initialState         gen.Atom
+	stateMessageHandlers map[gen.Atom]map[string]any
+	stateCallHandlers    map[gen.Atom]map[string]any
 }
 
-type AddCallback[D any] func(*StateMachineSpec[D])
+type Option[D any] func(*StateMachineSpec[D])
 
-func NewStateMachineSpec[D any](initialState gen.Atom, callbacks ...AddCallback[D]) StateMachineSpec[D] {
+func NewStateMachineSpec[D any](initialState gen.Atom, options ...Option[D]) StateMachineSpec[D] {
 	spec := StateMachineSpec[D]{
-		initialState:   initialState,
-		stateCallbacks: make(map[gen.Atom]map[string]any),
+		initialState:         initialState,
+		stateMessageHandlers: make(map[gen.Atom]map[string]any),
+		stateCallHandlers:    make(map[gen.Atom]map[string]any),
 	}
-	for _, cb := range callbacks {
+	for _, cb := range options {
 		cb(&spec)
 	}
 	return spec
 }
 
-func WithStateCallback[D any, M any](state gen.Atom, callback func(*StateMachine[D], M) error) AddCallback[D] {
+func WithStateMessageHandler[D any, M any](state gen.Atom, callback StateMessageHandler[D, M]) Option[D] {
 	typeName := reflect.TypeOf((*M)(nil)).Elem().String()
 	return func(s *StateMachineSpec[D]) {
-		if _, exists := s.stateCallbacks[state]; exists == false {
-			s.stateCallbacks[state] = make(map[string]any)
+		if _, exists := s.stateMessageHandlers[state]; exists == false {
+			s.stateMessageHandlers[state] = make(map[string]any)
 		}
-		s.stateCallbacks[state][typeName] = callback
+		s.stateMessageHandlers[state][typeName] = callback
+	}
+}
+
+func WithStateCallHandler[D any, M any, R any](state gen.Atom, callback StateCallHandler[D, M, R]) Option[D] {
+	typeName := reflect.TypeOf((*M)(nil)).Elem().String()
+	return func(s *StateMachineSpec[D]) {
+		if _, exists := s.stateCallHandlers[state]; exists == false {
+			s.stateCallHandlers[state] = make(map[string]any)
+		}
+		s.stateCallHandlers[state][typeName] = callback
 	}
 }
 
@@ -126,7 +141,7 @@ func (sm *StateMachine[D]) ProcessInit(process gen.Process, args ...any) (rr err
 
 	// set up callbacks
 	sm.currentState = spec.initialState
-	sm.stateCallbacks = spec.stateCallbacks
+	sm.stateMessageHandlers = spec.stateMessageHandlers
 
 	return nil
 }
@@ -191,7 +206,7 @@ func (sm *StateMachine[D]) ProcessRun() (rr error) {
 		case gen.MailboxMessageTypeRegular:
 			// check if there is a handler for the message in the current state
 			typeName := typeName(message)
-			if callbackInterface, ok := sm.lookupCallback(typeName); ok == true {
+			if callbackInterface, ok := sm.lookupMessageHandler(typeName); ok == true {
 				callbackValue := reflect.ValueOf(callbackInterface)
 				smValue := reflect.ValueOf(sm)
 				msgValue := reflect.ValueOf(message.Message)
@@ -207,21 +222,26 @@ func (sm *StateMachine[D]) ProcessRun() (rr error) {
 
 		case gen.MailboxMessageTypeRequest:
 			var reason error
-			var result gen.Atom = sm.CurrentState()
+			var result any
+
+			sm.Log().Info("got request")
 
 			// check if there is a handler for the call in the current state
 			typeName := typeName(message)
-			if callbackInterface, ok := sm.lookupCallback(typeName); ok == true {
+			if callbackInterface, ok := sm.lookupMessageHandler(typeName); ok == true {
+				sm.Log().Info("found handler")
+
 				callbackValue := reflect.ValueOf(callbackInterface)
 				smValue := reflect.ValueOf(sm)
 				msgValue := reflect.ValueOf(message.Message)
 
 				results := callbackValue.Call([]reflect.Value{smValue, msgValue})
-
-				if len(results) > 0 && !results[0].IsNil() {
-					reason = results[0].Interface().(error)
+				if !results[0].IsZero() {
+					result = results[0].Interface()
 				}
-				result = sm.CurrentState()
+				if !results[1].IsNil() {
+					reason = results[1].Interface().(error)
+				}
 			} else {
 				reason = fmt.Errorf("Unsupported call %s for state %s", typeName, sm.currentState)
 			}
@@ -307,9 +327,18 @@ func typeName(message *gen.MailboxMessage) string {
 	return reflect.TypeOf(message.Message).String()
 }
 
-func (sm *StateMachine[D]) lookupCallback(messageType string) (any, bool) {
-	if stateCallbacks, exists := sm.stateCallbacks[sm.currentState]; exists == true {
-		if callback, exists := stateCallbacks[messageType]; exists == true {
+func (sm *StateMachine[D]) lookupMessageHandler(messageType string) (any, bool) {
+	if stateMessageHandlers, exists := sm.stateMessageHandlers[sm.currentState]; exists == true {
+		if callback, exists := stateMessageHandlers[messageType]; exists == true {
+			return callback, true
+		}
+	}
+	return nil, false
+}
+
+func (sm *StateMachine[D]) lookupCallHandler(messageType string) (any, bool) {
+	if stateCallHandlers, exists := sm.stateMessageHandlers[sm.currentState]; exists == true {
+		if callback, exists := stateCallHandlers[messageType]; exists == true {
 			return callback, true
 		}
 	}
