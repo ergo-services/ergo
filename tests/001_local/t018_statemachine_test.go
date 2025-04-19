@@ -78,20 +78,14 @@ func (sm *t18statemachine) Init(args ...any) (act.StateMachineSpec[t18data], err
 	return spec, nil
 }
 
-func state1to2(sm *act.StateMachine[t18data], message t18transitionState1toState2) error {
-	sm.SetCurrentState(gen.Atom("state2"))
-	data := sm.Data()
+func state1to2(state gen.Atom, data t18data, message t18transitionState1toState2, proc gen.Process) (gen.Atom, t18data, error) {
 	data.count++
-	sm.SetData(data)
-	return nil
+	return gen.Atom("state2"), data, nil
 }
 
-func state2to1(sm *act.StateMachine[t18data], message t18transitionState2toState1) (int, error) {
-	sm.SetCurrentState(gen.Atom("state1"))
-	data := sm.Data()
+func state2to1(state gen.Atom, data t18data, message t18transitionState2toState1, proc gen.Process) (gen.Atom, t18data, int, error) {
 	data.count++
-	sm.SetData(data)
-	return data.count, nil
+	return gen.Atom("state1"), data, data.count, nil
 }
 
 func (t *t18) TestStateMachine(input any) {

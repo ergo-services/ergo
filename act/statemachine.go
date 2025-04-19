@@ -69,13 +69,13 @@ type StateMachine[D any] struct {
 // Type alias for MessageHandler callbacks.
 // D is the type of the data associated with the StateMachine.
 // M is the type of the message this handler accepts.
-type StateMessageHandler[D any, M any] func(*StateMachine[D], M) error
+type StateMessageHandler[D any, M any] func(gen.Atom, D, M, gen.Process) (gen.Atom, D, error)
 
 // Type alias for CallHandler callbacks.
 // D is the type of the data associated with the StateMachine.
 // M is the type of the message this handler accepts.
 // R is the type of the result value.
-type StateCallHandler[D any, M any, R any] func(*StateMachine[D], M) (R, error)
+type StateCallHandler[D any, M any, R any] func(gen.Atom, D, M, gen.Process) (gen.Atom, D, R, error)
 
 type StateMachineSpec[D any] struct {
 	initialState         gen.Atom
@@ -347,14 +347,26 @@ func (sm *StateMachine[D]) lookupMessageHandler(messageType string) (any, bool) 
 
 func (sm *StateMachine[D]) invokeMessageHandler(handler any, message *gen.MailboxMessage) error {
 	callbackValue := reflect.ValueOf(handler)
-	smValue := reflect.ValueOf(sm)
+	stateValue := reflect.ValueOf(sm.currentState)
+	dataValue := reflect.ValueOf(sm.Data())
 	msgValue := reflect.ValueOf(message.Message)
+	procValue := reflect.ValueOf(sm)
 
-	results := callbackValue.Call([]reflect.Value{smValue, msgValue})
+	results := callbackValue.Call([]reflect.Value{stateValue, dataValue, msgValue, procValue})
 
-	if len(results) > 0 && !results[0].IsNil() {
-		return results[0].Interface().(error)
+	if len(results) != 3 {
+		sm.Log().Panic("StateMachine terminated. Panic reason: unexpected "+
+			"error when invoking call handler for %v", typeName(message))
 	}
+	if !results[2].IsNil() {
+		return results[2].Interface().(error)
+	}
+	//TODO: panic if new state or new data is not provided
+	setCurrentStateMethod := reflect.ValueOf(sm).MethodByName("SetCurrentState")
+	setCurrentStateMethod.Call([]reflect.Value{results[0]})
+	setDataMethod := reflect.ValueOf(sm).MethodByName("SetData")
+	setDataMethod.Call([]reflect.Value{results[1]})
+
 	return nil
 }
 
@@ -369,21 +381,28 @@ func (sm *StateMachine[D]) lookupCallHandler(messageType string) (any, bool) {
 
 func (sm *StateMachine[D]) invokeCallHandler(handler any, message *gen.MailboxMessage) (any, error) {
 	callbackValue := reflect.ValueOf(handler)
-	smValue := reflect.ValueOf(sm)
+	stateValue := reflect.ValueOf(sm.currentState)
+	dataValue := reflect.ValueOf(sm.Data())
 	msgValue := reflect.ValueOf(message.Message)
+	procValue := reflect.ValueOf(sm)
 
-	results := callbackValue.Call([]reflect.Value{smValue, msgValue})
+	results := callbackValue.Call([]reflect.Value{stateValue, dataValue, msgValue, procValue})
 
-	if len(results) != 2 {
+	if len(results) != 4 {
 		sm.Log().Panic("StateMachine terminated. Panic reason: unexpected "+
 			"error when invoking call handler for %v", typeName(message))
 	}
 
-	if !results[1].IsNil() {
+	if !results[3].IsNil() {
 		err := results[1].Interface().(error)
 		return nil, err
 	}
+	//TODO: panic if new state or new data is not provided
+	setCurrentStateMethod := reflect.ValueOf(sm).MethodByName("SetCurrentState")
+	setCurrentStateMethod.Call([]reflect.Value{results[0]})
+	setDataMethod := reflect.ValueOf(sm).MethodByName("SetData")
+	setDataMethod.Call([]reflect.Value{results[1]})
 
-	result := results[0].Interface()
+	result := results[2].Interface()
 	return result, nil
 }
