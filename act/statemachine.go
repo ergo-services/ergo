@@ -64,6 +64,8 @@ type StateMachine[D any] struct {
 	//   Value: The message handler (any). There is a compile-time guarantee
 	//          that the handler is of type StateCallHandler[D, M, R].
 	stateCallHandlers map[gen.Atom]map[string]any
+
+	stateEnterCallback StateEnterCallback[D]
 }
 
 // Type alias for MessageHandler callbacks.
@@ -77,11 +79,14 @@ type StateMessageHandler[D any, M any] func(gen.Atom, D, M, gen.Process) (gen.At
 // R is the type of the result value.
 type StateCallHandler[D any, M any, R any] func(gen.Atom, D, M, gen.Process) (gen.Atom, D, R, error)
 
+type StateEnterCallback[D any] func(gen.Atom, gen.Atom, D, gen.Process) (gen.Atom, D, error)
+
 type StateMachineSpec[D any] struct {
 	initialState         gen.Atom
 	data                 D
 	stateMessageHandlers map[gen.Atom]map[string]any
 	stateCallHandlers    map[gen.Atom]map[string]any
+	stateEnterCallback   StateEnterCallback[D]
 }
 
 type Option[D any] func(*StateMachineSpec[D])
@@ -124,12 +129,32 @@ func WithStateCallHandler[D any, M any, R any](state gen.Atom, handler StateCall
 	}
 }
 
+func WithStateEnterCallback[D any](callback StateEnterCallback[D]) Option[D] {
+	return func(s *StateMachineSpec[D]) {
+		s.stateEnterCallback = callback
+	}
+}
+
 func (s *StateMachine[D]) CurrentState() gen.Atom {
 	return s.currentState
 }
 
 func (s *StateMachine[D]) SetCurrentState(state gen.Atom) {
-	s.currentState = state
+	if state != s.currentState {
+		s.Log().Info("setting current state to %v", state)
+		oldState := s.currentState
+		s.currentState = state
+
+		// Execute state enter callback until no new transition is triggered.
+		if s.stateEnterCallback != nil {
+			newState, newData, err := s.stateEnterCallback(oldState, state, s.data, s)
+			if err != nil {
+				panic(fmt.Sprintf("error in StateEnterCallback for state %s", state))
+			}
+			s.SetData(newData)
+			s.SetCurrentState(newState)
+		}
+	}
 }
 
 func (s *StateMachine[D]) Data() D {
@@ -175,6 +200,7 @@ func (sm *StateMachine[D]) ProcessInit(process gen.Process, args ...any) (rr err
 	sm.data = spec.data
 	sm.stateMessageHandlers = spec.stateMessageHandlers
 	sm.stateCallHandlers = spec.stateCallHandlers
+	sm.stateEnterCallback = spec.stateEnterCallback
 
 	return nil
 }
@@ -357,15 +383,18 @@ func (sm *StateMachine[D]) invokeMessageHandler(handler any, message *gen.Mailbo
 	if len(results) != 3 {
 		sm.Log().Panic("StateMachine terminated. Panic reason: unexpected "+
 			"error when invoking call handler for %v", typeName(message))
+		return gen.TerminateReasonPanic
 	}
 	if !results[2].IsNil() {
 		return results[2].Interface().(error)
 	}
-	//TODO: panic if new state or new data is not provided
-	setCurrentStateMethod := reflect.ValueOf(sm).MethodByName("SetCurrentState")
-	setCurrentStateMethod.Call([]reflect.Value{results[0]})
+
 	setDataMethod := reflect.ValueOf(sm).MethodByName("SetData")
 	setDataMethod.Call([]reflect.Value{results[1]})
+	// It is important that we set the state last as this can potentially trigger
+	// a state enter callback
+	setCurrentStateMethod := reflect.ValueOf(sm).MethodByName("SetCurrentState")
+	setCurrentStateMethod.Call([]reflect.Value{results[0]})
 
 	return nil
 }
@@ -391,18 +420,22 @@ func (sm *StateMachine[D]) invokeCallHandler(handler any, message *gen.MailboxMe
 	if len(results) != 4 {
 		sm.Log().Panic("StateMachine terminated. Panic reason: unexpected "+
 			"error when invoking call handler for %v", typeName(message))
+		return nil, gen.TerminateReasonPanic
 	}
 
 	if !results[3].IsNil() {
 		err := results[1].Interface().(error)
 		return nil, err
 	}
-	//TODO: panic if new state or new data is not provided
-	setCurrentStateMethod := reflect.ValueOf(sm).MethodByName("SetCurrentState")
-	setCurrentStateMethod.Call([]reflect.Value{results[0]})
+
 	setDataMethod := reflect.ValueOf(sm).MethodByName("SetData")
 	setDataMethod.Call([]reflect.Value{results[1]})
+	// It is important that we set the state last as this can potentially trigger
+	// a state enter callback
+	setCurrentStateMethod := reflect.ValueOf(sm).MethodByName("SetCurrentState")
+	setCurrentStateMethod.Call([]reflect.Value{results[0]})
 
 	result := results[2].Interface()
+
 	return result, nil
 }

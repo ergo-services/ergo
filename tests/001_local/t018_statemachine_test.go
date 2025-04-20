@@ -54,7 +54,8 @@ type t18statemachine struct {
 }
 
 type t18data struct {
-	count int
+	transitions         int
+	stateEnterCallbacks int
 }
 
 type t18transitionState1toState2 struct {
@@ -63,29 +64,50 @@ type t18transitionState1toState2 struct {
 type t18transitionState2toState1 struct {
 }
 
+type t18query struct {
+}
+
 func (sm *t18statemachine) Init(args ...any) (act.StateMachineSpec[t18data], error) {
 	spec := act.NewStateMachineSpec(gen.Atom("state1"),
 		// initial data
-		act.WithData(t18data{count: 1}),
+		act.WithData(t18data{}),
 
 		// set up a message handler for the transition state1 -> state2
 		act.WithStateMessageHandler(gen.Atom("state1"), state1to2),
 
-		// set up a call handler for the transition state2 -> state1
-		act.WithStateCallHandler(gen.Atom("state2"), state2to1),
+		// set up a call handler to query the data
+		act.WithStateCallHandler(gen.Atom("state3"), queryData),
+
+		// set up a state enter callback
+		act.WithStateEnterCallback(stateEnter),
 	)
 
 	return spec, nil
 }
 
 func state1to2(state gen.Atom, data t18data, message t18transitionState1toState2, proc gen.Process) (gen.Atom, t18data, error) {
-	data.count++
+	data.transitions++
 	return gen.Atom("state2"), data, nil
 }
 
-func state2to1(state gen.Atom, data t18data, message t18transitionState2toState1, proc gen.Process) (gen.Atom, t18data, int, error) {
-	data.count++
-	return gen.Atom("state1"), data, data.count, nil
+func queryData(state gen.Atom, data t18data, message t18query, proc gen.Process) (gen.Atom, t18data, t18data, error) {
+	return state, data, data, nil
+}
+
+func stateEnter(oldState gen.Atom, newState gen.Atom, data t18data, proc gen.Process) (gen.Atom, t18data, error) {
+	data.stateEnterCallbacks++
+
+	if newState == gen.Atom("state2") {
+		data.transitions++
+		return gen.Atom("state3"), data, nil
+
+	}
+	return newState, data, nil
+}
+
+func state3Enter(state gen.Atom, data t18data, proc gen.Process) (gen.Atom, t18data, error) {
+	data.stateEnterCallbacks++
+	return state, data, nil
 }
 
 func (t *t18) TestStateMachine(input any) {
@@ -100,31 +122,40 @@ func (t *t18) TestStateMachine(input any) {
 		return
 	}
 
-	// send message to transition from state 1 to 2
+	// Send a message to transition to state 2. The state enter callback should
+	// automatically transition to state 3 where another state enter callback
+	// does not trigger any further state transitions.
 	err = t.Send(pid, t18transitionState1toState2{})
-
 	if err != nil {
-		t.Log().Error("sending to the statemachine process failed: %s", err)
+		t.Log().Error("send 't18transitionState1toState2' failed: %s", err)
 		t.testcase.err <- err
 		return
 	}
 
-	// send call to transition from result 2 to 1
-	result, err := t.Call(pid, t18transitionState2toState1{})
+	// Query the data from the state machine (and test StateCallHandler behavior)
+	result, err := t.Call(pid, t18query{})
 	if err != nil {
-		t.Log().Error("call to the statemachine process failed: %s", err)
+		t.Log().Error("call 't18query' failed: %s", err)
 		t.testcase.err <- err
 		return
 	}
-	// initial count was 1, after 2 state transitions we expect the count to be 3
-	if result != 3 {
-		t.testcase.err <- fmt.Errorf("expected 3, got %v", result)
+
+	// We expect 2 state transitions (state1 -> state2 -> state3)
+	data := result.(t18data)
+	if data.transitions != 2 {
+		t.testcase.err <- fmt.Errorf("expected 2 state transitions, got %v", result)
 		return
 	}
 
-	// statemachine process should crash on invalid state transition
+	// We  expect a chain of 2 state enter callback functions to be called, one
+	// for state2 and one for state3.
+	if data.stateEnterCallbacks != 2 {
+		t.testcase.err <- fmt.Errorf("expected 2 state enter function invocations, got %d", data.stateEnterCallbacks)
+	}
+
+	// Statemachine process should crash on invalid state transition
 	err = t.testcase.expectProcessToTerminate(pid, t, func(p gen.Process) error {
-		return p.Send(pid, t18transitionState2toState1{}) // we are in state1
+		return p.Send(pid, t18transitionState2toState1{}) // we are in state3
 	})
 	if err != nil {
 		t.testcase.err <- err
