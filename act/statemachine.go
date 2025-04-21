@@ -65,6 +65,14 @@ type StateMachine[D any] struct {
 	//          that the handler is of type StateCallHandler[D, M, R].
 	stateCallHandlers map[gen.Atom]map[string]any
 
+	// eventHandlers maps events to the handler for the event.
+	// Key: Event name (gen.Atom) - The name of the event
+	// Value: The event handler (any). There is a compile-time guarantee that
+	//        the handler is of type EventHandler[D, E]
+	eventHandlers map[gen.Event]any
+
+	// Callback that is invoked immediately after every state change. If no
+	// callback is registered stateEnterCallback is nil.
 	stateEnterCallback StateEnterCallback[D]
 }
 
@@ -79,6 +87,13 @@ type StateMessageHandler[D any, M any] func(gen.Atom, D, M, gen.Process) (gen.At
 // R is the type of the result value.
 type StateCallHandler[D any, M any, R any] func(gen.Atom, D, M, gen.Process) (gen.Atom, D, R, error)
 
+// Type alias for event handler callbacks.
+// D is the type of the data associated with the StateMachine.
+// E is the type of the event.
+type EventHandler[D any, E any] func(gen.Atom, D, E, gen.Process) (gen.Atom, D, error)
+
+// Type alias for StateEnter callback.
+// D is the type of the data associated with the StateMachine.
 type StateEnterCallback[D any] func(gen.Atom, gen.Atom, D, gen.Process) (gen.Atom, D, error)
 
 type StateMachineSpec[D any] struct {
@@ -86,6 +101,7 @@ type StateMachineSpec[D any] struct {
 	data                 D
 	stateMessageHandlers map[gen.Atom]map[string]any
 	stateCallHandlers    map[gen.Atom]map[string]any
+	eventHandlers        map[gen.Event]any
 	stateEnterCallback   StateEnterCallback[D]
 }
 
@@ -96,6 +112,7 @@ func NewStateMachineSpec[D any](initialState gen.Atom, options ...Option[D]) Sta
 		initialState:         initialState,
 		stateMessageHandlers: make(map[gen.Atom]map[string]any),
 		stateCallHandlers:    make(map[gen.Atom]map[string]any),
+		eventHandlers:        make(map[gen.Event]any),
 	}
 	for _, opt := range options {
 		opt(&spec)
@@ -135,6 +152,12 @@ func WithStateEnterCallback[D any](callback StateEnterCallback[D]) Option[D] {
 	}
 }
 
+func WithEventHandler[D any, E any](event gen.Event, handler EventHandler[D, E]) Option[D] {
+	return func(s *StateMachineSpec[D]) {
+		s.eventHandlers[event] = handler
+	}
+}
+
 func (s *StateMachine[D]) CurrentState() gen.Atom {
 	return s.currentState
 }
@@ -164,6 +187,8 @@ func (s *StateMachine[D]) Data() D {
 func (s *StateMachine[D]) SetData(data D) {
 	s.data = data
 }
+
+type startMonitoringEvents struct{}
 
 //
 // ProcessBehavior implementation
@@ -200,7 +225,13 @@ func (sm *StateMachine[D]) ProcessInit(process gen.Process, args ...any) (rr err
 	sm.data = spec.data
 	sm.stateMessageHandlers = spec.stateMessageHandlers
 	sm.stateCallHandlers = spec.stateCallHandlers
+	sm.eventHandlers = spec.eventHandlers
 	sm.stateEnterCallback = spec.stateEnterCallback
+
+	// if we have event handlers we need to start listening for events
+	if len(sm.eventHandlers) > 0 {
+		sm.Send(sm.PID(), startMonitoringEvents{})
+	}
 
 	return nil
 }
@@ -263,20 +294,33 @@ func (sm *StateMachine[D]) ProcessRun() (rr error) {
 
 		switch message.Type {
 		case gen.MailboxMessageTypeRegular:
-			// check if there is a handler for the message in the current state
-			messageType := typeName(message)
-			handler, ok := sm.lookupMessageHandler(messageType)
-			if ok == false {
-				return fmt.Errorf("No handler for message %s in state %s", messageType, sm.currentState)
+			switch message.Message.(type) {
+			case startMonitoringEvents:
+				// start monitoring
+				for event := range sm.eventHandlers {
+					if _, err := sm.MonitorEvent(event); err != nil {
+						panic(fmt.Sprintf("Error monitoring event: %v.", err))
+					}
+				}
+				sm.Log().Info("StateMachine %s is now monitoring events", sm.PID)
+				return nil
+
+			default:
+				// check if there is a handler for the message in the current state
+				messageType := reflect.TypeOf(message.Message).String()
+				handler, ok := sm.lookupMessageHandler(messageType)
+				if ok == false {
+					return fmt.Errorf("No handler for message %s in state %s", messageType, sm.currentState)
+				}
+				return sm.invokeMessageHandler(handler, message)
 			}
-			return sm.invokeMessageHandler(handler, message)
 
 		case gen.MailboxMessageTypeRequest:
 			var reason error
 			var result any
 
 			// check if there is a handler for the call in the current state
-			messageType := typeName(message)
+			messageType := reflect.TypeOf(message.Message).String()
 			handler, ok := sm.lookupCallHandler(messageType)
 			if ok == false {
 				return fmt.Errorf("No handler for message %s in state %s", messageType, sm.currentState)
@@ -294,9 +338,12 @@ func (sm *StateMachine[D]) ProcessRun() (rr error) {
 			sm.SendResponse(message.From, message.Ref, result)
 
 		case gen.MailboxMessageTypeEvent:
-			if reason := sm.behavior.HandleEvent(message.Message.(gen.MessageEvent)); reason != nil {
-				return reason
+			event := message.Message.(gen.MessageEvent)
+			handler, exists := sm.eventHandlers[event.Event]
+			if exists == false {
+				return fmt.Errorf("No handler for event %v", event)
 			}
+			return sm.invokeEventHandler(handler, &event)
 
 		case gen.MailboxMessageTypeExit:
 			switch exit := message.Message.(type) {
@@ -358,10 +405,6 @@ func (s *StateMachine[D]) Terminate(reason error) {}
 // Internals
 //
 
-func typeName(message *gen.MailboxMessage) string {
-	return reflect.TypeOf(message.Message).String()
-}
-
 func (sm *StateMachine[D]) lookupMessageHandler(messageType string) (any, bool) {
 	if stateMessageHandlers, exists := sm.stateMessageHandlers[sm.currentState]; exists == true {
 		if callback, exists := stateMessageHandlers[messageType]; exists == true {
@@ -382,7 +425,7 @@ func (sm *StateMachine[D]) invokeMessageHandler(handler any, message *gen.Mailbo
 
 	if len(results) != 3 {
 		sm.Log().Panic("StateMachine terminated. Panic reason: unexpected "+
-			"error when invoking call handler for %v", typeName(message))
+			"error when invoking call handler for %s", reflect.TypeOf(message.Message))
 		return gen.TerminateReasonPanic
 	}
 	if !results[2].IsNil() {
@@ -419,12 +462,12 @@ func (sm *StateMachine[D]) invokeCallHandler(handler any, message *gen.MailboxMe
 
 	if len(results) != 4 {
 		sm.Log().Panic("StateMachine terminated. Panic reason: unexpected "+
-			"error when invoking call handler for %v", typeName(message))
+			"error when invoking call handler for %s", reflect.TypeOf(message.Message))
 		return nil, gen.TerminateReasonPanic
 	}
 
 	if !results[3].IsNil() {
-		err := results[1].Interface().(error)
+		err := results[3].Interface().(error)
 		return nil, err
 	}
 
@@ -438,4 +481,34 @@ func (sm *StateMachine[D]) invokeCallHandler(handler any, message *gen.MailboxMe
 	result := results[2].Interface()
 
 	return result, nil
+}
+
+func (sm *StateMachine[D]) invokeEventHandler(handler any, message *gen.MessageEvent) error {
+	callbackValue := reflect.ValueOf(handler)
+	stateValue := reflect.ValueOf(sm.currentState)
+	dataValue := reflect.ValueOf(sm.Data())
+	msgValue := reflect.ValueOf(message.Message)
+	procValue := reflect.ValueOf(sm)
+
+	results := callbackValue.Call([]reflect.Value{stateValue, dataValue, msgValue, procValue})
+
+	if len(results) != 3 {
+		sm.Log().Panic("StateMachine terminated. Panic reason: unexpected "+
+			"error when invoking call handler for %s", reflect.TypeOf(message.Message))
+		return gen.TerminateReasonPanic
+	}
+
+	if !results[2].IsNil() {
+		err := results[2].Interface().(error)
+		return err
+	}
+
+	setDataMethod := reflect.ValueOf(sm).MethodByName("SetData")
+	setDataMethod.Call([]reflect.Value{results[1]})
+	// It is important that we set the state last as this can potentially trigger
+	// a state enter callback
+	setCurrentStateMethod := reflect.ValueOf(sm).MethodByName("SetCurrentState")
+	setCurrentStateMethod.Call([]reflect.Value{results[0]})
+
+	return nil
 }

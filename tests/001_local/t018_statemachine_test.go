@@ -8,6 +8,7 @@ import (
 	"ergo.services/ergo"
 	"ergo.services/ergo/act"
 	"ergo.services/ergo/gen"
+	"ergo.services/ergo/lib"
 )
 
 //
@@ -56,6 +57,7 @@ type t18statemachine struct {
 type t18data struct {
 	transitions         int
 	stateEnterCallbacks int
+	testEventReceived   bool
 }
 
 type t18transitionState1toState2 struct {
@@ -65,6 +67,10 @@ type t18transitionState2toState1 struct {
 }
 
 type t18query struct {
+}
+
+type t18event struct {
+	payload string
 }
 
 func (sm *t18statemachine) Init(args ...any) (act.StateMachineSpec[t18data], error) {
@@ -80,6 +86,9 @@ func (sm *t18statemachine) Init(args ...any) (act.StateMachineSpec[t18data], err
 
 		// set up a state enter callback
 		act.WithStateEnterCallback(stateEnter),
+
+		// register event handler
+		act.WithEventHandler(gen.Event{Name: "testEvent", Node: "t18node@localhost"}, handleTestEvent),
 	)
 
 	return spec, nil
@@ -105,8 +114,8 @@ func stateEnter(oldState gen.Atom, newState gen.Atom, data t18data, proc gen.Pro
 	return newState, data, nil
 }
 
-func state3Enter(state gen.Atom, data t18data, proc gen.Process) (gen.Atom, t18data, error) {
-	data.stateEnterCallbacks++
+func handleTestEvent(state gen.Atom, data t18data, event t18event, proc gen.Process) (gen.Atom, t18data, error) {
+	data.testEventReceived = true
 	return state, data, nil
 }
 
@@ -114,6 +123,11 @@ func (t *t18) TestStateMachine(input any) {
 	defer func() {
 		t.testcase = nil
 	}()
+
+	// Register the event first, otherwise the StateMachine will not be able
+	// to start monitoring.
+	testEvent := gen.Atom("testEvent")
+	token, err := t.RegisterEvent(testEvent, gen.EventOptions{})
 
 	pid, err := t.Spawn(factory_t18statemachine, gen.ProcessOptions{})
 	if err != nil {
@@ -151,6 +165,23 @@ func (t *t18) TestStateMachine(input any) {
 	// for state2 and one for state3.
 	if data.stateEnterCallbacks != 2 {
 		t.testcase.err <- fmt.Errorf("expected 2 state enter function invocations, got %d", data.stateEnterCallbacks)
+		return
+	}
+
+	event := t18event{lib.RandomString(8)}
+	t.SendEvent(testEvent, token, event)
+
+	// Query the data from the state machine
+	result, err = t.Call(pid, t18query{})
+	if err != nil {
+		t.Log().Error("call 't18query' failed: %s", err)
+		t.testcase.err <- err
+		return
+	}
+	data = result.(t18data)
+	if data.testEventReceived == false {
+		t.testcase.err <- fmt.Errorf("expected test event to be received")
+		return
 	}
 
 	// Statemachine process should crash on invalid state transition
