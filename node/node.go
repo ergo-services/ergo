@@ -1376,12 +1376,13 @@ func (n *node) SetCTRLC(enable bool) {
 		n.ctrlc = make(chan os.Signal, 1)
 		signal.Notify(n.ctrlc, os.Interrupt, syscall.SIGTERM)
 
-		sig := <-n.ctrlc
-		if sig == nil {
-			// closed channel. disable ctrlc
-			signal.Reset()
+		if sig := <-n.ctrlc; sig == nil {
+			// closed channel. shutdown is in progress already
 			return
 		}
+
+		signal.Reset()
+
 		n.Log().Info("node %s is starting a graceful shutdown...", n.name)
 		n.Stop()
 	}()
