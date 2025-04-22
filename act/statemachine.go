@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"runtime"
 	"strings"
+	"time"
 
 	"ergo.services/ergo/gen"
 	"ergo.services/ergo/lib"
@@ -76,10 +77,27 @@ type StateMachine[D any] struct {
 	stateEnterCallback StateEnterCallback[D]
 }
 
+type Action interface {
+	isAction()
+}
+
+type StateTimeout[M any] struct {
+	Duration time.Duration
+	message  M
+}
+
+func (StateTimeout[M]) IsAction() {}
+
+// state_timeout
+// timeout
+
 // Type alias for MessageHandler callbacks.
 // D is the type of the data associated with the StateMachine.
 // M is the type of the message this handler accepts.
 type StateMessageHandler[D any, M any] func(gen.Atom, D, M, gen.Process) (gen.Atom, D, error)
+
+// new version with actions
+//type StateMessageHandler[D any, M any] func(gen.Atom, D, M, gen.Process) (gen.Atom, D, []Action, error)
 
 // Type alias for CallHandler callbacks.
 // D is the type of the data associated with the StateMachine.
@@ -302,7 +320,7 @@ func (sm *StateMachine[D]) ProcessRun() (rr error) {
 						panic(fmt.Sprintf("Error monitoring event: %v.", err))
 					}
 				}
-				sm.Log().Info("StateMachine %s is now monitoring events", sm.PID)
+				sm.Log().Info("StateMachine %s is now monitoring events", sm.PID())
 				return nil
 
 			default:

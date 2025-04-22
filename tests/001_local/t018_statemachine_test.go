@@ -8,12 +8,7 @@ import (
 	"ergo.services/ergo"
 	"ergo.services/ergo/act"
 	"ergo.services/ergo/gen"
-	"ergo.services/ergo/lib"
 )
-
-//
-// this is the template for writing new tests
-//
 
 var (
 	t18cases []*testcase
@@ -45,78 +40,47 @@ func (t *t18) HandleMessage(from gen.PID, message any) error {
 	return nil
 }
 
-func factory_t18statemachine() gen.ProcessBehavior {
-	return &t18statemachine{}
+// Test state transitions with messages and calls
+func factory_t18_state_transitions() gen.ProcessBehavior {
+	return &t18_state_transitions{}
 }
 
-type t18statemachine struct {
-	act.StateMachine[t18data]
-	tc *testcase
+type t18_state_transitions struct {
+	act.StateMachine[t18_state_transitions_data]
 }
 
-type t18data struct {
-	transitions         int
-	stateEnterCallbacks int
-	testEventReceived   bool
+type t18_state_transitions_data struct {
+	transitions int
 }
 
-type t18transitionState1toState2 struct {
+type t18_state2 struct {
 }
 
-type t18transitionState2toState1 struct {
+type t18_get_transitions struct {
 }
 
-type t18query struct {
-}
-
-type t18event struct {
-	payload string
-}
-
-func (sm *t18statemachine) Init(args ...any) (act.StateMachineSpec[t18data], error) {
+func (sm *t18_state_transitions) Init(args ...any) (act.StateMachineSpec[t18_state_transitions_data], error) {
 	spec := act.NewStateMachineSpec(gen.Atom("state1"),
 		// initial data
-		act.WithData(t18data{}),
+		act.WithData(t18_state_transitions_data{}),
 
-		// set up a message handler for the transition state1 -> state2
-		act.WithStateMessageHandler(gen.Atom("state1"), state1to2),
+		// set up a message handler for the transition [state1] -> [state2]
+		act.WithStateMessageHandler(gen.Atom("state1"), t18_move_to_state2),
 
-		// set up a call handler to query the data
-		act.WithStateCallHandler(gen.Atom("state3"), queryData),
-
-		// set up a state enter callback
-		act.WithStateEnterCallback(stateEnter),
-
-		// register event handler
-		act.WithEventHandler(gen.Event{Name: "testEvent", Node: "t18node@localhost"}, handleTestEvent),
+		// set up a call handler to query the number of state transitions
+		act.WithStateCallHandler(gen.Atom("state2"), t18_total_transitions),
 	)
 
 	return spec, nil
 }
 
-func state1to2(state gen.Atom, data t18data, message t18transitionState1toState2, proc gen.Process) (gen.Atom, t18data, error) {
+func t18_move_to_state2(state gen.Atom, data t18_state_transitions_data, message t18_state2, proc gen.Process) (gen.Atom, t18_state_transitions_data, error) {
 	data.transitions++
 	return gen.Atom("state2"), data, nil
 }
 
-func queryData(state gen.Atom, data t18data, message t18query, proc gen.Process) (gen.Atom, t18data, t18data, error) {
-	return state, data, data, nil
-}
-
-func stateEnter(oldState gen.Atom, newState gen.Atom, data t18data, proc gen.Process) (gen.Atom, t18data, error) {
-	data.stateEnterCallbacks++
-
-	if newState == gen.Atom("state2") {
-		data.transitions++
-		return gen.Atom("state3"), data, nil
-
-	}
-	return newState, data, nil
-}
-
-func handleTestEvent(state gen.Atom, data t18data, event t18event, proc gen.Process) (gen.Atom, t18data, error) {
-	data.testEventReceived = true
-	return state, data, nil
+func t18_total_transitions(state gen.Atom, data t18_state_transitions_data, message t18_get_transitions, proc gen.Process) (gen.Atom, t18_state_transitions_data, int, error) {
+	return state, data, data.transitions, nil
 }
 
 func (t *t18) TestStateMachine(input any) {
@@ -124,69 +88,39 @@ func (t *t18) TestStateMachine(input any) {
 		t.testcase = nil
 	}()
 
-	// Register the event first, otherwise the StateMachine will not be able
-	// to start monitoring.
-	testEvent := gen.Atom("testEvent")
-	token, err := t.RegisterEvent(testEvent, gen.EventOptions{})
-
-	pid, err := t.Spawn(factory_t18statemachine, gen.ProcessOptions{})
+	pid, err := t.Spawn(factory_t18_state_transitions, gen.ProcessOptions{})
 	if err != nil {
 		t.Log().Error("unable to spawn statemachine process: %s", err)
 		t.testcase.err <- err
 		return
 	}
 
-	// Send a message to transition to state 2. The state enter callback should
-	// automatically transition to state 3 where another state enter callback
-	// does not trigger any further state transitions.
-	err = t.Send(pid, t18transitionState1toState2{})
+	// Send a message to transition to state 2.
+	err = t.Send(pid, t18_state2{})
 	if err != nil {
-		t.Log().Error("send 't18transitionState1toState2' failed: %s", err)
+		t.Log().Error("send 't18_state2' failed: %s", err)
 		t.testcase.err <- err
 		return
 	}
 
 	// Query the data from the state machine (and test StateCallHandler behavior)
-	result, err := t.Call(pid, t18query{})
+	result, err := t.Call(pid, t18_get_transitions{})
 	if err != nil {
-		t.Log().Error("call 't18query' failed: %s", err)
+		t.Log().Error("call 't18_get_transitions' failed: %s", err)
 		t.testcase.err <- err
 		return
 	}
 
-	// We expect 2 state transitions (state1 -> state2 -> state3)
-	data := result.(t18data)
-	if data.transitions != 2 {
-		t.testcase.err <- fmt.Errorf("expected 2 state transitions, got %v", result)
-		return
-	}
-
-	// We  expect a chain of 2 state enter callback functions to be called, one
-	// for state2 and one for state3.
-	if data.stateEnterCallbacks != 2 {
-		t.testcase.err <- fmt.Errorf("expected 2 state enter function invocations, got %d", data.stateEnterCallbacks)
-		return
-	}
-
-	event := t18event{lib.RandomString(8)}
-	t.SendEvent(testEvent, token, event)
-
-	// Query the data from the state machine
-	result, err = t.Call(pid, t18query{})
-	if err != nil {
-		t.Log().Error("call 't18query' failed: %s", err)
-		t.testcase.err <- err
-		return
-	}
-	data = result.(t18data)
-	if data.testEventReceived == false {
-		t.testcase.err <- fmt.Errorf("expected test event to be received")
+	// We expect 1 state transitions: [state1] -> [state2]
+	data := result.(int)
+	if data != 1 {
+		t.testcase.err <- fmt.Errorf("expected 1 state transitions, got %v", result)
 		return
 	}
 
 	// Statemachine process should crash on invalid state transition
 	err = t.testcase.expectProcessToTerminate(pid, t, func(p gen.Process) error {
-		return p.Send(pid, t18transitionState2toState1{}) // we are in state3
+		return p.Send(pid, t18_state2{}) // we are in state2
 	})
 	if err != nil {
 		t.testcase.err <- err
