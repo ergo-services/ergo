@@ -71,22 +71,22 @@ func (sm *t19_events) Init(args ...any) (act.StateMachineSpec[t19_events_data], 
 		act.WithData(t19_events_data{}),
 
 		// register event handler
-		act.WithEventHandler(gen.Event{Name: "testEvent", Node: "t19node@localhost"}, t20_handle_test_event),
+		act.WithEventHandler(gen.Event{Name: "testEvent", Node: "t19node@localhost"}, t19_handle_test_event),
 
 		// register call handler
-		act.WithStateCallHandler(gen.Atom("state1"), t19_event_received),
+		act.WithStateCallHandler(gen.Atom("state1"), t19_events_received),
 	)
 
 	return spec, nil
 }
 
-func t19_event_received(state gen.Atom, data t19_events_data, event t19_get_events_received, proc gen.Process) (gen.Atom, t19_events_data, int, error) {
-	return state, data, data.eventsReceived, nil
+func t19_events_received(state gen.Atom, data t19_events_data, event t19_get_events_received, proc gen.Process) (gen.Atom, t19_events_data, int, []act.Action, error) {
+	return state, data, data.eventsReceived, nil, nil
 }
 
-func t20_handle_test_event(state gen.Atom, data t19_events_data, event t19_event, proc gen.Process) (gen.Atom, t19_events_data, error) {
+func t19_handle_test_event(state gen.Atom, data t19_events_data, event t19_event, proc gen.Process) (gen.Atom, t19_events_data, []act.Action, error) {
 	data.eventsReceived++
-	return state, data, nil
+	return state, data, nil, nil
 }
 
 func (t *t19) TestEvents(input any) {
@@ -143,7 +143,7 @@ func (t *t19) TestEvents(input any) {
 	t.testcase.err <- nil
 }
 
-func TestT19template(t *testing.T) {
+func TestT19StateMachineEvents(t *testing.T) {
 	nopt := gen.NodeOptions{}
 	nopt.Log.DefaultLogger.Disable = true
 	//nopt.Log.Level = gen.LogLevelTrace
@@ -159,7 +159,7 @@ func TestT19template(t *testing.T) {
 	}
 
 	t19cases = []*testcase{
-		&testcase{"TestEvents", nil, nil, make(chan error)},
+		{"TestEvents", nil, nil, make(chan error)},
 	}
 	for _, tc := range t19cases {
 		t.Run(tc.name, func(t *testing.T) {

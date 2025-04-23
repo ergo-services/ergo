@@ -78,12 +78,12 @@ func (sm *t20_state_enter_callback) Init(args ...any) (act.StateMachineSpec[t20_
 	return spec, nil
 }
 
-func t20_move_to_state2(state gen.Atom, data t20_state_enter_callback_data, message t20_state2, proc gen.Process) (gen.Atom, t20_state_enter_callback_data, error) {
-	return gen.Atom("state2"), data, nil
+func t20_move_to_state2(state gen.Atom, data t20_state_enter_callback_data, message t20_state2, proc gen.Process) (gen.Atom, t20_state_enter_callback_data, []act.Action, error) {
+	return gen.Atom("state2"), data, nil, nil
 }
 
-func t20_state_and_callback_count(state gen.Atom, data t20_state_enter_callback_data, message t20_state_enter_callback_query, proc gen.Process) (gen.Atom, t20_state_enter_callback_data, t20_state_enter_callback_data, error) {
-	return state, data, data, nil
+func t20_state_and_callback_count(state gen.Atom, data t20_state_enter_callback_data, message t20_state_enter_callback_query, proc gen.Process) (gen.Atom, t20_state_enter_callback_data, t20_state_enter_callback_data, []act.Action, error) {
+	return state, data, data, nil, nil
 }
 
 func t20_state_enter(oldState gen.Atom, newState gen.Atom, data t20_state_enter_callback_data, proc gen.Process) (gen.Atom, t20_state_enter_callback_data, error) {
@@ -134,7 +134,7 @@ func (t *t20) TestStateEnterCallback(input any) {
 		return
 	}
 
-	// Ensure callback count is 2 and we are in state3 prior to the test
+	// Ensure callback count is 2 and we are in state3
 	result, err = t.Call(pid, t20_state_enter_callback_query{})
 	if err != nil {
 		t.Log().Error("call 't20_state_enter_callback_query' failed: %s", err)
@@ -154,23 +154,7 @@ func (t *t20) TestStateEnterCallback(input any) {
 	t.testcase.err <- nil
 }
 
-func (t *t20) TestFeature1(input any) {
-	defer func() {
-		t.testcase = nil
-	}()
-
-	t.testcase.err <- nil
-}
-
-func (t *t20) TestFeatureX(input any) {
-	defer func() {
-		t.testcase = nil
-	}()
-
-	t.testcase.err <- nil
-}
-
-func TestT20template(t *testing.T) {
+func TestT20StateMachineStateEnterCallback(t *testing.T) {
 	nopt := gen.NodeOptions{}
 	nopt.Log.DefaultLogger.Disable = true
 	//nopt.Log.Level = gen.LogLevelTrace
@@ -186,7 +170,7 @@ func TestT20template(t *testing.T) {
 	}
 
 	t20cases = []*testcase{
-		&testcase{"TestStateEnterCallback", nil, nil, make(chan error)},
+		{"TestStateEnterCallback", nil, nil, make(chan error)},
 	}
 	for _, tc := range t20cases {
 		t.Run(tc.name, func(t *testing.T) {

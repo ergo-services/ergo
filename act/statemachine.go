@@ -1,6 +1,7 @@
 package act
 
 import (
+	"context"
 	"fmt"
 	"reflect"
 	"runtime"
@@ -75,40 +76,44 @@ type StateMachine[D any] struct {
 	// Callback that is invoked immediately after every state change. If no
 	// callback is registered stateEnterCallback is nil.
 	stateEnterCallback StateEnterCallback[D]
+
+	// Pointer to the most recently configured state timeout.
+	activeStateTimeout *ActiveStateTimeout
 }
 
 type Action interface {
 	isAction()
 }
 
-type StateTimeout[M any] struct {
+type StateTimeout struct {
 	Duration time.Duration
-	message  M
+	Message  any
 }
 
-func (StateTimeout[M]) IsAction() {}
+func (StateTimeout) isAction() {}
 
-// state_timeout
-// timeout
+type ActiveStateTimeout struct {
+	state   gen.Atom
+	timeout StateTimeout
+	ctx     context.Context
+	cancel  context.CancelFunc
+}
 
 // Type alias for MessageHandler callbacks.
 // D is the type of the data associated with the StateMachine.
 // M is the type of the message this handler accepts.
-type StateMessageHandler[D any, M any] func(gen.Atom, D, M, gen.Process) (gen.Atom, D, error)
-
-// new version with actions
-//type StateMessageHandler[D any, M any] func(gen.Atom, D, M, gen.Process) (gen.Atom, D, []Action, error)
+type StateMessageHandler[D any, M any] func(gen.Atom, D, M, gen.Process) (gen.Atom, D, []Action, error)
 
 // Type alias for CallHandler callbacks.
 // D is the type of the data associated with the StateMachine.
 // M is the type of the message this handler accepts.
 // R is the type of the result value.
-type StateCallHandler[D any, M any, R any] func(gen.Atom, D, M, gen.Process) (gen.Atom, D, R, error)
+type StateCallHandler[D any, M any, R any] func(gen.Atom, D, M, gen.Process) (gen.Atom, D, R, []Action, error)
 
 // Type alias for event handler callbacks.
 // D is the type of the data associated with the StateMachine.
 // E is the type of the event.
-type EventHandler[D any, E any] func(gen.Atom, D, E, gen.Process) (gen.Atom, D, error)
+type EventHandler[D any, E any] func(gen.Atom, D, E, gen.Process) (gen.Atom, D, []Action, error)
 
 // Type alias for StateEnter callback.
 // D is the type of the data associated with the StateMachine.
@@ -137,7 +142,6 @@ func NewStateMachineSpec[D any](initialState gen.Atom, options ...Option[D]) Sta
 	}
 	return spec
 }
-
 func WithData[D any](data D) Option[D] {
 	return func(s *StateMachineSpec[D]) {
 		s.data = data
@@ -182,10 +186,18 @@ func (s *StateMachine[D]) CurrentState() gen.Atom {
 
 func (s *StateMachine[D]) SetCurrentState(state gen.Atom) {
 	if state != s.currentState {
-		s.Log().Info("setting current state to %v", state)
+		s.Log().Info("StateMachine: switching to state %s", state)
 		oldState := s.currentState
 		s.currentState = state
 
+		// If there is a state timeout set up for the new state then we have
+		// just registered this timeout in `ProcessActions` and we should not
+		// touch it. Otherwise we should cancel the active state timeout if there
+		// is one.
+		if s.hasActiveStateTimeout() && s.activeStateTimeout.state != state {
+			s.Log().Info("StateMachine: canceling state timeout for state %s", state)
+			s.activeStateTimeout.cancel()
+		}
 		// Execute state enter callback until no new transition is triggered.
 		if s.stateEnterCallback != nil {
 			newState, newData, err := s.stateEnterCallback(oldState, state, s.data, s)
@@ -204,6 +216,10 @@ func (s *StateMachine[D]) Data() D {
 
 func (s *StateMachine[D]) SetData(data D) {
 	s.data = data
+}
+
+func (s *StateMachine[D]) hasActiveStateTimeout() bool {
+	return s.activeStateTimeout != nil && s.activeStateTimeout.ctx.Err() == nil
 }
 
 type startMonitoringEvents struct{}
@@ -246,10 +262,12 @@ func (sm *StateMachine[D]) ProcessInit(process gen.Process, args ...any) (rr err
 	sm.eventHandlers = spec.eventHandlers
 	sm.stateEnterCallback = spec.stateEnterCallback
 
-	// if we have event handlers we need to start listening for events
+	// Send a message to ourselves to start monitoring events if there are
+	// event handlers registerd.
 	if len(sm.eventHandlers) > 0 {
 		sm.Send(sm.PID(), startMonitoringEvents{})
 	}
+	sm.Log().Info("StateMachine: started in state %s", sm.currentState)
 
 	return nil
 }
@@ -320,7 +338,7 @@ func (sm *StateMachine[D]) ProcessRun() (rr error) {
 						panic(fmt.Sprintf("Error monitoring event: %v.", err))
 					}
 				}
-				sm.Log().Info("StateMachine %s is now monitoring events", sm.PID())
+				sm.Log().Info("StateMachine: monitoring events")
 				return nil
 
 			default:
@@ -423,6 +441,43 @@ func (s *StateMachine[D]) Terminate(reason error) {}
 // Internals
 //
 
+func (sm *StateMachine[D]) ProcessActions(actions []Action, state gen.Atom) {
+	for _, action := range actions {
+		switch action := action.(type) {
+		case StateTimeout:
+			if sm.hasActiveStateTimeout() {
+				sm.activeStateTimeout.cancel()
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), action.Duration)
+			sm.activeStateTimeout = &ActiveStateTimeout{
+				state:   state,
+				timeout: action,
+				ctx:     ctx,
+				cancel:  cancel,
+			}
+			go startStateTimeout(ctx, state, action.Message, sm)
+			return
+		default:
+			panic("unsupported action")
+		}
+	}
+}
+
+func startStateTimeout(ctx context.Context, state gen.Atom, message any, proc gen.Process) {
+	select {
+	case <-ctx.Done():
+		switch ctx.Err() {
+		case context.DeadlineExceeded:
+			proc.Log().Info("StateMachine: state timeout for state %s timed out", state)
+			proc.Send(proc.PID(), message)
+			return
+		case context.Canceled:
+			proc.Log().Info("StateMachine: state timeout for state %s canceled", state)
+			return
+		}
+	}
+}
+
 func (sm *StateMachine[D]) lookupMessageHandler(messageType string) (any, bool) {
 	if stateMessageHandlers, exists := sm.stateMessageHandlers[sm.currentState]; exists == true {
 		if callback, exists := stateMessageHandlers[messageType]; exists == true {
@@ -433,29 +488,20 @@ func (sm *StateMachine[D]) lookupMessageHandler(messageType string) (any, bool) 
 }
 
 func (sm *StateMachine[D]) invokeMessageHandler(handler any, message *gen.MailboxMessage) error {
+	stateMachineValue := reflect.ValueOf(sm)
 	callbackValue := reflect.ValueOf(handler)
 	stateValue := reflect.ValueOf(sm.currentState)
 	dataValue := reflect.ValueOf(sm.Data())
 	msgValue := reflect.ValueOf(message.Message)
-	procValue := reflect.ValueOf(sm)
+	messageType := reflect.TypeOf(message).String()
 
-	results := callbackValue.Call([]reflect.Value{stateValue, dataValue, msgValue, procValue})
+	results := callbackValue.Call([]reflect.Value{stateValue, dataValue, msgValue, stateMachineValue})
 
-	if len(results) != 3 {
-		sm.Log().Panic("StateMachine terminated. Panic reason: unexpected "+
-			"error when invoking call handler for %s", reflect.TypeOf(message.Message))
-		return gen.TerminateReasonPanic
+	validateResultSize(results, 4, messageType)
+	if isError, err := resultIsError(results); isError == true {
+		return err
 	}
-	if !results[2].IsNil() {
-		return results[2].Interface().(error)
-	}
-
-	setDataMethod := reflect.ValueOf(sm).MethodByName("SetData")
-	setDataMethod.Call([]reflect.Value{results[1]})
-	// It is important that we set the state last as this can potentially trigger
-	// a state enter callback
-	setCurrentStateMethod := reflect.ValueOf(sm).MethodByName("SetCurrentState")
-	setCurrentStateMethod.Call([]reflect.Value{results[0]})
+	updateStateMachineWithResults(stateMachineValue, results)
 
 	return nil
 }
@@ -470,63 +516,100 @@ func (sm *StateMachine[D]) lookupCallHandler(messageType string) (any, bool) {
 }
 
 func (sm *StateMachine[D]) invokeCallHandler(handler any, message *gen.MailboxMessage) (any, error) {
+	stateMachineValue := reflect.ValueOf(sm)
 	callbackValue := reflect.ValueOf(handler)
 	stateValue := reflect.ValueOf(sm.currentState)
 	dataValue := reflect.ValueOf(sm.Data())
 	msgValue := reflect.ValueOf(message.Message)
-	procValue := reflect.ValueOf(sm)
+	messageType := reflect.TypeOf(message).String()
 
-	results := callbackValue.Call([]reflect.Value{stateValue, dataValue, msgValue, procValue})
+	results := callbackValue.Call([]reflect.Value{stateValue, dataValue, msgValue, stateMachineValue})
 
-	if len(results) != 4 {
-		sm.Log().Panic("StateMachine terminated. Panic reason: unexpected "+
-			"error when invoking call handler for %s", reflect.TypeOf(message.Message))
-		return nil, gen.TerminateReasonPanic
-	}
-
-	if !results[3].IsNil() {
-		err := results[3].Interface().(error)
+	validateResultSize(results, 5, messageType)
+	if isError, err := resultIsError(results); isError == true {
 		return nil, err
 	}
-
-	setDataMethod := reflect.ValueOf(sm).MethodByName("SetData")
-	setDataMethod.Call([]reflect.Value{results[1]})
-	// It is important that we set the state last as this can potentially trigger
-	// a state enter callback
-	setCurrentStateMethod := reflect.ValueOf(sm).MethodByName("SetCurrentState")
-	setCurrentStateMethod.Call([]reflect.Value{results[0]})
-
+	updateStateMachineWithResults(stateMachineValue, results)
 	result := results[2].Interface()
 
 	return result, nil
 }
 
 func (sm *StateMachine[D]) invokeEventHandler(handler any, message *gen.MessageEvent) error {
+	stateMachineValue := reflect.ValueOf(sm)
 	callbackValue := reflect.ValueOf(handler)
 	stateValue := reflect.ValueOf(sm.currentState)
 	dataValue := reflect.ValueOf(sm.Data())
 	msgValue := reflect.ValueOf(message.Message)
-	procValue := reflect.ValueOf(sm)
+	messageType := reflect.TypeOf(message).String()
 
-	results := callbackValue.Call([]reflect.Value{stateValue, dataValue, msgValue, procValue})
+	results := callbackValue.Call([]reflect.Value{stateValue, dataValue, msgValue, stateMachineValue})
 
-	if len(results) != 3 {
-		sm.Log().Panic("StateMachine terminated. Panic reason: unexpected "+
-			"error when invoking call handler for %s", reflect.TypeOf(message.Message))
-		return gen.TerminateReasonPanic
-	}
-
-	if !results[2].IsNil() {
-		err := results[2].Interface().(error)
+	validateResultSize(results, 4, messageType)
+	if isError, err := resultIsError(results); isError == true {
 		return err
 	}
-
-	setDataMethod := reflect.ValueOf(sm).MethodByName("SetData")
-	setDataMethod.Call([]reflect.Value{results[1]})
-	// It is important that we set the state last as this can potentially trigger
-	// a state enter callback
-	setCurrentStateMethod := reflect.ValueOf(sm).MethodByName("SetCurrentState")
-	setCurrentStateMethod.Call([]reflect.Value{results[0]})
+	updateStateMachineWithResults(stateMachineValue, results)
 
 	return nil
+}
+
+func validateResultSize(results []reflect.Value, expectedSize int, messageType string) {
+	if len(results) != expectedSize {
+		panic(fmt.Sprintf("StateMachine terminated. Panic reason: unexpected "+
+			"error when invoking call handler for %s", messageType))
+	}
+}
+
+func resultIsError(results []reflect.Value) (bool, error) {
+	errIndex := len(results) - 1
+	if !results[errIndex].IsNil() {
+		err := results[errIndex].Interface().(error)
+		return true, err
+	}
+	return false, nil
+}
+
+func updateStateMachineWithResults(sm reflect.Value, results []reflect.Value) {
+	// Check if any actions were returned. MessageHandler and EventHandler have
+	// the result tuple (gen.Atom, D, []Action, error) with the actions at index
+	// 2. CallHandler has the result typle (gen.Atom, D, R, []Action, error)
+	// with the actions at index 3.
+	var actionsIndex int
+	hasResult := len(results) == 5
+	if hasResult {
+		actionsIndex = 3
+	} else {
+		actionsIndex = 2
+	}
+	if !isSliceNilOrEmpty(results[actionsIndex]) {
+		processActionsMethod := sm.MethodByName("ProcessActions")
+		if processActionsMethod.IsNil() {
+		}
+		processActionsMethod.Call([]reflect.Value{results[actionsIndex], results[0]})
+	}
+
+	// Update the data
+	setDataMethod := sm.MethodByName("SetData")
+	setDataMethod.Call([]reflect.Value{results[1]})
+
+	// It is important that we set the state last as this can potentially trigger
+	// a state enter callback. By design state enter callbacks are triggered
+	// after setting up state timeouts as state timeouts are tied to te state
+	// they are defined for. A state enter callback could transition to another
+	// state which then will cancel the state timeout.
+	setCurrentStateMethod := sm.MethodByName("SetCurrentState")
+	setCurrentStateMethod.Call([]reflect.Value{results[0]})
+}
+
+func isSliceNilOrEmpty(resultValue reflect.Value) bool {
+	if resultValue.IsNil() {
+		return true
+	}
+
+	if resultValue.Len() == 0 {
+		return true
+	}
+
+	return false
 }
