@@ -79,6 +79,9 @@ type StateMachine[D any] struct {
 
 	// Pointer to the most recently configured state timeout.
 	activeStateTimeout *ActiveStateTimeout
+
+	// genericTimeouts maps the name of a generic timeout to the timeout
+	genericTimeouts map[gen.Atom]*ActiveGenericTimeout
 }
 
 type Action interface {
@@ -95,6 +98,20 @@ func (StateTimeout) isAction() {}
 type ActiveStateTimeout struct {
 	state   gen.Atom
 	timeout StateTimeout
+	ctx     context.Context
+	cancel  context.CancelFunc
+}
+
+type GenericTimeout struct {
+	Name     gen.Atom
+	Duration time.Duration
+	Message  any
+}
+
+func (GenericTimeout) isAction() {}
+
+type ActiveGenericTimeout struct {
+	timeout GenericTimeout
 	ctx     context.Context
 	cancel  context.CancelFunc
 }
@@ -222,64 +239,72 @@ func (s *StateMachine[D]) hasActiveStateTimeout() bool {
 	return s.activeStateTimeout != nil && s.activeStateTimeout.ctx.Err() == nil
 }
 
+func (s *StateMachine[D]) hasActiveGenericTimeout(name gen.Atom) bool {
+	if timeout, exists := s.genericTimeouts[name]; exists {
+		return timeout.ctx.Err() == nil
+	}
+	return false
+}
+
 type startMonitoringEvents struct{}
 
 //
 // ProcessBehavior implementation
 //
 
-func (sm *StateMachine[D]) ProcessInit(process gen.Process, args ...any) (rr error) {
+func (s *StateMachine[D]) ProcessInit(process gen.Process, args ...any) (rr error) {
 	var ok bool
 
-	if sm.behavior, ok = process.Behavior().(StateMachineBehavior[D]); ok == false {
+	if s.behavior, ok = process.Behavior().(StateMachineBehavior[D]); ok == false {
 		unknown := strings.TrimPrefix(reflect.TypeOf(process.Behavior()).String(), "*")
 		return fmt.Errorf("ProcessInit: not a StateMachineBehavior %s", unknown)
 	}
 
-	sm.Process = process
-	sm.mailbox = process.Mailbox()
+	s.Process = process
+	s.mailbox = process.Mailbox()
 
 	if lib.Recover() {
 		defer func() {
 			if r := recover(); r != nil {
 				pc, fn, line, _ := runtime.Caller(2)
-				sm.Log().Panic("StateMachine initialization failed. Panic reason: %#v at %s[%s:%d]",
+				s.Log().Panic("StateMachine initialization failed. Panic reason: %#v at %s[%s:%d]",
 					r, runtime.FuncForPC(pc).Name(), fn, line)
 				rr = gen.TerminateReasonPanic
 			}
 		}()
 	}
 
-	spec, err := sm.behavior.Init(args...)
+	spec, err := s.behavior.Init(args...)
 	if err != nil {
 		return err
 	}
 
-	sm.currentState = spec.initialState
-	sm.data = spec.data
-	sm.stateMessageHandlers = spec.stateMessageHandlers
-	sm.stateCallHandlers = spec.stateCallHandlers
-	sm.eventHandlers = spec.eventHandlers
-	sm.stateEnterCallback = spec.stateEnterCallback
+	s.currentState = spec.initialState
+	s.data = spec.data
+	s.stateMessageHandlers = spec.stateMessageHandlers
+	s.stateCallHandlers = spec.stateCallHandlers
+	s.eventHandlers = spec.eventHandlers
+	s.stateEnterCallback = spec.stateEnterCallback
+	s.genericTimeouts = make(map[gen.Atom]*ActiveGenericTimeout)
 
 	// Send a message to ourselves to start monitoring events if there are
 	// event handlers registerd.
-	if len(sm.eventHandlers) > 0 {
-		sm.Send(sm.PID(), startMonitoringEvents{})
+	if len(s.eventHandlers) > 0 {
+		s.Send(s.PID(), startMonitoringEvents{})
 	}
-	sm.Log().Info("StateMachine: started in state %s", sm.currentState)
+	s.Log().Info("StateMachine: started in state %s", s.currentState)
 
 	return nil
 }
 
-func (sm *StateMachine[D]) ProcessRun() (rr error) {
+func (s *StateMachine[D]) ProcessRun() (rr error) {
 	var message *gen.MailboxMessage
 
 	if lib.Recover() {
 		defer func() {
 			if r := recover(); r != nil {
 				pc, fn, line, _ := runtime.Caller(2)
-				sm.Log().Panic("StateMachine terminated. Panic reason: %#v at %s[%s:%d]",
+				s.Log().Panic("StateMachine terminated. Panic reason: %#v at %s[%s:%d]",
 					r, runtime.FuncForPC(pc).Name(), fn, line)
 				rr = gen.TerminateReasonPanic
 			}
@@ -287,7 +312,7 @@ func (sm *StateMachine[D]) ProcessRun() (rr error) {
 	}
 
 	for {
-		if sm.State() != gen.ProcessStateRunning {
+		if s.State() != gen.ProcessStateRunning {
 			// process was killed by the node.
 			return gen.TerminateReasonKill
 		}
@@ -299,28 +324,28 @@ func (sm *StateMachine[D]) ProcessRun() (rr error) {
 
 		for {
 			// check queues
-			msg, ok := sm.mailbox.Urgent.Pop()
+			msg, ok := s.mailbox.Urgent.Pop()
 			if ok {
 				// got new urgent message. handle it
 				message = msg.(*gen.MailboxMessage)
 				break
 			}
 
-			msg, ok = sm.mailbox.System.Pop()
+			msg, ok = s.mailbox.System.Pop()
 			if ok {
 				// got new system message. handle it
 				message = msg.(*gen.MailboxMessage)
 				break
 			}
 
-			msg, ok = sm.mailbox.Main.Pop()
+			msg, ok = s.mailbox.Main.Pop()
 			if ok {
 				// got new regular message. handle it
 				message = msg.(*gen.MailboxMessage)
 				break
 			}
 
-			if _, ok := sm.mailbox.Log.Pop(); ok {
+			if _, ok := s.mailbox.Log.Pop(); ok {
 				panic("statemachne process can not be a logger")
 			}
 
@@ -333,22 +358,22 @@ func (sm *StateMachine[D]) ProcessRun() (rr error) {
 			switch message.Message.(type) {
 			case startMonitoringEvents:
 				// start monitoring
-				for event := range sm.eventHandlers {
-					if _, err := sm.MonitorEvent(event); err != nil {
+				for event := range s.eventHandlers {
+					if _, err := s.MonitorEvent(event); err != nil {
 						panic(fmt.Sprintf("Error monitoring event: %v.", err))
 					}
 				}
-				sm.Log().Info("StateMachine: monitoring events")
+				s.Log().Info("StateMachine: monitoring events")
 				return nil
 
 			default:
 				// check if there is a handler for the message in the current state
 				messageType := reflect.TypeOf(message.Message).String()
-				handler, ok := sm.lookupMessageHandler(messageType)
+				handler, ok := s.lookupMessageHandler(messageType)
 				if ok == false {
-					return fmt.Errorf("No handler for message %s in state %s", messageType, sm.currentState)
+					return fmt.Errorf("No handler for message %s in state %s", messageType, s.currentState)
 				}
-				return sm.invokeMessageHandler(handler, message)
+				return s.invokeMessageHandler(handler, message)
 			}
 
 		case gen.MailboxMessageTypeRequest:
@@ -357,29 +382,29 @@ func (sm *StateMachine[D]) ProcessRun() (rr error) {
 
 			// check if there is a handler for the call in the current state
 			messageType := reflect.TypeOf(message.Message).String()
-			handler, ok := sm.lookupCallHandler(messageType)
+			handler, ok := s.lookupCallHandler(messageType)
 			if ok == false {
-				return fmt.Errorf("No handler for message %s in state %s", messageType, sm.currentState)
+				return fmt.Errorf("No handler for message %s in state %s", messageType, s.currentState)
 			}
-			result, reason = sm.invokeCallHandler(handler, message)
+			result, reason = s.invokeCallHandler(handler, message)
 
 			if reason != nil {
 				// if reason is "normal" and we got response - send it before termination
 				if reason == gen.TerminateReasonNormal {
-					sm.SendResponse(message.From, message.Ref, result)
+					s.SendResponse(message.From, message.Ref, result)
 				}
 				return reason
 			}
 			// Note: we do not support async handling of sync request at the moment
-			sm.SendResponse(message.From, message.Ref, result)
+			s.SendResponse(message.From, message.Ref, result)
 
 		case gen.MailboxMessageTypeEvent:
 			event := message.Message.(gen.MessageEvent)
-			handler, exists := sm.eventHandlers[event.Event]
+			handler, exists := s.eventHandlers[event.Event]
 			if exists == false {
 				return fmt.Errorf("No handler for event %v", event)
 			}
-			return sm.invokeEventHandler(handler, &event)
+			return s.invokeEventHandler(handler, &event)
 
 		case gen.MailboxMessageTypeExit:
 			switch exit := message.Message.(type) {
@@ -403,14 +428,14 @@ func (sm *StateMachine[D]) ProcessRun() (rr error) {
 			}
 
 		case gen.MailboxMessageTypeInspect:
-			result := sm.behavior.HandleInspect(message.From, message.Message.([]string)...)
-			sm.SendResponse(message.From, message.Ref, result)
+			result := s.behavior.HandleInspect(message.From, message.Message.([]string)...)
+			s.SendResponse(message.From, message.Ref, result)
 		}
 	}
 }
 
-func (sm *StateMachine[D]) ProcessTerminate(reason error) {
-	sm.behavior.Terminate(reason)
+func (s *StateMachine[D]) ProcessTerminate(reason error) {
+	s.behavior.Terminate(reason)
 }
 
 //
@@ -441,22 +466,32 @@ func (s *StateMachine[D]) Terminate(reason error) {}
 // Internals
 //
 
-func (sm *StateMachine[D]) ProcessActions(actions []Action, state gen.Atom) {
+func (s *StateMachine[D]) ProcessActions(actions []Action, state gen.Atom) {
 	for _, action := range actions {
 		switch action := action.(type) {
 		case StateTimeout:
-			if sm.hasActiveStateTimeout() {
-				sm.activeStateTimeout.cancel()
+			if s.hasActiveStateTimeout() {
+				s.activeStateTimeout.cancel()
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), action.Duration)
-			sm.activeStateTimeout = &ActiveStateTimeout{
+			s.activeStateTimeout = &ActiveStateTimeout{
 				state:   state,
 				timeout: action,
 				ctx:     ctx,
 				cancel:  cancel,
 			}
-			go startStateTimeout(ctx, state, action.Message, sm)
-			return
+			go startStateTimeout(ctx, state, action.Message, s)
+		case GenericTimeout:
+			if s.hasActiveGenericTimeout(action.Name) {
+				s.genericTimeouts[action.Name].cancel()
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), action.Duration)
+			s.genericTimeouts[action.Name] = &ActiveGenericTimeout{
+				timeout: action,
+				ctx:     ctx,
+				cancel:  cancel,
+			}
+			go startGenericTimeout(ctx, action.Name, action.Message, s)
 		default:
 			panic("unsupported action")
 		}
@@ -478,8 +513,23 @@ func startStateTimeout(ctx context.Context, state gen.Atom, message any, proc ge
 	}
 }
 
-func (sm *StateMachine[D]) lookupMessageHandler(messageType string) (any, bool) {
-	if stateMessageHandlers, exists := sm.stateMessageHandlers[sm.currentState]; exists == true {
+func startGenericTimeout(ctx context.Context, name gen.Atom, message any, proc gen.Process) {
+	select {
+	case <-ctx.Done():
+		switch ctx.Err() {
+		case context.DeadlineExceeded:
+			proc.Log().Info("StateMachine: generic timeout %s timed out", name)
+			proc.Send(proc.PID(), message)
+			return
+		case context.Canceled:
+			proc.Log().Info("StateMachine: generic timeout %s canceled", name)
+			return
+		}
+	}
+}
+
+func (s *StateMachine[D]) lookupMessageHandler(messageType string) (any, bool) {
+	if stateMessageHandlers, exists := s.stateMessageHandlers[s.currentState]; exists == true {
 		if callback, exists := stateMessageHandlers[messageType]; exists == true {
 			return callback, true
 		}
@@ -487,11 +537,11 @@ func (sm *StateMachine[D]) lookupMessageHandler(messageType string) (any, bool) 
 	return nil, false
 }
 
-func (sm *StateMachine[D]) invokeMessageHandler(handler any, message *gen.MailboxMessage) error {
-	stateMachineValue := reflect.ValueOf(sm)
+func (s *StateMachine[D]) invokeMessageHandler(handler any, message *gen.MailboxMessage) error {
+	stateMachineValue := reflect.ValueOf(s)
 	callbackValue := reflect.ValueOf(handler)
-	stateValue := reflect.ValueOf(sm.currentState)
-	dataValue := reflect.ValueOf(sm.Data())
+	stateValue := reflect.ValueOf(s.currentState)
+	dataValue := reflect.ValueOf(s.Data())
 	msgValue := reflect.ValueOf(message.Message)
 	messageType := reflect.TypeOf(message).String()
 
@@ -506,8 +556,8 @@ func (sm *StateMachine[D]) invokeMessageHandler(handler any, message *gen.Mailbo
 	return nil
 }
 
-func (sm *StateMachine[D]) lookupCallHandler(messageType string) (any, bool) {
-	if stateCallHandlers, exists := sm.stateCallHandlers[sm.currentState]; exists == true {
+func (s *StateMachine[D]) lookupCallHandler(messageType string) (any, bool) {
+	if stateCallHandlers, exists := s.stateCallHandlers[s.currentState]; exists == true {
 		if callback, exists := stateCallHandlers[messageType]; exists == true {
 			return callback, true
 		}
@@ -515,11 +565,11 @@ func (sm *StateMachine[D]) lookupCallHandler(messageType string) (any, bool) {
 	return nil, false
 }
 
-func (sm *StateMachine[D]) invokeCallHandler(handler any, message *gen.MailboxMessage) (any, error) {
-	stateMachineValue := reflect.ValueOf(sm)
+func (s *StateMachine[D]) invokeCallHandler(handler any, message *gen.MailboxMessage) (any, error) {
+	stateMachineValue := reflect.ValueOf(s)
 	callbackValue := reflect.ValueOf(handler)
-	stateValue := reflect.ValueOf(sm.currentState)
-	dataValue := reflect.ValueOf(sm.Data())
+	stateValue := reflect.ValueOf(s.currentState)
+	dataValue := reflect.ValueOf(s.Data())
 	msgValue := reflect.ValueOf(message.Message)
 	messageType := reflect.TypeOf(message).String()
 
@@ -535,11 +585,11 @@ func (sm *StateMachine[D]) invokeCallHandler(handler any, message *gen.MailboxMe
 	return result, nil
 }
 
-func (sm *StateMachine[D]) invokeEventHandler(handler any, message *gen.MessageEvent) error {
-	stateMachineValue := reflect.ValueOf(sm)
+func (s *StateMachine[D]) invokeEventHandler(handler any, message *gen.MessageEvent) error {
+	stateMachineValue := reflect.ValueOf(s)
 	callbackValue := reflect.ValueOf(handler)
-	stateValue := reflect.ValueOf(sm.currentState)
-	dataValue := reflect.ValueOf(sm.Data())
+	stateValue := reflect.ValueOf(s.currentState)
+	dataValue := reflect.ValueOf(s.Data())
 	msgValue := reflect.ValueOf(message.Message)
 	messageType := reflect.TypeOf(message).String()
 
@@ -570,7 +620,7 @@ func resultIsError(results []reflect.Value) (bool, error) {
 	return false, nil
 }
 
-func updateStateMachineWithResults(sm reflect.Value, results []reflect.Value) {
+func updateStateMachineWithResults(s reflect.Value, results []reflect.Value) {
 	// Check if any actions were returned. MessageHandler and EventHandler have
 	// the result tuple (gen.Atom, D, []Action, error) with the actions at index
 	// 2. CallHandler has the result typle (gen.Atom, D, R, []Action, error)
@@ -583,14 +633,14 @@ func updateStateMachineWithResults(sm reflect.Value, results []reflect.Value) {
 		actionsIndex = 2
 	}
 	if !isSliceNilOrEmpty(results[actionsIndex]) {
-		processActionsMethod := sm.MethodByName("ProcessActions")
+		processActionsMethod := s.MethodByName("ProcessActions")
 		if processActionsMethod.IsNil() {
 		}
 		processActionsMethod.Call([]reflect.Value{results[actionsIndex], results[0]})
 	}
 
 	// Update the data
-	setDataMethod := sm.MethodByName("SetData")
+	setDataMethod := s.MethodByName("SetData")
 	setDataMethod.Call([]reflect.Value{results[1]})
 
 	// It is important that we set the state last as this can potentially trigger
@@ -598,7 +648,7 @@ func updateStateMachineWithResults(sm reflect.Value, results []reflect.Value) {
 	// after setting up state timeouts as state timeouts are tied to te state
 	// they are defined for. A state enter callback could transition to another
 	// state which then will cancel the state timeout.
-	setCurrentStateMethod := sm.MethodByName("SetCurrentState")
+	setCurrentStateMethod := s.MethodByName("SetCurrentState")
 	setCurrentStateMethod.Call([]reflect.Value{results[0]})
 }
 
