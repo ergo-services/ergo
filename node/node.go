@@ -776,7 +776,14 @@ func (n *node) stop(force bool) {
 				// skip system app
 				return true
 			}
-			app.stop(false, 5*time.Second)
+
+			n.log.Trace("stopping application %s (waiting 5 seconds) ...", app.spec.Name)
+			if err := app.stop(false, 5*time.Second); err == gen.ErrApplicationStopping {
+				n.log.Trace("stopping application %s is still in progress", app.spec.Name)
+				return true
+			}
+
+			n.log.Trace("stopped application: %s", app.spec.Name)
 			return true
 		})
 	}
@@ -786,12 +793,6 @@ func (n *node) stop(force bool) {
 
 		if force {
 			n.Kill(p.pid)
-			return true
-		}
-
-		if p.application != "" {
-			// Do nothing if it belons to the app.
-			// It has to be terminated via app.stop
 			return true
 		}
 
@@ -811,7 +812,6 @@ func (n *node) stop(force bool) {
 
 	n.NetworkStop()
 	atomic.StoreInt64(&n.creation, 0)
-	n.log.Info("node %s stopped", n.name)
 
 	// call terminate loggers
 	loggers := make(map[string]gen.LoggerBehavior)

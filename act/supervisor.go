@@ -580,6 +580,10 @@ func (s *Supervisor) handleAction(action supAction) error {
 			continue
 
 		case supActionTerminateChildren:
+			if len(action.terminate) == 0 {
+				// no children. terminate this process
+				return action.reason
+			}
 			// on disabling child spec
 			s.state = supStateStrategy
 			for _, pid := range action.terminate {

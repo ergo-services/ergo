@@ -135,6 +135,7 @@ func (t *t12) TestBasic(input any) {
 	}()
 
 	nopt := gen.NodeOptions{}
+	// nopt.Log.Level = gen.LogLevelTrace
 	nopt.Applications = append(nopt.Applications, createTestApp())
 	nopt.Log.DefaultLogger.Disable = true
 	node, err := node.Start("t12nodeBasic@localhost", nopt, gen.Version{})
@@ -502,6 +503,7 @@ func (t *t12) Do(input any) {
 		return
 	}
 
+	// pid, err := t.Spawn(factory_t12, gen.ProcessOptions{LinkParent: true})
 	pid, err := t.Spawn(factory_t12, gen.ProcessOptions{})
 	if err != nil {
 		t.Log().Error("unable to spawn new process by request: %s", err)
@@ -515,7 +517,7 @@ func (t *t12) Do(input any) {
 func TestT12Application(t *testing.T) {
 	nopt := gen.NodeOptions{}
 	nopt.Log.DefaultLogger.Disable = true
-	//nopt.Log.Level = gen.LogLevelTrace
+	// nopt.Log.Level = gen.LogLevelTrace
 	node, err := node.Start("t12node@localhost", nopt, gen.Version{})
 	if err != nil {
 		t.Fatal(err)
