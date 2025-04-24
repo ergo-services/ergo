@@ -150,7 +150,7 @@ func (t *t22) TestGenericTimeoutTimingOut(input any) {
 	// We expect 1 timeout.
 	timeouts = result.(int)
 	if timeouts != 1 {
-		t.testcase.err <- fmt.Errorf(">> expected 1 timeout, got %d", timeouts)
+		t.testcase.err <- fmt.Errorf("expected 1 timeout, got %d", timeouts)
 		return
 	}
 

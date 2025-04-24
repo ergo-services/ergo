@@ -74,13 +74,13 @@ func (sm *t19_events) Init(args ...any) (act.StateMachineSpec[t19_events_data], 
 		act.WithEventHandler(gen.Event{Name: "testEvent", Node: "t19node@localhost"}, t19_handle_test_event),
 
 		// register call handler
-		act.WithStateCallHandler(gen.Atom("state1"), t19_events_received),
+		act.WithStateCallHandler(gen.Atom("state1"), t19_handle_get_events_received),
 	)
 
 	return spec, nil
 }
 
-func t19_events_received(state gen.Atom, data t19_events_data, event t19_get_events_received, proc gen.Process) (gen.Atom, t19_events_data, int, []act.Action, error) {
+func t19_handle_get_events_received(state gen.Atom, data t19_events_data, event t19_get_events_received, proc gen.Process) (gen.Atom, t19_events_data, int, []act.Action, error) {
 	return state, data, data.eventsReceived, nil, nil
 }
 

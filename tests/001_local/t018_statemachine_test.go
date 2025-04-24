@@ -55,7 +55,7 @@ type t18_state_transitions_data struct {
 type t18_state2 struct {
 }
 
-type t18_get_transitions struct {
+type t18_get_state_transitions struct {
 }
 
 func (sm *t18_state_transitions) Init(args ...any) (act.StateMachineSpec[t18_state_transitions_data], error) {
@@ -64,21 +64,21 @@ func (sm *t18_state_transitions) Init(args ...any) (act.StateMachineSpec[t18_sta
 		act.WithData(t18_state_transitions_data{}),
 
 		// set up a message handler for the transition [state1] -> [state2]
-		act.WithStateMessageHandler(gen.Atom("state1"), t18_move_to_state2),
+		act.WithStateMessageHandler(gen.Atom("state1"), t18_handle_state2),
 
 		// set up a call handler to query the number of state transitions
-		act.WithStateCallHandler(gen.Atom("state2"), t18_total_transitions),
+		act.WithStateCallHandler(gen.Atom("state2"), t18_handle_get_state_transitions),
 	)
 
 	return spec, nil
 }
 
-func t18_move_to_state2(state gen.Atom, data t18_state_transitions_data, message t18_state2, proc gen.Process) (gen.Atom, t18_state_transitions_data, []act.Action, error) {
+func t18_handle_state2(state gen.Atom, data t18_state_transitions_data, message t18_state2, proc gen.Process) (gen.Atom, t18_state_transitions_data, []act.Action, error) {
 	data.transitions++
 	return gen.Atom("state2"), data, nil, nil
 }
 
-func t18_total_transitions(state gen.Atom, data t18_state_transitions_data, message t18_get_transitions, proc gen.Process) (gen.Atom, t18_state_transitions_data, int, []act.Action, error) {
+func t18_handle_get_state_transitions(state gen.Atom, data t18_state_transitions_data, message t18_get_state_transitions, proc gen.Process) (gen.Atom, t18_state_transitions_data, int, []act.Action, error) {
 	return state, data, data.transitions, nil, nil
 }
 
@@ -103,9 +103,9 @@ func (t *t18) TestStateMachine(input any) {
 	}
 
 	// Query the data from the state machine (and test StateCallHandler behavior)
-	result, err := t.Call(pid, t18_get_transitions{})
+	result, err := t.Call(pid, t18_get_state_transitions{})
 	if err != nil {
-		t.Log().Error("call 't18_get_transitions' failed: %s", err)
+		t.Log().Error("call 't18_get_state_transitions' failed: %s", err)
 		t.testcase.err <- err
 		return
 	}

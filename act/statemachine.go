@@ -78,7 +78,10 @@ type StateMachine[D any] struct {
 	stateEnterCallback StateEnterCallback[D]
 
 	// Pointer to the most recently configured state timeout.
-	activeStateTimeout *ActiveStateTimeout
+	stateTimeout *ActiveStateTimeout
+
+	// Pointer to the most recently configured message timeout.
+	messageTimeout *ActiveMessageTimeout
 
 	// genericTimeouts maps the name of a generic timeout to the timeout
 	genericTimeouts map[gen.Atom]*ActiveGenericTimeout
@@ -112,6 +115,19 @@ func (GenericTimeout) isAction() {}
 
 type ActiveGenericTimeout struct {
 	timeout GenericTimeout
+	ctx     context.Context
+	cancel  context.CancelFunc
+}
+
+type MessageTimeout struct {
+	Duration time.Duration
+	Message  any
+}
+
+func (MessageTimeout) isAction() {}
+
+type ActiveMessageTimeout struct {
+	timeout MessageTimeout
 	ctx     context.Context
 	cancel  context.CancelFunc
 }
@@ -159,6 +175,7 @@ func NewStateMachineSpec[D any](initialState gen.Atom, options ...Option[D]) Sta
 	}
 	return spec
 }
+
 func WithData[D any](data D) Option[D] {
 	return func(s *StateMachineSpec[D]) {
 		s.data = data
@@ -211,9 +228,9 @@ func (s *StateMachine[D]) SetCurrentState(state gen.Atom) {
 		// just registered this timeout in `ProcessActions` and we should not
 		// touch it. Otherwise we should cancel the active state timeout if there
 		// is one.
-		if s.hasActiveStateTimeout() && s.activeStateTimeout.state != state {
+		if s.hasActiveStateTimeout() && s.stateTimeout.state != state {
 			s.Log().Info("StateMachine: canceling state timeout for state %s", state)
-			s.activeStateTimeout.cancel()
+			s.stateTimeout.cancel()
 		}
 		// Execute state enter callback until no new transition is triggered.
 		if s.stateEnterCallback != nil {
@@ -236,7 +253,11 @@ func (s *StateMachine[D]) SetData(data D) {
 }
 
 func (s *StateMachine[D]) hasActiveStateTimeout() bool {
-	return s.activeStateTimeout != nil && s.activeStateTimeout.ctx.Err() == nil
+	return s.stateTimeout != nil && s.stateTimeout.ctx.Err() == nil
+}
+
+func (s *StateMachine[D]) hasActiveMessageTimeout() bool {
+	return s.messageTimeout != nil && s.messageTimeout.ctx.Err() == nil
 }
 
 func (s *StateMachine[D]) hasActiveGenericTimeout(name gen.Atom) bool {
@@ -351,6 +372,11 @@ func (s *StateMachine[D]) ProcessRun() (rr error) {
 
 			// no messages in the mailbox
 			return nil
+		}
+
+		// Any message should cancel the active message timeout
+		if s.hasActiveMessageTimeout() {
+			s.messageTimeout.cancel()
 		}
 
 		switch message.Type {
@@ -471,10 +497,10 @@ func (s *StateMachine[D]) ProcessActions(actions []Action, state gen.Atom) {
 		switch action := action.(type) {
 		case StateTimeout:
 			if s.hasActiveStateTimeout() {
-				s.activeStateTimeout.cancel()
+				s.stateTimeout.cancel()
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), action.Duration)
-			s.activeStateTimeout = &ActiveStateTimeout{
+			s.stateTimeout = &ActiveStateTimeout{
 				state:   state,
 				timeout: action,
 				ctx:     ctx,
@@ -492,6 +518,14 @@ func (s *StateMachine[D]) ProcessActions(actions []Action, state gen.Atom) {
 				cancel:  cancel,
 			}
 			go startGenericTimeout(ctx, action.Name, action.Message, s)
+		case MessageTimeout:
+			ctx, cancel := context.WithTimeout(context.Background(), action.Duration)
+			s.messageTimeout = &ActiveMessageTimeout{
+				timeout: action,
+				ctx:     ctx,
+				cancel:  cancel,
+			}
+			go startMessageTimeout(ctx, action.Message, s)
 		default:
 			panic("unsupported action")
 		}
@@ -523,6 +557,21 @@ func startGenericTimeout(ctx context.Context, name gen.Atom, message any, proc g
 			return
 		case context.Canceled:
 			proc.Log().Info("StateMachine: generic timeout %s canceled", name)
+			return
+		}
+	}
+}
+
+func startMessageTimeout(ctx context.Context, message any, proc gen.Process) {
+	select {
+	case <-ctx.Done():
+		switch ctx.Err() {
+		case context.DeadlineExceeded:
+			proc.Log().Info("StateMachine: message timeout timed out")
+			proc.Send(proc.PID(), message)
+			return
+		case context.Canceled:
+			proc.Log().Info("StateMachine: message timeout canceled")
 			return
 		}
 	}

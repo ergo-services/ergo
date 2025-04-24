@@ -65,7 +65,7 @@ func (sm *t20_state_enter_callback) Init(args ...any) (act.StateMachineSpec[t20_
 		act.WithData(t20_state_enter_callback_data{currentState: gen.Atom("state1")}),
 
 		// with message handler for [state1] -> [state2]
-		act.WithStateMessageHandler(gen.Atom("state1"), t20_move_to_state2),
+		act.WithStateMessageHandler(gen.Atom("state1"), t20_handle_state2),
 
 		// with call handler to query the data
 		act.WithStateCallHandler(gen.Atom("state1"), t20_state_and_callback_count),
@@ -78,7 +78,7 @@ func (sm *t20_state_enter_callback) Init(args ...any) (act.StateMachineSpec[t20_
 	return spec, nil
 }
 
-func t20_move_to_state2(state gen.Atom, data t20_state_enter_callback_data, message t20_state2, proc gen.Process) (gen.Atom, t20_state_enter_callback_data, []act.Action, error) {
+func t20_handle_state2(state gen.Atom, data t20_state_enter_callback_data, message t20_state2, proc gen.Process) (gen.Atom, t20_state_enter_callback_data, []act.Action, error) {
 	return gen.Atom("state2"), data, nil, nil
 }
 
