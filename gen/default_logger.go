@@ -89,7 +89,7 @@ func (l *defaultLogger) Log(m MessageLog) {
 	}
 
 	if l.includeFields && len(m.Fields) > 0 {
-		m.Format += " | %s"
+		m.Format += "\n\tfields%s"
 		m.Args = append(m.Args, m.Fields)
 	}
 
