@@ -89,10 +89,7 @@ func (tam *testAppMode) Load(node gen.Node, args ...any) (gen.ApplicationSpec, e
 }
 func (tad *testAppMode) Start(mode gen.ApplicationMode) {}
 func (tad *testAppMode) Terminate(reason error) {
-	select {
-	case tad.testcase.err <- reason:
-	default:
-	}
+	tad.testcase.err <- reason
 }
 
 var (

@@ -30,3 +30,22 @@ func (t *testcase) wait(timeout int) error {
 		return e
 	}
 }
+
+func (t *testcase) waitForCondition(timeout time.Duration, condition func() bool) {
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			if condition() {
+				return
+			}
+		case <-timer.C:
+			t.err <- fmt.Errorf("timeout waiting for condition after %s", timeout)
+			return
+		}
+	}
+}

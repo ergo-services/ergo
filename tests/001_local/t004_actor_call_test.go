@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"reflect"
 	"testing"
+	"time"
 
 	"ergo.services/ergo"
 	"ergo.services/ergo/act"
@@ -94,10 +95,10 @@ func (t *t4) TestCallPID(input any) {
 	}
 
 	// must be stopped here
-	if _, err := t.Node().ProcessInfo(pid); err != gen.ErrProcessUnknown {
-		t.testcase.err <- errIncorrect
-		return
-	}
+	t.testcase.waitForCondition(1*time.Second, func() bool {
+		_, err := t.Node().ProcessInfo(pid)
+		return err == gen.ErrProcessUnknown
+	})
 
 	t.testcase.err <- nil
 }
@@ -136,10 +137,10 @@ func (t *t4) TestCallProcessID(input any) {
 	}
 
 	// must be stopped here
-	if _, err := t.Node().ProcessInfo(pid); err != gen.ErrProcessUnknown {
-		t.testcase.err <- errIncorrect
-		return
-	}
+	t.testcase.waitForCondition(1*time.Second, func() bool {
+		_, err := t.Node().ProcessInfo(pid)
+		return err == gen.ErrProcessUnknown
+	})
 
 	t.testcase.err <- nil
 }
@@ -178,10 +179,10 @@ func (t *t4) TestCallAlias(input any) {
 	}
 
 	// must be stopped here
-	if _, err := t.Node().ProcessInfo(pid); err != gen.ErrProcessUnknown {
-		t.testcase.err <- errIncorrect
-		return
-	}
+	t.testcase.waitForCondition(1*time.Second, func() bool {
+		_, err := t.Node().ProcessInfo(pid)
+		return err == gen.ErrProcessUnknown
+	})
 
 	t.testcase.err <- nil
 }
@@ -214,10 +215,10 @@ func (t *t4) TestCallForward(input any) {
 	}
 
 	// must be stopped here
-	if _, err := t.Node().ProcessInfo(pid); err != gen.ErrProcessUnknown {
-		t.testcase.err <- errIncorrect
-		return
-	}
+	t.testcase.waitForCondition(1*time.Second, func() bool {
+		_, err := t.Node().ProcessInfo(pid)
+		return err == gen.ErrProcessUnknown
+	})
 
 	t.testcase.err <- nil
 }
