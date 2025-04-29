@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 )
 
 // DefaultLoggerOptions
@@ -89,8 +90,9 @@ func (l *defaultLogger) Log(m MessageLog) {
 	}
 
 	if l.includeFields && len(m.Fields) > 0 {
-		m.Format += "\n\tfields%s"
-		m.Args = append(m.Args, m.Fields)
+		space := strings.Repeat(" ", len(t)-6)
+		lf := fmt.Sprintf("\n%sfields %s", space, m.Fields)
+		m.Format += lf
 	}
 
 	message := fmt.Sprintf(m.Format, m.Args...)
