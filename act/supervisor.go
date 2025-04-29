@@ -567,8 +567,8 @@ func (s *Supervisor) handleAction(action supAction) error {
 			}
 
 			if err != nil {
-				action = s.sup.childTerminated(action.spec.Name, pid, err)
-				continue
+				s.state = supStateNormal
+				return err
 			}
 
 			if s.handleChild {
