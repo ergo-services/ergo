@@ -25,7 +25,7 @@ If applicable, add screenshots to help explain your problem.
 **Environment (please complete the following information):**
  - Arch: [e.g. aarch64 or x86_64]
  - OS: [e.g. Linux]
- - Framework Version [e.g. 2.1.0]
+ - Framework Version [e.g. 3.1.0]
  - Number of CPU or (GOMAXPROCS value)
 
 **Additional context**
