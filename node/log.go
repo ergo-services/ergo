@@ -20,6 +20,7 @@ type log struct {
 	logger string
 	source any
 	fields []gen.LogField
+	stack  [][]gen.LogField
 	dolog  func(gen.MessageLog, string)
 }
 
@@ -61,6 +62,11 @@ func (l *log) DeleteFields(fields ...string) {
 		return
 	}
 
+	if ls := len(l.stack); ls > 0 {
+		l.Error("cannot delete log field(s) while the field stack has %d active frame(s); use the PopFields method instead", ls)
+		return
+	}
+
 	filter := make(map[string]bool)
 	for _, f := range fields {
 		filter[f] = true
@@ -80,6 +86,21 @@ func (l *log) DeleteFields(fields ...string) {
 	}
 
 	l.fields = nil
+}
+
+func (l *log) PushFields() int {
+	l.stack = append(l.stack, l.fields)
+	return len(l.stack)
+}
+
+func (l *log) PopFields() int {
+	last := len(l.stack) - 1
+	if last < 0 {
+		return 0
+	}
+	l.fields = l.stack[last]
+	l.stack = l.stack[:last]
+	return len(l.stack)
 }
 
 func (l *log) Trace(format string, args ...any) {

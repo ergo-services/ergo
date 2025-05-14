@@ -14,6 +14,8 @@ type Log interface {
 	Fields() []LogField
 	AddFields(fields ...LogField)
 	DeleteFields(fields ...string)
+	PushFields()
+	PopFields()
 
 	Trace(format string, args ...any)
 	Debug(format string, args ...any)
