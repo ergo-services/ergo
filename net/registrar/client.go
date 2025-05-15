@@ -59,8 +59,7 @@ func (c *client) Resolve(name gen.Atom) ([]gen.Route, error) {
 		return nil, fmt.Errorf("registrar client terminated")
 	}
 
-	srv := c.server
-	if srv != nil {
+	if srv := c.server; name.Host() == c.node.Name().Host() && srv != nil {
 		c.node.Log().Trace("resolving %s using local registrar server", name)
 		return srv.resolve(name, true)
 	}
@@ -70,7 +69,9 @@ func (c *client) Resolve(name gen.Atom) ([]gen.Route, error) {
 		return nil, gen.ErrIncorrect
 	}
 	dsn := net.JoinHostPort(host, strconv.Itoa(int(c.options.Port)))
-	c.node.Log().Trace("resolving %s using registrar %s", name, dsn)
+	if lib.Trace() {
+		c.node.Log().Trace("resolving %s using registrar %s", name, dsn)
+	}
 	conn, err := net.Dial("udp", dsn)
 	if err != nil {
 		return nil, err
