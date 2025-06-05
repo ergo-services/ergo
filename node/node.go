@@ -265,6 +265,18 @@ func (n *node) Env(name gen.Env) (any, bool) {
 	return n.env.Load(name.String())
 }
 
+func (n *node) EnvDefault(name gen.Env, def any) any {
+	if n.isRunning() == false {
+		return def
+	}
+
+	value, ok := n.env.Load(name.String())
+	if ok == false {
+		return def
+	}
+	return value
+}
+
 func (n *node) CertManager() gen.CertManager {
 	return n.certmanager
 }
@@ -273,7 +285,11 @@ func (n *node) Security() gen.SecurityOptions {
 	return n.security
 }
 
-func (n *node) Spawn(factory gen.ProcessFactory, options gen.ProcessOptions, args ...any) (gen.PID, error) {
+func (n *node) Spawn(
+	factory gen.ProcessFactory,
+	options gen.ProcessOptions,
+	args ...any,
+) (gen.PID, error) {
 	if n.isRunning() == false {
 		return gen.PID{}, gen.ErrNodeTerminated
 	}
@@ -289,7 +305,12 @@ func (n *node) Spawn(factory gen.ProcessFactory, options gen.ProcessOptions, arg
 	return n.spawn(factory, opts)
 }
 
-func (n *node) SpawnRegister(register gen.Atom, factory gen.ProcessFactory, options gen.ProcessOptions, args ...any) (gen.PID, error) {
+func (n *node) SpawnRegister(
+	register gen.Atom,
+	factory gen.ProcessFactory,
+	options gen.ProcessOptions,
+	args ...any,
+) (gen.PID, error) {
 	if n.isRunning() == false {
 		return gen.PID{}, gen.ErrNodeTerminated
 	}
@@ -876,7 +897,12 @@ func (n *node) SendWithPriority(to any, message any, priority gen.MessagePriorit
 	return gen.ErrUnsupported
 }
 
-func (n *node) SendEvent(name gen.Atom, token gen.Ref, options gen.MessageOptions, message any) error {
+func (n *node) SendEvent(
+	name gen.Atom,
+	token gen.Ref,
+	options gen.MessageOptions,
+	message any,
+) error {
 	if n.isRunning() == false {
 		return gen.ErrNodeTerminated
 	}
@@ -1083,7 +1109,11 @@ func (n *node) ApplicationStart(name gen.Atom, options gen.ApplicationOptions) e
 			}
 
 			if err != gen.ErrApplicationRunning {
-				n.log.Error("unable to start %s: start dependent application %s failed: %s", dep, err)
+				n.log.Error(
+					"unable to start %s: start dependent application %s failed: %s",
+					dep,
+					err,
+				)
 				return gen.ErrApplicationDepends
 			}
 		}
@@ -1287,7 +1317,11 @@ func (n *node) LoggerDeletePID(pid gen.PID) {
 		p.loggername = ""
 		// TODO we should restore previous log level
 		p.log.SetLevel(gen.LogLevelInfo)
-		n.log.Trace("node.LoggerDeletePID removed process logger %s with name %q", pid, p.loggername)
+		n.log.Trace(
+			"node.LoggerDeletePID removed process logger %s with name %q",
+			pid,
+			p.loggername,
+		)
 	}
 	return
 }
@@ -1453,7 +1487,13 @@ func (n *node) spawn(factory gen.ProcessFactory, options gen.ProcessOptionsExtra
 		p.SetEnv(k, v)
 	}
 	if lib.Trace() {
-		n.log.Trace("...spawn new process %s (parent %s, %s) using %#v", p.pid, p.parent, p.name, factory)
+		n.log.Trace(
+			"...spawn new process %s (parent %s, %s) using %#v",
+			p.pid,
+			p.parent,
+			p.name,
+			factory,
+		)
 	}
 
 	for k, v := range options.Env {
@@ -1675,7 +1715,11 @@ func (n *node) unregisterAlias(alias gen.Alias, p *process) error {
 	return nil
 }
 
-func (n *node) registerEvent(name gen.Atom, owner gen.PID, options gen.EventOptions) (gen.Ref, error) {
+func (n *node) registerEvent(
+	name gen.Atom,
+	owner gen.PID,
+	options gen.EventOptions,
+) (gen.Ref, error) {
 	token := gen.Ref{}
 	if n.isRunning() == false {
 		return token, gen.ErrNodeTerminated

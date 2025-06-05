@@ -23,11 +23,18 @@ type Node interface {
 	SetEnv(name Env, value any)
 	// Env returns value associated with given environment name.
 	Env(name Env) (any, bool)
+	// EnvDefault returns value associated with given environment name or default value if it is not set.
+	EnvDefault(name Env, def any) any
 
 	// Spawn spawns a new process
 	Spawn(factory ProcessFactory, options ProcessOptions, args ...any) (PID, error)
 	// SpawnRegister spawns a new process and register associated name with it
-	SpawnRegister(register Atom, factory ProcessFactory, options ProcessOptions, args ...any) (PID, error)
+	SpawnRegister(
+		register Atom,
+		factory ProcessFactory,
+		options ProcessOptions,
+		args ...any,
+	) (PID, error)
 
 	// RegisterName register associates the name with the given PID so you can address messages
 	// to this process using gen.ProcessID{<name>, <nodename>}. Returns error if this process

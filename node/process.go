@@ -102,7 +102,11 @@ func (p *process) Uptime() int64 {
 	return time.Now().Unix() - p.creation
 }
 
-func (p *process) Spawn(factory gen.ProcessFactory, options gen.ProcessOptions, args ...any) (gen.PID, error) {
+func (p *process) Spawn(
+	factory gen.ProcessFactory,
+	options gen.ProcessOptions,
+	args ...any,
+) (gen.PID, error) {
 	if p.isStateIRW() == false {
 		return gen.PID{}, gen.ErrNotAllowed
 	}
@@ -130,7 +134,12 @@ func (p *process) Spawn(factory gen.ProcessFactory, options gen.ProcessOptions, 
 	return pid, err
 }
 
-func (p *process) SpawnRegister(register gen.Atom, factory gen.ProcessFactory, options gen.ProcessOptions, args ...any) (gen.PID, error) {
+func (p *process) SpawnRegister(
+	register gen.Atom,
+	factory gen.ProcessFactory,
+	options gen.ProcessOptions,
+	args ...any,
+) (gen.PID, error) {
 
 	if p.isStateIRW() == false {
 		return gen.PID{}, gen.ErrNotAllowed
@@ -220,7 +229,12 @@ func (p *process) SpawnMeta(behavior gen.MetaBehavior, options gen.MetaOptions) 
 	return m.id, nil
 }
 
-func (p *process) RemoteSpawn(node gen.Atom, name gen.Atom, options gen.ProcessOptions, args ...any) (gen.PID, error) {
+func (p *process) RemoteSpawn(
+	node gen.Atom,
+	name gen.Atom,
+	options gen.ProcessOptions,
+	args ...any,
+) (gen.PID, error) {
 
 	if p.isStateIRW() == false {
 		return gen.PID{}, gen.ErrNotAllowed
@@ -256,7 +270,13 @@ func (p *process) RemoteSpawn(node gen.Atom, name gen.Atom, options gen.ProcessO
 	return pid, err
 }
 
-func (p *process) RemoteSpawnRegister(node gen.Atom, name gen.Atom, register gen.Atom, options gen.ProcessOptions, args ...any) (gen.PID, error) {
+func (p *process) RemoteSpawnRegister(
+	node gen.Atom,
+	name gen.Atom,
+	register gen.Atom,
+	options gen.ProcessOptions,
+	args ...any,
+) (gen.PID, error) {
 
 	if p.isStateIRW() == false {
 		return gen.PID{}, gen.ErrNotAllowed
@@ -343,6 +363,16 @@ func (p *process) Env(name gen.Env) (any, bool) {
 	}
 	x, y := p.env.Load(name.String())
 	return x, y
+}
+
+func (p *process) EnvDefault(name gen.Env, defaultValue any) any {
+	if p.isAlive() == false {
+		return defaultValue
+	}
+	if value, ok := p.Env(name); ok {
+		return value
+	}
+	return defaultValue
 }
 
 func (p *process) Compression() bool {
@@ -1588,7 +1618,11 @@ func (p *process) Behavior() gen.ProcessBehavior {
 	return p.behavior
 }
 
-func (p *process) Forward(to gen.PID, message *gen.MailboxMessage, priority gen.MessagePriority) error {
+func (p *process) Forward(
+	to gen.PID,
+	message *gen.MailboxMessage,
+	priority gen.MessagePriority,
+) error {
 	var queue lib.QueueMPSC
 
 	// local
@@ -1622,7 +1656,11 @@ func (p *process) Forward(to gen.PID, message *gen.MailboxMessage, priority gen.
 // internal
 
 func (p *process) run() {
-	if atomic.CompareAndSwapInt32(&p.state, int32(gen.ProcessStateSleep), int32(gen.ProcessStateRunning)) == false {
+	if atomic.CompareAndSwapInt32(
+		&p.state,
+		int32(gen.ProcessStateSleep),
+		int32(gen.ProcessStateRunning),
+	) == false {
 		// already running or terminated
 		return
 	}
@@ -1669,7 +1707,11 @@ func (p *process) run() {
 		p.runningTime = p.runningTime + uint64(time.Now().UnixNano()-startTime)
 
 		// change running state to sleep
-		if atomic.CompareAndSwapInt32(&p.state, int32(gen.ProcessStateRunning), int32(gen.ProcessStateSleep)) == false {
+		if atomic.CompareAndSwapInt32(
+			&p.state,
+			int32(gen.ProcessStateRunning),
+			int32(gen.ProcessStateSleep),
+		) == false {
 			// process has been killed (was in zombee state)
 			old := atomic.SwapInt32(&p.state, int32(gen.ProcessStateTerminated))
 			if old == int32(gen.ProcessStateTerminated) {
@@ -1691,7 +1733,11 @@ func (p *process) run() {
 			}
 		}
 		// we got a new messages. try to use this goroutine again
-		if atomic.CompareAndSwapInt32(&p.state, int32(gen.ProcessStateSleep), int32(gen.ProcessStateRunning)) == false {
+		if atomic.CompareAndSwapInt32(
+			&p.state,
+			int32(gen.ProcessStateSleep),
+			int32(gen.ProcessStateRunning),
+		) == false {
 			// another goroutine is already running
 			return
 		}
