@@ -1,12 +1,13 @@
 package node
 
 import (
-	"ergo.services/ergo/gen"
 	"fmt"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
+
+	"ergo.services/ergo/gen"
 )
 
 type cronField struct {
@@ -40,18 +41,25 @@ const (
 )
 
 func (csm cronSpecMask) IsRunAt(t time.Time) bool {
+	// If only weekday is specified (day is wildcard)
 	if len(csm.Day) == 0 && csm.WeekDay.IsRunAt(t) == false {
 		return false
 	}
 
+	// If only day is specified (weekday is wildcard)
 	if len(csm.WeekDay) == 0 && csm.Day.IsRunAt(t) == false {
 		return false
 	}
 
-	if csm.Day.IsRunAt(t) == false && csm.WeekDay.IsRunAt(t) == false {
-		return false
+	// If both day and weekday are specified, use OR logic (either can match)
+	// This follows standard cron behavior where specifying both creates an OR condition
+	if len(csm.Day) > 0 && len(csm.WeekDay) > 0 {
+		if csm.Day.IsRunAt(t) == false && csm.WeekDay.IsRunAt(t) == false {
+			return false
+		}
 	}
 
+	// Check minute, hour, and month constraints
 	if csm.MinHourMonth.IsRunAt(t) == false {
 		return false
 	}

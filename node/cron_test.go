@@ -390,6 +390,48 @@ func TestCronParseSpecField(t *testing.T) {
 	}
 }
 
+func TestCronOverlapFix(t *testing.T) {
+	// Test case: "0 12 15 * 1" - should run at noon on 15th of any month OR on Mondays
+	// This tests the fix for the overlap bug where both day and weekday are specified
+	job := gen.CronJob{Name: "testOverlapJob", Spec: "0 12 15 * 1"}
+	spec, err := cronParseSpec(job)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Test dates for January 2024
+	// Monday, Jan 15, 2024 12:00 - should match (both day=15 AND weekday=Monday)
+	jan15_2024 := time.Date(2024, 1, 15, 12, 0, 0, 0, time.UTC)
+	if !spec.IsRunAt(jan15_2024) {
+		t.Errorf("Expected Jan 15, 2024 12:00 (Monday, 15th) to match '0 12 15 * 1'")
+	}
+
+	// Monday, Jan 8, 2024 12:00 - should match (weekday=Monday, even though day≠15)
+	jan8_2024 := time.Date(2024, 1, 8, 12, 0, 0, 0, time.UTC)
+	if !spec.IsRunAt(jan8_2024) {
+		t.Errorf("Expected Jan 8, 2024 12:00 (Monday, 8th) to match '0 12 15 * 1' - weekday should match")
+	}
+
+	// Tuesday, Jan 15, 2024 12:00 - should match (day=15, even though weekday≠Monday)
+	jan15_2024_tue := time.Date(2024, 1, 16, 12, 0, 0, 0, time.UTC) // 16th is Tuesday, but let's use 15th
+	jan15_2024_tue = time.Date(2024, 2, 15, 12, 0, 0, 0, time.UTC)  // Feb 15, 2024 is Thursday
+	if !spec.IsRunAt(jan15_2024_tue) {
+		t.Errorf("Expected Feb 15, 2024 12:00 (Thursday, 15th) to match '0 12 15 * 1' - day should match")
+	}
+
+	// Tuesday, Jan 9, 2024 12:00 - should NOT match (neither day=15 nor weekday=Monday)
+	jan9_2024 := time.Date(2024, 1, 9, 12, 0, 0, 0, time.UTC)
+	if spec.IsRunAt(jan9_2024) {
+		t.Errorf("Expected Jan 9, 2024 12:00 (Tuesday, 9th) to NOT match '0 12 15 * 1'")
+	}
+
+	// Test different time - should not match due to hour constraint
+	jan15_2024_wrong_hour := time.Date(2024, 1, 15, 13, 0, 0, 0, time.UTC)
+	if spec.IsRunAt(jan15_2024_wrong_hour) {
+		t.Errorf("Expected Jan 15, 2024 13:00 to NOT match '0 12 15 * 1' due to hour constraint")
+	}
+}
+
 // func TestCronSchedule(t *testing.T) {
 //
 // 	c := createCron(&mockCronNode{})
