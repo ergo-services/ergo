@@ -47,7 +47,7 @@ To inspect the node, network stack, running applications, and processes, you can
 To install the Observer tool, you need to have the Go compiler version 1.20 or higher. Run the following command:
 
 ```
-$ go install ergo.services/tools/observer@latest
+$ go install ergo.tools/observer@latest
 ```
 
 You can also embed the [Observer application](https://docs.ergo.services/extra-library/applications/observer) into your node. To see it in action, see example `demo` at https://github.com/ergo-services/examples. For more information https://docs.ergo.services/tools/observer 
@@ -61,7 +61,7 @@ For a quick start, use the [`ergo`](https://docs.ergo.services/tools/ergo) tool 
 To install use the following command:
 
 ```
-$ go install ergo.services/tools/ergo@latest
+$ go install ergo.tools/ergo@latest
 ```
 
 Now, you can create your project with just one command. Here is example:
@@ -131,23 +131,8 @@ Starting from version 3.0.0, support for the Erlang network stack has been moved
 
 Fully detailed changelog see in the [ChangeLog](CHANGELOG.md) file.
 
-#### [v3.0.0](https://github.com/ergo-services/ergo/releases/tag/v1.999.300) 2024-09-04 [tag version v1.999.300] ####
+#### [v3.1.0](https://github.com/ergo-services/ergo/releases/tag/v1.999.310) 2025-00-00 [tag version v1.999.310] ####
 
-This version marks a significant milestone in the evolution of the Ergo Framework. The framework's design has been completely overhauled, and this version was built from the ground up. It includes:
-
-- Significant API Improvements: The `gen.Process`, `gen.Node`, and `gen.Network` interfaces have been enhanced with numerous convenient methods.
-- A New Network Stack: This version introduces a completely new network stack for improved performance and flexibility. See https://github.com/ergo-services/benchmarks for the details
-
-Alongside the release of Ergo Framework 3.0.0, new tools and an additional components library are also introduced:
-
-- Tools (observer, saturn) https://github.com/ergo-services/tools
-- Loggers (rotate, colored) - https://github.com/ergo-services/logger
-- Meta (websocket) - https://github.com/ergo-services/meta
-- Application (observer) - https://github.com/ergo-services/application
-- Registrar (client Saturn) - https://github.com/ergo-services/registrar
-- Proto (erlang23) - https://github.com/ergo-services/proto
-
-Finally, we've published comprehensive documentation for the framework, providing detailed guides to assist you in leveraging all the capabilities of Ergo Framework effectively. Its available at https://docs.ergo.services.
 
 ### Development and debugging ###
 

@@ -82,7 +82,12 @@ type Process interface {
 	Spawn(factory ProcessFactory, options ProcessOptions, args ...any) (PID, error)
 
 	// Spawn creates a child process with associated name.
-	SpawnRegister(register Atom, factory ProcessFactory, options ProcessOptions, args ...any) (PID, error)
+	SpawnRegister(
+		register Atom,
+		factory ProcessFactory,
+		options ProcessOptions,
+		args ...any,
+	) (PID, error)
 
 	// SpawnMeta creates a meta process. Returned alias is associated with this process and other
 	// processes can send messages (using Send method) or make the requests (with Call method)
@@ -93,7 +98,13 @@ type Process interface {
 	RemoteSpawn(node Atom, name Atom, options ProcessOptions, args ...any) (PID, error)
 	// RemoteSpawnRegister makes request to the remote node to spawn a new process and register it there
 	// with the given rigistered name.
-	RemoteSpawnRegister(node Atom, name Atom, register Atom, options ProcessOptions, args ...any) (PID, error)
+	RemoteSpawnRegister(
+		node Atom,
+		name Atom,
+		register Atom,
+		options ProcessOptions,
+		args ...any,
+	) (PID, error)
 
 	// State returns current process state. Usually, it returns gen.ProcessStateRunning.
 	// But, If node has killed this process during the handling of its mailbox,
@@ -119,6 +130,9 @@ type Process interface {
 
 	// Env returns value associated with given environment name.
 	Env(name Env) (any, bool)
+
+	// EnvDefault returns value associated with given environment name or default value if it is not set.
+	EnvDefault(name Env, def any) any
 
 	// Compression returns true if compression is enabled for this process.
 	Compression() bool
@@ -216,8 +230,8 @@ type Process interface {
 
 	// RegisterEvent registers a new event. Returns a reference as the token
 	// for sending events. Unregistering the event is allowed to the process
-	// that registered it. Sending an event can be done in any other process
-	// by using the registered event name with the provided token (delegation of
+	// that registered it. Sending an event can be done by any other process
+	// using the registered event name with the provided token (delegation of
 	// event sending feature).
 	RegisterEvent(name Atom, options EventOptions) (Ref, error)
 
