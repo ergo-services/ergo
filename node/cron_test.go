@@ -432,6 +432,83 @@ func TestCronOverlapFix(t *testing.T) {
 	}
 }
 
+func TestCronCornerCases(t *testing.T) {
+	// Test last weekday of month (xL) - this will expose the missing return false bug
+	job := gen.CronJob{Name: "testLastWeekday", Spec: "0 12 * * 1L"} // Last Monday of month at 12:00
+	spec, err := cronParseSpec(job)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// January 2024: Last Monday is Jan 29, 2024
+	lastMonday := time.Date(2024, 1, 29, 12, 0, 0, 0, time.UTC)
+	if !spec.IsRunAt(lastMonday) {
+		t.Errorf("Expected Jan 29, 2024 12:00 (last Monday) to match '0 12 * * 1L'")
+	}
+
+	// January 2024: Jan 22, 2024 is Monday but NOT the last Monday
+	notLastMonday := time.Date(2024, 1, 22, 12, 0, 0, 0, time.UTC)
+	if spec.IsRunAt(notLastMonday) {
+		t.Errorf("Expected Jan 22, 2024 12:00 (Monday but not last) to NOT match '0 12 * * 1L'")
+	}
+
+	// Test nth weekday of month (w#n) - this will expose the missing return false bug
+	job2 := gen.CronJob{Name: "testNthWeekday", Spec: "0 12 * * 1#2"} // 2nd Monday of month at 12:00
+	spec2, err := cronParseSpec(job2)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// January 2024: 2nd Monday is Jan 8, 2024
+	secondMonday := time.Date(2024, 1, 8, 12, 0, 0, 0, time.UTC)
+	if !spec2.IsRunAt(secondMonday) {
+		t.Errorf("Expected Jan 8, 2024 12:00 (2nd Monday) to match '0 12 * * 1#2'")
+	}
+
+	// January 2024: Jan 15, 2024 is 3rd Monday, not 2nd
+	thirdMonday := time.Date(2024, 1, 15, 12, 0, 0, 0, time.UTC)
+	if spec2.IsRunAt(thirdMonday) {
+		t.Errorf("Expected Jan 15, 2024 12:00 (3rd Monday, not 2nd) to NOT match '0 12 * * 1#2'")
+	}
+
+	// January 2024: Jan 1, 2024 is 1st Monday, not 2nd
+	firstMonday := time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC)
+	if spec2.IsRunAt(firstMonday) {
+		t.Errorf("Expected Jan 1, 2024 12:00 (1st Monday, not 2nd) to NOT match '0 12 * * 1#2'")
+	}
+
+	// Test leap year handling for last day of month (L)
+	jobL := gen.CronJob{Name: "testLastDay", Spec: "0 12 L * *"} // Last day of month at 12:00
+	specL, err := cronParseSpec(jobL)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 2024 is a leap year - February has 29 days
+	feb29_2024 := time.Date(2024, 2, 29, 12, 0, 0, 0, time.UTC)
+	if !specL.IsRunAt(feb29_2024) {
+		t.Errorf("Expected Feb 29, 2024 12:00 (last day of leap year February) to match '0 12 L * *'")
+	}
+
+	// 2024 leap year - February 28th should NOT match (not the last day)
+	feb28_2024 := time.Date(2024, 2, 28, 12, 0, 0, 0, time.UTC)
+	if specL.IsRunAt(feb28_2024) {
+		t.Errorf("Expected Feb 28, 2024 12:00 (not last day in leap year) to NOT match '0 12 L * *'")
+	}
+
+	// 2023 is NOT a leap year - February has 28 days
+	feb28_2023 := time.Date(2023, 2, 28, 12, 0, 0, 0, time.UTC)
+	if !specL.IsRunAt(feb28_2023) {
+		t.Errorf("Expected Feb 28, 2023 12:00 (last day of non-leap year February) to match '0 12 L * *'")
+	}
+
+	// 2023 non-leap year - February 27th should NOT match (not the last day)
+	feb27_2023 := time.Date(2023, 2, 27, 12, 0, 0, 0, time.UTC)
+	if specL.IsRunAt(feb27_2023) {
+		t.Errorf("Expected Feb 27, 2023 12:00 (not last day in non-leap year) to NOT match '0 12 L * *'")
+	}
+}
+
 // func TestCronSchedule(t *testing.T) {
 //
 // 	c := createCron(&mockCronNode{})
