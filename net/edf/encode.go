@@ -36,11 +36,10 @@ func Encode(x any, b *lib.Buffer, options Options) (ret error) {
 	if x == nil {
 		return fmt.Errorf("nothing to encode")
 	}
-	state := &stateEncode{
-		options: options,
-		// TODO
-		//loop:       make(map[unsafe.Pointer]struct{}),
-	}
+
+	// Use pooled state instead of allocation
+	state := getPooledStateEncode(options)
+	defer putPooledStateEncode(state)
 
 	xv := reflect.ValueOf(x)
 	enc, err := getEncoder(xv.Type(), state)
@@ -154,9 +153,7 @@ func getEncoder(t reflect.Type, state *stateEncode) (*encoder, error) {
 			}
 
 			if state.child == nil {
-				state.child = &stateEncode{
-					options: state.options,
-				}
+				state.child = getPooledStateEncode(state.options)
 			}
 			state = state.child
 
@@ -219,9 +216,7 @@ func getEncoder(t reflect.Type, state *stateEncode) (*encoder, error) {
 			}
 
 			if state.child == nil {
-				state.child = &stateEncode{
-					options: state.options,
-				}
+				state.child = getPooledStateEncode(state.options)
 			}
 			state = state.child
 
@@ -278,9 +273,7 @@ func getEncoder(t reflect.Type, state *stateEncode) (*encoder, error) {
 			}
 
 			if state.child == nil {
-				state.child = &stateEncode{
-					options: state.options,
-				}
+				state.child = getPooledStateEncode(state.options)
 			}
 			state = state.child
 
@@ -476,36 +469,17 @@ func encodeBool(value reflect.Value, b *lib.Buffer, state *stateEncode) error {
 	b.AppendByte(0)
 	return nil
 }
-func encodeString(value reflect.Value, b *lib.Buffer, state *stateEncode) error {
-	v := value.String()
-	lenString := len(v)
-	if lenString > math.MaxUint16 {
-		return ErrStringTooLong
-	}
 
-	if state.encodeType {
-		b.AppendByte(edtString)
-	}
-	buf := b.Extend(2)
-	binary.BigEndian.PutUint16(buf, uint16(lenString))
-	b.AppendString(v)
-	return nil
+func encodeString(value reflect.Value, b *lib.Buffer, state *stateEncode) error {
+	s := value.String()
+	// Use fast path for string encoding
+	return encodeStringFast(s, b, state.encodeType)
 }
 
 func encodeBinary(value reflect.Value, b *lib.Buffer, state *stateEncode) error {
-	v := value.Bytes()
-	lenBinary := len(v)
-	if lenBinary > math.MaxUint32 {
-		return ErrBinaryTooLong
-	}
-
-	if state.encodeType {
-		b.AppendByte(edtBinary)
-	}
-	buf := b.Extend(4)
-	binary.BigEndian.PutUint32(buf, uint32(lenBinary))
-	b.Append(v)
-	return nil
+	data := value.Bytes()
+	// Use fast path for binary encoding
+	return encodeBinaryFast(data, b, state.encodeType)
 }
 
 func encodeInt(value reflect.Value, b *lib.Buffer, state *stateEncode) error {
@@ -544,12 +518,9 @@ func encodeInt32(value reflect.Value, b *lib.Buffer, state *stateEncode) error {
 }
 
 func encodeInt64(value reflect.Value, b *lib.Buffer, state *stateEncode) error {
-	if state.encodeType {
-		b.AppendByte(edtInt64)
-	}
-	buf := b.Extend(8)
-	binary.BigEndian.PutUint64(buf, uint64(value.Int()))
-	return nil
+	v := value.Int()
+	// Use fast path for int64 encoding
+	return encodeInt64Fast(v, b, state.encodeType)
 }
 
 func encodeUint(value reflect.Value, b *lib.Buffer, state *stateEncode) error {

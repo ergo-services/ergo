@@ -37,10 +37,10 @@ func Decode(packet []byte, options Options) (_ any, _ []byte, ret error) {
 		}()
 	}
 
-	state := &stateDecode{
-		options:    options,
-		decodeType: true,
-	}
+	// Use pooled state instead of allocation
+	state := getPooledStateDecode(options)
+	defer putPooledStateDecode(state)
+	state.decodeType = true
 
 	dec, packet, err := getDecoder(packet, state)
 	if err != nil {
@@ -216,9 +216,7 @@ func decodeType(fold []byte, state *stateDecode) (*decoder, []byte, error) {
 			}
 
 			if state.child == nil {
-				state.child = &stateDecode{
-					options: state.options,
-				}
+				state.child = getPooledStateDecode(state.options)
 			}
 			state = state.child
 
@@ -311,10 +309,7 @@ func decodeType(fold []byte, state *stateDecode) (*decoder, []byte, error) {
 			}
 
 			if state.child == nil {
-				state.child = &stateDecode{
-					options: state.options,
-					decoder: decItem,
-				}
+				state.child = getPooledStateDecode(state.options)
 			}
 			state = state.child
 
@@ -373,10 +368,7 @@ func decodeType(fold []byte, state *stateDecode) (*decoder, []byte, error) {
 			}
 
 			if state.child == nil {
-				state.child = &stateDecode{
-					options: state.options,
-					decoder: decItem,
-				}
+				state.child = getPooledStateDecode(state.options)
 			}
 			state = state.child
 
