@@ -166,6 +166,11 @@ func (l *mockLog) Level() gen.LogLevel                { return gen.LogLevelInfo 
 func (l *mockLog) SetLevel(level gen.LogLevel) error  { return nil }
 func (l *mockLog) Logger() string                     { return "" }
 func (l *mockLog) SetLogger(name string)              {}
+func (l *mockLog) Fields() []gen.LogField             { return nil }
+func (l *mockLog) AddFields(fields ...gen.LogField)   {}
+func (l *mockLog) DeleteFields(fields ...string)      {}
+func (l *mockLog) PushFields() int                    { return 0 }
+func (l *mockLog) PopFields() int                     { return 0 }
 func (l *mockLog) Trace(format string, args ...any)   {}
 func (l *mockLog) Debug(format string, args ...any)   {}
 func (l *mockLog) Info(format string, args ...any)    {}
