@@ -32,6 +32,40 @@ func (e SendEvent) String() string {
 	return "Send"
 }
 
+// SendResponseEvent captures a SendResponse operation
+type SendResponseEvent struct {
+	From     gen.PID
+	To       gen.PID
+	Response any
+	Ref      gen.Ref
+	Priority gen.MessagePriority
+}
+
+func (e SendResponseEvent) Type() string {
+	return "send_response"
+}
+
+func (e SendResponseEvent) String() string {
+	return fmt.Sprintf("SendResponse(to=%s, ref=%s)", e.To, e.Ref)
+}
+
+// SendResponseErrorEvent captures a SendResponseError operation
+type SendResponseErrorEvent struct {
+	From     gen.PID
+	To       gen.PID
+	Error    error
+	Ref      gen.Ref
+	Priority gen.MessagePriority
+}
+
+func (e SendResponseErrorEvent) Type() string {
+	return "send_response_error"
+}
+
+func (e SendResponseErrorEvent) String() string {
+	return fmt.Sprintf("SendResponseError(to=%s, ref=%s, error=%s)", e.To, e.Ref, e.Error)
+}
+
 // SpawnEvent captures a Spawn operation
 type SpawnEvent struct {
 	Factory gen.ProcessFactory
@@ -331,4 +365,89 @@ func (e ProxyRouteEvent) Type() string {
 
 func (e ProxyRouteEvent) String() string {
 	return fmt.Sprintf("ProxyRoute(pattern=%s, action=%s)", e.Pattern, e.Action)
+}
+
+// CronJobAddEvent captures cron job additions
+type CronJobAddEvent struct {
+	Job gen.CronJob
+}
+
+func (e CronJobAddEvent) Type() string {
+	return "cron_job_add"
+}
+
+func (e CronJobAddEvent) String() string {
+	return fmt.Sprintf("CronJobAdd(name=%s, spec=%s)", e.Job.Name, e.Job.Spec)
+}
+
+// CronJobRemoveEvent captures cron job removals
+type CronJobRemoveEvent struct {
+	Name gen.Atom
+}
+
+func (e CronJobRemoveEvent) Type() string {
+	return "cron_job_remove"
+}
+
+func (e CronJobRemoveEvent) String() string {
+	return fmt.Sprintf("CronJobRemove(name=%s)", e.Name)
+}
+
+// CronJobEnableEvent captures cron job enable operations
+type CronJobEnableEvent struct {
+	Name gen.Atom
+}
+
+func (e CronJobEnableEvent) Type() string {
+	return "cron_job_enable"
+}
+
+func (e CronJobEnableEvent) String() string {
+	return fmt.Sprintf("CronJobEnable(name=%s)", e.Name)
+}
+
+// CronJobDisableEvent captures cron job disable operations
+type CronJobDisableEvent struct {
+	Name gen.Atom
+}
+
+func (e CronJobDisableEvent) Type() string {
+	return "cron_job_disable"
+}
+
+func (e CronJobDisableEvent) String() string {
+	return fmt.Sprintf("CronJobDisable(name=%s)", e.Name)
+}
+
+// CronJobExecutionEvent captures cron job executions
+type CronJobExecutionEvent struct {
+	Name       gen.Atom
+	Time       time.Time
+	ActionInfo string
+	Error      error
+}
+
+func (e CronJobExecutionEvent) Type() string {
+	return "cron_job_execution"
+}
+
+func (e CronJobExecutionEvent) String() string {
+	if e.Error != nil {
+		return fmt.Sprintf("CronJobExecution(name=%s, time=%s, error=%s)", e.Name, e.Time, e.Error)
+	}
+	return fmt.Sprintf("CronJobExecution(name=%s, time=%s)", e.Name, e.Time)
+}
+
+// TerminateEvent captures when an actor terminates due to an error
+type TerminateEvent struct {
+	PID    gen.PID
+	Reason error
+}
+
+func (e TerminateEvent) Type() string {
+	return "terminate"
+}
+
+func (e TerminateEvent) String() string {
+	return fmt.Sprintf("Terminate(pid=%s, reason=%s)", e.PID, e.Reason)
 }

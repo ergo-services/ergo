@@ -13,14 +13,16 @@ import (
 
 // TestActor provides a test harness for actor testing
 type TestActor struct {
-	t            testing.TB
-	behavior     gen.ProcessBehavior
-	process      *TestProcess
-	node         *TestNode
-	events       lib.QueueMPSC
-	captures     map[string]any
-	options      TestOptions
-	storedEvents []Event // Store events separately to avoid consuming them
+	t                 testing.TB
+	behavior          gen.ProcessBehavior
+	process           *TestProcess
+	node              *TestNode
+	events            lib.QueueMPSC
+	captures          map[string]any
+	options           TestOptions
+	storedEvents      []Event // Store events separately to avoid consuming them
+	terminated        bool    // Track if actor is terminated
+	terminationReason error   // Store termination reason
 }
 
 // TestOptions configures the test environment
@@ -127,13 +129,41 @@ func Spawn(t testing.TB, factory gen.ProcessFactory, options ...Option) (*TestAc
 func (ta *TestActor) SendMessage(from gen.PID, message any) *TestActor {
 	ta.t.Helper()
 
-	// Call the actor's HandleMessage method directly
-	if actorBehavior, ok := ta.behavior.(interface{ HandleMessage(gen.PID, any) error }); ok {
-		if err := actorBehavior.HandleMessage(from, message); err != nil {
-			ta.t.Errorf("HandleMessage failed: %v", err)
+	// Don't process messages if actor is already terminated
+	if ta.terminated {
+		ta.t.Logf("Attempted to send message %v to terminated actor %s (reason: %v)", message, ta.PID(), ta.terminationReason)
+		return ta
+	}
+
+	// Create a mailbox message for proper message routing
+	mailboxMessage := gen.TakeMailboxMessage()
+	defer gen.ReleaseMailboxMessage(mailboxMessage)
+
+	mailboxMessage.From = from
+	mailboxMessage.Type = gen.MailboxMessageTypeRegular
+	mailboxMessage.Target = ta.process.PID() // Default target
+	mailboxMessage.Message = message
+
+	// Put the message into the main mailbox queue
+	mailbox := ta.process.Mailbox()
+	mailbox.Main.Push(mailboxMessage)
+
+	// Let the behavior process its mailbox by calling ProcessRun
+	if err := ta.behavior.ProcessRun(); err != nil {
+		// Actor returned an error - it should terminate
+		ta.terminated = true
+		ta.terminationReason = err
+
+		// Emit termination event
+		ta.events.Push(TerminateEvent{
+			PID:    ta.PID(),
+			Reason: err,
+		})
+
+		// Only log non-normal termination for debugging
+		if err != gen.TerminateReasonNormal && err != gen.TerminateReasonShutdown {
+			ta.t.Logf("Actor %s terminated with error: %v", ta.PID(), err)
 		}
-	} else {
-		ta.t.Errorf("Behavior does not implement HandleMessage method")
 	}
 
 	return ta
@@ -143,16 +173,90 @@ func (ta *TestActor) SendMessage(from gen.PID, message any) *TestActor {
 func (ta *TestActor) Call(from gen.PID, request any) *CallResult {
 	ta.t.Helper()
 
+	// Don't process calls if actor is already terminated
+	if ta.terminated {
+		ta.t.Logf("Attempted to call terminated actor %s with request %v (reason: %v)", ta.PID(), request, ta.terminationReason)
+		return &CallResult{
+			Request:  request,
+			Response: nil,
+			Error:    ta.terminationReason,
+			Ref:      gen.Ref{},
+			From:     from,
+			actor:    ta,
+		}
+	}
+
 	ref := makeTestRefWithCreation(ta.node.Name(), ta.node.Creation())
-	// For testing purposes, we can't directly call behavior methods
-	// This would need to be routed through the actor's ProcessRun method
+
+	// Create a mailbox message for proper call routing
+	mailboxMessage := gen.TakeMailboxMessage()
+	defer gen.ReleaseMailboxMessage(mailboxMessage)
+
+	mailboxMessage.From = from
+	mailboxMessage.Type = gen.MailboxMessageTypeRequest
+	mailboxMessage.Target = ta.process.PID()
+	mailboxMessage.Message = request
+	mailboxMessage.Ref = ref
+
+	// Put the request into the main mailbox queue
+	mailbox := ta.process.Mailbox()
+	mailbox.Main.Push(mailboxMessage)
+
+	// Let the behavior process its mailbox by calling ProcessRun
+	var callError error
+	if err := ta.behavior.ProcessRun(); err != nil {
+		// Actor returned an error - it should terminate
+		ta.terminated = true
+		ta.terminationReason = err
+		callError = err
+
+		// Emit termination event
+		ta.events.Push(TerminateEvent{
+			PID:    ta.PID(),
+			Reason: err,
+		})
+
+		// Only log non-normal termination for debugging
+		if err != gen.TerminateReasonNormal && err != gen.TerminateReasonShutdown {
+			ta.t.Logf("Actor %s terminated during call with error: %v", ta.PID(), err)
+		}
+	}
+
+	// Check if we got an async response via SendResponse events
+	response, responseError := ta.findResponseForRef(ref)
+
+	// If we have a process error, use that; otherwise use response error
+	finalError := callError
+	if finalError == nil {
+		finalError = responseError
+	}
 
 	return &CallResult{
 		Request:  request,
-		Response: nil, // Mock response for testing
-		Error:    nil,
+		Response: response,
+		Error:    finalError,
 		Ref:      ref,
+		From:     from,
+		actor:    ta,
 	}
+}
+
+// findResponseForRef looks for SendResponse or SendResponseError events matching the ref
+func (ta *TestActor) findResponseForRef(ref gen.Ref) (any, error) {
+	events := ta.Events()
+	for _, event := range events {
+		if responseEvent, ok := event.(SendResponseEvent); ok {
+			if responseEvent.Ref == ref {
+				return responseEvent.Response, nil
+			}
+		}
+		if errorEvent, ok := event.(SendResponseErrorEvent); ok {
+			if errorEvent.Ref == ref {
+				return nil, errorEvent.Error
+			}
+		}
+	}
+	return nil, nil // No response found yet (async response may come later)
 }
 
 // CallResult wraps the result of a call operation
@@ -161,30 +265,13 @@ type CallResult struct {
 	Response any
 	Error    error
 	Ref      gen.Ref
+	From     gen.PID
+	actor    *TestActor
 }
 
-// ShouldReturn asserts the call should return the expected response
-func (cr *CallResult) ShouldReturn(expected any) *CallResult {
-	if !reflect.DeepEqual(cr.Response, expected) {
-		panic(fmt.Sprintf("Expected call response %v, got %v", expected, cr.Response))
-	}
-	return cr
-}
-
-// ShouldError asserts the call should return an error
-func (cr *CallResult) ShouldError() *CallResult {
-	if cr.Error == nil {
-		panic("Expected call to return error, but it succeeded")
-	}
-	return cr
-}
-
-// ShouldSucceed asserts the call should succeed without error
-func (cr *CallResult) ShouldSucceed() *CallResult {
-	if cr.Error != nil {
-		panic(fmt.Sprintf("Expected call to succeed, but got error: %v", cr.Error))
-	}
-	return cr
+// GetAsyncResponse waits for and returns the async response from SendResponse events
+func (cr *CallResult) GetAsyncResponse() (any, error) {
+	return cr.actor.findResponseForRef(cr.Ref)
 }
 
 // Behavior returns the underlying actor behavior for direct access
@@ -313,6 +400,71 @@ func (ta *TestActor) ShouldCall() *CallAssertion {
 	}
 }
 
+// Cron assertion methods
+
+// ShouldAddCronJob starts a cron job add assertion
+func (ta *TestActor) ShouldAddCronJob() *CronJobAssertion {
+	return &CronJobAssertion{
+		actor:    ta,
+		expected: true,
+		count:    1,
+		action:   "add",
+	}
+}
+
+// ShouldRemoveCronJob starts a cron job remove assertion
+func (ta *TestActor) ShouldRemoveCronJob() *CronJobAssertion {
+	return &CronJobAssertion{
+		actor:    ta,
+		expected: true,
+		count:    1,
+		action:   "remove",
+	}
+}
+
+// ShouldEnableCronJob starts a cron job enable assertion
+func (ta *TestActor) ShouldEnableCronJob() *CronJobAssertion {
+	return &CronJobAssertion{
+		actor:    ta,
+		expected: true,
+		count:    1,
+		action:   "enable",
+	}
+}
+
+// ShouldDisableCronJob starts a cron job disable assertion
+func (ta *TestActor) ShouldDisableCronJob() *CronJobAssertion {
+	return &CronJobAssertion{
+		actor:    ta,
+		expected: true,
+		count:    1,
+		action:   "disable",
+	}
+}
+
+// ShouldExecuteCronJob starts a cron job execution assertion
+func (ta *TestActor) ShouldExecuteCronJob() *CronJobExecutionAssertion {
+	return &CronJobExecutionAssertion{
+		actor:    ta,
+		expected: true,
+		count:    1,
+	}
+}
+
+// Cron helper methods
+
+// TriggerCronJob manually triggers a cron job for testing
+func (ta *TestActor) TriggerCronJob(name gen.Atom) error {
+	testCron := ta.node.cron
+	return testCron.TriggerJob(name)
+}
+
+// SetCronMockTime sets mock time for cron testing
+func (ta *TestActor) SetCronMockTime(t time.Time) {
+	testCron := ta.node.cron
+	testCron.SetMockTime(t)
+}
+
 // Built-in assertion functions (zero dependencies)
 func Equal(t testing.TB, expected, actual any, msgAndArgs ...any) {
 	t.Helper()
@@ -436,4 +588,103 @@ func (ta *TestActor) DisconnectRemoteNode(name gen.Atom) error {
 // ListConnectedNodes returns all connected remote nodes
 func (ta *TestActor) ListConnectedNodes() []gen.Atom {
 	return ta.node.network.Nodes()
+}
+
+// ShouldSendResponse starts a response assertion
+func (ta *TestActor) ShouldSendResponse() *SendResponseAssertion {
+	return &SendResponseAssertion{
+		actor:    ta,
+		expected: true,
+		count:    1,
+	}
+}
+
+// ShouldNotSendResponse starts a negative response assertion
+func (ta *TestActor) ShouldNotSendResponse() *SendResponseAssertion {
+	return &SendResponseAssertion{
+		actor:    ta,
+		expected: false,
+	}
+}
+
+// ShouldSendResponseError starts a response error assertion
+func (ta *TestActor) ShouldSendResponseError() *SendResponseErrorAssertion {
+	return &SendResponseErrorAssertion{
+		actor:    ta,
+		expected: true,
+		count:    1,
+	}
+}
+
+// ShouldNotSendResponseError starts a negative response error assertion
+func (ta *TestActor) ShouldNotSendResponseError() *SendResponseErrorAssertion {
+	return &SendResponseErrorAssertion{
+		actor:    ta,
+		expected: false,
+	}
+}
+
+// Termination-related methods
+
+// IsTerminated returns true if the actor has been terminated
+func (ta *TestActor) IsTerminated() bool {
+	return ta.terminated
+}
+
+// TerminationReason returns the reason for termination, or nil if not terminated
+func (ta *TestActor) TerminationReason() error {
+	return ta.terminationReason
+}
+
+// ShouldTerminate starts a termination assertion
+func (ta *TestActor) ShouldTerminate() *TerminateAssertion {
+	return &TerminateAssertion{
+		actor:    ta,
+		expected: true,
+		count:    1,
+	}
+}
+
+// ShouldNotTerminate starts a negative termination assertion
+func (ta *TestActor) ShouldNotTerminate() *TerminateAssertion {
+	return &TerminateAssertion{
+		actor:    ta,
+		expected: false,
+	}
+}
+
+// Exit assertion methods
+
+// ShouldSendExit starts an exit assertion
+func (ta *TestActor) ShouldSendExit() *ExitAssertion {
+	return &ExitAssertion{
+		actor:    ta,
+		expected: true,
+		count:    1,
+	}
+}
+
+// ShouldNotSendExit starts a negative exit assertion
+func (ta *TestActor) ShouldNotSendExit() *ExitAssertion {
+	return &ExitAssertion{
+		actor:    ta,
+		expected: false,
+	}
+}
+
+// ShouldSendExitMeta starts an exit meta assertion
+func (ta *TestActor) ShouldSendExitMeta() *ExitMetaAssertion {
+	return &ExitMetaAssertion{
+		actor:    ta,
+		expected: true,
+		count:    1,
+	}
+}
+
+// ShouldNotSendExitMeta starts a negative exit meta assertion
+func (ta *TestActor) ShouldNotSendExitMeta() *ExitMetaAssertion {
+	return &ExitMetaAssertion{
+		actor:    ta,
+		expected: false,
+	}
 }

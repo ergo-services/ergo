@@ -1,12 +1,17 @@
 package unit
 
 import (
+	"fmt"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"ergo.services/ergo/gen"
 	"ergo.services/ergo/lib"
 )
+
+// Package-level counter for unique ref generation
+var refCounter uint64
 
 // TestNode implements gen.Node for testing
 type TestNode struct {
@@ -20,6 +25,18 @@ type TestNode struct {
 	network   *TestNetwork
 	nextID    uint64
 	uptime    time.Time
+	cron      *TestCron
+}
+
+// TestCron implements gen.Cron interface for testing
+type TestCron struct {
+	t      testing.TB
+	events lib.QueueMPSC
+	jobs   map[gen.Atom]gen.CronJob
+
+	// Mock time for testing cron schedules
+	mockTime    time.Time
+	useMockTime bool
 }
 
 // NewTestNode creates a new test node instance
@@ -33,6 +50,7 @@ func NewTestNode(t testing.TB, events lib.QueueMPSC, options TestOptions) *TestN
 		processes: make(map[gen.PID]*TestProcess),
 		nextID:    2000,
 		uptime:    time.Now(),
+		cron:      NewTestCron(t, events),
 	}
 
 	tn.log = NewTestLog(t, events, options.LogLevel)
@@ -301,8 +319,9 @@ func (tn *TestNode) Network() gen.Network {
 	return tn.network
 }
 
+// Cron returns the test cron interface
 func (tn *TestNode) Cron() gen.Cron {
-	return nil // TestCron could be implemented later
+	return tn.cron
 }
 
 func (tn *TestNode) CertManager() gen.CertManager {
@@ -514,9 +533,227 @@ func (tn *TestNode) RemoveProcess(pid gen.PID) {
 
 // Helper function to create test references with consistent creation time
 func makeTestRefWithCreation(nodeName gen.Atom, creation int64) gen.Ref {
+	// Get unique ID using atomic operation
+	id := atomic.AddUint64(&refCounter, 1)
+
 	return gen.Ref{
 		Node:     nodeName,
 		Creation: creation,
-		ID:       [3]uint64{uint64(time.Now().UnixNano()), 0, 0},
+		ID:       [3]uint64{id, 0, 0},
 	}
+}
+
+// NewTestCron creates a new test cron instance
+func NewTestCron(t testing.TB, events lib.QueueMPSC) *TestCron {
+	return &TestCron{
+		t:      t,
+		events: events,
+		jobs:   make(map[gen.Atom]gen.CronJob),
+	}
+}
+
+// AddJob adds new job
+func (tc *TestCron) AddJob(job gen.CronJob) error {
+	tc.t.Helper()
+
+	if job.Name == "" {
+		return fmt.Errorf("empty job name")
+	}
+
+	if job.Action == nil {
+		return fmt.Errorf("empty action")
+	}
+
+	if _, exists := tc.jobs[job.Name]; exists {
+		return gen.ErrTaken
+	}
+
+	tc.jobs[job.Name] = job
+
+	// Record event
+	event := CronJobAddEvent{Job: job}
+	tc.events.Push(event)
+
+	return nil
+}
+
+// RemoveJob removes job
+func (tc *TestCron) RemoveJob(name gen.Atom) error {
+	tc.t.Helper()
+
+	if _, exists := tc.jobs[name]; !exists {
+		return gen.ErrUnknown
+	}
+
+	delete(tc.jobs, name)
+
+	// Record event
+	event := CronJobRemoveEvent{Name: name}
+	tc.events.Push(event)
+
+	return nil
+}
+
+// EnableJob enables previously disabled job
+func (tc *TestCron) EnableJob(name gen.Atom) error {
+	tc.t.Helper()
+
+	if _, exists := tc.jobs[name]; !exists {
+		return gen.ErrUnknown
+	}
+
+	// Record event
+	event := CronJobEnableEvent{Name: name}
+	tc.events.Push(event)
+
+	return nil
+}
+
+// DisableJob disables job
+func (tc *TestCron) DisableJob(name gen.Atom) error {
+	tc.t.Helper()
+
+	if _, exists := tc.jobs[name]; !exists {
+		return gen.ErrUnknown
+	}
+
+	// Record event
+	event := CronJobDisableEvent{Name: name}
+	tc.events.Push(event)
+
+	return nil
+}
+
+// Info returns information about the jobs
+func (tc *TestCron) Info() gen.CronInfo {
+	var info gen.CronInfo
+
+	// Use mock time if set, otherwise use current time
+	now := time.Now()
+	if tc.useMockTime {
+		now = tc.mockTime
+	}
+
+	info.Next = now.Add(time.Minute).Truncate(time.Minute)
+	info.Spool = []gen.Atom{}
+	info.Jobs = []gen.CronJobInfo{}
+
+	for name, job := range tc.jobs {
+		jobInfo := gen.CronJobInfo{
+			Name:       name,
+			Spec:       job.Spec,
+			Location:   job.Location.String(),
+			ActionInfo: job.Action.Info(),
+			Disabled:   false, // In test mode, jobs are always enabled unless explicitly disabled
+			Fallback:   job.Fallback,
+		}
+		info.Jobs = append(info.Jobs, jobInfo)
+	}
+
+	return info
+}
+
+// JobInfo returns information for the given job
+func (tc *TestCron) JobInfo(name gen.Atom) (gen.CronJobInfo, error) {
+	var jobInfo gen.CronJobInfo
+
+	job, exists := tc.jobs[name]
+	if !exists {
+		return jobInfo, gen.ErrUnknown
+	}
+
+	jobInfo = gen.CronJobInfo{
+		Name:       name,
+		Spec:       job.Spec,
+		Location:   job.Location.String(),
+		ActionInfo: job.Action.Info(),
+		Disabled:   false,
+		Fallback:   job.Fallback,
+	}
+
+	return jobInfo, nil
+}
+
+// Schedule returns a list of jobs planned to be run for the given period
+func (tc *TestCron) Schedule(since time.Time, duration time.Duration) []gen.CronSchedule {
+	var schedule []gen.CronSchedule
+
+	// For testing purposes, return a simplified schedule
+	// In real testing, you would parse the cron spec and calculate actual schedules
+	start := since.Truncate(time.Minute)
+	end := start.Add(duration)
+
+	for now := start; now.Before(end); now = now.Add(time.Minute) {
+		cronSchedule := gen.CronSchedule{
+			Time: now,
+			Jobs: []gen.Atom{},
+		}
+
+		// For simplicity in testing, we'll say all jobs run every minute
+		// Real implementation would parse cron specs
+		for name := range tc.jobs {
+			cronSchedule.Jobs = append(cronSchedule.Jobs, name)
+		}
+
+		if len(cronSchedule.Jobs) > 0 {
+			schedule = append(schedule, cronSchedule)
+		}
+	}
+
+	return schedule
+}
+
+// JobSchedule returns a list of scheduled run times for the given job and period
+func (tc *TestCron) JobSchedule(job gen.Atom, since time.Time, duration time.Duration) ([]time.Time, error) {
+	if _, exists := tc.jobs[job]; !exists {
+		return nil, gen.ErrUnknown
+	}
+
+	var schedule []time.Time
+	start := since.Truncate(time.Minute)
+	end := start.Add(duration)
+
+	// For testing purposes, return every minute (simplified)
+	for now := start; now.Before(end); now = now.Add(time.Minute) {
+		schedule = append(schedule, now)
+	}
+
+	return schedule, nil
+}
+
+// SetMockTime allows setting a mock time for testing time-dependent cron functionality
+func (tc *TestCron) SetMockTime(t time.Time) {
+	tc.mockTime = t
+	tc.useMockTime = true
+}
+
+// UseMockTime enables or disables mock time usage
+func (tc *TestCron) UseMockTime(use bool) {
+	tc.useMockTime = use
+}
+
+// TriggerJob manually triggers a cron job for testing purposes
+func (tc *TestCron) TriggerJob(name gen.Atom) error {
+	tc.t.Helper()
+
+	job, exists := tc.jobs[name]
+	if !exists {
+		return gen.ErrUnknown
+	}
+
+	// Use mock time if set, otherwise use current time
+	actionTime := time.Now()
+	if tc.useMockTime {
+		actionTime = tc.mockTime
+	}
+
+	// Record execution event
+	event := CronJobExecutionEvent{
+		Name:       name,
+		Time:       actionTime,
+		ActionInfo: job.Action.Info(),
+	}
+	tc.events.Push(event)
+
+	return nil
 }

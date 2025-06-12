@@ -23,6 +23,7 @@ type TestProcess struct {
 	name     gen.Atom
 	state    gen.ProcessState
 	behavior gen.ProcessBehavior
+	mailbox  gen.ProcessMailbox
 }
 
 // NewTestProcess creates a new test process instance
@@ -47,6 +48,12 @@ func NewTestProcess(t testing.TB, events lib.QueueMPSC, node *TestNode, options 
 		env:     options.Env,
 		name:    options.Register,
 		state:   gen.ProcessStateRunning,
+		mailbox: gen.ProcessMailbox{
+			Main:   lib.NewQueueMPSC(),
+			System: lib.NewQueueMPSC(),
+			Urgent: lib.NewQueueMPSC(),
+			Log:    lib.NewQueueMPSC(),
+		},
 	}
 
 	tp.log = NewTestLog(t, events, options.LogLevel)
@@ -144,23 +151,23 @@ func (tp *TestProcess) SendAfter(to any, message any, after time.Duration) (gen.
 }
 
 func (tp *TestProcess) SendResponse(to gen.PID, ref gen.Ref, response any) error {
-	tp.events.Push(SendEvent{
+	tp.events.Push(SendResponseEvent{
 		From:     tp.pid,
 		To:       to,
-		Message:  response,
-		Priority: tp.options.Priority,
+		Response: response,
 		Ref:      ref,
+		Priority: tp.options.Priority,
 	})
 	return nil
 }
 
 func (tp *TestProcess) SendResponseError(to gen.PID, ref gen.Ref, err error) error {
-	tp.events.Push(SendEvent{
+	tp.events.Push(SendResponseErrorEvent{
 		From:     tp.pid,
 		To:       to,
-		Message:  err,
-		Priority: tp.options.Priority,
+		Error:    err,
 		Ref:      ref,
+		Priority: tp.options.Priority,
 	})
 	return nil
 }
@@ -632,7 +639,7 @@ func (tp *TestProcess) Events() []gen.Atom {
 
 // Mailbox and process info methods
 func (tp *TestProcess) Mailbox() gen.ProcessMailbox {
-	return gen.ProcessMailbox{}
+	return tp.mailbox
 }
 
 func (tp *TestProcess) Info() (gen.ProcessInfo, error) {

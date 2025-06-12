@@ -60,7 +60,6 @@ func (sa *SendAssertion) Assert() {
 			continue
 		}
 
-		// Check if this send event matches our criteria
 		matches := true
 
 		if sa.to != nil && !reflect.DeepEqual(sendEvent.To, sa.to) {
@@ -71,7 +70,7 @@ func (sa *SendAssertion) Assert() {
 			matches = false
 		}
 
-		// Apply custom matchers
+		// Check custom matchers
 		for _, matcher := range sa.matchers {
 			if !matcher(sendEvent.Message) {
 				matches = false
@@ -761,4 +760,607 @@ func (nca *NodeConnectionAssertion) matches(event NodeConnectionEvent) bool {
 		return false
 	}
 	return true
+}
+
+// SendResponseErrorAssertion for testing send response error events
+type SendResponseErrorAssertion struct {
+	actor    *TestActor
+	expected bool
+	to       gen.PID
+	error    error
+	ref      gen.Ref
+	count    int
+	matchers []func(error) bool
+}
+
+func (srea *SendResponseErrorAssertion) To(to gen.PID) *SendResponseErrorAssertion {
+	srea.to = to
+	return srea
+}
+
+func (srea *SendResponseErrorAssertion) Error(err error) *SendResponseErrorAssertion {
+	srea.error = err
+	return srea
+}
+
+func (srea *SendResponseErrorAssertion) Ref(ref gen.Ref) *SendResponseErrorAssertion {
+	srea.ref = ref
+	return srea
+}
+
+func (srea *SendResponseErrorAssertion) WithRef(ref gen.Ref) *SendResponseErrorAssertion {
+	srea.ref = ref
+	return srea
+}
+
+func (srea *SendResponseErrorAssertion) ErrorMatching(matcher func(error) bool) *SendResponseErrorAssertion {
+	srea.matchers = append(srea.matchers, matcher)
+	return srea
+}
+
+func (srea *SendResponseErrorAssertion) Times(n int) *SendResponseErrorAssertion {
+	srea.count = n
+	return srea
+}
+
+func (srea *SendResponseErrorAssertion) Once() *SendResponseErrorAssertion {
+	return srea.Times(1)
+}
+
+func (srea *SendResponseErrorAssertion) Assert() {
+	srea.actor.t.Helper()
+
+	events := srea.actor.Events()
+	matchingEvents := 0
+
+	for _, event := range events {
+		responseErrorEvent, ok := event.(SendResponseErrorEvent)
+		if !ok {
+			continue
+		}
+
+		matches := true
+
+		if srea.to.Node != "" && !reflect.DeepEqual(responseErrorEvent.To, srea.to) {
+			matches = false
+		}
+
+		if srea.error != nil && !reflect.DeepEqual(responseErrorEvent.Error, srea.error) {
+			matches = false
+		}
+
+		if srea.ref.Node != "" && !reflect.DeepEqual(responseErrorEvent.Ref, srea.ref) {
+			matches = false
+		}
+
+		// Check custom matchers
+		for _, matcher := range srea.matchers {
+			if !matcher(responseErrorEvent.Error) {
+				matches = false
+				break
+			}
+		}
+
+		if matches {
+			matchingEvents++
+		}
+	}
+
+	if srea.expected {
+		if matchingEvents != srea.count {
+			srea.actor.t.Errorf("Expected %d SendResponseError events, but found %d", srea.count, matchingEvents)
+		}
+	} else {
+		if matchingEvents > 0 {
+			srea.actor.t.Errorf("Expected no SendResponseError events, but found %d", matchingEvents)
+		}
+	}
+}
+
+// CronJobAssertion for testing cron job operations
+type CronJobAssertion struct {
+	actor    *TestActor
+	expected bool
+	count    int
+	action   string // "add", "remove", "enable", "disable"
+	name     gen.Atom
+	spec     string
+	matchers []func(gen.CronJob) bool
+}
+
+func (cja *CronJobAssertion) WithName(name gen.Atom) *CronJobAssertion {
+	cja.name = name
+	return cja
+}
+
+func (cja *CronJobAssertion) WithSpec(spec string) *CronJobAssertion {
+	cja.spec = spec
+	return cja
+}
+
+func (cja *CronJobAssertion) JobMatching(matcher func(gen.CronJob) bool) *CronJobAssertion {
+	cja.matchers = append(cja.matchers, matcher)
+	return cja
+}
+
+func (cja *CronJobAssertion) Times(n int) *CronJobAssertion {
+	cja.count = n
+	return cja
+}
+
+func (cja *CronJobAssertion) Once() *CronJobAssertion {
+	return cja.Times(1)
+}
+
+func (cja *CronJobAssertion) Assert() {
+	cja.actor.t.Helper()
+
+	events := cja.actor.Events()
+	matchingEvents := 0
+
+	for _, event := range events {
+		matches := false
+
+		switch cja.action {
+		case "add":
+			if addEvent, ok := event.(CronJobAddEvent); ok {
+				matches = cja.matchesJob(addEvent.Job)
+			}
+		case "remove":
+			if removeEvent, ok := event.(CronJobRemoveEvent); ok {
+				matches = cja.name == "" || removeEvent.Name == cja.name
+			}
+		case "enable":
+			if enableEvent, ok := event.(CronJobEnableEvent); ok {
+				matches = cja.name == "" || enableEvent.Name == cja.name
+			}
+		case "disable":
+			if disableEvent, ok := event.(CronJobDisableEvent); ok {
+				matches = cja.name == "" || disableEvent.Name == cja.name
+			}
+		}
+
+		if matches {
+			matchingEvents++
+		}
+	}
+
+	if cja.expected {
+		if matchingEvents != cja.count {
+			cja.actor.t.Errorf("Expected %d cron job %s events, but found %d", cja.count, cja.action, matchingEvents)
+		}
+	} else {
+		if matchingEvents > 0 {
+			cja.actor.t.Errorf("Expected no cron job %s events, but found %d", cja.action, matchingEvents)
+		}
+	}
+}
+
+func (cja *CronJobAssertion) matchesJob(job gen.CronJob) bool {
+	if cja.name != "" && job.Name != cja.name {
+		return false
+	}
+	if cja.spec != "" && job.Spec != cja.spec {
+		return false
+	}
+	for _, matcher := range cja.matchers {
+		if !matcher(job) {
+			return false
+		}
+	}
+	return true
+}
+
+// CronJobExecutionAssertion for testing cron job executions
+type CronJobExecutionAssertion struct {
+	actor    *TestActor
+	expected bool
+	count    int
+	name     gen.Atom
+	hasError *bool
+	matchers []func(CronJobExecutionEvent) bool
+}
+
+func (cjea *CronJobExecutionAssertion) WithName(name gen.Atom) *CronJobExecutionAssertion {
+	cjea.name = name
+	return cjea
+}
+
+func (cjea *CronJobExecutionAssertion) WithError() *CronJobExecutionAssertion {
+	hasError := true
+	cjea.hasError = &hasError
+	return cjea
+}
+
+func (cjea *CronJobExecutionAssertion) WithoutError() *CronJobExecutionAssertion {
+	hasError := false
+	cjea.hasError = &hasError
+	return cjea
+}
+
+func (cjea *CronJobExecutionAssertion) ExecutionMatching(matcher func(CronJobExecutionEvent) bool) *CronJobExecutionAssertion {
+	cjea.matchers = append(cjea.matchers, matcher)
+	return cjea
+}
+
+func (cjea *CronJobExecutionAssertion) Times(n int) *CronJobExecutionAssertion {
+	cjea.count = n
+	return cjea
+}
+
+func (cjea *CronJobExecutionAssertion) Once() *CronJobExecutionAssertion {
+	return cjea.Times(1)
+}
+
+func (cjea *CronJobExecutionAssertion) Assert() {
+	cjea.actor.t.Helper()
+
+	events := cjea.actor.Events()
+	matchingEvents := 0
+
+	for _, event := range events {
+		if execEvent, ok := event.(CronJobExecutionEvent); ok {
+			if cjea.matchesExecution(execEvent) {
+				matchingEvents++
+			}
+		}
+	}
+
+	if cjea.expected {
+		if matchingEvents != cjea.count {
+			cjea.actor.t.Errorf("Expected %d cron job execution events, but found %d", cjea.count, matchingEvents)
+		}
+	} else {
+		if matchingEvents > 0 {
+			cjea.actor.t.Errorf("Expected no cron job execution events, but found %d", matchingEvents)
+		}
+	}
+}
+
+func (cjea *CronJobExecutionAssertion) matchesExecution(event CronJobExecutionEvent) bool {
+	if cjea.name != "" && event.Name != cjea.name {
+		return false
+	}
+	if cjea.hasError != nil {
+		hasError := event.Error != nil
+		if *cjea.hasError != hasError {
+			return false
+		}
+	}
+	for _, matcher := range cjea.matchers {
+		if !matcher(event) {
+			return false
+		}
+	}
+	return true
+}
+
+// SendResponseAssertion provides fluent assertions for SendResponse operations
+type SendResponseAssertion struct {
+	actor    *TestActor
+	expected bool
+	to       gen.PID
+	response any
+	ref      gen.Ref
+	count    int
+	matchers []func(any) bool
+}
+
+func (sra *SendResponseAssertion) To(target gen.PID) *SendResponseAssertion {
+	sra.to = target
+	return sra
+}
+
+func (sra *SendResponseAssertion) Response(response any) *SendResponseAssertion {
+	sra.response = response
+	return sra
+}
+
+func (sra *SendResponseAssertion) ResponseMatching(matcher func(any) bool) *SendResponseAssertion {
+	sra.matchers = append(sra.matchers, matcher)
+	return sra
+}
+
+func (sra *SendResponseAssertion) WithRef(ref gen.Ref) *SendResponseAssertion {
+	sra.ref = ref
+	return sra
+}
+
+func (sra *SendResponseAssertion) Times(n int) *SendResponseAssertion {
+	sra.count = n
+	return sra
+}
+
+func (sra *SendResponseAssertion) Once() *SendResponseAssertion {
+	return sra.Times(1)
+}
+
+func (sra *SendResponseAssertion) Assert() {
+	sra.actor.t.Helper()
+
+	events := sra.actor.Events()
+	matchingEvents := 0
+
+	for _, event := range events {
+		responseEvent, ok := event.(SendResponseEvent)
+		if !ok {
+			continue
+		}
+
+		matches := true
+
+		if sra.to.ID != 0 && responseEvent.To != sra.to {
+			matches = false
+		}
+
+		if sra.response != nil && !reflect.DeepEqual(responseEvent.Response, sra.response) {
+			matches = false
+		}
+
+		if sra.ref.ID[0] != 0 && responseEvent.Ref != sra.ref {
+			matches = false
+		}
+
+		// Check custom matchers
+		for _, matcher := range sra.matchers {
+			if !matcher(responseEvent.Response) {
+				matches = false
+				break
+			}
+		}
+
+		if matches {
+			matchingEvents++
+		}
+	}
+
+	if sra.expected {
+		if matchingEvents != sra.count {
+			sra.actor.t.Errorf("Expected %d SendResponse events, but found %d", sra.count, matchingEvents)
+		}
+	} else {
+		if matchingEvents > 0 {
+			sra.actor.t.Errorf("Expected no SendResponse events, but found %d", matchingEvents)
+		}
+	}
+}
+
+// TerminateAssertion provides fluent assertions for actor termination
+type TerminateAssertion struct {
+	actor    *TestActor
+	expected bool
+	count    int
+	reason   error
+	matchers []func(error) bool
+}
+
+func (ta *TerminateAssertion) WithReason(reason error) *TerminateAssertion {
+	ta.reason = reason
+	return ta
+}
+
+func (ta *TerminateAssertion) ReasonMatching(matcher func(error) bool) *TerminateAssertion {
+	ta.matchers = append(ta.matchers, matcher)
+	return ta
+}
+
+func (ta *TerminateAssertion) Times(n int) *TerminateAssertion {
+	ta.count = n
+	return ta
+}
+
+func (ta *TerminateAssertion) Once() *TerminateAssertion {
+	return ta.Times(1)
+}
+
+func (ta *TerminateAssertion) Assert() {
+	ta.actor.t.Helper()
+
+	events := ta.actor.Events()
+	matchingEvents := 0
+
+	for _, event := range events {
+		terminateEvent, ok := event.(TerminateEvent)
+		if !ok {
+			continue
+		}
+
+		matches := true
+
+		// Check if PIDs match (terminate event should be for this actor)
+		if terminateEvent.PID != ta.actor.PID() {
+			matches = false
+		}
+
+		// Check specific reason if provided
+		if ta.reason != nil && terminateEvent.Reason != ta.reason {
+			matches = false
+		}
+
+		// Check custom matchers
+		for _, matcher := range ta.matchers {
+			if !matcher(terminateEvent.Reason) {
+				matches = false
+				break
+			}
+		}
+
+		if matches {
+			matchingEvents++
+		}
+	}
+
+	if ta.expected {
+		if matchingEvents != ta.count {
+			ta.actor.t.Errorf("Expected %d Terminate events, but found %d", ta.count, matchingEvents)
+		}
+	} else {
+		if matchingEvents > 0 {
+			ta.actor.t.Errorf("Expected no Terminate events, but found %d", matchingEvents)
+		}
+	}
+}
+
+// ExitAssertion provides fluent assertions for SendExit operations
+type ExitAssertion struct {
+	actor    *TestActor
+	expected bool
+	count    int
+	to       gen.PID
+	reason   error
+	matchers []func(error) bool
+}
+
+func (ea *ExitAssertion) To(target gen.PID) *ExitAssertion {
+	ea.to = target
+	return ea
+}
+
+func (ea *ExitAssertion) WithReason(reason error) *ExitAssertion {
+	ea.reason = reason
+	return ea
+}
+
+func (ea *ExitAssertion) ReasonMatching(matcher func(error) bool) *ExitAssertion {
+	ea.matchers = append(ea.matchers, matcher)
+	return ea
+}
+
+func (ea *ExitAssertion) Times(n int) *ExitAssertion {
+	ea.count = n
+	return ea
+}
+
+func (ea *ExitAssertion) Once() *ExitAssertion {
+	return ea.Times(1)
+}
+
+func (ea *ExitAssertion) Assert() {
+	ea.actor.t.Helper()
+
+	events := ea.actor.Events()
+	matchingEvents := 0
+
+	for _, event := range events {
+		exitEvent, ok := event.(ExitEvent)
+		if !ok {
+			continue
+		}
+
+		matches := true
+
+		// Check target PID if specified
+		if ea.to.ID != 0 && exitEvent.To != ea.to {
+			matches = false
+		}
+
+		// Check specific reason if provided
+		if ea.reason != nil && exitEvent.Reason != ea.reason {
+			matches = false
+		}
+
+		// Check custom matchers
+		for _, matcher := range ea.matchers {
+			if !matcher(exitEvent.Reason) {
+				matches = false
+				break
+			}
+		}
+
+		if matches {
+			matchingEvents++
+		}
+	}
+
+	if ea.expected {
+		if matchingEvents != ea.count {
+			ea.actor.t.Errorf("Expected %d SendExit events, but found %d", ea.count, matchingEvents)
+		}
+	} else {
+		if matchingEvents > 0 {
+			ea.actor.t.Errorf("Expected no SendExit events, but found %d", matchingEvents)
+		}
+	}
+}
+
+// ExitMetaAssertion provides fluent assertions for SendExitMeta operations
+type ExitMetaAssertion struct {
+	actor    *TestActor
+	expected bool
+	count    int
+	meta     gen.Alias
+	reason   error
+	matchers []func(error) bool
+}
+
+func (ema *ExitMetaAssertion) ToMeta(target gen.Alias) *ExitMetaAssertion {
+	ema.meta = target
+	return ema
+}
+
+func (ema *ExitMetaAssertion) WithReason(reason error) *ExitMetaAssertion {
+	ema.reason = reason
+	return ema
+}
+
+func (ema *ExitMetaAssertion) ReasonMatching(matcher func(error) bool) *ExitMetaAssertion {
+	ema.matchers = append(ema.matchers, matcher)
+	return ema
+}
+
+func (ema *ExitMetaAssertion) Times(n int) *ExitMetaAssertion {
+	ema.count = n
+	return ema
+}
+
+func (ema *ExitMetaAssertion) Once() *ExitMetaAssertion {
+	return ema.Times(1)
+}
+
+func (ema *ExitMetaAssertion) Assert() {
+	ema.actor.t.Helper()
+
+	events := ema.actor.Events()
+	matchingEvents := 0
+
+	for _, event := range events {
+		exitEvent, ok := event.(ExitMetaEvent)
+		if !ok {
+			continue
+		}
+
+		matches := true
+
+		// Check target meta if specified
+		if ema.meta.ID[0] != 0 && exitEvent.Meta != ema.meta {
+			matches = false
+		}
+
+		// Check specific reason if provided
+		if ema.reason != nil && exitEvent.Reason != ema.reason {
+			matches = false
+		}
+
+		// Check custom matchers
+		for _, matcher := range ema.matchers {
+			if !matcher(exitEvent.Reason) {
+				matches = false
+				break
+			}
+		}
+
+		if matches {
+			matchingEvents++
+		}
+	}
+
+	if ema.expected {
+		if matchingEvents != ema.count {
+			ema.actor.t.Errorf("Expected %d SendExitMeta events, but found %d", ema.count, matchingEvents)
+		}
+	} else {
+		if matchingEvents > 0 {
+			ema.actor.t.Errorf("Expected no SendExitMeta events, but found %d", matchingEvents)
+		}
+	}
 }
