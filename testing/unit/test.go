@@ -143,7 +143,7 @@ func (ta *TestActor) SendMessage(from gen.PID, message any) *TestActor {
 func (ta *TestActor) Call(from gen.PID, request any) *CallResult {
 	ta.t.Helper()
 
-	ref := makeTestRef()
+	ref := makeTestRefWithCreation(ta.node.Name(), ta.node.Creation())
 	// For testing purposes, we can't directly call behavior methods
 	// This would need to be routed through the actor's ProcessRun method
 

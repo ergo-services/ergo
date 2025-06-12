@@ -420,7 +420,7 @@ func (tp *TestProcess) DemonitorNode(node gen.Atom) error {
 
 // Event methods
 func (tp *TestProcess) RegisterEvent(name gen.Atom, options gen.EventOptions) (gen.Ref, error) {
-	ref := makeTestRef()
+	ref := makeTestRefWithCreation(tp.pid.Node, tp.pid.Creation)
 	tp.events.Push(RegisterEvent{
 		Name:    name,
 		Options: options,

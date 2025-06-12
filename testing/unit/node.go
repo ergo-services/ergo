@@ -407,7 +407,7 @@ func (tn *TestNode) SendEvent(name gen.Atom, token gen.Ref, options gen.MessageO
 }
 
 func (tn *TestNode) RegisterEvent(name gen.Atom, options gen.EventOptions) (gen.Ref, error) {
-	ref := makeTestRef()
+	ref := makeTestRefWithCreation(tn.options.NodeName, tn.options.NodeCreation)
 	tn.events.Push(RegisterEvent{
 		Name:    name,
 		Options: options,
@@ -479,7 +479,7 @@ func (tn *TestNode) LoggerLevels(name string) []gen.LogLevel {
 }
 
 func (tn *TestNode) MakeRef() gen.Ref {
-	return makeTestRef()
+	return makeTestRefWithCreation(tn.options.NodeName, tn.options.NodeCreation)
 }
 
 func (tn *TestNode) Commercial() []gen.Version {
@@ -512,11 +512,11 @@ func (tn *TestNode) RemoveProcess(pid gen.PID) {
 	delete(tn.processes, pid)
 }
 
-// Helper function to create test references
-func makeTestRef() gen.Ref {
+// Helper function to create test references with consistent creation time
+func makeTestRefWithCreation(nodeName gen.Atom, creation int64) gen.Ref {
 	return gen.Ref{
-		Node:     "test@localhost",
-		Creation: time.Now().Unix(),
+		Node:     nodeName,
+		Creation: creation,
 		ID:       [3]uint64{uint64(time.Now().UnixNano()), 0, 0},
 	}
 }

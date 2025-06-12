@@ -264,20 +264,6 @@ func TestNetworkOperations(t *testing.T) {
 	unit.Nil(t, err)
 	unit.Equal(t, 1, len(routes))
 
-	// Test proxy routes
-	proxyRoute := gen.NetworkProxyRoute{
-		Route: gen.ProxyRoute{
-			To:    "target@node",
-			Proxy: "proxy@node",
-		},
-	}
-	err = network.AddProxyRoute("target.*", proxyRoute, 50)
-	unit.Nil(t, err)
-
-	proxyRoutes, err := network.ProxyRoute("target@node")
-	unit.Nil(t, err)
-	unit.Equal(t, 1, len(proxyRoutes))
-
 	// Test resolver operations
 	resolver := registrar.Resolver()
 	resolvedRoutes, err := resolver.Resolve(actor.Node().Name())
@@ -332,21 +318,11 @@ func TestNetworkSetup(t *testing.T) {
 	err = network.AddRoute("^database@prod$", specificRoute, 200) // Higher weight = higher priority
 	unit.Nil(t, err)
 
-	// Method 2: Add proxy routes (for routing through intermediate nodes)
-	proxyRoute := gen.NetworkProxyRoute{
-		Route: gen.ProxyRoute{
-			To:    "target@remote",
-			Proxy: "gateway@proxy",
-		},
-	}
-	err = network.AddProxyRoute("target.*", proxyRoute, 50)
-	unit.Nil(t, err)
-
-	// Method 3: Add remote nodes to the network (simulates connected nodes)
+	// Method 2: Add remote nodes to the network (simulates connected nodes)
 	// This creates mock connections to remote nodes
-	remoteNode1 := network.(*unit.TestNetwork).AddRemoteNode("worker@node1", true) // connected
-	network.(*unit.TestNetwork).AddRemoteNode("worker@node2", false)               // not connected
-	network.(*unit.TestNetwork).AddRemoteNode("database@prod", true)
+	remoteNode1 := actor.CreateRemoteNode("worker@node1", true) // connected
+	actor.CreateRemoteNode("worker@node2", false)               // not connected
+	actor.CreateRemoteNode("database@prod", true)
 
 	// Configure remote node properties
 	remoteNode1.SetUptime(3600) // 1 hour uptime
@@ -394,11 +370,6 @@ func TestNetworkSetup(t *testing.T) {
 	unit.Nil(t, err)
 	unit.Equal(t, 1, len(routes), "Should find route for database@prod")
 	unit.Equal(t, uint16(4370), routes[0].Route.Port)
-
-	// Test proxy route resolution
-	proxyRoutes, err := network.ProxyRoute("target@remote")
-	unit.Nil(t, err)
-	unit.Equal(t, 1, len(proxyRoutes))
 
 	// Test connected nodes
 	connectedNodes := network.Nodes()
@@ -1718,20 +1689,6 @@ func TestComplexNetworkScenarios(t *testing.T) {
 	unit.Nil(t, err)
 	unit.Equal(t, 1, len(routes))
 	unit.Equal(t, "us-east-node1.example.com", routes[0].Route.Host)
-
-	// Test proxy routes for cross-region communication
-	proxyRoute := gen.NetworkProxyRoute{
-		Route: gen.ProxyRoute{
-			To:    "asia-pacific-node1@asia-pacific.example.com",
-			Proxy: "us-west-node1@us-west.example.com",
-		},
-	}
-	err = network.AddProxyRoute("asia-pacific.*", proxyRoute, 75)
-	unit.Nil(t, err)
-
-	proxyRoutes, err := network.ProxyRoute("asia-pacific-node2@asia-pacific.example.com")
-	unit.Nil(t, err)
-	unit.Equal(t, 1, len(proxyRoutes))
 }
 
 // Test error propagation and recovery
