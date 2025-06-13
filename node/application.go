@@ -2,7 +2,6 @@ package node
 
 import (
 	"runtime"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -14,7 +13,7 @@ type application struct {
 	spec     gen.ApplicationSpec
 	node     *node
 	behavior gen.ApplicationBehavior
-	group    sync.Map
+	group    lib.Map[gen.PID, bool]
 	mode     gen.ApplicationMode
 
 	started int64
@@ -64,8 +63,7 @@ func (a *application) start(mode gen.ApplicationMode, options gen.ApplicationOpt
 
 		pid, err := a.node.spawn(item.Factory, opts)
 		if err != nil {
-			a.group.Range(func(k, _ any) bool {
-				pid := k.(gen.PID)
+			a.group.Range(func(pid gen.PID, _ bool) bool {
 				a.node.Kill(pid)
 				return true
 			})
@@ -122,8 +120,7 @@ func (a *application) stop(force bool, timeout time.Duration) error {
 	// update mode to prevent triggering 'permantent' mode
 	a.mode = gen.ApplicationModeTemporary
 
-	a.group.Range(func(k, _ any) bool {
-		pid := k.(gen.PID)
+	a.group.Range(func(pid gen.PID, _ bool) bool {
 		if force {
 			a.node.Kill(pid)
 		} else {
@@ -162,8 +159,7 @@ func (a *application) terminate(pid gen.PID, reason error) {
 		}
 		a.node.Log().Info("application %s (%s) will be stopped due to termination of %s with reason: %s", a.spec.Name, a.mode, pid, reason)
 		a.reason = reason
-		a.group.Range(func(k, _ any) bool {
-			pid := k.(gen.PID)
+		a.group.Range(func(pid gen.PID, _ bool) bool {
 			a.node.SendExit(pid, gen.TerminateReasonShutdown)
 			return true
 		})
@@ -180,8 +176,7 @@ func (a *application) terminate(pid gen.PID, reason error) {
 			break
 		}
 		a.reason = reason
-		a.group.Range(func(k, _ any) bool {
-			pid := k.(gen.PID)
+		a.group.Range(func(pid gen.PID, _ bool) bool {
 			a.node.SendExit(pid, gen.TerminateReasonShutdown)
 			return true
 		})
@@ -189,17 +184,11 @@ func (a *application) terminate(pid gen.PID, reason error) {
 		// do nothing
 	}
 
-	// check if it was the last item
-	empty := true
-	a.group.Range(func(_, _ any) bool {
-		empty = false
-		return false
-	})
-
-	if empty == false {
-		// do nothing
+	if a.group.Len() > 0 {
+		// waiting for the last application member to be terminated
 		return
 	}
+
 	if a.reason == nil {
 		a.reason = gen.TerminateReasonNormal
 	}
@@ -247,8 +236,7 @@ func (a *application) info() gen.ApplicationInfo {
 	info.Mode = a.mode
 	info.Uptime = time.Now().Unix() - a.started
 	info.Group = []gen.PID{}
-	a.group.Range(func(k, _ any) bool {
-		pid := k.(gen.PID)
+	a.group.Range(func(pid gen.PID, _ bool) bool {
 		info.Group = append(info.Group, pid)
 		return true
 	})

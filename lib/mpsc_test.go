@@ -1,11 +1,7 @@
 package lib
 
 import (
-	"math/rand"
-	"runtime"
-	"strconv"
 	"sync"
-	"sync/atomic"
 	"testing"
 )
 
@@ -152,71 +148,5 @@ func TestMPSCparallel(t *testing.T) {
 	}
 	if sum != sum1 {
 		t.Fatal("wrong value. exp", sum, "got", sum1)
-	}
-}
-
-type chanQueue struct {
-	q chan interface{}
-}
-
-type testQueue interface {
-	Push(v interface{}) bool
-	Pop() (interface{}, bool)
-}
-
-func newChanQueue() *chanQueue {
-	chq := &chanQueue{
-		q: make(chan interface{}, 100000000),
-	}
-	return chq
-}
-
-// Enqueue puts the given value v at the tail of the queue.
-func (cq *chanQueue) Push(v interface{}) bool {
-	select {
-	case cq.q <- v:
-		return true
-	default:
-		panic("channel is full")
-	}
-}
-
-func (cq *chanQueue) Pop() (interface{}, bool) {
-	v := <-cq.q
-	return v, true
-}
-func BenchmarkMPSC(b *testing.B) {
-	queues := map[string]testQueue{
-		"Chan queue           ": newChanQueue(),
-		"MPSC queue           ": NewQueueMPSC(),
-		"MPSC with limit queue": NewQueueLimitMPSC(0, false),
-	}
-
-	length := 1 << 12
-	inputs := make([]int, length)
-	for i := 0; i < length; i++ {
-		inputs = append(inputs, rand.Int())
-	}
-
-	for _, cpus := range []int{4, 32, 1024} {
-		runtime.GOMAXPROCS(cpus)
-		for name, q := range queues {
-			b.Run(name+"#"+strconv.Itoa(cpus), func(b *testing.B) {
-				b.ResetTimer()
-
-				var c int64
-				b.RunParallel(func(pb *testing.PB) {
-					for pb.Next() {
-						i := int(atomic.AddInt64(&c, 1)-1) % length
-						v := inputs[i]
-						if v >= 0 {
-							q.Push(v)
-						} else {
-							q.Pop()
-						}
-					}
-				})
-			})
-		}
 	}
 }
