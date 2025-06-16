@@ -471,15 +471,35 @@ func encodeBool(value reflect.Value, b *lib.Buffer, state *stateEncode) error {
 }
 
 func encodeString(value reflect.Value, b *lib.Buffer, state *stateEncode) error {
-	s := value.String()
-	// Use fast path for string encoding
-	return encodeStringFast(s, b, state.encodeType)
+	v := value.String()
+	lenString := len(v)
+	if lenString > math.MaxUint16 {
+		return ErrStringTooLong
+	}
+
+	if state.encodeType {
+		b.AppendByte(edtString)
+	}
+	buf := b.Extend(2)
+	binary.BigEndian.PutUint16(buf, uint16(lenString))
+	b.AppendString(v)
+	return nil
 }
 
 func encodeBinary(value reflect.Value, b *lib.Buffer, state *stateEncode) error {
-	data := value.Bytes()
-	// Use fast path for binary encoding
-	return encodeBinaryFast(data, b, state.encodeType)
+	v := value.Bytes()
+	lenBinary := len(v)
+	if lenBinary > math.MaxUint32 {
+		return ErrBinaryTooLong
+	}
+
+	if state.encodeType {
+		b.AppendByte(edtBinary)
+	}
+	buf := b.Extend(4)
+	binary.BigEndian.PutUint32(buf, uint32(lenBinary))
+	b.Append(v)
+	return nil
 }
 
 func encodeInt(value reflect.Value, b *lib.Buffer, state *stateEncode) error {
@@ -518,9 +538,12 @@ func encodeInt32(value reflect.Value, b *lib.Buffer, state *stateEncode) error {
 }
 
 func encodeInt64(value reflect.Value, b *lib.Buffer, state *stateEncode) error {
-	v := value.Int()
-	// Use fast path for int64 encoding
-	return encodeInt64Fast(v, b, state.encodeType)
+	if state.encodeType {
+		b.AppendByte(edtInt64)
+	}
+	buf := b.Extend(8)
+	binary.BigEndian.PutUint64(buf, uint64(value.Int()))
+	return nil
 }
 
 func encodeUint(value reflect.Value, b *lib.Buffer, state *stateEncode) error {
