@@ -8,9 +8,7 @@ import (
 	"time"
 )
 
-// TestMPSCRaceConditionFix tests the specific race condition that was fixed
-// where Pop() and Item() could cause inconsistent state due to non-atomic tail updates
-func TestMPSCRaceConditionFix(t *testing.T) {
+func TestMPSCRaceCondition(t *testing.T) {
 	const (
 		numProducers = 4
 		numMessages  = 1000
@@ -274,7 +272,6 @@ func TestMPSCValueNilExpected(t *testing.T) {
 	}
 }
 
-// BenchmarkMPSCConcurrentAccess benchmarks the fixed implementation
 func BenchmarkMPSCConcurrentAccess(b *testing.B) {
 	queue := NewQueueMPSC()
 
@@ -287,7 +284,6 @@ func BenchmarkMPSCConcurrentAccess(b *testing.B) {
 				queue.Pop()
 			}
 
-			// Occasionally call Item() to test the race condition fix
 			if counter%10 == 0 {
 				queue.Item()
 			}

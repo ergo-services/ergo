@@ -5,7 +5,6 @@ import (
 	"sync"
 	"testing"
 	"time"
-	"unsafe"
 )
 
 func TestOptimizedBasic(t *testing.T) {
@@ -118,13 +117,4 @@ func TestOptimizedSimpleMultiProducer(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("Multi-producer test timed out - possible deadlock")
 	}
-}
-
-func TestOptimizedMemoryLayout(t *testing.T) {
-	queue := NewQueueMPSC().(*queueMPSC)
-
-	t.Logf("Optimized MPSC queue size: %d bytes", unsafe.Sizeof(*queue))
-
-	item := &itemMPSC{}
-	t.Logf("Optimized item size: %d bytes", unsafe.Sizeof(*item))
 }
