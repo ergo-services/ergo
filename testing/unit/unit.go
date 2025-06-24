@@ -27,6 +27,7 @@ type TestActor struct {
 
 // TestOptions configures the test environment
 type TestOptions struct {
+	Args              []any
 	LogLevel          gen.LogLevel
 	Env               map[gen.Env]any
 	Parent            gen.PID
@@ -40,6 +41,13 @@ type TestOptions struct {
 
 // Option is a function for configuring TestOptions
 type Option func(*TestOptions)
+
+// WithArgs sets the arguments for the test actor
+func WithArgs(args ...any) Option {
+	return func(opts *TestOptions) {
+		opts.Args = args
+	}
+}
 
 // WithLogLevel sets the log level for the test actor
 func WithLogLevel(level gen.LogLevel) Option {
@@ -117,7 +125,7 @@ func Spawn(t testing.TB, factory gen.ProcessFactory, options ...Option) (*TestAc
 	if actorBehavior, ok := behavior.(interface {
 		ProcessInit(gen.Process, ...any) error
 	}); ok {
-		if err := actorBehavior.ProcessInit(ta.process); err != nil {
+		if err := actorBehavior.ProcessInit(ta.process, opts.Args...); err != nil {
 			return nil, fmt.Errorf("failed to initialize actor: %v", err)
 		}
 	}
