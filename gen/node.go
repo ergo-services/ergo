@@ -2,6 +2,8 @@ package gen
 
 import (
 	"time"
+
+	"ergo.services/ergo/gen"
 )
 
 type Node interface {
@@ -210,6 +212,7 @@ type Node interface {
 type NodeRegistrar interface {
 	Name() Atom
 	Creation() int64
+	SetEnv(name gen.Env, value any)
 	RegisterEvent(name Atom, options EventOptions) (Ref, error)
 	UnregisterEvent(name Atom) error
 	SendEvent(name Atom, token Ref, options MessageOptions, message any) error
