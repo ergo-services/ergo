@@ -232,3 +232,15 @@ type RequestDoSetLogLevelMeta struct {
 	Meta  gen.Alias
 	Level gen.LogLevel
 }
+
+// application list
+
+type RequestInspectApplicationList struct{}
+type ResponseInspectApplicationList struct {
+	Event gen.Event
+}
+
+type MessageInspectApplicationList struct {
+	Node         gen.Atom
+	Applications map[gen.Atom]gen.ApplicationInfo
+}

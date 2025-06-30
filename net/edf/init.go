@@ -42,6 +42,7 @@ var (
 		gen.ProcessOptionsExtra{},
 		gen.ApplicationOptions{},
 		gen.ApplicationOptionsExtra{},
+		gen.ApplicationInfo{},
 		gen.MetaInfo{},
 
 		gen.NetworkFlags{},
@@ -122,6 +123,10 @@ var (
 		inspect.RequestDoSetLogLevelProcess{},
 		inspect.RequestDoSetLogLevelMeta{},
 		inspect.ResponseDoSetLogLevel{},
+
+		inspect.RequestInspectApplicationList{},
+		inspect.ResponseInspectApplicationList{},
+		inspect.MessageInspectApplicationList{},
 	}
 
 	// register standard errors of the Ergo Framework

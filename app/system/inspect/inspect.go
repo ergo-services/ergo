@@ -47,6 +47,10 @@ const (
 
 	inspectLog           = "inspect_log"
 	inspectLogIdlePeriod = 10 * time.Second
+
+	inspectApplicationList           = "inspect_application_list"
+	inspectApplicationListPeriod     = time.Second
+	inspectApplicationListIdlePeriod = 5 * time.Second
 )
 
 var (
@@ -271,6 +275,22 @@ func (i *inspect) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error
 			ref: ref,
 		}
 		i.Send(pname, forward)
+		return nil, nil // no reply
+
+	case RequestInspectApplicationList:
+		opts := gen.ProcessOptions{
+			LinkParent: true,
+		}
+		_, err := i.SpawnRegister(inspectApplicationList, factory_application_list, opts)
+		if err != nil && err != gen.ErrTaken {
+			return err, nil
+		}
+		// forward this request
+		forward := requestInspect{
+			pid: from,
+			ref: ref,
+		}
+		i.Send(inspectApplicationList, forward)
 		return nil, nil // no reply
 
 	// do commands
