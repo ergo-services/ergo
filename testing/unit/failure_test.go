@@ -141,9 +141,8 @@ func TestFailureInjectionSystem(t *testing.T) {
 		spawnErr := errors.New("spawn failure")
 		node.SetMethodFailure("Spawn", spawnErr)
 
-		// Use common errors
-		node.SetMethodFailure("RegisterName", CommonErrors.ProcessAlreadyExists())
-		node.SetMethodFailure("Kill", CommonErrors.ProcessNotFound())
+		node.SetMethodFailure("RegisterName", gen.ErrTaken)
+		node.SetMethodFailure("Kill", gen.ErrProcessUnknown)
 
 		// Test spawn failure
 		_, err := node.Spawn(nil, gen.ProcessOptions{}, "test")
