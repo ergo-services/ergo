@@ -675,19 +675,26 @@ type supMessageChildTerminate struct {
 	reason error
 }
 
-// checkRestartIntensity returns true if exceeded
+// supCheckRestartIntensity returns true if exceeded
 func supCheckRestartIntensity(restarts []int64, period int, intensity int) ([]int64, bool) {
-	restarts = append(restarts, time.Now().Unix())
+	// Use milliseconds for better granularity
+	now := time.Now().UnixMilli()
+	restarts = append(restarts, now)
 	if len(restarts) <= intensity {
 		return restarts, false
 	}
 
-	p := int(time.Now().Unix() - restarts[0])
-	if p > period {
+	// Remove old restarts outside the period window
+	periodMillis := int64(period) * 1000
+	for len(restarts) > 0 && now-restarts[0] > periodMillis {
 		restarts = restarts[1:]
-		return restarts, false
 	}
-	return restarts, true
+
+	// Check if we still exceed intensity after cleanup
+	if len(restarts) > intensity {
+		return restarts, true
+	}
+	return restarts, false
 }
 
 func validateChildSpec(s SupervisorChildSpec) error {
