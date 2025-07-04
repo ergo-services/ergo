@@ -192,10 +192,6 @@ func (s *Supervisor) StartChild(name gen.Atom, args ...any) error {
 		return gen.ErrNotAllowed
 	}
 
-	if s.state != supStateNormal {
-		return ErrSupervisorStrategyActive
-	}
-
 	action, err := s.sup.childSpec(name)
 	if err != nil {
 		return err
@@ -203,6 +199,7 @@ func (s *Supervisor) StartChild(name gen.Atom, args ...any) error {
 	if len(args) > 0 {
 		action.spec.Args = args
 	}
+
 	return s.handleAction(action)
 }
 
@@ -225,10 +222,6 @@ func (s *Supervisor) AddChild(child SupervisorChildSpec) error {
 func (s *Supervisor) EnableChild(name gen.Atom) error {
 	if s.State() != gen.ProcessStateRunning {
 		return gen.ErrNotAllowed
-	}
-
-	if s.state != supStateNormal {
-		return ErrSupervisorStrategyActive
 	}
 
 	action, err := s.sup.childEnable(name)
@@ -317,6 +310,7 @@ func (s *Supervisor) ProcessInit(process gen.Process, args ...any) (rr error) {
 		if dup {
 			return ErrSupervisorChildDuplicate
 		}
+		duplicate[s.Name] = true
 	}
 
 	// create supervisor
@@ -561,7 +555,11 @@ func (s *Supervisor) handleAction(action supAction) error {
 			action.spec.Options.LinkParent = true
 
 			if action.spec.register {
-				pid, err = s.SpawnRegister(action.spec.Name, action.spec.Factory, action.spec.Options, action.spec.Args...)
+				pid, err = s.SpawnRegister(
+					action.spec.Name,
+					action.spec.Factory,
+					action.spec.Options,
+					action.spec.Args...)
 			} else {
 				pid, err = s.Spawn(action.spec.Factory, action.spec.Options, action.spec.Args...)
 			}
@@ -596,6 +594,7 @@ func (s *Supervisor) handleAction(action supAction) error {
 					s.Log().Info("Supervisor: terminate children %s", pid)
 				}
 			}
+			s.state = supStateNormal
 			return nil
 
 		case supActionTerminate:
@@ -679,7 +678,7 @@ type supMessageChildTerminate struct {
 // checkRestartIntensity returns true if exceeded
 func supCheckRestartIntensity(restarts []int64, period int, intensity int) ([]int64, bool) {
 	restarts = append(restarts, time.Now().Unix())
-	if len(restarts) < intensity {
+	if len(restarts) <= intensity {
 		return restarts, false
 	}
 

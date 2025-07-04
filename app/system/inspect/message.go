@@ -244,3 +244,19 @@ type MessageInspectApplicationList struct {
 	Node         gen.Atom
 	Applications map[gen.Atom]gen.ApplicationInfo
 }
+
+// application tree
+
+type RequestInspectApplicationTree struct {
+	Application gen.Atom
+	Limit       int
+}
+type ResponseInspectApplicationTree struct {
+	Event gen.Event
+}
+
+type MessageInspectApplicationTree struct {
+	Node        gen.Atom
+	Application gen.Atom
+	Processes   []gen.ProcessShortInfo
+}

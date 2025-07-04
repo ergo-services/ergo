@@ -26,6 +26,7 @@ type TestNode struct {
 	nextID    uint64
 	uptime    time.Time
 	cron      *TestCron
+	Failures
 }
 
 // TestCron implements gen.Cron interface for testing
@@ -51,6 +52,7 @@ func NewTestNode(t testing.TB, events lib.QueueMPSC, options TestOptions) *TestN
 		nextID:    2000,
 		uptime:    time.Now(),
 		cron:      NewTestCron(t, events),
+		Failures:  newFailures(events, "node"),
 	}
 
 	tn.log = NewTestLog(t, events, options.LogLevel)
@@ -146,6 +148,10 @@ func (tn *TestNode) EnvDefault(name gen.Env, def any) any {
 }
 
 func (tn *TestNode) Spawn(factory gen.ProcessFactory, options gen.ProcessOptions, args ...any) (gen.PID, error) {
+	if err := tn.CheckMethodFailure("Spawn", factory, options, args); err != nil {
+		return gen.PID{}, err
+	}
+
 	tn.nextID++
 	pid := gen.PID{
 		Node:     tn.options.NodeName,
@@ -163,7 +169,16 @@ func (tn *TestNode) Spawn(factory gen.ProcessFactory, options gen.ProcessOptions
 	return pid, nil
 }
 
-func (tn *TestNode) SpawnRegister(register gen.Atom, factory gen.ProcessFactory, options gen.ProcessOptions, args ...any) (gen.PID, error) {
+func (tn *TestNode) SpawnRegister(
+	register gen.Atom,
+	factory gen.ProcessFactory,
+	options gen.ProcessOptions,
+	args ...any,
+) (gen.PID, error) {
+	if err := tn.CheckMethodFailure("SpawnRegister", factory, options, args); err != nil {
+		return gen.PID{}, err
+	}
+
 	pid, err := tn.Spawn(factory, options, args...)
 	if err != nil {
 		return pid, err
@@ -178,6 +193,11 @@ func (tn *TestNode) SpawnRegister(register gen.Atom, factory gen.ProcessFactory,
 }
 
 func (tn *TestNode) RegisterName(name gen.Atom, pid gen.PID) error {
+	// Check for failure injection
+	if err := tn.CheckMethodFailure("RegisterName", name, pid); err != nil {
+		return err
+	}
+
 	tn.events.Push(RegisterNameEvent{
 		Name: name,
 		PID:  pid,
@@ -252,11 +272,21 @@ func (tn *TestNode) ApplicationInfo(name gen.Atom) (gen.ApplicationInfo, error) 
 }
 
 func (tn *TestNode) ApplicationUnload(name gen.Atom) error {
+	// Check for failure injection
+	if err := tn.CheckMethodFailure("ApplicationUnload", name); err != nil {
+		return err
+	}
+
 	tn.events.Push(UnregisterNameEvent{Name: name})
 	return nil
 }
 
 func (tn *TestNode) ApplicationStart(name gen.Atom, options gen.ApplicationOptions) error {
+	// Check for failure injection
+	if err := tn.CheckMethodFailure("ApplicationStart", name, options); err != nil {
+		return err
+	}
+
 	tn.events.Push(SpawnEvent{
 		Factory: nil,
 		Options: gen.ProcessOptions{},
@@ -306,6 +336,32 @@ func (tn *TestNode) ApplicationsRunning() []gen.Atom {
 	return []gen.Atom{}
 }
 
+// ApplicationProcessList returns the list of processes that belongs to the given application.
+func (tn *TestNode) ApplicationProcessList(name gen.Atom, limit int) ([]gen.PID, error) {
+	tn.events.Push(SpawnEvent{
+		Factory: nil,
+		Options: gen.ProcessOptions{},
+		Args:    []any{name, limit},
+		Result:  gen.PID{},
+	})
+
+	// Return empty list for testing - can be customized per test case
+	return []gen.PID{}, nil
+}
+
+// ApplicationProcessListShortInfo returns the list of processes that belongs to the given application.
+func (tn *TestNode) ApplicationProcessListShortInfo(name gen.Atom, limit int) ([]gen.ProcessShortInfo, error) {
+	tn.events.Push(SpawnEvent{
+		Factory: nil,
+		Options: gen.ProcessOptions{},
+		Args:    []any{name, limit},
+		Result:  gen.PID{},
+	})
+
+	// Return empty list for testing - can be customized per test case
+	return []gen.ProcessShortInfo{}, nil
+}
+
 // Network methods
 func (tn *TestNode) NetworkStart(options gen.NetworkOptions) error {
 	return nil
@@ -349,6 +405,11 @@ func (tn *TestNode) WaitWithTimeout(timeout time.Duration) error {
 }
 
 func (tn *TestNode) Kill(pid gen.PID) error {
+	// Check for failure injection
+	if err := tn.CheckMethodFailure("Kill", pid); err != nil {
+		return err
+	}
+
 	tn.events.Push(ExitEvent{
 		To:     pid,
 		Reason: gen.TerminateReasonKill,
@@ -357,6 +418,11 @@ func (tn *TestNode) Kill(pid gen.PID) error {
 }
 
 func (tn *TestNode) Send(to any, message any) error {
+	// Check for failure injection
+	if err := tn.CheckMethodFailure("Send", to, message); err != nil {
+		return err
+	}
+
 	tn.events.Push(SendEvent{
 		From:    tn.PID(),
 		To:      to,
@@ -441,6 +507,11 @@ func (tn *TestNode) UnregisterEvent(name gen.Atom) error {
 }
 
 func (tn *TestNode) SendExit(pid gen.PID, reason error) error {
+	// Check for failure injection
+	if err := tn.CheckMethodFailure("SendExit", pid, reason); err != nil {
+		return err
+	}
+
 	tn.events.Push(ExitEvent{
 		To:     pid,
 		Reason: reason,
@@ -520,6 +591,8 @@ func (tn *TestNode) Creation() int64 {
 func (tn *TestNode) SetCTRLC(enable bool) {
 	// No-op for testing
 }
+
+// Note: Failures interface methods are now embedded and automatically available
 
 // Additional test-specific methods
 

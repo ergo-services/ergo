@@ -16,16 +16,18 @@ type TestLog struct {
 	logger string
 	fields []gen.LogField
 	stack  [][]gen.LogField
+	Failures
 }
 
 // NewTestLog creates a new test log instance
 func NewTestLog(t testing.TB, events lib.QueueMPSC, level gen.LogLevel) *TestLog {
 	return &TestLog{
-		t:      t,
-		events: events,
-		level:  level,
-		fields: make([]gen.LogField, 0),
-		stack:  make([][]gen.LogField, 0),
+		t:        t,
+		events:   events,
+		level:    level,
+		fields:   make([]gen.LogField, 0),
+		stack:    make([][]gen.LogField, 0),
+		Failures: newFailures(events, "log"),
 	}
 }
 

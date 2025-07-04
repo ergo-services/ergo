@@ -1093,6 +1093,146 @@ func (n *node) ApplicationUnload(name gen.Atom) error {
 	return nil
 }
 
+func (n *node) ApplicationProcessList(name gen.Atom, limit int) ([]gen.PID, error) {
+	if limit < 0 {
+		return nil, gen.ErrIncorrect
+	}
+
+	if n.isRunning() == false {
+		return nil, gen.ErrNodeTerminated
+	}
+
+	v, exist := n.applications.Load(name)
+	if exist == false {
+		return nil, gen.ErrApplicationUnknown
+	}
+	app := v.(*application)
+	if app.isRunning() == false {
+		return nil, fmt.Errorf("application %s is not running", name)
+	}
+
+	members := make(map[gen.PID]bool, app.group.Len())
+	pids := make([]gen.PID, 0, app.group.Len())
+	app.group.Range(func(pid gen.PID, _ bool) bool {
+		members[pid] = true
+		pids = append(pids, pid)
+		return true
+	})
+
+	limit = app.group.Len() + limit
+
+	n.processes.Range(func(_, v any) bool {
+		p := v.(*process)
+		if p.application != name {
+			return true // continue
+		}
+		if _, exist := members[p.pid]; exist {
+			return true // continue
+		}
+		pids = append(pids, p.pid)
+
+		if len(pids) >= limit {
+			return false // stop
+		}
+
+		return true
+	})
+
+	return pids, nil
+}
+
+func (n *node) ApplicationProcessListShortInfo(name gen.Atom, limit int) ([]gen.ProcessShortInfo, error) {
+	if limit < 0 {
+		return nil, gen.ErrIncorrect
+	}
+
+	if n.isRunning() == false {
+		return nil, gen.ErrNodeTerminated
+	}
+
+	v, exist := n.applications.Load(name)
+	if exist == false {
+		return nil, gen.ErrApplicationUnknown
+	}
+	app := v.(*application)
+	if app.isRunning() == false {
+		return nil, fmt.Errorf("application %s is not running", name)
+	}
+
+	members := make(map[gen.PID]bool, app.group.Len())
+	psi := make([]gen.ProcessShortInfo, 0, app.group.Len())
+
+	app.group.Range(func(pid gen.PID, _ bool) bool {
+		v, exist := n.processes.Load(pid)
+		if exist == false {
+			return true // continue
+		}
+		p, _ := v.(*process)
+		messagesMailbox := p.mailbox.Main.Len() +
+			p.mailbox.System.Len() +
+			p.mailbox.Urgent.Len() +
+			p.mailbox.Log.Len()
+
+		info := gen.ProcessShortInfo{
+			PID:             p.pid,
+			Name:            p.name,
+			Application:     p.application,
+			Behavior:        p.sbehavior,
+			MessagesIn:      p.messagesIn,
+			MessagesOut:     p.messagesOut,
+			MessagesMailbox: uint64(messagesMailbox),
+			RunningTime:     p.runningTime,
+			Uptime:          p.Uptime(),
+			State:           p.State(),
+			Parent:          p.parent,
+			Leader:          p.leader,
+			LogLevel:        p.log.Level(),
+		}
+		psi = append(psi, info)
+		members[p.pid] = true
+		return true
+	})
+
+	limit = app.group.Len() + limit
+	n.processes.Range(func(_, v any) bool {
+		p := v.(*process)
+		if p.application != name {
+			return true // continue
+		}
+		if _, exist := members[p.pid]; exist {
+			return true // continue
+		}
+
+		messagesMailbox := p.mailbox.Main.Len() +
+			p.mailbox.System.Len() +
+			p.mailbox.Urgent.Len() +
+			p.mailbox.Log.Len()
+
+		info := gen.ProcessShortInfo{
+			PID:             p.pid,
+			Name:            p.name,
+			Application:     p.application,
+			Behavior:        p.sbehavior,
+			MessagesIn:      p.messagesIn,
+			MessagesOut:     p.messagesOut,
+			MessagesMailbox: uint64(messagesMailbox),
+			RunningTime:     p.runningTime,
+			Uptime:          p.Uptime(),
+			State:           p.State(),
+			Parent:          p.parent,
+			Leader:          p.leader,
+			LogLevel:        p.log.Level(),
+		}
+		psi = append(psi, info)
+		if len(psi) >= limit {
+			return false // stop
+		}
+		return true
+	})
+
+	return psi, nil
+}
+
 func (n *node) ApplicationStart(name gen.Atom, options gen.ApplicationOptions) error {
 	v, exist := n.applications.Load(name)
 	if exist == false {
@@ -1323,7 +1463,6 @@ func (n *node) LoggerDeletePID(pid gen.PID) {
 			p.loggername,
 		)
 	}
-	return
 }
 
 func (n *node) LoggerDelete(name string) {

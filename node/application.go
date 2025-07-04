@@ -223,7 +223,6 @@ func (a *application) terminate(pid gen.PID, reason error) {
 		return
 	}
 	a.registerAppRoute() // new state for the app
-	return
 }
 
 func (a *application) info() gen.ApplicationInfo {

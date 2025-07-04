@@ -127,6 +127,10 @@ var (
 		inspect.RequestInspectApplicationList{},
 		inspect.ResponseInspectApplicationList{},
 		inspect.MessageInspectApplicationList{},
+
+		inspect.RequestInspectApplicationTree{},
+		inspect.ResponseInspectApplicationTree{},
+		inspect.MessageInspectApplicationTree{},
 	}
 
 	// register standard errors of the Ergo Framework

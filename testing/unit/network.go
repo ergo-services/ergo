@@ -24,6 +24,7 @@ type TestNetwork struct {
 	protos      map[string]gen.NetworkProto
 	enabled     map[gen.Atom]enabledSpawn
 	enabledApps map[gen.Atom]enabledApp
+	Failures
 }
 
 type routeEntry struct {
@@ -80,6 +81,7 @@ func newTestNetwork(test *TestActor) *TestNetwork {
 		protos:      make(map[string]gen.NetworkProto),
 		enabled:     make(map[gen.Atom]enabledSpawn),
 		enabledApps: make(map[gen.Atom]enabledApp),
+		Failures:    newFailures(test.events, "network"),
 	}
 }
 
@@ -130,6 +132,11 @@ func (n *TestNetwork) Node(name gen.Atom) (gen.RemoteNode, error) {
 }
 
 func (n *TestNetwork) GetNode(name gen.Atom) (gen.RemoteNode, error) {
+	// Check for failure injection
+	if err := n.CheckMethodFailure("GetNode", name); err != nil {
+		return nil, err
+	}
+
 	if node, exists := n.nodes[name]; exists {
 		node.connected = true
 		return node, nil
@@ -397,7 +404,12 @@ func (rn *TestRemoteNode) Spawn(name gen.Atom, options gen.ProcessOptions, args 
 	return gen.PID{Node: rn.name, ID: 12345, Creation: rn.creation}, nil
 }
 
-func (rn *TestRemoteNode) SpawnRegister(register gen.Atom, name gen.Atom, options gen.ProcessOptions, args ...any) (gen.PID, error) {
+func (rn *TestRemoteNode) SpawnRegister(
+	register gen.Atom,
+	name gen.Atom,
+	options gen.ProcessOptions,
+	args ...any,
+) (gen.PID, error) {
 	return gen.PID{Node: rn.name, ID: 12346, Creation: rn.creation}, nil
 }
 

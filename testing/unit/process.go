@@ -24,6 +24,7 @@ type TestProcess struct {
 	state    gen.ProcessState
 	behavior gen.ProcessBehavior
 	mailbox  gen.ProcessMailbox
+	Failures
 }
 
 // NewTestProcess creates a new test process instance
@@ -39,15 +40,16 @@ func NewTestProcess(t testing.TB, events lib.QueueMPSC, node *TestNode, options 
 	}
 
 	tp := &TestProcess{
-		t:       t,
-		events:  events,
-		node:    node,
-		options: options,
-		pid:     pid,
-		nextID:  1001,
-		env:     options.Env,
-		name:    options.Register,
-		state:   gen.ProcessStateRunning,
+		t:        t,
+		events:   events,
+		node:     node,
+		options:  options,
+		pid:      pid,
+		nextID:   1001,
+		env:      options.Env,
+		name:     options.Register,
+		state:    gen.ProcessStateRunning,
+		Failures: newFailures(events, "process"),
 		mailbox: gen.ProcessMailbox{
 			Main:   lib.NewQueueMPSC(),
 			System: lib.NewQueueMPSC(),
@@ -109,6 +111,11 @@ func (tp *TestProcess) Uptime() int64 {
 }
 
 func (tp *TestProcess) Send(to any, message any) error {
+	// Check for failure injection
+	if err := tp.CheckMethodFailure("Send", to, message); err != nil {
+		return err
+	}
+
 	tp.events.Push(SendEvent{
 		From:     tp.pid,
 		To:       to,
@@ -247,6 +254,11 @@ func (tp *TestProcess) CallAlias(to gen.Alias, request any, timeout int) (any, e
 }
 
 func (tp *TestProcess) Spawn(factory gen.ProcessFactory, options gen.ProcessOptions, args ...any) (gen.PID, error) {
+	// Check for failure injection
+	if err := tp.CheckMethodFailure("Spawn", factory, options, args); err != nil {
+		return gen.PID{}, err
+	}
+
 	tp.nextID++
 	result := gen.PID{
 		Node:     tp.pid.Node,
@@ -450,7 +462,12 @@ func (tp *TestProcess) SendEvent(name gen.Atom, token gen.Ref, message any) erro
 	return nil
 }
 
-func (tp *TestProcess) SendEventWithOptions(name gen.Atom, token gen.Ref, options gen.MessageOptions, message any) error {
+func (tp *TestProcess) SendEventWithOptions(
+	name gen.Atom,
+	token gen.Ref,
+	options gen.MessageOptions,
+	message any,
+) error {
 	tp.events.Push(SendEventEvent{
 		Name:    name,
 		Token:   token,
@@ -572,7 +589,12 @@ func (tp *TestProcess) SendAlias(to gen.Alias, message any) error {
 }
 
 // Missing spawn methods
-func (tp *TestProcess) SpawnRegister(register gen.Atom, factory gen.ProcessFactory, options gen.ProcessOptions, args ...any) (gen.PID, error) {
+func (tp *TestProcess) SpawnRegister(
+	register gen.Atom,
+	factory gen.ProcessFactory,
+	options gen.ProcessOptions,
+	args ...any,
+) (gen.PID, error) {
 	pid, err := tp.Spawn(factory, options, args...)
 	if err != nil {
 		return pid, err
@@ -582,7 +604,12 @@ func (tp *TestProcess) SpawnRegister(register gen.Atom, factory gen.ProcessFacto
 	return pid, nil
 }
 
-func (tp *TestProcess) RemoteSpawn(node gen.Atom, name gen.Atom, options gen.ProcessOptions, args ...any) (gen.PID, error) {
+func (tp *TestProcess) RemoteSpawn(
+	node gen.Atom,
+	name gen.Atom,
+	options gen.ProcessOptions,
+	args ...any,
+) (gen.PID, error) {
 	tp.nextID++
 	result := gen.PID{
 		Node:     node,
@@ -601,7 +628,13 @@ func (tp *TestProcess) RemoteSpawn(node gen.Atom, name gen.Atom, options gen.Pro
 	return result, nil
 }
 
-func (tp *TestProcess) RemoteSpawnRegister(node gen.Atom, name gen.Atom, register gen.Atom, options gen.ProcessOptions, args ...any) (gen.PID, error) {
+func (tp *TestProcess) RemoteSpawnRegister(
+	node gen.Atom,
+	name gen.Atom,
+	register gen.Atom,
+	options gen.ProcessOptions,
+	args ...any,
+) (gen.PID, error) {
 	tp.nextID++
 	result := gen.PID{
 		Node:     node,
@@ -667,29 +700,10 @@ func (tp *TestProcess) Forward(to gen.PID, message *gen.MailboxMessage, priority
 	return nil
 }
 
-// Process lifecycle methods (low-level API)
 func (tp *TestProcess) ProcessInit(process gen.Process, args ...any) error {
-	// This should not be called on TestProcess
 	return fmt.Errorf("ProcessInit should not be called on TestProcess")
 }
 
-func (tp *TestProcess) ProcessHandleMessage(from gen.PID, message any) error {
-	// This should not be called on TestProcess
-	return fmt.Errorf("ProcessHandleMessage should not be called on TestProcess")
-}
-
-func (tp *TestProcess) ProcessHandleCall(from gen.PID, ref gen.Ref, request any) (any, error) {
-	// This should not be called on TestProcess
-	return nil, fmt.Errorf("ProcessHandleCall should not be called on TestProcess")
-}
-
 func (tp *TestProcess) ProcessTerminate(reason error) {
-	// This should not be called on TestProcess
-}
-
-func (tp *TestProcess) ProcessHandleInspect(from gen.PID, item ...string) map[string]string {
-	return map[string]string{
-		"type": "test_process",
-		"pid":  tp.pid.String(),
-	}
+	tp.t.Fatalf("ProcessTerminate should not be called on TestProcess: %v", reason)
 }

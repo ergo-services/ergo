@@ -335,6 +335,7 @@ func (s *supOFO) childEnable(name gen.Atom) (supAction, error) {
 		}
 
 		// it was disabled. enable it and start child process with this spec
+		cs.disabled = false
 
 		action.do = supActionStartChild
 		action.spec = *cs

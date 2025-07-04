@@ -74,6 +74,14 @@ type Node interface {
 	// Returns error gen.ErrApplicationUnknown if it does not exist in the node
 	ApplicationInfo(name Atom) (ApplicationInfo, error)
 
+	// ApplicationProcessList returns the list of processes that belongs to the given application.
+	// It includes all processes that are started by this application and its children.
+	ApplicationProcessList(name Atom, limit int) ([]PID, error)
+
+	// ApplicationProcessListShortInfo returns the list of processes that belongs to the given application.
+	// It includes all processes that are started by this application and its children.
+	ApplicationProcessListShortInfo(name Atom, limit int) ([]ProcessShortInfo, error)
+
 	// ApplicationUnload unloads application from the node. Returns gen.ErrApplicationRunning
 	// if given application is already started (must be stopped before the unloading).
 	// Or returns error gen.ErrApplicationUnknown if it does not exist in the node.

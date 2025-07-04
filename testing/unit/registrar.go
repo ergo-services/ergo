@@ -15,12 +15,12 @@ type TestRegistrar struct {
 	apps     map[gen.Atom][]gen.ApplicationRoute
 	config   map[string]any
 	event    gen.Event
-	eventRef gen.Ref
 	version  gen.Version
 	info     gen.RegistrarInfo
 	node     gen.NodeRegistrar
 	mutex    sync.RWMutex
 	active   bool
+	Failures
 }
 
 // TestResolver implements gen.Resolver interface for testing
@@ -30,12 +30,13 @@ type TestResolver struct {
 
 func newTestRegistrar(test *TestActor) *TestRegistrar {
 	registrar := &TestRegistrar{
-		test:    test,
-		nodes:   make(map[gen.Atom][]gen.Route),
-		proxies: make(map[gen.Atom][]gen.ProxyRoute),
-		apps:    make(map[gen.Atom][]gen.ApplicationRoute),
-		config:  make(map[string]any),
-		version: gen.Version{Name: "test-registrar", Release: "1.0", License: gen.LicenseBSL1},
+		test:     test,
+		nodes:    make(map[gen.Atom][]gen.Route),
+		proxies:  make(map[gen.Atom][]gen.ProxyRoute),
+		apps:     make(map[gen.Atom][]gen.ApplicationRoute),
+		config:   make(map[string]any),
+		version:  gen.Version{Name: "test-registrar", Release: "1.0", License: gen.LicenseMIT},
+		Failures: newFailures(test.events, "registrar"),
 		info: gen.RegistrarInfo{
 			Server:                     "test-server:4499",
 			EmbeddedServer:             true,
@@ -43,7 +44,7 @@ func newTestRegistrar(test *TestActor) *TestRegistrar {
 			SupportRegisterApplication: true,
 			SupportConfig:              true,
 			SupportEvent:               true,
-			Version:                    gen.Version{Name: "test-registrar", Release: "1.0", License: gen.LicenseBSL1},
+			Version:                    gen.Version{Name: "test-registrar", Release: "1.0", License: gen.LicenseMIT},
 		},
 		active: true,
 	}
