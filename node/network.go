@@ -649,6 +649,10 @@ func (n *network) GetConnection(name gen.Atom) (gen.Connection, error) {
 		if lib.Trace() {
 			n.node.Log().Trace("unable to connect to %s directly, looking up proxies...", name)
 		}
+	} else {
+		if lib.Trace() {
+			n.node.Log().Trace("attempt to resolve %s failed: %s", name, err)
+		}
 	}
 
 	// resolve proxy

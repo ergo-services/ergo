@@ -88,6 +88,10 @@ func (n *node) RouteSendProcessID(from gen.PID, to gen.ProcessID, options gen.Me
 		n.log.Trace("RouteSendProcessID from %s to %s", from, to)
 	}
 
+	if to.Node == "" {
+		to.Node = n.name
+	}
+
 	if to.Node != n.name {
 		// remote
 		connection, err := n.network.GetConnection(to.Node)

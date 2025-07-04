@@ -192,10 +192,6 @@ func (s *Supervisor) StartChild(name gen.Atom, args ...any) error {
 		return gen.ErrNotAllowed
 	}
 
-	if s.state != supStateNormal {
-		return ErrSupervisorStrategyActive
-	}
-
 	action, err := s.sup.childSpec(name)
 	if err != nil {
 		return err
@@ -203,6 +199,7 @@ func (s *Supervisor) StartChild(name gen.Atom, args ...any) error {
 	if len(args) > 0 {
 		action.spec.Args = args
 	}
+
 	return s.handleAction(action)
 }
 
@@ -225,10 +222,6 @@ func (s *Supervisor) AddChild(child SupervisorChildSpec) error {
 func (s *Supervisor) EnableChild(name gen.Atom) error {
 	if s.State() != gen.ProcessStateRunning {
 		return gen.ErrNotAllowed
-	}
-
-	if s.state != supStateNormal {
-		return ErrSupervisorStrategyActive
 	}
 
 	action, err := s.sup.childEnable(name)
@@ -317,6 +310,7 @@ func (s *Supervisor) ProcessInit(process gen.Process, args ...any) (rr error) {
 		if dup {
 			return ErrSupervisorChildDuplicate
 		}
+		duplicate[s.Name] = true
 	}
 
 	// create supervisor
@@ -561,14 +555,18 @@ func (s *Supervisor) handleAction(action supAction) error {
 			action.spec.Options.LinkParent = true
 
 			if action.spec.register {
-				pid, err = s.SpawnRegister(action.spec.Name, action.spec.Factory, action.spec.Options, action.spec.Args...)
+				pid, err = s.SpawnRegister(
+					action.spec.Name,
+					action.spec.Factory,
+					action.spec.Options,
+					action.spec.Args...)
 			} else {
 				pid, err = s.Spawn(action.spec.Factory, action.spec.Options, action.spec.Args...)
 			}
 
 			if err != nil {
-				action = s.sup.childTerminated(action.spec.Name, pid, err)
-				continue
+				s.state = supStateNormal
+				return err
 			}
 
 			if s.handleChild {
@@ -580,16 +578,26 @@ func (s *Supervisor) handleAction(action supAction) error {
 			continue
 
 		case supActionTerminateChildren:
+			if len(action.terminate) == 0 {
+				// no children. terminate this process
+				return action.reason
+			}
 			// on disabling child spec
 			s.state = supStateStrategy
 			for _, pid := range action.terminate {
-				s.SendExit(pid, action.reason)
-				s.Log().Info("Supervisor: terminate children %s", pid)
+				// TODO
+				// Child is disabling if exceeded restart limits. basically we dont need
+				// to send exit again.
+				// Current workaround: SendExit return error if its terminated already,
+				// so dont log misleading message
+				if err := s.SendExit(pid, action.reason); err == nil {
+					s.Log().Info("Supervisor: terminate children %s", pid)
+				}
 			}
+			s.state = supStateNormal
 			return nil
 
 		case supActionTerminate:
-			s.behavior.Terminate(action.reason)
 			return action.reason
 
 		default:
@@ -667,19 +675,26 @@ type supMessageChildTerminate struct {
 	reason error
 }
 
-// checkRestartIntensity returns true if exceeded
+// supCheckRestartIntensity returns true if exceeded
 func supCheckRestartIntensity(restarts []int64, period int, intensity int) ([]int64, bool) {
-	restarts = append(restarts, time.Now().Unix())
-	if len(restarts) < intensity {
+	// Use milliseconds for better granularity
+	now := time.Now().UnixMilli()
+	restarts = append(restarts, now)
+	if len(restarts) <= intensity {
 		return restarts, false
 	}
 
-	p := int(time.Now().Unix() - restarts[0])
-	if p > period {
+	// Remove old restarts outside the period window
+	periodMillis := int64(period) * 1000
+	for len(restarts) > 0 && now-restarts[0] > periodMillis {
 		restarts = restarts[1:]
-		return restarts, false
 	}
-	return restarts, true
+
+	// Check if we still exceed intensity after cleanup
+	if len(restarts) > intensity {
+		return restarts, true
+	}
+	return restarts, false
 }
 
 func validateChildSpec(s SupervisorChildSpec) error {

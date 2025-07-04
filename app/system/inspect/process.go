@@ -44,22 +44,27 @@ func (ip *process) HandleMessage(from gen.PID, message any) error {
 		}
 
 		info, err := ip.Node().ProcessInfo(ip.pid)
-		if err == gen.ErrProcessUnknown || err == gen.ErrProcessTerminated {
+		switch err {
+		case nil:
+			break
+		case gen.ErrNodeTerminated:
+			return err
+
+		case gen.ErrProcessUnknown:
 			if err := ip.SendEvent(ip.event, ip.token, ev); err != nil {
 				ip.Log().Error("unable to send event %q: %s", ip.event, err)
 			}
 			return gen.TerminateReasonNormal
-		}
 
-		for k, v := range info.Env {
-			info.Env[k] = fmt.Sprintf("%#v", v)
-		}
-
-		if err != nil {
+		default:
 			ip.Log().Error("unable to inspect process %s: %s", ip.pid, err)
 			// will try next time (seems to be busy)
 			ip.SendAfter(ip.PID(), generate{}, inspectProcessPeriod)
 			return nil
+		}
+
+		for k, v := range info.Env {
+			info.Env[k] = fmt.Sprintf("%#v", v)
 		}
 
 		ev.Terminated = false
