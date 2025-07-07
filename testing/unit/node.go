@@ -10,7 +10,6 @@ import (
 	"ergo.services/ergo/lib"
 )
 
-// Package-level counter for unique ref generation
 var refCounter uint64
 
 // TestNode implements gen.Node for testing
