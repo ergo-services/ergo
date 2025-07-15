@@ -8,21 +8,20 @@ import (
 	"unsafe"
 )
 
-// Optimized memory layout for better cache performance
 type queueMPSC struct {
-	head   *itemMPSC // Hot path: frequently accessed
-	tail   *itemMPSC // Hot path: frequently accessed
-	length int64     // Warm path: accessed on Len()
-	lock   uint32    // Cold path: rarely used
+	head   *itemMPSC
+	tail   *itemMPSC
+	length int64
+	lock   uint32
 }
 
 type queueLimitMPSC struct {
-	head   *itemMPSC // Hot path: frequently accessed
-	tail   *itemMPSC // Hot path: frequently accessed
-	length int64     // Warm path: accessed on Len()
-	limit  int64     // Cold path: set once
-	flush  bool      // Cold path: set once
-	lock   uint32    // Cold path: rarely used
+	head   *itemMPSC
+	tail   *itemMPSC
+	length int64
+	limit  int64
+	flush  bool
+	lock   uint32
 }
 
 type QueueMPSC interface {
@@ -74,19 +73,16 @@ type itemMPSC struct {
 	next  *itemMPSC
 }
 
-// Push - optimized atomic operations with better memory layout
 func (q *queueMPSC) Push(value any) bool {
 	i := &itemMPSC{
 		value: value,
 	}
-	// Optimized: increment length first for better pipeline efficiency
 	atomic.AddInt64(&q.length, 1)
 	old_head := (*itemMPSC)(atomic.SwapPointer((*unsafe.Pointer)(unsafe.Pointer(&q.head)), unsafe.Pointer(i)))
 	atomic.StorePointer((*unsafe.Pointer)(unsafe.Pointer(&old_head.next)), unsafe.Pointer(i))
 	return true
 }
 
-// Push - optimized atomic operations, returns false if exceeded the limit
 func (q *queueLimitMPSC) Push(value any) bool {
 	if q.Len()+1 > q.limit {
 		if q.flush == false {
@@ -105,7 +101,6 @@ func (q *queueLimitMPSC) Push(value any) bool {
 	return true
 }
 
-// Pop - optimized atomic operations (prevents race conditions)
 func (q *queueMPSC) Pop() (any, bool) {
 	tail_next := (*itemMPSC)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&q.tail.next))))
 	if tail_next == nil {
@@ -115,13 +110,11 @@ func (q *queueMPSC) Pop() (any, bool) {
 	value := tail_next.value
 	tail_next.value = nil // let the GC free this item
 
-	// Fixed: Use atomic operation to update q.tail to prevent race conditions
 	atomic.StorePointer((*unsafe.Pointer)(unsafe.Pointer(&q.tail)), unsafe.Pointer(tail_next))
 	atomic.AddInt64(&q.length, -1)
 	return value, true
 }
 
-// Pop - optimized atomic operations (prevents race conditions)
 func (q *queueLimitMPSC) Pop() (any, bool) {
 	tail_next := (*itemMPSC)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&q.tail.next))))
 	if tail_next == nil {
@@ -131,7 +124,6 @@ func (q *queueLimitMPSC) Pop() (any, bool) {
 	value := tail_next.value
 	tail_next.value = nil // let the GC free this item
 
-	// Fixed: Use atomic operation to update q.tail to prevent race conditions
 	atomic.StorePointer((*unsafe.Pointer)(unsafe.Pointer(&q.tail)), unsafe.Pointer(tail_next))
 	atomic.AddInt64(&q.length, -1)
 	return value, true
@@ -172,7 +164,6 @@ func (q *queueLimitMPSC) Unlock() bool {
 
 // Item returns the tail item of the queue. Returns nil if queue is empty.
 func (q *queueMPSC) Item() ItemMPSC {
-	// Fixed: Use atomic operation to read q.tail to prevent race with Pop()
 	tail := (*itemMPSC)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&q.tail))))
 	item := (*itemMPSC)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&tail.next))))
 	if item == nil {
@@ -183,7 +174,6 @@ func (q *queueMPSC) Item() ItemMPSC {
 
 // Item returns the tail item of the queue. Returns nil if queue is empty.
 func (q *queueLimitMPSC) Item() ItemMPSC {
-	// Fixed: Use atomic operation to read q.tail to prevent race with Pop()
 	tail := (*itemMPSC)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&q.tail))))
 	item := (*itemMPSC)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&tail.next))))
 	if item == nil {
