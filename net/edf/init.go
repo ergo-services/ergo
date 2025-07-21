@@ -29,9 +29,12 @@ var (
 		gen.ApplicationDepends{},
 
 		gen.LoggerInfo{},
+		gen.ProcessFallback{},
+		gen.CronJobInfo{},
+		gen.CronInfo{},
+		gen.CronSchedule{},
 		gen.NodeInfo{},
 		gen.Compression{},
-		gen.ProcessFallback{},
 		gen.MailboxQueues{},
 		gen.ProcessInfo{},
 		gen.ProcessShortInfo{},
@@ -39,6 +42,7 @@ var (
 		gen.ProcessOptionsExtra{},
 		gen.ApplicationOptions{},
 		gen.ApplicationOptionsExtra{},
+		gen.ApplicationInfo{},
 		gen.MetaInfo{},
 
 		gen.NetworkFlags{},
@@ -119,6 +123,14 @@ var (
 		inspect.RequestDoSetLogLevelProcess{},
 		inspect.RequestDoSetLogLevelMeta{},
 		inspect.ResponseDoSetLogLevel{},
+
+		inspect.RequestInspectApplicationList{},
+		inspect.ResponseInspectApplicationList{},
+		inspect.MessageInspectApplicationList{},
+
+		inspect.RequestInspectApplicationTree{},
+		inspect.ResponseInspectApplicationTree{},
+		inspect.MessageInspectApplicationTree{},
 	}
 
 	// register standard errors of the Ergo Framework

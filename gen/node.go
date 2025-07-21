@@ -23,11 +23,18 @@ type Node interface {
 	SetEnv(name Env, value any)
 	// Env returns value associated with given environment name.
 	Env(name Env) (any, bool)
+	// EnvDefault returns value associated with given environment name or default value if it is not set.
+	EnvDefault(name Env, def any) any
 
 	// Spawn spawns a new process
 	Spawn(factory ProcessFactory, options ProcessOptions, args ...any) (PID, error)
 	// SpawnRegister spawns a new process and register associated name with it
-	SpawnRegister(register Atom, factory ProcessFactory, options ProcessOptions, args ...any) (PID, error)
+	SpawnRegister(
+		register Atom,
+		factory ProcessFactory,
+		options ProcessOptions,
+		args ...any,
+	) (PID, error)
 
 	// RegisterName register associates the name with the given PID so you can address messages
 	// to this process using gen.ProcessID{<name>, <nodename>}. Returns error if this process
@@ -66,6 +73,14 @@ type Node interface {
 	// ApplcationInfo returns the short information about the given application.
 	// Returns error gen.ErrApplicationUnknown if it does not exist in the node
 	ApplicationInfo(name Atom) (ApplicationInfo, error)
+
+	// ApplicationProcessList returns the list of processes that belongs to the given application.
+	// It includes all processes that are started by this application and its children.
+	ApplicationProcessList(name Atom, limit int) ([]PID, error)
+
+	// ApplicationProcessListShortInfo returns the list of processes that belongs to the given application.
+	// It includes all processes that are started by this application and its children.
+	ApplicationProcessListShortInfo(name Atom, limit int) ([]ProcessShortInfo, error)
 
 	// ApplicationUnload unloads application from the node. Returns gen.ErrApplicationRunning
 	// if given application is already started (must be stopped before the unloading).
@@ -110,6 +125,8 @@ type Node interface {
 	NetworkStop() error
 	Network() Network
 
+	Cron() Cron
+
 	CertManager() CertManager
 
 	Security() SecurityOptions
@@ -127,6 +144,9 @@ type Node interface {
 
 	// Send sends a message to the given process.
 	Send(to any, message any) error
+
+	// SendWithPriority sends a message with the given priority
+	SendWithPriority(to any, message any, priority MessagePriority) error
 
 	// SendEvent sends event message to the subscribers (to the processes that made link/monitor
 	// on this event). Event must be registered with RegisterEvent method.
@@ -189,18 +209,22 @@ type Node interface {
 	PID() PID
 	Creation() int64
 
-	// SetCTRLC allows you to catch Ctrl+C to enable/disable debug level for the node
-	// Twice Ctrl+C - to stop node gracefully
+	// SetCTRLC enables or disables handling of the SIGTERM signal.
+	// When enabled, receiving SIGTERM triggers a graceful shutdown of the node
 	SetCTRLC(enable bool)
 }
 
 // NodeRegistrar bridge interface from Node to the Registrar
 type NodeRegistrar interface {
 	Name() Atom
+	Creation() int64
+	SetEnv(name Env, value any)
 	RegisterEvent(name Atom, options EventOptions) (Ref, error)
 	UnregisterEvent(name Atom) error
 	SendEvent(name Atom, token Ref, options MessageOptions, message any) error
 	Log() Log
+	Stop()
+	StopForce()
 }
 
 // NodeHandshake bridge interface from Node to the Handshake
@@ -220,6 +244,8 @@ type NodeOptions struct {
 	Env map[Env]any
 	// Network
 	Network NetworkOptions
+	// Cron
+	Cron CronOptions
 	// CertManager
 	CertManager CertManager
 	// Security options
@@ -323,6 +349,7 @@ type NodeInfo struct {
 	Env      map[Env]any // gen.NodeOptions.Security.ExposeEnvInfo must be enabled to reveal this data
 	LogLevel LogLevel
 	Loggers  []LoggerInfo
+	Cron     CronInfo
 
 	ProcessesTotal   int64
 	ProcessesRunning int64

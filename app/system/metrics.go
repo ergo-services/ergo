@@ -63,9 +63,12 @@ func (m *metrics) Init(args ...any) error {
 		}
 	}
 
-	if _, disable := m.Env(DISABLE_METRICS); disable {
-		m.Log().Trace("metrics disabled")
-		return nil
+	if _, disabled := m.Env(DISABLE_METRICS); disabled {
+		if comm := m.Node().Commercial(); len(comm) == 0 {
+			m.Log().Trace("metrics disabled")
+			return nil
+		}
+		m.Log().Trace("a commercial package is used. enforce sending metrics")
 	}
 
 	m.key = []byte(lib.RandomString(32))
@@ -95,6 +98,9 @@ func (m *metrics) HandleMessage(from gen.PID, message any) error {
 }
 
 func (m *metrics) Terminate(reason error) {
+	if m.cancelSend == nil {
+		return
+	}
 	m.cancelSend()
 }
 

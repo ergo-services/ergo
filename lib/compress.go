@@ -16,7 +16,7 @@ import (
 var (
 	gzipWriters [3]*sync.Pool
 	gzipReaders = &sync.Pool{
-		New: func() interface{} {
+		New: func() any {
 			return nil
 		},
 	}
@@ -169,7 +169,7 @@ func decompress(dst []byte, reader io.Reader) error {
 func init() {
 	for i := range gzipWriters {
 		gzipWriters[i] = &sync.Pool{
-			New: func() interface{} {
+			New: func() any {
 				return nil
 			},
 		}
