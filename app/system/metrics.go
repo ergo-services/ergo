@@ -98,6 +98,9 @@ func (m *metrics) HandleMessage(from gen.PID, message any) error {
 }
 
 func (m *metrics) Terminate(reason error) {
+	if m.cancelSend == nil {
+		return
+	}
 	m.cancelSend()
 }
 
