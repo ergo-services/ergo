@@ -778,15 +778,11 @@ func (n *node) Cron() gen.Cron {
 }
 
 func (n *node) Stop() {
-	n.once.Do(func() {
-		n.stop(false)
-	})
+	n.stop(false)
 }
 
 func (n *node) StopForce() {
-	n.once.Do(func() {
-		n.stop(true)
-	})
+	n.stop(true)
 }
 
 func (n *node) stop(force bool) {
@@ -853,7 +849,9 @@ func (n *node) stop(force bool) {
 		logger.Terminate()
 	}
 
-	close(n.wait)
+	n.once.Do(func() {
+		close(n.wait)
+	})
 }
 
 func (n *node) Wait() {
