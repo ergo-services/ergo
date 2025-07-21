@@ -61,6 +61,7 @@ type node struct {
 
 	waitprocesses sync.WaitGroup
 	wait          chan struct{}
+	once          sync.Once
 
 	licenses sync.Map
 
@@ -777,11 +778,15 @@ func (n *node) Cron() gen.Cron {
 }
 
 func (n *node) Stop() {
-	n.stop(false)
+	n.once.Do(func() {
+		n.stop(false)
+	})
 }
 
 func (n *node) StopForce() {
-	n.stop(true)
+	n.once.Do(func() {
+		n.stop(true)
+	})
 }
 
 func (n *node) stop(force bool) {
