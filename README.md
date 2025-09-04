@@ -121,7 +121,7 @@ Since we included Observer application, open http://localhost:9911 to inspect yo
 
 ### Erlang support ###
 
-Starting from version 3.0.0, support for the Erlang network stack has been moved to a separate module and is distributed under the BSL 1.1 license - https://github.com/ergo-services/proto. You can find detailed information on using this module in the documentation at https://docs.ergo.services/extra-library/network-protocols/erlang.
+Starting from version 3.0.0, support for the Erlang network stack has been moved to a separate module - https://github.com/ergo-services/proto. Version 3.0 was distributed under the BSL 1.1 license, but starting from version 3.1 it is available under the MIT license. You can find detailed information on using this module in the documentation at https://docs.ergo.services/extra-library/network-protocols/erlang.
 
 ### Requirements ###
 
