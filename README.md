@@ -135,7 +135,7 @@ Fully detailed changelog see in the [ChangeLog](CHANGELOG.md) file.
 
 **New Features**
 - **Cron Scheduler**: New `gen.Cron` interface enables scheduling tasks with cron expressions, supporting second-level precision for precise task execution. See https://docs.ergo.services/basics/cron
-- **Port Meta Process**: New `meta.Port` allows spawning and managing external OS processes with bidirectional communication through stdin/stdout/stderr. See https://docs.ergo.services/meta-processes/port
+- **Port Meta Process**: New `meta.Port` allows spawning and managing external OS processes with bidirectional communication through stdin/stdout/stderr. See https://docs.ergo.services/meta-processes/port, example https://github.com/ergo-services/examples/port
 - **Unit Testing Framework**: Comprehensive testing library (`testing/unit`) provides isolated actor testing with event capture and validation capabilities. See https://docs.ergo.services/testing/unit
 
 **Enhancements**
@@ -158,6 +158,7 @@ Fully detailed changelog see in the [ChangeLog](CHANGELOG.md) file.
 - **Registrar**: New etcd registrar implementation with distributed service discovery, hierarchical configuration, real-time cluster events. See https://docs.ergo.services/extra-library/registrars/etcd-client and example https://github.com/ergo-services/examples/docker
 - **Logger**: Added LogField support in colored logger, banner functionality, and fixed options handling. See https://docs.ergo.services/extra-library/loggers
 - **Application**: Observer application enhanced with new Applications page, Cron job details, and UI fixes. See https://docs.ergo.services/extra-library/applications/observer
+- **Benchmarks**: New serialization benchmarks comparing EDF vs Gob vs Protobuf performance, expanded test suite coverage. See https://github.com/ergo-services/benchmarks
 
 ### Development and debugging ###
 
