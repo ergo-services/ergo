@@ -86,6 +86,7 @@ func (s *supSOFO) childSpec(name gen.Atom) (supAction, error) {
 	if spec.disabled {
 		return action, ErrSupervisorChildDisabled
 	}
+
 	action.do = supActionStartChild
 	action.spec = *spec
 	return action, nil

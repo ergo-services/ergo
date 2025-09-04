@@ -47,6 +47,14 @@ const (
 
 	inspectLog           = "inspect_log"
 	inspectLogIdlePeriod = 10 * time.Second
+
+	inspectApplicationList           = "inspect_application_list"
+	inspectApplicationListPeriod     = time.Second
+	inspectApplicationListIdlePeriod = 5 * time.Second
+
+	inspectApplicationTree           = "inspect_application_tree"
+	inspectApplicationTreePeriod     = time.Second
+	inspectApplicationTreeIdlePeriod = 5 * time.Second
 )
 
 var (
@@ -262,6 +270,42 @@ func (i *inspect) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error
 
 		pname := gen.Atom(fmt.Sprintf("%s_%s", inspectLog, name))
 		_, err := i.SpawnRegister(pname, factory_log, opts, levels)
+		if err != nil && err != gen.ErrTaken {
+			return err, nil
+		}
+		// forward this request
+		forward := requestInspect{
+			pid: from,
+			ref: ref,
+		}
+		i.Send(pname, forward)
+		return nil, nil // no reply
+
+	case RequestInspectApplicationList:
+		opts := gen.ProcessOptions{
+			LinkParent: true,
+		}
+		_, err := i.SpawnRegister(inspectApplicationList, factory_application_list, opts)
+		if err != nil && err != gen.ErrTaken {
+			return err, nil
+		}
+		// forward this request
+		forward := requestInspect{
+			pid: from,
+			ref: ref,
+		}
+		i.Send(inspectApplicationList, forward)
+		return nil, nil // no reply
+
+	case RequestInspectApplicationTree:
+		opts := gen.ProcessOptions{
+			LinkParent: true,
+		}
+		if r.Limit < 1 {
+			r.Limit = 1000
+		}
+		pname := gen.Atom(fmt.Sprintf("%s_%s_%d", inspectApplicationTree, r.Application, r.Limit))
+		_, err := i.SpawnRegister(pname, factory_application_tree, opts, r.Application, r.Limit)
 		if err != nil && err != gen.ErrTaken {
 			return err, nil
 		}

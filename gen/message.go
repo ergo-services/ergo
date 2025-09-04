@@ -94,11 +94,13 @@ type MessageEvent struct {
 
 // MessageLog
 type MessageLog struct {
-	Time   time.Time
-	Level  LogLevel
-	Source any // MessageLogProcess, MessageLogNode, MessageLogNetwork, MessageLogMeta
-	Format string
-	Args   []any
+	Time       time.Time
+	Level      LogLevel
+	Source     any // MessageLogProcess, MessageLogNode, MessageLogNetwork, MessageLogMeta
+	Format     string
+	Args       []any
+	Fields     []LogField
+	StackTrace []string
 }
 
 // MessageLogProcess
@@ -127,4 +129,17 @@ type MessageLogNetwork struct {
 	Node     Atom
 	Peer     Atom
 	Creation int64
+}
+
+type MessageCron struct {
+	Node Atom
+	Job  Atom
+	Time time.Time
+}
+
+type MessageCronFallback struct {
+	Job  Atom
+	Tag  string
+	Time time.Time
+	Err  error
 }

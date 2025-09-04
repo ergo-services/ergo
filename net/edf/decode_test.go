@@ -2072,7 +2072,7 @@ func TestDecodeSliceAny(t *testing.T) {
 
 }
 
-func TestDecodeSliceNil(t *testing.T) {
+func TestDecodeSliceOfNil(t *testing.T) {
 
 	expect := []any{nil, nil, nil}
 	packet := []byte{edtType, 0, 2,
@@ -2094,6 +2094,39 @@ func TestDecodeSliceNil(t *testing.T) {
 		fmt.Printf("got %#v\n", value)
 		t.Fatal("incorrect value")
 	}
+}
+
+func TestDecodeSliceNil(t *testing.T) {
+
+	var expect []string
+	packet := []byte{edtType, 0, 2,
+		edtSlice,
+		edtString,
+		edtNil,
+	}
+
+	value, _, err := Decode(packet, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// compare types
+	expectT := fmt.Sprintf("%T\n", expect)
+	valueT := fmt.Sprintf("%T\n", value)
+
+	if valueT != expectT {
+		fmt.Printf("exp nil value of  %s\n", expectT)
+		fmt.Printf("got nil value of %s\n", valueT)
+		t.Fatal("incorrect value")
+	}
+
+	// if value != expect {
+	if !reflect.DeepEqual(value, expect) {
+		fmt.Printf("exp %#v\n", expect)
+		fmt.Printf("got %#v\n", value)
+		t.Fatal("incorrect value")
+	}
+
 }
 
 func TestDecodeSliceNil2(t *testing.T) {
@@ -2825,6 +2858,39 @@ func TestDecodeMap(t *testing.T) {
 		fmt.Printf("got %#v\n", value)
 		t.Fatal("incorrect value")
 	}
+}
+func TestDecodeMapNil(t *testing.T) {
+
+	var expect map[int]string
+	packet := []byte{edtType, 0, 3,
+		edtMap,
+		edtInt,
+		edtString,
+		edtNil,
+	}
+
+	value, _, err := Decode(packet, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// compare types
+	expectT := fmt.Sprintf("%T\n", expect)
+	valueT := fmt.Sprintf("%T\n", value)
+
+	if valueT != expectT {
+		fmt.Printf("exp nil value of  %s\n", expectT)
+		fmt.Printf("got nil value of %s\n", valueT)
+		t.Fatal("incorrect value")
+	}
+
+	// if value != expect {
+	if !reflect.DeepEqual(value, expect) {
+		fmt.Printf("exp %#v\n", expect)
+		fmt.Printf("got %#v\n", value)
+		t.Fatal("incorrect value")
+	}
+
 }
 
 func TestDecodeMapAnyString(t *testing.T) {

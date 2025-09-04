@@ -54,17 +54,21 @@ type node struct {
 
 	network *network
 
+	cron *cron
+
 	loggers map[gen.LogLevel]*sync.Map // level -> name -> gen.LoggerBehavior
 	log     *log
 
 	waitprocesses sync.WaitGroup
 	wait          chan struct{}
+	once          sync.Once
 
 	licenses sync.Map
 
 	coreEventsToken gen.Ref
 
-	ctrlc chan os.Signal
+	enableCTRLC atomic.Bool
+	ctrlc       chan os.Signal
 }
 
 type eventOwner struct {
@@ -181,6 +185,17 @@ func Start(name gen.Atom, options gen.NodeOptions, frameworkVersion gen.Version)
 
 	edf.RegisterAtom(name)
 	node.log.Info("node %s built with %q successfully started", node.name, node.framework)
+	node.cron = createCron(node)
+	for _, job := range options.Cron.Jobs {
+		if err := node.cron.AddJob(job); err != nil {
+			node.StopForce()
+			return nil, err
+		}
+	}
+
+	// enable SIGTERM
+	node.SetCTRLC(true)
+
 	return node, nil
 }
 
@@ -251,6 +266,18 @@ func (n *node) Env(name gen.Env) (any, bool) {
 	return n.env.Load(name.String())
 }
 
+func (n *node) EnvDefault(name gen.Env, def any) any {
+	if n.isRunning() == false {
+		return def
+	}
+
+	value, ok := n.env.Load(name.String())
+	if ok == false {
+		return def
+	}
+	return value
+}
+
 func (n *node) CertManager() gen.CertManager {
 	return n.certmanager
 }
@@ -259,7 +286,11 @@ func (n *node) Security() gen.SecurityOptions {
 	return n.security
 }
 
-func (n *node) Spawn(factory gen.ProcessFactory, options gen.ProcessOptions, args ...any) (gen.PID, error) {
+func (n *node) Spawn(
+	factory gen.ProcessFactory,
+	options gen.ProcessOptions,
+	args ...any,
+) (gen.PID, error) {
 	if n.isRunning() == false {
 		return gen.PID{}, gen.ErrNodeTerminated
 	}
@@ -275,7 +306,12 @@ func (n *node) Spawn(factory gen.ProcessFactory, options gen.ProcessOptions, arg
 	return n.spawn(factory, opts)
 }
 
-func (n *node) SpawnRegister(register gen.Atom, factory gen.ProcessFactory, options gen.ProcessOptions, args ...any) (gen.PID, error) {
+func (n *node) SpawnRegister(
+	register gen.Atom,
+	factory gen.ProcessFactory,
+	options gen.ProcessOptions,
+	args ...any,
+) (gen.PID, error) {
 	if n.isRunning() == false {
 		return gen.PID{}, gen.ErrNodeTerminated
 	}
@@ -570,6 +606,7 @@ func (n *node) Info() (gen.NodeInfo, error) {
 	info.Framework = n.framework
 	info.Commercial = n.Commercial()
 	info.LogLevel = n.log.Level()
+	info.Cron = n.cron.Info()
 
 	mli := make(map[string]int)
 	for _, level := range gen.DefaultLogLevels {
@@ -733,6 +770,13 @@ func (n *node) Network() gen.Network {
 	return n.network
 }
 
+func (n *node) Cron() gen.Cron {
+	if n.isRunning() == false {
+		return nil
+	}
+	return n.cron
+}
+
 func (n *node) Stop() {
 	n.stop(false)
 }
@@ -754,17 +798,20 @@ func (n *node) stop(force bool) {
 				// skip system app
 				return true
 			}
-			app.stop(false, 5*time.Second)
+
+			n.log.Trace("stopping application %s (waiting 5 seconds) ...", app.spec.Name)
+			if err := app.stop(false, 5*time.Second); err == gen.ErrApplicationStopping {
+				n.log.Trace("stopping application %s is still in progress", app.spec.Name)
+				return true
+			}
+
+			n.log.Trace("stopped application: %s", app.spec.Name)
 			return true
 		})
 	}
 
 	n.processes.Range(func(_, v any) bool {
 		p := v.(*process)
-		// do not kill system app processes
-		if p.application == system.Name {
-			return true
-		}
 
 		if force {
 			n.Kill(p.pid)
@@ -777,13 +824,16 @@ func (n *node) stop(force bool) {
 		return true
 	})
 
+	if n.cron != nil {
+		n.cron.terminate()
+	}
+
 	if force == false {
 		n.waitprocesses.Wait()
 	}
 
 	n.NetworkStop()
 	atomic.StoreInt64(&n.creation, 0)
-	n.log.Info("node %s stopped", n.name)
 
 	// call terminate loggers
 	loggers := make(map[string]gen.LoggerBehavior)
@@ -799,7 +849,9 @@ func (n *node) stop(force bool) {
 		logger.Terminate()
 	}
 
-	close(n.wait)
+	n.once.Do(func() {
+		close(n.wait)
+	})
 }
 
 func (n *node) Wait() {
@@ -822,12 +874,16 @@ func (n *node) WaitWithTimeout(timeout time.Duration) error {
 }
 
 func (n *node) Send(to any, message any) error {
+	return n.SendWithPriority(to, message, gen.MessagePriorityNormal)
+}
+
+func (n *node) SendWithPriority(to any, message any, priority gen.MessagePriority) error {
 	if n.isRunning() == false {
 		return gen.ErrNodeTerminated
 	}
 
 	options := gen.MessageOptions{
-		Priority: gen.MessagePriorityNormal,
+		Priority: priority,
 	}
 
 	switch t := to.(type) {
@@ -844,7 +900,12 @@ func (n *node) Send(to any, message any) error {
 	return gen.ErrUnsupported
 }
 
-func (n *node) SendEvent(name gen.Atom, token gen.Ref, options gen.MessageOptions, message any) error {
+func (n *node) SendEvent(
+	name gen.Atom,
+	token gen.Ref,
+	options gen.MessageOptions,
+	message any,
+) error {
 	if n.isRunning() == false {
 		return gen.ErrNodeTerminated
 	}
@@ -1035,6 +1096,146 @@ func (n *node) ApplicationUnload(name gen.Atom) error {
 	return nil
 }
 
+func (n *node) ApplicationProcessList(name gen.Atom, limit int) ([]gen.PID, error) {
+	if limit < 0 {
+		return nil, gen.ErrIncorrect
+	}
+
+	if n.isRunning() == false {
+		return nil, gen.ErrNodeTerminated
+	}
+
+	v, exist := n.applications.Load(name)
+	if exist == false {
+		return nil, gen.ErrApplicationUnknown
+	}
+	app := v.(*application)
+	if app.isRunning() == false {
+		return nil, fmt.Errorf("application %s is not running", name)
+	}
+
+	members := make(map[gen.PID]bool, app.group.Len())
+	pids := make([]gen.PID, 0, app.group.Len())
+	app.group.Range(func(pid gen.PID, _ bool) bool {
+		members[pid] = true
+		pids = append(pids, pid)
+		return true
+	})
+
+	limit = app.group.Len() + limit
+
+	n.processes.Range(func(_, v any) bool {
+		p := v.(*process)
+		if p.application != name {
+			return true // continue
+		}
+		if _, exist := members[p.pid]; exist {
+			return true // continue
+		}
+		pids = append(pids, p.pid)
+
+		if len(pids) >= limit {
+			return false // stop
+		}
+
+		return true
+	})
+
+	return pids, nil
+}
+
+func (n *node) ApplicationProcessListShortInfo(name gen.Atom, limit int) ([]gen.ProcessShortInfo, error) {
+	if limit < 0 {
+		return nil, gen.ErrIncorrect
+	}
+
+	if n.isRunning() == false {
+		return nil, gen.ErrNodeTerminated
+	}
+
+	v, exist := n.applications.Load(name)
+	if exist == false {
+		return nil, gen.ErrApplicationUnknown
+	}
+	app := v.(*application)
+	if app.isRunning() == false {
+		return nil, fmt.Errorf("application %s is not running", name)
+	}
+
+	members := make(map[gen.PID]bool, app.group.Len())
+	psi := make([]gen.ProcessShortInfo, 0, app.group.Len())
+
+	app.group.Range(func(pid gen.PID, _ bool) bool {
+		v, exist := n.processes.Load(pid)
+		if exist == false {
+			return true // continue
+		}
+		p, _ := v.(*process)
+		messagesMailbox := p.mailbox.Main.Len() +
+			p.mailbox.System.Len() +
+			p.mailbox.Urgent.Len() +
+			p.mailbox.Log.Len()
+
+		info := gen.ProcessShortInfo{
+			PID:             p.pid,
+			Name:            p.name,
+			Application:     p.application,
+			Behavior:        p.sbehavior,
+			MessagesIn:      p.messagesIn,
+			MessagesOut:     p.messagesOut,
+			MessagesMailbox: uint64(messagesMailbox),
+			RunningTime:     p.runningTime,
+			Uptime:          p.Uptime(),
+			State:           p.State(),
+			Parent:          p.parent,
+			Leader:          p.leader,
+			LogLevel:        p.log.Level(),
+		}
+		psi = append(psi, info)
+		members[p.pid] = true
+		return true
+	})
+
+	limit = app.group.Len() + limit
+	n.processes.Range(func(_, v any) bool {
+		p := v.(*process)
+		if p.application != name {
+			return true // continue
+		}
+		if _, exist := members[p.pid]; exist {
+			return true // continue
+		}
+
+		messagesMailbox := p.mailbox.Main.Len() +
+			p.mailbox.System.Len() +
+			p.mailbox.Urgent.Len() +
+			p.mailbox.Log.Len()
+
+		info := gen.ProcessShortInfo{
+			PID:             p.pid,
+			Name:            p.name,
+			Application:     p.application,
+			Behavior:        p.sbehavior,
+			MessagesIn:      p.messagesIn,
+			MessagesOut:     p.messagesOut,
+			MessagesMailbox: uint64(messagesMailbox),
+			RunningTime:     p.runningTime,
+			Uptime:          p.Uptime(),
+			State:           p.State(),
+			Parent:          p.parent,
+			Leader:          p.leader,
+			LogLevel:        p.log.Level(),
+		}
+		psi = append(psi, info)
+		if len(psi) >= limit {
+			return false // stop
+		}
+		return true
+	})
+
+	return psi, nil
+}
+
 func (n *node) ApplicationStart(name gen.Atom, options gen.ApplicationOptions) error {
 	v, exist := n.applications.Load(name)
 	if exist == false {
@@ -1051,7 +1252,11 @@ func (n *node) ApplicationStart(name gen.Atom, options gen.ApplicationOptions) e
 			}
 
 			if err != gen.ErrApplicationRunning {
-				n.log.Error("unable to start %s: start dependent application %s failed: %s", dep, err)
+				n.log.Error(
+					"unable to start %s: start dependent application %s failed: %s",
+					dep,
+					err,
+				)
 				return gen.ErrApplicationDepends
 			}
 		}
@@ -1255,9 +1460,12 @@ func (n *node) LoggerDeletePID(pid gen.PID) {
 		p.loggername = ""
 		// TODO we should restore previous log level
 		p.log.SetLevel(gen.LogLevelInfo)
-		n.log.Trace("node.LoggerDeletePID removed process logger %s with name %q", pid, p.loggername)
+		n.log.Trace(
+			"node.LoggerDeletePID removed process logger %s with name %q",
+			pid,
+			p.loggername,
+		)
 	}
-	return
 }
 
 func (n *node) LoggerDelete(name string) {
@@ -1326,59 +1534,33 @@ func (n *node) dolog(message gen.MessageLog, loggername string) {
 }
 
 func (n *node) SetCTRLC(enable bool) {
-	if enable == true && n.ctrlc != nil {
-		// already set up
-		return
-	}
 
-	if enable == false && n.ctrlc != nil {
-		close(n.ctrlc)
-		n.ctrlc = nil
-		n.Log().Info("(CRTL+C) disabled for %s", n.name)
+	if swapped := n.enableCTRLC.CompareAndSwap(!enable, enable); swapped == false {
+		n.Log().Info("handling SIGTERM is already set: %t", enable)
 		return
 	}
 
 	go func() {
-		n.ctrlc = make(chan os.Signal)
-		signal.Notify(n.ctrlc, os.Interrupt, syscall.SIGTERM)
-		n.Log().Info("(CRTL+C) enabled for %s", n.name)
-
-		n.Log().Info("         press Ctrl+C to enable/disable debug logging level for %s", n.name)
-		n.Log().Info("         press Ctrl+C twice to stop %s gracefully", n.name)
-		ctrlcTime := time.Now().Unix()
-		level := n.Log().Level()
-		debug := false
-		for {
-			sig := <-n.ctrlc
-			if sig == nil {
-				// closed channel. disable ctrlc
-				signal.Reset()
-
-				return
+		if n.enableCTRLC.Load() == false {
+			if n.ctrlc != nil {
+				close(n.ctrlc)
+				n.ctrlc = nil
 			}
-
-			now := time.Now().Unix()
-			if now-ctrlcTime == 0 {
-				signal.Reset()
-				n.Log().Info("(CRTL+C) stopping %s (graceful shutdown)...", n.name)
-				n.Stop()
-				return
-			}
-
-			ctrlcTime = now
-
-			if debug {
-				n.Log().Info("(CRTL+C) disabling debug level for %s", n.name)
-				n.Log().SetLevel(level)
-				debug = false
-				continue
-			}
-
-			n.Log().Info("(CRTL+C) enabling debug level for %s", n.name)
-			level = n.Log().Level()
-			n.Log().SetLevel(gen.LogLevelDebug)
-			debug = true
+			return
 		}
+
+		n.ctrlc = make(chan os.Signal, 1)
+		signal.Notify(n.ctrlc, os.Interrupt, syscall.SIGTERM)
+
+		if sig := <-n.ctrlc; sig == nil {
+			// closed channel. shutdown is in progress already
+			return
+		}
+
+		signal.Reset()
+
+		n.Log().Info("node %s is starting a graceful shutdown...", n.name)
+		n.Stop()
 	}()
 }
 
@@ -1447,7 +1629,13 @@ func (n *node) spawn(factory gen.ProcessFactory, options gen.ProcessOptionsExtra
 		p.SetEnv(k, v)
 	}
 	if lib.Trace() {
-		n.log.Trace("...spawn new process %s (parent %s, %s) using %#v", p.pid, p.parent, p.name, factory)
+		n.log.Trace(
+			"...spawn new process %s (parent %s, %s) using %#v",
+			p.pid,
+			p.parent,
+			p.name,
+			factory,
+		)
 	}
 
 	for k, v := range options.Env {
@@ -1669,7 +1857,11 @@ func (n *node) unregisterAlias(alias gen.Alias, p *process) error {
 	return nil
 }
 
-func (n *node) registerEvent(name gen.Atom, owner gen.PID, options gen.EventOptions) (gen.Ref, error) {
+func (n *node) registerEvent(
+	name gen.Atom,
+	owner gen.PID,
+	options gen.EventOptions,
+) (gen.Ref, error) {
 	token := gen.Ref{}
 	if n.isRunning() == false {
 		return token, gen.ErrNodeTerminated

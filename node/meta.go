@@ -116,6 +116,12 @@ func (m *meta) start() {
 
 	// start meta process
 	m.creation = time.Now().Unix()
+
+	atomic.StoreInt32(&m.state, int32(gen.MetaStateSleep))
+
+	// handle mailbox
+	go m.handle()
+
 	reason := m.behavior.Start()
 	// meta process terminated
 	old := atomic.SwapInt32(&m.state, int32(gen.MetaStateTerminated))
@@ -178,6 +184,7 @@ func (m *meta) handle() {
 			}
 
 			if message != nil {
+				// release previously handled mailbox message
 				gen.ReleaseMailboxMessage(message)
 				message = nil
 			}

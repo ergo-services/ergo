@@ -36,11 +36,10 @@ func Encode(x any, b *lib.Buffer, options Options) (ret error) {
 	if x == nil {
 		return fmt.Errorf("nothing to encode")
 	}
-	state := &stateEncode{
-		options: options,
-		// TODO
-		//loop:       make(map[unsafe.Pointer]struct{}),
-	}
+
+	// Use pooled state instead of allocation
+	state := getPooledStateEncode(options)
+	defer putPooledStateEncode(state)
 
 	xv := reflect.ValueOf(x)
 	enc, err := getEncoder(xv.Type(), state)
@@ -154,9 +153,7 @@ func getEncoder(t reflect.Type, state *stateEncode) (*encoder, error) {
 			}
 
 			if state.child == nil {
-				state.child = &stateEncode{
-					options: state.options,
-				}
+				state.child = getPooledStateEncode(state.options)
 			}
 			state = state.child
 
@@ -219,9 +216,7 @@ func getEncoder(t reflect.Type, state *stateEncode) (*encoder, error) {
 			}
 
 			if state.child == nil {
-				state.child = &stateEncode{
-					options: state.options,
-				}
+				state.child = getPooledStateEncode(state.options)
 			}
 			state = state.child
 
@@ -278,9 +273,7 @@ func getEncoder(t reflect.Type, state *stateEncode) (*encoder, error) {
 			}
 
 			if state.child == nil {
-				state.child = &stateEncode{
-					options: state.options,
-				}
+				state.child = getPooledStateEncode(state.options)
 			}
 			state = state.child
 
@@ -326,7 +319,12 @@ func encodePID(value reflect.Value, b *lib.Buffer, state *stateEncode) error {
 	}
 
 	pid := value.Interface().(gen.PID)
+
+	if len(pid.Node) > 255 {
+		return ErrAtomTooLong
+	}
 	writeAtom(pid.Node, b, state)
+
 	buf := b.Extend(16)
 	binary.BigEndian.PutUint64(buf[:8], pid.ID)
 	binary.BigEndian.PutUint64(buf[8:16], uint64(pid.Creation))
@@ -337,9 +335,19 @@ func encodeProcessID(value reflect.Value, b *lib.Buffer, state *stateEncode) err
 	if state.encodeType {
 		b.AppendByte(edtProcessID)
 	}
+
 	p := value.Interface().(gen.ProcessID)
+
+	if len(p.Node) > 255 {
+		return ErrAtomTooLong
+	}
 	writeAtom(p.Node, b, state)
+
+	if len(p.Name) > 255 {
+		return ErrAtomTooLong
+	}
 	writeAtom(p.Name, b, state)
+
 	return nil
 }
 
@@ -348,7 +356,12 @@ func encodeRef(value reflect.Value, b *lib.Buffer, state *stateEncode) error {
 		b.AppendByte(edtRef)
 	}
 	r := value.Interface().(gen.Ref)
+
+	if len(r.Node) > 255 {
+		return ErrAtomTooLong
+	}
 	writeAtom(r.Node, b, state)
+
 	// 8 (creation) + 24 ([3]uint64)
 	buf := b.Extend(8 + 24)
 	binary.BigEndian.PutUint64(buf[0:8], uint64(r.Creation))
@@ -363,7 +376,12 @@ func encodeAlias(value reflect.Value, b *lib.Buffer, state *stateEncode) error {
 		b.AppendByte(edtAlias)
 	}
 	a := value.Interface().(gen.Alias)
+
+	if len(a.Node) > 255 {
+		return ErrAtomTooLong
+	}
 	writeAtom(a.Node, b, state)
+
 	// 8 (creation) + 24 ([3]uint64)
 	buf := b.Extend(8 + 24)
 	binary.BigEndian.PutUint64(buf[0:8], uint64(a.Creation))
@@ -377,9 +395,19 @@ func encodeEvent(value reflect.Value, b *lib.Buffer, state *stateEncode) error {
 	if state.encodeType {
 		b.AppendByte(edtEvent)
 	}
+
 	e := value.Interface().(gen.Event)
+
+	if len(e.Node) > 255 {
+		return ErrAtomTooLong
+	}
 	writeAtom(e.Node, b, state)
+
+	if len(e.Name) > 255 {
+		return ErrAtomTooLong
+	}
 	writeAtom(e.Name, b, state)
+
 	return nil
 }
 
@@ -441,6 +469,7 @@ func encodeBool(value reflect.Value, b *lib.Buffer, state *stateEncode) error {
 	b.AppendByte(0)
 	return nil
 }
+
 func encodeString(value reflect.Value, b *lib.Buffer, state *stateEncode) error {
 	v := value.String()
 	lenString := len(v)

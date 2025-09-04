@@ -19,6 +19,8 @@ type log struct {
 	level  gen.LogLevel
 	logger string
 	source any
+	fields []gen.LogField
+	stack  [][]gen.LogField
 	dolog  func(gen.MessageLog, string)
 }
 
@@ -43,6 +45,62 @@ func (l *log) Logger() string {
 
 func (l *log) SetLogger(name string) {
 	l.logger = name
+}
+
+func (l *log) Fields() []gen.LogField {
+	f := make([]gen.LogField, len(l.fields))
+	copy(f, l.fields)
+	return f
+}
+
+func (l *log) AddFields(fields ...gen.LogField) {
+	l.fields = append(l.fields, fields...)
+}
+
+func (l *log) DeleteFields(fields ...string) {
+	if len(fields) == 0 {
+		return
+	}
+
+	if ls := len(l.stack); ls > 0 {
+		l.Error("cannot delete log field(s) while the field stack has %d active frame(s); use the PopFields method instead", ls)
+		return
+	}
+
+	filter := make(map[string]bool)
+	for _, f := range fields {
+		filter[f] = true
+	}
+
+	newFields := []gen.LogField{}
+	for _, f := range l.fields {
+		if _, found := filter[f.Name]; found {
+			continue
+		}
+		newFields = append(newFields, f)
+	}
+
+	if len(newFields) > 0 {
+		l.fields = newFields
+		return
+	}
+
+	l.fields = nil
+}
+
+func (l *log) PushFields() int {
+	l.stack = append(l.stack, l.fields)
+	return len(l.stack)
+}
+
+func (l *log) PopFields() int {
+	last := len(l.stack) - 1
+	if last < 0 {
+		return 0
+	}
+	l.fields = l.stack[last]
+	l.stack = l.stack[:last]
+	return len(l.stack)
 }
 
 func (l *log) Trace(format string, args ...any) {
@@ -89,6 +147,7 @@ func (l *log) write(level gen.LogLevel, format string, args []any) {
 		Source: l.source,
 		Format: format,
 		Args:   args,
+		Fields: l.fields,
 	}
 
 	l.dolog(m, l.logger)

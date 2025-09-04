@@ -3,7 +3,6 @@ package lib
 import (
 	"bufio"
 	"io"
-	"net"
 	"sync"
 	"time"
 )
@@ -12,9 +11,9 @@ const (
 	latency time.Duration = 300 * time.Nanosecond
 )
 
-func NewFlusherWithKeepAlive(conn net.Conn, keepalive []byte, keepalivePeriod time.Duration) io.Writer {
+func NewFlusherWithKeepAlive(w io.Writer, keepalive []byte, keepalivePeriod time.Duration) io.Writer {
 	f := &flusher{
-		writer: bufio.NewWriter(conn),
+		writer: bufio.NewWriter(w),
 	}
 	// first time it should be longer
 	f.timer = time.AfterFunc(latency*10, func() {
@@ -41,9 +40,9 @@ func NewFlusherWithKeepAlive(conn net.Conn, keepalive []byte, keepalivePeriod ti
 
 }
 
-func NewFlusher(conn net.Conn) io.Writer {
+func NewFlusher(w io.Writer) io.Writer {
 	f := &flusher{
-		writer: bufio.NewWriter(conn),
+		writer: bufio.NewWriter(w),
 	}
 	f.timer = time.AfterFunc(latency, func() {
 		f.Lock()

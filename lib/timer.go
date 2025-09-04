@@ -7,7 +7,7 @@ import (
 
 var (
 	timers = &sync.Pool{
-		New: func() interface{} {
+		New: func() any {
 			return time.NewTimer(time.Second * 5)
 		},
 	}

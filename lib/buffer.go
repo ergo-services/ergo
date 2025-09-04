@@ -17,7 +17,7 @@ type Buffer struct {
 var (
 	DefaultBufferLength = 4096
 	buffers             = &sync.Pool{
-		New: func() interface{} {
+		New: func() any {
 			b := &Buffer{
 				B: make([]byte, 0, DefaultBufferLength),
 			}

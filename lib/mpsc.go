@@ -1,4 +1,4 @@
-// this is a lock-free implementation of MPSC queue (Multiple Producers Single Consumer)
+// High-performance lock-free implementation of MPSC queue (Multiple Producers Single Consumer)
 
 package lib
 
@@ -9,19 +9,19 @@ import (
 )
 
 type queueMPSC struct {
-	lock   uint32
 	head   *itemMPSC
 	tail   *itemMPSC
 	length int64
+	lock   uint32
 }
 
 type queueLimitMPSC struct {
-	lock   uint32
 	head   *itemMPSC
 	tail   *itemMPSC
 	length int64
 	limit  int64
 	flush  bool
+	lock   uint32
 }
 
 type QueueMPSC interface {
@@ -73,7 +73,6 @@ type itemMPSC struct {
 	next  *itemMPSC
 }
 
-// Push place the given value in the queue head (FIFO). Returns always true
 func (q *queueMPSC) Push(value any) bool {
 	i := &itemMPSC{
 		value: value,
@@ -84,7 +83,6 @@ func (q *queueMPSC) Push(value any) bool {
 	return true
 }
 
-// Push place the given value in the queue head (FIFO). Returns false if exceeded the limit
 func (q *queueLimitMPSC) Push(value any) bool {
 	if q.Len()+1 > q.limit {
 		if q.flush == false {
@@ -94,16 +92,15 @@ func (q *queueLimitMPSC) Push(value any) bool {
 		q.Pop()
 	}
 
-	atomic.AddInt64(&q.length, 1)
 	i := &itemMPSC{
 		value: value,
 	}
+	atomic.AddInt64(&q.length, 1)
 	old_head := (*itemMPSC)(atomic.SwapPointer((*unsafe.Pointer)(unsafe.Pointer(&q.head)), unsafe.Pointer(i)))
 	atomic.StorePointer((*unsafe.Pointer)(unsafe.Pointer(&old_head.next)), unsafe.Pointer(i))
 	return true
 }
 
-// Pop takes the item from the queue tail. Returns false if the queue is empty. Can be used in a single consumer (goroutine) only.
 func (q *queueMPSC) Pop() (any, bool) {
 	tail_next := (*itemMPSC)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&q.tail.next))))
 	if tail_next == nil {
@@ -113,15 +110,11 @@ func (q *queueMPSC) Pop() (any, bool) {
 	value := tail_next.value
 	tail_next.value = nil // let the GC free this item
 
-	// TODO a little race condition happens with node.process.go:1500 within the running a new goroutine
-	// to handle process mailbox (invoking Item() method).
-	// nothing serios, but we should use atomic operation here to set the q.tail
-	q.tail = tail_next
+	atomic.StorePointer((*unsafe.Pointer)(unsafe.Pointer(&q.tail)), unsafe.Pointer(tail_next))
 	atomic.AddInt64(&q.length, -1)
 	return value, true
 }
 
-// Pop takes the item from the queue tail. Returns false if the queue is empty. Can be used in a single consumer (goroutine) only.
 func (q *queueLimitMPSC) Pop() (any, bool) {
 	tail_next := (*itemMPSC)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&q.tail.next))))
 	if tail_next == nil {
@@ -130,7 +123,8 @@ func (q *queueLimitMPSC) Pop() (any, bool) {
 
 	value := tail_next.value
 	tail_next.value = nil // let the GC free this item
-	q.tail = tail_next
+
+	atomic.StorePointer((*unsafe.Pointer)(unsafe.Pointer(&q.tail)), unsafe.Pointer(tail_next))
 	atomic.AddInt64(&q.length, -1)
 	return value, true
 }
@@ -149,7 +143,6 @@ func (q *queueMPSC) Lock() bool {
 
 func (q *queueMPSC) Unlock() bool {
 	return atomic.SwapUint32(&q.lock, 0) == 1
-
 }
 
 // Len returns queue length
@@ -160,18 +153,19 @@ func (q *queueLimitMPSC) Len() int64 {
 func (q *queueLimitMPSC) Size() int64 {
 	return q.limit
 }
+
 func (q *queueLimitMPSC) Lock() bool {
 	return atomic.SwapUint32(&q.lock, 1) == 0
 }
 
 func (q *queueLimitMPSC) Unlock() bool {
 	return atomic.SwapUint32(&q.lock, 0) == 1
-
 }
 
 // Item returns the tail item of the queue. Returns nil if queue is empty.
 func (q *queueMPSC) Item() ItemMPSC {
-	item := (*itemMPSC)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&q.tail.next))))
+	tail := (*itemMPSC)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&q.tail))))
+	item := (*itemMPSC)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&tail.next))))
 	if item == nil {
 		return nil
 	}
@@ -180,7 +174,8 @@ func (q *queueMPSC) Item() ItemMPSC {
 
 // Item returns the tail item of the queue. Returns nil if queue is empty.
 func (q *queueLimitMPSC) Item() ItemMPSC {
-	item := (*itemMPSC)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&q.tail.next))))
+	tail := (*itemMPSC)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&q.tail))))
+	item := (*itemMPSC)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&tail.next))))
 	if item == nil {
 		return nil
 	}
@@ -205,7 +200,7 @@ func (i *itemMPSC) Value() any {
 	return i.value
 }
 
-// Clear sets the value to nil. It doesn't remove this item from the queue. Can be used in a signle consumer (goroutine) only.
+// Clear sets the value to nil. It doesn't remove this item from the queue. Can be used in a single consumer (goroutine) only.
 func (i *itemMPSC) Clear() {
 	i.value = nil
 }

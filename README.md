@@ -47,7 +47,7 @@ To inspect the node, network stack, running applications, and processes, you can
 To install the Observer tool, you need to have the Go compiler version 1.20 or higher. Run the following command:
 
 ```
-$ go install ergo.services/tools/observer@latest
+$ go install ergo.tools/observer@latest
 ```
 
 You can also embed the [Observer application](https://docs.ergo.services/extra-library/applications/observer) into your node. To see it in action, see example `demo` at https://github.com/ergo-services/examples. For more information https://docs.ergo.services/tools/observer 
@@ -61,7 +61,7 @@ For a quick start, use the [`ergo`](https://docs.ergo.services/tools/ergo) tool 
 To install use the following command:
 
 ```
-$ go install ergo.services/tools/ergo@latest
+$ go install ergo.tools/ergo@latest
 ```
 
 Now, you can create your project with just one command. Here is example:
@@ -121,7 +121,7 @@ Since we included Observer application, open http://localhost:9911 to inspect yo
 
 ### Erlang support ###
 
-Starting from version 3.0.0, support for the Erlang network stack has been moved to a separate module and is distributed under the BSL 1.1 license - https://github.com/ergo-services/proto. You can find detailed information on using this module in the documentation at https://docs.ergo.services/extra-library/network-protocols/erlang.
+Starting from version 3.0.0, support for the Erlang network stack has been moved to a separate module - https://github.com/ergo-services/proto. Version 3.0 was distributed under the BSL 1.1 license, but starting from version 3.1 it is available under the MIT license. You can find detailed information on using this module in the documentation at https://docs.ergo.services/extra-library/network-protocols/erlang.
 
 ### Requirements ###
 
@@ -131,23 +131,35 @@ Starting from version 3.0.0, support for the Erlang network stack has been moved
 
 Fully detailed changelog see in the [ChangeLog](CHANGELOG.md) file.
 
-#### [v3.0.0](https://github.com/ergo-services/ergo/releases/tag/v1.999.300) 2024-09-04 [tag version v1.999.300] ####
+#### [v3.1.0](https://github.com/ergo-services/ergo/releases/tag/v1.999.310) 2025-09-04 [tag version v1.999.310] ####
 
-This version marks a significant milestone in the evolution of the Ergo Framework. The framework's design has been completely overhauled, and this version was built from the ground up. It includes:
+**New Features**
+- **Cron Scheduler**: New `gen.Cron` interface enables scheduling tasks with cron expressions, supporting second-level precision for precise task execution. See https://docs.ergo.services/basics/cron
+- **Port Meta Process**: New `meta.Port` allows spawning and managing external OS processes with bidirectional communication through stdin/stdout/stderr. See https://docs.ergo.services/meta-processes/port, example https://github.com/ergo-services/examples/port
+- **Unit Testing Framework**: Comprehensive testing library (`testing/unit`) provides isolated actor testing with event capture and validation capabilities. See https://docs.ergo.services/testing/unit
 
-- Significant API Improvements: The `gen.Process`, `gen.Node`, and `gen.Network` interfaces have been enhanced with numerous convenient methods.
-- A New Network Stack: This version introduces a completely new network stack for improved performance and flexibility. See https://github.com/ergo-services/benchmarks for the details
+**Enhancements**
+- **Enhanced Logging**: Default logger now supports JSON output format with structured fields, improving observability and log processing
+- **Environment Management**: Added `gen.Process.EnvDefault()` and `gen.Node.EnvDefault()` methods
+- **Logger Fields**: Added `gen.Log.PushFields()` and `gen.Log.PopFields()` for contextual logging
+- **EDF Protocol**: Added support for `encoding.BinaryMarshaler/BinaryUnmarshaler` interfaces
+- **Performance**: Multiple optimizations across message handling and network operations
 
-Alongside the release of Ergo Framework 3.0.0, new tools and an additional components library are also introduced:
+**Critical Bug Fixes**
+- **Node Shutdown**: Fixed race condition causing "close of closed channel" panic during graceful shutdown
+- **Supervisor Issues**: Fixed OFO supervisor child termination (#213), restart intensity calculation with millisecond precision, and duplicate Terminate callbacks
+- **SIGTERM Handling**: Improved graceful shutdown behavior and SOFO supervisor cleanup
+- **EDF Codec**: Fixed nil slice/map decoding issues
+- **Local Registrar**: Improved resolver detection for service discovery
 
-- Tools (observer, saturn) https://github.com/ergo-services/tools
-- Loggers (rotate, colored) - https://github.com/ergo-services/logger
-- Meta (websocket) - https://github.com/ergo-services/meta
-- Application (observer) - https://github.com/ergo-services/application
-- Registrar (client Saturn) - https://github.com/ergo-services/registrar
-- Proto (erlang23) - https://github.com/ergo-services/proto
-
-Finally, we've published comprehensive documentation for the framework, providing detailed guides to assist you in leveraging all the capabilities of Ergo Framework effectively. Its available at https://docs.ergo.services.
+**Extra Library**
+- **Module Independence**: All extra library modules (Logger, Meta, Registrar, etc...) are now independent Go modules with dependency management
+- **Tools Domain**: All tools moved to dedicated `ergo.tools` domain for better organization and distribution
+- **Proto**: `erlang23` (Erlang network stack implementation) changed from BSL 1.1 to MIT license for broader adoption and commercial use
+- **Registrar**: New etcd registrar implementation with distributed service discovery, hierarchical configuration, real-time cluster events. See https://docs.ergo.services/extra-library/registrars/etcd-client and example https://github.com/ergo-services/examples/docker
+- **Logger**: Added LogField support in colored logger, banner functionality, and fixed options handling. See https://docs.ergo.services/extra-library/loggers
+- **Application**: Observer application enhanced with new Applications page, Cron job details, and UI fixes. See https://docs.ergo.services/extra-library/applications/observer
+- **Benchmarks**: New serialization benchmarks comparing EDF vs Gob vs Protobuf performance, expanded test suite coverage. See https://github.com/ergo-services/benchmarks
 
 ### Development and debugging ###
 
@@ -163,7 +175,7 @@ To run tests with cleaned test cache:
 ```
 go vet
 go clean -testcache
-go test -v ./tests/...
+go test -v ./testing/tests/...
 ```
 
 ### Commercial support

@@ -125,7 +125,17 @@ func (u *udpserver) HandleCall(from gen.PID, ref gen.Ref, request any) (any, err
 }
 
 func (u *udpserver) Terminate(reason error) {
-	u.pc.Close()
+	defer u.pc.Close()
+
+	if reason == nil {
+		return
+	}
+
+	if reason == gen.TerminateReasonShutdown || reason == gen.TerminateReasonNormal {
+		return
+	}
+
+	u.Log().Error("terminated abnormaly: %s", reason)
 }
 
 func (u *udpserver) HandleInspect(from gen.PID, item ...string) map[string]string {
