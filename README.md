@@ -131,7 +131,7 @@ Starting from version 3.0.0, support for the Erlang network stack has been moved
 
 Fully detailed changelog see in the [ChangeLog](CHANGELOG.md) file.
 
-#### [v3.1.0](https://github.com/ergo-services/ergo/releases/tag/v1.999.310) 2025-01-XX [tag version v1.999.310] ####
+#### [v3.1.0](https://github.com/ergo-services/ergo/releases/tag/v1.999.310) 2025-09-04 [tag version v1.999.310] ####
 
 **New Features**
 - **Cron Scheduler**: New `gen.Cron` interface enables scheduling tasks with cron expressions, supporting second-level precision for precise task execution. See https://docs.ergo.services/basics/cron
@@ -142,7 +142,6 @@ Fully detailed changelog see in the [ChangeLog](CHANGELOG.md) file.
 - **Enhanced Logging**: Default logger now supports JSON output format with structured fields, improving observability and log processing
 - **Environment Management**: Added `gen.Process.EnvDefault()` and `gen.Node.EnvDefault()` methods
 - **Logger Fields**: Added `gen.Log.PushFields()` and `gen.Log.PopFields()` for contextual logging
-- **WithArgs Support**: New option for passing initialization arguments to actors (#229)
 - **EDF Protocol**: Added support for `encoding.BinaryMarshaler/BinaryUnmarshaler` interfaces
 - **Performance**: Multiple optimizations across message handling and network operations
 
@@ -152,6 +151,13 @@ Fully detailed changelog see in the [ChangeLog](CHANGELOG.md) file.
 - **SIGTERM Handling**: Improved graceful shutdown behavior and SOFO supervisor cleanup
 - **EDF Codec**: Fixed nil slice/map decoding issues
 - **Local Registrar**: Improved resolver detection for service discovery
+
+**Extra Library**
+- **Module Independence**: All extra library modules (Logger, Meta, Registrar, etc...) are now independent Go modules with dependency management
+- **Tools Domain**: All tools moved to dedicated `ergo.tools` domain for better organization and distribution
+- **Registrar**: New etcd registrar implementation with distributed service discovery, hierarchical configuration, real-time cluster events. See https://docs.ergo.services/extra-library/registrars/etcd-client and example https://github.com/ergo-services/examples/docer
+- **Logger**: Added LogField support in colored logger, banner functionality, and fixed options handling. See https://docs.ergo.services/extra-library/loggers
+- **Application**: Observer application enhanced with new Applications page, Cron job details, and UI fixes. See https://docs.ergo.services/extra-library/applications/observer
 
 ### Development and debugging ###
 
