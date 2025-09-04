@@ -131,8 +131,27 @@ Starting from version 3.0.0, support for the Erlang network stack has been moved
 
 Fully detailed changelog see in the [ChangeLog](CHANGELOG.md) file.
 
-#### [v3.1.0](https://github.com/ergo-services/ergo/releases/tag/v1.999.310) 2025-00-00 [tag version v1.999.310] ####
+#### [v3.1.0](https://github.com/ergo-services/ergo/releases/tag/v1.999.310) 2025-01-XX [tag version v1.999.310] ####
 
+**New Features**
+- **Cron Scheduler**: New `gen.Cron` interface enables scheduling tasks with cron expressions, supporting second-level precision for precise task execution. See https://docs.ergo.services/basics/cron
+- **Port Meta Process**: New `meta.Port` allows spawning and managing external OS processes with bidirectional communication through stdin/stdout/stderr. See https://docs.ergo.services/meta-processes/port
+- **Unit Testing Framework**: Comprehensive testing library (`testing/unit`) provides isolated actor testing with event capture and validation capabilities. See https://docs.ergo.services/testing/unit
+
+**Enhancements**
+- **Enhanced Logging**: Default logger now supports JSON output format with structured fields, improving observability and log processing
+- **Environment Management**: Added `gen.Process.EnvDefault()` and `gen.Node.EnvDefault()` methods
+- **Logger Fields**: Added `gen.Log.PushFields()` and `gen.Log.PopFields()` for contextual logging
+- **WithArgs Support**: New option for passing initialization arguments to actors (#229)
+- **EDF Protocol**: Added support for `encoding.BinaryMarshaler/BinaryUnmarshaler` interfaces
+- **Performance**: Multiple optimizations across message handling and network operations
+
+**Critical Bug Fixes**
+- **Node Shutdown**: Fixed race condition causing "close of closed channel" panic during graceful shutdown
+- **Supervisor Issues**: Fixed OFO supervisor child termination (#213), restart intensity calculation with millisecond precision, and duplicate Terminate callbacks
+- **SIGTERM Handling**: Improved graceful shutdown behavior and SOFO supervisor cleanup
+- **EDF Codec**: Fixed nil slice/map decoding issues
+- **Local Registrar**: Improved resolver detection for service discovery
 
 ### Development and debugging ###
 
@@ -148,7 +167,7 @@ To run tests with cleaned test cache:
 ```
 go vet
 go clean -testcache
-go test -v ./tests/...
+go test -v ./testing/tests/...
 ```
 
 ### Commercial support
