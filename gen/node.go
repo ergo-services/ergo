@@ -248,6 +248,8 @@ type NodeOptions struct {
 	Cron CronOptions
 	// CertManager
 	CertManager CertManager
+	// TargetManager
+	TargetManager TargetManager
 	// Security options
 	Security SecurityOptions
 	// Log options for the defaulf logger
