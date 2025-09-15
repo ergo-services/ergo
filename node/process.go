@@ -594,11 +594,21 @@ func (p *process) SendPID(to gen.PID, message any) error {
 		qm.Type = gen.MailboxMessageTypeRegular
 		qm.Target = to
 		qm.Message = message
-
-		if ok := p.mailbox.Main.Push(qm); ok == false {
-			return gen.ErrProcessMailboxFull
+		
+		var queue lib.QueueMPSC
+		switch p.priority {
+		case gen.MessagePriorityHigh:
+			queue = p.mailbox.System
+		case gen.MessagePriorityMax:
+			queue = p.mailbox.Urgent
+		default:
+			queue = p.mailbox.Main
 		}
 
+		if ok := queue.Push(qm); ok == false {
+			return gen.ErrProcessMailboxFull
+		}
+		
 		atomic.AddUint64(&p.messagesIn, 1)
 		p.run()
 		return nil
