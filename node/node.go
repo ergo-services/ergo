@@ -49,8 +49,7 @@ type node struct {
 	applications sync.Map // application name -> *application
 
 	// consumer lists (subcribers)
-	monitors *target
-	links    *target
+	targetManager gen.TargetManager
 
 	network *network
 
@@ -79,6 +78,13 @@ type eventOwner struct {
 	consumers int32
 
 	last lib.QueueMPSC
+}
+
+func createTargetManager(tm gen.TargetManager) gen.TargetManager {
+	if tm != nil {
+		return tm
+	}
+	return gen.CreateDefaultTargetManager()
 }
 
 func Start(name gen.Atom, options gen.NodeOptions, frameworkVersion gen.Version) (gen.Node, error) {
@@ -112,8 +118,7 @@ func Start(name gen.Atom, options gen.NodeOptions, frameworkVersion gen.Version)
 		certmanager: options.CertManager,
 		security:    options.Security,
 
-		monitors: createTarget(),
-		links:    createTarget(),
+		targetManager: createTargetManager(options.TargetManager),
 
 		loggers: make(map[gen.LogLevel]*sync.Map),
 
@@ -484,42 +489,38 @@ func (n *node) ProcessInfo(pid gen.PID) (gen.ProcessInfo, error) {
 		return true
 	})
 
-	p.targets.Range(func(k, v any) bool {
-		is_link := v.(bool)
-		switch m := k.(type) {
+	// Get links and monitors from TargetManager
+	linkTargets, monitorTargets := n.targetManager.GetTargetsForConsumer(pid)
+
+	for _, target := range linkTargets {
+		switch m := target.(type) {
 		case gen.PID:
-			if is_link {
-				info.LinksPID = append(info.LinksPID, m)
-				break
-			}
+			info.LinksPID = append(info.LinksPID, m)
+		case gen.ProcessID:
+			info.LinksProcessID = append(info.LinksProcessID, m)
+		case gen.Alias:
+			info.LinksAlias = append(info.LinksAlias, m)
+		case gen.Event:
+			info.LinksEvent = append(info.LinksEvent, m)
+		case gen.Atom:
+			info.LinksNode = append(info.LinksNode, m)
+		}
+	}
+
+	for _, target := range monitorTargets {
+		switch m := target.(type) {
+		case gen.PID:
 			info.MonitorsPID = append(info.MonitorsPID, m)
 		case gen.ProcessID:
-			if is_link {
-				info.LinksProcessID = append(info.LinksProcessID, m)
-				break
-			}
 			info.MonitorsProcessID = append(info.MonitorsProcessID, m)
 		case gen.Alias:
-			if is_link {
-				info.LinksAlias = append(info.LinksAlias, m)
-				break
-			}
 			info.MonitorsAlias = append(info.MonitorsAlias, m)
 		case gen.Event:
-			if is_link {
-				info.LinksEvent = append(info.LinksEvent, m)
-				break
-			}
 			info.MonitorsEvent = append(info.MonitorsEvent, m)
 		case gen.Atom:
-			if is_link {
-				info.LinksNode = append(info.LinksNode, m)
-				break
-			}
 			info.MonitorsNode = append(info.MonitorsNode, m)
 		}
-		return true
-	})
+	}
 
 	return info, nil
 }
@@ -1697,18 +1698,12 @@ func (n *node) spawn(factory gen.ProcessFactory, options gen.ProcessOptionsExtra
 			PID:    p.pid,
 			Reason: err,
 		}
-		for _, pid := range n.links.unregister(p.pid) {
-			n.sendExitMessage(p.pid, pid, messageExit)
-		}
-
-		// clean up links to the processes that might have been spawned
-		// (during ProcessInit callback) with the enabled LinkChild option
-		p.targets.Range(func(k, v any) bool {
-			if v.(bool) {
-				n.links.unregisterConsumer(k, p.pid)
+		linkTargets, _ := n.targetManager.CleanupConsumer(p.pid)
+		for _, target := range linkTargets {
+			if pid, ok := target.(gen.PID); ok {
+				n.sendExitMessage(p.pid, pid, messageExit)
 			}
-			return true
-		})
+		}
 
 		// terminate meta process that spawned during initialization
 
@@ -1732,8 +1727,7 @@ func (n *node) spawn(factory gen.ProcessFactory, options gen.ProcessOptionsExtra
 	}
 
 	if options.LinkParent {
-		n.links.registerConsumer(p.parent, p.pid)
-		p.targets.Store(p.parent, true)
+		n.targetManager.AddLink(p.pid, p.parent)
 	}
 
 	// register process and switch it to the sleep state
@@ -1777,15 +1771,6 @@ func (n *node) unregisterProcess(p *process, reason error) {
 		ev := gen.Event{Name: k.(gen.Atom), Node: p.node.name}
 		n.events.Delete(ev)
 		n.RouteTerminateEvent(ev, reason)
-		return true
-	})
-
-	p.targets.Range(func(target, v any) bool {
-		if v.(bool) {
-			n.links.unregisterConsumer(target, p.pid)
-		} else {
-			n.monitors.unregisterConsumer(target, p.pid)
-		}
 		return true
 	})
 

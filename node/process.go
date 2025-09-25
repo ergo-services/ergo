@@ -54,9 +54,6 @@ type process struct {
 	// channel for the sync requests made this process
 	response chan response
 
-	// created links/monitors
-	targets sync.Map // target[PID,ProcessID,Alias,Event] -> true(link), false (monitor)
-
 	// meta processes
 	metas sync.Map // metas[Alias] -> *meta
 
@@ -128,8 +125,7 @@ func (p *process) Spawn(
 	if options.LinkChild {
 		// method LinkPID is not allowed to be used in the initialization state,
 		// so we use linking manually.
-		p.node.links.registerConsumer(pid, p.pid)
-		p.targets.Store(pid, true)
+		p.node.targetManager.AddLink(p.pid, pid)
 	}
 	return pid, err
 }
@@ -163,8 +159,7 @@ func (p *process) SpawnRegister(
 	if options.LinkChild {
 		// method LinkPID is not allowed to be used in the initialization state,
 		// so we use linking manually.
-		p.node.links.registerConsumer(pid, p.pid)
-		p.targets.Store(pid, true)
+		p.node.targetManager.AddLink(p.pid, pid)
 	}
 	return pid, err
 }
@@ -263,8 +258,7 @@ func (p *process) RemoteSpawn(
 	if opts.LinkChild {
 		// method LinkPID is not allowed to be used in the initialization state,
 		// so we use linking manually.
-		p.node.links.registerConsumer(pid, p.pid)
-		p.targets.Store(pid, true)
+		p.node.targetManager.AddLink(p.pid, pid)
 	}
 
 	return pid, err
@@ -302,8 +296,7 @@ func (p *process) RemoteSpawnRegister(
 	if opts.LinkChild {
 		// method LinkPID is not allowed to be used in the initialization state,
 		// so we use linking manually.
-		p.node.links.registerConsumer(pid, p.pid)
-		p.targets.Store(pid, true)
+		p.node.targetManager.AddLink(p.pid, pid)
 	}
 
 	return pid, err
@@ -1209,7 +1202,7 @@ func (p *process) LinkPID(target gen.PID) error {
 		return gen.ErrNotAllowed
 	}
 
-	if _, exist := p.targets.Load(target); exist {
+	if p.node.targetManager.HasLink(p.pid, target) {
 		return gen.ErrTargetExist
 	}
 
@@ -1221,7 +1214,6 @@ func (p *process) LinkPID(target gen.PID) error {
 		return err
 	}
 
-	p.targets.Store(target, true)
 	return nil
 }
 
@@ -1230,7 +1222,7 @@ func (p *process) UnlinkPID(target gen.PID) error {
 		return gen.ErrNotAllowed
 	}
 
-	if _, exist := p.targets.Load(target); exist == false {
+	if p.node.targetManager.HasLink(p.pid, target) == false {
 		return gen.ErrTargetUnknown
 	}
 
@@ -1242,7 +1234,6 @@ func (p *process) UnlinkPID(target gen.PID) error {
 		return err
 	}
 
-	p.targets.Delete(target)
 	return nil
 }
 
@@ -1255,7 +1246,7 @@ func (p *process) LinkProcessID(target gen.ProcessID) error {
 		return gen.ErrNotAllowed
 	}
 
-	if _, exist := p.targets.Load(target); exist {
+	if p.node.targetManager.HasLink(p.pid, target) {
 		return gen.ErrTargetExist
 	}
 
@@ -1267,7 +1258,6 @@ func (p *process) LinkProcessID(target gen.ProcessID) error {
 		return err
 	}
 
-	p.targets.Store(target, true)
 	return nil
 }
 
@@ -1276,7 +1266,7 @@ func (p *process) UnlinkProcessID(target gen.ProcessID) error {
 		return gen.ErrNotAllowed
 	}
 
-	if _, exist := p.targets.Load(target); exist == false {
+	if p.node.targetManager.HasLink(p.pid, target) == false {
 		return gen.ErrTargetUnknown
 	}
 
@@ -1284,7 +1274,6 @@ func (p *process) UnlinkProcessID(target gen.ProcessID) error {
 		return err
 	}
 
-	p.targets.Delete(target)
 	return nil
 }
 
@@ -1299,7 +1288,7 @@ func (p *process) LinkAlias(target gen.Alias) error {
 		}
 	}
 
-	if _, exist := p.targets.Load(target); exist {
+	if p.node.targetManager.HasLink(p.pid, target) {
 		return gen.ErrTargetExist
 	}
 
@@ -1307,7 +1296,6 @@ func (p *process) LinkAlias(target gen.Alias) error {
 		return err
 	}
 
-	p.targets.Store(target, true)
 	return nil
 }
 
@@ -1316,7 +1304,7 @@ func (p *process) UnlinkAlias(target gen.Alias) error {
 		return gen.ErrNotAllowed
 	}
 
-	if _, exist := p.targets.Load(target); exist == false {
+	if p.node.targetManager.HasLink(p.pid, target) == false {
 		return gen.ErrTargetUnknown
 	}
 
@@ -1324,7 +1312,6 @@ func (p *process) UnlinkAlias(target gen.Alias) error {
 		return err
 	}
 
-	p.targets.Delete(target)
 	return nil
 }
 
@@ -1338,7 +1325,7 @@ func (p *process) LinkEvent(target gen.Event) ([]gen.MessageEvent, error) {
 		target.Node = p.node.name
 	}
 
-	if _, exist := p.targets.Load(target); exist {
+	if p.node.targetManager.HasLink(p.pid, target) {
 		return nil, gen.ErrTargetExist
 	}
 
@@ -1347,7 +1334,6 @@ func (p *process) LinkEvent(target gen.Event) ([]gen.MessageEvent, error) {
 		return nil, err
 	}
 
-	p.targets.Store(target, true)
 	return lastEventMessages, nil
 }
 
@@ -1356,7 +1342,7 @@ func (p *process) UnlinkEvent(target gen.Event) error {
 		return gen.ErrNotAllowed
 	}
 
-	if _, exist := p.targets.Load(target); exist == false {
+	if p.node.targetManager.HasLink(p.pid, target) == false {
 		return gen.ErrTargetUnknown
 	}
 
@@ -1364,7 +1350,6 @@ func (p *process) UnlinkEvent(target gen.Event) error {
 		return err
 	}
 
-	p.targets.Delete(target)
 	return nil
 }
 
@@ -1373,15 +1358,16 @@ func (p *process) LinkNode(target gen.Atom) error {
 		return gen.ErrNotAllowed
 	}
 
-	if _, exist := p.targets.Load(target); exist {
+	if p.node.targetManager.HasLink(p.pid, target) {
 		return gen.ErrTargetExist
 	}
 
 	if _, err := p.Node().Network().GetNode(target); err != nil {
 		return err
 	}
-	p.node.links.registerConsumer(target, p.pid)
-	p.targets.Store(target, true)
+
+	p.node.targetManager.AddLink(p.pid, target)
+
 	return nil
 }
 
@@ -1390,12 +1376,12 @@ func (p *process) UnlinkNode(target gen.Atom) error {
 		return gen.ErrNotAllowed
 	}
 
-	if _, exist := p.targets.Load(target); exist == false {
+	if p.node.targetManager.HasLink(p.pid, target) == false {
 		return gen.ErrTargetUnknown
 	}
 
-	p.node.links.unregisterConsumer(target, p.pid)
-	p.targets.Delete(target)
+	p.node.targetManager.RemoveLink(p.pid, target)
+
 	return nil
 }
 
@@ -1434,7 +1420,7 @@ func (p *process) MonitorPID(target gen.PID) error {
 		return gen.ErrNotAllowed
 	}
 
-	if _, exist := p.targets.Load(target); exist {
+	if p.node.targetManager.HasMonitor(p.pid, target) {
 		return gen.ErrTargetExist
 	}
 
@@ -1442,7 +1428,6 @@ func (p *process) MonitorPID(target gen.PID) error {
 		return err
 	}
 
-	p.targets.Store(target, false)
 	return nil
 }
 
@@ -1451,7 +1436,7 @@ func (p *process) DemonitorPID(target gen.PID) error {
 		return gen.ErrNotAllowed
 	}
 
-	if _, exist := p.targets.Load(target); exist == false {
+	if p.node.targetManager.HasMonitor(p.pid, target) == false {
 		return gen.ErrTargetUnknown
 	}
 
@@ -1459,7 +1444,6 @@ func (p *process) DemonitorPID(target gen.PID) error {
 		return err
 	}
 
-	p.targets.Delete(target)
 	return nil
 }
 
@@ -1468,7 +1452,7 @@ func (p *process) MonitorProcessID(target gen.ProcessID) error {
 		return gen.ErrNotAllowed
 	}
 
-	if _, exist := p.targets.Load(target); exist {
+	if p.node.targetManager.HasMonitor(p.pid, target) {
 		return gen.ErrTargetExist
 	}
 
@@ -1476,7 +1460,6 @@ func (p *process) MonitorProcessID(target gen.ProcessID) error {
 		return err
 	}
 
-	p.targets.Store(target, false)
 	return nil
 }
 
@@ -1485,7 +1468,7 @@ func (p *process) DemonitorProcessID(target gen.ProcessID) error {
 		return gen.ErrNotAllowed
 	}
 
-	if _, exist := p.targets.Load(target); exist == false {
+	if p.node.targetManager.HasMonitor(p.pid, target) == false {
 		return gen.ErrTargetUnknown
 	}
 
@@ -1493,7 +1476,6 @@ func (p *process) DemonitorProcessID(target gen.ProcessID) error {
 		return err
 	}
 
-	p.targets.Delete(target)
 	return nil
 }
 
@@ -1502,7 +1484,7 @@ func (p *process) MonitorAlias(target gen.Alias) error {
 		return gen.ErrNotAllowed
 	}
 
-	if _, exist := p.targets.Load(target); exist {
+	if p.node.targetManager.HasMonitor(p.pid, target) {
 		return gen.ErrTargetExist
 	}
 
@@ -1510,7 +1492,6 @@ func (p *process) MonitorAlias(target gen.Alias) error {
 		return err
 	}
 
-	p.targets.Store(target, false)
 	return nil
 }
 
@@ -1519,7 +1500,7 @@ func (p *process) DemonitorAlias(target gen.Alias) error {
 		return gen.ErrNotAllowed
 	}
 
-	if _, exist := p.targets.Load(target); exist == false {
+	if p.node.targetManager.HasMonitor(p.pid, target) == false {
 		return gen.ErrTargetUnknown
 	}
 
@@ -1527,7 +1508,6 @@ func (p *process) DemonitorAlias(target gen.Alias) error {
 		return err
 	}
 
-	p.targets.Delete(target)
 	return nil
 }
 
@@ -1541,7 +1521,7 @@ func (p *process) MonitorEvent(target gen.Event) ([]gen.MessageEvent, error) {
 		target.Node = p.node.name
 	}
 
-	if _, exist := p.targets.Load(target); exist {
+	if p.node.targetManager.HasMonitor(p.pid, target) {
 		return nil, gen.ErrTargetExist
 	}
 
@@ -1550,7 +1530,6 @@ func (p *process) MonitorEvent(target gen.Event) ([]gen.MessageEvent, error) {
 		return nil, err
 	}
 
-	p.targets.Store(target, false)
 	return lastEventMessages, nil
 }
 
@@ -1559,11 +1538,9 @@ func (p *process) DemonitorEvent(target gen.Event) error {
 		return gen.ErrNotAllowed
 	}
 
-	if _, exist := p.targets.Load(target); exist == false {
+	if p.node.targetManager.HasMonitor(p.pid, target) == false {
 		return gen.ErrTargetUnknown
 	}
-
-	p.targets.Delete(target)
 
 	if err := p.node.RouteDemonitorEvent(p.pid, target); err != nil {
 		return err
@@ -1577,15 +1554,14 @@ func (p *process) MonitorNode(target gen.Atom) error {
 		return gen.ErrNotAllowed
 	}
 
-	if _, exist := p.targets.Load(target); exist {
+	if p.node.targetManager.HasMonitor(p.pid, target) {
 		return gen.ErrTargetExist
 	}
 
 	if _, err := p.Node().Network().GetNode(target); err != nil {
 		return err
 	}
-	p.node.monitors.registerConsumer(target, p.pid)
-	p.targets.Store(target, false)
+	p.node.targetManager.AddMonitor(p.pid, target)
 	return nil
 }
 
@@ -1593,12 +1569,11 @@ func (p *process) DemonitorNode(target gen.Atom) error {
 	if p.isStateRW() == false {
 		return gen.ErrNotAllowed
 	}
-	if _, exist := p.targets.Load(target); exist == false {
+	if p.node.targetManager.HasMonitor(p.pid, target) == false {
 		return gen.ErrTargetUnknown
 	}
 
-	p.node.monitors.unregisterConsumer(target, p.pid)
-	p.targets.Delete(target)
+	p.node.targetManager.RemoveMonitor(p.pid, target)
 	return nil
 }
 
