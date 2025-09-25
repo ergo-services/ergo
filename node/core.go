@@ -253,7 +253,7 @@ func (n *node) RouteSendEvent(from gen.PID, token gen.Ref, options gen.MessageOp
 		}
 	}
 
-	consumers := append(n.links.consumers(message.Event), n.monitors.consumers(message.Event)...)
+	consumers := n.targetManager.GetConsumersForTarget(message.Event)
 	remote := make(map[gen.Atom]bool)
 	// local delivery
 	for _, pid := range consumers {
@@ -270,7 +270,9 @@ func (n *node) RouteSendEvent(from gen.PID, token gen.Ref, options gen.MessageOp
 	}
 
 	for k := range remote {
-		connection, err := n.network.GetConnection(k)
+		// remote consumer means that there is a connection established
+		// so use Connection() instead of GetConnection()
+		connection, err := n.network.Connection(k)
 		if err != nil {
 			continue
 		}
@@ -564,8 +566,7 @@ func (n *node) RouteLinkPID(pid gen.PID, target gen.PID) error {
 		if _, exist := n.processes.Load(target); exist == false {
 			return gen.ErrProcessUnknown
 		}
-		n.links.registerConsumer(target, pid)
-		return nil
+		return n.targetManager.AddLink(pid, target)
 	}
 
 	// remote target
@@ -578,8 +579,7 @@ func (n *node) RouteLinkPID(pid gen.PID, target gen.PID) error {
 		return err
 	}
 
-	n.links.registerConsumer(target, pid)
-	return nil
+	return n.targetManager.AddLink(pid, target)
 }
 
 func (n *node) RouteUnlinkPID(pid gen.PID, target gen.PID) error {
@@ -596,8 +596,7 @@ func (n *node) RouteUnlinkPID(pid gen.PID, target gen.PID) error {
 		if _, exist := n.processes.Load(target); exist == false {
 			return gen.ErrProcessUnknown
 		}
-		n.links.unregisterConsumer(target, pid)
-		return nil
+		return n.targetManager.RemoveLink(pid, target)
 	}
 
 	// remote target
@@ -609,8 +608,8 @@ func (n *node) RouteUnlinkPID(pid gen.PID, target gen.PID) error {
 	if err := connection.UnlinkPID(pid, target); err != nil {
 		return nil
 	}
-	n.links.unregisterConsumer(target, pid)
-	return nil
+
+	return n.targetManager.RemoveLink(pid, target)
 }
 
 func (n *node) RouteLinkProcessID(pid gen.PID, target gen.ProcessID) error {
@@ -627,8 +626,7 @@ func (n *node) RouteLinkProcessID(pid gen.PID, target gen.ProcessID) error {
 		if _, exist := n.names.Load(target.Name); exist == false {
 			return gen.ErrProcessUnknown
 		}
-		n.links.registerConsumer(target, pid)
-		return nil
+		return n.targetManager.AddLink(pid, target)
 	}
 
 	// remote target
@@ -640,8 +638,8 @@ func (n *node) RouteLinkProcessID(pid gen.PID, target gen.ProcessID) error {
 	if err := connection.LinkProcessID(pid, target); err != nil {
 		return err
 	}
-	n.links.registerConsumer(target, pid)
-	return nil
+
+	return n.targetManager.AddLink(pid, target)
 }
 
 func (n *node) RouteUnlinkProcessID(pid gen.PID, target gen.ProcessID) error {
@@ -656,8 +654,7 @@ func (n *node) RouteUnlinkProcessID(pid gen.PID, target gen.ProcessID) error {
 		if _, exist := n.names.Load(target.Name); exist == false {
 			return gen.ErrProcessUnknown
 		}
-		n.links.unregisterConsumer(target, pid)
-		return nil
+		return n.targetManager.RemoveLink(pid, target)
 	}
 
 	// remote target
@@ -669,8 +666,7 @@ func (n *node) RouteUnlinkProcessID(pid gen.PID, target gen.ProcessID) error {
 	if err := connection.UnlinkProcessID(pid, target); err != nil {
 		return err
 	}
-	n.links.unregisterConsumer(target, pid)
-	return nil
+	return n.targetManager.RemoveLink(pid, target)
 }
 
 func (n *node) RouteLinkAlias(pid gen.PID, target gen.Alias) error {
@@ -687,8 +683,7 @@ func (n *node) RouteLinkAlias(pid gen.PID, target gen.Alias) error {
 		if _, exist := n.aliases.Load(target); exist == false {
 			return gen.ErrAliasUnknown
 		}
-		n.links.registerConsumer(target, pid)
-		return nil
+		return n.targetManager.AddLink(pid, target)
 	}
 
 	// remote target
@@ -700,8 +695,8 @@ func (n *node) RouteLinkAlias(pid gen.PID, target gen.Alias) error {
 	if err := connection.LinkAlias(pid, target); err != nil {
 		return err
 	}
-	n.links.registerConsumer(target, pid)
-	return nil
+
+	return n.targetManager.AddLink(pid, target)
 }
 
 func (n *node) RouteUnlinkAlias(pid gen.PID, target gen.Alias) error {
@@ -718,8 +713,7 @@ func (n *node) RouteUnlinkAlias(pid gen.PID, target gen.Alias) error {
 		if _, exist := n.aliases.Load(target); exist == false {
 			return gen.ErrAliasUnknown
 		}
-		n.links.unregisterConsumer(target, pid)
-		return nil
+		return n.targetManager.RemoveLink(pid, target)
 	}
 
 	// remote target
@@ -732,8 +726,7 @@ func (n *node) RouteUnlinkAlias(pid gen.PID, target gen.Alias) error {
 		return err
 	}
 
-	n.links.unregisterConsumer(target, pid)
-	return nil
+	return n.targetManager.RemoveLink(pid, target)
 }
 
 func (n *node) RouteLinkEvent(pid gen.PID, target gen.Event) ([]gen.MessageEvent, error) {
@@ -755,7 +748,9 @@ func (n *node) RouteLinkEvent(pid gen.PID, target gen.Event) ([]gen.MessageEvent
 		}
 
 		event := value.(*eventOwner)
-		n.links.registerConsumer(target, pid)
+		if err := n.targetManager.AddLink(pid, target); err != nil {
+			return nil, err
+		}
 
 		if event.last != nil {
 			// load last N events
@@ -796,7 +791,10 @@ func (n *node) RouteLinkEvent(pid gen.PID, target gen.Event) ([]gen.MessageEvent
 		return nil, err
 	}
 
-	n.links.registerConsumer(target, pid)
+	if err := n.targetManager.AddLink(pid, target); err != nil {
+		return nil, err
+	}
+
 	return lastEventMessages, nil
 }
 
@@ -816,7 +814,9 @@ func (n *node) RouteUnlinkEvent(pid gen.PID, target gen.Event) error {
 			return gen.ErrEventUnknown
 		}
 		event := value.(*eventOwner)
-		n.links.unregisterConsumer(target, pid)
+		if err := n.targetManager.RemoveLink(pid, target); err != nil {
+			return err
+		}
 
 		c := atomic.AddInt32(&event.consumers, -1)
 		if event.notify == false || c > 0 {
@@ -843,8 +843,7 @@ func (n *node) RouteUnlinkEvent(pid gen.PID, target gen.Event) error {
 	if err := connection.UnlinkEvent(pid, target); err != nil {
 		return err
 	}
-	n.links.unregisterConsumer(target, pid)
-	return nil
+	return n.targetManager.RemoveLink(pid, target)
 }
 
 func (n *node) RouteMonitorPID(pid gen.PID, target gen.PID) error {
@@ -866,8 +865,7 @@ func (n *node) RouteMonitorPID(pid gen.PID, target gen.PID) error {
 				return gen.ErrProcessTerminated
 			}
 		}
-		n.monitors.registerConsumer(target, pid)
-		return nil
+		return n.targetManager.AddMonitor(pid, target)
 	}
 
 	// remote target
@@ -879,8 +877,7 @@ func (n *node) RouteMonitorPID(pid gen.PID, target gen.PID) error {
 	if err := connection.MonitorPID(pid, target); err != nil {
 		return err
 	}
-	n.monitors.registerConsumer(target, pid)
-	return nil
+	return n.targetManager.AddMonitor(pid, target)
 }
 
 func (n *node) RouteDemonitorPID(pid gen.PID, target gen.PID) error {
@@ -897,8 +894,7 @@ func (n *node) RouteDemonitorPID(pid gen.PID, target gen.PID) error {
 		if _, exist := n.processes.Load(target); exist == false {
 			return gen.ErrProcessUnknown
 		}
-		n.monitors.unregisterConsumer(target, pid)
-		return nil
+		return n.targetManager.RemoveMonitor(pid, target)
 	}
 
 	// remote target
@@ -910,8 +906,7 @@ func (n *node) RouteDemonitorPID(pid gen.PID, target gen.PID) error {
 	if err := connection.DemonitorPID(pid, target); err != nil {
 		return err
 	}
-	n.monitors.unregisterConsumer(target, pid)
-	return nil
+	return n.targetManager.RemoveMonitor(pid, target)
 }
 
 func (n *node) RouteMonitorProcessID(pid gen.PID, target gen.ProcessID) error {
@@ -933,8 +928,7 @@ func (n *node) RouteMonitorProcessID(pid gen.PID, target gen.ProcessID) error {
 				return gen.ErrProcessTerminated
 			}
 		}
-		n.monitors.registerConsumer(target, pid)
-		return nil
+		return n.targetManager.AddMonitor(pid, target)
 	}
 
 	// remote target
@@ -946,8 +940,7 @@ func (n *node) RouteMonitorProcessID(pid gen.PID, target gen.ProcessID) error {
 	if err := connection.MonitorProcessID(pid, target); err != nil {
 		return err
 	}
-	n.monitors.registerConsumer(target, pid)
-	return nil
+	return n.targetManager.AddMonitor(pid, target)
 }
 
 func (n *node) RouteDemonitorProcessID(pid gen.PID, target gen.ProcessID) error {
@@ -964,8 +957,7 @@ func (n *node) RouteDemonitorProcessID(pid gen.PID, target gen.ProcessID) error 
 		if _, exist := n.names.Load(target.Name); exist == false {
 			return gen.ErrProcessUnknown
 		}
-		n.monitors.unregisterConsumer(target, pid)
-		return nil
+		return n.targetManager.RemoveMonitor(pid, target)
 	}
 
 	// remote target
@@ -978,8 +970,7 @@ func (n *node) RouteDemonitorProcessID(pid gen.PID, target gen.ProcessID) error 
 		return err
 	}
 
-	n.monitors.unregisterConsumer(target, pid)
-	return nil
+	return n.targetManager.RemoveMonitor(pid, target)
 }
 
 func (n *node) RouteMonitorAlias(pid gen.PID, target gen.Alias) error {
@@ -996,8 +987,7 @@ func (n *node) RouteMonitorAlias(pid gen.PID, target gen.Alias) error {
 		if _, exist := n.aliases.Load(target); exist == false {
 			return gen.ErrAliasUnknown
 		}
-		n.monitors.registerConsumer(target, pid)
-		return nil
+		return n.targetManager.AddMonitor(pid, target)
 	}
 
 	// remote target
@@ -1010,8 +1000,7 @@ func (n *node) RouteMonitorAlias(pid gen.PID, target gen.Alias) error {
 		return err
 	}
 
-	n.monitors.registerConsumer(target, pid)
-	return nil
+	return n.targetManager.AddMonitor(pid, target)
 }
 
 func (n *node) RouteDemonitorAlias(pid gen.PID, target gen.Alias) error {
@@ -1028,8 +1017,7 @@ func (n *node) RouteDemonitorAlias(pid gen.PID, target gen.Alias) error {
 		if _, exist := n.aliases.Load(target); exist == false {
 			return gen.ErrAliasUnknown
 		}
-		n.monitors.unregisterConsumer(target, pid)
-		return nil
+		return n.targetManager.RemoveMonitor(pid, target)
 	}
 
 	// remote target
@@ -1042,8 +1030,7 @@ func (n *node) RouteDemonitorAlias(pid gen.PID, target gen.Alias) error {
 		return err
 	}
 
-	n.monitors.unregisterConsumer(target, pid)
-	return nil
+	return n.targetManager.RemoveMonitor(pid, target)
 }
 
 func (n *node) RouteMonitorEvent(pid gen.PID, target gen.Event) ([]gen.MessageEvent, error) {
@@ -1064,7 +1051,9 @@ func (n *node) RouteMonitorEvent(pid gen.PID, target gen.Event) ([]gen.MessageEv
 			return nil, gen.ErrEventUnknown
 		}
 		event := value.(*eventOwner)
-		n.monitors.registerConsumer(target, pid)
+		if err := n.targetManager.AddMonitor(pid, target); err != nil {
+			return nil, err
+		}
 
 		if event.last != nil {
 			// load last N events
@@ -1105,7 +1094,9 @@ func (n *node) RouteMonitorEvent(pid gen.PID, target gen.Event) ([]gen.MessageEv
 		return nil, err
 	}
 
-	n.monitors.registerConsumer(target, pid)
+	if err := n.targetManager.AddMonitor(pid, target); err != nil {
+		return nil, err
+	}
 	return lastEventMessages, nil
 }
 
@@ -1124,7 +1115,10 @@ func (n *node) RouteDemonitorEvent(pid gen.PID, target gen.Event) error {
 		if exist == false {
 			return gen.ErrEventUnknown
 		}
-		n.monitors.unregisterConsumer(target, pid)
+
+		if err := n.targetManager.RemoveMonitor(pid, target); err != nil {
+			return err
+		}
 
 		// notify producer
 		event := value.(*eventOwner)
@@ -1153,8 +1147,7 @@ func (n *node) RouteDemonitorEvent(pid gen.PID, target gen.Event) error {
 		return err
 	}
 
-	n.monitors.unregisterConsumer(target, pid)
-	return nil
+	return n.targetManager.RemoveMonitor(pid, target)
 }
 
 func (n *node) RouteTerminatePID(target gen.PID, reason error) error {
@@ -1171,7 +1164,9 @@ func (n *node) RouteTerminatePID(target gen.PID, reason error) error {
 		PID:    target,
 		Reason: reason,
 	}
-	for _, pid := range n.links.unregister(target) {
+	linkConsumers, monitorConsumers := n.targetManager.CleanupTarget(target)
+
+	for _, pid := range linkConsumers {
 		if pid.Node != n.name {
 			remote[pid.Node] = true
 		}
@@ -1185,7 +1180,7 @@ func (n *node) RouteTerminatePID(target gen.PID, reason error) error {
 	messageOptions := gen.MessageOptions{
 		Priority: gen.MessagePriorityHigh,
 	}
-	for _, pid := range n.monitors.unregister(target) {
+	for _, pid := range monitorConsumers {
 		if pid.Node != n.name {
 			remote[pid.Node] = true
 		}
@@ -1218,7 +1213,9 @@ func (n *node) RouteTerminateProcessID(target gen.ProcessID, reason error) error
 		ProcessID: target,
 		Reason:    reason,
 	}
-	for _, pid := range n.links.unregister(target) {
+	linkConsumers, monitorConsumers := n.targetManager.CleanupTarget(target)
+
+	for _, pid := range linkConsumers {
 		if pid.Node != n.name {
 			remote[pid.Node] = true
 		}
@@ -1232,7 +1229,7 @@ func (n *node) RouteTerminateProcessID(target gen.ProcessID, reason error) error
 	messageOptions := gen.MessageOptions{
 		Priority: gen.MessagePriorityHigh,
 	}
-	for _, pid := range n.monitors.unregister(target) {
+	for _, pid := range monitorConsumers {
 		if pid.Node != n.name {
 			remote[pid.Node] = true
 		}
@@ -1265,7 +1262,9 @@ func (n *node) RouteTerminateEvent(target gen.Event, reason error) error {
 		Event:  target,
 		Reason: reason,
 	}
-	for _, pid := range n.links.unregister(target) {
+	linkConsumers, monitorConsumers := n.targetManager.CleanupTarget(target)
+
+	for _, pid := range linkConsumers {
 		if pid.Node != n.name {
 			remote[pid.Node] = true
 		}
@@ -1279,7 +1278,7 @@ func (n *node) RouteTerminateEvent(target gen.Event, reason error) error {
 	messageOptions := gen.MessageOptions{
 		Priority: gen.MessagePriorityHigh,
 	}
-	for _, pid := range n.monitors.unregister(target) {
+	for _, pid := range monitorConsumers {
 		if pid.Node != n.name {
 			remote[pid.Node] = true
 		}
@@ -1312,7 +1311,9 @@ func (n *node) RouteTerminateAlias(target gen.Alias, reason error) error {
 		Alias:  target,
 		Reason: reason,
 	}
-	for _, pid := range n.links.unregister(target) {
+	linkConsumers, monitorConsumers := n.targetManager.CleanupTarget(target)
+
+	for _, pid := range linkConsumers {
 		if pid.Node != n.name {
 			remote[pid.Node] = true
 		}
@@ -1326,7 +1327,7 @@ func (n *node) RouteTerminateAlias(target gen.Alias, reason error) error {
 	messageOptions := gen.MessageOptions{
 		Priority: gen.MessagePriorityHigh,
 	}
-	for _, pid := range n.monitors.unregister(target) {
+	for _, pid := range monitorConsumers {
 		if pid.Node != n.name {
 			remote[pid.Node] = true
 		}
@@ -1345,7 +1346,12 @@ func (n *node) RouteTerminateAlias(target gen.Alias, reason error) error {
 	return nil
 }
 
-func (n *node) RouteSpawn(node gen.Atom, name gen.Atom, options gen.ProcessOptionsExtra, source gen.Atom) (gen.PID, error) {
+func (n *node) RouteSpawn(
+	node gen.Atom,
+	name gen.Atom,
+	options gen.ProcessOptionsExtra,
+	source gen.Atom,
+) (gen.PID, error) {
 	var empty gen.PID
 
 	if n.isRunning() == false {
@@ -1373,7 +1379,12 @@ func (n *node) RouteSpawn(node gen.Atom, name gen.Atom, options gen.ProcessOptio
 	return n.spawn(factory, options)
 }
 
-func (n *node) RouteApplicationStart(name gen.Atom, mode gen.ApplicationMode, options gen.ApplicationOptionsExtra, source gen.Atom) error {
+func (n *node) RouteApplicationStart(
+	name gen.Atom,
+	mode gen.ApplicationMode,
+	options gen.ApplicationOptionsExtra,
+	source gen.Atom,
+) error {
 	if n.isRunning() == false {
 		return gen.ErrNodeTerminated
 	}
@@ -1395,8 +1406,11 @@ func (n *node) RouteApplicationStart(name gen.Atom, mode gen.ApplicationMode, op
 }
 
 func (n *node) RouteNodeDown(name gen.Atom, reason error) {
-	// handle links
-	for _, target := range n.links.targetsNodeDown(name) {
+	// Get targets and consumers affected by node down, then cleanup
+	linkTargetsWithConsumers, monitorTargetsWithConsumers := n.targetManager.CleanupNode(name)
+
+	// Send exit messages for link targets that were cleaned up
+	for target, linkConsumers := range linkTargetsWithConsumers {
 		var message any
 		switch t := target.(type) {
 		case gen.PID:
@@ -1432,13 +1446,18 @@ func (n *node) RouteNodeDown(name gen.Atom, reason error) {
 			// bug
 			continue
 		}
-		for _, pid := range n.links.unregister(target) {
+
+		// Send exit messages to all consumers
+		for _, pid := range linkConsumers {
 			n.sendExitMessage(n.corePID, pid, message)
 		}
 	}
 
-	// handle monitors
-	for _, target := range n.monitors.targetsNodeDown(name) {
+	// Send down messages for monitor targets that were cleaned up
+	messageOptions := gen.MessageOptions{
+		Priority: gen.MessagePriorityHigh,
+	}
+	for target, monitorConsumers := range monitorTargetsWithConsumers {
 		var message any
 		switch t := target.(type) {
 		case gen.PID:
@@ -1474,10 +1493,9 @@ func (n *node) RouteNodeDown(name gen.Atom, reason error) {
 			// bug
 			continue
 		}
-		messageOptions := gen.MessageOptions{
-			Priority: gen.MessagePriorityHigh,
-		}
-		for _, pid := range n.monitors.unregister(target) {
+
+		// Send down messages to all consumers
+		for _, pid := range monitorConsumers {
 			n.RouteSendPID(n.corePID, pid, messageOptions, message)
 		}
 	}
@@ -1531,7 +1549,12 @@ func (n *node) sendExitMessage(from gen.PID, to gen.PID, message any) error {
 	return nil
 }
 
-func (n *node) sendEventMessage(from gen.PID, to gen.PID, priority gen.MessagePriority, message gen.MessageEvent) error {
+func (n *node) sendEventMessage(
+	from gen.PID,
+	to gen.PID,
+	priority gen.MessagePriority,
+	message gen.MessageEvent,
+) error {
 	var queue lib.QueueMPSC
 
 	value, loaded := n.processes.Load(to)

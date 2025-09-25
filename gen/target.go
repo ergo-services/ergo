@@ -28,7 +28,6 @@ type TargetManager interface {
 	// HasMonitor checks if a monitor relationship exists between consumer and target.
 	HasMonitor(consumer PID, target any) bool
 
-	// Cleanup operations - CRITICAL for fixing issue #195
 	// CleanupConsumer removes all relationships where the given PID is a consumer.
 	// This is called when a process terminates to prevent memory leaks.
 	// Returns all targets that were being linked/monitored by the consumer.
@@ -41,18 +40,13 @@ type TargetManager interface {
 
 	// CleanupNode removes all relationships involving processes from the given node.
 	// This is called when a remote node goes down.
-	// Returns all targets that were being linked/monitored by processes from that node.
-	CleanupNode(node Atom) (linkTargets []any, monitorTargets []any)
+	// Returns targets and their consumers that were affected by the node going down.
+	CleanupNode(node Atom) (linkTargetsWithConsumers map[any][]PID, monitorTargetsWithConsumers map[any][]PID)
 
 	// Inspection operations (for debugging and process info)
 	// GetTargetsForConsumer returns all targets that a consumer is linking/monitoring.
 	GetTargetsForConsumer(consumer PID) (links []any, monitors []any)
 
 	// GetConsumersForTarget returns all consumers that are linking/monitoring a target.
-	GetConsumersForTarget(target any) (linkConsumers []PID, monitorConsumers []PID)
-}
-
-// CreateTargetManager creates a new default target manager implementation.
-func CreateTargetManager() TargetManager {
-	return CreateDefaultTargetManager()
+	GetConsumersForTarget(target any) []PID
 }
