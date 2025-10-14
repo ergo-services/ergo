@@ -201,6 +201,12 @@ type Process interface {
 	// already expired and the message has been sent.
 	SendAfter(to any, message any, after time.Duration) (CancelFunc, error)
 
+	// SendWithPriorityAfter starts a timer. When the timer expires, the message sends to the process
+	// identified by 'to' with the specified priority. Returns cancel function in order to discard
+	// sending a message. CancelFunc returns bool value. If it returns false, than the timer has
+	// already expired and the message has been sent.
+	SendWithPriorityAfter(to any, message any, priority MessagePriority, after time.Duration) (CancelFunc, error)
+
 	// SendEvent sends event message to the subscribers (to the processes that made link/monitor
 	// on this event). Event must be registered with RegisterEvent method.
 	SendEvent(name Atom, token Ref, message any) error
@@ -208,8 +214,20 @@ type Process interface {
 	// SendExit sends graceful termination request to the process.
 	SendExit(to PID, reason error) error
 
+	// SendExitAfter starts a timer. When the timer expires, sends graceful termination request
+	// to the process. Returns cancel function in order to discard sending exit signal.
+	// CancelFunc returns bool value. If it returns false, than the timer has already expired
+	// and the exit signal has been sent.
+	SendExitAfter(to PID, reason error, after time.Duration) (CancelFunc, error)
+
 	// SendExitMeta sends graceful termination request to the meta process.
 	SendExitMeta(meta Alias, reason error) error
+
+	// SendExitMetaAfter starts a timer. When the timer expires, sends graceful termination request
+	// to the meta process. Returns cancel function in order to discard sending exit signal.
+	// CancelFunc returns bool value. If it returns false, than the timer has already expired
+	// and the exit signal has been sent.
+	SendExitMetaAfter(meta Alias, reason error, after time.Duration) (CancelFunc, error)
 
 	SendResponse(to PID, ref Ref, message any) error
 	SendResponseError(to PID, ref Ref, err error) error

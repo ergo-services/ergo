@@ -770,6 +770,40 @@ func (p *process) SendAfter(to any, message any, after time.Duration) (gen.Cance
 	}).Stop, nil
 }
 
+func (p *process) SendWithPriorityAfter(to any, message any, priority gen.MessagePriority, after time.Duration) (gen.CancelFunc, error) {
+	if p.isAlive() == false {
+		return nil, gen.ErrNotAllowed
+	}
+	return time.AfterFunc(after, func() {
+		var err error
+		if lib.Trace() {
+			p.log.Trace("SendWithPriorityAfter %s to %s with priority %s", after, to, priority)
+		}
+		// we can't use p.Send(...) because it checks the process state
+		// and returns gen.ErrNotAllowed, so use p.node.Route* methods for that
+		options := gen.MessageOptions{
+			Priority:         priority,
+			Compression:      p.compression,
+			KeepNetworkOrder: p.keeporder,
+			// ImportantDelivery: ignore on sending with delay
+		}
+		switch t := to.(type) {
+		case gen.Atom:
+			err = p.node.RouteSendProcessID(p.pid, gen.ProcessID{Name: t, Node: p.node.name}, options, message)
+		case gen.PID:
+			err = p.node.RouteSendPID(p.pid, t, options, message)
+		case gen.ProcessID:
+			err = p.node.RouteSendProcessID(p.pid, t, options, message)
+		case gen.Alias:
+			err = p.node.RouteSendAlias(p.pid, t, options, message)
+		}
+
+		if err == nil {
+			atomic.AddUint64(&p.messagesOut, 1)
+		}
+	}).Stop, nil
+}
+
 func (p *process) SendEvent(name gen.Atom, token gen.Ref, message any) error {
 	if p.isStateRW() == false {
 		return gen.ErrNotAllowed
@@ -825,6 +859,33 @@ func (p *process) SendExit(to gen.PID, reason error) error {
 	return nil
 }
 
+func (p *process) SendExitAfter(to gen.PID, reason error, after time.Duration) (gen.CancelFunc, error) {
+	if p.isStateRW() == false {
+		return nil, gen.ErrNotAllowed
+	}
+
+	if reason == nil {
+		return nil, gen.ErrIncorrect
+	}
+
+	switch to {
+	case p.pid, p.parent, p.leader:
+		p.log.Warning("sending exit-signal to itself, parent, or leader process is not allowed")
+		return nil, gen.ErrNotAllowed
+	}
+
+	return time.AfterFunc(after, func() {
+		if lib.Trace() {
+			p.log.Trace("SendExitAfter %s to %s with reason %q", after, to, reason)
+		}
+
+		err := p.node.RouteSendExit(p.pid, to, reason)
+		if err == nil {
+			atomic.AddUint64(&p.messagesOut, 1)
+		}
+	}).Stop, nil
+}
+
 func (p *process) SendExitMeta(alias gen.Alias, reason error) error {
 	if p.isStateRW() == false {
 		return gen.ErrNotAllowed
@@ -864,6 +925,68 @@ func (p *process) SendExitMeta(alias gen.Alias, reason error) error {
 	atomic.AddUint64(&p.messagesOut, 1)
 	m.handle()
 	return nil
+}
+
+func (p *process) SendExitMetaAfter(alias gen.Alias, reason error, after time.Duration) (gen.CancelFunc, error) {
+	if p.isStateRW() == false {
+		return nil, gen.ErrNotAllowed
+	}
+
+	if reason == nil {
+		return nil, gen.ErrIncorrect
+	}
+
+	// Validate alias exists before scheduling
+	value, found := p.node.aliases.Load(alias)
+	if found == false {
+		return nil, gen.ErrAliasUnknown
+	}
+
+	metap := value.(*process)
+	if alive := metap.isAlive(); alive == false {
+		return nil, gen.ErrProcessTerminated
+	}
+
+	_, found = metap.metas.Load(alias)
+	if found == false {
+		return nil, gen.ErrMetaUnknown
+	}
+
+	return time.AfterFunc(after, func() {
+		if lib.Trace() {
+			p.log.Trace("SendExitMetaAfter %s to %s with reason %q", after, alias, reason)
+		}
+
+		value, found := p.node.aliases.Load(alias)
+		if found == false {
+			return
+		}
+
+		metap := value.(*process)
+		if alive := metap.isAlive(); alive == false {
+			return
+		}
+
+		value, found = metap.metas.Load(alias)
+		if found == false {
+			return
+		}
+
+		m := value.(*meta)
+		// send exit signal to the meta process
+		qm := gen.TakeMailboxMessage()
+		qm.From = p.pid
+		qm.Type = gen.MailboxMessageTypeExit
+		qm.Message = reason
+
+		if ok := m.system.Push(qm); ok == false {
+			return
+		}
+
+		atomic.AddUint64(&m.messagesIn, 1)
+		atomic.AddUint64(&p.messagesOut, 1)
+		m.handle()
+	}).Stop, nil
 }
 
 func (p *process) SendResponse(to gen.PID, ref gen.Ref, message any) error {
