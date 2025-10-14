@@ -23,7 +23,35 @@ import (
 var (
 	startID     = uint64(1000)
 	startUniqID = uint64(time.Now().UnixNano())
+
+	nodeCallPool = sync.Pool{
+		New: func() any {
+			return &nodeCall{
+				done: make(chan struct{}, 1),
+			}
+		},
+	}
 )
+
+type nodeCall struct {
+	done     chan struct{} // semaphore to signal call is done
+	response any
+	err      error
+}
+
+func takeNodeCall() *nodeCall {
+	return nodeCallPool.Get().(*nodeCall)
+}
+
+func releaseNodeCall(r *nodeCall) {
+	// Drain channel before returning to pool (safety)
+	select {
+	case <-r.done:
+	default:
+	}
+	r.response, r.err = nil, nil
+	nodeCallPool.Put(r)
+}
 
 type node struct {
 	name      gen.Atom
@@ -45,6 +73,7 @@ type node struct {
 	names     sync.Map // process name gen.Atom -> *process
 	aliases   sync.Map // process alias gen.Alias -> *process
 	events    sync.Map // process event gen.Event -> *eventOwner
+	calls     sync.Map // node-level call responses gen.Ref -> *nodeCall
 
 	applications sync.Map // application name -> *application
 
@@ -947,6 +976,225 @@ func (n *node) SendExit(pid gen.PID, reason error) error {
 		return gen.ErrNodeTerminated
 	}
 	return n.RouteSendExit(n.corePID, pid, reason)
+}
+
+func (n *node) Call(to any, request any) (any, error) {
+	options := gen.MessageOptions{
+		Priority: gen.MessagePriorityNormal,
+	}
+	return n.callWithOptions(to, request, gen.DefaultRequestTimeout, options)
+}
+
+func (n *node) CallWithTimeout(to any, request any, timeout int) (any, error) {
+	options := gen.MessageOptions{
+		Priority: gen.MessagePriorityNormal,
+	}
+	return n.callWithOptions(to, request, timeout, options)
+}
+
+func (n *node) CallWithPriority(to any, request any, priority gen.MessagePriority) (any, error) {
+	options := gen.MessageOptions{
+		Priority: priority,
+	}
+	return n.callWithOptions(to, request, gen.DefaultRequestTimeout, options)
+}
+
+func (n *node) CallImportant(to any, request any) (any, error) {
+	options := gen.MessageOptions{
+		Priority:          gen.MessagePriorityNormal,
+		ImportantDelivery: true,
+	}
+	return n.callWithOptions(to, request, gen.DefaultRequestTimeout, options)
+}
+
+func (n *node) callWithOptions(to any, request any, timeout int, options gen.MessageOptions) (any, error) {
+	if n.isRunning() == false {
+		return nil, gen.ErrNodeTerminated
+	}
+
+	switch t := to.(type) {
+	case gen.Atom:
+		return n.callProcessIDWithOptions(gen.ProcessID{Name: t, Node: n.name}, request, timeout, options)
+	case gen.PID:
+		return n.callPIDWithOptions(t, request, timeout, options)
+	case gen.ProcessID:
+		return n.callProcessIDWithOptions(t, request, timeout, options)
+	case gen.Alias:
+		return n.callAliasWithOptions(t, request, timeout, options)
+	}
+
+	return nil, gen.ErrUnsupported
+}
+
+func (n *node) CallPID(to gen.PID, request any, timeout int) (any, error) {
+	options := gen.MessageOptions{
+		Priority: gen.MessagePriorityNormal,
+	}
+	return n.callPIDWithOptions(to, request, timeout, options)
+}
+
+func (n *node) callPIDWithOptions(
+	to gen.PID,
+	request any,
+	timeout int,
+	options gen.MessageOptions,
+) (any, error) {
+	if n.isRunning() == false {
+		return nil, gen.ErrNodeTerminated
+	}
+
+	ref := n.MakeRef()
+	call := takeNodeCall()
+	n.calls.Store(ref, call)
+	defer n.calls.Delete(ref)
+
+	options.Ref = ref
+
+	if err := n.RouteCallPID(n.corePID, to, options, request); err != nil {
+		releaseNodeCall(call)
+		return nil, err
+	}
+
+	timer := lib.TakeTimer()
+	defer lib.ReleaseTimer(timer)
+	timer.Reset(time.Duration(timeout) * time.Second)
+
+	select {
+	case <-call.done:
+		goto handleResponse
+	case <-timer.C:
+		// Check if response arrived at the same moment as timeout
+		select {
+		case <-call.done:
+			goto handleResponse
+		default:
+			// No response yet - don't return to pool as late response might arrive
+			return nil, gen.ErrTimeout
+		}
+	}
+
+handleResponse:
+	response := call.response
+	err := call.err
+	releaseNodeCall(call)
+	if err != nil {
+		return nil, err
+	}
+	return response, nil
+}
+
+func (n *node) CallProcessID(to gen.ProcessID, request any, timeout int) (any, error) {
+	options := gen.MessageOptions{
+		Priority: gen.MessagePriorityNormal,
+	}
+	return n.callProcessIDWithOptions(to, request, timeout, options)
+}
+
+func (n *node) callProcessIDWithOptions(
+	to gen.ProcessID,
+	request any,
+	timeout int,
+	options gen.MessageOptions,
+) (any, error) {
+	if n.isRunning() == false {
+		return nil, gen.ErrNodeTerminated
+	}
+
+	ref := n.MakeRef()
+	call := takeNodeCall()
+	n.calls.Store(ref, call)
+	defer n.calls.Delete(ref)
+
+	options.Ref = ref
+
+	if err := n.RouteCallProcessID(n.corePID, to, options, request); err != nil {
+		releaseNodeCall(call)
+		return nil, err
+	}
+
+	timer := lib.TakeTimer()
+	defer lib.ReleaseTimer(timer)
+	timer.Reset(time.Duration(timeout) * time.Second)
+
+	select {
+	case <-call.done:
+		goto handleResponse
+	case <-timer.C:
+		// Check if response arrived at the same moment as timeout
+		select {
+		case <-call.done:
+			goto handleResponse
+		default:
+			// No response yet - don't return to pool as late response might arrive
+			return nil, gen.ErrTimeout
+		}
+	}
+
+handleResponse:
+	response := call.response
+	err := call.err
+	releaseNodeCall(call)
+	if err != nil {
+		return nil, err
+	}
+	return response, nil
+}
+
+func (n *node) CallAlias(to gen.Alias, request any, timeout int) (any, error) {
+	options := gen.MessageOptions{
+		Priority: gen.MessagePriorityNormal,
+	}
+	return n.callAliasWithOptions(to, request, timeout, options)
+}
+
+func (n *node) callAliasWithOptions(
+	to gen.Alias,
+	request any,
+	timeout int,
+	options gen.MessageOptions,
+) (any, error) {
+	if n.isRunning() == false {
+		return nil, gen.ErrNodeTerminated
+	}
+
+	ref := n.MakeRef()
+	call := takeNodeCall()
+	n.calls.Store(ref, call)
+	defer n.calls.Delete(ref)
+
+	options.Ref = ref
+
+	if err := n.RouteCallAlias(n.corePID, to, options, request); err != nil {
+		releaseNodeCall(call)
+		return nil, err
+	}
+
+	timer := lib.TakeTimer()
+	defer lib.ReleaseTimer(timer)
+	timer.Reset(time.Duration(timeout) * time.Second)
+
+	select {
+	case <-call.done:
+		goto handleResponse
+	case <-timer.C:
+		// Check if response arrived at the same moment as timeout
+		select {
+		case <-call.done:
+			goto handleResponse
+		default:
+			// No response yet - don't return to pool as late response might arrive
+			return nil, gen.ErrTimeout
+		}
+	}
+
+handleResponse:
+	response := call.response
+	err := call.err
+	releaseNodeCall(call)
+	if err != nil {
+		return nil, err
+	}
+	return response, nil
 }
 
 func (n *node) Kill(pid gen.PID) error {

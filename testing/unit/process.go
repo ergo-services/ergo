@@ -157,6 +157,35 @@ func (tp *TestProcess) SendAfter(to any, message any, after time.Duration) (gen.
 	return gen.CancelFunc(func() bool { return true }), nil
 }
 
+func (tp *TestProcess) SendWithPriorityAfter(to any, message any, priority gen.MessagePriority, after time.Duration) (gen.CancelFunc, error) {
+	tp.events.Push(SendEvent{
+		From:     tp.pid,
+		To:       to,
+		Message:  message,
+		Priority: priority,
+		After:    after,
+	})
+	return gen.CancelFunc(func() bool { return true }), nil
+}
+
+func (tp *TestProcess) SendExitAfter(to gen.PID, reason error, after time.Duration) (gen.CancelFunc, error) {
+	tp.events.Push(ExitEvent{
+		To:     to,
+		Reason: reason,
+		After:  after,
+	})
+	return gen.CancelFunc(func() bool { return true }), nil
+}
+
+func (tp *TestProcess) SendExitMetaAfter(to gen.Alias, reason error, after time.Duration) (gen.CancelFunc, error) {
+	tp.events.Push(ExitMetaEvent{
+		Meta:   to,
+		Reason: reason,
+		After:  after,
+	})
+	return gen.CancelFunc(func() bool { return true }), nil
+}
+
 func (tp *TestProcess) SendResponse(to gen.PID, ref gen.Ref, response any) error {
 	tp.events.Push(SendResponseEvent{
 		From:     tp.pid,
@@ -184,6 +213,7 @@ func (tp *TestProcess) Call(to any, request any) (any, error) {
 		From:    tp.pid,
 		To:      to,
 		Request: request,
+		Timeout: gen.DefaultRequestTimeout,
 	}
 	tp.events.Push(event)
 	return nil, nil
@@ -202,9 +232,11 @@ func (tp *TestProcess) CallWithTimeout(to any, request any, timeout int) (any, e
 
 func (tp *TestProcess) CallWithPriority(to any, request any, priority gen.MessagePriority) (any, error) {
 	event := CallEvent{
-		From:    tp.pid,
-		To:      to,
-		Request: request,
+		From:     tp.pid,
+		To:       to,
+		Request:  request,
+		Timeout:  gen.DefaultRequestTimeout,
+		Priority: priority,
 	}
 	tp.events.Push(event)
 	return nil, nil
@@ -212,9 +244,11 @@ func (tp *TestProcess) CallWithPriority(to any, request any, priority gen.Messag
 
 func (tp *TestProcess) CallImportant(to any, request any) (any, error) {
 	event := CallEvent{
-		From:    tp.pid,
-		To:      to,
-		Request: request,
+		From:      tp.pid,
+		To:        to,
+		Request:   request,
+		Timeout:   gen.DefaultRequestTimeout,
+		Important: true,
 	}
 	tp.events.Push(event)
 	return nil, nil

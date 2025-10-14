@@ -99,12 +99,14 @@ func (e SpawnMetaEvent) String() string {
 
 // CallEvent captures a Call operation
 type CallEvent struct {
-	From     gen.PID
-	To       any
-	Request  any
-	Response any
-	Error    error
-	Timeout  int
+	From      gen.PID
+	To        any
+	Request   any
+	Response  any
+	Error     error
+	Timeout   int
+	Priority  gen.MessagePriority
+	Important bool
 }
 
 func (e CallEvent) Type() string {
@@ -134,6 +136,7 @@ func (e LogEvent) String() string {
 type ExitEvent struct {
 	To     gen.PID
 	Reason error
+	After  time.Duration // for SendExitAfter
 }
 
 func (e ExitEvent) Type() string {
@@ -148,6 +151,7 @@ func (e ExitEvent) String() string {
 type ExitMetaEvent struct {
 	Meta   gen.Alias
 	Reason error
+	After  time.Duration // for SendExitMetaAfter
 }
 
 func (e ExitMetaEvent) Type() string {

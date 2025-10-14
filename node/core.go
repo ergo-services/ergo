@@ -329,6 +329,22 @@ func (n *node) RouteSendResponse(from gen.PID, to gen.PID, options gen.MessageOp
 		}
 		return connection.SendResponse(from, to, options, message)
 	}
+
+	// Check if this is a node-level call response
+	if to == n.corePID {
+		if value, found := n.calls.Load(options.Ref); found {
+			call := value.(*nodeCall)
+			call.response = message
+			select {
+			case call.done <- struct{}{}:
+				return nil
+			default:
+				return gen.ErrResponseIgnored
+			}
+		}
+		return gen.ErrResponseIgnored
+	}
+
 	value, loaded := n.processes.Load(to)
 	if loaded == false {
 		return gen.ErrProcessUnknown
@@ -361,6 +377,21 @@ func (n *node) RouteSendResponseError(from gen.PID, to gen.PID, options gen.Mess
 			return e
 		}
 		return connection.SendResponseError(from, to, options, err)
+	}
+
+	// Check if this is a node-level call response error
+	if to == n.corePID {
+		if value, found := n.calls.Load(options.Ref); found {
+			call := value.(*nodeCall)
+			call.err = err
+			select {
+			case call.done <- struct{}{}:
+				return nil
+			default:
+				return gen.ErrResponseIgnored
+			}
+		}
+		return gen.ErrResponseIgnored
 	}
 
 	value, loaded := n.processes.Load(to)

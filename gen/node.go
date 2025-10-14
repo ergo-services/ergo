@@ -164,6 +164,27 @@ type Node interface {
 	// SendExit sends graceful termination request to the process.
 	SendExit(pid PID, reason error) error
 
+	// Call makes a synchronous request to the given process with default timeout (5 seconds)
+	Call(to any, request any) (any, error)
+
+	// CallWithTimeout makes a synchronous request to the given process with custom timeout
+	CallWithTimeout(to any, request any, timeout int) (any, error)
+
+	// CallWithPriority makes a synchronous request to the given process with custom priority and default timeout
+	CallWithPriority(to any, request any, priority MessagePriority) (any, error)
+
+	// CallImportant makes a synchronous request to the given process with important delivery flag and default timeout
+	CallImportant(to any, request any) (any, error)
+
+	// CallPID makes a synchronous request to the given PID with custom timeout
+	CallPID(to PID, request any, timeout int) (any, error)
+
+	// CallProcessID makes a synchronous request to the given ProcessID with custom timeout
+	CallProcessID(to ProcessID, request any, timeout int) (any, error)
+
+	// CallAlias makes a synchronous request to the given Alias with custom timeout
+	CallAlias(to Alias, request any, timeout int) (any, error)
+
 	// Log returns gen.Log interface
 	Log() Log
 

@@ -463,19 +463,78 @@ func (tn *TestNode) SendWithOptions(to any, options gen.MessageOptions, message 
 
 func (tn *TestNode) Call(to any, request any) (any, error) {
 	tn.events.Push(CallEvent{
-		From:    tn.PID(),
-		To:      to,
-		Request: request,
+		From:     tn.PID(),
+		To:       to,
+		Request:  request,
+		Timeout:  gen.DefaultRequestTimeout,
+		Priority: gen.MessagePriorityNormal,
 	})
 	return nil, nil
 }
 
 func (tn *TestNode) CallWithTimeout(to any, request any, timeout int) (any, error) {
 	tn.events.Push(CallEvent{
-		From:    tn.PID(),
-		To:      to,
-		Request: request,
-		Timeout: timeout,
+		From:     tn.PID(),
+		To:       to,
+		Request:  request,
+		Timeout:  timeout,
+		Priority: gen.MessagePriorityNormal,
+	})
+	return nil, nil
+}
+
+func (tn *TestNode) CallWithPriority(to any, request any, priority gen.MessagePriority) (any, error) {
+	tn.events.Push(CallEvent{
+		From:     tn.PID(),
+		To:       to,
+		Request:  request,
+		Timeout:  gen.DefaultRequestTimeout,
+		Priority: priority,
+	})
+	return nil, nil
+}
+
+func (tn *TestNode) CallImportant(to any, request any) (any, error) {
+	tn.events.Push(CallEvent{
+		From:      tn.PID(),
+		To:        to,
+		Request:   request,
+		Timeout:   gen.DefaultRequestTimeout,
+		Priority:  gen.MessagePriorityNormal,
+		Important: true,
+	})
+	return nil, nil
+}
+
+func (tn *TestNode) CallPID(to gen.PID, request any, timeout int) (any, error) {
+	tn.events.Push(CallEvent{
+		From:     tn.PID(),
+		To:       to,
+		Request:  request,
+		Timeout:  timeout,
+		Priority: gen.MessagePriorityNormal,
+	})
+	return nil, nil
+}
+
+func (tn *TestNode) CallProcessID(to gen.ProcessID, request any, timeout int) (any, error) {
+	tn.events.Push(CallEvent{
+		From:     tn.PID(),
+		To:       to,
+		Request:  request,
+		Timeout:  timeout,
+		Priority: gen.MessagePriorityNormal,
+	})
+	return nil, nil
+}
+
+func (tn *TestNode) CallAlias(to gen.Alias, request any, timeout int) (any, error) {
+	tn.events.Push(CallEvent{
+		From:     tn.PID(),
+		To:       to,
+		Request:  request,
+		Timeout:  timeout,
+		Priority: gen.MessagePriorityNormal,
 	})
 	return nil, nil
 }
