@@ -46,6 +46,7 @@ type MetaProcess interface {
 	Spawn(behavior MetaBehavior, options MetaOptions) (Alias, error)
 	Env(name Env) (any, bool)
 	EnvList() map[Env]any
+	EnvDefault(name Env, def any) any
 	Log() Log
 }
 

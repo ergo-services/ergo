@@ -75,6 +75,13 @@ func (m *meta) EnvList() map[gen.Env]any {
 	return m.p.EnvList()
 }
 
+func (m *meta) EnvDefault(name gen.Env, def any) any {
+	if val, ok := m.p.Env(name); ok {
+		return val
+	}
+	return def
+}
+
 func (m *meta) Log() gen.Log {
 	return m.log
 }

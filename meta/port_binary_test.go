@@ -156,9 +156,10 @@ func (m *mockMetaProcess) SendWithPriority(to any, message any, priority gen.Mes
 func (m *mockMetaProcess) Spawn(behavior gen.MetaBehavior, options gen.MetaOptions) (gen.Alias, error) {
 	return gen.Alias{}, nil
 }
-func (m *mockMetaProcess) Env(name gen.Env) (any, bool) { return nil, false }
-func (m *mockMetaProcess) EnvList() map[gen.Env]any     { return nil }
-func (m *mockMetaProcess) Log() gen.Log                 { return &mockLog{} }
+func (m *mockMetaProcess) Env(name gen.Env) (any, bool)  { return nil, false }
+func (m *mockMetaProcess) EnvList() map[gen.Env]any      { return nil }
+func (m *mockMetaProcess) EnvDefault(name gen.Env, def any) any { return def }
+func (m *mockMetaProcess) Log() gen.Log                  { return &mockLog{} }
 
 type mockLog struct{}
 
