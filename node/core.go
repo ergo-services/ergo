@@ -1440,6 +1440,10 @@ func (n *node) RouteNodeDown(name gen.Atom, reason error) {
 	// Get targets and consumers affected by node down, then cleanup
 	linkTargetsWithConsumers, monitorTargetsWithConsumers := n.targetManager.CleanupNode(name)
 
+	messageOptions := gen.MessageOptions{
+		Priority: gen.MessagePriorityHigh,
+	}
+
 	// Send exit messages for link targets that were cleaned up
 	for target, linkConsumers := range linkTargetsWithConsumers {
 		var message any
@@ -1467,6 +1471,22 @@ func (n *node) RouteNodeDown(name gen.Atom, reason error) {
 				Event:  t,
 				Reason: gen.ErrNoConnection,
 			}
+			// Decrement event consumer counter for remote links
+			value, exist := n.events.Load(t)
+			if exist {
+				event := value.(*eventOwner)
+				// Decrement by number of removed remote consumers
+				consumerCount := int32(len(linkConsumers))
+				c := atomic.AddInt32(&event.consumers, -consumerCount)
+
+				// Notify producer if no more consumers
+				if event.notify && c == 0 {
+					stopMessage := gen.MessageEventStop{
+						Name: t.Name,
+					}
+					n.RouteSendPID(n.corePID, event.producer, messageOptions, stopMessage)
+				}
+			}
 
 		case gen.Atom:
 			message = gen.MessageExitNode{
@@ -1485,9 +1505,6 @@ func (n *node) RouteNodeDown(name gen.Atom, reason error) {
 	}
 
 	// Send down messages for monitor targets that were cleaned up
-	messageOptions := gen.MessageOptions{
-		Priority: gen.MessagePriorityHigh,
-	}
 	for target, monitorConsumers := range monitorTargetsWithConsumers {
 		var message any
 		switch t := target.(type) {
@@ -1513,6 +1530,22 @@ func (n *node) RouteNodeDown(name gen.Atom, reason error) {
 			message = gen.MessageDownEvent{
 				Event:  t,
 				Reason: gen.ErrNoConnection,
+			}
+			// Decrement event consumer counter for remote monitors
+			value, exist := n.events.Load(t)
+			if exist {
+				event := value.(*eventOwner)
+				// Decrement by number of removed remote consumers
+				consumerCount := int32(len(monitorConsumers))
+				c := atomic.AddInt32(&event.consumers, -consumerCount)
+
+				// Notify producer if no more consumers
+				if event.notify && c == 0 {
+					stopMessage := gen.MessageEventStop{
+						Name: t.Name,
+					}
+					n.RouteSendPID(n.corePID, event.producer, messageOptions, stopMessage)
+				}
 			}
 
 		case gen.Atom:
