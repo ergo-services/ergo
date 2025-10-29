@@ -182,8 +182,15 @@ func (tm *defaultTargetManager) CleanupNode(
 
 	// Clean up relations involving the down node
 	for key := range tm.relations {
-		// If consumer is from terminated node, just delete and continue
+		// If consumer is from terminated node, track the target and delete
 		if key.consumer.Node == node {
+			// Record which local targets lost this remote consumer
+			if key.monitor {
+				monitorTargetsWithConsumers[key.target] = append(monitorTargetsWithConsumers[key.target], key.consumer)
+			} else {
+				linkTargetsWithConsumers[key.target] = append(linkTargetsWithConsumers[key.target], key.consumer)
+			}
+
 			delete(tm.relations, key)
 
 			// Remove from target index

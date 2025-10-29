@@ -1437,6 +1437,10 @@ func (n *node) RouteApplicationStart(
 }
 
 func (n *node) RouteNodeDown(name gen.Atom, reason error) {
+	if lib.Trace() {
+		n.log.Trace("RouteNodeDown for %s ", name)
+	}
+
 	// Get targets and consumers affected by node down, then cleanup
 	linkTargetsWithConsumers, monitorTargetsWithConsumers := n.targetManager.CleanupNode(name)
 

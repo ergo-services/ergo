@@ -428,12 +428,23 @@ func TestDefaultTargetManager_CleanupNode_ConsumerFromDownNode(t *testing.T) {
 	// Cleanup the down node
 	linkTargetsWithConsumers, monitorTargetsWithConsumers := tm.CleanupNode(downNode)
 
-	// Should be no targets reported since consumers (not targets) were from down node
-	if len(linkTargetsWithConsumers) != 0 {
-		t.Fatalf("Expected 0 link targets, got %d", len(linkTargetsWithConsumers))
+	// Targets should be reported with the consumers that were removed
+	// This allows the node to notify local event producers about lost remote subscribers
+	if len(linkTargetsWithConsumers) != 1 {
+		t.Fatalf("Expected 1 link target (target1 with consumerFromDownNode), got %d", len(linkTargetsWithConsumers))
 	}
-	if len(monitorTargetsWithConsumers) != 0 {
-		t.Fatalf("Expected 0 monitor targets, got %d", len(monitorTargetsWithConsumers))
+	if len(monitorTargetsWithConsumers) != 1 {
+		t.Fatalf("Expected 1 monitor target (target2 with consumerFromDownNode), got %d", len(monitorTargetsWithConsumers))
+	}
+
+	// Verify target1 has the correct consumer listed
+	if len(linkTargetsWithConsumers[target1]) != 1 || linkTargetsWithConsumers[target1][0] != consumerFromDownNode {
+		t.Fatalf("target1 should have consumerFromDownNode in link list")
+	}
+
+	// Verify target2 has the correct consumer listed
+	if len(monitorTargetsWithConsumers[target2]) != 1 || monitorTargetsWithConsumers[target2][0] != consumerFromDownNode {
+		t.Fatalf("target2 should have consumerFromDownNode in monitor list")
 	}
 
 	// Verify relations from down node consumer are gone
