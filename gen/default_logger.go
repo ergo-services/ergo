@@ -11,7 +11,7 @@ import (
 
 // Buffer pool for reusing strings.Builder instances
 var builderPool = sync.Pool{
-	New: func() interface{} {
+	New: func() any {
 		return &strings.Builder{}
 	},
 }
@@ -378,7 +378,7 @@ func (l *defaultLogger) writeSourceDirect(buf *strings.Builder, source any) {
 	case MessageLogMeta:
 		buf.WriteString(src.Meta.String())
 	default:
-		buf.WriteString(fmt.Sprintf("%#v", source))
+		fmt.Fprintf(buf, "%#v", source)
 	}
 }
 
@@ -417,7 +417,7 @@ func (l *defaultLogger) writeFieldValuePlainText(buf *strings.Builder, value any
 		}
 	default:
 		// Fallback to string representation for unknown types
-		buf.WriteString(fmt.Sprintf("%v", v))
+		fmt.Fprintf(buf, "%v", v)
 	}
 }
 
