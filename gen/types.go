@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 var (
@@ -107,6 +108,24 @@ func (r Ref) String() string {
 	buf = append(buf, '>')
 	return string(buf)
 }
+
+// Deadline returns the deadline timestamp (unix seconds) stored in ID[2].
+// Returns 0 if no deadline was set.
+func (r Ref) Deadline() uint64 {
+	return r.ID[2]
+}
+
+// IsAlive checks if the reference is still valid (deadline not exceeded).
+// Returns true if no deadline is set (ID[2] == 0) or if current time is before deadline.
+func (r Ref) IsAlive() bool {
+	deadline := r.ID[2]
+	if deadline == 0 {
+		return true
+	}
+	now := uint64(time.Now().Unix())
+	return now < deadline
+}
+
 func (r Ref) MarshalJSON() ([]byte, error) {
 	return []byte("\"" + r.String() + "\""), nil
 }

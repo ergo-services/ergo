@@ -1043,14 +1043,23 @@ func (n *node) callPIDWithOptions(
 		return nil, gen.ErrNodeTerminated
 	}
 
-	ref := n.MakeRef()
+	if timeout < 1 {
+		timeout = gen.DefaultRequestTimeout
+	}
+
+	deadline := int(time.Now().Unix()) + timeout
+	ref, err := n.MakeRefWithDeadline(deadline)
+	if err != nil {
+		return nil, err
+	}
+
 	call := takeNodeCall()
 	n.calls.Store(ref, call)
 	defer n.calls.Delete(ref)
 
 	options.Ref = ref
 
-	if err := n.RouteCallPID(n.corePID, to, options, request); err != nil {
+	if err = n.RouteCallPID(n.corePID, to, options, request); err != nil {
 		releaseNodeCall(call)
 		return nil, err
 	}
@@ -1075,7 +1084,7 @@ func (n *node) callPIDWithOptions(
 
 handleResponse:
 	response := call.response
-	err := call.err
+	err = call.err
 	releaseNodeCall(call)
 	if err != nil {
 		return nil, err
@@ -1100,14 +1109,23 @@ func (n *node) callProcessIDWithOptions(
 		return nil, gen.ErrNodeTerminated
 	}
 
-	ref := n.MakeRef()
+	if timeout < 1 {
+		timeout = gen.DefaultRequestTimeout
+	}
+
+	deadline := int(time.Now().Unix()) + timeout
+	ref, err := n.MakeRefWithDeadline(deadline)
+	if err != nil {
+		return nil, err
+	}
+
 	call := takeNodeCall()
 	n.calls.Store(ref, call)
 	defer n.calls.Delete(ref)
 
 	options.Ref = ref
 
-	if err := n.RouteCallProcessID(n.corePID, to, options, request); err != nil {
+	if err = n.RouteCallProcessID(n.corePID, to, options, request); err != nil {
 		releaseNodeCall(call)
 		return nil, err
 	}
@@ -1132,7 +1150,7 @@ func (n *node) callProcessIDWithOptions(
 
 handleResponse:
 	response := call.response
-	err := call.err
+	err = call.err
 	releaseNodeCall(call)
 	if err != nil {
 		return nil, err
@@ -1157,14 +1175,23 @@ func (n *node) callAliasWithOptions(
 		return nil, gen.ErrNodeTerminated
 	}
 
-	ref := n.MakeRef()
+	if timeout < 1 {
+		timeout = gen.DefaultRequestTimeout
+	}
+
+	deadline := int(time.Now().Unix()) + timeout
+	ref, err := n.MakeRefWithDeadline(deadline)
+	if err != nil {
+		return nil, err
+	}
+
 	call := takeNodeCall()
 	n.calls.Store(ref, call)
 	defer n.calls.Delete(ref)
 
 	options.Ref = ref
 
-	if err := n.RouteCallAlias(n.corePID, to, options, request); err != nil {
+	if err = n.RouteCallAlias(n.corePID, to, options, request); err != nil {
 		releaseNodeCall(call)
 		return nil, err
 	}
@@ -1189,7 +1216,7 @@ func (n *node) callAliasWithOptions(
 
 handleResponse:
 	response := call.response
-	err := call.err
+	err = call.err
 	releaseNodeCall(call)
 	if err != nil {
 		return nil, err

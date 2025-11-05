@@ -221,6 +221,12 @@ type Node interface {
 	// MakeRef creates an unique reference within this node
 	MakeRef() Ref
 
+	// MakeRefWithDeadline creates an unique reference with a deadline (unix timestamp in seconds).
+	// The deadline must be in the future. Returns error if deadline is in the past or zero.
+	// The deadline timestamp is stored in Ref.ID[2] as unix seconds.
+	// Recipient can check if the reference is still valid using Ref.IsAlive() method.
+	MakeRefWithDeadline(deadline int) (Ref, error)
+
 	// Commercial returns list of component versions with a commercial license (gen.LicenseBSL1)
 	Commercial() []Version
 

@@ -54,6 +54,7 @@ type Core interface {
 	RouteNodeDown(node Atom, reason error)
 
 	MakeRef() Ref
+	MakeRefWithDeadline(deadline int) (Ref, error)
 	Name() Atom
 	Creation() int64
 

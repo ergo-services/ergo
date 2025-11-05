@@ -630,6 +630,21 @@ func (tn *TestNode) MakeRef() gen.Ref {
 	return makeTestRefWithCreation(tn.options.NodeName, tn.options.NodeCreation)
 }
 
+func (tn *TestNode) MakeRefWithDeadline(deadline int) (gen.Ref, error) {
+	if deadline <= 0 {
+		return gen.Ref{}, gen.ErrIncorrect
+	}
+
+	now := int(time.Now().Unix())
+	if deadline <= now {
+		return gen.Ref{}, gen.ErrIncorrect
+	}
+
+	ref := makeTestRefWithCreation(tn.options.NodeName, tn.options.NodeCreation)
+	ref.ID[2] = uint64(deadline)
+	return ref, nil
+}
+
 func (tn *TestNode) Commercial() []gen.Version {
 	return []gen.Version{}
 }

@@ -1068,8 +1068,18 @@ func (p *process) CallPID(to gen.PID, message any, timeout int) (any, error) {
 		return nil, gen.ErrNotAllowed
 	}
 
+	if timeout < 1 {
+		timeout = gen.DefaultRequestTimeout
+	}
+
+	deadline := int(time.Now().Unix()) + timeout
+	ref, err := p.node.MakeRefWithDeadline(deadline)
+	if err != nil {
+		return nil, err
+	}
+
 	options := gen.MessageOptions{
-		Ref:               p.node.MakeRef(),
+		Ref:               ref,
 		Priority:          p.priority,
 		Compression:       p.compression,
 		KeepNetworkOrder:  p.keeporder,
@@ -1085,9 +1095,6 @@ func (p *process) CallPID(to gen.PID, message any, timeout int) (any, error) {
 	}
 
 	atomic.AddUint64(&p.messagesOut, 1)
-	if timeout < 1 {
-		timeout = gen.DefaultRequestTimeout
-	}
 	return p.waitResponse(options.Ref, timeout)
 }
 
@@ -1096,8 +1103,18 @@ func (p *process) CallProcessID(to gen.ProcessID, message any, timeout int) (any
 		return nil, gen.ErrNotAllowed
 	}
 
+	if timeout < 1 {
+		timeout = gen.DefaultRequestTimeout
+	}
+
+	deadline := int(time.Now().Unix()) + timeout
+	ref, err := p.node.MakeRefWithDeadline(deadline)
+	if err != nil {
+		return nil, err
+	}
+
 	options := gen.MessageOptions{
-		Ref:               p.node.MakeRef(),
+		Ref:               ref,
 		Priority:          p.priority,
 		Compression:       p.compression,
 		KeepNetworkOrder:  p.keeporder,
@@ -1110,9 +1127,6 @@ func (p *process) CallProcessID(to gen.ProcessID, message any, timeout int) (any
 		return nil, err
 	}
 	atomic.AddUint64(&p.messagesOut, 1)
-	if timeout < 1 {
-		timeout = gen.DefaultRequestTimeout
-	}
 	return p.waitResponse(options.Ref, timeout)
 }
 
@@ -1121,8 +1135,18 @@ func (p *process) CallAlias(to gen.Alias, message any, timeout int) (any, error)
 		return nil, gen.ErrNotAllowed
 	}
 
+	if timeout < 1 {
+		timeout = gen.DefaultRequestTimeout
+	}
+
+	deadline := int(time.Now().Unix()) + timeout
+	ref, err := p.node.MakeRefWithDeadline(deadline)
+	if err != nil {
+		return nil, err
+	}
+
 	options := gen.MessageOptions{
-		Ref:               p.node.MakeRef(),
+		Ref:               ref,
 		Priority:          p.priority,
 		Compression:       p.compression,
 		KeepNetworkOrder:  p.keeporder,
@@ -1137,9 +1161,6 @@ func (p *process) CallAlias(to gen.Alias, message any, timeout int) (any, error)
 		return nil, err
 	}
 	atomic.AddUint64(&p.messagesOut, 1)
-	if timeout < 1 {
-		timeout = gen.DefaultRequestTimeout
-	}
 	return p.waitResponse(options.Ref, timeout)
 }
 

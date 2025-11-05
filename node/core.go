@@ -2,6 +2,7 @@ package node
 
 import (
 	"sync/atomic"
+	"time"
 
 	"ergo.services/ergo/gen"
 	"ergo.services/ergo/lib"
@@ -1577,6 +1578,21 @@ func (n *node) MakeRef() gen.Ref {
 	ref.ID[0] = id & ((2 << 17) - 1)
 	ref.ID[1] = id >> 46
 	return ref
+}
+
+func (n *node) MakeRefWithDeadline(deadline int) (gen.Ref, error) {
+	if deadline < 1 {
+		return gen.Ref{}, gen.ErrIncorrect
+	}
+
+	now := int(time.Now().Unix())
+	if deadline > now {
+		ref := n.MakeRef()
+		ref.ID[2] = uint64(deadline)
+		return ref, nil
+	}
+
+	return gen.Ref{}, gen.ErrIncorrect
 }
 
 func (n *node) PID() gen.PID {
