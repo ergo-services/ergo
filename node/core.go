@@ -1580,12 +1580,12 @@ func (n *node) MakeRef() gen.Ref {
 	return ref
 }
 
-func (n *node) MakeRefWithDeadline(deadline int) (gen.Ref, error) {
+func (n *node) MakeRefWithDeadline(deadline int64) (gen.Ref, error) {
 	if deadline < 1 {
 		return gen.Ref{}, gen.ErrIncorrect
 	}
 
-	now := int(time.Now().Unix())
+	now := time.Now().Unix()
 	if deadline > now {
 		ref := n.MakeRef()
 		ref.ID[2] = uint64(deadline)

@@ -225,7 +225,7 @@ type Node interface {
 	// The deadline must be in the future. Returns error if deadline is in the past or zero.
 	// The deadline timestamp is stored in Ref.ID[2] as unix seconds.
 	// Recipient can check if the reference is still valid using Ref.IsAlive() method.
-	MakeRefWithDeadline(deadline int) (Ref, error)
+	MakeRefWithDeadline(deadline int64) (Ref, error)
 
 	// Commercial returns list of component versions with a commercial license (gen.LicenseBSL1)
 	Commercial() []Version

@@ -116,7 +116,7 @@ func (r Ref) Deadline() uint64 {
 }
 
 // IsAlive checks if the reference is still valid (deadline not exceeded).
-// Returns true if no deadline is set (ID[2] == 0) or if current time is before deadline.
+// Returns true if no deadline is set (ID[2] == 0) or false if current time is after deadline.
 func (r Ref) IsAlive() bool {
 	deadline := r.ID[2]
 	if deadline == 0 {

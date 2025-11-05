@@ -1072,7 +1072,7 @@ func (p *process) CallPID(to gen.PID, message any, timeout int) (any, error) {
 		timeout = gen.DefaultRequestTimeout
 	}
 
-	deadline := int(time.Now().Unix()) + timeout
+	deadline := time.Now().Unix() + int64(timeout)
 	ref, err := p.node.MakeRefWithDeadline(deadline)
 	if err != nil {
 		return nil, err
@@ -1107,7 +1107,7 @@ func (p *process) CallProcessID(to gen.ProcessID, message any, timeout int) (any
 		timeout = gen.DefaultRequestTimeout
 	}
 
-	deadline := int(time.Now().Unix()) + timeout
+	deadline := time.Now().Unix() + int64(timeout)
 	ref, err := p.node.MakeRefWithDeadline(deadline)
 	if err != nil {
 		return nil, err
@@ -1139,7 +1139,7 @@ func (p *process) CallAlias(to gen.Alias, message any, timeout int) (any, error)
 		timeout = gen.DefaultRequestTimeout
 	}
 
-	deadline := int(time.Now().Unix()) + timeout
+	deadline := time.Now().Unix() + int64(timeout)
 	ref, err := p.node.MakeRefWithDeadline(deadline)
 	if err != nil {
 		return nil, err

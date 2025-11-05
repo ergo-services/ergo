@@ -630,12 +630,12 @@ func (tn *TestNode) MakeRef() gen.Ref {
 	return makeTestRefWithCreation(tn.options.NodeName, tn.options.NodeCreation)
 }
 
-func (tn *TestNode) MakeRefWithDeadline(deadline int) (gen.Ref, error) {
-	if deadline <= 0 {
+func (tn *TestNode) MakeRefWithDeadline(deadline int64) (gen.Ref, error) {
+	if deadline < 1 {
 		return gen.Ref{}, gen.ErrIncorrect
 	}
 
-	now := int(time.Now().Unix())
+	now := time.Now().Unix()
 	if deadline <= now {
 		return gen.Ref{}, gen.ErrIncorrect
 	}

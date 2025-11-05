@@ -1047,7 +1047,7 @@ func (n *node) callPIDWithOptions(
 		timeout = gen.DefaultRequestTimeout
 	}
 
-	deadline := int(time.Now().Unix()) + timeout
+	deadline := time.Now().Unix() + int64(timeout)
 	ref, err := n.MakeRefWithDeadline(deadline)
 	if err != nil {
 		return nil, err
@@ -1113,7 +1113,7 @@ func (n *node) callProcessIDWithOptions(
 		timeout = gen.DefaultRequestTimeout
 	}
 
-	deadline := int(time.Now().Unix()) + timeout
+	deadline := time.Now().Unix() + int64(timeout)
 	ref, err := n.MakeRefWithDeadline(deadline)
 	if err != nil {
 		return nil, err
@@ -1179,7 +1179,7 @@ func (n *node) callAliasWithOptions(
 		timeout = gen.DefaultRequestTimeout
 	}
 
-	deadline := int(time.Now().Unix()) + timeout
+	deadline := time.Now().Unix() + int64(timeout)
 	ref, err := n.MakeRefWithDeadline(deadline)
 	if err != nil {
 		return nil, err
