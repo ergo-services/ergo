@@ -123,7 +123,10 @@ func (r Ref) IsAlive() bool {
 		return true
 	}
 	now := uint64(time.Now().Unix())
-	return now < deadline
+	if now > deadline {
+		return false
+	}
+	return true
 }
 
 func (r Ref) MarshalJSON() ([]byte, error) {
