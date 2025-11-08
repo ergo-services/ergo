@@ -138,7 +138,12 @@ func (c *connection) Spawn(name gen.Atom, options gen.ProcessOptions, args ...an
 	return c.RemoteSpawn(name, opts)
 }
 
-func (c *connection) SpawnRegister(register gen.Atom, name gen.Atom, options gen.ProcessOptions, args ...any) (gen.PID, error) {
+func (c *connection) SpawnRegister(
+	register gen.Atom,
+	name gen.Atom,
+	options gen.ProcessOptions,
+	args ...any,
+) (gen.PID, error) {
 	opts := gen.ProcessOptionsExtra{
 		ProcessOptions: options,
 		ParentPID:      c.core.PID(),
@@ -2530,7 +2535,12 @@ func (c *connection) read(conn net.Conn, buf *lib.Buffer) (*lib.Buffer, error) {
 	// 1 byte - message type
 	for {
 		if buf.Len() < expect {
-			n, e := buf.ReadDataFrom(conn, math.MaxUint16)
+			readLimit := expect
+			if c.node_maxmessagesize > 0 && readLimit > c.node_maxmessagesize {
+				readLimit = c.node_maxmessagesize
+			}
+
+			n, e := buf.ReadDataFrom(conn, readLimit)
 			if e != nil {
 				if e == io.EOF {
 					// something went wrong
