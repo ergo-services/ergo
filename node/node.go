@@ -270,9 +270,6 @@ func (n *node) Commercial() []gen.Version {
 }
 
 func (n *node) EnvList() map[gen.Env]any {
-	if n.isRunning() == false {
-		return nil
-	}
 	env := make(map[gen.Env]any)
 	n.env.Range(func(k, v any) bool {
 		env[gen.Env(k.(string))] = v
@@ -293,18 +290,10 @@ func (n *node) SetEnv(name gen.Env, value any) {
 }
 
 func (n *node) Env(name gen.Env) (any, bool) {
-	if n.isRunning() == false {
-		return nil, false
-	}
-
 	return n.env.Load(name.String())
 }
 
 func (n *node) EnvDefault(name gen.Env, def any) any {
-	if n.isRunning() == false {
-		return def
-	}
-
 	value, ok := n.env.Load(name.String())
 	if ok == false {
 		return def
@@ -1722,9 +1711,6 @@ func (n *node) LoggerAdd(name string, logger gen.LoggerBehavior, filter ...gen.L
 }
 
 func (n *node) LoggerDeletePID(pid gen.PID) {
-	if n.isRunning() == false {
-		return
-	}
 	value, loaded := n.processes.Load(pid)
 	if loaded == false {
 		return
@@ -1746,10 +1732,6 @@ func (n *node) LoggerDeletePID(pid gen.PID) {
 
 func (n *node) LoggerDelete(name string) {
 	var logger gen.LoggerBehavior
-
-	if n.isRunning() == false {
-		return
-	}
 
 	for _, l := range n.loggers {
 		if v, exist := l.LoadAndDelete(name); exist {
