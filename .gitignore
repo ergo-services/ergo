@@ -10,4 +10,5 @@ cover.out
 tests/cover.out
 sandbox
 .DS_Store
+.idea
 
