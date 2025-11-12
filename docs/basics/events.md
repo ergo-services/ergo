@@ -1,56 +1,119 @@
+---
+description: Publish/Subscribe Event Mechanism
+---
+
 # Events
 
-The _events_ mechanism in Ergo Framework is built on top of the pub/sub subsystem. It allows any process to become an _event producer_, while other processes can subscribe to these _events_. This enables flexible event-driven architectures, where processes can publish and consume events across the system.
+The actor model excels at point-to-point communication. Process A sends a message to process B. Process C makes a request to process D. Each interaction has a specific sender and receiver.
 
-### Producer
+But some scenarios need one-to-many communication. A price feed updates and dozens of trading strategies need the new price. A user logs in and multiple subsystems need notification. A sensor reading arrives and various monitoring processes need to react. You could send individual messages to each interested process, but then the producer needs to track all consumers. When consumers come and go, the producer's consumer list becomes a maintenance burden.
 
-To register an _event_ (`gen.Event`), you use the `RegisterEvent` method available in the `gen.Process` or `gen.Node`interface. When registering an _event_, you can configure the following parameters using the `gen.EventOptions`:
+Events solve this with publish/subscribe semantics. A producer registers an event and publishes values to it. Consumers subscribe to the event without the producer knowing who they are. The framework handles message distribution - when the producer publishes an event, all current subscribers receive it. Subscribers can come and go dynamically, and the producer's code doesn't change.
 
-* **`Notify`**: This flag controls whether the producer should be notified about the presence or absence of subscribers for the event. If notifications are enabled, the process will receive a `gen.MessageEventStart` message when the first subscriber appears and a `gen.MessageEventStop` message when the last subscriber unsubscribes. This allows the producer to generate events only when there are active subscribers. If the _event_ is registered using the `RegisterEvent` method of the `gen.Node` interface, this field is ignored.
-* **`Buffer`**: This specifies how many of the most recent _events_ should be stored in the event buffer. If this option is set to zero, buffering is disabled.
+## Registering Events
 
-The `RegisterEvent` function returns a token of type `gen.Ref` upon success. This token is used to generate _events_. Only the process that owns the event, or a process that has been delegated the token by the _event_ owner, can produce _events_ for that registration.
-
-To generate _events_, the `gen.Process` interface provides the `SendEvent` method. This method accepts the following arguments:
-
-* **`name`**: The name of the registered _event_ (`gen.Atom`).
-* **`token`**: The key obtained during the _event_ registration (`gen.Ref`).
-* **`message`**: The _event_ payload, which can be of any type.
-
-{% hint style="info" %}
-It's important to note that the `RegisterEvent` method is not available to a process during its initialization state.
-{% endhint %}
-
-To generate _events_, the `gen.Node` interface provides the `SendEvent` method. This method is similar to the `SendEvent`method in the `gen.Process` interface but includes an additional parameter, `gen.MessageOptions`. This extra parameter allows for further customization of how the _event_ message is sent, such as setting priority, compression, or other message-related options.
-
-### Consumer
-
-To subscribe to a registered _event_, the `gen.Process` interface provides the following methods:
-
-* **`LinkEvent`**: This method creates a _link_ to a `gen.Event`. The process will receive an _exit signal_ if the producer process of the _event_ terminates or if the _event_ is unregistered. To remove the _link_, use the `UnlinkEvent` method. When the _link_ is created, the method returns a list of the most recent events from the producer's buffer.
-* **`MonitorEvent`**: This method creates a _monitor_ on a `gen.Event`. The process will receive a `gen.MessageDownEvent`if the producer process terminates or if the _event_ is unregistered. If the _event_ is unregistered, the `Reason` field in `gen.MessageDownEvent` will contain `gen.ErrUnregistered`. To remove the _monitor_, use the `DemonitorEvent`method.
-
-Both methods accept an argument of type `gen.Event`. For an event registered on the local node, you only need to specify the `Name` field, and you can leave the `Node` field empty. This simplifies subscribing to local _events_ while still providing flexibility for handling events from remote nodes.
+A process becomes an event producer by calling `RegisterEvent` with an event name and options. The call returns a token - a unique reference that proves ownership. Only the process holding this token (or a process it delegates to) can publish events under this name.
 
 ```go
-type myActor {
-    act.Actor
-}
-...
-func (a *myActor) HandleMessage(from gen.PID, message any) error {
-    ...
-    // local event
-    event := gen.Event{Name: "exampleEvent"}
-    lastEvents, err := a.LinkEvent(event)
-    ...
-    // remote event
-    event := gen.Event{Name: "remoteEvent", Node: "remoteNode"}
-    lastEvents, err := a.LinkEvent(event)
+token, err := process.RegisterEvent("price_update", gen.EventOptions{
+    Notify: true,
+    Buffer: 10,
+})
+```
+
+The `Notify` option controls whether the producer receives notifications about subscriber changes. When enabled, the producer receives `gen.MessageEventStart` when the first subscriber appears and `gen.MessageEventStop` when the last subscriber leaves. This allows the producer to start or stop expensive operations based on demand. If nobody's watching the price feed, why fetch prices?
+
+The `Buffer` option specifies how many recent events to keep. When a new subscriber joins, it receives the buffered events as a catch-up mechanism. Set this to zero if events are only relevant at the moment they're published. Set it to a reasonable number if new subscribers should see recent history.
+
+Events are identified by name and node. The combination must be unique. Two processes on the same node can't register events with the same name. But processes on different nodes can register events with the same name - they're different events.
+
+## Publishing Events
+
+Publishing an event sends it to all current subscribers.
+
+```go
+process.SendEvent("price_update", token, PriceUpdate{Symbol: "BTC", Price: 42000})
+```
+
+You pass your application data directly. The framework wraps it in `gen.MessageEvent` automatically, adding the event identifier and timestamp. Subscribers receive the complete `gen.MessageEvent` structure containing your data.
+
+The producer uses the token obtained during registration. If you try to publish with an incorrect token, the operation fails. This prevents unauthorized processes from publishing events they don't own.
+
+Event publishing is fire-and-forget. The producer doesn't wait for acknowledgment or know how many subscribers received the event. The framework handles distribution asynchronously.
+
+## Subscribing to Events
+
+Processes subscribe to events through links or monitors, the same mechanisms used for process lifecycle tracking.
+
+`LinkEvent` creates a link to an event. You receive event messages as they're published. If the event producer terminates or unregisters the event, you receive an exit signal. The link semantics apply - by default, you'd terminate too.
+
+`MonitorEvent` creates a monitor on an event. You receive event messages and a down notification if the producer terminates or the event is unregistered, but you don't terminate automatically.
+
+Both methods return buffered events upon successful subscription:
+
+```go
+lastEvents, err := process.LinkEvent(gen.Event{Name: "price_update", Node: "node@host"})
+for _, event := range lastEvents {
+    // Process historical events
+    price := event.Message.(PriceUpdate)
 }
 ```
 
-Upon successfully creating a _link_ or _monitor_, the function returns a list of events (`gen.MessageEvent`) provided by the producer process from its message buffer. Each event contains the following information: the _event_ name (`gen.Event`), the timestamp of when the event was generated (obtained using `time.Now().UnixNano()`), and the actual _event_ value sent by the producer process. If the list of _events_ is empty, it means that either the producer process has not yet generated any _events_ or the producer registered the _event_ with a zero-sized buffer.
+The buffered events let subscribers catch up on what happened before they joined. If the buffer size was 10 and 5 events have been published, new subscribers receive those 5 events immediately.
 
-For an example demonstrating the capabilities of the _events_ mechanism, you can refer to the [events project](https://github.com/ergo-services/examples) in the `ergo-services/examples` repository:
+For local events, you can omit the node name: `gen.Event{Name: "price_update"}`. The framework fills in the local node name. For remote events, specify the full event identifier including the remote node name.
 
-<figure><img src="../.gitbook/assets/image (8).png" alt=""><figcaption></figcaption></figure>
+## Event Lifecycle
+
+Events exist from registration until unregistration or producer termination.
+
+When you register an event, it becomes available for subscription. Processes on any node can subscribe if they know the event name and node. The framework tracks all subscribers and distributes published events to them.
+
+When the producer terminates, the event is automatically unregistered. All subscribers receive termination notifications (exit signals for links, down messages for monitors). The event name becomes available for registration again.
+
+The producer can explicitly unregister an event with `UnregisterEvent`. This triggers the same notifications to subscribers. Use this when you're done publishing events but your process continues running.
+
+If a subscriber terminates or unsubscribes (via `UnlinkEvent` or `DemonitorEvent`), the producer doesn't receive notification unless `Notify` was enabled. With `Notify`, the producer receives `gen.MessageEventStop` when the last subscriber leaves.
+
+## Network Transparency
+
+Events work across nodes seamlessly. A producer on node A can publish events that subscribers on nodes B, C, and D receive. The framework handles the network distribution.
+
+When you subscribe to a remote event, the framework sends a subscribe request to the remote node. The remote node records your subscription. When the producer publishes an event on the remote node, the remote node sends it to all remote subscribers, including you.
+
+If the network connection fails, subscribers receive termination notifications with reason `gen.ErrNoConnection`. This is consistent with how links and monitors handle network failures for processes.
+
+The buffered events work across nodes too. When you subscribe to a remote event, the remote node sends you the buffered events as part of the subscription response. This catch-up mechanism works regardless of where the producer and subscribers are located.
+
+## Token Delegation
+
+Event tokens can be delegated. The producer can give its token to another process, allowing that process to publish events under the producer's event registration.
+
+This enables patterns where event generation is separated from event registration. A coordinator registers the event and distributes the token to worker processes. Workers publish events as data becomes available. Subscribers don't know or care which process instance published each event - they just receive events on the registered event name.
+
+Token delegation also allows rotating producers. A primary process registers an event and holds the token. A backup process can take over using the same token if the primary fails. Subscribers see a continuous event stream even as the producing process changes.
+
+## Event Messages
+
+Event messages have a specific structure:
+
+Each `gen.MessageEvent` contains:
+- **Event** - The event identifier (name and node)
+- **Message** - Your application data (any type)
+- **Timestamp** - When the event was published (nanoseconds since epoch)
+
+Subscribers receive these wrapped messages and extract the application data. The wrapping provides context: which event this came from, when it was published, allowing subscribers to handle events from multiple sources or correlate timing.
+
+## Practical Patterns
+
+Events fit several common scenarios.
+
+**Data streaming** - A sensor process registers an event and publishes readings. Multiple monitoring processes subscribe. Each reading goes to all monitors. If a monitor crashes and restarts, it subscribes again and receives recent buffered readings to catch up.
+
+**State change notification** - A user session process registers an event and publishes state changes (login, logout, permission change). Authorization processes subscribe and update their caches. The session process doesn't track who's interested in its state changes.
+
+**System telemetry** - Processes publish metrics as events. Monitoring processes subscribe and aggregate. If the monitoring process restarts, buffered events provide recent history to rebuild state.
+
+**Workflow coordination** - An order processing system publishes order state events. Inventory, shipping, and billing processes subscribe. Each subsystem reacts to relevant state changes. The order process doesn't orchestrate the subsystems - they coordinate through events.
+
+For more information on links and monitors as they apply to processes and nodes, see the [Links and Monitors](links-and-monitors.md) chapter.

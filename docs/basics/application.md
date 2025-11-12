@@ -1,127 +1,94 @@
+---
+description: Grouping and Managing Actors as a Unit
+---
+
 # Application
 
-In Ergo Framework, an _Application_ is a component that allows you to group a set of [actors](../actors/actor.md) (and/or [supervisors](../actors/supervisor.md)) and manage them as a single entity. The _Application_ is responsible for starting each actor within the group and handling dependencies on other _Applications_ if specified in the configuration. Additionally, the _Application_ monitors the running processes and, depending on the mode chosen during startup, may stop all group members and itself if one of the processes terminates for any reason.
+An application groups related actors and manages them as a unit. Instead of starting individual processes and tracking their lifecycles manually, you define an application that specifies which actors to start, in what order, and how the group should behave if individual actors fail.
 
-### Create Application
+Think of an application as a recipe. It lists the components (actors and supervisors), describes their startup order, and specifies the rules for what happens when things go wrong. The node follows this recipe when starting the application and monitors the running components according to the specified mode.
 
-To create an _Application_ in Ergo Framework, the `gen.ApplicationBehavior` interface is provided:
+## The Need for Applications
+
+Starting processes one at a time works for simple systems. But as complexity grows, you face coordination problems. Which processes should start first? What if one fails to start - do you continue or abort? If a critical component terminates, should the service keep running in a degraded state or shut down cleanly?
+
+These aren't implementation details - they're architectural decisions about your service's structure and fault tolerance policy. Applications let you declare these decisions explicitly rather than scattering the logic throughout your code. The specification documents what your service consists of. The mode declares your termination policy. The framework enforces both.
+
+## Defining an Application
+
+Applications implement the `gen.ApplicationBehavior` interface:
 
 ```go
 type ApplicationBehavior interface {
-	// Load invoked on loading application using method ApplicationLoad 
-	// of gen.Node interface.
-	Load(node Node, args ...any) (ApplicationSpec, error)
-	// Start invoked once the application started
-	Start(mode ApplicationMode)
-	// Terminate invoked once the application stopped
-	Terminate(reason error)
+    Load(node Node, args ...any) (ApplicationSpec, error)
+    Start(mode ApplicationMode)
+    Terminate(reason error)
 }
 ```
 
-All methods of the `gen.ApplicationBehavior` interface must be implemented.&#x20;
+The `Load` callback returns the application specification - what this application consists of and how it should behave. The `Start` callback runs after all processes start successfully. The `Terminate` callback runs when the application stops.
 
-For example, if you want to combine an actor `A1` and a supervisor `S1` into a single application, the code for creating such an _Application_ would look like this:
+A typical application specification:
 
 ```go
-func createApp() gen.ApplicationBehavior {
-	return &app{}
+func (a *MyApp) Load(node gen.Node, args ...any) (gen.ApplicationSpec, error) {
+    return gen.ApplicationSpec{
+        Name: "myapp",
+        Group: []gen.ApplicationMemberSpec{
+            {Name: "worker", Factory: createWorker},
+            {Factory: createSupervisor},
+        },
+        Mode: gen.ApplicationModeTransient,
+    }, nil
 }
-
-type app struct{}
-
-func (a *app) Load(node gen.Node, args ...any) (gen.ApplicationSpec, error) {
-	return gen.ApplicationSpec{
-		Name: "my_app",
-		Group: []gen.ApplicationMemberSpec{
-			{
-				Name:    "a1", // start with registered name
-				Factory: factory_A1,
-			},
-			{
-				// omitted field Name. will be started with no name
-				Factory: factory_S1,
-			},
-		},
-	}, nil
-
-}
-func (a *app) Start(mode gen.ApplicationMode) {} // no need? keep it empty
-func (a *app) Terminate(reason error)         {}
-
-...
-myApp := createApp()
-appName, err := node.ApplicationLoad(myApp)
 ```
 
-Since an _Application_, by its nature, is not a process, its startup is divided into two stages: _loading_ and _starting_.
+The `Group` lists processes to start. Processes start in the order listed. If a process has a `Name`, it's registered with that name, making it discoverable. Processes without names are anonymous.
 
-To load the application, the `gen.Node` interface provides the method `ApplicationLoad`. You pass your implementation of the `ApplicationBehavior` interface to this method. The node will then call the `Load` callback method of the `gen.ApplicationBehavior` interface, which must return the application's specification as a `gen.ApplicationSpec`:
+## Application Modes
 
-```go
-type ApplicationSpec struct {
-	Name        Atom
-	Description string
-	Version     Version
-	Depends     ApplicationDepends
-	Env         map[Env]any
-	Group       []ApplicationMemberSpec
-	Mode        ApplicationMode
-	Weight      int
-	LogLevel    LogLevel
-}
+The mode determines what happens when a process in the application terminates.
 
-```
+**Temporary Mode** - The application continues running despite individual process terminations. Only when all processes have stopped does the application itself terminate. This mode is for applications where components can fail and restart independently (typically via supervisors) without stopping the whole application.
 
-In the `gen.ApplicationSpec` structure, the `Name` field defines the name under which your application will be registered. This name must be unique within the node. However, the registry for application names and the registry for process names are separate. Although it is possible to run a process with a name identical to the application name, this could lead to confusion, so care should be taken when choosing names for both processes and applications. The `Description` field is optional.
+**Transient Mode** - The application stops if any process terminates abnormally (crashes, panics, errors). Normal termination doesn't trigger shutdown. When an abnormal termination occurs, all remaining processes receive exit signals and the application shuts down. Use this mode when abnormal failures indicate a systemic problem that requires stopping the entire service.
 
-The `Group` field contains a group of specifications for launching processes, defined by `gen.ApplicationMemberSpec`. If the `Name` field in `gen.ApplicationMemberSpec` is not empty, the process will be launched using the `SpawnRegister`method of the `gen.Node` interface. The processes in the group are launched sequentially, following the order specified in the `Group` field.
+**Permanent Mode** - The application stops if any process terminates, regardless of reason. Even normal termination of one process triggers shutdown of all others and the application itself. This mode is for applications where all components must run together - if one stops, the whole application is incomplete.
 
-The `Env` field is used to set environment variables for all processes started within the application. Environment variables are inherited in the following order: _Node > Application > Parent > Process_.
+## Loading and Starting
 
-If your application depends on other applications or network services, you can specify these dependencies using the `Depends` field. These dependencies are taken into account when starting the application.
+Applications go through two phases: loading and starting.
 
-The `Mode` field defines the startup mode for the application and its behavior if one of the processes in the group stops. This value serves as the default mode when the application is started using the `ApplicationStart(...)` method of the `gen.Node` interface. However, the startup mode can be overridden using the methods `ApplicationStartTransient`, `ApplicationStartTemporary`, or `ApplicationStartPermanent` of the `gen.Node` interface.
+Loading calls your `Load` callback, validates the specification, and registers the application with the node. The application is loaded but not running. This separation allows you to load multiple applications and resolve dependencies before starting any of them.
 
-Finally, the `LogLevel` field allows you to set the logging level for the entire group of processes. If this option is not specified, the node's logging level will be used. However, individual processes can override this setting by specifying it in the `ApplicationMemberSpec.Options` during the process startup specification.
+Starting launches the processes in the `Group` according to their order. If dependencies are specified in `ApplicationSpec.Depends`, the node ensures those applications are running first. If any process fails to start, previously started processes are killed and the application fails to start.
 
-### Application Startup Modes
+Once all processes are running, the `Start` callback is called and the application enters the running state.
 
-Ergo Framework provides three startup modes for applications, each determining how the application behaves when one of its processes stops:
+## Dependencies
 
-1. **`gen.ApplicationModeTemporary`**:\
-   This is the default startup mode if no specific mode is indicated in the application's specification (`gen.ApplicationSpec`). In this mode, the termination of any individual process (for any reason) does not lead to the shutdown of the entire application. The application will only stop when all the processes in the application group, as defined in the `Group` field of the `gen.ApplicationSpec`, have stopped. The application will always stop with the reason `gen.TerminationReasonNormal`.
-2. **`gen.ApplicationModeTransient`**:\
-   The application stops only when one of its processes terminates unexpectedly (with a reason other than `gen.TerminationReasonNormal` or `gen.TerminationReasonShutdown`). In such cases, all running processes will receive an exit signal with the reason `gen.TerminationReasonShutdown`. Once all processes have stopped, the application will terminate with the reason that caused the initial process failure. If all processes complete normally, the application will stop with the reason `gen.TerminationReasonNormal`.
-3. **`gen.ApplicationModePermanent`**:\
-   In this mode, the termination of any process in the application, for any reason, will trigger the shutdown of the entire application. All running processes will receive an exit signal with the reason `gen.TerminationReasonShutdown`. Once all processes have stopped, the application will terminate with the reason that caused the shutdown. If all processes complete without errors, the application will stop with the reason `gen.TerminationReasonNormal`.
+Applications can depend on other applications or network services. If application B depends on application A, the node ensures A is running before starting B. Dependencies are declared in `ApplicationSpec.Depends`.
 
-Processes that are part of the application group can launch child processes. These child processes will inherit the application's attributes, but their termination does not affect the application's logic; their role is informational. You can determine whether a process belongs to an application using the `Info` method of the `gen.Process` interface or the `ProcessInfo` method of the `gen.Node` interface. Both methods return a `gen.ProcessInfo` structure, which contains the `Application` field indicating the process's application affiliation.
+This allows you to structure complex systems with clear startup ordering. A database connection pool application starts before the API server application. The API server starts before the web frontend application. The framework handles the ordering automatically.
 
-### Starting an Application
+## Stopping Applications
 
-In Ergo Framework, the `gen.Node` interface provides several methods to start an application:
+Applications stop in three ways.
 
-* **`ApplicationStart`**: Starts the loaded application in the mode specified by `gen.ApplicationSpec.Mode`.
-* **`ApplicationStartTemporary`**: Starts the application in `gen.ApplicationModeTemporary`, regardless of the mode specified in the application's specification.
-* **`ApplicationStartTransient`**: Starts the application in `gen.ApplicationModeTransient`, regardless of the mode specified in the application's specification.
-* **`ApplicationStartPermanent`**: Starts the application in `gen.ApplicationModePermanent`, regardless of the mode specified in the application's specification.
+You can call `ApplicationStop`, which sends exit signals to all processes and waits for them to terminate gracefully (5 second timeout by default). Once all processes have stopped, the `Terminate` callback runs and the application transitions to the loaded state.
 
-Before starting the application's processes, the node checks the dependencies specified in `gen.ApplicationSpec.Depends`. If the application depends on other applications, the node will attempt to start them first. Therefore, all dependent applications must either already be loaded or running before starting the application. If the dependencies are not met, the method will return the error `gen.ErrApplicationDepends`.
+You can call `ApplicationStopForce`, which kills all processes immediately without waiting. Less graceful, but guaranteed to stop quickly.
 
-Once all dependencies are satisfied, the node starts launching the processes according to the order specified in `gen.ApplicationSpec.Group`. If any process fails to start, all previously started processes will be forcibly stopped using the `Kill` method of the `gen.Node` interface, and the startup process will return an error.
+The application can stop itself based on its mode. In Transient or Permanent mode, process failures trigger automatic shutdown according to the mode's rules.
 
-After all processes are successfully started, the `Start` callback method of the `gen.ApplicationBehavior` interface is called, and the application transitions to the _running_ state.
+## Environment and Configuration
 
-You can retrieve information about the application using the `ApplicationInfo` method of the `gen.Node` interface. This method returns a `gen.ApplicationInfo` structure that contains summary information about the application and its current state.
+Applications have environment variables that all their processes inherit. These override node-level variables but are overridden by process-specific variables. This creates a natural layering: node provides defaults, application provides service-specific values, processes can override for their specific needs.
 
-### Stopping an Application
+## The Application Pattern
 
-To stop an application, the `gen.Node` interface provides the `ApplicationStop` method. When this method is called, the application sends an exit signal to all of its processes with the reason `gen.TerminateReasonShutdown` and waits for them to stop completely.
+Applications provide structure to your actor system. Instead of scattered process creation throughout your code, applications centralize the "what runs in this service" question. The specification documents your system's structure. The mode declares your fault tolerance policy. The dependency mechanism ensures correct startup ordering.
 
-If the processes do not stop within 5 seconds, a timeout error will be returned. If the `ApplicationStop` method is called again while the application is still waiting for its processes to stop, it will return the error `gen.ErrApplicationStopping`.
+This organization becomes especially valuable in distributed systems where services start on different nodes. An application can be started remotely on another node, bringing all its components with the correct configuration and dependencies.
 
-For forcefully stopping the application's processes, the `ApplicationStopForce` method is available in the `gen.Node`interface. In this case, all of the application's processes will be forcibly terminated using the `Kill` method of the `gen.Node`interface.
-
-Additionally, the `gen.Node` interface provides the `ApplicationStopWithTimeout` method, which allows you to specify a custom timeout period for the application to stop.
-
-Once all of the application's processes have stopped, the node will call the `Stop` method of the `gen.ApplicationBehavior` interface, completing the shutdown process.
+For more details on application lifecycle and options, refer to the `gen.ApplicationBehavior` and `gen.ApplicationSpec` documentation in the code.

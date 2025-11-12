@@ -1,164 +1,85 @@
+---
+description: Bridging the Actor Model with Blocking I/O
+---
+
 # Meta-Process
 
-Meta-processes are designed to integrate synchronous objects into the asynchronous model of Ergo Framework. Although they share some similarities with regular processes, they have a different nature and operational characteristics:
+The actor model works beautifully for asynchronous message passing, but what about when you need to integrate with the synchronous world? HTTP servers that block waiting for requests. TCP accept loops that wait for connections. File I/O that blocks on reads. These don't fit naturally into the one-message-at-a-time actor model.
 
-* **Meta-Process Identifier**: meta-process has a process identifier (of type `gen.Alias`) and is associated with its parent process. This allows message routing and synchronous requests to be directed to the meta-process.
-* **Sending Messages**: meta-process can send asynchronous messages to other processes or meta-processes (including remote ones) using the `Send` method in the `gen.MetaProcess` interface. However, the sender will always appear as the parent process's `gen.PID`.
-* **Handling Messages**: meta-processes can handle asynchronous messages from other processes or meta-processes via the `HandleMessage` callback method of the `gen.MetaBehavior` interface.
-* **Handling Synchronous Requests**: can handle synchronous requests from other processes (including remote ones) using the `HandleCall` callback method of the `gen.MetaBehavior` interface.
-* **Spawning Other Meta-Processes**: can spawn other meta-processes using the `Spawn` method in the `gen.MetaProcess` interface.
-* **Linking and Monitoring**: other processes (including remote ones) can create a link or monitor with the meta-process using the `LinkAlias` and `MonitorAlias` methods of the `gen.Process` interface, referencing the meta-process’s `gen.Alias`.
+Meta processes solve this problem by using two goroutines instead of one.
 
-Despite these similarities with regular processes, meta-processes have distinct characteristics:
+## The Two-Goroutine Design
 
-* **Concurrency**: meta-process operates with two goroutines. The _main_ goroutine starts when the meta-process is created and handles operations on the synchronous object. The termination of this goroutine leads to the termination of the meta-process. The _auxiliary_ goroutine is launched to handle incoming messages from other processes or meta-processes, and it shuts down when there are no more messages in the meta-process’s mailbox. Therefore, access to the meta-process object’s data is concurrent, as it can be accessed by both goroutines simultaneously. This concurrency must be managed carefully when implementing your own meta-process.
-* **Parent Process Dependency**: a meta-process can only be started by a process (or another meta-process) using the `SpawnMeta` method in the `gen.Process` interface (or the `Spawn` method in the `gen.MetaProcess`interface).
-* **No Own Environment Variables**: meta-processes do not have their own environment variables. The `Env` and `EnvList` methods of the `gen.MetaProcess` interface return the environment variables of the parent process.
-* **Limitations**: meta-processes cannot make synchronous requests, create links, or establish monitors themselves.
-* **Termination with Parent**: when the parent process terminates, the meta-process is also automatically terminated.
+A meta process has a forever-running goroutine that executes blocking operations, and a message-handling goroutine that processes messages from other actors when they arrive.
 
-Meta-processes offer a way to integrate synchronous objects into the asynchronous system while maintaining compatibility with the process communication model. However, due to their concurrent nature and relationship with the parent process, they require careful handling in certain scenarios.
+The forever-running goroutine executes the `Start` method. This is where you put blocking code: accepting TCP connections, listening for HTTP requests, reading from files, or waiting on any synchronous API. This goroutine runs for the meta process's entire lifetime.
 
-### Ready-to-Use Meta-Processes
+The message-handling goroutine is created on-demand when messages arrive, just like a regular process. It runs `HandleMessage` or `HandleCall` callbacks, processes the message, and terminates if nothing else is waiting. This goroutine handles actor-model message passing.
 
-Ergo Framework provides several ready-to-use implementations of meta-processes:
+This design bridges the two worlds. The `Start` goroutine interacts with blocking I/O. The message-handling goroutine interacts with other actors. Both can safely call meta process methods like `Send` because the framework handles the synchronization.
 
-* **`meta.TCP`**: allows you to launch a TCP server or create a TCP connection.
-* **`meta.UDP`**: for launching a UDP server.
-* **`meta.Web`**: for launching an HTTP server and creating an `http.Handler` based on a meta-process.
-* **WebSocket Meta-Process**: for working with WebSockets, a WebSocket meta-process is available. Since its implementation has a dependency on `github.com/gorilla/websocket`, it is provided as a separate package: `ergo.services/meta/websocket`.
+## Why This Matters
 
-These meta-processes offer pre-built solutions for integrating common networking and web functionality into your application.
+Consider an HTTP server. The server needs to block waiting for requests - that's how HTTP libraries work. But when a request arrives, you want to send it to a worker actor for processing. Without meta processes, you'd have to spawn goroutines, manage synchronization, and break the actor model.
 
-### Meta-process starting
+With a meta process, the HTTP server runs in the `Start` goroutine. When a request arrives, you send it to a worker actor using the regular `Send` method. The worker processes it asynchronously and sends the response back. The meta process receives the response in `HandleMessage` and writes it to the HTTP connection. The actor model stays intact while integrating with blocking HTTP operations.
 
-To start a meta-process, the `gen.Process` interface provides the `SpawnMeta` method:
+## Creating Meta Processes
 
-```go
-SpawnMeta(behavior gen.MetaBehavior, options genMetaOptions) (gen.Alias, error)
-```
-
-If a meta-process needs to spawn other meta-processes, the `gen.MetaProcess` interface implements the `Spawn` method:
-
-```go
-Spawn(behavior gen.MetaBehavior, options gen.MetaOptions) (gen.Alias, error)
-```
-
-In the `gen.MetaOptions` options, you can configure:
-
-* **`MailboxSize`**: size of the meta-process’s mailbox for incoming messages.
-* **`SendPriority`**: priority for messages sent by the meta-process.
-* **`LogLevel`**: the logging level for the meta-process.
-
-Upon successful startup, these methods return the meta-process identifier, `gen.Alias`. This identifier can be used to:
-
-* Send asynchronous messages via the `SendAlias` method in the `gen.Process` interface.
-* Make synchronous requests using the `CallAlias` method in the `gen.Process` interface.
-* Create links or monitors with the meta-process using the `LinkAlias` or `MonitorAlias` methods in the `gen.Process`interface.
-
-### Meta-process termination
-
-To stop a meta-process, you can send it an _exit_ signal using the `SendExitMeta` method of the `gen.Process` interface. When the meta-process receives this signal, it triggers the callback method `Terminate` from the `gen.MetaBehavior`interface.
-
-Additionally, a meta-process will be terminated in the following cases:
-
-* The parent process has terminated.
-* The main goroutine of the meta-process has finished (i.e., the `Start` method of the `gen.MetaBehavior` interface has completed its work).
-* The `HandleMessage` (or `HandleCall`) callback method returned an error while processing an asynchronous message (or a synchronous request).
-* A panic occurred in any method of the `gen.MetaBehavior` interface.
-
-### Implementing Your Own Meta-Process
-
-To create a custom meta-process in Ergo Framework, you need to implement the `gen.MetaBehavior` interface. This interface defines the behavior of the meta-process and includes the following key methods:
+Meta processes implement the `gen.MetaBehavior` interface:
 
 ```go
 type MetaBehavior interface {
-	// callback method for main goroutine
-	Start(process MetaProcess) error
-	
-	// callback methods for the auxiliary goroutine
-	HandleMessage(from PID, message any) error
-	HandleCall(from PID, ref Ref, request any) (any, error)
-	Terminate(reason error)
-	HandleInspect(from PID) map[string]string
+    Init(process MetaProcess) error
+    Start() error
+    HandleMessage(from PID, message any) error
+    HandleCall(from PID, ref Ref, request any) (any, error)
+    Terminate(reason error)
+    HandleInspect(from PID, item ...string) map[string]string
 }
 ```
 
-* **`Start`**: this method is called when the meta-process starts. It is responsible for initializing the meta-process and running the main logic. The `Start` method runs in the _main_ goroutine of the meta-process, and when it finishes, the meta-process is terminated.
-* **`HandleMessage`**: this callback is invoked to handle incoming asynchronous messages from other processes or meta-processes. It runs in the _auxiliary_ goroutine that processes the meta-process’s mailbox.
-* **`HandleCall`**: this method processes synchronous requests (calls) from other processes or meta-processes. It is also part of the _auxiliary_ goroutine that processes incoming messages.
-* **`Terminate`**: called when the meta-process receives an exit signal or when its parent process terminates. It is responsible for cleanup and finalizing the meta-process before it is removed.
+The `Init` callback runs once during creation. The `Start` callback is your blocking code - it runs in the main goroutine until it returns, at which point the meta process terminates. The `HandleMessage` and `HandleCall` callbacks handle messages from other actors. The `Terminate` callback runs during shutdown for cleanup.
 
-Here is an example of implementing a custom meta-process in Ergo Framework - demonstrates how to create a meta-process that reads data from a network connection and sends it to its parent process:
+Spawn a meta process from a regular process:
 
 ```go
-createMyMeta(conn net.Conn) gen.MetaBehavior {
-    return &myMeta{
-        conn: conn,
-    }
-}
-
-type myMeta struct {
-    gen.MetaProcess  // Embedding the gen.MetaProcess interface
-    conn net.Conn.   // Network connection
-}
-
-func (mm *myMeta) Start(meta gen.MetaProcess) error {
-    // Assign the meta-process instance to the embedded interface
-    mm.MetaProcess = meta
-    
-    // Ensure that the socket is closed upon exit
-    defer close(mm.conn)
-    
-    // Read data from the socket in a loop
-    for {
-        buf := make([]byte, 1024)
-        n, err mm.conn.Read(buf)
-        if err != nil {
-            return err // Terminate the meta-process on error
-        }
-        // Send the data to the parent process
-        mm.Send(mm.Parent(), buf[:n])
-    }
-    return nil // meta-process terminated
-}
+meta := createWebHandler(options)
+alias, err := process.SpawnMeta(meta, gen.MetaOptions{})
 ```
 
-In this example, we embed the `gen.MetaProcess` interface within the `myMeta` struct. This allows us to use the methods of `gen.MetaProcess` (like `Send`, `Parent`, and `Log`) inside the callback methods defined by `gen.MetaBehavior.`
+The returned alias is how other processes address this meta process.
 
-```go
-func (mm *myMeta) HandleMessage(from gen.PID, message any) error {
-    // Log information about the parent process
-    mm.Log().Info("my parent process is %s", mm.Parent())
-    // Handle received messages as byte slice
-    if data, ok := message.([]byte); ok {
-        // Write the data back to the connection
-        mm.conn.Write(data)
-        return nil
-    }
-    // Log if the message is of an unknown type
-    mm.Log().Info("got unknown message %#v", message)
-    return nil
-}
+## Built-In Meta Processes
 
-func (mm *myMeta) Terminate(reason error) {
-    // Close the connection when the meta-process is terminated
-    close(mm.conn)
-}
-```
+Ergo Framework provides ready-to-use meta processes for common scenarios:
 
-The `HandleMessage` method processes asynchronous messages sent to the meta-process. It checks the type of the message and takes appropriate actions, such as writing data to the connection. If the method returns an error, it causes the termination of the meta-process, triggering the `Terminate` method to handle the cleanup.
+**TCP** - Server and client meta processes for TCP connections. The server accepts connections and spawns a meta process for each. The client maintains a connection and exchanges messages.
 
-The `Terminate` method ensures that resources like the network connection are properly released when the meta-process ends. If the meta-process encounters an error in `HandleMessage` or `HandleCall`, or if any other termination condition occurs, the `Terminate` method will be called to finalize the shutdown process.
+**UDP** - Server meta process for UDP sockets. Receives datagrams and sends them as messages to workers.
 
-List of available methods in the `gen.MetaProcess` Interface:
+**Web** - HTTP server and handler meta processes. The server listens for requests. Handlers process requests and can delegate to worker actors.
 
-```go
-type MetaProcess interface {
-    ID() Alias           // Returns the ID (gen.Alias) of this meta-process
-    Parent() PID         // Returns the PID of the parent process
-    Send(to any, message any) error // Sends an asynchronous message to another process or meta-process
-    Spawn(behavior MetaBehavior, options MetaOptions) (Alias, error) // Spawns a new meta-process
-    Log() Log            // Provides the gen.Log interface for logging
-}
-```
+**Port** - Wraps external programs, reading their stdout and writing to stdin. Useful for integrating with non-Ergo programs.
+
+**WebSocket** - Server and client for WebSocket connections (separate package: `ergo.services/meta/websocket`).
+
+These implementations handle the complexity of integrating blocking I/O with the actor model, so you don't have to.
+
+## Limitations and Trade-offs
+
+Meta processes can send messages and spawn other meta processes, but they can't make synchronous calls, create links, or establish monitors. These limitations exist because meta processes operate outside the standard actor model - they have two goroutines, so synchronous operations would be ambiguous (which goroutine waits for the response?).
+
+Meta processes don't have their own environment variables. They share the parent process's environment. This keeps the relationship clear - a meta process is an extension of its parent, not an independent entity.
+
+When the parent process terminates, all its meta processes terminate too. This cascading termination ensures cleanup happens automatically.
+
+The two-goroutine design means you need to be careful about concurrent access to the meta process's data. Both goroutines can access the same fields. If your `Start` method modifies state that `HandleMessage` reads, you need synchronization. However, if `Start` only does I/O and `HandleMessage` only sends messages, no synchronization is needed.
+
+## Practical Patterns
+
+The typical pattern is to use meta processes as bridges. The `Start` method handles blocking I/O. When external events occur (HTTP request, TCP connection, data received), the meta process sends messages to worker actors. Workers process requests asynchronously and send results back. The meta process receives results in `HandleMessage` and bridges them back to the synchronous world.
+
+This keeps the actor model intact. Workers are pure actors with sequential message handling. The meta process handles the messy details of integrating with blocking APIs.
+
+For details on specific meta process implementations, see the chapters on [TCP](../meta-processes/tcp.md), [UDP](../meta-processes/udp.md), [Web](../meta-processes/web.md), and [Port](../meta-processes/port.md).

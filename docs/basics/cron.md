@@ -1,160 +1,107 @@
 ---
-description: schedule tasks on a repetitive basis, such as daily, weekly, or monthly
+description: Schedule tasks on a repetitive basis
 ---
 
 # Cron
 
-{% hint style="info" %}
-Introduced in 3.1.0 (not yet released. available in `v310` branch)
-{% endhint %}
+Applications often need tasks to run periodically. Generate a daily report at midnight. Clean up expired sessions every hour. Send weekly summary emails. Poll an external API every five minutes.
 
-Cron functionality is provided to enable periodic job execution in a node. Its implementation replicates the functionality of the [Cron service in Unix systems](https://en.wikipedia.org/wiki/Cron) and supports the [Crontab specification](cron.md#cron-specification) format.
+You could implement this yourself - spawn a process that sleeps, wakes up, performs the task, and sleeps again. But then you're managing wake times, handling timezone changes, accounting for daylight saving time transitions, and ensuring the scheduler itself stays alive. The scheduling logic becomes scattered across your application.
 
-To set up jobs at the node startup, use the `gen.NodeOptions.Cron` parameters. Each job is described using the `gen.CronJob`:
+Cron provides scheduled task execution as a framework service. You declare what should run and when using the familiar crontab syntax. The framework handles timing, execution, and all the edge cases around time-based scheduling.
+
+## How It Works
+
+Every minute, the cron system wakes up and evaluates all job specifications against the current time. Jobs whose specifications match the current minute are queued for execution. Each queued job then runs in its own goroutine.
+
+This design is stateless - no pre-calculated schedules, no complex data structures to maintain. When you add a job, it participates in the next evaluation. When you remove a job, it stops participating. Timezone and daylight saving time transitions are handled naturally because each evaluation uses current time rules.
+
+The stateless approach has implications. Multiple executions of the same job can run concurrently if the job takes longer than its interval. A job scheduled every minute that takes two minutes to complete will have two instances running simultaneously. If your job can't handle concurrent execution, implement serialization in the action itself - for example, send a message to a named process that processes requests sequentially.
+
+## Defining Jobs
+
+A job specification declares what should run and when:
 
 ```go
-type CronJob struct {
-	// Name job name
-	Name gen.Atom
-	// Spec time spec in "crontab" format
-	Spec string
-	// Location defines timezone
-	Location *time.Location
-	// Action
-	Action gen.CronAction
-	// Fallback
-	Fallback gen.ProcessFallback
+job := gen.CronJob{
+    Name:     "daily_report",
+    Spec:     "0 0 * * *",
+    Location: time.UTC,
+    Action:   gen.CreateCronActionMessage("reporter", gen.MessagePriorityNormal),
 }
 ```
 
-Parameters:
+The `Name` identifies the job uniquely within the node. The `Spec` uses crontab format to define the schedule. The `Location` specifies which timezone to use when interpreting the schedule. The `Action` defines what happens when the schedule triggers.
 
-* `Name` defines the name of the job. It must be unique among all cron jobs
-* `Spec` sets the scheduling parameters for the job in [crontab format](cron.md#cron-specification)
-* `Location` allows to set the time zone for the job's scheduling parameters. By default, the local time zone is used
-* `Action` defines what needs to be run
-* `Fallback` allows specifying a process to notify if the Action results in an error
+Optionally, `Fallback` can specify a process to notify if the action fails, providing centralized error handling for scheduled tasks.
 
-The `Action` field has the interface type `gen.CronAction`. You can use the following ready-to-use implementations:
+## Actions
 
-* **`gen.CreateCronActionMessage`**`(to any, priority gen.MessagePriority)` – creates an `Action` that sends a `gen.MessageCron` message to the specified process `to`. The `to` argument can be one of the following: `gen.Atom`, `gen.ProcessID`, `gen.PID`, or `gen.Alias`, referring to either a local process or a process on a remote node.
-* **`gen.CreateCronActionSpawn`**`(factory gen.ProcessFactory, options gen.CronActionSpawnOptions)` – spawns a local process. The `options` argument specifies the startup parameters for the process.
-* **`gen.CreateCronActionRemoteSpawn`**`(node gen.Atom, name gen.Atom, options gen.CronActionSpawnOptions)` – spawns a process on a remote node. The mechanism for spawning processes on a remote node is described in the [Remote Spawn Process](../networking/remote-spawn-process.md) section.
+Actions define what happens when a job runs.
 
-When using `CreateCronActionSpawn` or `CreateCronActionRemoteSpawn`, the following environment variables will be added to the spawned processes:
-
-* `gen.CronEnvNodeName`
-* `gen.CronEnvJobName`
-* `gen.CronEnvJobActionTime`
-
-### Example
-
-In the example below, every day at 21:07 (Shanghai time), a `gen.MessageCron` message will be sent to the local process registered as `myweb1`. If the message cannot be delivered, a `gen.MessageCronFallback` message will be sent to the local process named `myweb2`:
+The simplest action sends a message. The job triggers, the cron system sends `gen.MessageCron` to the specified process, and the process handles it through normal message processing. This integrates cleanly with the actor model - the scheduled work happens inside an actor's message handler.
 
 ```go
-func main() {
-	var options gen.NodeOptions
-	// ...
-	locationAsiaShanghai, _ := time.LoadLocation("Asia/Shanghai")
-	options.Cron.Jobs = []gen.CronJob{
-		gen.CronJob{Name: "job1",
-			Spec:     "7 21 * * *",
-			Action:   gen.CreateCronActionMessage(gen.Atom("myweb1"), 
-							gen.MessagePriorityNormal),
-			Location: locationAsiaShanghai,
-			Fallback: gen.ProcessFallback{Enable: true, Name: "myweb2"},
-		},
-	}
-	node, err := ergo.StartNode("cron@localhost", options)
-	if err != nil {
-		panic(err)
-	}
-	// ...
-}
+action := gen.CreateCronActionMessage("worker", gen.MessagePriorityNormal)
 ```
 
-### `gen.Cron` interface
-
-You can also manage jobs using the `gen.Cron` interface. It provides the following methods for this:
+For work that needs isolation per execution, spawn a process. Each time the job triggers, a fresh process spawns, performs the work, and terminates. If one execution crashes, the next starts clean. The spawned process receives environment variables identifying which job spawned it and when (`gen.CronEnvNodeName`, `gen.CronEnvJobName`, `gen.CronEnvJobActionTime`).
 
 ```go
-type Cron interface {
-	// AddJob adds a new job
-	AddJob(job gen.CronJob) error
-	// RemoveJob removes new job
-	RemoveJob(name gen.Atom) error
-	// EnableJob allows you to enable previously disabled job
-	EnableJob(name gen.Atom) error
-	// DisableJob disables job
-	DisableJob(name gen.Atom) error
-
-	// Info returns information about the jobs, spool of jobs for the next run
-	Info() gen.CronInfo
-	// JobInfo returns information for the given job
-	JobInfo(name gen.Atom) (gen.CronJobInfo, error)
-
-	// Schedule returns a list of jobs planned to be run for the given period
-	Schedule(since time.Time, duration time.Duration) []gen.CronSchedule
-	// JobSchedule returns a list of scheduled run times for the given job and period.
-	JobSchedule(job Atom, since time.Time, duration time.Duration) ([]time.Time, error)
-}
-
+action := gen.CreateCronActionSpawn(createReportWorker, gen.CronActionSpawnOptions{})
 ```
 
-Access to the `gen.Cron` interface can be obtained using the `Cron` method of the `gen.Node` interface.
-
-### Custom Action
-
-You can also create your own Action. To do this, simply implement the `gen.CronAction` interface:
+For distributed systems, spawn on a remote node. A job on the coordinator can trigger work on data nodes. The remote node must have enabled spawn permissions for the process name. This pattern centralizes scheduling while distributing execution.
 
 ```go
-type CronAction interface {
-	Do(job gen.Atom, node gen.Node, action_time time.Time) error
-	Info() string
-}
+action := gen.CreateCronActionRemoteSpawn("worker@datanode", "report_worker", gen.CronActionSpawnOptions{})
 ```
 
-It is worth noting that the `action_time` argument is passed in the time zone of the job, i.e., the one specified in the `gen.CronJob.Location` field when the job was created.
+Custom actions implement the `gen.CronAction` interface. The `Do` method receives the job name, node reference, and execution time in the job's timezone. Return an error to trigger fallback handling.
 
-The `Info` method of the interface is used when calling `gen.Cron.Info()` to retrieve summary information about _Cron_ and its jobs.
+## Crontab Format
 
-### Cron specification
+Cron uses standard crontab syntax: five fields specifying minute, hour, day-of-month, month, and day-of-week.
 
-```
-* * * * *
-| | | | |                                                 allowed format
-| | | | day-of-week (1–7) (Monday to Sunday)      *   d   d,d   d-d    dL    d#d
-| | | month (1–12)                                *   d   d,d   d-d   */d
-| | day-of-month (1–31)                           *   d   d,d   d-d   */d   d-d/d   L
-| hour (0–23)                                     *   d   d,d   d-d   */d   d-d/d
-minute (0–59)                                     *   d   d,d   d-d   */d   d-d/d
-```
+Common patterns:
+- `0 * * * *` - Every hour
+- `0 0 * * *` - Every day at midnight
+- `*/15 * * * *` - Every 15 minutes
+- `0 9-17 * * 1-5` - Every hour from 9-5 on weekdays
+- `0 0 1 * *` - First day of each month
+- `0 0 * * 5#2` - Second Friday of each month
+- `0 0 L * *` - Last day of each month
 
-* `*`  represents "_all_". For example, using `* * * * *` will run every minute. Using `* * * * 1` will run every minute only on Monday.
-* `-` allows specifying a range of values. For example, `15 23 * * 1-3` will trigger the job from Monday to Wednesday at 23:15
-* `,` defines a sequence of values: `15,25,35 23 * * *` – this will trigger the job every day at 23:15, 23:25, and 23:35
-* `/` used for step values: `*/5 3 * * *` this will trigger the job every 5 minutes during the hour starting from 3:00 (3:00, 3:05 ... 3:55). It can also be used with ranges: `21-37/5 17 * * *` - every day at 17:21, 17:26, 17:31 and 17:36
-* `#` available for use only in the _day-of-week_ field in the format `day-of-week#occurrence`. It allows specifying constructs like `5#2`, which refers to the second Friday of the month
-* `L` stands for "last". In the _day-of-month_ field, it specifies the last day of the month. In the _day-of-week_ field - allows specifying constructs such as "the last Friday" (`5L`) of a given month.&#x20;
+Macros provide common schedules: `@hourly`, `@daily`, `@weekly`, `@monthly`.
 
-You can also use the following macro definitions:
+## Managing Jobs
 
-* `@hourly` - `1 * * * *` every hour
-* `@daily` - `10 3 * * *` every day at 3:10
-* `@monthly` - `20 4 1 * *` on day 1 of the month at 4:20
-* `@weekly` - `30 5 * * 1` on Monday at 5:30
+Jobs can be defined at node startup in `gen.NodeOptions.Cron.Jobs`, or managed dynamically through the `gen.Cron` interface.
 
-#### Examples
+Add jobs with `AddJob`. Remove them with `RemoveJob`. Temporarily disable with `DisableJob` (useful for maintenance windows), and resume with `EnableJob`. Query status with `Info` and `JobInfo`, which show execution history and errors.
 
-`1 19 * * 1#1,7L`   run at 19:01 every month on the first Monday and last Sunday&#x20;
+The `Schedule` and `JobSchedule` methods preview upcoming executions. Since the implementation evaluates specifications on-demand rather than maintaining pre-calculated schedules, these methods perform the same evaluation logic for a future time range. Use them to verify your crontab specs are correct or to detect scheduling conflicts.
 
-`15 15 10-15/3 * *` run at 15:15 every month on the 10th and 13th
+## Timezone Handling
 
-To view the schedule of your job, use the `JobSchedule` method of the `gen.Cron` interface. To view the schedule of all jobs, use the `Schedule` method of this interface.
+Each job has its own timezone. A job with `Location: time.UTC` scheduled for midnight runs at UTC midnight. A job with a New York timezone runs at New York midnight. The physical location of the node doesn't matter - jobs run in their configured timezone.
 
-### DST (daylight saving time) and Time-adjustment support
+This matters for distributed systems where jobs serve different regions. One node can run jobs for multiple timezones. A cleanup job for European users runs at European midnight. A report job for Asian users runs at Asian business hours. Same node, different timezones, correct local timing.
 
-This implementation takes time changes into account – if a time adjustment occurs at the time of the job's scheduled execution and the new time does not match the job's schedule, the job will not be executed.
+## Daylight Saving Time
 
-For example, if a job has the specification `0 2 * * *` (to run every day at 2:00), it will be skipped on March 30, 2025, because at 2:00 that day, the time will be moved forward by one hour (due to DST). After the end of DST on October 26, 2025, at 3:00, the time will be shifted back by one hour, but the job in the example will be executed only once.
+Timezone transitions are handled carefully.
 
+When clocks spring forward, an hour disappears. A job scheduled for 2:00 AM doesn't run on the spring-forward date because 2:00 AM doesn't exist that day. The cron system detects the time adjustment and skips execution rather than running at the wrong time.
+
+When clocks fall back, an hour repeats. A job scheduled during that hour runs once, not twice. The system tracks actual wall clock progression to avoid duplicate execution.
+
+This behavior ensures jobs run when intended, not at arbitrary times that happen to match the specification after time adjustments.
+
+## Error Handling
+
+If a job action returns an error and the job has a configured fallback, the system sends `gen.MessageCronFallback` to the fallback process. The message includes the job name, execution time, error, and an optional tag for identifying the job source.
+
+This allows centralizing monitoring of failed scheduled tasks. A single fallback process can receive failures from all jobs, log them, send alerts, or take corrective action.
+
+For complete crontab specification syntax and additional examples, refer to the `gen.Cron` interface documentation in the code.

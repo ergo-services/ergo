@@ -1,157 +1,225 @@
+---
+description: Logging system and logger implementations
+---
+
 # Logging
 
-In Ergo Framework, a flexible logging system is implemented that allows multiple loggers to exist within a node. These loggers can be configured to receive specific logging levels.
+Understanding what happens inside a running system requires logging. But logging in distributed actor systems isn't straightforward. Messages pass between dozens of processes. Processes spawn dynamically, handle requests, and terminate. Network connections form and break. Following a single request's path through the system means tracking its journey across multiple processes, possibly across multiple nodes.
 
-For logging purposes, the `gen.Node` and `gen.Process` interfaces provide the `Log` method. This method returns the `gen.Log` interface, which is used for logging messages within the framework.
+Traditional logging compounds the problem. Each component writes to its own log. Process logs go to one file, network logs to another, node events to a third. When something goes wrong, you're piecing together a timeline from scattered sources, correlating by timestamp and hoping you've found all the relevant entries. It's detective work when you need diagnostic clarity.
 
-```go
-type Log interface {
-	Level() LogLevel
-	SetLevel(level LogLevel) error
+Ergo Framework centralizes the logging flow while keeping distribution flexible. Every log call - whether from a process, meta process, or the node itself - flows through a single logging system. That system distributes messages to registered loggers based on configurable filters. One logger might write everything to the console. Another might write only errors to a file. A third might send metrics to a monitoring system. The architecture is simple: centralized input, filtered distribution to multiple outputs.
 
-	Logger() string
-	SetLogger(name string)
+## How Messages Flow
 
-	Trace(format string, args ...any)
-	Debug(format string, args ...any)
-	Info(format string, args ...any)
-	Warning(format string, args ...any)
-	Error(format string, args ...any)
-	Panic(format string, args ...any)
-}
+When code calls `process.Log().Info("message")`, the framework creates a `gen.MessageLog` structure. This contains the timestamp, severity level, source identifier, message format and arguments, and any attached structured fields. The message enters the node's logging subsystem.
 
+The subsystem maintains loggers organized by severity level. Each logger, when registered, declares which levels it handles - perhaps just errors and panics, perhaps everything from debug upward. When a log message arrives, the subsystem looks up which loggers are registered for that message's level and calls their `Log` methods.
+
+This is fan-out distribution. A single info-level message goes to every logger registered for info level. The default logger writes it to stdout. A file logger appends it to a file. A metrics logger counts it. Each logger receives the same message and processes it independently.
+
+You can disable fan-out for specific processes. Call `SetLogger("filename")` on a process's log interface, and that process's logs route only to the named logger. This isolates verbose processes - a chatty debugging process can log to its own file while the rest of the system logs normally.
+
+## Severity Levels
+
+The framework provides six severity levels, ordered from most to least verbose:
+
+`gen.LogLevelTrace` - Framework internals, message routing, network packets. Extremely verbose, intended only for deep debugging of the framework itself.
+
+`gen.LogLevelDebug` - Application debugging information. Useful during development but typically disabled in production.
+
+`gen.LogLevelInfo` - Normal informational messages. This is the default level. Startup events, request handling, normal operations.
+
+`gen.LogLevelWarning` - Conditions that merit attention but don't prevent operation. Deprecated API usage, approaching resource limits, retry scenarios.
+
+`gen.LogLevelError` - Errors that prevent specific operations but don't crash the system. Failed requests, unavailable resources, validation failures.
+
+`gen.LogLevelPanic` - Critical errors requiring immediate attention. Despite the name, logging at this level doesn't trigger a panic - it's just the highest severity marker.
+
+Setting a level creates a threshold. Set a process to `gen.LogLevelWarning` and it logs warnings, errors, and panics, but suppresses info, debug, and trace. Each level implicitly includes all higher severity levels.
+
+Two special levels control behavior rather than representing severity:
+
+`gen.LogLevelDefault` - Sentinel meaning "inherit." Nodes with this level become `gen.LogLevelInfo`. Processes with this level inherit from their parent, leader, or node. This default-then-inherit pattern allows hierarchical log level configuration.
+
+`gen.LogLevelDisabled` - Stops all logging from the source. The framework doesn't even create log messages. Use this to completely silence a source without removing loggers.
+
+Trace deserves special mention. It's so verbose that enabling it accidentally could flood storage. You can't enable it dynamically via `SetLevel`. It must be set at startup through `gen.NodeOptions.Log.Level` or `gen.ProcessOptions.LogLevel`. This restriction prevents operational mistakes.
+
+The node starts at `gen.LogLevelInfo`. Processes inherit this unless their spawn options specify otherwise. After startup, you can adjust a process's level dynamically with `SetLevel`, allowing surgical verbosity changes during debugging.
+
+## Identifying Log Sources
+
+The logging subsystem differentiates between four source types: node, process, meta process, and network. Each carries its source information in a typed structure - `gen.MessageLogNode`, `gen.MessageLogProcess`, `gen.MessageLogMeta`, or `gen.MessageLogNetwork`. This typing allows custom loggers to handle different sources differently, perhaps routing network logs to one destination and process logs to another.
+
+The default logger formats each source type distinctly in its output:
+
+**Node logs** show the node name as a CRC32 hash:
+```
+2024-07-31 07:53:57 [info] 6EE4478D: node started successfully
 ```
 
-Using the `gen.Log` interface, you can manage the logging level not only for the node but also for each individual process (including meta-processes). There are six standard logging levels that can be set using the `SetLevel` method:
+**Process logs** show the full PID:
+```
+2024-07-31 07:53:57 [info] <6EE4478D.0.1017>: processing request
+```
 
-* `gen.LogLevelDebug`
-* `gen.LogLevelInfo`
-* `gen.LogLevelWarning`
-* `gen.LogLevelError`
-* `gen.LogLevelPanic`
-* `gen.LogLevelDisabled`
+With `IncludeName` enabled, the registered name appears:
+```
+2024-07-31 07:53:57 [info] <6EE4478D.0.1017> 'worker': processing request
+```
 
-Additionally, there are specialized logging levels:
+With both `IncludeName` and `IncludeBehavior` enabled, the actor type appears:
+```
+2024-07-31 07:53:57 [info] <6EE4478D.0.1017> 'worker' main.MyWorker: processing request
+```
 
-* **`gen.LogLevelDefault`**: This is the default logging level. When a node starts with this level, it defaults to `gen.LogLevelInfo`. For applications or processes, the logging level inherits from the node. Meta-processes inherit the logging level of their parent process.
-* **`gen.LogLevelTrace`**: This level is used exclusively for deep debugging. To avoid accidental activation, this level cannot be set through the `SetLevel` method of the `gen.Log` interface. Instead, it can only be enabled during the startup of a node or process through `gen.NodeOptions.Log.Level` or `gen.ProcessOptions.LogLevel`.
+**Meta process logs** show the alias:
+```
+2024-07-31 07:53:57 [info] Alias#<6EE4478D.123663.24065.0>: handling HTTP request
+```
 
-By default, the logging level for the node is set to `gen.LogLevelInfo`. Processes inherit the node's logging level at startup unless explicitly set in `gen.ProcessOptions`.
+**Network logs** show local and remote node hashes:
+```
+2024-07-31 07:53:57 [info] 6EE4478D-90A29F11: connection established
+```
 
-The `SetLogger` method allows you to restrict logging to a specified logger. If no logger is specified, the log message will be delivered to all registered loggers. You can retrieve the list of registered loggers using the `Loggers` method of the `gen.Node` interface.
+These visual distinctions make scanning logs easier. At a glance, you can distinguish node events from process activity, meta process operations from network communications. The format itself tells you what layer of the system generated each message.
 
-The `gen.LogLevelDisabled` level can be used to temporarily disable logging, either for the entire node or a specific process.
+## Adding Context with Fields
 
-Furthermore, the `gen.Node` interface provides two methods for process-specific logging control:
+Beyond the message text, you can attach structured fields - key-value pairs providing context. Fields enable correlation across log entries and make logs machine-parseable.
 
-* `ProcessLogLevel(pid gen.PID)`: Retrieves the current logging level of a specific process.
-* `SetProcessLogLevel(pid gen.PID, level gen.LogLevel)`: Sets the desired logging level for a specific process.
+Consider a request handler. It receives a request with an ID. Every log entry related to that request should include the ID, allowing you to filter logs to just that request's activity:
 
-### Logger
+```go
+func (a *OrderProcessor) HandleMessage(from gen.PID, message any) error {
+    order := message.(Order)
 
-By default, a node in Ergo Framework uses a standard logger, and its parameters can be configured during node startup via `gen.NodeOptions.Log.DefaultLogger`. You have the option to disable the default logger and use a process-based logger or integrate one (or more) loggers from an additional logging library.
+    a.Log().AddFields(
+        gen.LogField{Name: "order_id", Value: order.ID},
+        gen.LogField{Name: "customer_id", Value: order.CustomerID},
+    )
 
-If you wish to create your own logger, you simply need to implement the `gen.LoggerBehavior` interface. This interface defines the behavior of a logger, allowing you to customize the logging system according to your application's requirements. By implementing this interface, you can control how log messages are processed, formatted, and routed, providing flexibility beyond the default logging system.&#x20;
+    a.Log().Info("processing order")
+    a.Log().Debug("validating payment")
+
+    return nil
+}
+```
+
+With `IncludeFields` enabled in the logger configuration, output shows:
+
+```
+2024-11-12 15:30:45 [info] <6EE4478D.0.1017>: processing order
+                   fields order_id:12345 customer_id:67890
+2024-11-12 15:30:45 [debug] <6EE4478D.0.1017>: validating payment
+                    fields order_id:12345 customer_id:67890
+```
+
+Fields appear on a separate line below the message, prefixed with "fields" and aligned with the timestamp. Multiple fields are space-separated, each formatted as `key:value`. In JSON output, fields become separate JSON properties at the message's top level.
+
+Fields only appear in output if the logger is configured to include them. The default logger requires `gen.NodeOptions.Log.DefaultLogger.IncludeFields = true`. Without this, fields are tracked internally but not displayed - useful if some loggers need fields while others don't.
+
+Fields accumulate. Call `AddFields` multiple times and you add more fields rather than replacing existing ones. This supports incremental context building. Add session_id when the session starts. Add transaction_id when beginning a transaction. Add payment_id when processing payment. Each subsequent log includes all accumulated fields.
+
+Remove fields with `DeleteFields`:
+
+```go
+a.Log().DeleteFields("order_id", "customer_id")
+```
+
+This clears the named fields from subsequent logs.
+
+## Field Scoping
+
+Field scoping handles nested contexts where you need temporary fields that shouldn't persist beyond a specific operation.
+
+`PushFields` saves the current field set and starts a new scope. Add temporary fields, perform the operation (with those fields appearing in logs), then `PopFields` to restore the previous field set:
+
+```go
+a.Log().AddFields(gen.LogField{Name: "session_id", Value: "abc123"})
+
+a.Log().PushFields()
+a.Log().AddFields(gen.LogField{Name: "operation", Value: "payment"})
+a.Log().Info("processing payment")
+
+a.Log().PopFields()
+a.Log().Info("payment complete")
+```
+
+Output shows:
+
+```
+2024-11-12 15:30:45 [info] <6EE4478D.0.1017>: processing payment
+                   fields session_id:abc123 operation:payment
+2024-11-12 15:30:45 [info] <6EE4478D.0.1017>: payment complete
+                   fields session_id:abc123
+```
+
+The `operation` field exists only within the push/pop scope. After popping, logs include only `session_id`.
+
+Scopes can nest. Each `PushFields` returns the stack depth. Each `PopFields` returns the new depth. This supports complex nested contexts - a request containing a transaction containing multiple operations, each adding its own contextual fields that disappear when the operation completes.
+
+One restriction protects consistency: you can't delete fields while the field stack has active frames. If you've pushed fields, pop back to the base level before deleting. This prevents deleting a field that a pending pop might restore, which would leave the field state inconsistent.
+
+## The Default Logger
+
+Every node starts with a default logger writing to `os.Stdout`. Configure it through `gen.NodeOptions.Log.DefaultLogger`:
+
+```go
+options.Log.DefaultLogger.TimeFormat = time.DateTime
+options.Log.DefaultLogger.IncludeBehavior = true
+options.Log.DefaultLogger.IncludeName = true
+options.Log.DefaultLogger.IncludeFields = true
+```
+
+`TimeFormat` controls timestamp display. Empty means nanoseconds since epoch. Any Go time format works - `time.DateTime`, `time.RFC3339`, or custom formats.
+
+`IncludeBehavior` adds actor type names to process logs, showing which implementation generated each message.
+
+`IncludeName` adds registered process names to process logs, making output more readable than PIDs alone.
+
+`IncludeFields` controls whether structured fields appear in output.
+
+`EnableJSON` switches to JSON format, with each message as a single-line JSON object.
+
+To disable the default logger entirely, set `Disable: true`. Do this when using only custom loggers.
+
+## Adding Custom Loggers
+
+Custom loggers implement `gen.LoggerBehavior`:
 
 ```go
 type LoggerBehavior interface {
-	Log(message MessageLog)
-	Terminate()
+    Log(message MessageLog)
+    Terminate()
 }
 ```
 
-To add a new logger, the `gen.Node` interface provides two methods:
+The `Log` method receives each message. The `Terminate` method handles cleanup when the logger is removed or the node shuts down.
 
-* `LoggerAdd(name string, logger gen.LoggerBehavior, filter ...gen.LogLevel)`: This method allows you to add a logger (an object implementing the `gen.LoggerBehavior` interface) to the node's logging system.
-* `LoggerAddPID(pid gen.PID, name string, filter ...gen.LogLevel)`: This method adds a process as a logger. In this case, the node sends log messages to the specified process. The `act.Actor` class provides a callback method `HandleLog` for handling such log messages.
-
-Both methods accept a `filter` argument, which allows you to specify a set of log levels that the logger should handle. For example, if you want your logger to only receive messages at the `gen.LogLevelPanic` and `gen.LogLevelInfo` levels, you can list them in the filter:
-
-```
-node.LoggerAdd("my logger", myLogger, gen.LogLevelPanic, gen.LogLevelInfo)
-```
-
-If the `filter` argument is not specified, the default set of log levels, `gen.DefaultLogFilter`, will be used:
-
-<pre class="language-go"><code class="lang-go">[]gen.LogLevel{
-    LogLevelTrace,
-    LogLevelDebug,
-    LogLevelInfo,
-    LogLevelWarning,
-<strong>    LogLevelError,
-</strong>    LogLevelPanic,
-}
-</code></pre>
-
-The logging methods of the `gen.LoggerBehavior` interface will only be invoked for messages that match the specified logging levels.
-
-Reusing a logger name is not allowed. If a logger with the same name already exists, the `LoggerAdd` or `LoggerAddPID`function will return the error `gen.ErrTaken`. To resolve this, you must first remove the existing logger from the system using the appropriate method: `LoggerDelete` or `LoggerDeletePID` from the `gen.Node` interface.
-
-When a logger is removed from the system, the `Terminate` callback method of the `gen.LoggerBehavior` interface is called.
-
-{% hint style="info" %}
-The methods of the `gen.LoggerBehavior` interface are called synchronously by the node or process. If you are implementing your own logger, it is important to keep this in mind and avoid blocking these calls with complex or time-consuming log message processing.
-
-To mitigate this issue, it is recommended to consider using a [process-based logger.](logging.md#process-logger) In this case, all log messages are placed in the process's mailbox and processed asynchronously, ensuring that the `gen.LoggerBehavior` interface methods are not blocked by the logging logic. This approach allows for more efficient handling of log messages without impacting the overall performance of the node or process.
-{% endhint %}
-
-### Default logger
-
-When starting a node, you can specify logging parameters using the `gen.NodeOptions.Log.DefaultLogger` option. These parameters will be applied to the default logger, which outputs all log messages in text format to a specified output (by default, `os.Stdout`). With these options, you can configure:
-
-*   **`Output`**: The interface used for log message output. To direct log messages to both standard output and a file simultaneously, you can use the `io.MultiWriter` function from Golang's standard library:
-
-    ```go
-    var options gen.NodeOptions
-    logFile, _ := os.Create("out.log")
-    options.Log.Logger.Output = io.MultiWriter(os.Stdout, logFile)
-    ```
-* **`TimeFormat`**: Defines the format for the timestamp of log messages. You can use any existing format, such as `time.DateTime` (see [time package constants](https://pkg.go.dev/time#pkg-constants)), or define your own custom format. By default, the timestamp is output in nanoseconds.
-* **`IncludeBehavior`**: Adds the behavior of the process or meta-process to the log message.
-* **`IncludeName`**: Adds the registered name of the process to the log message, if it exists.
-* **`Filter`**: Specifies the logging levels that the default logger will handle. Leave this field empty to use the default set of levels (`gen.DefaultLogFilter`).
-* **`Disable`**: Disables the default logger.
-
-Here is an example of how the standard logger's output might look with these options applied:
+Register a logger with `node.LoggerAdd`:
 
 ```go
-TimeFormat: time.DateTime
-IncludeBehavior: true
-IncludeName: true
+node.LoggerAdd("errors", errorLogger, gen.LogLevelError, gen.LogLevelPanic)
 ```
 
-```go
-func (a *MyActor) Init(args ...any) error {
-    ...
-    a.Log().Info("starting my actor")
-    return nil
-}
-...
-pid, err := node.SpawnRegister("example", factoryMyActor, gen.ProcessOptions{})
-node.Log().Info("started MyActor with PID %s", pid)
-...
-2024-07-31 07:53:57 [info] <6EE4478D.0.1017> 'example' main.MyActor: starting my actor
-2024-07-31 07:53:57 [info] 6EE4478D: started MyActor with PID <6EE4478D.0.1017>
-```
+The filter (final arguments) specifies which levels this logger handles. The logger receives only messages at those levels. Omit the filter to use `gen.DefaultLogFilter`, which includes all levels from Trace through Panic.
 
-The first field is the timestamp of the log message, the second field is the log level, and the third field is the source of the message. The sources can come from various interfaces:
+Loggers are stored per-level internally. Registering for Error and Panic stores the logger in both level maps. When an error occurs, the framework looks up the Error map and delivers the message to all loggers in that map.
 
-* **`gen.Node.Log()`**: Uses the node's name in the form of a CRC32 hash. Example: `9F35C982`
-* **`gen.Process.Log()`**: The string representation of the process identifier `gen.PID`. Example: `<9F35C982.0.1013>`
-* **`gen.MetaProcess.Log()`**: The string representation of the meta-process identifier `gen.Alias`. Example: `Alias#<9F35C982.123663.24065.0>`
-* **`gen.Connection.Log()`**: String representations of the local and remote nodes. Example: `9F35C982-90A29F11`
+Logger names must be unique. Reusing a name returns `gen.ErrTaken`. Remove a logger with `LoggerDelete` before adding a new one with the same name.
 
-### Process-logger
+The `Log` method is called synchronously. If it blocks, it delays the logging path. For expensive operations - compressing logs, sending over network, database writes - make `Log` queue the work and return immediately, processing asynchronously.
 
-If you want to manage log message streams using the familiar actor model, any process in a running node can serve as a logger. In the `act.Actor` implementation, received log messages are passed as the `message` argument to the `HandleLog` callback method.
+## Process-Based Loggers
 
-To add your actor to the node as a logger, use the `LoggerAddPID` method from the `gen.Node` interface:
+A process can act as a logger, receiving log messages through its mailbox. This integrates logging with the actor model.
+
+Implement the `HandleLog` callback in your actor:
 
 ```go
-func factoryMyLogger() gen.ProcessBehavior {
-    return &MyLogger{}
-}
-
 type MyLogger struct {
     act.Actor
 }
@@ -159,31 +227,83 @@ type MyLogger struct {
 func (ml *MyLogger) HandleLog(message gen.MessageLog) error {
     switch m := message.Source.(type) {
     case gen.MessageLogNode:
-        // handle message 
+        // Handle node log
     case gen.MessageLogProcess:
-        // handle message
+        // Process log - has PID, name, behavior
     case gen.MessageLogMeta:
-        // handle message
+        // Meta process log - has Alias
     case gen.MessageLogNetwork:
-        // handle message
+        // Network log - has local and remote nodes
     }
-    ...
     return nil
 }
-...
-pid, err := node.Spawn(factoryMyLogger, gen.ProcessOptions{})
-node.LoggerAddPID(pid)
 ```
 
-Note that the `LoggerAddPID` method of the `gen.Node` interface is not available to a process during its initialization state, as the node has not yet recognized the process (see the Process section). Therefore, an actor cannot add itself as a logger within the `Init` callback method of the `act.ActorBehavior` interface.&#x20;
+Register the process as a logger:
 
-When a logger process terminates, it will be automatically removed from the node's logging system.
+```go
+pid, err := node.Spawn(createMyLogger, gen.ProcessOptions{})
+node.LoggerAddPID(pid, "mylogger", gen.LogLevelError, gen.LogLevelPanic)
+```
 
-### Implementations of gen.Logger
+Process-based logging queues messages asynchronously. The `Log` call places the message in the process's Log mailbox and triggers the process. The process handles log messages through `HandleLog`, processing them sequentially. The code that generated the log continues immediately without waiting.
 
-To extend the capabilities of the Ergo Framework, two additional loggers have been implemented:
+This queuing prevents blocking. If the logger process is busy or the logging logic is expensive, messages queue and are processed when ready. The logging path stays fast.
 
-* [**colored**](../extra-library/loggers/colored.md): Enables colored highlighting for log messages in the console.
-* [**rotate**](../extra-library/loggers/rotate.md): Allows logging to a file with support for log file rotation at specified intervals.
+Two details matter: First, a process can't add itself as a logger during `Init`. The process isn't registered yet, so `LoggerAddPID` fails. Spawn the logger, then add it. Second, when a logger process terminates, it's automatically removed from the logging system. No need to call `LoggerDeletePID` explicitly.
 
-You can disable the default logger and add both of these loggers, enabling colored output in the console while also saving logs to a file with rotation. You can find an example of using them in the `demo` project [here](https://github.com/ergo-services/examples).
+## Using Multiple Loggers
+
+The fan-out architecture supports multiple loggers operating simultaneously with different purposes.
+
+A typical production configuration disables the default logger and adds specialized loggers:
+
+```go
+options.Log.DefaultLogger.Disable = true
+
+coloredLogger := colored.CreateLogger(colored.Options{})
+node.LoggerAdd("console", coloredLogger,
+    gen.LogLevelDebug, gen.LogLevelInfo, gen.LogLevelWarning,
+    gen.LogLevelError, gen.LogLevelPanic)
+
+rotateLogger := rotate.CreateLogger(rotate.Options{Path: "/var/log/myapp"})
+node.LoggerAdd("file", rotateLogger)  // No filter = all levels
+```
+
+The colored logger handles debug through panic for console display during development. The rotate logger receives everything and writes to rotating files. Trace messages don't appear anywhere because no logger is registered for trace level.
+
+Loggers can be added and removed dynamically. Start with console logging during development. Add file logging in staging. In production, remove console, keep files, add metrics forwarding. The system adapts without code changes.
+
+## Controlling Verbosity
+
+Different processes often need different verbosity. Most processes log at Info. Increase a troublesome process to Debug temporarily. Keep infrastructure processes at Warning to reduce noise.
+
+```go
+// Debugging a specific process
+node.SetLogLevelProcess(suspiciousPID, gen.LogLevelDebug)
+
+// Later, restore normal level
+node.SetLogLevelProcess(suspiciousPID, gen.LogLevelInfo)
+```
+
+For processes generating high-volume logs, route them to a dedicated logger. A trading engine logging every order would overwhelm general logs:
+
+```go
+tradingProcess.Log().SetLogger("trading_file")
+```
+
+This disables fan-out for the trading process. Its logs go only to the "trading_file" logger. Other processes continue using normal fan-out distribution.
+
+Process-based loggers enable sophisticated handling. A logger process can aggregate metrics - count errors per minute, track which processes log most frequently. It can detect patterns - the same error repeating indicates a stuck condition. It can forward to external systems - send errors to Slack, metrics to Prometheus. As an actor, it maintains state, can be supervised for reliability, and integrates naturally with the rest of your system.
+
+## Logger Implementations
+
+The framework provides two logger implementations in separate packages for common needs:
+
+**Colored** (`ergo.services/logger/colored`) - Terminal output with ANSI colors. Highlights Ergo types (PIDs, Atoms, Refs) and colorizes log levels (yellow for warnings, red for errors, etc.). Visual clarity for development, but has performance overhead. Not suitable for high-volume production logging.
+
+**Rotate** (`ergo.services/logger/rotate`) - File logging with automatic rotation. Supports size-based and time-based rotation. Compresses old logs with gzip. Configurable retention policies. Production-ready for long-running systems generating substantial logs.
+
+Both integrate with the logging system through `node.LoggerAdd`. You can combine them - colored for console during development, rotate for persistent storage, both receiving the same filtered log stream.
+
+For implementation details and configuration options, see [Colored](../extra-library/loggers/colored.md) and [Rotate](../extra-library/loggers/rotate.md) in the extra library documentation.
