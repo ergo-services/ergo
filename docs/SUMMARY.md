@@ -17,6 +17,11 @@
 * [Logging](basics/logging.md)
 * [CertManager](basics/certmanager.md)
 
+## Advanced
+
+* [Handling Sync Requests](advanced/handling-sync.md)
+* [Smart Logging](advanced/logging.md)
+
 ## Actors
 
 * [Actor](actors/actor.md)

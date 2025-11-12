@@ -1,6 +1,5 @@
 ---
 description: A zero-dependency library for testing Ergo Framework actors with fluent API
-hidden: true
 ---
 
 # Unit
