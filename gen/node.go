@@ -378,12 +378,26 @@ type Node interface {
 	// LoggerAddPID registers a process as a logger.
 	// The process will receive MessageLogNode and MessageLogProcess messages.
 	// Optional filter specifies which log levels to receive.
+	//
+	// Hidden loggers: Prefix the name with "." to create a hidden logger.
+	// Hidden loggers are excluded from fan-out distribution - they only receive logs
+	// from processes that explicitly call SetLogger(name) to use them.
+	// Use hidden loggers to create separate logging streams for specific processes
+	// without mixing their logs with general system logs.
+	//
 	// Available in: Running state only.
 	// Returns ErrNodeTerminated in other states.
 	LoggerAddPID(pid PID, name string, filter ...LogLevel) error
 
 	// LoggerAdd registers a custom logger implementation.
 	// Optional filter specifies which log levels to send to this logger.
+	//
+	// Hidden loggers: Prefix the name with "." to create a hidden logger.
+	// Hidden loggers are excluded from fan-out distribution - they only receive logs
+	// from processes that explicitly call SetLogger(name) to use them.
+	// Use hidden loggers to create separate logging streams for specific processes
+	// without mixing their logs with general system logs.
+	//
 	// Available in: Running state only.
 	// Returns ErrNodeTerminated in other states, ErrTaken if name already used.
 	LoggerAdd(name string, logger LoggerBehavior, filter ...LogLevel) error

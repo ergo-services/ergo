@@ -1776,15 +1776,17 @@ func (n *node) dolog(message gen.MessageLog, loggername string) {
 		return
 	}
 	if l := n.loggers[message.Level]; l != nil {
-		l.Range(func(k, v any) bool {
-			if loggername == "" {
-				logger := v.(gen.LoggerBehavior)
-				logger.Log(message)
-				return true
+		if loggername != "" {
+			if v, found := l.Load(loggername); found {
+				v.(gen.LoggerBehavior).Log(message)
 			}
-			if loggername == k.(string) {
-				logger := v.(gen.LoggerBehavior)
-				logger.Log(message)
+			return
+		}
+
+		l.Range(func(k, v any) bool {
+			logger := k.(string)
+			if logger[0] != '.' {
+				v.(gen.LoggerBehavior).Log(message)
 			}
 			return true
 		})
