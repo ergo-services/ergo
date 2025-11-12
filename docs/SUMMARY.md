@@ -17,11 +17,6 @@
 * [Logging](basics/logging.md)
 * [CertManager](basics/certmanager.md)
 
-## Advanced
-
-* [Handling Sync Requests](advanced/handling-sync.md)
-* [Smart Logging](advanced/logging.md)
-
 ## Actors
 
 * [Actor](actors/actor.md)
@@ -40,6 +35,11 @@
 
 * [Unit](testing/unit.md)
 * [Stage](testing/stage.md)
+
+## Advanced
+
+* [Handling Sync Requests](advanced/handling-sync.md)
+* [Smart Logging](advanced/logging.md)
 
 ## extra library
 
