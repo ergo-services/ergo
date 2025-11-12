@@ -449,15 +449,65 @@ type Process interface {
 
 	// SendResponse sends a response to a Call request.
 	// Used in HandleCall() to respond to synchronous requests.
+	// Fire-and-forget delivery - does not wait for confirmation or check if requester received it.
+	// Ignores the process's ImportantDelivery flag setting.
+	// For guaranteed delivery with confirmation, use SendResponseImportant.
+	//
 	// Available in: Running state only.
 	// Returns ErrNotAllowed in other states (requires process registered for routing).
 	SendResponse(to PID, ref Ref, message any) error
 
+	// SendResponseImportant sends a response with delivery confirmation (2-phase commit).
+	// Blocks until the requester confirms receipt or timeout occurs.
+	//
+	// Phase 1: Sends response with ImportantDelivery flag to requester
+	// Phase 2: Waits for confirmation from requester (automatic, sent after receiving response)
+	//
+	// When used with CallImportant, creates 3-phase commit for the complete request-response cycle:
+	// request delivery confirmation + response delivery + response confirmation.
+	//
+	// If the requester is not waiting (timed out or terminated), returns ErrResponseIgnored immediately.
+	// If the requester receives the response but crashes before sending confirmation, returns ErrTimeout.
+	// Uses DefaultRequestTimeout (5 seconds) for waiting for confirmation.
+	//
+	// Use this when the response represents critical state and you need guarantee the requester
+	// actually received it. The responder can safely proceed knowing the requester has the response.
+	//
+	// Available in: Running state only.
+	// Returns ErrNotAllowed in other states, ErrResponseIgnored if requester not waiting,
+	// ErrTimeout if confirmation not received within timeout.
+	SendResponseImportant(to PID, ref Ref, message any) error
+
 	// SendResponseError sends an error response to a Call request.
 	// Used in HandleCall() to respond with an error.
+	// Fire-and-forget delivery - does not wait for confirmation or check if requester received it.
+	// Ignores the process's ImportantDelivery flag setting.
+	// For guaranteed delivery with confirmation, use SendResponseErrorImportant.
+	//
 	// Available in: Running state only.
 	// Returns ErrNotAllowed in other states (requires process registered for routing).
 	SendResponseError(to PID, ref Ref, err error) error
+
+	// SendResponseErrorImportant sends an error response with delivery confirmation (2-phase commit).
+	// Blocks until the requester confirms receipt or timeout occurs.
+	//
+	// Phase 1: Sends error response with ImportantDelivery flag to requester
+	// Phase 2: Waits for confirmation from requester (automatic, sent after receiving response)
+	//
+	// When used with CallImportant, creates 3-phase commit for the complete request-response cycle:
+	// request delivery confirmation + error response delivery + error response confirmation.
+	//
+	// If the requester is not waiting (timed out or terminated), returns ErrResponseIgnored immediately.
+	// If the requester receives the error but crashes before sending confirmation, returns ErrTimeout.
+	// Uses DefaultRequestTimeout (5 seconds) for waiting for confirmation.
+	//
+	// Use this when the error represents critical information (operation failed, rollback needed)
+	// and you need guarantee the requester knows about the failure.
+	//
+	// Available in: Running state only.
+	// Returns ErrNotAllowed in other states, ErrResponseIgnored if requester not waiting,
+	// ErrTimeout if confirmation not received within timeout.
+	SendResponseErrorImportant(to PID, ref Ref, err error) error
 
 	// Call makes a synchronous request with default timeout (5 seconds).
 	// Blocks the actor goroutine until response arrives or timeout occurs.
@@ -486,6 +536,12 @@ type Process interface {
 	// - Without Important: timeout if remote process doesn't exist (can't distinguish from slow response)
 	// - With Important: immediate ErrProcessUnknown if remote process doesn't exist
 	// Aligns remote behavior with local delivery (local always returns immediate error if process missing).
+	//
+	// When combined with SendResponseImportant, creates 3-phase commit:
+	// Phase 1: Request delivery + confirmation
+	// Phase 2: Response delivery (from SendResponseImportant)
+	// Phase 3: Response confirmation (from SendResponseImportant)
+	// Both request and response have guaranteed delivery.
 	//
 	// Available in: Running state only.
 	// Returns ErrNotAllowed in other states, ErrTimeout on timeout,

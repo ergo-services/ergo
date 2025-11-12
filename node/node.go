@@ -34,9 +34,11 @@ var (
 )
 
 type nodeCall struct {
-	done     chan struct{} // semaphore to signal call is done
-	response any
-	err      error
+	done      chan struct{} // semaphore to signal call is done
+	response  any
+	err       error
+	from      gen.PID
+	important bool
 }
 
 func takeNodeCall() *nodeCall {
@@ -50,6 +52,8 @@ func releaseNodeCall(r *nodeCall) {
 	default:
 	}
 	r.response, r.err = nil, nil
+	r.important = false
+	r.from = gen.PID{}
 	nodeCallPool.Put(r)
 }
 
@@ -1075,6 +1079,16 @@ handleResponse:
 	response := call.response
 	err = call.err
 	releaseNodeCall(call)
+
+	if call.important {
+		options := gen.MessageOptions{
+			Ref: ref,
+		}
+
+		// send ack
+		n.RouteSendResponseError(n.corePID, call.from, options, nil)
+	}
+
 	if err != nil {
 		return nil, err
 	}
@@ -1141,6 +1155,15 @@ handleResponse:
 	response := call.response
 	err = call.err
 	releaseNodeCall(call)
+
+	if call.important {
+		options := gen.MessageOptions{
+			Ref: ref,
+		}
+		// send ack
+		n.RouteSendResponseError(n.corePID, call.from, options, nil)
+	}
+
 	if err != nil {
 		return nil, err
 	}
@@ -1207,6 +1230,15 @@ handleResponse:
 	response := call.response
 	err = call.err
 	releaseNodeCall(call)
+
+	if call.important {
+		options := gen.MessageOptions{
+			Ref: ref,
+		}
+		// send ack
+		n.RouteSendResponseError(n.corePID, call.from, options, nil)
+	}
+
 	if err != nil {
 		return nil, err
 	}

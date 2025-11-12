@@ -336,6 +336,9 @@ func (n *node) RouteSendResponse(from gen.PID, to gen.PID, options gen.MessageOp
 		if value, found := n.calls.Load(options.Ref); found {
 			call := value.(*nodeCall)
 			call.response = message
+			call.from = from
+			call.important = options.ImportantDelivery
+
 			select {
 			case call.done <- struct{}{}:
 				return nil
@@ -352,8 +355,15 @@ func (n *node) RouteSendResponse(from gen.PID, to gen.PID, options gen.MessageOp
 	}
 	p := value.(*process)
 
+	resp := response{
+		ref:       options.Ref,
+		message:   message,
+		from:      from,
+		important: options.ImportantDelivery,
+	}
+
 	select {
-	case p.response <- response{ref: options.Ref, message: message}:
+	case p.response <- resp:
 		atomic.AddUint64(&p.messagesIn, 1)
 		return nil
 	default:
@@ -385,6 +395,9 @@ func (n *node) RouteSendResponseError(from gen.PID, to gen.PID, options gen.Mess
 		if value, found := n.calls.Load(options.Ref); found {
 			call := value.(*nodeCall)
 			call.err = err
+			call.from = from
+			call.important = options.ImportantDelivery
+
 			select {
 			case call.done <- struct{}{}:
 				return nil
@@ -400,9 +413,15 @@ func (n *node) RouteSendResponseError(from gen.PID, to gen.PID, options gen.Mess
 		return gen.ErrProcessUnknown
 	}
 	p := value.(*process)
+	resp := response{
+		ref:       options.Ref,
+		err:       err,
+		from:      from,
+		important: options.ImportantDelivery,
+	}
 
 	select {
-	case p.response <- response{ref: options.Ref, err: err}:
+	case p.response <- resp:
 		atomic.AddUint64(&p.messagesIn, 1)
 		return nil
 	default:

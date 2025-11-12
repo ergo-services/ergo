@@ -324,6 +324,9 @@ type Node interface {
 	// - With Important: immediate ErrProcessUnknown if remote process doesn't exist
 	// Aligns remote error handling with local delivery (local always returns immediate error).
 	//
+	// When the responder uses SendResponseImportant or SendResponseErrorImportant, creates
+	// 3-phase commit for the complete request-response cycle with guaranteed delivery in both directions.
+	//
 	// Available in: Running state only.
 	// Returns ErrNodeTerminated in other states, ErrTimeout on timeout,
 	// ErrProcessUnknown if target doesn't exist (with Important flag).

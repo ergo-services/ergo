@@ -569,7 +569,17 @@ func (c *connection) SendResponse(from gen.PID, to gen.PID, options gen.MessageO
 	buf.B[6] = orderPeer
 	buf.B[7] = protoMessageResponse
 	binary.BigEndian.PutUint64(buf.B[8:16], from.ID)
+
 	buf.B[16] = byte(options.Priority) // usual value 0, 1, or 2, so just cast it
+	if options.ImportantDelivery {
+		if c.peer_flags.EnableImportantDelivery == false {
+			lib.ReleaseBuffer(buf)
+			return gen.ErrUnsupported
+		}
+		// set important flag
+		buf.B[16] |= 128
+	}
+
 	binary.BigEndian.PutUint64(buf.B[17:25], to.ID)
 	binary.BigEndian.PutUint64(buf.B[25:33], options.Ref.ID[0])
 	binary.BigEndian.PutUint64(buf.B[33:41], options.Ref.ID[1])
@@ -615,7 +625,17 @@ func (c *connection) SendResponseError(from gen.PID, to gen.PID, options gen.Mes
 	buf.B[6] = orderPeer
 	buf.B[7] = protoMessageResponseError
 	binary.BigEndian.PutUint64(buf.B[8:16], from.ID)
+
 	buf.B[16] = byte(options.Priority) // usual value 0, 1, or 2, so just cast it
+	if options.ImportantDelivery {
+		if c.peer_flags.EnableImportantDelivery == false {
+			lib.ReleaseBuffer(buf)
+			return gen.ErrUnsupported
+		}
+		// set important flag
+		buf.B[16] |= 128
+	}
+
 	binary.BigEndian.PutUint64(buf.B[17:25], to.ID)
 	binary.BigEndian.PutUint64(buf.B[25:33], options.Ref.ID[0])
 	binary.BigEndian.PutUint64(buf.B[33:41], options.Ref.ID[1])
@@ -2131,7 +2151,8 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC) {
 				Creation: c.core.Creation(),
 			}
 			idFrom := binary.BigEndian.Uint64(buf.B[8:16])
-			priority := gen.MessagePriority(buf.B[16])
+			priority := gen.MessagePriority(buf.B[16] & 3)
+			important := (buf.B[16] & 128) > 0
 			idTO := binary.BigEndian.Uint64(buf.B[17:25])
 			ref.ID[0] = binary.BigEndian.Uint64(buf.B[25:33])
 			ref.ID[1] = binary.BigEndian.Uint64(buf.B[33:41])
@@ -2163,10 +2184,20 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC) {
 			}
 
 			opts := gen.MessageOptions{
-				Ref:      ref,
-				Priority: priority,
+				Ref:               ref,
+				Priority:          priority,
+				ImportantDelivery: important,
 			}
-			c.core.RouteSendResponse(from, to, opts, msg)
+
+			err = c.core.RouteSendResponse(from, to, opts, msg)
+
+			if important == false {
+				continue
+			}
+			if err != nil {
+				opts.ImportantDelivery = false
+				c.SendResponseError(to, from, opts, err)
+			}
 
 		case protoMessageResponseError:
 			if buf.Len() < 50 {
@@ -2179,7 +2210,8 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC) {
 				Creation: c.core.Creation(),
 			}
 			idFrom := binary.BigEndian.Uint64(buf.B[8:16])
-			priority := gen.MessagePriority(buf.B[16])
+			priority := gen.MessagePriority(buf.B[16] & 3)
+			important := (buf.B[16] & 128) > 0
 			idTO := binary.BigEndian.Uint64(buf.B[17:25])
 			ref.ID[0] = binary.BigEndian.Uint64(buf.B[25:33])
 			ref.ID[1] = binary.BigEndian.Uint64(buf.B[33:41])
@@ -2196,8 +2228,9 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC) {
 				Creation: c.core.Creation(),
 			}
 			opts := gen.MessageOptions{
-				Ref:      ref,
-				Priority: priority,
+				Ref:               ref,
+				Priority:          priority,
+				ImportantDelivery: important,
 			}
 
 			var r error // result
@@ -2237,7 +2270,15 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC) {
 				c.log.Error("received incorrect response error id")
 				continue
 			}
-			c.core.RouteSendResponseError(from, to, opts, r)
+			err := c.core.RouteSendResponseError(from, to, opts, r)
+			if important == false {
+				continue
+			}
+			if err != nil {
+				opts.ImportantDelivery = false
+				c.SendResponseError(to, from, opts, err)
+			}
+			continue
 
 		case protoMessageTerminatePID:
 			if buf.Len() < 18 {

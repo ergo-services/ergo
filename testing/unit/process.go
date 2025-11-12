@@ -208,6 +208,28 @@ func (tp *TestProcess) SendResponseError(to gen.PID, ref gen.Ref, err error) err
 	return nil
 }
 
+func (tp *TestProcess) SendResponseImportant(to gen.PID, ref gen.Ref, response any) error {
+	tp.events.Push(SendResponseEvent{
+		From:     tp.pid,
+		To:       to,
+		Response: response,
+		Ref:      ref,
+		Priority: tp.options.Priority,
+	})
+	return nil
+}
+
+func (tp *TestProcess) SendResponseErrorImportant(to gen.PID, ref gen.Ref, err error) error {
+	tp.events.Push(SendResponseErrorEvent{
+		From:     tp.pid,
+		To:       to,
+		Error:    err,
+		Ref:      ref,
+		Priority: tp.options.Priority,
+	})
+	return nil
+}
+
 func (tp *TestProcess) Call(to any, request any) (any, error) {
 	event := CallEvent{
 		From:    tp.pid,

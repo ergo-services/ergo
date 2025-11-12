@@ -65,9 +65,11 @@ type process struct {
 }
 
 type response struct {
-	message any
-	err     error
-	ref     gen.Ref
+	message   any
+	err       error
+	ref       gen.Ref
+	from      gen.PID
+	important bool
 }
 
 // gen.Process implementation
@@ -1004,6 +1006,29 @@ func (p *process) SendResponse(to gen.PID, ref gen.Ref, message any) error {
 	return p.node.RouteSendResponse(p.pid, to, options, message)
 }
 
+func (p *process) SendResponseImportant(to gen.PID, ref gen.Ref, message any) error {
+	if p.isRunning() == false {
+		return gen.ErrNotAllowed
+	}
+	if lib.Trace() {
+		p.log.Trace("SendResponseImportant to %s with %s", to, ref)
+	}
+	options := gen.MessageOptions{
+		Ref:               ref,
+		Priority:          p.priority,
+		Compression:       p.compression,
+		KeepNetworkOrder:  p.keeporder,
+		ImportantDelivery: true,
+	}
+	if err := p.node.RouteSendResponse(p.pid, to, options, message); err != nil {
+		return err
+	}
+	atomic.AddUint64(&p.messagesOut, 1)
+
+	_, err := p.waitResponse(options.Ref, gen.DefaultRequestTimeout)
+	return err
+}
+
 func (p *process) SendResponseError(to gen.PID, ref gen.Ref, err error) error {
 	if p.isRunning() == false {
 		return gen.ErrNotAllowed
@@ -1019,6 +1044,29 @@ func (p *process) SendResponseError(to gen.PID, ref gen.Ref, err error) error {
 	}
 	atomic.AddUint64(&p.messagesOut, 1)
 	return p.node.RouteSendResponseError(p.pid, to, options, err)
+}
+
+func (p *process) SendResponseErrorImportant(to gen.PID, ref gen.Ref, err error) error {
+	if p.isRunning() == false {
+		return gen.ErrNotAllowed
+	}
+	if lib.Trace() {
+		p.log.Trace("SendResponseErrorImportant to %s with %s", to, ref)
+	}
+	options := gen.MessageOptions{
+		Ref:               ref,
+		Priority:          p.priority,
+		Compression:       p.compression,
+		KeepNetworkOrder:  p.keeporder,
+		ImportantDelivery: true,
+	}
+	if err := p.node.RouteSendResponseError(p.pid, to, options, err); err != nil {
+		return err
+	}
+	atomic.AddUint64(&p.messagesOut, 1)
+
+	_, err = p.waitResponse(options.Ref, gen.DefaultRequestTimeout)
+	return err
 }
 
 func (p *process) CallWithPriority(to any, request any, priority gen.MessagePriority) (any, error) {
@@ -1943,6 +1991,13 @@ retry:
 		}
 		response = r.message
 		err = r.err
+		if r.important {
+			// send ack for important response
+			options := gen.MessageOptions{
+				Ref: r.ref,
+			}
+			p.node.RouteSendResponseError(p.pid, r.from, options, err)
+		}
 	}
 
 	if swapped := atomic.CompareAndSwapInt32(&p.state, int32(gen.ProcessStateWaitResponse), int32(gen.ProcessStateRunning)); swapped == false {
