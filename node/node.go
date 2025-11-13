@@ -1289,6 +1289,30 @@ func (n *node) Kill(pid gen.PID) error {
 	return nil
 }
 
+func (n *node) ProcessName(pid gen.PID) (gen.Atom, error) {
+	if n.isRunning() == false {
+		return "", gen.ErrNodeTerminated
+	}
+	value, loaded := n.processes.Load(pid)
+	if loaded == false {
+		return "", gen.ErrProcessUnknown
+	}
+	p := value.(*process)
+	return p.Name(), nil
+}
+
+func (n *node) ProcessPID(name gen.Atom) (gen.PID, error) {
+	if n.isRunning() == false {
+		return gen.PID{}, gen.ErrNodeTerminated
+	}
+	value, loaded := n.names.Load(name)
+	if loaded == false {
+		return gen.PID{}, gen.ErrProcessUnknown
+	}
+	p := value.(*process)
+	return p.pid, nil
+}
+
 func (n *node) ProcessState(pid gen.PID) (gen.ProcessState, error) {
 	if n.isRunning() == false {
 		return 0, gen.ErrNodeTerminated

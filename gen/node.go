@@ -113,6 +113,18 @@ type Node interface {
 	// Returns ErrNodeTerminated in other states.
 	ProcessListShortInfo(start, limit int) ([]ProcessShortInfo, error)
 
+	// ProcessName returns the registered name for the given PID.
+	// Returns empty Atom if the process has no registered name.
+	// Available in: Running state only.
+	// Returns ErrNodeTerminated in other states, ErrProcessUnknown if process not found.
+	ProcessName(pid PID) (Atom, error)
+
+	// ProcessPID returns the PID for the given registered name.
+	// Reverse of ProcessName - looks up PID by name.
+	// Available in: Running state only.
+	// Returns ErrNodeTerminated in other states, ErrProcessUnknown if name not registered.
+	ProcessPID(name Atom) (PID, error)
+
 	// ProcessState returns the current state of the given process.
 	// Returns ProcessStateSleep (idle), ProcessStateRunning (handling messages),
 	// ProcessStateWaitResponse (blocked in Call), ProcessStateTerminated (terminating),
