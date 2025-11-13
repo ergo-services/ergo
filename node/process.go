@@ -997,10 +997,11 @@ func (p *process) SendResponse(to gen.PID, ref gen.Ref, message any) error {
 		p.log.Trace("SendResponse to %s with %s", to, ref)
 	}
 	options := gen.MessageOptions{
-		Ref:              ref,
-		Priority:         p.priority,
-		Compression:      p.compression,
-		KeepNetworkOrder: p.keeporder,
+		Ref:               ref,
+		Priority:          p.priority,
+		Compression:       p.compression,
+		KeepNetworkOrder:  p.keeporder,
+		ImportantDelivery: p.important,
 	}
 	atomic.AddUint64(&p.messagesOut, 1)
 	return p.node.RouteSendResponse(p.pid, to, options, message)
@@ -1037,10 +1038,11 @@ func (p *process) SendResponseError(to gen.PID, ref gen.Ref, err error) error {
 		p.log.Trace("SendResponseError to %s with %s", to, ref)
 	}
 	options := gen.MessageOptions{
-		Ref:              ref,
-		Priority:         p.priority,
-		Compression:      p.compression,
-		KeepNetworkOrder: p.keeporder,
+		Ref:               ref,
+		Priority:          p.priority,
+		Compression:       p.compression,
+		KeepNetworkOrder:  p.keeporder,
+		ImportantDelivery: p.important,
 	}
 	atomic.AddUint64(&p.messagesOut, 1)
 	return p.node.RouteSendResponseError(p.pid, to, options, err)

@@ -39,7 +39,8 @@
 ## Advanced
 
 * [Handling Sync Requests](advanced/handling-sync.md)
-* [Smart Logging](advanced/logging.md)
+* [Important Delivery Flag](advanced/important-delivery.md)
+* [Pub/Sub Internals](advanced/pub-sub-internals.md)
 
 ## extra library
 

@@ -449,12 +449,16 @@ type Process interface {
 
 	// SendResponse sends a response to a Call request.
 	// Used in HandleCall() to respond to synchronous requests.
-	// Fire-and-forget delivery - does not wait for confirmation or check if requester received it.
-	// Ignores the process's ImportantDelivery flag setting.
-	// For guaranteed delivery with confirmation, use SendResponseImportant.
+	//
+	// If the process's ImportantDelivery flag is enabled (via SetImportantDelivery(true)),
+	// this method behaves like SendResponseImportant - blocks until requester confirms receipt.
+	// Otherwise, fire-and-forget delivery without waiting for confirmation.
+	//
+	// For explicit important delivery regardless of process flag, use SendResponseImportant.
 	//
 	// Available in: Running state only.
-	// Returns ErrNotAllowed in other states (requires process registered for routing).
+	// Returns ErrNotAllowed in other states, ErrResponseIgnored if requester not waiting (with important),
+	// ErrTimeout if confirmation not received (with important).
 	SendResponse(to PID, ref Ref, message any) error
 
 	// SendResponseImportant sends a response with delivery confirmation (2-phase commit).
@@ -480,12 +484,16 @@ type Process interface {
 
 	// SendResponseError sends an error response to a Call request.
 	// Used in HandleCall() to respond with an error.
-	// Fire-and-forget delivery - does not wait for confirmation or check if requester received it.
-	// Ignores the process's ImportantDelivery flag setting.
-	// For guaranteed delivery with confirmation, use SendResponseErrorImportant.
+	//
+	// If the process's ImportantDelivery flag is enabled (via SetImportantDelivery(true)),
+	// this method behaves like SendResponseErrorImportant - blocks until requester confirms receipt.
+	// Otherwise, fire-and-forget delivery without waiting for confirmation.
+	//
+	// For explicit important delivery regardless of process flag, use SendResponseErrorImportant.
 	//
 	// Available in: Running state only.
-	// Returns ErrNotAllowed in other states (requires process registered for routing).
+	// Returns ErrNotAllowed in other states, ErrResponseIgnored if requester not waiting (with important),
+	// ErrTimeout if confirmation not received (with important).
 	SendResponseError(to PID, ref Ref, err error) error
 
 	// SendResponseErrorImportant sends an error response with delivery confirmation (2-phase commit).
