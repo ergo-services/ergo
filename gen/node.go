@@ -318,14 +318,13 @@ type Node interface {
 	// CallImportant makes a synchronous request with important delivery flag.
 	// Uses default timeout (5 seconds). Blocks until response.
 	//
-	// Important delivery ensures request reaches the target process mailbox.
-	// Provides network transparency for error detection:
+	// Important delivery provides network transparency for error detection:
 	// - Without Important: timeout if remote process doesn't exist (ambiguous - slow or missing?)
 	// - With Important: immediate ErrProcessUnknown if remote process doesn't exist
 	// Aligns remote error handling with local delivery (local always returns immediate error).
 	//
 	// When the responder uses SendResponseImportant or SendResponseErrorImportant, creates
-	// 3-phase commit for the complete request-response cycle with guaranteed delivery in both directions.
+	// Fully-Reliable Two-Phase Commit (FR-2PC) with guaranteed delivery in both directions.
 	//
 	// Available in: Running state only.
 	// Returns ErrNodeTerminated in other states, ErrTimeout on timeout,

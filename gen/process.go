@@ -461,14 +461,17 @@ type Process interface {
 	// ErrTimeout if confirmation not received (with important).
 	SendResponse(to PID, ref Ref, message any) error
 
-	// SendResponseImportant sends a response with delivery confirmation (2-phase commit).
+	// SendResponseImportant sends a response with delivery confirmation.
 	// Blocks until the requester confirms receipt or timeout occurs.
 	//
+	// Implements Reliable-Response Two-Phase Commit (RR-2PC):
 	// Phase 1: Sends response with ImportantDelivery flag to requester
 	// Phase 2: Waits for confirmation from requester (automatic, sent after receiving response)
 	//
-	// When used with CallImportant, creates 3-phase commit for the complete request-response cycle:
-	// request delivery confirmation + response delivery + response confirmation.
+	// Provides guaranteed response delivery. When combined with CallImportant, creates
+	// Fully-Reliable Two-Phase Commit (FR-2PC) with both request and response delivery guaranteed.
+	// FR-2PC provides the reliable messaging foundation needed for implementing distributed
+	// transaction protocols like Three-Phase Commit at the application level.
 	//
 	// If the requester is not waiting (timed out or terminated), returns ErrResponseIgnored immediately.
 	// If the requester receives the response but crashes before sending confirmation, returns ErrTimeout.
@@ -496,14 +499,17 @@ type Process interface {
 	// ErrTimeout if confirmation not received (with important).
 	SendResponseError(to PID, ref Ref, err error) error
 
-	// SendResponseErrorImportant sends an error response with delivery confirmation (2-phase commit).
+	// SendResponseErrorImportant sends an error response with delivery confirmation.
 	// Blocks until the requester confirms receipt or timeout occurs.
 	//
+	// Implements Reliable-Response Two-Phase Commit (RR-2PC):
 	// Phase 1: Sends error response with ImportantDelivery flag to requester
 	// Phase 2: Waits for confirmation from requester (automatic, sent after receiving response)
 	//
-	// When used with CallImportant, creates 3-phase commit for the complete request-response cycle:
-	// request delivery confirmation + error response delivery + error response confirmation.
+	// Provides guaranteed error response delivery. When combined with CallImportant, creates
+	// Fully-Reliable Two-Phase Commit (FR-2PC) with both request and error response delivery guaranteed.
+	// FR-2PC provides the reliable messaging foundation needed for implementing distributed
+	// transaction protocols like Three-Phase Commit at the application level.
 	//
 	// If the requester is not waiting (timed out or terminated), returns ErrResponseIgnored immediately.
 	// If the requester receives the error but crashes before sending confirmation, returns ErrTimeout.
@@ -539,17 +545,13 @@ type Process interface {
 	// CallImportant makes a synchronous request with important delivery flag.
 	// Uses default timeout (5 seconds). Blocks the actor goroutine.
 	//
-	// Important delivery ensures request reaches the target process mailbox.
-	// For remote processes, provides network transparency:
-	// - Without Important: timeout if remote process doesn't exist (can't distinguish from slow response)
+	// Important delivery provides network transparency for error detection:
+	// - Without Important: timeout if remote process doesn't exist (ambiguous - slow or missing?)
 	// - With Important: immediate ErrProcessUnknown if remote process doesn't exist
-	// Aligns remote behavior with local delivery (local always returns immediate error if process missing).
+	// Aligns remote error behavior with local delivery (local always returns immediate error).
 	//
-	// When combined with SendResponseImportant, creates 3-phase commit:
-	// Phase 1: Request delivery + confirmation
-	// Phase 2: Response delivery (from SendResponseImportant)
-	// Phase 3: Response confirmation (from SendResponseImportant)
-	// Both request and response have guaranteed delivery.
+	// When combined with SendResponseImportant/SendResponseErrorImportant:
+	// Fully-Reliable Two-Phase Commit (FR-2PC) - both request and response delivery guaranteed.
 	//
 	// Available in: Running state only.
 	// Returns ErrNotAllowed in other states, ErrTimeout on timeout,
