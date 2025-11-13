@@ -14,8 +14,9 @@ import (
 // - Use SetLogger() to limit logging to a specific logger only (no fan-out)
 //
 // Example:
-//   Default behavior: log.Info("msg") → sent to default logger + custom loggers
-//   With SetLogger("file"): log.Info("msg") → sent ONLY to "file" logger
+//
+//	Default behavior: log.Info("msg") → sent to default logger + custom loggers
+//	With SetLogger("file"): log.Info("msg") → sent ONLY to "file" logger
 type Log interface {
 	// Level returns the current logging level.
 	Level() LogLevel
@@ -110,17 +111,16 @@ func (lf LogField) String() string {
 //
 // Official loggers from ergo.services/logger module:
 // - colored: Terminal output with ANSI colors highlighting PIDs, Atoms, Refs
-//   • Colorizes log levels and Ergo types for visual clarity
-//   • Includes emoji indicators for log levels
-//   • Performance overhead - not for intensive logging
-//   • Disable default logger to avoid duplicate console output
-//   • Module: ergo.services/logger/colored
+//   - Colorizes log levels and Ergo types for visual clarity
+//   - Performance overhead - not for intensive logging
+//   - Disable default logger to avoid duplicate console output
+//   - Module: ergo.services/logger/colored
 //
 // - rotate: File logger with automatic rotation and gzip compression
-//   • Size-based or time-based rotation policies
-//   • Configurable retention (delete old logs)
-//   • Async writes with buffering for performance
-//   • Module: ergo.services/logger/rotate
+//   - Size-based or time-based rotation policies
+//   - Configurable retention (delete old logs)
+//   - Async writes with buffering for performance
+//   - Module: ergo.services/logger/rotate
 //
 // Custom implementations: syslog, metrics aggregation, database logging, remote logging.
 type LoggerBehavior interface {
