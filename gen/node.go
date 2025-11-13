@@ -72,12 +72,7 @@ type Node interface {
 	// Parent and leader are set to the node's core PID.
 	// Available in: Running state only.
 	// Returns ErrNodeTerminated in other states, ErrTaken if name already registered.
-	SpawnRegister(
-		register Atom,
-		factory ProcessFactory,
-		options ProcessOptions,
-		args ...any,
-	) (PID, error)
+	SpawnRegister(register Atom, factory ProcessFactory, options ProcessOptions, args ...any) (PID, error)
 
 	// RegisterName associates a name with the given PID.
 	// The process can then be addressed using ProcessID{name, nodename}.

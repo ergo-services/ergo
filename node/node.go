@@ -333,12 +333,8 @@ func (n *node) Spawn(
 	return n.spawn(factory, opts)
 }
 
-func (n *node) SpawnRegister(
-	register gen.Atom,
-	factory gen.ProcessFactory,
-	options gen.ProcessOptions,
-	args ...any,
-) (gen.PID, error) {
+func (n *node) SpawnRegister(register gen.Atom, factory gen.ProcessFactory,
+	options gen.ProcessOptions, args ...any) (gen.PID, error) {
 	if n.isRunning() == false {
 		return gen.PID{}, gen.ErrNodeTerminated
 	}
