@@ -120,7 +120,7 @@ func (m *mockMetaProcess) waitFor(expecting []byte) error {
 	case r := <-m.result:
 		switch res := r.(type) {
 		case MessagePortData:
-			if bytes.Compare(res.Data, expecting) != 0 {
+			if !bytes.Equal(res.Data, expecting) {
 				fmt.Printf("got incorrect data (expected %#v): %#v\n", expecting, res.Data)
 				return gen.ErrMalformed
 			}
@@ -149,17 +149,30 @@ func (m *mockMetaProcess) Send(to any, message any) error {
 	}
 	return nil
 }
-func (m *mockMetaProcess) SendImportant(to any, message any) error { return nil }
 func (m *mockMetaProcess) SendWithPriority(to any, message any, priority gen.MessagePriority) error {
+	return nil
+}
+func (m *mockMetaProcess) SendResponse(to gen.PID, ref gen.Ref, message any) error {
+	return nil
+}
+func (m *mockMetaProcess) SendResponseError(to gen.PID, ref gen.Ref, err error) error {
 	return nil
 }
 func (m *mockMetaProcess) Spawn(behavior gen.MetaBehavior, options gen.MetaOptions) (gen.Alias, error) {
 	return gen.Alias{}, nil
 }
-func (m *mockMetaProcess) Env(name gen.Env) (any, bool)  { return nil, false }
-func (m *mockMetaProcess) EnvList() map[gen.Env]any      { return nil }
+func (m *mockMetaProcess) SendPriority() gen.MessagePriority {
+	return gen.MessagePriorityNormal
+}
+func (m *mockMetaProcess) SetSendPriority(priority gen.MessagePriority) error {
+	return nil
+}
+func (m *mockMetaProcess) Env(name gen.Env) (any, bool)         { return nil, false }
+func (m *mockMetaProcess) EnvList() map[gen.Env]any             { return nil }
 func (m *mockMetaProcess) EnvDefault(name gen.Env, def any) any { return def }
-func (m *mockMetaProcess) Log() gen.Log                  { return &mockLog{} }
+func (m *mockMetaProcess) Log() gen.Log                         { return &mockLog{} }
+func (m *mockMetaProcess) Compression() bool                    { return false }
+func (m *mockMetaProcess) SetCompression(enabled bool) error    { return nil }
 
 type mockLog struct{}
 

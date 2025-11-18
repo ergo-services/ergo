@@ -1,44 +1,254 @@
+---
+description: Spawning processes on remote nodes
+---
+
 # Remote Spawn Process
 
-The network stack in Ergo Framework includes the capability to spawn processes on remote nodes. Nodes can control access to this feature or disable it entirely by using the `EnableRemoteSpawn` flag in `gen.NetworkFlags`. By default, this feature is enabled.
+Remote spawning means starting a process on another node from your code. You call a method, provide a factory name and options, and a process starts on the remote node. From the caller's perspective, it's nearly identical to spawning locally - you get back a `gen.PID` and can communicate with it immediately.
 
-### Access Control
+This capability enables dynamic workload distribution. Your node needs to process a job but doesn't have capacity? Spawn a worker on a remote node with available resources. Your application needs to scale horizontally? Spawn processes across multiple nodes and distribute load. Remote spawning makes the cluster feel like one large computing resource rather than isolated nodes.
 
-To manage the ability of remote nodes to spawn processes, the `gen.Network` interface provides two methods:
+But remote spawning isn't automatic. Security matters. You don't want arbitrary nodes spawning arbitrary processes on your infrastructure. The framework requires explicit permission - the remote node must enable each process factory individually and can restrict which nodes are allowed to use it.
 
-```go
-EnableSpawn(name gen.Atom, factory gen.ProcessFactory, nodes ...gen.Atom) error
-DisableSpawn(name gen.Atom, nodes ...gen.Atom) error
-```
+## Security Model
 
-The `name` argument specifies the name under which the process factory will be registered in the network stack. Remote nodes must use this name when requesting to spawn a process.
-
-Using `EnableSpawn` with the `nodes` argument creates an access list, allowing only the specified remote nodes to spawn processes with the registered factory. Conversely, using `DisableSpawn` with the `nodes` argument removes the specified nodes from the access list. If the list becomes empty, access is open to all nodes. To fully disable access to the process factory, use `DisableSpawn` without the `nodes` argument.
-
-### Spawn&#x20;
-
-To spawn a process on a remote node, you need to use the `gen.RemoteNode` interface, which can be obtained using the `GetNode` or `Node` methods of the `gen.Network` interface. The `gen.RemoteNode` interface provides two methods:
+Remote spawning is disabled by default at the framework level. To enable it, set the `EnableRemoteSpawn` flag in your node's network configuration:
 
 ```go
-Spawn(name gen.Atom, options gen.ProcessOptions, args ...any) (gen.PID, error)
-SpawnRegister(register gen.Atom, name gen.Atom, options gen.ProcessOptions, args ...any) (PID, error)
+node, err := ergo.StartNode("worker@localhost", gen.NodeOptions{
+    Network: gen.NetworkOptions{
+        Flags: gen.NetworkFlags{
+            Enable:            true,
+            EnableRemoteSpawn: true,  // allow remote nodes to spawn processes
+        },
+    },
+})
 ```
 
-For the `name` argument, you must use the name under which the process factory is registered on the remote node.
+This flag is a global switch. With it disabled, all remote spawn requests fail immediately with `gen.ErrNotAllowed`. With it enabled, requests proceed to the next level of security: per-factory permission.
 
-Just like with local process spawning, the process started on the remote node will inherit certain parameters from its parent. In this case, the parent is the virtual identifier of the node that sent the spawn request. The process will also inherit the logging level.
+### Enabling Process Factories
 
-To inherit environment variables, you need to enable the `ExposeEnvRemoteSpawn` option in `gen.NodeOptions.Security`when starting your node. The environment variable values must be encodable and decodable using the EDF format. If you are using a custom type as the value of an environment variable, that type must be registered (see the [Network Transparency](network-transparency.md) section).
-
-Upon success, these methods return the process identifier (`gen.PID`) of the process that was successfully started on the remote node.
-
-You can also spawn a process on a remote node using the methods provided by the `gen.Process` interface:
+Even with `EnableRemoteSpawn` turned on, remote nodes can't spawn anything until you explicitly enable specific process factories:
 
 ```go
-RemoteSpawn(node gen.Atom, name gen.Atom, options gen.ProcessOptions, args ...any) (gen.PID, error)
-RemoteSpawnRegister(node gen.Atom, name gen.Atom, register gen.Atom, options gen.ProcessOptions, args ...any) (gen.PID, error)
+network := node.Network()
+
+err := network.EnableSpawn("worker", createWorker)
+if err != nil {
+    // handle error
+}
 ```
 
-When using these methods, the process started on the remote node will inherit parameters from the parent process, including the _application name_, _logging level_, and _environment variables_ (if the `ExposeEnvRemoteSpawn` flag in `gen.NodeOptions.Security` was enabled).
+Now remote nodes can request spawning using the factory name `"worker"`. The factory function `createWorker` returns a `gen.ProcessBehavior`, just like local spawning. When a remote spawn request arrives with name `"worker"`, the framework calls `createWorker()` to instantiate the process.
 
-Note that linking options in `gen.ProcessOptions` will be ignored when spawning processes remotely. &#x20;
+The factory name is the permission token. Remote nodes must use this exact name when requesting spawns. If they request `"worker"` and you haven't enabled it, the request fails. If they request `"admin_process"` without permission, it fails. You control the namespace of what's spawnable.
+
+### Access Control Lists
+
+By default, `EnableSpawn` allows all nodes to use the factory. But you can restrict it to specific nodes:
+
+```go
+// Allow only these nodes to spawn workers
+network.EnableSpawn("worker", createWorker, 
+    "scheduler@node1", 
+    "scheduler@node2",
+)
+```
+
+Now only those two nodes can spawn workers. Requests from other nodes fail with `gen.ErrNotAllowed`.
+
+You can update the access list dynamically:
+
+```go
+// Add more nodes to the allowed list
+network.EnableSpawn("worker", createWorker,
+    "scheduler@node1",
+    "scheduler@node2", 
+    "scheduler@node3",  // newly allowed
+)
+```
+
+Calling `EnableSpawn` again with the same factory name updates the access list. The factory must be the same (same type) - you can't change which factory is associated with a name after the first `EnableSpawn` call. Attempting to do so returns an error.
+
+### Disabling Access
+
+To remove nodes from the access list:
+
+```go
+// Remove specific nodes
+network.DisableSpawn("worker", "scheduler@node2")
+```
+
+This removes `scheduler@node2` from the allowed list. Other nodes in the list remain allowed.
+
+To completely disable a factory:
+
+```go
+// No nodes can spawn workers anymore
+network.DisableSpawn("worker")
+```
+
+Without any node arguments, `DisableSpawn` removes the factory entirely. All future spawn requests for that name fail.
+
+To re-enable the factory with an open access list (any node can spawn):
+
+```go
+// Re-enable for all nodes
+network.EnableSpawn("worker", createWorker)  // no node arguments
+```
+
+This is the explicit "allow all nodes" configuration.
+
+## Spawning on Remote Nodes
+
+To spawn a process on a remote node, first get a `gen.RemoteNode` interface:
+
+```go
+network := node.Network()
+remote, err := network.GetNode("worker@otherhost")
+if err != nil {
+    return err  // node unreachable, no route, etc
+}
+```
+
+`GetNode` establishes a connection if needed. If a connection already exists, it returns immediately. If discovery or connection fails, you get an error.
+
+With the remote node handle, spawn a process:
+
+```go
+pid, err := remote.Spawn("worker", gen.ProcessOptions{})
+if err != nil {
+    // handle error - not allowed, factory not found, remote node terminated, etc
+}
+
+// pid is the process running on the remote node
+process.Send(pid, WorkRequest{Job: "process-data"})
+```
+
+The `gen.ProcessOptions` are the same as local spawning: mailbox size, compression settings, parent process options. The remote node respects these options when creating the process.
+
+### Spawn with Arguments
+
+You can pass initialization arguments to the remote process:
+
+```go
+pid, err := remote.Spawn("worker", gen.ProcessOptions{}, 
+    ConfigData{WorkerID: 42, BatchSize: 100},
+)
+```
+
+These arguments are passed to the factory's `Init` callback, just like local spawning. The arguments must be serializable via EDF - primitives, registered structs, framework types. Complex arguments require type registration on both sides.
+
+### Spawn with Registration
+
+To spawn and register the process with a name:
+
+```go
+pid, err := remote.SpawnRegister("worker-001", "worker", gen.ProcessOptions{})
+```
+
+The first argument is the registration name. The remote process is registered under that name on the remote node, allowing other processes on that node (or other nodes) to find it via `gen.ProcessID{Name: "worker-001", Node: "worker@otherhost"}`.
+
+## Spawning from Processes
+
+The `gen.Process` interface provides methods for remote spawning from within a process:
+
+```go
+pid, err := process.RemoteSpawn("worker@otherhost", "worker", gen.ProcessOptions{})
+```
+
+This differs from using `RemoteNode.Spawn` in a subtle but important way: the spawned process inherits properties from the calling process, not from the node.
+
+**Inherited properties:**
+- Application name - if the caller is part of an application, the remote process becomes part of that application too
+- Logging level - the remote process uses the same log level as the caller
+- Environment variables - if `ExposeEnvRemoteSpawn` security flag is enabled, the remote process gets a copy of the caller's environment
+
+This inheritance enables application-level distribution. If your application spawns processes remotely using `process.RemoteSpawn`, those processes belong to your application's supervision tree (conceptually), inherit your configuration, and operate as extensions of your application rather than independent processes.
+
+```go
+pid, err := process.RemoteSpawnRegister(
+    "worker@otherhost",
+    "worker", 
+    "worker-001",  // registration name
+    gen.ProcessOptions{},
+)
+```
+
+The same inheritance applies.
+
+### Parent Relationship
+
+When you spawn remotely from a process, the remote process's parent is the calling process's PID. This means:
+- If the caller uses `LinkChild: true` in options, the link is established after spawn
+- The remote process can send messages to its parent using `process.Parent()`
+- Termination signals respect the parent-child relationship
+
+But be careful: the parent is on a different node. If the network connection drops, the parent-child relationship breaks. The remote process gets an exit signal (`gen.MessageExit`) for the parent, and may terminate if it was linked.
+
+## Environment Variable Inheritance
+
+By default, remote processes don't inherit environment variables. This is a security decision - you probably don't want to expose your node's configuration to remote processes.
+
+To enable environment inheritance:
+
+```go
+node, err := ergo.StartNode("myapp@localhost", gen.NodeOptions{
+    Security: gen.SecurityOptions{
+        ExposeEnvRemoteSpawn: true,  // allow env inheritance for remote spawn
+    },
+})
+```
+
+Now when you use `process.RemoteSpawn`, the remote process receives a copy of the calling process's environment. The remote node reads these values and sets them on the spawned process.
+
+**Important:** Environment variable values must be EDF-serializable. Strings, numbers, booleans work fine. Custom types require registration via `edf.RegisterTypeOf`. If an environment variable contains a non-serializable value (e.g., a channel, function, or unregistered struct), the remote spawn fails entirely with an error like `"no encoder for type <type>"`. The framework doesn't skip problematic variables - any non-serializable value causes the entire spawn request to fail.
+
+Environment inheritance only works with `process.RemoteSpawn`. Using `RemoteNode.Spawn` doesn't inherit environment because there's no calling process - it's a node-level operation.
+
+## How It Works
+
+When you call `remote.Spawn`:
+
+1. **Check capabilities** - The local node checks if the remote node's `EnableRemoteSpawn` flag is true (learned during handshake). If false, fail immediately.
+
+2. **Create spawn message** - Package the factory name, process options, and arguments into a `MessageSpawn` protocol message. Include a reference for tracking the response.
+
+3. **Send request** - Encode and send the message to the remote node. Wait for a response (this is synchronous - remote spawning blocks until the remote node replies).
+
+4. **Remote processing** - The remote node receives the message, checks if the factory is enabled, checks if the requesting node is allowed, calls the factory function, spawns the process with the given options.
+
+5. **Response** - The remote node sends back a `MessageResult` containing either the spawned PID or an error. The local node receives this, resolves the waiting request, and returns the PID to the caller.
+
+If anything fails (factory not found, access denied, remote node terminating), the error is returned to the caller. The entire operation is synchronous from the caller's perspective - you call `Spawn` and block until the process is created or an error occurs.
+
+## Practical Considerations
+
+**Performance** - Remote spawning is slower than local spawning. There's network latency, message encoding, and a synchronous request-response roundtrip. If you're spawning hundreds of processes, doing it remotely will be noticeably slower. Consider spawning a pool locally and distributing work via messages rather than spawning on-demand remotely.
+
+**Failure modes** - Remote spawn can fail in ways local spawn can't. The network connection can drop mid-request. The remote node can crash before responding. The factory might exist but lack permission. Handle errors explicitly and have fallback strategies (retry, spawn locally, defer the work).
+
+**Resource ownership** - A process spawned on a remote node runs on that node's resources (CPU, memory). It's part of that node's process table. If the remote node terminates, the process dies. If you're distributing workload, be aware of which node owns which processes.
+
+**Linking** - The `LinkChild` option in `gen.ProcessOptions` is ignored for remote spawn. You can't establish links during spawn because the parent-child relationship crosses a network boundary. If you need linking, do it explicitly after spawn using `process.Link(pid)`.
+
+**Application membership** - Processes spawned via `RemoteNode.Spawn` don't belong to any application. Processes spawned via `process.RemoteSpawn` inherit the caller's application. This affects supervision, lifecycle, and monitoring.
+
+**Registration names** - Use `SpawnRegister` carefully. The name you provide is registered on the remote node. If that name is already taken, spawn fails. Ensure your naming strategy avoids conflicts, especially if multiple nodes are spawning on the same target.
+
+## When to Use Remote Spawn
+
+**Dynamic scaling** - Your application detects high load and spawns additional workers on remote nodes to handle the burst. When load decreases, workers terminate naturally and resources are freed.
+
+**Specialized hardware** - Some nodes have GPUs, fast storage, or special network access. Spawn processes on those nodes when you need their capabilities, rather than sending data back and forth.
+
+**Fault isolation** - Spawn risky operations on remote nodes. If they crash or consume excessive resources, they don't affect your local node's stability.
+
+**Data locality** - If data lives on a specific node (in memory, on local disk), spawn processing near the data rather than transferring it across the network.
+
+**Heterogeneous clusters** - Different nodes run different process types. Scheduler nodes spawn job processors on worker nodes. API nodes spawn request handlers on computation nodes. Remote spawning enables this separation.
+
+Remote spawning isn't always the right answer. For static topologies where processes have fixed homes, use supervision trees and let supervisors spawn locally. For message-passing workloads where spawning overhead matters, use process pools and distribute work via messages. Remote spawning shines when you need dynamic, on-demand process creation across a cluster.
+
+For understanding the underlying network mechanics, see [Network Stack](network-stack.md). For controlling connections to remote nodes, see [Static Routes](static-routes.md).

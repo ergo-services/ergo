@@ -256,6 +256,7 @@ func (n *node) RouteSendEvent(from gen.PID, token gen.Ref, options gen.MessageOp
 
 	consumers := n.targetManager.GetConsumersForTarget(message.Event)
 	remote := make(map[gen.Atom]bool)
+
 	// local delivery
 	for _, pid := range consumers {
 		if pid.Node == n.name {
