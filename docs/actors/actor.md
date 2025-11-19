@@ -1,153 +1,432 @@
 # Actor
 
-An actor in Ergo Framework implements the low-level `gen.ProcessBehavior` interface. To launch a process based on `act.Actor`, you need to create an object with an embedded `act.Actor` and implement a factory function for it. For example:
+The actor model requires sequential message processing - each actor handles one message at a time in a dedicated goroutine. This eliminates data races within the actor but shifts complexity to the message handling loop: reading from multiple mailbox queues in priority order, dispatching to different handlers based on message type, managing state transitions, converting exit signals to regular messages when trapping is enabled.
+
+You could implement this yourself with `gen.ProcessBehavior`, but you'd rewrite the same logic for every actor. `act.Actor` solves this. It implements the low-level `gen.ProcessBehavior` interface and provides a higher-level `act.ActorBehavior` interface with straightforward callbacks: `Init` for initialization, `HandleMessage` for asynchronous messages, `HandleCall` for synchronous requests, `Terminate` for cleanup. You write business logic, `act.Actor` handles the mailbox mechanics.
+
+## Creating an Actor
+
+Embed `act.Actor` in your struct and implement the `act.ActorBehavior` callbacks you need:
 
 ```go
-type MyActor struct {
+type Worker struct {
     act.Actor
-    i int
+    counter int
 }
-func factoryMyActor() gen.ProcessBehavior {
-    return &MyActor{}
+
+func (w *Worker) Init(args ...any) error {
+    w.counter = 0
+    w.Log().Info("worker %s starting", w.PID())
+    return nil
+}
+
+func (w *Worker) HandleMessage(from gen.PID, message any) error {
+    switch msg := message.(type) {
+    case IncrementRequest:
+        w.counter += msg.Amount
+        w.Send(from, IncrementResponse{Counter: w.counter})
+    }
+    return nil
+}
+
+func (w *Worker) Terminate(reason error) {
+    w.Log().Info("worker stopped: %s", reason)
+}
+
+// Factory function for spawning
+func createWorker() gen.ProcessBehavior {
+    return &Worker{}
 }
 ```
 
+Spawn it like any process:
 
+```go
+pid, err := node.Spawn(createWorker, gen.ProcessOptions{})
+```
 
-`act.Actor` uses the `act.ActorBehavior` interface to interact with your object. This interface defines a set of callback methods:
+The factory function is called each time you spawn. Each process gets a fresh instance with its own state. This isolation is fundamental to the actor model - actors share nothing except messages.
+
+## Callback Interface
+
+`act.ActorBehavior` defines the callbacks `act.Actor` will invoke:
 
 ```go
 type ActorBehavior interface {
-	gen.ProcessBehavior
-	
-	// main callbacks
-	Init(args ...any) error
-	HandleMessage(from gen.PID, message any) error
-	HandleCall(from gen.PID, ref gen.Ref, request any) (any, error)
-	Terminate(reason error)
-	
-	// extended callbacks used if SplitHandle was enabled
-	HandleMessageName(name gen.Atom, from gen.PID, message any) error
-	HandleMessageAlias(alias gen.Alias, from gen.PID, message any) error
-	HandleCallName(name gen.Atom, from gen.PID, ref gen.Ref, request any) (any, error)
-	HandleCallAlias(alias gen.Alias, from gen.PID, ref gen.Ref, request any) (any, error)
-	
-	// specialized callbacks
-	HandleInspect() map[string]string
-	HandleLog(message gen.MessageLog) error
-	HandleEvent(message gen.MessageEvent) error
-	
+    gen.ProcessBehavior
+    
+    // Core lifecycle
+    Init(args ...any) error
+    HandleMessage(from gen.PID, message any) error
+    HandleCall(from gen.PID, ref gen.Ref, request any) (any, error)
+    Terminate(reason error)
+    
+    // Split handle callbacks (opt-in via SetSplitHandle)
+    HandleMessageName(name gen.Atom, from gen.PID, message any) error
+    HandleMessageAlias(alias gen.Alias, from gen.PID, message any) error
+    HandleCallName(name gen.Atom, from gen.PID, ref gen.Ref, request any) (any, error)
+    HandleCallAlias(alias gen.Alias, from gen.PID, ref gen.Ref, request any) (any, error)
+    
+    // Specialized callbacks
+    HandleLog(message gen.MessageLog) error
+    HandleEvent(message gen.MessageEvent) error
+    HandleInspect(from gen.PID, item ...string) map[string]string
 }
-
 ```
 
-All methods in the `act.ActorBehavior` interface are optional, allowing you to implement only the necessary callbacks in your object. Since `act.Actor` embeds the `gen.Process` interface, you can directly use its methods from within your actor object.&#x20;
+All callbacks are optional. `act.Actor` provides default implementations that log warnings for unhandled messages. Implement only what you need.
 
-Example:
+Since `act.Actor` embeds `gen.Process`, you have direct access to all process methods: `Send`, `Call`, `Spawn`, `Link`, `RegisterName`, etc. No need to store references - they're built in.
+
+## Initialization
+
+`Init` runs once when the process spawns, before it's registered in the node. The `args` parameter contains whatever you passed to `Spawn`:
 
 ```go
-func (a *MyActor) Init(args...) error {
-    // get the gen.Log interface using Log method of embedded gen.Process interface
-    a.Log().Info("starting process %s", a.PID())
-    // initialize value
-    a.i = 100
-    // sending message to itself with methods Send and PID of embedded gen.Process
-    a.Send(a.PID(), "hello")
-    return nil
-}
+pid, err := node.Spawn(createWorker, gen.ProcessOptions{}, "config", 42)
 
-func (a *MyActor) HandleMessage(from gen.PID, message any) error {
-    a.Log().Info("got message from %s: %s", from, message)
-    ...
-    // handling message
-    ...
+// In your actor:
+func (w *Worker) Init(args ...any) error {
+    if len(args) > 0 {
+        w.config = args[0].(string)
+    }
+    if len(args) > 1 {
+        w.maxCount = args[1].(int)
+    }
     return nil
-}
-
-func (a *MyActor) Terminate(reason error) {
-    a.Log().Info("%s terminated with reason: %s", a.PID(), reason)
 }
 ```
 
-### Process Initialization
+If `Init` returns an error, the process never registers. `Spawn` returns immediately with that error. Use this for validation: check arguments, verify resources, refuse to start if preconditions aren't met.
 
-Process initialization begins when `act.Actor` invokes the `Init` method of the `act.ActorBehavior` interface, passing the `args` provided during `Spawn` (or `SpawnRegister`). If `Init` completes successfully, the node registers the process, allowing it to receive messages or synchronous requests. If `Init` fails, `Spawn` (or `SpawnRegister`) returns the error. It's important to note that during initialization, the process is not yet registered with the node, limiting access to certain methods of the embedded `gen.Process` interface until the process is fully initialized.
+During `Init`, the process is in `ProcessStateInit`. This restricts some operations:
+- Allowed: `Spawn`, `Send`, `SetEnv`, property setters
+- Restricted: `Call`, `Link`, `Monitor`, `RegisterName`
 
-### Handling Asynchronous Messages and Synchronous Requests
+These restrictions exist because the process isn't registered yet. Other processes can't find it by PID or send it responses. You can spawn children and send messages (fire-and-forget), but you can't create links or make synchronous calls that require response routing.
 
-The process mailbox contains several queues: _Main_, _System_, _Urgent_, and a special _Log_ queue. In `act.Actor`, messages are processed in the following order: _Urgent_, _System_, _Main_, and then _Log_.
+## Message Handling
 
-Asynchronous messages are sent using the `Send` method of the `gen.Node` or `gen.Process` interface. Upon receiving such a message, `act.Actor` calls the `HandleMessage` method of the `gen.ActorBehavior` interface.
+Messages arrive in the mailbox and sit in one of four queues: Urgent, System, Main, or Log. `act.Actor` processes them in priority order:
 
-For synchronous requests, the `HandleCall` callback method is invoked in an actor based on `act.Actor`. The result returned by this method is sent as the response to the request.
+1. **Urgent** - Maximum priority messages (`MessagePriorityMax`)
+2. **System** - High priority messages (`MessagePriorityHigh`)
+3. **Main** - Normal priority messages (`MessagePriorityNormal`, default)
+4. **Log** - Logging messages (lowest priority)
 
-A process can send asynchronous messages to itself, but attempting to make a synchronous request to itself will return the error `gen.ErrTimeout`..&#x20;
-
-`act.Actor` also allows handling synchronous requests asynchronously. This feature lets you delegate the processing of synchronous requests to other processes or delay the response. To do this, the `HandleCall` method should return `nil`, and you should use the `SendResponse` method of the `gen.Process` interface to send the response. You must provide the `gen.PID` of the requesting process and the `gen.Ref` reference of the request.
-
-For debugging or monitoring the internal state, the `Inspect` method allows high-priority synchronous requests. In `act.Actor`, this triggers the `HandleInspect` method. This feature is widely used in the [Observer](../tools/observer.md) tool.
-
-If the actor process is registered as a logger, the `HandleLog` method is called when log messages (`gen.MessageLog`) are received, generated using the `gen.Log` interface. If the actor process has subscribed to events using the `LinkEvent` or `MonitorEvent` methods of `gen.Process`, the `HandleEvent` method is called when an event message is received.
-
-### Process Termination
-
-To stop a process, simply return a non-nil `error` value from the message-handling callback. After termination, the `Terminate` callback method will be called, with the `reason` argument being the returned error value.
-
-Additionally, you can terminate a process using predefined constants like:
-
-* `gen.TerminateReasonNormal` for a normal (non-failure) termination.
-* `gen.TerminateReasonKill` when the process is forcibly stopped using the `Kill` method from the `gen.Node` interface.
-
-In Ergo Framework, two additional termination reasons are defined:
-
-* **gen.TerminateReasonPanic**: Occurs when a panic happens during message processing.
-* **gen.TerminateReasonShutdown**: This termination reason can be sent by the parent process or the node when the node is stopped using the `StopForce` method of the `gen.Node` interface. It is not considered a failure.
-
-At the moment the `Terminate` callback is invoked, the process has already been removed from the node. Therefore, most methods of the `gen.Process` interface will return the `gen.ErrNotAllowed` error.
-
-### SplitHandle
-
-The `SplitHandle` option allows an actor to call the callback methods of the `act.ActorBehavior` interface based on the process identifier used to send a message or make a synchronous call to your process. You can enable this option using the `SetSplitHandle(split bool)` method defined in `act.Actor`. To check the current value of this option, use the `SplitHandle` method. Here is an example usage:
+When a message arrives in Urgent, System, or Main, `act.Actor` calls `HandleMessage`:
 
 ```go
-func (a *MyActor) Init(args...) error {
-    a.SetSplitHandle(true)
-    ...
-    return nil
+func (w *Worker) HandleMessage(from gen.PID, message any) error {
+    switch msg := message.(type) {
+    case WorkRequest:
+        result := w.process(msg)
+        w.Send(from, WorkResponse{Result: result})
+    
+    case StatusQuery:
+        w.Send(from, StatusResponse{Status: w.status})
+    
+    case StopCommand:
+        return gen.TerminateReasonNormal  // Terminate gracefully
+    }
+    
+    return nil  // Continue running
 }
 ```
 
-If your process has a registered associated name and receives a message using that name, `act.Actor` will call the `HandleMessageName` callback. The `name` argument will be the value used to send the message. For synchronous requests, the `HandleCallName` callback will be invoked.
+The return value determines whether the actor continues or terminates:
+- Return `nil` to keep running
+- Return `gen.TerminateReasonNormal` for clean shutdown
+- Return any other error to terminate (logged as error)
 
-If a process alias (`gen.Alias`) was used, the callbacks `HandleMessageAlias` and `HandleCallAlias` will be triggered for messages and synchronous requests, respectively. This enables customized handling based on the way the message or request was sent.
+The `from` parameter tells you who sent the message. Use it for replies. If you don't need replies, ignore it.
 
-### TrapExit - handling _exit-signal_
+## Synchronous Requests
 
-In Ergo Framework, an _exit signal_ can be sent to your process by another process or node using the `SendExit` method from the `gen.Process` or `gen.Node` interfaces. It can also be generated by the node if your process had a link created via the `Link*` methods in the `gen.Process` interface. By default, when an actor receives an _exit signal_, it terminates and calls the `Terminate` callback with the reason specified in the _exit signal_.
-
-To prevent your actor from terminating upon receiving an _exit signal_, you can enable the option to intercept such signals. This can be done using the `SetTrapExit(trap bool)` method in `act.Actor`. The default value is `false`, but you can enable it at any time, for example, during initialization:
+When someone calls `process.Call(pid, request)`, `act.Actor` invokes your `HandleCall`:
 
 ```go
-func (a *MyActor) Init(args...) error {
-    a.SetTrapExit(true)
-    ...
+func (w *Worker) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error) {
+    switch req := request.(type) {
+    case GetCounterRequest:
+        return CounterResponse{Counter: w.counter}, nil
+    
+    case ResetCounterRequest:
+        old := w.counter
+        w.counter = 0
+        return ResetResponse{OldValue: old}, nil
+    
+    default:
+        w.Log().Warning("unknown request type: %T from %s", request, from)
+        return nil, nil  // Don't respond to unknown requests
+    }
+}
+```
+
+The `error` return value controls process termination, not the caller's response:
+- `(result, nil)` - Send `result` to caller, continue running
+- `(result, gen.TerminateReasonNormal)` - Send `result`, then terminate cleanly
+- `(nil, someError)` - Terminate immediately with `someError` (caller times out)
+
+To send an application error to the caller, return it as the result value:
+
+```go
+func (w *Worker) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error) {
+    switch req := request.(type) {
+    case DivideRequest:
+        if req.Divisor == 0 {
+            return fmt.Errorf("division by zero"), nil
+        }
+        return req.Dividend / req.Divisor, nil
+    }
+    
+    w.Log().Warning("unknown request type: %T from %s", request, from)
+    return nil, nil
+}
+
+// Caller side:
+result, err := process.Call(workerPID, DivideRequest{10, 0})
+if err != nil {
+    // Framework error (timeout, process unknown, etc.)
+    log.Printf("call failed: %s", err)
+    return
+}
+
+if e, ok := result.(error); ok {
+    // Application error returned by HandleCall
+    log.Printf("operation failed: %s", e)
+    return
+}
+
+// Success - use result
+log.Printf("result: %v", result)
+```
+
+This separation between transport errors (`err` return from `Call`) and application errors (`result` as error) is fundamental to actor communication. See [Handle Sync](../advanced/handle-sync.md#sendresponse-vs-sendresponseerror-two-channels-for-results) for deeper discussion of error channels and when to use `SendResponseError`.
+
+### Asynchronous Handling of Synchronous Requests
+
+Sometimes you can't respond immediately. Maybe you need to query another service, or delegate work to a pool of workers. Return `(nil, nil)` from `HandleCall` to defer the response:
+
+```go
+func (w *Worker) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error) {
+    switch req := request.(type) {
+    case ExpensiveQuery:
+        // Send to worker pool
+        w.Send(w.workerPool, PoolRequest{
+            Query:  req,
+            Caller: from,
+            Ref:    ref,
+        })
+        // Return nil, nil to handle asynchronously
+        return nil, nil
+    }
+    return nil, nil
+}
+
+// Later, when the worker pool replies:
+func (w *Worker) HandleMessage(from gen.PID, message any) error {
+    switch msg := message.(type) {
+    case PoolResponse:
+        // Send response to original caller
+        w.SendResponse(msg.Caller, msg.Ref, msg.Result)
+    }
     return nil
 }
 ```
 
-When the `TrapExit` option is enabled, `act.Actor` converts _exit signals_ into standard `gen.MessageExit*` messages:
+The `gen.Ref` identifies the request. The caller blocks waiting for a response with that ref. You can send the response from any process - the one that received the request, a worker, or even a remote process. Just call `SendResponse(callerPID, ref, result)`.
 
-* **gen.MessageExitPID**: The source of the _exit signal_ was a process.
-* **gen.MessageExitProcessID**: The source was `gen.ProcessID` (a _link_ created using `LinkProcessID`).
-* **gen.MessageExitAlias**: The source was `gen.Alias` (_link_ created using `LinkAlias`).
-* **gen.MessageExitEvent**: The source was `gen.Event` (_link_ created using `LinkEvent`).
-* **gen.MessageExitNode**: The source was a network connection with a node (_link_ created using `LinkNode`).
+The ref has a deadline (from the caller's timeout). Check if it's still alive before doing expensive work:
 
-{% hint style="info" %}
-Scenarios where the _exit signal_ **cannot be intercepted**:
+```go
+if !ref.IsAlive() {
+    w.Log().Warning("caller timed out, discarding work")
+    return nil
+}
+```
 
-* **Parent Process Sends Exit**: When the parent process sends an _exit signal_ via `SendExit` using the `gen.Process` interface, it cannot be intercepted.
-* **Parent Process Terminates**: If the parent process, with which a _link_ was created via `gen.PID` (using `Link` or `LinkPID`), terminates, or if the parent process used the `gen.ProcessOptions.LinkParent` option during child process startup.
+## Termination
 
-In these cases, the actor will terminate, and the `Terminate` callback will be called, even with `TrapExit` enabled. All other _exit signals_ can be intercepted when `TrapExit` is active.
-{% endhint %}
+To stop an actor, return a non-nil error from `HandleMessage` or `HandleCall`:
+
+```go
+func (w *Worker) HandleMessage(from gen.PID, message any) error {
+    switch message.(type) {
+    case ShutdownCommand:
+        return gen.TerminateReasonNormal  // Clean shutdown
+    
+    case PanicCommand:
+        return fmt.Errorf("intentional failure")  // Error shutdown
+    }
+    return nil
+}
+```
+
+Termination reasons:
+- `gen.TerminateReasonNormal` - Clean shutdown, not logged as error
+- `gen.TerminateReasonKill` - Process was killed via `node.Kill(pid)`
+- `gen.TerminateReasonPanic` - Panic occurred in callback (framework catches it)
+- `gen.TerminateReasonShutdown` - Node is stopping (sent by parent or node)
+- Any other error - Application-specific failure (logged as error)
+
+After termination is triggered, `act.Actor` calls your `Terminate` callback:
+
+```go
+func (w *Worker) Terminate(reason error) {
+    w.Log().Info("worker %s stopping: %s", w.PID(), reason)
+    // Clean up resources
+    w.closeConnections()
+    w.sendFinalStats()
+}
+```
+
+At this point, the process is in `ProcessStateTerminated` and has been removed from the node. Most `gen.Process` methods return `gen.ErrNotAllowed`. You can still send messages (fire-and-forget), but you can't make calls, create links, or spawn children.
+
+If a panic occurs during `Init`, `HandleMessage`, or `HandleCall`, the framework catches it, logs the stack trace, and terminates the process with `gen.TerminateReasonPanic`. The `Terminate` callback still runs, giving you a chance to clean up.
+
+## Trapping Exit Signals
+
+By default, when an actor receives an exit signal (via `SendExit` or from a linked process), it terminates immediately. Enable `TrapExit` to convert exit signals into regular messages:
+
+```go
+func (w *Worker) Init(args ...any) error {
+    w.SetTrapExit(true)
+    return nil
+}
+
+func (w *Worker) HandleMessage(from gen.PID, message any) error {
+    switch msg := message.(type) {
+    case gen.MessageExitPID:
+        w.Log().Info("linked process %s terminated: %s", msg.PID, msg.Reason)
+        // Decide how to handle it
+        if msg.Reason == gen.TerminateReasonPanic {
+            // Linked worker panicked, maybe restart it
+            w.restartWorker(msg.PID)
+        }
+        // Don't terminate - we're trapping
+        return nil
+    
+    case gen.MessageExitNode:
+        w.Log().Warning("node %s disconnected", msg.Name)
+        // Handle network partition
+        return nil
+    }
+    return nil
+}
+```
+
+Exit signal messages:
+- `gen.MessageExitPID` - From a process (`SendExit` or link)
+- `gen.MessageExitProcessID` - From a named process link
+- `gen.MessageExitAlias` - From an alias link
+- `gen.MessageExitEvent` - From an event link
+- `gen.MessageExitNode` - From a node link (network disconnect)
+
+**Exception**: Exit signals from the parent process **cannot** be trapped. If your parent terminates (and you created a link with `LinkParent` option or via `Link`/`LinkPID`), you terminate regardless of `TrapExit`. This ensures supervision trees can forcefully terminate subtrees.
+
+Use `TrapExit` when you want to handle failures gracefully - log them, restart workers, switch to fallback services. Don't use it if you want standard supervision behavior (child fails → parent restarts it).
+
+## Split Handle
+
+By default, `HandleMessage` and `HandleCall` are invoked regardless of how the process was addressed - by PID, by registered name, or by alias. Enable `SetSplitHandle(true)` to route based on address type:
+
+```go
+func (w *Worker) Init(args ...any) error {
+    w.SetSplitHandle(true)
+    w.RegisterName("worker_service")
+    alias, _ := w.CreateAlias()
+    w.publicAPI = alias
+    return nil
+}
+
+func (w *Worker) HandleMessage(from gen.PID, message any) error {
+    // Messages sent to PID directly (internal use)
+    w.Log().Debug("internal message from %s", from)
+    return nil
+}
+
+func (w *Worker) HandleMessageName(name gen.Atom, from gen.PID, message any) error {
+    // Messages sent to registered name "worker_service" (public API)
+    w.Log().Info("public API call via name %s", name)
+    return nil
+}
+
+func (w *Worker) HandleMessageAlias(alias gen.Alias, from gen.PID, message any) error {
+    // Messages sent to alias (temporary session)
+    w.Log().Debug("session message via alias %s", alias)
+    return nil
+}
+```
+
+The same split applies to `HandleCall*` variants. Use this when you want different behavior for internal communication (PID) versus public API (registered name) versus temporary sessions (alias).
+
+Most actors don't need this. Leave split handle disabled and use `HandleMessage`/`HandleCall` for everything.
+
+## Specialized Callbacks
+
+### Logging
+
+If your actor is registered as a logger (via `node.AddLogger(pid, level)`), it receives log messages in the Log queue:
+
+```go
+func (w *Worker) HandleLog(message gen.MessageLog) error {
+    // Format and write log message
+    fmt.Printf("[%s] %s: %s\n", message.Level, message.PID, message.Message)
+    return nil
+}
+```
+
+Log messages have the lowest priority. They're processed after Urgent, System, and Main are empty. This prevents logging from starving regular message processing.
+
+### Events
+
+If your actor subscribed to an event (via `LinkEvent` or `MonitorEvent`), it receives event messages:
+
+```go
+func (w *Worker) HandleEvent(message gen.MessageEvent) error {
+    switch message.Name {
+    case "config_updated":
+        w.reloadConfig()
+    case "cache_invalidated":
+        w.clearCache()
+    }
+    return nil
+}
+```
+
+Events arrive in the System queue (high priority). Use them for cross-cutting concerns where multiple actors need to react to the same occurrence.
+
+### Inspection
+
+The `Inspect` method allows synchronous inspection of actor state (used by Observer and debugging tools):
+
+```go
+func (w *Worker) HandleInspect(from gen.PID, item ...string) map[string]string {
+    return map[string]string{
+        "counter":     fmt.Sprintf("%d", w.counter),
+        "status":      w.status,
+        "queue_depth": fmt.Sprintf("%d", w.queueDepth),
+    }
+}
+```
+
+Inspection requests go to the Urgent queue and bypass normal message processing. Keep the implementation fast - don't do expensive computations or I/O. Return only string values (serialization limitation).
+
+## Actor Pools
+
+For workload distribution, use `act.Pool` instead of implementing manual worker management. See [Pool](pool.md) for details.
+
+## Patterns and Pitfalls
+
+**Don't spawn goroutines in callbacks**. The actor model is sequential - one message at a time. Spawning goroutines breaks this, introducing data races on actor state. If you need concurrency, spawn child actors and send them messages.
+
+**Don't block on channels or mutexes**. Callbacks run in the actor's goroutine. Blocking it starves message processing. Use async message passing (`Send`) instead of sync primitives.
+
+**Don't store `gen.Process` references**. The embedded `act.Actor` provides all process methods. Storing additional references wastes memory and can cause confusion about which instance is authoritative.
+
+**Return errors for termination, not for caller responses**. `HandleCall`'s error return terminates the process. To send errors to callers, return them as the result value.
+
+**Use `ref.IsAlive()` before expensive async work**. When handling calls asynchronously, check if the caller is still waiting before spending resources on the response.
+
+**Enable `TrapExit` only when needed**. Default behavior (terminate on exit signal) works for most actors. Trap only when you have specific failure handling logic.
