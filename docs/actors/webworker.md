@@ -1,115 +1,193 @@
----
-description: To handle HTTP-requests
----
-
 # WebWorker
 
-The `act.WebWorker` actor implements the low-level `gen.ProcessBehavior` interface and allows HTTP requests to be handled as asynchronous messages. It is designed to be used with a web server (refer to the [Web](../meta-processes/web.md) section in meta-processes). To launch a process based on `act.WebWorker`, you need to embed it in your object and implement the required methods from the `act.WebWorkerBehavior` interface.
+WebWorker is a specialized actor for handling HTTP requests sent as `meta.MessageWebRequest` messages. It automatically routes requests to HTTP-method-specific callbacks and ensures the request completion signal is called.
 
-Example:
+Used with `meta.WebHandler` to convert HTTP requests into actor messages. See [Web](../meta-processes/web.md) for integration approaches.
+
+## Purpose
+
+When WebHandler sends `meta.MessageWebRequest` to an actor, that actor must:
+1. Extract the message from mailbox
+2. Determine HTTP method
+3. Process the request
+4. Write response to `http.ResponseWriter`
+5. Call `Done()` to unblock the waiting HTTP handler
+
+WebWorker automates this. Embed it, implement method-specific callbacks, and the framework handles routing and cleanup.
+
+## Basic Usage
+
+Embed `act.WebWorker` and implement callbacks for HTTP methods you handle:
 
 ```go
-type MyWebWorker struct {
+type APIWorker struct {
     act.WebWorker
 }
 
-func factoryMyWebWorker() gen.ProcessBehavior {
-    return &MyWebWorker{}
+func (w *APIWorker) HandleGet(from gen.PID, writer http.ResponseWriter, request *http.Request) error {
+    // Process GET request
+    user := w.lookupUser(request.URL.Query().Get("id"))
+    json.NewEncoder(writer).Encode(user)
+    return nil
+}
+
+func (w *APIWorker) HandlePost(from gen.PID, writer http.ResponseWriter, request *http.Request) error {
+    // Process POST request
+    var data CreateRequest
+    json.NewDecoder(request.Body).Decode(&data)
+
+    result := w.createResource(data)
+    writer.WriteHeader(http.StatusCreated)
+    json.NewEncoder(writer).Encode(result)
+    return nil
+}
+
+func (w *APIWorker) HandleDelete(from gen.PID, writer http.ResponseWriter, request *http.Request) error {
+    id := request.URL.Query().Get("id")
+    w.deleteResource(id)
+    writer.WriteHeader(http.StatusNoContent)
+    return nil
 }
 ```
 
-To work with your object, `act.WebWorker` uses the `act.WebWorkerBehavior` interface. This interface defines a set of callback methods:
+Spawn worker with registered name:
 
 ```go
-type WebWorkerBehavior interface {
-	gen.ProcessBehavior
-
-	// Init invoked on a spawn WebWorker for the initializing.
-	Init(args ...any) error
-
-	// HandleMessage invoked if WebWorker received a message sent with gen.Process.Send(...).
-	// Non-nil value of the returning error will cause termination of this process.
-	// To stop this process normally, return gen.TerminateReasonNormal
-	// or any other for abnormal termination.
-	HandleMessage(from gen.PID, message any) error
-
-	// HandleCall invoked if WebWorker got a synchronous request made with gen.Process.Call(...).
-	// Return nil as a result to handle this request asynchronously and
-	// to provide the result later using the gen.Process.SendResponse(...) method.
-	HandleCall(from gen.PID, ref gen.Ref, request any) (any, error)
-
-	// Terminate invoked on a termination process
-	Terminate(reason error)
-
-	// HandleEvent invoked on an event message if this process got subscribed on
-	// this event using gen.Process.LinkEvent or gen.Process.MonitorEvent
-	HandleEvent(message gen.MessageEvent) error
-
-	// HandleInspect invoked on the request made with gen.Process.Inspect(...)
-	HandleInspect(from gen.PID, item ...string) map[string]string
-
-	// HandleGet invoked on a GET request
-	HandleGet(from gen.PID, writer http.ResponseWriter, request *http.Request) error
-	// HandlePOST invoked on a POST request
-	HandlePost(from gen.PID, writer http.ResponseWriter, request *http.Request) error
-	// HandlePut invoked on a PUT request
-	HandlePut(from gen.PID, writer http.ResponseWriter, request *http.Request) error
-	// HandlePatch invoked on a PATCH request
-	HandlePatch(from gen.PID, writer http.ResponseWriter, request *http.Request) error
-	// HandleDelete invoked on a DELETE request
-	HandleDelete(from gen.PID, writer http.ResponseWriter, request *http.Request) error
-	// HandleHead invoked on a HEAD request
-	HandleHead(from gen.PID, writer http.ResponseWriter, request *http.Request) error
-	// HandleOptions invoked on an OPTIONS request
-	HandleOptions(from gen.PID, writer http.ResponseWriter, request *http.Request) error
+type WebService struct {
+    act.Actor
 }
 
+func (s *WebService) Init(args ...any) error {
+    // Spawn worker
+    _, err := s.SpawnRegister("api-worker",
+        func() gen.ProcessBehavior { return &APIWorker{} },
+        gen.ProcessOptions{},
+    )
+    if err != nil {
+        return err
+    }
+
+    // Create WebHandler pointing to worker
+    handler := meta.CreateWebHandler(meta.WebHandlerOptions{
+        Worker: "api-worker",
+    })
+
+    _, err = s.SpawnMeta(handler, gen.MetaOptions{})
+    // rest of setup...
+}
 ```
 
-All methods in the `act.WebWorkerBehavior` interface are optional for implementation.
+When HTTP request arrives:
+1. WebHandler sends `meta.MessageWebRequest` to "api-worker"
+2. WebWorker detects message type, extracts HTTP method
+3. WebWorker calls appropriate `Handle*` method
+4. Your callback processes request, writes response
+5. WebWorker calls `Done()` automatically
+6. HTTP handler unblocks, response sent to client
 
-It is most efficient to use `act.WebWorker` in combination with `act.Pool` for load balancing when handling HTTP requests:
+## Available Callbacks
+
+All callbacks are optional. Implement only the methods you need:
+
+**HTTP methods**:
+- `HandleGet(from gen.PID, writer http.ResponseWriter, request *http.Request) error`
+- `HandlePost(from gen.PID, writer http.ResponseWriter, request *http.Request) error`
+- `HandlePut(from gen.PID, writer http.ResponseWriter, request *http.Request) error`
+- `HandlePatch(from gen.PID, writer http.ResponseWriter, request *http.Request) error`
+- `HandleDelete(from gen.PID, writer http.ResponseWriter, request *http.Request) error`
+- `HandleHead(from gen.PID, writer http.ResponseWriter, request *http.Request) error`
+- `HandleOptions(from gen.PID, writer http.ResponseWriter, request *http.Request) error`
+
+**Actor callbacks**:
+- `Init(args ...any) error` - initialization
+- `HandleMessage(from gen.PID, message any) error` - non-HTTP messages
+- `HandleCall(from gen.PID, ref gen.Ref, request any) (any, error)` - synchronous requests
+- `HandleEvent(message gen.MessageEvent) error` - event subscriptions
+- `Terminate(reason error)` - cleanup
+- `HandleInspect(from gen.PID, item ...string) map[string]string` - introspection
+
+Unimplemented HTTP methods return 501 Not Implemented automatically.
+
+## Error Handling
+
+Return `nil` to continue processing requests. Return non-nil error to terminate the worker:
 
 ```go
-//
-// WebWorker
-//
-func factory_MyWebWorker() gen.ProcessBehavior {
-	return &MyWebWorker{}
-}
+func (w *APIWorker) HandlePost(from gen.PID, writer http.ResponseWriter, request *http.Request) error {
+    var data CreateRequest
+    if err := json.NewDecoder(request.Body).Decode(&data); err != nil {
+        // Invalid JSON - return error to client, continue processing
+        http.Error(writer, "Invalid JSON", http.StatusBadRequest)
+        return nil
+    }
 
-type MyWebWorker struct {
-	act.WebWorker
-}
+    if err := w.createResource(data); err != nil {
+        // Transient error - return error to client, continue processing
+        http.Error(writer, "Create failed", http.StatusInternalServerError)
+        return nil
+    }
 
-// Handle GET requests. 
-func (w *MyWebWorker) HandleGet(from gen.PID, writer http.ResponseWriter, request *http.Request) error {
-	w.Log().Info("got HTTP request %q", request.URL.Path)
-	w.WriteHeader(http.StatusOK)
-	return nil
-}
-
-//
-// Pool of workers
-//
-type MyPool struct {
-	act.Pool
-}
-
-func factory_MyPool() gen.ProcessBehavior {
-	return &MyPool{}
-}
-
-// Init invoked on a spawn Pool for the initializing.
-func (p *MyPool) Init(args ...any) (act.PoolOptions, error) {
-	opts := act.PoolOptions{
-		WorkerFactory: factory_MyWebWorker,
-	}
-	p.Log().Info("started process pool of MyWebWorker with %d workers", opts.PoolSize)
-	return opts, nil
+    writer.WriteHeader(http.StatusCreated)
+    return nil
 }
 ```
 
-An example implementation of a web server using `act.WebWorker` and `act.Pool` for load distribution when handling HTTP requests can be found in the repository at [https://github.com/ergo-services/examples](https://github.com/ergo-services/examples), the project `demo`.
+Returning error terminates the worker. Use this for fatal errors only (database connection lost, critical resource unavailable). For transient errors (validation, not found, conflict), write error response and return `nil`.
 
-<figure><img src="../.gitbook/assets/image (9).png" alt=""><figcaption></figcaption></figure>
+## Using with act.Pool
+
+Single worker processes one request at a time. Use `act.Pool` for concurrent processing:
+
+```go
+type APIWorkerPool struct {
+    act.Pool
+}
+
+func (p *APIWorkerPool) Init(args ...any) (act.PoolOptions, error) {
+    return act.PoolOptions{
+        PoolSize:          10,
+        WorkerMailboxSize: 20,
+        WorkerFactory:     func() gen.ProcessBehavior { return &APIWorker{} },
+    }, nil
+}
+```
+
+Spawn pool instead of single worker:
+
+```go
+_, err := s.SpawnRegister("api-worker",
+    func() gen.ProcessBehavior { return &APIWorkerPool{} },
+    gen.ProcessOptions{},
+)
+```
+
+WebHandler sends requests to pool. Pool distributes across 10 workers. System handles 10 concurrent requests.
+
+For details on pools, see [Pool](pool.md).
+
+## Handling Non-HTTP Messages
+
+WebWorker processes `meta.MessageWebRequest` specially, but also receives regular messages:
+
+```go
+func (w *APIWorker) HandleMessage(from gen.PID, message any) error {
+    // meta.MessageWebRequest handled automatically by WebWorker
+    // Other messages reach this callback
+    switch m := message.(type) {
+    case ConfigUpdate:
+        w.config = m.Config
+        w.Log().Info("Configuration updated")
+    }
+    return nil
+}
+```
+
+This allows workers to receive configuration updates, control messages, or other actor communication while processing HTTP requests.
+
+## Implementation Details
+
+WebWorker implements `gen.ProcessBehavior` at low level. It manages the mailbox loop, detects `meta.MessageWebRequest`, routes by HTTP method, and calls `Done()` after processing.
+
+The `Done()` call is critical. It cancels the context that WebHandler blocks on. Without it, HTTP request would timeout. WebWorker guarantees `Done()` is called even if your callback panics or returns error.
+
+Default implementations for all callbacks exist. Unimplemented HTTP methods log warning and return 501 Not Implemented. This allows implementing only the methods you need without boilerplate for unsupported methods.

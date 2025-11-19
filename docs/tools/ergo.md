@@ -2,7 +2,7 @@
 
 The `ergo` tool allows you to generate the structure and source code for a project based on the Ergo Framework. To install it, use the following command:
 
-`go install ergo.services/tools/ergo@latest`
+`go install ergo.tools/ergo@latest`
 
 Alternatively, you can build it from the source code available at [https://github.com/ergo-services/tools](https://github.com/ergo-services/tools).
 
@@ -34,7 +34,7 @@ This structured approach ensures the proper hierarchy and parameters are defined
   * **`host`**: specifies the hostname for the Web server.
   * **`port`**: specifies the port number for the Web server. The default is `9090`.
   * **`tls`**: enables encryption for the Web server using the node's `CertManager`.
-* **`-with-tcp <name>`**: adds a TCP server actor (based on `act.Actor` and `meta.TCP` meta-process). Available parameters:
+* **`-with-tcp <name>`**: adds a TCP server actor (based on `act.Actor` and `meta.TCPServer` meta-process). Available parameters:
   * **`host`**: specifies the hostname for the TCP server.
   * **`port`**: specifies the port number for the TCP server. The default is `7654`.
   * **`tls`**: enables encryption for the TCP server using the node's `CertManager`.

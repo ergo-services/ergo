@@ -1,32 +1,54 @@
----
-description: Bridging the Actor Model with Blocking I/O
----
-
 # Meta-Process
 
-The actor model works beautifully for asynchronous message passing, but what about when you need to integrate with the synchronous world? HTTP servers that block waiting for requests. TCP accept loops that wait for connections. File I/O that blocks on reads. These don't fit naturally into the one-message-at-a-time actor model.
+A meta-process solves a specific problem: how to integrate blocking I/O with the actor model without breaking its guarantees. It runs two goroutines - one executes your blocking I/O code, the other handles actor messages. This separation preserves sequential message processing while allowing continuous external I/O operations.
 
-Meta processes solve this problem by using two goroutines instead of one.
+Meta-processes are owned by their parent process. When the parent terminates, all its meta-processes terminate with it. This dependency is by design - meta-processes extend the parent's capabilities rather than existing as independent entities in the supervision tree.
 
-## The Two-Goroutine Design
+## The Problem
 
-A meta process has a forever-running goroutine that executes blocking operations, and a message-handling goroutine that processes messages from other actors when they arrive.
+Actors work sequentially. One message arrives, gets processed, completes. Next message. This simplicity eliminates race conditions and makes reasoning straightforward.
 
-The forever-running goroutine executes the `Start` method. This is where you put blocking code: accepting TCP connections, listening for HTTP requests, reading from files, or waiting on any synchronous API. This goroutine runs for the meta process's entire lifetime.
+Blocking I/O breaks this model. Call `net.Listener.Accept()` in a message handler and the actor freezes. The goroutine blocks waiting for connections. Other messages pile up unprocessed. The actor becomes unresponsive.
 
-The message-handling goroutine is created on-demand when messages arrive, just like a regular process. It runs `HandleMessage` or `HandleCall` callbacks, processes the message, and terminates if nothing else is waiting. This goroutine handles actor-model message passing.
+The obvious fix fails. Spawn a goroutine for `Accept()` and now two goroutines access the actor's state concurrently. You need locks. The sequential guarantee vanishes. The actor model collapses into traditional concurrent programming with all its complexity.
 
-This design bridges the two worlds. The `Start` goroutine interacts with blocking I/O. The message-handling goroutine interacts with other actors. Both can safely call meta process methods like `Send` because the framework handles the synchronization.
+Meta-processes preserve both. One goroutine blocks on I/O. Another goroutine processes messages sequentially. Neither interferes with the other.
 
-## Why This Matters
+## Two Goroutines, Two Purposes
 
-Consider an HTTP server. The server needs to block waiting for requests - that's how HTTP libraries work. But when a request arrives, you want to send it to a worker actor for processing. Without meta processes, you'd have to spawn goroutines, manage synchronization, and break the actor model.
+When a meta-process starts, the framework launches two goroutines:
 
-With a meta process, the HTTP server runs in the `Start` goroutine. When a request arrives, you send it to a worker actor using the regular `Send` method. The worker processes it asynchronously and sends the response back. The meta process receives the response in `HandleMessage` and writes it to the HTTP connection. The actor model stays intact while integrating with blocking HTTP operations.
+**External Reader**: Runs your `Start()` method from beginning to end. This goroutine is meant for blocking operations - `Accept()` loops, `ReadFrom()` calls, reading from pipes. When external events occur, this goroutine sends messages into the actor system using `Send()`. It never processes incoming messages.
 
-## Creating Meta Processes
+**Actor Handler**: Created on-demand when messages arrive in the mailbox. Processes messages sequentially by calling your `HandleMessage()` and `HandleCall()` methods. When the mailbox empties, this goroutine terminates. Next time messages arrive, a new actor handler spawns. This goroutine never does I/O directly - it handles requests from actors.
 
-Meta processes implement the `gen.MetaBehavior` interface:
+The External Reader runs continuously from spawn until termination. The Actor Handler comes and goes based on message traffic.
+
+## Why Regular Processes Cannot Do This
+
+| Aspect | Process | Meta-Process |
+|--------|---------|-------------|
+| Goroutines | One per process | Two per meta-process |
+| Message queues | 4 queues (urgent, system, main, log) | 2 queues (system, main) |
+| Identifier type | `gen.PID` | `gen.Alias` |
+| States | Init → Sleep → Running → Terminated | Sleep → Running → Terminated |
+| Spawn children | Processes and meta-processes | Meta-processes only |
+| Synchronous calls | Can make calls with `Call()` | Cannot make calls |
+| Links and monitors | Can create and receive | Can only receive |
+
+Processes have one goroutine that must handle everything. If it blocks on I/O, message processing stops. If it spawns additional goroutines for I/O, the actor model breaks.
+
+Meta-processes separate concerns. The External Reader handles I/O. The Actor Handler handles messages. Both run independently.
+
+### Restrictions Explained
+
+Meta-processes cannot make synchronous calls. Which goroutine should block waiting for the response? The External Reader is blocked on external I/O. The Actor Handler might not be running. Neither can reliably wait for responses.
+
+Meta-processes cannot create links or monitors. When a linked process terminates, it sends an exit signal as a message. The Actor Handler processes messages, but only when running. Signals could be delayed or lost if the Actor Handler is not active. Incoming links and monitors work because other processes send signals that queue in the mailbox. Creating outgoing links requires guarantees that meta-processes cannot provide.
+
+These are not arbitrary limitations. They follow from having two goroutines with distinct responsibilities.
+
+## Behavior Implementation
 
 ```go
 type MetaBehavior interface {
@@ -39,47 +61,310 @@ type MetaBehavior interface {
 }
 ```
 
-The `Init` callback runs once during creation. The `Start` callback is your blocking code - it runs in the main goroutine until it returns, at which point the meta process terminates. The `HandleMessage` and `HandleCall` callbacks handle messages from other actors. The `Terminate` callback runs during shutdown for cleanup.
+`Init()` runs once during creation. Initialize state, store the `MetaProcess` reference, prepare resources. Return an error to prevent spawning.
 
-Spawn a meta process from a regular process:
+`Start()` runs in the External Reader. This is where your blocking I/O lives. Loop forever accepting connections. Block reading datagrams. Read from pipes. When `Start()` returns, the meta-process terminates.
 
-```go
-meta := createWebHandler(options)
-alias, err := process.SpawnMeta(meta, gen.MetaOptions{})
+`HandleMessage()` processes regular messages sent by actors. Runs in the Actor Handler. Return `nil` to continue, return an error to terminate.
+
+`HandleCall()` processes synchronous requests from actors. Return `(result, nil)` to send the result back. Return `(nil, error)` to send an error. The framework handles the response automatically.
+
+`Terminate()` runs during shutdown regardless of how termination occurred. Close resources, flush buffers, clean up. Do not block or panic here.
+
+`HandleInspect()` returns diagnostic information as string key-value pairs. Used by monitoring tools.
+
+## Three States
+
+**Sleep**: External Reader is running (usually blocked on I/O), Actor Handler does not exist. Mailbox may contain messages waiting to be processed. This is the resting state when no actors are communicating with the meta-process.
+
+**Running**: Both goroutines active. External Reader continues I/O operations. Actor Handler processes messages from the mailbox. Both work simultaneously without blocking each other.
+
+**Terminated**: Both goroutines stopped. `Start()` returned and Actor Handler completed its final message.
+
+Transitions are automatic. Message arrives → Actor Handler spawns → Sleep becomes Running. Mailbox empties → Actor Handler exits → Running becomes Sleep. `Start()` returns → Terminated regardless of current state.
+
+## Data Flow
+
+```mermaid
+sequenceDiagram
+    participant External as External World
+
+    box Meta-Process
+    participant Reader as External Reader
+    participant Handler as Actor Handler
+    end
+
+    participant Actors as Actor System
+
+    Note over Reader: Runs continuously
+    activate Reader
+
+    Reader->>External: Read (blocks)
+    Note over External: Accept/ReadFrom/Read
+    External-->>Reader: Data arrives
+    Reader->>Actors: Send message
+
+    Reader->>External: Read (blocks)
+    Note over External: Waiting for data
+
+    Note over Handler: Created on demand
+    Actors->>Handler: Send message
+    activate Handler
+    Handler->>External: Write (blocks)
+    Note over External: Write/WriteTo/Write
+    External-->>Handler: Complete
+    deactivate Handler
+
+    Actors->>Handler: Send message
+    activate Handler
+    Handler->>External: Write (blocks)
+    External-->>Handler: Complete
+    deactivate Handler
+
+    External-->>Reader: Data arrives
+    Reader->>Actors: Send message
+
+    Note over Reader,Handler: Independent goroutines enable full-duplex I/O
+
+    Reader->>External: Read (blocks)
+    deactivate Reader
 ```
 
-The returned alias is how other processes address this meta process.
+The External Reader blocks reading while the Actor Handler simultaneously blocks writing. Two blocking operations, two goroutines, neither prevents the other.
 
-## Built-In Meta Processes
+## Creating Meta-Processes
 
-Ergo Framework provides ready-to-use meta processes for common scenarios:
+Define your behavior:
 
-**TCP** - Server and client meta processes for TCP connections. The server accepts connections and spawns a meta process for each. The client maintains a connection and exchanges messages.
+```go
+type UDPServer struct {
+    gen.MetaProcess
+    socket net.PacketConn
+    target gen.PID
+}
 
-**UDP** - Server meta process for UDP sockets. Receives datagrams and sends them as messages to workers.
+func (u *UDPServer) Init(process gen.MetaProcess) error {
+    u.MetaProcess = process
+    u.target = process.Parent()
+    return nil
+}
 
-**Web** - HTTP server and handler meta processes. The server listens for requests. Handlers process requests and can delegate to worker actors.
+func (u *UDPServer) Start() error {
+    // External Reader - continuous read loop
+    for {
+        buf := make([]byte, 65536)
+        n, addr, err := u.socket.ReadFrom(buf)
+        if err != nil {
+            return err
+        }
+        u.Send(u.target, Datagram{Data: buf[:n], From: addr})
+    }
+}
 
-**Port** - Wraps external programs, reading their stdout and writing to stdin. Useful for integrating with non-Ergo programs.
+func (u *UDPServer) HandleMessage(from gen.PID, message any) error {
+    // Actor Handler - write on demand
+    switch msg := message.(type) {
+    case SendDatagram:
+        u.socket.WriteTo(msg.Data, msg.To)
+    }
+    return nil
+}
 
-**WebSocket** - Server and client for WebSocket connections (separate package: `ergo.services/meta/websocket`).
+func (u *UDPServer) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error) {
+    return nil, nil
+}
 
-These implementations handle the complexity of integrating blocking I/O with the actor model, so you don't have to.
+func (u *UDPServer) Terminate(reason error) {
+    u.socket.Close()
+}
 
-## Limitations and Trade-offs
+func (u *UDPServer) HandleInspect(from gen.PID, item ...string) map[string]string {
+    return map[string]string{"local_addr": u.socket.LocalAddr().String()}
+}
+```
 
-Meta processes can send messages and spawn other meta processes, but they can't make synchronous calls, create links, or establish monitors. These limitations exist because meta processes operate outside the standard actor model - they have two goroutines, so synchronous operations would be ambiguous (which goroutine waits for the response?).
+Spawn from a process:
 
-Meta processes don't have their own environment variables. They share the parent process's environment. This keeps the relationship clear - a meta process is an extension of its parent, not an independent entity.
+```go
+type Server struct {
+    act.Actor
+}
 
-When the parent process terminates, all its meta processes terminate too. This cascading termination ensures cleanup happens automatically.
+func (s *Server) Init(args ...any) error {
+    socket, err := net.ListenPacket("udp", ":8080")
+    if err != nil {
+        return err
+    }
 
-The two-goroutine design means you need to be careful about concurrent access to the meta process's data. Both goroutines can access the same fields. If your `Start` method modifies state that `HandleMessage` reads, you need synchronization. However, if `Start` only does I/O and `HandleMessage` only sends messages, no synchronization is needed.
+    udpServer := &UDPServer{socket: socket}
+    alias, err := s.SpawnMeta(udpServer, gen.MetaOptions{})
+    if err != nil {
+        socket.Close()
+        return err
+    }
 
-## Practical Patterns
+    s.Log().Info("UDP server listening on :8080 as %s", alias)
+    return nil
+}
+```
 
-The typical pattern is to use meta processes as bridges. The `Start` method handles blocking I/O. When external events occur (HTTP request, TCP connection, data received), the meta process sends messages to worker actors. Workers process requests asynchronously and send results back. The meta process receives results in `HandleMessage` and bridges them back to the synchronous world.
+The meta-process lives as long as its parent lives. When `Server` terminates, the UDP server terminates automatically.
 
-This keeps the actor model intact. Workers are pure actors with sequential message handling. The meta process handles the messy details of integrating with blocking APIs.
+## State-Based Operations
 
-For details on specific meta process implementations, see the chapters on [TCP](../meta-processes/tcp.md), [UDP](../meta-processes/udp.md), [Web](../meta-processes/web.md), and [Port](../meta-processes/port.md).
+Different operations are available in different states:
+
+**All states** (Sleep, Running, Terminated):
+- `Send()`, `SendWithPriority()` - External Reader sends in Sleep, Actor Handler sends in Running
+- `ID()`, `Parent()` - Identity never changes
+- `Env()`, `EnvList()`, `EnvDefault()` - Configuration access
+- `Log()` - Logging always available
+- `SendPriority()`, `Compression()` - Read settings
+
+**Running only**:
+- `SendResponse()`, `SendResponseError()` - Only Actor Handler has the `gen.Ref` from `HandleCall()`
+- `SetSendPriority()`, `SetCompression()` - Actor Handler controls these
+
+**Sleep and Running** (not Terminated):
+- `Spawn()` - Both goroutines can spawn child meta-processes
+
+The External Reader operates in Sleep state and has minimal capabilities - just sending messages and spawning children. The Actor Handler operates in Running state and has full capabilities for processing requests.
+
+## Shared State
+
+Both goroutines access the same struct fields. Use atomic operations for shared counters and flags:
+
+```go
+type TCPConnection struct {
+    gen.MetaProcess
+    conn     net.Conn
+    bytesIn  uint64  // accessed by both goroutines
+    bytesOut uint64  // accessed by both goroutines
+}
+
+func (t *TCPConnection) Start() error {
+    // External Reader
+    buf := make([]byte, 4096)
+    for {
+        n, err := t.conn.Read(buf)
+        if err != nil {
+            return err
+        }
+        atomic.AddUint64(&t.bytesIn, uint64(n))
+        t.Send(t.Parent(), Data{Bytes: buf[:n]})
+    }
+}
+
+func (t *TCPConnection) HandleMessage(from gen.PID, message any) error {
+    // Actor Handler
+    if msg, ok := message.(Data); ok {
+        n, err := t.conn.Write(msg.Bytes)
+        atomic.AddUint64(&t.bytesOut, uint64(n))
+        return err
+    }
+    return nil
+}
+
+func (t *TCPConnection) HandleInspect(from gen.PID, item ...string) map[string]string {
+    // Actor Handler
+    in := atomic.LoadUint64(&t.bytesIn)
+    out := atomic.LoadUint64(&t.bytesOut)
+    return map[string]string{
+        "bytes_in":  fmt.Sprintf("%d", in),
+        "bytes_out": fmt.Sprintf("%d", out),
+    }
+}
+```
+
+Avoid complex synchronization. If you need mutexes, the design probably belongs in a regular process with meta-processes handling only I/O.
+
+## Common Patterns
+
+**External events to actors**: External Reader reads events, sends them to actors for processing.
+
+```go
+func (r *FileReader) Start() error {
+    file, _ := os.Open(r.filename)
+    defer file.Close()
+
+    scanner := bufio.NewScanner(file)
+    for scanner.Scan() {
+        r.Send(r.processor, Line{Text: scanner.Text()})
+    }
+    return scanner.Err()
+}
+```
+
+**Actor-controlled I/O**: Actors send commands, Actor Handler executes them against external resources.
+
+```go
+func (e *CommandExecutor) HandleMessage(from gen.PID, message any) error {
+    switch msg := message.(type) {
+    case RunCommand:
+        output, err := exec.Command(msg.Cmd, msg.Args...).Output()
+        e.Send(from, CommandResult{Output: output, Error: err})
+    }
+    return nil
+}
+```
+
+**Full-duplex communication**: External Reader reads, Actor Handler writes, both operate on the same connection.
+
+```go
+func (t *TCPConnection) Start() error {
+    // Continuous reading
+    for {
+        n, err := t.conn.Read(buf)
+        if err != nil {
+            return err
+        }
+        t.Send(t.target, Received{Data: buf[:n]})
+    }
+}
+
+func (t *TCPConnection) HandleMessage(from gen.PID, message any) error {
+    // On-demand writing
+    if msg, ok := message.(Send); ok {
+        _, err := t.conn.Write(msg.Data)
+        return err
+    }
+    return nil
+}
+```
+
+**Server accepting connections**: External Reader accepts connections, spawns child meta-processes for each.
+
+```go
+func (t *TCPServer) Start() error {
+    for {
+        conn, err := t.listener.Accept()
+        if err != nil {
+            return err
+        }
+
+        handler := &TCPConnection{conn: conn}
+        if _, err := t.Spawn(handler, gen.MetaOptions{}); err != nil {
+            conn.Close()
+            t.Log().Error("failed to spawn connection handler: %s", err)
+        }
+    }
+}
+```
+
+## When to Use Meta-Processes
+
+Use meta-processes when:
+- Operating on blocking I/O (TCP accept, UDP read, pipe read, file read)
+- Bridging external event sources with actors (monitoring filesystems, listening to OS signals)
+- Wrapping synchronous APIs that cannot be made asynchronous
+- Implementing network servers where accept loop must run continuously
+
+Do not use meta-processes when:
+- Implementing business logic
+- Managing application state
+- Coordinating between actors
+- Processing messages that do not involve blocking I/O
+
+Meta-processes sit at the boundary between the external world and the actor system. They translate blocking operations into asynchronous messages and execute actor commands using blocking APIs. Regular processes implement everything else.
+
+For complete examples, see [TCP](../meta-processes/tcp.md), [UDP](../meta-processes/udp.md), [Web](../meta-processes/web.md), and [Port](../meta-processes/port.md).
