@@ -126,14 +126,14 @@ The metrics actor automatically exposes these Prometheus metrics without any con
 | `ergo_processes_total` | Gauge | Total number of processes including running, idle, and zombie. High counts suggest process leaks or inefficient cleanup. |
 | `ergo_processes_running` | Gauge | Processes actively handling messages. Low relative to total suggests most processes are idle (good) or blocked (bad - investigate what they're waiting for). |
 | `ergo_processes_zombie` | Gauge | Processes terminated but not yet fully cleaned up. These should be transient. Persistent zombies indicate bugs in termination handling. |
-| `ergo_memory_used_bytes` | Gauge | Actual memory consumed by the process (RSS). This grows as the node spawns processes and allocates memory. |
-| `ergo_memory_alloc_bytes` | Gauge | Cumulative bytes allocated by the Go allocator. This always increases (even after GC) because it tracks total allocation, not live memory. |
+| `ergo_memory_used_bytes` | Gauge | Total memory obtained from OS (uses `runtime.MemStats.Sys`). |
+| `ergo_memory_alloc_bytes` | Gauge | Bytes of allocated heap objects (uses `runtime.MemStats.Alloc`). |
 | `ergo_cpu_user_seconds` | Gauge | CPU time spent executing user code. Increases as the node does work. Rate of change indicates CPU utilization. |
 | `ergo_cpu_system_seconds` | Gauge | CPU time spent in kernel (system calls). High system time relative to user time suggests I/O bottlenecks or excessive syscalls. |
 | `ergo_applications_total` | Gauge | Number of applications loaded. Should match your expected count. Unexpected changes indicate applications starting or stopping. |
 | `ergo_applications_running` | Gauge | Applications currently active. Compare to total to identify stopped or failed applications. |
 | `ergo_registered_names_total` | Gauge | Processes registered with atom names. High counts suggest heavy use of named processes for routing. |
-| `ergo_registered_aliases_total` | Gauge | Meta-processes registered with aliases. Typically lower than process names unless using many meta-processes. |
+| `ergo_registered_aliases_total` | Gauge | Total number of registered aliases. Includes aliases created by processes via `CreateAlias()` and aliases identifying meta-processes. |
 | `ergo_registered_events_total` | Gauge | Event subscriptions active in the node. High counts indicate extensive pub/sub usage. |
 
 ### Network Metrics
