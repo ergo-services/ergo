@@ -338,7 +338,7 @@ for _, child := range children {
 
 When the supervisor is applying a strategy, it processes only the Urgent queue (where exit signals arrive) and ignores System and Main queues. This ensures exit signals are handled promptly without interference from management commands or regular messages.
 
-`StartChild` with args updates the spec's args for future restarts. This lets you reconfigure children dynamically - call `StartChild("worker", newConfig)` and subsequent restarts use `newConfig`.
+For Simple One For One supervisors, `StartChild` with args stores those args for that specific child instance. When that instance restarts (due to crash, kill, etc.), it uses the stored args, not the template args from the spec. For other supervisor types (One For One, All For One, Rest For One), `StartChild` with args updates the spec's args for future restarts.
 
 ## Child Callbacks
 
@@ -480,7 +480,7 @@ for i := 0; i < 10; i++ {
 }
 ```
 
-Each call spawns a new worker. The `args` passed to `StartChild` are used for that specific instance. Future restarts of that instance use those args, not the template args from the spec.
+Each call spawns a new worker. The `args` passed to `StartChild` are stored for that specific instance. When the restart strategy triggers (child crashes, exceeds intensity, etc.), the child restarts with the same args it was originally started with, not the template args from the spec. This ensures each worker instance maintains its configuration across restarts.
 
 Workers are not registered by name (no `SpawnRegister`). You track them by PID from the return value or via `supervisor.Children()`.
 
@@ -507,4 +507,4 @@ Simple One For One ignores `DisableAutoShutdown` - the supervisor never auto-shu
 
 **KeepOrder is only for stopping**. Children always start sequentially in declaration order. `KeepOrder` controls only the stopping phase of All For One and Rest For One restarts.
 
-**Simple One For One args override the template**. Args passed to `StartChild` are used for that instance's restarts, not the template args from the child spec. Update the template args with `AddChild` if you need to change the default.
+**Simple One For One args are persistent per instance**. Args passed to `StartChild` are stored and used for that specific instance across all restarts. If you start a worker with `StartChild("worker", "config-A")` and it crashes, the restarted instance receives "config-A" again, not the template args from the child spec. This persistence ensures each worker maintains its identity and configuration through failures. If you need different args for a restart, you must manually stop the old instance and start a new one with different args.
