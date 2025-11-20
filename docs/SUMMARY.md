@@ -44,6 +44,8 @@
 
 ## extra library
 
+* [Actors](extra-library/actors/README.md)
+  * [Metrics](extra-library/actors/metrics.md)
 * [Applications](extra-library/applications/README.md)
   * [Observer](extra-library/applications/observer.md)
 * [Meta-Processes](extra-library/meta-processes/README.md)
