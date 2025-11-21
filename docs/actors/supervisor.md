@@ -411,6 +411,43 @@ func (s *AppSupervisor) HandleCall(from gen.PID, ref gen.Ref, request any) (any,
 
 This lets you build management APIs: query supervisor state, scale children dynamically, reconfigure at runtime. The supervisor processes these messages between handling exit signals.
 
+## Observer Integration
+
+Supervisors provide runtime inspection via the `HandleInspect` method, which is automatically integrated with the Observer monitoring tool. When you call `gen.Process.Inspect()` on a supervisor, it returns detailed metrics about its current state:
+
+**One For One / All For One / Rest For One:**
+- `type`: Supervisor type ("One For One", "All For One", "Rest For One")
+- `strategy`: Restart strategy (Transient, Temporary, Permanent)
+- `intensity`: Maximum restart count within period
+- `period`: Time window in seconds for restart intensity
+- `keep_order`: Whether children stop sequentially (All/Rest For One only)
+- `auto_shutdown`: Whether supervisor stops when all children terminate
+- `restarts_count`: Number of restart timestamps currently tracked
+- `children_total`: Total child specs defined
+- `children_running`: Currently running children
+- `children_disabled`: Disabled children that won't restart
+
+**Simple One For One:**
+- `type`: "Simple One For One"
+- `strategy`: Restart strategy
+- `intensity`: Maximum restart count within period
+- `period`: Time window in seconds
+- `restarts_count`: Number of restart timestamps tracked
+- `specs_total`: Total child spec templates
+- `specs_disabled`: Disabled specs
+- `instances_total`: Total running instances across all specs
+- `child:<name>`: Number of running instances for specific child spec
+- `child:<name>:args`: Number of instances with custom args for specific child spec
+
+The Observer UI displays this information in real-time, letting you monitor supervision trees, track restart patterns, and identify failing components. You can also query this data programmatically:
+
+```go
+info, err := process.Inspect(supervisorPID)
+// Returns map[string]string with metrics above
+```
+
+This integration makes it easy to diagnose issues in production: check restart counts to identify unstable processes, verify child counts match expected scaling, monitor which instances have custom configurations.
+
 ## Restart Intensity Behavior
 
 Understanding restart intensity is critical for reliable systems. Here's exactly how it works:
