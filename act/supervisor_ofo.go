@@ -1,6 +1,8 @@
 package act
 
 import (
+	"fmt"
+
 	"ergo.services/ergo/gen"
 )
 
@@ -381,4 +383,34 @@ func (s *supOFO) children() []SupervisorChild {
 		c = append(c, supChild{cs.pid, *cs})
 	}
 	return sortSupChild(c)
+}
+
+func (s *supOFO) inspect(items ...string) map[string]string {
+	var empty gen.PID
+	result := make(map[string]string)
+
+	result["type"] = "One For One"
+	result["strategy"] = s.restart.Strategy.String()
+	result["intensity"] = fmt.Sprintf("%d", s.restart.Intensity)
+	result["period"] = fmt.Sprintf("%d", s.restart.Period)
+	result["auto_shutdown"] = fmt.Sprintf("%t", s.autoshutdown)
+	result["restarts_count"] = fmt.Sprintf("%d", len(s.restarts))
+
+	totalChildren := len(s.spec)
+	runningChildren := 0
+	disabledChildren := 0
+	for _, cs := range s.spec {
+		if cs.disabled {
+			disabledChildren++
+		}
+		if cs.pid != empty {
+			runningChildren++
+		}
+	}
+
+	result["children_total"] = fmt.Sprintf("%d", totalChildren)
+	result["children_running"] = fmt.Sprintf("%d", runningChildren)
+	result["children_disabled"] = fmt.Sprintf("%d", disabledChildren)
+
+	return result
 }

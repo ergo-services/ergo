@@ -530,7 +530,7 @@ func (s *Supervisor) HandleEvent(message gen.MessageEvent) error {
 }
 
 func (s *Supervisor) HandleInspect(from gen.PID, item ...string) map[string]string {
-	return nil
+	return s.sup.inspect(item...)
 }
 
 func (s *Supervisor) Terminate(reason error) {}
@@ -630,6 +630,8 @@ type supBehavior interface {
 	childDisable(name gen.Atom) (supAction, error)
 
 	children() []SupervisorChild
+
+	inspect(items ...string) map[string]string
 }
 
 type supState int

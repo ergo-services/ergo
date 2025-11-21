@@ -253,3 +253,43 @@ func (s *supSOFO) children() []SupervisorChild {
 	}
 	return sortSupChild(c)
 }
+
+func (s *supSOFO) inspect(items ...string) map[string]string {
+	result := make(map[string]string)
+
+	result["type"] = "Simple One For One"
+	result["strategy"] = s.restart.Strategy.String()
+	result["intensity"] = fmt.Sprintf("%d", s.restart.Intensity)
+	result["period"] = fmt.Sprintf("%d", s.restart.Period)
+	result["restarts_count"] = fmt.Sprintf("%d", len(s.restarts))
+
+	specsTotal := len(s.spec)
+	specsDisabled := 0
+
+	// count instances per child spec
+	instancesPerSpec := make(map[gen.Atom]int)
+	instancesWithArgsPerSpec := make(map[gen.Atom]int)
+
+	for pid, spec := range s.pids {
+		instancesPerSpec[spec.Name]++
+		if _, hasArgs := s.args[pid]; hasArgs {
+			instancesWithArgsPerSpec[spec.Name]++
+		}
+	}
+
+	for name, cs := range s.spec {
+		if cs.disabled {
+			specsDisabled++
+		}
+		count := instancesPerSpec[name]
+		countWithArgs := instancesWithArgsPerSpec[name]
+		result[fmt.Sprintf("child:%s", name)] = fmt.Sprintf("%d", count)
+		result[fmt.Sprintf("child:%s:args", name)] = fmt.Sprintf("%d", countWithArgs)
+	}
+
+	result["specs_total"] = fmt.Sprintf("%d", specsTotal)
+	result["specs_disabled"] = fmt.Sprintf("%d", specsDisabled)
+	result["instances_total"] = fmt.Sprintf("%d", len(s.pids))
+
+	return result
+}
