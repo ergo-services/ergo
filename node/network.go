@@ -520,6 +520,11 @@ func (n *network) GetConnection(name gen.Atom) (gen.Connection, error) {
 		return v.(gen.Connection), nil
 	}
 
+	registrar := n.registrar
+	if registrar == nil {
+		return nil, gen.ErrNoRoute
+	}
+
 	if lib.Trace() {
 		n.node.Log().Trace("trying to make connection with %s", name)
 	}
@@ -622,7 +627,7 @@ func (n *network) GetConnection(name gen.Atom) (gen.Connection, error) {
 	}
 
 	// resolve it
-	if nr, err := n.registrar.Resolver().Resolve(name); err == nil {
+	if nr, err := registrar.Resolver().Resolve(name); err == nil {
 		if lib.Trace() {
 			n.node.Log().Trace("resolved %d route[s] for %s", len(nr), name)
 		}
@@ -656,7 +661,7 @@ func (n *network) GetConnection(name gen.Atom) (gen.Connection, error) {
 	}
 
 	// resolve proxy
-	if pr, err := n.registrar.Resolver().ResolveProxy(name); err == nil {
+	if pr, err := registrar.Resolver().ResolveProxy(name); err == nil {
 		if lib.Trace() {
 			n.node.Log().Trace("resolved %d proxy routes for %s", len(pr), name)
 		}
@@ -1029,7 +1034,12 @@ func (n *network) start(options gen.NetworkOptions) error {
 			for i := range n.acceptors {
 				n.acceptors[i].l.Close()
 			}
-			return fmt.Errorf("unable to register node on %s (%s): %s", registrarInfo.Server, registrarInfo.Version, err)
+			return fmt.Errorf(
+				"unable to register node on %s (%s): %s",
+				registrarInfo.Server,
+				registrarInfo.Version,
+				err,
+			)
 		}
 		acceptor.registrar_custom = true
 	}
