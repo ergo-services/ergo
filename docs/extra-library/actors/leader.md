@@ -575,30 +575,6 @@ coordinator.Join(gen.ProcessID{
 })
 ```
 
-Or handle join requests from other nodes:
-
-```go
-func (c *Coordinator) HandleMessage(from gen.PID, message any) error {
-    switch msg := message.(type) {
-    case JoinCluster:
-        if c.IsLeader() {
-            // Leader adds the new node
-            newPeer := gen.ProcessID{
-                Name: msg.ProcessName,
-                Node: msg.NodeName,
-            }
-            
-            c.Join(newPeer)  // Triggers peer discovery
-            c.Send(from, JoinAccepted{ClusterID: c.ClusterID()})
-        } else {
-            // Forward to leader
-            c.Send(c.Leader(), msg)
-        }
-    }
-    return nil
-}
-```
-
 ## Network Partitions and Split-Brain
 
 Network partitions are inevitable in distributed systems. The election algorithm handles them safely through the quorum requirement.
