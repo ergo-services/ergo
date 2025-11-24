@@ -370,37 +370,37 @@ leader.Options{
 
 The tradeoff: longer timeouts increase failover time but reduce false elections during network hiccups. Shorter timeouts provide fast failover but risk spurious elections if networks are slow.
 
-## Public API Methods
+## API Methods
 
 The embedded `leader.Actor` provides methods for querying state and communicating with peers:
 
 ### State Queries
 
-**IsLeader() bool** - Returns `true` if this process is currently the leader.
+`IsLeader() bool` - Returns `true` if this process is currently the leader.
 
-**Leader() gen.PID** - Returns the current leader's PID, or empty if no leader elected yet.
+`Leader() gen.PID` - Returns the current leader's PID, or empty if no leader elected yet.
 
-**Term() uint64** - Returns the current election term.
+`Term() uint64` - Returns the current election term.
 
-**ClusterID() string** - Returns the cluster identifier.
+`ClusterID() string` - Returns the cluster identifier.
 
 ### Peer Information
 
-**Peers() []gen.PID** - Returns a snapshot of discovered peers. The slice is a copy, so you can iterate safely.
+`Peers() []gen.PID` - Returns a snapshot of discovered peers. The slice is a copy, so you can iterate safely.
 
-**PeerCount() int** - Returns the number of known peers.
+`PeerCount() int` - Returns the number of known peers.
 
-**HasPeer(pid gen.PID) bool** - Checks if a specific PID is a known peer.
+`HasPeer(pid gen.PID) bool` - Checks if a specific PID is a known peer.
 
-**Bootstrap() []gen.ProcessID** - Returns the bootstrap peer list.
+`Bootstrap() []gen.ProcessID` - Returns the bootstrap peer list.
 
 ### Communication
 
-**Broadcast(message any)** - Sends a message to all discovered peers. Useful for disseminating information or coordinating state across the cluster.
+`Broadcast(message any)` - Sends a message to all discovered peers. Useful for disseminating information or coordinating state across the cluster.
 
-**BroadcastBootstrap(message any)** - Sends a message to all bootstrap peers (excluding self). Useful for announcements before peer discovery completes.
+`BroadcastBootstrap(message any)` - Sends a message to all bootstrap peers (excluding self). Useful for announcements before peer discovery completes.
 
-**Join(peer gen.ProcessID)** - Manually adds a peer to the cluster by sending it a vote request. Use this for dynamic cluster growth when new nodes join after initial bootstrap.
+`Join(peer gen.ProcessID)` - Manually adds a peer to the cluster by sending it a vote request. Use this for dynamic cluster growth when new nodes join after initial bootstrap.
 
 ### Example: Leader-Only Processing
 
