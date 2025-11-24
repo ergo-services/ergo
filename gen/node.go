@@ -356,6 +356,24 @@ type Node interface {
 	// Returns ErrNodeTerminated in other states, ErrTimeout on timeout.
 	CallAlias(to Alias, request any, timeout int) (any, error)
 
+	// Inspect sends an inspection request to a local process.
+	// Returns a map of inspection items. Synchronous operation.
+	// Only works for local processes (same node).
+	// Available in: Running state only.
+	// Returns ErrNodeTerminated in other states, ErrNotAllowed for remote processes,
+	// ErrProcessUnknown if target doesn't exist, ErrProcessTerminated if terminated,
+	// ErrProcessMailboxFull if mailbox is full, ErrTimeout on timeout.
+	Inspect(target PID, item ...string) (map[string]string, error)
+
+	// InspectMeta sends an inspection request to a local meta process.
+	// Returns a map of inspection items. Synchronous operation.
+	// Only works for local meta processes (same node).
+	// Available in: Running state only.
+	// Returns ErrNodeTerminated in other states, ErrNotAllowed for remote meta,
+	// ErrMetaUnknown if target doesn't exist, ErrProcessTerminated if terminated,
+	// ErrProcessMailboxFull if mailbox is full, ErrTimeout on timeout.
+	InspectMeta(alias Alias, item ...string) (map[string]string, error)
+
 	// Log returns the node's logger interface.
 	// Available in all states.
 	Log() Log

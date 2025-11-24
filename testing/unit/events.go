@@ -117,6 +117,40 @@ func (e CallEvent) String() string {
 	return "Call"
 }
 
+// InspectEvent captures an Inspect operation
+type InspectEvent struct {
+	From   gen.PID
+	Target gen.PID
+	Items  []string
+	Result map[string]string
+	Error  error
+}
+
+func (e InspectEvent) Type() string {
+	return "inspect"
+}
+
+func (e InspectEvent) String() string {
+	return "Inspect"
+}
+
+// InspectMetaEvent captures an InspectMeta operation
+type InspectMetaEvent struct {
+	From   gen.PID
+	Target gen.Alias
+	Items  []string
+	Result map[string]string
+	Error  error
+}
+
+func (e InspectMetaEvent) Type() string {
+	return "inspect_meta"
+}
+
+func (e InspectMetaEvent) String() string {
+	return "InspectMeta"
+}
+
 // LogEvent captures a Log operation
 type LogEvent struct {
 	Level   gen.LogLevel

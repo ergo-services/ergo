@@ -549,6 +549,28 @@ func (tn *TestNode) CallAlias(to gen.Alias, request any, timeout int) (any, erro
 	return nil, nil
 }
 
+func (tn *TestNode) Inspect(target gen.PID, item ...string) (map[string]string, error) {
+	result := map[string]string{}
+	tn.events.Push(InspectEvent{
+		From:   tn.PID(),
+		Target: target,
+		Items:  item,
+		Result: result,
+	})
+	return result, nil
+}
+
+func (tn *TestNode) InspectMeta(alias gen.Alias, item ...string) (map[string]string, error) {
+	result := map[string]string{}
+	tn.events.Push(InspectMetaEvent{
+		From:   tn.PID(),
+		Target: alias,
+		Items:  item,
+		Result: result,
+	})
+	return result, nil
+}
+
 func (tn *TestNode) SendEvent(name gen.Atom, token gen.Ref, options gen.MessageOptions, message any) error {
 	tn.events.Push(SendEventEvent{
 		Name:    name,

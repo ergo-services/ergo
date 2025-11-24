@@ -710,15 +710,26 @@ func (tp *TestProcess) RemoteSpawnRegister(
 	return result, nil
 }
 
-// Missing inspect method
 func (tp *TestProcess) Inspect(target gen.PID, item ...string) (map[string]string, error) {
-	// For testing, return empty result
-	return map[string]string{}, nil
+	result := map[string]string{}
+	tp.events.Push(InspectEvent{
+		From:   tp.pid,
+		Target: target,
+		Items:  item,
+		Result: result,
+	})
+	return result, nil
 }
 
-func (tp *TestProcess) InspectMeta(meta gen.Alias, item ...string) (map[string]string, error) {
-	// For testing, return empty result
-	return map[string]string{}, nil
+func (tp *TestProcess) InspectMeta(alias gen.Alias, item ...string) (map[string]string, error) {
+	result := map[string]string{}
+	tp.events.Push(InspectMetaEvent{
+		From:   tp.pid,
+		Target: alias,
+		Items:  item,
+		Result: result,
+	})
+	return result, nil
 }
 
 // Missing Events method

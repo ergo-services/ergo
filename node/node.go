@@ -1241,6 +1241,152 @@ handleResponse:
 	return response, nil
 }
 
+func (n *node) Inspect(target gen.PID, item ...string) (map[string]string, error) {
+	if n.isRunning() == false {
+		return nil, gen.ErrNodeTerminated
+	}
+
+	if target.Node != n.name {
+		// inspecting remote process is not allowed
+		return nil, gen.ErrNotAllowed
+	}
+
+	ref := n.MakeRef()
+
+	value, found := n.processes.Load(target)
+	if found == false {
+		return nil, gen.ErrProcessUnknown
+	}
+	targetp := value.(*process)
+
+	if alive := targetp.isAlive(); alive == false {
+		return nil, gen.ErrProcessTerminated
+	}
+
+	call := takeNodeCall()
+	n.calls.Store(ref, call)
+	defer n.calls.Delete(ref)
+
+	qm := gen.TakeMailboxMessage()
+	qm.Ref = ref
+	qm.From = n.corePID
+	qm.Type = gen.MailboxMessageTypeInspect
+	qm.Message = item
+
+	if ok := targetp.mailbox.Urgent.Push(qm); ok == false {
+		releaseNodeCall(call)
+		return nil, gen.ErrProcessMailboxFull
+	}
+
+	targetp.run()
+
+	timer := lib.TakeTimer()
+	defer lib.ReleaseTimer(timer)
+	timer.Reset(time.Duration(gen.DefaultRequestTimeout) * time.Second)
+
+	select {
+	case <-call.done:
+		response := call.response
+		err := call.err
+		releaseNodeCall(call)
+		if err != nil {
+			return nil, err
+		}
+		return response.(map[string]string), nil
+	case <-timer.C:
+		// Check if response arrived at the same moment as timeout
+		select {
+		case <-call.done:
+			response := call.response
+			err := call.err
+			releaseNodeCall(call)
+			if err != nil {
+				return nil, err
+			}
+			return response.(map[string]string), nil
+		default:
+			// Don't release call - late response might arrive
+			return nil, gen.ErrTimeout
+		}
+	}
+}
+
+func (n *node) InspectMeta(alias gen.Alias, item ...string) (map[string]string, error) {
+	if n.isRunning() == false {
+		return nil, gen.ErrNodeTerminated
+	}
+
+	if alias.Node != n.name {
+		// inspecting remote meta process is not allowed
+		return nil, gen.ErrNotAllowed
+	}
+
+	value, found := n.aliases.Load(alias)
+	if found == false {
+		return nil, gen.ErrMetaUnknown
+	}
+
+	metap := value.(*process)
+	if alive := metap.isAlive(); alive == false {
+		return nil, gen.ErrProcessTerminated
+	}
+
+	value, found = metap.metas.Load(alias)
+	if found == false {
+		return nil, gen.ErrMetaUnknown
+	}
+
+	m := value.(*meta)
+	ref := n.MakeRef()
+
+	call := takeNodeCall()
+	n.calls.Store(ref, call)
+	defer n.calls.Delete(ref)
+
+	qm := gen.TakeMailboxMessage()
+	qm.Ref = ref
+	qm.From = n.corePID
+	qm.Type = gen.MailboxMessageTypeInspect
+	qm.Message = item
+
+	if ok := m.system.Push(qm); ok == false {
+		releaseNodeCall(call)
+		return nil, gen.ErrProcessMailboxFull
+	}
+
+	m.handle()
+
+	timer := lib.TakeTimer()
+	defer lib.ReleaseTimer(timer)
+	timer.Reset(time.Duration(gen.DefaultRequestTimeout) * time.Second)
+
+	select {
+	case <-call.done:
+		response := call.response
+		err := call.err
+		releaseNodeCall(call)
+		if err != nil {
+			return nil, err
+		}
+		return response.(map[string]string), nil
+	case <-timer.C:
+		// Check if response arrived at the same moment as timeout
+		select {
+		case <-call.done:
+			response := call.response
+			err := call.err
+			releaseNodeCall(call)
+			if err != nil {
+				return nil, err
+			}
+			return response.(map[string]string), nil
+		default:
+			// Don't release call - late response might arrive
+			return nil, gen.ErrTimeout
+		}
+	}
+}
+
 func (n *node) Kill(pid gen.PID) error {
 	if n.isRunning() == false {
 		return gen.ErrNodeTerminated
