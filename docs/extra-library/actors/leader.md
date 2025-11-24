@@ -299,21 +299,21 @@ type ActorBehavior interface {
 
 ### Mandatory Callbacks
 
-**Init** returns election configuration. The `Options` specify `ClusterID` (identifying which cluster this process belongs to), `Bootstrap` (initial peers to contact), and optional timing parameters for election and heartbeat intervals.
+`Init` returns election configuration. The `Options` specify `ClusterID` (identifying which cluster this process belongs to), `Bootstrap` (initial peers to contact), and optional timing parameters for election and heartbeat intervals.
 
-**HandleBecomeLeader** is called when this process becomes leader. Start exclusive work here - processing task queues, scheduling cron jobs, claiming resources. Return an error to reject leadership and trigger a new election.
+`HandleBecomeLeader` is called when this process becomes leader. Start exclusive work here - processing task queues, scheduling cron jobs, claiming resources. Return an error to reject leadership and trigger a new election.
 
-**HandleBecomeFollower** is called when this process follows a leader. The `leader` parameter identifies the leader's PID. If `leader` is empty (`gen.PID{}`), it means no leader is currently elected. Stop exclusive work here. Followers should redirect requests to the leader or buffer them until leadership is established.
+`HandleBecomeFollower` is called when this process follows a leader. The `leader` parameter identifies the leader's PID. If `leader` is empty (`gen.PID{}`), it means no leader is currently elected. Stop exclusive work here. Followers should redirect requests to the leader or buffer them until leadership is established.
 
 ### Optional Callbacks
 
-**HandlePeerJoined** notifies when a new peer joins the cluster. Use this to track cluster size for capacity planning, or to send initialization messages to newcomers.
+`HandlePeerJoined` notifies when a new peer joins the cluster. Use this to track cluster size for capacity planning, or to send initialization messages to newcomers.
 
-**HandlePeerLeft** notifies when a peer crashes or disconnects. Use this to detect cluster degradation or to clean up peer-specific state.
+`HandlePeerLeft` notifies when a peer crashes or disconnects. Use this to detect cluster degradation or to clean up peer-specific state.
 
-**HandleTermChanged** notifies when the election term increases. This is useful for distributed log replication or versioned command processing - the term can serve as a logical timestamp for ordering operations.
+`HandleTermChanged` notifies when the election term increases. This is useful for distributed log replication or versioned command processing - the term can serve as a logical timestamp for ordering operations.
 
-The other callbacks (**HandleMessage**, **HandleCall**, **Terminate**, **HandleInspect**) work as they do in regular actors. `leader.Actor` provides default implementations that log warnings, so you only override what you need.
+The other callbacks (`HandleMessage`, `HandleCall`, `Terminate`, `HandleInspect`) work as they do in regular actors. `leader.Actor` provides default implementations that log warnings, so you only override what you need.
 
 ### Error Handling
 
@@ -334,13 +334,13 @@ type Options struct {
 }
 ```
 
-**ClusterID** must match across all processes in the same election cluster. Processes with different cluster IDs ignore each other, allowing multiple independent elections in the same Ergo cluster.
+`ClusterID` must match across all processes in the same election cluster. Processes with different cluster IDs ignore each other, allowing multiple independent elections in the same Ergo cluster.
 
-**Bootstrap** lists the initial peers to contact on startup. Can be empty - in this case, use the `Join()` method to add peers dynamically. When provided, each process should include itself in the list. At startup, processes send vote requests to bootstrap peers even if they haven't discovered them yet. This accelerates initial election and cluster formation.
+`Bootstrap` lists the initial peers to contact on startup. Can be empty - in this case, use the `Join()` method to add peers dynamically. When provided, each process should include itself in the list. At startup, processes send vote requests to bootstrap peers even if they haven't discovered them yet. This accelerates initial election and cluster formation.
 
-**ElectionTimeoutMin** and **ElectionTimeoutMax** define the randomization range for election timeouts. Actual timeouts are randomly chosen from this range to reduce the chance of simultaneous elections. Defaults (150-300ms) work well for local networks.
+`ElectionTimeoutMin` and `ElectionTimeoutMax` define the randomization range for election timeouts. Actual timeouts are randomly chosen from this range to reduce the chance of simultaneous elections. Defaults (150-300ms) work well for local networks.
 
-**HeartbeatInterval** controls how often leaders send heartbeats. Must be significantly smaller than `ElectionTimeoutMin` - typically at least 3x smaller. The default (50ms) provides a 3x safety margin against the default election timeout.
+`HeartbeatInterval` controls how often leaders send heartbeats. Must be significantly smaller than `ElectionTimeoutMin` - typically at least 3x smaller. The default (50ms) provides a 3x safety margin against the default election timeout.
 
 ### Tuning for Network Conditions
 
