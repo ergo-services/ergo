@@ -442,11 +442,16 @@ Supervisors provide runtime inspection via the `HandleInspect` method, which is 
 The Observer UI displays this information in real-time, letting you monitor supervision trees, track restart patterns, and identify failing components. You can also query this data programmatically:
 
 ```go
+// From within a process context
 info, err := process.Inspect(supervisorPID)
+
+// Directly from the node
+info, err := node.Inspect(supervisorPID)
+
 // Returns map[string]string with metrics above
 ```
 
-This integration makes it easy to diagnose issues in production: check restart counts to identify unstable processes, verify child counts match expected scaling, monitor which instances have custom configurations.
+Both methods only work for local supervisors (same node). This integration makes it easy to diagnose issues in production: check restart counts to identify unstable processes, verify child counts match expected scaling, monitor which instances have custom configurations.
 
 ## Restart Intensity Behavior
 

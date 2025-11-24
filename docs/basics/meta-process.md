@@ -71,7 +71,7 @@ type MetaBehavior interface {
 
 `Terminate()` runs during shutdown regardless of how termination occurred. Close resources, flush buffers, clean up. Do not block or panic here.
 
-`HandleInspect()` returns diagnostic information as string key-value pairs. Used by monitoring tools.
+`HandleInspect()` returns diagnostic information as string key-value pairs. Used by monitoring tools. Inspect requests are sent to the system queue (high priority) and processed before regular messages. You can inspect meta processes from within a process context using `process.InspectMeta(alias)` or directly from the node using `node.InspectMeta(alias)`. Both methods only work for local meta processes (same node).
 
 ## Three States
 

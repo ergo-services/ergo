@@ -399,7 +399,7 @@ Events arrive in the System queue (high priority). Use them for cross-cutting co
 
 ### Inspection
 
-The `Inspect` method allows synchronous inspection of actor state (used by Observer and debugging tools):
+Actors can expose runtime state for monitoring and debugging via the `HandleInspect` callback:
 
 ```go
 func (w *Worker) HandleInspect(from gen.PID, item ...string) map[string]string {
@@ -411,7 +411,17 @@ func (w *Worker) HandleInspect(from gen.PID, item ...string) map[string]string {
 }
 ```
 
-Inspection requests go to the Urgent queue and bypass normal message processing. Keep the implementation fast - don't do expensive computations or I/O. Return only string values (serialization limitation).
+Inspect the actor from within a process context or directly from the node:
+
+```go
+// From within another process
+info, err := process.Inspect(workerPID)
+
+// Directly from the node
+info, err := node.Inspect(workerPID)
+```
+
+Both methods only work for local processes (same node). Inspection requests go to the Urgent queue and bypass normal message processing. Keep `HandleInspect` implementation fast - don't do expensive computations or I/O. Return only string values (serialization limitation). The optional `item` parameters allow filtering which fields to return, though most implementations ignore them and return all fields.
 
 ## Actor Pools
 
