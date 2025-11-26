@@ -1457,6 +1457,18 @@ func (n *node) RouteApplicationStart(
 	return app.start(mode, options)
 }
 
+func (n *node) RouteApplicationInfo(name gen.Atom) (gen.ApplicationInfo, error) {
+	if n.isRunning() == false {
+		return gen.ApplicationInfo{}, gen.ErrNodeTerminated
+	}
+
+	if lib.Trace() {
+		n.log.Trace("RouteApplicationInfo %s", name)
+	}
+
+	return n.ApplicationInfo(name)
+}
+
 func (n *node) RouteNodeDown(name gen.Atom, reason error) {
 	if lib.Trace() {
 		n.log.Trace("RouteNodeDown for %s ", name)

@@ -202,6 +202,40 @@ func (c *connection) applicationStart(name gen.Atom, mode gen.ApplicationMode, o
 	return result.Error
 }
 
+func (c *connection) ApplicationInfo(name gen.Atom) (gen.ApplicationInfo, error) {
+	var info gen.ApplicationInfo
+
+	ref := c.core.MakeRef()
+	message := MessageApplicationInfo{
+		Name: name,
+		Ref:  ref,
+	}
+
+	ch := make(chan MessageResult)
+	c.requestsMutex.Lock()
+	c.requests[ref] = ch
+	c.requestsMutex.Unlock()
+
+	if err := c.sendAny(message, 0, 0, gen.Compression{}); err != nil {
+		c.requestsMutex.Lock()
+		delete(c.requests, ref)
+		c.requestsMutex.Unlock()
+		return info, err
+	}
+
+	result := c.waitResult(ref, ch)
+	if result.Error != nil {
+		return info, result.Error
+	}
+
+	info, ok := result.Result.(gen.ApplicationInfo)
+	if ok == false {
+		return info, gen.ErrMalformed
+	}
+
+	return info, nil
+}
+
 func (c *connection) Creation() int64 {
 	return c.peer_creation
 }
@@ -2859,6 +2893,18 @@ func (c *connection) routeMessage(msg any) {
 		result := MessageResult{
 			Error: err,
 			Ref:   m.Ref,
+		}
+		order := uint8(0)
+		orderPeer := uint8(0)
+		c.sendAny(result, order, orderPeer, gen.Compression{})
+
+	case MessageApplicationInfo:
+		info, err := c.core.RouteApplicationInfo(m.Name)
+
+		result := MessageResult{
+			Error:  err,
+			Result: info,
+			Ref:    m.Ref,
 		}
 		order := uint8(0)
 		orderPeer := uint8(0)

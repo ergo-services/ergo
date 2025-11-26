@@ -178,14 +178,33 @@ pid, err := process.RemoteSpawnRegister(
 
 The same inheritance applies.
 
-### Parent Relationship
+### Parent Relationship and Inheritance
 
-When you spawn remotely from a process, the remote process's parent is the calling process's PID. This means:
-- If the caller uses `LinkChild: true` in options, the link is established after spawn
-- The remote process can send messages to its parent using `process.Parent()`
-- Termination signals respect the parent-child relationship
+Remote spawn behavior differs based on whether you spawn from a process or from the node:
 
-But be careful: the parent is on a different node. If the network connection drops, the parent-child relationship breaks. The remote process gets an exit signal (`gen.MessageExit`) for the parent, and may terminate if it was linked.
+**From a process (`process.RemoteSpawn`)**:
+
+The spawned process inherits attributes from the calling process:
+
+- **Parent PID**: Set to the calling process's PID
+- **Group Leader**: Set to the calling process's group leader
+- **Application**: Set to the calling process's application name (if caller belongs to an application)
+- **Log Level**: Inherits the calling process's log level
+- **Environment**: Inherits the calling process's environment (if `SecurityOptions.ExposeEnvRemoteSpawn` is enabled)
+
+The remote process can send messages to its parent using `process.Parent()`. If `LinkChild: true` is set in options, the link is established after spawn. However, the parent is on a different node - if the network connection drops, the remote process receives an exit signal for the lost parent and may terminate if linked.
+
+**From the node (`RemoteNode.Spawn`)**:
+
+The spawned process receives attributes from the requesting node's core:
+
+- **Parent PID**: Set to the requesting node's core PID
+- **Group Leader**: Set to the requesting node's core PID
+- **Application**: Not set (empty - process doesn't belong to any application)
+- **Log Level**: Inherits the requesting node's default log level
+- **Environment**: Inherits the requesting node's environment (if `SecurityOptions.ExposeEnvRemoteSpawn` is enabled)
+
+This creates independent processes without application affiliation. Use this for standalone remote workers that don't need to be part of an application's logical structure.
 
 ## Environment Variable Inheritance
 

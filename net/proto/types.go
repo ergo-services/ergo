@@ -171,6 +171,11 @@ type MessageApplicationStart struct {
 	Ref     gen.Ref
 }
 
+type MessageApplicationInfo struct {
+	Name gen.Atom
+	Ref  gen.Ref
+}
+
 // TODO
 // for updating cache
 //
@@ -217,6 +222,7 @@ func init() {
 		MessageDemonitorEvent{},
 		MessageSpawn{},
 		MessageApplicationStart{},
+		MessageApplicationInfo{},
 		MessageUpdateCache{},
 		MessageResult{},
 	}

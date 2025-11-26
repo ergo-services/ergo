@@ -45,6 +45,8 @@ func (a *MyApp) Load(node gen.Node, args ...any) (gen.ApplicationSpec, error) {
 
 The `Group` lists processes to start. Processes start in the order listed. If a process has a `Name`, it's registered with that name, making it discoverable. Processes without names are anonymous.
 
+Application names and process names exist in separate namespaces. An application named "api" and a process named "api" do not conflict - you can have both registered simultaneously. However, using the same name for both creates confusion when reading code or debugging. Avoid identical names even though the framework allows it.
+
 ## Application Modes
 
 The mode determines what happens when a process in the application terminates.
@@ -84,6 +86,108 @@ The application can stop itself based on its mode. In Transient or Permanent mod
 ## Environment and Configuration
 
 Applications have environment variables that all their processes inherit. These override node-level variables but are overridden by process-specific variables. This creates a natural layering: node provides defaults, application provides service-specific values, processes can override for their specific needs.
+
+## Tags for Instance Selection
+
+Running multiple instances of the same application across a cluster creates a selection problem. Which instance should handle the request? In blue/green deployments, you run two versions and route traffic based on readiness. Canary deployments send a percentage to the new version. Some instances enter maintenance mode while others serve production traffic.
+
+Tags provide metadata for making these decisions. Label each application instance with tags describing its deployment state, version, or role:
+
+```go
+func (a *MyApp) Load(node gen.Node, args ...any) (gen.ApplicationSpec, error) {
+    return gen.ApplicationSpec{
+        Name: "api_service",
+        Tags: []gen.Atom{"blue", "v2.1.0"},
+        // ... rest of spec
+    }, nil
+}
+```
+
+Tags are always available through `node.ApplicationInfo()` or `remoteNode.ApplicationInfo()`. For clusters using centralized registrars (etcd, Saturn), tags are also published during application route registration. This enables cluster-wide discovery: query the registrar and receive all application instances with their tags.
+
+The embedded in-memory registrar does not support application route registration, so tags in single-node or statically-routed deployments are only accessible via direct `ApplicationInfo()` calls, not through resolver queries.
+
+In clusters with centralized registrars:
+
+```go
+// Query registrar for all instances
+routes, err := resolver.ResolveApplication("api_service")
+// Returns []ApplicationRoute, each with Node, Tags, Weight, State
+
+// Filter by tag
+for _, route := range routes {
+    hasBlue := false
+    for _, tag := range route.Tags {
+        if tag == "blue" {
+            hasBlue = true
+            break
+        }
+    }
+    if hasBlue {
+        remoteNode, _ := network.GetNode(route.Node)
+        info, _ := remoteNode.ApplicationInfo("api_service")
+        // Use this instance
+    }
+}
+```
+
+Common tag patterns:
+- **Blue/green deployment**: "blue", "green"
+- **Canary rollout**: "canary", "stable"
+- **Maintenance state**: "maintenance", "active", "draining"
+- **Version tracking**: "v1.0.0", "v2.0.0"
+- **Geographic region**: "us-east", "eu-west"
+
+Tags separate deployment strategy from application code. Your application doesn't know it's the "blue" deployment - that's configuration. The routing logic queries tags and makes decisions based on current cluster state.
+
+## Process Role Mapping
+
+Applications contain multiple processes with specific responsibilities. An API server handles requests. A connection pool manages database connections. A cache manager stores frequently accessed data. These are logical roles, but the actual process names might be versioned, generated, or environment-specific.
+
+The `Map` field bridges this gap. Define a mapping from logical role (string) to actual process name (Atom):
+
+```go
+func (a *MyApp) Load(node gen.Node, args ...any) (gen.ApplicationSpec, error) {
+    return gen.ApplicationSpec{
+        Name: "backend",
+        Map: map[string]gen.Atom{
+            "api":   "api_server_v2",
+            "db":    "postgres_pool",
+            "cache": "redis_manager",
+        },
+        Group: []gen.ApplicationMemberSpec{
+            {Name: "api_server_v2", Factory: createAPI},
+            {Name: "postgres_pool", Factory: createDB},
+            {Name: "redis_manager", Factory: createCache},
+        },
+    }, nil
+}
+```
+
+To communicate with a process by role, get the application info, look up the role in the map, then use the returned name:
+
+```go
+// Query application info (works locally or remotely)
+info, err := node.ApplicationInfo("backend")
+// or: info, err := remoteNode.ApplicationInfo("backend")
+
+// Find process name by role
+apiName, found := info.Map["api"]
+if found {
+    // Use the actual process name to communicate
+    response, err := node.Call(apiName, APIRequest{})
+}
+```
+
+This works for both local and remote applications. When querying a remote application, `RemoteNode.ApplicationInfo()` retrieves the map from the remote node, letting you discover process names without prior knowledge of the remote application's internal structure.
+
+Why use mapping:
+- **Version changes**: Update "api_server_v2" to "api_server_v3" without changing client code
+- **Implementation swaps**: Map "db" to different pool implementations based on deployment
+- **Remote discovery**: Remote nodes query the map to find process names in foreign applications
+- **Stable interface**: Clients depend on roles ("api", "db"), not implementation details
+
+The map provides a service contract. External code knows the application has an "api" role and a "db" role. The actual implementations can change as long as the roles remain consistent.
 
 ## The Application Pattern
 

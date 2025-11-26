@@ -50,6 +50,7 @@ type Core interface {
 
 	RouteSpawn(node Atom, name Atom, options ProcessOptionsExtra, source Atom) (PID, error)
 	RouteApplicationStart(name Atom, mode ApplicationMode, options ApplicationOptionsExtra, source Atom) error
+	RouteApplicationInfo(name Atom) (ApplicationInfo, error)
 
 	RouteNodeDown(node Atom, reason error)
 

@@ -959,6 +959,7 @@ func (n *network) start(options gen.NetworkOptions) error {
 			Node:   n.node.Name(),
 			Name:   info.Name,
 			Weight: info.Weight,
+			Tags:   info.Tags,
 			Mode:   info.Mode,
 		}
 		appRoutes = append(appRoutes, r)

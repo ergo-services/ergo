@@ -185,6 +185,13 @@ type RemoteNode interface {
 	// Permanent: application never stops on child termination.
 	ApplicationStartPermanent(name Atom, options ApplicationOptions) error
 
+	// ApplicationInfo returns information about an application running on the remote node.
+	// Queries the remote node for application details including state, mode, uptime, children, etc.
+	// Returns ErrApplicationUnknown if application doesn't exist on remote node.
+	// Returns ErrTimeout if remote doesn't respond within DefaultRequestTimeout.
+	// Returns ErrNoConnection if connection to remote node is lost.
+	ApplicationInfo(name Atom) (ApplicationInfo, error)
+
 	// Creation returns the remote node creation timestamp.
 	// Used to detect node restarts (creation time changes on restart).
 	Creation() int64

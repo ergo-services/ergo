@@ -9,23 +9,24 @@ package gen
 // - If port taken, connects to existing registrar on localhost (TCP client)
 // - Same host: nodes discover each other via local registrar server
 // - Different hosts: queries remote host's registrar via UDP (host:41000)
-//   • Remote host must have registrar server running
-//   • Remote host must be reachable and port open
-//   • No persistent connection - query on-demand only
+//   - Remote host must have registrar server running
+//   - Remote host must be reachable and port open
+//   - No persistent connection - query on-demand only
+//
 // - Limited features: basic route resolution only
 // - No centralized config, proxy routes, application routes, or events
 //
 // For distributed clusters across multiple hosts, configure external registrar:
 // - etcd registrar: uses etcd for distributed discovery and configuration
-//   • Nodes on any host discover each other automatically
-//   • Centralized configuration via etcd key-value store
-//   • Application route advertisement and discovery
-//   • Full feature support
+//   - Nodes on any host discover each other automatically
+//   - Centralized configuration via etcd key-value store
+//   - Application route advertisement and discovery
+//   - Full feature support
 //
 // - Saturn registrar: embedded Raft-based distributed registry
-//   • One node runs Saturn server, others connect as clients
-//   • Automatic discovery across hosts
-//   • No external dependencies (self-contained)
+//   - One node runs Saturn server, others connect as clients
+//   - Automatic discovery across hosts
+//   - No external dependencies (self-contained)
 //
 // Features marked "if registrar supports" are optional capabilities.
 // Check RegistrarInfo to see which features are available.
@@ -243,6 +244,12 @@ type ApplicationRoute struct {
 
 	// Mode is the application starting mode (Temporary, Transient, Permanent).
 	Mode ApplicationMode
+
+	// Tags is a list of labels for filtering and selecting application instances.
+	// Used for deployment strategies like blue/green, canary, or marking maintenance mode.
+	// Resolver returns all matching applications, allowing selection based on tags.
+	// Examples: "blue", "green", "canary", "stable", "maintenance".
+	Tags []Atom
 
 	// State is the current application state (Loaded, Running, Stopped).
 	State ApplicationState

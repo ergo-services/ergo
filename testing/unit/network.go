@@ -429,6 +429,13 @@ func (rn *TestRemoteNode) ApplicationStartPermanent(name gen.Atom, options gen.A
 	return nil // Mock success
 }
 
+func (rn *TestRemoteNode) ApplicationInfo(name gen.Atom) (gen.ApplicationInfo, error) {
+	return gen.ApplicationInfo{
+		Name:  name,
+		State: gen.ApplicationStateRunning,
+	}, nil
+}
+
 func (rn *TestRemoteNode) Creation() int64 {
 	return rn.creation
 }

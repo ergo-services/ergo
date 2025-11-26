@@ -157,7 +157,8 @@ func (a *application) terminate(pid gen.PID, reason error) {
 			// already in stopping
 			break
 		}
-		a.node.Log().Info("application %s (%s) will be stopped due to termination of %s with reason: %s", a.spec.Name, a.mode, pid, reason)
+		a.node.Log().
+			Info("application %s (%s) will be stopped due to termination of %s with reason: %s", a.spec.Name, a.mode, pid, reason)
 		a.reason = reason
 		a.group.Range(func(pid gen.PID, _ bool) bool {
 			a.node.SendExit(pid, gen.TerminateReasonShutdown)
@@ -168,7 +169,8 @@ func (a *application) terminate(pid gen.PID, reason error) {
 			// do nothing
 			break
 		}
-		a.node.Log().Info("application %s (%s) will be stopped due to termination of %s with reason: %s", a.spec.Name, a.mode, pid, reason)
+		a.node.Log().
+			Info("application %s (%s) will be stopped due to termination of %s with reason: %s", a.spec.Name, a.mode, pid, reason)
 
 		state := atomic.SwapInt32(&a.state, int32(gen.ApplicationStateStopping))
 		if state == int32(gen.ApplicationStateStopping) {
@@ -229,10 +231,26 @@ func (a *application) info() gen.ApplicationInfo {
 	var info gen.ApplicationInfo
 	info.Name = a.spec.Name
 	info.Weight = a.spec.Weight
+
+	// copy tags slice
+	if len(a.spec.Tags) > 0 {
+		info.Tags = make([]gen.Atom, len(a.spec.Tags))
+		copy(info.Tags, a.spec.Tags)
+	}
+
+	// copy map
+	if len(a.spec.Map) > 0 {
+		info.Map = make(map[string]gen.Atom, len(a.spec.Map))
+		for k, v := range a.spec.Map {
+			info.Map[k] = v
+		}
+	}
+
 	info.Description = a.spec.Description
 	info.Version = a.spec.Version
 	info.Depends = a.spec.Depends
 	info.Mode = a.mode
+	info.Parent = a.parent
 	info.Uptime = time.Now().Unix() - a.started
 	info.Group = []gen.PID{}
 	a.group.Range(func(pid gen.PID, _ bool) bool {
@@ -264,6 +282,7 @@ func (a *application) registerAppRoute() {
 		Node:   a.node.name,
 		Name:   a.spec.Name,
 		Weight: a.spec.Weight,
+		Tags:   a.spec.Tags,
 		Mode:   a.mode,
 		State:  gen.ApplicationState(a.state),
 	}

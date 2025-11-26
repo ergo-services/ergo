@@ -144,17 +144,37 @@ The mode affects how the remote node's application supervisor handles terminatio
 
 For details on application modes, see [Application Startup Modes](../basics/application.md#application-startup-modes).
 
-## Application Parent
+## Application Parent and Process Hierarchy
 
-When an application starts remotely, its `Parent` property is set to the name of the node that initiated the start. This is informational - it doesn't create a supervision relationship across nodes. The application is supervised by the remote node's application supervisor, not by the requesting node.
+When an application starts remotely, parent tracking is set at multiple levels:
+
+**Application Parent**: Set to the requesting node name:
 
 ```go
-// On the remote node, after application starts
+// On the remote node
 info, err := node.ApplicationInfo("workers")
-// info.Parent will be "scheduler@node1" (the requesting node)
+// info.Parent == "scheduler@node1" (requesting node name)
 ```
 
-This parent information is useful for tracking which node started which applications, for auditing, for debugging, or for coordination logic. But terminating the requesting node doesn't affect the running application on the remote node.
+**Process Parent for Group Members**: Processes started directly by the application (listed in `Group`) receive the requesting node's core PID as their parent:
+
+```go
+processInfo, err := node.ProcessInfo(workerPID)
+// processInfo.Parent == <scheduler@node1.0.1> (core PID of requesting node)
+```
+
+**Process Parent for Descendants**: If those processes spawn children, the children receive their spawning process PID as parent (normal process hierarchy):
+
+```go
+// Worker spawns a child process
+childPID, _ := worker.Spawn(factory, options)
+childInfo, _ := node.ProcessInfo(childPID)
+// childInfo.Parent == workerPID (not the remote core PID)
+```
+
+Only the first-level processes (application group members) have the cross-node parent relationship. Subsequent generations follow standard process parent-child relationships within the local node.
+
+This parent information is for tracking and auditing, not supervision. The application is supervised by the local application supervisor on the remote node. Terminating the requesting node does not affect the running application.
 
 ## Environment Variable Inheritance
 
