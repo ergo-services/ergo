@@ -63,7 +63,7 @@ func TestRegisterEvent_Duplicate(t *testing.T) {
 // Test LinkEvent local - first subscriber gets EventStart
 func TestLinkEvent_Local_FirstSubscriber_EventStart(t *testing.T) {
 	core := newMockCore("node1")
-	tm := Create(core, Options{Dispatchers: 1}).(*targetManager)
+	tm := Create(core, Options{}).(*targetManager)
 
 	producer := gen.PID{Node: "node1", ID: 100}
 	consumer := gen.PID{Node: "node1", ID: 101}
@@ -108,7 +108,7 @@ func TestLinkEvent_Local_FirstSubscriber_EventStart(t *testing.T) {
 // Test LinkEvent local - second subscriber NO EventStart
 func TestLinkEvent_Local_SecondSubscriber_NoEventStart(t *testing.T) {
 	core := newMockCore("node1")
-	tm := Create(core, Options{Dispatchers: 1}).(*targetManager)
+	tm := Create(core, Options{}).(*targetManager)
 
 	producer := gen.PID{Node: "node1", ID: 100}
 	consumer1 := gen.PID{Node: "node1", ID: 101}
@@ -142,7 +142,7 @@ func TestLinkEvent_Local_SecondSubscriber_NoEventStart(t *testing.T) {
 // Test UnlinkEvent local - last subscriber gets EventStop
 func TestUnlinkEvent_Local_LastSubscriber_EventStop(t *testing.T) {
 	core := newMockCore("node1")
-	tm := Create(core, Options{Dispatchers: 1}).(*targetManager)
+	tm := Create(core, Options{}).(*targetManager)
 
 	producer := gen.PID{Node: "node1", ID: 100}
 	consumer := gen.PID{Node: "node1", ID: 101}
@@ -304,7 +304,7 @@ func TestLinkEvent_Remote_SecondSubscriber_Buffered_SendsNetwork(t *testing.T) {
 // Test PublishEvent - fanout to subscribers
 func TestPublishEvent_Fanout(t *testing.T) {
 	core := newMockCore("node1")
-	tm := Create(core, Options{Dispatchers: 1}).(*targetManager)
+	tm := Create(core, Options{}).(*targetManager)
 
 	producer := gen.PID{Node: "node1", ID: 100}
 	consumer1 := gen.PID{Node: "node1", ID: 101}
@@ -445,7 +445,7 @@ func TestPublishEvent_BufferOverflow(t *testing.T) {
 // Test UnregisterEvent - sends exit to all subscribers
 func TestUnregisterEvent_SendsExit(t *testing.T) {
 	core := newMockCore("node1")
-	tm := Create(core, Options{Dispatchers: 1}).(*targetManager)
+	tm := Create(core, Options{}).(*targetManager)
 
 	producer := gen.PID{Node: "node1", ID: 100}
 	consumer1 := gen.PID{Node: "node1", ID: 101}
@@ -510,7 +510,7 @@ func TestUnregisterEvent_SendsExit(t *testing.T) {
 // Test MonitorEvent local - shares counter with LinkEvent
 func TestMonitorEvent_Local_SharesCounter(t *testing.T) {
 	core := newMockCore("node1")
-	tm := Create(core, Options{Dispatchers: 1}).(*targetManager)
+	tm := Create(core, Options{}).(*targetManager)
 
 	producer := gen.PID{Node: "node1", ID: 100}
 	linkConsumer := gen.PID{Node: "node1", ID: 101}
@@ -545,7 +545,7 @@ func TestMonitorEvent_Local_SharesCounter(t *testing.T) {
 // Test Unlink + Demonitor - EventStop only when both gone
 func TestUnlinkDemonitor_EventStop_WhenBothGone(t *testing.T) {
 	core := newMockCore("node1")
-	tm := Create(core, Options{Dispatchers: 1}).(*targetManager)
+	tm := Create(core, Options{}).(*targetManager)
 
 	producer := gen.PID{Node: "node1", ID: 100}
 	linkConsumer := gen.PID{Node: "node1", ID: 101}
@@ -671,7 +671,7 @@ func TestLinkEvent_BufferDelivery(t *testing.T) {
 // Test PublishEvent - mixed link and monitor subscribers
 func TestPublishEvent_MixedSubscribers(t *testing.T) {
 	core := newMockCore("node1")
-	tm := Create(core, Options{Dispatchers: 1}).(*targetManager)
+	tm := Create(core, Options{}).(*targetManager)
 
 	producer := gen.PID{Node: "node1", ID: 100}
 	linkConsumer := gen.PID{Node: "node1", ID: 101}

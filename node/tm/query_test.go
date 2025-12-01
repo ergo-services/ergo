@@ -778,7 +778,7 @@ func TestLinkAndMonitor_SameTarget_SeparateRelations(t *testing.T) {
 
 func TestEventsFor_Basic(t *testing.T) {
 	core := newMockCore("node1")
-	tm := Create(core, Options{Dispatchers: 1}).(*targetManager)
+	tm := Create(core, Options{}).(*targetManager)
 
 	producer := gen.PID{Node: "node1", ID: 100}
 
@@ -821,7 +821,7 @@ func TestEventsFor_Basic(t *testing.T) {
 
 func TestEventsFor_UnknownProducer(t *testing.T) {
 	core := newMockCore("node1")
-	tm := Create(core, Options{Dispatchers: 1}).(*targetManager)
+	tm := Create(core, Options{}).(*targetManager)
 
 	producer := gen.PID{Node: "node1", ID: 100}
 	other := gen.PID{Node: "node1", ID: 200}
@@ -839,7 +839,7 @@ func TestEventsFor_UnknownProducer(t *testing.T) {
 
 func TestEventsFor_AfterUnregister(t *testing.T) {
 	core := newMockCore("node1")
-	tm := Create(core, Options{Dispatchers: 1}).(*targetManager)
+	tm := Create(core, Options{}).(*targetManager)
 
 	producer := gen.PID{Node: "node1", ID: 100}
 
@@ -880,7 +880,7 @@ func TestEventsFor_AfterUnregister(t *testing.T) {
 
 func TestEventsFor_Empty(t *testing.T) {
 	core := newMockCore("node1")
-	tm := Create(core, Options{Dispatchers: 1}).(*targetManager)
+	tm := Create(core, Options{}).(*targetManager)
 
 	producer := gen.PID{Node: "node1", ID: 100}
 
@@ -893,7 +893,7 @@ func TestEventsFor_Empty(t *testing.T) {
 
 func TestEventsFor_AfterUnregisterAll(t *testing.T) {
 	core := newMockCore("node1")
-	tm := Create(core, Options{Dispatchers: 1}).(*targetManager)
+	tm := Create(core, Options{}).(*targetManager)
 
 	producer := gen.PID{Node: "node1", ID: 100}
 
@@ -928,7 +928,7 @@ func TestEventsFor_AfterUnregisterAll(t *testing.T) {
 
 func TestEventsFor_MultipleProducers(t *testing.T) {
 	core := newMockCore("node1")
-	tm := Create(core, Options{Dispatchers: 1}).(*targetManager)
+	tm := Create(core, Options{}).(*targetManager)
 
 	producer1 := gen.PID{Node: "node1", ID: 100}
 	producer2 := gen.PID{Node: "node1", ID: 101}

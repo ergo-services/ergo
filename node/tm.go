@@ -34,14 +34,20 @@ func (b *tmBridge) RouteSendPID(from gen.PID, to gen.PID, options gen.MessageOpt
 	return b.node.RouteSendPID(from, to, options, message)
 }
 
-// RouteSendExitMessage sends exit message with preserved type (MessageExitPID, MessageExitProcessID, etc.)
-func (b *tmBridge) RouteSendExitMessage(from gen.PID, to gen.PID, message any) error {
-	return b.node.sendExitMessage(from, to, message)
+// RouteSendExitMessages sends exit messages in batch
+func (b *tmBridge) RouteSendExitMessages(from gen.PID, to []gen.PID, message any) error {
+	for _, pid := range to {
+		b.node.sendExitMessage(from, pid, message)
+	}
+	return nil
 }
 
-// RouteSendEventMessage sends event message with MailboxMessageTypeEvent type (local only)
-func (b *tmBridge) RouteSendEventMessage(from gen.PID, to gen.PID, options gen.MessageOptions, message gen.MessageEvent) error {
-	return b.node.sendEventMessage(from, to, options.Priority, message)
+// RouteSendEventMessages sends event messages in batch (local only)
+func (b *tmBridge) RouteSendEventMessages(from gen.PID, to []gen.PID, options gen.MessageOptions, message gen.MessageEvent) error {
+	for _, pid := range to {
+		b.node.sendEventMessage(from, pid, options.Priority, message)
+	}
+	return nil
 }
 
 // GetConnection returns network connection to remote node

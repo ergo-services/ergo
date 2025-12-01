@@ -9,7 +9,7 @@ import (
 
 // targetManager implements gen.TargetManager interface
 type targetManager struct {
-	mutex sync.Mutex
+	mutex sync.RWMutex
 
 	core gen.CoreTargetManager
 
@@ -22,10 +22,7 @@ type targetManager struct {
 	events         map[gen.Event]*eventEntry
 	producerEvents map[gen.PID]map[gen.Event]struct{} // producer -> events index
 
-	// Dispatchers for async message delivery
-	dispatchers []*dispatcher
-
-	// Statistics (atomic - accessed from dispatcher goroutines)
+	// Statistics
 	exitSignalsProduced   atomic.Int64
 	exitSignalsDelivered  atomic.Int64
 	downMessagesProduced  atomic.Int64
@@ -54,25 +51,19 @@ type eventEntry struct {
 	bufferSize int
 
 	// Subscribers (links and monitors separately)
-	linkSubscribers    map[gen.PID]struct{}
-	monitorSubscribers map[gen.PID]struct{}
+	// Slice for fast iteration, map for O(1) lookup/delete
+	linkSubscribers      []gen.PID
+	linkSubscribersIndex map[gen.PID]int
+
+	monitorSubscribers      []gen.PID
+	monitorSubscribersIndex map[gen.PID]int
 
 	subscriberCount int64
 }
 
-const (
-	defaultDispatchers = 3
-)
-
-type Options struct {
-	Dispatchers int //default 3
-}
+type Options struct{}
 
 func Create(core gen.CoreTargetManager, options Options) gen.TargetManager {
-	if options.Dispatchers == 0 {
-		options.Dispatchers = defaultDispatchers
-	}
-
 	tm := &targetManager{
 		core:             core,
 		linkRelations:    make(map[relationKey]struct{}),
@@ -80,20 +71,14 @@ func Create(core gen.CoreTargetManager, options Options) gen.TargetManager {
 		targetIndex:      make(map[any]*targetEntry),
 		events:           make(map[gen.Event]*eventEntry),
 		producerEvents:   make(map[gen.PID]map[gen.Event]struct{}),
-		dispatchers:      make([]*dispatcher, options.Dispatchers),
-	}
-
-	// Create dispatchers
-	for i := 0; i < options.Dispatchers; i++ {
-		tm.dispatchers[i] = newDispatcher(tm, core)
 	}
 
 	return tm
 }
 
 func (tm *targetManager) Info() gen.TargetManagerInfo {
-	tm.mutex.Lock()
-	defer tm.mutex.Unlock()
+	tm.mutex.RLock()
+	defer tm.mutex.RUnlock()
 
 	return gen.TargetManagerInfo{
 		Links:                 int64(len(tm.linkRelations)),

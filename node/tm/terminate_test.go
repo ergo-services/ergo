@@ -10,7 +10,7 @@ import (
 // Test TerminatedTargetPID - sends exit to link subscribers
 func TestTerminatedTargetPID_LinkSubscribers(t *testing.T) {
 	core := newMockCore("node1")
-	tm := Create(core, Options{Dispatchers: 1}).(*targetManager)
+	tm := Create(core, Options{}).(*targetManager)
 
 	target := gen.PID{Node: "node1", ID: 200}
 	consumer1 := gen.PID{Node: "node1", ID: 100}
@@ -48,7 +48,7 @@ func TestTerminatedTargetPID_LinkSubscribers(t *testing.T) {
 // Test TerminatedTargetPID - sends down to monitor subscribers
 func TestTerminatedTargetPID_MonitorSubscribers(t *testing.T) {
 	core := newMockCore("node1")
-	tm := Create(core, Options{Dispatchers: 1}).(*targetManager)
+	tm := Create(core, Options{}).(*targetManager)
 
 	target := gen.PID{Node: "node1", ID: 200}
 	consumer1 := gen.PID{Node: "node1", ID: 100}
@@ -80,7 +80,7 @@ func TestTerminatedTargetPID_MonitorSubscribers(t *testing.T) {
 // Test TerminatedTargetPID - mixed link and monitor
 func TestTerminatedTargetPID_Mixed(t *testing.T) {
 	core := newMockCore("node1")
-	tm := Create(core, Options{Dispatchers: 1}).(*targetManager)
+	tm := Create(core, Options{}).(*targetManager)
 
 	target := gen.PID{Node: "node1", ID: 200}
 	consumer1 := gen.PID{Node: "node1", ID: 100}
@@ -126,7 +126,7 @@ func TestTerminatedTargetPID_Mixed(t *testing.T) {
 // Test TerminatedTargetProcessID
 func TestTerminatedTargetProcessID(t *testing.T) {
 	core := newMockCore("node1")
-	tm := Create(core, Options{Dispatchers: 1}).(*targetManager)
+	tm := Create(core, Options{}).(*targetManager)
 
 	target := gen.ProcessID{Node: "node1", Name: "test"}
 	consumer := gen.PID{Node: "node1", ID: 100}
@@ -159,7 +159,7 @@ func TestTerminatedTargetProcessID(t *testing.T) {
 // Test TerminatedTargetAlias
 func TestTerminatedTargetAlias(t *testing.T) {
 	core := newMockCore("node1")
-	tm := Create(core, Options{Dispatchers: 1}).(*targetManager)
+	tm := Create(core, Options{}).(*targetManager)
 
 	target := gen.Alias{Node: "node1", ID: [3]uint64{1, 2, 3}}
 	consumer := gen.PID{Node: "node1", ID: 100}
@@ -191,7 +191,7 @@ func TestTerminatedTargetAlias(t *testing.T) {
 // Test TerminatedTargetNode - consumer on terminated node
 func TestTerminatedTargetNode_RemoteConsumer(t *testing.T) {
 	core := newMockCore("node1")
-	tm := Create(core, Options{Dispatchers: 1}).(*targetManager)
+	tm := Create(core, Options{}).(*targetManager)
 
 	localTarget := gen.PID{Node: "node1", ID: 200}
 	remoteConsumer := gen.PID{Node: "node2", ID: 100}
@@ -226,7 +226,7 @@ func TestTerminatedTargetNode_RemoteConsumer(t *testing.T) {
 // Test TerminatedTargetNode - target on terminated node
 func TestTerminatedTargetNode_RemoteTarget(t *testing.T) {
 	core := newMockCore("node1")
-	tm := Create(core, Options{Dispatchers: 1}).(*targetManager)
+	tm := Create(core, Options{}).(*targetManager)
 
 	localConsumer := gen.PID{Node: "node1", ID: 100}
 	remoteTarget := gen.PID{Node: "node2", ID: 200}
@@ -261,7 +261,7 @@ func TestTerminatedTargetNode_RemoteTarget(t *testing.T) {
 // Test TerminatedTargetNode - mixed (consumer AND target on node2)
 func TestTerminatedTargetNode_Mixed(t *testing.T) {
 	core := newMockCore("node1")
-	tm := Create(core, Options{Dispatchers: 1}).(*targetManager)
+	tm := Create(core, Options{}).(*targetManager)
 
 	localConsumer := gen.PID{Node: "node1", ID: 100}
 	remoteTarget := gen.PID{Node: "node2", ID: 200}
@@ -301,7 +301,7 @@ func TestTerminatedTargetNode_Mixed(t *testing.T) {
 // Test TerminatedTargetNode - events from terminated node cleaned
 func TestTerminatedTargetNode_EventsCleaned(t *testing.T) {
 	core := newMockCore("node1")
-	tm := Create(core, Options{Dispatchers: 1}).(*targetManager)
+	tm := Create(core, Options{}).(*targetManager)
 
 	// Manually add event from node2
 	event := gen.Event{Node: "node2", Name: "test"}
@@ -323,7 +323,7 @@ func TestTerminatedTargetNode_EventsCleaned(t *testing.T) {
 // Test TerminatedTargetProcessID with monitors
 func TestTerminatedTargetProcessID_Monitors(t *testing.T) {
 	core := newMockCore("node1")
-	tm := Create(core, Options{Dispatchers: 1}).(*targetManager)
+	tm := Create(core, Options{}).(*targetManager)
 
 	target := gen.ProcessID{Node: "node1", Name: "test"}
 	consumer := gen.PID{Node: "node1", ID: 100}
@@ -356,7 +356,7 @@ func TestTerminatedTargetProcessID_Monitors(t *testing.T) {
 // Test TerminatedTargetAlias with monitors
 func TestTerminatedTargetAlias_Monitors(t *testing.T) {
 	core := newMockCore("node1")
-	tm := Create(core, Options{Dispatchers: 1}).(*targetManager)
+	tm := Create(core, Options{}).(*targetManager)
 
 	target := gen.Alias{Node: "node1", ID: [3]uint64{1, 2, 3}}
 	consumer := gen.PID{Node: "node1", ID: 100}
@@ -382,7 +382,7 @@ func TestTerminatedTargetAlias_Monitors(t *testing.T) {
 // Test dispatchers work in parallel
 func TestDispatchers_Parallel(t *testing.T) {
 	core := newMockCore("node1")
-	tm := Create(core, Options{Dispatchers: 3}).(*targetManager)
+	tm := Create(core, Options{}).(*targetManager)
 
 	target := gen.PID{Node: "node1", ID: 200}
 
@@ -412,7 +412,7 @@ func TestDispatchers_Parallel(t *testing.T) {
 // Test TerminatedTargetNode - multiple target types
 func TestTerminatedTargetNode_MultipleTypes(t *testing.T) {
 	core := newMockCore("node1")
-	tm := Create(core, Options{Dispatchers: 1}).(*targetManager)
+	tm := Create(core, Options{}).(*targetManager)
 
 	consumer := gen.PID{Node: "node1", ID: 100}
 
@@ -457,7 +457,7 @@ func TestTerminatedTargetNode_MultipleTypes(t *testing.T) {
 // Test TerminatedTargetNode - no subscribers (no crash)
 func TestTerminatedTargetNode_NoSubscribers(t *testing.T) {
 	core := newMockCore("node1")
-	tm := Create(core, Options{Dispatchers: 1}).(*targetManager)
+	tm := Create(core, Options{}).(*targetManager)
 
 	// No subscribers
 
@@ -475,7 +475,7 @@ func TestTerminatedTargetNode_NoSubscribers(t *testing.T) {
 // Test TerminatedProcess - cleanup links
 func TestTerminatedProcess_CleanupLinks(t *testing.T) {
 	core := newMockCore("node1")
-	tm := Create(core, Options{Dispatchers: 1}).(*targetManager)
+	tm := Create(core, Options{}).(*targetManager)
 
 	consumer := gen.PID{Node: "node1", ID: 100}
 	target1 := gen.PID{Node: "node1", ID: 200}
@@ -514,7 +514,7 @@ func TestTerminatedProcess_CleanupLinks(t *testing.T) {
 // Test TerminatedProcess - last subscriber triggers EventStop
 func TestTerminatedProcess_LastSubscriber_EventStop(t *testing.T) {
 	core := newMockCore("node1")
-	tm := Create(core, Options{Dispatchers: 1}).(*targetManager)
+	tm := Create(core, Options{}).(*targetManager)
 
 	producer := gen.PID{Node: "node1", ID: 100}
 	consumer := gen.PID{Node: "node1", ID: 101}
@@ -549,7 +549,7 @@ func TestTerminatedProcess_LastSubscriber_EventStop(t *testing.T) {
 // Test TerminatedProcess - not last subscriber, NO EventStop
 func TestTerminatedProcess_NotLast_NoEventStop(t *testing.T) {
 	core := newMockCore("node1")
-	tm := Create(core, Options{Dispatchers: 1}).(*targetManager)
+	tm := Create(core, Options{}).(*targetManager)
 
 	producer := gen.PID{Node: "node1", ID: 100}
 	consumer1 := gen.PID{Node: "node1", ID: 101}
@@ -597,7 +597,7 @@ func TestTerminatedProcess_NotLast_NoEventStop(t *testing.T) {
 // Test TerminatedProcess - remote event, last local subscriber
 func TestTerminatedProcess_RemoteEvent_LastLocal_SendsUnlink(t *testing.T) {
 	core := newMockCore("node1")
-	tm := Create(core, Options{Dispatchers: 1}).(*targetManager)
+	tm := Create(core, Options{}).(*targetManager)
 
 	consumer := gen.PID{Node: "node1", ID: 100}
 	event := gen.Event{Node: "node2", Name: "test"}
@@ -626,7 +626,7 @@ func TestTerminatedProcess_RemoteEvent_LastLocal_SendsUnlink(t *testing.T) {
 // Test TerminatedProcess - mixed link and monitor to event
 func TestTerminatedProcess_Event_LinkAndMonitor(t *testing.T) {
 	core := newMockCore("node1")
-	tm := Create(core, Options{Dispatchers: 1}).(*targetManager)
+	tm := Create(core, Options{}).(*targetManager)
 
 	producer := gen.PID{Node: "node1", ID: 100}
 	consumer := gen.PID{Node: "node1", ID: 101}
@@ -679,7 +679,7 @@ func TestTerminatedProcess_Event_LinkAndMonitor(t *testing.T) {
 // Test TerminatedEvent - link subscribers get exit
 func TestTerminatedEvent_LinkSubscribers(t *testing.T) {
 	core := newMockCore("node1")
-	tm := Create(core, Options{Dispatchers: 1}).(*targetManager)
+	tm := Create(core, Options{}).(*targetManager)
 
 	producer := gen.PID{Node: "node1", ID: 100}
 	consumer1 := gen.PID{Node: "node1", ID: 101}
@@ -718,7 +718,7 @@ func TestTerminatedEvent_LinkSubscribers(t *testing.T) {
 // Test TerminatedEvent - monitor subscribers get down
 func TestTerminatedEvent_MonitorSubscribers(t *testing.T) {
 	core := newMockCore("node1")
-	tm := Create(core, Options{Dispatchers: 1}).(*targetManager)
+	tm := Create(core, Options{}).(*targetManager)
 
 	producer := gen.PID{Node: "node1", ID: 100}
 	consumer1 := gen.PID{Node: "node1", ID: 101}
@@ -752,7 +752,7 @@ func TestTerminatedEvent_MonitorSubscribers(t *testing.T) {
 // Test TerminatedEvent - mixed link and monitor
 func TestTerminatedEvent_Mixed(t *testing.T) {
 	core := newMockCore("node1")
-	tm := Create(core, Options{Dispatchers: 1}).(*targetManager)
+	tm := Create(core, Options{}).(*targetManager)
 
 	producer := gen.PID{Node: "node1", ID: 100}
 	linkConsumer := gen.PID{Node: "node1", ID: 101}
@@ -801,7 +801,7 @@ func TestTerminatedEvent_Mixed(t *testing.T) {
 // Test TerminatedEvent - no subscribers (no crash)
 func TestTerminatedEvent_NoSubscribers(t *testing.T) {
 	core := newMockCore("node1")
-	tm := Create(core, Options{Dispatchers: 1}).(*targetManager)
+	tm := Create(core, Options{}).(*targetManager)
 
 	producer := gen.PID{Node: "node1", ID: 100}
 
@@ -830,7 +830,7 @@ func TestTerminatedEvent_NoSubscribers(t *testing.T) {
 // Test TerminatedTargetPID with remote CorePID subscriber
 func TestTerminatedTargetPID_RemoteCorePIDSubscriber(t *testing.T) {
 	core := newMockCore("node1")
-	tm := Create(core, Options{Dispatchers: 1}).(*targetManager)
+	tm := Create(core, Options{}).(*targetManager)
 
 	target := gen.PID{Node: "node1", ID: 200}
 	localConsumer := gen.PID{Node: "node1", ID: 100}
@@ -873,7 +873,7 @@ func TestTerminatedTargetPID_RemoteCorePIDSubscriber(t *testing.T) {
 // Test TerminatedProcess - producer cleanup notifies link subscribers
 func TestTerminatedProcess_ProducerCleanup_LinkSubscribers(t *testing.T) {
 	core := newMockCore("node1")
-	tm := Create(core, Options{Dispatchers: 1}).(*targetManager)
+	tm := Create(core, Options{}).(*targetManager)
 
 	producer := gen.PID{Node: "node1", ID: 100}
 	consumer1 := gen.PID{Node: "node1", ID: 101}
@@ -914,7 +914,7 @@ func TestTerminatedProcess_ProducerCleanup_LinkSubscribers(t *testing.T) {
 // Test TerminatedProcess - producer cleanup notifies monitor subscribers
 func TestTerminatedProcess_ProducerCleanup_MonitorSubscribers(t *testing.T) {
 	core := newMockCore("node1")
-	tm := Create(core, Options{Dispatchers: 1}).(*targetManager)
+	tm := Create(core, Options{}).(*targetManager)
 
 	producer := gen.PID{Node: "node1", ID: 100}
 	consumer1 := gen.PID{Node: "node1", ID: 101}
@@ -960,7 +960,7 @@ func TestTerminatedProcess_ProducerCleanup_MonitorSubscribers(t *testing.T) {
 // Test TerminatedProcess - producer with multiple events
 func TestTerminatedProcess_ProducerCleanup_MultipleEvents(t *testing.T) {
 	core := newMockCore("node1")
-	tm := Create(core, Options{Dispatchers: 1}).(*targetManager)
+	tm := Create(core, Options{}).(*targetManager)
 
 	producer := gen.PID{Node: "node1", ID: 100}
 	consumer := gen.PID{Node: "node1", ID: 101}
@@ -1010,7 +1010,7 @@ func TestTerminatedProcess_ProducerCleanup_MultipleEvents(t *testing.T) {
 // Test TerminatedProcess - producer cleanup cleans relations
 func TestTerminatedProcess_ProducerCleanup_RelationsCleaned(t *testing.T) {
 	core := newMockCore("node1")
-	tm := Create(core, Options{Dispatchers: 1}).(*targetManager)
+	tm := Create(core, Options{}).(*targetManager)
 
 	producer := gen.PID{Node: "node1", ID: 100}
 	consumer := gen.PID{Node: "node1", ID: 101}
@@ -1052,7 +1052,7 @@ func TestTerminatedProcess_ProducerCleanup_RelationsCleaned(t *testing.T) {
 // Test TerminatedProcess - producer with no events (no crash)
 func TestTerminatedProcess_ProducerCleanup_NoEvents(t *testing.T) {
 	core := newMockCore("node1")
-	tm := Create(core, Options{Dispatchers: 1}).(*targetManager)
+	tm := Create(core, Options{}).(*targetManager)
 
 	producer := gen.PID{Node: "node1", ID: 100}
 
@@ -1072,7 +1072,7 @@ func TestTerminatedProcess_ProducerCleanup_NoEvents(t *testing.T) {
 // Test TerminatedProcess - producer cleanup with remote subscribers
 func TestTerminatedProcess_ProducerCleanup_RemoteSubscribers(t *testing.T) {
 	core := newMockCore("node1")
-	tm := Create(core, Options{Dispatchers: 1}).(*targetManager)
+	tm := Create(core, Options{}).(*targetManager)
 
 	producer := gen.PID{Node: "node1", ID: 100}
 	localConsumer := gen.PID{Node: "node1", ID: 101}
@@ -1087,7 +1087,8 @@ func TestTerminatedProcess_ProducerCleanup_RemoteSubscribers(t *testing.T) {
 
 	// Simulate remote subscriber (as if from node2 via network)
 	entry := tm.events[event]
-	entry.linkSubscribers[remoteConsumer] = struct{}{}
+	entry.linkSubscribersIndex[remoteConsumer] = len(entry.linkSubscribers)
+	entry.linkSubscribers = append(entry.linkSubscribers, remoteConsumer)
 
 	core.resetSentExits()
 

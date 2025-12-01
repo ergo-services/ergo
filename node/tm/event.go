@@ -26,12 +26,12 @@ func (tm *targetManager) RegisterEvent(producer gen.PID, name gen.Atom, options 
 
 	// Create event entry
 	entry := &eventEntry{
-		producer:           producer,
-		token:              token,
-		notify:             options.Notify,
-		linkSubscribers:    make(map[gen.PID]struct{}),
-		monitorSubscribers: make(map[gen.PID]struct{}),
-		subscriberCount:    0,
+		producer:                producer,
+		token:                   token,
+		notify:                  options.Notify,
+		linkSubscribersIndex:    make(map[gen.PID]int),
+		monitorSubscribersIndex: make(map[gen.PID]int),
+		subscriberCount:         0,
 	}
 
 	// Create buffer if configured
@@ -66,39 +66,43 @@ func (tm *targetManager) UnregisterEvent(producer gen.PID, name gen.Atom) error 
 	}
 
 	// Collect all subscribers (links + monitors)
-	dispatcherIdx := 0
 	remoteNodes := make(map[gen.Atom]bool)
+	var localExitConsumers []gen.PID
+	var localDownConsumers []gen.PID
 
-	for consumer := range entry.linkSubscribers {
+	for _, consumer := range entry.linkSubscribers {
 		if consumer.Node == tm.core.Name() {
-			// LOCAL consumer
-			tm.dispatchers[dispatcherIdx].push(&dispatchTask{
-				from:    tm.core.PID(),
-				to:      consumer,
-				options: gen.MessageOptions{Priority: gen.MessagePriorityHigh},
-				message: gen.MessageExitEvent{Event: event, Reason: gen.ErrUnregistered},
-			})
-			dispatcherIdx = (dispatcherIdx + 1) % len(tm.dispatchers)
+			localExitConsumers = append(localExitConsumers, consumer)
 		} else {
-			// REMOTE consumer - collect node for network send
 			remoteNodes[consumer.Node] = true
 		}
 	}
 
-	for consumer := range entry.monitorSubscribers {
+	for _, consumer := range entry.monitorSubscribers {
 		if consumer.Node == tm.core.Name() {
-			// LOCAL consumer
-			tm.dispatchers[dispatcherIdx].push(&dispatchTask{
-				from:    tm.core.PID(),
-				to:      consumer,
-				options: gen.MessageOptions{Priority: gen.MessagePriorityHigh},
-				message: gen.MessageDownEvent{Event: event, Reason: gen.ErrUnregistered},
-			})
-			dispatcherIdx = (dispatcherIdx + 1) % len(tm.dispatchers)
+			localDownConsumers = append(localDownConsumers, consumer)
 		} else {
-			// REMOTE consumer - collect node for network send
 			remoteNodes[consumer.Node] = true
 		}
+	}
+
+	// Send exit messages to local link subscribers
+	if len(localExitConsumers) > 0 {
+		tm.core.RouteSendExitMessages(
+			tm.core.PID(),
+			localExitConsumers,
+			gen.MessageExitEvent{Event: event, Reason: gen.ErrUnregistered},
+		)
+	}
+
+	// Send down messages to local monitor subscribers
+	for _, consumer := range localDownConsumers {
+		tm.core.RouteSendPID(
+			tm.core.PID(),
+			consumer,
+			gen.MessageOptions{Priority: gen.MessagePriorityHigh},
+			gen.MessageDownEvent{Event: event, Reason: gen.ErrUnregistered},
+		)
 	}
 
 	// Send to remote nodes
@@ -140,114 +144,114 @@ func (tm *targetManager) UnregisterEvent(producer gen.PID, name gen.Atom) error 
 	return nil
 }
 
-func (tm *targetManager) PublishEvent(from gen.PID, token gen.Ref, options gen.MessageOptions, message gen.MessageEvent) error {
-	tm.mutex.Lock()
-	defer tm.mutex.Unlock()
-
+func (tm *targetManager) PublishEvent(
+	from gen.PID,
+	token gen.Ref,
+	options gen.MessageOptions,
+	message gen.MessageEvent,
+) error {
 	// Check if this is a LOCAL producer or REMOTE event
 	if from.Node == tm.core.Name() {
-		// LOCAL producer - validate token and deliver to all subscribers
+		// LOCAL producer - needs Lock (writes to buffer)
 		return tm.publishEventLocalProducer(from, token, options, message)
 	}
 
-	// REMOTE event - deliver to local subscribers only
+	// REMOTE event - needs only RLock (read-only)
+	tm.mutex.RLock()
+	defer tm.mutex.RUnlock()
 	return tm.publishEventRemoteProducer(from, options, message)
 }
 
-func (tm *targetManager) publishEventLocalProducer(from gen.PID, token gen.Ref, options gen.MessageOptions, message gen.MessageEvent) error {
+func (tm *targetManager) publishEventLocalProducer(
+	from gen.PID,
+	token gen.Ref,
+	options gen.MessageOptions,
+	message gen.MessageEvent,
+) error {
+	tm.mutex.Lock()
+
 	entry, exists := tm.events[message.Event]
 	if exists == false {
+		tm.mutex.Unlock()
 		return gen.ErrEventUnknown
 	}
 
 	// Validate token
 	if entry.token != token {
+		tm.mutex.Unlock()
 		return gen.ErrEventOwner
 	}
 
-	// Store in buffer (protected by mutex)
+	// Store in buffer if configured (needs write lock)
 	if entry.buffer != nil {
+		// Re-check after lock upgrade
+		entry, exists = tm.events[message.Event]
+		if exists == false || entry.token != token {
+			tm.mutex.Unlock()
+			return gen.ErrEventOwner
+		}
 		if len(entry.buffer) < entry.bufferSize {
-			// Buffer not full
 			entry.buffer = append(entry.buffer, message)
 		} else {
-			// Buffer full - shift and append (flush oldest)
 			copy(entry.buffer, entry.buffer[1:])
 			entry.buffer[entry.bufferSize-1] = message
 		}
 	}
 
+	// Copy slices under lock (minimize lock hold time)
+	linkSubs := entry.linkSubscribers
+	monitorSubs := entry.monitorSubscribers
+	tm.mutex.Unlock()
+
 	// Increment published counter
 	tm.eventsPublished.Add(1)
 
-	// Collect local tasks for batch dispatch
-	var localTasks []*dispatchTask
+	// Collect local consumers and remote nodes (no lock needed)
+	var localConsumers []gen.PID
 	remoteNodes := make(map[gen.Atom]bool)
-	dispatcherIdx := 0
 
 	// Fanout to link subscribers
-	for consumer := range entry.linkSubscribers {
+	for _, consumer := range linkSubs {
 		if consumer.Node != tm.core.Name() {
-			// REMOTE consumer - dispatch immediately per connection
-			if remoteNodes[consumer.Node] {
-				continue
-			}
 			remoteNodes[consumer.Node] = true
-			tm.dispatchers[dispatcherIdx].pushRemoteEvent(&dispatchRemoteEvent{
-				node:    consumer.Node,
-				from:    from,
-				options: options,
-				message: message,
-			})
-			dispatcherIdx = (dispatcherIdx + 1) % len(tm.dispatchers)
 			continue
 		}
-
-		// LOCAL consumer
-		localTasks = append(localTasks, &dispatchTask{
-			from:    from,
-			to:      consumer,
-			options: options,
-			message: message,
-		})
+		localConsumers = append(localConsumers, consumer)
 	}
 
 	// Fanout to monitor subscribers
-	for consumer := range entry.monitorSubscribers {
+	for _, consumer := range monitorSubs {
 		if consumer.Node != tm.core.Name() {
-			// REMOTE consumer - dispatch immediately per connection
-			if remoteNodes[consumer.Node] {
-				continue
-			}
 			remoteNodes[consumer.Node] = true
-			tm.dispatchers[dispatcherIdx].pushRemoteEvent(&dispatchRemoteEvent{
-				node:    consumer.Node,
-				from:    from,
-				options: options,
-				message: message,
-			})
-			dispatcherIdx = (dispatcherIdx + 1) % len(tm.dispatchers)
 			continue
 		}
-
-		// LOCAL consumer
-		localTasks = append(localTasks, &dispatchTask{
-			from:    from,
-			to:      consumer,
-			options: options,
-			message: message,
-		})
+		localConsumers = append(localConsumers, consumer)
 	}
 
-	// Batch dispatch local tasks
-	if len(localTasks) > 0 {
-		tm.dispatchers[0].pushBatch(&dispatchBatch{tasks: localTasks})
+	// Send to local consumers directly
+	if len(localConsumers) > 0 {
+		tm.core.RouteSendEventMessages(from, localConsumers, options, message)
+		tm.eventsSent.Add(int64(len(localConsumers)))
+	}
+
+	// Send to remote nodes
+	for node := range remoteNodes {
+		connection, err := tm.core.GetConnection(node)
+		if err != nil {
+			continue
+		}
+		connection.SendEvent(from, options, message)
+		tm.eventsSent.Add(1)
 	}
 
 	return nil
 }
 
-func (tm *targetManager) publishEventRemoteProducer(from gen.PID, options gen.MessageOptions, message gen.MessageEvent) error {
+func (tm *targetManager) publishEventRemoteProducer(
+	from gen.PID,
+	options gen.MessageOptions,
+	message gen.MessageEvent,
+) error {
 	// Remote event arrived - deliver to local subscribers only
 	entry := tm.targetIndex[message.Event]
 	if entry == nil {
@@ -257,23 +261,18 @@ func (tm *targetManager) publishEventRemoteProducer(from gen.PID, options gen.Me
 	// Increment published counter
 	tm.eventsPublished.Add(1)
 
-	// Collect local tasks for batch dispatch
-	var localTasks []*dispatchTask
+	// Collect local consumers for batch delivery
+	var localConsumers []gen.PID
 
 	for consumer := range entry.consumers {
 		if consumer.Node == tm.core.Name() {
-			localTasks = append(localTasks, &dispatchTask{
-				from:    from,
-				to:      consumer,
-				options: options,
-				message: message,
-			})
+			localConsumers = append(localConsumers, consumer)
 		}
-		// Remote consumer here would be a bug - skip silently
 	}
 
-	if len(localTasks) > 0 {
-		tm.dispatchers[0].pushBatch(&dispatchBatch{tasks: localTasks})
+	if len(localConsumers) > 0 {
+		tm.core.RouteSendEventMessages(from, localConsumers, options, message)
+		tm.eventsSent.Add(int64(len(localConsumers)))
 	}
 
 	return nil
@@ -317,20 +316,20 @@ func (tm *targetManager) linkEventLocal(consumer gen.PID, event gen.Event) ([]ge
 
 	// Add subscription
 	tm.linkRelations[key] = struct{}{}
-	entry.linkSubscribers[consumer] = struct{}{}
+	entry.linkSubscribersIndex[consumer] = len(entry.linkSubscribers)
+	entry.linkSubscribers = append(entry.linkSubscribers, consumer)
 
 	// Increment counter
 	entry.subscriberCount++
 
 	// Check if need to send EventStart
 	if entry.subscriberCount == 1 && entry.notify {
-		// First subscriber - send EventStart via dispatcher!
-		tm.dispatchers[0].push(&dispatchTask{
-			from:    tm.core.PID(),
-			to:      entry.producer,
-			options: gen.MessageOptions{Priority: gen.MessagePriorityHigh},
-			message: gen.MessageEventStart{Name: event.Name},
-		})
+		tm.core.RouteSendPID(
+			tm.core.PID(),
+			entry.producer,
+			gen.MessageOptions{Priority: gen.MessagePriorityHigh},
+			gen.MessageEventStart{Name: event.Name},
+		)
 	}
 
 	// Return buffer
@@ -443,19 +442,28 @@ func (tm *targetManager) unlinkEventLocal(consumer gen.PID, event gen.Event) err
 
 	// Remove subscription
 	delete(tm.linkRelations, key)
-	delete(entry.linkSubscribers, consumer)
+
+	// Swap-delete from slice
+	idx := entry.linkSubscribersIndex[consumer]
+	last := len(entry.linkSubscribers) - 1
+	if idx != last {
+		entry.linkSubscribers[idx] = entry.linkSubscribers[last]
+		entry.linkSubscribersIndex[entry.linkSubscribers[idx]] = idx
+	}
+	entry.linkSubscribers = entry.linkSubscribers[:last]
+	delete(entry.linkSubscribersIndex, consumer)
 
 	// Decrement counter
 	entry.subscriberCount--
 
 	// Send EventStop if last subscriber
 	if entry.subscriberCount == 0 && entry.notify {
-		tm.dispatchers[0].push(&dispatchTask{
-			from:    tm.core.PID(),
-			to:      entry.producer,
-			options: gen.MessageOptions{Priority: gen.MessagePriorityHigh},
-			message: gen.MessageEventStop{Name: event.Name},
-		})
+		tm.core.RouteSendPID(
+			tm.core.PID(),
+			entry.producer,
+			gen.MessageOptions{Priority: gen.MessagePriorityHigh},
+			gen.MessageEventStop{Name: event.Name},
+		)
 	}
 
 	return nil
@@ -546,19 +554,20 @@ func (tm *targetManager) monitorEventLocal(consumer gen.PID, event gen.Event) ([
 
 	// Add subscription
 	tm.monitorRelations[key] = struct{}{}
-	entry.monitorSubscribers[consumer] = struct{}{}
+	entry.monitorSubscribersIndex[consumer] = len(entry.monitorSubscribers)
+	entry.monitorSubscribers = append(entry.monitorSubscribers, consumer)
 
 	// Increment counter (shared with links!)
 	entry.subscriberCount++
 
 	// Send EventStart if first subscriber overall
 	if entry.subscriberCount == 1 && entry.notify {
-		tm.dispatchers[0].push(&dispatchTask{
-			from:    tm.core.PID(),
-			to:      entry.producer,
-			options: gen.MessageOptions{Priority: gen.MessagePriorityHigh},
-			message: gen.MessageEventStart{Name: event.Name},
-		})
+		tm.core.RouteSendPID(
+			tm.core.PID(),
+			entry.producer,
+			gen.MessageOptions{Priority: gen.MessagePriorityHigh},
+			gen.MessageEventStart{Name: event.Name},
+		)
 	}
 
 	// Return buffer
@@ -658,19 +667,28 @@ func (tm *targetManager) demonitorEventLocal(consumer gen.PID, event gen.Event) 
 	}
 
 	delete(tm.monitorRelations, key)
-	delete(entry.monitorSubscribers, consumer)
+
+	// Swap-delete from slice
+	idx := entry.monitorSubscribersIndex[consumer]
+	last := len(entry.monitorSubscribers) - 1
+	if idx != last {
+		entry.monitorSubscribers[idx] = entry.monitorSubscribers[last]
+		entry.monitorSubscribersIndex[entry.monitorSubscribers[idx]] = idx
+	}
+	entry.monitorSubscribers = entry.monitorSubscribers[:last]
+	delete(entry.monitorSubscribersIndex, consumer)
 
 	// Decrement counter (shared with links!)
 	entry.subscriberCount--
 
 	// Send EventStop if last
 	if entry.subscriberCount == 0 && entry.notify {
-		tm.dispatchers[0].push(&dispatchTask{
-			from:    tm.core.PID(),
-			to:      entry.producer,
-			options: gen.MessageOptions{Priority: gen.MessagePriorityHigh},
-			message: gen.MessageEventStop{Name: event.Name},
-		})
+		tm.core.RouteSendPID(
+			tm.core.PID(),
+			entry.producer,
+			gen.MessageOptions{Priority: gen.MessagePriorityHigh},
+			gen.MessageEventStop{Name: event.Name},
+		)
 	}
 
 	return nil
@@ -726,8 +744,8 @@ func (tm *targetManager) demonitorEventRemote(consumer gen.PID, event gen.Event)
 }
 
 func (tm *targetManager) EventInfo(event gen.Event) (gen.EventInfo, error) {
-	tm.mutex.Lock()
-	defer tm.mutex.Unlock()
+	tm.mutex.RLock()
+	defer tm.mutex.RUnlock()
 
 	entry, exists := tm.events[event]
 	if exists == false {

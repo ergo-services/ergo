@@ -738,7 +738,7 @@ func TestScenario_RemoteCorePIDSubscribesEvent_FirstSubscriber_EventStart(t *tes
 	if entry == nil {
 		t.Fatal("event entry should exist")
 	}
-	if _, exists := entry.linkSubscribers[remoteCorePID]; exists == false {
+	if _, exists := entry.linkSubscribersIndex[remoteCorePID]; exists == false {
 		t.Error("remoteCorePID should be in linkSubscribers")
 	}
 	if entry.subscriberCount != 1 {
@@ -782,7 +782,7 @@ func TestScenario_RemoteCorePIDUnsubscribesEvent_LastSubscriber_EventStop(t *tes
 	if entry == nil {
 		t.Fatal("event entry should still exist (producer owns it)")
 	}
-	if _, exists := entry.linkSubscribers[remoteCorePID]; exists {
+	if _, exists := entry.linkSubscribersIndex[remoteCorePID]; exists {
 		t.Error("remoteCorePID should be removed from linkSubscribers")
 	}
 	if entry.subscriberCount != 0 {
@@ -2195,7 +2195,7 @@ func TestCorner_Event_MultiNodeBuffered(t *testing.T) {
 
 func TestCorner_PublishEvent_NoSubscribers(t *testing.T) {
 	core := newMockCore("node1")
-	tm := Create(core, Options{Dispatchers: 1}).(*targetManager)
+	tm := Create(core, Options{}).(*targetManager)
 
 	producer := gen.PID{Node: "node1", ID: 100}
 
@@ -2307,7 +2307,7 @@ func TestCorner_TerminatedProcess_NoSubscriptions(t *testing.T) {
 // Stress: 1000 goroutines adding links simultaneously
 func TestStress_1000ConcurrentLinks(t *testing.T) {
 	core := newMockCore("node1")
-	tm := Create(core, Options{Dispatchers: 5}).(*targetManager)
+	tm := Create(core, Options{}).(*targetManager)
 
 	target := gen.PID{Node: "node2", ID: 200}
 
@@ -2366,7 +2366,7 @@ func TestStress_1000ConcurrentLinks(t *testing.T) {
 // Stress: 100 goroutines add/remove simultaneously
 func TestStress_ConcurrentAddRemove(t *testing.T) {
 	core := newMockCore("node1")
-	tm := Create(core, Options{Dispatchers: 3}).(*targetManager)
+	tm := Create(core, Options{}).(*targetManager)
 
 	target := gen.PID{Node: "node2", ID: 200}
 
@@ -2410,7 +2410,7 @@ func TestStress_ConcurrentAddRemove(t *testing.T) {
 // Stress: Event publish to 1000 subscribers
 func TestStress_Event_1000Subscribers(t *testing.T) {
 	core := newMockCore("node1")
-	tm := Create(core, Options{Dispatchers: 10}).(*targetManager)
+	tm := Create(core, Options{}).(*targetManager)
 
 	producer := gen.PID{Node: "node1", ID: 1}
 
@@ -2470,7 +2470,7 @@ func TestStress_Event_1000Subscribers(t *testing.T) {
 // Stress: Rapid subscribe/unsubscribe cycles
 func TestStress_RapidSubscribeUnsubscribe(t *testing.T) {
 	core := newMockCore("node1")
-	tm := Create(core, Options{Dispatchers: 3}).(*targetManager)
+	tm := Create(core, Options{}).(*targetManager)
 
 	target := gen.PID{Node: "node2", ID: 200}
 	consumer := gen.PID{Node: "node1", ID: 100}
@@ -2501,7 +2501,7 @@ func TestStress_RapidSubscribeUnsubscribe(t *testing.T) {
 // Stress: Multiple terminations simultaneously
 func TestStress_MassTermination(t *testing.T) {
 	core := newMockCore("node1")
-	tm := Create(core, Options{Dispatchers: 10}).(*targetManager)
+	tm := Create(core, Options{}).(*targetManager)
 
 	// Create 100 targets with 10 subscribers each
 	for targetID := 0; targetID < 100; targetID++ {
@@ -2549,9 +2549,11 @@ func TestStress_MassTermination(t *testing.T) {
 	}
 
 	// Check statistics
+	// Produced = 100 (one per target termination)
+	// Delivered = 1000 (10 subscribers per target)
 	info := tm.Info()
-	if info.ExitSignalsProduced != 1000 {
-		t.Errorf("ExitSignalsProduced should be 1000, got %d", info.ExitSignalsProduced)
+	if info.ExitSignalsProduced != 100 {
+		t.Errorf("ExitSignalsProduced should be 100, got %d", info.ExitSignalsProduced)
 	}
 
 	if info.ExitSignalsDelivered < 990 {
@@ -2562,7 +2564,7 @@ func TestStress_MassTermination(t *testing.T) {
 // Stress: Concurrent event operations (publish, subscribe, unsubscribe)
 func TestStress_Event_ConcurrentOperations(t *testing.T) {
 	core := newMockCore("node1")
-	tm := Create(core, Options{Dispatchers: 5}).(*targetManager)
+	tm := Create(core, Options{}).(*targetManager)
 
 	producer := gen.PID{Node: "node1", ID: 1}
 
@@ -2628,7 +2630,7 @@ func TestStress_Event_ConcurrentOperations(t *testing.T) {
 // Stress: TerminatedNode with 1000 subscriptions
 func TestStress_TerminatedNode_1000Subscriptions(t *testing.T) {
 	core := newMockCore("node1")
-	tm := Create(core, Options{Dispatchers: 10}).(*targetManager)
+	tm := Create(core, Options{}).(*targetManager)
 
 	// 1000 local consumers linked to remote targets on node2
 	for i := 0; i < 1000; i++ {
@@ -2660,7 +2662,7 @@ func TestStress_TerminatedNode_1000Subscriptions(t *testing.T) {
 // Stress: Memory stability - 10K subscribe/unsubscribe cycles
 func TestStress_Memory_10KCycles(t *testing.T) {
 	core := newMockCore("node1")
-	tm := Create(core, Options{Dispatchers: 3}).(*targetManager)
+	tm := Create(core, Options{}).(*targetManager)
 
 	consumer := gen.PID{Node: "node1", ID: 100}
 
@@ -2696,7 +2698,7 @@ func TestStress_Memory_10KCycles(t *testing.T) {
 // Stress: Event publish rate (1000 publishes in quick succession)
 func TestStress_Event_RapidPublish(t *testing.T) {
 	core := newMockCore("node1")
-	tm := Create(core, Options{Dispatchers: 5}).(*targetManager)
+	tm := Create(core, Options{}).(*targetManager)
 
 	producer := gen.PID{Node: "node1", ID: 1}
 
@@ -2746,7 +2748,7 @@ func TestStress_Event_RapidPublish(t *testing.T) {
 // Stress: Concurrent TerminatedProcess calls
 func TestStress_ConcurrentTerminatedProcess(t *testing.T) {
 	core := newMockCore("node1")
-	tm := Create(core, Options{Dispatchers: 10}).(*targetManager)
+	tm := Create(core, Options{}).(*targetManager)
 
 	// 500 consumers each with 2 links
 	for i := 0; i < 500; i++ {
@@ -2796,7 +2798,7 @@ func TestStress_ConcurrentTerminatedProcess(t *testing.T) {
 // Stress: Mixed operations under load
 func TestStress_MixedOperations(t *testing.T) {
 	core := newMockCore("node1")
-	tm := Create(core, Options{Dispatchers: 5}).(*targetManager)
+	tm := Create(core, Options{}).(*targetManager)
 
 	var wg sync.WaitGroup
 

@@ -109,13 +109,17 @@ func (m *mockCore) RouteSendPID(from gen.PID, to gen.PID, options gen.MessageOpt
 	return nil
 }
 
-func (m *mockCore) RouteSendExitMessage(from gen.PID, to gen.PID, message any) error {
-	m.sentExits.Push(exitRequest{from: from, to: to, message: message})
+func (m *mockCore) RouteSendExitMessages(from gen.PID, to []gen.PID, message any) error {
+	for _, pid := range to {
+		m.sentExits.Push(exitRequest{from: from, to: pid, message: message})
+	}
 	return nil
 }
 
-func (m *mockCore) RouteSendEventMessage(from gen.PID, to gen.PID, options gen.MessageOptions, message gen.MessageEvent) error {
-	m.sentEvents.Push(eventDelivery{from: from, to: to})
+func (m *mockCore) RouteSendEventMessages(from gen.PID, to []gen.PID, options gen.MessageOptions, message gen.MessageEvent) error {
+	for _, pid := range to {
+		m.sentEvents.Push(eventDelivery{from: from, to: pid})
+	}
 	return nil
 }
 

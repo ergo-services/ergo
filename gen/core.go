@@ -76,7 +76,7 @@ type CoreTargetManager interface {
 	PID() PID
 	Log() Log
 	RouteSendPID(from PID, to PID, options MessageOptions, message any) error
-	RouteSendExitMessage(from PID, to PID, message any) error
-	RouteSendEventMessage(from PID, to PID, options MessageOptions, message MessageEvent) error
+	RouteSendExitMessages(from PID, to []PID, message any) error
+	RouteSendEventMessages(from PID, to []PID, options MessageOptions, message MessageEvent) error
 	GetConnection(node Atom) (Connection, error)
 }
