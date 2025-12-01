@@ -26,8 +26,9 @@ var (
 	ErrApplicationStopping  = errors.New("application stopping is in progress")
 	ErrApplicationRunning   = errors.New("application is still running")
 
-	ErrTargetUnknown = errors.New("unknown target")
-	ErrTargetExist   = errors.New("target is already exist")
+	ErrTargetUnknown        = errors.New("unknown target")
+	ErrTargetExist          = errors.New("target is already exist")
+	ErrTargetManagerOverload = errors.New("target manager queue is full")
 
 	ErrRegistrarTerminated = errors.New("registrar client terminated")
 

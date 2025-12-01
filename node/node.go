@@ -18,6 +18,7 @@ import (
 	"ergo.services/ergo/lib"
 	"ergo.services/ergo/lib/osdep"
 	"ergo.services/ergo/net/edf"
+	"ergo.services/ergo/node/tm"
 )
 
 var (
@@ -76,13 +77,12 @@ type node struct {
 	processes sync.Map // process pid gen.PID -> *process
 	names     sync.Map // process name gen.Atom -> *process
 	aliases   sync.Map // process alias gen.Alias -> *process
-	events    sync.Map // process event gen.Event -> *eventOwner
 	calls     sync.Map // node-level call responses gen.Ref -> *nodeCall
 
 	applications sync.Map // application name -> *application
 
-	// consumer lists (subcribers)
-	targetManager gen.TargetManager
+	// consumer lists (subscribers)
+	targets gen.TargetManager
 
 	network *network
 
@@ -111,13 +111,6 @@ type eventOwner struct {
 	consumers int32
 
 	last lib.QueueMPSC
-}
-
-func createTargetManager(tm gen.TargetManager) gen.TargetManager {
-	if tm != nil {
-		return tm
-	}
-	return gen.CreateDefaultTargetManager()
 }
 
 func Start(name gen.Atom, options gen.NodeOptions, frameworkVersion gen.Version) (gen.Node, error) {
@@ -150,8 +143,6 @@ func Start(name gen.Atom, options gen.NodeOptions, frameworkVersion gen.Version)
 
 		certmanager: options.CertManager,
 		security:    options.Security,
-
-		targetManager: createTargetManager(options.TargetManager),
 
 		loggers: make(map[gen.LogLevel]*sync.Map),
 
@@ -193,14 +184,17 @@ func Start(name gen.Atom, options gen.NodeOptions, frameworkVersion gen.Version)
 		node.LoggerAdd(lo.Name, lo.Logger, lo.Filter...)
 	}
 
-	node.coreEventsToken, _ = node.RegisterEvent(gen.CoreEvent, gen.EventOptions{})
-
 	node.validateLicenses(node.version)
 	node.network = createNetwork(node)
 
 	if err := node.NetworkStart(options.Network); err != nil {
 		return nil, err
 	}
+
+	// create target manager (pub/sub subsystem)
+	node.targets = tm.Create(createTMBridge(node), tm.Options{})
+
+	node.coreEventsToken, _ = node.RegisterEvent(gen.CoreEvent, gen.EventOptions{})
 
 	if len(options.Applications) > 0 {
 		node.log.Trace("starting application(s)...")
@@ -507,8 +501,9 @@ func (n *node) ProcessInfo(pid gen.PID) (gen.ProcessInfo, error) {
 		return true
 	})
 
-	// Get links and monitors from TargetManager
-	linkTargets, monitorTargets := n.targetManager.GetTargetsForConsumer(pid)
+	// Get links and monitors from separate managers
+	linkTargets := n.targets.LinksFor(pid)
+	monitorTargets := n.targets.MonitorsFor(pid)
 
 	for _, target := range linkTargets {
 		switch m := target.(type) {
@@ -674,10 +669,6 @@ func (n *node) Info() (gen.NodeInfo, error) {
 	})
 	n.aliases.Range(func(_, _ any) bool {
 		info.RegisteredAliases++
-		return true
-	})
-	n.events.Range(func(_, _ any) bool {
-		info.RegisteredEvents++
 		return true
 	})
 
@@ -2151,16 +2142,7 @@ func (n *node) spawn(factory gen.ProcessFactory, options gen.ProcessOptionsExtra
 		n.names.Delete(p.name)
 		// make sure to notify children that might have been spawned
 		// (during ProcessInit callback) with the enabled LinkParent option
-		messageExit := gen.MessageExitPID{
-			PID:    p.pid,
-			Reason: err,
-		}
-		linkTargets, _ := n.targetManager.CleanupConsumer(p.pid)
-		for _, target := range linkTargets {
-			if pid, ok := target.(gen.PID); ok {
-				n.sendExitMessage(p.pid, pid, messageExit)
-			}
-		}
+		p.node.targets.TerminatedTargetPID(p.pid, err)
 
 		// terminate meta process that spawned during initialization
 
@@ -2184,7 +2166,7 @@ func (n *node) spawn(factory gen.ProcessFactory, options gen.ProcessOptionsExtra
 	}
 
 	if options.LinkParent {
-		n.targetManager.AddLink(p.pid, p.parent)
+		n.targets.LinkPID(p.pid, p.parent)
 	}
 
 	// register process and switch it to the sleep state
@@ -2207,6 +2189,9 @@ func (n *node) unregisterProcess(p *process, reason error) {
 	n.processes.Delete(p.pid)
 	n.RouteTerminatePID(p.pid, reason)
 
+	// cleanup subscriptions created by this process (including events where it's producer)
+	n.targets.TerminatedProcess(p.pid, reason)
+
 	if p.application != system.Name {
 		// do not count system app processes
 		n.waitprocesses.Done()
@@ -2223,13 +2208,6 @@ func (n *node) unregisterProcess(p *process, reason error) {
 		n.aliases.Delete(a)
 		n.RouteTerminateAlias(a, reason)
 	}
-
-	p.events.Range(func(k, _ any) bool {
-		ev := gen.Event{Name: k.(gen.Atom), Node: p.node.name}
-		n.events.Delete(ev)
-		n.RouteTerminateEvent(ev, reason)
-		return true
-	})
 
 	// send exit signal to the meta processes
 	p.metas.Range(func(_, v any) bool {
@@ -2304,28 +2282,13 @@ func (n *node) registerEvent(
 	owner gen.PID,
 	options gen.EventOptions,
 ) (gen.Ref, error) {
-	token := gen.Ref{}
 	if n.isRunning() == false {
-		return token, gen.ErrNodeTerminated
+		return gen.Ref{}, gen.ErrNodeTerminated
 	}
 
 	n.log.Trace("...registerEvent %s for %s", name, owner)
-	ev := gen.Event{Name: name, Node: n.name}
-	event := &eventOwner{
-		name:     name,
-		producer: owner,
-		notify:   options.Notify,
-	}
 
-	if options.Buffer > 0 {
-		event.last = lib.NewQueueLimitMPSC(int64(options.Buffer), true)
-	}
-
-	if _, exist := n.events.LoadOrStore(ev, event); exist {
-		return token, gen.ErrTaken
-	}
-	event.token = n.MakeRef()
-	return event.token, nil
+	return n.targets.RegisterEvent(owner, name, options)
 }
 
 func (n *node) unregisterEvent(name gen.Atom, pid gen.PID) error {
@@ -2334,20 +2297,8 @@ func (n *node) unregisterEvent(name gen.Atom, pid gen.PID) error {
 	}
 
 	n.log.Trace("...unregisterEvent %s for %s", name, pid)
-	ev := gen.Event{Name: name, Node: n.name}
-	value, exist := n.events.Load(ev)
-	if exist == false {
-		return gen.ErrEventUnknown
-	}
 
-	event := value.(*eventOwner)
-	if event.producer != pid {
-		return gen.ErrEventOwner
-	}
-
-	n.events.Delete(ev)
-	n.RouteTerminateEvent(ev, gen.ErrUnregistered)
-	return nil
+	return n.targets.UnregisterEvent(pid, name)
 }
 
 func (n *node) validateLicenses(versions ...gen.Version) {

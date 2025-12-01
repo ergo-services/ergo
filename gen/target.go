@@ -1,52 +1,75 @@
 package gen
 
-// TargetManager manages all link/monitor relationships between processes.
-// This interface provides a clean abstraction for target management,
-// ensuring proper cleanup and preventing memory leaks.
 type TargetManager interface {
-	// Link operations
-	// AddLink creates a link relationship between consumer and target.
-	// Returns error if relationship already exists or if operation fails.
-	AddLink(consumer PID, target any) error
-
-	// RemoveLink removes a link relationship between consumer and target.
-	// Returns error if relationship doesn't exist or if operation fails.
-	RemoveLink(consumer PID, target any) error
-
-	// HasLink checks if a link relationship exists between consumer and target.
 	HasLink(consumer PID, target any) bool
-
-	// Monitor operations
-	// AddMonitor creates a monitor relationship between consumer and target.
-	// Returns error if relationship already exists or if operation fails.
-	AddMonitor(consumer PID, target any) error
-
-	// RemoveMonitor removes a monitor relationship between consumer and target.
-	// Returns error if relationship doesn't exist or if operation fails.
-	RemoveMonitor(consumer PID, target any) error
-
-	// HasMonitor checks if a monitor relationship exists between consumer and target.
 	HasMonitor(consumer PID, target any) bool
 
-	// CleanupConsumer removes all relationships where the given PID is a consumer.
-	// This is called when a process terminates to prevent memory leaks.
-	// Returns all targets that were being linked/monitored by the consumer.
-	CleanupConsumer(consumer PID) (linkTargets []any, monitorTargets []any)
+	LinkPID(consumer PID, target PID) error
+	UnlinkPID(consumer PID, target PID) error
+	MonitorPID(consumer PID, target PID) error
+	DemonitorPID(consumer PID, target PID) error
 
-	// CleanupTarget removes all relationships involving the given target.
-	// This is called when a target terminates.
-	// Returns all consumers that were linking/monitoring the target.
-	CleanupTarget(target any) (linkConsumers []PID, monitorConsumers []PID)
+	LinkProcessID(consumer PID, target ProcessID) error
+	UnlinkProcessID(consumer PID, target ProcessID) error
+	MonitorProcessID(consumer PID, target ProcessID) error
+	DemonitorProcessID(consumer PID, target ProcessID) error
 
-	// CleanupNode removes all relationships involving processes from the given node.
-	// This is called when a remote node goes down.
-	// Returns targets and their consumers that were affected by the node going down.
-	CleanupNode(node Atom) (linkTargetsWithConsumers map[any][]PID, monitorTargetsWithConsumers map[any][]PID)
+	LinkAlias(consumer PID, target Alias) error
+	UnlinkAlias(consumer PID, target Alias) error
+	MonitorAlias(consumer PID, target Alias) error
+	DemonitorAlias(consumer PID, target Alias) error
 
-	// Inspection operations (for debugging and process info)
-	// GetTargetsForConsumer returns all targets that a consumer is linking/monitoring.
-	GetTargetsForConsumer(consumer PID) (links []any, monitors []any)
+	LinkNode(consumer PID, target Atom) error
+	UnlinkNode(consumer PID, target Atom) error
+	MonitorNode(consumer PID, target Atom) error
+	DemonitorNode(consumer PID, target Atom) error
 
-	// GetConsumersForTarget returns all consumers that are linking/monitoring a target.
-	GetConsumersForTarget(target any) []PID
+	LinkEvent(consumer PID, event Event) (lastEvents []MessageEvent, err error)
+	UnlinkEvent(consumer PID, event Event) error
+	MonitorEvent(consumer PID, event Event) (lastEvents []MessageEvent, err error)
+	DemonitorEvent(consumer PID, event Event) error
+
+	RegisterEvent(producer PID, name Atom, options EventOptions) (Ref, error)
+	UnregisterEvent(producer PID, name Atom) error
+	PublishEvent(from PID, token Ref, options MessageOptions, message MessageEvent) error
+	EventInfo(event Event) (EventInfo, error)
+
+	LinksFor(consumer PID) []any
+	MonitorsFor(consumer PID) []any
+	EventsFor(producer PID) []Event
+
+	TerminatedTargetNode(node Atom, reason error)
+	TerminatedTargetPID(pid PID, reason error)
+	TerminatedTargetProcessID(processID ProcessID, reason error)
+	TerminatedTargetAlias(alias Alias, reason error)
+	TerminatedTargetEvent(event Event, reason error)
+
+	// local process terminated:
+	// can be either target or consumer, or both
+	TerminatedProcess(pid PID, reason error)
+
+	Info() TargetManagerInfo
+}
+
+// EventInfo contains event metadata and statistics
+type EventInfo struct {
+	Producer      PID
+	BufferSize    int
+	CurrentBuffer int
+	Notify        bool
+	Subscribers   int64
+}
+
+type TargetManagerInfo struct {
+	Links    int64
+	Monitors int64
+	Events   int64
+
+	// Statistics
+	ExitSignalsProduced   int64 // Total exit signals generated
+	ExitSignalsDelivered  int64 // Total exit signals delivered by dispatchers
+	DownMessagesProduced  int64 // Total down messages generated
+	DownMessagesDelivered int64 // Total down messages delivered
+	EventsPublished       int64 // Total events published
+	EventsSent            int64 // Total event messages sent to subscribers
 }

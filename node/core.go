@@ -238,51 +238,7 @@ func (n *node) RouteSendEvent(from gen.PID, token gen.Ref, options gen.MessageOp
 		n.log.Trace("RouteSendEvent from %s with token %s", from, token)
 	}
 
-	if from.Node == n.name {
-		// local producer. check if sender is allowed to send this event
-		value, found := n.events.Load(message.Event)
-		if found == false {
-			return gen.ErrEventUnknown
-		}
-		event := value.(*eventOwner)
-		if event.token != token {
-			return gen.ErrEventOwner
-		}
-
-		if event.last != nil {
-			event.last.Push(message)
-		}
-	}
-
-	consumers := n.targetManager.GetConsumersForTarget(message.Event)
-	remote := make(map[gen.Atom]bool)
-
-	// local delivery
-	for _, pid := range consumers {
-		if pid.Node == n.name {
-			n.sendEventMessage(from, pid, options.Priority, message)
-			continue
-		}
-		if from.Node != n.name {
-			// event came here from the remote process. so there must be the local
-			// subscribers only.  otherwise there is a bug
-			panic("unable to route event from remote to the remote")
-		}
-		remote[pid.Node] = true
-	}
-
-	for k := range remote {
-		// remote consumer means that there is a connection established
-		// so use Connection() instead of GetConnection()
-		connection, err := n.network.Connection(k)
-		if err != nil {
-			continue
-		}
-		if err := connection.SendEvent(from, options, message); err != nil {
-			n.log.Error("unable to send event message to the remote consumer on %s: %s", k, err)
-		}
-	}
-	return nil
+	return n.targets.PublishEvent(from, token, options, message)
 }
 
 func (n *node) RouteSendExit(from gen.PID, to gen.PID, reason error) error {
@@ -613,25 +569,19 @@ func (n *node) RouteLinkPID(pid gen.PID, target gen.PID) error {
 		n.log.Trace("RouteLinkPID %s with %s", pid, target)
 	}
 
-	if n.name == target.Node {
-		// local target
-		if _, exist := n.processes.Load(target); exist == false {
+	if target.Node == n.name {
+		v, exist := n.processes.Load(target)
+		if exist == false {
 			return gen.ErrProcessUnknown
 		}
-		return n.targetManager.AddLink(pid, target)
+
+		p := v.(*process)
+		if p.State() == gen.ProcessStateTerminated {
+			return gen.ErrProcessTerminated
+		}
 	}
 
-	// remote target
-	connection, err := n.network.GetConnection(target.Node)
-	if err != nil {
-		return err
-	}
-
-	if err := connection.LinkPID(pid, target); err != nil {
-		return err
-	}
-
-	return n.targetManager.AddLink(pid, target)
+	return n.targets.LinkPID(pid, target)
 }
 
 func (n *node) RouteUnlinkPID(pid gen.PID, target gen.PID) error {
@@ -643,25 +593,7 @@ func (n *node) RouteUnlinkPID(pid gen.PID, target gen.PID) error {
 		n.log.Trace("RouteUnlinkPID %s with %s ", pid, target)
 	}
 
-	if n.name == target.Node {
-		// local target
-		if _, exist := n.processes.Load(target); exist == false {
-			return gen.ErrProcessUnknown
-		}
-		return n.targetManager.RemoveLink(pid, target)
-	}
-
-	// remote target
-	connection, err := n.network.GetConnection(target.Node)
-	if err != nil {
-		return err
-	}
-
-	if err := connection.UnlinkPID(pid, target); err != nil {
-		return nil
-	}
-
-	return n.targetManager.RemoveLink(pid, target)
+	return n.targets.UnlinkPID(pid, target)
 }
 
 func (n *node) RouteLinkProcessID(pid gen.PID, target gen.ProcessID) error {
@@ -673,25 +605,19 @@ func (n *node) RouteLinkProcessID(pid gen.PID, target gen.ProcessID) error {
 		n.log.Trace("RouteLinkProcessID %s with %s", pid, target)
 	}
 
-	if n.name == target.Node {
-		// local target
-		if _, exist := n.names.Load(target.Name); exist == false {
+	if target.Node == n.name {
+		v, exist := n.names.Load(target.Name)
+		if exist == false {
 			return gen.ErrProcessUnknown
 		}
-		return n.targetManager.AddLink(pid, target)
+
+		p := v.(*process)
+		if p.State() == gen.ProcessStateTerminated {
+			return gen.ErrProcessTerminated
+		}
 	}
 
-	// remote target
-	connection, err := n.network.GetConnection(target.Node)
-	if err != nil {
-		return err
-	}
-
-	if err := connection.LinkProcessID(pid, target); err != nil {
-		return err
-	}
-
-	return n.targetManager.AddLink(pid, target)
+	return n.targets.LinkProcessID(pid, target)
 }
 
 func (n *node) RouteUnlinkProcessID(pid gen.PID, target gen.ProcessID) error {
@@ -701,24 +627,8 @@ func (n *node) RouteUnlinkProcessID(pid gen.PID, target gen.ProcessID) error {
 	if lib.Trace() {
 		n.log.Trace("RouteUnlinkProcessID %s with %s", pid, target)
 	}
-	if n.name == target.Node {
-		// local target
-		if _, exist := n.names.Load(target.Name); exist == false {
-			return gen.ErrProcessUnknown
-		}
-		return n.targetManager.RemoveLink(pid, target)
-	}
 
-	// remote target
-	connection, err := n.network.GetConnection(target.Node)
-	if err != nil {
-		return err
-	}
-
-	if err := connection.UnlinkProcessID(pid, target); err != nil {
-		return err
-	}
-	return n.targetManager.RemoveLink(pid, target)
+	return n.targets.UnlinkProcessID(pid, target)
 }
 
 func (n *node) RouteLinkAlias(pid gen.PID, target gen.Alias) error {
@@ -730,25 +640,13 @@ func (n *node) RouteLinkAlias(pid gen.PID, target gen.Alias) error {
 		n.log.Trace("RouteLinkAlias %s with %s using %s", pid, target)
 	}
 
-	if n.name == target.Node {
-		// local target
+	if target.Node == n.name {
 		if _, exist := n.aliases.Load(target); exist == false {
 			return gen.ErrAliasUnknown
 		}
-		return n.targetManager.AddLink(pid, target)
 	}
 
-	// remote target
-	connection, err := n.network.GetConnection(target.Node)
-	if err != nil {
-		return err
-	}
-
-	if err := connection.LinkAlias(pid, target); err != nil {
-		return err
-	}
-
-	return n.targetManager.AddLink(pid, target)
+	return n.targets.LinkAlias(pid, target)
 }
 
 func (n *node) RouteUnlinkAlias(pid gen.PID, target gen.Alias) error {
@@ -760,25 +658,7 @@ func (n *node) RouteUnlinkAlias(pid gen.PID, target gen.Alias) error {
 		n.log.Trace("RouteUnlinkAlias %s with %s", pid, target)
 	}
 
-	if n.name == target.Node {
-		// local target
-		if _, exist := n.aliases.Load(target); exist == false {
-			return gen.ErrAliasUnknown
-		}
-		return n.targetManager.RemoveLink(pid, target)
-	}
-
-	// remote target
-	connection, err := n.network.GetConnection(target.Node)
-	if err != nil {
-		return err
-	}
-
-	if err := connection.UnlinkAlias(pid, target); err != nil {
-		return err
-	}
-
-	return n.targetManager.RemoveLink(pid, target)
+	return n.targets.UnlinkAlias(pid, target)
 }
 
 func (n *node) RouteLinkEvent(pid gen.PID, target gen.Event) ([]gen.MessageEvent, error) {
@@ -791,63 +671,7 @@ func (n *node) RouteLinkEvent(pid gen.PID, target gen.Event) ([]gen.MessageEvent
 		n.log.Trace("RouteLinkEvent %s with %s", pid, target)
 	}
 
-	if n.name == target.Node {
-		var lastEventMessages []gen.MessageEvent
-		// local target
-		value, exist := n.events.Load(target)
-		if exist == false {
-			return nil, gen.ErrEventUnknown
-		}
-
-		event := value.(*eventOwner)
-		if err := n.targetManager.AddLink(pid, target); err != nil {
-			return nil, err
-		}
-
-		if event.last != nil {
-			// load last N events
-			item := event.last.Item()
-			for {
-				if item == nil {
-					break
-				}
-				v := item.Value().(gen.MessageEvent)
-				lastEventMessages = append(lastEventMessages, v)
-				item = item.Next()
-			}
-		}
-
-		c := atomic.AddInt32(&event.consumers, 1)
-		if event.notify == false || c > 1 {
-			return lastEventMessages, nil
-		}
-
-		options := gen.MessageOptions{
-			Priority: gen.MessagePriorityHigh,
-		}
-		message := gen.MessageEventStart{
-			Name: target.Name,
-		}
-		n.RouteSendPID(n.corePID, event.producer, options, message)
-		return lastEventMessages, nil
-	}
-
-	// remote target
-	connection, err := n.network.GetConnection(target.Node)
-	if err != nil {
-		return nil, err
-	}
-
-	lastEventMessages, err := connection.LinkEvent(pid, target)
-	if err != nil {
-		return nil, err
-	}
-
-	if err := n.targetManager.AddLink(pid, target); err != nil {
-		return nil, err
-	}
-
-	return lastEventMessages, nil
+	return n.targets.LinkEvent(pid, target)
 }
 
 func (n *node) RouteUnlinkEvent(pid gen.PID, target gen.Event) error {
@@ -859,43 +683,7 @@ func (n *node) RouteUnlinkEvent(pid gen.PID, target gen.Event) error {
 		n.log.Trace("RouteUnlinkEvent %s with %s", pid, target)
 	}
 
-	if n.name == target.Node {
-		// local target
-		value, exist := n.events.Load(target)
-		if exist == false {
-			return gen.ErrEventUnknown
-		}
-		event := value.(*eventOwner)
-		if err := n.targetManager.RemoveLink(pid, target); err != nil {
-			return err
-		}
-
-		c := atomic.AddInt32(&event.consumers, -1)
-		if event.notify == false || c > 0 {
-			return nil
-		}
-
-		// notify producer
-		options := gen.MessageOptions{
-			Priority: gen.MessagePriorityHigh,
-		}
-		message := gen.MessageEventStop{
-			Name: target.Name,
-		}
-		n.RouteSendPID(n.corePID, event.producer, options, message)
-		return nil
-	}
-
-	// remote target
-	connection, err := n.network.GetConnection(target.Node)
-	if err != nil {
-		return err
-	}
-
-	if err := connection.UnlinkEvent(pid, target); err != nil {
-		return err
-	}
-	return n.targetManager.RemoveLink(pid, target)
+	return n.targets.UnlinkEvent(pid, target)
 }
 
 func (n *node) RouteMonitorPID(pid gen.PID, target gen.PID) error {
@@ -904,32 +692,22 @@ func (n *node) RouteMonitorPID(pid gen.PID, target gen.PID) error {
 	}
 
 	if lib.Trace() {
-		n.log.Trace("RouteMonitor %s to %s", pid, target)
+		n.log.Trace("RouteMonitorPID %s with %s", pid, target)
 	}
 
-	if n.name == target.Node {
-		// local target
-		if v, exist := n.processes.Load(target); exist == false {
+	if target.Node == n.name {
+		v, exist := n.processes.Load(target)
+		if exist == false {
 			return gen.ErrProcessUnknown
-		} else {
-			p := v.(*process)
-			if p.State() == gen.ProcessStateTerminated {
-				return gen.ErrProcessTerminated
-			}
 		}
-		return n.targetManager.AddMonitor(pid, target)
+
+		p := v.(*process)
+		if p.State() == gen.ProcessStateTerminated {
+			return gen.ErrProcessTerminated
+		}
 	}
 
-	// remote target
-	connection, err := n.network.GetConnection(target.Node)
-	if err != nil {
-		return err
-	}
-
-	if err := connection.MonitorPID(pid, target); err != nil {
-		return err
-	}
-	return n.targetManager.AddMonitor(pid, target)
+	return n.targets.MonitorPID(pid, target)
 }
 
 func (n *node) RouteDemonitorPID(pid gen.PID, target gen.PID) error {
@@ -938,27 +716,10 @@ func (n *node) RouteDemonitorPID(pid gen.PID, target gen.PID) error {
 	}
 
 	if lib.Trace() {
-		n.log.Trace("RouteDemonitor %s to %s", pid, target)
+		n.log.Trace("RouteDemonitorPID %s with %s", pid, target)
 	}
 
-	if n.name == target.Node {
-		// local target
-		if _, exist := n.processes.Load(target); exist == false {
-			return gen.ErrProcessUnknown
-		}
-		return n.targetManager.RemoveMonitor(pid, target)
-	}
-
-	// remote target
-	connection, err := n.network.GetConnection(target.Node)
-	if err != nil {
-		return err
-	}
-
-	if err := connection.DemonitorPID(pid, target); err != nil {
-		return err
-	}
-	return n.targetManager.RemoveMonitor(pid, target)
+	return n.targets.DemonitorPID(pid, target)
 }
 
 func (n *node) RouteMonitorProcessID(pid gen.PID, target gen.ProcessID) error {
@@ -970,8 +731,8 @@ func (n *node) RouteMonitorProcessID(pid gen.PID, target gen.ProcessID) error {
 		n.log.Trace("RouteMonitorProcessID %s to %s", pid, target)
 	}
 
-	if n.name == target.Node {
-		// local target
+	// Check if local target exists
+	if target.Node == n.name {
 		if v, exist := n.names.Load(target.Name); exist == false {
 			return gen.ErrProcessUnknown
 		} else {
@@ -980,19 +741,9 @@ func (n *node) RouteMonitorProcessID(pid gen.PID, target gen.ProcessID) error {
 				return gen.ErrProcessTerminated
 			}
 		}
-		return n.targetManager.AddMonitor(pid, target)
 	}
 
-	// remote target
-	connection, err := n.network.GetConnection(target.Node)
-	if err != nil {
-		return err
-	}
-
-	if err := connection.MonitorProcessID(pid, target); err != nil {
-		return err
-	}
-	return n.targetManager.AddMonitor(pid, target)
+	return n.targets.MonitorProcessID(pid, target)
 }
 
 func (n *node) RouteDemonitorProcessID(pid gen.PID, target gen.ProcessID) error {
@@ -1004,25 +755,7 @@ func (n *node) RouteDemonitorProcessID(pid gen.PID, target gen.ProcessID) error 
 		n.log.Trace("RouteDemonitorProcessID %s to %s", pid, target)
 	}
 
-	if n.name == target.Node {
-		// local target
-		if _, exist := n.names.Load(target.Name); exist == false {
-			return gen.ErrProcessUnknown
-		}
-		return n.targetManager.RemoveMonitor(pid, target)
-	}
-
-	// remote target
-	connection, err := n.network.GetConnection(target.Node)
-	if err != nil {
-		return err
-	}
-
-	if err := connection.DemonitorProcessID(pid, target); err != nil {
-		return err
-	}
-
-	return n.targetManager.RemoveMonitor(pid, target)
+	return n.targets.DemonitorProcessID(pid, target)
 }
 
 func (n *node) RouteMonitorAlias(pid gen.PID, target gen.Alias) error {
@@ -1034,25 +767,13 @@ func (n *node) RouteMonitorAlias(pid gen.PID, target gen.Alias) error {
 		n.log.Trace("RouteMonitorAlias %s to %s", pid, target)
 	}
 
-	if n.name == target.Node {
-		// local target
+	if target.Node == n.name {
 		if _, exist := n.aliases.Load(target); exist == false {
 			return gen.ErrAliasUnknown
 		}
-		return n.targetManager.AddMonitor(pid, target)
 	}
 
-	// remote target
-	connection, err := n.network.GetConnection(target.Node)
-	if err != nil {
-		return err
-	}
-
-	if err := connection.MonitorAlias(pid, target); err != nil {
-		return err
-	}
-
-	return n.targetManager.AddMonitor(pid, target)
+	return n.targets.MonitorAlias(pid, target)
 }
 
 func (n *node) RouteDemonitorAlias(pid gen.PID, target gen.Alias) error {
@@ -1064,25 +785,7 @@ func (n *node) RouteDemonitorAlias(pid gen.PID, target gen.Alias) error {
 		n.log.Trace("RouteDemonitorAlias %s to %s", pid, target)
 	}
 
-	if n.name == target.Node {
-		// local target
-		if _, exist := n.aliases.Load(target); exist == false {
-			return gen.ErrAliasUnknown
-		}
-		return n.targetManager.RemoveMonitor(pid, target)
-	}
-
-	// remote target
-	connection, err := n.network.GetConnection(target.Node)
-	if err != nil {
-		return err
-	}
-
-	if err := connection.DemonitorAlias(pid, target); err != nil {
-		return err
-	}
-
-	return n.targetManager.RemoveMonitor(pid, target)
+	return n.targets.DemonitorAlias(pid, target)
 }
 
 func (n *node) RouteMonitorEvent(pid gen.PID, target gen.Event) ([]gen.MessageEvent, error) {
@@ -1095,61 +798,8 @@ func (n *node) RouteMonitorEvent(pid gen.PID, target gen.Event) ([]gen.MessageEv
 		n.log.Trace("RouteMonitorEvent %s to %s", pid, target)
 	}
 
-	if n.name == target.Node {
-		var lastEventMessages []gen.MessageEvent
-		// local target
-		value, exist := n.events.Load(target)
-		if exist == false {
-			return nil, gen.ErrEventUnknown
-		}
-		event := value.(*eventOwner)
-		if err := n.targetManager.AddMonitor(pid, target); err != nil {
-			return nil, err
-		}
+	return n.targets.MonitorEvent(pid, target)
 
-		if event.last != nil {
-			// load last N events
-			item := event.last.Item()
-			for {
-				if item == nil {
-					break
-				}
-				v := item.Value().(gen.MessageEvent)
-				lastEventMessages = append(lastEventMessages, v)
-				item = item.Next()
-			}
-		}
-
-		c := atomic.AddInt32(&event.consumers, 1)
-		if event.notify == false || c > 1 {
-			return lastEventMessages, nil
-		}
-
-		options := gen.MessageOptions{
-			Priority: gen.MessagePriorityHigh,
-		}
-		message := gen.MessageEventStart{
-			Name: target.Name,
-		}
-		n.RouteSendPID(n.corePID, event.producer, options, message)
-		return lastEventMessages, nil
-	}
-
-	// remote target
-	connection, err := n.network.GetConnection(target.Node)
-	if err != nil {
-		return nil, err
-	}
-
-	lastEventMessages, err := connection.MonitorEvent(pid, target)
-	if err != nil {
-		return nil, err
-	}
-
-	if err := n.targetManager.AddMonitor(pid, target); err != nil {
-		return nil, err
-	}
-	return lastEventMessages, nil
 }
 
 func (n *node) RouteDemonitorEvent(pid gen.PID, target gen.Event) error {
@@ -1161,45 +811,7 @@ func (n *node) RouteDemonitorEvent(pid gen.PID, target gen.Event) error {
 		n.log.Trace("RouteDemonitorEvent %s to %s", pid, target)
 	}
 
-	if n.name == target.Node {
-		// local target
-		value, exist := n.events.Load(target)
-		if exist == false {
-			return gen.ErrEventUnknown
-		}
-
-		if err := n.targetManager.RemoveMonitor(pid, target); err != nil {
-			return err
-		}
-
-		// notify producer
-		event := value.(*eventOwner)
-		c := atomic.AddInt32(&event.consumers, -1)
-		if event.notify == false || c > 0 {
-			return nil
-		}
-
-		options := gen.MessageOptions{
-			Priority: gen.MessagePriorityHigh,
-		}
-		message := gen.MessageEventStop{
-			Name: target.Name,
-		}
-		n.RouteSendPID(n.corePID, event.producer, options, message)
-		return nil
-	}
-
-	// remote target
-	connection, err := n.network.GetConnection(target.Node)
-	if err != nil {
-		return err
-	}
-
-	if err := connection.DemonitorEvent(pid, target); err != nil {
-		return err
-	}
-
-	return n.targetManager.RemoveMonitor(pid, target)
+	return n.targets.DemonitorEvent(pid, target)
 }
 
 func (n *node) RouteTerminatePID(target gen.PID, reason error) error {
@@ -1211,43 +823,8 @@ func (n *node) RouteTerminatePID(target gen.PID, reason error) error {
 		n.log.Trace("RouteTerminatePID %s with reason %q", target, reason)
 	}
 
-	remote := make(map[gen.Atom]bool)
-	messageExit := gen.MessageExitPID{
-		PID:    target,
-		Reason: reason,
-	}
-	linkConsumers, monitorConsumers := n.targetManager.CleanupTarget(target)
+	n.targets.TerminatedTargetPID(target, reason)
 
-	for _, pid := range linkConsumers {
-		if pid.Node != n.name {
-			remote[pid.Node] = true
-		}
-		n.sendExitMessage(target, pid, messageExit)
-	}
-
-	messageDown := gen.MessageDownPID{
-		PID:    target,
-		Reason: reason,
-	}
-	messageOptions := gen.MessageOptions{
-		Priority: gen.MessagePriorityHigh,
-	}
-	for _, pid := range monitorConsumers {
-		if pid.Node != n.name {
-			remote[pid.Node] = true
-		}
-		n.RouteSendPID(target, pid, messageOptions, messageDown)
-	}
-
-	if target.Node != n.name && len(remote) > 0 {
-		panic("bug")
-	}
-
-	for name := range remote {
-		if connection, err := n.network.GetConnection(name); err == nil {
-			connection.SendTerminatePID(target, reason)
-		}
-	}
 	return nil
 }
 
@@ -1260,43 +837,8 @@ func (n *node) RouteTerminateProcessID(target gen.ProcessID, reason error) error
 		n.log.Trace("RouteTerminateProcessID %s with reason %q", target, reason)
 	}
 
-	remote := make(map[gen.Atom]bool)
-	messageExit := gen.MessageExitProcessID{
-		ProcessID: target,
-		Reason:    reason,
-	}
-	linkConsumers, monitorConsumers := n.targetManager.CleanupTarget(target)
+	n.targets.TerminatedTargetProcessID(target, reason)
 
-	for _, pid := range linkConsumers {
-		if pid.Node != n.name {
-			remote[pid.Node] = true
-		}
-		n.sendExitMessage(n.corePID, pid, messageExit)
-	}
-
-	messageDown := gen.MessageDownProcessID{
-		ProcessID: target,
-		Reason:    reason,
-	}
-	messageOptions := gen.MessageOptions{
-		Priority: gen.MessagePriorityHigh,
-	}
-	for _, pid := range monitorConsumers {
-		if pid.Node != n.name {
-			remote[pid.Node] = true
-		}
-		n.RouteSendPID(n.corePID, pid, messageOptions, messageDown)
-	}
-
-	if target.Node != n.name && len(remote) > 0 {
-		panic("bug")
-	}
-
-	for name := range remote {
-		if connection, err := n.network.GetConnection(name); err == nil {
-			connection.SendTerminateProcessID(target, reason)
-		}
-	}
 	return nil
 }
 
@@ -1309,43 +851,8 @@ func (n *node) RouteTerminateEvent(target gen.Event, reason error) error {
 		n.log.Trace("RouteTerminateEvent %s with reason %q", target, reason)
 	}
 
-	remote := make(map[gen.Atom]bool)
-	messageExit := gen.MessageExitEvent{
-		Event:  target,
-		Reason: reason,
-	}
-	linkConsumers, monitorConsumers := n.targetManager.CleanupTarget(target)
+	n.targets.TerminatedTargetEvent(target, reason)
 
-	for _, pid := range linkConsumers {
-		if pid.Node != n.name {
-			remote[pid.Node] = true
-		}
-		n.sendExitMessage(n.corePID, pid, messageExit)
-	}
-
-	messageDown := gen.MessageDownEvent{
-		Event:  target,
-		Reason: reason,
-	}
-	messageOptions := gen.MessageOptions{
-		Priority: gen.MessagePriorityHigh,
-	}
-	for _, pid := range monitorConsumers {
-		if pid.Node != n.name {
-			remote[pid.Node] = true
-		}
-		n.RouteSendPID(n.corePID, pid, messageOptions, messageDown)
-	}
-
-	if target.Node != n.name && len(remote) > 0 {
-		panic("bug")
-	}
-
-	for name := range remote {
-		if connection, err := n.network.GetConnection(name); err == nil {
-			connection.SendTerminateEvent(target, reason)
-		}
-	}
 	return nil
 }
 
@@ -1358,43 +865,8 @@ func (n *node) RouteTerminateAlias(target gen.Alias, reason error) error {
 		n.log.Trace("RouteTerminateAlias %s with reason %q", target, reason)
 	}
 
-	remote := make(map[gen.Atom]bool)
-	messageExit := gen.MessageExitAlias{
-		Alias:  target,
-		Reason: reason,
-	}
-	linkConsumers, monitorConsumers := n.targetManager.CleanupTarget(target)
+	n.targets.TerminatedTargetAlias(target, reason)
 
-	for _, pid := range linkConsumers {
-		if pid.Node != n.name {
-			remote[pid.Node] = true
-		}
-		n.sendExitMessage(n.corePID, pid, messageExit)
-	}
-
-	messageDown := gen.MessageDownAlias{
-		Alias:  target,
-		Reason: reason,
-	}
-	messageOptions := gen.MessageOptions{
-		Priority: gen.MessagePriorityHigh,
-	}
-	for _, pid := range monitorConsumers {
-		if pid.Node != n.name {
-			remote[pid.Node] = true
-		}
-		n.RouteSendPID(n.corePID, pid, messageOptions, messageDown)
-	}
-
-	if target.Node != n.name && len(remote) > 0 {
-		panic("bug")
-	}
-
-	for name := range remote {
-		if connection, err := n.network.GetConnection(name); err == nil {
-			connection.SendTerminateAlias(target, reason)
-		}
-	}
 	return nil
 }
 
@@ -1473,133 +945,7 @@ func (n *node) RouteNodeDown(name gen.Atom, reason error) {
 	if lib.Trace() {
 		n.log.Trace("RouteNodeDown for %s ", name)
 	}
-
-	// Get targets and consumers affected by node down, then cleanup
-	linkTargetsWithConsumers, monitorTargetsWithConsumers := n.targetManager.CleanupNode(name)
-
-	messageOptions := gen.MessageOptions{
-		Priority: gen.MessagePriorityHigh,
-	}
-
-	// Send exit messages for link targets that were cleaned up
-	for target, linkConsumers := range linkTargetsWithConsumers {
-		var message any
-		switch t := target.(type) {
-		case gen.PID:
-			message = gen.MessageExitPID{
-				PID:    t,
-				Reason: gen.ErrNoConnection,
-			}
-
-		case gen.ProcessID:
-			message = gen.MessageExitProcessID{
-				ProcessID: t,
-				Reason:    gen.ErrNoConnection,
-			}
-
-		case gen.Alias:
-			message = gen.MessageExitAlias{
-				Alias:  t,
-				Reason: gen.ErrNoConnection,
-			}
-
-		case gen.Event:
-			message = gen.MessageExitEvent{
-				Event:  t,
-				Reason: gen.ErrNoConnection,
-			}
-			// Decrement event consumer counter for remote links
-			value, exist := n.events.Load(t)
-			if exist {
-				event := value.(*eventOwner)
-				// Decrement by number of removed remote consumers
-				consumerCount := int32(len(linkConsumers))
-				c := atomic.AddInt32(&event.consumers, -consumerCount)
-
-				// Notify producer if no more consumers
-				if event.notify && c == 0 {
-					stopMessage := gen.MessageEventStop{
-						Name: t.Name,
-					}
-					n.RouteSendPID(n.corePID, event.producer, messageOptions, stopMessage)
-				}
-			}
-
-		case gen.Atom:
-			message = gen.MessageExitNode{
-				Name: name,
-			}
-
-		default:
-			// bug
-			continue
-		}
-
-		// Send exit messages to all consumers
-		for _, pid := range linkConsumers {
-			n.sendExitMessage(n.corePID, pid, message)
-		}
-	}
-
-	// Send down messages for monitor targets that were cleaned up
-	for target, monitorConsumers := range monitorTargetsWithConsumers {
-		var message any
-		switch t := target.(type) {
-		case gen.PID:
-			message = gen.MessageDownPID{
-				PID:    t,
-				Reason: gen.ErrNoConnection,
-			}
-
-		case gen.ProcessID:
-			message = gen.MessageDownProcessID{
-				ProcessID: t,
-				Reason:    gen.ErrNoConnection,
-			}
-
-		case gen.Alias:
-			message = gen.MessageDownAlias{
-				Alias:  t,
-				Reason: gen.ErrNoConnection,
-			}
-
-		case gen.Event:
-			message = gen.MessageDownEvent{
-				Event:  t,
-				Reason: gen.ErrNoConnection,
-			}
-			// Decrement event consumer counter for remote monitors
-			value, exist := n.events.Load(t)
-			if exist {
-				event := value.(*eventOwner)
-				// Decrement by number of removed remote consumers
-				consumerCount := int32(len(monitorConsumers))
-				c := atomic.AddInt32(&event.consumers, -consumerCount)
-
-				// Notify producer if no more consumers
-				if event.notify && c == 0 {
-					stopMessage := gen.MessageEventStop{
-						Name: t.Name,
-					}
-					n.RouteSendPID(n.corePID, event.producer, messageOptions, stopMessage)
-				}
-			}
-
-		case gen.Atom:
-			message = gen.MessageDownNode{
-				Name: name,
-			}
-
-		default:
-			// bug
-			continue
-		}
-
-		// Send down messages to all consumers
-		for _, pid := range monitorConsumers {
-			n.RouteSendPID(n.corePID, pid, messageOptions, message)
-		}
-	}
+	n.targets.TerminatedTargetNode(name, reason)
 }
 
 func (n *node) MakeRef() gen.Ref {

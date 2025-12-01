@@ -248,8 +248,10 @@ func (t *t7) ProducerNotify(input any) {
 		name := t.testcase.output.(gen.Atom)
 		if m.Name != name {
 			t.testcase.err <- errIncorrect
+			return
 		}
 		t.testcase.err <- nil
+		return
 
 	case gen.MessageEventStop:
 		name := t.testcase.output.(gen.Atom)
@@ -262,8 +264,10 @@ func (t *t7) ProducerNotify(input any) {
 		name := t.testcase.output.(gen.Atom)
 		if err := t.SendEvent(name, token, m); err != nil {
 			t.testcase.err <- err
+			return
 		}
 		t.testcase.err <- nil
+		return
 	case int16:
 		token := t.testcase.input.(gen.Ref)
 		name := t.testcase.output.(gen.Atom)

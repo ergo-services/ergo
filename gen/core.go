@@ -68,3 +68,15 @@ type Core interface {
 const (
 	CoreEvent Atom = "core"
 )
+
+// CoreTargetManager
+// bridge to core from target manager
+type CoreTargetManager interface {
+	Name() Atom
+	PID() PID
+	Log() Log
+	RouteSendPID(from PID, to PID, options MessageOptions, message any) error
+	RouteSendExitMessage(from PID, to PID, message any) error
+	RouteSendEventMessage(from PID, to PID, options MessageOptions, message MessageEvent) error
+	GetConnection(node Atom) (Connection, error)
+}

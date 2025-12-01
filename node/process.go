@@ -26,8 +26,6 @@ type process struct {
 
 	// registered aliases
 	aliases []gen.Alias
-	// registered events
-	events sync.Map // gen.Atom ->..
 
 	behavior  gen.ProcessBehavior
 	sbehavior string
@@ -124,7 +122,7 @@ func (p *process) Spawn(
 	if options.LinkChild {
 		// method LinkPID is not allowed to be used in the initialization state,
 		// so we use linking manually.
-		p.node.targetManager.AddLink(p.pid, pid)
+		p.node.targets.LinkPID(p.pid, pid)
 	}
 	return pid, err
 }
@@ -158,7 +156,7 @@ func (p *process) SpawnRegister(
 	if options.LinkChild {
 		// method LinkPID is not allowed to be used in the initialization state,
 		// so we use linking manually.
-		p.node.targetManager.AddLink(p.pid, pid)
+		p.node.targets.LinkPID(p.pid, pid)
 	}
 	return pid, err
 }
@@ -261,7 +259,7 @@ func (p *process) RemoteSpawn(
 	if opts.LinkChild {
 		// method LinkPID is not allowed to be used in the initialization state,
 		// so we use linking manually.
-		p.node.targetManager.AddLink(p.pid, pid)
+		p.node.targets.LinkPID(p.pid, pid)
 	}
 
 	return pid, err
@@ -299,7 +297,7 @@ func (p *process) RemoteSpawnRegister(
 	if opts.LinkChild {
 		// method LinkPID is not allowed to be used in the initialization state,
 		// so we use linking manually.
-		p.node.targetManager.AddLink(p.pid, pid)
+		p.node.targets.LinkPID(p.pid, pid)
 	}
 
 	return pid, err
@@ -1322,12 +1320,7 @@ func (p *process) RegisterEvent(name gen.Atom, options gen.EventOptions) (gen.Re
 		p.log.Trace("process RegisterEvent %s", name)
 	}
 
-	token, err := p.node.registerEvent(name, p.pid, options)
-	if err != nil {
-		return token, err
-	}
-	p.events.Store(name, true)
-	return token, nil
+	return p.node.registerEvent(name, p.pid, options)
 }
 
 func (p *process) UnregisterEvent(name gen.Atom) error {
@@ -1339,21 +1332,16 @@ func (p *process) UnregisterEvent(name gen.Atom) error {
 		p.log.Trace("process UnregisterEvent %s", name)
 	}
 
-	if err := p.node.unregisterEvent(name, p.pid); err != nil {
-		return err
-	}
-
-	p.events.Delete(name)
-	return nil
+	return p.node.unregisterEvent(name, p.pid)
 }
 
 func (p *process) Events() []gen.Atom {
-	events := []gen.Atom{}
-	p.events.Range(func(k, _ any) bool {
-		events = append(events, k.(gen.Atom))
-		return true
-	})
-	return events
+	events := p.node.targets.EventsFor(p.pid)
+	names := make([]gen.Atom, len(events))
+	for i, event := range events {
+		names[i] = event.Name
+	}
+	return names
 }
 
 func (p *process) Link(target any) error {
@@ -1394,7 +1382,7 @@ func (p *process) LinkPID(target gen.PID) error {
 		return gen.ErrNotAllowed
 	}
 
-	if p.node.targetManager.HasLink(p.pid, target) {
+	if p.node.targets.HasLink(p.pid, target) {
 		return gen.ErrTargetExist
 	}
 
@@ -1414,7 +1402,7 @@ func (p *process) UnlinkPID(target gen.PID) error {
 		return gen.ErrNotAllowed
 	}
 
-	if p.node.targetManager.HasLink(p.pid, target) == false {
+	if p.node.targets.HasLink(p.pid, target) == false {
 		return gen.ErrTargetUnknown
 	}
 
@@ -1438,7 +1426,7 @@ func (p *process) LinkProcessID(target gen.ProcessID) error {
 		return gen.ErrNotAllowed
 	}
 
-	if p.node.targetManager.HasLink(p.pid, target) {
+	if p.node.targets.HasLink(p.pid, target) {
 		return gen.ErrTargetExist
 	}
 
@@ -1458,7 +1446,7 @@ func (p *process) UnlinkProcessID(target gen.ProcessID) error {
 		return gen.ErrNotAllowed
 	}
 
-	if p.node.targetManager.HasLink(p.pid, target) == false {
+	if p.node.targets.HasLink(p.pid, target) == false {
 		return gen.ErrTargetUnknown
 	}
 
@@ -1480,7 +1468,7 @@ func (p *process) LinkAlias(target gen.Alias) error {
 		}
 	}
 
-	if p.node.targetManager.HasLink(p.pid, target) {
+	if p.node.targets.HasLink(p.pid, target) {
 		return gen.ErrTargetExist
 	}
 
@@ -1496,7 +1484,7 @@ func (p *process) UnlinkAlias(target gen.Alias) error {
 		return gen.ErrNotAllowed
 	}
 
-	if p.node.targetManager.HasLink(p.pid, target) == false {
+	if p.node.targets.HasLink(p.pid, target) == false {
 		return gen.ErrTargetUnknown
 	}
 
@@ -1517,7 +1505,7 @@ func (p *process) LinkEvent(target gen.Event) ([]gen.MessageEvent, error) {
 		target.Node = p.node.name
 	}
 
-	if p.node.targetManager.HasLink(p.pid, target) {
+	if p.node.targets.HasLink(p.pid, target) {
 		return nil, gen.ErrTargetExist
 	}
 
@@ -1534,7 +1522,7 @@ func (p *process) UnlinkEvent(target gen.Event) error {
 		return gen.ErrNotAllowed
 	}
 
-	if p.node.targetManager.HasLink(p.pid, target) == false {
+	if p.node.targets.HasLink(p.pid, target) == false {
 		return gen.ErrTargetUnknown
 	}
 
@@ -1550,7 +1538,7 @@ func (p *process) LinkNode(target gen.Atom) error {
 		return gen.ErrNotAllowed
 	}
 
-	if p.node.targetManager.HasLink(p.pid, target) {
+	if p.node.targets.HasLink(p.pid, target) {
 		return gen.ErrTargetExist
 	}
 
@@ -1558,9 +1546,7 @@ func (p *process) LinkNode(target gen.Atom) error {
 		return err
 	}
 
-	p.node.targetManager.AddLink(p.pid, target)
-
-	return nil
+	return p.node.targets.LinkNode(p.pid, target)
 }
 
 func (p *process) UnlinkNode(target gen.Atom) error {
@@ -1568,11 +1554,11 @@ func (p *process) UnlinkNode(target gen.Atom) error {
 		return gen.ErrNotAllowed
 	}
 
-	if p.node.targetManager.HasLink(p.pid, target) == false {
+	if p.node.targets.HasLink(p.pid, target) == false {
 		return gen.ErrTargetUnknown
 	}
 
-	p.node.targetManager.RemoveLink(p.pid, target)
+	p.node.targets.UnlinkNode(p.pid, target)
 
 	return nil
 }
@@ -1612,7 +1598,7 @@ func (p *process) MonitorPID(target gen.PID) error {
 		return gen.ErrNotAllowed
 	}
 
-	if p.node.targetManager.HasMonitor(p.pid, target) {
+	if p.node.targets.HasMonitor(p.pid, target) {
 		return gen.ErrTargetExist
 	}
 
@@ -1628,7 +1614,7 @@ func (p *process) DemonitorPID(target gen.PID) error {
 		return gen.ErrNotAllowed
 	}
 
-	if p.node.targetManager.HasMonitor(p.pid, target) == false {
+	if p.node.targets.HasMonitor(p.pid, target) == false {
 		return gen.ErrTargetUnknown
 	}
 
@@ -1644,7 +1630,7 @@ func (p *process) MonitorProcessID(target gen.ProcessID) error {
 		return gen.ErrNotAllowed
 	}
 
-	if p.node.targetManager.HasMonitor(p.pid, target) {
+	if p.node.targets.HasMonitor(p.pid, target) {
 		return gen.ErrTargetExist
 	}
 
@@ -1660,7 +1646,7 @@ func (p *process) DemonitorProcessID(target gen.ProcessID) error {
 		return gen.ErrNotAllowed
 	}
 
-	if p.node.targetManager.HasMonitor(p.pid, target) == false {
+	if p.node.targets.HasMonitor(p.pid, target) == false {
 		return gen.ErrTargetUnknown
 	}
 
@@ -1676,7 +1662,7 @@ func (p *process) MonitorAlias(target gen.Alias) error {
 		return gen.ErrNotAllowed
 	}
 
-	if p.node.targetManager.HasMonitor(p.pid, target) {
+	if p.node.targets.HasMonitor(p.pid, target) {
 		return gen.ErrTargetExist
 	}
 
@@ -1692,7 +1678,7 @@ func (p *process) DemonitorAlias(target gen.Alias) error {
 		return gen.ErrNotAllowed
 	}
 
-	if p.node.targetManager.HasMonitor(p.pid, target) == false {
+	if p.node.targets.HasMonitor(p.pid, target) == false {
 		return gen.ErrTargetUnknown
 	}
 
@@ -1713,7 +1699,7 @@ func (p *process) MonitorEvent(target gen.Event) ([]gen.MessageEvent, error) {
 		target.Node = p.node.name
 	}
 
-	if p.node.targetManager.HasMonitor(p.pid, target) {
+	if p.node.targets.HasMonitor(p.pid, target) {
 		return nil, gen.ErrTargetExist
 	}
 
@@ -1730,7 +1716,7 @@ func (p *process) DemonitorEvent(target gen.Event) error {
 		return gen.ErrNotAllowed
 	}
 
-	if p.node.targetManager.HasMonitor(p.pid, target) == false {
+	if p.node.targets.HasMonitor(p.pid, target) == false {
 		return gen.ErrTargetUnknown
 	}
 
@@ -1746,27 +1732,26 @@ func (p *process) MonitorNode(target gen.Atom) error {
 		return gen.ErrNotAllowed
 	}
 
-	if p.node.targetManager.HasMonitor(p.pid, target) {
+	if p.node.targets.HasMonitor(p.pid, target) {
 		return gen.ErrTargetExist
 	}
 
 	if _, err := p.Node().Network().GetNode(target); err != nil {
 		return err
 	}
-	p.node.targetManager.AddMonitor(p.pid, target)
-	return nil
+
+	return p.node.targets.MonitorNode(p.pid, target)
 }
 
 func (p *process) DemonitorNode(target gen.Atom) error {
 	if p.isRunning() == false {
 		return gen.ErrNotAllowed
 	}
-	if p.node.targetManager.HasMonitor(p.pid, target) == false {
+	if p.node.targets.HasMonitor(p.pid, target) == false {
 		return gen.ErrTargetUnknown
 	}
 
-	p.node.targetManager.RemoveMonitor(p.pid, target)
-	return nil
+	return p.node.targets.DemonitorNode(p.pid, target)
 }
 
 func (p *process) Log() gen.Log {
@@ -1833,12 +1818,8 @@ func (p *process) Forward(
 // internal
 
 func (p *process) run() {
-	if atomic.CompareAndSwapInt32(
-		&p.state,
-		int32(gen.ProcessStateSleep),
-		int32(gen.ProcessStateRunning),
-	) == false {
-		// already running or terminated
+	if atomic.CompareAndSwapInt32(&p.state, int32(gen.ProcessStateSleep),
+		int32(gen.ProcessStateRunning)) == false { // already running or terminated
 		return
 	}
 	go func() {

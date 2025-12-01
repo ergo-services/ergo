@@ -1,5 +1,6 @@
 *~
 coverage.txt
+coverage.*
 coverage.html
 tests/coverage.txt
 tests/coverage.html

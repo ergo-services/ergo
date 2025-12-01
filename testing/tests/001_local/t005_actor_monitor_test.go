@@ -567,6 +567,7 @@ func (t *t5) MonitoringEvent(input any) {
 		}
 
 		if info, err := t.Node().ProcessInfo(t.PID()); err == nil {
+			t.Log().Info("info.MonitorsEvent:", info.MonitorsEvent)
 			if len(info.MonitorsEvent) != 1 && info.MonitorsEvent[0] != event {
 				t.Node().Kill(pid)
 				t.testcase.err <- errIncorrect
@@ -734,7 +735,7 @@ func TestT5ActorMonitor(t *testing.T) {
 	nopt := gen.NodeOptions{}
 
 	// to suppress Panic messages disable logging
-	nopt.Log.DefaultLogger.Disable = true
+	// nopt.Log.DefaultLogger.Disable = true
 
 	node, err := ergo.StartNode("t5node@localhost", nopt)
 	if err != nil {

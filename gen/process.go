@@ -838,12 +838,12 @@ type ProcessOptions struct {
 	// Allows building backpressure handling and overflow protection.
 	Fallback ProcessFallback
 
-	// LinkParent creates a bidirectional link with the parent process on start.
+	// LinkParent creates a link with the parent process on start.
 	// If parent terminates, this process receives exit signal and terminates.
 	// Ignored if process is spawned by node (not by another process).
 	LinkParent bool
 
-	// LinkChild creates a bidirectional link from parent to this child process.
+	// LinkChild creates a link from parent to this child process.
 	// If child terminates, parent receives exit signal and terminates.
 	// Works even when parent is in Init state (uses manual targetManager.AddLink).
 	// Ignored if process is spawned by node (not by another process).
