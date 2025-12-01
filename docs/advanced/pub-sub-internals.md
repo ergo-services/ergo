@@ -471,17 +471,17 @@ When the producer publishes one price update:
 
 The optimization transforms O(N) network cost (where N = total subscribers) into O(M) cost (where M = number of nodes). For distributed systems with many subscribers per node, this is the difference between practical and impossible.
 
-**Actual benchmark results** (from the [distributed-pub-sub-1M](https://github.com/ergo-services/benchmarks/tree/master/distributed-pub-sub-1M) benchmark):
+**Actual benchmark results** (from the [distributed-pub-sub-1M](https://github.com/ergo-services/benchmarks/) benchmark):
 
 ```
-Total subscribers:       1,000,000
+Total subscribers:       1000000
 Consumer nodes:          10
-Subscribers per node:    100,000
+Subscribers per node:    100000
 
-Time to publish:         ~32ms
-Time to deliver all:     ~394ms
+Time to publish:         64.125µs
+Time to deliver all:     342.414375ms
 Network messages sent:   10 (1 per consumer node)
-Delivery rate:           ~2,500,000 msg/sec
+Delivery rate:           2920438 msg/sec
 ```
 
 ### Why This Matters for System Design
