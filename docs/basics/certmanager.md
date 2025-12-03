@@ -70,4 +70,19 @@ The certificate manager is passive - it doesn't handle renewal itself. It provid
 
 This separation is intentional. Certificate renewal policies vary widely. Some organizations use Let's Encrypt with automated renewal. Others use internal CAs with manual processes. Some rotate certificates on a schedule, others only when necessary. The certificate manager doesn't impose policy - it just enables live updates however you choose to implement them.
 
+## Mutual TLS
+
+For scenarios requiring client certificate authentication, use `gen.CertAuthManager`. It extends `CertManager` with CA pool management for verifying certificates on both sides of the connection. This enables mutual TLS (mTLS) where servers verify client certificates and clients verify server certificates.
+
+```go
+certManager := gen.CreateCertAuthManager(cert)
+certManager.SetClientCAs(clientCAPool)    // server verifies clients
+certManager.SetRootCAs(serverCAPool)      // client verifies servers
+certManager.SetClientAuth(tls.RequireAndVerifyClientCert)
+```
+
+All settings support runtime updates, just like certificate rotation.
+
+For detailed configuration and examples, see [Mutual TLS](../networking/mutual-tls.md).
+
 For complete certificate manager methods and usage, refer to the `gen.CertManager` interface documentation in the code.

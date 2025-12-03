@@ -726,6 +726,21 @@ func (n *network) connect(name gen.Atom, route gen.NetworkRoute) (gen.Connection
 	if route.Route.TLS {
 		tlsconfig := &tls.Config{
 			InsecureSkipVerify: route.InsecureSkipVerify,
+			MinVersion:         tls.VersionTLS12,
+		}
+		// use client certificate if provided
+		if route.Cert != nil {
+			tlsconfig.GetClientCertificate = func(*tls.CertificateRequestInfo) (*tls.Certificate, error) {
+				cert := route.Cert.GetCertificate()
+				return &cert, nil
+			}
+			// check for mTLS support (CA pool for server verification, server name)
+			if cam, ok := route.Cert.(gen.CertAuthManager); ok {
+				tlsconfig.RootCAs = cam.RootCAs()
+				if serverName := cam.ServerName(); serverName != "" {
+					tlsconfig.ServerName = serverName
+				}
+			}
 		}
 		tlsdialer := tls.Dialer{
 			NetDialer: dialer,
@@ -1151,7 +1166,15 @@ func (n *network) startAcceptor(a gen.AcceptorOptions) (*acceptor, error) {
 		config := &tls.Config{
 			GetCertificate:     acceptor.cert_manager.GetCertificateFunc(),
 			InsecureSkipVerify: a.InsecureSkipVerify,
+			MinVersion:         tls.VersionTLS12,
 		}
+
+		// check for mTLS support
+		if cam, ok := acceptor.cert_manager.(gen.CertAuthManager); ok {
+			config.ClientAuth = cam.ClientAuth()
+			config.ClientCAs = cam.ClientCAs()
+		}
+
 		acceptor.l = tls.NewListener(acceptor.l, config)
 	}
 

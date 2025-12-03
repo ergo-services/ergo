@@ -67,6 +67,7 @@
 * [Network Transparency](networking/network-transparency.md)
 * [Static Routes](networking/static-routes.md)
 * [Behind the NAT](networking/behind-the-nat.md)
+* [Mutual TLS](networking/mutual-tls.md)
 * [Remote Spawn Process](networking/remote-spawn-process.md)
 * [Remote Start Application](networking/remote-start-application.md)
 
