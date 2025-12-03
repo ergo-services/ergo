@@ -40,7 +40,7 @@ The `gen.NodeOptions` parameter configures the node: which applications to start
 
 The node manages the complete process lifecycle.
 
-When you spawn a process, the node creates it, calls its `ProcessInit` callback, registers it in the process table, and transitions it to the sleep state. The process is now live and can receive messages.
+When you spawn a process, the node creates it, registers it in the process table, calls its `ProcessInit` callback, and transitions it to the sleep state. The process is now live and can receive messages.
 
 When the process terminates (either naturally or through an exit signal), the node calls `ProcessTerminate`, removes it from the process table, and notifies any processes that were linked or monitoring. Resources are cleaned up, and the `gen.PID` becomes invalid.
 

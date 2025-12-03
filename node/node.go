@@ -2138,14 +2138,37 @@ func (n *node) spawn(factory gen.ProcessFactory, options gen.ProcessOptionsExtra
 	}
 	p.log.setSource(logSource)
 
+	// early registration - allows using Link/Monitor/RegisterEvent/RegisterName in Init
+	n.processes.Store(p.pid, p)
+
 	if err := behavior.ProcessInit(p, options.Args...); err != nil {
-		n.names.Delete(p.name)
-		// make sure to notify children that might have been spawned
-		// (during ProcessInit callback) with the enabled LinkParent option
-		p.node.targets.TerminatedTargetPID(p.pid, err)
+		// remove from processes registry
+		n.processes.Delete(p.pid)
 
-		// terminate meta process that spawned during initialization
+		// notify remote nodes about PID termination
+		n.RouteTerminatePID(p.pid, err)
 
+		// cleanup all subscriptions this process created as consumer
+		// also cleans up events where process was producer
+		n.targets.TerminatedProcess(p.pid, err)
+
+		// notify processes that linked/monitored TO this process (e.g., children)
+		n.targets.TerminatedTargetPID(p.pid, err)
+
+		// handle name cleanup with proper notification
+		if p.registered.Load() {
+			n.names.Delete(p.name)
+			pname := gen.ProcessID{Name: p.name, Node: n.name}
+			n.RouteTerminateProcessID(pname, err)
+		}
+
+		// cleanup aliases created during Init
+		for _, a := range p.aliases {
+			n.aliases.Delete(a)
+			n.RouteTerminateAlias(a, err)
+		}
+
+		// terminate meta processes that spawned during initialization
 		p.metas.Range(func(_, v any) bool {
 			m := v.(*meta)
 
@@ -2169,9 +2192,8 @@ func (n *node) spawn(factory gen.ProcessFactory, options gen.ProcessOptionsExtra
 		n.targets.LinkPID(p.pid, p.parent)
 	}
 
-	// register process and switch it to the sleep state
+	// switch to sleep state (process already registered above)
 	p.state = int32(gen.ProcessStateSleep)
-	n.processes.Store(p.pid, p)
 
 	// do not count system app processes
 	if p.application != system.Name {

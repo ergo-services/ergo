@@ -24,9 +24,9 @@ Processes can also create aliases - temporary identifiers that provide additiona
 
 A process goes through several states during its lifetime.
 
-It starts in Init, where the ProcessInit callback runs. In this state, the process isn't yet registered in the node's process table. It can spawn children and send messages, but it can't register names, create links, or make synchronous calls. These restrictions exist because the process isn't fully available yet - other parts of the system can't find it or send it responses.
+It starts in Init, where the ProcessInit callback runs. In this state, the process can spawn children, send messages, register names, create aliases, register events, establish links and monitors, and make synchronous calls.
 
-After initialization succeeds, the process enters Sleep. It's now fully registered and can be found by PID or registered name. When a message arrives, the process transitions to Running, handles the message, and returns to Sleep.
+After initialization succeeds, the process enters Sleep and is ready to receive messages. When a message arrives, the process transitions to Running, handles the message, and returns to Sleep.
 
 If the process makes a synchronous call, it enters WaitResponse while waiting for the reply. Once the response arrives, it returns to Running and continues processing.
 
@@ -52,7 +52,7 @@ The factory is called each time you spawn - each process gets a fresh instance. 
 
 `gen.ProcessOptions` configures the new process: mailbox size, environment variables, compression settings, message priority, and linking behavior. Most options have sensible defaults. The main ones you'll configure are `MailboxSize` (to limit memory) and `Env` (to pass configuration).
 
-Two options deserve explanation: `LinkParent` and `LinkChild`. During initialization, a process can't use the `Link` method (it's not registered yet). These options work around that limitation, creating links automatically after initialization completes. If `LinkChild` is set, the parent links to the child. If `LinkParent` is set, the child links to the parent. These links only work for process-spawned children, not node-spawned processes.
+Two options deserve explanation: `LinkParent` and `LinkChild`. These options provide a convenient way to establish links automatically after initialization completes. If `LinkChild` is set, the parent links to the child. If `LinkParent` is set, the child links to the parent. These links only work for process-spawned children, not node-spawned processes. Note that you can also call `Link` methods directly during initialization if needed.
 
 ## Message Handling
 
@@ -72,7 +72,7 @@ func (w *Worker) HandleMessage(from gen.PID, message any) error {
 }
 ```
 
-The `ProcessInit` callback runs once during startup. Use it to initialize state, spawn children, configure properties. If it returns an error, the process never registers - it terminates immediately.
+The `ProcessInit` callback runs once during startup. Use it to initialize state, spawn children, configure properties. If it returns an error, the process is cleaned up and removed - it terminates immediately.
 
 The `ProcessTerminate` callback runs during shutdown. Use it for cleanup: close files, send final messages, log termination. It receives the termination reason, so you can distinguish between normal shutdown and errors.
 
@@ -106,7 +106,7 @@ Regardless of how termination happens, the node performs comprehensive cleanup. 
 
 Not all Process interface methods work in all states. This isn't arbitrary - it reflects what's actually possible.
 
-During Init, the process can spawn children and send messages, but it can't register names, create links, or make synchronous calls. The process isn't in the process table yet, so operations that require other processes to find it or send responses won't work.
+During Init, the process can spawn children, send messages, register names, create aliases, register events, establish links and monitors, and make synchronous calls.
 
 During Running, everything is available. The process is fully operational.
 

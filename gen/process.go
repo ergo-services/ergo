@@ -230,13 +230,13 @@ type Process interface {
 
 	// RegisterName associates a name with this process's PID.
 	// After registration, this process can be addressed using ProcessID{name, nodename}.
-	// Available in: Running state only.
-	// Returns ErrNotAllowed in other states (process must be registered in node first).
+	// Available in: Init, Running states.
+	// Returns ErrNotAllowed in other states.
 	// Returns ErrTaken if this process already has a registered name.
 	RegisterName(name Atom) error
 
 	// UnregisterName removes the name association from this process.
-	// Available in: Running state only.
+	// Available in: Init, Running states.
 	// Returns ErrNotAllowed in other states.
 	UnregisterName() error
 
@@ -342,12 +342,12 @@ type Process interface {
 
 	// CreateAlias creates a new alias associated with this process.
 	// Other processes can send messages or make calls using this alias.
-	// Available in: Running state only.
-	// Returns ErrNotAllowed in other states (process must be registered in node first).
+	// Available in: Init, Running states.
+	// Returns ErrNotAllowed in other states.
 	CreateAlias() (Alias, error)
 
 	// DeleteAlias deletes the given alias.
-	// Available in: Running state only.
+	// Available in: Init, Running states.
 	// Returns ErrNotAllowed in other states.
 	DeleteAlias(alias Alias) error
 
@@ -394,8 +394,8 @@ type Process interface {
 	// - Remote with Important: confirmation or error (ErrProcessUnknown, ErrProcessMailboxFull)
 	// Aligns remote behavior with local delivery semantics.
 	//
-	// Available in: Running state only.
-	// Returns ErrNotAllowed in other states (requires process registered for confirmation routing),
+	// Available in: Init, Running states.
+	// Returns ErrNotAllowed in other states,
 	// ErrProcessUnknown if target doesn't exist, ErrProcessMailboxFull if mailbox full.
 	SendImportant(to any, message any) error
 
@@ -416,7 +416,7 @@ type Process interface {
 
 	// SendEvent sends an event message to all subscribers (processes that linked or monitored this event).
 	// The event must be registered first using RegisterEvent.
-	// Available in: Running state only.
+	// Available in: Init, Running states.
 	// Returns ErrNotAllowed in other states, ErrEventUnknown if event not registered.
 	SendEvent(name Atom, token Ref, message any) error
 
@@ -526,19 +526,19 @@ type Process interface {
 	// Call makes a synchronous request with default timeout (5 seconds).
 	// Blocks the actor goroutine until response arrives or timeout occurs.
 	// Target can be: PID, ProcessID, Alias, Atom (process name), or string (process name).
-	// Available in: Running state only.
+	// Available in: Init, Running states.
 	// Returns ErrNotAllowed in other states, ErrTimeout on timeout.
 	Call(to any, message any) (any, error)
 
 	// CallWithTimeout makes a synchronous request with the specified timeout (in seconds).
 	// Blocks the actor goroutine until response arrives or timeout occurs.
-	// Available in: Running state only.
+	// Available in: Init, Running states.
 	// Returns ErrNotAllowed in other states, ErrTimeout on timeout.
 	CallWithTimeout(to any, message any, timeout int) (any, error)
 
 	// CallWithPriority makes a synchronous request with the specified priority.
 	// Uses default timeout (5 seconds). Blocks the actor goroutine.
-	// Available in: Running state only.
+	// Available in: Init, Running states.
 	// Returns ErrNotAllowed in other states, ErrTimeout on timeout.
 	CallWithPriority(to any, message any, priority MessagePriority) (any, error)
 
@@ -553,38 +553,38 @@ type Process interface {
 	// When combined with SendResponseImportant/SendResponseErrorImportant:
 	// Fully-Reliable Two-Phase Commit (FR-2PC) - both request and response delivery guaranteed.
 	//
-	// Available in: Running state only.
+	// Available in: Init, Running states.
 	// Returns ErrNotAllowed in other states, ErrTimeout on timeout,
 	// ErrProcessUnknown if target doesn't exist (with Important flag).
 	CallImportant(to any, message any) (any, error)
 
 	// CallPID makes a synchronous request to the process identified by PID.
 	// Timeout specified in seconds. Blocks the actor goroutine.
-	// Available in: Running state only.
+	// Available in: Init, Running states.
 	// Returns ErrNotAllowed in other states, ErrTimeout on timeout.
 	CallPID(to PID, message any, timeout int) (any, error)
 
 	// CallProcessID makes a synchronous request to the named process.
 	// Timeout specified in seconds. Blocks the actor goroutine.
-	// Available in: Running state only.
+	// Available in: Init, Running states.
 	// Returns ErrNotAllowed in other states, ErrTimeout on timeout.
 	CallProcessID(to ProcessID, message any, timeout int) (any, error)
 
 	// CallAlias makes a synchronous request to the process via alias.
 	// Timeout specified in seconds. Blocks the actor goroutine.
-	// Available in: Running state only.
+	// Available in: Init, Running states.
 	// Returns ErrNotAllowed in other states, ErrTimeout on timeout.
 	CallAlias(to Alias, message any, timeout int) (any, error)
 
 	// Inspect sends an inspection request to the target process.
 	// Returns a map of inspection items. Synchronous operation.
-	// Available in: Running state only.
+	// Available in: Init, Running states.
 	// Returns ErrNotAllowed in other states.
 	Inspect(target PID, item ...string) (map[string]string, error)
 
 	// InspectMeta sends an inspection request to the target meta process.
 	// Returns a map of inspection items. Synchronous operation.
-	// Available in: Running state only.
+	// Available in: Init, Running states.
 	// Returns ErrNotAllowed in other states.
 	InspectMeta(meta Alias, item ...string) (map[string]string, error)
 
@@ -593,145 +593,145 @@ type Process interface {
 	// Other processes can subscribe via LinkEvent/MonitorEvent.
 	// Only the producer can unregister the event.
 	// Other processes can send events using the token (delegation feature).
-	// Available in: Running state only.
+	// Available in: Init, Running states.
 	// Returns ErrNotAllowed in other states, ErrTaken if event name already registered.
 	RegisterEvent(name Atom, options EventOptions) (Ref, error)
 
 	// UnregisterEvent unregisters an event.
 	// Can only be called by the process that registered the event (the producer).
-	// Available in: Running state only.
+	// Available in: Init, Running states.
 	// Returns ErrNotAllowed in other states, ErrEventUnknown if event not found.
 	UnregisterEvent(name Atom) error
 
 	// Link creates a bidirectional link to the target.
 	// If either process terminates, the other receives an exit message and terminates too.
 	// Target can be: PID, ProcessID, Alias, Event, or Atom (node name).
-	// Available in: Running state only.
-	// Returns ErrNotAllowed in other states (requires process registered for exit message routing).
+	// Available in: Init, Running states.
+	// Returns ErrNotAllowed in other states.
 	Link(target any) error
 
 	// Unlink removes a bidirectional link to the target.
-	// Available in: Running state only.
+	// Available in: Init, Running states.
 	// Returns ErrNotAllowed in other states.
 	Unlink(target any) error
 
 	// LinkPID creates a bidirectional link to the process identified by PID.
 	// If either process terminates, the other receives an exit message.
-	// Available in: Running state only.
-	// Returns ErrNotAllowed in other states (requires process registered for exit routing).
+	// Available in: Init, Running states.
+	// Returns ErrNotAllowed in other states.
 	LinkPID(target PID) error
 
 	// UnlinkPID removes a bidirectional link to the process identified by PID.
-	// Available in: Running state only.
+	// Available in: Init, Running states.
 	// Returns ErrNotAllowed in other states.
 	UnlinkPID(target PID) error
 
 	// LinkProcessID creates a bidirectional link to the named process.
-	// Available in: Running state only.
-	// Returns ErrNotAllowed in other states (requires process registered for exit routing).
+	// Available in: Init, Running states.
+	// Returns ErrNotAllowed in other states.
 	LinkProcessID(target ProcessID) error
 
 	// UnlinkProcessID removes a bidirectional link to the named process.
-	// Available in: Running state only.
+	// Available in: Init, Running states.
 	// Returns ErrNotAllowed in other states.
 	UnlinkProcessID(target ProcessID) error
 
 	// LinkAlias creates a bidirectional link to the process via alias.
-	// Available in: Running state only.
-	// Returns ErrNotAllowed in other states (requires process registered for exit routing).
+	// Available in: Init, Running states.
+	// Returns ErrNotAllowed in other states.
 	LinkAlias(target Alias) error
 
 	// UnlinkAlias removes a bidirectional link to the process via alias.
-	// Available in: Running state only.
+	// Available in: Init, Running states.
 	// Returns ErrNotAllowed in other states.
 	UnlinkAlias(target Alias) error
 
 	// LinkEvent creates a bidirectional link to an event.
 	// This process will receive event messages and exit if the event is unregistered.
 	// Returns the last N event messages if buffering is enabled.
-	// Available in: Running state only.
-	// Returns ErrNotAllowed in other states (requires process registered for exit routing).
+	// Available in: Init, Running states.
+	// Returns ErrNotAllowed in other states.
 	LinkEvent(target Event) ([]MessageEvent, error)
 
 	// UnlinkEvent removes a bidirectional link to an event.
-	// Available in: Running state only.
+	// Available in: Init, Running states.
 	// Returns ErrNotAllowed in other states.
 	UnlinkEvent(target Event) error
 
 	// LinkNode creates a bidirectional link to a node.
 	// If the node disconnects, this process receives an exit message.
-	// Available in: Running state only.
-	// Returns ErrNotAllowed in other states (requires process registered for exit routing).
+	// Available in: Init, Running states.
+	// Returns ErrNotAllowed in other states.
 	LinkNode(target Atom) error
 
 	// UnlinkNode removes a bidirectional link to a node.
-	// Available in: Running state only.
+	// Available in: Init, Running states.
 	// Returns ErrNotAllowed in other states.
 	UnlinkNode(target Atom) error
 
 	// Monitor creates a unidirectional monitor to the target.
 	// If the target terminates, this process receives a down message (non-fatal).
 	// Target can be: PID, ProcessID, Alias, Event, or Atom (node name).
-	// Available in: Running state only.
-	// Returns ErrNotAllowed in other states (requires process registered for down routing).
+	// Available in: Init, Running states.
+	// Returns ErrNotAllowed in other states.
 	Monitor(target any) error
 
 	// Demonitor removes a unidirectional monitor to the target.
-	// Available in: Running state only.
+	// Available in: Init, Running states.
 	// Returns ErrNotAllowed in other states.
 	Demonitor(target any) error
 
 	// MonitorPID creates a unidirectional monitor to the process identified by PID.
 	// If the target terminates, this process receives a down message.
-	// Available in: Running state only.
-	// Returns ErrNotAllowed in other states (requires process registered for down routing).
+	// Available in: Init, Running states.
+	// Returns ErrNotAllowed in other states.
 	MonitorPID(pid PID) error
 
 	// DemonitorPID removes a unidirectional monitor to the process identified by PID.
-	// Available in: Running state only.
+	// Available in: Init, Running states.
 	// Returns ErrNotAllowed in other states.
 	DemonitorPID(pid PID) error
 
 	// MonitorProcessID creates a unidirectional monitor to the named process.
-	// Available in: Running state only.
-	// Returns ErrNotAllowed in other states (requires process registered for down routing).
+	// Available in: Init, Running states.
+	// Returns ErrNotAllowed in other states.
 	MonitorProcessID(process ProcessID) error
 
 	// DemonitorProcessID removes a unidirectional monitor to the named process.
-	// Available in: Running state only.
+	// Available in: Init, Running states.
 	// Returns ErrNotAllowed in other states.
 	DemonitorProcessID(process ProcessID) error
 
 	// MonitorAlias creates a unidirectional monitor to the process via alias.
-	// Available in: Running state only.
-	// Returns ErrNotAllowed in other states (requires process registered for down routing).
+	// Available in: Init, Running states.
+	// Returns ErrNotAllowed in other states.
 	MonitorAlias(alias Alias) error
 
 	// DemonitorAlias removes a unidirectional monitor to the process via alias.
-	// Available in: Running state only.
+	// Available in: Init, Running states.
 	// Returns ErrNotAllowed in other states.
 	DemonitorAlias(alias Alias) error
 
 	// MonitorEvent creates a unidirectional monitor to an event.
 	// This process will receive event messages and down notification if event is unregistered.
 	// Returns the last N event messages if buffering is enabled.
-	// Available in: Running state only.
-	// Returns ErrNotAllowed in other states (requires process registered for down routing).
+	// Available in: Init, Running states.
+	// Returns ErrNotAllowed in other states.
 	MonitorEvent(event Event) ([]MessageEvent, error)
 
 	// DemonitorEvent removes a unidirectional monitor to an event.
-	// Available in: Running state only.
+	// Available in: Init, Running states.
 	// Returns ErrNotAllowed in other states.
 	DemonitorEvent(event Event) error
 
 	// MonitorNode creates a unidirectional monitor to a node.
 	// If the node disconnects, this process receives a down message.
-	// Available in: Running state only.
-	// Returns ErrNotAllowed in other states (requires process registered for down routing).
+	// Available in: Init, Running states.
+	// Returns ErrNotAllowed in other states.
 	MonitorNode(node Atom) error
 
 	// DemonitorNode removes a unidirectional monitor to a node.
-	// Available in: Running state only.
+	// Available in: Init, Running states.
 	// Returns ErrNotAllowed in other states.
 	DemonitorNode(node Atom) error
 
@@ -741,12 +741,12 @@ type Process interface {
 
 	// Info returns summary information about this process.
 	// Includes PID, name, state, behavior type, and other process details.
-	// Available in: Running state only.
+	// Available in: Init, Running states.
 	// Returns ErrNotAllowed in other states.
 	Info() (ProcessInfo, error)
 
 	// MetaInfo returns summary information about the given meta process.
-	// Available in: Running state only.
+	// Available in: Init, Running states.
 	// Returns ErrNotAllowed in other states.
 	MetaInfo(meta Alias) (MetaInfo, error)
 

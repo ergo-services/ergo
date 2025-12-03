@@ -82,7 +82,7 @@ Supervisors monitor their children. Each worker termination triggers a down mess
 
 Load balancers monitor backend processes. Each backend termination updates the balancer's routing table. The balancer continues routing to available backends. When a backend restarts, it might need to register with the balancer, which would then monitor it again.
 
-Parent-child relationships often use `LinkChild` and `LinkParent` options in `gen.ProcessOptions`. These create links during process initialization, working around the restriction that link methods aren't available during the Init state. If either participant terminates, the other receives an exit signal.
+Parent-child relationships often use `LinkChild` and `LinkParent` options in `gen.ProcessOptions`. These provide a convenient way to create links automatically after process initialization completes. You can also call `Link` methods directly during initialization if needed. If either participant terminates, the other receives an exit signal.
 
 ## The Difference That Matters
 

@@ -80,7 +80,7 @@ Since `act.Actor` embeds `gen.Process`, you have direct access to all process me
 
 ## Initialization
 
-`Init` runs once when the process spawns, before it's registered in the node. The `args` parameter contains whatever you passed to `Spawn`:
+`Init` runs once when the process spawns. The `args` parameter contains whatever you passed to `Spawn`:
 
 ```go
 pid, err := node.Spawn(createWorker, gen.ProcessOptions{}, "config", 42)
@@ -97,13 +97,11 @@ func (w *Worker) Init(args ...any) error {
 }
 ```
 
-If `Init` returns an error, the process never registers. `Spawn` returns immediately with that error. Use this for validation: check arguments, verify resources, refuse to start if preconditions aren't met.
+If `Init` returns an error, the process is cleaned up and removed. `Spawn` returns immediately with that error. Use this for validation: check arguments, verify resources, refuse to start if preconditions aren't met.
 
-During `Init`, the process is in `ProcessStateInit`. This restricts some operations:
-- Allowed: `Spawn`, `Send`, `SetEnv`, property setters
-- Restricted: `Call`, `Link`, `Monitor`, `RegisterName`
+During `Init`, the process is in `ProcessStateInit`. All operations are available: `Spawn`, `Send`, `SetEnv`, `RegisterName`, `CreateAlias`, `RegisterEvent`, `Link*`, `Monitor*`, `Call*`, and property setters.
 
-These restrictions exist because the process isn't registered yet. Other processes can't find it by PID or send it responses. You can spawn children and send messages (fire-and-forget), but you can't create links or make synchronous calls that require response routing.
+Any resources created during Init (names, aliases, events, links, monitors) are properly cleaned up if initialization fails.
 
 ## Message Handling
 

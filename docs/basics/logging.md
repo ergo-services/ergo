@@ -252,7 +252,7 @@ Process-based logging queues messages asynchronously. The `Log` call places the 
 
 This queuing prevents blocking. If the logger process is busy or the logging logic is expensive, messages queue and are processed when ready. The logging path stays fast.
 
-Two details matter: First, a process can't add itself as a logger during `Init`. The process isn't registered yet, so `LoggerAddPID` fails. Spawn the logger, then add it. Second, when a logger process terminates, it's automatically removed from the logging system. No need to call `LoggerDeletePID` explicitly.
+One detail matters: when a logger process terminates, it's automatically removed from the logging system. No need to call `LoggerDeletePID` explicitly.
 
 ## Using Multiple Loggers
 
