@@ -11,6 +11,8 @@ type acceptor struct {
 	bs               int
 	cookie           string
 	port             uint16
+	route_host       string
+	route_port       uint16
 	cert_manager     gen.CertManager
 	flags            gen.NetworkFlags
 	max_message_size int

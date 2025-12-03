@@ -1007,8 +1007,16 @@ func (n *network) start(options gen.NetworkOptions) error {
 		}
 
 		n.acceptors = append(n.acceptors, acceptor)
+
+		// determine port to advertise in route
+		routePort := acceptor.port
+		if acceptor.route_port > 0 {
+			routePort = acceptor.route_port
+		}
+
 		r := gen.Route{
-			Port:             acceptor.port,
+			Host:             acceptor.route_host,
+			Port:             routePort,
 			TLS:              acceptor.cert_manager != nil,
 			HandshakeVersion: acceptor.handshake.Version(),
 			ProtoVersion:     acceptor.proto.Version(),
@@ -1107,6 +1115,8 @@ func (n *network) startAcceptor(a gen.AcceptorOptions) (*acceptor, error) {
 		cert_manager:     cert_manager,
 		max_message_size: a.MaxMessageSize,
 		atom_mapping:     make(map[gen.Atom]gen.Atom),
+		route_host:       a.RouteHost,
+		route_port:       a.RoutePort,
 	}
 	if a.Cookie == "" {
 		acceptor.cookie = n.cookie

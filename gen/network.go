@@ -548,6 +548,18 @@ type AcceptorOptions struct {
 	// Useful for avoiding port conflicts.
 	PortRange uint16
 
+	// RouteHost specifies the public/external host address to advertise in routes.
+	// Used when node is behind NAT or load balancer.
+	// If empty, Route.Host is not set (other nodes extract host from node name).
+	// Examples: "203.0.113.50" (public IP), "api.example.com" (DNS name)
+	RouteHost string
+
+	// RoutePort specifies the public/external port to advertise in routes.
+	// Used when NAT port mapping differs from listen port.
+	// If zero, uses the actual listening port.
+	// Example: listen on :15000, NAT forwards 32000 -> 15000, set RoutePort=32000
+	RoutePort uint16
+
 	// TCP specifies the TCP network type.
 	// "tcp4" (default) - IPv4 only
 	// "tcp6" - IPv6 only
