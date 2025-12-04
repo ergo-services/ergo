@@ -252,7 +252,7 @@ If anything fails (factory not found, access denied, remote node terminating, in
 
 **Resource ownership** - A process spawned on a remote node runs on that node's resources (CPU, memory). It's part of that node's process table. If the remote node terminates, the process dies. If you're distributing workload, be aware of which node owns which processes.
 
-**Linking** - The `LinkChild` option in `gen.ProcessOptions` is ignored for remote spawn. You can't establish links during spawn because the parent-child relationship crosses a network boundary. If you need linking, do it explicitly after spawn using `process.Link(pid)`.
+**Linking** - Both `LinkChild` and `LinkParent` options work for remote spawn. The link is established after the remote process is created. If the network connection drops, linked processes receive exit signals for the lost peer.
 
 **Application membership** - Processes spawned via `RemoteNode.Spawn` don't belong to any application. Processes spawned via `process.RemoteSpawn` inherit the caller's application. This affects supervision, lifecycle, and monitoring.
 

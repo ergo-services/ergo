@@ -135,7 +135,14 @@ func (c *connection) Spawn(name gen.Atom, options gen.ProcessOptions, args ...an
 	if c.core.Security().ExposeEnvRemoteSpawn {
 		opts.ParentEnv = c.core.EnvList()
 	}
-	return c.RemoteSpawn(name, opts)
+	pid, err := c.RemoteSpawn(name, opts)
+	if err != nil {
+		return pid, err
+	}
+	if options.LinkChild {
+		c.core.RouteLinkPID(c.core.PID(), pid)
+	}
+	return pid, nil
 }
 
 func (c *connection) SpawnRegister(
@@ -155,7 +162,14 @@ func (c *connection) SpawnRegister(
 	if c.core.Security().ExposeEnvRemoteSpawn {
 		opts.ParentEnv = c.core.EnvList()
 	}
-	return c.RemoteSpawn(name, opts)
+	pid, err := c.RemoteSpawn(name, opts)
+	if err != nil {
+		return pid, err
+	}
+	if options.LinkChild {
+		c.core.RouteLinkPID(c.core.PID(), pid)
+	}
+	return pid, nil
 }
 
 func (c *connection) ApplicationStart(name gen.Atom, options gen.ApplicationOptions) error {
