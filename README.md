@@ -139,6 +139,9 @@ Fully detailed changelog see in the [ChangeLog](CHANGELOG.md) file.
 * Introduced **NAT support** - new `RouteHost` and `RoutePort` options in `gen.AcceptorOptions` for nodes behind NAT or load balancers. See [Behind the NAT](https://docs.ergo.services/networking/behind-the-nat) documentation
 * Introduced **spawn time control** - `InitTimeout` option in `gen.ProcessOptions` limits `ProcessInit` duration for both local and remote spawn. Remote spawn and application processes limited to max 15 seconds. See [Process](https://docs.ergo.services/basics/process) documentation
 * Introduced **zip-bomb protection** - decompression size limits to prevent memory exhaustion attacks
+* Added `gen.Ref` methods for request timeout tracking. See [Generic Types](https://docs.ergo.services/basics/generic-types#gen.ref):
+  - `Deadline` - returns deadline timestamp stored in reference
+  - `IsAlive` - checks if reference is still valid (deadline not exceeded)
 * Added `gen.Node` methods. See [Node](https://docs.ergo.services/basics/node) documentation:
   - `ProcessPID` / `ProcessName` - resolve process PID by name and vice versa
   - `Call`, `CallWithTimeout`, `CallWithPriority`, `CallImportant`, `CallPID`, `CallProcessID`, `CallAlias` - synchronous requests from Node interface
