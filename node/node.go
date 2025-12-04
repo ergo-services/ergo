@@ -185,14 +185,16 @@ func Start(name gen.Atom, options gen.NodeOptions, frameworkVersion gen.Version)
 	}
 
 	node.validateLicenses(node.version)
+
+	// create target manager (pub/sub subsystem) before network start
+	// because registrar may call RegisterEvent during network initialization
+	node.targets = tm.Create(createTMBridge(node), tm.Options{})
+
 	node.network = createNetwork(node)
 
 	if err := node.NetworkStart(options.Network); err != nil {
 		return nil, err
 	}
-
-	// create target manager (pub/sub subsystem)
-	node.targets = tm.Create(createTMBridge(node), tm.Options{})
 
 	node.coreEventsToken, _ = node.RegisterEvent(gen.CoreEvent, gen.EventOptions{})
 
