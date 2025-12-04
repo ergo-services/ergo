@@ -133,9 +133,31 @@ Starting from version 3.0.0, support for the Erlang network stack has been moved
 
 Fully detailed changelog see in the [ChangeLog](CHANGELOG.md) file.
 
-#### [v3.2.0](https://github.com/ergo-services/ergo/releases/tag/v1.999.320) 2025-09-04 [tag version v1.999.320] ####
+#### [v3.2.0](https://github.com/ergo-services/ergo/releases/tag/v1.999.320) 2025-XX-XX [tag version v1.999.320] ####
 
-Scheduled for release on February 4, 2026
+* Introduced **mTLS support** - new `gen.CertAuthManager` interface for mutual TLS with CA pool management (ClientCAs, RootCAs, ClientAuth, ServerName). See [Mutual TLS](https://docs.ergo.services/networking/mutual-tls) documentation
+* Introduced **NAT support** - new `RouteHost` and `RoutePort` options in `gen.AcceptorOptions` for nodes behind NAT or load balancers. See [Behind the NAT](https://docs.ergo.services/networking/behind-the-nat) documentation
+* Introduced `gen.RemoteNode.ApplicationInfo` method - query application information from remote nodes
+* Introduced `gen.Node.Inspect` / `gen.Node.InspectMeta` methods - inspect processes and meta processes from Node interface
+* Introduced `gen.Node.ProcessPID` / `gen.Node.ProcessName` methods - resolve process PID by name and vice versa
+* Introduced **HandleInspect** implementations for all supervisor types (OFO, ARFO, SOFO)
+* Introduced **zip-bomb protection** - decompression size limits to prevent memory exhaustion attacks (issue #114)
+* Completely reworked internal **Target Manager** (`node/tm/`) - improved architecture for process, event, and node target management with comprehensive test coverage
+* Completely reworked internal **Pub/Sub** mechanism - improved reliability and performance
+* Improved **ProcessInit state** - many `gen.Process` methods now available during initialization: `Spawn`, `SpawnRegister`, `SpawnMeta`, `RemoteSpawn`, `RemoteSpawnRegister`, `RegisterName`, `UnregisterName`, `SetEnv`, `SetCompression`, `SetCompressionType`, `SetCompressionLevel`, `SetCompressionThreshold`, `SetImportantDelivery`, `SetKeepNetworkOrder`, `CreateAlias`, `DeleteAlias`, `RegisterEvent`, `UnregisterEvent`
+* Improved API documentation - comprehensive godoc comments for all public interfaces
+* **Documentation rewritten** - complete documentation now included in the repository (`docs/`) and available at https://docs.ergo.services
+* Fixed **LinkChild** option not working in `RemoteNode.Spawn` / `RemoteNode.SpawnRegister` (issue #156)
+* Fixed **args persistence** for Simple One For One supervisor - child processes now restart with their original spawn arguments
+* Fixed **node startup panic** when calling `node.Info()` during application startup (Cron was initialized after applications)
+* Fixed **InitTimeout constraints** - remote spawn and application processes limited to max 15 seconds (3x DefaultRequestTimeout), returns `ErrNotAllowed` if exceeded
+
+**Extra Library - Actors** (https://github.com/ergo-services/actor):
+* Introduced **Leader** actor - distributed leader election with Raft-inspired consensus algorithm. Features: term-based disambiguation, automatic failover, split-brain prevention through majority quorum, dynamic peer discovery. See [documentation](https://docs.ergo.services/extra-library/actors/leader)
+* Introduced **Metrics** actor - Prometheus metrics exporter that collects node/network telemetry via HTTP endpoint. Features: automatic collection of node metrics (uptime, processes, memory), network metrics per remote node, extensible for custom metrics. See [documentation](https://docs.ergo.services/extra-library/actors/metrics)
+
+**Benchmarks** (https://github.com/ergo-services/benchmarks):
+* Introduced **Distributed Pub/Sub** benchmark - demonstrates event delivery to 1,000,000 subscribers across 10 nodes. Achieves 2.9M msg/sec delivery rate with only 10 network messages (one per consumer node) instead of 1M
 
 
 ### Development and debugging ###
