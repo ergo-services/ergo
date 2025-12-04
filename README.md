@@ -165,12 +165,10 @@ Fully detailed changelog see in the [ChangeLog](CHANGELOG.md) file.
 * Fixed **args persistence** for Simple One For One supervisor - child processes now restart with their original spawn arguments
 * Completely reworked internal **Target Manager** (`node/tm/`) - improved architecture for process, event, and node target management with comprehensive test coverage
 * Completely reworked internal **Pub/Sub** mechanism - improved reliability and performance
-* Improved **ProcessInit state** - many `gen.Process` methods now available during initialization:
-  - `Spawn`, `SpawnRegister`, `SpawnMeta`
-  - `RemoteSpawn`, `RemoteSpawnRegister`
+* Improved **ProcessInit state** - more `gen.Process` methods now available during initialization:
+  - `LinkPID`, `LinkProcessID`, `LinkAlias`, `LinkEvent`, `LinkNode`
+  - `MonitorPID`, `MonitorProcessID`, `MonitorAlias`, `MonitorEvent`, `MonitorNode`
   - `RegisterName`, `UnregisterName`
-  - `SetEnv`, `SetCompression`, `SetCompressionType`, `SetCompressionLevel`, `SetCompressionThreshold`
-  - `SetImportantDelivery`, `SetKeepNetworkOrder`
   - `CreateAlias`, `DeleteAlias`
   - `RegisterEvent`, `UnregisterEvent`
 * Improved API documentation - comprehensive godoc comments for all public interfaces
