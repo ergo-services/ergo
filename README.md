@@ -135,22 +135,44 @@ Fully detailed changelog see in the [ChangeLog](CHANGELOG.md) file.
 
 #### [v3.2.0](https://github.com/ergo-services/ergo/releases/tag/v1.999.320) 2025-XX-XX [tag version v1.999.320] ####
 
-* Introduced **mTLS support** - new `gen.CertAuthManager` interface for mutual TLS with CA pool management (ClientCAs, RootCAs, ClientAuth, ServerName). See [Mutual TLS](https://docs.ergo.services/networking/mutual-tls) documentation
+* Introduced **mTLS support** - new `gen.CertAuthManager` interface for mutual TLS with CA pool management (`ClientCAs`, `RootCAs`, `ClientAuth`, `ServerName`). See [Mutual TLS](https://docs.ergo.services/networking/mutual-tls) documentation
 * Introduced **NAT support** - new `RouteHost` and `RoutePort` options in `gen.AcceptorOptions` for nodes behind NAT or load balancers. See [Behind the NAT](https://docs.ergo.services/networking/behind-the-nat) documentation
-* Introduced `gen.RemoteNode.ApplicationInfo` method - query application information from remote nodes
-* Introduced `gen.Node.Inspect` / `gen.Node.InspectMeta` methods - inspect processes and meta processes from Node interface
-* Introduced `gen.Node.ProcessPID` / `gen.Node.ProcessName` methods - resolve process PID by name and vice versa
+* Introduced **spawn time control** - `InitTimeout` option in `gen.ProcessOptions` limits `ProcessInit` duration for both local and remote spawn. Remote spawn and application processes limited to max 15 seconds
+* Introduced **zip-bomb protection** - decompression size limits to prevent memory exhaustion attacks
+* Introduced `gen.Node` methods:
+  - `ProcessPID` / `ProcessName` - resolve process PID by name and vice versa
+  - `Call`, `CallWithTimeout`, `CallWithPriority`, `CallImportant`, `CallPID`, `CallProcessID`, `CallAlias` - synchronous requests from Node interface
+  - `Inspect` / `InspectMeta` - inspect processes and meta processes
+  - `MakeRefWithDeadline` - create reference with embedded deadline
+* Introduced `gen.RemoteNode.ApplicationInfo` - query application information from remote nodes
+* Introduced `gen.Process` methods:
+  - `SendWithPriorityAfter` - delayed send with priority
+  - `SendExitAfter` / `SendExitMetaAfter` - delayed exit signals
+  - `SendResponseImportant` / `SendResponseErrorImportant` - important delivery for responses
+* Introduced `gen.Meta` methods:
+  - `SendResponse` / `SendResponseError` - respond to requests from meta process
+  - `SendPriority` / `SetSendPriority` - message priority control
+  - `Compression` / `SetCompression` - compression settings
+  - `EnvDefault` - get environment variable with default value
 * Introduced **HandleInspect** implementations for all supervisor types (OFO, ARFO, SOFO)
-* Introduced **zip-bomb protection** - decompression size limits to prevent memory exhaustion attacks (issue #114)
+* Introduced **LinkChild** support in `RemoteNode.Spawn` / `RemoteNode.SpawnRegister`
+* Introduced **args persistence** for Simple One For One supervisor - child processes restart with their original spawn arguments
 * Completely reworked internal **Target Manager** (`node/tm/`) - improved architecture for process, event, and node target management with comprehensive test coverage
 * Completely reworked internal **Pub/Sub** mechanism - improved reliability and performance
-* Improved **ProcessInit state** - many `gen.Process` methods now available during initialization: `Spawn`, `SpawnRegister`, `SpawnMeta`, `RemoteSpawn`, `RemoteSpawnRegister`, `RegisterName`, `UnregisterName`, `SetEnv`, `SetCompression`, `SetCompressionType`, `SetCompressionLevel`, `SetCompressionThreshold`, `SetImportantDelivery`, `SetKeepNetworkOrder`, `CreateAlias`, `DeleteAlias`, `RegisterEvent`, `UnregisterEvent`
+* Improved **ProcessInit state** - many `gen.Process` methods now available during initialization:
+  - `Spawn`, `SpawnRegister`, `SpawnMeta`
+  - `RemoteSpawn`, `RemoteSpawnRegister`
+  - `RegisterName`, `UnregisterName`
+  - `SetEnv`, `SetCompression`, `SetCompressionType`, `SetCompressionLevel`, `SetCompressionThreshold`
+  - `SetImportantDelivery`, `SetKeepNetworkOrder`
+  - `CreateAlias`, `DeleteAlias`
+  - `RegisterEvent`, `UnregisterEvent`
 * Improved API documentation - comprehensive godoc comments for all public interfaces
 * **Documentation rewritten** - complete documentation now included in the repository (`docs/`) and available at https://docs.ergo.services
-* Fixed **LinkChild** option not working in `RemoteNode.Spawn` / `RemoteNode.SpawnRegister` (issue #156)
-* Fixed **args persistence** for Simple One For One supervisor - child processes now restart with their original spawn arguments
-* Fixed **node startup panic** when calling `node.Info()` during application startup (Cron was initialized after applications)
-* Fixed **InitTimeout constraints** - remote spawn and application processes limited to max 15 seconds (3x DefaultRequestTimeout), returns `ErrNotAllowed` if exceeded
+* New documentation section **Advanced**:
+  - [Handle Sync](https://docs.ergo.services/advanced/handle-sync) - synchronous message handling patterns
+  - [Important Delivery](https://docs.ergo.services/advanced/important-delivery) - guaranteed delivery mechanism
+  - [Pub/Sub Internals](https://docs.ergo.services/advanced/pub-sub-internals) - event system architecture
 
 **Extra Library - Actors** (https://github.com/ergo-services/actor):
 * Introduced **Leader** actor - distributed leader election with Raft-inspired consensus algorithm. Features: term-based disambiguation, automatic failover, split-brain prevention through majority quorum, dynamic peer discovery. See [documentation](https://docs.ergo.services/extra-library/actors/leader)
