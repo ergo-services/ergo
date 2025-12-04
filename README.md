@@ -139,24 +139,24 @@ Fully detailed changelog see in the [ChangeLog](CHANGELOG.md) file.
 * Introduced **NAT support** - new `RouteHost` and `RoutePort` options in `gen.AcceptorOptions` for nodes behind NAT or load balancers. See [Behind the NAT](https://docs.ergo.services/networking/behind-the-nat) documentation
 * Introduced **spawn time control** - `InitTimeout` option in `gen.ProcessOptions` limits `ProcessInit` duration for both local and remote spawn. Remote spawn and application processes limited to max 15 seconds
 * Introduced **zip-bomb protection** - decompression size limits to prevent memory exhaustion attacks
-* Introduced `gen.Node` methods:
+* Added `gen.Node` methods:
   - `ProcessPID` / `ProcessName` - resolve process PID by name and vice versa
   - `Call`, `CallWithTimeout`, `CallWithPriority`, `CallImportant`, `CallPID`, `CallProcessID`, `CallAlias` - synchronous requests from Node interface
   - `Inspect` / `InspectMeta` - inspect processes and meta processes
   - `MakeRefWithDeadline` - create reference with embedded deadline
-* Introduced `gen.RemoteNode.ApplicationInfo` - query application information from remote nodes
-* Introduced `gen.Process` methods:
+* Added `gen.RemoteNode.ApplicationInfo` - query application information from remote nodes
+* Added `gen.Process` methods:
   - `SendWithPriorityAfter` - delayed send with priority
   - `SendExitAfter` / `SendExitMetaAfter` - delayed exit signals
   - `SendResponseImportant` / `SendResponseErrorImportant` - important delivery for responses
-* Introduced `gen.Meta` methods:
+* Added `gen.Meta` methods:
   - `SendResponse` / `SendResponseError` - respond to requests from meta process
   - `SendPriority` / `SetSendPriority` - message priority control
   - `Compression` / `SetCompression` - compression settings
   - `EnvDefault` - get environment variable with default value
-* Introduced **HandleInspect** implementations for all supervisor types (OFO, ARFO, SOFO)
-* Introduced **LinkChild** support in `RemoteNode.Spawn` / `RemoteNode.SpawnRegister`
-* Introduced **args persistence** for Simple One For One supervisor - child processes restart with their original spawn arguments
+* Added **HandleInspect** implementations for all supervisor types (OFO, ARFO, SOFO)
+* Fixed **LinkChild** in `RemoteNode.Spawn` / `RemoteNode.SpawnRegister`
+* Fixed **args persistence** for Simple One For One supervisor - child processes now restart with their original spawn arguments
 * Completely reworked internal **Target Manager** (`node/tm/`) - improved architecture for process, event, and node target management with comprehensive test coverage
 * Completely reworked internal **Pub/Sub** mechanism - improved reliability and performance
 * Improved **ProcessInit state** - many `gen.Process` methods now available during initialization:
