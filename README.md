@@ -174,12 +174,12 @@ Fully detailed changelog see in the [ChangeLog](CHANGELOG.md) file.
   - [Important Delivery](https://docs.ergo.services/advanced/important-delivery) - guaranteed delivery mechanism
   - [Pub/Sub Internals](https://docs.ergo.services/advanced/pub-sub-internals) - event system architecture
 
-**Extra Library - Actors** (https://github.com/ergo-services/actor):
-* Introduced **Leader** actor - distributed leader election with Raft-inspired consensus algorithm. Features: term-based disambiguation, automatic failover, split-brain prevention through majority quorum, dynamic peer discovery. See [documentation](https://docs.ergo.services/extra-library/actors/leader)
-* Introduced **Metrics** actor - Prometheus metrics exporter that collects node/network telemetry via HTTP endpoint. Features: automatic collection of node metrics (uptime, processes, memory), network metrics per remote node, extensible for custom metrics. See [documentation](https://docs.ergo.services/extra-library/actors/metrics)
+* **Extra Library - Actors** (https://github.com/ergo-services/actor):
+  - Introduced **Leader** actor - distributed leader election with Raft-inspired consensus algorithm. Features: term-based disambiguation, automatic failover, split-brain prevention through majority quorum, dynamic peer discovery. See [documentation](https://docs.ergo.services/extra-library/actors/leader)
+  - Introduced **Metrics** actor - Prometheus metrics exporter that collects node/network telemetry via HTTP endpoint. Features: automatic collection of node metrics (uptime, processes, memory), network metrics per remote node, extensible for custom metrics. See [documentation](https://docs.ergo.services/extra-library/actors/metrics)
 
-**Benchmarks** (https://github.com/ergo-services/benchmarks):
-* Introduced **Distributed Pub/Sub** benchmark - demonstrates event delivery to 1,000,000 subscribers across 10 nodes. Achieves 2.9M msg/sec delivery rate with only 10 network messages (one per consumer node) instead of 1M
+* **Benchmarks** (https://github.com/ergo-services/benchmarks):
+  - Introduced **Distributed Pub/Sub** benchmark - demonstrates event delivery to 1,000,000 subscribers across 10 nodes. Achieves 2.9M msg/sec delivery rate with only 10 network messages (one per consumer node) instead of 1M
 
 
 ### Development and debugging ###
