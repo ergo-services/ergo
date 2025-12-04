@@ -1394,6 +1394,12 @@ func (p *process) LinkPID(target gen.PID) error {
 		return err
 	}
 
+	// recheck state - process could have been killed during the operation
+	if p.isStateIR() == false {
+		p.node.targets.UnlinkPID(p.pid, target)
+		return gen.ErrProcessTerminated
+	}
+
 	return nil
 }
 
@@ -1438,6 +1444,12 @@ func (p *process) LinkProcessID(target gen.ProcessID) error {
 		return err
 	}
 
+	// recheck state - process could have been killed during the operation
+	if p.isStateIR() == false {
+		p.node.targets.UnlinkProcessID(p.pid, target)
+		return gen.ErrProcessTerminated
+	}
+
 	return nil
 }
 
@@ -1474,6 +1486,12 @@ func (p *process) LinkAlias(target gen.Alias) error {
 
 	if err := p.node.RouteLinkAlias(p.pid, target); err != nil {
 		return err
+	}
+
+	// recheck state - process could have been killed during the operation
+	if p.isStateIR() == false {
+		p.node.targets.UnlinkAlias(p.pid, target)
+		return gen.ErrProcessTerminated
 	}
 
 	return nil
@@ -1514,6 +1532,12 @@ func (p *process) LinkEvent(target gen.Event) ([]gen.MessageEvent, error) {
 		return nil, err
 	}
 
+	// recheck state - process could have been killed during the operation
+	if p.isStateIR() == false {
+		p.node.targets.UnlinkEvent(p.pid, target)
+		return nil, gen.ErrProcessTerminated
+	}
+
 	return lastEventMessages, nil
 }
 
@@ -1546,7 +1570,17 @@ func (p *process) LinkNode(target gen.Atom) error {
 		return err
 	}
 
-	return p.node.targets.LinkNode(p.pid, target)
+	if err := p.node.targets.LinkNode(p.pid, target); err != nil {
+		return err
+	}
+
+	// recheck state - process could have been killed during the operation
+	if p.isStateIR() == false {
+		p.node.targets.UnlinkNode(p.pid, target)
+		return gen.ErrProcessTerminated
+	}
+
+	return nil
 }
 
 func (p *process) UnlinkNode(target gen.Atom) error {
@@ -1606,6 +1640,12 @@ func (p *process) MonitorPID(target gen.PID) error {
 		return err
 	}
 
+	// recheck state - process could have been killed during the operation
+	if p.isStateIR() == false {
+		p.node.targets.DemonitorPID(p.pid, target)
+		return gen.ErrProcessTerminated
+	}
+
 	return nil
 }
 
@@ -1638,6 +1678,12 @@ func (p *process) MonitorProcessID(target gen.ProcessID) error {
 		return err
 	}
 
+	// recheck state - process could have been killed during the operation
+	if p.isStateIR() == false {
+		p.node.targets.DemonitorProcessID(p.pid, target)
+		return gen.ErrProcessTerminated
+	}
+
 	return nil
 }
 
@@ -1668,6 +1714,12 @@ func (p *process) MonitorAlias(target gen.Alias) error {
 
 	if err := p.node.RouteMonitorAlias(p.pid, target); err != nil {
 		return err
+	}
+
+	// recheck state - process could have been killed during the operation
+	if p.isStateIR() == false {
+		p.node.targets.DemonitorAlias(p.pid, target)
+		return gen.ErrProcessTerminated
 	}
 
 	return nil
@@ -1708,6 +1760,12 @@ func (p *process) MonitorEvent(target gen.Event) ([]gen.MessageEvent, error) {
 		return nil, err
 	}
 
+	// recheck state - process could have been killed during the operation
+	if p.isStateIR() == false {
+		p.node.targets.DemonitorEvent(p.pid, target)
+		return nil, gen.ErrProcessTerminated
+	}
+
 	return lastEventMessages, nil
 }
 
@@ -1740,7 +1798,17 @@ func (p *process) MonitorNode(target gen.Atom) error {
 		return err
 	}
 
-	return p.node.targets.MonitorNode(p.pid, target)
+	if err := p.node.targets.MonitorNode(p.pid, target); err != nil {
+		return err
+	}
+
+	// recheck state - process could have been killed during the operation
+	if p.isStateIR() == false {
+		p.node.targets.DemonitorNode(p.pid, target)
+		return gen.ErrProcessTerminated
+	}
+
+	return nil
 }
 
 func (p *process) DemonitorNode(target gen.Atom) error {
