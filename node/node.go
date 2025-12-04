@@ -196,6 +196,14 @@ func Start(name gen.Atom, options gen.NodeOptions, frameworkVersion gen.Version)
 
 	node.coreEventsToken, _ = node.RegisterEvent(gen.CoreEvent, gen.EventOptions{})
 
+	node.cron = createCron(node)
+	for _, job := range options.Cron.Jobs {
+		if err := node.cron.AddJob(job); err != nil {
+			node.StopForce()
+			return nil, err
+		}
+	}
+
 	if len(options.Applications) > 0 {
 		node.log.Trace("starting application(s)...")
 		for _, app := range options.Applications {
@@ -217,13 +225,6 @@ func Start(name gen.Atom, options gen.NodeOptions, frameworkVersion gen.Version)
 
 	edf.RegisterAtom(name)
 	node.log.Info("node %s built with %q successfully started", node.name, node.framework)
-	node.cron = createCron(node)
-	for _, job := range options.Cron.Jobs {
-		if err := node.cron.AddJob(job); err != nil {
-			node.StopForce()
-			return nil, err
-		}
-	}
 
 	// enable SIGTERM
 	node.SetCTRLC(true)
