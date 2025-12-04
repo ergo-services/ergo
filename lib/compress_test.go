@@ -17,7 +17,7 @@ func TestCompressDecompressGZIP(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	d, err := DecompressGZIP(dst, header)
+	d, err := DecompressGZIP(dst, header, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -36,7 +36,7 @@ func TestCompressDecompressZLIB(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	d, err := DecompressZLIB(dst, header)
+	d, err := DecompressZLIB(dst, header, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,7 +55,7 @@ func TestCompressDecompressLZW(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	d, err := DecompressLZW(dst, header)
+	d, err := DecompressLZW(dst, header, 0)
 	if err != nil {
 		t.Fatal(err)
 	}

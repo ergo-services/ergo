@@ -94,12 +94,15 @@ func CompressGZIP(src *Buffer, preallocate uint, level int) (dst *Buffer, err er
 	return zBuffer, nil
 }
 
-func DecompressLZW(src *Buffer, skip uint) (dst *Buffer, err error) {
+func DecompressLZW(src *Buffer, skip uint, limit int) (dst *Buffer, err error) {
 	if src.Len() < int(skip)+4 {
 		return nil, fmt.Errorf("too short source buffer")
 	}
 	source := src.B[skip:]
 	lenUnpacked := int(binary.BigEndian.Uint32(source[:4]))
+	if limit > 0 && lenUnpacked > limit {
+		return nil, fmt.Errorf("unpacked size %d exceeds limit %d", lenUnpacked, limit)
+	}
 	reader := lzw.NewReader(bytes.NewBuffer(source[4:]), lzw.LSB, 8)
 	dst = TakeBuffer()
 	dst.Allocate(lenUnpacked)
@@ -108,12 +111,15 @@ func DecompressLZW(src *Buffer, skip uint) (dst *Buffer, err error) {
 	}
 	return
 }
-func DecompressZLIB(src *Buffer, skip uint) (dst *Buffer, err error) {
+func DecompressZLIB(src *Buffer, skip uint, limit int) (dst *Buffer, err error) {
 	if src.Len() < int(skip)+4 {
 		return nil, fmt.Errorf("too short source buffer")
 	}
 	source := src.B[skip:]
 	lenUnpacked := int(binary.BigEndian.Uint32(source[:4]))
+	if limit > 0 && lenUnpacked > limit {
+		return nil, fmt.Errorf("unpacked size %d exceeds limit %d", lenUnpacked, limit)
+	}
 	reader, err := zlib.NewReader(bytes.NewBuffer(source[4:]))
 	if err != nil {
 		return nil, err
@@ -125,12 +131,15 @@ func DecompressZLIB(src *Buffer, skip uint) (dst *Buffer, err error) {
 	}
 	return
 }
-func DecompressGZIP(src *Buffer, skip uint) (dst *Buffer, err error) {
+func DecompressGZIP(src *Buffer, skip uint, limit int) (dst *Buffer, err error) {
 	if src.Len() < int(skip)+4 {
 		return nil, fmt.Errorf("too short source buffer")
 	}
 	source := src.B[skip:]
 	lenUnpacked := int(binary.BigEndian.Uint32(source[:4]))
+	if limit > 0 && lenUnpacked > limit {
+		return nil, fmt.Errorf("unpacked size %d exceeds limit %d", lenUnpacked, limit)
+	}
 	reader, err := gzip.NewReader(bytes.NewBuffer(source[4:]))
 	if err != nil {
 		return nil, err

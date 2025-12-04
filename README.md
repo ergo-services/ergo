@@ -133,35 +133,10 @@ Starting from version 3.0.0, support for the Erlang network stack has been moved
 
 Fully detailed changelog see in the [ChangeLog](CHANGELOG.md) file.
 
-#### [v3.1.0](https://github.com/ergo-services/ergo/releases/tag/v1.999.310) 2025-09-04 [tag version v1.999.310] ####
+#### [v3.2.0](https://github.com/ergo-services/ergo/releases/tag/v1.999.320) 2025-09-04 [tag version v1.999.320] ####
 
-**New Features**
-- **Cron Scheduler**: New `gen.Cron` interface enables scheduling tasks with cron expressions, supporting second-level precision for precise task execution. See https://docs.ergo.services/basics/cron
-- **Port Meta Process**: New `meta.Port` allows spawning and managing external OS processes with bidirectional communication through stdin/stdout/stderr. See https://docs.ergo.services/meta-processes/port, example https://github.com/ergo-services/examples/port
-- **Unit Testing Framework**: Comprehensive testing library (`testing/unit`) provides isolated actor testing with event capture and validation capabilities. See https://docs.ergo.services/testing/unit
+Scheduled for release on February 4, 2026
 
-**Enhancements**
-- **Enhanced Logging**: Default logger now supports JSON output format with structured fields, improving observability and log processing
-- **Environment Management**: Added `gen.Process.EnvDefault()` and `gen.Node.EnvDefault()` methods
-- **Logger Fields**: Added `gen.Log.PushFields()` and `gen.Log.PopFields()` for contextual logging
-- **EDF Protocol**: Added support for `encoding.BinaryMarshaler/BinaryUnmarshaler` interfaces
-- **Performance**: Multiple optimizations across message handling and network operations
-
-**Critical Bug Fixes**
-- **Node Shutdown**: Fixed race condition causing "close of closed channel" panic during graceful shutdown
-- **Supervisor Issues**: Fixed OFO supervisor child termination (#213), restart intensity calculation with millisecond precision, and duplicate Terminate callbacks
-- **SIGTERM Handling**: Improved graceful shutdown behavior and SOFO supervisor cleanup
-- **EDF Codec**: Fixed nil slice/map decoding issues
-- **Local Registrar**: Improved resolver detection for service discovery
-
-**Extra Library**
-- **Module Independence**: All extra library modules (Logger, Meta, Registrar, etc...) are now independent Go modules with dependency management
-- **Tools Domain**: All tools moved to dedicated `ergo.tools` domain for better organization and distribution
-- **Proto**: `erlang23` (Erlang network stack implementation) changed from BSL 1.1 to MIT license for broader adoption and commercial use
-- **Registrar**: New etcd registrar implementation with distributed service discovery, hierarchical configuration, real-time cluster events. See https://docs.ergo.services/extra-library/registrars/etcd-client and example https://github.com/ergo-services/examples/docker
-- **Logger**: Added LogField support in colored logger, banner functionality, and fixed options handling. See https://docs.ergo.services/extra-library/loggers
-- **Application**: Observer application enhanced with new Applications page, Cron job details, and UI fixes. See https://docs.ergo.services/extra-library/applications/observer
-- **Benchmarks**: New serialization benchmarks comparing EDF vs Gob vs Protobuf performance, expanded test suite coverage. See https://github.com/ergo-services/benchmarks
 
 ### Development and debugging ###
 

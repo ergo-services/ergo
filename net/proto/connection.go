@@ -2575,7 +2575,7 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC) {
 			skipBytes := 9 // proto header for compressed message
 			switch buf.B[8] {
 			case gen.CompressionTypeGZIP.ID():
-				dbuf, err := lib.DecompressGZIP(buf, uint(skipBytes))
+				dbuf, err := lib.DecompressGZIP(buf, uint(skipBytes), c.node_maxmessagesize)
 				if err != nil {
 					c.log.Error("unable to decompress message (gzip), ignored: %s", err)
 					continue
@@ -2585,9 +2585,9 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC) {
 				goto re
 
 			case gen.CompressionTypeLZW.ID():
-				dbuf, err := lib.DecompressLZW(buf, uint(skipBytes))
+				dbuf, err := lib.DecompressLZW(buf, uint(skipBytes), c.node_maxmessagesize)
 				if err != nil {
-					c.log.Error("unable to decompress message (lzw), ignored")
+					c.log.Error("unable to decompress message (lzw), ignored: %s", err)
 					continue
 				}
 				lib.ReleaseBuffer(buf)
@@ -2595,9 +2595,9 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC) {
 				goto re
 
 			case gen.CompressionTypeZLIB.ID():
-				dbuf, err := lib.DecompressZLIB(buf, uint(skipBytes))
+				dbuf, err := lib.DecompressZLIB(buf, uint(skipBytes), c.node_maxmessagesize)
 				if err != nil {
-					c.log.Error("unable to decompress message (zlib), ignored")
+					c.log.Error("unable to decompress message (zlib), ignored: %s", err)
 					continue
 				}
 				lib.ReleaseBuffer(buf)
