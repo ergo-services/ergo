@@ -852,6 +852,11 @@ type ProcessOptions struct {
 	// LogLevel sets the initial logging level for this process.
 	// Default is LogLevelInfo. Can be changed later via process.Log().SetLevel().
 	LogLevel LogLevel
+
+	// InitTimeout sets maximum time (seconds) for ProcessInit to complete.
+	// Zero uses DefaultRequestTimeout (5 seconds).
+	// If init exceeds timeout, process is terminated with ErrTimeout.
+	InitTimeout int
 }
 
 type ProcessOptionsExtra struct {
@@ -864,6 +869,10 @@ type ProcessOptionsExtra struct {
 
 	Register    Atom
 	Application Atom
+
+	// Ref with deadline for spawn timeout.
+	// Deadline stored in Ref.ID[2] as unix timestamp.
+	Ref Ref
 
 	Args []any
 }

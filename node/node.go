@@ -315,6 +315,18 @@ func (n *node) Spawn(
 	if n.isRunning() == false {
 		return gen.PID{}, gen.ErrNodeTerminated
 	}
+
+	// calculate deadline
+	timeout := options.InitTimeout
+	if timeout == 0 {
+		timeout = gen.DefaultRequestTimeout
+	}
+	deadline := time.Now().Unix() + int64(timeout)
+	ref, err := n.MakeRefWithDeadline(deadline)
+	if err != nil {
+		return gen.PID{}, err
+	}
+
 	opts := gen.ProcessOptionsExtra{
 		ProcessOptions: options,
 		Args:           args,
@@ -322,6 +334,7 @@ func (n *node) Spawn(
 		ParentLeader:   n.corePID,
 		ParentLogLevel: n.log.level,
 		ParentEnv:      n.EnvList(),
+		Ref:            ref,
 	}
 
 	return n.spawn(factory, opts)
@@ -335,6 +348,18 @@ func (n *node) SpawnRegister(register gen.Atom, factory gen.ProcessFactory,
 	if len(register) > 255 {
 		return gen.PID{}, gen.ErrAtomTooLong
 	}
+
+	// calculate deadline
+	timeout := options.InitTimeout
+	if timeout == 0 {
+		timeout = gen.DefaultRequestTimeout
+	}
+	deadline := time.Now().Unix() + int64(timeout)
+	ref, err := n.MakeRefWithDeadline(deadline)
+	if err != nil {
+		return gen.PID{}, err
+	}
+
 	opts := gen.ProcessOptionsExtra{
 		ProcessOptions: options,
 		Register:       register,
@@ -343,9 +368,9 @@ func (n *node) SpawnRegister(register gen.Atom, factory gen.ProcessFactory,
 		ParentLeader:   n.corePID,
 		ParentLogLevel: n.log.level,
 		ParentEnv:      n.EnvList(),
+		Ref:            ref,
 	}
 	return n.spawn(factory, opts)
-
 }
 
 func (n *node) RegisterName(name gen.Atom, pid gen.PID) error {
@@ -1391,7 +1416,9 @@ func (n *node) Kill(pid gen.PID) error {
 	p := value.(*process)
 	state := atomic.SwapInt32(&p.state, int32(gen.ProcessStateZombee))
 	switch state {
-	case int32(gen.ProcessStateWaitResponse), int32(gen.ProcessStateRunning):
+	case int32(gen.ProcessStateInit),
+		int32(gen.ProcessStateWaitResponse),
+		int32(gen.ProcessStateRunning):
 		// do not unregister process until its goroutine stopped
 		return nil
 	case int32(gen.ProcessStateTerminated):
@@ -2141,51 +2168,88 @@ func (n *node) spawn(factory gen.ProcessFactory, options gen.ProcessOptionsExtra
 	// early registration - allows using Link/Monitor/RegisterEvent/RegisterName in Init
 	n.processes.Store(p.pid, p)
 
-	if err := behavior.ProcessInit(p, options.Args...); err != nil {
-		// remove from processes registry
-		n.processes.Delete(p.pid)
+	// Handle ProcessInit with timeout
+	var initErr error
+	deadline := options.Ref.ID[2]
 
-		// notify remote nodes about PID termination
-		n.RouteTerminatePID(p.pid, err)
-
-		// cleanup all subscriptions this process created as consumer
-		// also cleans up events where process was producer
-		n.targets.TerminatedProcess(p.pid, err)
-
-		// notify processes that linked/monitored TO this process (e.g., children)
-		n.targets.TerminatedTargetPID(p.pid, err)
-
-		// handle name cleanup with proper notification
-		if p.registered.Load() {
-			n.names.Delete(p.name)
-			pname := gen.ProcessID{Name: p.name, Node: n.name}
-			n.RouteTerminateProcessID(pname, err)
-		}
-
-		// cleanup aliases created during Init
-		for _, a := range p.aliases {
-			n.aliases.Delete(a)
-			n.RouteTerminateAlias(a, err)
-		}
-
-		// terminate meta processes that spawned during initialization
-		p.metas.Range(func(_, v any) bool {
-			m := v.(*meta)
-
-			qm := gen.TakeMailboxMessage()
-			qm.From = p.pid
-			qm.Type = gen.MailboxMessageTypeExit
-			qm.Message = err
-
-			if ok := m.system.Push(qm); ok == false {
-				p.log.Error("unable to stop meta process %s. mailbox is full", m.id)
+	if deadline > 0 {
+		// check if already expired
+		if options.Ref.IsAlive() == false {
+			n.processes.Delete(p.pid)
+			if p.registered.Load() {
+				n.names.Delete(p.name)
 			}
-			p.node.aliases.Delete(m.id)
-			go m.handle()
-			return true
-		})
+			return p.pid, gen.ErrTimeout
+		}
 
-		return p.pid, err
+		// calculate remaining time
+		remaining := time.Duration(int64(deadline)-time.Now().Unix()) * time.Second
+
+		var completed int32
+		errCh := make(chan error, 1)
+
+		go func() {
+			err := behavior.ProcessInit(p, options.Args...)
+
+			// try to claim "init completed"
+			if atomic.CompareAndSwapInt32(&completed, 0, 1) {
+				// we won - main will receive result
+				errCh <- err
+				return
+			}
+
+			// timeout won - main already called Kill, we do cleanup
+			atomic.StoreInt32(&p.state, int32(gen.ProcessStateTerminated))
+			n.cleanupProcess(p, gen.TerminateReasonKill)
+			if lib.Recover() {
+				defer func() {
+					if rcv := recover(); rcv != nil {
+						pc, fn, line, _ := runtime.Caller(2)
+						p.log.Panic("panic in ProcessTerminate - %s[%s] %#v at %s[%s:%d]",
+							p.pid, p.name, rcv, runtime.FuncForPC(pc).Name(), fn, line)
+					}
+				}()
+			}
+			p.behavior.ProcessTerminate(gen.TerminateReasonKill)
+		}()
+
+		timer := lib.TakeTimer()
+		timer.Reset(remaining)
+
+		select {
+		case initErr = <-errCh:
+			lib.ReleaseTimer(timer)
+		case <-timer.C:
+			lib.ReleaseTimer(timer)
+			// try to claim "timeout"
+			if atomic.CompareAndSwapInt32(&completed, 0, 2) {
+				// we won - goroutine will do cleanup when ProcessInit completes
+				n.Kill(p.pid)
+				return p.pid, gen.ErrTimeout
+			}
+			// goroutine won - receive result
+			initErr = <-errCh
+		}
+	} else {
+		// no timeout - synchronous behavior
+		initErr = behavior.ProcessInit(p, options.Args...)
+	}
+
+	if initErr != nil {
+		n.cleanupProcess(p, initErr)
+		go func() {
+			if lib.Recover() {
+				defer func() {
+					if rcv := recover(); rcv != nil {
+						pc, fn, line, _ := runtime.Caller(2)
+						p.log.Panic("panic in ProcessTerminate - %s[%s] %#v at %s[%s:%d]",
+							p.pid, p.name, rcv, runtime.FuncForPC(pc).Name(), fn, line)
+					}
+				}()
+			}
+			p.behavior.ProcessTerminate(initErr)
+		}()
+		return p.pid, initErr
 	}
 
 	if options.LinkParent {
@@ -2207,18 +2271,14 @@ func (n *node) spawn(factory gen.ProcessFactory, options gen.ProcessOptionsExtra
 	return p.pid, nil
 }
 
-func (n *node) unregisterProcess(p *process, reason error) {
+// cleanupProcess performs core cleanup for a process.
+// Does NOT call waitprocesses.Done() - caller must handle if needed.
+func (n *node) cleanupProcess(p *process, reason error) {
 	n.processes.Delete(p.pid)
-	n.RouteTerminatePID(p.pid, reason)
-
-	// cleanup subscriptions created by this process (including events where it's producer)
+	n.RouteTerminatePID(p.pid, reason) // calls TerminatedTargetPID internally
 	n.targets.TerminatedProcess(p.pid, reason)
 
-	if p.application != system.Name {
-		// do not count system app processes
-		n.waitprocesses.Done()
-	}
-	n.log.Trace("...unregisterProcess %s", p.pid)
+	n.log.Trace("...cleanupProcess %s", p.pid)
 
 	if p.registered.Load() {
 		n.names.Delete(p.name)
@@ -2231,15 +2291,12 @@ func (n *node) unregisterProcess(p *process, reason error) {
 		n.RouteTerminateAlias(a, reason)
 	}
 
-	// send exit signal to the meta processes
 	p.metas.Range(func(_, v any) bool {
 		m := v.(*meta)
-
 		qm := gen.TakeMailboxMessage()
 		qm.From = p.pid
 		qm.Type = gen.MailboxMessageTypeExit
 		qm.Message = reason
-
 		p.node.aliases.Delete(m.id)
 		if ok := m.system.Push(qm); ok == false {
 			p.log.Error("unable to stop meta process %s. mailbox is full", m.id)
@@ -2247,22 +2304,26 @@ func (n *node) unregisterProcess(p *process, reason error) {
 		m.handle()
 		return true
 	})
+}
 
-	if p.loggername != "" { // acted as a logger
+func (n *node) unregisterProcess(p *process, reason error) {
+	n.cleanupProcess(p, reason)
+
+	if p.application != system.Name {
+		n.waitprocesses.Done()
+	}
+	n.log.Trace("...unregisterProcess %s", p.pid)
+
+	if p.loggername != "" {
 		n.LoggerDelete(p.loggername)
-		// enable logging. it might be used
-		// in the termination callback (like a act.ActorBehavior.Terminate)
 		p.log.SetLevel(gen.LogLevelInfo)
 	}
 
-	if p.application == "" {
-		return
-	}
-
-	if v, exist := n.applications.Load(p.application); exist {
-		// this process was a member of the application
-		app := v.(*application)
-		app.terminate(p.pid, reason)
+	if p.application != "" {
+		if v, exist := n.applications.Load(p.application); exist {
+			app := v.(*application)
+			app.terminate(p.pid, reason)
+		}
 	}
 }
 

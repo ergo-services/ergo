@@ -900,6 +900,20 @@ func (n *node) RouteSpawn(
 		return empty, err
 	}
 
+	// for local spawn via RouteSpawn, set deadline if not set
+	if options.Ref == (gen.Ref{}) {
+		timeout := options.InitTimeout
+		if timeout == 0 {
+			timeout = gen.DefaultRequestTimeout
+		}
+		deadline := time.Now().Unix() + int64(timeout)
+		ref, err := n.MakeRefWithDeadline(deadline)
+		if err != nil {
+			return empty, err
+		}
+		options.Ref = ref
+	}
+
 	return n.spawn(factory, options)
 }
 

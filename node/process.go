@@ -104,6 +104,18 @@ func (p *process) Spawn(
 	if p.isStateIR() == false {
 		return gen.PID{}, gen.ErrNotAllowed
 	}
+
+	// calculate deadline
+	timeout := options.InitTimeout
+	if timeout == 0 {
+		timeout = gen.DefaultRequestTimeout
+	}
+	deadline := time.Now().Unix() + int64(timeout)
+	ref, err := p.node.MakeRefWithDeadline(deadline)
+	if err != nil {
+		return gen.PID{}, err
+	}
+
 	opts := gen.ProcessOptionsExtra{
 		ProcessOptions: options,
 		ParentPID:      p.pid,
@@ -112,6 +124,7 @@ func (p *process) Spawn(
 		ParentLogLevel: p.log.level,
 		Application:    p.application,
 		Args:           args,
+		Ref:            ref,
 	}
 
 	pid, err := p.node.spawn(factory, opts)
@@ -138,6 +151,17 @@ func (p *process) SpawnRegister(
 		return gen.PID{}, gen.ErrNotAllowed
 	}
 
+	// calculate deadline
+	timeout := options.InitTimeout
+	if timeout == 0 {
+		timeout = gen.DefaultRequestTimeout
+	}
+	deadline := time.Now().Unix() + int64(timeout)
+	ref, err := p.node.MakeRefWithDeadline(deadline)
+	if err != nil {
+		return gen.PID{}, err
+	}
+
 	opts := gen.ProcessOptionsExtra{
 		ProcessOptions: options,
 		ParentPID:      p.pid,
@@ -147,6 +171,7 @@ func (p *process) SpawnRegister(
 		ParentLogLevel: p.log.level,
 		Application:    p.application,
 		Args:           args,
+		Ref:            ref,
 	}
 	pid, err := p.node.spawn(factory, opts)
 	if err != nil {

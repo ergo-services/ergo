@@ -1409,8 +1409,21 @@ func (c *connection) RemoteSpawn(name gen.Atom, options gen.ProcessOptionsExtra)
 		return pid, gen.ErrNotAllowed
 	}
 
+	// calculate deadline on sender side
+	timeout := options.InitTimeout
+	if timeout == 0 {
+		timeout = gen.DefaultRequestTimeout
+	}
+	deadline := time.Now().Unix() + int64(timeout)
+	ref, err := c.core.MakeRefWithDeadline(deadline)
+	if err != nil {
+		return pid, err
+	}
+
+	// set ref for spawn timeout
+	options.Ref = ref
+
 	order := uint8(pid.ID % 255)
-	ref := c.core.MakeRef()
 
 	message := MessageSpawn{
 		Name:    name,

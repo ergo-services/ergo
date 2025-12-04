@@ -49,6 +49,22 @@ func (a *application) start(mode gen.ApplicationMode, options gen.ApplicationOpt
 
 	// start items
 	for _, item := range a.spec.Group {
+		// calculate deadline
+		timeout := item.Options.InitTimeout
+		if timeout == 0 {
+			timeout = gen.DefaultRequestTimeout
+		}
+		deadline := time.Now().Unix() + int64(timeout)
+		ref, err := a.node.MakeRefWithDeadline(deadline)
+		if err != nil {
+			a.group.Range(func(pid gen.PID, _ bool) bool {
+				a.node.Kill(pid)
+				return true
+			})
+			atomic.StoreInt32(&a.state, int32(gen.ApplicationStateLoaded))
+			return err
+		}
+
 		opts := gen.ProcessOptionsExtra{
 			Register:       item.Name,
 			ProcessOptions: item.Options,
@@ -57,6 +73,7 @@ func (a *application) start(mode gen.ApplicationMode, options gen.ApplicationOpt
 			ParentLogLevel: options.CoreLogLevel,
 			ParentEnv:      appEnv,
 			Application:    a.spec.Name,
+			Ref:            ref,
 		}
 
 		opts.Args = item.Args
