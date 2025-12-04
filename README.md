@@ -137,23 +137,26 @@ Fully detailed changelog see in the [ChangeLog](CHANGELOG.md) file.
 
 * Introduced **mTLS support** - new `gen.CertAuthManager` interface for mutual TLS with CA pool management (`ClientCAs`, `RootCAs`, `ClientAuth`, `ServerName`). See [Mutual TLS](https://docs.ergo.services/networking/mutual-tls) documentation
 * Introduced **NAT support** - new `RouteHost` and `RoutePort` options in `gen.AcceptorOptions` for nodes behind NAT or load balancers. See [Behind the NAT](https://docs.ergo.services/networking/behind-the-nat) documentation
-* Introduced **spawn time control** - `InitTimeout` option in `gen.ProcessOptions` limits `ProcessInit` duration for both local and remote spawn. Remote spawn and application processes limited to max 15 seconds
+* Introduced **spawn time control** - `InitTimeout` option in `gen.ProcessOptions` limits `ProcessInit` duration for both local and remote spawn. Remote spawn and application processes limited to max 15 seconds. See [Process](https://docs.ergo.services/basics/process) documentation
 * Introduced **zip-bomb protection** - decompression size limits to prevent memory exhaustion attacks
-* Added `gen.Node` methods:
+* Added `gen.Node` methods. See [Node](https://docs.ergo.services/basics/node) documentation:
   - `ProcessPID` / `ProcessName` - resolve process PID by name and vice versa
   - `Call`, `CallWithTimeout`, `CallWithPriority`, `CallImportant`, `CallPID`, `CallProcessID`, `CallAlias` - synchronous requests from Node interface
   - `Inspect` / `InspectMeta` - inspect processes and meta processes
   - `MakeRefWithDeadline` - create reference with embedded deadline
-* Added `gen.RemoteNode.ApplicationInfo` - query application information from remote nodes
-* Added `gen.Process` methods:
+* Added `gen.RemoteNode.ApplicationInfo` - query application information from remote nodes. See [Remote Start Application](https://docs.ergo.services/networking/remote-start-application) documentation
+* Added `gen.Process` methods. See [Process](https://docs.ergo.services/basics/process) documentation:
   - `SendWithPriorityAfter` - delayed send with priority
   - `SendExitAfter` / `SendExitMetaAfter` - delayed exit signals
   - `SendResponseImportant` / `SendResponseErrorImportant` - important delivery for responses
-* Added `gen.Meta` methods:
+* Added `gen.Meta` methods. See [Meta Process](https://docs.ergo.services/basics/meta-process) documentation:
   - `SendResponse` / `SendResponseError` - respond to requests from meta process
   - `SendPriority` / `SetSendPriority` - message priority control
   - `Compression` / `SetCompression` - compression settings
   - `EnvDefault` - get environment variable with default value
+* Added `gen.ApplicationSpec` / `gen.ApplicationInfo` fields:
+  - `Tags` - labels for instance selection (blue/green, canary, maintenance). See [Tags for Instance Selection](https://docs.ergo.services/basics/application#tags-for-instance-selection)
+  - `Map` - logical role to process name mapping. See [Process Role Mapping](https://docs.ergo.services/basics/application#process-role-mapping)
 * Added **HandleInspect** implementations for all supervisor types (OFO, ARFO, SOFO)
 * Fixed **LinkChild** in `RemoteNode.Spawn` / `RemoteNode.SpawnRegister`
 * Fixed **args persistence** for Simple One For One supervisor - child processes now restart with their original spawn arguments
