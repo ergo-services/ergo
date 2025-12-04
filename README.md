@@ -166,11 +166,11 @@ Fully detailed changelog see in the [ChangeLog](CHANGELOG.md) file.
 * Completely reworked internal **Target Manager** (`node/tm/`) - improved architecture for process, event, and node target management with comprehensive test coverage
 * Completely reworked internal **Pub/Sub** mechanism - improved reliability and performance
 * Improved **ProcessInit state** - more `gen.Process` methods now available during initialization:
-  - `LinkPID`, `LinkProcessID`, `LinkAlias`, `LinkEvent`, `LinkNode`
-  - `MonitorPID`, `MonitorProcessID`, `MonitorAlias`, `MonitorEvent`, `MonitorNode`
-  - `RegisterName`, `UnregisterName`
+  - `Link*`, `Unlink*`, `Monitor*`, `Demonitor*`
+  - `Call*`, `Inspect`, `InspectMeta`
+  - `RegisterName`, `UnregisterName`, `RegisterEvent`, `UnregisterEvent`
   - `CreateAlias`, `DeleteAlias`
-  - `RegisterEvent`, `UnregisterEvent`
+  - `SendEvent`, `Info`, `MetaInfo`
 * Improved API documentation - comprehensive godoc comments for all public interfaces
 * **Documentation rewritten** - complete documentation now included in the repository (`docs/`) and available at https://docs.ergo.services
 * New documentation section **Advanced**:
