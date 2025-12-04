@@ -1,9 +1,5 @@
 # etcd Client
 
-{% hint style="info" %}
-Introduced for Ergo Framework 3.1.0 and above (not yet released. available in `v310` branch)
-{% endhint %}
-
 This package implements the `gen.Registrar` interface and serves as a client library for [etcd](https://etcd.io/), a distributed key-value store that provides a reliable way to store data that needs to be accessed by a distributed system or cluster of machines. In addition to the primary _Service Discovery_ function, it automatically notifies all connected nodes about cluster configuration changes and supports hierarchical configuration management with type conversion.
 
 To create a client, use the `Create` function from the `etcd` package. The function requires a set of options `etcd.Options` to configure the connection and behavior.
