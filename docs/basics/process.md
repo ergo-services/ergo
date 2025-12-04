@@ -50,7 +50,9 @@ pid, err := node.Spawn(createWorker, gen.ProcessOptions{})
 
 The factory is called each time you spawn - each process gets a fresh instance. This isolation is important for the actor model.
 
-`gen.ProcessOptions` configures the new process: mailbox size, environment variables, compression settings, message priority, and linking behavior. Most options have sensible defaults. The main ones you'll configure are `MailboxSize` (to limit memory) and `Env` (to pass configuration).
+`gen.ProcessOptions` configures the new process: mailbox size, environment variables, compression settings, message priority, linking behavior, and initialization timeout. Most options have sensible defaults. The main ones you'll configure are `MailboxSize` (to limit memory) and `Env` (to pass configuration).
+
+`InitTimeout` limits how long `ProcessInit` can take. Zero uses the default (5 seconds). If initialization exceeds this timeout, the process is terminated with `gen.ErrTimeout` and spawn returns an error. For remote spawn and application processes, the maximum allowed value is 15 seconds - exceeding this limit returns `gen.ErrNotAllowed`.
 
 Two options deserve explanation: `LinkParent` and `LinkChild`. These options provide a convenient way to establish links automatically after initialization completes. If `LinkChild` is set, the parent links to the child. If `LinkParent` is set, the child links to the parent. These links only work for process-spawned children, not node-spawned processes. Note that you can also call `Link` methods directly during initialization if needed.
 
@@ -72,7 +74,7 @@ func (w *Worker) HandleMessage(from gen.PID, message any) error {
 }
 ```
 
-The `ProcessInit` callback runs once during startup. Use it to initialize state, spawn children, configure properties. If it returns an error, the process is cleaned up and removed - it terminates immediately.
+The `ProcessInit` callback runs once during startup. Use it to initialize state, spawn children, configure properties. If it returns an error or exceeds the `InitTimeout`, the process is cleaned up and removed - it terminates immediately.
 
 The `ProcessTerminate` callback runs during shutdown. Use it for cleanup: close files, send final messages, log termination. It receives the termination reason, so you can distinguish between normal shutdown and errors.
 

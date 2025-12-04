@@ -240,11 +240,13 @@ When you call `remote.Spawn`:
 
 5. **Response** - The remote node sends back a `MessageResult` containing either the spawned PID or an error. The local node receives this, resolves the waiting request, and returns the PID to the caller.
 
-If anything fails (factory not found, access denied, remote node terminating), the error is returned to the caller. The entire operation is synchronous from the caller's perspective - you call `Spawn` and block until the process is created or an error occurs.
+If anything fails (factory not found, access denied, remote node terminating, initialization timeout), the error is returned to the caller. The entire operation is synchronous from the caller's perspective - you call `Spawn` and block until the process is created or an error occurs.
 
 ## Practical Considerations
 
 **Performance** - Remote spawning is slower than local spawning. There's network latency, message encoding, and a synchronous request-response roundtrip. If you're spawning hundreds of processes, doing it remotely will be noticeably slower. Consider spawning a pool locally and distributing work via messages rather than spawning on-demand remotely.
+
+**Timeouts** - Remote spawn has a maximum `InitTimeout` of 15 seconds (3x DefaultRequestTimeout). If the remote process's `ProcessInit` takes longer, spawn fails with `gen.ErrTimeout`. Setting `InitTimeout` higher than 15 seconds returns `gen.ErrNotAllowed` immediately without attempting the spawn.
 
 **Failure modes** - Remote spawn can fail in ways local spawn can't. The network connection can drop mid-request. The remote node can crash before responding. The factory might exist but lack permission. Handle errors explicitly and have fallback strategies (retry, spawn locally, defer the work).
 

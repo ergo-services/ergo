@@ -63,7 +63,9 @@ Applications go through two phases: loading and starting.
 
 Loading calls your `Load` callback, validates the specification, and registers the application with the node. The application is loaded but not running. This separation allows you to load multiple applications and resolve dependencies before starting any of them.
 
-Starting launches the processes in the `Group` according to their order. If dependencies are specified in `ApplicationSpec.Depends`, the node ensures those applications are running first. If any process fails to start, previously started processes are killed and the application fails to start.
+Starting launches the processes in the `Group` according to their order. If dependencies are specified in `ApplicationSpec.Depends`, the node ensures those applications are running first. If any process fails to start (including initialization timeout), previously started processes are killed and the application fails to start.
+
+Application processes have a maximum `InitTimeout` of 15 seconds (3x DefaultRequestTimeout). Setting a higher value in `gen.ProcessOptions` returns `gen.ErrNotAllowed` and prevents the application from starting.
 
 Once all processes are running, the `Start` callback is called and the application enters the running state.
 

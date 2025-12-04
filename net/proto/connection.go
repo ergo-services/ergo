@@ -1414,6 +1414,9 @@ func (c *connection) RemoteSpawn(name gen.Atom, options gen.ProcessOptionsExtra)
 	if timeout == 0 {
 		timeout = gen.DefaultRequestTimeout
 	}
+	if timeout > gen.DefaultRequestTimeout*3 {
+		return pid, gen.ErrNotAllowed
+	}
 	deadline := time.Now().Unix() + int64(timeout)
 	ref, err := c.core.MakeRefWithDeadline(deadline)
 	if err != nil {

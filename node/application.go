@@ -54,6 +54,9 @@ func (a *application) start(mode gen.ApplicationMode, options gen.ApplicationOpt
 		if timeout == 0 {
 			timeout = gen.DefaultRequestTimeout
 		}
+		if timeout > gen.DefaultRequestTimeout*3 {
+			return gen.ErrNotAllowed
+		}
 		deadline := time.Now().Unix() + int64(timeout)
 		ref, err := a.node.MakeRefWithDeadline(deadline)
 		if err != nil {

@@ -856,6 +856,8 @@ type ProcessOptions struct {
 	// InitTimeout sets maximum time (seconds) for ProcessInit to complete.
 	// Zero uses DefaultRequestTimeout (5 seconds).
 	// If init exceeds timeout, process is terminated with ErrTimeout.
+	// For remote spawn and application processes, maximum allowed value
+	// is DefaultRequestTimeout*3 (15 seconds), otherwise returns ErrNotAllowed.
 	InitTimeout int
 }
 
