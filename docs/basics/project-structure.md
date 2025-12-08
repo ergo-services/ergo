@@ -766,22 +766,22 @@ Each application on dedicated nodes:
 ```mermaid
 graph TB
     subgraph "API Tier"
-        API1[api@api-1]
-        API2[api@api-2]
+        API1["api@api-1"]
+        API2["api@api-2"]
     end
 
     subgraph "Worker Tier"
-        W1[worker@worker-1]
-        W2[worker@worker-2]
-        W3[worker@worker-3]
+        W1["worker@worker-1"]
+        W2["worker@worker-2"]
+        W3["worker@worker-3"]
     end
 
     subgraph "Storage Tier"
-        S1[storage@storage-1]
+        S1["storage@storage-1"]
     end
 
     subgraph "Infrastructure"
-        etcd[etcd cluster]
+        etcd["etcd cluster"]
     end
 
     API1 --> W1
