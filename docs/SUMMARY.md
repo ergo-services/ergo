@@ -16,6 +16,7 @@
 * [Cron](basics/cron.md)
 * [Logging](basics/logging.md)
 * [CertManager](basics/certmanager.md)
+* [Project Structure](basics/project-structure.md)
 
 ## Actors
 
@@ -41,6 +42,7 @@
 * [Handling Sync Requests](advanced/handle-sync.md)
 * [Important Delivery Flag](advanced/important-delivery.md)
 * [Pub/Sub Internals](advanced/pub-sub-internals.md)
+* [Building a Cluster](advanced/building-a-cluster.md)
 
 ## extra library
 
