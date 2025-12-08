@@ -1148,16 +1148,6 @@ apps/
 - Libraries depend on applications
 - Create import cycles
 
-```mermaid
-graph TB
-    cmd["cmd/"] --> apps["apps/"]
-    apps --> types["types/"]
-    apps --> lib["lib/"]
-    types --> lib
-
-    apps -.->|NEVER| apps
-```
-
 ### Configuration
 
 **Do:**
