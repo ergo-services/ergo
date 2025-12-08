@@ -1150,9 +1150,9 @@ apps/
 
 ```mermaid
 graph TB
-    cmd[cmd/] --> apps[apps/]
-    apps --> types[types/]
-    apps --> lib[lib/]
+    cmd["cmd/"] --> apps["apps/"]
+    apps --> types["types/"]
+    apps --> lib["lib/"]
     types --> lib
 
     apps -.->|NEVER| apps
