@@ -182,6 +182,9 @@ Fully detailed changelog see in the [ChangeLog](CHANGELOG.md) file.
   - Introduced **Leader** actor - distributed leader election with Raft-inspired consensus algorithm. Features: term-based disambiguation, automatic failover, split-brain prevention through majority quorum, dynamic peer discovery. See [documentation](https://docs.ergo.services/extra-library/actors/leader)
   - Introduced **Metrics** actor - Prometheus metrics exporter that collects node/network telemetry via HTTP endpoint. Features: automatic collection of node metrics (uptime, processes, memory), network metrics per remote node, extensible for custom metrics. See [documentation](https://docs.ergo.services/extra-library/actors/metrics)
 
+* **Extra Library - Meta Processes** (https://github.com/ergo-services/meta):
+  - Introduced **SSE** (Server-Sent Events) meta-process - unidirectional server-to-client streaming over HTTP. Features: server handler for accepting connections, client connection for external SSE endpoints, full SSE spec support (event types, IDs, retry hints, multi-line data), process pool with round-robin load balancing, Last-Event-ID for reconnection. See [documentation](https://docs.ergo.services/extra-library/meta-processes/sse)
+
 * **Benchmarks** (https://github.com/ergo-services/benchmarks):
   - Introduced **Distributed Pub/Sub** benchmark - demonstrates event delivery to 1,000,000 subscribers across 10 nodes. Achieves 2.9M msg/sec delivery rate with only 10 network messages (one per consumer node) instead of 1M
 
