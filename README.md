@@ -174,6 +174,7 @@ Fully detailed changelog see in the [ChangeLog](CHANGELOG.md) file.
 * Improved API documentation - comprehensive godoc comments for all public interfaces
 * **Documentation rewritten** - complete documentation now included in the repository (`docs/`) and available at https://docs.ergo.services
 * New documentation section **Advanced**:
+  - [Building a Cluster](https://docs.ergo.services/advanced/building-a-cluster) - step-by-step guide to distributed systems
   - [Handle Sync](https://docs.ergo.services/advanced/handle-sync) - synchronous message handling patterns
   - [Important Delivery](https://docs.ergo.services/advanced/important-delivery) - guaranteed delivery mechanism
   - [Pub/Sub Internals](https://docs.ergo.services/advanced/pub-sub-internals) - event system architecture
