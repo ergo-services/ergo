@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 // Buffer pool for reusing strings.Builder instances
@@ -80,6 +81,9 @@ type DefaultLoggerOptions struct {
 	// Each log message is a single-line JSON object with structured data.
 	// Useful for log aggregation tools (Elasticsearch, Splunk, etc.)
 	EnableJSON bool
+
+	// DisableBanner disables Ergo logo on start
+	DisableBanner bool
 }
 
 //
@@ -100,6 +104,21 @@ func CreateDefaultLogger(options DefaultLoggerOptions) LoggerBehavior {
 	l.includeName = options.IncludeName
 	l.includeFields = options.IncludeFields
 	l.enableJSON = options.EnableJSON
+
+	if options.DisableBanner {
+		return &l
+	}
+
+	var t string
+	if l.format == "" {
+		t = fmt.Sprintf("%d", time.Now().UnixNano())
+	} else {
+		t = time.Now().Format(l.format)
+	}
+
+	for _, bl := range banner {
+		fmt.Printf("%s %s\n", t, bl)
+	}
 
 	return &l
 }
@@ -455,3 +474,17 @@ func (l *defaultLogger) writeFieldValuePlainText(buf *strings.Builder, value any
 }
 
 func (l *defaultLogger) Terminate() {}
+
+var banner = []string{
+	`     ███▓▓▓▓▓▓███ `,
+	`   ██▓▓▓▓▒▒▒▒▓▓▓▓██    ▓▓▓██▓`,
+	`  █▓▓▒▒▒▒▓▓▓▓▒▒▒▒▓▓█   ██▓▒▒▒ ▒▒░ ▒▓▒ ░▒▒ ▒▓  ▒▓▒`,
+	` █▓▒▒▒▒▒▒▒██▒▒▒▒▒▒▒▓█  ██▒░░  ▓█▓▒█▓█▒▓█▓█░▓▒▒█▓█▒`,
+	` █▒▒▒▒▓██▒▓▓▒██▓▒▒▒▒█  ████▓   ▓██▓ ▓██▓ ██ ▒█▓ ██▒`,
+	` ▓▒▒██▒▓▓▒██▒▓▓▒██▒▒▓  ██░     ▓█▓   ▓█▓ ██ ▒█▓ ██░`,
+	` █▒▒▓▓▒▓▓▒▓▓▒▓▓▒▓▓▒▒█  ██░░██  ▓█▓   ▓█▓ ██ ▒█▓ ██▒`,
+	` █▓▒▒▒▒██▒▒▒▒██▒▒▒▒▓█  ██████ ▓███▓  ░▓█▓██░ ▓█▓█▒`,
+	`  █▓▒▒▒▒▒▒▒▒▒▒▒▒▒▒▓█   ▒▒▓▓▒▒ ▒▒▒▒▒   ░▒▓██░  ▒▓▒`,
+	`   █▓▓▒▒▒▒▒▒▒▒▒▒▓▓█                   ░ ░█▓`,
+	`     ██▓▓▓▒▒▓▓▓██                    ▓████`,
+}
