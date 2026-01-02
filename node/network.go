@@ -62,6 +62,13 @@ type network struct {
 	enableAppStart sync.Map
 
 	connections sync.Map // gen.Atom (peer name) => gen.Connection
+	connecting  sync.Map // gen.Atom (peer name) => *connectCall
+}
+
+type connectCall struct {
+	done chan struct{}
+	conn gen.Connection
+	err  error
 }
 
 func (n *network) Registrar() (gen.Registrar, error) {
@@ -520,6 +527,29 @@ func (n *network) GetConnection(name gen.Atom) (gen.Connection, error) {
 		return v.(gen.Connection), nil
 	}
 
+	call := &connectCall{done: make(chan struct{})}
+	if actual, loaded := n.connecting.LoadOrStore(name, call); loaded {
+		c := actual.(*connectCall)
+		<-c.done
+		if c.conn != nil {
+			return c.conn, nil
+		}
+		if v, found := n.connections.Load(name); found {
+			return v.(gen.Connection), nil
+		}
+		return nil, c.err
+	}
+
+	conn, err := n.getConnectionSlow(name)
+	call.conn = conn
+	call.err = err
+	close(call.done)
+	n.connecting.Delete(name)
+	return conn, err
+}
+
+func (n *network) getConnectionSlow(name gen.Atom) (gen.Connection, error) {
+
 	if lib.Trace() {
 		n.node.Log().Trace("trying to make connection with %s", name)
 	}
@@ -793,6 +823,11 @@ func (n *network) connect(name gen.Atom, route gen.NetworkRoute) (gen.Connection
 		}
 		tail, err := handshake.Join(n.node, c, id, hopts)
 		if err != nil {
+			c.Close()
+			if strings.Contains(err.Error(), "join rejected: connection id mismatch") ||
+				strings.Contains(err.Error(), "join rejected: no existing connection") {
+				pconn.Terminate(gen.ErrNoConnection)
+			}
 			return nil, nil, err
 		}
 		return c, tail, nil
@@ -800,6 +835,8 @@ func (n *network) connect(name gen.Atom, route gen.NetworkRoute) (gen.Connection
 
 	if c, err := n.registerConnection(result.Peer, pconn); err != nil {
 		if err == gen.ErrTaken {
+			pconn.Terminate(gen.TerminateReasonNormal)
+			conn.Close()
 			return c, nil
 		}
 		pconn.Terminate(err)
@@ -826,8 +863,16 @@ func (n *network) serve(proto gen.NetworkProto, conn gen.Connection, redial gen.
 	}
 
 	err := proto.Serve(conn, redial)
-	n.unregisterConnection(name, err)
+	if v, exist := n.connections.Load(name); exist {
+		if v.(gen.Connection) == conn {
+			n.unregisterConnection(name, err)
+		}
+	}
 	conn.Terminate(err)
+}
+
+func (n *network) preferIncomingOnCollision(peer gen.Atom) bool {
+	return string(n.node.name) > string(peer)
 }
 
 func (n *network) connectProxy(name gen.Atom, route gen.NetworkProxyRoute) (gen.Connection, error) {
@@ -1204,11 +1249,62 @@ func (n *network) accept(a *acceptor) {
 			mapping[k] = v
 		}
 		result.AtomMapping = mapping
+		joinHandshake := result.PeerCreation == 0
 
 		// check if we already have connection with this node
 		if v, exist := n.connections.Load(result.Peer); exist {
 			conn := v.(gen.Connection)
 			if err := conn.Join(c, result.ConnectionID, nil, result.Tail); err != nil {
+				if joinHandshake {
+					status := byte(3)
+					if err.Error() == "connection id mismatch" {
+						status = 1
+					}
+					c.SetWriteDeadline(time.Now().Add(time.Second))
+					c.Write([]byte{status})
+					c.SetWriteDeadline(time.Time{})
+					c.Close()
+					continue
+				}
+				if err.Error() == "connection id mismatch" && n.preferIncomingOnCollision(result.Peer) {
+					n.connections.Delete(result.Peer)
+					conn.Terminate(gen.TerminateReasonNormal)
+
+					log := createLog(n.node.Log().Level(), n.node.dolog)
+					logSource := gen.MessageLogNetwork{
+						Node:     n.node.name,
+						Peer:     result.Peer,
+						Creation: result.PeerCreation,
+					}
+					log.setSource(logSource)
+					newConn, err := a.proto.NewConnection(n.node, result, log)
+					if err != nil {
+						n.node.Log().Warning("unable to create new connection: %s", err)
+						c.Close()
+						continue
+					}
+
+					if existing, err := n.registerConnection(result.Peer, newConn); err != nil {
+						if err == gen.ErrTaken {
+							existing.Terminate(gen.TerminateReasonNormal)
+							n.connections.Delete(result.Peer)
+							if _, err2 := n.registerConnection(result.Peer, newConn); err2 != nil {
+								newConn.Terminate(err2)
+								c.Close()
+								continue
+							}
+						} else {
+							n.node.Log().Warning("unable to register new connection with %s: %s", result.Peer, err)
+							newConn.Terminate(err)
+							c.Close()
+							continue
+						}
+					}
+
+					newConn.Join(c, result.ConnectionID, nil, result.Tail)
+					go n.serve(a.proto, newConn, nil)
+					continue
+				}
 				if err == gen.ErrUnsupported {
 					n.node.Log().Warning("unable to accept connection with %s (join is not supported)",
 						result.Peer)
@@ -1218,6 +1314,19 @@ func (n *network) accept(a *acceptor) {
 				}
 				c.Close()
 			}
+			if joinHandshake {
+				c.SetWriteDeadline(time.Now().Add(time.Second))
+				c.Write([]byte{0})
+				c.SetWriteDeadline(time.Time{})
+			}
+			continue
+		}
+
+		if joinHandshake {
+			c.SetWriteDeadline(time.Now().Add(time.Second))
+			c.Write([]byte{2})
+			c.SetWriteDeadline(time.Time{})
+			c.Close()
 			continue
 		}
 

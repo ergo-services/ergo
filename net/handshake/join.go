@@ -3,6 +3,7 @@ package handshake
 import (
 	"crypto/sha256"
 	"fmt"
+	"io"
 	"net"
 	"time"
 
@@ -52,5 +53,31 @@ func (h *handshake) Join(node gen.NodeHandshake, conn net.Conn, id string, optio
 		}
 	}
 
-	return tail, nil
+	var status byte
+	if len(tail) > 0 {
+		status = tail[0]
+		tail = tail[1:]
+	} else {
+		var b [1]byte
+		conn.SetReadDeadline(time.Now().Add(time.Second))
+		if _, err := io.ReadFull(conn, b[:]); err != nil {
+			conn.Close()
+			return nil, err
+		}
+		status = b[0]
+	}
+
+	switch status {
+	case 0:
+		return tail, nil
+	case 1:
+		conn.Close()
+		return nil, fmt.Errorf("join rejected: connection id mismatch")
+	case 2:
+		conn.Close()
+		return nil, fmt.Errorf("join rejected: no existing connection")
+	default:
+		conn.Close()
+		return nil, fmt.Errorf("join rejected")
+	}
 }
