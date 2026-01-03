@@ -163,8 +163,7 @@ Fully detailed changelog see in the [ChangeLog](CHANGELOG.md) file.
 * Fixed **LinkChild** in `RemoteNode.Spawn` / `RemoteNode.SpawnRegister`
 * Fixed **args persistence** for Simple One For One supervisor - child processes now restart with their original spawn arguments
 * Fixed **simultaneous connection collision** - deterministic resolution when both nodes dial each other concurrently 
-* Completely reworked internal **Target Manager** (`node/tm/`) - improved architecture for process, event, and node target management 
-* Completely reworked internal **Pub/Sub** mechanism - improved reliability and performance
+* Completely reworked internal **Pub/Sub** mechanism (target manager `node/tm`, is using for Link/Monitor feature) - improved reliability and performance
 * Improved **ProcessInit state** - more `gen.Process` methods now available during initialization:
   - `Link*`, `Unlink*`, `Monitor*`, `Demonitor*`
   - `Call*`, `Inspect`, `InspectMeta`
@@ -173,6 +172,8 @@ Fully detailed changelog see in the [ChangeLog](CHANGELOG.md) file.
   - `SendEvent`, `Info`, `MetaInfo`
 * Improved API documentation - comprehensive godoc comments for all public interfaces
 * **Documentation rewritten** - complete documentation now included in the repository (`docs/`) and available at https://docs.ergo.services
+* New documentation article:
+  - [Project Structure](https://docs.ergo.services/basics/project-structure) - comprehensive guide to organizing Ergo Framework projects (nodes, applications, supervisors, actors, meta processes)
 * New documentation section **Advanced**:
   - [Building a Cluster](https://docs.ergo.services/advanced/building-a-cluster) - step-by-step guide to distributed systems
   - [Handle Sync](https://docs.ergo.services/advanced/handle-sync) - synchronous message handling patterns
