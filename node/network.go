@@ -839,14 +839,14 @@ func (n *network) serve(proto gen.NetworkProto, conn gen.Connection, redial gen.
 		defer func() {
 			if r := recover(); r != nil {
 				n.node.log.Panic("connection with %s (%s) terminated abnormally: %v", name, name.CRC32(), r)
-				n.unregisterConnection(name, gen.TerminateReasonPanic)
+				n.unregisterConnection(conn, gen.TerminateReasonPanic)
 				conn.Terminate(gen.TerminateReasonPanic)
 			}
 		}()
 	}
 
 	err := proto.Serve(conn, redial)
-	n.unregisterConnection(name, err)
+	n.unregisterConnection(conn, err)
 	conn.Terminate(err)
 }
 
@@ -1252,17 +1252,45 @@ func (n *network) accept(a *acceptor) {
 		// check if we already have connection with this node
 		if v, exist := n.connections.Load(result.Peer); exist {
 			conn := v.(gen.Connection)
-			if err := conn.Join(c, result.ConnectionID, nil, result.Tail); err != nil {
-				if err == gen.ErrUnsupported {
-					n.node.Log().Warning("unable to accept connection with %s (join is not supported)",
-						result.Peer)
-				} else {
-					n.node.Log().Trace("unable to join %s to the existing connection with %s: %s",
-						c.RemoteAddr(), result.Peer, err)
+
+			// collision detection:
+			// check if this is a Join handshake (PeerCreation is not populated on Join)
+			if result.PeerCreation == 0 {
+				if err := conn.Join(c, result.ConnectionID, nil, result.Tail); err != nil {
+					if err == gen.ErrUnsupported {
+						n.node.Log().Warning("unable to accept connection with %s (join is not supported)",
+							result.Peer)
+					} else {
+						n.node.Log().Trace("unable to join %s to the existing connection with %s: %s",
+							c.RemoteAddr(), result.Peer, err)
+					}
+					c.Close()
 				}
-				c.Close()
+				continue
 			}
-			continue
+
+			// collision detected: Start handshake but connection already exists
+			// tie-breaker: smaller name wins
+
+			if result.Peer > n.node.name {
+				// our name is smaller, reject this connection
+				n.node.Log().Info("collision detected with %s, rejecting new connection from %s",
+					result.Peer, c.RemoteAddr().String())
+				c.Close()
+				continue
+			}
+
+			// peer has smaller name - this inbound connection wins
+			n.node.Log().Info("simultaneous connect collision with %s: accepting inbound connection", result.Peer)
+
+			// terminate existing outbound connection
+			conn.Terminate(fmt.Errorf("replaced by inbound connection from %s", result.Peer))
+
+			// remove existing connection from the map, so we can register new one
+			n.connections.Delete(result.Peer)
+
+			// fall through to register new inbound connection
+
 		}
 
 		log := createLog(n.node.Log().Level(), n.node.dolog)
@@ -1298,7 +1326,21 @@ func (n *network) registerConnection(name gen.Atom, conn gen.Connection) (gen.Co
 	return conn, nil
 }
 
-func (n *network) unregisterConnection(name gen.Atom, reason error) {
+func (n *network) unregisterConnection(conn gen.Connection, reason error) {
+	name := conn.Node().Name()
+
+	v, exist := n.connections.Load(name)
+	if exist == false {
+		// already unregistered
+		return
+	}
+	if v.(gen.Connection) != conn {
+		// replaced by another connection (collision)
+		n.node.Log().Trace("connection with %s (%s) already replaced by another connection, skip unregister",
+			name, name.CRC32())
+		return
+	}
+
 	n.connections.Delete(name)
 	if reason != nil {
 		n.node.log.Info("connection with %s (%s) terminated with reason: %s", name, name.CRC32(), reason)
