@@ -11,21 +11,21 @@ The Ergo Framework is an implementation of ideas, technologies, and design patte
 
 ### Features ###
 
-1. **Actor Model**: enables the creation of scalable and fault-tolerant systems using isolated actors that interact through message passing. Actors can exchange asynchronous messages as well as perform synchronous requests, offering flexibility in communication patterns.
+1. **Actor Model**: isolated processes communicate through message passing, handling messages sequentially in their own mailbox with four priority queues. Processes support both asynchronous messaging and synchronous request-response patterns, enabling flexible communication while maintaining the actor model guarantees.
 
-2. **Network Transparency**: actors can interact regardless of their physical location, supported by a [high-performance](https://github.com/ergo-services/benchmarks) implementation of the [network stack](https://docs.ergo.services/networking/network-stack), which simplifies the creation of distributed systems.
+2. **Network Transparency**: actors interact the same way whether local or remote. The framework uses custom serialization and protocol for [efficient](https://github.com/ergo-services/benchmarks) distributed communication with connection pooling, compression, and type caching, making network location transparent to application code.
 
-3. **Observability**: framework includes built-in observability features, including [service discovery](https://docs.ergo.services/networking/service-discovering) and [static routes](https://docs.ergo.services/networking/static-routes), allowing nodes to automatically register themselves and find routes to remote nodes. This mechanism simplifies managing distributed systems by enabling seamless communication and interaction between nodes across the network.
+3. **Supervision Trees**: hierarchical fault recovery where supervisors monitor child processes and apply restart strategies when failures occur. Supports multiple supervision types (One For One, All For One, Rest For One, Simple One For One) and restart strategies (Transient, Temporary, Permanent) for building self-healing systems.
 
-4. **Ready-to-use Components**: A set of [ready-to-use actors](https://docs.ergo.services/actors) simplifying development, including state management and error handling.
+4. **Meta Processes**: bridge blocking I/O with the actor model through dedicated meta processes that handle TCP, UDP, Port, and Web protocols. Meta processes run blocking operations without affecting regular actor message processing.
 
-5. **Support for Distributed Systems**: framework includes built-in mechanisms for creating and managing clustered systems, [distributed events](https://docs.ergo.services/basics/events) (publish/subscribe mechanism), [remote actor spawning](https://docs.ergo.services/networking/remote-spawn-process), and [remote application startup](https://docs.ergo.services/networking/remote-start-application). These features enable easy scaling, efficient message broadcasting across your cluster, and the ability to manage distributed components seamlessly.
+5. **Distributed Systems**: service discovery through embedded or external registrars (etcd, Saturn), distributed publish/subscribe events with token-based authorization and buffering, remote process spawning with factory-based permissions, and remote application orchestration across nodes.
 
-6. **Reliability and Fault Tolerance**: the framework is designed to minimize failures and ensure automatic recovery, featuring a [supervisor tree](https://docs.ergo.services/basics/supervision-tree) structure to manage and [restart failed actors](https://docs.ergo.services/actors/supervisor#restart-strategy), which is crucial for mission-critical applications.
-   
-7. **Flexibility**: This framework offers convenient interfaces for customizing [network stack components](https://docs.ergo.services/networking/network-stack#network-stack-interfaces), creating and integrating custom [loggers](https://docs.ergo.services/basics/logging), [managing SSL certificates](https://docs.ergo.services/basics/certmanager), and more.
+6. **Ready-to-use Components**: core framework includes Actor, Supervisor, Pool, and WebWorker actors plus TCP, UDP, Port, and Web meta processes. Extra library provides Leader, Metrics actors, WebSocket, SSE meta processes, Observer application, Colored and Rotate loggers, Erlang protocol support.
 
-In the https://github.com/ergo-services/examples repository, you will find examples that demonstrate a range of the framework's capabilities.
+7. **Flexibility**: customize network stack components, certificate management, compression and message priorities, logging, distributed events, and meta processes. Framework supports mTLS, NAT traversal, important delivery for guaranteed messaging, and Cron-based scheduling.
+
+Examples demonstrating the framework's capabilities are available in the [examples repository](https://github.com/ergo-services/examples).
 
 ### Benchmarks ###
 
@@ -33,7 +33,7 @@ On a 64-core processor, Ergo Framework demonstrates a performance of **over 21 m
 
 ![image](https://github.com/user-attachments/assets/813900ad-ff79-4cc7-b1e6-396c5781acb1)
 
-You can find available benchmarks in the following repository https://github.com/ergo-services/benchmarks.
+Available benchmarks can be found in the [benchmarks repository](https://github.com/ergo-services/benchmarks).
 
 * Messaging performance (local, network)
 
@@ -52,7 +52,7 @@ To install the Observer tool, you need to have the Go compiler version 1.20 or h
 $ go install ergo.tools/observer@latest
 ```
 
-You can also embed the [Observer application](https://docs.ergo.services/extra-library/applications/observer) into your node. To see it in action, see example `demo` at https://github.com/ergo-services/examples. For more information https://docs.ergo.services/tools/observer 
+You can also embed the [Observer application](https://docs.ergo.services/extra-library/applications/observer) into your node. To see it in action, see the [demo example](https://github.com/ergo-services/examples/tree/master/demo). For more information, visit the [Observer documentation](https://docs.ergo.services/tools/observer). 
 
 
 
@@ -123,7 +123,7 @@ Since we included Observer application, open http://localhost:9911 to inspect yo
 
 ### Erlang support ###
 
-Starting from version 3.0.0, support for the Erlang network stack has been moved to a separate module - https://github.com/ergo-services/proto. Version 3.0 was distributed under the BSL 1.1 license, but starting from version 3.1 it is available under the MIT license. You can find detailed information on using this module in the documentation at https://docs.ergo.services/extra-library/network-protocols/erlang.
+Starting from version 3.0.0, support for the Erlang network stack has been moved to a [separate module](https://github.com/ergo-services/proto). Version 3.0 was distributed under the BSL 1.1 license, but starting from version 3.1 it is available under the MIT license. Detailed information is available in the [Erlang protocol documentation](https://docs.ergo.services/extra-library/network-protocols/erlang).
 
 ### Requirements ###
 
@@ -172,9 +172,10 @@ Fully detailed changelog see in the [ChangeLog](CHANGELOG.md) file.
   - `CreateAlias`, `DeleteAlias`
   - `SendEvent`, `Info`, `MetaInfo`
 * Improved API documentation - comprehensive godoc comments for all public interfaces
-* **Documentation rewritten** - complete documentation now included in the repository (`docs/`) and available at https://docs.ergo.services
-* New documentation section **Advanced**:
-  - [Building a Cluster](https://docs.ergo.services/advanced/building-a-cluster) - step-by-step guide to distributed systems
+* **Documentation rewritten** - complete documentation now included in the repository (`docs/`) and available at [docs.ergo.services](https://docs.ergo.services)
+* New documentation articles:
+  - [Project Structure](https://docs.ergo.services/basics/project-structure) - organizing projects with message isolation levels, deployment patterns, and evolution strategies
+  - [Building a Cluster](https://docs.ergo.services/advanced/building-a-cluster) - step-by-step guide to distributed systems with service discovery, load balancing, and failover
   - [Handle Sync](https://docs.ergo.services/advanced/handle-sync) - synchronous message handling patterns
   - [Important Delivery](https://docs.ergo.services/advanced/important-delivery) - guaranteed delivery mechanism
   - [Pub/Sub Internals](https://docs.ergo.services/advanced/pub-sub-internals) - event system architecture
