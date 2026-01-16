@@ -32,6 +32,17 @@
 * [Port](meta-processes/port.md)
 * [Web](meta-processes/web.md)
 
+## Networking
+
+* [Network Stack](networking/network-stack.md)
+* [Service Discovering](networking/service-discovering.md)
+* [Network Transparency](networking/network-transparency.md)
+* [Static Routes](networking/static-routes.md)
+* [Behind the NAT](networking/behind-the-nat.md)
+* [Mutual TLS](networking/mutual-tls.md)
+* [Remote Spawn Process](networking/remote-spawn-process.md)
+* [Remote Start Application](networking/remote-start-application.md)
+
 ## Testing
 
 * [Unit](testing/unit.md)
@@ -62,17 +73,6 @@
   * [etcd Client](extra-library/registrars/etcd-client.md)
 * [Network Protocols](extra-library/network-protocols/README.md)
   * [Erlang](extra-library/network-protocols/erlang.md)
-
-## Networking
-
-* [Network Stack](networking/network-stack.md)
-* [Service Discovering](networking/service-discovering.md)
-* [Network Transparency](networking/network-transparency.md)
-* [Static Routes](networking/static-routes.md)
-* [Behind the NAT](networking/behind-the-nat.md)
-* [Mutual TLS](networking/mutual-tls.md)
-* [Remote Spawn Process](networking/remote-spawn-process.md)
-* [Remote Start Application](networking/remote-start-application.md)
 
 ## Tools
 
