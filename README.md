@@ -169,6 +169,8 @@ Fully detailed changelog see in the [ChangeLog](CHANGELOG.md) file.
   - `Link*`, `Unlink*`, `Monitor*`, `Demonitor*`
   - `Call*`, `Inspect`, `InspectMeta`
   - `RegisterName`, `UnregisterName`, `RegisterEvent`, `UnregisterEvent`
+  - `SendResponse*`, `SendResponseError*`
+* Introduced **shutdown timeout** - `ShutdownTimeout` option in `gen.NodeOptions` (default 3 minutes). During graceful shutdown, pending processes are logged every 5 seconds with state and queue info. After timeout, node force exits with error code 1. See [Node](https://docs.ergo.services/basics/node) documentation
   - `CreateAlias`, `DeleteAlias`
   - `SendEvent`, `Info`, `MetaInfo`
 * Improved API documentation - comprehensive godoc comments for all public interfaces
