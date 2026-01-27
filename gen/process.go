@@ -456,7 +456,7 @@ type Process interface {
 	//
 	// For explicit important delivery regardless of process flag, use SendResponseImportant.
 	//
-	// Available in: Running state only.
+	// Available in: Init, Running states.
 	// Returns ErrNotAllowed in other states, ErrResponseIgnored if requester not waiting (with important),
 	// ErrTimeout if confirmation not received (with important).
 	SendResponse(to PID, ref Ref, message any) error
@@ -480,7 +480,7 @@ type Process interface {
 	// Use this when the response represents critical state and you need guarantee the requester
 	// actually received it. The responder can safely proceed knowing the requester has the response.
 	//
-	// Available in: Running state only.
+	// Available in: Init, Running states.
 	// Returns ErrNotAllowed in other states, ErrResponseIgnored if requester not waiting,
 	// ErrTimeout if confirmation not received within timeout.
 	SendResponseImportant(to PID, ref Ref, message any) error
@@ -494,7 +494,7 @@ type Process interface {
 	//
 	// For explicit important delivery regardless of process flag, use SendResponseErrorImportant.
 	//
-	// Available in: Running state only.
+	// Available in: Init, Running states.
 	// Returns ErrNotAllowed in other states, ErrResponseIgnored if requester not waiting (with important),
 	// ErrTimeout if confirmation not received (with important).
 	SendResponseError(to PID, ref Ref, err error) error
@@ -518,7 +518,7 @@ type Process interface {
 	// Use this when the error represents critical information (operation failed, rollback needed)
 	// and you need guarantee the requester knows about the failure.
 	//
-	// Available in: Running state only.
+	// Available in: Init, Running states.
 	// Returns ErrNotAllowed in other states, ErrResponseIgnored if requester not waiting,
 	// ErrTimeout if confirmation not received within timeout.
 	SendResponseErrorImportant(to PID, ref Ref, err error) error
@@ -1076,6 +1076,11 @@ type ProcessMailbox struct {
 	// Log queue for logging messages (MessageLogNode, MessageLogProcess).
 	// Processed after all other queues.
 	Log lib.QueueMPSC
+}
+
+// Len returns the total number of messages across all mailbox queues.
+func (pm ProcessMailbox) Len() int64 {
+	return pm.Main.Len() + pm.System.Len() + pm.Urgent.Len() + pm.Log.Len()
 }
 
 // MailboxQueues contains message counts for each mailbox queue.

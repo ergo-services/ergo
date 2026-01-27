@@ -91,9 +91,10 @@ type node struct {
 	loggers map[gen.LogLevel]*sync.Map // level -> name -> gen.LoggerBehavior
 	log     *log
 
-	waitprocesses sync.WaitGroup
-	wait          chan struct{}
-	once          sync.Once
+	shutdownTimeout time.Duration
+	waitprocesses   sync.WaitGroup
+	wait            chan struct{}
+	once            sync.Once
 
 	licenses sync.Map
 
@@ -131,6 +132,10 @@ func Start(name gen.Atom, options gen.NodeOptions, frameworkVersion gen.Version)
 
 	creation := time.Now().Unix()
 
+	if options.ShutdownTimeout <= 0 {
+		options.ShutdownTimeout = gen.DefaultShutdownTimeout
+	}
+
 	node := &node{
 		name:      name,
 		version:   options.Version,
@@ -143,6 +148,8 @@ func Start(name gen.Atom, options gen.NodeOptions, frameworkVersion gen.Version)
 
 		certmanager: options.CertManager,
 		security:    options.Security,
+
+		shutdownTimeout: options.ShutdownTimeout,
 
 		loggers: make(map[gen.LogLevel]*sync.Map),
 
@@ -867,7 +874,53 @@ func (n *node) stop(force bool) {
 	}
 
 	if force == false {
+		// start a goroutine to print pending processes every 5 seconds
+		// and force exit if shutdown timeout expires
+		stopPrinting := make(chan struct{})
+		shutdownTimeout := n.shutdownTimeout
+		go func() {
+			ticker := time.NewTicker(5 * time.Second)
+			defer ticker.Stop()
+			timeout := time.After(shutdownTimeout)
+			for {
+				select {
+				case <-stopPrinting:
+					return
+				case <-timeout:
+					n.log.Error("shutdown timeout %s expired, force exit", n.shutdownTimeout)
+					os.Exit(1)
+				case <-ticker.C:
+					var count int
+					n.processes.Range(func(_, v any) bool {
+						count++
+						if count > 10 {
+							return true
+						}
+						if count == 1 {
+							n.log.Warning("node %s is still waiting for process(es) to terminate:", n.name)
+						}
+
+						p := v.(*process)
+						name := p.sbehavior
+						state := gen.ProcessState(atomic.LoadInt32(&p.state))
+						qlen := p.mailbox.Len()
+
+						if p.name != "" {
+							name = fmt.Sprintf("%s, %s", p.name, p.sbehavior)
+						}
+
+						n.log.Warning("  %s (%s) state: %s, queue: %d",
+							p.pid, name, state, qlen)
+						return true
+					})
+					if count > 10 {
+						n.log.Warning("  ...and %d more", count-10)
+					}
+				}
+			}
+		}()
 		n.waitprocesses.Wait()
+		close(stopPrinting)
 	}
 
 	n.NetworkStop()
@@ -938,12 +991,7 @@ func (n *node) SendWithPriority(to any, message any, priority gen.MessagePriorit
 	return gen.ErrUnsupported
 }
 
-func (n *node) SendEvent(
-	name gen.Atom,
-	token gen.Ref,
-	options gen.MessageOptions,
-	message any,
-) error {
+func (n *node) SendEvent(name gen.Atom, token gen.Ref, options gen.MessageOptions, message any) error {
 	if n.isRunning() == false {
 		return gen.ErrNodeTerminated
 	}

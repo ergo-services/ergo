@@ -504,6 +504,11 @@ type NodeHandshake interface {
 // NodeOptions defines configuration options for node initialization.
 // Used in node.Start() to configure the node before it becomes operational.
 type NodeOptions struct {
+	// ShutdownTimeout sets the maximum time to wait for processes to terminate
+	// during graceful shutdown. Default is 3 minutes (gen.DefaultShutdownTimeout).
+	// After timeout expires, the node force exits with error code 1.
+	ShutdownTimeout time.Duration
+
 	// Applications is the list of applications to load and start automatically.
 	// Applications are started after the node becomes operational.
 	// Empty means no applications auto-started.

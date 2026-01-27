@@ -84,6 +84,29 @@ Forced shutdown kills all processes immediately without waiting for cleanup. Thi
 
 One subtlety: if you call `Stop` from within a process, you create a deadlock. The process can't terminate because it's waiting for `Stop` to complete, but `Stop` is waiting for all processes (including this one) to terminate. The solution is either to call `Stop` in a separate goroutine or use `StopForce`, which doesn't wait.
 
+### Shutdown Timeout
+
+Graceful shutdown can hang indefinitely if a process is stuck - perhaps blocked on a channel, waiting for an external resource, or caught in incorrect logic. To prevent this, the node has a shutdown timeout. If processes don't terminate within this period, the node force exits with error code 1.
+
+The default timeout is 3 minutes. You can change it through `gen.NodeOptions`:
+
+```go
+options := gen.NodeOptions{
+    ShutdownTimeout: 30 * time.Second,
+}
+```
+
+During shutdown, the node logs which processes are still running. Every 5 seconds, it prints a warning with the first 10 pending processes, showing their PID, registered name (if any), behavior type, state, and mailbox queue length. This diagnostic output helps identify what's blocking the shutdown:
+
+```
+[warning] node 'myapp@localhost' is still waiting for 3 process(es) to terminate:
+[warning]   <ABC123.0.1004> ('worker_1', main.Worker) state: running, queue: 1
+[warning]   <ABC123.0.1005> ('worker_2', main.Worker) state: running, queue: 0
+[warning]   <ABC123.0.1006> (main.Worker) state: running, queue: 5
+```
+
+The state tells you what the process is doing: `running` means it's handling a message, `sleep` means it's idle waiting for messages. The queue count shows how many messages are waiting. A process stuck in `running` with a growing queue indicates it's blocked in a callback and not processing its mailbox.
+
 ## The Node's Role
 
 The node is infrastructure, not application logic. It provides the mechanisms - process management, message routing, networking - that your actors use to accomplish work.

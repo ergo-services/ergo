@@ -20,6 +20,7 @@ var (
 		LogLevelPanic,
 	}
 
+	DefaultShutdownTimeout time.Duration = 3 * time.Minute
 	DefaultKeepAlivePeriod time.Duration = 15 * time.Second
 	DefaultTCPBufferSize   int           = 65535
 	DefaultPort            uint16        = 11144

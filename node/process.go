@@ -1013,7 +1013,7 @@ func (p *process) SendExitMetaAfter(alias gen.Alias, reason error, after time.Du
 }
 
 func (p *process) SendResponse(to gen.PID, ref gen.Ref, message any) error {
-	if p.isRunning() == false {
+	if p.isStateIR() == false {
 		return gen.ErrNotAllowed
 	}
 	if lib.Trace() {
@@ -1031,7 +1031,7 @@ func (p *process) SendResponse(to gen.PID, ref gen.Ref, message any) error {
 }
 
 func (p *process) SendResponseImportant(to gen.PID, ref gen.Ref, message any) error {
-	if p.isRunning() == false {
+	if p.isStateIR() == false {
 		return gen.ErrNotAllowed
 	}
 	if lib.Trace() {
@@ -1054,7 +1054,7 @@ func (p *process) SendResponseImportant(to gen.PID, ref gen.Ref, message any) er
 }
 
 func (p *process) SendResponseError(to gen.PID, ref gen.Ref, err error) error {
-	if p.isRunning() == false {
+	if p.isStateIR() == false {
 		return gen.ErrNotAllowed
 	}
 	if lib.Trace() {
@@ -1072,7 +1072,7 @@ func (p *process) SendResponseError(to gen.PID, ref gen.Ref, err error) error {
 }
 
 func (p *process) SendResponseErrorImportant(to gen.PID, ref gen.Ref, err error) error {
-	if p.isRunning() == false {
+	if p.isStateIR() == false {
 		return gen.ErrNotAllowed
 	}
 	if lib.Trace() {
@@ -2003,13 +2003,6 @@ func (p *process) isAlive() bool {
 		int32(gen.ProcessStateRunning) |
 		int32(gen.ProcessStateWaitResponse)
 	return (state & alive) == state
-}
-
-// isRunning - Running state only
-// Used for: Call*, Link*, Monitor*, Register*, Event*, SendImportant, SendResponse
-func (p *process) isRunning() bool {
-	state := atomic.LoadInt32(&p.state)
-	return state == int32(gen.ProcessStateRunning)
 }
 
 // isStateIR - Init or Running
