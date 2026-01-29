@@ -107,6 +107,18 @@ During shutdown, the node logs which processes are still running. Every 5 second
 
 The state tells you what the process is doing: `running` means it's handling a message, `sleep` means it's idle waiting for messages. The queue count shows how many messages are waiting. A process stuck in `running` with a growing queue indicates it's blocked in a callback and not processing its mailbox.
 
+## Node Incarnation
+
+Every node has a creation timestamp assigned when it starts. This timestamp is embedded in every `gen.PID`, `gen.Ref`, and `gen.Alias` that the node creates.
+
+When two nodes connect, they exchange their creation timestamps during the handshake. Each connection stores the remote node's creation value.
+
+Before sending any message to a remote process, the framework compares the target's `Creation` field against the stored creation of that remote node. If they differ, the operation returns `gen.ErrProcessIncarnation` immediately - no network message is sent.
+
+This mechanism handles a common distributed systems problem: what happens when a remote node restarts? After restart, the node gets a new creation timestamp. Any `gen.PID` or `gen.Alias` from before the restart now contains the old creation value. When you try to send a message using that stale identifier, the framework detects the mismatch and returns an error instead of delivering the message to a wrong process.
+
+The check applies to all remote operations: `Send`, `Call`, `Link`, `Unlink`, `Monitor`, `Demonitor`, `SendExit`, and `SendResponse`.
+
 ## The Node's Role
 
 The node is infrastructure, not application logic. It provides the mechanisms - process management, message routing, networking - that your actors use to accomplish work.
