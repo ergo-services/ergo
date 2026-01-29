@@ -334,6 +334,10 @@ func (c *connection) SendPID(from gen.PID, to gen.PID, options gen.MessageOption
 		return err
 	}
 
+	if c.peer_maxmessagesize > 0 && buf.Len() > c.peer_maxmessagesize {
+		return gen.ErrTooLarge
+	}
+
 	if buf.Len() > math.MaxUint32 {
 		return gen.ErrTooLarge
 	}

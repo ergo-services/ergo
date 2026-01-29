@@ -420,11 +420,17 @@ func (t *t3) TestSendRemoteCompress(input any) {
 	t.SetCompression(true)
 
 	t3pongCh = make(chan any)
+	// even compressed shoulnd't be sent since the original size is too large
+	if err := t.Send(pid, pingvalue); err != gen.ErrTooLarge {
+		t.testcase.err <- fmt.Errorf("expected gen.ErrTooLarge, but got: %v", err)
+		return
+	}
+
+	pingvalue = lib.RandomString(info.MaxMessageSize / 2)
 	if err := t.Send(pid, pingvalue); err != nil {
 		t.testcase.err <- err
 		return
 	}
-
 	select {
 	case pong := <-t3pongCh:
 		if reflect.DeepEqual(pingvalue, pong) == false {
