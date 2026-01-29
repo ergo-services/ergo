@@ -1850,7 +1850,7 @@ func (p *t8notifyProducer) HandleCall(from gen.PID, ref gen.Ref, request any) (a
 func TestT8ProducerNotificationRemote(t *testing.T) {
 	opts1 := gen.NodeOptions{}
 	opts1.Network.Cookie = "test123"
-	// opts1.Log.DefaultLogger.Disable = true
+	opts1.Log.DefaultLogger.Disable = true
 	opts1.Log.Level = gen.LogLevelTrace
 
 	node1, err := ergo.StartNode("n1pn@localhost", opts1)
@@ -1861,7 +1861,7 @@ func TestT8ProducerNotificationRemote(t *testing.T) {
 
 	opts2 := gen.NodeOptions{}
 	opts2.Network.Cookie = "test123"
-	// opts2.Log.DefaultLogger.Disable = true
+	opts2.Log.DefaultLogger.Disable = true
 	opts2.Log.Level = gen.LogLevelTrace
 
 	node2, err := ergo.StartNode("n2pn@localhost", opts2)

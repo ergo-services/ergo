@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"reflect"
 	"testing"
+	"time"
 
 	"ergo.services/ergo"
 	"ergo.services/ergo/act"
@@ -825,6 +826,9 @@ func TestT5LinkRemote(t *testing.T) {
 	}
 	defer node1.Stop()
 
+	// ensure different creation timestamps
+	time.Sleep(1100 * time.Millisecond)
+
 	options2 := gen.NodeOptions{}
 	options2.Network.Cookie = "123"
 	options2.Network.MaxMessageSize = 765
@@ -835,6 +839,10 @@ func TestT5LinkRemote(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer node2.Stop()
+
+	if node1.Creation() == node2.Creation() {
+		t.Fatal("nodes have the same creation timestamp")
+	}
 
 	if err := node2.Network().EnableSpawn("pong", factory_t5pong); err != nil {
 		t.Fatal(err)
