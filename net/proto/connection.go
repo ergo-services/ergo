@@ -625,9 +625,6 @@ func (c *connection) SendResponseError(from gen.PID, to gen.PID, options gen.Mes
 }
 
 func (c *connection) SendTerminatePID(target gen.PID, reason error) error {
-	if target.Creation != c.peer_creation {
-		return gen.ErrProcessIncarnation
-	}
 	buf := lib.TakeBuffer()
 	// 8 (header) + 1 priority + 8 (target process id)
 	buf.Allocate(8 + 1 + 8)
@@ -698,9 +695,6 @@ func (c *connection) SendTerminateProcessID(target gen.ProcessID, reason error) 
 }
 
 func (c *connection) SendTerminateAlias(target gen.Alias, reason error) error {
-	if target.Creation != c.peer_creation {
-		return gen.ErrProcessIncarnation
-	}
 	buf := lib.TakeBuffer()
 	// 8 (header) + 1 priority + 24 (target alias id [3]uint64)
 	buf.Allocate(8 + 1 + 24)
