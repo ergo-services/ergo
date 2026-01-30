@@ -182,6 +182,7 @@ Fully detailed changelog see in the [ChangeLog](CHANGELOG.md) file.
   - [Handle Sync](https://docs.ergo.services/advanced/handle-sync) - synchronous message handling patterns
   - [Important Delivery](https://docs.ergo.services/advanced/important-delivery) - guaranteed delivery mechanism
   - [Pub/Sub Internals](https://docs.ergo.services/advanced/pub-sub-internals) - event system architecture
+  - [Debugging](https://docs.ergo.services/advanced/debugging) - build tags, pprof integration, troubleshooting stuck processes
 
 * **Extra Library - Actors** (https://github.com/ergo-services/actor):
   - Introduced **Leader** actor - distributed leader election with Raft-inspired consensus algorithm. Features: term-based disambiguation, automatic failover, split-brain prevention through majority quorum, dynamic peer discovery. See [documentation](https://docs.ergo.services/extra-library/actors/leader)
