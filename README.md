@@ -220,6 +220,8 @@ To disable panic recovery use `--tags norecover`.
 
 To enable trace logging level for the internals (node, network,...) use `--tags trace` and set the log level `gen.LogLevelTrace` for your node.
 
+For detailed debugging techniques, troubleshooting scenarios, and best practices, see the [Debugging](https://docs.ergo.services/advanced/debugging) documentation.
+
 To run tests with cleaned test cache:
 
 ```
