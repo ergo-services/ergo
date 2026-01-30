@@ -171,6 +171,7 @@ Fully detailed changelog see in the [ChangeLog](CHANGELOG.md) file.
   - `RegisterName`, `UnregisterName`, `RegisterEvent`, `UnregisterEvent`
   - `SendResponse*`, `SendResponseError*`
 * Introduced **shutdown timeout** - `ShutdownTimeout` option in `gen.NodeOptions` (default 3 minutes). During graceful shutdown, pending processes are logged every 5 seconds with state and queue info. After timeout, node force exits with error code 1. See [Node](https://docs.ergo.services/basics/node) documentation
+* Added **pprof labels** for actor goroutines (with `--tags debug`) - each process goroutine is labeled with its PID, making it easy to identify stuck processes in pprof output
   - `CreateAlias`, `DeleteAlias`
   - `SendEvent`, `Info`, `MetaInfo`
 * Improved API documentation - comprehensive godoc comments for all public interfaces
@@ -196,7 +197,22 @@ Fully detailed changelog see in the [ChangeLog](CHANGELOG.md) file.
 ### Development and debugging ###
 
 To enable Golang profiler just add `--tags debug` in your `go run` or `go build` (profiler runs at
-`http://localhost:9009/debug/pprof`)
+`http://localhost:9009/debug/pprof`).
+
+With `--tags debug`, each actor goroutine is labeled with its PID for easy identification in pprof output:
+
+```
+curl -s "http://localhost:9009/debug/pprof/goroutine?debug=1" | grep -B5 'labels:.*pid'
+```
+
+Output:
+```
+1 @ 0x100c17fa0 ...
+# labels: {"pid":"<ABC123.0.1005>"}
+#   main.(*Worker).HandleMessage+0x27  /path/worker.go:45
+```
+
+This helps identify stuck processes during shutdown by matching PIDs from the shutdown log with goroutine stack traces.
 
 To disable panic recovery use `--tags norecover`.
 
