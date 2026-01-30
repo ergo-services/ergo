@@ -6,12 +6,12 @@ Debugging distributed actor systems presents unique challenges. Traditional debu
 
 Ergo Framework uses Go build tags to enable debugging features without affecting production performance. These tags control compile-time behavior, ensuring zero overhead when disabled.
 
-### The `debug` Tag
+### The `pprof` Tag
 
-The `debug` tag enables the built-in profiler and goroutine labeling:
+The `pprof` tag enables the built-in profiler and goroutine labeling:
 
 ```bash
-go run --tags debug ./cmd
+go run --tags pprof ./cmd
 ```
 
 This activates:
@@ -73,7 +73,7 @@ options := gen.NodeOptions{
 Tags can be combined for comprehensive debugging:
 
 ```bash
-go run --tags "debug,norecover,trace" ./cmd
+go run --tags "pprof,norecover,trace" ./cmd
 ```
 
 This enables all debugging features simultaneously. Use this combination when investigating complex issues that span multiple subsystems.
@@ -84,7 +84,7 @@ The Go profiler is a powerful tool for understanding runtime behavior. Ergo Fram
 
 ### Identifying Actor and Meta Process Goroutines
 
-When built with the `debug` tag, each actor's goroutine carries a label containing its PID, and each meta process goroutine carries a label with its Alias. This creates a direct link between the logical identity and the runtime goroutine.
+When built with the `pprof` tag, each actor's goroutine carries a label containing its PID, and each meta process goroutine carries a label with its Alias. This creates a direct link between the logical identity and the runtime goroutine.
 
 To find labeled goroutines:
 
@@ -310,7 +310,7 @@ Observer runs at `http://localhost:9911` by default when included in your node.
 
 ## Best Practices
 
-1. **Always use build tags in development**: Run with `--tags debug` during development to have profiler and goroutine labels available when needed.
+1. **Always use build tags in development**: Run with `--tags pprof` during development to have profiler and goroutine labels available when needed.
 
 2. **Configure reasonable shutdown timeout**: A shorter timeout (30-60 seconds) in development helps identify stuck processes quickly.
 

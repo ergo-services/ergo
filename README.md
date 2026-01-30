@@ -171,7 +171,7 @@ Fully detailed changelog see in the [ChangeLog](CHANGELOG.md) file.
   - `RegisterName`, `UnregisterName`, `RegisterEvent`, `UnregisterEvent`
   - `SendResponse*`, `SendResponseError*`
 * Introduced **shutdown timeout** - `ShutdownTimeout` option in `gen.NodeOptions` (default 3 minutes). During graceful shutdown, pending processes are logged every 5 seconds with state and queue info. After timeout, node force exits with error code 1. See [Node](https://docs.ergo.services/basics/node) documentation
-* Added **pprof labels** for actor and meta process goroutines (with `--tags debug`) - each process goroutine is labeled with its PID, each meta process with its Alias, making it easy to identify stuck processes in pprof output
+* Added **pprof labels** for actor and meta process goroutines (with `--tags pprof`) - each process goroutine is labeled with its PID, each meta process with its Alias, making it easy to identify stuck processes in pprof output
   - `CreateAlias`, `DeleteAlias`
   - `SendEvent`, `Info`, `MetaInfo`
 * Improved API documentation - comprehensive godoc comments for all public interfaces
@@ -197,10 +197,10 @@ Fully detailed changelog see in the [ChangeLog](CHANGELOG.md) file.
 
 ### Development and debugging ###
 
-To enable Golang profiler just add `--tags debug` in your `go run` or `go build` (profiler runs at
+To enable Golang profiler just add `--tags pprof` in your `go run` or `go build` (profiler runs at
 `http://localhost:9009/debug/pprof`).
 
-With `--tags debug`, each actor goroutine is labeled with its PID and each meta process with its Alias for easy identification in pprof output:
+With `--tags pprof`, each actor goroutine is labeled with its PID and each meta process with its Alias for easy identification in pprof output:
 
 ```
 curl -s "http://localhost:9009/debug/pprof/goroutine?debug=1" | grep -B5 'labels:.*pid'
