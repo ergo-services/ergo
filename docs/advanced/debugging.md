@@ -8,7 +8,7 @@ Ergo Framework uses Go build tags to enable debugging features without affecting
 
 ### The `debug` Tag
 
-The `debug` tag enables the built-in profiler and additional instrumentation:
+The `debug` tag enables the built-in profiler and goroutine labeling:
 
 ```bash
 go run --tags debug ./cmd
@@ -17,8 +17,7 @@ go run --tags debug ./cmd
 This activates:
 
 - **pprof HTTP endpoint** at `http://localhost:9009/debug/pprof/`
-- **PID labels** on actor goroutines for identification in profiler output
-- **Additional runtime checks** that help catch issues early
+- **PID labels** on actor goroutines and **Alias labels** on meta process goroutines for identification in profiler output
 
 The profiler endpoint exposes standard Go profiling data:
 
@@ -81,30 +80,45 @@ This enables all debugging features simultaneously. Use this combination when in
 
 ## Profiler Integration
 
-The Go profiler is a powerful tool for understanding runtime behavior. Ergo Framework enhances its usefulness by labeling actor goroutines with their PIDs.
+The Go profiler is a powerful tool for understanding runtime behavior. Ergo Framework enhances its usefulness by labeling goroutines with their identifiers.
 
-### Identifying Actor Goroutines
+### Identifying Actor and Meta Process Goroutines
 
-When built with the `debug` tag, each actor's goroutine carries a label containing its PID. This creates a direct link between the logical actor identity and the runtime goroutine.
+When built with the `debug` tag, each actor's goroutine carries a label containing its PID, and each meta process goroutine carries a label with its Alias. This creates a direct link between the logical identity and the runtime goroutine.
 
 To find labeled goroutines:
 
 ```bash
+# Find actor goroutines by PID
 curl -s "http://localhost:9009/debug/pprof/goroutine?debug=1" | grep -B5 'labels:.*pid'
+
+# Find meta process goroutines by Alias
+curl -s "http://localhost:9009/debug/pprof/goroutine?debug=1" | grep -B5 'labels:.*meta'
 ```
 
-Example output:
+Example output for actors:
 
 ```
 1 @ 0x100c17fa0 0x100c18abc 0x100c19def ...
 # labels: {"pid":"<ABC123.0.1005>"}
 #   main.(*Worker).HandleMessage+0x27  /path/worker.go:45
-#   ergo.services/ergo/node.(*process).run+0x1bc  /path/process_run_pprof.go:89
 ```
+
+Example output for meta processes:
+
+```
+1 @ 0x100c17fa0 0x100c18abc 0x100c19def ...
+# labels: {"meta":"Alias#<ABC123.0.1.2>", "role":"reader"}
+#   main.(*TCPServer).Start+0x1bc  /path/tcp_server.go:52
+```
+
+Meta processes have two goroutines with different roles:
+- `"role":"reader"` - External Reader goroutine running the `Start()` method (blocking I/O)
+- `"role":"handler"` - Actor Handler goroutine processing messages (`HandleMessage`/`HandleCall`)
 
 The output shows:
 - The goroutine's stack trace
-- The PID label (`<ABC123.0.1005>`)
+- The identifier label (PID for actors, Alias for meta processes)
 - The exact location in your code where the goroutine is currently executing
 
 ### Debugging Stuck Processes
@@ -158,10 +172,10 @@ internal/poll.(*FD).Read
     /usr/local/go/src/internal/poll/fd_unix.go:163
 ```
 
-**Blocked on synchronous call:**
+**Blocked on synchronous call (waiting for response):**
 ```
-ergo.services/ergo/node.(*process).Call
-    /path/node/process.go:XXX
+ergo.services/ergo/node.(*process).waitResponse
+    /path/node/process.go:1961
 ```
 
 Understanding these patterns helps quickly identify the root cause of stuck processes.
@@ -182,7 +196,7 @@ The shutdown log includes:
 - **State**: Current process state (running, sleep, etc.)
 - **Queue**: Number of messages waiting in the mailbox
 
-A process with `state=running` and `queue=0` is actively processing something. A process with `state=running` and `queue>0` might be stuck in a long-running operation while messages accumulate. A process with `state=sleep` and `queue=0` hasn't received any shutdown signal yet, which could indicate a supervision tree issue.
+A process with `state=running` and `queue=0` is actively processing something (likely stuck in a callback). A process with `state=running` and `queue>0` is stuck while new messages continue to arrive. A process with `state=sleep` and `queue=0` is idle - during shutdown this typically means the process is waiting for its children to terminate first (normal supervision tree behavior).
 
 ## Practical Debugging Scenarios
 
@@ -237,7 +251,7 @@ go tool pprof heap.prof
 
 Common causes:
 - Messages accumulating in mailbox faster than processing
-- Large messages not being garbage collected
+- Actor state holding references to large data
 - Unbounded caches or buffers in actor state
 
 ### Scenario: Distributed Deadlock
@@ -250,7 +264,7 @@ Investigation:
 
 1. Identify stuck processes from shutdown logs
 2. For each process, capture its goroutine stack
-3. Look for `Call` or `CallWithTimeout` in stack traces
+3. Look for `waitResponse` in stack traces (indicates waiting for synchronous call response)
 4. Map the call targets to build a dependency graph
 
 Prevention:
@@ -296,11 +310,11 @@ Observer runs at `http://localhost:9911` by default when included in your node.
 
 ## Best Practices
 
-1. **Always use build tags in development**: Run with `--tags debug` during development to catch issues early.
+1. **Always use build tags in development**: Run with `--tags debug` during development to have profiler and goroutine labels available when needed.
 
 2. **Configure reasonable shutdown timeout**: A shorter timeout (30-60 seconds) in development helps identify stuck processes quickly.
 
-3. **Log process identifiers**: When logging from actors, include the PID to correlate with profiler data.
+3. **Use framework logging**: The framework's `Log()` method automatically includes PID/Alias in log output, enabling correlation with profiler data.
 
 4. **Use structured logging**: The framework's logging system supports log levels and structured fields. Add context with `AddFields()` for correlation:
 
@@ -330,7 +344,7 @@ Observer runs at `http://localhost:9911` by default when included in your node.
 Debugging actor systems requires tools that bridge the gap between logical actors and runtime goroutines. Ergo Framework provides this bridge through:
 
 - **Build tags** that enable profiling and diagnostics without production overhead
-- **PID labels** that link goroutines to their actor identities
+- **Goroutine labels** that link runtime goroutines to their actor (PID) and meta process (Alias) identities
 - **Shutdown diagnostics** that identify processes preventing clean termination
 - **Observer integration** for visual inspection of running systems
 
