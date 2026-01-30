@@ -170,10 +170,9 @@ Fully detailed changelog see in the [ChangeLog](CHANGELOG.md) file.
   - `Call*`, `Inspect`, `InspectMeta`
   - `RegisterName`, `UnregisterName`, `RegisterEvent`, `UnregisterEvent`
   - `SendResponse*`, `SendResponseError*`
+  - `CreateAlias`, `DeleteAlias`
 * Introduced **shutdown timeout** - `ShutdownTimeout` option in `gen.NodeOptions` (default 3 minutes). During graceful shutdown, pending processes are logged every 5 seconds with state and queue info. After timeout, node force exits with error code 1. See [Node](https://docs.ergo.services/basics/node) documentation
 * Added **pprof labels** for actor and meta process goroutines (with `--tags pprof`) - each process goroutine is labeled with its PID, each meta process with its Alias, making it easy to identify stuck processes in pprof output
-  - `CreateAlias`, `DeleteAlias`
-  - `SendEvent`, `Info`, `MetaInfo`
 * Improved API documentation - comprehensive godoc comments for all public interfaces
 * **Documentation rewritten** - complete documentation now included in the repository (`docs/`) and available at [docs.ergo.services](https://docs.ergo.services)
 * New documentation articles:
