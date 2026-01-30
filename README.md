@@ -162,6 +162,7 @@ Fully detailed changelog see in the [ChangeLog](CHANGELOG.md) file.
 * Added **HandleInspect** implementations for all supervisor types (OFO, ARFO, SOFO)
 * Fixed **LinkChild** in `RemoteNode.Spawn` / `RemoteNode.SpawnRegister`
 * Fixed **args persistence** for Simple One For One supervisor - child processes now restart with their original spawn arguments
+* Fixed critical bug: terminate signals (Link/Monitor exits) were incorrectly rejected due to wrong incarnation validation in network layer
 * Completely reworked internal **Target Manager** (`node/tm/`) - improved architecture for process, event, and node target management with comprehensive test coverage
 * Completely reworked internal **Pub/Sub** mechanism - improved reliability and performance
 * Improved **ProcessInit state** - more `gen.Process` methods now available during initialization:
