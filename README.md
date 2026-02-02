@@ -197,7 +197,7 @@ Fully detailed changelog see in the [ChangeLog](CHANGELOG.md) file.
 ### Development and debugging ###
 
 To enable Golang profiler just add `--tags pprof` in your `go run` or `go build` (profiler runs at
-`http://localhost:9009/debug/pprof`).
+`http://localhost:9009/debug/pprof`). Use `PPROF_HOST` and `PPROF_PORT` environment variables to customize the address.
 
 With `--tags pprof`, each actor goroutine is labeled with its PID and each meta process with its Alias for easy identification in pprof output:
 

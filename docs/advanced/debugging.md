@@ -19,6 +19,10 @@ This activates:
 - **pprof HTTP endpoint** at `http://localhost:9009/debug/pprof/`
 - **PID labels** on actor goroutines and **Alias labels** on meta process goroutines for identification in profiler output
 
+The endpoint address can be customized via environment variables:
+- `PPROF_HOST` - host to bind (default: `localhost`)
+- `PPROF_PORT` - port to listen on (default: `9009`)
+
 The profiler endpoint exposes standard Go profiling data:
 
 | Endpoint | Description |
