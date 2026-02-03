@@ -379,17 +379,18 @@ func init() {
 }
 ```
 
-Clients just import the package - all types are registered automatically:
+When clients import the package to use message types, `init()` runs automatically at program startup and registers all types:
 
 ```go
-import (
-    _ "company.com/events" // blank import triggers init(), registers all types
-)
+import "company.com/events"
+
+// Using events.OrderCreatedV1 means the package is imported,
+// init() has already run, types are registered
 ```
 
 No risk of forgetting a type.
 
-**Manual registration** means each client registers only the types it uses. This gives more control but introduces risk: a missing registration is only detected at runtime when encoding fails. For most projects, centralized registration is simpler and safer. Choose based on your needs.
+**Manual registration** means each client registers only the types it uses. This gives more control but introduces risk: a missing registration is only detected at runtime - `"no encoder for type"` when sending, `"unknown reg type for decoding"` when receiving. For most projects, centralized registration is simpler and safer. Choose based on your needs.
 
 For message isolation patterns within a single codebase, see [Project Structure](../basics/project-structure.md).
 
