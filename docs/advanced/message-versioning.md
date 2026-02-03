@@ -170,6 +170,8 @@ This structure allows:
 - Each domain to have isolated dependencies
 - Clean removal - deleting a directory removes the module entirely
 
+**Tagging submodules:** Git tags for nested modules must include the path prefix. For module `company.com/messaging/v1/events` located at `v1/events/`, use tag `v1/events/v0.1.0`, not just `v0.1.0`.
+
 ### Which to Choose
 
 This documentation uses version in type name for examples. The approach keeps related versions together and requires less import management. However, version in path is equally valid if your team prefers cleaner type names.
