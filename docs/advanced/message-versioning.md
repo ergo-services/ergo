@@ -65,7 +65,7 @@ For details on EDF and type registration, see [Network Transparency](../networki
 
 There are two ways to organize versioned types: version in the type name or version in the package path. Both work with EDF. Choose based on your team's preferences.
 
-**Important:** Do not confuse package path versioning with Go modules v2+. Go modules v2+ requires changing both `go.mod` and all import paths when bumping major version (`company.com/events/v2`). This forces all consumers to update imports simultaneously, creates [diamond dependency problems](https://en.wikipedia.org/wiki/Dependency_hell#Problems), and generally causes more pain than it solves. Keep your module at v1 forever. Version your types, not your module.
+**Important:** Do not confuse package path versioning with Go modules v2+. Go modules v2+ requires changing both `go.mod` and all import paths when bumping major version (`company.com/events/v2`). This forces all consumers to update imports simultaneously, creates [diamond dependency problems](https://en.wikipedia.org/wiki/Dependency_hell#Problems), and generally causes more pain than it solves. Keep your module below v2.0.0 to avoid triggering this mechanism. Version your types, not your module.
 
 ### Version in Type Name
 
@@ -289,6 +289,8 @@ Breaking changes require sign-off from all consumers.
 
 With ownership defined, the repository structure follows naturally. Private contracts live with their receivers. Cluster-wide events live in a shared module.
 
+### Version in Type Name
+
 ```
 company.com/
 │
@@ -315,9 +317,42 @@ company.com/
     └── cmd/
 ```
 
+### Version in Package Path
+
+```
+company.com/
+│
+├── messaging/                  # cluster-wide events and contracts
+│   ├── v1/
+│   │   ├── events/
+│   │   │   ├── go.mod          # module company.com/messaging/v1/events
+│   │   │   ├── order_created.go
+│   │   │   └── payment_received.go
+│   │   └── payment/
+│   │       ├── go.mod          # module company.com/messaging/v1/payment
+│   │       └── charge.go
+│   └── v2/
+│       ├── events/
+│       │   ├── go.mod          # module company.com/messaging/v2/events
+│       │   └── order_created.go
+│       └── payment/
+│           ├── go.mod          # module company.com/messaging/v2/payment
+│           └── charge.go
+│
+├── order-service/
+│   ├── go.mod                  # requires: messaging/v1/events, messaging/v1/payment
+│   ├── internal/
+│   └── cmd/
+│
+└── payment-service/
+    ├── go.mod                  # requires: messaging/v1/events
+    ├── internal/
+    └── cmd/
+```
+
 ### Module Versioning
 
-Keep your Go module at v1. Use one of the versioning strategies described earlier - version in type name or version in package path.
+Keep your Go module below v2.0.0 to avoid Go's import path suffix requirement. Use one of the versioning strategies described earlier - version in type name or version in package path.
 
 Example with version in type name:
 
@@ -535,16 +570,16 @@ Consistent naming makes code self-documenting. When you see a type name, you sho
 
 ### Async Messages
 
-Prefix with `Message`:
+Prefix with `Message`, suffix with version:
 
 ```go
-type MessageOrderShipped struct {
+type MessageOrderShippedV1 struct {
     OrderID   int64
     TrackingN string
 }
 ```
 
-The prefix signals fire-and-forget semantics. When reading code, `MessageXXX` means no response is expected. If someone writes `Call(pid, MessageOrderShipped{})`, the mismatch is immediately visible.
+The prefix signals fire-and-forget semantics. When reading code, `MessageXXX` means no response is expected. If someone writes `Call(pid, MessageOrderShippedV1{})`, the mismatch is immediately visible.
 
 ### Sync Messages
 
