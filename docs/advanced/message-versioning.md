@@ -104,10 +104,10 @@ Advantages:
 
 ### Version in Package Path
 
-Each version is a separate package within the same v1 module:
+Each version is a separate package:
 
 ```
-messaging/                  # module company.com/messaging (stays at v1)
+messaging/
 ├── v1/
 │   └── events/
 │       └── order_created.go
@@ -140,6 +140,35 @@ Advantages:
 - Familiar to Protobuf users
 - Clear directory separation between versions
 - Removing a version means deleting a directory
+
+#### Module Organization
+
+For projects where message versions evolve in parallel, place `go.mod` in each domain directory:
+
+```
+messaging/
+├── v1/
+│   ├── events/
+│   │   ├── go.mod              # module company.com/messaging/v1/events
+│   │   └── order_created.go
+│   └── payment/
+│       ├── go.mod              # module company.com/messaging/v1/payment
+│       └── charge.go
+└── v2/
+    ├── events/
+    │   ├── go.mod              # module company.com/messaging/v2/events
+    │   └── order_created.go
+    └── payment/
+        ├── go.mod              # module company.com/messaging/v2/payment
+        └── charge.go
+```
+
+The `/v1/` and `/v2/` segments are in the middle of the module path, not at the end. Go only applies v2+ import path requirements when `/vN` is the final path element, so `company.com/messaging/v1/events` is safe.
+
+This structure allows:
+- V1 to continue receiving new message types while V2 is developed
+- Each domain to have isolated dependencies
+- Clean removal - deleting a directory removes the module entirely
 
 ### Which to Choose
 
