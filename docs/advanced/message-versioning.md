@@ -43,7 +43,7 @@ func (a *Actor) HandleMessage(from gen.PID, message any) error {
 }
 ```
 
-All message types must be registered before the node starts:
+All message types must be registered with EDF before connection establishment:
 
 ```go
 func init() {
