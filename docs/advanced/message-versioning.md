@@ -352,7 +352,7 @@ company.com/
 
 ### Registration Helper
 
-All message types must be registered with EDF before the node starts. There are two approaches: centralized registration in the shared module or manual registration in each client.
+All message types must be registered with EDF before connection establishment - during handshake, nodes exchange their registered type lists which become the encoding dictionaries. Registration typically happens in `init()` functions before node startup. There are two approaches: centralized registration in the shared module or manual registration in each client.
 
 **Centralized registration** uses `init()` to register all types when the package is imported:
 
@@ -379,7 +379,15 @@ func init() {
 }
 ```
 
-Import the package - all types are registered automatically. No risk of forgetting a type.
+Clients just import the package - all types are registered automatically:
+
+```go
+import (
+    _ "company.com/events" // blank import triggers init(), registers all types
+)
+```
+
+No risk of forgetting a type.
 
 **Manual registration** means each client registers only the types it uses. This gives more control but introduces risk: a missing registration is only detected at runtime when encoding fails. For most projects, centralized registration is simpler and safer. Choose based on your needs.
 
