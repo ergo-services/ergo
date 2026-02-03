@@ -61,7 +61,7 @@ For details on EDF and type registration, see [Network Transparency](../networki
 
 ## Message Scopes
 
-Messages fall into two categories based on their scope.
+Messages fall into two categories based on their nature.
 
 ### Private Messages
 
@@ -186,8 +186,10 @@ For message isolation patterns within a single codebase, see [Project Structure]
 
 | Scope | Owner | Location | Changes approved by |
 |-------|-------|----------|---------------------|
-| Private (A to B) | Receiver B | `service-b-api/` | Team B |
-| Cluster-wide | Shared | `events/` | All consumers |
+| Private messages | Receiver | `receiver-api/` | Receiver team |
+| Cluster-wide events | Shared | `events/` | All consumers |
+
+The receiver owns private contracts because it implements the logic. Multiple senders may use the same contract, but they all adapt to what the receiver accepts. This follows the [Consumer-Driven Contracts](https://martinfowler.com/articles/consumerDrivenContracts.html) pattern. Events are shared because they represent domain facts, not service-specific APIs.
 
 ### Private Contract Ownership
 
@@ -406,7 +408,7 @@ EventID enables:
 
 ## Contract Testing
 
-Test that actors handle all supported versions:
+[Contract tests](https://martinfowler.com/articles/microservice-testing/#testing-contract-introduction) verify that actors handle all supported versions:
 
 ```go
 func TestPaymentActorAcceptsBothVersions(t *testing.T) {
@@ -533,10 +535,11 @@ Types must be registered before node starts. Dynamic registration requires conne
 ## Summary
 
 | Aspect | Private Messages | Cluster Events |
-|--------|-----------------|----------------|
-| Owner | Receiver | Shared repository |
-| Location | `service-api/` module | `events/` module |
-| Changes | Team decision | Multi-team coordination |
+|--------|------------------|----------------|
+| Nature | Service API contract | Domain fact |
+| Owner | Receiver (implements logic) | Shared (belongs to domain) |
+| Location | `receiver-api/` module | `events/` module |
+| Changes | Receiver team decides | All consumers coordinate |
 | Versioning | Type suffix (V1, V2) | Type suffix (V1, V2) |
 
 Key principles:
@@ -547,3 +550,4 @@ Key principles:
 - Test serialization compatibility
 - Set deprecation deadlines
 - Use ACL to isolate version translation
+
