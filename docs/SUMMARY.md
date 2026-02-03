@@ -53,8 +53,8 @@
 * [Handling Sync Requests](advanced/handle-sync.md)
 * [Important Delivery Flag](advanced/important-delivery.md)
 * [Pub/Sub Internals](advanced/pub-sub-internals.md)
-* [Building a Cluster](advanced/building-a-cluster.md)
 * [Message Versioning](advanced/message-versioning.md)
+* [Building a Cluster](advanced/building-a-cluster.md)
 * [Debugging](advanced/debugging.md)
 
 ## extra library

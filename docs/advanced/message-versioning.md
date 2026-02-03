@@ -14,7 +14,7 @@ This article explains how to version messages so your cluster handles upgrades g
 
 Unlike Protobuf or Avro, EDF does not provide automatic backward compatibility. There are no optional fields, no field numbers, no schema evolution. A struct is its type. Change the struct - create a new type.
 
-The approach is straightforward: version in the type name.
+The approach is straightforward: create a new type for each version.
 
 ```go
 // Version 1
@@ -184,99 +184,9 @@ Events represent domain facts, not service-specific contracts. Ownership belongs
 
 For event publishing patterns, see [Events](../basics/events.md).
 
-## Repository Organization
-
-With scopes defined, the repository structure follows naturally. Private contracts live with their receivers. Cluster-wide events live in a shared module.
-
-```
-company.com/
-│
-├── events/                     # cluster-wide events
-│   ├── go.mod                  # module company.com/events
-│   ├── order_created_v1.go
-│   ├── order_created_v2.go
-│   ├── payment_received_v1.go
-│   └── register.go
-│
-├── payment-api/                # Payment Service contract
-│   ├── go.mod                  # module company.com/payment-api
-│   ├── charge_v1.go
-│   └── refund_v1.go
-│
-├── order-service/
-│   ├── go.mod                  # requires: events, payment-api
-│   ├── internal/
-│   └── cmd/
-│
-└── payment-service/
-    ├── go.mod                  # requires: events
-    ├── internal/
-    └── cmd/
-```
-
-### Module Versioning
-
-Keep your Go module at v1. Use one of the versioning strategies described earlier - version in type name or version in package path.
-
-Example with version in type name:
-
-```go
-// events/order_created_v1.go
-package events
-
-type OrderCreatedV1 struct {
-    EventID   string
-    OrderID   int64
-    CreatedAt int64
-}
-```
-
-```go
-// events/order_created_v2.go
-package events
-
-type OrderCreatedV2 struct {
-    EventID   string
-    OrderID   int64
-    Priority  int
-    CreatedAt int64
-}
-```
-
-This avoids Go modules v2+ complexity and keeps imports stable across the cluster.
-
-### Registration Helper
-
-```go
-// events/register.go
-package events
-
-import (
-    "ergo.services/ergo/gen"
-    "ergo.services/ergo/net/edf"
-)
-
-func init() {
-    types := []any{
-        OrderCreatedV1{},
-        OrderCreatedV2{},
-        PaymentReceivedV1{},
-    }
-    for _, t := range types {
-        if err := edf.RegisterTypeOf(t); err != nil && err != gen.ErrTaken {
-            panic(err)
-        }
-    }
-}
-```
-
-Importing the `events` package triggers `init()` and registers types automatically.
-
-For message isolation patterns within a single codebase, see [Project Structure](../basics/project-structure.md).
-
 ## Ownership Rules
 
-The structure is clear, but who decides when to create V2? Who approves changes? Ownership determines the change process.
+Scope determines ownership. Who decides when to create V2? Who approves changes?
 
 | Scope | Owner | Module | Changes approved by |
 |-------|-------|--------|---------------------|
@@ -344,21 +254,115 @@ Reviewers (approve breaking changes):
 
 Breaking changes require sign-off from all consumers.
 
+## Repository Organization
+
+With ownership defined, the repository structure follows naturally. Private contracts live with their receivers. Cluster-wide events live in a shared module.
+
+```
+company.com/
+│
+├── events/                     # cluster-wide events
+│   ├── go.mod                  # module company.com/events
+│   ├── order_created_v1.go
+│   ├── order_created_v2.go
+│   ├── payment_received_v1.go
+│   └── register.go
+│
+├── payment-api/                # Payment Service contract
+│   ├── go.mod                  # module company.com/payment-api
+│   ├── charge_v1.go
+│   └── refund_v1.go
+│
+├── order-service/
+│   ├── go.mod                  # requires: events, payment-api
+│   ├── internal/
+│   └── cmd/
+│
+└── payment-service/
+    ├── go.mod                  # requires: events
+    ├── internal/
+    └── cmd/
+```
+
+### Module Versioning
+
+Keep your Go module at v1. Use one of the versioning strategies described earlier - version in type name or version in package path.
+
+Example with version in type name:
+
+```go
+// events/order_created_v1.go
+package events
+
+type OrderCreatedV1 struct {
+    OrderID   int64
+    CreatedAt int64
+}
+```
+
+```go
+// events/order_created_v2.go
+package events
+
+type OrderCreatedV2 struct {
+    OrderID   int64
+    Priority  int
+    CreatedAt int64
+}
+```
+
+This avoids Go modules v2+ complexity and keeps imports stable across the cluster.
+
+### Registration Helper
+
+```go
+// events/register.go
+package events
+
+import (
+    "ergo.services/ergo/gen"
+    "ergo.services/ergo/net/edf"
+)
+
+func init() {
+    types := []any{
+        OrderCreatedV1{},
+        OrderCreatedV2{},
+        PaymentReceivedV1{},
+    }
+    for _, t := range types {
+        if err := edf.RegisterTypeOf(t); err != nil && err != gen.ErrTaken {
+            panic(err)
+        }
+    }
+}
+```
+
+Importing the `events` package triggers `init()` and registers types automatically.
+
+For message isolation patterns within a single codebase, see [Project Structure](../basics/project-structure.md).
+
+## Compatibility Rules
+
+EDF enforces strict type identity. Any struct change breaks wire compatibility.
+
+| Change | Compatible | Action |
+|--------|------------|--------|
+| Add field | No | Create new version |
+| Remove field | No | Create new version |
+| Change field type | No | Create new version |
+| Rename field | No | Create new version |
+| Reorder fields | No | Create new version |
+
+This differs from Protobuf/Avro where adding optional fields is compatible. In EDF, every change requires explicit versioning.
+
 ## Version Lifecycle
 
-With ownership established, how do versions evolve? When to create a new version, how to deprecate the old one, when to remove it?
+With compatibility rules clear, how do versions evolve over time?
 
 ### When to Create New Version
 
-Create V2 when:
-- Adding field
-- Removing field
-- Changing field type
-- Renaming field
-- Reordering fields
-- Changing field semantics
-
-In EDF, any struct modification requires a new version. Even changing field order creates an incompatible type. There are no "optional fields" like in Protobuf.
+Any change from the compatibility table above requires a new version. Additionally, create a new version when changing field semantics (same type, different meaning).
 
 ### Deprecation
 
@@ -391,20 +395,6 @@ Remove in order:
 1. Stop accepting (return error for V1)
 2. Remove from registration
 3. Delete type definition
-
-## Compatibility Rules
-
-What exactly requires a new version? EDF enforces strict type identity - any struct change breaks wire compatibility.
-
-| Change | Compatible | Action |
-|--------|------------|--------|
-| Add field | No | Create V2 |
-| Remove field | No | Create V2 |
-| Change field type | No | Create V2 |
-| Rename field | No | Create V2 |
-| Reorder fields | No | Create V2 |
-
-This differs from Protobuf/Avro where adding optional fields is compatible. In EDF, every change requires explicit versioning.
 
 ## Rolling Upgrades
 
@@ -470,39 +460,9 @@ func (a *Actor) HandleMessage(from gen.PID, message any) error {
 
 Single implementation handles V2. ACL converts V1 to V2. When V1 is removed, delete the ACL function - no changes to business logic needed.
 
-## Idempotency
-
-Network failures cause retries. Retries cause duplicates. Events need unique identifiers for deduplication:
-
-```go
-type OrderCreatedV1 struct {
-    EventID   string    // UUID, unique per event instance
-    OrderID   int64
-    CreatedAt int64
-}
-```
-
-Receiver tracks processed events:
-
-```go
-func (a *Actor) HandleEvent(ev gen.MessageEvent) error {
-    switch m := ev.Message.(type) {
-    case events.OrderCreatedV1:
-        if a.state.processed[m.EventID] {
-            return nil // duplicate, skip
-        }
-        a.state.processed[m.EventID] = true
-        return a.handleOrderCreated(m)
-    }
-    return nil
-}
-```
-
-EventID enables duplicate detection, exactly-once processing semantics, and tracing across the system.
-
 ## Contract Testing
 
-How do you verify that your actors actually handle all the versions they claim to support? [Contract tests](https://martinfowler.com/articles/microservice-testing/#testing-contract-introduction) verify compatibility:
+With version handling and ACL in place, how do you verify it actually works? [Contract tests](https://martinfowler.com/articles/microservice-testing/#testing-contract-introduction) verify compatibility:
 
 ```go
 func TestPaymentActorAcceptsBothVersions(t *testing.T) {
@@ -630,10 +590,6 @@ edf.RegisterTypeOf(OrderV3{})
 
 Supporting V1 for months creates maintenance burden. Set clear deprecation deadlines and enforce them.
 
-**Missing EventID**
-
-Without unique identifier, duplicate detection is impossible. Network retries cause duplicate processing.
-
 **Registering after connection established**
 
 Types must be registered before node starts. Dynamic registration requires connection cycling.
@@ -653,8 +609,7 @@ Key principles:
 - Version in type name or package path, never in Go module path
 - Receiver owns private contracts
 - Shared repository for domain events
-- Include EventID for idempotency
-- Test serialization compatibility
+- Test version compatibility
 - Set deprecation deadlines
 - Use ACL to isolate version translation
 

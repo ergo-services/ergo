@@ -1160,3 +1160,10 @@ apps/
 - Hard-code configuration in actors
 - Read `os.Getenv` directly in actors
 - Store configuration in global variables
+
+## What's Next
+
+This article covered project organization for flexible deployment. As your system grows into a distributed cluster, two topics become essential:
+
+- [Building a Cluster](../advanced/building-a-cluster.md) - service discovery, load balancing, failover, and observability
+- [Message Versioning](../advanced/message-versioning.md) - evolving message contracts during rolling upgrades

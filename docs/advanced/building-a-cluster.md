@@ -227,6 +227,8 @@ pie title Traffic Distribution
     "Canary (weight 10)" : 10
 ```
 
+During canary and rolling deployments, the cluster runs mixed code versions. Messages sent from new nodes must be understood by old nodes, and vice versa. Ensure your message types support version coexistence as described in [Message Versioning](message-versioning.md).
+
 ### Routing Requests
 
 Once you know where applications run, route requests using weighted selection:
@@ -1061,6 +1063,7 @@ Ergo provides integrated technologies for building production clusters:
 These components eliminate the integration layers that dominate traditional microservice architectures. Instead of building infrastructure, you build applications.
 
 For implementation details, see:
+- [Message Versioning](message-versioning.md)
 - [Service Discovering](../networking/service-discovering.md)
 - [Leader Actor](../extra-library/actors/leader.md)
 - [Metrics Actor](../extra-library/actors/metrics.md)
