@@ -350,36 +350,11 @@ company.com/
     └── cmd/
 ```
 
-### Module Versioning
-
-Keep your Go module below v2.0.0 to avoid Go's import path suffix requirement. Use one of the versioning strategies described earlier - version in type name or version in package path.
-
-Example with version in type name:
-
-```go
-// events/order_created_v1.go
-package events
-
-type OrderCreatedV1 struct {
-    OrderID   int64
-    CreatedAt int64
-}
-```
-
-```go
-// events/order_created_v2.go
-package events
-
-type OrderCreatedV2 struct {
-    OrderID   int64
-    Priority  int
-    CreatedAt int64
-}
-```
-
-This avoids Go modules v2+ complexity and keeps imports stable across the cluster.
-
 ### Registration Helper
+
+All message types must be registered with EDF before the node starts. There are two approaches: centralized registration in the shared module or manual registration in each client.
+
+**Centralized registration** uses `init()` to register all types when the package is imported:
 
 ```go
 // events/register.go
@@ -404,7 +379,9 @@ func init() {
 }
 ```
 
-Importing the `events` package triggers `init()` and registers types automatically.
+Import the package - all types are registered automatically. No risk of forgetting a type.
+
+**Manual registration** means each client registers only the types it uses. This gives more control but introduces risk: a missing registration is only detected at runtime when encoding fails. For most projects, centralized registration is simpler and safer. Choose based on your needs.
 
 For message isolation patterns within a single codebase, see [Project Structure](../basics/project-structure.md).
 
