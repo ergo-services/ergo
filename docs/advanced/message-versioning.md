@@ -4,15 +4,17 @@ description: Evolving message contracts in distributed clusters
 
 # Message Versioning
 
-Distributed systems evolve. Services gain features, data models change, and nodes run different code versions during rolling upgrades. This article explains how to organize message versioning in Ergo Framework clusters.
+Distributed systems evolve. Services gain features, data models change, and deployments happen gradually. During a rolling upgrade, some nodes run new code while others still run the old version. A message sent from a new node must be understood by an old node, and vice versa.
 
-## Why Explicit Versioning
+EDF serializes messages by their exact Go type. Change a struct - and you have a new, incompatible type. This is intentional: explicit versioning catches breaking changes at compile time rather than hiding them until production.
 
-EDF (Ergo Data Format) serializes messages by their Go type. Unlike Protobuf or Avro, EDF does not provide automatic backward compatibility. Changing struct fields creates an incompatible type.
+This article explains how to version messages so your cluster handles upgrades gracefully.
 
-This is intentional. Implicit compatibility hides breaking changes until runtime. Explicit versioning surfaces incompatibilities at compile time.
+## Explicit Versioning
 
-The approach:
+Unlike Protobuf or Avro, EDF does not provide automatic backward compatibility. There are no optional fields, no field numbers, no schema evolution. A struct is its type. Change the struct - create a new type.
+
+The approach is straightforward: version in the type name.
 
 ```go
 // Version 1
@@ -27,7 +29,7 @@ type OrderCreatedV2 struct {
 }
 ```
 
-Both types coexist. Sender chooses which to send. Receiver handles both:
+Both types coexist in the codebase. The receiver handles whichever version arrives:
 
 ```go
 func (a *Actor) HandleMessage(from gen.PID, message any) error {
@@ -41,7 +43,7 @@ func (a *Actor) HandleMessage(from gen.PID, message any) error {
 }
 ```
 
-Register all versions at startup:
+All message types must be registered before the node starts:
 
 ```go
 func init() {
@@ -59,9 +61,11 @@ func init() {
 
 For details on EDF and type registration, see [Network Transparency](../networking/network-transparency.md).
 
+The versioning mechanism is clear. The next question: where should these types live, and who controls their evolution?
+
 ## Message Scopes
 
-Messages fall into two categories based on their nature.
+The answer depends on how the message is used. Not all messages are equal - some travel between two specific services, others broadcast across the entire cluster.
 
 ### Private Messages
 
@@ -96,7 +100,7 @@ For event publishing patterns, see [Events](../basics/events.md).
 
 ## Repository Organization
 
-Separate private contracts from cluster-wide events:
+With scopes defined, the repository structure follows naturally. Private contracts live with their receivers. Cluster-wide events live in a shared module.
 
 ```
 company.com/
@@ -184,6 +188,8 @@ For message isolation patterns within a single codebase, see [Project Structure]
 
 ## Ownership Rules
 
+The structure is clear, but who decides when to create V2? Who approves changes? Ownership determines the change process.
+
 | Scope | Owner | Module | Changes approved by |
 |-------|-------|--------|---------------------|
 | Private messages | Receiver | `receiver-api/` | Receiver team |
@@ -252,6 +258,8 @@ Breaking changes require sign-off from all consumers.
 
 ## Version Lifecycle
 
+With ownership established, how do versions evolve? When to create a new version, how to deprecate the old one, when to remove it?
+
 ### When to Create New Version
 
 Create V2 when:
@@ -298,7 +306,7 @@ Remove in order:
 
 ## Compatibility Rules
 
-EDF enforces strict type identity. Any struct change breaks wire compatibility.
+What exactly requires a new version? EDF enforces strict type identity - any struct change breaks wire compatibility.
 
 | Change | Compatible | Action |
 |--------|------------|--------|
@@ -312,7 +320,7 @@ This differs from Protobuf/Avro where adding optional fields is compatible. In E
 
 ## Rolling Upgrades
 
-During rolling upgrades, nodes run different code versions simultaneously.
+Back to the scenario from the introduction: you're deploying a new version, nodes restart one by one, and for some time the cluster runs mixed code versions. How do you handle this?
 
 ### Upgrade Strategy
 
@@ -340,7 +348,7 @@ For deployment patterns with weighted routing, see [Building a Cluster](building
 
 ## Anti-Corruption Layer
 
-When handling multiple versions, isolate translation logic:
+Supporting multiple versions means your handler has multiple code paths. As versions accumulate, this becomes messy. The Anti-Corruption Layer pattern isolates version translation:
 
 ```go
 // internal/acl/charge.go
@@ -372,11 +380,11 @@ func (a *Actor) HandleMessage(from gen.PID, message any) error {
 }
 ```
 
-Single implementation handles V2. ACL converts V1 to V2. When V1 is removed, delete the ACL function.
+Single implementation handles V2. ACL converts V1 to V2. When V1 is removed, delete the ACL function - no changes to business logic needed.
 
 ## Idempotency
 
-Include unique identifier for deduplication:
+Network failures cause retries. Retries cause duplicates. Events need unique identifiers for deduplication:
 
 ```go
 type OrderCreatedV1 struct {
@@ -402,14 +410,11 @@ func (a *Actor) HandleEvent(ev gen.MessageEvent) error {
 }
 ```
 
-EventID enables:
-- Duplicate detection after redelivery
-- Exactly-once processing semantics
-- Debugging and tracing
+EventID enables duplicate detection, exactly-once processing semantics, and tracing across the system.
 
 ## Contract Testing
 
-[Contract tests](https://martinfowler.com/articles/microservice-testing/#testing-contract-introduction) verify that actors handle all supported versions:
+How do you verify that your actors actually handle all the versions they claim to support? [Contract tests](https://martinfowler.com/articles/microservice-testing/#testing-contract-introduction) verify compatibility:
 
 ```go
 func TestPaymentActorAcceptsBothVersions(t *testing.T) {
@@ -446,6 +451,8 @@ Run contract tests in CI before merging changes to shared modules.
 For actor testing patterns, see [Unit Testing](../testing/unit.md).
 
 ## Naming Conventions
+
+Consistent naming makes code self-documenting. When you see a type name, you should immediately know: is this async or sync? Is it a request or event? What version?
 
 ### Async Messages
 
@@ -501,6 +508,8 @@ type OrderNew struct { ... }  // avoid - not a version number
 
 ## Common Mistakes
 
+These patterns emerge repeatedly in production systems. Avoid them:
+
 **Changing existing type instead of creating new version**
 
 ```go
@@ -541,11 +550,13 @@ Types must be registered before node starts. Dynamic registration requires conne
 
 ## Summary
 
+Message versioning in EDF is explicit by design. No hidden compatibility rules, no runtime surprises.
+
 | Aspect | Private Messages | Cluster Events |
 |--------|------------------|----------------|
 | Nature | Service API contract | Domain fact |
 | Owner | Receiver (implements logic) | Shared (belongs to domain) |
-| Location | `receiver-api/` module | `events/` module |
+| Module | `receiver-api/` | `events/` |
 | Changes | Receiver team decides | All consumers coordinate |
 | Versioning | Type suffix (V1, V2) | Type suffix (V1, V2) |
 
