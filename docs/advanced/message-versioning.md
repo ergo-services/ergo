@@ -61,6 +61,92 @@ func init() {
 
 For details on EDF and type registration, see [Network Transparency](../networking/network-transparency.md).
 
+## Versioning Strategies
+
+There are two ways to organize versioned types: version in the type name or version in the package path. Both work with EDF. Choose based on your team's preferences.
+
+**Important:** Do not confuse package path versioning with Go modules v2+. Go modules v2+ requires changing both `go.mod` and all import paths when bumping major version (`company.com/events/v2`). This forces all consumers to update imports simultaneously, creates diamond dependency problems, and generally causes more pain than it solves. Keep your module at v1 forever. Version your types, not your module.
+
+### Version in Type Name
+
+All versions live in the same package:
+
+```
+events/
+├── order_created_v1.go
+├── order_created_v2.go
+└── register.go
+```
+
+```go
+import "company.com/events"
+
+events.OrderCreatedV1{}
+events.OrderCreatedV2{}
+```
+
+Handler uses type names directly:
+
+```go
+switch m := message.(type) {
+case events.OrderCreatedV1:
+    // ...
+case events.OrderCreatedV2:
+    // ...
+}
+```
+
+Advantages:
+- Single import for all versions
+- All versions visible in one place - evolution is clear
+- One registration file for all types
+- Simpler directory structure
+
+### Version in Package Path
+
+Each version is a separate package within the same v1 module:
+
+```
+messaging/                  # module company.com/messaging (stays at v1)
+├── v1/
+│   └── events/
+│       └── order_created.go
+└── v2/
+    └── events/
+        └── order_created.go
+```
+
+```go
+import eventsv1 "company.com/messaging/v1/events"
+import eventsv2 "company.com/messaging/v2/events"
+
+eventsv1.OrderCreated{}
+eventsv2.OrderCreated{}
+```
+
+Handler uses package aliases:
+
+```go
+switch m := message.(type) {
+case eventsv1.OrderCreated:
+    // ...
+case eventsv2.OrderCreated:
+    // ...
+}
+```
+
+Advantages:
+- Clean type names without version suffix
+- Familiar to Protobuf users
+- Clear directory separation between versions
+- Removing a version means deleting a directory
+
+### Which to Choose
+
+This documentation uses version in type name for examples. The approach keeps related versions together and requires less import management. However, version in path is equally valid if your team prefers cleaner type names.
+
+Whichever you choose, stay consistent across the codebase.
+
 The versioning mechanism is clear. The next question: where should these types live, and who controls their evolution?
 
 ## Message Scopes
@@ -130,7 +216,9 @@ company.com/
 
 ### Module Versioning
 
-Keep module path at v1. Version in type names:
+Keep your Go module at v1. Use one of the versioning strategies described earlier - version in type name or version in package path.
+
+Example with version in type name:
 
 ```go
 // events/order_created_v1.go
@@ -155,7 +243,7 @@ type OrderCreatedV2 struct {
 }
 ```
 
-This avoids Go modules v2+ path changes and keeps imports stable across the cluster.
+This avoids Go modules v2+ complexity and keeps imports stable across the cluster.
 
 ### Registration Helper
 
@@ -498,13 +586,15 @@ Events describe facts that already happened, not requests for action. Past tense
 
 ### Version Suffix
 
-Always suffix with version number:
+If using version in type name strategy, always suffix with version number:
 
 ```go
 type OrderV1 struct { ... }   // correct
 type Order struct { ... }     // avoid - unclear versioning
 type OrderNew struct { ... }  // avoid - not a version number
 ```
+
+If using version in path strategy, the package path carries the version and type names stay clean.
 
 ## Common Mistakes
 
@@ -519,7 +609,7 @@ type Order struct {
     Priority int    // added field breaks wire format
 }
 
-// Correct - explicit new version
+// Correct - create new version (in type name or new package path)
 type OrderV2 struct {
     ID       int64
     Priority int
@@ -558,10 +648,9 @@ Message versioning in EDF is explicit by design. No hidden compatibility rules, 
 | Owner | Receiver (implements logic) | Shared (belongs to domain) |
 | Module | `receiver-api/` | `events/` |
 | Changes | Receiver team decides | All consumers coordinate |
-| Versioning | Type suffix (V1, V2) | Type suffix (V1, V2) |
 
 Key principles:
-- Version in type name, not module path
+- Version in type name or package path, never in Go module path
 - Receiver owns private contracts
 - Shared repository for domain events
 - Include EventID for idempotency
