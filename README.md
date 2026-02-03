@@ -180,6 +180,7 @@ Fully detailed changelog see in the [ChangeLog](CHANGELOG.md) file.
 * New documentation articles:
   - [Project Structure](https://docs.ergo.services/basics/project-structure) - organizing projects with message isolation levels, deployment patterns, and evolution strategies
   - [Building a Cluster](https://docs.ergo.services/advanced/building-a-cluster) - step-by-step guide to distributed systems with service discovery, load balancing, and failover
+  - [Message Versioning](https://docs.ergo.services/advanced/message-versioning) - evolving message contracts in distributed clusters with explicit versioning strategies
   - [Handle Sync](https://docs.ergo.services/advanced/handle-sync) - synchronous message handling patterns
   - [Important Delivery](https://docs.ergo.services/advanced/important-delivery) - guaranteed delivery mechanism
   - [Pub/Sub Internals](https://docs.ergo.services/advanced/pub-sub-internals) - event system architecture
