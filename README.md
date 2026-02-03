@@ -36,9 +36,11 @@ Available benchmarks can be found in the [benchmarks repository](https://github.
 
 * Messaging performance (local, network)
 
-* Memory consumption per process (demonstrates framework memory footprint).
+* Memory consumption per process (demonstrates framework memory footprint)
 
 * Serialization performance comparison: EDF vs Protobuf vs Gob
+
+* Distributed Pub/Sub (event delivery to 1,000,000 subscribers across 10 nodes)
 
 ### Observer ###
 To inspect the node, network stack, running applications, and processes, you can use the [`observer`](https://github.com/ergo-services/tools/) tool
