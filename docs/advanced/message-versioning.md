@@ -184,8 +184,8 @@ For message isolation patterns within a single codebase, see [Project Structure]
 
 ## Ownership Rules
 
-| Scope | Owner | Location | Changes approved by |
-|-------|-------|----------|---------------------|
+| Scope | Owner | Module | Changes approved by |
+|-------|-------|--------|---------------------|
 | Private messages | Receiver | `receiver-api/` | Receiver team |
 | Cluster-wide events | Shared | `events/` | All consumers |
 
@@ -259,9 +259,10 @@ Create V2 when:
 - Removing field
 - Changing field type
 - Renaming field
+- Reordering fields
 - Changing field semantics
 
-In EDF, any struct modification requires a new version. There are no "optional fields" like in Protobuf.
+In EDF, any struct modification requires a new version. Even changing field order creates an incompatible type. There are no "optional fields" like in Protobuf.
 
 ### Deprecation
 
@@ -457,6 +458,8 @@ type MessageOrderShipped struct {
 }
 ```
 
+The prefix signals fire-and-forget semantics. When reading code, `MessageXXX` means no response is expected. If someone writes `Call(pid, MessageOrderShipped{})`, the mismatch is immediately visible.
+
 ### Sync Messages
 
 Use `Request`/`Response` suffix:
@@ -473,14 +476,18 @@ type ChargeResponseV1 struct {
 }
 ```
 
+Paired naming makes contracts explicit. `ChargeRequest` implies `ChargeResponse` exists. The caller knows to expect a result.
+
 ### Events
 
-Domain event names without prefix:
+Domain events use past tense without prefix:
 
 ```go
 type OrderCreatedV1 struct { ... }
 type PaymentReceivedV1 struct { ... }
 ```
+
+Events describe facts that already happened, not requests for action. Past tense (`Created`, `Received`) distinguishes them from commands (`Create`, `Charge`).
 
 ### Version Suffix
 
