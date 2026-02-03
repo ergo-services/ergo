@@ -65,21 +65,21 @@ But actors are fundamentally different:
 ```go
 // This doesn't work with actors:
 actor.SendMessage("process_order")
-result := actor.GetResult() // ❌ No direct way to get result
+result := actor.GetResult() // No direct way to get result
 ```
 
 2. Message Flow Complexity
 ```go
 // An actor might send multiple messages to different targets:
 actor.SendMessage("start_workflow")
-// ❌ How do you verify it sent the right messages to the right places?
+// How do you verify it sent the right messages to the right places?
 ```
 
 3. Dynamic Process Creation
 ```go
 // Actors spawn other actors with generated IDs:
 actor.SendMessage("create_worker")
-// ❌ How do you test the spawned worker when you don't know its PID?
+// How do you test the spawned worker when you don't know its PID?
 ```
 
 4. State Changes Over Time
@@ -88,7 +88,7 @@ actor.SendMessage("create_worker")
 actor.SendMessage("login", user1)
 actor.SendMessage("login", user2)  
 actor.SendMessage("get_users")
-// ❌ How do you verify the internal state without breaking encapsulation?
+// How do you verify the internal state without breaking encapsulation?
 ```
 
 ## How This Library Solves Actor Testing
@@ -173,7 +173,7 @@ Events solve the fundamental challenge of testing asynchronous systems:
 Instead of this (impossible):
 ```go
 actor.SendMessage("process_order")
-result := actor.WaitForResult() // ❌ Actors don't work this way
+result := actor.WaitForResult() // Actors don't work this way
 ```
 
 You do this (works perfectly):
@@ -395,7 +395,7 @@ unit.IsType(t, "", actualValue)       // Value must be of specific type
 
 No Import Conflicts:
 ```go
-// ❌ This could cause version conflicts:
+// This could cause version conflicts:
 import "github.com/stretchr/testify/assert"
 import "github.com/other/testing/lib"
 
