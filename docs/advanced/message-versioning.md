@@ -408,6 +408,10 @@ EDF enforces strict type identity. Any struct change breaks wire compatibility.
 
 This differs from Protobuf/Avro where adding optional fields is compatible. In EDF, every change requires explicit versioning.
 
+Yes, this means more work upfront. But consider the alternative: Protobuf lets you add an optional `Priority` field, and everything "just works" - until you spend three days debugging why orders aren't prioritized correctly. Turns out half your cluster sends the new field, half ignores it, and the receivers silently default missing values to zero. Good luck finding that in logs.
+
+EDF makes this impossible. The receiver either handles `OrderV2` with its `Priority` field, or it doesn't - and you know this at compile time, not at 3 AM when on-call.
+
 ## Version Lifecycle
 
 With compatibility rules clear, how do versions evolve over time?
