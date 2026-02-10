@@ -397,6 +397,66 @@ func decodeType(fold []byte, state *stateDecode) (*decoder, []byte, error) {
 
 	case edtReg:
 		return getRegDecoder(fold[1:], state)
+
+	case edtPtr:
+		// unfold element type
+		decElem, f, err := decodeType(fold[1:], state)
+		if err != nil {
+			return nil, nil, fmt.Errorf("unable to unfold type (pointer): %s", err)
+		}
+
+		ptrType := reflect.PointerTo(decElem.Type)
+
+		fdec := func(value *reflect.Value, packet []byte, state *stateDecode) (*reflect.Value, []byte, error) {
+			if len(packet) == 0 {
+				return nil, nil, errDecodeEOD
+			}
+
+			if packet[0] == edtNil {
+				// nil pointer
+				packet = packet[1:]
+				return nil, packet, nil
+			}
+
+			if packet[0] != edtPtr {
+				return nil, nil, fmt.Errorf("incorrect pointer type %d", packet[0])
+			}
+			packet = packet[1:]
+
+			// use child state with decodeType = false (default)
+			if state.child == nil {
+				state.child = getPooledStateDecode(state.options)
+			}
+			state = state.child
+
+			// decode element value
+			elem := reflect.Indirect(reflect.New(decElem.Type))
+			_, packet, err := decElem.Decode(&elem, packet, state)
+			if err != nil {
+				return nil, nil, err
+			}
+
+			// create pointer and set value
+			ptr := reflect.New(decElem.Type)
+			ptr.Elem().Set(elem)
+
+			if value == nil {
+				value = &ptr
+			} else {
+				value.Set(ptr)
+			}
+			return value, packet, nil
+		}
+
+		dec := decoder{
+			Type:   ptrType,
+			Decode: fdec,
+		}
+		if state.options.Cache != nil {
+			state.options.Cache.LoadOrStore(string(fold), &dec)
+		}
+
+		return &dec, f, nil
 	}
 
 	if v, found := decoders.Load(fold[0]); found {

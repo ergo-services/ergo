@@ -11,19 +11,19 @@ import (
 	"ergo.services/ergo/lib"
 )
 
+const maxEncodeDepth = 100
+
 var (
-	ErrBinaryTooLong = fmt.Errorf("binary too long - max allowed length is 2^32-1 bytes (4GB)")
-	ErrStringTooLong = fmt.Errorf("string too long - max allowed length is 2^16-1 (65535) bytes")
-	ErrAtomTooLong   = fmt.Errorf("atom too long - max allowed length is 255 bytes")
-	ErrErrorTooLong  = fmt.Errorf("error too long - max allowed length is 32767 bytes")
+	ErrBinaryTooLong     = fmt.Errorf("binary too long - max allowed length is 2^32-1 bytes (4GB)")
+	ErrStringTooLong     = fmt.Errorf("string too long - max allowed length is 2^16-1 (65535) bytes")
+	ErrAtomTooLong       = fmt.Errorf("atom too long - max allowed length is 255 bytes")
+	ErrErrorTooLong      = fmt.Errorf("error too long - max allowed length is 32767 bytes")
+	ErrMaxDepthExceeded  = fmt.Errorf("max encoding depth exceeded (cyclic reference?)")
 )
 
 type stateEncode struct {
 	child *stateEncode
-
-	// TODO loop detection (in slices)
-	//loop map[unsafe.Pointer]struct{}
-	//ptr unsafe.Pointer
+	depth int
 
 	encodeType bool
 
@@ -297,7 +297,63 @@ func getEncoder(t reflect.Type, state *stateEncode) (*encoder, error) {
 		return enc, nil
 
 	case reflect.Pointer:
-		return nil, fmt.Errorf("pointer type is not supported")
+		elemType := t.Elem()
+		// reject nested pointers
+		if elemType.Kind() == reflect.Pointer {
+			return nil, fmt.Errorf("nested pointer type is not supported")
+		}
+
+		encElem, err := getEncoder(elemType, state)
+		if err != nil {
+			return nil, err
+		}
+
+		elemPrefix := encElem.Prefix
+		if state.options.RegCache != nil {
+			if v, found := state.options.RegCache.Load(elemType); found {
+				elemPrefix = v.([]byte)
+			}
+		}
+		prefix := append([]byte{edtPtr}, elemPrefix...)
+
+		fenc := func(value reflect.Value, b *lib.Buffer, state *stateEncode) error {
+			state.depth++
+			maxDepth := state.options.MaxDepth
+			if maxDepth == 0 {
+				maxDepth = maxEncodeDepth
+			}
+			if state.depth > maxDepth {
+				return ErrMaxDepthExceeded
+			}
+
+			if state.encodeType {
+				buf := b.Extend(3)
+				buf[0] = edtType
+				binary.BigEndian.PutUint16(buf[1:3], uint16(len(prefix)))
+				b.Append(prefix)
+			}
+
+			if value.IsNil() {
+				state.depth--
+				b.AppendByte(edtNil)
+				return nil
+			}
+
+			b.AppendByte(edtPtr)
+			state.encodeType = false
+			err := encElem.Encode(value.Elem(), b, state)
+			state.depth--
+			return err
+		}
+
+		enc := &encoder{
+			Prefix: prefix,
+			Encode: fenc,
+		}
+		if state.options.Cache != nil {
+			state.options.Cache.Store(t, enc)
+		}
+		return enc, nil
 	}
 
 	// look among the standard types

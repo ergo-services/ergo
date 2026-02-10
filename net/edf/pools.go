@@ -25,6 +25,7 @@ func getPooledStateEncode(options Options) *stateEncode {
 	state := stateEncodePool.Get().(*stateEncode)
 	// Reset state to clean condition
 	state.child = nil
+	state.depth = 0
 	state.encodeType = false
 	state.options = options
 	return state

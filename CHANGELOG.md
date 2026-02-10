@@ -4,6 +4,73 @@ All notable changes to this project will be documented in this file.
 This format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+#### [v3.3.0](https://github.com/ergo-services/ergo/releases/tag/v1.999.330) 2026-xx-xx [tag version v1.999.330] ####
+
+* Added **pointer type support** in EDF - `*int`, `*string`, `[]*T`, `map[K]*V`, pointer struct fields. Nil state preserved. Nested pointers (`**T`) not supported. Max encoding depth limit (100) prevents stack overflow on deeply nested structures. See [Network Transparency](https://docs.ergo.services/networking/network-transparency) documentation
+
+#### [v3.2.0](https://github.com/ergo-services/ergo/releases/tag/v1.999.320) 2026-02-04 [tag version v1.999.320] ####
+
+* Introduced **mTLS support** - new `gen.CertAuthManager` interface for mutual TLS with CA pool management (`ClientCAs`, `RootCAs`, `ClientAuth`, `ServerName`). See [Mutual TLS](https://docs.ergo.services/networking/mutual-tls) documentation
+* Introduced **NAT support** - new `RouteHost` and `RoutePort` options in `gen.AcceptorOptions` for nodes behind NAT or load balancers. See [Behind the NAT](https://docs.ergo.services/networking/behind-the-nat) documentation
+* Introduced **spawn time control** - `InitTimeout` option in `gen.ProcessOptions` limits `ProcessInit` duration for both local and remote spawn. Remote spawn and application processes limited to max 15 seconds. See [Process](https://docs.ergo.services/basics/process) documentation
+* Introduced **zip-bomb protection** - decompression size limits to prevent memory exhaustion attacks
+* Added `gen.Ref` methods for request timeout tracking. See [Generic Types](https://docs.ergo.services/basics/generic-types#gen.ref):
+  - `Deadline` - returns deadline timestamp stored in reference
+  - `IsAlive` - checks if reference is still valid (deadline not exceeded)
+* Added `gen.Node` methods. See [Node](https://docs.ergo.services/basics/node) documentation:
+  - `ProcessPID` / `ProcessName` - resolve process PID by name and vice versa
+  - `Call`, `CallWithTimeout`, `CallWithPriority`, `CallImportant`, `CallPID`, `CallProcessID`, `CallAlias` - synchronous requests from Node interface
+  - `Inspect` / `InspectMeta` - inspect processes and meta processes
+  - `MakeRefWithDeadline` - create reference with embedded deadline
+* Added `gen.RemoteNode.ApplicationInfo` - query application information from remote nodes. See [Remote Start Application](https://docs.ergo.services/networking/remote-start-application) documentation
+* Added `gen.Process` methods. See [Process](https://docs.ergo.services/basics/process) documentation:
+  - `SendWithPriorityAfter` - delayed send with priority
+  - `SendExitAfter` / `SendExitMetaAfter` - delayed exit signals
+  - `SendResponseImportant` / `SendResponseErrorImportant` - important delivery for responses
+* Added `gen.Meta` methods. See [Meta Process](https://docs.ergo.services/basics/meta-process) documentation:
+  - `SendResponse` / `SendResponseError` - respond to requests from meta process
+  - `SendPriority` / `SetSendPriority` - message priority control
+  - `Compression` / `SetCompression` - compression settings
+  - `EnvDefault` - get environment variable with default value
+* Added `gen.ApplicationSpec` / `gen.ApplicationInfo` fields:
+  - `Tags` - labels for instance selection (blue/green, canary, maintenance). See [Tags for Instance Selection](https://docs.ergo.services/basics/application#tags-for-instance-selection)
+  - `Map` - logical role to process name mapping. See [Process Role Mapping](https://docs.ergo.services/basics/application#process-role-mapping)
+* Added **HandleInspect** implementations for all supervisor types (OFO, ARFO, SOFO)
+* Fixed **LinkChild** in `RemoteNode.Spawn` / `RemoteNode.SpawnRegister`
+* Fixed **args persistence** for Simple One For One supervisor - child processes now restart with their original spawn arguments
+* Fixed **critical bug**: terminate signals (Link/Monitor exits) were incorrectly rejected due to wrong incarnation validation in network layer. Thanks to [@qjpcpu](https://github.com/qjpcpu) for reporting [#248](https://github.com/ergo-services/ergo/issues/248)
+* Completely reworked internal **Target Manager** (`node/tm/`) - improved architecture for process, event, and node target management with comprehensive test coverage
+* Completely reworked internal **Pub/Sub** mechanism - improved reliability and performance
+* Improved **ProcessInit state** - more `gen.Process` methods now available during initialization:
+  - `Link*`, `Unlink*`, `Monitor*`, `Demonitor*`
+  - `Call*`, `Inspect`, `InspectMeta`
+  - `RegisterName`, `UnregisterName`, `RegisterEvent`, `UnregisterEvent`
+  - `SendResponse*`, `SendResponseError*`
+  - `CreateAlias`, `DeleteAlias`
+* Introduced **shutdown timeout** - `ShutdownTimeout` option in `gen.NodeOptions` (default 3 minutes). During graceful shutdown, pending processes are logged every 5 seconds with state and queue info. After timeout, node force exits with error code 1. See [Node](https://docs.ergo.services/basics/node) documentation
+* Added **pprof labels** for actor and meta process goroutines (with `--tags pprof`) - each process goroutine is labeled with its PID, each meta process with its Alias, making it easy to identify stuck processes in pprof output
+* Improved API documentation - comprehensive godoc comments for all public interfaces
+* **Documentation rewritten** - complete documentation now included in the repository (`docs/`) and available at [docs.ergo.services](https://docs.ergo.services)
+* New documentation articles:
+  - [Project Structure](https://docs.ergo.services/basics/project-structure) - organizing projects with message isolation levels, deployment patterns, and evolution strategies
+  - [Building a Cluster](https://docs.ergo.services/advanced/building-a-cluster) - step-by-step guide to distributed systems with service discovery, load balancing, and failover
+  - [Message Versioning](https://docs.ergo.services/advanced/message-versioning) - evolving message contracts in distributed clusters with explicit versioning strategies
+  - [Handle Sync](https://docs.ergo.services/advanced/handle-sync) - synchronous message handling patterns
+  - [Important Delivery](https://docs.ergo.services/advanced/important-delivery) - guaranteed delivery mechanism
+  - [Pub/Sub Internals](https://docs.ergo.services/advanced/pub-sub-internals) - event system architecture
+  - [Debugging](https://docs.ergo.services/advanced/debugging) - build tags, pprof integration, troubleshooting stuck processes
+
+* **Extra Library - Actors** (https://github.com/ergo-services/actor):
+  - Introduced **Leader** actor - distributed leader election with Raft-inspired consensus algorithm. Features: term-based disambiguation, automatic failover, split-brain prevention through majority quorum, dynamic peer discovery. See [documentation](https://docs.ergo.services/extra-library/actors/leader)
+  - Introduced **Metrics** actor - Prometheus metrics exporter that collects node/network telemetry via HTTP endpoint. Features: automatic collection of node metrics (uptime, processes, memory), network metrics per remote node, extensible for custom metrics. See [documentation](https://docs.ergo.services/extra-library/actors/metrics)
+
+* **Extra Library - Meta Processes** (https://github.com/ergo-services/meta):
+  - Introduced **SSE** (Server-Sent Events) meta-process - unidirectional server-to-client streaming over HTTP. Features: server handler for accepting connections, client connection for external SSE endpoints, full SSE spec support (event types, IDs, retry hints, multi-line data), process pool with round-robin load balancing, Last-Event-ID for reconnection. See [documentation](https://docs.ergo.services/extra-library/meta-processes/sse)
+
+* **Benchmarks** (https://github.com/ergo-services/benchmarks):
+  - Introduced **Distributed Pub/Sub** benchmark - demonstrates event delivery to 1,000,000 subscribers across 10 nodes. Achieves 2.9M msg/sec delivery rate with only 10 network messages (one per consumer node) instead of 1M
+
+
 #### [v3.1.0](https://github.com/ergo-services/ergo/releases/tag/v1.999.310) 2025-09-04 [tag version v1.999.310] ####
 
 **New Features**

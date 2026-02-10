@@ -1134,7 +1134,7 @@ apps/
 - Default to Level 4 for everything
 - Mix isolation levels arbitrarily
 - Use `any` or `interface{}` for messages
-- Include pointers in network messages
+- Include pointers to external resources (connections, files) in network messages
 
 ### Dependencies
 

@@ -227,16 +227,19 @@ type Order struct {
 }
 ```
 
-**No pointer types** - EDF rejects pointer types and structs containing pointer fields. This is by design: pointers are a local memory optimization and shouldn't be part of network contracts. A `*Database` field is meaningless to a remote actor - it can't dereference your memory address. Pointers express local sharing semantics that don't translate across address spaces.
+**Pointer types** - Starting from version 3.3, EDF supports pointer types. Pointers can be `nil` or point to a value, and this state is preserved during encoding/decoding. Nested pointers (`**int`) are not supported.
 
 ```go
+var discount *float64           // nil or value
+var prices []*int               // slice with nil elements
+var cache map[string]*Config    // map with nil values
+
 type Order struct {
-    ID    int64
-    Cache *OrderCache  // Registration fails - pointer is local optimization
+    Priority *int  // optional field
 }
 ```
 
-For distributed references, use framework types designed for remote access: `gen.PID` (process reference), `gen.Alias` (named reference), `gen.Ref` (call reference). These work across nodes and provide location-independent semantics.
+Note that pointers to external resources like `*Database` or `*Connection` are meaningless to a remote actor - it cannot dereference your memory address. Use pointers for optional value semantics, not for sharing local resources. For distributed references, use framework types: `gen.PID`, `gen.Alias`, `gen.Ref`.
 
 **Nested types must be registered first** - If your type contains other custom types, register the inner types before the outer type:
 
