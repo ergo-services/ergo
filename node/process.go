@@ -339,7 +339,7 @@ func (p *process) RegisterName(name gen.Atom) error {
 		return err
 	}
 
-	p.log.setSource(gen.MessageLogProcess{Node: p.node.name, PID: p.pid, Name: p.name})
+	p.log.setSource(gen.MessageLogProcess{Node: p.node.name, PID: p.pid, Name: p.name, Behavior: p.sbehavior})
 	return nil
 }
 
