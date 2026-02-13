@@ -2326,8 +2326,6 @@ func (n *node) spawn(factory gen.ProcessFactory, options gen.ProcessOptionsExtra
 // Does NOT call waitprocesses.Done() - caller must handle if needed.
 func (n *node) cleanupProcess(p *process, reason error) {
 	n.processes.Delete(p.pid)
-	n.RouteTerminatePID(p.pid, reason) // calls TerminatedTargetPID internally
-	n.targets.TerminatedProcess(p.pid, reason)
 
 	n.log.Trace("...cleanupProcess %s", p.pid)
 
@@ -2341,6 +2339,9 @@ func (n *node) cleanupProcess(p *process, reason error) {
 		n.aliases.Delete(a)
 		n.RouteTerminateAlias(a, reason)
 	}
+
+	n.RouteTerminatePID(p.pid, reason) // calls TerminatedTargetPID internally
+	n.targets.TerminatedProcess(p.pid, reason)
 
 	p.metas.Range(func(_, v any) bool {
 		m := v.(*meta)
