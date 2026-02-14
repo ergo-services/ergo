@@ -20,10 +20,6 @@ func (s *sup) Init(args ...any) (act.SupervisorSpec, error) {
 		Type: act.SupervisorTypeOneForOne,
 		Children: []act.SupervisorChildSpec{
 			{
-				Factory: factory_metrics,
-				Name:    "system_metrics",
-			},
-			{
 				Factory: inspect.Factory,
 				Name:    inspect.Name,
 			},
