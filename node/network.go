@@ -904,8 +904,6 @@ func (n *network) start(options gen.NetworkOptions) error {
 		n.registrar = registrar.Create(registrar.Options{})
 	}
 
-	n.node.validateLicenses(n.registrar.Version())
-
 	if options.Cookie == "" {
 		n.node.log.Warning("cookie is empty (gen.NetworkOptions), used randomized value")
 		options.Cookie = lib.RandomString(16)
@@ -1036,7 +1034,7 @@ func (n *network) start(options gen.NetworkOptions) error {
 			HandshakeVersion: acceptor.handshake.Version(),
 			ProtoVersion:     acceptor.proto.Version(),
 		}
-		n.node.validateLicenses(r.HandshakeVersion, r.ProtoVersion)
+
 		if a.Registrar == nil {
 			acceptor.registrar_info = n.registrar.Info
 			routes = append(routes, r)

@@ -138,6 +138,8 @@ Fully detailed changelog see in the [ChangeLog](CHANGELOG.md) file.
 
 * Added **pointer type support** in EDF - `*int`, `*string`, `[]*T`, `map[K]*V`, pointer struct fields. Nil state preserved. Nested pointers (`**T`) not supported. Max encoding depth limit (100) prevents stack overflow on deeply nested structures. See [Network Transparency](https://docs.ergo.services/networking/network-transparency) documentation
 
+* Added **process lifecycle counters** to `NodeInfo` - `ProcessesSpawned`, `ProcessesSpawnFailed`, `ProcessesTerminated` for cumulative statistics
+
 ### Development and debugging ###
 
 To enable Golang profiler just add `--tags pprof` in your `go run` or `go build` (profiler runs at

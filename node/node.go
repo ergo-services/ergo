@@ -102,6 +102,10 @@ type node struct {
 
 	enableCTRLC atomic.Bool
 	ctrlc       chan os.Signal
+
+	processesSpawned     uint64
+	processesSpawnFailed uint64
+	processesTerminated  uint64
 }
 
 type eventOwner struct {
@@ -190,8 +194,6 @@ func Start(name gen.Atom, options gen.NodeOptions, frameworkVersion gen.Version)
 		}
 		node.LoggerAdd(lo.Name, lo.Logger, lo.Filter...)
 	}
-
-	node.validateLicenses(node.version)
 
 	// create target manager (pub/sub subsystem) before network start
 	// because registrar may call RegisterEvent during network initialization
@@ -697,6 +699,10 @@ func (n *node) Info() (gen.NodeInfo, error) {
 		}
 		return true
 	})
+
+	info.ProcessesSpawned = atomic.LoadUint64(&n.processesSpawned)
+	info.ProcessesSpawnFailed = atomic.LoadUint64(&n.processesSpawnFailed)
+	info.ProcessesTerminated = atomic.LoadUint64(&n.processesTerminated)
 
 	n.names.Range(func(_, _ any) bool {
 		info.RegisteredNames++
@@ -2103,10 +2109,12 @@ func (n *node) spawn(factory gen.ProcessFactory, options gen.ProcessOptionsExtra
 	}
 
 	if factory == nil {
+		atomic.AddUint64(&n.processesSpawnFailed, 1)
 		return empty, gen.ErrIncorrect
 	}
 
 	if options.ParentPID == empty || options.ParentLeader == empty {
+		atomic.AddUint64(&n.processesSpawnFailed, 1)
 		return empty, gen.ErrParentUnknown
 	}
 
@@ -2124,6 +2132,7 @@ func (n *node) spawn(factory gen.ProcessFactory, options gen.ProcessOptionsExtra
 
 	if options.Register != "" {
 		if _, exist := n.names.LoadOrStore(options.Register, p); exist {
+			atomic.AddUint64(&n.processesSpawnFailed, 1)
 			return p.pid, gen.ErrTaken
 		}
 		p.name = options.Register
@@ -2197,6 +2206,7 @@ func (n *node) spawn(factory gen.ProcessFactory, options gen.ProcessOptionsExtra
 	behavior := factory()
 	if behavior == nil {
 		n.names.Delete(p.name)
+		atomic.AddUint64(&n.processesSpawnFailed, 1)
 		return p.pid, errors.New("factory function must return non nil value")
 	}
 	p.behavior = behavior
@@ -2230,6 +2240,7 @@ func (n *node) spawn(factory gen.ProcessFactory, options gen.ProcessOptionsExtra
 			if p.registered.Load() {
 				n.names.Delete(p.name)
 			}
+			atomic.AddUint64(&n.processesSpawnFailed, 1)
 			return p.pid, gen.ErrTimeout
 		}
 
@@ -2276,6 +2287,7 @@ func (n *node) spawn(factory gen.ProcessFactory, options gen.ProcessOptionsExtra
 			if atomic.CompareAndSwapInt32(&completed, 0, 2) {
 				// we won - goroutine will do cleanup when ProcessInit completes
 				n.Kill(p.pid)
+				atomic.AddUint64(&n.processesSpawnFailed, 1)
 				return p.pid, gen.ErrTimeout
 			}
 			// goroutine won - receive result
@@ -2300,6 +2312,7 @@ func (n *node) spawn(factory gen.ProcessFactory, options gen.ProcessOptionsExtra
 			}
 			p.behavior.ProcessTerminate(initErr)
 		}()
+		atomic.AddUint64(&n.processesSpawnFailed, 1)
 		return p.pid, initErr
 	}
 
@@ -2319,6 +2332,7 @@ func (n *node) spawn(factory gen.ProcessFactory, options gen.ProcessOptionsExtra
 	// so we should run this process to make sure this message is handled
 	p.run()
 
+	atomic.AddUint64(&n.processesSpawned, 1)
 	return p.pid, nil
 }
 
@@ -2359,6 +2373,8 @@ func (n *node) cleanupProcess(p *process, reason error) {
 
 func (n *node) unregisterProcess(p *process, reason error) {
 	n.cleanupProcess(p, reason)
+
+	atomic.AddUint64(&n.processesTerminated, 1)
 
 	if p.application != system.Name {
 		n.waitprocesses.Done()
@@ -2433,40 +2449,4 @@ func (n *node) unregisterEvent(name gen.Atom, pid gen.PID) error {
 	n.log.Trace("...unregisterEvent %s for %s", name, pid)
 
 	return n.targets.UnregisterEvent(pid, name)
-}
-
-func (n *node) validateLicenses(versions ...gen.Version) {
-	for _, version := range versions {
-		switch version.License {
-		case gen.LicenseMIT:
-			continue
-
-		case "":
-			if lib.Trace() {
-				n.Log().Trace("undefined license for %s", version)
-			}
-			continue
-
-		case gen.LicenseBSL1:
-			var valid bool
-
-			if _, exist := n.licenses.LoadOrStore(version, valid); exist {
-				continue
-			}
-
-			// TODO validate license
-			//if valid {
-			//	continue
-			//}
-
-			n.Log().Warning("%s is distributed under %q and can not be used "+
-				"without a license for production/commercial purposes",
-				version, version.License)
-
-		default:
-			if lib.Trace() {
-				n.Log().Trace("unhandled license %q for %s", version.License, version)
-			}
-		}
-	}
 }

@@ -726,6 +726,15 @@ type NodeInfo struct {
 	// ProcessesZombee is the number of killed processes (Zombee state).
 	ProcessesZombee int64
 
+	// ProcessesSpawned is the cumulative number of successfully spawned processes.
+	ProcessesSpawned uint64
+
+	// ProcessesSpawnFailed is the cumulative number of failed spawn attempts.
+	ProcessesSpawnFailed uint64
+
+	// ProcessesTerminated is the cumulative number of terminated processes.
+	ProcessesTerminated uint64
+
 	// RegisteredAliases is the total number of registered aliases.
 	RegisteredAliases int64
 
