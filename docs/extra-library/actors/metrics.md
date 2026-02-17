@@ -126,10 +126,14 @@ The metrics actor automatically exposes these Prometheus metrics without any con
 | `ergo_processes_total` | Gauge | Total number of processes including running, idle, and zombie. High counts suggest process leaks or inefficient cleanup. |
 | `ergo_processes_running` | Gauge | Processes actively handling messages. Low relative to total suggests most processes are idle (good) or blocked (bad - investigate what they're waiting for). |
 | `ergo_processes_zombie` | Gauge | Processes terminated but not yet fully cleaned up. These should be transient. Persistent zombies indicate bugs in termination handling. |
+| `ergo_processes_spawned_total` | Gauge | Cumulative number of successfully spawned processes since node start. Monotonically increasing counter useful for tracking spawn rate over time. |
+| `ergo_processes_spawn_failed_total` | Gauge | Cumulative number of failed spawn attempts. Non-zero values indicate initialization errors or resource constraints preventing process creation. |
+| `ergo_processes_terminated_total` | Gauge | Cumulative number of terminated processes. Compare to spawned count to understand process lifecycle patterns. |
 | `ergo_memory_used_bytes` | Gauge | Total memory obtained from OS (uses `runtime.MemStats.Sys`). |
 | `ergo_memory_alloc_bytes` | Gauge | Bytes of allocated heap objects (uses `runtime.MemStats.Alloc`). |
 | `ergo_cpu_user_seconds` | Gauge | CPU time spent executing user code. Increases as the node does work. Rate of change indicates CPU utilization. |
 | `ergo_cpu_system_seconds` | Gauge | CPU time spent in kernel (system calls). High system time relative to user time suggests I/O bottlenecks or excessive syscalls. |
+| `ergo_cpu_cores` | Gauge | Number of CPU cores available to the process. Useful for normalizing CPU utilization metrics. |
 | `ergo_applications_total` | Gauge | Number of applications loaded. Should match your expected count. Unexpected changes indicate applications starting or stopping. |
 | `ergo_applications_running` | Gauge | Applications currently active. Compare to total to identify stopped or failed applications. |
 | `ergo_registered_names_total` | Gauge | Processes registered with atom names. High counts suggest heavy use of named processes for routing. |
