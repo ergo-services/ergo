@@ -1113,11 +1113,10 @@ func (n *network) startAcceptor(a gen.AcceptorOptions) (*acceptor, error) {
 	if pstart == 0 {
 		pstart = gen.DefaultPort
 	}
-	pend := a.PortRange
-	if pend == 0 {
-		pend = 50000
-	}
-	if pend < pstart {
+	pend := uint16(65535)
+	if a.PortRange > 1 {
+		pend = pstart + a.PortRange - 1
+	} else if a.PortRange == 1 {
 		pend = pstart
 	}
 

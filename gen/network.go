@@ -539,13 +539,14 @@ type AcceptorOptions struct {
 	Host string
 
 	// Port is the TCP port number for incoming connections.
-	// Default: 15000 if not specified.
+	// Default: 11144 if not specified.
 	Port uint16
 
-	// PortRange defines the range of ports to try if Port is unavailable.
-	// Attempts ports from Port to (Port + PortRange).
-	// Example: Port=15000, PortRange=10 tries 15000-15010.
-	// Useful for avoiding port conflicts.
+	// PortRange defines how many ports to try starting from Port.
+	// Default (0): tries all ports from Port to 65535.
+	// PortRange=1: tries only the Port itself.
+	// PortRange=N (N>1): tries N ports starting from Port.
+	// Example: Port=11144, PortRange=10 tries 11144-11153.
 	PortRange uint16
 
 	// RouteHost specifies the public/external host address to advertise in routes.
