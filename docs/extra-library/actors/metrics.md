@@ -126,10 +126,14 @@ The metrics actor automatically exposes these Prometheus metrics without any con
 | `ergo_processes_total` | Gauge | Total number of processes including running, idle, and zombie. High counts suggest process leaks or inefficient cleanup. |
 | `ergo_processes_running` | Gauge | Processes actively handling messages. Low relative to total suggests most processes are idle (good) or blocked (bad - investigate what they're waiting for). |
 | `ergo_processes_zombie` | Gauge | Processes terminated but not yet fully cleaned up. These should be transient. Persistent zombies indicate bugs in termination handling. |
+| `ergo_processes_spawned_total` | Gauge | Cumulative count of successfully spawned processes since node start. Use `rate()` in Prometheus to calculate spawn rate. Sudden spikes may indicate restart loops. |
+| `ergo_processes_spawn_failed_total` | Gauge | Cumulative count of failed spawn attempts. Non-zero values signal resource exhaustion or configuration errors. Should remain zero under normal operation. |
+| `ergo_processes_terminated_total` | Gauge | Cumulative count of terminated processes. Compare with spawn rate to understand process lifecycle. Termination rate consistently exceeding spawn rate means the node is draining. |
 | `ergo_memory_used_bytes` | Gauge | Total memory obtained from OS (uses `runtime.MemStats.Sys`). |
 | `ergo_memory_alloc_bytes` | Gauge | Bytes of allocated heap objects (uses `runtime.MemStats.Alloc`). |
 | `ergo_cpu_user_seconds` | Gauge | CPU time spent executing user code. Increases as the node does work. Rate of change indicates CPU utilization. |
 | `ergo_cpu_system_seconds` | Gauge | CPU time spent in kernel (system calls). High system time relative to user time suggests I/O bottlenecks or excessive syscalls. |
+| `ergo_cpu_cores` | Gauge | Number of CPU cores available to the runtime. Used to normalize CPU metrics - divide CPU seconds rate by core count to get utilization percentage. |
 | `ergo_applications_total` | Gauge | Number of applications loaded. Should match your expected count. Unexpected changes indicate applications starting or stopping. |
 | `ergo_applications_running` | Gauge | Applications currently active. Compare to total to identify stopped or failed applications. |
 | `ergo_registered_names_total` | Gauge | Processes registered with atom names. High counts suggest heavy use of named processes for routing. |
@@ -298,6 +302,39 @@ scrape_configs:
 Prometheus fetches `/metrics` every 15 seconds, parses the text format, and stores time-series data. You can then query, alert, and visualize metrics using Prometheus queries or Grafana dashboards.
 
 For dynamic discovery in Kubernetes or cloud environments, use Prometheus service discovery instead of static targets. The metrics actor itself doesn't need to know about Prometheus - it just exposes an HTTP endpoint.
+
+## Grafana Dashboard
+
+The metrics package includes a pre-built Grafana dashboard (`ergo-cluster.json`) designed for monitoring Ergo clusters. The dashboard provides a comprehensive view of cluster health with automatic refresh every 10 seconds.
+
+### Importing the Dashboard
+
+1. Open Grafana and navigate to Dashboards
+2. Click "Import"
+3. Upload the `ergo-cluster.json` file from the metrics package or paste its contents
+4. Select your Prometheus data source
+
+The dashboard includes a `$node` variable dropdown that filters all panels by selected nodes. By default, all nodes are displayed.
+
+### Understanding the Panels
+
+The dashboard organizes metrics into logical groups that answer operational questions:
+
+**Summary Row** - Six stat panels showing aggregated values: total processes, running processes, zombie count (red when non-zero), memory used, memory allocated, and node count. These provide immediate cluster health at a glance. A gap between total and running processes indicates idle capacity or blocked processes. Non-zero zombies require investigation.
+
+**Processes** - Two timeseries showing per-node process counts over time. Steady growth without plateau suggests process leaks. Compare running counts across nodes to identify load imbalance.
+
+**Process Lifecycle** - Spawn and termination rates per node. The spawn panel shows both successful spawns and failures (in red). Spawn failures indicate resource exhaustion. When termination rate exceeds spawn rate, the node is draining. When spawn exceeds termination, process count grows.
+
+**CPU** - User and system CPU time normalized by core count, displayed as percentages. High user CPU means compute-bound workload. High system CPU relative to user suggests excessive I/O or syscalls rather than application work.
+
+**Memory** - OS-reported memory and Go runtime allocation over time. Monotonic growth signals memory leaks. Sawtooth pattern in runtime allocation is normal (GC cycles). Rising baseline between GC cycles indicates uncollected objects.
+
+**Network** - Four panels covering cluster totals and per-node breakdowns for message rates and byte rates. Sudden drops may indicate partitions. Disproportionate bytes-to-messages ratio reveals large message sizes.
+
+**Network Detail** - Message and byte rates between specific node pairs. Useful for tracing inter-node communication paths and identifying saturated links.
+
+**Nodes Overview** - A table listing all nodes with uptime, process counts, and memory. Sorted by process count. Quickly identifies recently restarted nodes (low uptime), overloaded nodes (high process count), or unhealthy nodes (non-zero zombies).
 
 ## Observer Integration
 
