@@ -98,7 +98,7 @@ Latency measurement answers the question "how long has the oldest message been s
 - Detecting stuck processes before they cause cascading failures
 - Finding hotspot processes in large clusters
 
-For cluster-wide observability with Prometheus and Grafana, see the [Metrics actor](../extra-library/actors/metrics.md) which integrates latency data into histogram, top-N, and per-node panels when built with the `latency` tag.
+For cluster-wide observability with Prometheus and Grafana, see the [Metrics actor](../extra-library/actors/metrics.md) which integrates latency data into distribution, top-N, and per-node panels when built with the `latency` tag.
 
 ### Combining Tags
 
