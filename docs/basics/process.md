@@ -8,6 +8,8 @@ A process is an actor - a lightweight entity that handles messages sequentially 
 
 Every process has a mailbox where incoming messages wait to be processed. The mailbox contains four queues with different priorities: Urgent for critical system messages, System for framework control, Main for regular application messages, and Log for logging. When the process wakes up to handle messages, it processes them in priority order, taking from Urgent first, then System, then Main, and finally Log.
 
+When built with `-tags=latency`, each queue tracks the age of its oldest unprocessed message. `ProcessMailbox.Latency()` returns the maximum latency across all four queues in nanoseconds, or -1 if the tag is not enabled. This helps identify processes that are falling behind on message processing. See [Debugging](../advanced/debugging.md) for details.
+
 The process runs only when it has messages to handle. When the mailbox is empty, the process sleeps, consuming no CPU. When a message arrives, the process wakes, handles the message, and sleeps again if nothing else is waiting. This efficiency is why you can have thousands of processes in a single application.
 
 ## Identifying Processes

@@ -1014,6 +1014,11 @@ type ProcessShortInfo struct {
 	// MessagesMailbox is the total number of messages currently in mailbox queues.
 	MessagesMailbox uint64
 
+	// MailboxLatency is the maximum latency across all mailbox queues (nanoseconds).
+	// Returns -1 if built without -tags=latency (measurement disabled).
+	// Returns 0 if all queues are empty.
+	MailboxLatency int64
+
 	// RunningTime is the cumulative time spent in Running state (nanoseconds).
 	RunningTime uint64
 
@@ -1083,6 +1088,26 @@ func (pm ProcessMailbox) Len() int64 {
 	return pm.Main.Len() + pm.System.Len() + pm.Urgent.Len() + pm.Log.Len()
 }
 
+// Latency returns the maximum latency across all mailbox queues (nanoseconds).
+// Returns -1 if built without -tags=latency (measurement disabled).
+// Returns 0 if all queues are empty.
+func (pm ProcessMailbox) Latency() int64 {
+	lat := pm.Main.Latency()
+	if lat < 0 {
+		return -1
+	}
+	if l := pm.System.Latency(); l > lat {
+		lat = l
+	}
+	if l := pm.Urgent.Latency(); l > lat {
+		lat = l
+	}
+	if l := pm.Log.Latency(); l > lat {
+		lat = l
+	}
+	return lat
+}
+
 // MailboxQueues contains message counts for each mailbox queue.
 // Part of ProcessInfo and ProcessShortInfo.
 // Represents a snapshot of mailbox load at the time of query.
@@ -1099,4 +1124,17 @@ type MailboxQueues struct {
 
 	// Log is the number of logging messages in the Log queue.
 	Log int64
+
+	// LatencyMain is the latency of the oldest message in the Main queue (nanoseconds).
+	// Returns -1 if built without -tags=latency.
+	LatencyMain int64
+
+	// LatencySystem is the latency of the oldest message in the System queue (nanoseconds).
+	LatencySystem int64
+
+	// LatencyUrgent is the latency of the oldest message in the Urgent queue (nanoseconds).
+	LatencyUrgent int64
+
+	// LatencyLog is the latency of the oldest message in the Log queue (nanoseconds).
+	LatencyLog int64
 }

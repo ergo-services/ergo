@@ -241,6 +241,19 @@ func (tn *TestNode) ProcessListShortInfo(start, limit int) ([]gen.ProcessShortIn
 	return infos, nil
 }
 
+func (tn *TestNode) ProcessRangeShortInfo(fn func(gen.ProcessShortInfo) bool) error {
+	for pid := range tn.processes {
+		info := gen.ProcessShortInfo{
+			PID:   pid,
+			State: gen.ProcessStateRunning,
+		}
+		if fn(info) == false {
+			break
+		}
+	}
+	return nil
+}
+
 func (tn *TestNode) ProcessName(pid gen.PID) (gen.Atom, error) {
 	// Simple stub - returns empty name
 	return "", nil

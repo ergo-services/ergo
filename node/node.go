@@ -496,6 +496,10 @@ func (n *node) ProcessInfo(pid gen.PID) (gen.ProcessInfo, error) {
 	info.MailboxQueues.Urgent = p.mailbox.Urgent.Len()
 	info.MailboxQueues.System = p.mailbox.System.Len()
 	info.MailboxQueues.Log = p.mailbox.Log.Len()
+	info.MailboxQueues.LatencyMain = p.mailbox.Main.Latency()
+	info.MailboxQueues.LatencySystem = p.mailbox.System.Latency()
+	info.MailboxQueues.LatencyUrgent = p.mailbox.Urgent.Latency()
+	info.MailboxQueues.LatencyLog = p.mailbox.Log.Latency()
 	info.MessagesIn = atomic.LoadUint64(&p.messagesIn)
 	info.MessagesOut = atomic.LoadUint64(&p.messagesOut)
 	info.RunningTime = atomic.LoadUint64(&p.runningTime)
@@ -784,6 +788,7 @@ func (n *node) ProcessListShortInfo(start, limit int) ([]gen.ProcessShortInfo, e
 			MessagesIn:      process.messagesIn,
 			MessagesOut:     process.messagesOut,
 			MessagesMailbox: uint64(messagesMailbox),
+			MailboxLatency:  process.mailbox.Latency(),
 			RunningTime:     process.runningTime,
 			Uptime:          process.Uptime(),
 			State:           process.State(),
@@ -797,6 +802,40 @@ func (n *node) ProcessListShortInfo(start, limit int) ([]gen.ProcessShortInfo, e
 
 	return psi, nil
 
+}
+
+func (n *node) ProcessRangeShortInfo(fn func(gen.ProcessShortInfo) bool) error {
+	if n.isRunning() == false {
+		return gen.ErrNodeTerminated
+	}
+
+	n.processes.Range(func(_, v any) bool {
+		p := v.(*process)
+		messagesMailbox := p.mailbox.Main.Len() +
+			p.mailbox.System.Len() +
+			p.mailbox.Urgent.Len() +
+			p.mailbox.Log.Len()
+
+		info := gen.ProcessShortInfo{
+			PID:             p.pid,
+			Name:            p.name,
+			Application:     p.application,
+			Behavior:        p.sbehavior,
+			MessagesIn:      p.messagesIn,
+			MessagesOut:     p.messagesOut,
+			MessagesMailbox: uint64(messagesMailbox),
+			MailboxLatency:  p.mailbox.Latency(),
+			RunningTime:     p.runningTime,
+			Uptime:          p.Uptime(),
+			State:           p.State(),
+			Parent:          p.parent,
+			Leader:          p.leader,
+			LogLevel:        p.log.Level(),
+		}
+		return fn(info)
+	})
+
+	return nil
 }
 
 func (n *node) NetworkStart(options gen.NetworkOptions) error {
@@ -1722,6 +1761,7 @@ func (n *node) ApplicationProcessListShortInfo(name gen.Atom, limit int) ([]gen.
 			MessagesIn:      p.messagesIn,
 			MessagesOut:     p.messagesOut,
 			MessagesMailbox: uint64(messagesMailbox),
+			MailboxLatency:  p.mailbox.Latency(),
 			RunningTime:     p.runningTime,
 			Uptime:          p.Uptime(),
 			State:           p.State(),
@@ -1757,6 +1797,7 @@ func (n *node) ApplicationProcessListShortInfo(name gen.Atom, limit int) ([]gen.
 			MessagesIn:      p.messagesIn,
 			MessagesOut:     p.messagesOut,
 			MessagesMailbox: uint64(messagesMailbox),
+			MailboxLatency:  p.mailbox.Latency(),
 			RunningTime:     p.runningTime,
 			Uptime:          p.Uptime(),
 			State:           p.State(),

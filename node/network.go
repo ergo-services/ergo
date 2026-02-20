@@ -1113,11 +1113,14 @@ func (n *network) startAcceptor(a gen.AcceptorOptions) (*acceptor, error) {
 	if pstart == 0 {
 		pstart = gen.DefaultPort
 	}
-	pend := uint16(65535)
+	pend := uint32(65535)
 	if a.PortRange > 1 {
-		pend = pstart + a.PortRange - 1
+		p := uint32(pstart) + uint32(a.PortRange) - 1
+		if p < 65535 {
+			pend = p
+		}
 	} else if a.PortRange == 1 {
-		pend = pstart
+		pend = uint32(pstart)
 	}
 
 	acceptor := &acceptor{
@@ -1137,7 +1140,7 @@ func (n *network) startAcceptor(a gen.AcceptorOptions) (*acceptor, error) {
 		acceptor.atom_mapping[k] = v
 	}
 
-	for i := pstart; i < pend+1; i++ {
+	for i := uint32(pstart); i <= pend; i++ {
 		hp := net.JoinHostPort(a.Host, strconv.Itoa(int(i)))
 		lcl, err := lc.Listen(context.Background(), a.TCP, hp)
 		if err != nil {
@@ -1149,7 +1152,7 @@ func (n *network) startAcceptor(a gen.AcceptorOptions) (*acceptor, error) {
 			continue
 		}
 
-		acceptor.port = i
+		acceptor.port = uint16(i)
 		acceptor.l = lcl
 		break
 	}

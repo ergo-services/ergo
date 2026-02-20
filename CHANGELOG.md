@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 * Added **pointer type support** in EDF - `*int`, `*string`, `[]*T`, `map[K]*V`, pointer struct fields. Nil state preserved. Nested pointers (`**T`) not supported. Max encoding depth limit (100) prevents stack overflow on deeply nested structures. See [Network Transparency](https://docs.ergo.services/networking/network-transparency) documentation
 * Fixed logger to preserve Behavior name when process registers name
+* Added **process lifecycle counters** to `gen.NodeInfo` - `ProcessesSpawned`, `ProcessesSpawnFailed`, `ProcessesTerminated` for cumulative statistics
+* Added **mailbox latency measurement** (build with `-tags=latency`). `QueueMPSC.Latency()` returns the age of the oldest message in the queue (nanoseconds), -1 if disabled. `ProcessMailbox.Latency()` returns the max across all four queues. Added `MailboxLatency` field to `ProcessShortInfo` and latency fields to `MailboxQueues` in `ProcessInfo`. See [Debugging](https://docs.ergo.services/advanced/debugging) documentation
+* Added **`Node.ProcessRangeShortInfo`** for efficient callback-based iteration over all processes with their current state. See [Metrics actor](https://docs.ergo.services/extra-library/actors/metrics) for Prometheus integration
 
 #### [v3.2.0](https://github.com/ergo-services/ergo/releases/tag/v1.999.320) 2026-02-04 [tag version v1.999.320] ####
 

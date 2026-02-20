@@ -108,6 +108,13 @@ type Node interface {
 	// Returns ErrNodeTerminated in other states.
 	ProcessListShortInfo(start, limit int) ([]ProcessShortInfo, error)
 
+	// ProcessRangeShortInfo iterates over all processes calling fn for each.
+	// The callback receives ProcessShortInfo and returns true to continue
+	// or false to stop iteration.
+	// Available in: Running state only.
+	// Returns ErrNodeTerminated in other states.
+	ProcessRangeShortInfo(fn func(ProcessShortInfo) bool) error
+
 	// ProcessName returns the registered name for the given PID.
 	// Returns empty Atom if the process has no registered name.
 	// Available in: Running state only.

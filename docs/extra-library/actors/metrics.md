@@ -103,6 +103,7 @@ options := metrics.Options{
     Host:            "0.0.0.0",        // Listen on all interfaces
     Port:            9090,              // Prometheus default port
     CollectInterval: 5 * time.Second,  // Collect every 5 seconds
+    LatencyTopN:     50,               // Top-N processes by mailbox latency
 }
 
 node.Spawn(metrics.Factory, gen.ProcessOptions{}, options)
@@ -111,6 +112,8 @@ node.Spawn(metrics.Factory, gen.ProcessOptions{}, options)
 **Host** determines which network interface the HTTP server binds to. Use `"localhost"` to restrict access to local connections only (development, testing). Use `"0.0.0.0"` to accept connections from any interface (production, containerized environments).
 
 **Port** should not conflict with other services. Prometheus conventionally uses `9090`, but many Ergo applications use that for other purposes. Choose a port that doesn't collide with your application's HTTP servers, Observer UI (default `9911`), or other metrics exporters.
+
+**LatencyTopN** sets how many top processes by mailbox latency are tracked (default: 50). Only effective when built with `-tags=latency`. Higher values provide more visibility but increase Prometheus cardinality.
 
 **CollectInterval** controls how frequently the actor queries node statistics. Shorter intervals provide more granular time-series data but increase CPU usage for collection. Longer intervals reduce overhead but miss short-lived spikes. For most applications, 10-15 seconds balances responsiveness with resource usage. Prometheus typically scrapes every 15-60 seconds, so collecting more frequently than your scrape interval wastes resources.
 
@@ -152,6 +155,33 @@ The metrics actor automatically exposes these Prometheus metrics without any con
 | `ergo_remote_bytes_out_total` | Gauge | `node` | Bytes sent to each remote node. Monitors network bandwidth usage per peer. |
 
 Network metrics use labels (`node="..."`) to separate per-node data. This creates multiple time series - one per connected node. Prometheus queries can aggregate across labels or filter to specific nodes.
+
+### Mailbox Latency Metrics
+
+When built with `-tags=latency`, the metrics actor automatically collects per-process mailbox latency data. This enables detection of stressed processes whose mailboxes are growing.
+
+```bash
+go build -tags=latency ./...
+```
+
+Without the tag, latency measurement is disabled and no additional metrics are registered. There is zero overhead.
+
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `ergo_mailbox_latency_seconds` | Histogram | - | Distribution of mailbox latency across all processes. Buckets: 1ms, 5ms, 10ms, 50ms, 100ms, 500ms, 1s, 5s, 10s, 30s, 60s. |
+| `ergo_mailbox_latency_max_seconds` | Gauge | - | Maximum mailbox latency across all processes on this node. When this exceeds 1 second, at least one process is significantly behind. |
+| `ergo_mailbox_latency_processes` | Gauge | - | Number of processes with non-empty mailbox (latency > 0). High count relative to total processes indicates widespread backpressure. |
+| `ergo_mailbox_latency_top_seconds` | Gauge | `pid`, `name`, `application`, `behavior` | Top-N processes by mailbox latency. Directly identifies which processes are the bottlenecks. |
+
+The `LatencyTopN` option (default: 50) controls how many processes appear in the top-N metric. For clusters with many nodes, consider the cardinality impact: each node contributes up to `LatencyTopN` time series for this metric.
+
+**Cardinality estimate** for a cluster of 500 nodes with `LatencyTopN=50`:
+- Histogram: 500 x 14 series = 7,000
+- Max + Count gauges: 500 x 2 = 1,000
+- Top-N gauges: 500 x 50 = 25,000
+- Total: ~33,000 series
+
+The collection uses `Node.ProcessRangeShortInfo()` to iterate over all processes efficiently in a single pass, computing the histogram, max, stressed count, and top-N simultaneously using a min-heap for O(N) selection.
 
 ## Custom Metrics
 
@@ -333,6 +363,8 @@ The dashboard organizes metrics into logical groups that answer operational ques
 **Network** - Four panels covering cluster totals and per-node breakdowns for message rates and byte rates. Sudden drops may indicate partitions. Disproportionate bytes-to-messages ratio reveals large message sizes.
 
 **Network Detail** - Message and byte rates between specific node pairs. Useful for tracing inter-node communication paths and identifying saturated links.
+
+**Mailbox Latency** (collapsed row, requires `-tags=latency`) - Six panels for latency analysis. Two stat panels show cluster-wide max latency (with green/yellow/red thresholds) and stressed process count. A heatmap shows latency distribution over time. Two timeseries show max latency and stressed process count per node. A table lists the top 50 processes by latency with their PID, name, application, and behavior. When the `latency` tag is not used, these panels show "No data".
 
 **Nodes Overview** - A table listing all nodes with uptime, process counts, and memory. Sorted by process count. Quickly identifies recently restarted nodes (low uptime), overloaded nodes (high process count), or unhealthy nodes (non-zero zombies).
 

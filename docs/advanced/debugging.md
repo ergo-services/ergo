@@ -72,6 +72,34 @@ options := gen.NodeOptions{
 }
 ```
 
+### The `latency` Tag
+
+The `latency` tag enables mailbox latency measurement for all processes:
+
+```bash
+go run --tags latency ./cmd
+```
+
+This activates:
+
+- **Monotonic timestamp** on every message pushed into the MPSC queue
+- **`QueueMPSC.Latency()`** returns the age (in nanoseconds) of the oldest unprocessed message in the queue
+- **`ProcessMailbox.Latency()`** returns the maximum latency across all four mailbox queues (Main, System, Urgent, Log)
+- **`MailboxLatency` field** in `ProcessShortInfo` for per-process latency snapshots
+- **`Node.ProcessRangeShortInfo()`** for efficient iteration over all processes with their latency data
+
+Without the tag, `Latency()` returns -1 (disabled) and there is zero runtime overhead -- no timestamps are recorded, no atomic operations are added to the message path.
+
+The overhead with the tag enabled is approximately 10-25% on micro-benchmarks (LOCAL 1-1 scenario with a single producer and consumer exchanging messages). In real applications with many processes, the overhead is lower because the cost is amortized across concurrent operations.
+
+Latency measurement answers the question "how long has the oldest message been sitting in this process's mailbox?" A high value means the process is not keeping up with incoming messages -- it is either overloaded, stuck in a long-running callback, or blocked. This is particularly useful for:
+
+- Identifying backpressure in actor pipelines
+- Detecting stuck processes before they cause cascading failures
+- Finding hotspot processes in large clusters
+
+For cluster-wide observability with Prometheus and Grafana, see the [Metrics actor](../extra-library/actors/metrics.md) which integrates latency data into histogram, top-N, and per-node panels when built with the `latency` tag.
+
 ### Combining Tags
 
 Tags can be combined for comprehensive debugging:
@@ -80,7 +108,13 @@ Tags can be combined for comprehensive debugging:
 go run --tags "pprof,norecover,trace" ./cmd
 ```
 
-This enables all debugging features simultaneously. Use this combination when investigating complex issues that span multiple subsystems.
+or with latency measurement:
+
+```bash
+go run --tags "pprof,latency" ./cmd
+```
+
+This enables all specified features simultaneously. Use combinations when investigating complex issues that span multiple subsystems.
 
 ## Profiler Integration
 
@@ -347,7 +381,7 @@ Observer runs at `http://localhost:9911` by default when included in your node.
 
 Debugging actor systems requires tools that bridge the gap between logical actors and runtime goroutines. Ergo Framework provides this bridge through:
 
-- **Build tags** that enable profiling and diagnostics without production overhead
+- **Build tags** that enable profiling, diagnostics, and latency measurement without production overhead
 - **Goroutine labels** that link runtime goroutines to their actor (PID) and meta process (Alias) identities
 - **Shutdown diagnostics** that identify processes preventing clean termination
 - **Observer integration** for visual inspection of running systems

@@ -141,6 +141,8 @@ Fully detailed changelog see in the [ChangeLog](CHANGELOG.md) file.
 
 * Added **process lifecycle counters** to `NodeInfo` - `ProcessesSpawned`, `ProcessesSpawnFailed`, `ProcessesTerminated` for cumulative statistics
 
+* Added **mailbox latency measurement** (build with `-tags=latency`). `QueueMPSC.Latency()` returns the age of the oldest message in the queue (nanoseconds), -1 if disabled. `ProcessMailbox.Latency()` returns the max across all four queues. Added `MailboxLatency` field to `ProcessShortInfo` and `MailboxQueues` latency fields to `ProcessInfo`. Added `Node.ProcessRangeShortInfo` for efficient iteration over all processes. See [actor/metrics](https://github.com/ergo-services/actor-metrics) for Prometheus integration with histogram, top-N, and Grafana dashboard
+
 ### Development and debugging ###
 
 To enable Golang profiler just add `--tags pprof` in your `go run` or `go build` (profiler runs at
@@ -163,6 +165,8 @@ Output:
 This helps identify stuck processes during shutdown by matching PIDs/Aliases from the shutdown log with goroutine stack traces.
 
 To disable panic recovery use `--tags norecover`.
+
+To enable mailbox latency measurement use `--tags latency`. This adds a monotonic timestamp to every message pushed into the MPSC queue, allowing `QueueMPSC.Latency()` and `ProcessMailbox.Latency()` to report the age of the oldest unprocessed message. Overhead is approximately 10-25% on micro-benchmarks (LOCAL 1-1 scenario). Without the tag, `Latency()` returns -1 and there is zero overhead.
 
 To enable trace logging level for the internals (node, network,...) use `--tags trace` and set the log level `gen.LogLevelTrace` for your node.
 

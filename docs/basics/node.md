@@ -10,7 +10,7 @@ When you start a node, you're launching a complete system with several subsystem
 
 ## What a Node Provides
 
-**Process Management** - The node tracks every process running on it. When you spawn a process, the node assigns it a unique PID, registers it in the process table, and manages its lifecycle. When a process terminates, the node cleans up its resources and notifies any processes that were linked or monitoring it.
+**Process Management** - The node tracks every process running on it. When you spawn a process, the node assigns it a unique PID, registers it in the process table, and manages its lifecycle. When a process terminates, the node cleans up its resources and notifies any processes that were linked or monitoring it. The node provides `ProcessRangeShortInfo` for efficient iteration over all processes with their current state, including mailbox latency when built with `-tags=latency`.
 
 **Message Routing** - When a process sends a message, the node figures out where it needs to go. Local process? Route it directly to the mailbox. Remote process? Establish a network connection if needed and send it there. The sender doesn't need to know these details.
 

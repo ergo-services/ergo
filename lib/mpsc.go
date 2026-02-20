@@ -1,3 +1,5 @@
+//go:build !latency
+
 // High-performance lock-free implementation of MPSC queue (Multiple Producers Single Consumer)
 
 package lib
@@ -24,19 +26,6 @@ type queueLimitMPSC struct {
 	lock   uint32
 }
 
-type QueueMPSC interface {
-	Push(value any) bool
-	Pop() (any, bool)
-	Item() ItemMPSC
-	// Len returns the number of items in the queue
-	Len() int64
-	// Size returns the limit for the queue. -1 - for unlimited
-	Size() int64
-
-	Lock() bool
-	Unlock() bool
-}
-
 func NewQueueMPSC() QueueMPSC {
 	emptyItem := &itemMPSC{}
 	return &queueMPSC{
@@ -60,12 +49,6 @@ func NewQueueLimitMPSC(limit int64, flush bool) QueueMPSC {
 		head:  emptyItem,
 		tail:  emptyItem,
 	}
-}
-
-type ItemMPSC interface {
-	Next() ItemMPSC
-	Value() any
-	Clear()
 }
 
 type itemMPSC struct {
@@ -137,6 +120,10 @@ func (q *queueMPSC) Size() int64 {
 	return -1 // unlimited
 }
 
+func (q *queueMPSC) Latency() int64 {
+	return -1
+}
+
 func (q *queueMPSC) Lock() bool {
 	return atomic.SwapUint32(&q.lock, 1) == 0
 }
@@ -152,6 +139,10 @@ func (q *queueLimitMPSC) Len() int64 {
 
 func (q *queueLimitMPSC) Size() int64 {
 	return q.limit
+}
+
+func (q *queueLimitMPSC) Latency() int64 {
+	return -1
 }
 
 func (q *queueLimitMPSC) Lock() bool {
