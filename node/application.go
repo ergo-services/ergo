@@ -14,13 +14,13 @@ type application struct {
 	node     *node
 	behavior gen.ApplicationBehavior
 	group    lib.Map[gen.PID, bool]
-	mode     gen.ApplicationMode
+	mode     int32
 
 	started int64
 	parent  gen.Atom
 	state   int32
 	stopped chan struct{}
-	reason  error
+	reason  atomic.Value
 }
 
 func (a *application) start(mode gen.ApplicationMode, options gen.ApplicationOptionsExtra) error {
@@ -95,8 +95,8 @@ func (a *application) start(mode gen.ApplicationMode, options gen.ApplicationOpt
 	}
 
 	a.stopped = make(chan struct{})
-	a.node.log.Info("application %s (%s) started", a.spec.Name, a.mode)
-	a.mode = mode
+	atomic.StoreInt32(&a.mode, int32(mode))
+	a.node.log.Info("application %s (%s) started", a.spec.Name, gen.ApplicationMode(atomic.LoadInt32(&a.mode)))
 	a.parent = options.CorePID.Node
 
 	a.started = time.Now().Unix()
@@ -138,7 +138,7 @@ func (a *application) stop(force bool, timeout time.Duration) error {
 	a.registerAppRoute() // new state of the app
 
 	// update mode to prevent triggering 'permantent' mode
-	a.mode = gen.ApplicationModeTemporary
+	atomic.StoreInt32(&a.mode, int32(gen.ApplicationModeTemporary))
 
 	a.group.Range(func(pid gen.PID, _ bool) bool {
 		if force {
@@ -150,9 +150,9 @@ func (a *application) stop(force bool, timeout time.Duration) error {
 	})
 
 	if force {
-		a.reason = gen.TerminateReasonKill
+		a.reason.Store(gen.TerminateReasonKill)
 	} else {
-		a.reason = gen.TerminateReasonShutdown
+		a.reason.Store(gen.TerminateReasonShutdown)
 	}
 
 	select {
@@ -170,7 +170,7 @@ func (a *application) terminate(pid gen.PID, reason error) {
 		return
 	}
 
-	switch a.mode {
+	switch gen.ApplicationMode(atomic.LoadInt32(&a.mode)) {
 	case gen.ApplicationModePermanent:
 		state := atomic.SwapInt32(&a.state, int32(gen.ApplicationStateStopping))
 		if state == int32(gen.ApplicationStateStopping) {
@@ -178,8 +178,8 @@ func (a *application) terminate(pid gen.PID, reason error) {
 			break
 		}
 		a.node.Log().
-			Info("application %s (%s) will be stopped due to termination of %s with reason: %s", a.spec.Name, a.mode, pid, reason)
-		a.reason = reason
+			Info("application %s (%s) will be stopped due to termination of %s with reason: %s", a.spec.Name, gen.ApplicationMode(atomic.LoadInt32(&a.mode)), pid, reason)
+		a.reason.Store(reason)
 		a.group.Range(func(pid gen.PID, _ bool) bool {
 			a.node.SendExit(pid, gen.TerminateReasonShutdown)
 			return true
@@ -190,14 +190,14 @@ func (a *application) terminate(pid gen.PID, reason error) {
 			break
 		}
 		a.node.Log().
-			Info("application %s (%s) will be stopped due to termination of %s with reason: %s", a.spec.Name, a.mode, pid, reason)
+			Info("application %s (%s) will be stopped due to termination of %s with reason: %s", a.spec.Name, gen.ApplicationMode(atomic.LoadInt32(&a.mode)), pid, reason)
 
 		state := atomic.SwapInt32(&a.state, int32(gen.ApplicationStateStopping))
 		if state == int32(gen.ApplicationStateStopping) {
 			// already in stopping
 			break
 		}
-		a.reason = reason
+		a.reason.Store(reason)
 		a.group.Range(func(pid gen.PID, _ bool) bool {
 			a.node.SendExit(pid, gen.TerminateReasonShutdown)
 			return true
@@ -211,8 +211,8 @@ func (a *application) terminate(pid gen.PID, reason error) {
 		return
 	}
 
-	if a.reason == nil {
-		a.reason = gen.TerminateReasonNormal
+	if a.reason.Load() == nil {
+		a.reason.Store(gen.TerminateReasonNormal)
 	}
 
 	old := atomic.SwapInt32(&a.state, int32(gen.ApplicationStateLoaded))
@@ -226,7 +226,7 @@ func (a *application) terminate(pid gen.PID, reason error) {
 	a.started = 0
 	a.parent = ""
 
-	a.node.log.Info("application %s (%s) stopped with reason %s", a.spec.Name, a.mode, a.reason)
+	a.node.log.Info("application %s (%s) stopped with reason %s", a.spec.Name, gen.ApplicationMode(atomic.LoadInt32(&a.mode)), a.reason.Load().(error))
 
 	if lib.Recover() {
 		defer func() {
@@ -238,7 +238,7 @@ func (a *application) terminate(pid gen.PID, reason error) {
 		}()
 	}
 
-	a.behavior.Terminate(a.reason)
+	a.behavior.Terminate(a.reason.Load().(error))
 
 	network := a.node.Network()
 	if network.Mode() != gen.NetworkModeEnabled {
@@ -269,7 +269,7 @@ func (a *application) info() gen.ApplicationInfo {
 	info.Description = a.spec.Description
 	info.Version = a.spec.Version
 	info.Depends = a.spec.Depends
-	info.Mode = a.mode
+	info.Mode = gen.ApplicationMode(atomic.LoadInt32(&a.mode))
 	info.Parent = a.parent
 	info.Uptime = time.Now().Unix() - a.started
 	info.Group = []gen.PID{}
@@ -303,8 +303,8 @@ func (a *application) registerAppRoute() {
 		Name:   a.spec.Name,
 		Weight: a.spec.Weight,
 		Tags:   a.spec.Tags,
-		Mode:   a.mode,
-		State:  gen.ApplicationState(a.state),
+		Mode:   gen.ApplicationMode(atomic.LoadInt32(&a.mode)),
+		State:  gen.ApplicationState(atomic.LoadInt32(&a.state)),
 	}
 	network := a.node.Network()
 	if network.Mode() != gen.NetworkModeEnabled {

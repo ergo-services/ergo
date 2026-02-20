@@ -1591,7 +1591,7 @@ func (n *node) ApplicationLoad(app gen.ApplicationBehavior, args ...any) (name g
 		node:     n,
 		behavior: app,
 		state:    int32(gen.ApplicationStateLoaded),
-		mode:     spec.Mode,
+		mode:     int32(spec.Mode),
 	}
 	if _, exist := n.applications.LoadOrStore(spec.Name, a); exist {
 		return spec.Name, gen.ErrTaken
