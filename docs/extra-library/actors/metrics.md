@@ -420,19 +420,15 @@ The dashboard organizes metrics into logical groups arranged from high-level ove
 
 **Mailbox Latency** (expanded, requires `-tags=latency`) - Six panels for latency analysis described in detail in the next section. When the `latency` tag is not used, these panels show "No data".
 
-**Mailbox Depth** (collapsed) - Three panels showing mailbox queue depth. Max Depth per Node tracks the largest mailbox on each node over time. Depth Distribution is a stacked area chart with a flame color gradient (green for 1-10 messages, yellow for 50-100, orange for 500-1K, red for 5K-10K+) showing how many processes fall into each depth range. Top Processes by Depth is a table listing the processes with the deepest queues across the cluster. Depth is complementary to latency: depth tells you "how many messages are queued," while latency tells you "how long the oldest one has been waiting."
+**Mailbox Depth** (expanded) - Three panels showing mailbox queue depth. Max Depth per Node tracks the largest mailbox on each node over time. Depth Distribution is a stacked area chart with a flame color gradient (green for 1-10 messages, yellow for 50-100, orange for 500-1K, red for 5K-10K+) showing how many processes fall into each depth range. Top Processes by Depth is a table listing the processes with the deepest queues across the cluster. Depth is complementary to latency: depth tells you "how many messages are queued," while latency tells you "how long the oldest one has been waiting."
 
 **Process Activity** (collapsed) - Four panels covering utilization and throughput. Utilization Distribution is a stacked area chart showing how many processes fall into each utilization range (1% through 90%+), using a flame gradient from green to red. Message Throughput per Node shows `rate(messages_in)` and `rate(messages_out)` per node in messages per second. Top Processes by Utilization is a table showing the busiest actors by lifetime utilization. Actor Running Time per Node shows `rate(running_time_seconds)` per node -- effectively the node-level actor CPU utilization. When this value approaches the available CPU core count, the node is compute-saturated.
 
 **Processes** (collapsed) - Four timeseries panels showing per-node process counts (total and running) and lifecycle rates (spawn rate with failures in red, termination rate). Steady growth in total without plateau suggests process leaks. Spawn failures indicate resource exhaustion. When termination rate exceeds spawn rate, the node is draining.
 
-**CPU** - User and system CPU time normalized by core count, displayed as percentages. High user CPU means compute-bound workload. High system CPU relative to user suggests excessive I/O or syscalls rather than application work.
+**Resources** (collapsed) - Four panels covering CPU and memory. CPU User Time and CPU System Time are normalized by core count and displayed as percentages. High user CPU means compute-bound workload; high system CPU relative to user suggests excessive I/O or syscalls. Memory (OS:used) and Memory (Runtime:alloc) show memory usage over time. Monotonic growth signals memory leaks. Sawtooth pattern in runtime allocation is normal (GC cycles). Rising baseline between GC cycles indicates uncollected objects.
 
-**Memory** - OS-reported memory and Go runtime allocation over time. Monotonic growth signals memory leaks. Sawtooth pattern in runtime allocation is normal (GC cycles). Rising baseline between GC cycles indicates uncollected objects.
-
-**Network** - Four panels covering cluster totals and per-node breakdowns for message rates and byte rates. Sudden drops may indicate partitions. Disproportionate bytes-to-messages ratio reveals large message sizes.
-
-**Network Detail** - Message and byte rates between specific node pairs. Useful for tracing inter-node communication paths and identifying saturated links.
+**Network** (collapsed) - Six panels covering cluster totals, per-node breakdowns, and node-pair detail for both message rates and byte rates. Sudden drops may indicate partitions. Disproportionate bytes-to-messages ratio reveals large message sizes. The detail panels show traffic between specific node pairs, useful for tracing inter-node communication paths and identifying saturated links.
 
 **Nodes Overview** - A table listing all nodes with uptime, process counts, and memory. Sorted by process count. Quickly identifies recently restarted nodes (low uptime), overloaded nodes (high process count), or unhealthy nodes (non-zero zombies).
 
@@ -450,7 +446,7 @@ Open the dashboard and look at the Summary row. Six stat panels at the top answe
 
 If the Summary looks normal and you have latency enabled, glance at the Latency row directly below. If Max Latency is under 100ms and the Stressed Processes panel is mostly empty or light-blue -- the system is healthy. Routine check complete.
 
-If you are not using `-tags=latency`, expand the Mailbox Depth row instead. Max Depth per Node is the closest equivalent to Max Latency as a backpressure signal. If all nodes show zero or low depth, the system is healthy. For a deeper routine check, expand the Process Activity row and glance at Message Throughput -- a sudden drop compared to the previous period may indicate stalled processes even when depth looks normal.
+If you are not using `-tags=latency`, check the Mailbox Depth row below. Max Depth per Node is the closest equivalent to Max Latency as a backpressure signal. If all nodes show zero or low depth, the system is healthy. For a deeper routine check, expand the Process Activity row and glance at Message Throughput -- a sudden drop compared to the previous period may indicate stalled processes even when depth looks normal.
 
 #### Something is wrong: start with latency
 
@@ -473,7 +469,7 @@ Read these two panels together:
 
 The **Max Latency per Node** and **Stressed Processes per Node** panels break the cluster-wide picture into individual nodes.
 
-If one node stands out while others are calm, the problem is localized. Cross-reference with CPU, Memory, and Network panels for that node. A node with high max latency but low stressed count has one problematic process. A node with moderate latency but high stressed count is generally overloaded.
+If one node stands out while others are calm, the problem is localized. Cross-reference with Resources and Network panels for that node. A node with high max latency but low stressed count has one problematic process. A node with moderate latency but high stressed count is generally overloaded.
 
 If multiple nodes show similar patterns, the problem is systemic -- a shared external dependency, a cluster-wide traffic pattern, or a deployment issue.
 
@@ -483,7 +479,7 @@ The **Latency Distribution** panel shows a stacked area chart where each layer r
 
 This panel distinguishes two scenarios that look similar in Max Latency: one stuck process (a single red sliver at the top of an otherwise green chart) versus widespread degradation (the entire chart shifting from green toward orange). The first requires investigating a specific process. The second requires scaling or load shedding.
 
-The **Depth Distribution** panel (expand the Mailbox Depth row) provides a complementary view. Where latency distribution shows how long messages wait, depth distribution shows how many messages are queued. The color gradient follows the same flame convention: green for 1-10 messages, yellow for 50-100, red for 5K-10K+. A process with high depth but low latency processes messages quickly but receives many at once. A process with low depth but high latency is slow but not overwhelmed.
+The **Depth Distribution** panel (in the Mailbox Depth row) provides a complementary view. Where latency distribution shows how long messages wait, depth distribution shows how many messages are queued. The color gradient follows the same flame convention: green for 1-10 messages, yellow for 50-100, red for 5K-10K+. A process with high depth but low latency processes messages quickly but receives many at once. A process with low depth but high latency is slow but not overwhelmed.
 
 The **Utilization Distribution** panel (expand the Process Activity row) shows the fraction of lifetime each process spends inside callbacks. Most processes should be in the low ranges (1%-10%). A shift toward higher ranges (50%+) across many processes means the cluster is running compute-heavy workloads and may need scaling.
 
