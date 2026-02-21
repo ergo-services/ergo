@@ -12,6 +12,10 @@ The metrics actor addresses this by tracking:
 
 **Process metrics** - How many processes exist, how many are running vs. idle vs. zombie. This reveals whether your node is under load or experiencing process leaks.
 
+**Mailbox metrics** - Queue depth and latency for every process on the node. Depth shows how many messages are waiting in each mailbox; latency shows how long the oldest message has been waiting. Together they answer whether actors are keeping up with their workload and which specific processes are falling behind.
+
+**Utilization and throughput metrics** - How much time each process spends executing callbacks relative to its lifetime, and how many messages flow through the node per second. These reveal compute-bound actors, idle capacity, and overall system throughput.
+
 **Memory metrics** - Heap allocation and actual memory used. Actor systems can accumulate small allocations across thousands of processes. Memory metrics help identify whether garbage collection keeps pace with allocation.
 
 **Network metrics** - For distributed Ergo clusters, tracking bytes and messages flowing between nodes reveals network bottlenecks, routing inefficiencies, or failing connections.
@@ -54,7 +58,7 @@ When you spawn the metrics actor:
 
 1. **HTTP endpoint starts** at the configured host and port. The `/metrics` endpoint immediately serves Prometheus-formatted data.
 
-2. **Base metrics collect automatically**. Node information (processes, memory, CPU) and network statistics (connected nodes, message rates) update at the configured interval.
+2. **Base metrics collect automatically**. Node information (processes, memory, CPU), network statistics (connected nodes, message rates), and per-process metrics (mailbox depth, utilization, latency, aggregates) update at the configured interval.
 
 3. **Custom metrics update** via `CollectMetrics()` callback or `HandleMessage()` processing, depending on your implementation.
 
@@ -91,6 +95,7 @@ Default configuration:
 - **Host**: `localhost`
 - **Port**: `3000`
 - **CollectInterval**: `10 seconds`
+- **TopN**: `50`
 
 The HTTP endpoint starts automatically during initialization. The first metrics collection happens immediately, and subsequent collections run at the configured interval.
 
@@ -103,7 +108,7 @@ options := metrics.Options{
     Host:            "0.0.0.0",        // Listen on all interfaces
     Port:            9090,              // Prometheus default port
     CollectInterval: 5 * time.Second,  // Collect every 5 seconds
-    LatencyTopN:     50,               // Top-N processes by mailbox latency
+    TopN:            50,               // Top-N processes for each metric group
 }
 
 node.Spawn(metrics.Factory, gen.ProcessOptions{}, options)
@@ -113,7 +118,7 @@ node.Spawn(metrics.Factory, gen.ProcessOptions{}, options)
 
 **Port** should not conflict with other services. Prometheus conventionally uses `9090`, but many Ergo applications use that for other purposes. Choose a port that doesn't collide with your application's HTTP servers, Observer UI (default `9911`), or other metrics exporters.
 
-**LatencyTopN** sets how many top processes by mailbox latency are tracked (default: 50). Only effective when built with `-tags=latency`. Higher values provide more visibility but increase Prometheus cardinality.
+**TopN** sets how many top processes are tracked for each per-process metric group -- mailbox depth, utilization, and latency (default: 50). Higher values provide more visibility but increase Prometheus cardinality. Set to 0 is not supported; the minimum effective value is 1.
 
 **CollectInterval** controls how frequently the actor queries node statistics. Shorter intervals provide more granular time-series data but increase CPU usage for collection. Longer intervals reduce overhead but miss short-lived spikes. For most applications, 10-15 seconds balances responsiveness with resource usage. Prometheus typically scrapes every 15-60 seconds, so collecting more frequently than your scrape interval wastes resources.
 
@@ -148,13 +153,13 @@ The metrics actor automatically exposes these Prometheus metrics without any con
 | Metric | Type | Labels | Description |
 |--------|------|--------|-------------|
 | `ergo_connected_nodes_total` | Gauge | - | Number of remote nodes connected. For distributed systems, this should match your expected cluster size. |
-| `ergo_remote_node_uptime_seconds` | Gauge | `node` | Uptime of each connected remote node. Resets when the remote node restarts. |
-| `ergo_remote_messages_in_total` | Gauge | `node` | Messages received from each remote node. Rate indicates traffic volume. |
-| `ergo_remote_messages_out_total` | Gauge | `node` | Messages sent to each remote node. Asymmetric in/out rates may reveal routing issues. |
-| `ergo_remote_bytes_in_total` | Gauge | `node` | Bytes received from each remote node. Disproportionate bytes-to-messages ratio suggests large messages or inefficient serialization. |
-| `ergo_remote_bytes_out_total` | Gauge | `node` | Bytes sent to each remote node. Monitors network bandwidth usage per peer. |
+| `ergo_remote_node_uptime_seconds` | Gauge | `remote_node` | Uptime of each connected remote node. Resets when the remote node restarts. |
+| `ergo_remote_messages_in_total` | Gauge | `remote_node` | Messages received from each remote node. Rate indicates traffic volume. |
+| `ergo_remote_messages_out_total` | Gauge | `remote_node` | Messages sent to each remote node. Asymmetric in/out rates may reveal routing issues. |
+| `ergo_remote_bytes_in_total` | Gauge | `remote_node` | Bytes received from each remote node. Disproportionate bytes-to-messages ratio suggests large messages or inefficient serialization. |
+| `ergo_remote_bytes_out_total` | Gauge | `remote_node` | Bytes sent to each remote node. Monitors network bandwidth usage per peer. |
 
-Network metrics use labels (`node="..."`) to separate per-node data. This creates multiple time series - one per connected node. Prometheus queries can aggregate across labels or filter to specific nodes.
+Network metrics use labels (`remote_node="..."`) to separate per-node data. This creates multiple time series - one per connected node. Prometheus queries can aggregate across labels or filter to specific nodes.
 
 ### Mailbox Latency Metrics
 
@@ -175,15 +180,68 @@ Without the tag, latency measurement is disabled and no additional metrics are r
 
 The distribution metric uses gauge-based snapshots rather than a Prometheus histogram. Each collect cycle iterates over all processes, counts how many fall into each latency range, and sets the gauge values from scratch. This approach is a better fit for periodic state observation than cumulative histograms, which are designed for discrete events like HTTP requests. The ranges are: 1ms, 5ms, 10ms, 50ms, 100ms, 500ms, 1s, 5s, 10s, 30s, 60s, and 60s+. Each range represents an upper boundary -- for example, "5ms" counts processes with latency between 1ms and 5ms.
 
-The `LatencyTopN` option (default: 50) controls how many processes appear in the top-N metric. For clusters with many nodes, consider the cardinality impact: each node contributes up to `LatencyTopN` time series for this metric.
+The `TopN` option (default: 50) controls how many processes appear in the top-N metric. The same setting applies to all per-process top-N metrics (latency, depth, utilization).
 
-**Cardinality estimate** for a cluster of 500 nodes with `LatencyTopN=50`:
-- Distribution: 500 x 12 series = 6,000
-- Max + Count gauges: 500 x 2 = 1,000
-- Top-N gauges: 500 x 50 = 25,000
-- Total: ~32,000 series
+### Mailbox Depth Metrics
 
-The collection uses `Node.ProcessRangeShortInfo()` to iterate over all processes efficiently in a single pass, computing the distribution, max, stressed count, and top-N simultaneously using a min-heap for O(N) selection.
+The metrics actor collects per-process mailbox queue depth -- the number of messages waiting in the mailbox at the moment of collection. While latency measures how long the oldest message has been waiting, depth measures how many messages are queued. The two metrics are complementary: a process may have high depth with low latency if it processes messages quickly but receives many at once, or low depth with high latency if a single message is taking a long time to process.
+
+No build tags required. Depth metrics are always active.
+
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `ergo_mailbox_depth_distribution` | Gauge | `range` | Number of processes in each depth range. Snapshot per collect cycle. |
+| `ergo_mailbox_depth_max` | Gauge | - | Maximum mailbox depth across all processes on this node. |
+| `ergo_mailbox_depth_top` | Gauge | `pid`, `name`, `application`, `behavior` | Top-N processes by mailbox depth. |
+
+Distribution ranges: 1, 5, 10, 50, 100, 500, 1K, 5K, 10K, 10K+. Each range represents an upper boundary. Processes with empty mailboxes are not counted.
+
+### Process Utilization Metrics
+
+The metrics actor collects per-process utilization -- the ratio of callback running time to process uptime. A process that has been alive for 100 seconds and spent 30 of those seconds inside callbacks has a utilization of 0.30 (30%). This is a lifetime average computed from cumulative counters that the framework maintains for each process. It answers the question "which actors have been busiest over their entire lifetime?"
+
+Utilization is not the same as current CPU load. A process that was heavily loaded an hour ago but is idle now will still show high lifetime utilization. For current load, the dashboard provides `rate(ergo_process_running_time_seconds)` which shows how much callback time is happening right now per second.
+
+No build tags required. Utilization metrics are always active.
+
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `ergo_process_utilization_distribution` | Gauge | `range` | Number of processes in each utilization range. Snapshot per collect cycle. |
+| `ergo_process_utilization_max` | Gauge | - | Maximum process utilization on this node. |
+| `ergo_process_utilization_top` | Gauge | `pid`, `name`, `application`, `behavior` | Top-N processes by utilization. |
+
+Distribution ranges: 1%, 5%, 10%, 25%, 50%, 75%, 90%, 90%+. Processes with zero running time or zero uptime are excluded. Utilization is capped at 1.0 (100%).
+
+### Process Aggregate Metrics
+
+The metrics actor computes node-level aggregate counters by summing per-process values across all processes on the node. These provide a high-level view of how much work the node is doing without the cardinality cost of per-process series.
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `ergo_process_messages_in` | Gauge | Sum of messages received by all processes on this node. |
+| `ergo_process_messages_out` | Gauge | Sum of messages sent by all processes on this node. |
+| `ergo_process_running_time_seconds` | Gauge | Sum of callback running time across all processes on this node (seconds). |
+
+These are cumulative values -- apply `rate()` in Prometheus to get per-second rates. When a process terminates, its contribution is removed from the sum, which may cause the aggregate to decrease momentarily. This is expected and `rate()` handles it correctly in most cases.
+
+`rate(ergo_process_messages_in)` and `rate(ergo_process_messages_out)` give the node-level message throughput in messages per second. `rate(ergo_process_running_time_seconds)` gives the node-level actor CPU utilization in seconds of callback execution per second -- when this value approaches the number of available CPU cores, the node is compute-saturated.
+
+### Per-Process Metrics Collection
+
+All per-process metrics (latency, depth, utilization, aggregates) are collected in a single pass using `Node.ProcessRangeShortInfo()`. The iterator visits each process once, and each observation is dispatched to the latency, depth, and utilization collectors simultaneously. Top-N selection uses a min-heap for O(N) efficiency. This design ensures that adding more metric types does not multiply the number of iterations over the process table.
+
+### Cardinality
+
+For a cluster of 500 nodes with `TopN=50`:
+
+- Depth distribution + max + top-N: 500 x (10 + 1 + 50) = 30,500
+- Utilization distribution + max + top-N: 500 x (8 + 1 + 50) = 29,500
+- Aggregates: 500 x 3 = 1,500
+- Latency distribution + max + count + top-N: 500 x (12 + 2 + 50) = 32,000 (with `-tags=latency`)
+- Total without latency: ~61,500 series
+- Total with latency: ~93,500 series
+
+For a typical cluster of 30 nodes, the total is approximately 6,000 series (or 10,000 with latency). At a 15-second Prometheus scrape interval and default 15-day retention, this amounts to roughly 1.3 GB of disk space -- negligible for any modern monitoring setup.
 
 ## Custom Metrics
 
@@ -249,6 +307,7 @@ type AppMetrics struct {
     metrics.Actor
 
     requestsTotal  prometheus.Counter
+    errorsTotal    prometheus.Counter
     requestLatency prometheus.Histogram
 }
 
@@ -258,13 +317,18 @@ func (m *AppMetrics) Init(args ...any) (metrics.Options, error) {
         Help: "Total requests processed",
     })
 
+    m.errorsTotal = prometheus.NewCounter(prometheus.CounterOpts{
+        Name: "myapp_errors_total",
+        Help: "Total errors occurred",
+    })
+
     m.requestLatency = prometheus.NewHistogram(prometheus.HistogramOpts{
         Name:    "myapp_request_duration_seconds",
         Help:    "Request latency distribution",
         Buckets: prometheus.DefBuckets,
     })
 
-    m.Registry().MustRegister(m.requestsTotal, m.requestLatency)
+    m.Registry().MustRegister(m.requestsTotal, m.errorsTotal, m.requestLatency)
 
     return metrics.Options{Port: 9090}, nil
 }
@@ -350,13 +414,17 @@ The dashboard includes a `$node` variable dropdown that filters all panels by se
 
 ### Understanding the Panels
 
-The dashboard organizes metrics into logical groups that answer operational questions:
+The dashboard organizes metrics into logical groups arranged from high-level overview at the top to detailed breakdowns below. Rows marked "collapsed" are hidden by default -- click the row header to expand them.
 
-**Summary Row** - Six stat panels showing aggregated values: total processes, running processes, zombie count (red when non-zero), memory used, memory allocated, and node count. These provide immediate cluster health at a glance. A gap between total and running processes indicates idle capacity or blocked processes. Non-zero zombies require investigation.
+**Summary Row** (expanded) - Six stat panels showing aggregated values: total processes, running processes, zombie count (red when non-zero), memory used, memory allocated, and node count. These provide immediate cluster health at a glance. A gap between total and running processes indicates idle capacity or blocked processes. Non-zero zombies require investigation.
 
-**Mailbox Latency** (expanded row, requires `-tags=latency`) - Appears right after the Summary row. Contains six panels for latency analysis described in detail in the next section. When the `latency` tag is not used, these panels show "No data".
+**Mailbox Latency** (expanded, requires `-tags=latency`) - Six panels for latency analysis described in detail in the next section. When the `latency` tag is not used, these panels show "No data".
 
-**Processes** (collapsed row) - Four timeseries panels showing per-node process counts (total and running) and lifecycle rates (spawn rate with failures in red, termination rate). Click the row header to expand. Steady growth in total without plateau suggests process leaks. Compare running counts across nodes to identify load imbalance. Spawn failures indicate resource exhaustion. When termination rate exceeds spawn rate, the node is draining.
+**Mailbox Depth** (collapsed) - Three panels showing mailbox queue depth. Max Depth per Node tracks the largest mailbox on each node over time. Depth Distribution is a stacked area chart with a flame color gradient (green for 1-10 messages, yellow for 50-100, orange for 500-1K, red for 5K-10K+) showing how many processes fall into each depth range. Top Processes by Depth is a table listing the processes with the deepest queues across the cluster. Depth is complementary to latency: depth tells you "how many messages are queued," while latency tells you "how long the oldest one has been waiting."
+
+**Process Activity** (collapsed) - Four panels covering utilization and throughput. Utilization Distribution is a stacked area chart showing how many processes fall into each utilization range (1% through 90%+), using a flame gradient from green to red. Message Throughput per Node shows `rate(messages_in)` and `rate(messages_out)` per node in messages per second. Top Processes by Utilization is a table showing the busiest actors by lifetime utilization. Actor Running Time per Node shows `rate(running_time_seconds)` per node -- effectively the node-level actor CPU utilization. When this value approaches the available CPU core count, the node is compute-saturated.
+
+**Processes** (collapsed) - Four timeseries panels showing per-node process counts (total and running) and lifecycle rates (spawn rate with failures in red, termination rate). Steady growth in total without plateau suggests process leaks. Spawn failures indicate resource exhaustion. When termination rate exceeds spawn rate, the node is draining.
 
 **CPU** - User and system CPU time normalized by core count, displayed as percentages. High user CPU means compute-bound workload. High system CPU relative to user suggests excessive I/O or syscalls rather than application work.
 
@@ -368,71 +436,80 @@ The dashboard organizes metrics into logical groups that answer operational ques
 
 **Nodes Overview** - A table listing all nodes with uptime, process counts, and memory. Sorted by process count. Quickly identifies recently restarted nodes (low uptime), overloaded nodes (high process count), or unhealthy nodes (non-zero zombies).
 
-### Reading the Latency Dashboard
+### Working with the Dashboard
 
-The latency row is the primary tool for answering "are my actors keeping up with their workload?" It contains six panels organized in three tiers: cluster overview at the top, per-node breakdown in the middle, and detailed drill-down at the bottom.
+The dashboard is designed around a top-down investigation pattern. You start with high-level signals that tell you whether something is wrong, then drill into progressively more specific panels to understand what, where, and why. This section describes the investigation flow.
 
-#### Start with the top row
+#### Routine check
 
-The **Max Latency** panel (left) and **Stressed Processes** panel (right) sit at the top of the latency section. Together they answer the most basic operational question: is there a problem right now?
+Open the dashboard and look at the Summary row. Six stat panels at the top answer the first question: is the cluster intact?
 
-Max Latency shows the highest mailbox latency across all selected nodes as a red timeseries. The value represents how long the oldest unprocessed message has been sitting in some process's mailbox. Under normal conditions this stays under 100ms. Values above 1 second mean at least one process is significantly behind -- it is either overloaded, stuck in a long-running callback, or waiting for an external resource.
+- **Zombie count should be zero.** Non-zero means processes have terminated abnormally and were not cleaned up. This requires immediate investigation.
+- **Node count should match your expectation.** A missing node means it has left the cluster or lost connectivity.
+- **Memory used should be within expected bounds.** A sharp increase since the last check suggests a leak or a load spike.
 
-Stressed Processes shows a stacked area chart with two layers. The light-blue area represents processes with latency under 1ms -- these are technically non-empty mailboxes but the delay is negligible and considered normal operation. The orange area represents processes with latency of 1ms or above -- these are the ones worth investigating. In a healthy system the orange area should be absent or thin. A growing orange area indicates that more and more processes are falling behind.
+If the Summary looks normal and you have latency enabled, glance at the Latency row directly below. If Max Latency is under 100ms and the Stressed Processes panel is mostly empty or light-blue -- the system is healthy. Routine check complete.
 
-If both panels look calm -- Max Latency under 100ms, no orange in Stressed Processes -- the system is healthy. No further investigation needed.
+If you are not using `-tags=latency`, expand the Mailbox Depth row instead. Max Depth per Node is the closest equivalent to Max Latency as a backpressure signal. If all nodes show zero or low depth, the system is healthy. For a deeper routine check, expand the Process Activity row and glance at Message Throughput -- a sudden drop compared to the previous period may indicate stalled processes even when depth looks normal.
 
-#### React to these signals
+#### Something is wrong: start with latency
 
-**Max Latency spikes above 1 second.** At least one process is severely behind. This is the strongest signal that something is wrong. Scroll down to the Top Stressed Processes table to identify the specific process by its application, behavior, name, and PID.
+When a problem is detected -- alerts fire, users report slowness, or the Summary shows unusual values -- the latency panels are the first place to investigate. They answer "are my actors keeping up with their workload?"
 
-**Orange area growing in Stressed Processes.** Multiple processes are accumulating latency. This is broader than a single stuck process -- it suggests the node or cluster is under general pressure. Look at the Latency Distribution panel to understand how the latency is spread across ranges. Check the CPU panels to see if the system is compute-bound.
+If you are not using `-tags=latency`, skip to the Mailbox Depth row. Rising depth on a node means processes are receiving messages faster than they can handle them. Use the Depth Distribution panel to assess severity and the Top Processes by Depth table to identify the specific actors. Then continue with the "Understand severity" and "Correlate across panels" sections below -- they apply regardless of whether latency is enabled.
 
-**A spike in Max Latency followed by a quick return to normal.** A temporary burst of load that the system recovered from. Compare the timing with the Process Spawn Rate panel (in the collapsed Processes row) to see if the spike correlates with a batch of new processes starting up or a restart event.
+The **Max Latency** panel shows the highest mailbox latency across all selected nodes as a red timeseries. Under normal conditions this stays under 100ms. Values above 1 second mean at least one process is significantly behind -- it is either overloaded, stuck in a long-running callback, or waiting for an external resource.
 
-**Max Latency persistently elevated (minutes, not seconds).** A process is stuck. It has a message in its mailbox that arrived long ago and has not been processed. This is different from overload -- overload causes latency to fluctuate with traffic, while a stuck process shows a steadily increasing or flat high value. Identify the process in the Top Stressed Processes table and investigate its behavior.
+The **Stressed Processes** panel shows a stacked area chart with two layers. Light-blue represents processes with latency under 1ms (negligible, normal operation). Orange represents processes with latency of 1ms or above (worth investigating). A growing orange area means more processes are falling behind over time.
 
-#### Identify the node
+Read these two panels together:
 
-The middle tier contains **Max Latency per Node** (left) and **Stressed Processes per Node** (right). These panels break down the cluster-wide values into individual nodes.
+- **Max Latency spikes above 1 second** -- at least one process is severely behind. Scroll down to the Top Stressed Processes table to identify it by application, behavior, name, and PID.
+- **Orange area growing in Stressed Processes** -- multiple processes are accumulating latency. The problem is broader than a single actor. Check the Latency Distribution to understand severity, and the CPU panels to see if the system is compute-bound.
+- **Max Latency spike followed by quick return to normal** -- a temporary burst. Compare timing with Process Spawn Rate in the Processes row to check for lifecycle event correlation.
+- **Max Latency persistently elevated (minutes, not seconds)** -- a stuck process. Unlike overload (which fluctuates with traffic), a stuck process shows a steadily increasing or flat high value. Find it in the Top Stressed Processes table.
 
-If one node shows high latency while others are calm, the problem is localized. That specific node may be overloaded, running a stuck process, or experiencing resource constraints. Cross-reference with the CPU, Memory, and Network panels for that node.
+#### Narrow down: node or cluster?
 
-If multiple nodes show similar latency patterns, the problem is systemic. Common causes include a shared external dependency that is slow, a distributed traffic pattern that overwhelms multiple nodes simultaneously, or a deployment issue affecting the entire cluster.
+The **Max Latency per Node** and **Stressed Processes per Node** panels break the cluster-wide picture into individual nodes.
 
-The relationship between per-node max latency and per-node stressed count is informative. A node with high max latency but low stressed count has one problematic process while the rest are fine. A node with moderate latency but high stressed count is generally overloaded -- many processes are all slightly behind.
+If one node stands out while others are calm, the problem is localized. Cross-reference with CPU, Memory, and Network panels for that node. A node with high max latency but low stressed count has one problematic process. A node with moderate latency but high stressed count is generally overloaded.
 
-#### Understand the distribution
+If multiple nodes show similar patterns, the problem is systemic -- a shared external dependency, a cluster-wide traffic pattern, or a deployment issue.
 
-The **Latency Distribution** panel shows a stacked area chart where each layer represents a latency range. The color gradient runs from green (1ms, 5ms, 10ms) through yellow (50ms, 100ms) to orange (500ms, 1s) and red/dark-red (5s, 10s, 30s, 60s, 60s+). The legend is sorted from highest to lowest range.
+#### Understand severity: the distribution panels
 
-In a healthy system, the chart is predominantly green or empty. Processes with latency under 10ms are operating normally -- the delay is within typical scheduling jitter.
+The **Latency Distribution** panel shows a stacked area chart where each layer represents a latency range. Colors run from green (1ms-10ms, normal) through yellow (50ms-100ms, elevated) to orange (500ms-1s, concerning) and red (5s-60s+, critical). The legend is sorted from highest to lowest range.
 
-Yellow layers (50ms-100ms) appearing during traffic spikes are acceptable if they disappear when the spike ends. Persistent yellow suggests the system is running near capacity.
+This panel distinguishes two scenarios that look similar in Max Latency: one stuck process (a single red sliver at the top of an otherwise green chart) versus widespread degradation (the entire chart shifting from green toward orange). The first requires investigating a specific process. The second requires scaling or load shedding.
 
-Orange and red layers indicate processes that are seriously behind. Even a thin red sliver means some process has latency measured in seconds. Look at the Top Stressed Processes table to find it.
+The **Depth Distribution** panel (expand the Mailbox Depth row) provides a complementary view. Where latency distribution shows how long messages wait, depth distribution shows how many messages are queued. The color gradient follows the same flame convention: green for 1-10 messages, yellow for 50-100, red for 5K-10K+. A process with high depth but low latency processes messages quickly but receives many at once. A process with low depth but high latency is slow but not overwhelmed.
 
-The distribution panel is particularly useful for distinguishing between two scenarios that look similar in the Max Latency panel: one stuck process (a single red sliver while the rest is green) versus widespread degradation (the entire chart shifting from green toward orange). The former requires investigating a specific process; the latter requires scaling or load-shedding.
+The **Utilization Distribution** panel (expand the Process Activity row) shows the fraction of lifetime each process spends inside callbacks. Most processes should be in the low ranges (1%-10%). A shift toward higher ranges (50%+) across many processes means the cluster is running compute-heavy workloads and may need scaling.
 
 #### Find the specific process
 
-The **Top Stressed Processes** table at the bottom lists up to 50 processes with the highest mailbox latency across the cluster. Columns include Application, Behavior, Name, PID, Node, and Latency (plus Kubernetes labels when running in a containerized environment). The table is sorted by latency in descending order.
+Each metric group has a top-N table at the bottom of its row:
 
-This table directly answers "which process is the bottleneck?" The Application and Behavior columns tell you what kind of actor it is. The Name column gives its registered name if it has one. The Node column tells you where it runs.
+- **Top Stressed Processes** (Latency row) -- processes with the highest mailbox latency. Answers "which process is the bottleneck?"
+- **Top Processes by Depth** (Mailbox Depth row) -- processes with the deepest queues. Answers "which process has the most messages waiting?"
+- **Top Processes by Utilization** (Process Activity row) -- processes that spend the most time in callbacks. Answers "which process is doing the most work?"
 
-Multiple entries from the same application suggest that application is under pressure as a whole. A single entry with extreme latency (minutes) while others are in milliseconds points to a stuck or blocked process that needs specific investigation -- see the [Debugging](../../advanced/debugging.md) section for techniques to identify what a stuck process is doing.
+All tables show Application, Behavior, Name, PID, Node, and the metric value (plus Kubernetes labels when available). Multiple entries from the same application suggest that application is under pressure as a whole. A single entry with extreme values points to a specific process that needs investigation -- see the [Debugging](../../advanced/debugging.md) section for techniques.
 
-#### Correlate with other panels
+#### Correlate across panels
 
-Latency data becomes most useful when combined with other dashboard panels:
+Individual metrics become most powerful when combined:
 
-- **High latency + high CPU** -- processes are compute-bound. The actors are doing heavy work in their callbacks and cannot keep up with the message rate. Consider distributing work across more processes or offloading expensive computation.
-
-- **High latency + low CPU** -- processes are blocked on something other than computation. Common causes: waiting for external I/O (database, HTTP calls), waiting for responses from other actors via synchronous calls, or contention on shared resources.
-
-- **High latency + growing memory** -- mailboxes are accumulating messages faster than processes can handle them. The unprocessed messages consume memory. If this continues, the node will eventually run out of memory.
-
-- **High latency + network traffic spike** -- a burst of remote messages is overwhelming the receiving processes. Check the Network per Node and Network Detail panels to identify which node-to-node link is responsible.
+- **High latency + high depth** -- the process is both slow and receiving more messages than it can handle. The mailbox is growing. This is the clearest sign of overload.
+- **High latency + low depth** -- a single message is being processed slowly (long-running callback) or the process is blocked waiting for something. The mailbox is not growing because new messages are not arriving.
+- **High depth + low latency** -- the process receives bursts but processes them quickly. The depth spikes are transient. Usually not a problem unless the bursts grow over time.
+- **High latency + high CPU** -- processes are compute-bound. Actors are doing heavy work in callbacks and cannot keep up with the message rate. Consider distributing work across more processes or offloading expensive computation.
+- **High latency + low CPU** -- processes are blocked on something other than computation. Common causes: waiting for external I/O, waiting for responses from other actors via synchronous calls, or contention on shared resources.
+- **High latency + growing memory** -- mailboxes are accumulating messages faster than processes can handle them. The unprocessed messages consume memory. If this continues, the node will run out of memory.
+- **High latency + network traffic spike** -- a burst of remote messages is overwhelming the receiving processes. Check Network per Node and Network Detail panels to identify the responsible link.
+- **Running time per node approaching CPU core count** -- the node is compute-saturated. All available CPU time is spent inside actor callbacks. Either reduce the workload or add capacity.
+- **Message throughput drop with stable process count** -- processes are alive but not doing work. They may be blocked on external calls or waiting for messages that are no longer arriving (upstream failure).
 
 ## Observer Integration
 
@@ -459,4 +536,4 @@ func (m *AppMetrics) HandleInspect(from gen.PID, item ...string) map[string]stri
 }
 ```
 
-For detailed configuration options, see the `metrics.Options` struct and `ActorBehavior` interface in the package. For examples of custom metrics, see the [example directory](https://github.com/ergo-services/actor/tree/main/metrics/example).
+For detailed configuration options, see the `metrics.Options` struct and `ActorBehavior` interface in the package. For examples of custom metrics, see the [metrics actor repository](https://github.com/ergo-services/actor).
