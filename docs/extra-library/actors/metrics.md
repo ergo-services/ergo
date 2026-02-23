@@ -20,6 +20,8 @@ The metrics actor addresses this by tracking:
 
 **Network metrics** - For distributed Ergo clusters, tracking bytes and messages flowing between nodes reveals network bottlenecks, routing inefficiencies, or failing connections.
 
+**Event metrics** - For pub/sub events, tracking which events have the most subscribers, which generate the most delivery load, and which are wasteful (publishing into the void or registered but unused). These reveal whether your event-driven architecture is efficient or accumulating overhead. See [Events](../../basics/events.md) for the pub/sub model and [Pub/Sub Internals](../../advanced/pub-sub-internals.md) for the shared subscription optimization that affects how delivery counters work.
+
 **Application metrics** - How many applications are loaded and running. Applications failing to start or terminating unexpectedly appear in these counts.
 
 These base metrics provide system-level visibility. For application-specific metrics (request rates, business transactions, custom counters), you extend the metrics actor with your own Prometheus collectors.
@@ -58,7 +60,7 @@ When you spawn the metrics actor:
 
 1. **HTTP endpoint starts** at the configured host and port. The `/metrics` endpoint immediately serves Prometheus-formatted data.
 
-2. **Base metrics collect automatically**. Node information (processes, memory, CPU), network statistics (connected nodes, message rates), and per-process metrics (mailbox depth, utilization, latency, aggregates) update at the configured interval.
+2. **Base metrics collect automatically**. Node information (processes, memory, CPU), network statistics (connected nodes, message rates), per-process metrics (mailbox depth, utilization, latency, aggregates), and per-event metrics (subscriber distribution, delivery rates, waste patterns) update at the configured interval.
 
 3. **Custom metrics update** via `CollectMetrics()` callback or `HandleMessage()` processing, depending on your implementation.
 
@@ -108,7 +110,7 @@ options := metrics.Options{
     Host:            "0.0.0.0",        // Listen on all interfaces
     Port:            9090,              // Prometheus default port
     CollectInterval: 5 * time.Second,  // Collect every 5 seconds
-    TopN:            50,               // Top-N processes for each metric group
+    TopN:            50,               // Top-N entries for each metric group (processes and events)
 }
 
 node.Spawn(metrics.Factory, gen.ProcessOptions{}, options)
@@ -118,7 +120,7 @@ node.Spawn(metrics.Factory, gen.ProcessOptions{}, options)
 
 **Port** should not conflict with other services. Prometheus conventionally uses `9090`, but many Ergo applications use that for other purposes. Choose a port that doesn't collide with your application's HTTP servers, Observer UI (default `9911`), or other metrics exporters.
 
-**TopN** sets how many top processes are tracked for each per-process metric group -- mailbox depth, utilization, and latency (default: 50). Higher values provide more visibility but increase Prometheus cardinality. Set to 0 is not supported; the minimum effective value is 1.
+**TopN** sets how many top entries are tracked for each metric group -- mailbox depth, utilization, latency for processes, and subscribers, published, local sent, remote sent for events (default: 50). Higher values provide more visibility but increase Prometheus cardinality. Set to 0 is not supported; the minimum effective value is 1.
 
 **CollectInterval** controls how frequently the actor queries node statistics. Shorter intervals provide more granular time-series data but increase CPU usage for collection. Longer intervals reduce overhead but miss short-lived spikes. For most applications, 10-15 seconds balances responsiveness with resource usage. Prometheus typically scrapes every 15-60 seconds, so collecting more frequently than your scrape interval wastes resources.
 
@@ -146,7 +148,10 @@ The metrics actor automatically exposes these Prometheus metrics without any con
 | `ergo_applications_running` | Gauge | Applications currently active. Compare to total to identify stopped or failed applications. |
 | `ergo_registered_names_total` | Gauge | Processes registered with atom names. High counts suggest heavy use of named processes for routing. |
 | `ergo_registered_aliases_total` | Gauge | Total number of registered aliases. Includes aliases created by processes via `CreateAlias()` and aliases identifying meta-processes. |
-| `ergo_registered_events_total` | Gauge | Event subscriptions active in the node. High counts indicate extensive pub/sub usage. |
+| `ergo_registered_events_total` | Gauge | Total number of registered events on this node. |
+| `ergo_events_published_total` | Gauge | Cumulative number of events published on this node. Includes both local producer publishes and events arriving from remote nodes. Use `rate()` to get publish throughput. |
+| `ergo_events_local_sent_total` | Gauge | Cumulative number of event messages delivered to local subscribers. This reflects the actual fanout load -- a single publish with 100 subscribers produces 100 local deliveries. |
+| `ergo_events_remote_sent_total` | Gauge | Cumulative number of event messages sent to remote nodes. Due to shared subscription optimization, one message is sent per remote node regardless of how many subscribers that node has. See [Pub/Sub Internals](../../advanced/pub-sub-internals.md). |
 
 ### Network Metrics
 
@@ -226,22 +231,37 @@ These are cumulative values -- apply `rate()` in Prometheus to get per-second ra
 
 `rate(ergo_process_messages_in)` and `rate(ergo_process_messages_out)` give the node-level message throughput in messages per second. `rate(ergo_process_running_time_seconds)` gives the node-level actor CPU utilization in seconds of callback execution per second -- when this value approaches the number of available CPU cores, the node is compute-saturated.
 
+### Event Metrics
+
+The metrics actor collects per-event pub/sub metrics using `Node.EventRangeInfo()`, which iterates over all registered events and returns their current statistics. This provides visibility into the pub/sub layer: which events have the most subscribers, which generate the most delivery load, and which are wasteful. The subscriber count for each event includes both `LinkEvent` and `MonitorEvent` subscribers.
+
+No build tags required. Event metrics are always active.
+
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `ergo_event_subscribers_distribution` | Gauge | `range` | Number of events in each subscriber count range. Snapshot per collect cycle. |
+| `ergo_event_subscribers_max` | Gauge | - | Maximum subscriber count across all events on this node. |
+| `ergo_event_waste` | Gauge | `reason` | Number of events with wasteful usage patterns. Snapshot per collect cycle. |
+| `ergo_event_subscribers_top` | Gauge | `event`, `producer` | Top-N events by subscriber count. |
+| `ergo_event_published_top` | Gauge | `event`, `producer` | Top-N events by messages published. |
+| `ergo_event_local_sent_top` | Gauge | `event`, `producer` | Top-N events by messages delivered to local subscribers. |
+| `ergo_event_remote_sent_top` | Gauge | `event`, `producer` | Top-N events by messages sent to remote nodes. |
+
+Subscriber distribution ranges: 0, 1, 2-5, 6-10, 11-50, 51-100, 101-500, 501-1K, 1K+. Each range represents an upper boundary. The "1K+" range counts events with more than 1000 subscribers.
+
+The waste metric classifies events into three patterns:
+
+- **`idle`** -- registered but has zero subscribers and zero publishes. A forgotten event consuming resources.
+- **`no_subscribers`** -- actively publishing but nobody is subscribed. The producer is doing work (serialization, message construction) for nothing. This often means the producer is not using the `Notify` option to detect when subscribers appear and disappear. See [Events](../../basics/events.md) for the `Notify` mechanism.
+- **`no_publishing`** -- has subscribers waiting but the producer has never published. Could be normal for lazy producers that start publishing on demand, or could indicate a bug where the producer is publishing to the wrong event name.
+
+Events that have both subscribers and publishes are considered healthy and are not counted in any waste category.
+
+The distinction between `published`, `local_sent`, and `remote_sent` in the top-N metrics reflects the pub/sub delivery model. A single publish fans out to all local subscribers (so `local_sent` can be much larger than `published`) and sends one message per remote subscriber node (due to the [shared subscription optimization](../../advanced/pub-sub-internals.md)). Comparing these values reveals the actual delivery cost of each event.
+
 ### Per-Process Metrics Collection
 
-All per-process metrics (latency, depth, utilization, aggregates) are collected in a single pass using `Node.ProcessRangeShortInfo()`. The iterator visits each process once, and each observation is dispatched to the latency, depth, and utilization collectors simultaneously. Top-N selection uses a min-heap for O(N) efficiency. This design ensures that adding more metric types does not multiply the number of iterations over the process table.
-
-### Cardinality
-
-For a cluster of 500 nodes with `TopN=50`:
-
-- Depth distribution + max + top-N: 500 x (10 + 1 + 50) = 30,500
-- Utilization distribution + max + top-N: 500 x (8 + 1 + 50) = 29,500
-- Aggregates: 500 x 3 = 1,500
-- Latency distribution + max + count + top-N: 500 x (12 + 2 + 50) = 32,000 (with `-tags=latency`)
-- Total without latency: ~61,500 series
-- Total with latency: ~93,500 series
-
-For a typical cluster of 30 nodes, the total is approximately 6,000 series (or 10,000 with latency). At a 15-second Prometheus scrape interval and default 15-day retention, this amounts to roughly 1.3 GB of disk space -- negligible for any modern monitoring setup.
+All per-process metrics (latency, depth, utilization, aggregates) are collected in a single pass using `Node.ProcessRangeShortInfo()`. The iterator visits each process once, and each observation is dispatched to the latency, depth, and utilization collectors simultaneously. Event metrics are collected separately using `Node.EventRangeInfo()`, which iterates over all registered events. Both iterators use snapshot-then-iterate: the data is captured under a read lock, then the lock is released before the callback runs, so collection does not block producers or subscribers. Top-N selection uses a min-heap for O(N) efficiency.
 
 ## Custom Metrics
 
@@ -421,6 +441,8 @@ The dashboard organizes metrics into logical groups arranged from high-level ove
 **Mailbox Latency** (expanded, requires `-tags=latency`) - Six panels for latency analysis described in detail in the next section. When the `latency` tag is not used, these panels show "No data".
 
 **Mailbox Depth** (expanded) - Three panels showing mailbox queue depth. Max Depth per Node tracks the largest mailbox on each node over time. Depth Distribution is a stacked area chart with a flame color gradient (green for 1-10 messages, yellow for 50-100, orange for 500-1K, red for 5K-10K+) showing how many processes fall into each depth range. Top Processes by Depth is a table listing the processes with the deepest queues across the cluster. Depth is complementary to latency: depth tells you "how many messages are queued," while latency tells you "how long the oldest one has been waiting."
+
+**Events** (collapsed) - Nine panels for pub/sub event observability, organized from general to specific. Event Publish/Delivery Rate shows cluster-wide throughput with three lines: Published (how often producers publish), Local Delivered (actual fanout to local subscribers -- typically much higher than Published when events have many subscribers), and Remote Sent (one message per remote node due to [shared subscriptions](../../advanced/pub-sub-internals.md)). Event Waste is a stacked timeseries showing events with wasteful patterns: idle (registered but unused), no subscribers (publishing into the void), and no publishing (subscribers waiting). Registered Events per Node and Max Subscribers per Node provide per-node breakdown. Subscriber Distribution is a full-width stacked chart showing how events are distributed by subscriber count (0 to 1K+). Four tables at the bottom show Top Events by Subscribers, Published, Local Deliveries, and Remote Sent -- identifying which specific events create the most load. See [Events](../../basics/events.md) for the pub/sub model.
 
 **Process Activity** (collapsed) - Four panels covering utilization and throughput. Utilization Distribution is a stacked area chart showing how many processes fall into each utilization range (1% through 90%+), using a flame gradient from green to red. Message Throughput per Node shows `rate(messages_in)` and `rate(messages_out)` per node in messages per second. Top Processes by Utilization is a table showing the busiest actors by lifetime utilization. Actor Running Time per Node shows `rate(running_time_seconds)` per node -- effectively the node-level actor CPU utilization. When this value approaches the available CPU core count, the node is compute-saturated.
 

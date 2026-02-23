@@ -104,6 +104,36 @@ Each `gen.MessageEvent` contains:
 
 Subscribers receive these wrapped messages and extract the application data. The wrapping provides context: which event this came from, when it was published, allowing subscribers to handle events from multiple sources or correlate timing.
 
+## Event Statistics
+
+Each registered event tracks per-event counters: how many messages were published, how many were delivered to local subscribers, and how many were sent to remote nodes. These counters are available through `Node.EventInfo` and `Node.EventRangeInfo`.
+
+To query a specific event:
+
+```go
+info, err := node.EventInfo(gen.Event{Name: "price_update", Node: "node@host"})
+// info.MessagesPublished  - total messages published to this event
+// info.MessagesLocalSent  - messages delivered to local subscribers
+// info.MessagesRemoteSent - messages sent to remote subscriber nodes
+// info.Subscribers        - current subscriber count
+```
+
+To iterate over all registered events on the node:
+
+```go
+node.EventRangeInfo(func(info gen.EventInfo) bool {
+    fmt.Printf("event %s: published %d, local %d, remote %d\n",
+        info.Event.Name,
+        info.MessagesPublished,
+        info.MessagesLocalSent,
+        info.MessagesRemoteSent,
+    )
+    return true // continue iteration
+})
+```
+
+Node-level aggregate counters are also available in `gen.NodeInfo` via `node.Info()`: `EventsPublished`, `EventsLocalSent`, and `EventsRemoteSent` sum across all events on the node.
+
 ## Practical Patterns
 
 Events fit several common scenarios.

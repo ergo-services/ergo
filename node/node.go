@@ -717,6 +717,12 @@ func (n *node) Info() (gen.NodeInfo, error) {
 		return true
 	})
 
+	tmInfo := n.targets.Info()
+	info.RegisteredEvents = tmInfo.Events
+	info.EventsPublished = tmInfo.EventsPublished
+	info.EventsLocalSent = tmInfo.EventsLocalSent
+	info.EventsRemoteSent = tmInfo.EventsRemoteSent
+
 	info.ApplicationsTotal = int64(len(n.Applications()))
 	info.ApplicationsRunning = int64(len(n.ApplicationsRunning()))
 
@@ -1070,6 +1076,20 @@ func (n *node) UnregisterEvent(name gen.Atom) error {
 
 	n.log.Trace("node.UnregisterEvent %s", name)
 	return n.unregisterEvent(name, n.corePID)
+}
+
+func (n *node) EventInfo(event gen.Event) (gen.EventInfo, error) {
+	if n.isRunning() == false {
+		return gen.EventInfo{}, gen.ErrNodeTerminated
+	}
+	return n.targets.EventInfo(event)
+}
+
+func (n *node) EventRangeInfo(fn func(gen.EventInfo) bool) error {
+	if n.isRunning() == false {
+		return gen.ErrNodeTerminated
+	}
+	return n.targets.EventRangeInfo(fn)
 }
 
 func (n *node) SendExit(pid gen.PID, reason error) error {

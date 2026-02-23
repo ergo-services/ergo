@@ -609,6 +609,14 @@ func (tn *TestNode) UnregisterEvent(name gen.Atom) error {
 	return nil
 }
 
+func (tn *TestNode) EventInfo(event gen.Event) (gen.EventInfo, error) {
+	return gen.EventInfo{}, gen.ErrEventUnknown
+}
+
+func (tn *TestNode) EventRangeInfo(fn func(gen.EventInfo) bool) error {
+	return nil
+}
+
 func (tn *TestNode) SendExit(pid gen.PID, reason error) error {
 	// Check for failure injection
 	if err := tn.CheckMethodFailure("SendExit", pid, reason); err != nil {

@@ -16,7 +16,7 @@ When you start a node, you're launching a complete system with several subsystem
 
 **Network Stack** - The node handles all network communication. It discovers other nodes, establishes connections, encodes messages, and manages the complexity of distributed communication. This is what makes network transparency possible.
 
-**Pub/Sub System** - Links, monitors, and events all work through a publisher/subscriber mechanism in the node core. When a process terminates or an event fires, the node knows who's subscribed and delivers the notifications.
+**Pub/Sub System** - Links, monitors, and events all work through a publisher/subscriber mechanism in the node core. When a process terminates or an event fires, the node knows who's subscribed and delivers the notifications. The node provides `EventInfo` to query statistics for a specific event and `EventRangeInfo` for callback-based iteration over all registered events with their per-event counters (messages published, local/remote deliveries).
 
 **Logging** - Every log message goes through the node, which fans it out to registered loggers. This centralized logging makes it easy to capture, filter, and route log output.
 

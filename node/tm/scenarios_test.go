@@ -2622,8 +2622,8 @@ func TestStress_Event_ConcurrentOperations(t *testing.T) {
 
 	// eventsSent should be 100 * number_of_subscribers_at_publish_time
 	// (varies based on timing, but should be > 0)
-	if info.EventsSent == 0 {
-		t.Error("EventsSent should be > 0")
+	if info.EventsLocalSent == 0 {
+		t.Error("EventsLocalSent should be > 0")
 	}
 }
 

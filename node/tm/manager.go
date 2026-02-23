@@ -28,7 +28,8 @@ type targetManager struct {
 	downMessagesProduced  atomic.Int64
 	downMessagesDelivered atomic.Int64
 	eventsPublished       atomic.Int64
-	eventsSent            atomic.Int64
+	eventsLocalSent       atomic.Int64
+	eventsRemoteSent      atomic.Int64
 }
 
 type relationKey struct {
@@ -59,6 +60,11 @@ type eventEntry struct {
 	monitorSubscribersIndex map[gen.PID]int
 
 	subscriberCount int64
+
+	// Per-event statistics
+	messagesPublished  atomic.Int64
+	messagesLocalSent  atomic.Int64
+	messagesRemoteSent atomic.Int64
 }
 
 type Options struct{}
@@ -89,6 +95,7 @@ func (tm *targetManager) Info() gen.TargetManagerInfo {
 		DownMessagesProduced:  tm.downMessagesProduced.Load(),
 		DownMessagesDelivered: tm.downMessagesDelivered.Load(),
 		EventsPublished:       tm.eventsPublished.Load(),
-		EventsSent:            tm.eventsSent.Load(),
+		EventsLocalSent:      tm.eventsLocalSent.Load(),
+		EventsRemoteSent:     tm.eventsRemoteSent.Load(),
 	}
 }

@@ -33,6 +33,7 @@ type TargetManager interface {
 	UnregisterEvent(producer PID, name Atom) error
 	PublishEvent(from PID, token Ref, options MessageOptions, message MessageEvent) error
 	EventInfo(event Event) (EventInfo, error)
+	EventRangeInfo(fn func(EventInfo) bool) error
 
 	LinksFor(consumer PID) []any
 	MonitorsFor(consumer PID) []any
@@ -53,11 +54,15 @@ type TargetManager interface {
 
 // EventInfo contains event metadata and statistics
 type EventInfo struct {
-	Producer      PID
-	BufferSize    int
-	CurrentBuffer int
-	Notify        bool
-	Subscribers   int64
+	Event              Event
+	Producer           PID
+	BufferSize         int
+	CurrentBuffer      int
+	Notify             bool
+	Subscribers        int64
+	MessagesPublished  int64
+	MessagesLocalSent  int64
+	MessagesRemoteSent int64
 }
 
 type TargetManagerInfo struct {
@@ -71,5 +76,6 @@ type TargetManagerInfo struct {
 	DownMessagesProduced  int64 // Total down messages generated
 	DownMessagesDelivered int64 // Total down messages delivered
 	EventsPublished       int64 // Total events published
-	EventsSent            int64 // Total event messages sent to subscribers
+	EventsLocalSent       int64 // Total event messages sent to local subscribers
+	EventsRemoteSent      int64 // Total event messages sent to remote subscribers
 }

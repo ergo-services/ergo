@@ -198,12 +198,15 @@ func (tm *targetManager) publishEventLocalProducer(
 		}
 	}
 
+	// Increment per-event published counter under lock
+	entry.messagesPublished.Add(1)
+
 	// Copy slices under lock (minimize lock hold time)
 	linkSubs := entry.linkSubscribers
 	monitorSubs := entry.monitorSubscribers
 	tm.mutex.Unlock()
 
-	// Increment published counter
+	// Increment global published counter
 	tm.eventsPublished.Add(1)
 
 	// Collect local consumers and remote nodes (no lock needed)
@@ -231,7 +234,9 @@ func (tm *targetManager) publishEventLocalProducer(
 	// Send to local consumers directly
 	if len(localConsumers) > 0 {
 		tm.core.RouteSendEventMessages(from, localConsumers, options, message)
-		tm.eventsSent.Add(int64(len(localConsumers)))
+		n := int64(len(localConsumers))
+		entry.messagesLocalSent.Add(n)
+		tm.eventsLocalSent.Add(n)
 	}
 
 	// Send to remote nodes
@@ -241,7 +246,8 @@ func (tm *targetManager) publishEventLocalProducer(
 			continue
 		}
 		connection.SendEvent(from, options, message)
-		tm.eventsSent.Add(1)
+		entry.messagesRemoteSent.Add(1)
+		tm.eventsRemoteSent.Add(1)
 	}
 
 	return nil
@@ -272,7 +278,7 @@ func (tm *targetManager) publishEventRemoteProducer(
 
 	if len(localConsumers) > 0 {
 		tm.core.RouteSendEventMessages(from, localConsumers, options, message)
-		tm.eventsSent.Add(int64(len(localConsumers)))
+		tm.eventsLocalSent.Add(int64(len(localConsumers)))
 	}
 
 	return nil
@@ -754,14 +760,49 @@ func (tm *targetManager) EventInfo(event gen.Event) (gen.EventInfo, error) {
 
 	// Build event info
 	info := gen.EventInfo{
-		Producer:      entry.producer,
-		BufferSize:    entry.bufferSize,
-		CurrentBuffer: len(entry.buffer),
-		Notify:        entry.notify,
-		Subscribers:   entry.subscriberCount,
+		Event:              event,
+		Producer:           entry.producer,
+		BufferSize:         entry.bufferSize,
+		CurrentBuffer:      len(entry.buffer),
+		Notify:             entry.notify,
+		Subscribers:        entry.subscriberCount,
+		MessagesPublished:  entry.messagesPublished.Load(),
+		MessagesLocalSent:  entry.messagesLocalSent.Load(),
+		MessagesRemoteSent: entry.messagesRemoteSent.Load(),
 	}
 
 	return info, nil
+}
+
+func (tm *targetManager) EventRangeInfo(fn func(gen.EventInfo) bool) error {
+	tm.mutex.RLock()
+
+	// Snapshot event infos under lock
+	infos := make([]gen.EventInfo, 0, len(tm.events))
+	for event, entry := range tm.events {
+		info := gen.EventInfo{
+			Event:              event,
+			Producer:           entry.producer,
+			BufferSize:         entry.bufferSize,
+			CurrentBuffer:      len(entry.buffer),
+			Notify:             entry.notify,
+			Subscribers:        entry.subscriberCount,
+			MessagesPublished:  entry.messagesPublished.Load(),
+			MessagesLocalSent:  entry.messagesLocalSent.Load(),
+			MessagesRemoteSent: entry.messagesRemoteSent.Load(),
+		}
+		infos = append(infos, info)
+	}
+	tm.mutex.RUnlock()
+
+	// Iterate without lock
+	for _, info := range infos {
+		if fn(info) == false {
+			break
+		}
+	}
+
+	return nil
 }
 
 // Helper: get event buffer

@@ -305,6 +305,18 @@ type Node interface {
 	// Returns ErrNodeTerminated in other states, ErrEventUnknown if not found.
 	UnregisterEvent(name Atom) error
 
+	// EventInfo returns information about the given event.
+	// Available in: Running state only.
+	// Returns ErrNodeTerminated in other states, ErrEventUnknown if not found.
+	EventInfo(event Event) (EventInfo, error)
+
+	// EventRangeInfo iterates over all registered events calling fn for each.
+	// The callback receives EventInfo and returns true to continue
+	// or false to stop iteration.
+	// Available in: Running state only.
+	// Returns ErrNodeTerminated in other states.
+	EventRangeInfo(fn func(EventInfo) bool) error
+
 	// SendExit sends a graceful termination request to the process.
 	// Sender is the node's core PID.
 	// Available in: Running state only.
@@ -750,6 +762,15 @@ type NodeInfo struct {
 
 	// RegisteredEvents is the total number of registered events.
 	RegisteredEvents int64
+
+	// EventsPublished is the cumulative number of events published.
+	EventsPublished int64
+
+	// EventsLocalSent is the cumulative number of event messages sent to local subscribers.
+	EventsLocalSent int64
+
+	// EventsRemoteSent is the cumulative number of event messages sent to remote subscribers.
+	EventsRemoteSent int64
 
 	// ApplicationsTotal is the total number of loaded applications.
 	ApplicationsTotal int64
