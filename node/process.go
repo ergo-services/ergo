@@ -620,6 +620,7 @@ func (p *process) SendPID(to gen.PID, message any) error {
 		}
 
 		atomic.AddUint64(&p.messagesIn, 1)
+		atomic.AddUint64(&p.messagesOut, 1)
 		p.run()
 		return nil
 	}
@@ -944,6 +945,7 @@ func (p *process) SendExitMeta(alias gen.Alias, reason error) error {
 	}
 
 	atomic.AddUint64(&m.messagesIn, 1)
+	atomic.AddUint64(&metap.messagesIn, 1)
 	atomic.AddUint64(&p.messagesOut, 1)
 	m.handle()
 	return nil
@@ -1006,6 +1008,7 @@ func (p *process) SendExitMetaAfter(alias gen.Alias, reason error, after time.Du
 		}
 
 		atomic.AddUint64(&m.messagesIn, 1)
+		atomic.AddUint64(&metap.messagesIn, 1)
 		atomic.AddUint64(&p.messagesOut, 1)
 		m.handle()
 	}).Stop, nil
@@ -1320,6 +1323,7 @@ func (p *process) InspectMeta(alias gen.Alias, item ...string) (map[string]strin
 	}
 	atomic.AddUint64(&p.messagesOut, 1)
 	atomic.AddUint64(&m.messagesIn, 1)
+	atomic.AddUint64(&metap.messagesIn, 1)
 
 	if lib.Trace() {
 		m.log.Trace("Inspect meta %s with %s", alias, ref)

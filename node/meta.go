@@ -81,6 +81,7 @@ func (m *meta) SendResponse(to gen.PID, ref gen.Ref, message any) error {
 		return err
 	}
 	atomic.AddUint64(&m.messagesOut, 1)
+	atomic.AddUint64(&m.p.messagesOut, 1)
 	return nil
 }
 
@@ -103,6 +104,7 @@ func (m *meta) SendResponseError(to gen.PID, ref gen.Ref, err error) error {
 		return rerr
 	}
 	atomic.AddUint64(&m.messagesOut, 1)
+	atomic.AddUint64(&m.p.messagesOut, 1)
 	return nil
 }
 
@@ -187,6 +189,7 @@ func (m *meta) send(to any, message any) error {
 			// so we need to increase messagesIn counter there
 			// and run the process
 			atomic.AddUint64(&m.p.messagesIn, 1)
+			atomic.AddUint64(&m.p.messagesOut, 1)
 			m.p.run()
 
 			atomic.AddUint64(&m.messagesOut, 1)
@@ -213,6 +216,7 @@ func (m *meta) send(to any, message any) error {
 	}
 
 	atomic.AddUint64(&m.messagesOut, 1)
+	atomic.AddUint64(&m.p.messagesOut, 1)
 	return nil
 }
 

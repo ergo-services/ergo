@@ -217,17 +217,19 @@ No build tags required. Utilization metrics are always active.
 
 Distribution ranges: 1%, 5%, 10%, 25%, 50%, 75%, 90%, 90%+. Processes with zero running time or zero uptime are excluded. Utilization is capped at 1.0 (100%).
 
-### Process Aggregate Metrics
+### Process Throughput Metrics
 
-The metrics actor computes node-level aggregate counters by summing per-process values across all processes on the node. These provide a high-level view of how much work the node is doing without the cardinality cost of per-process series.
+The metrics actor tracks per-process message throughput (top-N by messages received and sent) and computes node-level aggregate counters by summing per-process values.
 
-| Metric | Type | Description |
-|--------|------|-------------|
-| `ergo_process_messages_in` | Gauge | Sum of messages received by all processes on this node. |
-| `ergo_process_messages_out` | Gauge | Sum of messages sent by all processes on this node. |
-| `ergo_process_running_time_seconds` | Gauge | Sum of callback running time across all processes on this node (seconds). |
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `ergo_process_messages_in_top` | Gauge | `pid`, `name`, `application`, `behavior` | Top-N processes by total messages received. Identifies which actors handle the most inbound traffic. |
+| `ergo_process_messages_out_top` | Gauge | `pid`, `name`, `application`, `behavior` | Top-N processes by total messages sent. Identifies which actors generate the most outbound traffic. |
+| `ergo_process_messages_in` | Gauge | - | Sum of messages received by all processes on this node. |
+| `ergo_process_messages_out` | Gauge | - | Sum of messages sent by all processes on this node. |
+| `ergo_process_running_time_seconds` | Gauge | - | Sum of callback running time across all processes on this node (seconds). |
 
-These are cumulative values -- apply `rate()` in Prometheus to get per-second rates. When a process terminates, its contribution is removed from the sum, which may cause the aggregate to decrease momentarily. This is expected and `rate()` handles it correctly in most cases.
+Aggregate values are cumulative -- apply `rate()` in Prometheus to get per-second rates. When a process terminates, its contribution is removed from the sum, which may cause the aggregate to decrease momentarily. This is expected and `rate()` handles it correctly in most cases.
 
 `rate(ergo_process_messages_in)` and `rate(ergo_process_messages_out)` give the node-level message throughput in messages per second. `rate(ergo_process_running_time_seconds)` gives the node-level actor CPU utilization in seconds of callback execution per second -- when this value approaches the number of available CPU cores, the node is compute-saturated.
 
@@ -239,29 +241,28 @@ No build tags required. Event metrics are always active.
 
 | Metric | Type | Labels | Description |
 |--------|------|--------|-------------|
-| `ergo_event_subscribers_distribution` | Gauge | `range` | Number of events in each subscriber count range. Snapshot per collect cycle. |
 | `ergo_event_subscribers_max` | Gauge | - | Maximum subscriber count across all events on this node. |
-| `ergo_event_waste` | Gauge | `reason` | Number of events with wasteful usage patterns. Snapshot per collect cycle. |
+| `ergo_event_utilization` | Gauge | `state` | Number of events in each utilization state. Snapshot per collect cycle. |
 | `ergo_event_subscribers_top` | Gauge | `event`, `producer` | Top-N events by subscriber count. |
 | `ergo_event_published_top` | Gauge | `event`, `producer` | Top-N events by messages published. |
 | `ergo_event_local_sent_top` | Gauge | `event`, `producer` | Top-N events by messages delivered to local subscribers. |
 | `ergo_event_remote_sent_top` | Gauge | `event`, `producer` | Top-N events by messages sent to remote nodes. |
 
-Subscriber distribution ranges: 0, 1, 2-5, 6-10, 11-50, 51-100, 101-500, 501-1K, 1K+. Each range represents an upper boundary. The "1K+" range counts events with more than 1000 subscribers.
+The utilization metric classifies every registered event into exactly one state:
 
-The waste metric classifies events into three patterns:
+- **`active`** -- has both published messages and subscribers. The event is doing its job -- producing and delivering messages.
+- **`on_demand`** -- the event was registered with `Notify` enabled and is currently waiting (either no subscribers yet, or subscribers present but producer hasn't started). This is the expected state for on-demand producers that use `MessageEventStart`/`MessageEventStop` to control when they publish. See [Events](../../basics/events.md) for the `Notify` mechanism.
+- **`idle`** -- registered without `Notify`, has zero subscribers and zero publishes. Likely a forgotten event consuming resources without purpose.
+- **`no_subscribers`** -- has published messages but currently no subscribers, registered without `Notify`. The producer is doing work (serialization, message construction) for nothing.
+- **`no_publishing`** -- has subscribers waiting but the producer has never published, registered without `Notify`. Could indicate a bug where the producer publishes to the wrong event name, or a producer that hasn't received its data source yet.
 
-- **`idle`** -- registered but has zero subscribers and zero publishes. A forgotten event consuming resources.
-- **`no_subscribers`** -- actively publishing but nobody is subscribed. The producer is doing work (serialization, message construction) for nothing. This often means the producer is not using the `Notify` option to detect when subscribers appear and disappear. See [Events](../../basics/events.md) for the `Notify` mechanism.
-- **`no_publishing`** -- has subscribers waiting but the producer has never published. Could be normal for lazy producers that start publishing on demand, or could indicate a bug where the producer is publishing to the wrong event name.
-
-Events that have both subscribers and publishes are considered healthy and are not counted in any waste category.
+The total across all states equals the total number of registered events on the node. A healthy system shows mostly `active` and `on_demand`. Growth in `idle` or `no_subscribers` over time indicates accumulating waste.
 
 The distinction between `published`, `local_sent`, and `remote_sent` in the top-N metrics reflects the pub/sub delivery model. A single publish fans out to all local subscribers (so `local_sent` can be much larger than `published`) and sends one message per remote subscriber node (due to the [shared subscription optimization](../../advanced/pub-sub-internals.md)). Comparing these values reveals the actual delivery cost of each event.
 
 ### Per-Process Metrics Collection
 
-All per-process metrics (latency, depth, utilization, aggregates) are collected in a single pass using `Node.ProcessRangeShortInfo()`. The iterator visits each process once, and each observation is dispatched to the latency, depth, and utilization collectors simultaneously. Event metrics are collected separately using `Node.EventRangeInfo()`, which iterates over all registered events. Both iterators use snapshot-then-iterate: the data is captured under a read lock, then the lock is released before the callback runs, so collection does not block producers or subscribers. Top-N selection uses a min-heap for O(N) efficiency.
+All per-process metrics (latency, depth, utilization, throughput, aggregates) are collected in a single pass using `Node.ProcessRangeShortInfo()`. The iterator visits each process once, and each observation is dispatched to the latency, depth, utilization, and throughput collectors simultaneously. Event metrics are collected separately using `Node.EventRangeInfo()`, which iterates over all registered events. Both iterators use snapshot-then-iterate: the data is captured under a read lock, then the lock is released before the callback runs, so collection does not block producers or subscribers. Top-N selection uses a min-heap for O(N) efficiency.
 
 ## Custom Metrics
 
@@ -442,9 +443,9 @@ The dashboard organizes metrics into logical groups arranged from high-level ove
 
 **Mailbox Depth** (expanded) - Three panels showing mailbox queue depth. Max Depth per Node tracks the largest mailbox on each node over time. Depth Distribution is a stacked area chart with a flame color gradient (green for 1-10 messages, yellow for 50-100, orange for 500-1K, red for 5K-10K+) showing how many processes fall into each depth range. Top Processes by Depth is a table listing the processes with the deepest queues across the cluster. Depth is complementary to latency: depth tells you "how many messages are queued," while latency tells you "how long the oldest one has been waiting."
 
-**Events** (collapsed) - Nine panels for pub/sub event observability, organized from general to specific. Event Publish/Delivery Rate shows cluster-wide throughput with three lines: Published (how often producers publish), Local Delivered (actual fanout to local subscribers -- typically much higher than Published when events have many subscribers), and Remote Sent (one message per remote node due to [shared subscriptions](../../advanced/pub-sub-internals.md)). Event Waste is a stacked timeseries showing events with wasteful patterns: idle (registered but unused), no subscribers (publishing into the void), and no publishing (subscribers waiting). Registered Events per Node and Max Subscribers per Node provide per-node breakdown. Subscriber Distribution is a full-width stacked chart showing how events are distributed by subscriber count (0 to 1K+). Four tables at the bottom show Top Events by Subscribers, Published, Local Deliveries, and Remote Sent -- identifying which specific events create the most load. See [Events](../../basics/events.md) for the pub/sub model.
+**Events** (collapsed) - Ten panels for pub/sub event observability, organized from general to specific. Event Publish/Delivery Rate shows cluster-wide throughput with three lines: Published (how often producers publish), Local Delivered (actual fanout to local subscribers -- typically much higher than Published when events have many subscribers), and Remote Sent (one message per remote node due to [shared subscriptions](../../advanced/pub-sub-internals.md)). Event Utilization is a stacked timeseries showing the state of all registered events: active (publishing with subscribers), on demand (using Notify, waiting), idle, no subscribers, no publishing. The total height equals total registered events; a healthy system is mostly green (active) and blue (on demand). Registered Events per Node and Max Subscribers per Node provide per-node breakdown. Event Publish Rate per Node and Event Delivery Rate per Node show where producers are most active and where fanout load concentrates. Four tables at the bottom show Top Events by Subscribers, Published, Local Deliveries, and Remote Sent -- identifying which specific events create the most load. See [Events](../../basics/events.md) for the pub/sub model.
 
-**Process Activity** (collapsed) - Four panels covering utilization and throughput. Utilization Distribution is a stacked area chart showing how many processes fall into each utilization range (1% through 90%+), using a flame gradient from green to red. Message Throughput per Node shows `rate(messages_in)` and `rate(messages_out)` per node in messages per second. Top Processes by Utilization is a table showing the busiest actors by lifetime utilization. Actor Running Time per Node shows `rate(running_time_seconds)` per node -- effectively the node-level actor CPU utilization. When this value approaches the available CPU core count, the node is compute-saturated.
+**Process Activity** (collapsed) - Eight panels organized by topic: message throughput first, then process utilization. Message Throughput (Cluster Total) shows cluster-wide inbound and outbound message rates. Message Throughput per Node breaks this down by node. Top Processes by Inbound Rate and Top Processes by Outbound Rate show which actors currently receive and send the most messages per second -- derived from `rate()` on the per-process cumulative top-N metrics. Utilization Distribution is a stacked area chart showing how many processes fall into each utilization range (1% through 90%+), using a flame gradient from green to red. Max Utilization per Node shows the busiest process on each node. Actor Running Time per Node shows `rate(running_time_seconds)` per node -- effectively the node-level actor CPU utilization; when this approaches CPU core count, the node is compute-saturated. Top Processes by Utilization table shows the busiest actors by lifetime utilization.
 
 **Processes** (collapsed) - Four timeseries panels showing per-node process counts (total and running) and lifecycle rates (spawn rate with failures in red, termination rate). Steady growth in total without plateau suggests process leaks. Spawn failures indicate resource exhaustion. When termination rate exceeds spawn rate, the node is draining.
 
@@ -507,13 +508,14 @@ The **Utilization Distribution** panel (expand the Process Activity row) shows t
 
 #### Find the specific process
 
-Each metric group has a top-N table at the bottom of its row:
+Each metric group has a top-N panel in its row:
 
 - **Top Stressed Processes** (Latency row) -- processes with the highest mailbox latency. Answers "which process is the bottleneck?"
 - **Top Processes by Depth** (Mailbox Depth row) -- processes with the deepest queues. Answers "which process has the most messages waiting?"
+- **Top Processes by Inbound/Outbound Rate** (Process Activity row) -- processes with the highest current message rate. Answers "which process handles the most traffic right now?"
 - **Top Processes by Utilization** (Process Activity row) -- processes that spend the most time in callbacks. Answers "which process is doing the most work?"
 
-All tables show Application, Behavior, Name, PID, Node, and the metric value (plus Kubernetes labels when available). Multiple entries from the same application suggest that application is under pressure as a whole. A single entry with extreme values points to a specific process that needs investigation -- see the [Debugging](../../advanced/debugging.md) section for techniques.
+Process tables show Application, Behavior, Name, PID, Node, and the metric value (plus Kubernetes labels when available). Multiple entries from the same application suggest that application is under pressure as a whole. A single entry with extreme values points to a specific process that needs investigation -- see the [Debugging](../../advanced/debugging.md) section for techniques.
 
 #### Correlate across panels
 

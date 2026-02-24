@@ -193,6 +193,7 @@ func (n *node) RouteSendAlias(from gen.PID, to gen.Alias, options gen.MessageOpt
 			return gen.ErrMetaMailboxFull
 		}
 		atomic.AddUint64(&m.messagesIn, 1)
+		atomic.AddUint64(&p.messagesIn, 1)
 		m.handle()
 		return nil
 	}
@@ -540,6 +541,7 @@ func (n *node) RouteCallAlias(from gen.PID, to gen.Alias, options gen.MessageOpt
 			return gen.ErrMetaMailboxFull
 		}
 		atomic.AddUint64(&m.messagesIn, 1)
+		atomic.AddUint64(&p.messagesIn, 1)
 		m.handle()
 		return nil
 	}

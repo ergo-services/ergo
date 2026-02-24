@@ -146,6 +146,7 @@ func (m *meta) handle() {
 				}
 				m.p.node.RouteSendResponse(m.p.pid, message.From, options, result)
 				atomic.AddUint64(&m.messagesOut, 1)
+				atomic.AddUint64(&m.p.messagesOut, 1)
 				continue
 
 			case gen.MailboxMessageTypeExit:
