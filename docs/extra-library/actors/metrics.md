@@ -523,7 +523,7 @@ Expand the Processes row.
 - **Spawn failures** (red in Process Spawn Rate) -- resource exhaustion or configuration errors preventing process creation.
 - **Spawn rate spikes** -- may signal a supervisor restart loop. Correlate with termination rate -- if both spike together, a process keeps crashing and restarting.
 - **Termination rate exceeds spawn rate** -- the node is draining. Check why processes are terminating (errors, shutdown, kills).
-- **High init time** -- Max Init Time per Node shows the slowest ProcessInit on each node. Default timeout is 5 seconds. Top Processes by Init Time identifies which actor types take the longest. High init times indicate heavy setup, blocking I/O, or synchronous calls during initialization. If init times approach the timeout, processes risk being killed before they finish starting.
+- **High init time** -- Init Time per Node bar gauge shows the slowest ProcessInit on each node with color-coded severity. Default timeout is 5 seconds. Top Processes by Init Time table identifies which actor types take the longest. High init times indicate heavy setup, blocking I/O, or synchronous calls during initialization. If init times approach the timeout, processes risk being killed before they finish starting.
 
 #### Investigating event issues
 
