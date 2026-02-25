@@ -217,6 +217,17 @@ No build tags required. Utilization metrics are always active.
 
 Distribution ranges: 1%, 5%, 10%, 25%, 50%, 75%, 90%, 90%+. Processes with zero running time or zero uptime are excluded. Utilization is capped at 1.0 (100%).
 
+### Process Init Time Metrics
+
+The metrics actor tracks how long each process spent in its `ProcessInit` callback. This identifies actors with slow initialization -- heavy setup, blocking I/O, or synchronous calls during init. The default init timeout is 5 seconds (`DefaultRequestTimeout`), maximum 15 seconds for remote spawn.
+
+No build tags required. Init time metrics are always active.
+
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `ergo_process_init_time_max_seconds` | Gauge | - | Maximum ProcessInit duration across all processes on this node. |
+| `ergo_process_init_time_top_seconds` | Gauge | `pid`, `name`, `application`, `behavior` | Top-N processes by ProcessInit duration. |
+
 ### Process Throughput Metrics
 
 The metrics actor tracks per-process message throughput (top-N by messages received and sent) and computes node-level aggregate counters by summing per-process values.
@@ -262,7 +273,7 @@ The distinction between `published`, `local_sent`, and `remote_sent` in the top-
 
 ### Per-Process Metrics Collection
 
-All per-process metrics (latency, depth, utilization, throughput, aggregates) are collected in a single pass using `Node.ProcessRangeShortInfo()`. The iterator visits each process once, and each observation is dispatched to the latency, depth, utilization, and throughput collectors simultaneously. Event metrics are collected separately using `Node.EventRangeInfo()`, which iterates over all registered events. Both iterators use snapshot-then-iterate: the data is captured under a read lock, then the lock is released before the callback runs, so collection does not block producers or subscribers. Top-N selection uses a min-heap for O(N) efficiency.
+All per-process metrics (latency, depth, utilization, throughput, init time, aggregates) are collected in a single pass using `Node.ProcessRangeShortInfo()`. The iterator visits each process once, and each observation is dispatched to the latency, depth, utilization, and throughput collectors simultaneously. Event metrics are collected separately using `Node.EventRangeInfo()`, which iterates over all registered events. Both iterators use snapshot-then-iterate: the data is captured under a read lock, then the lock is released before the callback runs, so collection does not block producers or subscribers. Top-N selection uses a min-heap for O(N) efficiency.
 
 ## Custom Metrics
 
@@ -447,7 +458,7 @@ The dashboard organizes metrics into logical groups arranged from high-level ove
 
 **Process Activity** (collapsed) - Eight panels organized by topic: message throughput first, then process utilization. Message Throughput (Cluster Total) shows cluster-wide inbound and outbound message rates. Message Throughput per Node breaks this down by node. Top Processes by Messages In and Top Processes by Messages Out tables identify which actors handle the most traffic (cumulative). Utilization Distribution is a stacked area chart showing how many processes fall into each utilization range (1% through 90%+), using a flame gradient from green to red. Max Utilization per Node shows the busiest process on each node. Actor Running Time per Node shows `rate(running_time_seconds)` per node -- effectively the node-level actor CPU utilization; when this approaches CPU core count, the node is compute-saturated. Top Processes by Utilization table shows the busiest actors by lifetime utilization.
 
-**Processes** (collapsed) - Four timeseries panels showing per-node process counts (total and running) and lifecycle rates (spawn rate with failures in red, termination rate). Steady growth in total without plateau suggests process leaks. Spawn failures indicate resource exhaustion. When termination rate exceeds spawn rate, the node is draining.
+**Processes** (collapsed) - Six panels showing per-node process counts (total and running), lifecycle rates (spawn rate with failures in red, termination rate), and initialization performance (init time bar gauge per node, top processes by init time). Steady growth in total without plateau suggests process leaks. Spawn failures indicate resource exhaustion. When termination rate exceeds spawn rate, the node is draining. High init times indicate heavy initialization logic or blocking operations in ProcessInit.
 
 **Resources** (collapsed) - Four panels covering CPU and memory. CPU User Time and CPU System Time are normalized by core count and displayed as percentages. High user CPU means compute-bound workload; high system CPU relative to user suggests excessive I/O or syscalls. Memory (OS:used) and Memory (Runtime:alloc) show memory usage over time. Monotonic growth signals memory leaks. Sawtooth pattern in runtime allocation is normal (GC cycles). Rising baseline between GC cycles indicates uncollected objects.
 
@@ -457,79 +468,106 @@ The dashboard organizes metrics into logical groups arranged from high-level ove
 
 ### Working with the Dashboard
 
-The dashboard is designed around a top-down investigation pattern. You start with high-level signals that tell you whether something is wrong, then drill into progressively more specific panels to understand what, where, and why. This section describes the investigation flow.
+The dashboard is designed around a top-down investigation pattern. Start with the Summary row for cluster health, then drill into the relevant section based on the symptom you observe.
 
 #### Routine check
 
-Open the dashboard and look at the Summary row. Six stat panels at the top answer the first question: is the cluster intact?
+Open the dashboard and scan the Summary row:
 
-- **Zombie count should be zero.** Non-zero means processes have terminated abnormally and were not cleaned up. This requires immediate investigation.
-- **Node count should match your expectation.** A missing node means it has left the cluster or lost connectivity.
-- **Memory used should be within expected bounds.** A sharp increase since the last check suggests a leak or a load spike.
+- **Zombie count should be zero.** Non-zero means processes have terminated abnormally and were not cleaned up.
+- **Node count should match your expectation.** A drop means a node left the cluster.
+- **Memory used should be within expected bounds.** A sharp increase suggests a leak or load spike.
 
-If the Summary looks normal and you have latency enabled, glance at the Latency row directly below. If Max Latency is under 100ms and the Stressed Processes panel is mostly empty or light-blue -- the system is healthy. Routine check complete.
+Then check the expanded rows below the Summary:
 
-If you are not using `-tags=latency`, check the Mailbox Depth row below. Max Depth per Node is the closest equivalent to Max Latency as a backpressure signal. If all nodes show zero or low depth, the system is healthy. For a deeper routine check, expand the Process Activity row and glance at Message Throughput -- a sudden drop compared to the previous period may indicate stalled processes even when depth looks normal.
+- **Mailbox Latency** (if using `-tags=latency`) -- Max Latency under 100ms and Stressed Processes mostly empty or light-blue means healthy. If not using latency, check Mailbox Depth instead -- zero or low depth across all nodes is healthy.
+- **Mailbox Depth** -- Max Depth per Node at zero or near zero is normal.
 
-#### Something is wrong: start with latency
+For a deeper check, expand the collapsed rows:
 
-When a problem is detected -- alerts fire, users report slowness, or the Summary shows unusual values -- the latency panels are the first place to investigate. They answer "are my actors keeping up with their workload?"
+- **Events** -- Event Utilization should be mostly green (active) and blue (on demand). Growth in grey (idle) or orange (no subscribers) over time indicates accumulating waste.
+- **Process Activity** -- Message Throughput should be stable. A sudden drop compared to the previous period may indicate stalled processes.
 
-If you are not using `-tags=latency`, skip to the Mailbox Depth row. Rising depth on a node means processes are receiving messages faster than they can handle them. Use the Depth Distribution panel to assess severity and the Top Processes by Depth table to identify the specific actors. Then continue with the "Understand severity" and "Correlate across panels" sections below -- they apply regardless of whether latency is enabled.
+#### Investigating backpressure
 
-The **Max Latency** panel shows the highest mailbox latency across all selected nodes as a red timeseries. Under normal conditions this stays under 100ms. Values above 1 second mean at least one process is significantly behind -- it is either overloaded, stuck in a long-running callback, or waiting for an external resource.
+Backpressure means processes are receiving messages faster than they can handle them. The Mailbox Latency and Mailbox Depth rows are the primary tools.
 
-The **Stressed Processes** panel shows a stacked area chart with two layers. Light-blue represents processes with latency under 1ms (negligible, normal operation). Orange represents processes with latency of 1ms or above (worth investigating). A growing orange area means more processes are falling behind over time.
+**With `-tags=latency` enabled:**
 
-Read these two panels together:
+Max Latency shows the worst case across the cluster. Stressed Processes shows how many processes are affected. Read them together:
 
-- **Max Latency spikes above 1 second** -- at least one process is severely behind. Scroll down to the Top Stressed Processes table to identify it by application, behavior, name, and PID.
-- **Orange area growing in Stressed Processes** -- multiple processes are accumulating latency. The problem is broader than a single actor. Check the Latency Distribution to understand severity, and the CPU panels to see if the system is compute-bound.
-- **Max Latency spike followed by quick return to normal** -- a temporary burst. Compare timing with Process Spawn Rate in the Processes row to check for lifecycle event correlation.
-- **Max Latency persistently elevated (minutes, not seconds)** -- a stuck process. Unlike overload (which fluctuates with traffic), a stuck process shows a steadily increasing or flat high value. Find it in the Top Stressed Processes table.
+- Max Latency spikes above 1 second -- at least one process is severely behind. Use the Top Stressed Processes table to identify it.
+- Orange area growing in Stressed Processes -- multiple processes are falling behind. Check Latency Distribution to assess severity (isolated red sliver = one stuck process, chart shifting to orange = widespread degradation).
+- Max Latency persistently elevated (minutes, not seconds) -- a stuck process, not a burst. Find it in the Top Stressed Processes table.
 
-#### Narrow down: node or cluster?
+Use Max Latency per Node and Stressed Processes per Node to narrow down: one node standing out = localized problem; all nodes affected = systemic issue (shared dependency, deployment, cluster-wide traffic pattern).
 
-The **Max Latency per Node** and **Stressed Processes per Node** panels break the cluster-wide picture into individual nodes.
+**Without latency tag:**
 
-If one node stands out while others are calm, the problem is localized. Cross-reference with Resources and Network panels for that node. A node with high max latency but low stressed count has one problematic process. A node with moderate latency but high stressed count is generally overloaded.
+Max Depth per Node is the closest alternative. Rising depth means a process accumulates messages faster than it handles them. Depth Distribution shows severity. Top Processes by Depth identifies the specific actors. Depth is complementary to latency: depth tells you "how many messages are queued," latency tells you "how long the oldest has been waiting."
 
-If multiple nodes show similar patterns, the problem is systemic -- a shared external dependency, a cluster-wide traffic pattern, or a deployment issue.
+#### Investigating throughput anomalies
 
-#### Understand severity: the distribution panels
+Expand the Process Activity row. The top two rows cover message throughput.
 
-The **Latency Distribution** panel shows a stacked area chart where each layer represents a latency range. Colors run from green (1ms-10ms, normal) through yellow (50ms-100ms, elevated) to orange (500ms-1s, concerning) and red (5s-60s+, critical). The legend is sorted from highest to lowest range.
+- **Cluster Throughput drops suddenly** -- processes may be stalled or an upstream source stopped sending. Check if specific nodes dropped (Throughput per Node) or the entire cluster.
+- **Cluster Throughput spikes** -- correlate with Mailbox Depth and Latency. A spike followed by growing depth means the system cannot absorb the burst.
+- **In/Out imbalance** -- compare inbound and outbound rates. A persistent gap may indicate messages flowing to meta processes (not visible in process counters) or event fanout patterns. See the Events section for fanout analysis.
+- **One node has disproportionate throughput** -- Throughput per Node identifies hotspots. Cross-reference with Top Processes by Messages In/Out to find the specific actors.
 
-This panel distinguishes two scenarios that look similar in Max Latency: one stuck process (a single red sliver at the top of an otherwise green chart) versus widespread degradation (the entire chart shifting from green toward orange). The first requires investigating a specific process. The second requires scaling or load shedding.
+#### Investigating process lifecycle issues
 
-The **Depth Distribution** panel (in the Mailbox Depth row) provides a complementary view. Where latency distribution shows how long messages wait, depth distribution shows how many messages are queued. The color gradient follows the same flame convention: green for 1-10 messages, yellow for 50-100, red for 5K-10K+. A process with high depth but low latency processes messages quickly but receives many at once. A process with low depth but high latency is slow but not overwhelmed.
+Expand the Processes row.
 
-The **Utilization Distribution** panel (expand the Process Activity row) shows the fraction of lifetime each process spends inside callbacks. Most processes should be in the low ranges (1%-10%). A shift toward higher ranges (50%+) across many processes means the cluster is running compute-heavy workloads and may need scaling.
+- **Steady growth in total process count** without plateau -- process leak. Processes are spawned but never terminated. Check which application spawns them using the process tables.
+- **Spawn failures** (red in Process Spawn Rate) -- resource exhaustion or configuration errors preventing process creation.
+- **Spawn rate spikes** -- may signal a supervisor restart loop. Correlate with termination rate -- if both spike together, a process keeps crashing and restarting.
+- **Termination rate exceeds spawn rate** -- the node is draining. Check why processes are terminating (errors, shutdown, kills).
+- **High init time** -- Max Init Time per Node shows the slowest ProcessInit on each node. Default timeout is 5 seconds. Top Processes by Init Time identifies which actor types take the longest. High init times indicate heavy setup, blocking I/O, or synchronous calls during initialization. If init times approach the timeout, processes risk being killed before they finish starting.
 
-#### Find the specific process
+#### Investigating event issues
 
-Each metric group has a top-N panel in its row:
+Expand the Events row.
 
-- **Top Stressed Processes** (Latency row) -- processes with the highest mailbox latency. Answers "which process is the bottleneck?"
-- **Top Processes by Depth** (Mailbox Depth row) -- processes with the deepest queues. Answers "which process has the most messages waiting?"
-- **Top Processes by Messages In/Out** (Process Activity row) -- processes with the most messages received or sent. Answers "which process handles the most traffic?"
-- **Top Processes by Utilization** (Process Activity row) -- processes that spend the most time in callbacks. Answers "which process is doing the most work?"
+- **Event Utilization shifting from green/blue to grey/orange** -- accumulating waste. Grey (idle) events are registered but unused. Orange (no subscribers) events are publishing into the void. Investigate which events are affected using the top-N tables.
+- **Publish/Delivery Rate gap growing** -- Local Delivered >> Published indicates high fanout. If this correlates with latency increases on subscriber nodes, event fanout is causing backpressure.
+- **One node has high Event Delivery Rate** -- that node handles the most event fanout. Cross-reference with Mailbox Depth and Latency for the same node.
+- **Registered Events growing without plateau** -- event registration leak. Events are registered but never unregistered. Check Event Utilization for growing idle count.
+- **Max Subscribers spike** -- one event suddenly gained many subscribers, amplifying the cost of each publish.
 
-Process tables show Application, Behavior, Name, PID, Node, and the metric value (plus Kubernetes labels when available). Multiple entries from the same application suggest that application is under pressure as a whole. A single entry with extreme values points to a specific process that needs investigation -- see the [Debugging](../../advanced/debugging.md) section for techniques.
+#### Investigating resource saturation
 
-#### Correlate across panels
+Expand the Resources row.
 
-Individual metrics become most powerful when combined:
+- **CPU User Time approaching 100%** -- compute-bound. Correlate with Utilization Distribution in Process Activity to see which processes are consuming CPU. Actor Running Time per Node approaching CPU core count confirms saturation.
+- **High System CPU relative to User CPU** -- excessive syscalls, context switching, or I/O pressure rather than application workload.
+- **Memory monotonically growing** -- memory leak. Compare OS:used across nodes to spot outliers. Check if Mailbox Depth is also growing -- accumulating messages consume memory.
+- **Runtime:alloc baseline rising between GC cycles** -- objects not being collected. The sawtooth pattern should return to a stable baseline.
 
-- **High latency + high depth** -- the process is both slow and receiving more messages than it can handle. The mailbox is growing. This is the clearest sign of overload.
-- **High latency + low depth** -- a single message is being processed slowly (long-running callback) or the process is blocked waiting for something. The mailbox is not growing because new messages are not arriving.
-- **High depth + low latency** -- the process receives bursts but processes them quickly. The depth spikes are transient. Usually not a problem unless the bursts grow over time.
-- **High latency + high CPU** -- processes are compute-bound. Actors are doing heavy work in callbacks and cannot keep up with the message rate. Consider distributing work across more processes or offloading expensive computation.
-- **High latency + low CPU** -- processes are blocked on something other than computation. Common causes: waiting for external I/O, waiting for responses from other actors via synchronous calls, or contention on shared resources.
-- **High latency + growing memory** -- mailboxes are accumulating messages faster than processes can handle them. The unprocessed messages consume memory. If this continues, the node will run out of memory.
-- **High latency + network traffic spike** -- a burst of remote messages is overwhelming the receiving processes. Check Network per Node and Network Detail panels to identify the responsible link.
-- **Running time per node approaching CPU core count** -- the node is compute-saturated. All available CPU time is spent inside actor callbacks. Either reduce the workload or add capacity.
-- **Message throughput drop with stable process count** -- processes are alive but not doing work. They may be blocked on external calls or waiting for messages that are no longer arriving (upstream failure).
+#### Investigating network issues
+
+Expand the Network row.
+
+- **Cluster total message rate drops suddenly** -- possible network partition or node failure. Check Node count in Summary and per-node breakdown.
+- **One node-pair has disproportionate traffic** -- Network Detail panels show traffic between specific pairs. Identifies saturated links or unexpected communication patterns.
+- **Bytes-to-messages ratio changing** -- average message size is growing. May indicate serialization issues or bulk data transfers.
+
+#### Cross-panel correlation
+
+Combining signals from different sections identifies root causes:
+
+- **High latency + high depth** -- process is both slow and receiving more than it can handle. Mailbox growing. Clearest sign of overload.
+- **High latency + low depth** -- single message processed slowly (long callback) or process blocked on external resource. Mailbox not growing.
+- **High depth + low latency** -- process receives bursts but handles them quickly. Usually transient.
+- **High latency + high CPU** -- compute-bound. Actors doing heavy work in callbacks. Distribute work or offload computation.
+- **High latency + low CPU** -- processes blocked on something other than computation. External I/O, synchronous calls to other actors, or contention.
+- **High latency + growing memory** -- mailboxes accumulating messages. If this continues, the node runs out of memory.
+- **High latency + network traffic spike** -- burst of remote messages overwhelming receivers. Check Network Detail panels.
+- **High event delivery rate + high latency on same node** -- event fanout causing backpressure. Top Events by Local Deliveries identifies which event, Mailbox Depth/Latency shows the impact on subscribers.
+- **High init time + spawn rate spikes** -- supervisor restart loop with slow init. Each restart takes seconds, creating cascading delays.
+- **Throughput drop + stable process count** -- processes alive but not doing work. Blocked on external calls or upstream failure (no messages arriving).
+- **Running time per node approaching CPU cores** -- node is compute-saturated. All CPU time spent in actor callbacks. Reduce workload or add capacity.
+- **Event no_subscribers growing + stable throughput** -- producers publishing into the void. Not using [Notify](../../basics/events.md) mechanism to detect absent subscribers.
 
 ## Observer Integration
 
