@@ -19,6 +19,7 @@ func (p *process) run() {
 		int32(gen.ProcessStateRunning)) == false { // already running or terminated
 		return
 	}
+	atomic.AddUint64(&p.wakeups, 1)
 	go func() {
 		labels := pprof.Labels("pid", p.pid.String())
 		pprof.Do(context.Background(), labels, func(context.Context) {

@@ -504,6 +504,7 @@ func (n *node) ProcessInfo(pid gen.PID) (gen.ProcessInfo, error) {
 	info.MessagesOut = atomic.LoadUint64(&p.messagesOut)
 	info.RunningTime = atomic.LoadUint64(&p.runningTime)
 	info.InitTime = p.initTime
+	info.Wakeups = p.wakeups
 	info.Compression = p.compression
 	info.MessagePriority = p.priority
 	info.Uptime = p.Uptime()
@@ -834,6 +835,7 @@ func (n *node) ProcessRangeShortInfo(fn func(gen.ProcessShortInfo) bool) error {
 			MailboxLatency:  p.mailbox.Latency(),
 			RunningTime:     p.runningTime,
 			InitTime:        p.initTime,
+			Wakeups:         p.wakeups,
 			Uptime:          p.Uptime(),
 			State:           p.State(),
 			Parent:          p.parent,
@@ -1786,6 +1788,7 @@ func (n *node) ApplicationProcessListShortInfo(name gen.Atom, limit int) ([]gen.
 			MailboxLatency:  p.mailbox.Latency(),
 			RunningTime:     p.runningTime,
 			InitTime:        p.initTime,
+			Wakeups:         p.wakeups,
 			Uptime:          p.Uptime(),
 			State:           p.State(),
 			Parent:          p.parent,
@@ -1823,6 +1826,7 @@ func (n *node) ApplicationProcessListShortInfo(name gen.Atom, limit int) ([]gen.
 			MailboxLatency:  p.mailbox.Latency(),
 			RunningTime:     p.runningTime,
 			InitTime:        p.initTime,
+			Wakeups:         p.wakeups,
 			Uptime:          p.Uptime(),
 			State:           p.State(),
 			Parent:          p.parent,

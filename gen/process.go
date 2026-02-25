@@ -915,6 +915,10 @@ type ProcessInfo struct {
 	// InitTime is the time spent in ProcessInit callback (nanoseconds).
 	InitTime uint64
 
+	// Wakeups is the cumulative number of times the process transitioned
+	// from Sleep to Running state to handle messages.
+	Wakeups uint64
+
 	// Compression contains the compression configuration for this process.
 	Compression Compression
 
@@ -1027,6 +1031,10 @@ type ProcessShortInfo struct {
 
 	// InitTime is the time spent in ProcessInit callback (nanoseconds).
 	InitTime uint64
+
+	// Wakeups is the cumulative number of times the process transitioned
+	// from Sleep to Running state to handle messages.
+	Wakeups uint64
 
 	// Uptime is the process uptime in seconds since creation.
 	Uptime int64

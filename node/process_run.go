@@ -17,6 +17,7 @@ func (p *process) run() {
 		int32(gen.ProcessStateRunning)) == false { // already running or terminated
 		return
 	}
+	atomic.AddUint64(&p.wakeups, 1)
 	go func() {
 		if lib.Recover() {
 			defer func() {

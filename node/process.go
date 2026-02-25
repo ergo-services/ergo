@@ -44,6 +44,7 @@ type process struct {
 	messagesOut uint64
 	runningTime uint64
 	initTime    uint64
+	wakeups     uint64
 
 	compression gen.Compression
 
@@ -853,7 +854,6 @@ func (p *process) SendEvent(name gen.Atom, token gen.Ref, message any) error {
 		return err
 	}
 
-	atomic.AddUint64(&p.messagesOut, 1)
 	return nil
 }
 
