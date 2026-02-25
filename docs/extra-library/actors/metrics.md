@@ -526,7 +526,7 @@ Expand the Process Activity row. The top two rows cover message throughput.
 
 - **Cluster Throughput drops suddenly** -- processes may be stalled or an upstream source stopped sending. Check if specific nodes dropped (Throughput per Node) or the entire cluster.
 - **Cluster Throughput spikes** -- correlate with Mailbox Depth and Latency. A spike followed by growing depth means the system cannot absorb the burst.
-- **In/Out imbalance** -- compare inbound and outbound rates. A persistent gap may indicate messages flowing to meta processes (not visible in process counters) or event fanout patterns. See the Events section for fanout analysis.
+- **In/Out imbalance** -- in a fully monitored cluster (metrics actor on every node), In and Out should be approximately balanced. A small imbalance is normal due to framework-internal messages (exit signals, down notifications) that increment In without a corresponding Out. Persistent significant imbalance indicates nodes without metrics collection: Out > In means messages are sent to unmonitored nodes, In > Out means unmonitored nodes are sending messages into the cluster.
 - **One node has disproportionate throughput** -- Throughput per Node identifies hotspots. Cross-reference with Top Processes by Messages In/Out to find the specific actors.
 - **Wakeup rate diverges from message rate** -- on Throughput panels, the gap between In and Wakeups lines shows drain effect. Growing gap means processes batch more messages per wakeup (increasing load). Drains per Node timeseries shows which node, Top Processes by Drains shows which process.
 
