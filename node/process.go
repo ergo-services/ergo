@@ -43,6 +43,7 @@ type process struct {
 	messagesIn  uint64
 	messagesOut uint64
 	runningTime uint64
+	initTime    uint64
 
 	compression gen.Compression
 

@@ -503,6 +503,7 @@ func (n *node) ProcessInfo(pid gen.PID) (gen.ProcessInfo, error) {
 	info.MessagesIn = atomic.LoadUint64(&p.messagesIn)
 	info.MessagesOut = atomic.LoadUint64(&p.messagesOut)
 	info.RunningTime = atomic.LoadUint64(&p.runningTime)
+	info.InitTime = p.initTime
 	info.Compression = p.compression
 	info.MessagePriority = p.priority
 	info.Uptime = p.Uptime()
@@ -832,6 +833,7 @@ func (n *node) ProcessRangeShortInfo(fn func(gen.ProcessShortInfo) bool) error {
 			MessagesMailbox: uint64(messagesMailbox),
 			MailboxLatency:  p.mailbox.Latency(),
 			RunningTime:     p.runningTime,
+			InitTime:        p.initTime,
 			Uptime:          p.Uptime(),
 			State:           p.State(),
 			Parent:          p.parent,
@@ -1783,6 +1785,7 @@ func (n *node) ApplicationProcessListShortInfo(name gen.Atom, limit int) ([]gen.
 			MessagesMailbox: uint64(messagesMailbox),
 			MailboxLatency:  p.mailbox.Latency(),
 			RunningTime:     p.runningTime,
+			InitTime:        p.initTime,
 			Uptime:          p.Uptime(),
 			State:           p.State(),
 			Parent:          p.parent,
@@ -1819,6 +1822,7 @@ func (n *node) ApplicationProcessListShortInfo(name gen.Atom, limit int) ([]gen.
 			MessagesMailbox: uint64(messagesMailbox),
 			MailboxLatency:  p.mailbox.Latency(),
 			RunningTime:     p.runningTime,
+			InitTime:        p.initTime,
 			Uptime:          p.Uptime(),
 			State:           p.State(),
 			Parent:          p.parent,
@@ -2312,7 +2316,9 @@ func (n *node) spawn(factory gen.ProcessFactory, options gen.ProcessOptionsExtra
 		errCh := make(chan error, 1)
 
 		go func() {
+			initStart := time.Now()
 			err := behavior.ProcessInit(p, options.Args...)
+			p.initTime = uint64(time.Since(initStart))
 
 			// try to claim "init completed"
 			if atomic.CompareAndSwapInt32(&completed, 0, 1) {
@@ -2356,7 +2362,9 @@ func (n *node) spawn(factory gen.ProcessFactory, options gen.ProcessOptionsExtra
 		}
 	} else {
 		// no timeout - synchronous behavior
+		initStart := time.Now()
 		initErr = behavior.ProcessInit(p, options.Args...)
+		p.initTime = uint64(time.Since(initStart))
 	}
 
 	if initErr != nil {

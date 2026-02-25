@@ -12,6 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * Added **mailbox latency measurement** (build with `-tags=latency`). `QueueMPSC.Latency()` returns the age of the oldest message in the queue (nanoseconds), -1 if disabled. `ProcessMailbox.Latency()` returns the max across all four queues. Added `MailboxLatency` field to `ProcessShortInfo` and latency fields to `MailboxQueues` in `ProcessInfo`. See [Debugging](https://docs.ergo.services/advanced/debugging) documentation
 * Added **`Node.ProcessRangeShortInfo`** for efficient callback-based iteration over all processes with their current state. See [Metrics actor](https://docs.ergo.services/extra-library/actors/metrics) for Prometheus integration
 * Added **per-event metrics** - `EventInfo` now includes `MessagesPublished`, `MessagesLocalSent`, `MessagesRemoteSent` counters. Added `Node.EventInfo` and `Node.EventRangeInfo` for querying event statistics. Added `EventsPublished`, `EventsLocalSent`, `EventsRemoteSent` to `NodeInfo`
+* Added **process init time measurement** - `InitTime` field in `ProcessShortInfo` and `ProcessInfo` records the time spent in `ProcessInit` callback (nanoseconds)
+* Fixed **message counters for meta processes** - meta process traffic now propagates to parent process counters, making `ProcessRangeShortInfo` aggregates balanced
+* Fixed **self-send message counter** - `messagesOut` now incremented for self-sends
 
 #### [v3.2.0](https://github.com/ergo-services/ergo/releases/tag/v1.999.320) 2026-02-04 [tag version v1.999.320] ####
 

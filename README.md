@@ -145,6 +145,12 @@ Fully detailed changelog see in the [ChangeLog](CHANGELOG.md) file.
 
 * Added **per-event metrics** - `EventInfo` now includes `MessagesPublished`, `MessagesLocalSent`, `MessagesRemoteSent` counters. Added `Node.EventInfo` and `Node.EventRangeInfo` for querying event statistics. Added `EventsPublished`, `EventsLocalSent`, `EventsRemoteSent` to `NodeInfo`
 
+* Added **process init time measurement** - `InitTime` field in `ProcessShortInfo` and `ProcessInfo` records the time spent in `ProcessInit` callback (nanoseconds). Enables detection of slow process initialization
+
+* Fixed **message counters for meta processes** - meta process traffic now propagates to parent process counters (`messagesIn`/`messagesOut`), making `ProcessRangeShortInfo` aggregates balanced. Meta process own counters preserved for meta-level observability
+
+* Fixed **self-send message counter** - `messagesOut` now incremented for self-sends (process sending to itself), consistent with other send paths
+
 ### Development and debugging ###
 
 To enable Golang profiler just add `--tags pprof` in your `go run` or `go build` (profiler runs at
