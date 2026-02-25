@@ -763,8 +763,11 @@ type NodeInfo struct {
 	// RegisteredEvents is the total number of registered events.
 	RegisteredEvents int64
 
-	// EventsPublished is the cumulative number of events published.
+	// EventsPublished is the cumulative number of events published by local producers.
 	EventsPublished int64
+
+	// EventsReceived is the cumulative number of events received from remote nodes.
+	EventsReceived int64
 
 	// EventsLocalSent is the cumulative number of event messages sent to local subscribers.
 	EventsLocalSent int64

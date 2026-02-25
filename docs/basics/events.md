@@ -132,7 +132,7 @@ node.EventRangeInfo(func(info gen.EventInfo) bool {
 })
 ```
 
-Node-level aggregate counters are also available in `gen.NodeInfo` via `node.Info()`: `EventsPublished`, `EventsLocalSent`, and `EventsRemoteSent` sum across all events on the node.
+Node-level aggregate counters are also available in `gen.NodeInfo` via `node.Info()`: `EventsPublished` (local producer publishes), `EventsReceived` (events arriving from remote nodes), `EventsLocalSent`, and `EventsRemoteSent`.
 
 The [Metrics actor](../extra-library/actors/metrics.md) automatically exports these counters as Prometheus metrics, along with per-event top-N breakdowns by subscribers, published, local deliveries, and remote sent. It also tracks event utilization state -- whether events are actively used, waiting on demand, or idle.
 

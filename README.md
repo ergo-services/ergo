@@ -143,7 +143,7 @@ Fully detailed changelog see in the [ChangeLog](CHANGELOG.md) file.
 
 * Added **mailbox latency measurement** (build with `-tags=latency`). `QueueMPSC.Latency()` returns the age of the oldest message in the queue (nanoseconds), -1 if disabled. `ProcessMailbox.Latency()` returns the max across all four queues. Added `MailboxLatency` field to `ProcessShortInfo` and `MailboxQueues` latency fields to `ProcessInfo`. Added `Node.ProcessRangeShortInfo` for efficient iteration over all processes. See [actor/metrics](https://github.com/ergo-services/actor-metrics) for Prometheus integration with histogram, top-N, and Grafana dashboard
 
-* Added **per-event metrics** - `EventInfo` now includes `MessagesPublished`, `MessagesLocalSent`, `MessagesRemoteSent` counters. Added `Node.EventInfo` and `Node.EventRangeInfo` for querying event statistics. Added `EventsPublished`, `EventsLocalSent`, `EventsRemoteSent` to `NodeInfo`
+* Added **per-event metrics** - `EventInfo` now includes `MessagesPublished`, `MessagesLocalSent`, `MessagesRemoteSent` counters. Added `Node.EventInfo` and `Node.EventRangeInfo` for querying event statistics. Added `EventsPublished`, `EventsReceived`, `EventsLocalSent`, `EventsRemoteSent` to `NodeInfo`. `EventsPublished` counts only local producer publishes, `EventsReceived` counts events arriving from remote nodes
 
 * Added **process init time measurement** - `InitTime` field in `ProcessShortInfo` and `ProcessInfo` records the time spent in `ProcessInit` callback (nanoseconds). Enables detection of slow process initialization
 

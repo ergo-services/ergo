@@ -75,7 +75,8 @@ type TargetManagerInfo struct {
 	ExitSignalsDelivered  int64 // Total exit signals delivered by dispatchers
 	DownMessagesProduced  int64 // Total down messages generated
 	DownMessagesDelivered int64 // Total down messages delivered
-	EventsPublished       int64 // Total events published
+	EventsPublished       int64 // Total events published by local producers
+	EventsReceived        int64 // Total events received from remote nodes
 	EventsLocalSent       int64 // Total event messages sent to local subscribers
 	EventsRemoteSent      int64 // Total event messages sent to remote subscribers
 }

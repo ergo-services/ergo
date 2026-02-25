@@ -264,8 +264,8 @@ func (tm *targetManager) publishEventRemoteProducer(
 		return nil
 	}
 
-	// Increment published counter
-	tm.eventsPublished.Add(1)
+	// Increment received counter (remote event arrival, not a local publish)
+	tm.eventsReceived.Add(1)
 
 	// Collect local consumers for batch delivery
 	var localConsumers []gen.PID

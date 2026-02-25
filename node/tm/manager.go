@@ -28,6 +28,7 @@ type targetManager struct {
 	downMessagesProduced  atomic.Int64
 	downMessagesDelivered atomic.Int64
 	eventsPublished       atomic.Int64
+	eventsReceived        atomic.Int64
 	eventsLocalSent       atomic.Int64
 	eventsRemoteSent      atomic.Int64
 }
@@ -95,6 +96,7 @@ func (tm *targetManager) Info() gen.TargetManagerInfo {
 		DownMessagesProduced:  tm.downMessagesProduced.Load(),
 		DownMessagesDelivered: tm.downMessagesDelivered.Load(),
 		EventsPublished:       tm.eventsPublished.Load(),
+		EventsReceived:       tm.eventsReceived.Load(),
 		EventsLocalSent:      tm.eventsLocalSent.Load(),
 		EventsRemoteSent:     tm.eventsRemoteSent.Load(),
 	}

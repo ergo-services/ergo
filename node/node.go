@@ -722,6 +722,7 @@ func (n *node) Info() (gen.NodeInfo, error) {
 	tmInfo := n.targets.Info()
 	info.RegisteredEvents = tmInfo.Events
 	info.EventsPublished = tmInfo.EventsPublished
+	info.EventsReceived = tmInfo.EventsReceived
 	info.EventsLocalSent = tmInfo.EventsLocalSent
 	info.EventsRemoteSent = tmInfo.EventsRemoteSent
 
