@@ -244,6 +244,20 @@ Aggregate values are cumulative -- apply `rate()` in Prometheus to get per-secon
 
 `rate(ergo_process_messages_in)` and `rate(ergo_process_messages_out)` give the node-level message throughput in messages per second. `rate(ergo_process_running_time_seconds)` gives the node-level actor CPU utilization in seconds of callback execution per second -- when this value approaches the number of available CPU cores, the node is compute-saturated.
 
+### Process Wakeups and Drains Metrics
+
+The metrics actor tracks process wakeups (transitions from Sleep to Running state) and drains (messages processed per wakeup). A wakeup occurs each time the framework starts a new goroutine to handle messages in a process's mailbox. The drain ratio (`MessagesIn / Wakeups`) reveals the nature of a process's load that utilization alone cannot distinguish. Two processes with 80% utilization may have completely different workloads: one with drain ~1 processes individual messages slowly (heavy per-message computation), while one with drain ~100 processes messages quickly but receives so many that it never sleeps (high throughput load). The optimization strategy is different: the first needs faster callbacks, the second needs load distribution.
+
+No build tags required. Wakeups and drains metrics are always active.
+
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `ergo_process_wakeups_top` | Gauge | `pid`, `name`, `application`, `behavior` | Top-N processes by cumulative wakeup count. |
+| `ergo_process_drains_top` | Gauge | `pid`, `name`, `application`, `behavior` | Top-N processes by drain ratio (MessagesIn / Wakeups). |
+| `ergo_process_wakeups` | Gauge | - | Sum of wakeups across all processes on this node. |
+
+On the dashboard, the Throughput panels show wakeup rate as a third line alongside message in/out rates -- the visual gap between message rate and wakeup rate represents the drain effect. Drains per Node timeseries shows per-node drain ratio over time computed from aggregate metrics: `rate(messages_in) / rate(wakeups)`.
+
 ### Event Metrics
 
 The metrics actor collects per-event pub/sub metrics using `Node.EventRangeInfo()`, which iterates over all registered events and returns their current statistics. This provides visibility into the pub/sub layer: which events have the most subscribers, which generate the most delivery load, and which are wasteful. The subscriber count for each event includes both `LinkEvent` and `MonitorEvent` subscribers.
@@ -273,7 +287,7 @@ The distinction between `published`, `local_sent`, and `remote_sent` in the top-
 
 ### Per-Process Metrics Collection
 
-All per-process metrics (latency, depth, utilization, throughput, init time, aggregates) are collected in a single pass using `Node.ProcessRangeShortInfo()`. The iterator visits each process once, and each observation is dispatched to the latency, depth, utilization, and throughput collectors simultaneously. Event metrics are collected separately using `Node.EventRangeInfo()`, which iterates over all registered events. Both iterators use snapshot-then-iterate: the data is captured under a read lock, then the lock is released before the callback runs, so collection does not block producers or subscribers. Top-N selection uses a min-heap for O(N) efficiency.
+All per-process metrics (latency, depth, utilization, throughput, wakeups/drains, init time, aggregates) are collected in a single pass using `Node.ProcessRangeShortInfo()`. The iterator visits each process once, and each observation is dispatched to the latency, depth, utilization, and throughput collectors simultaneously. Event metrics are collected separately using `Node.EventRangeInfo()`, which iterates over all registered events. Both iterators use snapshot-then-iterate: the data is captured under a read lock, then the lock is released before the callback runs, so collection does not block producers or subscribers. Top-N selection uses a min-heap for O(N) efficiency.
 
 ## Custom Metrics
 
@@ -456,7 +470,7 @@ The dashboard organizes metrics into logical groups arranged from high-level ove
 
 **Events** (collapsed) - Ten panels for pub/sub event observability, organized from general to specific. Event Publish/Delivery Rate shows cluster-wide throughput with three lines: Published (how often producers publish), Local Delivered (actual fanout to local subscribers -- typically much higher than Published when events have many subscribers), and Remote Sent (one message per remote node due to [shared subscriptions](../../advanced/pub-sub-internals.md)). Event Utilization is a stacked timeseries showing the state of all registered events: active (publishing with subscribers), on demand (using Notify, waiting), idle, no subscribers, no publishing. The total height equals total registered events; a healthy system is mostly green (active) and blue (on demand). Event Publish Rate per Node and Event Delivery Rate per Node show per-node publish and delivery rates. Registered Events per Node and Max Subscribers per Node provide per-node counts. Four tables at the bottom show Top Events by Subscribers, Published, Local Deliveries, and Remote Sent -- identifying which specific events create the most load. See [Events](../../basics/events.md) for the pub/sub model.
 
-**Process Activity** (collapsed) - Eight panels organized by topic: message throughput first, then process utilization. Message Throughput (Cluster Total) shows cluster-wide inbound and outbound message rates. Message Throughput per Node breaks this down by node. Top Processes by Messages In and Top Processes by Messages Out tables identify which actors handle the most traffic (cumulative). Utilization Distribution is a stacked area chart showing how many processes fall into each utilization range (1% through 90%+), using a flame gradient from green to red. Max Utilization per Node shows the busiest process on each node. Actor Running Time per Node shows `rate(running_time_seconds)` per node -- effectively the node-level actor CPU utilization; when this approaches CPU core count, the node is compute-saturated. Top Processes by Utilization table shows the busiest actors by lifetime utilization.
+**Process Activity** (collapsed) - Ten panels organized by topic: message throughput, drains, then process utilization. Message Throughput (Cluster Total) and Message Throughput per Node show inbound, outbound, and wakeup rates -- the gap between message rate and wakeup rate reveals drain effect (processes batching under load). Top Processes by Messages In/Out tables identify which actors handle the most traffic. Drains per Node timeseries shows per-node drain ratio over time (`rate(messages_in) / rate(wakeups)`), and Top Processes by Drains table identifies specific actors with the highest drain -- these are the processes that handle the most messages per wakeup cycle. Drain ratio complements utilization: two processes at 80% utilization may have drain ~1 (slow callbacks) or drain ~100 (fast callbacks, high volume) -- different problems needing different solutions. Utilization Distribution, Max Utilization per Node, Actor Running Time per Node, and Top Processes by Utilization cover compute load analysis.
 
 **Processes** (collapsed) - Six panels showing per-node process counts (total and running), lifecycle rates (spawn rate with failures in red, termination rate), and initialization performance (init time bar gauge per node, top processes by init time). Steady growth in total without plateau suggests process leaks. Spawn failures indicate resource exhaustion. When termination rate exceeds spawn rate, the node is draining. High init times indicate heavy initialization logic or blocking operations in ProcessInit.
 
@@ -514,6 +528,7 @@ Expand the Process Activity row. The top two rows cover message throughput.
 - **Cluster Throughput spikes** -- correlate with Mailbox Depth and Latency. A spike followed by growing depth means the system cannot absorb the burst.
 - **In/Out imbalance** -- compare inbound and outbound rates. A persistent gap may indicate messages flowing to meta processes (not visible in process counters) or event fanout patterns. See the Events section for fanout analysis.
 - **One node has disproportionate throughput** -- Throughput per Node identifies hotspots. Cross-reference with Top Processes by Messages In/Out to find the specific actors.
+- **Wakeup rate diverges from message rate** -- on Throughput panels, the gap between In and Wakeups lines shows drain effect. Growing gap means processes batch more messages per wakeup (increasing load). Drains per Node timeseries shows which node, Top Processes by Drains shows which process.
 
 #### Investigating process lifecycle issues
 
@@ -568,6 +583,10 @@ Combining signals from different sections identifies root causes:
 - **Throughput drop + stable process count** -- processes alive but not doing work. Blocked on external calls or upstream failure (no messages arriving).
 - **Running time per node approaching CPU cores** -- node is compute-saturated. All CPU time spent in actor callbacks. Reduce workload or add capacity.
 - **Event no_subscribers growing + stable throughput** -- producers publishing into the void. Not using [Notify](../../basics/events.md) mechanism to detect absent subscribers.
+- **High drain + stable depth** -- process running at maximum capacity but keeping up. No action needed unless depth starts growing.
+- **High drain + growing depth** -- process cannot keep up despite continuous processing. Needs load distribution or faster message handling.
+- **High utilization + low drain** -- slow per-message processing. Each callback takes long. Optimize the callback logic.
+- **High utilization + high drain** -- fast processing but overwhelming volume. Distribute load across more processes.
 
 ## Observer Integration
 
