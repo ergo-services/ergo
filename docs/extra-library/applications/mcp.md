@@ -24,7 +24,8 @@ MCP complements rather than replaces traditional monitoring. Use Prometheus/Graf
 
 ## Adding to Your Node
 
-```goimport (
+```go
+import (
 	"ergo.services/ergo"
 	"ergo.services/application/mcp"
 	"ergo.services/ergo/gen"
