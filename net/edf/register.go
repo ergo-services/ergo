@@ -727,6 +727,53 @@ func addRegCache(t reflect.Type) error {
 	return nil
 }
 
+// RegisteredTypes returns all registered types as a map of
+// type name (format: "#pkgpath/TypeName") to reflect.Type.
+// This allows external tools (like MCP server) to discover and
+// construct registered message types via reflection.
+func RegisteredTypes() map[string]reflect.Type {
+	result := make(map[string]reflect.Type)
+	decoders.Range(func(k, v any) bool {
+		name, ok := k.(string)
+		if ok == false {
+			return true
+		}
+		dec := v.(*decoder)
+		result[name] = dec.Type
+		return true
+	})
+	return result
+}
+
+// LookupType returns the reflect.Type for a registered type by name.
+// The name can be a full EDF name ("#pkgpath/TypeName") or a short
+// type name ("TypeName") which matches the first type with that suffix.
+func LookupType(name string) (reflect.Type, bool) {
+	// Try exact match first
+	if v, ok := decoders.Load(name); ok {
+		return v.(*decoder).Type, true
+	}
+
+	// Try short name match (suffix match on "/TypeName")
+	suffix := "/" + name
+	var found reflect.Type
+	decoders.Range(func(k, v any) bool {
+		s, ok := k.(string)
+		if ok == false {
+			return true
+		}
+		if len(s) > len(suffix) && s[len(s)-len(suffix):] == suffix {
+			found = v.(*decoder).Type
+			return false
+		}
+		return true
+	})
+	if found != nil {
+		return found, true
+	}
+	return nil, false
+}
+
 func GetRegCache() map[uint16]string {
 	cache := make(map[uint16]string)
 	regCache.Range(func(k, v any) bool {
