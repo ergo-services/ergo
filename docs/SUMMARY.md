@@ -60,11 +60,13 @@
 ## extra library
 
 * [Actors](extra-library/actors/README.md)
+  * [Health](extra-library/actors/health.md)
   * [Leader](extra-library/actors/leader.md)
   * [Metrics](extra-library/actors/metrics.md)
 * [Applications](extra-library/applications/README.md)
   * [Observer](extra-library/applications/observer.md)
   * [MCP](extra-library/applications/mcp.md)
+  * [Radar](extra-library/applications/radar.md)
 * [Meta-Processes](extra-library/meta-processes/README.md)
   * [WebSocket](extra-library/meta-processes/websocket.md)
   * [SSE](extra-library/meta-processes/sse.md)
