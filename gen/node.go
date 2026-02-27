@@ -792,6 +792,10 @@ type NodeInfo struct {
 
 	// SystemTime is the system CPU time in nanoseconds.
 	SystemTime int64
+
+	// ServerTime is the current server time with timezone.
+	// Useful in Observer and MCP for correlating logs across nodes in different timezones.
+	ServerTime time.Time
 }
 
 // LoggerInfo describes a registered logger.

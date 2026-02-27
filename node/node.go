@@ -738,6 +738,8 @@ func (n *node) Info() (gen.NodeInfo, error) {
 	info.UserTime = utime
 	info.SystemTime = stime
 
+	info.ServerTime = time.Now()
+
 	return info, nil
 }
 
