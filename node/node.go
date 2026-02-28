@@ -106,6 +106,8 @@ type node struct {
 	processesSpawned     uint64
 	processesSpawnFailed uint64
 	processesTerminated  uint64
+
+	logMessages [6]uint64 // atomic: 0=trace, 1=debug, 2=info, 3=warning, 4=error, 5=panic
 }
 
 type eventOwner struct {
@@ -684,6 +686,10 @@ func (n *node) Info() (gen.NodeInfo, error) {
 			info.Loggers[n].Levels = append(info.Loggers[n].Levels, level)
 			return true
 		})
+	}
+
+	for i := 0; i < 6; i++ {
+		info.LogMessages[i] = atomic.LoadUint64(&n.logMessages[i])
 	}
 
 	if n.security.ExposeEnvInfo {
@@ -2120,6 +2126,22 @@ func (n *node) dolog(message gen.MessageLog, loggername string) {
 	if n.isRunning() == false {
 		return
 	}
+
+	switch message.Level {
+	case gen.LogLevelTrace:
+		atomic.AddUint64(&n.logMessages[0], 1)
+	case gen.LogLevelDebug:
+		atomic.AddUint64(&n.logMessages[1], 1)
+	case gen.LogLevelInfo:
+		atomic.AddUint64(&n.logMessages[2], 1)
+	case gen.LogLevelWarning:
+		atomic.AddUint64(&n.logMessages[3], 1)
+	case gen.LogLevelError:
+		atomic.AddUint64(&n.logMessages[4], 1)
+	case gen.LogLevelPanic:
+		atomic.AddUint64(&n.logMessages[5], 1)
+	}
+
 	if l := n.loggers[message.Level]; l != nil {
 		if loggername != "" {
 			if v, found := l.Load(loggername); found {

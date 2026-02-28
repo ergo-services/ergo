@@ -177,6 +177,12 @@ The metrics actor automatically exposes these Prometheus metrics without any con
 | `ergo_events_local_sent_total` | Gauge | Cumulative number of event messages delivered to local subscribers. This reflects the actual fanout load -- a single publish with 100 subscribers produces 100 local deliveries. |
 | `ergo_events_remote_sent_total` | Gauge | Cumulative number of event messages sent to remote nodes. Due to shared subscription optimization, one message is sent per remote node regardless of how many subscribers that node has. See [Pub/Sub Internals](../../advanced/pub-sub-internals.md). |
 
+### Log Metrics
+
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `ergo_log_messages_total` | Gauge | `level` | Cumulative number of log messages by level. Labels: `trace`, `debug`, `info`, `warning`, `error`, `panic`. Counting happens once in the node's log dispatcher before fan-out to loggers, so the numbers are accurate regardless of how many loggers are registered. Use `rate()` to detect error spikes or `increase()` to compare levels over time. |
+
 ### Network Metrics
 
 | Metric | Type | Labels | Description |
@@ -553,6 +559,8 @@ The dashboard organizes metrics into logical groups arranged from high-level ove
 **Processes** (collapsed) - Six panels showing per-node process counts (total and running), lifecycle rates (spawn rate with failures in red, termination rate), and initialization performance (init time bar gauge per node, top processes by init time). Steady growth in total without plateau suggests process leaks. Spawn failures indicate resource exhaustion. When termination rate exceeds spawn rate, the node is draining. High init times indicate heavy initialization logic or blocking operations in ProcessInit.
 
 **Resources** (collapsed) - Four panels covering CPU and memory. CPU User Time and CPU System Time are normalized by core count and displayed as percentages. High user CPU means compute-bound workload; high system CPU relative to user suggests excessive I/O or syscalls. Memory (OS:used) and Memory (Runtime:alloc) show memory usage over time. Monotonic growth signals memory leaks. Sawtooth pattern in runtime allocation is normal (GC cycles). Rising baseline between GC cycles indicates uncollected objects.
+
+**Logging** (collapsed) - Log Messages Rate shows the rate of log messages per second broken down by level as a stacked area chart. Colors follow severity: trace and debug are gray, info is green, warning is yellow, error is red, panic is dark red. A healthy system shows mostly green (info). Spikes in warning or error indicate issues worth investigating. The legend table shows current, mean, and max rates per level. Counting happens once in the node's log dispatcher before fan-out to loggers, so the numbers are accurate regardless of how many loggers are registered.
 
 **Network** (collapsed) - Six panels covering cluster totals, per-node breakdowns, and node-pair detail for both message rates and byte rates. Sudden drops may indicate partitions. Disproportionate bytes-to-messages ratio reveals large message sizes. The detail panels show traffic between specific node pairs, useful for tracing inter-node communication paths and identifying saturated links.
 

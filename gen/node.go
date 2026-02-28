@@ -733,6 +733,10 @@ type NodeInfo struct {
 	// Loggers lists all registered loggers with their configuration.
 	Loggers []LoggerInfo
 
+	// LogMessages contains cumulative log message counts by level.
+	// Indexed as: [0]=Trace, [1]=Debug, [2]=Info, [3]=Warning, [4]=Error, [5]=Panic
+	LogMessages [6]uint64
+
 	// Cron contains cron scheduler information (jobs, schedule, next run).
 	Cron CronInfo
 
