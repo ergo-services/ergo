@@ -22,7 +22,7 @@ The health actor solves this by accepting signal registrations from any actor in
 
 The health actor follows a registration and heartbeat pattern:
 
-1. **Actors register signals** -- Each actor that contributes to health sends a `MessageRegister` to the health actor, specifying a signal name, which probes it affects, and an optional heartbeat timeout.
+1. **Actors register signals** -- Each actor that contributes to health sends a `RegisterRequest` to the health actor (synchronous Call), specifying a signal name, which probes it affects, and an optional heartbeat timeout. The Call returns after the signal is registered, preventing race conditions with subsequent heartbeats.
 
 2. **The health actor monitors registrants** -- When a signal is registered, the health actor monitors the registering process. If that process terminates, all its signals are automatically marked as down.
 
@@ -36,7 +36,8 @@ sequenceDiagram
     participant H as Health Actor
     participant K as Kubernetes
 
-    DB->>H: MessageRegister{Signal: "db", Probe: Liveness|Readiness, Timeout: 5s}
+    DB->>H: RegisterRequest{Signal: "db", Probe: Liveness|Readiness, Timeout: 5s}
+    H->>DB: RegisterResponse{}
     Note over H: Monitor DB Actor<br/>Signal "db" = up
 
     loop Every 2 seconds
@@ -182,38 +183,40 @@ When `Probe` is 0, it defaults to `ProbeLiveness`.
 
 ### Helper Functions
 
-The package provides convenience functions that send the appropriate messages:
+The package provides convenience functions:
 
 ```go
-// Register a signal
+// Register a signal (sync Call -- blocks until registered)
 health.Register(process, to, signal, probe, timeout)
 
-// Remove a signal
+// Remove a signal (sync Call -- blocks until removed)
 health.Unregister(process, to, signal)
 
-// Send heartbeat
+// Send heartbeat (async Send)
 health.Heartbeat(process, to, signal)
 
-// Manual control
+// Manual control (async Send)
 health.SignalUp(process, to, signal)
 health.SignalDown(process, to, signal)
 ```
 
-The `to` parameter accepts anything that `gen.Process.Send()` accepts -- a `gen.Atom` name, `gen.PID`, `gen.ProcessID`, or `gen.Alias`.
+`Register` and `Unregister` use synchronous Call to confirm the operation completed. This prevents race conditions where a heartbeat or status update arrives before the signal is registered. All other helpers use async Send.
+
+The `to` parameter accepts anything that identifies a process -- a `gen.Atom` name, `gen.PID`, `gen.ProcessID`, or `gen.Alias`.
 
 ### Message Types
 
 If you prefer sending messages directly instead of using helpers:
 
-| Message | Description |
-|---------|-------------|
-| `MessageRegister` | Register a signal. Fields: `Signal gen.Atom`, `Probe Probe`, `Timeout time.Duration` |
-| `MessageUnregister` | Remove a signal. Fields: `Signal gen.Atom` |
-| `MessageHeartbeat` | Update heartbeat timestamp. Fields: `Signal gen.Atom` |
-| `MessageSignalUp` | Mark a signal as up. Fields: `Signal gen.Atom` |
-| `MessageSignalDown` | Mark a signal as down. Fields: `Signal gen.Atom` |
+| Message | Type | Description |
+|---------|------|-------------|
+| `RegisterRequest` / `RegisterResponse` | sync (Call) | Register a signal. Fields: `Signal gen.Atom`, `Probe Probe`, `Timeout time.Duration` |
+| `UnregisterRequest` / `UnregisterResponse` | sync (Call) | Remove a signal. Fields: `Signal gen.Atom` |
+| `MessageHeartbeat` | async (Send) | Update heartbeat timestamp. Fields: `Signal gen.Atom` |
+| `MessageSignalUp` | async (Send) | Mark a signal as up. Fields: `Signal gen.Atom` |
+| `MessageSignalDown` | async (Send) | Mark a signal as down. Fields: `Signal gen.Atom` |
 
-All message types are registered with EDF for network transparency. Actors on remote nodes can register signals with a health actor on any node in the cluster.
+All types are registered with EDF for network transparency. Actors on remote nodes can register signals with a health actor on any node in the cluster.
 
 ## Heartbeat Pattern
 
@@ -340,7 +343,7 @@ func (h *MyHealth) HandleSignalUp(signal gen.Atom) error {
 }
 ```
 
-Override `HandleMessage` to handle application-specific messages alongside health management. The health actor dispatches its own message types (`MessageRegister`, `MessageHeartbeat`, etc.) internally -- only unrecognized messages are forwarded to `HandleMessage`.
+Override `HandleMessage` to handle application-specific messages alongside health management. The health actor dispatches its own types internally (`RegisterRequest`/`UnregisterRequest` via HandleCall, `MessageHeartbeat`/`MessageSignalUp`/`MessageSignalDown` via HandleMessage) -- only unrecognized messages are forwarded to your callbacks.
 
 ## Kubernetes Configuration
 

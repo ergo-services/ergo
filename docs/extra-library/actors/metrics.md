@@ -323,6 +323,8 @@ All per-process metrics (latency, depth, utilization, throughput, wakeups/drains
 
 There are three approaches to custom metrics depending on your use case: helper functions from any actor, embedding `metrics.Actor` for direct registry access, and shared mode for high-throughput scenarios.
 
+All custom metrics automatically receive a `node` const label set to the node name. Do not include `"node"` in your variable label names -- it will cause a "duplicate label names" registration error.
+
 ### Helper Functions
 
 Any actor on the same node can register and update custom metrics without importing `prometheus` or embedding the metrics actor. Registration is a synchronous Call (returns error on failure). Updates are asynchronous Send (fire-and-forget).
@@ -563,8 +565,6 @@ The dashboard organizes metrics into logical groups arranged from high-level ove
 **Logging** (collapsed) - Log Messages Rate shows the rate of log messages per second broken down by level as a stacked area chart. Colors follow severity: trace and debug are gray, info is green, warning is yellow, error is red, panic is dark red. A healthy system shows mostly green (info). Spikes in warning or error indicate issues worth investigating. The legend table shows current, mean, and max rates per level. Counting happens once in the node's log dispatcher before fan-out to loggers, so the numbers are accurate regardless of how many loggers are registered.
 
 **Network** (collapsed) - Six panels covering cluster totals, per-node breakdowns, and node-pair detail for both message rates and byte rates. Sudden drops may indicate partitions. Disproportionate bytes-to-messages ratio reveals large message sizes. The detail panels show traffic between specific node pairs, useful for tracing inter-node communication paths and identifying saturated links.
-
-**Nodes Overview** - A table listing all nodes with uptime, process counts, and memory. Sorted by process count. Quickly identifies recently restarted nodes (low uptime), overloaded nodes (high process count), or unhealthy nodes (non-zero zombies).
 
 ### Working with the Dashboard
 

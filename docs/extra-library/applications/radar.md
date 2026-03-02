@@ -133,6 +133,8 @@ For a detailed explanation of the heartbeat model, failure detection mechanisms,
 
 Actors register Prometheus metric collectors and update them through Radar's helper functions. The underlying metrics actor manages the Prometheus registry and HTTP exposition. Registration is synchronous, updates are asynchronous.
 
+All custom metrics automatically receive a `node` const label set to the node name. Do not include `"node"` in your variable label names -- it will cause a "duplicate label names" registration error.
+
 ### Registering Metrics
 
 ```go
