@@ -55,6 +55,10 @@ type MessageAccept struct {
 	DigestCert string
 }
 
+type MessageReject struct {
+	Reason string
+}
+
 type ConnectionOptions struct {
 	PoolSize int
 	PoolDSN  []string
@@ -74,6 +78,7 @@ func init() {
 		MessageJoin{},
 		MessageIntroduce{},
 		MessageAccept{},
+		MessageReject{},
 	}
 
 	for _, t := range types {

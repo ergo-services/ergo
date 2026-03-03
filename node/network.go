@@ -62,6 +62,11 @@ type network struct {
 	enableAppStart sync.Map
 
 	connections sync.Map // gen.Atom (peer name) => gen.Connection
+	pending     sync.Map // gen.Atom (peer name) => *pendingEntry
+}
+
+type pendingEntry struct {
+	ready chan struct{} // closed when connect finishes (success or failure)
 }
 
 func (n *network) Registrar() (gen.Registrar, error) {
@@ -690,6 +695,37 @@ func (n *network) GetConnection(name gen.Atom) (gen.Connection, error) {
 	return nil, gen.ErrNoRoute
 }
 
+// acquirePending tries to become the goroutine that connects to `name`.
+// If another goroutine is already connecting, waits for it to finish and
+// checks the result. Retries up to 3 times if the other goroutine fails.
+// Returns: (entry, nil) if acquired; (nil, nil) if connection appeared; (nil, err) on failure.
+func (n *network) acquirePending(name gen.Atom) (*pendingEntry, error) {
+	for attempt := 0; attempt < 3; attempt++ {
+		entry := &pendingEntry{ready: make(chan struct{})}
+		actual, loaded := n.pending.LoadOrStore(name, entry)
+		if loaded == false {
+			return entry, nil // acquired the slot
+		}
+
+		// another connect in progress, wait for it
+		pe := actual.(*pendingEntry)
+		select {
+		case <-pe.ready:
+			// connect finished (success or failure)
+		case <-time.After(5 * time.Second):
+			return nil, fmt.Errorf("connection to %s: pending timeout", name)
+		}
+
+		// check if connection appeared
+		if _, ok := n.connections.Load(name); ok {
+			return nil, nil // connection exists
+		}
+
+		// connect failed and pending was cleared, retry LoadOrStore
+	}
+	return nil, fmt.Errorf("connection to %s: 3 attempts exhausted", name)
+}
+
 func (n *network) connect(name gen.Atom, route gen.NetworkRoute) (gen.Connection, error) {
 	var dial func(network, addr string) (net.Conn, error)
 
@@ -706,12 +742,30 @@ func (n *network) connect(name gen.Atom, route gen.NetworkRoute) (gen.Connection
 		return nil, fmt.Errorf("no proto handler for %s", route.Route.ProtoVersion)
 	}
 
-	handshake := vhandshake.(gen.NetworkHandshake)
+	hs := vhandshake.(gen.NetworkHandshake)
 	proto := vproto.(gen.NetworkProto)
 
 	if route.Route.Host == "" {
 		route.Route.Host = name.Host()
 	}
+
+	// acquire pending slot (waits for ongoing connect, retries on failure)
+	entry, err := n.acquirePending(name)
+	if err != nil {
+		return nil, err
+	}
+	if entry == nil {
+		// connection appeared while waiting
+		v, ok := n.connections.Load(name)
+		if ok == false {
+			return nil, gen.ErrNoRoute
+		}
+		return v.(gen.Connection), nil
+	}
+	defer func() {
+		n.pending.Delete(name)
+		close(entry.ready) // wake ALL waiting goroutines
+	}()
 
 	if lib.Trace() {
 		n.node.Log().Trace("trying to connect to %s (%s:%d, tls:%v)",
@@ -760,6 +814,10 @@ func (n *network) connect(name gen.Atom, route gen.NetworkRoute) (gen.Connection
 		Cookie:         route.Cookie,
 		Flags:          route.Flags,
 		MaxMessageSize: n.maxmessagesize,
+		CheckPending: func(peer gen.Atom) bool {
+			_, exists := n.pending.Load(peer)
+			return exists
+		},
 	}
 
 	if hopts.Cookie == "" {
@@ -769,9 +827,13 @@ func (n *network) connect(name gen.Atom, route gen.NetworkRoute) (gen.Connection
 		hopts.Flags = n.flags
 	}
 
-	result, err := handshake.Start(n.node, conn, hopts)
+	result, err := hs.Start(n.node, conn, hopts)
 	if err != nil {
 		conn.Close()
+		// on simultaneous connect rejection, check if accept path established connection
+		if v, ok := n.connections.Load(name); ok {
+			return v.(gen.Connection), nil
+		}
 		return nil, err
 	}
 
@@ -811,26 +873,38 @@ func (n *network) connect(name gen.Atom, route gen.NetworkRoute) (gen.Connection
 		if err != nil {
 			return nil, nil, err
 		}
-		tail, err := handshake.Join(n.node, c, id, hopts)
+		tail, err := hs.Join(n.node, c, id, hopts)
 		if err != nil {
 			return nil, nil, err
 		}
 		return c, tail, nil
 	}
 
-	if c, err := n.registerConnection(result.Peer, pconn); err != nil {
-		if err == gen.ErrTaken {
-			return c, nil
-		}
+	c, err := n.registerConnection(result.Peer, pconn)
+	if err == nil {
+		pconn.Join(conn, result.ConnectionID, redial, result.Tail)
+		go n.serve(proto, pconn, redial)
+		return pconn, nil
+	}
+
+	if err != gen.ErrTaken {
 		pconn.Terminate(err)
 		conn.Close()
 		return nil, err
 	}
 
-	pconn.Join(conn, result.ConnectionID, redial, result.Tail)
-	go n.serve(proto, pconn, redial)
+	// ErrTaken: another path registered first
+	pconn.Terminate(nil) // cleanup abandoned pconn
 
-	return pconn, nil
+	// with deterministic ID, join our TCP into the existing connection
+	if jerr := c.Join(conn, result.ConnectionID, redial, result.Tail); jerr != nil {
+		conn.Close()
+		return c, nil
+	}
+
+	// expand pool (existing connection may have been registered by accept with nil redial)
+	go n.expandPool(c, redial, result.ConnectionID, result.PoolSize, result.PoolDSN)
+	return c, nil
 }
 
 func (n *network) serve(proto gen.NetworkProto, conn gen.Connection, redial gen.NetworkDial) {
@@ -848,6 +922,24 @@ func (n *network) serve(proto gen.NetworkProto, conn gen.Connection, redial gen.
 	err := proto.Serve(conn, redial)
 	n.unregisterConnection(name, err)
 	conn.Terminate(err)
+}
+
+func (n *network) expandPool(c gen.Connection, redial gen.NetworkDial,
+	connID string, poolSize int, poolDSN []string) {
+	if poolSize < 2 || len(poolDSN) == 0 {
+		return
+	}
+	for i := 1; i < poolSize; i++ {
+		dsn := poolDSN[i%len(poolDSN)]
+		nc, tail, err := redial(dsn, connID)
+		if err != nil {
+			continue
+		}
+		if err := c.Join(nc, connID, redial, tail); err != nil {
+			nc.Close()
+			return // pool full or connection terminated
+		}
+	}
 }
 
 func (n *network) connectProxy(name gen.Atom, route gen.NetworkProxyRoute) (gen.Connection, error) {
@@ -1205,6 +1297,10 @@ func (n *network) accept(a *acceptor) {
 		Flags:          a.flags,
 		MaxMessageSize: a.max_message_size,
 		CertManager:    a.cert_manager,
+		CheckPending: func(peer gen.Atom) bool {
+			_, exists := n.pending.Load(peer)
+			return exists
+		},
 	}
 	for {
 		c, err := a.l.Accept()
@@ -1280,8 +1376,19 @@ func (n *network) accept(a *acceptor) {
 		}
 
 		if _, err := n.registerConnection(result.Peer, conn); err != nil {
-			n.node.Log().Warning("unable to register new connection with %s: %s", result.Peer, err)
-			c.Close()
+			// connect() registered between our Load and LoadOrStore
+			conn.Terminate(nil) // fix: cleanup the unused connection object
+
+			// with deterministic ID, join TCP into the existing connection
+			existing, ok := n.connections.Load(result.Peer)
+			if ok == false {
+				c.Close()
+				continue
+			}
+			ec := existing.(gen.Connection)
+			if jerr := ec.Join(c, result.ConnectionID, nil, result.Tail); jerr != nil {
+				c.Close()
+			}
 			continue
 		}
 		conn.Join(c, result.ConnectionID, nil, result.Tail)

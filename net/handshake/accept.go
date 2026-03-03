@@ -1,6 +1,7 @@
 package handshake
 
 import (
+	"crypto/hmac"
 	"crypto/sha1"
 	"crypto/sha256"
 	"crypto/tls"
@@ -107,8 +108,29 @@ func (h *handshake) Accept(node gen.NodeHandshake, conn net.Conn, options gen.Ha
 		return result, fmt.Errorf("incorrect digest (accept stage 'introduce')")
 	}
 
+	// deterministic connection ID (unconditional)
+	connID := generateConnectionID(
+		node.Name(), node.Creation(),
+		intro.Node, intro.Creation,
+		options.Cookie,
+	)
+
+	// collision detection + rejection (Erlang-style, flag-gated)
+	if options.Flags.EnableSimultaneousConnect == true &&
+		intro.Flags.EnableSimultaneousConnect == true &&
+		options.CheckPending != nil && options.CheckPending(intro.Node) {
+		// simultaneous connect detected
+		if string(node.Name()) < string(intro.Node) {
+			// our node name is smaller -> our outgoing wins -> reject this incoming
+			h.writeMessage(conn, MessageReject{Reason: "simultaneous"})
+			return result, fmt.Errorf("rejected incoming from %s (simultaneous connect)", intro.Node)
+		}
+		// our node name is larger -> their outgoing wins -> accept this incoming
+		// our connect() will handle cleanup when it finishes
+	}
+
 	accept := MessageAccept{}
-	accept.ID = lib.RandomString(32)
+	accept.ID = connID
 	accept.PoolSize = h.poolsize
 	accept.PoolDSN = append(accept.PoolDSN, conn.LocalAddr().String())
 	if err := h.writeMessage(conn, accept); err != nil {
@@ -149,6 +171,8 @@ func (h *handshake) Accept(node gen.NodeHandshake, conn net.Conn, options gen.Ha
 	result.PeerMaxMessageSize = intro.MaxMessageSize
 	result.NodeFlags = options.Flags
 	result.NodeMaxMessageSize = options.MaxMessageSize
+	result.PoolSize = h.poolsize
+	result.PoolDSN = accept.PoolDSN
 	result.Tail = tail
 
 	custom := ConnectionOptions{
@@ -172,4 +196,17 @@ func (h *handshake) getLocalTLSFingerprint(conn net.Conn, cm gen.CertManager) []
 	cert := cm.GetCertificate()
 	fp := sha1.Sum(cert.Certificate[0])
 	return fp[:]
+}
+
+func generateConnectionID(nameA gen.Atom, creationA int64,
+	nameB gen.Atom, creationB int64, cookie string) string {
+	// canonical ordering: smaller name first
+	first := fmt.Sprintf("%s:%d", nameA, creationA)
+	second := fmt.Sprintf("%s:%d", nameB, creationB)
+	if string(nameA) > string(nameB) {
+		first, second = second, first
+	}
+	mac := hmac.New(sha256.New, []byte(cookie))
+	mac.Write([]byte(first + ":" + second))
+	return fmt.Sprintf("%x", mac.Sum(nil))
 }

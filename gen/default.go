@@ -33,6 +33,7 @@ var (
 		EnableProxyTransit:           false,
 		EnableProxyAccept:            true,
 		EnableImportantDelivery:      true,
+		EnableSimultaneousConnect:    true,
 	}
 
 	DefaultNetworkProxyFlags = NetworkProxyFlags{

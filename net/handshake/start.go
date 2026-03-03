@@ -84,8 +84,13 @@ func (h *handshake) Start(node gen.NodeHandshake, conn net.Conn, options gen.Han
 		return result, err
 	}
 
-	accept, ok := v.(MessageAccept)
-	if ok == false {
+	var accept MessageAccept
+	switch msg := v.(type) {
+	case MessageAccept:
+		accept = msg
+	case MessageReject:
+		return result, fmt.Errorf("rejected: %s", msg.Reason)
+	default:
 		return result, fmt.Errorf("malformed handshake Accept message")
 	}
 
@@ -117,6 +122,8 @@ func (h *handshake) Start(node gen.NodeHandshake, conn net.Conn, options gen.Han
 	result.PeerMaxMessageSize = intro2.MaxMessageSize
 	result.NodeFlags = options.Flags
 	result.NodeMaxMessageSize = options.MaxMessageSize
+	result.PoolSize = accept.PoolSize
+	result.PoolDSN = accept.PoolDSN
 	result.Tail = tail
 
 	custom := ConnectionOptions{

@@ -389,6 +389,8 @@ type NetworkFlags struct {
 	EnableProxyAccept bool
 	// EnableImportantDelivery enables support 'important' flag
 	EnableImportantDelivery bool
+	// EnableSimultaneousConnect enables simultaneous connect detection and resolution
+	EnableSimultaneousConnect bool
 }
 
 // we must be able to extend this structure by introducing new features.
@@ -420,6 +422,9 @@ func (nf NetworkFlags) MarshalEDF(w io.Writer) error {
 	if nf.EnableImportantDelivery == true {
 		flags |= 64
 	}
+	if nf.EnableSimultaneousConnect == true {
+		flags |= 128
+	}
 	binary.BigEndian.PutUint64(buf[:], flags)
 	w.Write(buf[:])
 	return nil
@@ -440,6 +445,7 @@ func (nf *NetworkFlags) UnmarshalEDF(buf []byte) error {
 	nf.EnableProxyTransit = (flags & 16) > 0
 	nf.EnableProxyAccept = (flags & 32) > 0
 	nf.EnableImportantDelivery = (flags & 64) > 0
+	nf.EnableSimultaneousConnect = (flags & 128) > 0
 	return nil
 }
 
@@ -643,6 +649,10 @@ type HandshakeOptions struct {
 	// Communicated to peer during handshake so peer knows the limit.
 	// Peer will reject sending messages exceeding this size.
 	MaxMessageSize int
+
+	// CheckPending returns true if this node has a pending outgoing
+	// connect to the given peer. Used for simultaneous connect detection.
+	CheckPending func(peer Atom) bool
 }
 
 type HandshakeResult struct {
@@ -659,6 +669,9 @@ type HandshakeResult struct {
 	NodeMaxMessageSize int
 
 	AtomMapping map[Atom]Atom
+
+	PoolSize int
+	PoolDSN  []string
 
 	// Tail if something is left in the buffer after the handshaking we should
 	// pass it to the proto handler
