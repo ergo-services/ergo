@@ -37,8 +37,13 @@ func (h *handshake) Start(node gen.NodeHandshake, conn net.Conn, options gen.Han
 		return result, err
 	}
 
-	hello2, ok := v.(MessageHello)
-	if ok == false {
+	var hello2 MessageHello
+	switch msg := v.(type) {
+	case MessageReject:
+		return result, fmt.Errorf("rejected: %s", msg.Reason)
+	case MessageHello:
+		hello2 = msg
+	default:
 		return result, fmt.Errorf("malformed handshake Hello message")
 	}
 	hash = sha256.New()

@@ -610,6 +610,12 @@ type AcceptorOptions struct {
 	// Proto overrides the default network protocol for this acceptor.
 	// Allows mixing EDF and Erlang protocols on different ports.
 	Proto NetworkProto
+
+	// MaxHandshakes limits the number of simultaneous in-flight handshakes
+	// on this acceptor. When the limit is reached, new connections are
+	// rejected immediately with a "busy" reason.
+	// Zero (default) means unlimited.
+	MaxHandshakes int
 }
 
 // Handshake defines handshake interface
@@ -622,6 +628,9 @@ type NetworkHandshake interface {
 	Join(NodeHandshake, net.Conn, string, HandshakeOptions) ([]byte, error)
 	// Accept accepts handshake process initiated by another side of this connection.
 	Accept(NodeHandshake, net.Conn, HandshakeOptions) (HandshakeResult, error)
+	// Reject sends a rejection message to the connecting side and is used
+	// when the acceptor is too busy to handle a new handshake.
+	Reject(net.Conn, string) error
 	// Version
 	Version() Version
 }
@@ -730,6 +739,12 @@ type NetworkInfo struct {
 	// Flags shows the node's network capabilities.
 	// Indicates what features are enabled globally.
 	Flags NetworkFlags
+
+	// ConnectionsEstablished is the cumulative number of connections established.
+	ConnectionsEstablished uint64
+
+	// ConnectionsLost is the cumulative number of connections lost.
+	ConnectionsLost uint64
 
 	// EnabledSpawn lists processes that remote nodes are allowed to spawn.
 	// Includes process name, behavior, and which nodes can spawn it.

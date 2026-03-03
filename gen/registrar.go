@@ -171,6 +171,9 @@ type AcceptorInfo struct {
 
 	// ProtoVersion is the network protocol version (EDF or Erlang).
 	ProtoVersion Version
+
+	// HandshakeErrors is the cumulative number of failed handshakes on this acceptor.
+	HandshakeErrors uint64
 }
 
 // RegisterRoutes contains routes to publish when registering with the service registry.

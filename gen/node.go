@@ -758,6 +758,18 @@ type NodeInfo struct {
 	// ProcessesTerminated is the cumulative number of terminated processes.
 	ProcessesTerminated uint64
 
+	// SendErrorsLocal is the cumulative number of local send delivery errors.
+	SendErrorsLocal uint64
+
+	// SendErrorsRemote is the cumulative number of remote send delivery errors.
+	SendErrorsRemote uint64
+
+	// CallErrorsLocal is the cumulative number of local call delivery errors.
+	CallErrorsLocal uint64
+
+	// CallErrorsRemote is the cumulative number of remote call delivery errors.
+	CallErrorsRemote uint64
+
 	// RegisteredAliases is the total number of registered aliases.
 	RegisteredAliases int64
 

@@ -63,6 +63,9 @@ type network struct {
 
 	connections sync.Map // gen.Atom (peer name) => gen.Connection
 	pending     sync.Map // gen.Atom (peer name) => *pendingEntry
+
+	connectionsEstablished atomic.Uint64
+	connectionsLost        atomic.Uint64
 }
 
 type pendingEntry struct {
@@ -495,6 +498,9 @@ func (n *network) Info() (gen.NetworkInfo, error) {
 	info.ProxyRoutes = n.staticProxies.info()
 
 	info.Flags = n.flags
+
+	info.ConnectionsEstablished = n.connectionsEstablished.Load()
+	info.ConnectionsLost = n.connectionsLost.Load()
 
 	info.EnabledSpawn = n.listEnabledSpawn()
 	info.EnabledApplicationStart = n.listEnabledApplicationStart()
@@ -1224,6 +1230,7 @@ func (n *network) startAcceptor(a gen.AcceptorOptions) (*acceptor, error) {
 		atom_mapping:     make(map[gen.Atom]gen.Atom),
 		route_host:       a.RouteHost,
 		route_port:       a.RoutePort,
+		maxHandshakes:    int32(a.MaxHandshakes),
 	}
 	if a.Cookie == "" {
 		acceptor.cookie = n.cookie
@@ -1292,8 +1299,13 @@ func (n *network) startAcceptor(a gen.AcceptorOptions) (*acceptor, error) {
 }
 
 func (n *network) accept(a *acceptor) {
+	cookie := a.cookie
+	if cookie == "" {
+		cookie = n.cookie
+	}
+
 	hopts := gen.HandshakeOptions{
-		Cookie:         a.cookie,
+		Cookie:         cookie,
 		Flags:          a.flags,
 		MaxMessageSize: a.max_message_size,
 		CertManager:    a.cert_manager,
@@ -1316,90 +1328,107 @@ func (n *network) accept(a *acceptor) {
 			n.node.Log().Trace("accepted new TCP-connection from %s", c.RemoteAddr().String())
 		}
 
-		if hopts.Cookie == "" {
-			hopts.Cookie = n.cookie
-		}
-
-		result, err := a.handshake.Accept(n.node, c, hopts)
-		if err != nil {
-			if err != io.EOF {
-				n.node.Log().Warning("unable to handshake with %s: %s", c.RemoteAddr().String(), err)
-			}
+		// check concurrency limit
+		if a.maxHandshakes > 0 && a.handshaking.Add(1) > a.maxHandshakes {
+			a.handshaking.Add(-1)
+			c.SetWriteDeadline(time.Now().Add(100 * time.Millisecond))
+			a.handshake.Reject(c, "busy")
 			c.Close()
 			continue
 		}
 
-		if result.Peer == "" {
-			n.node.Log().Warning("%s is not introduced itself, close connection", c.RemoteAddr().String())
-			c.Close()
-			continue
-		}
-
-		// update atom mapping: a.atom_mapping + result.AtomMapping
-		mapping := make(map[gen.Atom]gen.Atom)
-		for k, v := range a.atom_mapping {
-			mapping[k] = v
-		}
-		for k, v := range result.AtomMapping {
-			mapping[k] = v
-		}
-		result.AtomMapping = mapping
-
-		// check if we already have connection with this node
-		if v, exist := n.connections.Load(result.Peer); exist {
-			conn := v.(gen.Connection)
-			if err := conn.Join(c, result.ConnectionID, nil, result.Tail); err != nil {
-				if err == gen.ErrUnsupported {
-					n.node.Log().Warning("unable to accept connection with %s (join is not supported)",
-						result.Peer)
-				} else {
-					n.node.Log().Trace("unable to join %s to the existing connection with %s: %s",
-						c.RemoteAddr(), result.Peer, err)
-				}
-				c.Close()
+		go func() {
+			if a.maxHandshakes > 0 {
+				defer a.handshaking.Add(-1)
 			}
-			continue
-		}
-
-		log := createLog(n.node.Log().Level(), n.node.dolog)
-		logSource := gen.MessageLogNetwork{
-			Node:     n.node.name,
-			Peer:     result.Peer,
-			Creation: result.PeerCreation,
-		}
-		log.setSource(logSource)
-		conn, err := a.proto.NewConnection(n.node, result, log)
-		if err != nil {
-			n.node.Log().Warning("unable to create new connection: %s", err)
-			c.Close()
-			continue
-		}
-
-		if _, err := n.registerConnection(result.Peer, conn); err != nil {
-			// connect() registered between our Load and LoadOrStore
-			conn.Terminate(nil) // fix: cleanup the unused connection object
-
-			// with deterministic ID, join TCP into the existing connection
-			existing, ok := n.connections.Load(result.Peer)
-			if ok == false {
-				c.Close()
-				continue
-			}
-			ec := existing.(gen.Connection)
-			if jerr := ec.Join(c, result.ConnectionID, nil, result.Tail); jerr != nil {
-				c.Close()
-			}
-			continue
-		}
-		conn.Join(c, result.ConnectionID, nil, result.Tail)
-		go n.serve(a.proto, conn, nil)
+			n.handleAccepted(a, c, hopts)
+		}()
 	}
+}
+
+func (n *network) handleAccepted(a *acceptor, c net.Conn, hopts gen.HandshakeOptions) {
+	result, err := a.handshake.Accept(n.node, c, hopts)
+	if err != nil {
+		if err != io.EOF {
+			n.node.Log().Warning("unable to handshake with %s: %s", c.RemoteAddr().String(), err)
+		}
+		a.handshakeErrors.Add(1)
+		c.Close()
+		return
+	}
+
+	if result.Peer == "" {
+		n.node.Log().Warning("%s is not introduced itself, close connection", c.RemoteAddr().String())
+		a.handshakeErrors.Add(1)
+		c.Close()
+		return
+	}
+
+	// update atom mapping: a.atom_mapping + result.AtomMapping
+	mapping := make(map[gen.Atom]gen.Atom)
+	for k, v := range a.atom_mapping {
+		mapping[k] = v
+	}
+	for k, v := range result.AtomMapping {
+		mapping[k] = v
+	}
+	result.AtomMapping = mapping
+
+	// check if we already have connection with this node
+	if v, exist := n.connections.Load(result.Peer); exist {
+		conn := v.(gen.Connection)
+		if err := conn.Join(c, result.ConnectionID, nil, result.Tail); err != nil {
+			if err == gen.ErrUnsupported {
+				n.node.Log().Warning("unable to accept connection with %s (join is not supported)",
+					result.Peer)
+			} else {
+				n.node.Log().Trace("unable to join %s to the existing connection with %s: %s",
+					c.RemoteAddr(), result.Peer, err)
+			}
+			c.Close()
+		}
+		return
+	}
+
+	log := createLog(n.node.Log().Level(), n.node.dolog)
+	logSource := gen.MessageLogNetwork{
+		Node:     n.node.name,
+		Peer:     result.Peer,
+		Creation: result.PeerCreation,
+	}
+	log.setSource(logSource)
+	conn, err := a.proto.NewConnection(n.node, result, log)
+	if err != nil {
+		n.node.Log().Warning("unable to create new connection: %s", err)
+		c.Close()
+		return
+	}
+
+	if _, err := n.registerConnection(result.Peer, conn); err != nil {
+		// connect() registered between our Load and LoadOrStore
+		conn.Terminate(nil) // fix: cleanup the unused connection object
+
+		// with deterministic ID, join TCP into the existing connection
+		existing, ok := n.connections.Load(result.Peer)
+		if ok == false {
+			c.Close()
+			return
+		}
+		ec := existing.(gen.Connection)
+		if jerr := ec.Join(c, result.ConnectionID, nil, result.Tail); jerr != nil {
+			c.Close()
+		}
+		return
+	}
+	conn.Join(c, result.ConnectionID, nil, result.Tail)
+	go n.serve(a.proto, conn, nil)
 }
 
 func (n *network) registerConnection(name gen.Atom, conn gen.Connection) (gen.Connection, error) {
 	if v, exist := n.connections.LoadOrStore(name, conn); exist {
 		return v.(gen.Connection), gen.ErrTaken
 	}
+	n.connectionsEstablished.Add(1)
 	n.node.log.Info("new connection with %s (%s)", name, name.CRC32())
 	// TODO create event gen.MessageNetworkEvent
 	return conn, nil
@@ -1407,6 +1436,7 @@ func (n *network) registerConnection(name gen.Atom, conn gen.Connection) (gen.Co
 
 func (n *network) unregisterConnection(name gen.Atom, reason error) {
 	n.connections.Delete(name)
+	n.connectionsLost.Add(1)
 	if reason != nil {
 		n.node.log.Info("connection with %s (%s) terminated with reason: %s", name, name.CRC32(), reason)
 	} else {

@@ -25,19 +25,26 @@ func (n *node) RouteSendPID(from gen.PID, to gen.PID, options gen.MessageOptions
 		// remote
 		connection, err := n.network.GetConnection(to.Node)
 		if err != nil {
+			atomic.AddUint64(&n.sendErrorsRemote, 1)
 			return err
 		}
-		return connection.SendPID(from, to, options, message)
+		if err := connection.SendPID(from, to, options, message); err != nil {
+			atomic.AddUint64(&n.sendErrorsRemote, 1)
+			return err
+		}
+		return nil
 	}
 
 	// local
 	value, found := n.processes.Load(to)
 	if found == false {
+		atomic.AddUint64(&n.sendErrorsLocal, 1)
 		return gen.ErrProcessUnknown
 	}
 	p := value.(*process)
 
 	if alive := p.isAlive(); alive == false {
+		atomic.AddUint64(&n.sendErrorsLocal, 1)
 		return gen.ErrProcessTerminated
 	}
 
@@ -58,10 +65,12 @@ func (n *node) RouteSendPID(from gen.PID, to gen.PID, options gen.MessageOptions
 
 	if ok := queue.Push(qm); ok == false {
 		if p.fallback.Enable == false {
+			atomic.AddUint64(&n.sendErrorsLocal, 1)
 			return gen.ErrProcessMailboxFull
 		}
 
 		if p.fallback.Name == p.name {
+			atomic.AddUint64(&n.sendErrorsLocal, 1)
 			return gen.ErrProcessMailboxFull
 		}
 
@@ -97,18 +106,25 @@ func (n *node) RouteSendProcessID(from gen.PID, to gen.ProcessID, options gen.Me
 		// remote
 		connection, err := n.network.GetConnection(to.Node)
 		if err != nil {
+			atomic.AddUint64(&n.sendErrorsRemote, 1)
 			return err
 		}
-		return connection.SendProcessID(from, to, options, message)
+		if err := connection.SendProcessID(from, to, options, message); err != nil {
+			atomic.AddUint64(&n.sendErrorsRemote, 1)
+			return err
+		}
+		return nil
 	}
 
 	value, found := n.names.Load(to.Name)
 	if found == false {
+		atomic.AddUint64(&n.sendErrorsLocal, 1)
 		return gen.ErrProcessUnknown
 	}
 	p := value.(*process)
 
 	if alive := p.isAlive(); alive == false {
+		atomic.AddUint64(&n.sendErrorsLocal, 1)
 		return gen.ErrProcessTerminated
 	}
 
@@ -129,10 +145,12 @@ func (n *node) RouteSendProcessID(from gen.PID, to gen.ProcessID, options gen.Me
 
 	if ok := queue.Push(qm); ok == false {
 		if p.fallback.Enable == false {
+			atomic.AddUint64(&n.sendErrorsLocal, 1)
 			return gen.ErrProcessMailboxFull
 		}
 
 		if p.fallback.Name == p.name {
+			atomic.AddUint64(&n.sendErrorsLocal, 1)
 			return gen.ErrProcessMailboxFull
 		}
 
@@ -165,18 +183,25 @@ func (n *node) RouteSendAlias(from gen.PID, to gen.Alias, options gen.MessageOpt
 		// remote
 		connection, err := n.network.GetConnection(to.Node)
 		if err != nil {
+			atomic.AddUint64(&n.sendErrorsRemote, 1)
 			return err
 		}
-		return connection.SendAlias(from, to, options, message)
+		if err := connection.SendAlias(from, to, options, message); err != nil {
+			atomic.AddUint64(&n.sendErrorsRemote, 1)
+			return err
+		}
+		return nil
 	}
 
 	value, found := n.aliases.Load(to)
 	if found == false {
+		atomic.AddUint64(&n.sendErrorsLocal, 1)
 		return gen.ErrProcessUnknown
 	}
 	p := value.(*process)
 
 	if alive := p.isAlive(); alive == false {
+		atomic.AddUint64(&n.sendErrorsLocal, 1)
 		return gen.ErrProcessTerminated
 	}
 
@@ -190,6 +215,7 @@ func (n *node) RouteSendAlias(from gen.PID, to gen.Alias, options gen.MessageOpt
 	if value, found := p.metas.Load(to); found {
 		m := value.(*meta)
 		if ok := m.main.Push(qm); ok == false {
+			atomic.AddUint64(&n.sendErrorsLocal, 1)
 			return gen.ErrMetaMailboxFull
 		}
 		atomic.AddUint64(&m.messagesIn, 1)
@@ -209,10 +235,12 @@ func (n *node) RouteSendAlias(from gen.PID, to gen.Alias, options gen.MessageOpt
 
 	if ok := queue.Push(qm); ok == false {
 		if p.fallback.Enable == false {
+			atomic.AddUint64(&n.sendErrorsLocal, 1)
 			return gen.ErrProcessMailboxFull
 		}
 
 		if p.fallback.Name == p.name {
+			atomic.AddUint64(&n.sendErrorsLocal, 1)
 			return gen.ErrProcessMailboxFull
 		}
 
@@ -407,19 +435,26 @@ func (n *node) RouteCallPID(from gen.PID, to gen.PID, options gen.MessageOptions
 		// remote
 		connection, err := n.network.GetConnection(to.Node)
 		if err != nil {
+			atomic.AddUint64(&n.callErrorsRemote, 1)
 			return err
 		}
-		return connection.CallPID(from, to, options, message)
+		if err := connection.CallPID(from, to, options, message); err != nil {
+			atomic.AddUint64(&n.callErrorsRemote, 1)
+			return err
+		}
+		return nil
 	}
 
 	// local
 	value, found := n.processes.Load(to)
 	if found == false {
+		atomic.AddUint64(&n.callErrorsLocal, 1)
 		return gen.ErrProcessUnknown
 	}
 	p := value.(*process)
 
 	if alive := p.isAlive(); alive == false {
+		atomic.AddUint64(&n.callErrorsLocal, 1)
 		return gen.ErrProcessTerminated
 	}
 
@@ -439,6 +474,7 @@ func (n *node) RouteCallPID(from gen.PID, to gen.PID, options gen.MessageOptions
 	qm.Message = message
 
 	if ok := queue.Push(qm); ok == false {
+		atomic.AddUint64(&n.callErrorsLocal, 1)
 		return gen.ErrProcessMailboxFull
 	}
 	atomic.AddUint64(&p.messagesIn, 1)
@@ -460,17 +496,24 @@ func (n *node) RouteCallProcessID(from gen.PID, to gen.ProcessID, options gen.Me
 		// remote
 		connection, err := n.network.GetConnection(to.Node)
 		if err != nil {
+			atomic.AddUint64(&n.callErrorsRemote, 1)
 			return err
 		}
-		return connection.CallProcessID(from, to, options, message)
+		if err := connection.CallProcessID(from, to, options, message); err != nil {
+			atomic.AddUint64(&n.callErrorsRemote, 1)
+			return err
+		}
+		return nil
 	}
 
 	value, found := n.names.Load(to.Name)
 	if found == false {
+		atomic.AddUint64(&n.callErrorsLocal, 1)
 		return gen.ErrProcessUnknown
 	}
 	p := value.(*process)
 	if alive := p.isAlive(); alive == false {
+		atomic.AddUint64(&n.callErrorsLocal, 1)
 		return gen.ErrProcessTerminated
 	}
 
@@ -491,6 +534,7 @@ func (n *node) RouteCallProcessID(from gen.PID, to gen.ProcessID, options gen.Me
 	qm.Message = message
 
 	if ok := queue.Push(qm); ok == false {
+		atomic.AddUint64(&n.callErrorsLocal, 1)
 		return gen.ErrProcessMailboxFull
 	}
 	atomic.AddUint64(&p.messagesIn, 1)
@@ -513,17 +557,24 @@ func (n *node) RouteCallAlias(from gen.PID, to gen.Alias, options gen.MessageOpt
 		// remote
 		connection, err := n.network.GetConnection(to.Node)
 		if err != nil {
+			atomic.AddUint64(&n.callErrorsRemote, 1)
 			return err
 		}
-		return connection.CallAlias(from, to, options, message)
+		if err := connection.CallAlias(from, to, options, message); err != nil {
+			atomic.AddUint64(&n.callErrorsRemote, 1)
+			return err
+		}
+		return nil
 	}
 
 	value, found := n.aliases.Load(to)
 	if found == false {
+		atomic.AddUint64(&n.callErrorsLocal, 1)
 		return gen.ErrProcessUnknown
 	}
 	p := value.(*process)
 	if alive := p.isAlive(); alive == false {
+		atomic.AddUint64(&n.callErrorsLocal, 1)
 		return gen.ErrProcessTerminated
 	}
 
@@ -538,6 +589,7 @@ func (n *node) RouteCallAlias(from gen.PID, to gen.Alias, options gen.MessageOpt
 	if value, found := p.metas.Load(to); found {
 		m := value.(*meta)
 		if ok := m.main.Push(qm); ok == false {
+			atomic.AddUint64(&n.callErrorsLocal, 1)
 			return gen.ErrMetaMailboxFull
 		}
 		atomic.AddUint64(&m.messagesIn, 1)
@@ -555,6 +607,7 @@ func (n *node) RouteCallAlias(from gen.PID, to gen.Alias, options gen.MessageOpt
 		queue = p.mailbox.Main
 	}
 	if ok := queue.Push(qm); ok == false {
+		atomic.AddUint64(&n.callErrorsLocal, 1)
 		return gen.ErrProcessMailboxFull
 	}
 	atomic.AddUint64(&p.messagesIn, 1)

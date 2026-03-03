@@ -58,6 +58,10 @@ func (h *handshake) Version() gen.Version {
 	}
 }
 
+func (h *handshake) Reject(conn net.Conn, reason string) error {
+	return h.writeMessage(conn, MessageReject{Reason: reason})
+}
+
 func (h *handshake) writeMessage(conn net.Conn, message any) error {
 	buf := lib.TakeBuffer()
 	defer lib.ReleaseBuffer(buf)

@@ -18,7 +18,9 @@ The metrics actor addresses this by tracking:
 
 **Memory metrics** - Heap allocation and actual memory used. Actor systems can accumulate small allocations across thousands of processes. Memory metrics help identify whether garbage collection keeps pace with allocation.
 
-**Network metrics** - For distributed Ergo clusters, tracking bytes and messages flowing between nodes reveals network bottlenecks, routing inefficiencies, or failing connections.
+**Network metrics** - For distributed Ergo clusters, tracking bytes and messages flowing between nodes reveals network bottlenecks, routing inefficiencies, or failing connections. Connection churn counters and per-acceptor handshake error rates detect network instability in static clusters where connection state should be stable between deploys.
+
+**Delivery error metrics** - Message delivery can fail for local reasons (target process unknown, terminated, or mailbox full) and remote reasons (connection failure). Separate counters for Send and Call errors, split by local and remote, help distinguish between overloaded processes and network problems.
 
 **Event metrics** - For pub/sub events, tracking which events have the most subscribers, which generate the most delivery load, and which are wasteful (publishing into the void or registered but unused). These reveal whether your event-driven architecture is efficient or accumulating overhead. See [Events](../../basics/events.md) for the pub/sub model and [Pub/Sub Internals](../../advanced/pub-sub-internals.md) for the shared subscription optimization that affects how delivery counters work.
 
@@ -176,6 +178,10 @@ The metrics actor automatically exposes these Prometheus metrics without any con
 | `ergo_events_received_total` | Gauge | Cumulative number of events received from remote nodes. Shows incoming event traffic load. |
 | `ergo_events_local_sent_total` | Gauge | Cumulative number of event messages delivered to local subscribers. This reflects the actual fanout load -- a single publish with 100 subscribers produces 100 local deliveries. |
 | `ergo_events_remote_sent_total` | Gauge | Cumulative number of event messages sent to remote nodes. Due to shared subscription optimization, one message is sent per remote node regardless of how many subscribers that node has. See [Pub/Sub Internals](../../advanced/pub-sub-internals.md). |
+| `ergo_send_errors_local_total` | Gauge | Cumulative local Send delivery errors (target process unknown, terminated, or mailbox full). Non-zero rate indicates processes sending to stale PIDs or overloaded recipients. |
+| `ergo_send_errors_remote_total` | Gauge | Cumulative remote Send delivery errors (connection failure to the target node). Non-zero rate indicates network connectivity problems. |
+| `ergo_call_errors_local_total` | Gauge | Cumulative local Call delivery errors (same causes as local Send errors). |
+| `ergo_call_errors_remote_total` | Gauge | Cumulative remote Call delivery errors (same causes as remote Send errors). |
 
 ### Log Metrics
 
@@ -187,6 +193,9 @@ The metrics actor automatically exposes these Prometheus metrics without any con
 
 | Metric | Type | Labels | Description |
 |--------|------|--------|-------------|
+| `ergo_connections_established_total` | Gauge | - | Cumulative connections established. In a static cluster between deploys, `rate()` should be near zero. Sustained rate indicates connection churn or nodes restarting. |
+| `ergo_connections_lost_total` | Gauge | - | Cumulative connections lost. Use with `ergo_connections_established_total` to detect network instability. |
+| `ergo_acceptor_handshake_errors_total` | Gauge | `acceptor` | Cumulative handshake errors per acceptor interface. Non-zero rate indicates incoming connections with wrong protocol, authentication failures, or incompatible versions. |
 | `ergo_connected_nodes_total` | Gauge | - | Number of remote nodes connected. For distributed systems, this should match your expected cluster size. |
 | `ergo_remote_node_uptime_seconds` | Gauge | `remote_node` | Uptime of each connected remote node. Resets when the remote node restarts. |
 | `ergo_remote_messages_in_total` | Gauge | `remote_node` | Messages received from each remote node. Rate indicates traffic volume. |

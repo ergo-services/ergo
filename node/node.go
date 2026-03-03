@@ -107,6 +107,11 @@ type node struct {
 	processesSpawnFailed uint64
 	processesTerminated  uint64
 
+	sendErrorsLocal  uint64
+	sendErrorsRemote uint64
+	callErrorsLocal  uint64
+	callErrorsRemote uint64
+
 	logMessages [6]uint64 // atomic: 0=trace, 1=debug, 2=info, 3=warning, 4=error, 5=panic
 }
 
@@ -715,6 +720,11 @@ func (n *node) Info() (gen.NodeInfo, error) {
 	info.ProcessesSpawned = atomic.LoadUint64(&n.processesSpawned)
 	info.ProcessesSpawnFailed = atomic.LoadUint64(&n.processesSpawnFailed)
 	info.ProcessesTerminated = atomic.LoadUint64(&n.processesTerminated)
+
+	info.SendErrorsLocal = atomic.LoadUint64(&n.sendErrorsLocal)
+	info.SendErrorsRemote = atomic.LoadUint64(&n.sendErrorsRemote)
+	info.CallErrorsLocal = atomic.LoadUint64(&n.callErrorsLocal)
+	info.CallErrorsRemote = atomic.LoadUint64(&n.callErrorsRemote)
 
 	n.names.Range(func(_, _ any) bool {
 		info.RegisteredNames++
