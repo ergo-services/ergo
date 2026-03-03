@@ -151,6 +151,8 @@ Fully detailed changelog see in the [ChangeLog](CHANGELOG.md) file.
 
 * Fixed **self-send message counter** - `messagesOut` now incremented for self-sends (process sending to itself), consistent with other send paths
 
+* Fixed **simultaneous connect dead loop** - two nodes dialing each other at the same time no longer cause infinite retry loops. Deterministic connection IDs and Erlang-style collision detection (`EnableSimultaneousConnect` flag) ensure exactly one connection per pair. Fixed related connection leaks
+
 ### Development and debugging ###
 
 To enable Golang profiler just add `--tags pprof` in your `go run` or `go build` (profiler runs at
