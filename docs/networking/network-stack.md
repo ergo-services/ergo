@@ -103,9 +103,7 @@ After handshake, the accepting node tells the dialing node to create a connectio
 
 The dialing node opens additional TCP connections using a shortened join handshake (skips full authentication since the first connection already authenticated). These connections join the pool, forming a single logical connection with multiple physical TCP links.
 
-Multiple connections enable parallel message delivery. Each message goes to a connection based on the sender's identity (derived from sender PID). Messages from the same sender always use the same connection, preserving order. Messages from different senders use different connections, enabling parallelism.
-
-The receiving side creates 4 receive queues per TCP connection. A 3-connection pool has 12 receive queues processing messages concurrently. This parallel processing improves throughput while preserving per-sender message ordering.
+Multiple connections enable parallel message delivery. Each message goes to a connection based on the sender's identity, and the receiving side creates multiple receive queues per TCP connection for concurrent processing. This two-level mechanism -- sender-side link selection and receiver-side queue routing -- preserves per-sender message ordering while enabling parallelism across different senders. For details on how ordering works, including the `KeepNetworkOrder` flag and when to disable it, see [Message Ordering](network-transparency.md#message-ordering).
 
 ## Message Encoding and Transmission
 

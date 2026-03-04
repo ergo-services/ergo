@@ -430,6 +430,71 @@ The cost is latency. Normal `Send` returns immediately - it queues the message a
 
 For detailed exploration of Important Delivery patterns, reliability guarantees, and protocols like RR-2PC and FR-2PC, see [Important Delivery](../advanced/important-delivery.md).
 
+## Message Ordering
+
+Messages sent from process A to process B arrive in sending order. This is a per-sender FIFO guarantee -- it applies to each sender independently, not globally across all senders. The guarantee is enabled by default for every process.
+
+### KeepNetworkOrder Flag
+
+Message ordering is controlled by a per-process flag called `KeepNetworkOrder`, which defaults to `true`. You can change it using `SetKeepNetworkOrder(bool)` during `Init` or at any point while the process is running. The flag applies to all outgoing messages from that process: `Send`, `Call`, `SendResponse`, and `SendEvent`. There is no per-message override -- ordering is all-or-nothing for a given sender.
+
+### How It Works -- Sender Side
+
+With ordering enabled, all messages from a process go through the same TCP link in the connection pool. The link is selected deterministically: `sender.ID % 255 % pool_size`. Since TCP guarantees FIFO delivery within a single connection, messages arrive at the remote node in exactly the order they were sent.
+
+With ordering disabled, messages are distributed round-robin across all pool links. This spreads the load for maximum throughput, but the arrival order across different TCP connections is no longer deterministic.
+
+### How It Works -- Receiver Side
+
+Each message carries an **order byte** in the protocol header (byte 6 of the ENP frame). When ordering is enabled, the order byte is derived from the recipient's identity:
+- For `gen.PID` recipients: `to.ID % 255`
+- For `gen.Alias` recipients: `to.ID[1] % 255`
+
+The receiving node routes messages to receive queues based on this byte: `order_byte % queue_count`. Messages destined for the same recipient land in the same queue and are decoded sequentially, preserving order.
+
+When ordering is disabled, the order byte is zero. Messages distribute round-robin across receive queues, enabling parallel decoding at the cost of non-deterministic arrival order.
+
+### Two-Level Guarantee
+
+The ordering mechanism works at two levels:
+
+1. **Sender side** -- pins messages to one TCP link, preserving send order in the TCP stream
+2. **Receiver side** -- pins messages to one decode queue, preserving decode order
+
+Together they ensure end-to-end FIFO from sender to recipient. The sender side prevents reordering during transmission; the receiver side prevents reordering during decoding and dispatch.
+
+### Special Cases
+
+Some system messages have fixed ordering semantics regardless of the `KeepNetworkOrder` flag:
+
+| Operation       | Ordering      | Notes                                       |
+|-----------------|---------------|---------------------------------------------|
+| `SendExit`      | Always ordered| No `KeepNetworkOrder` check -- always uses sender-derived order byte |
+| `SendTerminate` | Always unordered | Order byte is always 0                   |
+| Link/Monitor    | Always ordered| System operations that must arrive in sequence |
+
+These are internal system messages where ordering behavior is fixed by the protocol, not configurable by the process.
+
+### When to Disable Ordering
+
+Processes that don't need ordering benefit from disabling it. When `KeepNetworkOrder` is `false`, messages spread across all TCP links in the pool and all receive queues on the remote side. This increases parallelism on both ends -- more connections are utilized for sending, and more goroutines participate in decoding.
+
+Good candidates for disabling ordering:
+- **Stateless workers** that process each request independently
+- **Fan-out producers** that distribute work to many recipients
+- **High-throughput event emitters** where each event is self-contained
+
+The tradeoff is straightforward: message arrival order becomes non-deterministic. If your process logic doesn't depend on message order, disabling ordering gives you better throughput.
+
+```go
+func (w *Worker) Init(args ...any) error {
+    // This worker processes requests independently,
+    // ordering doesn't matter
+    w.SetKeepNetworkOrder(false)
+    return nil
+}
+```
+
 ## Protocol Frame Structure
 
 EDF-encoded messages are wrapped in ENP (Ergo Network Protocol) frames for transmission over TCP.
@@ -448,9 +513,7 @@ For PID messages, the frame contains:
 - Recipient PID (8 bytes)
 - EDF-encoded message payload
 
-The **order byte** (byte 6) preserves message ordering per sender. It's calculated as `senderPID.ID % 255`, ensuring messages from the same sender have the same order value. This guarantees sequential processing on the receiving side even if messages arrive on different TCP connections in the pool. Messages from different senders have different order values, enabling parallel processing.
-
-When the receiving node reads a frame from TCP, it extracts the order byte and routes the frame to the appropriate receive queue. The connection creates **4 receive queues per TCP connection** in the pool. So a 3-connection pool has 12 receive queues total. Frames are distributed to queues based on `order_byte % queue_count`. Each queue is processed by a dedicated goroutine that decodes frames and delivers messages to recipients. This parallel processing improves throughput while preserving per-sender ordering.
+The **order byte** (byte 6) controls message ordering and receive queue routing. For details on how the order byte is calculated and how it interacts with the connection pool and receive queues, see [Message Ordering](#message-ordering) above.
 
 ## Limits of Transparency
 
@@ -464,7 +527,7 @@ Network transparency is powerful but not magical. The network has physical prope
 
 **Partial failures** - In a distributed system, some nodes can fail while others continue working. A local system either works entirely or crashes entirely. A distributed system can be partially operational - some nodes reachable, others not. This partial failure is the hardest aspect of distributed systems. The framework can't hide it entirely.
 
-**Ordering** - Message ordering is preserved per-sender within a connection. Messages from process A to process B arrive in the order sent. But messages from different senders can interleave arbitrarily. And if a connection drops and reconnects, messages sent during disconnection are lost or delayed. Don't assume global ordering across the cluster.
+**Ordering** - Message ordering is preserved per-sender, not globally. Messages from process A to process B arrive in sending order, but messages from different senders can interleave arbitrarily. If a connection drops and reconnects, messages sent during disconnection are lost or delayed. Don't assume global ordering across the cluster. See [Message Ordering](#message-ordering) for how the ordering mechanism works and when to disable it.
 
 Network transparency makes distributed programming feel local. But distributed programming has fundamental differences from local programming. The transparency is a tool that simplifies common cases - it doesn't eliminate the need to think about distributed system challenges.
 
