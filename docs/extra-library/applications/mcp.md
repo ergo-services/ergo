@@ -4,21 +4,21 @@ description: AI-powered diagnostics for running Ergo nodes via Model Context Pro
 
 # MCP
 
-Diagnosing a distributed actor system is hard. The problem isn't a lack of data -- it's knowing what to look for. A node has hundreds of processes, dozens of connections, thousands of events flowing between them. Something is slow, but where? A process is stuck, but why? Memory is growing, but what's holding it?
+Diagnosing a distributed actor system is hard. The problem isn't a lack of data - it's knowing what to look for. A node has hundreds of processes, dozens of connections, thousands of events flowing between them. Something is slow, but where? A process is stuck, but why? Memory is growing, but what's holding it?
 
-Traditional monitoring collects predefined metrics at fixed intervals. You decide upfront what matters, build dashboards, and then interpret the data when something breaks. This works for known failure modes. It doesn't work when the failure is something you haven't anticipated -- and in distributed systems, the interesting failures are always unanticipated.
+Traditional monitoring collects predefined metrics at fixed intervals. You decide upfront what matters, build dashboards, and then interpret the data when something breaks. This works for known failure modes. It doesn't work when the failure is something you haven't anticipated - and in distributed systems, the interesting failures are always unanticipated.
 
-MCP takes a different approach. Instead of predefined metrics, it exposes the full diagnostic surface of the node -- processes, applications, events, network, profiling, runtime -- as tools that an AI agent can call on demand. The agent decides what to inspect based on the symptom you describe. It runs diagnostic sequences, correlates findings across tools, narrows down root causes, and explains what it found. You describe the problem in words; the agent finds the answer in data.
+MCP takes a different approach. Instead of predefined metrics, it exposes the full diagnostic surface of the node - processes, applications, events, network, profiling, runtime - as tools that an AI agent can call on demand. The agent decides what to inspect based on the symptom you describe. It runs diagnostic sequences, correlates findings across tools, narrows down root causes, and explains what it found. You describe the problem in words; the agent finds the answer in data.
 
-The real power comes from combination. The agent can see your source code, inspect the live cluster via MCP, and query your log storage -- all in the same conversation. It reads the actor implementation to understand intent, checks runtime state to see what actually happens, and correlates with error logs to see the history. Together these eliminate guesswork in a way no single tool can.
+The real power comes from combination. The agent can see your source code, inspect the live cluster via MCP, and query your log storage - all in the same conversation. It reads the actor implementation to understand intent, checks runtime state to see what actually happens, and correlates with error logs to see the history. Together these eliminate guesswork in a way no single tool can.
 
-The application runs as a regular Ergo sidecar. Add it to your node's application list, and every process, connection, and event becomes inspectable -- without restarting, redeploying, or attaching a debugger.
+The application runs as a regular Ergo sidecar. Add it to your node's application list, and every process, connection, and event becomes inspectable - without restarting, redeploying, or attaching a debugger.
 
 ## Two Deployment Modes
 
 MCP has two modes: entry point and agent.
 
-An entry point node runs an HTTP listener that accepts MCP protocol requests. This is the node your AI client connects to. An agent node has no HTTP listener at all -- it's invisible from outside the cluster. But it runs the same diagnostic tools internally, and any entry point can reach it through cluster proxy.
+An entry point node runs an HTTP listener that accepts MCP protocol requests. This is the node your AI client connects to. An agent node has no HTTP listener at all - it's invisible from outside the cluster. But it runs the same diagnostic tools internally, and any entry point can reach it through cluster proxy.
 
 In practice, you deploy one entry point and make everything else an agent:
 
@@ -32,7 +32,7 @@ import (
 func main() {
     node, _ := ergo.StartNode("example@localhost", gen.NodeOptions{
         Applications: []gen.ApplicationBehavior{
-            // Entry point -- the one HTTP endpoint for the entire cluster
+            // Entry point - the one HTTP endpoint for the entire cluster
             mcp.CreateApp(mcp.Options{Port: 9922}),
         },
     })
@@ -43,7 +43,7 @@ func main() {
 On every other node, the same application with no port:
 
 ```go
-// Agent mode -- no HTTP, but fully diagnosable via cluster proxy
+// Agent mode - no HTTP, but fully diagnosable via cluster proxy
 mcp.CreateApp(mcp.Options{})
 ```
 
@@ -64,13 +64,13 @@ mcp.Options{
 }
 ```
 
-**Port** controls the deployment mode. A non-zero value starts an HTTP listener -- this is an entry point. Zero means agent mode: no listener, accessible only via cluster proxy from another node that has an entry point.
+**Port** controls the deployment mode. A non-zero value starts an HTTP listener - this is an entry point. Zero means agent mode: no listener, accessible only via cluster proxy from another node that has an entry point.
 
-**Token** enables Bearer token authentication. When set, every HTTP request must include `Authorization: Bearer <token>`. When empty, no authentication is required. Agent mode nodes don't need a token -- they're accessed through the Ergo inter-node protocol, which has its own authentication via handshake cookies.
+**Token** enables Bearer token authentication. When set, every HTTP request must include `Authorization: Bearer <token>`. When empty, no authentication is required. Agent mode nodes don't need a token - they're accessed through the Ergo inter-node protocol, which has its own authentication via handshake cookies.
 
-**ReadOnly** disables tools that modify state: `send_message`, `call_process`, `send_exit`, `process_kill`. Everything else -- inspection, profiling, sampling -- remains available. Use this on production nodes where you want full visibility without the ability to interfere.
+**ReadOnly** disables tools that modify state: `send_message`, `call_process`, `send_exit`, `process_kill`. Everything else - inspection, profiling, sampling - remains available. Use this on production nodes where you want full visibility without the ability to interfere.
 
-**AllowedTools** restricts the tool set to a whitelist. When set, only the named tools are available. This is finer-grained than ReadOnly -- you can, for example, allow `send_message` but not `process_kill`. When nil, all tools are enabled (respecting ReadOnly).
+**AllowedTools** restricts the tool set to a whitelist. When set, only the named tools are available. This is finer-grained than ReadOnly - you can, for example, allow `send_message` but not `process_kill`. When nil, all tools are enabled (respecting ReadOnly).
 
 ## Connecting a Client
 
@@ -103,17 +103,17 @@ The application implements MCP protocol version `2025-06-18` over HTTP. Any MCP-
 
 ## How Cluster Proxy Works
 
-Every tool accepts a `node` parameter. When specified, the entry point node forwards the request to the target node via native Ergo inter-node protocol -- not HTTP. The target node's MCP worker executes the tool locally and returns the result through the same path.
+Every tool accepts a `node` parameter. When specified, the entry point node forwards the request to the target node via native Ergo inter-node protocol - not HTTP. The target node's MCP worker executes the tool locally and returns the result through the same path.
 
-This works because of network transparency. The entry point calls `gen.ProcessID{Name: "mcp", Node: targetNode}` -- the framework establishes a connection if needed, routes the request, and delivers the response. You never need to explicitly connect to a node before querying it. If the registrar knows about the target node, the connection happens automatically.
+This works because of network transparency. The entry point calls `gen.ProcessID{Name: "mcp", Node: targetNode}` - the framework establishes a connection if needed, routes the request, and delivers the response. You never need to explicitly connect to a node before querying it. If the registrar knows about the target node, the connection happens automatically.
 
 The `timeout` parameter (default 30 seconds, max 120) controls how long the entry point waits for a remote response. Most tools respond in milliseconds. But CPU profiling collects data for a requested duration before responding, and goroutine dumps on large nodes take time to serialize. For these, pass a higher timeout.
 
-If a remote tool call fails with "remote call failed", it usually means the target node doesn't have the MCP application running. All proxy calls require an MCP pool process on the target node -- agent mode is sufficient, but the application must be loaded and started.
+If a remote tool call fails with "remote call failed", it usually means the target node doesn't have the MCP application running. All proxy calls require an MCP pool process on the target node - agent mode is sufficient, but the application must be loaded and started.
 
 ## Profiling Remote Nodes
 
-Profiling tools generate large output. A goroutine dump from a node with 500 goroutines can be megabytes of text. A heap profile with hundreds of allocation sites isn't much smaller. Push all of that through the proxy chain -- remote node, entry point, HTTP, JSON-RPC -- and you hit timeouts or transport limits.
+Profiling tools generate large output. A goroutine dump from a node with 500 goroutines can be megabytes of text. A heap profile with hundreds of allocation sites isn't much smaller. Push all of that through the proxy chain - remote node, entry point, HTTP, JSON-RPC - and you hit timeouts or transport limits.
 
 The solution is server-side filtering. All profiling tools accept `filter` and `exclude` parameters that reduce the output before it leaves the remote node. Instead of transferring 500 goroutine stacks and searching locally, you tell the remote node to return only the stacks that match:
 
@@ -121,7 +121,7 @@ The solution is server-side filtering. All profiling tools accept `filter` and `
 pprof_goroutines node=backend@host debug=1 filter="orderHandler" limit=20
 ```
 
-The response header preserves the full picture: `goroutine profile: total 500, matched 3, showing 3`. You know the node has 500 goroutines, but only 3 matched your filter, and all 3 were returned. The agent can refine the filter, broaden it, or switch to a different angle -- each query is cheap because the heavy lifting happens on the remote node.
+The response header preserves the full picture: `goroutine profile: total 500, matched 3, showing 3`. You know the node has 500 goroutines, but only 3 matched your filter, and all 3 were returned. The agent can refine the filter, broaden it, or switch to a different angle - each query is cheap because the heavy lifting happens on the remote node.
 
 ### CPU Profiling
 
@@ -135,7 +135,7 @@ The node samples CPU activity for 5 seconds, aggregates by function, filters out
 
 ### Heap Profiling
 
-The `pprof_heap` tool shows the top memory allocators with two columns: `inuse` (live objects currently in memory) and `alloc` (cumulative allocations over the node's lifetime). A function with low `inuse` but high `alloc` is churning memory -- allocating and releasing rapidly, putting pressure on the garbage collector.
+The `pprof_heap` tool shows the top memory allocators with two columns: `inuse` (live objects currently in memory) and `alloc` (cumulative allocations over the node's lifetime). A function with low `inuse` but high `alloc` is churning memory - allocating and releasing rapidly, putting pressure on the garbage collector.
 
 ```
 pprof_heap node=backend@host filter="myapp" limit=20
@@ -143,11 +143,11 @@ pprof_heap node=backend@host filter="myapp" limit=20
 
 ### Goroutine Analysis
 
-The `pprof_goroutines` tool has two modes. Without `pid`, it returns all goroutines on the node -- use `filter` and `exclude` to narrow down. With `pid`, it returns the stack trace of a specific process's goroutine (requires `-tags=pprof`).
+The `pprof_goroutines` tool has two modes. Without `pid`, it returns all goroutines on the node - use `filter` and `exclude` to narrow down. With `pid`, it returns the stack trace of a specific process's goroutine (requires `-tags=pprof`).
 
 Debug level controls the output format: `debug=1` groups goroutines by identical stack (compact summary with counts), `debug=2` shows individual goroutine traces with state and wait duration.
 
-A sleeping process parks its goroutine -- it won't appear in the dump. To catch it, use an active sampler that polls until the process wakes up:
+A sleeping process parks its goroutine - it won't appear in the dump. To catch it, use an active sampler that polls until the process wakes up:
 
 ```
 sample_start tool=pprof_goroutines arguments={"pid":"<ABC.0.1005>"} interval_ms=300 count=1 max_errors=0
@@ -161,7 +161,7 @@ Snapshots show one moment. Trends show the story. Samplers bridge this gap by co
 
 ### Active Samplers
 
-An active sampler periodically calls any MCP tool and stores the results. It's a generic periodic executor -- any tool with any arguments can be sampled.
+An active sampler periodically calls any MCP tool and stores the results. It's a generic periodic executor - any tool with any arguments can be sampled.
 
 ```
 sample_start tool=process_list arguments={"sort_by":"mailbox","limit":10} interval_ms=5000 duration_sec=300
@@ -169,7 +169,7 @@ sample_start tool=process_list arguments={"sort_by":"mailbox","limit":10} interv
 
 This calls `process_list` every 5 seconds for 5 minutes, storing each result in a ring buffer. The agent reads with `sample_read sampler_id=<id>` to get all buffered entries, or `sample_read sampler_id=<id> since=5` to get only entries newer than sequence 5.
 
-The `max_errors` parameter controls error tolerance. The default (0) means ignore all errors and keep retrying -- useful for polling rare conditions. A non-zero value stops the sampler after that many consecutive failures.
+The `max_errors` parameter controls error tolerance. The default (0) means ignore all errors and keep retrying - useful for polling rare conditions. A non-zero value stops the sampler after that many consecutive failures.
 
 ### Passive Samplers
 
@@ -185,7 +185,7 @@ Log capture and event subscription can be combined in a single sampler.
 
 ### Linger
 
-Every sampler has a `linger_sec` parameter (default 30). After the sampler completes -- duration expires, count reached, or max errors exceeded -- it stays alive for this many additional seconds so the agent can retrieve the collected data. Without linger, a sampler that runs for 10 seconds would terminate before the agent gets a chance to read the results.
+Every sampler has a `linger_sec` parameter (default 30). After the sampler completes - duration expires, count reached, or max errors exceeded - it stays alive for this many additional seconds so the agent can retrieve the collected data. Without linger, a sampler that runs for 10 seconds would terminate before the agent gets a chance to read the results.
 
 The `sample_list` tool shows sampler status: `running`, `completed, lingering 25s`, or `completed`. The `sample_stop` tool terminates a sampler immediately, bypassing the linger period.
 
@@ -202,7 +202,7 @@ The `sample_list` tool shows sampler status: `running`, `completed, lingering 25
 
 ## Typed Messages
 
-When `ReadOnly` is not set, the agent can send messages to processes and make synchronous calls using the EDF type registry. This isn't raw JSON injection -- the framework constructs real Go structs from the type information.
+When `ReadOnly` is not set, the agent can send messages to processes and make synchronous calls using the EDF type registry. This isn't raw JSON injection - the framework constructs real Go structs from the type information.
 
 If your application registers a type:
 
@@ -216,13 +216,13 @@ func init() {
 }
 ```
 
-The agent discovers it with `message_types`, inspects its fields with `message_type_info`, and sends it with `call_process`. The process receives a real `StatusRequest{Verbose: true}` in its `HandleCall` -- not a map or raw bytes.
+The agent discovers it with `message_types`, inspects its fields with `message_type_info`, and sends it with `call_process`. The process receives a real `StatusRequest{Verbose: true}` in its `HandleCall` - not a map or raw bytes.
 
 This makes interactive debugging possible: the agent can call any process with any registered request type, inspect the response, and reason about the behavior.
 
 ## Network Diagnostics
 
-The `network_ping` tool sends a request through the full network path -- flusher, TCP connection, remote MCP worker, response -- and measures the round-trip time. This is an end-to-end health check, not a TCP-level ping. If the flusher is broken, the connection pool is degraded, or the remote node is overloaded, the ping will reflect it.
+The `network_ping` tool sends a request through the full network path - flusher, TCP connection, remote MCP worker, response - and measures the round-trip time. This is an end-to-end health check, not a TCP-level ping. If the flusher is broken, the connection pool is degraded, or the remote node is overloaded, the ping will reflect it.
 
 ```
 network_ping name=backend@host
@@ -234,11 +234,11 @@ For deeper connection analysis, `network_node_info` shows per-connection statist
 When investigating connection problems, always check both sides:
 
 ```
-network_node_info node=A name=B    -- A's view of the connection to B
-network_node_info node=B name=A    -- B's view of the connection to A
+network_node_info node=A name=B    # A's view of the connection to B
+network_node_info node=B name=A    # B's view of the connection to A
 ```
 
-Asymmetry between the two sides -- one sees thousands of messages out while the other sees one message in -- indicates data loss at the connection level.
+Asymmetry between the two sides - one sees thousands of messages out while the other sees one message in - indicates data loss at the connection level.
 
 ## Build Tags
 
@@ -252,7 +252,7 @@ This tag also starts a pprof HTTP endpoint at `localhost:9009/debug/pprof/` (con
 
 ## Relationship to Metrics Actor
 
-The [Metrics](../actors/metrics.md) actor collects predefined metrics into Prometheus format for scraping. MCP reads from the same underlying data sources -- `ProcessRangeShortInfo`, `NodeInfo`, `EventRangeInfo` -- but exposes them interactively.
+The [Metrics](../actors/metrics.md) actor collects predefined metrics into Prometheus format for scraping. MCP reads from the same underlying data sources - `ProcessRangeShortInfo`, `NodeInfo`, `EventRangeInfo` - but exposes them interactively.
 
 Active samplers can replicate any Prometheus metric: `sample_start tool=process_list arguments={"sort_by":"mailbox","limit":10}` is equivalent to `ergo_mailbox_depth_top`. The difference is that MCP samplers are on-demand and agent-driven, while Prometheus metrics are always-on and scraper-driven.
 
@@ -260,7 +260,7 @@ Use the metrics actor for long-term trends, alerting, and Grafana dashboards. Us
 
 ## Agent and Skill for Claude Code
 
-A ready-to-use diagnostic agent and skill are available at [github.com/ergo-services/claude](https://github.com/ergo-services/claude). The agent contains playbooks for common scenarios: performance bottlenecks, process leaks, restart loops, zombie processes, memory growth, network issues, event system problems, goroutine investigation, and cluster health checks. Trigger it by describing a symptom -- "why is it slow", "check the cluster", "find the process leak" -- and it runs the appropriate diagnostic sequence.
+A ready-to-use diagnostic agent and skill are available at [github.com/ergo-services/claude](https://github.com/ergo-services/claude). The agent contains playbooks for common scenarios: performance bottlenecks, process leaks, restart loops, zombie processes, memory growth, network issues, event system problems, goroutine investigation, and cluster health checks. Trigger it by describing a symptom - "why is it slow", "check the cluster", "find the process leak" - and it runs the appropriate diagnostic sequence.
 
 Install by symlinking into `~/.claude/`:
 
