@@ -153,6 +153,8 @@ Fully detailed changelog see in the [ChangeLog](CHANGELOG.md) file.
 
 * Fixed **simultaneous connect dead loop** - two nodes dialing each other at the same time no longer cause infinite retry loops. Deterministic connection IDs and Erlang-style collision detection (`EnableSimultaneousConnect` flag) ensure exactly one connection per pair. Fixed related connection leaks
 
+* Fixed **silent data loss on connection pool write failure** - a transient write error could permanently break a pool item's write path without detection, causing all subsequent messages to be silently dropped while the connection appeared healthy
+
 ### Development and debugging ###
 
 To enable Golang profiler just add `--tags pprof` in your `go run` or `go build` (profiler runs at

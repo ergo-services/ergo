@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * Fixed **message counters for meta processes** - meta process traffic now propagates to parent process counters, making `ProcessRangeShortInfo` aggregates balanced
 * Fixed **self-send message counter** - `messagesOut` now incremented for self-sends
 * Fixed **simultaneous connect dead loop** - two nodes dialing each other at the same time no longer cause infinite retry loops. Deterministic connection IDs and Erlang-style collision detection (`EnableSimultaneousConnect` flag) ensure exactly one connection per pair. Fixed related connection leaks
+* Fixed **silent data loss on connection pool write failure** - a transient write error could permanently break a pool item's write path without detection, causing all subsequent messages to be silently dropped while the connection appeared healthy
 
 #### [v3.2.0](https://github.com/ergo-services/ergo/releases/tag/v1.999.320) 2026-02-04 [tag version v1.999.320] ####
 

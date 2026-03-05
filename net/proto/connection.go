@@ -1520,6 +1520,7 @@ func (c *connection) Join(conn net.Conn, id string, dial gen.NetworkDial, tail [
 					continue
 				}
 				pi.connection = nc
+				pi.fl = lib.NewFlusher(nc)
 				tail = t
 
 				goto re
@@ -3031,16 +3032,21 @@ func (c *connection) send(buf *lib.Buffer, order uint8, compression gen.Compress
 	}
 	c.pool_mutex.RUnlock()
 
-	atomic.AddUint64(&c.messagesOut, 1)
-	atomic.AddUint64(&c.bytesOut, uint64(buf.Len()))
-
 	// TODO
 	// add proxy, fragmentation support
 	// c.transitOut++
 	// if buf.Len() < protoFragmentSize {
 
-	pi.fl.Write(buf.B)
+	bufLen := uint64(buf.Len())
+	_, err := pi.fl.Write(buf.B)
 	lib.ReleaseBuffer(buf)
+	if err != nil {
+		pi.connection.Close()
+		return err
+	}
+
+	atomic.AddUint64(&c.messagesOut, 1)
+	atomic.AddUint64(&c.bytesOut, bufLen)
 	return nil
 
 	// }

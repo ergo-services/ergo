@@ -24,6 +24,7 @@ func NewFlusherWithKeepAlive(w io.Writer, keepalive []byte, keepalivePeriod time
 			// nothing to write. send keepalive.
 			f.writer.Write(keepalive)
 			if err := f.writer.Flush(); err != nil {
+				f.err = err
 				return
 			}
 
@@ -31,7 +32,10 @@ func NewFlusherWithKeepAlive(w io.Writer, keepalive []byte, keepalivePeriod time
 			return
 		}
 
-		f.writer.Flush()
+		if err := f.writer.Flush(); err != nil {
+			f.err = err
+			return
+		}
 		f.pending = false
 		f.timer.Reset(latency)
 	})
@@ -53,7 +57,10 @@ func NewFlusher(w io.Writer) io.Writer {
 			return
 		}
 
-		f.writer.Flush()
+		if err := f.writer.Flush(); err != nil {
+			f.err = err
+			return
+		}
 		f.pending = false
 		f.timer.Reset(latency)
 	})
@@ -65,11 +72,16 @@ type flusher struct {
 	timer   *time.Timer
 	writer  *bufio.Writer
 	pending bool
+	err     error
 }
 
 func (f *flusher) Write(b []byte) (n int, err error) {
 	f.Lock()
 	defer f.Unlock()
+
+	if f.err != nil {
+		return 0, f.err
+	}
 
 	l := len(b)
 
