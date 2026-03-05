@@ -64,6 +64,8 @@ type connection struct {
 	transitIn   uint64
 	transitOut  uint64
 
+	reconnections uint64
+
 	order      uint32
 	terminated bool
 	wg         sync.WaitGroup
@@ -120,6 +122,8 @@ func (c *connection) Info() gen.RemoteNodeInfo {
 
 		TransitBytesIn:  atomic.LoadUint64(&c.transitIn),
 		TransitBytesOut: atomic.LoadUint64(&c.transitOut),
+
+		Reconnections: atomic.LoadUint64(&c.reconnections),
 	}
 	return info
 }
@@ -1522,6 +1526,7 @@ func (c *connection) Join(conn net.Conn, id string, dial gen.NetworkDial, tail [
 				pi.connection = nc
 				pi.fl = lib.NewFlusher(nc)
 				tail = t
+				atomic.AddUint64(&c.reconnections, 1)
 
 				goto re
 			}

@@ -529,6 +529,10 @@ type RemoteNodeInfo struct {
 	// TransitBytesOut is the total proxy transit bytes sent through this connection.
 	// Only relevant if this connection is used as a proxy.
 	TransitBytesOut uint64
+
+	// Reconnections is the total number of pool item reconnections.
+	// A non-zero value indicates connection instability.
+	Reconnections uint64
 }
 
 // AcceptorOptions configures a network listener (acceptor) for incoming connections.
