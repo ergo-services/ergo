@@ -79,6 +79,9 @@ mcp.Options{
 ```bash
 claude mcp add --transport http ergo http://localhost:9922/mcp
 
+# Available from any directory (user scope)
+claude mcp add --transport http ergo --scope user http://localhost:9922/mcp
+
 # With authentication
 claude mcp add --transport http ergo http://localhost:9922/mcp \
   -H "Authorization: Bearer my-secret-token"
