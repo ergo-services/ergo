@@ -197,6 +197,51 @@ radar.HistogramObserve(process, name, value, labels)
 
 For a detailed explanation of metric types, the Grafana dashboard, and advanced usage (embedding, shared mode), see the [Metrics](../actors/metrics.md) actor documentation.
 
+## Top-N Metrics
+
+Top-N metrics track the N highest (or lowest) values observed during each collection cycle and flush them to Prometheus as a GaugeVec. This is useful when you want to identify outliers -- slowest queries, busiest workers, largest payloads -- without creating a time series per item.
+
+### Registering and Observing
+
+```go
+func (w *QueryTracker) Init(args ...any) error {
+    // Keep the 10 slowest queries each cycle
+    radar.RegisterTopN(w, "slowest_queries", "Slowest DB queries",
+        10, radar.TopNMax, []string{"query", "table"})
+    return nil
+}
+
+func (w *QueryTracker) HandleMessage(from gen.PID, message any) error {
+    switch msg := message.(type) {
+    case queryCompleted:
+        radar.TopNObserve(w, "slowest_queries", msg.Duration.Seconds(),
+            []string{msg.SQL, msg.Table})
+    }
+    return nil
+}
+```
+
+Registration is synchronous (returns error). Observations are asynchronous (fire-and-forget). Each top-N metric is managed by a dedicated actor that accumulates observations and flushes the top entries to Prometheus on the same interval as base metrics collection.
+
+### Ordering Modes
+
+- `radar.TopNMax` -- keeps the N largest values (e.g., slowest queries, busiest actors, highest memory)
+- `radar.TopNMin` -- keeps the N smallest values (e.g., lowest latency, least active processes)
+
+### Automatic Cleanup
+
+When the process that registered a top-N metric terminates, the metric actor cleans up and unregisters from Prometheus. No explicit teardown needed.
+
+### Helper Functions
+
+```go
+// Registration (sync Call, returns error)
+radar.RegisterTopN(process, name, help, topN, order, labels)
+
+// Observation (async Send, fire-and-forget)
+radar.TopNObserve(process, name, value, labels)
+```
+
 ## Common Patterns
 
 ### Database Connection Pool

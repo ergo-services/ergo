@@ -217,6 +217,34 @@ func (m *AppMetrics) HandleMessage(from gen.PID, message any) error {
 }
 ```
 
+### Custom Top-N Metrics
+
+Top-N metrics track the N highest (or lowest) values observed during each collection cycle. Unlike gauges or counters, a top-N metric accumulates observations and periodically flushes only the top entries to Prometheus as a GaugeVec. This is useful when you want to identify the most active, slowest, or largest items out of many -- without creating a separate time series for each one.
+
+Each top-N metric is managed by a dedicated actor spawned under a SimpleOneForOne supervisor. Registration creates this actor; observations are sent to it asynchronously. On each flush interval the actor writes the current top-N entries to Prometheus and resets for the next cycle.
+
+```go
+// Register a top-N metric (sync Call, returns error)
+// TopNMax keeps the N largest values; TopNMin keeps the N smallest
+metrics.RegisterTopN(w, "topn_supervisor_name", "slowest_queries", "Slowest DB queries",
+    10, metrics.TopNMax, []string{"query", "table"})
+
+// Observe values (async Send)
+metrics.TopNObserve(w, gen.Atom("radar_topn_slowest_queries"), 0.250, []string{"SELECT ...", "users"})
+metrics.TopNObserve(w, gen.Atom("radar_topn_slowest_queries"), 1.100, []string{"JOIN ...", "orders"})
+```
+
+The `to` parameter in `RegisterTopN` is the name of the supervisor managing top-N actors. The `to` parameter in `TopNObserve` is the actor name -- by convention `"radar_topn_" + metricName`.
+
+Ordering modes:
+
+- `metrics.TopNMax` -- keeps the N largest values (e.g., slowest queries, busiest actors, highest memory usage)
+- `metrics.TopNMin` -- keeps the N smallest values (e.g., lowest latency, least active processes)
+
+When the process that registered a top-N metric terminates, the actor automatically cleans up and unregisters its GaugeVec from Prometheus.
+
+When used through the [Radar](../applications/radar.md) application, the supervisor is already wired in and you use `radar.RegisterTopN` / `radar.TopNObserve` helpers instead.
+
 ### Shared Mode
 
 A single metrics actor processes messages sequentially. Under high throughput, its mailbox becomes a bottleneck. Shared mode lets multiple metrics actor instances share the same Prometheus registry:
