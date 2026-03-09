@@ -66,6 +66,12 @@ type connection struct {
 
 	reconnections uint64
 
+	softwareKeepAlive        bool
+	softwareKeepAliveMessage []byte
+	softwareKeepAlivePeriod  time.Duration // how often I send
+	softwareKeepAliveMisses  int
+	softwareKeepAliveTimeout time.Duration // how long I wait (peer period * misses)
+
 	order      uint32
 	terminated bool
 	wg         sync.WaitGroup
@@ -1487,9 +1493,14 @@ func (c *connection) Join(conn net.Conn, id string, dial gen.NetworkDial, tail [
 		c.pool_mutex.Unlock()
 		return fmt.Errorf("pool size limit")
 	}
-	pi := &pool_item{
-		connection: conn,
-		fl:         lib.NewFlusher(conn),
+	// clear handshake write deadline
+	conn.SetWriteDeadline(time.Time{})
+
+	pi := &pool_item{connection: conn}
+	if c.softwareKeepAlive {
+		pi.fl = lib.NewFlusherWithKeepAlive(conn, c.softwareKeepAliveMessage, c.softwareKeepAlivePeriod)
+	} else {
+		pi.fl = lib.NewFlusher(conn)
 	}
 	c.pool = append(c.pool, pi)
 	c.pool_mutex.Unlock()
@@ -1524,7 +1535,15 @@ func (c *connection) Join(conn net.Conn, id string, dial gen.NetworkDial, tail [
 					continue
 				}
 				pi.connection = nc
-				pi.fl = lib.NewFlusher(nc)
+				nc.SetWriteDeadline(time.Time{})
+				if stopper, ok := pi.fl.(interface{ Stop() }); ok {
+					stopper.Stop()
+				}
+				if c.softwareKeepAlive {
+					pi.fl = lib.NewFlusherWithKeepAlive(nc, c.softwareKeepAliveMessage, c.softwareKeepAlivePeriod)
+				} else {
+					pi.fl = lib.NewFlusher(nc)
+				}
 				tail = t
 				atomic.AddUint64(&c.reconnections, 1)
 
@@ -1576,19 +1595,34 @@ func (c *connection) serve(conn net.Conn, tail []byte) {
 	buf := lib.TakeBuffer()
 	buf.Append(tail)
 
-	// remove the deadline
-	conn.SetReadDeadline(time.Time{})
+	// replace handshake read deadline with keepalive deadline or infinite
+	if c.softwareKeepAlive {
+		conn.SetReadDeadline(time.Now().Add(c.softwareKeepAliveTimeout))
+	} else {
+		conn.SetReadDeadline(time.Time{})
+	}
 
 	for {
 		// read packet
 		buftail, err := c.read(conn, buf)
 		if err != nil || buftail == nil {
 			if err != nil {
-				c.log.Trace("link with %s closed: %s", conn.RemoteAddr(), err)
+				if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+					c.log.Warning("software keepalive timeout on %s", conn.RemoteAddr())
+					c.Terminate(gen.ErrTimeout)
+				} else {
+					c.log.Trace("link with %s closed: %s", conn.RemoteAddr(), err)
+				}
 			}
 			lib.ReleaseBuffer(buf)
 			conn.Close()
 			return
+		}
+
+		// reset deadline after successful read
+		if c.softwareKeepAlive {
+			timeout := c.softwareKeepAliveTimeout
+			conn.SetReadDeadline(time.Now().Add(timeout))
 		}
 
 		if buf.B[0] != protoMagic {
@@ -1603,6 +1637,13 @@ func (c *connection) serve(conn net.Conn, tail []byte) {
 			lib.ReleaseBuffer(buf)
 			conn.Close()
 			return
+		}
+
+		// handle keepalive silently — don't count, don't queue
+		if buf.B[7] == protoMessageSoftwareKeepAlive {
+			lib.ReleaseBuffer(buf)
+			buf = buftail
+			continue
 		}
 
 		recvN++

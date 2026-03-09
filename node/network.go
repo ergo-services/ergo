@@ -52,8 +52,9 @@ type network struct {
 	handshakes sync.Map // .Version().String() -> handshake
 	protos     sync.Map // .Version().String() -> proto
 
-	cookie         string
-	maxmessagesize int
+	cookie                    string
+	maxmessagesize            int
+	softwareKeepAliveMisses   int
 
 	staticRoutes  *staticRoutes
 	staticProxies *staticProxies
@@ -815,6 +816,7 @@ func (n *network) connect(name gen.Atom, route gen.NetworkRoute) (gen.Connection
 	if err != nil {
 		return nil, err
 	}
+	conn.SetDeadline(time.Now().Add(gen.DefaultHandshakeTimeout))
 
 	hopts := gen.HandshakeOptions{
 		Cookie:         route.Cookie,
@@ -832,6 +834,7 @@ func (n *network) connect(name gen.Atom, route gen.NetworkRoute) (gen.Connection
 	if hopts.Flags.Enable == false {
 		hopts.Flags = n.flags
 	}
+	// period for keepalive is already in hopts.Flags (from route.Flags or n.flags)
 
 	result, err := hs.Start(n.node, conn, hopts)
 	if err != nil {
@@ -868,6 +871,12 @@ func (n *network) connect(name gen.Atom, route gen.NetworkRoute) (gen.Connection
 	}
 	log.setSource(logSource)
 
+	// inject software keepalive misses into ConnectionOptions
+	if opts, ok := result.Custom.(handshake.ConnectionOptions); ok {
+		opts.SoftwareKeepAliveMisses = n.keepAliveMisses(route.SoftwareKeepAliveMisses)
+		result.Custom = opts
+	}
+
 	pconn, err := proto.NewConnection(n.node, result, log)
 	if err != nil {
 		conn.Close()
@@ -879,8 +888,10 @@ func (n *network) connect(name gen.Atom, route gen.NetworkRoute) (gen.Connection
 		if err != nil {
 			return nil, nil, err
 		}
+		c.SetDeadline(time.Now().Add(gen.DefaultHandshakeTimeout))
 		tail, err := hs.Join(n.node, c, id, hopts)
 		if err != nil {
+			c.Close()
 			return nil, nil, err
 		}
 		return c, tail, nil
@@ -958,6 +969,16 @@ func (n *network) connectProxy(name gen.Atom, route gen.NetworkProxyRoute) (gen.
 	return nil, gen.ErrUnsupported
 }
 
+func (n *network) keepAliveMisses(v int) int {
+	if v > 0 {
+		return v
+	}
+	if n.softwareKeepAliveMisses > 0 {
+		return n.softwareKeepAliveMisses
+	}
+	return gen.DefaultSoftwareKeepAliveMisses
+}
+
 func (n *network) stop() error {
 	if swapped := n.running.CompareAndSwap(true, false); swapped == false {
 		return fmt.Errorf("network stack is already stopped")
@@ -1013,6 +1034,7 @@ func (n *network) start(options gen.NetworkOptions) error {
 		options.Flags = gen.DefaultNetworkFlags
 	}
 	n.flags = options.Flags
+	n.softwareKeepAliveMisses = options.SoftwareKeepAliveMisses
 
 	if options.Mode == gen.NetworkModeHidden {
 		static, err := n.registrar.Register(n.node, gen.RegisterRoutes{})
@@ -1231,6 +1253,8 @@ func (n *network) startAcceptor(a gen.AcceptorOptions) (*acceptor, error) {
 		route_host:       a.RouteHost,
 		route_port:       a.RoutePort,
 		maxHandshakes:    int32(a.MaxHandshakes),
+
+		software_keepalive_misses: n.keepAliveMisses(a.SoftwareKeepAliveMisses),
 	}
 	if a.Cookie == "" {
 		acceptor.cookie = n.cookie
@@ -1314,6 +1338,7 @@ func (n *network) accept(a *acceptor) {
 			return exists
 		},
 	}
+	// period for keepalive is already in hopts.Flags (from a.flags)
 	for {
 		c, err := a.l.Accept()
 		if err != nil {
@@ -1347,6 +1372,7 @@ func (n *network) accept(a *acceptor) {
 }
 
 func (n *network) handleAccepted(a *acceptor, c net.Conn, hopts gen.HandshakeOptions) {
+	c.SetDeadline(time.Now().Add(gen.DefaultHandshakeTimeout))
 	result, err := a.handshake.Accept(n.node, c, hopts)
 	if err != nil {
 		if err != io.EOF {
@@ -1388,6 +1414,19 @@ func (n *network) handleAccepted(a *acceptor, c net.Conn, hopts gen.HandshakeOpt
 			c.Close()
 		}
 		return
+	}
+
+	// Join handshake for a connection that no longer exists — peer's pool expansion
+	// arrived after the connection was terminated. Nothing to join, close silently.
+	if result.PeerCreation == 0 {
+		c.Close()
+		return
+	}
+
+	// inject software keepalive misses from acceptor into ConnectionOptions
+	if opts, ok := result.Custom.(handshake.ConnectionOptions); ok {
+		opts.SoftwareKeepAliveMisses = a.software_keepalive_misses
+		result.Custom = opts
 	}
 
 	log := createLog(n.node.Log().Level(), n.node.dolog)

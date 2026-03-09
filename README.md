@@ -155,6 +155,10 @@ Fully detailed changelog see in the [ChangeLog](CHANGELOG.md) file.
 
 * Fixed **silent data loss on connection pool write failure** - a transient write error could permanently break a pool item's write path without detection, causing all subsequent messages to be silently dropped while the connection appeared healthy
 
+* Added **software keepalive** for inter-node connections - application-level heartbeat that detects silent failures invisible to TCP keepalive. Enabled by default (15s period, 3 misses, 45s timeout). See [Network Stack](https://docs.ergo.services/networking/network-stack#software-keepalive) documentation
+
+* Added **handshake deadline** (5s) to prevent hung handshakes from blocking connection goroutines indefinitely
+
 ### Development and debugging ###
 
 To enable Golang profiler just add `--tags pprof` in your `go run` or `go build` (profiler runs at

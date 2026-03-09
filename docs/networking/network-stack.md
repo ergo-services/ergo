@@ -105,6 +105,36 @@ The dialing node opens additional TCP connections using a shortened join handsha
 
 Multiple connections enable parallel message delivery. Each message goes to a connection based on the sender's identity, and the receiving side creates multiple receive queues per TCP connection for concurrent processing. This two-level mechanism -- sender-side link selection and receiver-side queue routing -- preserves per-sender message ordering while enabling parallelism across different senders. For details on how ordering works, including the `KeepNetworkOrder` flag and when to disable it, see [Message Ordering](network-transparency.md#message-ordering).
 
+### Software Keepalive
+
+*Introduced in v3.3.0.*
+
+TCP keepalive operates at the OS level - it detects hard network failures like unplugged cables or crashed hosts. But it can't detect application-level problems: a stuck process that stopped reading from a connection, a flusher that failed silently, a goroutine that never got scheduled. The connection looks alive to TCP while no useful data flows.
+
+Software keepalive works at the protocol level. When a connection pool item has nothing to send, its flusher periodically writes a small keepalive packet. The receiving side expects these packets and sets a read deadline based on the sender's advertised period. If nothing arrives - no real messages and no keepalive packets - the deadline fires and the connection is terminated.
+
+Each side advertises its keepalive period during handshake. This allows asymmetric configuration: a node in a reliable datacenter might send keepalive every 15 seconds, while a node on an unstable network might send every 5 seconds. The receiver calculates its deadline from the sender's period, not its own.
+
+```go
+node, err := ergo.StartNode("myapp@localhost", gen.NodeOptions{
+    Network: gen.NetworkOptions{
+        Flags: gen.NetworkFlags{
+            // ... other flags ...
+            EnableSoftwareKeepAlive: 15, // send keepalive every 15 seconds when idle
+        },
+        SoftwareKeepAliveMisses: 3, // tolerate 3 missed keepalives before disconnect
+    },
+})
+```
+
+The timeout calculation uses the remote node's period, not the local one. If the remote node advertises a 15-second period and you configure 3 misses, the connection is considered dead after 45 seconds of silence. Real messages reset the deadline just like keepalive packets do - on a busy connection, keepalive is never sent because regular traffic keeps the deadline from expiring.
+
+When a keepalive timeout fires on any pool item, the entire connection is terminated - not just the affected TCP link. A single unresponsive link is strong evidence that the whole network path to the remote node is down. This triggers the standard cleanup flow: monitors receive `MessageDown`, links receive `MessageExit`, and the connection is removed from the node's connection map.
+
+Software keepalive is enabled by default (15-second period, 3 misses, 45-second timeout). Set `EnableSoftwareKeepAlive` to 0 to disable it. Acceptors and routes can override the misses count; zero inherits from `NetworkOptions`.
+
+Both sides must have keepalive enabled for the feature to activate. If either side advertises period 0, the connection falls back to TCP-only keepalive with infinite read deadline - neither side sends keepalive packets and neither side sets read deadlines. This means a single node with keepalive disabled in a cluster removes protection for all its connections, not just its own. During a rolling upgrade from older nodes (which don't support the feature) to newer ones, connections between old and new nodes will not have software keepalive until both sides are upgraded.
+
 ## Message Encoding and Transmission
 
 Once a connection exists, messages flow through encoding and framing.
@@ -156,7 +186,9 @@ node, err := ergo.StartNode("myapp@localhost", gen.NodeOptions{
             EnableRemoteSpawn:            true,
             EnableRemoteApplicationStart: true,
             EnableImportantDelivery:      true,
+            EnableSoftwareKeepAlive:      15, // seconds, 0 to disable
         },
+        SoftwareKeepAliveMisses: 3, // tolerate 3 missed keepalives
         Acceptors: []gen.AcceptorOptions{
             {
                 Port:       15000,
@@ -174,7 +206,7 @@ node, err := ergo.StartNode("myapp@localhost", gen.NodeOptions{
 
 **MaxMessageSize** - Maximum incoming message size. Protects against memory exhaustion. Default unlimited (fine for trusted clusters).
 
-**Flags** - Control capabilities. Remote nodes learn your flags during handshake and can only use features you've enabled. `EnableRemoteSpawn` allows spawning (with explicit permission per process). `EnableImportantDelivery` enables delivery confirmation.
+**Flags** - Control capabilities. Remote nodes learn your flags during handshake and can only use features you've enabled. `EnableRemoteSpawn` allows spawning (with explicit permission per process). `EnableImportantDelivery` enables delivery confirmation. `EnableSoftwareKeepAlive` sets the keepalive period in seconds (see [Software Keepalive](#software-keepalive)).
 
 **Acceptors** - Define listeners for incoming connections. Multiple acceptors on different ports are supported. Each can have its own cookie, TLS, and protocol.
 

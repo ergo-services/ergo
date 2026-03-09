@@ -17,6 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * Fixed **self-send message counter** - `messagesOut` now incremented for self-sends
 * Fixed **simultaneous connect dead loop** - two nodes dialing each other at the same time no longer cause infinite retry loops. Deterministic connection IDs and Erlang-style collision detection (`EnableSimultaneousConnect` flag) ensure exactly one connection per pair. Fixed related connection leaks
 * Fixed **silent data loss on connection pool write failure** - a transient write error could permanently break a pool item's write path without detection, causing all subsequent messages to be silently dropped while the connection appeared healthy
+* Added **software keepalive** for inter-node connections. Application-level heartbeat detects silent failures that TCP keepalive cannot: stuck processes, broken flushers, goroutine starvation. Each side advertises its period during handshake (8 bits in `NetworkFlags`); receiver uses peer's period for timeout. Enabled by default (15s period, 3 misses, 45s timeout). Configure via `NetworkFlags.EnableSoftwareKeepAlive` and `NetworkOptions.SoftwareKeepAliveMisses`. See [Network Stack](https://docs.ergo.services/networking/network-stack#software-keepalive) documentation
+* Added **handshake deadline** (5s) to prevent hung handshakes from blocking connection goroutines indefinitely
 
 #### [v3.2.0](https://github.com/ergo-services/ergo/releases/tag/v1.999.320) 2026-02-04 [tag version v1.999.320] ####
 

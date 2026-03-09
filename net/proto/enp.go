@@ -68,6 +68,24 @@ func (e *enp) NewConnection(core gen.Core, result gen.HandshakeResult, log gen.L
 			Cache:     new(sync.Map),
 		},
 		requests: make(map[gen.Ref]chan MessageResult),
+
+		softwareKeepAlive: result.NodeFlags.EnableSoftwareKeepAlive > 0 &&
+			result.PeerFlags.EnableSoftwareKeepAlive > 0,
+	}
+
+	if conn.softwareKeepAlive {
+		myPeriod := time.Duration(result.NodeFlags.EnableSoftwareKeepAlive) * time.Second
+		peerPeriod := time.Duration(result.PeerFlags.EnableSoftwareKeepAlive) * time.Second
+		misses := opts.SoftwareKeepAliveMisses
+		if misses == 0 {
+			misses = gen.DefaultSoftwareKeepAliveMisses
+		}
+		conn.softwareKeepAlivePeriod = myPeriod
+		conn.softwareKeepAliveMisses = misses
+		conn.softwareKeepAliveTimeout = peerPeriod * time.Duration(misses)
+		conn.softwareKeepAliveMessage = []byte{
+			protoMagic, protoVersion, 0, 0, 0, 8, 0, protoMessageSoftwareKeepAlive,
+		}
 	}
 
 	if len(result.AtomMapping) > 0 {

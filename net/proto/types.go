@@ -46,6 +46,9 @@ const (
 	protoMessageF byte = 202 // fragmented
 	protoMessageP byte = 203 // proxy
 
+	// software keepalive
+	protoMessageSoftwareKeepAlive byte = 208
+
 	// TODO
 	// protoFragmentSize int = 65000
 )

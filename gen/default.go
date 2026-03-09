@@ -25,6 +25,9 @@ var (
 	DefaultTCPBufferSize   int           = 65535
 	DefaultPort            uint16        = 11144
 
+	DefaultHandshakeTimeout        time.Duration = 5 * time.Second
+	DefaultSoftwareKeepAliveMisses int           = 3
+
 	DefaultNetworkFlags = NetworkFlags{
 		Enable:                       true,
 		EnableRemoteSpawn:            true,
@@ -34,6 +37,7 @@ var (
 		EnableProxyAccept:            true,
 		EnableImportantDelivery:      true,
 		EnableSimultaneousConnect:    true,
+		EnableSoftwareKeepAlive: 15, // seconds
 	}
 
 	DefaultNetworkProxyFlags = NetworkProxyFlags{

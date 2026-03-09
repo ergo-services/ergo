@@ -332,6 +332,13 @@ type NetworkOptions struct {
 	// Can be replaced with Erlang protocol for Erlang/OTP compatibility.
 	Proto NetworkProto
 
+	// SoftwareKeepAliveMisses sets how many consecutive keepalives from a remote node can be missed
+	// before the connection is considered dead. The remote node advertises its keepalive period
+	// during handshake; this value controls how patient we are waiting for them.
+	// Timeout = RemotePeriod * Misses. Zero uses DefaultSoftwareKeepAliveMisses.
+	// Acceptors and routes inherit this unless overridden.
+	SoftwareKeepAliveMisses int
+
 	// Acceptors configures listeners for incoming connections.
 	// Node can have multiple acceptors on different ports/interfaces.
 	// Empty means no acceptors (same as NetworkModeHidden).
@@ -391,6 +398,9 @@ type NetworkFlags struct {
 	EnableImportantDelivery bool
 	// EnableSimultaneousConnect enables simultaneous connect detection and resolution
 	EnableSimultaneousConnect bool
+	// EnableSoftwareKeepAlive enables application-level keepalive with the given period in seconds.
+	// Zero disables keepalive. Max 255.
+	EnableSoftwareKeepAlive int
 }
 
 // we must be able to extend this structure by introducing new features.
@@ -425,6 +435,13 @@ func (nf NetworkFlags) MarshalEDF(w io.Writer) error {
 	if nf.EnableSimultaneousConnect == true {
 		flags |= 128
 	}
+	if nf.EnableSoftwareKeepAlive > 0 {
+		period := nf.EnableSoftwareKeepAlive
+		if period > 255 {
+			period = 255
+		}
+		flags |= uint64(period) << 8
+	}
 	binary.BigEndian.PutUint64(buf[:], flags)
 	w.Write(buf[:])
 	return nil
@@ -446,6 +463,7 @@ func (nf *NetworkFlags) UnmarshalEDF(buf []byte) error {
 	nf.EnableProxyAccept = (flags & 32) > 0
 	nf.EnableImportantDelivery = (flags & 64) > 0
 	nf.EnableSimultaneousConnect = (flags & 128) > 0
+	nf.EnableSoftwareKeepAlive = int((flags >> 8) & 0xFF)
 	return nil
 }
 
@@ -620,6 +638,10 @@ type AcceptorOptions struct {
 	// rejected immediately with a "busy" reason.
 	// Zero (default) means unlimited.
 	MaxHandshakes int
+
+	// SoftwareKeepAliveMisses sets how many consecutive keepalives from a remote node can be missed
+	// before the connection is considered dead. Zero inherits from NetworkOptions or uses default.
+	SoftwareKeepAliveMisses int
 }
 
 // Handshake defines handshake interface
@@ -794,6 +816,10 @@ type NetworkRoute struct {
 	AtomMapping map[Atom]Atom
 
 	LogLevel LogLevel
+
+	// SoftwareKeepAliveMisses sets how many consecutive keepalives from a remote node can be missed
+	// before the connection is considered dead. Zero inherits from NetworkOptions or uses default.
+	SoftwareKeepAliveMisses int
 }
 
 type NetworkProxyRoute struct {

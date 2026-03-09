@@ -29,6 +29,8 @@ type acceptor struct {
 	handshaking     atomic.Int32  // current number of in-flight handshakes
 	maxHandshakes   int32         // 0 = unlimited
 	handshakeErrors atomic.Uint64 // cumulative handshake failures
+
+	software_keepalive_misses int
 }
 
 // gen.Acceptor interface implementation

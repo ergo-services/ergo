@@ -1,9 +1,10 @@
 package handshake
 
 import (
+	"sync"
+
 	"ergo.services/ergo/gen"
 	"ergo.services/ergo/net/edf"
-	"sync"
 )
 
 const (
@@ -70,6 +71,8 @@ type ConnectionOptions struct {
 	DecodeAtomCache *sync.Map
 	DecodeRegCache  *sync.Map
 	DecodeErrCache  *sync.Map
+
+	SoftwareKeepAliveMisses int
 }
 
 func init() {
