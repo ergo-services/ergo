@@ -72,9 +72,39 @@ type connection struct {
 	softwareKeepAliveMisses  int
 	softwareKeepAliveTimeout time.Duration // how long I wait (peer period * misses)
 
+	// fragmentation
+	fragmentation         bool
+	fragmentSize          int
+	fragmentTimeout       time.Duration
+	maxFragmentAssemblies int
+	nextSequenceID        atomic.Uint32
+
+	// ordered fragment assembly (per recv queue, no mutex)
+	orderedFragments []map[uint32]*fragmentAssembly
+
+	// unordered fragment assembly (order = 0 only)
+	sharedFragMu    sync.Mutex
+	sharedFragments map[uint32]*fragmentAssembly
+	sharedFragTimer *time.Timer
+
+	// fragment statistics
+	fragmentsSent        atomic.Uint64
+	fragmentMessagesSent atomic.Uint64
+	fragmentsReceived    atomic.Uint64
+	fragmentMessagesRecv atomic.Uint64
+	fragmentTimeouts     atomic.Uint64
+
 	order      uint32
 	terminated bool
 	wg         sync.WaitGroup
+}
+
+type fragmentAssembly struct {
+	totalFragments uint16
+	received       uint16
+	totalBytes     int
+	payloads       [][]byte
+	deadline       time.Time
 }
 
 type pool_item struct {
@@ -130,6 +160,12 @@ func (c *connection) Info() gen.RemoteNodeInfo {
 		TransitBytesOut: atomic.LoadUint64(&c.transitOut),
 
 		Reconnections: atomic.LoadUint64(&c.reconnections),
+
+		FragmentsSent:        c.fragmentsSent.Load(),
+		FragmentMessagesSent: c.fragmentMessagesSent.Load(),
+		FragmentsReceived:    c.fragmentsReceived.Load(),
+		FragmentMessagesRecv: c.fragmentMessagesRecv.Load(),
+		FragmentTimeouts:     c.fragmentTimeouts.Load(),
 	}
 	return info
 }
@@ -1585,6 +1621,11 @@ func (c *connection) Terminate(reason error) {
 	for _, pi := range c.pool {
 		pi.connection.Close()
 	}
+
+	// cleanup fragment state
+	if c.sharedFragTimer != nil {
+		c.sharedFragTimer.Stop()
+	}
 }
 
 func (c *connection) serve(conn net.Conn, tail []byte) {
@@ -1666,14 +1707,14 @@ func (c *connection) serve(conn net.Conn, tail []byte) {
 
 		queue.Push(buf)
 		if queue.Lock() {
-			go c.handleRecvQueue(queue)
+			go c.handleRecvQueue(queue, qN)
 		}
 		buf = buftail
 
 	}
 }
 
-func (c *connection) handleRecvQueue(q lib.QueueMPSC) {
+func (c *connection) handleRecvQueue(q lib.QueueMPSC, qIdx int) {
 	if lib.Recover() {
 		defer func() {
 			if r := recover(); r != nil {
@@ -1688,10 +1729,26 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC) {
 	if lib.Trace() {
 		c.log.Trace("start handling the message queue")
 	}
+
+	// per-queue ordered fragment assembly (persists across goroutine re-entries)
+	var localFragments map[uint32]*fragmentAssembly
+	if c.fragmentation && qIdx < len(c.orderedFragments) {
+		localFragments = c.orderedFragments[qIdx]
+	}
 	for {
 		v, ok := q.Pop()
 		if ok == false {
-			// no more items in the queue, unlock it
+			// queue drained -- clean stale ordered assemblies (safe: we hold queue lock)
+			if localFragments != nil && len(localFragments) > 0 {
+				now := time.Now()
+				for seqID, asm := range localFragments {
+					if now.After(asm.deadline) {
+						delete(localFragments, seqID)
+						c.fragmentTimeouts.Add(1)
+					}
+				}
+			}
+
 			q.Unlock()
 
 			// but check the queue before the exit this goroutine
@@ -1727,6 +1784,7 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC) {
 			idFrom := binary.BigEndian.Uint64(buf.B[8:16])
 			priority := gen.MessagePriority(buf.B[16] & 3)
 			important := (buf.B[16] & 128) > 0
+			refID := binary.BigEndian.Uint64(buf.B[17:25])
 			idTO := binary.BigEndian.Uint64(buf.B[25:33])
 
 			msg, tail, err := edf.Decode(buf.B[33:], c.decodeOptions)
@@ -1766,7 +1824,7 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC) {
 				continue
 			}
 
-			opts.Ref.ID[0] = binary.BigEndian.Uint64(buf.B[17:25])
+			opts.Ref.ID[0] = refID
 			c.SendResponseError(to, from, opts, err)
 
 		case protoMessageName, protoMessageNameCache: // name, chached name
@@ -1814,6 +1872,7 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC) {
 			idFrom := binary.BigEndian.Uint64(buf.B[8:16])
 			priority := gen.MessagePriority(buf.B[16] & 3)
 			important := (buf.B[16] & 128) > 0
+			refID := binary.BigEndian.Uint64(buf.B[17:25])
 
 			msg, tail, err := edf.Decode(data, c.decodeOptions)
 			if releaseBuffer {
@@ -1857,7 +1916,7 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC) {
 				continue
 			}
 
-			opts.Ref.ID[0] = binary.BigEndian.Uint64(buf.B[17:25])
+			opts.Ref.ID[0] = refID
 			c.SendResponseError(gen.PID{}, from, opts, err)
 
 		case protoMessageAlias:
@@ -1869,6 +1928,7 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC) {
 			idFrom := binary.BigEndian.Uint64(buf.B[8:16])
 			priority := gen.MessagePriority(buf.B[16] & 3)
 			important := (buf.B[16] & 128) > 0
+			refID := binary.BigEndian.Uint64(buf.B[17:25])
 			idTo := [3]uint64{
 				binary.BigEndian.Uint64(buf.B[25:33]),
 				binary.BigEndian.Uint64(buf.B[33:41]),
@@ -1912,7 +1972,7 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC) {
 				continue
 			}
 
-			opts.Ref.ID[0] = binary.BigEndian.Uint64(buf.B[17:25])
+			opts.Ref.ID[0] = refID
 			c.SendResponseError(gen.PID{}, from, opts, err)
 
 		case protoRequestPID:
@@ -2654,9 +2714,28 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC) {
 				continue
 			}
 
-		// case protoMessageF:
-		// TODO fragmentation
-		// TODO check the message size after assembling
+		case protoMessageF:
+			if c.fragmentation == false {
+				c.log.Warning("received fragment but fragmentation disabled, ignored")
+				continue
+			}
+
+			order := buf.B[6]
+			if order > 0 && localFragments != nil {
+				// ordered path: per-queue assembly
+				buf = c.handleFragmentOrdered(buf, localFragments)
+				if buf == nil {
+					continue
+				}
+				goto re
+			}
+
+			// unordered path: shared assembly
+			buf = c.handleFragmentUnordered(buf)
+			if buf == nil {
+				continue
+			}
+			goto re
 
 		// case protoMessageP:
 		// TODO proxy
@@ -2665,12 +2744,6 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC) {
 			c.log.Error("unknown/unsupported message type %d, ignored", buf.B[6])
 			lib.ReleaseBuffer(buf)
 		}
-
-		// TODO
-		// check if connection has been terminated
-		// if c.terminated {
-		//     return
-		// }
 
 	}
 }
@@ -3015,6 +3088,10 @@ func (c *connection) wait() {
 
 func (c *connection) send(buf *lib.Buffer, order uint8, compression gen.Compression) error {
 
+	if c.peer_maxmessagesize > 0 && buf.Len() > c.peer_maxmessagesize {
+		return gen.ErrTooLarge
+	}
+
 	if compression.Enable && buf.Len() > compression.Threshold {
 		var zbuf *lib.Buffer
 		var err error
@@ -3057,8 +3134,9 @@ func (c *connection) send(buf *lib.Buffer, order uint8, compression gen.Compress
 		buf = zbuf
 	}
 
-	if c.peer_maxmessagesize > 0 && buf.Len() > c.peer_maxmessagesize {
-		return gen.ErrTooLarge
+	// fragmentation
+	if c.fragmentation == true && buf.Len() > c.fragmentSize {
+		return c.sendFragmented(buf, order)
 	}
 
 	var pi *pool_item
@@ -3078,11 +3156,6 @@ func (c *connection) send(buf *lib.Buffer, order uint8, compression gen.Compress
 	}
 	c.pool_mutex.RUnlock()
 
-	// TODO
-	// add proxy, fragmentation support
-	// c.transitOut++
-	// if buf.Len() < protoFragmentSize {
-
 	bufLen := uint64(buf.Len())
 	_, err := pi.fl.Write(buf.B)
 	lib.ReleaseBuffer(buf)
@@ -3094,11 +3167,315 @@ func (c *connection) send(buf *lib.Buffer, order uint8, compression gen.Compress
 	atomic.AddUint64(&c.messagesOut, 1)
 	atomic.AddUint64(&c.bytesOut, bufLen)
 	return nil
+}
 
-	// }
+func (c *connection) sendFragmented(buf *lib.Buffer, order uint8) error {
+	data := buf.B                     // entire original message including ENP header
+	maxPayload := c.fragmentSize - 16 // 16 = ENP header (8) + fragment header (8)
 
-	// message must be fragmented
-	// panic("TODO")
+	totalFragments := uint16((len(data) + maxPayload - 1) / maxPayload)
+
+	sequenceID := c.nextSequenceID.Add(1)
+
+	if lib.Trace() {
+		c.log.Trace("fragmenting message: %d bytes, %d fragments (seq=%d)",
+			len(data), totalFragments, sequenceID)
+	}
+
+	// for ordered messages, select pool item once (all fragments must go
+	// through the same TCP connection to preserve order on the receiver)
+	var orderedPI *pool_item
+	if order > 0 {
+		c.pool_mutex.RLock()
+		l := len(c.pool)
+		if l == 0 {
+			c.pool_mutex.RUnlock()
+			lib.ReleaseBuffer(buf)
+			return gen.ErrNoConnection
+		}
+		orderedPI = c.pool[int(order)%l]
+		c.pool_mutex.RUnlock()
+	}
+
+	offset := 0
+	for idx := uint16(0); idx < totalFragments; idx++ {
+		chunkSize := len(data) - offset
+		if chunkSize > maxPayload {
+			chunkSize = maxPayload
+		}
+
+		frag := lib.TakeBuffer()
+		frag.Allocate(16 + chunkSize)
+
+		// standard ENP header
+		frag.B[0] = protoMagic
+		frag.B[1] = protoVersion
+		binary.BigEndian.PutUint32(frag.B[2:6], uint32(len(frag.B)))
+		frag.B[6] = order
+		frag.B[7] = protoMessageF
+
+		// fragment header
+		binary.BigEndian.PutUint32(frag.B[8:12], sequenceID)
+		binary.BigEndian.PutUint16(frag.B[12:14], idx)
+		binary.BigEndian.PutUint16(frag.B[14:16], totalFragments)
+
+		// payload: chunk of original message
+		copy(frag.B[16:], data[offset:offset+chunkSize])
+		offset += chunkSize
+
+		// select pool item
+		pi := orderedPI
+		if order == 0 {
+			c.pool_mutex.RLock()
+			l := len(c.pool)
+			if l == 0 {
+				c.pool_mutex.RUnlock()
+				lib.ReleaseBuffer(frag)
+				lib.ReleaseBuffer(buf)
+				return gen.ErrNoConnection
+			}
+			neworder := atomic.AddUint32(&c.order, 1)
+			pi = c.pool[int(neworder)%l]
+			c.pool_mutex.RUnlock()
+		}
+
+		fragLen := uint64(frag.Len())
+		_, err := pi.fl.Write(frag.B)
+		lib.ReleaseBuffer(frag)
+		if err != nil {
+			pi.connection.Close()
+			lib.ReleaseBuffer(buf)
+			return err
+		}
+
+		atomic.AddUint64(&c.messagesOut, 1)
+		atomic.AddUint64(&c.bytesOut, fragLen)
+	}
+
+	lib.ReleaseBuffer(buf)
+
+	c.fragmentsSent.Add(uint64(totalFragments))
+	c.fragmentMessagesSent.Add(1)
+
+	return nil
+}
+
+const maxFragmentCount = 10000
+
+func (c *connection) handleFragmentOrdered(buf *lib.Buffer, assemblies map[uint32]*fragmentAssembly) *lib.Buffer {
+	if buf.Len() < 16 {
+		c.log.Warning("fragment too short: %d bytes", buf.Len())
+		return nil
+	}
+
+	sequenceID := binary.BigEndian.Uint32(buf.B[8:12])
+	fragIndex := binary.BigEndian.Uint16(buf.B[12:14])
+	totalFragments := binary.BigEndian.Uint16(buf.B[14:16])
+	payload := buf.B[16:]
+
+	if fragIndex >= totalFragments || totalFragments == 0 {
+		c.log.Warning("invalid fragment index %d/%d (seq=%d)", fragIndex, totalFragments, sequenceID)
+		return nil
+	}
+
+	asm, exists := assemblies[sequenceID]
+	if exists == false {
+		if totalFragments > maxFragmentCount {
+			c.log.Warning("too many fragments: %d (seq=%d)", totalFragments, sequenceID)
+			return nil
+		}
+		asm = &fragmentAssembly{
+			totalFragments: totalFragments,
+			payloads:       make([][]byte, 0, totalFragments),
+			deadline:       time.Now().Add(c.fragmentTimeout),
+		}
+		assemblies[sequenceID] = asm
+	}
+
+	// rejected assembly (exceeded maxmessagesize), ignore subsequent fragments
+	if asm.payloads == nil {
+		return nil
+	}
+
+	if asm.totalFragments != totalFragments {
+		c.log.Warning("fragment total mismatch (seq=%d)", sequenceID)
+		delete(assemblies, sequenceID)
+		return nil
+	}
+
+	// TCP order guarantee -- append
+	asm.payloads = append(asm.payloads, append([]byte(nil), payload...))
+	asm.received++
+	asm.totalBytes += len(payload)
+
+	// check accumulated size against receiver limit
+	if c.node_maxmessagesize > 0 && asm.totalBytes > c.node_maxmessagesize {
+		asm.payloads = nil
+		c.log.Warning("fragmented message exceeds max size: %d (max %d, seq=%d)",
+			asm.totalBytes, c.node_maxmessagesize, sequenceID)
+		return nil
+	}
+
+	c.fragmentsReceived.Add(1)
+
+	if asm.received < asm.totalFragments {
+		return nil
+	}
+
+	// assembly complete
+	delete(assemblies, sequenceID)
+
+	// cleanup stale assemblies from dead senders
+	if len(assemblies) > 0 {
+		now := time.Now()
+		for seqID, asm := range assemblies {
+			if now.After(asm.deadline) {
+				delete(assemblies, seqID)
+				c.fragmentTimeouts.Add(1)
+			}
+		}
+	}
+
+	reassembled := lib.TakeBuffer()
+	reassembled.Allocate(asm.totalBytes)
+
+	offset := 0
+	for _, p := range asm.payloads {
+		copy(reassembled.B[offset:], p)
+		offset += len(p)
+	}
+
+	c.fragmentMessagesRecv.Add(1)
+
+	if lib.Trace() {
+		c.log.Trace("fragment assembly complete: seq=%d, %d bytes, %d fragments",
+			sequenceID, asm.totalBytes, asm.totalFragments)
+	}
+
+	return reassembled
+}
+
+func (c *connection) handleFragmentUnordered(buf *lib.Buffer) *lib.Buffer {
+	if buf.Len() < 16 {
+		c.log.Warning("fragment too short: %d bytes", buf.Len())
+		return nil
+	}
+
+	sequenceID := binary.BigEndian.Uint32(buf.B[8:12])
+	fragIndex := binary.BigEndian.Uint16(buf.B[12:14])
+	totalFragments := binary.BigEndian.Uint16(buf.B[14:16])
+	payload := buf.B[16:]
+
+	if fragIndex >= totalFragments || totalFragments == 0 {
+		c.log.Warning("invalid fragment index %d/%d (seq=%d)", fragIndex, totalFragments, sequenceID)
+		return nil
+	}
+
+	c.sharedFragMu.Lock()
+
+	asm, exists := c.sharedFragments[sequenceID]
+	if exists == false {
+		if totalFragments > maxFragmentCount {
+			c.sharedFragMu.Unlock()
+			c.log.Warning("too many fragments: %d (seq=%d)", totalFragments, sequenceID)
+			return nil
+		}
+		if len(c.sharedFragments) >= c.maxFragmentAssemblies {
+			c.sharedFragMu.Unlock()
+			c.log.Warning("too many concurrent unordered assemblies, dropping fragment")
+			return nil
+		}
+
+		asm = &fragmentAssembly{
+			totalFragments: totalFragments,
+			payloads:       make([][]byte, totalFragments), // indexed
+			deadline:       time.Now().Add(c.fragmentTimeout),
+		}
+		c.sharedFragments[sequenceID] = asm
+		c.sharedFragTimer.Reset(5 * time.Second)
+	}
+
+	// rejected assembly (exceeded maxmessagesize), ignore subsequent fragments
+	if asm.payloads == nil {
+		c.sharedFragMu.Unlock()
+		return nil
+	}
+
+	if asm.totalFragments != totalFragments {
+		c.sharedFragMu.Unlock()
+		c.log.Warning("fragment total mismatch (seq=%d)", sequenceID)
+		return nil
+	}
+
+	// duplicate check
+	if asm.payloads[fragIndex] != nil {
+		c.sharedFragMu.Unlock()
+		return nil
+	}
+
+	asm.payloads[fragIndex] = append([]byte(nil), payload...)
+	asm.received++
+	asm.totalBytes += len(payload)
+
+	// check accumulated size against receiver limit
+	if c.node_maxmessagesize > 0 && asm.totalBytes > c.node_maxmessagesize {
+		asm.payloads = nil
+		c.sharedFragMu.Unlock()
+		c.log.Warning("fragmented message exceeds max size: %d (max %d, seq=%d)",
+			asm.totalBytes, c.node_maxmessagesize, sequenceID)
+		return nil
+	}
+
+	c.fragmentsReceived.Add(1)
+
+	if asm.received < asm.totalFragments {
+		c.sharedFragMu.Unlock()
+		return nil
+	}
+
+	// assembly complete
+	delete(c.sharedFragments, sequenceID)
+	c.sharedFragMu.Unlock()
+
+	// build reassembled message outside mutex
+	reassembled := lib.TakeBuffer()
+	reassembled.Allocate(asm.totalBytes)
+
+	offset := 0
+	for _, p := range asm.payloads {
+		copy(reassembled.B[offset:], p)
+		offset += len(p)
+	}
+
+	c.fragmentMessagesRecv.Add(1)
+
+	if lib.Trace() {
+		c.log.Trace("fragment assembly complete: seq=%d, %d bytes, %d fragments",
+			sequenceID, asm.totalBytes, asm.totalFragments)
+	}
+
+	return reassembled
+}
+
+func (c *connection) cleanupSharedFragments() {
+	c.sharedFragMu.Lock()
+	defer c.sharedFragMu.Unlock()
+
+	now := time.Now()
+	for seqID, asm := range c.sharedFragments {
+		if now.After(asm.deadline) {
+			if lib.Trace() {
+				c.log.Trace("unordered fragment timeout: seq=%d, %d/%d received",
+					seqID, asm.received, asm.totalFragments)
+			}
+			delete(c.sharedFragments, seqID)
+			c.fragmentTimeouts.Add(1)
+		}
+	}
+
+	if len(c.sharedFragments) > 0 {
+		c.sharedFragTimer.Reset(5 * time.Second)
+	}
 }
 
 func (c *connection) waitResult(ref gen.Ref, ch chan MessageResult) (result MessageResult) {

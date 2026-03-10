@@ -157,6 +157,39 @@ The order byte preserves message ordering per sender. Messages from the same sen
 
 For details on protocol framing, order bytes, receive queue distribution, and the exact byte layout, see [Network Transparency](network-transparency.md).
 
+### Message Fragmentation
+
+*Introduced in v3.3.0.*
+
+When a message exceeds the fragment size threshold (default 65000 bytes), the framework splits it into smaller pieces for transmission and reassembles them on the receiving side. This happens after compression -- if a compressed message is still too large, it gets fragmented. From your code's perspective, nothing changes. You send a large message, and it arrives intact.
+
+Fragmentation works with all message types: regular sends, important delivery, calls, and events. It composes with compression -- a message can be compressed first, then fragmented, and on the receiving side defragmented and then decompressed.
+
+When [`KeepNetworkOrder`](network-transparency.md#message-ordering) is disabled for a process, the framework distributes fragments across all TCP connections in the pool, using the full bandwidth of the connection. This is useful for transferring large payloads where throughput matters more than ordering. When `KeepNetworkOrder` is enabled (the default), all fragments travel through a single TCP connection to preserve message ordering for that sender.
+
+Both nodes must have `EnableFragmentation` in their network flags. If either side doesn't support it, large messages are sent as-is (subject to `MaxMessageSize` limits). During handshake, nodes exchange their fragmentation capability, and the feature activates only when both sides agree.
+
+`MaxMessageSize` is a logical limit on the EDF-encoded message, checked before compression and fragmentation. On the receiving side, the framework tracks the accumulated size of received fragments and rejects the assembly if it exceeds the limit.
+
+```go
+node, err := ergo.StartNode("myapp@localhost", gen.NodeOptions{
+    Network: gen.NetworkOptions{
+        Flags: gen.NetworkFlags{
+            EnableFragmentation: true, // default: true
+        },
+        FragmentSize:          65000, // bytes per fragment, 0 = default
+        FragmentTimeout:       30,    // seconds, assembly timeout, 0 = default
+        MaxFragmentAssemblies: 1000,  // max concurrent assemblies, 0 = default
+    },
+})
+```
+
+`FragmentSize` controls at what point messages get split. This is a sender-side setting -- the receiver reassembles whatever arrives regardless of the sender's fragment size. Two nodes can use different fragment sizes.
+
+`FragmentTimeout` sets how long the receiver waits for all fragments before discarding an incomplete assembly. If a sender crashes mid-message or a connection drops, partial assemblies are cleaned up after this timeout.
+
+`MaxFragmentAssemblies` limits how many messages can be simultaneously reassembled per connection, protecting against memory exhaustion from many concurrent large messages.
+
 ## Network Transparency in Practice
 
 Network transparency means remote operations look like local operations. You send to a PID without checking if it's local or remote. You establish links and monitors the same way regardless of location. The framework handles discovery, encoding, and transmission automatically.
@@ -186,9 +219,12 @@ node, err := ergo.StartNode("myapp@localhost", gen.NodeOptions{
             EnableRemoteSpawn:            true,
             EnableRemoteApplicationStart: true,
             EnableImportantDelivery:      true,
+            EnableFragmentation:          true, // default: true
             EnableSoftwareKeepAlive:      15, // seconds, 0 to disable
         },
         SoftwareKeepAliveMisses: 3, // tolerate 3 missed keepalives
+        FragmentSize:          65000, // 0 = default
+        FragmentTimeout:       30,    // seconds, 0 = default
         Acceptors: []gen.AcceptorOptions{
             {
                 Port:       15000,
@@ -206,7 +242,7 @@ node, err := ergo.StartNode("myapp@localhost", gen.NodeOptions{
 
 **MaxMessageSize** - Maximum incoming message size. Protects against memory exhaustion. Default unlimited (fine for trusted clusters).
 
-**Flags** - Control capabilities. Remote nodes learn your flags during handshake and can only use features you've enabled. `EnableRemoteSpawn` allows spawning (with explicit permission per process). `EnableImportantDelivery` enables delivery confirmation. `EnableSoftwareKeepAlive` sets the keepalive period in seconds (see [Software Keepalive](#software-keepalive)).
+**Flags** - Control capabilities. Remote nodes learn your flags during handshake and can only use features you've enabled. `EnableRemoteSpawn` allows spawning (with explicit permission per process). `EnableImportantDelivery` enables delivery confirmation. `EnableFragmentation` enables message fragmentation for large messages (both sides must enable). `EnableSoftwareKeepAlive` sets the keepalive period in seconds (see [Software Keepalive](#software-keepalive)).
 
 **Acceptors** - Define listeners for incoming connections. Multiple acceptors on different ports are supported. Each can have its own cookie, TLS, and protocol.
 

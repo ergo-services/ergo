@@ -55,6 +55,9 @@ type network struct {
 	cookie                    string
 	maxmessagesize            int
 	softwareKeepAliveMisses   int
+	fragmentSize              int
+	fragmentTimeout           int
+	maxFragmentAssemblies     int
 
 	staticRoutes  *staticRoutes
 	staticProxies *staticProxies
@@ -871,9 +874,12 @@ func (n *network) connect(name gen.Atom, route gen.NetworkRoute) (gen.Connection
 	}
 	log.setSource(logSource)
 
-	// inject software keepalive misses into ConnectionOptions
+	// inject options into ConnectionOptions
 	if opts, ok := result.Custom.(handshake.ConnectionOptions); ok {
 		opts.SoftwareKeepAliveMisses = n.keepAliveMisses(route.SoftwareKeepAliveMisses)
+		opts.FragmentSize = n.fragmentSize
+		opts.FragmentTimeout = n.fragmentTimeout
+		opts.MaxFragmentAssemblies = n.maxFragmentAssemblies
 		result.Custom = opts
 	}
 
@@ -1035,6 +1041,9 @@ func (n *network) start(options gen.NetworkOptions) error {
 	}
 	n.flags = options.Flags
 	n.softwareKeepAliveMisses = options.SoftwareKeepAliveMisses
+	n.fragmentSize = options.FragmentSize
+	n.fragmentTimeout = options.FragmentTimeout
+	n.maxFragmentAssemblies = options.MaxFragmentAssemblies
 
 	if options.Mode == gen.NetworkModeHidden {
 		static, err := n.registrar.Register(n.node, gen.RegisterRoutes{})
@@ -1423,9 +1432,12 @@ func (n *network) handleAccepted(a *acceptor, c net.Conn, hopts gen.HandshakeOpt
 		return
 	}
 
-	// inject software keepalive misses from acceptor into ConnectionOptions
+	// inject options from acceptor into ConnectionOptions
 	if opts, ok := result.Custom.(handshake.ConnectionOptions); ok {
 		opts.SoftwareKeepAliveMisses = a.software_keepalive_misses
+		opts.FragmentSize = n.fragmentSize
+		opts.FragmentTimeout = n.fragmentTimeout
+		opts.MaxFragmentAssemblies = n.maxFragmentAssemblies
 		result.Custom = opts
 	}
 

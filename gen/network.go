@@ -361,9 +361,20 @@ type NetworkOptions struct {
 	// Controls how proxy connections are routed through this node.
 	ProxyTransit ProxyTransitOptions
 
-	// TODO
-	// FragmentationUnit chunck size in bytes
-	//FragmentationUnit int
+	// FragmentSize sets the maximum fragment packet size in bytes.
+	// Messages larger than this are split into fragments for transmission.
+	// Zero uses DefaultFragmentSize (65000). Sender-local, no negotiation needed.
+	FragmentSize int
+
+	// FragmentTimeout sets the maximum time in seconds to wait for all fragments of a message.
+	// Incomplete assemblies are cleaned up after this duration.
+	// Zero uses DefaultFragmentTimeout (30s).
+	FragmentTimeout int
+
+	// MaxFragmentAssemblies limits concurrent unordered fragment assemblies per connection.
+	// Protects against memory exhaustion from many simultaneous large messages.
+	// Zero uses DefaultMaxFragmentAssemblies (1000).
+	MaxFragmentAssemblies int
 }
 
 type ProxyAcceptOptions struct {
@@ -551,6 +562,17 @@ type RemoteNodeInfo struct {
 	// Reconnections is the total number of pool item reconnections.
 	// A non-zero value indicates connection instability.
 	Reconnections uint64
+
+	// FragmentsSent is the total number of individual fragments sent.
+	FragmentsSent uint64
+	// FragmentMessagesSent is the total number of messages that were fragmented for sending.
+	FragmentMessagesSent uint64
+	// FragmentsReceived is the total number of individual fragments received.
+	FragmentsReceived uint64
+	// FragmentMessagesRecv is the total number of fragmented messages successfully reassembled.
+	FragmentMessagesRecv uint64
+	// FragmentTimeouts is the total number of fragment assemblies that timed out.
+	FragmentTimeouts uint64
 }
 
 // AcceptorOptions configures a network listener (acceptor) for incoming connections.

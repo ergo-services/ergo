@@ -73,6 +73,9 @@ type ConnectionOptions struct {
 	DecodeErrCache  *sync.Map
 
 	SoftwareKeepAliveMisses int
+	FragmentSize            int
+	FragmentTimeout         int
+	MaxFragmentAssemblies   int
 }
 
 func init() {

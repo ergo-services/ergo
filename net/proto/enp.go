@@ -88,6 +88,26 @@ func (e *enp) NewConnection(core gen.Core, result gen.HandshakeResult, log gen.L
 		}
 	}
 
+	if result.NodeFlags.EnableFragmentation == true &&
+		result.PeerFlags.EnableFragmentation == true {
+		conn.fragmentation = true
+		conn.fragmentSize = gen.DefaultFragmentSize
+		if opts.FragmentSize > 0 {
+			conn.fragmentSize = opts.FragmentSize
+		}
+		conn.fragmentTimeout = gen.DefaultFragmentTimeout
+		if opts.FragmentTimeout > 0 {
+			conn.fragmentTimeout = time.Duration(opts.FragmentTimeout) * time.Second
+		}
+		conn.maxFragmentAssemblies = gen.DefaultMaxFragmentAssemblies
+		if opts.MaxFragmentAssemblies > 0 {
+			conn.maxFragmentAssemblies = opts.MaxFragmentAssemblies
+		}
+		conn.sharedFragments = make(map[uint32]*fragmentAssembly)
+		conn.sharedFragTimer = time.AfterFunc(time.Hour, conn.cleanupSharedFragments)
+		conn.sharedFragTimer.Stop()
+	}
+
 	if len(result.AtomMapping) > 0 {
 		conn.encodeOptions.AtomMapping = &sync.Map{}
 		conn.decodeOptions.AtomMapping = &sync.Map{}
@@ -99,8 +119,17 @@ func (e *enp) NewConnection(core gen.Core, result gen.HandshakeResult, log gen.L
 
 	// init recv queues. create 4 recv queues per connection
 	// since the decoding is more costly comparing to the encoding
-	for i := 0; i < opts.PoolSize*4; i++ {
+	numQueues := opts.PoolSize * 4
+	for i := 0; i < numQueues; i++ {
 		conn.recvQueues = append(conn.recvQueues, lib.NewQueueMPSC())
+	}
+
+	// init per-queue ordered fragment assembly maps
+	if conn.fragmentation {
+		conn.orderedFragments = make([]map[uint32]*fragmentAssembly, numQueues)
+		for i := 0; i < numQueues; i++ {
+			conn.orderedFragments[i] = make(map[uint32]*fragmentAssembly)
+		}
 	}
 
 	return conn, nil
