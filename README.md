@@ -159,6 +159,10 @@ Fully detailed changelog see in the [ChangeLog](CHANGELOG.md) file.
 
 * Added **handshake deadline** (5s) to prevent hung handshakes from blocking connection goroutines indefinitely
 
+* Added **message fragmentation** for large messages. Messages exceeding the fragment size (default 65000 bytes) are automatically split and reassembled. With `KeepNetworkOrder` disabled, fragments use all TCP connections for maximum throughput. See [Network Stack](https://docs.ergo.services/networking/network-stack#message-fragmentation) documentation
+
+* Fixed **important delivery use-after-release** - reference ID read from buffer after pool release, causing corrupted ACK responses
+
 ### Development and debugging ###
 
 To enable Golang profiler just add `--tags pprof` in your `go run` or `go build` (profiler runs at
