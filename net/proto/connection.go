@@ -1689,8 +1689,10 @@ func (c *connection) serve(conn net.Conn, tail []byte) {
 
 		recvN++
 
-		atomic.AddUint64(&c.messagesIn, 1)
 		atomic.AddUint64(&c.bytesIn, uint64(buf.Len()))
+		if buf.B[7] != protoMessageF {
+			atomic.AddUint64(&c.messagesIn, 1)
+		}
 		// TODO
 		// c.transitIn
 
@@ -3239,7 +3241,6 @@ func (c *connection) sendFragmented(buf *lib.Buffer, order uint8) error {
 			c.pool_mutex.RUnlock()
 		}
 
-		fragLen := uint64(frag.Len())
 		_, err := pi.fl.Write(frag.B)
 		lib.ReleaseBuffer(frag)
 		if err != nil {
@@ -3248,9 +3249,10 @@ func (c *connection) sendFragmented(buf *lib.Buffer, order uint8) error {
 			return err
 		}
 
-		atomic.AddUint64(&c.messagesOut, 1)
-		atomic.AddUint64(&c.bytesOut, fragLen)
+		atomic.AddUint64(&c.bytesOut, uint64(16+chunkSize))
 	}
+
+	atomic.AddUint64(&c.messagesOut, 1)
 
 	lib.ReleaseBuffer(buf)
 
@@ -3346,6 +3348,7 @@ func (c *connection) handleFragmentOrdered(buf *lib.Buffer, assemblies map[uint3
 	}
 
 	c.fragmentMessagesRecv.Add(1)
+	atomic.AddUint64(&c.messagesIn, 1)
 
 	if lib.Trace() {
 		c.log.Trace("fragment assembly complete: seq=%d, %d bytes, %d fragments",
@@ -3448,6 +3451,7 @@ func (c *connection) handleFragmentUnordered(buf *lib.Buffer) *lib.Buffer {
 	}
 
 	c.fragmentMessagesRecv.Add(1)
+	atomic.AddUint64(&c.messagesIn, 1)
 
 	if lib.Trace() {
 		c.log.Trace("fragment assembly complete: seq=%d, %d bytes, %d fragments",
