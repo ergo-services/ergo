@@ -573,6 +573,19 @@ type RemoteNodeInfo struct {
 	FragmentMessagesRecv uint64
 	// FragmentTimeouts is the total number of fragment assemblies that timed out.
 	FragmentTimeouts uint64
+
+	// CompressedSent is the total number of messages compressed on send.
+	CompressedSent uint64
+	// CompressedBytesSent is the total bytes after compression (wire size).
+	CompressedBytesSent uint64
+	// CompressedOrigBytesSent is the total bytes before compression (original size).
+	CompressedOrigBytesSent uint64
+	// DecompressedRecv is the total number of messages decompressed on receive.
+	DecompressedRecv uint64
+	// DecompressedBytesRecv is the total bytes before decompression (wire size).
+	DecompressedBytesRecv uint64
+	// DecompressedOrigRecv is the total bytes after decompression (original size).
+	DecompressedOrigRecv uint64
 }
 
 // AcceptorOptions configures a network listener (acceptor) for incoming connections.

@@ -94,6 +94,14 @@ type connection struct {
 	fragmentMessagesRecv atomic.Uint64
 	fragmentTimeouts     atomic.Uint64
 
+	// compression statistics
+	compressedSent          atomic.Uint64 // messages compressed on send
+	compressedBytesSent     atomic.Uint64 // bytes after compression (wire)
+	compressedOrigBytesSent atomic.Uint64 // bytes before compression (original)
+	decompressedRecv        atomic.Uint64 // messages decompressed on receive
+	decompressedBytesRecv   atomic.Uint64 // bytes before decompression (wire)
+	decompressedOrigRecv    atomic.Uint64 // bytes after decompression (original)
+
 	order      uint32
 	terminated bool
 	wg         sync.WaitGroup
@@ -166,6 +174,13 @@ func (c *connection) Info() gen.RemoteNodeInfo {
 		FragmentsReceived:    c.fragmentsReceived.Load(),
 		FragmentMessagesRecv: c.fragmentMessagesRecv.Load(),
 		FragmentTimeouts:     c.fragmentTimeouts.Load(),
+
+		CompressedSent:          c.compressedSent.Load(),
+		CompressedBytesSent:     c.compressedBytesSent.Load(),
+		CompressedOrigBytesSent: c.compressedOrigBytesSent.Load(),
+		DecompressedRecv:        c.decompressedRecv.Load(),
+		DecompressedBytesRecv:   c.decompressedBytesRecv.Load(),
+		DecompressedOrigRecv:    c.decompressedOrigRecv.Load(),
 	}
 	return info
 }
@@ -2687,6 +2702,9 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC, qIdx int) {
 					c.log.Error("unable to decompress message (gzip), ignored: %s", err)
 					continue
 				}
+				c.decompressedRecv.Add(1)
+				c.decompressedBytesRecv.Add(uint64(buf.Len()))
+				c.decompressedOrigRecv.Add(uint64(dbuf.Len()))
 				lib.ReleaseBuffer(buf)
 				buf = dbuf
 				goto re
@@ -2697,6 +2715,9 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC, qIdx int) {
 					c.log.Error("unable to decompress message (lzw), ignored: %s", err)
 					continue
 				}
+				c.decompressedRecv.Add(1)
+				c.decompressedBytesRecv.Add(uint64(buf.Len()))
+				c.decompressedOrigRecv.Add(uint64(dbuf.Len()))
 				lib.ReleaseBuffer(buf)
 				buf = dbuf
 				goto re
@@ -2707,6 +2728,9 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC, qIdx int) {
 					c.log.Error("unable to decompress message (zlib), ignored: %s", err)
 					continue
 				}
+				c.decompressedRecv.Add(1)
+				c.decompressedBytesRecv.Add(uint64(buf.Len()))
+				c.decompressedOrigRecv.Add(uint64(dbuf.Len()))
 				lib.ReleaseBuffer(buf)
 				buf = dbuf
 				goto re
@@ -3131,6 +3155,10 @@ func (c *connection) send(buf *lib.Buffer, order uint8, compression gen.Compress
 		zbuf.B[6] = buf.B[6] // keep order of the original message
 		zbuf.B[7] = protoMessageZ
 		zbuf.B[8] = compression.Type.ID()
+
+		c.compressedSent.Add(1)
+		c.compressedOrigBytesSent.Add(uint64(buf.Len()))
+		c.compressedBytesSent.Add(uint64(zbuf.Len()))
 
 		lib.ReleaseBuffer(buf)
 		buf = zbuf
