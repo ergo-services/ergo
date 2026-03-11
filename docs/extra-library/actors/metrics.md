@@ -118,7 +118,7 @@ Log message count by level (`trace`, `debug`, `info`, `warning`, `error`, `panic
 
 ### Network Metrics
 
-Connected node count, per-node uptime, message and byte rates (in/out per remote node), cumulative connections established/lost, and per-acceptor handshake error count.
+Connected node count, per-node uptime, message and byte rates (in/out per remote node), cumulative connections established/lost, and per-acceptor handshake error count. Fragmentation metrics per remote node: fragments sent/received, fragmented messages sent/reassembled, assembly timeouts. Compression metrics per remote node: compressed messages sent, bytes before/after compression, decompressed messages received, bytes before/after decompression. Compression ratio (`original / compressed`) reveals whether compression is effective for each connection.
 
 ### Mailbox Latency Metrics
 
@@ -136,6 +136,7 @@ Always active. Includes:
 - **Init time** -- ProcessInit duration. Max and top-N.
 - **Throughput** -- messages in/out per process (top-N) and node-level aggregates.
 - **Wakeups and drains** -- wakeup count and drain ratio (messages processed per wakeup). Drain ratio distinguishes between slow callbacks (drain ~1) and high-throughput batching (drain ~100) at the same utilization level.
+- **Liveness** -- detects processes stuck in blocking calls. Computed as `RunningTime / (Uptime * MailboxLatency)`. A healthy process has RunningTime growing with activity (high score). A process blocked in a mutex, channel, or IO has RunningTime frozen while uptime and latency keep growing (score drops over time). Zombie processes are excluded (detected separately). Bottom-N surfaces the most stuck processes. Requires `-tags=latency`.
 
 ### Event Metrics
 
@@ -286,7 +287,7 @@ The metrics package includes a pre-built Grafana dashboard (`ergo-cluster.json`)
 
 Import it in Grafana: Dashboards > Import > upload `ergo-cluster.json` > select your Prometheus data source. The `$node` dropdown at the top filters all panels by selected nodes.
 
-The dashboard is organized top-down: Summary row at the top for cluster health at a glance, then Mailbox Latency and Depth for backpressure analysis, then collapsed rows for Events, Process Activity, Processes, Resources, Logging, and Network. Each row focuses on a specific aspect of cluster behavior and can be expanded when investigating issues.
+The dashboard is organized top-down: Summary row at the top for cluster health at a glance, then Mailbox Latency and Depth for backpressure analysis, then collapsed rows for Events, Process Activity, Processes, Resources, Logging, and Network. The Network row includes compression overview (ratio, rate, percentage), per-node compression ratio, fragmentation rates (cluster and per-node), connectivity strength, and connection events. Each row focuses on a specific aspect of cluster behavior and can be expanded when investigating issues.
 
 For detailed panel descriptions, see the [metrics actor README](https://github.com/ergo-services/actor).
 
