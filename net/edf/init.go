@@ -44,6 +44,8 @@ var (
 		gen.ApplicationOptionsExtra{},
 		gen.ApplicationInfo{},
 		gen.MetaInfo{},
+		gen.EventInfo{},
+		gen.LogField{},
 
 		gen.NetworkFlags{},
 		gen.NetworkProxyFlags{},
@@ -81,12 +83,17 @@ var (
 		inspect.ResponseInspectProcessList{},
 		inspect.MessageInspectProcessList{},
 
+		inspect.RequestInspectProcessRange{},
+		inspect.ResponseInspectProcessRange{},
+
+		inspect.RequestInspectEventList{},
+		inspect.ResponseInspectEventList{},
+		inspect.MessageInspectEventList{},
+
 		inspect.RequestInspectLog{},
 		inspect.ResponseInspectLog{},
-		inspect.MessageInspectLogNode{},
-		inspect.MessageInspectLogNetwork{},
-		inspect.MessageInspectLogProcess{},
-		inspect.MessageInspectLogMeta{},
+		inspect.InspectLogEntry{},
+		inspect.MessageInspectLog{},
 
 		inspect.RequestInspectProcess{},
 		inspect.ResponseInspectProcess{},
@@ -120,9 +127,33 @@ var (
 		inspect.ResponseDoKill{},
 
 		inspect.RequestDoSetLogLevel{},
-		inspect.RequestDoSetLogLevelProcess{},
-		inspect.RequestDoSetLogLevelMeta{},
+		inspect.RequestDoSetProcessLogLevel{},
+		inspect.RequestDoSetMetaLogLevel{},
 		inspect.ResponseDoSetLogLevel{},
+
+		inspect.RequestDoSetProcessSendPriority{},
+		inspect.RequestDoSetProcessCompression{},
+		inspect.RequestDoSetProcessCompressionType{},
+		inspect.RequestDoSetProcessCompressionLevel{},
+		inspect.RequestDoSetProcessCompressionThreshold{},
+		inspect.RequestDoSetProcessKeepNetworkOrder{},
+		inspect.RequestDoSetProcessImportantDelivery{},
+		inspect.RequestDoSetMetaSendPriority{},
+		inspect.ResponseDoSet{},
+
+		inspect.RequestDoAppStart{},
+		inspect.ResponseDoAppStart{},
+		inspect.RequestDoAppStop{},
+		inspect.ResponseDoAppStop{},
+		inspect.RequestDoAppUnload{},
+		inspect.ResponseDoAppUnload{},
+
+		inspect.RequestDoInspect{},
+		inspect.ResponseDoInspect{},
+
+		inspect.RequestInspectConnectionList{},
+		inspect.ResponseInspectConnectionList{},
+		inspect.MessageInspectConnectionList{},
 
 		inspect.RequestInspectApplicationList{},
 		inspect.ResponseInspectApplicationList{},

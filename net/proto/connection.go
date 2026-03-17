@@ -44,6 +44,7 @@ type connection struct {
 
 	pool_dsn  []string
 	pool_size int
+	tls       bool
 
 	pool_mutex sync.RWMutex
 	pool       []*pool_item
@@ -158,6 +159,7 @@ func (c *connection) Info() gen.RemoteNodeInfo {
 		PoolDSN:  c.pool_dsn,
 
 		MaxMessageSize: c.peer_maxmessagesize,
+		TLS:            c.tls,
 		MessagesIn:     atomic.LoadUint64(&c.messagesIn),
 		MessagesOut:    atomic.LoadUint64(&c.messagesOut),
 

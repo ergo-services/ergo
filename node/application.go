@@ -60,10 +60,7 @@ func (a *application) start(mode gen.ApplicationMode, options gen.ApplicationOpt
 		deadline := time.Now().Unix() + int64(timeout)
 		ref, err := a.node.MakeRefWithDeadline(deadline)
 		if err != nil {
-			a.group.Range(func(pid gen.PID, _ bool) bool {
-				a.node.Kill(pid)
-				return true
-			})
+			a.killMembers()
 			atomic.StoreInt32(&a.state, int32(gen.ApplicationStateLoaded))
 			return err
 		}
@@ -83,10 +80,7 @@ func (a *application) start(mode gen.ApplicationMode, options gen.ApplicationOpt
 
 		pid, err := a.node.spawn(item.Factory, opts)
 		if err != nil {
-			a.group.Range(func(pid gen.PID, _ bool) bool {
-				a.node.Kill(pid)
-				return true
-			})
+			a.killMembers()
 			atomic.StoreInt32(&a.state, int32(gen.ApplicationStateLoaded))
 			return err
 		}
@@ -140,14 +134,14 @@ func (a *application) stop(force bool, timeout time.Duration) error {
 	// update mode to prevent triggering 'permantent' mode
 	a.mode = gen.ApplicationModeTemporary
 
-	a.group.Range(func(pid gen.PID, _ bool) bool {
+	pids := a.collectMemberPIDs()
+	for _, pid := range pids {
 		if force {
 			a.node.Kill(pid)
 		} else {
 			a.node.SendExit(pid, gen.TerminateReasonShutdown)
 		}
-		return true
-	})
+	}
 
 	if force {
 		a.reason = gen.TerminateReasonKill
@@ -180,10 +174,7 @@ func (a *application) terminate(pid gen.PID, reason error) {
 		a.node.Log().
 			Info("application %s (%s) will be stopped due to termination of %s with reason: %s", a.spec.Name, a.mode, pid, reason)
 		a.reason = reason
-		a.group.Range(func(pid gen.PID, _ bool) bool {
-			a.node.SendExit(pid, gen.TerminateReasonShutdown)
-			return true
-		})
+		a.exitMembers(gen.TerminateReasonShutdown)
 	case gen.ApplicationModeTransient:
 		if reason == gen.TerminateReasonNormal || reason == gen.TerminateReasonShutdown {
 			// do nothing
@@ -198,10 +189,7 @@ func (a *application) terminate(pid gen.PID, reason error) {
 			break
 		}
 		a.reason = reason
-		a.group.Range(func(pid gen.PID, _ bool) bool {
-			a.node.SendExit(pid, gen.TerminateReasonShutdown)
-			return true
-		})
+		a.exitMembers(gen.TerminateReasonShutdown)
 	default:
 		// do nothing
 	}
@@ -295,6 +283,27 @@ func (a *application) tryUnload() bool {
 
 func (a *application) isRunning() bool {
 	return atomic.LoadInt32(&a.state) == int32(gen.ApplicationStateRunning)
+}
+
+func (a *application) collectMemberPIDs() []gen.PID {
+	var pids []gen.PID
+	a.group.Range(func(pid gen.PID, _ bool) bool {
+		pids = append(pids, pid)
+		return true
+	})
+	return pids
+}
+
+func (a *application) killMembers() {
+	for _, pid := range a.collectMemberPIDs() {
+		a.node.Kill(pid)
+	}
+}
+
+func (a *application) exitMembers(reason error) {
+	for _, pid := range a.collectMemberPIDs() {
+		a.node.SendExit(pid, reason)
+	}
 }
 
 func (a *application) registerAppRoute() {

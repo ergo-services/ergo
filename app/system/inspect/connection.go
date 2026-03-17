@@ -17,6 +17,7 @@ type connection struct {
 
 	event      gen.Atom
 	generating bool
+	loopID     uint64
 	remote     gen.Atom
 }
 
@@ -32,7 +33,7 @@ func (ic *connection) Init(args ...any) error {
 func (ic *connection) HandleMessage(from gen.PID, message any) error {
 	switch m := message.(type) {
 	case generate:
-		if ic.generating == false {
+		if m.id != ic.loopID || ic.generating == false {
 			ic.Log().Debug("generating canceled")
 			break // cancelled
 		}
@@ -60,7 +61,7 @@ func (ic *connection) HandleMessage(from gen.PID, message any) error {
 		if ev.Disconnected {
 			return gen.TerminateReasonNormal
 		}
-		ic.SendAfter(ic.PID(), generate{}, inspectNetworkPeriod)
+		ic.SendAfter(ic.PID(), generate{id: ic.loopID}, inspectNetworkPeriod)
 
 	case requestInspect:
 		response := ResponseInspectConnection{
@@ -106,7 +107,8 @@ func (ic *connection) HandleMessage(from gen.PID, message any) error {
 
 	case gen.MessageEventStart: // got first subscriber
 		ic.Log().Debug("got first subscriber. start generating events...")
-		ic.Send(ic.PID(), generate{})
+		ic.loopID++
+		ic.Send(ic.PID(), generate{id: ic.loopID})
 		ic.generating = true
 
 	case gen.MessageEventStop: // no subscribers

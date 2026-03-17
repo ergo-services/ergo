@@ -397,25 +397,47 @@ type Node interface {
 	// Available in all states.
 	Log() Log
 
-	// LogLevelProcess returns the logging level for the given process.
+	// SetProcessLogLevel sets the logging level for the given process.
 	// Available in: Running state only.
 	// Returns ErrNodeTerminated in other states.
-	LogLevelProcess(pid PID) (LogLevel, error)
+	SetProcessLogLevel(pid PID, level LogLevel) error
 
-	// SetLogLevelProcess sets the logging level for the given process.
+	// SetProcessSendPriority sets the default message sending priority for the given process.
 	// Available in: Running state only.
-	// Returns ErrNodeTerminated in other states.
-	SetLogLevelProcess(pid PID, level LogLevel) error
+	SetProcessSendPriority(pid PID, priority MessagePriority) error
 
-	// LogLevelMeta returns the logging level for the given meta process.
+	// SetProcessCompression enables or disables compression for the given process.
 	// Available in: Running state only.
-	// Returns ErrNodeTerminated in other states.
-	LogLevelMeta(meta Alias) (LogLevel, error)
+	SetProcessCompression(pid PID, enabled bool) error
 
-	// SetLogLevelMeta sets the logging level for the given meta process.
+	// SetProcessCompressionType sets the compression type for the given process.
+	// Available in: Running state only.
+	SetProcessCompressionType(pid PID, ctype CompressionType) error
+
+	// SetProcessCompressionLevel sets the compression level for the given process.
+	// Available in: Running state only.
+	SetProcessCompressionLevel(pid PID, level CompressionLevel) error
+
+	// SetProcessCompressionThreshold sets the minimum message size that triggers compression for the given process.
+	// Available in: Running state only.
+	SetProcessCompressionThreshold(pid PID, threshold int) error
+
+	// SetProcessKeepNetworkOrder enables or disables maintaining delivery order over the network for the given process.
+	// Available in: Running state only.
+	SetProcessKeepNetworkOrder(pid PID, order bool) error
+
+	// SetProcessImportantDelivery enables or disables the important delivery flag for the given process.
+	// Available in: Running state only.
+	SetProcessImportantDelivery(pid PID, important bool) error
+
+	// SetMetaLogLevel sets the logging level for the given meta process.
 	// Available in: Running state only.
 	// Returns ErrNodeTerminated in other states.
-	SetLogLevelMeta(meta Alias, level LogLevel) error
+	SetMetaLogLevel(meta Alias, level LogLevel) error
+
+	// SetMetaSendPriority sets the default message sending priority for the given meta process.
+	// Available in: Running state only.
+	SetMetaSendPriority(meta Alias, priority MessagePriority) error
 
 	// Loggers returns a list of registered logger names.
 	// Available in all states.

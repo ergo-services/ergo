@@ -634,19 +634,43 @@ func (tn *TestNode) Log() gen.Log {
 	return tn.log
 }
 
-func (tn *TestNode) LogLevelProcess(pid gen.PID) (gen.LogLevel, error) {
-	return gen.LogLevelInfo, nil
-}
-
-func (tn *TestNode) SetLogLevelProcess(pid gen.PID, level gen.LogLevel) error {
+func (tn *TestNode) SetProcessLogLevel(pid gen.PID, level gen.LogLevel) error {
 	return nil
 }
 
-func (tn *TestNode) LogLevelMeta(meta gen.Alias) (gen.LogLevel, error) {
-	return gen.LogLevelInfo, nil
+func (tn *TestNode) SetProcessSendPriority(pid gen.PID, priority gen.MessagePriority) error {
+	return nil
 }
 
-func (tn *TestNode) SetLogLevelMeta(meta gen.Alias, level gen.LogLevel) error {
+func (tn *TestNode) SetProcessCompression(pid gen.PID, enabled bool) error {
+	return nil
+}
+
+func (tn *TestNode) SetProcessCompressionType(pid gen.PID, ctype gen.CompressionType) error {
+	return nil
+}
+
+func (tn *TestNode) SetProcessCompressionLevel(pid gen.PID, level gen.CompressionLevel) error {
+	return nil
+}
+
+func (tn *TestNode) SetProcessCompressionThreshold(pid gen.PID, threshold int) error {
+	return nil
+}
+
+func (tn *TestNode) SetProcessKeepNetworkOrder(pid gen.PID, order bool) error {
+	return nil
+}
+
+func (tn *TestNode) SetProcessImportantDelivery(pid gen.PID, important bool) error {
+	return nil
+}
+
+func (tn *TestNode) SetMetaLogLevel(meta gen.Alias, level gen.LogLevel) error {
+	return nil
+}
+
+func (tn *TestNode) SetMetaSendPriority(meta gen.Alias, priority gen.MessagePriority) error {
 	return nil
 }
 

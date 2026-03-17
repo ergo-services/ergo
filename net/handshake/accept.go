@@ -175,8 +175,10 @@ func (h *handshake) Accept(node gen.NodeHandshake, conn net.Conn, options gen.Ha
 	result.PoolDSN = accept.PoolDSN
 	result.Tail = tail
 
+	_, isTLS := conn.(*tls.Conn)
 	custom := ConnectionOptions{
 		PoolSize:        h.poolsize,
+		TLS:             isTLS,
 		EncodeAtomCache: h.makeEncodeAtomCache(intro2.AtomCache),
 		EncodeRegCache:  h.makeEncodeRegCache(intro2.RegCache),
 		EncodeErrCache:  h.makeEncodeErrCache(intro2.ErrCache),

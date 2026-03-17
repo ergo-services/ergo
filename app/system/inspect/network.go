@@ -15,6 +15,7 @@ type network struct {
 	token gen.Ref
 
 	generating bool
+	loopID     uint64
 }
 
 func (in *network) Init(args ...any) error {
@@ -28,7 +29,7 @@ func (in *network) Init(args ...any) error {
 func (in *network) HandleMessage(from gen.PID, message any) error {
 	switch m := message.(type) {
 	case generate:
-		if in.generating == false {
+		if m.id != in.loopID || in.generating == false {
 			in.Log().Debug("generating canceled")
 			break // cancelled
 		}
@@ -47,7 +48,7 @@ func (in *network) HandleMessage(from gen.PID, message any) error {
 			return gen.TerminateReasonNormal
 		}
 
-		in.SendAfter(in.PID(), generate{}, inspectNetworkPeriod)
+		in.SendAfter(in.PID(), generate{id: in.loopID}, inspectNetworkPeriod)
 
 	case requestInspect:
 		info, err := in.Node().Network().Info()
@@ -86,7 +87,8 @@ func (in *network) HandleMessage(from gen.PID, message any) error {
 
 	case gen.MessageEventStart: // got first subscriber
 		in.Log().Debug("got first subscriber. start generating events...")
-		in.Send(in.PID(), generate{})
+		in.loopID++
+		in.Send(in.PID(), generate{id: in.loopID})
 		in.generating = true
 
 	case gen.MessageEventStop: // no subscribers

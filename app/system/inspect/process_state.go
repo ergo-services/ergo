@@ -17,6 +17,7 @@ type process_state struct {
 
 	event      gen.Atom
 	generating bool
+	loopID     uint64
 	pid        gen.PID
 }
 
@@ -32,7 +33,7 @@ func (ips *process_state) Init(args ...any) error {
 func (ips *process_state) HandleMessage(from gen.PID, message any) error {
 	switch m := message.(type) {
 	case generate:
-		if ips.generating == false {
+		if m.id != ips.loopID || ips.generating == false {
 			ips.Log().Debug("generating canceled")
 			break // cancelled
 		}
@@ -44,7 +45,7 @@ func (ips *process_state) HandleMessage(from gen.PID, message any) error {
 			}
 			ips.Log().Error("unable to inspect process state %s: %s", ips.pid, err)
 			// will try next time
-			ips.SendAfter(ips.PID(), generate{}, inspectProcessStatePeriod)
+			ips.SendAfter(ips.PID(), generate{id: ips.loopID}, inspectProcessStatePeriod)
 			return nil
 		}
 
@@ -59,7 +60,7 @@ func (ips *process_state) HandleMessage(from gen.PID, message any) error {
 			return gen.TerminateReasonNormal
 		}
 
-		ips.SendAfter(ips.PID(), generate{}, inspectProcessStatePeriod)
+		ips.SendAfter(ips.PID(), generate{id: ips.loopID}, inspectProcessStatePeriod)
 
 	case requestInspect:
 		response := ResponseInspectProcessState{
@@ -97,7 +98,8 @@ func (ips *process_state) HandleMessage(from gen.PID, message any) error {
 
 	case gen.MessageEventStart: // got first subscriber
 		ips.Log().Debug("got first subscriber. start generating events...")
-		ips.Send(ips.PID(), generate{})
+		ips.loopID++
+		ips.Send(ips.PID(), generate{id: ips.loopID})
 		ips.generating = true
 
 	case gen.MessageEventStop: // no subscribers

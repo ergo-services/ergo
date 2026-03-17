@@ -18,6 +18,7 @@ type application_tree struct {
 	application gen.Atom
 	limit       int
 	generating  bool
+	loopID      uint64
 	event       gen.Atom
 }
 
@@ -34,7 +35,7 @@ func (iat *application_tree) Init(args ...any) error {
 func (iat *application_tree) HandleMessage(from gen.PID, message any) error {
 	switch m := message.(type) {
 	case generate:
-		if iat.generating == false {
+		if m.id != iat.loopID || iat.generating == false {
 			iat.Log().Debug("generating canceled")
 			break // cancelled
 		}
@@ -56,7 +57,7 @@ func (iat *application_tree) HandleMessage(from gen.PID, message any) error {
 			return gen.TerminateReasonNormal
 		}
 
-		iat.SendAfter(iat.PID(), generate{}, inspectApplicationTreePeriod)
+		iat.SendAfter(iat.PID(), generate{id: iat.loopID}, inspectApplicationTreePeriod)
 
 	case requestInspect:
 		response := ResponseInspectApplicationTree{
@@ -94,7 +95,8 @@ func (iat *application_tree) HandleMessage(from gen.PID, message any) error {
 
 	case gen.MessageEventStart: // got first subscriber
 		iat.Log().Debug("got first subscriber. start generating events...")
-		iat.Send(iat.PID(), generate{})
+		iat.loopID++
+		iat.Send(iat.PID(), generate{id: iat.loopID})
 		iat.generating = true
 
 	case gen.MessageEventStop: // no subscribers

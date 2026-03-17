@@ -63,6 +63,7 @@ type MessageReject struct {
 type ConnectionOptions struct {
 	PoolSize int
 	PoolDSN  []string
+	TLS      bool
 
 	EncodeAtomCache *sync.Map
 	EncodeRegCache  *sync.Map

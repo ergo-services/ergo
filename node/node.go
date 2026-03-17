@@ -588,7 +588,7 @@ func (n *node) ProcessInfo(pid gen.PID) (gen.ProcessInfo, error) {
 	return info, nil
 }
 
-func (n *node) SetLogLevelProcess(pid gen.PID, level gen.LogLevel) error {
+func (n *node) SetProcessLogLevel(pid gen.PID, level gen.LogLevel) error {
 	if n.isRunning() == false {
 		return gen.ErrNodeTerminated
 	}
@@ -601,22 +601,123 @@ func (n *node) SetLogLevelProcess(pid gen.PID, level gen.LogLevel) error {
 	return p.log.SetLevel(level)
 }
 
-func (n *node) LogLevelProcess(pid gen.PID) (gen.LogLevel, error) {
-	var level gen.LogLevel
+
+func (n *node) SetProcessSendPriority(pid gen.PID, priority gen.MessagePriority) error {
 	if n.isRunning() == false {
-		return level, gen.ErrNodeTerminated
+		return gen.ErrNodeTerminated
+	}
+	switch priority {
+	case gen.MessagePriorityNormal:
+	case gen.MessagePriorityHigh:
+	case gen.MessagePriorityMax:
+	default:
+		return gen.ErrIncorrect
 	}
 	value, loaded := n.processes.Load(pid)
 	if loaded == false {
-		return level, gen.ErrProcessUnknown
+		return gen.ErrProcessUnknown
 	}
-
 	p := value.(*process)
-	level = p.log.Level()
-	return level, nil
+	p.priority = priority
+	return nil
 }
 
-func (n *node) SetLogLevelMeta(m gen.Alias, level gen.LogLevel) error {
+func (n *node) SetProcessCompression(pid gen.PID, enabled bool) error {
+	if n.isRunning() == false {
+		return gen.ErrNodeTerminated
+	}
+	value, loaded := n.processes.Load(pid)
+	if loaded == false {
+		return gen.ErrProcessUnknown
+	}
+	p := value.(*process)
+	p.compression.Enable = enabled
+	return nil
+}
+
+func (n *node) SetProcessCompressionType(pid gen.PID, ctype gen.CompressionType) error {
+	if n.isRunning() == false {
+		return gen.ErrNodeTerminated
+	}
+	switch ctype {
+	case gen.CompressionTypeGZIP:
+	case gen.CompressionTypeLZW:
+	case gen.CompressionTypeZLIB:
+	default:
+		return gen.ErrIncorrect
+	}
+	value, loaded := n.processes.Load(pid)
+	if loaded == false {
+		return gen.ErrProcessUnknown
+	}
+	p := value.(*process)
+	p.compression.Type = ctype
+	return nil
+}
+
+func (n *node) SetProcessCompressionLevel(pid gen.PID, level gen.CompressionLevel) error {
+	if n.isRunning() == false {
+		return gen.ErrNodeTerminated
+	}
+	switch level {
+	case gen.CompressionBestSize:
+	case gen.CompressionBestSpeed:
+	case gen.CompressionDefault:
+	default:
+		return gen.ErrIncorrect
+	}
+	value, loaded := n.processes.Load(pid)
+	if loaded == false {
+		return gen.ErrProcessUnknown
+	}
+	p := value.(*process)
+	p.compression.Level = level
+	return nil
+}
+
+func (n *node) SetProcessCompressionThreshold(pid gen.PID, threshold int) error {
+	if n.isRunning() == false {
+		return gen.ErrNodeTerminated
+	}
+	if threshold < gen.DefaultCompressionThreshold {
+		return gen.ErrIncorrect
+	}
+	value, loaded := n.processes.Load(pid)
+	if loaded == false {
+		return gen.ErrProcessUnknown
+	}
+	p := value.(*process)
+	p.compression.Threshold = threshold
+	return nil
+}
+
+func (n *node) SetProcessKeepNetworkOrder(pid gen.PID, order bool) error {
+	if n.isRunning() == false {
+		return gen.ErrNodeTerminated
+	}
+	value, loaded := n.processes.Load(pid)
+	if loaded == false {
+		return gen.ErrProcessUnknown
+	}
+	p := value.(*process)
+	p.keeporder = order
+	return nil
+}
+
+func (n *node) SetProcessImportantDelivery(pid gen.PID, important bool) error {
+	if n.isRunning() == false {
+		return gen.ErrNodeTerminated
+	}
+	value, loaded := n.processes.Load(pid)
+	if loaded == false {
+		return gen.ErrProcessUnknown
+	}
+	p := value.(*process)
+	p.important = important
+	return nil
+}
+
+func (n *node) SetMetaLogLevel(m gen.Alias, level gen.LogLevel) error {
 	if n.isRunning() == false {
 		return gen.ErrNodeTerminated
 	}
@@ -636,26 +737,32 @@ func (n *node) SetLogLevelMeta(m gen.Alias, level gen.LogLevel) error {
 	return mp.log.SetLevel(level)
 }
 
-func (n *node) LogLevelMeta(m gen.Alias) (gen.LogLevel, error) {
-	var level gen.LogLevel
+func (n *node) SetMetaSendPriority(m gen.Alias, priority gen.MessagePriority) error {
 	if n.isRunning() == false {
-		return level, gen.ErrNodeTerminated
+		return gen.ErrNodeTerminated
 	}
 	value, loaded := n.aliases.Load(m)
 	if loaded == false {
-		return level, gen.ErrProcessUnknown
+		return gen.ErrProcessUnknown
 	}
 
 	p := value.(*process)
 
 	value, loaded = p.metas.Load(m)
 	if loaded == false {
-		return level, gen.ErrMetaUnknown
+		return gen.ErrMetaUnknown
 	}
 	mp := value.(*meta)
-	level = mp.log.Level()
 
-	return level, nil
+	switch priority {
+	case gen.MessagePriorityNormal:
+	case gen.MessagePriorityHigh:
+	case gen.MessagePriorityMax:
+	default:
+		return gen.ErrIncorrect
+	}
+	mp.priority = priority
+	return nil
 }
 
 func (n *node) Info() (gen.NodeInfo, error) {

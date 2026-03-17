@@ -282,10 +282,10 @@ Different processes often need different verbosity. Most processes log at Info. 
 
 ```go
 // Debugging a specific process
-node.SetLogLevelProcess(suspiciousPID, gen.LogLevelDebug)
+node.SetProcessLogLevel(suspiciousPID, gen.LogLevelDebug)
 
 // Later, restore normal level
-node.SetLogLevelProcess(suspiciousPID, gen.LogLevelInfo)
+node.SetProcessLogLevel(suspiciousPID, gen.LogLevelInfo)
 ```
 
 For processes generating high-volume logs, route them to a dedicated logger using a hidden logger. A trading engine logging every order would overwhelm general logs:

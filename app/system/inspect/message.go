@@ -9,6 +9,7 @@ type ResponseInspectNode struct {
 	OS       string
 	Arch     string
 	Cores    int
+	Timezone string
 	Version  gen.Version
 	Creation int64
 }
@@ -48,6 +49,21 @@ type MessageInspectConnection struct {
 	Info         gen.RemoteNodeInfo
 }
 
+// connection list (scoped)
+
+type RequestInspectConnectionList struct {
+	Limit int
+	Name  string
+}
+type ResponseInspectConnectionList struct {
+	Event gen.Event
+}
+
+type MessageInspectConnectionList struct {
+	Node        gen.Atom
+	Connections []gen.RemoteNodeInfo
+}
+
 // process list
 
 type RequestInspectProcessList struct {
@@ -72,38 +88,24 @@ type ResponseInspectLog struct {
 	Event gen.Event
 }
 
-type MessageInspectLogNode struct {
-	Node      gen.Atom
+type InspectLogEntry struct {
+	Source    string // "node", "process", "network", "meta"
+	Name      gen.Atom
+	PID       gen.PID
+	Behavior  string
+	Peer      gen.Atom
+	Parent    gen.PID
+	Meta      gen.Alias
 	Creation  int64
 	Timestamp int64
 	Level     gen.LogLevel
 	Message   string
+	Fields    []gen.LogField
 }
 
-type MessageInspectLogProcess struct {
-	Node      gen.Atom
-	Name      gen.Atom
-	PID       gen.PID
-	Timestamp int64
-	Level     gen.LogLevel
-	Message   string
-}
-
-type MessageInspectLogNetwork struct {
-	Node      gen.Atom
-	Peer      gen.Atom
-	Timestamp int64
-	Level     gen.LogLevel
-	Message   string
-}
-
-type MessageInspectLogMeta struct {
-	Node      gen.Atom
-	Parent    gen.PID
-	Meta      gen.Alias
-	Timestamp int64
-	Level     gen.LogLevel
-	Message   string
+type MessageInspectLog struct {
+	Node    gen.Atom
+	Entries []InspectLogEntry
 }
 
 // process
@@ -116,9 +118,8 @@ type ResponseInspectProcess struct {
 }
 
 type MessageInspectProcess struct {
-	Node       gen.Atom
-	Info       gen.ProcessInfo
-	Terminated bool
+	Node gen.Atom
+	Info gen.ProcessInfo
 }
 
 // process state
@@ -145,9 +146,8 @@ type ResponseInspectMeta struct {
 }
 
 type MessageInspectMeta struct {
-	Node       gen.Atom
-	Info       gen.MetaInfo
-	Terminated bool
+	Node gen.Atom
+	Info gen.MetaInfo
 }
 
 // meta state
@@ -222,15 +222,131 @@ type ResponseDoSetLogLevel struct {
 }
 
 // process
-type RequestDoSetLogLevelProcess struct {
+type RequestDoSetProcessLogLevel struct {
 	PID   gen.PID
 	Level gen.LogLevel
 }
 
 // meta
-type RequestDoSetLogLevelMeta struct {
+type RequestDoSetMetaLogLevel struct {
 	Meta  gen.Alias
 	Level gen.LogLevel
+}
+
+// do set process settings
+
+type RequestDoSetProcessSendPriority struct {
+	PID      gen.PID
+	Priority gen.MessagePriority
+}
+
+type RequestDoSetProcessCompression struct {
+	PID     gen.PID
+	Enabled bool
+}
+
+type RequestDoSetProcessCompressionType struct {
+	PID  gen.PID
+	Type gen.CompressionType
+}
+
+type RequestDoSetProcessCompressionLevel struct {
+	PID   gen.PID
+	Level gen.CompressionLevel
+}
+
+type RequestDoSetProcessCompressionThreshold struct {
+	PID       gen.PID
+	Threshold int
+}
+
+type RequestDoSetProcessKeepNetworkOrder struct {
+	PID   gen.PID
+	Order bool
+}
+
+type RequestDoSetProcessImportantDelivery struct {
+	PID       gen.PID
+	Important bool
+}
+
+// do set meta settings
+
+type RequestDoSetMetaSendPriority struct {
+	Meta     gen.Alias
+	Priority gen.MessagePriority
+}
+
+// generic response for do-set operations
+type ResponseDoSet struct {
+	Error error
+}
+
+// do app lifecycle
+
+type RequestDoAppStart struct {
+	Name gen.Atom
+	Mode gen.ApplicationMode
+}
+type ResponseDoAppStart struct {
+	Error error
+}
+
+type RequestDoAppStop struct {
+	Name  gen.Atom
+	Force bool
+}
+type ResponseDoAppStop struct {
+	Error error
+}
+
+type RequestDoAppUnload struct {
+	Name gen.Atom
+}
+type ResponseDoAppUnload struct {
+	Error error
+}
+
+// do one-shot inspect
+
+type RequestDoInspect struct {
+	PID gen.PID
+}
+type ResponseDoInspect struct {
+	State map[string]string
+	Error error
+}
+
+// process range (full scan with filters)
+
+type RequestInspectProcessRange struct {
+	Name        string
+	Behavior    string
+	Application string
+	State       string
+	MinMailbox  uint64
+	Limit       int
+}
+type ResponseInspectProcessRange struct {
+	Event gen.Event
+}
+
+// event list
+
+type RequestInspectEventList struct {
+	Limit          int
+	Name           string
+	Notify         int // 0=any, 1=yes, -1=no
+	Buffered       int // 0=any, 1=yes, -1=no
+	MinSubscribers int64
+}
+type ResponseInspectEventList struct {
+	Event gen.Event
+}
+
+type MessageInspectEventList struct {
+	Node   gen.Atom
+	Events []gen.EventInfo
 }
 
 // application list

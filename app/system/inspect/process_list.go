@@ -16,9 +16,10 @@ type process_list struct {
 	act.Actor
 	token gen.Ref
 
-	start      int
-	limit      int
+	start           int
+	limit           int
 	generating bool
+	loopID     uint64
 	event      gen.Atom
 }
 
@@ -34,13 +35,36 @@ func (ipl *process_list) Init(args ...any) error {
 func (ipl *process_list) HandleMessage(from gen.PID, message any) error {
 	switch m := message.(type) {
 	case generate:
-		if ipl.generating == false {
+		if m.id != ipl.loopID || ipl.generating == false {
 			ipl.Log().Debug("generating canceled")
 			break // cancelled
 		}
 		ipl.Log().Debug("generating event")
 
-		list, err := ipl.Node().ProcessListShortInfo(ipl.start, ipl.limit)
+		start := ipl.start
+		if start < 0 {
+			// negative start means "last N": find the highest PID and work backwards
+			pids, err := ipl.Node().ProcessList()
+			if err != nil {
+				return err
+			}
+			if len(pids) > 0 {
+				// PIDs are not necessarily sorted, find max ID
+				maxID := uint64(0)
+				for _, p := range pids {
+					if p.ID > maxID {
+						maxID = p.ID
+					}
+				}
+				start = int(maxID) - ipl.limit
+				if start < 1000 {
+					start = 1000
+				}
+			} else {
+				start = 1000
+			}
+		}
+		list, err := ipl.Node().ProcessListShortInfo(start, ipl.limit)
 		if err != nil {
 			return err
 		}
@@ -59,7 +83,7 @@ func (ipl *process_list) HandleMessage(from gen.PID, message any) error {
 			return gen.TerminateReasonNormal
 		}
 
-		ipl.SendAfter(ipl.PID(), generate{}, inspectProcessListPeriod)
+		ipl.SendAfter(ipl.PID(), generate{id: ipl.loopID}, inspectProcessListPeriod)
 
 	case requestInspect:
 		response := ResponseInspectProcessList{
@@ -97,7 +121,8 @@ func (ipl *process_list) HandleMessage(from gen.PID, message any) error {
 
 	case gen.MessageEventStart: // got first subscriber
 		ipl.Log().Debug("got first subscriber. start generating events...")
-		ipl.Send(ipl.PID(), generate{})
+		ipl.loopID++
+		ipl.Send(ipl.PID(), generate{id: ipl.loopID})
 		ipl.generating = true
 
 	case gen.MessageEventStop: // no subscribers

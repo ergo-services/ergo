@@ -17,6 +17,7 @@ type meta_state struct {
 
 	event      gen.Atom
 	generating bool
+	loopID     uint64
 	meta       gen.Alias
 }
 
@@ -32,7 +33,7 @@ func (ims *meta_state) Init(args ...any) error {
 func (ims *meta_state) HandleMessage(from gen.PID, message any) error {
 	switch m := message.(type) {
 	case generate:
-		if ims.generating == false {
+		if m.id != ims.loopID || ims.generating == false {
 			ims.Log().Debug("generating canceled")
 			break // cancelled
 		}
@@ -44,7 +45,7 @@ func (ims *meta_state) HandleMessage(from gen.PID, message any) error {
 			}
 			ims.Log().Error("unable to inspect meta state %s: %s", ims.meta, err)
 			// will try next time
-			ims.SendAfter(ims.PID(), generate{}, inspectMetaStatePeriod)
+			ims.SendAfter(ims.PID(), generate{id: ims.loopID}, inspectMetaStatePeriod)
 			return nil
 		}
 		if state == nil {
@@ -62,7 +63,7 @@ func (ims *meta_state) HandleMessage(from gen.PID, message any) error {
 			return gen.TerminateReasonNormal
 		}
 
-		ims.SendAfter(ims.PID(), generate{}, inspectMetaStatePeriod)
+		ims.SendAfter(ims.PID(), generate{id: ims.loopID}, inspectMetaStatePeriod)
 
 	case requestInspect:
 		response := ResponseInspectMetaState{
@@ -100,7 +101,8 @@ func (ims *meta_state) HandleMessage(from gen.PID, message any) error {
 
 	case gen.MessageEventStart: // got first subscriber
 		ims.Log().Debug("got first subscriber. start generating events...")
-		ims.Send(ims.PID(), generate{})
+		ims.loopID++
+		ims.Send(ims.PID(), generate{id: ims.loopID})
 		ims.generating = true
 
 	case gen.MessageEventStop: // no subscribers

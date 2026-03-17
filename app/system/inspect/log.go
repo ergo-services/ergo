@@ -2,6 +2,7 @@ package inspect
 
 import (
 	"fmt"
+	"time"
 
 	"ergo.services/ergo/act"
 	"ergo.services/ergo/gen"
@@ -18,7 +19,11 @@ type log struct {
 
 	levels     []gen.LogLevel
 	generating bool
+	loopID     uint64
+	buffer     []InspectLogEntry
 }
+
+const logFlushInterval = time.Second
 
 func (il *log) Init(args ...any) error {
 	il.levels = args[0].([]gen.LogLevel)
@@ -34,6 +39,27 @@ func (il *log) Init(args ...any) error {
 
 func (il *log) HandleMessage(from gen.PID, message any) error {
 	switch m := message.(type) {
+	case flushLog:
+		if m.id != il.loopID || il.generating == false {
+			break
+		}
+		if len(il.buffer) == 0 {
+			il.SendAfter(il.PID(), flushLog{id: il.loopID}, logFlushInterval)
+			break
+		}
+
+		ev := MessageInspectLog{
+			Node:    il.Node().Name(),
+			Entries: il.buffer,
+		}
+		il.buffer = nil
+
+		if err := il.SendEvent(il.event, il.token, ev); err != nil {
+			return gen.TerminateReasonNormal
+		}
+
+		il.SendAfter(il.PID(), flushLog{id: il.loopID}, logFlushInterval)
+
 	case requestInspect:
 		response := ResponseInspectLog{
 			Event: gen.Event{
@@ -68,7 +94,9 @@ func (il *log) HandleMessage(from gen.PID, message any) error {
 		il.Log().Debug("add this process as a logger")
 		il.Node().LoggerAddPID(il.PID(), il.PID().String(), il.levels...)
 		// we cant use Log() method while this process registered as a logger
+		il.loopID++
 		il.generating = true
+		il.SendAfter(il.PID(), flushLog{id: il.loopID}, logFlushInterval)
 
 	case gen.MessageEventStop: // no subscribers
 		// unregister this process as a logger
@@ -76,6 +104,7 @@ func (il *log) HandleMessage(from gen.PID, message any) error {
 		// now we can use Log() method
 		il.Log().Debug("removed this process as a logger")
 		il.generating = false
+		il.buffer = nil
 		il.SendAfter(il.PID(), shutdown{}, inspectLogIdlePeriod)
 	}
 
@@ -83,61 +112,33 @@ func (il *log) HandleMessage(from gen.PID, message any) error {
 }
 
 func (il *log) HandleLog(message gen.MessageLog) error {
+	entry := InspectLogEntry{
+		Timestamp: message.Time.UnixNano(),
+		Level:     message.Level,
+		Message:   fmt.Sprintf(message.Format, message.Args...),
+		Fields:    message.Fields,
+	}
+
 	switch m := message.Source.(type) {
 	case gen.MessageLogNode:
-		// handle message
-		ev := MessageInspectLogNode{
-			Node:      m.Node,
-			Creation:  m.Creation,
-			Timestamp: message.Time.UnixNano(),
-			Level:     message.Level,
-			Message:   fmt.Sprintf(message.Format, message.Args...),
-		}
-		if err := il.SendEvent(il.event, il.token, ev); err != nil {
-			return gen.TerminateReasonNormal
-		}
+		entry.Source = "node"
+		entry.Creation = m.Creation
 	case gen.MessageLogProcess:
-		// handle message
-		ev := MessageInspectLogProcess{
-			Node:      m.Node,
-			Name:      m.Name,
-			PID:       m.PID,
-			Timestamp: message.Time.UnixNano(),
-			Level:     message.Level,
-			Message:   fmt.Sprintf(message.Format, message.Args...),
-		}
-		if err := il.SendEvent(il.event, il.token, ev); err != nil {
-			return gen.TerminateReasonNormal
-		}
-
+		entry.Source = "process"
+		entry.Name = m.Name
+		entry.PID = m.PID
+		entry.Behavior = m.Behavior
 	case gen.MessageLogMeta:
-		// handle message
-		ev := MessageInspectLogMeta{
-			Node:      m.Node,
-			Parent:    m.Parent,
-			Meta:      m.Meta,
-			Timestamp: message.Time.UnixNano(),
-			Level:     message.Level,
-			Message:   fmt.Sprintf(message.Format, message.Args...),
-		}
-
-		if err := il.SendEvent(il.event, il.token, ev); err != nil {
-			return gen.TerminateReasonNormal
-		}
+		entry.Source = "meta"
+		entry.Parent = m.Parent
+		entry.Meta = m.Meta
+		entry.Behavior = m.Behavior
 	case gen.MessageLogNetwork:
-		ev := MessageInspectLogNetwork{
-			Node:      m.Node,
-			Peer:      m.Peer,
-			Timestamp: message.Time.UnixNano(),
-			Level:     message.Level,
-			Message:   fmt.Sprintf(message.Format, message.Args...),
-		}
-		if err := il.SendEvent(il.event, il.token, ev); err != nil {
-			return gen.TerminateReasonNormal
-		}
+		entry.Source = "network"
+		entry.Peer = gen.Atom(m.Peer.CRC32())
 	}
-	// ignore any other log messages
-	// TODO should we handle them?
+
+	il.buffer = append(il.buffer, entry)
 	return nil
 }
 

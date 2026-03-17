@@ -55,6 +55,18 @@ const (
 	inspectApplicationTree           = "inspect_application_tree"
 	inspectApplicationTreePeriod     = time.Second
 	inspectApplicationTreeIdlePeriod = 5 * time.Second
+
+	inspectEventList           = "inspect_event_list"
+	inspectEventListPeriod     = time.Second
+	inspectEventListIdlePeriod = 5 * time.Second
+
+	inspectProcessRange           = "inspect_process_range"
+	inspectProcessRangePeriod     = time.Second
+	inspectProcessRangeIdlePeriod = 5 * time.Second
+
+	inspectConnectionList           = "inspect_connection_list"
+	inspectConnectionListPeriod     = time.Second
+	inspectConnectionListIdlePeriod = 5 * time.Second
 )
 
 var (
@@ -82,7 +94,8 @@ type requestInspect struct {
 
 type register struct{}
 type shutdown struct{}
-type generate struct{}
+type generate struct{ id uint64 }
+type flushLog struct{ id uint64 }
 
 func (i *inspect) Init(args ...any) error {
 	i.Log().SetLogger("default")
@@ -146,7 +159,7 @@ func (i *inspect) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error
 		opts := gen.ProcessOptions{
 			LinkParent: true,
 		}
-		if r.Start < 1000 {
+		if r.Start >= 0 && r.Start < 1000 {
 			r.Start = 1000
 		}
 		if r.Limit < 1 {
@@ -158,6 +171,27 @@ func (i *inspect) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error
 			return err, nil
 		}
 		// forward this request
+		forward := requestInspect{
+			pid: from,
+			ref: ref,
+		}
+		i.Send(pname, forward)
+		return nil, nil // no reply
+
+	case RequestInspectProcessRange:
+		opts := gen.ProcessOptions{
+			LinkParent: true,
+		}
+		if r.Limit < 1 {
+			r.Limit = 10000
+		}
+		hash := filterHash(r.Name, r.Behavior, r.Application, r.State, r.MinMailbox, r.Limit)
+		pname := gen.Atom(fmt.Sprintf("%s_%s", inspectProcessRange, hash))
+		_, err := i.SpawnRegister(pname, factory_process_range, opts,
+			r.Name, r.Behavior, r.Application, r.State, r.MinMailbox, r.Limit, hash)
+		if err != nil && err != gen.ErrTaken {
+			return err, nil
+		}
 		forward := requestInspect{
 			pid: from,
 			ref: ref,
@@ -240,6 +274,11 @@ func (i *inspect) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error
 		// try to spawn node inspector process
 		opts := gen.ProcessOptions{
 			LinkParent: true,
+			Compression: gen.Compression{
+				Enable: true,
+				Type:   gen.CompressionTypeGZIP,
+				Level:  gen.CompressionBestSpeed,
+			},
 		}
 
 		name := "diwep"
@@ -280,6 +319,47 @@ func (i *inspect) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error
 		}
 		i.Send(pname, forward)
 		return nil, nil // no reply
+
+	case RequestInspectEventList:
+		opts := gen.ProcessOptions{
+			LinkParent: true,
+		}
+		if r.Limit < 1 {
+			r.Limit = 500
+		}
+		hash := eventListHash(r.Name, r.Notify, r.Buffered, r.MinSubscribers, r.Limit)
+		pname := gen.Atom(fmt.Sprintf("%s_%s", inspectEventList, hash))
+		_, err := i.SpawnRegister(pname, factory_event_list, opts,
+			r.Name, r.Notify, r.Buffered, r.MinSubscribers, r.Limit, hash)
+		if err != nil && err != gen.ErrTaken {
+			return err, nil
+		}
+		forward := requestInspect{
+			pid: from,
+			ref: ref,
+		}
+		i.Send(pname, forward)
+		return nil, nil
+
+	case RequestInspectConnectionList:
+		opts := gen.ProcessOptions{
+			LinkParent: true,
+		}
+		if r.Limit < 1 {
+			r.Limit = 100
+		}
+		hash := connectionListHash(r.Name, r.Limit)
+		pname := gen.Atom(fmt.Sprintf("%s_%s", inspectConnectionList, hash))
+		_, err := i.SpawnRegister(pname, factory_connection_list, opts, r.Name, r.Limit, hash)
+		if err != nil && err != gen.ErrTaken {
+			return err, nil
+		}
+		forward := requestInspect{
+			pid: from,
+			ref: ref,
+		}
+		i.Send(pname, forward)
+		return nil, nil
 
 	case RequestInspectApplicationList:
 		opts := gen.ProcessOptions{
@@ -355,17 +435,80 @@ func (i *inspect) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error
 		}
 		return response, nil
 
-	case RequestDoSetLogLevelProcess:
+	case RequestDoSetProcessLogLevel:
 		response := ResponseDoSetLogLevel{
-			Error: i.Node().SetLogLevelProcess(r.PID, r.Level),
+			Error: i.Node().SetProcessLogLevel(r.PID, r.Level),
 		}
 		return response, nil
 
-	case RequestDoSetLogLevelMeta:
+	case RequestDoSetMetaLogLevel:
 		response := ResponseDoSetLogLevel{
-			Error: i.Node().SetLogLevelMeta(r.Meta, r.Level),
+			Error: i.Node().SetMetaLogLevel(r.Meta, r.Level),
 		}
 		return response, nil
+
+	// process settings
+
+	case RequestDoSetProcessSendPriority:
+		return ResponseDoSet{Error: i.Node().SetProcessSendPriority(r.PID, r.Priority)}, nil
+
+	case RequestDoSetProcessCompression:
+		return ResponseDoSet{Error: i.Node().SetProcessCompression(r.PID, r.Enabled)}, nil
+
+	case RequestDoSetProcessCompressionType:
+		return ResponseDoSet{Error: i.Node().SetProcessCompressionType(r.PID, r.Type)}, nil
+
+	case RequestDoSetProcessCompressionLevel:
+		return ResponseDoSet{Error: i.Node().SetProcessCompressionLevel(r.PID, r.Level)}, nil
+
+	case RequestDoSetProcessCompressionThreshold:
+		return ResponseDoSet{Error: i.Node().SetProcessCompressionThreshold(r.PID, r.Threshold)}, nil
+
+	case RequestDoSetProcessKeepNetworkOrder:
+		return ResponseDoSet{Error: i.Node().SetProcessKeepNetworkOrder(r.PID, r.Order)}, nil
+
+	case RequestDoSetProcessImportantDelivery:
+		return ResponseDoSet{Error: i.Node().SetProcessImportantDelivery(r.PID, r.Important)}, nil
+
+	// meta settings
+
+	case RequestDoSetMetaSendPriority:
+		return ResponseDoSet{Error: i.Node().SetMetaSendPriority(r.Meta, r.Priority)}, nil
+
+	// app lifecycle
+
+	case RequestDoAppStart:
+		opts := gen.ApplicationOptions{}
+		var err error
+		switch r.Mode {
+		case gen.ApplicationModeTemporary:
+			err = i.Node().ApplicationStartTemporary(r.Name, opts)
+		case gen.ApplicationModeTransient:
+			err = i.Node().ApplicationStartTransient(r.Name, opts)
+		case gen.ApplicationModePermanent:
+			err = i.Node().ApplicationStartPermanent(r.Name, opts)
+		default:
+			err = i.Node().ApplicationStart(r.Name, opts)
+		}
+		return ResponseDoAppStart{Error: err}, nil
+
+	case RequestDoAppStop:
+		var err error
+		if r.Force {
+			err = i.Node().ApplicationStopForce(r.Name)
+		} else {
+			err = i.Node().ApplicationStop(r.Name)
+		}
+		return ResponseDoAppStop{Error: err}, nil
+
+	case RequestDoAppUnload:
+		return ResponseDoAppUnload{Error: i.Node().ApplicationUnload(r.Name)}, nil
+
+	// one-shot inspect
+
+	case RequestDoInspect:
+		state, err := i.Inspect(r.PID)
+		return ResponseDoInspect{State: state, Error: err}, nil
 	}
 
 	i.Log().Error("unsupported request: %#v", request)

@@ -53,6 +53,7 @@ func (e *enp) NewConnection(core gen.Core, result gen.HandshakeResult, log gen.L
 
 		pool_size: opts.PoolSize,
 		pool_dsn:  opts.PoolDSN,
+		tls:       opts.TLS,
 
 		encodeOptions: edf.Options{
 			AtomCache: opts.EncodeAtomCache,

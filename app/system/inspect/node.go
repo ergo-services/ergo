@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"runtime"
 	"slices"
+	"time"
 
 	"ergo.services/ergo/act"
 	"ergo.services/ergo/gen"
@@ -19,6 +20,7 @@ type node struct {
 	token gen.Ref
 
 	generating bool
+	loopID     uint64
 }
 
 func (in *node) Init(args ...any) error {
@@ -32,7 +34,7 @@ func (in *node) Init(args ...any) error {
 func (in *node) HandleMessage(from gen.PID, message any) error {
 	switch m := message.(type) {
 	case generate:
-		if in.generating == false {
+		if m.id != in.loopID || in.generating == false {
 			in.Log().Debug("generating canceled")
 			break // cancelled
 		}
@@ -60,7 +62,7 @@ func (in *node) HandleMessage(from gen.PID, message any) error {
 			return gen.TerminateReasonNormal
 		}
 
-		in.SendAfter(in.PID(), generate{}, inspectNodePeriod)
+		in.SendAfter(in.PID(), generate{id: in.loopID}, inspectNodePeriod)
 
 	case requestInspect:
 		response := ResponseInspectNode{
@@ -72,6 +74,15 @@ func (in *node) HandleMessage(from gen.PID, message any) error {
 			Arch:     runtime.GOARCH,
 			OS:       runtime.GOOS,
 			Cores:    runtime.NumCPU(),
+			Timezone: func() string {
+				now := time.Now()
+				name, _ := now.Zone()
+				loc := now.Location().String()
+				if loc == "Local" {
+					return name // e.g. "MSK", "CET"
+				}
+				return loc // e.g. "Europe/Moscow"
+			}(),
 			Version:  in.Node().Version(),
 			Creation: in.Node().Creation(),
 			CRC32:    in.Node().Name().CRC32(),
@@ -103,14 +114,14 @@ func (in *node) HandleMessage(from gen.PID, message any) error {
 
 	case gen.MessageEventStart: // got first subscriber
 		in.Log().Debug("got first subscriber. start generating events...")
-		in.Send(in.PID(), generate{})
+		in.loopID++
+		in.Send(in.PID(), generate{id: in.loopID})
 		in.generating = true
 
 	case gen.MessageEventStop: // no subscribers
 		in.Log().Debug("no subscribers. stop generating")
 		if in.generating {
 			in.generating = false
-			// wait 10 seconds and terminate this process
 			in.SendAfter(in.PID(), shutdown{}, inspectNodeIdlePeriod)
 		}
 

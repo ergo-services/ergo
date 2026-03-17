@@ -16,6 +16,7 @@ type application_list struct {
 	token gen.Ref
 
 	generating bool
+	loopID     uint64
 	event      gen.Atom
 }
 
@@ -30,7 +31,7 @@ func (ial *application_list) Init(args ...any) error {
 func (ial *application_list) HandleMessage(from gen.PID, message any) error {
 	switch m := message.(type) {
 	case generate:
-		if ial.generating == false {
+		if m.id != ial.loopID || ial.generating == false {
 			ial.Log().Debug("generating canceled")
 			break // cancelled
 		}
@@ -60,7 +61,7 @@ func (ial *application_list) HandleMessage(from gen.PID, message any) error {
 			return gen.TerminateReasonNormal
 		}
 
-		ial.SendAfter(ial.PID(), generate{}, inspectApplicationListPeriod)
+		ial.SendAfter(ial.PID(), generate{id: ial.loopID}, inspectApplicationListPeriod)
 
 	case requestInspect:
 		response := ResponseInspectApplicationList{
@@ -98,7 +99,8 @@ func (ial *application_list) HandleMessage(from gen.PID, message any) error {
 
 	case gen.MessageEventStart: // got first subscriber
 		ial.Log().Debug("got first subscriber. start generating events...")
-		ial.Send(ial.PID(), generate{})
+		ial.loopID++
+		ial.Send(ial.PID(), generate{id: ial.loopID})
 		ial.generating = true
 
 	case gen.MessageEventStop: // no subscribers

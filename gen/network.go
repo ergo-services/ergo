@@ -539,6 +539,9 @@ type RemoteNodeInfo struct {
 	// Reported during handshake. Messages exceeding this are rejected.
 	MaxMessageSize int
 
+	// TLS indicates whether this connection uses TLS encryption.
+	TLS bool
+
 	// MessagesIn is the total number of messages received from this remote node.
 	MessagesIn uint64
 
