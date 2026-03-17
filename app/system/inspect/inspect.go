@@ -307,8 +307,13 @@ func (i *inspect) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error
 			levels = inspectLogFilter
 		}
 
-		pname := gen.Atom(fmt.Sprintf("%s_%s", inspectLog, name))
-		_, err := i.SpawnRegister(pname, factory_log, opts, levels)
+		limit := r.Limit
+		if limit < 1 {
+			limit = 500
+		}
+
+		pname := gen.Atom(fmt.Sprintf("%s_%s_%d", inspectLog, name, limit))
+		_, err := i.SpawnRegister(pname, factory_log, opts, levels, limit)
 		if err != nil && err != gen.ErrTaken {
 			return err, nil
 		}

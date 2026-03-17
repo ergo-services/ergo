@@ -83,6 +83,7 @@ type MessageInspectProcessList struct {
 
 type RequestInspectLog struct {
 	Levels []gen.LogLevel
+	Limit  int
 }
 type ResponseInspectLog struct {
 	Event gen.Event
@@ -104,8 +105,9 @@ type InspectLogEntry struct {
 }
 
 type MessageInspectLog struct {
-	Node    gen.Atom
-	Entries []InspectLogEntry
+	Node       gen.Atom
+	Entries    []InspectLogEntry
+	Suppressed int64
 }
 
 // process

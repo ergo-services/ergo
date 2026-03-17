@@ -18,18 +18,25 @@ type log struct {
 	event gen.Atom
 
 	levels     []gen.LogLevel
+	limit      int
 	generating bool
 	loopID     uint64
-	buffer     []InspectLogEntry
+
+	// ring buffer
+	ring     []InspectLogEntry
+	pos      int
+	full     bool
+	received int64
 }
 
 const logFlushInterval = time.Second
 
 func (il *log) Init(args ...any) error {
 	il.levels = args[0].([]gen.LogLevel)
+	il.limit = args[1].(int)
+	il.ring = make([]InspectLogEntry, il.limit)
 	il.Log().SetLogger("default")
-	il.Log().Debug("log inspector started")
-	// RegisterEvent is not allowed here
+	il.Log().Debug("log inspector started (limit: %d)", il.limit)
 	il.Send(il.PID(), register{})
 	return nil
 }
@@ -43,16 +50,38 @@ func (il *log) HandleMessage(from gen.PID, message any) error {
 		if m.id != il.loopID || il.generating == false {
 			break
 		}
-		if len(il.buffer) == 0 {
+		if il.received == 0 {
 			il.SendAfter(il.PID(), flushLog{id: il.loopID}, logFlushInterval)
 			break
 		}
 
-		ev := MessageInspectLog{
-			Node:    il.Node().Name(),
-			Entries: il.buffer,
+		// collect entries from ring buffer in correct order
+		var entries []InspectLogEntry
+		if il.full {
+			// ring wrapped: oldest at pos, newest at pos-1
+			entries = make([]InspectLogEntry, il.limit)
+			copy(entries, il.ring[il.pos:])
+			copy(entries[il.limit-il.pos:], il.ring[:il.pos])
+		} else {
+			entries = make([]InspectLogEntry, il.pos)
+			copy(entries, il.ring[:il.pos])
 		}
-		il.buffer = nil
+
+		suppressed := il.received - int64(len(entries))
+		if suppressed < 0 {
+			suppressed = 0
+		}
+
+		ev := MessageInspectLog{
+			Node:       il.Node().Name(),
+			Entries:    entries,
+			Suppressed: suppressed,
+		}
+
+		// reset ring
+		il.pos = 0
+		il.full = false
+		il.received = 0
 
 		if err := il.SendEvent(il.event, il.token, ev); err != nil {
 			return gen.TerminateReasonNormal
@@ -85,26 +114,24 @@ func (il *log) HandleMessage(from gen.PID, message any) error {
 
 	case shutdown:
 		if il.generating {
-			break // ignore.
+			break // ignore
 		}
 		return gen.TerminateReasonNormal
 
 	case gen.MessageEventStart: // got first subscriber
-		// register this process as a logger
 		il.Log().Debug("add this process as a logger")
 		il.Node().LoggerAddPID(il.PID(), il.PID().String(), il.levels...)
-		// we cant use Log() method while this process registered as a logger
 		il.loopID++
 		il.generating = true
 		il.SendAfter(il.PID(), flushLog{id: il.loopID}, logFlushInterval)
 
 	case gen.MessageEventStop: // no subscribers
-		// unregister this process as a logger
 		il.Node().LoggerDeletePID(il.PID())
-		// now we can use Log() method
 		il.Log().Debug("removed this process as a logger")
 		il.generating = false
-		il.buffer = nil
+		il.pos = 0
+		il.full = false
+		il.received = 0
 		il.SendAfter(il.PID(), shutdown{}, inspectLogIdlePeriod)
 	}
 
@@ -138,13 +165,17 @@ func (il *log) HandleLog(message gen.MessageLog) error {
 		entry.Peer = gen.Atom(m.Peer.CRC32())
 	}
 
-	il.buffer = append(il.buffer, entry)
+	il.ring[il.pos] = entry
+	il.pos++
+	if il.pos >= il.limit {
+		il.pos = 0
+		il.full = true
+	}
+	il.received++
+
 	return nil
 }
 
 func (il *log) Terminate(reason error) {
-	// since this process is already unregistered
-	// it is also unregistered as a logger
-	// so we can use Log() here
 	il.Log().Debug("log inspector terminated: %s", reason)
 }
