@@ -3,8 +3,8 @@ package tm
 import "ergo.services/ergo/gen"
 
 func (tm *targetManager) HasLink(consumer gen.PID, target any) bool {
-	tm.mutex.Lock()
-	defer tm.mutex.Unlock()
+	tm.mutex.RLock()
+	defer tm.mutex.RUnlock()
 
 	key := relationKey{
 		consumer: consumer,
@@ -16,8 +16,8 @@ func (tm *targetManager) HasLink(consumer gen.PID, target any) bool {
 }
 
 func (tm *targetManager) HasMonitor(consumer gen.PID, target any) bool {
-	tm.mutex.Lock()
-	defer tm.mutex.Unlock()
+	tm.mutex.RLock()
+	defer tm.mutex.RUnlock()
 
 	key := relationKey{
 		consumer: consumer,
@@ -29,8 +29,8 @@ func (tm *targetManager) HasMonitor(consumer gen.PID, target any) bool {
 }
 
 func (tm *targetManager) LinksFor(consumer gen.PID) []any {
-	tm.mutex.Lock()
-	defer tm.mutex.Unlock()
+	tm.mutex.RLock()
+	defer tm.mutex.RUnlock()
 
 	var targets []any
 
@@ -44,8 +44,8 @@ func (tm *targetManager) LinksFor(consumer gen.PID) []any {
 }
 
 func (tm *targetManager) MonitorsFor(consumer gen.PID) []any {
-	tm.mutex.Lock()
-	defer tm.mutex.Unlock()
+	tm.mutex.RLock()
+	defer tm.mutex.RUnlock()
 
 	var targets []any
 
@@ -59,8 +59,8 @@ func (tm *targetManager) MonitorsFor(consumer gen.PID) []any {
 }
 
 func (tm *targetManager) EventsFor(producer gen.PID) []gen.Event {
-	tm.mutex.Lock()
-	defer tm.mutex.Unlock()
+	tm.mutex.RLock()
+	defer tm.mutex.RUnlock()
 
 	// Use producerEvents index for O(1) lookup
 	eventSet := tm.producerEvents[producer]

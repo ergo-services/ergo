@@ -34,10 +34,12 @@ func (tm *targetManager) RegisterEvent(producer gen.PID, name gen.Atom, options 
 		subscriberCount:         0,
 	}
 
-	// Create buffer if configured
+	// Create ring buffer if configured
 	if options.Buffer > 0 {
-		entry.buffer = make([]gen.MessageEvent, 0, options.Buffer)
-		entry.bufferSize = options.Buffer
+		entry.buffer = &eventRingBuffer{
+			data: make([]gen.MessageEvent, options.Buffer),
+			size: options.Buffer,
+		}
 	}
 
 	tm.events[event] = entry
@@ -182,7 +184,7 @@ func (tm *targetManager) publishEventLocalProducer(
 		return gen.ErrEventOwner
 	}
 
-	// Store in buffer if configured (needs write lock)
+	// Store in ring buffer if configured (needs write lock)
 	if entry.buffer != nil {
 		// Re-check after lock upgrade
 		entry, exists = tm.events[message.Event]
@@ -190,12 +192,7 @@ func (tm *targetManager) publishEventLocalProducer(
 			tm.mutex.Unlock()
 			return gen.ErrEventOwner
 		}
-		if len(entry.buffer) < entry.bufferSize {
-			entry.buffer = append(entry.buffer, message)
-		} else {
-			copy(entry.buffer, entry.buffer[1:])
-			entry.buffer[entry.bufferSize-1] = message
-		}
+		entry.buffer.push(message)
 	}
 
 	// Increment per-event published counter under lock
@@ -759,11 +756,16 @@ func (tm *targetManager) EventInfo(event gen.Event) (gen.EventInfo, error) {
 	}
 
 	// Build event info
+	var bufSize, bufLen int
+	if entry.buffer != nil {
+		bufSize = entry.buffer.size
+		bufLen = entry.buffer.len
+	}
 	info := gen.EventInfo{
 		Event:              event,
 		Producer:           entry.producer,
-		BufferSize:         entry.bufferSize,
-		CurrentBuffer:      len(entry.buffer),
+		BufferSize:         bufSize,
+		CurrentBuffer:      bufLen,
 		Notify:             entry.notify,
 		Subscribers:        entry.subscriberCount,
 		MessagesPublished:  entry.messagesPublished.Load(),
@@ -780,11 +782,16 @@ func (tm *targetManager) EventRangeInfo(fn func(gen.EventInfo) bool) error {
 	// Snapshot event infos under lock
 	infos := make([]gen.EventInfo, 0, len(tm.events))
 	for event, entry := range tm.events {
+		var bufSize, bufLen int
+		if entry.buffer != nil {
+			bufSize = entry.buffer.size
+			bufLen = entry.buffer.len
+		}
 		info := gen.EventInfo{
 			Event:              event,
 			Producer:           entry.producer,
-			BufferSize:         entry.bufferSize,
-			CurrentBuffer:      len(entry.buffer),
+			BufferSize:         bufSize,
+			CurrentBuffer:      bufLen,
 			Notify:             entry.notify,
 			Subscribers:        entry.subscriberCount,
 			MessagesPublished:  entry.messagesPublished.Load(),
@@ -805,14 +812,10 @@ func (tm *targetManager) EventRangeInfo(fn func(gen.EventInfo) bool) error {
 	return nil
 }
 
-// Helper: get event buffer
+// Helper: get event buffer snapshot
 func (tm *targetManager) getEventBuffer(entry *eventEntry) []gen.MessageEvent {
 	if entry.buffer == nil {
 		return nil
 	}
-
-	// Return copy of buffer
-	buffer := make([]gen.MessageEvent, len(entry.buffer))
-	copy(buffer, entry.buffer)
-	return buffer
+	return entry.buffer.snapshot()
 }

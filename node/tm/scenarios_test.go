@@ -2223,7 +2223,7 @@ func TestCorner_PublishEvent_NoSubscribers(t *testing.T) {
 
 	// Buffer updated
 	entry := tm.events[event]
-	if len(entry.buffer) != 1 {
+	if entry.buffer.len != 1 {
 		t.Error("Buffer should be updated")
 	}
 }

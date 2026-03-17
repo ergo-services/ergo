@@ -43,14 +43,45 @@ type targetEntry struct {
 	consumers        map[gen.PID]struct{}
 }
 
+// eventRingBuffer is a fixed-size circular buffer for event messages.
+// O(1) push, O(n) snapshot. No copy-shift on overflow.
+type eventRingBuffer struct {
+	data []gen.MessageEvent
+	size int // capacity
+	head int // index of oldest element
+	len  int // current number of elements
+}
+
+func (rb *eventRingBuffer) push(msg gen.MessageEvent) {
+	idx := (rb.head + rb.len) % rb.size
+	if rb.len < rb.size {
+		rb.data[idx] = msg
+		rb.len++
+	} else {
+		// overwrite oldest
+		rb.data[rb.head] = msg
+		rb.head = (rb.head + 1) % rb.size
+	}
+}
+
+func (rb *eventRingBuffer) snapshot() []gen.MessageEvent {
+	if rb.len == 0 {
+		return make([]gen.MessageEvent, 0)
+	}
+	result := make([]gen.MessageEvent, rb.len)
+	for i := 0; i < rb.len; i++ {
+		result[i] = rb.data[(rb.head+i)%rb.size]
+	}
+	return result
+}
+
 type eventEntry struct {
 	producer gen.PID
 	token    gen.Ref
 	notify   bool
 
-	// Buffer (simple slice - protected by mutex)
-	buffer     []gen.MessageEvent
-	bufferSize int
+	// Ring buffer (nil if unbuffered, protected by mutex)
+	buffer *eventRingBuffer
 
 	// Subscribers (links and monitors separately)
 	// Slice for fast iteration, map for O(1) lookup/delete

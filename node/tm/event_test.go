@@ -35,8 +35,8 @@ func TestRegisterEvent_Basic(t *testing.T) {
 		t.Error("Producer should match")
 	}
 
-	if entry.bufferSize != 10 {
-		t.Errorf("Buffer size should be 10, got %d", entry.bufferSize)
+	if entry.buffer == nil || entry.buffer.size != 10 {
+		t.Errorf("Buffer size should be 10")
 	}
 
 	if entry.notify == false {
@@ -389,8 +389,8 @@ func TestPublishEvent_UpdatesBuffer(t *testing.T) {
 
 	// Check buffer
 	entry := tm.events[event]
-	if len(entry.buffer) != 3 {
-		t.Errorf("Buffer should have 3 messages, got %d", len(entry.buffer))
+	if entry.buffer.len != 3 {
+		t.Errorf("Buffer should have 3 messages, got %d", entry.buffer.len)
 	}
 }
 
@@ -427,16 +427,17 @@ func TestPublishEvent_BufferOverflow(t *testing.T) {
 
 	// Buffer should have 2 messages (msg2, msg3 - msg1 flushed)
 	entry := tm.events[event]
-	if len(entry.buffer) != 2 {
-		t.Errorf("Buffer should have 2 messages, got %d", len(entry.buffer))
+	if entry.buffer.len != 2 {
+		t.Errorf("Buffer should have 2 messages, got %d", entry.buffer.len)
 	}
 
-	// msg2 and msg3 should be in buffer
-	if len(entry.buffer) >= 2 {
-		if entry.buffer[0].Message != "msg2" {
+	// msg2 and msg3 should be in buffer (oldest first)
+	snap := entry.buffer.snapshot()
+	if len(snap) >= 2 {
+		if snap[0].Message != "msg2" {
 			t.Error("First message should be msg2 (msg1 flushed)")
 		}
-		if entry.buffer[1].Message != "msg3" {
+		if snap[1].Message != "msg3" {
 			t.Error("Second message should be msg3")
 		}
 	}
