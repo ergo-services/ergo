@@ -34,13 +34,12 @@ func TestTerminatedTargetPID_LinkSubscribers(t *testing.T) {
 	}
 
 	// Verify subscriptions cleaned
-	key1 := relationKey{consumer: consumer1, target: target}
-	if _, exists := tm.linkRelations[key1]; exists {
+	if exists := tm.hasLinkRelation(consumer1, target); exists {
 		t.Error("Link should be removed after target terminated")
 	}
 
 	// Verify targetIndex cleaned
-	if _, exists := tm.targetIndex[target]; exists {
+	if tm.getTargetEntry(target) != nil {
 		t.Error("targetIndex should be cleaned")
 	}
 }
@@ -72,8 +71,8 @@ func TestTerminatedTargetPID_MonitorSubscribers(t *testing.T) {
 	}
 
 	// Verify cleaned
-	if len(tm.monitorRelations) != 0 {
-		t.Errorf("monitorRelations should be empty, got %d", len(tm.monitorRelations))
+	if tm.totalMonitors() != 0 {
+		t.Errorf("monitorRelations should be empty, got %d", tm.totalMonitors())
 	}
 }
 
@@ -108,17 +107,17 @@ func TestTerminatedTargetPID_Mixed(t *testing.T) {
 	}
 
 	// Verify linkRelations cleaned
-	if len(tm.linkRelations) != 0 {
-		t.Errorf("linkRelations should be empty, got %d", len(tm.linkRelations))
+	if tm.totalLinks() != 0 {
+		t.Errorf("linkRelations should be empty, got %d", tm.totalLinks())
 	}
 
 	// Verify monitorRelations cleaned
-	if len(tm.monitorRelations) != 0 {
-		t.Errorf("monitorRelations should be empty, got %d", len(tm.monitorRelations))
+	if tm.totalMonitors() != 0 {
+		t.Errorf("monitorRelations should be empty, got %d", tm.totalMonitors())
 	}
 
 	// Verify targetIndex cleaned
-	if _, exists := tm.targetIndex[target]; exists {
+	if tm.getTargetEntry(target) != nil {
 		t.Error("targetIndex should be cleaned")
 	}
 }
@@ -145,13 +144,12 @@ func TestTerminatedTargetProcessID(t *testing.T) {
 	}
 
 	// Cleaned from linkRelations
-	key := relationKey{consumer: consumer, target: target}
-	if _, exists := tm.linkRelations[key]; exists {
+	if exists := tm.hasLinkRelation(consumer, target); exists {
 		t.Error("Link should be removed")
 	}
 
 	// Verify targetIndex cleaned
-	if _, exists := tm.targetIndex[target]; exists {
+	if tm.getTargetEntry(target) != nil {
 		t.Error("targetIndex should be cleaned")
 	}
 }
@@ -177,13 +175,12 @@ func TestTerminatedTargetAlias(t *testing.T) {
 	}
 
 	// Verify linkRelations cleaned
-	key := relationKey{consumer: consumer, target: target}
-	if _, exists := tm.linkRelations[key]; exists {
+	if exists := tm.hasLinkRelation(consumer, target); exists {
 		t.Error("Link should be removed")
 	}
 
 	// Verify targetIndex cleaned
-	if _, exists := tm.targetIndex[target]; exists {
+	if tm.getTargetEntry(target) != nil {
 		t.Error("targetIndex should be cleaned")
 	}
 }
@@ -198,11 +195,12 @@ func TestTerminatedTargetNode_RemoteConsumer(t *testing.T) {
 
 	// Remote consumer links to local target
 	// (Simulates: node2's CorePID linked to node1's process)
-	tm.linkRelations[relationKey{consumer: remoteConsumer, target: localTarget}] = struct{}{}
+	s := tm.shardFor(localTarget)
+	s.linkRelations[relationKey{consumer: remoteConsumer, target: localTarget}] = struct{}{}
 
 	entry := &targetEntry{consumers: make(map[gen.PID]struct{})}
 	entry.consumers[remoteConsumer] = struct{}{}
-	tm.targetIndex[localTarget] = entry
+	s.targetIndex[localTarget] = entry
 
 	core.resetSentExits()
 
@@ -217,8 +215,7 @@ func TestTerminatedTargetNode_RemoteConsumer(t *testing.T) {
 	}
 
 	// But subscription cleaned!
-	key := relationKey{consumer: remoteConsumer, target: localTarget}
-	if _, exists := tm.linkRelations[key]; exists {
+	if exists := tm.hasLinkRelation(remoteConsumer, localTarget); exists {
 		t.Error("Link from remote consumer should be removed")
 	}
 }
@@ -247,13 +244,12 @@ func TestTerminatedTargetNode_RemoteTarget(t *testing.T) {
 	}
 
 	// Cleaned from linkRelations
-	key := relationKey{consumer: localConsumer, target: remoteTarget}
-	if _, exists := tm.linkRelations[key]; exists {
+	if exists := tm.hasLinkRelation(localConsumer, remoteTarget); exists {
 		t.Error("Link should be removed")
 	}
 
 	// Verify targetIndex cleaned
-	if _, exists := tm.targetIndex[remoteTarget]; exists {
+	if tm.getTargetEntry(remoteTarget) != nil {
 		t.Error("targetIndex should be cleaned")
 	}
 }
@@ -273,7 +269,8 @@ func TestTerminatedTargetNode_Mixed(t *testing.T) {
 	tm.LinkPID(localConsumer, remoteTarget)
 
 	// Remote → Local (manual setup)
-	tm.linkRelations[relationKey{consumer: remoteConsumer, target: localTarget}] = struct{}{}
+	s := tm.shardFor(localTarget)
+	s.linkRelations[relationKey{consumer: remoteConsumer, target: localTarget}] = struct{}{}
 
 	core.resetSentExits()
 
@@ -288,12 +285,12 @@ func TestTerminatedTargetNode_Mixed(t *testing.T) {
 	}
 
 	// Both links cleaned
-	if len(tm.linkRelations) != 0 {
-		t.Errorf("All links should be cleaned, got %d", len(tm.linkRelations))
+	if tm.totalLinks() != 0 {
+		t.Errorf("All links should be cleaned, got %d", tm.totalLinks())
 	}
 
 	// Verify targetIndex cleaned for remoteTarget
-	if _, exists := tm.targetIndex[remoteTarget]; exists {
+	if tm.getTargetEntry(remoteTarget) != nil {
 		t.Error("targetIndex for remoteTarget should be cleaned")
 	}
 }
@@ -305,7 +302,8 @@ func TestTerminatedTargetNode_EventsCleaned(t *testing.T) {
 
 	// Manually add event from node2
 	event := gen.Event{Node: "node2", Name: "test"}
-	tm.events[event] = &eventEntry{
+	s := tm.shardFor(event)
+	s.events[event] = &eventEntry{
 		producer: gen.PID{Node: "node2", ID: 100},
 	}
 
@@ -315,7 +313,7 @@ func TestTerminatedTargetNode_EventsCleaned(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 
 	// Event cleaned
-	if _, exists := tm.events[event]; exists {
+	if tm.getEventEntry(event) != nil {
 		t.Error("Event from terminated node should be removed")
 	}
 }
@@ -342,13 +340,12 @@ func TestTerminatedTargetProcessID_Monitors(t *testing.T) {
 	}
 
 	// Verify monitorRelations cleaned
-	key := relationKey{consumer: consumer, target: target}
-	if _, exists := tm.monitorRelations[key]; exists {
+	if exists := tm.hasMonitorRelation(consumer, target); exists {
 		t.Error("Monitor should be removed")
 	}
 
 	// Verify targetIndex cleaned
-	if _, exists := tm.targetIndex[target]; exists {
+	if tm.getTargetEntry(target) != nil {
 		t.Error("targetIndex should be cleaned")
 	}
 }
@@ -374,7 +371,7 @@ func TestTerminatedTargetAlias_Monitors(t *testing.T) {
 	}
 
 	// Cleaned
-	if len(tm.monitorRelations) != 0 {
+	if tm.totalMonitors() != 0 {
 		t.Error("monitorRelations should be empty")
 	}
 }
@@ -438,18 +435,18 @@ func TestTerminatedTargetNode_MultipleTypes(t *testing.T) {
 	}
 
 	// All links cleaned
-	if len(tm.linkRelations) != 0 {
-		t.Errorf("All links should be cleaned, got %d", len(tm.linkRelations))
+	if tm.totalLinks() != 0 {
+		t.Errorf("All links should be cleaned, got %d", tm.totalLinks())
 	}
 
 	// Verify all targetIndex entries cleaned
-	if _, exists := tm.targetIndex[pidTarget]; exists {
+	if tm.getTargetEntry(pidTarget) != nil {
 		t.Error("targetIndex for pidTarget should be cleaned")
 	}
-	if _, exists := tm.targetIndex[processIDTarget]; exists {
+	if tm.getTargetEntry(processIDTarget) != nil {
 		t.Error("targetIndex for processIDTarget should be cleaned")
 	}
-	if _, exists := tm.targetIndex[aliasTarget]; exists {
+	if tm.getTargetEntry(aliasTarget) != nil {
 		t.Error("targetIndex for aliasTarget should be cleaned")
 	}
 }
@@ -493,8 +490,8 @@ func TestTerminatedProcess_CleanupLinks(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 
 	// Links cleaned
-	if len(tm.linkRelations) != 0 {
-		t.Errorf("All links should be cleaned, got %d", len(tm.linkRelations))
+	if tm.totalLinks() != 0 {
+		t.Errorf("All links should be cleaned, got %d", tm.totalLinks())
 	}
 
 	// Remote Unlink sent
@@ -503,10 +500,10 @@ func TestTerminatedProcess_CleanupLinks(t *testing.T) {
 	}
 
 	// Verify targetIndex cleaned for both targets
-	if _, exists := tm.targetIndex[target1]; exists {
+	if tm.getTargetEntry(target1) != nil {
 		t.Error("targetIndex for target1 should be cleaned")
 	}
-	if _, exists := tm.targetIndex[target2]; exists {
+	if tm.getTargetEntry(target2) != nil {
 		t.Error("targetIndex for target2 should be cleaned")
 	}
 }
@@ -540,7 +537,7 @@ func TestTerminatedProcess_LastSubscriber_EventStop(t *testing.T) {
 	}
 
 	// Counter = 0
-	entry := tm.events[event]
+	entry := tm.getEventEntry(event)
 	if entry.subscriberCount != 0 {
 		t.Errorf("subscriberCount should be 0, got %d", entry.subscriberCount)
 	}
@@ -576,20 +573,18 @@ func TestTerminatedProcess_NotLast_NoEventStop(t *testing.T) {
 	}
 
 	// Counter = 1
-	entry := tm.events[event]
+	entry := tm.getEventEntry(event)
 	if entry.subscriberCount != 1 {
 		t.Errorf("subscriberCount should be 1, got %d", entry.subscriberCount)
 	}
 
 	// Verify consumer1 removed from linkRelations
-	key1 := relationKey{consumer: consumer1, target: event}
-	if _, exists := tm.linkRelations[key1]; exists {
+	if exists := tm.hasLinkRelation(consumer1, event); exists {
 		t.Error("consumer1 link should be removed")
 	}
 
 	// Verify consumer2 still in linkRelations
-	key2 := relationKey{consumer: consumer2, target: event}
-	if _, exists := tm.linkRelations[key2]; exists == false {
+	if exists := tm.hasLinkRelation(consumer2, event); exists == false {
 		t.Error("consumer2 link should still exist")
 	}
 }
@@ -613,12 +608,12 @@ func TestTerminatedProcess_RemoteEvent_LastLocal_SendsUnlink(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 
 	// Verify linkRelations cleaned
-	if len(tm.linkRelations) != 0 {
+	if tm.totalLinks() != 0 {
 		t.Error("Link should be cleaned")
 	}
 
 	// Verify targetIndex cleaned (last local subscriber)
-	if _, exists := tm.targetIndex[event]; exists {
+	if tm.getTargetEntry(event) != nil {
 		t.Error("targetIndex should be cleaned")
 	}
 }
@@ -641,7 +636,7 @@ func TestTerminatedProcess_Event_LinkAndMonitor(t *testing.T) {
 	time.Sleep(20 * time.Millisecond)
 
 	// Counter = 2 (link + monitor)
-	entry := tm.events[event]
+	entry := tm.getEventEntry(event)
 	if entry.subscriberCount != 2 {
 		t.Errorf("subscriberCount should be 2, got %d", entry.subscriberCount)
 	}
@@ -664,14 +659,12 @@ func TestTerminatedProcess_Event_LinkAndMonitor(t *testing.T) {
 	}
 
 	// Verify linkRelations cleaned for consumer
-	linkKey := relationKey{consumer: consumer, target: event}
-	if _, exists := tm.linkRelations[linkKey]; exists {
+	if exists := tm.hasLinkRelation(consumer, event); exists {
 		t.Error("Link should be removed")
 	}
 
 	// Verify monitorRelations cleaned for consumer
-	monitorKey := relationKey{consumer: consumer, target: event}
-	if _, exists := tm.monitorRelations[monitorKey]; exists {
+	if exists := tm.hasMonitorRelation(consumer, event); exists {
 		t.Error("Monitor should be removed")
 	}
 }
@@ -705,12 +698,12 @@ func TestTerminatedEvent_LinkSubscribers(t *testing.T) {
 	}
 
 	// Event removed from tm.events
-	if _, exists := tm.events[event]; exists {
+	if tm.getEventEntry(event) != nil {
 		t.Error("Event should be removed")
 	}
 
 	// Subscriptions cleaned
-	if len(tm.linkRelations) != 0 {
+	if tm.totalLinks() != 0 {
 		t.Error("linkRelations should be empty")
 	}
 }
@@ -744,7 +737,7 @@ func TestTerminatedEvent_MonitorSubscribers(t *testing.T) {
 	}
 
 	// Cleaned
-	if len(tm.monitorRelations) != 0 {
+	if tm.totalMonitors() != 0 {
 		t.Error("monitorRelations should be empty")
 	}
 }
@@ -783,18 +776,18 @@ func TestTerminatedEvent_Mixed(t *testing.T) {
 	}
 
 	// Event removed
-	if _, exists := tm.events[event]; exists {
+	if tm.getEventEntry(event) != nil {
 		t.Error("Event should be removed")
 	}
 
 	// Verify linkRelations cleaned
-	if len(tm.linkRelations) != 0 {
-		t.Errorf("linkRelations should be empty, got %d", len(tm.linkRelations))
+	if tm.totalLinks() != 0 {
+		t.Errorf("linkRelations should be empty, got %d", tm.totalLinks())
 	}
 
 	// Verify monitorRelations cleaned
-	if len(tm.monitorRelations) != 0 {
-		t.Errorf("monitorRelations should be empty, got %d", len(tm.monitorRelations))
+	if tm.totalMonitors() != 0 {
+		t.Errorf("monitorRelations should be empty, got %d", tm.totalMonitors())
 	}
 }
 
@@ -822,7 +815,7 @@ func TestTerminatedEvent_NoSubscribers(t *testing.T) {
 	}
 
 	// Event still removed
-	if _, exists := tm.events[event]; exists {
+	if tm.getEventEntry(event) != nil {
 		t.Error("Event should be removed")
 	}
 }
@@ -840,9 +833,9 @@ func TestTerminatedTargetPID_RemoteCorePIDSubscriber(t *testing.T) {
 	tm.LinkPID(localConsumer, target)
 
 	// Simulate remote CorePID also linked (from node2)
-	key := relationKey{consumer: remoteCorePID, target: target}
-	tm.linkRelations[key] = struct{}{}
-	entry := tm.targetIndex[target]
+	s := tm.shardFor(target)
+	s.linkRelations[relationKey{consumer: remoteCorePID, target: target}] = struct{}{}
+	entry := tm.getTargetEntry(target)
 	if entry != nil {
 		entry.consumers[remoteCorePID] = struct{}{}
 	}
@@ -860,12 +853,12 @@ func TestTerminatedTargetPID_RemoteCorePIDSubscriber(t *testing.T) {
 	}
 
 	// Both links cleaned
-	if len(tm.linkRelations) != 0 {
+	if tm.totalLinks() != 0 {
 		t.Error("All links should be cleaned")
 	}
 
 	// Verify targetIndex cleaned
-	if _, exists := tm.targetIndex[target]; exists {
+	if tm.getTargetEntry(target) != nil {
 		t.Error("targetIndex should be cleaned")
 	}
 }
@@ -901,12 +894,12 @@ func TestTerminatedProcess_ProducerCleanup_LinkSubscribers(t *testing.T) {
 	}
 
 	// Event removed
-	if _, exists := tm.events[event]; exists {
+	if tm.getEventEntry(event) != nil {
 		t.Error("Event should be removed after producer terminates")
 	}
 
 	// producerEvents index cleaned
-	if tm.producerEvents[producer] != nil {
+	if tm.getProducerEventsMap(producer) != nil {
 		t.Error("producerEvents index should be cleaned")
 	}
 }
@@ -942,17 +935,17 @@ func TestTerminatedProcess_ProducerCleanup_MonitorSubscribers(t *testing.T) {
 	}
 
 	// Event removed
-	if _, exists := tm.events[event]; exists {
+	if tm.getEventEntry(event) != nil {
 		t.Error("Event should be removed after producer terminates")
 	}
 
 	// Verify monitorRelations cleaned
-	if len(tm.monitorRelations) != 0 {
-		t.Errorf("monitorRelations should be empty, got %d", len(tm.monitorRelations))
+	if tm.totalMonitors() != 0 {
+		t.Errorf("monitorRelations should be empty, got %d", tm.totalMonitors())
 	}
 
 	// Verify producerEvents cleaned
-	if tm.producerEvents[producer] != nil {
+	if tm.getProducerEventsMap(producer) != nil {
 		t.Error("producerEvents index should be cleaned")
 	}
 }
@@ -992,18 +985,18 @@ func TestTerminatedProcess_ProducerCleanup_MultipleEvents(t *testing.T) {
 	}
 
 	// All events removed
-	if len(tm.events) != 0 {
-		t.Errorf("All events should be removed, got %d", len(tm.events))
+	if tm.totalEvents() != 0 {
+		t.Errorf("All events should be removed, got %d", tm.totalEvents())
 	}
 
 	// producerEvents index cleaned
-	if tm.producerEvents[producer] != nil {
+	if tm.getProducerEventsMap(producer) != nil {
 		t.Error("producerEvents index should be cleaned")
 	}
 
 	// Verify linkRelations cleaned
-	if len(tm.linkRelations) != 0 {
-		t.Errorf("linkRelations should be empty, got %d", len(tm.linkRelations))
+	if tm.totalLinks() != 0 {
+		t.Errorf("linkRelations should be empty, got %d", tm.totalLinks())
 	}
 }
 
@@ -1024,11 +1017,11 @@ func TestTerminatedProcess_ProducerCleanup_RelationsCleaned(t *testing.T) {
 	tm.MonitorEvent(consumer, event)
 
 	// Verify relations exist
-	if len(tm.linkRelations) != 1 {
-		t.Fatalf("Expected 1 link relation, got %d", len(tm.linkRelations))
+	if tm.totalLinks() != 1 {
+		t.Fatalf("Expected 1 link relation, got %d", tm.totalLinks())
 	}
-	if len(tm.monitorRelations) != 1 {
-		t.Fatalf("Expected 1 monitor relation, got %d", len(tm.monitorRelations))
+	if tm.totalMonitors() != 1 {
+		t.Fatalf("Expected 1 monitor relation, got %d", tm.totalMonitors())
 	}
 
 	// Producer terminates
@@ -1037,15 +1030,11 @@ func TestTerminatedProcess_ProducerCleanup_RelationsCleaned(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 
 	// Relations for the event should be cleaned
-	for key := range tm.linkRelations {
-		if key.target == event {
-			t.Error("Link relation for event should be cleaned")
-		}
+	if exists := tm.hasLinkRelation(consumer, event); exists {
+		t.Error("Link relation for event should be cleaned")
 	}
-	for key := range tm.monitorRelations {
-		if key.target == event {
-			t.Error("Monitor relation for event should be cleaned")
-		}
+	if exists := tm.hasMonitorRelation(consumer, event); exists {
+		t.Error("Monitor relation for event should be cleaned")
 	}
 }
 
@@ -1086,7 +1075,7 @@ func TestTerminatedProcess_ProducerCleanup_RemoteSubscribers(t *testing.T) {
 	tm.LinkEvent(localConsumer, event)
 
 	// Simulate remote subscriber (as if from node2 via network)
-	entry := tm.events[event]
+	entry := tm.getEventEntry(event)
 	entry.linkSubscribersIndex[remoteConsumer] = len(entry.linkSubscribers)
 	entry.linkSubscribers = append(entry.linkSubscribers, remoteConsumer)
 
@@ -1103,7 +1092,7 @@ func TestTerminatedProcess_ProducerCleanup_RemoteSubscribers(t *testing.T) {
 	}
 
 	// Event removed
-	if _, exists := tm.events[event]; exists {
+	if tm.getEventEntry(event) != nil {
 		t.Error("Event should be removed")
 	}
 }

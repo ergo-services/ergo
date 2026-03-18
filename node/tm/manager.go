@@ -3,24 +3,30 @@ package tm
 import (
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"ergo.services/ergo/gen"
 )
 
-// targetManager implements gen.TargetManager interface
-type targetManager struct {
+const defaultNumShards = 16
+
+type shard struct {
 	mutex sync.RWMutex
 
-	core gen.CoreTargetManager
-
-	// Link/Monitor relationships
 	linkRelations    map[relationKey]struct{}
 	monitorRelations map[relationKey]struct{}
 	targetIndex      map[any]*targetEntry
 
-	// Event storage
+	// Events that hash to this shard
 	events         map[gen.Event]*eventEntry
-	producerEvents map[gen.PID]map[gen.Event]struct{} // producer -> events index
+	producerEvents map[gen.PID]map[gen.Event]struct{}
+}
+
+// targetManager implements gen.TargetManager interface
+type targetManager struct {
+	core      gen.CoreTargetManager
+	shards    []shard
+	numShards uint64
 
 	// Statistics
 	exitSignalsProduced   atomic.Int64
@@ -53,15 +59,15 @@ type eventRingBuffer struct {
 }
 
 func (rb *eventRingBuffer) push(msg gen.MessageEvent) {
-	idx := (rb.head + rb.len) % rb.size
-	if rb.len < rb.size {
-		rb.data[idx] = msg
-		rb.len++
-	} else {
-		// overwrite oldest
+	if rb.len >= rb.size {
 		rb.data[rb.head] = msg
 		rb.head = (rb.head + 1) % rb.size
+		return
 	}
+
+	idx := (rb.head + rb.len) % rb.size
+	rb.data[idx] = msg
+	rb.len++
 }
 
 func (rb *eventRingBuffer) snapshot() []gen.MessageEvent {
@@ -80,8 +86,9 @@ type eventEntry struct {
 	token    gen.Ref
 	notify   bool
 
-	// Ring buffer (nil if unbuffered, protected by mutex)
-	buffer *eventRingBuffer
+	// Ring buffer (nil if unbuffered, protected by bufferMutex)
+	bufferMutex sync.Mutex
+	buffer      *eventRingBuffer
 
 	// Subscribers (links and monitors separately)
 	// Slice for fast iteration, map for O(1) lookup/delete
@@ -102,33 +109,96 @@ type eventEntry struct {
 type Options struct{}
 
 func Create(core gen.CoreTargetManager, options Options) gen.TargetManager {
+	n := uint64(defaultNumShards)
+
 	tm := &targetManager{
-		core:             core,
-		linkRelations:    make(map[relationKey]struct{}),
-		monitorRelations: make(map[relationKey]struct{}),
-		targetIndex:      make(map[any]*targetEntry),
-		events:           make(map[gen.Event]*eventEntry),
-		producerEvents:   make(map[gen.PID]map[gen.Event]struct{}),
+		core:      core,
+		shards:    make([]shard, n),
+		numShards: n,
+	}
+
+	for i := uint64(0); i < n; i++ {
+		tm.shards[i] = shard{
+			linkRelations:    make(map[relationKey]struct{}),
+			monitorRelations: make(map[relationKey]struct{}),
+			targetIndex:      make(map[any]*targetEntry),
+			events:           make(map[gen.Event]*eventEntry),
+			producerEvents:   make(map[gen.PID]map[gen.Event]struct{}),
+		}
 	}
 
 	return tm
 }
 
 func (tm *targetManager) Info() gen.TargetManagerInfo {
-	tm.mutex.RLock()
-	defer tm.mutex.RUnlock()
+	var links, monitors, events int64
+
+	for i := range tm.shards {
+		s := &tm.shards[i]
+		s.mutex.RLock()
+		links += int64(len(s.linkRelations))
+		monitors += int64(len(s.monitorRelations))
+		events += int64(len(s.events))
+		s.mutex.RUnlock()
+	}
 
 	return gen.TargetManagerInfo{
-		Links:                 int64(len(tm.linkRelations)),
-		Monitors:              int64(len(tm.monitorRelations)),
-		Events:                int64(len(tm.events)),
+		Links:                 links,
+		Monitors:              monitors,
+		Events:                events,
 		ExitSignalsProduced:   tm.exitSignalsProduced.Load(),
 		ExitSignalsDelivered:  tm.exitSignalsDelivered.Load(),
 		DownMessagesProduced:  tm.downMessagesProduced.Load(),
 		DownMessagesDelivered: tm.downMessagesDelivered.Load(),
 		EventsPublished:       tm.eventsPublished.Load(),
-		EventsReceived:       tm.eventsReceived.Load(),
-		EventsLocalSent:      tm.eventsLocalSent.Load(),
-		EventsRemoteSent:     tm.eventsRemoteSent.Load(),
+		EventsReceived:        tm.eventsReceived.Load(),
+		EventsLocalSent:       tm.eventsLocalSent.Load(),
+		EventsRemoteSent:      tm.eventsRemoteSent.Load(),
+	}
+}
+
+// shardFor returns the shard responsible for the given target.
+// Uses bit masking (numShards must be power of 2).
+func (tm *targetManager) shardFor(target any) *shard {
+	var idx uint64
+	switch t := target.(type) {
+	case gen.PID:
+		idx = t.ID
+	case gen.Alias:
+		idx = t.ID[1]
+	case gen.ProcessID:
+		idx = fnv1aString(string(t.Name))
+	case gen.Event:
+		idx = fnv1aString(string(t.Name))
+	case gen.Atom:
+		idx = fnv1aString(string(t))
+	}
+	return &tm.shards[idx&(tm.numShards-1)]
+}
+
+// fnv1aString is an inline FNV-1a hash for strings (no allocation).
+func fnv1aString(s string) uint64 {
+	h := uint64(14695981039346656037)
+	for i := 0; i < len(s); i++ {
+		h ^= uint64(s[i])
+		h *= 1099511628211
+	}
+	return h
+}
+
+// getEventBuffer returns a snapshot of the event buffer, or nil.
+func getEventBuffer(entry *eventEntry) []gen.MessageEvent {
+	if entry.buffer == nil {
+		return nil
+	}
+	return entry.buffer.snapshot()
+}
+
+// generateToken creates a unique event token.
+func (tm *targetManager) generateToken() gen.Ref {
+	return gen.Ref{
+		Node:     tm.core.Name(),
+		Creation: tm.core.PID().Creation,
+		ID:       [3]uint64{uint64(time.Now().UnixNano()), 0, 0},
 	}
 }

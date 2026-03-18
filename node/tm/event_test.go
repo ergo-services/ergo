@@ -26,7 +26,7 @@ func TestRegisterEvent_Basic(t *testing.T) {
 
 	// Verify event stored
 	event := gen.Event{Node: "node1", Name: "test"}
-	entry := tm.events[event]
+	entry := tm.getEventEntry(event)
 	if entry == nil {
 		t.Fatal("Event should be stored")
 	}
@@ -99,7 +99,7 @@ func TestLinkEvent_Local_FirstSubscriber_EventStart(t *testing.T) {
 	}
 
 	// Verify stored
-	entry := tm.events[event]
+	entry := tm.getEventEntry(event)
 	if entry.subscriberCount != 1 {
 		t.Errorf("subscriberCount should be 1, got %d", entry.subscriberCount)
 	}
@@ -133,7 +133,7 @@ func TestLinkEvent_Local_SecondSubscriber_NoEventStart(t *testing.T) {
 	}
 
 	// Counter = 2
-	entry := tm.events[event]
+	entry := tm.getEventEntry(event)
 	if entry.subscriberCount != 2 {
 		t.Errorf("subscriberCount should be 2, got %d", entry.subscriberCount)
 	}
@@ -170,7 +170,7 @@ func TestUnlinkEvent_Local_LastSubscriber_EventStop(t *testing.T) {
 	}
 
 	// Counter = 0
-	entry := tm.events[event]
+	entry := tm.getEventEntry(event)
 	if entry.subscriberCount != 0 {
 		t.Errorf("subscriberCount should be 0, got %d", entry.subscriberCount)
 	}
@@ -191,8 +191,7 @@ func TestLinkEvent_Remote_FirstSubscriber(t *testing.T) {
 	}
 
 	// Verify stored locally
-	key := relationKey{consumer: consumer, target: event}
-	if _, exists := tm.linkRelations[key]; exists == false {
+	if exists := tm.hasLinkRelation(consumer, event); exists == false {
 		t.Error("Link should be stored locally")
 	}
 
@@ -202,7 +201,7 @@ func TestLinkEvent_Remote_FirstSubscriber(t *testing.T) {
 	}
 
 	// Verify allowAlwaysFirst=false (unbuffered)
-	entry := tm.targetIndex[event]
+	entry := tm.getTargetEntry(event)
 	if entry.allowAlwaysFirst == true {
 		t.Error("allowAlwaysFirst should be false for unbuffered event")
 	}
@@ -234,18 +233,16 @@ func TestLinkEvent_Remote_SecondSubscriber_Unbuffered_NoNetwork(t *testing.T) {
 	}
 
 	// Verify both links stored in linkRelations
-	key1 := relationKey{consumer: consumer1, target: event}
-	if _, exists := tm.linkRelations[key1]; exists == false {
+	if exists := tm.hasLinkRelation(consumer1, event); exists == false {
 		t.Error("First link should be stored in linkRelations")
 	}
 
-	key2 := relationKey{consumer: consumer2, target: event}
-	if _, exists := tm.linkRelations[key2]; exists == false {
+	if exists := tm.hasLinkRelation(consumer2, event); exists == false {
 		t.Error("Second link should be stored in linkRelations")
 	}
 
 	// Verify targetIndex has both consumers
-	entry := tm.targetIndex[event]
+	entry := tm.getTargetEntry(event)
 	if entry == nil {
 		t.Fatal("targetIndex entry should exist")
 	}
@@ -295,7 +292,7 @@ func TestLinkEvent_Remote_SecondSubscriber_Buffered_SendsNetwork(t *testing.T) {
 	}
 
 	// allowAlwaysFirst still true!
-	entry := tm.targetIndex[event]
+	entry := tm.getTargetEntry(event)
 	if entry.allowAlwaysFirst == false {
 		t.Error("allowAlwaysFirst should stay true for buffered event")
 	}
@@ -318,17 +315,15 @@ func TestPublishEvent_Fanout(t *testing.T) {
 	tm.LinkEvent(consumer2, event)
 
 	// Verify both links stored
-	key1 := relationKey{consumer: consumer1, target: event}
-	if _, exists := tm.linkRelations[key1]; exists == false {
+	if exists := tm.hasLinkRelation(consumer1, event); exists == false {
 		t.Error("consumer1 link should be stored")
 	}
-	key2 := relationKey{consumer: consumer2, target: event}
-	if _, exists := tm.linkRelations[key2]; exists == false {
+	if exists := tm.hasLinkRelation(consumer2, event); exists == false {
 		t.Error("consumer2 link should be stored")
 	}
 
 	// Verify subscriberCount
-	entry := tm.events[event]
+	entry := tm.getEventEntry(event)
 	if entry == nil {
 		t.Fatal("Event entry should exist")
 	}
@@ -388,7 +383,7 @@ func TestPublishEvent_UpdatesBuffer(t *testing.T) {
 	)
 
 	// Check buffer
-	entry := tm.events[event]
+	entry := tm.getEventEntry(event)
 	if entry.buffer.len != 3 {
 		t.Errorf("Buffer should have 3 messages, got %d", entry.buffer.len)
 	}
@@ -426,7 +421,7 @@ func TestPublishEvent_BufferOverflow(t *testing.T) {
 	)
 
 	// Buffer should have 2 messages (msg2, msg3 - msg1 flushed)
-	entry := tm.events[event]
+	entry := tm.getEventEntry(event)
 	if entry.buffer.len != 2 {
 		t.Errorf("Buffer should have 2 messages, got %d", entry.buffer.len)
 	}
@@ -460,17 +455,15 @@ func TestUnregisterEvent_SendsExit(t *testing.T) {
 	tm.LinkEvent(consumer2, event)
 
 	// Verify links stored before unregister
-	key1 := relationKey{consumer: consumer1, target: event}
-	key2 := relationKey{consumer: consumer2, target: event}
-	if _, exists := tm.linkRelations[key1]; exists == false {
+	if exists := tm.hasLinkRelation(consumer1, event); exists == false {
 		t.Fatal("consumer1 link should exist before unregister")
 	}
-	if _, exists := tm.linkRelations[key2]; exists == false {
+	if exists := tm.hasLinkRelation(consumer2, event); exists == false {
 		t.Fatal("consumer2 link should exist before unregister")
 	}
 
 	// Verify producerEvents has producer
-	if _, exists := tm.producerEvents[producer]; exists == false {
+	if pe := tm.getProducerEventsMap(producer); pe == nil {
 		t.Fatal("producerEvents should have producer before unregister")
 	}
 
@@ -490,20 +483,20 @@ func TestUnregisterEvent_SendsExit(t *testing.T) {
 	}
 
 	// Event removed
-	if _, exists := tm.events[event]; exists {
+	if entry := tm.getEventEntry(event); entry != nil {
 		t.Error("Event should be removed")
 	}
 
 	// linkRelations cleaned
-	if _, exists := tm.linkRelations[key1]; exists {
+	if exists := tm.hasLinkRelation(consumer1, event); exists {
 		t.Error("consumer1 link should be cleaned after unregister")
 	}
-	if _, exists := tm.linkRelations[key2]; exists {
+	if exists := tm.hasLinkRelation(consumer2, event); exists {
 		t.Error("consumer2 link should be cleaned after unregister")
 	}
 
 	// producerEvents cleaned
-	if _, exists := tm.producerEvents[producer]; exists {
+	if pe := tm.getProducerEventsMap(producer); pe != nil {
 		t.Error("producerEvents should be cleaned after unregister")
 	}
 }
@@ -537,7 +530,7 @@ func TestMonitorEvent_Local_SharesCounter(t *testing.T) {
 	}
 
 	// Counter = 2 (link + monitor)
-	entry := tm.events[event]
+	entry := tm.getEventEntry(event)
 	if entry.subscriberCount != 2 {
 		t.Errorf("Counter should be 2 (link+monitor), got %d", entry.subscriberCount)
 	}
@@ -560,17 +553,15 @@ func TestUnlinkDemonitor_EventStop_WhenBothGone(t *testing.T) {
 	tm.MonitorEvent(monitorConsumer, event)
 
 	// Verify both relations exist
-	linkKey := relationKey{consumer: linkConsumer, target: event}
-	monitorKey := relationKey{consumer: monitorConsumer, target: event}
-	if _, exists := tm.linkRelations[linkKey]; exists == false {
+	if exists := tm.hasLinkRelation(linkConsumer, event); exists == false {
 		t.Fatal("Link should exist")
 	}
-	if _, exists := tm.monitorRelations[monitorKey]; exists == false {
+	if exists := tm.hasMonitorRelation(monitorConsumer, event); exists == false {
 		t.Fatal("Monitor should exist")
 	}
 
 	// Verify subscriberCount = 2
-	entry := tm.events[event]
+	entry := tm.getEventEntry(event)
 	if entry.subscriberCount != 2 {
 		t.Fatalf("subscriberCount should be 2, got %d", entry.subscriberCount)
 	}
@@ -587,10 +578,10 @@ func TestUnlinkDemonitor_EventStop_WhenBothGone(t *testing.T) {
 	}
 
 	// Verify link removed, monitor still exists
-	if _, exists := tm.linkRelations[linkKey]; exists {
+	if exists := tm.hasLinkRelation(linkConsumer, event); exists {
 		t.Error("Link should be removed after unlink")
 	}
-	if _, exists := tm.monitorRelations[monitorKey]; exists == false {
+	if exists := tm.hasMonitorRelation(monitorConsumer, event); exists == false {
 		t.Error("Monitor should still exist")
 	}
 
@@ -609,10 +600,10 @@ func TestUnlinkDemonitor_EventStop_WhenBothGone(t *testing.T) {
 	}
 
 	// Verify both relations cleaned
-	if _, exists := tm.linkRelations[linkKey]; exists {
+	if exists := tm.hasLinkRelation(linkConsumer, event); exists {
 		t.Error("Link should be removed")
 	}
-	if _, exists := tm.monitorRelations[monitorKey]; exists {
+	if exists := tm.hasMonitorRelation(monitorConsumer, event); exists {
 		t.Error("Monitor should be removed")
 	}
 
@@ -753,12 +744,10 @@ func TestUnlinkEvent_Remote_NotLast(t *testing.T) {
 	tm.LinkEvent(consumer2, event)
 
 	// Verify both stored
-	key1 := relationKey{consumer: consumer1, target: event}
-	key2 := relationKey{consumer: consumer2, target: event}
-	if _, exists := tm.linkRelations[key1]; exists == false {
+	if exists := tm.hasLinkRelation(consumer1, event); exists == false {
 		t.Fatal("consumer1 link should exist before unlink")
 	}
-	if _, exists := tm.linkRelations[key2]; exists == false {
+	if exists := tm.hasLinkRelation(consumer2, event); exists == false {
 		t.Fatal("consumer2 link should exist before unlink")
 	}
 
@@ -769,17 +758,17 @@ func TestUnlinkEvent_Remote_NotLast(t *testing.T) {
 	}
 
 	// Verify removed from linkRelations
-	if _, exists := tm.linkRelations[key1]; exists {
+	if exists := tm.hasLinkRelation(consumer1, event); exists {
 		t.Error("consumer1 link should be removed")
 	}
 
 	// consumer2 still exists
-	if _, exists := tm.linkRelations[key2]; exists == false {
+	if exists := tm.hasLinkRelation(consumer2, event); exists == false {
 		t.Error("consumer2 link should still exist")
 	}
 
 	// Verify targetIndex still exists with consumer2
-	entry := tm.targetIndex[event]
+	entry := tm.getTargetEntry(event)
 	if entry == nil {
 		t.Fatal("targetIndex should still exist")
 	}
@@ -808,12 +797,11 @@ func TestUnlinkEvent_Remote_LastLocal_SendsUnlink(t *testing.T) {
 	}
 
 	// Verify stored before unlink
-	key := relationKey{consumer: consumer, target: event}
-	if _, exists := tm.linkRelations[key]; exists == false {
+	if exists := tm.hasLinkRelation(consumer, event); exists == false {
 		t.Fatal("Link should exist before unlink")
 	}
 
-	entry := tm.targetIndex[event]
+	entry := tm.getTargetEntry(event)
 	if entry == nil {
 		t.Fatal("targetIndex should exist before unlink")
 	}
@@ -825,12 +813,12 @@ func TestUnlinkEvent_Remote_LastLocal_SendsUnlink(t *testing.T) {
 	}
 
 	// Verify removed from linkRelations
-	if _, exists := tm.linkRelations[key]; exists {
+	if exists := tm.hasLinkRelation(consumer, event); exists {
 		t.Error("Link should be removed")
 	}
 
 	// Verify targetIndex cleaned (last consumer)
-	if _, exists := tm.targetIndex[event]; exists {
+	if entry := tm.getTargetEntry(event); entry != nil {
 		t.Error("targetIndex should be cleaned when last consumer removed")
 	}
 
@@ -851,12 +839,10 @@ func TestDemonitorEvent_Remote_NotLast(t *testing.T) {
 	tm.MonitorEvent(consumer2, event)
 
 	// Verify both stored before demonitor
-	key1 := relationKey{consumer: consumer1, target: event}
-	key2 := relationKey{consumer: consumer2, target: event}
-	if _, exists := tm.monitorRelations[key1]; exists == false {
+	if exists := tm.hasMonitorRelation(consumer1, event); exists == false {
 		t.Fatal("consumer1 monitor should exist before demonitor")
 	}
-	if _, exists := tm.monitorRelations[key2]; exists == false {
+	if exists := tm.hasMonitorRelation(consumer2, event); exists == false {
 		t.Fatal("consumer2 monitor should exist before demonitor")
 	}
 
@@ -867,17 +853,17 @@ func TestDemonitorEvent_Remote_NotLast(t *testing.T) {
 	}
 
 	// consumer1 removed
-	if _, exists := tm.monitorRelations[key1]; exists {
+	if exists := tm.hasMonitorRelation(consumer1, event); exists {
 		t.Error("consumer1 monitor should be removed")
 	}
 
 	// consumer2 still exists
-	if _, exists := tm.monitorRelations[key2]; exists == false {
+	if exists := tm.hasMonitorRelation(consumer2, event); exists == false {
 		t.Error("consumer2 monitor should still exist")
 	}
 
 	// Verify targetIndex still exists with consumer2
-	entry := tm.targetIndex[event]
+	entry := tm.getTargetEntry(event)
 	if entry == nil {
 		t.Fatal("targetIndex should still exist")
 	}
@@ -900,12 +886,11 @@ func TestDemonitorEvent_Remote_LastLocal_SendsDemonitor(t *testing.T) {
 	tm.MonitorEvent(consumer, event)
 
 	// Verify stored before demonitor
-	key := relationKey{consumer: consumer, target: event}
-	if _, exists := tm.monitorRelations[key]; exists == false {
+	if exists := tm.hasMonitorRelation(consumer, event); exists == false {
 		t.Fatal("Monitor should exist before demonitor")
 	}
 
-	entry := tm.targetIndex[event]
+	entry := tm.getTargetEntry(event)
 	if entry == nil {
 		t.Fatal("targetIndex should exist before demonitor")
 	}
@@ -920,12 +905,12 @@ func TestDemonitorEvent_Remote_LastLocal_SendsDemonitor(t *testing.T) {
 	}
 
 	// Verify removed from monitorRelations
-	if _, exists := tm.monitorRelations[key]; exists {
+	if exists := tm.hasMonitorRelation(consumer, event); exists {
 		t.Error("Monitor should be removed")
 	}
 
 	// Verify targetIndex cleaned (last consumer)
-	if _, exists := tm.targetIndex[event]; exists {
+	if entry := tm.getTargetEntry(event); entry != nil {
 		t.Error("targetIndex should be cleaned when last consumer removed")
 	}
 
@@ -953,8 +938,7 @@ func TestUnlinkEvent_Remote_ConnectionError(t *testing.T) {
 	}
 
 	// Still cleaned locally
-	key := relationKey{consumer: consumer, target: event}
-	if _, exists := tm.linkRelations[key]; exists {
+	if exists := tm.hasLinkRelation(consumer, event); exists {
 		t.Error("Link should be cleaned even if connection fails")
 	}
 }
@@ -972,7 +956,7 @@ func TestMonitorEvent_Remote_Unbuffered_SecondNoNetwork(t *testing.T) {
 	tm.MonitorEvent(consumer1, event)
 
 	// allowAlwaysFirst should be false now (unbuffered)
-	entry := tm.targetIndex[event]
+	entry := tm.getTargetEntry(event)
 	if entry == nil {
 		t.Fatal("targetIndex should exist")
 	}
@@ -991,13 +975,11 @@ func TestMonitorEvent_Remote_Unbuffered_SecondNoNetwork(t *testing.T) {
 	}
 
 	// Verify both stored locally
-	key1 := relationKey{consumer: consumer1, target: event}
-	if _, exists := tm.monitorRelations[key1]; exists == false {
+	if exists := tm.hasMonitorRelation(consumer1, event); exists == false {
 		t.Error("First monitor should exist")
 	}
 
-	key2 := relationKey{consumer: consumer2, target: event}
-	if _, exists := tm.monitorRelations[key2]; exists == false {
+	if exists := tm.hasMonitorRelation(consumer2, event); exists == false {
 		t.Error("Second monitor should exist")
 	}
 
@@ -1033,18 +1015,16 @@ func TestMonitorEvent_Remote_Buffered_SecondGetsBuffer(t *testing.T) {
 	}
 
 	// Verify both monitors stored in monitorRelations
-	key1 := relationKey{consumer: consumer1, target: event}
-	if _, exists := tm.monitorRelations[key1]; exists == false {
+	if exists := tm.hasMonitorRelation(consumer1, event); exists == false {
 		t.Error("First monitor should be stored in monitorRelations")
 	}
 
-	key2 := relationKey{consumer: consumer2, target: event}
-	if _, exists := tm.monitorRelations[key2]; exists == false {
+	if exists := tm.hasMonitorRelation(consumer2, event); exists == false {
 		t.Error("Second monitor should be stored in monitorRelations")
 	}
 
 	// Verify targetIndex has both consumers
-	entry := tm.targetIndex[event]
+	entry := tm.getTargetEntry(event)
 	if entry == nil {
 		t.Fatal("targetIndex should exist")
 	}

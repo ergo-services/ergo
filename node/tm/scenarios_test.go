@@ -51,13 +51,12 @@ func TestScenario_TerminationReasons_Link(t *testing.T) {
 			}
 
 			// Verify internal state: linkRelations cleaned up
-			key := relationKey{consumer: consumer, target: target}
-			if _, exists := tm.linkRelations[key]; exists {
+			if exists := tm.hasLinkRelation(consumer, target); exists {
 				t.Error("linkRelations should be cleaned after termination")
 			}
 
 			// Verify targetIndex cleaned up
-			if _, exists := tm.targetIndex[target]; exists {
+			if entry := tm.getTargetEntry(target); entry != nil {
 				t.Error("targetIndex should be cleaned after termination")
 			}
 		})
@@ -96,13 +95,12 @@ func TestScenario_TerminationReasons_Monitor(t *testing.T) {
 			}
 
 			// Verify internal state: monitorRelations cleaned up
-			key := relationKey{consumer: consumer, target: target}
-			if _, exists := tm.monitorRelations[key]; exists {
+			if exists := tm.hasMonitorRelation(consumer, target); exists {
 				t.Error("monitorRelations should be cleaned after termination")
 			}
 
 			// Verify targetIndex cleaned up
-			if _, exists := tm.targetIndex[target]; exists {
+			if entry := tm.getTargetEntry(target); entry != nil {
 				t.Error("targetIndex should be cleaned after termination")
 			}
 		})
@@ -167,13 +165,13 @@ func TestScenario_ProcessTermination_CleansUpAllRelations(t *testing.T) {
 	}
 
 	// Verify targetIndex cleaned up for all targets
-	if _, exists := tm.targetIndex[target1]; exists {
+	if entry := tm.getTargetEntry(target1); entry != nil {
 		t.Error("targetIndex for target1 should be cleaned")
 	}
-	if _, exists := tm.targetIndex[target2]; exists {
+	if entry := tm.getTargetEntry(target2); entry != nil {
 		t.Error("targetIndex for target2 should be cleaned")
 	}
-	if _, exists := tm.targetIndex[target3]; exists {
+	if entry := tm.getTargetEntry(target3); entry != nil {
 		t.Error("targetIndex for target3 should be cleaned")
 	}
 }
@@ -227,7 +225,7 @@ func TestScenario_MultipleConsumers_SameRemoteTarget_Link(t *testing.T) {
 	}
 
 	// Verify targetIndex has all 3 consumers
-	entry := tm.targetIndex[remoteTarget]
+	entry := tm.getTargetEntry(remoteTarget)
 	if entry == nil {
 		t.Fatal("targetIndex entry should exist")
 	}
@@ -274,21 +272,18 @@ func TestScenario_MultipleConsumers_SameRemoteTarget_Monitor(t *testing.T) {
 	}
 
 	// Verify all relations stored
-	key1 := relationKey{consumer: consumer1, target: remoteTarget}
-	key2 := relationKey{consumer: consumer2, target: remoteTarget}
-	key3 := relationKey{consumer: consumer3, target: remoteTarget}
-	if _, exists := tm.monitorRelations[key1]; exists == false {
+	if exists := tm.hasMonitorRelation(consumer1, remoteTarget); exists == false {
 		t.Error("consumer1 relation should exist in monitorRelations")
 	}
-	if _, exists := tm.monitorRelations[key2]; exists == false {
+	if exists := tm.hasMonitorRelation(consumer2, remoteTarget); exists == false {
 		t.Error("consumer2 relation should exist in monitorRelations")
 	}
-	if _, exists := tm.monitorRelations[key3]; exists == false {
+	if exists := tm.hasMonitorRelation(consumer3, remoteTarget); exists == false {
 		t.Error("consumer3 relation should exist in monitorRelations")
 	}
 
 	// Verify targetIndex has all 3 consumers
-	entry := tm.targetIndex[remoteTarget]
+	entry := tm.getTargetEntry(remoteTarget)
 	if entry == nil {
 		t.Fatal("targetIndex entry should exist")
 	}
@@ -332,7 +327,7 @@ func TestScenario_PartialUnlink_NoNetworkUnlinkUntilLast(t *testing.T) {
 		t.Fatalf("expected 0 unlinks after P1, got %d", core.countSentUnlinks())
 	}
 	// Verify targetIndex still has 2 consumers
-	entry := tm.targetIndex[remoteTarget]
+	entry := tm.getTargetEntry(remoteTarget)
 	if entry == nil {
 		t.Fatal("targetIndex should still exist after P1 unlink")
 	}
@@ -348,7 +343,7 @@ func TestScenario_PartialUnlink_NoNetworkUnlinkUntilLast(t *testing.T) {
 		t.Fatalf("expected 0 unlinks after P2, got %d", core.countSentUnlinks())
 	}
 	// Verify targetIndex still has 1 consumer
-	entry = tm.targetIndex[remoteTarget]
+	entry = tm.getTargetEntry(remoteTarget)
 	if entry == nil {
 		t.Fatal("targetIndex should still exist after P2 unlink")
 	}
@@ -364,7 +359,7 @@ func TestScenario_PartialUnlink_NoNetworkUnlinkUntilLast(t *testing.T) {
 		t.Fatalf("expected 1 unlink after P3, got %d", core.countSentUnlinks())
 	}
 	// Verify targetIndex cleaned up
-	if _, exists := tm.targetIndex[remoteTarget]; exists {
+	if entry := tm.getTargetEntry(remoteTarget); entry != nil {
 		t.Error("targetIndex should be cleaned after last consumer unlinks")
 	}
 }
@@ -393,7 +388,7 @@ func TestScenario_PartialDemonitor_NoNetworkDemonitorUntilLast(t *testing.T) {
 		t.Fatalf("expected 0 demonitors after P1,P2, got %d", core.countSentDemonitors())
 	}
 	// Verify targetIndex still has 1 consumer (P3)
-	entry := tm.targetIndex[remoteTarget]
+	entry := tm.getTargetEntry(remoteTarget)
 	if entry == nil {
 		t.Fatal("targetIndex should still exist after P1,P2 demonitor")
 	}
@@ -407,7 +402,7 @@ func TestScenario_PartialDemonitor_NoNetworkDemonitorUntilLast(t *testing.T) {
 		t.Fatalf("expected 1 demonitor after P3, got %d", core.countSentDemonitors())
 	}
 	// Verify targetIndex cleaned up
-	if _, exists := tm.targetIndex[remoteTarget]; exists {
+	if entry := tm.getTargetEntry(remoteTarget); entry != nil {
 		t.Error("targetIndex should be cleaned after last consumer demonitors")
 	}
 }
@@ -444,19 +439,16 @@ func TestScenario_RemoteTargetTermination_NotifiesAllLocalConsumers(t *testing.T
 	}
 
 	// Verify internal state cleaned up
-	key1 := relationKey{consumer: consumer1, target: remoteTarget}
-	key2 := relationKey{consumer: consumer2, target: remoteTarget}
-	key3 := relationKey{consumer: consumer3, target: remoteTarget}
-	if _, exists := tm.linkRelations[key1]; exists {
+	if exists := tm.hasLinkRelation(consumer1, remoteTarget); exists {
 		t.Error("consumer1 linkRelation should be cleaned")
 	}
-	if _, exists := tm.linkRelations[key2]; exists {
+	if exists := tm.hasLinkRelation(consumer2, remoteTarget); exists {
 		t.Error("consumer2 linkRelation should be cleaned")
 	}
-	if _, exists := tm.linkRelations[key3]; exists {
+	if exists := tm.hasLinkRelation(consumer3, remoteTarget); exists {
 		t.Error("consumer3 linkRelation should be cleaned")
 	}
-	if _, exists := tm.targetIndex[remoteTarget]; exists {
+	if entry := tm.getTargetEntry(remoteTarget); entry != nil {
 		t.Error("targetIndex should be cleaned after termination")
 	}
 }
@@ -485,19 +477,16 @@ func TestScenario_RemoteTargetTermination_NotifiesAllLocalMonitors(t *testing.T)
 	}
 
 	// Verify internal state cleaned up
-	key1 := relationKey{consumer: consumer1, target: remoteTarget}
-	key2 := relationKey{consumer: consumer2, target: remoteTarget}
-	key3 := relationKey{consumer: consumer3, target: remoteTarget}
-	if _, exists := tm.monitorRelations[key1]; exists {
+	if exists := tm.hasMonitorRelation(consumer1, remoteTarget); exists {
 		t.Error("consumer1 monitorRelation should be cleaned")
 	}
-	if _, exists := tm.monitorRelations[key2]; exists {
+	if exists := tm.hasMonitorRelation(consumer2, remoteTarget); exists {
 		t.Error("consumer2 monitorRelation should be cleaned")
 	}
-	if _, exists := tm.monitorRelations[key3]; exists {
+	if exists := tm.hasMonitorRelation(consumer3, remoteTarget); exists {
 		t.Error("consumer3 monitorRelation should be cleaned")
 	}
-	if _, exists := tm.targetIndex[remoteTarget]; exists {
+	if entry := tm.getTargetEntry(remoteTarget); entry != nil {
 		t.Error("targetIndex should be cleaned after termination")
 	}
 }
@@ -532,11 +521,10 @@ func TestScenario_NodeDown_NotifiesAllLinkedConsumers(t *testing.T) {
 	}
 
 	// Verify internal state cleaned up
-	key := relationKey{consumer: consumer, target: remoteTarget}
-	if _, exists := tm.linkRelations[key]; exists {
+	if exists := tm.hasLinkRelation(consumer, remoteTarget); exists {
 		t.Error("linkRelation should be cleaned after node down")
 	}
-	if _, exists := tm.targetIndex[remoteTarget]; exists {
+	if entry := tm.getTargetEntry(remoteTarget); entry != nil {
 		t.Error("targetIndex should be cleaned after node down")
 	}
 }
@@ -563,11 +551,10 @@ func TestScenario_NodeDown_NotifiesAllMonitoringConsumers(t *testing.T) {
 	}
 
 	// Verify internal state cleaned up
-	key := relationKey{consumer: consumer, target: remoteTarget}
-	if _, exists := tm.monitorRelations[key]; exists {
+	if exists := tm.hasMonitorRelation(consumer, remoteTarget); exists {
 		t.Error("monitorRelation should be cleaned after node down")
 	}
-	if _, exists := tm.targetIndex[remoteTarget]; exists {
+	if entry := tm.getTargetEntry(remoteTarget); entry != nil {
 		t.Error("targetIndex should be cleaned after node down")
 	}
 }
@@ -601,18 +588,18 @@ func TestScenario_NodeDown_MultipleTargets(t *testing.T) {
 	}
 
 	// Verify all targetIndex entries cleaned up
-	if _, exists := tm.targetIndex[remoteTarget1]; exists {
+	if entry := tm.getTargetEntry(remoteTarget1); entry != nil {
 		t.Error("targetIndex for remoteTarget1 should be cleaned")
 	}
-	if _, exists := tm.targetIndex[remoteTarget2]; exists {
+	if entry := tm.getTargetEntry(remoteTarget2); entry != nil {
 		t.Error("targetIndex for remoteTarget2 should be cleaned")
 	}
-	if _, exists := tm.targetIndex[remoteTarget3]; exists {
+	if entry := tm.getTargetEntry(remoteTarget3); entry != nil {
 		t.Error("targetIndex for remoteTarget3 should be cleaned")
 	}
 	// Verify all linkRelations cleaned up
-	if len(tm.linkRelations) != 0 {
-		t.Errorf("all linkRelations should be cleaned, got %d", len(tm.linkRelations))
+	if tm.totalLinks() != 0 {
+		t.Errorf("all linkRelations should be cleaned, got %d", tm.totalLinks())
 	}
 }
 
@@ -652,11 +639,10 @@ func TestScenario_LinkNode_ReceivesExitOnDisconnect(t *testing.T) {
 	}
 
 	// Verify internal state cleaned up
-	key := relationKey{consumer: consumer, target: remoteNode}
-	if _, exists := tm.linkRelations[key]; exists {
+	if exists := tm.hasLinkRelation(consumer, remoteNode); exists {
 		t.Error("linkRelation should be cleaned after node disconnect")
 	}
-	if _, exists := tm.targetIndex[remoteNode]; exists {
+	if entry := tm.getTargetEntry(remoteNode); entry != nil {
 		t.Error("targetIndex should be cleaned after node disconnect")
 	}
 }
@@ -683,11 +669,10 @@ func TestScenario_MonitorNode_ReceivesDownOnDisconnect(t *testing.T) {
 	}
 
 	// Verify internal state cleaned up
-	key := relationKey{consumer: consumer, target: remoteNode}
-	if _, exists := tm.monitorRelations[key]; exists {
+	if exists := tm.hasMonitorRelation(consumer, remoteNode); exists {
 		t.Error("monitorRelation should be cleaned after node disconnect")
 	}
-	if _, exists := tm.targetIndex[remoteNode]; exists {
+	if entry := tm.getTargetEntry(remoteNode); entry != nil {
 		t.Error("targetIndex should be cleaned after node disconnect")
 	}
 }
@@ -734,7 +719,7 @@ func TestScenario_RemoteCorePIDSubscribesEvent_FirstSubscriber_EventStart(t *tes
 	}
 
 	// Verify event entry has the subscriber
-	entry := tm.events[event]
+	entry := tm.getEventEntry(event)
 	if entry == nil {
 		t.Fatal("event entry should exist")
 	}
@@ -778,7 +763,7 @@ func TestScenario_RemoteCorePIDUnsubscribesEvent_LastSubscriber_EventStop(t *tes
 	}
 
 	// Verify subscriber removed from event entry
-	entry := tm.events[event]
+	entry := tm.getEventEntry(event)
 	if entry == nil {
 		t.Fatal("event entry should still exist (producer owns it)")
 	}
@@ -877,14 +862,13 @@ func TestScenario_MixedLinkMonitor_SameTarget(t *testing.T) {
 	}
 
 	// Verify internal state cleaned up
-	key := relationKey{consumer: consumer, target: target}
-	if _, exists := tm.linkRelations[key]; exists {
+	if exists := tm.hasLinkRelation(consumer, target); exists {
 		t.Error("linkRelation should be cleaned after termination")
 	}
-	if _, exists := tm.monitorRelations[key]; exists {
+	if exists := tm.hasMonitorRelation(consumer, target); exists {
 		t.Error("monitorRelation should be cleaned after termination")
 	}
-	if _, exists := tm.targetIndex[target]; exists {
+	if entry := tm.getTargetEntry(target); entry != nil {
 		t.Error("targetIndex should be cleaned after termination")
 	}
 }
@@ -916,11 +900,10 @@ func TestScenario_ProcessID_TerminationNotifiesMonitors(t *testing.T) {
 	}
 
 	// Verify internal state cleaned up
-	key := relationKey{consumer: consumer, target: targetProcessID}
-	if _, exists := tm.monitorRelations[key]; exists {
+	if exists := tm.hasMonitorRelation(consumer, targetProcessID); exists {
 		t.Error("monitorRelation should be cleaned after termination")
 	}
-	if _, exists := tm.targetIndex[targetProcessID]; exists {
+	if entry := tm.getTargetEntry(targetProcessID); entry != nil {
 		t.Error("targetIndex should be cleaned after termination")
 	}
 }
@@ -947,11 +930,10 @@ func TestScenario_ProcessID_TerminationNotifiesLinkers(t *testing.T) {
 	}
 
 	// Verify internal state cleaned up
-	key := relationKey{consumer: consumer, target: targetProcessID}
-	if _, exists := tm.linkRelations[key]; exists {
+	if exists := tm.hasLinkRelation(consumer, targetProcessID); exists {
 		t.Error("linkRelation should be cleaned after termination")
 	}
-	if _, exists := tm.targetIndex[targetProcessID]; exists {
+	if entry := tm.getTargetEntry(targetProcessID); entry != nil {
 		t.Error("targetIndex should be cleaned after termination")
 	}
 }
@@ -983,11 +965,10 @@ func TestScenario_Alias_TerminationNotifiesMonitors(t *testing.T) {
 	}
 
 	// Verify internal state cleaned up
-	key := relationKey{consumer: consumer, target: targetAlias}
-	if _, exists := tm.monitorRelations[key]; exists {
+	if exists := tm.hasMonitorRelation(consumer, targetAlias); exists {
 		t.Error("monitorRelation should be cleaned after termination")
 	}
-	if _, exists := tm.targetIndex[targetAlias]; exists {
+	if entry := tm.getTargetEntry(targetAlias); entry != nil {
 		t.Error("targetIndex should be cleaned after termination")
 	}
 }
@@ -1014,11 +995,10 @@ func TestScenario_Alias_TerminationNotifiesLinkers(t *testing.T) {
 	}
 
 	// Verify internal state cleaned up
-	key := relationKey{consumer: consumer, target: targetAlias}
-	if _, exists := tm.linkRelations[key]; exists {
+	if exists := tm.hasLinkRelation(consumer, targetAlias); exists {
 		t.Error("linkRelation should be cleaned after termination")
 	}
-	if _, exists := tm.targetIndex[targetAlias]; exists {
+	if entry := tm.getTargetEntry(targetAlias); entry != nil {
 		t.Error("targetIndex should be cleaned after termination")
 	}
 }
@@ -1046,15 +1026,14 @@ func TestScenario_DuplicateLink_ReturnsError(t *testing.T) {
 	}
 
 	// Verify only 1 relation stored (not duplicated)
-	key := relationKey{consumer: consumer, target: target}
-	if _, exists := tm.linkRelations[key]; exists == false {
+	if exists := tm.hasLinkRelation(consumer, target); exists == false {
 		t.Error("linkRelation should still exist")
 	}
-	if len(tm.linkRelations) != 1 {
-		t.Errorf("expected exactly 1 linkRelation, got %d", len(tm.linkRelations))
+	if tm.totalLinks() != 1 {
+		t.Errorf("expected exactly 1 linkRelation, got %d", tm.totalLinks())
 	}
 	// Verify targetIndex has only 1 consumer
-	entry := tm.targetIndex[target]
+	entry := tm.getTargetEntry(target)
 	if entry == nil {
 		t.Fatal("targetIndex should exist")
 	}
@@ -1081,15 +1060,14 @@ func TestScenario_DuplicateMonitor_ReturnsError(t *testing.T) {
 	}
 
 	// Verify only 1 relation stored (not duplicated)
-	key := relationKey{consumer: consumer, target: target}
-	if _, exists := tm.monitorRelations[key]; exists == false {
+	if exists := tm.hasMonitorRelation(consumer, target); exists == false {
 		t.Error("monitorRelation should still exist")
 	}
-	if len(tm.monitorRelations) != 1 {
-		t.Errorf("expected exactly 1 monitorRelation, got %d", len(tm.monitorRelations))
+	if tm.totalMonitors() != 1 {
+		t.Errorf("expected exactly 1 monitorRelation, got %d", tm.totalMonitors())
 	}
 	// Verify targetIndex has only 1 consumer
-	entry := tm.targetIndex[target]
+	entry := tm.getTargetEntry(target)
 	if entry == nil {
 		t.Fatal("targetIndex should exist")
 	}
@@ -1752,11 +1730,11 @@ func TestMultipleConsumers_Link_AllNotified(t *testing.T) {
 	}
 
 	// Verify internal state cleaned up
-	if _, exists := tm.targetIndex[target]; exists {
+	if entry := tm.getTargetEntry(target); entry != nil {
 		t.Error("targetIndex should be cleaned after termination")
 	}
-	if len(tm.linkRelations) != 0 {
-		t.Errorf("all linkRelations should be cleaned, got %d", len(tm.linkRelations))
+	if tm.totalLinks() != 0 {
+		t.Errorf("all linkRelations should be cleaned, got %d", tm.totalLinks())
 	}
 }
 
@@ -1788,11 +1766,11 @@ func TestMultipleConsumers_Monitor_AllNotified(t *testing.T) {
 	}
 
 	// Verify internal state cleaned up
-	if _, exists := tm.targetIndex[target]; exists {
+	if entry := tm.getTargetEntry(target); entry != nil {
 		t.Error("targetIndex should be cleaned after termination")
 	}
-	if len(tm.monitorRelations) != 0 {
-		t.Errorf("all monitorRelations should be cleaned, got %d", len(tm.monitorRelations))
+	if tm.totalMonitors() != 0 {
+		t.Errorf("all monitorRelations should be cleaned, got %d", tm.totalMonitors())
 	}
 }
 
@@ -1887,7 +1865,7 @@ func TestRemoteLink_TwoConsumers_OneNetworkRequest(t *testing.T) {
 	}
 
 	// Verify targetIndex has 2 consumers
-	entry := tm.targetIndex[remotePID]
+	entry := tm.getTargetEntry(remotePID)
 	if entry == nil {
 		t.Fatal("targetIndex should exist")
 	}
@@ -1923,7 +1901,7 @@ func TestRemoteUnlink_LastConsumer_SendsNetworkUnlink(t *testing.T) {
 	}
 
 	// Verify targetIndex cleaned up
-	if _, exists := tm.targetIndex[remotePID]; exists {
+	if entry := tm.getTargetEntry(remotePID); entry != nil {
 		t.Error("targetIndex should be cleaned after last consumer unlinks")
 	}
 }
@@ -2042,9 +2020,10 @@ func TestCorner_LinkFromTwoNodes(t *testing.T) {
 
 	// Simulate node2's CorePID also linking
 	coreNode2 := gen.PID{Node: "node2", ID: 1}
+	s := tm.shardFor(target)
 	key := relationKey{consumer: coreNode2, target: target}
-	tm.linkRelations[key] = struct{}{}
-	entry := tm.targetIndex[target]
+	s.linkRelations[key] = struct{}{}
+	entry := s.targetIndex[target]
 	if entry != nil {
 		entry.consumers[coreNode2] = struct{}{}
 	}
@@ -2132,7 +2111,7 @@ func TestCorner_TargetIndexCleanedAfterRollback(t *testing.T) {
 	tm.LinkPID(consumer, target)
 
 	// Cleaned
-	if _, exists := tm.targetIndex[target]; exists {
+	if entry := tm.getTargetEntry(target); entry != nil {
 		t.Error("targetIndex should be cleaned after rollback")
 	}
 }
@@ -2158,7 +2137,7 @@ func TestCorner_Event_ReSubscribe(t *testing.T) {
 		t.Error("Re-subscribe should work")
 	}
 
-	entry := tm.events[event]
+	entry := tm.getEventEntry(event)
 	if entry.subscriberCount != 1 {
 		t.Errorf("Counter should be 1, got %d", entry.subscriberCount)
 	}
@@ -2222,7 +2201,7 @@ func TestCorner_PublishEvent_NoSubscribers(t *testing.T) {
 	}
 
 	// Buffer updated
-	entry := tm.events[event]
+	entry := tm.getEventEntry(event)
 	if entry.buffer.len != 1 {
 		t.Error("Buffer should be updated")
 	}
@@ -2277,8 +2256,8 @@ func TestCorner_ConcurrentAdd(t *testing.T) {
 	}
 
 	// All stored
-	if len(tm.linkRelations) != 10 {
-		t.Errorf("Expected 10 links, got %d", len(tm.linkRelations))
+	if tm.totalLinks() != 10 {
+		t.Errorf("Expected 10 links, got %d", tm.totalLinks())
 	}
 
 	// Only 1 network
@@ -2343,8 +2322,8 @@ func TestStress_1000ConcurrentLinks(t *testing.T) {
 	}
 
 	// Verify all 1000 stored
-	if len(tm.linkRelations) != 1000 {
-		t.Errorf("Expected 1000 links, got %d", len(tm.linkRelations))
+	if tm.totalLinks() != 1000 {
+		t.Errorf("Expected 1000 links, got %d", tm.totalLinks())
 	}
 
 	// Only 1 network request (CorePID optimization!)
@@ -2353,7 +2332,7 @@ func TestStress_1000ConcurrentLinks(t *testing.T) {
 	}
 
 	// Verify targetIndex has all 1000
-	entry := tm.targetIndex[target]
+	entry := tm.getTargetEntry(target)
 	if entry == nil {
 		t.Fatal("targetEntry should exist")
 	}
@@ -2397,13 +2376,13 @@ func TestStress_ConcurrentAddRemove(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// All should be cleaned
-	if len(tm.linkRelations) != 0 {
-		t.Errorf("All links should be removed, got %d", len(tm.linkRelations))
+	if tm.totalLinks() != 0 {
+		t.Errorf("All links should be removed, got %d", tm.totalLinks())
 	}
 
 	// targetIndex should be clean (or have minimal entries)
-	if len(tm.targetIndex) > 0 {
-		t.Logf("targetIndex has %d entries (may be cleanup in progress)", len(tm.targetIndex))
+	if tm.totalTargetIndex() > 0 {
+		t.Logf("targetIndex has %d entries (may be cleanup in progress)", tm.totalTargetIndex())
 	}
 }
 
@@ -2428,7 +2407,7 @@ func TestStress_Event_1000Subscribers(t *testing.T) {
 	}
 
 	// Verify all subscribed
-	entry := tm.events[event]
+	entry := tm.getEventEntry(event)
 	if len(entry.linkSubscribers) != 1000 {
 		t.Errorf("Expected 1000 subscribers, got %d", len(entry.linkSubscribers))
 	}
@@ -2489,12 +2468,12 @@ func TestStress_RapidSubscribeUnsubscribe(t *testing.T) {
 	}
 
 	// Should be clean
-	if len(tm.linkRelations) != 0 {
-		t.Errorf("linkRelations should be empty, got %d", len(tm.linkRelations))
+	if tm.totalLinks() != 0 {
+		t.Errorf("linkRelations should be empty, got %d", tm.totalLinks())
 	}
 
-	if len(tm.targetIndex) != 0 {
-		t.Errorf("targetIndex should be empty, got %d", len(tm.targetIndex))
+	if tm.totalTargetIndex() != 0 {
+		t.Errorf("targetIndex should be empty, got %d", tm.totalTargetIndex())
 	}
 }
 
@@ -2514,8 +2493,8 @@ func TestStress_MassTermination(t *testing.T) {
 	}
 
 	// Verify 1000 links total
-	if len(tm.linkRelations) != 1000 {
-		t.Errorf("Expected 1000 links, got %d", len(tm.linkRelations))
+	if tm.totalLinks() != 1000 {
+		t.Errorf("Expected 1000 links, got %d", tm.totalLinks())
 	}
 
 	core.resetSentExits()
@@ -2544,8 +2523,8 @@ func TestStress_MassTermination(t *testing.T) {
 	}
 
 	// All cleaned
-	if len(tm.linkRelations) != 0 {
-		t.Errorf("All links should be cleaned, got %d", len(tm.linkRelations))
+	if tm.totalLinks() != 0 {
+		t.Errorf("All links should be cleaned, got %d", tm.totalLinks())
 	}
 
 	// Check statistics
@@ -2605,7 +2584,7 @@ func TestStress_Event_ConcurrentOperations(t *testing.T) {
 	time.Sleep(200 * time.Millisecond)
 
 	// Verify consistency
-	entry := tm.events[event]
+	entry := tm.getEventEntry(event)
 	if entry == nil {
 		t.Fatal("Event should exist")
 	}
@@ -2654,8 +2633,8 @@ func TestStress_TerminatedNode_1000Subscriptions(t *testing.T) {
 	}
 
 	// All cleaned
-	if len(tm.linkRelations) != 0 {
-		t.Errorf("All links should be cleaned, got %d", len(tm.linkRelations))
+	if tm.totalLinks() != 0 {
+		t.Errorf("All links should be cleaned, got %d", tm.totalLinks())
 	}
 }
 
@@ -2675,23 +2654,23 @@ func TestStress_Memory_10KCycles(t *testing.T) {
 
 		if i%1000 == 0 {
 			// Check no memory leak every 1000 cycles
-			if len(tm.linkRelations) != 0 {
-				t.Errorf("Cycle %d: memory leak detected, %d relations", i, len(tm.linkRelations))
+			if tm.totalLinks() != 0 {
+				t.Errorf("Cycle %d: memory leak detected, %d relations", i, tm.totalLinks())
 			}
 
-			if len(tm.targetIndex) != 0 {
-				t.Errorf("Cycle %d: targetIndex leak, %d entries", i, len(tm.targetIndex))
+			if tm.totalTargetIndex() != 0 {
+				t.Errorf("Cycle %d: targetIndex leak, %d entries", i, tm.totalTargetIndex())
 			}
 		}
 	}
 
 	// Final check
-	if len(tm.linkRelations) != 0 {
-		t.Errorf("Final: linkRelations should be empty, got %d", len(tm.linkRelations))
+	if tm.totalLinks() != 0 {
+		t.Errorf("Final: linkRelations should be empty, got %d", tm.totalLinks())
 	}
 
-	if len(tm.targetIndex) != 0 {
-		t.Errorf("Final: targetIndex should be empty, got %d", len(tm.targetIndex))
+	if tm.totalTargetIndex() != 0 {
+		t.Errorf("Final: targetIndex should be empty, got %d", tm.totalTargetIndex())
 	}
 }
 
@@ -2761,8 +2740,8 @@ func TestStress_ConcurrentTerminatedProcess(t *testing.T) {
 	}
 
 	// 1000 links total
-	if len(tm.linkRelations) != 1000 {
-		t.Errorf("Expected 1000 links, got %d", len(tm.linkRelations))
+	if tm.totalLinks() != 1000 {
+		t.Errorf("Expected 1000 links, got %d", tm.totalLinks())
 	}
 
 	var wg sync.WaitGroup
@@ -2784,8 +2763,8 @@ func TestStress_ConcurrentTerminatedProcess(t *testing.T) {
 	time.Sleep(500 * time.Millisecond)
 
 	// All cleaned
-	if len(tm.linkRelations) != 0 {
-		t.Errorf("All links should be cleaned, got %d", len(tm.linkRelations))
+	if tm.totalLinks() != 0 {
+		t.Errorf("All links should be cleaned, got %d", tm.totalLinks())
 	}
 
 	// Remote Unlinks sent (500 consumers × 2 targets but CorePID optimization)
@@ -2834,12 +2813,12 @@ func TestStress_MixedOperations(t *testing.T) {
 	time.Sleep(200 * time.Millisecond)
 
 	// Should be mostly clean
-	if len(tm.linkRelations) != 0 {
-		t.Logf("linkRelations: %d (some may be in flight)", len(tm.linkRelations))
+	if tm.totalLinks() != 0 {
+		t.Logf("linkRelations: %d (some may be in flight)", tm.totalLinks())
 	}
 
-	if len(tm.monitorRelations) != 0 {
-		t.Logf("monitorRelations: %d (some may be in flight)", len(tm.monitorRelations))
+	if tm.totalMonitors() != 0 {
+		t.Logf("monitorRelations: %d (some may be in flight)", tm.totalMonitors())
 	}
 }
 
@@ -2863,8 +2842,8 @@ func TestStress_WorkerSpawnCycles(t *testing.T) {
 	}
 
 	// All 1000 links stored
-	if len(tm.linkRelations) != 1000 {
-		t.Errorf("Expected 1000 links, got %d", len(tm.linkRelations))
+	if tm.totalLinks() != 1000 {
+		t.Errorf("Expected 1000 links, got %d", tm.totalLinks())
 	}
 
 	// Worker should have spawned and slept multiple times

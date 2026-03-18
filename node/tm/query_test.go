@@ -68,26 +68,21 @@ func TestHasLink_DifferentTargetTypes(t *testing.T) {
 	}
 
 	// Verify internal state: all 4 relations stored
-	if len(tm.linkRelations) != 4 {
-		t.Errorf("expected 4 linkRelations, got %d", len(tm.linkRelations))
+	if tm.totalLinks() != 4 {
+		t.Errorf("expected 4 linkRelations, got %d", tm.totalLinks())
 	}
 
 	// Verify each relation in linkRelations
-	keyPID := relationKey{consumer: consumer, target: targetPID}
-	keyProcessID := relationKey{consumer: consumer, target: targetProcessID}
-	keyAlias := relationKey{consumer: consumer, target: targetAlias}
-	keyNode := relationKey{consumer: consumer, target: targetNode}
-
-	if _, exists := tm.linkRelations[keyPID]; exists == false {
+	if exists := tm.hasLinkRelation(consumer, targetPID); exists == false {
 		t.Error("linkRelations should contain PID relation")
 	}
-	if _, exists := tm.linkRelations[keyProcessID]; exists == false {
+	if exists := tm.hasLinkRelation(consumer, targetProcessID); exists == false {
 		t.Error("linkRelations should contain ProcessID relation")
 	}
-	if _, exists := tm.linkRelations[keyAlias]; exists == false {
+	if exists := tm.hasLinkRelation(consumer, targetAlias); exists == false {
 		t.Error("linkRelations should contain Alias relation")
 	}
-	if _, exists := tm.linkRelations[keyNode]; exists == false {
+	if exists := tm.hasLinkRelation(consumer, targetNode); exists == false {
 		t.Error("linkRelations should contain Node relation")
 	}
 }
@@ -173,26 +168,21 @@ func TestHasMonitor_DifferentTargetTypes(t *testing.T) {
 	}
 
 	// Verify internal state: all 4 relations stored
-	if len(tm.monitorRelations) != 4 {
-		t.Errorf("expected 4 monitorRelations, got %d", len(tm.monitorRelations))
+	if tm.totalMonitors() != 4 {
+		t.Errorf("expected 4 monitorRelations, got %d", tm.totalMonitors())
 	}
 
 	// Verify each relation in monitorRelations
-	keyPID := relationKey{consumer: consumer, target: targetPID}
-	keyProcessID := relationKey{consumer: consumer, target: targetProcessID}
-	keyAlias := relationKey{consumer: consumer, target: targetAlias}
-	keyNode := relationKey{consumer: consumer, target: targetNode}
-
-	if _, exists := tm.monitorRelations[keyPID]; exists == false {
+	if exists := tm.hasMonitorRelation(consumer, targetPID); exists == false {
 		t.Error("monitorRelations should contain PID relation")
 	}
-	if _, exists := tm.monitorRelations[keyProcessID]; exists == false {
+	if exists := tm.hasMonitorRelation(consumer, targetProcessID); exists == false {
 		t.Error("monitorRelations should contain ProcessID relation")
 	}
-	if _, exists := tm.monitorRelations[keyAlias]; exists == false {
+	if exists := tm.hasMonitorRelation(consumer, targetAlias); exists == false {
 		t.Error("monitorRelations should contain Alias relation")
 	}
-	if _, exists := tm.monitorRelations[keyNode]; exists == false {
+	if exists := tm.hasMonitorRelation(consumer, targetNode); exists == false {
 		t.Error("monitorRelations should contain Node relation")
 	}
 }
@@ -323,19 +313,18 @@ func TestLinksFor_AfterRemovingOne(t *testing.T) {
 	}
 
 	// Verify internal state: target2 relation removed
-	key2 := relationKey{consumer: consumer, target: target2}
-	if _, exists := tm.linkRelations[key2]; exists {
+	if exists := tm.hasLinkRelation(consumer, target2); exists {
 		t.Error("linkRelations should not contain removed target2")
 	}
 
 	// Verify targetIndex for target2 is cleaned
-	if _, exists := tm.targetIndex[target2]; exists {
+	if entry := tm.getTargetEntry(target2); entry != nil {
 		t.Error("targetIndex for target2 should be cleaned")
 	}
 
 	// Verify remaining relations still exist
-	if len(tm.linkRelations) != 2 {
-		t.Errorf("expected 2 linkRelations remaining, got %d", len(tm.linkRelations))
+	if tm.totalLinks() != 2 {
+		t.Errorf("expected 2 linkRelations remaining, got %d", tm.totalLinks())
 	}
 }
 
@@ -361,15 +350,15 @@ func TestLinksFor_AfterRemovingAll(t *testing.T) {
 	}
 
 	// Verify internal state: all linkRelations cleaned
-	if len(tm.linkRelations) != 0 {
-		t.Errorf("expected 0 linkRelations, got %d", len(tm.linkRelations))
+	if tm.totalLinks() != 0 {
+		t.Errorf("expected 0 linkRelations, got %d", tm.totalLinks())
 	}
 
 	// Verify all targetIndex entries cleaned
-	if _, exists := tm.targetIndex[target1]; exists {
+	if entry := tm.getTargetEntry(target1); entry != nil {
 		t.Error("targetIndex for target1 should be cleaned")
 	}
-	if _, exists := tm.targetIndex[target2]; exists {
+	if entry := tm.getTargetEntry(target2); entry != nil {
 		t.Error("targetIndex for target2 should be cleaned")
 	}
 }
@@ -439,12 +428,12 @@ func TestLinksFor_RemoteTargets(t *testing.T) {
 	}
 
 	// Verify internal state: both relations stored
-	if len(tm.linkRelations) != 2 {
-		t.Errorf("expected 2 linkRelations, got %d", len(tm.linkRelations))
+	if tm.totalLinks() != 2 {
+		t.Errorf("expected 2 linkRelations, got %d", tm.totalLinks())
 	}
 
 	// Verify targetIndex for remote target has consumer
-	entry := tm.targetIndex[remoteTarget]
+	entry := tm.getTargetEntry(remoteTarget)
 	if entry == nil {
 		t.Fatal("targetIndex for remoteTarget should exist")
 	}
@@ -560,19 +549,18 @@ func TestMonitorsFor_AfterRemovingOne(t *testing.T) {
 	}
 
 	// Verify internal state: target2 relation removed
-	key2 := relationKey{consumer: consumer, target: target2}
-	if _, exists := tm.monitorRelations[key2]; exists {
+	if exists := tm.hasMonitorRelation(consumer, target2); exists {
 		t.Error("monitorRelations should not contain removed target2")
 	}
 
 	// Verify targetIndex for target2 is cleaned
-	if _, exists := tm.targetIndex[target2]; exists {
+	if entry := tm.getTargetEntry(target2); entry != nil {
 		t.Error("targetIndex for target2 should be cleaned")
 	}
 
 	// Verify remaining relations still exist
-	if len(tm.monitorRelations) != 2 {
-		t.Errorf("expected 2 monitorRelations remaining, got %d", len(tm.monitorRelations))
+	if tm.totalMonitors() != 2 {
+		t.Errorf("expected 2 monitorRelations remaining, got %d", tm.totalMonitors())
 	}
 }
 
@@ -598,15 +586,15 @@ func TestMonitorsFor_AfterRemovingAll(t *testing.T) {
 	}
 
 	// Verify internal state: all monitorRelations cleaned
-	if len(tm.monitorRelations) != 0 {
-		t.Errorf("expected 0 monitorRelations, got %d", len(tm.monitorRelations))
+	if tm.totalMonitors() != 0 {
+		t.Errorf("expected 0 monitorRelations, got %d", tm.totalMonitors())
 	}
 
 	// Verify all targetIndex entries cleaned
-	if _, exists := tm.targetIndex[target1]; exists {
+	if entry := tm.getTargetEntry(target1); entry != nil {
 		t.Error("targetIndex for target1 should be cleaned")
 	}
-	if _, exists := tm.targetIndex[target2]; exists {
+	if entry := tm.getTargetEntry(target2); entry != nil {
 		t.Error("targetIndex for target2 should be cleaned")
 	}
 }
@@ -709,12 +697,12 @@ func TestMonitorsFor_RemoteTargets(t *testing.T) {
 	}
 
 	// Verify internal state: both relations stored
-	if len(tm.monitorRelations) != 2 {
-		t.Errorf("expected 2 monitorRelations, got %d", len(tm.monitorRelations))
+	if tm.totalMonitors() != 2 {
+		t.Errorf("expected 2 monitorRelations, got %d", tm.totalMonitors())
 	}
 
 	// Verify targetIndex for remote target has consumer
-	entry := tm.targetIndex[remoteTarget]
+	entry := tm.getTargetEntry(remoteTarget)
 	if entry == nil {
 		t.Fatal("targetIndex for remoteTarget should exist")
 	}
@@ -745,18 +733,16 @@ func TestLinkAndMonitor_SameTarget_SeparateRelations(t *testing.T) {
 	}
 
 	// Verify stored separately
-	key := relationKey{consumer: consumer, target: target}
-
-	if _, exists := tm.linkRelations[key]; exists == false {
+	if exists := tm.hasLinkRelation(consumer, target); exists == false {
 		t.Error("Link should exist in linkRelations")
 	}
 
-	if _, exists := tm.monitorRelations[key]; exists == false {
+	if exists := tm.hasMonitorRelation(consumer, target); exists == false {
 		t.Error("Monitor should exist in monitorRelations")
 	}
 
 	// Verify targetIndex has consumer (shared)
-	entry := tm.targetIndex[target]
+	entry := tm.getTargetEntry(target)
 	if _, exists := entry.consumers[consumer]; exists == false {
 		t.Error("Consumer should be in targetIndex")
 	}
@@ -805,12 +791,12 @@ func TestEventsFor_Basic(t *testing.T) {
 	}
 
 	// Verify internal state: all events in events map
-	if len(tm.events) != 3 {
-		t.Errorf("expected 3 events in tm.events, got %d", len(tm.events))
+	if tm.totalEvents() != 3 {
+		t.Errorf("expected 3 events in tm.events, got %d", tm.totalEvents())
 	}
 
 	// Verify producerEvents has 3 events for this producer
-	producerEvts := tm.producerEvents[producer]
+	producerEvts := tm.getProducerEventsMap(producer)
 	if producerEvts == nil {
 		t.Fatal("producerEvents should exist for producer")
 	}
@@ -861,18 +847,18 @@ func TestEventsFor_AfterUnregister(t *testing.T) {
 
 	// Verify internal state: event1 removed from events map
 	event1 := gen.Event{Node: "node1", Name: "event1"}
-	if _, exists := tm.events[event1]; exists {
+	if entry := tm.getEventEntry(event1); entry != nil {
 		t.Error("event1 should be removed from tm.events")
 	}
 
 	// Verify event2 still in events map
 	event2 := gen.Event{Node: "node1", Name: "event2"}
-	if _, exists := tm.events[event2]; exists == false {
+	if entry := tm.getEventEntry(event2); entry == nil {
 		t.Error("event2 should still exist in tm.events")
 	}
 
 	// Verify producerEvents has 1 event
-	producerEvts := tm.producerEvents[producer]
+	producerEvts := tm.getProducerEventsMap(producer)
 	if len(producerEvts) != 1 {
 		t.Errorf("expected 1 event in producerEvents, got %d", len(producerEvts))
 	}
@@ -913,15 +899,15 @@ func TestEventsFor_AfterUnregisterAll(t *testing.T) {
 	// Verify internal state: all events removed from events map
 	event1 := gen.Event{Node: "node1", Name: "event1"}
 	event2 := gen.Event{Node: "node1", Name: "event2"}
-	if _, exists := tm.events[event1]; exists {
+	if entry := tm.getEventEntry(event1); entry != nil {
 		t.Error("event1 should be removed from tm.events")
 	}
-	if _, exists := tm.events[event2]; exists {
+	if entry := tm.getEventEntry(event2); entry != nil {
 		t.Error("event2 should be removed from tm.events")
 	}
 
 	// Verify producerEvents cleaned up
-	if _, exists := tm.producerEvents[producer]; exists {
+	if producerEvts := tm.getProducerEventsMap(producer); producerEvts != nil {
 		t.Error("producerEvents for producer should be cleaned up")
 	}
 }

@@ -20,8 +20,7 @@ func TestLinkAlias_Local(t *testing.T) {
 		t.Fatalf("LinkAlias failed: %v", err)
 	}
 
-	key := relationKey{consumer: consumer, target: target}
-	if _, exists := tm.linkRelations[key]; exists == false {
+	if exists := tm.hasLinkRelation(consumer, target); exists == false {
 		t.Error("Link should be stored")
 	}
 
@@ -43,13 +42,12 @@ func TestLinkAlias_Remote_First(t *testing.T) {
 	}
 
 	// Verify link stored in linkRelations
-	key := relationKey{consumer: consumer, target: target}
-	if _, exists := tm.linkRelations[key]; exists == false {
+	if exists := tm.hasLinkRelation(consumer, target); exists == false {
 		t.Error("Link should be stored in linkRelations")
 	}
 
 	// Verify targetIndex created
-	entry := tm.targetIndex[target]
+	entry := tm.getTargetEntry(target)
 	if entry == nil {
 		t.Fatal("targetIndex entry should be created")
 	}
@@ -92,20 +90,18 @@ func TestLinkAlias_Remote_Second(t *testing.T) {
 	}
 
 	// Verify both links stored in linkRelations
-	if len(tm.linkRelations) != 2 {
-		t.Errorf("Expected 2 link relations, got %d", len(tm.linkRelations))
+	if tm.totalLinks() != 2 {
+		t.Errorf("Expected 2 link relations, got %d", tm.totalLinks())
 	}
-	key1 := relationKey{consumer: consumer1, target: target}
-	if _, exists := tm.linkRelations[key1]; exists == false {
+	if exists := tm.hasLinkRelation(consumer1, target); exists == false {
 		t.Error("consumer1 link should exist in linkRelations")
 	}
-	key2 := relationKey{consumer: consumer2, target: target}
-	if _, exists := tm.linkRelations[key2]; exists == false {
+	if exists := tm.hasLinkRelation(consumer2, target); exists == false {
 		t.Error("consumer2 link should exist in linkRelations")
 	}
 
 	// Verify targetIndex has both consumers
-	entry := tm.targetIndex[target]
+	entry := tm.getTargetEntry(target)
 	if entry == nil {
 		t.Fatal("targetIndex entry should exist")
 	}
@@ -145,13 +141,12 @@ func TestLinkAlias_NetworkError_Rollback(t *testing.T) {
 	}
 
 	// Verify link rolled back from linkRelations
-	key := relationKey{consumer: consumer, target: target}
-	if _, exists := tm.linkRelations[key]; exists {
+	if exists := tm.hasLinkRelation(consumer, target); exists {
 		t.Error("Link should be rolled back from linkRelations")
 	}
 
 	// Verify targetIndex cleaned after rollback
-	if _, exists := tm.targetIndex[target]; exists {
+	if entry := tm.getTargetEntry(target); entry != nil {
 		t.Error("targetIndex should be cleaned after rollback")
 	}
 }
@@ -174,12 +169,12 @@ func TestLinkAlias_RemoteCorePID_Duplicate_Ignored(t *testing.T) {
 	}
 
 	// Verify only ONE relation exists (duplicate was ignored)
-	if len(tm.linkRelations) != 1 {
-		t.Errorf("Expected 1 link relation, got %d", len(tm.linkRelations))
+	if tm.totalLinks() != 1 {
+		t.Errorf("Expected 1 link relation, got %d", tm.totalLinks())
 	}
 
 	// Verify targetIndex has only one consumer
-	entry := tm.targetIndex[localTarget]
+	entry := tm.getTargetEntry(localTarget)
 	if entry == nil {
 		t.Fatal("targetIndex entry should exist")
 	}
@@ -205,13 +200,12 @@ func TestUnlinkAlias_Local(t *testing.T) {
 	}
 
 	// Verify link removed from linkRelations
-	key := relationKey{consumer: consumer, target: target}
-	if _, exists := tm.linkRelations[key]; exists {
+	if exists := tm.hasLinkRelation(consumer, target); exists {
 		t.Error("Link should be removed from linkRelations")
 	}
 
 	// Verify targetIndex cleaned
-	if _, exists := tm.targetIndex[target]; exists {
+	if entry := tm.getTargetEntry(target); entry != nil {
 		t.Error("targetIndex should be cleaned")
 	}
 }
@@ -232,19 +226,17 @@ func TestUnlinkAlias_NotLast(t *testing.T) {
 	tm.UnlinkAlias(consumer1, target)
 
 	// Verify consumer1 link removed from linkRelations
-	key1 := relationKey{consumer: consumer1, target: target}
-	if _, exists := tm.linkRelations[key1]; exists {
+	if exists := tm.hasLinkRelation(consumer1, target); exists {
 		t.Error("consumer1 link should be removed from linkRelations")
 	}
 
 	// Verify consumer2 link still exists
-	key2 := relationKey{consumer: consumer2, target: target}
-	if _, exists := tm.linkRelations[key2]; exists == false {
+	if exists := tm.hasLinkRelation(consumer2, target); exists == false {
 		t.Error("consumer2 link should still exist in linkRelations")
 	}
 
 	// Verify targetIndex still exists with only consumer2
-	entry := tm.targetIndex[target]
+	entry := tm.getTargetEntry(target)
 	if entry == nil {
 		t.Fatal("targetIndex entry should still exist")
 	}
@@ -277,13 +269,12 @@ func TestUnlinkAlias_Last(t *testing.T) {
 	}
 
 	// Verify link removed from linkRelations
-	key := relationKey{consumer: consumer, target: target}
-	if _, exists := tm.linkRelations[key]; exists {
+	if exists := tm.hasLinkRelation(consumer, target); exists {
 		t.Error("Link should be removed from linkRelations")
 	}
 
 	// Verify targetIndex cleaned
-	if _, exists := tm.targetIndex[target]; exists {
+	if entry := tm.getTargetEntry(target); entry != nil {
 		t.Error("targetIndex should be cleaned when last consumer removed")
 	}
 
@@ -320,8 +311,7 @@ func TestMonitorAlias_Local(t *testing.T) {
 		t.Fatalf("MonitorAlias failed: %v", err)
 	}
 
-	key := relationKey{consumer: consumer, target: target}
-	if _, exists := tm.monitorRelations[key]; exists == false {
+	if exists := tm.hasMonitorRelation(consumer, target); exists == false {
 		t.Error("Monitor should be stored")
 	}
 
@@ -343,13 +333,12 @@ func TestMonitorAlias_Remote_First(t *testing.T) {
 	}
 
 	// Verify monitor stored in monitorRelations
-	key := relationKey{consumer: consumer, target: target}
-	if _, exists := tm.monitorRelations[key]; exists == false {
+	if exists := tm.hasMonitorRelation(consumer, target); exists == false {
 		t.Error("Monitor should be stored in monitorRelations")
 	}
 
 	// Verify targetIndex created
-	entry := tm.targetIndex[target]
+	entry := tm.getTargetEntry(target)
 	if entry == nil {
 		t.Fatal("targetIndex entry should be created")
 	}
@@ -392,20 +381,18 @@ func TestMonitorAlias_Remote_Second(t *testing.T) {
 	}
 
 	// Verify both monitors stored in monitorRelations
-	if len(tm.monitorRelations) != 2 {
-		t.Errorf("Expected 2 monitor relations, got %d", len(tm.monitorRelations))
+	if tm.totalMonitors() != 2 {
+		t.Errorf("Expected 2 monitor relations, got %d", tm.totalMonitors())
 	}
-	key1 := relationKey{consumer: consumer1, target: target}
-	if _, exists := tm.monitorRelations[key1]; exists == false {
+	if exists := tm.hasMonitorRelation(consumer1, target); exists == false {
 		t.Error("consumer1 monitor should exist in monitorRelations")
 	}
-	key2 := relationKey{consumer: consumer2, target: target}
-	if _, exists := tm.monitorRelations[key2]; exists == false {
+	if exists := tm.hasMonitorRelation(consumer2, target); exists == false {
 		t.Error("consumer2 monitor should exist in monitorRelations")
 	}
 
 	// Verify targetIndex has both consumers
-	entry := tm.targetIndex[target]
+	entry := tm.getTargetEntry(target)
 	if entry == nil {
 		t.Fatal("targetIndex entry should exist")
 	}
@@ -445,13 +432,12 @@ func TestMonitorAlias_NetworkError_Rollback(t *testing.T) {
 	}
 
 	// Verify monitor rolled back from monitorRelations
-	key := relationKey{consumer: consumer, target: target}
-	if _, exists := tm.monitorRelations[key]; exists {
+	if exists := tm.hasMonitorRelation(consumer, target); exists {
 		t.Error("Monitor should be rolled back from monitorRelations")
 	}
 
 	// Verify targetIndex cleaned after rollback
-	if _, exists := tm.targetIndex[target]; exists {
+	if entry := tm.getTargetEntry(target); entry != nil {
 		t.Error("targetIndex should be cleaned after rollback")
 	}
 }
@@ -474,12 +460,12 @@ func TestMonitorAlias_RemoteCorePID_Duplicate_Ignored(t *testing.T) {
 	}
 
 	// Verify only ONE relation exists (duplicate was ignored)
-	if len(tm.monitorRelations) != 1 {
-		t.Errorf("Expected 1 monitor relation, got %d", len(tm.monitorRelations))
+	if tm.totalMonitors() != 1 {
+		t.Errorf("Expected 1 monitor relation, got %d", tm.totalMonitors())
 	}
 
 	// Verify targetIndex has only one consumer
-	entry := tm.targetIndex[localTarget]
+	entry := tm.getTargetEntry(localTarget)
 	if entry == nil {
 		t.Fatal("targetIndex entry should exist")
 	}
@@ -505,13 +491,12 @@ func TestDemonitorAlias_Local(t *testing.T) {
 	}
 
 	// Verify monitor removed from monitorRelations
-	key := relationKey{consumer: consumer, target: target}
-	if _, exists := tm.monitorRelations[key]; exists {
+	if exists := tm.hasMonitorRelation(consumer, target); exists {
 		t.Error("Monitor should be removed from monitorRelations")
 	}
 
 	// Verify targetIndex cleaned
-	if _, exists := tm.targetIndex[target]; exists {
+	if entry := tm.getTargetEntry(target); entry != nil {
 		t.Error("targetIndex should be cleaned")
 	}
 }
@@ -532,19 +517,17 @@ func TestDemonitorAlias_NotLast(t *testing.T) {
 	tm.DemonitorAlias(consumer1, target)
 
 	// Verify consumer1 monitor removed from monitorRelations
-	key1 := relationKey{consumer: consumer1, target: target}
-	if _, exists := tm.monitorRelations[key1]; exists {
+	if exists := tm.hasMonitorRelation(consumer1, target); exists {
 		t.Error("consumer1 monitor should be removed from monitorRelations")
 	}
 
 	// Verify consumer2 monitor still exists
-	key2 := relationKey{consumer: consumer2, target: target}
-	if _, exists := tm.monitorRelations[key2]; exists == false {
+	if exists := tm.hasMonitorRelation(consumer2, target); exists == false {
 		t.Error("consumer2 monitor should still exist in monitorRelations")
 	}
 
 	// Verify targetIndex still exists with only consumer2
-	entry := tm.targetIndex[target]
+	entry := tm.getTargetEntry(target)
 	if entry == nil {
 		t.Fatal("targetIndex entry should still exist")
 	}
@@ -577,13 +560,12 @@ func TestDemonitorAlias_Last(t *testing.T) {
 	}
 
 	// Verify monitor removed from monitorRelations
-	key := relationKey{consumer: consumer, target: target}
-	if _, exists := tm.monitorRelations[key]; exists {
+	if exists := tm.hasMonitorRelation(consumer, target); exists {
 		t.Error("Monitor should be removed from monitorRelations")
 	}
 
 	// Verify targetIndex cleaned
-	if _, exists := tm.targetIndex[target]; exists {
+	if entry := tm.getTargetEntry(target); entry != nil {
 		t.Error("targetIndex should be cleaned when last consumer removed")
 	}
 
@@ -611,8 +593,7 @@ func TestDemonitorAlias_Complete(t *testing.T) {
 	}
 
 	// consumer2 still exists
-	key2 := relationKey{consumer: consumer2, target: target}
-	if _, exists := tm.monitorRelations[key2]; exists == false {
+	if exists := tm.hasMonitorRelation(consumer2, target); exists == false {
 		t.Error("Second monitor should still exist")
 	}
 
@@ -623,11 +604,11 @@ func TestDemonitorAlias_Complete(t *testing.T) {
 	}
 
 	// All cleaned
-	if len(tm.monitorRelations) != 0 {
+	if tm.totalMonitors() != 0 {
 		t.Error("All monitors should be cleaned")
 	}
 
-	if _, exists := tm.targetIndex[target]; exists {
+	if entry := tm.getTargetEntry(target); entry != nil {
 		t.Error("targetIndex should be cleaned")
 	}
 }

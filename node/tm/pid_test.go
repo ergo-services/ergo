@@ -20,12 +20,11 @@ func TestLinkPID_Local_Basic(t *testing.T) {
 		t.Fatalf("LinkPID failed: %v", err)
 	}
 
-	key := relationKey{consumer: consumer, target: target}
-	if _, exists := tm.linkRelations[key]; exists == false {
+	if tm.hasLinkRelation(consumer, target) == false {
 		t.Error("Link should be stored in linkRelations")
 	}
 
-	entry := tm.targetIndex[target]
+	entry := tm.getTargetEntry(target)
 	if entry == nil {
 		t.Fatal("targetEntry should be created")
 	}
@@ -51,8 +50,7 @@ func TestLinkPID_Remote_FirstSubscriber(t *testing.T) {
 		t.Fatalf("LinkPID failed: %v", err)
 	}
 
-	key := relationKey{consumer: consumer, target: target}
-	if _, exists := tm.linkRelations[key]; exists == false {
+	if tm.hasLinkRelation(consumer, target) == false {
 		t.Error("Link should be stored locally")
 	}
 
@@ -71,7 +69,7 @@ func TestLinkPID_Remote_FirstSubscriber(t *testing.T) {
 		}
 	}
 
-	entry := tm.targetIndex[target]
+	entry := tm.getTargetEntry(target)
 	if entry.allowAlwaysFirst == true {
 		t.Error("allowAlwaysFirst should be false after successful remote link")
 	}
@@ -101,8 +99,7 @@ func TestLinkPID_Remote_SecondSubscriber_NoNetwork(t *testing.T) {
 		t.Fatalf("Second LinkPID failed: %v", err)
 	}
 
-	key2 := relationKey{consumer: consumer2, target: target}
-	if _, exists := tm.linkRelations[key2]; exists == false {
+	if tm.hasLinkRelation(consumer2, target) == false {
 		t.Error("Second link should be stored locally")
 	}
 
@@ -110,7 +107,7 @@ func TestLinkPID_Remote_SecondSubscriber_NoNetwork(t *testing.T) {
 		t.Errorf("Second subscriber should NOT send network request (CorePID optimization), got %d", core.countSentLinks())
 	}
 
-	entry := tm.targetIndex[target]
+	entry := tm.getTargetEntry(target)
 	if len(entry.consumers) != 2 {
 		t.Errorf("Expected 2 consumers in targetIndex, got %d", len(entry.consumers))
 	}
@@ -133,8 +130,8 @@ func TestLinkPID_Remote_ThreeSubscribers_OneNetworkRequest(t *testing.T) {
 		t.Errorf("Expected exactly 1 network request for 3 subscribers, got %d", core.countSentLinks())
 	}
 
-	if len(tm.linkRelations) != 3 {
-		t.Errorf("Expected 3 links stored locally, got %d", len(tm.linkRelations))
+	if tm.totalLinks() != 3 {
+		t.Errorf("Expected 3 links stored locally, got %d", tm.totalLinks())
 	}
 
 	if sent, ok := core.getFirstSentLink(); ok {
@@ -177,12 +174,11 @@ func TestLinkPID_NetworkError_Rollback(t *testing.T) {
 		t.Errorf("Expected ErrNoConnection, got %v", err)
 	}
 
-	key := relationKey{consumer: consumer, target: target}
-	if _, exists := tm.linkRelations[key]; exists {
+	if tm.hasLinkRelation(consumer, target) {
 		t.Error("Link should be rolled back after network error")
 	}
 
-	if _, exists := tm.targetIndex[target]; exists {
+	if tm.getTargetEntry(target) != nil {
 		t.Error("targetIndex should be cleaned after rollback")
 	}
 }
@@ -202,8 +198,7 @@ func TestLinkPID_RemoteError_Rollback(t *testing.T) {
 		t.Errorf("Expected ErrProcessUnknown, got %v", err)
 	}
 
-	key := relationKey{consumer: consumer, target: target}
-	if _, exists := tm.linkRelations[key]; exists {
+	if tm.hasLinkRelation(consumer, target) {
 		t.Error("Link should be rolled back after remote error")
 	}
 }
@@ -226,12 +221,12 @@ func TestLinkPID_RemoteCorePID_Duplicate_Ignored(t *testing.T) {
 	}
 
 	// Verify only ONE relation exists (duplicate was ignored, not added twice)
-	if len(tm.linkRelations) != 1 {
-		t.Errorf("Expected 1 link relation, got %d", len(tm.linkRelations))
+	if tm.totalLinks() != 1 {
+		t.Errorf("Expected 1 link relation, got %d", tm.totalLinks())
 	}
 
 	// Verify targetIndex has only one consumer
-	entry := tm.targetIndex[localTarget]
+	entry := tm.getTargetEntry(localTarget)
 	if entry == nil {
 		t.Fatal("targetIndex entry should exist")
 	}
@@ -261,19 +256,17 @@ func TestUnlinkPID_NotLastLocal(t *testing.T) {
 	}
 
 	// Verify consumer1 link removed from linkRelations
-	key1 := relationKey{consumer: consumer1, target: target}
-	if _, exists := tm.linkRelations[key1]; exists {
+	if tm.hasLinkRelation(consumer1, target) {
 		t.Error("consumer1 link should be removed from linkRelations")
 	}
 
 	// Verify consumer2 link still exists in linkRelations
-	key2 := relationKey{consumer: consumer2, target: target}
-	if _, exists := tm.linkRelations[key2]; exists == false {
+	if tm.hasLinkRelation(consumer2, target) == false {
 		t.Error("consumer2 link should still exist in linkRelations")
 	}
 
 	// Verify targetIndex still exists with only consumer2
-	entry := tm.targetIndex[target]
+	entry := tm.getTargetEntry(target)
 	if entry == nil {
 		t.Fatal("targetIndex entry should still exist")
 	}
@@ -306,12 +299,11 @@ func TestUnlinkPID_LastLocal_SendsUnlink(t *testing.T) {
 		t.Fatalf("UnlinkPID failed: %v", err)
 	}
 
-	key := relationKey{consumer: consumer, target: target}
-	if _, exists := tm.linkRelations[key]; exists {
+	if tm.hasLinkRelation(consumer, target) {
 		t.Error("Link should be removed")
 	}
 
-	if _, exists := tm.targetIndex[target]; exists {
+	if tm.getTargetEntry(target) != nil {
 		t.Error("targetIndex should be cleaned when last consumer removed")
 	}
 
@@ -344,8 +336,7 @@ func TestMonitorPID_Local_Basic(t *testing.T) {
 		t.Fatalf("MonitorPID failed: %v", err)
 	}
 
-	key := relationKey{consumer: consumer, target: target}
-	if _, exists := tm.monitorRelations[key]; exists == false {
+	if tm.hasMonitorRelation(consumer, target) == false {
 		t.Error("Monitor should be stored")
 	}
 
@@ -411,12 +402,12 @@ func TestMonitorPID_Remote_ThreeSubscribers(t *testing.T) {
 	}
 
 	// Verify all 3 monitors stored in monitorRelations
-	if len(tm.monitorRelations) != 3 {
-		t.Errorf("Expected 3 monitor relations, got %d", len(tm.monitorRelations))
+	if tm.totalMonitors() != 3 {
+		t.Errorf("Expected 3 monitor relations, got %d", tm.totalMonitors())
 	}
 
 	// Verify targetIndex has all 3 consumers
-	entry := tm.targetIndex[target]
+	entry := tm.getTargetEntry(target)
 	if entry == nil {
 		t.Fatal("targetIndex entry should exist")
 	}
@@ -462,8 +453,7 @@ func TestMonitorPID_NetworkError_Rollback(t *testing.T) {
 		t.Errorf("Expected ErrNoConnection, got %v", err)
 	}
 
-	key := relationKey{consumer: consumer, target: target}
-	if _, exists := tm.monitorRelations[key]; exists {
+	if tm.hasMonitorRelation(consumer, target) {
 		t.Error("Monitor should be rolled back")
 	}
 }
@@ -483,8 +473,7 @@ func TestMonitorPID_RemoteError_Rollback(t *testing.T) {
 		t.Errorf("Expected ErrProcessUnknown, got %v", err)
 	}
 
-	key := relationKey{consumer: consumer, target: target}
-	if _, exists := tm.monitorRelations[key]; exists {
+	if tm.hasMonitorRelation(consumer, target) {
 		t.Error("Monitor should be rolled back")
 	}
 }
@@ -507,12 +496,12 @@ func TestMonitorPID_RemoteCorePID_Duplicate(t *testing.T) {
 	}
 
 	// Verify only ONE relation exists (duplicate was ignored, not added twice)
-	if len(tm.monitorRelations) != 1 {
-		t.Errorf("Expected 1 monitor relation, got %d", len(tm.monitorRelations))
+	if tm.totalMonitors() != 1 {
+		t.Errorf("Expected 1 monitor relation, got %d", tm.totalMonitors())
 	}
 
 	// Verify targetIndex has only one consumer
-	entry := tm.targetIndex[localTarget]
+	entry := tm.getTargetEntry(localTarget)
 	if entry == nil {
 		t.Fatal("targetIndex entry should exist")
 	}
@@ -535,8 +524,7 @@ func TestMonitorPID_ReSubscribe(t *testing.T) {
 	}
 
 	// Verify monitor stored
-	key := relationKey{consumer: consumer, target: target}
-	if _, exists := tm.monitorRelations[key]; exists == false {
+	if tm.hasMonitorRelation(consumer, target) == false {
 		t.Error("Monitor should be stored after first MonitorPID")
 	}
 
@@ -545,10 +533,10 @@ func TestMonitorPID_ReSubscribe(t *testing.T) {
 	tm.DemonitorPID(consumer, target)
 
 	// Verify monitor removed after demonitor
-	if _, exists := tm.monitorRelations[key]; exists {
+	if tm.hasMonitorRelation(consumer, target) {
 		t.Error("Monitor should be removed after DemonitorPID")
 	}
-	if _, exists := tm.targetIndex[target]; exists {
+	if tm.getTargetEntry(target) != nil {
 		t.Error("targetIndex should be cleaned after DemonitorPID")
 	}
 
@@ -563,12 +551,12 @@ func TestMonitorPID_ReSubscribe(t *testing.T) {
 	}
 
 	// Verify monitor stored again
-	if _, exists := tm.monitorRelations[key]; exists == false {
+	if tm.hasMonitorRelation(consumer, target) == false {
 		t.Error("Monitor should be stored after re-subscribe")
 	}
 
 	// Verify targetIndex recreated
-	entry := tm.targetIndex[target]
+	entry := tm.getTargetEntry(target)
 	if entry == nil {
 		t.Fatal("targetIndex entry should be recreated after re-subscribe")
 	}
@@ -595,19 +583,17 @@ func TestDemonitorPID_NotLast(t *testing.T) {
 	tm.DemonitorPID(consumer1, target)
 
 	// Verify consumer1 monitor removed from monitorRelations
-	key1 := relationKey{consumer: consumer1, target: target}
-	if _, exists := tm.monitorRelations[key1]; exists {
+	if tm.hasMonitorRelation(consumer1, target) {
 		t.Error("consumer1 monitor should be removed from monitorRelations")
 	}
 
 	// Verify consumer2 monitor still exists in monitorRelations
-	key2 := relationKey{consumer: consumer2, target: target}
-	if _, exists := tm.monitorRelations[key2]; exists == false {
+	if tm.hasMonitorRelation(consumer2, target) == false {
 		t.Error("consumer2 monitor should still exist in monitorRelations")
 	}
 
 	// Verify targetIndex still exists with only consumer2
-	entry := tm.targetIndex[target]
+	entry := tm.getTargetEntry(target)
 	if entry == nil {
 		t.Fatal("targetIndex entry should still exist")
 	}

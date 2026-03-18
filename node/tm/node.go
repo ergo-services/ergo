@@ -5,28 +5,27 @@ import "ergo.services/ergo/gen"
 // Node operations (always local - connection monitoring)
 
 func (tm *targetManager) LinkNode(consumer gen.PID, target gen.Atom) error {
-	tm.mutex.Lock()
-	defer tm.mutex.Unlock()
+	s := tm.shardFor(target)
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
 
 	key := relationKey{
 		consumer: consumer,
 		target:   target,
 	}
 
-	if _, exists := tm.linkRelations[key]; exists {
+	if _, exists := s.linkRelations[key]; exists {
 		return gen.ErrTargetExist
 	}
 
-	// Add to linkRelations
-	tm.linkRelations[key] = struct{}{}
+	s.linkRelations[key] = struct{}{}
 
-	// Add to targetIndex
-	entry := tm.targetIndex[target]
+	entry := s.targetIndex[target]
 	if entry == nil {
 		entry = &targetEntry{
 			consumers: make(map[gen.PID]struct{}),
 		}
-		tm.targetIndex[target] = entry
+		s.targetIndex[target] = entry
 	}
 	entry.consumers[consumer] = struct{}{}
 
@@ -34,55 +33,56 @@ func (tm *targetManager) LinkNode(consumer gen.PID, target gen.Atom) error {
 }
 
 func (tm *targetManager) UnlinkNode(consumer gen.PID, target gen.Atom) error {
-	tm.mutex.Lock()
-	defer tm.mutex.Unlock()
+	s := tm.shardFor(target)
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
 
 	key := relationKey{
 		consumer: consumer,
 		target:   target,
 	}
 
-	if _, exists := tm.linkRelations[key]; exists == false {
+	if _, exists := s.linkRelations[key]; exists == false {
 		return nil
 	}
 
-	delete(tm.linkRelations, key)
+	delete(s.linkRelations, key)
 
-	entry := tm.targetIndex[target]
-	if entry != nil {
-		delete(entry.consumers, consumer)
+	entry := s.targetIndex[target]
+	if entry == nil {
+		return nil
+	}
 
-		if len(entry.consumers) == 0 {
-			delete(tm.targetIndex, target)
-		}
+	delete(entry.consumers, consumer)
+	if len(entry.consumers) == 0 {
+		delete(s.targetIndex, target)
 	}
 
 	return nil
 }
 
 func (tm *targetManager) MonitorNode(consumer gen.PID, target gen.Atom) error {
-	tm.mutex.Lock()
-	defer tm.mutex.Unlock()
+	s := tm.shardFor(target)
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
 
 	key := relationKey{
 		consumer: consumer,
 		target:   target,
 	}
 
-	if _, exists := tm.monitorRelations[key]; exists {
+	if _, exists := s.monitorRelations[key]; exists {
 		return gen.ErrTargetExist
 	}
 
-	// Add to monitorRelations (always local - no remote for Node targets)
-	tm.monitorRelations[key] = struct{}{}
+	s.monitorRelations[key] = struct{}{}
 
-	// Add to targetIndex
-	entry := tm.targetIndex[target]
+	entry := s.targetIndex[target]
 	if entry == nil {
 		entry = &targetEntry{
 			consumers: make(map[gen.PID]struct{}),
 		}
-		tm.targetIndex[target] = entry
+		s.targetIndex[target] = entry
 	}
 	entry.consumers[consumer] = struct{}{}
 
@@ -90,27 +90,29 @@ func (tm *targetManager) MonitorNode(consumer gen.PID, target gen.Atom) error {
 }
 
 func (tm *targetManager) DemonitorNode(consumer gen.PID, target gen.Atom) error {
-	tm.mutex.Lock()
-	defer tm.mutex.Unlock()
+	s := tm.shardFor(target)
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
 
 	key := relationKey{
 		consumer: consumer,
 		target:   target,
 	}
 
-	if _, exists := tm.monitorRelations[key]; exists == false {
+	if _, exists := s.monitorRelations[key]; exists == false {
 		return nil
 	}
 
-	delete(tm.monitorRelations, key)
+	delete(s.monitorRelations, key)
 
-	entry := tm.targetIndex[target]
-	if entry != nil {
-		delete(entry.consumers, consumer)
+	entry := s.targetIndex[target]
+	if entry == nil {
+		return nil
+	}
 
-		if len(entry.consumers) == 0 {
-			delete(tm.targetIndex, target)
-		}
+	delete(entry.consumers, consumer)
+	if len(entry.consumers) == 0 {
+		delete(s.targetIndex, target)
 	}
 
 	return nil

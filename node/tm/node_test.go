@@ -21,13 +21,12 @@ func TestLinkNode_Basic(t *testing.T) {
 	}
 
 	// Stored
-	key := relationKey{consumer: consumer, target: target}
-	if _, exists := tm.linkRelations[key]; exists == false {
+	if exists := tm.hasLinkRelation(consumer, target); exists == false {
 		t.Error("Node link should be stored")
 	}
 
 	// Verify in targetIndex
-	entry := tm.targetIndex[target]
+	entry := tm.getTargetEntry(target)
 	if entry == nil {
 		t.Fatal("targetEntry should be created")
 	}
@@ -52,24 +51,17 @@ func TestLinkNode_Duplicate_Error(t *testing.T) {
 	}
 
 	// Verify first link still stored (not corrupted by duplicate attempt)
-	key := relationKey{consumer: consumer, target: target}
-	if _, exists := tm.linkRelations[key]; exists == false {
+	if exists := tm.hasLinkRelation(consumer, target); exists == false {
 		t.Error("Original link should still be stored")
 	}
 
-	// Verify only 1 link in linkRelations for this consumer
-	count := 0
-	for k := range tm.linkRelations {
-		if k.consumer == consumer {
-			count++
-		}
-	}
-	if count != 1 {
-		t.Errorf("Expected 1 link for consumer, got %d", count)
+	// Verify only 1 link total (duplicate was rejected)
+	if tm.totalLinks() != 1 {
+		t.Errorf("Expected 1 link total, got %d", tm.totalLinks())
 	}
 
 	// Verify targetIndex has exactly 1 consumer
-	entry := tm.targetIndex[target]
+	entry := tm.getTargetEntry(target)
 	if entry == nil {
 		t.Fatal("targetIndex should exist")
 	}
@@ -103,7 +95,7 @@ func TestLinkNode_MultipleConsumers(t *testing.T) {
 	}
 
 	// Verify targetIndex has all consumers
-	entry := tm.targetIndex[target]
+	entry := tm.getTargetEntry(target)
 	if len(entry.consumers) != 3 {
 		t.Errorf("Expected 3 consumers, got %d", len(entry.consumers))
 	}
@@ -126,13 +118,12 @@ func TestUnlinkNode_Basic(t *testing.T) {
 	}
 
 	// Removed
-	key := relationKey{consumer: consumer, target: target}
-	if _, exists := tm.linkRelations[key]; exists {
+	if exists := tm.hasLinkRelation(consumer, target); exists {
 		t.Error("Node link should be removed")
 	}
 
 	// targetIndex cleaned
-	if _, exists := tm.targetIndex[target]; exists {
+	if entry := tm.getTargetEntry(target); entry != nil {
 		t.Error("targetIndex should be cleaned")
 	}
 }
@@ -151,19 +142,17 @@ func TestUnlinkNode_NotLast(t *testing.T) {
 	tm.UnlinkNode(consumer1, target)
 
 	// consumer1 removed
-	key1 := relationKey{consumer: consumer1, target: target}
-	if _, exists := tm.linkRelations[key1]; exists {
+	if exists := tm.hasLinkRelation(consumer1, target); exists {
 		t.Error("consumer1 link should be removed")
 	}
 
 	// consumer2 still exists
-	key2 := relationKey{consumer: consumer2, target: target}
-	if _, exists := tm.linkRelations[key2]; exists == false {
+	if exists := tm.hasLinkRelation(consumer2, target); exists == false {
 		t.Error("consumer2 link should still exist")
 	}
 
 	// targetIndex still exists with consumer2
-	entry := tm.targetIndex[target]
+	entry := tm.getTargetEntry(target)
 	if entry == nil {
 		t.Fatal("targetIndex should still exist")
 	}
@@ -203,13 +192,12 @@ func TestMonitorNode_Basic(t *testing.T) {
 	}
 
 	// Stored in monitorRelations
-	key := relationKey{consumer: consumer, target: target}
-	if _, exists := tm.monitorRelations[key]; exists == false {
+	if exists := tm.hasMonitorRelation(consumer, target); exists == false {
 		t.Error("Node monitor should be stored")
 	}
 
 	// Verify in targetIndex
-	entry := tm.targetIndex[target]
+	entry := tm.getTargetEntry(target)
 	if entry == nil {
 		t.Fatal("targetEntry should be created")
 	}
@@ -238,24 +226,17 @@ func TestMonitorNode_Duplicate_Error(t *testing.T) {
 	}
 
 	// Verify first monitor still stored (not corrupted by duplicate attempt)
-	key := relationKey{consumer: consumer, target: target}
-	if _, exists := tm.monitorRelations[key]; exists == false {
+	if exists := tm.hasMonitorRelation(consumer, target); exists == false {
 		t.Error("Original monitor should still be stored")
 	}
 
-	// Verify only 1 monitor in monitorRelations for this consumer
-	count := 0
-	for k := range tm.monitorRelations {
-		if k.consumer == consumer {
-			count++
-		}
-	}
-	if count != 1 {
-		t.Errorf("Expected 1 monitor for consumer, got %d", count)
+	// Verify only 1 monitor total (duplicate was rejected)
+	if tm.totalMonitors() != 1 {
+		t.Errorf("Expected 1 monitor total, got %d", tm.totalMonitors())
 	}
 
 	// Verify targetIndex has exactly 1 consumer
-	entry := tm.targetIndex[target]
+	entry := tm.getTargetEntry(target)
 	if entry == nil {
 		t.Fatal("targetIndex should exist")
 	}
@@ -284,17 +265,15 @@ func TestMonitorNode_MultipleConsumers(t *testing.T) {
 	}
 
 	// Verify both stored in monitorRelations
-	key1 := relationKey{consumer: consumer1, target: target}
-	if _, exists := tm.monitorRelations[key1]; exists == false {
+	if exists := tm.hasMonitorRelation(consumer1, target); exists == false {
 		t.Error("consumer1 should be in monitorRelations")
 	}
-	key2 := relationKey{consumer: consumer2, target: target}
-	if _, exists := tm.monitorRelations[key2]; exists == false {
+	if exists := tm.hasMonitorRelation(consumer2, target); exists == false {
 		t.Error("consumer2 should be in monitorRelations")
 	}
 
 	// Verify targetIndex has both consumers
-	entry := tm.targetIndex[target]
+	entry := tm.getTargetEntry(target)
 	if entry == nil {
 		t.Fatal("targetIndex should exist")
 	}
@@ -320,13 +299,12 @@ func TestDemonitorNode_Basic(t *testing.T) {
 	}
 
 	// Removed
-	key := relationKey{consumer: consumer, target: target}
-	if _, exists := tm.monitorRelations[key]; exists {
+	if exists := tm.hasMonitorRelation(consumer, target); exists {
 		t.Error("Node monitor should be removed")
 	}
 
 	// targetIndex cleaned
-	if _, exists := tm.targetIndex[target]; exists {
+	if entry := tm.getTargetEntry(target); entry != nil {
 		t.Error("targetIndex should be cleaned")
 	}
 }
@@ -345,19 +323,17 @@ func TestDemonitorNode_NotLast(t *testing.T) {
 	tm.DemonitorNode(consumer1, target)
 
 	// consumer1 removed
-	key1 := relationKey{consumer: consumer1, target: target}
-	if _, exists := tm.monitorRelations[key1]; exists {
+	if exists := tm.hasMonitorRelation(consumer1, target); exists {
 		t.Error("consumer1 monitor should be removed")
 	}
 
 	// consumer2 still exists
-	key2 := relationKey{consumer: consumer2, target: target}
-	if _, exists := tm.monitorRelations[key2]; exists == false {
+	if exists := tm.hasMonitorRelation(consumer2, target); exists == false {
 		t.Error("consumer2 monitor should still exist")
 	}
 
 	// targetIndex still exists with consumer2
-	entry := tm.targetIndex[target]
+	entry := tm.getTargetEntry(target)
 	if entry == nil {
 		t.Fatal("targetIndex should still exist")
 	}

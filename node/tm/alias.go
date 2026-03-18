@@ -3,25 +3,26 @@ package tm
 import "ergo.services/ergo/gen"
 
 func (tm *targetManager) LinkAlias(consumer gen.PID, target gen.Alias) error {
-	tm.mutex.Lock()
-	defer tm.mutex.Unlock()
+	s := tm.shardFor(target)
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
 
 	key := relationKey{
 		consumer: consumer,
 		target:   target,
 	}
 
-	if _, exists := tm.linkRelations[key]; exists {
-		if consumer.Node != tm.core.Name() {
-			return nil
-		}
-
+	_, exists := s.linkRelations[key]
+	if exists == true && consumer.Node != tm.core.Name() {
+		return nil
+	}
+	if exists == true {
 		return gen.ErrTargetExist
 	}
 
-	tm.linkRelations[key] = struct{}{}
+	s.linkRelations[key] = struct{}{}
 
-	entry := tm.targetIndex[target]
+	entry := s.targetIndex[target]
 	needsRemote := false
 
 	if entry == nil {
@@ -29,7 +30,7 @@ func (tm *targetManager) LinkAlias(consumer gen.PID, target gen.Alias) error {
 			allowAlwaysFirst: true,
 			consumers:        make(map[gen.PID]struct{}),
 		}
-		tm.targetIndex[target] = entry
+		s.targetIndex[target] = entry
 		needsRemote = true
 	}
 
@@ -49,49 +50,45 @@ func (tm *targetManager) LinkAlias(consumer gen.PID, target gen.Alias) error {
 
 	connection, err := tm.core.GetConnection(target.Node)
 	if err != nil {
-		delete(tm.linkRelations, key)
+		delete(s.linkRelations, key)
 		delete(entry.consumers, consumer)
-
 		if len(entry.consumers) == 0 {
-			delete(tm.targetIndex, target)
+			delete(s.targetIndex, target)
 		}
-
 		return err
 	}
 
 	err = connection.LinkAlias(tm.core.PID(), target)
 	if err != nil {
-		delete(tm.linkRelations, key)
+		delete(s.linkRelations, key)
 		delete(entry.consumers, consumer)
-
 		if len(entry.consumers) == 0 {
-			delete(tm.targetIndex, target)
+			delete(s.targetIndex, target)
 		}
-
 		return err
 	}
 
 	entry.allowAlwaysFirst = false
-
 	return nil
 }
 
 func (tm *targetManager) UnlinkAlias(consumer gen.PID, target gen.Alias) error {
-	tm.mutex.Lock()
-	defer tm.mutex.Unlock()
+	s := tm.shardFor(target)
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
 
 	key := relationKey{
 		consumer: consumer,
 		target:   target,
 	}
 
-	if _, exists := tm.linkRelations[key]; exists == false {
+	if _, exists := s.linkRelations[key]; exists == false {
 		return nil
 	}
 
-	delete(tm.linkRelations, key)
+	delete(s.linkRelations, key)
 
-	entry := tm.targetIndex[target]
+	entry := s.targetIndex[target]
 	if entry == nil {
 		return nil
 	}
@@ -99,9 +96,8 @@ func (tm *targetManager) UnlinkAlias(consumer gen.PID, target gen.Alias) error {
 	delete(entry.consumers, consumer)
 
 	isLast := (len(entry.consumers) == 0)
-
 	if isLast {
-		delete(tm.targetIndex, target)
+		delete(s.targetIndex, target)
 	}
 
 	if target.Node == tm.core.Name() {
@@ -116,7 +112,6 @@ func (tm *targetManager) UnlinkAlias(consumer gen.PID, target gen.Alias) error {
 				break
 			}
 		}
-
 		if hasLocal {
 			return nil
 		}
@@ -128,30 +123,30 @@ func (tm *targetManager) UnlinkAlias(consumer gen.PID, target gen.Alias) error {
 	}
 
 	connection.UnlinkAlias(tm.core.PID(), target)
-
 	return nil
 }
 
 func (tm *targetManager) MonitorAlias(consumer gen.PID, target gen.Alias) error {
-	tm.mutex.Lock()
-	defer tm.mutex.Unlock()
+	s := tm.shardFor(target)
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
 
 	key := relationKey{
 		consumer: consumer,
 		target:   target,
 	}
 
-	if _, exists := tm.monitorRelations[key]; exists {
-		if consumer.Node != tm.core.Name() {
-			return nil
-		}
-
+	_, exists := s.monitorRelations[key]
+	if exists == true && consumer.Node != tm.core.Name() {
+		return nil
+	}
+	if exists == true {
 		return gen.ErrTargetExist
 	}
 
-	tm.monitorRelations[key] = struct{}{}
+	s.monitorRelations[key] = struct{}{}
 
-	entry := tm.targetIndex[target]
+	entry := s.targetIndex[target]
 	needsRemote := false
 
 	if entry == nil {
@@ -159,7 +154,7 @@ func (tm *targetManager) MonitorAlias(consumer gen.PID, target gen.Alias) error 
 			allowAlwaysFirst: true,
 			consumers:        make(map[gen.PID]struct{}),
 		}
-		tm.targetIndex[target] = entry
+		s.targetIndex[target] = entry
 		needsRemote = true
 	}
 
@@ -179,49 +174,45 @@ func (tm *targetManager) MonitorAlias(consumer gen.PID, target gen.Alias) error 
 
 	connection, err := tm.core.GetConnection(target.Node)
 	if err != nil {
-		delete(tm.monitorRelations, key)
+		delete(s.monitorRelations, key)
 		delete(entry.consumers, consumer)
-
 		if len(entry.consumers) == 0 {
-			delete(tm.targetIndex, target)
+			delete(s.targetIndex, target)
 		}
-
 		return err
 	}
 
 	err = connection.MonitorAlias(tm.core.PID(), target)
 	if err != nil {
-		delete(tm.monitorRelations, key)
+		delete(s.monitorRelations, key)
 		delete(entry.consumers, consumer)
-
 		if len(entry.consumers) == 0 {
-			delete(tm.targetIndex, target)
+			delete(s.targetIndex, target)
 		}
-
 		return err
 	}
 
 	entry.allowAlwaysFirst = false
-
 	return nil
 }
 
 func (tm *targetManager) DemonitorAlias(consumer gen.PID, target gen.Alias) error {
-	tm.mutex.Lock()
-	defer tm.mutex.Unlock()
+	s := tm.shardFor(target)
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
 
 	key := relationKey{
 		consumer: consumer,
 		target:   target,
 	}
 
-	if _, exists := tm.monitorRelations[key]; exists == false {
+	if _, exists := s.monitorRelations[key]; exists == false {
 		return nil
 	}
 
-	delete(tm.monitorRelations, key)
+	delete(s.monitorRelations, key)
 
-	entry := tm.targetIndex[target]
+	entry := s.targetIndex[target]
 	if entry == nil {
 		return nil
 	}
@@ -229,9 +220,8 @@ func (tm *targetManager) DemonitorAlias(consumer gen.PID, target gen.Alias) erro
 	delete(entry.consumers, consumer)
 
 	isLast := (len(entry.consumers) == 0)
-
 	if isLast {
-		delete(tm.targetIndex, target)
+		delete(s.targetIndex, target)
 	}
 
 	if target.Node == tm.core.Name() {
@@ -246,7 +236,6 @@ func (tm *targetManager) DemonitorAlias(consumer gen.PID, target gen.Alias) erro
 				break
 			}
 		}
-
 		if hasLocal {
 			return nil
 		}
@@ -258,6 +247,5 @@ func (tm *targetManager) DemonitorAlias(consumer gen.PID, target gen.Alias) erro
 	}
 
 	connection.DemonitorAlias(tm.core.PID(), target)
-
 	return nil
 }

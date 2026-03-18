@@ -1,30 +1,21 @@
 package tm
 
 import (
-	"time"
-
 	"ergo.services/ergo/gen"
 )
 
 func (tm *targetManager) RegisterEvent(producer gen.PID, name gen.Atom, options gen.EventOptions) (gen.Ref, error) {
-	tm.mutex.Lock()
-	defer tm.mutex.Unlock()
-
 	event := gen.Event{Node: tm.core.Name(), Name: name}
+	s := tm.shardFor(event)
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
 
-	// Check if already exists
-	if _, exists := tm.events[event]; exists {
+	if _, exists := s.events[event]; exists {
 		return gen.Ref{}, gen.ErrTaken
 	}
 
-	// Generate unique token
-	token := gen.Ref{
-		Node:     tm.core.Name(),
-		Creation: tm.core.PID().Creation,
-		ID:       [3]uint64{uint64(time.Now().UnixNano()), 0, 0},
-	}
+	token := tm.generateToken()
 
-	// Create event entry
 	entry := &eventEntry{
 		producer:                producer,
 		token:                   token,
@@ -34,7 +25,6 @@ func (tm *targetManager) RegisterEvent(producer gen.PID, name gen.Atom, options 
 		subscriberCount:         0,
 	}
 
-	// Create ring buffer if configured
 	if options.Buffer > 0 {
 		entry.buffer = &eventRingBuffer{
 			data: make([]gen.MessageEvent, options.Buffer),
@@ -42,53 +32,79 @@ func (tm *targetManager) RegisterEvent(producer gen.PID, name gen.Atom, options 
 		}
 	}
 
-	tm.events[event] = entry
+	s.events[event] = entry
 
-	// Add to producerEvents index
-	if tm.producerEvents[producer] == nil {
-		tm.producerEvents[producer] = make(map[gen.Event]struct{})
+	if s.producerEvents[producer] == nil {
+		s.producerEvents[producer] = make(map[gen.Event]struct{})
 	}
-	tm.producerEvents[producer][event] = struct{}{}
+	s.producerEvents[producer][event] = struct{}{}
 
 	return token, nil
 }
 
 func (tm *targetManager) UnregisterEvent(producer gen.PID, name gen.Atom) error {
-	tm.mutex.Lock()
-	defer tm.mutex.Unlock()
-
 	event := gen.Event{Node: tm.core.Name(), Name: name}
-	entry, exists := tm.events[event]
+	s := tm.shardFor(event)
+	s.mutex.Lock()
+
+	entry, exists := s.events[event]
 	if exists == false {
+		s.mutex.Unlock()
 		return gen.ErrEventUnknown
 	}
 
 	if entry.producer != producer {
+		s.mutex.Unlock()
 		return gen.ErrEventOwner
 	}
 
-	// Collect all subscribers (links + monitors)
 	remoteNodes := make(map[gen.Atom]bool)
 	var localExitConsumers []gen.PID
 	var localDownConsumers []gen.PID
 
 	for _, consumer := range entry.linkSubscribers {
-		if consumer.Node == tm.core.Name() {
-			localExitConsumers = append(localExitConsumers, consumer)
-		} else {
+		if consumer.Node != tm.core.Name() {
 			remoteNodes[consumer.Node] = true
+			continue
 		}
+		localExitConsumers = append(localExitConsumers, consumer)
 	}
 
 	for _, consumer := range entry.monitorSubscribers {
-		if consumer.Node == tm.core.Name() {
-			localDownConsumers = append(localDownConsumers, consumer)
-		} else {
+		if consumer.Node != tm.core.Name() {
 			remoteNodes[consumer.Node] = true
+			continue
+		}
+		localDownConsumers = append(localDownConsumers, consumer)
+	}
+
+	// Cleanup relations
+	for key := range s.linkRelations {
+		if key.target == event {
+			delete(s.linkRelations, key)
 		}
 	}
 
-	// Send exit messages to local link subscribers
+	for key := range s.monitorRelations {
+		if key.target == event {
+			delete(s.monitorRelations, key)
+		}
+	}
+
+	delete(s.events, event)
+	delete(s.targetIndex, event)
+
+	events := s.producerEvents[producer]
+	if events != nil {
+		delete(events, event)
+		if len(events) == 0 {
+			delete(s.producerEvents, producer)
+		}
+	}
+
+	s.mutex.Unlock()
+
+	// Dispatch without lock
 	if len(localExitConsumers) > 0 {
 		tm.core.RouteSendExitMessages(
 			tm.core.PID(),
@@ -97,7 +113,6 @@ func (tm *targetManager) UnregisterEvent(producer gen.PID, name gen.Atom) error 
 		)
 	}
 
-	// Send down messages to local monitor subscribers
 	for _, consumer := range localDownConsumers {
 		tm.core.RouteSendPID(
 			tm.core.PID(),
@@ -107,7 +122,6 @@ func (tm *targetManager) UnregisterEvent(producer gen.PID, name gen.Atom) error 
 		)
 	}
 
-	// Send to remote nodes
 	for node := range remoteNodes {
 		connection, err := tm.core.GetConnection(node)
 		if err != nil {
@@ -115,33 +129,6 @@ func (tm *targetManager) UnregisterEvent(producer gen.PID, name gen.Atom) error 
 		}
 		connection.SendTerminateEvent(event, gen.ErrUnregistered)
 	}
-
-	// Cleanup event
-	delete(tm.events, event)
-
-	// Cleanup producerEvents index
-	if events := tm.producerEvents[producer]; events != nil {
-		delete(events, event)
-		if len(events) == 0 {
-			delete(tm.producerEvents, producer)
-		}
-	}
-
-	// Cleanup relations
-	for key := range tm.linkRelations {
-		if key.target == event {
-			delete(tm.linkRelations, key)
-		}
-	}
-
-	for key := range tm.monitorRelations {
-		if key.target == event {
-			delete(tm.monitorRelations, key)
-		}
-	}
-
-	// Cleanup targetIndex
-	delete(tm.targetIndex, event)
 
 	return nil
 }
@@ -152,16 +139,14 @@ func (tm *targetManager) PublishEvent(
 	options gen.MessageOptions,
 	message gen.MessageEvent,
 ) error {
-	// Check if this is a LOCAL producer or REMOTE event
 	if from.Node == tm.core.Name() {
-		// LOCAL producer - needs Lock (writes to buffer)
 		return tm.publishEventLocalProducer(from, token, options, message)
 	}
 
-	// REMOTE event - needs only RLock (read-only)
-	tm.mutex.RLock()
-	defer tm.mutex.RUnlock()
-	return tm.publishEventRemoteProducer(from, options, message)
+	s := tm.shardFor(message.Event)
+	s.mutex.RLock()
+	defer s.mutex.RUnlock()
+	return tm.publishEventRemoteProducer(s, from, options, message)
 }
 
 func (tm *targetManager) publishEventLocalProducer(
@@ -170,47 +155,38 @@ func (tm *targetManager) publishEventLocalProducer(
 	options gen.MessageOptions,
 	message gen.MessageEvent,
 ) error {
-	tm.mutex.Lock()
+	s := tm.shardFor(message.Event)
+	s.mutex.RLock()
 
-	entry, exists := tm.events[message.Event]
+	entry, exists := s.events[message.Event]
 	if exists == false {
-		tm.mutex.Unlock()
+		s.mutex.RUnlock()
 		return gen.ErrEventUnknown
 	}
 
-	// Validate token
 	if entry.token != token {
-		tm.mutex.Unlock()
+		s.mutex.RUnlock()
 		return gen.ErrEventOwner
 	}
 
-	// Store in ring buffer if configured (needs write lock)
 	if entry.buffer != nil {
-		// Re-check after lock upgrade
-		entry, exists = tm.events[message.Event]
-		if exists == false || entry.token != token {
-			tm.mutex.Unlock()
-			return gen.ErrEventOwner
-		}
+		entry.bufferMutex.Lock()
 		entry.buffer.push(message)
+		entry.bufferMutex.Unlock()
 	}
 
-	// Increment per-event published counter under lock
 	entry.messagesPublished.Add(1)
 
-	// Copy slices under lock (minimize lock hold time)
+	// Snapshot slices under RLock (safe: slices only modified under write lock)
 	linkSubs := entry.linkSubscribers
 	monitorSubs := entry.monitorSubscribers
-	tm.mutex.Unlock()
+	s.mutex.RUnlock()
 
-	// Increment global published counter
 	tm.eventsPublished.Add(1)
 
-	// Collect local consumers and remote nodes (no lock needed)
 	var localConsumers []gen.PID
 	remoteNodes := make(map[gen.Atom]bool)
 
-	// Fanout to link subscribers
 	for _, consumer := range linkSubs {
 		if consumer.Node != tm.core.Name() {
 			remoteNodes[consumer.Node] = true
@@ -219,7 +195,6 @@ func (tm *targetManager) publishEventLocalProducer(
 		localConsumers = append(localConsumers, consumer)
 	}
 
-	// Fanout to monitor subscribers
 	for _, consumer := range monitorSubs {
 		if consumer.Node != tm.core.Name() {
 			remoteNodes[consumer.Node] = true
@@ -228,7 +203,6 @@ func (tm *targetManager) publishEventLocalProducer(
 		localConsumers = append(localConsumers, consumer)
 	}
 
-	// Send to local consumers directly
 	if len(localConsumers) > 0 {
 		tm.core.RouteSendEventMessages(from, localConsumers, options, message)
 		n := int64(len(localConsumers))
@@ -236,7 +210,6 @@ func (tm *targetManager) publishEventLocalProducer(
 		tm.eventsLocalSent.Add(n)
 	}
 
-	// Send to remote nodes
 	for node := range remoteNodes {
 		connection, err := tm.core.GetConnection(node)
 		if err != nil {
@@ -251,26 +224,24 @@ func (tm *targetManager) publishEventLocalProducer(
 }
 
 func (tm *targetManager) publishEventRemoteProducer(
+	s *shard,
 	from gen.PID,
 	options gen.MessageOptions,
 	message gen.MessageEvent,
 ) error {
-	// Remote event arrived - deliver to local subscribers only
-	entry := tm.targetIndex[message.Event]
+	entry := s.targetIndex[message.Event]
 	if entry == nil {
 		return nil
 	}
 
-	// Increment received counter (remote event arrival, not a local publish)
 	tm.eventsReceived.Add(1)
 
-	// Collect local consumers for batch delivery
 	var localConsumers []gen.PID
-
 	for consumer := range entry.consumers {
-		if consumer.Node == tm.core.Name() {
-			localConsumers = append(localConsumers, consumer)
+		if consumer.Node != tm.core.Name() {
+			continue
 		}
+		localConsumers = append(localConsumers, consumer)
 	}
 
 	if len(localConsumers) > 0 {
@@ -282,21 +253,19 @@ func (tm *targetManager) publishEventRemoteProducer(
 }
 
 func (tm *targetManager) LinkEvent(consumer gen.PID, event gen.Event) ([]gen.MessageEvent, error) {
-	tm.mutex.Lock()
-	defer tm.mutex.Unlock()
+	s := tm.shardFor(event)
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
 
-	// Check if local or remote event
 	if event.Node == tm.core.Name() {
-		// LOCAL event
-		return tm.linkEventLocal(consumer, event)
+		return tm.linkEventLocal(s, consumer, event)
 	}
 
-	// REMOTE event
-	return tm.linkEventRemote(consumer, event)
+	return tm.linkEventRemote(s, consumer, event)
 }
 
-func (tm *targetManager) linkEventLocal(consumer gen.PID, event gen.Event) ([]gen.MessageEvent, error) {
-	entry, exists := tm.events[event]
+func (tm *targetManager) linkEventLocal(s *shard, consumer gen.PID, event gen.Event) ([]gen.MessageEvent, error) {
+	entry, exists := s.events[event]
 	if exists == false {
 		return nil, gen.ErrEventUnknown
 	}
@@ -306,26 +275,20 @@ func (tm *targetManager) linkEventLocal(consumer gen.PID, event gen.Event) ([]ge
 		target:   event,
 	}
 
-	// Check duplicate
-	if _, exists := tm.linkRelations[key]; exists {
-		// For local event, duplicate from REMOTE CorePID is allowed
-		if consumer.Node != tm.core.Name() {
-			// Remote CorePID - return buffer anyway
-			return tm.getEventBuffer(entry), nil
-		}
-
+	_, dup := s.linkRelations[key]
+	if dup == true && consumer.Node != tm.core.Name() {
+		return getEventBuffer(entry), nil
+	}
+	if dup == true {
 		return nil, gen.ErrTargetExist
 	}
 
-	// Add subscription
-	tm.linkRelations[key] = struct{}{}
+	s.linkRelations[key] = struct{}{}
 	entry.linkSubscribersIndex[consumer] = len(entry.linkSubscribers)
 	entry.linkSubscribers = append(entry.linkSubscribers, consumer)
 
-	// Increment counter
 	entry.subscriberCount++
 
-	// Check if need to send EventStart
 	if entry.subscriberCount == 1 && entry.notify {
 		tm.core.RouteSendPID(
 			tm.core.PID(),
@@ -335,38 +298,33 @@ func (tm *targetManager) linkEventLocal(consumer gen.PID, event gen.Event) ([]ge
 		)
 	}
 
-	// Return buffer
-	return tm.getEventBuffer(entry), nil
+	return getEventBuffer(entry), nil
 }
 
-func (tm *targetManager) linkEventRemote(consumer gen.PID, event gen.Event) ([]gen.MessageEvent, error) {
+func (tm *targetManager) linkEventRemote(s *shard, consumer gen.PID, event gen.Event) ([]gen.MessageEvent, error) {
 	key := relationKey{
 		consumer: consumer,
 		target:   event,
 	}
 
-	if _, exists := tm.linkRelations[key]; exists {
+	if _, exists := s.linkRelations[key]; exists {
 		return nil, gen.ErrTargetExist
 	}
 
-	// Add subscription locally
-	tm.linkRelations[key] = struct{}{}
+	s.linkRelations[key] = struct{}{}
 
-	// Check targetIndex for remote request decision
-	entry := tm.targetIndex[event]
+	entry := s.targetIndex[event]
 	needsRemote := false
 
 	if entry == nil {
-		// First subscriber
 		entry = &targetEntry{
-			allowAlwaysFirst: true, // Start with true for buffered events
+			allowAlwaysFirst: true,
 			consumers:        make(map[gen.PID]struct{}),
 		}
-		tm.targetIndex[event] = entry
+		s.targetIndex[event] = entry
 		needsRemote = true
 	}
 
-	// For events, allowAlwaysFirst stays true for buffered!
 	if entry.allowAlwaysFirst == true {
 		needsRemote = true
 	}
@@ -374,62 +332,50 @@ func (tm *targetManager) linkEventRemote(consumer gen.PID, event gen.Event) ([]g
 	entry.consumers[consumer] = struct{}{}
 
 	if needsRemote == false {
-		// Unbuffered event, not first - no remote request
 		return nil, nil
 	}
 
-	// Send remote LinkEvent
 	connection, err := tm.core.GetConnection(event.Node)
 	if err != nil {
-		// Rollback
-		delete(tm.linkRelations, key)
+		delete(s.linkRelations, key)
 		delete(entry.consumers, consumer)
-
 		if len(entry.consumers) == 0 {
-			delete(tm.targetIndex, event)
+			delete(s.targetIndex, event)
 		}
-
 		return nil, err
 	}
 
 	buffer, err := connection.LinkEvent(tm.core.PID(), event)
 	if err != nil {
-		// Rollback
-		delete(tm.linkRelations, key)
+		delete(s.linkRelations, key)
 		delete(entry.consumers, consumer)
-
 		if len(entry.consumers) == 0 {
-			delete(tm.targetIndex, event)
+			delete(s.targetIndex, event)
 		}
-
 		return nil, err
 	}
 
-	// Success!
-	// If buffer == nil: unbuffered, set allowAlwaysFirst=false
-	// If buffer != nil: buffered, keep allowAlwaysFirst=true
 	if buffer == nil {
 		entry.allowAlwaysFirst = false
 	}
-	// else: buffered, keep allowAlwaysFirst=true for next subscribers!
 
 	return buffer, nil
 }
 
 func (tm *targetManager) UnlinkEvent(consumer gen.PID, event gen.Event) error {
-	tm.mutex.Lock()
-	defer tm.mutex.Unlock()
+	s := tm.shardFor(event)
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
 
-	// Check if local or remote
 	if event.Node == tm.core.Name() {
-		return tm.unlinkEventLocal(consumer, event)
+		return tm.unlinkEventLocal(s, consumer, event)
 	}
 
-	return tm.unlinkEventRemote(consumer, event)
+	return tm.unlinkEventRemote(s, consumer, event)
 }
 
-func (tm *targetManager) unlinkEventLocal(consumer gen.PID, event gen.Event) error {
-	entry, exists := tm.events[event]
+func (tm *targetManager) unlinkEventLocal(s *shard, consumer gen.PID, event gen.Event) error {
+	entry, exists := s.events[event]
 	if exists == false {
 		return gen.ErrEventUnknown
 	}
@@ -439,12 +385,11 @@ func (tm *targetManager) unlinkEventLocal(consumer gen.PID, event gen.Event) err
 		target:   event,
 	}
 
-	if _, exists := tm.linkRelations[key]; exists == false {
+	if _, exists := s.linkRelations[key]; exists == false {
 		return gen.ErrTargetUnknown
 	}
 
-	// Remove subscription
-	delete(tm.linkRelations, key)
+	delete(s.linkRelations, key)
 
 	// Swap-delete from slice
 	idx := entry.linkSubscribersIndex[consumer]
@@ -456,10 +401,8 @@ func (tm *targetManager) unlinkEventLocal(consumer gen.PID, event gen.Event) err
 	entry.linkSubscribers = entry.linkSubscribers[:last]
 	delete(entry.linkSubscribersIndex, consumer)
 
-	// Decrement counter
 	entry.subscriberCount--
 
-	// Send EventStop if last subscriber
 	if entry.subscriberCount == 0 && entry.notify {
 		tm.core.RouteSendPID(
 			tm.core.PID(),
@@ -472,19 +415,19 @@ func (tm *targetManager) unlinkEventLocal(consumer gen.PID, event gen.Event) err
 	return nil
 }
 
-func (tm *targetManager) unlinkEventRemote(consumer gen.PID, event gen.Event) error {
+func (tm *targetManager) unlinkEventRemote(s *shard, consumer gen.PID, event gen.Event) error {
 	key := relationKey{
 		consumer: consumer,
 		target:   event,
 	}
 
-	if _, exists := tm.linkRelations[key]; exists == false {
+	if _, exists := s.linkRelations[key]; exists == false {
 		return gen.ErrTargetUnknown
 	}
 
-	delete(tm.linkRelations, key)
+	delete(s.linkRelations, key)
 
-	entry := tm.targetIndex[event]
+	entry := s.targetIndex[event]
 	if entry == nil {
 		return nil
 	}
@@ -492,12 +435,10 @@ func (tm *targetManager) unlinkEventRemote(consumer gen.PID, event gen.Event) er
 	delete(entry.consumers, consumer)
 
 	isLast := (len(entry.consumers) == 0)
-
 	if isLast {
-		delete(tm.targetIndex, event)
+		delete(s.targetIndex, event)
 	}
 
-	// Check if need to send remote UnlinkEvent
 	if isLast == false {
 		hasLocal := false
 		for pid := range entry.consumers {
@@ -506,37 +447,34 @@ func (tm *targetManager) unlinkEventRemote(consumer gen.PID, event gen.Event) er
 				break
 			}
 		}
-
 		if hasLocal {
 			return nil
 		}
 	}
 
-	// Last local consumer - send remote UnlinkEvent
 	connection, err := tm.core.GetConnection(event.Node)
 	if err != nil {
 		return nil
 	}
 
 	connection.UnlinkEvent(tm.core.PID(), event)
-
 	return nil
 }
 
 func (tm *targetManager) MonitorEvent(consumer gen.PID, event gen.Event) ([]gen.MessageEvent, error) {
-	tm.mutex.Lock()
-	defer tm.mutex.Unlock()
+	s := tm.shardFor(event)
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
 
-	// Same logic as LinkEvent, but for monitors
 	if event.Node == tm.core.Name() {
-		return tm.monitorEventLocal(consumer, event)
+		return tm.monitorEventLocal(s, consumer, event)
 	}
 
-	return tm.monitorEventRemote(consumer, event)
+	return tm.monitorEventRemote(s, consumer, event)
 }
 
-func (tm *targetManager) monitorEventLocal(consumer gen.PID, event gen.Event) ([]gen.MessageEvent, error) {
-	entry, exists := tm.events[event]
+func (tm *targetManager) monitorEventLocal(s *shard, consumer gen.PID, event gen.Event) ([]gen.MessageEvent, error) {
+	entry, exists := s.events[event]
 	if exists == false {
 		return nil, gen.ErrEventUnknown
 	}
@@ -546,24 +484,20 @@ func (tm *targetManager) monitorEventLocal(consumer gen.PID, event gen.Event) ([
 		target:   event,
 	}
 
-	if _, exists := tm.monitorRelations[key]; exists {
-		if consumer.Node != tm.core.Name() {
-			// Remote CorePID duplicate - return buffer
-			return tm.getEventBuffer(entry), nil
-		}
-
+	_, dup := s.monitorRelations[key]
+	if dup == true && consumer.Node != tm.core.Name() {
+		return getEventBuffer(entry), nil
+	}
+	if dup == true {
 		return nil, gen.ErrTargetExist
 	}
 
-	// Add subscription
-	tm.monitorRelations[key] = struct{}{}
+	s.monitorRelations[key] = struct{}{}
 	entry.monitorSubscribersIndex[consumer] = len(entry.monitorSubscribers)
 	entry.monitorSubscribers = append(entry.monitorSubscribers, consumer)
 
-	// Increment counter (shared with links!)
 	entry.subscriberCount++
 
-	// Send EventStart if first subscriber overall
 	if entry.subscriberCount == 1 && entry.notify {
 		tm.core.RouteSendPID(
 			tm.core.PID(),
@@ -573,23 +507,22 @@ func (tm *targetManager) monitorEventLocal(consumer gen.PID, event gen.Event) ([
 		)
 	}
 
-	// Return buffer
-	return tm.getEventBuffer(entry), nil
+	return getEventBuffer(entry), nil
 }
 
-func (tm *targetManager) monitorEventRemote(consumer gen.PID, event gen.Event) ([]gen.MessageEvent, error) {
+func (tm *targetManager) monitorEventRemote(s *shard, consumer gen.PID, event gen.Event) ([]gen.MessageEvent, error) {
 	key := relationKey{
 		consumer: consumer,
 		target:   event,
 	}
 
-	if _, exists := tm.monitorRelations[key]; exists {
+	if _, exists := s.monitorRelations[key]; exists {
 		return nil, gen.ErrTargetExist
 	}
 
-	tm.monitorRelations[key] = struct{}{}
+	s.monitorRelations[key] = struct{}{}
 
-	entry := tm.targetIndex[event]
+	entry := s.targetIndex[event]
 	needsRemote := false
 
 	if entry == nil {
@@ -597,7 +530,7 @@ func (tm *targetManager) monitorEventRemote(consumer gen.PID, event gen.Event) (
 			allowAlwaysFirst: true,
 			consumers:        make(map[gen.PID]struct{}),
 		}
-		tm.targetIndex[event] = entry
+		s.targetIndex[event] = entry
 		needsRemote = true
 	}
 
@@ -613,29 +546,24 @@ func (tm *targetManager) monitorEventRemote(consumer gen.PID, event gen.Event) (
 
 	connection, err := tm.core.GetConnection(event.Node)
 	if err != nil {
-		delete(tm.monitorRelations, key)
+		delete(s.monitorRelations, key)
 		delete(entry.consumers, consumer)
-
 		if len(entry.consumers) == 0 {
-			delete(tm.targetIndex, event)
+			delete(s.targetIndex, event)
 		}
-
 		return nil, err
 	}
 
 	buffer, err := connection.MonitorEvent(tm.core.PID(), event)
 	if err != nil {
-		delete(tm.monitorRelations, key)
+		delete(s.monitorRelations, key)
 		delete(entry.consumers, consumer)
-
 		if len(entry.consumers) == 0 {
-			delete(tm.targetIndex, event)
+			delete(s.targetIndex, event)
 		}
-
 		return nil, err
 	}
 
-	// Buffered vs unbuffered
 	if buffer == nil {
 		entry.allowAlwaysFirst = false
 	}
@@ -644,18 +572,19 @@ func (tm *targetManager) monitorEventRemote(consumer gen.PID, event gen.Event) (
 }
 
 func (tm *targetManager) DemonitorEvent(consumer gen.PID, event gen.Event) error {
-	tm.mutex.Lock()
-	defer tm.mutex.Unlock()
+	s := tm.shardFor(event)
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
 
 	if event.Node == tm.core.Name() {
-		return tm.demonitorEventLocal(consumer, event)
+		return tm.demonitorEventLocal(s, consumer, event)
 	}
 
-	return tm.demonitorEventRemote(consumer, event)
+	return tm.demonitorEventRemote(s, consumer, event)
 }
 
-func (tm *targetManager) demonitorEventLocal(consumer gen.PID, event gen.Event) error {
-	entry, exists := tm.events[event]
+func (tm *targetManager) demonitorEventLocal(s *shard, consumer gen.PID, event gen.Event) error {
+	entry, exists := s.events[event]
 	if exists == false {
 		return gen.ErrEventUnknown
 	}
@@ -665,11 +594,11 @@ func (tm *targetManager) demonitorEventLocal(consumer gen.PID, event gen.Event) 
 		target:   event,
 	}
 
-	if _, exists := tm.monitorRelations[key]; exists == false {
+	if _, exists := s.monitorRelations[key]; exists == false {
 		return gen.ErrTargetUnknown
 	}
 
-	delete(tm.monitorRelations, key)
+	delete(s.monitorRelations, key)
 
 	// Swap-delete from slice
 	idx := entry.monitorSubscribersIndex[consumer]
@@ -681,10 +610,8 @@ func (tm *targetManager) demonitorEventLocal(consumer gen.PID, event gen.Event) 
 	entry.monitorSubscribers = entry.monitorSubscribers[:last]
 	delete(entry.monitorSubscribersIndex, consumer)
 
-	// Decrement counter (shared with links!)
 	entry.subscriberCount--
 
-	// Send EventStop if last
 	if entry.subscriberCount == 0 && entry.notify {
 		tm.core.RouteSendPID(
 			tm.core.PID(),
@@ -697,19 +624,19 @@ func (tm *targetManager) demonitorEventLocal(consumer gen.PID, event gen.Event) 
 	return nil
 }
 
-func (tm *targetManager) demonitorEventRemote(consumer gen.PID, event gen.Event) error {
+func (tm *targetManager) demonitorEventRemote(s *shard, consumer gen.PID, event gen.Event) error {
 	key := relationKey{
 		consumer: consumer,
 		target:   event,
 	}
 
-	if _, exists := tm.monitorRelations[key]; exists == false {
+	if _, exists := s.monitorRelations[key]; exists == false {
 		return gen.ErrTargetUnknown
 	}
 
-	delete(tm.monitorRelations, key)
+	delete(s.monitorRelations, key)
 
-	entry := tm.targetIndex[event]
+	entry := s.targetIndex[event]
 	if entry == nil {
 		return nil
 	}
@@ -717,9 +644,8 @@ func (tm *targetManager) demonitorEventRemote(consumer gen.PID, event gen.Event)
 	delete(entry.consumers, consumer)
 
 	isLast := (len(entry.consumers) == 0)
-
 	if isLast {
-		delete(tm.targetIndex, event)
+		delete(s.targetIndex, event)
 	}
 
 	if isLast == false {
@@ -730,7 +656,6 @@ func (tm *targetManager) demonitorEventRemote(consumer gen.PID, event gen.Event)
 				break
 			}
 		}
-
 		if hasLocal {
 			return nil
 		}
@@ -742,26 +667,26 @@ func (tm *targetManager) demonitorEventRemote(consumer gen.PID, event gen.Event)
 	}
 
 	connection.DemonitorEvent(tm.core.PID(), event)
-
 	return nil
 }
 
 func (tm *targetManager) EventInfo(event gen.Event) (gen.EventInfo, error) {
-	tm.mutex.RLock()
-	defer tm.mutex.RUnlock()
+	s := tm.shardFor(event)
+	s.mutex.RLock()
+	defer s.mutex.RUnlock()
 
-	entry, exists := tm.events[event]
+	entry, exists := s.events[event]
 	if exists == false {
 		return gen.EventInfo{}, gen.ErrEventUnknown
 	}
 
-	// Build event info
 	var bufSize, bufLen int
 	if entry.buffer != nil {
 		bufSize = entry.buffer.size
 		bufLen = entry.buffer.len
 	}
-	info := gen.EventInfo{
+
+	return gen.EventInfo{
 		Event:              event,
 		Producer:           entry.producer,
 		BufferSize:         bufSize,
@@ -771,38 +696,36 @@ func (tm *targetManager) EventInfo(event gen.Event) (gen.EventInfo, error) {
 		MessagesPublished:  entry.messagesPublished.Load(),
 		MessagesLocalSent:  entry.messagesLocalSent.Load(),
 		MessagesRemoteSent: entry.messagesRemoteSent.Load(),
-	}
-
-	return info, nil
+	}, nil
 }
 
 func (tm *targetManager) EventRangeInfo(fn func(gen.EventInfo) bool) error {
-	tm.mutex.RLock()
+	var infos []gen.EventInfo
 
-	// Snapshot event infos under lock
-	infos := make([]gen.EventInfo, 0, len(tm.events))
-	for event, entry := range tm.events {
-		var bufSize, bufLen int
-		if entry.buffer != nil {
-			bufSize = entry.buffer.size
-			bufLen = entry.buffer.len
+	for i := range tm.shards {
+		s := &tm.shards[i]
+		s.mutex.RLock()
+		for event, entry := range s.events {
+			var bufSize, bufLen int
+			if entry.buffer != nil {
+				bufSize = entry.buffer.size
+				bufLen = entry.buffer.len
+			}
+			infos = append(infos, gen.EventInfo{
+				Event:              event,
+				Producer:           entry.producer,
+				BufferSize:         bufSize,
+				CurrentBuffer:      bufLen,
+				Notify:             entry.notify,
+				Subscribers:        entry.subscriberCount,
+				MessagesPublished:  entry.messagesPublished.Load(),
+				MessagesLocalSent:  entry.messagesLocalSent.Load(),
+				MessagesRemoteSent: entry.messagesRemoteSent.Load(),
+			})
 		}
-		info := gen.EventInfo{
-			Event:              event,
-			Producer:           entry.producer,
-			BufferSize:         bufSize,
-			CurrentBuffer:      bufLen,
-			Notify:             entry.notify,
-			Subscribers:        entry.subscriberCount,
-			MessagesPublished:  entry.messagesPublished.Load(),
-			MessagesLocalSent:  entry.messagesLocalSent.Load(),
-			MessagesRemoteSent: entry.messagesRemoteSent.Load(),
-		}
-		infos = append(infos, info)
+		s.mutex.RUnlock()
 	}
-	tm.mutex.RUnlock()
 
-	// Iterate without lock
 	for _, info := range infos {
 		if fn(info) == false {
 			break
@@ -810,12 +733,4 @@ func (tm *targetManager) EventRangeInfo(fn func(gen.EventInfo) bool) error {
 	}
 
 	return nil
-}
-
-// Helper: get event buffer snapshot
-func (tm *targetManager) getEventBuffer(entry *eventEntry) []gen.MessageEvent {
-	if entry.buffer == nil {
-		return nil
-	}
-	return entry.buffer.snapshot()
 }
