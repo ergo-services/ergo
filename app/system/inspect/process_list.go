@@ -3,6 +3,7 @@ package inspect
 import (
 	"fmt"
 	"slices"
+	"strings"
 
 	"ergo.services/ergo/act"
 	"ergo.services/ergo/gen"
@@ -16,8 +17,14 @@ type process_list struct {
 	act.Actor
 	token gen.Ref
 
-	start           int
-	limit           int
+	start       int
+	limit       int
+	name        string
+	behavior    string
+	application string
+	state       string
+	minMailbox  uint64
+
 	generating bool
 	loopID     uint64
 	event      gen.Atom
@@ -26,45 +33,33 @@ type process_list struct {
 func (ipl *process_list) Init(args ...any) error {
 	ipl.start = args[0].(int)
 	ipl.limit = args[1].(int)
+	ipl.name = args[2].(string)
+	ipl.behavior = args[3].(string)
+	ipl.application = args[4].(string)
+	ipl.state = args[5].(string)
+	ipl.minMailbox = args[6].(uint64)
+
 	ipl.Log().SetLogger("default")
 	ipl.Log().Debug("process list inspector started. %d...%d", ipl.start, ipl.start+ipl.limit-1)
-	// RegisterEvent is not allowed here
 	ipl.Send(ipl.PID(), register{})
 	return nil
 }
+
 func (ipl *process_list) HandleMessage(from gen.PID, message any) error {
 	switch m := message.(type) {
 	case generate:
 		if m.id != ipl.loopID || ipl.generating == false {
 			ipl.Log().Debug("generating canceled")
-			break // cancelled
+			break
 		}
 		ipl.Log().Debug("generating event")
 
-		start := ipl.start
-		if start < 0 {
-			// negative start means "last N": find the highest PID and work backwards
-			pids, err := ipl.Node().ProcessList()
-			if err != nil {
-				return err
-			}
-			if len(pids) > 0 {
-				// PIDs are not necessarily sorted, find max ID
-				maxID := uint64(0)
-				for _, p := range pids {
-					if p.ID > maxID {
-						maxID = p.ID
-					}
-				}
-				start = int(maxID) - ipl.limit
-				if start < 1000 {
-					start = 1000
-				}
-			} else {
-				start = 1000
-			}
+		var filter []func(gen.ProcessShortInfo) bool
+		if ipl.hasFilters() {
+			filter = append(filter, ipl.matchFilter)
 		}
-		list, err := ipl.Node().ProcessListShortInfo(start, ipl.limit)
+
+		list, err := ipl.Node().ProcessListShortInfo(ipl.start, ipl.limit, filter...)
 		if err != nil {
 			return err
 		}
@@ -98,7 +93,7 @@ func (ipl *process_list) HandleMessage(from gen.PID, message any) error {
 	case register:
 		eopts := gen.EventOptions{
 			Notify: true,
-			Buffer: 1, // keep the last event
+			Buffer: 1,
 		}
 		evname := gen.Atom(fmt.Sprintf("%s_%d_%d", inspectProcessList, ipl.start, ipl.start+ipl.limit-1))
 		token, err := ipl.RegisterEvent(evname, eopts)
@@ -108,24 +103,23 @@ func (ipl *process_list) HandleMessage(from gen.PID, message any) error {
 		}
 		ipl.Log().Info("registered event %s", evname)
 		ipl.event = evname
-
 		ipl.token = token
 		ipl.SendAfter(ipl.PID(), shutdown{}, inspectProcessListIdlePeriod)
 
 	case shutdown:
 		if ipl.generating {
 			ipl.Log().Debug("ignore shutdown. generating is active")
-			break // ignore.
+			break
 		}
 		return gen.TerminateReasonNormal
 
-	case gen.MessageEventStart: // got first subscriber
+	case gen.MessageEventStart:
 		ipl.Log().Debug("got first subscriber. start generating events...")
 		ipl.loopID++
 		ipl.Send(ipl.PID(), generate{id: ipl.loopID})
 		ipl.generating = true
 
-	case gen.MessageEventStop: // no subscribers
+	case gen.MessageEventStop:
 		ipl.Log().Debug("no subscribers. stop generating")
 		if ipl.generating {
 			ipl.generating = false
@@ -141,4 +135,27 @@ func (ipl *process_list) HandleMessage(from gen.PID, message any) error {
 
 func (ipl *process_list) Terminate(reason error) {
 	ipl.Log().Debug("process list inspector terminated: %s", reason)
+}
+
+func (ipl *process_list) hasFilters() bool {
+	return ipl.name != "" || ipl.behavior != "" || ipl.application != "" || ipl.state != "" || ipl.minMailbox > 0
+}
+
+func (ipl *process_list) matchFilter(info gen.ProcessShortInfo) bool {
+	if ipl.name != "" && strings.Contains(strings.ToLower(string(info.Name)), strings.ToLower(ipl.name)) == false {
+		return false
+	}
+	if ipl.behavior != "" && strings.Contains(strings.ToLower(info.Behavior), strings.ToLower(ipl.behavior)) == false {
+		return false
+	}
+	if ipl.application != "" && strings.Contains(strings.ToLower(string(info.Application)), strings.ToLower(ipl.application)) == false {
+		return false
+	}
+	if ipl.state != "" && strings.EqualFold(info.State.String(), ipl.state) == false {
+		return false
+	}
+	if ipl.minMailbox > 0 && info.MessagesMailbox < ipl.minMailbox {
+		return false
+	}
+	return true
 }

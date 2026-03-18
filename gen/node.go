@@ -106,7 +106,7 @@ type Node interface {
 	// More efficient than ProcessList + ProcessInfo for each.
 	// Available in: Running state only.
 	// Returns ErrNodeTerminated in other states.
-	ProcessListShortInfo(start, limit int) ([]ProcessShortInfo, error)
+	ProcessListShortInfo(start, limit int, filter ...func(ProcessShortInfo) bool) ([]ProcessShortInfo, error)
 
 	// ProcessRangeShortInfo iterates over all processes calling fn for each.
 	// The callback receives ProcessShortInfo and returns true to continue

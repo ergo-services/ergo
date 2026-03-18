@@ -67,8 +67,13 @@ type MessageInspectConnectionList struct {
 // process list
 
 type RequestInspectProcessList struct {
-	Start int
-	Limit int
+	Start       int
+	Limit       int
+	Name        string
+	Behavior    string
+	Application string
+	State       string
+	MinMailbox  uint64
 }
 type ResponseInspectProcessList struct {
 	Event gen.Event

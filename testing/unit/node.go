@@ -230,7 +230,7 @@ func (tn *TestNode) ProcessList() ([]gen.PID, error) {
 	return pids, nil
 }
 
-func (tn *TestNode) ProcessListShortInfo(start, limit int) ([]gen.ProcessShortInfo, error) {
+func (tn *TestNode) ProcessListShortInfo(start, limit int, filter ...func(gen.ProcessShortInfo) bool) ([]gen.ProcessShortInfo, error) {
 	var infos []gen.ProcessShortInfo
 	for pid := range tn.processes {
 		infos = append(infos, gen.ProcessShortInfo{

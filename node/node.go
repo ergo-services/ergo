@@ -881,29 +881,28 @@ func (n *node) ProcessList() ([]gen.PID, error) {
 	return pl, nil
 }
 
-func (n *node) ProcessListShortInfo(start, limit int) ([]gen.ProcessShortInfo, error) {
+func (n *node) ProcessListShortInfo(start, limit int, filter ...func(gen.ProcessShortInfo) bool) ([]gen.ProcessShortInfo, error) {
 	if n.isRunning() == false {
 		return nil, gen.ErrNodeTerminated
 	}
 
-	if start < 1000 || limit < 0 {
+	if limit < 0 || (start >= 0 && start < 1000) {
 		return nil, gen.ErrIncorrect
 	}
 	if limit == 0 {
 		limit = 100
 	}
-	ustart := uint64(start)
+
+	from, to, step := int64(start), int64(n.nextID)+1, int64(1)
+	if start < 0 {
+		from, to, step = int64(n.nextID), 999, -1
+	}
+
 	psi := []gen.ProcessShortInfo{}
 	pid := n.corePID
 
-	for limit > 0 {
-
-		if ustart > n.nextID {
-			break
-		}
-
-		pid.ID = ustart
-		ustart++
+	for id := from; id != to && limit > 0; id += step {
+		pid.ID = uint64(id)
 		v, found := n.processes.Load(pid)
 		if found == false {
 			continue
@@ -929,6 +928,9 @@ func (n *node) ProcessListShortInfo(start, limit int) ([]gen.ProcessShortInfo, e
 			Parent:          process.parent,
 			Leader:          process.leader,
 			LogLevel:        process.log.Level(),
+		}
+		if len(filter) > 0 && filter[0](info) == false {
+			continue
 		}
 		psi = append(psi, info)
 		limit--
