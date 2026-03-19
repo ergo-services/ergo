@@ -29,7 +29,8 @@ type process struct {
 	behavior  gen.ProcessBehavior
 	sbehavior string
 
-	state int32
+	state        int32
+	stateEntered int64 // Unix nanoseconds when current state was entered
 
 	parent   gen.PID
 	leader   gen.PID
@@ -1952,6 +1953,7 @@ func (p *process) waitResponse(ref gen.Ref, timeout int) (any, error) {
 		atomic.StoreInt32(&p.state, prevState)
 		return nil, gen.ErrNotAllowed
 	}
+	atomic.StoreInt64(&p.stateEntered, time.Now().UnixNano())
 
 	timer := lib.TakeTimer()
 	defer lib.ReleaseTimer(timer)
@@ -1994,5 +1996,6 @@ retry:
 	if swapped := atomic.CompareAndSwapInt32(&p.state, int32(gen.ProcessStateWaitResponse), prevState); swapped == false {
 		return nil, gen.ErrProcessTerminated
 	}
+	atomic.StoreInt64(&p.stateEntered, time.Now().UnixNano())
 	return response, err
 }

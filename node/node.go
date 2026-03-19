@@ -516,6 +516,7 @@ func (n *node) ProcessInfo(pid gen.PID) (gen.ProcessInfo, error) {
 	info.MessagePriority = p.priority
 	info.Uptime = p.Uptime()
 	info.State = p.State()
+	info.StateTime = time.Now().UnixNano() - atomic.LoadInt64(&p.stateEntered)
 	info.Parent = p.parent
 	info.Leader = p.leader
 	info.Fallback = p.fallback
@@ -925,6 +926,7 @@ func (n *node) ProcessListShortInfo(start, limit int, filter ...func(gen.Process
 			RunningTime:     process.runningTime,
 			Uptime:          process.Uptime(),
 			State:           process.State(),
+			StateTime:       time.Now().UnixNano() - atomic.LoadInt64(&process.stateEntered),
 			Parent:          process.parent,
 			Leader:          process.leader,
 			LogLevel:        process.log.Level(),
@@ -966,6 +968,7 @@ func (n *node) ProcessRangeShortInfo(fn func(gen.ProcessShortInfo) bool) error {
 			Wakeups:         p.wakeups,
 			Uptime:          p.Uptime(),
 			State:           p.State(),
+			StateTime:       time.Now().UnixNano() - atomic.LoadInt64(&p.stateEntered),
 			Parent:          p.parent,
 			Leader:          p.leader,
 			LogLevel:        p.log.Level(),
@@ -1667,6 +1670,7 @@ func (n *node) Kill(pid gen.PID) error {
 	case int32(gen.ProcessStateInit),
 		int32(gen.ProcessStateWaitResponse),
 		int32(gen.ProcessStateRunning):
+		atomic.StoreInt64(&p.stateEntered, time.Now().UnixNano())
 		// do not unregister process until its goroutine stopped
 		return nil
 	case int32(gen.ProcessStateTerminated):
@@ -1678,6 +1682,7 @@ func (n *node) Kill(pid gen.PID) error {
 	if old == int32(gen.ProcessStateTerminated) {
 		return nil
 	}
+	atomic.StoreInt64(&p.stateEntered, time.Now().UnixNano())
 	// unregister process and stuff belonging to it
 	n.unregisterProcess(p, gen.TerminateReasonKill)
 
@@ -1919,6 +1924,7 @@ func (n *node) ApplicationProcessListShortInfo(name gen.Atom, limit int) ([]gen.
 			Wakeups:         p.wakeups,
 			Uptime:          p.Uptime(),
 			State:           p.State(),
+			StateTime:       time.Now().UnixNano() - atomic.LoadInt64(&p.stateEntered),
 			Parent:          p.parent,
 			Leader:          p.leader,
 			LogLevel:        p.log.Level(),
@@ -1957,6 +1963,7 @@ func (n *node) ApplicationProcessListShortInfo(name gen.Atom, limit int) ([]gen.
 			Wakeups:         p.wakeups,
 			Uptime:          p.Uptime(),
 			State:           p.State(),
+			StateTime:       time.Now().UnixNano() - atomic.LoadInt64(&p.stateEntered),
 			Parent:          p.parent,
 			Leader:          p.leader,
 			LogLevel:        p.log.Level(),
@@ -2331,16 +2338,18 @@ func (n *node) spawn(factory gen.ProcessFactory, options gen.ProcessOptionsExtra
 		return empty, gen.ErrParentUnknown
 	}
 
+	now := time.Now()
 	p := &process{
-		node:        n,
-		response:    make(chan response, 10),
-		creation:    time.Now().Unix(),
-		keeporder:   true,
-		state:       int32(gen.ProcessStateInit),
-		parent:      options.ParentPID,
-		leader:      options.ParentLeader,
-		application: options.Application,
-		important:   options.ImportantDelivery,
+		node:         n,
+		response:     make(chan response, 10),
+		creation:     now.Unix(),
+		keeporder:    true,
+		state:        int32(gen.ProcessStateInit),
+		stateEntered: now.UnixNano(),
+		parent:       options.ParentPID,
+		leader:       options.ParentLeader,
+		application:  options.Application,
+		important:    options.ImportantDelivery,
 	}
 
 	if options.Register != "" {
@@ -2477,6 +2486,7 @@ func (n *node) spawn(factory gen.ProcessFactory, options gen.ProcessOptionsExtra
 
 			// timeout won - main already called Kill, we do cleanup
 			atomic.StoreInt32(&p.state, int32(gen.ProcessStateTerminated))
+			atomic.StoreInt64(&p.stateEntered, time.Now().UnixNano())
 			n.cleanupProcess(p, gen.TerminateReasonKill)
 			if lib.Recover() {
 				defer func() {
@@ -2539,6 +2549,7 @@ func (n *node) spawn(factory gen.ProcessFactory, options gen.ProcessOptionsExtra
 
 	// switch to sleep state (process already registered above)
 	p.state = int32(gen.ProcessStateSleep)
+	atomic.StoreInt64(&p.stateEntered, time.Now().UnixNano())
 
 	// do not count system app processes
 	if p.application != system.Name {

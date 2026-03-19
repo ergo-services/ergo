@@ -17,6 +17,7 @@ func (p *process) run() {
 		int32(gen.ProcessStateRunning)) == false { // already running or terminated
 		return
 	}
+	atomic.StoreInt64(&p.stateEntered, time.Now().UnixNano())
 	atomic.AddUint64(&p.wakeups, 1)
 	go func() {
 		if lib.Recover() {
@@ -29,6 +30,7 @@ func (p *process) run() {
 					if old == int32(gen.ProcessStateTerminated) {
 						return
 					}
+					atomic.StoreInt64(&p.stateEntered, time.Now().UnixNano())
 					p.node.unregisterProcess(p, gen.TerminateReasonPanic)
 					p.behavior.ProcessTerminate(gen.TerminateReasonPanic)
 				}
@@ -51,7 +53,7 @@ func (p *process) run() {
 			if old == int32(gen.ProcessStateTerminated) {
 				return
 			}
-
+			atomic.StoreInt64(&p.stateEntered, time.Now().UnixNano())
 			p.node.unregisterProcess(p, e)
 			p.behavior.ProcessTerminate(err)
 			return
@@ -71,10 +73,12 @@ func (p *process) run() {
 			if old == int32(gen.ProcessStateTerminated) {
 				return
 			}
+			atomic.StoreInt64(&p.stateEntered, time.Now().UnixNano())
 			p.node.unregisterProcess(p, gen.TerminateReasonKill)
 			p.behavior.ProcessTerminate(gen.TerminateReasonKill)
 			return
 		}
+		atomic.StoreInt64(&p.stateEntered, time.Now().UnixNano())
 		// check if something left in the inbox and try to handle it
 		if p.mailbox.Main.Item() == nil {
 			if p.mailbox.System.Item() == nil {
@@ -95,6 +99,7 @@ func (p *process) run() {
 			// another goroutine is already running
 			return
 		}
+		atomic.StoreInt64(&p.stateEntered, time.Now().UnixNano())
 		goto next
 	}()
 }

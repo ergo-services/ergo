@@ -931,6 +931,9 @@ type ProcessInfo struct {
 	// State is the current process state (Init, Sleep, Running, WaitResponse, Terminated, Zombee).
 	State ProcessState
 
+	// StateTime is the elapsed time since the process entered its current state (nanoseconds).
+	StateTime int64
+
 	// Parent is the PID of the parent process that spawned this process.
 	Parent PID
 
@@ -1041,6 +1044,9 @@ type ProcessShortInfo struct {
 
 	// State is the current process state (Init, Sleep, Running, WaitResponse, Terminated, Zombee).
 	State ProcessState
+
+	// StateTime is the elapsed time since the process entered its current state (nanoseconds).
+	StateTime int64
 
 	// Parent is the PID of the parent process that spawned this process.
 	Parent PID
