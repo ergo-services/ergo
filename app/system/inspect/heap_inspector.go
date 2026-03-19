@@ -31,8 +31,19 @@ func (h *heap_inspector) Init(args ...any) error {
 	h.name = args[1].(string)
 
 	h.Log().SetLogger("default")
-	h.Send(h.PID(), register{})
 	h.SetCompression(true)
+
+	eopts := gen.EventOptions{Notify: true, Buffer: 1}
+	hash := filterHash(h.name, "", "", "", 0, h.limit)
+	h.event = gen.Atom(fmt.Sprintf("%s_%s", inspectHeap, hash))
+	token, err := h.RegisterEvent(h.event, eopts)
+	if err != nil {
+		h.Log().Error("unable to register event: %s", err)
+		return err
+	}
+	h.token = token
+	h.SendAfter(h.PID(), shutdown{}, inspectHeapIdlePeriod)
+
 	return nil
 }
 
@@ -79,18 +90,6 @@ func (h *heap_inspector) HandleMessage(from gen.PID, message any) error {
 			},
 		}
 		h.SendResponse(m.pid, m.ref, response)
-
-	case register:
-		eopts := gen.EventOptions{Notify: true, Buffer: 1}
-		hash := filterHash(h.name, "", "", "", 0, h.limit)
-		h.event = gen.Atom(fmt.Sprintf("%s_%s", inspectHeap, hash))
-		token, err := h.RegisterEvent(h.event, eopts)
-		if err != nil {
-			h.Log().Error("unable to register event: %s", err)
-			return err
-		}
-		h.token = token
-		h.SendAfter(h.PID(), shutdown{}, inspectHeapIdlePeriod)
 
 	case shutdown:
 		if h.generating {

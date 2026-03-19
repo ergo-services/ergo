@@ -37,8 +37,21 @@ func (il *log) Init(args ...any) error {
 	il.ring = make([]InspectLogEntry, il.limit)
 	il.Log().SetLogger("default")
 	il.Log().Debug("log inspector started (limit: %d)", il.limit)
-	il.Send(il.PID(), register{})
 	il.SetCompression(true)
+
+	eopts := gen.EventOptions{
+		Notify: true,
+	}
+	evname := gen.Atom(fmt.Sprintf("%s_%s", string(il.Name()), il.PID()))
+	token, err := il.RegisterEvent(evname, eopts)
+	if err != nil {
+		return err
+	}
+
+	il.event = evname
+	il.token = token
+	il.SendAfter(il.PID(), shutdown{}, inspectLogIdlePeriod)
+
 	return nil
 }
 
@@ -98,20 +111,6 @@ func (il *log) HandleMessage(from gen.PID, message any) error {
 			},
 		}
 		il.SendResponse(m.pid, m.ref, response)
-
-	case register:
-		eopts := gen.EventOptions{
-			Notify: true,
-		}
-		evname := gen.Atom(fmt.Sprintf("%s_%s", string(il.Name()), il.PID()))
-		token, err := il.RegisterEvent(evname, eopts)
-		if err != nil {
-			return err
-		}
-
-		il.event = evname
-		il.token = token
-		il.SendAfter(il.PID(), shutdown{}, inspectLogIdlePeriod)
 
 	case shutdown:
 		if il.generating {

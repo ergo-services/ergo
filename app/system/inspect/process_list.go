@@ -41,8 +41,23 @@ func (ipl *process_list) Init(args ...any) error {
 
 	ipl.Log().SetLogger("default")
 	ipl.Log().Debug("process list inspector started. %d...%d", ipl.start, ipl.start+ipl.limit-1)
-	ipl.Send(ipl.PID(), register{})
 	ipl.SetCompression(true)
+
+	eopts := gen.EventOptions{
+		Notify: true,
+		Buffer: 1,
+	}
+	evname := gen.Atom(fmt.Sprintf("%s_%d_%d", inspectProcessList, ipl.start, ipl.start+ipl.limit-1))
+	token, err := ipl.RegisterEvent(evname, eopts)
+	if err != nil {
+		ipl.Log().Error("unable to register event: %s", err)
+		return err
+	}
+	ipl.Log().Info("registered event %s", evname)
+	ipl.event = evname
+	ipl.token = token
+	ipl.SendAfter(ipl.PID(), shutdown{}, inspectProcessListIdlePeriod)
+
 	return nil
 }
 
@@ -90,22 +105,6 @@ func (ipl *process_list) HandleMessage(from gen.PID, message any) error {
 		}
 		ipl.SendResponse(m.pid, m.ref, response)
 		ipl.Log().Debug("sent response for the inspect process list request to: %s", m.pid)
-
-	case register:
-		eopts := gen.EventOptions{
-			Notify: true,
-			Buffer: 1,
-		}
-		evname := gen.Atom(fmt.Sprintf("%s_%d_%d", inspectProcessList, ipl.start, ipl.start+ipl.limit-1))
-		token, err := ipl.RegisterEvent(evname, eopts)
-		if err != nil {
-			ipl.Log().Error("unable to register event: %s", err)
-			return err
-		}
-		ipl.Log().Info("registered event %s", evname)
-		ipl.event = evname
-		ipl.token = token
-		ipl.SendAfter(ipl.PID(), shutdown{}, inspectProcessListIdlePeriod)
 
 	case shutdown:
 		if ipl.generating {

@@ -42,8 +42,22 @@ func (ipr *process_range) Init(args ...any) error {
 	ipr.Log().SetLogger("default")
 	ipr.Log().Debug("process range inspector started. name=%q behavior=%q app=%q state=%q mailbox>=%d limit=%d",
 		ipr.name, ipr.behavior, ipr.application, ipr.state, ipr.minMailbox, ipr.limit)
-	ipr.Send(ipr.PID(), register{})
 	ipr.SetCompression(true)
+
+	eopts := gen.EventOptions{
+		Notify: true,
+		Buffer: 1,
+	}
+	ipr.event = gen.Atom(fmt.Sprintf("%s_%s", inspectProcessRange, ipr.hash))
+	token, err := ipr.RegisterEvent(ipr.event, eopts)
+	if err != nil {
+		ipr.Log().Error("unable to register event: %s", err)
+		return err
+	}
+	ipr.Log().Info("registered event %s", ipr.event)
+	ipr.token = token
+	ipr.SendAfter(ipr.PID(), shutdown{}, inspectProcessRangeIdlePeriod)
+
 	return nil
 }
 
@@ -120,21 +134,6 @@ func (ipr *process_range) HandleMessage(from gen.PID, message any) error {
 			},
 		}
 		ipr.SendResponse(m.pid, m.ref, response)
-
-	case register:
-		eopts := gen.EventOptions{
-			Notify: true,
-			Buffer: 1,
-		}
-		ipr.event = gen.Atom(fmt.Sprintf("%s_%s", inspectProcessRange, ipr.hash))
-		token, err := ipr.RegisterEvent(ipr.event, eopts)
-		if err != nil {
-			ipr.Log().Error("unable to register event: %s", err)
-			return err
-		}
-		ipr.Log().Info("registered event %s", ipr.event)
-		ipr.token = token
-		ipr.SendAfter(ipr.PID(), shutdown{}, inspectProcessRangeIdlePeriod)
 
 	case shutdown:
 		if ipr.generating {

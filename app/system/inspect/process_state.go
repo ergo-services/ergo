@@ -25,8 +25,22 @@ func (ips *process_state) Init(args ...any) error {
 	ips.pid = args[0].(gen.PID)
 	ips.Log().SetLogger("default")
 	ips.Log().Debug("process state inspector started. pid %s", ips.pid)
-	// RegisterEvent is not allowed here
-	ips.Send(ips.PID(), register{})
+
+	eopts := gen.EventOptions{
+		Notify: true,
+		Buffer: 1, // keep the last event
+	}
+	evname := gen.Atom(fmt.Sprintf("%s_%s", inspectProcessState, ips.pid))
+	token, err := ips.RegisterEvent(evname, eopts)
+	if err != nil {
+		ips.Log().Error("unable to register process state event: %s", err)
+		return err
+	}
+	ips.Log().Info("registered event %s", evname)
+	ips.event = evname
+	ips.token = token
+	ips.SendAfter(ips.PID(), shutdown{}, inspectProcessStateIdlePeriod)
+
 	return nil
 }
 
@@ -71,23 +85,6 @@ func (ips *process_state) HandleMessage(from gen.PID, message any) error {
 		}
 		ips.SendResponse(m.pid, m.ref, response)
 		ips.Log().Debug("sent response for the inspect process state %s request to: %s", ips.pid, m.pid)
-
-	case register:
-		eopts := gen.EventOptions{
-			Notify: true,
-			Buffer: 1, // keep the last event
-		}
-		evname := gen.Atom(fmt.Sprintf("%s_%s", inspectProcessState, ips.pid))
-		token, err := ips.RegisterEvent(evname, eopts)
-		if err != nil {
-			ips.Log().Error("unable to register process state event: %s", err)
-			return err
-		}
-		ips.Log().Info("registered event %s", evname)
-		ips.event = evname
-
-		ips.token = token
-		ips.SendAfter(ips.PID(), shutdown{}, inspectProcessStateIdlePeriod)
 
 	case shutdown:
 		if ips.generating {

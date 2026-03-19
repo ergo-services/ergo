@@ -25,8 +25,22 @@ func (ims *meta_state) Init(args ...any) error {
 	ims.meta = args[0].(gen.Alias)
 	ims.Log().SetLogger("default")
 	ims.Log().Debug("meta state inspector started. id %s", ims.meta)
-	// RegisterEvent is not allowed here
-	ims.Send(ims.PID(), register{})
+
+	eopts := gen.EventOptions{
+		Notify: true,
+		Buffer: 1, // keep the last event
+	}
+	evname := gen.Atom(fmt.Sprintf("%s_%s", inspectMetaState, ims.meta))
+	token, err := ims.RegisterEvent(evname, eopts)
+	if err != nil {
+		ims.Log().Error("unable to register meta state event: %s", err)
+		return err
+	}
+	ims.Log().Info("registered event %s", evname)
+	ims.event = evname
+	ims.token = token
+	ims.SendAfter(ims.PID(), shutdown{}, inspectMetaStateIdlePeriod)
+
 	return nil
 }
 
@@ -74,23 +88,6 @@ func (ims *meta_state) HandleMessage(from gen.PID, message any) error {
 		}
 		ims.SendResponse(m.pid, m.ref, response)
 		ims.Log().Debug("sent response for the inspect meta state %s request to: %s", ims.meta, m.pid)
-
-	case register:
-		eopts := gen.EventOptions{
-			Notify: true,
-			Buffer: 1, // keep the last event
-		}
-		evname := gen.Atom(fmt.Sprintf("%s_%s", inspectMetaState, ims.meta))
-		token, err := ims.RegisterEvent(evname, eopts)
-		if err != nil {
-			ims.Log().Error("unable to register meta state event: %s", err)
-			return err
-		}
-		ims.Log().Info("registered event %s", evname)
-		ims.event = evname
-
-		ims.token = token
-		ims.SendAfter(ims.PID(), shutdown{}, inspectMetaStateIdlePeriod)
 
 	case shutdown:
 		if ims.generating {

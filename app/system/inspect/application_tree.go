@@ -27,9 +27,23 @@ func (iat *application_tree) Init(args ...any) error {
 	iat.limit = args[1].(int)
 	iat.Log().SetLogger("default")
 	iat.Log().Debug("application tree inspector started for %s with limit %d", iat.application, iat.limit)
-	// RegisterEvent is not allowed here
-	iat.Send(iat.PID(), register{})
 	iat.SetCompression(true)
+
+	eopts := gen.EventOptions{
+		Notify: true,
+		Buffer: 1, // keep the last event
+	}
+	evname := gen.Atom(fmt.Sprintf("%s_%s_%d", inspectApplicationTree, iat.application, iat.limit))
+	token, err := iat.RegisterEvent(evname, eopts)
+	if err != nil {
+		iat.Log().Error("unable to register event: %s", err)
+		return err
+	}
+	iat.Log().Info("registered event %s", evname)
+	iat.event = evname
+	iat.token = token
+	iat.SendAfter(iat.PID(), shutdown{}, inspectApplicationTreeIdlePeriod)
+
 	return nil
 }
 
@@ -69,23 +83,6 @@ func (iat *application_tree) HandleMessage(from gen.PID, message any) error {
 		}
 		iat.SendResponse(m.pid, m.ref, response)
 		iat.Log().Debug("sent response for the inspect application tree request to: %s", m.pid)
-
-	case register:
-		eopts := gen.EventOptions{
-			Notify: true,
-			Buffer: 1, // keep the last event
-		}
-		evname := gen.Atom(fmt.Sprintf("%s_%s_%d", inspectApplicationTree, iat.application, iat.limit))
-		token, err := iat.RegisterEvent(evname, eopts)
-		if err != nil {
-			iat.Log().Error("unable to register event: %s", err)
-			return err
-		}
-		iat.Log().Info("registered event %s", evname)
-		iat.event = evname
-
-		iat.token = token
-		iat.SendAfter(iat.PID(), shutdown{}, inspectApplicationTreeIdlePeriod)
 
 	case shutdown:
 		if iat.generating {

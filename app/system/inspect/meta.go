@@ -25,8 +25,22 @@ func (im *meta) Init(args ...any) error {
 	im.meta = args[0].(gen.Alias)
 	im.Log().SetLogger("default")
 	im.Log().Debug("meta process inspector started. pid %s", im.meta)
-	// RegisterEvent is not allowed here
-	im.Send(im.PID(), register{})
+
+	eopts := gen.EventOptions{
+		Notify: true,
+		Buffer: 1, // keep the last event
+	}
+	evname := gen.Atom(fmt.Sprintf("%s_%s", inspectMeta, im.meta))
+	token, err := im.RegisterEvent(evname, eopts)
+	if err != nil {
+		im.Log().Error("unable to register meta process event: %s", err)
+		return err
+	}
+	im.Log().Info("registered event %s", evname)
+	im.event = evname
+	im.token = token
+	im.SendAfter(im.PID(), shutdown{}, inspectMetaIdlePeriod)
+
 	return nil
 }
 
@@ -83,23 +97,6 @@ func (im *meta) HandleMessage(from gen.PID, message any) error {
 		}
 		im.SendResponse(m.pid, m.ref, response)
 		im.Log().Debug("sent response for the inspect meta request to: %s", m.pid)
-
-	case register:
-		eopts := gen.EventOptions{
-			Notify: true,
-			Buffer: 1, // keep the last event
-		}
-		evname := gen.Atom(fmt.Sprintf("%s_%s", inspectMeta, im.meta))
-		token, err := im.RegisterEvent(evname, eopts)
-		if err != nil {
-			im.Log().Error("unable to register meta process event: %s", err)
-			return err
-		}
-		im.Log().Info("registered event %s", evname)
-		im.event = evname
-
-		im.token = token
-		im.SendAfter(im.PID(), shutdown{}, inspectMetaIdlePeriod)
 
 	case shutdown:
 		if im.generating {

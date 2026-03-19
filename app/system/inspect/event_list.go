@@ -39,8 +39,22 @@ func (iel *event_list) Init(args ...any) error {
 	iel.Log().SetLogger("default")
 	iel.Log().Debug("event list inspector started. name=%q notify=%d buffered=%d minSubs=%d limit=%d",
 		iel.name, iel.notify, iel.buffered, iel.minSubscribers, iel.limit)
-	iel.Send(iel.PID(), register{})
 	iel.SetCompression(true)
+
+	eopts := gen.EventOptions{
+		Notify: true,
+		Buffer: 1,
+	}
+	iel.event = gen.Atom(fmt.Sprintf("%s_%s", inspectEventList, iel.hash))
+	token, err := iel.RegisterEvent(iel.event, eopts)
+	if err != nil {
+		iel.Log().Error("unable to register event: %s", err)
+		return err
+	}
+	iel.Log().Info("registered event %s", iel.event)
+	iel.token = token
+	iel.SendAfter(iel.PID(), shutdown{}, inspectEventListIdlePeriod)
+
 	return nil
 }
 
@@ -117,21 +131,6 @@ func (iel *event_list) HandleMessage(from gen.PID, message any) error {
 		}
 		iel.SendResponse(m.pid, m.ref, response)
 		iel.Log().Debug("sent response for the inspect event list request to: %s", m.pid)
-
-	case register:
-		eopts := gen.EventOptions{
-			Notify: true,
-			Buffer: 1,
-		}
-		iel.event = gen.Atom(fmt.Sprintf("%s_%s", inspectEventList, iel.hash))
-		token, err := iel.RegisterEvent(iel.event, eopts)
-		if err != nil {
-			iel.Log().Error("unable to register event: %s", err)
-			return err
-		}
-		iel.Log().Info("registered event %s", iel.event)
-		iel.token = token
-		iel.SendAfter(iel.PID(), shutdown{}, inspectEventListIdlePeriod)
 
 	case shutdown:
 		if iel.generating {

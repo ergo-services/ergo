@@ -23,8 +23,22 @@ type application_list struct {
 func (ial *application_list) Init(args ...any) error {
 	ial.Log().SetLogger("default")
 	ial.Log().Debug("application list inspector started")
-	// RegisterEvent is not allowed here
-	ial.Send(ial.PID(), register{})
+
+	eopts := gen.EventOptions{
+		Notify: true,
+		Buffer: 1, // keep the last event
+	}
+	evname := gen.Atom(fmt.Sprintf("%s", inspectApplicationList))
+	token, err := ial.RegisterEvent(evname, eopts)
+	if err != nil {
+		ial.Log().Error("unable to register event: %s", err)
+		return err
+	}
+	ial.Log().Info("registered event %s", evname)
+	ial.event = evname
+	ial.token = token
+	ial.SendAfter(ial.PID(), shutdown{}, inspectApplicationListIdlePeriod)
+
 	return nil
 }
 
@@ -72,23 +86,6 @@ func (ial *application_list) HandleMessage(from gen.PID, message any) error {
 		}
 		ial.SendResponse(m.pid, m.ref, response)
 		ial.Log().Debug("sent response for the inspect application list request to: %s", m.pid)
-
-	case register:
-		eopts := gen.EventOptions{
-			Notify: true,
-			Buffer: 1, // keep the last event
-		}
-		evname := gen.Atom(fmt.Sprintf("%s", inspectApplicationList))
-		token, err := ial.RegisterEvent(evname, eopts)
-		if err != nil {
-			ial.Log().Error("unable to register event: %s", err)
-			return err
-		}
-		ial.Log().Info("registered event %s", evname)
-		ial.event = evname
-
-		ial.token = token
-		ial.SendAfter(ial.PID(), shutdown{}, inspectApplicationListIdlePeriod)
 
 	case shutdown:
 		if ial.generating {

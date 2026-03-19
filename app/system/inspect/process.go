@@ -25,8 +25,22 @@ func (ip *process) Init(args ...any) error {
 	ip.pid = args[0].(gen.PID)
 	ip.Log().SetLogger("default")
 	ip.Log().Debug("process inspector started. pid %s", ip.pid)
-	// RegisterEvent is not allowed here
-	ip.Send(ip.PID(), register{})
+
+	eopts := gen.EventOptions{
+		Notify: true,
+		Buffer: 1, // keep the last event
+	}
+	evname := gen.Atom(fmt.Sprintf("%s_%s", inspectProcess, ip.pid))
+	token, err := ip.RegisterEvent(evname, eopts)
+	if err != nil {
+		ip.Log().Error("unable to register event: %s", err)
+		return err
+	}
+	ip.Log().Info("registered event %s", evname)
+	ip.event = evname
+	ip.token = token
+	ip.SendAfter(ip.PID(), shutdown{}, inspectProcessIdlePeriod)
+
 	return nil
 }
 
@@ -89,23 +103,6 @@ func (ip *process) HandleMessage(from gen.PID, message any) error {
 		}
 		ip.SendResponse(m.pid, m.ref, response)
 		ip.Log().Debug("sent response for the inspect process request to: %s", m.pid)
-
-	case register:
-		eopts := gen.EventOptions{
-			Notify: true,
-			Buffer: 1, // keep the last event
-		}
-		evname := gen.Atom(fmt.Sprintf("%s_%s", inspectProcess, ip.pid))
-		token, err := ip.RegisterEvent(evname, eopts)
-		if err != nil {
-			ip.Log().Error("unable to register event: %s", err)
-			return err
-		}
-		ip.Log().Info("registered event %s", evname)
-		ip.event = evname
-
-		ip.token = token
-		ip.SendAfter(ip.PID(), shutdown{}, inspectProcessIdlePeriod)
 
 	case shutdown:
 		if ip.generating {

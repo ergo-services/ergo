@@ -32,8 +32,22 @@ func (icl *connection_list) Init(args ...any) error {
 
 	icl.Log().SetLogger("default")
 	icl.Log().Debug("connection list inspector started. name=%q limit=%d", icl.name, icl.limit)
-	icl.Send(icl.PID(), register{})
 	icl.SetCompression(true)
+
+	eopts := gen.EventOptions{
+		Notify: true,
+		Buffer: 1,
+	}
+	icl.event = gen.Atom(fmt.Sprintf("%s_%s", inspectConnectionList, icl.hash))
+	token, err := icl.RegisterEvent(icl.event, eopts)
+	if err != nil {
+		icl.Log().Error("unable to register event: %s", err)
+		return err
+	}
+	icl.Log().Info("registered event %s", icl.event)
+	icl.token = token
+	icl.SendAfter(icl.PID(), shutdown{}, inspectConnectionListIdlePeriod)
+
 	return nil
 }
 
@@ -94,21 +108,6 @@ func (icl *connection_list) HandleMessage(from gen.PID, message any) error {
 			},
 		}
 		icl.SendResponse(m.pid, m.ref, response)
-
-	case register:
-		eopts := gen.EventOptions{
-			Notify: true,
-			Buffer: 1,
-		}
-		icl.event = gen.Atom(fmt.Sprintf("%s_%s", inspectConnectionList, icl.hash))
-		token, err := icl.RegisterEvent(icl.event, eopts)
-		if err != nil {
-			icl.Log().Error("unable to register event: %s", err)
-			return err
-		}
-		icl.Log().Info("registered event %s", icl.event)
-		icl.token = token
-		icl.SendAfter(icl.PID(), shutdown{}, inspectConnectionListIdlePeriod)
 
 	case shutdown:
 		if icl.generating {

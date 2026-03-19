@@ -25,8 +25,22 @@ func (ic *connection) Init(args ...any) error {
 	ic.remote = args[0].(gen.Atom)
 	ic.Log().SetLogger("default")
 	ic.Log().Debug("connection inspector started")
-	// RegisterEvent is not allowed here
-	ic.Send(ic.PID(), register{})
+
+	eopts := gen.EventOptions{
+		Notify: true,
+		Buffer: 1, // keep the last event
+	}
+	evname := gen.Atom(fmt.Sprintf("%s_%s", inspectConnection, ic.remote))
+	token, err := ic.RegisterEvent(evname, eopts)
+	if err != nil {
+		ic.Log().Error("unable to register connection event: %s", err)
+		return err
+	}
+	ic.Log().Info("registered event %s", inspectNetwork)
+	ic.event = evname
+	ic.token = token
+	ic.SendAfter(ic.PID(), shutdown{}, inspectNetworkIdlePeriod)
+
 	return nil
 }
 
@@ -80,23 +94,6 @@ func (ic *connection) HandleMessage(from gen.PID, message any) error {
 		if response.Disconnected {
 			return gen.TerminateReasonNormal
 		}
-
-	case register:
-		eopts := gen.EventOptions{
-			Notify: true,
-			Buffer: 1, // keep the last event
-		}
-		evname := gen.Atom(fmt.Sprintf("%s_%s", inspectConnection, ic.remote))
-		token, err := ic.RegisterEvent(evname, eopts)
-		if err != nil {
-			ic.Log().Error("unable to register connection event: %s", err)
-			return err
-		}
-		ic.Log().Info("registered event %s", inspectNetwork)
-		ic.event = evname
-
-		ic.token = token
-		ic.SendAfter(ic.PID(), shutdown{}, inspectNetworkIdlePeriod)
 
 	case shutdown:
 		if ic.generating {

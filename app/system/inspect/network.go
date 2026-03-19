@@ -21,8 +21,20 @@ type network struct {
 func (in *network) Init(args ...any) error {
 	in.Log().SetLogger("default")
 	in.Log().Debug("network inspector started")
-	// RegisterEvent is not allowed here
-	in.Send(in.PID(), register{})
+
+	eopts := gen.EventOptions{
+		Notify: true,
+		Buffer: 1, // keep the last event
+	}
+	token, err := in.RegisterEvent(inspectNetwork, eopts)
+	if err != nil {
+		in.Log().Error("unable to register network event: %s", err)
+		return err
+	}
+	in.Log().Info("registered event %s", inspectNetwork)
+	in.token = token
+	in.SendAfter(in.PID(), shutdown{}, inspectNetworkIdlePeriod)
+
 	return nil
 }
 
@@ -62,21 +74,6 @@ func (in *network) HandleMessage(from gen.PID, message any) error {
 		}
 		in.SendResponse(m.pid, m.ref, response)
 		in.Log().Debug("sent response for the inspect network request to: %s", m.pid)
-
-	case register:
-		eopts := gen.EventOptions{
-			Notify: true,
-			Buffer: 1, // keep the last event
-		}
-		token, err := in.RegisterEvent(inspectNetwork, eopts)
-		if err != nil {
-			in.Log().Error("unable to register network event: %s", err)
-			return err
-		}
-		in.Log().Info("registered event %s", inspectNetwork)
-
-		in.token = token
-		in.SendAfter(in.PID(), shutdown{}, inspectNetworkIdlePeriod)
 
 	case shutdown:
 		if in.generating {
