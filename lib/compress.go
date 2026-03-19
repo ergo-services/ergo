@@ -15,6 +15,7 @@ import (
 
 var (
 	gzipWriters [3]*sync.Pool
+	zlibWriters *sync.Pool
 	gzipReaders = &sync.Pool{
 		New: func() any {
 			return nil
@@ -50,11 +51,14 @@ func CompressZLIB(src *Buffer, preallocate uint) (dst *Buffer, err error) {
 	zBuffer.Allocate(int(preallocate) + 4)
 	binary.BigEndian.PutUint32(zBuffer.B[preallocate:], uint32(src.Len()))
 
-	zWriter := zlib.NewWriter(zBuffer)
-	if _, err := zWriter.Write(src.B); err != nil {
+	zWriter := zlibWriters.Get().(*zlib.Writer)
+	zWriter.Reset(zBuffer)
+	_, err = zWriter.Write(src.B)
+	zWriter.Close()
+	zlibWriters.Put(zWriter)
+	if err != nil {
 		return nil, err
 	}
-	zWriter.Close()
 	return zBuffer, nil
 }
 
@@ -86,11 +90,12 @@ func CompressGZIP(src *Buffer, preallocate uint, level int) (dst *Buffer, err er
 	} else {
 		zWriter, _ = gzip.NewWriterLevel(zBuffer, lev)
 	}
-	if _, err := zWriter.Write(src.B); err != nil {
-		return nil, err
-	}
+	_, err = zWriter.Write(src.B)
 	zWriter.Close()
 	gzipWriters[level].Put(zWriter)
+	if err != nil {
+		return nil, err
+	}
 	return zBuffer, nil
 }
 
@@ -182,5 +187,10 @@ func init() {
 				return nil
 			},
 		}
+	}
+	zlibWriters = &sync.Pool{
+		New: func() any {
+			return zlib.NewWriter(io.Discard)
+		},
 	}
 }

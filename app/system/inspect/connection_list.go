@@ -33,6 +33,7 @@ func (icl *connection_list) Init(args ...any) error {
 	icl.Log().SetLogger("default")
 	icl.Log().Debug("connection list inspector started. name=%q limit=%d", icl.name, icl.limit)
 	icl.Send(icl.PID(), register{})
+	icl.SetCompression(true)
 	return nil
 }
 

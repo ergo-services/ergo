@@ -38,6 +38,7 @@ func (il *log) Init(args ...any) error {
 	il.Log().SetLogger("default")
 	il.Log().Debug("log inspector started (limit: %d)", il.limit)
 	il.Send(il.PID(), register{})
+	il.SetCompression(true)
 	return nil
 }
 

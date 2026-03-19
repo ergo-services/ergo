@@ -324,6 +324,89 @@ type ResponseDoInspect struct {
 	Error error
 }
 
+// goroutine dump
+
+type RequestDoGoroutines struct {
+	Stack   string // substring match in stack text
+	State   string // exact state match (running, chan receive, etc.)
+	MinWait int64  // minimum wait duration in seconds (0 = any)
+}
+
+type GoroutineInfo struct {
+	ID       int
+	State    string
+	Wait     string
+	Frames   []string
+	FullText string
+}
+
+type GoroutineGroup struct {
+	Count       int
+	State       string
+	WaitSec     int64
+	Origin   string
+	Current  string
+	Stack       string
+	IDs         []int
+}
+
+type ResponseDoGoroutines struct {
+	Groups   []GoroutineGroup
+	Total    int
+	Filtered int
+	Error    error
+}
+
+// heap profile
+
+type RequestDoHeapProfile struct {
+	MinBytes int64
+}
+
+type HeapRecord struct {
+	InuseBytes   int64
+	InuseObjects int64
+	AllocBytes   int64
+	AllocObjects int64
+	FreeObjects  int64
+	Stack        []string
+}
+
+type HeapStats struct {
+	TotalInuse   int64
+	TotalObjects int64
+	TotalAlloc   int64
+	TotalFree    int64
+}
+
+type ResponseDoHeapProfile struct {
+	Records      []HeapRecord
+	TotalInuse   int64
+	TotalAlloc   int64
+	TotalObjects int64
+	Error        error
+}
+
+// heap inspector (event-based)
+
+type RequestInspectHeap struct {
+	Limit int
+	Name  string
+}
+type ResponseInspectHeap struct {
+	Event gen.Event
+}
+
+type MessageInspectHeap struct {
+	Node            gen.Atom
+	Records         []HeapRecord
+	TotalInuse      int64
+	TotalObjects    int64
+	TotalAlloc      int64
+	TotalFree       int64
+	GCCPUFraction   float64
+}
+
 // process range (full scan with filters)
 
 type RequestInspectProcessRange struct {

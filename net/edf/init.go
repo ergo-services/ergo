@@ -162,6 +162,18 @@ var (
 		inspect.RequestInspectApplicationTree{},
 		inspect.ResponseInspectApplicationTree{},
 		inspect.MessageInspectApplicationTree{},
+
+		inspect.RequestDoGoroutines{},
+		inspect.GoroutineGroup{},
+		inspect.ResponseDoGoroutines{},
+
+		inspect.RequestDoHeapProfile{},
+		inspect.HeapRecord{},
+		inspect.ResponseDoHeapProfile{},
+
+		inspect.RequestInspectHeap{},
+		inspect.ResponseInspectHeap{},
+		inspect.MessageInspectHeap{},
 	}
 
 	// register standard errors of the Ergo Framework

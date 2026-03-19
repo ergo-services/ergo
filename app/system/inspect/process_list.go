@@ -42,6 +42,7 @@ func (ipl *process_list) Init(args ...any) error {
 	ipl.Log().SetLogger("default")
 	ipl.Log().Debug("process list inspector started. %d...%d", ipl.start, ipl.start+ipl.limit-1)
 	ipl.Send(ipl.PID(), register{})
+	ipl.SetCompression(true)
 	return nil
 }
 

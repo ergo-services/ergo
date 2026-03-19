@@ -40,6 +40,7 @@ func (iel *event_list) Init(args ...any) error {
 	iel.Log().Debug("event list inspector started. name=%q notify=%d buffered=%d minSubs=%d limit=%d",
 		iel.name, iel.notify, iel.buffered, iel.minSubscribers, iel.limit)
 	iel.Send(iel.PID(), register{})
+	iel.SetCompression(true)
 	return nil
 }
 

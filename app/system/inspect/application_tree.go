@@ -29,6 +29,7 @@ func (iat *application_tree) Init(args ...any) error {
 	iat.Log().Debug("application tree inspector started for %s with limit %d", iat.application, iat.limit)
 	// RegisterEvent is not allowed here
 	iat.Send(iat.PID(), register{})
+	iat.SetCompression(true)
 	return nil
 }
 
