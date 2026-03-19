@@ -43,17 +43,25 @@ Available benchmarks can be found in the [benchmarks repository](https://github.
 * Distributed Pub/Sub (event delivery to 1,000,000 subscribers across 10 nodes)
 
 ### Observer ###
-To inspect the node, network stack, running applications, and processes, you can use the [`observer`](https://github.com/ergo-services/tools/) tool
+
+Observer is a real-time web UI for monitoring and inspecting Ergo nodes. It connects to a running node via SSE and provides live visibility into every layer of the system:
+
+- **Processes** — full process list with state, mailbox depth, latency, running time, wakeups, and uptime. Click any process to inspect its supervision tree, links, monitors, aliases, environment, and internal actor state
+- **Applications** — running applications with their process trees, modes, and uptime
+- **Network** — cluster topology, per-node connection details, traffic counters, and protocol info
+- **Events** — registered events with producer, subscriber counts, and publication statistics
+- **Logs** — live log stream with level filtering across the cluster
+- **Profiler** — goroutine dump with grouping and stack traces, heap profile with allocation breakdown, and GC pressure charts
 
 <img src="docs/.gitbook/assets/observer.png" width="100%">
 
-To install the Observer tool, you need to have the Go compiler version 1.20 or higher. Run the following command:
+To install the Observer tool, you need to have the Go compiler version 1.20 or higher:
 
 ```
 $ go install ergo.tools/observer@latest
 ```
 
-You can also embed the [Observer application](https://docs.ergo.services/extra-library/applications/observer) into your node. To see it in action, see the [demo example](https://github.com/ergo-services/examples/tree/master/demo). For more information, visit the [Observer documentation](https://docs.ergo.services/tools/observer). 
+You can also embed the [Observer application](https://docs.ergo.services/extra-library/applications/observer) directly into your node so it starts alongside your service. To see it in action with a fully loaded cluster, see the [observability example](https://github.com/ergo-services/examples/tree/master/observability). For more information, visit the [Observer documentation](https://docs.ergo.services/tools/observer).
 
 
 
