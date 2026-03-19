@@ -45,7 +45,7 @@ Available benchmarks can be found in the [benchmarks repository](https://github.
 ### Observer ###
 To inspect the node, network stack, running applications, and processes, you can use the [`observer`](https://github.com/ergo-services/tools/) tool
 
-<img src="https://github.com/user-attachments/assets/1cb83305-6c56-4eb7-b567-76f3c551c176" width="500">
+<img src="docs/.gitbook/assets/observer.png" width="500">
 
 To install the Observer tool, you need to have the Go compiler version 1.20 or higher. Run the following command:
 
