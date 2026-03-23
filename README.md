@@ -10,19 +10,27 @@ The Ergo Framework is an implementation of ideas, technologies, and design patte
 
 ### Features ###
 
-1. **Actor Model**: isolated processes communicate through message passing, handling messages sequentially in their own mailbox with four priority queues. Processes support both asynchronous messaging and synchronous request-response patterns, enabling flexible communication while maintaining the actor model guarantees.
+1. **Actor Model:** isolated processes communicate through message passing, handling messages sequentially with four priority queues. Supports asynchronous messaging and synchronous request-response, with per-process [mailbox latency measurement](https://docs.ergo.services/advanced/debugging#mailbox-latency) (`-tags=latency`) for production diagnostics.
 
-2. **Network Transparency**: actors interact the same way whether local or remote. The framework uses custom serialization and protocol for [efficient](https://github.com/ergo-services/benchmarks) distributed communication with connection pooling, compression, and type caching, making network location transparent to application code.
+2. **Network Transparency:** actors interact the same way whether local or remote. Uses EDF (Ergo Data Format), a custom binary serialization with type caching, pointer support, and [message versioning](https://docs.ergo.services/advanced/message-versioning) for seamless upgrades. Includes connection pooling, compression, [message fragmentation](https://docs.ergo.services/networking/network-stack#message-fragmentation), and [application-level keepalive](https://docs.ergo.services/networking/network-stack#software-keepalive) for silent failure detection.
 
-3. **Supervision Trees**: hierarchical fault recovery where supervisors monitor child processes and apply restart strategies when failures occur. Supports multiple supervision types (One For One, All For One, Rest For One, Simple One For One) and restart strategies (Transient, Temporary, Permanent) for building self-healing systems.
+3. **Supervision Trees:** hierarchical fault recovery where supervisors monitor child processes and apply configurable restart strategies. Supports One For One, All For One, Rest For One, and Simple One For One supervision types with Transient, Temporary, and Permanent restart policies.
 
-4. **Meta Processes**: bridge blocking I/O with the actor model through dedicated meta processes that handle TCP, UDP, Port, and Web protocols. Meta processes run blocking operations without affecting regular actor message processing.
+4. **Meta Processes:** bridge blocking I/O with the actor model through dedicated meta processes handling [TCP](https://docs.ergo.services/meta-processes/tcp), [UDP](https://docs.ergo.services/meta-processes/udp), [Port](https://docs.ergo.services/meta-processes/port), [Web](https://docs.ergo.services/meta-processes/web), [WebSocket](https://docs.ergo.services/extra-library/meta-processes/websocket), and [SSE](https://docs.ergo.services/extra-library/meta-processes/sse) protocols without affecting regular actor message processing.
 
-5. **Distributed Systems**: service discovery through embedded or external registrars (etcd, Saturn), distributed publish/subscribe events with token-based authorization and buffering, remote process spawning with factory-based permissions, and remote application orchestration across nodes.
+5. **Distributed Systems:** service discovery via embedded or external registrars ([etcd](https://docs.ergo.services/extra-library/registrars/etcd-client), [Saturn](https://docs.ergo.services/extra-library/registrars/saturn-client)), distributed [publish/subscribe events](https://docs.ergo.services/basics/events) with token-based authorization and buffering, [remote process spawning](https://docs.ergo.services/networking/remote-spawn-process) with factory-based permissions, and [remote application orchestration](https://docs.ergo.services/networking/remote-start-application) across nodes.
 
-6. **Ready-to-use Components**: core framework includes Actor, Supervisor, Pool, and WebWorker actors plus TCP, UDP, Port, and Web meta processes. Extra library provides Leader, Metrics actors, WebSocket, SSE meta processes, Observer application, Colored and Rotate loggers, Erlang protocol support.
+6. **Observability:** real-time cluster inspection via the [Observer](https://docs.ergo.services/extra-library/applications/observer) web UI (processes, applications, network, events, logs, profiler) and production metrics via [Radar](https://docs.ergo.services/extra-library/applications/radar) with a ready-to-use Grafana dashboard covering process lifecycle, mailbox pressure, network traffic, and event fanout.
 
-7. **Flexibility**: customize network stack components, certificate management, compression and message priorities, logging, distributed events, and meta processes. Framework supports mTLS, NAT traversal, important delivery for guaranteed messaging, and Cron-based scheduling.
+7. **AI-Native:** built-in [MCP server](https://docs.ergo.services/extra-library/applications/mcp) exposes the full cluster to AI agents (Claude, Cursor, and any MCP-compatible client). Inspect processes, query events, capture goroutine dumps, stream logs, and run real-time samplers through natural language, turning any AI assistant into an interactive SRE for your Ergo cluster.
+
+8. **Cloud Native:** built-in Kubernetes health probes (liveness, readiness, startup) via the [Health](https://docs.ergo.services/extra-library/actors/health) actor, [Prometheus](https://docs.ergo.services/extra-library/actors/metrics) metrics endpoint, and [mTLS](https://docs.ergo.services/networking/mutual-tls) support for zero-trust deployments.
+
+9. **Ready-to-use Components:** core framework includes Actor, Supervisor, Pool, and WebWorker actors plus TCP, UDP, Port, WebSocket, SSE, and Web meta processes. Extra library provides [Leader](https://docs.ergo.services/extra-library/actors/leader), [Metrics](https://docs.ergo.services/extra-library/actors/metrics), and [Health](https://docs.ergo.services/extra-library/actors/health) actors, [Observer](https://docs.ergo.services/extra-library/applications/observer) and [Radar](https://docs.ergo.services/extra-library/applications/radar) applications, [Colored](https://docs.ergo.services/extra-library/loggers/colored) and [Rotate](https://docs.ergo.services/extra-library/loggers/rotate) loggers.
+
+10. **Erlang Interoperability:** native support for the [Erlang distribution protocol](https://docs.ergo.services/extra-library/network-protocols/erlang) enables heterogeneous clusters where Ergo (Go) and Erlang/Elixir nodes participate as equal peers. Send messages, spawn processes, and share events across language boundaries without any proxies or bridges.
+
+11. **Flexibility:** customize network stack, certificate management ([mTLS](https://docs.ergo.services/networking/mutual-tls), [NAT traversal](https://docs.ergo.services/networking/behind-the-nat)), compression and message priorities, [Cron-based scheduling](https://docs.ergo.services/basics/cron), [important delivery](https://docs.ergo.services/advanced/important-delivery) for guaranteed messaging, and logging. The [`ergo`](https://docs.ergo.services/tools/ergo) CLI tool generates project scaffolding, actors, supervisors, and message types from the command line.
 
 Examples demonstrating the framework's capabilities are available in the [examples repository](https://github.com/ergo-services/examples).
 
@@ -71,7 +79,7 @@ To see it in action with a fully loaded cluster, see the [observability example]
 
 ### Quick start ###
 
-For a quick start, use the [`ergo`](https://docs.ergo.services/tools/ergo) tool — a command-line utility designed to simplify the process of generating boilerplate code for your project based on the Ergo Framework. With this tool, you can rapidly create a complete project structure, including applications, actors, supervisors, network components, and more. It offers a set of arguments that allow you to customize the project according to specific requirements, ensuring it is ready for immediate development.
+For a quick start, use the [`ergo`](https://docs.ergo.services/tools/ergo) tool, a command-line utility designed to simplify the process of generating boilerplate code for your project based on the Ergo Framework. With this tool, you can rapidly create a complete project structure, including applications, actors, supervisors, network components, and more. It offers a set of arguments that allow you to customize the project according to specific requirements, ensuring it is ready for immediate development.
 
 To install use the following command:
 
