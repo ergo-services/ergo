@@ -103,7 +103,7 @@ After handshake, the accepting node tells the dialing node to create a connectio
 
 The dialing node opens additional TCP connections using a shortened join handshake (skips full authentication since the first connection already authenticated). These connections join the pool, forming a single logical connection with multiple physical TCP links.
 
-Multiple connections enable parallel message delivery. Each message goes to a connection based on the sender's identity, and the receiving side creates multiple receive queues per TCP connection for concurrent processing. This two-level mechanism -- sender-side link selection and receiver-side queue routing -- preserves per-sender message ordering while enabling parallelism across different senders. For details on how ordering works, including the `KeepNetworkOrder` flag and when to disable it, see [Message Ordering](network-transparency.md#message-ordering).
+Multiple connections enable parallel message delivery. Each message goes to a connection based on the sender's identity, and the receiving side creates multiple receive queues per TCP connection for concurrent processing. This two-level mechanism (sender-side link selection and receiver-side queue routing) preserves per-sender message ordering while enabling parallelism across different senders. For details on how ordering works, including the `KeepNetworkOrder` flag and when to disable it, see [Message Ordering](network-transparency.md#message-ordering).
 
 ### Software Keepalive
 
@@ -161,9 +161,9 @@ For details on protocol framing, order bytes, receive queue distribution, and th
 
 *Introduced in v3.3.0.*
 
-When a message exceeds the fragment size threshold (default 65000 bytes), the framework splits it into smaller pieces for transmission and reassembles them on the receiving side. This happens after compression -- if a compressed message is still too large, it gets fragmented. From your code's perspective, nothing changes. You send a large message, and it arrives intact.
+When a message exceeds the fragment size threshold (default 65000 bytes), the framework splits it into smaller pieces for transmission and reassembles them on the receiving side. This happens after compression; if a compressed message is still too large, it gets fragmented. From your code's perspective, nothing changes. You send a large message, and it arrives intact.
 
-Fragmentation works with all message types: regular sends, important delivery, calls, and events. It composes with compression -- a message can be compressed first, then fragmented, and on the receiving side defragmented and then decompressed.
+Fragmentation works with all message types: regular sends, important delivery, calls, and events. It composes with compression: a message can be compressed first, then fragmented, and on the receiving side defragmented and then decompressed.
 
 When [`KeepNetworkOrder`](network-transparency.md#message-ordering) is disabled for a process, the framework distributes fragments across all TCP connections in the pool, using the full bandwidth of the connection. This is useful for transferring large payloads where throughput matters more than ordering. When `KeepNetworkOrder` is enabled (the default), all fragments travel through a single TCP connection to preserve message ordering for that sender.
 
@@ -184,7 +184,7 @@ node, err := ergo.StartNode("myapp@localhost", gen.NodeOptions{
 })
 ```
 
-`FragmentSize` controls at what point messages get split. This is a sender-side setting -- the receiver reassembles whatever arrives regardless of the sender's fragment size. Two nodes can use different fragment sizes.
+`FragmentSize` controls at what point messages get split. This is a sender-side setting; the receiver reassembles whatever arrives regardless of the sender's fragment size. Two nodes can use different fragment sizes.
 
 `FragmentTimeout` sets how long the receiver waits for all fragments before discarding an incomplete assembly. If a sender crashes mid-message or a connection drops, partial assemblies are cleaned up after this timeout.
 

@@ -432,19 +432,19 @@ For detailed exploration of Important Delivery patterns, reliability guarantees,
 
 ## Message Ordering
 
-Messages sent from process A to process B arrive in sending order. This is a per-sender FIFO guarantee -- it applies to each sender independently, not globally across all senders. The guarantee is enabled by default for every process.
+Messages sent from process A to process B arrive in sending order. This is a per-sender FIFO guarantee; it applies to each sender independently, not globally across all senders. The guarantee is enabled by default for every process.
 
 ### KeepNetworkOrder Flag
 
-Message ordering is controlled by a per-process flag called `KeepNetworkOrder`, which defaults to `true`. You can change it using `SetKeepNetworkOrder(bool)` during `Init` or at any point while the process is running. The flag applies to all outgoing messages from that process: `Send`, `Call`, `SendResponse`, and `SendEvent`. There is no per-message override -- ordering is all-or-nothing for a given sender.
+Message ordering is controlled by a per-process flag called `KeepNetworkOrder`, which defaults to `true`. You can change it using `SetKeepNetworkOrder(bool)` during `Init` or at any point while the process is running. The flag applies to all outgoing messages from that process: `Send`, `Call`, `SendResponse`, and `SendEvent`. There is no per-message override; ordering is all-or-nothing for a given sender.
 
-### How It Works -- Sender Side
+### How It Works: Sender Side
 
 With ordering enabled, all messages from a process go through the same TCP link in the connection pool. The link is selected deterministically: `sender.ID % 255 % pool_size`. Since TCP guarantees FIFO delivery within a single connection, messages arrive at the remote node in exactly the order they were sent.
 
 With ordering disabled, messages are distributed round-robin across all pool links. This spreads the load for maximum throughput, but the arrival order across different TCP connections is no longer deterministic.
 
-### How It Works -- Receiver Side
+### How It Works: Receiver Side
 
 Each message carries an **order byte** in the protocol header (byte 6 of the ENP frame). When ordering is enabled, the order byte is derived from the recipient's identity:
 - For `gen.PID` recipients: `to.ID % 255`
@@ -458,8 +458,8 @@ When ordering is disabled, the order byte is zero. Messages distribute round-rob
 
 The ordering mechanism works at two levels:
 
-1. **Sender side** -- pins messages to one TCP link, preserving send order in the TCP stream
-2. **Receiver side** -- pins messages to one decode queue, preserving decode order
+1. **Sender side:** pins messages to one TCP link, preserving send order in the TCP stream
+2. **Receiver side:** pins messages to one decode queue, preserving decode order
 
 Together they ensure end-to-end FIFO from sender to recipient. The sender side prevents reordering during transmission; the receiver side prevents reordering during decoding and dispatch.
 
@@ -469,7 +469,7 @@ Some system messages have fixed ordering semantics regardless of the `KeepNetwor
 
 | Operation       | Ordering      | Notes                                       |
 |-----------------|---------------|---------------------------------------------|
-| `SendExit`      | Always ordered| No `KeepNetworkOrder` check -- always uses sender-derived order byte |
+| `SendExit`      | Always ordered| No `KeepNetworkOrder` check, always uses sender-derived order byte |
 | `SendTerminate` | Always unordered | Order byte is always 0                   |
 | Link/Monitor    | Always ordered| System operations that must arrive in sequence |
 
@@ -477,7 +477,7 @@ These are internal system messages where ordering behavior is fixed by the proto
 
 ### When to Disable Ordering
 
-Processes that don't need ordering benefit from disabling it. When `KeepNetworkOrder` is `false`, messages spread across all TCP links in the pool and all receive queues on the remote side. This increases parallelism on both ends -- more connections are utilized for sending, and more goroutines participate in decoding.
+Processes that don't need ordering benefit from disabling it. When `KeepNetworkOrder` is `false`, messages spread across all TCP links in the pool and all receive queues on the remote side. This increases parallelism on both ends: more connections are utilized for sending, and more goroutines participate in decoding.
 
 Good candidates for disabling ordering:
 - **Stateless workers** that process each request independently

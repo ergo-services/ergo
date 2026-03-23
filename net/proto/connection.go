@@ -1697,7 +1697,7 @@ func (c *connection) serve(conn net.Conn, tail []byte) {
 			return
 		}
 
-		// handle keepalive silently — don't count, don't queue
+		// handle keepalive silently, don't count, don't queue
 		if buf.B[7] == protoMessageSoftwareKeepAlive {
 			lib.ReleaseBuffer(buf)
 			buf = buftail
@@ -1757,7 +1757,7 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC, qIdx int) {
 	for {
 		v, ok := q.Pop()
 		if ok == false {
-			// queue drained -- clean stale ordered assemblies (safe: we hold queue lock)
+			// queue drained, clean stale ordered assemblies (safe: we hold queue lock)
 			if localFragments != nil && len(localFragments) > 0 {
 				now := time.Now()
 				for seqID, asm := range localFragments {
@@ -3335,7 +3335,7 @@ func (c *connection) handleFragmentOrdered(buf *lib.Buffer, assemblies map[uint3
 		return nil
 	}
 
-	// TCP order guarantee -- append
+	// TCP order guarantee, append
 	asm.payloads = append(asm.payloads, append([]byte(nil), payload...))
 	asm.received++
 	asm.totalBytes += len(payload)

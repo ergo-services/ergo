@@ -768,6 +768,9 @@ type NodeInfo struct {
 	// ProcessesRunning is the number of processes currently in Running state.
 	ProcessesRunning int64
 
+	// ProcessesWaitResponse is the number of processes blocked in a synchronous Call.
+	ProcessesWaitResponse int64
+
 	// ProcessesZombee is the number of killed processes (Zombee state).
 	ProcessesZombee int64
 

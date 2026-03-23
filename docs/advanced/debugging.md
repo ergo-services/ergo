@@ -88,11 +88,11 @@ This activates:
 - **`MailboxLatency` field** in `ProcessShortInfo` for per-process latency snapshots
 - **`Node.ProcessRangeShortInfo()`** for efficient iteration over all processes with their latency data
 
-Without the tag, `Latency()` returns -1 (disabled) and there is zero runtime overhead -- no timestamps are recorded, no atomic operations are added to the message path.
+Without the tag, `Latency()` returns -1 (disabled) and there is zero runtime overhead: no timestamps are recorded, no atomic operations are added to the message path.
 
 The overhead with the tag enabled is approximately 10-25% on micro-benchmarks (LOCAL 1-1 scenario with a single producer and consumer exchanging messages). In real applications with many processes, the overhead is lower because the cost is amortized across concurrent operations.
 
-Latency measurement answers the question "how long has the oldest message been sitting in this process's mailbox?" A high value means the process is not keeping up with incoming messages -- it is either overloaded, stuck in a long-running callback, or blocked. This is particularly useful for:
+Latency measurement answers the question "how long has the oldest message been sitting in this process's mailbox?" A high value means the process is not keeping up with incoming messages: it is either overloaded, stuck in a long-running callback, or blocked. This is particularly useful for:
 
 - Identifying backpressure in actor pipelines
 - Detecting stuck processes before they cause cascading failures

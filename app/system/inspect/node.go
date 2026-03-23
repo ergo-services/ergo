@@ -83,9 +83,10 @@ func (in *node) HandleMessage(from gen.PID, message any) error {
 				Node: in.Node().Name(),
 			},
 
-			Arch:     runtime.GOARCH,
-			OS:       runtime.GOOS,
-			Cores:    runtime.NumCPU(),
+			Arch:      runtime.GOARCH,
+			OS:        runtime.GOOS,
+			Cores:     runtime.NumCPU(),
+			GoVersion: runtime.Version(),
 			Timezone: func() string {
 				now := time.Now()
 				name, _ := now.Zone()

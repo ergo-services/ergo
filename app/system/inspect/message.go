@@ -4,14 +4,15 @@ import "ergo.services/ergo/gen"
 
 type RequestInspectNode struct{}
 type ResponseInspectNode struct {
-	CRC32    string
-	Event    gen.Event
-	OS       string
-	Arch     string
-	Cores    int
-	Timezone string
-	Version  gen.Version
-	Creation int64
+	CRC32     string
+	Event     gen.Event
+	OS        string
+	Arch      string
+	Cores     int
+	Timezone  string
+	GoVersion string
+	Version   gen.Version
+	Creation  int64
 }
 
 type MessageInspectNode struct {
@@ -87,8 +88,10 @@ type MessageInspectProcessList struct {
 // node logs
 
 type RequestInspectLog struct {
-	Levels []gen.LogLevel
-	Limit  int
+	Levels         []gen.LogLevel
+	Limit          int
+	MessagePattern string
+	MessageExclude bool
 }
 type ResponseInspectLog struct {
 	Event gen.Event

@@ -818,7 +818,7 @@ func (n *node) Info() (gen.NodeInfo, error) {
 		case gen.ProcessStateRunning:
 			info.ProcessesRunning++
 		case gen.ProcessStateWaitResponse:
-			info.ProcessesRunning++
+			info.ProcessesWaitResponse++
 		case gen.ProcessStateZombee:
 			info.ProcessesZombee++
 		}
@@ -924,6 +924,8 @@ func (n *node) ProcessListShortInfo(start, limit int, filter ...func(gen.Process
 			MessagesMailbox: uint64(messagesMailbox),
 			MailboxLatency:  process.mailbox.Latency(),
 			RunningTime:     process.runningTime,
+			InitTime:        process.initTime,
+			Wakeups:         process.wakeups,
 			Uptime:          process.Uptime(),
 			State:           process.State(),
 			StateTime:       time.Now().UnixNano() - atomic.LoadInt64(&process.stateEntered),

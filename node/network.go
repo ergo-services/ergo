@@ -1425,7 +1425,7 @@ func (n *network) handleAccepted(a *acceptor, c net.Conn, hopts gen.HandshakeOpt
 		return
 	}
 
-	// Join handshake for a connection that no longer exists — peer's pool expansion
+	// Join handshake for a connection that no longer exists, peer's pool expansion
 	// arrived after the connection was terminated. Nothing to join, close silently.
 	if result.PeerCreation == 0 {
 		c.Close()

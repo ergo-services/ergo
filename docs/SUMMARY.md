@@ -56,6 +56,7 @@
 * [Message Versioning](advanced/message-versioning.md)
 * [Building a Cluster](advanced/building-a-cluster.md)
 * [Debugging](advanced/debugging.md)
+* [Inspecting With Observer](advanced/observer.md)
 
 ## extra library
 
@@ -82,5 +83,4 @@
 ## Tools
 
 * [Boilerplate Code Generation](tools/ergo.md)
-* [Inspecting With Observer](tools/observer.md)
 * [Saturn - Central Registrar](tools/saturn.md)

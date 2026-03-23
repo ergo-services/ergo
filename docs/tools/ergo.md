@@ -1,127 +1,384 @@
-# Boilerplate Code Generation&#x20;
+---
+description: Boilerplate Generator for Ergo Framework Projects
+---
 
-The `ergo` tool allows you to generate the structure and source code for a project based on the Ergo Framework. To install it, use the following command:
+# ergo
 
-`go install ergo.tools/ergo@latest`
+The `ergo` tool generates the initial structure and source code for Ergo Framework
+projects. Instead of writing actor definitions, supervisor specs, and application
+boilerplate by hand, you describe what you want and the tool writes it for you.
 
-Alternatively, you can build it from the source code available at [https://github.com/ergo-services/tools](https://github.com/ergo-services/tools).
+The generated code is plain Go that you own and can modify freely. The tool
+understands which parts are structural wiring (regenerated as the project grows)
+and which parts are your business logic (never touched again).
 
-When using `ergo` tool, you need to follow the specific template for providing arguments:
+## Installation
 
-`Parent:Actor{param1:value1,param2:value2...}`
-
-* **Parent** can be a _supervisor_ (specified earlier with `-with-sup`) or an _application_ (specified earlier with `-with-app`).
-* **Actor** can be an _actor_ (added earlier with `-with-actor`) or a _supervisor_ (specified earlier with `-with-sup`).
-
-This structured approach ensures the proper hierarchy and parameters are defined for your _actors_ and _supervisors_
-
-### Available Arguments and Parameters :
-
-* **`-init <node_name>`**: a required argument that sets the name of the node for your service. Available parameters:
-  * **`tls`**: enables encryption for network connections (a self-signed certificate will be used).
-  * **`module`**: allows you to specify the module name for the `go.mod` file.
-* **`-path <path>`**: specifies the path for the code of the generated project.
-* **`-with-actor <name>`**: adds an actor (based on `act.Actor`).
-* **`-with-app <name>`**: adds an application. Available parameters:
-  * **`mode`**: specifies the application's [start mode](../basics/application.md#application-startup-modes) (`temp` - Temporary, `perm` - Permanent, `trans` - Transient). The default mode is `trans`.\
-    Example: `-with-app MyApp{mode:perm}`
-* **`-with-sup <name>`**: adds a supervisor (based on `act.Supervisor`). Available parameters:
-  * **`type`**: specifies the [type of supervisor](../actors/supervisor.md#supervisor-types) (`ofo` - One For One, `sofo` - Simple One For One, `afo` - All For One, `rfo` - Rest For One). The default type is `ofo`.
-  * **`strategy`**: specifies the [restart strategy](../actors/supervisor.md#restart-strategy) for the supervisor (`temp` - Temporary, `perm` - Permanent, `trans` - Transient). The default strategy is `trans`.
-* **`-with-pool <name>`**: adds a process pool actor (based on `act.Pool`). Available parameters:
-  * **`size`**: Specifies the number of worker processes in the pool. By default, 3 processes are started.
-* **`-with-web <name>`**: adds a Web server (based on `act.Pool` and `act.WebHandler`). Available parameters:
-  * **`host`**: specifies the hostname for the Web server.
-  * **`port`**: specifies the port number for the Web server. The default is `9090`.
-  * **`tls`**: enables encryption for the Web server using the node's `CertManager`.
-* **`-with-tcp <name>`**: adds a TCP server actor (based on `act.Actor` and `meta.TCPServer` meta-process). Available parameters:
-  * **`host`**: specifies the hostname for the TCP server.
-  * **`port`**: specifies the port number for the TCP server. The default is `7654`.
-  * **`tls`**: enables encryption for the TCP server using the node's `CertManager`.
-* **`-with-udp <name>`**: adds a UDP server actor (based on `act.Pool` , `meta.UDPServer` and `act.Actor` as worker processes). Available parameters:
-  * **`host`**: specifies the hostname for the UDP server.
-  * **`port`**: specifies the port number for the UDP server. The default is `7654`.
-* **`-with-msg <name>`**: adds a message type for network interactions.
-* **`-with-logger <name>`**: adds a logger from the extended library. Available loggers: [colored](../extra-library/loggers/colored.md), [rotate](../extra-library/loggers/rotate.md)
-* **`-with-observer`**: adds the [Observer application](../extra-library/applications/observer.md).
-
-### Example
-
-For clarity, let's use all available arguments for `ergo` in the following example:&#x20;
-
-<pre class="language-shell"><code class="lang-shell"><strong>$ ergo -path /tmp/project \
-</strong><strong>      -init demo{tls} \
-</strong><strong>      -with-app MyApp \
-</strong><strong>      -with-actor MyApp:MyActorInApp \
-</strong><strong>      -with-sup MyApp:MySup \
-</strong><strong>      -with-actor MySup:MyActorInSup \
-</strong><strong>      -with-tcp "MySup:MyTCP{port:12345,tls}" \
-</strong><strong>      -with-udp MySup:MyUDP{port:54321} \
-</strong><strong>      -with-pool MySup:MyPool{size:4} \
-</strong><strong>      -with-web "MyWeb{port:8888,tls}" \
-</strong><strong>      -with-msg MyMsg1 \
-</strong><strong>      -with-msg MyMsg2 \
-</strong><strong>      -with-logger colored \
-</strong><strong>      -with-logger rotate \
-</strong><strong>      -with-observer
-</strong><strong>      
-</strong>Generating project "/tmp/project/demo"...
-   generating "/tmp/project/demo/apps/myapp/myactorinapp.go"
-   generating "/tmp/project/demo/apps/myapp/myactorinsup.go"
-   generating "/tmp/project/demo/cmd/myweb.go"
-   generating "/tmp/project/demo/cmd/myweb_worker.go"
-   generating "/tmp/project/demo/apps/myapp/mytcp.go"
-   generating "/tmp/project/demo/apps/myapp/myudp.go"
-   generating "/tmp/project/demo/apps/myapp/myudp_worker.go"
-   generating "/tmp/project/demo/apps/myapp/mypool.go"
-   generating "/tmp/project/demo/apps/myapp/mypool_worker.go"
-   generating "/tmp/project/demo/apps/myapp/mysup.go"
-   generating "/tmp/project/demo/apps/myapp/myapp.go"
-   generating "/tmp/project/demo/types.go"
-   generating "/tmp/project/demo/cmd/demo.go"
-   generating "/tmp/project/demo/README.md"
-   generating "/tmp/project/demo/go.mod"
-   generating "/tmp/project/demo/go.sum"
-
-Successfully completed.
-</code></pre>
-
-Pay attention to the values of the `-with-tcp` and `-with-web` arguments — they are enclosed in double quotes. If an argument has multiple parameters, they are separated by commas without spaces. However, since commas are argument delimiters for the shell interpreter, we enclose the entire value of the argument in double quotes to ensure the shell correctly processes the parameters.
-
-In our example, we specified two loggers: `colored` and `rotate`. This allows for colored log messages in the standard output as well as logging to files with log rotation functionality. In this case, the default logger is disabled to prevent duplicate log messages from appearing on the standard output.
-
-Additionally, we included the `observer` application. By default, this interface is accessible at `http://localhost:9911`.
-
-As a result of the generation process, we have a well-structured project source code that is ready for execution:
+Requires Go 1.21 or higher.
 
 ```
- demo
-├── apps
-│  └── myapp
-│     ├── myactorinapp.go
-│     ├── myactorinsup.go
-│     ├── myapp.go
-│     ├── mypool.go
-│     ├── mypool_worker.go
-│     ├── mysup.go
-│     ├── mytcp.go
-│     ├── myudp.go
-│     └── myudp_worker.go
-├── cmd
-│  ├── demo.go
-│  ├── myweb.go
-│  └── myweb_worker.go
-├── go.mod
-├── go.sum
-├── README.md
-└── types.go
+go install ergo.tools/ergo@latest
 ```
 
-The generated code is ready for compilation and execution:
+## Quick Start
 
-<figure><img src="../.gitbook/assets/image (38).png" alt=""><figcaption></figcaption></figure>
+Three commands to get a running Ergo node:
 
-Since this example includes the [observer application](../extra-library/applications/observer.md), you can open `http://localhost:9911` in your browser to access the web interface for [inspecting the node](observer.md) and its running processes.
+```bash
+ergo init MyNode github.com/myorg/mynode
+cd mynode
+go run ./cmd
+```
 
+The node starts immediately with an application, a supervisor and an actor,
+all wired together.
 
+## How It Works
 
+The tool maintains `ergo.yaml` in the project root. This file describes the
+supervision tree. Every `ergo add` command updates this file and regenerates
+the affected code.
+
+Each component produces two files:
+
+| File | Owned by | Regenerated | Contains |
+|------|----------|-------------|---------|
+| `name_gen.go` | tool | on every `ergo add` or `ergo generate` | factory, Init spec, Load group |
+| `name.go` | you | never | Tune, handlers, Start, Terminate |
+
+User-owned files provide hooks that the generated code calls. The pattern is
+consistent across all component types:
+
+| File | Hook | Purpose |
+|------|------|---------|
+| `mysup.go` | `Tune(spec, args) (SupervisorSpec, error)` | adjust supervisor spec before start |
+| `myapp.go` | `Tune(node, spec, args) (ApplicationSpec, error)` | adjust application spec before start |
+| `messages.go` | `extraMessages() []any` | register custom EDF message types |
+| `cmd/main.go` | `extraApps() []ApplicationBehavior` | add external applications |
+
+## Commands
+
+### ergo init
+
+```
+ergo init <NodeName> <module>
+```
+
+Creates a new project. The directory name is derived from the last segment of
+the module path. Generates `ergo.yaml`, all boilerplate, `go.mod`, and runs
+`go mod tidy`.
+
+```bash
+ergo init MyNode github.com/myorg/mynode
+ergo init Gateway github.com/acme/api-gateway
+```
+
+The default project has one application, one supervisor and one actor, enough
+to verify everything works before adding real components.
+
+### ergo add actor
+
+```
+ergo add actor [--pool] <[Parent:]Name>
+```
+
+Adds an actor. `Parent` is the name of an existing supervisor or application.
+Without a parent the actor is added to `node.processes` and spawned directly
+by the node at startup.
+
+`--pool` generates a pool actor with a companion worker type. A pool distributes
+incoming messages across a fixed set of workers and restarts them on failure.
+
+```bash
+ergo add actor MySup:MyActor
+ergo add actor --pool MySup:RequestPool
+ergo add actor StandaloneActor
+```
+
+### ergo add supervisor
+
+```
+ergo add supervisor [--type <type>] [--strategy <strategy>] <[Parent:]Name>
+```
+
+Adds a supervisor. `Parent` is an existing application or supervisor.
+
+`--type` controls which children are restarted when one fails:
+
+| Type | Behavior |
+|------|---------|
+| `one_for_one` (default) | only the failed child |
+| `all_for_one` | all children |
+| `rest_for_one` | the failed child and all children started after it |
+| `simple_one_for_one` | children spawned dynamically at runtime via `AddChild`, no static children list |
+
+`--strategy` controls when a child is restarted:
+
+| Strategy | Behavior |
+|----------|---------|
+| `transient` (default) | only on abnormal exit |
+| `permanent` | always |
+| `temporary` | never |
+
+```bash
+ergo add supervisor MyApp:WorkerSup
+ergo add supervisor MyApp:CriticalSup --type all_for_one --strategy permanent
+ergo add supervisor WorkerSup:SubSup --type rest_for_one
+```
+
+### ergo add app
+
+```
+ergo add app [--mode <mode>] <Name>
+```
+
+Adds an application. `--mode` declares what happens when the application stops:
+
+| Mode | Behavior |
+|------|---------|
+| `transient` (default) | node stops on abnormal exit |
+| `permanent` | node always stops when app exits |
+| `temporary` | node ignores the exit |
+
+```bash
+ergo add app MyApp
+ergo add app BackgroundApp --mode temporary
+ergo add app CriticalApp --mode permanent
+```
+
+### ergo add message
+
+```
+ergo add message --field name:type [--field name:type ...] <Name>
+```
+
+Adds an EDF message type. Field types can be standard Go types (`string`, `int`,
+`bool`, `[]byte`) or framework types (`gen.Alias`, `gen.PID`, `gen.Ref`).
+
+Generated struct definitions and EDF registration go into `messages_gen.go`,
+which is always regenerated when the message list changes.
+
+```bash
+ergo add message MessageConnect --field ID:gen.Alias --field Addr:string
+ergo add message MessageData --field ID:gen.Alias --field Payload:"[]byte"
+```
+
+If a message type has fields of other custom types, add the inner type first.
+EDF requires nested types to be registered before the types that reference them:
+
+```bash
+ergo add message MessageAddress --field City:string --field Street:string
+ergo add message MessageUser --field Name:string --field Address:MessageAddress
+```
+
+Both nodes must register the same types with identical field definitions. The
+registration order between nodes does not need to match; nodes negotiate numeric
+type IDs during handshake.
+
+For detailed coverage of EDF, type constraints, and custom marshaling, see
+[Network Transparency](../networking/network-transparency.md#edf-ergo-data-format).
+
+### ergo generate
+
+```
+ergo generate [ergo.yaml]
+```
+
+Regenerates all `*_gen.go` files from `ergo.yaml`. Your `.go` files are never
+overwritten. Searches for `ergo.yaml` in the current directory and its parents.
+
+```bash
+ergo generate
+ergo generate /path/to/ergo.yaml
+```
+
+## Project Structure
+
+After `ergo init MyNode github.com/myorg/mynode`:
+
+```
+mynode/
+  ergo.yaml               project definition
+  go.mod
+  go.sum
+  messages_gen.go         EDF struct definitions + registration   (generated)
+  messages.go             extraMessages() hook for custom types   (yours)
+  apps/
+    mynodeapp/
+      mynodeapp_gen.go    CreateApp, Load with Group             (generated)
+      mynodeapp.go        Tune, Start, Terminate                 (yours)
+      mynodesup_gen.go    factory, Init with SupervisorSpec      (generated)
+      mynodesup.go        Tune, HandleMessage                    (yours)
+      mynodeactor_gen.go  factory                                (generated)
+      mynodeactor.go      Init, HandleMessage, HandleCall        (yours)
+  cmd/
+    main_gen.go           node startup, application list         (generated)
+    main.go               extraApps() hook                       (yours)
+  README.md
+```
+
+The `README.md` is regenerated on every `ergo add` or `ergo generate` and shows
+the current supervision tree.
+
+## ergo.yaml Reference
+
+```yaml
+node:
+  name: MyNode
+  module: github.com/myorg/mynode
+  host: localhost
+
+  network:
+    tls: false
+    cookie: ""         # empty means auto-generated on every start
+
+  loggers:             # colored, rotate
+    - colored
+
+  apps:
+
+    # User-defined application
+    - name: MyApp
+      mode: transient
+      children:
+        - sup: MySup
+          type: one_for_one
+          strategy: transient
+          intensity: 2   # max restarts within period
+          period: 5      # seconds
+          children:
+            - actor: MyActor
+            - actor: MyPool
+              pool: true
+
+    # Known applications from the ergo.services ecosystem
+    - observer
+    - mcp
+    - radar
+
+  processes:           # spawned directly by node, no application
+    - actor: StandaloneActor
+
+  messages:
+    - name: MessageConnect
+      fields:
+        - ID: gen.Alias
+        - Addr: string
+```
+
+Known loggers: `colored` ([docs](../extra-library/loggers/colored.md)),
+`rotate` ([docs](../extra-library/loggers/rotate.md)).
+
+Known applications: `observer` ([docs](../extra-library/applications/observer.md)),
+`mcp` ([docs](../extra-library/applications/mcp.md)),
+`radar` ([docs](../extra-library/applications/radar.md)).
+
+## Customizing Generated Code
+
+### Supervisor
+
+`mynodesup.go` contains `Tune`, called from the generated `Init`. The generated
+`Init` builds `SupervisorSpec` from `ergo.yaml` and passes it to `Tune`. Override
+restart parameters or add dynamic children here:
+
+```go
+func (sup *MySup) Tune(spec act.SupervisorSpec, args ...any) (act.SupervisorSpec, error) {
+    spec.Restart.Intensity = 10
+    spec.Restart.Period = 30
+    return spec, nil
+}
+```
+
+Do not replace `spec.Children` in `Tune` unless you have a specific reason.
+The children list is populated from `ergo.yaml` by the generated `Init`.
+
+### Application
+
+`mynodeapp.go` contains `Tune`, called from the generated `Load`. The `Group`
+in `Load` is populated from `ergo.yaml`. Use `Tune` to set metadata, environment
+variables or dependencies:
+
+```go
+func (app *MyApp) Tune(node gen.Node, spec gen.ApplicationSpec, args ...any) (gen.ApplicationSpec, error) {
+    spec.Description = "main application"
+    spec.Version = gen.Version{Release: "1.0.0"}
+    spec.Env = map[gen.Env]any{
+        "DB_HOST": "localhost",
+        "DB_PORT": 5432,
+    }
+    spec.Depends.Applications = []gen.Atom{"config"}
+    return spec, nil
+}
+```
+
+### Custom EDF Message Types
+
+`messages.go` contains `extraMessages()`, called from the generated `init()`.
+Add custom types that are not declared in `ergo.yaml`:
+
+```go
+func extraMessages() []any {
+    return []any{
+        MyCustomMessage{},
+        AnotherMessage{},
+    }
+}
+```
+
+For types with unexported fields or special encoding needs, implement
+`edf.Marshaler`/`Unmarshaler` or `encoding.BinaryMarshaler`/`Unmarshaler`
+in a separate file. See [Network Transparency](../networking/network-transparency.md#edf-ergo-data-format).
+
+### External Applications
+
+Some applications cannot be described in `ergo.yaml` because their constructor
+requires runtime arguments. Add them in `cmd/main.go`, which is never regenerated:
+
+```go
+func extraApps() []gen.ApplicationBehavior {
+    return []gen.ApplicationBehavior{
+        thirdparty.New(thirdparty.Options{
+            DSN:  os.Getenv("DATABASE_URL"),
+            Port: 8080,
+        }),
+    }
+}
+```
+
+## Typical Workflow
+
+```bash
+# 1. Create the project
+ergo init OrderService github.com/acme/orders
+cd orders
+
+# 2. Verify it runs
+go run ./cmd
+
+# 3. Add the supervision tree incrementally
+ergo add supervisor MyOrderServiceApp:ApiSup
+ergo add actor ApiSup:HttpHandler
+ergo add actor --pool ApiSup:RequestPool
+ergo add supervisor MyOrderServiceApp:WorkerSup --type all_for_one
+ergo add actor WorkerSup:OrderProcessor
+ergo add actor WorkerSup:PaymentActor
+
+# 4. Add network message types
+ergo add message MessageOrderCreated --field OrderID:string --field Total:int
+ergo add message MessageOrderPaid --field OrderID:string
+
+# 5. Implement logic in .go files
+# 6. Run, observe, iterate
+go run ./cmd
+```
+
+Each `ergo add` updates `ergo.yaml`, regenerates `*_gen.go` files, and leaves
+your `.go` files untouched.
+
+## What's Next
+
+- [Observer](observer.md): web UI for inspecting running nodes and processes
+- [Actors](../actors): actor types, supervision and messaging patterns
+- [Applications](../basics/application.md): application lifecycle and modes
+- [Pool](../actors/pool.md): distributing work across worker processes
+- [Network Transparency](../networking/network-transparency.md): EDF serialization and distributed messaging

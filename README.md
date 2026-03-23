@@ -44,24 +44,28 @@ Available benchmarks can be found in the [benchmarks repository](https://github.
 
 ### Observer ###
 
-Observer is a real-time web UI for monitoring and inspecting Ergo nodes. It connects to a running node via SSE and provides live visibility into every layer of the system:
+Observer is a real-time web UI for monitoring and inspecting Ergo nodes. It provides live visibility into every layer of the system:
 
-- **Processes** — full process list with state, mailbox depth, latency, running time, wakeups, and uptime. Click any process to inspect its supervision tree, links, monitors, aliases, environment, and internal actor state
-- **Applications** — running applications with their process trees, modes, and uptime
-- **Network** — cluster topology, per-node connection details, traffic counters, and protocol info
-- **Events** — registered events with producer, subscriber counts, and publication statistics
-- **Logs** — live log stream with level filtering across the cluster
-- **Profiler** — goroutine dump with grouping and stack traces, heap profile with allocation breakdown, and GC pressure charts
+- **Processes** - full process list with state, mailbox depth, latency, running time, wakeups, and uptime. Click any process to inspect its supervision tree, links, monitors, aliases, environment, and internal actor state
+- **Applications** - running applications with their process trees, modes, and uptime
+- **Network** - cluster topology, per-node connection details, traffic counters, and protocol info
+- **Events** - registered events with producer, subscriber counts, and publication statistics
+- **Logs** - live log stream with level filtering across the cluster
+- **Profiler** - goroutine dump with grouping and stack traces, heap profile with allocation breakdown, and GC pressure charts
 
 <img src="docs/.gitbook/assets/observer.png" width="100%">
 
-To install the Observer tool, you need to have the Go compiler version 1.20 or higher:
+Add Observer to your node as an application:
 
-```
-$ go install ergo.tools/observer@latest
+```go
+import "ergo.services/application/observer"
+
+options.Applications = []gen.ApplicationBehavior{
+    observer.CreateApp(observer.Options{}),
+}
 ```
 
-You can also embed the [Observer application](https://docs.ergo.services/extra-library/applications/observer) directly into your node so it starts alongside your service. To see it in action with a fully loaded cluster, see the [observability example](https://github.com/ergo-services/examples/tree/master/observability). For more information, visit the [Observer documentation](https://docs.ergo.services/tools/observer).
+To see it in action with a fully loaded cluster, see the [observability example](https://github.com/ergo-services/examples/tree/master/observability). For more information, visit the [Observer documentation](https://docs.ergo.services/extra-library/applications/observer).
 
 
 
@@ -75,60 +79,26 @@ To install use the following command:
 $ go install ergo.tools/ergo@latest
 ```
 
-Now, you can create your project with just one command. Here is example:
-
-Supervision tree
+Create a project and start adding components:
 
 ```
-  mynode
-  ├─ myapp
-  │  │
-  │  └─ mysup
-  │     │
-  │     └─ myactor
-  ├─ myweb
-  └─ myactor2
-```
-
-To generate project for this design use the following command:
-
-```
-$ ergo -init MyNode \
-      -with-app MyApp \
-      -with-sup MyApp:MySup \
-      -with-actor MySup:MyActor \
-      -with-web MyWeb \
-      -with-actor MyActor2 \
-      -with-observer 
-```
-
-as a result you will get generated project:
-
-```
-  mynode
-  ├── apps
-  │  └── myapp
-  │     ├── myactor.go
-  │     ├── myapp.go
-  │     └── mysup.go
-  ├── cmd
-  │  ├── myactor2.go
-  │  ├── mynode.go
-  │  ├── myweb.go
-  │  └── myweb_worker.go
-  ├── go.mod
-  ├── go.sum
-  └── README.md
-```
-
-to try it:
-
-```
+$ ergo init MyNode github.com/myorg/mynode
 $ cd mynode
+$ ergo add supervisor MyNodeApp:MySup
+$ ergo add actor MySup:MyActor
 $ go run ./cmd
 ```
 
-Since we included Observer application, open http://localhost:9911 to inspect your node and running processes.
+The generated project is ready to run immediately. Add more components as your
+service grows:
+
+```
+$ ergo add actor --pool MySup:MyPool
+$ ergo add app BackgroundApp
+$ ergo add message MessageConnect --field ID:gen.Alias --field Addr:string
+```
+
+For the full command reference, see the [ergo tool documentation](https://docs.ergo.services/tools/ergo).
 
 ### Erlang support ###
 

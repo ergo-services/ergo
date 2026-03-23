@@ -8,11 +8,11 @@ Actors register named signals with the health actor, optionally sending periodic
 
 Kubernetes uses three types of probes to manage pod lifecycle:
 
-**Liveness** -- Is the application alive? A failing liveness probe causes Kubernetes to restart the pod. Use this for detecting deadlocks, infinite loops, or corrupted state that prevents the application from functioning.
+**Liveness:** Is the application alive? A failing liveness probe causes Kubernetes to restart the pod. Use this for detecting deadlocks, infinite loops, or corrupted state that prevents the application from functioning.
 
-**Readiness** -- Can the application serve traffic? A failing readiness probe removes the pod from service endpoints. Use this for temporary conditions like database connection loss, cache warming, or downstream dependency outages where restarting would not help.
+**Readiness:** Can the application serve traffic? A failing readiness probe removes the pod from service endpoints. Use this for temporary conditions like database connection loss, cache warming, or downstream dependency outages where restarting would not help.
 
-**Startup** -- Has the application finished initializing? A failing startup probe prevents liveness and readiness checks from running. Use this for slow-starting applications that need time to load data, run migrations, or establish connections before health checks begin.
+**Startup:** Has the application finished initializing? A failing startup probe prevents liveness and readiness checks from running. Use this for slow-starting applications that need time to load data, run migrations, or establish connections before health checks begin.
 
 In traditional applications, you implement these probes as HTTP handlers that check internal state. In actor systems, the "state" is distributed across many processes. A database connection actor, a cache warmer, and a message queue consumer each know their own status, but no single actor knows the overall health.
 
@@ -22,13 +22,13 @@ The health actor solves this by accepting signal registrations from any actor in
 
 The health actor follows a registration and heartbeat pattern:
 
-1. **Actors register signals** -- Each actor that contributes to health sends a `RegisterRequest` to the health actor (synchronous Call), specifying a signal name, which probes it affects, and an optional heartbeat timeout. The Call returns after the signal is registered, preventing race conditions with subsequent heartbeats.
+1. **Actors register signals:** Each actor that contributes to health sends a `RegisterRequest` to the health actor (synchronous Call), specifying a signal name, which probes it affects, and an optional heartbeat timeout. The Call returns after the signal is registered, preventing race conditions with subsequent heartbeats.
 
-2. **The health actor monitors registrants** -- When a signal is registered, the health actor monitors the registering process. If that process terminates, all its signals are automatically marked as down.
+2. **The health actor monitors registrants:** When a signal is registered, the health actor monitors the registering process. If that process terminates, all its signals are automatically marked as down.
 
-3. **Actors send heartbeats** -- For signals with a timeout, the registering actor periodically sends `MessageHeartbeat`. If the heartbeat interval exceeds the timeout, the health actor marks the signal as down.
+3. **Actors send heartbeats:** For signals with a timeout, the registering actor periodically sends `MessageHeartbeat`. If the heartbeat interval exceeds the timeout, the health actor marks the signal as down.
 
-4. **HTTP handlers read atomic state** -- The HTTP handlers read pre-built JSON responses from atomic values. The actor goroutine rebuilds these atomic values after every state change. No mutexes or channels are involved in serving HTTP requests.
+4. **HTTP handlers read atomic state:** The HTTP handlers read pre-built JSON responses from atomic values. The actor goroutine rebuilds these atomic values after every state change. No mutexes or channels are involved in serving HTTP requests.
 
 ```mermaid
 sequenceDiagram
@@ -76,9 +76,9 @@ type ActorBehavior interface {
 
 All callbacks have default (no-op) implementations. You only override what you need.
 
-`HandleSignalDown` is called when a signal transitions from up to down -- due to heartbeat timeout, process termination, or explicit `MessageSignalDown`. Use this for alerting, logging, or triggering recovery actions.
+`HandleSignalDown` is called when a signal transitions from up to down, due to heartbeat timeout, process termination, or explicit `MessageSignalDown`. Use this for alerting, logging, or triggering recovery actions.
 
-`HandleSignalUp` is called when a signal transitions from down to up -- via heartbeat recovery or explicit `MessageSignalUp`. Use this to log recovery events or update external systems.
+`HandleSignalUp` is called when a signal transitions from down to up, via heartbeat recovery or explicit `MessageSignalUp`. Use this to log recovery events or update external systems.
 
 ## Basic Usage
 
@@ -114,7 +114,7 @@ Default configuration:
 - **Path**: `/health`
 - **CheckInterval**: `1 second`
 
-With no signals registered, all three endpoints return 200 with `{"status":"healthy"}`. This means a freshly started health actor does not block deployment. Signals opt in to health checking -- only registered signals can cause a probe to fail.
+With no signals registered, all three endpoints return 200 with `{"status":"healthy"}`. This means a freshly started health actor does not block deployment. Signals opt in to health checking; only registered signals can cause a probe to fail.
 
 ## Configuration
 
@@ -135,7 +135,7 @@ options := health.Options{
 
 **CheckInterval** controls how frequently the actor checks for expired heartbeats. The actor sends itself a timer message at this interval and iterates over all signals with a non-zero timeout, marking expired ones as down. Shorter intervals detect failures faster but increase message processing overhead. For most applications, 1-2 seconds provides a good balance.
 
-**Mux** accepts an external `*http.ServeMux`. When provided, the health actor registers its handlers on this mux and skips starting its own HTTP server. This is useful when you want to serve health endpoints alongside other HTTP handlers on a single port -- for example, combining with the [Metrics](metrics.md) actor.
+**Mux** accepts an external `*http.ServeMux`. When provided, the health actor registers its handlers on this mux and skips starting its own HTTP server. This is useful when you want to serve health endpoints alongside other HTTP handlers on a single port, for example, combining with the [Metrics](metrics.md) actor.
 
 ```go
 mux := http.NewServeMux()
@@ -202,7 +202,7 @@ health.SignalDown(process, to, signal)
 
 `Register` and `Unregister` use synchronous Call to confirm the operation completed. This prevents race conditions where a heartbeat or status update arrives before the signal is registered. All other helpers use async Send.
 
-The `to` parameter accepts anything that identifies a process -- a `gen.Atom` name, `gen.PID`, `gen.ProcessID`, or `gen.Alias`.
+The `to` parameter accepts anything that identifies a process: a `gen.Atom` name, `gen.PID`, `gen.ProcessID`, or `gen.Alias`.
 
 ### Message Types
 
@@ -258,7 +258,7 @@ func (w *DBWorker) Terminate(reason error) {
 
 Choose the heartbeat interval to be at least 2x shorter than the timeout. This provides one missed heartbeat as a safety margin before the signal is marked as down.
 
-When the actor crashes, the health actor receives a `gen.MessageDownPID` (because it monitors the registrant) and marks all signals from that process as down. Heartbeat timeout is a secondary detection mechanism for situations where the process is alive but the resource it manages is not -- for example, a database connection pool actor that is running but has lost all connections.
+When the actor crashes, the health actor receives a `gen.MessageDownPID` (because it monitors the registrant) and marks all signals from that process as down. Heartbeat timeout is a secondary detection mechanism for situations where the process is alive but the resource it manages is not, for example, a database connection pool actor that is running but has lost all connections.
 
 ## HTTP Endpoints
 
@@ -270,9 +270,9 @@ When the actor crashes, the health actor receives a `gen.MessageDownPID` (becaus
 
 Each endpoint evaluates only signals registered for that specific probe. A signal registered for `ProbeLiveness` only does not affect `/health/ready` or `/health/startup`.
 
-**200 OK** -- all signals for this probe are up, or no signals are registered.
+**200 OK:** all signals for this probe are up, or no signals are registered.
 
-**503 Service Unavailable** -- at least one signal for this probe is down.
+**503 Service Unavailable:** at least one signal for this probe is down.
 
 ### Response Format
 
@@ -312,7 +312,7 @@ Heartbeat timeout catches situations where the process is alive but the resource
 
 ### Manual Control
 
-Actors can explicitly report status changes using `MessageSignalUp` and `MessageSignalDown`. Use this when you can detect failures immediately without waiting for a timeout -- for example, catching a database connection error in a callback and immediately marking the signal as down, then marking it up again when the connection is re-established.
+Actors can explicitly report status changes using `MessageSignalUp` and `MessageSignalDown`. Use this when you can detect failures immediately without waiting for a timeout, for example, catching a database connection error in a callback and immediately marking the signal as down, then marking it up again when the connection is re-established.
 
 ## Extending with Custom Behavior
 
@@ -343,7 +343,7 @@ func (h *MyHealth) HandleSignalUp(signal gen.Atom) error {
 }
 ```
 
-Override `HandleMessage` to handle application-specific messages alongside health management. The health actor dispatches its own types internally (`RegisterRequest`/`UnregisterRequest` via HandleCall, `MessageHeartbeat`/`MessageSignalUp`/`MessageSignalDown` via HandleMessage) -- only unrecognized messages are forwarded to your callbacks.
+Override `HandleMessage` to handle application-specific messages alongside health management. The health actor dispatches its own types internally (`RegisterRequest`/`UnregisterRequest` via HandleCall, `MessageHeartbeat`/`MessageSignalUp`/`MessageSignalDown` via HandleMessage); only unrecognized messages are forwarded to your callbacks.
 
 ## Kubernetes Configuration
 

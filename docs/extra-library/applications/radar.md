@@ -2,7 +2,7 @@
 
 Running an Ergo node in production typically requires two things: health probes for Kubernetes and a Prometheus metrics endpoint. Setting them up separately means two HTTP servers on two ports, two actor packages to import, and the same wiring code repeated on every node.
 
-Radar bundles both into a single application on one HTTP port. Internally it runs a [Health](../actors/health.md) actor for probe endpoints, a [Metrics](../actors/metrics.md) actor for base Ergo telemetry, and a pool of metrics workers for custom metric updates -- all behind a shared mux served by one HTTP server. Actors interact with Radar through helper functions in the `radar` package without importing the underlying packages or knowing the internal actor names.
+Radar bundles both into a single application on one HTTP port. Internally it runs a [Health](../actors/health.md) actor for probe endpoints, a [Metrics](../actors/metrics.md) actor for base Ergo telemetry, and a pool of metrics workers for custom metric updates, all behind a shared mux served by one HTTP server. Actors interact with Radar through helper functions in the `radar` package without importing the underlying packages or knowing the internal actor names.
 
 ## Adding to Your Node
 
@@ -56,7 +56,7 @@ radar.Options{
 
 **HealthCheckInterval** controls how often the health actor checks for expired heartbeats. Default is 1 second. Shorter intervals detect failures faster but increase internal message traffic. For most applications, 1-2 seconds provides a good balance.
 
-**MetricsCollectInterval** sets how often base Ergo metrics are collected (processes, memory, CPU, network, events). Default is 10 seconds. Align this with your Prometheus scrape interval -- collecting more frequently than Prometheus scrapes wastes CPU; collecting less frequently means Prometheus may see stale values.
+**MetricsCollectInterval** sets how often base Ergo metrics are collected (processes, memory, CPU, network, events). Default is 10 seconds. Align this with your Prometheus scrape interval; collecting more frequently than Prometheus scrapes wastes CPU; collecting less frequently means Prometheus may see stale values.
 
 **MetricsTopN** limits the number of entries in per-process and per-event top-N metrics tables. Default is 50. Increase this for large nodes with thousands of processes where you need broader visibility into the tail. The collection cost scales linearly with TopN.
 
@@ -64,7 +64,7 @@ radar.Options{
 
 ## Health Probes
 
-Actors register signals with Radar, specifying which probes the signal affects and an optional heartbeat timeout. The health actor monitors the registering process -- if it terminates, all its signals are automatically marked as down.
+Actors register signals with Radar, specifying which probes the signal affects and an optional heartbeat timeout. The health actor monitors the registering process; if it terminates, all its signals are automatically marked as down.
 
 ### Registering a Signal
 
@@ -133,7 +133,7 @@ For a detailed explanation of the heartbeat model, failure detection mechanisms,
 
 Actors register Prometheus metric collectors and update them through Radar's helper functions. The underlying metrics actor manages the Prometheus registry and HTTP exposition. Registration is synchronous, updates are asynchronous.
 
-All custom metrics automatically receive a `node` const label set to the node name. Do not include `"node"` in your variable label names -- it will cause a "duplicate label names" registration error.
+All custom metrics automatically receive a `node` const label set to the node name. Do not include `"node"` in your variable label names; it will cause a "duplicate label names" registration error.
 
 ### Registering Metrics
 
@@ -199,7 +199,7 @@ For a detailed explanation of metric types, the Grafana dashboard, and advanced 
 
 ## Top-N Metrics
 
-Top-N metrics track the N highest (or lowest) values observed during each collection cycle and flush them to Prometheus as a GaugeVec. This is useful when you want to identify outliers -- slowest queries, busiest workers, largest payloads -- without creating a time series per item.
+Top-N metrics track the N highest (or lowest) values observed during each collection cycle and flush them to Prometheus as a GaugeVec. This is useful when you want to identify outliers (slowest queries, busiest workers, largest payloads) without creating a time series per item.
 
 ### Registering and Observing
 
@@ -225,8 +225,8 @@ Registration is synchronous (returns error). Observations are asynchronous (fire
 
 ### Ordering Modes
 
-- `radar.TopNMax` -- keeps the N largest values (e.g., slowest queries, busiest actors, highest memory)
-- `radar.TopNMin` -- keeps the N smallest values (e.g., lowest latency, least active processes)
+- `radar.TopNMax`: keeps the N largest values (e.g., slowest queries, busiest actors, highest memory)
+- `radar.TopNMin`: keeps the N smallest values (e.g., lowest latency, least active processes)
 
 ### Automatic Cleanup
 
@@ -359,10 +359,10 @@ scrape_configs:
     scrape_interval: 15s
 ```
 
-Align `scrape_interval` with `MetricsCollectInterval` in Radar options. The default collect interval is 10 seconds -- scraping more frequently than the collect interval returns identical data.
+Align `scrape_interval` with `MetricsCollectInterval` in Radar options. The default collect interval is 10 seconds; scraping more frequently than the collect interval returns identical data.
 
 ## Relationship to Health and Metrics Actors
 
-Radar uses [Health](../actors/health.md) and [Metrics](../actors/metrics.md) actors internally. The helper functions in the `radar` package delegate to these actors by their internal registered names. If you need capabilities beyond what the helpers expose -- embedding the metrics actor for direct Prometheus registry access, custom health actor behavior with `HandleSignalDown` callbacks, or shared mux with additional HTTP handlers -- use the underlying actors directly.
+Radar uses [Health](../actors/health.md) and [Metrics](../actors/metrics.md) actors internally. The helper functions in the `radar` package delegate to these actors by their internal registered names. If you need capabilities beyond what the helpers expose (embedding the metrics actor for direct Prometheus registry access, custom health actor behavior with `HandleSignalDown` callbacks, or shared mux with additional HTTP handlers), use the underlying actors directly.
 
 Radar is designed for the common case: production nodes that need standard health probes and Prometheus metrics with minimal setup. For advanced scenarios, the building blocks are available as separate packages.

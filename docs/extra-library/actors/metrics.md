@@ -1,12 +1,12 @@
 # Metrics
 
-The metrics actor collects runtime statistics from an Ergo node and exposes them as a Prometheus HTTP endpoint. It runs as a regular process -- spawn it, and it starts serving `/metrics` with node, network, process, and event telemetry.
+The metrics actor collects runtime statistics from an Ergo node and exposes them as a Prometheus HTTP endpoint. It runs as a regular process: spawn it, and it starts serving `/metrics` with node, network, process, and event telemetry.
 
 For application-specific metrics (request rates, business counters), you extend the actor with custom Prometheus collectors.
 
 ## Why Monitor Actors
 
-Actor systems are dynamic. Processes spawn and terminate constantly, messages flow through mailboxes asynchronously, and load depends on message routing and supervision trees. Traditional monitoring (thread pools, request queues) does not capture this. The metrics actor tracks process lifecycle, mailbox pressure, message throughput, event fanout, network traffic, and delivery errors -- giving visibility into what the actor runtime is actually doing.
+Actor systems are dynamic. Processes spawn and terminate constantly, messages flow through mailboxes asynchronously, and load depends on message routing and supervision trees. Traditional monitoring (thread pools, request queues) does not capture this. The metrics actor tracks process lifecycle, mailbox pressure, message throughput, event fanout, network traffic, and delivery errors, giving visibility into what the actor runtime is actually doing.
 
 ## ActorBehavior Interface
 
@@ -30,9 +30,9 @@ Only `Init()` is required. All other callbacks have default implementations.
 
 Two patterns for custom metrics:
 
-**Periodic collection** -- implement `CollectMetrics()` to query state at intervals. Use when metrics reflect current state from other actors or external sources.
+**Periodic collection:** implement `CollectMetrics()` to query state at intervals. Use when metrics reflect current state from other actors or external sources.
 
-**Event-driven updates** -- implement `HandleMessage()` or `HandleEvent()` to update metrics as events occur. Use when your application produces natural event streams.
+**Event-driven updates:** implement `HandleMessage()` or `HandleEvent()` to update metrics as events occur. Use when your application produces natural event streams.
 
 ## Basic Usage
 
@@ -132,11 +132,11 @@ Always active. Counts messages queued in each process's mailbox. Distribution ac
 
 Always active. Includes:
 
-- **Utilization** -- ratio of callback running time to uptime. Distribution, max, and top-N.
-- **Init time** -- ProcessInit duration. Max and top-N.
-- **Throughput** -- messages in/out per process (top-N) and node-level aggregates.
-- **Wakeups and drains** -- wakeup count and drain ratio (messages processed per wakeup). Drain ratio distinguishes between slow callbacks (drain ~1) and high-throughput batching (drain ~100) at the same utilization level.
-- **Liveness** -- detects processes stuck in blocking calls. Computed as `RunningTime / (Uptime * MailboxLatency)`. A healthy process has RunningTime growing with activity (high score). A process blocked in a mutex, channel, or IO has RunningTime frozen while uptime and latency keep growing (score drops over time). Zombie processes are excluded (detected separately). Bottom-N surfaces the most stuck processes. Requires `-tags=latency`.
+- **Utilization:** ratio of callback running time to uptime. Distribution, max, and top-N.
+- **Init time:** ProcessInit duration. Max and top-N.
+- **Throughput:** messages in/out per process (top-N) and node-level aggregates.
+- **Wakeups and drains:** wakeup count and drain ratio (messages processed per wakeup). Drain ratio distinguishes between slow callbacks (drain ~1) and high-throughput batching (drain ~100) at the same utilization level.
+- **Liveness:** detects processes stuck in blocking calls. Computed as `RunningTime / (Uptime * MailboxLatency)`. A healthy process has RunningTime growing with activity (high score). A process blocked in a mutex, channel, or IO has RunningTime frozen while uptime and latency keep growing (score drops over time). Zombie processes are excluded (detected separately). Bottom-N surfaces the most stuck processes. Requires `-tags=latency`.
 
 ### Event Metrics
 
@@ -220,7 +220,7 @@ func (m *AppMetrics) HandleMessage(from gen.PID, message any) error {
 
 ### Custom Top-N Metrics
 
-Top-N metrics track the N highest (or lowest) values observed during each collection cycle. Unlike gauges or counters, a top-N metric accumulates observations and periodically flushes only the top entries to Prometheus as a GaugeVec. This is useful when you want to identify the most active, slowest, or largest items out of many -- without creating a separate time series for each one.
+Top-N metrics track the N highest (or lowest) values observed during each collection cycle. Unlike gauges or counters, a top-N metric accumulates observations and periodically flushes only the top entries to Prometheus as a GaugeVec. This is useful when you want to identify the most active, slowest, or largest items out of many, without creating a separate time series for each one.
 
 Each top-N metric is managed by a dedicated actor spawned under a SimpleOneForOne supervisor. Registration creates this actor; observations are sent to it asynchronously. On each flush interval the actor writes the current top-N entries to Prometheus and resets for the next cycle.
 
@@ -235,12 +235,12 @@ metrics.TopNObserve(w, gen.Atom("radar_topn_slowest_queries"), 0.250, []string{"
 metrics.TopNObserve(w, gen.Atom("radar_topn_slowest_queries"), 1.100, []string{"JOIN ...", "orders"})
 ```
 
-The `to` parameter in `RegisterTopN` is the name of the supervisor managing top-N actors. The `to` parameter in `TopNObserve` is the actor name -- by convention `"radar_topn_" + metricName`.
+The `to` parameter in `RegisterTopN` is the name of the supervisor managing top-N actors. The `to` parameter in `TopNObserve` is the actor name, by convention `"radar_topn_" + metricName`.
 
 Ordering modes:
 
-- `metrics.TopNMax` -- keeps the N largest values (e.g., slowest queries, busiest actors, highest memory usage)
-- `metrics.TopNMin` -- keeps the N smallest values (e.g., lowest latency, least active processes)
+- `metrics.TopNMax`: keeps the N largest values (e.g., slowest queries, busiest actors, highest memory usage)
+- `metrics.TopNMin`: keeps the N smallest values (e.g., lowest latency, least active processes)
 
 When the process that registered a top-N metric terminates, the actor automatically cleans up and unregisters its GaugeVec from Prometheus.
 

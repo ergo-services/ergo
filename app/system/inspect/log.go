@@ -2,6 +2,7 @@ package inspect
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"ergo.services/ergo/act"
@@ -17,10 +18,12 @@ type log struct {
 	token gen.Ref
 	event gen.Atom
 
-	levels     []gen.LogLevel
-	limit      int
-	generating bool
-	loopID     uint64
+	levels         []gen.LogLevel
+	limit          int
+	messagePattern string // lower-cased for fast matching
+	messageExclude bool
+	generating     bool
+	loopID         uint64
 
 	// ring buffer
 	ring     []InspectLogEntry
@@ -34,6 +37,10 @@ const logFlushInterval = time.Second
 func (il *log) Init(args ...any) error {
 	il.levels = args[0].([]gen.LogLevel)
 	il.limit = args[1].(int)
+	if len(args) > 3 {
+		il.messagePattern = strings.ToLower(args[2].(string))
+		il.messageExclude = args[3].(bool)
+	}
 	il.ring = make([]InspectLogEntry, il.limit)
 	il.Log().SetLogger("default")
 	il.Log().Debug("log inspector started (limit: %d)", il.limit)
@@ -139,10 +146,19 @@ func (il *log) HandleMessage(from gen.PID, message any) error {
 }
 
 func (il *log) HandleLog(message gen.MessageLog) error {
+	msg := fmt.Sprintf(message.Format, message.Args...)
+
+	if il.messagePattern != "" {
+		contains := strings.Contains(strings.ToLower(msg), il.messagePattern)
+		if il.messageExclude == contains {
+			return nil
+		}
+	}
+
 	entry := InspectLogEntry{
 		Timestamp: message.Time.UnixNano(),
 		Level:     message.Level,
-		Message:   fmt.Sprintf(message.Format, message.Args...),
+		Message:   msg,
 		Fields:    message.Fields,
 	}
 

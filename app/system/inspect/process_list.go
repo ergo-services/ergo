@@ -47,7 +47,8 @@ func (ipl *process_list) Init(args ...any) error {
 		Notify: true,
 		Buffer: 1,
 	}
-	evname := gen.Atom(fmt.Sprintf("%s_%d_%d", inspectProcessList, ipl.start, ipl.start+ipl.limit-1))
+	hash := filterHash(ipl.name, ipl.behavior, ipl.application, ipl.state, ipl.minMailbox, ipl.limit)
+	evname := gen.Atom(fmt.Sprintf("%s_%d_%s", inspectProcessList, ipl.start, hash))
 	token, err := ipl.RegisterEvent(evname, eopts)
 	if err != nil {
 		ipl.Log().Error("unable to register event: %s", err)

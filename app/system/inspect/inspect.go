@@ -185,7 +185,8 @@ func (i *inspect) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error
 		if r.Limit < 1 {
 			r.Limit = 1000
 		}
-		pname := gen.Atom(fmt.Sprintf("%s_%d_%d", inspectProcessList, r.Start, r.Start+r.Limit-1))
+		hash := filterHash(r.Name, r.Behavior, r.Application, r.State, r.MinMailbox, r.Limit)
+		pname := gen.Atom(fmt.Sprintf("%s_%d_%s", inspectProcessList, r.Start, hash))
 		_, err := i.SpawnRegister(pname, factory_process_list, opts,
 			r.Start, r.Limit, r.Name, r.Behavior, r.Application, r.State, r.MinMailbox)
 		if err != nil && err != gen.ErrTaken {
@@ -302,28 +303,9 @@ func (i *inspect) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error
 			},
 		}
 
-		name := "diwep"
 		levels := r.Levels
 		if len(r.Levels) > 0 {
-			b := []byte{}
-			sort.Slice(r.Levels, func(i, j int) bool {
-				return r.Levels[i] < r.Levels[j]
-			})
-			for i := range r.Levels {
-				switch r.Levels[i] {
-				case gen.LogLevelDebug:
-					b = append(b, 'd')
-				case gen.LogLevelInfo:
-					b = append(b, 'i')
-				case gen.LogLevelWarning:
-					b = append(b, 'w')
-				case gen.LogLevelError:
-					b = append(b, 'e')
-				case gen.LogLevelPanic:
-					b = append(b, 'p')
-				}
-			}
-			name = string(b)
+			sort.Slice(levels, func(i, j int) bool { return levels[i] < levels[j] })
 		} else {
 			levels = inspectLogFilter
 		}
@@ -333,8 +315,9 @@ func (i *inspect) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error
 			limit = 500
 		}
 
-		pname := gen.Atom(fmt.Sprintf("%s_%s_%d", inspectLog, name, limit))
-		_, err := i.SpawnRegister(pname, factory_log, opts, levels, limit)
+		hash := fmt.Sprintf("%x", hashStr(fmt.Sprintf("%v|%d|%s|%v", levels, limit, r.MessagePattern, r.MessageExclude)))
+		pname := gen.Atom(fmt.Sprintf("%s_%s", inspectLog, hash))
+		_, err := i.SpawnRegister(pname, factory_log, opts, levels, limit, r.MessagePattern, r.MessageExclude)
 		if err != nil && err != gen.ErrTaken {
 			return err, nil
 		}

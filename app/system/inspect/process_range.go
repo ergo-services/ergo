@@ -113,7 +113,7 @@ func (ipr *process_range) HandleMessage(from gen.PID, message any) error {
 			return int(a.PID.ID - b.PID.ID)
 		})
 
-		// reuse MessageInspectProcessList — same payload format
+		// reuse MessageInspectProcessList, same payload format
 		ev := MessageInspectProcessList{
 			Node:      ipr.Node().Name(),
 			Processes: list,
