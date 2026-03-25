@@ -412,6 +412,9 @@ type NetworkFlags struct {
 	// EnableClockSkew enables clock skew measurement between connected nodes.
 	// Both nodes must have it enabled for measurements to work.
 	EnableClockSkew bool
+	// EnableTracing enables distributed tracing support.
+	// Both nodes must have it enabled for trace context propagation.
+	EnableTracing bool
 	// EnableSoftwareKeepAlive enables application-level keepalive with the given period in seconds.
 	// Zero disables keepalive. Max 255.
 	EnableSoftwareKeepAlive int
@@ -459,6 +462,9 @@ func (nf NetworkFlags) MarshalEDF(w io.Writer) error {
 	if nf.EnableClockSkew == true {
 		flags |= 1 << 16
 	}
+	if nf.EnableTracing == true {
+		flags |= 1 << 17
+	}
 	binary.BigEndian.PutUint64(buf[:], flags)
 	w.Write(buf[:])
 	return nil
@@ -482,6 +488,7 @@ func (nf *NetworkFlags) UnmarshalEDF(buf []byte) error {
 	nf.EnableSimultaneousConnect = (flags & 128) > 0
 	nf.EnableSoftwareKeepAlive = int((flags >> 8) & 0xFF)
 	nf.EnableClockSkew = (flags & (1 << 16)) > 0
+	nf.EnableTracing = (flags & (1 << 17)) > 0
 	return nil
 }
 
