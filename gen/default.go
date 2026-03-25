@@ -27,9 +27,9 @@ var (
 
 	DefaultHandshakeTimeout        time.Duration = 5 * time.Second
 	DefaultSoftwareKeepAliveMisses int           = 3
-	DefaultFragmentSize              int           = 65000
-	DefaultFragmentTimeout           time.Duration = 30 * time.Second
-	DefaultMaxFragmentAssemblies     int           = 1000
+	DefaultFragmentSize            int           = 65000
+	DefaultFragmentTimeout         time.Duration = 30 * time.Second
+	DefaultMaxFragmentAssemblies   int           = 1000
 
 	DefaultNetworkFlags = NetworkFlags{
 		Enable:                       true,
@@ -40,7 +40,8 @@ var (
 		EnableProxyAccept:            true,
 		EnableImportantDelivery:      true,
 		EnableSimultaneousConnect:    true,
-		EnableSoftwareKeepAlive: 15, // seconds
+		EnableClockSkew:              true,
+		EnableSoftwareKeepAlive:      15, // seconds
 	}
 
 	DefaultNetworkProxyFlags = NetworkProxyFlags{

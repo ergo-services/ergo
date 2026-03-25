@@ -11,12 +11,15 @@ const (
 	latency time.Duration = 300 * time.Nanosecond
 )
 
-func NewFlusherWithKeepAlive(w io.Writer, keepalive []byte, keepalivePeriod time.Duration) io.Writer {
+type Flusher interface {
+	io.Writer
+	Reset(io.Writer)
+	Stop()
+}
+
+func NewFlusherWithKeepAlive(w io.Writer, keepalive []byte, keepalivePeriod time.Duration) Flusher {
 	f := &flusher{
 		writer: bufio.NewWriter(w),
-	}
-	if closer, ok := w.(io.Closer); ok {
-		f.conn = closer
 	}
 	callback := func() {
 		f.Lock()
@@ -27,9 +30,6 @@ func NewFlusherWithKeepAlive(w io.Writer, keepalive []byte, keepalivePeriod time
 			f.writer.Write(keepalive)
 			if err := f.writer.Flush(); err != nil {
 				f.err = err
-				if f.conn != nil {
-					f.conn.Close()
-				}
 				return
 			}
 
@@ -39,9 +39,6 @@ func NewFlusherWithKeepAlive(w io.Writer, keepalive []byte, keepalivePeriod time
 
 		if err := f.writer.Flush(); err != nil {
 			f.err = err
-			if f.conn != nil {
-				f.conn.Close()
-			}
 			return
 		}
 		f.pending = false
@@ -54,12 +51,9 @@ func NewFlusherWithKeepAlive(w io.Writer, keepalive []byte, keepalivePeriod time
 	return f
 }
 
-func NewFlusher(w io.Writer) io.Writer {
+func NewFlusher(w io.Writer) Flusher {
 	f := &flusher{
 		writer: bufio.NewWriter(w),
-	}
-	if closer, ok := w.(io.Closer); ok {
-		f.conn = closer
 	}
 	callback := func() {
 		f.Lock()
@@ -71,9 +65,6 @@ func NewFlusher(w io.Writer) io.Writer {
 
 		if err := f.writer.Flush(); err != nil {
 			f.err = err
-			if f.conn != nil {
-				f.conn.Close()
-			}
 			return
 		}
 		f.pending = false
@@ -91,7 +82,6 @@ type flusher struct {
 	writer  *bufio.Writer
 	pending bool
 	err     error
-	conn    io.Closer
 }
 
 func (f *flusher) Write(b []byte) (n int, err error) {
@@ -131,4 +121,12 @@ func (f *flusher) Stop() {
 	if f.timer != nil {
 		f.timer.Stop()
 	}
+}
+
+func (f *flusher) Reset(w io.Writer) {
+	f.Lock()
+	defer f.Unlock()
+	f.writer.Reset(w)
+	f.pending = false
+	f.err = nil
 }

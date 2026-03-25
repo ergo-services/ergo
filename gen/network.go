@@ -409,6 +409,9 @@ type NetworkFlags struct {
 	EnableImportantDelivery bool
 	// EnableSimultaneousConnect enables simultaneous connect detection and resolution
 	EnableSimultaneousConnect bool
+	// EnableClockSkew enables clock skew measurement between connected nodes.
+	// Both nodes must have it enabled for measurements to work.
+	EnableClockSkew bool
 	// EnableSoftwareKeepAlive enables application-level keepalive with the given period in seconds.
 	// Zero disables keepalive. Max 255.
 	EnableSoftwareKeepAlive int
@@ -453,6 +456,9 @@ func (nf NetworkFlags) MarshalEDF(w io.Writer) error {
 		}
 		flags |= uint64(period) << 8
 	}
+	if nf.EnableClockSkew == true {
+		flags |= 1 << 16
+	}
 	binary.BigEndian.PutUint64(buf[:], flags)
 	w.Write(buf[:])
 	return nil
@@ -475,6 +481,7 @@ func (nf *NetworkFlags) UnmarshalEDF(buf []byte) error {
 	nf.EnableImportantDelivery = (flags & 64) > 0
 	nf.EnableSimultaneousConnect = (flags & 128) > 0
 	nf.EnableSoftwareKeepAlive = int((flags >> 8) & 0xFF)
+	nf.EnableClockSkew = (flags & (1 << 16)) > 0
 	return nil
 }
 
@@ -589,6 +596,10 @@ type RemoteNodeInfo struct {
 	DecompressedBytesRecv uint64
 	// DecompressedOrigRecv is the total bytes after decompression (original size).
 	DecompressedOrigRecv uint64
+
+	// ClockSkew is the estimated clock offset relative to the remote node (nanoseconds).
+	// Positive value means remote clock is ahead. Zero if not yet measured.
+	ClockSkew int64
 }
 
 // AcceptorOptions configures a network listener (acceptor) for incoming connections.

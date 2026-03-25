@@ -85,8 +85,13 @@ func (e *enp) NewConnection(core gen.Core, result gen.HandshakeResult, log gen.L
 		conn.softwareKeepAliveMisses = misses
 		conn.softwareKeepAliveTimeout = peerPeriod * time.Duration(misses)
 		conn.softwareKeepAliveMessage = []byte{
-			protoMagic, protoVersion, 0, 0, 0, 8, 0, protoMessageSoftwareKeepAlive,
+			protoMagic, protoVersion, 0, 0, 0, 8, 0, protoMessageK,
 		}
+	}
+
+	if result.NodeFlags.EnableClockSkew == true &&
+		result.PeerFlags.EnableClockSkew == true {
+		conn.clockSkew = true
 	}
 
 	if result.NodeFlags.EnableFragmentation == true &&

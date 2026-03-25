@@ -17,9 +17,9 @@ import (
 type t11receiver struct {
 	act.Actor
 
-	target  int64
-	count   atomic.Int64
-	done    chan struct{}
+	target   int64
+	count    atomic.Int64
+	done     chan struct{}
 	mismatch atomic.Int64
 }
 
@@ -71,11 +71,11 @@ func factory_t11sender() gen.ProcessBehavior {
 }
 
 type t11sendJob struct {
-	target gen.PID
-	size   int
-	count  int
+	target  gen.PID
+	size    int
+	count   int
 	noOrder bool
-	done   chan error
+	done    chan error
 }
 
 func (t *t11sender) HandleMessage(from gen.PID, message any) error {
@@ -285,11 +285,13 @@ func testFragLoadMixedConcurrent(t *testing.T) {
 func setupFragLoadNodes(t *testing.T, suffix string) (gen.Node, gen.Node, gen.PID) {
 	t.Helper()
 
+	uid := lib.RandomString(6)
+
 	options1 := gen.NodeOptions{}
 	options1.Network.Cookie = "fragload"
 	options1.Network.FragmentSize = 1000
 	options1.Log.DefaultLogger.Disable = true
-	node1, err := ergo.StartNode(gen.Atom(fmt.Sprintf("distT11node1%s@localhost", suffix)), options1)
+	node1, err := ergo.StartNode(gen.Atom(fmt.Sprintf("distT11n1%s%s@localhost", suffix, uid)), options1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -298,7 +300,7 @@ func setupFragLoadNodes(t *testing.T, suffix string) (gen.Node, gen.Node, gen.PI
 	options2.Network.Cookie = "fragload"
 	options2.Network.FragmentSize = 1000
 	options2.Log.DefaultLogger.Disable = true
-	node2, err := ergo.StartNode(gen.Atom(fmt.Sprintf("distT11node2%s@localhost", suffix)), options2)
+	node2, err := ergo.StartNode(gen.Atom(fmt.Sprintf("distT11n2%s%s@localhost", suffix, uid)), options2)
 	if err != nil {
 		node1.Stop()
 		t.Fatal(err)

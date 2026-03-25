@@ -52,12 +52,12 @@ type network struct {
 	handshakes sync.Map // .Version().String() -> handshake
 	protos     sync.Map // .Version().String() -> proto
 
-	cookie                    string
-	maxmessagesize            int
-	softwareKeepAliveMisses   int
-	fragmentSize              int
-	fragmentTimeout           int
-	maxFragmentAssemblies     int
+	cookie                  string
+	maxmessagesize          int
+	softwareKeepAliveMisses int
+	fragmentSize            int
+	fragmentTimeout         int
+	maxFragmentAssemblies   int
 
 	staticRoutes  *staticRoutes
 	staticProxies *staticProxies
@@ -1413,21 +1413,54 @@ func (n *network) handleAccepted(a *acceptor, c net.Conn, hopts gen.HandshakeOpt
 	if v, exist := n.connections.Load(result.Peer); exist {
 		conn := v.(gen.Connection)
 		if err := conn.Join(c, result.ConnectionID, nil, result.Tail); err != nil {
-			if err == gen.ErrUnsupported {
-				n.node.Log().Warning("unable to accept connection with %s (join is not supported)",
-					result.Peer)
-			} else {
-				n.node.Log().Trace("unable to join %s to the existing connection with %s: %s",
-					c.RemoteAddr(), result.Peer, err)
-			}
 			c.Close()
 		}
 		return
 	}
 
-	// Join handshake for a connection that no longer exists, peer's pool expansion
-	// arrived after the connection was terminated. Nothing to join, close silently.
+	// Primary connection: announce pending BEFORE heavy work so pool
+	// expansion TCPs (PeerCreation == 0) can wait for registration.
+	if result.PeerCreation != 0 {
+		acceptPending := &pendingEntry{ready: make(chan struct{})}
+		if _, loaded := n.pending.LoadOrStore(result.Peer, acceptPending); loaded {
+			acceptPending = nil
+		}
+		defer func() {
+			if acceptPending != nil {
+				n.pending.Delete(result.Peer)
+				close(acceptPending.ready)
+			}
+		}()
+	}
+
+	// Pool expansion (Join handshake, PeerCreation == 0).
+	//
+	// FIXME: workaround for a handshake design flaw with TCP pool expansion.
+	// The initiator starts dialing pool expansion connections (Join handshake)
+	// immediately after completing the primary handshake. These arrive at the
+	// acceptor as separate goroutines running handleAccepted(). The Join
+	// handshake (2 messages) completes faster than the primary handshake
+	// (5 messages), so the pool expansion TCP can reach this point before the
+	// primary TCP goroutine has finished registering the connection in
+	// n.connections. Without the retry, the pool TCP is closed, causing
+	// broken pipe on the initiator side for any pool_item using that TCP.
+	// Once the handshake protocol is redesigned to properly synchronize pool
+	// formation, this workaround can be removed.
 	if result.PeerCreation == 0 {
+		for i := 0; i < 3; i++ {
+			if pe, exist := n.pending.Load(result.Peer); exist {
+				entry := pe.(*pendingEntry)
+				<-entry.ready
+			}
+			if v, exist := n.connections.Load(result.Peer); exist {
+				conn := v.(gen.Connection)
+				if err := conn.Join(c, result.ConnectionID, nil, result.Tail); err != nil {
+					c.Close()
+				}
+				return
+			}
+			time.Sleep(300 * time.Millisecond)
+		}
 		c.Close()
 		return
 	}
@@ -1457,7 +1490,7 @@ func (n *network) handleAccepted(a *acceptor, c net.Conn, hopts gen.HandshakeOpt
 
 	if _, err := n.registerConnection(result.Peer, conn); err != nil {
 		// connect() registered between our Load and LoadOrStore
-		conn.Terminate(nil) // fix: cleanup the unused connection object
+		conn.Terminate(nil)
 
 		// with deterministic ID, join TCP into the existing connection
 		existing, ok := n.connections.Load(result.Peer)

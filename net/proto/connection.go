@@ -23,6 +23,8 @@ const (
 	// lib.Buffer has 4096 of capacity
 	// 256 messages could have at least 1Mb of allocated memory
 	limitMemRecvQueues int64 = 1024 * 1024 * 512
+
+	skewRingSize = 16
 )
 
 type connection struct {
@@ -73,6 +75,9 @@ type connection struct {
 	softwareKeepAliveMisses  int
 	softwareKeepAliveTimeout time.Duration // how long I wait (peer period * misses)
 
+	// clock skew measurement
+	clockSkew bool
+
 	// fragmentation
 	fragmentation         bool
 	fragmentSize          int
@@ -118,9 +123,17 @@ type fragmentAssembly struct {
 
 type pool_item struct {
 	connection net.Conn
-	fl         io.Writer
+	fl         lib.Flusher
 	timer      *time.Timer
 	handling   atomic.Bool
+
+	// skew measurement (clock offset relative to peer, nanoseconds).
+	// skewRing/skewIdx are only written by serve() goroutine.
+	// skewCount/skewValue are read by timer goroutine via atomic.
+	skewRing  [skewRingSize]int64
+	skewIdx   int
+	skewCount atomic.Int32
+	skewValue atomic.Int64
 }
 
 //
@@ -183,8 +196,116 @@ func (c *connection) Info() gen.RemoteNodeInfo {
 		DecompressedRecv:        c.decompressedRecv.Load(),
 		DecompressedBytesRecv:   c.decompressedBytesRecv.Load(),
 		DecompressedOrigRecv:    c.decompressedOrigRecv.Load(),
+
+		ClockSkew: c.Skew(),
 	}
 	return info
+}
+
+// Skew returns the aggregated clock skew across all pool connections (nanoseconds).
+// Positive value means the remote node's clock is ahead of local.
+func (c *connection) Skew() int64 {
+	c.pool_mutex.RLock()
+	defer c.pool_mutex.RUnlock()
+	if len(c.pool) == 0 {
+		return 0
+	}
+	values := make([]int64, 0, len(c.pool))
+	for _, pi := range c.pool {
+		if pi.skewCount.Load() > 0 {
+			values = append(values, pi.skewValue.Load())
+		}
+	}
+	if len(values) == 0 {
+		return 0
+	}
+	return medianInt64(values)
+}
+
+func (c *connection) handleSkew(pi *pool_item, buf *lib.Buffer, tsRecv int64) {
+	ts2 := int64(binary.BigEndian.Uint64(buf.B[16:24]))
+
+	if ts2 == 0 {
+		// ping - reuse buf for response, fill ts2 and ts3
+		binary.BigEndian.PutUint64(buf.B[16:24], uint64(tsRecv))
+		binary.BigEndian.PutUint64(buf.B[24:32], uint64(time.Now().UnixNano()))
+		pi.fl.Write(buf.B)
+		return
+	}
+
+	// response - compute and store skew
+	ts1 := int64(binary.BigEndian.Uint64(buf.B[8:16]))
+	ts3 := int64(binary.BigEndian.Uint64(buf.B[24:32]))
+	rtt := (tsRecv - ts1) - (ts3 - ts2)
+	skew := ts2 - (ts1 + rtt/2)
+	c.pushSkew(pi, skew)
+}
+
+func (c *connection) pushSkew(pi *pool_item, skew int64) {
+	pi.skewRing[pi.skewIdx%skewRingSize] = skew
+	pi.skewIdx++
+	n := pi.skewCount.Load()
+	if n < skewRingSize {
+		n++
+		pi.skewCount.Store(n)
+	}
+
+	var tmp [skewRingSize]int64
+	copy(tmp[:n], pi.skewRing[:n])
+	pi.skewValue.Store(medianInt64(tmp[:n]))
+
+	// schedule next ping only after receiving response
+	if c.terminated {
+		return
+	}
+	interval := 5 * time.Second
+	if n < skewRingSize {
+		interval = 100 * time.Millisecond
+	}
+	pi.timer.Reset(interval)
+}
+
+func (c *connection) skewTick(pi *pool_item) {
+	if c.terminated {
+		return
+	}
+	c.sendSkewPing(pi)
+}
+
+func (c *connection) sendSkewPing(pi *pool_item) {
+	buf := lib.TakeBuffer()
+	buf.Allocate(32)
+	buf.B[0] = protoMagic
+	buf.B[1] = protoVersion
+	binary.BigEndian.PutUint32(buf.B[2:6], 32)
+	buf.B[6] = 0
+	buf.B[7] = protoMessageS
+	binary.BigEndian.PutUint64(buf.B[8:16], uint64(time.Now().UnixNano()))
+	binary.BigEndian.PutUint64(buf.B[16:24], 0)
+	binary.BigEndian.PutUint64(buf.B[24:32], 0)
+	pi.fl.Write(buf.B)
+	lib.ReleaseBuffer(buf)
+}
+
+// medianInt64 sorts vals in place and returns the median.
+func medianInt64(vals []int64) int64 {
+	n := len(vals)
+	if n == 0 {
+		return 0
+	}
+	for i := 1; i < n; i++ {
+		v := vals[i]
+		j := i - 1
+		for j >= 0 && vals[j] > v {
+			vals[j+1] = vals[j]
+			j--
+		}
+		vals[j+1] = v
+	}
+	if n%2 == 0 {
+		return (vals[n/2-1] + vals[n/2]) / 2
+	}
+	return vals[n/2]
 }
 
 func (c *connection) Spawn(name gen.Atom, options gen.ProcessOptions, args ...any) (gen.PID, error) {
@@ -1569,7 +1690,7 @@ func (c *connection) Join(conn net.Conn, id string, dial gen.NetworkDial, tail [
 			c.log.Trace("joined new connection %s to the pool", conn.RemoteAddr().String())
 		}
 
-		c.serve(pi.connection, tail)
+		c.serve(pi, tail)
 
 		if dial != nil {
 			pool_dsn := []string{}
@@ -1589,16 +1710,22 @@ func (c *connection) Join(conn net.Conn, id string, dial gen.NetworkDial, tail [
 				}
 				pi.connection = nc
 				nc.SetWriteDeadline(time.Time{})
-				if stopper, ok := pi.fl.(interface{ Stop() }); ok {
-					stopper.Stop()
+				if pi.timer != nil {
+					pi.timer.Stop()
 				}
-				if c.softwareKeepAlive {
-					pi.fl = lib.NewFlusherWithKeepAlive(nc, c.softwareKeepAliveMessage, c.softwareKeepAlivePeriod)
-				} else {
-					pi.fl = lib.NewFlusher(nc)
-				}
+				pi.fl.Reset(nc)
 				tail = t
 				atomic.AddUint64(&c.reconnections, 1)
+
+				// reset skew state and restart measurement
+				if c.clockSkew {
+					pi.skewIdx = 0
+					pi.skewCount.Store(0)
+					pi.skewValue.Store(0)
+					pi.timer = time.AfterFunc(100*time.Millisecond, func() {
+						c.skewTick(pi)
+					})
+				}
 
 				goto re
 			}
@@ -1636,6 +1763,9 @@ func (c *connection) Terminate(reason error) {
 	c.pool_mutex.Lock()
 	defer c.pool_mutex.Unlock()
 	for _, pi := range c.pool {
+		if pi.timer != nil {
+			pi.timer.Stop()
+		}
 		pi.connection.Close()
 	}
 
@@ -1645,7 +1775,15 @@ func (c *connection) Terminate(reason error) {
 	}
 }
 
-func (c *connection) serve(conn net.Conn, tail []byte) {
+func (c *connection) serve(pi *pool_item, tail []byte) {
+	conn := pi.connection
+
+	// start skew measurement now that serve() is running
+	if c.clockSkew {
+		pi.timer = time.AfterFunc(100*time.Millisecond, func() {
+			c.skewTick(pi)
+		})
+	}
 
 	recvN := 0
 	recvNQ := len(c.recvQueues)
@@ -1698,7 +1836,16 @@ func (c *connection) serve(conn net.Conn, tail []byte) {
 		}
 
 		// handle keepalive silently, don't count, don't queue
-		if buf.B[7] == protoMessageSoftwareKeepAlive {
+		if buf.B[7] == protoMessageK {
+			lib.ReleaseBuffer(buf)
+			buf = buftail
+			continue
+		}
+
+		// handle skew measurement before queue dispatch for timestamp accuracy
+		if buf.B[7] == protoMessageS {
+			tsRecv := time.Now().UnixNano()
+			c.handleSkew(pi, buf, tsRecv)
 			lib.ReleaseBuffer(buf)
 			buf = buftail
 			continue
