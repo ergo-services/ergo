@@ -36,7 +36,7 @@ Examples demonstrating the framework's capabilities are available in the [exampl
 
 ### Benchmarks ###
 
-On a 64-core processor, Ergo Framework demonstrates a performance of **over 21 million messages per second locally** and **nearly 5 million messages per second over the network**.
+On a 64-core processor, Ergo Framework demonstrates a performance of **over 21 million messages per second locally** and **nearly 5.5 million messages per second over the network**.
 
 ![image](.github/images/benchmark_ping.png)
 
