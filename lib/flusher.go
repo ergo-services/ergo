@@ -8,7 +8,8 @@ import (
 )
 
 const (
-	latency time.Duration = 300 * time.Nanosecond
+	latency    time.Duration = 500 * time.Nanosecond
+	bufioSize  int           = 65536
 )
 
 type Flusher interface {
@@ -19,7 +20,7 @@ type Flusher interface {
 
 func NewFlusherWithKeepAlive(w io.Writer, keepalive []byte, keepalivePeriod time.Duration) Flusher {
 	f := &flusher{
-		writer: bufio.NewWriter(w),
+		writer: bufio.NewWriterSize(w, bufioSize),
 	}
 	callback := func() {
 		f.Lock()
@@ -53,7 +54,7 @@ func NewFlusherWithKeepAlive(w io.Writer, keepalive []byte, keepalivePeriod time
 
 func NewFlusher(w io.Writer) Flusher {
 	f := &flusher{
-		writer: bufio.NewWriter(w),
+		writer: bufio.NewWriterSize(w, bufioSize),
 	}
 	callback := func() {
 		f.Lock()
