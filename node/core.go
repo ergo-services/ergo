@@ -17,7 +17,7 @@ func (n *node) RouteSendPID(from gen.PID, to gen.PID, options gen.MessageOptions
 		return gen.ErrNodeTerminated
 	}
 
-	if lib.Trace() {
+	if lib.Verbose() {
 		n.log.Trace("RouteSendPID from %s to %s", from, to)
 	}
 
@@ -94,7 +94,7 @@ func (n *node) RouteSendProcessID(from gen.PID, to gen.ProcessID, options gen.Me
 		return gen.ErrNodeTerminated
 	}
 
-	if lib.Trace() {
+	if lib.Verbose() {
 		n.log.Trace("RouteSendProcessID from %s to %s", from, to)
 	}
 
@@ -175,7 +175,7 @@ func (n *node) RouteSendAlias(from gen.PID, to gen.Alias, options gen.MessageOpt
 		return gen.ErrNodeTerminated
 	}
 
-	if lib.Trace() {
+	if lib.Verbose() {
 		n.log.Trace("RouteSendAlias from %s to %s", from, to)
 	}
 
@@ -263,7 +263,7 @@ func (n *node) RouteSendEvent(from gen.PID, token gen.Ref, options gen.MessageOp
 		return gen.ErrNodeTerminated
 	}
 
-	if lib.Trace() {
+	if lib.Verbose() {
 		n.log.Trace("RouteSendEvent from %s with token %s", from, token)
 	}
 
@@ -278,7 +278,7 @@ func (n *node) RouteSendExit(from gen.PID, to gen.PID, reason error) error {
 		return gen.ErrIncorrect
 	}
 
-	if lib.Trace() {
+	if lib.Verbose() {
 		n.log.Trace("RouteSendExit from %s to %s with reason %q", from, to, reason)
 	}
 
@@ -304,7 +304,7 @@ func (n *node) RouteSendResponse(from gen.PID, to gen.PID, options gen.MessageOp
 		return gen.ErrNodeTerminated
 	}
 
-	if lib.Trace() {
+	if lib.Verbose() {
 		n.log.Trace("RouteSendResponse from %s to %s with ref %q", from, to, options.Ref)
 	}
 
@@ -363,7 +363,7 @@ func (n *node) RouteSendResponseError(from gen.PID, to gen.PID, options gen.Mess
 		return gen.ErrNodeTerminated
 	}
 
-	if lib.Trace() {
+	if lib.Verbose() {
 		n.log.Trace("RouteSendResponseError from %s to %s with ref %q", from, to, options.Ref)
 	}
 
@@ -427,7 +427,7 @@ func (n *node) RouteCallPID(from gen.PID, to gen.PID, options gen.MessageOptions
 		return gen.ErrNotAllowed
 	}
 
-	if lib.Trace() {
+	if lib.Verbose() {
 		n.log.Trace("RouteCallPID from %s to %s with ref %q", from, to, options.Ref)
 	}
 
@@ -488,7 +488,7 @@ func (n *node) RouteCallProcessID(from gen.PID, to gen.ProcessID, options gen.Me
 	if n.isRunning() == false {
 		return gen.ErrNodeTerminated
 	}
-	if lib.Trace() {
+	if lib.Verbose() {
 		n.log.Trace("RouteCallProcessID from %s to %s with ref %q", from, to, options.Ref)
 	}
 
@@ -549,7 +549,7 @@ func (n *node) RouteCallAlias(from gen.PID, to gen.Alias, options gen.MessageOpt
 		return gen.ErrNodeTerminated
 	}
 
-	if lib.Trace() {
+	if lib.Verbose() {
 		n.log.Trace("RouteCallAlias from %s to %s with ref %q", from, to, options.Ref)
 	}
 
@@ -620,7 +620,7 @@ func (n *node) RouteLinkPID(pid gen.PID, target gen.PID) error {
 		return gen.ErrNodeTerminated
 	}
 
-	if lib.Trace() {
+	if lib.Verbose() {
 		n.log.Trace("RouteLinkPID %s with %s", pid, target)
 	}
 
@@ -644,7 +644,7 @@ func (n *node) RouteUnlinkPID(pid gen.PID, target gen.PID) error {
 		return gen.ErrNodeTerminated
 	}
 
-	if lib.Trace() {
+	if lib.Verbose() {
 		n.log.Trace("RouteUnlinkPID %s with %s ", pid, target)
 	}
 
@@ -656,7 +656,7 @@ func (n *node) RouteLinkProcessID(pid gen.PID, target gen.ProcessID) error {
 		return gen.ErrNodeTerminated
 	}
 
-	if lib.Trace() {
+	if lib.Verbose() {
 		n.log.Trace("RouteLinkProcessID %s with %s", pid, target)
 	}
 
@@ -679,7 +679,7 @@ func (n *node) RouteUnlinkProcessID(pid gen.PID, target gen.ProcessID) error {
 	if n.isRunning() == false {
 		return gen.ErrNodeTerminated
 	}
-	if lib.Trace() {
+	if lib.Verbose() {
 		n.log.Trace("RouteUnlinkProcessID %s with %s", pid, target)
 	}
 
@@ -691,7 +691,7 @@ func (n *node) RouteLinkAlias(pid gen.PID, target gen.Alias) error {
 		return gen.ErrNodeTerminated
 	}
 
-	if lib.Trace() {
+	if lib.Verbose() {
 		n.log.Trace("RouteLinkAlias %s with %s using %s", pid, target)
 	}
 
@@ -709,7 +709,7 @@ func (n *node) RouteUnlinkAlias(pid gen.PID, target gen.Alias) error {
 		return gen.ErrNodeTerminated
 	}
 
-	if lib.Trace() {
+	if lib.Verbose() {
 		n.log.Trace("RouteUnlinkAlias %s with %s", pid, target)
 	}
 
@@ -722,7 +722,7 @@ func (n *node) RouteLinkEvent(pid gen.PID, target gen.Event) ([]gen.MessageEvent
 		return nil, gen.ErrNodeTerminated
 	}
 
-	if lib.Trace() {
+	if lib.Verbose() {
 		n.log.Trace("RouteLinkEvent %s with %s", pid, target)
 	}
 
@@ -734,7 +734,7 @@ func (n *node) RouteUnlinkEvent(pid gen.PID, target gen.Event) error {
 		return gen.ErrNodeTerminated
 	}
 
-	if lib.Trace() {
+	if lib.Verbose() {
 		n.log.Trace("RouteUnlinkEvent %s with %s", pid, target)
 	}
 
@@ -746,7 +746,7 @@ func (n *node) RouteMonitorPID(pid gen.PID, target gen.PID) error {
 		return gen.ErrNodeTerminated
 	}
 
-	if lib.Trace() {
+	if lib.Verbose() {
 		n.log.Trace("RouteMonitorPID %s with %s", pid, target)
 	}
 
@@ -770,7 +770,7 @@ func (n *node) RouteDemonitorPID(pid gen.PID, target gen.PID) error {
 		return gen.ErrNodeTerminated
 	}
 
-	if lib.Trace() {
+	if lib.Verbose() {
 		n.log.Trace("RouteDemonitorPID %s with %s", pid, target)
 	}
 
@@ -782,7 +782,7 @@ func (n *node) RouteMonitorProcessID(pid gen.PID, target gen.ProcessID) error {
 		return gen.ErrNodeTerminated
 	}
 
-	if lib.Trace() {
+	if lib.Verbose() {
 		n.log.Trace("RouteMonitorProcessID %s to %s", pid, target)
 	}
 
@@ -806,7 +806,7 @@ func (n *node) RouteDemonitorProcessID(pid gen.PID, target gen.ProcessID) error 
 		return gen.ErrNodeTerminated
 	}
 
-	if lib.Trace() {
+	if lib.Verbose() {
 		n.log.Trace("RouteDemonitorProcessID %s to %s", pid, target)
 	}
 
@@ -818,7 +818,7 @@ func (n *node) RouteMonitorAlias(pid gen.PID, target gen.Alias) error {
 		return gen.ErrNodeTerminated
 	}
 
-	if lib.Trace() {
+	if lib.Verbose() {
 		n.log.Trace("RouteMonitorAlias %s to %s", pid, target)
 	}
 
@@ -836,7 +836,7 @@ func (n *node) RouteDemonitorAlias(pid gen.PID, target gen.Alias) error {
 		return gen.ErrNodeTerminated
 	}
 
-	if lib.Trace() {
+	if lib.Verbose() {
 		n.log.Trace("RouteDemonitorAlias %s to %s", pid, target)
 	}
 
@@ -849,7 +849,7 @@ func (n *node) RouteMonitorEvent(pid gen.PID, target gen.Event) ([]gen.MessageEv
 		return nil, gen.ErrNodeTerminated
 	}
 
-	if lib.Trace() {
+	if lib.Verbose() {
 		n.log.Trace("RouteMonitorEvent %s to %s", pid, target)
 	}
 
@@ -862,7 +862,7 @@ func (n *node) RouteDemonitorEvent(pid gen.PID, target gen.Event) error {
 		return gen.ErrNodeTerminated
 	}
 
-	if lib.Trace() {
+	if lib.Verbose() {
 		n.log.Trace("RouteDemonitorEvent %s to %s", pid, target)
 	}
 
@@ -874,7 +874,7 @@ func (n *node) RouteTerminatePID(target gen.PID, reason error) error {
 		return gen.ErrNodeTerminated
 	}
 
-	if lib.Trace() {
+	if lib.Verbose() {
 		n.log.Trace("RouteTerminatePID %s with reason %q", target, reason)
 	}
 
@@ -888,7 +888,7 @@ func (n *node) RouteTerminateProcessID(target gen.ProcessID, reason error) error
 		return gen.ErrNodeTerminated
 	}
 
-	if lib.Trace() {
+	if lib.Verbose() {
 		n.log.Trace("RouteTerminateProcessID %s with reason %q", target, reason)
 	}
 
@@ -902,7 +902,7 @@ func (n *node) RouteTerminateEvent(target gen.Event, reason error) error {
 		return gen.ErrNodeTerminated
 	}
 
-	if lib.Trace() {
+	if lib.Verbose() {
 		n.log.Trace("RouteTerminateEvent %s with reason %q", target, reason)
 	}
 
@@ -916,7 +916,7 @@ func (n *node) RouteTerminateAlias(target gen.Alias, reason error) error {
 		return gen.ErrNodeTerminated
 	}
 
-	if lib.Trace() {
+	if lib.Verbose() {
 		n.log.Trace("RouteTerminateAlias %s with reason %q", target, reason)
 	}
 
@@ -937,7 +937,7 @@ func (n *node) RouteSpawn(
 		return empty, gen.ErrNodeTerminated
 	}
 
-	if lib.Trace() {
+	if lib.Verbose() {
 		n.log.Trace("RouteSpawn %s from %s to %s", name, options.ParentPID, node)
 	}
 
@@ -982,7 +982,7 @@ func (n *node) RouteApplicationStart(
 		return gen.ErrNodeTerminated
 	}
 
-	if lib.Trace() {
+	if lib.Verbose() {
 		n.log.Trace("RouteApplicationStart %s with mode %s requested by %s", name, mode, source)
 	}
 
@@ -1003,7 +1003,7 @@ func (n *node) RouteApplicationInfo(name gen.Atom) (gen.ApplicationInfo, error) 
 		return gen.ApplicationInfo{}, gen.ErrNodeTerminated
 	}
 
-	if lib.Trace() {
+	if lib.Verbose() {
 		n.log.Trace("RouteApplicationInfo %s", name)
 	}
 
@@ -1011,7 +1011,7 @@ func (n *node) RouteApplicationInfo(name gen.Atom) (gen.ApplicationInfo, error) 
 }
 
 func (n *node) RouteNodeDown(name gen.Atom, reason error) {
-	if lib.Trace() {
+	if lib.Verbose() {
 		n.log.Trace("RouteNodeDown for %s ", name)
 	}
 	n.targets.TerminatedTargetNode(name, reason)
@@ -1061,7 +1061,7 @@ func (n *node) sendExitMessage(from gen.PID, to gen.PID, message any) error {
 	}
 	p := value.(*process)
 
-	if lib.Trace() {
+	if lib.Verbose() {
 		n.log.Trace("...sendExitMessage from %s to %s ", from, to)
 	}
 
@@ -1103,7 +1103,7 @@ func (n *node) sendEventMessage(
 		queue = p.mailbox.Main
 	}
 
-	if lib.Trace() {
+	if lib.Verbose() {
 		n.log.Trace("...sendEventMessage from %s to %s ", from, to)
 	}
 

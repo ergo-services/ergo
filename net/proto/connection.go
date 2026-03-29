@@ -1681,12 +1681,12 @@ func (c *connection) Join(conn net.Conn, id string, dial gen.NetworkDial, tail [
 
 	c.wg.Add(1)
 	go func() {
-		if lib.Trace() {
+		if lib.Verbose() {
 			defer c.log.Trace("connection %s left the pool", conn.RemoteAddr().String())
 		}
 
 	re: // reconnected
-		if lib.Trace() {
+		if lib.Verbose() {
 			c.log.Trace("joined new connection %s to the pool", conn.RemoteAddr().String())
 		}
 
@@ -1865,7 +1865,7 @@ func (c *connection) serve(pi *pool_item, tail []byte) {
 		if order := int(buf.B[6]); order > 0 {
 			qN = order % recvNQ
 		}
-		if lib.Trace() {
+		if lib.Verbose() {
 			c.log.Trace("received message. put it to pool[%d] of %s...", qN, conn.RemoteAddr())
 		}
 		queue := c.recvQueues[qN]
@@ -1892,7 +1892,7 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC, qIdx int) {
 		}()
 	}
 
-	if lib.Trace() {
+	if lib.Verbose() {
 		c.log.Trace("start handling the message queue")
 	}
 
@@ -2958,7 +2958,7 @@ func (c *connection) read(conn net.Conn, buf *lib.Buffer) (*lib.Buffer, error) {
 			return nil, fmt.Errorf("received too long message (len: %d, limit: %d)", l, c.node_maxmessagesize)
 		}
 
-		if lib.Trace() {
+		if lib.Verbose() {
 			c.log.Trace("...recv buf.Len: %d, packet %d (expect: %d)", buf.Len(), l, expect)
 		}
 
@@ -3356,7 +3356,7 @@ func (c *connection) sendFragmented(buf *lib.Buffer, order uint8) error {
 
 	sequenceID := c.nextSequenceID.Add(1)
 
-	if lib.Trace() {
+	if lib.Verbose() {
 		c.log.Trace("fragmenting message: %d bytes, %d fragments (seq=%d)",
 			len(data), totalFragments, sequenceID)
 	}
@@ -3527,7 +3527,7 @@ func (c *connection) handleFragmentOrdered(buf *lib.Buffer, assemblies map[uint3
 	c.fragmentMessagesRecv.Add(1)
 	atomic.AddUint64(&c.messagesIn, 1)
 
-	if lib.Trace() {
+	if lib.Verbose() {
 		c.log.Trace("fragment assembly complete: seq=%d, %d bytes, %d fragments",
 			sequenceID, asm.totalBytes, asm.totalFragments)
 	}
@@ -3630,7 +3630,7 @@ func (c *connection) handleFragmentUnordered(buf *lib.Buffer) *lib.Buffer {
 	c.fragmentMessagesRecv.Add(1)
 	atomic.AddUint64(&c.messagesIn, 1)
 
-	if lib.Trace() {
+	if lib.Verbose() {
 		c.log.Trace("fragment assembly complete: seq=%d, %d bytes, %d fragments",
 			sequenceID, asm.totalBytes, asm.totalFragments)
 	}
@@ -3645,7 +3645,7 @@ func (c *connection) cleanupSharedFragments() {
 	now := time.Now()
 	for seqID, asm := range c.sharedFragments {
 		if now.After(asm.deadline) {
-			if lib.Trace() {
+			if lib.Verbose() {
 				c.log.Trace("unordered fragment timeout: seq=%d, %d/%d received",
 					seqID, asm.received, asm.totalFragments)
 			}

@@ -585,7 +585,7 @@ func (p *process) SendPID(to gen.PID, message any) error {
 	if p.isStateIRT() == false {
 		return gen.ErrNotAllowed
 	}
-	if lib.Trace() {
+	if lib.Verbose() {
 		p.log.Trace("SendPID to %s", to)
 	}
 
@@ -670,7 +670,7 @@ func (p *process) SendProcessID(to gen.ProcessID, message any) error {
 		return gen.ErrNotAllowed
 	}
 
-	if lib.Trace() {
+	if lib.Verbose() {
 		p.log.Trace("SendProcessID to %s", to)
 	}
 
@@ -716,7 +716,7 @@ func (p *process) SendAlias(to gen.Alias, message any) error {
 		return gen.ErrNotAllowed
 	}
 
-	if lib.Trace() {
+	if lib.Verbose() {
 		p.log.Trace("SendAlias to %s", to)
 	}
 
@@ -763,7 +763,7 @@ func (p *process) SendAfter(to any, message any, after time.Duration) (gen.Cance
 	}
 	return time.AfterFunc(after, func() {
 		var err error
-		if lib.Trace() {
+		if lib.Verbose() {
 			p.log.Trace("SendAfter %s to %s", after, to)
 		}
 		// we can't use p.Send(...) because it checks the process state
@@ -802,7 +802,7 @@ func (p *process) SendWithPriorityAfter(
 	}
 	return time.AfterFunc(after, func() {
 		var err error
-		if lib.Trace() {
+		if lib.Verbose() {
 			p.log.Trace("SendWithPriorityAfter %s to %s with priority %s", after, to, priority)
 		}
 		// we can't use p.Send(...) because it checks the process state
@@ -835,7 +835,7 @@ func (p *process) SendEvent(name gen.Atom, token gen.Ref, message any) error {
 		return gen.ErrNotAllowed
 	}
 
-	if lib.Trace() {
+	if lib.Verbose() {
 		p.log.Trace("process SendEvent %s with token %s", name, token)
 	}
 
@@ -873,7 +873,7 @@ func (p *process) SendExit(to gen.PID, reason error) error {
 		return gen.ErrNotAllowed
 	}
 
-	if lib.Trace() {
+	if lib.Verbose() {
 		p.log.Trace("SendExit to %s", to)
 	}
 	err := p.node.RouteSendExit(p.pid, to, reason)
@@ -900,7 +900,7 @@ func (p *process) SendExitAfter(to gen.PID, reason error, after time.Duration) (
 	}
 
 	return time.AfterFunc(after, func() {
-		if lib.Trace() {
+		if lib.Verbose() {
 			p.log.Trace("SendExitAfter %s to %s with reason %q", after, to, reason)
 		}
 
@@ -979,7 +979,7 @@ func (p *process) SendExitMetaAfter(alias gen.Alias, reason error, after time.Du
 	}
 
 	return time.AfterFunc(after, func() {
-		if lib.Trace() {
+		if lib.Verbose() {
 			p.log.Trace("SendExitMetaAfter %s to %s with reason %q", after, alias, reason)
 		}
 
@@ -1020,7 +1020,7 @@ func (p *process) SendResponse(to gen.PID, ref gen.Ref, message any) error {
 	if p.isStateIR() == false {
 		return gen.ErrNotAllowed
 	}
-	if lib.Trace() {
+	if lib.Verbose() {
 		p.log.Trace("SendResponse to %s with %s", to, ref)
 	}
 	options := gen.MessageOptions{
@@ -1038,7 +1038,7 @@ func (p *process) SendResponseImportant(to gen.PID, ref gen.Ref, message any) er
 	if p.isStateIR() == false {
 		return gen.ErrNotAllowed
 	}
-	if lib.Trace() {
+	if lib.Verbose() {
 		p.log.Trace("SendResponseImportant to %s with %s", to, ref)
 	}
 	options := gen.MessageOptions{
@@ -1061,7 +1061,7 @@ func (p *process) SendResponseError(to gen.PID, ref gen.Ref, err error) error {
 	if p.isStateIR() == false {
 		return gen.ErrNotAllowed
 	}
-	if lib.Trace() {
+	if lib.Verbose() {
 		p.log.Trace("SendResponseError to %s with %s", to, ref)
 	}
 	options := gen.MessageOptions{
@@ -1079,7 +1079,7 @@ func (p *process) SendResponseErrorImportant(to gen.PID, ref gen.Ref, err error)
 	if p.isStateIR() == false {
 		return gen.ErrNotAllowed
 	}
-	if lib.Trace() {
+	if lib.Verbose() {
 		p.log.Trace("SendResponseErrorImportant to %s with %s", to, ref)
 	}
 	options := gen.MessageOptions{
@@ -1161,7 +1161,7 @@ func (p *process) CallPID(to gen.PID, message any, timeout int) (any, error) {
 		ImportantDelivery: p.important,
 	}
 
-	if lib.Trace() {
+	if lib.Verbose() {
 		p.log.Trace("CallPID to %s with %s", to, options.Ref)
 	}
 
@@ -1195,7 +1195,7 @@ func (p *process) CallProcessID(to gen.ProcessID, message any, timeout int) (any
 		KeepNetworkOrder:  p.keeporder,
 		ImportantDelivery: p.important,
 	}
-	if lib.Trace() {
+	if lib.Verbose() {
 		p.log.Trace("CallProcessID %s with %s", to, options.Ref)
 	}
 	if err := p.node.RouteCallProcessID(p.pid, to, options, message); err != nil {
@@ -1228,7 +1228,7 @@ func (p *process) CallAlias(to gen.Alias, message any, timeout int) (any, error)
 		ImportantDelivery: p.important,
 	}
 
-	if lib.Trace() {
+	if lib.Verbose() {
 		p.log.Trace("CallAlias %s with %s", to, options.Ref)
 	}
 
@@ -1273,7 +1273,7 @@ func (p *process) Inspect(target gen.PID, item ...string) (map[string]string, er
 	atomic.AddUint64(&p.messagesOut, 1)
 	atomic.AddUint64(&targetp.messagesIn, 1)
 
-	if lib.Trace() {
+	if lib.Verbose() {
 		p.log.Trace("Inspect %s with %s", target, ref)
 	}
 
@@ -1327,7 +1327,7 @@ func (p *process) InspectMeta(alias gen.Alias, item ...string) (map[string]strin
 	atomic.AddUint64(&m.messagesIn, 1)
 	atomic.AddUint64(&metap.messagesIn, 1)
 
-	if lib.Trace() {
+	if lib.Verbose() {
 		m.log.Trace("Inspect meta %s with %s", alias, ref)
 	}
 
@@ -1346,7 +1346,7 @@ func (p *process) RegisterEvent(name gen.Atom, options gen.EventOptions) (gen.Re
 		return empty, gen.ErrNotAllowed
 	}
 
-	if lib.Trace() {
+	if lib.Verbose() {
 		p.log.Trace("process RegisterEvent %s", name)
 	}
 
@@ -1358,7 +1358,7 @@ func (p *process) UnregisterEvent(name gen.Atom) error {
 		return gen.ErrNotAllowed
 	}
 
-	if lib.Trace() {
+	if lib.Verbose() {
 		p.log.Trace("process UnregisterEvent %s", name)
 	}
 
@@ -1416,7 +1416,7 @@ func (p *process) LinkPID(target gen.PID) error {
 		return gen.ErrTargetExist
 	}
 
-	if lib.Trace() {
+	if lib.Verbose() {
 		p.log.Trace("LinkPID with %s", target)
 	}
 
@@ -1442,7 +1442,7 @@ func (p *process) UnlinkPID(target gen.PID) error {
 		return gen.ErrTargetUnknown
 	}
 
-	if lib.Trace() {
+	if lib.Verbose() {
 		p.log.Trace("UnlinkPID with %s", target)
 	}
 
@@ -1466,7 +1466,7 @@ func (p *process) LinkProcessID(target gen.ProcessID) error {
 		return gen.ErrTargetExist
 	}
 
-	if lib.Trace() {
+	if lib.Verbose() {
 		p.log.Trace("LinkProcessID with %s", target)
 	}
 
@@ -1967,7 +1967,7 @@ func (p *process) waitResponse(ref gen.Ref, timeout int) (any, error) {
 retry:
 	select {
 	case <-timer.C:
-		if lib.Trace() {
+		if lib.Verbose() {
 			p.log.Trace("request with ref %s is timed out", ref)
 		}
 		err = gen.ErrTimeout
@@ -1976,7 +1976,7 @@ retry:
 			// we got a late response to the previous request that has been timed
 			// out earlier and we made another request with the new reference - Ref.
 			// just drop it and wait one more time
-			if lib.Trace() {
+			if lib.Verbose() {
 				p.log.Trace("got late response on request with ref %s (exp %s). dropped", r.ref, ref)
 			}
 			goto retry

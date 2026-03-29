@@ -88,7 +88,7 @@ func (n *network) Cookie() string {
 }
 func (n *network) SetCookie(cookie string) error {
 	n.cookie = cookie
-	if lib.Trace() {
+	if lib.Verbose() {
 		n.node.Log().Trace("updated cookie")
 	}
 	return nil
@@ -196,7 +196,7 @@ func (n *network) AddRoute(match string, route gen.NetworkRoute, weight int) err
 	if err := n.staticRoutes.add(match, route, weight); err != nil {
 		return err
 	}
-	if lib.Trace() {
+	if lib.Verbose() {
 		n.node.Log().Trace("added static route %s with weight %d", match, weight)
 	}
 	return nil
@@ -206,7 +206,7 @@ func (n *network) RemoveRoute(match string) error {
 	if err := n.staticRoutes.remove(match); err != nil {
 		return err
 	}
-	if lib.Trace() {
+	if lib.Verbose() {
 		n.node.Log().Trace("removed static route %s", match)
 	}
 	return nil
@@ -224,7 +224,7 @@ func (n *network) AddProxyRoute(match string, route gen.NetworkProxyRoute, weigh
 		return err
 	}
 
-	if lib.Trace() {
+	if lib.Verbose() {
 		n.node.Log().Trace("added static proxy route %s with weight %d", match, weight)
 	}
 	return nil
@@ -234,7 +234,7 @@ func (n *network) RemoveProxyRoute(match string) error {
 	if err := n.staticProxies.remove(match); err != nil {
 		return err
 	}
-	if lib.Trace() {
+	if lib.Verbose() {
 		n.node.Log().Trace("removed static proxy route %s", match)
 	}
 	return nil
@@ -444,7 +444,7 @@ func (n *network) RegisterHandshake(handshake gen.NetworkHandshake) {
 	}
 	_, exist := n.handshakes.LoadOrStore(handshake.Version().Str(), handshake)
 	if exist == false {
-		if lib.Trace() {
+		if lib.Verbose() {
 			n.node.Log().Trace("registered handshake %s", handshake.Version())
 		}
 	}
@@ -457,7 +457,7 @@ func (n *network) RegisterProto(proto gen.NetworkProto) {
 	}
 	_, exist := n.protos.LoadOrStore(proto.Version().Str(), proto)
 	if exist == false {
-		if lib.Trace() {
+		if lib.Verbose() {
 			n.node.Log().Trace("registered proto %s", proto.Version())
 		}
 	}
@@ -540,36 +540,36 @@ func (n *network) GetConnection(name gen.Atom) (gen.Connection, error) {
 		return nil, gen.ErrNoRoute
 	}
 
-	if lib.Trace() {
+	if lib.Verbose() {
 		n.node.Log().Trace("trying to make connection with %s", name)
 	}
 	// check the static routes
 	if sroutes, found := n.staticRoutes.lookup(string(name)); found {
-		if lib.Trace() {
+		if lib.Verbose() {
 			n.node.Log().Trace("found %s static route[s] for %s", len(sroutes), name)
 		}
 		for i, sroute := range sroutes {
 			sroute.InsecureSkipVerify = n.skipverify
 			if sroute.Resolver == nil {
-				if lib.Trace() {
+				if lib.Verbose() {
 					n.node.Log().Trace("use static route to %s (%d)", name, i+1)
 				}
 				if c, err := n.connect(name, sroute); err == nil {
 					return c, nil
 				} else {
-					if lib.Trace() {
+					if lib.Verbose() {
 						n.node.Log().Trace("unable to connect to %s using static route: %s", name, err)
 					}
 				}
 				continue
 			}
 
-			if lib.Trace() {
+			if lib.Verbose() {
 				n.node.Log().Trace("use static route to %s with resolver (%d)", name, i+1)
 			}
 			nr, err := sroute.Resolver.Resolve(name)
 			if err != nil {
-				if lib.Trace() {
+				if lib.Verbose() {
 					n.node.Log().Trace("failed to resolve %s: %s", name, err)
 				}
 				continue
@@ -589,7 +589,7 @@ func (n *network) GetConnection(name gen.Atom) (gen.Connection, error) {
 				if c, err := n.connect(name, nroute); err == nil {
 					return c, nil
 				} else {
-					if lib.Trace() {
+					if lib.Verbose() {
 						n.node.Log().Trace("unable to connect to %s using static route (with resolver): %s", name, err)
 					}
 				}
@@ -600,12 +600,12 @@ func (n *network) GetConnection(name gen.Atom) (gen.Connection, error) {
 
 	// check the static proxy routes
 	if proutes, found := n.staticProxies.lookup(string(name)); found {
-		if lib.Trace() {
+		if lib.Verbose() {
 			n.node.Log().Trace("found %d static proxy route[s] for %s", len(proutes), name)
 		}
 		for i, proute := range proutes {
 			if proute.Resolver == nil {
-				if lib.Trace() {
+				if lib.Verbose() {
 					n.node.Log().Trace("use static proxy route to %s (%d)", name, i+1)
 				}
 				if c, err := n.connectProxy(name, proute); err == nil {
@@ -614,12 +614,12 @@ func (n *network) GetConnection(name gen.Atom) (gen.Connection, error) {
 				continue
 			}
 
-			if lib.Trace() {
+			if lib.Verbose() {
 				n.node.Log().Trace("use static proxy route to %s with resolver (%d)", name, i+1)
 			}
 			pr, err := proute.Resolver.ResolveProxy(name)
 			if err != nil {
-				if lib.Trace() {
+				if lib.Verbose() {
 					n.node.Log().Trace("failed to resolve proxy for %s: %s", name, err)
 				}
 				continue
@@ -632,7 +632,7 @@ func (n *network) GetConnection(name gen.Atom) (gen.Connection, error) {
 				if c, err := n.connectProxy(name, nproute); err == nil {
 					return c, nil
 				} else {
-					if lib.Trace() {
+					if lib.Verbose() {
 						n.node.Log().Trace("unable to connect to %s using proxy route: %s", name, err)
 					}
 				}
@@ -643,7 +643,7 @@ func (n *network) GetConnection(name gen.Atom) (gen.Connection, error) {
 
 	// resolve it
 	if nr, err := registrar.Resolver().Resolve(name); err == nil {
-		if lib.Trace() {
+		if lib.Verbose() {
 			n.node.Log().Trace("resolved %d route[s] for %s", len(nr), name)
 		}
 
@@ -661,23 +661,23 @@ func (n *network) GetConnection(name gen.Atom) (gen.Connection, error) {
 			if c, err := n.connect(name, nroute); err == nil {
 				return c, nil
 			} else {
-				if lib.Trace() {
+				if lib.Verbose() {
 					n.node.Log().Trace("unable to connect to %s: %s", name, err)
 				}
 			}
 		}
-		if lib.Trace() {
+		if lib.Verbose() {
 			n.node.Log().Trace("unable to connect to %s directly, looking up proxies...", name)
 		}
 	} else {
-		if lib.Trace() {
+		if lib.Verbose() {
 			n.node.Log().Trace("attempt to resolve %s failed: %s", name, err)
 		}
 	}
 
 	// resolve proxy
 	if pr, err := registrar.Resolver().ResolveProxy(name); err == nil {
-		if lib.Trace() {
+		if lib.Verbose() {
 			n.node.Log().Trace("resolved %d proxy routes for %s", len(pr), name)
 		}
 
@@ -695,7 +695,7 @@ func (n *network) GetConnection(name gen.Atom) (gen.Connection, error) {
 			if c, err := n.connectProxy(name, nproute); err == nil {
 				return c, nil
 			} else {
-				if lib.Trace() {
+				if lib.Verbose() {
 					n.node.Log().Trace("unable to connect to %s using resolve proxy: %s", name, err)
 				}
 			}
@@ -777,7 +777,7 @@ func (n *network) connect(name gen.Atom, route gen.NetworkRoute) (gen.Connection
 		close(entry.ready) // wake ALL waiting goroutines
 	}()
 
-	if lib.Trace() {
+	if lib.Verbose() {
 		n.node.Log().Trace("trying to connect to %s (%s:%d, tls:%v)",
 			name, route.Route.Host, route.Route.Port, route.Route.TLS)
 	}
@@ -966,7 +966,7 @@ func (n *network) expandPool(c gen.Connection, redial gen.NetworkDial,
 }
 
 func (n *network) connectProxy(name gen.Atom, route gen.NetworkProxyRoute) (gen.Connection, error) {
-	if lib.Trace() {
+	if lib.Verbose() {
 		n.node.Log().Trace("trying to connect to %s (via proxy %s)", name, route.Route.Proxy)
 	}
 	// TODO will be implemented later
@@ -1019,7 +1019,7 @@ func (n *network) start(options gen.NetworkOptions) error {
 		return nil
 	}
 
-	if lib.Trace() {
+	if lib.Verbose() {
 		n.node.log.Trace("starting network...")
 	}
 
@@ -1064,7 +1064,7 @@ func (n *network) start(options gen.NetworkOptions) error {
 			}
 		}
 
-		if lib.Trace() {
+		if lib.Verbose() {
 			n.node.log.Trace("network started (hidden) with registrar %s", n.registrar.Version())
 		}
 		return nil
@@ -1218,7 +1218,7 @@ func (n *network) start(options gen.NetworkOptions) error {
 		}
 	}
 
-	if lib.Trace() {
+	if lib.Verbose() {
 		n.node.log.Trace("network started with registrar %s", n.registrar.Version())
 	}
 	return nil
@@ -1317,7 +1317,7 @@ func (n *network) startAcceptor(a gen.AcceptorOptions) (*acceptor, error) {
 
 	go n.accept(acceptor)
 
-	if lib.Trace() {
+	if lib.Verbose() {
 		n.node.Log().Trace("started acceptor on %s with handshake %s and proto %s (TLS: %t)",
 			acceptor.l.Addr(),
 			acceptor.handshake.Version(),
@@ -1358,7 +1358,7 @@ func (n *network) accept(a *acceptor) {
 				a.l.Addr(), a.handshake.Version(), a.proto.Version())
 			return
 		}
-		if lib.Trace() {
+		if lib.Verbose() {
 			n.node.Log().Trace("accepted new TCP-connection from %s", c.RemoteAddr().String())
 		}
 

@@ -2153,7 +2153,7 @@ func (n *node) LoggerAddPID(pid gen.PID, name string, filter ...gen.LogLevel) er
 		return err
 	}
 
-	if lib.Trace() {
+	if lib.Verbose() {
 		n.log.Trace("node.LoggerAddPID added new process logger %s with name %q", pid, name)
 	}
 	return nil
@@ -2183,7 +2183,7 @@ func (n *node) LoggerAdd(name string, logger gen.LoggerBehavior, filter ...gen.L
 		}
 	}
 
-	if lib.Trace() {
+	if lib.Verbose() {
 		n.log.Trace("node.LoggerAdd added new logger with name %q", name)
 	}
 	return nil
@@ -2388,7 +2388,7 @@ func (n *node) spawn(factory gen.ProcessFactory, options gen.ProcessOptionsExtra
 	for k, v := range options.ParentEnv {
 		p.SetEnv(k, v)
 	}
-	if lib.Trace() {
+	if lib.Verbose() {
 		n.log.Trace(
 			"...spawn new process %s (parent %s, %s) using %#v",
 			p.pid,

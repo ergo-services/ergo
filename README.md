@@ -174,7 +174,7 @@ To disable panic recovery use `--tags norecover`.
 
 To enable mailbox latency measurement use `--tags latency`. This adds a monotonic timestamp to every message pushed into the MPSC queue, allowing `QueueMPSC.Latency()` and `ProcessMailbox.Latency()` to report the age of the oldest unprocessed message. Overhead is approximately 10-25% on micro-benchmarks (LOCAL 1-1 scenario). Without the tag, `Latency()` returns -1 and there is zero overhead.
 
-To enable trace logging level for the internals (node, network,...) use `--tags trace` and set the log level `gen.LogLevelTrace` for your node.
+To enable trace logging level for the internals (node, network,...) use `--tags verbose` and set the log level `gen.LogLevelTrace` for your node.
 
 For detailed debugging techniques, troubleshooting scenarios, and best practices, see the [Debugging](https://docs.ergo.services/advanced/debugging) documentation.
 

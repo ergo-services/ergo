@@ -47,12 +47,12 @@ With `norecover`, panics propagate normally, providing full stack traces and all
 - Tracking down type assertion failures
 - Understanding the call sequence leading to a panic
 
-### The `trace` Tag
+### The `verbose` Tag
 
-The `trace` tag enables verbose logging of framework internals:
+The `verbose` tag enables verbose logging of framework internals:
 
 ```bash
-go run --tags trace ./cmd
+go run --tags verbose ./cmd
 ```
 
 This produces detailed output about:

@@ -168,12 +168,12 @@ func (e *enp) Serve(c gen.Connection, redial gen.NetworkDial) error {
 
 		n := i % len(conn.pool_dsn)
 		dsn := conn.pool_dsn[n]
-		if lib.Trace() {
+		if lib.Verbose() {
 			conn.log.Trace("dialing %s (pool: %d of %d)", dsn, i+1, conn.pool_size)
 		}
 		nc, tail, err := redial(dsn, conn.id)
 		if err != nil {
-			if lib.Trace() {
+			if lib.Verbose() {
 				conn.log.Trace("dialing %s failed: %s", dsn, err)
 			}
 			continue
