@@ -197,7 +197,7 @@ func (p *Pool) ProcessRun() (rr error) {
 				// got new regular message. handle it
 				message = msg.(*gen.MailboxMessage)
 				if message.Type < gen.MailboxMessageTypeExit {
-					// MailboxMessageTypeRegular, MailboxMessageTypeRequest, MailboxMessageTypeEvent
+					// MailboxMessageTypeRegular, MailboxMessageTypeRequest, MailboxMessageTypeEvent, MailboxMessageTypeSpan
 					p.forward(message)
 					// it shouldn't be "released" back to the pool
 					message = nil

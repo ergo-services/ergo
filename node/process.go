@@ -655,45 +655,6 @@ func (p *process) SendPID(to gen.PID, message any) error {
 		p.log.Trace("SendPID to %s", to)
 	}
 
-	// Sending to itself being in initialization stage:
-	//
-	// - we can't route this message to itself (via RouteSendPID) if this process
-	//   is in the initialization stage since it isn't registered yet.
-	// - message can be routed by the process name (via RouteSendProcessID)
-	//   because it is already registered before the invoking ProcessInit callback,
-	//   which means we should not do this trick in SendProcessID method.
-	//
-	// So here, we should check if it is sending to itself and route this message manually
-	// right into the process mailbox.
-
-	if to == p.pid {
-		// sending to itself
-		qm := gen.TakeMailboxMessage()
-		qm.From = p.pid
-		qm.Type = gen.MailboxMessageTypeRegular
-		qm.Target = to
-		qm.Message = message
-
-		var queue lib.QueueMPSC
-		switch p.priority {
-		case gen.MessagePriorityHigh:
-			queue = p.mailbox.System
-		case gen.MessagePriorityMax:
-			queue = p.mailbox.Urgent
-		default:
-			queue = p.mailbox.Main
-		}
-
-		if ok := queue.Push(qm); ok == false {
-			return gen.ErrProcessMailboxFull
-		}
-
-		atomic.AddUint64(&p.messagesIn, 1)
-		atomic.AddUint64(&p.messagesOut, 1)
-		p.run()
-		return nil
-	}
-
 	options := gen.MessageOptions{
 		Tracing:           p.propagatingTrace(),
 		Priority:          p.priority,
