@@ -585,6 +585,30 @@ func (tp *TestProcess) ImportantDelivery() bool {
 	return tp.options.ImportantDelivery
 }
 
+func (tp *TestProcess) SetTracingSampler(sampler gen.TracingSampler) error {
+	return nil
+}
+
+func (tp *TestProcess) TracingSampler() gen.TracingSampler {
+	return gen.TracingSamplerDisable
+}
+
+func (tp *TestProcess) SetTracingFlags(flags ...gen.TracingFlags) {
+}
+
+func (tp *TestProcess) TracingFlags() gen.TracingFlags {
+	return 0
+}
+
+func (tp *TestProcess) PropagatingTrace() gen.Tracing {
+	return gen.Tracing{}
+}
+
+func (tp *TestProcess) SetPropagatingTrace(t gen.Tracing) {
+}
+
+func (tp *TestProcess) SendTracingSpan(span gen.TracingSpan) {}
+
 // Compression methods
 func (tp *TestProcess) Compression() bool {
 	return false // Default to false for testing

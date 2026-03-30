@@ -340,6 +340,27 @@ type Process interface {
 	// Available in all states.
 	ImportantDelivery() bool
 
+	// SetTracingSampler sets the tracing sampler for this process.
+	// The sampler decides per outgoing message whether to start a new trace.
+	// Only consulted when there is no active propagating trace.
+	// Use TracingSamplerDisable to turn off (default).
+	// Available in: Init, Running states.
+	SetTracingSampler(sampler TracingSampler) error
+
+	// TracingSampler returns the current tracing sampler.
+	// Returns TracingSamplerDisable if tracing is not enabled.
+	// Available in all states.
+	TracingSampler() TracingSampler
+
+	// SetTracingFlags sets the tracing granularity for this process.
+	// Controls which span types are emitted to exporters.
+	// Available in: Init, Running states.
+	SetTracingFlags(flags ...TracingFlags)
+
+	// TracingFlags returns the current tracing flags for this process.
+	// Available in all states.
+	TracingFlags() TracingFlags
+
 	// CreateAlias creates a new alias associated with this process.
 	// Other processes can send messages or make calls using this alias.
 	// Available in: Init, Running states.
@@ -760,6 +781,19 @@ type Process interface {
 	// Available in all states.
 	Behavior() ProcessBehavior
 
+	// PropagatingTrace returns the current propagating trace context.
+	// Zero value means no active trace.
+	PropagatingTrace() Tracing
+
+	// SetPropagatingTrace sets the propagating trace context.
+	// Used by ProcessBehavior implementations to manage trace context
+	// during message handling (save/restore around handler calls).
+	SetPropagatingTrace(t Tracing)
+
+	// SendTracingSpan delivers a tracing span to registered exporters.
+	// Used by ProcessBehavior implementations to emit Processed spans.
+	SendTracingSpan(span TracingSpan)
+
 	// Forward forwards a mailbox message to another process with the specified priority.
 	// This is a low-level operation for custom message routing.
 	// Available in: Running state only.
@@ -795,6 +829,7 @@ type MessageOptions struct {
 	Compression       Compression
 	KeepNetworkOrder  bool
 	ImportantDelivery bool
+	Tracing           Tracing
 }
 
 // ProcessOptions defines configuration options for spawning a process.
@@ -868,6 +903,8 @@ type ProcessOptionsExtra struct {
 	ParentLeader   PID
 	ParentEnv      map[Env]any
 	ParentLogLevel LogLevel
+	Tracing        Tracing
+	TracingFlags   TracingFlags
 
 	Register    Atom
 	Application Atom
@@ -939,6 +976,9 @@ type ProcessInfo struct {
 
 	// Leader is the group leader PID (typically supervisor or application).
 	Leader PID
+
+	// Tracing contains tracing configuration for this process.
+	Tracing TracingInfo
 
 	// Fallback contains mailbox overflow handling configuration.
 	Fallback ProcessFallback

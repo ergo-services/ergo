@@ -497,6 +497,9 @@ func (s *Supervisor) ProcessRun() (rr error) {
 		case gen.MailboxMessageTypeInspect:
 			result := s.behavior.HandleInspect(message.From, message.Message.([]string)...)
 			s.SendResponse(message.From, message.Ref, result)
+
+		case gen.MailboxMessageTypeSpan:
+			panic("supervisor process can not be a tracing exporter")
 		}
 	}
 }

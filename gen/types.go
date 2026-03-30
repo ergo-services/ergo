@@ -31,6 +31,10 @@ func (a Atom) Host() string {
 	return ""
 }
 
+func (a Atom) CRC32Sum() uint32 {
+	return crc32.Checksum([]byte(a), crc32q)
+}
+
 func (a Atom) CRC32() string {
 	if v, exist := crc32cache.Load(a); exist {
 		return v.(string)

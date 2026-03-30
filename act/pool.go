@@ -272,6 +272,7 @@ func (p *Pool) ProcessRun() (rr error) {
 		case gen.MailboxMessageTypeInspect:
 			result := p.behavior.HandleInspect(message.From, message.Message.([]string)...)
 			p.SendResponse(message.From, message.Ref, result)
+
 		}
 
 	}

@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"runtime"
 	"strings"
+	"time"
 
 	"ergo.services/ergo/gen"
 	"ergo.services/ergo/lib"
@@ -89,6 +90,7 @@ func (w *WebWorker) ProcessInit(process gen.Process, args ...any) (rr error) {
 
 func (w *WebWorker) ProcessRun() (rr error) {
 	var message *gen.MailboxMessage
+	var savedTracing gen.Tracing
 
 	if lib.Recover() {
 		defer func() {
@@ -145,6 +147,12 @@ func (w *WebWorker) ProcessRun() (rr error) {
 
 		switch message.Type {
 		case gen.MailboxMessageTypeRegular:
+			messageHasTracing := message.Tracing.ID != [2]uint64{}
+			if messageHasTracing {
+				savedTracing = w.PropagatingTrace()
+				w.SetPropagatingTrace(message.Tracing)
+			}
+
 			if r, ok := message.Message.(meta.MessageWebRequest); ok {
 				var reason error
 				switch r.Request.Method {
@@ -169,36 +177,137 @@ func (w *WebWorker) ProcessRun() (rr error) {
 				}
 				r.Done()
 				if reason != nil {
+					if messageHasTracing {
+						w.SendTracingSpan(gen.TracingSpan{
+							TraceID: message.Tracing.ID, SpanID: message.Tracing.SpanID,
+							Point: gen.TracingPointProcessed, Kind: gen.TracingKindSend,
+							Timestamp: time.Now().UnixNano(),
+							Node: w.Node().Name(), From: message.From, To: w.PID(),
+							Ref: message.Ref, Message: r.Request.Method + " " + r.Request.RequestURI,
+							Error: reason.Error(),
+						})
+					}
 					return reason
+				}
+				if messageHasTracing {
+					w.SendTracingSpan(gen.TracingSpan{
+						TraceID: message.Tracing.ID, SpanID: message.Tracing.SpanID,
+						Point: gen.TracingPointProcessed, Kind: gen.TracingKindSend,
+						Timestamp: time.Now().UnixNano(),
+						Node: w.Node().Name(), From: message.From, To: w.PID(),
+						Ref: message.Ref, Message: r.Request.Method + " " + r.Request.RequestURI,
+					})
+				}
+				if messageHasTracing && w.PropagatingTrace().ID == message.Tracing.ID {
+					w.SetPropagatingTrace(savedTracing)
 				}
 				continue
 			}
 
 			if reason := w.behavior.HandleMessage(message.From, message.Message); reason != nil {
+				if messageHasTracing {
+					var msgType string
+					if message.Message != nil {
+						msgType = reflect.TypeOf(message.Message).String()
+					}
+					w.SendTracingSpan(gen.TracingSpan{
+						TraceID: message.Tracing.ID, SpanID: message.Tracing.SpanID,
+						Point: gen.TracingPointProcessed, Kind: gen.TracingKindSend,
+						Timestamp: time.Now().UnixNano(),
+						Node: w.Node().Name(), From: message.From, To: w.PID(),
+						Ref: message.Ref, Message: msgType, Error: reason.Error(),
+					})
+				}
 				return reason
+			}
+			if messageHasTracing {
+				var msgType string
+				if message.Message != nil {
+					msgType = reflect.TypeOf(message.Message).String()
+				}
+				w.SendTracingSpan(gen.TracingSpan{
+					TraceID: message.Tracing.ID, SpanID: message.Tracing.SpanID,
+					Point: gen.TracingPointProcessed, Kind: gen.TracingKindSend,
+					Timestamp: time.Now().UnixNano(),
+					Node: w.Node().Name(), From: message.From, To: w.PID(),
+					Ref: message.Ref, Message: msgType,
+				})
+			}
+			if messageHasTracing && w.PropagatingTrace().ID == message.Tracing.ID {
+				w.SetPropagatingTrace(savedTracing)
 			}
 
 		case gen.MailboxMessageTypeRequest:
+			messageHasTracing := message.Tracing.ID != [2]uint64{}
+			if messageHasTracing {
+				savedTracing = w.PropagatingTrace()
+				w.SetPropagatingTrace(message.Tracing)
+			}
+
 			var reason error
 			var result any
 
 			result, reason = w.behavior.HandleCall(message.From, message.Ref, message.Message)
 
 			if reason != nil {
-				// if reason is "normal" and we got response - send it before termination
 				if reason == gen.TerminateReasonNormal && result != nil {
+					if messageHasTracing {
+						var msgType string
+						if message.Message != nil {
+							msgType = reflect.TypeOf(message.Message).String()
+						}
+						w.SendTracingSpan(gen.TracingSpan{
+							TraceID: message.Tracing.ID, SpanID: message.Tracing.SpanID,
+							Point: gen.TracingPointProcessed, Kind: gen.TracingKindRequest,
+							Timestamp: time.Now().UnixNano(),
+							Node: w.Node().Name(), From: message.From, To: w.PID(),
+							Ref: message.Ref, Message: msgType,
+						})
+					}
 					w.SendResponse(message.From, message.Ref, result)
+					return reason
+				}
+				if messageHasTracing {
+					var msgType string
+					if message.Message != nil {
+						msgType = reflect.TypeOf(message.Message).String()
+					}
+					w.SendTracingSpan(gen.TracingSpan{
+						TraceID: message.Tracing.ID, SpanID: message.Tracing.SpanID,
+						Point: gen.TracingPointProcessed, Kind: gen.TracingKindRequest,
+						Timestamp: time.Now().UnixNano(),
+						Node: w.Node().Name(), From: message.From, To: w.PID(),
+						Ref: message.Ref, Message: msgType, Error: reason.Error(),
+					})
 				}
 				return reason
 			}
 
 			if result == nil {
-				// async handling of sync request. response could be sent
-				// later, even by the other process
+				if messageHasTracing && w.PropagatingTrace().ID == message.Tracing.ID {
+					w.SetPropagatingTrace(savedTracing)
+				}
 				continue
 			}
 
+			if messageHasTracing {
+				var msgType string
+				if message.Message != nil {
+					msgType = reflect.TypeOf(message.Message).String()
+				}
+				w.SendTracingSpan(gen.TracingSpan{
+					TraceID: message.Tracing.ID, SpanID: message.Tracing.SpanID,
+					Point: gen.TracingPointProcessed, Kind: gen.TracingKindRequest,
+					Timestamp: time.Now().UnixNano(),
+					Node: w.Node().Name(), From: message.From, To: w.PID(),
+					Ref: message.Ref, Message: msgType,
+				})
+			}
+
 			w.SendResponse(message.From, message.Ref, result)
+			if messageHasTracing && w.PropagatingTrace().ID == message.Tracing.ID {
+				w.SetPropagatingTrace(savedTracing)
+			}
 
 		case gen.MailboxMessageTypeEvent:
 			if reason := w.behavior.HandleEvent(message.Message.(gen.MessageEvent)); reason != nil {
@@ -229,6 +338,9 @@ func (w *WebWorker) ProcessRun() (rr error) {
 		case gen.MailboxMessageTypeInspect:
 			result := w.behavior.HandleInspect(message.From, message.Message.([]string)...)
 			w.SendResponse(message.From, message.Ref, result)
+
+		case gen.MailboxMessageTypeSpan:
+			panic("web worker process can not be a tracing exporter")
 		}
 
 	}

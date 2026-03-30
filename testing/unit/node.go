@@ -703,6 +703,48 @@ func (tn *TestNode) LoggerLevels(name string) []gen.LogLevel {
 	return []gen.LogLevel{gen.LogLevelInfo}
 }
 
+func (tn *TestNode) TracingExporterAddPID(pid gen.PID, name string, flags gen.TracingFlags) error {
+	return nil
+}
+
+func (tn *TestNode) TracingExporterAdd(name string, exporter gen.TracingBehavior, flags gen.TracingFlags) error {
+	return nil
+}
+
+func (tn *TestNode) TracingExporterDeletePID(pid gen.PID) {
+}
+
+func (tn *TestNode) TracingExporterDelete(name string) {
+}
+
+func (tn *TestNode) TracingExporters() []string {
+	return nil
+}
+
+func (tn *TestNode) SetTracingSampler(sampler gen.TracingSampler) error {
+	return nil
+}
+
+func (tn *TestNode) TracingSampler() gen.TracingSampler {
+	return gen.TracingSamplerDisable
+}
+
+func (tn *TestNode) SetTracingFlags(flags ...gen.TracingFlags) error {
+	return nil
+}
+
+func (tn *TestNode) TracingFlags() gen.TracingFlags {
+	return 0
+}
+
+func (tn *TestNode) SetProcessTracingSampler(pid gen.PID, sampler gen.TracingSampler) error {
+	return nil
+}
+
+func (tn *TestNode) SetProcessTracingFlags(pid gen.PID, flags ...gen.TracingFlags) error {
+	return nil
+}
+
 func (tn *TestNode) MakeRef() gen.Ref {
 	return makeTestRefWithCreation(tn.options.NodeName, tn.options.NodeCreation)
 }

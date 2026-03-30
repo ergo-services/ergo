@@ -486,6 +486,55 @@ type Node interface {
 	// Available in all states.
 	LoggerLevels(name string) []LogLevel
 
+	// TracingExporterAddPID registers a process as a tracing exporter.
+	// The process will receive TracingSpan messages.
+	// Available in: Running state only.
+	// Returns ErrTaken if name already registered.
+	TracingExporterAddPID(pid PID, name string, flags TracingFlags) error
+
+	// TracingExporterAdd registers a custom tracing exporter implementation.
+	// Available in: Running state only.
+	// Returns ErrTaken if name already registered.
+	TracingExporterAdd(name string, exporter TracingBehavior, flags TracingFlags) error
+
+	// TracingExporterDeletePID removes a process-based tracing exporter.
+	// Available in all states.
+	TracingExporterDeletePID(pid PID)
+
+	// TracingExporterDelete removes a tracing exporter.
+	// Calls exporter.Terminate() if exporter exists.
+	// Available in all states.
+	TracingExporterDelete(name string)
+
+	// TracingExporters returns a list of registered tracing exporter names.
+	// Available in all states.
+	TracingExporters() []string
+
+	// SetTracingSampler sets the tracing sampler for node-level Send/Call.
+	// Use TracingSamplerDisable to turn off.
+	// Available in: Running state only.
+	SetTracingSampler(sampler TracingSampler) error
+
+	// TracingSampler returns the current tracing sampler for the node.
+	// Available in all states.
+	TracingSampler() TracingSampler
+
+	// SetTracingFlags sets tracing granularity for node-level operations.
+	// Available in: Running state only.
+	SetTracingFlags(flags ...TracingFlags) error
+
+	// TracingFlags returns the current tracing flags for the node.
+	// Available in all states.
+	TracingFlags() TracingFlags
+
+	// SetProcessTracingSampler sets the tracing sampler for the given process.
+	// Available in: Running state only.
+	SetProcessTracingSampler(pid PID, sampler TracingSampler) error
+
+	// SetProcessTracingFlags sets tracing granularity for the given process.
+	// Available in: Running state only.
+	SetProcessTracingFlags(pid PID, flags ...TracingFlags) error
+
 	// MakeRef creates a unique reference within this node.
 	// Used for Call requests, event tokens, and correlation.
 	// Available in: Running state only.
@@ -590,6 +639,9 @@ type NodeOptions struct {
 	// Reported in node.Version() and during network handshakes.
 	// Includes Name, Release, License, Commit details.
 	Version Version
+
+	// Tracing configures tracing exporters at node startup.
+	Tracing TracingOptions
 }
 
 // SecurityOptions controls information exposure and security policies.
@@ -755,6 +807,12 @@ type NodeInfo struct {
 	// Loggers lists all registered loggers with their configuration.
 	Loggers []LoggerInfo
 
+	// Tracing contains node-level tracing configuration.
+	Tracing TracingInfo
+
+	// TracingExporters lists all registered tracing exporters.
+	TracingExporters []TracingExporterInfo
+
 	// LogMessages contains cumulative log message counts by level.
 	// Indexed as: [0]=Trace, [1]=Debug, [2]=Info, [3]=Warning, [4]=Error, [5]=Panic
 	LogMessages [6]uint64
@@ -852,4 +910,16 @@ type LoggerInfo struct {
 	// Levels lists the log levels this logger is filtering.
 	// Empty means logger receives all log levels.
 	Levels []LogLevel
+}
+
+// TracingExporterInfo contains information about a registered tracing exporter.
+type TracingExporterInfo struct {
+	// Name is the unique exporter identifier.
+	Name string
+
+	// Behavior is the exporter type name.
+	Behavior string
+
+	// Flags is the tracing granularity for this exporter.
+	Flags TracingFlags
 }
