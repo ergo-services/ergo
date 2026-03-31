@@ -100,6 +100,10 @@ type connection struct {
 	fragmentMessagesRecv atomic.Uint64
 	fragmentTimeouts     atomic.Uint64
 
+	// tracing statistics
+	tracedSent     atomic.Uint64
+	tracedReceived atomic.Uint64
+
 	// compression statistics
 	compressedSent          atomic.Uint64 // messages compressed on send
 	compressedBytesSent     atomic.Uint64 // bytes after compression (wire)
@@ -189,6 +193,9 @@ func (c *connection) Info() gen.RemoteNodeInfo {
 		FragmentsReceived:    c.fragmentsReceived.Load(),
 		FragmentMessagesRecv: c.fragmentMessagesRecv.Load(),
 		FragmentTimeouts:     c.fragmentTimeouts.Load(),
+
+		TracedSent:     c.tracedSent.Load(),
+		TracedReceived: c.tracedReceived.Load(),
 
 		CompressedSent:          c.compressedSent.Load(),
 		CompressedBytesSent:     c.compressedBytesSent.Load(),
@@ -511,42 +518,42 @@ func (c *connection) SendPID(from gen.PID, to gen.PID, options gen.MessageOption
 	}
 
 	buf := lib.TakeBuffer()
-	// 8 (header) + 8 (process id from) + 1 priority +8 (message id) + 8 (process id to)
-	buf.Allocate(8 + 8 + 1 + 8 + 8)
+	// protoWrapReserve + 8 (header) + 8 (process id from) + 1 priority + 8 (message id) + 8 (process id to)
+	buf.Allocate(protoWrapReserve + 8 + 8 + 1 + 8 + 8)
 
 	if err := edf.Encode(message, buf, c.encodeOptions); err != nil {
 		return err
 	}
 
-	if c.peer_maxmessagesize > 0 && buf.Len() > c.peer_maxmessagesize {
+	if c.peer_maxmessagesize > 0 && buf.Len()-protoWrapReserve > c.peer_maxmessagesize {
 		return gen.ErrTooLarge
 	}
 
-	if buf.Len() > math.MaxUint32 {
+	if buf.Len()-protoWrapReserve > math.MaxUint32 {
 		return gen.ErrTooLarge
 	}
 
-	buf.B[0] = protoMagic
-	buf.B[1] = protoVersion
-	binary.BigEndian.PutUint32(buf.B[2:6], uint32(buf.Len()))
-	buf.B[6] = orderPeer
-	buf.B[7] = protoMessagePID
-	binary.BigEndian.PutUint64(buf.B[8:16], from.ID)
+	h := protoWrapReserve
+	buf.B[h+0] = protoMagic
+	buf.B[h+1] = protoVersion
+	binary.BigEndian.PutUint32(buf.B[h+2:h+6], uint32(buf.Len()-h))
+	buf.B[h+6] = orderPeer
+	buf.B[h+7] = protoMessagePID
+	binary.BigEndian.PutUint64(buf.B[h+8:h+16], from.ID)
 
-	buf.B[16] = byte(options.Priority) // usual value 0, 1, or 2, so just cast it
+	buf.B[h+16] = byte(options.Priority)
 	if options.ImportantDelivery {
 		if c.peer_flags.EnableImportantDelivery == false {
 			lib.ReleaseBuffer(buf)
 			return gen.ErrUnsupported
 		}
-		// set important flag
-		buf.B[16] |= 128
-		binary.BigEndian.PutUint64(buf.B[17:25], options.Ref.ID[0])
+		buf.B[h+16] |= 128
+		binary.BigEndian.PutUint64(buf.B[h+17:h+25], options.Ref.ID[0])
 	}
 
-	binary.BigEndian.PutUint64(buf.B[25:33], to.ID)
+	binary.BigEndian.PutUint64(buf.B[h+25:h+33], to.ID)
 
-	return c.send(buf, order, options.Compression)
+	return c.send(buf, order, options.Compression, options.Tracing)
 }
 
 func (c *connection) SendProcessID(from gen.PID, to gen.ProcessID, options gen.MessageOptions, message any) error {
@@ -576,52 +583,52 @@ func (c *connection) SendProcessID(from gen.PID, to gen.ProcessID, options gen.M
 
 	buf := lib.TakeBuffer()
 	if toNameCached > 0 {
-		// 8 (header) + 8 (process id from) + 1 priority + 8 (message id) + 2 (cache id)
-		buf.Allocate(8 + 8 + 1 + 8 + 2)
+		// protoWrapReserve + 8 (header) + 8 (process id from) + 1 priority + 8 (message id) + 2 (cache id)
+		buf.Allocate(protoWrapReserve + 8 + 8 + 1 + 8 + 2)
 	} else {
-		// 8 (header) + 8 (process id from) + 1 priority + 8 (message id) + 1 (size(bname) + bname
-		buf.Allocate(8 + 8 + 1 + 8 + 1 + len(bname))
+		// protoWrapReserve + 8 (header) + 8 (process id from) + 1 priority + 8 (message id) + 1 (size(bname) + bname
+		buf.Allocate(protoWrapReserve + 8 + 8 + 1 + 8 + 1 + len(bname))
 	}
 
 	if err := edf.Encode(message, buf, c.encodeOptions); err != nil {
 		return err
 	}
 
-	if buf.Len() > math.MaxUint32 {
+	if buf.Len()-protoWrapReserve > math.MaxUint32 {
 		return gen.ErrTooLarge
 	}
 
-	if c.peer_maxmessagesize > 0 && buf.Len() > c.peer_maxmessagesize {
+	if c.peer_maxmessagesize > 0 && buf.Len()-protoWrapReserve > c.peer_maxmessagesize {
 		return gen.ErrTooLarge
 	}
 
-	buf.B[0] = protoMagic
-	buf.B[1] = protoVersion
-	binary.BigEndian.PutUint32(buf.B[2:6], uint32(buf.Len()))
-	buf.B[6] = order // use the same order for the peer
-	binary.BigEndian.PutUint64(buf.B[8:16], from.ID)
+	h := protoWrapReserve
+	buf.B[h+0] = protoMagic
+	buf.B[h+1] = protoVersion
+	binary.BigEndian.PutUint32(buf.B[h+2:h+6], uint32(buf.Len()-h))
+	buf.B[h+6] = order // use the same order for the peer
+	binary.BigEndian.PutUint64(buf.B[h+8:h+16], from.ID)
 
-	buf.B[16] = byte(options.Priority) // usual value 0, 1, or 2, so just cast it
+	buf.B[h+16] = byte(options.Priority)
 	if options.ImportantDelivery {
 		if c.peer_flags.EnableImportantDelivery == false {
 			lib.ReleaseBuffer(buf)
 			return gen.ErrUnsupported
 		}
-		// set important flag
-		buf.B[16] |= 128
-		binary.BigEndian.PutUint64(buf.B[17:25], options.Ref.ID[0])
+		buf.B[h+16] |= 128
+		binary.BigEndian.PutUint64(buf.B[h+17:h+25], options.Ref.ID[0])
 	}
 
 	if toNameCached > 0 {
-		buf.B[7] = protoMessageNameCache
-		binary.BigEndian.PutUint16(buf.B[25:27], toNameCached)
+		buf.B[h+7] = protoMessageNameCache
+		binary.BigEndian.PutUint16(buf.B[h+25:h+27], toNameCached)
 	} else {
-		buf.B[7] = protoMessageName
-		buf.B[25] = byte(len(bname))
-		copy(buf.B[26:], bname)
+		buf.B[h+7] = protoMessageName
+		buf.B[h+25] = byte(len(bname))
+		copy(buf.B[h+26:], bname)
 	}
 
-	return c.send(buf, order, options.Compression)
+	return c.send(buf, order, options.Compression, options.Tracing)
 }
 
 func (c *connection) SendAlias(from gen.PID, to gen.Alias, options gen.MessageOptions, message any) error {
@@ -637,44 +644,44 @@ func (c *connection) SendAlias(from gen.PID, to gen.Alias, options gen.MessageOp
 	}
 
 	buf := lib.TakeBuffer()
-	// 8 (header) + 8 (process id from) + 1 priority + 8 (message id) + 24 (alias id [3]uint64)
-	buf.Allocate(8 + 8 + 1 + 8 + 24)
+	// protoWrapReserve + 8 (header) + 8 (process id from) + 1 priority + 8 (message id) + 24 (alias id [3]uint64)
+	buf.Allocate(protoWrapReserve + 8 + 8 + 1 + 8 + 24)
 
 	if err := edf.Encode(message, buf, c.encodeOptions); err != nil {
 		return err
 	}
 
-	if buf.Len() > math.MaxUint32 {
+	if buf.Len()-protoWrapReserve > math.MaxUint32 {
 		return gen.ErrTooLarge
 	}
 
-	if c.peer_maxmessagesize > 0 && buf.Len() > c.peer_maxmessagesize {
+	if c.peer_maxmessagesize > 0 && buf.Len()-protoWrapReserve > c.peer_maxmessagesize {
 		return gen.ErrTooLarge
 	}
 
-	buf.B[0] = protoMagic
-	buf.B[1] = protoVersion
-	binary.BigEndian.PutUint32(buf.B[2:6], uint32(buf.Len()))
-	buf.B[6] = orderPeer
-	buf.B[7] = protoMessageAlias
-	binary.BigEndian.PutUint64(buf.B[8:16], from.ID)
+	h := protoWrapReserve
+	buf.B[h+0] = protoMagic
+	buf.B[h+1] = protoVersion
+	binary.BigEndian.PutUint32(buf.B[h+2:h+6], uint32(buf.Len()-h))
+	buf.B[h+6] = orderPeer
+	buf.B[h+7] = protoMessageAlias
+	binary.BigEndian.PutUint64(buf.B[h+8:h+16], from.ID)
 
-	buf.B[16] = byte(options.Priority) // usual value 0, 1, or 2, so just cast it
+	buf.B[h+16] = byte(options.Priority)
 	if options.ImportantDelivery {
 		if c.peer_flags.EnableImportantDelivery == false {
 			lib.ReleaseBuffer(buf)
 			return gen.ErrUnsupported
 		}
-		// set important flag
-		buf.B[16] |= 128
-		binary.BigEndian.PutUint64(buf.B[17:25], options.Ref.ID[0])
+		buf.B[h+16] |= 128
+		binary.BigEndian.PutUint64(buf.B[h+17:h+25], options.Ref.ID[0])
 	}
 
-	binary.BigEndian.PutUint64(buf.B[25:33], to.ID[0])
-	binary.BigEndian.PutUint64(buf.B[33:41], to.ID[1])
-	binary.BigEndian.PutUint64(buf.B[41:49], to.ID[2])
+	binary.BigEndian.PutUint64(buf.B[h+25:h+33], to.ID[0])
+	binary.BigEndian.PutUint64(buf.B[h+33:h+41], to.ID[1])
+	binary.BigEndian.PutUint64(buf.B[h+41:h+49], to.ID[2])
 
-	return c.send(buf, order, options.Compression)
+	return c.send(buf, order, options.Compression, options.Tracing)
 }
 
 func (c *connection) SendEvent(from gen.PID, options gen.MessageOptions, message gen.MessageEvent) error {
@@ -705,43 +712,44 @@ func (c *connection) SendEvent(from gen.PID, options gen.MessageOptions, message
 
 	buf := lib.TakeBuffer()
 	if eventNameCached > 0 {
-		// 8 (header) + 8 (process id from) + 1 priority + 8 timestamp + 2 (cache id)
-		buf.Allocate(8 + 8 + 1 + 8 + 2)
+		// protoWrapReserve + 8 (header) + 8 (process id from) + 1 priority + 8 timestamp + 2 (cache id)
+		buf.Allocate(protoWrapReserve + 8 + 8 + 1 + 8 + 2)
 	} else {
-		// 8 (header) + 8 (process id from) + 1 priority + 8 timestamp + 1 size(bname) + bname
-		buf.Allocate(8 + 8 + 1 + 8 + 1 + len(bname))
+		// protoWrapReserve + 8 (header) + 8 (process id from) + 1 priority + 8 timestamp + 1 size(bname) + bname
+		buf.Allocate(protoWrapReserve + 8 + 8 + 1 + 8 + 1 + len(bname))
 	}
 
 	if err := edf.Encode(message.Message, buf, c.encodeOptions); err != nil {
 		return err
 	}
 
-	if buf.Len() > math.MaxUint32 {
+	if buf.Len()-protoWrapReserve > math.MaxUint32 {
 		return gen.ErrTooLarge
 	}
 
-	if c.peer_maxmessagesize > 0 && buf.Len() > c.peer_maxmessagesize {
+	if c.peer_maxmessagesize > 0 && buf.Len()-protoWrapReserve > c.peer_maxmessagesize {
 		return gen.ErrTooLarge
 	}
 
-	buf.B[0] = protoMagic
-	buf.B[1] = protoVersion
-	binary.BigEndian.PutUint32(buf.B[2:6], uint32(buf.Len()))
-	buf.B[6] = order // use the same order for the peer
-	binary.BigEndian.PutUint64(buf.B[8:16], from.ID)
-	buf.B[16] = byte(options.Priority) // usual value 0, 1, or 2, so just cast it
-	binary.BigEndian.PutUint64(buf.B[17:25], uint64(message.Timestamp))
+	h := protoWrapReserve
+	buf.B[h+0] = protoMagic
+	buf.B[h+1] = protoVersion
+	binary.BigEndian.PutUint32(buf.B[h+2:h+6], uint32(buf.Len()-h))
+	buf.B[h+6] = order
+	binary.BigEndian.PutUint64(buf.B[h+8:h+16], from.ID)
+	buf.B[h+16] = byte(options.Priority)
+	binary.BigEndian.PutUint64(buf.B[h+17:h+25], uint64(message.Timestamp))
 
 	if eventNameCached > 0 {
-		buf.B[7] = protoMessageEventCache
-		binary.BigEndian.PutUint16(buf.B[25:27], eventNameCached)
+		buf.B[h+7] = protoMessageEventCache
+		binary.BigEndian.PutUint16(buf.B[h+25:h+27], eventNameCached)
 	} else {
-		buf.B[7] = protoMessageEvent
-		buf.B[25] = byte(len(bname))
-		copy(buf.B[26:], bname)
+		buf.B[h+7] = protoMessageEvent
+		buf.B[h+25] = byte(len(bname))
+		copy(buf.B[h+26:], bname)
 	}
 
-	return c.send(buf, order, options.Compression)
+	return c.send(buf, order, options.Compression, options.Tracing)
 }
 
 func (c *connection) SendExit(from gen.PID, to gen.PID, reason error) error {
@@ -750,8 +758,8 @@ func (c *connection) SendExit(from gen.PID, to gen.PID, reason error) error {
 	}
 
 	buf := lib.TakeBuffer()
-	// 8 (header) + 8 (process id from) + 1 priority + 8 (process id to)
-	buf.Allocate(8 + 8 + 1 + 8)
+	// protoWrapReserve + 8 (header) + 8 (process id from) + 1 priority + 8 (process id to)
+	buf.Allocate(protoWrapReserve + 8 + 8 + 1 + 8)
 
 	if err := edf.Encode(reason, buf, c.encodeOptions); err != nil {
 		return err
@@ -760,16 +768,17 @@ func (c *connection) SendExit(from gen.PID, to gen.PID, reason error) error {
 	order := uint8(from.ID % 255)
 	orderPeer := uint8(to.ID % 255)
 
-	buf.B[0] = protoMagic
-	buf.B[1] = protoVersion
-	binary.BigEndian.PutUint32(buf.B[2:6], uint32(buf.Len()))
-	buf.B[6] = orderPeer
-	buf.B[7] = protoMessageExit
-	binary.BigEndian.PutUint64(buf.B[8:16], from.ID)
-	buf.B[16] = byte(gen.MessagePriorityMax)
-	binary.BigEndian.PutUint64(buf.B[17:25], to.ID)
+	h := protoWrapReserve
+	buf.B[h+0] = protoMagic
+	buf.B[h+1] = protoVersion
+	binary.BigEndian.PutUint32(buf.B[h+2:h+6], uint32(buf.Len()-h))
+	buf.B[h+6] = orderPeer
+	buf.B[h+7] = protoMessageExit
+	binary.BigEndian.PutUint64(buf.B[h+8:h+16], from.ID)
+	buf.B[h+16] = byte(gen.MessagePriorityMax)
+	binary.BigEndian.PutUint64(buf.B[h+17:h+25], to.ID)
 
-	return c.send(buf, order, gen.Compression{})
+	return c.send(buf, order, gen.Compression{}, gen.Tracing{})
 }
 
 func (c *connection) SendResponse(from gen.PID, to gen.PID, options gen.MessageOptions, response any) error {
@@ -784,44 +793,44 @@ func (c *connection) SendResponse(from gen.PID, to gen.PID, options gen.MessageO
 	}
 
 	buf := lib.TakeBuffer()
-	// 8 (header) + 8 (process id from) + 1 priority + 8 (process id to) + 24 (ref [3]uint64)
-	buf.Allocate(8 + 8 + 1 + 8 + 24)
+	// protoWrapReserve + 8 (header) + 8 (process id from) + 1 priority + 8 (process id to) + 24 (ref [3]uint64)
+	buf.Allocate(protoWrapReserve + 8 + 8 + 1 + 8 + 24)
 
 	if err := edf.Encode(response, buf, c.encodeOptions); err != nil {
 		return err
 	}
 
-	if buf.Len() > math.MaxUint32 {
+	if buf.Len()-protoWrapReserve > math.MaxUint32 {
 		return gen.ErrTooLarge
 	}
 
-	if c.peer_maxmessagesize > 0 && buf.Len() > c.peer_maxmessagesize {
+	if c.peer_maxmessagesize > 0 && buf.Len()-protoWrapReserve > c.peer_maxmessagesize {
 		return gen.ErrTooLarge
 	}
 
-	buf.B[0] = protoMagic
-	buf.B[1] = protoVersion
-	binary.BigEndian.PutUint32(buf.B[2:6], uint32(buf.Len()))
-	buf.B[6] = orderPeer
-	buf.B[7] = protoMessageResponse
-	binary.BigEndian.PutUint64(buf.B[8:16], from.ID)
+	h := protoWrapReserve
+	buf.B[h+0] = protoMagic
+	buf.B[h+1] = protoVersion
+	binary.BigEndian.PutUint32(buf.B[h+2:h+6], uint32(buf.Len()-h))
+	buf.B[h+6] = orderPeer
+	buf.B[h+7] = protoMessageResponse
+	binary.BigEndian.PutUint64(buf.B[h+8:h+16], from.ID)
 
-	buf.B[16] = byte(options.Priority) // usual value 0, 1, or 2, so just cast it
+	buf.B[h+16] = byte(options.Priority)
 	if options.ImportantDelivery {
 		if c.peer_flags.EnableImportantDelivery == false {
 			lib.ReleaseBuffer(buf)
 			return gen.ErrUnsupported
 		}
-		// set important flag
-		buf.B[16] |= 128
+		buf.B[h+16] |= 128
 	}
 
-	binary.BigEndian.PutUint64(buf.B[17:25], to.ID)
-	binary.BigEndian.PutUint64(buf.B[25:33], options.Ref.ID[0])
-	binary.BigEndian.PutUint64(buf.B[33:41], options.Ref.ID[1])
-	binary.BigEndian.PutUint64(buf.B[41:49], options.Ref.ID[2])
+	binary.BigEndian.PutUint64(buf.B[h+17:h+25], to.ID)
+	binary.BigEndian.PutUint64(buf.B[h+25:h+33], options.Ref.ID[0])
+	binary.BigEndian.PutUint64(buf.B[h+33:h+41], options.Ref.ID[1])
+	binary.BigEndian.PutUint64(buf.B[h+41:h+49], options.Ref.ID[2])
 
-	return c.send(buf, order, options.Compression)
+	return c.send(buf, order, options.Compression, options.Tracing)
 }
 
 func (c *connection) SendResponseError(from gen.PID, to gen.PID, options gen.MessageOptions, err error) error {
@@ -837,67 +846,68 @@ func (c *connection) SendResponseError(from gen.PID, to gen.PID, options gen.Mes
 	}
 
 	buf := lib.TakeBuffer()
-	// 8 (header) + 8 (process id from) + 1 priority + 8 (process id to) + 24 (ref [3]uint64) + 1 (err code)
-	buf.Allocate(8 + 8 + 1 + 8 + 24 + 1)
+	h := protoWrapReserve
+	// protoWrapReserve + 8 (header) + 8 (process id from) + 1 priority + 8 (process id to) + 24 (ref [3]uint64) + 1 (err code)
+	buf.Allocate(h + 8 + 8 + 1 + 8 + 24 + 1)
 	switch err {
 	case nil:
-		buf.B[49] = 0
+		buf.B[h+49] = 0
 	case gen.ErrProcessUnknown:
-		buf.B[49] = 1
+		buf.B[h+49] = 1
 	case gen.ErrProcessMailboxFull:
-		buf.B[49] = 2
+		buf.B[h+49] = 2
 	case gen.ErrProcessTerminated:
-		buf.B[49] = 3
+		buf.B[h+49] = 3
 	default:
-		buf.B[49] = 255
+		buf.B[h+49] = 255
 		if e := edf.Encode(err, buf, c.encodeOptions); e != nil {
 			return e
 		}
 	}
 
-	buf.B[0] = protoMagic
-	buf.B[1] = protoVersion
-	binary.BigEndian.PutUint32(buf.B[2:6], uint32(buf.Len()))
-	buf.B[6] = orderPeer
-	buf.B[7] = protoMessageResponseError
-	binary.BigEndian.PutUint64(buf.B[8:16], from.ID)
+	buf.B[h+0] = protoMagic
+	buf.B[h+1] = protoVersion
+	binary.BigEndian.PutUint32(buf.B[h+2:h+6], uint32(buf.Len()-h))
+	buf.B[h+6] = orderPeer
+	buf.B[h+7] = protoMessageResponseError
+	binary.BigEndian.PutUint64(buf.B[h+8:h+16], from.ID)
 
-	buf.B[16] = byte(options.Priority) // usual value 0, 1, or 2, so just cast it
+	buf.B[h+16] = byte(options.Priority)
 	if options.ImportantDelivery {
 		if c.peer_flags.EnableImportantDelivery == false {
 			lib.ReleaseBuffer(buf)
 			return gen.ErrUnsupported
 		}
-		// set important flag
-		buf.B[16] |= 128
+		buf.B[h+16] |= 128
 	}
 
-	binary.BigEndian.PutUint64(buf.B[17:25], to.ID)
-	binary.BigEndian.PutUint64(buf.B[25:33], options.Ref.ID[0])
-	binary.BigEndian.PutUint64(buf.B[33:41], options.Ref.ID[1])
-	binary.BigEndian.PutUint64(buf.B[41:49], options.Ref.ID[2])
+	binary.BigEndian.PutUint64(buf.B[h+17:h+25], to.ID)
+	binary.BigEndian.PutUint64(buf.B[h+25:h+33], options.Ref.ID[0])
+	binary.BigEndian.PutUint64(buf.B[h+33:h+41], options.Ref.ID[1])
+	binary.BigEndian.PutUint64(buf.B[h+41:h+49], options.Ref.ID[2])
 
-	return c.send(buf, order, options.Compression)
+	return c.send(buf, order, options.Compression, options.Tracing)
 }
 
 func (c *connection) SendTerminatePID(target gen.PID, reason error) error {
 	buf := lib.TakeBuffer()
-	// 8 (header) + 1 priority + 8 (target process id)
-	buf.Allocate(8 + 1 + 8)
+	// protoWrapReserve + 8 (header) + 1 priority + 8 (target process id)
+	buf.Allocate(protoWrapReserve + 8 + 1 + 8)
 
 	if err := edf.Encode(reason, buf, c.encodeOptions); err != nil {
 		return err
 	}
 
-	buf.B[0] = protoMagic
-	buf.B[1] = protoVersion
-	binary.BigEndian.PutUint32(buf.B[2:6], uint32(buf.Len()))
-	buf.B[6] = 0
-	buf.B[7] = protoMessageTerminatePID
-	buf.B[8] = byte(gen.MessagePriorityHigh)
-	binary.BigEndian.PutUint64(buf.B[9:17], target.ID)
+	h := protoWrapReserve
+	buf.B[h+0] = protoMagic
+	buf.B[h+1] = protoVersion
+	binary.BigEndian.PutUint32(buf.B[h+2:h+6], uint32(buf.Len()-h))
+	buf.B[h+6] = 0
+	buf.B[h+7] = protoMessageTerminatePID
+	buf.B[h+8] = byte(gen.MessagePriorityHigh)
+	binary.BigEndian.PutUint64(buf.B[h+9:h+17], target.ID)
 
-	return c.send(buf, 0, gen.Compression{})
+	return c.send(buf, 0, gen.Compression{}, gen.Tracing{})
 }
 
 func (c *connection) SendTerminateProcessID(target gen.ProcessID, reason error) error {
@@ -921,55 +931,56 @@ func (c *connection) SendTerminateProcessID(target gen.ProcessID, reason error) 
 	}
 
 	buf := lib.TakeBuffer()
+	h := protoWrapReserve
 	if targetNameCached > 0 {
-		// 8 (header) + 1 priority + 2 (cache id)
-		buf.Allocate(8 + 1 + 2)
+		// protoWrapReserve + 8 (header) + 1 priority + 2 (cache id)
+		buf.Allocate(h + 8 + 1 + 2)
 	} else {
-		// 8 (header) + 1 priority + 1 (len of bname) + bname
-		buf.Allocate(8 + 1 + 1 + len(bname))
+		// protoWrapReserve + 8 (header) + 1 priority + 1 (len of bname) + bname
+		buf.Allocate(h + 8 + 1 + 1 + len(bname))
 	}
 
 	if err := edf.Encode(reason, buf, c.encodeOptions); err != nil {
 		return err
 	}
 
-	buf.B[0] = protoMagic
-	buf.B[1] = protoVersion
-	binary.BigEndian.PutUint32(buf.B[2:6], uint32(buf.Len()))
-	buf.B[6] = 0 // order
-	buf.B[8] = byte(gen.MessagePriorityHigh)
+	buf.B[h+0] = protoMagic
+	buf.B[h+1] = protoVersion
+	binary.BigEndian.PutUint32(buf.B[h+2:h+6], uint32(buf.Len()-h))
+	buf.B[h+6] = 0
+	buf.B[h+8] = byte(gen.MessagePriorityHigh)
 	if targetNameCached > 0 {
-		buf.B[7] = protoMessageTerminateNameCache
-		binary.BigEndian.PutUint16(buf.B[9:11], targetNameCached)
+		buf.B[h+7] = protoMessageTerminateNameCache
+		binary.BigEndian.PutUint16(buf.B[h+9:h+11], targetNameCached)
 	} else {
-		buf.B[7] = protoMessageTerminateName
-		buf.B[9] = byte(len(bname))
-		copy(buf.B[10:], bname)
+		buf.B[h+7] = protoMessageTerminateName
+		buf.B[h+9] = byte(len(bname))
+		copy(buf.B[h+10:], bname)
 	}
 
-	return c.send(buf, 0, gen.Compression{})
+	return c.send(buf, 0, gen.Compression{}, gen.Tracing{})
 }
 
 func (c *connection) SendTerminateAlias(target gen.Alias, reason error) error {
 	buf := lib.TakeBuffer()
-	// 8 (header) + 1 priority + 24 (target alias id [3]uint64)
-	buf.Allocate(8 + 1 + 24)
+	h := protoWrapReserve
+	buf.Allocate(h + 8 + 1 + 24)
 
 	if err := edf.Encode(reason, buf, c.encodeOptions); err != nil {
 		return err
 	}
 
-	buf.B[0] = protoMagic
-	buf.B[1] = protoVersion
-	binary.BigEndian.PutUint32(buf.B[2:6], uint32(buf.Len()))
-	buf.B[6] = 0
-	buf.B[7] = protoMessageTerminateAlias
-	buf.B[8] = byte(gen.MessagePriorityHigh)
-	binary.BigEndian.PutUint64(buf.B[9:17], target.ID[0])
-	binary.BigEndian.PutUint64(buf.B[17:25], target.ID[1])
-	binary.BigEndian.PutUint64(buf.B[25:33], target.ID[2])
+	buf.B[h+0] = protoMagic
+	buf.B[h+1] = protoVersion
+	binary.BigEndian.PutUint32(buf.B[h+2:h+6], uint32(buf.Len()-h))
+	buf.B[h+6] = 0
+	buf.B[h+7] = protoMessageTerminateAlias
+	buf.B[h+8] = byte(gen.MessagePriorityHigh)
+	binary.BigEndian.PutUint64(buf.B[h+9:h+17], target.ID[0])
+	binary.BigEndian.PutUint64(buf.B[h+17:h+25], target.ID[1])
+	binary.BigEndian.PutUint64(buf.B[h+25:h+33], target.ID[2])
 
-	return c.send(buf, 0, gen.Compression{})
+	return c.send(buf, 0, gen.Compression{}, gen.Tracing{})
 }
 
 func (c *connection) SendTerminateEvent(target gen.Event, reason error) error {
@@ -994,34 +1005,33 @@ func (c *connection) SendTerminateEvent(target gen.Event, reason error) error {
 	}
 
 	buf := lib.TakeBuffer()
+	h := protoWrapReserve
 	if eventNameCached > 0 {
-		// 8 (header) + 1 priority + 2 (cache id)
-		buf.Allocate(8 + 1 + 2)
+		buf.Allocate(h + 8 + 1 + 2)
 	} else {
-		// 8 (header) + 1 priority + 1 size(bname) + bname
-		buf.Allocate(8 + 1 + +1 + len(bname))
+		buf.Allocate(h + 8 + 1 + 1 + len(bname))
 	}
 
 	if err := edf.Encode(reason, buf, c.encodeOptions); err != nil {
 		return err
 	}
 
-	buf.B[0] = protoMagic
-	buf.B[1] = protoVersion
-	binary.BigEndian.PutUint32(buf.B[2:6], uint32(buf.Len()))
-	buf.B[6] = 0 // order
-	buf.B[8] = byte(gen.MessagePriorityHigh)
+	buf.B[h+0] = protoMagic
+	buf.B[h+1] = protoVersion
+	binary.BigEndian.PutUint32(buf.B[h+2:h+6], uint32(buf.Len()-h))
+	buf.B[h+6] = 0
+	buf.B[h+8] = byte(gen.MessagePriorityHigh)
 
 	if eventNameCached > 0 {
-		buf.B[7] = protoMessageTerminateEventCache
-		binary.BigEndian.PutUint16(buf.B[9:11], eventNameCached)
+		buf.B[h+7] = protoMessageTerminateEventCache
+		binary.BigEndian.PutUint16(buf.B[h+9:h+11], eventNameCached)
 	} else {
-		buf.B[7] = protoMessageTerminateEvent
-		buf.B[9] = byte(len(bname))
-		copy(buf.B[10:], bname)
+		buf.B[h+7] = protoMessageTerminateEvent
+		buf.B[h+9] = byte(len(bname))
+		copy(buf.B[h+10:], bname)
 	}
 
-	return c.send(buf, 0, gen.Compression{})
+	return c.send(buf, 0, gen.Compression{}, gen.Tracing{})
 }
 
 func (c *connection) CallPID(from gen.PID, to gen.PID, options gen.MessageOptions, message any) error {
@@ -1037,39 +1047,39 @@ func (c *connection) CallPID(from gen.PID, to gen.PID, options gen.MessageOption
 	}
 
 	buf := lib.TakeBuffer()
-	// 8 (header) + 8 (process id from) + 1 priority + 24 (request ref) + 8 (process id to)
-	buf.Allocate(8 + 8 + 1 + 24 + 8)
+	// protoWrapReserve + 8 (header) + 8 (process id from) + 1 priority + 24 (request ref) + 8 (process id to)
+	buf.Allocate(protoWrapReserve + 8 + 8 + 1 + 24 + 8)
 
 	if err := edf.Encode(message, buf, c.encodeOptions); err != nil {
 		return err
 	}
-	if buf.Len() > math.MaxUint32 {
+	if buf.Len()-protoWrapReserve > math.MaxUint32 {
 		return gen.ErrTooLarge
 	}
 
-	buf.B[0] = protoMagic
-	buf.B[1] = protoVersion
-	binary.BigEndian.PutUint32(buf.B[2:6], uint32(buf.Len()))
-	buf.B[6] = orderPeer
-	buf.B[7] = protoRequestPID
-	binary.BigEndian.PutUint64(buf.B[8:16], from.ID)
+	h := protoWrapReserve
+	buf.B[h+0] = protoMagic
+	buf.B[h+1] = protoVersion
+	binary.BigEndian.PutUint32(buf.B[h+2:h+6], uint32(buf.Len()-h))
+	buf.B[h+6] = orderPeer
+	buf.B[h+7] = protoRequestPID
+	binary.BigEndian.PutUint64(buf.B[h+8:h+16], from.ID)
 
-	buf.B[16] = byte(options.Priority)
+	buf.B[h+16] = byte(options.Priority)
 	if options.ImportantDelivery {
 		if c.peer_flags.EnableImportantDelivery == false {
 			lib.ReleaseBuffer(buf)
 			return gen.ErrUnsupported
 		}
-		// set important flag
-		buf.B[16] |= 128
+		buf.B[h+16] |= 128
 	}
 
-	binary.BigEndian.PutUint64(buf.B[17:25], options.Ref.ID[0])
-	binary.BigEndian.PutUint64(buf.B[25:33], options.Ref.ID[1])
-	binary.BigEndian.PutUint64(buf.B[33:41], options.Ref.ID[2])
-	binary.BigEndian.PutUint64(buf.B[41:49], to.ID)
+	binary.BigEndian.PutUint64(buf.B[h+17:h+25], options.Ref.ID[0])
+	binary.BigEndian.PutUint64(buf.B[h+25:h+33], options.Ref.ID[1])
+	binary.BigEndian.PutUint64(buf.B[h+33:h+41], options.Ref.ID[2])
+	binary.BigEndian.PutUint64(buf.B[h+41:h+49], to.ID)
 
-	return c.send(buf, order, options.Compression)
+	return c.send(buf, order, options.Compression, options.Tracing)
 }
 
 func (c *connection) CallProcessID(from gen.PID, to gen.ProcessID, options gen.MessageOptions, message any) error {
@@ -1098,52 +1108,50 @@ func (c *connection) CallProcessID(from gen.PID, to gen.ProcessID, options gen.M
 	}
 
 	buf := lib.TakeBuffer()
+	h := protoWrapReserve
 	if toNameCached > 0 {
-		// 8 (header) + 8 (process id from) + 1 priority + 24 (request ref)  + 2 (cache id)
-		buf.Allocate(8 + 8 + 1 + 24 + 2)
+		buf.Allocate(h + 8 + 8 + 1 + 24 + 2)
 	} else {
-		// 8 (header) + 8 (process id from) + 1 priority + 24 (request ref) +1 (size(bname)) + bname
-		buf.Allocate(8 + 8 + 1 + 24 + 1 + len(bname))
+		buf.Allocate(h + 8 + 8 + 1 + 24 + 1 + len(bname))
 	}
 
 	if err := edf.Encode(message, buf, c.encodeOptions); err != nil {
 		return err
 	}
 
-	if buf.Len() > math.MaxUint32 {
+	if buf.Len()-h > math.MaxUint32 {
 		return gen.ErrTooLarge
 	}
 
-	buf.B[0] = protoMagic
-	buf.B[1] = protoVersion
-	binary.BigEndian.PutUint32(buf.B[2:6], uint32(buf.Len()))
-	buf.B[6] = order // use the same order for the peer
-	binary.BigEndian.PutUint64(buf.B[8:16], from.ID)
+	buf.B[h+0] = protoMagic
+	buf.B[h+1] = protoVersion
+	binary.BigEndian.PutUint32(buf.B[h+2:h+6], uint32(buf.Len()-h))
+	buf.B[h+6] = order
+	binary.BigEndian.PutUint64(buf.B[h+8:h+16], from.ID)
 
-	buf.B[16] = byte(options.Priority)
+	buf.B[h+16] = byte(options.Priority)
 	if options.ImportantDelivery {
 		if c.peer_flags.EnableImportantDelivery == false {
 			lib.ReleaseBuffer(buf)
 			return gen.ErrUnsupported
 		}
-		// set important flag
-		buf.B[16] |= 128
+		buf.B[h+16] |= 128
 	}
 
-	binary.BigEndian.PutUint64(buf.B[17:25], options.Ref.ID[0])
-	binary.BigEndian.PutUint64(buf.B[25:33], options.Ref.ID[1])
-	binary.BigEndian.PutUint64(buf.B[33:41], options.Ref.ID[2])
+	binary.BigEndian.PutUint64(buf.B[h+17:h+25], options.Ref.ID[0])
+	binary.BigEndian.PutUint64(buf.B[h+25:h+33], options.Ref.ID[1])
+	binary.BigEndian.PutUint64(buf.B[h+33:h+41], options.Ref.ID[2])
 
 	if toNameCached > 0 {
-		buf.B[7] = protoRequestNameCache
-		binary.BigEndian.PutUint16(buf.B[41:43], toNameCached)
+		buf.B[h+7] = protoRequestNameCache
+		binary.BigEndian.PutUint16(buf.B[h+41:h+43], toNameCached)
 	} else {
-		buf.B[7] = protoRequestName
-		buf.B[41] = byte(len(bname))
-		copy(buf.B[42:], bname)
+		buf.B[h+7] = protoRequestName
+		buf.B[h+41] = byte(len(bname))
+		copy(buf.B[h+42:], bname)
 	}
 
-	return c.send(buf, order, options.Compression)
+	return c.send(buf, order, options.Compression, options.Tracing)
 }
 
 func (c *connection) CallAlias(from gen.PID, to gen.Alias, options gen.MessageOptions, message any) error {
@@ -1160,42 +1168,41 @@ func (c *connection) CallAlias(from gen.PID, to gen.Alias, options gen.MessageOp
 	}
 
 	buf := lib.TakeBuffer()
-	// 8 (header) + 8 (process id from) + 1 priority + 24 (request ref) + 24 (alias id to)
-	buf.Allocate(8 + 8 + 1 + 24 + 24)
+	h := protoWrapReserve
+	buf.Allocate(h + 8 + 8 + 1 + 24 + 24)
 
 	if err := edf.Encode(message, buf, c.encodeOptions); err != nil {
 		return err
 	}
 
-	if buf.Len() > math.MaxUint32 {
+	if buf.Len()-h > math.MaxUint32 {
 		return gen.ErrTooLarge
 	}
 
-	buf.B[0] = protoMagic
-	buf.B[1] = protoVersion
-	binary.BigEndian.PutUint32(buf.B[2:6], uint32(buf.Len()))
-	buf.B[6] = orderPeer
-	buf.B[7] = protoRequestAlias
-	binary.BigEndian.PutUint64(buf.B[8:16], from.ID)
+	buf.B[h+0] = protoMagic
+	buf.B[h+1] = protoVersion
+	binary.BigEndian.PutUint32(buf.B[h+2:h+6], uint32(buf.Len()-h))
+	buf.B[h+6] = orderPeer
+	buf.B[h+7] = protoRequestAlias
+	binary.BigEndian.PutUint64(buf.B[h+8:h+16], from.ID)
 
-	buf.B[16] = byte(options.Priority)
+	buf.B[h+16] = byte(options.Priority)
 	if options.ImportantDelivery {
 		if c.peer_flags.EnableImportantDelivery == false {
 			lib.ReleaseBuffer(buf)
 			return gen.ErrUnsupported
 		}
-		// set important flag
-		buf.B[16] |= 128
+		buf.B[h+16] |= 128
 	}
 
-	binary.BigEndian.PutUint64(buf.B[17:25], options.Ref.ID[0])
-	binary.BigEndian.PutUint64(buf.B[25:33], options.Ref.ID[1])
-	binary.BigEndian.PutUint64(buf.B[33:41], options.Ref.ID[2])
-	binary.BigEndian.PutUint64(buf.B[41:49], to.ID[0])
-	binary.BigEndian.PutUint64(buf.B[49:57], to.ID[1])
-	binary.BigEndian.PutUint64(buf.B[57:65], to.ID[2])
+	binary.BigEndian.PutUint64(buf.B[h+17:h+25], options.Ref.ID[0])
+	binary.BigEndian.PutUint64(buf.B[h+25:h+33], options.Ref.ID[1])
+	binary.BigEndian.PutUint64(buf.B[h+33:h+41], options.Ref.ID[2])
+	binary.BigEndian.PutUint64(buf.B[h+41:h+49], to.ID[0])
+	binary.BigEndian.PutUint64(buf.B[h+49:h+57], to.ID[1])
+	binary.BigEndian.PutUint64(buf.B[h+57:h+65], to.ID[2])
 
-	return c.send(buf, order, options.Compression)
+	return c.send(buf, order, options.Compression, options.Tracing)
 }
 
 func (c *connection) LinkPID(pid gen.PID, target gen.PID) error {
@@ -1940,6 +1947,8 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC, qIdx int) {
 			releaseBuffer = false
 		}
 
+		var tracing gen.Tracing
+
 	re:
 		switch buf.B[7] {
 		case protoMessagePID: // process id
@@ -1979,6 +1988,7 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC, qIdx int) {
 			}
 
 			opts := gen.MessageOptions{
+				Tracing:  tracing,
 				Priority: priority,
 			}
 
@@ -2071,6 +2081,7 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC, qIdx int) {
 			}
 
 			opts := gen.MessageOptions{
+				Tracing:  tracing,
 				Priority: priority,
 			}
 
@@ -2127,6 +2138,7 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC, qIdx int) {
 			}
 
 			opts := gen.MessageOptions{
+				Tracing:  tracing,
 				Priority: priority,
 			}
 			err = c.core.RouteSendAlias(from, to, opts, msg)
@@ -2187,6 +2199,7 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC, qIdx int) {
 			}
 
 			opts := gen.MessageOptions{
+				Tracing:  tracing,
 				Ref:      ref,
 				Priority: priority,
 			}
@@ -2281,6 +2294,7 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC, qIdx int) {
 				}
 			}
 			opts := gen.MessageOptions{
+				Tracing:  tracing,
 				Ref:      ref,
 				Priority: priority,
 			}
@@ -2346,6 +2360,7 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC, qIdx int) {
 			}
 
 			opts := gen.MessageOptions{
+				Tracing:  tracing,
 				Ref:      ref,
 				Priority: priority,
 			}
@@ -2519,6 +2534,7 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC, qIdx int) {
 			}
 
 			opts := gen.MessageOptions{
+				Tracing:  tracing,
 				Ref:               ref,
 				Priority:          priority,
 				ImportantDelivery: important,
@@ -2563,6 +2579,7 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC, qIdx int) {
 				Creation: c.core.Creation(),
 			}
 			opts := gen.MessageOptions{
+				Tracing:  tracing,
 				Ref:               ref,
 				Priority:          priority,
 				ImportantDelivery: important,
@@ -2888,6 +2905,18 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC, qIdx int) {
 				c.log.Error("message with unknown compression type %d, ignored", buf.B[7])
 				continue
 			}
+
+		case protoMessageT:
+			if buf.Len() < 40 {
+				c.log.Error("malformed message (too small MessageT)")
+				continue
+			}
+			tracing.ID[0] = binary.BigEndian.Uint64(buf.B[8:16])
+			tracing.ID[1] = binary.BigEndian.Uint64(buf.B[16:24])
+			tracing.SpanID = binary.BigEndian.Uint64(buf.B[24:32])
+			c.tracedReceived.Add(1)
+			buf.B = buf.B[32:]
+			goto re
 
 		case protoMessageF:
 			if c.fragmentation == false {
@@ -3240,44 +3269,49 @@ func (c *connection) routeMessage(msg any) {
 
 func (c *connection) sendAny(msg any, order uint8, orderPeer uint8, compression gen.Compression) error {
 	buf := lib.TakeBuffer()
-	buf.Allocate(8) // for the header
+	h := protoWrapReserve
+	buf.Allocate(h + 8) // reserve + header
 
 	if err := edf.Encode(msg, buf, c.encodeOptions); err != nil {
 		return err
 	}
-	if buf.Len() > math.MaxUint32 {
+	if buf.Len()-h > math.MaxUint32 {
 		return gen.ErrTooLarge
 	}
-	buf.B[0] = protoMagic
-	buf.B[1] = protoVersion
-	binary.BigEndian.PutUint32(buf.B[2:6], uint32(buf.Len()))
-	buf.B[6] = orderPeer
-	buf.B[7] = protoMessageAny
+	buf.B[h+0] = protoMagic
+	buf.B[h+1] = protoVersion
+	binary.BigEndian.PutUint32(buf.B[h+2:h+6], uint32(buf.Len()-h))
+	buf.B[h+6] = orderPeer
+	buf.B[h+7] = protoMessageAny
 
-	return c.send(buf, order, compression)
+	return c.send(buf, order, compression, gen.Tracing{})
 }
 
 func (c *connection) wait() {
 	c.wg.Wait()
 }
 
-func (c *connection) send(buf *lib.Buffer, order uint8, compression gen.Compression) error {
+func (c *connection) send(buf *lib.Buffer, order uint8, compression gen.Compression, tracing gen.Tracing) error {
+	// msgStart points to the beginning of the actual message within buf.B.
+	// Send* methods write the message at offset protoWrapReserve,
+	// leaving reserved space at the front for wrapping headers (tracing, proxy).
+	msgStart := protoWrapReserve
 
-	if c.peer_maxmessagesize > 0 && buf.Len() > c.peer_maxmessagesize {
+	if c.peer_maxmessagesize > 0 && buf.Len()-msgStart > c.peer_maxmessagesize {
 		return gen.ErrTooLarge
 	}
 
-	if compression.Enable && buf.Len() > compression.Threshold {
+	if compression.Enable && buf.Len()-msgStart > compression.Threshold {
 		var zbuf *lib.Buffer
 		var err error
 
-		// 1 - protoMagic
-		// 1 - protoVersion
-		// 4 - length
-		// 1 - order
-		// 1 - protoMessageZ
-		// 1 - compression type
-		preallocate := uint(9)
+		// strip reserve before compressing — only compress the actual message
+		orderByte := buf.B[msgStart+6]
+		origLen := buf.Len() - msgStart
+		buf.B = buf.B[msgStart:]
+
+		// protoWrapReserve (for wrapping) + 9 (Z header: magic, version, length, order, type, compression_type)
+		preallocate := uint(protoWrapReserve + 9)
 
 		switch compression.Type {
 		case gen.CompressionTypeZLIB:
@@ -3298,24 +3332,40 @@ func (c *connection) send(buf *lib.Buffer, order uint8, compression gen.Compress
 			}
 
 		}
-		zbuf.B[0] = protoMagic
-		zbuf.B[1] = protoVersion
-		binary.BigEndian.PutUint32(zbuf.B[2:6], uint32(zbuf.Len()))
-		zbuf.B[6] = buf.B[6] // keep order of the original message
-		zbuf.B[7] = protoMessageZ
-		zbuf.B[8] = compression.Type.ID()
+		h := protoWrapReserve
+		zbuf.B[h+0] = protoMagic
+		zbuf.B[h+1] = protoVersion
+		binary.BigEndian.PutUint32(zbuf.B[h+2:h+6], uint32(zbuf.Len()-h))
+		zbuf.B[h+6] = orderByte
+		zbuf.B[h+7] = protoMessageZ
+		zbuf.B[h+8] = compression.Type.ID()
 
 		c.compressedSent.Add(1)
-		c.compressedOrigBytesSent.Add(uint64(buf.Len()))
-		c.compressedBytesSent.Add(uint64(zbuf.Len()))
+		c.compressedOrigBytesSent.Add(uint64(origLen))
+		c.compressedBytesSent.Add(uint64(zbuf.Len() - h))
 
 		lib.ReleaseBuffer(buf)
 		buf = zbuf
+		msgStart = h
+	}
+
+	// tracing wrapper — uses reserved space, no copy
+	if tracing.ID != [2]uint64{} {
+		msgStart -= 32
+		buf.B[msgStart+0] = protoMagic
+		buf.B[msgStart+1] = protoVersion
+		binary.BigEndian.PutUint32(buf.B[msgStart+2:msgStart+6], uint32(buf.Len()-msgStart))
+		buf.B[msgStart+6] = buf.B[msgStart+32+6] // order from inner message
+		buf.B[msgStart+7] = protoMessageT
+		binary.BigEndian.PutUint64(buf.B[msgStart+8:msgStart+16], tracing.ID[0])
+		binary.BigEndian.PutUint64(buf.B[msgStart+16:msgStart+24], tracing.ID[1])
+		binary.BigEndian.PutUint64(buf.B[msgStart+24:msgStart+32], tracing.SpanID)
+		c.tracedSent.Add(1)
 	}
 
 	// fragmentation
-	if c.fragmentation == true && buf.Len() > c.fragmentSize {
-		return c.sendFragmented(buf, order)
+	if c.fragmentation == true && buf.Len()-msgStart > c.fragmentSize {
+		return c.sendFragmented(buf, msgStart, order)
 	}
 
 	var pi *pool_item
@@ -3335,8 +3385,8 @@ func (c *connection) send(buf *lib.Buffer, order uint8, compression gen.Compress
 	}
 	c.pool_mutex.RUnlock()
 
-	bufLen := uint64(buf.Len())
-	_, err := pi.fl.Write(buf.B)
+	dataLen := uint64(buf.Len() - msgStart)
+	_, err := pi.fl.Write(buf.B[msgStart:])
 	lib.ReleaseBuffer(buf)
 	if err != nil {
 		pi.connection.Close()
@@ -3344,21 +3394,21 @@ func (c *connection) send(buf *lib.Buffer, order uint8, compression gen.Compress
 	}
 
 	atomic.AddUint64(&c.messagesOut, 1)
-	atomic.AddUint64(&c.bytesOut, bufLen)
+	atomic.AddUint64(&c.bytesOut, dataLen)
 	return nil
 }
 
-func (c *connection) sendFragmented(buf *lib.Buffer, order uint8) error {
-	data := buf.B                     // entire original message including ENP header
+func (c *connection) sendFragmented(buf *lib.Buffer, msgStart int, order uint8) error {
+	dataLen := buf.Len() - msgStart
 	maxPayload := c.fragmentSize - 16 // 16 = ENP header (8) + fragment header (8)
 
-	totalFragments := uint16((len(data) + maxPayload - 1) / maxPayload)
+	totalFragments := uint16((dataLen + maxPayload - 1) / maxPayload)
 
 	sequenceID := c.nextSequenceID.Add(1)
 
 	if lib.Verbose() {
 		c.log.Trace("fragmenting message: %d bytes, %d fragments (seq=%d)",
-			len(data), totalFragments, sequenceID)
+			dataLen, totalFragments, sequenceID)
 	}
 
 	// for ordered messages, select pool item once (all fragments must go
@@ -3376,31 +3426,26 @@ func (c *connection) sendFragmented(buf *lib.Buffer, order uint8) error {
 		c.pool_mutex.RUnlock()
 	}
 
+	// Zero-copy fragmentation: write fragment headers in-place.
+	// First fragment uses reserved space before msgStart.
+	// Subsequent fragments overwrite the tail of the previous (already sent) chunk.
 	offset := 0
 	for idx := uint16(0); idx < totalFragments; idx++ {
-		chunkSize := len(data) - offset
+		chunkSize := dataLen - offset
 		if chunkSize > maxPayload {
 			chunkSize = maxPayload
 		}
 
-		frag := lib.TakeBuffer()
-		frag.Allocate(16 + chunkSize)
-
-		// standard ENP header
-		frag.B[0] = protoMagic
-		frag.B[1] = protoVersion
-		binary.BigEndian.PutUint32(frag.B[2:6], uint32(len(frag.B)))
-		frag.B[6] = order
-		frag.B[7] = protoMessageF
-
-		// fragment header
-		binary.BigEndian.PutUint32(frag.B[8:12], sequenceID)
-		binary.BigEndian.PutUint16(frag.B[12:14], idx)
-		binary.BigEndian.PutUint16(frag.B[14:16], totalFragments)
-
-		// payload: chunk of original message
-		copy(frag.B[16:], data[offset:offset+chunkSize])
-		offset += chunkSize
+		// fragment header goes 16 bytes before current chunk
+		hdr := msgStart + offset - 16
+		buf.B[hdr+0] = protoMagic
+		buf.B[hdr+1] = protoVersion
+		binary.BigEndian.PutUint32(buf.B[hdr+2:hdr+6], uint32(16+chunkSize))
+		buf.B[hdr+6] = order
+		buf.B[hdr+7] = protoMessageF
+		binary.BigEndian.PutUint32(buf.B[hdr+8:hdr+12], sequenceID)
+		binary.BigEndian.PutUint16(buf.B[hdr+12:hdr+14], idx)
+		binary.BigEndian.PutUint16(buf.B[hdr+14:hdr+16], totalFragments)
 
 		// select pool item
 		pi := orderedPI
@@ -3409,7 +3454,6 @@ func (c *connection) sendFragmented(buf *lib.Buffer, order uint8) error {
 			l := len(c.pool)
 			if l == 0 {
 				c.pool_mutex.RUnlock()
-				lib.ReleaseBuffer(frag)
 				lib.ReleaseBuffer(buf)
 				return gen.ErrNoConnection
 			}
@@ -3418,8 +3462,7 @@ func (c *connection) sendFragmented(buf *lib.Buffer, order uint8) error {
 			c.pool_mutex.RUnlock()
 		}
 
-		_, err := pi.fl.Write(frag.B)
-		lib.ReleaseBuffer(frag)
+		_, err := pi.fl.Write(buf.B[hdr : hdr+16+chunkSize])
 		if err != nil {
 			pi.connection.Close()
 			lib.ReleaseBuffer(buf)
@@ -3427,6 +3470,7 @@ func (c *connection) sendFragmented(buf *lib.Buffer, order uint8) error {
 		}
 
 		atomic.AddUint64(&c.bytesOut, uint64(16+chunkSize))
+		offset += chunkSize
 	}
 
 	atomic.AddUint64(&c.messagesOut, 1)

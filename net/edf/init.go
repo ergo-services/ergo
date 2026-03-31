@@ -28,6 +28,11 @@ var (
 
 		gen.ApplicationDepends{},
 
+		gen.Tracing{},
+		gen.TracingFlags(0),
+		gen.TracingInfo{},
+		gen.TracingExporterInfo{},
+
 		gen.LoggerInfo{},
 		gen.ProcessFallback{},
 		gen.CronJobInfo{},

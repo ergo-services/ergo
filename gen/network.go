@@ -591,6 +591,11 @@ type RemoteNodeInfo struct {
 	// FragmentTimeouts is the total number of fragment assemblies that timed out.
 	FragmentTimeouts uint64
 
+	// TracedSent is the total number of messages sent with tracing wrapper.
+	TracedSent uint64
+	// TracedReceived is the total number of messages received with tracing wrapper.
+	TracedReceived uint64
+
 	// CompressedSent is the total number of messages compressed on send.
 	CompressedSent uint64
 	// CompressedBytesSent is the total bytes after compression (wire size).
