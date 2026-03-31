@@ -231,6 +231,26 @@ type ResponseDoSetLogLevel struct {
 	Error error
 }
 
+// do set tracing sampler and flags (node-level)
+
+type RequestDoSetNodeTracingSampler struct {
+	Sampler string
+}
+
+type RequestDoSetNodeTracingFlags struct {
+	Flags gen.TracingFlags
+}
+
+type RequestDoSetProcessTracingSampler struct {
+	PID     gen.PID
+	Sampler string
+}
+
+type RequestDoSetProcessTracingFlags struct {
+	PID   gen.PID
+	Flags gen.TracingFlags
+}
+
 // process
 type RequestDoSetProcessLogLevel struct {
 	PID   gen.PID
@@ -468,4 +488,25 @@ type MessageInspectApplicationTree struct {
 	Node        gen.Atom
 	Application gen.Atom
 	Processes   []gen.ProcessShortInfo
+}
+
+// tracing
+
+type RequestInspectTracing struct {
+	Flags          gen.TracingFlags
+	Limit          int
+	Kinds          uint32 // bitmask: 1=send, 2=request, 4=response, 8=spawn, 16=terminate
+	Points         uint32 // bitmask: 1=sent, 2=delivered, 4=processed
+	MessagePattern string
+	MessageExclude bool
+}
+
+type ResponseInspectTracing struct {
+	Event gen.Event
+}
+
+type MessageInspectTracing struct {
+	Node       gen.Atom
+	Spans      []gen.TracingSpan
+	Suppressed int64
 }

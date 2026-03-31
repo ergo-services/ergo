@@ -102,6 +102,10 @@ func (tp *TestProcess) Behavior() gen.ProcessBehavior {
 	return tp.behavior
 }
 
+func (tp *TestProcess) BehaviorName() string {
+	return ""
+}
+
 func (tp *TestProcess) State() gen.ProcessState {
 	return tp.state
 }

@@ -5,7 +5,6 @@ import (
 	"reflect"
 	"runtime"
 	"sort"
-	"strings"
 	"time"
 
 	"ergo.services/ergo/gen"
@@ -254,8 +253,7 @@ func (s *Supervisor) ProcessInit(process gen.Process, args ...any) (rr error) {
 	var ok bool
 
 	if s.behavior, ok = process.Behavior().(SupervisorBehavior); ok == false {
-		unknown := strings.TrimPrefix(reflect.TypeOf(process.Behavior()).String(), "*")
-		return fmt.Errorf("ProcessInit: not a SupervisorBehavior %s", unknown)
+		return fmt.Errorf("ProcessInit: not a SupervisorBehavior %s", process.BehaviorName())
 	}
 
 	s.Process = process
@@ -410,6 +408,11 @@ func (s *Supervisor) ProcessRun() (rr error) {
 		switch message.Type {
 
 		case gen.MailboxMessageTypeRegular:
+			messageHasTracing := message.Tracing.ID != [2]uint64{}
+			if messageHasTracing {
+				s.SetPropagatingTrace(message.Tracing)
+			}
+
 			var reason error
 			if s.handleChild {
 				switch m := message.Message.(type) {
@@ -425,14 +428,33 @@ func (s *Supervisor) ProcessRun() (rr error) {
 			}
 
 			if reason != nil {
+				s.sendSpanProcessed(message, gen.TracingKindSend, reason.Error())
 				action := s.sup.childTerminated(s.Name(), s.PID(), reason)
 				if err := s.handleAction(action); err != nil {
 					return err
 				}
+			} else {
+				s.sendSpanProcessed(message, gen.TracingKindSend, "")
+			}
+
+			if messageHasTracing {
+				s.SetPropagatingTrace(gen.Tracing{})
 			}
 
 		case gen.MailboxMessageTypeRequest:
+			messageHasTracing := message.Tracing.ID != [2]uint64{}
+			if messageHasTracing {
+				s.SetPropagatingTrace(message.Tracing)
+			}
+
 			result, reason := s.behavior.HandleCall(message.From, message.Ref, message.Message)
+
+			if reason != nil {
+				s.sendSpanProcessed(message, gen.TracingKindRequest, reason.Error())
+			} else {
+				s.sendSpanProcessed(message, gen.TracingKindRequest, "")
+			}
+
 			if result != nil {
 				s.SendResponse(message.From, message.Ref, result)
 			}
@@ -441,6 +463,10 @@ func (s *Supervisor) ProcessRun() (rr error) {
 				if err := s.handleAction(action); err != nil {
 					return err
 				}
+			}
+
+			if messageHasTracing {
+				s.SetPropagatingTrace(gen.Tracing{})
 			}
 
 		case gen.MailboxMessageTypeEvent:
@@ -754,4 +780,28 @@ func sortSupChild(c []supChild) []SupervisorChild {
 		children = append(children, child)
 	}
 	return children
+}
+
+func (s *Supervisor) sendSpanProcessed(message *gen.MailboxMessage, kind gen.TracingKind, errStr string) {
+	if message.Tracing.ID == [2]uint64{} {
+		return
+	}
+	var msgType string
+	if message.Message != nil {
+		msgType = reflect.TypeOf(message.Message).String()
+	}
+	s.SendTracingSpan(gen.TracingSpan{
+		TraceID:   message.Tracing.ID,
+		SpanID:    message.Tracing.SpanID,
+		Point:     gen.TracingPointProcessed,
+		Kind:      kind,
+		Timestamp: time.Now().UnixNano(),
+		Node:      s.Node().Name(),
+		From:      message.From,
+		To:        s.PID(),
+		Ref:       message.Ref,
+		Behavior:  s.BehaviorName(),
+		Message:   msgType,
+		Error:     errStr,
+	})
 }

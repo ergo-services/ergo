@@ -817,6 +817,10 @@ type NodeInfo struct {
 	// Indexed as: [0]=Trace, [1]=Debug, [2]=Info, [3]=Warning, [4]=Error, [5]=Panic
 	LogMessages [6]uint64
 
+	// TracingSpans contains cumulative tracing span counts by kind.
+	// Indexed as: [0]=Send, [1]=Request, [2]=Response, [3]=Spawn, [4]=Terminate
+	TracingSpans [5]uint64
+
 	// Cron contains cron scheduler information (jobs, schedule, next run).
 	Cron CronInfo
 

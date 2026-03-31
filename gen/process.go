@@ -781,6 +781,10 @@ type Process interface {
 	// Available in all states.
 	Behavior() ProcessBehavior
 
+	// BehaviorName returns the string name of the behavior type.
+	// Available in all states.
+	BehaviorName() string
+
 	// PropagatingTrace returns the current propagating trace context.
 	// Zero value means no active trace.
 	PropagatingTrace() Tracing

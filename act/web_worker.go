@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"reflect"
 	"runtime"
-	"strings"
 	"time"
 
 	"ergo.services/ergo/gen"
@@ -68,8 +67,7 @@ type WebWorker struct {
 func (w *WebWorker) ProcessInit(process gen.Process, args ...any) (rr error) {
 	var ok bool
 	if w.behavior, ok = process.Behavior().(WebWorkerBehavior); ok == false {
-		unknown := strings.TrimPrefix(reflect.TypeOf(process.Behavior()).String(), "*")
-		return fmt.Errorf("ProcessInit: not a WebWorkerBehavior %s", unknown)
+		return fmt.Errorf("ProcessInit: not a WebWorkerBehavior %s", process.BehaviorName())
 	}
 	w.Process = process
 	w.mailbox = process.Mailbox()
@@ -177,27 +175,10 @@ func (w *WebWorker) ProcessRun() (rr error) {
 				}
 				r.Done()
 				if reason != nil {
-					if messageHasTracing {
-						w.SendTracingSpan(gen.TracingSpan{
-							TraceID: message.Tracing.ID, SpanID: message.Tracing.SpanID,
-							Point: gen.TracingPointProcessed, Kind: gen.TracingKindSend,
-							Timestamp: time.Now().UnixNano(),
-							Node: w.Node().Name(), From: message.From, To: w.PID(),
-							Ref: message.Ref, Message: r.Request.Method + " " + r.Request.RequestURI,
-							Error: reason.Error(),
-						})
-					}
+					w.sendSpanProcessed(message, gen.TracingKindSend, r.Request.Method+" "+r.Request.RequestURI, reason.Error())
 					return reason
 				}
-				if messageHasTracing {
-					w.SendTracingSpan(gen.TracingSpan{
-						TraceID: message.Tracing.ID, SpanID: message.Tracing.SpanID,
-						Point: gen.TracingPointProcessed, Kind: gen.TracingKindSend,
-						Timestamp: time.Now().UnixNano(),
-						Node: w.Node().Name(), From: message.From, To: w.PID(),
-						Ref: message.Ref, Message: r.Request.Method + " " + r.Request.RequestURI,
-					})
-				}
+				w.sendSpanProcessed(message, gen.TracingKindSend, r.Request.Method+" "+r.Request.RequestURI, "")
 				if messageHasTracing && w.PropagatingTrace().ID == message.Tracing.ID {
 					w.SetPropagatingTrace(savedTracing)
 				}
@@ -205,34 +186,10 @@ func (w *WebWorker) ProcessRun() (rr error) {
 			}
 
 			if reason := w.behavior.HandleMessage(message.From, message.Message); reason != nil {
-				if messageHasTracing {
-					var msgType string
-					if message.Message != nil {
-						msgType = reflect.TypeOf(message.Message).String()
-					}
-					w.SendTracingSpan(gen.TracingSpan{
-						TraceID: message.Tracing.ID, SpanID: message.Tracing.SpanID,
-						Point: gen.TracingPointProcessed, Kind: gen.TracingKindSend,
-						Timestamp: time.Now().UnixNano(),
-						Node: w.Node().Name(), From: message.From, To: w.PID(),
-						Ref: message.Ref, Message: msgType, Error: reason.Error(),
-					})
-				}
+				w.sendSpanProcessed(message, gen.TracingKindSend, reflectMsgType(message.Message), reason.Error())
 				return reason
 			}
-			if messageHasTracing {
-				var msgType string
-				if message.Message != nil {
-					msgType = reflect.TypeOf(message.Message).String()
-				}
-				w.SendTracingSpan(gen.TracingSpan{
-					TraceID: message.Tracing.ID, SpanID: message.Tracing.SpanID,
-					Point: gen.TracingPointProcessed, Kind: gen.TracingKindSend,
-					Timestamp: time.Now().UnixNano(),
-					Node: w.Node().Name(), From: message.From, To: w.PID(),
-					Ref: message.Ref, Message: msgType,
-				})
-			}
+			w.sendSpanProcessed(message, gen.TracingKindSend, reflectMsgType(message.Message), "")
 			if messageHasTracing && w.PropagatingTrace().ID == message.Tracing.ID {
 				w.SetPropagatingTrace(savedTracing)
 			}
@@ -251,58 +208,23 @@ func (w *WebWorker) ProcessRun() (rr error) {
 
 			if reason != nil {
 				if reason == gen.TerminateReasonNormal && result != nil {
-					if messageHasTracing {
-						var msgType string
-						if message.Message != nil {
-							msgType = reflect.TypeOf(message.Message).String()
-						}
-						w.SendTracingSpan(gen.TracingSpan{
-							TraceID: message.Tracing.ID, SpanID: message.Tracing.SpanID,
-							Point: gen.TracingPointProcessed, Kind: gen.TracingKindRequest,
-							Timestamp: time.Now().UnixNano(),
-							Node: w.Node().Name(), From: message.From, To: w.PID(),
-							Ref: message.Ref, Message: msgType,
-						})
-					}
+					w.sendSpanProcessed(message, gen.TracingKindRequest, reflectMsgType(message.Message), "")
 					w.SendResponse(message.From, message.Ref, result)
 					return reason
 				}
-				if messageHasTracing {
-					var msgType string
-					if message.Message != nil {
-						msgType = reflect.TypeOf(message.Message).String()
-					}
-					w.SendTracingSpan(gen.TracingSpan{
-						TraceID: message.Tracing.ID, SpanID: message.Tracing.SpanID,
-						Point: gen.TracingPointProcessed, Kind: gen.TracingKindRequest,
-						Timestamp: time.Now().UnixNano(),
-						Node: w.Node().Name(), From: message.From, To: w.PID(),
-						Ref: message.Ref, Message: msgType, Error: reason.Error(),
-					})
-				}
+				w.sendSpanProcessed(message, gen.TracingKindRequest, reflectMsgType(message.Message), reason.Error())
 				return reason
 			}
 
 			if result == nil {
+				w.sendSpanProcessed(message, gen.TracingKindRequest, reflectMsgType(message.Message), "")
 				if messageHasTracing && w.PropagatingTrace().ID == message.Tracing.ID {
 					w.SetPropagatingTrace(savedTracing)
 				}
 				continue
 			}
 
-			if messageHasTracing {
-				var msgType string
-				if message.Message != nil {
-					msgType = reflect.TypeOf(message.Message).String()
-				}
-				w.SendTracingSpan(gen.TracingSpan{
-					TraceID: message.Tracing.ID, SpanID: message.Tracing.SpanID,
-					Point: gen.TracingPointProcessed, Kind: gen.TracingKindRequest,
-					Timestamp: time.Now().UnixNano(),
-					Node: w.Node().Name(), From: message.From, To: w.PID(),
-					Ref: message.Ref, Message: msgType,
-				})
-			}
+			w.sendSpanProcessed(message, gen.TracingKindRequest, reflectMsgType(message.Message), "")
 
 			w.SendResponse(message.From, message.Ref, result)
 			if messageHasTracing && w.PropagatingTrace().ID == message.Tracing.ID {
@@ -406,4 +328,31 @@ func (w *WebWorker) HandleOptions(from gen.PID, writer http.ResponseWriter, requ
 	w.Log().Warning("WebWorker.HandleOptions: unhandled request from %s for: %s", from, request.RequestURI)
 	http.Error(writer, "unhandled request", http.StatusNotImplemented)
 	return nil
+}
+
+func reflectMsgType(msg any) string {
+	if msg == nil {
+		return ""
+	}
+	return reflect.TypeOf(msg).String()
+}
+
+func (w *WebWorker) sendSpanProcessed(message *gen.MailboxMessage, kind gen.TracingKind, msgType string, errStr string) {
+	if message.Tracing.ID == [2]uint64{} {
+		return
+	}
+	w.SendTracingSpan(gen.TracingSpan{
+		TraceID:   message.Tracing.ID,
+		SpanID:    message.Tracing.SpanID,
+		Point:     gen.TracingPointProcessed,
+		Kind:      kind,
+		Timestamp: time.Now().UnixNano(),
+		Node:      w.Node().Name(),
+		From:      message.From,
+		To:        w.PID(),
+		Ref:       message.Ref,
+		Behavior:  w.BehaviorName(),
+		Message:   msgType,
+		Error:     errStr,
+	})
 }

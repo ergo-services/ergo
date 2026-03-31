@@ -559,10 +559,14 @@ func (p *process) SetPropagatingTrace(t gen.Tracing) {
 
 func (p *process) propagatingTrace() gen.Tracing {
 	if p.tracing.ID != [2]uint64{} {
-		return p.tracing
+		t := p.tracing
+		t.Behavior = p.sbehavior
+		return t
 	}
 	if p.tracingSampler != nil && p.tracingSampler.Sample() {
-		return p.node.MakeTraceID()
+		t := p.node.MakeTraceID()
+		t.Behavior = p.sbehavior
+		return t
 	}
 	return gen.Tracing{}
 }
@@ -1916,6 +1920,10 @@ func (p *process) Mailbox() gen.ProcessMailbox {
 
 func (p *process) Behavior() gen.ProcessBehavior {
 	return p.behavior
+}
+
+func (p *process) BehaviorName() string {
+	return p.sbehavior
 }
 
 func (p *process) SendTracingSpan(span gen.TracingSpan) {

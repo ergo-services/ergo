@@ -179,6 +179,20 @@ var (
 		inspect.RequestInspectHeap{},
 		inspect.ResponseInspectHeap{},
 		inspect.MessageInspectHeap{},
+
+		gen.TracingPoint(0),
+		gen.TracingKind(0),
+		gen.TracingFlags(0),
+		gen.TracingSpan{},
+
+		inspect.RequestInspectTracing{},
+		inspect.ResponseInspectTracing{},
+		inspect.MessageInspectTracing{},
+
+		inspect.RequestDoSetNodeTracingSampler{},
+		inspect.RequestDoSetNodeTracingFlags{},
+		inspect.RequestDoSetProcessTracingSampler{},
+		inspect.RequestDoSetProcessTracingFlags{},
 	}
 
 	// register standard errors of the Ergo Framework
