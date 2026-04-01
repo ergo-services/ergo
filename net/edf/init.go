@@ -30,6 +30,7 @@ var (
 
 		gen.Tracing{},
 		gen.TracingFlags(0),
+		gen.TracingAttribute{},
 		gen.TracingInfo{},
 		gen.TracingExporterInfo{},
 
@@ -180,7 +181,6 @@ var (
 		inspect.ResponseInspectHeap{},
 		inspect.MessageInspectHeap{},
 
-		gen.TracingAttribute{},
 		gen.TracingPoint(0),
 		gen.TracingKind(0),
 		gen.TracingFlags(0),
