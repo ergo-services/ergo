@@ -1974,6 +1974,19 @@ func (p *process) BehaviorName() string {
 }
 
 func (p *process) SetTracingAttribute(key, value string) {
+	if len(key) > 5 && key[:5] == "ergo." {
+		return
+	}
+	// COW: copy slice, overwrite existing key or append
+	for i, a := range p.tracingAttrs {
+		if a.Key == key {
+			attrs := make([]gen.TracingAttribute, len(p.tracingAttrs))
+			copy(attrs, p.tracingAttrs)
+			attrs[i] = gen.TracingAttribute{Key: key, Value: value}
+			p.tracingAttrs = attrs
+			return
+		}
+	}
 	attrs := make([]gen.TracingAttribute, len(p.tracingAttrs)+1)
 	copy(attrs, p.tracingAttrs)
 	attrs[len(attrs)-1] = gen.TracingAttribute{Key: key, Value: value}
@@ -1993,6 +2006,9 @@ func (p *process) RemoveTracingAttribute(key string) {
 }
 
 func (p *process) SetTracingSpanAttribute(key, value string) {
+	if len(key) > 5 && key[:5] == "ergo." {
+		return
+	}
 	p.tracingSpanAttrs = append(p.tracingSpanAttrs, gen.TracingAttribute{Key: key, Value: value})
 }
 

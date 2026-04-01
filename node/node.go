@@ -2420,6 +2420,18 @@ func matchTracingFlags(flags gen.TracingFlags, span gen.TracingSpan) bool {
 }
 
 func (n *node) SetTracingAttribute(key, value string) {
+	if len(key) > 5 && key[:5] == "ergo." {
+		return
+	}
+	for i, a := range n.tracingAttrs {
+		if a.Key == key {
+			attrs := make([]gen.TracingAttribute, len(n.tracingAttrs))
+			copy(attrs, n.tracingAttrs)
+			attrs[i] = gen.TracingAttribute{Key: key, Value: value}
+			n.tracingAttrs = attrs
+			return
+		}
+	}
 	attrs := make([]gen.TracingAttribute, len(n.tracingAttrs)+1)
 	copy(attrs, n.tracingAttrs)
 	attrs[len(attrs)-1] = gen.TracingAttribute{Key: key, Value: value}
