@@ -106,6 +106,12 @@ func (tp *TestProcess) BehaviorName() string {
 	return ""
 }
 
+func (tp *TestProcess) SetTracingAttribute(key, value string)    {}
+func (tp *TestProcess) RemoveTracingAttribute(key string)         {}
+func (tp *TestProcess) SetTracingSpanAttribute(key, value string) {}
+func (tp *TestProcess) TracingAttributes() []gen.TracingAttribute { return nil }
+func (tp *TestProcess) ClearTracingSpanAttributes()               {}
+
 func (tp *TestProcess) State() gen.ProcessState {
 	return tp.state
 }

@@ -332,18 +332,20 @@ func (p *Pool) sendSpanProcessed(message *gen.MailboxMessage, kind gen.TracingKi
 		msgType = reflect.TypeOf(message.Message).String()
 	}
 	p.SendTracingSpan(gen.TracingSpan{
-		TraceID:   message.Tracing.ID,
-		SpanID:    message.Tracing.SpanID,
-		Point:     gen.TracingPointProcessed,
-		Kind:      kind,
-		Timestamp: time.Now().UnixNano(),
-		Node:      p.Node().Name(),
-		From:      message.From,
-		To:        p.PID(),
-		Ref:       message.Ref,
-		Message:   msgType,
-		Error:     errStr,
+		TraceID:    message.Tracing.ID,
+		SpanID:     message.Tracing.SpanID,
+		Point:      gen.TracingPointProcessed,
+		Kind:       kind,
+		Timestamp:  time.Now().UnixNano(),
+		Node:       p.Node().Name(),
+		From:       message.From,
+		To:         p.PID(),
+		Ref:        message.Ref,
+		Message:    msgType,
+		Error:      errStr,
+		Attributes: p.TracingAttributes(),
 	})
+	p.ClearTracingSpanAttributes()
 }
 
 func (p *Pool) HandleInspect(from gen.PID, item ...string) map[string]string {

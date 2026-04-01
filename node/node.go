@@ -70,12 +70,12 @@ type node struct {
 	security    gen.SecurityOptions
 	certmanager gen.CertManager
 
-	corePID    gen.PID
-	nextID     uint64
-	uniqID     uint64
-	traceID    uint64
-	spanID     uint64
-	nameCRC32  uint64
+	corePID   gen.PID
+	nextID    uint64
+	uniqID    uint64
+	traceID   uint64
+	spanID    uint64
+	nameCRC32 uint64
 
 	processes sync.Map // process pid gen.PID -> *process
 	names     sync.Map // process name gen.Atom -> *process
@@ -120,8 +120,9 @@ type node struct {
 	callErrorsLocal  uint64
 	callErrorsRemote uint64
 
-	logMessages    [6]uint64 // atomic: 0=trace, 1=debug, 2=info, 3=warning, 4=error, 5=panic
-	tracingSpans   [5]uint64 // atomic: 0=send, 1=request, 2=response, 3=spawn, 4=terminate
+	logMessages  [6]uint64              // atomic: 0=trace, 1=debug, 2=info, 3=warning, 4=error, 5=panic
+	tracingSpans [5]uint64              // atomic: 0=send, 1=request, 2=response, 3=spawn, 4=terminate
+	tracingAttrs []gen.TracingAttribute // node-level permanent, COW
 }
 
 type tracingExporterEntry struct {
@@ -633,7 +634,6 @@ func (n *node) SetProcessLogLevel(pid gen.PID, level gen.LogLevel) error {
 	p := value.(*process)
 	return p.log.SetLevel(level)
 }
-
 
 func (n *node) SetProcessSendPriority(pid gen.PID, priority gen.MessagePriority) error {
 	if n.isRunning() == false {
@@ -1221,8 +1221,9 @@ func (n *node) SendWithPriority(to any, message any, priority gen.MessagePriorit
 		tracing.Behavior = "core"
 	}
 	options := gen.MessageOptions{
-		Priority: priority,
-		Tracing:  tracing,
+		Priority:          priority,
+		Tracing:           tracing,
+		TracingAttributes: n.tracingAttrs,
 	}
 
 	switch t := to.(type) {
@@ -1332,6 +1333,9 @@ func (n *node) callWithOptions(to any, request any, timeout int, options gen.Mes
 	if n.tracingSampler != nil && n.tracingSampler.Sample() {
 		options.Tracing = n.MakeTraceID()
 		options.Tracing.Behavior = "core"
+	}
+	if options.Tracing.ID != [2]uint64{} && len(n.tracingAttrs) > 0 {
+		options.TracingAttributes = n.tracingAttrs
 	}
 
 	switch t := to.(type) {
@@ -2415,6 +2419,25 @@ func matchTracingFlags(flags gen.TracingFlags, span gen.TracingSpan) bool {
 	return false
 }
 
+func (n *node) SetTracingAttribute(key, value string) {
+	attrs := make([]gen.TracingAttribute, len(n.tracingAttrs)+1)
+	copy(attrs, n.tracingAttrs)
+	attrs[len(attrs)-1] = gen.TracingAttribute{Key: key, Value: value}
+	n.tracingAttrs = attrs
+}
+
+func (n *node) RemoveTracingAttribute(key string) {
+	for i, a := range n.tracingAttrs {
+		if a.Key == key {
+			attrs := make([]gen.TracingAttribute, len(n.tracingAttrs)-1)
+			copy(attrs, n.tracingAttrs[:i])
+			copy(attrs[i:], n.tracingAttrs[i+1:])
+			n.tracingAttrs = attrs
+			return
+		}
+	}
+}
+
 func (n *node) SetTracingSampler(sampler gen.TracingSampler) error {
 	if n.isRunning() == false {
 		return gen.ErrNodeTerminated
@@ -2711,9 +2734,9 @@ func (n *node) spawn(factory gen.ProcessFactory, options gen.ProcessOptionsExtra
 		n.sendTracingSpan(gen.TracingSpan{
 			TraceID: options.Tracing.ID, SpanID: spawnSpanID,
 			ParentSpanID: parentSpanID,
-			Point: gen.TracingPointSent, Kind: gen.TracingKindSpawn,
+			Point:        gen.TracingPointSent, Kind: gen.TracingKindSpawn,
 			Timestamp: time.Now().UnixNano(),
-			Node: n.name, From: options.ParentPID, To: pid,
+			Node:      n.name, From: options.ParentPID, To: pid,
 			Behavior: options.Tracing.Behavior,
 		})
 	}
@@ -2797,9 +2820,9 @@ func (n *node) spawn(factory gen.ProcessFactory, options gen.ProcessOptionsExtra
 			n.sendTracingSpan(gen.TracingSpan{
 				TraceID: options.Tracing.ID, SpanID: spawnSpanID,
 				ParentSpanID: parentSpanID,
-				Point: gen.TracingPointProcessed, Kind: gen.TracingKindSpawn,
+				Point:        gen.TracingPointProcessed, Kind: gen.TracingKindSpawn,
 				Timestamp: time.Now().UnixNano(),
-				Node: n.name, From: options.ParentPID, To: pid,
+				Node:      n.name, From: options.ParentPID, To: pid,
 				Behavior: p.sbehavior, Error: initErr.Error(),
 			})
 		}
@@ -2824,9 +2847,9 @@ func (n *node) spawn(factory gen.ProcessFactory, options gen.ProcessOptionsExtra
 		n.sendTracingSpan(gen.TracingSpan{
 			TraceID: options.Tracing.ID, SpanID: spawnSpanID,
 			ParentSpanID: parentSpanID,
-			Point: gen.TracingPointProcessed, Kind: gen.TracingKindSpawn,
+			Point:        gen.TracingPointProcessed, Kind: gen.TracingKindSpawn,
 			Timestamp: time.Now().UnixNano(),
-			Node: n.name, From: options.ParentPID, To: pid,
+			Node:      n.name, From: options.ParentPID, To: pid,
 			Behavior: p.sbehavior,
 		})
 	}
@@ -2863,9 +2886,9 @@ func (n *node) cleanupProcess(p *process, reason error) {
 		n.sendTracingSpan(gen.TracingSpan{
 			TraceID: p.tracing.ID, SpanID: atomic.AddUint64(&n.spanID, 1),
 			ParentSpanID: p.tracing.SpanID,
-			Point: gen.TracingPointProcessed, Kind: gen.TracingKindTerminate,
+			Point:        gen.TracingPointProcessed, Kind: gen.TracingKindTerminate,
 			Timestamp: time.Now().UnixNano(),
-			Node: n.name, From: p.pid, To: p.pid,
+			Node:      n.name, From: p.pid, To: p.pid,
 			Behavior: p.sbehavior, Error: errString,
 		})
 	}

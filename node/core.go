@@ -52,10 +52,11 @@ func (n *node) RouteSendPID(from gen.PID, to gen.PID, options gen.MessageOptions
 			n.sendTracingSpan(gen.TracingSpan{
 				TraceID: options.Tracing.ID, SpanID: options.Tracing.SpanID,
 				ParentSpanID: parentSpanID,
-				Point: gen.TracingPointSent, Kind: gen.TracingKindSend,
+				Point:        gen.TracingPointSent, Kind: gen.TracingKindSend,
 				Timestamp: time.Now().UnixNano(),
-				Node: n.name, From: from, To: to,
+				Node:      n.name, From: from, To: to,
 				Ref: options.Ref, Behavior: fromBehavior, Message: msgType,
+				Attributes: options.TracingAttributes,
 			})
 		}
 		return nil
@@ -120,17 +121,19 @@ func (n *node) RouteSendPID(from gen.PID, to gen.PID, options gen.MessageOptions
 			n.sendTracingSpan(gen.TracingSpan{
 				TraceID: options.Tracing.ID, SpanID: qm.Tracing.SpanID,
 				ParentSpanID: parentSpanID,
-				Point: gen.TracingPointSent, Kind: gen.TracingKindSend,
+				Point:        gen.TracingPointSent, Kind: gen.TracingKindSend,
 				Timestamp: nanos, Node: n.name, From: from, To: to,
 				Ref: options.Ref, Behavior: fromBehavior, Message: msgType,
+				Attributes: options.TracingAttributes,
 			})
 		}
 		n.sendTracingSpan(gen.TracingSpan{
 			TraceID: options.Tracing.ID, SpanID: qm.Tracing.SpanID,
 			ParentSpanID: parentSpanID,
-			Point: gen.TracingPointDelivered, Kind: gen.TracingKindSend,
+			Point:        gen.TracingPointDelivered, Kind: gen.TracingKindSend,
 			Timestamp: nanos, Node: n.name, From: from, To: to,
 			Ref: options.Ref, Behavior: p.sbehavior, Message: msgType,
+			Attributes: p.tracingAttrs,
 		})
 	}
 
@@ -183,10 +186,11 @@ func (n *node) RouteSendProcessID(from gen.PID, to gen.ProcessID, options gen.Me
 			n.sendTracingSpan(gen.TracingSpan{
 				TraceID: options.Tracing.ID, SpanID: options.Tracing.SpanID,
 				ParentSpanID: parentSpanID,
-				Point: gen.TracingPointSent, Kind: gen.TracingKindSend,
+				Point:        gen.TracingPointSent, Kind: gen.TracingKindSend,
 				Timestamp: time.Now().UnixNano(),
-				Node: n.name, From: from, To: to,
+				Node:      n.name, From: from, To: to,
 				Ref: options.Ref, Behavior: fromBehavior, Message: msgType,
+				Attributes: options.TracingAttributes,
 			})
 		}
 		return nil
@@ -251,17 +255,19 @@ func (n *node) RouteSendProcessID(from gen.PID, to gen.ProcessID, options gen.Me
 			n.sendTracingSpan(gen.TracingSpan{
 				TraceID: options.Tracing.ID, SpanID: qm.Tracing.SpanID,
 				ParentSpanID: parentSpanID,
-				Point: gen.TracingPointSent, Kind: gen.TracingKindSend,
+				Point:        gen.TracingPointSent, Kind: gen.TracingKindSend,
 				Timestamp: nanos, Node: n.name, From: from, To: to,
 				Ref: options.Ref, Behavior: fromBehavior, Message: msgType,
+				Attributes: options.TracingAttributes,
 			})
 		}
 		n.sendTracingSpan(gen.TracingSpan{
 			TraceID: options.Tracing.ID, SpanID: qm.Tracing.SpanID,
 			ParentSpanID: parentSpanID,
-			Point: gen.TracingPointDelivered, Kind: gen.TracingKindSend,
+			Point:        gen.TracingPointDelivered, Kind: gen.TracingKindSend,
 			Timestamp: nanos, Node: n.name, From: from, To: to,
 			Ref: options.Ref, Behavior: p.sbehavior, Message: msgType,
+			Attributes: p.tracingAttrs,
 		})
 	}
 
@@ -310,10 +316,11 @@ func (n *node) RouteSendAlias(from gen.PID, to gen.Alias, options gen.MessageOpt
 			n.sendTracingSpan(gen.TracingSpan{
 				TraceID: options.Tracing.ID, SpanID: options.Tracing.SpanID,
 				ParentSpanID: parentSpanID,
-				Point: gen.TracingPointSent, Kind: gen.TracingKindSend,
+				Point:        gen.TracingPointSent, Kind: gen.TracingKindSend,
 				Timestamp: time.Now().UnixNano(),
-				Node: n.name, From: from, To: to,
+				Node:      n.name, From: from, To: to,
 				Ref: options.Ref, Behavior: fromBehavior, Message: msgType,
+				Attributes: options.TracingAttributes,
 			})
 		}
 		return nil
@@ -356,17 +363,19 @@ func (n *node) RouteSendAlias(from gen.PID, to gen.Alias, options gen.MessageOpt
 				n.sendTracingSpan(gen.TracingSpan{
 					TraceID: options.Tracing.ID, SpanID: qm.Tracing.SpanID,
 					ParentSpanID: parentSpanID,
-					Point: gen.TracingPointSent, Kind: gen.TracingKindSend,
+					Point:        gen.TracingPointSent, Kind: gen.TracingKindSend,
 					Timestamp: nanos, Node: n.name, From: from, To: to,
 					Ref: options.Ref, Behavior: fromBehavior, Message: msgType,
+					Attributes: options.TracingAttributes,
 				})
 			}
 			n.sendTracingSpan(gen.TracingSpan{
 				TraceID: options.Tracing.ID, SpanID: qm.Tracing.SpanID,
 				ParentSpanID: parentSpanID,
-				Point: gen.TracingPointDelivered, Kind: gen.TracingKindSend,
+				Point:        gen.TracingPointDelivered, Kind: gen.TracingKindSend,
 				Timestamp: nanos, Node: n.name, From: from, To: to,
 				Ref: options.Ref, Behavior: p.sbehavior, Message: msgType,
+				Attributes: p.tracingAttrs,
 			})
 		}
 		m.handle()
@@ -410,17 +419,19 @@ func (n *node) RouteSendAlias(from gen.PID, to gen.Alias, options gen.MessageOpt
 			n.sendTracingSpan(gen.TracingSpan{
 				TraceID: options.Tracing.ID, SpanID: qm.Tracing.SpanID,
 				ParentSpanID: parentSpanID,
-				Point: gen.TracingPointSent, Kind: gen.TracingKindSend,
+				Point:        gen.TracingPointSent, Kind: gen.TracingKindSend,
 				Timestamp: nanos, Node: n.name, From: from, To: to,
 				Ref: options.Ref, Behavior: fromBehavior, Message: msgType,
+				Attributes: options.TracingAttributes,
 			})
 		}
 		n.sendTracingSpan(gen.TracingSpan{
 			TraceID: options.Tracing.ID, SpanID: qm.Tracing.SpanID,
 			ParentSpanID: parentSpanID,
-			Point: gen.TracingPointDelivered, Kind: gen.TracingKindSend,
+			Point:        gen.TracingPointDelivered, Kind: gen.TracingKindSend,
 			Timestamp: nanos, Node: n.name, From: from, To: to,
 			Ref: options.Ref, Behavior: p.sbehavior, Message: msgType,
+			Attributes: p.tracingAttrs,
 		})
 	}
 
@@ -506,10 +517,11 @@ func (n *node) RouteSendResponse(from gen.PID, to gen.PID, options gen.MessageOp
 			n.sendTracingSpan(gen.TracingSpan{
 				TraceID: options.Tracing.ID, SpanID: options.Tracing.SpanID,
 				ParentSpanID: parentSpanID,
-				Point: gen.TracingPointSent, Kind: gen.TracingKindResponse,
+				Point:        gen.TracingPointSent, Kind: gen.TracingKindResponse,
 				Timestamp: time.Now().UnixNano(),
-				Node: n.name, From: from, To: to,
+				Node:      n.name, From: from, To: to,
 				Ref: options.Ref, Behavior: fromBehavior, Message: msgType,
+				Attributes: options.TracingAttributes,
 			})
 		}
 		return nil
@@ -535,17 +547,19 @@ func (n *node) RouteSendResponse(from gen.PID, to gen.PID, options gen.MessageOp
 						n.sendTracingSpan(gen.TracingSpan{
 							TraceID: options.Tracing.ID, SpanID: spanID,
 							ParentSpanID: parentSpanID,
-							Point: gen.TracingPointSent, Kind: gen.TracingKindResponse,
+							Point:        gen.TracingPointSent, Kind: gen.TracingKindResponse,
 							Timestamp: nanos, Node: n.name, From: from, To: to,
 							Ref: options.Ref, Behavior: fromBehavior, Message: msgType,
+							Attributes: options.TracingAttributes,
 						})
 					}
 					n.sendTracingSpan(gen.TracingSpan{
 						TraceID: options.Tracing.ID, SpanID: spanID,
 						ParentSpanID: parentSpanID,
-						Point: gen.TracingPointDelivered, Kind: gen.TracingKindResponse,
+						Point:        gen.TracingPointDelivered, Kind: gen.TracingKindResponse,
 						Timestamp: nanos, Node: n.name, From: from, To: to,
 						Ref: options.Ref, Behavior: fromBehavior, Message: msgType,
+						Attributes: options.TracingAttributes,
 					})
 				}
 				return nil
@@ -582,17 +596,19 @@ func (n *node) RouteSendResponse(from gen.PID, to gen.PID, options gen.MessageOp
 				n.sendTracingSpan(gen.TracingSpan{
 					TraceID: options.Tracing.ID, SpanID: spanID,
 					ParentSpanID: parentSpanID,
-					Point: gen.TracingPointSent, Kind: gen.TracingKindResponse,
+					Point:        gen.TracingPointSent, Kind: gen.TracingKindResponse,
 					Timestamp: nanos, Node: n.name, From: from, To: to,
 					Ref: options.Ref, Behavior: fromBehavior, Message: msgType,
+					Attributes: options.TracingAttributes,
 				})
 			}
 			n.sendTracingSpan(gen.TracingSpan{
 				TraceID: options.Tracing.ID, SpanID: spanID,
 				ParentSpanID: parentSpanID,
-				Point: gen.TracingPointDelivered, Kind: gen.TracingKindResponse,
+				Point:        gen.TracingPointDelivered, Kind: gen.TracingKindResponse,
 				Timestamp: nanos, Node: n.name, From: from, To: to,
 				Ref: options.Ref, Behavior: p.sbehavior, Message: msgType,
+				Attributes: p.tracingAttrs,
 			})
 		}
 		return nil
@@ -640,10 +656,11 @@ func (n *node) RouteSendResponseError(from gen.PID, to gen.PID, options gen.Mess
 			n.sendTracingSpan(gen.TracingSpan{
 				TraceID: options.Tracing.ID, SpanID: options.Tracing.SpanID,
 				ParentSpanID: parentSpanID,
-				Point: gen.TracingPointSent, Kind: gen.TracingKindResponse,
+				Point:        gen.TracingPointSent, Kind: gen.TracingKindResponse,
 				Timestamp: time.Now().UnixNano(),
-				Node: n.name, From: from, To: to,
+				Node:      n.name, From: from, To: to,
 				Ref: options.Ref, Behavior: fromBehavior, Message: msgType, Error: errString,
+				Attributes: options.TracingAttributes,
 			})
 		}
 		return nil
@@ -669,17 +686,19 @@ func (n *node) RouteSendResponseError(from gen.PID, to gen.PID, options gen.Mess
 						n.sendTracingSpan(gen.TracingSpan{
 							TraceID: options.Tracing.ID, SpanID: spanID,
 							ParentSpanID: parentSpanID,
-							Point: gen.TracingPointSent, Kind: gen.TracingKindResponse,
+							Point:        gen.TracingPointSent, Kind: gen.TracingKindResponse,
 							Timestamp: nanos, Node: n.name, From: from, To: to,
 							Ref: options.Ref, Behavior: fromBehavior, Message: msgType, Error: errString,
+							Attributes: options.TracingAttributes,
 						})
 					}
 					n.sendTracingSpan(gen.TracingSpan{
 						TraceID: options.Tracing.ID, SpanID: spanID,
 						ParentSpanID: parentSpanID,
-						Point: gen.TracingPointDelivered, Kind: gen.TracingKindResponse,
+						Point:        gen.TracingPointDelivered, Kind: gen.TracingKindResponse,
 						Timestamp: nanos, Node: n.name, From: from, To: to,
 						Ref: options.Ref, Behavior: fromBehavior, Message: msgType, Error: errString,
+						Attributes: options.TracingAttributes,
 					})
 				}
 				return nil
@@ -715,17 +734,19 @@ func (n *node) RouteSendResponseError(from gen.PID, to gen.PID, options gen.Mess
 				n.sendTracingSpan(gen.TracingSpan{
 					TraceID: options.Tracing.ID, SpanID: spanID,
 					ParentSpanID: parentSpanID,
-					Point: gen.TracingPointSent, Kind: gen.TracingKindResponse,
+					Point:        gen.TracingPointSent, Kind: gen.TracingKindResponse,
 					Timestamp: nanos, Node: n.name, From: from, To: to,
 					Ref: options.Ref, Behavior: fromBehavior, Message: msgType, Error: errString,
+					Attributes: options.TracingAttributes,
 				})
 			}
 			n.sendTracingSpan(gen.TracingSpan{
 				TraceID: options.Tracing.ID, SpanID: spanID,
 				ParentSpanID: parentSpanID,
-				Point: gen.TracingPointDelivered, Kind: gen.TracingKindResponse,
+				Point:        gen.TracingPointDelivered, Kind: gen.TracingKindResponse,
 				Timestamp: nanos, Node: n.name, From: from, To: to,
 				Ref: options.Ref, Behavior: p.sbehavior, Message: msgType, Error: errString,
+				Attributes: p.tracingAttrs,
 			})
 		}
 		return nil
@@ -779,10 +800,11 @@ func (n *node) RouteCallPID(from gen.PID, to gen.PID, options gen.MessageOptions
 			n.sendTracingSpan(gen.TracingSpan{
 				TraceID: options.Tracing.ID, SpanID: options.Tracing.SpanID,
 				ParentSpanID: parentSpanID,
-				Point: gen.TracingPointSent, Kind: gen.TracingKindRequest,
+				Point:        gen.TracingPointSent, Kind: gen.TracingKindRequest,
 				Timestamp: time.Now().UnixNano(),
-				Node: n.name, From: from, To: to,
+				Node:      n.name, From: from, To: to,
 				Ref: options.Ref, Behavior: fromBehavior, Message: msgType,
+				Attributes: options.TracingAttributes,
 			})
 		}
 		return nil
@@ -832,17 +854,19 @@ func (n *node) RouteCallPID(from gen.PID, to gen.PID, options gen.MessageOptions
 			n.sendTracingSpan(gen.TracingSpan{
 				TraceID: options.Tracing.ID, SpanID: qm.Tracing.SpanID,
 				ParentSpanID: parentSpanID,
-				Point: gen.TracingPointSent, Kind: gen.TracingKindRequest,
+				Point:        gen.TracingPointSent, Kind: gen.TracingKindRequest,
 				Timestamp: nanos, Node: n.name, From: from, To: to,
 				Ref: options.Ref, Behavior: fromBehavior, Message: msgType,
+				Attributes: options.TracingAttributes,
 			})
 		}
 		n.sendTracingSpan(gen.TracingSpan{
 			TraceID: options.Tracing.ID, SpanID: qm.Tracing.SpanID,
 			ParentSpanID: parentSpanID,
-			Point: gen.TracingPointDelivered, Kind: gen.TracingKindRequest,
+			Point:        gen.TracingPointDelivered, Kind: gen.TracingKindRequest,
 			Timestamp: nanos, Node: n.name, From: from, To: to,
 			Ref: options.Ref, Behavior: p.sbehavior, Message: msgType,
+			Attributes: p.tracingAttrs,
 		})
 	}
 
@@ -890,10 +914,11 @@ func (n *node) RouteCallProcessID(from gen.PID, to gen.ProcessID, options gen.Me
 			n.sendTracingSpan(gen.TracingSpan{
 				TraceID: options.Tracing.ID, SpanID: options.Tracing.SpanID,
 				ParentSpanID: parentSpanID,
-				Point: gen.TracingPointSent, Kind: gen.TracingKindRequest,
+				Point:        gen.TracingPointSent, Kind: gen.TracingKindRequest,
 				Timestamp: time.Now().UnixNano(),
-				Node: n.name, From: from, To: to,
+				Node:      n.name, From: from, To: to,
 				Ref: options.Ref, Behavior: fromBehavior, Message: msgType,
+				Attributes: options.TracingAttributes,
 			})
 		}
 		return nil
@@ -942,17 +967,19 @@ func (n *node) RouteCallProcessID(from gen.PID, to gen.ProcessID, options gen.Me
 			n.sendTracingSpan(gen.TracingSpan{
 				TraceID: options.Tracing.ID, SpanID: qm.Tracing.SpanID,
 				ParentSpanID: parentSpanID,
-				Point: gen.TracingPointSent, Kind: gen.TracingKindRequest,
+				Point:        gen.TracingPointSent, Kind: gen.TracingKindRequest,
 				Timestamp: nanos, Node: n.name, From: from, To: to,
 				Ref: options.Ref, Behavior: fromBehavior, Message: msgType,
+				Attributes: options.TracingAttributes,
 			})
 		}
 		n.sendTracingSpan(gen.TracingSpan{
 			TraceID: options.Tracing.ID, SpanID: qm.Tracing.SpanID,
 			ParentSpanID: parentSpanID,
-			Point: gen.TracingPointDelivered, Kind: gen.TracingKindRequest,
+			Point:        gen.TracingPointDelivered, Kind: gen.TracingKindRequest,
 			Timestamp: nanos, Node: n.name, From: from, To: to,
 			Ref: options.Ref, Behavior: p.sbehavior, Message: msgType,
+			Attributes: p.tracingAttrs,
 		})
 	}
 
@@ -1001,10 +1028,11 @@ func (n *node) RouteCallAlias(from gen.PID, to gen.Alias, options gen.MessageOpt
 			n.sendTracingSpan(gen.TracingSpan{
 				TraceID: options.Tracing.ID, SpanID: options.Tracing.SpanID,
 				ParentSpanID: parentSpanID,
-				Point: gen.TracingPointSent, Kind: gen.TracingKindRequest,
+				Point:        gen.TracingPointSent, Kind: gen.TracingKindRequest,
 				Timestamp: time.Now().UnixNano(),
-				Node: n.name, From: from, To: to,
+				Node:      n.name, From: from, To: to,
 				Ref: options.Ref, Behavior: fromBehavior, Message: msgType,
+				Attributes: options.TracingAttributes,
 			})
 		}
 		return nil
@@ -1047,17 +1075,19 @@ func (n *node) RouteCallAlias(from gen.PID, to gen.Alias, options gen.MessageOpt
 				n.sendTracingSpan(gen.TracingSpan{
 					TraceID: options.Tracing.ID, SpanID: qm.Tracing.SpanID,
 					ParentSpanID: parentSpanID,
-					Point: gen.TracingPointSent, Kind: gen.TracingKindRequest,
+					Point:        gen.TracingPointSent, Kind: gen.TracingKindRequest,
 					Timestamp: nanos, Node: n.name, From: from, To: to,
 					Ref: options.Ref, Behavior: fromBehavior, Message: msgType,
+					Attributes: options.TracingAttributes,
 				})
 			}
 			n.sendTracingSpan(gen.TracingSpan{
 				TraceID: options.Tracing.ID, SpanID: qm.Tracing.SpanID,
 				ParentSpanID: parentSpanID,
-				Point: gen.TracingPointDelivered, Kind: gen.TracingKindRequest,
+				Point:        gen.TracingPointDelivered, Kind: gen.TracingKindRequest,
 				Timestamp: nanos, Node: n.name, From: from, To: to,
 				Ref: options.Ref, Behavior: p.sbehavior, Message: msgType,
+				Attributes: p.tracingAttrs,
 			})
 		}
 		m.handle()
@@ -1084,17 +1114,19 @@ func (n *node) RouteCallAlias(from gen.PID, to gen.Alias, options gen.MessageOpt
 			n.sendTracingSpan(gen.TracingSpan{
 				TraceID: options.Tracing.ID, SpanID: qm.Tracing.SpanID,
 				ParentSpanID: parentSpanID,
-				Point: gen.TracingPointSent, Kind: gen.TracingKindRequest,
+				Point:        gen.TracingPointSent, Kind: gen.TracingKindRequest,
 				Timestamp: nanos, Node: n.name, From: from, To: to,
 				Ref: options.Ref, Behavior: fromBehavior, Message: msgType,
+				Attributes: options.TracingAttributes,
 			})
 		}
 		n.sendTracingSpan(gen.TracingSpan{
 			TraceID: options.Tracing.ID, SpanID: qm.Tracing.SpanID,
 			ParentSpanID: parentSpanID,
-			Point: gen.TracingPointDelivered, Kind: gen.TracingKindRequest,
+			Point:        gen.TracingPointDelivered, Kind: gen.TracingKindRequest,
 			Timestamp: nanos, Node: n.name, From: from, To: to,
 			Ref: options.Ref, Behavior: p.sbehavior, Message: msgType,
+			Attributes: p.tracingAttrs,
 		})
 	}
 

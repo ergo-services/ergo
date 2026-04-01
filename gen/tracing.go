@@ -34,42 +34,51 @@ type TracingSpan struct {
 	Timestamp    int64 // wall clock unix nanoseconds
 	Node         Atom
 	From         PID
-	To           any    // PID, ProcessID, or Alias
+	To           any // PID, ProcessID, or Alias
 	Ref          Ref
-	Behavior     string // behavior name of the emitting process
-	Message      string // type name of the message
-	Error        string // empty = no error
+	Behavior     string             // behavior name of the emitting process
+	Message      string             // type name of the message
+	Error        string             // empty = no error
+	Attributes   []TracingAttribute // custom attributes, nil = none
+}
+
+// TracingAttribute is a key-value pair attached to a tracing span.
+type TracingAttribute struct {
+	Key   string
+	Value string
 }
 
 func (ts TracingSpan) MarshalJSON() ([]byte, error) {
 	type alias struct {
-		TraceID      string       `json:"TraceID"`
-		SpanID       string       `json:"SpanID"`
-		ParentSpanID string       `json:"ParentSpanID,omitempty"`
-		Point        TracingPoint `json:"Point"`
-		Kind         TracingKind  `json:"Kind"`
-		Timestamp    int64        `json:"Timestamp"`
-		Node         Atom         `json:"Node"`
-		From         PID          `json:"From"`
-		To           any          `json:"To"`
-		Ref          Ref          `json:"Ref"`
-		Behavior     string       `json:"Behavior,omitempty"`
-		Message      string       `json:"Message"`
-		Error        string       `json:"Error,omitempty"`
+		TraceID      string             `json:"TraceID"`
+		SpanID       string             `json:"SpanID"`
+		ParentSpanID string             `json:"ParentSpanID,omitempty"`
+		Point        TracingPoint       `json:"Point"`
+		Kind         TracingKind        `json:"Kind"`
+		Timestamp    int64              `json:"Timestamp"`
+		Node         Atom               `json:"Node"`
+		From         PID                `json:"From"`
+		To           any                `json:"To"`
+		Ref          Ref                `json:"Ref"`
+		Behavior     string             `json:"Behavior,omitempty"`
+		Message      string             `json:"Message"`
+		Error        string             `json:"Error,omitempty"`
+		Attributes   []TracingAttribute `json:"Attributes,omitempty"`
 	}
 	a := alias{
-		TraceID:   fmt.Sprintf("%016x%016x", ts.TraceID[0], ts.TraceID[1]),
-		SpanID:    fmt.Sprintf("%016x", ts.SpanID),
-		Point:     ts.Point,
-		Kind:      ts.Kind,
-		Timestamp: ts.Timestamp,
-		Node:      ts.Node,
-		From:      ts.From,
-		To:        ts.To,
-		Ref:       ts.Ref,
-		Behavior:  ts.Behavior,
-		Message:   ts.Message,
-		Error:     ts.Error,
+		TraceID:    fmt.Sprintf("%016x%016x", ts.TraceID[0], ts.TraceID[1]),
+		SpanID:     fmt.Sprintf("%016x", ts.SpanID),
+		Point:      ts.Point,
+		Kind:       ts.Kind,
+		Timestamp:  ts.Timestamp,
+		Node:       ts.Node,
+		From:       ts.From,
+		To:         ts.To,
+		Ref:        ts.Ref,
+		Behavior:   ts.Behavior,
+		Message:    ts.Message,
+		Error:      ts.Error,
+		Attributes: ts.Attributes,
 	}
 	if ts.ParentSpanID != 0 {
 		a.ParentSpanID = fmt.Sprintf("%016x", ts.ParentSpanID)

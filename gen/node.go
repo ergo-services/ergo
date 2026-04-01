@@ -515,6 +515,12 @@ type Node interface {
 	// Available in: Running state only.
 	SetTracingSampler(sampler TracingSampler) error
 
+	// SetTracingAttribute sets a permanent tracing attribute on the node.
+	SetTracingAttribute(key, value string)
+
+	// RemoveTracingAttribute removes a permanent tracing attribute from the node.
+	RemoveTracingAttribute(key string)
+
 	// TracingSampler returns the current tracing sampler for the node.
 	// Available in all states.
 	TracingSampler() TracingSampler

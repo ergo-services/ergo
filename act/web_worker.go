@@ -342,17 +342,19 @@ func (w *WebWorker) sendSpanProcessed(message *gen.MailboxMessage, kind gen.Trac
 		return
 	}
 	w.SendTracingSpan(gen.TracingSpan{
-		TraceID:   message.Tracing.ID,
-		SpanID:    message.Tracing.SpanID,
-		Point:     gen.TracingPointProcessed,
-		Kind:      kind,
-		Timestamp: time.Now().UnixNano(),
-		Node:      w.Node().Name(),
-		From:      message.From,
-		To:        w.PID(),
-		Ref:       message.Ref,
-		Behavior:  w.BehaviorName(),
-		Message:   msgType,
-		Error:     errStr,
+		TraceID:    message.Tracing.ID,
+		SpanID:     message.Tracing.SpanID,
+		Point:      gen.TracingPointProcessed,
+		Kind:       kind,
+		Timestamp:  time.Now().UnixNano(),
+		Node:       w.Node().Name(),
+		From:       message.From,
+		To:         w.PID(),
+		Ref:        message.Ref,
+		Behavior:   w.BehaviorName(),
+		Message:    msgType,
+		Error:      errStr,
+		Attributes: w.TracingAttributes(),
 	})
+	w.ClearTracingSpanAttributes()
 }

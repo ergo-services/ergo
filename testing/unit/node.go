@@ -725,6 +725,9 @@ func (tn *TestNode) SetTracingSampler(sampler gen.TracingSampler) error {
 	return nil
 }
 
+func (tn *TestNode) SetTracingAttribute(key, value string) {}
+func (tn *TestNode) RemoveTracingAttribute(key string)      {}
+
 func (tn *TestNode) TracingSampler() gen.TracingSampler {
 	return gen.TracingSamplerDisable
 }

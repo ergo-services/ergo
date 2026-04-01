@@ -791,17 +791,19 @@ func (s *Supervisor) sendSpanProcessed(message *gen.MailboxMessage, kind gen.Tra
 		msgType = reflect.TypeOf(message.Message).String()
 	}
 	s.SendTracingSpan(gen.TracingSpan{
-		TraceID:   message.Tracing.ID,
-		SpanID:    message.Tracing.SpanID,
-		Point:     gen.TracingPointProcessed,
-		Kind:      kind,
-		Timestamp: time.Now().UnixNano(),
-		Node:      s.Node().Name(),
-		From:      message.From,
-		To:        s.PID(),
-		Ref:       message.Ref,
-		Behavior:  s.BehaviorName(),
-		Message:   msgType,
-		Error:     errStr,
+		TraceID:    message.Tracing.ID,
+		SpanID:     message.Tracing.SpanID,
+		Point:      gen.TracingPointProcessed,
+		Kind:       kind,
+		Timestamp:  time.Now().UnixNano(),
+		Node:       s.Node().Name(),
+		From:       message.From,
+		To:         s.PID(),
+		Ref:        message.Ref,
+		Behavior:   s.BehaviorName(),
+		Message:    msgType,
+		Error:      errStr,
+		Attributes: s.TracingAttributes(),
 	})
+	s.ClearTracingSpanAttributes()
 }

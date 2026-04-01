@@ -180,6 +180,7 @@ var (
 		inspect.ResponseInspectHeap{},
 		inspect.MessageInspectHeap{},
 
+		gen.TracingAttribute{},
 		gen.TracingPoint(0),
 		gen.TracingKind(0),
 		gen.TracingFlags(0),

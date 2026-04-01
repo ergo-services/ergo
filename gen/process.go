@@ -794,6 +794,26 @@ type Process interface {
 	// during message handling (save/restore around handler calls).
 	SetPropagatingTrace(t Tracing)
 
+	// SetTracingAttribute sets a permanent tracing attribute on this process.
+	// Permanent attributes are included in every span emitted by this process.
+	// Uses copy-on-write: safe for concurrent readers (exporters).
+	SetTracingAttribute(key, value string)
+
+	// RemoveTracingAttribute removes a permanent tracing attribute.
+	RemoveTracingAttribute(key string)
+
+	// SetTracingSpanAttribute sets a one-shot tracing attribute for the current handler.
+	// Cleared automatically after handler returns.
+	SetTracingSpanAttribute(key, value string)
+
+	// TracingAttributes returns merged permanent + one-shot attributes.
+	// Returns a slice reference (zero alloc) when only one type exists.
+	TracingAttributes() []TracingAttribute
+
+	// ClearTracingSpanAttributes clears one-shot attributes.
+	// Called by framework after handler returns.
+	ClearTracingSpanAttributes()
+
 	// SendTracingSpan delivers a tracing span to registered exporters.
 	// Used by ProcessBehavior implementations to emit Processed spans.
 	SendTracingSpan(span TracingSpan)
@@ -834,6 +854,7 @@ type MessageOptions struct {
 	KeepNetworkOrder  bool
 	ImportantDelivery bool
 	Tracing           Tracing
+	TracingAttributes []TracingAttribute // sender's attrs for Sent span, nil = none
 }
 
 // ProcessOptions defines configuration options for spawning a process.

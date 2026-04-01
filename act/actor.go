@@ -212,15 +212,18 @@ func (a *Actor) ProcessRun() (rr error) {
 			}
 
 			if reason != nil {
-				a.sendSpanProcessed(message, gen.TracingKindSend, reason.Error())
+				if messageHasTracing {
+					a.sendSpanProcessed(message, gen.TracingKindSend, reason.Error())
+				}
 				return reason
 			}
 
-			a.sendSpanProcessed(message, gen.TracingKindSend, "")
-
-			// restore tracing only if handler didn't change it
-			if messageHasTracing && a.PropagatingTrace().ID == message.Tracing.ID {
-				a.SetPropagatingTrace(savedTracing)
+			if messageHasTracing {
+				a.sendSpanProcessed(message, gen.TracingKindSend, "")
+				// restore tracing only if handler didn't change it
+				if a.PropagatingTrace().ID == message.Tracing.ID {
+					a.SetPropagatingTrace(savedTracing)
+				}
 			}
 
 		case gen.MailboxMessageTypeRequest:
@@ -249,30 +252,32 @@ func (a *Actor) ProcessRun() (rr error) {
 
 			if reason != nil {
 				if reason == gen.TerminateReasonNormal && result != nil {
-					// graceful shutdown with result
-					a.sendSpanProcessed(message, gen.TracingKindRequest, "")
+					if messageHasTracing {
+						a.sendSpanProcessed(message, gen.TracingKindRequest, "")
+					}
 					a.SendResponse(message.From, message.Ref, result)
 					return reason
 				}
-				a.sendSpanProcessed(message, gen.TracingKindRequest, reason.Error())
+				if messageHasTracing {
+					a.sendSpanProcessed(message, gen.TracingKindRequest, reason.Error())
+				}
 				return reason
 			}
 
 			if result == nil {
-				// async handling of sync request. response could be sent
-				// later, even by the other process.
-				// emit Processed so the tracing chain is complete
-				// (forwarded requests need this anchor for child spans)
-				a.sendSpanProcessed(message, gen.TracingKindRequest, "")
-				// restore tracing before moving to next message.
-				if messageHasTracing && a.PropagatingTrace().ID == message.Tracing.ID {
-					a.SetPropagatingTrace(savedTracing)
+				// async handling — emit Processed for tracing chain completeness
+				if messageHasTracing {
+					a.sendSpanProcessed(message, gen.TracingKindRequest, "")
+					if a.PropagatingTrace().ID == message.Tracing.ID {
+						a.SetPropagatingTrace(savedTracing)
+					}
 				}
 				continue
 			}
 
-			// emit Processed before sending response
-			a.sendSpanProcessed(message, gen.TracingKindRequest, "")
+			if messageHasTracing {
+				a.sendSpanProcessed(message, gen.TracingKindRequest, "")
+			}
 
 			a.SendResponse(message.From, message.Ref, result)
 
@@ -405,25 +410,24 @@ func (a *Actor) HandleCallAlias(alias gen.Alias, from gen.PID, ref gen.Ref, requ
 }
 
 func (a *Actor) sendSpanProcessed(message *gen.MailboxMessage, kind gen.TracingKind, errStr string) {
-	if message.Tracing.ID == [2]uint64{} {
-		return
-	}
 	var msgType string
 	if message.Message != nil {
 		msgType = reflect.TypeOf(message.Message).String()
 	}
 	a.SendTracingSpan(gen.TracingSpan{
-		TraceID:   message.Tracing.ID,
-		SpanID:    message.Tracing.SpanID,
-		Point:     gen.TracingPointProcessed,
-		Kind:      kind,
-		Timestamp: time.Now().UnixNano(),
-		Node:      a.Node().Name(),
-		From:      message.From,
-		To:        a.PID(),
-		Ref:       message.Ref,
-		Behavior:  a.BehaviorName(),
-		Message:   msgType,
-		Error:     errStr,
+		TraceID:    message.Tracing.ID,
+		SpanID:     message.Tracing.SpanID,
+		Point:      gen.TracingPointProcessed,
+		Kind:       kind,
+		Timestamp:  time.Now().UnixNano(),
+		Node:       a.Node().Name(),
+		From:       message.From,
+		To:         a.PID(),
+		Ref:        message.Ref,
+		Behavior:   a.BehaviorName(),
+		Message:    msgType,
+		Error:      errStr,
+		Attributes: a.TracingAttributes(),
 	})
+	a.ClearTracingSpanAttributes()
 }
