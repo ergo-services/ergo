@@ -78,6 +78,9 @@ type connection struct {
 	// clock skew measurement
 	clockSkew bool
 
+	// tracing propagation
+	tracing bool
+
 	// fragmentation
 	fragmentation         bool
 	fragmentSize          int
@@ -3350,7 +3353,8 @@ func (c *connection) send(buf *lib.Buffer, order uint8, compression gen.Compress
 	}
 
 	// tracing wrapper — uses reserved space, no copy
-	if tracing.ID != [2]uint64{} {
+	// only wrap if both nodes have tracing enabled
+	if c.tracing == true && tracing.ID != [2]uint64{} {
 		msgStart -= 32
 		buf.B[msgStart+0] = protoMagic
 		buf.B[msgStart+1] = protoVersion
