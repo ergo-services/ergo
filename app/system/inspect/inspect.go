@@ -490,7 +490,7 @@ func (i *inspect) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error
 		return response, nil
 
 	case RequestDoSetNodeTracingSampler:
-		sampler := parseTracingSampler(r.Sampler)
+		sampler := makeSampler(r.Type, r.Rate, r.Limit)
 		err := i.Node().SetTracingSampler(sampler)
 		if err == nil && sampler != gen.TracingSamplerDisable && i.Node().TracingFlags() == 0 {
 			i.Node().SetTracingFlags(gen.TracingFlagSend | gen.TracingFlagReceive | gen.TracingFlagProcs)
@@ -501,8 +501,15 @@ func (i *inspect) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error
 		return ResponseDoSet{Error: i.Node().SetTracingFlags(r.Flags)}, nil
 
 	case RequestDoSetProcessTracingSampler:
-		sampler := parseTracingSampler(r.Sampler)
-		return ResponseDoSet{Error: i.Node().SetProcessTracingSampler(r.PID, sampler)}, nil
+		sampler := makeSampler(r.Type, r.Rate, r.Limit)
+		err := i.Node().SetProcessTracingSampler(r.PID, sampler)
+		if err == nil && sampler != gen.TracingSamplerDisable {
+			pi, e := i.Node().ProcessInfo(r.PID)
+			if e == nil && pi.Tracing.Flags == 0 {
+				i.Node().SetProcessTracingFlags(r.PID, gen.TracingFlagSend|gen.TracingFlagReceive|gen.TracingFlagProcs)
+			}
+		}
+		return ResponseDoSet{Error: err}, nil
 
 	case RequestDoSetProcessTracingFlags:
 		return ResponseDoSet{Error: i.Node().SetProcessTracingFlags(r.PID, r.Flags)}, nil
@@ -593,20 +600,14 @@ func (i *inspect) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error
 	return gen.ErrUnsupported, nil
 }
 
-func parseTracingSampler(s string) gen.TracingSampler {
-	switch {
-	case s == "always":
+func makeSampler(typ string, rate float64, limit int) gen.TracingSampler {
+	switch typ {
+	case "always":
 		return gen.TracingSamplerAlways
-	case s == "disable" || s == "":
-		return gen.TracingSamplerDisable
-	case len(s) > 6 && s[:6] == "ratio(":
-		var rate float64
-		fmt.Sscanf(s, "ratio(%f)", &rate)
+	case "ratio":
 		return gen.TracingSamplerRatio(rate)
-	case len(s) > 11 && s[:11] == "rate_limit(":
-		var n int
-		fmt.Sscanf(s, "rate_limit(%d/s)", &n)
-		return gen.TracingSamplerRateLimit(n)
+	case "rate_limit":
+		return gen.TracingSamplerRateLimit(limit)
 	}
 	return gen.TracingSamplerDisable
 }

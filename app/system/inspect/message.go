@@ -234,7 +234,9 @@ type ResponseDoSetLogLevel struct {
 // do set tracing sampler and flags (node-level)
 
 type RequestDoSetNodeTracingSampler struct {
-	Sampler string
+	Type  string  // "always", "disable", "ratio", "rate_limit"
+	Rate  float64 // for ratio
+	Limit int     // for rate_limit
 }
 
 type RequestDoSetNodeTracingFlags struct {
@@ -242,8 +244,10 @@ type RequestDoSetNodeTracingFlags struct {
 }
 
 type RequestDoSetProcessTracingSampler struct {
-	PID     gen.PID
-	Sampler string
+	PID   gen.PID
+	Type  string
+	Rate  float64
+	Limit int
 }
 
 type RequestDoSetProcessTracingFlags struct {
