@@ -555,8 +555,9 @@ func (n *node) ProcessInfo(pid gen.PID) (gen.ProcessInfo, error) {
 	info.KeepNetworkOrder = p.keeporder
 	info.ImportantDelivery = p.important
 	info.Tracing = gen.TracingInfo{
-		Sampler: p.TracingSampler().String(),
-		Flags:   p.tracingFlags,
+		Sampler:    p.TracingSampler().String(),
+		Flags:      p.tracingFlags,
+		Attributes: p.tracingAttrs,
 	}
 
 	if n.security.ExposeEnvInfo {
@@ -834,8 +835,9 @@ func (n *node) Info() (gen.NodeInfo, error) {
 	}
 
 	info.Tracing = gen.TracingInfo{
-		Sampler: n.TracingSampler().String(),
-		Flags:   n.tracingFlags,
+		Sampler:    n.TracingSampler().String(),
+		Flags:      n.tracingFlags,
+		Attributes: n.tracingAttrs,
 	}
 
 	n.tracingExporters.Range(func(k, v any) bool {

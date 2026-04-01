@@ -2009,6 +2009,12 @@ func (p *process) SetTracingSpanAttribute(key, value string) {
 	if len(key) > 5 && key[:5] == "ergo." {
 		return
 	}
+	for i, a := range p.tracingSpanAttrs {
+		if a.Key == key {
+			p.tracingSpanAttrs[i].Value = value
+			return
+		}
+	}
 	p.tracingSpanAttrs = append(p.tracingSpanAttrs, gen.TracingAttribute{Key: key, Value: value})
 }
 

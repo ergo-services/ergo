@@ -94,8 +94,3 @@ func (s *samplerRateLimit) String() string {
 	return fmt.Sprintf("rate_limit(%d/s)", s.perSecond)
 }
 
-// TracingInfo contains tracing configuration for a process.
-type TracingInfo struct {
-	Sampler string
-	Flags   TracingFlags
-}

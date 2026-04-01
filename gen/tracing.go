@@ -142,6 +142,13 @@ func (tk TracingKind) MarshalJSON() ([]byte, error) {
 	return []byte(`"` + tk.String() + `"`), nil
 }
 
+// TracingInfo contains tracing configuration for a process or node.
+type TracingInfo struct {
+	Sampler    string
+	Flags      TracingFlags
+	Attributes []TracingAttribute
+}
+
 // TracingBehavior interface for tracing exporters.
 type TracingBehavior interface {
 	HandleSpan(TracingSpan)
