@@ -191,9 +191,7 @@ var (
 		inspect.MessageInspectTracing{},
 
 		inspect.RequestDoSetNodeTracingSampler{},
-		inspect.RequestDoSetNodeTracingFlags{},
 		inspect.RequestDoSetProcessTracingSampler{},
-		inspect.RequestDoSetProcessTracingFlags{},
 	}
 
 	// register standard errors of the Ergo Framework

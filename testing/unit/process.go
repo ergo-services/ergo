@@ -603,13 +603,6 @@ func (tp *TestProcess) TracingSampler() gen.TracingSampler {
 	return gen.TracingSamplerDisable
 }
 
-func (tp *TestProcess) SetTracingFlags(flags ...gen.TracingFlags) {
-}
-
-func (tp *TestProcess) TracingFlags() gen.TracingFlags {
-	return 0
-}
-
 func (tp *TestProcess) PropagatingTrace() gen.Tracing {
 	return gen.Tracing{}
 }

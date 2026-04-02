@@ -352,15 +352,6 @@ type Process interface {
 	// Available in all states.
 	TracingSampler() TracingSampler
 
-	// SetTracingFlags sets the tracing granularity for this process.
-	// Controls which span types are emitted to exporters.
-	// Available in: Init, Running states.
-	SetTracingFlags(flags ...TracingFlags)
-
-	// TracingFlags returns the current tracing flags for this process.
-	// Available in all states.
-	TracingFlags() TracingFlags
-
 	// CreateAlias creates a new alias associated with this process.
 	// Other processes can send messages or make calls using this alias.
 	// Available in: Init, Running states.
@@ -928,8 +919,7 @@ type ProcessOptionsExtra struct {
 	ParentLeader   PID
 	ParentEnv      map[Env]any
 	ParentLogLevel LogLevel
-	Tracing        Tracing
-	TracingFlags   TracingFlags
+	Tracing Tracing
 
 	Register    Atom
 	Application Atom

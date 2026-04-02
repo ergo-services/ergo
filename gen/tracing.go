@@ -145,7 +145,6 @@ func (tk TracingKind) MarshalJSON() ([]byte, error) {
 // TracingInfo contains tracing configuration for a process or node.
 type TracingInfo struct {
 	Sampler    string
-	Flags      TracingFlags
 	Attributes []TracingAttribute
 }
 

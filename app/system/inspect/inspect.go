@@ -366,10 +366,10 @@ func (i *inspect) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error
 		if r.Limit < 1 {
 			r.Limit = 500
 		}
-		hash := eventListHash(r.Name, r.Notify, r.Buffered, r.MinSubscribers, r.Limit)
+		hash := eventListHash(r.Timestamp, r.Name, r.Notify, r.Buffered, r.MinSubscribers, r.Limit)
 		pname := gen.Atom(fmt.Sprintf("%s_%s", inspectEventList, hash))
 		_, err := i.SpawnRegister(pname, factory_event_list, opts,
-			r.Name, r.Notify, r.Buffered, r.MinSubscribers, r.Limit, hash)
+			r.Timestamp, r.Name, r.Notify, r.Buffered, r.MinSubscribers, r.Limit, hash)
 		if err != nil && err != gen.ErrTaken {
 			return err, nil
 		}
@@ -491,28 +491,11 @@ func (i *inspect) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error
 
 	case RequestDoSetNodeTracingSampler:
 		sampler := makeSampler(r.Type, r.Rate, r.Limit)
-		err := i.Node().SetTracingSampler(sampler)
-		if err == nil && sampler != gen.TracingSamplerDisable && i.Node().TracingFlags() == 0 {
-			i.Node().SetTracingFlags(gen.TracingFlagSend | gen.TracingFlagReceive | gen.TracingFlagProcs)
-		}
-		return ResponseDoSet{Error: err}, nil
-
-	case RequestDoSetNodeTracingFlags:
-		return ResponseDoSet{Error: i.Node().SetTracingFlags(r.Flags)}, nil
+		return ResponseDoSet{Error: i.Node().SetTracingSampler(sampler)}, nil
 
 	case RequestDoSetProcessTracingSampler:
 		sampler := makeSampler(r.Type, r.Rate, r.Limit)
-		err := i.Node().SetProcessTracingSampler(r.PID, sampler)
-		if err == nil && sampler != gen.TracingSamplerDisable {
-			pi, e := i.Node().ProcessInfo(r.PID)
-			if e == nil && pi.Tracing.Flags == 0 {
-				i.Node().SetProcessTracingFlags(r.PID, gen.TracingFlagSend|gen.TracingFlagReceive|gen.TracingFlagProcs)
-			}
-		}
-		return ResponseDoSet{Error: err}, nil
-
-	case RequestDoSetProcessTracingFlags:
-		return ResponseDoSet{Error: i.Node().SetProcessTracingFlags(r.PID, r.Flags)}, nil
+		return ResponseDoSet{Error: i.Node().SetProcessTracingSampler(r.PID, sampler)}, nil
 
 	case RequestDoSetProcessLogLevel:
 		response := ResponseDoSetLogLevel{

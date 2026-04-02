@@ -617,6 +617,10 @@ func (tn *TestNode) EventRangeInfo(fn func(gen.EventInfo) bool) error {
 	return nil
 }
 
+func (tn *TestNode) EventListInfo(timestamp int64, limit int, filter ...func(gen.EventInfo) bool) ([]gen.EventInfo, error) {
+	return nil, nil
+}
+
 func (tn *TestNode) SendExit(pid gen.PID, reason error) error {
 	// Check for failure injection
 	if err := tn.CheckMethodFailure("SendExit", pid, reason); err != nil {
@@ -732,19 +736,7 @@ func (tn *TestNode) TracingSampler() gen.TracingSampler {
 	return gen.TracingSamplerDisable
 }
 
-func (tn *TestNode) SetTracingFlags(flags ...gen.TracingFlags) error {
-	return nil
-}
-
-func (tn *TestNode) TracingFlags() gen.TracingFlags {
-	return 0
-}
-
 func (tn *TestNode) SetProcessTracingSampler(pid gen.PID, sampler gen.TracingSampler) error {
-	return nil
-}
-
-func (tn *TestNode) SetProcessTracingFlags(pid gen.PID, flags ...gen.TracingFlags) error {
 	return nil
 }
 

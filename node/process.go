@@ -49,10 +49,9 @@ type process struct {
 
 	compression      gen.Compression
 	tracing          gen.Tracing
-	tracingFlags     gen.TracingFlags
 	tracingSampler   gen.TracingSampler
-	tracingAttrs     []gen.TracingAttribute // permanent, COW
-	tracingSpanAttrs []gen.TracingAttribute // one-shot, nil after handler
+	tracingAttrs     []gen.TracingAttribute  // permanent, COW
+	tracingSpanAttrs []gen.TracingAttribute  // one-shot, nil after handler
 
 	env sync.Map
 
@@ -137,10 +136,7 @@ func (p *process) Spawn(
 		Ref:            ref,
 	}
 
-	if p.tracingFlags&gen.TracingFlagInherit != 0 {
-		opts.Tracing = p.tracing
-		opts.TracingFlags = p.tracingFlags
-	}
+	opts.Tracing = p.tracing
 
 	pid, err := p.node.spawn(factory, opts)
 	if err != nil {
@@ -189,10 +185,7 @@ func (p *process) SpawnRegister(
 		Ref:            ref,
 	}
 
-	if p.tracingFlags&gen.TracingFlagInherit != 0 {
-		opts.Tracing = p.tracing
-		opts.TracingFlags = p.tracingFlags
-	}
+	opts.Tracing = p.tracing
 
 	pid, err := p.node.spawn(factory, opts)
 	if err != nil {
@@ -539,17 +532,7 @@ func (p *process) TracingSampler() gen.TracingSampler {
 	return p.tracingSampler
 }
 
-func (p *process) SetTracingFlags(flags ...gen.TracingFlags) {
-	var f gen.TracingFlags
-	for _, fl := range flags {
-		f |= fl
-	}
-	p.tracingFlags = f
-}
 
-func (p *process) TracingFlags() gen.TracingFlags {
-	return p.tracingFlags
-}
 
 func (p *process) PropagatingTrace() gen.Tracing {
 	return p.tracing
@@ -564,6 +547,10 @@ func (p *process) propagatingTrace() gen.Tracing {
 		t := p.tracing
 		t.Behavior = p.sbehavior
 		return t
+	}
+	// do not start new traces during Init phase
+	if atomic.LoadInt32(&p.state) == int32(gen.ProcessStateInit) {
+		return gen.Tracing{}
 	}
 	if p.tracingSampler != nil && p.tracingSampler.Sample() {
 		t := p.node.MakeTraceID()
@@ -820,17 +807,10 @@ func (p *process) SendAfter(to any, message any, after time.Duration) (gen.Cance
 		// we can't use p.Send(...) because it checks the process state
 		// and returns gen.ErrNotAllowed, so use p.node.Route* methods for that
 		options := gen.MessageOptions{
-			Tracing:          p.propagatingTrace(),
 			Priority:         p.priority,
 			Compression:      p.compression,
 			KeepNetworkOrder: p.keeporder,
 			// ImportantDelivery: ignore on sending with delay
-		}
-
-		if options.Tracing.ID != [2]uint64{} {
-			if options.Tracing.ID != [2]uint64{} {
-				p.applyTracingAttrs(&options)
-			}
 		}
 		switch t := to.(type) {
 		case gen.Atom:
@@ -866,7 +846,6 @@ func (p *process) SendWithPriorityAfter(
 		// we can't use p.Send(...) because it checks the process state
 		// and returns gen.ErrNotAllowed, so use p.node.Route* methods for that
 		options := gen.MessageOptions{
-			Tracing:          p.propagatingTrace(),
 			Priority:         priority,
 			Compression:      p.compression,
 			KeepNetworkOrder: p.keeporder,

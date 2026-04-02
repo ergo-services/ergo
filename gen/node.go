@@ -317,6 +317,13 @@ type Node interface {
 	// Returns ErrNodeTerminated in other states.
 	EventRangeInfo(fn func(EventInfo) bool) error
 
+	// EventListInfo returns a paginated list of events in registration order.
+	// timestamp: 0 = from oldest, -1 = from newest, >0 = from events created at or after this time (unix nanos).
+	// limit: >0 = forward (oldest first), <0 = backward (newest first), abs(limit) results max.
+	// filter: optional function to include only matching events.
+	// Available in: Running state only.
+	EventListInfo(timestamp int64, limit int, filter ...func(EventInfo) bool) ([]EventInfo, error)
+
 	// SendExit sends a graceful termination request to the process.
 	// Sender is the node's core PID.
 	// Available in: Running state only.
@@ -525,21 +532,9 @@ type Node interface {
 	// Available in all states.
 	TracingSampler() TracingSampler
 
-	// SetTracingFlags sets tracing granularity for node-level operations.
-	// Available in: Running state only.
-	SetTracingFlags(flags ...TracingFlags) error
-
-	// TracingFlags returns the current tracing flags for the node.
-	// Available in all states.
-	TracingFlags() TracingFlags
-
 	// SetProcessTracingSampler sets the tracing sampler for the given process.
 	// Available in: Running state only.
 	SetProcessTracingSampler(pid PID, sampler TracingSampler) error
-
-	// SetProcessTracingFlags sets tracing granularity for the given process.
-	// Available in: Running state only.
-	SetProcessTracingFlags(pid PID, flags ...TracingFlags) error
 
 	// MakeRef creates a unique reference within this node.
 	// Used for Call requests, event tokens, and correlation.

@@ -96,7 +96,6 @@ type node struct {
 
 	tracingExporters sync.Map // name -> tracingExporterEntry
 	tracing          gen.Tracing
-	tracingFlags     gen.TracingFlags
 	tracingSampler   gen.TracingSampler
 
 	shutdownTimeout time.Duration
@@ -556,7 +555,6 @@ func (n *node) ProcessInfo(pid gen.PID) (gen.ProcessInfo, error) {
 	info.ImportantDelivery = p.important
 	info.Tracing = gen.TracingInfo{
 		Sampler:    p.TracingSampler().String(),
-		Flags:      p.tracingFlags,
 		Attributes: p.tracingAttrs,
 	}
 
@@ -836,7 +834,6 @@ func (n *node) Info() (gen.NodeInfo, error) {
 
 	info.Tracing = gen.TracingInfo{
 		Sampler:    n.TracingSampler().String(),
-		Flags:      n.tracingFlags,
 		Attributes: n.tracingAttrs,
 	}
 
@@ -1290,6 +1287,13 @@ func (n *node) EventRangeInfo(fn func(gen.EventInfo) bool) error {
 		return gen.ErrNodeTerminated
 	}
 	return n.targets.EventRangeInfo(fn)
+}
+
+func (n *node) EventListInfo(timestamp int64, limit int, filter ...func(gen.EventInfo) bool) ([]gen.EventInfo, error) {
+	if n.isRunning() == false {
+		return nil, gen.ErrNodeTerminated
+	}
+	return n.targets.EventListInfo(timestamp, limit, filter...)
 }
 
 func (n *node) SendExit(pid gen.PID, reason error) error {
@@ -2471,22 +2475,6 @@ func (n *node) TracingSampler() gen.TracingSampler {
 	return n.tracingSampler
 }
 
-func (n *node) SetTracingFlags(flags ...gen.TracingFlags) error {
-	if n.isRunning() == false {
-		return gen.ErrNodeTerminated
-	}
-	var f gen.TracingFlags
-	for _, fl := range flags {
-		f |= fl
-	}
-	n.tracingFlags = f
-	return nil
-}
-
-func (n *node) TracingFlags() gen.TracingFlags {
-	return n.tracingFlags
-}
-
 func (n *node) SetProcessTracingSampler(pid gen.PID, sampler gen.TracingSampler) error {
 	if n.isRunning() == false {
 		return gen.ErrNodeTerminated
@@ -2497,23 +2485,6 @@ func (n *node) SetProcessTracingSampler(pid gen.PID, sampler gen.TracingSampler)
 	}
 	p := value.(*process)
 	p.tracingSampler = sampler
-	return nil
-}
-
-func (n *node) SetProcessTracingFlags(pid gen.PID, flags ...gen.TracingFlags) error {
-	if n.isRunning() == false {
-		return gen.ErrNodeTerminated
-	}
-	value, loaded := n.processes.Load(pid)
-	if loaded == false {
-		return gen.ErrProcessUnknown
-	}
-	p := value.(*process)
-	var f gen.TracingFlags
-	for _, fl := range flags {
-		f |= fl
-	}
-	p.tracingFlags = f
 	return nil
 }
 
@@ -2688,9 +2659,6 @@ func (n *node) spawn(factory gen.ProcessFactory, options gen.ProcessOptionsExtra
 	if options.Leader != empty {
 		p.leader = options.Leader
 	}
-
-	p.tracing = options.Tracing
-	p.tracingFlags = options.TracingFlags
 
 	p.compression = options.Compression
 	if p.compression.Level == 0 {

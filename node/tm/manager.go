@@ -28,6 +28,10 @@ type targetManager struct {
 	shards    []shard
 	numShards uint64
 
+	// Event ordering index: sequential ID -> *eventEntry
+	eventSeq   atomic.Uint64
+	eventIndex sync.Map // uint64 -> *eventEntry
+
 	// Statistics
 	exitSignalsProduced   atomic.Int64
 	exitSignalsDelivered  atomic.Int64
@@ -82,6 +86,10 @@ func (rb *eventRingBuffer) snapshot() []gen.MessageEvent {
 }
 
 type eventEntry struct {
+	id        uint64
+	createdAt int64
+	event     gen.Event
+
 	producer gen.PID
 	token    gen.Ref
 	notify   bool

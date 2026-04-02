@@ -239,10 +239,6 @@ type RequestDoSetNodeTracingSampler struct {
 	Limit int     // for rate_limit
 }
 
-type RequestDoSetNodeTracingFlags struct {
-	Flags gen.TracingFlags
-}
-
 type RequestDoSetProcessTracingSampler struct {
 	PID   gen.PID
 	Type  string
@@ -250,10 +246,6 @@ type RequestDoSetProcessTracingSampler struct {
 	Limit int
 }
 
-type RequestDoSetProcessTracingFlags struct {
-	PID   gen.PID
-	Flags gen.TracingFlags
-}
 
 // process
 type RequestDoSetProcessLogLevel struct {
@@ -451,6 +443,7 @@ type ResponseInspectProcessRange struct {
 // event list
 
 type RequestInspectEventList struct {
+	Timestamp      int64 // 0=oldest first, -1=newest first, >0=from this unix nanos
 	Limit          int
 	Name           string
 	Notify         int // 0=any, 1=yes, -1=no
