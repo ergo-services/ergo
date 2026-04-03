@@ -165,6 +165,12 @@ Each Pulse worker exposes statistics through the standard inspection mechanism. 
 
 These counters help diagnose export problems: if `export_errors` is growing, the collector may be unreachable or overloaded.
 
+## Grafana Dashboard
+
+Pulse includes a ready-to-use Grafana dashboard for trace search. Import `grafana-tracing.json` from the Pulse module into your Grafana instance. During import, Grafana will ask you to select a Tempo datasource.
+
+The dashboard provides a TraceQL filter for searching traces by node, behavior, message type, or any span attribute. Results include columns for service name, ergo.kind, ergo.behavior, and ergo.message. Click any Trace ID to open the full waterfall view.
+
 ## Grafana Tempo Setup
 
 A minimal Tempo configuration for local development:
