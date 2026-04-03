@@ -1,171 +1,205 @@
+---
+description: Real-time inspection and management of Ergo nodes
+---
+
 # Inspecting With Observer
 
-### Installation and starting
+Running an actor system is straightforward until something unexpected happens. A process stops responding. Memory usage grows. A message chain takes longer than expected. At that point, you need to see inside the running system without stopping it.
 
-To install the `observer` tool, you need to have Golang compiler version 1.20 or higher. Run the following command:
+Observer is a web dashboard that runs as an application on your Ergo node. It gives you a live view of everything happening on the node and lets you change configuration, send messages, and control application lifecycle without restarting anything. You interact with it through a browser while the node continues running.
 
+## Adding to Your Node
+
+```go
+import (
+    "ergo.services/application/observer"
+    "ergo.services/ergo"
+    "ergo.services/ergo/gen"
+)
+
+func main() {
+    node, err := ergo.StartNode("mynode@localhost", gen.NodeOptions{
+        Applications: []gen.ApplicationBehavior{
+            observer.CreateApp(observer.Options{
+                Port: 9911,
+            }),
+        },
+    })
+    if err != nil {
+        panic(err)
+    }
+    node.Wait()
+}
 ```
-$ go install ergo.services/tools/observer@latest
-```
 
-Available arguments for starting `observer`:
+Open `http://localhost:9911` in a browser. You land on the dashboard showing the node where Observer is running. Change `Host` to `"0.0.0.0"` if you need access from another machine.
 
-* **`-help`**: displays information about the available arguments.
-* **`-version`**: prints the current version of the Observer tool.
-* **`-host`**: specifies the interface name for the Web server to run on (default: `"localhost"`).
-* **`-port`**: defines the port number for the Web server (default: `9911`).
-* **`-cookie`**: sets the default cookie value used for connecting to other nodes.
+Observer can inspect any node in the cluster, not just the one it runs on. The sidebar contains a node selector listing all nodes discovered through the registrar. Select a different node and Observer switches to showing that node's data. The remote node needs the `system_inspect` process, which is included by default in every Ergo node. This means you deploy Observer on one node and monitor the entire cluster from a single browser tab.
 
-<figure><img src="../.gitbook/assets/image (2).png" alt=""><figcaption></figcaption></figure>
+When switching to a remote node, you can provide connection parameters (cookie, host, port, TLS) if the node is not yet connected. If the nodes are already connected through the registrar, switching is instant.
 
-If you are running o`bserver` on a server for continuous operation, it is recommended to use the environment variable `COOKIE` instead of the `-cookie` argument. Using sensitive data in command-line arguments is insecure.
+## Dashboard
 
-After starting `observer`, it initially has no connections to other nodes, so you will be prompted to specify the node you want to connect to.
+The dashboard is the landing page. It answers the first question you ask about any running system: is everything normal?
 
-<figure><img src="../.gitbook/assets/image (4).png" alt=""><figcaption></figcaption></figure>
+<figure><img src="../.gitbook/assets/observer.png" alt="Observer Dashboard"><figcaption></figcaption></figure>
 
-Once you establish a connection with a remote node, the _Observer application_ main page will open, displaying information about that node.&#x20;
+Three summary cards at the top give you the pulse of the node. The Processes card shows the total count, how many are actively running, and whether any are stuck as zombies. The Events card shows message throughput across the pub/sub system. The System card shows memory and CPU usage, core count, and uptime. Each card includes a real-time chart covering the last 60 seconds. A sudden spike in running processes, a memory growth pattern, or unusual CPU load is immediately visible.
 
-If you have integrated the _Observer application_ into your node, upon opening the _Observer_ page, you will immediately land on the main page showing information about the node where the _Observer application_ was launched.
+Below the summary, detailed panels break down the node's internal counters. The processes panel shows spawned, terminated, and spawn-failed counts. Spawn failures are highlighted so they catch your attention. The registry panel shows how many names, aliases, and events are registered. The delivery errors panel highlights any failed message deliveries, both local and remote. Non-zero values are shown in red. If you see errors here, messages are being lost somewhere.
 
-### Info (main page)
+Two controls are available directly on the dashboard. The log level dropdown changes the node-level log severity threshold. The tracing sampler dropdown controls whether the node starts new traces for messages sent via `node.Send()` and `node.Call()`. Both take effect immediately without restarting anything.
 
-<figure><img src="../.gitbook/assets/image (20).png" alt=""><figcaption></figcaption></figure>
+The loggers panel shows a distribution of log messages by severity and lists all registered loggers with their level filters. This tells you at a glance whether errors are accumulating faster than expected. The tracing exporters panel shows the same for tracing: span distribution by kind and the list of active exporters with their flags. If you expected Pulse to be exporting traces but don't see it listed here, you know something went wrong during startup.
 
-On this tab, you will find general information about the node and the ability to manage its logging level. Changing the logging level only affects the node itself and any newly started processes, but it does not impact processes that are already running.
+A searchable table of cron jobs at the bottom shows scheduled tasks with their names, cron specs, descriptions, and last run times. You can filter by name or spec pattern to find specific jobs.
 
-Graphs provide real-time information over the last 60 seconds, including the total number of processes, the number of processes in the running state, and memory usage data. Memory usage is divided into **used**, which indicates how much memory was reserved from the operating system, and **allocated**, which shows how much of that reserved memory is currently being used by the Golang runtime.
+## Processes
 
-In addition to these details, you can view information about the available loggers on the node and their respective logging levels. For more details, refer to the [Logging](../basics/logging.md) section. Environment variables will also be displayed here, but only if the `ExposeEnvInfo` option was enabled in the `gen.NodeOptions.Security` settings when the inspected node was started.
+The processes page is where you spend most of your time when investigating issues.
 
-### Network (main page)
+Every process on the node appears in a table that updates every second. You see the PID, registered name, behavior type, application, messages in and out, mailbox depth, processing latency, running time, initialization time, wakeup count, uptime, and current state. This is enough to answer most diagnostic questions without opening individual process details.
 
-<figure><img src="../.gitbook/assets/image (19).png" alt=""><figcaption></figcaption></figure>
+When message counts change between updates, a green delta indicator appears next to the number. A "+42" next to Messages In tells you this process received 42 messages in the last second. The mailbox column changes color as the queue grows, making overloaded processes visually obvious in a list of thousands. The state column shows how long the process has been in its current state. A process stuck in "running" for 30 seconds is probably blocked inside a handler.
 
-The **Network tab** displays information about the node's network stack.&#x20;
+All columns are sortable. Clicking Messages In sorts by busiest processes. Clicking Mailbox puts the most backlogged processes at the top. Clicking Running Time reveals which processes spend the most time executing handlers.
 
-The **Mode** indicates how the network stack was started (_enabled_, _hidden_, or _disabled_).&#x20;
+With thousands of processes, you need to narrow the view. The Scope panel controls what the server sends to the browser. This is server-side filtering: the node only transmits matching processes, keeping the data flow manageable. The Show control sets the count (presets from 100 to 1000). The From control chooses the starting point: First (oldest PIDs), Last (newest), or a specific PID. Filters narrow by name, behavior, application, state, or minimum mailbox depth. Active filters appear as removable chips in the toolbar. A separate search field adds client-side regex filtering on top for quick ad-hoc lookups.
 
-The **Registrar** section shows the properties of the registrar in use, including its capabilities. _Embedded Server_ indicates whether the registrar is running in server mode, while the _Server_ field shows the address and port number of the registrar with which the node is registered.
+Click any PID to open a floating detail window.
 
-Additionally, the tab provides information about the default _handshake_ and _protocol versions_ used for outgoing connections.&#x20;
+<details>
+<summary>Processes page with scope panel</summary>
 
-The **Flags** section lists the set of flags that define the functionality available to remote nodes.&#x20;
+<!-- screenshot: processes page with scope panel open -->
 
-The **Acceptors** section lists the node's acceptors, with detailed information available for each. This list will be empty if the network stack is running in hidden mode.
+</details>
 
-Since the node can work with multiple network stacks simultaneously, some acceptors may have different _registrar_ parameters and _handshake_/_protocol_ versions. For an example of simultaneous usage of the Erlang and Ergo Framework network stacks, refer to the [Erlang](../extra-library/network-protocols/erlang.md) section.
+## Process Details
 
-<figure><img src="../.gitbook/assets/image (22).png" alt=""><figcaption></figcaption></figure>
+Floating detail windows are the primary tool for investigating individual processes. Multiple windows can be open simultaneously. They persist when you switch between pages, so you can keep a problematic process open while you check logs or traces elsewhere.
 
-The **Connected Nodes** section displays a list of active connections with remote nodes. For each connection, you can view detailed information, including the version of the handshake used when the connection was established and the protocol currently in use. The **Flags** section shows which features are available to the node when interacting with the remote node.
+The overview tab shows two real-time charts. The messages chart tracks incoming and outgoing message rates over the last 60 seconds, with a toggle between rate and cumulative views. The mailbox chart tracks the four queue depths: Main, System, Urgent, and Log. Below the charts, cards show running time, init time, and uptime. If the init time is suspiciously long, you know the process took a while to start. If the running time is high relative to uptime, the process is spending most of its life inside handlers rather than waiting for messages. The parent and leader processes appear as clickable links that open their own windows.
 
-<figure><img src="../.gitbook/assets/image (25).png" alt=""><figcaption></figcaption></figure>
+The relations tab reveals the process's connections: aliases it has registered, meta processes it owns, events it has created, and its links and monitors grouped by type. This is valuable when you need to understand the supervision tree or figure out which processes will be affected if this one terminates.
 
-Since the ENP protocol supports a pool of TCP connections within a single network connection, you will find information about the **Pool Size** (the number of TCP connections). The **Pool DSN** field will be empty if this is an incoming connection for the node or if the protocol does not support TCP connection pooling.
+The config tab lets you change settings that take effect immediately. You can raise the log level to get more verbose output from a specific process, enable compression for network messages, change the tracing sampler for targeted diagnostics, or adjust message priority and delivery guarantees. The environment variables section is available if the node has `ExposeEnvInfo` enabled in its security settings.
 
-Graphs provide a summary of the number of received/sent messages and network traffic over the last 60 seconds, offering a quick overview of communication activity and data flow.
+The inspect tab shows the output of the process's `HandleInspect` callback as key-value pairs. If your actor implements this method, it can expose internal state: queue lengths, cache sizes, connection counts, or any application-specific metrics. Auto-refresh polls the process once per second.
 
-### Process list (main page)
+Three action buttons let you interact with the process. Send Message opens a dialog where you compose a JSON message body. Send Exit sends an exit signal with a configurable reason. Kill forcefully terminates the process. These actions are disabled for system processes.
 
-<figure><img src="../.gitbook/assets/image (24).png" alt=""><figcaption></figcaption></figure>
+<details>
+<summary>Process detail window</summary>
 
-On the **Processes List** tab, you can view general information about the processes running on the node. The number of processes displayed is controlled by the **Start from** and **Limit** parameters.
+<!-- screenshot: process detail floating window -->
 
-By default, the list is sorted by the process identifier. However, you can choose different sorting options:
+</details>
 
-* **Top Running**: displays processes that have spent the most time in the _running_ state.
-* **Top Messaging**: sorts processes by the number of sent/received messages in descending order.
-* **Top Mailbox**: helps identify processes with the highest number of messages in their mailbox, which can be an indication that the process is struggling to handle the load efficiently.
+## Applications
 
-For each process, you can view brief information:
+The applications page shows all loaded applications and their lifecycle state. Each entry displays the name, whether it's running or stopped, its mode (permanent, temporary, transient), version, process count, description, and uptime. Expanding the process count reveals individual PIDs that you can click to open detail windows.
 
-<figure><img src="../.gitbook/assets/image (26).png" alt=""><figcaption></figcaption></figure>
+Lifecycle controls let you start a stopped application in a selected mode, stop a running application (with an optional force flag for immediate shutdown), or unload it entirely. This is useful during development when you need to restart a misbehaving application without restarting the entire node. Start, stop, and unload are disabled for system applications to prevent breaking the node.
 
-The **Behavior** field shows the type of object that the process represents.&#x20;
+<details>
+<summary>Applications page</summary>
 
-**Application** field indicates the application to which the process belongs. This property is inherited from the parent, so all processes started within an application and their child processes will share the same value.
+<!-- screenshot: applications page -->
 
-**Mailbox Messages** displays the total number of messages across all queues in the process's mailbox.
+</details>
 
-**Running Time** shows the total time the process has spent in the _running_ state, which occurs when the process is actively handling messages from its queue.
+## Events
 
-By clicking on the process identifier, you will be directed to a page with more detailed information about that specific process.
+The events page shows all registered events on the node. Each row includes the event name, the producer process, when the event was registered, subscriber count, and message statistics: published, local sent, remote sent, and a fanout ratio showing delivery efficiency. Delta indicators highlight which events are actively publishing.
 
-### Log (main page)
+The default sort is by registration time, newest first. The Scope panel controls pagination: First shows the oldest registered events, Last shows the newest. Filters narrow by name, notify mode, buffered mode, and minimum subscriber count.
 
-<figure><img src="../.gitbook/assets/image (27).png" alt=""><figcaption></figcaption></figure>
+Three toggle buttons in the toolbar control how the Registered column displays timestamps: 24h/12h clock format, raw millisecond timestamps for precise correlation, and an optional date prefix. These settings are shared with the Log and Tracing pages.
 
-All log messages from the node, processes, network stack, or meta-processes are displayed here. When you connect to the Observer via a browser, the Observer's backend sends a request to the inspector to start a _log process_ with specified logging levels (this _log process_ is visible on the main **Info** tab).
+<details>
+<summary>Events page</summary>
 
-When you change the set of logging levels, the Observer's backend requests the start of a new _log process_ (the old _log process_ will automatically terminate).
+<!-- screenshot: events page -->
 
-To reduce the load on the browser, the number of displayed log messages is limited, but you can adjust this by setting the desired number in the **Last** field.
+</details>
 
-The **Play/Pause** button allows you to stop or resume the _log process_, which is useful if you want to halt the flow of log messages and focus on examining the already received logs in more detail.
+## Network
 
-### Process information
+The network page shows how the node connects to the rest of the cluster.
 
-<figure><img src="../.gitbook/assets/image (28).png" alt=""><figcaption></figcaption></figure>
+The connected nodes section lists every active connection with summary statistics: messages and bytes in each direction. Expanding a connection reveals negotiated flags (which features both nodes support), handshake and protocol versions, connection pool size, and per-connection traffic stats. If you need to verify whether tracing or compression is actually enabled between two specific nodes, this is where you look.
 
-This page displays detailed information about the process, including its state, uptime, and other key metrics.
+The acceptors section lists network listeners with their addresses and TLS configuration. The cluster nodes section shows all nodes known through the registrar or active connections, giving you a picture of the cluster topology. The registrar section shows the service discovery backend details.
 
-The **fallback parameters** specify which process will receive redirected messages in case the current process's mailbox becomes full. However, if the **Mailbox Size** is unlimited, these fallback parameters are ignored.&#x20;
+A connection list table with its own scope controls shows all connections in a sortable, filterable view with delta indicators for message and byte counts.
 
-The **Message Priority** field shows the priority level used for messages sent by this process.
+<details>
+<summary>Network page</summary>
 
-**Keep Network Order** is a parameter applied only to messages sent over the network. It ensures that all messages sent by this process to a remote process are delivered in the same order as they were sent. This parameter is enabled by default, but it can be disabled in certain cases to improve performance.
+<!-- screenshot: network page with expanded connection -->
 
-The **Important Delivery** setting indicates whether the important flag is enabled for messages sent to remote nodes. Enabling this option forces the remote node to send an acknowledgment confirming that the message was successfully delivered to the recipient's mailbox.
+</details>
 
-The **Compression** parameters allow you to enable message compression for network transmissions and define the compression settings.
+## Log
 
-Graphs on this page help you assess the load on the process, displaying data over the last 60 seconds.
+The log page captures log messages in real time from every source on the node: processes, meta processes, the node itself, and the network stack.
 
-Additionally, you can find detailed information about any **aliases**, **links**, and **monitors** created by this process, as well as any registered **events** and started **meta-processes**.
+Each log entry shows a timestamp, severity level with a color-coded badge, the source identity, and the message text. The source has a compact mode (just the PID) and a rich mode (includes behavior type and registered name) for easier identification without opening a separate detail window.
 
-The list of environment variables is displayed only if the `ExposeEnvInfo` option was enabled in the node's `gen.NodeOptions.Security` settings.
+The Scope panel controls what the server captures. Level toggle buttons let you enable or disable each severity independently. This is server-side filtering: disabling debug means the server stops collecting debug messages entirely, reducing overhead on the node. A message pattern filter does server-side substring matching, with an exclude mode to filter out noise. The limit controls the ring buffer size.
 
-<figure><img src="../.gitbook/assets/image (34).png" alt=""><figcaption></figcaption></figure>
+The Play/Pause button stops log capture without disconnecting. When you spot something interesting, pause and read through existing entries without new messages pushing them away.
 
-Additionally, on this page, you can send a message to the process, send an _exit signal_, or even forcibly stop the process using the _kill_ command. These options are available in the context menu.
+When the server drops messages because the ring buffer is full, a suppressed count indicator appears in the toolbar. If you see this frequently, increase the limit in the scope panel.
 
-<figure><img src="../.gitbook/assets/image (1).png" alt=""><figcaption></figcaption></figure>
+<details>
+<summary>Log page</summary>
 
-### Inspect (process page)
+<!-- screenshot: log page -->
 
-<figure><img src="../.gitbook/assets/image (30).png" alt=""><figcaption></figcaption></figure>
+</details>
 
-If the _behavior_ of this process implements the `HandleInspect` method, the response from the process to the inspect request will be displayed here. The Observer sends these requests once per second while you are on this tab.
+## Tracing
 
-In the example screenshot above, you can see the inspection of a process based on `act.Pool`. Upon receiving the inspect request, it returns information about the pool of processes and metrics such as the number of messages processed.
+The tracing page shows distributed traces captured by Observer's tracing exporter. When you open this page, Observer registers itself as a tracing exporter and begins receiving observations. For background on how tracing works, see [Distributed Tracing](distributed-tracing.md).
 
-### Log (process page)
+Each row in the trace list shows an abbreviated trace ID, span count, root process, message type, start time, and duration. Clicking a trace expands it into a waterfall timeline. The waterfall positions all spans on a shared time axis with colored markers: blue for Sent, green for Delivered, orange for Processed. Parent-child relationships are visible through indentation, so you can follow the causal chain from the initial message through every downstream hop.
 
-<figure><img src="../.gitbook/assets/image (29).png" alt=""><figcaption></figcaption></figure>
+Clicking a span reveals its full detail: every field, custom attributes, and the error message if present. This is where you identify which hop introduced latency or which process returned an error.
 
-The **Log** tab on the process information page displays a list of log messages generated by the specific process.
+Because Observer connects to one node at a time, it shows only the observations emitted on that node. A trace spanning three nodes will show the local observations and the remote portions as gaps. For complete cross-cluster traces, use [Pulse](../extra-library/applications/pulse.md) with Grafana Tempo or Jaeger.
 
-Please note that since the Observer uses a single stream for logging, any changes to the logging levels will also affect the content of the **Log** tab on the main page.
+The waterfall compensates for clock skew between nodes using measurements from active network connections. This keeps the timeline consistent even when node clocks differ slightly.
 
-### Meta-process information
+The Scope panel filters by span kinds (Send, Request, Response, Spawn, Terminate), observation points (Sent, Delivered, Processed), message pattern, and ring buffer size.
 
-<figure><img src="../.gitbook/assets/image (31).png" alt=""><figcaption></figcaption></figure>
+Expanded traces stay open when you switch to another page and come back.
 
-On this page, you'll find detailed information about the meta-process, along with graphs showing data for the last 60 seconds related to incoming/outgoing messages and the number of messages in its mailbox. The meta-process has only two message queues: _main_ and _system_.
+<details>
+<summary>Tracing page with waterfall</summary>
 
-You can also send a message to the meta-process or issue an _exit signal_. However, it is not possible to forcibly stop the meta-process using the _kill_ command.
+<!-- screenshot: tracing page with expanded waterfall -->
 
-<figure><img src="../.gitbook/assets/image (36).png" alt=""><figcaption></figcaption></figure>
+</details>
 
-### Inspect (meta-process page)
+## Profiler
 
-<figure><img src="../.gitbook/assets/image (32).png" alt=""><figcaption></figcaption></figure>
+The profiler page provides on-demand snapshots of the Go runtime.
 
-If the meta-process's _behavior_ implements the `HandleInspect` method, the response from the meta-process to the inspect request will be displayed on this tab. The Observer sends this request once per second while you are on the tab.
+The goroutines view captures a stack dump and groups goroutines by their call stack. If 500 goroutines are all blocked on the same channel receive, they appear as one group with count 500 rather than 500 individual entries. Each group shows the count, state (running, IO wait, channel receive, select), wait duration, and originating function. Expanding a group reveals the full stack trace.
 
-### Log (meta-process page)
+This is how you diagnose deadlocks and blocking. Filter by state to isolate goroutines stuck in "chan receive". Search by package name to find goroutines from specific actors. A large group with a long wait time in a state that should be transient usually points directly at the problem.
 
-<figure><img src="../.gitbook/assets/image (33).png" alt=""><figcaption></figcaption></figure>
+The heap view captures a memory allocation profile sorted by in-use bytes. Each record shows in-use bytes and objects, total allocated bytes and objects, and the allocation stack trace. Summary statistics show total in-use memory, total objects, and GC CPU fraction.
 
-On the **Log** tab of the meta-process, you will see log messages generated by that specific meta-process. Changing the logging levels will also affect the content of the **Log** tab on the main page.
+Use the heap view when memory grows unexpectedly. The allocation stack traces show exactly which code paths are responsible. If a single function dominates the in-use bytes, that is your starting point.
+
+Both views refresh on demand rather than continuously, avoiding the overhead of constant profiling.
+
+<details>
+<summary>Profiler</summary>
+
+<!-- screenshot: profiler goroutines view -->
+
+</details>
