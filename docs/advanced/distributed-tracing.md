@@ -75,13 +75,19 @@ As a trace flows through the system, the framework records observations at three
 
 ```mermaid
 sequenceDiagram
+    box rgb(200,220,255) Sender
     participant A as Sender
+    end
+    box rgb(200,255,220) Recipient
     participant B as Recipient
+    end
 
     A->>B: message
     Note right of A: Sent
     Note left of B: Delivered
+    activate B
     Note over B: Handler runs...
+    deactivate B
     Note left of B: Processed
 ```
 
@@ -216,20 +222,24 @@ When process A on node X sends to process B on node Y, the trace crosses the net
 
 ```mermaid
 sequenceDiagram
-    box Node X
+    box rgb(200,220,255) Node X
     participant A as Process A
     end
-    box Node Y
+    box rgb(200,255,220) Node Y
     participant B as Process B
     end
 
     A->>B: Send(ProcessOrder)
     Note right of A: Sent (on node X)
 
+    rect rgb(245,245,245)
     Note over A,B: network transit
+    end
 
     Note left of B: Delivered (on node Y)
+    activate B
     Note over B: Handler runs...
+    deactivate B
     Note left of B: Processed (on node Y)
 ```
 
@@ -254,13 +264,13 @@ func (p *processor) HandleMessage(from gen.PID, message any) error {
 
 ```mermaid
 sequenceDiagram
-    box Gateway Node
+    box rgb(200,220,255) Gateway Node
     participant GW as gateway
     end
-    box Worker Node
+    box rgb(200,255,220) Worker Node
     participant P as processor
     end
-    box Service Node
+    box rgb(255,230,200) Service Node
     participant W as warehouse
     participant B as billing
     end
@@ -271,20 +281,23 @@ sequenceDiagram
     Note right of GW: Sent
     Note left of P: Delivered
 
+    activate P
     Note over P: Handler runs
-
     P->>W: ReserveStock
-    Note right of P: Sent
     P->>B: CreateInvoice
-    Note right of P: Sent
+    deactivate P
     Note left of P: Processed
 
+    activate W
     Note left of W: Delivered
     Note over W: Handler runs
+    deactivate W
     Note left of W: Processed
 
+    activate B
     Note left of B: Delivered
     Note over B: Handler runs
+    deactivate B
     Note left of B: Processed
 ```
 
@@ -320,23 +333,34 @@ func (inv *inventory) HandleCall(from gen.PID, ref gen.Ref, request any) (any, e
 
 ```mermaid
 sequenceDiagram
-    box Node A
+    box rgb(200,220,255) Node A
     participant C as client
     end
-    box Node B
+    box rgb(200,255,220) Node B
     participant I as inventory
     end
 
     C->>I: Call(CheckStockRequest)
     Note right of C: Sent (request)
-    Note left of I: Delivered (request)
 
+    rect rgb(245,245,245)
+    Note over C,I: network
+    end
+
+    Note left of I: Delivered (request)
+    activate I
     Note over I: HandleCall runs
+    deactivate I
 
     I->>C: CheckStockResponse
     Note right of I: Sent (response)
-    Note left of C: Delivered (response)
     Note left of I: Processed (request)
+
+    rect rgb(245,245,245)
+    Note over C,I: network
+    end
+
+    Note left of C: Delivered (response)
 ```
 
 The request and the response are separate messages, each with their own observations. They share a call reference (`gen.Ref`) that links them, so tools like Tempo and Observer can pair request and response even when multiple concurrent calls are in flight.
