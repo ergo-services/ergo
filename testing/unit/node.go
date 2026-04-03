@@ -725,6 +725,10 @@ func (tn *TestNode) TracingExporters() []string {
 	return nil
 }
 
+func (tn *TestNode) TracingExporterFlags(name string) gen.TracingFlags {
+	return 0
+}
+
 func (tn *TestNode) SetTracingSampler(sampler gen.TracingSampler) error {
 	return nil
 }

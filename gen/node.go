@@ -517,6 +517,10 @@ type Node interface {
 	// Available in all states.
 	TracingExporters() []string
 
+	// TracingExporterFlags returns the flags for the given tracing exporter.
+	// Available in all states.
+	TracingExporterFlags(name string) TracingFlags
+
 	// SetTracingSampler sets the tracing sampler for node-level Send/Call.
 	// Use TracingSamplerDisable to turn off.
 	// Available in: Running state only.

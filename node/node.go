@@ -2382,6 +2382,14 @@ func (n *node) TracingExporters() []string {
 	return exporters
 }
 
+func (n *node) TracingExporterFlags(name string) gen.TracingFlags {
+	v, ok := n.tracingExporters.Load(name)
+	if ok == false {
+		return 0
+	}
+	return v.(tracingExporterEntry).flags
+}
+
 func (n *node) sendTracingSpan(span gen.TracingSpan) {
 	if span.Kind >= 1 && span.Kind <= 5 {
 		atomic.AddUint64(&n.tracingSpans[span.Kind-1], 1)
