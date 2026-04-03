@@ -47,7 +47,11 @@ type process struct {
 	initTime    uint64
 	wakeups     uint64
 
-	compression gen.Compression
+	compression      gen.Compression
+	tracing          gen.Tracing
+	tracingSampler   gen.TracingSampler
+	tracingAttrs     []gen.TracingAttribute  // permanent, COW
+	tracingSpanAttrs []gen.TracingAttribute  // one-shot, nil after handler
 
 	env sync.Map
 
@@ -62,6 +66,9 @@ type process struct {
 
 	// if act as a logger
 	loggername string
+
+	// if act as a tracing exporter
+	tracingExporterName string
 }
 
 type response struct {
@@ -129,6 +136,8 @@ func (p *process) Spawn(
 		Ref:            ref,
 	}
 
+	opts.Tracing = p.tracing
+
 	pid, err := p.node.spawn(factory, opts)
 	if err != nil {
 		return pid, err
@@ -175,6 +184,9 @@ func (p *process) SpawnRegister(
 		Args:           args,
 		Ref:            ref,
 	}
+
+	opts.Tracing = p.tracing
+
 	pid, err := p.node.spawn(factory, opts)
 	if err != nil {
 		return pid, err
@@ -501,6 +513,53 @@ func (p *process) ImportantDelivery() bool {
 	return p.important
 }
 
+func (p *process) SetTracingSampler(sampler gen.TracingSampler) error {
+	if p.isStateIR() == false {
+		return gen.ErrNotAllowed
+	}
+	if sampler == gen.TracingSamplerDisable {
+		p.tracingSampler = nil
+		return nil
+	}
+	p.tracingSampler = sampler
+	return nil
+}
+
+func (p *process) TracingSampler() gen.TracingSampler {
+	if p.tracingSampler == nil {
+		return gen.TracingSamplerDisable
+	}
+	return p.tracingSampler
+}
+
+
+
+func (p *process) PropagatingTrace() gen.Tracing {
+	return p.tracing
+}
+
+func (p *process) SetPropagatingTrace(t gen.Tracing) {
+	p.tracing = t
+}
+
+func (p *process) propagatingTrace() gen.Tracing {
+	if p.tracing.ID != [2]uint64{} {
+		t := p.tracing
+		t.Behavior = p.sbehavior
+		return t
+	}
+	// do not start new traces during Init phase
+	if atomic.LoadInt32(&p.state) == int32(gen.ProcessStateInit) {
+		return gen.Tracing{}
+	}
+	if p.tracingSampler != nil && p.tracingSampler.Sample() {
+		t := p.node.MakeTraceID()
+		t.Behavior = p.sbehavior
+		return t
+	}
+	return gen.Tracing{}
+}
+
 func (p *process) CreateAlias() (gen.Alias, error) {
 	if p.isStateIR() == false {
 		return gen.Alias{}, gen.ErrNotAllowed
@@ -589,50 +648,17 @@ func (p *process) SendPID(to gen.PID, message any) error {
 		p.log.Trace("SendPID to %s", to)
 	}
 
-	// Sending to itself being in initialization stage:
-	//
-	// - we can't route this message to itself (via RouteSendPID) if this process
-	//   is in the initialization stage since it isn't registered yet.
-	// - message can be routed by the process name (via RouteSendProcessID)
-	//   because it is already registered before the invoking ProcessInit callback,
-	//   which means we should not do this trick in SendProcessID method.
-	//
-	// So here, we should check if it is sending to itself and route this message manually
-	// right into the process mailbox.
-
-	if to == p.pid {
-		// sending to itself
-		qm := gen.TakeMailboxMessage()
-		qm.From = p.pid
-		qm.Type = gen.MailboxMessageTypeRegular
-		qm.Target = to
-		qm.Message = message
-
-		var queue lib.QueueMPSC
-		switch p.priority {
-		case gen.MessagePriorityHigh:
-			queue = p.mailbox.System
-		case gen.MessagePriorityMax:
-			queue = p.mailbox.Urgent
-		default:
-			queue = p.mailbox.Main
-		}
-
-		if ok := queue.Push(qm); ok == false {
-			return gen.ErrProcessMailboxFull
-		}
-
-		atomic.AddUint64(&p.messagesIn, 1)
-		atomic.AddUint64(&p.messagesOut, 1)
-		p.run()
-		return nil
-	}
-
 	options := gen.MessageOptions{
+		Tracing:           p.propagatingTrace(),
 		Priority:          p.priority,
 		Compression:       p.compression,
 		KeepNetworkOrder:  p.keeporder,
 		ImportantDelivery: p.important,
+	}
+	if options.Tracing.ID != [2]uint64{} {
+		if options.Tracing.ID != [2]uint64{} {
+			p.applyTracingAttrs(&options)
+		}
 	}
 
 	if options.ImportantDelivery {
@@ -675,10 +701,16 @@ func (p *process) SendProcessID(to gen.ProcessID, message any) error {
 	}
 
 	options := gen.MessageOptions{
+		Tracing:           p.propagatingTrace(),
 		Priority:          p.priority,
 		Compression:       p.compression,
 		KeepNetworkOrder:  p.keeporder,
 		ImportantDelivery: p.important,
+	}
+	if options.Tracing.ID != [2]uint64{} {
+		if options.Tracing.ID != [2]uint64{} {
+			p.applyTracingAttrs(&options)
+		}
 	}
 
 	if options.ImportantDelivery {
@@ -721,10 +753,16 @@ func (p *process) SendAlias(to gen.Alias, message any) error {
 	}
 
 	options := gen.MessageOptions{
+		Tracing:           p.propagatingTrace(),
 		Priority:          p.priority,
 		Compression:       p.compression,
 		KeepNetworkOrder:  p.keeporder,
 		ImportantDelivery: p.important,
+	}
+	if options.Tracing.ID != [2]uint64{} {
+		if options.Tracing.ID != [2]uint64{} {
+			p.applyTracingAttrs(&options)
+		}
 	}
 
 	if options.ImportantDelivery {
@@ -840,9 +878,13 @@ func (p *process) SendEvent(name gen.Atom, token gen.Ref, message any) error {
 	}
 
 	options := gen.MessageOptions{
+		Tracing:          p.propagatingTrace(),
 		Priority:         p.priority,
 		Compression:      p.compression,
 		KeepNetworkOrder: p.keeporder,
+	}
+	if options.Tracing.ID != [2]uint64{} {
+		p.applyTracingAttrs(&options)
 	}
 
 	em := gen.MessageEvent{
@@ -1024,11 +1066,15 @@ func (p *process) SendResponse(to gen.PID, ref gen.Ref, message any) error {
 		p.log.Trace("SendResponse to %s with %s", to, ref)
 	}
 	options := gen.MessageOptions{
+		Tracing:           p.propagatingTrace(),
 		Ref:               ref,
 		Priority:          p.priority,
 		Compression:       p.compression,
 		KeepNetworkOrder:  p.keeporder,
 		ImportantDelivery: p.important,
+	}
+	if options.Tracing.ID != [2]uint64{} {
+		p.applyTracingAttrs(&options)
 	}
 	atomic.AddUint64(&p.messagesOut, 1)
 	return p.node.RouteSendResponse(p.pid, to, options, message)
@@ -1042,11 +1088,15 @@ func (p *process) SendResponseImportant(to gen.PID, ref gen.Ref, message any) er
 		p.log.Trace("SendResponseImportant to %s with %s", to, ref)
 	}
 	options := gen.MessageOptions{
+		Tracing:           p.propagatingTrace(),
 		Ref:               ref,
 		Priority:          p.priority,
 		Compression:       p.compression,
 		KeepNetworkOrder:  p.keeporder,
 		ImportantDelivery: true,
+	}
+	if options.Tracing.ID != [2]uint64{} {
+		p.applyTracingAttrs(&options)
 	}
 	if err := p.node.RouteSendResponse(p.pid, to, options, message); err != nil {
 		return err
@@ -1065,11 +1115,15 @@ func (p *process) SendResponseError(to gen.PID, ref gen.Ref, err error) error {
 		p.log.Trace("SendResponseError to %s with %s", to, ref)
 	}
 	options := gen.MessageOptions{
+		Tracing:           p.propagatingTrace(),
 		Ref:               ref,
 		Priority:          p.priority,
 		Compression:       p.compression,
 		KeepNetworkOrder:  p.keeporder,
 		ImportantDelivery: p.important,
+	}
+	if options.Tracing.ID != [2]uint64{} {
+		p.applyTracingAttrs(&options)
 	}
 	atomic.AddUint64(&p.messagesOut, 1)
 	return p.node.RouteSendResponseError(p.pid, to, options, err)
@@ -1083,11 +1137,15 @@ func (p *process) SendResponseErrorImportant(to gen.PID, ref gen.Ref, err error)
 		p.log.Trace("SendResponseErrorImportant to %s with %s", to, ref)
 	}
 	options := gen.MessageOptions{
+		Tracing:           p.propagatingTrace(),
 		Ref:               ref,
 		Priority:          p.priority,
 		Compression:       p.compression,
 		KeepNetworkOrder:  p.keeporder,
 		ImportantDelivery: true,
+	}
+	if options.Tracing.ID != [2]uint64{} {
+		p.applyTracingAttrs(&options)
 	}
 	if err := p.node.RouteSendResponseError(p.pid, to, options, err); err != nil {
 		return err
@@ -1154,11 +1212,15 @@ func (p *process) CallPID(to gen.PID, message any, timeout int) (any, error) {
 	}
 
 	options := gen.MessageOptions{
+		Tracing:           p.propagatingTrace(),
 		Ref:               ref,
 		Priority:          p.priority,
 		Compression:       p.compression,
 		KeepNetworkOrder:  p.keeporder,
 		ImportantDelivery: p.important,
+	}
+	if options.Tracing.ID != [2]uint64{} {
+		p.applyTracingAttrs(&options)
 	}
 
 	if lib.Verbose() {
@@ -1189,11 +1251,15 @@ func (p *process) CallProcessID(to gen.ProcessID, message any, timeout int) (any
 	}
 
 	options := gen.MessageOptions{
+		Tracing:           p.propagatingTrace(),
 		Ref:               ref,
 		Priority:          p.priority,
 		Compression:       p.compression,
 		KeepNetworkOrder:  p.keeporder,
 		ImportantDelivery: p.important,
+	}
+	if options.Tracing.ID != [2]uint64{} {
+		p.applyTracingAttrs(&options)
 	}
 	if lib.Verbose() {
 		p.log.Trace("CallProcessID %s with %s", to, options.Ref)
@@ -1221,11 +1287,15 @@ func (p *process) CallAlias(to gen.Alias, message any, timeout int) (any, error)
 	}
 
 	options := gen.MessageOptions{
+		Tracing:           p.propagatingTrace(),
 		Ref:               ref,
 		Priority:          p.priority,
 		Compression:       p.compression,
 		KeepNetworkOrder:  p.keeporder,
 		ImportantDelivery: p.important,
+	}
+	if options.Tracing.ID != [2]uint64{} {
+		p.applyTracingAttrs(&options)
 	}
 
 	if lib.Verbose() {
@@ -1878,6 +1948,84 @@ func (p *process) Behavior() gen.ProcessBehavior {
 	return p.behavior
 }
 
+func (p *process) BehaviorName() string {
+	return p.sbehavior
+}
+
+func (p *process) SetTracingAttribute(key, value string) {
+	if len(key) > 5 && key[:5] == "ergo." {
+		return
+	}
+	// COW: copy slice, overwrite existing key or append
+	for i, a := range p.tracingAttrs {
+		if a.Key == key {
+			attrs := make([]gen.TracingAttribute, len(p.tracingAttrs))
+			copy(attrs, p.tracingAttrs)
+			attrs[i] = gen.TracingAttribute{Key: key, Value: value}
+			p.tracingAttrs = attrs
+			return
+		}
+	}
+	attrs := make([]gen.TracingAttribute, len(p.tracingAttrs)+1)
+	copy(attrs, p.tracingAttrs)
+	attrs[len(attrs)-1] = gen.TracingAttribute{Key: key, Value: value}
+	p.tracingAttrs = attrs
+}
+
+func (p *process) RemoveTracingAttribute(key string) {
+	for i, a := range p.tracingAttrs {
+		if a.Key == key {
+			attrs := make([]gen.TracingAttribute, len(p.tracingAttrs)-1)
+			copy(attrs, p.tracingAttrs[:i])
+			copy(attrs[i:], p.tracingAttrs[i+1:])
+			p.tracingAttrs = attrs
+			return
+		}
+	}
+}
+
+func (p *process) SetTracingSpanAttribute(key, value string) {
+	if len(key) > 5 && key[:5] == "ergo." {
+		return
+	}
+	for i, a := range p.tracingSpanAttrs {
+		if a.Key == key {
+			p.tracingSpanAttrs[i].Value = value
+			return
+		}
+	}
+	p.tracingSpanAttrs = append(p.tracingSpanAttrs, gen.TracingAttribute{Key: key, Value: value})
+}
+
+func (p *process) TracingAttributes() []gen.TracingAttribute {
+	if len(p.tracingAttrs) == 0 {
+		return p.tracingSpanAttrs
+	}
+	if len(p.tracingSpanAttrs) == 0 {
+		return p.tracingAttrs
+	}
+	m := make([]gen.TracingAttribute, 0, len(p.tracingAttrs)+len(p.tracingSpanAttrs))
+	return append(append(m, p.tracingAttrs...), p.tracingSpanAttrs...)
+}
+
+func (p *process) ClearTracingSpanAttributes() {
+	if p.tracingSpanAttrs != nil {
+		p.tracingSpanAttrs = nil
+	}
+}
+
+func (p *process) applyTracingAttrs(options *gen.MessageOptions) {
+	attrs := p.TracingAttributes()
+	if len(attrs) == 0 {
+		return
+	}
+	options.TracingAttributes = attrs
+}
+
+func (p *process) SendTracingSpan(span gen.TracingSpan) {
+	p.node.sendTracingSpan(span)
+}
+
 func (p *process) Forward(
 	to gen.PID,
 	message *gen.MailboxMessage,
@@ -1912,6 +2060,7 @@ func (p *process) Forward(
 	fp.run()
 	return nil
 }
+
 // internal
 
 func (p *process) isAlive() bool {
@@ -1986,7 +2135,11 @@ retry:
 		if r.important {
 			// send ack for important response
 			options := gen.MessageOptions{
-				Ref: r.ref,
+				Tracing: p.propagatingTrace(),
+				Ref:     r.ref,
+			}
+			if options.Tracing.ID != [2]uint64{} {
+				p.applyTracingAttrs(&options)
 			}
 			p.node.RouteSendResponseError(p.pid, r.from, options, err)
 		}

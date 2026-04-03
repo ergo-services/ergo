@@ -34,6 +34,7 @@ type TargetManager interface {
 	PublishEvent(from PID, token Ref, options MessageOptions, message MessageEvent) error
 	EventInfo(event Event) (EventInfo, error)
 	EventRangeInfo(fn func(EventInfo) bool) error
+	EventListInfo(timestamp int64, limit int, filter ...func(EventInfo) bool) ([]EventInfo, error)
 
 	LinksFor(consumer PID) []any
 	MonitorsFor(consumer PID) []any
@@ -54,6 +55,7 @@ type TargetManager interface {
 
 // EventInfo contains event metadata and statistics
 type EventInfo struct {
+	CreatedAt          int64
 	Event              Event
 	Producer           PID
 	BufferSize         int

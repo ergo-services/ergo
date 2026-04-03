@@ -94,6 +94,11 @@ func (e *enp) NewConnection(core gen.Core, result gen.HandshakeResult, log gen.L
 		conn.clockSkew = true
 	}
 
+	if result.NodeFlags.EnableTracing == true &&
+		result.PeerFlags.EnableTracing == true {
+		conn.tracing = true
+	}
+
 	if result.NodeFlags.EnableFragmentation == true &&
 		result.PeerFlags.EnableFragmentation == true {
 		conn.fragmentation = true

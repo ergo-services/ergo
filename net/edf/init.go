@@ -28,6 +28,12 @@ var (
 
 		gen.ApplicationDepends{},
 
+		gen.Tracing{},
+		gen.TracingFlags(0),
+		gen.TracingAttribute{},
+		gen.TracingInfo{},
+		gen.TracingExporterInfo{},
+
 		gen.LoggerInfo{},
 		gen.ProcessFallback{},
 		gen.CronJobInfo{},
@@ -174,6 +180,18 @@ var (
 		inspect.RequestInspectHeap{},
 		inspect.ResponseInspectHeap{},
 		inspect.MessageInspectHeap{},
+
+		gen.TracingPoint(0),
+		gen.TracingKind(0),
+		gen.TracingFlags(0),
+		gen.TracingSpan{},
+
+		inspect.RequestInspectTracing{},
+		inspect.ResponseInspectTracing{},
+		inspect.MessageInspectTracing{},
+
+		inspect.RequestDoSetNodeTracingSampler{},
+		inspect.RequestDoSetProcessTracingSampler{},
 	}
 
 	// register standard errors of the Ergo Framework

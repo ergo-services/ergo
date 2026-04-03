@@ -617,6 +617,10 @@ func (tn *TestNode) EventRangeInfo(fn func(gen.EventInfo) bool) error {
 	return nil
 }
 
+func (tn *TestNode) EventListInfo(timestamp int64, limit int, filter ...func(gen.EventInfo) bool) ([]gen.EventInfo, error) {
+	return nil, nil
+}
+
 func (tn *TestNode) SendExit(pid gen.PID, reason error) error {
 	// Check for failure injection
 	if err := tn.CheckMethodFailure("SendExit", pid, reason); err != nil {
@@ -701,6 +705,43 @@ func (tn *TestNode) LoggerDelete(name string) {
 
 func (tn *TestNode) LoggerLevels(name string) []gen.LogLevel {
 	return []gen.LogLevel{gen.LogLevelInfo}
+}
+
+func (tn *TestNode) TracingExporterAddPID(pid gen.PID, name string, flags gen.TracingFlags) error {
+	return nil
+}
+
+func (tn *TestNode) TracingExporterAdd(name string, exporter gen.TracingBehavior, flags gen.TracingFlags) error {
+	return nil
+}
+
+func (tn *TestNode) TracingExporterDeletePID(pid gen.PID) {
+}
+
+func (tn *TestNode) TracingExporterDelete(name string) {
+}
+
+func (tn *TestNode) TracingExporters() []string {
+	return nil
+}
+
+func (tn *TestNode) TracingExporterFlags(name string) gen.TracingFlags {
+	return 0
+}
+
+func (tn *TestNode) SetTracingSampler(sampler gen.TracingSampler) error {
+	return nil
+}
+
+func (tn *TestNode) SetTracingAttribute(key, value string) {}
+func (tn *TestNode) RemoveTracingAttribute(key string)      {}
+
+func (tn *TestNode) TracingSampler() gen.TracingSampler {
+	return gen.TracingSamplerDisable
+}
+
+func (tn *TestNode) SetProcessTracingSampler(pid gen.PID, sampler gen.TracingSampler) error {
+	return nil
 }
 
 func (tn *TestNode) MakeRef() gen.Ref {

@@ -41,6 +41,7 @@ var (
 		EnableImportantDelivery:      true,
 		EnableSimultaneousConnect:    true,
 		EnableClockSkew:              true,
+		EnableTracing:                true,
 		EnableSoftwareKeepAlive:      15, // seconds
 	}
 

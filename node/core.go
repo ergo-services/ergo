@@ -1,6 +1,7 @@
 package node
 
 import (
+	"reflect"
 	"sync/atomic"
 	"time"
 
@@ -21,6 +22,18 @@ func (n *node) RouteSendPID(from gen.PID, to gen.PID, options gen.MessageOptions
 		n.log.Trace("RouteSendPID from %s to %s", from, to)
 	}
 
+	tracingActive := options.Tracing.ID != [2]uint64{}
+	var msgType string
+	var parentSpanID uint64
+	var fromBehavior string
+	if tracingActive {
+		parentSpanID = options.Tracing.SpanID
+		fromBehavior = options.Tracing.Behavior
+		if message != nil {
+			msgType = reflect.TypeOf(message).String()
+		}
+	}
+
 	if to.Node != n.name {
 		// remote
 		connection, err := n.network.GetConnection(to.Node)
@@ -28,9 +41,23 @@ func (n *node) RouteSendPID(from gen.PID, to gen.PID, options gen.MessageOptions
 			atomic.AddUint64(&n.sendErrorsRemote, 1)
 			return err
 		}
+		if tracingActive {
+			options.Tracing.SpanID = atomic.AddUint64(&n.spanID, 1)
+		}
 		if err := connection.SendPID(from, to, options, message); err != nil {
 			atomic.AddUint64(&n.sendErrorsRemote, 1)
 			return err
+		}
+		if tracingActive {
+			n.sendTracingSpan(gen.TracingSpan{
+				TraceID: options.Tracing.ID, SpanID: options.Tracing.SpanID,
+				ParentSpanID: parentSpanID,
+				Point:        gen.TracingPointSent, Kind: gen.TracingKindSend,
+				Timestamp: time.Now().UnixNano(),
+				Node:      n.name, From: from, To: to,
+				Ref: options.Ref, Behavior: fromBehavior, Message: msgType,
+				Attributes: options.TracingAttributes,
+			})
 		}
 		return nil
 	}
@@ -62,6 +89,10 @@ func (n *node) RouteSendPID(from gen.PID, to gen.PID, options gen.MessageOptions
 	qm.Type = gen.MailboxMessageTypeRegular
 	qm.Target = to
 	qm.Message = message
+	qm.Tracing = options.Tracing
+	if tracingActive && from.Node == n.name {
+		qm.Tracing.SpanID = atomic.AddUint64(&n.spanID, 1)
+	}
 
 	if ok := queue.Push(qm); ok == false {
 		if p.fallback.Enable == false {
@@ -83,6 +114,29 @@ func (n *node) RouteSendPID(from gen.PID, to gen.PID, options gen.MessageOptions
 		return n.RouteSendProcessID(from, fbto, options, fbm)
 	}
 	atomic.AddUint64(&p.messagesIn, 1)
+
+	if tracingActive {
+		nanos := time.Now().UnixNano()
+		if from.Node == n.name {
+			n.sendTracingSpan(gen.TracingSpan{
+				TraceID: options.Tracing.ID, SpanID: qm.Tracing.SpanID,
+				ParentSpanID: parentSpanID,
+				Point:        gen.TracingPointSent, Kind: gen.TracingKindSend,
+				Timestamp: nanos, Node: n.name, From: from, To: to,
+				Ref: options.Ref, Behavior: fromBehavior, Message: msgType,
+				Attributes: options.TracingAttributes,
+			})
+		}
+		n.sendTracingSpan(gen.TracingSpan{
+			TraceID: options.Tracing.ID, SpanID: qm.Tracing.SpanID,
+			ParentSpanID: parentSpanID,
+			Point:        gen.TracingPointDelivered, Kind: gen.TracingKindSend,
+			Timestamp: nanos, Node: n.name, From: from, To: to,
+			Ref: options.Ref, Behavior: p.sbehavior, Message: msgType,
+			Attributes: p.tracingAttrs,
+		})
+	}
+
 	p.run()
 	return nil
 }
@@ -102,6 +156,18 @@ func (n *node) RouteSendProcessID(from gen.PID, to gen.ProcessID, options gen.Me
 		to.Node = n.name
 	}
 
+	tracingActive := options.Tracing.ID != [2]uint64{}
+	var msgType string
+	var parentSpanID uint64
+	var fromBehavior string
+	if tracingActive {
+		parentSpanID = options.Tracing.SpanID
+		fromBehavior = options.Tracing.Behavior
+		if message != nil {
+			msgType = reflect.TypeOf(message).String()
+		}
+	}
+
 	if to.Node != n.name {
 		// remote
 		connection, err := n.network.GetConnection(to.Node)
@@ -109,9 +175,23 @@ func (n *node) RouteSendProcessID(from gen.PID, to gen.ProcessID, options gen.Me
 			atomic.AddUint64(&n.sendErrorsRemote, 1)
 			return err
 		}
+		if tracingActive {
+			options.Tracing.SpanID = atomic.AddUint64(&n.spanID, 1)
+		}
 		if err := connection.SendProcessID(from, to, options, message); err != nil {
 			atomic.AddUint64(&n.sendErrorsRemote, 1)
 			return err
+		}
+		if tracingActive {
+			n.sendTracingSpan(gen.TracingSpan{
+				TraceID: options.Tracing.ID, SpanID: options.Tracing.SpanID,
+				ParentSpanID: parentSpanID,
+				Point:        gen.TracingPointSent, Kind: gen.TracingKindSend,
+				Timestamp: time.Now().UnixNano(),
+				Node:      n.name, From: from, To: to,
+				Ref: options.Ref, Behavior: fromBehavior, Message: msgType,
+				Attributes: options.TracingAttributes,
+			})
 		}
 		return nil
 	}
@@ -142,6 +222,10 @@ func (n *node) RouteSendProcessID(from gen.PID, to gen.ProcessID, options gen.Me
 	qm.Type = gen.MailboxMessageTypeRegular
 	qm.Target = to.Name
 	qm.Message = message
+	qm.Tracing = options.Tracing
+	if tracingActive && from.Node == n.name {
+		qm.Tracing.SpanID = atomic.AddUint64(&n.spanID, 1)
+	}
 
 	if ok := queue.Push(qm); ok == false {
 		if p.fallback.Enable == false {
@@ -164,6 +248,29 @@ func (n *node) RouteSendProcessID(from gen.PID, to gen.ProcessID, options gen.Me
 	}
 
 	atomic.AddUint64(&p.messagesIn, 1)
+
+	if tracingActive {
+		nanos := time.Now().UnixNano()
+		if from.Node == n.name {
+			n.sendTracingSpan(gen.TracingSpan{
+				TraceID: options.Tracing.ID, SpanID: qm.Tracing.SpanID,
+				ParentSpanID: parentSpanID,
+				Point:        gen.TracingPointSent, Kind: gen.TracingKindSend,
+				Timestamp: nanos, Node: n.name, From: from, To: to,
+				Ref: options.Ref, Behavior: fromBehavior, Message: msgType,
+				Attributes: options.TracingAttributes,
+			})
+		}
+		n.sendTracingSpan(gen.TracingSpan{
+			TraceID: options.Tracing.ID, SpanID: qm.Tracing.SpanID,
+			ParentSpanID: parentSpanID,
+			Point:        gen.TracingPointDelivered, Kind: gen.TracingKindSend,
+			Timestamp: nanos, Node: n.name, From: from, To: to,
+			Ref: options.Ref, Behavior: p.sbehavior, Message: msgType,
+			Attributes: p.tracingAttrs,
+		})
+	}
+
 	p.run()
 	return nil
 }
@@ -179,6 +286,18 @@ func (n *node) RouteSendAlias(from gen.PID, to gen.Alias, options gen.MessageOpt
 		n.log.Trace("RouteSendAlias from %s to %s", from, to)
 	}
 
+	tracingActive := options.Tracing.ID != [2]uint64{}
+	var msgType string
+	var parentSpanID uint64
+	var fromBehavior string
+	if tracingActive {
+		parentSpanID = options.Tracing.SpanID
+		fromBehavior = options.Tracing.Behavior
+		if message != nil {
+			msgType = reflect.TypeOf(message).String()
+		}
+	}
+
 	if to.Node != n.name {
 		// remote
 		connection, err := n.network.GetConnection(to.Node)
@@ -186,9 +305,23 @@ func (n *node) RouteSendAlias(from gen.PID, to gen.Alias, options gen.MessageOpt
 			atomic.AddUint64(&n.sendErrorsRemote, 1)
 			return err
 		}
+		if tracingActive {
+			options.Tracing.SpanID = atomic.AddUint64(&n.spanID, 1)
+		}
 		if err := connection.SendAlias(from, to, options, message); err != nil {
 			atomic.AddUint64(&n.sendErrorsRemote, 1)
 			return err
+		}
+		if tracingActive {
+			n.sendTracingSpan(gen.TracingSpan{
+				TraceID: options.Tracing.ID, SpanID: options.Tracing.SpanID,
+				ParentSpanID: parentSpanID,
+				Point:        gen.TracingPointSent, Kind: gen.TracingKindSend,
+				Timestamp: time.Now().UnixNano(),
+				Node:      n.name, From: from, To: to,
+				Ref: options.Ref, Behavior: fromBehavior, Message: msgType,
+				Attributes: options.TracingAttributes,
+			})
 		}
 		return nil
 	}
@@ -210,6 +343,10 @@ func (n *node) RouteSendAlias(from gen.PID, to gen.Alias, options gen.MessageOpt
 	qm.Type = gen.MailboxMessageTypeRegular
 	qm.Target = to
 	qm.Message = message
+	qm.Tracing = options.Tracing
+	if tracingActive && from.Node == n.name {
+		qm.Tracing.SpanID = atomic.AddUint64(&n.spanID, 1)
+	}
 
 	// check if this message should be delivered to the meta process
 	if value, found := p.metas.Load(to); found {
@@ -220,6 +357,27 @@ func (n *node) RouteSendAlias(from gen.PID, to gen.Alias, options gen.MessageOpt
 		}
 		atomic.AddUint64(&m.messagesIn, 1)
 		atomic.AddUint64(&p.messagesIn, 1)
+		if tracingActive {
+			nanos := time.Now().UnixNano()
+			if from.Node == n.name {
+				n.sendTracingSpan(gen.TracingSpan{
+					TraceID: options.Tracing.ID, SpanID: qm.Tracing.SpanID,
+					ParentSpanID: parentSpanID,
+					Point:        gen.TracingPointSent, Kind: gen.TracingKindSend,
+					Timestamp: nanos, Node: n.name, From: from, To: to,
+					Ref: options.Ref, Behavior: fromBehavior, Message: msgType,
+					Attributes: options.TracingAttributes,
+				})
+			}
+			n.sendTracingSpan(gen.TracingSpan{
+				TraceID: options.Tracing.ID, SpanID: qm.Tracing.SpanID,
+				ParentSpanID: parentSpanID,
+				Point:        gen.TracingPointDelivered, Kind: gen.TracingKindSend,
+				Timestamp: nanos, Node: n.name, From: from, To: to,
+				Ref: options.Ref, Behavior: p.sbehavior, Message: msgType,
+				Attributes: p.tracingAttrs,
+			})
+		}
 		m.handle()
 		return nil
 	}
@@ -254,6 +412,29 @@ func (n *node) RouteSendAlias(from gen.PID, to gen.Alias, options gen.MessageOpt
 	}
 
 	atomic.AddUint64(&p.messagesIn, 1)
+
+	if tracingActive {
+		nanos := time.Now().UnixNano()
+		if from.Node == n.name {
+			n.sendTracingSpan(gen.TracingSpan{
+				TraceID: options.Tracing.ID, SpanID: qm.Tracing.SpanID,
+				ParentSpanID: parentSpanID,
+				Point:        gen.TracingPointSent, Kind: gen.TracingKindSend,
+				Timestamp: nanos, Node: n.name, From: from, To: to,
+				Ref: options.Ref, Behavior: fromBehavior, Message: msgType,
+				Attributes: options.TracingAttributes,
+			})
+		}
+		n.sendTracingSpan(gen.TracingSpan{
+			TraceID: options.Tracing.ID, SpanID: qm.Tracing.SpanID,
+			ParentSpanID: parentSpanID,
+			Point:        gen.TracingPointDelivered, Kind: gen.TracingKindSend,
+			Timestamp: nanos, Node: n.name, From: from, To: to,
+			Ref: options.Ref, Behavior: p.sbehavior, Message: msgType,
+			Attributes: p.tracingAttrs,
+		})
+	}
+
 	p.run()
 	return nil
 }
@@ -308,13 +489,42 @@ func (n *node) RouteSendResponse(from gen.PID, to gen.PID, options gen.MessageOp
 		n.log.Trace("RouteSendResponse from %s to %s with ref %q", from, to, options.Ref)
 	}
 
+	tracingActive := options.Tracing.ID != [2]uint64{}
+	var msgType string
+	var parentSpanID uint64
+	var fromBehavior string
+	if tracingActive {
+		parentSpanID = options.Tracing.SpanID
+		fromBehavior = options.Tracing.Behavior
+		if message != nil {
+			msgType = reflect.TypeOf(message).String()
+		}
+	}
+
 	if to.Node != n.name {
 		// remote
 		connection, err := n.network.GetConnection(to.Node)
 		if err != nil {
 			return err
 		}
-		return connection.SendResponse(from, to, options, message)
+		if tracingActive {
+			options.Tracing.SpanID = atomic.AddUint64(&n.spanID, 1)
+		}
+		if err := connection.SendResponse(from, to, options, message); err != nil {
+			return err
+		}
+		if tracingActive {
+			n.sendTracingSpan(gen.TracingSpan{
+				TraceID: options.Tracing.ID, SpanID: options.Tracing.SpanID,
+				ParentSpanID: parentSpanID,
+				Point:        gen.TracingPointSent, Kind: gen.TracingKindResponse,
+				Timestamp: time.Now().UnixNano(),
+				Node:      n.name, From: from, To: to,
+				Ref: options.Ref, Behavior: fromBehavior, Message: msgType,
+				Attributes: options.TracingAttributes,
+			})
+		}
+		return nil
 	}
 
 	// Check if this is a node-level call response
@@ -327,6 +537,31 @@ func (n *node) RouteSendResponse(from gen.PID, to gen.PID, options gen.MessageOp
 
 			select {
 			case call.done <- struct{}{}:
+				if tracingActive {
+					nanos := time.Now().UnixNano()
+					spanID := options.Tracing.SpanID
+					if from.Node == n.name {
+						spanID = atomic.AddUint64(&n.spanID, 1)
+					}
+					if from.Node == n.name {
+						n.sendTracingSpan(gen.TracingSpan{
+							TraceID: options.Tracing.ID, SpanID: spanID,
+							ParentSpanID: parentSpanID,
+							Point:        gen.TracingPointSent, Kind: gen.TracingKindResponse,
+							Timestamp: nanos, Node: n.name, From: from, To: to,
+							Ref: options.Ref, Behavior: fromBehavior, Message: msgType,
+							Attributes: options.TracingAttributes,
+						})
+					}
+					n.sendTracingSpan(gen.TracingSpan{
+						TraceID: options.Tracing.ID, SpanID: spanID,
+						ParentSpanID: parentSpanID,
+						Point:        gen.TracingPointDelivered, Kind: gen.TracingKindResponse,
+						Timestamp: nanos, Node: n.name, From: from, To: to,
+						Ref: options.Ref, Behavior: fromBehavior, Message: msgType,
+						Attributes: options.TracingAttributes,
+					})
+				}
 				return nil
 			default:
 				return gen.ErrResponseIgnored
@@ -351,9 +586,33 @@ func (n *node) RouteSendResponse(from gen.PID, to gen.PID, options gen.MessageOp
 	select {
 	case p.response <- resp:
 		atomic.AddUint64(&p.messagesIn, 1)
+		if tracingActive {
+			nanos := time.Now().UnixNano()
+			spanID := options.Tracing.SpanID
+			if from.Node == n.name {
+				spanID = atomic.AddUint64(&n.spanID, 1)
+			}
+			if from.Node == n.name {
+				n.sendTracingSpan(gen.TracingSpan{
+					TraceID: options.Tracing.ID, SpanID: spanID,
+					ParentSpanID: parentSpanID,
+					Point:        gen.TracingPointSent, Kind: gen.TracingKindResponse,
+					Timestamp: nanos, Node: n.name, From: from, To: to,
+					Ref: options.Ref, Behavior: fromBehavior, Message: msgType,
+					Attributes: options.TracingAttributes,
+				})
+			}
+			n.sendTracingSpan(gen.TracingSpan{
+				TraceID: options.Tracing.ID, SpanID: spanID,
+				ParentSpanID: parentSpanID,
+				Point:        gen.TracingPointDelivered, Kind: gen.TracingKindResponse,
+				Timestamp: nanos, Node: n.name, From: from, To: to,
+				Ref: options.Ref, Behavior: p.sbehavior, Message: msgType,
+				Attributes: p.tracingAttrs,
+			})
+		}
 		return nil
 	default:
-		// process doesn't wait for a response anymore
 		return gen.ErrResponseIgnored
 	}
 }
@@ -367,13 +626,44 @@ func (n *node) RouteSendResponseError(from gen.PID, to gen.PID, options gen.Mess
 		n.log.Trace("RouteSendResponseError from %s to %s with ref %q", from, to, options.Ref)
 	}
 
+	tracingActive := options.Tracing.ID != [2]uint64{}
+	var errString string
+	var msgType string
+	var parentSpanID uint64
+	var fromBehavior string
+	if tracingActive {
+		parentSpanID = options.Tracing.SpanID
+		fromBehavior = options.Tracing.Behavior
+		if err != nil {
+			errString = err.Error()
+			msgType = reflect.TypeOf(err).String()
+		}
+	}
+
 	if to.Node != n.name {
 		// remote
 		connection, e := n.network.GetConnection(to.Node)
 		if e != nil {
 			return e
 		}
-		return connection.SendResponseError(from, to, options, err)
+		if tracingActive {
+			options.Tracing.SpanID = atomic.AddUint64(&n.spanID, 1)
+		}
+		if e := connection.SendResponseError(from, to, options, err); e != nil {
+			return e
+		}
+		if tracingActive {
+			n.sendTracingSpan(gen.TracingSpan{
+				TraceID: options.Tracing.ID, SpanID: options.Tracing.SpanID,
+				ParentSpanID: parentSpanID,
+				Point:        gen.TracingPointSent, Kind: gen.TracingKindResponse,
+				Timestamp: time.Now().UnixNano(),
+				Node:      n.name, From: from, To: to,
+				Ref: options.Ref, Behavior: fromBehavior, Message: msgType, Error: errString,
+				Attributes: options.TracingAttributes,
+			})
+		}
+		return nil
 	}
 
 	// Check if this is a node-level call response error
@@ -386,6 +676,31 @@ func (n *node) RouteSendResponseError(from gen.PID, to gen.PID, options gen.Mess
 
 			select {
 			case call.done <- struct{}{}:
+				if tracingActive {
+					nanos := time.Now().UnixNano()
+					spanID := options.Tracing.SpanID
+					if from.Node == n.name {
+						spanID = atomic.AddUint64(&n.spanID, 1)
+					}
+					if from.Node == n.name {
+						n.sendTracingSpan(gen.TracingSpan{
+							TraceID: options.Tracing.ID, SpanID: spanID,
+							ParentSpanID: parentSpanID,
+							Point:        gen.TracingPointSent, Kind: gen.TracingKindResponse,
+							Timestamp: nanos, Node: n.name, From: from, To: to,
+							Ref: options.Ref, Behavior: fromBehavior, Message: msgType, Error: errString,
+							Attributes: options.TracingAttributes,
+						})
+					}
+					n.sendTracingSpan(gen.TracingSpan{
+						TraceID: options.Tracing.ID, SpanID: spanID,
+						ParentSpanID: parentSpanID,
+						Point:        gen.TracingPointDelivered, Kind: gen.TracingKindResponse,
+						Timestamp: nanos, Node: n.name, From: from, To: to,
+						Ref: options.Ref, Behavior: fromBehavior, Message: msgType, Error: errString,
+						Attributes: options.TracingAttributes,
+					})
+				}
 				return nil
 			default:
 				return gen.ErrResponseIgnored
@@ -409,9 +724,33 @@ func (n *node) RouteSendResponseError(from gen.PID, to gen.PID, options gen.Mess
 	select {
 	case p.response <- resp:
 		atomic.AddUint64(&p.messagesIn, 1)
+		if tracingActive {
+			nanos := time.Now().UnixNano()
+			spanID := options.Tracing.SpanID
+			if from.Node == n.name {
+				spanID = atomic.AddUint64(&n.spanID, 1)
+			}
+			if from.Node == n.name {
+				n.sendTracingSpan(gen.TracingSpan{
+					TraceID: options.Tracing.ID, SpanID: spanID,
+					ParentSpanID: parentSpanID,
+					Point:        gen.TracingPointSent, Kind: gen.TracingKindResponse,
+					Timestamp: nanos, Node: n.name, From: from, To: to,
+					Ref: options.Ref, Behavior: fromBehavior, Message: msgType, Error: errString,
+					Attributes: options.TracingAttributes,
+				})
+			}
+			n.sendTracingSpan(gen.TracingSpan{
+				TraceID: options.Tracing.ID, SpanID: spanID,
+				ParentSpanID: parentSpanID,
+				Point:        gen.TracingPointDelivered, Kind: gen.TracingKindResponse,
+				Timestamp: nanos, Node: n.name, From: from, To: to,
+				Ref: options.Ref, Behavior: p.sbehavior, Message: msgType, Error: errString,
+				Attributes: p.tracingAttrs,
+			})
+		}
 		return nil
 	default:
-		// process doesn't wait for a response anymore
 		return gen.ErrResponseIgnored
 	}
 }
@@ -431,6 +770,18 @@ func (n *node) RouteCallPID(from gen.PID, to gen.PID, options gen.MessageOptions
 		n.log.Trace("RouteCallPID from %s to %s with ref %q", from, to, options.Ref)
 	}
 
+	tracingActive := options.Tracing.ID != [2]uint64{}
+	var msgType string
+	var parentSpanID uint64
+	var fromBehavior string
+	if tracingActive {
+		parentSpanID = options.Tracing.SpanID
+		fromBehavior = options.Tracing.Behavior
+		if message != nil {
+			msgType = reflect.TypeOf(message).String()
+		}
+	}
+
 	if to.Node != n.name {
 		// remote
 		connection, err := n.network.GetConnection(to.Node)
@@ -438,9 +789,23 @@ func (n *node) RouteCallPID(from gen.PID, to gen.PID, options gen.MessageOptions
 			atomic.AddUint64(&n.callErrorsRemote, 1)
 			return err
 		}
+		if tracingActive {
+			options.Tracing.SpanID = atomic.AddUint64(&n.spanID, 1)
+		}
 		if err := connection.CallPID(from, to, options, message); err != nil {
 			atomic.AddUint64(&n.callErrorsRemote, 1)
 			return err
+		}
+		if tracingActive {
+			n.sendTracingSpan(gen.TracingSpan{
+				TraceID: options.Tracing.ID, SpanID: options.Tracing.SpanID,
+				ParentSpanID: parentSpanID,
+				Point:        gen.TracingPointSent, Kind: gen.TracingKindRequest,
+				Timestamp: time.Now().UnixNano(),
+				Node:      n.name, From: from, To: to,
+				Ref: options.Ref, Behavior: fromBehavior, Message: msgType,
+				Attributes: options.TracingAttributes,
+			})
 		}
 		return nil
 	}
@@ -472,12 +837,39 @@ func (n *node) RouteCallPID(from gen.PID, to gen.PID, options gen.MessageOptions
 	qm.From = from
 	qm.Type = gen.MailboxMessageTypeRequest
 	qm.Message = message
+	qm.Tracing = options.Tracing
+	if tracingActive && from.Node == n.name {
+		qm.Tracing.SpanID = atomic.AddUint64(&n.spanID, 1)
+	}
 
 	if ok := queue.Push(qm); ok == false {
 		atomic.AddUint64(&n.callErrorsLocal, 1)
 		return gen.ErrProcessMailboxFull
 	}
 	atomic.AddUint64(&p.messagesIn, 1)
+
+	if tracingActive {
+		nanos := time.Now().UnixNano()
+		if from.Node == n.name {
+			n.sendTracingSpan(gen.TracingSpan{
+				TraceID: options.Tracing.ID, SpanID: qm.Tracing.SpanID,
+				ParentSpanID: parentSpanID,
+				Point:        gen.TracingPointSent, Kind: gen.TracingKindRequest,
+				Timestamp: nanos, Node: n.name, From: from, To: to,
+				Ref: options.Ref, Behavior: fromBehavior, Message: msgType,
+				Attributes: options.TracingAttributes,
+			})
+		}
+		n.sendTracingSpan(gen.TracingSpan{
+			TraceID: options.Tracing.ID, SpanID: qm.Tracing.SpanID,
+			ParentSpanID: parentSpanID,
+			Point:        gen.TracingPointDelivered, Kind: gen.TracingKindRequest,
+			Timestamp: nanos, Node: n.name, From: from, To: to,
+			Ref: options.Ref, Behavior: p.sbehavior, Message: msgType,
+			Attributes: p.tracingAttrs,
+		})
+	}
+
 	p.run()
 	return nil
 }
@@ -492,6 +884,18 @@ func (n *node) RouteCallProcessID(from gen.PID, to gen.ProcessID, options gen.Me
 		n.log.Trace("RouteCallProcessID from %s to %s with ref %q", from, to, options.Ref)
 	}
 
+	tracingActive := options.Tracing.ID != [2]uint64{}
+	var msgType string
+	var parentSpanID uint64
+	var fromBehavior string
+	if tracingActive {
+		parentSpanID = options.Tracing.SpanID
+		fromBehavior = options.Tracing.Behavior
+		if message != nil {
+			msgType = reflect.TypeOf(message).String()
+		}
+	}
+
 	if to.Node != n.name {
 		// remote
 		connection, err := n.network.GetConnection(to.Node)
@@ -499,9 +903,23 @@ func (n *node) RouteCallProcessID(from gen.PID, to gen.ProcessID, options gen.Me
 			atomic.AddUint64(&n.callErrorsRemote, 1)
 			return err
 		}
+		if tracingActive {
+			options.Tracing.SpanID = atomic.AddUint64(&n.spanID, 1)
+		}
 		if err := connection.CallProcessID(from, to, options, message); err != nil {
 			atomic.AddUint64(&n.callErrorsRemote, 1)
 			return err
+		}
+		if tracingActive {
+			n.sendTracingSpan(gen.TracingSpan{
+				TraceID: options.Tracing.ID, SpanID: options.Tracing.SpanID,
+				ParentSpanID: parentSpanID,
+				Point:        gen.TracingPointSent, Kind: gen.TracingKindRequest,
+				Timestamp: time.Now().UnixNano(),
+				Node:      n.name, From: from, To: to,
+				Ref: options.Ref, Behavior: fromBehavior, Message: msgType,
+				Attributes: options.TracingAttributes,
+			})
 		}
 		return nil
 	}
@@ -532,12 +950,39 @@ func (n *node) RouteCallProcessID(from gen.PID, to gen.ProcessID, options gen.Me
 	qm.Type = gen.MailboxMessageTypeRequest
 	qm.Target = to.Name
 	qm.Message = message
+	qm.Tracing = options.Tracing
+	if tracingActive && from.Node == n.name {
+		qm.Tracing.SpanID = atomic.AddUint64(&n.spanID, 1)
+	}
 
 	if ok := queue.Push(qm); ok == false {
 		atomic.AddUint64(&n.callErrorsLocal, 1)
 		return gen.ErrProcessMailboxFull
 	}
 	atomic.AddUint64(&p.messagesIn, 1)
+
+	if tracingActive {
+		nanos := time.Now().UnixNano()
+		if from.Node == n.name {
+			n.sendTracingSpan(gen.TracingSpan{
+				TraceID: options.Tracing.ID, SpanID: qm.Tracing.SpanID,
+				ParentSpanID: parentSpanID,
+				Point:        gen.TracingPointSent, Kind: gen.TracingKindRequest,
+				Timestamp: nanos, Node: n.name, From: from, To: to,
+				Ref: options.Ref, Behavior: fromBehavior, Message: msgType,
+				Attributes: options.TracingAttributes,
+			})
+		}
+		n.sendTracingSpan(gen.TracingSpan{
+			TraceID: options.Tracing.ID, SpanID: qm.Tracing.SpanID,
+			ParentSpanID: parentSpanID,
+			Point:        gen.TracingPointDelivered, Kind: gen.TracingKindRequest,
+			Timestamp: nanos, Node: n.name, From: from, To: to,
+			Ref: options.Ref, Behavior: p.sbehavior, Message: msgType,
+			Attributes: p.tracingAttrs,
+		})
+	}
+
 	p.run()
 	return nil
 }
@@ -553,6 +998,18 @@ func (n *node) RouteCallAlias(from gen.PID, to gen.Alias, options gen.MessageOpt
 		n.log.Trace("RouteCallAlias from %s to %s with ref %q", from, to, options.Ref)
 	}
 
+	tracingActive := options.Tracing.ID != [2]uint64{}
+	var msgType string
+	var parentSpanID uint64
+	var fromBehavior string
+	if tracingActive {
+		parentSpanID = options.Tracing.SpanID
+		fromBehavior = options.Tracing.Behavior
+		if message != nil {
+			msgType = reflect.TypeOf(message).String()
+		}
+	}
+
 	if to.Node != n.name {
 		// remote
 		connection, err := n.network.GetConnection(to.Node)
@@ -560,9 +1017,23 @@ func (n *node) RouteCallAlias(from gen.PID, to gen.Alias, options gen.MessageOpt
 			atomic.AddUint64(&n.callErrorsRemote, 1)
 			return err
 		}
+		if tracingActive {
+			options.Tracing.SpanID = atomic.AddUint64(&n.spanID, 1)
+		}
 		if err := connection.CallAlias(from, to, options, message); err != nil {
 			atomic.AddUint64(&n.callErrorsRemote, 1)
 			return err
+		}
+		if tracingActive {
+			n.sendTracingSpan(gen.TracingSpan{
+				TraceID: options.Tracing.ID, SpanID: options.Tracing.SpanID,
+				ParentSpanID: parentSpanID,
+				Point:        gen.TracingPointSent, Kind: gen.TracingKindRequest,
+				Timestamp: time.Now().UnixNano(),
+				Node:      n.name, From: from, To: to,
+				Ref: options.Ref, Behavior: fromBehavior, Message: msgType,
+				Attributes: options.TracingAttributes,
+			})
 		}
 		return nil
 	}
@@ -584,6 +1055,10 @@ func (n *node) RouteCallAlias(from gen.PID, to gen.Alias, options gen.MessageOpt
 	qm.Type = gen.MailboxMessageTypeRequest
 	qm.Target = to
 	qm.Message = message
+	qm.Tracing = options.Tracing
+	if tracingActive && from.Node == n.name {
+		qm.Tracing.SpanID = atomic.AddUint64(&n.spanID, 1)
+	}
 
 	// check if this request should be delivered to the meta process
 	if value, found := p.metas.Load(to); found {
@@ -594,6 +1069,27 @@ func (n *node) RouteCallAlias(from gen.PID, to gen.Alias, options gen.MessageOpt
 		}
 		atomic.AddUint64(&m.messagesIn, 1)
 		atomic.AddUint64(&p.messagesIn, 1)
+		if tracingActive {
+			nanos := time.Now().UnixNano()
+			if from.Node == n.name {
+				n.sendTracingSpan(gen.TracingSpan{
+					TraceID: options.Tracing.ID, SpanID: qm.Tracing.SpanID,
+					ParentSpanID: parentSpanID,
+					Point:        gen.TracingPointSent, Kind: gen.TracingKindRequest,
+					Timestamp: nanos, Node: n.name, From: from, To: to,
+					Ref: options.Ref, Behavior: fromBehavior, Message: msgType,
+					Attributes: options.TracingAttributes,
+				})
+			}
+			n.sendTracingSpan(gen.TracingSpan{
+				TraceID: options.Tracing.ID, SpanID: qm.Tracing.SpanID,
+				ParentSpanID: parentSpanID,
+				Point:        gen.TracingPointDelivered, Kind: gen.TracingKindRequest,
+				Timestamp: nanos, Node: n.name, From: from, To: to,
+				Ref: options.Ref, Behavior: p.sbehavior, Message: msgType,
+				Attributes: p.tracingAttrs,
+			})
+		}
 		m.handle()
 		return nil
 	}
@@ -611,6 +1107,29 @@ func (n *node) RouteCallAlias(from gen.PID, to gen.Alias, options gen.MessageOpt
 		return gen.ErrProcessMailboxFull
 	}
 	atomic.AddUint64(&p.messagesIn, 1)
+
+	if tracingActive {
+		nanos := time.Now().UnixNano()
+		if from.Node == n.name {
+			n.sendTracingSpan(gen.TracingSpan{
+				TraceID: options.Tracing.ID, SpanID: qm.Tracing.SpanID,
+				ParentSpanID: parentSpanID,
+				Point:        gen.TracingPointSent, Kind: gen.TracingKindRequest,
+				Timestamp: nanos, Node: n.name, From: from, To: to,
+				Ref: options.Ref, Behavior: fromBehavior, Message: msgType,
+				Attributes: options.TracingAttributes,
+			})
+		}
+		n.sendTracingSpan(gen.TracingSpan{
+			TraceID: options.Tracing.ID, SpanID: qm.Tracing.SpanID,
+			ParentSpanID: parentSpanID,
+			Point:        gen.TracingPointDelivered, Kind: gen.TracingKindRequest,
+			Timestamp: nanos, Node: n.name, From: from, To: to,
+			Ref: options.Ref, Behavior: p.sbehavior, Message: msgType,
+			Attributes: p.tracingAttrs,
+		})
+	}
+
 	p.run()
 	return nil
 }
@@ -1015,6 +1534,14 @@ func (n *node) RouteNodeDown(name gen.Atom, reason error) {
 		n.log.Trace("RouteNodeDown for %s ", name)
 	}
 	n.targets.TerminatedTargetNode(name, reason)
+}
+
+func (n *node) MakeTraceID() gen.Tracing {
+	var t gen.Tracing
+	t.ID[0] = uint64(time.Now().UnixNano())
+	counter := atomic.AddUint64(&n.traceID, 1)
+	t.ID[1] = n.nameCRC32<<32 | counter&0xFFFFFFFF
+	return t
 }
 
 func (n *node) MakeRef() gen.Ref {

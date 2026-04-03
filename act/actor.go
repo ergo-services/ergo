@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"reflect"
 	"runtime"
-	"strings"
+	"time"
 
 	"ergo.services/ergo/gen"
 	"ergo.services/ergo/lib"
@@ -44,6 +44,9 @@ type ActorBehavior interface {
 	// HandleEvent invoked on an event message if this process got subscribed on
 	// this event using gen.Process.LinkEvent or gen.Process.MonitorEvent
 	HandleEvent(message gen.MessageEvent) error
+
+	// HandleSpan invoked on a tracing span if this process was added as a tracing exporter.
+	HandleSpan(message gen.TracingSpan) error
 
 	// HandleInspect invoked on the request made with gen.Process.Inspect(...)
 	HandleInspect(from gen.PID, item ...string) map[string]string
@@ -102,8 +105,7 @@ func (a *Actor) ProcessInit(process gen.Process, args ...any) (rr error) {
 	var ok bool
 
 	if a.behavior, ok = process.Behavior().(ActorBehavior); ok == false {
-		unknown := strings.TrimPrefix(reflect.TypeOf(process.Behavior()).String(), "*")
-		return fmt.Errorf("ProcessInit: not an ActorBehavior %s", unknown)
+		return fmt.Errorf("ProcessInit: not an ActorBehavior %s", process.BehaviorName())
 	}
 
 	if lib.Recover() {
@@ -125,6 +127,7 @@ func (a *Actor) ProcessInit(process gen.Process, args ...any) (rr error) {
 
 func (a *Actor) ProcessRun() (rr error) {
 	var message *gen.MailboxMessage
+	var savedTracing gen.Tracing
 
 	if lib.Recover() {
 		defer func() {
@@ -186,6 +189,13 @@ func (a *Actor) ProcessRun() (rr error) {
 	retry:
 		switch message.Type {
 		case gen.MailboxMessageTypeRegular:
+			// activate tracing context from the incoming message
+			messageHasTracing := message.Tracing.ID != [2]uint64{}
+			if messageHasTracing {
+				savedTracing = a.PropagatingTrace()
+				a.SetPropagatingTrace(message.Tracing)
+			}
+
 			var reason error
 
 			if a.split {
@@ -202,10 +212,28 @@ func (a *Actor) ProcessRun() (rr error) {
 			}
 
 			if reason != nil {
+				if messageHasTracing {
+					a.sendSpanProcessed(message, gen.TracingKindSend, reason.Error())
+				}
 				return reason
 			}
 
+			if messageHasTracing {
+				a.sendSpanProcessed(message, gen.TracingKindSend, "")
+				// restore tracing only if handler didn't change it
+				if a.PropagatingTrace().ID == message.Tracing.ID {
+					a.SetPropagatingTrace(savedTracing)
+				}
+			}
+
 		case gen.MailboxMessageTypeRequest:
+			// activate tracing context from the incoming message
+			messageHasTracing := message.Tracing.ID != [2]uint64{}
+			if messageHasTracing {
+				savedTracing = a.PropagatingTrace()
+				a.SetPropagatingTrace(message.Tracing)
+			}
+
 			var reason error
 			var result any
 
@@ -223,20 +251,39 @@ func (a *Actor) ProcessRun() (rr error) {
 			}
 
 			if reason != nil {
-				// if reason is "normal" and we got response - send it before termination
 				if reason == gen.TerminateReasonNormal && result != nil {
+					if messageHasTracing {
+						a.sendSpanProcessed(message, gen.TracingKindRequest, "")
+					}
 					a.SendResponse(message.From, message.Ref, result)
+					return reason
+				}
+				if messageHasTracing {
+					a.sendSpanProcessed(message, gen.TracingKindRequest, reason.Error())
 				}
 				return reason
 			}
 
 			if result == nil {
-				// async handling of sync request. response could be sent
-				// later, even by the other process
+				// async handling — emit Processed for tracing chain completeness
+				if messageHasTracing {
+					a.sendSpanProcessed(message, gen.TracingKindRequest, "")
+					if a.PropagatingTrace().ID == message.Tracing.ID {
+						a.SetPropagatingTrace(savedTracing)
+					}
+				}
 				continue
 			}
 
+			if messageHasTracing {
+				a.sendSpanProcessed(message, gen.TracingKindRequest, "")
+			}
+
 			a.SendResponse(message.From, message.Ref, result)
+
+			if messageHasTracing && a.PropagatingTrace().ID == message.Tracing.ID {
+				a.SetPropagatingTrace(savedTracing)
+			}
 
 		case gen.MailboxMessageTypeEvent:
 			if reason := a.behavior.HandleEvent(message.Message.(gen.MessageEvent)); reason != nil {
@@ -289,6 +336,11 @@ func (a *Actor) ProcessRun() (rr error) {
 		case gen.MailboxMessageTypeInspect:
 			result := a.behavior.HandleInspect(message.From, message.Message.([]string)...)
 			a.SendResponse(message.From, message.Ref, result)
+
+		case gen.MailboxMessageTypeSpan:
+			if reason := a.behavior.HandleSpan(message.Message.(gen.TracingSpan)); reason != nil {
+				return reason
+			}
 		}
 
 	}
@@ -330,6 +382,11 @@ func (a *Actor) HandleEvent(message gen.MessageEvent) error {
 	return nil
 }
 
+func (a *Actor) HandleSpan(message gen.TracingSpan) error {
+	a.Log().Warning("Actor.HandleSpan: unhandled tracing span %#v", message)
+	return nil
+}
+
 func (a *Actor) Terminate(reason error) {}
 
 func (a *Actor) HandleMessageName(name gen.Atom, from gen.PID, message any) error {
@@ -350,4 +407,27 @@ func (a *Actor) HandleCallName(name gen.Atom, from gen.PID, ref gen.Ref, request
 func (a *Actor) HandleCallAlias(alias gen.Alias, from gen.PID, ref gen.Ref, request any) (any, error) {
 	a.Log().Warning("Actor.HandleCallAlias %s: unhandled request from %s", alias, from)
 	return nil, nil
+}
+
+func (a *Actor) sendSpanProcessed(message *gen.MailboxMessage, kind gen.TracingKind, errStr string) {
+	var msgType string
+	if message.Message != nil {
+		msgType = reflect.TypeOf(message.Message).String()
+	}
+	a.SendTracingSpan(gen.TracingSpan{
+		TraceID:    message.Tracing.ID,
+		SpanID:     message.Tracing.SpanID,
+		Point:      gen.TracingPointProcessed,
+		Kind:       kind,
+		Timestamp:  time.Now().UnixNano(),
+		Node:       a.Node().Name(),
+		From:       message.From,
+		To:         a.PID(),
+		Ref:        message.Ref,
+		Behavior:   a.BehaviorName(),
+		Message:    msgType,
+		Error:      errStr,
+		Attributes: a.TracingAttributes(),
+	})
+	a.ClearTracingSpanAttributes()
 }

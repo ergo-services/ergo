@@ -317,6 +317,13 @@ type Node interface {
 	// Returns ErrNodeTerminated in other states.
 	EventRangeInfo(fn func(EventInfo) bool) error
 
+	// EventListInfo returns a paginated list of events in registration order.
+	// timestamp: 0 = from oldest, -1 = from newest, >0 = from events created at or after this time (unix nanos).
+	// limit: >0 = forward (oldest first), <0 = backward (newest first), abs(limit) results max.
+	// filter: optional function to include only matching events.
+	// Available in: Running state only.
+	EventListInfo(timestamp int64, limit int, filter ...func(EventInfo) bool) ([]EventInfo, error)
+
 	// SendExit sends a graceful termination request to the process.
 	// Sender is the node's core PID.
 	// Available in: Running state only.
@@ -486,6 +493,53 @@ type Node interface {
 	// Available in all states.
 	LoggerLevels(name string) []LogLevel
 
+	// TracingExporterAddPID registers a process as a tracing exporter.
+	// The process will receive TracingSpan messages.
+	// Available in: Running state only.
+	// Returns ErrTaken if name already registered.
+	TracingExporterAddPID(pid PID, name string, flags TracingFlags) error
+
+	// TracingExporterAdd registers a custom tracing exporter implementation.
+	// Available in: Running state only.
+	// Returns ErrTaken if name already registered.
+	TracingExporterAdd(name string, exporter TracingBehavior, flags TracingFlags) error
+
+	// TracingExporterDeletePID removes a process-based tracing exporter.
+	// Available in all states.
+	TracingExporterDeletePID(pid PID)
+
+	// TracingExporterDelete removes a tracing exporter.
+	// Calls exporter.Terminate() if exporter exists.
+	// Available in all states.
+	TracingExporterDelete(name string)
+
+	// TracingExporters returns a list of registered tracing exporter names.
+	// Available in all states.
+	TracingExporters() []string
+
+	// TracingExporterFlags returns the flags for the given tracing exporter.
+	// Available in all states.
+	TracingExporterFlags(name string) TracingFlags
+
+	// SetTracingSampler sets the tracing sampler for node-level Send/Call.
+	// Use TracingSamplerDisable to turn off.
+	// Available in: Running state only.
+	SetTracingSampler(sampler TracingSampler) error
+
+	// SetTracingAttribute sets a permanent tracing attribute on the node.
+	SetTracingAttribute(key, value string)
+
+	// RemoveTracingAttribute removes a permanent tracing attribute from the node.
+	RemoveTracingAttribute(key string)
+
+	// TracingSampler returns the current tracing sampler for the node.
+	// Available in all states.
+	TracingSampler() TracingSampler
+
+	// SetProcessTracingSampler sets the tracing sampler for the given process.
+	// Available in: Running state only.
+	SetProcessTracingSampler(pid PID, sampler TracingSampler) error
+
 	// MakeRef creates a unique reference within this node.
 	// Used for Call requests, event tokens, and correlation.
 	// Available in: Running state only.
@@ -590,6 +644,9 @@ type NodeOptions struct {
 	// Reported in node.Version() and during network handshakes.
 	// Includes Name, Release, License, Commit details.
 	Version Version
+
+	// Tracing configures tracing exporters at node startup.
+	Tracing TracingOptions
 }
 
 // SecurityOptions controls information exposure and security policies.
@@ -755,9 +812,19 @@ type NodeInfo struct {
 	// Loggers lists all registered loggers with their configuration.
 	Loggers []LoggerInfo
 
+	// Tracing contains node-level tracing configuration.
+	Tracing TracingInfo
+
+	// TracingExporters lists all registered tracing exporters.
+	TracingExporters []TracingExporterInfo
+
 	// LogMessages contains cumulative log message counts by level.
 	// Indexed as: [0]=Trace, [1]=Debug, [2]=Info, [3]=Warning, [4]=Error, [5]=Panic
 	LogMessages [6]uint64
+
+	// TracingSpans contains cumulative tracing span counts by kind.
+	// Indexed as: [0]=Send, [1]=Request, [2]=Response, [3]=Spawn, [4]=Terminate
+	TracingSpans [5]uint64
 
 	// Cron contains cron scheduler information (jobs, schedule, next run).
 	Cron CronInfo
@@ -852,4 +919,16 @@ type LoggerInfo struct {
 	// Levels lists the log levels this logger is filtering.
 	// Empty means logger receives all log levels.
 	Levels []LogLevel
+}
+
+// TracingExporterInfo contains information about a registered tracing exporter.
+type TracingExporterInfo struct {
+	// Name is the unique exporter identifier.
+	Name string
+
+	// Behavior is the exporter type name.
+	Behavior string
+
+	// Flags is the tracing granularity for this exporter.
+	Flags TracingFlags
 }

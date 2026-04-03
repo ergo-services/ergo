@@ -340,6 +340,18 @@ type Process interface {
 	// Available in all states.
 	ImportantDelivery() bool
 
+	// SetTracingSampler sets the tracing sampler for this process.
+	// The sampler decides per outgoing message whether to start a new trace.
+	// Only consulted when there is no active propagating trace.
+	// Use TracingSamplerDisable to turn off (default).
+	// Available in: Init, Running states.
+	SetTracingSampler(sampler TracingSampler) error
+
+	// TracingSampler returns the current tracing sampler.
+	// Returns TracingSamplerDisable if tracing is not enabled.
+	// Available in all states.
+	TracingSampler() TracingSampler
+
 	// CreateAlias creates a new alias associated with this process.
 	// Other processes can send messages or make calls using this alias.
 	// Available in: Init, Running states.
@@ -760,6 +772,43 @@ type Process interface {
 	// Available in all states.
 	Behavior() ProcessBehavior
 
+	// BehaviorName returns the string name of the behavior type.
+	// Available in all states.
+	BehaviorName() string
+
+	// PropagatingTrace returns the current propagating trace context.
+	// Zero value means no active trace.
+	PropagatingTrace() Tracing
+
+	// SetPropagatingTrace sets the propagating trace context.
+	// Used by ProcessBehavior implementations to manage trace context
+	// during message handling (save/restore around handler calls).
+	SetPropagatingTrace(t Tracing)
+
+	// SetTracingAttribute sets a permanent tracing attribute on this process.
+	// Permanent attributes are included in every span emitted by this process.
+	// Uses copy-on-write: safe for concurrent readers (exporters).
+	SetTracingAttribute(key, value string)
+
+	// RemoveTracingAttribute removes a permanent tracing attribute.
+	RemoveTracingAttribute(key string)
+
+	// SetTracingSpanAttribute sets a one-shot tracing attribute for the current handler.
+	// Cleared automatically after handler returns.
+	SetTracingSpanAttribute(key, value string)
+
+	// TracingAttributes returns merged permanent + one-shot attributes.
+	// Returns a slice reference (zero alloc) when only one type exists.
+	TracingAttributes() []TracingAttribute
+
+	// ClearTracingSpanAttributes clears one-shot attributes.
+	// Called by framework after handler returns.
+	ClearTracingSpanAttributes()
+
+	// SendTracingSpan delivers a tracing span to registered exporters.
+	// Used by ProcessBehavior implementations to emit Processed spans.
+	SendTracingSpan(span TracingSpan)
+
 	// Forward forwards a mailbox message to another process with the specified priority.
 	// This is a low-level operation for custom message routing.
 	// Available in: Running state only.
@@ -795,6 +844,8 @@ type MessageOptions struct {
 	Compression       Compression
 	KeepNetworkOrder  bool
 	ImportantDelivery bool
+	Tracing           Tracing
+	TracingAttributes []TracingAttribute // sender's attrs for Sent span, nil = none
 }
 
 // ProcessOptions defines configuration options for spawning a process.
@@ -868,6 +919,7 @@ type ProcessOptionsExtra struct {
 	ParentLeader   PID
 	ParentEnv      map[Env]any
 	ParentLogLevel LogLevel
+	Tracing Tracing
 
 	Register    Atom
 	Application Atom
@@ -939,6 +991,9 @@ type ProcessInfo struct {
 
 	// Leader is the group leader PID (typically supervisor or application).
 	Leader PID
+
+	// Tracing contains tracing configuration for this process.
+	Tracing TracingInfo
 
 	// Fallback contains mailbox overflow handling configuration.
 	Fallback ProcessFallback

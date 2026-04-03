@@ -1,6 +1,8 @@
 package tm
 
 import (
+	"time"
+
 	"ergo.services/ergo/gen"
 )
 
@@ -16,7 +18,11 @@ func (tm *targetManager) RegisterEvent(producer gen.PID, name gen.Atom, options 
 
 	token := tm.generateToken()
 
+	id := tm.eventSeq.Add(1)
 	entry := &eventEntry{
+		id:                      id,
+		createdAt:               time.Now().UnixNano(),
+		event:                   event,
 		producer:                producer,
 		token:                   token,
 		notify:                  options.Notify,
@@ -38,6 +44,8 @@ func (tm *targetManager) RegisterEvent(producer gen.PID, name gen.Atom, options 
 		s.producerEvents[producer] = make(map[gen.Event]struct{})
 	}
 	s.producerEvents[producer][event] = struct{}{}
+
+	tm.eventIndex.Store(id, entry)
 
 	return token, nil
 }
@@ -91,6 +99,7 @@ func (tm *targetManager) UnregisterEvent(producer gen.PID, name gen.Atom) error 
 		}
 	}
 
+	tm.eventIndex.Delete(entry.id)
 	delete(s.events, event)
 	delete(s.targetIndex, event)
 
@@ -687,6 +696,7 @@ func (tm *targetManager) EventInfo(event gen.Event) (gen.EventInfo, error) {
 	}
 
 	return gen.EventInfo{
+		CreatedAt:          entry.createdAt,
 		Event:              event,
 		Producer:           entry.producer,
 		BufferSize:         bufSize,
@@ -712,6 +722,7 @@ func (tm *targetManager) EventRangeInfo(fn func(gen.EventInfo) bool) error {
 				bufLen = entry.buffer.len
 			}
 			infos = append(infos, gen.EventInfo{
+				CreatedAt:          entry.createdAt,
 				Event:              event,
 				Producer:           entry.producer,
 				BufferSize:         bufSize,
@@ -733,4 +744,89 @@ func (tm *targetManager) EventRangeInfo(fn func(gen.EventInfo) bool) error {
 	}
 
 	return nil
+}
+
+func (tm *targetManager) EventListInfo(timestamp int64, limit int, filter ...func(gen.EventInfo) bool) ([]gen.EventInfo, error) {
+	maxID := tm.eventSeq.Load()
+	if maxID == 0 {
+		return nil, nil
+	}
+
+	absLimit := limit
+	if absLimit < 0 {
+		absLimit = -absLimit
+	}
+	if absLimit == 0 {
+		return nil, nil
+	}
+
+	var fn func(gen.EventInfo) bool
+	if len(filter) > 0 {
+		fn = filter[0]
+	}
+
+	result := make([]gen.EventInfo, 0, absLimit)
+
+	buildInfo := func(entry *eventEntry) gen.EventInfo {
+		var bufSize, bufLen int
+		if entry.buffer != nil {
+			bufSize = entry.buffer.size
+			bufLen = entry.buffer.len
+		}
+		return gen.EventInfo{
+			CreatedAt:          entry.createdAt,
+			Event:              entry.event,
+			Producer:           entry.producer,
+			BufferSize:         bufSize,
+			CurrentBuffer:      bufLen,
+			Notify:             entry.notify,
+			Subscribers:        entry.subscriberCount,
+			MessagesPublished:  entry.messagesPublished.Load(),
+			MessagesLocalSent:  entry.messagesLocalSent.Load(),
+			MessagesRemoteSent: entry.messagesRemoteSent.Load(),
+		}
+	}
+
+	accept := func(entry *eventEntry) bool {
+		if timestamp > 0 {
+			if limit >= 0 && entry.createdAt < timestamp {
+				return false
+			}
+			if limit < 0 && entry.createdAt > timestamp {
+				return false
+			}
+		}
+		if fn != nil {
+			return fn(buildInfo(entry))
+		}
+		return true
+	}
+
+	if timestamp == -1 || limit < 0 {
+		// backward: from newest
+		for id := maxID; id >= 1 && len(result) < absLimit; id-- {
+			v, ok := tm.eventIndex.Load(id)
+			if ok == false {
+				continue
+			}
+			entry := v.(*eventEntry)
+			if accept(entry) {
+				result = append(result, buildInfo(entry))
+			}
+		}
+	} else {
+		// forward: from oldest
+		for id := uint64(1); id <= maxID && len(result) < absLimit; id++ {
+			v, ok := tm.eventIndex.Load(id)
+			if ok == false {
+				continue
+			}
+			entry := v.(*eventEntry)
+			if accept(entry) {
+				result = append(result, buildInfo(entry))
+			}
+		}
+	}
+
+	return result, nil
 }

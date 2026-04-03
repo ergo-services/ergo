@@ -48,6 +48,8 @@ const (
 	inspectLog           = "inspect_log"
 	inspectLogIdlePeriod = 10 * time.Second
 
+	inspectTracing = "inspect_tracing"
+
 	inspectApplicationList           = "inspect_application_list"
 	inspectApplicationListPeriod     = time.Second
 	inspectApplicationListIdlePeriod = 5 * time.Second
@@ -329,6 +331,34 @@ func (i *inspect) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error
 		i.Send(pname, forward)
 		return nil, nil // no reply
 
+	case RequestInspectTracing:
+		opts := gen.ProcessOptions{
+			LinkParent: true,
+			Compression: gen.Compression{
+				Enable: true,
+				Type:   gen.CompressionTypeGZIP,
+				Level:  gen.CompressionBestSpeed,
+			},
+		}
+
+		limit := r.Limit
+		if limit < 1 {
+			limit = 500
+		}
+
+		hash := fmt.Sprintf("%x", hashStr(fmt.Sprintf("%v|%d|%d|%d|%s|%v", r.Flags, limit, r.Kinds, r.Points, r.MessagePattern, r.MessageExclude)))
+		pname := gen.Atom(fmt.Sprintf("%s_%s", inspectTracing, hash))
+		_, err := i.SpawnRegister(pname, factory_tracing, opts, r.Flags, limit, r.Kinds, r.Points, r.MessagePattern, r.MessageExclude)
+		if err != nil && err != gen.ErrTaken {
+			return err, nil
+		}
+		forward := requestInspect{
+			pid: from,
+			ref: ref,
+		}
+		i.Send(pname, forward)
+		return nil, nil
+
 	case RequestInspectEventList:
 		opts := gen.ProcessOptions{
 			LinkParent: true,
@@ -336,10 +366,10 @@ func (i *inspect) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error
 		if r.Limit < 1 {
 			r.Limit = 500
 		}
-		hash := eventListHash(r.Name, r.Notify, r.Buffered, r.MinSubscribers, r.Limit)
+		hash := eventListHash(r.Timestamp, r.Name, r.Notify, r.Buffered, r.MinSubscribers, r.Limit)
 		pname := gen.Atom(fmt.Sprintf("%s_%s", inspectEventList, hash))
 		_, err := i.SpawnRegister(pname, factory_event_list, opts,
-			r.Name, r.Notify, r.Buffered, r.MinSubscribers, r.Limit, hash)
+			r.Timestamp, r.Name, r.Notify, r.Buffered, r.MinSubscribers, r.Limit, hash)
 		if err != nil && err != gen.ErrTaken {
 			return err, nil
 		}
@@ -459,6 +489,14 @@ func (i *inspect) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error
 		}
 		return response, nil
 
+	case RequestDoSetNodeTracingSampler:
+		sampler := makeSampler(r.Type, r.Rate, r.Limit)
+		return ResponseDoSet{Error: i.Node().SetTracingSampler(sampler)}, nil
+
+	case RequestDoSetProcessTracingSampler:
+		sampler := makeSampler(r.Type, r.Rate, r.Limit)
+		return ResponseDoSet{Error: i.Node().SetProcessTracingSampler(r.PID, sampler)}, nil
+
 	case RequestDoSetProcessLogLevel:
 		response := ResponseDoSetLogLevel{
 			Error: i.Node().SetProcessLogLevel(r.PID, r.Level),
@@ -543,4 +581,16 @@ func (i *inspect) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error
 
 	i.Log().Error("unsupported request: %#v", request)
 	return gen.ErrUnsupported, nil
+}
+
+func makeSampler(typ string, rate float64, limit int) gen.TracingSampler {
+	switch typ {
+	case "always":
+		return gen.TracingSamplerAlways
+	case "ratio":
+		return gen.TracingSamplerRatio(rate)
+	case "rate_limit":
+		return gen.TracingSamplerRateLimit(limit)
+	}
+	return gen.TracingSamplerDisable
 }

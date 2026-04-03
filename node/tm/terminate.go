@@ -241,6 +241,9 @@ func (tm *targetManager) TerminatedTargetEvent(event gen.Event, reason error) {
 		localDownConsumers = append(localDownConsumers, key.consumer)
 	}
 
+	if entry, exists := s.events[event]; exists {
+		tm.eventIndex.Delete(entry.id)
+	}
 	delete(s.events, event)
 	delete(s.targetIndex, event)
 	s.mutex.Unlock()
@@ -428,8 +431,9 @@ func (tm *targetManager) terminateNodeInShard(s *shard, node gen.Atom, reason er
 	}
 
 	// Cleanup events from terminated node
-	for event := range s.events {
+	for event, entry := range s.events {
 		if event.Node == node {
+			tm.eventIndex.Delete(entry.id)
 			delete(s.events, event)
 		}
 	}
@@ -721,6 +725,7 @@ func (tm *targetManager) cleanupProducerInShard(s *shard, pid gen.PID, reason er
 			}
 		}
 
+		tm.eventIndex.Delete(entry.id)
 		delete(s.targetIndex, event)
 		delete(s.events, event)
 	}

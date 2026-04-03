@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"reflect"
 	"runtime"
-	"strings"
+	"time"
 
 	"ergo.services/ergo/gen"
 	"ergo.services/ergo/lib"
@@ -104,8 +104,7 @@ func (p *Pool) ProcessInit(process gen.Process, args ...any) (rr error) {
 	var ok bool
 
 	if p.behavior, ok = process.Behavior().(PoolBehavior); ok == false {
-		unknown := strings.TrimPrefix(reflect.TypeOf(process.Behavior()).String(), "*")
-		return fmt.Errorf("ProcessInit: not a PoolBehavior %s", unknown)
+		return fmt.Errorf("ProcessInit: not a PoolBehavior %s", process.BehaviorName())
 	}
 	p.Process = process
 	p.mailbox = process.Mailbox()
@@ -197,7 +196,7 @@ func (p *Pool) ProcessRun() (rr error) {
 				// got new regular message. handle it
 				message = msg.(*gen.MailboxMessage)
 				if message.Type < gen.MailboxMessageTypeExit {
-					// MailboxMessageTypeRegular, MailboxMessageTypeRequest, MailboxMessageTypeEvent
+					// MailboxMessageTypeRegular, MailboxMessageTypeRequest, MailboxMessageTypeEvent, MailboxMessageTypeSpan
 					p.forward(message)
 					// it shouldn't be "released" back to the pool
 					message = nil
@@ -217,31 +216,56 @@ func (p *Pool) ProcessRun() (rr error) {
 
 		switch message.Type {
 		case gen.MailboxMessageTypeRegular:
+			messageHasTracing := message.Tracing.ID != [2]uint64{}
+			if messageHasTracing {
+				p.SetPropagatingTrace(message.Tracing)
+			}
+
 			if reason := p.behavior.HandleMessage(message.From, message.Message); reason != nil {
+				p.sendSpanProcessed(message, gen.TracingKindSend, reason.Error())
 				return reason
+			}
+			p.sendSpanProcessed(message, gen.TracingKindSend, "")
+
+			if messageHasTracing {
+				p.SetPropagatingTrace(gen.Tracing{})
 			}
 
 		case gen.MailboxMessageTypeRequest:
+			messageHasTracing := message.Tracing.ID != [2]uint64{}
+			if messageHasTracing {
+				p.SetPropagatingTrace(message.Tracing)
+			}
+
 			var reason error
 			var result any
 
 			result, reason = p.behavior.HandleCall(message.From, message.Ref, message.Message)
 
 			if reason != nil {
-				// if reason is "normal" and we got response - send it before termination
 				if reason == gen.TerminateReasonNormal && result != nil {
+					p.sendSpanProcessed(message, gen.TracingKindRequest, "")
 					p.SendResponse(message.From, message.Ref, result)
+				} else {
+					p.sendSpanProcessed(message, gen.TracingKindRequest, reason.Error())
 				}
 				return reason
 			}
 
 			if result == nil {
-				// async handling of sync request. response could be sent
-				// later, even by the other process
+				p.sendSpanProcessed(message, gen.TracingKindRequest, "")
+				if messageHasTracing {
+					p.SetPropagatingTrace(gen.Tracing{})
+				}
 				continue
 			}
 
+			p.sendSpanProcessed(message, gen.TracingKindRequest, "")
 			p.SendResponse(message.From, message.Ref, result)
+
+			if messageHasTracing {
+				p.SetPropagatingTrace(gen.Tracing{})
+			}
 
 		case gen.MailboxMessageTypeEvent:
 			if reason := p.behavior.HandleEvent(message.Message.(gen.MessageEvent)); reason != nil {
@@ -272,6 +296,7 @@ func (p *Pool) ProcessRun() (rr error) {
 		case gen.MailboxMessageTypeInspect:
 			result := p.behavior.HandleInspect(message.From, message.Message.([]string)...)
 			p.SendResponse(message.From, message.Ref, result)
+
 		}
 
 	}
@@ -298,6 +323,31 @@ func (p *Pool) HandleEvent(message gen.MessageEvent) error {
 	p.Log().Warning("Pool.HandleEvent: unhandled event message %#v", message)
 	return nil
 }
+func (p *Pool) sendSpanProcessed(message *gen.MailboxMessage, kind gen.TracingKind, errStr string) {
+	if message.Tracing.ID == [2]uint64{} {
+		return
+	}
+	var msgType string
+	if message.Message != nil {
+		msgType = reflect.TypeOf(message.Message).String()
+	}
+	p.SendTracingSpan(gen.TracingSpan{
+		TraceID:    message.Tracing.ID,
+		SpanID:     message.Tracing.SpanID,
+		Point:      gen.TracingPointProcessed,
+		Kind:       kind,
+		Timestamp:  time.Now().UnixNano(),
+		Node:       p.Node().Name(),
+		From:       message.From,
+		To:         p.PID(),
+		Ref:        message.Ref,
+		Message:    msgType,
+		Error:      errStr,
+		Attributes: p.TracingAttributes(),
+	})
+	p.ClearTracingSpanAttributes()
+}
+
 func (p *Pool) HandleInspect(from gen.PID, item ...string) map[string]string {
 	return map[string]string{
 		"pool_size":           fmt.Sprintf("%d", p.options.PoolSize),

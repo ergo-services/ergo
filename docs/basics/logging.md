@@ -36,7 +36,7 @@ The framework provides six severity levels, ordered from most to least verbose:
 
 `gen.LogLevelError` - Errors that prevent specific operations but don't crash the system. Failed requests, unavailable resources, validation failures.
 
-`gen.LogLevelPanic` - Critical errors requiring immediate attention. Despite the name, logging at this level doesn't trigger a panic - it's just the highest severity marker.
+`gen.LogLevelPanic` - Recovered panics inside actor callbacks. The highest severity marker.
 
 Setting a level creates a threshold. Set a process to `gen.LogLevelWarning` and it logs warnings, errors, and panics, but suppresses info, debug, and trace. Each level implicitly includes all higher severity levels.
 
@@ -47,6 +47,8 @@ Two special levels control behavior rather than representing severity:
 `gen.LogLevelDisabled` - Stops all logging from the source. The framework doesn't even create log messages. Use this to completely silence a source without removing loggers.
 
 Trace deserves special mention. It's so verbose that enabling it accidentally could flood storage. You can't enable it dynamically via `SetLevel`. It must be set at startup through `gen.NodeOptions.Log.Level` or `gen.ProcessOptions.LogLevel`. This restriction prevents operational mistakes.
+
+Panic also deserves explanation. The framework recovers Go panics that occur inside actor callbacks and logs them at this level. A nil pointer dereference in `HandleMessage`, a failed type assertion in `HandleCall`, an index out of bounds in `Init` are all structural problems in actor code, not operational failures. Logging them at Panic level separates them from the business and technical errors you log at Error level. The framework catches these so your node keeps running, but the Panic log entry tells you something in your code needs fixing. Note that Go's standard library `log.Panic()` actually triggers a panic, while Ergo's `Log().Panic()` simply logs at the Panic severity level without panicking. If you are building actors with `act.Actor`, `act.Supervisor`, or `act.Pool`, you won't need to log at this level yourself. The framework handles it. It becomes relevant only if you implement an actor directly through the `gen.ProcessBehavior` interface and want to recover panics in your own processing loop.
 
 The node starts at `gen.LogLevelInfo`. Processes inherit this unless their spawn options specify otherwise. After startup, you can adjust a process's level dynamically with `SetLevel`, allowing surgical verbosity changes during debugging.
 

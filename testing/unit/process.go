@@ -102,6 +102,16 @@ func (tp *TestProcess) Behavior() gen.ProcessBehavior {
 	return tp.behavior
 }
 
+func (tp *TestProcess) BehaviorName() string {
+	return ""
+}
+
+func (tp *TestProcess) SetTracingAttribute(key, value string)    {}
+func (tp *TestProcess) RemoveTracingAttribute(key string)         {}
+func (tp *TestProcess) SetTracingSpanAttribute(key, value string) {}
+func (tp *TestProcess) TracingAttributes() []gen.TracingAttribute { return nil }
+func (tp *TestProcess) ClearTracingSpanAttributes()               {}
+
 func (tp *TestProcess) State() gen.ProcessState {
 	return tp.state
 }
@@ -584,6 +594,23 @@ func (tp *TestProcess) SetImportantDelivery(important bool) error {
 func (tp *TestProcess) ImportantDelivery() bool {
 	return tp.options.ImportantDelivery
 }
+
+func (tp *TestProcess) SetTracingSampler(sampler gen.TracingSampler) error {
+	return nil
+}
+
+func (tp *TestProcess) TracingSampler() gen.TracingSampler {
+	return gen.TracingSamplerDisable
+}
+
+func (tp *TestProcess) PropagatingTrace() gen.Tracing {
+	return gen.Tracing{}
+}
+
+func (tp *TestProcess) SetPropagatingTrace(t gen.Tracing) {
+}
+
+func (tp *TestProcess) SendTracingSpan(span gen.TracingSpan) {}
 
 // Compression methods
 func (tp *TestProcess) Compression() bool {

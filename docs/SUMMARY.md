@@ -56,6 +56,7 @@
 * [Message Versioning](advanced/message-versioning.md)
 * [Building a Cluster](advanced/building-a-cluster.md)
 * [Debugging](advanced/debugging.md)
+* [Distributed Tracing](advanced/distributed-tracing.md)
 * [Inspecting With Observer](advanced/observer.md)
 
 ## extra library
@@ -68,6 +69,7 @@
   * [Observer](extra-library/applications/observer.md)
   * [MCP](extra-library/applications/mcp.md)
   * [Radar](extra-library/applications/radar.md)
+  * [Pulse](extra-library/applications/pulse.md)
 * [Meta-Processes](extra-library/meta-processes/README.md)
   * [WebSocket](extra-library/meta-processes/websocket.md)
   * [SSE](extra-library/meta-processes/sse.md)

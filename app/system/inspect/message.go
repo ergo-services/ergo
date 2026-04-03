@@ -231,6 +231,22 @@ type ResponseDoSetLogLevel struct {
 	Error error
 }
 
+// do set tracing sampler and flags (node-level)
+
+type RequestDoSetNodeTracingSampler struct {
+	Type  string  // "always", "disable", "ratio", "rate_limit"
+	Rate  float64 // for ratio
+	Limit int     // for rate_limit
+}
+
+type RequestDoSetProcessTracingSampler struct {
+	PID   gen.PID
+	Type  string
+	Rate  float64
+	Limit int
+}
+
+
 // process
 type RequestDoSetProcessLogLevel struct {
 	PID   gen.PID
@@ -427,6 +443,7 @@ type ResponseInspectProcessRange struct {
 // event list
 
 type RequestInspectEventList struct {
+	Timestamp      int64 // 0=oldest first, -1=newest first, >0=from this unix nanos
 	Limit          int
 	Name           string
 	Notify         int // 0=any, 1=yes, -1=no
@@ -468,4 +485,25 @@ type MessageInspectApplicationTree struct {
 	Node        gen.Atom
 	Application gen.Atom
 	Processes   []gen.ProcessShortInfo
+}
+
+// tracing
+
+type RequestInspectTracing struct {
+	Flags          gen.TracingFlags
+	Limit          int
+	Kinds          uint32 // bitmask: 1=send, 2=request, 4=response, 8=spawn, 16=terminate
+	Points         uint32 // bitmask: 1=sent, 2=delivered, 4=processed
+	MessagePattern string
+	MessageExclude bool
+}
+
+type ResponseInspectTracing struct {
+	Event gen.Event
+}
+
+type MessageInspectTracing struct {
+	Node       gen.Atom
+	Spans      []gen.TracingSpan
+	Suppressed int64
 }

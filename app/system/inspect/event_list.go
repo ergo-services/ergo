@@ -16,6 +16,7 @@ type event_list struct {
 	act.Actor
 	token gen.Ref
 
+	timestamp      int64
 	name           string
 	notify         int
 	buffered       int
@@ -29,16 +30,17 @@ type event_list struct {
 }
 
 func (iel *event_list) Init(args ...any) error {
-	iel.name = args[0].(string)
-	iel.notify = args[1].(int)
-	iel.buffered = args[2].(int)
-	iel.minSubscribers = args[3].(int64)
-	iel.limit = args[4].(int)
-	iel.hash = args[5].(string)
+	iel.timestamp = args[0].(int64)
+	iel.name = args[1].(string)
+	iel.notify = args[2].(int)
+	iel.buffered = args[3].(int)
+	iel.minSubscribers = args[4].(int64)
+	iel.limit = args[5].(int)
+	iel.hash = args[6].(string)
 
 	iel.Log().SetLogger("default")
-	iel.Log().Debug("event list inspector started. name=%q notify=%d buffered=%d minSubs=%d limit=%d",
-		iel.name, iel.notify, iel.buffered, iel.minSubscribers, iel.limit)
+	iel.Log().Debug("event list inspector started. timestamp=%d name=%q notify=%d buffered=%d minSubs=%d limit=%d",
+		iel.timestamp, iel.name, iel.notify, iel.buffered, iel.minSubscribers, iel.limit)
 	iel.SetCompression(true)
 
 	eopts := gen.EventOptions{
@@ -67,48 +69,7 @@ func (iel *event_list) HandleMessage(from gen.PID, message any) error {
 		}
 		iel.Log().Debug("generating event")
 
-		var events []gen.EventInfo
-		nameLower := strings.ToLower(iel.name)
-
-		iel.Node().EventRangeInfo(func(info gen.EventInfo) bool {
-			if nameLower != "" {
-				if strings.Contains(strings.ToLower(string(info.Event.Name)), nameLower) == false {
-					return true
-				}
-			}
-			if iel.notify == 1 {
-				if info.Notify == false {
-					return true
-				}
-			}
-			if iel.notify == -1 {
-				if info.Notify == true {
-					return true
-				}
-			}
-			if iel.buffered == 1 {
-				if info.BufferSize == 0 {
-					return true
-				}
-			}
-			if iel.buffered == -1 {
-				if info.BufferSize > 0 {
-					return true
-				}
-			}
-			if iel.minSubscribers > 0 {
-				if info.Subscribers < iel.minSubscribers {
-					return true
-				}
-			}
-
-			events = append(events, info)
-
-			if iel.limit > 0 && len(events) >= iel.limit {
-				return false
-			}
-			return true
-		})
+		events, _ := iel.Node().EventListInfo(iel.timestamp, iel.limit, iel.filterEvent)
 
 		ev := MessageInspectEventList{
 			Node:   iel.Node().Name(),
@@ -157,6 +118,30 @@ func (iel *event_list) HandleMessage(from gen.PID, message any) error {
 	}
 
 	return nil
+}
+
+func (iel *event_list) filterEvent(info gen.EventInfo) bool {
+	if iel.name != "" {
+		if strings.Contains(strings.ToLower(string(info.Event.Name)), strings.ToLower(iel.name)) == false {
+			return false
+		}
+	}
+	if iel.notify == 1 && info.Notify == false {
+		return false
+	}
+	if iel.notify == -1 && info.Notify == true {
+		return false
+	}
+	if iel.buffered == 1 && info.BufferSize == 0 {
+		return false
+	}
+	if iel.buffered == -1 && info.BufferSize > 0 {
+		return false
+	}
+	if iel.minSubscribers > 0 && info.Subscribers < iel.minSubscribers {
+		return false
+	}
+	return true
 }
 
 func (iel *event_list) Terminate(reason error) {

@@ -70,9 +70,12 @@ type node struct {
 	security    gen.SecurityOptions
 	certmanager gen.CertManager
 
-	corePID gen.PID
-	nextID  uint64
-	uniqID  uint64
+	corePID   gen.PID
+	nextID    uint64
+	uniqID    uint64
+	traceID   uint64
+	spanID    uint64
+	nameCRC32 uint64
 
 	processes sync.Map // process pid gen.PID -> *process
 	names     sync.Map // process name gen.Atom -> *process
@@ -90,6 +93,10 @@ type node struct {
 
 	loggers map[gen.LogLevel]*sync.Map // level -> name -> gen.LoggerBehavior
 	log     *log
+
+	tracingExporters sync.Map // name -> tracingExporterEntry
+	tracing          gen.Tracing
+	tracingSampler   gen.TracingSampler
 
 	shutdownTimeout time.Duration
 	waitprocesses   sync.WaitGroup
@@ -112,7 +119,15 @@ type node struct {
 	callErrorsLocal  uint64
 	callErrorsRemote uint64
 
-	logMessages [6]uint64 // atomic: 0=trace, 1=debug, 2=info, 3=warning, 4=error, 5=panic
+	logMessages  [6]uint64              // atomic: 0=trace, 1=debug, 2=info, 3=warning, 4=error, 5=panic
+	tracingSpans [5]uint64              // atomic: 0=send, 1=request, 2=response, 3=spawn, 4=terminate
+	tracingAttrs []gen.TracingAttribute // node-level permanent, COW
+}
+
+type tracingExporterEntry struct {
+	exporter gen.TracingBehavior
+	flags    gen.TracingFlags
+	pid      gen.PID // non-zero for process-based exporters
 }
 
 type eventOwner struct {
@@ -153,9 +168,10 @@ func Start(name gen.Atom, options gen.NodeOptions, frameworkVersion gen.Version)
 		framework: frameworkVersion,
 		creation:  creation,
 
-		corePID: gen.PID{Node: name, ID: 1, Creation: creation},
-		nextID:  startID,
-		uniqID:  startUniqID,
+		corePID:   gen.PID{Node: name, ID: 1, Creation: creation},
+		nextID:    startID,
+		uniqID:    startUniqID,
+		nameCRC32: uint64(name.CRC32Sum()),
 
 		certmanager: options.CertManager,
 		security:    options.Security,
@@ -200,6 +216,18 @@ func Start(name gen.Atom, options gen.NodeOptions, frameworkVersion gen.Version)
 			return nil, errors.New("logger can not be nil")
 		}
 		node.LoggerAdd(lo.Name, lo.Logger, lo.Filter...)
+	}
+
+	for _, te := range options.Tracing.Exporters {
+		if len(te.Name) == 0 {
+			return nil, errors.New("tracing exporter name can not be empty")
+		}
+		if te.Exporter == nil {
+			return nil, errors.New("tracing exporter can not be nil")
+		}
+		if err := node.TracingExporterAdd(te.Name, te.Exporter, te.Flags); err != nil {
+			return nil, fmt.Errorf("tracing exporter %q: %w", te.Name, err)
+		}
 	}
 
 	// create target manager (pub/sub subsystem) before network start
@@ -525,6 +553,10 @@ func (n *node) ProcessInfo(pid gen.PID) (gen.ProcessInfo, error) {
 	info.LogLevel = p.log.Level()
 	info.KeepNetworkOrder = p.keeporder
 	info.ImportantDelivery = p.important
+	info.Tracing = gen.TracingInfo{
+		Sampler:    p.TracingSampler().String(),
+		Attributes: p.tracingAttrs,
+	}
 
 	if n.security.ExposeEnvInfo {
 		info.Env = p.EnvList()
@@ -601,7 +633,6 @@ func (n *node) SetProcessLogLevel(pid gen.PID, level gen.LogLevel) error {
 	p := value.(*process)
 	return p.log.SetLevel(level)
 }
-
 
 func (n *node) SetProcessSendPriority(pid gen.PID, priority gen.MessagePriority) error {
 	if n.isRunning() == false {
@@ -801,8 +832,30 @@ func (n *node) Info() (gen.NodeInfo, error) {
 		})
 	}
 
+	info.Tracing = gen.TracingInfo{
+		Sampler:    n.TracingSampler().String(),
+		Attributes: n.tracingAttrs,
+	}
+
+	n.tracingExporters.Range(func(k, v any) bool {
+		entry := v.(tracingExporterEntry)
+		behavior := ""
+		if entry.exporter != nil {
+			behavior = strings.TrimPrefix(reflect.TypeOf(entry.exporter).String(), "*")
+		}
+		info.TracingExporters = append(info.TracingExporters, gen.TracingExporterInfo{
+			Name:     k.(string),
+			Behavior: behavior,
+			Flags:    entry.flags,
+		})
+		return true
+	})
+
 	for i := 0; i < 6; i++ {
 		info.LogMessages[i] = atomic.LoadUint64(&n.logMessages[i])
+	}
+	for i := 0; i < 5; i++ {
+		info.TracingSpans[i] = atomic.LoadUint64(&n.tracingSpans[i])
 	}
 
 	if n.security.ExposeEnvInfo {
@@ -1161,8 +1214,15 @@ func (n *node) SendWithPriority(to any, message any, priority gen.MessagePriorit
 		return gen.ErrNodeTerminated
 	}
 
+	var tracing gen.Tracing
+	if n.tracingSampler != nil && n.tracingSampler.Sample() {
+		tracing = n.MakeTraceID()
+		tracing.Behavior = "core"
+	}
 	options := gen.MessageOptions{
-		Priority: priority,
+		Priority:          priority,
+		Tracing:           tracing,
+		TracingAttributes: n.tracingAttrs,
 	}
 
 	switch t := to.(type) {
@@ -1229,6 +1289,13 @@ func (n *node) EventRangeInfo(fn func(gen.EventInfo) bool) error {
 	return n.targets.EventRangeInfo(fn)
 }
 
+func (n *node) EventListInfo(timestamp int64, limit int, filter ...func(gen.EventInfo) bool) ([]gen.EventInfo, error) {
+	if n.isRunning() == false {
+		return nil, gen.ErrNodeTerminated
+	}
+	return n.targets.EventListInfo(timestamp, limit, filter...)
+}
+
 func (n *node) SendExit(pid gen.PID, reason error) error {
 	if n.isRunning() == false {
 		return gen.ErrNodeTerminated
@@ -1268,6 +1335,13 @@ func (n *node) CallImportant(to any, request any) (any, error) {
 func (n *node) callWithOptions(to any, request any, timeout int, options gen.MessageOptions) (any, error) {
 	if n.isRunning() == false {
 		return nil, gen.ErrNodeTerminated
+	}
+	if n.tracingSampler != nil && n.tracingSampler.Sample() {
+		options.Tracing = n.MakeTraceID()
+		options.Tracing.Behavior = "core"
+	}
+	if options.Tracing.ID != [2]uint64{} && len(n.tracingAttrs) > 0 {
+		options.TracingAttributes = n.tracingAttrs
 	}
 
 	switch t := to.(type) {
@@ -2234,6 +2308,194 @@ func (n *node) LoggerLevels(name string) []gen.LogLevel {
 	return levels
 }
 
+// tracing
+
+func (n *node) TracingExporterAddPID(pid gen.PID, name string, flags gen.TracingFlags) error {
+	if n.isRunning() == false {
+		return gen.ErrNodeTerminated
+	}
+	value, loaded := n.processes.Load(pid)
+	if loaded == false {
+		return gen.ErrProcessUnknown
+	}
+	p := value.(*process)
+	if p.tracingExporterName != "" {
+		return gen.ErrNotAllowed
+	}
+	entry := tracingExporterEntry{
+		flags: flags,
+		pid:   pid,
+	}
+	if _, loaded := n.tracingExporters.LoadOrStore(name, entry); loaded {
+		return gen.ErrTaken
+	}
+	p.tracingExporterName = name
+	return nil
+}
+
+func (n *node) TracingExporterAdd(name string, exporter gen.TracingBehavior, flags gen.TracingFlags) error {
+	if n.isRunning() == false {
+		return gen.ErrNodeTerminated
+	}
+	if exporter == nil {
+		return gen.ErrIncorrect
+	}
+	entry := tracingExporterEntry{
+		exporter: exporter,
+		flags:    flags,
+	}
+	if _, loaded := n.tracingExporters.LoadOrStore(name, entry); loaded {
+		return gen.ErrTaken
+	}
+	return nil
+}
+
+func (n *node) TracingExporterDeletePID(pid gen.PID) {
+	value, loaded := n.processes.Load(pid)
+	if loaded == false {
+		return
+	}
+	p := value.(*process)
+	if p.tracingExporterName != "" {
+		n.TracingExporterDelete(p.tracingExporterName)
+		p.tracingExporterName = ""
+	}
+}
+
+func (n *node) TracingExporterDelete(name string) {
+	v, loaded := n.tracingExporters.LoadAndDelete(name)
+	if loaded == false {
+		return
+	}
+	entry := v.(tracingExporterEntry)
+	if entry.exporter != nil {
+		entry.exporter.Terminate()
+	}
+}
+
+func (n *node) TracingExporters() []string {
+	var exporters []string
+	n.tracingExporters.Range(func(k, _ any) bool {
+		exporters = append(exporters, k.(string))
+		return true
+	})
+	return exporters
+}
+
+func (n *node) TracingExporterFlags(name string) gen.TracingFlags {
+	v, ok := n.tracingExporters.Load(name)
+	if ok == false {
+		return 0
+	}
+	return v.(tracingExporterEntry).flags
+}
+
+func (n *node) sendTracingSpan(span gen.TracingSpan) {
+	if span.Kind >= 1 && span.Kind <= 5 {
+		atomic.AddUint64(&n.tracingSpans[span.Kind-1], 1)
+	}
+	n.tracingExporters.Range(func(k, v any) bool {
+		entry := v.(tracingExporterEntry)
+		if matchTracingFlags(entry.flags, span) == false {
+			return true
+		}
+		if entry.exporter != nil {
+			entry.exporter.HandleSpan(span)
+			return true
+		}
+		value, loaded := n.processes.Load(entry.pid)
+		if loaded == false {
+			return true
+		}
+		p := value.(*process)
+		msg := gen.TakeMailboxMessage()
+		msg.Type = gen.MailboxMessageTypeSpan
+		msg.Message = span
+		if p.mailbox.Main.Push(msg) == false {
+			gen.ReleaseMailboxMessage(msg)
+			return true
+		}
+		p.run()
+		return true
+	})
+}
+
+func matchTracingFlags(flags gen.TracingFlags, span gen.TracingSpan) bool {
+	switch span.Kind {
+	case gen.TracingKindSend, gen.TracingKindRequest, gen.TracingKindResponse:
+		if span.Point == gen.TracingPointSent {
+			return flags&gen.TracingFlagSend != 0
+		}
+		return flags&gen.TracingFlagReceive != 0
+	case gen.TracingKindSpawn, gen.TracingKindTerminate:
+		return flags&gen.TracingFlagProcs != 0
+	}
+	return false
+}
+
+func (n *node) SetTracingAttribute(key, value string) {
+	if len(key) > 5 && key[:5] == "ergo." {
+		return
+	}
+	for i, a := range n.tracingAttrs {
+		if a.Key == key {
+			attrs := make([]gen.TracingAttribute, len(n.tracingAttrs))
+			copy(attrs, n.tracingAttrs)
+			attrs[i] = gen.TracingAttribute{Key: key, Value: value}
+			n.tracingAttrs = attrs
+			return
+		}
+	}
+	attrs := make([]gen.TracingAttribute, len(n.tracingAttrs)+1)
+	copy(attrs, n.tracingAttrs)
+	attrs[len(attrs)-1] = gen.TracingAttribute{Key: key, Value: value}
+	n.tracingAttrs = attrs
+}
+
+func (n *node) RemoveTracingAttribute(key string) {
+	for i, a := range n.tracingAttrs {
+		if a.Key == key {
+			attrs := make([]gen.TracingAttribute, len(n.tracingAttrs)-1)
+			copy(attrs, n.tracingAttrs[:i])
+			copy(attrs[i:], n.tracingAttrs[i+1:])
+			n.tracingAttrs = attrs
+			return
+		}
+	}
+}
+
+func (n *node) SetTracingSampler(sampler gen.TracingSampler) error {
+	if n.isRunning() == false {
+		return gen.ErrNodeTerminated
+	}
+	if sampler == gen.TracingSamplerDisable {
+		n.tracingSampler = nil
+		return nil
+	}
+	n.tracingSampler = sampler
+	return nil
+}
+
+func (n *node) TracingSampler() gen.TracingSampler {
+	if n.tracingSampler == nil {
+		return gen.TracingSamplerDisable
+	}
+	return n.tracingSampler
+}
+
+func (n *node) SetProcessTracingSampler(pid gen.PID, sampler gen.TracingSampler) error {
+	if n.isRunning() == false {
+		return gen.ErrNodeTerminated
+	}
+	value, loaded := n.processes.Load(pid)
+	if loaded == false {
+		return gen.ErrProcessUnknown
+	}
+	p := value.(*process)
+	p.tracingSampler = sampler
+	return nil
+}
+
 func (n *node) Loggers() []string {
 	m := make(map[string]bool)
 	for _, l := range n.loggers {
@@ -2453,6 +2715,22 @@ func (n *node) spawn(factory gen.ProcessFactory, options gen.ProcessOptionsExtra
 	// early registration - allows using Link/Monitor/RegisterEvent/RegisterName in Init
 	n.processes.Store(p.pid, p)
 
+	tracingActive := options.Tracing.ID != [2]uint64{}
+	var spawnSpanID uint64
+	var parentSpanID uint64
+	if tracingActive {
+		parentSpanID = options.Tracing.SpanID
+		spawnSpanID = atomic.AddUint64(&n.spanID, 1)
+		n.sendTracingSpan(gen.TracingSpan{
+			TraceID: options.Tracing.ID, SpanID: spawnSpanID,
+			ParentSpanID: parentSpanID,
+			Point:        gen.TracingPointSent, Kind: gen.TracingKindSpawn,
+			Timestamp: time.Now().UnixNano(),
+			Node:      n.name, From: options.ParentPID, To: pid,
+			Behavior: options.Tracing.Behavior,
+		})
+	}
+
 	// Handle ProcessInit with timeout
 	var initErr error
 	deadline := options.Ref.ID[2]
@@ -2528,6 +2806,16 @@ func (n *node) spawn(factory gen.ProcessFactory, options gen.ProcessOptionsExtra
 	}
 
 	if initErr != nil {
+		if tracingActive {
+			n.sendTracingSpan(gen.TracingSpan{
+				TraceID: options.Tracing.ID, SpanID: spawnSpanID,
+				ParentSpanID: parentSpanID,
+				Point:        gen.TracingPointProcessed, Kind: gen.TracingKindSpawn,
+				Timestamp: time.Now().UnixNano(),
+				Node:      n.name, From: options.ParentPID, To: pid,
+				Behavior: p.sbehavior, Error: initErr.Error(),
+			})
+		}
 		n.cleanupProcess(p, initErr)
 		go func() {
 			if lib.Recover() {
@@ -2543,6 +2831,17 @@ func (n *node) spawn(factory gen.ProcessFactory, options gen.ProcessOptionsExtra
 		}()
 		atomic.AddUint64(&n.processesSpawnFailed, 1)
 		return p.pid, initErr
+	}
+
+	if tracingActive {
+		n.sendTracingSpan(gen.TracingSpan{
+			TraceID: options.Tracing.ID, SpanID: spawnSpanID,
+			ParentSpanID: parentSpanID,
+			Point:        gen.TracingPointProcessed, Kind: gen.TracingKindSpawn,
+			Timestamp: time.Now().UnixNano(),
+			Node:      n.name, From: options.ParentPID, To: pid,
+			Behavior: p.sbehavior,
+		})
 	}
 
 	if options.LinkParent {
@@ -2569,7 +2868,26 @@ func (n *node) spawn(factory gen.ProcessFactory, options gen.ProcessOptionsExtra
 // cleanupProcess performs core cleanup for a process.
 // Does NOT call waitprocesses.Done() - caller must handle if needed.
 func (n *node) cleanupProcess(p *process, reason error) {
+	if p.tracing.ID != [2]uint64{} {
+		var errString string
+		if reason != nil {
+			errString = reason.Error()
+		}
+		n.sendTracingSpan(gen.TracingSpan{
+			TraceID: p.tracing.ID, SpanID: atomic.AddUint64(&n.spanID, 1),
+			ParentSpanID: p.tracing.SpanID,
+			Point:        gen.TracingPointProcessed, Kind: gen.TracingKindTerminate,
+			Timestamp: time.Now().UnixNano(),
+			Node:      n.name, From: p.pid, To: p.pid,
+			Behavior: p.sbehavior, Error: errString,
+		})
+	}
 	n.processes.Delete(p.pid)
+
+	if p.tracingExporterName != "" {
+		n.TracingExporterDelete(p.tracingExporterName)
+		p.tracingExporterName = ""
+	}
 
 	n.log.Trace("...cleanupProcess %s", p.pid)
 
