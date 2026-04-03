@@ -762,17 +762,31 @@ The simplest tree: A sends to B, B sends to C, C sends to D.
 
 ```mermaid
 sequenceDiagram
+    box rgb(200,220,255)  
     participant A
+    end
+    box rgb(200,255,220)  
     participant B
+    end
+    box rgb(255,230,200)  
     participant C
+    end
+    box rgb(230,220,255)  
     participant D
+    end
 
     A->>B: Send
+    activate B
     Note over B: handles...
     B->>C: Send
+    deactivate B
+    activate C
     Note over C: handles...
     C->>D: Send
+    deactivate C
+    activate D
     Note over D: handles...
+    deactivate D
 ```
 
 Each message is a child of the message that caused it. In a waterfall view, you see a staircase pattern: each hop starts when the previous handler runs.
@@ -783,17 +797,25 @@ One handler sends to multiple recipients:
 
 ```mermaid
 sequenceDiagram
+    box rgb(200,220,255)  
     participant A
+    end
+    box rgb(200,255,220)  
     participant B
+    end
+    box rgb(255,230,200)  
     participant C
     participant D
     participant E
+    end
 
     A->>B: Send
+    activate B
     Note over B: handles...
     B->>C: ReserveStock
     B->>D: CreateInvoice
     B->>E: SendNotification
+    deactivate B
 ```
 
 B's handler sends three messages. All three are children of B's incoming message. In a waterfall view, the three sends appear at roughly the same timestamp, fanning out from B's processing.
@@ -815,16 +837,28 @@ func (b *processor) HandleMessage(from gen.PID, message any) error {
 
 ```mermaid
 sequenceDiagram
+    box rgb(200,220,255)  
     participant A
+    end
+    box rgb(200,255,220)  
     participant B
+    end
+    box rgb(255,230,200)  
     participant C as C (Validator)
+    end
+    box rgb(230,220,255)  
     participant D as D (Executor)
+    end
 
     A->>B: Send
+    activate B
     Note over B: handles...
     B->>C: Call(Validate)
+    activate C
     C->>B: Response
+    deactivate C
     B->>D: Send(Execute)
+    deactivate B
 ```
 
 In the waterfall, you see B waiting for C's response before sending to D. The gap between the response arriving and D's Sent observation shows B's processing time between the call return and the next send.
@@ -835,19 +869,35 @@ In a microservice-style architecture with many nodes, traces can span many hops:
 
 ```mermaid
 sequenceDiagram
+    box rgb(200,220,255) Edge
     participant GW as Gateway
+    end
+    box rgb(200,255,220) Auth
     participant Auth
+    end
+    box rgb(255,230,200) Orders
     participant Ord as OrderService
+    end
+    box rgb(230,220,255) Stock
     participant Inv as Inventory
     participant WH as Warehouse
+    end
 
     GW->>Auth: Call
+    activate Auth
     Auth->>GW: Response
+    deactivate Auth
     GW->>Ord: Send
+    activate Ord
     Ord->>Inv: Call
+    activate Inv
     Inv->>WH: Call
+    activate WH
     WH->>Inv: Response
+    deactivate WH
     Inv->>Ord: Response
+    deactivate Inv
+    deactivate Ord
 ```
 
 Each arrow is a message with up to three observation points. The complete trace might have 15-20 observations across 5 nodes. In Tempo's waterfall view, you see exactly where time is spent: if the warehouse is slow, the gap between its Delivered and Processed observations will be large.
