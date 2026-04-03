@@ -154,6 +154,67 @@ The OTLP SpanKind depends on both the Ergo kind and the observation point:
 
 The Sent side of a message gets the initiator kind (CLIENT/PRODUCER), while the Delivered/Processed side gets the handler kind (SERVER/CONSUMER). For Response, the roles are inverted: Sent is SERVER (handler sending back), Delivered is CLIENT (caller receiving the answer).
 
+## Reading Traces in Grafana
+
+OTLP was designed for request-response services where a span represents a unit of work with a start and end time. Ergo's actor model is different: messages are instantaneous events (sent, delivered, processed), not duration-based operations. Pulse maps each event to a zero-duration OTLP span placed at the exact timestamp when the event occurred.
+
+In trace visualization tools (Grafana, Jaeger, Zipkin), these appear as dots on a timeline rather than bars. This is expected. The horizontal distance between dots shows actual timing, and the tree structure shows causality.
+
+### Call (Request/Response)
+
+```mermaid
+sequenceDiagram
+    participant A as Node A (caller)
+    participant B as Node B (handler)
+
+    Note over A: Req.Sent (CLIENT)
+    A->>B: network latency
+    Note over B: Req.Delivered (SERVER)
+    Note over B: Req.Processed (SERVER)
+    B->>A: network latency
+    Note over A: Resp.Delivered (CLIENT)
+```
+
+Reading the gaps:
+- Req.Sent to Req.Delivered = network latency from A to B
+- Req.Delivered to Req.Processed = time B spent handling the request
+- Req.Processed to Resp.Delivered = response creation + network latency back to A
+
+### Send (async)
+
+```mermaid
+sequenceDiagram
+    participant A as Node A (sender)
+    participant B as Node B (receiver)
+
+    Note over A: Send.Sent (PRODUCER)
+    A->>B: network latency
+    Note over B: Send.Delivered (CONSUMER)
+    Note over B: Send.Processed (CONSUMER)
+```
+
+### Forward (multi-hop)
+
+```mermaid
+sequenceDiagram
+    participant A as Node A
+    participant B as Node B
+    participant C as Node C
+
+    Note over A: Req.Sent
+    A->>B: network
+    Note over B: Req.Delivered
+    Note over B: Req.Processed
+    Note over B: Fwd.Sent
+    B->>C: network
+    Note over C: Fwd.Delivered
+    Note over C: Fwd.Processed
+    C->>A: network
+    Note over A: Resp.Delivered
+```
+
+For duration-based visualization with timing bars, use the Observer web UI which renders Ergo traces natively.
+
 ## Inspecting Workers
 
 Each Pulse worker exposes statistics through the standard inspection mechanism. In the Observer process list, find the Pulse worker processes and inspect them to see:
