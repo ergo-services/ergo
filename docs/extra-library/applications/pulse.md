@@ -93,12 +93,21 @@ This means the three observations for a single message (Sent, Delivered, Process
 
 | Observation | OTLP Parent | Meaning |
 |-------------|-------------|---------|
-| Delivered | Sent of same message | "delivered after sent" |
-| Processed | Delivered of same message | "processed after delivered" |
 | Sent (with parent) | Processed of causing message | "sent because of processing that message" |
 | Sent (root) | none | first message in trace |
+| Delivered | Sent of same message | "delivered after sent" |
+| Processed | Sent of same message | "processed after sent" |
+| Terminate.Processed | Processed of parent context | "process terminated" (no Sent for Terminate) |
 
-This creates the chain: Sent -> Delivered -> Processed -> (next) Sent -> Delivered -> Processed, forming the waterfall visible in Tempo and Jaeger.
+Sent is the anchor for each message. Delivered and Processed are its children at the same level. Response spans nest under Request.Processed, forming a natural call hierarchy:
+
+```
+Req.Sent
+├── Req.Delivered
+└── Req.Processed
+    └── Resp.Sent
+        └── Resp.Delivered
+```
 
 ### Span Attributes
 
@@ -127,13 +136,23 @@ For example: `OrderProcessor Send.Sent main.ReserveStock`.
 
 ### Span Kind Mapping
 
-| Ergo Kind | OTLP SpanKind |
-|-----------|---------------|
-| Send | PRODUCER |
-| Request | CLIENT |
-| Response | SERVER |
+The OTLP SpanKind depends on both the Ergo kind and the observation point:
+
+| Ergo Kind + Point | OTLP SpanKind |
+|-------------------|---------------|
+| Send.Sent | PRODUCER |
+| Send.Delivered | CONSUMER |
+| Send.Processed | CONSUMER |
+| Request.Sent | CLIENT |
+| Request.Delivered | SERVER |
+| Request.Processed | SERVER |
+| Response.Sent | SERVER |
+| Response.Delivered | CLIENT |
+| Response.Processed | SERVER |
 | Spawn | INTERNAL |
 | Terminate | INTERNAL |
+
+The Sent side of a message gets the initiator kind (CLIENT/PRODUCER), while the Delivered/Processed side gets the handler kind (SERVER/CONSUMER). For Response, the roles are inverted: Sent is SERVER (handler sending back), Delivered is CLIENT (caller receiving the answer).
 
 ## Inspecting Workers
 
