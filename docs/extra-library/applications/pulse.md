@@ -163,54 +163,64 @@ In trace visualization tools (Grafana, Jaeger, Zipkin), these appear as dots on 
 ### Call (Request/Response)
 
 ```mermaid
-sequenceDiagram
-    participant A as Node A (caller)
-    participant B as Node B (handler)
+gantt
+    title Call: Node A calls Node B
+    dateFormat X
+    axisFormat  
 
-    Note over A: Req.Sent (CLIENT)
-    A->>B: network latency
-    Note over B: Req.Delivered (SERVER)
-    Note over B: Req.Processed (SERVER)
-    B->>A: network latency
-    Note over A: Resp.Delivered (CLIENT)
+    section Node A (caller)
+    Req.Sent (CLIENT)           :milestone, 0, 0
+    Resp.Delivered (CLIENT)     :milestone, 50, 0
+
+    section Node B (handler)
+    Req.Delivered (SERVER)      :milestone, 10, 0
+    Req.Processed (SERVER)      :milestone, 30, 0
+    Resp.Sent (SERVER)          :milestone, 35, 0
 ```
 
 Reading the gaps:
 - Req.Sent to Req.Delivered = network latency from A to B
 - Req.Delivered to Req.Processed = time B spent handling the request
-- Req.Processed to Resp.Delivered = response creation + network latency back to A
+- Req.Processed to Resp.Sent = response creation time
+- Resp.Sent to Resp.Delivered = network latency from B back to A
 
 ### Send (async)
 
 ```mermaid
-sequenceDiagram
-    participant A as Node A (sender)
-    participant B as Node B (receiver)
+gantt
+    title Send: Node A sends to Node B
+    dateFormat X
+    axisFormat  
 
-    Note over A: Send.Sent (PRODUCER)
-    A->>B: network latency
-    Note over B: Send.Delivered (CONSUMER)
-    Note over B: Send.Processed (CONSUMER)
+    section Node A (sender)
+    Send.Sent (PRODUCER)        :milestone, 0, 0
+
+    section Node B (receiver)
+    Send.Delivered (CONSUMER)   :milestone, 10, 0
+    Send.Processed (CONSUMER)   :milestone, 25, 0
 ```
 
 ### Forward (multi-hop)
 
 ```mermaid
-sequenceDiagram
-    participant A as Node A
-    participant B as Node B
-    participant C as Node C
+gantt
+    title Forward: A calls B, B forwards to C, C responds to A
+    dateFormat X
+    axisFormat  
 
-    Note over A: Req.Sent
-    A->>B: network
-    Note over B: Req.Delivered
-    Note over B: Req.Processed
-    Note over B: Fwd.Sent
-    B->>C: network
-    Note over C: Fwd.Delivered
-    Note over C: Fwd.Processed
-    C->>A: network
-    Note over A: Resp.Delivered
+    section Node A
+    Req.Sent                    :milestone, 0, 0
+    Resp.Delivered              :milestone, 80, 0
+
+    section Node B
+    Req.Delivered               :milestone, 10, 0
+    Req.Processed               :milestone, 25, 0
+    Fwd.Sent                    :milestone, 26, 0
+
+    section Node C
+    Fwd.Delivered               :milestone, 36, 0
+    Fwd.Processed               :milestone, 55, 0
+    Resp.Sent                   :milestone, 56, 0
 ```
 
 For duration-based visualization with timing bars, use the Observer web UI which renders Ergo traces natively.
