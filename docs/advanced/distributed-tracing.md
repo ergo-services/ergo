@@ -17,13 +17,13 @@ This is fundamentally different from HTTP tracing. In HTTP, a request enters a s
 
 ```mermaid
 sequenceDiagram
-    box Node X
+    box rgb(200,220,255) Node X
     participant A as Process A
     end
-    box Node Y
+    box rgb(200,255,220) Node Y
     participant B as Process B
     end
-    box Node Z
+    box rgb(255,230,200) Node Z
     participant C as Process C
     participant D as Process D
     end
@@ -31,17 +31,24 @@ sequenceDiagram
     Note over A: New trace starts (TraceID=abc)
 
     A->>B: Send(Order)
+    rect rgb(245,245,245)
     Note over A,B: TraceID=abc travels with the message
+    end
 
+    activate B
     Note over B: Handling Order...
 
     B->>C: Send(ReserveStock)
-    Note over B,C: TraceID=abc inherited
     B->>D: Send(CreateInvoice)
-    Note over B,D: TraceID=abc inherited
+    deactivate B
 
+    activate C
     Note over C: Handling ReserveStock...
+    deactivate C
+
+    activate D
     Note over D: Handling CreateInvoice...
+    deactivate D
 ```
 
 Process B never opted into tracing. Neither did C or D. The trace reached them because the message carried it. This is the key property: you configure tracing on entry-point processes, and the trace propagates through the entire downstream chain automatically.
