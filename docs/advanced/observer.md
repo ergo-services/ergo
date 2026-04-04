@@ -36,6 +36,10 @@ When message counts change between updates, a green delta indicator appears next
 
 All columns are sortable. Clicking Messages In sorts by busiest processes. Clicking Mailbox puts the most backlogged processes at the top. Clicking Running Time reveals which processes spend the most time executing handlers.
 
+Click any PID to open a floating detail window.
+
+### Scope
+
 The table does not show all processes at once. What you see is controlled by the Scope panel, which determines what the server sends to the browser.
 
 The scope works in two modes. In the default mode, you choose a window into the process ID space: "first 500" returns the 500 oldest processes (lowest PIDs), "last 500" returns the 500 newest, and entering a specific PID starts the window from that point. The node scans only the requested range and applies filters within it. This is fast even on nodes with tens of thousands of processes because the node never iterates beyond the requested window.
@@ -45,8 +49,6 @@ The "All" mode switches to a full scan: the node iterates all processes, applies
 Filters narrow results by name, behavior type, application, state, or minimum mailbox depth. In windowed mode, filters reduce the result count within the window. In All mode, filters are applied during the scan so only matching processes are counted toward the limit.
 
 Active filters appear as removable chips in the toolbar, and the scope label shows a compact summary like `first 500` or `last 100 . name:"worker"`. A separate search field adds client-side regex filtering on top of the server results for quick ad-hoc lookups without changing the scope.
-
-Click any PID to open a floating detail window.
 
 <details>
 <summary>Processes page with scope panel</summary>
@@ -73,9 +75,11 @@ The overview tab shows two real-time charts. The messages chart tracks incoming 
 
 The relations tab reveals the process's connections: aliases it has registered, meta processes it owns, events it has created, and its links and monitors grouped by type. This is valuable when you need to understand the supervision tree or figure out which processes will be affected if this one terminates.
 
-The config tab lets you change settings that take effect immediately. You can raise the log level to get more verbose output from a specific process, enable compression for network messages, change the tracing sampler for targeted diagnostics, or adjust message priority and delivery guarantees. The environment variables section is available if the node has `ExposeEnvInfo` enabled in its security settings.
-
 The inspect tab shows the output of the process's `HandleInspect` callback as key-value pairs. If your actor implements this method, it can expose internal state: queue lengths, cache sizes, connection counts, or any application-specific metrics. Auto-refresh polls the process once per second.
+
+### Managing a Process
+
+The config tab lets you change settings that take effect immediately. You can raise the log level to get more verbose output from a specific process, enable compression for network messages, change the tracing sampler for targeted diagnostics, or adjust message priority and delivery guarantees. The environment variables section is available if the node has `ExposeEnvInfo` enabled in its security settings.
 
 Three action buttons let you interact with the process. Send Message opens a dialog with a text field; the message is sent as a string value to the process. Send Exit sends an exit signal with a configurable reason. Kill forcefully terminates the process. These actions are disabled for system processes.
 
@@ -192,11 +196,15 @@ The profiler page has two tabs and a GC Pressure section that is always visible 
 
 The GC Pressure section shows four real-time charts: allocation rate (objects per second), dead rate (objects collected per second), live ratio (percentage of allocated objects still alive), and GC CPU fraction (percentage of CPU spent in garbage collection). These help you spot memory pressure trends before they become problems.
 
-The Heap tab shows allocation records sorted by in-use bytes. Each record shows in-use bytes, in-use objects, total allocated bytes, total allocated objects, and the function name (the first non-runtime function in the allocation stack). Expanding a record reveals the full stack trace. A scope panel filters by function name and limits how many records the server returns. A Pause button freezes the current data so you can examine it without updates overwriting what you are reading.
+### Heap
+
+The Heap tab updates continuously and shows allocation records sorted by in-use bytes. Each record shows in-use bytes, in-use objects, total allocated bytes, total allocated objects, and the function name (the first non-runtime function in the allocation stack). Expanding a record reveals the full stack trace. A scope panel filters by function name and limits how many records the server returns. A Pause button freezes the current data so you can examine it without updates overwriting what you are reading.
 
 Use the heap view when memory grows unexpectedly. The allocation stack traces show exactly which code paths are responsible. If a single function dominates the in-use bytes, that is your starting point.
 
-The Goroutines tab captures a snapshot when you press Capture. The dump groups goroutines by their call stack: if 500 goroutines are all blocked on the same channel receive, they appear as one group with count 500. Each group shows the count, state (running, IO wait, chan receive, select, sleep, semacquire), wait duration (color-coded: green under 60s, yellow under 5 minutes, red above), and two function names: Origin (where the goroutine was spawned) and Current (where it is now). Expanding a group reveals the full stack trace and goroutine IDs. A scope panel filters the server-side capture by stack content, state, and minimum wait time. A search field filters the captured results client-side.
+### Goroutines
+
+The Goroutines tab captures snapshots on demand. Press the Capture button to take a goroutine dump. The dump groups goroutines by their call stack: if 500 goroutines are all blocked on the same channel receive, they appear as one group with count 500. Each group shows the count, state (running, IO wait, chan receive, select, sleep, semacquire), wait duration (color-coded: green under 60s, yellow under 5 minutes, red above), and two function names: Origin (where the goroutine was spawned) and Current (where it is now). Expanding a group reveals the full stack trace and goroutine IDs. A scope panel filters the server-side capture by stack content, state, and minimum wait time. A search field filters the captured results client-side.
 
 This is how you diagnose deadlocks and blocking. Filter by state to isolate goroutines stuck in "chan receive". Search by package name to find goroutines from specific actors. A large group with a long wait time in a state that should be transient usually points directly at the problem.
 
@@ -211,9 +219,17 @@ This is how you diagnose deadlocks and blocking. Filter by state to isolate goro
 
 The tracing page shows distributed traces. Traces are collected continuously while Observer is connected, so data is already available when you navigate here. For background on how tracing works, see [Distributed Tracing](distributed-tracing.md).
 
+Because Observer connects to one node at a time, it shows only the observations emitted on that node. For complete cross-cluster traces, use [Pulse](../extra-library/applications/pulse.md) with Grafana Tempo or Jaeger.
+
+### Trace List
+
 Traces are sorted newest first. Each row shows a copyable trace ID, timestamp, root process PID with the root message type, an error icon if any span recorded an error, the span count, a duration bar showing this trace's duration as a proportion of the longest trace in the current scope buffer (red if any span recorded an error), and the total duration.
 
-Click a row to expand its waterfall. The waterfall groups all observation points (Sent, Delivered, Processed) for the same message into a single row and arranges rows in a tree by parent-child relationships, with indentation showing the causal chain.
+The search field filters across trace ID, root process, root message, root node, and within spans across span ID, from, to, message text, and attribute keys and values. The Pause button stops the page from accepting new traces until resumed. The Clear button removes all collected traces.
+
+### Waterfall
+
+Click a trace row to expand its waterfall. The waterfall groups all observation points (Sent, Delivered, Processed) for the same message into a single row and arranges rows in a tree by parent-child relationships, with indentation showing the causal chain.
 
 Each row shows a color-coded kind badge (SEND in blue, CALL in violet, RESP in green, SPAWN in amber, TERM in red), the sender and receiver PIDs with their behavior types, the message type, and a timeline bar. The bar renders two phases: a lighter segment for transit time (Sent to Delivered) and a full segment for processing time (Delivered to Processed). Three dot markers show the observation points: blue for Sent, green for Delivered, orange for Processed.
 
@@ -223,13 +239,11 @@ Local process PIDs in the waterfall are clickable and open detail windows.
 
 Click a span row to expand its detail panel. The panel has two columns: the left shows span fields (trace ID, span ID, kind, which points are present, behavior, from, to, call reference, message, node names, error) and the right shows custom attributes merged from all observation points. All values are copyable.
 
-The search field filters across trace ID, root process, root message, root node, and within spans across span ID, from, to, message text, and attribute keys and values.
+Expanded traces persist when switching to other pages and back.
+
+### Scope
 
 The Scope panel has toggle buttons for span kinds (SEND, CALL, RESP, SPAWN, TERM) and observation points (Sent, Delivered, Processed). Disabled items appear with strikethrough. A message pattern filter matches against message type and error text, with an exclude toggle that inverts the match. The buffer limit controls how many traces are kept. Active scope filters appear as removable pills below the toolbar with a "Clear all" link.
-
-The Pause button stops the page from accepting new traces until resumed. The Clear button removes all collected traces. Expanded traces persist when switching to other pages and back.
-
-Because Observer connects to one node at a time, it shows only the observations emitted on that node. For complete cross-cluster traces, use [Pulse](../extra-library/applications/pulse.md) with Grafana Tempo or Jaeger.
 
 <details>
 <summary>Tracing page with waterfall</summary>
