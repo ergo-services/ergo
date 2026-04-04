@@ -4,13 +4,13 @@ description: Real-time inspection and management of Ergo nodes
 
 # Inspecting With Observer
 
-This page describes the Observer web interface in detail. For installation and configuration, see [Observer Application](../extra-library/applications/observer.md).
+This page walks through each page of the Observer web interface. For installation and configuration, see [Observer Application](../extra-library/applications/observer.md).
 
 The sidebar contains a node selector listing all nodes discovered through the registrar. Select a different node and Observer switches to showing that node's data. You deploy Observer on one node and monitor the entire cluster from a single browser tab.
 
 To try Observer with a live cluster:
 
-```
+```bash
 git clone https://github.com/ergo-services/examples
 cd examples/observability
 make up
@@ -36,9 +36,13 @@ A searchable table of cron jobs at the bottom shows scheduled tasks with their n
 
 ## Applications
 
-The applications page shows all loaded applications and their lifecycle state. Each entry displays the name, whether it's running or stopped, its [mode](../basics/application.md#application-modes) (permanent, temporary, transient), version, process count, description, and uptime. Expanding the process count reveals individual PIDs that you can click to open detail windows.
+The dashboard gives you the overview. The applications page lets you manage the units that make up your node.
 
-Lifecycle controls let you start a stopped application in a selected mode, stop a running application (with an optional force flag for immediate shutdown), or unload it entirely. This is useful during development when you need to restart a misbehaving application without restarting the entire node. Start, stop, and unload are disabled for system applications to prevent breaking the node.
+Each entry displays the name, running state (color-coded badge), [mode](../basics/application.md#application-modes) (permanent, temporary, transient), version, weight, tags, process count, description, and uptime. The process count is expandable: click it to see individual PIDs and open their detail windows. A thin progress bar under each entry shows the process count relative to the largest application on the node.
+
+Each application card also shows its dependencies (other applications it requires), parent application, network dependency flag, and a role map if defined in the application spec. The role map shows the mapping between logical role names and process names, helping you understand the application's internal structure. Environment variables are displayed at the bottom of each card with copy buttons.
+
+Lifecycle controls let you start a stopped application in a selected mode, stop a running application (with an optional force flag for immediate shutdown), or unload it entirely. This is useful during development when you need to restart a misbehaving application without restarting the entire node. These controls are disabled for `system_app` and `observer_app` to prevent breaking the node.
 
 <details>
 <summary>Applications page</summary>
@@ -98,7 +102,7 @@ The config tab lets you change settings that take effect immediately. You can ra
 
 The inspect tab shows the output of the process's `HandleInspect` callback as key-value pairs. If your actor implements this method, it can expose internal state: queue lengths, cache sizes, connection counts, or any application-specific metrics. Auto-refresh polls the process once per second.
 
-Three action buttons let you interact with the process. Send Message opens a dialog with a text field where you type the message to send. Send Exit sends an exit signal with a configurable reason. Kill forcefully terminates the process. These actions are disabled for system processes.
+Three action buttons let you interact with the process. Send Message opens a dialog with a text field; the message is sent as a string value to the process. Send Exit sends an exit signal with a configurable reason. Kill forcefully terminates the process. These actions are disabled for system processes.
 
 <details>
 <summary>Process detail window</summary>
@@ -109,7 +113,7 @@ Three action buttons let you interact with the process. Send Message opens a dia
 
 ## Events
 
-The events page shows registered events on the node. Like the processes page, it displays only what the scope defines, not the full list.
+The events page works like the processes page: it shows only what the scope defines, not the full list.
 
 Each row includes the event name, the producer process, registration time, subscriber count, and message statistics. Delta indicators highlight which events are actively publishing. The default sort is by registration time, newest first.
 
@@ -140,11 +144,15 @@ Three toggle buttons in the toolbar control how the Registered column displays t
 
 The network page shows how the node connects to the rest of the cluster.
 
-The connected nodes section lists every active connection with summary statistics: messages and bytes in each direction. Expanding a connection reveals negotiated flags (which features both nodes support), handshake and protocol versions, connection pool size, and per-connection traffic stats. If you need to verify whether tracing or compression is actually enabled between two specific nodes, this is where you look.
+The top section displays network configuration: mode, max message size, handshake and protocol versions, and negotiated flags. The registrar section shows the service discovery backend with its capabilities.
 
-The acceptors section lists network listeners with their addresses and TLS configuration. The cluster nodes section shows all nodes known through the registrar or active connections, giving you a picture of the cluster topology. The registrar section shows the service discovery backend details.
+The acceptors section lists network listeners with their addresses, TLS configuration, and per-acceptor flags.
+
+Four real-time charts show aggregate traffic across all connections: messages per second (in/out), bytes per second (in/out), compression operations per second (sent/received), and fragmentation operations per second (sent/received).
 
 A connection list table with its own scope controls shows all connections with delta indicators for message and byte counts. Click a row to open a floating window with detailed connection statistics.
+
+The cluster nodes section shows all nodes known through the registrar or active connections, giving you a picture of the cluster topology.
 
 <details>
 <summary>Network page</summary>
@@ -188,13 +196,13 @@ A "Switch observer to this node" button lets you start inspecting the remote nod
 
 The log page captures log messages in real time from every source on the node: processes, meta processes, the node itself, and the network stack.
 
-Each log entry shows a timestamp, severity level (color-coded badge), source, registered name, behavior type, and message text. The source column identifies where the message came from: a process PID, meta-process alias, node CRC, or network peer, each with its own color. The rich source toggle adds a type icon and makes the source clickable, opening a floating window for the process, meta-process, or network connection that generated the message.
+Each log entry shows a timestamp, severity level (color-coded badge), source, registered name, behavior type, and message text. The source column identifies where the message came from: a process PID, meta-process alias, node CRC, or network peer, each with its own color. The rich source toggle adds a type icon and makes the source clickable, opening a floating window for the process, meta-process, or network connection that generated the message. Long messages (over 200 characters or containing newlines) are truncated to three lines and expandable with a click. If the log entry carries structured fields, they appear below the message as key=value pairs.
 
-The Scope panel controls what the server captures. Level toggle buttons let you enable or disable each severity independently. This is server-side filtering: disabling debug means the server stops collecting debug messages entirely, reducing overhead on the node. A message pattern filter does server-side substring matching, with an exclude mode to filter out noise. The limit controls the ring buffer size.
+The Scope panel controls what the server captures. Level toggle buttons let you enable or disable each severity independently. This is server-side filtering: disabling debug means the server stops collecting debug messages entirely, reducing overhead on the node. Additional filters match against source, behavior, field names/values, and message text, with an exclude mode to filter out noise. The limit controls the ring buffer size.
 
 The Play/Pause button stops log capture without disconnecting. When you spot something interesting, pause and read through existing entries without new messages pushing them away.
 
-When the server drops messages because the ring buffer is full, a suppressed count indicator appears in the toolbar. If you see this frequently, increase the limit in the scope panel.
+When the server drops messages because the ring buffer is full, a suppressed count indicator appears as a yellow alert in the toolbar. If you see this frequently, increase the limit in the scope panel.
 
 <details>
 <summary>Log page</summary>
@@ -205,15 +213,15 @@ When the server drops messages because the ring buffer is full, a suppressed cou
 
 ## Profiler
 
-The profiler page has two tabs (Heap and Goroutines) and a GC Pressure section that is always visible at the top.
+The profiler page has two tabs and a GC Pressure section that is always visible at the top. The key difference between the tabs: the Heap tab updates continuously via a live subscription, while the Goroutines tab captures snapshots on demand when you press the Capture button.
 
-The GC Pressure section shows four real-time charts: allocation rate (objects per second), dead rate (objects collected per second), live ratio (percentage of allocated objects still alive), and GC CPU fraction (percentage of CPU spent in garbage collection). These update continuously and help you spot memory pressure trends before they become problems.
+The GC Pressure section shows four real-time charts: allocation rate (objects per second), dead rate (objects collected per second), live ratio (percentage of allocated objects still alive), and GC CPU fraction (percentage of CPU spent in garbage collection). These help you spot memory pressure trends before they become problems.
 
-The Heap tab updates continuously and shows allocation records sorted by in-use bytes. Each record shows in-use bytes, in-use objects, total allocated bytes, total allocated objects, and the function name (the first non-runtime function in the allocation stack). Expanding a record reveals the full stack trace. A scope panel filters by function name and limits how many records the server returns. A Pause button freezes the current data so you can examine it without updates overwriting what you're reading.
+The Heap tab shows allocation records sorted by in-use bytes. Each record shows in-use bytes, in-use objects, total allocated bytes, total allocated objects, and the function name (the first non-runtime function in the allocation stack). Expanding a record reveals the full stack trace. A scope panel filters by function name and limits how many records the server returns. A Pause button freezes the current data so you can examine it without updates overwriting what you are reading.
 
 Use the heap view when memory grows unexpectedly. The allocation stack traces show exactly which code paths are responsible. If a single function dominates the in-use bytes, that is your starting point.
 
-The Goroutines tab captures snapshots on demand. Press the Capture button to take a goroutine dump. The dump groups goroutines by their call stack: if 500 goroutines are all blocked on the same channel receive, they appear as one group with count 500. Each group shows the count, state (running, IO wait, chan receive, select, sleep, semacquire), wait duration (color-coded: green under 60s, yellow under 5 minutes, red above), and two function names: Origin (where the goroutine was spawned) and Current (where it is now). Expanding a group reveals the full stack trace and goroutine IDs. A scope panel filters the server-side capture by stack content, state, and minimum wait time. A search field filters the captured results client-side.
+The Goroutines tab captures a snapshot when you press Capture. The dump groups goroutines by their call stack: if 500 goroutines are all blocked on the same channel receive, they appear as one group with count 500. Each group shows the count, state (running, IO wait, chan receive, select, sleep, semacquire), wait duration (color-coded: green under 60s, yellow under 5 minutes, red above), and two function names: Origin (where the goroutine was spawned) and Current (where it is now). Expanding a group reveals the full stack trace and goroutine IDs. A scope panel filters the server-side capture by stack content, state, and minimum wait time. A search field filters the captured results client-side.
 
 This is how you diagnose deadlocks and blocking. Filter by state to isolate goroutines stuck in "chan receive". Search by package name to find goroutines from specific actors. A large group with a long wait time in a state that should be transient usually points directly at the problem.
 
@@ -230,7 +238,11 @@ The tracing page shows distributed traces. Traces are collected continuously whi
 
 Traces are sorted newest first. Each row shows a copyable trace ID, timestamp, root process PID with the root message type, an error icon if any span recorded an error, the span count, a duration bar showing this trace's duration as a proportion of the longest trace in the current scope buffer (red if any span recorded an error), and the total duration.
 
-Click a row to expand its waterfall. The waterfall groups all observation points (Sent, Delivered, Processed) for the same message into a single row and arranges rows in a tree by parent-child relationships, with indentation showing the causal chain. Each row shows a color-coded kind badge (SEND in blue, CALL in violet, RESP in green, SPAWN in amber, TERM in red), the sender and receiver PIDs with their behavior types, the message type, and a timeline bar. The bar renders two phases: a lighter segment for transit time (Sent to Delivered) and a full segment for processing time (Delivered to Processed). Three dot markers show the observation points: blue for Sent, green for Delivered, orange for Processed. Hovering over the bar shows a tooltip with the node name at each point and the transit and processing durations. The duration column shows both the total and the breakdown. For cross-node spans (where Sent and Delivered happen on different nodes), the transit time calculation subtracts the measured clock skew between the nodes to show a more accurate transit duration.
+Click a row to expand its waterfall. The waterfall groups all observation points (Sent, Delivered, Processed) for the same message into a single row and arranges rows in a tree by parent-child relationships, with indentation showing the causal chain.
+
+Each row shows a color-coded kind badge (SEND in blue, CALL in violet, RESP in green, SPAWN in amber, TERM in red), the sender and receiver PIDs with their behavior types, the message type, and a timeline bar. The bar renders two phases: a lighter segment for transit time (Sent to Delivered) and a full segment for processing time (Delivered to Processed). Three dot markers show the observation points: blue for Sent, green for Delivered, orange for Processed.
+
+Hovering over the bar shows a tooltip with the node name at each point and the transit and processing durations. The duration column shows both the total and the breakdown. For cross-node spans (where Sent and Delivered happen on different nodes), the transit time calculation subtracts the measured clock skew between the nodes to show a more accurate transit duration.
 
 Local process PIDs in the waterfall are clickable and open detail windows.
 
