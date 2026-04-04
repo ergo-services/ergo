@@ -8,6 +8,16 @@ This page describes the Observer web interface in detail. For installation and c
 
 The sidebar contains a node selector listing all nodes discovered through the registrar. Select a different node and Observer switches to showing that node's data. You deploy Observer on one node and monitor the entire cluster from a single browser tab.
 
+To try Observer with a live cluster:
+
+```
+git clone https://github.com/ergo-services/examples
+cd examples/observability
+make up
+```
+
+This starts a multi-node cluster with Observer, tracing, health probes, Prometheus metrics, and Grafana dashboards. Open `http://localhost:9911` for Observer, `http://localhost:8888/dashboards` for Grafana.
+
 ## Dashboard
 
 The dashboard is the landing page. It answers the first question you ask about any running system: is everything normal?
