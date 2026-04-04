@@ -20,36 +20,11 @@ This starts a multi-node cluster with Observer, tracing, health probes, Promethe
 
 ## Dashboard
 
-The dashboard is the landing page. It answers the first question you ask about any running system: is everything normal?
-
 <figure><img src="../.gitbook/assets/observer.png" alt="Observer Dashboard"><figcaption></figcaption></figure>
 
-Three summary cards at the top give you the pulse of the node. The Processes card shows the total count, how many are actively running, and whether any are stuck as zombies. The Events card shows message throughput across the pub/sub system. The System card shows memory and CPU usage, core count, and uptime. Each card includes a real-time chart covering the last 60 seconds. A sudden spike in running processes, a memory growth pattern, or unusual CPU load is immediately visible.
+The dashboard is the landing page with summary cards, real-time charts, and node-wide counters. Two controls let you manage the node directly from here: the log level dropdown changes the node-level severity threshold (see [Logging](../basics/logging.md)), and the [tracing](distributed-tracing.md) sampler dropdown controls whether the node starts new traces for messages sent via `node.Send()` and `node.Call()`. Both take effect immediately.
 
-Below the summary, detailed panels break down the node's internal counters. The processes panel shows spawned, terminated, and spawn-failed counts. Spawn failures are highlighted so they catch your attention. The registry panel shows how many names, aliases, and events are registered. The delivery errors panel highlights any failed message deliveries, both local and remote. Non-zero values are shown in red. These counters reflect delivery failures reported by the framework. The application may handle these errors in its own logic, but the node records the fact that delivery did not succeed.
-
-Two controls are available directly on the dashboard. The log level dropdown changes the node-level log severity threshold. The [tracing](distributed-tracing.md) sampler dropdown controls whether the node starts new traces for messages sent via `node.Send()` and `node.Call()`. Both take effect immediately without restarting anything.
-
-The loggers panel shows a distribution of log messages by severity and lists all registered loggers with their level filters. This tells you at a glance whether errors are accumulating faster than expected. The tracing exporters panel shows the same for tracing: span distribution by kind and the list of active exporters with their flags. If you expected Pulse to be exporting traces but don't see it listed here, you know something went wrong during startup.
-
-A searchable table of cron jobs at the bottom shows scheduled tasks with their names, cron specs, descriptions, and last run times. You can filter by name or spec pattern to find specific jobs.
-
-## Applications
-
-The dashboard gives you the overview. The applications page lets you manage the units that make up your node.
-
-Each entry displays the name, running state (color-coded badge), [mode](../basics/application.md#application-modes) (permanent, temporary, transient), version, weight, tags, process count, description, and uptime. The process count is expandable: click it to see individual PIDs and open their detail windows. A thin progress bar under each entry shows the process count relative to the largest application on the node.
-
-Each application card also shows its dependencies (other applications it requires), parent application, network dependency flag, and a role map if defined in the application spec. The role map shows the mapping between logical role names and process names, helping you understand the application's internal structure. Environment variables are displayed at the bottom of each card with copy buttons.
-
-Lifecycle controls let you start a stopped application in a selected mode, stop a running application (with an optional force flag for immediate shutdown), or unload it entirely. This is useful during development when you need to restart a misbehaving application without restarting the entire node. These controls are disabled for `system_app` and `observer_app` to prevent breaking the node.
-
-<details>
-<summary>Applications page</summary>
-
-<!-- screenshot: applications page -->
-
-</details>
+The applications page lets you manage the lifecycle of applications running on the node: start in a selected [mode](../basics/application.md#application-modes), stop, or unload. When something goes wrong at the application level, this is where you act. But most investigation happens one level deeper, at individual processes.
 
 ## Processes
 
