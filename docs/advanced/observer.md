@@ -24,26 +24,24 @@ The loggers panel shows a distribution of log messages by severity and lists all
 
 A searchable table of cron jobs at the bottom shows scheduled tasks with their names, cron specs, descriptions, and last run times. You can filter by name or spec pattern to find specific jobs.
 
+## Applications
+
+The applications page shows all loaded applications and their lifecycle state. Each entry displays the name, whether it's running or stopped, its [mode](../basics/application.md#application-modes) (permanent, temporary, transient), version, process count, description, and uptime. Expanding the process count reveals individual PIDs that you can click to open detail windows.
+
+Lifecycle controls let you start a stopped application in a selected mode, stop a running application (with an optional force flag for immediate shutdown), or unload it entirely. This is useful during development when you need to restart a misbehaving application without restarting the entire node. Start, stop, and unload are disabled for system applications to prevent breaking the node.
+
+<details>
+<summary>Applications page</summary>
+
+<!-- screenshot: applications page -->
+
+</details>
+
 ## Processes
 
 The processes page is where you spend most of your time when investigating issues.
 
 Every process on the node appears in a table that updates every second. The columns cover identification (PID, name, behavior, application), messaging (messages in/out, mailbox depth, latency), and lifecycle (running time, init time, wakeups, uptime, state). This is enough to answer most diagnostic questions without opening individual process details.
-
-<details>
-<summary>Column descriptions</summary>
-
-**Mailbox.** Total messages across all four mailbox queues (Main, System, Urgent, Log). Changes color as the queue grows: yellow for moderate, red for deep backlog.
-
-**Latency.** Time between a message entering the mailbox and the process starting to handle it. High latency means the process has a backlog and incoming messages are waiting. Requires the `latency` build tag to be enabled (see [Debugging](debugging.md)).
-
-**Running Time.** Total time spent inside handler callbacks (HandleMessage, HandleCall). High running time relative to uptime means the process spends most of its life executing handlers, whether due to computation or blocking I/O.
-
-**Init Time.** Time spent in the `Init` callback during startup. Highlighted red if over one second. Keep initialization fast: spawn has a timeout, and under a supervisor a slow Init blocks the restart of sibling processes.
-
-**Wakeups.** How many times the process was activated to handle messages. Each activation processes one batch from the mailbox. A high wakeup count with low message counts can indicate many small deliveries.
-
-</details>
 
 When message counts change between updates, a green delta indicator appears next to the number. A "+42" next to Messages In tells you this process received 42 messages in the last second. The mailbox column changes color as the queue grows, making overloaded processes visually obvious in a list of thousands. The state column shows how long the process has been in its current state. A process stuck in "running" for 30 seconds is probably blocked inside a handler.
 
@@ -65,6 +63,16 @@ Click any PID to open a floating detail window.
 <summary>Processes page with scope panel</summary>
 
 <!-- screenshot: processes page with scope panel open -->
+
+**Mailbox.** Total messages across all four mailbox queues (Main, System, Urgent, Log). Changes color as the queue grows: yellow for moderate, red for deep backlog.
+
+**Latency.** Time between a message entering the mailbox and the process starting to handle it. High latency means the process has a backlog and incoming messages are waiting. Requires the `latency` build tag to be enabled (see [Debugging](debugging.md)).
+
+**Running Time.** Total time spent inside handler callbacks (HandleMessage, HandleCall). High running time relative to uptime means the process spends most of its life executing handlers, whether due to computation or blocking I/O.
+
+**Init Time.** Time spent in the `Init` callback during startup. Highlighted red if over one second. Keep initialization fast: spawn has a timeout, and under a supervisor a slow Init blocks the restart of sibling processes.
+
+**Wakeups.** How many times the process was activated to handle messages. Each activation processes one batch from the mailbox. A high wakeup count with low message counts can indicate many small deliveries.
 
 </details>
 
@@ -89,27 +97,20 @@ Three action buttons let you interact with the process. Send Message opens a dia
 
 </details>
 
-## Applications
-
-The applications page shows all loaded applications and their lifecycle state. Each entry displays the name, whether it's running or stopped, its [mode](../basics/application.md#application-modes) (permanent, temporary, transient), version, process count, description, and uptime. Expanding the process count reveals individual PIDs that you can click to open detail windows.
-
-Lifecycle controls let you start a stopped application in a selected mode, stop a running application (with an optional force flag for immediate shutdown), or unload it entirely. This is useful during development when you need to restart a misbehaving application without restarting the entire node. Start, stop, and unload are disabled for system applications to prevent breaking the node.
-
-<details>
-<summary>Applications page</summary>
-
-<!-- screenshot: applications page -->
-
-</details>
-
 ## Events
 
 The events page shows registered events on the node. Like the processes page, it displays only what the scope defines, not the full list.
 
 Each row includes the event name, the producer process, registration time, subscriber count, and message statistics. Delta indicators highlight which events are actively publishing. The default sort is by registration time, newest first.
 
+The Scope panel controls which events the server returns. The From control chooses between First (oldest registered) and Last (newest registered). The node iterates events in registration order and stops after collecting the requested number of matches. Filters narrow by name, notify mode, buffered mode, and minimum subscriber count, and are applied during iteration so only matching events count toward the limit.
+
+Three toggle buttons in the toolbar control how the Registered column displays timestamps: 24h/12h clock format, raw millisecond timestamps for precise correlation, and an optional date prefix. These settings are shared with the Log and Tracing pages.
+
 <details>
-<summary>Column descriptions</summary>
+<summary>Events page</summary>
+
+<!-- screenshot: events page -->
 
 **Published.** Total number of times PublishEvent was called by the producer. Each call increments this counter once regardless of how many subscribers receive the message.
 
@@ -125,17 +126,6 @@ Each row includes the event name, the producer process, registration time, subsc
 
 </details>
 
-The Scope panel controls which events the server returns. The From control chooses between First (oldest registered) and Last (newest registered). The node iterates events in registration order and stops after collecting the requested number of matches. Filters narrow by name, notify mode, buffered mode, and minimum subscriber count, and are applied during iteration so only matching events count toward the limit.
-
-Three toggle buttons in the toolbar control how the Registered column displays timestamps: 24h/12h clock format, raw millisecond timestamps for precise correlation, and an optional date prefix. These settings are shared with the Log and Tracing pages.
-
-<details>
-<summary>Events page</summary>
-
-<!-- screenshot: events page -->
-
-</details>
-
 ## Network
 
 The network page shows how the node connects to the rest of the cluster.
@@ -147,7 +137,9 @@ The acceptors section lists network listeners with their addresses and TLS confi
 A connection list table with its own scope controls shows all connections with delta indicators for message and byte counts. Click a row to open a floating window with detailed connection statistics.
 
 <details>
-<summary>Column descriptions</summary>
+<summary>Network page</summary>
+
+<!-- screenshot: network page with expanded connection -->
 
 **Node.** Contains several elements: a direction arrow, the node name, a CRC32 badge, and a TLS badge. The blue arrow (up-right) means the connection was initiated by this node (outgoing). The green arrow (down-left) means the connection was accepted from the remote node (incoming). The badge shows "TLS" if the connection uses TLS or "Plain" if it does not.
 
@@ -158,13 +150,6 @@ A connection list table with its own scope controls shows all connections with d
 **Reconnections.** How many times the connection was re-established. Non-zero values are highlighted in red. Frequent reconnections may indicate network instability.
 
 **Clock Skew.** Measured difference between the local and remote node clocks. Used by the tracing waterfall to compensate for clock drift when displaying cross-node traces.
-
-</details>
-
-<details>
-<summary>Network page</summary>
-
-<!-- screenshot: network page with expanded connection -->
 
 </details>
 
@@ -208,6 +193,27 @@ When the server drops messages because the ring buffer is full, a suppressed cou
 
 </details>
 
+## Profiler
+
+The profiler page has two tabs (Heap and Goroutines) and a GC Pressure section that is always visible at the top.
+
+The GC Pressure section shows four real-time charts: allocation rate (objects per second), dead rate (objects collected per second), live ratio (percentage of allocated objects still alive), and GC CPU fraction (percentage of CPU spent in garbage collection). These update continuously and help you spot memory pressure trends before they become problems.
+
+The Heap tab updates continuously and shows allocation records sorted by in-use bytes. Each record shows in-use bytes, in-use objects, total allocated bytes, total allocated objects, and the function name (the first non-runtime function in the allocation stack). Expanding a record reveals the full stack trace. A scope panel filters by function name and limits how many records the server returns. A Pause button freezes the current data so you can examine it without updates overwriting what you're reading.
+
+Use the heap view when memory grows unexpectedly. The allocation stack traces show exactly which code paths are responsible. If a single function dominates the in-use bytes, that is your starting point.
+
+The Goroutines tab captures snapshots on demand. Press the Capture button to take a goroutine dump. The dump groups goroutines by their call stack: if 500 goroutines are all blocked on the same channel receive, they appear as one group with count 500. Each group shows the count, state (running, IO wait, chan receive, select, sleep, semacquire), wait duration (color-coded: green under 60s, yellow under 5 minutes, red above), and two function names: Origin (where the goroutine was spawned) and Current (where it is now). Expanding a group reveals the full stack trace and goroutine IDs. A scope panel filters the server-side capture by stack content, state, and minimum wait time. A search field filters the captured results client-side.
+
+This is how you diagnose deadlocks and blocking. Filter by state to isolate goroutines stuck in "chan receive". Search by package name to find goroutines from specific actors. A large group with a long wait time in a state that should be transient usually points directly at the problem.
+
+<details>
+<summary>Profiler</summary>
+
+<!-- screenshot: profiler goroutines view -->
+
+</details>
+
 ## Tracing
 
 The tracing page shows distributed traces. Traces are collected continuously while Observer is connected, so data is already available when you navigate here. For background on how tracing works, see [Distributed Tracing](distributed-tracing.md).
@@ -232,26 +238,5 @@ Because Observer connects to one node at a time, it shows only the observations 
 <summary>Tracing page with waterfall</summary>
 
 <!-- screenshot: tracing page with expanded waterfall -->
-
-</details>
-
-## Profiler
-
-The profiler page has two tabs (Heap and Goroutines) and a GC Pressure section that is always visible at the top.
-
-The GC Pressure section shows four real-time charts: allocation rate (objects per second), dead rate (objects collected per second), live ratio (percentage of allocated objects still alive), and GC CPU fraction (percentage of CPU spent in garbage collection). These update continuously and help you spot memory pressure trends before they become problems.
-
-The Heap tab updates continuously and shows allocation records sorted by in-use bytes. Each record shows in-use bytes, in-use objects, total allocated bytes, total allocated objects, and the function name (the first non-runtime function in the allocation stack). Expanding a record reveals the full stack trace. A scope panel filters by function name and limits how many records the server returns. A Pause button freezes the current data so you can examine it without updates overwriting what you're reading.
-
-Use the heap view when memory grows unexpectedly. The allocation stack traces show exactly which code paths are responsible. If a single function dominates the in-use bytes, that is your starting point.
-
-The Goroutines tab captures snapshots on demand. Press the Capture button to take a goroutine dump. The dump groups goroutines by their call stack: if 500 goroutines are all blocked on the same channel receive, they appear as one group with count 500. Each group shows the count, state (running, IO wait, chan receive, select, sleep, semacquire), wait duration (color-coded: green under 60s, yellow under 5 minutes, red above), and two function names: Origin (where the goroutine was spawned) and Current (where it is now). Expanding a group reveals the full stack trace and goroutine IDs. A scope panel filters the server-side capture by stack content, state, and minimum wait time. A search field filters the captured results client-side.
-
-This is how you diagnose deadlocks and blocking. Filter by state to isolate goroutines stuck in "chan receive". Search by package name to find goroutines from specific actors. A large group with a long wait time in a state that should be transient usually points directly at the problem.
-
-<details>
-<summary>Profiler</summary>
-
-<!-- screenshot: profiler goroutines view -->
 
 </details>
