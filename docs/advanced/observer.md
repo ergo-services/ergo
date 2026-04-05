@@ -53,7 +53,7 @@ Active filters appear as removable chips in the toolbar, and the scope label sho
 <details>
 <summary>Processes page with scope panel</summary>
 
-<img src="images/observer/processes.png" alt="Processes page">
+<figure><img src="images/observer/processes.png" alt="Processes page"><figcaption></figcaption></figure>
 
 **Mailbox.** Total messages across all four mailbox queues (Main, System, Urgent, Log). Changes color as the queue grows: yellow for moderate, red for deep backlog.
 
@@ -86,7 +86,7 @@ Three action buttons let you interact with the process. Send Message opens a dia
 <details>
 <summary>Process detail window</summary>
 
-<img src="images/observer/process_info.png" alt="Process detail window">
+<figure><img src="images/observer/process_info.png" alt="Process detail window"><figcaption></figcaption></figure>
 
 </details>
 
@@ -103,7 +103,7 @@ Three toggle buttons in the toolbar control how the Registered column displays t
 <details>
 <summary>Events page</summary>
 
-<img src="images/observer/events.png" alt="Events page">
+<figure><img src="images/observer/events.png" alt="Events page"><figcaption></figcaption></figure>
 
 **Published.** Total number of times PublishEvent was called by the producer. Each call increments this counter once regardless of how many subscribers receive the message.
 
@@ -136,7 +136,7 @@ The cluster nodes section shows all nodes known through the registrar or active 
 <details>
 <summary>Network page</summary>
 
-<img src="images/observer/network.png" alt="Network page">
+<figure><img src="images/observer/network.png" alt="Network page"><figcaption></figcaption></figure>
 
 **Node.** Contains several elements: a direction arrow, the node name, a CRC32 badge, and a TLS badge. The blue arrow (up-right) means the connection was initiated by this node (outgoing). The green arrow (down-left) means the connection was accepted from the remote node (incoming). The badge shows "TLS" if the connection uses TLS or "Plain" if it does not.
 
@@ -167,7 +167,7 @@ A "Switch observer to this node" button lets you start inspecting the remote nod
 <details>
 <summary>Connection detail window</summary>
 
-<img src="images/observer/connection.png" alt="Connection detail window">
+<figure><img src="images/observer/connection.png" alt="Connection detail window"><figcaption></figcaption></figure>
 
 </details>
 
@@ -186,7 +186,7 @@ When the server drops messages because the ring buffer is full, a suppressed cou
 <details>
 <summary>Log page</summary>
 
-<img src="images/observer/log.png" alt="Log page">
+<figure><img src="images/observer/log.png" alt="Log page"><figcaption></figcaption></figure>
 
 </details>
 
@@ -211,7 +211,7 @@ This is how you diagnose deadlocks and blocking. Filter by state to isolate goro
 <details>
 <summary>Profiler</summary>
 
-<img src="images/observer/profiler.png" alt="Profiler">
+<figure><img src="images/observer/profiler.png" alt="Profiler"><figcaption></figcaption></figure>
 
 </details>
 
@@ -248,6 +248,6 @@ The Scope panel has toggle buttons for span kinds (SEND, CALL, RESP, SPAWN, TERM
 <details>
 <summary>Tracing page with waterfall</summary>
 
-<img src="images/observer/tracing.png" alt="Tracing page with waterfall">
+<figure><img src="images/observer/tracing.png" alt="Tracing page with waterfall"><figcaption></figcaption></figure>
 
 </details>
