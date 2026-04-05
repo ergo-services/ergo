@@ -17,8 +17,7 @@ func main() {
     node, err := ergo.StartNode("mynode@localhost", gen.NodeOptions{
         Applications: []gen.ApplicationBehavior{
             pulse.CreateApp(pulse.Options{
-                Endpoint: "tempo:4318",
-                Insecure: true,
+                URL: "http://tempo:4318/v1/traces",
             }),
         },
     })
@@ -35,9 +34,8 @@ With this configuration, Pulse sends observations to `http://tempo:4318/v1/trace
 
 ```go
 pulse.Options{
-    Endpoint:      "tempo:4318",           // collector address
-    Insecure:      true,                   // HTTP instead of HTTPS
-    Headers:       map[string]string{      // custom HTTP headers
+    URL:           "http://tempo:4318/v1/traces", // full collector URL
+    Headers:       map[string]string{             // custom HTTP headers
         "Authorization": "Bearer <token>",
     },
     BatchSize:     512,                    // flush after N observations
@@ -52,8 +50,7 @@ pulse.Options{
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| Endpoint | `localhost:4318` | OTLP collector `host:port`. Pulse appends `/v1/traces` automatically. |
-| Insecure | `false` | Use plain HTTP. Set to `true` for local development or when TLS is terminated by a proxy. |
+| URL | `http://localhost:4318/v1/traces` | Full OTLP/HTTP collector URL. |
 | Headers | none | Custom HTTP headers sent with every export request. Use for authentication tokens or routing headers. |
 | BatchSize | `512` | Maximum number of observations in a batch. When the batch reaches this size, it is flushed immediately. |
 | FlushInterval | `5s` | Maximum time between flushes. Even if the batch is not full, it is flushed after this interval. |
