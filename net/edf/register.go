@@ -60,7 +60,12 @@ func RegisterTypeOf(v any) error {
 
 		fenc := func(value reflect.Value, b *lib.Buffer, _ *stateEncode) error {
 			v := value.Interface().(Marshaler)
-			buf := b.Extend(4)
+			// Record the offset for the length prefix instead of using the
+			// slice returned by Extend. If MarshalEDF triggers buffer
+			// reallocation, the Extend slice becomes stale but the offset
+			// remains valid against the new backing array.
+			lenPrefixOffset := b.Len()
+			b.Extend(4)
 			l := b.Len()
 			if err := v.MarshalEDF(b); err != nil {
 				return err
@@ -70,7 +75,7 @@ func RegisterTypeOf(v any) error {
 			if int64(lenBinary) > int64(math.MaxUint32-1) {
 				return ErrBinaryTooLong
 			}
-			binary.BigEndian.PutUint32(buf, uint32(lenBinary))
+			binary.BigEndian.PutUint32(b.B[lenPrefixOffset:], uint32(lenBinary))
 			return nil
 		}
 		encoders.Store(tov, regEncoder(name, fenc))
