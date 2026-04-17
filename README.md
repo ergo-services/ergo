@@ -108,6 +108,23 @@ $ ergo add message MessageConnect --field ID:gen.Alias --field Addr:string
 
 For the full command reference, see the [ergo tool documentation](https://docs.ergo.services/tools/ergo).
 
+### Claude Code integration ###
+
+Pre-built agents and skills for [Claude Code](https://claude.com/claude-code) turn any Claude session into an Ergo-aware collaborator. Two paired toolkits shipped in the [ergo-services/claude](https://github.com/ergo-services/claude) repository:
+
+- **ergo-framework** - designing and implementing actor systems. An architect agent (DDD bounded contexts, supervision trees, cluster topology, load analysis) plus a skill with progressive-disclosure references covering actors, supervision, messages, applications, pool, meta processes, node configuration, EDF, cluster, unit testing, and every extension library.
+
+- **ergo-devops** - diagnosing running clusters via the built-in [MCP application](https://docs.ergo.services/extra-library/applications/mcp). An SRE agent that runs hypothesis-driven investigations (observe -> hypothesize -> test -> confirm) plus a skill with the full 48-tool catalog, counters reference, 10 diagnostic playbooks, active/passive sampler recipes, and build-tag awareness.
+
+Install as a Claude Code plugin (one-shot, updates managed by Claude Code):
+
+```
+/plugin marketplace add ergo-services/claude
+/plugin install dev@ergo-services
+```
+
+After install, invoke the skills as `/ergo-framework` or `/ergo-devops`. Agents pick themselves up from trigger phrases ("design ergo application", "why is it slow", "check cluster health", etc.).
+
 ### Erlang support ###
 
 Starting from version 3.0.0, support for the Erlang network stack has been moved to a [separate module](https://github.com/ergo-services/proto). Version 3.0 was distributed under the BSL 1.1 license, but starting from version 3.1 it is available under the MIT license. Detailed information is available in the [Erlang protocol documentation](https://docs.ergo.services/extra-library/network-protocols/erlang).
