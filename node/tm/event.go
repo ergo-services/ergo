@@ -18,6 +18,13 @@ func (tm *targetManager) RegisterEvent(producer gen.PID, name gen.Atom, options 
 
 	token := tm.generateToken()
 
+	// Node-level events (producer is corePID) do not consume MessageEventStart
+	// or MessageEventStop, so Notify is silently ignored for them.
+	notify := options.Notify
+	if producer == tm.core.PID() {
+		notify = false
+	}
+
 	id := tm.eventSeq.Add(1)
 	entry := &eventEntry{
 		id:                      id,
@@ -25,7 +32,8 @@ func (tm *targetManager) RegisterEvent(producer gen.PID, name gen.Atom, options 
 		event:                   event,
 		producer:                producer,
 		token:                   token,
-		notify:                  options.Notify,
+		notify:                  notify,
+		open:                    options.Open,
 		linkSubscribersIndex:    make(map[gen.PID]int),
 		monitorSubscribersIndex: make(map[gen.PID]int),
 		subscriberCount:         0,
@@ -173,7 +181,7 @@ func (tm *targetManager) publishEventLocalProducer(
 		return gen.ErrEventUnknown
 	}
 
-	if entry.token != token {
+	if entry.open == false && entry.token != token {
 		s.mutex.RUnlock()
 		return gen.ErrEventOwner
 	}

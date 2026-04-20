@@ -647,6 +647,25 @@ type NodeOptions struct {
 
 	// Tracing configures tracing exporters at node startup.
 	Tracing TracingOptions
+
+	// Events lists node-level events to register before starting any application.
+	// All events declared here are registered with the node as producer
+	// (Open is forced to true) and live until the node stops. Use this to
+	// establish node-wide event buses that application processes can subscribe
+	// to from Init() without the race of waiting for a producer process to
+	// register the event first.
+	Events []NodeEventSpec
+}
+
+// NodeEventSpec declares a node-level event to be registered during node
+// startup, before any application starts.
+type NodeEventSpec struct {
+	// Name is the event name. Must be unique within the node event namespace.
+	Name Atom
+
+	// Buffer is the ring buffer size for recent MessageEvent values.
+	// Zero means no buffer.
+	Buffer int
 }
 
 // SecurityOptions controls information exposure and security policies.

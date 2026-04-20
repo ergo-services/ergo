@@ -1101,3 +1101,115 @@ func TestEventInfo_NotExist(t *testing.T) {
 		t.Errorf("Expected ErrEventUnknown, got %v", err)
 	}
 }
+
+// Test RegisterEvent - Open=true lets any publisher bypass token check
+func TestPublishEvent_Open_BypassesToken(t *testing.T) {
+	core := newMockCore("node1")
+	tm := Create(core, Options{}).(*targetManager)
+
+	producer := gen.PID{Node: "node1", ID: 100}
+	consumer := gen.PID{Node: "node1", ID: 101}
+	other := gen.PID{Node: "node1", ID: 102}
+
+	_, err := tm.RegisterEvent(producer, "bus", gen.EventOptions{Open: true})
+	if err != nil {
+		t.Fatalf("RegisterEvent failed: %v", err)
+	}
+
+	event := gen.Event{Node: "node1", Name: "bus"}
+	if _, err := tm.LinkEvent(consumer, event); err != nil {
+		t.Fatalf("LinkEvent failed: %v", err)
+	}
+
+	// Publish from producer with zero token: must succeed.
+	err = tm.PublishEvent(producer, gen.Ref{}, gen.MessageOptions{}, gen.MessageEvent{
+		Event:     event,
+		Timestamp: time.Now().UnixNano(),
+		Message:   "from producer",
+	})
+	if err != nil {
+		t.Errorf("producer publish with zero token should succeed, got %v", err)
+	}
+
+	// Publish from another process with a wrong token: must also succeed.
+	err = tm.PublishEvent(other, gen.Ref{Node: "wrong"}, gen.MessageOptions{}, gen.MessageEvent{
+		Event:     event,
+		Timestamp: time.Now().UnixNano(),
+		Message:   "from other",
+	})
+	if err != nil {
+		t.Errorf("foreign publish with wrong token should succeed for open event, got %v", err)
+	}
+
+	// Non-open event rejects wrong token.
+	strictProducer := gen.PID{Node: "node1", ID: 200}
+	_, err = tm.RegisterEvent(strictProducer, "strict", gen.EventOptions{})
+	if err != nil {
+		t.Fatalf("RegisterEvent failed: %v", err)
+	}
+	strictEvent := gen.Event{Node: "node1", Name: "strict"}
+	err = tm.PublishEvent(strictProducer, gen.Ref{Node: "wrong"}, gen.MessageOptions{}, gen.MessageEvent{
+		Event:     strictEvent,
+		Timestamp: time.Now().UnixNano(),
+		Message:   "bad token",
+	})
+	if err != gen.ErrEventOwner {
+		t.Errorf("non-open event should reject wrong token: expected ErrEventOwner, got %v", err)
+	}
+}
+
+// Test UnregisterEvent - Open=true does not relax the owner check
+func TestUnregisterEvent_Open_StillRequiresOwner(t *testing.T) {
+	core := newMockCore("node1")
+	tm := Create(core, Options{}).(*targetManager)
+
+	producer := gen.PID{Node: "node1", ID: 100}
+	other := gen.PID{Node: "node1", ID: 101}
+
+	_, err := tm.RegisterEvent(producer, "bus", gen.EventOptions{Open: true})
+	if err != nil {
+		t.Fatalf("RegisterEvent failed: %v", err)
+	}
+
+	if err := tm.UnregisterEvent(other, "bus"); err != gen.ErrEventOwner {
+		t.Errorf("non-owner unregister on open event: expected ErrEventOwner, got %v", err)
+	}
+
+	if err := tm.UnregisterEvent(producer, "bus"); err != nil {
+		t.Errorf("owner unregister on open event failed: %v", err)
+	}
+}
+
+// Test RegisterEvent - Notify is ignored when the producer is the node core
+func TestRegisterEvent_NotifyIgnoredForCorePID(t *testing.T) {
+	core := newMockCore("node1")
+	tm := Create(core, Options{}).(*targetManager)
+
+	// Register as the node core with Notify=true. Notify must be silently
+	// suppressed since the node core does not consume MessageEventStart or
+	// MessageEventStop.
+	_, err := tm.RegisterEvent(core.PID(), "bus", gen.EventOptions{Notify: true})
+	if err != nil {
+		t.Fatalf("RegisterEvent failed: %v", err)
+	}
+
+	event := gen.Event{Node: "node1", Name: "bus"}
+	entry := tm.getEventEntry(event)
+	if entry == nil {
+		t.Fatal("event entry not found")
+	}
+	if entry.notify {
+		t.Error("entry.notify must be false for node-level events even when Notify=true was requested")
+	}
+
+	// First subscriber should not produce a MessageEventStart send.
+	core.resetSentEventStarts()
+	consumer := gen.PID{Node: "node1", ID: 200}
+	if _, err := tm.LinkEvent(consumer, event); err != nil {
+		t.Fatalf("LinkEvent failed: %v", err)
+	}
+	time.Sleep(50 * time.Millisecond)
+	if n := core.countSentEventStarts(); n != 0 {
+		t.Errorf("expected 0 MessageEventStart for node-level event, got %d", n)
+	}
+}

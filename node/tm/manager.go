@@ -93,6 +93,7 @@ type eventEntry struct {
 	producer gen.PID
 	token    gen.Ref
 	notify   bool
+	open     bool
 
 	// Ring buffer (nil if unbuffered, protected by bufferMutex)
 	bufferMutex sync.Mutex

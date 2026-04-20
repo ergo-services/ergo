@@ -166,8 +166,24 @@ type Event struct {
 }
 
 type EventOptions struct {
+	// Notify controls whether the producer receives MessageEventStart and
+	// MessageEventStop when the subscriber count crosses zero. Ignored for
+	// node-level events (producer is corePID), since the node core does not
+	// consume such messages.
 	Notify bool
+
+	// Buffer is the size of the ring buffer that stores the most recent
+	// MessageEvent values. New subscribers receive the buffer contents on
+	// Link or Monitor. Zero means no buffer.
 	Buffer int
+
+	// Open disables the token check on SendEvent. When true, any local process
+	// can publish to this event by name, regardless of the token value. The
+	// token returned by RegisterEvent is still generated but not required for
+	// publishing. The owner check on UnregisterEvent is unaffected: only the
+	// registering process (or the node, for node-level events) can unregister.
+	// Default: false.
+	Open bool
 }
 
 // String

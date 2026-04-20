@@ -242,6 +242,19 @@ func Start(name gen.Atom, options gen.NodeOptions, frameworkVersion gen.Version)
 
 	node.coreEventsToken, _ = node.RegisterEvent(gen.CoreEvent, gen.EventOptions{})
 
+	// Pre-register user-declared node-level events before starting cron and
+	// applications so processes can subscribe from Init() without racing the
+	// producer registration.
+	for _, spec := range options.Events {
+		if _, err := node.RegisterEvent(spec.Name, gen.EventOptions{
+			Buffer: spec.Buffer,
+			Open:   true,
+		}); err != nil {
+			node.StopForce()
+			return nil, fmt.Errorf("unable to pre-register event %q: %w", spec.Name, err)
+		}
+	}
+
 	node.cron = createCron(node)
 	for _, job := range options.Cron.Jobs {
 		if err := node.cron.AddJob(job); err != nil {

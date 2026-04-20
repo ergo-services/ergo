@@ -724,6 +724,8 @@ func (p *Producer) HandleMessage(from gen.PID, message any) error {
 
 You only receive notifications when crossing the zero threshold. The notifications answer: "is anyone listening?" - not "how many are listening?"
 
+Node-level events do not produce these notifications. The producer of a node-level event is the node core, which does not consume `MessageEventStart` or `MessageEventStop` messages.
+
 ### Practical Use Case: On-Demand Data Production
 
 ```go
