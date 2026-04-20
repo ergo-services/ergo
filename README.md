@@ -112,18 +112,18 @@ For the full command reference, see the [ergo tool documentation](https://docs.e
 
 Pre-built agents and skills for [Claude Code](https://claude.com/claude-code) turn any Claude session into an Ergo-aware collaborator. Two paired toolkits shipped in the [ergo-services/claude](https://github.com/ergo-services/claude) repository:
 
-- **ergo-framework** - designing and implementing actor systems. An architect agent (DDD bounded contexts, supervision trees, cluster topology, load analysis) plus a skill with progressive-disclosure references covering actors, supervision, messages, applications, pool, meta processes, node configuration, EDF, cluster, unit testing, and every extension library.
+- **framework** - designing and implementing actor systems. An architect agent (DDD bounded contexts, supervision trees, cluster topology, load analysis) plus a skill with progressive-disclosure references covering actors, supervision, messages, applications, pool, meta processes, node configuration, EDF, cluster, unit testing, and every extension library.
 
-- **ergo-devops** - diagnosing running clusters via the built-in [MCP application](https://docs.ergo.services/extra-library/applications/mcp). An SRE agent that runs hypothesis-driven investigations (observe -> hypothesize -> test -> confirm) plus a skill with the full 48-tool catalog, counters reference, 10 diagnostic playbooks, active/passive sampler recipes, and build-tag awareness.
+- **devops** - diagnosing running clusters via the built-in [MCP application](https://docs.ergo.services/extra-library/applications/mcp). An SRE agent that runs hypothesis-driven investigations (observe -> hypothesize -> test -> confirm) plus a skill with the full 48-tool catalog, counters reference, 10 diagnostic playbooks, active/passive sampler recipes, and build-tag awareness.
 
 Install as a Claude Code plugin (one-shot, updates managed by Claude Code):
 
 ```
 /plugin marketplace add ergo-services/claude
-/plugin install dev@ergo-services
+/plugin install ergo@ergo-services
 ```
 
-After install, invoke the skills as `/ergo-framework` or `/ergo-devops`. Agents pick themselves up from trigger phrases ("design ergo application", "why is it slow", "check cluster health", etc.).
+After install, invoke the skills as `/ergo:framework` or `/ergo:devops`. Agents pick themselves up from trigger phrases ("design ergo application", "why is it slow", "check cluster health", etc.).
 
 ### Erlang support ###
 

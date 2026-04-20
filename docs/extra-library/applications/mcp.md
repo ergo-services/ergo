@@ -262,12 +262,19 @@ Use the metrics actor for long-term trends, alerting, and Grafana dashboards. Us
 
 A ready-to-use diagnostic agent and skill are available at [github.com/ergo-services/claude](https://github.com/ergo-services/claude). The agent contains playbooks for common scenarios: performance bottlenecks, process leaks, restart loops, zombie processes, memory growth, network issues, event system problems, goroutine investigation, and cluster health checks. Trigger it by describing a symptom - "why is it slow", "check the cluster", "find the process leak" - and it runs the appropriate diagnostic sequence.
 
-Install by symlinking into `~/.claude/`:
+Install as a Claude Code plugin:
+
+```bash
+/plugin marketplace add ergo-services/claude
+/plugin install ergo@ergo-services
+```
+
+Or symlink into `~/.claude/` for local development:
 
 ```bash
 cd ergo.services/claude
-ln -sf $(pwd)/agents/ergo-devops.md ~/.claude/agents/
-ln -sf $(pwd)/skills/ergo-devops ~/.claude/skills/
+ln -sf $(pwd)/agents/devops.md ~/.claude/agents/
+ln -sf $(pwd)/skills/devops ~/.claude/skills/
 ```
 
 ## Full Tool Reference
