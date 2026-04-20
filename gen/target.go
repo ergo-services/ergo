@@ -61,6 +61,7 @@ type EventInfo struct {
 	BufferSize         int
 	CurrentBuffer      int
 	Notify             bool
+	Open               bool
 	Subscribers        int64
 	MessagesPublished  int64
 	MessagesLocalSent  int64

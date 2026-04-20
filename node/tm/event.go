@@ -710,6 +710,7 @@ func (tm *targetManager) EventInfo(event gen.Event) (gen.EventInfo, error) {
 		BufferSize:         bufSize,
 		CurrentBuffer:      bufLen,
 		Notify:             entry.notify,
+		Open:               entry.open,
 		Subscribers:        entry.subscriberCount,
 		MessagesPublished:  entry.messagesPublished.Load(),
 		MessagesLocalSent:  entry.messagesLocalSent.Load(),
