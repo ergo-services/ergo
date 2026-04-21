@@ -6,49 +6,96 @@
 [![Reddit](https://img.shields.io/badge/Reddit-r/ergo__services-ff4500?style=plastic&logo=reddit&logoColor=white&style=flat)](https://reddit.com/r/ergo_services)
 [![ergo.cloud](https://img.shields.io/badge/ergo.cloud-Cloud_Overlay_Network-00b4d8?style=flat&logo=icloud&logoColor=white)](https://ergo.cloud)
 
-The Ergo Framework is an implementation of ideas, technologies, and design patterns from the Erlang world in the Go programming language. It is based on the actor model, network transparency, and a set of ready-to-use components for development. This significantly simplifies the creation of complex and distributed solutions while maintaining a high level of reliability and performance.
+**Actor model for Go. Build distributed systems without the distributed systems headache.**
 
-### Features ###
+Goroutines and channels work great until your system grows. Then come the mutexes, the race conditions, the service discovery configs, the retry logic, the connection pool management. Ergo replaces all of that with one model: isolated processes that communicate through messages, supervised automatically, addressable across any cluster.
 
-1. **Actor Model:** isolated processes communicate through message passing, handling messages sequentially with four priority queues. Supports asynchronous messaging and synchronous request-response, with per-process [mailbox latency measurement](https://docs.ergo.services/advanced/debugging#mailbox-latency) (`-tags=latency`) for production diagnostics.
+Inspired by Erlang/OTP. Zero external dependencies. Pure Go.
 
-2. **Network Transparency:** actors interact the same way whether local or remote. Uses EDF (Ergo Data Format), a custom binary serialization with type caching, pointer support, and [message versioning](https://docs.ergo.services/advanced/message-versioning) for seamless upgrades. Includes connection pooling, compression, [message fragmentation](https://docs.ergo.services/networking/network-stack#message-fragmentation), and [application-level keepalive](https://docs.ergo.services/networking/network-stack#software-keepalive) for silent failure detection.
+### The core idea in 30 seconds ###
 
-3. **Supervision Trees:** hierarchical fault recovery where supervisors monitor child processes and apply configurable restart strategies. Supports One For One, All For One, Rest For One, and Simple One For One supervision types with Transient, Temporary, and Permanent restart policies.
+```go
+type Counter struct {
+    act.Actor
+    count int
+}
 
-4. **Meta Processes:** bridge blocking I/O with the actor model through dedicated meta processes handling [TCP](https://docs.ergo.services/meta-processes/tcp), [UDP](https://docs.ergo.services/meta-processes/udp), [Port](https://docs.ergo.services/meta-processes/port), [Web](https://docs.ergo.services/meta-processes/web), [WebSocket](https://docs.ergo.services/extra-library/meta-processes/websocket), and [SSE](https://docs.ergo.services/extra-library/meta-processes/sse) protocols without affecting regular actor message processing.
+type MessageInc struct{}
 
-5. **Distributed Systems:** service discovery via embedded or external registrars ([etcd](https://docs.ergo.services/extra-library/registrars/etcd-client), [Saturn](https://docs.ergo.services/extra-library/registrars/saturn-client)), distributed [publish/subscribe events](https://docs.ergo.services/basics/events) with token-based authorization and buffering, [remote process spawning](https://docs.ergo.services/networking/remote-spawn-process) with factory-based permissions, [remote application orchestration](https://docs.ergo.services/networking/remote-start-application) across nodes, and Raft-based [leader election](https://docs.ergo.services/extra-library/actors/leader) without external dependencies for coordinating exclusive work across cluster replicas.
+func (c *Counter) HandleMessage(from gen.PID, msg any) error {
+    switch msg.(type) {
+    case MessageInc:
+        c.count++
+        c.Log().Info("count: %d", c.count)
+    }
+    return nil
+}
 
-6. **Observability:** real-time cluster inspection via the [Observer](https://docs.ergo.services/extra-library/applications/observer) web UI (processes, applications, network, events, logs, profiler) and production metrics via [Radar](https://docs.ergo.services/extra-library/applications/radar) with a ready-to-use Grafana dashboard covering process lifecycle, mailbox pressure, network traffic, and event fanout. The extensible [Metrics](https://docs.ergo.services/extra-library/actors/metrics) actor adds custom Prometheus collectors alongside built-in node telemetry, with periodic collection and event-driven update patterns for application-specific instrumentation.
+func factory_Counter() gen.ProcessBehavior { return &Counter{} }
 
-7. **AI-Native:** built-in [MCP server](https://docs.ergo.services/extra-library/applications/mcp) exposes the full cluster to AI agents (Claude, Cursor, and any MCP-compatible client). Inspect processes, query events, capture goroutine dumps, stream logs, and run real-time samplers through natural language, turning any AI assistant into an interactive SRE for your Ergo cluster.
+// Start a node and spawn the actor
+node, _ := ergo.StartNode("mynode@localhost", gen.NodeOptions{})
+pid, _ := node.Spawn(factory_Counter, gen.ProcessOptions{})
 
-8. **Cloud Native:** built-in Kubernetes health probes (liveness, readiness, startup) via the [Health](https://docs.ergo.services/extra-library/actors/health) actor, [Prometheus](https://docs.ergo.services/extra-library/actors/metrics) metrics endpoint, and [mTLS](https://docs.ergo.services/networking/mutual-tls) support for zero-trust deployments.
+// Same API whether local or on another continent
+node.Send(pid, MessageInc{})
+node.Send(pid, MessageInc{})
+```
 
-9. **Ready-to-use Components:** core framework includes Actor, Supervisor, Pool, and WebWorker actors plus TCP, UDP, Port, WebSocket, SSE, and Web meta processes. Extra library provides [Leader](https://docs.ergo.services/extra-library/actors/leader), [Metrics](https://docs.ergo.services/extra-library/actors/metrics), and [Health](https://docs.ergo.services/extra-library/actors/health) actors, [Observer](https://docs.ergo.services/extra-library/applications/observer) and [Radar](https://docs.ergo.services/extra-library/applications/radar) applications, [Colored](https://docs.ergo.services/extra-library/loggers/colored) and [Rotate](https://docs.ergo.services/extra-library/loggers/rotate) loggers.
+No locks. No race conditions. Sequential message handling is the guarantee.
 
-10. **Erlang Interoperability:** native support for the [Erlang distribution protocol](https://docs.ergo.services/extra-library/network-protocols/erlang) enables heterogeneous clusters where Ergo (Go) and Erlang/Elixir nodes participate as equal peers. Send messages, spawn processes, and set up links and monitors across language boundaries without any proxies or bridges.
+### Why not just goroutines + channels? ###
 
-11. **Flexibility:** customize network stack, certificate management ([mTLS](https://docs.ergo.services/networking/mutual-tls), [NAT traversal](https://docs.ergo.services/networking/behind-the-nat)), compression and message priorities, [Cron-based scheduling](https://docs.ergo.services/basics/cron), [important delivery](https://docs.ergo.services/advanced/important-delivery) for guaranteed messaging, and logging. The [`ergo`](https://docs.ergo.services/tools/ergo) CLI tool generates project scaffolding, actors, supervisors, and message types from the command line.
+| | Goroutines + channels | Ergo |
+|---|---|---|
+| Shared state | You manage with mutexes | No shared state by design |
+| Failure recovery | Manual | Supervision trees restart automatically |
+| Cross-node messaging | Build it yourself | Same API, transparent |
+| Service discovery | External tool needed | Built in |
+| Race conditions | Possible | Impossible within a process |
 
-Examples demonstrating the framework's capabilities are available in the [examples repository](https://github.com/ergo-services/examples).
+### What you can build ###
 
-### Benchmarks ###
+**Real-time backends.** Each WebSocket connection becomes an addressable actor. Any node in your cluster can push to any specific client. No pub/sub intermediaries.
 
-On a 64-core processor, Ergo Framework demonstrates a performance of **over 21 million messages per second locally** and **nearly 5.5 million messages per second over the network**.
+**IoT platforms.** One actor per device. Thousands of devices per node. Supervisors restart failed device actors automatically.
+
+**Multi-agent AI systems.** Each agent is an isolated actor with a mailbox. Crash isolation, supervision, distributed addressability, and a built-in [MCP server](https://docs.ergo.services/extra-library/applications/mcp) that exposes your running cluster to any AI assistant (Claude Code, Cursor, and other MCP-compatible clients). See [AI Agents](https://docs.ergo.services/ai-agents) for patterns and diagnostics.
+
+**Financial and event-driven systems.** Four priority queues per mailbox, guaranteed delivery, no dropped messages.
+
+**Distributed Pub/Sub across the cluster.** Producer registers an event once; any process on any node subscribes. The framework delivers one network message per node, not per subscriber. 1M subscribers across 10 nodes cost 10 network messages, not 1M.
+
+```go
+// Producer on any node
+token, _ := producer.RegisterEvent("prices", gen.EventOptions{})
+producer.SendEvent("prices", token, PriceUpdate{Asset: "BTC", Price: 95000})
+
+// Subscriber on any other node, identical API
+process.MonitorEvent(gen.Event{Name: "prices", Node: "producer@host"})
+
+func (s *Sub) HandleMessage(from gen.PID, msg any) error {
+    switch m := msg.(type) {
+    case gen.MessageEvent:
+        fmt.Println(m.Message.(PriceUpdate))
+    }
+    return nil
+}
+```
+
+### Performance ###
+
+On a 64-core processor:
+
+* **21M+ messages/second** locally
+* **~5.5M messages/second** over the network
+* **Distributed Pub/Sub**: 2.9M msg/sec delivery to 1,000,000 subscribers across 10 nodes
+
+Lock-free queues. Processes sleep when idle. No CPU wasted.
 
 ![image](.github/images/benchmark_ping.png)
 
-Available benchmarks can be found in the [benchmarks repository](https://github.com/ergo-services/benchmarks).
-
-* Messaging performance (local, network)
-
-* Memory consumption per process (demonstrates framework memory footprint)
-
-* Serialization performance comparison: EDF vs Protobuf vs Gob
-
-* Distributed Pub/Sub (event delivery to 1,000,000 subscribers across 10 nodes)
+Full benchmarks: [benchmarks repository](https://github.com/ergo-services/benchmarks).
 
 ### Observer ###
 
@@ -75,7 +122,33 @@ options.Applications = []gen.ApplicationBehavior{
 
 To see it in action with a fully loaded cluster, see the [observability example](https://github.com/ergo-services/examples/tree/master/observability). For more information, visit the [Observer documentation](https://docs.ergo.services/extra-library/applications/observer).
 
+### Features ###
 
+1. **Actor Model:** isolated processes communicate through message passing, handling messages sequentially with four priority queues. Supports asynchronous messaging and synchronous request-response, with per-process [mailbox latency measurement](https://docs.ergo.services/advanced/debugging#mailbox-latency) (`-tags=latency`) for production diagnostics.
+
+2. **Network Transparency:** actors interact the same way whether local or remote. Uses EDF (Ergo Data Format), a custom binary serialization with type caching, pointer support, and [message versioning](https://docs.ergo.services/advanced/message-versioning) for seamless upgrades. Includes connection pooling, compression, [message fragmentation](https://docs.ergo.services/networking/network-stack#message-fragmentation), and [application-level keepalive](https://docs.ergo.services/networking/network-stack#software-keepalive) for silent failure detection.
+
+3. **Supervision Trees:** hierarchical fault recovery where supervisors monitor child processes and apply configurable restart strategies. Supports One For One, All For One, Rest For One, and Simple One For One supervision types with Transient, Temporary, and Permanent restart policies.
+
+4. **Meta Processes:** bridge blocking I/O with the actor model through dedicated meta processes handling [TCP](https://docs.ergo.services/meta-processes/tcp), [UDP](https://docs.ergo.services/meta-processes/udp), [Port](https://docs.ergo.services/meta-processes/port), [Web](https://docs.ergo.services/meta-processes/web), [WebSocket](https://docs.ergo.services/extra-library/meta-processes/websocket), and [SSE](https://docs.ergo.services/extra-library/meta-processes/sse) protocols without affecting regular actor message processing.
+
+5. **Distributed Systems:** service discovery via embedded or external registrars ([etcd](https://docs.ergo.services/extra-library/registrars/etcd-client), [Saturn](https://docs.ergo.services/extra-library/registrars/saturn-client)), distributed [publish/subscribe events](https://docs.ergo.services/basics/events) with token-based authorization and buffering, [remote process spawning](https://docs.ergo.services/networking/remote-spawn-process) with factory-based permissions, [remote application orchestration](https://docs.ergo.services/networking/remote-start-application) across nodes, and Raft-based [leader election](https://docs.ergo.services/extra-library/actors/leader) without external dependencies for coordinating exclusive work across cluster replicas.
+
+6. **Observability:** real-time cluster inspection via the [Observer](https://docs.ergo.services/extra-library/applications/observer) web UI and production metrics via [Radar](https://docs.ergo.services/extra-library/applications/radar) with a ready-to-use Grafana dashboard covering process lifecycle, mailbox pressure, network traffic, and event fanout. The extensible [Metrics](https://docs.ergo.services/extra-library/actors/metrics) actor adds custom Prometheus collectors alongside built-in node telemetry, with periodic collection and event-driven update patterns for application-specific instrumentation.
+
+7. **AI-Native:** built-in [MCP server](https://docs.ergo.services/extra-library/applications/mcp) exposes the full cluster to AI agents (Claude, Cursor, and any MCP-compatible client). Inspect processes, query events, capture goroutine dumps, stream logs, and run real-time samplers through natural language, turning any AI assistant into an interactive SRE for your Ergo cluster.
+
+8. **Cloud Native:** built-in Kubernetes health probes (liveness, readiness, startup) via the [Health](https://docs.ergo.services/extra-library/actors/health) actor, [Prometheus](https://docs.ergo.services/extra-library/actors/metrics) metrics endpoint, and [mTLS](https://docs.ergo.services/networking/mutual-tls) support for zero-trust deployments.
+
+9. **Ready-to-use Components:** core framework includes Actor, Supervisor, Pool, and WebWorker actors plus TCP, UDP, Port, WebSocket, SSE, and Web meta processes. Extra library provides [Leader](https://docs.ergo.services/extra-library/actors/leader), [Metrics](https://docs.ergo.services/extra-library/actors/metrics), and [Health](https://docs.ergo.services/extra-library/actors/health) actors, [Observer](https://docs.ergo.services/extra-library/applications/observer) and [Radar](https://docs.ergo.services/extra-library/applications/radar) applications, [Colored](https://docs.ergo.services/extra-library/loggers/colored) and [Rotate](https://docs.ergo.services/extra-library/loggers/rotate) loggers.
+
+10. **Erlang Interoperability:** native support for the [Erlang distribution protocol](https://docs.ergo.services/extra-library/network-protocols/erlang) enables heterogeneous clusters where Ergo (Go) and Erlang/Elixir nodes participate as equal peers. Send messages, spawn processes, and set up links and monitors across language boundaries without any proxies or bridges.
+
+11. **Flexibility:** customize network stack, certificate management ([mTLS](https://docs.ergo.services/networking/mutual-tls), [NAT traversal](https://docs.ergo.services/networking/behind-the-nat)), compression and message priorities, [Cron-based scheduling](https://docs.ergo.services/basics/cron), [important delivery](https://docs.ergo.services/advanced/important-delivery) for guaranteed messaging, and logging. The [`ergo`](https://docs.ergo.services/tools/ergo) CLI tool generates project scaffolding, actors, supervisors, and message types from the command line.
+
+Examples demonstrating the framework's capabilities are available in the [examples repository](https://github.com/ergo-services/examples).
+
+Questions and answers: [FAQ](https://docs.ergo.services/faq).
 
 ### Quick start ###
 
@@ -97,8 +170,7 @@ $ ergo add actor MySup:MyActor
 $ go run ./cmd
 ```
 
-The generated project is ready to run immediately. Add more components as your
-service grows:
+The generated project is ready to run immediately. Add more components as your service grows:
 
 ```
 $ ergo add actor --pool MySup:MyPool
@@ -114,7 +186,7 @@ Pre-built agents and skills for [Claude Code](https://claude.com/claude-code) tu
 
 - **framework** - designing and implementing actor systems. An architect agent (DDD bounded contexts, supervision trees, cluster topology, load analysis) plus a skill with progressive-disclosure references covering actors, supervision, messages, applications, pool, meta processes, node configuration, EDF, cluster, unit testing, and every extension library.
 
-- **devops** - diagnosing running clusters via the built-in [MCP application](https://docs.ergo.services/extra-library/applications/mcp). An SRE agent that runs hypothesis-driven investigations (observe -> hypothesize -> test -> confirm) plus a skill with the full 48-tool catalog, counters reference, 10 diagnostic playbooks, active/passive sampler recipes, and build-tag awareness.
+- **devops** - diagnosing running clusters via the built-in [MCP application](https://docs.ergo.services/extra-library/applications/mcp). An SRE agent that runs hypothesis-driven investigations (observe, hypothesize, test, confirm) plus a skill with the full 48-tool catalog, counters reference, 10 diagnostic playbooks, active/passive sampler recipes, and build-tag awareness.
 
 Install as a Claude Code plugin (one-shot, updates managed by Claude Code):
 
@@ -124,6 +196,10 @@ Install as a Claude Code plugin (one-shot, updates managed by Claude Code):
 ```
 
 After install, invoke the skills as `/ergo:framework` or `/ergo:devops`. Agents pick themselves up from trigger phrases ("design ergo application", "why is it slow", "check cluster health", etc.).
+
+### ergo.cloud ###
+
+[ergo.cloud](https://ergo.cloud) is an overlay network that connects Ergo nodes across AWS, GCP, Azure, and bare metal into a single transparent cluster without VPNs, proxies, or tunnels. End-to-end encrypted. Currently available via [waitlist](https://ergo.cloud).
 
 ### Erlang support ###
 
