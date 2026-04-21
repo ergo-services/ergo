@@ -225,6 +225,5 @@ Running agents across AWS, GCP, Azure, or bare metal is supported via [ergo.clou
 - [Process](basics/process.md) for the actor lifecycle
 - [Supervisor](actors/supervisor.md) for restart strategies
 - [Events](basics/events.md) for pub/sub coordination
-- [Remote Spawn Process](networking/remote-spawn-process.md) for cross-node deployment
 - [MCP](extra-library/applications/mcp.md) for live diagnostics and AI-driven investigation
 - [Examples](https://github.com/ergo-services/examples) for working reference projects
