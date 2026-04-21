@@ -2,6 +2,7 @@
 
 * [Overview](README.md)
 * [FAQ](faq.md)
+* [AI Agents](ai-agents.md)
 
 ## Basics
 

@@ -132,11 +132,11 @@ Result: 2.9M messages/second delivery rate to 1,000,000 subscribers across 10 no
 
 ### What's the difference between Links, Monitors, and Events?
 
-All three use the same underlying pub/sub mechanism internally.
+All three use the same underlying pub/sub mechanism internally. All three are unidirectional: the notification flows from the target to the watcher, not the other way around. Note this differs from Erlang, where links are bidirectional.
 
-- **Link**: bidirectional. If either process dies, the other receives an exit signal (and terminates by default).
-- **Monitor**: unidirectional. Subscriber receives a `MessageDown*` notification when the target terminates, but continues running.
-- **Event**: subscribe to a named stream of messages published by a producer process. Also receive notification when the producer terminates.
+- **Link**: when the target terminates, the watcher receives an exit signal on its Urgent queue. The default behavior is to terminate the watcher. Actors can enable exit trapping to receive the signal as a `gen.MessageExit*` message and decide how to react.
+- **Monitor**: when the target terminates, the watcher receives a `gen.MessageDown*` notification on its System queue. The watcher continues running.
+- **Event**: the watcher subscribes to a named stream of messages published by a producer. The producer terminating also delivers a notification (exit signal for link-based subscriptions, down message for monitor-based).
 
 See [Links and Monitors](basics/links-and-monitors.md) and [Pub/Sub Internals](advanced/pub-sub-internals.md).
 

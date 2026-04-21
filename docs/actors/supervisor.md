@@ -80,7 +80,7 @@ func createSupervisorFactory() gen.ProcessBehavior {
 pid, err := node.Spawn(createSupervisorFactory, gen.ProcessOptions{})
 ```
 
-The supervisor spawns all children during `Init` (except Simple One For One, which starts with zero children). Each child is linked bidirectionally to the supervisor (`LinkChild` and `LinkParent` set automatically). If a child terminates, the supervisor receives an exit signal and applies the restart strategy.
+The supervisor spawns all children during `Init` (except Simple One For One, which starts with zero children). Each child is connected to the supervisor with a pair of unidirectional links (`LinkChild` and `LinkParent` set automatically). If a child terminates, the supervisor receives an exit signal and applies the restart strategy.
 
 Children are started sequentially in declaration order. If any child's spawn fails (the factory's `ProcessInit` returns an error), the supervisor terminates immediately with that error. This ensures the supervision tree is fully initialized or not at all - no partial states.
 
