@@ -74,11 +74,8 @@ producer.SendEvent("prices", token, PriceUpdate{Asset: "BTC", Price: 95000})
 // Subscriber on any other node, identical API
 process.MonitorEvent(gen.Event{Name: "prices", Node: "producer@host"})
 
-func (s *Sub) HandleMessage(from gen.PID, msg any) error {
-    switch m := msg.(type) {
-    case gen.MessageEvent:
-        fmt.Println(m.Message.(PriceUpdate))
-    }
+func (s *Sub) HandleEvent(message gen.MessageEvent) error {
+    fmt.Println(message.Message.(PriceUpdate))
     return nil
 }
 ```
@@ -134,7 +131,7 @@ To see it in action with a fully loaded cluster, see the [observability example]
 
 5. **Distributed Systems:** service discovery via embedded or external registrars ([etcd](https://docs.ergo.services/extra-library/registrars/etcd-client), [Saturn](https://docs.ergo.services/extra-library/registrars/saturn-client)), distributed [publish/subscribe events](https://docs.ergo.services/basics/events) with token-based authorization and buffering, [remote process spawning](https://docs.ergo.services/networking/remote-spawn-process) with factory-based permissions, [remote application orchestration](https://docs.ergo.services/networking/remote-start-application) across nodes, and Raft-based [leader election](https://docs.ergo.services/extra-library/actors/leader) without external dependencies for coordinating exclusive work across cluster replicas.
 
-6. **Observability:** real-time cluster inspection via the [Observer](https://docs.ergo.services/extra-library/applications/observer) web UI and production metrics via [Radar](https://docs.ergo.services/extra-library/applications/radar) with a ready-to-use Grafana dashboard covering process lifecycle, mailbox pressure, network traffic, and event fanout. The extensible [Metrics](https://docs.ergo.services/extra-library/actors/metrics) actor adds custom Prometheus collectors alongside built-in node telemetry, with periodic collection and event-driven update patterns for application-specific instrumentation.
+6. **Observability:** real-time cluster inspection via the [Observer](https://docs.ergo.services/extra-library/applications/observer) web UI, native [distributed tracing](https://docs.ergo.services/advanced/distributed-tracing) that follows message chains across nodes with automatic propagation (exportable to OTLP backends like Grafana Tempo or Jaeger via [Pulse](https://docs.ergo.services/extra-library/applications/pulse)), and production metrics via [Radar](https://docs.ergo.services/extra-library/applications/radar) with a ready-to-use Grafana dashboard covering process lifecycle, mailbox pressure, network traffic, and event fanout. The extensible [Metrics](https://docs.ergo.services/extra-library/actors/metrics) actor adds custom Prometheus collectors alongside built-in node telemetry.
 
 7. **AI-Native:** built-in [MCP server](https://docs.ergo.services/extra-library/applications/mcp) exposes the full cluster to AI agents (Claude, Cursor, and any MCP-compatible client). Inspect processes, query events, capture goroutine dumps, stream logs, and run real-time samplers through natural language, turning any AI assistant into an interactive SRE for your Ergo cluster.
 

@@ -110,11 +110,16 @@ producer.SendEvent("market.prices", token, PriceUpdate{Asset: "BTC", Price: 9500
 // Subscriber on any node
 process.MonitorEvent(gen.Event{Name: "market.prices", Node: "producer@host"})
 
+// Event messages arrive in HandleEvent
+func (s *Sub) HandleEvent(message gen.MessageEvent) error {
+    update := message.Message.(PriceUpdate)
+    // handle update
+    return nil
+}
+
+// Producer termination or event unregister arrives in HandleMessage as MessageDownEvent
 func (s *Sub) HandleMessage(from gen.PID, msg any) error {
-    switch m := msg.(type) {
-    case gen.MessageEvent:
-        update := m.Message.(PriceUpdate)
-        // handle update
+    switch msg.(type) {
     case gen.MessageDownEvent:
         // producer terminated or unregistered
     }
@@ -154,6 +159,18 @@ Full benchmarks: [benchmarks repository](https://github.com/ergo-services/benchm
 ### How does Ergo serialization compare to Protobuf?
 
 Ergo uses EDF (Ergo Data Format) with type caching. For repeated message types, type metadata is cached after the first transmission. Subsequent messages of the same type skip type information entirely. This makes EDF significantly faster than Protobuf for encoding and decoding in high-throughput scenarios.
+
+## Observability
+
+### Does Ergo support distributed tracing?
+
+Yes. Ergo has native distributed tracing that follows message chains across processes and nodes. When a traced process sends a message, the trace identity travels with the message and propagates automatically through the entire downstream chain of handlers. You configure tracing on entry-point processes. Downstream actors need no instrumentation.
+
+Traces can be viewed directly in Observer as waterfall diagrams or exported to OTLP-compatible backends (Grafana Tempo, Jaeger, OpenTelemetry Collector) via the [Pulse application](extra-library/applications/pulse.md). See [Distributed Tracing](advanced/distributed-tracing.md) for details.
+
+### How do I inspect a running node?
+
+Run the [Observer](extra-library/applications/observer.md) web UI for live visibility into processes, applications, network connections, events, logs, tracing waterfalls, and heap profiles. For AI-driven investigation, use the [MCP application](extra-library/applications/mcp.md) to expose the running system to Claude Code, Cursor, or any MCP-compatible client. For continuous metrics, the [Radar](extra-library/applications/radar.md) application provides a Prometheus endpoint with a ready-to-use Grafana dashboard.
 
 ## Integration
 
