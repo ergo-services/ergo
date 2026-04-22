@@ -74,8 +74,8 @@ producer.SendEvent("prices", token, PriceUpdate{Asset: "BTC", Price: 95000})
 // Subscriber on any other node, identical API
 process.MonitorEvent(gen.Event{Name: "prices", Node: "producer@host"})
 
-func (s *Sub) HandleEvent(message gen.MessageEvent) error {
-    fmt.Println(message.Message.(PriceUpdate))
+func (s *Sub) HandleEvent(event gen.MessageEvent) error {
+    fmt.Println(event.Message.(PriceUpdate))
     return nil
 }
 ```

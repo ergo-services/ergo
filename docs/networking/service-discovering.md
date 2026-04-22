@@ -250,8 +250,8 @@ if err != nil {
 process.LinkEvent(event)
 
 // In your HandleEvent callback (etcd example):
-func (w *Worker) HandleEvent(message gen.MessageEvent) error {
-    switch ev := message.Message.(type) {
+func (w *Worker) HandleEvent(event gen.MessageEvent) error {
+    switch ev := event.Message.(type) {
     
     case etcd.EventConfigUpdate:
         // Configuration item changed

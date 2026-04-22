@@ -382,8 +382,8 @@ Log messages have the lowest priority. They're processed after Urgent, System, a
 If your actor subscribed to an event (via `LinkEvent` or `MonitorEvent`), it receives event messages:
 
 ```go
-func (w *Worker) HandleEvent(message gen.MessageEvent) error {
-    switch message.Name {
+func (w *Worker) HandleEvent(event gen.MessageEvent) error {
+    switch event.Event.Name {
     case "config_updated":
         w.reloadConfig()
     case "cache_invalidated":

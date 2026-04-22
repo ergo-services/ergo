@@ -442,7 +442,7 @@ process.SendEvent("market.prices", token, update)
 **What subscribers see:**
 
 ```go
-func (c *Consumer) HandleEvent(message gen.MessageEvent) error {
+func (c *Consumer) HandleEvent(event gen.MessageEvent) error {
     // Event arrives in your mailbox
     // Same timing whether you're the only subscriber or one of thousands
     // Same timing whether producer is local or remote

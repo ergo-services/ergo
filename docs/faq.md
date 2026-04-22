@@ -111,8 +111,8 @@ producer.SendEvent("market.prices", token, PriceUpdate{Asset: "BTC", Price: 9500
 process.MonitorEvent(gen.Event{Name: "market.prices", Node: "producer@host"})
 
 // Event messages arrive in HandleEvent
-func (s *Sub) HandleEvent(message gen.MessageEvent) error {
-    update := message.Message.(PriceUpdate)
+func (s *Sub) HandleEvent(event gen.MessageEvent) error {
+    update := event.Message.(PriceUpdate)
     // handle update
     return nil
 }

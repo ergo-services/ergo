@@ -360,8 +360,8 @@ func (c *Coordinator) Init(args ...any) error {
     return nil
 }
 
-func (c *Coordinator) HandleEvent(ev gen.MessageEvent) error {
-    switch msg := ev.Message.(type) {
+func (c *Coordinator) HandleEvent(event gen.MessageEvent) error {
+    switch msg := event.Message.(type) {
 
     case etcd.EventApplicationStarted:
         if msg.Name == "worker" {
@@ -825,8 +825,8 @@ cacheEnabled := config["cache.enabled"].(bool) // true
 React to config changes in real-time:
 
 ```go
-func (a *App) HandleEvent(ev gen.MessageEvent) error {
-    switch msg := ev.Message.(type) {
+func (a *App) HandleEvent(event gen.MessageEvent) error {
+    switch msg := event.Message.(type) {
     case etcd.EventConfigUpdate:
         a.Log().Info("config changed: %s = %v", msg.Item, msg.Value)
 
@@ -937,8 +937,8 @@ func (c *Coordinator) HandleBecomeFollower(leader gen.PID) error {
     return nil
 }
 
-func (c *Coordinator) HandleEvent(ev gen.MessageEvent) error {
-    switch ev.Message.(type) {
+func (c *Coordinator) HandleEvent(event gen.MessageEvent) error {
+    switch event.Message.(type) {
     case etcd.EventApplicationStarted, etcd.EventApplicationStopped:
         c.refreshWorkers()
     }

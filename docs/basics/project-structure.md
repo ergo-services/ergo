@@ -718,8 +718,8 @@ func (l *Listener) Init(args ...any) error {
     return nil
 }
 
-func (l *Listener) HandleEvent(ev gen.MessageEvent) error {
-    switch e := ev.Message.(type) {
+func (l *Listener) HandleEvent(event gen.MessageEvent) error {
+    switch e := event.Message.(type) {
     case types.OrderCompleted:
         l.createShipment(e.OrderID)
     }
