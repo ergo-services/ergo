@@ -172,9 +172,9 @@ func filterHash(name, behavior, application, state string, minMailbox uint64, li
 }
 
 // eventListHash builds a short deterministic suffix from event list filter fields
-func eventListHash(timestamp int64, name string, notify, buffered int, minSubscribers int64, limit int) string {
-	return fmt.Sprintf("%x", hashStr(fmt.Sprintf("%d|%s|%d|%d|%d|%d",
-		timestamp, name, notify, buffered, minSubscribers, limit)))
+func eventListHash(timestamp int64, name string, notify, buffered, open int, minSubscribers int64, limit int) string {
+	return fmt.Sprintf("%x", hashStr(fmt.Sprintf("%d|%s|%d|%d|%d|%d|%d",
+		timestamp, name, notify, buffered, open, minSubscribers, limit)))
 }
 
 func connectionListHash(name string, limit int) string {

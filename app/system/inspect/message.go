@@ -448,6 +448,7 @@ type RequestInspectEventList struct {
 	Name           string
 	Notify         int // 0=any, 1=yes, -1=no
 	Buffered       int // 0=any, 1=yes, -1=no
+	Open           int // 0=any, 1=yes, -1=no
 	MinSubscribers int64
 }
 type ResponseInspectEventList struct {

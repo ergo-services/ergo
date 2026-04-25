@@ -366,10 +366,10 @@ func (i *inspect) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error
 		if r.Limit < 1 {
 			r.Limit = 500
 		}
-		hash := eventListHash(r.Timestamp, r.Name, r.Notify, r.Buffered, r.MinSubscribers, r.Limit)
+		hash := eventListHash(r.Timestamp, r.Name, r.Notify, r.Buffered, r.Open, r.MinSubscribers, r.Limit)
 		pname := gen.Atom(fmt.Sprintf("%s_%s", inspectEventList, hash))
 		_, err := i.SpawnRegister(pname, factory_event_list, opts,
-			r.Timestamp, r.Name, r.Notify, r.Buffered, r.MinSubscribers, r.Limit, hash)
+			r.Timestamp, r.Name, r.Notify, r.Buffered, r.Open, r.MinSubscribers, r.Limit, hash)
 		if err != nil && err != gen.ErrTaken {
 			return err, nil
 		}

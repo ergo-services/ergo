@@ -20,6 +20,7 @@ type event_list struct {
 	name           string
 	notify         int
 	buffered       int
+	open           int
 	minSubscribers int64
 	limit          int
 	hash           string
@@ -34,13 +35,14 @@ func (iel *event_list) Init(args ...any) error {
 	iel.name = args[1].(string)
 	iel.notify = args[2].(int)
 	iel.buffered = args[3].(int)
-	iel.minSubscribers = args[4].(int64)
-	iel.limit = args[5].(int)
-	iel.hash = args[6].(string)
+	iel.open = args[4].(int)
+	iel.minSubscribers = args[5].(int64)
+	iel.limit = args[6].(int)
+	iel.hash = args[7].(string)
 
 	iel.Log().SetLogger("default")
-	iel.Log().Debug("event list inspector started. timestamp=%d name=%q notify=%d buffered=%d minSubs=%d limit=%d",
-		iel.timestamp, iel.name, iel.notify, iel.buffered, iel.minSubscribers, iel.limit)
+	iel.Log().Debug("event list inspector started. timestamp=%d name=%q notify=%d buffered=%d open=%d minSubs=%d limit=%d",
+		iel.timestamp, iel.name, iel.notify, iel.buffered, iel.open, iel.minSubscribers, iel.limit)
 	iel.SetCompression(true)
 
 	eopts := gen.EventOptions{
@@ -136,6 +138,12 @@ func (iel *event_list) filterEvent(info gen.EventInfo) bool {
 		return false
 	}
 	if iel.buffered == -1 && info.BufferSize > 0 {
+		return false
+	}
+	if iel.open == 1 && info.Open == false {
+		return false
+	}
+	if iel.open == -1 && info.Open == true {
 		return false
 	}
 	if iel.minSubscribers > 0 && info.Subscribers < iel.minSubscribers {
