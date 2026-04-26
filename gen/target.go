@@ -66,6 +66,11 @@ type EventInfo struct {
 	MessagesPublished  int64
 	MessagesLocalSent  int64
 	MessagesRemoteSent int64
+	// LastPublishedAt is the unix-nanos timestamp of the most recent SendEvent on this event,
+	// or 0 if nothing has ever been published. Useful for detecting silent producers — a
+	// non-zero MessagesPublished combined with a stale LastPublishedAt means the producer
+	// has stopped publishing.
+	LastPublishedAt int64
 }
 
 type TargetManagerInfo struct {

@@ -193,6 +193,7 @@ func (tm *targetManager) publishEventLocalProducer(
 	}
 
 	entry.messagesPublished.Add(1)
+	entry.lastPublishedAt.Store(time.Now().UnixNano())
 
 	// Snapshot slices under RLock (safe: slices only modified under write lock)
 	linkSubs := entry.linkSubscribers
@@ -715,6 +716,7 @@ func (tm *targetManager) EventInfo(event gen.Event) (gen.EventInfo, error) {
 		MessagesPublished:  entry.messagesPublished.Load(),
 		MessagesLocalSent:  entry.messagesLocalSent.Load(),
 		MessagesRemoteSent: entry.messagesRemoteSent.Load(),
+		LastPublishedAt:    entry.lastPublishedAt.Load(),
 	}, nil
 }
 
@@ -742,6 +744,7 @@ func (tm *targetManager) EventRangeInfo(fn func(gen.EventInfo) bool) error {
 				MessagesPublished:  entry.messagesPublished.Load(),
 				MessagesLocalSent:  entry.messagesLocalSent.Load(),
 				MessagesRemoteSent: entry.messagesRemoteSent.Load(),
+				LastPublishedAt:    entry.lastPublishedAt.Load(),
 			})
 		}
 		s.mutex.RUnlock()
@@ -795,6 +798,7 @@ func (tm *targetManager) EventListInfo(timestamp int64, limit int, filter ...fun
 			MessagesPublished:  entry.messagesPublished.Load(),
 			MessagesLocalSent:  entry.messagesLocalSent.Load(),
 			MessagesRemoteSent: entry.messagesRemoteSent.Load(),
+			LastPublishedAt:    entry.lastPublishedAt.Load(),
 		}
 	}
 

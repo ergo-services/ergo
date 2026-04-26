@@ -113,6 +113,7 @@ type eventEntry struct {
 	messagesPublished  atomic.Int64
 	messagesLocalSent  atomic.Int64
 	messagesRemoteSent atomic.Int64
+	lastPublishedAt    atomic.Int64 // unix nanos of last SendEvent; 0 if never published
 }
 
 type Options struct{}
