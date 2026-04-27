@@ -25,6 +25,8 @@ type MessageInc struct{}
 func (c *Counter) HandleMessage(from gen.PID, msg any) error {
     switch msg.(type) {
     case MessageInc:
+        // safe without locks even with thousands of concurrent senders:
+        // messages are processed one at a time
         c.count++
         c.Log().Info("count: %d", c.count)
     }
@@ -149,7 +151,7 @@ Questions and answers: [FAQ](https://docs.ergo.services/faq).
 
 ### Quick start ###
 
-For a quick start, use the [`ergo`](https://docs.ergo.services/tools/ergo) tool, a command-line utility designed to simplify the process of generating boilerplate code for your project based on the Ergo Framework. With this tool, you can rapidly create a complete project structure, including applications, actors, supervisors, network components, and more. It offers a set of arguments that allow you to customize the project according to specific requirements, ensuring it is ready for immediate development.
+The [`ergo`](https://docs.ergo.services/tools/ergo) CLI generates project scaffolding for you: applications, actors, supervisors, message types. The output is a complete, runnable project structure. Add components incrementally as your service grows.
 
 To install use the following command:
 
@@ -197,10 +199,6 @@ After install, invoke the skills as `/ergo:framework` or `/ergo:devops`. Agents 
 ### ergo.cloud ###
 
 [ergo.cloud](https://ergo.cloud) is an overlay network that connects Ergo nodes across AWS, GCP, Azure, and bare metal into a single transparent cluster without VPNs, proxies, or tunnels. End-to-end encrypted. Currently available via [waitlist](https://ergo.cloud).
-
-### Erlang support ###
-
-Starting from version 3.0.0, support for the Erlang network stack has been moved to a [separate module](https://github.com/ergo-services/proto). Version 3.0 was distributed under the BSL 1.1 license, but starting from version 3.1 it is available under the MIT license. Detailed information is available in the [Erlang protocol documentation](https://docs.ergo.services/extra-library/network-protocols/erlang).
 
 ### Requirements ###
 
