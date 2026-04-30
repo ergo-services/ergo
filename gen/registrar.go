@@ -5,10 +5,10 @@ package gen
 //
 // Default Registrar Behavior (if not configured in NetworkOptions):
 // - Uses minimal built-in registrar (no external service required)
-// - Tries to start embedded registrar server on localhost:41000
+// - Tries to start embedded registrar server on localhost:4499
 // - If port taken, connects to existing registrar on localhost (TCP client)
 // - Same host: nodes discover each other via local registrar server
-// - Different hosts: queries remote host's registrar via UDP (host:41000)
+// - Different hosts: queries remote host's registrar via UDP (host:4499)
 //   - Remote host must have registrar server running
 //   - Remote host must be reachable and port open
 //   - No persistent connection - query on-demand only
