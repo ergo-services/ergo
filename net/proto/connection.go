@@ -25,6 +25,12 @@ const (
 	limitMemRecvQueues int64 = 1024 * 1024 * 512
 
 	skewRingSize = 16
+
+	// routeQueuesPerConn is the number of per-connection queues that drain
+	// protoMessageAny payloads. Matches the default TM shard count so the
+	// queue index equals the TM shard index for any given target.
+	// Must be a power of two.
+	routeQueuesPerConn = 16
 )
 
 type connection struct {
@@ -53,6 +59,11 @@ type connection struct {
 
 	recvQueues        []lib.QueueMPSC
 	allocatedInQueues int64
+
+	// route queues drain protoMessageAny payloads (Link/Monitor/Spawn/...) so
+	// that decoding goroutines never block on synchronous core/TM/spawn work.
+	// Aligned with TM shard count and hashing so each queue maps to one shard.
+	routeQueues [routeQueuesPerConn]lib.QueueMPSC
 
 	encodeOptions edf.Options
 	decodeOptions edf.Options
@@ -384,7 +395,7 @@ func (c *connection) applicationStart(name gen.Atom, mode gen.ApplicationMode, o
 		return gen.ErrNotAllowed
 	}
 
-	ref := c.core.MakeRef()
+	ref := c.makeRequestRef()
 	extra := gen.ApplicationOptionsExtra{
 		ApplicationOptions: options,
 		CorePID:            c.core.PID(),
@@ -413,7 +424,7 @@ func (c *connection) applicationStart(name gen.Atom, mode gen.ApplicationMode, o
 func (c *connection) ApplicationInfo(name gen.Atom) (gen.ApplicationInfo, error) {
 	var info gen.ApplicationInfo
 
-	ref := c.core.MakeRef()
+	ref := c.makeRequestRef()
 	message := MessageApplicationInfo{
 		Name: name,
 		Ref:  ref,
@@ -467,7 +478,7 @@ func (c *connection) updateCache() error {
 	//  - RegCache
 	//  - ErrCache
 
-	ref := c.core.MakeRef()
+	ref := c.makeRequestRef()
 	message := MessageUpdateCache{
 		Ref: ref,
 		// put them here
@@ -1208,13 +1219,23 @@ func (c *connection) CallAlias(from gen.PID, to gen.Alias, options gen.MessageOp
 	return c.send(buf, order, options.Compression, options.Tracing)
 }
 
+// makeRequestRef returns a reference carrying the default request timeout as
+// a deadline. Receivers can use Ref.IsAlive() to drop work whose ref expired
+// while sitting in queue, or to skip the response and roll back side effects
+// when the operation outlived the sender's wait window.
+func (c *connection) makeRequestRef() gen.Ref {
+	deadline := time.Now().Unix() + int64(gen.DefaultRequestTimeout)
+	ref, _ := c.core.MakeRefWithDeadline(deadline)
+	return ref
+}
+
 func (c *connection) LinkPID(pid gen.PID, target gen.PID) error {
 	if target.Creation != c.peer_creation {
 		return gen.ErrProcessIncarnation
 	}
 	order := uint8(pid.ID % 255)
 	orderPeer := uint8(target.ID % 255)
-	ref := c.core.MakeRef()
+	ref := c.makeRequestRef()
 	message := MessageLinkPID{
 		Source: pid,
 		Target: target,
@@ -1241,7 +1262,7 @@ func (c *connection) UnlinkPID(pid gen.PID, target gen.PID) error {
 	}
 	order := uint8(pid.ID % 255)
 	orderPeer := uint8(target.ID % 255)
-	ref := c.core.MakeRef()
+	ref := c.makeRequestRef()
 	message := MessageUnlinkPID{
 		Source: pid,
 		Target: target,
@@ -1263,7 +1284,7 @@ func (c *connection) UnlinkPID(pid gen.PID, target gen.PID) error {
 
 func (c *connection) LinkProcessID(pid gen.PID, target gen.ProcessID) error {
 	order := uint8(pid.ID % 255)
-	ref := c.core.MakeRef()
+	ref := c.makeRequestRef()
 	message := MessageLinkProcessID{
 		Source: pid,
 		Target: target,
@@ -1286,7 +1307,7 @@ func (c *connection) LinkProcessID(pid gen.PID, target gen.ProcessID) error {
 
 func (c *connection) UnlinkProcessID(pid gen.PID, target gen.ProcessID) error {
 	order := uint8(pid.ID % 255)
-	ref := c.core.MakeRef()
+	ref := c.makeRequestRef()
 	message := MessageUnlinkProcessID{
 		Source: pid,
 		Target: target,
@@ -1313,7 +1334,7 @@ func (c *connection) LinkAlias(pid gen.PID, target gen.Alias) error {
 	}
 	order := uint8(pid.ID % 255)
 	orderPeer := uint8(target.ID[1] % 255)
-	ref := c.core.MakeRef()
+	ref := c.makeRequestRef()
 	message := MessageLinkAlias{
 		Source: pid,
 		Target: target,
@@ -1340,7 +1361,7 @@ func (c *connection) UnlinkAlias(pid gen.PID, target gen.Alias) error {
 	}
 	order := uint8(pid.ID % 255)
 	orderPeer := uint8(target.ID[1] % 255)
-	ref := c.core.MakeRef()
+	ref := c.makeRequestRef()
 	message := MessageUnlinkAlias{
 		Source: pid,
 		Target: target,
@@ -1362,7 +1383,7 @@ func (c *connection) UnlinkAlias(pid gen.PID, target gen.Alias) error {
 
 func (c *connection) LinkEvent(pid gen.PID, target gen.Event) ([]gen.MessageEvent, error) {
 	order := uint8(pid.ID % 255)
-	ref := c.core.MakeRef()
+	ref := c.makeRequestRef()
 	message := MessageLinkEvent{
 		Source: pid,
 		Target: target,
@@ -1391,7 +1412,7 @@ func (c *connection) LinkEvent(pid gen.PID, target gen.Event) ([]gen.MessageEven
 
 func (c *connection) UnlinkEvent(pid gen.PID, target gen.Event) error {
 	order := uint8(pid.ID % 255)
-	ref := c.core.MakeRef()
+	ref := c.makeRequestRef()
 	message := MessageUnlinkEvent{
 		Source: pid,
 		Target: target,
@@ -1415,7 +1436,7 @@ func (c *connection) MonitorPID(pid gen.PID, target gen.PID) error {
 	if target.Creation != c.peer_creation {
 		return gen.ErrProcessIncarnation
 	}
-	ref := c.core.MakeRef()
+	ref := c.makeRequestRef()
 	order := uint8(pid.ID % 255)
 	message := MessageMonitorPID{
 		Source: pid,
@@ -1440,7 +1461,7 @@ func (c *connection) DemonitorPID(pid gen.PID, target gen.PID) error {
 	if target.Creation != c.peer_creation {
 		return gen.ErrProcessIncarnation
 	}
-	ref := c.core.MakeRef()
+	ref := c.makeRequestRef()
 	order := uint8(pid.ID % 255)
 	message := MessageDemonitorPID{
 		Source: pid,
@@ -1463,7 +1484,7 @@ func (c *connection) DemonitorPID(pid gen.PID, target gen.PID) error {
 
 func (c *connection) MonitorProcessID(pid gen.PID, target gen.ProcessID) error {
 	order := uint8(pid.ID % 255)
-	ref := c.core.MakeRef()
+	ref := c.makeRequestRef()
 	message := MessageMonitorProcessID{
 		Source: pid,
 		Target: target,
@@ -1485,7 +1506,7 @@ func (c *connection) MonitorProcessID(pid gen.PID, target gen.ProcessID) error {
 
 func (c *connection) DemonitorProcessID(pid gen.PID, target gen.ProcessID) error {
 	order := uint8(pid.ID % 255)
-	ref := c.core.MakeRef()
+	ref := c.makeRequestRef()
 	message := MessageDemonitorProcessID{
 		Source: pid,
 		Target: target,
@@ -1509,7 +1530,7 @@ func (c *connection) MonitorAlias(pid gen.PID, target gen.Alias) error {
 	if target.Creation != c.peer_creation {
 		return gen.ErrProcessIncarnation
 	}
-	ref := c.core.MakeRef()
+	ref := c.makeRequestRef()
 	order := uint8(pid.ID % 255)
 	orderPeer := uint8(target.ID[1] % 255)
 	message := MessageMonitorAlias{
@@ -1535,7 +1556,7 @@ func (c *connection) DemonitorAlias(pid gen.PID, target gen.Alias) error {
 	if target.Creation != c.peer_creation {
 		return gen.ErrProcessIncarnation
 	}
-	ref := c.core.MakeRef()
+	ref := c.makeRequestRef()
 	order := uint8(pid.ID % 255)
 	orderPeer := uint8(target.ID[1] % 255)
 	message := MessageDemonitorAlias{
@@ -1559,7 +1580,7 @@ func (c *connection) DemonitorAlias(pid gen.PID, target gen.Alias) error {
 
 func (c *connection) MonitorEvent(pid gen.PID, target gen.Event) ([]gen.MessageEvent, error) {
 	order := uint8(pid.ID % 255)
-	ref := c.core.MakeRef()
+	ref := c.makeRequestRef()
 	message := MessageMonitorEvent{
 		Source: pid,
 		Target: target,
@@ -1588,7 +1609,7 @@ func (c *connection) MonitorEvent(pid gen.PID, target gen.Event) ([]gen.MessageE
 
 func (c *connection) DemonitorEvent(pid gen.PID, target gen.Event) error {
 	order := uint8(pid.ID % 255)
-	ref := c.core.MakeRef()
+	ref := c.makeRequestRef()
 	message := MessageDemonitorEvent{
 		Source: pid,
 		Target: target,
@@ -2860,7 +2881,7 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC, qIdx int) {
 				c.log.Warning("unaddressed message %T has %d extra bytes", msg, len(tail))
 			}
 
-			c.routeMessage(msg)
+			c.dispatchRoute(msg)
 
 		case protoMessageZ:
 			if buf.Len() < 10 {
@@ -3012,6 +3033,165 @@ func (c *connection) read(conn net.Conn, buf *lib.Buffer) (*lib.Buffer, error) {
 	}
 }
 
+// dispatchRoute is the entry point for protoMessageAny payloads from the
+// receive goroutine. Fast-lane messages (ACKs, cache updates) are handled
+// inline so their latency is bounded by a single channel send. Everything
+// else (Link/Monitor/Spawn/etc) goes to a per-shard route queue and is
+// processed by routeWorker, freeing the receive goroutine to keep decoding.
+func (c *connection) dispatchRoute(msg any) {
+	const mask = uint64(routeQueuesPerConn - 1)
+	var idx uint64
+	var ref gen.Ref
+
+	switch m := msg.(type) {
+
+	// Fast lane: handled inline in the receive goroutine. MessageResult
+	// must never queue behind heavy work — it is the ACK that wakes up
+	// the sender of an outbound request (including SendImportant).
+	case MessageResult:
+		c.requestsMutex.RLock()
+		ch, found := c.requests[m.Ref]
+		c.requestsMutex.RUnlock()
+		if found {
+			select {
+			case ch <- m:
+			default:
+			}
+		}
+		return
+	case MessageUpdateCache:
+		c.applyCacheUpdate(m)
+		return
+
+	// Slow lane: extract the queue index (shard-aligned with TM) and the
+	// request ref (for deadline filtering) in one type switch.
+	case MessageLinkPID:
+		idx, ref = m.Target.ID&mask, m.Ref
+	case MessageUnlinkPID:
+		idx, ref = m.Target.ID&mask, m.Ref
+	case MessageMonitorPID:
+		idx, ref = m.Target.ID&mask, m.Ref
+	case MessageDemonitorPID:
+		idx, ref = m.Target.ID&mask, m.Ref
+
+	case MessageLinkAlias:
+		idx, ref = m.Target.ID[1]&mask, m.Ref
+	case MessageUnlinkAlias:
+		idx, ref = m.Target.ID[1]&mask, m.Ref
+	case MessageMonitorAlias:
+		idx, ref = m.Target.ID[1]&mask, m.Ref
+	case MessageDemonitorAlias:
+		idx, ref = m.Target.ID[1]&mask, m.Ref
+
+	case MessageLinkProcessID:
+		idx, ref = lib.HashString64(string(m.Target.Name))&mask, m.Ref
+	case MessageUnlinkProcessID:
+		idx, ref = lib.HashString64(string(m.Target.Name))&mask, m.Ref
+	case MessageMonitorProcessID:
+		idx, ref = lib.HashString64(string(m.Target.Name))&mask, m.Ref
+	case MessageDemonitorProcessID:
+		idx, ref = lib.HashString64(string(m.Target.Name))&mask, m.Ref
+
+	case MessageLinkEvent:
+		idx, ref = lib.HashString64(string(m.Target.Name))&mask, m.Ref
+	case MessageUnlinkEvent:
+		idx, ref = lib.HashString64(string(m.Target.Name))&mask, m.Ref
+	case MessageMonitorEvent:
+		idx, ref = lib.HashString64(string(m.Target.Name))&mask, m.Ref
+	case MessageDemonitorEvent:
+		idx, ref = lib.HashString64(string(m.Target.Name))&mask, m.Ref
+
+	case MessageSpawn:
+		idx, ref = lib.HashString64(string(m.Name))&mask, m.Ref
+	case MessageApplicationStart:
+		idx, ref = lib.HashString64(string(m.Name))&mask, m.Ref
+	case MessageApplicationInfo:
+		idx, ref = lib.HashString64(string(m.Name))&mask, m.Ref
+
+	default:
+		c.log.Warning("unknown routed message type %T (ignored)", msg)
+		return
+	}
+
+	// Drop requests whose deadline already passed before reaching the queue.
+	// Ref.IsAlive() returns true when no deadline is set, so refs from older
+	// peers (without a deadline) always pass through.
+	if ref.IsAlive() == false {
+		if lib.Verbose() {
+			c.log.Trace("dropped stale message %T at dispatch", msg)
+		}
+		return
+	}
+
+	queue := c.routeQueues[idx]
+	queue.Push(msg)
+	if queue.Lock() {
+		go c.routeWorker(queue)
+	}
+}
+
+// routeWorker drains a single route queue. Spawned on demand by dispatchRoute
+// when the queue transitions from empty to non-empty. Exits when the queue
+// is fully drained. Same re-entry pattern as handleRecvQueue.
+func (c *connection) routeWorker(q lib.QueueMPSC) {
+	if lib.Recover() {
+		defer func() {
+			if r := recover(); r != nil {
+				pc, fn, line, _ := runtime.Caller(2)
+				c.log.Panic("panic in routeWorker: %#v at %s[%s:%d]",
+					r, runtime.FuncForPC(pc).Name(), fn, line)
+				c.Terminate(gen.TerminateReasonPanic)
+			}
+		}()
+	}
+
+	for {
+		v, ok := q.Pop()
+		if ok == false {
+			q.Unlock()
+			if q.Item() == nil {
+				return
+			}
+			if locked := q.Lock(); locked == false {
+				return
+			}
+			continue
+		}
+		c.routeMessage(v)
+	}
+}
+
+// applyCacheUpdate applies an inbound cache update and acks the sender.
+// Called inline from the receive goroutine via the fast lane.
+func (c *connection) applyCacheUpdate(m MessageUpdateCache) {
+	for k, v := range m.AtomCache {
+		entry, exist := c.decodeOptions.AtomCache.LoadOrStore(k, v)
+		if exist {
+			c.log.Warning("updating atom cache ignored entry (already exist): %d => %v", k, entry)
+		}
+	}
+	for k, v := range m.AtomMapping {
+		entry, exist := c.decodeOptions.AtomMapping.LoadOrStore(k, v)
+		if exist {
+			c.log.Warning("updating atom mapping ignored entry (already exist): %s => %v", k, entry)
+		}
+	}
+	for k, v := range m.RegCache {
+		entry, exist := c.decodeOptions.RegCache.LoadOrStore(k, v)
+		if exist {
+			c.log.Warning("updating reg cache ignored entry (already exist): %d => %v", k, entry)
+		}
+	}
+	for k, v := range m.ErrCache {
+		entry, exist := c.decodeOptions.ErrCache.LoadOrStore(k, v)
+		if exist {
+			c.log.Warning("updating err cache ignored entry (already exist): %d => %v", k, entry)
+		}
+	}
+	result := MessageResult{Ref: m.Ref}
+	c.sendAny(result, 0, 0, gen.Compression{})
+}
+
 func (c *connection) routeMessage(msg any) {
 	switch m := msg.(type) {
 	case MessageResult:
@@ -3067,163 +3247,233 @@ func (c *connection) routeMessage(msg any) {
 
 	case MessageLinkPID:
 		// TODO check the source/target node name
-		err := c.core.RouteLinkPID(m.Source, m.Target)
-		result := MessageResult{
-			Error: err,
-			Ref:   m.Ref,
+		if m.Ref.IsAlive() == false {
+			return
 		}
+		err := c.core.RouteLinkPID(m.Source, m.Target)
+		if m.Ref.IsAlive() == false {
+			if err == nil {
+				c.core.RouteUnlinkPID(m.Source, m.Target)
+			}
+			return
+		}
+		result := MessageResult{Error: err, Ref: m.Ref}
 		order := uint8(m.Target.ID % 255)
 		orderPeer := uint8(m.Source.ID % 255)
 		c.sendAny(result, order, orderPeer, gen.Compression{})
 
 	case MessageUnlinkPID:
-		err := c.core.RouteUnlinkPID(m.Source, m.Target)
-		result := MessageResult{
-			Error: err,
-			Ref:   m.Ref,
+		if m.Ref.IsAlive() == false {
+			return
 		}
+		err := c.core.RouteUnlinkPID(m.Source, m.Target)
+		if m.Ref.IsAlive() == false {
+			return
+		}
+		result := MessageResult{Error: err, Ref: m.Ref}
 		order := uint8(m.Target.ID % 255)
 		orderPeer := uint8(m.Source.ID % 255)
 		c.sendAny(result, order, orderPeer, gen.Compression{})
 
 	case MessageLinkProcessID:
-		err := c.core.RouteLinkProcessID(m.Source, m.Target)
-		result := MessageResult{
-			Error: err,
-			Ref:   m.Ref,
+		if m.Ref.IsAlive() == false {
+			return
 		}
+		err := c.core.RouteLinkProcessID(m.Source, m.Target)
+		if m.Ref.IsAlive() == false {
+			if err == nil {
+				c.core.RouteUnlinkProcessID(m.Source, m.Target)
+			}
+			return
+		}
+		result := MessageResult{Error: err, Ref: m.Ref}
 		order := uint8(0)
 		orderPeer := uint8(m.Source.ID % 255)
 		c.sendAny(result, order, orderPeer, gen.Compression{})
 
 	case MessageUnlinkProcessID:
-		err := c.core.RouteUnlinkProcessID(m.Source, m.Target)
-		result := MessageResult{
-			Error: err,
-			Ref:   m.Ref,
+		if m.Ref.IsAlive() == false {
+			return
 		}
+		err := c.core.RouteUnlinkProcessID(m.Source, m.Target)
+		if m.Ref.IsAlive() == false {
+			return
+		}
+		result := MessageResult{Error: err, Ref: m.Ref}
 		order := uint8(0)
 		orderPeer := uint8(m.Source.ID % 255)
 		c.sendAny(result, order, orderPeer, gen.Compression{})
 
 	case MessageLinkAlias:
-		err := c.core.RouteLinkAlias(m.Source, m.Target)
-		result := MessageResult{
-			Error: err,
-			Ref:   m.Ref,
+		if m.Ref.IsAlive() == false {
+			return
 		}
+		err := c.core.RouteLinkAlias(m.Source, m.Target)
+		if m.Ref.IsAlive() == false {
+			if err == nil {
+				c.core.RouteUnlinkAlias(m.Source, m.Target)
+			}
+			return
+		}
+		result := MessageResult{Error: err, Ref: m.Ref}
 		order := uint8(m.Target.ID[1] % 255)
 		orderPeer := uint8(m.Source.ID % 255)
 		c.sendAny(result, order, orderPeer, gen.Compression{})
 
 	case MessageUnlinkAlias:
-		err := c.core.RouteUnlinkAlias(m.Source, m.Target)
-		result := MessageResult{
-			Error: err,
-			Ref:   m.Ref,
+		if m.Ref.IsAlive() == false {
+			return
 		}
+		err := c.core.RouteUnlinkAlias(m.Source, m.Target)
+		if m.Ref.IsAlive() == false {
+			return
+		}
+		result := MessageResult{Error: err, Ref: m.Ref}
 		order := uint8(m.Target.ID[1] % 255)
 		orderPeer := uint8(m.Source.ID % 255)
 		c.sendAny(result, order, orderPeer, gen.Compression{})
 
 	case MessageLinkEvent:
-		r, err := c.core.RouteLinkEvent(m.Source, m.Target)
-		result := MessageResult{
-			Result: r,
-			Error:  err,
-			Ref:    m.Ref,
+		if m.Ref.IsAlive() == false {
+			return
 		}
+		r, err := c.core.RouteLinkEvent(m.Source, m.Target)
+		if m.Ref.IsAlive() == false {
+			if err == nil {
+				c.core.RouteUnlinkEvent(m.Source, m.Target)
+			}
+			return
+		}
+		result := MessageResult{Result: r, Error: err, Ref: m.Ref}
 		order := uint8(0)
 		orderPeer := uint8(m.Source.ID % 255)
 		c.sendAny(result, order, orderPeer, gen.Compression{})
 
 	case MessageUnlinkEvent:
-		err := c.core.RouteUnlinkEvent(m.Source, m.Target)
-		result := MessageResult{
-			Error: err,
-			Ref:   m.Ref,
+		if m.Ref.IsAlive() == false {
+			return
 		}
+		err := c.core.RouteUnlinkEvent(m.Source, m.Target)
+		if m.Ref.IsAlive() == false {
+			return
+		}
+		result := MessageResult{Error: err, Ref: m.Ref}
 		order := uint8(0)
 		orderPeer := uint8(m.Source.ID % 255)
 		c.sendAny(result, order, orderPeer, gen.Compression{})
 
 	case MessageMonitorPID:
-		err := c.core.RouteMonitorPID(m.Source, m.Target)
-		result := MessageResult{
-			Error: err,
-			Ref:   m.Ref,
+		if m.Ref.IsAlive() == false {
+			return
 		}
+		err := c.core.RouteMonitorPID(m.Source, m.Target)
+		if m.Ref.IsAlive() == false {
+			if err == nil {
+				c.core.RouteDemonitorPID(m.Source, m.Target)
+			}
+			return
+		}
+		result := MessageResult{Error: err, Ref: m.Ref}
 		order := uint8(m.Target.ID % 255)
 		orderPeer := uint8(m.Source.ID % 255)
 		c.sendAny(result, order, orderPeer, gen.Compression{})
 
 	case MessageDemonitorPID:
-		err := c.core.RouteDemonitorPID(m.Source, m.Target)
-		result := MessageResult{
-			Error: err,
-			Ref:   m.Ref,
+		if m.Ref.IsAlive() == false {
+			return
 		}
+		err := c.core.RouteDemonitorPID(m.Source, m.Target)
+		if m.Ref.IsAlive() == false {
+			return
+		}
+		result := MessageResult{Error: err, Ref: m.Ref}
 		order := uint8(m.Target.ID % 255)
 		orderPeer := uint8(m.Source.ID % 255)
 		c.sendAny(result, order, orderPeer, gen.Compression{})
 
 	case MessageMonitorProcessID:
-		err := c.core.RouteMonitorProcessID(m.Source, m.Target)
-		result := MessageResult{
-			Error: err,
-			Ref:   m.Ref,
+		if m.Ref.IsAlive() == false {
+			return
 		}
+		err := c.core.RouteMonitorProcessID(m.Source, m.Target)
+		if m.Ref.IsAlive() == false {
+			if err == nil {
+				c.core.RouteDemonitorProcessID(m.Source, m.Target)
+			}
+			return
+		}
+		result := MessageResult{Error: err, Ref: m.Ref}
 		order := uint8(0)
 		orderPeer := uint8(m.Source.ID % 255)
 		c.sendAny(result, order, orderPeer, gen.Compression{})
 
 	case MessageDemonitorProcessID:
-		err := c.core.RouteDemonitorProcessID(m.Source, m.Target)
-		result := MessageResult{
-			Error: err,
-			Ref:   m.Ref,
+		if m.Ref.IsAlive() == false {
+			return
 		}
+		err := c.core.RouteDemonitorProcessID(m.Source, m.Target)
+		if m.Ref.IsAlive() == false {
+			return
+		}
+		result := MessageResult{Error: err, Ref: m.Ref}
 		order := uint8(0)
 		orderPeer := uint8(m.Source.ID % 255)
 		c.sendAny(result, order, orderPeer, gen.Compression{})
 
 	case MessageMonitorAlias:
-		err := c.core.RouteMonitorAlias(m.Source, m.Target)
-		result := MessageResult{
-			Error: err,
-			Ref:   m.Ref,
+		if m.Ref.IsAlive() == false {
+			return
 		}
+		err := c.core.RouteMonitorAlias(m.Source, m.Target)
+		if m.Ref.IsAlive() == false {
+			if err == nil {
+				c.core.RouteDemonitorAlias(m.Source, m.Target)
+			}
+			return
+		}
+		result := MessageResult{Error: err, Ref: m.Ref}
 		order := uint8(m.Target.ID[1] % 255)
 		orderPeer := uint8(m.Source.ID % 255)
 		c.sendAny(result, order, orderPeer, gen.Compression{})
 
 	case MessageDemonitorAlias:
-		err := c.core.RouteDemonitorAlias(m.Source, m.Target)
-		result := MessageResult{
-			Error: err,
-			Ref:   m.Ref,
+		if m.Ref.IsAlive() == false {
+			return
 		}
+		err := c.core.RouteDemonitorAlias(m.Source, m.Target)
+		if m.Ref.IsAlive() == false {
+			return
+		}
+		result := MessageResult{Error: err, Ref: m.Ref}
 		order := uint8(m.Target.ID[1] % 255)
 		orderPeer := uint8(m.Source.ID % 255)
 		c.sendAny(result, order, orderPeer, gen.Compression{})
 
 	case MessageMonitorEvent:
-		r, err := c.core.RouteMonitorEvent(m.Source, m.Target)
-		result := MessageResult{
-			Result: r,
-			Error:  err,
-			Ref:    m.Ref,
+		if m.Ref.IsAlive() == false {
+			return
 		}
+		r, err := c.core.RouteMonitorEvent(m.Source, m.Target)
+		if m.Ref.IsAlive() == false {
+			if err == nil {
+				c.core.RouteDemonitorEvent(m.Source, m.Target)
+			}
+			return
+		}
+		result := MessageResult{Result: r, Error: err, Ref: m.Ref}
 		order := uint8(0)
 		orderPeer := uint8(m.Source.ID % 255)
 		c.sendAny(result, order, orderPeer, gen.Compression{})
 
 	case MessageDemonitorEvent:
-		err := c.core.RouteDemonitorEvent(m.Source, m.Target)
-		result := MessageResult{
-			Error: err,
-			Ref:   m.Ref,
+		if m.Ref.IsAlive() == false {
+			return
 		}
+		err := c.core.RouteDemonitorEvent(m.Source, m.Target)
+		if m.Ref.IsAlive() == false {
+			return
+		}
+		result := MessageResult{Error: err, Ref: m.Ref}
 		order := uint8(0)
 		orderPeer := uint8(m.Source.ID % 255)
 		c.sendAny(result, order, orderPeer, gen.Compression{})
@@ -3233,12 +3483,19 @@ func (c *connection) routeMessage(msg any) {
 			c.log.Warning("remote spawn is not allowed for %s", c.peer)
 			return
 		}
-		pid, err := c.core.RouteSpawn(c.core.Name(), m.Name, m.Options, c.peer)
-		result := MessageResult{
-			Error:  err,
-			Result: pid,
-			Ref:    m.Ref,
+		if m.Ref.IsAlive() == false {
+			return
 		}
+		pid, err := c.core.RouteSpawn(c.core.Name(), m.Name, m.Options, c.peer)
+		if m.Ref.IsAlive() == false {
+			// sender already gave up; kill the freshly-spawned process so
+			// the next retry doesn't see a stale instance.
+			if err == nil {
+				c.core.RouteSendExit(c.core.PID(), pid, gen.TerminateReasonKill)
+			}
+			return
+		}
+		result := MessageResult{Error: err, Result: pid, Ref: m.Ref}
 		order := uint8(0)
 		orderPeer := uint8(m.Options.ParentPID.ID % 255)
 		c.sendAny(result, order, orderPeer, gen.Compression{})
@@ -3248,23 +3505,30 @@ func (c *connection) routeMessage(msg any) {
 			c.log.Warning("remote application start is not allowed for %s", c.peer)
 			return
 		}
-		err := c.core.RouteApplicationStart(m.Name, m.Mode, m.Options, c.peer)
-		result := MessageResult{
-			Error: err,
-			Ref:   m.Ref,
+		if m.Ref.IsAlive() == false {
+			return
 		}
+		err := c.core.RouteApplicationStart(m.Name, m.Mode, m.Options, c.peer)
+		if m.Ref.IsAlive() == false {
+			// app may have started; rolling it back is non-trivial so we
+			// just skip the reply. Sender's retry hits ErrApplicationRunning
+			// which is naturally idempotent.
+			return
+		}
+		result := MessageResult{Error: err, Ref: m.Ref}
 		order := uint8(0)
 		orderPeer := uint8(0)
 		c.sendAny(result, order, orderPeer, gen.Compression{})
 
 	case MessageApplicationInfo:
-		info, err := c.core.RouteApplicationInfo(m.Name)
-
-		result := MessageResult{
-			Error:  err,
-			Result: info,
-			Ref:    m.Ref,
+		if m.Ref.IsAlive() == false {
+			return
 		}
+		info, err := c.core.RouteApplicationInfo(m.Name)
+		if m.Ref.IsAlive() == false {
+			return
+		}
+		result := MessageResult{Error: err, Result: info, Ref: m.Ref}
 		order := uint8(0)
 		orderPeer := uint8(0)
 		c.sendAny(result, order, orderPeer, gen.Compression{})

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"ergo.services/ergo/gen"
+	"ergo.services/ergo/lib"
 )
 
 const defaultNumShards = 16
@@ -177,23 +178,13 @@ func (tm *targetManager) shardFor(target any) *shard {
 	case gen.Alias:
 		idx = t.ID[1]
 	case gen.ProcessID:
-		idx = fnv1aString(string(t.Name))
+		idx = lib.HashString64(string(t.Name))
 	case gen.Event:
-		idx = fnv1aString(string(t.Name))
+		idx = lib.HashString64(string(t.Name))
 	case gen.Atom:
-		idx = fnv1aString(string(t))
+		idx = lib.HashString64(string(t))
 	}
 	return &tm.shards[idx&(tm.numShards-1)]
-}
-
-// fnv1aString is an inline FNV-1a hash for strings (no allocation).
-func fnv1aString(s string) uint64 {
-	h := uint64(14695981039346656037)
-	for i := 0; i < len(s); i++ {
-		h ^= uint64(s[i])
-		h *= 1099511628211
-	}
-	return h
 }
 
 // getEventBuffer returns a snapshot of the event buffer, or nil.

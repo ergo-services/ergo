@@ -135,6 +135,12 @@ func (e *enp) NewConnection(core gen.Core, result gen.HandshakeResult, log gen.L
 		conn.recvQueues = append(conn.recvQueues, lib.NewQueueMPSC())
 	}
 
+	// init route queues for protoMessageAny dispatch. These drain Link/Monitor/
+	// Spawn/etc so decoding goroutines never block on synchronous TM/core work.
+	for i := range conn.routeQueues {
+		conn.routeQueues[i] = lib.NewQueueMPSC()
+	}
+
 	// init per-queue ordered fragment assembly maps
 	if conn.fragmentation {
 		conn.orderedFragments = make([]map[uint32]*fragmentAssembly, numQueues)
