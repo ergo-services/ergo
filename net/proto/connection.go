@@ -1975,10 +1975,6 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC, qIdx int) {
 				continue
 			}
 
-			if len(tail) > 0 {
-				c.log.Warning("message has extra bytes: %#v", tail)
-			}
-
 			from := gen.PID{
 				Node:     c.peer,
 				ID:       idFrom,
@@ -1988,6 +1984,10 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC, qIdx int) {
 				Node:     c.core.Name(),
 				ID:       idTO,
 				Creation: c.core.Creation(),
+			}
+
+			if len(tail) > 0 {
+				c.log.Warning("message %T from %s to %s has %d extra bytes", msg, from, to, len(tail))
 			}
 
 			opts := gen.MessageOptions{
@@ -2063,10 +2063,6 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC, qIdx int) {
 				continue
 			}
 
-			if len(tail) > 0 {
-				c.log.Warning("message has extra bytes: %#v", tail)
-			}
-
 			if c.decodeOptions.AtomMapping != nil {
 				if v, found := c.decodeOptions.AtomMapping.Load(toName); found {
 					toName = v.(gen.Atom)
@@ -2081,6 +2077,10 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC, qIdx int) {
 			to := gen.ProcessID{
 				Node: c.core.Name(),
 				Name: toName,
+			}
+
+			if len(tail) > 0 {
+				c.log.Warning("message %T from %s to %s has %d extra bytes", msg, from, to, len(tail))
 			}
 
 			opts := gen.MessageOptions{
@@ -2125,10 +2125,6 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC, qIdx int) {
 				continue
 			}
 
-			if len(tail) > 0 {
-				c.log.Warning("message has extra bytes: %#v", tail)
-			}
-
 			from := gen.PID{
 				Node:     c.peer,
 				ID:       idFrom,
@@ -2138,6 +2134,10 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC, qIdx int) {
 				Node:     c.core.Name(),
 				ID:       idTo,
 				Creation: c.core.Creation(),
+			}
+
+			if len(tail) > 0 {
+				c.log.Warning("message %T from %s to %s has %d extra bytes", msg, from, to, len(tail))
 			}
 
 			opts := gen.MessageOptions{
@@ -2186,10 +2186,6 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC, qIdx int) {
 				continue
 			}
 
-			if len(tail) > 0 {
-				c.log.Warning("message has extra bytes: %#v", tail)
-			}
-
 			from := gen.PID{
 				Node:     c.peer,
 				ID:       idFrom,
@@ -2199,6 +2195,10 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC, qIdx int) {
 				Node:     c.core.Name(),
 				ID:       idTO,
 				Creation: c.core.Creation(),
+			}
+
+			if len(tail) > 0 {
+				c.log.Warning("call %T from %s to %s has %d extra bytes", msg, from, to, len(tail))
 			}
 
 			opts := gen.MessageOptions{
@@ -2287,15 +2287,16 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC, qIdx int) {
 				continue
 			}
 
-			if len(tail) > 0 {
-				c.log.Warning("message has extra bytes: %#v", tail)
-			}
-
 			if c.decodeOptions.AtomMapping != nil {
 				if v, found := c.decodeOptions.AtomMapping.Load(to.Name); found {
 					to.Name = v.(gen.Atom)
 				}
 			}
+
+			if len(tail) > 0 {
+				c.log.Warning("call %T from %s to %s has %d extra bytes", msg, from, to, len(tail))
+			}
+
 			opts := gen.MessageOptions{
 				Tracing:  tracing,
 				Ref:      ref,
@@ -2352,14 +2353,14 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC, qIdx int) {
 				continue
 			}
 
-			if len(tail) > 0 {
-				c.log.Warning("message has extra bytes: %#v", tail)
-			}
-
 			from := gen.PID{
 				Node:     c.peer,
 				ID:       idFrom,
 				Creation: c.peer_creation,
+			}
+
+			if len(tail) > 0 {
+				c.log.Warning("call %T from %s to %s has %d extra bytes", msg, from, to, len(tail))
 			}
 
 			opts := gen.MessageOptions{
@@ -2444,7 +2445,7 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC, qIdx int) {
 			}
 
 			if len(tail) > 0 {
-				c.log.Warning("message has extra bytes: %#v", tail)
+				c.log.Warning("event %s message %T from %s has %d extra bytes", message.Event.Name, msg, from, len(tail))
 			}
 
 			message.Message = msg
@@ -2470,10 +2471,6 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC, qIdx int) {
 				continue
 			}
 
-			if len(tail) > 0 {
-				c.log.Warning("message has extra bytes: %#v", tail)
-			}
-
 			reason, ok := msg.(error)
 			if ok == false {
 				c.log.Error("received malformed Exit message: %v", msg)
@@ -2489,6 +2486,10 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC, qIdx int) {
 				Node:     c.core.Name(),
 				ID:       idTO,
 				Creation: c.core.Creation(),
+			}
+
+			if len(tail) > 0 {
+				c.log.Warning("exit from %s to %s (reason %T) has %d extra bytes", from, to, reason, len(tail))
 			}
 
 			c.core.RouteSendExit(from, to, reason)
@@ -2521,10 +2522,6 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC, qIdx int) {
 				continue
 			}
 
-			if len(tail) > 0 {
-				c.log.Warning("message has extra bytes: %#v", tail)
-			}
-
 			from := gen.PID{
 				Node:     c.peer,
 				ID:       idFrom,
@@ -2536,8 +2533,12 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC, qIdx int) {
 				Creation: c.core.Creation(),
 			}
 
+			if len(tail) > 0 {
+				c.log.Warning("response %T from %s to %s has %d extra bytes", msg, from, to, len(tail))
+			}
+
 			opts := gen.MessageOptions{
-				Tracing:  tracing,
+				Tracing:           tracing,
 				Ref:               ref,
 				Priority:          priority,
 				ImportantDelivery: important,
@@ -2582,7 +2583,7 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC, qIdx int) {
 				Creation: c.core.Creation(),
 			}
 			opts := gen.MessageOptions{
-				Tracing:  tracing,
+				Tracing:           tracing,
 				Ref:               ref,
 				Priority:          priority,
 				ImportantDelivery: important,
@@ -2611,14 +2612,14 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC, qIdx int) {
 					continue
 				}
 
-				if len(tail) > 0 {
-					c.log.Warning("message has extra bytes: %#v", tail)
-				}
-
 				r, ok = msg.(error)
 				if ok == false {
 					c.log.Error("received incorrect response error")
 					continue
+				}
+
+				if len(tail) > 0 {
+					c.log.Warning("response error %T from %s to %s has %d extra bytes", r, from, to, len(tail))
 				}
 
 			default:
@@ -2652,10 +2653,6 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC, qIdx int) {
 				continue
 			}
 
-			if len(tail) > 0 {
-				c.log.Warning("message has extra bytes: %#v", tail)
-			}
-
 			reason, ok := msg.(error)
 			if ok == false {
 				c.log.Error("received malformed TerminatePID message: %v", msg)
@@ -2667,6 +2664,11 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC, qIdx int) {
 				ID:       idTarget,
 				Creation: c.peer_creation,
 			}
+
+			if len(tail) > 0 {
+				c.log.Warning("terminate for %s (reason %T) has %d extra bytes", target, reason, len(tail))
+			}
+
 			c.core.RouteTerminatePID(target, reason)
 
 		case protoMessageTerminateName, protoMessageTerminateNameCache:
@@ -2724,15 +2726,16 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC, qIdx int) {
 				continue
 			}
 
-			if len(tail) > 0 {
-				c.log.Warning("message has extra bytes: %#v", tail)
-			}
-
 			reason, ok := msg.(error)
 			if ok == false {
 				c.log.Error("received malformed TerminateName message: %v", msg)
 				continue
 			}
+
+			if len(tail) > 0 {
+				c.log.Warning("terminate for %s (reason %T) has %d extra bytes", processid, reason, len(tail))
+			}
+
 			c.core.RouteTerminateProcessID(processid, reason)
 
 		case protoMessageTerminateEvent, protoMessageTerminateEventCache:
@@ -2790,15 +2793,16 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC, qIdx int) {
 				continue
 			}
 
-			if len(tail) > 0 {
-				c.log.Warning("message has extra bytes: %#v", tail)
-			}
-
 			reason, ok := msg.(error)
 			if ok == false {
 				c.log.Error("received malformed TerminateEvent message: %v", msg)
 				continue
 			}
+
+			if len(tail) > 0 {
+				c.log.Warning("terminate for %s (reason %T) has %d extra bytes", event, reason, len(tail))
+			}
+
 			c.core.RouteTerminateEvent(event, reason)
 
 		case protoMessageTerminateAlias:
@@ -2826,14 +2830,14 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC, qIdx int) {
 				continue
 			}
 
-			if len(tail) > 0 {
-				c.log.Warning("message has extra bytes: %#v", tail)
-			}
-
 			reason, ok := msg.(error)
 			if ok == false {
 				c.log.Error("received malformed TerminateAlias message: %v", msg)
 				continue
+			}
+
+			if len(tail) > 0 {
+				c.log.Warning("terminate for %s (reason %T) has %d extra bytes", target, reason, len(tail))
 			}
 
 			c.core.RouteTerminateAlias(target, reason)
@@ -2853,7 +2857,7 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC, qIdx int) {
 			}
 
 			if len(tail) > 0 {
-				c.log.Warning("message has extra bytes: %#v", tail)
+				c.log.Warning("unaddressed message %T has %d extra bytes", msg, len(tail))
 			}
 
 			c.routeMessage(msg)
