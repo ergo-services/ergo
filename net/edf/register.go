@@ -735,35 +735,29 @@ func registerInfo(t reflect.Type, kind, schema string) {
 
 func measureZeroSize(t reflect.Type, kind string) (size uint32) {
 	var fallback uint32
-	if kind == "marshaler" || kind == "binarymarshaler" {
+	switch {
+	case kind == "marshaler" || kind == "binarymarshaler":
 		// 3 bytes cached type-tag + 4 bytes length prefix
 		fallback = 7
+	case t == anyType:
+		// nil interface encodes as edtNil (1 byte)
+		return 1
+	case t == errType:
+		// nil error encodes as [0xff, 0xff] (2 bytes)
+		return 2
 	}
 	defer func() {
 		if r := recover(); r != nil {
 			size = fallback
 		}
 	}()
-	encAny, found := encoders.Load(t)
-	if found == false {
-		return fallback
-	}
-	enc, ok := encAny.(*encoder)
-	if ok == false {
+	v := reflect.New(t).Elem().Interface()
+	if v == nil {
 		return fallback
 	}
 	buf := lib.TakeBuffer()
 	defer lib.ReleaseBuffer(buf)
-	state := &stateEncode{options: Options{RegCache: &regCache}}
-	l := len(enc.Prefix)
-	if l > 1 && enc.Prefix[0] != edtReg {
-		pref := buf.Extend(3)
-		pref[0] = edtType
-		binary.BigEndian.PutUint16(pref[1:3], uint16(l))
-	}
-	buf.Append(enc.Prefix)
-	v := reflect.New(t).Elem()
-	if err := enc.Encode(v, buf, state); err != nil {
+	if err := Encode(v, buf, Options{RegCache: &regCache}); err != nil {
 		return fallback
 	}
 	return uint32(buf.Len())

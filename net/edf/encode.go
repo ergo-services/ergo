@@ -55,14 +55,7 @@ func Encode(x any, b *lib.Buffer, options Options) (ret error) {
 		}()
 	}
 
-	l := len(enc.Prefix)
-	if l > 1 && enc.Prefix[0] != edtReg {
-		buf := b.Extend(3)
-		buf[0] = edtType
-		binary.BigEndian.PutUint16(buf[1:3], uint16(l))
-	}
-
-	b.Append(enc.Prefix)
+	state.encodeType = true
 	return enc.Encode(xv, b, state)
 }
 
