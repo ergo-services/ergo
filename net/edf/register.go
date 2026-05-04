@@ -724,13 +724,67 @@ var (
 // Idempotent on duplicate; counter may leak (gaps in IDs).
 func registerInfo(t reflect.Type, kind, schema string) {
 	id := registerOrder.Add(1)
+	minSize, _ := measureZeroSize(t)
 	info := gen.RegisteredTypeInfo{
-		ID:     id,
-		Name:   regTypeName(t),
-		Kind:   kind,
-		Schema: schema,
+		ID:           id,
+		Name:         regTypeName(t),
+		Kind:         kind,
+		Schema:       schema,
+		MinSize:      minSize,
+		SizeVariable: hasVariableSize(t, make(map[reflect.Type]bool)),
 	}
 	registeredTypes.LoadOrStore(t, info)
+}
+
+// measureZeroSize encodes the zero-value of t through the registered encoder
+// as a top-level message (with type-tag prefix) and returns the byte length.
+// Returns (0, false) if encoding fails or the encoder is unavailable.
+func measureZeroSize(t reflect.Type) (size uint32, ok bool) {
+	encAny, found := encoders.Load(t)
+	if found == false {
+		return 0, false
+	}
+	enc, ok2 := encAny.(*encoder)
+	if ok2 == false {
+		return 0, false
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			size = 0
+			ok = false
+		}
+	}()
+	v := reflect.New(t).Elem()
+	buf := lib.TakeBuffer()
+	defer lib.ReleaseBuffer(buf)
+	state := &stateEncode{encodeType: true}
+	if err := enc.Encode(v, buf, state); err != nil {
+		return 0, false
+	}
+	return uint32(buf.Len()), true
+}
+
+// hasVariableSize reports whether t (recursively) contains any field whose
+// encoded size depends on the actual value (string, slice, map, pointer,
+// interface). Marshaler / BinaryMarshaler types are treated as variable.
+func hasVariableSize(t reflect.Type, visited map[reflect.Type]bool) bool {
+	if visited[t] {
+		return false
+	}
+	visited[t] = true
+	switch t.Kind() {
+	case reflect.String, reflect.Slice, reflect.Map, reflect.Pointer, reflect.Interface:
+		return true
+	case reflect.Array:
+		return hasVariableSize(t.Elem(), visited)
+	case reflect.Struct:
+		for i := 0; i < t.NumField(); i++ {
+			if hasVariableSize(t.Field(i).Type, visited) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func regEncoder(name string, enc encodeFunc) *encoder {
