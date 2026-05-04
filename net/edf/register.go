@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"reflect"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -15,6 +16,20 @@ import (
 	"ergo.services/ergo/gen"
 	"ergo.services/ergo/lib"
 )
+
+const deprecationDocsURL = "https://docs.ergo.services/networking/network-transparency"
+
+// deprecation emits the legacy-API warning unless the call comes from
+// framework-internal code (proxy in net/proto, edf init, registrar/handshake
+// pre-registration, node-level atom caching).
+func deprecation(name, replacement string) {
+	pc, _, _, _ := runtime.Caller(2)
+	if fn := runtime.FuncForPC(pc); fn != nil &&
+		strings.HasPrefix(fn.Name(), "ergo.services/ergo/") {
+		return
+	}
+	lib.EmitDeprecation(nil, name, replacement, deprecationDocsURL)
+}
 
 type decoder struct {
 	Type   reflect.Type
@@ -32,6 +47,7 @@ func regTypeName(t reflect.Type) string {
 }
 
 func RegisterTypeOf(v any) error {
+	deprecation("edf.RegisterTypeOf", "node.Network().RegisterType")
 	vov := reflect.ValueOf(v)
 	tov := vov.Type()
 
@@ -685,10 +701,12 @@ func registerType(tov reflect.Type) error {
 }
 
 func RegisterError(e error) error {
+	deprecation("edf.RegisterError", "node.Network().RegisterError")
 	return addErrCache(e)
 }
 
 func RegisterAtom(a gen.Atom) error {
+	deprecation("edf.RegisterAtom", "node.Network().RegisterAtom")
 	return addAtomCache(a)
 }
 
@@ -789,6 +807,7 @@ func RegisteredTypes() []gen.RegisteredTypeInfo {
 // types with unresolved dependencies are retried while progress is made.
 // Returns error listing types that cannot be resolved after exhausting passes.
 func RegisterTypesOf(types []any) error {
+	deprecation("edf.RegisterTypesOf", "node.Network().RegisterTypes")
 	pending := types
 	for len(pending) > 0 {
 		var next []any
