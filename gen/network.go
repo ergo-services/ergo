@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"reflect"
 )
 
 // Network interface provides distributed communication and node connectivity management.
@@ -148,6 +149,11 @@ type Network interface {
 	// RegisteredTypes aggregates entries from every TypeRegistry-capable proto.
 	// One Go type may appear once per proto; entries carry Proto field set.
 	RegisteredTypes() []RegisteredTypeInfo
+
+	// LookupType resolves a registered type name to its reflect.Type via the
+	// active wire-format protos. Returns the first match across protos.
+	// Accepts either the canonical name ("#pkgpath/Type") or a short name ("Type").
+	LookupType(name string) (reflect.Type, bool)
 }
 
 // TypeRegistry is implemented by NetworkProto implementations that have
@@ -160,6 +166,7 @@ type TypeRegistry interface {
 	RegisterError(e error) error
 	RegisterAtom(a Atom) error
 	RegisteredTypes() []RegisteredTypeInfo
+	LookupType(name string) (reflect.Type, bool)
 }
 
 // RemoteNode interface represents a connection to a remote Ergo node.

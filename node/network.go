@@ -627,6 +627,15 @@ func (n *network) RegisteredTypes() []gen.RegisteredTypeInfo {
 	return all
 }
 
+func (n *network) LookupType(name string) (reflect.Type, bool) {
+	for _, r := range n.typeRegistries() {
+		if t, ok := r.registry.LookupType(name); ok {
+			return t, true
+		}
+	}
+	return nil, false
+}
+
 //
 // internals
 //

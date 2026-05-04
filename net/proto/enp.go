@@ -2,6 +2,7 @@ package proto
 
 import (
 	"fmt"
+	"reflect"
 	"sync"
 	"time"
 
@@ -222,4 +223,8 @@ func (e *enp) RegisteredTypes() []gen.RegisteredTypeInfo {
 		list[i].Proto = ver
 	}
 	return list
+}
+
+func (e *enp) LookupType(name string) (reflect.Type, bool) {
+	return edf.LookupType(name)
 }

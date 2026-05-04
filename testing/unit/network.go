@@ -2,6 +2,7 @@ package unit
 
 import (
 	"fmt"
+	"reflect"
 	"regexp"
 	"sort"
 
@@ -358,12 +359,13 @@ func (n *TestNetwork) Mode() gen.NetworkMode {
 	return n.mode
 }
 
-func (n *TestNetwork) Protos() []gen.NetworkProto                { return nil }
-func (n *TestNetwork) RegisterType(v any) error                  { return nil }
-func (n *TestNetwork) RegisterTypes(types []any) error           { return nil }
-func (n *TestNetwork) RegisterError(e error) error               { return nil }
-func (n *TestNetwork) RegisterAtom(a gen.Atom) error             { return nil }
-func (n *TestNetwork) RegisteredTypes() []gen.RegisteredTypeInfo { return nil }
+func (n *TestNetwork) Protos() []gen.NetworkProto                  { return nil }
+func (n *TestNetwork) RegisterType(v any) error                    { return nil }
+func (n *TestNetwork) RegisterTypes(types []any) error             { return nil }
+func (n *TestNetwork) RegisterError(e error) error                 { return nil }
+func (n *TestNetwork) RegisterAtom(a gen.Atom) error               { return nil }
+func (n *TestNetwork) RegisteredTypes() []gen.RegisteredTypeInfo   { return nil }
+func (n *TestNetwork) LookupType(name string) (reflect.Type, bool) { return nil, false }
 
 // Helper method to set network mode (for testing)
 func (n *TestNetwork) SetMode(mode gen.NetworkMode) {
