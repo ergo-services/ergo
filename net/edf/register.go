@@ -714,59 +714,61 @@ var (
 	encoders sync.Map
 	decoders sync.Map
 
-	// registeredTypes: reflect.Type -> gen.RegisteredTypeInfo.
-	// registerOrder: monotonic counter; gaps possible on duplicate registration.
-	registeredTypes sync.Map
+	registeredTypes sync.Map // reflect.Type -> gen.RegisteredTypeInfo.
 	registerOrder   atomic.Uint64
 )
 
-// registerInfo records metadata for t under its wire-format name.
-// Idempotent on duplicate; counter may leak (gaps in IDs).
 func registerInfo(t reflect.Type, kind, schema string) {
-	id := registerOrder.Add(1)
-	minSize, _ := measureZeroSize(t)
+	custom := kind == "marshaler" || kind == "binarymarshaler"
+
 	info := gen.RegisteredTypeInfo{
-		ID:           id,
+		ID:           registerOrder.Add(1),
 		Name:         regTypeName(t),
 		Kind:         kind,
 		Schema:       schema,
-		MinSize:      minSize,
-		SizeVariable: hasVariableSize(t, make(map[reflect.Type]bool)),
+		MinSize:      measureZeroSize(t, kind),
+		SizeVariable: custom || hasVariableSize(t, make(map[reflect.Type]bool)),
 	}
+
 	registeredTypes.LoadOrStore(t, info)
 }
 
-// measureZeroSize encodes the zero-value of t through the registered encoder
-// as a top-level message (with type-tag prefix) and returns the byte length.
-// Returns (0, false) if encoding fails or the encoder is unavailable.
-func measureZeroSize(t reflect.Type) (size uint32, ok bool) {
-	encAny, found := encoders.Load(t)
-	if found == false {
-		return 0, false
-	}
-	enc, ok2 := encAny.(*encoder)
-	if ok2 == false {
-		return 0, false
+func measureZeroSize(t reflect.Type, kind string) (size uint32) {
+	var fallback uint32
+	if kind == "marshaler" || kind == "binarymarshaler" {
+		// 3 bytes cached type-tag + 4 bytes length prefix
+		fallback = 7
 	}
 	defer func() {
 		if r := recover(); r != nil {
-			size = 0
-			ok = false
+			size = fallback
 		}
 	}()
-	v := reflect.New(t).Elem()
+	encAny, found := encoders.Load(t)
+	if found == false {
+		return fallback
+	}
+	enc, ok := encAny.(*encoder)
+	if ok == false {
+		return fallback
+	}
 	buf := lib.TakeBuffer()
 	defer lib.ReleaseBuffer(buf)
-	state := &stateEncode{encodeType: true}
-	if err := enc.Encode(v, buf, state); err != nil {
-		return 0, false
+	state := &stateEncode{options: Options{RegCache: &regCache}}
+	l := len(enc.Prefix)
+	if l > 1 && enc.Prefix[0] != edtReg {
+		pref := buf.Extend(3)
+		pref[0] = edtType
+		binary.BigEndian.PutUint16(pref[1:3], uint16(l))
 	}
-	return uint32(buf.Len()), true
+	buf.Append(enc.Prefix)
+	v := reflect.New(t).Elem()
+	if err := enc.Encode(v, buf, state); err != nil {
+		return fallback
+	}
+	return uint32(buf.Len())
 }
 
-// hasVariableSize reports whether t (recursively) contains any field whose
-// encoded size depends on the actual value (string, slice, map, pointer,
-// interface). Marshaler / BinaryMarshaler types are treated as variable.
 func hasVariableSize(t reflect.Type, visited map[reflect.Type]bool) bool {
 	if visited[t] {
 		return false
