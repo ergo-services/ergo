@@ -211,12 +211,15 @@ type StatusRequest struct {
     Verbose bool
 }
 
-func init() {
-    edf.RegisterTypeOf(StatusRequest{})
+func (a *MyApp) Load(node gen.Node, args ...any) (gen.ApplicationSpec, error) {
+    if err := node.Network().RegisterType(StatusRequest{}); err != nil {
+        return gen.ApplicationSpec{}, err
+    }
+    return gen.ApplicationSpec{ /* ... */ }, nil
 }
 ```
 
-The agent discovers it with `message_types`, inspects its fields with `message_type_info`, and sends it with `call_process`. The process receives a real `StatusRequest{Verbose: true}` in its `HandleCall` - not a map or raw bytes.
+The agent discovers it with `message_types`, inspects its fields with `message_type_info`, and sends it with `call_process`. The process receives a real `StatusRequest{Verbose: true}` in its `HandleCall`, not a map or raw bytes.
 
 This makes interactive debugging possible: the agent can call any process with any registered request type, inspect the response, and reason about the behavior.
 

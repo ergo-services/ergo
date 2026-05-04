@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"math"
 	"reflect"
+	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -107,6 +109,7 @@ func RegisterTypeOf(v any) error {
 		decoders.Store(name, dec)
 		decoders.Store(tov, dec)
 		addRegCache(tov)
+		registerInfo(tov, "marshaler", schemaFor(tov))
 		return nil
 
 	case encoding.BinaryUnmarshaler:
@@ -165,6 +168,7 @@ func RegisterTypeOf(v any) error {
 		decoders.Store(name, dec)
 		decoders.Store(tov, dec)
 		addRegCache(tov)
+		registerInfo(tov, "binarymarshaler", schemaFor(tov))
 		return nil
 
 	}
@@ -191,6 +195,7 @@ func registerType(tov reflect.Type) error {
 		decoders.Store(name, dec)
 		decoders.Store(tov, dec)
 		addRegCache(tov)
+		registerInfo(tov, "bool", schemaFor(tov))
 		return nil
 
 	case reflect.Int:
@@ -199,6 +204,7 @@ func registerType(tov reflect.Type) error {
 		decoders.Store(name, dec)
 		decoders.Store(tov, dec)
 		addRegCache(tov)
+		registerInfo(tov, "int", schemaFor(tov))
 		return nil
 
 	case reflect.Int8:
@@ -207,6 +213,7 @@ func registerType(tov reflect.Type) error {
 		decoders.Store(name, dec)
 		decoders.Store(tov, dec)
 		addRegCache(tov)
+		registerInfo(tov, "int8", schemaFor(tov))
 		return nil
 
 	case reflect.Int16:
@@ -215,6 +222,7 @@ func registerType(tov reflect.Type) error {
 		decoders.Store(name, dec)
 		decoders.Store(tov, dec)
 		addRegCache(tov)
+		registerInfo(tov, "int16", schemaFor(tov))
 		return nil
 
 	case reflect.Int32:
@@ -223,6 +231,7 @@ func registerType(tov reflect.Type) error {
 		decoders.Store(name, dec)
 		decoders.Store(tov, dec)
 		addRegCache(tov)
+		registerInfo(tov, "int32", schemaFor(tov))
 		return nil
 
 	case reflect.Int64:
@@ -231,6 +240,7 @@ func registerType(tov reflect.Type) error {
 		decoders.Store(name, dec)
 		decoders.Store(tov, dec)
 		addRegCache(tov)
+		registerInfo(tov, "int64", schemaFor(tov))
 		return nil
 
 	case reflect.Uint:
@@ -239,6 +249,7 @@ func registerType(tov reflect.Type) error {
 		decoders.Store(name, dec)
 		decoders.Store(tov, dec)
 		addRegCache(tov)
+		registerInfo(tov, "uint", schemaFor(tov))
 		return nil
 
 	case reflect.Uint8:
@@ -247,6 +258,7 @@ func registerType(tov reflect.Type) error {
 		decoders.Store(name, dec)
 		decoders.Store(tov, dec)
 		addRegCache(tov)
+		registerInfo(tov, "uint8", schemaFor(tov))
 		return nil
 
 	case reflect.Uint16:
@@ -255,6 +267,7 @@ func registerType(tov reflect.Type) error {
 		decoders.Store(name, dec)
 		decoders.Store(tov, dec)
 		addRegCache(tov)
+		registerInfo(tov, "uint16", schemaFor(tov))
 		return nil
 
 	case reflect.Uint32:
@@ -263,6 +276,7 @@ func registerType(tov reflect.Type) error {
 		decoders.Store(name, dec)
 		decoders.Store(tov, dec)
 		addRegCache(tov)
+		registerInfo(tov, "uint32", schemaFor(tov))
 		return nil
 
 	case reflect.Uint64:
@@ -271,6 +285,7 @@ func registerType(tov reflect.Type) error {
 		decoders.Store(name, dec)
 		decoders.Store(tov, dec)
 		addRegCache(tov)
+		registerInfo(tov, "uint64", schemaFor(tov))
 		return nil
 
 	case reflect.Float32:
@@ -279,6 +294,7 @@ func registerType(tov reflect.Type) error {
 		decoders.Store(name, dec)
 		decoders.Store(tov, dec)
 		addRegCache(tov)
+		registerInfo(tov, "float32", schemaFor(tov))
 		return nil
 
 	case reflect.Float64:
@@ -287,6 +303,7 @@ func registerType(tov reflect.Type) error {
 		decoders.Store(name, dec)
 		decoders.Store(tov, dec)
 		addRegCache(tov)
+		registerInfo(tov, "float64", schemaFor(tov))
 		return nil
 
 	case reflect.String:
@@ -295,6 +312,7 @@ func registerType(tov reflect.Type) error {
 		decoders.Store(name, dec)
 		decoders.Store(tov, dec)
 		addRegCache(tov)
+		registerInfo(tov, "string", schemaFor(tov))
 		return nil
 
 	case reflect.Struct:
@@ -362,6 +380,7 @@ func registerType(tov reflect.Type) error {
 		}
 		decoders.Store(name, &decoder{tov, fdec})
 		addRegCache(tov)
+		registerInfo(tov, "struct", schemaFor(tov))
 
 		return nil
 
@@ -463,6 +482,7 @@ func registerType(tov reflect.Type) error {
 		}
 		decoders.Store(name, &decoder{tov, fdec})
 		addRegCache(tov)
+		registerInfo(tov, "slice", schemaFor(tov))
 
 	case reflect.Array:
 		itemType := tov.Elem()
@@ -527,6 +547,7 @@ func registerType(tov reflect.Type) error {
 		}
 		decoders.Store(name, &decoder{tov, fdec})
 		addRegCache(tov)
+		registerInfo(tov, "array", schemaFor(tov))
 
 	case reflect.Map:
 		typeKey := tov.Key()
@@ -654,6 +675,7 @@ func registerType(tov reflect.Type) error {
 		}
 		decoders.Store(name, &decoder{tov, fdec})
 		addRegCache(tov)
+		registerInfo(tov, "map", schemaFor(tov))
 
 	default:
 		return fmt.Errorf("type %v is not supported", tov)
@@ -673,7 +695,25 @@ func RegisterAtom(a gen.Atom) error {
 var (
 	encoders sync.Map
 	decoders sync.Map
+
+	// registeredTypes: reflect.Type -> gen.RegisteredTypeInfo.
+	// registerOrder: monotonic counter; gaps possible on duplicate registration.
+	registeredTypes sync.Map
+	registerOrder   atomic.Uint64
 )
+
+// registerInfo records metadata for t under its wire-format name.
+// Idempotent on duplicate; counter may leak (gaps in IDs).
+func registerInfo(t reflect.Type, kind, schema string) {
+	id := registerOrder.Add(1)
+	info := gen.RegisteredTypeInfo{
+		ID:     id,
+		Name:   regTypeName(t),
+		Kind:   kind,
+		Schema: schema,
+	}
+	registeredTypes.LoadOrStore(t, info)
+}
 
 func regEncoder(name string, enc encodeFunc) *encoder {
 	l := uint16(len(name))
@@ -732,22 +772,45 @@ func addRegCache(t reflect.Type) error {
 	return nil
 }
 
-// RegisteredTypes returns all registered types as a map of
-// type name (format: "#pkgpath/TypeName") to reflect.Type.
-// This allows external tools (like MCP server) to discover and
-// construct registered message types via reflection.
-func RegisteredTypes() map[string]reflect.Type {
-	result := make(map[string]reflect.Type)
-	decoders.Range(func(k, v any) bool {
-		name, ok := k.(string)
-		if ok == false {
-			return true
-		}
-		dec := v.(*decoder)
-		result[name] = dec.Type
+// RegisteredTypes returns all registered EDF type metadata in registration order.
+func RegisteredTypes() []gen.RegisteredTypeInfo {
+	var list []gen.RegisteredTypeInfo
+	registeredTypes.Range(func(_, v any) bool {
+		list = append(list, v.(gen.RegisteredTypeInfo))
 		return true
 	})
-	return result
+	sort.Slice(list, func(i, j int) bool {
+		return list[i].ID < list[j].ID
+	})
+	return list
+}
+
+// RegisterTypesOf registers a batch with iterative resolve. Order-agnostic:
+// types with unresolved dependencies are retried while progress is made.
+// Returns error listing types that cannot be resolved after exhausting passes.
+func RegisterTypesOf(types []any) error {
+	pending := types
+	for len(pending) > 0 {
+		var next []any
+		progress := false
+		for _, t := range pending {
+			err := RegisterTypeOf(t)
+			if err == nil || err == gen.ErrTaken {
+				progress = true
+				continue
+			}
+			next = append(next, t)
+		}
+		if progress == false && len(next) > 0 {
+			names := make([]string, 0, len(next))
+			for _, t := range next {
+				names = append(names, fmt.Sprintf("%T", t))
+			}
+			return fmt.Errorf("unresolvable types: %s", strings.Join(names, ", "))
+		}
+		pending = next
+	}
+	return nil
 }
 
 // LookupType returns the reflect.Type for a registered type by name.

@@ -74,7 +74,11 @@ All loaded applications with state (loaded, running, stopping), mode, uptime, an
 
 ### Network
 
-Network stack details: mode, acceptors, protocol and handshake versions, registrar. Connections tab lists all active remote node connections with traffic counters.
+Network stack details: mode, acceptors, protocol and handshake versions, registrar. Below the top stat cards and acceptors, three tabs are available:
+
+* **Connections** lists all active remote node connections with traffic counters and sortable columns.
+* **Routes** shows configured static routes and proxy routes.
+* **Types** shows the wire-format type registry (one entry per proto): registration ID, name, kind, and the inferred schema. Two filters narrow the list by name and by schema content. The data is captured on demand via the Refresh button.
 
 ### Events
 

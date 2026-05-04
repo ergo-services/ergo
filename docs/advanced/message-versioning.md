@@ -43,23 +43,22 @@ func (a *Actor) HandleMessage(from gen.PID, message any) error {
 }
 ```
 
-All message types must be registered with EDF before connection establishment:
+All message types must be registered with the network stack before connection establishment. Register them from your application's `Load(node)` callback:
 
 ```go
-func init() {
-    types := []any{
+func (a *MyApp) Load(node gen.Node, args ...any) (gen.ApplicationSpec, error) {
+    err := node.Network().RegisterTypes([]any{
         OrderCreatedV1{},
         OrderCreatedV2{},
+    })
+    if err != nil {
+        return gen.ApplicationSpec{}, err
     }
-    for _, t := range types {
-        if err := edf.RegisterTypeOf(t); err != nil && err != gen.ErrTaken {
-            panic(err)
-        }
-    }
+    return gen.ApplicationSpec{ /* ... */ }, nil
 }
 ```
 
-For details on EDF and type registration, see [Network Transparency](../networking/network-transparency.md).
+For details on the type registry and the legacy `edf.RegisterTypeOf` API, see [Network Transparency](../networking/network-transparency.md).
 
 ## Versioning Strategies
 
@@ -352,45 +351,41 @@ company.com/
 
 ### Registration Helper
 
-All message types must be registered with EDF before connection establishment - during handshake, nodes exchange their registered type lists which become the encoding dictionaries. Registration typically happens in `init()` functions before node startup. There are two approaches: centralized registration in the shared module or manual registration in each client.
+All message types must be registered with the network stack before connection establishment. During handshake, nodes exchange their registered type lists which become the encoding dictionaries. Registration happens from an application's `Load(node)` callback, which runs after the network stack is initialized but before any traffic. There are two approaches: a centralized helper exported by the shared module, or manual registration per client.
 
-**Centralized registration** uses `init()` to register all types when the package is imported:
+**Centralized helper** exposes a single function that the consumer's application calls from `Load`:
 
 ```go
 // events/register.go
 package events
 
-import (
-    "ergo.services/ergo/gen"
-    "ergo.services/ergo/net/edf"
-)
+import "ergo.services/ergo/gen"
 
-func init() {
-    types := []any{
+func RegisterTypes(network gen.Network) error {
+    return network.RegisterTypes([]any{
         OrderCreatedV1{},
         OrderCreatedV2{},
         PaymentReceivedV1{},
-    }
-    for _, t := range types {
-        if err := edf.RegisterTypeOf(t); err != nil && err != gen.ErrTaken {
-            panic(err)
-        }
-    }
+    })
 }
 ```
 
-When clients import the package to use message types, `init()` runs automatically at program startup and registers all types:
+Each consumer calls it from its application:
 
 ```go
 import "company.com/events"
 
-// Using events.OrderCreatedV1 means the package is imported,
-// init() has already run, types are registered
+func (a *OrderService) Load(node gen.Node, args ...any) (gen.ApplicationSpec, error) {
+    if err := events.RegisterTypes(node.Network()); err != nil {
+        return gen.ApplicationSpec{}, err
+    }
+    return gen.ApplicationSpec{ /* ... */ }, nil
+}
 ```
 
-No risk of forgetting a type.
+The shared `events` module owns the canonical list of types. Consumers register them all without having to enumerate each type, so there is no risk of forgetting one. `RegisterTypes` accepts a slice in any order and resolves nested-type dependencies internally.
 
-**Manual registration** means each client registers only the types it uses. This gives more control but introduces risk: a missing registration is only detected at runtime - `"no encoder for type"` when sending, `"unknown reg type for decoding"` when receiving. For most projects, centralized registration is simpler and safer. Choose based on your needs.
+**Manual registration** means each client registers only the types it uses. This gives more control but introduces risk: a missing registration is only detected at runtime, surfacing as `"no encoder for type"` when sending or `"unknown reg type for decoding"` when receiving. For most projects, centralized registration is simpler and safer. Choose based on your needs.
 
 For message isolation patterns within a single codebase, see [Project Structure](../basics/project-structure.md).
 
@@ -635,11 +630,11 @@ type OrderV2 struct {
 **Forgetting to register new types**
 
 ```go
-// Type exists but not registered - encoding fails at runtime
+// Type exists but not registered. Encoding fails at runtime.
 type OrderV3 struct { ... }
 
-// Must register before node starts
-edf.RegisterTypeOf(OrderV3{})
+// Register from your application's Load callback before any traffic.
+node.Network().RegisterType(OrderV3{})
 ```
 
 **Long coexistence periods**
@@ -648,7 +643,7 @@ Supporting V1 for months creates maintenance burden. Set clear deprecation deadl
 
 **Registering after connection established**
 
-Types must be registered before node starts. Dynamic registration requires connection cycling.
+Types must be registered before connections are formed. Dynamic registration requires connection cycling.
 
 ## Summary
 

@@ -269,7 +269,8 @@ package types
 
 import (
     "time"
-    "ergo.services/ergo/net/edf"
+
+    "ergo.services/ergo/gen"
 )
 
 // Events published by the orders application
@@ -285,14 +286,16 @@ type OrderCompleted struct {
     CompletedAt time.Time
 }
 
-func init() {
-    // Register for network serialization
-    edf.RegisterTypeOf(OrderCreated{})
-    edf.RegisterTypeOf(OrderCompleted{})
+// Helper that consumers call from their application's Load() callback.
+func RegisterTypes(network gen.Network) error {
+    return network.RegisterTypes([]any{
+        OrderCreated{},
+        OrderCompleted{},
+    })
 }
 ```
 
-Both `apps/orders` and `apps/shipping` can import `types` without importing each other. This breaks the circular dependency while maintaining strong typing.
+Both `apps/orders` and `apps/shipping` can import `types` and call `types.RegisterTypes(node.Network())` from their `Load(node)` callbacks. This breaks the circular dependency while maintaining strong typing.
 
 ### Shared Libraries (`lib/`)
 
@@ -476,8 +479,6 @@ Messages that form public contracts between applications across the cluster.
 // types/commands.go
 package types
 
-import "ergo.services/ergo/net/edf"
-
 // EXPORTED type, EXPORTED fields
 // CAN be referenced by any package
 // CAN be serialized
@@ -493,10 +494,29 @@ type TaskResult struct {
     Output []byte
     Error  string
 }
+```
 
-func init() {
-    edf.RegisterTypeOf(ProcessTask{})
-    edf.RegisterTypeOf(TaskResult{})
+Each consuming application registers the shared types from its `Load` callback:
+
+```go
+// apps/worker/app.go
+package worker
+
+import (
+    "ergo.services/ergo/gen"
+
+    "myapp/types"
+)
+
+func (a *Worker) Load(node gen.Node, args ...any) (gen.ApplicationSpec, error) {
+    err := node.Network().RegisterTypes([]any{
+        types.ProcessTask{},
+        types.TaskResult{},
+    })
+    if err != nil {
+        return gen.ApplicationSpec{}, err
+    }
+    return gen.ApplicationSpec{ /* ... */ }, nil
 }
 ```
 

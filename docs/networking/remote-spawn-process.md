@@ -222,7 +222,7 @@ node, err := ergo.StartNode("myapp@localhost", gen.NodeOptions{
 
 Now when you use `process.RemoteSpawn`, the remote process receives a copy of the calling process's environment. The remote node reads these values and sets them on the spawned process.
 
-**Important:** Environment variable values must be EDF-serializable. Strings, numbers, booleans work fine. Custom types require registration via `edf.RegisterTypeOf`. If an environment variable contains a non-serializable value (e.g., a channel, function, or unregistered struct), the remote spawn fails entirely with an error like `"no encoder for type <type>"`. The framework doesn't skip problematic variables - any non-serializable value causes the entire spawn request to fail.
+**Important:** Environment variable values must be EDF-serializable. Strings, numbers, booleans work fine. Custom types require registration via `node.Network().RegisterType` (see [Network Transparency](network-transparency.md) for details on the type registry; the legacy `edf.RegisterTypeOf` still works but is deprecated). If an environment variable contains a non-serializable value (e.g., a channel, function, or unregistered struct), the remote spawn fails entirely with an error like `"no encoder for type <type>"`. The framework doesn't skip problematic variables: any non-serializable value causes the entire spawn request to fail.
 
 Environment inheritance only works with `process.RemoteSpawn`. Using `RemoteNode.Spawn` doesn't inherit environment because there's no calling process - it's a node-level operation.
 

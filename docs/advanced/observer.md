@@ -127,9 +127,13 @@ The top section displays network configuration: mode, max message size, handshak
 
 The acceptors section lists network listeners with their addresses, TLS configuration, and per-acceptor flags.
 
-Four real-time charts show aggregate traffic across all connections: messages per second (in/out), bytes per second (in/out), compression operations per second (sent/received), and fragmentation operations per second (sent/received).
+Below the acceptors, the page splits into three tabs.
 
-A connection list table with its own scope controls shows all connections with delta indicators for message and byte counts. Click a row to open a floating window with detailed connection statistics.
+The **Connections** tab is the default view. Four real-time charts show aggregate traffic across all connections: messages per second (in/out), bytes per second (in/out), compression operations per second (sent/received), and fragmentation operations per second (sent/received). A connection list table with its own scope controls shows all connections with delta indicators for message and byte counts. Click a row to open a floating window with detailed connection statistics.
+
+The **Routes** tab shows configured static routes and proxy routes side by side. Static routes are user-defined patterns that tell the node where to dial when a name matches; proxy routes describe how to reach nodes via an intermediate proxy.
+
+The **Types** tab is a one-shot view of the wire-format type registry. Each row shows registration ID, owning proto (the protocol version that registered the type), kind, and canonical name. Click a row to expand its inferred schema (Go-syntax shape, multi-line for structs). Two filters at the top of the panel narrow the list by name and by schema content (useful for finding all types containing a specific field). The Refresh button re-fetches the registry; the panel does not subscribe to live updates because the registry rarely changes after node startup.
 
 The cluster nodes section shows all nodes known through the registrar or active connections, giving you a picture of the cluster topology.
 

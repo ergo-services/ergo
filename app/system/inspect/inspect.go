@@ -89,6 +89,49 @@ func Factory() gen.ProcessBehavior {
 	return &inspectPool{}
 }
 
+// RegisterTypes registers all inspector wire-format types with the given network.
+// Called by the system application during Load, after the network stack is up.
+func RegisterTypes(network gen.Network) error {
+	types := []any{
+		RequestInspectNode{}, ResponseInspectNode{}, MessageInspectNode{},
+		RequestInspectNetwork{}, ResponseInspectNetwork{}, MessageInspectNetwork{},
+		RequestInspectConnection{}, ResponseInspectConnection{}, MessageInspectConnection{},
+		RequestInspectConnectionList{}, ResponseInspectConnectionList{}, MessageInspectConnectionList{},
+		RequestInspectProcessList{}, ResponseInspectProcessList{}, MessageInspectProcessList{},
+		RequestInspectProcessRange{}, ResponseInspectProcessRange{},
+		RequestInspectEventList{}, ResponseInspectEventList{}, MessageInspectEventList{},
+		RequestInspectLog{}, ResponseInspectLog{}, InspectLogEntry{}, MessageInspectLog{},
+		RequestInspectProcess{}, ResponseInspectProcess{}, MessageInspectProcess{},
+		RequestInspectProcessState{}, ResponseInspectProcessState{}, MessageInspectProcessState{},
+		RequestInspectMeta{}, ResponseInspectMeta{}, MessageInspectMeta{},
+		RequestInspectMetaState{}, ResponseInspectMetaState{}, MessageInspectMetaState{},
+		RequestInspectApplicationList{}, ResponseInspectApplicationList{}, MessageInspectApplicationList{},
+		RequestInspectApplicationTree{}, ResponseInspectApplicationTree{}, MessageInspectApplicationTree{},
+		RequestInspectHeap{}, ResponseInspectHeap{}, MessageInspectHeap{},
+		RequestInspectTracing{}, ResponseInspectTracing{}, MessageInspectTracing{},
+
+		RequestDoSend{}, ResponseDoSend{},
+		RequestDoSendMeta{}, ResponseDoSendMeta{},
+		RequestDoSendExit{}, ResponseDoSendExit{},
+		RequestDoSendExitMeta{}, ResponseDoSendExitMeta{},
+		RequestDoKill{}, ResponseDoKill{},
+		RequestDoSetLogLevel{}, RequestDoSetProcessLogLevel{}, RequestDoSetMetaLogLevel{}, ResponseDoSetLogLevel{},
+		RequestDoSetProcessSendPriority{}, RequestDoSetProcessCompression{},
+		RequestDoSetProcessCompressionType{}, RequestDoSetProcessCompressionLevel{},
+		RequestDoSetProcessCompressionThreshold{}, RequestDoSetProcessKeepNetworkOrder{},
+		RequestDoSetProcessImportantDelivery{}, RequestDoSetMetaSendPriority{}, ResponseDoSet{},
+		RequestDoSetNodeTracingSampler{}, RequestDoSetProcessTracingSampler{},
+		RequestDoAppStart{}, ResponseDoAppStart{},
+		RequestDoAppStop{}, ResponseDoAppStop{},
+		RequestDoAppUnload{}, ResponseDoAppUnload{},
+		RequestDoInspect{}, ResponseDoInspect{},
+		RequestDoGoroutines{}, GoroutineGroup{}, ResponseDoGoroutines{},
+		RequestDoHeapProfile{}, HeapRecord{}, ResponseDoHeapProfile{},
+		RequestDoTypes{}, ResponseDoTypes{},
+	}
+	return network.RegisterTypes(types)
+}
+
 func workerFactory() gen.ProcessBehavior {
 	return &inspect{}
 }
@@ -577,6 +620,9 @@ func (i *inspect) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error
 
 	case RequestDoHeapProfile:
 		return captureHeapProfile(r), nil
+
+	case RequestDoTypes:
+		return ResponseDoTypes{Types: i.Node().Network().RegisteredTypes()}, nil
 	}
 
 	i.Log().Error("unsupported request: %#v", request)

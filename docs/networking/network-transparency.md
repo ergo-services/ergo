@@ -156,8 +156,11 @@ type Order struct {
     Items []string
 }
 
-func init() {
-    edf.RegisterTypeOf(Order{})  // Analyzed once, functions built
+func (a *MyApp) Load(node gen.Node, args ...any) (gen.ApplicationSpec, error) {
+    if err := node.Network().RegisterType(Order{}); err != nil {
+        return gen.ApplicationSpec{}, err
+    }
+    return gen.ApplicationSpec{ /* ... */ }, nil
 }
 
 // Later, during message sending:
@@ -166,7 +169,7 @@ process.Send(to, Order{ID: 42, Items: []string{"item1"}})  // Uses pre-built enc
 
 This approach delivers Protocol Buffers-class performance without `.proto` files or `protoc` code generation.
 
-Registration happens at runtime - no build step, no generated files. You call `edf.RegisterTypeOf()` in your `init()` function, and EDF builds the optimized encoders. Framework types like `gen.PID`, `gen.Ref`, and `gen.Event` have native support with specialized encodings. During node handshake, both sides exchange their registered type lists and negotiate short numeric IDs, turning a full type name into 3 bytes on the wire. Field names aren't encoded - only field values in declaration order.
+Registration happens at runtime - no build step, no generated files. You call `node.Network().RegisterType()` from your application's `Load()` callback, and the framework builds the optimized encoders. Framework types like `gen.PID`, `gen.Ref`, and `gen.Event` have native support with specialized encodings. During node handshake, both sides exchange their registered type lists and negotiate short numeric IDs, turning a full type name into 3 bytes on the wire. Field names aren't encoded - only field values in declaration order.
 
 Performance benchmarks (see `benchmarks/serial/`) show encoding is 50-100% faster than Protocol Buffers, while decoding is 20-60% slower. The encoding advantage comes from the specialized functions built during registration.
 
@@ -201,9 +204,9 @@ These limits are enforced during encoding. If you attempt to encode a 70,000 byt
 
 ## Type Registration Requirements
 
-For custom types to cross the network, both sending and receiving nodes must register them. Registration tells EDF how to encode and decode the type, and creates a numeric ID that's shared during handshake for efficient encoding.
+For custom types to cross the network, both sending and receiving nodes must register them. Registration tells the active wire-format proto how to encode and decode the type, and creates a numeric ID that's shared during handshake for efficient encoding.
 
-Register types during initialization:
+Register types from your application's `Load()` callback:
 
 ```go
 type Order struct {
@@ -211,10 +214,33 @@ type Order struct {
     Items []string
 }
 
-func init() {
-    edf.RegisterTypeOf(Order{})
+func (a *MyApp) Load(node gen.Node, args ...any) (gen.ApplicationSpec, error) {
+    if err := node.Network().RegisterType(Order{}); err != nil {
+        return gen.ApplicationSpec{}, err
+    }
+    return gen.ApplicationSpec{ /* ... */ }, nil
 }
 ```
+
+`Network().RegisterType` distributes registration across every active wire-format proto (e.g., the default ENP/EDF stack). If your node has multiple wire-format protocols configured (for example, a legacy ENP and a newer one running side by side), one call registers in all of them. The call fails if any proto rejects the type. Wire-format consistency is enforced strictly to prevent silent split-brain registries.
+
+For batch registration of multiple types, use `RegisterTypes` (see the **Nested types** subsection below for the dependency-resolution behavior):
+
+```go
+func (a *MyApp) Load(node gen.Node, args ...any) (gen.ApplicationSpec, error) {
+    err := node.Network().RegisterTypes([]any{
+        Order{},
+        Customer{},
+        Address{},
+    })
+    if err != nil {
+        return gen.ApplicationSpec{}, err
+    }
+    return gen.ApplicationSpec{ /* ... */ }, nil
+}
+```
+
+`RegisterTypes` resolves inter-type dependencies internally. You can list types in any order, and the framework figures out the correct registration sequence.
 
 ### Registration Requirements
 
@@ -241,7 +267,7 @@ type Order struct {
 
 Note that pointers to external resources like `*Database` or `*Connection` are meaningless to a remote actor - it cannot dereference your memory address. Use pointers for optional value semantics, not for sharing local resources. For distributed references, use framework types: `gen.PID`, `gen.Alias`, `gen.Ref`.
 
-**Nested types must be registered first** - If your type contains other custom types, register the inner types before the outer type:
+**Nested types** - If your type contains other custom types, the inner types must be registered before the outer type. Use `RegisterTypes` (batch) which resolves dependency order automatically:
 
 ```go
 type Address struct {
@@ -254,13 +280,18 @@ type Person struct {
     Address Address
 }
 
-func init() {
-    edf.RegisterTypeOf(Address{})  // register child first
-    edf.RegisterTypeOf(Person{})   // then parent
+func (a *MyApp) Load(node gen.Node, args ...any) (gen.ApplicationSpec, error) {
+    // Order in the slice doesn't matter. The framework registers
+    // inner types first and retries until everything resolves.
+    err := node.Network().RegisterTypes([]any{Person{}, Address{}})
+    if err != nil {
+        return gen.ApplicationSpec{}, err
+    }
+    return gen.ApplicationSpec{ /* ... */ }, nil
 }
 ```
 
-The order matters because registration builds the encoding schema by examining fields. When registering `Person`, EDF sees the `Address` field. If `Address` isn't registered yet, registration fails with `"type Address must be registered first"`. If `Address` is already registered, EDF references its schema, creating an efficient nested encoding.
+If you call `RegisterType` (singular) on `Person` before `Address`, registration fails with `"type Address must be registered first"`. With `RegisterTypes`, the framework iteratively retries pending types whose dependencies become available. Only types that genuinely cannot be resolved produce an error. Registration builds the encoding schema by examining fields; once `Address` is registered, registering `Person` references its schema for efficient nested encoding.
 
 ### Custom Marshaling for Special Cases
 
@@ -320,9 +351,14 @@ var (
     ErrOutOfStock   = errors.New("out of stock")
 )
 
-func init() {
-    edf.RegisterError(ErrInvalidOrder)
-    edf.RegisterError(ErrOutOfStock)
+func (a *MyApp) Load(node gen.Node, args ...any) (gen.ApplicationSpec, error) {
+    if err := node.Network().RegisterError(ErrInvalidOrder); err != nil {
+        return gen.ApplicationSpec{}, err
+    }
+    if err := node.Network().RegisterError(ErrOutOfStock); err != nil {
+        return gen.ApplicationSpec{}, err
+    }
+    return gen.ApplicationSpec{ /* ... */ }, nil
 }
 ```
 
@@ -336,17 +372,32 @@ Type registration must happen before connection establishment. During handshake,
 
 If you register a type after a connection is established, that type isn't in the dictionary. Attempting to send a value of that type fails - the encoder can't find it in the shared schema. The only way to use the newly registered type is to disconnect and reconnect, forcing a new handshake that includes the type.
 
-This is why registration typically happens in `init()` functions. The registration runs before `main()`, which runs before node startup, which runs before any connections are established. By the time connections form, all types are registered.
+The recommended place to register types is the application's `Load(node)` callback. Applications are loaded after the network stack is initialized but before any outgoing or incoming traffic, so all types end up in the handshake dictionaries. An application owns its message types and registers them itself, keeping registration co-located with the code that defines the types.
 
 For dynamic type registration (registering types based on runtime configuration or plugin loading), you have limited options:
 
-**Register before node start** - Load your configuration, determine which types you need, register them all, then start the node. This works but requires knowing all types upfront.
+**Register before any traffic** - Load your configuration, determine which types you need, register them in your application's `Load()` callback. This works but requires knowing all types upfront for the application.
 
-**Coordinate reconnection** - Register the new type, disconnect existing connections to nodes that need the type, wait for reconnection with new handshake. This is complex and causes temporary communication loss.
+**Coordinate reconnection** - Register the new type via `node.Network().RegisterType`, disconnect existing connections to nodes that need the type, wait for reconnection with new handshake. This is complex and causes temporary communication loss.
 
 **Use custom marshaling** - Implement `edf.Marshaler`/`Unmarshaler` or `encoding.BinaryMarshaler`/`Unmarshaler`. These don't require pre-registration - they work immediately. The tradeoff is you write the encoding logic yourself.
 
-Most applications register types statically in `init()` and avoid these complications.
+Most applications register types statically from `Load()` and avoid these complications.
+
+## Legacy Registration API
+
+Earlier versions of the framework exposed registration as package-level functions on `ergo.services/ergo/net/edf`:
+
+```go
+// Deprecated. Use node.Network().RegisterType / RegisterError / RegisterAtom instead.
+edf.RegisterTypeOf(Order{})
+edf.RegisterError(ErrInvalidOrder)
+edf.RegisterAtom("my_atom")
+```
+
+These functions remain for backward compatibility but are **deprecated**. They write directly into the EDF package state, bypassing the `gen.Network` abstraction. In a multi-proto setup (more than one wire-format proto registered on the node), they only register in EDF, and other protos won't see the type. The new `Network` API distributes registration to every active wire-format proto strictly.
+
+Prefer `node.Network().RegisterType` / `RegisterTypes` / `RegisterError` / `RegisterAtom` from your application's `Load()` callback. The legacy package-level functions emit a one-time deprecation warning when called from user code.
 
 ## Compression
 
@@ -547,6 +598,6 @@ Understanding network transparency helps you design better distributed systems.
 
 **Leverage compression** - Enable compression for processes that send large messages. The CPU cost of compression is usually worth the network bandwidth savings. But don't compress tiny messages - the overhead exceeds the benefit.
 
-**Register types early** - Do all type registration in `init()` functions before the node starts. Avoid dynamic type registration that requires connection cycling. Static registration is simpler and more reliable.
+**Register types early** - Do all type registration from your application's `Load(node)` callback so types are in the registry before any traffic. Avoid dynamic type registration that requires connection cycling. Static registration is simpler and more reliable.
 
 For details on how the network stack implements transparency, see [Network Stack](network-stack.md). For understanding how nodes discover each other, see [Service Discovery](service-discovering.md).

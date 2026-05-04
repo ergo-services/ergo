@@ -207,3 +207,19 @@ func (e *enp) Version() gen.Version {
 		License: gen.LicenseMIT,
 	}
 }
+
+// gen.TypeRegistry implementation (wire-format type registry on top of edf).
+
+func (e *enp) RegisterType(v any) error        { return edf.RegisterTypeOf(v) }
+func (e *enp) RegisterTypes(types []any) error { return edf.RegisterTypesOf(types) }
+func (e *enp) RegisterError(err error) error   { return edf.RegisterError(err) }
+func (e *enp) RegisterAtom(a gen.Atom) error   { return edf.RegisterAtom(a) }
+
+func (e *enp) RegisteredTypes() []gen.RegisteredTypeInfo {
+	list := edf.RegisteredTypes()
+	ver := e.Version().Str()
+	for i := range list {
+		list[i].Proto = ver
+	}
+	return list
+}

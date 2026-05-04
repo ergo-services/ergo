@@ -33,6 +33,8 @@ To use this package, include `ergo.services/proto/erlang23/handshake`.
 
 The `ergo.services/proto/erlang/dist` package implements the `gen.NetworkProto` and `gen.Connection` interfaces. To create it, use the `dist.Create` function and provide `dist.Options` as an argument, where you can specify the `FragmentationUnit` size in bytes. This value is used for fragmenting large messages. The default size is set to `65000` bytes.
 
+The Erlang DIST proto deliberately does **not** implement `gen.TypeRegistry`, because the Erlang external term format (ETF) carries primitives, atoms, lists, tuples, and binaries directly on the wire without a separate type-registration step. In a multi-proto setup, calls to `node.Network().RegisterType` skip the Erlang proto and register only in TypeRegistry-capable protos like the default ENP/EDF stack. Use `etf.RegisterTypeOf` (described below) to teach the Erlang decoder how to map incoming tuples or atoms to your Go types.
+
 To use this package, include `ergo.services/proto/erlang/dist`.&#x20;
 
 ### ETF data format&#x20;

@@ -123,6 +123,43 @@ type Network interface {
 
 	// Mode returns the current network mode (Enabled, Hidden, or Disabled).
 	Mode() NetworkMode
+
+	// Protos returns all registered network protocols.
+	Protos() []NetworkProto
+
+	// RegisterType registers a Go type with every proto that implements TypeRegistry.
+	// Strict: returns error if any TypeRegistry-capable proto fails.
+	// Returns ErrUnsupported if no proto implements TypeRegistry.
+	RegisterType(v any) error
+
+	// RegisterTypes registers multiple types as a batch. Each proto resolves
+	// inter-type dependencies internally; order of input is irrelevant.
+	// Strict aggregation: any per-proto failure fails the call.
+	RegisterTypes(types []any) error
+
+	// RegisterError registers a sentinel error for wire transport.
+	// Strict aggregation across TypeRegistry-capable protos.
+	RegisterError(e error) error
+
+	// RegisterAtom registers an atom for the wire-format atom cache.
+	// Strict aggregation across TypeRegistry-capable protos.
+	RegisterAtom(a Atom) error
+
+	// RegisteredTypes aggregates entries from every TypeRegistry-capable proto.
+	// One Go type may appear once per proto; entries carry Proto field set.
+	RegisteredTypes() []RegisteredTypeInfo
+}
+
+// TypeRegistry is implemented by NetworkProto implementations that have
+// a wire-format type registry (e.g., EDF). Implementations using a
+// schemaless / fixed wire format (e.g., Erlang external term) need not
+// implement this interface.
+type TypeRegistry interface {
+	RegisterType(v any) error
+	RegisterTypes(types []any) error
+	RegisterError(e error) error
+	RegisterAtom(a Atom) error
+	RegisteredTypes() []RegisteredTypeInfo
 }
 
 // RemoteNode interface represents a connection to a remote Ergo node.

@@ -5,7 +5,6 @@ import (
 	"reflect"
 	"time"
 
-	"ergo.services/ergo/app/system/inspect"
 	"ergo.services/ergo/gen"
 )
 
@@ -71,127 +70,12 @@ var (
 		gen.MessageEventStart{},
 		gen.MessageEventStop{},
 
-		// inspector messages
-
-		inspect.RequestInspectNode{},
-		inspect.ResponseInspectNode{},
-		inspect.MessageInspectNode{},
-
-		inspect.RequestInspectNetwork{},
-		inspect.ResponseInspectNetwork{},
-		inspect.MessageInspectNetwork{},
-
-		inspect.RequestInspectConnection{},
-		inspect.ResponseInspectConnection{},
-		inspect.MessageInspectConnection{},
-
-		inspect.RequestInspectProcessList{},
-		inspect.ResponseInspectProcessList{},
-		inspect.MessageInspectProcessList{},
-
-		inspect.RequestInspectProcessRange{},
-		inspect.ResponseInspectProcessRange{},
-
-		inspect.RequestInspectEventList{},
-		inspect.ResponseInspectEventList{},
-		inspect.MessageInspectEventList{},
-
-		inspect.RequestInspectLog{},
-		inspect.ResponseInspectLog{},
-		inspect.InspectLogEntry{},
-		inspect.MessageInspectLog{},
-
-		inspect.RequestInspectProcess{},
-		inspect.ResponseInspectProcess{},
-		inspect.MessageInspectProcess{},
-
-		inspect.RequestInspectProcessState{},
-		inspect.ResponseInspectProcessState{},
-		inspect.MessageInspectProcessState{},
-
-		inspect.RequestInspectMeta{},
-		inspect.ResponseInspectMeta{},
-		inspect.MessageInspectMeta{},
-
-		inspect.RequestInspectMetaState{},
-		inspect.ResponseInspectMetaState{},
-		inspect.MessageInspectMetaState{},
-
-		inspect.RequestDoSend{},
-		inspect.ResponseDoSend{},
-
-		inspect.RequestDoSendMeta{},
-		inspect.ResponseDoSendMeta{},
-
-		inspect.RequestDoSendExit{},
-		inspect.ResponseDoSendExit{},
-
-		inspect.RequestDoSendExitMeta{},
-		inspect.ResponseDoSendExitMeta{},
-
-		inspect.RequestDoKill{},
-		inspect.ResponseDoKill{},
-
-		inspect.RequestDoSetLogLevel{},
-		inspect.RequestDoSetProcessLogLevel{},
-		inspect.RequestDoSetMetaLogLevel{},
-		inspect.ResponseDoSetLogLevel{},
-
-		inspect.RequestDoSetProcessSendPriority{},
-		inspect.RequestDoSetProcessCompression{},
-		inspect.RequestDoSetProcessCompressionType{},
-		inspect.RequestDoSetProcessCompressionLevel{},
-		inspect.RequestDoSetProcessCompressionThreshold{},
-		inspect.RequestDoSetProcessKeepNetworkOrder{},
-		inspect.RequestDoSetProcessImportantDelivery{},
-		inspect.RequestDoSetMetaSendPriority{},
-		inspect.ResponseDoSet{},
-
-		inspect.RequestDoAppStart{},
-		inspect.ResponseDoAppStart{},
-		inspect.RequestDoAppStop{},
-		inspect.ResponseDoAppStop{},
-		inspect.RequestDoAppUnload{},
-		inspect.ResponseDoAppUnload{},
-
-		inspect.RequestDoInspect{},
-		inspect.ResponseDoInspect{},
-
-		inspect.RequestInspectConnectionList{},
-		inspect.ResponseInspectConnectionList{},
-		inspect.MessageInspectConnectionList{},
-
-		inspect.RequestInspectApplicationList{},
-		inspect.ResponseInspectApplicationList{},
-		inspect.MessageInspectApplicationList{},
-
-		inspect.RequestInspectApplicationTree{},
-		inspect.ResponseInspectApplicationTree{},
-		inspect.MessageInspectApplicationTree{},
-
-		inspect.RequestDoGoroutines{},
-		inspect.GoroutineGroup{},
-		inspect.ResponseDoGoroutines{},
-
-		inspect.RequestDoHeapProfile{},
-		inspect.HeapRecord{},
-		inspect.ResponseDoHeapProfile{},
-
-		inspect.RequestInspectHeap{},
-		inspect.ResponseInspectHeap{},
-		inspect.MessageInspectHeap{},
-
 		gen.TracingPoint(0),
 		gen.TracingKind(0),
 		gen.TracingFlags(0),
 		gen.TracingSpan{},
 
-		inspect.RequestInspectTracing{},
-		inspect.ResponseInspectTracing{},
-		inspect.MessageInspectTracing{},
-
-		inspect.RequestDoSetNodeTracingSampler{},
-		inspect.RequestDoSetProcessTracingSampler{},
+		gen.RegisteredTypeInfo{},
 	}
 
 	// register standard errors of the Ergo Framework
@@ -346,6 +230,33 @@ func init() {
 	decErr := &decoder{errType, decodeError}
 	decoders.Store(edtError, decErr)
 	decoders.Store(decErr.Type, decErr)
+
+	// Record directly-stored built-ins in the registry so they appear in
+	// RegisteredTypes() with the same ordering semantics as user types.
+	registerInfo(reflect.TypeOf(gen.PID{}), "framework", "gen.PID")
+	registerInfo(reflect.TypeOf(gen.ProcessID{}), "framework", "gen.ProcessID")
+	registerInfo(reflect.TypeOf(gen.Ref{}), "framework", "gen.Ref")
+	registerInfo(reflect.TypeOf(gen.Alias{}), "framework", "gen.Alias")
+	registerInfo(reflect.TypeOf(gen.Event{}), "framework", "gen.Event")
+	registerInfo(reflect.TypeOf(true), "bool", "bool")
+	registerInfo(reflect.TypeOf(gen.Atom("")), "framework", "gen.Atom")
+	registerInfo(reflect.TypeOf(""), "string", "string")
+	registerInfo(reflect.TypeOf(int(0)), "int", "int")
+	registerInfo(reflect.TypeOf(int8(0)), "int8", "int8")
+	registerInfo(reflect.TypeOf(int16(0)), "int16", "int16")
+	registerInfo(reflect.TypeOf(int32(0)), "int32", "int32")
+	registerInfo(reflect.TypeOf(int64(0)), "int64", "int64")
+	registerInfo(reflect.TypeOf(uint(0)), "uint", "uint")
+	registerInfo(reflect.TypeOf(uint8(0)), "uint8", "uint8")
+	registerInfo(reflect.TypeOf(uint16(0)), "uint16", "uint16")
+	registerInfo(reflect.TypeOf(uint32(0)), "uint32", "uint32")
+	registerInfo(reflect.TypeOf(uint64(0)), "uint64", "uint64")
+	registerInfo(reflect.TypeOf([]byte(nil)), "binary", "[]byte")
+	registerInfo(reflect.TypeOf(float32(0.0)), "float32", "float32")
+	registerInfo(reflect.TypeOf(float64(0.0)), "float64", "float64")
+	registerInfo(reflect.TypeOf(time.Time{}), "framework", "time.Time")
+	registerInfo(anyType, "any", "any")
+	registerInfo(errType, "error", "error")
 
 	for _, t := range genTypes {
 		err := RegisterTypeOf(t)

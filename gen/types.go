@@ -200,6 +200,20 @@ func (e Event) MarshalJSON() ([]byte, error) {
 	return []byte("\"" + e.String() + "\""), nil
 }
 
+// RegisteredTypeInfo describes a type registered with a wire-format proto.
+type RegisteredTypeInfo struct {
+	// ID is the per-proto registration order. Strictly monotonic; gaps possible.
+	ID uint64
+	// Name is the canonical wire-format name within the proto.
+	Name string
+	// Kind classifies the type for filters/badges (bool, int, struct, marshaler, ...).
+	Kind string
+	// Schema is a Go-syntax shape of the type.
+	Schema string
+	// Proto is the proto version owning this entry, set by the aggregator.
+	Proto string
+}
+
 // Env
 type Env string
 

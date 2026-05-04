@@ -516,6 +516,117 @@ func (n *network) Mode() gen.NetworkMode {
 	return n.mode
 }
 
+func (n *network) Protos() []gen.NetworkProto {
+	var list []gen.NetworkProto
+	n.protos.Range(func(_, v any) bool {
+		list = append(list, v.(gen.NetworkProto))
+		return true
+	})
+	return list
+}
+
+// typeRegistryEntry pairs a proto with its TypeRegistry capability.
+type typeRegistryEntry struct {
+	proto    gen.NetworkProto
+	registry gen.TypeRegistry
+}
+
+func (n *network) typeRegistries() []typeRegistryEntry {
+	var list []typeRegistryEntry
+	n.protos.Range(func(_, v any) bool {
+		p := v.(gen.NetworkProto)
+		if r, ok := p.(gen.TypeRegistry); ok {
+			list = append(list, typeRegistryEntry{p, r})
+		}
+		return true
+	})
+	return list
+}
+
+func (n *network) RegisterType(v any) error {
+	regs := n.typeRegistries()
+	if len(regs) == 0 {
+		return gen.ErrUnsupported
+	}
+	var errs []string
+	for _, r := range regs {
+		err := r.registry.RegisterType(v)
+		if err == nil || err == gen.ErrTaken {
+			continue
+		}
+		errs = append(errs, fmt.Sprintf("%s: %s", r.proto.Version(), err))
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf("RegisterType: %s", strings.Join(errs, "; "))
+	}
+	return nil
+}
+
+func (n *network) RegisterTypes(types []any) error {
+	regs := n.typeRegistries()
+	if len(regs) == 0 {
+		return gen.ErrUnsupported
+	}
+	var errs []string
+	for _, r := range regs {
+		err := r.registry.RegisterTypes(types)
+		if err == nil || err == gen.ErrTaken {
+			continue
+		}
+		errs = append(errs, fmt.Sprintf("%s: %s", r.proto.Version(), err))
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf("RegisterTypes: %s", strings.Join(errs, "; "))
+	}
+	return nil
+}
+
+func (n *network) RegisterError(e error) error {
+	regs := n.typeRegistries()
+	if len(regs) == 0 {
+		return gen.ErrUnsupported
+	}
+	var errs []string
+	for _, r := range regs {
+		err := r.registry.RegisterError(e)
+		if err == nil || err == gen.ErrTaken {
+			continue
+		}
+		errs = append(errs, fmt.Sprintf("%s: %s", r.proto.Version(), err))
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf("RegisterError: %s", strings.Join(errs, "; "))
+	}
+	return nil
+}
+
+func (n *network) RegisterAtom(a gen.Atom) error {
+	regs := n.typeRegistries()
+	if len(regs) == 0 {
+		return gen.ErrUnsupported
+	}
+	var errs []string
+	for _, r := range regs {
+		err := r.registry.RegisterAtom(a)
+		if err == nil || err == gen.ErrTaken {
+			continue
+		}
+		errs = append(errs, fmt.Sprintf("%s: %s", r.proto.Version(), err))
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf("RegisterAtom: %s", strings.Join(errs, "; "))
+	}
+	return nil
+}
+
+func (n *network) RegisteredTypes() []gen.RegisteredTypeInfo {
+	var all []gen.RegisteredTypeInfo
+	for _, r := range n.typeRegistries() {
+		all = append(all, r.registry.RegisteredTypes()...)
+	}
+	return all
+}
+
 //
 // internals
 //

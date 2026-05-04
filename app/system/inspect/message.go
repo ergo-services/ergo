@@ -508,3 +508,12 @@ type MessageInspectTracing struct {
 	Spans      []gen.TracingSpan
 	Suppressed int64
 }
+
+// types
+
+type RequestDoTypes struct{}
+
+type ResponseDoTypes struct {
+	Types []gen.RegisteredTypeInfo
+	Error error
+}

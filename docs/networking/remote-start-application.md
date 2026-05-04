@@ -190,7 +190,7 @@ node, err := ergo.StartNode("scheduler@localhost", gen.NodeOptions{
 
 Now when you start an application remotely, the application's processes receive a copy of the requesting node's core environment. This enables configuration propagation - your scheduler node has configuration in its environment, and applications started remotely inherit it.
 
-**Important:** Environment variable values must be EDF-serializable. Strings, numbers, booleans work fine. Custom types require registration via `edf.RegisterTypeOf`. If an environment variable contains a non-serializable value (e.g., a channel, function, or unregistered struct), the remote application start fails entirely with an error like `"no encoder for type <type>"`. The framework doesn't skip problematic variables - any non-serializable value causes the entire start request to fail.
+**Important:** Environment variable values must be EDF-serializable. Strings, numbers, booleans work fine. Custom types require registration via `node.Network().RegisterType` (see [Network Transparency](network-transparency.md) for details on the type registry; the legacy `edf.RegisterTypeOf` still works but is deprecated). If an environment variable contains a non-serializable value (e.g., a channel, function, or unregistered struct), the remote application start fails entirely with an error like `"no encoder for type <type>"`. The framework doesn't skip problematic variables: any non-serializable value causes the entire start request to fail.
 
 ## How It Works
 

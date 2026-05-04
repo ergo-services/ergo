@@ -143,7 +143,7 @@ Once a connection exists, messages flow through encoding and framing.
 
 EDF is a binary encoding specifically designed for the framework's communication patterns. It's type-aware - each value is prefixed with a type tag (e.g., `0x95` for int64, `0xaa` for PID, `0x9d` for slice). The decoder reads the tag and knows what follows.
 
-Framework types like `gen.PID` and `gen.Ref` have optimized encodings. Structs are encoded field-by-field in declaration order (no field names on the wire). Custom types must be registered on both sides - registration happens during `init()`, and during handshake nodes exchange their type lists to agree on encoding.
+Framework types like `gen.PID` and `gen.Ref` have optimized encodings. Structs are encoded field-by-field in declaration order (no field names on the wire). Custom types must be registered on both sides via `node.Network().RegisterType` (typically from an application's `Load` callback). During handshake, nodes exchange their type lists to agree on encoding.
 
 Compression is automatic. If a message exceeds the compression threshold (default 1024 bytes), it's compressed using GZIP, ZLIB, or LZW. The protocol frame indicates compression, so the receiver decompresses before decoding.
 
@@ -248,13 +248,15 @@ node, err := ergo.StartNode("myapp@localhost", gen.NodeOptions{
 
 ## Custom Network Stacks
 
-The framework provides three extension points:
+The framework provides four extension points:
 
 **gen.NetworkHandshake** - Control connection establishment and authentication. Implement this to change how nodes authenticate or how connection pools are created.
 
 **gen.NetworkProto** - Control message encoding and transmission. The Erlang distribution protocol is implemented as a custom proto, allowing Ergo nodes to join Erlang clusters.
 
 **gen.Connection** - The actual connection handling. Implement this for custom framing, routing, or error handling.
+
+**gen.TypeRegistry** - Optional capability that proto implementations may declare to expose a wire-format type registry. The default ENP/EDF stack implements it. The Erlang distribution proto does not, since the Erlang external term format is schemaless on the wire. When a node has multiple protos configured, `node.Network().RegisterType` distributes registration to every TypeRegistry-capable proto strictly: any per-proto failure fails the call. Protos that do not implement TypeRegistry are skipped silently.
 
 You can register multiple handshakes and protos, allowing one node to support multiple protocol stacks simultaneously:
 
