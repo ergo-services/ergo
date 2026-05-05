@@ -85,6 +85,7 @@ func getEncoder(t reflect.Type, state *stateEncode) (*encoder, error) {
 			cachedenc := &encoder{
 				Prefix: v.([]byte), // use cache ID (3 bytes only) instead of the full name
 				Encode: enc.Encode,
+				Info:   enc.Info,
 			}
 			if state.options.Cache == nil {
 				return cachedenc, nil
