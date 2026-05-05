@@ -34,6 +34,10 @@ func schemaFor(t reflect.Type) string {
 			sb.WriteString(f.Name)
 			sb.WriteString(" ")
 			sb.WriteString(typeRefName(f.Type))
+			if path := typeRefPath(f.Type); path != "" {
+				sb.WriteString("  // ")
+				sb.WriteString(path)
+			}
 			sb.WriteString("\n")
 		}
 		sb.WriteString("}")
@@ -64,4 +68,29 @@ func typeRefName(t reflect.Type) string {
 		return "*" + typeRefName(t.Elem())
 	}
 	return t.String()
+}
+
+// typeRefPath returns the fully-qualified #path/Name for a struct field
+// type, used as an inline comment in the schema. Empty string for built-ins.
+func typeRefPath(t reflect.Type) string {
+	if t.Name() != "" && t.PkgPath() != "" {
+		return "#" + t.PkgPath() + "/" + t.Name()
+	}
+	switch t.Kind() {
+	case reflect.Slice, reflect.Array, reflect.Pointer:
+		return typeRefPath(t.Elem())
+	case reflect.Map:
+		keyP := typeRefPath(t.Key())
+		valP := typeRefPath(t.Elem())
+		if keyP != "" && valP != "" {
+			return "[" + keyP + "]" + valP
+		}
+		if valP != "" {
+			return valP
+		}
+		if keyP != "" {
+			return keyP
+		}
+	}
+	return ""
 }
