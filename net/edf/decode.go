@@ -37,31 +37,11 @@ func Decode(packet []byte, options Options) (_ any, _ []byte, ret error) {
 		}()
 	}
 
-	// Use pooled state instead of allocation
 	state := getPooledStateDecode(options)
 	defer putPooledStateDecode(state)
 	state.decodeType = true
 
-	dec, packet, err := getDecoder(packet, state)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	if dec == nil {
-		return nil, packet, nil
-	}
-	state.decoder = dec
-	v := reflect.Indirect(reflect.New(dec.Type))
-
-	value, packet, err := dec.Decode(&v, packet, state)
-	if err != nil {
-		return nil, nil, fmt.Errorf("malformed EDF: %w", err)
-	}
-
-	if value == nil {
-		return v.Interface(), packet, nil
-	}
-	return value.Interface(), packet, nil
+	return decodeWithStats(packet, state)
 }
 
 func getDecoder(packet []byte, state *stateDecode) (*decoder, []byte, error) {

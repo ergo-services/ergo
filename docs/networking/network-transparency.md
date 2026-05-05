@@ -449,6 +449,8 @@ The caches are bidirectional - both nodes maintain the same mappings. During enc
 
 This caching is automatic. You don't manage the cache or invalidate entries. The framework handles it. You just benefit from smaller messages.
 
+To measure how much each registered type actually contributes to network traffic and to identify candidates for compression, build the node with `-tags=typestats`. This enables per-type encode/decode counters and wire-byte totals exposed via `Network().RegisteredTypes()` and visible in the Observer Types panel. Counters increment only on root operations (a type sent or received as a message in its own right); bytes embedded inside other messages are accounted to the parent type. The cost is approximately 2-3% on encode/decode throughput; without the tag there is zero overhead. See [The typestats Tag](../advanced/debugging.md#the-typestats-tag) for details.
+
 ## Important Delivery
 
 Network transparency breaks down when dealing with failures. Sending to a local process that doesn't exist returns an error immediately - the framework checks the process table and sees the PID isn't registered. Sending to a remote process that doesn't exist returns... nothing. The message is encoded, sent to the remote node, and the remote node silently drops it because there's no recipient. Your code doesn't know the process was missing.

@@ -34,12 +34,20 @@ func deprecation(name, replacement string) {
 type decoder struct {
 	Type   reflect.Type
 	Decode func(*reflect.Value, []byte, *stateDecode) (*reflect.Value, []byte, error)
+	// Info is the per-proto type metadata. Populated for all registered
+	// and built-in types; nil for ad-hoc composite decoders constructed
+	// in getDecoder for unregistered slice/map/array types.
+	Info *gen.RegisteredTypeInfo
 }
 
 type encodeFunc func(value reflect.Value, b *lib.Buffer, state *stateEncode) error
 type encoder struct {
 	Prefix []byte
 	Encode encodeFunc
+	// Info is the per-proto type metadata. Populated for all registered
+	// and built-in types; nil for ad-hoc composite encoders constructed
+	// in getEncoder for unregistered slice/map/array types.
+	Info *gen.RegisteredTypeInfo
 }
 
 func regTypeName(t reflect.Type) string {
@@ -96,8 +104,6 @@ func RegisterTypeOf(v any) error {
 			binary.BigEndian.PutUint32(b.B[lenPrefixOffset:], uint32(lenBinary))
 			return nil
 		}
-		encoders.Store(tov, regEncoder(name, fenc))
-
 		fdec := func(value *reflect.Value, packet []byte, state *stateDecode) (*reflect.Value, []byte, error) {
 			if len(packet) < 4 {
 				return nil, nil, errDecodeEOD
@@ -121,11 +127,15 @@ func RegisterTypeOf(v any) error {
 			packet = packet[l+4:]
 			return value, packet, nil
 		}
-		dec := &decoder{tov, fdec}
+		addRegCache(tov)
+		enc := regEncoder(name, fenc)
+		encoders.Store(tov, enc)
+		dec := &decoder{Type: tov, Decode: fdec}
 		decoders.Store(name, dec)
 		decoders.Store(tov, dec)
-		addRegCache(tov)
-		registerInfo(tov, "marshaler", schemaFor(tov))
+		info := registerInfo(tov, "marshaler", schemaFor(tov))
+		enc.Info = info
+		dec.Info = info
 		return nil
 
 	case encoding.BinaryUnmarshaler:
@@ -155,8 +165,6 @@ func RegisterTypeOf(v any) error {
 			b.Append(bin)
 			return nil
 		}
-		encoders.Store(tov, regEncoder(name, fenc))
-
 		fdec := func(value *reflect.Value, packet []byte, state *stateDecode) (*reflect.Value, []byte, error) {
 			if len(packet) < 4 {
 				return nil, nil, errDecodeEOD
@@ -180,11 +188,15 @@ func RegisterTypeOf(v any) error {
 			packet = packet[l+4:]
 			return value, packet, nil
 		}
-		dec := &decoder{tov, fdec}
+		addRegCache(tov)
+		enc := regEncoder(name, fenc)
+		encoders.Store(tov, enc)
+		dec := &decoder{Type: tov, Decode: fdec}
 		decoders.Store(name, dec)
 		decoders.Store(tov, dec)
-		addRegCache(tov)
-		registerInfo(tov, "binarymarshaler", schemaFor(tov))
+		info := registerInfo(tov, "binarymarshaler", schemaFor(tov))
+		enc.Info = info
+		dec.Info = info
 		return nil
 
 	}
@@ -206,129 +218,171 @@ func registerType(tov reflect.Type) error {
 
 	switch tov.Kind() {
 	case reflect.Bool:
-		encoders.Store(tov, regEncoder(name, encodeBool))
-		dec := &decoder{tov, decodeBool}
+		addRegCache(tov)
+		enc := regEncoder(name, encodeBool)
+		encoders.Store(tov, enc)
+		dec := &decoder{Type: tov, Decode: decodeBool}
 		decoders.Store(name, dec)
 		decoders.Store(tov, dec)
-		addRegCache(tov)
-		registerInfo(tov, "bool", schemaFor(tov))
+		info := registerInfo(tov, "bool", schemaFor(tov))
+		enc.Info = info
+		dec.Info = info
 		return nil
 
 	case reflect.Int:
-		encoders.Store(tov, regEncoder(name, encodeInt))
-		dec := &decoder{tov, decodeInt}
+		addRegCache(tov)
+		enc := regEncoder(name, encodeInt)
+		encoders.Store(tov, enc)
+		dec := &decoder{Type: tov, Decode: decodeInt}
 		decoders.Store(name, dec)
 		decoders.Store(tov, dec)
-		addRegCache(tov)
-		registerInfo(tov, "int", schemaFor(tov))
+		info := registerInfo(tov, "int", schemaFor(tov))
+		enc.Info = info
+		dec.Info = info
 		return nil
 
 	case reflect.Int8:
-		encoders.Store(tov, regEncoder(name, encodeInt8))
-		dec := &decoder{tov, decodeInt8}
+		addRegCache(tov)
+		enc := regEncoder(name, encodeInt8)
+		encoders.Store(tov, enc)
+		dec := &decoder{Type: tov, Decode: decodeInt8}
 		decoders.Store(name, dec)
 		decoders.Store(tov, dec)
-		addRegCache(tov)
-		registerInfo(tov, "int8", schemaFor(tov))
+		info := registerInfo(tov, "int8", schemaFor(tov))
+		enc.Info = info
+		dec.Info = info
 		return nil
 
 	case reflect.Int16:
-		encoders.Store(tov, regEncoder(name, encodeInt16))
-		dec := &decoder{tov, decodeInt16}
+		addRegCache(tov)
+		enc := regEncoder(name, encodeInt16)
+		encoders.Store(tov, enc)
+		dec := &decoder{Type: tov, Decode: decodeInt16}
 		decoders.Store(name, dec)
 		decoders.Store(tov, dec)
-		addRegCache(tov)
-		registerInfo(tov, "int16", schemaFor(tov))
+		info := registerInfo(tov, "int16", schemaFor(tov))
+		enc.Info = info
+		dec.Info = info
 		return nil
 
 	case reflect.Int32:
-		encoders.Store(tov, regEncoder(name, encodeInt32))
-		dec := &decoder{tov, decodeInt32}
+		addRegCache(tov)
+		enc := regEncoder(name, encodeInt32)
+		encoders.Store(tov, enc)
+		dec := &decoder{Type: tov, Decode: decodeInt32}
 		decoders.Store(name, dec)
 		decoders.Store(tov, dec)
-		addRegCache(tov)
-		registerInfo(tov, "int32", schemaFor(tov))
+		info := registerInfo(tov, "int32", schemaFor(tov))
+		enc.Info = info
+		dec.Info = info
 		return nil
 
 	case reflect.Int64:
-		encoders.Store(tov, regEncoder(name, encodeInt64))
-		dec := &decoder{tov, decodeInt64}
+		addRegCache(tov)
+		enc := regEncoder(name, encodeInt64)
+		encoders.Store(tov, enc)
+		dec := &decoder{Type: tov, Decode: decodeInt64}
 		decoders.Store(name, dec)
 		decoders.Store(tov, dec)
-		addRegCache(tov)
-		registerInfo(tov, "int64", schemaFor(tov))
+		info := registerInfo(tov, "int64", schemaFor(tov))
+		enc.Info = info
+		dec.Info = info
 		return nil
 
 	case reflect.Uint:
-		encoders.Store(tov, regEncoder(name, encodeUint))
-		dec := &decoder{tov, decodeUint}
+		addRegCache(tov)
+		enc := regEncoder(name, encodeUint)
+		encoders.Store(tov, enc)
+		dec := &decoder{Type: tov, Decode: decodeUint}
 		decoders.Store(name, dec)
 		decoders.Store(tov, dec)
-		addRegCache(tov)
-		registerInfo(tov, "uint", schemaFor(tov))
+		info := registerInfo(tov, "uint", schemaFor(tov))
+		enc.Info = info
+		dec.Info = info
 		return nil
 
 	case reflect.Uint8:
-		encoders.Store(tov, regEncoder(name, encodeUint8))
-		dec := &decoder{tov, decodeUint8}
+		addRegCache(tov)
+		enc := regEncoder(name, encodeUint8)
+		encoders.Store(tov, enc)
+		dec := &decoder{Type: tov, Decode: decodeUint8}
 		decoders.Store(name, dec)
 		decoders.Store(tov, dec)
-		addRegCache(tov)
-		registerInfo(tov, "uint8", schemaFor(tov))
+		info := registerInfo(tov, "uint8", schemaFor(tov))
+		enc.Info = info
+		dec.Info = info
 		return nil
 
 	case reflect.Uint16:
-		encoders.Store(tov, regEncoder(name, encodeUint16))
-		dec := &decoder{tov, decodeUint16}
+		addRegCache(tov)
+		enc := regEncoder(name, encodeUint16)
+		encoders.Store(tov, enc)
+		dec := &decoder{Type: tov, Decode: decodeUint16}
 		decoders.Store(name, dec)
 		decoders.Store(tov, dec)
-		addRegCache(tov)
-		registerInfo(tov, "uint16", schemaFor(tov))
+		info := registerInfo(tov, "uint16", schemaFor(tov))
+		enc.Info = info
+		dec.Info = info
 		return nil
 
 	case reflect.Uint32:
-		encoders.Store(tov, regEncoder(name, encodeUint32))
-		dec := &decoder{tov, decodeUint32}
+		addRegCache(tov)
+		enc := regEncoder(name, encodeUint32)
+		encoders.Store(tov, enc)
+		dec := &decoder{Type: tov, Decode: decodeUint32}
 		decoders.Store(name, dec)
 		decoders.Store(tov, dec)
-		addRegCache(tov)
-		registerInfo(tov, "uint32", schemaFor(tov))
+		info := registerInfo(tov, "uint32", schemaFor(tov))
+		enc.Info = info
+		dec.Info = info
 		return nil
 
 	case reflect.Uint64:
-		encoders.Store(tov, regEncoder(name, encodeUint64))
-		dec := &decoder{tov, decodeUint64}
+		addRegCache(tov)
+		enc := regEncoder(name, encodeUint64)
+		encoders.Store(tov, enc)
+		dec := &decoder{Type: tov, Decode: decodeUint64}
 		decoders.Store(name, dec)
 		decoders.Store(tov, dec)
-		addRegCache(tov)
-		registerInfo(tov, "uint64", schemaFor(tov))
+		info := registerInfo(tov, "uint64", schemaFor(tov))
+		enc.Info = info
+		dec.Info = info
 		return nil
 
 	case reflect.Float32:
-		encoders.Store(tov, regEncoder(name, encodeFloat32))
-		dec := &decoder{tov, decodeFloat32}
+		addRegCache(tov)
+		enc := regEncoder(name, encodeFloat32)
+		encoders.Store(tov, enc)
+		dec := &decoder{Type: tov, Decode: decodeFloat32}
 		decoders.Store(name, dec)
 		decoders.Store(tov, dec)
-		addRegCache(tov)
-		registerInfo(tov, "float32", schemaFor(tov))
+		info := registerInfo(tov, "float32", schemaFor(tov))
+		enc.Info = info
+		dec.Info = info
 		return nil
 
 	case reflect.Float64:
-		encoders.Store(tov, regEncoder(name, encodeFloat64))
-		dec := &decoder{tov, decodeFloat64}
+		addRegCache(tov)
+		enc := regEncoder(name, encodeFloat64)
+		encoders.Store(tov, enc)
+		dec := &decoder{Type: tov, Decode: decodeFloat64}
 		decoders.Store(name, dec)
 		decoders.Store(tov, dec)
-		addRegCache(tov)
-		registerInfo(tov, "float64", schemaFor(tov))
+		info := registerInfo(tov, "float64", schemaFor(tov))
+		enc.Info = info
+		dec.Info = info
 		return nil
 
 	case reflect.String:
-		encoders.Store(tov, regEncoder(name, encodeString))
-		dec := &decoder{tov, decodeString}
+		addRegCache(tov)
+		enc := regEncoder(name, encodeString)
+		encoders.Store(tov, enc)
+		dec := &decoder{Type: tov, Decode: decodeString}
 		decoders.Store(name, dec)
 		decoders.Store(tov, dec)
-		addRegCache(tov)
-		registerInfo(tov, "string", schemaFor(tov))
+		info := registerInfo(tov, "string", schemaFor(tov))
+		enc.Info = info
+		dec.Info = info
 		return nil
 
 	case reflect.Struct:
@@ -370,7 +424,6 @@ func registerType(tov reflect.Type) error {
 			}
 			return nil
 		}
-		encoders.Store(tov, regEncoder(name, fenc))
 
 		// decoder closure
 		fdec := func(value *reflect.Value, packet []byte, state *stateDecode) (*reflect.Value, []byte, error) {
@@ -394,9 +447,14 @@ func registerType(tov reflect.Type) error {
 			}
 			return value, packet, nil
 		}
-		decoders.Store(name, &decoder{tov, fdec})
 		addRegCache(tov)
-		registerInfo(tov, "struct", schemaFor(tov))
+		enc := regEncoder(name, fenc)
+		encoders.Store(tov, enc)
+		dec := &decoder{Type: tov, Decode: fdec}
+		decoders.Store(name, dec)
+		info := registerInfo(tov, "struct", schemaFor(tov))
+		enc.Info = info
+		dec.Info = info
 
 		return nil
 
@@ -438,7 +496,6 @@ func registerType(tov reflect.Type) error {
 			}
 			return nil
 		}
-		encoders.Store(tov, regEncoder(name, fenc))
 
 		// decode closure
 		fdec := func(value *reflect.Value, packet []byte, state *stateDecode) (*reflect.Value, []byte, error) {
@@ -496,9 +553,14 @@ func registerType(tov reflect.Type) error {
 
 			return value, packet, nil
 		}
-		decoders.Store(name, &decoder{tov, fdec})
 		addRegCache(tov)
-		registerInfo(tov, "slice", schemaFor(tov))
+		regEnc := regEncoder(name, fenc)
+		encoders.Store(tov, regEnc)
+		regDec := &decoder{Type: tov, Decode: fdec}
+		decoders.Store(name, regDec)
+		info := registerInfo(tov, "slice", schemaFor(tov))
+		regEnc.Info = info
+		regDec.Info = info
 
 	case reflect.Array:
 		itemType := tov.Elem()
@@ -528,7 +590,6 @@ func registerType(tov reflect.Type) error {
 			}
 			return nil
 		}
-		encoders.Store(tov, regEncoder(name, fenc))
 
 		fdec := func(value *reflect.Value, packet []byte, state *stateDecode) (*reflect.Value, []byte, error) {
 			if len(packet) == 0 {
@@ -561,9 +622,14 @@ func registerType(tov reflect.Type) error {
 
 			return value, packet, nil
 		}
-		decoders.Store(name, &decoder{tov, fdec})
 		addRegCache(tov)
-		registerInfo(tov, "array", schemaFor(tov))
+		regEnc := regEncoder(name, fenc)
+		encoders.Store(tov, regEnc)
+		regDec := &decoder{Type: tov, Decode: fdec}
+		decoders.Store(name, regDec)
+		info := registerInfo(tov, "array", schemaFor(tov))
+		regEnc.Info = info
+		regDec.Info = info
 
 	case reflect.Map:
 		typeKey := tov.Key()
@@ -621,7 +687,6 @@ func registerType(tov reflect.Type) error {
 			}
 			return nil
 		}
-		encoders.Store(tov, regEncoder(name, fenc))
 
 		fdec := func(value *reflect.Value, packet []byte, state *stateDecode) (*reflect.Value, []byte, error) {
 			if len(packet) == 0 {
@@ -689,9 +754,14 @@ func registerType(tov reflect.Type) error {
 
 			return value, packet, nil
 		}
-		decoders.Store(name, &decoder{tov, fdec})
 		addRegCache(tov)
-		registerInfo(tov, "map", schemaFor(tov))
+		enc := regEncoder(name, fenc)
+		encoders.Store(tov, enc)
+		dec := &decoder{Type: tov, Decode: fdec}
+		decoders.Store(name, dec)
+		info := registerInfo(tov, "map", schemaFor(tov))
+		enc.Info = info
+		dec.Info = info
 
 	default:
 		return fmt.Errorf("type %v is not supported", tov)
@@ -714,23 +784,27 @@ var (
 	encoders sync.Map
 	decoders sync.Map
 
-	registeredTypes sync.Map // reflect.Type -> gen.RegisteredTypeInfo.
+	registeredTypes sync.Map // reflect.Type -> *gen.RegisteredTypeInfo.
 	registerOrder   atomic.Uint64
 )
 
-func registerInfo(t reflect.Type, kind, schema string) {
+func registerInfo(t reflect.Type, kind, schema string) *gen.RegisteredTypeInfo {
 	custom := kind == "marshaler" || kind == "binarymarshaler"
 
-	info := gen.RegisteredTypeInfo{
+	info := &gen.RegisteredTypeInfo{
 		ID:           registerOrder.Add(1),
 		Name:         regTypeName(t),
 		Kind:         kind,
 		Schema:       schema,
 		MinSize:      measureZeroSize(t, kind),
 		SizeVariable: custom || hasVariableSize(t, make(map[reflect.Type]bool)),
+		Stats:        gen.RegisteredTypeStats{Enabled: statsEnabled},
 	}
 
-	registeredTypes.LoadOrStore(t, info)
+	if actual, loaded := registeredTypes.LoadOrStore(t, info); loaded {
+		return actual.(*gen.RegisteredTypeInfo)
+	}
+	return info
 }
 
 func measureZeroSize(t reflect.Type, kind string) (size uint32) {
@@ -783,6 +857,9 @@ func hasVariableSize(t reflect.Type, visited map[reflect.Type]bool) bool {
 	return false
 }
 
+// regEncoder creates a registered-type encoder. Info is attached separately
+// by the caller after registerInfo has been called (which itself relies on
+// the encoder already being stored in the encoders map).
 func regEncoder(name string, enc encodeFunc) *encoder {
 	l := uint16(len(name))
 	if l > 4095 {
@@ -841,10 +918,12 @@ func addRegCache(t reflect.Type) error {
 }
 
 // RegisteredTypes returns all registered EDF type metadata in registration order.
+// Each entry is a value snapshot of the underlying *gen.RegisteredTypeInfo;
+// counter fields reflect their values at snapshot time.
 func RegisteredTypes() []gen.RegisteredTypeInfo {
 	var list []gen.RegisteredTypeInfo
 	registeredTypes.Range(func(_, v any) bool {
-		list = append(list, v.(gen.RegisteredTypeInfo))
+		list = append(list, *v.(*gen.RegisteredTypeInfo))
 		return true
 	})
 	sort.Slice(list, func(i, j int) bool {

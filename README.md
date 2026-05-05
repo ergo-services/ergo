@@ -211,6 +211,8 @@ Fully detailed changelog see in the [ChangeLog](CHANGELOG.md) file.
 #### [v3.3.0](https://github.com/ergo-services/ergo/releases/tag/v1.999.330) 2026-xx-xx [tag version v1.999.330] ####
 
 * Added **pointer type support** in EDF - `*int`, `*string`, `[]*T`, `map[K]*V`, pointer struct fields. Nil state preserved. Nested pointers (`**T`) not supported. Max encoding depth limit (100) prevents stack overflow on deeply nested structures. See [Network Transparency](https://docs.ergo.services/networking/network-transparency) documentation
+
+* Added **per-type encode/decode statistics** (build with `-tags=typestats`). Tracks count of root-level operations and decompressed wire-byte volume per registered EDF type. Available via `Network().RegisteredTypes()` and the Observer Types panel. Helps identify heavy message types and decide where to enable compression. Overhead approximately 2-3% on encode/decode throughput
 * Fixed logger to preserve Behavior name when process registers name
 
 * Added **process lifecycle counters** to `NodeInfo` - `ProcessesSpawned`, `ProcessesSpawnFailed`, `ProcessesTerminated` for cumulative statistics
@@ -261,6 +263,8 @@ This helps identify stuck processes during shutdown by matching PIDs/Aliases fro
 To disable panic recovery use `--tags norecover`.
 
 To enable mailbox latency measurement use `--tags latency`. This adds a monotonic timestamp to every message pushed into the MPSC queue, allowing `QueueMPSC.Latency()` and `ProcessMailbox.Latency()` to report the age of the oldest unprocessed message. Overhead is approximately 10-25% on micro-benchmarks (LOCAL 1-1 scenario). Without the tag, `Latency()` returns -1 and there is zero overhead.
+
+To enable per-type encode/decode statistics use `--tags typestats`. This tracks the count of root-level encode/decode operations and decompressed wire-byte volume per registered EDF type, exposed via `Network().RegisteredTypes()` and visible in the Observer Types panel. Helps identify which message types dominate network traffic and which processes would benefit from compression. Overhead is approximately 2-3% on encode/decode throughput. Without the tag, counters remain zero and there is zero overhead.
 
 To enable trace logging level for the internals (node, network,...) use `--tags verbose` and set the log level `gen.LogLevelTrace` for your node.
 

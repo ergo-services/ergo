@@ -133,7 +133,9 @@ The **Connections** tab is the default view. Four real-time charts show aggregat
 
 The **Routes** tab shows configured static routes and proxy routes side by side. Static routes are user-defined patterns that tell the node where to dial when a name matches; proxy routes describe how to reach nodes via an intermediate proxy.
 
-The **Types** tab is a one-shot view of the wire-format type registry. Each row shows registration ID, owning proto (the protocol version that registered the type), kind, and canonical name. Click a row to expand its inferred schema (Go-syntax shape, multi-line for structs). Two filters at the top of the panel narrow the list by name and by schema content (useful for finding all types containing a specific field). The Refresh button re-fetches the registry; the panel does not subscribe to live updates because the registry rarely changes after node startup.
+The **Types** tab is a one-shot view of the wire-format type registry. Each row shows registration ID, owning proto (the protocol version that registered the type), kind, MinSize (wire size of a zero-value), and canonical name. Click a row to expand its inferred schema (Go-syntax shape, multi-line for structs). Two filters at the top of the panel narrow the list by name and by schema content (useful for finding all types containing a specific field). The Refresh button re-fetches the registry; the panel does not subscribe to live updates because the registry rarely changes after node startup.
+
+When the node is built with `-tags=typestats`, four additional columns appear: **Encoded** and **Decoded** (operation counts), **Bytes Out** and **Bytes In** (decompressed wire-byte totals with average per operation). Counters reflect only root encode/decode at the message boundary; bytes folded inside other messages are accounted to the parent type. See [The typestats Tag](debugging.md#the-typestats-tag) for what gets counted and how to use the averages to pick compression candidates.
 
 The cluster nodes section shows all nodes known through the registrar or active connections, giving you a picture of the cluster topology.
 

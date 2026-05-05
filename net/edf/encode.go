@@ -56,7 +56,7 @@ func Encode(x any, b *lib.Buffer, options Options) (ret error) {
 	}
 
 	state.encodeType = true
-	return enc.Encode(xv, b, state)
+	return encodeWithStats(enc, xv, b, state)
 }
 
 func getEncoder(t reflect.Type, state *stateEncode) (*encoder, error) {

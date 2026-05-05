@@ -78,7 +78,7 @@ Network stack details: mode, acceptors, protocol and handshake versions, registr
 
 * **Connections** lists all active remote node connections with traffic counters and sortable columns.
 * **Routes** shows configured static routes and proxy routes.
-* **Types** shows the wire-format type registry (one entry per proto): registration ID, name, kind, and the inferred schema. Two filters narrow the list by name and by schema content. The data is captured on demand via the Refresh button.
+* **Types** shows the wire-format type registry (one entry per proto): registration ID, name, kind, MinSize (zero-value wire size), and the inferred schema. Two filters narrow the list by name and by schema content. The data is captured on demand via the Refresh button. With `-tags=typestats`, additional columns show per-type encode/decode counts and decompressed wire-byte totals (see [Debugging: typestats Tag](../../advanced/debugging.md#the-typestats-tag)).
 
 ### Events
 

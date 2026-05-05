@@ -100,6 +100,29 @@ Latency measurement answers the question "how long has the oldest message been s
 
 For cluster-wide observability with Prometheus and Grafana, see the [Metrics actor](../extra-library/actors/metrics.md) which integrates latency data into distribution, top-N, and per-node panels when built with the `latency` tag.
 
+### The `typestats` Tag
+
+The `typestats` tag enables per-type encode/decode statistics:
+
+```bash
+go run --tags typestats ./cmd
+```
+
+This activates:
+
+- **Encoded/Decoded counts** per registered EDF type for root-level operations (calls at the message boundary, not nested fields)
+- **EncodedBytes/DecodedBytes** measured as decompressed wire size, pre-compression on encode and post-decompression on decode, including the type-prefix header
+- **`Stats.Enabled` flag** in `gen.RegisteredTypeInfo` set to `true` to signal counters are active
+- Counters visible via **`Network().RegisteredTypes()`** API and the **Observer Types panel**
+
+Without the tag, counters remain zero, `Stats.Enabled` is `false`, and there is zero runtime overhead. Encode and decode go through pass-through wrappers that the Go inliner reduces to direct calls.
+
+The overhead with the tag enabled is approximately 2-3% on encode/decode throughput, from two `atomic.AddInt64` operations per root call.
+
+A counter increments only when a value of that type is the message itself, the top of an `Encode` or `Decode` call. Built-in primitives like `gen.PID`, `gen.Atom`, `gen.Ref` typically appear as fields inside other messages, so their bytes contribute to the parent message's byte total, not to their own counters. Encoded and Decoded are independent: a node may receive some types only and send others only.
+
+Use case: identify message types that dominate network traffic. The average byte size per operation (`EncodedBytes / Encoded`) indicates whether a type is a candidate for compression at the producer process. Types with a high average are strong candidates for compressing at the source; types with a low average are not worth the framing overhead.
+
 ### Combining Tags
 
 Tags can be combined for comprehensive debugging:
@@ -112,6 +135,12 @@ or with latency measurement:
 
 ```bash
 go run --tags "pprof,latency" ./cmd
+```
+
+or with type statistics:
+
+```bash
+go run --tags "pprof,latency,typestats" ./cmd
 ```
 
 This enables all specified features simultaneously. Use combinations when investigating complex issues that span multiple subsystems.

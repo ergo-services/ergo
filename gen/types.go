@@ -219,6 +219,22 @@ type RegisteredTypeInfo struct {
 	// SizeVariable is true if the type contains string/slice/map/pointer/
 	// interface fields whose encoded size depends on the actual value.
 	SizeVariable bool
+	// Stats holds per-type usage counters. Populated only when the proto
+	// implementation activates them (e.g. EDF when built with -tags=typestats).
+	// When Stats.Enabled is false, all counter fields remain zero.
+	Stats RegisteredTypeStats
+}
+
+// RegisteredTypeStats holds per-type usage counters incremented on root
+// encode/decode operations. Activation is controlled by the proto
+// implementation. When Enabled is false, all counter fields are zero
+// and unchanged across operations.
+type RegisteredTypeStats struct {
+	Enabled      bool
+	Encoded      int64
+	Decoded      int64
+	EncodedBytes int64
+	DecodedBytes int64
 }
 
 // Env
