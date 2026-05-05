@@ -20,7 +20,7 @@ MIT License. Free to use in commercial projects without restrictions.
 
 ### What Go version is required?
 
-Go 1.20 or higher. No other dependencies.
+Go 1.21 or higher. No other dependencies.
 
 ## Actor Model
 

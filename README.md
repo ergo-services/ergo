@@ -202,7 +202,7 @@ After install, invoke the skills as `/ergo:framework` or `/ergo:devops`. Agents 
 
 ### Requirements ###
 
-* Go 1.20.x and above
+* Go 1.21.x and above
 
 ### Changelog ###
 
