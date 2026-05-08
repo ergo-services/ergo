@@ -4,6 +4,30 @@ import (
 	"errors"
 )
 
+// Error is a wrapping error type used as a process exit reason when both
+// a structural cause and the original underlying reason must be preserved.
+// Inner is the original wrapped error; Msg describes the structural cause
+// at this level. Mailbox holds the terminated process mailbox for replay
+// on restart (filled by the runtime on panic).
+// Designed for EDF wire encoding where an outer message and an inner
+// (possibly cached) error are encoded together.
+type Error struct {
+	Msg     string
+	Inner   error
+	Mailbox ProcessMailbox
+}
+
+func (e *Error) Error() string {
+	if e.Inner == nil {
+		return e.Msg
+	}
+	return e.Msg + ": " + e.Inner.Error()
+}
+
+func (e *Error) Unwrap() error {
+	return e.Inner
+}
+
 var (
 	ErrNameUnknown    = errors.New("unknown name")
 	ErrParentUnknown  = errors.New("parent/leader is not set")

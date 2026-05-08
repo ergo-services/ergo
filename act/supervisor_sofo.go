@@ -12,19 +12,30 @@ import (
 
 func createSupSimpleOneForOne() supBehavior {
 	return &supSOFO{
-		spec: make(map[gen.Atom]*supChildSpec),
-		pids: make(map[gen.PID]*supChildSpec),
-		args: make(map[gen.PID][]any),
+		spec:      make(map[gen.Atom]*supChildSpec),
+		instances: make(map[gen.PID]*sofoInstance),
 	}
 }
 
+// sofoInstance carries the state of a logical SOFO instance across
+// restarts: identifying spec, instance args and the per-instance
+// restart history (only used when the spec opts in via Restart.Intensity).
+type sofoInstance struct {
+	spec     gen.Atom
+	args     []any
+	restarts []int64
+}
+
 type supSOFO struct {
-	spec map[gen.Atom]*supChildSpec
-	pids map[gen.PID]*supChildSpec
-	args map[gen.PID][]any // stores per-instance args for restart
+	spec      map[gen.Atom]*supChildSpec
+	instances map[gen.PID]*sofoInstance
 
 	restart  SupervisorRestart
 	restarts []int64
+
+	// pendingInstance carries the sofoInstance over a restart spawn so its
+	// per-instance counter and args survive the new pid.
+	pendingInstance *sofoInstance
 
 	i              int
 	shutdown       bool
@@ -41,6 +52,7 @@ func (s *supSOFO) init(spec SupervisorSpec) (supAction, error) {
 			SupervisorChildSpec: c,
 		}
 		cs.i = s.i
+		cs.effStrategy = resolveStrategy(s.restart.Strategy, c.Restart.Strategy)
 		s.i++
 		s.spec[cs.Name] = &cs
 	}
@@ -58,6 +70,9 @@ func (s *supSOFO) childAddSpec(spec SupervisorChildSpec) (supAction, error) {
 	if err := validateChildSpec(spec); err != nil {
 		return action, err
 	}
+	if err := validateChildRestart(spec.Restart, SupervisorTypeSimpleOneForOne); err != nil {
+		return action, fmt.Errorf("%w: %s", ErrSupervisorInvalidSpec, err)
+	}
 	if _, duplicate := s.spec[spec.Name]; duplicate {
 		return action, ErrSupervisorChildDuplicate
 	}
@@ -66,6 +81,7 @@ func (s *supSOFO) childAddSpec(spec SupervisorChildSpec) (supAction, error) {
 		SupervisorChildSpec: spec,
 	}
 	cs.i = s.i
+	cs.effStrategy = resolveStrategy(s.restart.Strategy, spec.Restart.Strategy)
 	s.i++
 	s.spec[cs.Name] = &cs
 
@@ -101,33 +117,31 @@ func (s *supSOFO) childStarted(spec supChildSpec, pid gen.PID) supAction {
 		return action
 	}
 
-	sc, found := s.spec[spec.Name]
-	if found == false {
+	if _, found := s.spec[spec.Name]; found == false {
 		// do nothing
 		return action
 	}
 
-	// do not overwrite spec args since it is a dynamic child
-	// sc.Args = spec.Args
-
-	// store per-instance args for restart
-	if len(spec.Args) > 0 {
-		s.args[pid] = spec.Args
+	if s.pendingInstance != nil {
+		// restart path: carry over the sofoInstance from the previous pid
+		s.instances[pid] = s.pendingInstance
+		s.pendingInstance = nil
+		return action
 	}
 
-	// keep it and do nothing
-	s.pids[pid] = sc
+	// brand-new instance via StartChild
+	s.instances[pid] = &sofoInstance{
+		spec: spec.Name,
+		args: spec.Args,
+	}
 	return action
 }
 
 func (s *supSOFO) childTerminated(name gen.Atom, pid gen.PID, reason error) supAction {
 	var action supAction
 
-	// save args before deleting pid
-	instanceArgs, hasArgs := s.args[pid]
-
-	delete(s.pids, pid)
-	delete(s.args, pid)
+	inst, hasInst := s.instances[pid]
+	delete(s.instances, pid)
 
 	if s.shutdown {
 		delete(s.wait, pid)
@@ -147,7 +161,7 @@ func (s *supSOFO) childTerminated(name gen.Atom, pid gen.PID, reason error) supA
 	if found {
 
 		// check strategy
-		switch s.restart.Strategy {
+		switch spec.effStrategy {
 		case SupervisorStrategyTemporary:
 			// do nothing
 			return action
@@ -163,39 +177,57 @@ func (s *supSOFO) childTerminated(name gen.Atom, pid gen.PID, reason error) supA
 			return action
 		}
 
-		// check for restart intensity
-		restarts, exceeded := supCheckRestartIntensity(s.restarts,
-			int(s.restart.Period),
-			int(s.restart.Intensity))
-		s.restarts = restarts
+		// pick the counter: per-instance if opted in, otherwise the global one
+		var (
+			restarts []int64
+			exceeded bool
+			period   = int(s.restart.Period)
+			intens   = int(s.restart.Intensity)
+			useLocal = spec.Restart.Intensity > 0 && hasInst
+		)
+		if useLocal {
+			period = int(spec.Restart.Period)
+			intens = int(spec.Restart.Intensity)
+			restarts, exceeded = supCheckRestartIntensity(inst.restarts, period, intens)
+			inst.restarts = restarts
+		} else {
+			restarts, exceeded = supCheckRestartIntensity(s.restarts, period, intens)
+			s.restarts = restarts
+		}
 
 		if exceeded == false {
-			// do restart
+			// do restart and carry the instance state to the new pid
 			action.do = supActionStartChild
 			action.spec = *spec
-
-			// use per-instance args if available, otherwise use spec args
-			if hasArgs {
-				action.spec.Args = instanceArgs
+			if hasInst && len(inst.args) > 0 {
+				action.spec.Args = inst.args
 			}
-
+			if hasInst {
+				s.pendingInstance = inst
+			}
 			return action
 		}
 
-		// exceeded intensity. start termination
+		// exceeded. only per-instance counter can drop just this instance
+		if useLocal && spec.Restart.OnExceed == OnExceedDisable {
+			// instance already removed at the top; supervisor stays alive
+			return action
+		}
+
 		action.do = supActionTerminateChildren
 		action.reason = ErrSupervisorRestartsExceeded
+		s.shutdownReason = &gen.Error{Msg: "restart intensity exceeded", Inner: reason}
 	} else {
 		action.do = supActionTerminateChildren
 		action.reason = reason
+		s.shutdownReason = reason
 	}
 
-	for pid := range s.pids {
+	for pid := range s.instances {
 		action.terminate = append(action.terminate, pid)
 		s.wait[pid] = true
 	}
 	s.shutdown = true
-	s.shutdownReason = action.reason
 	return action
 }
 
@@ -228,14 +260,12 @@ func (s *supSOFO) childDisable(name gen.Atom) (supAction, error) {
 	spec.disabled = true
 
 	terminate := []gen.PID{}
-	for pid, spec := range s.pids {
-		if spec.Name != name {
+	for pid, inst := range s.instances {
+		if inst.spec != name {
 			continue
 		}
 		terminate = append(terminate, pid)
 		s.wait[pid] = true
-		// clean up stored args for this instance
-		delete(s.args, pid)
 	}
 
 	if len(terminate) > 0 {
@@ -248,7 +278,11 @@ func (s *supSOFO) childDisable(name gen.Atom) (supAction, error) {
 
 func (s *supSOFO) children() []SupervisorChild {
 	var c []supChild
-	for pid, spec := range s.pids {
+	for pid, inst := range s.instances {
+		spec, ok := s.spec[inst.spec]
+		if ok == false {
+			continue
+		}
 		c = append(c, supChild{pid, *spec})
 	}
 	return sortSupChild(c)
@@ -266,15 +300,16 @@ func (s *supSOFO) inspect(items ...string) map[string]string {
 	specsTotal := len(s.spec)
 	specsDisabled := 0
 
-	// count instances per child spec
 	instancesPerSpec := make(map[gen.Atom]int)
 	instancesWithArgsPerSpec := make(map[gen.Atom]int)
+	localRestartsPerSpec := make(map[gen.Atom]int)
 
-	for pid, spec := range s.pids {
-		instancesPerSpec[spec.Name]++
-		if _, hasArgs := s.args[pid]; hasArgs {
-			instancesWithArgsPerSpec[spec.Name]++
+	for _, inst := range s.instances {
+		instancesPerSpec[inst.spec]++
+		if len(inst.args) > 0 {
+			instancesWithArgsPerSpec[inst.spec]++
 		}
+		localRestartsPerSpec[inst.spec] += len(inst.restarts)
 	}
 
 	for name, cs := range s.spec {
@@ -285,11 +320,14 @@ func (s *supSOFO) inspect(items ...string) map[string]string {
 		countWithArgs := instancesWithArgsPerSpec[name]
 		result[fmt.Sprintf("child:%s", name)] = fmt.Sprintf("%d", count)
 		result[fmt.Sprintf("child:%s:args", name)] = fmt.Sprintf("%d", countWithArgs)
+		if cs.Restart.Intensity > 0 {
+			result[fmt.Sprintf("child:%s:restarts", name)] = fmt.Sprintf("%d", localRestartsPerSpec[name])
+		}
 	}
 
 	result["specs_total"] = fmt.Sprintf("%d", specsTotal)
 	result["specs_disabled"] = fmt.Sprintf("%d", specsDisabled)
-	result["instances_total"] = fmt.Sprintf("%d", len(s.pids))
+	result["instances_total"] = fmt.Sprintf("%d", len(s.instances))
 
 	return result
 }

@@ -110,6 +110,8 @@ type SupervisorStrategy int
 
 func (s SupervisorStrategy) String() string {
 	switch s {
+	case SupervisorStrategyInherit:
+		return "Inherit"
 	case SupervisorStrategyTransient:
 		return "Transient"
 	case SupervisorStrategyTemporary:
@@ -121,20 +123,52 @@ func (s SupervisorStrategy) String() string {
 }
 
 const (
+	// SupervisorStrategyInherit is a sentinel valid only inside SupervisorChildRestart.
+	// At child level it means the child uses the supervisor-level Strategy.
+	// At supervisor level it is normalized to SupervisorStrategyTransient on init.
+	SupervisorStrategyInherit SupervisorStrategy = 0
+
 	// SupervisorStrategyTransient child process is restarted only if
 	// it terminates abnormally, that is, with an exit reason other
 	// than TerminateReasonNormal, TerminateReasonShutdown.
 	// This is default strategy.
-	SupervisorStrategyTransient SupervisorStrategy = 0
+	SupervisorStrategyTransient SupervisorStrategy = 1
 
 	// SupervisorStrategyTemporary child process is never restarted
 	// (not even when the supervisor restart strategy is rest_for_one
 	// or one_for_all and a sibling death causes the temporary process
 	// to be terminated)
-	SupervisorStrategyTemporary SupervisorStrategy = 1
+	SupervisorStrategyTemporary SupervisorStrategy = 2
 
 	// SupervisorStrategyPermanent child process is always restarted
-	SupervisorStrategyPermanent SupervisorStrategy = 2
+	SupervisorStrategyPermanent SupervisorStrategy = 3
+)
+
+// OnExceed defines what happens when the per-spec restart intensity is
+// exceeded. Only meaningful when SupervisorChildRestart.Intensity > 0.
+type OnExceed uint8
+
+func (a OnExceed) String() string {
+	switch a {
+	case OnExceedTerminateSupervisor:
+		return "TerminateSupervisor"
+	case OnExceedDisable:
+		return "Disable"
+	}
+	return "Bug: unknown OnExceed"
+}
+
+const (
+	// OnExceedTerminateSupervisor terminates the supervisor when the per-spec
+	// restart intensity is exceeded. This is the default.
+	OnExceedTerminateSupervisor OnExceed = 0
+
+	// OnExceedDisable disables the offending child when its per-spec or
+	// per-instance restart intensity is exceeded; the supervisor remains
+	// alive. For OneForOne the spec is marked disabled (re-enable via
+	// EnableChild). For SimpleOneForOne the offending instance is dropped
+	// while the spec stays available for new StartChild calls.
+	OnExceedDisable OnExceed = 1
 )
 
 // SupervisorSpec
@@ -163,6 +197,21 @@ type SupervisorRestart struct {
 	KeepOrder bool // ignored for SupervisorTypeSimpleOneForOne and SupervisorTypeOneForOne
 }
 
+// SupervisorChildRestart is an optional per-child override of the
+// supervisor-level restart configuration. Zero-value fields inherit:
+// Strategy == SupervisorStrategyInherit uses the supervisor Strategy;
+// Intensity == 0 uses the supervisor's global counter (Period is then
+// ignored). Setting Intensity > 0 enables a dedicated per-spec counter
+// (per-instance for SimpleOneForOne). OnExceed == OnExceedDisable
+// requires Intensity > 0 and is rejected for SupervisorTypeAllForOne
+// and SupervisorTypeRestForOne.
+type SupervisorChildRestart struct {
+	Strategy  SupervisorStrategy
+	Intensity uint16
+	Period    uint16
+	OnExceed  OnExceed
+}
+
 // SupervisorChildSpec
 type SupervisorChildSpec struct {
 	Name        gen.Atom
@@ -170,6 +219,7 @@ type SupervisorChildSpec struct {
 	Factory     gen.ProcessFactory
 	Options     gen.ProcessOptions
 	Args        []any
+	Restart     SupervisorChildRestart
 }
 
 type SupervisorChild struct {
@@ -275,7 +325,10 @@ func (s *Supervisor) ProcessInit(process gen.Process, args ...any) (rr error) {
 		return err
 	}
 
-	// validate restart strategy
+	// supervisor-level Strategy: Inherit is normalized to Transient
+	if spec.Restart.Strategy == SupervisorStrategyInherit {
+		spec.Restart.Strategy = SupervisorStrategyTransient
+	}
 	switch spec.Restart.Strategy {
 	case SupervisorStrategyTransient, SupervisorStrategyTemporary,
 		SupervisorStrategyPermanent:
@@ -284,7 +337,6 @@ func (s *Supervisor) ProcessInit(process gen.Process, args ...any) (rr error) {
 		return fmt.Errorf("unknown supervisor restart strategy")
 	}
 
-	// validate restart options
 	if spec.Restart.Intensity == 0 {
 		spec.Restart.Intensity = defaultRestartIntensity
 	}
@@ -292,7 +344,6 @@ func (s *Supervisor) ProcessInit(process gen.Process, args ...any) (rr error) {
 		spec.Restart.Period = defaultRestartPeriod
 	}
 
-	// validate child spec list
 	if len(spec.Children) == 0 {
 		return fmt.Errorf("children list can not be empty")
 	}
@@ -300,15 +351,18 @@ func (s *Supervisor) ProcessInit(process gen.Process, args ...any) (rr error) {
 	s.handleChild = spec.EnableHandleChild
 
 	duplicate := make(map[gen.Atom]bool)
-	for _, s := range spec.Children {
-		if err := validateChildSpec(s); err != nil {
+	for _, c := range spec.Children {
+		if err := validateChildSpec(c); err != nil {
 			return err
 		}
-		_, dup := duplicate[s.Name]
+		if err := validateChildRestart(c.Restart, spec.Type); err != nil {
+			return fmt.Errorf("%w: child %q: %s", ErrSupervisorInvalidSpec, c.Name, err)
+		}
+		_, dup := duplicate[c.Name]
 		if dup {
 			return ErrSupervisorChildDuplicate
 		}
-		duplicate[s.Name] = true
+		duplicate[c.Name] = true
 	}
 
 	// create supervisor
@@ -740,6 +794,39 @@ func validateChildSpec(s SupervisorChildSpec) error {
 	return nil
 }
 
+func validateChildRestart(r SupervisorChildRestart, t SupervisorType) error {
+	switch r.Strategy {
+	case SupervisorStrategyInherit, SupervisorStrategyTransient,
+		SupervisorStrategyTemporary, SupervisorStrategyPermanent:
+	default:
+		return fmt.Errorf("unknown Restart.Strategy")
+	}
+
+	if r.Intensity == 0 && r.Period > 0 {
+		return fmt.Errorf("Restart.Period requires Intensity > 0")
+	}
+	if r.OnExceed == OnExceedDisable && r.Intensity == 0 {
+		return fmt.Errorf("Restart.OnExceed=Disable requires Intensity > 0")
+	}
+
+	if r.Intensity > 0 {
+		switch t {
+		case SupervisorTypeAllForOne, SupervisorTypeRestForOne:
+			return fmt.Errorf("per-child Restart.Intensity is not supported for All/Rest For One")
+		}
+	}
+	return nil
+}
+
+// resolveStrategy returns the effective Strategy for a child given the
+// supervisor-level Strategy (already normalized) and the per-child override.
+func resolveStrategy(supStrategy SupervisorStrategy, childStrategy SupervisorStrategy) SupervisorStrategy {
+	if childStrategy == SupervisorStrategyInherit {
+		return supStrategy
+	}
+	return childStrategy
+}
+
 type supChild struct {
 	pid  gen.PID
 	spec supChildSpec
@@ -751,6 +838,14 @@ type supChildSpec struct {
 	disabled bool
 	i        int
 	pid      gen.PID
+
+	// effStrategy is the resolved Strategy after merging supervisor-level
+	// and per-child Restart.Strategy. Filled at init/childAddSpec.
+	effStrategy SupervisorStrategy
+
+	// localRestarts is the per-spec restart history when the spec opts in
+	// via Restart.Intensity > 0. Nil otherwise (the global counter is used).
+	localRestarts []int64
 }
 
 func sortSupChild(c []supChild) []SupervisorChild {

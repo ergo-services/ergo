@@ -51,7 +51,7 @@ func decodeWithStats(packet []byte, state *stateDecode) (any, []byte, error) {
 
 	value, packet, err := dec.Decode(&v, packet, state)
 	if err != nil {
-		return nil, nil, fmt.Errorf("malformed EDF: %w", err)
+		return nil, nil, fmt.Errorf("malformed EDF for %s: %w", dec.Type.Name(), err)
 	}
 
 	if dec.Info != nil {

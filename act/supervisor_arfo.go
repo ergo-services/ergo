@@ -48,6 +48,7 @@ func (s *supARFO) init(spec SupervisorSpec) (supAction, error) {
 		}
 		cs.register = true
 		cs.i = s.i
+		cs.effStrategy = resolveStrategy(s.restart.Strategy, c.Restart.Strategy)
 		s.i++
 		s.spec = append(s.spec, &cs)
 	}
@@ -72,6 +73,13 @@ func (s *supARFO) childAddSpec(spec SupervisorChildSpec) (supAction, error) {
 	if err := validateChildSpec(spec); err != nil {
 		return action, err
 	}
+	t := SupervisorTypeAllForOne
+	if s.rest {
+		t = SupervisorTypeRestForOne
+	}
+	if err := validateChildRestart(spec.Restart, t); err != nil {
+		return action, fmt.Errorf("%w: %s", ErrSupervisorInvalidSpec, err)
+	}
 
 	for _, cs := range s.spec {
 		if cs.Name == spec.Name {
@@ -84,6 +92,7 @@ func (s *supARFO) childAddSpec(spec SupervisorChildSpec) (supAction, error) {
 	}
 	cs.register = true
 	cs.i = s.i
+	cs.effStrategy = resolveStrategy(s.restart.Strategy, spec.Restart.Strategy)
 	s.i++
 	s.spec = append(s.spec, &cs)
 
@@ -283,7 +292,7 @@ func (s *supARFO) childTerminated(name gen.Atom, pid gen.PID, reason error) supA
 	}
 
 	// activate restart strategy
-	switch s.restart.Strategy {
+	switch spec.effStrategy {
 	case SupervisorStrategyTemporary:
 		if spec.Significant {
 			// significant child has terminated.
@@ -358,7 +367,7 @@ func (s *supARFO) childTerminated(name gen.Atom, pid gen.PID, reason error) supA
 		action.reason = ErrSupervisorRestartsExceeded
 		s.wait = wait
 		s.mode = 3 // shutdown
-		s.shutdownReason = reason
+		s.shutdownReason = &gen.Error{Msg: "restart intensity exceeded", Inner: reason}
 		return action
 	}
 

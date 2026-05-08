@@ -11,6 +11,7 @@ var (
 	ErrSupervisorChildDisabled    = errors.New("child is disabled")
 	ErrSupervisorRestartsExceeded = errors.New("restart intensity is exceeded")
 	ErrSupervisorChildDuplicate   = errors.New("duplicate child spec Name")
+	ErrSupervisorInvalidSpec      = errors.New("invalid supervisor spec")
 
 	ErrPoolEmpty = errors.New("no worker process in the pool")
 )
