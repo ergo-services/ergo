@@ -36,10 +36,11 @@ type process struct {
 	leader   gen.PID
 	fallback gen.ProcessFallback
 
-	mailbox   gen.ProcessMailbox
-	priority  gen.MessagePriority
-	keeporder bool
-	important bool
+	mailbox         gen.ProcessMailbox
+	priority        gen.MessagePriority
+	keeporder       bool
+	important       bool
+	preserveMailbox bool
 
 	messagesIn  uint64
 	messagesOut uint64
@@ -1942,6 +1943,22 @@ func (p *process) MetaInfo(m gen.Alias) (gen.MetaInfo, error) {
 
 func (p *process) Mailbox() gen.ProcessMailbox {
 	return p.mailbox
+}
+
+func (p *process) wrapPreserveMailbox(reason error) error {
+	if p.preserveMailbox == false {
+		return reason
+	}
+	if reason == gen.TerminateReasonNormal || reason == gen.TerminateReasonShutdown {
+		return reason
+	}
+	if ge, ok := reason.(*gen.Error); ok {
+		if ge.Mailbox == nil {
+			ge.Mailbox = &p.mailbox
+		}
+		return ge
+	}
+	return &gen.Error{Inner: reason, Mailbox: &p.mailbox}
 }
 
 func (p *process) Behavior() gen.ProcessBehavior {

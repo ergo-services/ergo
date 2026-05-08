@@ -454,6 +454,76 @@ SupervisorSpec{
 
 For All For One or Rest For One supervisors the same per-child Strategy override controls *triggering*: a Temporary child can fail without triggering a group restart, while a Permanent child's failure always does.
 
+## Mailbox Preservation Across Restart
+
+By default, when a process restarts after a failure, its mailbox is reset to empty. Any messages that arrived before the failure but were not yet processed are lost. For some children this is fine. For others (workers mid-task, request handlers with queued work) losing those messages means losing work.
+
+The framework provides an opt-in mechanism to carry a dying process's mailbox over to its restarted incarnation, so the new instance picks up exactly where the old one left off (minus the one message that triggered the failure, which is treated as already consumed).
+
+### Enabling Mailbox Preservation
+
+Set `Options.PreserveMailbox: true` on the child spec:
+
+```go
+SupervisorChildSpec{
+    Name:    "worker",
+    Factory: createWorker,
+    Options: gen.ProcessOptions{
+        PreserveMailbox: true,
+    },
+}
+```
+
+That single flag is the entire user-facing knob. The framework handles the rest: when the worker terminates abnormally, the runtime captures its mailbox into a `*gen.Error` exit reason. The supervisor extracts the mailbox from that reason and hands it to the next spawn. The new incarnation begins life with the surviving messages already in its queues, in their original priority order.
+
+### What Triggers Preservation
+
+The runtime captures the mailbox on any abnormal termination:
+
+- panic in a callback,
+- callback returning an arbitrary error,
+- forced `Kill`,
+- exit signal cascade from a linked process that died abnormally.
+
+Normal exits (`gen.TerminateReasonNormal` and `gen.TerminateReasonShutdown`) do not trigger capture. A clean shutdown means the actor explicitly decided to stop, and reusing its mailbox on the next incarnation would contradict that decision.
+
+### Restrictions
+
+- **Only One For One and Simple One For One.** All For One and Rest For One use group-restart semantics: when one child fails, every sibling is torn down and rebuilt together. Preserving the mailbox of one specific child while wiping the siblings' state is contradictory. The supervisor rejects `PreserveMailbox: true` on All For One / Rest For One children at init with `act.ErrSupervisorInvalidSpec`.
+
+- **The triggering message is not replayed.** The message the actor was processing when it failed has already been popped from the queue. It is considered consumed (with an error). Replaying it would create restart loops on poison-pill messages: each retry would fail again until restart intensity intervenes. The framework deliberately drops the triggering message and resumes from the next one in queue.
+
+- **In-process state is not preserved.** Only the mailbox queues survive. Any state held in the actor's struct fields is gone. The new incarnation runs `Init` from scratch and then starts pulling surviving messages.
+
+### Example: SOFO Worker Pool with Per-Task Mailbox Preservation
+
+```go
+SupervisorSpec{
+    Type: act.SupervisorTypeSimpleOneForOne,
+    Restart: act.SupervisorRestart{
+        Strategy: act.SupervisorStrategyTransient,
+    },
+    Children: []act.SupervisorChildSpec{{
+        Name:    "task_worker",
+        Factory: createTaskWorker,
+        Options: gen.ProcessOptions{
+            PreserveMailbox: true,
+        },
+        Restart: act.SupervisorChildRestart{
+            Intensity: 5,
+            Period:    10,
+            OnExceed:  act.OnExceedDisable,
+        },
+    }},
+}
+```
+
+Each `StartChild` invocation creates a worker instance with its own restart counter. When a worker panics, its mailbox is captured and handed to the restart. The new incarnation continues processing the queued tasks. If the same logical instance keeps panicking past its budget (5 failures in 10 seconds), `OnExceedDisable` drops just that instance while the rest of the pool keeps serving. Without `OnExceedDisable`, the supervisor itself would terminate.
+
+### Network Boundary
+
+A live mailbox cannot cross the network. The `Mailbox` fields on `gen.Error` and `gen.ProcessOptions` are excluded from EDF wire encoding via the `edf:"-"` tag. On remote spawn or remote exit signals, those fields are zero-valued (nil) on the receiving side. Mailbox preservation is a same-node feature.
+
 ## Significant Children
 
 In All For One and Rest For One supervisors, the `Significant` flag marks children whose termination can trigger supervisor shutdown:
@@ -814,5 +884,6 @@ By the time you reach this section every term in the table below has been introd
 | All For One or Rest For One child whose death must not trigger a group restart. | Per-child `Restart: SupervisorChildRestart{Strategy: SupervisorStrategyTemporary}`. |
 | Clean exit of one child ends the whole subtree. | `Type: SupervisorTypeAllForOne` or `SupervisorTypeRestForOne`, supervisor `Strategy: SupervisorStrategyTransient`, per-child `Significant: true`. |
 | Supervisor stays alive with zero children (used to manage children added at runtime). | `DisableAutoShutdown: true`. |
+| Worker resumes its queued messages after a panic restart. | `Type: SupervisorTypeOneForOne` or `SupervisorTypeSimpleOneForOne`, child `Options: gen.ProcessOptions{PreserveMailbox: true}`. |
 
 Most rows are composable in a single supervisor: different children can have different per-child Restart, per-child Restart can combine with `Significant`, and `DisableAutoShutdown` is orthogonal to everything above. Only the per-child `Intensity` field is exclusive to `SupervisorTypeOneForOne` and `SupervisorTypeSimpleOneForOne`.

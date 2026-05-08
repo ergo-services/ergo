@@ -100,6 +100,8 @@ Processes typically terminate themselves by returning an error from `ProcessRun`
 
 If a panic occurs during message handling, the framework catches it, logs the stack trace, and terminates the process with `gen.TerminateReasonPanic`. The `ProcessTerminate` callback still runs, giving the process a chance to clean up despite the panic.
 
+By default, queued messages that arrived before the panic but were not yet processed are lost when the process dies. Set `Options.PreserveMailbox: true` at spawn time to opt in to mailbox preservation: the runtime captures the mailbox into a `*gen.Error` exit reason on any abnormal termination, and a supervising parent automatically hands it to the restarted incarnation. See [Mailbox Preservation Across Restart](../actors/supervisor.md#mailbox-preservation-across-restart) for the supervisor side of the contract.
+
 Processes can also be terminated externally. Sending an exit signal with `SendExit` delivers a high-priority termination request to the process's Urgent queue. Actors can trap these signals and handle them as regular messages, allowing graceful shutdown. This is how supervision trees restart workers - send an exit signal, wait for clean termination, then spawn a replacement.
 
 The most forceful option is `Kill`. If the process is idle (Sleep state), it transitions directly to Terminated and `ProcessTerminate` is called. If the process is actively handling a message (Running or WaitResponse states), it's marked as Zombee. In Zombee state, all operations return `gen.ErrNotAllowed`. The process finishes its current message, then terminates and calls `ProcessTerminate`. Use `Kill` when you need to stop a process that isn't responding to exit signals.

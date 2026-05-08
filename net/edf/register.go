@@ -391,12 +391,21 @@ func registerType(tov reflect.Type) error {
 
 		nf := tov.NumField()
 		for i := 0; i < nf; i++ {
-			ft := tov.Field(i).Type
+			field := tov.Field(i)
 
-			if tov.Field(i).IsExported() == false {
+			// edf:"-" excludes the field from wire encoding entirely. Nil
+			// slots in encs/decs are treated as skip markers in the closures.
+			if field.Tag.Get("edf") == "-" {
+				encs = append(encs, nil)
+				decs = append(decs, nil)
+				continue
+			}
+
+			if field.IsExported() == false {
 				return fmt.Errorf("struct %s has unexported field(s)", tov.Name())
 			}
 
+			ft := field.Type
 			enc, err := getEncoder(ft, &stateEncode{})
 			if err != nil {
 				return fmt.Errorf("(struct field encode) type %v must be registered first: %s", ft, err)
@@ -417,6 +426,9 @@ func registerType(tov reflect.Type) error {
 			}
 			state = state.child
 			for i := 0; i < nf; i++ {
+				if encs[i] == nil {
+					continue
+				}
 				state.encodeType = false
 				if err := encs[i].Encode(value.Field(i), b, state); err != nil {
 					return err
@@ -439,6 +451,9 @@ func registerType(tov reflect.Type) error {
 
 			state = state.child
 			for i := 0; i < nf; i++ {
+				if decs[i] == nil {
+					continue
+				}
 				field := value.Field(i)
 				_, packet, err = decs[i].Decode(&field, packet, state)
 				if err != nil {

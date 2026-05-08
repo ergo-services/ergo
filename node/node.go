@@ -2639,7 +2639,12 @@ func (n *node) spawn(factory gen.ProcessFactory, options gen.ProcessOptionsExtra
 	}
 
 	// init mailbox
-	if options.MailboxSize > 0 {
+	if options.Mailbox != nil {
+		// adopt the mailbox handed in by the supervisor (or test) instead
+		// of allocating fresh queues
+		p.mailbox = *options.Mailbox
+		p.fallback = options.Fallback
+	} else if options.MailboxSize > 0 {
 		p.fallback = options.Fallback
 		p.mailbox.Main = lib.NewQueueLimitMPSC(options.MailboxSize, false)
 		p.mailbox.System = lib.NewQueueLimitMPSC(options.MailboxSize, false)
@@ -2651,6 +2656,8 @@ func (n *node) spawn(factory gen.ProcessFactory, options gen.ProcessOptionsExtra
 		p.mailbox.Urgent = lib.NewQueueMPSC()
 		p.mailbox.Log = lib.NewQueueMPSC()
 	}
+
+	p.preserveMailbox = options.PreserveMailbox
 
 	// create pid
 	pid := gen.PID{

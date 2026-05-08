@@ -80,6 +80,9 @@ func (s *supARFO) childAddSpec(spec SupervisorChildSpec) (supAction, error) {
 	if err := validateChildRestart(spec.Restart, t); err != nil {
 		return action, fmt.Errorf("%w: %s", ErrSupervisorInvalidSpec, err)
 	}
+	if err := validateChildOptions(spec.Options, t); err != nil {
+		return action, fmt.Errorf("%w: %s", ErrSupervisorInvalidSpec, err)
+	}
 
 	for _, cs := range s.spec {
 		if cs.Name == spec.Name {

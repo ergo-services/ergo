@@ -321,6 +321,7 @@ func (s *supOFO) childTerminated(name gen.Atom, pid gen.PID, reason error) supAc
 		// do restart
 		action.do = supActionStartChild
 		action.spec = *spec
+		action.adoptMailbox = extractMailbox(reason)
 
 		return action
 	}

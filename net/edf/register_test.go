@@ -32,6 +32,18 @@ type testRegStruct struct{ A bool }
 type testRegSlice []bool
 type testRegArray [3]bool
 
+type testRegTagSkipExported struct {
+	ID   int64
+	Name string
+	Skip *int `edf:"-"`
+}
+
+type testRegTagSkipUnexported struct {
+	ID    int64
+	Name  string
+	cache map[string]int `edf:"-"`
+}
+
 type regCases struct {
 	name  string
 	value any
@@ -135,5 +147,17 @@ func TestRegCacheTypes(t *testing.T) {
 				t.Fatal("incorrect value")
 			}
 		})
+	}
+}
+
+func TestRegTagSkipExportedField(t *testing.T) {
+	if err := RegisterTypeOf(testRegTagSkipExported{}); err != nil && err != gen.ErrTaken {
+		t.Fatalf("register failed for struct with edf:\"-\" on exported field: %v", err)
+	}
+}
+
+func TestRegTagSkipUnexportedField(t *testing.T) {
+	if err := RegisterTypeOf(testRegTagSkipUnexported{}); err != nil && err != gen.ErrTaken {
+		t.Fatalf("register failed for struct with edf:\"-\" on unexported field: %v", err)
 	}
 }

@@ -205,6 +205,7 @@ func (s *supSOFO) childTerminated(name gen.Atom, pid gen.PID, reason error) supA
 			if hasInst {
 				s.pendingInstance = inst
 			}
+			action.adoptMailbox = extractMailbox(reason)
 			return action
 		}
 

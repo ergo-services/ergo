@@ -910,6 +910,22 @@ type ProcessOptions struct {
 	// For remote spawn and application processes, maximum allowed value
 	// is DefaultRequestTimeout*3 (15 seconds), otherwise returns ErrNotAllowed.
 	InitTimeout int
+
+	// PreserveMailbox enables capture of the process mailbox into a *Error
+	// on any abnormal termination (panic, abnormal callback return, kill).
+	// The captured mailbox flows through the exit signal as Error.Mailbox.
+	// A supervisor automatically picks it up and hands it to the new
+	// incarnation on restart. Normal and Shutdown exits never trigger
+	// capture. Defaults to false (no capture).
+	PreserveMailbox bool
+
+	// Mailbox, if non-nil, is adopted by the new process as its mailbox
+	// instead of allocating fresh queues. Set automatically by supervisors
+	// on restart when the previous incarnation was spawned with
+	// PreserveMailbox enabled. Public so tests and replay tools can
+	// pre-populate a process's mailbox at spawn time. Excluded from
+	// wire encoding: a live mailbox cannot cross the network.
+	Mailbox *ProcessMailbox `edf:"-"`
 }
 
 type ProcessOptionsExtra struct {

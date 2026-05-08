@@ -358,6 +358,9 @@ func (s *Supervisor) ProcessInit(process gen.Process, args ...any) (rr error) {
 		if err := validateChildRestart(c.Restart, spec.Type); err != nil {
 			return fmt.Errorf("%w: child %q: %s", ErrSupervisorInvalidSpec, c.Name, err)
 		}
+		if err := validateChildOptions(c.Options, spec.Type); err != nil {
+			return fmt.Errorf("%w: child %q: %s", ErrSupervisorInvalidSpec, c.Name, err)
+		}
 		_, dup := duplicate[c.Name]
 		if dup {
 			return ErrSupervisorChildDuplicate
@@ -636,6 +639,9 @@ func (s *Supervisor) handleAction(action supAction) error {
 
 			action.spec.Options.LinkChild = true
 			action.spec.Options.LinkParent = true
+			if action.adoptMailbox != nil {
+				action.spec.Options.Mailbox = action.adoptMailbox
+			}
 
 			if action.spec.register {
 				pid, err = s.SpawnRegister(
@@ -742,7 +748,8 @@ type supAction struct {
 	do supActionType
 
 	// for supActionStartChild
-	spec supChildSpec
+	spec         supChildSpec
+	adoptMailbox *gen.ProcessMailbox
 
 	// for supActionTerminateChildren
 	terminate []gen.PID
@@ -794,6 +801,16 @@ func validateChildSpec(s SupervisorChildSpec) error {
 	return nil
 }
 
+func validateChildOptions(opts gen.ProcessOptions, t SupervisorType) error {
+	if opts.PreserveMailbox {
+		switch t {
+		case SupervisorTypeAllForOne, SupervisorTypeRestForOne:
+			return fmt.Errorf("Options.PreserveMailbox is not supported for All/Rest For One")
+		}
+	}
+	return nil
+}
+
 func validateChildRestart(r SupervisorChildRestart, t SupervisorType) error {
 	switch r.Strategy {
 	case SupervisorStrategyInherit, SupervisorStrategyTransient,
@@ -825,6 +842,16 @@ func resolveStrategy(supStrategy SupervisorStrategy, childStrategy SupervisorStr
 		return supStrategy
 	}
 	return childStrategy
+}
+
+func extractMailbox(reason error) *gen.ProcessMailbox {
+	ge, ok := reason.(*gen.Error)
+	if ok == false || ge.Mailbox == nil {
+		return nil
+	}
+	mb := ge.Mailbox
+	ge.Mailbox = nil
+	return mb
 }
 
 type supChild struct {

@@ -253,6 +253,18 @@ type Order struct {
 }
 ```
 
+**Excluding fields from wire encoding** - If your struct must hold internal state alongside its public contract (caches, file handles, runtime pointers, anything that doesn't make sense for a remote actor), tag those fields with `edf:"-"`. Tagged fields are skipped during encode and left as their zero value during decode. The tag works on both exported and unexported fields, so it is also the way to register a type with private internal state.
+
+```go
+type Order struct {
+    ID    int64                  // part of the contract
+    items []Item     `edf:"-"`   // unexported internal state, skipped
+    cache *LocalCache `edf:"-"`  // exported but runtime-only, skipped
+}
+```
+
+Without `edf:"-"` the unexported `items` would cause registration to fail. With it, only `ID` participates in the wire format. This is the right escape hatch when the type as a whole must travel across the network but specific fields cannot be serialized.
+
 **Pointer types** - Starting from version 3.3, EDF supports pointer types. Pointers can be `nil` or point to a value, and this state is preserved during encoding/decoding. Nested pointers (`**int`) are not supported.
 
 ```go
@@ -295,7 +307,7 @@ If you call `RegisterType` (singular) on `Person` before `Address`, registration
 
 ### Custom Marshaling for Special Cases
 
-If your type has unexported fields or needs special encoding, implement custom marshaling:
+If you only need to exclude specific fields, prefer the `edf:"-"` tag (see above) - it is lighter than implementing a full marshaler. Reach for custom marshaling when the type itself needs an alternative on-wire representation, for example to compact a complex value, to maintain backward compatibility with an old wire format, or to integrate with an external serialization scheme.
 
 ```go
 type Config struct {

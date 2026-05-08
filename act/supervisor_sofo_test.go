@@ -416,6 +416,40 @@ func TestSOFOTemporaryWithPerInstanceRestartIsNoOp(t *testing.T) {
 // inspect output exposes per-spec aggregated counter
 //
 
+//
+// PreserveMailbox: extraction in childTerminated
+//
+
+func TestSOFOAdoptsMailboxFromGenError(t *testing.T) {
+	sup := setupSOFO(t, SupervisorSpec{
+		Restart: SupervisorRestart{Strategy: SupervisorStrategyPermanent},
+		Children: []SupervisorChildSpec{{
+			Name:    "worker",
+			Factory: dummyFactory,
+		}},
+	})
+
+	pid := startSOFO(t, sup, "worker", 100)
+
+	pmb := &gen.ProcessMailbox{}
+	reason := &gen.Error{
+		Msg:     "panic: boom",
+		Inner:   gen.TerminateReasonPanic,
+		Mailbox: pmb,
+	}
+	action := sup.childTerminated("worker", pid, reason)
+
+	if action.do != supActionStartChild {
+		t.Fatalf("expected restart, got do=%d", action.do)
+	}
+	if action.adoptMailbox != pmb {
+		t.Errorf("adoptMailbox should carry the captured mailbox; got %v", action.adoptMailbox)
+	}
+	if reason.Mailbox != nil {
+		t.Errorf("Mailbox must be cleared on the *gen.Error after extraction")
+	}
+}
+
 func TestSOFOInspectIncludesLocalRestarts(t *testing.T) {
 	sup := setupSOFO(t, SupervisorSpec{
 		Restart: SupervisorRestart{Strategy: SupervisorStrategyPermanent},

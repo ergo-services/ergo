@@ -424,6 +424,57 @@ func TestOFOGlobalExceededTerminatesEvenChildrenWithLocal(t *testing.T) {
 // inspect output exposes per-spec restart counter
 //
 
+//
+// PreserveMailbox: extraction in childTerminated
+//
+
+func TestOFOAdoptsMailboxFromGenError(t *testing.T) {
+	sup, pids := setupOFO(t, SupervisorSpec{
+		Restart: SupervisorRestart{Strategy: SupervisorStrategyPermanent},
+		Children: []SupervisorChildSpec{{
+			Name:    "child",
+			Factory: dummyFactory,
+		}},
+	})
+
+	pmb := &gen.ProcessMailbox{}
+	reason := &gen.Error{
+		Msg:     "panic: boom",
+		Inner:   gen.TerminateReasonPanic,
+		Mailbox: pmb,
+	}
+	action := sup.childTerminated("child", pids["child"], reason)
+
+	if action.do != supActionStartChild {
+		t.Fatalf("expected restart, got do=%d", action.do)
+	}
+	if action.adoptMailbox != pmb {
+		t.Errorf("adoptMailbox should carry the captured mailbox; got %v", action.adoptMailbox)
+	}
+	if reason.Mailbox != nil {
+		t.Errorf("Mailbox must be cleared on the *gen.Error after extraction (HandleChildTerminate race)")
+	}
+}
+
+func TestOFONoAdoptionWhenReasonHasNoMailbox(t *testing.T) {
+	sup, pids := setupOFO(t, SupervisorSpec{
+		Restart: SupervisorRestart{Strategy: SupervisorStrategyPermanent},
+		Children: []SupervisorChildSpec{{
+			Name:    "child",
+			Factory: dummyFactory,
+		}},
+	})
+
+	action := sup.childTerminated("child", pids["child"], errors.New("plain error"))
+
+	if action.do != supActionStartChild {
+		t.Fatalf("expected restart, got do=%d", action.do)
+	}
+	if action.adoptMailbox != nil {
+		t.Errorf("no Mailbox in reason -> no adoption; got %v", action.adoptMailbox)
+	}
+}
+
 func TestOFOInspectIncludesLocalRestarts(t *testing.T) {
 	sup, pids := setupOFO(t, SupervisorSpec{
 		Restart:             SupervisorRestart{Strategy: SupervisorStrategyPermanent},
