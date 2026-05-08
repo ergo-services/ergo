@@ -275,3 +275,28 @@ func TestGenErrorMessageNilInner(t *testing.T) {
 		t.Errorf("Error() = %q, want %q", got, "outer")
 	}
 }
+
+func TestGenErrorIsMatchesByMsg(t *testing.T) {
+	sentinel := errors.New("structural cause")
+	other := errors.New("different cause")
+	inner := errors.New("wrapped reason")
+
+	e := &gen.Error{Msg: sentinel.Error(), Inner: inner}
+
+	if errors.Is(e, sentinel) == false {
+		t.Errorf("errors.Is must match sentinel via Is method when Msg matches")
+	}
+	if errors.Is(e, other) {
+		t.Errorf("errors.Is must NOT match a sentinel with a different Error() string")
+	}
+	if errors.Is(e, inner) == false {
+		t.Errorf("errors.Is must reach Inner via Unwrap")
+	}
+}
+
+func TestGenErrorIsRejectsNilTarget(t *testing.T) {
+	e := &gen.Error{Msg: "x"}
+	if e.Is(nil) {
+		t.Errorf("Is(nil) must be false")
+	}
+}

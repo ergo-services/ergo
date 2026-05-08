@@ -187,15 +187,11 @@ func TestOFOLocalCounterExceededDefaultTerminatesSupervisor(t *testing.T) {
 	if sup.shutdown == false {
 		t.Errorf("supervisor must be in shutdown state")
 	}
-	ge, ok := sup.shutdownReason.(*gen.Error)
-	if ok == false {
-		t.Fatalf("shutdownReason must be *gen.Error, got %T", sup.shutdownReason)
+	if errors.Is(sup.shutdownReason, ErrSupervisorRestartsExceeded) == false {
+		t.Errorf("shutdownReason must match ErrSupervisorRestartsExceeded via errors.Is; got %v", sup.shutdownReason)
 	}
-	if ge.Msg != "restart intensity exceeded" {
-		t.Errorf("Msg = %q, want %q", ge.Msg, "restart intensity exceeded")
-	}
-	if errors.Is(ge.Inner, bootReason) == false {
-		t.Errorf("Inner should be the original child reason; got %v", ge.Inner)
+	if errors.Is(sup.shutdownReason, bootReason) == false {
+		t.Errorf("shutdownReason must wrap the original child reason; got %v", sup.shutdownReason)
 	}
 }
 

@@ -232,15 +232,11 @@ func TestARFOGlobalExceededWrapsReason(t *testing.T) {
 	if action.reason != ErrSupervisorRestartsExceeded {
 		t.Errorf("action.reason must be ErrSupervisorRestartsExceeded for children, got %v", action.reason)
 	}
-	ge, ok := sup.shutdownReason.(*gen.Error)
-	if ok == false {
-		t.Fatalf("shutdownReason must be *gen.Error, got %T", sup.shutdownReason)
+	if errors.Is(sup.shutdownReason, ErrSupervisorRestartsExceeded) == false {
+		t.Errorf("shutdownReason must match ErrSupervisorRestartsExceeded via errors.Is; got %v", sup.shutdownReason)
 	}
-	if ge.Msg != "restart intensity exceeded" {
-		t.Errorf("Msg = %q, want %q", ge.Msg, "restart intensity exceeded")
-	}
-	if errors.Is(ge.Inner, bootReason) == false {
-		t.Errorf("Inner must wrap original child reason; got %v", ge.Inner)
+	if errors.Is(sup.shutdownReason, bootReason) == false {
+		t.Errorf("shutdownReason must wrap original child reason; got %v", sup.shutdownReason)
 	}
 }
 

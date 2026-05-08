@@ -26,6 +26,13 @@ func (e *Error) Unwrap() error {
 	return e.Inner
 }
 
+func (e *Error) Is(target error) bool {
+	if target == nil {
+		return false
+	}
+	return e.Msg == target.Error()
+}
+
 var (
 	ErrNameUnknown    = errors.New("unknown name")
 	ErrParentUnknown  = errors.New("parent/leader is not set")
