@@ -93,6 +93,45 @@ fmt.Printf("%s", env)
 
 This allows processes to inherit environment variables from parents, leaders, and the node, with consistent naming regardless of how they're specified.
 
+## Errors
+
+### gen.Error
+
+`gen.Error` is a wrapping error type used as a process exit reason when both a structural cause and the original underlying reason must be preserved together.
+
+```go
+type Error struct {
+    Msg     string
+    Inner   error
+    Mailbox *ProcessMailbox
+}
+```
+
+- `Msg` describes the structural cause at this level (for example, "restart intensity exceeded").
+- `Inner` is the wrapped error, accessible via `errors.Unwrap`.
+- `Mailbox` carries the captured mailbox of a panicked process for replay on supervisor restart. Excluded from network encoding via `edf:"-"`, so it never crosses the wire.
+
+The type implements `Error()`, `Unwrap()`, and `Is(target error) bool` that compares `Msg` against `target.Error()`. This makes it work transparently with the standard `errors` package:
+
+```go
+// Match the structural cause
+if errors.Is(reason, act.ErrSupervisorRestartsExceeded) {
+    // subtree died because its restart budget overflowed
+}
+
+// Reach the underlying child reason
+if cause := errors.Unwrap(reason); cause != nil {
+    log.Printf("root cause: %v", cause)
+}
+```
+
+The framework uses `gen.Error` in two places today:
+
+- **Restart intensity exceeded.** The supervisor's exit reason on overflow is `*gen.Error{Msg: "restart intensity exceeded", Inner: <last child failure>}`. The Msg matches `act.ErrSupervisorRestartsExceeded.Error()`, so `errors.Is(reason, act.ErrSupervisorRestartsExceeded)` returns true. See [Restart Intensity](../actors/supervisor.md#restart-intensity).
+- **Mailbox preservation across panic restart.** When a process spawned with `Options.PreserveMailbox: true` terminates abnormally, the runtime captures its mailbox into `Mailbox` and wraps the original reason as `Inner`. The supervising parent automatically picks it up and hands it to the restart. See [Mailbox Preservation](process.md#mailbox-preservation).
+
+Application code can construct `*gen.Error` directly when an actor wants to return a structured exit reason with both a human-readable label and the underlying error preserved for programmatic inspection.
+
 ## Core Interfaces
 
 The framework defines several interfaces that provide access to different parts of the system.

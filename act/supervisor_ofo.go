@@ -27,6 +27,8 @@ type supOFO struct {
 	shutdownReason error
 	wait           map[gen.PID]bool
 
+	history []supRestartEvent
+
 	i int
 }
 
@@ -318,6 +320,7 @@ func (s *supOFO) childTerminated(name gen.Atom, pid gen.PID, reason error) supAc
 	}
 
 	if exceeded == false {
+		s.history = supAppendHistory(s.history, spec.Name, reason)
 		// do restart
 		action.do = supActionStartChild
 		action.spec = *spec
@@ -446,6 +449,8 @@ func (s *supOFO) inspect(items ...string) map[string]string {
 	result["children_total"] = fmt.Sprintf("%d", totalChildren)
 	result["children_running"] = fmt.Sprintf("%d", runningChildren)
 	result["children_disabled"] = fmt.Sprintf("%d", disabledChildren)
+
+	supHistoryToInspect(s.history, result)
 
 	return result
 }

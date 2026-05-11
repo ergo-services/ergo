@@ -854,6 +854,39 @@ func extractMailbox(reason error) *gen.ProcessMailbox {
 	return mb
 }
 
+const supRestartHistoryMax = 50
+
+type supRestartEvent struct {
+	timestamp time.Time
+	spec      gen.Atom
+	reason    string
+}
+
+func supAppendHistory(history []supRestartEvent, name gen.Atom, reason error) []supRestartEvent {
+	e := supRestartEvent{
+		timestamp: time.Now(),
+		spec:      name,
+	}
+	if reason != nil {
+		e.reason = reason.Error()
+	}
+	history = append(history, e)
+	if len(history) > supRestartHistoryMax {
+		history = history[len(history)-supRestartHistoryMax:]
+	}
+	return history
+}
+
+func supHistoryToInspect(history []supRestartEvent, result map[string]string) {
+	result["history:count"] = fmt.Sprintf("%d", len(history))
+	for i, e := range history {
+		prefix := fmt.Sprintf("history:%d:", i)
+		result[prefix+"time"] = e.timestamp.UTC().Format(time.RFC3339Nano)
+		result[prefix+"child"] = string(e.spec)
+		result[prefix+"reason"] = e.reason
+	}
+}
+
 type supChild struct {
 	pid  gen.PID
 	spec supChildSpec

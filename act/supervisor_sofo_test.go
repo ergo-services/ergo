@@ -448,6 +448,31 @@ func TestSOFOAdoptsMailboxFromGenError(t *testing.T) {
 	}
 }
 
+func TestSOFOInspectExposesRestartHistory(t *testing.T) {
+	sup := setupSOFO(t, SupervisorSpec{
+		Restart: SupervisorRestart{Strategy: SupervisorStrategyPermanent},
+		Children: []SupervisorChildSpec{{
+			Name:    "worker",
+			Factory: dummyFactory,
+		}},
+	})
+
+	pid := startSOFO(t, sup, "worker", 100)
+	_, pid = killSOFO(t, sup, "worker", pid, errors.New("first"))
+	_, _ = killSOFO(t, sup, "worker", pid, errors.New("second"))
+
+	out := sup.inspect()
+	if out["history:count"] != "2" {
+		t.Fatalf("expected 2 history entries, got %q", out["history:count"])
+	}
+	if out["history:0:reason"] != "first" || out["history:1:reason"] != "second" {
+		t.Errorf("history reasons mismatch: %q / %q", out["history:0:reason"], out["history:1:reason"])
+	}
+	if out["history:0:child"] != "worker" || out["history:1:child"] != "worker" {
+		t.Errorf("history child names mismatch: %q / %q", out["history:0:child"], out["history:1:child"])
+	}
+}
+
 func TestSOFOInspectIncludesLocalRestarts(t *testing.T) {
 	sup := setupSOFO(t, SupervisorSpec{
 		Restart: SupervisorRestart{Strategy: SupervisorStrategyPermanent},

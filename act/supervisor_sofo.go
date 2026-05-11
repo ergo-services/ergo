@@ -37,6 +37,8 @@ type supSOFO struct {
 	// per-instance counter and args survive the new pid.
 	pendingInstance *sofoInstance
 
+	history []supRestartEvent
+
 	i              int
 	shutdown       bool
 	shutdownReason error
@@ -196,6 +198,7 @@ func (s *supSOFO) childTerminated(name gen.Atom, pid gen.PID, reason error) supA
 		}
 
 		if exceeded == false {
+			s.history = supAppendHistory(s.history, spec.Name, reason)
 			// do restart and carry the instance state to the new pid
 			action.do = supActionStartChild
 			action.spec = *spec
@@ -329,6 +332,8 @@ func (s *supSOFO) inspect(items ...string) map[string]string {
 	result["specs_total"] = fmt.Sprintf("%d", specsTotal)
 	result["specs_disabled"] = fmt.Sprintf("%d", specsDisabled)
 	result["instances_total"] = fmt.Sprintf("%d", len(s.instances))
+
+	supHistoryToInspect(s.history, result)
 
 	return result
 }

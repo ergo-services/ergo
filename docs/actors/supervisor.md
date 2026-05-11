@@ -740,6 +740,15 @@ Supervisors provide runtime inspection via the `HandleInspect` method, which is 
 - `child:<name>:args`: Number of instances with custom args for that child spec
 - `child:<name>:restarts`: Aggregated per-instance restart count for that spec, only present when the spec has `Intensity > 0` in its `SupervisorChildRestart`
 
+**Restart history (all supervisor types):**
+
+- `history:count`: Number of restart events currently kept in the ring buffer
+- `history:<N>:time`: RFC3339Nano timestamp of restart event N (oldest at index 0)
+- `history:<N>:child`: Spec name of the child that triggered this restart
+- `history:<N>:reason`: `Error()` string of the termination reason
+
+The history captures up to 50 recent restart decisions and is the fastest path to diagnose "why is this subtree flapping" without parsing logs. For All For One / Rest For One supervisors only the triggering child is recorded, not the cascading sibling kills.
+
 The Observer UI displays this information in real-time, letting you monitor supervision trees, track restart patterns, and identify failing components. You can also query this data programmatically:
 
 ```go

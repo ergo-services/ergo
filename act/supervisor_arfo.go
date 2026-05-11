@@ -31,6 +31,8 @@ type supARFO struct {
 	restartI       int
 	wait           map[gen.PID]bool
 
+	history []supRestartEvent
+
 	i int
 }
 
@@ -374,6 +376,8 @@ func (s *supARFO) childTerminated(name gen.Atom, pid gen.PID, reason error) supA
 		return action
 	}
 
+	s.history = supAppendHistory(s.history, spec.Name, reason)
+
 	//
 	// activate restart strategy
 	//
@@ -500,6 +504,8 @@ func (s *supARFO) inspect(items ...string) map[string]string {
 	result["children_total"] = fmt.Sprintf("%d", totalChildren)
 	result["children_running"] = fmt.Sprintf("%d", runningChildren)
 	result["children_disabled"] = fmt.Sprintf("%d", disabledChildren)
+
+	supHistoryToInspect(s.history, result)
 
 	return result
 }

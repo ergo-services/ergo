@@ -244,6 +244,27 @@ func TestARFOGlobalExceededWrapsReason(t *testing.T) {
 // per-child Significant remains usable on ARFO
 //
 
+func TestARFOInspectRecordsTriggerInHistory(t *testing.T) {
+	sup, pids := setupARFO(t, SupervisorTypeAllForOne, SupervisorSpec{
+		Restart:             SupervisorRestart{Strategy: SupervisorStrategyPermanent},
+		DisableAutoShutdown: true,
+		Children: []SupervisorChildSpec{
+			{Name: "a", Factory: dummyFactory},
+			{Name: "b", Factory: dummyFactory},
+		},
+	})
+
+	sup.childTerminated("a", pids["a"], errors.New("boom-from-a"))
+
+	out := sup.inspect()
+	if out["history:count"] != "1" {
+		t.Fatalf("expected exactly one history entry for the triggering child, got %q", out["history:count"])
+	}
+	if out["history:0:child"] != "a" || out["history:0:reason"] != "boom-from-a" {
+		t.Errorf("history[0] mismatch: child=%q reason=%q", out["history:0:child"], out["history:0:reason"])
+	}
+}
+
 func TestARFOSignificantChildTerminatesGroup(t *testing.T) {
 	// Temporary supervisor + Significant Temporary child: when child dies
 	// (any reason, since Temporary), supervisor + siblings must shutdown.

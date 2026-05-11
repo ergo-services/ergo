@@ -100,7 +100,45 @@ Processes typically terminate themselves by returning an error from `ProcessRun`
 
 If a panic occurs during message handling, the framework catches it, logs the stack trace, and terminates the process with `gen.TerminateReasonPanic`. The `ProcessTerminate` callback still runs, giving the process a chance to clean up despite the panic.
 
-By default, queued messages that arrived before the panic but were not yet processed are lost when the process dies. Set `Options.PreserveMailbox: true` at spawn time to opt in to mailbox preservation: the runtime captures the mailbox into a `*gen.Error` exit reason on any abnormal termination, and a supervising parent automatically hands it to the restarted incarnation. See [Mailbox Preservation Across Restart](../actors/supervisor.md#mailbox-preservation-across-restart) for the supervisor side of the contract.
+### Mailbox Preservation
+
+When a process dies, its mailbox is discarded by default. Anything queued but unprocessed is lost. For short-lived or one-shot processes this is fine. For continuously working actors it can be very painful:
+
+- A task worker pulling from an external queue panics on one bad task. The 50 other queued tasks in its mailbox evaporate. They have to be re-fetched from upstream if upstream still has them, or they are gone.
+- A per-session actor (chat user, IoT device, game session) crashes during a code push. Messages buffered for it between crash and restart vanish.
+- A batch aggregator collecting events for a periodic flush dies mid-batch. The unflushed accumulator is gone with no record of what was inside.
+- A sequencer enforcing ordering across multiple sources crashes mid-stream. The reorder buffer is lost.
+
+Mailbox preservation gives an "actor restarts but keeps its inbox" semantic. It turns the default behavior from at-most-once for queued messages to at-least-once. Enable it with one flag at spawn:
+
+```go
+node.Spawn(createWorker, gen.ProcessOptions{
+    PreserveMailbox: true,
+})
+```
+
+With the flag set, any abnormal termination (panic, callback error, forced `Kill`, exit cascade from a linked process) captures the mailbox into a `*gen.Error` exit reason. A supervising parent automatically picks it up and hands it to the restart. The new incarnation runs `Init` on fresh struct state, then its `ProcessRun` loop pulls the surviving messages from the queues in priority order, exactly as if they had just arrived.
+
+This is not a replacement for an external durable queue (Kafka, NATS, etc.). External queues give reliable delivery into the actor; mailbox preservation gives reliable handling within the actor across its own restarts. They complement each other.
+
+**What is preserved.** All four priority queues (Urgent, System, Main, Log), in original FIFO order, with their tracing information.
+
+**What is not preserved.**
+- The triggering message (the one the actor was processing when it failed). Replaying it would create a panic-restart-panic loop on poison-pill inputs, so the framework deliberately drops it. Upstream must replay if needed.
+- The actor's struct fields. In-process state lives only as long as the incarnation does; the new instance runs `Init` from scratch.
+- Outgoing Calls in flight. The ref is tied to the dead PID; responses arriving after death are dropped.
+
+**Normal exits skip capture.** `gen.TerminateReasonNormal` and `gen.TerminateReasonShutdown` mean the actor itself decided to stop, and re-feeding its queue would contradict that decision.
+
+**At-least-once caveat.** Because the surviving messages are re-delivered to a new instance, partially completed side effects from the dead incarnation can be re-attempted by the new one. If your handler is not idempotent (or doesn't deduplicate by some message id), you can end up with duplicate side effects. This is the standard at-least-once trade-off: you trade duplicates for losses.
+
+**Same-node only.** A live mailbox does not cross the network: the `Mailbox` field on `gen.Error` is excluded from EDF wire encoding. Remote spawns and remote exit signals see it as nil. Mailbox preservation is a local feature.
+
+**When to enable.** Task workers, per-request/per-connection handlers, per-session actors, aggregators. Anywhere unprocessed messages in queue represent unfinished work that must not silently disappear.
+
+**When not to enable.** Strongly stateful actors with non-idempotent side effects that don't deduplicate. Memory-constrained scenarios where a large preserved mailbox would pin too much memory between crash and restart. One-shot init scripts that must restart from a clean state.
+
+A common production setup is `PreserveMailbox: true` together with a per-spec or per-instance restart budget and `OnExceedDisable`, so a poison-pill input cannot loop the worker through its budget and take the supervisor down. See [Mailbox Preservation Across Restart](../actors/supervisor.md#mailbox-preservation-across-restart) on the Supervisor page for the full supervisor-side contract, validation rules, and a worked example.
 
 Processes can also be terminated externally. Sending an exit signal with `SendExit` delivers a high-priority termination request to the process's Urgent queue. Actors can trap these signals and handle them as regular messages, allowing graceful shutdown. This is how supervision trees restart workers - send an exit signal, wait for clean termination, then spawn a replacement.
 

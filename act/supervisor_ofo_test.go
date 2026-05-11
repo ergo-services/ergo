@@ -2,6 +2,7 @@ package act
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 
 	"ergo.services/ergo/gen"
@@ -468,6 +469,56 @@ func TestOFONoAdoptionWhenReasonHasNoMailbox(t *testing.T) {
 	}
 	if action.adoptMailbox != nil {
 		t.Errorf("no Mailbox in reason -> no adoption; got %v", action.adoptMailbox)
+	}
+}
+
+func TestOFOInspectExposesRestartHistory(t *testing.T) {
+	sup, pids := setupOFO(t, SupervisorSpec{
+		Restart:             SupervisorRestart{Strategy: SupervisorStrategyPermanent},
+		DisableAutoShutdown: true,
+		Children: []SupervisorChildSpec{
+			{Name: "a", Factory: dummyFactory},
+			{Name: "b", Factory: dummyFactory},
+		},
+	})
+
+	killOFO(t, sup, pids, "a", errors.New("boom-a"))
+	killOFO(t, sup, pids, "b", errors.New("boom-b"))
+	killOFO(t, sup, pids, "a", errors.New("boom-a-2"))
+
+	out := sup.inspect()
+	if out["history:count"] != "3" {
+		t.Fatalf("history:count = %q, want 3", out["history:count"])
+	}
+	if out["history:0:child"] != "a" || out["history:0:reason"] != "boom-a" {
+		t.Errorf("history[0] mismatch: child=%q reason=%q", out["history:0:child"], out["history:0:reason"])
+	}
+	if out["history:1:child"] != "b" || out["history:1:reason"] != "boom-b" {
+		t.Errorf("history[1] mismatch: child=%q reason=%q", out["history:1:child"], out["history:1:reason"])
+	}
+	if out["history:2:child"] != "a" || out["history:2:reason"] != "boom-a-2" {
+		t.Errorf("history[2] mismatch: child=%q reason=%q", out["history:2:child"], out["history:2:reason"])
+	}
+	if out["history:0:time"] == "" {
+		t.Errorf("history[0]:time must be a non-empty RFC3339 string")
+	}
+}
+
+func TestOFOHistoryCapped(t *testing.T) {
+	sup, pids := setupOFO(t, SupervisorSpec{
+		Restart:             SupervisorRestart{Strategy: SupervisorStrategyPermanent, Intensity: 100, Period: 60},
+		DisableAutoShutdown: true,
+		Children: []SupervisorChildSpec{{Name: "x", Factory: dummyFactory}},
+	})
+
+	// drive more restarts than supRestartHistoryMax to exercise the ring buffer
+	for i := 0; i < supRestartHistoryMax+10; i++ {
+		killOFO(t, sup, pids, "x", errors.New("boom"))
+	}
+
+	out := sup.inspect()
+	if out["history:count"] != fmt.Sprintf("%d", supRestartHistoryMax) {
+		t.Errorf("history must be capped at %d, got %s", supRestartHistoryMax, out["history:count"])
 	}
 }
 
