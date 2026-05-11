@@ -1065,9 +1065,12 @@ func GetErrCache() map[uint16]error {
 }
 
 func addErrCache(e error) error {
+	if _, ok := e.(*gen.Error); ok {
+		return fmt.Errorf("cannot register *gen.Error: register markers (errors.New) and construct wrap chains via gen.Errorf")
+	}
 	id := atomic.AddUint32(&errCacheID, 1)
-	// math.MaxUint16 is used for encoding a nil value
-	if id > math.MaxUint16-1 {
+	// 0xFFFF reserved for nil error, 0xFFFE reserved for wrapped *gen.Error marker.
+	if id > math.MaxUint16-2 {
 		return fmt.Errorf("too many registered errors")
 	}
 	if _, exist := errCache.LoadOrStore(e, uint16(id)); exist {

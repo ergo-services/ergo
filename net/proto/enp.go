@@ -61,6 +61,8 @@ func (e *enp) NewConnection(core gen.Core, result gen.HandshakeResult, log gen.L
 			RegCache:  opts.EncodeRegCache,
 			ErrCache:  opts.EncodeErrCache,
 			Cache:     new(sync.Map),
+			WrappedErrorsSupported: result.NodeFlags.EnableWrappedErrors &&
+				result.PeerFlags.EnableWrappedErrors,
 		},
 
 		decodeOptions: edf.Options{
@@ -68,6 +70,8 @@ func (e *enp) NewConnection(core gen.Core, result gen.HandshakeResult, log gen.L
 			RegCache:  opts.DecodeRegCache,
 			ErrCache:  opts.DecodeErrCache,
 			Cache:     new(sync.Map),
+			WrappedErrorsSupported: result.NodeFlags.EnableWrappedErrors &&
+				result.PeerFlags.EnableWrappedErrors,
 		},
 		requests: make(map[gen.Ref]chan MessageResult),
 

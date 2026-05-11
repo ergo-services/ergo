@@ -670,10 +670,52 @@ func encodeError(value reflect.Value, b *lib.Buffer, state *stateEncode) error {
 	}
 
 	err := value.Interface().(error)
+
+	if ge, ok := err.(*gen.Error); ok && state.options.WrappedErrorsSupported {
+		state.depth++
+		maxDepth := state.options.MaxDepth
+		if maxDepth == 0 {
+			maxDepth = maxEncodeDepth
+		}
+		if state.depth > maxDepth {
+			state.depth--
+			return ErrMaxDepthExceeded
+		}
+		// 0xFFFE marker: *gen.Error follows
+		b.Append([]byte{0xff, 0xfe})
+		if len(ge.Msg) > math.MaxUint16 {
+			state.depth--
+			return ErrErrorTooLong
+		}
+		buf := b.Extend(2 + len(ge.Msg))
+		binary.BigEndian.PutUint16(buf[:2], uint16(len(ge.Msg)))
+		copy(buf[2:], ge.Msg)
+
+		if len(ge.Wrapped) > math.MaxUint16 {
+			state.depth--
+			return ErrErrorTooLong
+		}
+		wbuf := b.Extend(2)
+		binary.BigEndian.PutUint16(wbuf, uint16(len(ge.Wrapped)))
+
+		prevEncodeType := state.encodeType
+		state.encodeType = false
+		for _, w := range ge.Wrapped {
+			wv := reflect.ValueOf(&w).Elem()
+			if err := encodeError(wv, b, state); err != nil {
+				state.encodeType = prevEncodeType
+				state.depth--
+				return err
+			}
+		}
+		state.encodeType = prevEncodeType
+		state.depth--
+		return nil
+	}
+
 	if state.options.ErrCache != nil {
 		if x, found := state.options.ErrCache.Load(err); found {
 			id := x.(uint16)
-			// atom cache id MUST be > math.MaxInt16, otherwise encode as a regular string
 			if id > math.MaxInt16 {
 				buf := b.Extend(2)
 				binary.BigEndian.PutUint16(buf, id)

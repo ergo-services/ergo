@@ -42,6 +42,7 @@ var (
 		EnableSimultaneousConnect:    true,
 		EnableClockSkew:              true,
 		EnableTracing:                true,
+		EnableWrappedErrors:          true,
 		EnableSoftwareKeepAlive:      15, // seconds
 	}
 

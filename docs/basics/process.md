@@ -117,7 +117,7 @@ node.Spawn(createWorker, gen.ProcessOptions{
 })
 ```
 
-With the flag set, any abnormal termination (panic, callback error, forced `Kill`, exit cascade from a linked process) captures the mailbox into a `*gen.Error` exit reason. A supervising parent automatically picks it up and hands it to the restart. The new incarnation runs `Init` on fresh struct state, then its `ProcessRun` loop pulls the surviving messages from the queues in priority order, exactly as if they had just arrived.
+With the flag set, any abnormal termination (panic, callback error, forced `Kill`, exit cascade from a linked process) captures the mailbox into a `*gen.Error` exit reason. The original error is preserved as `Wrapped[0]`, so `errors.Is(reason, originalErr)` keeps working. A supervising parent automatically picks it up and hands it to the restart. The new incarnation runs `Init` on fresh struct state, then its `ProcessRun` loop pulls the surviving messages from the queues in priority order, exactly as if they had just arrived.
 
 This is not a replacement for an external durable queue (Kafka, NATS, etc.). External queues give reliable delivery into the actor; mailbox preservation gives reliable handling within the actor across its own restarts. They complement each other.
 

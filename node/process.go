@@ -1958,7 +1958,7 @@ func (p *process) wrapPreserveMailbox(reason error) error {
 		}
 		return ge
 	}
-	return &gen.Error{Inner: reason, Mailbox: &p.mailbox}
+	return &gen.Error{Msg: reason.Error(), Wrapped: []error{reason}, Mailbox: &p.mailbox}
 }
 
 func (p *process) Behavior() gen.ProcessBehavior {

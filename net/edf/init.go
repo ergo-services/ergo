@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"time"
 
+	"ergo.services/ergo/act"
 	"ergo.services/ergo/gen"
 )
 
@@ -52,6 +53,8 @@ var (
 		gen.EventInfo{},
 		gen.LogField{},
 
+		gen.Error{},
+
 		gen.NetworkFlags{},
 		gen.NetworkProxyFlags{},
 		gen.NetworkSpawnInfo{},
@@ -79,23 +82,77 @@ var (
 		gen.RegisteredTypeInfo{},
 	}
 
-	// register standard errors of the Ergo Framework
+	// register standard errors of the Ergo Framework. Identity of these
+	// sentinels is preserved across the network via the EDF errCache: each
+	// peer assigns its local instance a uint16 id during handshake and maps
+	// remote ids back to its own instance by Error() string match. So
+	// errors.Is(reason, gen.ErrTimeout) keeps working after a network hop.
 	genErrors = []error{
-		gen.ErrIncorrect,
+		gen.ErrNameUnknown,
+		gen.ErrParentUnknown,
+		gen.ErrNodeTerminated,
+
+		gen.ErrProcessMailboxFull,
+		gen.ErrProcessUnknown,
+		gen.ErrProcessIncarnation,
+		gen.ErrProcessTerminated,
+
+		gen.ErrMetaUnknown,
+		gen.ErrMetaMailboxFull,
+
+		gen.ErrApplicationUnknown,
+		gen.ErrApplicationDepends,
+		gen.ErrApplicationState,
+		gen.ErrApplicationLoadPanic,
+		gen.ErrApplicationEmpty,
+		gen.ErrApplicationName,
+		gen.ErrApplicationStopping,
+		gen.ErrApplicationRunning,
+
+		gen.ErrTargetUnknown,
+		gen.ErrTargetExist,
+		gen.ErrTargetManagerOverload,
+
+		gen.ErrRegistrarTerminated,
+
+		gen.ErrAliasUnknown,
+		gen.ErrAliasOwner,
+		gen.ErrEventUnknown,
+		gen.ErrEventOwner,
+		gen.ErrTaken,
+
+		gen.ErrAtomTooLong,
+
 		gen.ErrTimeout,
 		gen.ErrUnsupported,
 		gen.ErrUnknown,
-		gen.ErrNameUnknown,
 		gen.ErrNotAllowed,
-		gen.ErrProcessUnknown,
-		gen.ErrProcessTerminated,
-		gen.ErrMetaUnknown,
-		gen.ErrApplicationUnknown,
-		gen.ErrTaken,
+
+		gen.ErrIncorrect,
+		gen.ErrMalformed,
+		gen.ErrResponseIgnored,
+		gen.ErrUnregistered,
+		gen.ErrTooLarge,
+
+		gen.ErrNetworkStopped,
+		gen.ErrNoConnection,
+		gen.ErrNoRoute,
+
+		gen.ErrInternal,
+
 		gen.TerminateReasonNormal,
 		gen.TerminateReasonShutdown,
 		gen.TerminateReasonKill,
 		gen.TerminateReasonPanic,
+
+		act.ErrSupervisorStrategyActive,
+		act.ErrSupervisorChildUnknown,
+		act.ErrSupervisorChildRunning,
+		act.ErrSupervisorChildDisabled,
+		act.ErrSupervisorRestartsExceeded,
+		act.ErrSupervisorChildDuplicate,
+		act.ErrSupervisorInvalidSpec,
+		act.ErrPoolEmpty,
 	}
 )
 
@@ -341,6 +398,7 @@ func init() {
 	encoders.Store(errType, errEnc)
 	encoders.Store(reflect.TypeOf(fmt.Errorf("")), errEnc)
 	encoders.Store(reflect.TypeOf(fmt.Errorf("%w", nil)), errEnc)
+	encoders.Store(reflect.TypeOf((*gen.Error)(nil)), errEnc)
 	errDec := &decoder{Type: errType, Decode: decodeError}
 	decoders.Store(edtError, errDec)
 	decoders.Store(errType, errDec)

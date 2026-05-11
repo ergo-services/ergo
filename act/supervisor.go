@@ -1,6 +1,7 @@
 package act
 
 import (
+	"errors"
 	"fmt"
 	"reflect"
 	"runtime"
@@ -845,8 +846,8 @@ func resolveStrategy(supStrategy SupervisorStrategy, childStrategy SupervisorStr
 }
 
 func extractMailbox(reason error) *gen.ProcessMailbox {
-	ge, ok := reason.(*gen.Error)
-	if ok == false || ge.Mailbox == nil {
+	var ge *gen.Error
+	if errors.As(reason, &ge) == false || ge.Mailbox == nil {
 		return nil
 	}
 	mb := ge.Mailbox

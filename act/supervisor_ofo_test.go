@@ -264,12 +264,11 @@ func TestOFOLocalCounterExceededDisableLastChildTriggersAutoshutdown(t *testing.
 	if last.do != supActionTerminate {
 		t.Fatalf("expected supActionTerminate on autoshutdown, got do=%d", last.do)
 	}
-	ge, ok := last.reason.(*gen.Error)
-	if ok == false {
+	if _, ok := last.reason.(*gen.Error); ok == false {
 		t.Fatalf("autoshutdown reason should be wrapped gen.Error, got %T", last.reason)
 	}
-	if errors.Is(ge.Inner, bootReason) == false {
-		t.Errorf("Inner must be the original child reason")
+	if errors.Is(last.reason, bootReason) == false {
+		t.Errorf("wrapped reason must carry the original child reason")
 	}
 }
 
@@ -408,12 +407,11 @@ func TestOFOGlobalExceededTerminatesEvenChildrenWithLocal(t *testing.T) {
 	if containsBPID == false {
 		t.Errorf("b's pid must be in terminate list when global exceeded")
 	}
-	ge, ok := sup.shutdownReason.(*gen.Error)
-	if ok == false {
+	if _, ok := sup.shutdownReason.(*gen.Error); ok == false {
 		t.Fatalf("shutdownReason must be *gen.Error, got %T", sup.shutdownReason)
 	}
-	if errors.Is(ge.Inner, bootReason) == false {
-		t.Errorf("Inner must be the original child reason")
+	if errors.Is(sup.shutdownReason, bootReason) == false {
+		t.Errorf("wrapped shutdownReason must carry the original child reason")
 	}
 }
 
@@ -437,7 +435,7 @@ func TestOFOAdoptsMailboxFromGenError(t *testing.T) {
 	pmb := &gen.ProcessMailbox{}
 	reason := &gen.Error{
 		Msg:     "panic: boom",
-		Inner:   gen.TerminateReasonPanic,
+		Wrapped: []error{gen.TerminateReasonPanic},
 		Mailbox: pmb,
 	}
 	action := sup.childTerminated("child", pids["child"], reason)

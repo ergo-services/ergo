@@ -432,7 +432,7 @@ func TestSOFOAdoptsMailboxFromGenError(t *testing.T) {
 	pmb := &gen.ProcessMailbox{}
 	reason := &gen.Error{
 		Msg:     "panic: boom",
-		Inner:   gen.TerminateReasonPanic,
+		Wrapped: []error{gen.TerminateReasonPanic},
 		Mailbox: pmb,
 	}
 	action := sup.childTerminated("worker", pid, reason)

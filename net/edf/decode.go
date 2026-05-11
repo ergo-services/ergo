@@ -25,6 +25,7 @@ type stateDecode struct {
 
 	decodeType bool
 	decoder    *decoder
+	depth      int
 }
 
 // Decode
@@ -1219,24 +1220,68 @@ func decodeError(value *reflect.Value, packet []byte, state *stateDecode) (*refl
 	id := binary.BigEndian.Uint16(packet)
 	packet = packet[2:]
 
-	if id == math.MaxUint16 {
-		// nil value
+	switch {
+	case id == 0xFFFF:
 		return value, packet, nil
-	}
-
-	if id > math.MaxInt16 {
-		// registered error
+	case id == 0xFFFE:
+		state.depth++
+		maxDepth := state.options.MaxDepth
+		if maxDepth == 0 {
+			maxDepth = maxEncodeDepth
+		}
+		if state.depth > maxDepth {
+			state.depth--
+			return nil, nil, ErrMaxDepthExceeded
+		}
+		if len(packet) < 2 {
+			state.depth--
+			return nil, nil, errDecodeEOD
+		}
+		msgLen := int(binary.BigEndian.Uint16(packet))
+		packet = packet[2:]
+		if len(packet) < msgLen {
+			state.depth--
+			return nil, nil, errDecodeEOD
+		}
+		msg := string(packet[:msgLen])
+		packet = packet[msgLen:]
+		if len(packet) < 2 {
+			state.depth--
+			return nil, nil, errDecodeEOD
+		}
+		wcount := int(binary.BigEndian.Uint16(packet))
+		packet = packet[2:]
+		var wrapped []error
+		if wcount > 0 {
+			wrapped = make([]error, wcount)
+			prevDecodeType := state.decodeType
+			state.decodeType = false
+			for i := 0; i < wcount; i++ {
+				wv, rest, derr := decodeError(nil, packet, state)
+				if derr != nil {
+					state.decodeType = prevDecodeType
+					state.depth--
+					return nil, nil, derr
+				}
+				if wv != nil {
+					wrapped[i] = wv.Interface().(error)
+				}
+				packet = rest
+			}
+			state.decodeType = prevDecodeType
+		}
+		state.depth--
+		err = &gen.Error{Msg: msg, Wrapped: wrapped}
+	case id > math.MaxInt16:
 		if state.options.ErrCache == nil {
 			return nil, nil, fmt.Errorf("no ErrCache to decode id %d", id)
 		}
-
 		v, found := state.options.ErrCache.Load(id)
 		if found == false {
 			return nil, nil, fmt.Errorf("unknown ErrCache id %d", id)
 		}
 		err = v.(error)
-	} else {
-		// regular error. id has a length value
+	default:
 		l := int(id)
 		if len(packet) < l {
 			return nil, nil, errDecodeEOD

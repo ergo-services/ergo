@@ -462,6 +462,10 @@ type NetworkFlags struct {
 	// EnableSoftwareKeepAlive enables application-level keepalive with the given period in seconds.
 	// Zero disables keepalive. Max 255.
 	EnableSoftwareKeepAlive int
+	// EnableWrappedErrors enables *gen.Error structured wire format with
+	// preserved wrap chain. Both nodes must enable it; otherwise *gen.Error
+	// is sent as a flat .Error() string.
+	EnableWrappedErrors bool
 }
 
 // we must be able to extend this structure by introducing new features.
@@ -509,6 +513,9 @@ func (nf NetworkFlags) MarshalEDF(w io.Writer) error {
 	if nf.EnableTracing == true {
 		flags |= 1 << 17
 	}
+	if nf.EnableWrappedErrors == true {
+		flags |= 1 << 18
+	}
 	binary.BigEndian.PutUint64(buf[:], flags)
 	w.Write(buf[:])
 	return nil
@@ -533,6 +540,7 @@ func (nf *NetworkFlags) UnmarshalEDF(buf []byte) error {
 	nf.EnableSoftwareKeepAlive = int((flags >> 8) & 0xFF)
 	nf.EnableClockSkew = (flags & (1 << 16)) > 0
 	nf.EnableTracing = (flags & (1 << 17)) > 0
+	nf.EnableWrappedErrors = (flags & (1 << 18)) > 0
 	return nil
 }
 

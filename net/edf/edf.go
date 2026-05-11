@@ -13,6 +13,8 @@ type Options struct {
 	ErrCache    *sync.Map // error => id (for encoder), id => error (for decoder)
 	Cache       *sync.Map // common cache (caching reflect.Type => encoder, string([]byte) => decoder)
 	MaxDepth    int       // max encoding depth for pointers (default 100)
+	// WrappedErrorsSupported: peer supports *gen.Error wrapped wire format.
+	WrappedErrorsSupported bool
 }
 
 const (

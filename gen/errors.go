@@ -2,35 +2,59 @@ package gen
 
 import (
 	"errors"
+	"fmt"
 )
 
-// Error is a wrapping error type used as a process exit reason when both
-// a structural cause and the original underlying reason must be preserved.
-// Msg describes the structural cause at this level; Inner is the original
-// wrapped error. Mailbox, when non-nil, holds the captured mailbox of the
-// panicked process for replay on supervisor restart.
+// Error carries a process exit reason with optional wrapped causes and an
+// optional captured mailbox. Msg holds the formatted message text (as if
+// produced by fmt.Errorf). Wrapped holds errors corresponding to %w
+// substitutions, preserving identity through errors.Is/errors.Unwrap.
+// Mailbox, when non-nil, holds the captured mailbox of a panicked process
+// for replay on supervisor restart; it is excluded from EDF wire encoding.
+//
+// User code typically constructs *Error through gen.Errorf. The framework
+// constructs it directly when capturing a mailbox or wrapping supervisor
+// exit reasons.
 type Error struct {
 	Msg     string
-	Inner   error
+	Wrapped []error
 	Mailbox *ProcessMailbox `edf:"-"`
 }
 
 func (e *Error) Error() string {
-	if e.Inner == nil {
-		return e.Msg
+	if e == nil {
+		return ""
 	}
-	return e.Msg + ": " + e.Inner.Error()
+	if e.Msg == "" && len(e.Wrapped) > 0 {
+		return e.Wrapped[0].Error()
+	}
+	return e.Msg
 }
 
-func (e *Error) Unwrap() error {
-	return e.Inner
+func (e *Error) Unwrap() []error {
+	if e == nil {
+		return nil
+	}
+	return e.Wrapped
 }
 
-func (e *Error) Is(target error) bool {
-	if target == nil {
-		return false
+// Errorf mirrors fmt.Errorf: formats according to format and args, and
+// supports %w (single or multiple) for wrapping errors with preserved
+// identity. The wrapped errors are stored in Wrapped so that errors.Is
+// and errors.Unwrap traverse them, and so EDF wire encoding preserves
+// the chain across the network when peer capability allows.
+func Errorf(format string, args ...any) error {
+	w := fmt.Errorf(format, args...)
+	e := &Error{Msg: w.Error()}
+	switch u := w.(type) {
+	case interface{ Unwrap() error }:
+		if m := u.Unwrap(); m != nil {
+			e.Wrapped = []error{m}
+		}
+	case interface{ Unwrap() []error }:
+		e.Wrapped = u.Unwrap()
 	}
-	return e.Msg == target.Error()
+	return e
 }
 
 var (

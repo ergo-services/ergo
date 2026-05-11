@@ -251,52 +251,94 @@ func TestValidateChildRestart(t *testing.T) {
 
 func TestGenErrorUnwrap(t *testing.T) {
 	inner := errors.New("inner reason")
-	outer := &gen.Error{Msg: "wrapper", Inner: inner}
+	outer := &gen.Error{Msg: "wrapper: inner reason", Wrapped: []error{inner}}
 
-	if u := errors.Unwrap(outer); u != inner {
-		t.Errorf("Unwrap returned %v, want %v", u, inner)
-	}
 	if errors.Is(outer, inner) == false {
-		t.Errorf("errors.Is should match Inner")
+		t.Errorf("errors.Is must reach Wrapped element")
+	}
+	ws := outer.Unwrap()
+	if len(ws) != 1 || ws[0] != inner {
+		t.Errorf("Unwrap() returned %v, want [inner]", ws)
 	}
 }
 
-func TestGenErrorMessageWithInner(t *testing.T) {
-	e := &gen.Error{Msg: "outer", Inner: errors.New("inner")}
-	want := "outer: inner"
-	if got := e.Error(); got != want {
-		t.Errorf("Error() = %q, want %q", got, want)
+func TestGenErrorMessage(t *testing.T) {
+	e := &gen.Error{Msg: "outer: inner", Wrapped: []error{errors.New("inner")}}
+	if got := e.Error(); got != "outer: inner" {
+		t.Errorf("Error() = %q, want %q", got, "outer: inner")
 	}
 }
 
-func TestGenErrorMessageNilInner(t *testing.T) {
-	e := &gen.Error{Msg: "outer"}
-	if got := e.Error(); got != "outer" {
-		t.Errorf("Error() = %q, want %q", got, "outer")
+func TestGenErrorMessageEmptyMsgFallback(t *testing.T) {
+	inner := errors.New("inner")
+	e := &gen.Error{Wrapped: []error{inner}}
+	if got := e.Error(); got != "inner" {
+		t.Errorf("Error() with empty Msg should fall back to Wrapped[0]; got %q", got)
 	}
 }
 
-func TestGenErrorIsMatchesByMsg(t *testing.T) {
-	sentinel := errors.New("structural cause")
-	other := errors.New("different cause")
-	inner := errors.New("wrapped reason")
+func TestGenErrorMatchesMultipleWrapped(t *testing.T) {
+	a := errors.New("a")
+	b := errors.New("b")
+	e := &gen.Error{Msg: "a: b", Wrapped: []error{a, b}}
 
-	e := &gen.Error{Msg: sentinel.Error(), Inner: inner}
-
-	if errors.Is(e, sentinel) == false {
-		t.Errorf("errors.Is must match sentinel via Is method when Msg matches")
+	if errors.Is(e, a) == false {
+		t.Errorf("errors.Is must match first Wrapped")
 	}
-	if errors.Is(e, other) {
-		t.Errorf("errors.Is must NOT match a sentinel with a different Error() string")
-	}
-	if errors.Is(e, inner) == false {
-		t.Errorf("errors.Is must reach Inner via Unwrap")
+	if errors.Is(e, b) == false {
+		t.Errorf("errors.Is must match second Wrapped")
 	}
 }
 
-func TestGenErrorIsRejectsNilTarget(t *testing.T) {
-	e := &gen.Error{Msg: "x"}
-	if e.Is(nil) {
-		t.Errorf("Is(nil) must be false")
+func TestGenErrorNilReceiver(t *testing.T) {
+	var e *gen.Error
+	if e.Error() != "" {
+		t.Errorf("nil receiver Error() must be empty")
+	}
+	if e.Unwrap() != nil {
+		t.Errorf("nil receiver Unwrap() must be nil")
+	}
+}
+
+func TestGenErrorf(t *testing.T) {
+	marker := errors.New("payment declined")
+	err := gen.Errorf("user %d: %w", 42, marker)
+
+	if err.Error() != "user 42: payment declined" {
+		t.Errorf("formatted message mismatch: %q", err.Error())
+	}
+	if errors.Is(err, marker) == false {
+		t.Errorf("errors.Is must find the %%w marker")
+	}
+	var ge *gen.Error
+	if errors.As(err, &ge) == false {
+		t.Fatalf("errors.As must extract *gen.Error")
+	}
+	if len(ge.Wrapped) != 1 || ge.Wrapped[0] != marker {
+		t.Errorf("Wrapped = %v, want [marker]", ge.Wrapped)
+	}
+}
+
+func TestGenErrorfMultiWrap(t *testing.T) {
+	a := errors.New("a")
+	b := errors.New("b")
+	err := gen.Errorf("%w and %w", a, b)
+
+	if errors.Is(err, a) == false || errors.Is(err, b) == false {
+		t.Errorf("errors.Is must match both wrapped markers")
+	}
+}
+
+func TestGenErrorfNoWrap(t *testing.T) {
+	err := gen.Errorf("just text %d", 7)
+	if err.Error() != "just text 7" {
+		t.Errorf("formatted text mismatch: %q", err.Error())
+	}
+	var ge *gen.Error
+	if errors.As(err, &ge) == false {
+		t.Fatalf("errors.As must extract *gen.Error")
+	}
+	if ge.Wrapped != nil {
+		t.Errorf("Wrapped must be nil when no %%w; got %v", ge.Wrapped)
 	}
 }

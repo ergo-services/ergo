@@ -351,11 +351,11 @@ For high-throughput message types, prefer `edf.Marshaler`. For types that implem
 
 ### Encoding Errors
 
-Go's `error` type is an interface. Encoding an error requires special handling because interfaces don't have a fixed structure.
+Go's `error` type is an interface, which means encoding it across the network requires extra care. Two things matter to user code: the error text on the receiver, and whether `errors.Is` against a known sentinel still works.
 
-Framework errors (`gen.ErrProcessUnknown`, `gen.TerminateReasonNormal`, etc.) are pre-registered when the node starts. They have numeric IDs and encode compactly as 3 bytes: type tag `0x9c` + 2-byte ID.
+Framework errors (`gen.ErrProcessUnknown`, `gen.TerminateReasonNormal`, `act.ErrSupervisorRestartsExceeded`, and the rest of the `gen.Err*` / `act.Err*` set) are pre-registered out of the box. Their identity is preserved automatically across nodes.
 
-Custom errors need registration:
+Application errors must be registered on every node that needs to compare against them:
 
 ```go
 var (
@@ -374,9 +374,29 @@ func (a *MyApp) Load(node gen.Node, args ...any) (gen.ApplicationSpec, error) {
 }
 ```
 
-Registered errors encode as 3 bytes total (type tag + 2-byte ID where ID > 32767). Unregistered errors encode as type tag + 2-byte length + error string bytes. On decoding, the framework checks if it has a local error with that string. If it does, it returns the local error instance. If not, it creates a new error with `fmt.Errorf(string)`.
+If both peers have a sentinel registered, the receiver decodes it to its own local instance, so `errors.Is(err, ErrInvalidOrder)` returns true across the network. If the sender has not registered it, the error arrives with the correct text but a fresh identity, and `errors.Is` against the original sentinel returns false. Code that branches on identity needs the sentinel registered on the sender side.
 
-This means error identity can be preserved across nodes if both sides register the error. If only one side registers it, you get an error with the correct message but not the same instance. Code comparing errors with `errors.Is` needs both sides to register for correct behavior.
+### Preserving Wrap Chains Across the Network
+
+`fmt.Errorf("...: %w", err)` is the standard Go idiom for wrapping. Locally it works as expected: `errors.Is` and `errors.Unwrap` follow the chain. Across the network, the chain collapses to a flat string: the receiver sees the correct `err.Error()` text, but `errors.Is(err, originalMarker)` returns false and `errors.Unwrap(err)` returns nil.
+
+`gen.Errorf` is the drop-in replacement that preserves the chain end-to-end:
+
+```go
+return gen.Errorf("user %d: %w", userID, ErrPaymentDeclined)
+// on the receiver:
+//   err.Error()                        // "user 42: payment declined"
+//   errors.Is(err, ErrPaymentDeclined) // true
+//   errors.Unwrap(err)                 // []error{ErrPaymentDeclined}
+```
+
+Multiple `%w` (Go 1.20+) work the same way: `gen.Errorf("%w and %w", a, b)` makes both `a` and `b` reachable via `errors.Is`.
+
+For wrapped markers to keep identity, the same registration rule applies: each `%w` marker must be registered on both peers. Otherwise the message text is intact but the wrapped sentinel arrives as a fresh instance.
+
+Cross-network preservation of the chain is gated by `NetworkFlags.EnableWrappedErrors`, which is on by default. When either peer has it disabled (typically an older node), `gen.Errorf` falls back to flat-text behavior just like `fmt.Errorf` would.
+
+`errors.Join(a, b)` is not preserved across the network. Use `gen.Errorf("%w\n%w", a, b)` if you need identity for multiple causes.
 
 ## Type Registration Timing
 
