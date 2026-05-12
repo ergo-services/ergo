@@ -90,6 +90,10 @@ func (tp *TestProcess) Parent() gen.PID {
 	return tp.options.Parent
 }
 
+func (tp *TestProcess) Application() gen.Application {
+	return nil
+}
+
 func (tp *TestProcess) Leader() gen.PID {
 	return tp.options.Leader
 }

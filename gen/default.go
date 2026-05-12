@@ -25,6 +25,10 @@ var (
 	DefaultTCPBufferSize   int           = 65535
 	DefaultPort            uint16        = 11144
 
+	DefaultApplicationInitTimeout  time.Duration = 15 * time.Second
+	DefaultApplicationStartTimeout time.Duration = 15 * time.Second
+	DefaultApplicationStopTimeout  time.Duration = 15 * time.Second
+
 	DefaultHandshakeTimeout        time.Duration = 5 * time.Second
 	DefaultSoftwareKeepAliveMisses int           = 3
 	DefaultFragmentSize            int           = 65000

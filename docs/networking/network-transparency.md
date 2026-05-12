@@ -156,8 +156,8 @@ type Order struct {
     Items []string
 }
 
-func (a *MyApp) Load(node gen.Node, args ...any) (gen.ApplicationSpec, error) {
-    if err := node.Network().RegisterType(Order{}); err != nil {
+func (a *MyApp) Load(args ...any) (gen.ApplicationSpec, error) {
+    if err := a.Node().Network().RegisterType(Order{}); err != nil {
         return gen.ApplicationSpec{}, err
     }
     return gen.ApplicationSpec{ /* ... */ }, nil
@@ -214,8 +214,8 @@ type Order struct {
     Items []string
 }
 
-func (a *MyApp) Load(node gen.Node, args ...any) (gen.ApplicationSpec, error) {
-    if err := node.Network().RegisterType(Order{}); err != nil {
+func (a *MyApp) Load(args ...any) (gen.ApplicationSpec, error) {
+    if err := a.Node().Network().RegisterType(Order{}); err != nil {
         return gen.ApplicationSpec{}, err
     }
     return gen.ApplicationSpec{ /* ... */ }, nil
@@ -227,8 +227,8 @@ func (a *MyApp) Load(node gen.Node, args ...any) (gen.ApplicationSpec, error) {
 For batch registration of multiple types, use `RegisterTypes` (see the **Nested types** subsection below for the dependency-resolution behavior):
 
 ```go
-func (a *MyApp) Load(node gen.Node, args ...any) (gen.ApplicationSpec, error) {
-    err := node.Network().RegisterTypes([]any{
+func (a *MyApp) Load(args ...any) (gen.ApplicationSpec, error) {
+    err := a.Node().Network().RegisterTypes([]any{
         Order{},
         Customer{},
         Address{},
@@ -292,10 +292,10 @@ type Person struct {
     Address Address
 }
 
-func (a *MyApp) Load(node gen.Node, args ...any) (gen.ApplicationSpec, error) {
+func (a *MyApp) Load(args ...any) (gen.ApplicationSpec, error) {
     // Order in the slice doesn't matter. The framework registers
     // inner types first and retries until everything resolves.
-    err := node.Network().RegisterTypes([]any{Person{}, Address{}})
+    err := a.Node().Network().RegisterTypes([]any{Person{}, Address{}})
     if err != nil {
         return gen.ApplicationSpec{}, err
     }
@@ -363,11 +363,11 @@ var (
     ErrOutOfStock   = errors.New("out of stock")
 )
 
-func (a *MyApp) Load(node gen.Node, args ...any) (gen.ApplicationSpec, error) {
-    if err := node.Network().RegisterError(ErrInvalidOrder); err != nil {
+func (a *MyApp) Load(args ...any) (gen.ApplicationSpec, error) {
+    if err := a.Node().Network().RegisterError(ErrInvalidOrder); err != nil {
         return gen.ApplicationSpec{}, err
     }
-    if err := node.Network().RegisterError(ErrOutOfStock); err != nil {
+    if err := a.Node().Network().RegisterError(ErrOutOfStock); err != nil {
         return gen.ApplicationSpec{}, err
     }
     return gen.ApplicationSpec{ /* ... */ }, nil

@@ -5,6 +5,7 @@ import (
 
 	"ergo.services/ergo"
 	"ergo.services/ergo/act"
+	"ergo.services/ergo/app"
 	"ergo.services/ergo/gen"
 )
 
@@ -13,9 +14,10 @@ func createTestRemAppInfo() gen.ApplicationBehavior {
 }
 
 type testremappinfo struct {
+	app.Application
 }
 
-func (a *testremappinfo) Load(node gen.Node, args ...any) (gen.ApplicationSpec, error) {
+func (a *testremappinfo) Load(args ...any) (gen.ApplicationSpec, error) {
 	return gen.ApplicationSpec{
 		Name:        "test_app_info",
 		Description: "Test Application for Info",
@@ -33,9 +35,6 @@ func (a *testremappinfo) Load(node gen.Node, args ...any) (gen.ApplicationSpec, 
 		},
 	}, nil
 }
-
-func (a *testremappinfo) Start(mode gen.ApplicationMode) {}
-func (a *testremappinfo) Terminate(reason error)         {}
 
 func factory_testappinfomember() gen.ProcessBehavior {
 	return &testappinfomember{}

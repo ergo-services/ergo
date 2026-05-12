@@ -508,7 +508,7 @@ func (n *node) MetaInfo(m gen.Alias) (gen.MetaInfo, error) {
 
 	info.ID = mp.id
 	info.Parent = p.pid
-	info.Application = p.application
+	info.Application = appName(p.application)
 	info.Behavior = mp.sbehavior
 	info.MailboxSize = mp.main.Size()
 	info.MailboxQueues.Main = mp.main.Len()
@@ -537,7 +537,7 @@ func (n *node) ProcessInfo(pid gen.PID) (gen.ProcessInfo, error) {
 
 	info.PID = p.pid
 	info.Name = p.name
-	info.Application = p.application
+	info.Application = appName(p.application)
 	info.Behavior = p.sbehavior
 	info.MailboxSize = p.mailbox.Main.Size()
 	info.MailboxQueues.Main = p.mailbox.Main.Len()
@@ -983,7 +983,7 @@ func (n *node) ProcessListShortInfo(start, limit int, filter ...func(gen.Process
 		info := gen.ProcessShortInfo{
 			PID:             process.pid,
 			Name:            process.name,
-			Application:     process.application,
+			Application:     appName(process.application),
 			Behavior:        process.sbehavior,
 			MessagesIn:      process.messagesIn,
 			MessagesOut:     process.messagesOut,
@@ -1025,7 +1025,7 @@ func (n *node) ProcessRangeShortInfo(fn func(gen.ProcessShortInfo) bool) error {
 		info := gen.ProcessShortInfo{
 			PID:             p.pid,
 			Name:            p.name,
-			Application:     p.application,
+			Application:     appName(p.application),
 			Behavior:        p.sbehavior,
 			MessagesIn:      p.messagesIn,
 			MessagesOut:     p.messagesOut,
@@ -1839,7 +1839,14 @@ func (n *node) ApplicationLoad(app gen.ApplicationBehavior, args ...any) (name g
 		}()
 	}
 
-	spec, err := app.Load(n, args...)
+	a := &application{
+		node:     n,
+		behavior: app,
+		state:    int32(gen.ApplicationStateLoaded),
+	}
+	a.log = createLog(n.log.Level(), n.dolog)
+
+	spec, err := app.PreLoad(a, args...)
 	if err != nil {
 		return name, err
 	}
@@ -1847,22 +1854,17 @@ func (n *node) ApplicationLoad(app gen.ApplicationBehavior, args ...any) (name g
 	if len(spec.Group) == 0 {
 		return name, gen.ErrApplicationEmpty
 	}
-
 	if len(spec.Name) == 0 {
 		return name, gen.ErrApplicationName
 	}
-
 	if spec.Depends.Network {
-		// TODO make it right
 		if n.network == nil {
 			return name, gen.ErrApplicationDepends
 		}
 	}
-
 	if spec.Mode == 0 {
 		spec.Mode = gen.ApplicationModeTemporary
 	}
-
 	if spec.Depends.Applications == nil {
 		spec.Depends.Applications = []gen.Atom{}
 	}
@@ -1877,19 +1879,25 @@ func (n *node) ApplicationLoad(app gen.ApplicationBehavior, args ...any) (name g
 		spec.LogLevel = n.log.Level()
 	}
 
-	a := &application{
-		spec:     spec,
-		node:     n,
-		behavior: app,
-		state:    int32(gen.ApplicationStateLoaded),
-		mode:     spec.Mode,
+	a.spec = spec
+	a.mode = spec.Mode
+	a.tags = append([]gen.Atom(nil), spec.Tags...)
+	a.weight = spec.Weight
+
+	if spec.LogLevel != gen.LogLevelDefault {
+		a.log.SetLevel(spec.LogLevel)
 	}
+	a.log.setSource(gen.MessageLogApplication{
+		Node:     n.name,
+		Name:     spec.Name,
+		Mode:     spec.Mode,
+		Behavior: strings.TrimPrefix(reflect.TypeOf(app).String(), "*"),
+	})
+
 	if _, exist := n.applications.LoadOrStore(spec.Name, a); exist {
 		return spec.Name, gen.ErrTaken
 	}
-
 	a.registerAppRoute()
-
 	return spec.Name, nil
 }
 
@@ -1949,7 +1957,7 @@ func (n *node) ApplicationProcessList(name gen.Atom, limit int) ([]gen.PID, erro
 
 	n.processes.Range(func(_, v any) bool {
 		p := v.(*process)
-		if p.application != name {
+		if appName(p.application) != name {
 			return true // continue
 		}
 		if _, exist := members[p.pid]; exist {
@@ -2002,7 +2010,7 @@ func (n *node) ApplicationProcessListShortInfo(name gen.Atom, limit int) ([]gen.
 		info := gen.ProcessShortInfo{
 			PID:             p.pid,
 			Name:            p.name,
-			Application:     p.application,
+			Application:     appName(p.application),
 			Behavior:        p.sbehavior,
 			MessagesIn:      p.messagesIn,
 			MessagesOut:     p.messagesOut,
@@ -2026,7 +2034,7 @@ func (n *node) ApplicationProcessListShortInfo(name gen.Atom, limit int) ([]gen.
 	limit = app.group.Len() + limit
 	n.processes.Range(func(_, v any) bool {
 		p := v.(*process)
-		if p.application != name {
+		if appName(p.application) != name {
 			return true // continue
 		}
 		if _, exist := members[p.pid]; exist {
@@ -2041,7 +2049,7 @@ func (n *node) ApplicationProcessListShortInfo(name gen.Atom, limit int) ([]gen.
 		info := gen.ProcessShortInfo{
 			PID:             p.pid,
 			Name:            p.name,
-			Application:     p.application,
+			Application:     appName(p.application),
 			Behavior:        p.sbehavior,
 			MessagesIn:      p.messagesIn,
 			MessagesOut:     p.messagesOut,
@@ -2625,8 +2633,13 @@ func (n *node) spawn(factory gen.ProcessFactory, options gen.ProcessOptionsExtra
 		stateEntered: now.UnixNano(),
 		parent:       options.ParentPID,
 		leader:       options.ParentLeader,
-		application:  options.Application,
 		important:    options.ImportantDelivery,
+	}
+
+	if options.Application != "" {
+		if v, ok := n.applications.Load(options.Application); ok {
+			p.application = v.(*application)
+		}
 	}
 
 	if options.Register != "" {
@@ -2873,7 +2886,7 @@ func (n *node) spawn(factory gen.ProcessFactory, options gen.ProcessOptionsExtra
 	atomic.StoreInt64(&p.stateEntered, time.Now().UnixNano())
 
 	// do not count system app processes
-	if p.application != system.Name {
+	if appName(p.application) != system.Name {
 		n.waitprocesses.Add(1)
 	}
 
@@ -2945,7 +2958,7 @@ func (n *node) unregisterProcess(p *process, reason error) {
 
 	atomic.AddUint64(&n.processesTerminated, 1)
 
-	if p.application != system.Name {
+	if appName(p.application) != system.Name {
 		n.waitprocesses.Done()
 	}
 	n.log.Trace("...unregisterProcess %s", p.pid)
@@ -2955,9 +2968,8 @@ func (n *node) unregisterProcess(p *process, reason error) {
 		p.log.SetLevel(gen.LogLevelInfo)
 	}
 
-	if p.application != "" {
-		if v, exist := n.applications.Load(p.application); exist {
-			app := v.(*application)
+	if p.application != nil {
+		if app, ok := p.application.(*application); ok {
 			app.terminate(p.pid, reason)
 		}
 	}

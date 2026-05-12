@@ -8,6 +8,31 @@ An application groups related actors and manages them as a unit. Instead of star
 
 Think of an application as a recipe. It lists the components (actors and supervisors), describes their startup order, and specifies the rules for what happens when things go wrong. The node follows this recipe when starting the application and monitors the running components according to the specified mode.
 
+{% hint style="info" %}
+**Migrating to 3.3.x.** The `gen.ApplicationBehavior` interface changed in this release. To adapt an existing application:
+
+- Embed `app.Application` in your application type. The embed provides framework plumbing plus no-op defaults for the new lifecycle callbacks.
+- Drop the `node gen.Node` parameter from `Load`. If you used it inside `Load`, switch to `a.Node()`.
+- `Start` now takes an extra `ref gen.Ref` parameter: `Start(ref gen.Ref, mode gen.ApplicationMode)`. If your old `Start` was an empty stub, delete it; the embed default handles it. If it had real logic, rewrite with the new signature.
+- `Terminate(reason error)` is unchanged. If empty, delete it; otherwise keep as is.
+
+```go
+// before
+type MyApp struct{}
+func (a *MyApp) Load(node gen.Node, args ...any) (gen.ApplicationSpec, error) { ... }
+func (a *MyApp) Start(mode gen.ApplicationMode) {}
+func (a *MyApp) Terminate(reason error)         {}
+
+// after
+type MyApp struct {
+    app.Application
+}
+func (a *MyApp) Load(args ...any) (gen.ApplicationSpec, error) { ... }
+```
+
+New optional callbacks `Init` and `Stop` exist on the interface but are no-op by default through the embed. Override them only if you need pre-start resource initialization or pre-stop drain logic. See [Lifecycle Callbacks](#lifecycle-callbacks).
+{% endhint %}
+
 ## The Need for Applications
 
 Starting processes one at a time works for simple systems. But as complexity grows, you face coordination problems. Which processes should start first? What if one fails to start - do you continue or abort? If a critical component terminates, should the service keep running in a degraded state or shut down cleanly?
@@ -16,22 +41,21 @@ These aren't implementation details - they're architectural decisions about your
 
 ## Defining an Application
 
-Applications implement the `gen.ApplicationBehavior` interface:
+Applications embed `app.Application` and implement `Load`:
 
 ```go
-type ApplicationBehavior interface {
-    Load(node Node, args ...any) (ApplicationSpec, error)
-    Start(mode ApplicationMode)
-    Terminate(reason error)
+import (
+    "ergo.services/ergo/app"
+    "ergo.services/ergo/gen"
+)
+
+type MyApp struct {
+    app.Application
+    db *sql.DB
 }
-```
 
-The `Load` callback returns the application specification - what this application consists of and how it should behave. The `Start` callback runs after all processes start successfully. The `Terminate` callback runs when the application stops.
-
-A typical application specification:
-
-```go
-func (a *MyApp) Load(node gen.Node, args ...any) (gen.ApplicationSpec, error) {
+func (a *MyApp) Load(args ...any) (gen.ApplicationSpec, error) {
+    a.Log().Info("loading config")
     return gen.ApplicationSpec{
         Name: "myapp",
         Group: []gen.ApplicationMemberSpec{
@@ -42,6 +66,25 @@ func (a *MyApp) Load(node gen.Node, args ...any) (gen.ApplicationSpec, error) {
     }, nil
 }
 ```
+
+`Load` returns the application specification: what this application consists of and how it should behave. The embedded `app.Application` provides helper methods (`Node`, `Log`, `Name`, `AddTag`, `SetWeight`, and so on) bound to the running application. They are available from inside `Load` and all other callbacks.
+
+The full lifecycle interface is:
+
+```go
+type ApplicationBehavior interface {
+    PreLoad(app Application, args ...any) (ApplicationSpec, error)  // do not override
+    Load(args ...any) (ApplicationSpec, error)                       // implement this
+    Init(ref Ref, mode ApplicationMode) error                        // optional, pre-start
+    Start(ref Ref, mode ApplicationMode)                             // optional, post-start
+    Stop(ref Ref, reason error)                                      // optional, pre-stop
+    Terminate(reason error)                                          // optional, post-stop
+}
+```
+
+`app.Application` implements `PreLoad` and provides default no-op `Init`, `Start`, `Stop`, `Terminate`. Override only the callbacks you need.
+
+> **Do not override `PreLoad`.** It is the framework entry point that binds the runtime application before dispatching `Load`. Overriding breaks the binding and triggers a panic on the next default callback.
 
 The `Group` lists processes to start. Processes start in the order listed. If a process has a `Name`, it's registered with that name, making it discoverable. Processes without names are anonymous.
 
@@ -57,17 +100,45 @@ The mode determines what happens when a process in the application terminates.
 
 **Permanent Mode** - The application stops if any process terminates, regardless of reason. Even normal termination of one process triggers shutdown of all others and the application itself. This mode is for applications where all components must run together - if one stops, the whole application is incomplete.
 
+## Lifecycle Callbacks
+
+Each callback has a clear responsibility in the application lifecycle:
+
+- **`Load`**: declarative. Validate configuration, return the spec. Avoid side effects.
+- **`Init`**: pre-start. Open external resources the `Group` processes will need: database connection pools, caches, message queues. Returning an error aborts the start; `Terminate` is **not** called.
+- **`Start`**: post-start. The `Group` is running. Register health checks, export metrics, notify the load balancer that the instance is ready.
+- **`Stop`**: pre-stop. The `Group` is still running. Drain in-flight work, deregister health checks, mark unhealthy in the load balancer so traffic stops being routed here.
+- **`Terminate`**: post-stop. The `Group` has finished. Close resources opened in `Init`.
+
+Each of `Init`, `Start`, `Stop` receives a `gen.Ref` carrying a deadline. Check `ref.IsAlive()` to detect when your callback has exceeded its timeout budget. If it has, the framework has already moved on; unwind gracefully and return.
+
+Timeouts are configured in `ApplicationSpec` or overridden per-start via `ApplicationOptions`:
+
+```go
+gen.ApplicationSpec{
+    InitTimeout:  10 * time.Second,
+    StartTimeout: 5 * time.Second,
+    StopTimeout:  10 * time.Second,
+}
+```
+
+Default is 15 seconds for each.
+
 ## Loading and Starting
 
 Applications go through two phases: loading and starting.
 
-Loading calls your `Load` callback, validates the specification, and registers the application with the node. The application is loaded but not running. This separation allows you to load multiple applications and resolve dependencies before starting any of them.
+Loading calls your `Load` callback, validates the specification, and registers the application with the node. The application is in `Loaded` state but not running. This separation allows you to load multiple applications and resolve dependencies before starting any of them.
 
-Starting launches the processes in the `Group` according to their order. If dependencies are specified in `ApplicationSpec.Depends`, the node ensures those applications are running first. If any process fails to start (including initialization timeout), previously started processes are killed and the application fails to start.
+Starting follows this sequence:
 
-Application processes have a maximum `InitTimeout` of 15 seconds (3x DefaultRequestTimeout). Setting a higher value in `gen.ProcessOptions` returns `gen.ErrNotAllowed` and prevents the application from starting.
+1. State transitions from `Loaded` to `Initializing`.
+2. `Init` callback runs (within `InitTimeout`). On error or timeout the state reverts to `Loaded` and `Terminate` is **not** called.
+3. The framework spawns each process in `Group` in order. If any spawn fails after `Init` succeeded, the state transitions to `Stopping`, already-spawned members are killed, and `Terminate` runs to release resources opened in `Init`.
+4. State transitions from `Initializing` to `Running`.
+5. `Start` callback runs (within `StartTimeout`). A timeout here is non-fatal; the application stays in `Running` state.
 
-Once all processes are running, the `Start` callback is called and the application enters the running state.
+Per-process `gen.ProcessOptions.InitTimeout` has a hard cap of 15 seconds inside an application context. Setting a higher value returns `gen.ErrNotAllowed` and prevents the application from starting.
 
 ## Dependencies
 
@@ -79,15 +150,44 @@ This allows you to structure complex systems with clear startup ordering. A data
 
 Applications stop in three ways.
 
-You can call `ApplicationStop`, which sends exit signals to all processes and waits for them to terminate gracefully (5 second timeout by default). Once all processes have stopped, the `Terminate` callback runs and the application transitions to the loaded state.
+`ApplicationStop` triggers a graceful shutdown: state transitions to `Stopping`, the `Stop` callback runs (within `StopTimeout`), exit signals are sent to all Group processes, and once the last process has terminated the `Terminate` callback runs and the application transitions back to `Loaded` state.
 
-You can call `ApplicationStopForce`, which kills all processes immediately without waiting. Less graceful, but guaranteed to stop quickly.
+`ApplicationStopForce` skips the `Stop` callback and immediately kills all processes. `Terminate` still runs after the last process is gone. Less graceful, but guaranteed to stop quickly.
 
-The application can stop itself based on its mode. In Transient or Permanent mode, process failures trigger automatic shutdown according to the mode's rules.
+The application can also stop itself based on its mode. In Transient or Permanent mode, process failures trigger automatic shutdown according to the mode's rules. The same `Stop` then `Terminate` callback flow runs, dispatched from a coordinator goroutine so the process termination path is not blocked.
 
 ## Environment and Configuration
 
 Applications have environment variables that all their processes inherit. These override node-level variables but are overridden by process-specific variables. This creates a natural layering: node provides defaults, application provides service-specific values, processes can override for their specific needs.
+
+## Accessing the Application
+
+The runtime application is available from two places.
+
+Inside the application's own callbacks (`Load`, `Init`, `Start`, `Stop`, `Terminate`), the embedded `app.Application` is bound to the running application before `Load` runs. Methods promoted through the embed (`a.Node()`, `a.Log()`, `a.Name()`, `a.Tags()`, `a.AddTag()`, `a.Weight()`, `a.SetWeight()`, and others) reach the runtime directly.
+
+Processes that belong to the application access it through `Process.Application()`. This returns a `gen.Application` interface bound to the same runtime, so a worker can introspect or mutate its parent application:
+
+```go
+func (w *Worker) HandleMessage(from gen.PID, msg any) error {
+    app := w.Application()
+    if app == nil {
+        return nil // not running under any application
+    }
+    if w.isReady() {
+        app.AddTag("ready")
+    }
+    return nil
+}
+```
+
+`Process.Application()` returns `nil` for processes spawned outside any application (directly via `node.Spawn`).
+
+## Application Logging
+
+Applications have their own log source distinct from the node. Log messages emitted via `a.Log()` from inside any callback are tagged with the application's identity (node hash and application name), making them filterable across cluster-wide log aggregation.
+
+In plain-text output the source appears as `App#<NodeHash.'name'>`, mirroring the format of `gen.PID` and `gen.ProcessID`. In structured JSON output, the source carries `type: application`, the node hash, the application name, and the current mode. Custom loggers can dispatch on `gen.MessageLogApplication` to format application logs differently from node, process, or network logs.
 
 ## Tags for Instance Selection
 
@@ -96,7 +196,7 @@ Running multiple instances of the same application across a cluster creates a se
 Tags provide metadata for making these decisions. Label each application instance with tags describing its deployment state, version, or role:
 
 ```go
-func (a *MyApp) Load(node gen.Node, args ...any) (gen.ApplicationSpec, error) {
+func (a *MyApp) Load(args ...any) (gen.ApplicationSpec, error) {
     return gen.ApplicationSpec{
         Name: "api_service",
         Tags: []gen.Atom{"blue", "v2.1.0"},
@@ -106,6 +206,23 @@ func (a *MyApp) Load(node gen.Node, args ...any) (gen.ApplicationSpec, error) {
 ```
 
 Tags are always available through `node.ApplicationInfo()` or `remoteNode.ApplicationInfo()`. For clusters using centralized registrars (etcd, Saturn), tags are also published during application route registration. This enables cluster-wide discovery: query the registrar and receive all application instances with their tags.
+
+Tags and weight can also be mutated at runtime through the `gen.Application` interface. From inside any application callback, the embedded `app.Application` provides `AddTag`, `RemoveTag`, `SetTags`, `SetWeight`. Processes within the application can access the same methods through `Process.Application()`:
+
+```go
+// inside MyApp callback
+a.AddTag("ready")     // mark instance ready, push update to registrar
+
+// inside a process within the application
+func (w *Worker) HandleMessage(from gen.PID, msg any) error {
+    if w.degraded() {
+        w.Application().AddTag("degraded")
+    }
+    return nil
+}
+```
+
+Mutations push an updated route to the registrar so other nodes see the change on next route refresh. This lets you flip an instance into maintenance mode, mark it ready after warmup, or adjust its weight based on load, all from inside the application.
 
 The embedded in-memory registrar does not support application route registration, so tags in single-node or statically-routed deployments are only accessible via direct `ApplicationInfo()` calls, not through resolver queries.
 
@@ -149,7 +266,7 @@ Applications contain multiple processes with specific responsibilities. An API s
 The `Map` field bridges this gap. Define a mapping from logical role (string) to actual process name (Atom):
 
 ```go
-func (a *MyApp) Load(node gen.Node, args ...any) (gen.ApplicationSpec, error) {
+func (a *MyApp) Load(args ...any) (gen.ApplicationSpec, error) {
     return gen.ApplicationSpec{
         Name: "backend",
         Map: map[string]gen.Atom{

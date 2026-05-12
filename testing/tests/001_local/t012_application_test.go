@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"ergo.services/ergo/act"
+	"ergo.services/ergo/app"
 	"ergo.services/ergo/gen"
 	"ergo.services/ergo/node"
 )
@@ -15,9 +16,11 @@ func createTestApp() gen.ApplicationBehavior {
 	return &testApp{}
 }
 
-type testApp struct{}
+type testApp struct {
+	app.Application
+}
 
-func (ta *testApp) Load(node gen.Node, args ...any) (gen.ApplicationSpec, error) {
+func (ta *testApp) Load(args ...any) (gen.ApplicationSpec, error) {
 	return gen.ApplicationSpec{
 		Name: "test_app",
 		Group: []gen.ApplicationMemberSpec{
@@ -30,16 +33,15 @@ func (ta *testApp) Load(node gen.Node, args ...any) (gen.ApplicationSpec, error)
 	}, nil
 }
 
-func (ta *testApp) Start(mode gen.ApplicationMode) {}
-func (ta *testApp) Terminate(reason error)         {}
-
 func createTestAppDep() gen.ApplicationBehavior {
 	return &testAppDep{}
 }
 
-type testAppDep struct{}
+type testAppDep struct {
+	app.Application
+}
 
-func (tad *testAppDep) Load(node gen.Node, args ...any) (gen.ApplicationSpec, error) {
+func (tad *testAppDep) Load(args ...any) (gen.ApplicationSpec, error) {
 	spec := gen.ApplicationSpec{
 		Name: "test_app_dep",
 		Group: []gen.ApplicationMemberSpec{
@@ -53,8 +55,6 @@ func (tad *testAppDep) Load(node gen.Node, args ...any) (gen.ApplicationSpec, er
 	spec.Depends.Applications = []gen.Atom{"test_app"}
 	return spec, nil
 }
-func (tad *testAppDep) Start(mode gen.ApplicationMode) {}
-func (tad *testAppDep) Terminate(reason error)         {}
 
 func createTestAppMode(testcase *testcase, mode gen.ApplicationMode) gen.ApplicationBehavior {
 	return &testAppMode{
@@ -64,11 +64,12 @@ func createTestAppMode(testcase *testcase, mode gen.ApplicationMode) gen.Applica
 }
 
 type testAppMode struct {
+	app.Application
 	testcase *testcase
 	mode     gen.ApplicationMode
 }
 
-func (tam *testAppMode) Load(node gen.Node, args ...any) (gen.ApplicationSpec, error) {
+func (tam *testAppMode) Load(args ...any) (gen.ApplicationSpec, error) {
 	spec := gen.ApplicationSpec{
 		Name: "test_app_mode",
 		Group: []gen.ApplicationMemberSpec{
@@ -87,7 +88,6 @@ func (tam *testAppMode) Load(node gen.Node, args ...any) (gen.ApplicationSpec, e
 	}
 	return spec, nil
 }
-func (tad *testAppMode) Start(mode gen.ApplicationMode) {}
 func (tad *testAppMode) Terminate(reason error) {
 	tad.testcase.err <- reason
 }

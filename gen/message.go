@@ -131,6 +131,14 @@ type MessageLogNetwork struct {
 	Creation int64
 }
 
+// MessageLogApplication
+type MessageLogApplication struct {
+	Node     Atom
+	Name     Atom
+	Mode     ApplicationMode
+	Behavior string
+}
+
 type MessageCron struct {
 	Node Atom
 	Job  Atom

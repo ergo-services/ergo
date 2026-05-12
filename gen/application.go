@@ -1,5 +1,7 @@
 package gen
 
+import "time"
+
 type ApplicationMode int
 type ApplicationState int32
 
@@ -8,9 +10,10 @@ const (
 	ApplicationModeTransient ApplicationMode = 2
 	ApplicationModePermanent ApplicationMode = 3
 
-	ApplicationStateLoaded   ApplicationState = 1
-	ApplicationStateRunning  ApplicationState = 2
-	ApplicationStateStopping ApplicationState = 3
+	ApplicationStateLoaded       ApplicationState = 1
+	ApplicationStateInitializing ApplicationState = 2
+	ApplicationStateRunning      ApplicationState = 3
+	ApplicationStateStopping     ApplicationState = 4
 )
 
 func (am ApplicationMode) String() string {
@@ -30,10 +33,12 @@ func (am ApplicationMode) MarshalJSON() ([]byte, error) {
 
 func (as ApplicationState) String() string {
 	switch as {
-	case ApplicationStateStopping:
-		return "stopping"
+	case ApplicationStateInitializing:
+		return "initializing"
 	case ApplicationStateRunning:
 		return "running"
+	case ApplicationStateStopping:
+		return "stopping"
 	default:
 		return "loaded"
 	}
@@ -43,18 +48,77 @@ func (as ApplicationState) MarshalJSON() ([]byte, error) {
 	return []byte("\"" + as.String() + "\""), nil
 }
 
+// Application is the runtime view of a loaded application on a node.
+// Returned by Process.Application() so processes can introspect the
+// containing application and mutate dynamic fields (tags, weight) that
+// propagate to the registrar. Also passed to ApplicationBehavior.PreLoad
+// for the embedded base to bind.
+type Application interface {
+	Name() Atom
+	Mode() ApplicationMode
+	State() ApplicationState
+	Node() Node
+	Log() Log
+
+	Env(key Env) (any, bool)
+	EnvList() map[Env]any
+
+	Tags() []Atom
+	AddTag(tag Atom) error
+	RemoveTag(tag Atom) error
+	SetTags(tags []Atom) error
+
+	Weight() int
+	SetWeight(w int) error
+
+	// Behavior returns the application behavior implementation.
+	// Used by app.Application.PreLoad to dispatch the user's Load callback.
+	Behavior() ApplicationBehavior
+}
+
+// ApplicationBehavior is the application lifecycle interface.
+// User types must embed app.Application to inherit PreLoad and default
+// no-op implementations of Init/Start/Stop/Terminate, then implement Load.
 type ApplicationBehavior interface {
-	// Load invoked on loading application using method ApplicationLoad of gen.Node interface.
-	Load(node Node, args ...any) (ApplicationSpec, error)
-	// Start invoked once the application started
-	Start(mode ApplicationMode)
-	// Terminate invoked once the application stopped
+	// PreLoad is the framework entry point. Implemented by app.Application
+	// via embed: binds the runtime application and dispatches to Load.
+	// DO NOT OVERRIDE.
+	PreLoad(app Application, args ...any) (ApplicationSpec, error)
+
+	// Load returns the application spec. User must implement.
+	// The runtime Application is bound when Load is called; use a.Log(),
+	// a.Node(), etc. via the app.Application embed.
+	Load(args ...any) (ApplicationSpec, error)
+
+	// Init runs pre-start: open resources needed by Group processes.
+	// ref.IsAlive() == false means InitTimeout exceeded; unwind and return
+	// gen.ErrTimeout. Non-nil error aborts start; Terminate is NOT called.
+	Init(ref Ref, mode ApplicationMode) error
+
+	// Start runs post-start: register health checks, export metrics.
+	// ref deadline is StartTimeout.
+	Start(ref Ref, mode ApplicationMode)
+
+	// Stop runs pre-stop: drain, deregister, flush. Blocks subsequent
+	// Group exit until return or StopTimeout expiry.
+	Stop(ref Ref, reason error)
+
+	// Terminate runs post-stop: close resources opened in Init.
 	Terminate(reason error)
 }
 
 type ApplicationOptions struct {
 	Env      map[Env]any
 	LogLevel LogLevel
+
+	// InitTimeout overrides ApplicationSpec.InitTimeout if non-zero.
+	InitTimeout time.Duration
+
+	// StartTimeout overrides ApplicationSpec.StartTimeout if non-zero.
+	StartTimeout time.Duration
+
+	// StopTimeout overrides ApplicationSpec.StopTimeout if non-zero.
+	StopTimeout time.Duration
 }
 
 type ApplicationOptionsExtra struct {
@@ -111,6 +175,15 @@ type ApplicationSpec struct {
 
 	// LogLevel sets the default logging level for application processes.
 	LogLevel LogLevel
+
+	// InitTimeout limits the Init callback. 0 → DefaultApplicationInitTimeout.
+	InitTimeout time.Duration
+
+	// StartTimeout limits the Start callback. 0 → DefaultApplicationStartTimeout.
+	StartTimeout time.Duration
+
+	// StopTimeout limits the Stop callback. 0 → DefaultApplicationStopTimeout.
+	StopTimeout time.Duration
 }
 
 // ApplicationMemberSpec defines a process that belongs to an application.

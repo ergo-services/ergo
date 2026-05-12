@@ -18,7 +18,7 @@ type process struct {
 
 	name        gen.Atom
 	registered  atomic.Bool
-	application gen.Atom
+	application gen.Application
 
 	// used for the process Uptime method only. PID value uses node creation value.
 	creation int64
@@ -98,6 +98,18 @@ func (p *process) Leader() gen.PID {
 	return p.leader
 }
 
+func (p *process) Application() gen.Application {
+	return p.application
+}
+
+// appName returns the application name or empty atom if app is nil.
+func appName(a gen.Application) gen.Atom {
+	if a == nil {
+		return ""
+	}
+	return a.Name()
+}
+
 func (p *process) Parent() gen.PID {
 	return p.parent
 }
@@ -132,7 +144,7 @@ func (p *process) Spawn(
 		ParentLeader:   p.leader,
 		ParentEnv:      p.EnvList(),
 		ParentLogLevel: p.log.level,
-		Application:    p.application,
+		Application:    appName(p.application),
 		Args:           args,
 		Ref:            ref,
 	}
@@ -181,7 +193,7 @@ func (p *process) SpawnRegister(
 		ParentEnv:      p.EnvList(),
 		Register:       register,
 		ParentLogLevel: p.log.level,
-		Application:    p.application,
+		Application:    appName(p.application),
 		Args:           args,
 		Ref:            ref,
 	}
@@ -285,7 +297,7 @@ func (p *process) RemoteSpawn(
 		ParentPID:      p.pid,
 		ParentLeader:   p.leader,
 		ParentLogLevel: p.log.level,
-		Application:    p.application,
+		Application:    appName(p.application),
 		Args:           args,
 	}
 	if p.node.Security().ExposeEnvRemoteSpawn {
@@ -323,7 +335,7 @@ func (p *process) RemoteSpawnRegister(
 		ParentLeader:   p.leader,
 		Register:       register,
 		ParentLogLevel: p.log.level,
-		Application:    p.application,
+		Application:    appName(p.application),
 		Args:           args,
 	}
 	if p.node.Security().ExposeEnvRemoteSpawn {

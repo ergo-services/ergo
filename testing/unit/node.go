@@ -270,21 +270,43 @@ func (tn *TestNode) ProcessState(pid gen.PID) (gen.ProcessState, error) {
 
 // Application methods
 func (tn *TestNode) ApplicationLoad(app gen.ApplicationBehavior, args ...any) (gen.Atom, error) {
-	spec, err := app.Load(tn, args...)
+	stub := &testApplication{node: tn, behavior: app}
+	spec, err := app.PreLoad(stub, args...)
 	if err != nil {
 		return "", err
 	}
+	stub.name = spec.Name
 
-	// Record the load event
 	tn.events.Push(SpawnEvent{
-		Factory: nil, // ApplicationBehavior is not ProcessFactory
+		Factory: nil,
 		Options: gen.ProcessOptions{},
 		Args:    args,
 		Result:  gen.PID{Node: tn.options.NodeName, ID: 0, Creation: tn.options.NodeCreation},
 	})
-
 	return spec.Name, nil
 }
+
+// testApplication is a stub gen.Application for the unit test harness.
+type testApplication struct {
+	node     *TestNode
+	behavior gen.ApplicationBehavior
+	name     gen.Atom
+}
+
+func (t *testApplication) Name() gen.Atom                       { return t.name }
+func (t *testApplication) Node() gen.Node                       { return t.node }
+func (t *testApplication) Log() gen.Log                         { return t.node.Log() }
+func (t *testApplication) Behavior() gen.ApplicationBehavior    { return t.behavior }
+func (t *testApplication) Mode() gen.ApplicationMode            { return gen.ApplicationModeTemporary }
+func (t *testApplication) State() gen.ApplicationState          { return gen.ApplicationStateLoaded }
+func (t *testApplication) Env(key gen.Env) (any, bool)          { return nil, false }
+func (t *testApplication) EnvList() map[gen.Env]any             { return nil }
+func (t *testApplication) Tags() []gen.Atom                     { return nil }
+func (t *testApplication) AddTag(tag gen.Atom) error            { return nil }
+func (t *testApplication) RemoveTag(tag gen.Atom) error         { return nil }
+func (t *testApplication) SetTags(tags []gen.Atom) error        { return nil }
+func (t *testApplication) Weight() int                          { return 0 }
+func (t *testApplication) SetWeight(w int) error                { return nil }
 
 func (tn *TestNode) ApplicationInfo(name gen.Atom) (gen.ApplicationInfo, error) {
 	return gen.ApplicationInfo{

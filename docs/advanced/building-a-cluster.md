@@ -167,17 +167,23 @@ Applications are the unit of deployment in Ergo. A node can load multiple applic
 
 ### Registering Applications
 
-When you start an application, it automatically registers with the registrar (if using etcd or Saturn):
+When you start an application, it automatically registers with the registrar (if using etcd or Saturn). The spec (including Weight) is returned from the application's `Load` callback:
 
 ```go
-// Define application spec with weight
-spec := gen.ApplicationSpec{
-    Name:   "api",
-    Group:  []gen.ApplicationMemberSpec{{Factory: createAPIHandler}},
-    Weight: 100,  // higher weight = more traffic
+type APIApp struct {
+    app.Application
 }
 
-node.ApplicationLoad(app, spec)
+func (a *APIApp) Load(args ...any) (gen.ApplicationSpec, error) {
+    return gen.ApplicationSpec{
+        Name:   "api",
+        Group:  []gen.ApplicationMemberSpec{{Factory: createAPIHandler}},
+        Weight: 100,  // higher weight = more traffic
+    }, nil
+}
+
+// In main:
+node.ApplicationLoad(&APIApp{})
 node.ApplicationStart("api", gen.ApplicationOptions{})
 ```
 
@@ -307,11 +313,8 @@ func main() {
 
     node, _ := ergo.StartNode("worker@"+hostname(), options)
 
-    // Load and start the application
-    node.ApplicationLoad(&WorkerApp{}, gen.ApplicationSpec{
-        Name:   "worker",
-        Weight: 100,
-    })
+    // Load and start the application (spec returned from WorkerApp.Load)
+    node.ApplicationLoad(&WorkerApp{})
     node.ApplicationStartPermanent("worker", gen.ApplicationOptions{})
 
     node.Wait()
@@ -772,7 +775,7 @@ Start an application on a remote node:
 
 ```go
 // On remote node: load app and enable remote start
-node.ApplicationLoad(&WorkerApp{}, gen.ApplicationSpec{Name: "workers"})
+node.ApplicationLoad(&WorkerApp{})
 network.EnableApplicationStart("workers", "coordinator@host")
 
 // On coordinator: start remotely
@@ -985,13 +988,16 @@ package main
 import (
     "ergo.services/actor/metrics"
     "ergo.services/ergo"
+    "ergo.services/ergo/app"
     "ergo.services/ergo/gen"
     "ergo.services/registrar/etcd"
 )
 
-type WorkerApp struct{}
+type WorkerApp struct {
+    app.Application
+}
 
-func (w *WorkerApp) Load(node gen.Node, args ...any) (gen.ApplicationSpec, error) {
+func (w *WorkerApp) Load(args ...any) (gen.ApplicationSpec, error) {
     return gen.ApplicationSpec{
         Name:   "worker",
         Weight: 100,
@@ -1000,9 +1006,6 @@ func (w *WorkerApp) Load(node gen.Node, args ...any) (gen.ApplicationSpec, error
         },
     }, nil
 }
-
-func (w *WorkerApp) Start(mode gen.ApplicationMode) {}
-func (w *WorkerApp) Terminate(reason error) {}
 
 func main() {
     options := gen.NodeOptions{

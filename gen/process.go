@@ -173,6 +173,11 @@ type Process interface {
 	// Available in all states.
 	Parent() PID
 
+	// Application returns the application this process runs under.
+	// Returns nil for processes spawned outside any application.
+	// Available in all states.
+	Application() Application
+
 	// Uptime returns process uptime in seconds since creation.
 	// Available in all states.
 	Uptime() int64

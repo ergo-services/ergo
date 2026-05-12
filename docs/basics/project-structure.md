@@ -234,10 +234,11 @@ func CreateApp(opts Options) gen.ApplicationBehavior {
 }
 
 type app struct {
+    app.Application
     options Options
 }
 
-func (a *app) Load(node gen.Node, args ...any) (gen.ApplicationSpec, error) {
+func (a *app) Load(args ...any) (gen.ApplicationSpec, error) {
     return gen.ApplicationSpec{
         Name:        "worker",
         Description: "Background task processing",
@@ -252,9 +253,6 @@ func (a *app) Load(node gen.Node, args ...any) (gen.ApplicationSpec, error) {
         },
     }, nil
 }
-
-func (a *app) Start(mode gen.ApplicationMode) {}
-func (a *app) Terminate(reason error) {}
 ```
 
 Applications should not import each other. If `apps/api` imports `apps/worker`, you've created a compile-time dependency that limits deployment flexibility.
@@ -508,8 +506,8 @@ import (
     "myapp/types"
 )
 
-func (a *Worker) Load(node gen.Node, args ...any) (gen.ApplicationSpec, error) {
-    err := node.Network().RegisterTypes([]any{
+func (a *Worker) Load(args ...any) (gen.ApplicationSpec, error) {
+    err := a.Node().Network().RegisterTypes([]any{
         types.ProcessTask{},
         types.TaskResult{},
     })
@@ -592,7 +590,7 @@ Applications typically have a supervision tree:
 
 ```go
 // apps/worker/app.go
-func (a *app) Load(node gen.Node, args ...any) (gen.ApplicationSpec, error) {
+func (a *app) Load(args ...any) (gen.ApplicationSpec, error) {
     return gen.ApplicationSpec{
         Name: "worker",
         Group: []gen.ApplicationMemberSpec{

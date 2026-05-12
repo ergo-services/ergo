@@ -302,6 +302,11 @@ func init() {
 	int64Enc.Info = int64Info
 	int64Dec.Info = int64Info
 
+	// time.Duration is int64 under the hood; reuse int64 encoder/decoder.
+	durationType := reflect.TypeOf(time.Duration(0))
+	encoders.Store(durationType, int64Enc)
+	decoders.Store(durationType, int64Dec)
+
 	uintType := reflect.TypeOf(uint(0))
 	uintEnc := &encoder{Prefix: []byte{edtUint}, Encode: encodeUint}
 	encoders.Store(uintType, uintEnc)

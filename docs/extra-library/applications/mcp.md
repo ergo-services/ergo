@@ -211,8 +211,8 @@ type StatusRequest struct {
     Verbose bool
 }
 
-func (a *MyApp) Load(node gen.Node, args ...any) (gen.ApplicationSpec, error) {
-    if err := node.Network().RegisterType(StatusRequest{}); err != nil {
+func (a *MyApp) Load(args ...any) (gen.ApplicationSpec, error) {
+    if err := a.Node().Network().RegisterType(StatusRequest{}); err != nil {
         return gen.ApplicationSpec{}, err
     }
     return gen.ApplicationSpec{ /* ... */ }, nil

@@ -43,11 +43,11 @@ func (a *Actor) HandleMessage(from gen.PID, message any) error {
 }
 ```
 
-All message types must be registered with the network stack before connection establishment. Register them from your application's `Load(node)` callback:
+All message types must be registered with the network stack before connection establishment. Register them from your application's `Load` callback:
 
 ```go
-func (a *MyApp) Load(node gen.Node, args ...any) (gen.ApplicationSpec, error) {
-    err := node.Network().RegisterTypes([]any{
+func (a *MyApp) Load(args ...any) (gen.ApplicationSpec, error) {
+    err := a.Node().Network().RegisterTypes([]any{
         OrderCreatedV1{},
         OrderCreatedV2{},
     })
@@ -375,8 +375,8 @@ Each consumer calls it from its application:
 ```go
 import "company.com/events"
 
-func (a *OrderService) Load(node gen.Node, args ...any) (gen.ApplicationSpec, error) {
-    if err := events.RegisterTypes(node.Network()); err != nil {
+func (a *OrderService) Load(args ...any) (gen.ApplicationSpec, error) {
+    if err := events.RegisterTypes(a.Node().Network()); err != nil {
         return gen.ApplicationSpec{}, err
     }
     return gen.ApplicationSpec{ /* ... */ }, nil

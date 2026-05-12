@@ -129,7 +129,7 @@ func (l *log) Panic(format string, args ...any) {
 
 func (l *log) setSource(source any) {
 	switch source.(type) {
-	case gen.MessageLogProcess, gen.MessageLogMeta, gen.MessageLogNode, gen.MessageLogNetwork:
+	case gen.MessageLogProcess, gen.MessageLogMeta, gen.MessageLogNode, gen.MessageLogNetwork, gen.MessageLogApplication:
 	default:
 		panic("unknown source type for log interface")
 	}

@@ -190,6 +190,24 @@ pid, err := remoteNode.Spawn("worker", gen.ProcessOptions{}, args)
 
 The remote operations require the target node to have enabled the corresponding permissions.
 
+### gen.Application
+
+The `gen.Application` interface is the runtime view of a loaded application. It exposes application metadata (name, env, mode, state) and mutators for dynamic fields (tags, weight) that propagate to the registrar.
+
+Application behaviors should embed `app.Application` rather than implementing the interface manually. The embed provides the framework entry point, default lifecycle callbacks, and the runtime binding. From inside callbacks the interface methods are available via the embed:
+
+```go
+type MyApp struct {
+    app.Application
+}
+
+func (a *MyApp) Start(ref gen.Ref, mode gen.ApplicationMode) {
+    a.AddTag("ready")  // visible to the cluster via the registrar
+}
+```
+
+Processes within the application can access the same interface through `Process.Application()`.
+
 ## Type Design Philosophy
 
 These types reflect a few design decisions worth understanding.
