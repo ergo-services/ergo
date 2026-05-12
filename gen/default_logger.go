@@ -259,7 +259,7 @@ func (l *defaultLogger) writeSourceObjectDirect(buf *strings.Builder, source any
 		buf.WriteString(`{"type":"application","node":"`)
 		l.writeEscapedStringDirect(buf, src.Node.CRC32())
 		buf.WriteString(`","name":"`)
-		l.writeEscapedStringDirect(buf, src.Name.String())
+		l.writeEscapedStringDirect(buf, string(src.Name))
 		buf.WriteString(`","mode":"`)
 		l.writeEscapedStringDirect(buf, src.Mode.String())
 		buf.WriteByte('"')
@@ -450,7 +450,7 @@ func (l *defaultLogger) writeSourceDirect(buf *strings.Builder, source any) {
 		buf.WriteString("App#<")
 		buf.WriteString(src.Node.CRC32())
 		buf.WriteString(".'")
-		buf.WriteString(src.Name.String())
+		buf.WriteString(string(src.Name))
 		buf.WriteString("'>")
 	default:
 		fmt.Fprintf(buf, "%#v", source)
