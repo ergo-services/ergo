@@ -361,7 +361,7 @@ func (res *TestResolver) ResolveProxy(node gen.Atom) ([]gen.ProxyRoute, error) {
 	return nil, gen.ErrNoRoute
 }
 
-func (res *TestResolver) ResolveApplication(name gen.Atom) ([]gen.ApplicationRoute, error) {
+func (res *TestResolver) ResolveApplication(name gen.Atom) (gen.ApplicationRoutes, error) {
 	res.registrar.mutex.RLock()
 	defer res.registrar.mutex.RUnlock()
 
@@ -370,8 +370,7 @@ func (res *TestResolver) ResolveApplication(name gen.Atom) ([]gen.ApplicationRou
 	}
 
 	if routes, found := res.registrar.apps[name]; found {
-		// Return a copy to avoid modification
-		result := make([]gen.ApplicationRoute, len(routes))
+		result := make(gen.ApplicationRoutes, len(routes))
 		copy(result, routes)
 		return result, nil
 	}

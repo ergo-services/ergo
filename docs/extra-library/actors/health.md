@@ -159,9 +159,9 @@ Each signal specifies which probes it affects using a bitmask:
 
 ```go
 const (
-    ProbeLiveness  Probe = 1 << iota  // 1 -- /health/live
-    ProbeReadiness                     // 2 -- /health/ready
-    ProbeStartup                       // 4 -- /health/startup
+    ProbeLiveness  Probe = 1 << iota  // 1: /health/live
+    ProbeReadiness                     // 2: /health/ready
+    ProbeStartup                       // 4: /health/startup
 )
 ```
 

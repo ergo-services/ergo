@@ -226,29 +226,28 @@ Mutations push an updated route to the registrar so other nodes see the change o
 
 The embedded in-memory registrar does not support application route registration, so tags in single-node or statically-routed deployments are only accessible via direct `ApplicationInfo()` calls, not through resolver queries.
 
-In clusters with centralized registrars:
+In clusters with centralized registrars, query the resolver and chain filter methods on the result:
 
 ```go
 // Query registrar for all instances
 routes, err := resolver.ResolveApplication("api_service")
-// Returns []ApplicationRoute, each with Node, Tags, Weight, State
+// routes is gen.ApplicationRoutes: a slice of ApplicationRoute with
+// chainable filter methods.
 
-// Filter by tag
-for _, route := range routes {
-    hasBlue := false
-    for _, tag := range route.Tags {
-        if tag == "blue" {
-            hasBlue = true
-            break
-        }
-    }
-    if hasBlue {
-        remoteNode, _ := network.GetNode(route.Node)
-        info, _ := remoteNode.ApplicationInfo("api_service")
-        // Use this instance
-    }
+// Filter: only blue, ready, in Running state, not draining
+selected := routes.
+    WithTags("blue", "ready").
+    WithoutTags("draining").
+    WithState(gen.ApplicationStateRunning)
+
+for _, route := range selected {
+    remoteNode, _ := network.GetNode(route.Node)
+    info, _ := remoteNode.ApplicationInfo("api_service")
+    // Use this instance
 }
 ```
+
+`WithTags(tags...)` keeps only routes that have **all** the given tags. `WithoutTags(tags...)` drops routes that contain **any** of the given tags. `WithState(states...)` keeps routes in the given states. Each method returns a fresh `ApplicationRoutes` so chaining is non-destructive; the original slice is unchanged.
 
 Common tag patterns:
 - **Blue/green deployment**: "blue", "green"

@@ -107,9 +107,88 @@ type Resolver interface {
 	ResolveProxy(node Atom) ([]ProxyRoute, error)
 
 	// ResolveApplication resolves deployment locations for the given application.
-	// Returns which nodes have this application loaded or running.
-	// Enables finding where applications are deployed in the cluster.
-	ResolveApplication(name Atom) ([]ApplicationRoute, error)
+	// Returns which nodes have this application loaded or running. Result
+	// supports chained filtering via WithTags/WithoutTags/WithState.
+	ResolveApplication(name Atom) (ApplicationRoutes, error)
+}
+
+// ApplicationRoutes is the result type of Resolver.ResolveApplication.
+// Provides chainable filter methods for narrowing down routes by tags,
+// state, etc. without requiring the resolver to support server-side filtering.
+type ApplicationRoutes []ApplicationRoute
+
+// WithTags returns a new ApplicationRoutes containing only routes whose
+// Tags include ALL the given tags. Calling with no tags is a no-op.
+func (r ApplicationRoutes) WithTags(tags ...Atom) ApplicationRoutes {
+	if len(tags) == 0 {
+		return r
+	}
+	out := r[:0:0]
+	for _, route := range r {
+		match := true
+		for _, t := range tags {
+			found := false
+			for _, rt := range route.Tags {
+				if rt == t {
+					found = true
+					break
+				}
+			}
+			if found == false {
+				match = false
+				break
+			}
+		}
+		if match {
+			out = append(out, route)
+		}
+	}
+	return out
+}
+
+// WithoutTags returns a new ApplicationRoutes excluding routes whose Tags
+// include ANY of the given tags. Calling with no tags is a no-op.
+func (r ApplicationRoutes) WithoutTags(tags ...Atom) ApplicationRoutes {
+	if len(tags) == 0 {
+		return r
+	}
+	out := r[:0:0]
+	for _, route := range r {
+		match := true
+		for _, t := range tags {
+			for _, rt := range route.Tags {
+				if rt == t {
+					match = false
+					break
+				}
+			}
+			if match == false {
+				break
+			}
+		}
+		if match {
+			out = append(out, route)
+		}
+	}
+	return out
+}
+
+// WithState returns a new ApplicationRoutes containing only routes whose
+// State is in the given set. Calling with no states is a no-op.
+func (r ApplicationRoutes) WithState(states ...ApplicationState) ApplicationRoutes {
+	if len(states) == 0 {
+		return r
+	}
+	out := r[:0:0]
+	for _, route := range r {
+		for _, s := range states {
+			if route.State == s {
+				out = append(out, route)
+				break
+			}
+		}
+	}
+	return out
 }
 
 // RegistrarInfo describes registrar capabilities and connection details.

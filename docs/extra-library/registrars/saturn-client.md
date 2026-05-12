@@ -99,6 +99,6 @@ type ApplicationRoute struct {
 * `Node` The name of the node where the application is loaded or running
 * `Weight` The weight assigned to the application in `gen.ApplicationSpec`
 * `Mode` The application's startup mode (`gen.ApplicationModeTemporary`, `gen.ApplicationModePermanent`, `gen.ApplicationModeTransient`)..&#x20;
-* `State` The current state of the application (`gen.ApplicationStateLoaded`, `gen.ApplicationStateRunning`, `gen.ApplicationStateStopping`)&#x20;
+* `State` The current state of the application (`gen.ApplicationStateLoaded`, `gen.ApplicationStateInitializing`, `gen.ApplicationStateRunning`, `gen.ApplicationStateStopping`)&#x20;
 
 You can access the `gen.Resolver` interface using the `Resolver` method from the `gen.Registrar` interface.

@@ -179,6 +179,10 @@ func (il *log) HandleLog(message gen.MessageLog) error {
 	case gen.MessageLogNetwork:
 		entry.Source = "network"
 		entry.Peer = gen.Atom(m.Peer.CRC32())
+	case gen.MessageLogApplication:
+		entry.Source = "application"
+		entry.Name = m.Name
+		entry.Behavior = m.Behavior
 	}
 
 	il.ring[il.pos] = entry

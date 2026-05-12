@@ -98,7 +98,7 @@ type ResponseInspectLog struct {
 }
 
 type InspectLogEntry struct {
-	Source    string // "node", "process", "network", "meta"
+	Source    string // "node", "process", "network", "meta", "application"
 	Name      gen.Atom
 	PID       gen.PID
 	Behavior  string

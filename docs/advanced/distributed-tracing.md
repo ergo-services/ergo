@@ -381,7 +381,7 @@ func (r *relay) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error) 
         OriginalRef:  ref,
         Payload:      req,
     })
-    return nil, nil // no direct response -- backend will respond to the original caller
+    return nil, nil // no direct response; backend will respond to the original caller
 }
 
 func (b *backend) HandleMessage(from gen.PID, message any) error {

@@ -151,7 +151,19 @@ routes, err := resolver.ResolveApplication("workers")
 // routes contains all nodes running "workers" application
 ```
 
-The response includes the node name, application state, running mode, and a weight value. Multiple nodes can run the same application - the resolver returns all of them.
+The response is a `gen.ApplicationRoutes` value (a slice of `gen.ApplicationRoute` with chainable filter methods). It includes the node name, application state, running mode, weight, and tags for each instance. Multiple nodes can run the same application; the resolver returns all of them.
+
+Narrow the result by tag, state, or both:
+
+```go
+routes, _ := resolver.ResolveApplication("workers")
+ready := routes.
+    WithTags("ready").
+    WithoutTags("draining").
+    WithState(gen.ApplicationStateRunning)
+```
+
+Each filter returns a fresh `ApplicationRoutes`. The original slice is unchanged, so the same response can be filtered multiple ways.
 
 ### Load Balancing with Weights
 
@@ -161,7 +173,7 @@ When multiple nodes run the same application, each registration includes a weigh
 
 ```go
 routes, _ := resolver.ResolveApplication("workers")
-// routes = []gen.ApplicationRoute{
+// routes = gen.ApplicationRoutes{
 //   {Name: "workers", Node: "worker1@host1", Weight: 100, Mode: Permanent, State: Running},
 //   {Name: "workers", Node: "worker2@host2", Weight: 50,  Mode: Permanent, State: Running},
 //   {Name: "workers", Node: "worker3@host3", Weight: 200, Mode: Permanent, State: Running},

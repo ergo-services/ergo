@@ -141,7 +141,7 @@ func (c *client) Resolve(name gen.Atom) ([]gen.Route, error) {
 	return reply.Routes, nil
 }
 
-func (c *client) ResolveApplication(name gen.Atom) ([]gen.ApplicationRoute, error) {
+func (c *client) ResolveApplication(name gen.Atom) (gen.ApplicationRoutes, error) {
 	return nil, gen.ErrUnsupported
 }
 func (c *client) ResolveProxy(node gen.Atom) ([]gen.ProxyRoute, error) {

@@ -310,7 +310,7 @@ func (w *Migrator) HandleMessage(from gen.PID, message any) error {
             return nil
         }
 
-        // All done -- mark startup complete
+        // All done. Mark startup complete.
         radar.GaugeSet(w, "migrations_pending", 0, nil)
         radar.ServiceUp(w, "migrations")
         radar.UnregisterService(w, "migrations")
