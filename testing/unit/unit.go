@@ -177,6 +177,85 @@ func (ta *TestActor) SendMessage(from gen.PID, message any) *TestActor {
 	return ta
 }
 
+// SendMessageWithPriority sends a message with a specific priority. The
+// message lands in Urgent for MessagePriorityMax, System for
+// MessagePriorityHigh, Main for MessagePriorityNormal (default).
+func (ta *TestActor) SendMessageWithPriority(from gen.PID, message any, priority gen.MessagePriority) *TestActor {
+	ta.t.Helper()
+
+	if ta.terminated {
+		ta.t.Logf("Attempted to send message %v to terminated actor %s (reason: %v)", message, ta.PID(), ta.terminationReason)
+		return ta
+	}
+
+	mailboxMessage := gen.TakeMailboxMessage()
+	defer gen.ReleaseMailboxMessage(mailboxMessage)
+
+	mailboxMessage.From = from
+	mailboxMessage.Type = gen.MailboxMessageTypeRegular
+	mailboxMessage.Target = ta.process.PID()
+	mailboxMessage.Message = message
+
+	mailbox := ta.process.Mailbox()
+	switch priority {
+	case gen.MessagePriorityMax:
+		mailbox.Urgent.Push(mailboxMessage)
+	case gen.MessagePriorityHigh:
+		mailbox.System.Push(mailboxMessage)
+	default:
+		mailbox.Main.Push(mailboxMessage)
+	}
+
+	if err := ta.behavior.ProcessRun(); err != nil {
+		ta.terminated = true
+		ta.terminationReason = err
+		ta.events.Push(TerminateEvent{PID: ta.PID(), Reason: err})
+		if err != gen.TerminateReasonNormal && err != gen.TerminateReasonShutdown {
+			ta.t.Logf("Actor %s terminated with error: %v", ta.PID(), err)
+		}
+	}
+	return ta
+}
+
+// DeliverExit pushes a MessageExitPID into the actor's Urgent queue and runs
+// ProcessRun once. Use this to simulate a worker crash so the actor's exit
+// handler is invoked.
+func (ta *TestActor) DeliverExit(pid gen.PID, reason error) *TestActor {
+	return ta.DeliverExitMessage(gen.MessageExitPID{PID: pid, Reason: reason})
+}
+
+// DeliverExitMessage pushes an arbitrary exit message into the Urgent queue
+// and runs ProcessRun once. Accepts gen.MessageExitPID, gen.MessageExitProcessID,
+// gen.MessageExitAlias, gen.MessageExitEvent or gen.MessageExitNode.
+func (ta *TestActor) DeliverExitMessage(exitMsg any) *TestActor {
+	ta.t.Helper()
+
+	if ta.terminated {
+		ta.t.Logf("Attempted to deliver exit to terminated actor %s (reason: %v)", ta.PID(), ta.terminationReason)
+		return ta
+	}
+
+	mailboxMessage := gen.TakeMailboxMessage()
+	defer gen.ReleaseMailboxMessage(mailboxMessage)
+
+	mailboxMessage.From = gen.PID{}
+	mailboxMessage.Type = gen.MailboxMessageTypeExit
+	mailboxMessage.Target = ta.process.PID()
+	mailboxMessage.Message = exitMsg
+
+	ta.process.Mailbox().Urgent.Push(mailboxMessage)
+
+	if err := ta.behavior.ProcessRun(); err != nil {
+		ta.terminated = true
+		ta.terminationReason = err
+		ta.events.Push(TerminateEvent{PID: ta.PID(), Reason: err})
+		if err != gen.TerminateReasonNormal && err != gen.TerminateReasonShutdown {
+			ta.t.Logf("Actor %s terminated after exit delivery with error: %v", ta.PID(), err)
+		}
+	}
+	return ta
+}
+
 // Call makes a synchronous call to the actor
 func (ta *TestActor) Call(from gen.PID, request any) *CallResult {
 	ta.t.Helper()
@@ -234,6 +313,72 @@ func (ta *TestActor) Call(from gen.PID, request any) *CallResult {
 	response, responseError := ta.findResponseForRef(ref)
 
 	// If we have a process error, use that; otherwise use response error
+	finalError := callError
+	if finalError == nil {
+		finalError = responseError
+	}
+
+	return &CallResult{
+		Request:  request,
+		Response: response,
+		Error:    finalError,
+		Ref:      ref,
+		From:     from,
+		actor:    ta,
+	}
+}
+
+// CallWithPriority makes a synchronous call with a specific priority. The
+// request lands in Urgent for MessagePriorityMax, System for
+// MessagePriorityHigh, Main for MessagePriorityNormal (default).
+func (ta *TestActor) CallWithPriority(from gen.PID, request any, priority gen.MessagePriority) *CallResult {
+	ta.t.Helper()
+
+	if ta.terminated {
+		ta.t.Logf("Attempted to call terminated actor %s with request %v (reason: %v)", ta.PID(), request, ta.terminationReason)
+		return &CallResult{
+			Request:  request,
+			Response: nil,
+			Error:    ta.terminationReason,
+			Ref:      gen.Ref{},
+			From:     from,
+			actor:    ta,
+		}
+	}
+
+	ref := makeTestRefWithCreation(ta.node.Name(), ta.node.Creation())
+
+	mailboxMessage := gen.TakeMailboxMessage()
+	defer gen.ReleaseMailboxMessage(mailboxMessage)
+
+	mailboxMessage.From = from
+	mailboxMessage.Type = gen.MailboxMessageTypeRequest
+	mailboxMessage.Target = ta.process.PID()
+	mailboxMessage.Message = request
+	mailboxMessage.Ref = ref
+
+	mailbox := ta.process.Mailbox()
+	switch priority {
+	case gen.MessagePriorityMax:
+		mailbox.Urgent.Push(mailboxMessage)
+	case gen.MessagePriorityHigh:
+		mailbox.System.Push(mailboxMessage)
+	default:
+		mailbox.Main.Push(mailboxMessage)
+	}
+
+	var callError error
+	if err := ta.behavior.ProcessRun(); err != nil {
+		ta.terminated = true
+		ta.terminationReason = err
+		callError = err
+		ta.events.Push(TerminateEvent{PID: ta.PID(), Reason: err})
+		if err != gen.TerminateReasonNormal && err != gen.TerminateReasonShutdown {
+			ta.t.Logf("Actor %s terminated during call with error: %v", ta.PID(), err)
+		}
+	}
+
+	response, responseError := ta.findResponseForRef(ref)
 	finalError := callError
 	if finalError == nil {
 		finalError = responseError
@@ -381,6 +526,13 @@ func (ta *TestActor) ShouldSpawn() *SpawnAssertion {
 		actor:    ta,
 		expected: true,
 		count:    1,
+	}
+}
+
+func (ta *TestActor) ShouldNotSpawn() *SpawnAssertion {
+	return &SpawnAssertion{
+		actor:    ta,
+		expected: false,
 	}
 }
 

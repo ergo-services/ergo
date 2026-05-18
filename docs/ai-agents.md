@@ -89,6 +89,39 @@ node.Send(poolPID, MessageResearchTask{Query: "Summarize Q3 report"})
 
 Pool size and worker mailbox size together form a natural rate limit: at most `PoolSize × WorkerMailboxSize` tasks in flight. See [Pool](actors/pool.md).
 
+### Agent Router
+
+When agents specialize by task type (research, analysis, code generation, summarization), route each incoming task to the right agent by content. Unlike a pool of identical workers, a router owns named slots of different agent types and dispatches by inspecting the message.
+
+```go
+type AgentRouter struct {
+    act.Router
+}
+
+func (r *AgentRouter) Init(args ...any) (act.RouterOptions, error) {
+    return act.RouterOptions{
+        Routes: []act.Route{
+            {Name: "research", Factory: factory_ResearchAgent},
+            {Name: "analysis", Factory: factory_AnalysisAgent},
+            {Name: "codegen",  Factory: factory_CodeAgent},
+            {Name: "summary",  Factory: factory_SummaryAgent},
+        },
+    }, nil
+}
+
+func (r *AgentRouter) RouteMessage(from gen.PID, msg any) gen.Atom {
+    switch msg.(type) {
+    case MessageResearchTask: return "research"
+    case MessageAnalyzeTask:  return "analysis"
+    case MessageCodeTask:     return "codegen"
+    case MessageSummaryTask:  return "summary"
+    }
+    return act.RouteDiscard
+}
+```
+
+For sharded stateful agents (per-user conversation memory, per-tenant context), use hash-based routing into a fixed set of slots. Compose with `act.Supervisor` per slot if you need restart limits and mailbox preservation across worker crashes. See [Router](actors/router.md) for the full pattern catalogue.
+
 ### Agent Pipeline
 
 Chain agents by sending from one stage to the next. Each stage runs under a supervisor. Failure in any stage is isolated and restarted.

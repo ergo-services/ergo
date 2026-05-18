@@ -178,8 +178,8 @@ func TestSOFOPerInstanceCounterExceededTerminateSupervisor(t *testing.T) {
 	if sup.shutdown == false {
 		t.Errorf("supervisor must be in shutdown")
 	}
-	if errors.Is(sup.shutdownReason, ErrSupervisorRestartsExceeded) == false {
-		t.Errorf("shutdownReason must match ErrSupervisorRestartsExceeded via errors.Is; got %v", sup.shutdownReason)
+	if errors.Is(sup.shutdownReason, gen.ErrExceeded) == false {
+		t.Errorf("shutdownReason must match gen.ErrExceeded via errors.Is; got %v", sup.shutdownReason)
 	}
 	if errors.Is(sup.shutdownReason, bootReason) == false {
 		t.Errorf("shutdownReason must wrap original child reason; got %v", sup.shutdownReason)
@@ -331,8 +331,8 @@ func TestSOFOGlobalExceededWrapsReason(t *testing.T) {
 	if last.do != supActionTerminateChildren {
 		t.Fatalf("exceeded must trigger TerminateChildren, got do=%d", last.do)
 	}
-	if errors.Is(sup.shutdownReason, ErrSupervisorRestartsExceeded) == false {
-		t.Errorf("shutdownReason must match ErrSupervisorRestartsExceeded via errors.Is; got %v", sup.shutdownReason)
+	if errors.Is(sup.shutdownReason, gen.ErrExceeded) == false {
+		t.Errorf("shutdownReason must match gen.ErrExceeded via errors.Is; got %v", sup.shutdownReason)
 	}
 	if errors.Is(sup.shutdownReason, bootReason) == false {
 		t.Errorf("shutdownReason must wrap original child reason; got %v", sup.shutdownReason)

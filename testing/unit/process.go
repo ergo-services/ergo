@@ -789,10 +789,16 @@ func (tp *TestProcess) MetaInfo(meta gen.Alias) (gen.MetaInfo, error) {
 }
 
 func (tp *TestProcess) Forward(to gen.PID, message *gen.MailboxMessage, priority gen.MessagePriority) error {
+	if err := tp.CheckMethodFailure("Forward", to, message, priority); err != nil {
+		return err
+	}
+	// Snapshot the message: the caller may release it back to the pool
+	// (zeroing its fields) before the test reads the event.
+	captured := *message
 	tp.events.Push(SendEvent{
 		From:     tp.pid,
 		To:       to,
-		Message:  message,
+		Message:  &captured,
 		Priority: priority,
 	})
 	return nil

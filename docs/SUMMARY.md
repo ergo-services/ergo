@@ -25,6 +25,7 @@
 * [Actor](actors/actor.md)
 * [Supervisor](actors/supervisor.md)
 * [Pool](actors/pool.md)
+* [Router](actors/router.md)
 * [WebWorker](actors/webworker.md)
 
 ## Meta Processes

@@ -114,7 +114,7 @@ type Error struct {
 The type implements `Error()` and `Unwrap() []error`, so it works transparently with the standard `errors` package:
 
 ```go
-if errors.Is(reason, act.ErrSupervisorRestartsExceeded) {
+if errors.Is(reason, gen.ErrExceeded) {
     // subtree died because its restart budget overflowed
 }
 if errors.Is(reason, ErrPaymentDeclined) {
@@ -130,7 +130,7 @@ return gen.Errorf("user %d: %w", userID, ErrPaymentDeclined)
 
 The framework uses `gen.Error` in two places today:
 
-- **Restart intensity exceeded.** The supervisor's exit reason on overflow is built with `gen.Errorf("%w: %w", ErrSupervisorRestartsExceeded, lastChildReason)`. Both markers are reachable via `errors.Is`. See [Restart Intensity](../actors/supervisor.md#restart-intensity).
+- **Restart intensity exceeded.** The supervisor's exit reason on overflow is built with `gen.Errorf("supervisor restart intensity exceeded (max %d in %ds): %w: %w", intensity, period, gen.ErrExceeded, lastChildReason)`. Both `gen.ErrExceeded` and the original child reason are reachable via `errors.Is`. See [Restart Intensity](../actors/supervisor.md#restart-intensity).
 - **Mailbox preservation across panic restart.** When a process spawned with `Options.PreserveMailbox: true` terminates abnormally, the runtime captures its mailbox into `Mailbox` and wraps the original reason in `Wrapped`. The supervising parent automatically picks it up and hands it to the restart. See [Mailbox Preservation](process.md#mailbox-preservation).
 
 ## Core Interfaces

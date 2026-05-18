@@ -595,26 +595,40 @@ func (a *app) Load(args ...any) (gen.ApplicationSpec, error) {
         Name: "worker",
         Group: []gen.ApplicationMemberSpec{
             {Name: "queue_manager", Factory: createQueueManager},
-            {Name: "processor_sup", Factory: a.createProcessorSupervisor},
+            {
+                Name:    "processor_sup",
+                Factory: createProcessorSupervisor,
+                Args:    []any{a.options.Concurrency},
+            },
         },
     }, nil
 }
 
 // apps/worker/supervisor.go
-func (a *app) createProcessorSupervisor() gen.ProcessBehavior {
-    children := make([]act.SupervisorChildSpec, a.options.Concurrency)
-    for i := 0; i < a.options.Concurrency; i++ {
+type processorSupervisor struct {
+    act.Supervisor
+}
+
+func (s *processorSupervisor) Init(args ...any) (act.SupervisorSpec, error) {
+    concurrency := args[0].(int)
+    children := make([]act.SupervisorChildSpec, concurrency)
+    for i := 0; i < concurrency; i++ {
         children[i] = act.SupervisorChildSpec{
-            Name:   fmt.Sprintf("processor_%d", i),
-            Create: createProcessor,
+            Name:    gen.Atom(fmt.Sprintf("processor_%d", i)),
+            Factory: createProcessor,
         }
     }
-
-    return &act.Supervisor{
+    return act.SupervisorSpec{
         Type:     act.SupervisorTypeOneForOne,
-        Restart:  act.SupervisorRestartTemporary,
         Children: children,
-    }
+        Restart: act.SupervisorRestart{
+            Strategy: act.SupervisorStrategyTemporary,
+        },
+    }, nil
+}
+
+func createProcessorSupervisor() gen.ProcessBehavior {
+    return &processorSupervisor{}
 }
 ```
 

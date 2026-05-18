@@ -353,7 +353,7 @@ For high-throughput message types, prefer `edf.Marshaler`. For types that implem
 
 Go's `error` type is an interface, which means encoding it across the network requires extra care. Two things matter to user code: the error text on the receiver, and whether `errors.Is` against a known sentinel still works.
 
-Framework errors (`gen.ErrProcessUnknown`, `gen.TerminateReasonNormal`, `act.ErrSupervisorRestartsExceeded`, and the rest of the `gen.Err*` / `act.Err*` set) are pre-registered out of the box. Their identity is preserved automatically across nodes.
+Framework errors in the `gen.Err*` set (`gen.ErrProcessUnknown`, `gen.TerminateReasonNormal`, `gen.ErrExceeded`, and the rest) are pre-registered out of the box. Their identity is preserved automatically across nodes. The `act.Err*` set is local to the actor library and not pre-registered for the wire: those errors are returned only from local management APIs and don't cross the network in the default framework path.
 
 Application errors must be registered on every node that needs to compare against them:
 

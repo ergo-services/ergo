@@ -314,15 +314,19 @@ func (p *Pool) HandleMessage(from gen.PID, message any) error {
 	p.Log().Warning("Pool.HandleMessage: unhandled message from %s", from)
 	return nil
 }
+
 func (p *Pool) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error) {
 	p.Log().Warning("Pool.HandleCall: unhandled request from %s", from)
 	return nil, nil
 }
+
 func (p *Pool) Terminate(reason error) {}
+
 func (p *Pool) HandleEvent(message gen.MessageEvent) error {
 	p.Log().Warning("Pool.HandleEvent: unhandled event message %#v", message)
 	return nil
 }
+
 func (p *Pool) sendSpanProcessed(message *gen.MailboxMessage, kind gen.TracingKind, errStr string) {
 	if message.Tracing.ID == [2]uint64{} {
 		return

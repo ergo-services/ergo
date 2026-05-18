@@ -188,8 +188,8 @@ func TestOFOLocalCounterExceededDefaultTerminatesSupervisor(t *testing.T) {
 	if sup.shutdown == false {
 		t.Errorf("supervisor must be in shutdown state")
 	}
-	if errors.Is(sup.shutdownReason, ErrSupervisorRestartsExceeded) == false {
-		t.Errorf("shutdownReason must match ErrSupervisorRestartsExceeded via errors.Is; got %v", sup.shutdownReason)
+	if errors.Is(sup.shutdownReason, gen.ErrExceeded) == false {
+		t.Errorf("shutdownReason must match gen.ErrExceeded via errors.Is; got %v", sup.shutdownReason)
 	}
 	if errors.Is(sup.shutdownReason, bootReason) == false {
 		t.Errorf("shutdownReason must wrap the original child reason; got %v", sup.shutdownReason)

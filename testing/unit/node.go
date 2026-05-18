@@ -25,6 +25,11 @@ type TestNode struct {
 	nextID    uint64
 	uptime    time.Time
 	cron      *TestCron
+
+	// OnProcessPID, when set, overrides the default ProcessPID stub. Tests
+	// use this to simulate registered processes by name.
+	OnProcessPID func(name gen.Atom) (gen.PID, error)
+
 	Failures
 }
 
@@ -260,7 +265,9 @@ func (tn *TestNode) ProcessName(pid gen.PID) (gen.Atom, error) {
 }
 
 func (tn *TestNode) ProcessPID(name gen.Atom) (gen.PID, error) {
-	// Simple stub - returns error
+	if tn.OnProcessPID != nil {
+		return tn.OnProcessPID(name)
+	}
 	return gen.PID{}, gen.ErrProcessUnknown
 }
 

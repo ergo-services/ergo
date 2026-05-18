@@ -242,7 +242,7 @@ Use this for monitoring pool health. High `messages_unhandled` indicates workers
 - Workers maintain critical state that can't be lost on restart
 - Concurrency isn't the bottleneck (single actor is fast enough)
 
-Pools are for horizontal scaling of stateless work. If workers need state coordination, use multiple independent actors with explicit routing instead.
+Pools are for horizontal scaling of stateless work. If workers need state coordination, message-type dispatching, or key affinity, use [Router](router.md) instead - it owns named slots and lets user code decide where each message goes.
 
 ## Patterns and Pitfalls
 

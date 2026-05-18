@@ -229,11 +229,11 @@ func TestARFOGlobalExceededWrapsReason(t *testing.T) {
 	if action.do != supActionTerminateChildren {
 		t.Fatalf("expected TerminateChildren on exceeded, got do=%d", action.do)
 	}
-	if action.reason != ErrSupervisorRestartsExceeded {
-		t.Errorf("action.reason must be ErrSupervisorRestartsExceeded for children, got %v", action.reason)
+	if action.reason != gen.ErrExceeded {
+		t.Errorf("action.reason must be gen.ErrExceeded for children, got %v", action.reason)
 	}
-	if errors.Is(sup.shutdownReason, ErrSupervisorRestartsExceeded) == false {
-		t.Errorf("shutdownReason must match ErrSupervisorRestartsExceeded via errors.Is; got %v", sup.shutdownReason)
+	if errors.Is(sup.shutdownReason, gen.ErrExceeded) == false {
+		t.Errorf("shutdownReason must match gen.ErrExceeded via errors.Is; got %v", sup.shutdownReason)
 	}
 	if errors.Is(sup.shutdownReason, bootReason) == false {
 		t.Errorf("shutdownReason must wrap original child reason; got %v", sup.shutdownReason)

@@ -369,10 +369,11 @@ func (s *supARFO) childTerminated(name gen.Atom, pid gen.PID, reason error) supA
 		// exceeded intensity. start supervisor termination
 		action.terminate = runningChildren
 		action.do = supActionTerminateChildren
-		action.reason = ErrSupervisorRestartsExceeded
+		action.reason = gen.ErrExceeded
 		s.wait = wait
 		s.mode = 3 // shutdown
-		s.shutdownReason = gen.Errorf("%w: %w", ErrSupervisorRestartsExceeded, reason)
+		s.shutdownReason = gen.Errorf("supervisor restart intensity exceeded (max %d in %ds): %w: %w",
+			s.restart.Intensity, s.restart.Period, gen.ErrExceeded, reason)
 		return action
 	}
 

@@ -97,6 +97,10 @@ var (
 	ErrUnsupported = errors.New("not supported")
 	ErrUnknown     = errors.New("unknown")
 	ErrNotAllowed  = errors.New("not allowed")
+	ErrDiscarded   = errors.New("discarded by recipient")
+	ErrDisabled    = errors.New("target is disabled")
+	ErrBusy        = errors.New("target is busy")
+	ErrExceeded    = errors.New("limit exceeded")
 
 	ErrIncorrect       = errors.New("incorrect value or argument")
 	ErrMalformed       = errors.New("malformed value")

@@ -5,7 +5,6 @@ import (
 	"reflect"
 	"time"
 
-	"ergo.services/ergo/act"
 	"ergo.services/ergo/gen"
 )
 
@@ -127,6 +126,10 @@ var (
 		gen.ErrUnsupported,
 		gen.ErrUnknown,
 		gen.ErrNotAllowed,
+		gen.ErrDiscarded,
+		gen.ErrDisabled,
+		gen.ErrBusy,
+		gen.ErrExceeded,
 
 		gen.ErrIncorrect,
 		gen.ErrMalformed,
@@ -145,14 +148,6 @@ var (
 		gen.TerminateReasonKill,
 		gen.TerminateReasonPanic,
 
-		act.ErrSupervisorStrategyActive,
-		act.ErrSupervisorChildUnknown,
-		act.ErrSupervisorChildRunning,
-		act.ErrSupervisorChildDisabled,
-		act.ErrSupervisorRestartsExceeded,
-		act.ErrSupervisorChildDuplicate,
-		act.ErrSupervisorInvalidSpec,
-		act.ErrPoolEmpty,
 	}
 )
 
