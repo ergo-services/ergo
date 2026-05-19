@@ -76,8 +76,21 @@ type Registrar interface {
 	// Returns ErrUnsupported if not supported.
 	ConfigItem(item string) (any, error)
 
-	// Event returns an event for monitoring registrar changes.
-	// Link/Monitor this event to receive notifications when registry changes.
+	// Event returns an event for monitoring registrar state changes.
+	// Link/Monitor this event to receive notifications when the registry changes.
+	//
+	// Messages published through this event are of the standard
+	// MessageRegistrar* types declared in this package:
+	//
+	//   - MessageRegistrarNodeJoined / MessageRegistrarNodeLeft
+	//   - MessageRegistrarConfigUpdate
+	//   - MessageRegistrarApplicationLoaded / Initializing / Started / Stopping / Stopped / Unloaded
+	//   - MessageRegistrarProxyRegistered / MessageRegistrarProxyUnregistered
+	//
+	// A specific registrar implementation MAY additionally publish
+	// vendor-specific message types declared in its own package; consult
+	// the registrar's documentation.
+	//
 	// Optional feature - check RegistrarInfo.SupportEvent.
 	// Returns ErrUnsupported if not supported.
 	Event() (Event, error)

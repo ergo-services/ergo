@@ -72,6 +72,18 @@ var (
 		gen.MessageEventStart{},
 		gen.MessageEventStop{},
 
+		gen.MessageRegistrarNodeJoined{},
+		gen.MessageRegistrarNodeLeft{},
+		gen.MessageRegistrarConfigUpdate{},
+		gen.MessageRegistrarApplicationLoaded{},
+		gen.MessageRegistrarApplicationInitializing{},
+		gen.MessageRegistrarApplicationStarted{},
+		gen.MessageRegistrarApplicationStopping{},
+		gen.MessageRegistrarApplicationStopped{},
+		gen.MessageRegistrarApplicationUnloaded{},
+		gen.MessageRegistrarProxyRegistered{},
+		gen.MessageRegistrarProxyUnregistered{},
+
 		gen.TracingPoint(0),
 		gen.TracingKind(0),
 		gen.TracingFlags(0),
