@@ -79,6 +79,7 @@
 * [Loggers](extra-library/loggers/README.md)
   * [Colored](extra-library/loggers/colored.md)
   * [Rotate](extra-library/loggers/rotate.md)
+  * [Sentry](extra-library/loggers/sentry.md)
 * [Registrars](extra-library/registrars/README.md)
   * [Saturn Сlient](extra-library/registrars/saturn-client.md)
   * [etcd Client](extra-library/registrars/etcd-client.md)

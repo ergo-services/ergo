@@ -364,6 +364,8 @@ main.(*MyActor).HandleMessage(0x140001a2000, {0x100d12345, 0x140001b0000})
 
 This shows exactly which line in your code triggered the panic.
 
+In production, `norecover` is not appropriate: the framework's panic recovery is what keeps the node running after a faulty callback. To surface the same panic origin without crashing the node, register the [Sentry logger](../extra-library/loggers/sentry.md) - it captures every recovered panic with its origin stack trace and forwards it to a centralized issue tracker. Recurring panics group by root cause automatically.
+
 ## Observer Integration
 
 The [Observer](https://docs.ergo.services/tools/observer) tool provides a web interface for inspecting running nodes. While not strictly a debugging tool, it complements profiler-based debugging by providing:

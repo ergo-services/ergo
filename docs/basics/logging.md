@@ -307,12 +307,14 @@ Process-based loggers enable sophisticated handling. A logger process can aggreg
 
 ## Logger Implementations
 
-The framework provides two logger implementations in separate packages for common needs:
+The framework provides three logger implementations in separate packages for common needs:
 
 **Colored** (`ergo.services/logger/colored`) - Terminal output with ANSI colors. Highlights Ergo types (PIDs, Atoms, Refs) and colorizes log levels (yellow for warnings, red for errors, etc.). Visual clarity for development, but has performance overhead. Not suitable for high-volume production logging.
 
 **Rotate** (`ergo.services/logger/rotate`) - File logging with automatic rotation. Supports size-based and time-based rotation. Compresses old logs with gzip. Configurable retention policies. Production-ready for long-running systems generating substantial logs.
 
-Both integrate with the logging system through `node.LoggerAdd`. You can combine them - colored for console during development, rotate for persistent storage, both receiving the same filtered log stream.
+**Sentry** (`ergo.services/logger/sentry`) - Forwards panics and errors to a Sentry project. Captures the panic origin stack and tags events by ergo subsystem. Centralized error tracking and alerting for production deployments. Operates alongside your console or file logger rather than replacing them.
 
-For implementation details and configuration options, see [Colored](../extra-library/loggers/colored.md) and [Rotate](../extra-library/loggers/rotate.md) in the extra library documentation.
+All three integrate with the logging system through `node.LoggerAdd`. You can combine them - colored for console during development, rotate for persistent storage, sentry for centralized error tracking - each receiving the same filtered log stream.
+
+For implementation details and configuration options, see [Colored](../extra-library/loggers/colored.md), [Rotate](../extra-library/loggers/rotate.md) and [Sentry](../extra-library/loggers/sentry.md) in the extra library documentation.
