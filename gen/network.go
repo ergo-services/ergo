@@ -142,9 +142,17 @@ type Network interface {
 	// Strict aggregation across TypeRegistry-capable protos.
 	RegisterError(e error) error
 
+	// RegisterErrors registers multiple sentinel errors as a batch.
+	// Strict aggregation across TypeRegistry-capable protos.
+	RegisterErrors(errs []error) error
+
 	// RegisterAtom registers an atom for the wire-format atom cache.
 	// Strict aggregation across TypeRegistry-capable protos.
 	RegisterAtom(a Atom) error
+
+	// RegisterAtoms registers multiple atoms as a batch.
+	// Strict aggregation across TypeRegistry-capable protos.
+	RegisterAtoms(atoms []Atom) error
 
 	// RegisteredTypes aggregates entries from every TypeRegistry-capable proto.
 	// One Go type may appear once per proto; entries carry Proto field set.
@@ -164,7 +172,9 @@ type TypeRegistry interface {
 	RegisterType(v any) error
 	RegisterTypes(types []any) error
 	RegisterError(e error) error
+	RegisterErrors(errs []error) error
 	RegisterAtom(a Atom) error
+	RegisterAtoms(atoms []Atom) error
 	RegisteredTypes() []RegisteredTypeInfo
 	LookupType(name string) (reflect.Type, bool)
 }

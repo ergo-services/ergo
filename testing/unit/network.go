@@ -363,7 +363,9 @@ func (n *TestNetwork) Protos() []gen.NetworkProto                  { return nil 
 func (n *TestNetwork) RegisterType(v any) error                    { return nil }
 func (n *TestNetwork) RegisterTypes(types []any) error             { return nil }
 func (n *TestNetwork) RegisterError(e error) error                 { return nil }
+func (n *TestNetwork) RegisterErrors(errs []error) error           { return nil }
 func (n *TestNetwork) RegisterAtom(a gen.Atom) error               { return nil }
+func (n *TestNetwork) RegisterAtoms(atoms []gen.Atom) error        { return nil }
 func (n *TestNetwork) RegisteredTypes() []gen.RegisteredTypeInfo   { return nil }
 func (n *TestNetwork) LookupType(name string) (reflect.Type, bool) { return nil, false }
 

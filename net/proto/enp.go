@@ -220,6 +220,24 @@ func (e *enp) RegisterTypes(types []any) error { return edf.RegisterTypesOf(type
 func (e *enp) RegisterError(err error) error   { return edf.RegisterError(err) }
 func (e *enp) RegisterAtom(a gen.Atom) error   { return edf.RegisterAtom(a) }
 
+func (e *enp) RegisterErrors(errs []error) error {
+	for _, err := range errs {
+		if e := edf.RegisterError(err); e != nil && e != gen.ErrTaken {
+			return e
+		}
+	}
+	return nil
+}
+
+func (e *enp) RegisterAtoms(atoms []gen.Atom) error {
+	for _, a := range atoms {
+		if err := edf.RegisterAtom(a); err != nil && err != gen.ErrTaken {
+			return err
+		}
+	}
+	return nil
+}
+
 func (e *enp) RegisteredTypes() []gen.RegisteredTypeInfo {
 	list := edf.RegisteredTypes()
 	ver := e.Version().Str()

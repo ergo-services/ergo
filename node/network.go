@@ -600,6 +600,25 @@ func (n *network) RegisterError(e error) error {
 	return nil
 }
 
+func (n *network) RegisterErrors(list []error) error {
+	regs := n.typeRegistries()
+	if len(regs) == 0 {
+		return gen.ErrUnsupported
+	}
+	var errs []string
+	for _, r := range regs {
+		err := r.registry.RegisterErrors(list)
+		if err == nil || err == gen.ErrTaken {
+			continue
+		}
+		errs = append(errs, fmt.Sprintf("%s: %s", r.proto.Version(), err))
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf("RegisterErrors: %s", strings.Join(errs, "; "))
+	}
+	return nil
+}
+
 func (n *network) RegisterAtom(a gen.Atom) error {
 	regs := n.typeRegistries()
 	if len(regs) == 0 {
@@ -615,6 +634,25 @@ func (n *network) RegisterAtom(a gen.Atom) error {
 	}
 	if len(errs) > 0 {
 		return fmt.Errorf("RegisterAtom: %s", strings.Join(errs, "; "))
+	}
+	return nil
+}
+
+func (n *network) RegisterAtoms(atoms []gen.Atom) error {
+	regs := n.typeRegistries()
+	if len(regs) == 0 {
+		return gen.ErrUnsupported
+	}
+	var errs []string
+	for _, r := range regs {
+		err := r.registry.RegisterAtoms(atoms)
+		if err == nil || err == gen.ErrTaken {
+			continue
+		}
+		errs = append(errs, fmt.Sprintf("%s: %s", r.proto.Version(), err))
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf("RegisterAtoms: %s", strings.Join(errs, "; "))
 	}
 	return nil
 }

@@ -1879,6 +1879,24 @@ func (n *node) ApplicationLoad(app gen.ApplicationBehavior, args ...any) (name g
 		spec.LogLevel = n.log.Level()
 	}
 
+	if n.network != nil && n.network.Mode() != gen.NetworkModeDisabled {
+		if len(spec.Network.RegisterTypes) > 0 {
+			if err := n.network.RegisterTypes(spec.Network.RegisterTypes); err != nil {
+				return name, fmt.Errorf("application %s: register types: %w", spec.Name, err)
+			}
+		}
+		if len(spec.Network.RegisterErrors) > 0 {
+			if err := n.network.RegisterErrors(spec.Network.RegisterErrors); err != nil {
+				return name, fmt.Errorf("application %s: register errors: %w", spec.Name, err)
+			}
+		}
+		if len(spec.Network.RegisterAtoms) > 0 {
+			if err := n.network.RegisterAtoms(spec.Network.RegisterAtoms); err != nil {
+				return name, fmt.Errorf("application %s: register atoms: %w", spec.Name, err)
+			}
+		}
+	}
+
 	a.spec = spec
 	a.mode = spec.Mode
 	a.tags = append([]gen.Atom(nil), spec.Tags...)

@@ -147,6 +147,12 @@ type ApplicationSpec struct {
 	// Depends lists application dependencies (other applications or network).
 	Depends ApplicationDepends
 
+	// Network declares wire-format values this application contributes
+	// to the node's network. Processed during ApplicationLoad, before
+	// any process in the application is spawned. Entries are silently
+	// ignored if the node's network mode is NetworkModeDisabled.
+	Network ApplicationNetwork
+
 	// Env contains application-level environment variables.
 	// Inherited by all processes within the application.
 	Env map[Env]any
@@ -212,6 +218,23 @@ type ApplicationDepends struct {
 
 	// Network indicates if network connectivity is required before starting.
 	Network bool
+}
+
+// ApplicationNetwork groups the network-scoped declarations of an
+// application. All entries are processed during ApplicationLoad,
+// before any process in the application is spawned, and only when
+// the node's network mode is not NetworkModeDisabled.
+type ApplicationNetwork struct {
+	// RegisterTypes are Go types registered with every TypeRegistry-capable
+	// proto on the node. Order is irrelevant; protos resolve inter-type
+	// dependencies internally.
+	RegisterTypes []any
+
+	// RegisterErrors are sentinel errors registered for wire transport.
+	RegisterErrors []error
+
+	// RegisterAtoms are atoms registered in the wire-format atom cache.
+	RegisterAtoms []Atom
 }
 
 // ApplicationInfo contains runtime information about an application.
