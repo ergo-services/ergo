@@ -10,10 +10,12 @@ const (
 	ApplicationModeTransient ApplicationMode = 2
 	ApplicationModePermanent ApplicationMode = 3
 
-	ApplicationStateLoaded       ApplicationState = 1
-	ApplicationStateInitializing ApplicationState = 2
-	ApplicationStateRunning      ApplicationState = 3
-	ApplicationStateStopping     ApplicationState = 4
+	ApplicationStateLoaded   ApplicationState = 1
+	ApplicationStateRunning  ApplicationState = 2
+	ApplicationStateStopping ApplicationState = 3
+
+	// internal state transition from "load" to "running"; not exposed to the registrar
+	ApplicationStateInitializing ApplicationState = 10
 )
 
 func (am ApplicationMode) String() string {
