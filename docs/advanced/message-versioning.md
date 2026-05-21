@@ -43,22 +43,24 @@ func (a *Actor) HandleMessage(from gen.PID, message any) error {
 }
 ```
 
-All message types must be registered with the network stack before connection establishment. Register them from your application's `Load` callback:
+All message types must be registered with the network stack before connection establishment. The declarative form lives in `ApplicationSpec.Network`:
 
 ```go
 func (a *MyApp) Load(args ...any) (gen.ApplicationSpec, error) {
-    err := a.Node().Network().RegisterTypes([]any{
-        OrderCreatedV1{},
-        OrderCreatedV2{},
-    })
-    if err != nil {
-        return gen.ApplicationSpec{}, err
-    }
-    return gen.ApplicationSpec{ /* ... */ }, nil
+    return gen.ApplicationSpec{
+        Name: "myapp",
+        Network: gen.ApplicationNetwork{
+            RegisterTypes: []any{
+                OrderCreatedV1{},
+                OrderCreatedV2{},
+            },
+        },
+        Group: []gen.ApplicationMemberSpec{ /* ... */ },
+    }, nil
 }
 ```
 
-For details on the type registry and the legacy `edf.RegisterTypeOf` API, see [Network Transparency](../networking/network-transparency.md).
+For dynamic registration (types resolved at runtime) the imperative `a.Node().Network().RegisterTypes(...)` from `Load` is also supported. For details on the type registry and the package-level `edf.RegisterTypeOf` API, see [Network Transparency](../networking/network-transparency.md).
 
 ## Versioning Strategies
 

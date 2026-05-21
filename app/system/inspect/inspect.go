@@ -89,10 +89,10 @@ func Factory() gen.ProcessBehavior {
 	return &inspectPool{}
 }
 
-// RegisterTypes registers all inspector wire-format types with the given network.
-// Called by the system application during Load, after the network stack is up.
-func RegisterTypes(network gen.Network) error {
-	types := []any{
+// Types returns the inspector wire-format types for use in
+// gen.ApplicationSpec.Network.RegisterTypes.
+func Types() []any {
+	return []any{
 		RequestInspectNode{}, ResponseInspectNode{}, MessageInspectNode{},
 		RequestInspectNetwork{}, ResponseInspectNetwork{}, MessageInspectNetwork{},
 		RequestInspectConnection{}, ResponseInspectConnection{}, MessageInspectConnection{},
@@ -129,7 +129,6 @@ func RegisterTypes(network gen.Network) error {
 		RequestDoHeapProfile{}, HeapRecord{}, ResponseDoHeapProfile{},
 		RequestDoTypes{}, ResponseDoTypes{},
 	}
-	return network.RegisterTypes(types)
 }
 
 func workerFactory() gen.ProcessBehavior {

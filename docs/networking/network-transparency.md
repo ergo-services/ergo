@@ -206,7 +206,7 @@ These limits are enforced during encoding. If you attempt to encode a 70,000 byt
 
 For custom types to cross the network, both sending and receiving nodes must register them. Registration tells the active wire-format proto how to encode and decode the type, and creates a numeric ID that's shared during handshake for efficient encoding.
 
-Register types from your application's `Load()` callback:
+The preferred way is to declare wire-format values in the application's spec. The framework registers them during `ApplicationLoad`, before any process in the application is spawned:
 
 ```go
 type Order struct {
@@ -215,6 +215,22 @@ type Order struct {
 }
 
 func (a *MyApp) Load(args ...any) (gen.ApplicationSpec, error) {
+    return gen.ApplicationSpec{
+        Name: "myapp",
+        Network: gen.ApplicationNetwork{
+            RegisterTypes: []any{Order{}, Customer{}, Address{}},
+        },
+        Group: []gen.ApplicationMemberSpec{ /* ... */ },
+    }, nil
+}
+```
+
+If the node's network mode is `NetworkModeDisabled`, the entries are silently ignored. The application loads as usual.
+
+The imperative form remains available for dynamic cases (registering types based on runtime configuration):
+
+```go
+func (a *MyApp) Load(args ...any) (gen.ApplicationSpec, error) {
     if err := a.Node().Network().RegisterType(Order{}); err != nil {
         return gen.ApplicationSpec{}, err
     }
@@ -222,7 +238,7 @@ func (a *MyApp) Load(args ...any) (gen.ApplicationSpec, error) {
 }
 ```
 
-`Network().RegisterType` distributes registration across every active wire-format proto (e.g., the default ENP/EDF stack). If your node has multiple wire-format protocols configured (for example, a legacy ENP and a newer one running side by side), one call registers in all of them. The call fails if any proto rejects the type. Wire-format consistency is enforced strictly to prevent silent split-brain registries.
+`Network().RegisterType` distributes registration across every active wire-format proto (e.g., the default ENP/EDF stack). If your node has multiple wire-format protocols configured (for example, a previous-generation ENP and a newer one running side by side), one call registers in all of them. The call fails if any proto rejects the type. Wire-format consistency is enforced strictly to prevent silent split-brain registries.
 
 For batch registration of multiple types, use `RegisterTypes` (see the **Nested types** subsection below for the dependency-resolution behavior):
 
@@ -240,7 +256,7 @@ func (a *MyApp) Load(args ...any) (gen.ApplicationSpec, error) {
 }
 ```
 
-`RegisterTypes` resolves inter-type dependencies internally. You can list types in any order, and the framework figures out the correct registration sequence.
+`RegisterTypes` resolves inter-type dependencies internally. You can list types in any order, and the framework figures out the correct registration sequence. The same is true for the `Network.RegisterTypes` field in `ApplicationSpec`: order in the slice is irrelevant.
 
 ### Registration Requirements
 
@@ -355,7 +371,7 @@ Go's `error` type is an interface, which means encoding it across the network re
 
 Framework errors in the `gen.Err*` set (`gen.ErrProcessUnknown`, `gen.TerminateReasonNormal`, `gen.ErrExceeded`, and the rest) are pre-registered out of the box. Their identity is preserved automatically across nodes. The `act.Err*` set is local to the actor library and not pre-registered for the wire: those errors are returned only from local management APIs and don't cross the network in the default framework path.
 
-Application errors must be registered on every node that needs to compare against them:
+Application errors must be registered on every node that needs to compare against them. The declarative form lives in `ApplicationSpec.Network`:
 
 ```go
 var (
@@ -364,15 +380,17 @@ var (
 )
 
 func (a *MyApp) Load(args ...any) (gen.ApplicationSpec, error) {
-    if err := a.Node().Network().RegisterError(ErrInvalidOrder); err != nil {
-        return gen.ApplicationSpec{}, err
-    }
-    if err := a.Node().Network().RegisterError(ErrOutOfStock); err != nil {
-        return gen.ApplicationSpec{}, err
-    }
-    return gen.ApplicationSpec{ /* ... */ }, nil
+    return gen.ApplicationSpec{
+        Name: "myapp",
+        Network: gen.ApplicationNetwork{
+            RegisterErrors: []error{ErrInvalidOrder, ErrOutOfStock},
+        },
+        Group: []gen.ApplicationMemberSpec{ /* ... */ },
+    }, nil
 }
 ```
+
+Imperative equivalents are `Network().RegisterError` (single) and `Network().RegisterErrors` (batch). The same shape applies to atoms via `Network.RegisterAtoms` and `Network().RegisterAtom`/`Network().RegisterAtoms`.
 
 If both peers have a sentinel registered, the receiver decodes it to its own local instance, so `errors.Is(err, ErrInvalidOrder)` returns true across the network. If the sender has not registered it, the error arrives with the correct text but a fresh identity, and `errors.Is` against the original sentinel returns false. Code that branches on identity needs the sentinel registered on the sender side.
 
@@ -429,7 +447,7 @@ edf.RegisterAtom("my_atom")
 
 These functions remain for backward compatibility but are **deprecated**. They write directly into the EDF package state, bypassing the `gen.Network` abstraction. In a multi-proto setup (more than one wire-format proto registered on the node), they only register in EDF, and other protos won't see the type. The new `Network` API distributes registration to every active wire-format proto strictly.
 
-Prefer `node.Network().RegisterType` / `RegisterTypes` / `RegisterError` / `RegisterAtom` from your application's `Load()` callback. The legacy package-level functions emit a one-time deprecation warning when called from user code.
+Prefer the declarative `ApplicationSpec.Network` field, or, for dynamic cases, `node.Network().RegisterType` / `RegisterTypes` / `RegisterError` / `RegisterErrors` / `RegisterAtom` / `RegisterAtoms` from your application's `Load()` callback. The package-level functions emit a one-time deprecation warning when called from user code.
 
 ## Compression
 

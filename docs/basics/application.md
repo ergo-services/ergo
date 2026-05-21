@@ -146,6 +146,23 @@ Applications can depend on other applications or network services. If applicatio
 
 This allows you to structure complex systems with clear startup ordering. A database connection pool application starts before the API server application. The API server starts before the web frontend application. The framework handles the ordering automatically.
 
+## Network Declarations
+
+`ApplicationSpec.Network` is the declarative form for everything the application contributes to the node's network. Currently it covers wire-format registration:
+
+```go
+gen.ApplicationSpec{
+    Name: "myapp",
+    Network: gen.ApplicationNetwork{
+        RegisterTypes:  []any{Order{}, Customer{}},
+        RegisterErrors: []error{ErrInvalidOrder},
+        RegisterAtoms:  []gen.Atom{"my_atom"},
+    },
+}
+```
+
+Entries are processed during `ApplicationLoad`, before any process in the application is spawned. If the node's network mode is `NetworkModeDisabled`, the entries are silently ignored and the application loads as usual. For details on what to register and why, see [Network Transparency](../networking/network-transparency.md#type-registration-requirements).
+
 ## Stopping Applications
 
 Applications stop in three ways.

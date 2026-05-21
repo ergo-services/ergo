@@ -1,8 +1,6 @@
 package system
 
 import (
-	"fmt"
-
 	"ergo.services/ergo/app"
 	"ergo.services/ergo/app/system/inspect"
 	"ergo.services/ergo/gen"
@@ -19,12 +17,12 @@ type systemApp struct {
 }
 
 func (sa *systemApp) Load(args ...any) (gen.ApplicationSpec, error) {
-	if err := inspect.RegisterTypes(sa.Node().Network()); err != nil {
-		return gen.ApplicationSpec{}, fmt.Errorf("inspect types: %w", err)
-	}
 	return gen.ApplicationSpec{
 		Name:        Name,
 		Description: "System Application",
+		Network: gen.ApplicationNetwork{
+			RegisterTypes: inspect.Types(),
+		},
 		Group: []gen.ApplicationMemberSpec{
 			{
 				Factory: factory_sup,
