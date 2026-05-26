@@ -61,7 +61,9 @@ type RouterBehavior interface {
 
 	// HandleCall is invoked for Call arriving with MessagePriorityHigh or
 	// Max. Return non-nil result to respond synchronously, nil to defer the
-	// response via SendResponse. Non-nil reason terminates the Router.
+	// response via SendResponse. Non-nil reason terminates the Router; if
+	// reason is gen.TerminateReasonNormal and result is non-nil, the result
+	// is delivered to the caller before the Router shuts down.
 	HandleCall(from gen.PID, ref gen.Ref, request any) (any, error)
 
 	// HandleEvent is invoked on a subscribed event.
@@ -73,9 +75,13 @@ type RouterBehavior interface {
 }
 
 // MessageRouteFailed is delivered to HandleMessage when a routed async
-// message could not be forwarded: route name is unknown, route's worker is
-// dead and respawn failed, or the local registry has no process by that
-// name.
+// message could not be forwarded. Reason carries the cause:
+//   - gen.ErrProcessUnknown: name resolved to nothing (no route, no registry
+//     entry, or respawn of an owned route failed).
+//   - gen.ErrProcessMailboxFull: target's mailbox is full.
+//   - gen.ErrDisabled: target route is disabled or mid-disable.
+//   - gen.ErrNoRoute: target route is being removed.
+//   - gen.ErrBusy: target route is mid-replace with no current worker.
 type MessageRouteFailed struct {
 	Name    gen.Atom
 	From    gen.PID
@@ -136,6 +142,13 @@ type Router struct {
 
 	routes       []*routeEntry
 	routesByName map[gen.Atom]*routeEntry
+
+	// pendingExit holds worker PIDs Router stopped tracking before consuming
+	// their link-EXIT. handleExit drops matching EXITs silently. Required for
+	// the race between cleanupProcess removing the worker from the node
+	// registry and the link-EXIT landing in our Urgent queue. PIDs not in
+	// this set follow normal link semantics: Router terminates.
+	pendingExit map[gen.PID]struct{}
 
 	forwarded uint64
 	discarded uint64
@@ -214,13 +227,18 @@ func (r *Router) RemoveRoute(name gen.Atom) error {
 		r.dropRoute(re)
 		return nil
 	}
-	re.pending = RoutePendingRemove
-	if err := r.SendExit(re.pid, gen.TerminateReasonShutdown); err != nil {
-		re.pending = RoutePendingNone
+	err := r.SendExit(re.pid, gen.TerminateReasonShutdown)
+	if err == nil {
+		re.pending = RoutePendingRemove
+		return nil
+	}
+	if err == gen.ErrProcessUnknown || err == gen.ErrProcessTerminated {
+		r.pendingExit[re.pid] = struct{}{}
 		re.pid = empty
 		r.dropRoute(re)
+		return nil
 	}
-	return nil
+	return err
 }
 
 // DisableRoute terminates the route's worker (if running) and marks the
@@ -244,13 +262,18 @@ func (r *Router) DisableRoute(name gen.Atom) error {
 		re.disabled = true
 		return nil
 	}
-	re.pending = RoutePendingDisable
-	if err := r.SendExit(re.pid, gen.TerminateReasonShutdown); err != nil {
-		re.pending = RoutePendingNone
+	err := r.SendExit(re.pid, gen.TerminateReasonShutdown)
+	if err == nil {
+		re.pending = RoutePendingDisable
+		return nil
+	}
+	if err == gen.ErrProcessUnknown || err == gen.ErrProcessTerminated {
+		r.pendingExit[re.pid] = struct{}{}
 		re.pid = empty
 		re.disabled = true
+		return nil
 	}
-	return nil
+	return err
 }
 
 // EnableRoute clears the admin-disabled flag and spawns a fresh worker.
@@ -317,12 +340,15 @@ func (r *Router) ReplaceRoute(name gen.Atom, route Route) error {
 		return nil
 	}
 
-	spec := route
-	re.pending = RoutePendingReplace
-	re.pendingSpec = &spec
-	if err := r.SendExit(re.pid, gen.TerminateReasonShutdown); err != nil {
-		re.pending = RoutePendingNone
-		re.pendingSpec = nil
+	err := r.SendExit(re.pid, gen.TerminateReasonShutdown)
+	if err == nil {
+		spec := route
+		re.pending = RoutePendingReplace
+		re.pendingSpec = &spec
+		return nil
+	}
+	if err == gen.ErrProcessUnknown || err == gen.ErrProcessTerminated {
+		r.pendingExit[re.pid] = struct{}{}
 		re.pid = empty
 		re.Route = route
 		if re.disabled {
@@ -333,8 +359,9 @@ func (r *Router) ReplaceRoute(name gen.Atom, route Route) error {
 			return sperr
 		}
 		re.pid = pid
+		return nil
 	}
-	return nil
+	return err
 }
 
 // RespawnRoute spawns a worker for a route that is currently not running.
@@ -409,6 +436,7 @@ func (r *Router) ProcessInit(process gen.Process, args ...any) (rr error) {
 	r.options = options
 	r.routes = make([]*routeEntry, 0, len(options.Routes))
 	r.routesByName = make(map[gen.Atom]*routeEntry, len(options.Routes))
+	r.pendingExit = make(map[gen.PID]struct{})
 
 	for _, route := range options.Routes {
 		if route.Name == "" {
@@ -495,21 +523,30 @@ func (r *Router) ProcessRun() (rr error) {
 
 			if fromMain {
 				name := r.behavior.RouteMessage(message.From, message.Message)
-				if name == RouteDiscard {
-					r.discarded++
-				} else if ferr := r.forward(name, message); ferr != nil {
-					reason := r.behavior.HandleMessage(r.PID(), MessageRouteFailed{
+				var terminate error
+				for {
+					if name == RouteDiscard {
+						r.discarded++
+						break
+					}
+					ferr := r.forward(name, message)
+					if ferr == nil {
+						message = nil // ownership transferred to forward target
+						break
+					}
+					terminate = r.behavior.HandleMessage(r.PID(), MessageRouteFailed{
 						Name:    name,
 						From:    message.From,
 						Message: message.Message,
 						Reason:  ferr,
 					})
-					if reason != nil {
-						return reason
-					}
+					break
 				}
 				if messageHasTracing {
 					r.SetPropagatingTrace(gen.Tracing{})
+				}
+				if terminate != nil {
+					return terminate
 				}
 				break
 			}
@@ -531,11 +568,19 @@ func (r *Router) ProcessRun() (rr error) {
 
 			if fromMain {
 				name := r.behavior.RouteCall(message.From, message.Ref, message.Message)
-				if name == RouteDiscard {
-					r.discarded++
-					r.SendResponseError(message.From, message.Ref, gen.ErrDiscarded)
-				} else if ferr := r.forward(name, message); ferr != nil {
+				for {
+					if name == RouteDiscard {
+						r.discarded++
+						r.SendResponseError(message.From, message.Ref, gen.ErrDiscarded)
+						break
+					}
+					ferr := r.forward(name, message)
+					if ferr == nil {
+						message = nil // ownership transferred to forward target
+						break
+					}
 					r.SendResponseError(message.From, message.Ref, ferr)
+					break
 				}
 				if messageHasTracing {
 					r.SetPropagatingTrace(gen.Tracing{})
@@ -647,6 +692,7 @@ func (r *Router) forward(name gen.Atom, message *gen.MailboxMessage) error {
 	if isRoute && (ferr == gen.ErrProcessUnknown || ferr == gen.ErrProcessTerminated) {
 		re := r.routesByName[name]
 		if re.pending == RoutePendingNone {
+			r.pendingExit[re.pid] = struct{}{}
 			re.pid = gen.PID{}
 			newPid, sperr := r.spawnRoute(re)
 			if sperr == nil {
@@ -680,6 +726,10 @@ func (r *Router) handleExit(message *gen.MailboxMessage) error {
 			}
 		}
 		if found == nil {
+			if _, ok := r.pendingExit[exit.PID]; ok {
+				delete(r.pendingExit, exit.PID)
+				return nil
+			}
 			return fmt.Errorf("%s: %w", exit.PID, exit.Reason)
 		}
 

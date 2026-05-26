@@ -99,6 +99,7 @@ flowchart TD
     G -->|Dead| J[Restart, then forward]
     G -->|Disabled / pending Disable| K[gen.ErrDisabled]
     G -->|pending Remove| L[gen.ErrNoRoute]
+    G -->|pending Replace| Q[gen.ErrBusy]
     H -->|yes| M[Forward to registered process]
     H -->|no| N[MessageRouteFailed<br>ErrProcessUnknown]
     I --> O[forwarded++]
@@ -106,6 +107,7 @@ flowchart TD
     M --> O
     K --> P[failed++ / response]
     L --> P
+    Q --> P
     N --> P
 ```
 
@@ -238,6 +240,8 @@ func (r *Router) RespawnRoute(name gen.Atom) error
 `RespawnRoute` is for manually waking a dead route after a transient spawn failure has been fixed. It returns `act.ErrRouteRunning` if the worker is already alive, `gen.ErrDisabled` if the route is admin-disabled, or `gen.ErrBusy` if a pending operation is in flight.
 
 All mutating methods return `gen.ErrNotAllowed` if the router itself isn't running (terminated, killed). Read methods (`Routes`, `Route`) work in any state.
+
+Mutating operations (`AddRoute`, `RemoveRoute`, `DisableRoute`, `EnableRoute`, `ReplaceRoute`, `RespawnRoute`) return a non-nil error if the change could not be applied. On error the route's state is unchanged and the call can be retried.
 
 ## Admin Path Through Priority
 
