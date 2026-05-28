@@ -10,6 +10,21 @@ package gen
 // Subscribe via process.LinkEvent / process.MonitorEvent on the token
 // returned by registrar.Event().
 
+// MessageRegistrarConnected is published when the registrar established
+// (or re-established) the transport link to the backing registry service
+// and successfully registered the node.
+type MessageRegistrarConnected struct {
+	Info RegistrarInfo
+}
+
+// MessageRegistrarDisconnected is published when the registrar lost
+// its transport link to the backing registry service. The registrar
+// will attempt to restore the session; a MessageRegistrarConnected
+// follows on success.
+type MessageRegistrarDisconnected struct {
+	Reason error
+}
+
 // MessageRegistrarNodeJoined is published when a node has been observed
 // joining the cluster (registered with the service registry).
 type MessageRegistrarNodeJoined struct {
