@@ -406,13 +406,14 @@ func (a *application) coordinateAutoStop(reason error) {
 func (a *application) info() gen.ApplicationInfo {
 	var info gen.ApplicationInfo
 	info.Name = a.spec.Name
-	info.Weight = a.spec.Weight
 
-	// copy tags slice
-	if len(a.spec.Tags) > 0 {
-		info.Tags = make([]gen.Atom, len(a.spec.Tags))
-		copy(info.Tags, a.spec.Tags)
+	a.mu.RLock()
+	info.Weight = a.weight
+	if len(a.tags) > 0 {
+		info.Tags = make([]gen.Atom, len(a.tags))
+		copy(info.Tags, a.tags)
 	}
+	a.mu.RUnlock()
 
 	// copy map
 	if len(a.spec.Map) > 0 {
