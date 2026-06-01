@@ -24,6 +24,7 @@ type connection struct {
 func (ic *connection) Init(args ...any) error {
 	ic.remote = args[0].(gen.Atom)
 	ic.Log().SetLogger("default")
+	ic.SetProcessKind(gen.ProcessKindMonitor)
 	ic.Log().Debug("connection inspector started")
 
 	eopts := gen.EventOptions{

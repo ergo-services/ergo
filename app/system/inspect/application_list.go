@@ -22,6 +22,7 @@ type application_list struct {
 
 func (ial *application_list) Init(args ...any) error {
 	ial.Log().SetLogger("default")
+	ial.SetProcessKind(gen.ProcessKindMonitor)
 	ial.Log().Debug("application list inspector started")
 
 	eopts := gen.EventOptions{

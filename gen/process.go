@@ -42,6 +42,12 @@ type ProcessBehavior interface {
 	// Can send cleanup messages but cannot Call, Link, or create resources.
 	// This method should not block or panic.
 	ProcessTerminate(reason error)
+
+	// ProcessKind classifies the process by its base behavior. The base
+	// behaviors (act.Actor, act.Supervisor, act.Pool, act.Router,
+	// act.WebWorker) report their own kind. A custom implementation may
+	// return ProcessKindCustom or any name of its own.
+	ProcessKind() ProcessKind
 }
 
 // ProcessFactory is a function that creates a new ProcessBehavior instance.
@@ -53,6 +59,100 @@ type ProcessFactory func() ProcessBehavior
 // Call it to cancel the scheduled operation.
 // Returns true if successfully cancelled, false if timer already expired.
 type CancelFunc func() bool
+
+// ProcessKind classifies a process by its role. It is resolved at spawn time
+// via the optional interface { ProcessKind() ProcessKind }: the base behaviors
+// (act.Actor, act.Supervisor, act.Pool, act.Router, act.WebWorker) and the
+// extension libraries report their own kind, while a process built directly on
+// gen.ProcessBehavior reports ProcessKindCustom by default.
+//
+// The constants below form a shared classifier vocabulary so user actors can
+// self-describe by returning a well-known kind (e.g. ProcessKindCache). The
+// type is a free string: any value not listed here is still valid and is
+// treated as a custom kind by tooling.
+type ProcessKind string
+
+const (
+	// ProcessKindCustom indicates the behavior does not report its kind
+	// (a raw gen.ProcessBehavior implementation). This is the default.
+	ProcessKindCustom ProcessKind = "custom"
+
+	// Structure - framework topology behaviors (auto-reported).
+
+	// ProcessKindActor indicates a process built on act.Actor.
+	ProcessKindActor ProcessKind = "actor"
+	// ProcessKindSupervisor indicates a process built on act.Supervisor.
+	ProcessKindSupervisor ProcessKind = "supervisor"
+	// ProcessKindPool indicates a process built on act.Pool.
+	ProcessKindPool ProcessKind = "pool"
+	// ProcessKindRouter indicates a process built on act.Router.
+	ProcessKindRouter ProcessKind = "router"
+
+	// Behavior / flow - execution patterns.
+
+	// ProcessKindFSM indicates a finite state machine.
+	ProcessKindFSM ProcessKind = "fsm"
+	// ProcessKindSaga indicates a distributed transaction (saga) coordinator.
+	ProcessKindSaga ProcessKind = "saga"
+	// ProcessKindWorker indicates a task worker.
+	ProcessKindWorker ProcessKind = "worker"
+	// ProcessKindScheduler indicates a scheduler / timer-driven actor.
+	ProcessKindScheduler ProcessKind = "scheduler"
+	// ProcessKindQueue indicates a queue / dispatcher / buffer.
+	ProcessKindQueue ProcessKind = "queue"
+	// ProcessKindProducer indicates a pipeline source.
+	ProcessKindProducer ProcessKind = "producer"
+	// ProcessKindConsumer indicates a pipeline sink.
+	ProcessKindConsumer ProcessKind = "consumer"
+	// ProcessKindCoordinator indicates a manager / orchestrator.
+	ProcessKindCoordinator ProcessKind = "coordinator"
+
+	// Boundary / IO - system edges.
+
+	// ProcessKindWeb indicates a process built on act.WebWorker.
+	ProcessKindWeb ProcessKind = "web"
+	// ProcessKindGateway indicates an API / edge entry point.
+	ProcessKindGateway ProcessKind = "gateway"
+	// ProcessKindProxy indicates a proxy / relay / bridge.
+	ProcessKindProxy ProcessKind = "proxy"
+	// ProcessKindStream indicates a long-lived stream (websocket/sse) handler.
+	ProcessKindStream ProcessKind = "stream"
+	// ProcessKindBroker indicates a pub/sub or event-bus broker.
+	ProcessKindBroker ProcessKind = "broker"
+	// ProcessKindClient indicates a client/connector to an external service.
+	ProcessKindClient ProcessKind = "client"
+
+	// Data / state.
+
+	// ProcessKindStore indicates a persistence / repository actor.
+	ProcessKindStore ProcessKind = "store"
+	// ProcessKindCache indicates a cache actor.
+	ProcessKindCache ProcessKind = "cache"
+	// ProcessKindSession indicates a per-connection / per-user session actor.
+	ProcessKindSession ProcessKind = "session"
+
+	// Operations / observability.
+
+	// ProcessKindMetrics indicates a metrics exporter.
+	ProcessKindMetrics ProcessKind = "metrics"
+	// ProcessKindLeader indicates a leader-election participant acting as leader.
+	ProcessKindLeader ProcessKind = "leader"
+	// ProcessKindFollower indicates a leader-election participant acting as follower.
+	ProcessKindFollower ProcessKind = "follower"
+	// ProcessKindHealth indicates a health-probe actor.
+	ProcessKindHealth ProcessKind = "health"
+	// ProcessKindMonitor indicates a watcher / monitor actor.
+	ProcessKindMonitor ProcessKind = "monitor"
+	// ProcessKindLogger indicates a logging / audit actor.
+	ProcessKindLogger ProcessKind = "logger"
+)
+
+func (k ProcessKind) String() string {
+	if k == "" {
+		return string(ProcessKindCustom)
+	}
+	return string(k)
+}
 
 // ProcessState represents the current state of a process in its lifecycle.
 // States determine which Process interface methods are available.
@@ -314,6 +414,12 @@ type Process interface {
 	// Available in: Init, Running states.
 	// Returns ErrNotAllowed in other states, ErrIncorrect for invalid priority.
 	SetSendPriority(priority MessagePriority) error
+
+	// SetProcessKind overrides the kind classifier of this process. By default
+	// the kind is resolved at spawn from the base behavior; an actor may set any
+	// well-known gen.ProcessKind* value (or a custom name) to self-describe.
+	// Available in: Init, Running states. Returns ErrNotAllowed in other states.
+	SetProcessKind(kind ProcessKind) error
 
 	// SetKeepNetworkOrder enables or disables maintaining delivery order over the network.
 	// Disabling this option can improve network performance in some cases.
@@ -969,6 +1075,10 @@ type ProcessInfo struct {
 	// Behavior is the type name of the ProcessBehavior implementation.
 	Behavior string
 
+	// Kind classifies the process by its base behavior (actor, supervisor,
+	// pool, router, web) or custom for raw gen.ProcessBehavior implementations.
+	Kind ProcessKind
+
 	// MailboxSize is the maximum mailbox queue length.
 	// Zero means unlimited.
 	MailboxSize int64
@@ -1090,6 +1200,10 @@ type ProcessShortInfo struct {
 
 	// Behavior is the type name of the ProcessBehavior implementation.
 	Behavior string
+
+	// Kind classifies the process by its base behavior (actor, supervisor,
+	// pool, router, web) or custom for raw gen.ProcessBehavior implementations.
+	Kind ProcessKind
 
 	// MessagesIn is the total number of messages this process received.
 	MessagesIn uint64

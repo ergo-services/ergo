@@ -43,6 +43,7 @@ func (il *log) Init(args ...any) error {
 	}
 	il.ring = make([]InspectLogEntry, il.limit)
 	il.Log().SetLogger("default")
+	il.SetProcessKind(gen.ProcessKindMonitor)
 	il.Log().Debug("log inspector started (limit: %d)", il.limit)
 	il.SetCompression(true)
 

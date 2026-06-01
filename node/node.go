@@ -539,6 +539,7 @@ func (n *node) ProcessInfo(pid gen.PID) (gen.ProcessInfo, error) {
 	info.Name = p.name
 	info.Application = appName(p.application)
 	info.Behavior = p.sbehavior
+	info.Kind = p.kind
 	info.MailboxSize = p.mailbox.Main.Size()
 	info.MailboxQueues.Main = p.mailbox.Main.Len()
 	info.MailboxQueues.Urgent = p.mailbox.Urgent.Len()
@@ -985,6 +986,7 @@ func (n *node) ProcessListShortInfo(start, limit int, filter ...func(gen.Process
 			Name:            process.name,
 			Application:     appName(process.application),
 			Behavior:        process.sbehavior,
+			Kind:            process.kind,
 			MessagesIn:      process.messagesIn,
 			MessagesOut:     process.messagesOut,
 			MessagesMailbox: uint64(messagesMailbox),
@@ -1027,6 +1029,7 @@ func (n *node) ProcessRangeShortInfo(fn func(gen.ProcessShortInfo) bool) error {
 			Name:            p.name,
 			Application:     appName(p.application),
 			Behavior:        p.sbehavior,
+			Kind:            p.kind,
 			MessagesIn:      p.messagesIn,
 			MessagesOut:     p.messagesOut,
 			MessagesMailbox: uint64(messagesMailbox),
@@ -2030,6 +2033,7 @@ func (n *node) ApplicationProcessListShortInfo(name gen.Atom, limit int) ([]gen.
 			Name:            p.name,
 			Application:     appName(p.application),
 			Behavior:        p.sbehavior,
+			Kind:            p.kind,
 			MessagesIn:      p.messagesIn,
 			MessagesOut:     p.messagesOut,
 			MessagesMailbox: uint64(messagesMailbox),
@@ -2069,6 +2073,7 @@ func (n *node) ApplicationProcessListShortInfo(name gen.Atom, limit int) ([]gen.
 			Name:            p.name,
 			Application:     appName(p.application),
 			Behavior:        p.sbehavior,
+			Kind:            p.kind,
 			MessagesIn:      p.messagesIn,
 			MessagesOut:     p.messagesOut,
 			MessagesMailbox: uint64(messagesMailbox),
@@ -2748,6 +2753,7 @@ func (n *node) spawn(factory gen.ProcessFactory, options gen.ProcessOptionsExtra
 	}
 	p.behavior = behavior
 	p.sbehavior = strings.TrimPrefix(reflect.TypeOf(behavior).String(), "*")
+	p.kind = behavior.ProcessKind()
 
 	if options.LogLevel == gen.LogLevelDefault {
 		// parent's log level

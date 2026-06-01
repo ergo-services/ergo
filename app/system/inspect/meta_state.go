@@ -24,6 +24,7 @@ type meta_state struct {
 func (ims *meta_state) Init(args ...any) error {
 	ims.meta = args[0].(gen.Alias)
 	ims.Log().SetLogger("default")
+	ims.SetProcessKind(gen.ProcessKindMonitor)
 	ims.Log().Debug("meta state inspector started. id %s", ims.meta)
 
 	eopts := gen.EventOptions{

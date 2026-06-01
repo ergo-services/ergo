@@ -40,6 +40,7 @@ func (ipl *process_list) Init(args ...any) error {
 	ipl.minMailbox = args[6].(uint64)
 
 	ipl.Log().SetLogger("default")
+	ipl.SetProcessKind(gen.ProcessKindMonitor)
 	ipl.Log().Debug("process list inspector started. %d...%d", ipl.start, ipl.start+ipl.limit-1)
 	ipl.SetCompression(true)
 

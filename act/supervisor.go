@@ -66,6 +66,11 @@ type Supervisor struct {
 	state       supState
 }
 
+// ProcessKind reports this process as built on act.Supervisor.
+func (s *Supervisor) ProcessKind() gen.ProcessKind {
+	return gen.ProcessKindSupervisor
+}
+
 // SupervisorType
 type SupervisorType int
 

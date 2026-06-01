@@ -28,6 +28,7 @@ type process struct {
 
 	behavior  gen.ProcessBehavior
 	sbehavior string
+	kind      gen.ProcessKind
 
 	state        int32
 	stateEntered int64 // Unix nanoseconds when current state was entered
@@ -497,6 +498,14 @@ func (p *process) SetSendPriority(priority gen.MessagePriority) error {
 		return gen.ErrIncorrect
 	}
 	p.priority = priority
+	return nil
+}
+
+func (p *process) SetProcessKind(kind gen.ProcessKind) error {
+	if p.isStateIR() == false {
+		return gen.ErrNotAllowed
+	}
+	p.kind = kind
 	return nil
 }
 

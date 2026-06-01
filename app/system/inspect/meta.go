@@ -24,6 +24,7 @@ type meta struct {
 func (im *meta) Init(args ...any) error {
 	im.meta = args[0].(gen.Alias)
 	im.Log().SetLogger("default")
+	im.SetProcessKind(gen.ProcessKindMonitor)
 	im.Log().Debug("meta process inspector started. pid %s", im.meta)
 
 	eopts := gen.EventOptions{

@@ -31,6 +31,7 @@ func (icl *connection_list) Init(args ...any) error {
 	icl.hash = args[2].(string)
 
 	icl.Log().SetLogger("default")
+	icl.SetProcessKind(gen.ProcessKindMonitor)
 	icl.Log().Debug("connection list inspector started. name=%q limit=%d", icl.name, icl.limit)
 	icl.SetCompression(true)
 

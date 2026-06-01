@@ -24,6 +24,7 @@ type TestProcess struct {
 	state    gen.ProcessState
 	behavior gen.ProcessBehavior
 	mailbox  gen.ProcessMailbox
+	kind     gen.ProcessKind
 	Failures
 }
 
@@ -583,6 +584,11 @@ func (tp *TestProcess) Log() gen.Log {
 // Priority methods
 func (tp *TestProcess) SetSendPriority(priority gen.MessagePriority) error {
 	tp.options.Priority = priority
+	return nil
+}
+
+func (tp *TestProcess) SetProcessKind(kind gen.ProcessKind) error {
+	tp.kind = kind
 	return nil
 }
 

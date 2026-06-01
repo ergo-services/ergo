@@ -246,7 +246,6 @@ type RequestDoSetProcessTracingSampler struct {
 	Limit int
 }
 
-
 // process
 type RequestDoSetProcessLogLevel struct {
 	PID   gen.PID
@@ -360,13 +359,13 @@ type GoroutineInfo struct {
 }
 
 type GoroutineGroup struct {
-	Count       int
-	State       string
-	WaitSec     int64
-	Origin   string
-	Current  string
-	Stack       string
-	IDs         []int
+	Count   int
+	State   string
+	WaitSec int64
+	Origin  string
+	Current string
+	Stack   string
+	IDs     []int
 }
 
 type ResponseDoGoroutines struct {
@@ -417,13 +416,13 @@ type ResponseInspectHeap struct {
 }
 
 type MessageInspectHeap struct {
-	Node            gen.Atom
-	Records         []HeapRecord
-	TotalInuse      int64
-	TotalObjects    int64
-	TotalAlloc      int64
-	TotalFree       int64
-	GCCPUFraction   float64
+	Node          gen.Atom
+	Records       []HeapRecord
+	TotalInuse    int64
+	TotalObjects  int64
+	TotalAlloc    int64
+	TotalFree     int64
+	GCCPUFraction float64
 }
 
 // process range (full scan with filters)
@@ -474,18 +473,15 @@ type MessageInspectApplicationList struct {
 
 // application tree
 
-type RequestInspectApplicationTree struct {
+type RequestDoAppTree struct {
 	Application gen.Atom
 	Limit       int
 }
-type ResponseInspectApplicationTree struct {
-	Event gen.Event
-}
-
-type MessageInspectApplicationTree struct {
+type ResponseDoAppTree struct {
 	Node        gen.Atom
 	Application gen.Atom
 	Processes   []gen.ProcessShortInfo
+	Error       error
 }
 
 // tracing

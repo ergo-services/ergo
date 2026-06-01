@@ -31,6 +31,7 @@ func (h *heap_inspector) Init(args ...any) error {
 	h.name = args[1].(string)
 
 	h.Log().SetLogger("default")
+	h.SetProcessKind(gen.ProcessKindMonitor)
 	h.SetCompression(true)
 
 	eopts := gen.EventOptions{Notify: true, Buffer: 1}

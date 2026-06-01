@@ -64,6 +64,11 @@ type WebWorker struct {
 	mailbox  gen.ProcessMailbox
 }
 
+// ProcessKind reports this process as built on act.WebWorker.
+func (w *WebWorker) ProcessKind() gen.ProcessKind {
+	return gen.ProcessKindWeb
+}
+
 func (w *WebWorker) ProcessInit(process gen.Process, args ...any) (rr error) {
 	var ok bool
 	if w.behavior, ok = process.Behavior().(WebWorkerBehavior); ok == false {

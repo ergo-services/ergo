@@ -41,6 +41,7 @@ func (iel *event_list) Init(args ...any) error {
 	iel.hash = args[7].(string)
 
 	iel.Log().SetLogger("default")
+	iel.SetProcessKind(gen.ProcessKindMonitor)
 	iel.Log().Debug("event list inspector started. timestamp=%d name=%q notify=%d buffered=%d open=%d minSubs=%d limit=%d",
 		iel.timestamp, iel.name, iel.notify, iel.buffered, iel.open, iel.minSubscribers, iel.limit)
 	iel.SetCompression(true)

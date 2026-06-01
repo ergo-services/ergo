@@ -24,6 +24,7 @@ type process struct {
 func (ip *process) Init(args ...any) error {
 	ip.pid = args[0].(gen.PID)
 	ip.Log().SetLogger("default")
+	ip.SetProcessKind(gen.ProcessKindMonitor)
 	ip.Log().Debug("process inspector started. pid %s", ip.pid)
 
 	eopts := gen.EventOptions{

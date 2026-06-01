@@ -52,6 +52,7 @@ func (it *tracing) Init(args ...any) error {
 	it.ring = make([]gen.TracingSpan, it.limit)
 	it.Log().Debug("tracing inspector started (limit: %d)", it.limit)
 	it.SetCompression(true)
+	it.SetProcessKind(gen.ProcessKindMonitor)
 
 	eopts := gen.EventOptions{
 		Notify: true,

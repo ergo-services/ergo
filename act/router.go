@@ -156,6 +156,11 @@ type Router struct {
 	restarts  uint64
 }
 
+// ProcessKind reports this process as built on act.Router.
+func (r *Router) ProcessKind() gen.ProcessKind {
+	return gen.ProcessKindRouter
+}
+
 // Routes returns snapshots of all routes in initialization order.
 func (r *Router) Routes() []RouterRouteInfo {
 	out := make([]RouterRouteInfo, 0, len(r.routes))

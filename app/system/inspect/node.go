@@ -25,6 +25,7 @@ type node struct {
 
 func (in *node) Init(args ...any) error {
 	in.Log().SetLogger("default")
+	in.SetProcessKind(gen.ProcessKindMonitor)
 	in.Log().Debug("node inspector started")
 
 	eopts := gen.EventOptions{

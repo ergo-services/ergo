@@ -54,10 +54,6 @@ const (
 	inspectApplicationListPeriod     = time.Second
 	inspectApplicationListIdlePeriod = 5 * time.Second
 
-	inspectApplicationTree           = "inspect_application_tree"
-	inspectApplicationTreePeriod     = time.Second
-	inspectApplicationTreeIdlePeriod = 5 * time.Second
-
 	inspectEventList           = "inspect_event_list"
 	inspectEventListPeriod     = time.Second
 	inspectEventListIdlePeriod = 5 * time.Second
@@ -106,7 +102,6 @@ func Types() []any {
 		RequestInspectMeta{}, ResponseInspectMeta{}, MessageInspectMeta{},
 		RequestInspectMetaState{}, ResponseInspectMetaState{}, MessageInspectMetaState{},
 		RequestInspectApplicationList{}, ResponseInspectApplicationList{}, MessageInspectApplicationList{},
-		RequestInspectApplicationTree{}, ResponseInspectApplicationTree{}, MessageInspectApplicationTree{},
 		RequestInspectHeap{}, ResponseInspectHeap{}, MessageInspectHeap{},
 		RequestInspectTracing{}, ResponseInspectTracing{}, MessageInspectTracing{},
 
@@ -124,6 +119,7 @@ func Types() []any {
 		RequestDoAppStart{}, ResponseDoAppStart{},
 		RequestDoAppStop{}, ResponseDoAppStop{},
 		RequestDoAppUnload{}, ResponseDoAppUnload{},
+		RequestDoAppTree{}, ResponseDoAppTree{},
 		RequestDoInspect{}, ResponseDoInspect{},
 		RequestDoGoroutines{}, GoroutineGroup{}, ResponseDoGoroutines{},
 		RequestDoHeapProfile{}, HeapRecord{}, ResponseDoHeapProfile{},
@@ -141,7 +137,7 @@ type inspectPool struct {
 
 func (p *inspectPool) Init(args ...any) (act.PoolOptions, error) {
 	return act.PoolOptions{
-		PoolSize:      5,
+		PoolSize:      15,
 		WorkerFactory: workerFactory,
 	}, nil
 }
@@ -458,26 +454,6 @@ func (i *inspect) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error
 		i.Send(inspectApplicationList, forward)
 		return nil, nil // no reply
 
-	case RequestInspectApplicationTree:
-		opts := gen.ProcessOptions{
-			LinkParent: true,
-		}
-		if r.Limit < 1 {
-			r.Limit = 1000
-		}
-		pname := gen.Atom(fmt.Sprintf("%s_%s_%d", inspectApplicationTree, r.Application, r.Limit))
-		_, err := i.SpawnRegister(pname, factory_application_tree, opts, r.Application, r.Limit)
-		if err != nil && err != gen.ErrTaken {
-			return err, nil
-		}
-		// forward this request
-		forward := requestInspect{
-			pid: from,
-			ref: ref,
-		}
-		i.Send(pname, forward)
-		return nil, nil // no reply
-
 	case RequestInspectHeap:
 		opts := gen.ProcessOptions{LinkParent: true}
 		if r.Limit < 1 {
@@ -607,6 +583,19 @@ func (i *inspect) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error
 
 	case RequestDoAppUnload:
 		return ResponseDoAppUnload{Error: i.Node().ApplicationUnload(r.Name)}, nil
+
+	case RequestDoAppTree:
+		limit := r.Limit
+		if limit < 1 {
+			limit = 1000
+		}
+		list, err := i.Node().ApplicationProcessListShortInfo(r.Application, limit)
+		return ResponseDoAppTree{
+			Node:        i.Node().Name(),
+			Application: r.Application,
+			Processes:   list,
+			Error:       err,
+		}, nil
 
 	// one-shot inspect
 

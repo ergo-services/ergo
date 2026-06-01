@@ -67,6 +67,11 @@ type Actor struct {
 	split bool // split handle callback
 }
 
+// ProcessKind reports this process as built on act.Actor.
+func (a *Actor) ProcessKind() gen.ProcessKind {
+	return gen.ProcessKindActor
+}
+
 // SetTrapExit enables/disables the trap on exit requests sent by SendExit(...).
 // Enabled trap makes the actor ignore such requests transforming them into
 // regular messages (gen.MessageExitPID) except for the request from the parent
@@ -265,7 +270,7 @@ func (a *Actor) ProcessRun() (rr error) {
 			}
 
 			if result == nil {
-				// async handling — emit Processed for tracing chain completeness
+				// async handling - emit Processed for tracing chain completeness
 				if messageHasTracing {
 					a.sendSpanProcessed(message, gen.TracingKindRequest, "")
 					if a.PropagatingTrace().ID == message.Tracing.ID {

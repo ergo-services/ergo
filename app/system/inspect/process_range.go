@@ -40,6 +40,7 @@ func (ipr *process_range) Init(args ...any) error {
 	ipr.hash = args[6].(string)
 
 	ipr.Log().SetLogger("default")
+	ipr.SetProcessKind(gen.ProcessKindMonitor)
 	ipr.Log().Debug("process range inspector started. name=%q behavior=%q app=%q state=%q mailbox>=%d limit=%d",
 		ipr.name, ipr.behavior, ipr.application, ipr.state, ipr.minMailbox, ipr.limit)
 	ipr.SetCompression(true)

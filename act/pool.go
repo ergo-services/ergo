@@ -57,6 +57,11 @@ type Pool struct {
 	pool    lib.QueueMPSC
 }
 
+// ProcessKind reports this process as built on act.Pool.
+func (p *Pool) ProcessKind() gen.ProcessKind {
+	return gen.ProcessKindPool
+}
+
 type PoolOptions struct {
 	WorkerMailboxSize int64
 	PoolSize          int64

@@ -20,6 +20,7 @@ type network struct {
 
 func (in *network) Init(args ...any) error {
 	in.Log().SetLogger("default")
+	in.SetProcessKind(gen.ProcessKindMonitor)
 	in.Log().Debug("network inspector started")
 
 	eopts := gen.EventOptions{
