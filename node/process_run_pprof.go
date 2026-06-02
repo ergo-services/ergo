@@ -44,7 +44,7 @@ func (p *process) run() {
 			startTime := time.Now().UnixNano()
 			// handle mailbox
 			if err := p.behavior.ProcessRun(); err != nil {
-				p.runningTime = p.runningTime + uint64(time.Now().UnixNano()-startTime)
+				atomic.AddUint64(&p.runningTime, uint64(time.Now().UnixNano()-startTime))
 				e := errors.Unwrap(err)
 				if e == nil {
 					e = err
@@ -64,7 +64,7 @@ func (p *process) run() {
 			}
 
 			// count the running time
-			p.runningTime = p.runningTime + uint64(time.Now().UnixNano()-startTime)
+			atomic.AddUint64(&p.runningTime, uint64(time.Now().UnixNano()-startTime))
 
 			// change running state to sleep
 			if atomic.CompareAndSwapInt32(

@@ -991,7 +991,7 @@ func (n *node) ProcessListShortInfo(start, limit int, filter ...func(gen.Process
 			MessagesOut:     process.messagesOut,
 			MessagesMailbox: uint64(messagesMailbox),
 			MailboxLatency:  process.mailbox.Latency(),
-			RunningTime:     process.runningTime,
+			RunningTime:     atomic.LoadUint64(&process.runningTime),
 			InitTime:        process.initTime,
 			Wakeups:         process.wakeups,
 			Uptime:          process.Uptime(),
@@ -1034,7 +1034,7 @@ func (n *node) ProcessRangeShortInfo(fn func(gen.ProcessShortInfo) bool) error {
 			MessagesOut:     p.messagesOut,
 			MessagesMailbox: uint64(messagesMailbox),
 			MailboxLatency:  p.mailbox.Latency(),
-			RunningTime:     p.runningTime,
+			RunningTime:     atomic.LoadUint64(&p.runningTime),
 			InitTime:        p.initTime,
 			Wakeups:         p.wakeups,
 			Uptime:          p.Uptime(),
@@ -2038,7 +2038,7 @@ func (n *node) ApplicationProcessListShortInfo(name gen.Atom, limit int) ([]gen.
 			MessagesOut:     p.messagesOut,
 			MessagesMailbox: uint64(messagesMailbox),
 			MailboxLatency:  p.mailbox.Latency(),
-			RunningTime:     p.runningTime,
+			RunningTime:     atomic.LoadUint64(&p.runningTime),
 			InitTime:        p.initTime,
 			Wakeups:         p.wakeups,
 			Uptime:          p.Uptime(),
@@ -2078,7 +2078,7 @@ func (n *node) ApplicationProcessListShortInfo(name gen.Atom, limit int) ([]gen.
 			MessagesOut:     p.messagesOut,
 			MessagesMailbox: uint64(messagesMailbox),
 			MailboxLatency:  p.mailbox.Latency(),
-			RunningTime:     p.runningTime,
+			RunningTime:     atomic.LoadUint64(&p.runningTime),
 			InitTime:        p.initTime,
 			Wakeups:         p.wakeups,
 			Uptime:          p.Uptime(),
@@ -2699,7 +2699,7 @@ func (n *node) spawn(factory gen.ProcessFactory, options gen.ProcessOptionsExtra
 	pid := gen.PID{
 		Node:     n.name,
 		ID:       atomic.AddUint64(&n.nextID, 1),
-		Creation: n.creation,
+		Creation: atomic.LoadInt64(&n.creation),
 	}
 	p.pid = pid
 

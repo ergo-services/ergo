@@ -1,745 +1,300 @@
 package tm
 
-import "ergo.services/ergo/gen"
+import (
+	"ergo.services/ergo/gen"
+)
 
-func (tm *targetManager) TerminatedTargetPID(pid gen.PID, reason error) {
-	s := tm.shardFor(pid)
-	s.mutex.Lock()
-
-	remoteNodesLinks := make(map[gen.Atom]bool)
-	remoteNodesMonitors := make(map[gen.Atom]bool)
-	var localExitConsumers []gen.PID
-	var localDownConsumers []gen.PID
-
-	for key := range s.linkRelations {
-		if key.target != pid {
-			continue
-		}
-
-		delete(s.linkRelations, key)
-
-		if key.consumer.Node != tm.core.Name() {
-			remoteNodesLinks[key.consumer.Node] = true
-			continue
-		}
-
-		localExitConsumers = append(localExitConsumers, key.consumer)
-	}
-
-	for key := range s.monitorRelations {
-		if key.target != pid {
-			continue
-		}
-
-		delete(s.monitorRelations, key)
-
-		if key.consumer.Node != tm.core.Name() {
-			remoteNodesMonitors[key.consumer.Node] = true
-			continue
-		}
-
-		localDownConsumers = append(localDownConsumers, key.consumer)
-	}
-
-	delete(s.targetIndex, pid)
-	s.mutex.Unlock()
-
-	if len(localExitConsumers) > 0 {
-		tm.exitSignalsProduced.Add(1)
-		tm.core.RouteSendExitMessages(pid, localExitConsumers, gen.MessageExitPID{PID: pid, Reason: reason})
-		tm.exitSignalsDelivered.Add(int64(len(localExitConsumers)))
-	}
-
-	if len(localDownConsumers) > 0 {
-		tm.downMessagesProduced.Add(1)
-		for _, consumer := range localDownConsumers {
-			tm.core.RouteSendPID(pid, consumer, gen.MessageOptions{Priority: gen.MessagePriorityHigh}, gen.MessageDownPID{PID: pid, Reason: reason})
-		}
-		tm.downMessagesDelivered.Add(int64(len(localDownConsumers)))
-	}
-
-	for node := range remoteNodesLinks {
-		connection, err := tm.core.GetConnection(node)
-		if err != nil {
-			continue
-		}
-		connection.SendTerminatePID(pid, reason)
-	}
-
-	for node := range remoteNodesMonitors {
-		connection, err := tm.core.GetConnection(node)
-		if err != nil {
-			continue
-		}
-		connection.SendTerminatePID(pid, reason)
-	}
+func (m *Manager) TerminatedTargetPID(pid gen.PID, reason error) {
+	relations := m.storage.RemoveTarget(pid)
+	m.dispatchTargetTerminate(pid, relations, reason)
+	m.resetWire(pid)
 }
 
-func (tm *targetManager) TerminatedTargetProcessID(processID gen.ProcessID, reason error) {
-	s := tm.shardFor(processID)
-	s.mutex.Lock()
-
-	remoteNodes := make(map[gen.Atom]bool)
-	var localExitConsumers []gen.PID
-	var localDownConsumers []gen.PID
-
-	for key := range s.linkRelations {
-		if key.target != processID {
-			continue
-		}
-
-		delete(s.linkRelations, key)
-
-		if key.consumer.Node != tm.core.Name() {
-			remoteNodes[key.consumer.Node] = true
-			continue
-		}
-
-		localExitConsumers = append(localExitConsumers, key.consumer)
-	}
-
-	for key := range s.monitorRelations {
-		if key.target != processID {
-			continue
-		}
-
-		delete(s.monitorRelations, key)
-
-		if key.consumer.Node != tm.core.Name() {
-			remoteNodes[key.consumer.Node] = true
-			continue
-		}
-
-		localDownConsumers = append(localDownConsumers, key.consumer)
-	}
-
-	delete(s.targetIndex, processID)
-	s.mutex.Unlock()
-
-	if len(localExitConsumers) > 0 {
-		tm.exitSignalsProduced.Add(1)
-		tm.core.RouteSendExitMessages(tm.core.PID(), localExitConsumers, gen.MessageExitProcessID{ProcessID: processID, Reason: reason})
-		tm.exitSignalsDelivered.Add(int64(len(localExitConsumers)))
-	}
-
-	if len(localDownConsumers) > 0 {
-		tm.downMessagesProduced.Add(1)
-		for _, consumer := range localDownConsumers {
-			tm.core.RouteSendPID(tm.core.PID(), consumer, gen.MessageOptions{Priority: gen.MessagePriorityHigh}, gen.MessageDownProcessID{ProcessID: processID, Reason: reason})
-		}
-		tm.downMessagesDelivered.Add(int64(len(localDownConsumers)))
-	}
-
-	for node := range remoteNodes {
-		connection, err := tm.core.GetConnection(node)
-		if err != nil {
-			continue
-		}
-		connection.SendTerminateProcessID(processID, reason)
-	}
+func (m *Manager) TerminatedTargetProcessID(processID gen.ProcessID, reason error) {
+	relations := m.storage.RemoveTarget(processID)
+	m.dispatchTargetTerminate(processID, relations, reason)
+	m.resetWire(processID)
 }
 
-func (tm *targetManager) TerminatedTargetAlias(alias gen.Alias, reason error) {
-	s := tm.shardFor(alias)
-	s.mutex.Lock()
-
-	remoteNodes := make(map[gen.Atom]bool)
-	var localExitConsumers []gen.PID
-	var localDownConsumers []gen.PID
-
-	for key := range s.linkRelations {
-		if key.target != alias {
-			continue
-		}
-
-		delete(s.linkRelations, key)
-
-		if key.consumer.Node != tm.core.Name() {
-			remoteNodes[key.consumer.Node] = true
-			continue
-		}
-
-		localExitConsumers = append(localExitConsumers, key.consumer)
-	}
-
-	for key := range s.monitorRelations {
-		if key.target != alias {
-			continue
-		}
-
-		delete(s.monitorRelations, key)
-
-		if key.consumer.Node != tm.core.Name() {
-			remoteNodes[key.consumer.Node] = true
-			continue
-		}
-
-		localDownConsumers = append(localDownConsumers, key.consumer)
-	}
-
-	delete(s.targetIndex, alias)
-	s.mutex.Unlock()
-
-	if len(localExitConsumers) > 0 {
-		tm.exitSignalsProduced.Add(1)
-		tm.core.RouteSendExitMessages(tm.core.PID(), localExitConsumers, gen.MessageExitAlias{Alias: alias, Reason: reason})
-		tm.exitSignalsDelivered.Add(int64(len(localExitConsumers)))
-	}
-
-	if len(localDownConsumers) > 0 {
-		tm.downMessagesProduced.Add(1)
-		for _, consumer := range localDownConsumers {
-			tm.core.RouteSendPID(tm.core.PID(), consumer, gen.MessageOptions{Priority: gen.MessagePriorityHigh}, gen.MessageDownAlias{Alias: alias, Reason: reason})
-		}
-		tm.downMessagesDelivered.Add(int64(len(localDownConsumers)))
-	}
-
-	for node := range remoteNodes {
-		connection, err := tm.core.GetConnection(node)
-		if err != nil {
-			continue
-		}
-		connection.SendTerminateAlias(alias, reason)
-	}
+func (m *Manager) TerminatedTargetAlias(alias gen.Alias, reason error) {
+	relations := m.storage.RemoveTarget(alias)
+	m.dispatchTargetTerminate(alias, relations, reason)
+	m.resetWire(alias)
 }
 
-func (tm *targetManager) TerminatedTargetEvent(event gen.Event, reason error) {
-	s := tm.shardFor(event)
-	s.mutex.Lock()
-
-	remoteNodes := make(map[gen.Atom]bool)
-	var localExitConsumers []gen.PID
-	var localDownConsumers []gen.PID
-
-	for key := range s.linkRelations {
-		if key.target != event {
-			continue
-		}
-
-		delete(s.linkRelations, key)
-
-		if key.consumer.Node != tm.core.Name() {
-			remoteNodes[key.consumer.Node] = true
-			continue
-		}
-
-		localExitConsumers = append(localExitConsumers, key.consumer)
+func (m *Manager) TerminatedTargetEvent(event gen.Event, reason error) {
+	if v, ok := m.events.LoadAndDelete(event); ok {
+		m.eventsByID.Delete(v.(*eventEntry).id)
+		m.eventsCount.Add(-1)
 	}
-
-	for key := range s.monitorRelations {
-		if key.target != event {
-			continue
-		}
-
-		delete(s.monitorRelations, key)
-
-		if key.consumer.Node != tm.core.Name() {
-			remoteNodes[key.consumer.Node] = true
-			continue
-		}
-
-		localDownConsumers = append(localDownConsumers, key.consumer)
-	}
-
-	if entry, exists := s.events[event]; exists {
-		tm.eventIndex.Delete(entry.id)
-	}
-	delete(s.events, event)
-	delete(s.targetIndex, event)
-	s.mutex.Unlock()
-
-	if len(localExitConsumers) > 0 {
-		tm.exitSignalsProduced.Add(1)
-		tm.core.RouteSendExitMessages(tm.core.PID(), localExitConsumers, gen.MessageExitEvent{Event: event, Reason: reason})
-		tm.exitSignalsDelivered.Add(int64(len(localExitConsumers)))
-	}
-
-	if len(localDownConsumers) > 0 {
-		tm.downMessagesProduced.Add(1)
-		for _, consumer := range localDownConsumers {
-			tm.core.RouteSendPID(tm.core.PID(), consumer, gen.MessageOptions{Priority: gen.MessagePriorityHigh}, gen.MessageDownEvent{Event: event, Reason: reason})
-		}
-		tm.downMessagesDelivered.Add(int64(len(localDownConsumers)))
-	}
-
-	for node := range remoteNodes {
-		connection, err := tm.core.GetConnection(node)
-		if err != nil {
-			continue
-		}
-		connection.SendTerminateEvent(event, reason)
-	}
+	relations := m.storage.RemoveTarget(event)
+	m.dispatchTargetTerminate(event, relations, reason)
+	m.resetWire(event)
 }
 
-func (tm *targetManager) TerminatedTargetNode(node gen.Atom, reason error) {
-	for i := range tm.shards {
-		tm.terminateNodeInShard(&tm.shards[i], node, reason)
-	}
-}
-
-func (tm *targetManager) terminateNodeInShard(s *shard, node gen.Atom, reason error) {
-	s.mutex.Lock()
-
-	exitPID := make(map[gen.PID][]gen.PID)
-	exitProcessID := make(map[gen.ProcessID][]gen.PID)
-	exitAlias := make(map[gen.Alias][]gen.PID)
-	exitEvent := make(map[gen.Event][]gen.PID)
-	exitNode := make(map[gen.Atom][]gen.PID)
-
-	for key := range s.linkRelations {
-		shouldRemove := false
-
-		if key.consumer.Node == node {
-			shouldRemove = true
+// Two passes: kill targets hosted on the dead node (always ErrNoConnection
+// regardless of `reason`), then drop consumers that lived on the dead node
+// from surviving targets.
+func (m *Manager) TerminatedTargetNode(node gen.Atom, reason error) {
+	var toKill []any
+	m.storage.RangeTargets(func(t any) bool {
+		if targetLivesOnNode(t, node) {
+			toKill = append(toKill, t)
 		}
+		return true
+	})
 
-		if shouldRemove == false {
-			switch t := key.target.(type) {
-			case gen.PID:
-				if t.Node != node {
-					break
-				}
-				shouldRemove = true
-				if key.consumer.Node == tm.core.Name() {
-					exitPID[t] = append(exitPID[t], key.consumer)
-				}
-			case gen.ProcessID:
-				if t.Node != node {
-					break
-				}
-				shouldRemove = true
-				if key.consumer.Node == tm.core.Name() {
-					exitProcessID[t] = append(exitProcessID[t], key.consumer)
-				}
-			case gen.Alias:
-				if t.Node != node {
-					break
-				}
-				shouldRemove = true
-				if key.consumer.Node == tm.core.Name() {
-					exitAlias[t] = append(exitAlias[t], key.consumer)
-				}
-			case gen.Event:
-				if t.Node != node {
-					break
-				}
-				shouldRemove = true
-				if key.consumer.Node == tm.core.Name() {
-					exitEvent[t] = append(exitEvent[t], key.consumer)
-				}
-			case gen.Atom:
-				if t != node {
-					break
-				}
-				shouldRemove = true
-				if key.consumer.Node == tm.core.Name() {
-					exitNode[t] = append(exitNode[t], key.consumer)
-				}
+	for _, t := range toKill {
+		if ev, ok := t.(gen.Event); ok {
+			if v, ok := m.events.LoadAndDelete(ev); ok {
+				m.eventsByID.Delete(v.(*eventEntry).id)
+				m.eventsCount.Add(-1)
 			}
 		}
-
-		if shouldRemove == false {
-			continue
-		}
-
-		delete(s.linkRelations, key)
-
-		entry := s.targetIndex[key.target]
-		if entry == nil {
-			continue
-		}
-
-		delete(entry.consumers, key.consumer)
-		if len(entry.consumers) == 0 {
-			delete(s.targetIndex, key.target)
-		}
+		relations := m.storage.RemoveTarget(t)
+		m.dispatchTargetTerminate(t, relations, gen.ErrNoConnection)
+		m.resetWire(t)
 	}
 
-	downPID := make(map[gen.PID][]gen.PID)
-	downProcessID := make(map[gen.ProcessID][]gen.PID)
-	downAlias := make(map[gen.Alias][]gen.PID)
-	downEvent := make(map[gen.Event][]gen.PID)
-	downNode := make(map[gen.Atom][]gen.PID)
-
-	for key := range s.monitorRelations {
-		shouldRemove := false
-
-		if key.consumer.Node == node {
-			shouldRemove = true
+	m.storage.RangeTargets(func(t any) bool {
+		removed := m.storage.RemoveConsumersOnNode(t, node)
+		if removed == 0 {
+			return true
 		}
-
-		if shouldRemove == false {
-			switch t := key.target.(type) {
-			case gen.PID:
-				if t.Node != node {
-					break
-				}
-				shouldRemove = true
-				if key.consumer.Node == tm.core.Name() {
-					downPID[t] = append(downPID[t], key.consumer)
-				}
-			case gen.ProcessID:
-				if t.Node != node {
-					break
-				}
-				shouldRemove = true
-				if key.consumer.Node == tm.core.Name() {
-					downProcessID[t] = append(downProcessID[t], key.consumer)
-				}
-			case gen.Alias:
-				if t.Node != node {
-					break
-				}
-				shouldRemove = true
-				if key.consumer.Node == tm.core.Name() {
-					downAlias[t] = append(downAlias[t], key.consumer)
-				}
-			case gen.Event:
-				if t.Node != node {
-					break
-				}
-				shouldRemove = true
-				if key.consumer.Node == tm.core.Name() {
-					downEvent[t] = append(downEvent[t], key.consumer)
-				}
-			case gen.Atom:
-				if t != node {
-					break
-				}
-				shouldRemove = true
-				if key.consumer.Node == tm.core.Name() {
-					downNode[t] = append(downNode[t], key.consumer)
-				}
-			}
-		}
-
-		if shouldRemove == false {
-			continue
-		}
-
-		delete(s.monitorRelations, key)
-
-		entry := s.targetIndex[key.target]
-		if entry == nil {
-			continue
-		}
-
-		delete(entry.consumers, key.consumer)
-		if len(entry.consumers) == 0 {
-			delete(s.targetIndex, key.target)
-		}
-	}
-
-	// Cleanup events from terminated node
-	for event, entry := range s.events {
-		if event.Node == node {
-			tm.eventIndex.Delete(entry.id)
-			delete(s.events, event)
-		}
-	}
-
-	s.mutex.Unlock()
-
-	// Dispatch exit messages
-	for target, consumers := range exitPID {
-		tm.exitSignalsProduced.Add(1)
-		tm.core.RouteSendExitMessages(tm.core.PID(), consumers, gen.MessageExitPID{PID: target, Reason: gen.ErrNoConnection})
-		tm.exitSignalsDelivered.Add(int64(len(consumers)))
-	}
-	for target, consumers := range exitProcessID {
-		tm.exitSignalsProduced.Add(1)
-		tm.core.RouteSendExitMessages(tm.core.PID(), consumers, gen.MessageExitProcessID{ProcessID: target, Reason: gen.ErrNoConnection})
-		tm.exitSignalsDelivered.Add(int64(len(consumers)))
-	}
-	for target, consumers := range exitAlias {
-		tm.exitSignalsProduced.Add(1)
-		tm.core.RouteSendExitMessages(tm.core.PID(), consumers, gen.MessageExitAlias{Alias: target, Reason: gen.ErrNoConnection})
-		tm.exitSignalsDelivered.Add(int64(len(consumers)))
-	}
-	for target, consumers := range exitEvent {
-		tm.exitSignalsProduced.Add(1)
-		tm.core.RouteSendExitMessages(tm.core.PID(), consumers, gen.MessageExitEvent{Event: target, Reason: gen.ErrNoConnection})
-		tm.exitSignalsDelivered.Add(int64(len(consumers)))
-	}
-	for target, consumers := range exitNode {
-		tm.exitSignalsProduced.Add(1)
-		tm.core.RouteSendExitMessages(tm.core.PID(), consumers, gen.MessageExitNode{Name: target})
-		tm.exitSignalsDelivered.Add(int64(len(consumers)))
-	}
-
-	// Dispatch down messages
-	for target, consumers := range downPID {
-		tm.downMessagesProduced.Add(1)
-		for _, consumer := range consumers {
-			tm.core.RouteSendPID(tm.core.PID(), consumer, gen.MessageOptions{Priority: gen.MessagePriorityHigh}, gen.MessageDownPID{PID: target, Reason: gen.ErrNoConnection})
-		}
-		tm.downMessagesDelivered.Add(int64(len(consumers)))
-	}
-	for target, consumers := range downProcessID {
-		tm.downMessagesProduced.Add(1)
-		for _, consumer := range consumers {
-			tm.core.RouteSendPID(tm.core.PID(), consumer, gen.MessageOptions{Priority: gen.MessagePriorityHigh}, gen.MessageDownProcessID{ProcessID: target, Reason: gen.ErrNoConnection})
-		}
-		tm.downMessagesDelivered.Add(int64(len(consumers)))
-	}
-	for target, consumers := range downAlias {
-		tm.downMessagesProduced.Add(1)
-		for _, consumer := range consumers {
-			tm.core.RouteSendPID(tm.core.PID(), consumer, gen.MessageOptions{Priority: gen.MessagePriorityHigh}, gen.MessageDownAlias{Alias: target, Reason: gen.ErrNoConnection})
-		}
-		tm.downMessagesDelivered.Add(int64(len(consumers)))
-	}
-	for target, consumers := range downEvent {
-		tm.downMessagesProduced.Add(1)
-		for _, consumer := range consumers {
-			tm.core.RouteSendPID(tm.core.PID(), consumer, gen.MessageOptions{Priority: gen.MessagePriorityHigh}, gen.MessageDownEvent{Event: target, Reason: gen.ErrNoConnection})
-		}
-		tm.downMessagesDelivered.Add(int64(len(consumers)))
-	}
-	for target, consumers := range downNode {
-		tm.downMessagesProduced.Add(1)
-		for _, consumer := range consumers {
-			tm.core.RouteSendPID(tm.core.PID(), consumer, gen.MessageOptions{Priority: gen.MessagePriorityHigh}, gen.MessageDownNode{Name: target})
-		}
-		tm.downMessagesDelivered.Add(int64(len(consumers)))
-	}
+		m.eventSubscribersDropped(t, removed)
+		return true
+	})
 }
 
-func (tm *targetManager) TerminatedProcess(pid gen.PID, reason error) {
-	for i := range tm.shards {
-		tm.terminateProcessInShard(&tm.shards[i], pid, reason)
+// Caller must serialize TerminatedProcess against this process's own
+// Link/Monitor/RegisterEvent operations; concurrent ones may leave a
+// phantom relation/event that the reverse-index sweep doesn't reach.
+// The runtime guarantees this via process lifecycle.
+func (m *Manager) TerminatedProcess(pid gen.PID, reason error) {
+	for _, t := range m.storage.LinksFor(pid) {
+		if m.storage.Unregister(t, pid, KindLink) {
+			m.eventSubscribersDropped(t, 1)
+			m.afterRemoteConsumerGone(t, KindLink)
+		}
 	}
+	for _, t := range m.storage.MonitorsFor(pid) {
+		if m.storage.Unregister(t, pid, KindMonitor) {
+			m.eventSubscribersDropped(t, 1)
+			m.afterRemoteConsumerGone(t, KindMonitor)
+		}
+	}
+	m.storage.ClearConsumer(pid)
+
+	m.events.Range(func(_, v any) bool {
+		e := v.(*eventEntry)
+		if e.producer != pid {
+			return true
+		}
+		if m.events.CompareAndDelete(e.event, e) == false {
+			return true
+		}
+		m.eventsByID.Delete(e.id)
+		m.eventsCount.Add(-1)
+		relations := m.storage.RemoveTarget(e.event)
+		m.dispatchTargetTerminate(e.event, relations, reason)
+		return true
+	})
 }
 
-func (tm *targetManager) terminateProcessInShard(s *shard, pid gen.PID, reason error) {
-	s.mutex.Lock()
-
-	for key := range s.linkRelations {
-		if key.consumer != pid {
-			continue
-		}
-
-		delete(s.linkRelations, key)
-
-		event, ok := key.target.(gen.Event)
-		if ok == true && event.Node == tm.core.Name() {
-			entry := s.events[event]
-			if entry != nil {
-				idx, exists := entry.linkSubscribersIndex[pid]
-				if exists == true {
-					last := len(entry.linkSubscribers) - 1
-					if idx != last {
-						entry.linkSubscribers[idx] = entry.linkSubscribers[last]
-						entry.linkSubscribersIndex[entry.linkSubscribers[idx]] = idx
-					}
-					entry.linkSubscribers = entry.linkSubscribers[:last]
-					delete(entry.linkSubscribersIndex, pid)
-				}
-				entry.subscriberCount--
-				if entry.subscriberCount == 0 && entry.notify {
-					tm.core.RouteSendPID(tm.core.PID(), entry.producer, gen.MessageOptions{Priority: gen.MessagePriorityHigh}, gen.MessageEventStop{Name: event.Name})
-				}
-			}
-		}
-
-		tm.cleanupTargetEntry(s, pid, key.target, true)
-	}
-
-	for key := range s.monitorRelations {
-		if key.consumer != pid {
-			continue
-		}
-
-		delete(s.monitorRelations, key)
-
-		event, ok := key.target.(gen.Event)
-		if ok == true && event.Node == tm.core.Name() {
-			entry := s.events[event]
-			if entry != nil {
-				idx, exists := entry.monitorSubscribersIndex[pid]
-				if exists == true {
-					last := len(entry.monitorSubscribers) - 1
-					if idx != last {
-						entry.monitorSubscribers[idx] = entry.monitorSubscribers[last]
-						entry.monitorSubscribersIndex[entry.monitorSubscribers[idx]] = idx
-					}
-					entry.monitorSubscribers = entry.monitorSubscribers[:last]
-					delete(entry.monitorSubscribersIndex, pid)
-				}
-				entry.subscriberCount--
-				if entry.subscriberCount == 0 && entry.notify {
-					tm.core.RouteSendPID(tm.core.PID(), entry.producer, gen.MessageOptions{Priority: gen.MessagePriorityHigh}, gen.MessageEventStop{Name: event.Name})
-				}
-			}
-		}
-
-		tm.cleanupTargetEntry(s, pid, key.target, false)
-	}
-
-	// Producer cleanup
-	tm.cleanupProducerInShard(s, pid, reason)
-
-	s.mutex.Unlock()
-}
-
-// cleanupTargetEntry handles targetIndex update and remote unlink/demonitor.
-func (tm *targetManager) cleanupTargetEntry(s *shard, consumer gen.PID, target any, isLink bool) {
-	entry := s.targetIndex[target]
-	if entry == nil {
-		return
-	}
-
-	delete(entry.consumers, consumer)
-	isLast := (len(entry.consumers) == 0)
-	if isLast {
-		delete(s.targetIndex, target)
-	}
-
-	isRemote := false
-	var targetNode gen.Atom
-
+// Called by TerminatedProcess: consumer is always local, so always decrement.
+func (m *Manager) afterRemoteConsumerGone(target any, kind Kind) {
 	switch t := target.(type) {
 	case gen.PID:
-		targetNode = t.Node
-		isRemote = (t.Node != tm.core.Name())
-	case gen.ProcessID:
-		if t.Node == "" {
-			targetNode = tm.core.Name()
-		} else {
-			targetNode = t.Node
-		}
-		isRemote = (targetNode != tm.core.Name())
-	case gen.Alias:
-		targetNode = t.Node
-		isRemote = (t.Node != tm.core.Name())
-	case gen.Event:
-		targetNode = t.Node
-		isRemote = (t.Node != tm.core.Name())
-	case gen.Atom:
-		isRemote = false
-	}
-
-	if isRemote == false {
-		return
-	}
-
-	if isLast == false {
-		hasLocal := false
-		for p := range entry.consumers {
-			if p.Node == tm.core.Name() && p != tm.core.PID() {
-				hasLocal = true
-				break
-			}
-		}
-		if hasLocal {
+		if t.Node == m.core.Name() {
 			return
 		}
-	}
-
-	connection, err := tm.core.GetConnection(targetNode)
-	if err != nil {
-		return
-	}
-
-	if isLink {
-		switch t := target.(type) {
-		case gen.PID:
-			connection.UnlinkPID(tm.core.PID(), t)
-		case gen.ProcessID:
-			connection.UnlinkProcessID(tm.core.PID(), t)
-		case gen.Alias:
-			connection.UnlinkAlias(tm.core.PID(), t)
-		case gen.Event:
-			connection.UnlinkEvent(tm.core.PID(), t)
+		wp := m.wireForExisting(t, kind)
+		if wp != nil {
+			wp.localCount.Add(-1)
 		}
-	} else {
-		switch t := target.(type) {
-		case gen.PID:
-			connection.DemonitorPID(tm.core.PID(), t)
-		case gen.ProcessID:
-			connection.DemonitorProcessID(tm.core.PID(), t)
-		case gen.Alias:
-			connection.DemonitorAlias(tm.core.PID(), t)
-		case gen.Event:
-			connection.DemonitorEvent(tm.core.PID(), t)
+		m.ensureRemoteUnlink(wp, t.Node, func(conn gen.Connection) {
+			if kind == KindLink {
+				conn.UnlinkPID(m.core.PID(), t)
+				return
+			}
+			conn.DemonitorPID(m.core.PID(), t)
+		})
+	case gen.ProcessID:
+		node := processIDNode(t, m.core.Name())
+		if node == m.core.Name() {
+			return
 		}
+		wp := m.wireForExisting(t, kind)
+		if wp != nil {
+			wp.localCount.Add(-1)
+		}
+		m.ensureRemoteUnlink(wp, node, func(conn gen.Connection) {
+			if kind == KindLink {
+				conn.UnlinkProcessID(m.core.PID(), t)
+				return
+			}
+			conn.DemonitorProcessID(m.core.PID(), t)
+		})
+	case gen.Alias:
+		if t.Node == m.core.Name() {
+			return
+		}
+		wp := m.wireForExisting(t, kind)
+		if wp != nil {
+			wp.localCount.Add(-1)
+		}
+		m.ensureRemoteUnlink(wp, t.Node, func(conn gen.Connection) {
+			if kind == KindLink {
+				conn.UnlinkAlias(m.core.PID(), t)
+				return
+			}
+			conn.DemonitorAlias(m.core.PID(), t)
+		})
+	case gen.Event:
+		if t.Node == m.core.Name() {
+			return
+		}
+		wp := m.wireForExisting(t, kind)
+		if wp != nil {
+			wp.localCount.Add(-1)
+		}
+		m.ensureRemoteUnlink(wp, t.Node, func(conn gen.Connection) {
+			if kind == KindLink {
+				conn.UnlinkEvent(m.core.PID(), t)
+				return
+			}
+			conn.DemonitorEvent(m.core.PID(), t)
+		})
 	}
 }
 
-// cleanupProducerInShard handles events owned by terminated process within a shard.
-func (tm *targetManager) cleanupProducerInShard(s *shard, pid gen.PID, reason error) {
-	events := s.producerEvents[pid]
-	if events == nil {
+// Decrements subscriberCount and fires MessageEventStop at zero, for bulk
+// removals outside the LinkEvent/UnlinkEvent path.
+func (m *Manager) eventSubscribersDropped(target any, removed int) {
+	ev, ok := target.(gen.Event)
+	if ok == false {
 		return
 	}
+	v, ok := m.events.Load(ev)
+	if ok == false {
+		return
+	}
+	entry := v.(*eventEntry)
+	count := entry.subscriberCount.Add(-int64(removed))
+	if count != 0 || entry.notify == false {
+		return
+	}
+	m.core.RouteSendPID(
+		m.core.PID(),
+		entry.producer,
+		gen.MessageOptions{Priority: gen.MessagePriorityHigh},
+		gen.MessageEventStop{Name: ev.Name},
+	)
+}
 
-	remoteEvents := make(map[gen.Atom][]gen.Event)
+func (m *Manager) dispatchTargetTerminate(target any, relations []Relation, reason error) {
+	var localExits []gen.PID
+	var localDowns []gen.PID
+	remoteNodes := make(map[gen.Atom]struct{})
 
-	for event := range events {
-		entry := s.events[event]
-		if entry == nil {
+	for _, r := range relations {
+		if r.Consumer.Node != m.core.Name() {
+			remoteNodes[r.Consumer.Node] = struct{}{}
 			continue
 		}
-
-		// Send exit to link subscribers
-		var localExitConsumers []gen.PID
-		for _, consumer := range entry.linkSubscribers {
-			if consumer.Node != tm.core.Name() {
-				remoteEvents[consumer.Node] = append(remoteEvents[consumer.Node], event)
-				continue
-			}
-			localExitConsumers = append(localExitConsumers, consumer)
+		if r.Kind == KindLink {
+			localExits = append(localExits, r.Consumer)
+			continue
 		}
-		if len(localExitConsumers) > 0 {
-			tm.exitSignalsProduced.Add(1)
-			tm.core.RouteSendExitMessages(tm.core.PID(), localExitConsumers, gen.MessageExitEvent{Event: event, Reason: reason})
-			tm.exitSignalsDelivered.Add(int64(len(localExitConsumers)))
-		}
-
-		// Send down to monitor subscribers
-		var localDownConsumers []gen.PID
-		for _, consumer := range entry.monitorSubscribers {
-			if consumer.Node != tm.core.Name() {
-				remoteEvents[consumer.Node] = append(remoteEvents[consumer.Node], event)
-				continue
-			}
-			localDownConsumers = append(localDownConsumers, consumer)
-		}
-		if len(localDownConsumers) > 0 {
-			tm.downMessagesProduced.Add(1)
-			for _, consumer := range localDownConsumers {
-				tm.core.RouteSendPID(tm.core.PID(), consumer, gen.MessageOptions{Priority: gen.MessagePriorityHigh}, gen.MessageDownEvent{Event: event, Reason: reason})
-			}
-			tm.downMessagesDelivered.Add(int64(len(localDownConsumers)))
-		}
-
-		// Cleanup relations for this event
-		for key := range s.linkRelations {
-			if key.target == event {
-				delete(s.linkRelations, key)
-			}
-		}
-		for key := range s.monitorRelations {
-			if key.target == event {
-				delete(s.monitorRelations, key)
-			}
-		}
-
-		tm.eventIndex.Delete(entry.id)
-		delete(s.targetIndex, event)
-		delete(s.events, event)
+		localDowns = append(localDowns, r.Consumer)
 	}
 
-	// Send to remote nodes
-	for remoteNode, nodeEvents := range remoteEvents {
-		connection, err := tm.core.GetConnection(remoteNode)
+	if len(localExits) > 0 {
+		m.core.RouteSendExitMessages(m.core.PID(), localExits, exitMessageFor(target, reason))
+		m.exitsProduced.Add(1)
+		m.exitsDelivered.Add(int64(len(localExits)))
+	}
+	if len(localDowns) > 0 {
+		downMsg := downMessageFor(target, reason)
+		for _, c := range localDowns {
+			m.core.RouteSendPID(
+				m.core.PID(),
+				c,
+				gen.MessageOptions{Priority: gen.MessagePriorityHigh},
+				downMsg,
+			)
+		}
+		m.downsProduced.Add(1)
+		m.downsDelivered.Add(int64(len(localDowns)))
+	}
+	for node := range remoteNodes {
+		conn, err := m.core.GetConnection(node)
 		if err != nil {
 			continue
 		}
-		for _, event := range nodeEvents {
-			connection.SendTerminateEvent(event, reason)
-		}
+		sendRemoteTerminate(conn, target, reason)
 	}
+}
 
-	delete(s.producerEvents, pid)
+func targetLivesOnNode(target any, node gen.Atom) bool {
+	switch t := target.(type) {
+	case gen.PID:
+		return t.Node == node
+	case gen.ProcessID:
+		return t.Node == node
+	case gen.Alias:
+		return t.Node == node
+	case gen.Event:
+		return t.Node == node
+	case gen.Atom:
+		return t == node
+	}
+	return false
+}
+
+func exitMessageFor(target any, reason error) any {
+	switch t := target.(type) {
+	case gen.PID:
+		return gen.MessageExitPID{PID: t, Reason: reason}
+	case gen.ProcessID:
+		return gen.MessageExitProcessID{ProcessID: t, Reason: reason}
+	case gen.Alias:
+		return gen.MessageExitAlias{Alias: t, Reason: reason}
+	case gen.Event:
+		return gen.MessageExitEvent{Event: t, Reason: reason}
+	case gen.Atom:
+		return gen.MessageExitNode{Name: t}
+	}
+	return nil
+}
+
+func downMessageFor(target any, reason error) any {
+	switch t := target.(type) {
+	case gen.PID:
+		return gen.MessageDownPID{PID: t, Reason: reason}
+	case gen.ProcessID:
+		return gen.MessageDownProcessID{ProcessID: t, Reason: reason}
+	case gen.Alias:
+		return gen.MessageDownAlias{Alias: t, Reason: reason}
+	case gen.Event:
+		return gen.MessageDownEvent{Event: t, Reason: reason}
+	case gen.Atom:
+		return gen.MessageDownNode{Name: t}
+	}
+	return nil
+}
+
+func sendRemoteTerminate(conn gen.Connection, target any, reason error) {
+	switch t := target.(type) {
+	case gen.PID:
+		conn.SendTerminatePID(t, reason)
+	case gen.ProcessID:
+		conn.SendTerminateProcessID(t, reason)
+	case gen.Alias:
+		conn.SendTerminateAlias(t, reason)
+	case gen.Event:
+		conn.SendTerminateEvent(t, reason)
+	case gen.Atom:
+		// Node targets are local-only.
+	}
 }

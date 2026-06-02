@@ -6,6 +6,8 @@ import (
 	"io"
 	"net"
 	"strconv"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"ergo.services/ergo/gen"
@@ -23,9 +25,9 @@ func Create(options Options) gen.Registrar {
 		options.Port = defaultRegistrarPort
 	}
 	client := &client{
-		options:    options,
-		terminated: true,
+		options: options,
 	}
+	client.terminated.Store(true)
 
 	edf.RegisterTypeOf(gen.Version{})
 	edf.RegisterTypeOf(gen.Route{})
@@ -44,10 +46,11 @@ type client struct {
 
 	options Options
 
+	mu     sync.Mutex
 	server *server
 	conn   net.Conn
 
-	terminated bool
+	terminated atomic.Bool
 }
 
 //
@@ -55,11 +58,14 @@ type client struct {
 //
 
 func (c *client) Resolve(name gen.Atom) ([]gen.Route, error) {
-	if c.terminated {
+	if c.terminated.Load() {
 		return nil, fmt.Errorf("registrar client terminated")
 	}
 
-	if srv := c.server; name.Host() == c.node.Name().Host() && srv != nil {
+	c.mu.Lock()
+	srv := c.server
+	c.mu.Unlock()
+	if srv != nil && name.Host() == c.node.Name().Host() {
 		c.node.Log().Trace("resolving %s using local registrar server", name)
 		return srv.resolve(name, true)
 	}
@@ -181,17 +187,20 @@ func (c *client) Event() (gen.Event, error) {
 	return gen.Event{}, gen.ErrUnsupported
 }
 func (c *client) Info() gen.RegistrarInfo {
+	c.mu.Lock()
+	server := c.server
+	conn := c.conn
+	c.mu.Unlock()
 	info := gen.RegistrarInfo{
-		EmbeddedServer: c.server != nil,
+		EmbeddedServer: server != nil,
 		Version:        c.Version(),
 	}
-	conn := c.conn
 	if conn != nil {
 		info.Server = conn.RemoteAddr().String()
 		return info
 	}
 	if info.EmbeddedServer {
-		info.Server = c.server.lReg.Addr().String()
+		info.Server = server.lReg.Addr().String()
 	}
 	return info
 }
@@ -202,13 +211,13 @@ func (c *client) Register(node gen.NodeRegistrar, routes gen.RegisterRoutes) (ge
 	c.node = node
 	c.routes = routes.Routes
 
-	if c.terminated == false {
+	if c.terminated.Load() == false {
 		return static, fmt.Errorf("already started")
 	}
 
 	if len(c.routes) == 0 {
 		// hidden mode. do not register node
-		c.terminated = false
+		c.terminated.Store(false)
 		return static, nil
 	}
 
@@ -221,20 +230,23 @@ func (c *client) Register(node gen.NodeRegistrar, routes gen.RegisterRoutes) (ge
 		go c.serve(rc)
 	}
 
-	c.terminated = false
+	c.terminated.Store(false)
 	return static, nil
 }
 
 func (c *client) Terminate() {
-	if c.server != nil {
+	c.terminated.Store(true)
+	c.mu.Lock()
+	server := c.server
+	conn := c.conn
+	c.mu.Unlock()
+	if server != nil {
 		c.node.Log().Trace("terminate registrar server")
-		c.server.terminate()
+		server.terminate()
 	}
-	if c.conn != nil {
-		c.conn.Close()
+	if conn != nil {
+		conn.Close()
 	}
-
-	c.terminated = true
 	c.node.Log().Trace("registrar client terminated")
 }
 
@@ -248,10 +260,13 @@ func (c *client) Version() gen.Version {
 
 func (c *client) tryRegister() (net.Conn, error) {
 	if c.options.DisableServer == false {
-		c.server = tryStartServer(c.options.Port, c.node.Log())
-		if c.server != nil {
+		srv := tryStartServer(c.options.Port, c.node.Log())
+		c.mu.Lock()
+		c.server = srv
+		c.mu.Unlock()
+		if srv != nil {
 			// local registrar is started
-			c.server.registerNode(c.node.Name(), c.routes, nil)
+			srv.registerNode(c.node.Name(), c.routes, nil)
 			return nil, nil
 		}
 		c.node.Log().Trace("unable to start registrar server, run as a client only")
@@ -342,11 +357,13 @@ func (c *client) tryRegister() (net.Conn, error) {
 
 func (c *client) serve(conn net.Conn) {
 	var buf [16]byte
+	c.mu.Lock()
 	c.conn = conn
+	c.mu.Unlock()
 
 	for {
-		_, err := c.conn.Read(buf[:])
-		if c.terminated {
+		_, err := conn.Read(buf[:])
+		if c.terminated.Load() {
 			return
 		}
 		if err != io.EOF {
@@ -355,26 +372,31 @@ func (c *client) serve(conn net.Conn) {
 
 		// disconnected
 		c.node.Log().Warning("lost connection with the registrar")
+		c.mu.Lock()
 		c.conn = nil
+		c.mu.Unlock()
 
 		// trying to reconnect
 		for {
-			if c.terminated {
+			if c.terminated.Load() {
 				return
 			}
-			conn, err := c.tryRegister()
+			newconn, err := c.tryRegister()
 			if err != nil {
 				c.node.Log().Error("unable to register node on the registrar: %s", err)
 				time.Sleep(time.Second)
 				continue
 			}
 
-			if conn == nil {
+			if newconn == nil {
 				// use the local registrar server
 				c.node.Log().Info("registered node on the local registrar")
 				return
 			}
-			c.conn = conn
+			c.mu.Lock()
+			c.conn = newconn
+			c.mu.Unlock()
+			conn = newconn
 			c.node.Log().Info("registered node on the registrar")
 			break
 		}

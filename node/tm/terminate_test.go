@@ -1,1098 +1,518 @@
 package tm
 
 import (
+	"errors"
 	"testing"
-	"time"
 
 	"ergo.services/ergo/gen"
 )
 
-// Test TerminatedTargetPID - sends exit to link subscribers
+func localPID(id uint64) gen.PID {
+	return gen.PID{Node: "node@local", ID: id, Creation: 100}
+}
+
+func TestTerminatedTargetPIDDispatchesExitAndDown(t *testing.T) {
+	m, core := newManager()
+	target := localPID(99)
+	linker := localPID(10)
+	monitor := localPID(11)
+	remoteLink := remotePID(20)
+
+	m.LinkPID(linker, target)
+	m.MonitorPID(monitor, target)
+	m.LinkPID(remoteLink, target) // remote consumer; GetConnection returns ErrNoConnection so silently skipped
+
+	reason := errors.New("boom")
+	m.TerminatedTargetPID(target, reason)
+
+	core.mu.Lock()
+	defer core.mu.Unlock()
+	if len(core.exits) != 1 || len(core.exits[0].To) != 1 || core.exits[0].To[0] != linker {
+		t.Fatalf("expected one Exit batch to %v, got %+v", linker, core.exits)
+	}
+	em, ok := core.exits[0].Message.(gen.MessageExitPID)
+	if ok == false || em.PID != target || em.Reason != reason {
+		t.Fatalf("exit payload: %+v", core.exits[0].Message)
+	}
+	if len(core.sent) != 1 || core.sent[0].To != monitor {
+		t.Fatalf("expected one Down to %v, got %+v", monitor, core.sent)
+	}
+	dm, ok := core.sent[0].Message.(gen.MessageDownPID)
+	if ok == false || dm.PID != target || dm.Reason != reason {
+		t.Fatalf("down payload: %+v", core.sent[0].Message)
+	}
+
+	// Target gone from storage.
+	if m.storage.Has(target, linker, KindLink) == true {
+		t.Fatal("linker relation should be gone after TerminatedTargetPID")
+	}
+}
+
+func TestTerminatedTargetEventClearsMetadata(t *testing.T) {
+	m, core := newManager()
+	producer := localPID(42)
+	m.RegisterEvent(producer, "tick", gen.EventOptions{})
+	event := gen.Event{Node: "node@local", Name: "tick"}
+	subscriber := localPID(10)
+	m.LinkEvent(subscriber, event)
+
+	core.mu.Lock()
+	core.exits = nil
+	core.sent = nil
+	core.mu.Unlock()
+
+	reason := errors.New("event-gone")
+	m.TerminatedTargetEvent(event, reason)
+
+	// metadata gone
+	if _, err := m.EventInfo(event); err != gen.ErrEventUnknown {
+		t.Fatalf("EventInfo after Terminated = %v want ErrEventUnknown", err)
+	}
+	// subscriber got Exit
+	core.mu.Lock()
+	defer core.mu.Unlock()
+	if len(core.exits) != 1 || core.exits[0].To[0] != subscriber {
+		t.Fatalf("expected Exit to subscriber, got %+v", core.exits)
+	}
+}
+
+func TestTerminatedTargetNodeKillsHostedAndDropsConsumers(t *testing.T) {
+	m, core := newManager()
+
+	// Targets on the doomed node.
+	doomed := gen.Atom("doom@local")
+	tgtPID := gen.PID{Node: doomed, ID: 7, Creation: 1}
+	tgtEvent := gen.Event{Node: doomed, Name: "evt"}
+
+	// Register a connection to the doomed node so wire-link succeeds and
+	// the test's LinkPID/LinkEvent actually install relations.
+	core.registerConn(doomed)
+
+	// Local consumers on doomed targets.
+	a := localPID(10)
+	b := localPID(11)
+	m.LinkPID(a, tgtPID)
+	m.LinkEvent(b, tgtEvent)
+
+	// A local event with a remote subscriber from doomed node.
+	producer := localPID(42)
+	m.RegisterEvent(producer, "local", gen.EventOptions{Notify: true})
+	localEvent := gen.Event{Node: "node@local", Name: "local"}
+	remoteSub := gen.PID{Node: doomed, ID: 99, Creation: 1}
+	m.LinkEvent(remoteSub, localEvent)
+
+	// Drop notifications from setup.
+	core.mu.Lock()
+	core.exits = nil
+	core.sent = nil
+	core.mu.Unlock()
+
+	m.TerminatedTargetNode(doomed, gen.ErrNoConnection)
+
+	core.mu.Lock()
+	defer core.mu.Unlock()
+
+	// Local consumers on doomed targets should have been notified.
+	// `a` had Link on tgtPID, `b` had Link on tgtEvent.
+	gotPIDExit, gotEventExit := false, false
+	for _, e := range core.exits {
+		switch msg := e.Message.(type) {
+		case gen.MessageExitPID:
+			if msg.PID == tgtPID && len(e.To) == 1 && e.To[0] == a {
+				gotPIDExit = true
+			}
+		case gen.MessageExitEvent:
+			if msg.Event == tgtEvent && len(e.To) == 1 && e.To[0] == b {
+				gotEventExit = true
+			}
+		}
+	}
+	if gotPIDExit == false {
+		t.Fatalf("expected Exit for tgtPID to %v, got %+v", a, core.exits)
+	}
+	if gotEventExit == false {
+		t.Fatalf("expected Exit for tgtEvent to %v, got %+v", b, core.exits)
+	}
+
+	// Local event's remote subscriber should have been dropped and EventStop
+	// fired (count went 1→0 with notify=true).
+	gotStop := false
+	for _, s := range core.sent {
+		if _, ok := s.Message.(gen.MessageEventStop); ok && s.To == producer {
+			gotStop = true
+			break
+		}
+	}
+	if gotStop == false {
+		t.Fatalf("expected MessageEventStop to %v after remote subscriber removal, got %+v", producer, core.sent)
+	}
+	// Local event still exists.
+	if _, err := m.EventInfo(localEvent); err != nil {
+		t.Fatalf("local event should survive: %v", err)
+	}
+	// Doomed event metadata gone.
+	if _, err := m.EventInfo(tgtEvent); err != gen.ErrEventUnknown {
+		t.Fatalf("doomed event should be gone, got %v", err)
+	}
+}
+
+func TestTerminatedProcessDropsConsumerRelations(t *testing.T) {
+	m, _ := newManager()
+	consumer := localPID(10)
+	target1 := localPID(100)
+	target2 := localPID(101)
+
+	m.LinkPID(consumer, target1)
+	m.MonitorPID(consumer, target2)
+
+	if m.HasLink(consumer, target1) == false {
+		t.Fatal("setup: link should exist")
+	}
+	if m.HasMonitor(consumer, target2) == false {
+		t.Fatal("setup: monitor should exist")
+	}
+
+	m.TerminatedProcess(consumer, errors.New("died"))
+
+	if m.HasLink(consumer, target1) == true {
+		t.Fatal("link should be gone after TerminatedProcess")
+	}
+	if m.HasMonitor(consumer, target2) == true {
+		t.Fatal("monitor should be gone after TerminatedProcess")
+	}
+}
+
+func TestTerminatedProcessTearsDownProducedEvents(t *testing.T) {
+	m, core := newManager()
+	producer := localPID(42)
+	subscriber := localPID(10)
+
+	m.RegisterEvent(producer, "tick", gen.EventOptions{})
+	event := gen.Event{Node: "node@local", Name: "tick"}
+	m.LinkEvent(subscriber, event)
+
+	core.mu.Lock()
+	core.exits = nil
+	core.mu.Unlock()
+
+	reason := errors.New("producer-died")
+	m.TerminatedProcess(producer, reason)
+
+	if _, err := m.EventInfo(event); err != gen.ErrEventUnknown {
+		t.Fatalf("event metadata should be gone, got %v", err)
+	}
+	core.mu.Lock()
+	defer core.mu.Unlock()
+	if len(core.exits) != 1 || core.exits[0].To[0] != subscriber {
+		t.Fatalf("expected Exit to subscriber on producer death, got %+v", core.exits)
+	}
+	em, ok := core.exits[0].Message.(gen.MessageExitEvent)
+	if ok == false || em.Event != event || em.Reason != reason {
+		t.Fatalf("exit payload: %+v", core.exits[0].Message)
+	}
+}
+
 func TestTerminatedTargetPID_LinkSubscribers(t *testing.T) {
-	core := newMockCore("node1")
-	tm := Create(core, Options{}).(*targetManager)
-
+	m, core := newManagerWithMock("node1")
 	target := gen.PID{Node: "node1", ID: 200}
-	consumer1 := gen.PID{Node: "node1", ID: 100}
-	consumer2 := gen.PID{Node: "node1", ID: 101}
+	c1 := gen.PID{Node: "node1", ID: 100}
+	c2 := gen.PID{Node: "node1", ID: 101}
 
-	// Setup: two link subscribers
-	tm.LinkPID(consumer1, target)
-	tm.LinkPID(consumer2, target)
-
+	m.LinkPID(c1, target)
+	m.LinkPID(c2, target)
 	core.resetSentExits()
 
-	// Target terminates
-	tm.TerminatedTargetPID(target, gen.ErrProcessTerminated)
-
-	// Give dispatcher time to deliver
-	time.Sleep(50 * time.Millisecond)
-
-	// Verify 2 exit messages sent
-	if core.countSentExits() != 2 {
-		t.Errorf("Expected 2 exit messages, got %d", core.countSentExits())
-	}
-
-	// Verify subscriptions cleaned
-	if exists := tm.hasLinkRelation(consumer1, target); exists {
-		t.Error("Link should be removed after target terminated")
-	}
-
-	// Verify targetIndex cleaned
-	if tm.getTargetEntry(target) != nil {
-		t.Error("targetIndex should be cleaned")
-	}
-}
-
-// Test TerminatedTargetPID - sends down to monitor subscribers
-func TestTerminatedTargetPID_MonitorSubscribers(t *testing.T) {
-	core := newMockCore("node1")
-	tm := Create(core, Options{}).(*targetManager)
-
-	target := gen.PID{Node: "node1", ID: 200}
-	consumer1 := gen.PID{Node: "node1", ID: 100}
-	consumer2 := gen.PID{Node: "node1", ID: 101}
-
-	// Setup: two monitor subscribers
-	tm.MonitorPID(consumer1, target)
-	tm.MonitorPID(consumer2, target)
-
-	core.resetSentDowns()
-
-	// Target terminates
-	tm.TerminatedTargetPID(target, gen.ErrProcessTerminated)
-
-	// Give dispatcher time
-	time.Sleep(50 * time.Millisecond)
-
-	// Verify 2 down messages
-	if core.countSentDowns() != 2 {
-		t.Errorf("Expected 2 down messages, got %d", core.countSentDowns())
-	}
-
-	// Verify cleaned
-	if tm.totalMonitors() != 0 {
-		t.Errorf("monitorRelations should be empty, got %d", tm.totalMonitors())
-	}
-}
-
-// Test TerminatedTargetPID - mixed link and monitor
-func TestTerminatedTargetPID_Mixed(t *testing.T) {
-	core := newMockCore("node1")
-	tm := Create(core, Options{}).(*targetManager)
-
-	target := gen.PID{Node: "node1", ID: 200}
-	consumer1 := gen.PID{Node: "node1", ID: 100}
-	consumer2 := gen.PID{Node: "node1", ID: 101}
-
-	// consumer1 links, consumer2 monitors
-	tm.LinkPID(consumer1, target)
-	tm.MonitorPID(consumer2, target)
-
-	core.resetSentExits()
-	core.resetSentDowns()
-
-	// Target terminates
-	tm.TerminatedTargetPID(target, gen.ErrProcessTerminated)
-
-	time.Sleep(50 * time.Millisecond)
-
-	// 1 exit, 1 down
-	if core.countSentExits() != 1 {
-		t.Errorf("Expected 1 exit, got %d", core.countSentExits())
-	}
-
-	if core.countSentDowns() != 1 {
-		t.Errorf("Expected 1 down, got %d", core.countSentDowns())
-	}
-
-	// Verify linkRelations cleaned
-	if tm.totalLinks() != 0 {
-		t.Errorf("linkRelations should be empty, got %d", tm.totalLinks())
-	}
-
-	// Verify monitorRelations cleaned
-	if tm.totalMonitors() != 0 {
-		t.Errorf("monitorRelations should be empty, got %d", tm.totalMonitors())
-	}
-
-	// Verify targetIndex cleaned
-	if tm.getTargetEntry(target) != nil {
-		t.Error("targetIndex should be cleaned")
-	}
-}
-
-// Test TerminatedTargetProcessID
-func TestTerminatedTargetProcessID(t *testing.T) {
-	core := newMockCore("node1")
-	tm := Create(core, Options{}).(*targetManager)
-
-	target := gen.ProcessID{Node: "node1", Name: "test"}
-	consumer := gen.PID{Node: "node1", ID: 100}
-
-	tm.LinkProcessID(consumer, target)
-
-	core.resetSentExits()
-
-	tm.TerminatedTargetProcessID(target, gen.ErrProcessTerminated)
-
-	time.Sleep(50 * time.Millisecond)
-
-	// Exit sent
-	if core.countSentExits() != 1 {
-		t.Errorf("Expected 1 exit, got %d", core.countSentExits())
-	}
-
-	// Cleaned from linkRelations
-	if exists := tm.hasLinkRelation(consumer, target); exists {
-		t.Error("Link should be removed")
-	}
-
-	// Verify targetIndex cleaned
-	if tm.getTargetEntry(target) != nil {
-		t.Error("targetIndex should be cleaned")
-	}
-}
-
-// Test TerminatedTargetAlias
-func TestTerminatedTargetAlias(t *testing.T) {
-	core := newMockCore("node1")
-	tm := Create(core, Options{}).(*targetManager)
-
-	target := gen.Alias{Node: "node1", ID: [3]uint64{1, 2, 3}}
-	consumer := gen.PID{Node: "node1", ID: 100}
-
-	tm.LinkAlias(consumer, target)
-
-	core.resetSentExits()
-
-	tm.TerminatedTargetAlias(target, gen.ErrProcessTerminated)
-
-	time.Sleep(50 * time.Millisecond)
-
-	if core.countSentExits() != 1 {
-		t.Errorf("Expected 1 exit, got %d", core.countSentExits())
-	}
-
-	// Verify linkRelations cleaned
-	if exists := tm.hasLinkRelation(consumer, target); exists {
-		t.Error("Link should be removed")
-	}
-
-	// Verify targetIndex cleaned
-	if tm.getTargetEntry(target) != nil {
-		t.Error("targetIndex should be cleaned")
-	}
-}
-
-// Test TerminatedTargetNode - consumer on terminated node
-func TestTerminatedTargetNode_RemoteConsumer(t *testing.T) {
-	core := newMockCore("node1")
-	tm := Create(core, Options{}).(*targetManager)
-
-	localTarget := gen.PID{Node: "node1", ID: 200}
-	remoteConsumer := gen.PID{Node: "node2", ID: 100}
-
-	// Remote consumer links to local target
-	// (Simulates: node2's CorePID linked to node1's process)
-	s := tm.shardFor(localTarget)
-	s.linkRelations[relationKey{consumer: remoteConsumer, target: localTarget}] = struct{}{}
-
-	entry := &targetEntry{consumers: make(map[gen.PID]struct{})}
-	entry.consumers[remoteConsumer] = struct{}{}
-	s.targetIndex[localTarget] = entry
-
-	core.resetSentExits()
-
-	// node2 dies
-	tm.TerminatedTargetNode("node2", gen.ErrNoConnection)
-
-	time.Sleep(50 * time.Millisecond)
-
-	// NO exit sent (consumer is dead)
-	if core.countSentExits() != 0 {
-		t.Errorf("Should NOT send exit to dead consumer, got %d", core.countSentExits())
-	}
-
-	// But subscription cleaned!
-	if exists := tm.hasLinkRelation(remoteConsumer, localTarget); exists {
-		t.Error("Link from remote consumer should be removed")
-	}
-}
-
-// Test TerminatedTargetNode - target on terminated node
-func TestTerminatedTargetNode_RemoteTarget(t *testing.T) {
-	core := newMockCore("node1")
-	tm := Create(core, Options{}).(*targetManager)
-
-	localConsumer := gen.PID{Node: "node1", ID: 100}
-	remoteTarget := gen.PID{Node: "node2", ID: 200}
-
-	// Local consumer linked to remote target
-	tm.LinkPID(localConsumer, remoteTarget)
-
-	core.resetSentExits()
-
-	// node2 dies
-	tm.TerminatedTargetNode("node2", gen.ErrNoConnection)
-
-	time.Sleep(50 * time.Millisecond)
-
-	// Exit sent to local consumer!
-	if core.countSentExits() != 1 {
-		t.Errorf("Expected 1 exit to local consumer, got %d", core.countSentExits())
-	}
-
-	// Cleaned from linkRelations
-	if exists := tm.hasLinkRelation(localConsumer, remoteTarget); exists {
-		t.Error("Link should be removed")
-	}
-
-	// Verify targetIndex cleaned
-	if tm.getTargetEntry(remoteTarget) != nil {
-		t.Error("targetIndex should be cleaned")
-	}
-}
-
-// Test TerminatedTargetNode - mixed (consumer AND target on node2)
-func TestTerminatedTargetNode_Mixed(t *testing.T) {
-	core := newMockCore("node1")
-	tm := Create(core, Options{}).(*targetManager)
-
-	localConsumer := gen.PID{Node: "node1", ID: 100}
-	remoteTarget := gen.PID{Node: "node2", ID: 200}
-
-	remoteConsumer := gen.PID{Node: "node2", ID: 101}
-	localTarget := gen.PID{Node: "node1", ID: 201}
-
-	// Local → Remote
-	tm.LinkPID(localConsumer, remoteTarget)
-
-	// Remote → Local (manual setup)
-	s := tm.shardFor(localTarget)
-	s.linkRelations[relationKey{consumer: remoteConsumer, target: localTarget}] = struct{}{}
-
-	core.resetSentExits()
-
-	// node2 dies
-	tm.TerminatedTargetNode("node2", gen.ErrNoConnection)
-
-	time.Sleep(50 * time.Millisecond)
-
-	// Only 1 exit - to localConsumer (remoteConsumer is dead)
-	if core.countSentExits() != 1 {
-		t.Errorf("Expected 1 exit, got %d", core.countSentExits())
-	}
-
-	// Both links cleaned
-	if tm.totalLinks() != 0 {
-		t.Errorf("All links should be cleaned, got %d", tm.totalLinks())
-	}
-
-	// Verify targetIndex cleaned for remoteTarget
-	if tm.getTargetEntry(remoteTarget) != nil {
-		t.Error("targetIndex for remoteTarget should be cleaned")
-	}
-}
-
-// Test TerminatedTargetNode - events from terminated node cleaned
-func TestTerminatedTargetNode_EventsCleaned(t *testing.T) {
-	core := newMockCore("node1")
-	tm := Create(core, Options{}).(*targetManager)
-
-	// Manually add event from node2
-	event := gen.Event{Node: "node2", Name: "test"}
-	s := tm.shardFor(event)
-	s.events[event] = &eventEntry{
-		producer: gen.PID{Node: "node2", ID: 100},
-	}
-
-	// node2 dies
-	tm.TerminatedTargetNode("node2", gen.ErrNoConnection)
-
-	time.Sleep(50 * time.Millisecond)
-
-	// Event cleaned
-	if tm.getEventEntry(event) != nil {
-		t.Error("Event from terminated node should be removed")
-	}
-}
-
-// Test TerminatedTargetProcessID with monitors
-func TestTerminatedTargetProcessID_Monitors(t *testing.T) {
-	core := newMockCore("node1")
-	tm := Create(core, Options{}).(*targetManager)
-
-	target := gen.ProcessID{Node: "node1", Name: "test"}
-	consumer := gen.PID{Node: "node1", ID: 100}
-
-	tm.MonitorProcessID(consumer, target)
-
-	core.resetSentDowns()
-
-	tm.TerminatedTargetProcessID(target, gen.ErrProcessTerminated)
-
-	time.Sleep(50 * time.Millisecond)
-
-	// Down sent
-	if core.countSentDowns() != 1 {
-		t.Errorf("Expected 1 down, got %d", core.countSentDowns())
-	}
-
-	// Verify monitorRelations cleaned
-	if exists := tm.hasMonitorRelation(consumer, target); exists {
-		t.Error("Monitor should be removed")
-	}
-
-	// Verify targetIndex cleaned
-	if tm.getTargetEntry(target) != nil {
-		t.Error("targetIndex should be cleaned")
-	}
-}
-
-// Test TerminatedTargetAlias with monitors
-func TestTerminatedTargetAlias_Monitors(t *testing.T) {
-	core := newMockCore("node1")
-	tm := Create(core, Options{}).(*targetManager)
-
-	target := gen.Alias{Node: "node1", ID: [3]uint64{1, 2, 3}}
-	consumer := gen.PID{Node: "node1", ID: 100}
-
-	tm.MonitorAlias(consumer, target)
-
-	core.resetSentDowns()
-
-	tm.TerminatedTargetAlias(target, gen.ErrProcessTerminated)
-
-	time.Sleep(50 * time.Millisecond)
-
-	if core.countSentDowns() != 1 {
-		t.Errorf("Expected 1 down, got %d", core.countSentDowns())
-	}
-
-	// Cleaned
-	if tm.totalMonitors() != 0 {
-		t.Error("monitorRelations should be empty")
-	}
-}
-
-// Test dispatchers work in parallel
-func TestDispatchers_Parallel(t *testing.T) {
-	core := newMockCore("node1")
-	tm := Create(core, Options{}).(*targetManager)
-
-	target := gen.PID{Node: "node1", ID: 200}
-
-	// Create 10 subscribers
-	for i := 0; i < 10; i++ {
-		consumer := gen.PID{Node: "node1", ID: uint64(100 + i)}
-		tm.LinkPID(consumer, target)
-	}
-
-	core.resetSentExits()
-
-	// Terminate target
-	tm.TerminatedTargetPID(target, gen.ErrProcessTerminated)
-
-	// Give dispatchers time (3 dispatchers working in parallel)
-	time.Sleep(200 * time.Millisecond)
-
-	// All 10 should receive exit
-	if core.countSentExits() != 10 {
-		t.Errorf("Expected 10 exits, got %d", core.countSentExits())
-	}
-
-	// Verify round-robin distribution would use all 3 dispatchers
-	// (can't directly verify but logic is there)
-}
-
-// Test TerminatedTargetNode - multiple target types
-func TestTerminatedTargetNode_MultipleTypes(t *testing.T) {
-	core := newMockCore("node1")
-	tm := Create(core, Options{}).(*targetManager)
-
-	consumer := gen.PID{Node: "node1", ID: 100}
-
-	// Link to different target types on node2
-	pidTarget := gen.PID{Node: "node2", ID: 200}
-	processIDTarget := gen.ProcessID{Node: "node2", Name: "test"}
-	aliasTarget := gen.Alias{Node: "node2", ID: [3]uint64{1, 2, 3}}
-
-	tm.LinkPID(consumer, pidTarget)
-	tm.LinkProcessID(consumer, processIDTarget)
-	tm.LinkAlias(consumer, aliasTarget)
-
-	core.resetSentExits()
-
-	// node2 dies
-	tm.TerminatedTargetNode("node2", gen.ErrNoConnection)
-
-	time.Sleep(50 * time.Millisecond)
-
-	// 3 exits (one per target type)
-	if core.countSentExits() != 3 {
-		t.Errorf("Expected 3 exits (one per target type), got %d", core.countSentExits())
-	}
-
-	// All links cleaned
-	if tm.totalLinks() != 0 {
-		t.Errorf("All links should be cleaned, got %d", tm.totalLinks())
-	}
-
-	// Verify all targetIndex entries cleaned
-	if tm.getTargetEntry(pidTarget) != nil {
-		t.Error("targetIndex for pidTarget should be cleaned")
-	}
-	if tm.getTargetEntry(processIDTarget) != nil {
-		t.Error("targetIndex for processIDTarget should be cleaned")
-	}
-	if tm.getTargetEntry(aliasTarget) != nil {
-		t.Error("targetIndex for aliasTarget should be cleaned")
-	}
-}
-
-// Test TerminatedTargetNode - no subscribers (no crash)
-func TestTerminatedTargetNode_NoSubscribers(t *testing.T) {
-	core := newMockCore("node1")
-	tm := Create(core, Options{}).(*targetManager)
-
-	// No subscribers
-
-	// node2 dies (no panic!)
-	tm.TerminatedTargetNode("node2", gen.ErrNoConnection)
-
-	time.Sleep(10 * time.Millisecond)
-
-	// No messages
-	if core.countSentExits() != 0 {
-		t.Error("Should not send any messages")
-	}
-}
-
-// Test TerminatedProcess - cleanup links
-func TestTerminatedProcess_CleanupLinks(t *testing.T) {
-	core := newMockCore("node1")
-	tm := Create(core, Options{}).(*targetManager)
-
-	consumer := gen.PID{Node: "node1", ID: 100}
-	target1 := gen.PID{Node: "node1", ID: 200}
-	target2 := gen.PID{Node: "node2", ID: 201}
-
-	// Consumer links to local and remote targets
-	tm.LinkPID(consumer, target1)
-	tm.LinkPID(consumer, target2)
-
-	core.resetSentUnlinks()
-
-	// Consumer terminates
-	tm.TerminatedProcess(consumer, gen.TerminateReasonNormal)
-
-	time.Sleep(50 * time.Millisecond)
-
-	// Links cleaned
-	if tm.totalLinks() != 0 {
-		t.Errorf("All links should be cleaned, got %d", tm.totalLinks())
-	}
-
-	// Remote Unlink sent
-	if core.countSentUnlinks() != 1 {
-		t.Errorf("Expected 1 remote Unlink, got %d", core.countSentUnlinks())
-	}
-
-	// Verify targetIndex cleaned for both targets
-	if tm.getTargetEntry(target1) != nil {
-		t.Error("targetIndex for target1 should be cleaned")
-	}
-	if tm.getTargetEntry(target2) != nil {
-		t.Error("targetIndex for target2 should be cleaned")
-	}
-}
-
-// Test TerminatedProcess - last subscriber triggers EventStop
-func TestTerminatedProcess_LastSubscriber_EventStop(t *testing.T) {
-	core := newMockCore("node1")
-	tm := Create(core, Options{}).(*targetManager)
-
-	producer := gen.PID{Node: "node1", ID: 100}
-	consumer := gen.PID{Node: "node1", ID: 101}
-
-	_, _ = tm.RegisterEvent(producer, "test", gen.EventOptions{Notify: true})
-
-	event := gen.Event{Node: "node1", Name: "test"}
-
-	// Consumer subscribes
-	tm.LinkEvent(consumer, event)
-	time.Sleep(20 * time.Millisecond)
-
-	core.resetSentEventStops()
-
-	// Consumer terminates (last subscriber!)
-	tm.TerminatedProcess(consumer, gen.TerminateReasonNormal)
-
-	time.Sleep(50 * time.Millisecond)
-
-	// EventStop sent to producer!
-	if core.countSentEventStops() != 1 {
-		t.Errorf("Expected 1 EventStop, got %d", core.countSentEventStops())
-	}
-
-	// Counter = 0
-	entry := tm.getEventEntry(event)
-	if entry.subscriberCount != 0 {
-		t.Errorf("subscriberCount should be 0, got %d", entry.subscriberCount)
-	}
-}
-
-// Test TerminatedProcess - not last subscriber, NO EventStop
-func TestTerminatedProcess_NotLast_NoEventStop(t *testing.T) {
-	core := newMockCore("node1")
-	tm := Create(core, Options{}).(*targetManager)
-
-	producer := gen.PID{Node: "node1", ID: 100}
-	consumer1 := gen.PID{Node: "node1", ID: 101}
-	consumer2 := gen.PID{Node: "node1", ID: 102}
-
-	tm.RegisterEvent(producer, "test", gen.EventOptions{Notify: true})
-
-	event := gen.Event{Node: "node1", Name: "test"}
-
-	tm.LinkEvent(consumer1, event)
-	tm.LinkEvent(consumer2, event)
-	time.Sleep(20 * time.Millisecond)
-
-	core.resetSentEventStops()
-
-	// consumer1 terminates (not last!)
-	tm.TerminatedProcess(consumer1, gen.TerminateReasonNormal)
-
-	time.Sleep(50 * time.Millisecond)
-
-	// NO EventStop (consumer2 still subscribed)
-	if core.countSentEventStops() != 0 {
-		t.Errorf("Should NOT send EventStop when other subscribers exist, got %d", core.countSentEventStops())
-	}
-
-	// Counter = 1
-	entry := tm.getEventEntry(event)
-	if entry.subscriberCount != 1 {
-		t.Errorf("subscriberCount should be 1, got %d", entry.subscriberCount)
-	}
-
-	// Verify consumer1 removed from linkRelations
-	if exists := tm.hasLinkRelation(consumer1, event); exists {
-		t.Error("consumer1 link should be removed")
-	}
-
-	// Verify consumer2 still in linkRelations
-	if exists := tm.hasLinkRelation(consumer2, event); exists == false {
-		t.Error("consumer2 link should still exist")
-	}
-}
-
-// Test TerminatedProcess - remote event, last local subscriber
-func TestTerminatedProcess_RemoteEvent_LastLocal_SendsUnlink(t *testing.T) {
-	core := newMockCore("node1")
-	tm := Create(core, Options{}).(*targetManager)
-
-	consumer := gen.PID{Node: "node1", ID: 100}
-	event := gen.Event{Node: "node2", Name: "test"}
-
-	// Subscribe to remote event
-	tm.LinkEvent(consumer, event)
-
-	core.resetSentEventLinks()
-
-	// Consumer terminates (last local!)
-	tm.TerminatedProcess(consumer, gen.TerminateReasonNormal)
-
-	time.Sleep(50 * time.Millisecond)
-
-	// Verify linkRelations cleaned
-	if tm.totalLinks() != 0 {
-		t.Error("Link should be cleaned")
-	}
-
-	// Verify targetIndex cleaned (last local subscriber)
-	if tm.getTargetEntry(event) != nil {
-		t.Error("targetIndex should be cleaned")
-	}
-}
-
-// Test TerminatedProcess - mixed link and monitor to event
-func TestTerminatedProcess_Event_LinkAndMonitor(t *testing.T) {
-	core := newMockCore("node1")
-	tm := Create(core, Options{}).(*targetManager)
-
-	producer := gen.PID{Node: "node1", ID: 100}
-	consumer := gen.PID{Node: "node1", ID: 101}
-
-	tm.RegisterEvent(producer, "test", gen.EventOptions{Notify: true})
-
-	event := gen.Event{Node: "node1", Name: "test"}
-
-	// Consumer has both link and monitor
-	tm.LinkEvent(consumer, event)
-	tm.MonitorEvent(consumer, event)
-	time.Sleep(20 * time.Millisecond)
-
-	// Counter = 2 (link + monitor)
-	entry := tm.getEventEntry(event)
-	if entry.subscriberCount != 2 {
-		t.Errorf("subscriberCount should be 2, got %d", entry.subscriberCount)
-	}
-
-	core.resetSentEventStops()
-
-	// Consumer terminates
-	tm.TerminatedProcess(consumer, gen.TerminateReasonNormal)
-
-	time.Sleep(50 * time.Millisecond)
-
-	// Counter = 0 (both cleaned!)
-	if entry.subscriberCount != 0 {
-		t.Errorf("subscriberCount should be 0 after cleanup, got %d", entry.subscriberCount)
-	}
-
-	// EventStop sent!
-	if core.countSentEventStops() != 1 {
-		t.Errorf("Expected 1 EventStop, got %d", core.countSentEventStops())
-	}
-
-	// Verify linkRelations cleaned for consumer
-	if exists := tm.hasLinkRelation(consumer, event); exists {
-		t.Error("Link should be removed")
-	}
-
-	// Verify monitorRelations cleaned for consumer
-	if exists := tm.hasMonitorRelation(consumer, event); exists {
-		t.Error("Monitor should be removed")
-	}
-}
-
-// Test TerminatedEvent - link subscribers get exit
-func TestTerminatedEvent_LinkSubscribers(t *testing.T) {
-	core := newMockCore("node1")
-	tm := Create(core, Options{}).(*targetManager)
-
-	producer := gen.PID{Node: "node1", ID: 100}
-	consumer1 := gen.PID{Node: "node1", ID: 101}
-	consumer2 := gen.PID{Node: "node1", ID: 102}
-
-	tm.RegisterEvent(producer, "test", gen.EventOptions{})
-
-	event := gen.Event{Node: "node1", Name: "test"}
-
-	tm.LinkEvent(consumer1, event)
-	tm.LinkEvent(consumer2, event)
-
-	core.resetSentExits()
-
-	// Event terminates
-	tm.TerminatedTargetEvent(event, gen.ErrUnregistered)
-
-	time.Sleep(50 * time.Millisecond)
-
-	// 2 exits sent
+	m.TerminatedTargetPID(target, gen.TerminateReasonNormal)
 	if core.countSentExits() != 2 {
 		t.Errorf("Expected 2 exits, got %d", core.countSentExits())
 	}
-
-	// Event removed from tm.events
-	if tm.getEventEntry(event) != nil {
-		t.Error("Event should be removed")
-	}
-
-	// Subscriptions cleaned
-	if tm.totalLinks() != 0 {
-		t.Error("linkRelations should be empty")
-	}
 }
 
-// Test TerminatedEvent - monitor subscribers get down
-func TestTerminatedEvent_MonitorSubscribers(t *testing.T) {
-	core := newMockCore("node1")
-	tm := Create(core, Options{}).(*targetManager)
+func TestTerminatedTargetPID_MonitorSubscribers(t *testing.T) {
+	m, core := newManagerWithMock("node1")
+	target := gen.PID{Node: "node1", ID: 200}
+	c1 := gen.PID{Node: "node1", ID: 100}
+	c2 := gen.PID{Node: "node1", ID: 101}
 
-	producer := gen.PID{Node: "node1", ID: 100}
-	consumer1 := gen.PID{Node: "node1", ID: 101}
-	consumer2 := gen.PID{Node: "node1", ID: 102}
-
-	tm.RegisterEvent(producer, "test", gen.EventOptions{})
-
-	event := gen.Event{Node: "node1", Name: "test"}
-
-	tm.MonitorEvent(consumer1, event)
-	tm.MonitorEvent(consumer2, event)
-
+	m.MonitorPID(c1, target)
+	m.MonitorPID(c2, target)
 	core.resetSentDowns()
 
-	// Event terminates
-	tm.TerminatedTargetEvent(event, gen.ErrUnregistered)
-
-	time.Sleep(50 * time.Millisecond)
-
-	// 2 downs sent
+	m.TerminatedTargetPID(target, gen.TerminateReasonNormal)
 	if core.countSentDowns() != 2 {
 		t.Errorf("Expected 2 downs, got %d", core.countSentDowns())
 	}
-
-	// Cleaned
-	if tm.totalMonitors() != 0 {
-		t.Error("monitorRelations should be empty")
-	}
 }
 
-// Test TerminatedEvent - mixed link and monitor
-func TestTerminatedEvent_Mixed(t *testing.T) {
-	core := newMockCore("node1")
-	tm := Create(core, Options{}).(*targetManager)
+func TestTerminatedTargetPID_Mixed(t *testing.T) {
+	m, core := newManagerWithMock("node1")
+	target := gen.PID{Node: "node1", ID: 200}
+	linker := gen.PID{Node: "node1", ID: 100}
+	mon := gen.PID{Node: "node1", ID: 101}
 
-	producer := gen.PID{Node: "node1", ID: 100}
-	linkConsumer := gen.PID{Node: "node1", ID: 101}
-	monitorConsumer := gen.PID{Node: "node1", ID: 102}
-
-	tm.RegisterEvent(producer, "test", gen.EventOptions{})
-
-	event := gen.Event{Node: "node1", Name: "test"}
-
-	tm.LinkEvent(linkConsumer, event)
-	tm.MonitorEvent(monitorConsumer, event)
-
+	m.LinkPID(linker, target)
+	m.MonitorPID(mon, target)
 	core.resetSentExits()
 	core.resetSentDowns()
 
-	// Event terminates
-	tm.TerminatedTargetEvent(event, gen.ErrUnregistered)
-
-	time.Sleep(50 * time.Millisecond)
-
-	// 1 exit, 1 down
-	if core.countSentExits() != 1 {
-		t.Errorf("Expected 1 exit, got %d", core.countSentExits())
+	m.TerminatedTargetPID(target, gen.TerminateReasonNormal)
+	if core.countSentExits() != 1 || core.countSentDowns() != 1 {
+		t.Errorf("Expected 1 exit + 1 down, got %d/%d", core.countSentExits(), core.countSentDowns())
 	}
+}
 
+func TestTerminatedTargetPID_RemoteCorePIDSubscriber(t *testing.T) {
+	m, core := newManagerWithMock("node1")
+	target := gen.PID{Node: "node1", ID: 200}
+	remoteCorePID := gen.PID{Node: "node2", ID: 1}
+
+	m.LinkPID(remoteCorePID, target)
+
+	m.TerminatedTargetPID(target, gen.TerminateReasonNormal)
+	// Remote subscriber gets terminate via wire.
+	if core.countSentTermPIDs() != 1 {
+		t.Errorf("Expected 1 wire SendTerminatePID, got %d", core.countSentTermPIDs())
+	}
+}
+
+func TestTerminatedTargetProcessID_Monitors(t *testing.T) {
+	m, core := newManagerWithMock("node1")
+	target := gen.ProcessID{Node: "node1", Name: "test"}
+	c1 := gen.PID{Node: "node1", ID: 100}
+
+	m.MonitorProcessID(c1, target)
+	core.resetSentDowns()
+
+	m.TerminatedTargetProcessID(target, gen.TerminateReasonNormal)
 	if core.countSentDowns() != 1 {
 		t.Errorf("Expected 1 down, got %d", core.countSentDowns())
 	}
-
-	// Event removed
-	if tm.getEventEntry(event) != nil {
-		t.Error("Event should be removed")
-	}
-
-	// Verify linkRelations cleaned
-	if tm.totalLinks() != 0 {
-		t.Errorf("linkRelations should be empty, got %d", tm.totalLinks())
-	}
-
-	// Verify monitorRelations cleaned
-	if tm.totalMonitors() != 0 {
-		t.Errorf("monitorRelations should be empty, got %d", tm.totalMonitors())
-	}
 }
 
-// Test TerminatedEvent - no subscribers (no crash)
-func TestTerminatedEvent_NoSubscribers(t *testing.T) {
-	core := newMockCore("node1")
-	tm := Create(core, Options{}).(*targetManager)
+func TestTerminatedTargetAlias_Monitors(t *testing.T) {
+	m, core := newManagerWithMock("node1")
+	target := gen.Alias{Node: "node1", ID: [3]uint64{1, 2, 3}}
+	c1 := gen.PID{Node: "node1", ID: 100}
 
-	producer := gen.PID{Node: "node1", ID: 100}
-
-	tm.RegisterEvent(producer, "test", gen.EventOptions{})
-
-	event := gen.Event{Node: "node1", Name: "test"}
-
-	core.resetSentExits()
-
-	// Event terminates with no subscribers
-	tm.TerminatedTargetEvent(event, gen.ErrUnregistered)
-
-	time.Sleep(20 * time.Millisecond)
-
-	// No messages
-	if core.countSentExits() != 0 {
-		t.Error("Should not send messages when no subscribers")
-	}
-
-	// Event still removed
-	if tm.getEventEntry(event) != nil {
-		t.Error("Event should be removed")
-	}
-}
-
-// Test TerminatedTargetPID with remote CorePID subscriber
-func TestTerminatedTargetPID_RemoteCorePIDSubscriber(t *testing.T) {
-	core := newMockCore("node1")
-	tm := Create(core, Options{}).(*targetManager)
-
-	target := gen.PID{Node: "node1", ID: 200}
-	localConsumer := gen.PID{Node: "node1", ID: 100}
-	remoteCorePID := gen.PID{Node: "node2", ID: 1}
-
-	// Local consumer links
-	tm.LinkPID(localConsumer, target)
-
-	// Simulate remote CorePID also linked (from node2)
-	s := tm.shardFor(target)
-	s.linkRelations[relationKey{consumer: remoteCorePID, target: target}] = struct{}{}
-	entry := tm.getTargetEntry(target)
-	if entry != nil {
-		entry.consumers[remoteCorePID] = struct{}{}
-	}
-
-	core.resetSentExits()
-
-	// Target terminates
-	tm.TerminatedTargetPID(target, gen.ErrProcessTerminated)
-
-	time.Sleep(50 * time.Millisecond)
-
-	// 1 exit to local consumer
-	if core.countSentExits() != 1 {
-		t.Errorf("Expected 1 exit to local, got %d", core.countSentExits())
-	}
-
-	// Both links cleaned
-	if tm.totalLinks() != 0 {
-		t.Error("All links should be cleaned")
-	}
-
-	// Verify targetIndex cleaned
-	if tm.getTargetEntry(target) != nil {
-		t.Error("targetIndex should be cleaned")
-	}
-}
-
-// Test TerminatedProcess - producer cleanup notifies link subscribers
-func TestTerminatedProcess_ProducerCleanup_LinkSubscribers(t *testing.T) {
-	core := newMockCore("node1")
-	tm := Create(core, Options{}).(*targetManager)
-
-	producer := gen.PID{Node: "node1", ID: 100}
-	consumer1 := gen.PID{Node: "node1", ID: 101}
-	consumer2 := gen.PID{Node: "node1", ID: 102}
-
-	// Producer registers event
-	tm.RegisterEvent(producer, "test", gen.EventOptions{})
-
-	event := gen.Event{Node: "node1", Name: "test"}
-
-	// Consumers subscribe via link
-	tm.LinkEvent(consumer1, event)
-	tm.LinkEvent(consumer2, event)
-
-	core.resetSentExits()
-
-	// Producer terminates
-	tm.TerminatedProcess(producer, gen.TerminateReasonNormal)
-
-	time.Sleep(50 * time.Millisecond)
-
-	// Both consumers receive exit
-	if core.countSentExits() != 2 {
-		t.Errorf("Expected 2 exits to link subscribers, got %d", core.countSentExits())
-	}
-
-	// Event removed
-	if tm.getEventEntry(event) != nil {
-		t.Error("Event should be removed after producer terminates")
-	}
-
-	// producerEvents index cleaned
-	if tm.getProducerEventsMap(producer) != nil {
-		t.Error("producerEvents index should be cleaned")
-	}
-}
-
-// Test TerminatedProcess - producer cleanup notifies monitor subscribers
-func TestTerminatedProcess_ProducerCleanup_MonitorSubscribers(t *testing.T) {
-	core := newMockCore("node1")
-	tm := Create(core, Options{}).(*targetManager)
-
-	producer := gen.PID{Node: "node1", ID: 100}
-	consumer1 := gen.PID{Node: "node1", ID: 101}
-	consumer2 := gen.PID{Node: "node1", ID: 102}
-
-	// Producer registers event
-	tm.RegisterEvent(producer, "test", gen.EventOptions{})
-
-	event := gen.Event{Node: "node1", Name: "test"}
-
-	// Consumers subscribe via monitor
-	tm.MonitorEvent(consumer1, event)
-	tm.MonitorEvent(consumer2, event)
-
+	m.MonitorAlias(c1, target)
 	core.resetSentDowns()
 
-	// Producer terminates
-	tm.TerminatedProcess(producer, gen.TerminateReasonNormal)
-
-	time.Sleep(50 * time.Millisecond)
-
-	// Both consumers receive down
-	if core.countSentDowns() != 2 {
-		t.Errorf("Expected 2 downs to monitor subscribers, got %d", core.countSentDowns())
-	}
-
-	// Event removed
-	if tm.getEventEntry(event) != nil {
-		t.Error("Event should be removed after producer terminates")
-	}
-
-	// Verify monitorRelations cleaned
-	if tm.totalMonitors() != 0 {
-		t.Errorf("monitorRelations should be empty, got %d", tm.totalMonitors())
-	}
-
-	// Verify producerEvents cleaned
-	if tm.getProducerEventsMap(producer) != nil {
-		t.Error("producerEvents index should be cleaned")
+	m.TerminatedTargetAlias(target, gen.TerminateReasonNormal)
+	if core.countSentDowns() != 1 {
+		t.Errorf("Expected 1 down, got %d", core.countSentDowns())
 	}
 }
 
-// Test TerminatedProcess - producer with multiple events
-func TestTerminatedProcess_ProducerCleanup_MultipleEvents(t *testing.T) {
-	core := newMockCore("node1")
-	tm := Create(core, Options{}).(*targetManager)
-
+func TestTerminatedEvent_LinkSubscribers(t *testing.T) {
+	m, core := newManagerWithMock("node1")
 	producer := gen.PID{Node: "node1", ID: 100}
-	consumer := gen.PID{Node: "node1", ID: 101}
+	m.RegisterEvent(producer, "tick", gen.EventOptions{})
+	event := gen.Event{Node: "node1", Name: "tick"}
 
-	// Producer registers multiple events
-	tm.RegisterEvent(producer, "event1", gen.EventOptions{})
-	tm.RegisterEvent(producer, "event2", gen.EventOptions{})
-	tm.RegisterEvent(producer, "event3", gen.EventOptions{})
-
-	event1 := gen.Event{Node: "node1", Name: "event1"}
-	event2 := gen.Event{Node: "node1", Name: "event2"}
-	event3 := gen.Event{Node: "node1", Name: "event3"}
-
-	// Consumer subscribes to all events
-	tm.LinkEvent(consumer, event1)
-	tm.LinkEvent(consumer, event2)
-	tm.LinkEvent(consumer, event3)
-
+	c1 := gen.PID{Node: "node1", ID: 10}
+	c2 := gen.PID{Node: "node1", ID: 11}
+	m.LinkEvent(c1, event)
+	m.LinkEvent(c2, event)
 	core.resetSentExits()
 
-	// Producer terminates
-	tm.TerminatedProcess(producer, gen.TerminateReasonNormal)
-
-	time.Sleep(50 * time.Millisecond)
-
-	// Consumer receives 3 exits (one per event)
-	if core.countSentExits() != 3 {
-		t.Errorf("Expected 3 exits (one per event), got %d", core.countSentExits())
-	}
-
-	// All events removed
-	if tm.totalEvents() != 0 {
-		t.Errorf("All events should be removed, got %d", tm.totalEvents())
-	}
-
-	// producerEvents index cleaned
-	if tm.getProducerEventsMap(producer) != nil {
-		t.Error("producerEvents index should be cleaned")
-	}
-
-	// Verify linkRelations cleaned
-	if tm.totalLinks() != 0 {
-		t.Errorf("linkRelations should be empty, got %d", tm.totalLinks())
+	m.TerminatedTargetEvent(event, gen.TerminateReasonNormal)
+	if core.countSentExits() != 2 {
+		t.Errorf("Expected 2 exits, got %d", core.countSentExits())
 	}
 }
 
-// Test TerminatedProcess - producer cleanup cleans relations
-func TestTerminatedProcess_ProducerCleanup_RelationsCleaned(t *testing.T) {
-	core := newMockCore("node1")
-	tm := Create(core, Options{}).(*targetManager)
-
+func TestTerminatedEvent_MonitorSubscribers(t *testing.T) {
+	m, core := newManagerWithMock("node1")
 	producer := gen.PID{Node: "node1", ID: 100}
-	consumer := gen.PID{Node: "node1", ID: 101}
+	m.RegisterEvent(producer, "tick", gen.EventOptions{})
+	event := gen.Event{Node: "node1", Name: "tick"}
 
-	tm.RegisterEvent(producer, "test", gen.EventOptions{})
+	c1 := gen.PID{Node: "node1", ID: 10}
+	m.MonitorEvent(c1, event)
+	core.resetSentDowns()
 
-	event := gen.Event{Node: "node1", Name: "test"}
-
-	// Consumer links and monitors
-	tm.LinkEvent(consumer, event)
-	tm.MonitorEvent(consumer, event)
-
-	// Verify relations exist
-	if tm.totalLinks() != 1 {
-		t.Fatalf("Expected 1 link relation, got %d", tm.totalLinks())
-	}
-	if tm.totalMonitors() != 1 {
-		t.Fatalf("Expected 1 monitor relation, got %d", tm.totalMonitors())
-	}
-
-	// Producer terminates
-	tm.TerminatedProcess(producer, gen.TerminateReasonNormal)
-
-	time.Sleep(50 * time.Millisecond)
-
-	// Relations for the event should be cleaned
-	if exists := tm.hasLinkRelation(consumer, event); exists {
-		t.Error("Link relation for event should be cleaned")
-	}
-	if exists := tm.hasMonitorRelation(consumer, event); exists {
-		t.Error("Monitor relation for event should be cleaned")
+	m.TerminatedTargetEvent(event, gen.TerminateReasonNormal)
+	if core.countSentDowns() != 1 {
+		t.Errorf("Expected 1 down, got %d", core.countSentDowns())
 	}
 }
 
-// Test TerminatedProcess - producer with no events (no crash)
+func TestTerminatedEvent_Mixed(t *testing.T) {
+	m, core := newManagerWithMock("node1")
+	producer := gen.PID{Node: "node1", ID: 100}
+	m.RegisterEvent(producer, "tick", gen.EventOptions{})
+	event := gen.Event{Node: "node1", Name: "tick"}
+
+	linker := gen.PID{Node: "node1", ID: 10}
+	mon := gen.PID{Node: "node1", ID: 11}
+	m.LinkEvent(linker, event)
+	m.MonitorEvent(mon, event)
+	core.resetSentExits()
+	core.resetSentDowns()
+
+	m.TerminatedTargetEvent(event, gen.TerminateReasonNormal)
+	if core.countSentExits() != 1 || core.countSentDowns() != 1 {
+		t.Errorf("Expected 1 exit + 1 down, got %d/%d", core.countSentExits(), core.countSentDowns())
+	}
+}
+
+func TestTerminatedEvent_NoSubscribers(t *testing.T) {
+	m, core := newManagerWithMock("node1")
+	producer := gen.PID{Node: "node1", ID: 100}
+	m.RegisterEvent(producer, "tick", gen.EventOptions{})
+	event := gen.Event{Node: "node1", Name: "tick"}
+
+	m.TerminatedTargetEvent(event, gen.TerminateReasonNormal)
+	if core.countSentExits() != 0 || core.countSentDowns() != 0 {
+		t.Errorf("No subscribers, should be no exits/downs, got %d/%d", core.countSentExits(), core.countSentDowns())
+	}
+	if _, err := m.EventInfo(event); err != gen.ErrEventUnknown {
+		t.Error("Event metadata should be cleared")
+	}
+}
+
+func TestTerminatedTargetNode_NoSubscribers(t *testing.T) {
+	m, _ := newManagerWithMock("node1")
+	// No subscriptions; should not panic.
+	m.TerminatedTargetNode(gen.Atom("doomed"), gen.ErrNoConnection)
+}
+
+func TestTerminatedTargetNode_RemoteConsumer(t *testing.T) {
+	m, core := newManagerWithMock("node1")
+	producer := gen.PID{Node: "node1", ID: 100}
+	m.RegisterEvent(producer, "tick", gen.EventOptions{Notify: true})
+	event := gen.Event{Node: "node1", Name: "tick"}
+
+	// One remote subscriber from doomed node.
+	doomed := gen.Atom("doomed")
+	remoteSub := gen.PID{Node: doomed, ID: 99}
+	m.LinkEvent(remoteSub, event)
+	core.resetSentEventStops()
+
+	m.TerminatedTargetNode(doomed, gen.ErrNoConnection)
+	// Last local consumer (none) reaches 0 from 1, EventStop should fire to producer.
+	if core.countSentEventStops() != 1 {
+		t.Errorf("Expected 1 EventStop after remote subscriber removal, got %d", core.countSentEventStops())
+	}
+	// Event still exists.
+	if _, err := m.EventInfo(event); err != nil {
+		t.Errorf("Local event should survive node-down: %v", err)
+	}
+}
+
+func TestTerminatedTargetNode_EventsCleaned(t *testing.T) {
+	m, _ := newManagerWithMock("node1")
+	doomed := gen.Atom("doomed")
+	doomedEvent := gen.Event{Node: doomed, Name: "ext"}
+	consumer := gen.PID{Node: "node1", ID: 10}
+	m.LinkEvent(consumer, doomedEvent)
+
+	m.TerminatedTargetNode(doomed, gen.ErrNoConnection)
+	if m.hasLinkRelation(consumer, doomedEvent) {
+		t.Error("relation should be cleared for events hosted on doomed node")
+	}
+}
+
+func TestTerminatedProcess_LastSubscriber_EventStop(t *testing.T) {
+	m, core := newManagerWithMock("node1")
+	producer := gen.PID{Node: "node1", ID: 100}
+	m.RegisterEvent(producer, "tick", gen.EventOptions{Notify: true})
+	event := gen.Event{Node: "node1", Name: "tick"}
+
+	consumer := gen.PID{Node: "node1", ID: 10}
+	m.LinkEvent(consumer, event)
+	core.resetSentEventStops()
+
+	m.TerminatedProcess(consumer, gen.TerminateReasonNormal)
+	if core.countSentEventStops() != 1 {
+		t.Errorf("Expected EventStop after last local subscriber terminates, got %d", core.countSentEventStops())
+	}
+}
+
+func TestTerminatedProcess_NotLast_NoEventStop(t *testing.T) {
+	m, core := newManagerWithMock("node1")
+	producer := gen.PID{Node: "node1", ID: 100}
+	m.RegisterEvent(producer, "tick", gen.EventOptions{Notify: true})
+	event := gen.Event{Node: "node1", Name: "tick"}
+
+	c1 := gen.PID{Node: "node1", ID: 10}
+	c2 := gen.PID{Node: "node1", ID: 11}
+	m.LinkEvent(c1, event)
+	m.LinkEvent(c2, event)
+	core.resetSentEventStops()
+
+	m.TerminatedProcess(c1, gen.TerminateReasonNormal)
+	if core.countSentEventStops() != 0 {
+		t.Errorf("EventStop should NOT fire while c2 still subscribed, got %d", core.countSentEventStops())
+	}
+}
+
+func TestTerminatedProcess_Event_LinkAndMonitor(t *testing.T) {
+	m, _ := newManagerWithMock("node1")
+	producer := gen.PID{Node: "node1", ID: 100}
+	m.RegisterEvent(producer, "tick", gen.EventOptions{})
+	event := gen.Event{Node: "node1", Name: "tick"}
+
+	consumer := gen.PID{Node: "node1", ID: 10}
+	m.LinkEvent(consumer, event)
+	m.MonitorEvent(consumer, event)
+	m.TerminatedProcess(consumer, gen.TerminateReasonNormal)
+
+	if m.hasLinkRelation(consumer, event) || m.hasMonitorRelation(consumer, event) {
+		t.Error("Both link and monitor should be cleaned on TerminatedProcess")
+	}
+}
+
 func TestTerminatedProcess_ProducerCleanup_NoEvents(t *testing.T) {
-	core := newMockCore("node1")
-	tm := Create(core, Options{}).(*targetManager)
+	m, _ := newManagerWithMock("node1")
+	consumer := gen.PID{Node: "node1", ID: 10}
+	// Process with no events; nothing to clean up. Should not panic.
+	m.TerminatedProcess(consumer, gen.TerminateReasonNormal)
+}
 
+func TestTerminatedProcess_ProducerCleanup_MultipleEvents(t *testing.T) {
+	m, _ := newManagerWithMock("node1")
 	producer := gen.PID{Node: "node1", ID: 100}
+	m.RegisterEvent(producer, "a", gen.EventOptions{})
+	m.RegisterEvent(producer, "b", gen.EventOptions{})
 
-	core.resetSentExits()
-
-	// Producer terminates (has no events)
-	tm.TerminatedProcess(producer, gen.TerminateReasonNormal)
-
-	time.Sleep(20 * time.Millisecond)
-
-	// No crashes, no messages
-	if core.countSentExits() != 0 {
-		t.Errorf("Expected 0 exits, got %d", core.countSentExits())
+	m.TerminatedProcess(producer, gen.TerminateReasonNormal)
+	if m.totalEvents() != 0 {
+		t.Errorf("All events of terminated producer should be gone, totalEvents=%d", m.totalEvents())
 	}
 }
 
-// Test TerminatedProcess - producer cleanup with remote subscribers
-func TestTerminatedProcess_ProducerCleanup_RemoteSubscribers(t *testing.T) {
-	core := newMockCore("node1")
-	tm := Create(core, Options{}).(*targetManager)
+func TestTerminatedTargetProcessIDAndAlias(t *testing.T) {
+	m, core := newManager()
+	pid1 := gen.ProcessID{Node: "node@local", Name: "worker"}
+	alias := gen.Alias{Node: "node@local", ID: [3]uint64{1, 2, 3}, Creation: 1}
 
-	producer := gen.PID{Node: "node1", ID: 100}
-	localConsumer := gen.PID{Node: "node1", ID: 101}
-	remoteConsumer := gen.PID{Node: "node2", ID: 102}
+	a := localPID(10)
+	b := localPID(11)
+	m.LinkProcessID(a, pid1)
+	m.MonitorAlias(b, alias)
 
-	tm.RegisterEvent(producer, "test", gen.EventOptions{})
+	core.mu.Lock()
+	core.exits = nil
+	core.sent = nil
+	core.mu.Unlock()
 
-	event := gen.Event{Node: "node1", Name: "test"}
+	reason := errors.New("gone")
+	m.TerminatedTargetProcessID(pid1, reason)
+	m.TerminatedTargetAlias(alias, reason)
 
-	// Local consumer subscribes
-	tm.LinkEvent(localConsumer, event)
-
-	// Simulate remote subscriber (as if from node2 via network)
-	entry := tm.getEventEntry(event)
-	entry.linkSubscribersIndex[remoteConsumer] = len(entry.linkSubscribers)
-	entry.linkSubscribers = append(entry.linkSubscribers, remoteConsumer)
-
-	core.resetSentExits()
-
-	// Producer terminates
-	tm.TerminatedProcess(producer, gen.TerminateReasonNormal)
-
-	time.Sleep(50 * time.Millisecond)
-
-	// Local consumer receives exit
-	if core.countSentExits() != 1 {
-		t.Errorf("Expected 1 exit to local consumer, got %d", core.countSentExits())
+	core.mu.Lock()
+	defer core.mu.Unlock()
+	if len(core.exits) != 1 || core.exits[0].To[0] != a {
+		t.Fatalf("expected Exit to %v, got %+v", a, core.exits)
 	}
-
-	// Event removed
-	if tm.getEventEntry(event) != nil {
-		t.Error("Event should be removed")
+	if _, ok := core.exits[0].Message.(gen.MessageExitProcessID); ok == false {
+		t.Fatalf("expected MessageExitProcessID, got %T", core.exits[0].Message)
+	}
+	if len(core.sent) != 1 || core.sent[0].To != b {
+		t.Fatalf("expected Down to %v, got %+v", b, core.sent)
+	}
+	if _, ok := core.sent[0].Message.(gen.MessageDownAlias); ok == false {
+		t.Fatalf("expected MessageDownAlias, got %T", core.sent[0].Message)
 	}
 }

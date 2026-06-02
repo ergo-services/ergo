@@ -1547,7 +1547,7 @@ func (n *node) MakeTraceID() gen.Tracing {
 func (n *node) MakeRef() gen.Ref {
 	var ref gen.Ref
 	ref.Node = n.name
-	ref.Creation = n.creation
+	ref.Creation = atomic.LoadInt64(&n.creation)
 	id := atomic.AddUint64(&n.uniqID, 1)
 	ref.ID[0] = id & ((2 << 17) - 1)
 	ref.ID[1] = id >> 46
@@ -1578,7 +1578,7 @@ func (n *node) LogLevel() gen.LogLevel {
 }
 
 func (n *node) Creation() int64 {
-	return n.creation
+	return atomic.LoadInt64(&n.creation)
 }
 
 func (n *node) sendExitMessage(from gen.PID, to gen.PID, message any) error {

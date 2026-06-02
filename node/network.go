@@ -1149,7 +1149,6 @@ func (n *network) stop() error {
 	}
 
 	n.registrar.Terminate()
-	n.registrar = nil
 
 	// stop acceptors
 	for _, a := range n.acceptors {

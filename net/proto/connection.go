@@ -127,7 +127,7 @@ type connection struct {
 	decompressedOrigRecv    atomic.Uint64 // bytes after decompression (original)
 
 	order      uint32
-	terminated bool
+	terminated atomic.Bool
 	wg         sync.WaitGroup
 }
 
@@ -142,7 +142,7 @@ type fragmentAssembly struct {
 type pool_item struct {
 	connection net.Conn
 	fl         lib.Flusher
-	timer      *time.Timer
+	timer      atomic.Pointer[time.Timer]
 	handling   atomic.Bool
 
 	// skew measurement (clock offset relative to peer, nanoseconds).
@@ -276,18 +276,20 @@ func (c *connection) pushSkew(pi *pool_item, skew int64) {
 	pi.skewValue.Store(medianInt64(tmp[:n]))
 
 	// schedule next ping only after receiving response
-	if c.terminated {
+	if c.terminated.Load() {
 		return
 	}
 	interval := 5 * time.Second
 	if n < skewRingSize {
 		interval = 100 * time.Millisecond
 	}
-	pi.timer.Reset(interval)
+	if t := pi.timer.Load(); t != nil {
+		t.Reset(interval)
+	}
 }
 
 func (c *connection) skewTick(pi *pool_item) {
-	if c.terminated {
+	if c.terminated.Load() {
 		return
 	}
 	c.sendSkewPing(pi)
@@ -1689,7 +1691,7 @@ func (c *connection) Join(conn net.Conn, id string, dial gen.NetworkDial, tail [
 		return fmt.Errorf("connection id mismatch")
 	}
 
-	if c.terminated {
+	if c.terminated.Load() {
 		return fmt.Errorf("connection terminated")
 	}
 
@@ -1730,7 +1732,7 @@ func (c *connection) Join(conn net.Conn, id string, dial gen.NetworkDial, tail [
 				pool_dsn[i], pool_dsn[j] = pool_dsn[j], pool_dsn[i]
 			})
 			for _, dsn := range pool_dsn {
-				if c.terminated {
+				if c.terminated.Load() {
 					c.wg.Done()
 					return
 				}
@@ -1741,8 +1743,8 @@ func (c *connection) Join(conn net.Conn, id string, dial gen.NetworkDial, tail [
 				}
 				pi.connection = nc
 				nc.SetWriteDeadline(time.Time{})
-				if pi.timer != nil {
-					pi.timer.Stop()
+				if old := pi.timer.Load(); old != nil {
+					old.Stop()
 				}
 				pi.fl.Reset(nc)
 				tail = t
@@ -1753,15 +1755,15 @@ func (c *connection) Join(conn net.Conn, id string, dial gen.NetworkDial, tail [
 					pi.skewIdx = 0
 					pi.skewCount.Store(0)
 					pi.skewValue.Store(0)
-					pi.timer = time.AfterFunc(100*time.Millisecond, func() {
+					pi.timer.Store(time.AfterFunc(100*time.Millisecond, func() {
 						c.skewTick(pi)
-					})
+					}))
 				}
 
 				goto re
 			}
 		}
-		if c.terminated {
+		if c.terminated.Load() {
 			c.wg.Done()
 			return
 		}
@@ -1789,13 +1791,13 @@ func (c *connection) Join(conn net.Conn, id string, dial gen.NetworkDial, tail [
 }
 
 func (c *connection) Terminate(reason error) {
-	c.terminated = true
+	c.terminated.Store(true)
 
 	c.pool_mutex.Lock()
 	defer c.pool_mutex.Unlock()
 	for _, pi := range c.pool {
-		if pi.timer != nil {
-			pi.timer.Stop()
+		if t := pi.timer.Load(); t != nil {
+			t.Stop()
 		}
 		pi.connection.Close()
 	}
@@ -1811,9 +1813,9 @@ func (c *connection) serve(pi *pool_item, tail []byte) {
 
 	// start skew measurement now that serve() is running
 	if c.clockSkew {
-		pi.timer = time.AfterFunc(100*time.Millisecond, func() {
+		pi.timer.Store(time.AfterFunc(100*time.Millisecond, func() {
 			c.skewTick(pi)
-		})
+		}))
 	}
 
 	recvN := 0

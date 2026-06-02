@@ -75,6 +75,7 @@ type CoreTargetManager interface {
 	Name() Atom
 	PID() PID
 	Log() Log
+	MakeRef() Ref
 	RouteSendPID(from PID, to PID, options MessageOptions, message any) error
 	RouteSendExitMessages(from PID, to []PID, message any) error
 	RouteSendEventMessages(from PID, to []PID, options MessageOptions, message MessageEvent) error

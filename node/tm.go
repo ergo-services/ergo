@@ -29,6 +29,11 @@ func (b *tmBridge) Log() gen.Log {
 	return b.node.log
 }
 
+// MakeRef returns a unique reference within the node
+func (b *tmBridge) MakeRef() gen.Ref {
+	return b.node.MakeRef()
+}
+
 // RouteSendPID sends message to PID
 func (b *tmBridge) RouteSendPID(from gen.PID, to gen.PID, options gen.MessageOptions, message any) error {
 	return b.node.RouteSendPID(from, to, options, message)

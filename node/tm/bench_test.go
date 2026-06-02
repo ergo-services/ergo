@@ -1,7 +1,7 @@
 package tm
 
 import (
-	"fmt"
+	"net"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -10,371 +10,259 @@ import (
 	"ergo.services/ergo/gen"
 )
 
-func benchTM(nodeName string) (*targetManager, *mockCore) {
-	core := newMockCore(nodeName)
-	tm := Create(core, Options{}).(*targetManager)
-	return tm, core
+// benchCore: no-op routing + latency-bearing connection. Used to keep
+// bench cost dominated by tm internals and by simulated wire RTT, not by
+// recording bookkeeping.
+type benchCore struct {
+	name    gen.Atom
+	pid     gen.PID
+	latency atomic.Int64 // ns; mutable so setup can prime with zero RTT
 }
 
-func makePID(node string, id uint64) gen.PID {
-	return gen.PID{Node: gen.Atom(node), ID: id, Creation: 1}
+func newBenchCore(latency time.Duration) *benchCore {
+	c := &benchCore{
+		name: "node1",
+		pid:  gen.PID{Node: "node1", ID: 1, Creation: 100},
+	}
+	c.latency.Store(int64(latency))
+	return c
 }
 
-func makeEvent(node string, name string) gen.Event {
-	return gen.Event{Node: gen.Atom(node), Name: gen.Atom(name)}
+func (c *benchCore) setLatency(d time.Duration) { c.latency.Store(int64(d)) }
+
+func (c *benchCore) Name() gen.Atom { return c.name }
+func (c *benchCore) PID() gen.PID   { return c.pid }
+func (c *benchCore) Log() gen.Log   { return nil }
+func (c *benchCore) MakeRef() gen.Ref {
+	return gen.Ref{Node: c.name, Creation: c.pid.Creation}
+}
+func (c *benchCore) RouteSendPID(gen.PID, gen.PID, gen.MessageOptions, any) error {
+	return nil
+}
+func (c *benchCore) RouteSendExitMessages(gen.PID, []gen.PID, any) error { return nil }
+func (c *benchCore) RouteSendEventMessages(gen.PID, []gen.PID, gen.MessageOptions, gen.MessageEvent) error {
+	return nil
+}
+func (c *benchCore) GetConnection(node gen.Atom) (gen.Connection, error) {
+	return &benchConn{latency: time.Duration(c.latency.Load())}, nil
 }
 
-func BenchmarkLinkPID_Local(b *testing.B) {
-	tm, _ := benchTM("node1")
-	target := makePID("node1", 100)
+type benchConn struct {
+	latency time.Duration
+}
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		consumer := makePID("node1", uint64(i+1000))
-		tm.LinkPID(consumer, target)
+func (c *benchConn) sleep() {
+	if c.latency > 0 {
+		time.Sleep(c.latency)
 	}
 }
 
-func BenchmarkMonitorPID_Local(b *testing.B) {
-	tm, _ := benchTM("node1")
-	target := makePID("node1", 100)
+func (c *benchConn) Node() gen.RemoteNode { return nil }
+func (c *benchConn) SendPID(gen.PID, gen.PID, gen.MessageOptions, any) error {
+	return nil
+}
+func (c *benchConn) SendProcessID(gen.PID, gen.ProcessID, gen.MessageOptions, any) error {
+	return nil
+}
+func (c *benchConn) SendAlias(gen.PID, gen.Alias, gen.MessageOptions, any) error {
+	return nil
+}
+func (c *benchConn) SendEvent(gen.PID, gen.MessageOptions, gen.MessageEvent) error {
+	return nil
+}
+func (c *benchConn) SendExit(gen.PID, gen.PID, error) error { return nil }
+func (c *benchConn) SendResponse(gen.PID, gen.PID, gen.MessageOptions, any) error {
+	return nil
+}
+func (c *benchConn) SendResponseError(gen.PID, gen.PID, gen.MessageOptions, error) error {
+	return nil
+}
+func (c *benchConn) SendTerminatePID(gen.PID, error) error             { return nil }
+func (c *benchConn) SendTerminateProcessID(gen.ProcessID, error) error { return nil }
+func (c *benchConn) SendTerminateAlias(gen.Alias, error) error         { return nil }
+func (c *benchConn) SendTerminateEvent(gen.Event, error) error         { return nil }
+func (c *benchConn) CallPID(gen.PID, gen.PID, gen.MessageOptions, any) error {
+	return nil
+}
+func (c *benchConn) CallProcessID(gen.PID, gen.ProcessID, gen.MessageOptions, any) error {
+	return nil
+}
+func (c *benchConn) CallAlias(gen.PID, gen.Alias, gen.MessageOptions, any) error {
+	return nil
+}
+func (c *benchConn) LinkPID(gen.PID, gen.PID) error  { c.sleep(); return nil }
+func (c *benchConn) UnlinkPID(gen.PID, gen.PID) error { c.sleep(); return nil }
+func (c *benchConn) LinkProcessID(gen.PID, gen.ProcessID) error  { c.sleep(); return nil }
+func (c *benchConn) UnlinkProcessID(gen.PID, gen.ProcessID) error { c.sleep(); return nil }
+func (c *benchConn) LinkAlias(gen.PID, gen.Alias) error  { c.sleep(); return nil }
+func (c *benchConn) UnlinkAlias(gen.PID, gen.Alias) error { c.sleep(); return nil }
+func (c *benchConn) MonitorPID(gen.PID, gen.PID) error  { c.sleep(); return nil }
+func (c *benchConn) DemonitorPID(gen.PID, gen.PID) error { c.sleep(); return nil }
+func (c *benchConn) MonitorProcessID(gen.PID, gen.ProcessID) error  { c.sleep(); return nil }
+func (c *benchConn) DemonitorProcessID(gen.PID, gen.ProcessID) error { c.sleep(); return nil }
+func (c *benchConn) MonitorAlias(gen.PID, gen.Alias) error  { c.sleep(); return nil }
+func (c *benchConn) DemonitorAlias(gen.PID, gen.Alias) error { c.sleep(); return nil }
+func (c *benchConn) LinkEvent(gen.PID, gen.Event) ([]gen.MessageEvent, error) {
+	c.sleep()
+	return nil, nil
+}
+func (c *benchConn) UnlinkEvent(gen.PID, gen.Event) error { c.sleep(); return nil }
+func (c *benchConn) MonitorEvent(gen.PID, gen.Event) ([]gen.MessageEvent, error) {
+	c.sleep()
+	return nil, nil
+}
+func (c *benchConn) DemonitorEvent(gen.PID, gen.Event) error { c.sleep(); return nil }
+func (c *benchConn) RemoteSpawn(gen.Atom, gen.ProcessOptionsExtra) (gen.PID, error) {
+	return gen.PID{}, nil
+}
+func (c *benchConn) Join(net.Conn, string, gen.NetworkDial, []byte) error { return nil }
+func (c *benchConn) Terminate(error)                                      {}
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		consumer := makePID("node1", uint64(i+1000))
-		tm.MonitorPID(consumer, target)
-	}
+// Piggyback subscription benchmarks. After the first wire-LinkPID fires
+// and establishes wirePresence.state == wirePiggyback, subsequent
+// LinkPID calls take the piggyback path under wp.mu.
+
+func BenchmarkPiggyback_OneTarget_10KSubs(b *testing.B) {
+	runPiggybackBench(b, 1, 10000, 0)
 }
 
-func BenchmarkPublishEvent_NoSubscribers(b *testing.B) {
-	tm, _ := benchTM("node1")
-	producer := makePID("node1", 10)
-	token, _ := tm.RegisterEvent(producer, "bench_event", gen.EventOptions{})
-	event := makeEvent("node1", "bench_event")
-
-	msg := gen.MessageEvent{Event: event}
-	opts := gen.MessageOptions{}
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		tm.PublishEvent(producer, token, opts, msg)
-	}
+func BenchmarkPiggyback_ManyTargets_10KSubs(b *testing.B) {
+	runPiggybackBench(b, 10000, 10000, 0)
 }
 
-func BenchmarkPublishEvent_10Subscribers(b *testing.B) {
-	tm, _ := benchTM("node1")
-	producer := makePID("node1", 10)
-	token, _ := tm.RegisterEvent(producer, "bench_event", gen.EventOptions{})
-	event := makeEvent("node1", "bench_event")
-
-	for i := 0; i < 10; i++ {
-		consumer := makePID("node1", uint64(i+100))
-		tm.LinkEvent(consumer, event)
-	}
-
-	msg := gen.MessageEvent{Event: event}
-	opts := gen.MessageOptions{}
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		tm.PublishEvent(producer, token, opts, msg)
-	}
+func BenchmarkPiggyback_OneTarget_1KSubs(b *testing.B) {
+	runPiggybackBench(b, 1, 1000, 0)
 }
 
-func BenchmarkPublishEvent_100Subscribers(b *testing.B) {
-	tm, _ := benchTM("node1")
-	producer := makePID("node1", 10)
-	token, _ := tm.RegisterEvent(producer, "bench_event", gen.EventOptions{})
-	event := makeEvent("node1", "bench_event")
+// RTT-bearing variants. The wire-call (first subscriber per target only)
+// pays the simulated round-trip; subsequent subscribers piggyback.
 
-	for i := 0; i < 100; i++ {
-		consumer := makePID("node1", uint64(i+100))
-		tm.LinkEvent(consumer, event)
-	}
-
-	msg := gen.MessageEvent{Event: event}
-	opts := gen.MessageOptions{}
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		tm.PublishEvent(producer, token, opts, msg)
-	}
+func BenchmarkPiggyback_OneTarget_10KSubs_RTT100us(b *testing.B) {
+	runPiggybackBench(b, 1, 10000, 100*time.Microsecond)
+}
+func BenchmarkPiggyback_ManyTargets_10KSubs_RTT100us(b *testing.B) {
+	runPiggybackBench(b, 10000, 10000, 100*time.Microsecond)
+}
+func BenchmarkPiggyback_ManyTargets_10KSubs_RTT1ms(b *testing.B) {
+	runPiggybackBench(b, 10000, 10000, 1*time.Millisecond)
+}
+func BenchmarkPiggyback_ManyTargets_10KSubs_RTT10ms(b *testing.B) {
+	runPiggybackBench(b, 10000, 10000, 10*time.Millisecond)
 }
 
-func BenchmarkHasLink(b *testing.B) {
-	tm, _ := benchTM("node1")
-	consumer := makePID("node1", 1)
-	target := makePID("node1", 100)
-	tm.LinkPID(consumer, target)
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		tm.HasLink(consumer, target)
-	}
-}
-
-func BenchmarkLinkPID_Parallel(b *testing.B) {
-	tm, _ := benchTM("node1")
-
-	b.RunParallel(func(pb *testing.PB) {
-		id := uint64(0)
-		for pb.Next() {
-			id++
-			consumer := makePID("node1", id+10000)
-			target := makePID("node1", id)
-			tm.LinkPID(consumer, target)
-		}
-	})
-}
-
-func BenchmarkPublishEvent_Parallel(b *testing.B) {
-	tm, _ := benchTM("node1")
-	producer := makePID("node1", 10)
-	token, _ := tm.RegisterEvent(producer, "bench_event", gen.EventOptions{})
-	event := makeEvent("node1", "bench_event")
-
-	for i := 0; i < 10; i++ {
-		consumer := makePID("node1", uint64(i+100))
-		tm.LinkEvent(consumer, event)
-	}
-
-	msg := gen.MessageEvent{Event: event}
-	opts := gen.MessageOptions{}
-
-	b.ResetTimer()
-	b.RunParallel(func(pb *testing.PB) {
-		for pb.Next() {
-			tm.PublishEvent(producer, token, opts, msg)
-		}
-	})
-}
-
-func BenchmarkContention_PublishWhileMonitor(b *testing.B) {
-	tm, _ := benchTM("node1")
-
-	type eventInfo struct {
-		producer gen.PID
-		token    gen.Ref
-		event    gen.Event
-	}
-	var events []eventInfo
-
-	for e := 0; e < 10; e++ {
-		producer := makePID("node1", uint64(e+1))
-		name := gen.Atom(fmt.Sprintf("event_%d", e))
-		token, _ := tm.RegisterEvent(producer, name, gen.EventOptions{})
-		event := gen.Event{Node: "node1", Name: name}
-
-		for s := 0; s < 10; s++ {
-			consumer := makePID("node1", uint64(e*100+s+1000))
-			tm.LinkEvent(consumer, event)
-		}
-
-		events = append(events, eventInfo{producer: producer, token: token, event: event})
-	}
-
-	b.ResetTimer()
-	b.RunParallel(func(pb *testing.PB) {
-		id := uint64(0)
-		for pb.Next() {
-			id++
-			if id%2 == 0 {
-				ei := events[id%uint64(len(events))]
-				msg := gen.MessageEvent{Event: ei.event}
-				tm.PublishEvent(ei.producer, ei.token, gen.MessageOptions{}, msg)
-			} else {
-				consumer := makePID("node1", id+50000)
-				target := makePID("node1", id)
-				tm.MonitorPID(consumer, target)
-			}
-		}
-	})
-}
-
-func BenchmarkTerminatedTargetPID(b *testing.B) {
+func runPiggybackBench(b *testing.B, targets, subscribers int, rtt time.Duration) {
+	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
 		b.StopTimer()
-		tm, _ := benchTM("node1")
-		target := makePID("node1", 100)
+		// Setup runs with zero latency: pre-warming 10K targets at 100us
+		// each would dominate wallclock and is not what we are measuring.
+		core := newBenchCore(0)
+		m := Create(core, Options{}).(*Manager)
 
-		for c := 0; c < 10; c++ {
-			consumer := makePID("node1", uint64(c+1))
-			tm.LinkPID(consumer, target)
+		tgts := make([]gen.PID, targets)
+		for j := 0; j < targets; j++ {
+			tgts[j] = gen.PID{Node: "remote", ID: uint64(j + 100), Creation: 1}
+			m.LinkPID(gen.PID{Node: "node1", ID: 1}, tgts[j])
 		}
 
+		consumers := make([]gen.PID, subscribers)
+		for j := 0; j < subscribers; j++ {
+			consumers[j] = gen.PID{Node: "node1", ID: uint64(j + 10000)}
+		}
+		core.setLatency(rtt)
 		b.StartTimer()
-		tm.TerminatedTargetPID(target, fmt.Errorf("test"))
+
+		var wg sync.WaitGroup
+		wg.Add(subscribers)
+		for j := 0; j < subscribers; j++ {
+			go func(idx int) {
+				defer wg.Done()
+				m.LinkPID(consumers[idx], tgts[idx%targets])
+			}(j)
+		}
+		wg.Wait()
 	}
 }
 
-func BenchmarkTerminatedProcess(b *testing.B) {
+// First-wire subscription storm: 10K subscribers each to their own remote
+// target. Every LinkPID fires a wire-call (no piggyback opportunity).
+// Stresses parallel wire-Link path across many independent wirePresence
+// slots. This is the user's described 10K-subs / 10K-events scenario.
+
+func BenchmarkFirstWire_1to1_10K_RTT100us(b *testing.B) {
+	runFirstWireBench(b, 10000, 100*time.Microsecond)
+}
+func BenchmarkFirstWire_1to1_10K_RTT1ms(b *testing.B) {
+	runFirstWireBench(b, 10000, 1*time.Millisecond)
+}
+func BenchmarkFirstWire_1to1_10K_RTT10ms(b *testing.B) {
+	runFirstWireBench(b, 10000, 10*time.Millisecond)
+}
+
+func runFirstWireBench(b *testing.B, n int, rtt time.Duration) {
+	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
 		b.StopTimer()
-		tm, _ := benchTM("node1")
-		consumer := makePID("node1", 1)
-
-		for t := 0; t < 100; t++ {
-			target := makePID("node1", uint64(t+100))
-			tm.LinkPID(consumer, target)
+		core := newBenchCore(rtt)
+		m := Create(core, Options{}).(*Manager)
+		tgts := make([]gen.PID, n)
+		consumers := make([]gen.PID, n)
+		for j := 0; j < n; j++ {
+			tgts[j] = gen.PID{Node: "remote", ID: uint64(j + 100), Creation: 1}
+			consumers[j] = gen.PID{Node: "node1", ID: uint64(j + 10000)}
 		}
-
 		b.StartTimer()
-		tm.TerminatedProcess(consumer, fmt.Errorf("test"))
+
+		var wg sync.WaitGroup
+		wg.Add(n)
+		for j := 0; j < n; j++ {
+			go func(idx int) {
+				defer wg.Done()
+				m.LinkPID(consumers[idx], tgts[idx])
+			}(j)
+		}
+		wg.Wait()
 	}
 }
 
-func BenchmarkTerminatedTargetNode(b *testing.B) {
+// Race-test variant: half goroutines link, half unlink, on a small set
+// of targets. Stresses the (target, kind) wirePresence mu under mixed
+// add/remove load.
+func BenchmarkLinkUnlink_8Targets_10KOps(b *testing.B) {
+	const targets = 8
+	const ops = 10000
+	b.ReportAllocs()
+
 	for i := 0; i < b.N; i++ {
 		b.StopTimer()
-		tm, _ := benchTM("node1")
+		core := newBenchCore(0)
+		m := Create(core, Options{}).(*Manager)
 
-		for c := 0; c < 100; c++ {
-			consumer := makePID("node1", uint64(c+1))
-			target := makePID("node2", uint64(c+1))
-			s := tm.shardFor(target)
-			key := relationKey{consumer: consumer, target: target}
-			s.linkRelations[key] = struct{}{}
-			entry := &targetEntry{consumers: make(map[gen.PID]struct{})}
-			entry.consumers[consumer] = struct{}{}
-			s.targetIndex[target] = entry
+		tgts := make([]gen.PID, targets)
+		for j := 0; j < targets; j++ {
+			tgts[j] = gen.PID{Node: "remote", ID: uint64(j + 100), Creation: 1}
+			m.LinkPID(gen.PID{Node: "node1", ID: 1}, tgts[j])
 		}
 
+		consumers := make([]gen.PID, ops)
+		for j := 0; j < ops; j++ {
+			consumers[j] = gen.PID{Node: "node1", ID: uint64(j + 10000)}
+			m.LinkPID(consumers[j], tgts[j%targets])
+		}
 		b.StartTimer()
-		tm.TerminatedTargetNode("node2", fmt.Errorf("test"))
-	}
-}
 
-func BenchmarkContention_TerminateNodeWhileMonitor(b *testing.B) {
-	tm, _ := benchTM("node1")
-
-	for c := 0; c < 100; c++ {
-		consumer := makePID("node1", uint64(c+1))
-		target := makePID("node2", uint64(c+1))
-		s := tm.shardFor(target)
-		key := relationKey{consumer: consumer, target: target}
-		s.linkRelations[key] = struct{}{}
-		entry := &targetEntry{consumers: make(map[gen.PID]struct{})}
-		entry.consumers[consumer] = struct{}{}
-		s.targetIndex[target] = entry
-	}
-
-	b.ResetTimer()
-
-	var wg sync.WaitGroup
-	wg.Add(1)
-
-	done := make(chan struct{})
-	go func() {
-		defer wg.Done()
-		id := uint64(0)
-		for {
-			select {
-			case <-done:
-				return
-			default:
-				id++
-				consumer := makePID("node1", id+90000)
-				target := makePID("node1", id+80000)
-				tm.MonitorPID(consumer, target)
-			}
-		}
-	}()
-
-	for i := 0; i < b.N; i++ {
-		tm.TerminatedTargetNode("node2", fmt.Errorf("test"))
-
-		for c := 0; c < 100; c++ {
-			consumer := makePID("node1", uint64(c+1))
-			target := makePID("node2", uint64(c+1))
-			s := tm.shardFor(target)
-			s.mutex.Lock()
-			key := relationKey{consumer: consumer, target: target}
-			s.linkRelations[key] = struct{}{}
-			entry := &targetEntry{consumers: make(map[gen.PID]struct{})}
-			entry.consumers[consumer] = struct{}{}
-			s.targetIndex[target] = entry
-			s.mutex.Unlock()
-		}
-	}
-
-	close(done)
-	wg.Wait()
-}
-
-// BenchmarkMonitorLatencyUnderPublishLoad measures MonitorPID latency
-// while N goroutines continuously publish events.
-// This simulates the real bottleneck: sustained publish pressure starving MonitorPID.
-func BenchmarkMonitorLatencyUnderPublishLoad(b *testing.B) {
-	for _, publishers := range []int{1, 4, 8, 14} {
-		b.Run(fmt.Sprintf("publishers=%d", publishers), func(b *testing.B) {
-			tm, _ := benchTM("node1")
-
-			// Register events, one per publisher
-			type pubInfo struct {
-				producer gen.PID
-				token    gen.Ref
-				event    gen.Event
-				msg      gen.MessageEvent
-			}
-			pubs := make([]pubInfo, publishers)
-			for i := 0; i < publishers; i++ {
-				producer := makePID("node1", uint64(i+1))
-				name := gen.Atom(fmt.Sprintf("event_%d", i))
-				token, _ := tm.RegisterEvent(producer, name, gen.EventOptions{})
-				event := gen.Event{Node: "node1", Name: name}
-
-				// 20 subscribers per event
-				for s := 0; s < 20; s++ {
-					consumer := makePID("node1", uint64(i*100+s+1000))
-					tm.LinkEvent(consumer, event)
+		var wg sync.WaitGroup
+		wg.Add(ops)
+		for j := 0; j < ops; j++ {
+			go func(idx int) {
+				defer wg.Done()
+				if idx%2 == 0 {
+					m.UnlinkPID(consumers[idx], tgts[idx%targets])
+					return
 				}
-
-				pubs[i] = pubInfo{
-					producer: producer,
-					token:    token,
-					event:    event,
-					msg:      gen.MessageEvent{Event: event},
-				}
-			}
-
-			// Start publishers - they publish non-stop
-			stop := make(chan struct{})
-			var publishCount atomic.Int64
-			var publisherWg sync.WaitGroup
-
-			for i := 0; i < publishers; i++ {
-				publisherWg.Add(1)
-				go func(p pubInfo) {
-					defer publisherWg.Done()
-					opts := gen.MessageOptions{}
-					for {
-						select {
-						case <-stop:
-							return
-						default:
-							tm.PublishEvent(p.producer, p.token, opts, p.msg)
-							publishCount.Add(1)
-						}
-					}
-				}(pubs[i])
-			}
-
-			// Let publishers warm up
-			time.Sleep(10 * time.Millisecond)
-
-			// Benchmark: measure MonitorPID latency under load
-			b.ResetTimer()
-			for i := 0; i < b.N; i++ {
-				consumer := makePID("node1", uint64(i+500000))
-				target := makePID("node1", uint64(i+600000))
-				tm.MonitorPID(consumer, target)
-			}
-			b.StopTimer()
-
-			close(stop)
-			publisherWg.Wait()
-
-			b.ReportMetric(float64(publishCount.Load())/float64(b.N), "publishes/monitor")
-		})
+				m.LinkPID(gen.PID{Node: "node1", ID: uint64(idx + 30000)}, tgts[idx%targets])
+			}(j)
+		}
+		wg.Wait()
 	}
 }
