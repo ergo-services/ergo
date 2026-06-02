@@ -203,12 +203,14 @@ func (m *Manager) linkEventLocal(consumer gen.PID, event gen.Event, kind Kind) (
 	}
 
 	if entry.subscriberCount.Add(1) == 1 && entry.notify {
-		m.core.RouteSendPID(
-			m.core.PID(),
-			entry.producer,
-			gen.MessageOptions{Priority: gen.MessagePriorityHigh},
-			gen.MessageEventStart{Name: event.Name},
-		)
+		if _, stillThere := m.events.Load(event); stillThere {
+			m.core.RouteSendPID(
+				m.core.PID(),
+				entry.producer,
+				gen.MessageOptions{Priority: gen.MessagePriorityHigh},
+				gen.MessageEventStart{Name: event.Name},
+			)
+		}
 	}
 	return entry.snapshotBuffer(), nil
 }
@@ -259,6 +261,10 @@ func (m *Manager) unlinkEventLocal(consumer gen.PID, event gen.Event, kind Kind)
 
 	if m.storage.Unregister(event, consumer, kind) == false {
 		return gen.ErrTargetUnknown
+	}
+
+	if _, stillThere := m.events.Load(event); stillThere == false {
+		return nil
 	}
 
 	if entry.subscriberCount.Add(-1) == 0 && entry.notify {

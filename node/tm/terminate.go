@@ -184,6 +184,9 @@ func (m *Manager) eventSubscribersDropped(target any, removed int) {
 	if count != 0 || entry.notify == false {
 		return
 	}
+	if _, stillThere := m.events.Load(ev); stillThere == false {
+		return
+	}
 	m.core.RouteSendPID(
 		m.core.PID(),
 		entry.producer,
