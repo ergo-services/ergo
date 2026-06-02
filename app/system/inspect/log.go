@@ -160,7 +160,7 @@ func (il *log) HandleLog(message gen.MessageLog) error {
 		Timestamp: message.Time.UnixNano(),
 		Level:     message.Level,
 		Message:   msg,
-		Fields:    message.Fields,
+		Fields:    stringifyFields(message.Fields),
 	}
 
 	switch m := message.Source.(type) {
@@ -199,4 +199,15 @@ func (il *log) HandleLog(message gen.MessageLog) error {
 
 func (il *log) Terminate(reason error) {
 	il.Log().Debug("log inspector terminated: %s", reason)
+}
+
+func stringifyFields(in []gen.LogField) []gen.LogField {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]gen.LogField, len(in))
+	for i, f := range in {
+		out[i] = gen.LogField{Name: f.Name, Value: fmt.Sprintf("%v", f.Value)}
+	}
+	return out
 }
