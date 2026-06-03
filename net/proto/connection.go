@@ -1519,7 +1519,17 @@ func (c *connection) Join(conn net.Conn, id string, dial gen.NetworkDial, tail [
 				if err != nil {
 					continue
 				}
+				// Install the new socket for both reading (pi.connection, used by
+				// serve below) and sending (pi.fl). The flusher wraps a specific
+				// net.Conn, so it must be recreated for the new socket — otherwise
+				// the send path keeps writing into the dead original socket and
+				// those messages are silently lost. Guard the swap with the pool
+				// mutex since send reads pi.fl under it.
+				c.pool_mutex.Lock()
 				pi.connection = nc
+				pi.fl = lib.NewFlusher(nc)
+				c.pool_mutex.Unlock()
+				c.log.Warning("re-dialed pool lane to %s after connection loss; recreated send flusher", nc.RemoteAddr())
 				tail = t
 
 				goto re
@@ -3015,6 +3025,7 @@ func (c *connection) send(buf *lib.Buffer, order uint8, compression gen.Compress
 	}
 
 	var pi *pool_item
+	var fl io.Writer
 	c.pool_mutex.RLock()
 	l := len(c.pool)
 	if l == 0 {
@@ -3029,6 +3040,9 @@ func (c *connection) send(buf *lib.Buffer, order uint8, compression gen.Compress
 		n := int(order) % l
 		pi = c.pool[n]
 	}
+	// Capture the flusher under the lock: a re-dial can swap pi.fl, and the
+	// flusher must match the live socket.
+	fl = pi.fl
 	c.pool_mutex.RUnlock()
 
 	atomic.AddUint64(&c.messagesOut, 1)
@@ -3039,7 +3053,7 @@ func (c *connection) send(buf *lib.Buffer, order uint8, compression gen.Compress
 	// c.transitOut++
 	// if buf.Len() < protoFragmentSize {
 
-	pi.fl.Write(buf.B)
+	fl.Write(buf.B)
 	lib.ReleaseBuffer(buf)
 	return nil
 
