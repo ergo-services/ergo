@@ -3048,7 +3048,7 @@ func (c *connection) dispatchRoute(msg any) {
 	switch m := msg.(type) {
 
 	// Fast lane: handled inline in the receive goroutine. MessageResult
-	// must never queue behind heavy work — it is the ACK that wakes up
+	// must never queue behind heavy work; it is the ACK that wakes up
 	// the sender of an outbound request (including SendImportant).
 	case MessageResult:
 		c.requestsMutex.RLock()
@@ -3578,7 +3578,7 @@ func (c *connection) send(buf *lib.Buffer, order uint8, compression gen.Compress
 		var zbuf *lib.Buffer
 		var err error
 
-		// strip reserve before compressing — only compress the actual message
+		// strip reserve before compressing; only compress the actual message
 		orderByte := buf.B[msgStart+6]
 		origLen := buf.Len() - msgStart
 		buf.B = buf.B[msgStart:]
@@ -3622,7 +3622,7 @@ func (c *connection) send(buf *lib.Buffer, order uint8, compression gen.Compress
 		msgStart = h
 	}
 
-	// tracing wrapper — uses reserved space, no copy
+	// tracing wrapper, uses reserved space, no copy
 	// only wrap if both nodes have tracing enabled
 	if c.tracing == true && tracing.ID != [2]uint64{} {
 		msgStart -= 32
