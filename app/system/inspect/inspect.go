@@ -120,6 +120,7 @@ func Types() []any {
 		RequestDoAppStop{}, ResponseDoAppStop{},
 		RequestDoAppUnload{}, ResponseDoAppUnload{},
 		RequestDoAppTree{}, ResponseDoAppTree{},
+		RequestDoSubtree{}, ResponseDoSubtree{},
 		RequestDoInspect{}, ResponseDoInspect{},
 		RequestDoGoroutines{}, GoroutineGroup{}, ResponseDoGoroutines{},
 		RequestDoHeapProfile{}, HeapRecord{}, ResponseDoHeapProfile{},
@@ -589,12 +590,27 @@ func (i *inspect) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error
 		if limit < 1 {
 			limit = 1000
 		}
-		list, err := i.Node().ApplicationProcessListShortInfo(r.Application, limit)
+		list, omitted, err := i.appTree(r.Application, limit)
 		return ResponseDoAppTree{
 			Node:        i.Node().Name(),
 			Application: r.Application,
 			Processes:   list,
+			Truncated:   omitted,
 			Error:       err,
+		}, nil
+
+	case RequestDoSubtree:
+		limit := r.Limit
+		if limit < 1 {
+			limit = 1000
+		}
+		list, truncated, err := i.subtree(r.PID, limit)
+		return ResponseDoSubtree{
+			Node:      i.Node().Name(),
+			PID:       r.PID,
+			Processes: list,
+			Truncated: truncated,
+			Error:     err,
 		}, nil
 
 	// one-shot inspect
@@ -615,6 +631,62 @@ func (i *inspect) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error
 
 	i.Log().Error("unsupported request: %#v", request)
 	return gen.ErrUnsupported, nil
+}
+
+// appTree returns the supervision tree of an application as a flat list, capped
+// at limit. Processes get strictly increasing PID ids in spawn order and a child
+// is always spawned after its parent, so walking ids upward from the lowest
+// member id (the application root) yields a parent-before-child order: every
+// returned process has its parent earlier in the list. Truncation drops the
+// highest ids (latest-spawned) and therefore never orphans the returned nodes.
+func (i *inspect) appTree(app gen.Atom, limit int) ([]gen.ProcessShortInfo, int, error) {
+	info, err := i.Node().ApplicationInfo(app)
+	if err != nil {
+		return nil, 0, err
+	}
+	if len(info.Group) == 0 {
+		return []gen.ProcessShortInfo{}, 0, nil
+	}
+	start := info.Group[0].ID
+	for _, p := range info.Group {
+		if p.ID < start {
+			start = p.ID
+		}
+	}
+	list, err := i.Node().ProcessListShortInfo(int(start), limit, func(p gen.ProcessShortInfo) bool {
+		return p.Application == app
+	})
+	if err != nil {
+		return nil, 0, err
+	}
+	omitted := len(info.Group) - len(list)
+	if omitted < 0 {
+		omitted = 0
+	}
+	return list, omitted, nil
+}
+
+// subtree returns the process tree rooted at pid (the process itself plus all
+// descendants), capped at limit. It relies on the same id-ordering invariant as
+// appTree: starting from pid's id and walking ids upward, a process belongs to
+// the subtree iff its parent is already known to belong (the root, or a process
+// added earlier in the walk). Connectivity holds under truncation.
+func (i *inspect) subtree(pid gen.PID, limit int) ([]gen.ProcessShortInfo, bool, error) {
+	inSub := map[gen.PID]bool{pid: true}
+	list, err := i.Node().ProcessListShortInfo(int(pid.ID), limit, func(p gen.ProcessShortInfo) bool {
+		if p.PID == pid || inSub[p.Parent] {
+			inSub[p.PID] = true
+			return true
+		}
+		return false
+	})
+	if err != nil {
+		return nil, false, err
+	}
+	if len(list) == 0 {
+		return nil, false, gen.ErrProcessUnknown
+	}
+	return list, len(list) >= limit, nil
 }
 
 func makeSampler(typ string, rate float64, limit int) gen.TracingSampler {

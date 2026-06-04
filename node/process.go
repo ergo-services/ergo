@@ -1098,8 +1098,21 @@ func (p *process) SendResponse(to gen.PID, ref gen.Ref, message any) error {
 	if options.Tracing.ID != [2]uint64{} {
 		p.applyTracingAttrs(&options)
 	}
+	if err := p.node.RouteSendResponse(p.pid, to, options, message); err != nil {
+		return err
+	}
 	atomic.AddUint64(&p.messagesOut, 1)
-	return p.node.RouteSendResponse(p.pid, to, options, message)
+
+	if p.important == false {
+		return nil
+	}
+	ackRef := gen.Ref{
+		Node:     p.node.Name(),
+		Creation: p.node.Creation(),
+		ID:       options.Ref.ID,
+	}
+	_, err := p.waitResponse(ackRef, gen.DefaultRequestTimeout)
+	return err
 }
 
 func (p *process) SendResponseImportant(to gen.PID, ref gen.Ref, message any) error {
@@ -1125,7 +1138,23 @@ func (p *process) SendResponseImportant(to gen.PID, ref gen.Ref, message any) er
 	}
 	atomic.AddUint64(&p.messagesOut, 1)
 
-	_, err := p.waitResponse(options.Ref, gen.DefaultRequestTimeout)
+	// The caller-supplied ref may carry a remote node prefix when this
+	// SendResponseImportant is fired from a HandleCall responding to a
+	// cross-node Call (or further indirected via a wrapped ref that
+	// crossed multiple nodes). The peer's auto-ack travels back with
+	// just the IDs; protoMessageResponseError at our side reconstructs
+	// the incoming ref with c.core.Name(), i.e. our local node prefix,
+	// before delivering it to waitResponse. To make the ack match what
+	// we wait for, build a local-prefix view of the same IDs solely
+	// for the waitResponse call. The caller's ref struct stays
+	// immutable and unchanged on the wire (correlation at the peer
+	// side relies only on IDs).
+	ackRef := gen.Ref{
+		Node:     p.node.Name(),
+		Creation: p.node.Creation(),
+		ID:       options.Ref.ID,
+	}
+	_, err := p.waitResponse(ackRef, gen.DefaultRequestTimeout)
 	return err
 }
 
@@ -1147,8 +1176,21 @@ func (p *process) SendResponseError(to gen.PID, ref gen.Ref, err error) error {
 	if options.Tracing.ID != [2]uint64{} {
 		p.applyTracingAttrs(&options)
 	}
+	if routeErr := p.node.RouteSendResponseError(p.pid, to, options, err); routeErr != nil {
+		return routeErr
+	}
 	atomic.AddUint64(&p.messagesOut, 1)
-	return p.node.RouteSendResponseError(p.pid, to, options, err)
+
+	if p.important == false {
+		return nil
+	}
+	ackRef := gen.Ref{
+		Node:     p.node.Name(),
+		Creation: p.node.Creation(),
+		ID:       options.Ref.ID,
+	}
+	_, ackErr := p.waitResponse(ackRef, gen.DefaultRequestTimeout)
+	return ackErr
 }
 
 func (p *process) SendResponseErrorImportant(to gen.PID, ref gen.Ref, err error) error {
@@ -1174,7 +1216,16 @@ func (p *process) SendResponseErrorImportant(to gen.PID, ref gen.Ref, err error)
 	}
 	atomic.AddUint64(&p.messagesOut, 1)
 
-	_, err = p.waitResponse(options.Ref, gen.DefaultRequestTimeout)
+	// See SendResponseImportant for the rationale: ack reconstruction
+	// at our side uses local prefix, so we wait on a local-prefix view
+	// of the same IDs while keeping the caller-supplied ref unchanged
+	// on the wire.
+	ackRef := gen.Ref{
+		Node:     p.node.Name(),
+		Creation: p.node.Creation(),
+		ID:       options.Ref.ID,
+	}
+	_, err = p.waitResponse(ackRef, gen.DefaultRequestTimeout)
 	return err
 }
 
@@ -2179,7 +2230,7 @@ retry:
 			if options.Tracing.ID != [2]uint64{} {
 				p.applyTracingAttrs(&options)
 			}
-			p.node.RouteSendResponseError(p.pid, r.from, options, err)
+			p.node.RouteSendResponseError(p.pid, r.from, options, nil)
 		}
 	}
 

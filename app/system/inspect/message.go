@@ -481,7 +481,24 @@ type ResponseDoAppTree struct {
 	Node        gen.Atom
 	Application gen.Atom
 	Processes   []gen.ProcessShortInfo
-	Error       error
+	// Truncated is the number of application processes omitted because the
+	// result hit the limit (0 means the whole tree was returned).
+	Truncated int
+	Error     error
+}
+
+// subtree rooted at a process
+
+type RequestDoSubtree struct {
+	PID   gen.PID
+	Limit int
+}
+type ResponseDoSubtree struct {
+	Node      gen.Atom
+	PID       gen.PID
+	Processes []gen.ProcessShortInfo
+	Truncated bool
+	Error     error
 }
 
 // tracing
