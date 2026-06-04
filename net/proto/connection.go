@@ -205,7 +205,7 @@ func (c *connection) applicationStart(name gen.Atom, mode gen.ApplicationMode, o
 		Options: extra,
 		Ref:     ref,
 	}
-	ch := make(chan MessageResult)
+	ch := make(chan MessageResult, 1)
 	c.requestsMutex.Lock()
 	c.requests[ref] = ch
 	c.requestsMutex.Unlock()
@@ -225,7 +225,7 @@ func (c *connection) ApplicationInfo(name gen.Atom) (gen.ApplicationInfo, error)
 		Ref:  ref,
 	}
 
-	ch := make(chan MessageResult)
+	ch := make(chan MessageResult, 1)
 	c.requestsMutex.Lock()
 	c.requests[ref] = ch
 	c.requestsMutex.Unlock()
@@ -278,7 +278,7 @@ func (c *connection) updateCache() error {
 		Ref: ref,
 		// put them here
 	}
-	ch := make(chan MessageResult)
+	ch := make(chan MessageResult, 1)
 	c.requestsMutex.Lock()
 	c.requests[ref] = ch
 	c.requestsMutex.Unlock()
@@ -1027,7 +1027,7 @@ func (c *connection) LinkPID(pid gen.PID, target gen.PID) error {
 		Ref:    ref,
 	}
 
-	ch := make(chan MessageResult)
+	ch := make(chan MessageResult, 1)
 	c.requestsMutex.Lock()
 	c.requests[ref] = ch
 	c.requestsMutex.Unlock()
@@ -1053,7 +1053,7 @@ func (c *connection) UnlinkPID(pid gen.PID, target gen.PID) error {
 		Target: target,
 		Ref:    ref,
 	}
-	ch := make(chan MessageResult)
+	ch := make(chan MessageResult, 1)
 	c.requestsMutex.Lock()
 	c.requests[ref] = ch
 	c.requestsMutex.Unlock()
@@ -1075,7 +1075,7 @@ func (c *connection) LinkProcessID(pid gen.PID, target gen.ProcessID) error {
 		Target: target,
 		Ref:    ref,
 	}
-	ch := make(chan MessageResult)
+	ch := make(chan MessageResult, 1)
 	c.requestsMutex.Lock()
 	c.requests[ref] = ch
 	c.requestsMutex.Unlock()
@@ -1098,7 +1098,7 @@ func (c *connection) UnlinkProcessID(pid gen.PID, target gen.ProcessID) error {
 		Target: target,
 		Ref:    ref,
 	}
-	ch := make(chan MessageResult)
+	ch := make(chan MessageResult, 1)
 	c.requestsMutex.Lock()
 	c.requests[ref] = ch
 	c.requestsMutex.Unlock()
@@ -1125,7 +1125,7 @@ func (c *connection) LinkAlias(pid gen.PID, target gen.Alias) error {
 		Target: target,
 		Ref:    ref,
 	}
-	ch := make(chan MessageResult)
+	ch := make(chan MessageResult, 1)
 	c.requestsMutex.Lock()
 	c.requests[ref] = ch
 	c.requestsMutex.Unlock()
@@ -1152,7 +1152,7 @@ func (c *connection) UnlinkAlias(pid gen.PID, target gen.Alias) error {
 		Target: target,
 		Ref:    ref,
 	}
-	ch := make(chan MessageResult)
+	ch := make(chan MessageResult, 1)
 	c.requestsMutex.Lock()
 	c.requests[ref] = ch
 	c.requestsMutex.Unlock()
@@ -1174,7 +1174,7 @@ func (c *connection) LinkEvent(pid gen.PID, target gen.Event) ([]gen.MessageEven
 		Target: target,
 		Ref:    ref,
 	}
-	ch := make(chan MessageResult)
+	ch := make(chan MessageResult, 1)
 	c.requestsMutex.Lock()
 	c.requests[ref] = ch
 	c.requestsMutex.Unlock()
@@ -1203,7 +1203,7 @@ func (c *connection) UnlinkEvent(pid gen.PID, target gen.Event) error {
 		Target: target,
 		Ref:    ref,
 	}
-	ch := make(chan MessageResult)
+	ch := make(chan MessageResult, 1)
 	c.requestsMutex.Lock()
 	c.requests[ref] = ch
 	c.requestsMutex.Unlock()
@@ -1228,7 +1228,7 @@ func (c *connection) MonitorPID(pid gen.PID, target gen.PID) error {
 		Target: target,
 		Ref:    ref,
 	}
-	ch := make(chan MessageResult)
+	ch := make(chan MessageResult, 1)
 	c.requestsMutex.Lock()
 	c.requests[ref] = ch
 	c.requestsMutex.Unlock()
@@ -1253,7 +1253,7 @@ func (c *connection) DemonitorPID(pid gen.PID, target gen.PID) error {
 		Target: target,
 		Ref:    ref,
 	}
-	ch := make(chan MessageResult)
+	ch := make(chan MessageResult, 1)
 	c.requestsMutex.Lock()
 	c.requests[ref] = ch
 	c.requestsMutex.Unlock()
@@ -1275,7 +1275,7 @@ func (c *connection) MonitorProcessID(pid gen.PID, target gen.ProcessID) error {
 		Target: target,
 		Ref:    ref,
 	}
-	ch := make(chan MessageResult)
+	ch := make(chan MessageResult, 1)
 	c.requestsMutex.Lock()
 	c.requests[ref] = ch
 	c.requestsMutex.Unlock()
@@ -1297,7 +1297,7 @@ func (c *connection) DemonitorProcessID(pid gen.PID, target gen.ProcessID) error
 		Target: target,
 		Ref:    ref,
 	}
-	ch := make(chan MessageResult)
+	ch := make(chan MessageResult, 1)
 	c.requestsMutex.Lock()
 	c.requests[ref] = ch
 	c.requestsMutex.Unlock()
@@ -1323,7 +1323,7 @@ func (c *connection) MonitorAlias(pid gen.PID, target gen.Alias) error {
 		Target: target,
 		Ref:    ref,
 	}
-	ch := make(chan MessageResult)
+	ch := make(chan MessageResult, 1)
 	c.requestsMutex.Lock()
 	c.requests[ref] = ch
 	c.requestsMutex.Unlock()
@@ -1349,7 +1349,7 @@ func (c *connection) DemonitorAlias(pid gen.PID, target gen.Alias) error {
 		Target: target,
 		Ref:    ref,
 	}
-	ch := make(chan MessageResult)
+	ch := make(chan MessageResult, 1)
 	c.requestsMutex.Lock()
 	c.requests[ref] = ch
 	c.requestsMutex.Unlock()
@@ -1371,7 +1371,7 @@ func (c *connection) MonitorEvent(pid gen.PID, target gen.Event) ([]gen.MessageE
 		Target: target,
 		Ref:    ref,
 	}
-	ch := make(chan MessageResult)
+	ch := make(chan MessageResult, 1)
 	c.requestsMutex.Lock()
 	c.requests[ref] = ch
 	c.requestsMutex.Unlock()
@@ -1400,7 +1400,7 @@ func (c *connection) DemonitorEvent(pid gen.PID, target gen.Event) error {
 		Target: target,
 		Ref:    ref,
 	}
-	ch := make(chan MessageResult)
+	ch := make(chan MessageResult, 1)
 	c.requestsMutex.Lock()
 	c.requests[ref] = ch
 	c.requestsMutex.Unlock()
@@ -1446,7 +1446,7 @@ func (c *connection) RemoteSpawn(name gen.Atom, options gen.ProcessOptionsExtra)
 		Ref:     ref,
 	}
 
-	ch := make(chan MessageResult)
+	ch := make(chan MessageResult, 1)
 	c.requestsMutex.Lock()
 	c.requests[ref] = ch
 	c.requestsMutex.Unlock()
@@ -2692,6 +2692,12 @@ func (c *connection) routeMessage(msg any) {
 			return
 		}
 
+		// The result channel is buffered (cap 1, one result per request), so this
+		// send always succeeds even when the requester goroutine has not yet parked
+		// on the channel. Without the buffer, a reply that arrives within the tiny
+		// window between registering the request and parking in waitResult would hit
+		// the default branch and be dropped, leaving the requester to time out at the
+		// 5s deadline (observed for fast, sub-millisecond spawn round-trips).
 		select {
 		case ch <- m:
 		default:
