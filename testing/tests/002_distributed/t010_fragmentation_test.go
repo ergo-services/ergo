@@ -77,8 +77,8 @@ func (t *t10) TestFragmentSendOrdered(input any) {
 
 	t10pongCh = make(chan any, 1)
 
-	// 5000 bytes string, FragmentSize=1000 -> ~5 fragments
-	pingvalue := lib.RandomString(5000)
+	// 20000 bytes string, FragmentSize=4096 -> ~5 fragments
+	pingvalue := lib.RandomString(20000)
 
 	if err := t.Send(pid, pingvalue); err != nil {
 		t.testcase.err <- err
@@ -112,7 +112,7 @@ func (t *t10) TestFragmentSendUnordered(input any) {
 
 	t10pongCh = make(chan any, 1)
 
-	pingvalue := lib.RandomString(5000)
+	pingvalue := lib.RandomString(20000)
 
 	t.SetKeepNetworkOrder(false)
 	defer t.SetKeepNetworkOrder(true)
@@ -148,8 +148,8 @@ func (t *t10) TestFragmentSendCompressed(input any) {
 
 	t10pongCh = make(chan any, 1)
 
-	// large enough that even compressed it exceeds FragmentSize=1000
-	pingvalue := lib.RandomString(10000)
+	// large enough that even compressed it exceeds FragmentSize=4096
+	pingvalue := lib.RandomString(40000)
 
 	t.SetCompression(true)
 	defer t.SetCompression(false)
@@ -245,7 +245,7 @@ func (t *t10) TestFragmentSendSmall(input any) {
 func TestT10Fragmentation(t *testing.T) {
 	options1 := gen.NodeOptions{}
 	options1.Network.Cookie = "fragtest"
-	options1.Network.FragmentSize = 1000
+	options1.Network.FragmentSize = 4096
 	options1.Log.DefaultLogger.Disable = false
 	options1.Log.Level = gen.LogLevelTrace
 	node1, err := ergo.StartNode("distT10node1Frag@localhost", options1)
@@ -256,7 +256,7 @@ func TestT10Fragmentation(t *testing.T) {
 
 	options2 := gen.NodeOptions{}
 	options2.Network.Cookie = "fragtest"
-	options2.Network.FragmentSize = 1000
+	options2.Network.FragmentSize = 4096
 	options2.Log.DefaultLogger.Disable = false
 	options2.Log.Level = gen.LogLevelTrace
 	node2, err := ergo.StartNode("distT10node2Frag@localhost", options2)

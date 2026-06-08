@@ -130,24 +130,45 @@ func pickAppTimeout(specVal, optsVal, def time.Duration) time.Duration {
 func (a *application) runInitCallback(mode gen.ApplicationMode, timeout time.Duration) error {
 	deadline := time.Now().Unix() + int64(timeout.Seconds())
 	ref, _ := a.node.MakeRefWithDeadline(deadline)
+
+	var completed int32 // 0 pending, 1 callback won, 2 timeout won
 	done := make(chan error, 1)
 	go func() {
+		var err error
 		defer func() {
 			if r := recover(); r != nil {
 				pc, fn, line, _ := runtime.Caller(2)
 				a.log.Panic("Init panic: %#v at %s[%s:%d]",
 					r, runtime.FuncForPC(pc).Name(), fn, line)
-				done <- gen.TerminateReasonPanic
+				err = gen.TerminateReasonPanic
 			}
+			if atomic.CompareAndSwapInt32(&completed, 0, 1) {
+				done <- err
+				return
+			}
+			// timeout won; start() abandoned us, reset state ourselves
+			atomic.CompareAndSwapInt32(&a.state,
+				int32(gen.ApplicationStateInitializing), int32(gen.ApplicationStateLoaded))
 		}()
-		done <- a.behavior.Init(ref, mode)
+		err = a.behavior.Init(ref, mode)
 	}()
+
 	select {
 	case err := <-done:
+		if err != nil {
+			atomic.StoreInt32(&a.state, int32(gen.ApplicationStateLoaded))
+		}
 		return err
 	case <-time.After(timeout):
-		a.log.Warning("Init callback exceeded deadline %v", timeout)
-		return gen.ErrTimeout
+		if atomic.CompareAndSwapInt32(&completed, 0, 2) {
+			a.log.Warning("Init callback exceeded deadline %v", timeout)
+			return gen.ErrTimeout
+		}
+		err := <-done
+		if err != nil {
+			atomic.StoreInt32(&a.state, int32(gen.ApplicationStateLoaded))
+		}
+		return err
 	}
 }
 
@@ -234,7 +255,6 @@ func (a *application) start(mode gen.ApplicationMode, options gen.ApplicationOpt
 
 	initTimeout := pickAppTimeout(a.spec.InitTimeout, options.InitTimeout, gen.DefaultApplicationInitTimeout)
 	if err := a.runInitCallback(mode, initTimeout); err != nil {
-		atomic.StoreInt32(&a.state, int32(gen.ApplicationStateLoaded))
 		return err
 	}
 

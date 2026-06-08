@@ -1809,6 +1809,17 @@ func (c *connection) Terminate(reason error) {
 }
 
 func (c *connection) serve(pi *pool_item, tail []byte) {
+	if lib.Recover() {
+		defer func() {
+			if r := recover(); r != nil {
+				pc, fn, line, _ := runtime.Caller(2)
+				c.log.Panic("panic in connection serve loop: %#v at %s[%s:%d]",
+					r, runtime.FuncForPC(pc).Name(), fn, line)
+				c.Terminate(gen.TerminateReasonPanic)
+			}
+		}()
+	}
+
 	conn := pi.connection
 
 	// start skew measurement now that serve() is running
@@ -1877,6 +1888,12 @@ func (c *connection) serve(pi *pool_item, tail []byte) {
 
 		// handle skew measurement before queue dispatch for timestamp accuracy
 		if buf.B[7] == protoMessageS {
+			if buf.Len() < 32 {
+				c.log.Error("received malformed skew packet from %s (too small)", conn.RemoteAddr())
+				lib.ReleaseBuffer(buf)
+				buf = buftail
+				continue
+			}
 			tsRecv := time.Now().UnixNano()
 			c.handleSkew(pi, buf, tsRecv)
 			lib.ReleaseBuffer(buf)

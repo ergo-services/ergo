@@ -3,7 +3,6 @@ package registrar
 import (
 	"encoding/binary"
 	"fmt"
-	"io"
 	"net"
 	"strconv"
 	"sync"
@@ -226,11 +225,12 @@ func (c *client) Register(node gen.NodeRegistrar, routes gen.RegisterRoutes) (ge
 		return static, err
 	}
 
+	c.terminated.Store(false)
+
 	if rc != nil {
 		go c.serve(rc)
 	}
 
-	c.terminated.Store(false)
 	return static, nil
 }
 
@@ -358,6 +358,11 @@ func (c *client) tryRegister() (net.Conn, error) {
 func (c *client) serve(conn net.Conn) {
 	var buf [16]byte
 	c.mu.Lock()
+	if c.terminated.Load() {
+		c.mu.Unlock()
+		conn.Close()
+		return
+	}
 	c.conn = conn
 	c.mu.Unlock()
 
@@ -366,12 +371,13 @@ func (c *client) serve(conn net.Conn) {
 		if c.terminated.Load() {
 			return
 		}
-		if err != io.EOF {
+		if err == nil {
+			// unexpected data from the registrar; ignore and keep reading
 			continue
 		}
 
-		// disconnected
-		c.node.Log().Warning("lost connection with the registrar")
+		// any read error means the connection is broken
+		c.node.Log().Warning("lost connection with the registrar: %s", err)
 		c.mu.Lock()
 		c.conn = nil
 		c.mu.Unlock()
@@ -393,7 +399,13 @@ func (c *client) serve(conn net.Conn) {
 				c.node.Log().Info("registered node on the local registrar")
 				return
 			}
+
 			c.mu.Lock()
+			if c.terminated.Load() {
+				c.mu.Unlock()
+				newconn.Close()
+				return
+			}
 			c.conn = newconn
 			c.mu.Unlock()
 			conn = newconn

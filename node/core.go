@@ -133,7 +133,7 @@ func (n *node) RouteSendPID(from gen.PID, to gen.PID, options gen.MessageOptions
 			Point:        gen.TracingPointDelivered, Kind: gen.TracingKindSend,
 			Timestamp: nanos, Node: n.name, From: from, To: to,
 			Ref: options.Ref, Behavior: p.sbehavior, Message: msgType,
-			Attributes: p.tracingAttrs,
+			Attributes: *p.tracingAttrs.Load(),
 		})
 	}
 
@@ -267,7 +267,7 @@ func (n *node) RouteSendProcessID(from gen.PID, to gen.ProcessID, options gen.Me
 			Point:        gen.TracingPointDelivered, Kind: gen.TracingKindSend,
 			Timestamp: nanos, Node: n.name, From: from, To: to,
 			Ref: options.Ref, Behavior: p.sbehavior, Message: msgType,
-			Attributes: p.tracingAttrs,
+			Attributes: *p.tracingAttrs.Load(),
 		})
 	}
 
@@ -375,7 +375,7 @@ func (n *node) RouteSendAlias(from gen.PID, to gen.Alias, options gen.MessageOpt
 				Point:        gen.TracingPointDelivered, Kind: gen.TracingKindSend,
 				Timestamp: nanos, Node: n.name, From: from, To: to,
 				Ref: options.Ref, Behavior: p.sbehavior, Message: msgType,
-				Attributes: p.tracingAttrs,
+				Attributes: *p.tracingAttrs.Load(),
 			})
 		}
 		m.handle()
@@ -431,7 +431,7 @@ func (n *node) RouteSendAlias(from gen.PID, to gen.Alias, options gen.MessageOpt
 			Point:        gen.TracingPointDelivered, Kind: gen.TracingKindSend,
 			Timestamp: nanos, Node: n.name, From: from, To: to,
 			Ref: options.Ref, Behavior: p.sbehavior, Message: msgType,
-			Attributes: p.tracingAttrs,
+			Attributes: *p.tracingAttrs.Load(),
 		})
 	}
 
@@ -608,7 +608,7 @@ func (n *node) RouteSendResponse(from gen.PID, to gen.PID, options gen.MessageOp
 				Point:        gen.TracingPointDelivered, Kind: gen.TracingKindResponse,
 				Timestamp: nanos, Node: n.name, From: from, To: to,
 				Ref: options.Ref, Behavior: p.sbehavior, Message: msgType,
-				Attributes: p.tracingAttrs,
+				Attributes: *p.tracingAttrs.Load(),
 			})
 		}
 		return nil
@@ -746,7 +746,7 @@ func (n *node) RouteSendResponseError(from gen.PID, to gen.PID, options gen.Mess
 				Point:        gen.TracingPointDelivered, Kind: gen.TracingKindResponse,
 				Timestamp: nanos, Node: n.name, From: from, To: to,
 				Ref: options.Ref, Behavior: p.sbehavior, Message: msgType, Error: errString,
-				Attributes: p.tracingAttrs,
+				Attributes: *p.tracingAttrs.Load(),
 			})
 		}
 		return nil
@@ -866,7 +866,7 @@ func (n *node) RouteCallPID(from gen.PID, to gen.PID, options gen.MessageOptions
 			Point:        gen.TracingPointDelivered, Kind: gen.TracingKindRequest,
 			Timestamp: nanos, Node: n.name, From: from, To: to,
 			Ref: options.Ref, Behavior: p.sbehavior, Message: msgType,
-			Attributes: p.tracingAttrs,
+			Attributes: *p.tracingAttrs.Load(),
 		})
 	}
 
@@ -979,7 +979,7 @@ func (n *node) RouteCallProcessID(from gen.PID, to gen.ProcessID, options gen.Me
 			Point:        gen.TracingPointDelivered, Kind: gen.TracingKindRequest,
 			Timestamp: nanos, Node: n.name, From: from, To: to,
 			Ref: options.Ref, Behavior: p.sbehavior, Message: msgType,
-			Attributes: p.tracingAttrs,
+			Attributes: *p.tracingAttrs.Load(),
 		})
 	}
 
@@ -1087,7 +1087,7 @@ func (n *node) RouteCallAlias(from gen.PID, to gen.Alias, options gen.MessageOpt
 				Point:        gen.TracingPointDelivered, Kind: gen.TracingKindRequest,
 				Timestamp: nanos, Node: n.name, From: from, To: to,
 				Ref: options.Ref, Behavior: p.sbehavior, Message: msgType,
-				Attributes: p.tracingAttrs,
+				Attributes: *p.tracingAttrs.Load(),
 			})
 		}
 		m.handle()
@@ -1126,7 +1126,7 @@ func (n *node) RouteCallAlias(from gen.PID, to gen.Alias, options gen.MessageOpt
 			Point:        gen.TracingPointDelivered, Kind: gen.TracingKindRequest,
 			Timestamp: nanos, Node: n.name, From: from, To: to,
 			Ref: options.Ref, Behavior: p.sbehavior, Message: msgType,
-			Attributes: p.tracingAttrs,
+			Attributes: *p.tracingAttrs.Load(),
 		})
 	}
 

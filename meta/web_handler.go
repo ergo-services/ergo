@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"sync/atomic"
 	"time"
 
 	"ergo.services/ergo/gen"
@@ -32,8 +33,8 @@ type WebHandler interface {
 type webhandler struct {
 	gen.MetaProcess
 	options    WebHandlerOptions
-	to         any
-	terminated bool
+	to         atomic.Value // target (PID/ProcessID/Alias); set once in Init
+	terminated atomic.Bool
 	ch         chan error
 }
 
@@ -43,15 +44,15 @@ type webhandler struct {
 
 func (w *webhandler) Init(process gen.MetaProcess) error {
 	w.MetaProcess = process
+	if w.options.Worker == "" {
+		w.to.Store(process.Parent())
+	} else {
+		w.to.Store(w.options.Worker)
+	}
 	return nil
 }
 
 func (w *webhandler) Start() error {
-	if w.options.Worker == "" {
-		w.to = w.Parent()
-	} else {
-		w.to = w.options.Worker
-	}
 	return <-w.ch
 }
 
@@ -64,7 +65,7 @@ func (w *webhandler) HandleCall(from gen.PID, ref gen.Ref, request any) (any, er
 }
 
 func (w *webhandler) Terminate(reason error) {
-	w.terminated = true
+	w.terminated.Store(true)
 	w.ch <- reason
 	close(w.ch)
 }
@@ -74,7 +75,7 @@ func (w *webhandler) HandleInspect(from gen.PID, item ...string) map[string]stri
 		return nil
 	}
 	return map[string]string{
-		"worker process": fmt.Sprintf("%s", w.to),
+		"worker process": fmt.Sprintf("%s", w.to.Load()),
 	}
 }
 
@@ -88,8 +89,14 @@ func (w *webhandler) ServeHTTP(writer http.ResponseWriter, request *http.Request
 		return
 	}
 
-	if w.terminated {
+	if w.terminated.Load() {
 		http.Error(writer, "Handler terminated", http.StatusServiceUnavailable)
+		return
+	}
+
+	to := w.to.Load()
+	if to == nil {
+		http.Error(writer, "Handler is not ready", http.StatusServiceUnavailable)
 		return
 	}
 
@@ -100,7 +107,7 @@ func (w *webhandler) ServeHTTP(writer http.ResponseWriter, request *http.Request
 		Request:  request,
 		Done:     cancel,
 	}
-	if err := w.Send(w.to, message); err != nil {
+	if err := w.Send(to, message); err != nil {
 		w.Log().Error("can not handle HTTP request: %s", err)
 		http.Error(writer, "Bad gateway", http.StatusBadGateway)
 		cancel()

@@ -117,7 +117,7 @@ func testFragLoadOrderedConcurrent(t *testing.T) {
 
 	numSenders := 10
 	msgsPerSender := 100
-	msgSize := 5000 // ~6 fragments each at FragmentSize=1000
+	msgSize := 20000 // ~5 fragments each at FragmentSize=4096
 	totalMsgs := numSenders * msgsPerSender
 
 	t11done = make(chan struct{}, 1)
@@ -250,9 +250,9 @@ func testFragLoadMixedConcurrent(t *testing.T) {
 			// odd senders: unordered, larger messages
 			// even senders: ordered, smaller messages
 			noOrder := idx%2 == 1
-			size := 3000
+			size := 12000
 			if noOrder {
-				size = 8000
+				size = 32000
 			}
 			job := &t11sendJob{
 				target:  receiverPID,
@@ -289,7 +289,7 @@ func setupFragLoadNodes(t *testing.T, suffix string) (gen.Node, gen.Node, gen.PI
 
 	options1 := gen.NodeOptions{}
 	options1.Network.Cookie = "fragload"
-	options1.Network.FragmentSize = 1000
+	options1.Network.FragmentSize = 4096
 	options1.Log.DefaultLogger.Disable = true
 	node1, err := ergo.StartNode(gen.Atom(fmt.Sprintf("distT11n1%s%s@localhost", suffix, uid)), options1)
 	if err != nil {
@@ -298,7 +298,7 @@ func setupFragLoadNodes(t *testing.T, suffix string) (gen.Node, gen.Node, gen.PI
 
 	options2 := gen.NodeOptions{}
 	options2.Network.Cookie = "fragload"
-	options2.Network.FragmentSize = 1000
+	options2.Network.FragmentSize = 4096
 	options2.Log.DefaultLogger.Disable = true
 	node2, err := ergo.StartNode(gen.Atom(fmt.Sprintf("distT11n2%s%s@localhost", suffix, uid)), options2)
 	if err != nil {

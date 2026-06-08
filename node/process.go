@@ -51,8 +51,8 @@ type process struct {
 
 	compression      gen.Compression
 	tracing          gen.Tracing
-	tracingSampler   gen.TracingSampler
-	tracingAttrs     []gen.TracingAttribute  // permanent, COW
+	tracingSampler   atomic.Pointer[gen.TracingSampler]
+	tracingAttrs     atomic.Pointer[[]gen.TracingAttribute] // permanent, COW; pointer always non-nil
 	tracingSpanAttrs []gen.TracingAttribute  // one-shot, nil after handler
 
 	env sync.Map
@@ -540,18 +540,19 @@ func (p *process) SetTracingSampler(sampler gen.TracingSampler) error {
 		return gen.ErrNotAllowed
 	}
 	if sampler == gen.TracingSamplerDisable {
-		p.tracingSampler = nil
+		p.tracingSampler.Store(nil)
 		return nil
 	}
-	p.tracingSampler = sampler
+	p.tracingSampler.Store(&sampler)
 	return nil
 }
 
 func (p *process) TracingSampler() gen.TracingSampler {
-	if p.tracingSampler == nil {
+	s := p.tracingSampler.Load()
+	if s == nil {
 		return gen.TracingSamplerDisable
 	}
-	return p.tracingSampler
+	return *s
 }
 
 
@@ -574,7 +575,7 @@ func (p *process) propagatingTrace() gen.Tracing {
 	if atomic.LoadInt32(&p.state) == int32(gen.ProcessStateInit) {
 		return gen.Tracing{}
 	}
-	if p.tracingSampler != nil && p.tracingSampler.Sample() {
+	if s := p.tracingSampler.Load(); s != nil && (*s).Sample() {
 		t := p.node.MakeTraceID()
 		t.Behavior = p.sbehavior
 		return t
@@ -2046,28 +2047,30 @@ func (p *process) SetTracingAttribute(key, value string) {
 		return
 	}
 	// COW: copy slice, overwrite existing key or append
-	for i, a := range p.tracingAttrs {
+	cur := *p.tracingAttrs.Load()
+	for i, a := range cur {
 		if a.Key == key {
-			attrs := make([]gen.TracingAttribute, len(p.tracingAttrs))
-			copy(attrs, p.tracingAttrs)
+			attrs := make([]gen.TracingAttribute, len(cur))
+			copy(attrs, cur)
 			attrs[i] = gen.TracingAttribute{Key: key, Value: value}
-			p.tracingAttrs = attrs
+			p.tracingAttrs.Store(&attrs)
 			return
 		}
 	}
-	attrs := make([]gen.TracingAttribute, len(p.tracingAttrs)+1)
-	copy(attrs, p.tracingAttrs)
+	attrs := make([]gen.TracingAttribute, len(cur)+1)
+	copy(attrs, cur)
 	attrs[len(attrs)-1] = gen.TracingAttribute{Key: key, Value: value}
-	p.tracingAttrs = attrs
+	p.tracingAttrs.Store(&attrs)
 }
 
 func (p *process) RemoveTracingAttribute(key string) {
-	for i, a := range p.tracingAttrs {
+	cur := *p.tracingAttrs.Load()
+	for i, a := range cur {
 		if a.Key == key {
-			attrs := make([]gen.TracingAttribute, len(p.tracingAttrs)-1)
-			copy(attrs, p.tracingAttrs[:i])
-			copy(attrs[i:], p.tracingAttrs[i+1:])
-			p.tracingAttrs = attrs
+			attrs := make([]gen.TracingAttribute, len(cur)-1)
+			copy(attrs, cur[:i])
+			copy(attrs[i:], cur[i+1:])
+			p.tracingAttrs.Store(&attrs)
 			return
 		}
 	}
@@ -2087,14 +2090,15 @@ func (p *process) SetTracingSpanAttribute(key, value string) {
 }
 
 func (p *process) TracingAttributes() []gen.TracingAttribute {
-	if len(p.tracingAttrs) == 0 {
+	attrs := *p.tracingAttrs.Load()
+	if len(attrs) == 0 {
 		return p.tracingSpanAttrs
 	}
 	if len(p.tracingSpanAttrs) == 0 {
-		return p.tracingAttrs
+		return attrs
 	}
-	m := make([]gen.TracingAttribute, 0, len(p.tracingAttrs)+len(p.tracingSpanAttrs))
-	return append(append(m, p.tracingAttrs...), p.tracingSpanAttrs...)
+	m := make([]gen.TracingAttribute, 0, len(attrs)+len(p.tracingSpanAttrs))
+	return append(append(m, attrs...), p.tracingSpanAttrs...)
 }
 
 func (p *process) ClearTracingSpanAttributes() {

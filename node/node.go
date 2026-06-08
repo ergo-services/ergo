@@ -96,7 +96,7 @@ type node struct {
 
 	tracingExporters sync.Map // name -> tracingExporterEntry
 	tracing          gen.Tracing
-	tracingSampler   gen.TracingSampler
+	tracingSampler   atomic.Pointer[gen.TracingSampler]
 
 	shutdownTimeout time.Duration
 	waitprocesses   sync.WaitGroup
@@ -121,8 +121,8 @@ type node struct {
 	callErrorsRemote uint64
 
 	logMessages  [6]uint64              // atomic: 0=trace, 1=debug, 2=info, 3=warning, 4=error, 5=panic
-	tracingSpans [5]uint64              // atomic: 0=send, 1=request, 2=response, 3=spawn, 4=terminate
-	tracingAttrs []gen.TracingAttribute // node-level permanent, COW
+	tracingSpans [5]uint64                              // atomic: 0=send, 1=request, 2=response, 3=spawn, 4=terminate
+	tracingAttrs atomic.Pointer[[]gen.TracingAttribute] // node-level permanent, COW; pointer always non-nil
 }
 
 type tracingExporterEntry struct {
@@ -183,6 +183,7 @@ func Start(name gen.Atom, options gen.NodeOptions, frameworkVersion gen.Version)
 
 		wait: make(chan struct{}),
 	}
+	node.tracingAttrs.Store(new([]gen.TracingAttribute))
 
 	node.log = createLog(options.Log.Level, node.dolog)
 	node.log.setSource(gen.MessageLogNode{Node: name, Creation: creation})
@@ -514,8 +515,8 @@ func (n *node) MetaInfo(m gen.Alias) (gen.MetaInfo, error) {
 	info.MailboxSize = mp.main.Size()
 	info.MailboxQueues.Main = mp.main.Len()
 	info.MailboxQueues.System = mp.system.Len()
-	info.MessagesIn = mp.messagesIn
-	info.MessagesOut = mp.messagesOut
+	info.MessagesIn = atomic.LoadUint64(&mp.messagesIn)
+	info.MessagesOut = atomic.LoadUint64(&mp.messagesOut)
 	info.MessagePriority = mp.priority
 	info.Uptime = time.Now().Unix() - mp.creation
 	info.LogLevel = mp.log.Level()
@@ -553,8 +554,8 @@ func (n *node) ProcessInfo(pid gen.PID) (gen.ProcessInfo, error) {
 	info.MessagesIn = atomic.LoadUint64(&p.messagesIn)
 	info.MessagesOut = atomic.LoadUint64(&p.messagesOut)
 	info.RunningTime = atomic.LoadUint64(&p.runningTime)
-	info.InitTime = p.initTime
-	info.Wakeups = p.wakeups
+	info.InitTime = atomic.LoadUint64(&p.initTime)
+	info.Wakeups = atomic.LoadUint64(&p.wakeups)
 	info.Compression = p.compression
 	info.MessagePriority = p.priority
 	info.Uptime = p.Uptime()
@@ -570,7 +571,7 @@ func (n *node) ProcessInfo(pid gen.PID) (gen.ProcessInfo, error) {
 	info.ImportantDelivery = p.important
 	info.Tracing = gen.TracingInfo{
 		Sampler:    p.TracingSampler().String(),
-		Attributes: p.tracingAttrs,
+		Attributes: *p.tracingAttrs.Load(),
 	}
 
 	if n.security.ExposeEnvInfo {
@@ -849,7 +850,7 @@ func (n *node) Info() (gen.NodeInfo, error) {
 
 	info.Tracing = gen.TracingInfo{
 		Sampler:    n.TracingSampler().String(),
-		Attributes: n.tracingAttrs,
+		Attributes: *n.tracingAttrs.Load(),
 	}
 
 	n.tracingExporters.Range(func(k, v any) bool {
@@ -962,9 +963,10 @@ func (n *node) ProcessListShortInfo(start, limit int, filter ...func(gen.Process
 		limit = 100
 	}
 
-	from, to, step := int64(start), int64(n.nextID)+1, int64(1)
+	nextID := atomic.LoadUint64(&n.nextID)
+	from, to, step := int64(start), int64(nextID)+1, int64(1)
 	if start < 0 {
-		from, to, step = int64(n.nextID), 999, -1
+		from, to, step = int64(nextID), 999, -1
 	}
 
 	psi := []gen.ProcessShortInfo{}
@@ -988,13 +990,13 @@ func (n *node) ProcessListShortInfo(start, limit int, filter ...func(gen.Process
 			Application:     appName(process.application),
 			Behavior:        process.sbehavior,
 			Kind:            process.kind,
-			MessagesIn:      process.messagesIn,
-			MessagesOut:     process.messagesOut,
+			MessagesIn:      atomic.LoadUint64(&process.messagesIn),
+			MessagesOut:     atomic.LoadUint64(&process.messagesOut),
 			MessagesMailbox: uint64(messagesMailbox),
 			MailboxLatency:  process.mailbox.Latency(),
 			RunningTime:     atomic.LoadUint64(&process.runningTime),
-			InitTime:        process.initTime,
-			Wakeups:         process.wakeups,
+			InitTime:        atomic.LoadUint64(&process.initTime),
+			Wakeups:         atomic.LoadUint64(&process.wakeups),
 			Uptime:          process.Uptime(),
 			State:           process.State(),
 			StateTime:       time.Now().UnixNano() - atomic.LoadInt64(&process.stateEntered),
@@ -1031,13 +1033,13 @@ func (n *node) ProcessRangeShortInfo(fn func(gen.ProcessShortInfo) bool) error {
 			Application:     appName(p.application),
 			Behavior:        p.sbehavior,
 			Kind:            p.kind,
-			MessagesIn:      p.messagesIn,
-			MessagesOut:     p.messagesOut,
+			MessagesIn:      atomic.LoadUint64(&p.messagesIn),
+			MessagesOut:     atomic.LoadUint64(&p.messagesOut),
 			MessagesMailbox: uint64(messagesMailbox),
 			MailboxLatency:  p.mailbox.Latency(),
 			RunningTime:     atomic.LoadUint64(&p.runningTime),
-			InitTime:        p.initTime,
-			Wakeups:         p.wakeups,
+			InitTime:        atomic.LoadUint64(&p.initTime),
+			Wakeups:         atomic.LoadUint64(&p.wakeups),
 			Uptime:          p.Uptime(),
 			State:           p.State(),
 			StateTime:       time.Now().UnixNano() - atomic.LoadInt64(&p.stateEntered),
@@ -1274,14 +1276,14 @@ func (n *node) SendWithPriority(to any, message any, priority gen.MessagePriorit
 	}
 
 	var tracing gen.Tracing
-	if n.tracingSampler != nil && n.tracingSampler.Sample() {
+	if s := n.tracingSampler.Load(); s != nil && (*s).Sample() {
 		tracing = n.MakeTraceID()
 		tracing.Behavior = "core"
 	}
 	options := gen.MessageOptions{
 		Priority:          priority,
 		Tracing:           tracing,
-		TracingAttributes: n.tracingAttrs,
+		TracingAttributes: *n.tracingAttrs.Load(),
 	}
 
 	switch t := to.(type) {
@@ -1395,12 +1397,12 @@ func (n *node) callWithOptions(to any, request any, timeout int, options gen.Mes
 	if n.isRunning() == false {
 		return nil, gen.ErrNodeTerminated
 	}
-	if n.tracingSampler != nil && n.tracingSampler.Sample() {
+	if s := n.tracingSampler.Load(); s != nil && (*s).Sample() {
 		options.Tracing = n.MakeTraceID()
 		options.Tracing.Behavior = "core"
 	}
-	if options.Tracing.ID != [2]uint64{} && len(n.tracingAttrs) > 0 {
-		options.TracingAttributes = n.tracingAttrs
+	if attrs := *n.tracingAttrs.Load(); options.Tracing.ID != [2]uint64{} && len(attrs) > 0 {
+		options.TracingAttributes = attrs
 	}
 
 	switch t := to.(type) {
@@ -2077,13 +2079,13 @@ func (n *node) ApplicationProcessListShortInfo(name gen.Atom, limit int) ([]gen.
 			Application:     appName(p.application),
 			Behavior:        p.sbehavior,
 			Kind:            p.kind,
-			MessagesIn:      p.messagesIn,
-			MessagesOut:     p.messagesOut,
+			MessagesIn:      atomic.LoadUint64(&p.messagesIn),
+			MessagesOut:     atomic.LoadUint64(&p.messagesOut),
 			MessagesMailbox: uint64(messagesMailbox),
 			MailboxLatency:  p.mailbox.Latency(),
 			RunningTime:     atomic.LoadUint64(&p.runningTime),
-			InitTime:        p.initTime,
-			Wakeups:         p.wakeups,
+			InitTime:        atomic.LoadUint64(&p.initTime),
+			Wakeups:         atomic.LoadUint64(&p.wakeups),
 			Uptime:          p.Uptime(),
 			State:           p.State(),
 			StateTime:       time.Now().UnixNano() - atomic.LoadInt64(&p.stateEntered),
@@ -2117,13 +2119,13 @@ func (n *node) ApplicationProcessListShortInfo(name gen.Atom, limit int) ([]gen.
 			Application:     appName(p.application),
 			Behavior:        p.sbehavior,
 			Kind:            p.kind,
-			MessagesIn:      p.messagesIn,
-			MessagesOut:     p.messagesOut,
+			MessagesIn:      atomic.LoadUint64(&p.messagesIn),
+			MessagesOut:     atomic.LoadUint64(&p.messagesOut),
 			MessagesMailbox: uint64(messagesMailbox),
 			MailboxLatency:  p.mailbox.Latency(),
 			RunningTime:     atomic.LoadUint64(&p.runningTime),
-			InitTime:        p.initTime,
-			Wakeups:         p.wakeups,
+			InitTime:        atomic.LoadUint64(&p.initTime),
+			Wakeups:         atomic.LoadUint64(&p.wakeups),
 			Uptime:          p.Uptime(),
 			State:           p.State(),
 			StateTime:       time.Now().UnixNano() - atomic.LoadInt64(&p.stateEntered),
@@ -2524,28 +2526,30 @@ func (n *node) SetTracingAttribute(key, value string) {
 	if len(key) > 5 && key[:5] == "ergo." {
 		return
 	}
-	for i, a := range n.tracingAttrs {
+	cur := *n.tracingAttrs.Load()
+	for i, a := range cur {
 		if a.Key == key {
-			attrs := make([]gen.TracingAttribute, len(n.tracingAttrs))
-			copy(attrs, n.tracingAttrs)
+			attrs := make([]gen.TracingAttribute, len(cur))
+			copy(attrs, cur)
 			attrs[i] = gen.TracingAttribute{Key: key, Value: value}
-			n.tracingAttrs = attrs
+			n.tracingAttrs.Store(&attrs)
 			return
 		}
 	}
-	attrs := make([]gen.TracingAttribute, len(n.tracingAttrs)+1)
-	copy(attrs, n.tracingAttrs)
+	attrs := make([]gen.TracingAttribute, len(cur)+1)
+	copy(attrs, cur)
 	attrs[len(attrs)-1] = gen.TracingAttribute{Key: key, Value: value}
-	n.tracingAttrs = attrs
+	n.tracingAttrs.Store(&attrs)
 }
 
 func (n *node) RemoveTracingAttribute(key string) {
-	for i, a := range n.tracingAttrs {
+	cur := *n.tracingAttrs.Load()
+	for i, a := range cur {
 		if a.Key == key {
-			attrs := make([]gen.TracingAttribute, len(n.tracingAttrs)-1)
-			copy(attrs, n.tracingAttrs[:i])
-			copy(attrs[i:], n.tracingAttrs[i+1:])
-			n.tracingAttrs = attrs
+			attrs := make([]gen.TracingAttribute, len(cur)-1)
+			copy(attrs, cur[:i])
+			copy(attrs[i:], cur[i+1:])
+			n.tracingAttrs.Store(&attrs)
 			return
 		}
 	}
@@ -2556,18 +2560,19 @@ func (n *node) SetTracingSampler(sampler gen.TracingSampler) error {
 		return gen.ErrNodeTerminated
 	}
 	if sampler == gen.TracingSamplerDisable {
-		n.tracingSampler = nil
+		n.tracingSampler.Store(nil)
 		return nil
 	}
-	n.tracingSampler = sampler
+	n.tracingSampler.Store(&sampler)
 	return nil
 }
 
 func (n *node) TracingSampler() gen.TracingSampler {
-	if n.tracingSampler == nil {
+	s := n.tracingSampler.Load()
+	if s == nil {
 		return gen.TracingSamplerDisable
 	}
-	return n.tracingSampler
+	return *s
 }
 
 func (n *node) SetProcessTracingSampler(pid gen.PID, sampler gen.TracingSampler) error {
@@ -2579,7 +2584,7 @@ func (n *node) SetProcessTracingSampler(pid gen.PID, sampler gen.TracingSampler)
 		return gen.ErrProcessUnknown
 	}
 	p := value.(*process)
-	p.tracingSampler = sampler
+	p.tracingSampler.Store(&sampler)
 	return nil
 }
 
@@ -2701,6 +2706,7 @@ func (n *node) spawn(factory gen.ProcessFactory, options gen.ProcessOptionsExtra
 		leader:       options.ParentLeader,
 		important:    options.ImportantDelivery,
 	}
+	p.tracingAttrs.Store(new([]gen.TracingAttribute))
 
 	if options.Application != "" {
 		if v, ok := n.applications.Load(options.Application); ok {
@@ -2855,7 +2861,7 @@ func (n *node) spawn(factory gen.ProcessFactory, options gen.ProcessOptionsExtra
 		go func() {
 			initStart := time.Now()
 			err := behavior.ProcessInit(p, options.Args...)
-			p.initTime = uint64(time.Since(initStart))
+			atomic.StoreUint64(&p.initTime, uint64(time.Since(initStart)))
 
 			// try to claim "init completed"
 			if atomic.CompareAndSwapInt32(&completed, 0, 1) {
@@ -2902,7 +2908,7 @@ func (n *node) spawn(factory gen.ProcessFactory, options gen.ProcessOptionsExtra
 		// no timeout - synchronous behavior
 		initStart := time.Now()
 		initErr = behavior.ProcessInit(p, options.Args...)
-		p.initTime = uint64(time.Since(initStart))
+		atomic.StoreUint64(&p.initTime, uint64(time.Since(initStart)))
 	}
 
 	if initErr != nil {

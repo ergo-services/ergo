@@ -75,6 +75,7 @@ func (s *Storage) Unregister(target any, consumer gen.PID, kind Kind) bool {
 	}
 	s.reverseDelete(consumer, target, kind)
 	s.bumpCount(kind, -1)
+	entry.relations.compact()
 	return true
 }
 
@@ -144,8 +145,9 @@ func (s *Storage) ClearConsumer(consumer gen.PID) {
 	s.reverse.Delete(consumer)
 }
 
-// Iterates the index (not the relations queue) so we can CAS-MarkDead;
-// a concurrent Unregister that wins the CAS handles its own decrement.
+// Death fan-out goes through the relations list (Drain), claiming each live
+// relation via CAS; a concurrent Unregister that wins the CAS handles its own
+// decrement. Entry is detached first, so a later Unregister is a no-op.
 func (s *Storage) RemoveTarget(target any) []Relation {
 	v, ok := s.targets.LoadAndDelete(target)
 	if ok == false {
@@ -154,19 +156,14 @@ func (s *Storage) RemoveTarget(target any) []Relation {
 	entry := v.(*targetEntry)
 	var out []Relation
 	var links, monitors int64
-	entry.index.Range(func(k, val any) bool {
-		key := k.(indexKey)
-		if entry.relations.MarkDead(val.(*relationItem)) == false {
-			return true
-		}
-		out = append(out, Relation{Consumer: key.consumer, Kind: key.kind})
-		s.reverseDelete(key.consumer, target, key.kind)
-		if key.kind == KindLink {
+	entry.relations.Drain(func(pid gen.PID, kind Kind) {
+		out = append(out, Relation{Consumer: pid, Kind: kind})
+		s.reverseDelete(pid, target, kind)
+		if kind == KindLink {
 			links++
-			return true
+			return
 		}
 		monitors++
-		return true
 	})
 	s.linkCount.Add(-links)
 	s.monitorCount.Add(-monitors)
@@ -208,6 +205,7 @@ func (s *Storage) RemoveConsumersOnNode(target any, node gen.Atom) int {
 	})
 	s.linkCount.Add(-int64(links))
 	s.monitorCount.Add(-int64(monitors))
+	entry.relations.compact()
 	return links + monitors
 }
 

@@ -1198,6 +1198,9 @@ func (n *network) start(options gen.NetworkOptions) error {
 	}
 	n.flags = options.Flags
 	n.softwareKeepAliveMisses = options.SoftwareKeepAliveMisses
+	if options.FragmentSize > 0 && options.FragmentSize < 4096 {
+		return fmt.Errorf("network option FragmentSize (%d) is too small, minimum is 4096 bytes", options.FragmentSize)
+	}
 	n.fragmentSize = options.FragmentSize
 	n.fragmentTimeout = options.FragmentTimeout
 	n.maxFragmentAssemblies = options.MaxFragmentAssemblies
