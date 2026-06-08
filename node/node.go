@@ -102,6 +102,7 @@ type node struct {
 	waitprocesses   sync.WaitGroup
 	wait            chan struct{}
 	once            sync.Once
+	stopping        atomic.Bool // CAS-guard against concurrent Stop/StopForce
 
 	licenses sync.Map
 
@@ -1080,16 +1081,27 @@ func (n *node) Cron() gen.Cron {
 }
 
 func (n *node) Stop() {
-	n.stop(false)
+	n.stop(false, n.shutdownTimeout)
+}
+
+func (n *node) StopWithTimeout(timeout time.Duration) {
+	if timeout <= 0 {
+		timeout = n.shutdownTimeout
+	}
+	n.stop(false, timeout)
 }
 
 func (n *node) StopForce() {
-	n.stop(true)
+	n.stop(true, 0)
 }
 
-func (n *node) stop(force bool) {
+func (n *node) stop(force bool, shutdownTimeout time.Duration) {
 	if n.isRunning() == false {
 		// already stopped
+		return
+	}
+	if n.stopping.CompareAndSwap(false, true) == false {
+		// another Stop/StopForce call already in flight
 		return
 	}
 
@@ -1131,53 +1143,7 @@ func (n *node) stop(force bool) {
 	}
 
 	if force == false {
-		// start a goroutine to print pending processes every 5 seconds
-		// and force exit if shutdown timeout expires
-		stopPrinting := make(chan struct{})
-		shutdownTimeout := n.shutdownTimeout
-		go func() {
-			ticker := time.NewTicker(5 * time.Second)
-			defer ticker.Stop()
-			timeout := time.After(shutdownTimeout)
-			for {
-				select {
-				case <-stopPrinting:
-					return
-				case <-timeout:
-					n.log.Error("shutdown timeout %s expired, force exit", n.shutdownTimeout)
-					os.Exit(1)
-				case <-ticker.C:
-					var count int
-					n.processes.Range(func(_, v any) bool {
-						count++
-						if count > 10 {
-							return true
-						}
-						if count == 1 {
-							n.log.Warning("node %s is still waiting for process(es) to terminate:", n.name)
-						}
-
-						p := v.(*process)
-						name := p.sbehavior
-						state := gen.ProcessState(atomic.LoadInt32(&p.state))
-						qlen := p.mailbox.Len()
-
-						if p.name != "" {
-							name = fmt.Sprintf("%s, %s", p.name, p.sbehavior)
-						}
-
-						n.log.Warning("  %s (%s) state: %s, queue: %d",
-							p.pid, name, state, qlen)
-						return true
-					})
-					if count > 10 {
-						n.log.Warning("  ...and %d more", count-10)
-					}
-				}
-			}
-		}()
-		n.waitprocesses.Wait()
-		close(stopPrinting)
+		n.waitProcessesWithEscalation(shutdownTimeout)
 	}
 
 	n.NetworkStop()
@@ -1200,6 +1166,83 @@ func (n *node) stop(force bool) {
 	n.once.Do(func() {
 		close(n.wait)
 	})
+}
+
+// waitProcessesWithEscalation blocks until all tracked processes have called
+// waitprocesses.Done. Periodically logs stuck processes. On shutdownTimeout
+// escalates to force-kill of all remaining processes, then waits a short
+// settle window. As a last resort calls os.Exit(1) if processes refuse to die.
+func (n *node) waitProcessesWithEscalation(shutdownTimeout time.Duration) {
+	done := make(chan struct{})
+	go func() {
+		n.waitprocesses.Wait()
+		close(done)
+	}()
+
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+	timeout := time.After(shutdownTimeout)
+
+	for {
+		select {
+		case <-done:
+			return
+		case <-timeout:
+			lines, total := n.snapshotRunningProcesses()
+			n.log.Error("shutdown timeout %s expired, killing %d remaining process(es):", shutdownTimeout, total)
+			n.logSnapshot(lines, total)
+			n.processes.Range(func(_, v any) bool {
+				p := v.(*process)
+				n.Kill(p.pid)
+				return true
+			})
+			select {
+			case <-done:
+			case <-time.After(5 * time.Second):
+				lines, total := n.snapshotRunningProcesses()
+				n.log.Error("processes still alive after force kill, hard exit (%d remaining):", total)
+				n.logSnapshot(lines, total)
+				os.Exit(1)
+			}
+			return
+		case <-ticker.C:
+			lines, total := n.snapshotRunningProcesses()
+			if total > 0 {
+				n.log.Warning("node %s is still waiting for process(es) to terminate:", n.name)
+				n.logSnapshot(lines, total)
+			}
+		}
+	}
+}
+
+// snapshotRunningProcesses gathers up to 10 still-running process descriptions
+// plus the total count (which may exceed 10).
+func (n *node) snapshotRunningProcesses() (lines []string, total int) {
+	n.processes.Range(func(_, v any) bool {
+		total++
+		if total > 10 {
+			return true
+		}
+		p := v.(*process)
+		name := p.sbehavior
+		if p.name != "" {
+			name = fmt.Sprintf("%s, %s", p.name, p.sbehavior)
+		}
+		state := gen.ProcessState(atomic.LoadInt32(&p.state))
+		qlen := p.mailbox.Len()
+		lines = append(lines, fmt.Sprintf("  %s (%s) state: %s, queue: %d", p.pid, name, state, qlen))
+		return true
+	})
+	return
+}
+
+func (n *node) logSnapshot(lines []string, total int) {
+	for _, l := range lines {
+		n.log.Warning(l)
+	}
+	if total > 10 {
+		n.log.Warning("  ...and %d more", total-10)
+	}
 }
 
 func (n *node) Wait() {
@@ -2906,7 +2949,7 @@ func (n *node) spawn(factory gen.ProcessFactory, options gen.ProcessOptionsExtra
 	}
 
 	// switch to sleep state (process already registered above)
-	p.state = int32(gen.ProcessStateSleep)
+	atomic.StoreInt32(&p.state, int32(gen.ProcessStateSleep))
 	atomic.StoreInt64(&p.stateEntered, time.Now().UnixNano())
 
 	// do not count system app processes

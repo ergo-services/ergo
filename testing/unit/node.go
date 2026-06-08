@@ -443,6 +443,10 @@ func (tn *TestNode) Stop() {
 	// No-op for testing
 }
 
+func (tn *TestNode) StopWithTimeout(timeout time.Duration) {
+	// No-op for testing
+}
+
 func (tn *TestNode) StopForce() {
 	// No-op for testing
 }

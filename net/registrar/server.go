@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"ergo.services/ergo/gen"
@@ -22,7 +23,7 @@ type server struct {
 
 	routes     map[gen.Atom][]gen.Route
 	registered map[net.Conn]gen.Atom
-	terminated bool
+	terminated atomic.Bool
 }
 
 func tryStartServer(port uint16, log gen.Log) *server {
@@ -58,7 +59,7 @@ func tryStartServer(port uint16, log gen.Log) *server {
 
 func (s *server) serveRegister() {
 	for {
-		if s.terminated {
+		if s.terminated.Load() {
 			return
 		}
 		conn, err := s.lReg.Accept()
@@ -77,7 +78,7 @@ func (s *server) serveResolve() {
 	defer lib.ReleaseBuffer(rbuf)
 
 	for {
-		if s.terminated {
+		if s.terminated.Load() {
 			return
 		}
 
@@ -144,7 +145,7 @@ func (s *server) serveResolve() {
 }
 
 func (s *server) terminate() {
-	s.terminated = true
+	s.terminated.Store(true)
 
 	s.lReg.Close()
 	s.lRes.Close()

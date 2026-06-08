@@ -250,9 +250,17 @@ type Node interface {
 	Security() SecurityOptions
 
 	// Stop initiates graceful node shutdown.
-	// Waits for all processes and applications to terminate.
+	// Waits for all processes and applications to terminate, up to
+	// NodeOptions.ShutdownTimeout. On timeout remaining processes are
+	// force-killed.
 	// Can be called from any state (idempotent).
 	Stop()
+
+	// StopWithTimeout initiates graceful node shutdown with a caller-provided
+	// shutdown deadline, overriding NodeOptions.ShutdownTimeout. On timeout
+	// remaining processes are force-killed.
+	// Can be called from any state (idempotent).
+	StopWithTimeout(timeout time.Duration)
 
 	// StopForce forcefully kills all processes and stops the node immediately.
 	// No graceful shutdown.
@@ -586,6 +594,7 @@ type NodeRegistrar interface {
 	SendEvent(name Atom, token Ref, options MessageOptions, message any) error
 	Log() Log
 	Stop()
+	StopWithTimeout(timeout time.Duration)
 	StopForce()
 }
 

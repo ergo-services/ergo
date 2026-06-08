@@ -37,7 +37,11 @@ func (a *application) Name() gen.Atom                    { return a.spec.Name }
 func (a *application) Node() gen.Node                    { return a.node }
 func (a *application) Log() gen.Log                      { return a.log }
 func (a *application) Behavior() gen.ApplicationBehavior { return a.behavior }
-func (a *application) Mode() gen.ApplicationMode         { return a.mode }
+func (a *application) Mode() gen.ApplicationMode {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.mode
+}
 func (a *application) State() gen.ApplicationState {
 	return gen.ApplicationState(atomic.LoadInt32(&a.state))
 }
@@ -211,9 +215,11 @@ func (a *application) start(mode gen.ApplicationMode, options gen.ApplicationOpt
 		return gen.ErrApplicationState
 	}
 
+	a.mu.Lock()
 	a.mode = mode
 	a.parent = options.CorePID.Node
 	a.stopped = make(chan struct{})
+	a.mu.Unlock()
 
 	appEnv := make(map[gen.Env]any)
 	for k, v := range options.CoreEnv {
@@ -269,7 +275,9 @@ func (a *application) start(mode gen.ApplicationMode, options gen.ApplicationOpt
 	}
 
 	atomic.StoreInt32(&a.state, int32(gen.ApplicationStateRunning))
+	a.mu.Lock()
 	a.started = time.Now().Unix()
+	a.mu.Unlock()
 	a.log.Info("started")
 
 	startTimeout := pickAppTimeout(a.spec.StartTimeout, options.StartTimeout, gen.DefaultApplicationStartTimeout)
@@ -282,18 +290,21 @@ func (a *application) start(mode gen.ApplicationMode, options gen.ApplicationOpt
 // drain any spawned members, ensure Terminate fires.
 func (a *application) spawnFailCleanup(reason error) {
 	atomic.StoreInt32(&a.state, int32(gen.ApplicationStateStopping))
+	a.mu.Lock()
 	a.mode = gen.ApplicationModeTemporary
 	a.reason = reason
+	stoppedCh := a.stopped
+	a.mu.Unlock()
 
 	if a.group.Len() == 0 {
 		atomic.StoreInt32(&a.state, int32(gen.ApplicationStateLoaded))
-		close(a.stopped)
+		close(stoppedCh)
 		a.runTerminateCallback(reason)
 		return
 	}
 
 	a.killMembers()
-	<-a.stopped
+	<-stoppedCh
 }
 
 func (a *application) stop(force bool, timeout time.Duration) error {
@@ -314,14 +325,21 @@ func (a *application) stop(force bool, timeout time.Duration) error {
 	}
 
 	a.registerAppRoute()
-	a.mode = gen.ApplicationModeTemporary
 
+	a.mu.Lock()
+	a.mode = gen.ApplicationModeTemporary
 	if force {
 		a.reason = gen.TerminateReasonKill
 	} else {
 		a.reason = gen.TerminateReasonShutdown
+	}
+	reasonCopy := a.reason
+	stoppedCh := a.stopped
+	a.mu.Unlock()
+
+	if force == false {
 		stopTimeout := pickAppTimeout(a.spec.StopTimeout, 0, gen.DefaultApplicationStopTimeout)
-		a.runStopCallback(a.reason, stopTimeout)
+		a.runStopCallback(reasonCopy, stopTimeout)
 	}
 
 	pids := a.collectMemberPIDs()
@@ -334,7 +352,7 @@ func (a *application) stop(force bool, timeout time.Duration) error {
 	}
 
 	select {
-	case <-a.stopped:
+	case <-stoppedCh:
 		return nil
 	case <-time.After(timeout):
 		return gen.ErrApplicationStopping
@@ -347,12 +365,18 @@ func (a *application) terminate(pid gen.PID, reason error) {
 		return
 	}
 
-	switch a.mode {
+	a.mu.RLock()
+	mode := a.mode
+	a.mu.RUnlock()
+
+	switch mode {
 	case gen.ApplicationModePermanent:
 		if atomic.CompareAndSwapInt32(&a.state,
 			int32(gen.ApplicationStateRunning), int32(gen.ApplicationStateStopping)) {
 			a.log.Info("stopping due to termination of %s with reason: %s", pid, reason)
+			a.mu.Lock()
 			a.reason = reason
+			a.mu.Unlock()
 			go a.coordinateAutoStop(reason)
 		}
 	case gen.ApplicationModeTransient:
@@ -362,7 +386,9 @@ func (a *application) terminate(pid gen.PID, reason error) {
 		if atomic.CompareAndSwapInt32(&a.state,
 			int32(gen.ApplicationStateRunning), int32(gen.ApplicationStateStopping)) {
 			a.log.Info("stopping due to termination of %s with reason: %s", pid, reason)
+			a.mu.Lock()
 			a.reason = reason
+			a.mu.Unlock()
 			go a.coordinateAutoStop(reason)
 		}
 	}
@@ -371,23 +397,30 @@ func (a *application) terminate(pid gen.PID, reason error) {
 		return
 	}
 
+	a.mu.Lock()
 	if a.reason == nil {
 		a.reason = gen.TerminateReasonNormal
 	}
+	reasonCopy := a.reason
+	a.mu.Unlock()
 
 	old := atomic.SwapInt32(&a.state, int32(gen.ApplicationStateLoaded))
 	if old == int32(gen.ApplicationStateLoaded) {
 		return
 	}
-	if a.stopped != nil {
-		close(a.stopped)
-	}
 
+	a.mu.Lock()
+	stoppedCh := a.stopped
 	a.started = 0
 	a.parent = ""
+	a.mu.Unlock()
 
-	a.log.Info("stopped with reason %s", a.reason)
-	a.runTerminateCallback(a.reason)
+	if stoppedCh != nil {
+		close(stoppedCh)
+	}
+
+	a.log.Info("stopped with reason %s", reasonCopy)
+	a.runTerminateCallback(reasonCopy)
 
 	if a.node.Network().Mode() != gen.NetworkModeEnabled {
 		return
@@ -413,6 +446,9 @@ func (a *application) info() gen.ApplicationInfo {
 		info.Tags = make([]gen.Atom, len(a.tags))
 		copy(info.Tags, a.tags)
 	}
+	info.Mode = a.mode
+	info.Parent = a.parent
+	started := a.started
 	a.mu.RUnlock()
 
 	// copy map
@@ -426,9 +462,7 @@ func (a *application) info() gen.ApplicationInfo {
 	info.Description = a.spec.Description
 	info.Version = a.spec.Version
 	info.Depends = a.spec.Depends
-	info.Mode = a.mode
-	info.Parent = a.parent
-	info.Uptime = time.Now().Unix() - a.started
+	info.Uptime = time.Now().Unix() - started
 	info.Group = []gen.PID{}
 	a.group.Range(func(pid gen.PID, _ bool) bool {
 		info.Group = append(info.Group, pid)
@@ -479,13 +513,14 @@ func (a *application) registerAppRoute() {
 	a.mu.RLock()
 	tags := append([]gen.Atom(nil), a.tags...)
 	weight := a.weight
+	mode := a.mode
 	a.mu.RUnlock()
 	appRoute := gen.ApplicationRoute{
 		Node:   a.node.name,
 		Name:   a.spec.Name,
 		Weight: weight,
 		Tags:   tags,
-		Mode:   a.mode,
+		Mode:   mode,
 		State:  gen.ApplicationState(atomic.LoadInt32(&a.state)),
 	}
 	network := a.node.Network()

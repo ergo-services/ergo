@@ -2181,7 +2181,7 @@ func (p *process) isStateIRT() bool {
 }
 
 func (p *process) waitResponse(ref gen.Ref, timeout int) (any, error) {
-	var response any
+	var result any
 	var err error
 
 	// swap to wait response state
@@ -2202,27 +2202,20 @@ func (p *process) waitResponse(ref gen.Ref, timeout int) (any, error) {
 		timer.Reset(time.Second * time.Duration(timeout))
 	}
 
-retry:
-	select {
-	case <-timer.C:
-		if lib.Verbose() {
-			p.log.Trace("request with ref %s is timed out", ref)
-		}
-		err = gen.ErrTimeout
-	case r := <-p.response:
+	// take consumes one response and decides if it matches the awaited ref.
+	// Returns true if applied. Stale responses (different ref) are dropped
+	// and traced; these come from a previous waitResponse that timed out
+	// after the peer had already produced its reply.
+	take := func(r response) bool {
 		if r.ref != ref {
-			// we got a late response to the previous request that has been timed
-			// out earlier and we made another request with the new reference - Ref.
-			// just drop it and wait one more time
 			if lib.Verbose() {
 				p.log.Trace("got late response on request with ref %s (exp %s). dropped", r.ref, ref)
 			}
-			goto retry
+			return false
 		}
-		response = r.message
+		result = r.message
 		err = r.err
 		if r.important {
-			// send ack for important response
 			options := gen.MessageOptions{
 				Tracing: p.propagatingTrace(),
 				Ref:     r.ref,
@@ -2232,12 +2225,41 @@ retry:
 			}
 			p.node.RouteSendResponseError(p.pid, r.from, options, nil)
 		}
+		return true
 	}
 
+	for {
+		select {
+		case r := <-p.response:
+			if take(r) {
+				goto done
+			}
+		case <-timer.C:
+			// Timer/response race: select may have picked timer.C while a
+			// matching response was already in the buffer. Drain non-blocking
+			// before declaring timeout.
+			for {
+				select {
+				case r := <-p.response:
+					if take(r) {
+						goto done
+					}
+				default:
+					if lib.Verbose() {
+						p.log.Trace("request with ref %s is timed out", ref)
+					}
+					err = gen.ErrTimeout
+					goto done
+				}
+			}
+		}
+	}
+
+done:
 	// restore to previous state (init or running)
 	if swapped := atomic.CompareAndSwapInt32(&p.state, int32(gen.ProcessStateWaitResponse), prevState); swapped == false {
 		return nil, gen.ErrProcessTerminated
 	}
 	atomic.StoreInt64(&p.stateEntered, time.Now().UnixNano())
-	return response, err
+	return result, err
 }
