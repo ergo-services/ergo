@@ -130,9 +130,9 @@ func (m *meta) handle() {
 					result, reason = m.behavior.HandleCall(message.From, message.Ref, message.Message)
 					options := gen.MessageOptions{
 						Ref:              message.Ref,
-						Priority:         m.p.priority,
+						Priority:         gen.MessagePriority(m.p.priority.Load()),
 						Compression:      m.p.compression,
-						KeepNetworkOrder: m.p.keeporder,
+						KeepNetworkOrder: m.p.keeporder.Load(),
 					}
 					if reason == nil {
 						if result != nil {
@@ -147,9 +147,9 @@ func (m *meta) handle() {
 					result := m.behavior.HandleInspect(message.From, message.Message.([]string)...)
 					options := gen.MessageOptions{
 						Ref:              message.Ref,
-						Priority:         m.p.priority,
+						Priority:         gen.MessagePriority(m.p.priority.Load()),
 						Compression:      m.p.compression,
-						KeepNetworkOrder: m.p.keeporder,
+						KeepNetworkOrder: m.p.keeporder.Load(),
 					}
 					m.p.node.RouteSendResponse(m.p.pid, message.From, options, result)
 					atomic.AddUint64(&m.messagesOut, 1)

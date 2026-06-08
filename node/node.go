@@ -120,7 +120,7 @@ type node struct {
 	callErrorsLocal  uint64
 	callErrorsRemote uint64
 
-	logMessages  [6]uint64              // atomic: 0=trace, 1=debug, 2=info, 3=warning, 4=error, 5=panic
+	logMessages  [6]uint64                              // atomic: 0=trace, 1=debug, 2=info, 3=warning, 4=error, 5=panic
 	tracingSpans [5]uint64                              // atomic: 0=send, 1=request, 2=response, 3=spawn, 4=terminate
 	tracingAttrs atomic.Pointer[[]gen.TracingAttribute] // node-level permanent, COW; pointer always non-nil
 }
@@ -517,7 +517,7 @@ func (n *node) MetaInfo(m gen.Alias) (gen.MetaInfo, error) {
 	info.MailboxQueues.System = mp.system.Len()
 	info.MessagesIn = atomic.LoadUint64(&mp.messagesIn)
 	info.MessagesOut = atomic.LoadUint64(&mp.messagesOut)
-	info.MessagePriority = mp.priority
+	info.MessagePriority = gen.MessagePriority(mp.priority.Load())
 	info.Uptime = time.Now().Unix() - mp.creation
 	info.LogLevel = mp.log.Level()
 	info.State = gen.MetaState(mp.state)
@@ -557,7 +557,7 @@ func (n *node) ProcessInfo(pid gen.PID) (gen.ProcessInfo, error) {
 	info.InitTime = atomic.LoadUint64(&p.initTime)
 	info.Wakeups = atomic.LoadUint64(&p.wakeups)
 	info.Compression = p.compression
-	info.MessagePriority = p.priority
+	info.MessagePriority = gen.MessagePriority(p.priority.Load())
 	info.Uptime = p.Uptime()
 	info.State = p.State()
 	info.StateTime = time.Now().UnixNano() - atomic.LoadInt64(&p.stateEntered)
@@ -567,8 +567,8 @@ func (n *node) ProcessInfo(pid gen.PID) (gen.ProcessInfo, error) {
 	info.Aliases = p.Aliases()
 	info.Events = p.Events()
 	info.LogLevel = p.log.Level()
-	info.KeepNetworkOrder = p.keeporder
-	info.ImportantDelivery = p.important
+	info.KeepNetworkOrder = p.keeporder.Load()
+	info.ImportantDelivery = p.important.Load()
 	info.Tracing = gen.TracingInfo{
 		Sampler:    p.TracingSampler().String(),
 		Attributes: *p.tracingAttrs.Load(),
@@ -666,7 +666,7 @@ func (n *node) SetProcessSendPriority(pid gen.PID, priority gen.MessagePriority)
 		return gen.ErrProcessUnknown
 	}
 	p := value.(*process)
-	p.priority = priority
+	p.priority.Store(int32(priority))
 	return nil
 }
 
@@ -748,7 +748,7 @@ func (n *node) SetProcessKeepNetworkOrder(pid gen.PID, order bool) error {
 		return gen.ErrProcessUnknown
 	}
 	p := value.(*process)
-	p.keeporder = order
+	p.keeporder.Store(order)
 	return nil
 }
 
@@ -761,7 +761,7 @@ func (n *node) SetProcessImportantDelivery(pid gen.PID, important bool) error {
 		return gen.ErrProcessUnknown
 	}
 	p := value.(*process)
-	p.important = important
+	p.important.Store(important)
 	return nil
 }
 
@@ -809,7 +809,7 @@ func (n *node) SetMetaSendPriority(m gen.Alias, priority gen.MessagePriority) er
 	default:
 		return gen.ErrIncorrect
 	}
-	mp.priority = priority
+	mp.priority.Store(int32(priority))
 	return nil
 }
 
@@ -2408,7 +2408,7 @@ func (n *node) TracingExporterAddPID(pid gen.PID, name string, flags gen.Tracing
 		return gen.ErrProcessUnknown
 	}
 	p := value.(*process)
-	if p.tracingExporterName != "" {
+	if p.tracingExporterName.Load() != nil {
 		return gen.ErrNotAllowed
 	}
 	entry := tracingExporterEntry{
@@ -2418,7 +2418,7 @@ func (n *node) TracingExporterAddPID(pid gen.PID, name string, flags gen.Tracing
 	if _, loaded := n.tracingExporters.LoadOrStore(name, entry); loaded {
 		return gen.ErrTaken
 	}
-	p.tracingExporterName = name
+	p.tracingExporterName.Store(&name)
 	return nil
 }
 
@@ -2445,9 +2445,9 @@ func (n *node) TracingExporterDeletePID(pid gen.PID) {
 		return
 	}
 	p := value.(*process)
-	if p.tracingExporterName != "" {
-		n.TracingExporterDelete(p.tracingExporterName)
-		p.tracingExporterName = ""
+	if name := p.tracingExporterName.Load(); name != nil {
+		n.TracingExporterDelete(*name)
+		p.tracingExporterName.Store(nil)
 	}
 }
 
@@ -2699,13 +2699,13 @@ func (n *node) spawn(factory gen.ProcessFactory, options gen.ProcessOptionsExtra
 		node:         n,
 		response:     make(chan response, 10),
 		creation:     now.Unix(),
-		keeporder:    true,
 		state:        int32(gen.ProcessStateInit),
 		stateEntered: now.UnixNano(),
 		parent:       options.ParentPID,
 		leader:       options.ParentLeader,
-		important:    options.ImportantDelivery,
 	}
+	p.keeporder.Store(true)
+	p.important.Store(options.ImportantDelivery)
 	p.tracingAttrs.Store(new([]gen.TracingAttribute))
 
 	if options.Application != "" {
@@ -2786,11 +2786,11 @@ func (n *node) spawn(factory gen.ProcessFactory, options gen.ProcessOptionsExtra
 
 	switch options.SendPriority {
 	case gen.MessagePriorityHigh:
-		p.priority = gen.MessagePriorityHigh
+		p.priority.Store(int32(gen.MessagePriorityHigh))
 	case gen.MessagePriorityMax:
-		p.priority = gen.MessagePriorityMax
+		p.priority.Store(int32(gen.MessagePriorityMax))
 	default:
-		p.priority = gen.MessagePriorityNormal
+		p.priority.Store(int32(gen.MessagePriorityNormal))
 	}
 
 	// create a new process with provided behavior
@@ -2990,9 +2990,9 @@ func (n *node) cleanupProcess(p *process, reason error) {
 	}
 	n.processes.Delete(p.pid)
 
-	if p.tracingExporterName != "" {
-		n.TracingExporterDelete(p.tracingExporterName)
-		p.tracingExporterName = ""
+	if name := p.tracingExporterName.Load(); name != nil {
+		n.TracingExporterDelete(*name)
+		p.tracingExporterName.Store(nil)
 	}
 
 	n.log.Trace("...cleanupProcess %s", p.pid)

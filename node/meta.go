@@ -24,7 +24,7 @@ type meta struct {
 	messagesIn  uint64
 	messagesOut uint64
 
-	priority    gen.MessagePriority
+	priority    atomic.Int32 // gen.MessagePriority; mutable from node-level setter
 	compression bool
 
 	creation int64 // used for the meta process Uptime method only
@@ -40,11 +40,11 @@ func (m *meta) Parent() gen.PID {
 }
 
 func (m *meta) SendPriority() gen.MessagePriority {
-	return m.priority
+	return gen.MessagePriority(m.priority.Load())
 }
 
 func (m *meta) SetSendPriority(priority gen.MessagePriority) error {
-	m.priority = priority
+	m.priority.Store(int32(priority))
 	return nil
 }
 
@@ -56,10 +56,10 @@ func (m *meta) Send(to any, message any) error {
 }
 
 func (m *meta) SendWithPriority(to any, message any, priority gen.MessagePriority) error {
-	var prev gen.MessagePriority
-	prev, m.priority = m.priority, priority
+	prev := m.priority.Load()
+	m.priority.Store(int32(priority))
 	err := m.send(to, message)
-	m.priority = prev
+	m.priority.Store(prev)
 	return err
 }
 
@@ -73,9 +73,9 @@ func (m *meta) SendResponse(to gen.PID, ref gen.Ref, message any) error {
 	compression.Enable = m.compression
 
 	options := gen.MessageOptions{
-		Priority:         m.priority,
+		Priority:         gen.MessagePriority(m.priority.Load()),
 		Compression:      compression,
-		KeepNetworkOrder: m.p.keeporder,
+		KeepNetworkOrder: m.p.keeporder.Load(),
 	}
 	if err := m.p.node.RouteSendResponse(m.p.pid, to, options, message); err != nil {
 		return err
@@ -96,9 +96,9 @@ func (m *meta) SendResponseError(to gen.PID, ref gen.Ref, err error) error {
 
 	options := gen.MessageOptions{
 		Ref:              ref,
-		Priority:         m.priority,
+		Priority:         gen.MessagePriority(m.priority.Load()),
 		Compression:      compression,
-		KeepNetworkOrder: m.p.keeporder,
+		KeepNetworkOrder: m.p.keeporder.Load(),
 	}
 	if rerr := m.p.node.RouteSendResponse(m.p.pid, to, options, err); rerr != nil {
 		return rerr
@@ -156,9 +156,9 @@ func (m *meta) send(to any, message any) error {
 	compression.Enable = m.compression
 
 	options := gen.MessageOptions{
-		Priority:         m.priority,
+		Priority:         gen.MessagePriority(m.priority.Load()),
 		Compression:      compression,
-		KeepNetworkOrder: m.p.keeporder,
+		KeepNetworkOrder: m.p.keeporder.Load(),
 	}
 
 	switch t := to.(type) {
@@ -172,7 +172,7 @@ func (m *meta) send(to any, message any) error {
 			qm.Message = message
 
 			var queue lib.QueueMPSC
-			switch m.priority {
+			switch gen.MessagePriority(m.priority.Load()) {
 			case gen.MessagePriorityHigh:
 				queue = m.p.mailbox.System
 			case gen.MessagePriorityMax:

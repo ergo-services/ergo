@@ -38,9 +38,9 @@ type process struct {
 	fallback gen.ProcessFallback
 
 	mailbox         gen.ProcessMailbox
-	priority        gen.MessagePriority
-	keeporder       bool
-	important       bool
+	priority        atomic.Int32 // gen.MessagePriority; mutable from node-level setters
+	keeporder       atomic.Bool
+	important       atomic.Bool
 	preserveMailbox bool
 
 	messagesIn  uint64
@@ -53,7 +53,7 @@ type process struct {
 	tracing          gen.Tracing
 	tracingSampler   atomic.Pointer[gen.TracingSampler]
 	tracingAttrs     atomic.Pointer[[]gen.TracingAttribute] // permanent, COW; pointer always non-nil
-	tracingSpanAttrs []gen.TracingAttribute  // one-shot, nil after handler
+	tracingSpanAttrs []gen.TracingAttribute                 // one-shot, nil after handler
 
 	env sync.Map
 
@@ -70,7 +70,7 @@ type process struct {
 	loggername string
 
 	// if act as a tracing exporter
-	tracingExporterName string
+	tracingExporterName atomic.Pointer[string] // mutable from node-level setters
 }
 
 type response struct {
@@ -237,11 +237,11 @@ func (p *process) spawnMeta(behavior gen.MetaBehavior, options gen.MetaOptions) 
 	}
 	switch options.SendPriority {
 	case gen.MessagePriorityHigh:
-		m.priority = gen.MessagePriorityHigh
+		m.priority.Store(int32(gen.MessagePriorityHigh))
 	case gen.MessagePriorityMax:
-		m.priority = gen.MessagePriorityMax
+		m.priority.Store(int32(gen.MessagePriorityMax))
 	default:
-		m.priority = gen.MessagePriorityNormal
+		m.priority.Store(int32(gen.MessagePriorityNormal))
 	}
 	if options.MailboxSize > 0 {
 		m.main = lib.NewQueueLimitMPSC(options.MailboxSize, false)
@@ -482,7 +482,7 @@ func (p *process) SetCompressionThreshold(threshold int) error {
 }
 
 func (p *process) SendPriority() gen.MessagePriority {
-	return p.priority
+	return gen.MessagePriority(p.priority.Load())
 }
 
 func (p *process) SetSendPriority(priority gen.MessagePriority) error {
@@ -497,7 +497,7 @@ func (p *process) SetSendPriority(priority gen.MessagePriority) error {
 	default:
 		return gen.ErrIncorrect
 	}
-	p.priority = priority
+	p.priority.Store(int32(priority))
 	return nil
 }
 
@@ -514,12 +514,12 @@ func (p *process) SetKeepNetworkOrder(order bool) error {
 		return gen.ErrNotAllowed
 	}
 
-	p.keeporder = order
+	p.keeporder.Store(order)
 	return nil
 }
 
 func (p *process) KeepNetworkOrder() bool {
-	return p.keeporder
+	return p.keeporder.Load()
 }
 
 func (p *process) SetImportantDelivery(important bool) error {
@@ -527,12 +527,12 @@ func (p *process) SetImportantDelivery(important bool) error {
 		return gen.ErrNotAllowed
 	}
 
-	p.important = important
+	p.important.Store(important)
 	return nil
 }
 
 func (p *process) ImportantDelivery() bool {
-	return p.important
+	return p.important.Load()
 }
 
 func (p *process) SetTracingSampler(sampler gen.TracingSampler) error {
@@ -554,8 +554,6 @@ func (p *process) TracingSampler() gen.TracingSampler {
 	}
 	return *s
 }
-
-
 
 func (p *process) PropagatingTrace() gen.Tracing {
 	return p.tracing
@@ -625,10 +623,10 @@ func (p *process) Aliases() []gen.Alias {
 }
 
 func (p *process) SendWithPriority(to any, message any, priority gen.MessagePriority) error {
-	var prev gen.MessagePriority
-	prev, p.priority = p.priority, priority
+	prev := p.priority.Load()
+	p.priority.Store(int32(priority))
 	err := p.Send(to, message)
-	p.priority = prev
+	p.priority.Store(prev)
 	return err
 }
 
@@ -654,10 +652,10 @@ func (p *process) SendImportant(to any, message any) error {
 		return gen.ErrNotAllowed
 	}
 
-	var important bool
-	important, p.important = p.important, true
+	prev := p.important.Load()
+	p.important.Store(true)
 	err := p.Send(to, message)
-	p.important = important
+	p.important.Store(prev)
 
 	return err
 }
@@ -673,10 +671,10 @@ func (p *process) SendPID(to gen.PID, message any) error {
 
 	options := gen.MessageOptions{
 		Tracing:           p.propagatingTrace(),
-		Priority:          p.priority,
+		Priority:          gen.MessagePriority(p.priority.Load()),
 		Compression:       p.compression,
-		KeepNetworkOrder:  p.keeporder,
-		ImportantDelivery: p.important,
+		KeepNetworkOrder:  p.keeporder.Load(),
+		ImportantDelivery: p.important.Load(),
 	}
 	if options.Tracing.ID != [2]uint64{} {
 		if options.Tracing.ID != [2]uint64{} {
@@ -725,10 +723,10 @@ func (p *process) SendProcessID(to gen.ProcessID, message any) error {
 
 	options := gen.MessageOptions{
 		Tracing:           p.propagatingTrace(),
-		Priority:          p.priority,
+		Priority:          gen.MessagePriority(p.priority.Load()),
 		Compression:       p.compression,
-		KeepNetworkOrder:  p.keeporder,
-		ImportantDelivery: p.important,
+		KeepNetworkOrder:  p.keeporder.Load(),
+		ImportantDelivery: p.important.Load(),
 	}
 	if options.Tracing.ID != [2]uint64{} {
 		if options.Tracing.ID != [2]uint64{} {
@@ -777,10 +775,10 @@ func (p *process) SendAlias(to gen.Alias, message any) error {
 
 	options := gen.MessageOptions{
 		Tracing:           p.propagatingTrace(),
-		Priority:          p.priority,
+		Priority:          gen.MessagePriority(p.priority.Load()),
 		Compression:       p.compression,
-		KeepNetworkOrder:  p.keeporder,
-		ImportantDelivery: p.important,
+		KeepNetworkOrder:  p.keeporder.Load(),
+		ImportantDelivery: p.important.Load(),
 	}
 	if options.Tracing.ID != [2]uint64{} {
 		if options.Tracing.ID != [2]uint64{} {
@@ -830,9 +828,9 @@ func (p *process) SendAfter(to any, message any, after time.Duration) (gen.Cance
 		// we can't use p.Send(...) because it checks the process state
 		// and returns gen.ErrNotAllowed, so use p.node.Route* methods for that
 		options := gen.MessageOptions{
-			Priority:         p.priority,
+			Priority:         gen.MessagePriority(p.priority.Load()),
 			Compression:      p.compression,
-			KeepNetworkOrder: p.keeporder,
+			KeepNetworkOrder: p.keeporder.Load(),
 			// ImportantDelivery: ignore on sending with delay
 		}
 		switch t := to.(type) {
@@ -871,7 +869,7 @@ func (p *process) SendWithPriorityAfter(
 		options := gen.MessageOptions{
 			Priority:         priority,
 			Compression:      p.compression,
-			KeepNetworkOrder: p.keeporder,
+			KeepNetworkOrder: p.keeporder.Load(),
 			// ImportantDelivery: ignore on sending with delay
 		}
 		switch t := to.(type) {
@@ -902,9 +900,9 @@ func (p *process) SendEvent(name gen.Atom, token gen.Ref, message any) error {
 
 	options := gen.MessageOptions{
 		Tracing:          p.propagatingTrace(),
-		Priority:         p.priority,
+		Priority:         gen.MessagePriority(p.priority.Load()),
 		Compression:      p.compression,
-		KeepNetworkOrder: p.keeporder,
+		KeepNetworkOrder: p.keeporder.Load(),
 	}
 	if options.Tracing.ID != [2]uint64{} {
 		p.applyTracingAttrs(&options)
@@ -1091,10 +1089,10 @@ func (p *process) SendResponse(to gen.PID, ref gen.Ref, message any) error {
 	options := gen.MessageOptions{
 		Tracing:           p.propagatingTrace(),
 		Ref:               ref,
-		Priority:          p.priority,
+		Priority:          gen.MessagePriority(p.priority.Load()),
 		Compression:       p.compression,
-		KeepNetworkOrder:  p.keeporder,
-		ImportantDelivery: p.important,
+		KeepNetworkOrder:  p.keeporder.Load(),
+		ImportantDelivery: p.important.Load(),
 	}
 	if options.Tracing.ID != [2]uint64{} {
 		p.applyTracingAttrs(&options)
@@ -1104,7 +1102,7 @@ func (p *process) SendResponse(to gen.PID, ref gen.Ref, message any) error {
 	}
 	atomic.AddUint64(&p.messagesOut, 1)
 
-	if p.important == false {
+	if p.important.Load() == false {
 		return nil
 	}
 	ackRef := gen.Ref{
@@ -1126,9 +1124,9 @@ func (p *process) SendResponseImportant(to gen.PID, ref gen.Ref, message any) er
 	options := gen.MessageOptions{
 		Tracing:           p.propagatingTrace(),
 		Ref:               ref,
-		Priority:          p.priority,
+		Priority:          gen.MessagePriority(p.priority.Load()),
 		Compression:       p.compression,
-		KeepNetworkOrder:  p.keeporder,
+		KeepNetworkOrder:  p.keeporder.Load(),
 		ImportantDelivery: true,
 	}
 	if options.Tracing.ID != [2]uint64{} {
@@ -1169,10 +1167,10 @@ func (p *process) SendResponseError(to gen.PID, ref gen.Ref, err error) error {
 	options := gen.MessageOptions{
 		Tracing:           p.propagatingTrace(),
 		Ref:               ref,
-		Priority:          p.priority,
+		Priority:          gen.MessagePriority(p.priority.Load()),
 		Compression:       p.compression,
-		KeepNetworkOrder:  p.keeporder,
-		ImportantDelivery: p.important,
+		KeepNetworkOrder:  p.keeporder.Load(),
+		ImportantDelivery: p.important.Load(),
 	}
 	if options.Tracing.ID != [2]uint64{} {
 		p.applyTracingAttrs(&options)
@@ -1182,7 +1180,7 @@ func (p *process) SendResponseError(to gen.PID, ref gen.Ref, err error) error {
 	}
 	atomic.AddUint64(&p.messagesOut, 1)
 
-	if p.important == false {
+	if p.important.Load() == false {
 		return nil
 	}
 	ackRef := gen.Ref{
@@ -1204,9 +1202,9 @@ func (p *process) SendResponseErrorImportant(to gen.PID, ref gen.Ref, err error)
 	options := gen.MessageOptions{
 		Tracing:           p.propagatingTrace(),
 		Ref:               ref,
-		Priority:          p.priority,
+		Priority:          gen.MessagePriority(p.priority.Load()),
 		Compression:       p.compression,
-		KeepNetworkOrder:  p.keeporder,
+		KeepNetworkOrder:  p.keeporder.Load(),
 		ImportantDelivery: true,
 	}
 	if options.Tracing.ID != [2]uint64{} {
@@ -1231,19 +1229,18 @@ func (p *process) SendResponseErrorImportant(to gen.PID, ref gen.Ref, err error)
 }
 
 func (p *process) CallWithPriority(to any, request any, priority gen.MessagePriority) (any, error) {
-	var prev gen.MessagePriority
-	prev, p.priority = p.priority, priority
+	prev := p.priority.Load()
+	p.priority.Store(int32(priority))
 	value, err := p.CallWithTimeout(to, request, gen.DefaultRequestTimeout)
-	p.priority = prev
+	p.priority.Store(prev)
 	return value, err
 }
 
 func (p *process) CallImportant(to any, request any) (any, error) {
-	var important bool
-
-	important, p.important = p.important, true
+	prev := p.important.Load()
+	p.important.Store(true)
 	result, err := p.CallWithTimeout(to, request, gen.DefaultRequestTimeout)
-	p.important = important
+	p.important.Store(prev)
 
 	return result, err
 }
@@ -1288,10 +1285,10 @@ func (p *process) CallPID(to gen.PID, message any, timeout int) (any, error) {
 	options := gen.MessageOptions{
 		Tracing:           p.propagatingTrace(),
 		Ref:               ref,
-		Priority:          p.priority,
+		Priority:          gen.MessagePriority(p.priority.Load()),
 		Compression:       p.compression,
-		KeepNetworkOrder:  p.keeporder,
-		ImportantDelivery: p.important,
+		KeepNetworkOrder:  p.keeporder.Load(),
+		ImportantDelivery: p.important.Load(),
 	}
 	if options.Tracing.ID != [2]uint64{} {
 		p.applyTracingAttrs(&options)
@@ -1327,10 +1324,10 @@ func (p *process) CallProcessID(to gen.ProcessID, message any, timeout int) (any
 	options := gen.MessageOptions{
 		Tracing:           p.propagatingTrace(),
 		Ref:               ref,
-		Priority:          p.priority,
+		Priority:          gen.MessagePriority(p.priority.Load()),
 		Compression:       p.compression,
-		KeepNetworkOrder:  p.keeporder,
-		ImportantDelivery: p.important,
+		KeepNetworkOrder:  p.keeporder.Load(),
+		ImportantDelivery: p.important.Load(),
 	}
 	if options.Tracing.ID != [2]uint64{} {
 		p.applyTracingAttrs(&options)
@@ -1363,10 +1360,10 @@ func (p *process) CallAlias(to gen.Alias, message any, timeout int) (any, error)
 	options := gen.MessageOptions{
 		Tracing:           p.propagatingTrace(),
 		Ref:               ref,
-		Priority:          p.priority,
+		Priority:          gen.MessagePriority(p.priority.Load()),
 		Compression:       p.compression,
-		KeepNetworkOrder:  p.keeporder,
-		ImportantDelivery: p.important,
+		KeepNetworkOrder:  p.keeporder.Load(),
+		ImportantDelivery: p.important.Load(),
 	}
 	if options.Tracing.ID != [2]uint64{} {
 		p.applyTracingAttrs(&options)

@@ -318,8 +318,15 @@ func (a *application) spawnFailCleanup(reason error) {
 
 	if a.group.Len() == 0 {
 		atomic.StoreInt32(&a.state, int32(gen.ApplicationStateLoaded))
+		a.mu.Lock()
+		a.started = 0
+		a.parent = ""
+		a.mu.Unlock()
 		close(stoppedCh)
 		a.runTerminateCallback(reason)
+		if a.node.Network().Mode() == gen.NetworkModeEnabled {
+			a.registerAppRoute()
+		}
 		return
 	}
 
@@ -424,8 +431,12 @@ func (a *application) terminate(pid gen.PID, reason error) {
 	reasonCopy := a.reason
 	a.mu.Unlock()
 
-	old := atomic.SwapInt32(&a.state, int32(gen.ApplicationStateLoaded))
-	if old == int32(gen.ApplicationStateLoaded) {
+	// claim the stop once, only from the current incarnation's live state
+	old := atomic.LoadInt32(&a.state)
+	if old != int32(gen.ApplicationStateStopping) && old != int32(gen.ApplicationStateRunning) {
+		return
+	}
+	if atomic.CompareAndSwapInt32(&a.state, old, int32(gen.ApplicationStateLoaded)) == false {
 		return
 	}
 
@@ -433,6 +444,7 @@ func (a *application) terminate(pid gen.PID, reason error) {
 	stoppedCh := a.stopped
 	a.started = 0
 	a.parent = ""
+	a.reason = nil
 	a.mu.Unlock()
 
 	if stoppedCh != nil {

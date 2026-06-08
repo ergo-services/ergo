@@ -79,25 +79,6 @@ func (s *Storage) Unregister(target any, consumer gen.PID, kind Kind) bool {
 	return true
 }
 
-// Range is best-effort under concurrent mutation; a recently-added
-// consumer may be missed. Callers must not rely on a false result.
-func (s *Storage) HasConsumerOnNode(target any, kind Kind, node gen.Atom) bool {
-	v, ok := s.targets.Load(target)
-	if ok == false {
-		return false
-	}
-	found := false
-	v.(*targetEntry).index.Range(func(k, _ any) bool {
-		key := k.(indexKey)
-		if key.kind == kind && key.consumer.Node == node {
-			found = true
-			return false
-		}
-		return true
-	})
-	return found
-}
-
 func (s *Storage) Has(target any, consumer gen.PID, kind Kind) bool {
 	v, ok := s.targets.Load(target)
 	if ok == false {
