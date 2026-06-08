@@ -13,6 +13,14 @@ type ResponseInspectNode struct {
 	GoVersion string
 	Version   gen.Version
 	Creation  int64
+
+	// build information from debug.ReadBuildInfo() of the running node binary
+	BuildMain     string   // main module "path@version"
+	BuildRevision string   // VCS commit of the build (if available)
+	BuildModified bool     // VCS working tree was dirty at build time
+	BuildSettings []string // build settings as "key=value" (GOOS, GOARCH, -tags, -ldflags, vcs.time, ...)
+	BuildDeps     []string // dependency modules as "path@version", sorted
+	BuildReplaces []string // replace directives as "path => target@version" (e.g. local "=> ../foo")
 }
 
 type MessageInspectNode struct {

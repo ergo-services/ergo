@@ -4,12 +4,53 @@ import (
 	"cmp"
 	"fmt"
 	"runtime"
+	"runtime/debug"
 	"slices"
 	"time"
 
 	"ergo.services/ergo/act"
 	"ergo.services/ergo/gen"
 )
+
+// readBuildInfo extracts the running binary's module/build details for the
+// inspect node response. Returns zero values if build info is unavailable.
+func readBuildInfo() (main, revision string, modified bool, settings, deps, replaces []string) {
+	bi, ok := debug.ReadBuildInfo()
+	if ok == false {
+		return
+	}
+	main = bi.Main.Path
+	if bi.Main.Version != "" {
+		main = bi.Main.Path + "@" + bi.Main.Version
+	}
+	settings = make([]string, 0, len(bi.Settings))
+	for _, s := range bi.Settings {
+		switch s.Key {
+		case "vcs.revision":
+			revision = s.Value
+		case "vcs.modified":
+			modified = s.Value == "true"
+		}
+		settings = append(settings, s.Key+"="+s.Value)
+	}
+	verOf := func(m *debug.Module) string {
+		if m.Version != "" {
+			return m.Path + "@" + m.Version
+		}
+		return m.Path
+	}
+	deps = make([]string, 0, len(bi.Deps))
+	for _, d := range bi.Deps {
+		// list the required module itself; the replacement (if any) is reported separately
+		deps = append(deps, verOf(d))
+		if d.Replace != nil {
+			replaces = append(replaces, d.Path+" => "+verOf(d.Replace))
+		}
+	}
+	slices.Sort(deps)
+	slices.Sort(replaces)
+	return
+}
 
 func factory_node() gen.ProcessBehavior {
 	return &node{}
@@ -101,6 +142,9 @@ func (in *node) HandleMessage(from gen.PID, message any) error {
 			Creation: in.Node().Creation(),
 			CRC32:    in.Node().Name().CRC32(),
 		}
+		response.BuildMain, response.BuildRevision,
+			response.BuildModified, response.BuildSettings, response.BuildDeps,
+			response.BuildReplaces = readBuildInfo()
 		in.SendResponse(m.pid, m.ref, response)
 		in.Log().Debug("sent response for the inspect node request to: %s", m.pid)
 
