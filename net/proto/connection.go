@@ -3063,7 +3063,14 @@ func (c *connection) waitResult(ref gen.Ref, ch chan MessageResult) (result Mess
 
 	select {
 	case <-timer.C:
-		result.Error = gen.ErrTimeout
+		// select does not prioritize between ready cases, so the timer case can be
+		// taken even when a result is already buffered on ch. Re-check ch before
+		// reporting a timeout so an already-delivered reply is not discarded.
+		select {
+		case result = <-ch:
+		default:
+			result.Error = gen.ErrTimeout
+		}
 	case result = <-ch:
 	}
 
