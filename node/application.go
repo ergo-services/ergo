@@ -259,6 +259,10 @@ func (a *application) start(mode gen.ApplicationMode, options gen.ApplicationOpt
 	}
 
 	for _, item := range a.spec.Group {
+		if atomic.LoadInt32(&a.state) != int32(gen.ApplicationStateInitializing) {
+			a.abortStart()
+			return gen.ErrApplicationStopping
+		}
 		timeout := item.Options.InitTimeout
 		if timeout == 0 {
 			timeout = gen.DefaultRequestTimeout
@@ -294,7 +298,12 @@ func (a *application) start(mode gen.ApplicationMode, options gen.ApplicationOpt
 		a.group.Store(pid, true)
 	}
 
-	atomic.StoreInt32(&a.state, int32(gen.ApplicationStateRunning))
+	if atomic.CompareAndSwapInt32(&a.state,
+		int32(gen.ApplicationStateInitializing),
+		int32(gen.ApplicationStateRunning)) == false {
+		a.abortStart()
+		return gen.ErrApplicationStopping
+	}
 	a.mu.Lock()
 	a.started = time.Now().Unix()
 	a.mu.Unlock()
@@ -334,15 +343,37 @@ func (a *application) spawnFailCleanup(reason error) {
 	<-stoppedCh
 }
 
+// abortStart unwinds a start() interrupted by a concurrent stop() (state is
+// already Stopping, reason already set by stop()).
+func (a *application) abortStart() {
+	a.mu.RLock()
+	reason := a.reason
+	a.mu.RUnlock()
+	if reason == nil {
+		reason = gen.TerminateReasonShutdown
+	}
+	a.spawnFailCleanup(reason)
+}
+
 func (a *application) stop(force bool, timeout time.Duration) error {
-	if swapped := atomic.CompareAndSwapInt32(&a.state,
-		int32(gen.ApplicationStateRunning),
-		int32(gen.ApplicationStateStopping)); swapped == false {
+	reason := gen.TerminateReasonShutdown
+	if force {
+		reason = gen.TerminateReasonKill
+	}
+
+	fromRunning := atomic.CompareAndSwapInt32(&a.state,
+		int32(gen.ApplicationStateRunning), int32(gen.ApplicationStateStopping))
+	fromInit := false
+	if fromRunning == false {
+		fromInit = atomic.CompareAndSwapInt32(&a.state,
+			int32(gen.ApplicationStateInitializing), int32(gen.ApplicationStateStopping))
+	}
+
+	if fromRunning == false && fromInit == false {
 		state := atomic.LoadInt32(&a.state)
 		if state == int32(gen.ApplicationStateLoaded) {
 			return nil // already stopped
 		}
-
 		if force == false {
 			if state == int32(gen.ApplicationStateStopping) {
 				return gen.ErrApplicationStopping
@@ -355,26 +386,24 @@ func (a *application) stop(force bool, timeout time.Duration) error {
 
 	a.mu.Lock()
 	a.mode = gen.ApplicationModeTemporary
-	if force {
-		a.reason = gen.TerminateReasonKill
-	} else {
-		a.reason = gen.TerminateReasonShutdown
-	}
+	a.reason = reason
 	reasonCopy := a.reason
 	stoppedCh := a.stopped
 	a.mu.Unlock()
 
-	if force == false {
-		stopTimeout := pickAppTimeout(a.spec.StopTimeout, 0, gen.DefaultApplicationStopTimeout)
-		a.runStopCallback(reasonCopy, stopTimeout)
-	}
-
-	pids := a.collectMemberPIDs()
-	for _, pid := range pids {
-		if force {
-			a.node.Kill(pid)
-		} else {
-			a.node.SendExit(pid, gen.TerminateReasonShutdown)
+	// Initializing-stop: start() owns the spawned members and unwinds them once
+	// it observes Stopping; here we only wait for the teardown.
+	if fromInit == false {
+		if force == false {
+			stopTimeout := pickAppTimeout(a.spec.StopTimeout, 0, gen.DefaultApplicationStopTimeout)
+			a.runStopCallback(reasonCopy, stopTimeout)
+		}
+		for _, pid := range a.collectMemberPIDs() {
+			if force {
+				a.node.Kill(pid)
+			} else {
+				a.node.SendExit(pid, gen.TerminateReasonShutdown)
+			}
 		}
 	}
 

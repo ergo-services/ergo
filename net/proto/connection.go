@@ -1696,7 +1696,7 @@ func (c *connection) Join(conn net.Conn, id string, dial gen.NetworkDial, tail [
 	}
 
 	c.pool_mutex.Lock()
-	if c.pool_size+1 < len(c.pool) {
+	if len(c.pool) >= c.pool_size {
 		c.pool_mutex.Unlock()
 		return fmt.Errorf("pool size limit")
 	}
@@ -3693,7 +3693,13 @@ func (c *connection) sendFragmented(buf *lib.Buffer, msgStart int, order uint8) 
 	dataLen := buf.Len() - msgStart
 	maxPayload := c.fragmentSize - 16 // 16 = ENP header (8) + fragment header (8)
 
-	totalFragments := uint16((dataLen + maxPayload - 1) / maxPayload)
+	total := (dataLen + maxPayload - 1) / maxPayload
+	if total > math.MaxUint16 {
+		// fragment index/count are uint16 on the wire
+		lib.ReleaseBuffer(buf)
+		return gen.ErrTooLarge
+	}
+	totalFragments := uint16(total)
 
 	sequenceID := c.nextSequenceID.Add(1)
 
