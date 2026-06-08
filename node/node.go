@@ -2523,7 +2523,7 @@ func matchTracingFlags(flags gen.TracingFlags, span gen.TracingSpan) bool {
 }
 
 func (n *node) SetTracingAttribute(key, value string) {
-	if len(key) > 5 && key[:5] == "ergo." {
+	if strings.HasPrefix(key, "ergo.") {
 		return
 	}
 	cur := *n.tracingAttrs.Load()

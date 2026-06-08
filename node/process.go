@@ -677,9 +677,7 @@ func (p *process) SendPID(to gen.PID, message any) error {
 		ImportantDelivery: p.important.Load(),
 	}
 	if options.Tracing.ID != [2]uint64{} {
-		if options.Tracing.ID != [2]uint64{} {
-			p.applyTracingAttrs(&options)
-		}
+		p.applyTracingAttrs(&options)
 	}
 
 	if options.ImportantDelivery {
@@ -729,9 +727,7 @@ func (p *process) SendProcessID(to gen.ProcessID, message any) error {
 		ImportantDelivery: p.important.Load(),
 	}
 	if options.Tracing.ID != [2]uint64{} {
-		if options.Tracing.ID != [2]uint64{} {
-			p.applyTracingAttrs(&options)
-		}
+		p.applyTracingAttrs(&options)
 	}
 
 	if options.ImportantDelivery {
@@ -781,9 +777,7 @@ func (p *process) SendAlias(to gen.Alias, message any) error {
 		ImportantDelivery: p.important.Load(),
 	}
 	if options.Tracing.ID != [2]uint64{} {
-		if options.Tracing.ID != [2]uint64{} {
-			p.applyTracingAttrs(&options)
-		}
+		p.applyTracingAttrs(&options)
 	}
 
 	if options.ImportantDelivery {
@@ -2040,7 +2034,7 @@ func (p *process) BehaviorName() string {
 }
 
 func (p *process) SetTracingAttribute(key, value string) {
-	if len(key) > 5 && key[:5] == "ergo." {
+	if strings.HasPrefix(key, "ergo.") {
 		return
 	}
 	// COW: copy slice, overwrite existing key or append
@@ -2074,7 +2068,7 @@ func (p *process) RemoveTracingAttribute(key string) {
 }
 
 func (p *process) SetTracingSpanAttribute(key, value string) {
-	if len(key) > 5 && key[:5] == "ergo." {
+	if strings.HasPrefix(key, "ergo.") {
 		return
 	}
 	for i, a := range p.tracingSpanAttrs {

@@ -2949,7 +2949,7 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC, qIdx int) {
 				goto re
 
 			default:
-				c.log.Error("message with unknown compression type %d, ignored", buf.B[7])
+				c.log.Error("message with unknown compression type %d, ignored", buf.B[8])
 				continue
 			}
 
@@ -2992,7 +2992,7 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC, qIdx int) {
 		// TODO proxy
 
 		default:
-			c.log.Error("unknown/unsupported message type %d, ignored", buf.B[6])
+			c.log.Error("unknown/unsupported message type %d, ignored", buf.B[7])
 			lib.ReleaseBuffer(buf)
 		}
 
