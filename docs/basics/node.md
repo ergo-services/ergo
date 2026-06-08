@@ -86,9 +86,11 @@ One subtlety: if you call `Stop` from within a process, you create a deadlock. T
 
 ### Shutdown Timeout
 
-Graceful shutdown can hang indefinitely if a process is stuck - perhaps blocked on a channel, waiting for an external resource, or caught in incorrect logic. To prevent this, the node has a shutdown timeout. If processes don't terminate within this period, the node force exits with error code 1.
+Graceful shutdown can hang indefinitely if a process is stuck - perhaps blocked on a channel, waiting for an external resource, or caught in incorrect logic. To prevent this, the node has a shutdown timeout.
 
-The default timeout is 3 minutes. You can change it through `gen.NodeOptions`:
+When the timeout expires, the node escalates: it force-kills any remaining processes and waits a short settle window (5 seconds) for them to unregister. If they still refuse to die, the node hard-exits with error code 1 after logging the surviving processes.
+
+The default timeout is 3 minutes. You can change it globally through `gen.NodeOptions`:
 
 ```go
 options := gen.NodeOptions{
@@ -96,16 +98,24 @@ options := gen.NodeOptions{
 }
 ```
 
+or per call via `StopWithTimeout`, which overrides the node-level value for that invocation:
+
+```go
+node.StopWithTimeout(10 * time.Second)
+```
+
 During shutdown, the node logs which processes are still running. Every 5 seconds, it prints a warning with the first 10 pending processes, showing their PID, registered name (if any), behavior type, state, and mailbox queue length. This diagnostic output helps identify what's blocking the shutdown:
 
 ```
-[warning] node 'myapp@localhost' is still waiting for 3 process(es) to terminate:
+[warning] node 'myapp@localhost' is still waiting for process(es) to terminate:
 [warning]   <ABC123.0.1004> ('worker_1', main.Worker) state: running, queue: 1
 [warning]   <ABC123.0.1005> ('worker_2', main.Worker) state: running, queue: 0
 [warning]   <ABC123.0.1006> (main.Worker) state: running, queue: 5
 ```
 
 The state tells you what the process is doing: `running` means it's handling a message, `sleep` means it's idle waiting for messages. The queue count shows how many messages are waiting. A process stuck in `running` with a growing queue indicates it's blocked in a callback and not processing its mailbox.
+
+When the timeout fires, the same listing is printed at error level along with the force-kill notice, and the post-settle hard-exit report (if reached) shows whichever processes survived the kill so you can identify culprits that ignore termination signals.
 
 ## Node Incarnation
 
