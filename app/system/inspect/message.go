@@ -133,6 +133,7 @@ type RequestInspectProcess struct {
 }
 type ResponseInspectProcess struct {
 	Event gen.Event
+	Info  gen.ProcessInfo
 }
 
 type MessageInspectProcess struct {
@@ -161,6 +162,7 @@ type RequestInspectMeta struct {
 }
 type ResponseInspectMeta struct {
 	Event gen.Event
+	Info  gen.MetaInfo
 }
 
 type MessageInspectMeta struct {
@@ -465,6 +467,41 @@ type ResponseInspectEventList struct {
 type MessageInspectEventList struct {
 	Node   gen.Atom
 	Events []gen.EventInfo
+}
+
+// event
+
+type RequestInspectEvent struct {
+	Name           gen.Atom
+	Limit          int
+	TypePattern    string // substring match against %T
+	MessagePattern string // substring match against %#v
+	MessageExclude bool
+	Force          bool
+}
+type ResponseInspectEvent struct {
+	Event       gen.Event
+	Info        gen.EventInfo
+	Buffer      []InspectEventEntry
+	Watching    bool
+	WatchReason string
+}
+
+type InspectEventEntry struct {
+	Timestamp int64
+	Type      string // %T
+	Message   string // %#v
+}
+
+type MessageInspectEvent struct {
+	Node        gen.Atom
+	Info        gen.EventInfo
+	Entries     []InspectEventEntry
+	Suppressed  int64
+	Closed      bool
+	Reason      string
+	Watching    bool
+	WatchReason string // idle_gated|notify_off|other_subscribers|publishes_regardless|forced
 }
 
 // application list

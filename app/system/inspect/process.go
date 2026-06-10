@@ -102,6 +102,12 @@ func (ip *process) HandleMessage(from gen.PID, message any) error {
 				Node: ip.Node().Name(),
 			},
 		}
+		if info, err := ip.Node().ProcessInfo(ip.pid); err == nil {
+			for k, v := range info.Env {
+				info.Env[k] = fmt.Sprintf("%#v", v)
+			}
+			response.Info = info
+		}
 		ip.SendResponse(m.pid, m.ref, response)
 		ip.Log().Debug("sent response for the inspect process request to: %s", m.pid)
 

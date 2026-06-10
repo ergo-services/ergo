@@ -96,6 +96,9 @@ func (im *meta) HandleMessage(from gen.PID, message any) error {
 				Node: im.Node().Name(),
 			},
 		}
+		if info, err := im.MetaInfo(im.meta); err == nil {
+			response.Info = info
+		}
 		im.SendResponse(m.pid, m.ref, response)
 		im.Log().Debug("sent response for the inspect meta request to: %s", m.pid)
 

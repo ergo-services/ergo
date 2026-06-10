@@ -58,6 +58,10 @@ const (
 	inspectEventListPeriod     = time.Second
 	inspectEventListIdlePeriod = 5 * time.Second
 
+	inspectEvent           = "inspect_event"
+	inspectEventPeriod     = time.Second
+	inspectEventIdlePeriod = 10 * time.Second
+
 	inspectProcessRange           = "inspect_process_range"
 	inspectProcessRangePeriod     = time.Second
 	inspectProcessRangeIdlePeriod = 5 * time.Second
@@ -96,6 +100,7 @@ func Types() []any {
 		RequestInspectProcessList{}, ResponseInspectProcessList{}, MessageInspectProcessList{},
 		RequestInspectProcessRange{}, ResponseInspectProcessRange{},
 		RequestInspectEventList{}, ResponseInspectEventList{}, MessageInspectEventList{},
+		RequestInspectEvent{}, ResponseInspectEvent{}, InspectEventEntry{}, MessageInspectEvent{},
 		RequestInspectLog{}, ResponseInspectLog{}, InspectLogEntry{}, MessageInspectLog{},
 		RequestInspectProcess{}, ResponseInspectProcess{}, MessageInspectProcess{},
 		RequestInspectProcessState{}, ResponseInspectProcessState{}, MessageInspectProcessState{},
@@ -156,6 +161,7 @@ type register struct{}
 type shutdown struct{}
 type generate struct{ id uint64 }
 type flushLog struct{ id uint64 }
+type flushEvent struct{ id uint64 }
 
 func (i *inspect) Init(args ...any) error {
 	i.Log().SetLogger("default")
@@ -409,6 +415,34 @@ func (i *inspect) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error
 		pname := gen.Atom(fmt.Sprintf("%s_%s", inspectEventList, hash))
 		_, err := i.SpawnRegister(pname, factory_event_list, opts,
 			r.Timestamp, r.Name, r.Notify, r.Buffered, r.Open, r.MinSubscribers, r.Limit, hash)
+		if err != nil && err != gen.ErrTaken {
+			return err, nil
+		}
+		forward := requestInspect{
+			pid: from,
+			ref: ref,
+		}
+		i.Send(pname, forward)
+		return nil, nil
+
+	case RequestInspectEvent:
+		opts := gen.ProcessOptions{
+			LinkParent: true,
+			Compression: gen.Compression{
+				Enable: true,
+				Type:   gen.CompressionTypeGZIP,
+				Level:  gen.CompressionBestSpeed,
+			},
+		}
+
+		limit := r.Limit
+		if limit < 1 {
+			limit = 500
+		}
+
+		hash := fmt.Sprintf("%x", hashStr(fmt.Sprintf("%s|%d|%s|%s|%v|%v", r.Name, limit, r.TypePattern, r.MessagePattern, r.MessageExclude, r.Force)))
+		pname := gen.Atom(fmt.Sprintf("%s_%s", inspectEvent, hash))
+		_, err := i.SpawnRegister(pname, factory_event, opts, r.Name, limit, r.TypePattern, r.MessagePattern, r.MessageExclude, hash, r.Force)
 		if err != nil && err != gen.ErrTaken {
 			return err, nil
 		}
