@@ -328,8 +328,14 @@ func TestSOFOGlobalExceededWrapsReason(t *testing.T) {
 		last, pid = killSOFO(t, sup, "worker", pid, bootReason)
 	}
 
-	if last.do != supActionTerminateChildren {
-		t.Fatalf("exceeded must trigger TerminateChildren, got do=%d", last.do)
+	if last.do != supActionTerminate {
+		t.Fatalf("exceeded with no remaining instances must terminate the supervisor, got do=%d", last.do)
+	}
+	if errors.Is(last.reason, gen.ErrExceeded) == false {
+		t.Errorf("terminate reason must match gen.ErrExceeded via errors.Is; got %v", last.reason)
+	}
+	if errors.Is(last.reason, bootReason) == false {
+		t.Errorf("terminate reason must wrap original child reason; got %v", last.reason)
 	}
 	if errors.Is(sup.shutdownReason, gen.ErrExceeded) == false {
 		t.Errorf("shutdownReason must match gen.ErrExceeded via errors.Is; got %v", sup.shutdownReason)

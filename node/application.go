@@ -425,6 +425,7 @@ func (a *application) terminate(pid gen.PID, reason error) {
 	mode := a.mode
 	a.mu.RUnlock()
 
+	autoStopping := false
 	switch mode {
 	case gen.ApplicationModePermanent:
 		if atomic.CompareAndSwapInt32(&a.state,
@@ -433,7 +434,7 @@ func (a *application) terminate(pid gen.PID, reason error) {
 			a.mu.Lock()
 			a.reason = reason
 			a.mu.Unlock()
-			go a.coordinateAutoStop(reason)
+			autoStopping = true
 		}
 	case gen.ApplicationModeTransient:
 		if reason == gen.TerminateReasonNormal || reason == gen.TerminateReasonShutdown {
@@ -445,14 +446,29 @@ func (a *application) terminate(pid gen.PID, reason error) {
 			a.mu.Lock()
 			a.reason = reason
 			a.mu.Unlock()
-			go a.coordinateAutoStop(reason)
+			autoStopping = true
 		}
 	}
 
 	if a.group.Len() > 0 {
+		if autoStopping {
+			go a.coordinateAutoStop(reason)
+		}
 		return
 	}
 
+	if autoStopping {
+		// last member already gone: no members to exit, so run Stop before the
+		// teardown (Terminate must follow Stop). Inline so teardown stays on the
+		// live-node path; runStopCallback is bounded by its own timeout.
+		stopTimeout := pickAppTimeout(a.spec.StopTimeout, 0, gen.DefaultApplicationStopTimeout)
+		a.runStopCallback(reason, stopTimeout)
+	}
+
+	a.finalizeStop()
+}
+
+func (a *application) finalizeStop() {
 	a.mu.Lock()
 	if a.reason == nil {
 		a.reason = gen.TerminateReasonNormal

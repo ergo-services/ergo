@@ -189,6 +189,9 @@ func (s *supSOFO) childTerminated(name gen.Atom, pid gen.PID, reason error) supA
 		)
 		if useLocal {
 			period = int(spec.Restart.Period)
+			if period == 0 {
+				period = int(defaultRestartPeriod)
+			}
 			intens = int(spec.Restart.Intensity)
 			restarts, exceeded = supCheckRestartIntensity(inst.restarts, period, intens)
 			inst.restarts = restarts
@@ -233,6 +236,11 @@ func (s *supSOFO) childTerminated(name gen.Atom, pid gen.PID, reason error) supA
 		s.wait[pid] = true
 	}
 	s.shutdown = true
+
+	if len(action.terminate) == 0 {
+		action.do = supActionTerminate
+		action.reason = s.shutdownReason
+	}
 	return action
 }
 

@@ -745,9 +745,7 @@ const (
 	supActionStartChild supActionType = 1
 	// just stop children (on disabling child spec)
 	supActionTerminateChildren supActionType = 2
-	// stop children due to restart strategy activated
-	supActionTerminateChildrenStrategy supActionType = 3
-	supActionTerminate                 supActionType = 4
+	supActionTerminate         supActionType = 4
 )
 
 type supAction struct {

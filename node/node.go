@@ -1478,15 +1478,17 @@ func (n *node) callPIDWithOptions(
 handleResponse:
 	response := call.response
 	err = call.err
+	important := call.important
+	cfrom := call.from
 	releaseNodeCall(call)
 
-	if call.important {
+	if important {
 		options := gen.MessageOptions{
 			Ref: ref,
 		}
 
 		// send ack
-		n.RouteSendResponseError(n.corePID, call.from, options, nil)
+		n.RouteSendResponseError(n.corePID, cfrom, options, nil)
 	}
 
 	if err != nil {
@@ -1554,14 +1556,16 @@ func (n *node) callProcessIDWithOptions(
 handleResponse:
 	response := call.response
 	err = call.err
+	important := call.important
+	cfrom := call.from
 	releaseNodeCall(call)
 
-	if call.important {
+	if important {
 		options := gen.MessageOptions{
 			Ref: ref,
 		}
 		// send ack
-		n.RouteSendResponseError(n.corePID, call.from, options, nil)
+		n.RouteSendResponseError(n.corePID, cfrom, options, nil)
 	}
 
 	if err != nil {
@@ -1629,14 +1633,16 @@ func (n *node) callAliasWithOptions(
 handleResponse:
 	response := call.response
 	err = call.err
+	important := call.important
+	cfrom := call.from
 	releaseNodeCall(call)
 
-	if call.important {
+	if important {
 		options := gen.MessageOptions{
 			Ref: ref,
 		}
 		// send ack
-		n.RouteSendResponseError(n.corePID, call.from, options, nil)
+		n.RouteSendResponseError(n.corePID, cfrom, options, nil)
 	}
 
 	if err != nil {

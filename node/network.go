@@ -252,6 +252,7 @@ type enableSpawn struct {
 	sync.RWMutex
 	factory  gen.ProcessFactory
 	behavior string
+	all      bool
 	nodes    map[gen.Atom]bool
 }
 
@@ -276,9 +277,11 @@ func (n *network) EnableSpawn(name gen.Atom, factory gen.ProcessFactory, nodes .
 	}
 	enable.Lock()
 	if len(nodes) == 0 {
-		// allow any node to spawn this process (make nodes map empty)
+		// allow any node to spawn this process
+		enable.all = true
 		enable.nodes = make(map[gen.Atom]bool)
 	} else {
+		enable.all = false
 		for _, nn := range nodes {
 			enable.nodes[nn] = true
 		}
@@ -294,10 +297,10 @@ func (n *network) getEnabledSpawn(name gen.Atom, source gen.Atom) (gen.ProcessFa
 		return nil, gen.ErrNameUnknown
 	}
 	enable := v.(*enableSpawn)
-	allowed := true
 	enable.RLock()
-	if len(enable.nodes) > 0 {
-		allowed = enable.nodes[source]
+	allowed, ok := enable.nodes[source]
+	if ok == false {
+		allowed = enable.all
 	}
 	enable.RUnlock()
 	if allowed == false {
@@ -351,6 +354,7 @@ func (n *network) DisableSpawn(name gen.Atom, nodes ...gen.Atom) error {
 
 type enableAppStart struct {
 	sync.RWMutex
+	all   bool
 	nodes map[gen.Atom]bool
 }
 
@@ -365,9 +369,11 @@ func (n *network) EnableApplicationStart(name gen.Atom, nodes ...gen.Atom) error
 	}
 	enable.Lock()
 	if len(nodes) == 0 {
-		// allow any node to start this app (make nodes map empty)
+		// allow any node to start this app
+		enable.all = true
 		enable.nodes = make(map[gen.Atom]bool)
 	} else {
+		enable.all = false
 		for _, nn := range nodes {
 			enable.nodes[nn] = true
 		}
@@ -383,10 +389,10 @@ func (n *network) isEnabledApplicationStart(name gen.Atom, source gen.Atom) erro
 		return gen.ErrNameUnknown
 	}
 	enable := v.(*enableAppStart)
-	allowed := true
 	enable.RLock()
-	if len(enable.nodes) > 0 {
-		allowed = enable.nodes[source]
+	allowed, ok := enable.nodes[source]
+	if ok == false {
+		allowed = enable.all
 	}
 	enable.RUnlock()
 	if allowed == false {
@@ -431,7 +437,7 @@ func (n *network) DisableApplicationStart(name gen.Atom, nodes ...gen.Atom) erro
 	enable := v.(*enableAppStart)
 	enable.Lock()
 	for _, nn := range nodes {
-		delete(enable.nodes, nn)
+		enable.nodes[nn] = false
 	}
 	enable.Unlock()
 	return nil
