@@ -40,16 +40,71 @@ func (s *arfoSup) HandleChildTerminate(name gen.Atom, pid gen.PID, reason error)
 	return s.Send(s.PID(), childStopped{PID: pid, Reason: reason})
 }
 func (s *arfoSup) HandleMessage(from gen.PID, message any) error { return nil }
+type disableReq struct{ Name gen.Atom }
+
 func (s *arfoSup) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error) {
-	if request == "children" {
-		ch := s.Children()
-		out := make([]childInfo, len(ch))
-		for i, c := range ch {
-			out[i] = childInfo{Name: c.Spec, PID: c.PID}
+	switch r := request.(type) {
+	case string:
+		if r == "children" {
+			ch := s.Children()
+			out := make([]childInfo, len(ch))
+			for i, c := range ch {
+				out[i] = childInfo{Name: c.Spec, PID: c.PID}
+			}
+			return out, nil
 		}
-		return out, nil
+	case disableReq:
+		return errText(s.DisableChild(r.Name)), nil
+	case enableReq:
+		return errText(s.EnableChild(r.Name)), nil
 	}
 	return "ok", nil
+}
+
+func arfoChildPID(t *testing.T, n *stage.Node, sup gen.PID, name gen.Atom) gen.PID {
+	t.Helper()
+	v, err := n.Call(sup, "children")
+	check.NoError(t, err)
+	for _, c := range v.([]childInfo) {
+		if c.Name == name {
+			return c.PID
+		}
+	}
+	return gen.PID{}
+}
+
+// TestLocalSupervisorARFOEnable: for AllForOne and RestForOne, DisableChild stops
+// the named child (the supervisor and the others survive); EnableChild re-enables
+// it and the supervisor spawns it again with a fresh pid.
+func TestLocalSupervisorARFOEnable(t *testing.T) {
+	for _, typ := range []act.SupervisorType{act.SupervisorTypeAllForOne, act.SupervisorTypeRestForOne} {
+		s := stage.New(t)
+		n := s.Node("n")
+		sup := n.Spawn(factoryArfoSup, typ, act.SupervisorStrategyPermanent)
+
+		n.ShouldSend().From(sup).Message(childStarted{Name: "c0"}).AtLeast(1).Within(time.Second).Must()
+		c0 := arfoChildPID(t, n, sup, "c0")
+		check.True(t, c0 != gen.PID{})
+
+		// disable c0 -> it terminates (barrier: wait for that childStopped)
+		mk := n.Mark()
+		dv, err := n.Call(sup, disableReq{Name: "c0"})
+		check.NoError(t, err)
+		check.Equal(t, "", dv)
+		n.ShouldSend().From(sup).Where(func(r stage.Sent) bool {
+			cs, ok := r.Message.(childStopped)
+			return ok && cs.PID == c0
+		}).Since(mk).Once().Within(time.Second).Must()
+
+		// enable c0 -> the supervisor spawns it again with a new pid
+		mk2 := n.Mark()
+		ev, err := n.Call(sup, enableReq{Name: "c0"})
+		check.NoError(t, err)
+		check.Equal(t, "", ev)
+		n.ShouldSend().From(sup).Message(childStarted{Name: "c0"}).Since(mk2).Once().Within(time.Second).Must()
+		c0b := arfoChildPID(t, n, sup, "c0")
+		check.True(t, c0b != gen.PID{} && c0b != c0)
+	}
 }
 
 func isStop(r stage.Sent) bool  { _, ok := r.Message.(childStopped); return ok }

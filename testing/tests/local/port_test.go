@@ -58,6 +58,7 @@ func factoryPortOwner() gen.ProcessBehavior { return &portOwner{} }
 func (o *portOwner) Init(args ...any) error {
 	o.collector = args[0].(gen.PID)
 	o.binary = args[1].(bool)
+	chunk := args[2].(bool)
 
 	opt := meta.PortOptions{
 		Cmd:         os.Args[0],
@@ -67,10 +68,12 @@ func (o *portOwner) Init(args ...any) error {
 	if o.binary {
 		opt.Env = map[gen.Env]string{"ERGO_PORT_HELPER": "bin"}
 		opt.Binary.Enable = true
-		opt.Binary.ReadChunk.Enable = true
-		opt.Binary.ReadChunk.HeaderSize = 4
-		opt.Binary.ReadChunk.HeaderLengthPosition = 0
-		opt.Binary.ReadChunk.HeaderLengthSize = 4
+		if chunk {
+			opt.Binary.ReadChunk.Enable = true
+			opt.Binary.ReadChunk.HeaderSize = 4
+			opt.Binary.ReadChunk.HeaderLengthPosition = 0
+			opt.Binary.ReadChunk.HeaderLengthSize = 4
+		}
 	} else {
 		opt.Env = map[gen.Env]string{"ERGO_PORT_HELPER": "txt"}
 	}
@@ -109,23 +112,32 @@ func (o *portOwner) HandleMessage(from gen.PID, message any) error {
 }
 
 // TestLocalPort: a port meta runs an external program and exchanges messages with
-// it over stdin/stdout, in text mode (line framing) and in binary mode (4-byte
-// big-endian length-prefixed chunk framing). The external program is this test
+// it over stdin/stdout, in text mode (line framing), binary mode with chunk
+// framing (4-byte big-endian length prefix), and binary mode without chunk framing
+// (raw reads delivered as MessagePortData). The external program is this test
 // binary re-executed, so the test needs no separate helper program.
 func TestLocalPort(t *testing.T) {
 	t.Run("Text", func(t *testing.T) {
 		s := stage.New(t)
 		n := s.Node("n")
 		collector := n.Spawn(factoryEcho)
-		owner := n.Spawn(factoryPortOwner, collector, false)
+		owner := n.Spawn(factoryPortOwner, collector, false, false)
 		n.ShouldSend().From(owner).Message("hello pong").Once().Within(10 * time.Second).Must()
 	})
 
-	t.Run("Binary", func(t *testing.T) {
+	t.Run("BinaryChunk", func(t *testing.T) {
 		s := stage.New(t)
 		n := s.Node("n")
 		collector := n.Spawn(factoryEcho)
-		owner := n.Spawn(factoryPortOwner, collector, true)
+		owner := n.Spawn(factoryPortOwner, collector, true, true)
+		n.ShouldSend().From(owner).Message("hello pong").Once().Within(10 * time.Second).Must()
+	})
+
+	t.Run("BinaryRaw", func(t *testing.T) {
+		s := stage.New(t)
+		n := s.Node("n")
+		collector := n.Spawn(factoryEcho)
+		owner := n.Spawn(factoryPortOwner, collector, true, false)
 		n.ShouldSend().From(owner).Message("hello pong").Once().Within(10 * time.Second).Must()
 	})
 }

@@ -68,6 +68,12 @@ func (s *sofoBasicSup) basicCheck() error {
 	if err := s.StartChild("child1"); err != act.ErrSupervisorChildDisabled {
 		return fmt.Errorf("StartChild(disabled): %v", err)
 	}
+	if err := s.EnableChild("child1"); err != nil {
+		return fmt.Errorf("EnableChild: %v", err)
+	}
+	if err := s.StartChild("child1"); err != nil {
+		return fmt.Errorf("StartChild after enable: %v", err)
+	}
 	return nil
 }
 

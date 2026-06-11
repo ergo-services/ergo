@@ -2,6 +2,7 @@ package local
 
 import (
 	"bytes"
+	"io"
 	"net/http"
 	"testing"
 	"time"
@@ -87,13 +88,15 @@ func (h *webHost) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error
 
 func httpStatus(t *testing.T, method, url string, body []byte) int {
 	t.Helper()
-	var resp *http.Response
-	var err error
-	if method == http.MethodPost {
-		resp, err = http.Post(url, "application/octet-stream", bytes.NewReader(body))
-	} else {
-		resp, err = http.Get(url)
+	var reqBody io.Reader
+	if body != nil {
+		reqBody = bytes.NewReader(body)
 	}
+	req, err := http.NewRequest(method, url, reqBody)
+	if err != nil {
+		t.Fatalf("%s %s: %s", method, url, err)
+	}
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("%s %s: %s", method, url, err)
 	}
@@ -122,6 +125,10 @@ func TestLocalWeb(t *testing.T) {
 	check.Equal(t, http.StatusNoContent, httpStatus(t, http.MethodGet, base+"/", nil))
 	check.Equal(t, http.StatusAccepted, httpStatus(t, http.MethodGet, base+"/test", nil))
 	check.Equal(t, http.StatusNotImplemented, httpStatus(t, http.MethodPost, base+"/test", []byte{1, 2, 3}))
+	// the other verbs the worker does not implement also default to 501
+	check.Equal(t, http.StatusNotImplemented, httpStatus(t, http.MethodPut, base+"/test", []byte{1}))
+	check.Equal(t, http.StatusNotImplemented, httpStatus(t, http.MethodPatch, base+"/test", []byte{1}))
+	check.Equal(t, http.StatusNotImplemented, httpStatus(t, http.MethodDelete, base+"/test", nil))
 	check.Equal(t, http.StatusServiceUnavailable, httpStatus(t, http.MethodGet, base+"/nometaprocess", nil))
 
 	// kill the worker, confirm it is gone, then the handler can no longer forward
