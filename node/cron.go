@@ -71,10 +71,10 @@ func createCron(node gen.Node) *cron {
 			nowInLocation := time.Now().In(cj.job.Location).Truncate(time.Minute)
 			actionTimeInLocation := actionTime.In(cj.job.Location).Truncate(time.Minute)
 			if nowInLocation != actionTimeInLocation {
-				// do nothing
+				// skip just this job; the timer must still be rescheduled below
 				c.node.Log().Debug(cronLogPrefix+"ignore job %s action time != now",
 					cj.job.Name)
-				return
+				continue
 			}
 
 			// DO the job

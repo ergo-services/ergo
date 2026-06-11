@@ -144,11 +144,8 @@ func (a *application) runInitCallback(mode gen.ApplicationMode, timeout time.Dur
 			}
 			if atomic.CompareAndSwapInt32(&completed, 0, 1) {
 				done <- err
-				return
 			}
-			// timeout won; start() abandoned us, reset state ourselves
-			atomic.CompareAndSwapInt32(&a.state,
-				int32(gen.ApplicationStateInitializing), int32(gen.ApplicationStateLoaded))
+			// else: timeout won and already reset the state; nothing to do
 		}()
 		err = a.behavior.Init(ref, mode)
 	}()
@@ -161,6 +158,9 @@ func (a *application) runInitCallback(mode gen.ApplicationMode, timeout time.Dur
 		return err
 	case <-time.After(timeout):
 		if atomic.CompareAndSwapInt32(&completed, 0, 2) {
+			// timeout won: reset state ourselves so a hung Init cannot leave the
+			// app stuck in Initializing (the abandoned goroutine may never return)
+			atomic.StoreInt32(&a.state, int32(gen.ApplicationStateLoaded))
 			a.log.Warning("Init callback exceeded deadline %v", timeout)
 			return gen.ErrTimeout
 		}
