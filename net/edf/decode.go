@@ -667,8 +667,8 @@ func decodeString(value *reflect.Value, packet []byte, state *stateDecode) (*ref
 	if len(packet) < 2 {
 		return nil, nil, errDecodeEOD
 	}
-	l := binary.BigEndian.Uint16(packet)
-	if len(packet) < int(2+l) {
+	l := int(binary.BigEndian.Uint16(packet))
+	if len(packet) < 2+l {
 		return nil, nil, errDecodeEOD
 	}
 
@@ -704,14 +704,14 @@ func decodeBinary(value *reflect.Value, packet []byte, state *stateDecode) (*ref
 		return nil, nil, errDecodeEOD
 	}
 	l := binary.BigEndian.Uint32(packet)
-	if len(packet) < int(4+l) {
+	if uint64(len(packet)) < uint64(l)+4 {
 		return nil, nil, errDecodeEOD
 	}
 
 	// we can't reuse the underlying slice since it is a part of the buffer
 	// which is bringing back to the buffer pool after all.
-	bin := append([]byte{}, packet[4:4+l]...)
-	packet = packet[4+l:]
+	bin := append([]byte{}, packet[4:4+int(l)]...)
+	packet = packet[4+int(l):]
 
 	if value == nil {
 		v := reflect.ValueOf(bin)
@@ -1286,7 +1286,7 @@ func decodeError(value *reflect.Value, packet []byte, state *stateDecode) (*refl
 		if len(packet) < l {
 			return nil, nil, errDecodeEOD
 		}
-		err = fmt.Errorf(string(packet[:l]))
+		err = fmt.Errorf("%s", string(packet[:l]))
 		packet = packet[l:]
 	}
 

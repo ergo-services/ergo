@@ -110,7 +110,7 @@ func RegisterTypeOf(v any) error {
 			}
 
 			l := binary.BigEndian.Uint32(packet)
-			if len(packet) < int(l+4) {
+			if uint64(len(packet)) < uint64(l)+4 {
 				return nil, nil, errDecodeEOD
 			}
 
@@ -120,11 +120,11 @@ func RegisterTypeOf(v any) error {
 			}
 
 			v := value.Addr().Interface().(Unmarshaler)
-			if err := v.UnmarshalEDF(packet[4 : l+4]); err != nil {
+			if err := v.UnmarshalEDF(packet[4 : 4+int(l)]); err != nil {
 				return nil, nil, err
 			}
 
-			packet = packet[l+4:]
+			packet = packet[4+int(l):]
 			return value, packet, nil
 		}
 		addRegCache(tov)
@@ -171,7 +171,7 @@ func RegisterTypeOf(v any) error {
 			}
 
 			l := binary.BigEndian.Uint32(packet)
-			if len(packet) < int(l+4) {
+			if uint64(len(packet)) < uint64(l)+4 {
 				return nil, nil, errDecodeEOD
 			}
 
@@ -181,11 +181,11 @@ func RegisterTypeOf(v any) error {
 			}
 
 			v := value.Addr().Interface().(encoding.BinaryUnmarshaler)
-			if err := v.UnmarshalBinary(packet[4 : l+4]); err != nil {
+			if err := v.UnmarshalBinary(packet[4 : 4+int(l)]); err != nil {
 				return nil, nil, err
 			}
 
-			packet = packet[l+4:]
+			packet = packet[4+int(l):]
 			return value, packet, nil
 		}
 		addRegCache(tov)
@@ -725,6 +725,11 @@ func registerType(tov reflect.Type) error {
 			n := int(binary.BigEndian.Uint32(packet[:4]))
 			packet = packet[4:]
 
+			// reject oversized/negative count before allocating (n entries need >= n bytes)
+			if n < 0 || n > len(packet) {
+				return nil, nil, fmt.Errorf("incorrect data length")
+			}
+
 			x := reflect.MakeMapWithSize(tov, n)
 			if value == nil {
 				value = &x
@@ -734,10 +739,6 @@ func registerType(tov reflect.Type) error {
 
 			if n == 0 {
 				return value, packet, nil
-			}
-
-			if n > len(packet) {
-				return nil, nil, fmt.Errorf("incorrect data length")
 			}
 
 			if state.child == nil {

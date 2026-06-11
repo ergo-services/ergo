@@ -137,7 +137,7 @@ func (c *client) Resolve(name gen.Atom) ([]gen.Route, error) {
 	reply, ok := v.(MessageResolveReply)
 	if ok == false {
 		c.node.Log().Error("incorrect <registrar resolve reply> message: %#v", v)
-		return nil, err
+		return nil, gen.ErrMalformed
 	}
 
 	if reply.Error != nil {
@@ -344,7 +344,7 @@ func (c *client) tryRegister() (net.Conn, error) {
 	if ok == false {
 		c.node.Log().Error("incorrect <registrar reply> message: %#v", v)
 		conn.Close()
-		return nil, err
+		return nil, gen.ErrMalformed
 	}
 
 	if reply.Error != nil {
