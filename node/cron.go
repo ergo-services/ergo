@@ -47,6 +47,11 @@ func createCron(node gen.Node) *cron {
 	next := now.Add(time.Minute).Truncate(time.Minute)
 	in := next.Sub(now)
 
+	// assign under the lock: time.AfterFunc starts the timer immediately, so if it
+	// fires before the assignment completes the callback would race it. The
+	// callback takes the same lock before touching c.timer, so it cannot proceed
+	// until the assignment is done (same pattern as lib/flusher).
+	c.Lock()
 	c.timer = time.AfterFunc(in, func() {
 		if node.IsAlive() == false {
 			// node terminated
@@ -125,9 +130,12 @@ func createCron(node gen.Node) *cron {
 		now := time.Now()
 		next := now.Add(time.Minute).Truncate(time.Minute)
 		in := next.Sub(now)
+		c.Lock()
 		c.timer.Reset(in)
+		c.Unlock()
 		c.schedule(next)
 	})
+	c.Unlock()
 
 	return c
 }
@@ -315,6 +323,8 @@ func (c *cron) JobSchedule(job gen.Atom, since time.Time, period time.Duration) 
 }
 
 func (c *cron) terminate() {
+	c.Lock()
+	defer c.Unlock()
 	if c.timer == nil {
 		return
 	}
