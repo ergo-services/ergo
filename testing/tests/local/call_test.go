@@ -75,7 +75,7 @@ func callAndCheck(t *testing.T, n *stage.Node, w, svc gen.PID, to any) {
 	out, err := n.Call(to, "ping")
 	check.NoError(t, err)
 	check.Equal(t, "ping", out)
-	n.ShouldReply().From(svc).Message("ping").Since(mk).Once().Within(time.Second).Must()
+	n.ShouldSendResponse().From(svc).Message("ping").Since(mk).Once().Within(time.Second).Must()
 	n.ShouldReceiveDown().To(w).About(svc).Reason(gen.TerminateReasonNormal).
 		Since(mk).Once().Within(time.Second).Must()
 }
@@ -88,20 +88,20 @@ func callAndCheck(t *testing.T, n *stage.Node, w, svc gen.PID, to any) {
 func TestLocalCall(t *testing.T) {
 	s := stage.New(t)
 	n := s.Node("n")
-	w := n.Spawn(factoryMonWatcher)
+	w := n.Spawn(factoryWatcher, gen.ProcessOptions{})
 
 	t.Run("PID", func(t *testing.T) {
-		svc := n.Spawn(factoryResponder)
+		svc := n.Spawn(factoryResponder, gen.ProcessOptions{})
 		callAndCheck(t, n, w, svc, svc)
 	})
 
 	t.Run("ProcessID", func(t *testing.T) {
-		svc := n.SpawnRegister("svc", factoryResponder)
+		svc := n.SpawnRegister("svc", factoryResponder, gen.ProcessOptions{})
 		callAndCheck(t, n, w, svc, gen.Atom("svc"))
 	})
 
 	t.Run("Alias", func(t *testing.T) {
-		svc := n.Spawn(factoryResponder)
+		svc := n.Spawn(factoryResponder, gen.ProcessOptions{})
 		info, err := n.Native().ProcessInfo(svc)
 		check.NoError(t, err)
 		check.True(t, len(info.Aliases) == 1)
@@ -109,8 +109,8 @@ func TestLocalCall(t *testing.T) {
 	})
 
 	t.Run("Forward", func(t *testing.T) {
-		target := n.Spawn(factoryFwdTarget)
-		fwder := n.Spawn(factoryForwarder, target)
+		target := n.Spawn(factoryFwdTarget, gen.ProcessOptions{})
+		fwder := n.Spawn(factoryForwarder, gen.ProcessOptions{}, target)
 		n.Send(w, monitorCmd{Target: fwder})
 		n.ShouldMonitor().From(w).Target(fwder).Once().Within(time.Second).Must()
 
@@ -119,7 +119,7 @@ func TestLocalCall(t *testing.T) {
 		check.NoError(t, err)
 		check.Equal(t, "fwd-me", out)
 		// the target (not the forwarder) answers the original caller
-		n.ShouldReply().From(target).Message("fwd-me").Since(mk).Once().Within(time.Second).Must()
+		n.ShouldSendResponse().From(target).Message("fwd-me").Since(mk).Once().Within(time.Second).Must()
 		// the forwarder stops (terminated normally) after forwarding
 		n.ShouldReceiveDown().To(w).About(fwder).Reason(gen.TerminateReasonNormal).
 			Since(mk).Once().Within(time.Second).Must()

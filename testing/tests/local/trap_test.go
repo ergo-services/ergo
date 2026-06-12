@@ -71,9 +71,9 @@ func (tr *trapper) HandleMessage(from gen.PID, message any) error { return nil }
 func TestLocalTrapExit(t *testing.T) {
 	s := stage.New(t)
 	n := s.Node("n")
-	host := n.Spawn(factoryExiter)
-	alien := n.Spawn(factoryExiter)
-	w := n.Spawn(factoryMonWatcher)
+	host := n.Spawn(factoryExiter, gen.ProcessOptions{})
+	alien := n.Spawn(factoryExiter, gen.ProcessOptions{})
+	w := n.Spawn(factoryWatcher, gen.ProcessOptions{})
 
 	t.Run("Toggle", func(t *testing.T) {
 		tpAny, err := n.Call(host, spawnTrapper{Trap: false})

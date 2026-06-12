@@ -109,9 +109,9 @@ func TestLocalMeta(t *testing.T) {
 	t.Run("Basic", func(t *testing.T) {
 		s := stage.New(t)
 		n := s.Node("n")
-		collector := n.Spawn(factoryEcho)
-		host := n.Spawn(factoryMetaHost, false)
-		watcher := n.Spawn(factoryMonWatcher)
+		collector := n.Spawn(factoryEcho, gen.ProcessOptions{})
+		host := n.Spawn(factoryMetaHost, gen.ProcessOptions{}, false)
+		watcher := n.Spawn(factoryWatcher, gen.ProcessOptions{})
 
 		aliasAny, err := n.Call(host, spawnMetaCmd{})
 		check.NoError(t, err)
@@ -154,7 +154,7 @@ func TestLocalMeta(t *testing.T) {
 	t.Run("Link", func(t *testing.T) {
 		s := stage.New(t)
 		n := s.Node("n")
-		host := n.Spawn(factoryMetaHost, true) // trap so the link-death is a message
+		host := n.Spawn(factoryMetaHost, gen.ProcessOptions{}, true) // trap so the link-death is a message
 
 		aliasAny, err := n.Call(host, spawnMetaCmd{})
 		check.NoError(t, err)
@@ -175,7 +175,7 @@ func TestLocalMeta(t *testing.T) {
 	t.Run("Monitor", func(t *testing.T) {
 		s := stage.New(t)
 		n := s.Node("n")
-		host := n.Spawn(factoryMetaHost, false)
+		host := n.Spawn(factoryMetaHost, gen.ProcessOptions{}, false)
 
 		aliasAny, err := n.Call(host, spawnMetaCmd{})
 		check.NoError(t, err)
@@ -196,8 +196,8 @@ func TestLocalMeta(t *testing.T) {
 	t.Run("ParentDeath", func(t *testing.T) {
 		s := stage.New(t)
 		n := s.Node("n")
-		host := n.Spawn(factoryMetaHost, false) // non-trap: SendExit terminates it
-		watcher := n.Spawn(factoryMonWatcher)
+		host := n.Spawn(factoryMetaHost, gen.ProcessOptions{}, false) // non-trap: SendExit terminates it
+		watcher := n.Spawn(factoryWatcher, gen.ProcessOptions{})
 
 		aliasAny, err := n.Call(host, spawnMetaCmd{})
 		check.NoError(t, err)

@@ -41,10 +41,10 @@ func (s *sender) HandleMessage(from gen.PID, message any) error {
 func TestLocalSend(t *testing.T) {
 	s := stage.New(t)
 	n := s.Node("n")
-	from := n.Spawn(factorySender)
+	from := n.Spawn(factorySender, gen.ProcessOptions{})
 
 	t.Run("PID", func(t *testing.T) {
-		target := n.Spawn(factoryEcho)
+		target := n.Spawn(factoryEcho, gen.ProcessOptions{})
 		mk := n.Mark()
 		n.Send(from, sendTo{To: target, Msg: "byPID"})
 		n.ShouldSend().From(from).Message("byPID").Since(mk).Once().Within(time.Second).Must()
@@ -52,7 +52,7 @@ func TestLocalSend(t *testing.T) {
 	})
 
 	t.Run("ProcessID", func(t *testing.T) {
-		n.SpawnRegister("echo-name", factoryEcho)
+		n.SpawnRegister("echo-name", factoryEcho, gen.ProcessOptions{})
 		pid := gen.ProcessID{Name: "echo-name", Node: n.Name()}
 		mk := n.Mark()
 		n.Send(from, sendTo{To: pid, Msg: "byName"})
@@ -61,7 +61,7 @@ func TestLocalSend(t *testing.T) {
 	})
 
 	t.Run("Alias", func(t *testing.T) {
-		target := n.Spawn(factoryTarget)
+		target := n.Spawn(factoryTarget, gen.ProcessOptions{})
 		info, err := n.Call(target, "info")
 		check.NoError(t, err)
 		alias := info.(targetInfo).Alias

@@ -2,109 +2,13 @@ package local
 
 import (
 	"errors"
-	"fmt"
 	"testing"
 	"time"
 
-	"ergo.services/ergo/act"
 	"ergo.services/ergo/gen"
 	"ergo.services/ergo/testing/check"
 	"ergo.services/ergo/testing/stage"
 )
-
-// targetInfo exposes a target's alias and event for addressing.
-type targetInfo struct {
-	Alias gen.Alias
-	Event gen.Event
-}
-
-// target is monitorable/linkable by PID/ProcessID/Alias/Event and panics on demand.
-type target struct {
-	act.Actor
-	alias gen.Alias
-	event gen.Event
-}
-
-func factoryTarget() gen.ProcessBehavior { return &target{} }
-
-func (tg *target) Init(args ...any) error {
-	alias, err := tg.CreateAlias()
-	if err != nil {
-		return err
-	}
-	tg.alias = alias
-	name := gen.Atom(fmt.Sprintf("ev-%d", tg.PID().ID))
-	if _, err := tg.RegisterEvent(name, gen.EventOptions{}); err != nil {
-		return err
-	}
-	tg.event = gen.Event{Name: name, Node: tg.Node().Name()}
-	return nil
-}
-
-func (tg *target) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error) {
-	return targetInfo{Alias: tg.alias, Event: tg.event}, nil
-}
-
-// unregisterCmd tells the target to unregister its name / alias / event (which
-// breaks monitors and links by that identity with reason ErrUnregistered, while
-// the process itself stays alive).
-type unregisterCmd struct{ Kind string }
-
-func (tg *target) HandleMessage(from gen.PID, message any) error {
-	switch m := message.(type) {
-	case string:
-		if m == "panic" {
-			panic("boom")
-		}
-	case unregisterCmd:
-		switch m.Kind {
-		case "name":
-			return tg.UnregisterName()
-		case "alias":
-			return tg.DeleteAlias(tg.alias)
-		case "event":
-			return tg.UnregisterEvent(tg.event.Name)
-		}
-	}
-	return nil
-}
-
-// unregisterFor sends the target the unregister command matching how it is
-// addressed (name/alias/event); used to break a monitor/link with ErrUnregistered.
-func unregisterFor(n *stage.Node, bPID gen.PID, addr any) {
-	switch addr.(type) {
-	case gen.ProcessID:
-		n.Send(bPID, unregisterCmd{Kind: "name"})
-	case gen.Alias:
-		n.Send(bPID, unregisterCmd{Kind: "alias"})
-	case gen.Event:
-		n.Send(bPID, unregisterCmd{Kind: "event"})
-	}
-}
-
-// monitorCmd tells the watcher to monitor Target (PID/ProcessID/Alias/Event).
-type monitorCmd struct{ Target any }
-
-// monWatcher monitors on command and survives all incoming downs.
-type monWatcher struct{ act.Actor }
-
-func factoryMonWatcher() gen.ProcessBehavior { return &monWatcher{} }
-
-func (w *monWatcher) HandleMessage(from gen.PID, message any) error {
-	if c, ok := message.(monitorCmd); ok {
-		switch tgt := c.Target.(type) {
-		case gen.PID:
-			_ = w.MonitorPID(tgt)
-		case gen.ProcessID:
-			_ = w.MonitorProcessID(tgt)
-		case gen.Alias:
-			_ = w.MonitorAlias(tgt)
-		case gen.Event:
-			_, _ = w.MonitorEvent(tgt)
-		}
-	}
-	return nil
-}
 
 func triggerExit(t *testing.T, s *stage.Stage, n *stage.Node, target gen.PID, reason error) {
 	t.Helper()
@@ -135,7 +39,7 @@ func monitorsOf(info gen.ProcessInfo, target any) (int, bool) {
 	return -1, false
 }
 
-func assertDownAbout(a *stage.DownAssert, target any) *stage.DownAssert {
+func downAbout(a *stage.DownAssert, target any) *stage.DownAssert {
 	switch t := target.(type) {
 	case gen.PID:
 		return a.About(t)
@@ -154,7 +58,7 @@ func assertDownAbout(a *stage.DownAssert, target any) *stage.DownAssert {
 // and the watcher receives a Down carrying the target identity and reason.
 func runMonitor(t *testing.T, s *stage.Stage, n *stage.Node, reason error, bPID gen.PID, monTarget any) {
 	t.Helper()
-	w := n.Spawn(factoryMonWatcher)
+	w := n.Spawn(factoryWatcher, gen.ProcessOptions{})
 
 	info, err := n.Native().ProcessInfo(w)
 	check.NoError(t, err)
@@ -179,7 +83,7 @@ func runMonitor(t *testing.T, s *stage.Stage, n *stage.Node, reason error, bPID 
 	} else {
 		triggerExit(t, s, n, bPID, reason)
 	}
-	assertDownAbout(n.ShouldReceiveDown().To(w), monTarget).Reason(reason).
+	downAbout(n.ShouldReceiveDown().To(w), monTarget).Reason(reason).
 		Since(mk).Once().Within(time.Second).Must()
 	if reason == gen.ErrUnregistered {
 		// the down was the identity being unregistered, not a termination
@@ -202,7 +106,7 @@ func TestLocalMonitor(t *testing.T) {
 
 	t.Run("PID", func(t *testing.T) {
 		for _, reason := range reasons {
-			b := n.Spawn(factoryTarget)
+			b := n.Spawn(factoryTarget, gen.ProcessOptions{})
 			runMonitor(t, s, n, reason, b, b)
 		}
 	})
@@ -210,14 +114,14 @@ func TestLocalMonitor(t *testing.T) {
 	t.Run("ProcessID", func(t *testing.T) {
 		for i, reason := range withUnreg {
 			name := gen.Atom("mon-pid-" + string(rune('a'+i)))
-			b := n.SpawnRegister(name, factoryTarget)
+			b := n.SpawnRegister(name, factoryTarget, gen.ProcessOptions{})
 			runMonitor(t, s, n, reason, b, gen.ProcessID{Name: name, Node: n.Name()})
 		}
 	})
 
 	t.Run("Alias", func(t *testing.T) {
 		for _, reason := range withUnreg {
-			b := n.Spawn(factoryTarget)
+			b := n.Spawn(factoryTarget, gen.ProcessOptions{})
 			info, err := n.Call(b, "info")
 			check.NoError(t, err)
 			runMonitor(t, s, n, reason, b, info.(targetInfo).Alias)
@@ -226,7 +130,7 @@ func TestLocalMonitor(t *testing.T) {
 
 	t.Run("Event", func(t *testing.T) {
 		for _, reason := range withUnreg {
-			b := n.Spawn(factoryTarget)
+			b := n.Spawn(factoryTarget, gen.ProcessOptions{})
 			info, err := n.Call(b, "info")
 			check.NoError(t, err)
 			runMonitor(t, s, n, reason, b, info.(targetInfo).Event)
@@ -234,7 +138,7 @@ func TestLocalMonitor(t *testing.T) {
 	})
 
 	t.Run("Unknown", func(t *testing.T) {
-		w := n.Spawn(factoryMonWatcher)
+		w := n.Spawn(factoryWatcher, gen.ProcessOptions{})
 
 		ghost := gen.PID{Node: n.Name(), ID: 999999}
 		mk := n.Mark()

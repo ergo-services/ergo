@@ -48,8 +48,8 @@ func (a *timerActor) HandleCall(from gen.PID, ref gen.Ref, request any) (any, er
 func TestLocalTimerSendAfter(t *testing.T) {
 	s := stage.New(t)
 	n := s.Node("n")
-	collector := n.Spawn(factoryEcho)
-	timer := n.Spawn(factoryTimerActor)
+	collector := n.Spawn(factoryEcho, gen.ProcessOptions{})
+	timer := n.Spawn(factoryTimerActor, gen.ProcessOptions{})
 
 	// fires: the message is delivered after the delay
 	mk := n.Mark()

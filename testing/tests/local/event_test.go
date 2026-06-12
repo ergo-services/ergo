@@ -71,13 +71,13 @@ func TestLocalEvent(t *testing.T) {
 	s := stage.New(t)
 	n := s.Node("n")
 
-	prod := n.Spawn(factoryProducer)
+	prod := n.Spawn(factoryProducer, gen.ProcessOptions{})
 	evAny, err := n.Call(prod, evtRegister{})
 	check.NoError(t, err)
 	event := evAny.(gen.Event)
 
 	// consumer1 links: no buffered events yet; producer gets a start notification
-	c1 := n.Spawn(factoryConsumer)
+	c1 := n.Spawn(factoryConsumer, gen.ProcessOptions{})
 	leAny, err := n.Call(c1, evtLink{Event: event})
 	check.NoError(t, err)
 	check.Equal(t, 0, len(leAny.([]gen.MessageEvent)))
@@ -93,7 +93,7 @@ func TestLocalEvent(t *testing.T) {
 	check.True(t, rec.Timestamp != 0)
 
 	// consumer2 monitors: the buffer hands it the last event
-	c2 := n.Spawn(factoryConsumer)
+	c2 := n.Spawn(factoryConsumer, gen.ProcessOptions{})
 	le2Any, err := n.Call(c2, evtMonitor{Event: event})
 	check.NoError(t, err)
 	le2 := le2Any.([]gen.MessageEvent)

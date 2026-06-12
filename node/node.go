@@ -1856,8 +1856,11 @@ func (n *node) Kill(pid gen.PID) error {
 		return nil
 	}
 	atomic.StoreInt64(&p.stateEntered, time.Now().UnixNano())
-	// unregister process and stuff belonging to it
-	n.unregisterProcess(p, gen.TerminateReasonKill)
+	// unregister process and stuff belonging to it. wrapPreserveMailbox so killing
+	// a non-running (e.g. sleeping) process captures its mailbox just like the
+	// run-loop kill path does, keeping the exit reason consistent and not losing a
+	// message that raced into the mailbox before the kill.
+	n.unregisterProcess(p, p.wrapPreserveMailbox(gen.TerminateReasonKill))
 
 	go func() {
 		if lib.Recover() {

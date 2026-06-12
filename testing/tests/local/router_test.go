@@ -61,9 +61,9 @@ func newRouter(t *testing.T) (*stage.Node, gen.PID, gen.PID, []gen.PID) {
 	t.Helper()
 	s := stage.New(t)
 	n := s.Node("n")
-	collector := n.Spawn(factoryEcho)
+	collector := n.Spawn(factoryEcho, gen.ProcessOptions{})
 	mk := n.Mark()
-	router := n.Spawn(factoryTestRouter, collector)
+	router := n.Spawn(factoryTestRouter, gen.ProcessOptions{}, collector)
 	routes := poolWorkers(n, router, mk, 3)
 	return n, router, collector, routes
 }
@@ -150,7 +150,7 @@ func TestLocalRouter(t *testing.T) {
 	// node registry and is forwarded there
 	t.Run("FallbackToRegistry", func(t *testing.T) {
 		n, router, _, _ := newRouter(t)
-		ext := n.SpawnRegister("ext_proc", factoryPoolWorker)
+		ext := n.SpawnRegister("ext_proc", factoryPoolWorker, gen.ProcessOptions{})
 
 		mk := n.Mark()
 		n.Send(router, gen.Atom("ext_proc"))

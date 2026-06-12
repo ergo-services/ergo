@@ -116,9 +116,9 @@ func TestLocalUDP(t *testing.T) {
 	s := stage.New(t)
 	n := s.Node("n")
 
-	collector := n.Spawn(factoryEcho)
-	handler := n.SpawnRegister("handler", factoryUdpHandler, collector)
-	owner := n.Spawn(factoryUdpOwner, collector)
+	collector := n.Spawn(factoryEcho, gen.ProcessOptions{})
+	handler := n.SpawnRegister("handler", factoryUdpHandler, gen.ProcessOptions{}, collector)
+	owner := n.Spawn(factoryUdpOwner, gen.ProcessOptions{}, collector)
 
 	addrProcAny, err := n.Call(owner, "addr_proc")
 	check.NoError(t, err)

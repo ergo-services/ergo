@@ -135,7 +135,7 @@ func (s *sofoSup) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error
 func TestLocalSupervisorSOFOBasic(t *testing.T) {
 	s := stage.New(t)
 	n := s.Node("n")
-	sup := n.Spawn(factorySofoBasicSup)
+	sup := n.Spawn(factorySofoBasicSup, gen.ProcessOptions{})
 	v, err := n.Call(sup, "check")
 	check.NoError(t, err)
 	check.Equal(t, "", v)
@@ -162,7 +162,7 @@ func TestLocalSupervisorSOFOStrategy(t *testing.T) {
 	for _, c := range cases {
 		s := stage.New(t)
 		n := s.Node("n")
-		sup := n.Spawn(factorySofoSup, c.strategy)
+		sup := n.Spawn(factorySofoSup, gen.ProcessOptions{}, c.strategy)
 
 		// start five children
 		for i := 0; i < 5; i++ {
@@ -209,8 +209,8 @@ func TestLocalSupervisorSOFOStrategy(t *testing.T) {
 func TestLocalSupervisorSOFOExit(t *testing.T) {
 	s := stage.New(t)
 	n := s.Node("n")
-	w := n.Spawn(factoryMonWatcher)
-	sup := n.Spawn(factorySofoSup, act.SupervisorStrategyPermanent)
+	w := n.Spawn(factoryWatcher, gen.ProcessOptions{})
+	sup := n.Spawn(factorySofoSup, gen.ProcessOptions{}, act.SupervisorStrategyPermanent)
 
 	n.Send(w, monitorCmd{Target: sup})
 	n.ShouldMonitor().From(w).Target(sup).Once().Within(time.Second).Must()

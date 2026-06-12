@@ -13,8 +13,7 @@ import (
 	"ergo.services/ergo/testing/stage"
 )
 
-// ── OFO basic: child-spec API ──
-
+// OFO basic: child-spec API
 type ofoBasicSup struct{ act.Supervisor }
 
 func factoryOfoBasicSup() gen.ProcessBehavior { return &ofoBasicSup{} }
@@ -94,14 +93,13 @@ func (s *ofoBasicSup) basicCheck() error {
 func TestLocalSupervisorOFOBasic(t *testing.T) {
 	s := stage.New(t)
 	n := s.Node("n")
-	sup := n.Spawn(factoryOfoBasicSup)
+	sup := n.Spawn(factoryOfoBasicSup, gen.ProcessOptions{})
 	v, err := n.Call(sup, "check")
 	check.NoError(t, err)
 	check.Equal(t, "", v)
 }
 
-// ── OFO strategy: one-for-one restart ──
-
+// OFO strategy: one-for-one restart
 type ofoSup struct{ act.Supervisor }
 
 func factoryOfoSup() gen.ProcessBehavior { return &ofoSup{} }
@@ -163,7 +161,7 @@ func TestLocalSupervisorOFOStrategy(t *testing.T) {
 	for _, c := range cases {
 		s := stage.New(t)
 		n := s.Node("n")
-		sup := n.Spawn(factoryOfoSup, c.strategy)
+		sup := n.Spawn(factoryOfoSup, gen.ProcessOptions{}, c.strategy)
 
 		// three children auto-started
 		n.ShouldSend().From(sup).Message(childStarted{Name: "c0"}).Once().Within(time.Second).Must()
@@ -201,8 +199,7 @@ func TestLocalSupervisorOFOStrategy(t *testing.T) {
 	}
 }
 
-// ── OFO significant: a significant child's non-restart terminates the supervisor ──
-
+// OFO significant: a significant child's non-restart terminates the supervisor
 type ofoSignificantSup struct{ act.Supervisor }
 
 func factoryOfoSignificantSup() gen.ProcessBehavior { return &ofoSignificantSup{} }
@@ -248,17 +245,17 @@ func TestLocalSupervisorOFOSignificant(t *testing.T) {
 		reason   error
 		restart  bool
 	}{
-		{act.SupervisorStrategyTransient, custom, true},   // abnormal -> restart
-		{act.SupervisorStrategyTransient, normal, false},  // normal -> shutdown supervisor
-		{act.SupervisorStrategyTemporary, custom, false},  // never restart -> shutdown
-		{act.SupervisorStrategyPermanent, normal, true},   // always restart -> survive
+		{act.SupervisorStrategyTransient, custom, true},  // abnormal -> restart
+		{act.SupervisorStrategyTransient, normal, false}, // normal -> shutdown supervisor
+		{act.SupervisorStrategyTemporary, custom, false}, // never restart -> shutdown
+		{act.SupervisorStrategyPermanent, normal, true},  // always restart -> survive
 	}
 
 	for _, c := range cases {
 		s := stage.New(t)
 		n := s.Node("n")
-		w := n.Spawn(factoryMonWatcher)
-		sup := n.Spawn(factoryOfoSignificantSup, c.strategy)
+		w := n.Spawn(factoryWatcher, gen.ProcessOptions{})
+		sup := n.Spawn(factoryOfoSignificantSup, gen.ProcessOptions{}, c.strategy)
 
 		n.Send(w, monitorCmd{Target: sup})
 		n.ShouldMonitor().From(w).Target(sup).Once().Within(time.Second).Must()

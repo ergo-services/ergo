@@ -99,6 +99,12 @@ func (a *Assertion[R]) None() *Assertion[R] { a.card = cardNone; a.n = 0; return
 func (a *Assertion[R]) Since(mark int) *Assertion[R] { a.since = mark; return a }
 
 // Within turns the terminal into an async wait of at most d (poll every tick).
+//
+// With an exact cardinality (Once/Times), the wait is satisfied at the first poll
+// where the count equals n. A count that overshoots n between two polls is observed
+// as "> n" and never re-equals n, so the assertion then fails at the deadline. This
+// is correct for a stable exact count (the common case); for a monotonically growing
+// count where you only need a lower bound, use AtLeast instead of Times.
 func (a *Assertion[R]) Within(d time.Duration) *Assertion[R] { a.within = d; return a }
 
 // records returns the source records scoped to [since:].

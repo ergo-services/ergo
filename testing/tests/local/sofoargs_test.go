@@ -69,7 +69,7 @@ func TestLocalSupervisorSOFOArgs(t *testing.T) {
 
 	s := stage.New(t)
 	n := s.Node("n")
-	sup := n.Spawn(factorySofoArgsSup)
+	sup := n.Spawn(factorySofoArgsSup, gen.ProcessOptions{})
 
 	_, err := n.Call(sup, startArg{Arg: customArg})
 	check.NoError(t, err)

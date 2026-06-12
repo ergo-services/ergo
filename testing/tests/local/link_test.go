@@ -57,15 +57,6 @@ func (l *linkerC) HandleMessage(from gen.PID, message any) error {
 	return nil
 }
 
-func contains[T comparable](s []T, v T) bool {
-	for _, x := range s {
-		if x == v {
-			return true
-		}
-	}
-	return false
-}
-
 // linksOf returns the count and presence of target in the matching Links* list.
 func linksOf(info gen.ProcessInfo, target any) (int, bool) {
 	switch t := target.(type) {
@@ -162,8 +153,8 @@ func runLink(t *testing.T, s *stage.Stage, n *stage.Node, host, w gen.PID, trap 
 func TestLocalLink(t *testing.T) {
 	s := stage.New(t)
 	n := s.Node("n")
-	host := n.Spawn(factoryHost)
-	w := n.Spawn(factoryMonWatcher)
+	host := n.Spawn(factoryHost, gen.ProcessOptions{})
+	w := n.Spawn(factoryWatcher, gen.ProcessOptions{})
 
 	custom := errors.New("custom")
 	base := []error{gen.TerminateReasonKill, custom, gen.TerminateReasonShutdown}
@@ -172,7 +163,7 @@ func TestLocalLink(t *testing.T) {
 	t.Run("PID", func(t *testing.T) {
 		for _, reason := range base {
 			for _, trap := range []bool{false, true} {
-				b := n.Spawn(factoryTarget)
+				b := n.Spawn(factoryTarget, gen.ProcessOptions{})
 				runLink(t, s, n, host, w, trap, reason, b, b)
 			}
 		}
@@ -182,7 +173,7 @@ func TestLocalLink(t *testing.T) {
 		for i, reason := range withUnreg {
 			for j, trap := range []bool{false, true} {
 				name := gen.Atom("lnk-" + string(rune('a'+i*2+j)))
-				b := n.SpawnRegister(name, factoryTarget)
+				b := n.SpawnRegister(name, factoryTarget, gen.ProcessOptions{})
 				runLink(t, s, n, host, w, trap, reason, b, gen.ProcessID{Name: name, Node: n.Name()})
 			}
 		}
@@ -191,7 +182,7 @@ func TestLocalLink(t *testing.T) {
 	t.Run("Alias", func(t *testing.T) {
 		for _, reason := range withUnreg {
 			for _, trap := range []bool{false, true} {
-				b := n.Spawn(factoryTarget)
+				b := n.Spawn(factoryTarget, gen.ProcessOptions{})
 				info, err := n.Call(b, "info")
 				check.NoError(t, err)
 				runLink(t, s, n, host, w, trap, reason, b, info.(targetInfo).Alias)
@@ -202,7 +193,7 @@ func TestLocalLink(t *testing.T) {
 	t.Run("Event", func(t *testing.T) {
 		for _, reason := range withUnreg {
 			for _, trap := range []bool{false, true} {
-				b := n.Spawn(factoryTarget)
+				b := n.Spawn(factoryTarget, gen.ProcessOptions{})
 				info, err := n.Call(b, "info")
 				check.NoError(t, err)
 				runLink(t, s, n, host, w, trap, reason, b, info.(targetInfo).Event)

@@ -64,7 +64,7 @@ func TestLocalNodeInspect(t *testing.T) {
 	n := s.Node("n")
 	nd := n.Native()
 
-	sup := n.Spawn(factoryInspectSup)
+	sup := n.Spawn(factoryInspectSup, gen.ProcessOptions{})
 	info, err := nd.Inspect(sup)
 	check.NoError(t, err)
 	check.Equal(t, "One For One", info["type"])
@@ -79,8 +79,8 @@ func TestLocalNodeInspect(t *testing.T) {
 	check.ErrorIs(t, err, gen.ErrNotAllowed)
 
 	// terminated process: monitor it, kill it, wait for the down, then inspect
-	w := n.Spawn(factoryMonWatcher)
-	victim := n.Spawn(factoryEcho)
+	w := n.Spawn(factoryWatcher, gen.ProcessOptions{})
+	victim := n.Spawn(factoryEcho, gen.ProcessOptions{})
 	n.Send(w, monitorCmd{Target: victim})
 	n.ShouldMonitor().From(w).Target(victim).Once().Within(time.Second).Must()
 	s.Kill(n, victim)
@@ -97,7 +97,7 @@ func TestLocalNodeInspectMeta(t *testing.T) {
 	n := s.Node("n")
 	nd := n.Native()
 
-	owner := n.Spawn(factoryMetaActor)
+	owner := n.Spawn(factoryMetaActor, gen.ProcessOptions{})
 	aliasAny, err := n.Call(owner, "spawnmeta")
 	check.NoError(t, err)
 	alias := aliasAny.(gen.Alias)

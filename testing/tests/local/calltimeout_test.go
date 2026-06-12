@@ -36,8 +36,8 @@ func (e *callEcho) HandleCall(from gen.PID, ref gen.Ref, request any) (any, erro
 func TestLocalCallWithTimeout(t *testing.T) {
 	s := stage.New(t)
 	n := s.Node("n")
-	silent := n.Spawn(factorySilentActor)
-	echo := n.Spawn(factoryCallEcho)
+	silent := n.Spawn(factorySilentActor, gen.ProcessOptions{})
+	echo := n.Spawn(factoryCallEcho, gen.ProcessOptions{})
 
 	// answered within the timeout
 	v, err := n.Native().CallWithTimeout(echo, "ping", 2)

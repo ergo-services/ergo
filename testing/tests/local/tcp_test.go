@@ -247,14 +247,14 @@ func frameOf(payload string) []byte {
 
 // TestLocalTCPFraming: a TCP server with ReadChunk length-prefix framing delivers
 // exactly one MessageTCP per logical frame, reassembling correctly regardless of
-// how the bytes are segmented on the wire — a whole frame in one write, a frame
+// how the bytes are segmented on the wire: a whole frame in one write, a frame
 // split across writes, and two frames coalesced into one write.
 func TestLocalTCPFraming(t *testing.T) {
 	s := stage.New(t)
 	n := s.Node("n")
 
-	collector := n.Spawn(factoryEcho)
-	owner := n.Spawn(factoryTcpFrameOwner, collector)
+	collector := n.Spawn(factoryEcho, gen.ProcessOptions{})
+	owner := n.Spawn(factoryTcpFrameOwner, gen.ProcessOptions{}, collector)
 
 	addrAny, err := n.Call(owner, "addr")
 	check.NoError(t, err)
@@ -298,10 +298,10 @@ func TestLocalTCPServer(t *testing.T) {
 	s := stage.New(t)
 	n := s.Node("n")
 
-	collector := n.Spawn(factoryEcho)
-	h1 := n.SpawnRegister("handler1", factoryTcpReporter, collector)
-	h2 := n.SpawnRegister("handler2", factoryTcpReporter, collector)
-	owner := n.Spawn(factoryTcpOwner, collector)
+	collector := n.Spawn(factoryEcho, gen.ProcessOptions{})
+	h1 := n.SpawnRegister("handler1", factoryTcpReporter, gen.ProcessOptions{}, collector)
+	h2 := n.SpawnRegister("handler2", factoryTcpReporter, gen.ProcessOptions{}, collector)
+	owner := n.Spawn(factoryTcpOwner, gen.ProcessOptions{}, collector)
 
 	addrPoolAny, err := n.Call(owner, "addr_pool")
 	check.NoError(t, err)
@@ -357,13 +357,13 @@ func TestLocalTCPClient(t *testing.T) {
 	s := stage.New(t)
 	n := s.Node("n")
 
-	collector := n.Spawn(factoryEcho)
-	owner := n.Spawn(factoryTcpOwner, collector)
+	collector := n.Spawn(factoryEcho, gen.ProcessOptions{})
+	owner := n.Spawn(factoryTcpOwner, gen.ProcessOptions{}, collector)
 	addrAny, err := n.Call(owner, "addr_nopool")
 	check.NoError(t, err)
 	port := portOf(t, addrAny.(string))
 
-	client := n.Spawn(factoryTcpClient, collector, port)
+	client := n.Spawn(factoryTcpClient, gen.ProcessOptions{}, collector, port)
 
 	// connect: both ends observe a connect
 	mk := n.Mark()

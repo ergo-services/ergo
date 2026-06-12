@@ -49,7 +49,7 @@ func TestLocalAliasRouting(t *testing.T) {
 	s := stage.New(t)
 	n := s.Node("n")
 	nn := n.Native()
-	target := n.Spawn(factoryAliasActor)
+	target := n.Spawn(factoryAliasActor, gen.ProcessOptions{})
 
 	av, err := n.Call(target, "aliases")
 	check.NoError(t, err)

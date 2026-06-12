@@ -113,8 +113,8 @@ func TestLocalWeb(t *testing.T) {
 	s := stage.New(t)
 	n := s.Node("n")
 
-	host := n.Spawn(factoryWebHost)
-	worker := n.SpawnRegister("webworker", factoryWebWorker)
+	host := n.Spawn(factoryWebHost, gen.ProcessOptions{})
+	worker := n.SpawnRegister("webworker", factoryWebWorker, gen.ProcessOptions{})
 
 	addrAny, err := n.Call(host, "addr")
 	check.NoError(t, err)
@@ -132,7 +132,7 @@ func TestLocalWeb(t *testing.T) {
 	check.Equal(t, http.StatusServiceUnavailable, httpStatus(t, http.MethodGet, base+"/nometaprocess", nil))
 
 	// kill the worker, confirm it is gone, then the handler can no longer forward
-	watcher := n.Spawn(factoryMonWatcher)
+	watcher := n.Spawn(factoryWatcher, gen.ProcessOptions{})
 	n.Send(watcher, monitorCmd{Target: worker})
 	n.ShouldMonitor().From(watcher).Target(worker).Once().Within(time.Second).Must()
 	mk := n.Mark()

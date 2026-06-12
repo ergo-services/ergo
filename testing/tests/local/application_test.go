@@ -183,7 +183,7 @@ func TestLocalApplicationMode(t *testing.T) {
 		s := stage.New(t)
 		n := s.Node("n")
 		nn := n.Native()
-		collector := n.Spawn(factoryEcho)
+		collector := n.Spawn(factoryEcho, gen.ProcessOptions{})
 
 		appName, err := nn.ApplicationLoad(createAppMode(collector, gen.ApplicationModeTemporary))
 		check.NoError(t, err)
@@ -207,7 +207,7 @@ func TestLocalApplicationMode(t *testing.T) {
 		s := stage.New(t)
 		n := s.Node("n")
 		nn := n.Native()
-		collector := n.Spawn(factoryEcho)
+		collector := n.Spawn(factoryEcho, gen.ProcessOptions{})
 
 		appName, err := nn.ApplicationLoad(createAppMode(collector, gen.ApplicationModeTransient))
 		check.NoError(t, err)
@@ -237,7 +237,7 @@ func TestLocalApplicationMode(t *testing.T) {
 		s := stage.New(t)
 		n := s.Node("n")
 		nn := n.Native()
-		collector := n.Spawn(factoryEcho)
+		collector := n.Spawn(factoryEcho, gen.ProcessOptions{})
 
 		appName, err := nn.ApplicationLoad(createAppMode(collector, gen.ApplicationModePermanent))
 		check.NoError(t, err)

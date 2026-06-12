@@ -132,10 +132,10 @@ func TestLocalPool(t *testing.T) {
 	n := s.Node("n")
 	nn := n.Native()
 
-	collector := n.Spawn(factoryEcho)
+	collector := n.Spawn(factoryEcho, gen.ProcessOptions{})
 
 	mkPool := n.Mark()
-	pool := n.Spawn(factoryPoolPool, collector)
+	pool := n.Spawn(factoryPoolPool, gen.ProcessOptions{}, collector)
 	initial := poolWorkers(n, pool, mkPool, 5)
 	check.Equal(t, 5, len(initial))
 
@@ -255,7 +255,7 @@ func TestLocalPool(t *testing.T) {
 	// replacement and keeps serving. The pool itself never terminates.
 	victim := recov[0]
 	survivor := recov[1]
-	watcher := n.Spawn(factoryMonWatcher)
+	watcher := n.Spawn(factoryWatcher, gen.ProcessOptions{})
 	n.Send(watcher, monitorCmd{Target: victim})
 	n.ShouldMonitor().From(watcher).Target(victim).Once().Within(time.Second).Must()
 

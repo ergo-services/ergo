@@ -11,8 +11,7 @@ import (
 	"ergo.services/ergo/testing/stage"
 )
 
-// ── two minimal applications, each exposing one registered service ──
-
+// two minimal applications, each exposing one registered service
 type app1 struct{ app.Application }
 
 func createApp1() gen.ApplicationBehavior { return &app1{} }
@@ -37,8 +36,7 @@ func (a *app2) Load(args ...any) (gen.ApplicationSpec, error) {
 	}, nil
 }
 
-// ── wire messages (registered for cross-node transport) ──
-
+// wire messages (registered for cross-node transport)
 type ping struct{ Seq int }
 type pong struct{ Seq int }
 type pingRequest struct{ Seq int }
@@ -47,7 +45,7 @@ type sendPing struct {
 	Seq int
 }
 
-// ── workers ──
+// workers
 
 // pinger, on a sendPing trigger, sends a ping to the given target.
 type pinger struct{ act.Actor }
@@ -103,8 +101,8 @@ func TestStageTwoNodes(t *testing.T) {
 	s.Connect(a, b)
 	registerWire(a, b)
 
-	pongerPID := b.Spawn(factoryPonger)
-	pingerPID := a.Spawn(factoryPinger)
+	pongerPID := b.Spawn(factoryPonger, gen.ProcessOptions{})
+	pingerPID := a.Spawn(factoryPinger, gen.ProcessOptions{})
 
 	// active: a cross-node request to ponger@b returns its response
 	resp, err := a.Call(pongerPID, pingRequest{Seq: 7})
@@ -131,8 +129,8 @@ func TestStageMonitorDown(t *testing.T) {
 	s := stage.New(t)
 	n := s.Node("n")
 
-	target := n.Spawn(factoryPonger)
-	w := n.Spawn(factoryWatcher, target)
+	target := n.Spawn(factoryPonger, gen.ProcessOptions{})
+	w := n.Spawn(factoryWatcher, gen.ProcessOptions{}, target)
 
 	// egress: the watcher set up a monitor on the target
 	n.ShouldMonitor().From(w).Target(target).Once().Within(time.Second).Must()
@@ -153,7 +151,7 @@ func TestStageMonitorDown(t *testing.T) {
 func TestStageSince(t *testing.T) {
 	s := stage.New(t)
 	n := s.Node("n")
-	ponger := n.Spawn(factoryPonger)
+	ponger := n.Spawn(factoryPonger, gen.ProcessOptions{})
 
 	m1 := n.Mark()
 	n.Send(ponger, ping{Seq: 1})

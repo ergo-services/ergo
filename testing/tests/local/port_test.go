@@ -120,24 +120,24 @@ func TestLocalPort(t *testing.T) {
 	t.Run("Text", func(t *testing.T) {
 		s := stage.New(t)
 		n := s.Node("n")
-		collector := n.Spawn(factoryEcho)
-		owner := n.Spawn(factoryPortOwner, collector, false, false)
+		collector := n.Spawn(factoryEcho, gen.ProcessOptions{})
+		owner := n.Spawn(factoryPortOwner, gen.ProcessOptions{}, collector, false, false)
 		n.ShouldSend().From(owner).Message("hello pong").Once().Within(10 * time.Second).Must()
 	})
 
 	t.Run("BinaryChunk", func(t *testing.T) {
 		s := stage.New(t)
 		n := s.Node("n")
-		collector := n.Spawn(factoryEcho)
-		owner := n.Spawn(factoryPortOwner, collector, true, true)
+		collector := n.Spawn(factoryEcho, gen.ProcessOptions{})
+		owner := n.Spawn(factoryPortOwner, gen.ProcessOptions{}, collector, true, true)
 		n.ShouldSend().From(owner).Message("hello pong").Once().Within(10 * time.Second).Must()
 	})
 
 	t.Run("BinaryRaw", func(t *testing.T) {
 		s := stage.New(t)
 		n := s.Node("n")
-		collector := n.Spawn(factoryEcho)
-		owner := n.Spawn(factoryPortOwner, collector, true, false)
+		collector := n.Spawn(factoryEcho, gen.ProcessOptions{})
+		owner := n.Spawn(factoryPortOwner, gen.ProcessOptions{}, collector, true, false)
 		n.ShouldSend().From(owner).Message("hello pong").Once().Within(10 * time.Second).Must()
 	})
 }

@@ -40,6 +40,7 @@ func (s *arfoSup) HandleChildTerminate(name gen.Atom, pid gen.PID, reason error)
 	return s.Send(s.PID(), childStopped{PID: pid, Reason: reason})
 }
 func (s *arfoSup) HandleMessage(from gen.PID, message any) error { return nil }
+
 type disableReq struct{ Name gen.Atom }
 
 func (s *arfoSup) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error) {
@@ -80,7 +81,7 @@ func TestLocalSupervisorARFOEnable(t *testing.T) {
 	for _, typ := range []act.SupervisorType{act.SupervisorTypeAllForOne, act.SupervisorTypeRestForOne} {
 		s := stage.New(t)
 		n := s.Node("n")
-		sup := n.Spawn(factoryArfoSup, typ, act.SupervisorStrategyPermanent)
+		sup := n.Spawn(factoryArfoSup, gen.ProcessOptions{}, typ, act.SupervisorStrategyPermanent)
 
 		n.ShouldSend().From(sup).Message(childStarted{Name: "c0"}).AtLeast(1).Within(time.Second).Must()
 		c0 := arfoChildPID(t, n, sup, "c0")
@@ -117,7 +118,7 @@ func runArfo(t *testing.T, supType act.SupervisorType, strategy act.SupervisorSt
 	t.Helper()
 	s := stage.New(t)
 	n := s.Node("n")
-	sup := n.Spawn(factoryArfoSup, supType, strategy)
+	sup := n.Spawn(factoryArfoSup, gen.ProcessOptions{}, supType, strategy)
 
 	n.ShouldSend().From(sup).Message(childStarted{Name: "c0"}).Once().Within(time.Second).Must()
 	curAny, err := n.Call(sup, "children")
@@ -184,8 +185,7 @@ func TestLocalSupervisorRFOStrategy(t *testing.T) {
 	runArfo(t, rfo, act.SupervisorStrategyTemporary, 1, kill, 1, 0, []int{0, 2})
 }
 
-// ── AFO/RFO basic: child-spec API (identical across these supervisor types) ──
-
+// AFO/RFO basic: child-spec API (identical across these supervisor types)
 type arfoBasicSup struct{ act.Supervisor }
 
 func factoryArfoBasicSup() gen.ProcessBehavior { return &arfoBasicSup{} }
@@ -263,15 +263,14 @@ func TestLocalSupervisorARFOBasic(t *testing.T) {
 	for _, typ := range []act.SupervisorType{act.SupervisorTypeAllForOne, act.SupervisorTypeRestForOne} {
 		s := stage.New(t)
 		n := s.Node("n")
-		sup := n.Spawn(factoryArfoBasicSup, typ)
+		sup := n.Spawn(factoryArfoBasicSup, gen.ProcessOptions{}, typ)
 		v, err := n.Call(sup, "check")
 		check.NoError(t, err)
 		check.Equal(t, "", v)
 	}
 }
 
-// ── AFO/RFO significant: a significant child's non-restart terminates the supervisor ──
-
+// AFO/RFO significant: a significant child's non-restart terminates the supervisor
 type arfoSignificantSup struct{ act.Supervisor }
 
 func factoryArfoSignificantSup() gen.ProcessBehavior { return &arfoSignificantSup{} }
@@ -327,8 +326,8 @@ func TestLocalSupervisorARFOSignificant(t *testing.T) {
 		for _, c := range cases {
 			s := stage.New(t)
 			n := s.Node("n")
-			w := n.Spawn(factoryMonWatcher)
-			sup := n.Spawn(factoryArfoSignificantSup, typ, c.strategy)
+			w := n.Spawn(factoryWatcher, gen.ProcessOptions{})
+			sup := n.Spawn(factoryArfoSignificantSup, gen.ProcessOptions{}, typ, c.strategy)
 
 			n.Send(w, monitorCmd{Target: sup})
 			n.ShouldMonitor().From(w).Target(sup).Once().Within(time.Second).Must()

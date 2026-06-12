@@ -18,7 +18,7 @@ func cronJobNames(jobs []gen.CronJobInfo) map[gen.Atom]gen.CronJobInfo {
 	return m
 }
 
-// TestLocalCronManagement: the node cron scheduler's job lifecycle — AddJob (with
+// TestLocalCronManagement: the node cron scheduler's job lifecycle: AddJob (with
 // ErrTaken on a duplicate), Info/JobInfo reflecting registered jobs, Disable/Enable
 // toggling the Disabled flag (ErrUnknown for an unknown job), and RemoveJob
 // (ErrUnknown afterwards).

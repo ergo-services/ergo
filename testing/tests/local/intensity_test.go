@@ -101,8 +101,8 @@ func killUntilExceed(t *testing.T, n *stage.Node, sup gen.PID, name gen.Atom) (i
 func TestLocalSupervisorRestartIntensityTerminate(t *testing.T) {
 	s := stage.New(t)
 	n := s.Node("n")
-	w := n.Spawn(factoryMonWatcher)
-	sup := n.Spawn(factoryIntensitySup, false)
+	w := n.Spawn(factoryWatcher, gen.ProcessOptions{})
+	sup := n.Spawn(factoryIntensitySup, gen.ProcessOptions{}, false)
 
 	n.Send(w, monitorCmd{Target: sup})
 	n.ShouldMonitor().From(w).Target(sup).Once().Within(time.Second).Must()
@@ -117,8 +117,8 @@ func TestLocalSupervisorRestartIntensityTerminate(t *testing.T) {
 func TestLocalSupervisorRestartIntensityDisable(t *testing.T) {
 	s := stage.New(t)
 	n := s.Node("n")
-	w := n.Spawn(factoryMonWatcher)
-	sup := n.Spawn(factoryIntensitySup, true)
+	w := n.Spawn(factoryWatcher, gen.ProcessOptions{})
+	sup := n.Spawn(factoryIntensitySup, gen.ProcessOptions{}, true)
 
 	n.Send(w, monitorCmd{Target: sup})
 	n.ShouldMonitor().From(w).Target(sup).Once().Within(time.Second).Must()
