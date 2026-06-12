@@ -7,10 +7,8 @@
 package stage
 
 import (
-	"errors"
 	"fmt"
 	"os"
-	"reflect"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -18,7 +16,6 @@ import (
 
 	"ergo.services/ergo/app/system"
 	"ergo.services/ergo/gen"
-	"ergo.services/ergo/lib"
 	"ergo.services/ergo/node"
 	"ergo.services/ergo/testing/check"
 )
@@ -74,12 +71,14 @@ type NodeOptions struct {
 	Security gen.SecurityOptions
 }
 
-// Node is a live node started by the stage, with its per-node recorder.
+// Node is a live node started by the stage. It embeds *check.Asserter, so the
+// whole Should* grammar is available directly on the node.
 type Node struct {
+	*check.Asserter
 	s    *Stage
 	t    *testing.T
 	node gen.Node
-	rec  *recorder
+	rec  *check.Recorder
 }
 
 // Node starts a live node. Names are unique per stage to avoid collisions.
@@ -109,7 +108,7 @@ func (s *Stage) Node(name string, opts ...NodeOptions) *Node {
 	}
 
 	// unique across parallel test processes (pid) and within a process (seq)
-	r := &recorder{q: lib.NewQueueMPSC()}
+	r := check.NewRecorder()
 	nodeName := gen.Atom(fmt.Sprintf("%s-stage-%d-%d@localhost", name, os.Getpid(), s.id))
 	gn, err := node.Start(nodeName, node.NodeOptionsExtra{
 		NodeOptions:      no,
@@ -124,7 +123,7 @@ func (s *Stage) Node(name string, opts ...NodeOptions) *Node {
 		s.t.Fatalf("stage: start node %s: %s", nodeName, err)
 	}
 
-	n := &Node{s: s, t: s.t, node: gn, rec: r}
+	n := &Node{Asserter: check.NewAsserter(s.t, r), s: s, t: s.t, node: gn, rec: r}
 	s.mu.Lock()
 	s.nodes = append(s.nodes, n)
 	s.mu.Unlock()
@@ -139,10 +138,6 @@ func (n *Node) PID() gen.PID { return n.node.PID() }
 
 // Native returns the underlying gen.Node.
 func (n *Node) Native() gen.Node { return n.node }
-
-// Mark returns the current recorder position. Pass it to an assertion's
-// Since(mark) to scope matching to records observed after this point.
-func (n *Node) Mark() int { return len(n.rec.Records()) }
 
 // ProcessPID returns the PID registered under name on this node, as the node
 // reports it.
@@ -288,34 +283,6 @@ func (s *Stage) Kill(n *Node, pid gen.PID) {
 	}
 }
 
-// recorder: per-node sink, a check.Source
-//
-// Producers (actor loops, the routing core, connections) push concurrently via
-// put; the queue is multi-producer/single-consumer. The consumer side (Records,
-// drained by Mark and the assertion engine) is single-goroutine: a Node's Mark /
-// Should* / assertions must all be called from one goroutine (the test goroutine).
-// Test-level concurrency that only drives the node API (e.g. ConnectMesh dialing)
-// is fine; concurrent assertions on the same node are not supported.
-type recorder struct {
-	q      lib.QueueMPSC
-	stored []check.Record
-}
-
-func (r *recorder) put(rec check.Record) { r.q.Push(rec) }
-
-// Records drains the queue into the append-only history and returns it. The slice
-// is shared (no copy): the history only grows, callers only read it, and the
-// single-consumer contract means no concurrent mutation.
-func (r *recorder) Records() []check.Record {
-	for {
-		v, ok := r.q.Pop()
-		if ok == false {
-			break
-		}
-		r.stored = append(r.stored, v.(check.Record))
-	}
-	return r.stored
-}
 
 // recordCore: ingress on the routing surface (gen.Core)
 // Two kinds of happening cross this surface: a message delivered into a local
@@ -324,7 +291,7 @@ func (r *recorder) Records() []check.Record {
 
 type recordCore struct {
 	gen.Core
-	rec *recorder
+	rec *check.Recorder
 }
 
 func (c *recordCore) local(node gen.Atom) bool {
@@ -334,7 +301,7 @@ func (c *recordCore) local(node gen.Atom) bool {
 func (c *recordCore) RouteSendPID(from gen.PID, to gen.PID, options gen.MessageOptions, message any) error {
 	err := c.Core.RouteSendPID(from, to, options, message)
 	if err == nil && c.local(to.Node) {
-		c.rec.put(Delivered{From: from, To: to, Message: message})
+		c.rec.Put(check.Delivered{From: from, To: to, Message: message})
 	}
 	return err
 }
@@ -342,7 +309,7 @@ func (c *recordCore) RouteSendPID(from gen.PID, to gen.PID, options gen.MessageO
 func (c *recordCore) RouteSendProcessID(from gen.PID, to gen.ProcessID, options gen.MessageOptions, message any) error {
 	err := c.Core.RouteSendProcessID(from, to, options, message)
 	if err == nil && c.local(to.Node) {
-		c.rec.put(Delivered{From: from, To: to, Message: message})
+		c.rec.Put(check.Delivered{From: from, To: to, Message: message})
 	}
 	return err
 }
@@ -350,7 +317,7 @@ func (c *recordCore) RouteSendProcessID(from gen.PID, to gen.ProcessID, options 
 func (c *recordCore) RouteCallPID(from gen.PID, to gen.PID, options gen.MessageOptions, message any) error {
 	err := c.Core.RouteCallPID(from, to, options, message)
 	if err == nil && c.local(to.Node) {
-		c.rec.put(Delivered{From: from, To: to, Message: message})
+		c.rec.Put(check.Delivered{From: from, To: to, Message: message})
 	}
 	return err
 }
@@ -358,7 +325,7 @@ func (c *recordCore) RouteCallPID(from gen.PID, to gen.PID, options gen.MessageO
 func (c *recordCore) RouteCallProcessID(from gen.PID, to gen.ProcessID, options gen.MessageOptions, message any) error {
 	err := c.Core.RouteCallProcessID(from, to, options, message)
 	if err == nil && c.local(to.Node) {
-		c.rec.put(Delivered{From: from, To: to, Message: message})
+		c.rec.Put(check.Delivered{From: from, To: to, Message: message})
 	}
 	return err
 }
@@ -366,7 +333,7 @@ func (c *recordCore) RouteCallProcessID(from gen.PID, to gen.ProcessID, options 
 func (c *recordCore) RouteSendAlias(from gen.PID, to gen.Alias, options gen.MessageOptions, message any) error {
 	err := c.Core.RouteSendAlias(from, to, options, message)
 	if err == nil && c.local(to.Node) {
-		c.rec.put(Delivered{From: from, To: to, Message: message})
+		c.rec.Put(check.Delivered{From: from, To: to, Message: message})
 	}
 	return err
 }
@@ -374,7 +341,7 @@ func (c *recordCore) RouteSendAlias(from gen.PID, to gen.Alias, options gen.Mess
 func (c *recordCore) RouteCallAlias(from gen.PID, to gen.Alias, options gen.MessageOptions, message any) error {
 	err := c.Core.RouteCallAlias(from, to, options, message)
 	if err == nil && c.local(to.Node) {
-		c.rec.put(Delivered{From: from, To: to, Message: message})
+		c.rec.Put(check.Delivered{From: from, To: to, Message: message})
 	}
 	return err
 }
@@ -382,7 +349,7 @@ func (c *recordCore) RouteCallAlias(from gen.PID, to gen.Alias, options gen.Mess
 func (c *recordCore) RouteSendExit(from gen.PID, to gen.PID, reason error) error {
 	err := c.Core.RouteSendExit(from, to, reason)
 	if err == nil && c.local(to.Node) {
-		c.rec.put(Exit{To: to, Message: gen.MessageExitPID{PID: from, Reason: reason}})
+		c.rec.Put(check.Exit{To: to, Message: gen.MessageExitPID{PID: from, Reason: reason}})
 	}
 	return err
 }
@@ -397,7 +364,7 @@ func (c *recordCore) RouteSendExit(from gen.PID, to gen.PID, reason error) error
 func (c *recordCore) RouteLinkPID(pid gen.PID, target gen.PID) error {
 	err := c.Core.RouteLinkPID(pid, target)
 	if err == nil && c.local(pid.Node) == false {
-		c.rec.put(WireLink{From: pid, Target: target})
+		c.rec.Put(check.WireLink{From: pid, Target: target})
 	}
 	return err
 }
@@ -405,7 +372,7 @@ func (c *recordCore) RouteLinkPID(pid gen.PID, target gen.PID) error {
 func (c *recordCore) RouteUnlinkPID(pid gen.PID, target gen.PID) error {
 	err := c.Core.RouteUnlinkPID(pid, target)
 	if err == nil && c.local(pid.Node) == false {
-		c.rec.put(WireUnlink{From: pid, Target: target})
+		c.rec.Put(check.WireUnlink{From: pid, Target: target})
 	}
 	return err
 }
@@ -413,7 +380,7 @@ func (c *recordCore) RouteUnlinkPID(pid gen.PID, target gen.PID) error {
 func (c *recordCore) RouteLinkProcessID(pid gen.PID, target gen.ProcessID) error {
 	err := c.Core.RouteLinkProcessID(pid, target)
 	if err == nil && c.local(pid.Node) == false {
-		c.rec.put(WireLink{From: pid, Target: target})
+		c.rec.Put(check.WireLink{From: pid, Target: target})
 	}
 	return err
 }
@@ -421,7 +388,7 @@ func (c *recordCore) RouteLinkProcessID(pid gen.PID, target gen.ProcessID) error
 func (c *recordCore) RouteUnlinkProcessID(pid gen.PID, target gen.ProcessID) error {
 	err := c.Core.RouteUnlinkProcessID(pid, target)
 	if err == nil && c.local(pid.Node) == false {
-		c.rec.put(WireUnlink{From: pid, Target: target})
+		c.rec.Put(check.WireUnlink{From: pid, Target: target})
 	}
 	return err
 }
@@ -429,7 +396,7 @@ func (c *recordCore) RouteUnlinkProcessID(pid gen.PID, target gen.ProcessID) err
 func (c *recordCore) RouteLinkAlias(pid gen.PID, target gen.Alias) error {
 	err := c.Core.RouteLinkAlias(pid, target)
 	if err == nil && c.local(pid.Node) == false {
-		c.rec.put(WireLink{From: pid, Target: target})
+		c.rec.Put(check.WireLink{From: pid, Target: target})
 	}
 	return err
 }
@@ -437,7 +404,7 @@ func (c *recordCore) RouteLinkAlias(pid gen.PID, target gen.Alias) error {
 func (c *recordCore) RouteUnlinkAlias(pid gen.PID, target gen.Alias) error {
 	err := c.Core.RouteUnlinkAlias(pid, target)
 	if err == nil && c.local(pid.Node) == false {
-		c.rec.put(WireUnlink{From: pid, Target: target})
+		c.rec.Put(check.WireUnlink{From: pid, Target: target})
 	}
 	return err
 }
@@ -445,7 +412,7 @@ func (c *recordCore) RouteUnlinkAlias(pid gen.PID, target gen.Alias) error {
 func (c *recordCore) RouteLinkEvent(pid gen.PID, target gen.Event) ([]gen.MessageEvent, error) {
 	r, err := c.Core.RouteLinkEvent(pid, target)
 	if err == nil && c.local(pid.Node) == false {
-		c.rec.put(WireLink{From: pid, Target: target})
+		c.rec.Put(check.WireLink{From: pid, Target: target})
 	}
 	return r, err
 }
@@ -453,7 +420,7 @@ func (c *recordCore) RouteLinkEvent(pid gen.PID, target gen.Event) ([]gen.Messag
 func (c *recordCore) RouteUnlinkEvent(pid gen.PID, target gen.Event) error {
 	err := c.Core.RouteUnlinkEvent(pid, target)
 	if err == nil && c.local(pid.Node) == false {
-		c.rec.put(WireUnlink{From: pid, Target: target})
+		c.rec.Put(check.WireUnlink{From: pid, Target: target})
 	}
 	return err
 }
@@ -461,7 +428,7 @@ func (c *recordCore) RouteUnlinkEvent(pid gen.PID, target gen.Event) error {
 func (c *recordCore) RouteMonitorPID(pid gen.PID, target gen.PID) error {
 	err := c.Core.RouteMonitorPID(pid, target)
 	if err == nil && c.local(pid.Node) == false {
-		c.rec.put(WireMonitor{From: pid, Target: target})
+		c.rec.Put(check.WireMonitor{From: pid, Target: target})
 	}
 	return err
 }
@@ -469,7 +436,7 @@ func (c *recordCore) RouteMonitorPID(pid gen.PID, target gen.PID) error {
 func (c *recordCore) RouteDemonitorPID(pid gen.PID, target gen.PID) error {
 	err := c.Core.RouteDemonitorPID(pid, target)
 	if err == nil && c.local(pid.Node) == false {
-		c.rec.put(WireDemonitor{From: pid, Target: target})
+		c.rec.Put(check.WireDemonitor{From: pid, Target: target})
 	}
 	return err
 }
@@ -477,7 +444,7 @@ func (c *recordCore) RouteDemonitorPID(pid gen.PID, target gen.PID) error {
 func (c *recordCore) RouteMonitorProcessID(pid gen.PID, target gen.ProcessID) error {
 	err := c.Core.RouteMonitorProcessID(pid, target)
 	if err == nil && c.local(pid.Node) == false {
-		c.rec.put(WireMonitor{From: pid, Target: target})
+		c.rec.Put(check.WireMonitor{From: pid, Target: target})
 	}
 	return err
 }
@@ -485,7 +452,7 @@ func (c *recordCore) RouteMonitorProcessID(pid gen.PID, target gen.ProcessID) er
 func (c *recordCore) RouteDemonitorProcessID(pid gen.PID, target gen.ProcessID) error {
 	err := c.Core.RouteDemonitorProcessID(pid, target)
 	if err == nil && c.local(pid.Node) == false {
-		c.rec.put(WireDemonitor{From: pid, Target: target})
+		c.rec.Put(check.WireDemonitor{From: pid, Target: target})
 	}
 	return err
 }
@@ -493,7 +460,7 @@ func (c *recordCore) RouteDemonitorProcessID(pid gen.PID, target gen.ProcessID) 
 func (c *recordCore) RouteMonitorAlias(pid gen.PID, target gen.Alias) error {
 	err := c.Core.RouteMonitorAlias(pid, target)
 	if err == nil && c.local(pid.Node) == false {
-		c.rec.put(WireMonitor{From: pid, Target: target})
+		c.rec.Put(check.WireMonitor{From: pid, Target: target})
 	}
 	return err
 }
@@ -501,7 +468,7 @@ func (c *recordCore) RouteMonitorAlias(pid gen.PID, target gen.Alias) error {
 func (c *recordCore) RouteDemonitorAlias(pid gen.PID, target gen.Alias) error {
 	err := c.Core.RouteDemonitorAlias(pid, target)
 	if err == nil && c.local(pid.Node) == false {
-		c.rec.put(WireDemonitor{From: pid, Target: target})
+		c.rec.Put(check.WireDemonitor{From: pid, Target: target})
 	}
 	return err
 }
@@ -509,7 +476,7 @@ func (c *recordCore) RouteDemonitorAlias(pid gen.PID, target gen.Alias) error {
 func (c *recordCore) RouteMonitorEvent(pid gen.PID, target gen.Event) ([]gen.MessageEvent, error) {
 	r, err := c.Core.RouteMonitorEvent(pid, target)
 	if err == nil && c.local(pid.Node) == false {
-		c.rec.put(WireMonitor{From: pid, Target: target})
+		c.rec.Put(check.WireMonitor{From: pid, Target: target})
 	}
 	return r, err
 }
@@ -517,7 +484,7 @@ func (c *recordCore) RouteMonitorEvent(pid gen.PID, target gen.Event) ([]gen.Mes
 func (c *recordCore) RouteDemonitorEvent(pid gen.PID, target gen.Event) error {
 	err := c.Core.RouteDemonitorEvent(pid, target)
 	if err == nil && c.local(pid.Node) == false {
-		c.rec.put(WireDemonitor{From: pid, Target: target})
+		c.rec.Put(check.WireDemonitor{From: pid, Target: target})
 	}
 	return err
 }
@@ -527,17 +494,17 @@ func (c *recordCore) RouteDemonitorEvent(pid gen.PID, target gen.Event) error {
 
 type recordBridge struct {
 	gen.CoreTargetManager
-	rec *recorder
+	rec *check.Recorder
 }
 
 func (b *recordBridge) RouteSendPID(from gen.PID, to gen.PID, options gen.MessageOptions, message any) error {
 	err := b.CoreTargetManager.RouteSendPID(from, to, options, message)
 	switch message.(type) {
 	case gen.MessageDownPID, gen.MessageDownProcessID, gen.MessageDownAlias, gen.MessageDownNode, gen.MessageDownEvent:
-		b.rec.put(Down{To: to, Message: message})
+		b.rec.Put(check.Down{To: to, Message: message})
 	case gen.MessageEventStart, gen.MessageEventStop:
 		// producer notifications about first subscriber / last unsubscribe
-		b.rec.put(Delivered{From: from, To: to, Message: message})
+		b.rec.Put(check.Delivered{From: from, To: to, Message: message})
 	}
 	return err
 }
@@ -545,7 +512,7 @@ func (b *recordBridge) RouteSendPID(from gen.PID, to gen.PID, options gen.Messag
 func (b *recordBridge) RouteSendExitMessages(from gen.PID, to []gen.PID, message any) error {
 	err := b.CoreTargetManager.RouteSendExitMessages(from, to, message)
 	for _, pid := range to {
-		b.rec.put(Exit{To: pid, Message: message})
+		b.rec.Put(check.Exit{To: pid, Message: message})
 	}
 	return err
 }
@@ -553,7 +520,7 @@ func (b *recordBridge) RouteSendExitMessages(from gen.PID, to []gen.PID, message
 func (b *recordBridge) RouteSendEventMessages(from gen.PID, to []gen.PID, options gen.MessageOptions, message gen.MessageEvent) error {
 	err := b.CoreTargetManager.RouteSendEventMessages(from, to, options, message)
 	for _, pid := range to {
-		b.rec.put(Event{To: pid, Event: message.Event, Timestamp: message.Timestamp, Message: message.Message})
+		b.rec.Put(check.Event{To: pid, Event: message.Event, Timestamp: message.Timestamp, Message: message.Message})
 	}
 	return err
 }
@@ -561,186 +528,246 @@ func (b *recordBridge) RouteSendEventMessages(from gen.PID, to []gen.PID, option
 // recordProcess: egress (records a process's outgoing actions)
 type recordProcess struct {
 	gen.Process
-	rec *recorder
+	rec *check.Recorder
 }
 
 func (p *recordProcess) Monitor(target any) error {
 	err := p.Process.Monitor(target)
-	p.rec.put(Monitored{From: p.Process.PID(), Target: target, Error: err})
+	p.rec.Put(check.Monitored{From: p.Process.PID(), Target: target, Error: err})
 	return err
 }
 
 func (p *recordProcess) MonitorPID(pid gen.PID) error {
 	err := p.Process.MonitorPID(pid)
-	p.rec.put(Monitored{From: p.Process.PID(), Target: pid, Error: err})
+	p.rec.Put(check.Monitored{From: p.Process.PID(), Target: pid, Error: err})
 	return err
 }
 
 func (p *recordProcess) MonitorProcessID(target gen.ProcessID) error {
 	err := p.Process.MonitorProcessID(target)
-	p.rec.put(Monitored{From: p.Process.PID(), Target: target, Error: err})
+	p.rec.Put(check.Monitored{From: p.Process.PID(), Target: target, Error: err})
 	return err
 }
 
 func (p *recordProcess) MonitorAlias(target gen.Alias) error {
 	err := p.Process.MonitorAlias(target)
-	p.rec.put(Monitored{From: p.Process.PID(), Target: target, Error: err})
+	p.rec.Put(check.Monitored{From: p.Process.PID(), Target: target, Error: err})
 	return err
 }
 
 func (p *recordProcess) MonitorEvent(target gen.Event) ([]gen.MessageEvent, error) {
 	last, err := p.Process.MonitorEvent(target)
-	p.rec.put(Monitored{From: p.Process.PID(), Target: target, Error: err})
+	p.rec.Put(check.Monitored{From: p.Process.PID(), Target: target, Error: err})
 	return last, err
 }
 
 func (p *recordProcess) Demonitor(target any) error {
 	err := p.Process.Demonitor(target)
-	p.rec.put(Demonitored{From: p.Process.PID(), Target: target, Error: err})
+	p.rec.Put(check.Demonitored{From: p.Process.PID(), Target: target, Error: err})
 	return err
 }
 
 func (p *recordProcess) DemonitorPID(pid gen.PID) error {
 	err := p.Process.DemonitorPID(pid)
-	p.rec.put(Demonitored{From: p.Process.PID(), Target: pid, Error: err})
+	p.rec.Put(check.Demonitored{From: p.Process.PID(), Target: pid, Error: err})
 	return err
 }
 
 func (p *recordProcess) DemonitorProcessID(target gen.ProcessID) error {
 	err := p.Process.DemonitorProcessID(target)
-	p.rec.put(Demonitored{From: p.Process.PID(), Target: target, Error: err})
+	p.rec.Put(check.Demonitored{From: p.Process.PID(), Target: target, Error: err})
 	return err
 }
 
 func (p *recordProcess) DemonitorAlias(target gen.Alias) error {
 	err := p.Process.DemonitorAlias(target)
-	p.rec.put(Demonitored{From: p.Process.PID(), Target: target, Error: err})
+	p.rec.Put(check.Demonitored{From: p.Process.PID(), Target: target, Error: err})
 	return err
 }
 
 func (p *recordProcess) DemonitorEvent(target gen.Event) error {
 	err := p.Process.DemonitorEvent(target)
-	p.rec.put(Demonitored{From: p.Process.PID(), Target: target, Error: err})
+	p.rec.Put(check.Demonitored{From: p.Process.PID(), Target: target, Error: err})
 	return err
 }
 
 func (p *recordProcess) Link(target any) error {
 	err := p.Process.Link(target)
-	p.rec.put(Linked{From: p.Process.PID(), Target: target, Error: err})
+	p.rec.Put(check.Linked{From: p.Process.PID(), Target: target, Error: err})
 	return err
 }
 
 func (p *recordProcess) LinkPID(pid gen.PID) error {
 	err := p.Process.LinkPID(pid)
-	p.rec.put(Linked{From: p.Process.PID(), Target: pid, Error: err})
+	p.rec.Put(check.Linked{From: p.Process.PID(), Target: pid, Error: err})
 	return err
 }
 
 func (p *recordProcess) LinkProcessID(target gen.ProcessID) error {
 	err := p.Process.LinkProcessID(target)
-	p.rec.put(Linked{From: p.Process.PID(), Target: target, Error: err})
+	p.rec.Put(check.Linked{From: p.Process.PID(), Target: target, Error: err})
 	return err
 }
 
 func (p *recordProcess) LinkAlias(target gen.Alias) error {
 	err := p.Process.LinkAlias(target)
-	p.rec.put(Linked{From: p.Process.PID(), Target: target, Error: err})
+	p.rec.Put(check.Linked{From: p.Process.PID(), Target: target, Error: err})
 	return err
 }
 
 func (p *recordProcess) LinkEvent(target gen.Event) ([]gen.MessageEvent, error) {
 	last, err := p.Process.LinkEvent(target)
-	p.rec.put(Linked{From: p.Process.PID(), Target: target, Error: err})
+	p.rec.Put(check.Linked{From: p.Process.PID(), Target: target, Error: err})
 	return last, err
 }
 
 func (p *recordProcess) Unlink(target any) error {
 	err := p.Process.Unlink(target)
-	p.rec.put(Unlinked{From: p.Process.PID(), Target: target, Error: err})
+	p.rec.Put(check.Unlinked{From: p.Process.PID(), Target: target, Error: err})
 	return err
 }
 
 func (p *recordProcess) UnlinkPID(pid gen.PID) error {
 	err := p.Process.UnlinkPID(pid)
-	p.rec.put(Unlinked{From: p.Process.PID(), Target: pid, Error: err})
+	p.rec.Put(check.Unlinked{From: p.Process.PID(), Target: pid, Error: err})
 	return err
 }
 
 func (p *recordProcess) UnlinkProcessID(target gen.ProcessID) error {
 	err := p.Process.UnlinkProcessID(target)
-	p.rec.put(Unlinked{From: p.Process.PID(), Target: target, Error: err})
+	p.rec.Put(check.Unlinked{From: p.Process.PID(), Target: target, Error: err})
 	return err
 }
 
 func (p *recordProcess) UnlinkAlias(target gen.Alias) error {
 	err := p.Process.UnlinkAlias(target)
-	p.rec.put(Unlinked{From: p.Process.PID(), Target: target, Error: err})
+	p.rec.Put(check.Unlinked{From: p.Process.PID(), Target: target, Error: err})
 	return err
 }
 
 func (p *recordProcess) UnlinkEvent(target gen.Event) error {
 	err := p.Process.UnlinkEvent(target)
-	p.rec.put(Unlinked{From: p.Process.PID(), Target: target, Error: err})
+	p.rec.Put(check.Unlinked{From: p.Process.PID(), Target: target, Error: err})
 	return err
 }
 
+// msgOptions reconstructs the effective gen.MessageOptions the wrapped process will
+// build for a Send from its current public state - the same fields the real Send
+// reads. The egress (Sent/SentEvent/SentResponse) is recorded at this process-API
+// seam (locality-independent, original target), so it carries the options here
+// rather than at the core seam (which sees a resolved target and only local
+// deliveries). One-shot overrides (SendWithPriority/SendImportant) are applied from
+// the call arguments below, never by mutating process state.
+func (p *recordProcess) msgOptions() gen.MessageOptions {
+	return gen.MessageOptions{
+		Priority: p.Process.SendPriority(),
+		Compression: gen.Compression{
+			Enable:    p.Process.Compression(),
+			Type:      p.Process.CompressionType(),
+			Level:     p.Process.CompressionLevel(),
+			Threshold: p.Process.CompressionThreshold(),
+		},
+		KeepNetworkOrder:  p.Process.KeepNetworkOrder(),
+		ImportantDelivery: p.Process.ImportantDelivery(),
+	}
+}
+
 func (p *recordProcess) SendEvent(name gen.Atom, token gen.Ref, message any) error {
+	options := p.msgOptions()
 	err := p.Process.SendEvent(name, token, message)
-	p.rec.put(SentEvent{From: p.Process.PID(), Name: name, Message: message, Error: err})
+	p.rec.Put(check.SentEvent{From: p.Process.PID(), Name: name, Message: message, Options: options, Error: err})
 	return err
 }
 
 func (p *recordProcess) SendResponse(to gen.PID, ref gen.Ref, message any) error {
+	options := p.msgOptions()
 	err := p.Process.SendResponse(to, ref, message)
-	p.rec.put(SentResponse{From: p.Process.PID(), To: to, Ref: ref, Message: message, Error: err})
+	p.rec.Put(check.SentResponse{From: p.Process.PID(), To: to, Ref: ref, Message: message, Options: options, Error: err})
 	return err
 }
 
 func (p *recordProcess) SendResponseImportant(to gen.PID, ref gen.Ref, message any) error {
+	options := p.msgOptions()
+	options.ImportantDelivery = true
 	err := p.Process.SendResponseImportant(to, ref, message)
-	p.rec.put(SentResponse{From: p.Process.PID(), To: to, Ref: ref, Message: message, Error: err})
+	p.rec.Put(check.SentResponse{From: p.Process.PID(), To: to, Ref: ref, Message: message, Options: options, Error: err})
 	return err
 }
 
 func (p *recordProcess) SendResponseError(to gen.PID, ref gen.Ref, e error) error {
+	options := p.msgOptions()
 	err := p.Process.SendResponseError(to, ref, e)
-	p.rec.put(SentResponse{From: p.Process.PID(), To: to, Ref: ref, Message: e, Error: err})
+	p.rec.Put(check.SentResponse{From: p.Process.PID(), To: to, Ref: ref, Message: e, Options: options, Error: err})
 	return err
 }
 
 func (p *recordProcess) SendResponseErrorImportant(to gen.PID, ref gen.Ref, e error) error {
+	options := p.msgOptions()
+	options.ImportantDelivery = true
 	err := p.Process.SendResponseErrorImportant(to, ref, e)
-	p.rec.put(SentResponse{From: p.Process.PID(), To: to, Ref: ref, Message: e, Error: err})
+	p.rec.Put(check.SentResponse{From: p.Process.PID(), To: to, Ref: ref, Message: e, Options: options, Error: err})
 	return err
 }
 
 func (p *recordProcess) Send(to any, message any) error {
+	options := p.msgOptions()
 	err := p.Process.Send(to, message)
-	p.rec.put(Sent{From: p.Process.PID(), To: to, Message: message, Error: err})
+	p.rec.Put(check.Sent{From: p.Process.PID(), To: to, Message: message, Options: options, Error: err})
 	return err
 }
 
 func (p *recordProcess) SendPID(to gen.PID, message any) error {
+	options := p.msgOptions()
 	err := p.Process.SendPID(to, message)
-	p.rec.put(Sent{From: p.Process.PID(), To: to, Message: message, Error: err})
+	p.rec.Put(check.Sent{From: p.Process.PID(), To: to, Message: message, Options: options, Error: err})
 	return err
 }
 
 func (p *recordProcess) SendProcessID(to gen.ProcessID, message any) error {
+	options := p.msgOptions()
 	err := p.Process.SendProcessID(to, message)
-	p.rec.put(Sent{From: p.Process.PID(), To: to, Message: message, Error: err})
+	p.rec.Put(check.Sent{From: p.Process.PID(), To: to, Message: message, Options: options, Error: err})
+	return err
+}
+
+func (p *recordProcess) SendAlias(to gen.Alias, message any) error {
+	options := p.msgOptions()
+	err := p.Process.SendAlias(to, message)
+	p.rec.Put(check.Sent{From: p.Process.PID(), To: to, Message: message, Options: options, Error: err})
+	return err
+}
+
+func (p *recordProcess) SendWithPriority(to any, message any, priority gen.MessagePriority) error {
+	options := p.msgOptions()
+	options.Priority = priority
+	err := p.Process.SendWithPriority(to, message, priority)
+	p.rec.Put(check.Sent{From: p.Process.PID(), To: to, Message: message, Options: options, Error: err})
+	return err
+}
+
+func (p *recordProcess) SendImportant(to any, message any) error {
+	options := p.msgOptions()
+	options.ImportantDelivery = true
+	err := p.Process.SendImportant(to, message)
+	p.rec.Put(check.Sent{From: p.Process.PID(), To: to, Message: message, Options: options, Error: err})
 	return err
 }
 
 func (p *recordProcess) Call(to any, request any) (any, error) {
 	response, err := p.Process.Call(to, request)
-	p.rec.put(Called{From: p.Process.PID(), To: to, Request: request, Response: response, Error: err})
+	p.rec.Put(check.Called{From: p.Process.PID(), To: to, Request: request, Response: response, Error: err})
 	return response, err
 }
 
 func (p *recordProcess) Spawn(factory gen.ProcessFactory, options gen.ProcessOptions, args ...any) (gen.PID, error) {
 	pid, err := p.Process.Spawn(factory, options, args...)
-	p.rec.put(Spawned{Parent: p.Process.PID(), Child: pid, Error: err})
+	p.rec.Put(check.Spawned{Parent: p.Process.PID(), Child: pid, Factory: factory, Options: options, Error: err})
+	return pid, err
+}
+
+func (p *recordProcess) SpawnRegister(register gen.Atom, factory gen.ProcessFactory, options gen.ProcessOptions, args ...any) (gen.PID, error) {
+	pid, err := p.Process.SpawnRegister(register, factory, options, args...)
+	p.rec.Put(check.Spawned{Parent: p.Process.PID(), Child: pid, Register: register, Factory: factory, Options: options, Error: err})
 	return pid, err
 }
 
@@ -749,665 +776,7 @@ func (p *recordProcess) Forward(to gen.PID, message *gen.MailboxMessage, priorit
 	// target mailbox and may be processed/released concurrently.
 	from, msg := message.From, message.Message
 	err := p.Process.Forward(to, message, priority)
-	p.rec.put(Forwarded{By: p.Process.PID(), To: to, From: from, Message: msg, Error: err})
+	p.rec.Put(check.Forwarded{By: p.Process.PID(), To: to, From: from, Message: msg, Error: err})
 	return err
 }
 
-// records
-
-// Sent is an outgoing message observed at the sender (egress). Error is the
-// outcome of the send call (nil on success).
-type Sent struct {
-	From    gen.PID
-	To      any
-	Message any
-	Error   error
-}
-
-func (Sent) Kind() string { return "sent" }
-func (r Sent) String() string {
-	return fmt.Sprintf("Sent(from=%s to=%v msg=%#v err=%v)", r.From, r.To, r.Message, r.Error)
-}
-
-// Called is an outgoing request observed at the caller (egress). Error is the
-// outcome of the call (nil on success); Response is the value returned.
-type Called struct {
-	From     gen.PID
-	To       any
-	Request  any
-	Response any
-	Error    error
-}
-
-func (Called) Kind() string { return "called" }
-func (r Called) String() string {
-	return fmt.Sprintf("Called(from=%s to=%v req=%#v err=%v)", r.From, r.To, r.Request, r.Error)
-}
-
-// Spawned is a child process created (or attempted) by a process (egress). On
-// failure Child is the zero PID and Error is set.
-type Spawned struct {
-	Parent gen.PID
-	Child  gen.PID
-	Error  error
-}
-
-func (Spawned) Kind() string { return "spawned" }
-func (r Spawned) String() string {
-	return fmt.Sprintf("Spawned(parent=%s child=%s err=%v)", r.Parent, r.Child, r.Error)
-}
-
-// Forwarded is a message handed (or attempted) to another process via Forward,
-// observed at the forwarder (egress). Used by act.Pool (round-robin) and
-// act.Router (by-name routing). By is the forwarder, To the target, From the
-// original sender; Error is the outcome of the forward.
-type Forwarded struct {
-	By      gen.PID
-	To      gen.PID
-	From    gen.PID
-	Message any
-	Error   error
-}
-
-func (Forwarded) Kind() string { return "forwarded" }
-func (r Forwarded) String() string {
-	return fmt.Sprintf("Forwarded(by=%s to=%s from=%s msg=%#v err=%v)", r.By, r.To, r.From, r.Message, r.Error)
-}
-
-// Delivered is a message delivered into a local mailbox on this node (ingress).
-// Down/Exit/Event signals have their own records (Down/Exit/Event), not Delivered.
-// Producer notifications (gen.MessageEventStart / MessageEventStop) do surface here
-// as Delivered, since they reach the producer as ordinary mailbox messages.
-type Delivered struct {
-	From    gen.PID
-	To      any
-	Message any
-}
-
-func (Delivered) Kind() string { return "delivered" }
-func (r Delivered) String() string {
-	return fmt.Sprintf("Delivered(from=%s to=%v msg=%#v)", r.From, r.To, r.Message)
-}
-
-// Down is a down notification delivered to a monitoring process (ingress).
-// Message is one of gen.MessageDownPID / MessageDownProcessID / etc.
-type Down struct {
-	To      gen.PID
-	Message any
-}
-
-func (Down) Kind() string     { return "down" }
-func (r Down) String() string { return fmt.Sprintf("Down(to=%s msg=%#v)", r.To, r.Message) }
-
-// Exit is an exit signal delivered to a linked process (ingress).
-// Message is one of gen.MessageExitPID / MessageExitProcessID / etc.
-type Exit struct {
-	To      gen.PID
-	Message any
-}
-
-func (Exit) Kind() string     { return "exit" }
-func (r Exit) String() string { return fmt.Sprintf("Exit(to=%s msg=%#v)", r.To, r.Message) }
-
-// Event is a pub/sub event delivered to a subscriber (ingress).
-type Event struct {
-	To        gen.PID
-	Event     gen.Event
-	Timestamp int64
-	Message   any
-}
-
-func (Event) Kind() string { return "event" }
-func (r Event) String() string {
-	return fmt.Sprintf("Event(to=%s %s msg=%#v)", r.To, r.Event, r.Message)
-}
-
-// Monitored is a monitor set up (or attempted) by a process (egress).
-type Monitored struct {
-	From   gen.PID
-	Target any
-	Error  error
-}
-
-func (Monitored) Kind() string { return "monitored" }
-func (r Monitored) String() string {
-	return fmt.Sprintf("Monitored(from=%s target=%v err=%v)", r.From, r.Target, r.Error)
-}
-
-// Demonitored is a monitor removed (or attempted) by a process (egress).
-type Demonitored struct {
-	From   gen.PID
-	Target any
-	Error  error
-}
-
-func (Demonitored) Kind() string { return "demonitored" }
-func (r Demonitored) String() string {
-	return fmt.Sprintf("Demonitored(from=%s target=%v err=%v)", r.From, r.Target, r.Error)
-}
-
-// Linked is a link set up (or attempted) by a process (egress).
-type Linked struct {
-	From   gen.PID
-	Target any
-	Error  error
-}
-
-func (Linked) Kind() string { return "linked" }
-func (r Linked) String() string {
-	return fmt.Sprintf("Linked(from=%s target=%v err=%v)", r.From, r.Target, r.Error)
-}
-
-// Unlinked is a link removed (or attempted) by a process (egress).
-type Unlinked struct {
-	From   gen.PID
-	Target any
-	Error  error
-}
-
-func (Unlinked) Kind() string { return "unlinked" }
-func (r Unlinked) String() string {
-	return fmt.Sprintf("Unlinked(from=%s target=%v err=%v)", r.From, r.Target, r.Error)
-}
-
-// WireLink is a remote consumer's link arriving over the connection (ingress on
-// the target node). The sender deduplicates, so one per remote node.
-type WireLink struct {
-	From   gen.PID
-	Target any
-}
-
-func (WireLink) Kind() string { return "wire_link" }
-func (r WireLink) String() string {
-	return fmt.Sprintf("WireLink(from=%s target=%v)", r.From, r.Target)
-}
-
-// WireUnlink is a remote consumer's unlink arriving over the connection (sent only
-// when its last local subscriber leaves).
-type WireUnlink struct {
-	From   gen.PID
-	Target any
-}
-
-func (WireUnlink) Kind() string { return "wire_unlink" }
-func (r WireUnlink) String() string {
-	return fmt.Sprintf("WireUnlink(from=%s target=%v)", r.From, r.Target)
-}
-
-// WireMonitor is a remote consumer's monitor arriving over the connection.
-type WireMonitor struct {
-	From   gen.PID
-	Target any
-}
-
-func (WireMonitor) Kind() string { return "wire_monitor" }
-func (r WireMonitor) String() string {
-	return fmt.Sprintf("WireMonitor(from=%s target=%v)", r.From, r.Target)
-}
-
-// WireDemonitor is a remote consumer's demonitor arriving over the connection.
-type WireDemonitor struct {
-	From   gen.PID
-	Target any
-}
-
-func (WireDemonitor) Kind() string { return "wire_demonitor" }
-func (r WireDemonitor) String() string {
-	return fmt.Sprintf("WireDemonitor(from=%s target=%v)", r.From, r.Target)
-}
-
-// SentEvent is an event published by a process (egress). Error is the outcome of
-// the publish (nil on success).
-type SentEvent struct {
-	From    gen.PID
-	Name    gen.Atom
-	Message any
-	Error   error
-}
-
-func (SentEvent) Kind() string { return "sent_event" }
-func (r SentEvent) String() string {
-	return fmt.Sprintf("SentEvent(from=%s name=%s msg=%#v err=%v)", r.From, r.Name, r.Message, r.Error)
-}
-
-// SentResponse is a response a process sent back to a caller's request (egress).
-// Error is the outcome of the send call (nil on success); for an error response
-// (SendResponseError) the responded error is carried in Message.
-type SentResponse struct {
-	From    gen.PID
-	To      gen.PID
-	Ref     gen.Ref
-	Message any
-	Error   error
-}
-
-func (SentResponse) Kind() string { return "sent_response" }
-func (r SentResponse) String() string {
-	return fmt.Sprintf("SentResponse(from=%s to=%s msg=%#v err=%v)", r.From, r.To, r.Message, r.Error)
-}
-
-// fluent assertions (thin wrappers over check.For)
-
-// SentAssert asserts over outgoing messages observed on a node.
-type SentAssert struct{ *check.Assertion[Sent] }
-
-// ShouldSend starts an egress message assertion on this node.
-func (n *Node) ShouldSend() *SentAssert { return &SentAssert{check.For[Sent](n.t, n.rec)} }
-func (a *SentAssert) From(p gen.PID) *SentAssert {
-	a.Where(func(r Sent) bool { return r.From == p })
-	return a
-}
-func (a *SentAssert) To(to any) *SentAssert {
-	a.Where(func(r Sent) bool { return reflect.DeepEqual(r.To, to) })
-	return a
-}
-func (a *SentAssert) Message(v any) *SentAssert {
-	a.Where(func(r Sent) bool { return reflect.DeepEqual(r.Message, v) })
-	return a
-}
-func (a *SentAssert) Error(target error) *SentAssert {
-	a.Where(func(r Sent) bool { return r.Error == target })
-	return a
-}
-
-// SpawnAssert asserts over child processes spawned on a node (egress).
-type SpawnAssert struct{ *check.Assertion[Spawned] }
-
-// ShouldSpawn starts a spawn assertion on this node.
-func (n *Node) ShouldSpawn() *SpawnAssert { return &SpawnAssert{check.For[Spawned](n.t, n.rec)} }
-func (a *SpawnAssert) From(parent gen.PID) *SpawnAssert {
-	a.Where(func(r Spawned) bool { return r.Parent == parent })
-	return a
-}
-func (a *SpawnAssert) Child(pid gen.PID) *SpawnAssert {
-	a.Where(func(r Spawned) bool { return r.Child == pid })
-	return a
-}
-func (a *SpawnAssert) Error(target error) *SpawnAssert {
-	a.Where(func(r Spawned) bool { return r.Error == target })
-	return a
-}
-
-// ForwardAssert asserts over messages forwarded by a process (egress).
-type ForwardAssert struct{ *check.Assertion[Forwarded] }
-
-// ShouldForward starts a forward assertion on this node.
-func (n *Node) ShouldForward() *ForwardAssert {
-	return &ForwardAssert{check.For[Forwarded](n.t, n.rec)}
-}
-func (a *ForwardAssert) By(pid gen.PID) *ForwardAssert {
-	a.Where(func(r Forwarded) bool { return r.By == pid })
-	return a
-}
-func (a *ForwardAssert) To(pid gen.PID) *ForwardAssert {
-	a.Where(func(r Forwarded) bool { return r.To == pid })
-	return a
-}
-func (a *ForwardAssert) Message(v any) *ForwardAssert {
-	a.Where(func(r Forwarded) bool { return reflect.DeepEqual(r.Message, v) })
-	return a
-}
-func (a *ForwardAssert) Error(target error) *ForwardAssert {
-	a.Where(func(r Forwarded) bool { return r.Error == target })
-	return a
-}
-
-// DeliveredAssert asserts over messages delivered into local mailboxes (ingress).
-type DeliveredAssert struct{ *check.Assertion[Delivered] }
-
-// ShouldDeliver starts an ingress delivery assertion on this node.
-func (n *Node) ShouldDeliver() *DeliveredAssert {
-	return &DeliveredAssert{check.For[Delivered](n.t, n.rec)}
-}
-func (a *DeliveredAssert) From(p gen.PID) *DeliveredAssert {
-	a.Where(func(r Delivered) bool { return r.From == p })
-	return a
-}
-func (a *DeliveredAssert) To(pid gen.PID) *DeliveredAssert {
-	a.Where(func(r Delivered) bool { t, ok := r.To.(gen.PID); return ok && t == pid })
-	return a
-}
-func (a *DeliveredAssert) ToProcessID(target gen.ProcessID) *DeliveredAssert {
-	a.Where(func(r Delivered) bool { t, ok := r.To.(gen.ProcessID); return ok && t == target })
-	return a
-}
-func (a *DeliveredAssert) ToAlias(target gen.Alias) *DeliveredAssert {
-	a.Where(func(r Delivered) bool { t, ok := r.To.(gen.Alias); return ok && t == target })
-	return a
-}
-func (a *DeliveredAssert) Message(v any) *DeliveredAssert {
-	a.Where(func(r Delivered) bool { return reflect.DeepEqual(r.Message, v) })
-	return a
-}
-
-// CalledAssert asserts over outgoing requests observed on a node.
-type CalledAssert struct{ *check.Assertion[Called] }
-
-// ShouldCall starts an egress call assertion on this node.
-func (n *Node) ShouldCall() *CalledAssert { return &CalledAssert{check.For[Called](n.t, n.rec)} }
-func (a *CalledAssert) From(p gen.PID) *CalledAssert {
-	a.Where(func(r Called) bool { return r.From == p })
-	return a
-}
-func (a *CalledAssert) To(to any) *CalledAssert {
-	a.Where(func(r Called) bool { return reflect.DeepEqual(r.To, to) })
-	return a
-}
-func (a *CalledAssert) Request(v any) *CalledAssert {
-	a.Where(func(r Called) bool { return reflect.DeepEqual(r.Request, v) })
-	return a
-}
-func (a *CalledAssert) Error(target error) *CalledAssert {
-	a.Where(func(r Called) bool { return r.Error == target })
-	return a
-}
-
-// downReason extracts the reason from any gen.MessageDown* value.
-func downReason(m any) (error, bool) {
-	switch d := m.(type) {
-	case gen.MessageDownPID:
-		return d.Reason, true
-	case gen.MessageDownProcessID:
-		return d.Reason, true
-	case gen.MessageDownAlias:
-		return d.Reason, true
-	case gen.MessageDownEvent:
-		return d.Reason, true
-	}
-	return nil, false
-}
-
-// exitReason extracts the reason from any gen.MessageExit* value (no reason for node).
-func exitReason(m any) (error, bool) {
-	switch e := m.(type) {
-	case gen.MessageExitPID:
-		return e.Reason, true
-	case gen.MessageExitProcessID:
-		return e.Reason, true
-	case gen.MessageExitAlias:
-		return e.Reason, true
-	case gen.MessageExitEvent:
-		return e.Reason, true
-	}
-	return nil, false
-}
-
-// DownAssert asserts over down notifications received on a node (ingress).
-type DownAssert struct{ *check.Assertion[Down] }
-
-// ShouldReceiveDown starts a down-reception assertion on this node.
-func (n *Node) ShouldReceiveDown() *DownAssert { return &DownAssert{check.For[Down](n.t, n.rec)} }
-func (a *DownAssert) To(consumer gen.PID) *DownAssert {
-	a.Where(func(r Down) bool { return r.To == consumer })
-	return a
-}
-func (a *DownAssert) About(target gen.PID) *DownAssert {
-	a.Where(func(r Down) bool { m, ok := r.Message.(gen.MessageDownPID); return ok && m.PID == target })
-	return a
-}
-func (a *DownAssert) AboutProcessID(target gen.ProcessID) *DownAssert {
-	a.Where(func(r Down) bool { m, ok := r.Message.(gen.MessageDownProcessID); return ok && m.ProcessID == target })
-	return a
-}
-func (a *DownAssert) AboutAlias(target gen.Alias) *DownAssert {
-	a.Where(func(r Down) bool { m, ok := r.Message.(gen.MessageDownAlias); return ok && m.Alias == target })
-	return a
-}
-func (a *DownAssert) AboutEvent(target gen.Event) *DownAssert {
-	a.Where(func(r Down) bool { m, ok := r.Message.(gen.MessageDownEvent); return ok && m.Event == target })
-	return a
-}
-func (a *DownAssert) Reason(target error) *DownAssert {
-	a.Where(func(r Down) bool { reason, ok := downReason(r.Message); return ok && reason == target })
-	return a
-}
-
-// ReasonIs matches when the down reason wraps target (errors.Is). Use it for a
-// cascade termination, where the reason is wrapped (e.g. a non-trapping linked
-// process terminating from a partner's exit).
-func (a *DownAssert) ReasonIs(target error) *DownAssert {
-	a.Where(func(r Down) bool { reason, ok := downReason(r.Message); return ok && errors.Is(reason, target) })
-	return a
-}
-
-// ExitAssert asserts over exit signals received on a node (ingress).
-type ExitAssert struct{ *check.Assertion[Exit] }
-
-// ShouldReceiveExit starts an exit-reception assertion on this node.
-func (n *Node) ShouldReceiveExit() *ExitAssert { return &ExitAssert{check.For[Exit](n.t, n.rec)} }
-func (a *ExitAssert) To(consumer gen.PID) *ExitAssert {
-	a.Where(func(r Exit) bool { return r.To == consumer })
-	return a
-}
-func (a *ExitAssert) About(target gen.PID) *ExitAssert {
-	a.Where(func(r Exit) bool { m, ok := r.Message.(gen.MessageExitPID); return ok && m.PID == target })
-	return a
-}
-func (a *ExitAssert) AboutProcessID(target gen.ProcessID) *ExitAssert {
-	a.Where(func(r Exit) bool { m, ok := r.Message.(gen.MessageExitProcessID); return ok && m.ProcessID == target })
-	return a
-}
-func (a *ExitAssert) AboutAlias(target gen.Alias) *ExitAssert {
-	a.Where(func(r Exit) bool { m, ok := r.Message.(gen.MessageExitAlias); return ok && m.Alias == target })
-	return a
-}
-func (a *ExitAssert) AboutEvent(target gen.Event) *ExitAssert {
-	a.Where(func(r Exit) bool { m, ok := r.Message.(gen.MessageExitEvent); return ok && m.Event == target })
-	return a
-}
-func (a *ExitAssert) Reason(target error) *ExitAssert {
-	a.Where(func(r Exit) bool { reason, ok := exitReason(r.Message); return ok && reason == target })
-	return a
-}
-
-// ReasonIs matches when the exit reason wraps target (errors.Is). Use it when the
-// reason is wrapped rather than exact, e.g. a process spawned with PreserveMailbox
-// terminating abnormally (the reason is captured into a *gen.Error).
-func (a *ExitAssert) ReasonIs(target error) *ExitAssert {
-	a.Where(func(r Exit) bool { reason, ok := exitReason(r.Message); return ok && errors.Is(reason, target) })
-	return a
-}
-
-// EventAssert asserts over pub/sub events received on a node (ingress).
-type EventAssert struct{ *check.Assertion[Event] }
-
-// ShouldReceiveEvent starts an event-reception assertion on this node.
-func (n *Node) ShouldReceiveEvent() *EventAssert { return &EventAssert{check.For[Event](n.t, n.rec)} }
-func (a *EventAssert) To(subscriber gen.PID) *EventAssert {
-	a.Where(func(r Event) bool { return r.To == subscriber })
-	return a
-}
-func (a *EventAssert) Event(ev gen.Event) *EventAssert {
-	a.Where(func(r Event) bool { return r.Event == ev })
-	return a
-}
-func (a *EventAssert) Message(v any) *EventAssert {
-	a.Where(func(r Event) bool { return reflect.DeepEqual(r.Message, v) })
-	return a
-}
-
-// MonitorAssert asserts over monitors set up on a node (egress).
-type MonitorAssert struct{ *check.Assertion[Monitored] }
-
-// ShouldMonitor starts a monitor-setup assertion on this node.
-func (n *Node) ShouldMonitor() *MonitorAssert {
-	return &MonitorAssert{check.For[Monitored](n.t, n.rec)}
-}
-func (a *MonitorAssert) From(p gen.PID) *MonitorAssert {
-	a.Where(func(r Monitored) bool { return r.From == p })
-	return a
-}
-func (a *MonitorAssert) Target(t any) *MonitorAssert {
-	a.Where(func(r Monitored) bool { return reflect.DeepEqual(r.Target, t) })
-	return a
-}
-func (a *MonitorAssert) Error(target error) *MonitorAssert {
-	a.Where(func(r Monitored) bool { return r.Error == target })
-	return a
-}
-
-// DemonitorAssert asserts over monitors removed on a node (egress).
-type DemonitorAssert struct{ *check.Assertion[Demonitored] }
-
-// ShouldDemonitor starts a demonitor assertion on this node.
-func (n *Node) ShouldDemonitor() *DemonitorAssert {
-	return &DemonitorAssert{check.For[Demonitored](n.t, n.rec)}
-}
-func (a *DemonitorAssert) From(p gen.PID) *DemonitorAssert {
-	a.Where(func(r Demonitored) bool { return r.From == p })
-	return a
-}
-func (a *DemonitorAssert) Target(t any) *DemonitorAssert {
-	a.Where(func(r Demonitored) bool { return reflect.DeepEqual(r.Target, t) })
-	return a
-}
-func (a *DemonitorAssert) Error(target error) *DemonitorAssert {
-	a.Where(func(r Demonitored) bool { return r.Error == target })
-	return a
-}
-
-// LinkAssert asserts over links set up on a node (egress).
-type LinkAssert struct{ *check.Assertion[Linked] }
-
-// ShouldLink starts a link-setup assertion on this node.
-func (n *Node) ShouldLink() *LinkAssert { return &LinkAssert{check.For[Linked](n.t, n.rec)} }
-func (a *LinkAssert) From(p gen.PID) *LinkAssert {
-	a.Where(func(r Linked) bool { return r.From == p })
-	return a
-}
-func (a *LinkAssert) Target(t any) *LinkAssert {
-	a.Where(func(r Linked) bool { return reflect.DeepEqual(r.Target, t) })
-	return a
-}
-func (a *LinkAssert) Error(target error) *LinkAssert {
-	a.Where(func(r Linked) bool { return r.Error == target })
-	return a
-}
-
-// UnlinkAssert asserts over links removed on a node (egress).
-type UnlinkAssert struct{ *check.Assertion[Unlinked] }
-
-// ShouldUnlink starts an unlink assertion on this node.
-func (n *Node) ShouldUnlink() *UnlinkAssert { return &UnlinkAssert{check.For[Unlinked](n.t, n.rec)} }
-func (a *UnlinkAssert) From(p gen.PID) *UnlinkAssert {
-	a.Where(func(r Unlinked) bool { return r.From == p })
-	return a
-}
-func (a *UnlinkAssert) Target(t any) *UnlinkAssert {
-	a.Where(func(r Unlinked) bool { return reflect.DeepEqual(r.Target, t) })
-	return a
-}
-func (a *UnlinkAssert) Error(target error) *UnlinkAssert {
-	a.Where(func(r Unlinked) bool { return r.Error == target })
-	return a
-}
-
-// WireLinkAssert asserts over remote links arriving over the wire (ingress).
-type WireLinkAssert struct{ *check.Assertion[WireLink] }
-
-// ShouldWireLink starts a wire-link ingress assertion on this node.
-func (n *Node) ShouldWireLink() *WireLinkAssert {
-	return &WireLinkAssert{check.For[WireLink](n.t, n.rec)}
-}
-func (a *WireLinkAssert) From(p gen.PID) *WireLinkAssert {
-	a.Where(func(r WireLink) bool { return r.From == p })
-	return a
-}
-func (a *WireLinkAssert) Target(t any) *WireLinkAssert {
-	a.Where(func(r WireLink) bool { return reflect.DeepEqual(r.Target, t) })
-	return a
-}
-
-// WireUnlinkAssert asserts over remote unlinks arriving over the wire (ingress).
-type WireUnlinkAssert struct{ *check.Assertion[WireUnlink] }
-
-// ShouldWireUnlink starts a wire-unlink ingress assertion on this node.
-func (n *Node) ShouldWireUnlink() *WireUnlinkAssert {
-	return &WireUnlinkAssert{check.For[WireUnlink](n.t, n.rec)}
-}
-func (a *WireUnlinkAssert) From(p gen.PID) *WireUnlinkAssert {
-	a.Where(func(r WireUnlink) bool { return r.From == p })
-	return a
-}
-func (a *WireUnlinkAssert) Target(t any) *WireUnlinkAssert {
-	a.Where(func(r WireUnlink) bool { return reflect.DeepEqual(r.Target, t) })
-	return a
-}
-
-// WireMonitorAssert asserts over remote monitors arriving over the wire (ingress).
-type WireMonitorAssert struct{ *check.Assertion[WireMonitor] }
-
-// ShouldWireMonitor starts a wire-monitor ingress assertion on this node.
-func (n *Node) ShouldWireMonitor() *WireMonitorAssert {
-	return &WireMonitorAssert{check.For[WireMonitor](n.t, n.rec)}
-}
-func (a *WireMonitorAssert) From(p gen.PID) *WireMonitorAssert {
-	a.Where(func(r WireMonitor) bool { return r.From == p })
-	return a
-}
-func (a *WireMonitorAssert) Target(t any) *WireMonitorAssert {
-	a.Where(func(r WireMonitor) bool { return reflect.DeepEqual(r.Target, t) })
-	return a
-}
-
-// WireDemonitorAssert asserts over remote demonitors arriving over the wire (ingress).
-type WireDemonitorAssert struct {
-	*check.Assertion[WireDemonitor]
-}
-
-// ShouldWireDemonitor starts a wire-demonitor ingress assertion on this node.
-func (n *Node) ShouldWireDemonitor() *WireDemonitorAssert {
-	return &WireDemonitorAssert{check.For[WireDemonitor](n.t, n.rec)}
-}
-func (a *WireDemonitorAssert) From(p gen.PID) *WireDemonitorAssert {
-	a.Where(func(r WireDemonitor) bool { return r.From == p })
-	return a
-}
-func (a *WireDemonitorAssert) Target(t any) *WireDemonitorAssert {
-	a.Where(func(r WireDemonitor) bool { return reflect.DeepEqual(r.Target, t) })
-	return a
-}
-
-// SendEventAssert asserts over events published on a node (egress).
-type SendEventAssert struct{ *check.Assertion[SentEvent] }
-
-// ShouldSendEvent starts an event-publish assertion on this node.
-func (n *Node) ShouldSendEvent() *SendEventAssert {
-	return &SendEventAssert{check.For[SentEvent](n.t, n.rec)}
-}
-func (a *SendEventAssert) From(p gen.PID) *SendEventAssert {
-	a.Where(func(r SentEvent) bool { return r.From == p })
-	return a
-}
-func (a *SendEventAssert) Name(name gen.Atom) *SendEventAssert {
-	a.Where(func(r SentEvent) bool { return r.Name == name })
-	return a
-}
-func (a *SendEventAssert) Error(target error) *SendEventAssert {
-	a.Where(func(r SentEvent) bool { return r.Error == target })
-	return a
-}
-
-// SendResponseAssert asserts over responses a process sent to requests (egress).
-type SendResponseAssert struct{ *check.Assertion[SentResponse] }
-
-// ShouldSendResponse starts a response assertion on this node.
-func (n *Node) ShouldSendResponse() *SendResponseAssert {
-	return &SendResponseAssert{check.For[SentResponse](n.t, n.rec)}
-}
-func (a *SendResponseAssert) From(p gen.PID) *SendResponseAssert {
-	a.Where(func(r SentResponse) bool { return r.From == p })
-	return a
-}
-func (a *SendResponseAssert) To(p gen.PID) *SendResponseAssert {
-	a.Where(func(r SentResponse) bool { return r.To == p })
-	return a
-}
-func (a *SendResponseAssert) Message(v any) *SendResponseAssert {
-	a.Where(func(r SentResponse) bool { return reflect.DeepEqual(r.Message, v) })
-	return a
-}
-func (a *SendResponseAssert) Error(target error) *SendResponseAssert {
-	a.Where(func(r SentResponse) bool { return r.Error == target })
-	return a
-}

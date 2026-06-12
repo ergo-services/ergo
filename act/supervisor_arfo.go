@@ -257,15 +257,19 @@ func (s *supARFO) childTerminated(name gen.Atom, pid gen.PID, reason error) supA
 			}
 
 		} else {
-			if len(s.wait) > 0 {
-				// must be 0
-				panic(gen.ErrInternal)
+			if specI < s.restartI {
+				// terminated child is below the restart position (e.g. an
+				// out-of-order or independent exit arrived). Lower the position so
+				// it is included in the restart range.
+				s.restartI = specI
 			}
 
-			if specI < s.restartI {
-				// terminated child is not among we are waiting for termination.
-				// update the position
-				s.restartI = specI
+			if len(s.wait) > 0 {
+				// still waiting for other children to terminate. This child died
+				// out of order (or on its own) while we were sequentially stopping
+				// the group; keep waiting for the rest.
+				action.do = supActionTerminateChildren
+				return action
 			}
 
 			terminate := s.childrenForTermination()

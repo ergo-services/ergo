@@ -44,6 +44,10 @@ type sendPing struct {
 	To  gen.PID
 	Seq int
 }
+type sendPingHigh struct {
+	To  gen.PID
+	Seq int
+}
 
 // workers
 
@@ -53,8 +57,11 @@ type pinger struct{ act.Actor }
 func factoryPinger() gen.ProcessBehavior { return &pinger{} }
 
 func (p *pinger) HandleMessage(from gen.PID, message any) error {
-	if t, ok := message.(sendPing); ok {
+	switch t := message.(type) {
+	case sendPing:
 		return p.Send(t.To, ping{Seq: t.Seq})
+	case sendPingHigh:
+		return p.SendWithPriority(t.To, ping{Seq: t.Seq}, gen.MessagePriorityHigh)
 	}
 	return nil
 }
@@ -164,6 +171,19 @@ func TestStageSince(t *testing.T) {
 
 	// cumulative (no Since) sees both deliveries
 	n.ShouldDeliver().To(ponger).Message(ping{Seq: 1}).Times(2).Within(time.Second).Must()
+}
+
+// TestStageSendPriority: the effective send priority is observable on the egress
+// Sent record in stage exactly as in unit (same ShouldSend().Priority() assertion).
+func TestStageSendPriority(t *testing.T) {
+	s := stage.New(t)
+	n := s.Node("n")
+	target := n.Spawn(factoryPonger, gen.ProcessOptions{})
+	sender := n.Spawn(factoryPinger, gen.ProcessOptions{})
+
+	n.Send(sender, sendPingHigh{To: target, Seq: 1})
+	n.ShouldSend().From(sender).Message(ping{Seq: 1}).
+		Priority(gen.MessagePriorityHigh).Once().Within(time.Second).Must()
 }
 
 // TestStageTwoApps: two nodes, each running its own application; the apps'

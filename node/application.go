@@ -315,7 +315,7 @@ func (a *application) start(mode gen.ApplicationMode, options gen.ApplicationOpt
 	return nil
 }
 
-// spawnFailCleanup handles Init-OK-but-spawn-failed: Initializing → Stopping,
+// spawnFailCleanup handles Init-OK-but-spawn-failed: Initializing -> Stopping,
 // drain any spawned members, ensure Terminate fires.
 func (a *application) spawnFailCleanup(reason error) {
 	atomic.StoreInt32(&a.state, int32(gen.ApplicationStateStopping))

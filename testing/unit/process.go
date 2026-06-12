@@ -1,819 +1,665 @@
 package unit
 
 import (
-	"fmt"
-	"reflect"
-	"testing"
 	"time"
 
 	"ergo.services/ergo/gen"
 	"ergo.services/ergo/lib"
 )
 
-// TestProcess implements gen.Process for testing
-type TestProcess struct {
-	t        testing.TB
-	events   lib.QueueMPSC
-	node     *TestNode
-	log      *TestLog
-	options  TestOptions
+// mockProcess is the mocked gen.Process handed to the behavior under test. Its
+// outbound operations delegate to the node (record + stub) with its own pid; its
+// accessors return the configured identity; Node() returns the mock node.
+//
+// Every non-egress method first consults its override (see processOverrides and the
+// Subject.On<Method> setters in process_overrides.go); when unset it falls back to
+// the default. Egress methods (Send/Call/Spawn/Link/...) keep the typed stub sugar.
+type mockProcess struct {
+	node     *mockNode
 	pid      gen.PID
-	nextID   uint64
-	env      map[gen.Env]any
+	parent   gen.PID
+	leader   gen.PID
 	name     gen.Atom
 	state    gen.ProcessState
 	behavior gen.ProcessBehavior
 	mailbox  gen.ProcessMailbox
 	kind     gen.ProcessKind
-	Failures
+	log      *mockLog
+	env      map[gen.Env]any
+	aliases  []gen.Alias
+	events   []gen.Atom
+	ov       processOverrides
+
+	// message-attribute state, managed by the Set*/Send* methods exactly like the
+	// real process; every Send builds its gen.MessageOptions from here. Seeded from
+	// gen.ProcessOptions at spawn (mirrors node spawn).
+	priority    gen.MessagePriority
+	keeporder   bool
+	important   bool
+	compression gen.Compression
 }
 
-// NewTestProcess creates a new test process instance
-func NewTestProcess(t testing.TB, events lib.QueueMPSC, node *TestNode, options TestOptions) *TestProcess {
-	pid := gen.PID{
-		Node:     options.NodeName,
-		ID:       1000,
-		Creation: options.NodeCreation,
+func newMockProcess(node *mockNode, register gen.Atom, o gen.ProcessOptions) *mockProcess {
+	pid := gen.PID{Node: node.nodeName, ID: 1000, Creation: node.creation}
+	parent := node.nodePID() // node spawns the process under test
+	leader := o.Leader
+	if leader == (gen.PID{}) {
+		leader = parent
 	}
-
-	if options.Env == nil {
-		options.Env = make(map[gen.Env]any)
+	level := o.LogLevel
+	if level == gen.LogLevelDefault {
+		level = node.logLevel
 	}
-
-	tp := &TestProcess{
-		t:        t,
-		events:   events,
-		node:     node,
-		options:  options,
-		pid:      pid,
-		nextID:   1001,
-		env:      options.Env,
-		name:     options.Register,
-		state:    gen.ProcessStateRunning,
-		Failures: newFailures(events, "process"),
-		mailbox: gen.ProcessMailbox{
+	// process env = node env overlaid by process-specific env (highest priority)
+	env := make(map[gen.Env]any, len(node.env)+len(o.Env))
+	for k, v := range node.env {
+		env[k] = v
+	}
+	for k, v := range o.Env {
+		env[k] = v
+	}
+	mailbox := o.Mailbox
+	if mailbox == nil {
+		mailbox = &gen.ProcessMailbox{
 			Main:   lib.NewQueueMPSC(),
 			System: lib.NewQueueMPSC(),
 			Urgent: lib.NewQueueMPSC(),
 			Log:    lib.NewQueueMPSC(),
-		},
+		}
 	}
-
-	tp.log = NewTestLog(t, events, options.LogLevel)
-	return tp
+	// compression: adopt options, fill the same defaults the node spawn fills
+	compression := o.Compression
+	if compression.Level == 0 {
+		compression.Level = gen.DefaultCompressionLevel
+	}
+	if compression.Type == "" {
+		compression.Type = gen.DefaultCompressionType
+	}
+	if compression.Threshold == 0 {
+		compression.Threshold = gen.DefaultCompressionThreshold
+	}
+	return &mockProcess{
+		node:        node,
+		pid:         pid,
+		parent:      parent,
+		leader:      leader,
+		name:        register,
+		state:       gen.ProcessStateRunning,
+		log:         newMockLog(node, pid, level),
+		env:         env,
+		mailbox:     *mailbox,
+		priority:    o.SendPriority,
+		keeporder:   true,
+		important:   o.ImportantDelivery,
+		compression: compression,
+	}
 }
 
-// gen.Process interface implementation
-
-func (tp *TestProcess) PID() gen.PID {
-	return tp.pid
+// stateIR reports whether the process is in Init or Running state, the gate the real
+// process applies to its Set* and Send methods (ErrNotAllowed otherwise).
+func (p *mockProcess) stateIR() bool {
+	return p.state == gen.ProcessStateInit || p.state == gen.ProcessStateRunning
 }
 
-func (tp *TestProcess) Name() gen.Atom {
-	return tp.name
+// msgOptions builds the effective gen.MessageOptions from the current state, exactly
+// as the real process does for each Send.
+func (p *mockProcess) msgOptions() gen.MessageOptions {
+	return gen.MessageOptions{
+		Priority:          p.priority,
+		Compression:       p.compression,
+		KeepNetworkOrder:  p.keeporder,
+		ImportantDelivery: p.important,
+	}
 }
 
-func (tp *TestProcess) RegisterName(name gen.Atom) error {
-	tp.events.Push(RegisterNameEvent{Name: name, PID: tp.pid})
-	tp.name = name
-	return nil
-}
+// accessors
 
-func (tp *TestProcess) UnregisterName() error {
-	if tp.name != "" {
-		tp.events.Push(UnregisterNameEvent{Name: tp.name})
-		tp.name = ""
+func (p *mockProcess) Node() gen.Node {
+	if p.ov.node != nil {
+		return p.ov.node()
+	}
+	return p.node
+}
+func (p *mockProcess) Name() gen.Atom {
+	if p.ov.name != nil {
+		return p.ov.name()
+	}
+	return p.name
+}
+func (p *mockProcess) PID() gen.PID {
+	if p.ov.pid != nil {
+		return p.ov.pid()
+	}
+	return p.pid
+}
+func (p *mockProcess) Leader() gen.PID {
+	if p.ov.leader != nil {
+		return p.ov.leader()
+	}
+	return p.leader
+}
+func (p *mockProcess) Parent() gen.PID {
+	if p.ov.parent != nil {
+		return p.ov.parent()
+	}
+	return p.parent
+}
+func (p *mockProcess) Application() gen.Application {
+	if p.ov.application != nil {
+		return p.ov.application()
 	}
 	return nil
 }
-
-func (tp *TestProcess) Parent() gen.PID {
-	return tp.options.Parent
-}
-
-func (tp *TestProcess) Application() gen.Application {
-	return nil
-}
-
-func (tp *TestProcess) Leader() gen.PID {
-	return tp.options.Leader
-}
-
-func (tp *TestProcess) Node() gen.Node {
-	return tp.node
-}
-
-func (tp *TestProcess) Behavior() gen.ProcessBehavior {
-	return tp.behavior
-}
-
-func (tp *TestProcess) BehaviorName() string {
-	return ""
-}
-
-func (tp *TestProcess) SetTracingAttribute(key, value string)    {}
-func (tp *TestProcess) RemoveTracingAttribute(key string)         {}
-func (tp *TestProcess) SetTracingSpanAttribute(key, value string) {}
-func (tp *TestProcess) TracingAttributes() []gen.TracingAttribute { return nil }
-func (tp *TestProcess) ClearTracingSpanAttributes()               {}
-
-func (tp *TestProcess) State() gen.ProcessState {
-	return tp.state
-}
-
-func (tp *TestProcess) Uptime() int64 {
+func (p *mockProcess) Uptime() int64 {
+	if p.ov.uptime != nil {
+		return p.ov.uptime()
+	}
 	return 0
 }
-
-func (tp *TestProcess) Send(to any, message any) error {
-	// Check for failure injection
-	if err := tp.CheckMethodFailure("Send", to, message); err != nil {
-		return err
+func (p *mockProcess) State() gen.ProcessState {
+	if p.ov.state != nil {
+		return p.ov.state()
 	}
-
-	tp.events.Push(SendEvent{
-		From:     tp.pid,
-		To:       to,
-		Message:  message,
-		Priority: tp.options.Priority,
-	})
-	return nil
+	return p.state
 }
-
-func (tp *TestProcess) SendWithPriority(to any, message any, priority gen.MessagePriority) error {
-	tp.events.Push(SendEvent{
-		From:     tp.pid,
-		To:       to,
-		Message:  message,
-		Priority: priority,
-	})
-	return nil
-}
-
-func (tp *TestProcess) SendImportant(to any, message any) error {
-	tp.events.Push(SendEvent{
-		From:      tp.pid,
-		To:        to,
-		Message:   message,
-		Priority:  tp.options.Priority,
-		Important: true,
-	})
-	return nil
-}
-
-func (tp *TestProcess) SendAfter(to any, message any, after time.Duration) (gen.CancelFunc, error) {
-	tp.events.Push(SendEvent{
-		From:     tp.pid,
-		To:       to,
-		Message:  message,
-		Priority: tp.options.Priority,
-		After:    after,
-	})
-	return gen.CancelFunc(func() bool { return true }), nil
-}
-
-func (tp *TestProcess) SendWithPriorityAfter(to any, message any, priority gen.MessagePriority, after time.Duration) (gen.CancelFunc, error) {
-	tp.events.Push(SendEvent{
-		From:     tp.pid,
-		To:       to,
-		Message:  message,
-		Priority: priority,
-		After:    after,
-	})
-	return gen.CancelFunc(func() bool { return true }), nil
-}
-
-func (tp *TestProcess) SendExitAfter(to gen.PID, reason error, after time.Duration) (gen.CancelFunc, error) {
-	tp.events.Push(ExitEvent{
-		To:     to,
-		Reason: reason,
-		After:  after,
-	})
-	return gen.CancelFunc(func() bool { return true }), nil
-}
-
-func (tp *TestProcess) SendExitMetaAfter(to gen.Alias, reason error, after time.Duration) (gen.CancelFunc, error) {
-	tp.events.Push(ExitMetaEvent{
-		Meta:   to,
-		Reason: reason,
-		After:  after,
-	})
-	return gen.CancelFunc(func() bool { return true }), nil
-}
-
-func (tp *TestProcess) SendResponse(to gen.PID, ref gen.Ref, response any) error {
-	tp.events.Push(SendResponseEvent{
-		From:     tp.pid,
-		To:       to,
-		Response: response,
-		Ref:      ref,
-		Priority: tp.options.Priority,
-	})
-	return nil
-}
-
-func (tp *TestProcess) SendResponseError(to gen.PID, ref gen.Ref, err error) error {
-	tp.events.Push(SendResponseErrorEvent{
-		From:     tp.pid,
-		To:       to,
-		Error:    err,
-		Ref:      ref,
-		Priority: tp.options.Priority,
-	})
-	return nil
-}
-
-func (tp *TestProcess) SendResponseImportant(to gen.PID, ref gen.Ref, response any) error {
-	tp.events.Push(SendResponseEvent{
-		From:     tp.pid,
-		To:       to,
-		Response: response,
-		Ref:      ref,
-		Priority: tp.options.Priority,
-	})
-	return nil
-}
-
-func (tp *TestProcess) SendResponseErrorImportant(to gen.PID, ref gen.Ref, err error) error {
-	tp.events.Push(SendResponseErrorEvent{
-		From:     tp.pid,
-		To:       to,
-		Error:    err,
-		Ref:      ref,
-		Priority: tp.options.Priority,
-	})
-	return nil
-}
-
-func (tp *TestProcess) Call(to any, request any) (any, error) {
-	event := CallEvent{
-		From:    tp.pid,
-		To:      to,
-		Request: request,
-		Timeout: gen.DefaultRequestTimeout,
+func (p *mockProcess) Behavior() gen.ProcessBehavior {
+	if p.ov.behavior != nil {
+		return p.ov.behavior()
 	}
-	tp.events.Push(event)
-	return nil, nil
+	return p.behavior
 }
-
-func (tp *TestProcess) CallWithTimeout(to any, request any, timeout int) (any, error) {
-	event := CallEvent{
-		From:    tp.pid,
-		To:      to,
-		Request: request,
-		Timeout: timeout,
+func (p *mockProcess) BehaviorName() string {
+	if p.ov.behaviorName != nil {
+		return p.ov.behaviorName()
 	}
-	tp.events.Push(event)
-	return nil, nil
+	return ""
 }
-
-func (tp *TestProcess) CallWithPriority(to any, request any, priority gen.MessagePriority) (any, error) {
-	event := CallEvent{
-		From:     tp.pid,
-		To:       to,
-		Request:  request,
-		Timeout:  gen.DefaultRequestTimeout,
-		Priority: priority,
+func (p *mockProcess) Mailbox() gen.ProcessMailbox {
+	if p.ov.mailbox != nil {
+		return p.ov.mailbox()
 	}
-	tp.events.Push(event)
-	return nil, nil
+	return p.mailbox
 }
-
-func (tp *TestProcess) CallImportant(to any, request any) (any, error) {
-	event := CallEvent{
-		From:      tp.pid,
-		To:        to,
-		Request:   request,
-		Timeout:   gen.DefaultRequestTimeout,
-		Important: true,
+func (p *mockProcess) Log() gen.Log {
+	if p.ov.log != nil {
+		return p.ov.log()
 	}
-	tp.events.Push(event)
-	return nil, nil
+	return p.log
 }
-
-func (tp *TestProcess) CallPID(to gen.PID, request any, timeout int) (any, error) {
-	event := CallEvent{
-		From:    tp.pid,
-		To:      to,
-		Request: request,
-		Timeout: timeout,
+func (p *mockProcess) Aliases() []gen.Alias {
+	if p.ov.aliases != nil {
+		return p.ov.aliases()
 	}
-	tp.events.Push(event)
-	return nil, nil
+	return p.aliases
 }
-
-func (tp *TestProcess) CallProcessID(to gen.ProcessID, request any, timeout int) (any, error) {
-	event := CallEvent{
-		From:    tp.pid,
-		To:      to,
-		Request: request,
-		Timeout: timeout,
+func (p *mockProcess) Events() []gen.Atom {
+	if p.ov.events != nil {
+		return p.ov.events()
 	}
-	tp.events.Push(event)
-	return nil, nil
+	return p.events
 }
 
-func (tp *TestProcess) CallAlias(to gen.Alias, request any, timeout int) (any, error) {
-	event := CallEvent{
-		From:    tp.pid,
-		To:      to,
-		Request: request,
-		Timeout: timeout,
+func (p *mockProcess) EnvList() map[gen.Env]any {
+	if p.ov.envList != nil {
+		return p.ov.envList()
 	}
-	tp.events.Push(event)
-	return nil, nil
+	return p.env
 }
-
-func (tp *TestProcess) Spawn(factory gen.ProcessFactory, options gen.ProcessOptions, args ...any) (gen.PID, error) {
-	// Check for failure injection
-	if err := tp.CheckMethodFailure("Spawn", factory, options, args); err != nil {
-		return gen.PID{}, err
+func (p *mockProcess) SetEnv(name gen.Env, value any) {
+	if p.ov.setEnv != nil {
+		p.ov.setEnv(name, value)
+		return
 	}
-
-	tp.nextID++
-	result := gen.PID{
-		Node:     tp.pid.Node,
-		ID:       tp.nextID,
-		Creation: tp.pid.Creation,
+	if value == nil {
+		delete(p.env, name)
+		return
 	}
-
-	tp.events.Push(SpawnEvent{
-		Factory: factory,
-		Options: options,
-		Args:    args,
-		Result:  result,
-	})
-
-	return result, nil
+	p.env[name] = value
 }
-
-func (tp *TestProcess) SpawnMeta(behavior gen.MetaBehavior, options gen.MetaOptions) (gen.Alias, error) {
-	tp.nextID++
-	result := gen.Alias{
-		Node:     tp.pid.Node,
-		ID:       [3]uint64{tp.nextID, 0, 0},
-		Creation: tp.pid.Creation,
+func (p *mockProcess) Env(name gen.Env) (any, bool) {
+	if p.ov.env != nil {
+		return p.ov.env(name)
 	}
-
-	tp.events.Push(SpawnMetaEvent{
-		Behavior: behavior,
-		Options:  options,
-		Result:   result,
-	})
-
-	return result, nil
+	v, ok := p.env[name]
+	return v, ok
 }
-
-func (tp *TestProcess) SendExit(to gen.PID, reason error) error {
-	tp.events.Push(ExitEvent{
-		To:     to,
-		Reason: reason,
-	})
-	return nil
-}
-
-func (tp *TestProcess) SendExitMeta(to gen.Alias, reason error) error {
-	tp.events.Push(ExitMetaEvent{
-		Meta:   to,
-		Reason: reason,
-	})
-	return nil
-}
-
-func (tp *TestProcess) CreateAlias() (gen.Alias, error) {
-	tp.nextID++
-	result := gen.Alias{
-		Node:     tp.pid.Node,
-		ID:       [3]uint64{tp.nextID, 0, 0},
-		Creation: tp.pid.Creation,
+func (p *mockProcess) EnvDefault(name gen.Env, def any) any {
+	if p.ov.envDefault != nil {
+		return p.ov.envDefault(name, def)
 	}
-
-	tp.events.Push(AliasEvent{
-		Result: result,
-	})
-
-	return result, nil
-}
-
-func (tp *TestProcess) DeleteAlias(alias gen.Alias) error {
-	// No event needed for delete
-	return nil
-}
-
-func (tp *TestProcess) Aliases() []gen.Alias {
-	return []gen.Alias{}
-}
-
-// Linking methods
-func (tp *TestProcess) Link(target any) error {
-	tp.events.Push(LinkEvent{Target: target})
-	return nil
-}
-
-func (tp *TestProcess) Unlink(target any) error {
-	tp.events.Push(UnlinkEvent{Target: target})
-	return nil
-}
-
-func (tp *TestProcess) LinkPID(target gen.PID) error {
-	return tp.Link(target)
-}
-
-func (tp *TestProcess) UnlinkPID(target gen.PID) error {
-	return tp.Unlink(target)
-}
-
-func (tp *TestProcess) LinkProcessID(target gen.ProcessID) error {
-	return tp.Link(target)
-}
-
-func (tp *TestProcess) UnlinkProcessID(target gen.ProcessID) error {
-	return tp.Unlink(target)
-}
-
-func (tp *TestProcess) LinkAlias(target gen.Alias) error {
-	return tp.Link(target)
-}
-
-func (tp *TestProcess) UnlinkAlias(target gen.Alias) error {
-	return tp.Unlink(target)
-}
-
-func (tp *TestProcess) LinkEvent(target gen.Event) ([]gen.MessageEvent, error) {
-	tp.Link(target)
-	return []gen.MessageEvent{}, nil
-}
-
-func (tp *TestProcess) UnlinkEvent(target gen.Event) error {
-	return tp.Unlink(target)
-}
-
-func (tp *TestProcess) LinkNode(target gen.Atom) error {
-	return tp.Link(target)
-}
-
-func (tp *TestProcess) UnlinkNode(target gen.Atom) error {
-	return tp.Unlink(target)
-}
-
-// Monitoring methods
-func (tp *TestProcess) Monitor(target any) error {
-	tp.events.Push(MonitorEvent{Target: target})
-	return nil
-}
-
-func (tp *TestProcess) Demonitor(target any) error {
-	tp.events.Push(DemonitorEvent{Target: target})
-	return nil
-}
-
-func (tp *TestProcess) MonitorPID(pid gen.PID) error {
-	return tp.Monitor(pid)
-}
-
-func (tp *TestProcess) DemonitorPID(pid gen.PID) error {
-	return tp.Demonitor(pid)
-}
-
-func (tp *TestProcess) MonitorProcessID(process gen.ProcessID) error {
-	return tp.Monitor(process)
-}
-
-func (tp *TestProcess) DemonitorProcessID(process gen.ProcessID) error {
-	return tp.Demonitor(process)
-}
-
-func (tp *TestProcess) MonitorAlias(alias gen.Alias) error {
-	return tp.Monitor(alias)
-}
-
-func (tp *TestProcess) DemonitorAlias(alias gen.Alias) error {
-	return tp.Demonitor(alias)
-}
-
-func (tp *TestProcess) MonitorEvent(event gen.Event) ([]gen.MessageEvent, error) {
-	tp.Monitor(event)
-	return []gen.MessageEvent{}, nil
-}
-
-func (tp *TestProcess) DemonitorEvent(event gen.Event) error {
-	return tp.Demonitor(event)
-}
-
-func (tp *TestProcess) MonitorNode(node gen.Atom) error {
-	return tp.Monitor(node)
-}
-
-func (tp *TestProcess) DemonitorNode(node gen.Atom) error {
-	return tp.Demonitor(node)
-}
-
-// Event methods
-func (tp *TestProcess) RegisterEvent(name gen.Atom, options gen.EventOptions) (gen.Ref, error) {
-	ref := makeTestRefWithCreation(tp.pid.Node, tp.pid.Creation)
-	tp.events.Push(RegisterEvent{
-		Name:    name,
-		Options: options,
-		Result:  ref,
-	})
-	return ref, nil
-}
-
-func (tp *TestProcess) UnregisterEvent(name gen.Atom) error {
-	tp.events.Push(UnregisterNameEvent{Name: name})
-	return nil
-}
-
-func (tp *TestProcess) SendEvent(name gen.Atom, token gen.Ref, message any) error {
-	tp.events.Push(SendEventEvent{
-		Name:    name,
-		Token:   token,
-		Message: message,
-	})
-	return nil
-}
-
-func (tp *TestProcess) SendEventWithOptions(
-	name gen.Atom,
-	token gen.Ref,
-	options gen.MessageOptions,
-	message any,
-) error {
-	tp.events.Push(SendEventEvent{
-		Name:    name,
-		Token:   token,
-		Message: message,
-		Options: options,
-	})
-	return nil
-}
-
-// Environment methods
-func (tp *TestProcess) Env(name gen.Env) (any, bool) {
-	value, found := tp.env[name]
-	return value, found
-}
-
-func (tp *TestProcess) EnvDefault(name gen.Env, def any) any {
-	if value, found := tp.env[name]; found {
-		return value
+	if v, ok := p.env[name]; ok {
+		return v
 	}
 	return def
 }
 
-func (tp *TestProcess) EnvList() map[gen.Env]any {
-	result := make(map[gen.Env]any)
-	for k, v := range tp.env {
-		result[k] = v
+// settings
+
+func (p *mockProcess) Compression() bool {
+	if p.ov.compression != nil {
+		return p.ov.compression()
 	}
-	return result
+	return p.compression.Enable
 }
-
-func (tp *TestProcess) SetEnv(name gen.Env, value any) {
-	if tp.env == nil {
-		tp.env = make(map[gen.Env]any)
+func (p *mockProcess) SetCompression(enabled bool) error {
+	if p.ov.setCompression != nil {
+		return p.ov.setCompression(enabled)
 	}
-	tp.env[name] = value
+	if p.stateIR() == false {
+		return gen.ErrNotAllowed
+	}
+	p.compression.Enable = enabled
+	return nil
 }
-
-// Log method
-func (tp *TestProcess) Log() gen.Log {
-	return tp.log
+func (p *mockProcess) CompressionType() gen.CompressionType {
+	if p.ov.compressionType != nil {
+		return p.ov.compressionType()
+	}
+	return p.compression.Type
 }
-
-// Priority methods
-func (tp *TestProcess) SetSendPriority(priority gen.MessagePriority) error {
-	tp.options.Priority = priority
+func (p *mockProcess) SetCompressionType(ctype gen.CompressionType) error {
+	if p.ov.setCompressionType != nil {
+		return p.ov.setCompressionType(ctype)
+	}
+	if p.stateIR() == false {
+		return gen.ErrNotAllowed
+	}
+	switch ctype {
+	case gen.CompressionTypeGZIP, gen.CompressionTypeLZW, gen.CompressionTypeZLIB:
+	default:
+		return gen.ErrIncorrect
+	}
+	p.compression.Type = ctype
+	return nil
+}
+func (p *mockProcess) CompressionLevel() gen.CompressionLevel {
+	if p.ov.compressionLevel != nil {
+		return p.ov.compressionLevel()
+	}
+	return p.compression.Level
+}
+func (p *mockProcess) SetCompressionLevel(level gen.CompressionLevel) error {
+	if p.ov.setCompressionLevel != nil {
+		return p.ov.setCompressionLevel(level)
+	}
+	if p.stateIR() == false {
+		return gen.ErrNotAllowed
+	}
+	switch level {
+	case gen.CompressionBestSize, gen.CompressionBestSpeed, gen.CompressionDefault:
+	default:
+		return gen.ErrIncorrect
+	}
+	p.compression.Level = level
+	return nil
+}
+func (p *mockProcess) CompressionThreshold() int {
+	if p.ov.compressionThreshold != nil {
+		return p.ov.compressionThreshold()
+	}
+	return p.compression.Threshold
+}
+func (p *mockProcess) SetCompressionThreshold(threshold int) error {
+	if p.ov.setCompressionThreshold != nil {
+		return p.ov.setCompressionThreshold(threshold)
+	}
+	if p.stateIR() == false {
+		return gen.ErrNotAllowed
+	}
+	if threshold < gen.DefaultCompressionThreshold {
+		return gen.ErrIncorrect
+	}
+	p.compression.Threshold = threshold
+	return nil
+}
+func (p *mockProcess) SendPriority() gen.MessagePriority {
+	if p.ov.sendPriority != nil {
+		return p.ov.sendPriority()
+	}
+	return p.priority
+}
+func (p *mockProcess) SetSendPriority(priority gen.MessagePriority) error {
+	if p.ov.setSendPriority != nil {
+		return p.ov.setSendPriority(priority)
+	}
+	if p.stateIR() == false {
+		return gen.ErrNotAllowed
+	}
+	switch priority {
+	case gen.MessagePriorityNormal, gen.MessagePriorityHigh, gen.MessagePriorityMax:
+	default:
+		return gen.ErrIncorrect
+	}
+	p.priority = priority
+	return nil
+}
+func (p *mockProcess) SetProcessKind(kind gen.ProcessKind) error {
+	if p.ov.setProcessKind != nil {
+		return p.ov.setProcessKind(kind)
+	}
+	if p.stateIR() == false {
+		return gen.ErrNotAllowed
+	}
+	p.kind = kind
+	return nil
+}
+func (p *mockProcess) SetKeepNetworkOrder(order bool) error {
+	if p.ov.setKeepNetworkOrder != nil {
+		return p.ov.setKeepNetworkOrder(order)
+	}
+	if p.stateIR() == false {
+		return gen.ErrNotAllowed
+	}
+	p.keeporder = order
+	return nil
+}
+func (p *mockProcess) KeepNetworkOrder() bool {
+	if p.ov.keepNetworkOrder != nil {
+		return p.ov.keepNetworkOrder()
+	}
+	return p.keeporder
+}
+func (p *mockProcess) SetImportantDelivery(important bool) error {
+	if p.ov.setImportantDelivery != nil {
+		return p.ov.setImportantDelivery(important)
+	}
+	if p.stateIR() == false {
+		return gen.ErrNotAllowed
+	}
+	p.important = important
+	return nil
+}
+func (p *mockProcess) ImportantDelivery() bool {
+	if p.ov.importantDelivery != nil {
+		return p.ov.importantDelivery()
+	}
+	return p.important
+}
+func (p *mockProcess) SetTracingSampler(sampler gen.TracingSampler) error {
+	if p.ov.setTracingSampler != nil {
+		return p.ov.setTracingSampler(sampler)
+	}
+	return nil
+}
+func (p *mockProcess) TracingSampler() gen.TracingSampler {
+	if p.ov.tracingSampler != nil {
+		return p.ov.tracingSampler()
+	}
+	return nil
+}
+func (p *mockProcess) RegisterName(name gen.Atom) error {
+	if p.ov.registerName != nil {
+		return p.ov.registerName(name)
+	}
+	p.name = name
+	return nil
+}
+func (p *mockProcess) UnregisterName() error {
+	if p.ov.unregisterName != nil {
+		return p.ov.unregisterName()
+	}
+	p.name = ""
 	return nil
 }
 
-func (tp *TestProcess) SetProcessKind(kind gen.ProcessKind) error {
-	tp.kind = kind
+// aliases / events (safe-synthetic / stub)
+
+func (p *mockProcess) CreateAlias() (gen.Alias, error) {
+	a, err := p.node.routeCreateAlias()
+	if err == nil {
+		p.aliases = append(p.aliases, a)
+	}
+	return a, err
+}
+func (p *mockProcess) DeleteAlias(alias gen.Alias) error {
+	if p.ov.deleteAlias != nil {
+		return p.ov.deleteAlias(alias)
+	}
+	return nil
+}
+func (p *mockProcess) RegisterEvent(name gen.Atom, opts gen.EventOptions) (gen.Ref, error) {
+	ref, err := p.node.routeRegisterEvent(name)
+	if err == nil {
+		p.events = append(p.events, name)
+	}
+	return ref, err
+}
+func (p *mockProcess) UnregisterEvent(name gen.Atom) error {
+	if p.ov.unregisterEvent != nil {
+		return p.ov.unregisterEvent(name)
+	}
 	return nil
 }
 
-func (tp *TestProcess) SendPriority() gen.MessagePriority {
-	return tp.options.Priority
+// send (egress + fail-stub)
+
+func (p *mockProcess) Send(to any, message any) error {
+	return p.node.routeSend(p.pid, to, message, p.msgOptions())
+}
+func (p *mockProcess) SendPID(to gen.PID, message any) error {
+	return p.node.routeSend(p.pid, to, message, p.msgOptions())
+}
+func (p *mockProcess) SendProcessID(to gen.ProcessID, message any) error {
+	return p.node.routeSend(p.pid, to, message, p.msgOptions())
+}
+func (p *mockProcess) SendAlias(to gen.Alias, message any) error {
+	return p.node.routeSend(p.pid, to, message, p.msgOptions())
 }
 
-func (tp *TestProcess) SetImportantDelivery(important bool) error {
-	tp.options.ImportantDelivery = important
-	return nil
+// SendWithPriority overrides the priority for this one send via local options,
+// without mutating process state (see audit.md: the save/restore idiom races).
+func (p *mockProcess) SendWithPriority(to any, message any, priority gen.MessagePriority) error {
+	opts := p.msgOptions()
+	opts.Priority = priority
+	return p.node.routeSend(p.pid, to, message, opts)
 }
 
-func (tp *TestProcess) ImportantDelivery() bool {
-	return tp.options.ImportantDelivery
+// SendImportant forces the important-delivery flag for this one send via local
+// options, without mutating process state.
+func (p *mockProcess) SendImportant(to any, message any) error {
+	opts := p.msgOptions()
+	opts.ImportantDelivery = true
+	return p.node.routeSend(p.pid, to, message, opts)
+}
+func (p *mockProcess) SendEvent(name gen.Atom, token gen.Ref, message any) error {
+	return p.node.routeSendEvent(p.pid, name, message, p.msgOptions())
 }
 
-func (tp *TestProcess) SetTracingSampler(sampler gen.TracingSampler) error {
-	return nil
+// delayed sends (timers)
+
+func (p *mockProcess) SendAfter(to any, message any, after time.Duration) (gen.CancelFunc, error) {
+	return p.node.schedule(p.pid, to, message, after, p.msgOptions()), nil
+}
+func (p *mockProcess) SendWithPriorityAfter(to any, message any, priority gen.MessagePriority, after time.Duration) (gen.CancelFunc, error) {
+	opts := p.msgOptions()
+	opts.Priority = priority
+	return p.node.schedule(p.pid, to, message, after, opts), nil
+}
+func (p *mockProcess) SendExitAfter(to gen.PID, reason error, after time.Duration) (gen.CancelFunc, error) {
+	return p.node.schedule(p.pid, to, gen.MessageExitPID{PID: p.pid, Reason: reason}, after, p.msgOptions()), nil
+}
+func (p *mockProcess) SendExitMetaAfter(meta gen.Alias, reason error, after time.Duration) (gen.CancelFunc, error) {
+	return func() bool { return true }, nil
 }
 
-func (tp *TestProcess) TracingSampler() gen.TracingSampler {
-	return gen.TracingSamplerDisable
+// exit
+
+func (p *mockProcess) SendExit(to gen.PID, reason error) error         { return p.node.routeSendExit(p.pid, to, reason) }
+func (p *mockProcess) SendExitMeta(meta gen.Alias, reason error) error { return nil }
+
+// responses
+
+func (p *mockProcess) SendResponse(to gen.PID, ref gen.Ref, message any) error {
+	return p.node.routeSendResponse(p.pid, to, ref, message, p.msgOptions())
+}
+func (p *mockProcess) SendResponseImportant(to gen.PID, ref gen.Ref, message any) error {
+	opts := p.msgOptions()
+	opts.ImportantDelivery = true
+	return p.node.routeSendResponse(p.pid, to, ref, message, opts)
+}
+func (p *mockProcess) SendResponseError(to gen.PID, ref gen.Ref, err error) error {
+	return p.node.routeSendResponse(p.pid, to, ref, err, p.msgOptions())
+}
+func (p *mockProcess) SendResponseErrorImportant(to gen.PID, ref gen.Ref, err error) error {
+	opts := p.msgOptions()
+	opts.ImportantDelivery = true
+	return p.node.routeSendResponse(p.pid, to, ref, err, opts)
 }
 
-func (tp *TestProcess) PropagatingTrace() gen.Tracing {
+// calls (tier 3: strict stub)
+
+func (p *mockProcess) Call(to any, message any) (any, error) { return p.node.routeCall(p.pid, to, message) }
+func (p *mockProcess) CallWithTimeout(to any, message any, timeout int) (any, error) {
+	return p.node.routeCall(p.pid, to, message)
+}
+func (p *mockProcess) CallWithPriority(to any, message any, priority gen.MessagePriority) (any, error) {
+	return p.node.routeCall(p.pid, to, message)
+}
+func (p *mockProcess) CallImportant(to any, message any) (any, error) {
+	return p.node.routeCall(p.pid, to, message)
+}
+func (p *mockProcess) CallPID(to gen.PID, message any, timeout int) (any, error) {
+	return p.node.routeCall(p.pid, to, message)
+}
+func (p *mockProcess) CallProcessID(to gen.ProcessID, message any, timeout int) (any, error) {
+	return p.node.routeCall(p.pid, to, message)
+}
+func (p *mockProcess) CallAlias(to gen.Alias, message any, timeout int) (any, error) {
+	return p.node.routeCall(p.pid, to, message)
+}
+
+// spawn (safe-synthetic / stub)
+
+func (p *mockProcess) Spawn(factory gen.ProcessFactory, options gen.ProcessOptions, args ...any) (gen.PID, error) {
+	return p.node.routeSpawn(p.pid, "", factory, options)
+}
+func (p *mockProcess) SpawnRegister(register gen.Atom, factory gen.ProcessFactory, options gen.ProcessOptions, args ...any) (gen.PID, error) {
+	return p.node.routeSpawn(p.pid, register, factory, options)
+}
+func (p *mockProcess) SpawnMeta(behavior gen.MetaBehavior, options gen.MetaOptions) (gen.Alias, error) {
+	return p.node.routeSpawnMeta(behavior)
+}
+func (p *mockProcess) RemoteSpawn(node gen.Atom, name gen.Atom, options gen.ProcessOptions, args ...any) (gen.PID, error) {
+	return p.node.routeRemoteSpawn(node, name)
+}
+func (p *mockProcess) RemoteSpawnRegister(node gen.Atom, name gen.Atom, register gen.Atom, options gen.ProcessOptions, args ...any) (gen.PID, error) {
+	return p.node.routeRemoteSpawn(node, name)
+}
+
+// links / monitors (egress + fail-stub)
+
+func (p *mockProcess) Link(target any) error                      { return p.node.routeLink(p.pid, target) }
+func (p *mockProcess) Unlink(target any) error                    { return p.node.routeUnlink(p.pid, target) }
+func (p *mockProcess) LinkPID(target gen.PID) error               { return p.node.routeLink(p.pid, target) }
+func (p *mockProcess) UnlinkPID(target gen.PID) error             { return p.node.routeUnlink(p.pid, target) }
+func (p *mockProcess) LinkProcessID(target gen.ProcessID) error   { return p.node.routeLink(p.pid, target) }
+func (p *mockProcess) UnlinkProcessID(target gen.ProcessID) error { return p.node.routeUnlink(p.pid, target) }
+func (p *mockProcess) LinkAlias(target gen.Alias) error           { return p.node.routeLink(p.pid, target) }
+func (p *mockProcess) UnlinkAlias(target gen.Alias) error         { return p.node.routeUnlink(p.pid, target) }
+func (p *mockProcess) LinkEvent(target gen.Event) ([]gen.MessageEvent, error) {
+	return nil, p.node.routeLink(p.pid, target)
+}
+func (p *mockProcess) UnlinkEvent(target gen.Event) error { return p.node.routeUnlink(p.pid, target) }
+func (p *mockProcess) LinkNode(target gen.Atom) error     { return p.node.routeLink(p.pid, target) }
+func (p *mockProcess) UnlinkNode(target gen.Atom) error   { return p.node.routeUnlink(p.pid, target) }
+
+func (p *mockProcess) Monitor(target any) error                       { return p.node.routeMonitor(p.pid, target) }
+func (p *mockProcess) Demonitor(target any) error                     { return p.node.routeDemonitor(p.pid, target) }
+func (p *mockProcess) MonitorPID(pid gen.PID) error                   { return p.node.routeMonitor(p.pid, pid) }
+func (p *mockProcess) DemonitorPID(pid gen.PID) error                 { return p.node.routeDemonitor(p.pid, pid) }
+func (p *mockProcess) MonitorProcessID(process gen.ProcessID) error   { return p.node.routeMonitor(p.pid, process) }
+func (p *mockProcess) DemonitorProcessID(process gen.ProcessID) error { return p.node.routeDemonitor(p.pid, process) }
+func (p *mockProcess) MonitorAlias(alias gen.Alias) error             { return p.node.routeMonitor(p.pid, alias) }
+func (p *mockProcess) DemonitorAlias(alias gen.Alias) error           { return p.node.routeDemonitor(p.pid, alias) }
+func (p *mockProcess) MonitorEvent(event gen.Event) ([]gen.MessageEvent, error) {
+	return nil, p.node.routeMonitor(p.pid, event)
+}
+func (p *mockProcess) DemonitorEvent(event gen.Event) error { return p.node.routeDemonitor(p.pid, event) }
+func (p *mockProcess) MonitorNode(node gen.Atom) error      { return p.node.routeMonitor(p.pid, node) }
+func (p *mockProcess) DemonitorNode(node gen.Atom) error    { return p.node.routeDemonitor(p.pid, node) }
+
+// inspect / info
+
+func (p *mockProcess) Inspect(target gen.PID, item ...string) (map[string]string, error) {
+	if p.ov.inspect != nil {
+		return p.ov.inspect(target, item...)
+	}
+	p.node.unsupported("Inspect")
+	return nil, nil
+}
+func (p *mockProcess) InspectMeta(meta gen.Alias, item ...string) (map[string]string, error) {
+	if p.ov.inspectMeta != nil {
+		return p.ov.inspectMeta(meta, item...)
+	}
+	p.node.unsupported("InspectMeta")
+	return nil, nil
+}
+func (p *mockProcess) Info() (gen.ProcessInfo, error) {
+	if p.ov.info != nil {
+		return p.ov.info()
+	}
+	return gen.ProcessInfo{PID: p.pid, Name: p.name, Parent: p.parent, Leader: p.leader, State: p.state, Env: p.env}, nil
+}
+func (p *mockProcess) MetaInfo(meta gen.Alias) (gen.MetaInfo, error) {
+	if p.ov.metaInfo != nil {
+		return p.ov.metaInfo(meta)
+	}
+	return gen.MetaInfo{}, nil
+}
+
+// tracing
+
+func (p *mockProcess) PropagatingTrace() gen.Tracing {
+	if p.ov.propagatingTrace != nil {
+		return p.ov.propagatingTrace()
+	}
 	return gen.Tracing{}
 }
-
-func (tp *TestProcess) SetPropagatingTrace(t gen.Tracing) {
-}
-
-func (tp *TestProcess) SendTracingSpan(span gen.TracingSpan) {}
-
-// Compression methods
-func (tp *TestProcess) Compression() bool {
-	return false // Default to false for testing
-}
-
-func (tp *TestProcess) SetCompression(enabled bool) error {
-	// No-op for testing
-	return nil
-}
-
-func (tp *TestProcess) CompressionType() gen.CompressionType {
-	return gen.CompressionTypeGZIP // Default
-}
-
-func (tp *TestProcess) SetCompressionType(ctype gen.CompressionType) error {
-	// No-op for testing
-	return nil
-}
-
-func (tp *TestProcess) CompressionLevel() gen.CompressionLevel {
-	return gen.CompressionLevel(0) // Default
-}
-
-func (tp *TestProcess) SetCompressionLevel(level gen.CompressionLevel) error {
-	// No-op for testing
-	return nil
-}
-
-func (tp *TestProcess) CompressionThreshold() int {
-	return 1024 // Default threshold
-}
-
-func (tp *TestProcess) SetCompressionThreshold(threshold int) error {
-	// No-op for testing
-	return nil
-}
-
-func (tp *TestProcess) SetKeepNetworkOrder(order bool) error {
-	// No-op for testing
-	return nil
-}
-
-func (tp *TestProcess) KeepNetworkOrder() bool {
-	return true // Default to true
-}
-
-// Missing PID methods
-func (tp *TestProcess) SendPID(to gen.PID, message any) error {
-	return tp.Send(to, message)
-}
-
-func (tp *TestProcess) SendProcessID(to gen.ProcessID, message any) error {
-	return tp.Send(to, message)
-}
-
-func (tp *TestProcess) SendAlias(to gen.Alias, message any) error {
-	return tp.Send(to, message)
-}
-
-// Missing spawn methods
-func (tp *TestProcess) SpawnRegister(
-	register gen.Atom,
-	factory gen.ProcessFactory,
-	options gen.ProcessOptions,
-	args ...any,
-) (gen.PID, error) {
-	pid, err := tp.Spawn(factory, options, args...)
-	if err != nil {
-		return pid, err
+func (p *mockProcess) SetPropagatingTrace(t gen.Tracing) {
+	if p.ov.setPropagatingTrace != nil {
+		p.ov.setPropagatingTrace(t)
+		return
 	}
-	// In testing, we'll just track the registration
-	tp.events.Push(RegisterNameEvent{Name: register, PID: pid})
-	return pid, nil
 }
-
-func (tp *TestProcess) RemoteSpawn(
-	node gen.Atom,
-	name gen.Atom,
-	options gen.ProcessOptions,
-	args ...any,
-) (gen.PID, error) {
-	tp.nextID++
-	result := gen.PID{
-		Node:     node,
-		ID:       tp.nextID,
-		Creation: tp.pid.Creation,
+func (p *mockProcess) SetTracingAttribute(key, value string) {
+	if p.ov.setTracingAttribute != nil {
+		p.ov.setTracingAttribute(key, value)
+		return
 	}
-
-	tp.events.Push(RemoteSpawnEvent{
-		Node:    node,
-		Name:    name,
-		Options: options,
-		Args:    args,
-		Result:  result,
-	})
-
-	return result, nil
 }
-
-func (tp *TestProcess) RemoteSpawnRegister(
-	node gen.Atom,
-	name gen.Atom,
-	register gen.Atom,
-	options gen.ProcessOptions,
-	args ...any,
-) (gen.PID, error) {
-	tp.nextID++
-	result := gen.PID{
-		Node:     node,
-		ID:       tp.nextID,
-		Creation: tp.pid.Creation,
+func (p *mockProcess) RemoveTracingAttribute(key string) {
+	if p.ov.removeTracingAttribute != nil {
+		p.ov.removeTracingAttribute(key)
+		return
 	}
-
-	tp.events.Push(RemoteSpawnEvent{
-		Node:     node,
-		Name:     name,
-		Register: register,
-		Options:  options,
-		Args:     args,
-		Result:   result,
-	})
-
-	return result, nil
 }
-
-func (tp *TestProcess) Inspect(target gen.PID, item ...string) (map[string]string, error) {
-	result := map[string]string{}
-	tp.events.Push(InspectEvent{
-		From:   tp.pid,
-		Target: target,
-		Items:  item,
-		Result: result,
-	})
-	return result, nil
-}
-
-func (tp *TestProcess) InspectMeta(alias gen.Alias, item ...string) (map[string]string, error) {
-	result := map[string]string{}
-	tp.events.Push(InspectMetaEvent{
-		From:   tp.pid,
-		Target: alias,
-		Items:  item,
-		Result: result,
-	})
-	return result, nil
-}
-
-// Missing Events method
-func (tp *TestProcess) Events() []gen.Atom {
-	return []gen.Atom{} // Return empty for testing
-}
-
-// Mailbox and process info methods
-func (tp *TestProcess) Mailbox() gen.ProcessMailbox {
-	return tp.mailbox
-}
-
-func (tp *TestProcess) Info() (gen.ProcessInfo, error) {
-	return gen.ProcessInfo{
-		PID:      tp.pid,
-		Name:     tp.name,
-		State:    tp.state,
-		Behavior: reflect.TypeOf(tp).String(),
-	}, nil
-}
-
-func (tp *TestProcess) MetaInfo(meta gen.Alias) (gen.MetaInfo, error) {
-	return gen.MetaInfo{
-		ID: meta,
-	}, nil
-}
-
-func (tp *TestProcess) Forward(to gen.PID, message *gen.MailboxMessage, priority gen.MessagePriority) error {
-	if err := tp.CheckMethodFailure("Forward", to, message, priority); err != nil {
-		return err
+func (p *mockProcess) SetTracingSpanAttribute(key, value string) {
+	if p.ov.setTracingSpanAttribute != nil {
+		p.ov.setTracingSpanAttribute(key, value)
+		return
 	}
-	// Snapshot the message: the caller may release it back to the pool
-	// (zeroing its fields) before the test reads the event.
-	captured := *message
-	tp.events.Push(SendEvent{
-		From:     tp.pid,
-		To:       to,
-		Message:  &captured,
-		Priority: priority,
-	})
+}
+func (p *mockProcess) TracingAttributes() []gen.TracingAttribute {
+	if p.ov.tracingAttributes != nil {
+		return p.ov.tracingAttributes()
+	}
 	return nil
 }
-
-func (tp *TestProcess) ProcessInit(process gen.Process, args ...any) error {
-	return fmt.Errorf("ProcessInit should not be called on TestProcess")
+func (p *mockProcess) ClearTracingSpanAttributes() {
+	if p.ov.clearTracingSpanAttributes != nil {
+		p.ov.clearTracingSpanAttributes()
+		return
+	}
+}
+func (p *mockProcess) SendTracingSpan(span gen.TracingSpan) {
+	if p.ov.sendTracingSpan != nil {
+		p.ov.sendTracingSpan(span)
+		return
+	}
 }
 
-func (tp *TestProcess) ProcessTerminate(reason error) {
-	tp.t.Fatalf("ProcessTerminate should not be called on TestProcess: %v", reason)
+// forward
+
+func (p *mockProcess) Forward(to gen.PID, message *gen.MailboxMessage, priority gen.MessagePriority) error {
+	return p.node.routeForward(p.pid, to, message.From, message.Message)
 }

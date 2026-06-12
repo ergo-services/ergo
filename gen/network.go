@@ -686,7 +686,7 @@ type AcceptorOptions struct {
 
 	// Host specifies the network interface to listen on.
 	// Examples: "localhost", "0.0.0.0", "192.168.1.100"
-	// If empty, extracts hostname from node name (e.g., "node@hostname" → "hostname").
+	// If empty, extracts hostname from node name (e.g., "node@hostname" -> "hostname").
 	Host string
 
 	// Port is the TCP port number for incoming connections.

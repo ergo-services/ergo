@@ -115,7 +115,7 @@ type Resolver interface {
 	Resolve(node Atom) ([]Route, error)
 
 	// ResolveProxy resolves proxy routes for the given node name.
-	// Returns proxy paths (node A → proxy B → target node C).
+	// Returns proxy paths (node A -> proxy B -> target node C).
 	// Enables connecting through intermediate proxy nodes.
 	ResolveProxy(node Atom) ([]ProxyRoute, error)
 

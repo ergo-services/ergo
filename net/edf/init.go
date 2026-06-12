@@ -166,7 +166,7 @@ var (
 
 func init() {
 	// For each built-in type: encoder/decoder are stored first so that
-	// registerInfo (which calls measureZeroSize → Encode) can resolve them.
+	// registerInfo (which calls measureZeroSize -> Encode) can resolve them.
 	// The resulting *RegisteredTypeInfo is then attached back to the encoder
 	// and decoder via the Info field used by encodeWithStats/decodeWithStats.
 

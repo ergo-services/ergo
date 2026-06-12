@@ -39,7 +39,7 @@ func monitorsOf(info gen.ProcessInfo, target any) (int, bool) {
 	return -1, false
 }
 
-func downAbout(a *stage.DownAssert, target any) *stage.DownAssert {
+func downAbout(a *check.DownAssert, target any) *check.DownAssert {
 	switch t := target.(type) {
 	case gen.PID:
 		return a.About(t)

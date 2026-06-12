@@ -15,8 +15,8 @@ import (
 //
 // Example:
 //
-//	Default behavior: log.Info("msg") → sent to default logger + custom loggers
-//	With SetLogger("file"): log.Info("msg") → sent ONLY to "file" logger
+//	Default behavior: log.Info("msg") -> sent to default logger + custom loggers
+//	With SetLogger("file"): log.Info("msg") -> sent ONLY to "file" logger
 type Log interface {
 	// Level returns the current logging level.
 	Level() LogLevel
@@ -34,7 +34,7 @@ type Log interface {
 	// Disables fan-out - messages go ONLY to this logger.
 	// The named logger must be registered via node.LoggerAdd().
 	// Empty string enables fan-out to all loggers (default).
-	// Use to limit logging for specific processes (e.g., verbose process → file only).
+	// Use to limit logging for specific processes (e.g., verbose process -> file only).
 	SetLogger(name string)
 
 	// Fields returns the current structured logging fields.

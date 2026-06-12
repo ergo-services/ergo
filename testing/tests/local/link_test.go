@@ -72,7 +72,7 @@ func linksOf(info gen.ProcessInfo, target any) (int, bool) {
 	return -1, false
 }
 
-func exitAbout(a *stage.ExitAssert, target any) *stage.ExitAssert {
+func exitAbout(a *check.ExitAssert, target any) *check.ExitAssert {
 	switch t := target.(type) {
 	case gen.PID:
 		return a.About(t)

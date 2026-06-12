@@ -308,6 +308,66 @@ func True(t T, cond bool, msg ...any) {
 	}
 }
 
+// False fails unless cond is false.
+func False(t T, cond bool, msg ...any) {
+	t.Helper()
+	if cond {
+		t.Errorf("check: expected false%s", suffix(msg))
+	}
+}
+
+// NotEqual fails if want and got are deeply equal.
+func NotEqual(t T, want, got any, msg ...any) {
+	t.Helper()
+	if reflect.DeepEqual(want, got) {
+		t.Errorf("check: expected %#v to differ%s", want, suffix(msg))
+	}
+}
+
+// Nil fails unless value is nil.
+func Nil(t T, value any, msg ...any) {
+	t.Helper()
+	if isNil(value) == false {
+		t.Errorf("check: expected nil, got %#v%s", value, suffix(msg))
+	}
+}
+
+// NotNil fails if value is nil.
+func NotNil(t T, value any, msg ...any) {
+	t.Helper()
+	if isNil(value) {
+		t.Errorf("check: expected non-nil%s", suffix(msg))
+	}
+}
+
+// Error fails if err is nil.
+func Error(t T, err error, msg ...any) {
+	t.Helper()
+	if err == nil {
+		t.Errorf("check: expected an error%s", suffix(msg))
+	}
+}
+
+// Contains fails unless haystack contains needle.
+func Contains(t T, haystack, needle string, msg ...any) {
+	t.Helper()
+	if strings.Contains(haystack, needle) == false {
+		t.Errorf("check: expected %q to contain %q%s", haystack, needle, suffix(msg))
+	}
+}
+
+func isNil(value any) bool {
+	if value == nil {
+		return true
+	}
+	v := reflect.ValueOf(value)
+	switch v.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
+		return v.IsNil()
+	}
+	return false
+}
+
 func suffix(msg []any) string {
 	if len(msg) == 0 {
 		return ""

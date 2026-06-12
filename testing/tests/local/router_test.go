@@ -168,7 +168,7 @@ func TestLocalRouter(t *testing.T) {
 
 		mk := n.Mark()
 		n.Send(router, gen.Atom("ghost"))
-		n.ShouldSend().From(router).Where(func(s stage.Sent) bool {
+		n.ShouldSend().From(router).Where(func(s check.Sent) bool {
 			f, ok := s.Message.(act.MessageRouteFailed)
 			return ok && f.Name == "ghost" && errors.Is(f.Reason, gen.ErrProcessUnknown)
 		}).Since(mk).Once().Within(time.Second).Must()
