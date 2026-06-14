@@ -4,6 +4,7 @@ import (
 	"errors"
 	"reflect"
 	"strings"
+	"time"
 
 	"ergo.services/ergo/gen"
 )
@@ -47,6 +48,10 @@ func (a *SentAssert) Message(v any) *SentAssert {
 }
 func (a *SentAssert) Error(target error) *SentAssert {
 	a.Where(func(r Sent) bool { return r.Error == target })
+	return a
+}
+func (a *SentAssert) ErrorIs(target error) *SentAssert {
+	a.Where(func(r Sent) bool { return errors.Is(r.Error, target) })
 	return a
 }
 
@@ -95,6 +100,10 @@ func (a *SpawnAssert) Factory(f gen.ProcessFactory) *SpawnAssert {
 }
 func (a *SpawnAssert) Error(target error) *SpawnAssert {
 	a.Where(func(r Spawned) bool { return r.Error == target })
+	return a
+}
+func (a *SpawnAssert) ErrorIs(target error) *SpawnAssert {
+	a.Where(func(r Spawned) bool { return errors.Is(r.Error, target) })
 	return a
 }
 
@@ -277,6 +286,10 @@ func (a *ForwardAssert) Error(target error) *ForwardAssert {
 	a.Where(func(r Forwarded) bool { return r.Error == target })
 	return a
 }
+func (a *ForwardAssert) ErrorIs(target error) *ForwardAssert {
+	a.Where(func(r Forwarded) bool { return errors.Is(r.Error, target) })
+	return a
+}
 
 // DeliveredAssert asserts over messages delivered into local mailboxes (ingress).
 type DeliveredAssert struct{ *Assertion[Delivered] }
@@ -325,6 +338,10 @@ func (a *CalledAssert) Request(v any) *CalledAssert {
 }
 func (a *CalledAssert) Error(target error) *CalledAssert {
 	a.Where(func(r Called) bool { return r.Error == target })
+	return a
+}
+func (a *CalledAssert) ErrorIs(target error) *CalledAssert {
+	a.Where(func(r Called) bool { return errors.Is(r.Error, target) })
 	return a
 }
 
@@ -383,6 +400,14 @@ func (a *DownAssert) AboutEvent(target gen.Event) *DownAssert {
 	a.Where(func(r Down) bool { m, ok := r.Message.(gen.MessageDownEvent); return ok && m.Event == target })
 	return a
 }
+func (a *DownAssert) AboutNode(name gen.Atom) *DownAssert {
+	a.Where(func(r Down) bool { m, ok := r.Message.(gen.MessageDownNode); return ok && m.Name == name })
+	return a
+}
+func (a *DownAssert) AboutProxy(node gen.Atom) *DownAssert {
+	a.Where(func(r Down) bool { m, ok := r.Message.(gen.MessageDownProxy); return ok && m.Node == node })
+	return a
+}
 func (a *DownAssert) Reason(target error) *DownAssert {
 	a.Where(func(r Down) bool { reason, ok := downReason(r.Message); return ok && reason == target })
 	return a
@@ -421,6 +446,10 @@ func (a *ExitAssert) AboutEvent(target gen.Event) *ExitAssert {
 	a.Where(func(r Exit) bool { m, ok := r.Message.(gen.MessageExitEvent); return ok && m.Event == target })
 	return a
 }
+func (a *ExitAssert) AboutNode(name gen.Atom) *ExitAssert {
+	a.Where(func(r Exit) bool { m, ok := r.Message.(gen.MessageExitNode); return ok && m.Name == name })
+	return a
+}
 func (a *ExitAssert) Reason(target error) *ExitAssert {
 	a.Where(func(r Exit) bool { reason, ok := exitReason(r.Message); return ok && reason == target })
 	return a
@@ -451,6 +480,10 @@ func (a *EventAssert) Message(v any) *EventAssert {
 	a.Where(func(r Event) bool { return reflect.DeepEqual(r.Message, v) })
 	return a
 }
+func (a *EventAssert) Timestamp(ts int64) *EventAssert {
+	a.Where(func(r Event) bool { return r.Timestamp == ts })
+	return a
+}
 
 // MonitorAssert asserts over monitors set up on a node (egress).
 type MonitorAssert struct{ *Assertion[Monitored] }
@@ -469,6 +502,10 @@ func (a *MonitorAssert) Target(t any) *MonitorAssert {
 }
 func (a *MonitorAssert) Error(target error) *MonitorAssert {
 	a.Where(func(r Monitored) bool { return r.Error == target })
+	return a
+}
+func (a *MonitorAssert) ErrorIs(target error) *MonitorAssert {
+	a.Where(func(r Monitored) bool { return errors.Is(r.Error, target) })
 	return a
 }
 
@@ -491,6 +528,10 @@ func (a *DemonitorAssert) Error(target error) *DemonitorAssert {
 	a.Where(func(r Demonitored) bool { return r.Error == target })
 	return a
 }
+func (a *DemonitorAssert) ErrorIs(target error) *DemonitorAssert {
+	a.Where(func(r Demonitored) bool { return errors.Is(r.Error, target) })
+	return a
+}
 
 // LinkAssert asserts over links set up on a node (egress).
 type LinkAssert struct{ *Assertion[Linked] }
@@ -509,6 +550,10 @@ func (a *LinkAssert) Error(target error) *LinkAssert {
 	a.Where(func(r Linked) bool { return r.Error == target })
 	return a
 }
+func (a *LinkAssert) ErrorIs(target error) *LinkAssert {
+	a.Where(func(r Linked) bool { return errors.Is(r.Error, target) })
+	return a
+}
 
 // UnlinkAssert asserts over links removed on a node (egress).
 type UnlinkAssert struct{ *Assertion[Unlinked] }
@@ -525,6 +570,10 @@ func (a *UnlinkAssert) Target(t any) *UnlinkAssert {
 }
 func (a *UnlinkAssert) Error(target error) *UnlinkAssert {
 	a.Where(func(r Unlinked) bool { return r.Error == target })
+	return a
+}
+func (a *UnlinkAssert) ErrorIs(target error) *UnlinkAssert {
+	a.Where(func(r Unlinked) bool { return errors.Is(r.Error, target) })
 	return a
 }
 
@@ -613,6 +662,22 @@ func (a *SendEventAssert) Error(target error) *SendEventAssert {
 	a.Where(func(r SentEvent) bool { return r.Error == target })
 	return a
 }
+func (a *SendEventAssert) ErrorIs(target error) *SendEventAssert {
+	a.Where(func(r SentEvent) bool { return errors.Is(r.Error, target) })
+	return a
+}
+func (a *SendEventAssert) Priority(p gen.MessagePriority) *SendEventAssert {
+	a.Where(func(r SentEvent) bool { return r.Options.Priority == p })
+	return a
+}
+func (a *SendEventAssert) Important(important bool) *SendEventAssert {
+	a.Where(func(r SentEvent) bool { return r.Options.ImportantDelivery == important })
+	return a
+}
+func (a *SendEventAssert) KeepNetworkOrder(keep bool) *SendEventAssert {
+	a.Where(func(r SentEvent) bool { return r.Options.KeepNetworkOrder == keep })
+	return a
+}
 
 // SendResponseAssert asserts over responses a process sent to requests (egress).
 type SendResponseAssert struct{ *Assertion[SentResponse] }
@@ -633,8 +698,28 @@ func (a *SendResponseAssert) Message(v any) *SendResponseAssert {
 	a.Where(func(r SentResponse) bool { return reflect.DeepEqual(r.Message, v) })
 	return a
 }
+func (a *SendResponseAssert) Ref(ref gen.Ref) *SendResponseAssert {
+	a.Where(func(r SentResponse) bool { return r.Ref == ref })
+	return a
+}
 func (a *SendResponseAssert) Error(target error) *SendResponseAssert {
 	a.Where(func(r SentResponse) bool { return r.Error == target })
+	return a
+}
+func (a *SendResponseAssert) ErrorIs(target error) *SendResponseAssert {
+	a.Where(func(r SentResponse) bool { return errors.Is(r.Error, target) })
+	return a
+}
+func (a *SendResponseAssert) Important(important bool) *SendResponseAssert {
+	a.Where(func(r SentResponse) bool { return r.Options.ImportantDelivery == important })
+	return a
+}
+func (a *SendResponseAssert) Priority(p gen.MessagePriority) *SendResponseAssert {
+	a.Where(func(r SentResponse) bool { return r.Options.Priority == p })
+	return a
+}
+func (a *SendResponseAssert) KeepNetworkOrder(keep bool) *SendResponseAssert {
+	a.Where(func(r SentResponse) bool { return r.Options.KeepNetworkOrder == keep })
 	return a
 }
 
@@ -726,5 +811,21 @@ func (x *ScheduleAssert) To(to any) *ScheduleAssert {
 }
 func (x *ScheduleAssert) Message(v any) *ScheduleAssert {
 	x.Where(func(r ScheduledSend) bool { return reflect.DeepEqual(r.Message, v) })
+	return x
+}
+func (x *ScheduleAssert) After(after time.Duration) *ScheduleAssert {
+	x.Where(func(r ScheduledSend) bool { return r.After == after })
+	return x
+}
+func (x *ScheduleAssert) Priority(p gen.MessagePriority) *ScheduleAssert {
+	x.Where(func(r ScheduledSend) bool { return r.Options.Priority == p })
+	return x
+}
+func (x *ScheduleAssert) Important(important bool) *ScheduleAssert {
+	x.Where(func(r ScheduledSend) bool { return r.Options.ImportantDelivery == important })
+	return x
+}
+func (x *ScheduleAssert) KeepNetworkOrder(keep bool) *ScheduleAssert {
+	x.Where(func(r ScheduledSend) bool { return r.Options.KeepNetworkOrder == keep })
 	return x
 }
