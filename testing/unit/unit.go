@@ -6,6 +6,13 @@
 // return (including errors) to exercise negative paths. Assertions use the shared
 // testing/check grammar, identical to testing/stage; the differences are the mock
 // environment and synchronous (snapshot) assertions.
+//
+// Plane contract: this harness records egress (what the actor does) and its own
+// termination (Terminated), delayed sends (ScheduledSend), and logs (Logged). It
+// does NOT produce the ingress records (Delivered, Down, Exit, Event, and the Wire*
+// subscriptions): inbound signals are driven by the test via the Deliver* methods,
+// so there is nothing to observe on the way in. Assert an actor's reaction to a
+// delivery, not the delivery itself. Those ingress records are testing/stage-only.
 package unit
 
 import (
@@ -101,6 +108,8 @@ func (n *MockNode) spawn(factory gen.ProcessFactory, register gen.Atom, options 
 	if err := behavior.ProcessInit(process, args...); err != nil {
 		return nil, fmt.Errorf("unit: ProcessInit: %w", err)
 	}
+	// ProcessInit ran in Init state; the process is now Running
+	process.state = gen.ProcessStateRunning
 	return s, nil
 }
 
@@ -144,6 +153,9 @@ func (s *Subject) run() {
 	if err := s.behavior.ProcessRun(); err != nil {
 		s.terminated = true
 		s.reason = err
+		// the process is Terminated during ProcessTerminate; the real process still
+		// permits the Send family / SendExit there (stateIRT), but not Set*/Call/etc
+		s.process.state = gen.ProcessStateTerminated
 		s.behavior.ProcessTerminate(err)
 		s.node.rec.Put(check.Terminated{PID: s.process.pid, Reason: err})
 	}

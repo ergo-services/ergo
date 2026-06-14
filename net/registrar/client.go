@@ -2,7 +2,9 @@ package registrar
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
+	"io"
 	"net"
 	"strconv"
 	"sync"
@@ -220,9 +222,31 @@ func (c *client) Register(node gen.NodeRegistrar, routes gen.RegisterRoutes) (ge
 		return static, nil
 	}
 
-	rc, err := c.tryRegister()
-	if err != nil {
-		return static, err
+	// the registrar owner may be dying at this exact moment (its successor not yet
+	// promoted), so the first attempt can hit a transient connection error. retry
+	// those for a bounded time: a retry either binds the freed port (promotion) or
+	// reconnects to the newly promoted owner. registration rejections (gen.ErrTaken)
+	// are not transient and fail the node start immediately, which is how duplicate
+	// node names are rejected.
+	deadline := time.Now().Add(registerRetryTimeout)
+	var rc net.Conn
+	for {
+		var err error
+		rc, err = c.tryRegister()
+		if err == nil {
+			break
+		}
+		// retry connection-level failures only (owner dying/promotion window):
+		// a net error (dial/read/write, including connection reset) or EOF.
+		// registration rejections (gen.ErrTaken etc.) are not net errors and fail
+		// the node start immediately, which is how duplicate node names are rejected.
+		var ne net.Error
+		transient := errors.As(err, &ne) || errors.Is(err, io.EOF)
+		if transient == false || time.Now().After(deadline) {
+			return static, err
+		}
+		c.node.Log().Trace("registrar registration transient error, retrying: %s", err)
+		time.Sleep(registerRetryInterval)
 	}
 
 	c.terminated.Store(false)

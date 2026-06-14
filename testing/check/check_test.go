@@ -90,3 +90,26 @@ func TestCheckDetectsFailure(t *testing.T) {
 		t.Fatal("expected NoError to fail on a non-nil error")
 	}
 }
+
+// IsType matches concrete types exactly and interface types by assignability (the
+// latter regressed when the matcher compared reflect types with ==).
+func TestCheckIsTypeMatcher(t *testing.T) {
+	isString := check.IsType[string]()
+	if isString("hello") == false {
+		t.Fatal("IsType[string] should match a string")
+	}
+	if isString(42) {
+		t.Fatal("IsType[string] should not match an int")
+	}
+	if isString(nil) {
+		t.Fatal("IsType[string] should not match nil")
+	}
+
+	isError := check.IsType[error]()
+	if isError(errors.New("boom")) == false {
+		t.Fatal("IsType[error] should match a value implementing error")
+	}
+	if isError("not an error") {
+		t.Fatal("IsType[error] should not match a non-error value")
+	}
+}

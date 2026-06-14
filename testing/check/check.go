@@ -32,7 +32,9 @@ type Source interface {
 	Records() []Record
 }
 
-// Matcher is a value predicate.
+// Matcher is a value predicate. It narrows a stubbed call to matching requests via
+// the unit harness's OnCall(...).Where(matcher); the constructors below build common
+// matchers.
 type Matcher func(any) bool
 
 // Anything matches any value.
@@ -44,10 +46,16 @@ func MatchedBy(f func(any) bool) Matcher { return f }
 // Equals matches a value deeply equal to want.
 func Equals(want any) Matcher { return func(got any) bool { return reflect.DeepEqual(got, want) } }
 
-// IsType matches a value whose dynamic type is V.
+// IsType matches a value assignable to type V. V may be a concrete type (exact
+// dynamic-type match) or an interface (any value implementing it).
 func IsType[V any]() Matcher {
 	want := reflect.TypeOf(new(V)).Elem()
-	return func(got any) bool { return got != nil && reflect.TypeOf(got) == want }
+	return func(got any) bool {
+		if got == nil {
+			return false
+		}
+		return reflect.TypeOf(got).AssignableTo(want)
+	}
 }
 
 type cardinality int

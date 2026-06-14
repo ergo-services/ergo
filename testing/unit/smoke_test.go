@@ -68,6 +68,19 @@ func TestSmokeNegative(t *testing.T) {
 	a.ShouldSend().To(gen.Atom("client")).None().Assert()
 }
 
+// OnCall(...).Where(matcher) selects the responding stub by request content. The
+// non-matching stub is skipped even though it is registered last, proving Where is
+// evaluated against the actual request.
+func TestSmokeCallWhereMatcher(t *testing.T) {
+	a, err := unit.Spawn(t, factorySample, gen.ProcessOptions{})
+	check.NoError(t, err)
+	a.OnCall(gen.Atom("backend")).Where(check.Equals("q")).Respond("OK")
+	a.OnCall(gen.Atom("backend")).Where(check.MatchedBy(func(r any) bool { return r == "nomatch" })).Respond("WRONG")
+	a.SendMessage(gen.PID{}, "ping")
+	a.ShouldSend().To(gen.Atom("client")).Message("OK").Once().Assert()
+	a.ShouldSend().To(gen.Atom("client")).Message("WRONG").None().Assert()
+}
+
 // the call into the actor resolves the actor's reply
 func TestSmokeCall(t *testing.T) {
 	a, _ := unit.Spawn(t, factorySample, gen.ProcessOptions{})
@@ -83,6 +96,62 @@ func TestSmokeSpawnArtifact(t *testing.T) {
 	rec, ok := a.ShouldSpawn().Capture()
 	check.True(t, ok)
 	a.ShouldSend().To(gen.Atom("mgr")).Message(rec.Child).Once().Assert()
+}
+
+// artifacts: CreateAlias, RegisterEvent, RemoteSpawn, SpawnMeta now produce records
+type artifactor struct{ act.Actor }
+
+func factoryArtifactor() gen.ProcessBehavior { return &artifactor{} }
+
+func (s *artifactor) HandleMessage(from gen.PID, message any) error {
+	switch message {
+	case "create-alias":
+		s.CreateAlias()
+	case "delete-alias":
+		s.DeleteAlias(gen.Alias{})
+	case "register-event":
+		s.RegisterEvent(gen.Atom("evt"), gen.EventOptions{})
+	case "unregister-event":
+		s.UnregisterEvent(gen.Atom("evt"))
+	case "remote-spawn":
+		s.RemoteSpawn(gen.Atom("peer@host"), gen.Atom("worker"), gen.ProcessOptions{})
+	case "remote-spawn-register":
+		s.RemoteSpawnRegister(gen.Atom("peer@host"), gen.Atom("worker"), gen.Atom("w1"), gen.ProcessOptions{})
+	}
+	return nil
+}
+
+func TestSmokeCreateAliasRecord(t *testing.T) {
+	a, err := unit.Spawn(t, factoryArtifactor, gen.ProcessOptions{})
+	check.NoError(t, err)
+	a.SendMessage(gen.PID{}, "create-alias")
+	a.ShouldCreateAlias().From(a.PID()).Once().Assert()
+}
+
+func TestSmokeDeleteAliasRecord(t *testing.T) {
+	a, _ := unit.Spawn(t, factoryArtifactor, gen.ProcessOptions{})
+	a.SendMessage(gen.PID{}, "delete-alias")
+	a.ShouldDeleteAlias().From(a.PID()).Once().Assert()
+}
+
+func TestSmokeRegisterEventRecord(t *testing.T) {
+	a, _ := unit.Spawn(t, factoryArtifactor, gen.ProcessOptions{})
+	a.SendMessage(gen.PID{}, "register-event")
+	a.ShouldRegisterEvent().From(a.PID()).Name(gen.Atom("evt")).Once().Assert()
+}
+
+func TestSmokeUnregisterEventRecord(t *testing.T) {
+	a, _ := unit.Spawn(t, factoryArtifactor, gen.ProcessOptions{})
+	a.SendMessage(gen.PID{}, "unregister-event")
+	a.ShouldUnregisterEvent().From(a.PID()).Name(gen.Atom("evt")).Once().Assert()
+}
+
+func TestSmokeRemoteSpawnRecord(t *testing.T) {
+	a, _ := unit.Spawn(t, factoryArtifactor, gen.ProcessOptions{})
+	a.SendMessage(gen.PID{}, "remote-spawn")
+	a.ShouldRemoteSpawn().From(a.PID()).To(gen.Atom("peer@host")).Name(gen.Atom("worker")).Once().Assert()
+	a.SendMessage(gen.PID{}, "remote-spawn-register")
+	a.ShouldRemoteSpawn().To(gen.Atom("peer@host")).Register(gen.Atom("w1")).Once().Assert()
 }
 
 // abnormal return terminates the actor with the reason

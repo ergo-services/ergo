@@ -60,6 +60,92 @@ func (r Spawned) String() string {
 	return fmt.Sprintf("Spawned(parent=%s child=%s register=%s err=%v)", r.Parent, r.Child, r.Register, r.Error)
 }
 
+// RemoteSpawned is a process spawned (or attempted) on a remote node by name
+// (egress). Node is the target node, Name the remote factory name, Register the
+// name to register the child under (empty for a plain RemoteSpawn). On failure
+// Child is the zero PID and Error is set.
+type RemoteSpawned struct {
+	Parent   gen.PID
+	Node     gen.Atom
+	Name     gen.Atom
+	Register gen.Atom
+	Child    gen.PID
+	Options  gen.ProcessOptions
+	Error    error
+}
+
+func (RemoteSpawned) Kind() string { return "remote_spawned" }
+func (r RemoteSpawned) String() string {
+	return fmt.Sprintf("RemoteSpawned(parent=%s node=%s name=%s register=%s child=%s err=%v)",
+		r.Parent, r.Node, r.Name, r.Register, r.Child, r.Error)
+}
+
+// MetaSpawned is a meta process spawned (or attempted) by a process (egress). On
+// failure Alias is the zero alias and Error is set.
+type MetaSpawned struct {
+	Parent gen.PID
+	Alias  gen.Alias
+	Error  error
+}
+
+func (MetaSpawned) Kind() string { return "meta_spawned" }
+func (r MetaSpawned) String() string {
+	return fmt.Sprintf("MetaSpawned(parent=%s alias=%s err=%v)", r.Parent, r.Alias, r.Error)
+}
+
+// AliasCreated is an alias created (or attempted) by a process via CreateAlias
+// (egress). On failure Alias is the zero alias and Error is set.
+type AliasCreated struct {
+	PID   gen.PID
+	Alias gen.Alias
+	Error error
+}
+
+func (AliasCreated) Kind() string { return "alias_created" }
+func (r AliasCreated) String() string {
+	return fmt.Sprintf("AliasCreated(pid=%s alias=%s err=%v)", r.PID, r.Alias, r.Error)
+}
+
+// AliasDeleted is an alias removed (or attempted) by a process via DeleteAlias
+// (egress).
+type AliasDeleted struct {
+	PID   gen.PID
+	Alias gen.Alias
+	Error error
+}
+
+func (AliasDeleted) Kind() string { return "alias_deleted" }
+func (r AliasDeleted) String() string {
+	return fmt.Sprintf("AliasDeleted(pid=%s alias=%s err=%v)", r.PID, r.Alias, r.Error)
+}
+
+// EventRegistered is an event producer registered (or attempted) by a process via
+// RegisterEvent (egress). Ref is the producer token returned on success.
+type EventRegistered struct {
+	PID   gen.PID
+	Name  gen.Atom
+	Ref   gen.Ref
+	Error error
+}
+
+func (EventRegistered) Kind() string { return "event_registered" }
+func (r EventRegistered) String() string {
+	return fmt.Sprintf("EventRegistered(pid=%s name=%s err=%v)", r.PID, r.Name, r.Error)
+}
+
+// EventUnregistered is an event producer removed (or attempted) by a process via
+// UnregisterEvent (egress).
+type EventUnregistered struct {
+	PID   gen.PID
+	Name  gen.Atom
+	Error error
+}
+
+func (EventUnregistered) Kind() string { return "event_unregistered" }
+func (r EventUnregistered) String() string {
+	return fmt.Sprintf("EventUnregistered(pid=%s name=%s err=%v)", r.PID, r.Name, r.Error)
+}
+
 // Forwarded is a message handed (or attempted) to another process via Forward,
 // observed at the forwarder (egress). Used by act.Pool (round-robin) and
 // act.Router (by-name routing). By is the forwarder, To the target, From the

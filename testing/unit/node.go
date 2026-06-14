@@ -146,18 +146,22 @@ func (n *mockNode) registerProc(e *procEntry) {
 	}
 }
 
-func (n *mockNode) routeSpawnMeta(behavior gen.MetaBehavior) (gen.Alias, error) {
-	if a, err, ok := n.stubs.resolveSpawnMeta(behavior); ok {
-		return a, err
+func (n *mockNode) routeSpawnMeta(from gen.PID, behavior gen.MetaBehavior) (gen.Alias, error) {
+	alias, err, ok := n.stubs.resolveSpawnMeta(behavior)
+	if ok == false {
+		alias = n.synthAlias()
 	}
-	return n.synthAlias(), nil
+	n.rec.Put(check.MetaSpawned{Parent: from, Alias: alias, Error: err})
+	return alias, err
 }
 
-func (n *mockNode) routeRemoteSpawn(node, name gen.Atom) (gen.PID, error) {
-	if pid, err, ok := n.stubs.resolveRemoteSpawn(node, name); ok {
-		return pid, err
+func (n *mockNode) routeRemoteSpawn(from gen.PID, node, name, register gen.Atom, options gen.ProcessOptions) (gen.PID, error) {
+	pid, err, ok := n.stubs.resolveRemoteSpawn(node, name)
+	if ok == false {
+		pid = n.synthPID()
 	}
-	return n.synthPID(), nil
+	n.rec.Put(check.RemoteSpawned{Parent: from, Node: node, Name: name, Register: register, Child: pid, Options: options, Error: err})
+	return pid, err
 }
 
 func (n *mockNode) routeSendExit(from, to gen.PID, reason error) error {
@@ -201,18 +205,30 @@ func (n *mockNode) routeForward(by, to, from gen.PID, message any) error {
 	return err
 }
 
-func (n *mockNode) routeCreateAlias() (gen.Alias, error) {
-	if a, err, ok := n.stubs.resolveCreateAlias(); ok {
-		return a, err
+func (n *mockNode) routeCreateAlias(from gen.PID) (gen.Alias, error) {
+	alias, err, ok := n.stubs.resolveCreateAlias()
+	if ok == false {
+		alias = n.synthAlias()
 	}
-	return n.synthAlias(), nil
+	n.rec.Put(check.AliasCreated{PID: from, Alias: alias, Error: err})
+	return alias, err
+}
+func (n *mockNode) routeDeleteAlias(from gen.PID, alias gen.Alias, err error) error {
+	n.rec.Put(check.AliasDeleted{PID: from, Alias: alias, Error: err})
+	return err
 }
 
-func (n *mockNode) routeRegisterEvent(name gen.Atom) (gen.Ref, error) {
-	if ref, err, ok := n.stubs.resolveRegisterEvent(name); ok {
-		return ref, err
+func (n *mockNode) routeRegisterEvent(from gen.PID, name gen.Atom) (gen.Ref, error) {
+	ref, err, ok := n.stubs.resolveRegisterEvent(name)
+	if ok == false {
+		ref = n.synthRef()
 	}
-	return n.synthRef(), nil
+	n.rec.Put(check.EventRegistered{PID: from, Name: name, Ref: ref, Error: err})
+	return ref, err
+}
+func (n *mockNode) routeUnregisterEvent(from gen.PID, name gen.Atom, err error) error {
+	n.rec.Put(check.EventUnregistered{PID: from, Name: name, Error: err})
+	return err
 }
 
 // schedule records a delayed send and returns a CancelFunc; the harness delivers
@@ -447,6 +463,14 @@ func (n *mockNode) Kill(pid gen.PID) error {
 	if n.ov.kill != nil {
 		return n.ov.kill(pid)
 	}
+	e, ok := n.procs[pid]
+	if ok == false {
+		return gen.ErrProcessUnknown
+	}
+	if e.name != "" {
+		delete(n.names, e.name)
+	}
+	delete(n.procs, pid)
 	return nil
 }
 
@@ -456,25 +480,49 @@ func (n *mockNode) RegisterName(name gen.Atom, pid gen.PID) error {
 	if n.ov.registerName != nil {
 		return n.ov.registerName(name, pid)
 	}
+	if len(name) > 255 {
+		return gen.ErrAtomTooLong
+	}
+	e, ok := n.procs[pid]
+	if ok == false {
+		return gen.ErrProcessUnknown
+	}
+	if e.name != "" {
+		return gen.ErrTaken // a process may hold only one registered name
+	}
+	if _, taken := n.names[name]; taken {
+		return gen.ErrTaken
+	}
+	n.names[name] = pid
+	e.name = name
 	return nil
 }
 func (n *mockNode) UnregisterName(name gen.Atom) (gen.PID, error) {
 	if n.ov.unregisterName != nil {
 		return n.ov.unregisterName(name)
 	}
-	return gen.PID{}, nil
+	pid, ok := n.names[name]
+	if ok == false {
+		return gen.PID{}, gen.ErrNameUnknown
+	}
+	delete(n.names, name)
+	if e, ok := n.procs[pid]; ok {
+		e.name = ""
+	}
+	return pid, nil
 }
 
 // events
 
 func (n *mockNode) RegisterEvent(name gen.Atom, options gen.EventOptions) (gen.Ref, error) {
-	return n.routeRegisterEvent(name)
+	return n.routeRegisterEvent(n.nodePID(), name)
 }
 func (n *mockNode) UnregisterEvent(name gen.Atom) error {
+	var err error
 	if n.ov.unregisterEvent != nil {
-		return n.ov.unregisterEvent(name)
+		err = n.ov.unregisterEvent(name)
 	}
-	return nil
+	return n.routeUnregisterEvent(n.nodePID(), name, err)
 }
 func (n *mockNode) EventInfo(event gen.Event) (gen.EventInfo, error) {
 	if n.ov.eventInfo != nil {

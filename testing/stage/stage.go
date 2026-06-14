@@ -4,6 +4,12 @@
 // each process's gen.Process (egress) via node.NodeOptionsExtra. Assertions use
 // the shared testing/check grammar. Unlike testing/unit (mock node, single
 // actor), stage runs the actual runtime.
+//
+// Plane contract: this harness records both ingress (Delivered, Down, Exit, Event,
+// and the Wire* subscriptions) and egress. It does NOT produce Terminated (observe a
+// process stopping via a Down/Exit on a monitor or link), ScheduledSend (timers run
+// for real; observe the eventual Sent/Delivered), or Logged (the node logger is
+// disabled). Those three are testing/unit-only.
 package stage
 
 import (
@@ -26,17 +32,35 @@ var frameworkVersion = gen.Version{Name: "ergo.services/stage", Release: "test"}
 
 var stageSeq atomic.Uint64
 
-// Stage owns a set of live nodes and tears them down on test cleanup.
-type Stage struct {
-	t     *testing.T
-	id    uint64
-	mu    sync.Mutex
-	nodes []*Node
+// StageOptions configures a stage.
+type StageOptions struct {
+	// Registrar overrides the default in-memory registrar. When nil, the stage
+	// uses a private in-memory registry (no ports, isolated from other stages, so
+	// any number of stages run in parallel without contending for a registrar
+	// port). Supply a factory (e.g. etcd) for cluster scenarios; it is called once
+	// per node, so each node gets its own registrar instance.
+	Registrar func() (gen.Registrar, error)
 }
 
-// New creates a stage and registers teardown via t.Cleanup.
-func New(t *testing.T) *Stage {
+// Stage owns a set of live nodes and tears them down on test cleanup.
+type Stage struct {
+	t            *testing.T
+	id           uint64
+	mu           sync.Mutex
+	nodes        []*Node
+	newRegistrar func() (gen.Registrar, error)
+}
+
+// New creates a stage and registers teardown via t.Cleanup. With no options the
+// stage uses a private in-memory registrar shared by its nodes.
+func New(t *testing.T, opts ...StageOptions) *Stage {
 	s := &Stage{t: t, id: stageSeq.Add(1)}
+	if len(opts) > 0 && opts[0].Registrar != nil {
+		s.newRegistrar = opts[0].Registrar
+	} else {
+		store := newMemStore()
+		s.newRegistrar = func() (gen.Registrar, error) { return &memRegistrar{store: store}, nil }
+	}
 	t.Cleanup(s.stop)
 	return s
 }
@@ -106,6 +130,12 @@ func (s *Stage) Node(name string, opts ...NodeOptions) *Node {
 	} else {
 		no.Applications = o.Applications
 	}
+
+	reg, err := s.newRegistrar()
+	if err != nil {
+		s.t.Fatalf("stage: create registrar for node %s: %s", name, err)
+	}
+	no.Network.Registrar = reg
 
 	// unique across parallel test processes (pid) and within a process (seq)
 	r := check.NewRecorder()
@@ -753,8 +783,50 @@ func (p *recordProcess) SendImportant(to any, message any) error {
 	return err
 }
 
+func (p *recordProcess) SendExit(to gen.PID, reason error) error {
+	err := p.Process.SendExit(to, reason)
+	p.rec.Put(check.SentExit{From: p.Process.PID(), To: to, Reason: reason})
+	return err
+}
+
 func (p *recordProcess) Call(to any, request any) (any, error) {
 	response, err := p.Process.Call(to, request)
+	p.rec.Put(check.Called{From: p.Process.PID(), To: to, Request: request, Response: response, Error: err})
+	return response, err
+}
+
+func (p *recordProcess) CallWithTimeout(to any, request any, timeout int) (any, error) {
+	response, err := p.Process.CallWithTimeout(to, request, timeout)
+	p.rec.Put(check.Called{From: p.Process.PID(), To: to, Request: request, Response: response, Error: err})
+	return response, err
+}
+
+func (p *recordProcess) CallWithPriority(to any, request any, priority gen.MessagePriority) (any, error) {
+	response, err := p.Process.CallWithPriority(to, request, priority)
+	p.rec.Put(check.Called{From: p.Process.PID(), To: to, Request: request, Response: response, Error: err})
+	return response, err
+}
+
+func (p *recordProcess) CallImportant(to any, request any) (any, error) {
+	response, err := p.Process.CallImportant(to, request)
+	p.rec.Put(check.Called{From: p.Process.PID(), To: to, Request: request, Response: response, Error: err})
+	return response, err
+}
+
+func (p *recordProcess) CallPID(to gen.PID, request any, timeout int) (any, error) {
+	response, err := p.Process.CallPID(to, request, timeout)
+	p.rec.Put(check.Called{From: p.Process.PID(), To: to, Request: request, Response: response, Error: err})
+	return response, err
+}
+
+func (p *recordProcess) CallProcessID(to gen.ProcessID, request any, timeout int) (any, error) {
+	response, err := p.Process.CallProcessID(to, request, timeout)
+	p.rec.Put(check.Called{From: p.Process.PID(), To: to, Request: request, Response: response, Error: err})
+	return response, err
+}
+
+func (p *recordProcess) CallAlias(to gen.Alias, request any, timeout int) (any, error) {
+	response, err := p.Process.CallAlias(to, request, timeout)
 	p.rec.Put(check.Called{From: p.Process.PID(), To: to, Request: request, Response: response, Error: err})
 	return response, err
 }
@@ -769,6 +841,48 @@ func (p *recordProcess) SpawnRegister(register gen.Atom, factory gen.ProcessFact
 	pid, err := p.Process.SpawnRegister(register, factory, options, args...)
 	p.rec.Put(check.Spawned{Parent: p.Process.PID(), Child: pid, Register: register, Factory: factory, Options: options, Error: err})
 	return pid, err
+}
+
+func (p *recordProcess) RemoteSpawn(node gen.Atom, name gen.Atom, options gen.ProcessOptions, args ...any) (gen.PID, error) {
+	pid, err := p.Process.RemoteSpawn(node, name, options, args...)
+	p.rec.Put(check.RemoteSpawned{Parent: p.Process.PID(), Node: node, Name: name, Child: pid, Options: options, Error: err})
+	return pid, err
+}
+
+func (p *recordProcess) RemoteSpawnRegister(node gen.Atom, name gen.Atom, register gen.Atom, options gen.ProcessOptions, args ...any) (gen.PID, error) {
+	pid, err := p.Process.RemoteSpawnRegister(node, name, register, options, args...)
+	p.rec.Put(check.RemoteSpawned{Parent: p.Process.PID(), Node: node, Name: name, Register: register, Child: pid, Options: options, Error: err})
+	return pid, err
+}
+
+func (p *recordProcess) SpawnMeta(behavior gen.MetaBehavior, options gen.MetaOptions) (gen.Alias, error) {
+	alias, err := p.Process.SpawnMeta(behavior, options)
+	p.rec.Put(check.MetaSpawned{Parent: p.Process.PID(), Alias: alias, Error: err})
+	return alias, err
+}
+
+func (p *recordProcess) CreateAlias() (gen.Alias, error) {
+	alias, err := p.Process.CreateAlias()
+	p.rec.Put(check.AliasCreated{PID: p.Process.PID(), Alias: alias, Error: err})
+	return alias, err
+}
+
+func (p *recordProcess) DeleteAlias(alias gen.Alias) error {
+	err := p.Process.DeleteAlias(alias)
+	p.rec.Put(check.AliasDeleted{PID: p.Process.PID(), Alias: alias, Error: err})
+	return err
+}
+
+func (p *recordProcess) RegisterEvent(name gen.Atom, options gen.EventOptions) (gen.Ref, error) {
+	ref, err := p.Process.RegisterEvent(name, options)
+	p.rec.Put(check.EventRegistered{PID: p.Process.PID(), Name: name, Ref: ref, Error: err})
+	return ref, err
+}
+
+func (p *recordProcess) UnregisterEvent(name gen.Atom) error {
+	err := p.Process.UnregisterEvent(name)
+	p.rec.Put(check.EventUnregistered{PID: p.Process.PID(), Name: name, Error: err})
+	return err
 }
 
 func (p *recordProcess) Forward(to gen.PID, message *gen.MailboxMessage, priority gen.MessagePriority) error {

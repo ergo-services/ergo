@@ -98,6 +98,162 @@ func (a *SpawnAssert) Error(target error) *SpawnAssert {
 	return a
 }
 
+// RemoteSpawnAssert asserts over remote spawns (egress).
+type RemoteSpawnAssert struct{ *Assertion[RemoteSpawned] }
+
+// ShouldRemoteSpawn starts a remote-spawn assertion on this node.
+func (a *Asserter) ShouldRemoteSpawn() *RemoteSpawnAssert {
+	return &RemoteSpawnAssert{For[RemoteSpawned](a.t, a.rec)}
+}
+func (a *RemoteSpawnAssert) From(parent gen.PID) *RemoteSpawnAssert {
+	a.Where(func(r RemoteSpawned) bool { return r.Parent == parent })
+	return a
+}
+func (a *RemoteSpawnAssert) To(node gen.Atom) *RemoteSpawnAssert {
+	a.Where(func(r RemoteSpawned) bool { return r.Node == node })
+	return a
+}
+func (a *RemoteSpawnAssert) Name(name gen.Atom) *RemoteSpawnAssert {
+	a.Where(func(r RemoteSpawned) bool { return r.Name == name })
+	return a
+}
+func (a *RemoteSpawnAssert) Register(name gen.Atom) *RemoteSpawnAssert {
+	a.Where(func(r RemoteSpawned) bool { return r.Register == name })
+	return a
+}
+func (a *RemoteSpawnAssert) Child(pid gen.PID) *RemoteSpawnAssert {
+	a.Where(func(r RemoteSpawned) bool { return r.Child == pid })
+	return a
+}
+func (a *RemoteSpawnAssert) Error(target error) *RemoteSpawnAssert {
+	a.Where(func(r RemoteSpawned) bool { return r.Error == target })
+	return a
+}
+func (a *RemoteSpawnAssert) ErrorIs(target error) *RemoteSpawnAssert {
+	a.Where(func(r RemoteSpawned) bool { return errors.Is(r.Error, target) })
+	return a
+}
+
+// MetaSpawnAssert asserts over meta-process spawns (egress).
+type MetaSpawnAssert struct{ *Assertion[MetaSpawned] }
+
+// ShouldSpawnMeta starts a meta-spawn assertion on this node.
+func (a *Asserter) ShouldSpawnMeta() *MetaSpawnAssert {
+	return &MetaSpawnAssert{For[MetaSpawned](a.t, a.rec)}
+}
+func (a *MetaSpawnAssert) From(parent gen.PID) *MetaSpawnAssert {
+	a.Where(func(r MetaSpawned) bool { return r.Parent == parent })
+	return a
+}
+func (a *MetaSpawnAssert) Alias(alias gen.Alias) *MetaSpawnAssert {
+	a.Where(func(r MetaSpawned) bool { return r.Alias == alias })
+	return a
+}
+func (a *MetaSpawnAssert) Error(target error) *MetaSpawnAssert {
+	a.Where(func(r MetaSpawned) bool { return r.Error == target })
+	return a
+}
+func (a *MetaSpawnAssert) ErrorIs(target error) *MetaSpawnAssert {
+	a.Where(func(r MetaSpawned) bool { return errors.Is(r.Error, target) })
+	return a
+}
+
+// AliasCreatedAssert asserts over CreateAlias (egress).
+type AliasCreatedAssert struct{ *Assertion[AliasCreated] }
+
+// ShouldCreateAlias starts a create-alias assertion on this node.
+func (a *Asserter) ShouldCreateAlias() *AliasCreatedAssert {
+	return &AliasCreatedAssert{For[AliasCreated](a.t, a.rec)}
+}
+func (a *AliasCreatedAssert) From(pid gen.PID) *AliasCreatedAssert {
+	a.Where(func(r AliasCreated) bool { return r.PID == pid })
+	return a
+}
+func (a *AliasCreatedAssert) Alias(alias gen.Alias) *AliasCreatedAssert {
+	a.Where(func(r AliasCreated) bool { return r.Alias == alias })
+	return a
+}
+func (a *AliasCreatedAssert) Error(target error) *AliasCreatedAssert {
+	a.Where(func(r AliasCreated) bool { return r.Error == target })
+	return a
+}
+func (a *AliasCreatedAssert) ErrorIs(target error) *AliasCreatedAssert {
+	a.Where(func(r AliasCreated) bool { return errors.Is(r.Error, target) })
+	return a
+}
+
+// AliasDeletedAssert asserts over DeleteAlias (egress).
+type AliasDeletedAssert struct{ *Assertion[AliasDeleted] }
+
+// ShouldDeleteAlias starts a delete-alias assertion on this node.
+func (a *Asserter) ShouldDeleteAlias() *AliasDeletedAssert {
+	return &AliasDeletedAssert{For[AliasDeleted](a.t, a.rec)}
+}
+func (a *AliasDeletedAssert) From(pid gen.PID) *AliasDeletedAssert {
+	a.Where(func(r AliasDeleted) bool { return r.PID == pid })
+	return a
+}
+func (a *AliasDeletedAssert) Alias(alias gen.Alias) *AliasDeletedAssert {
+	a.Where(func(r AliasDeleted) bool { return r.Alias == alias })
+	return a
+}
+func (a *AliasDeletedAssert) Error(target error) *AliasDeletedAssert {
+	a.Where(func(r AliasDeleted) bool { return r.Error == target })
+	return a
+}
+func (a *AliasDeletedAssert) ErrorIs(target error) *AliasDeletedAssert {
+	a.Where(func(r AliasDeleted) bool { return errors.Is(r.Error, target) })
+	return a
+}
+
+// EventRegisteredAssert asserts over RegisterEvent (egress).
+type EventRegisteredAssert struct{ *Assertion[EventRegistered] }
+
+// ShouldRegisterEvent starts a register-event assertion on this node.
+func (a *Asserter) ShouldRegisterEvent() *EventRegisteredAssert {
+	return &EventRegisteredAssert{For[EventRegistered](a.t, a.rec)}
+}
+func (a *EventRegisteredAssert) From(pid gen.PID) *EventRegisteredAssert {
+	a.Where(func(r EventRegistered) bool { return r.PID == pid })
+	return a
+}
+func (a *EventRegisteredAssert) Name(name gen.Atom) *EventRegisteredAssert {
+	a.Where(func(r EventRegistered) bool { return r.Name == name })
+	return a
+}
+func (a *EventRegisteredAssert) Error(target error) *EventRegisteredAssert {
+	a.Where(func(r EventRegistered) bool { return r.Error == target })
+	return a
+}
+func (a *EventRegisteredAssert) ErrorIs(target error) *EventRegisteredAssert {
+	a.Where(func(r EventRegistered) bool { return errors.Is(r.Error, target) })
+	return a
+}
+
+// EventUnregisteredAssert asserts over UnregisterEvent (egress).
+type EventUnregisteredAssert struct{ *Assertion[EventUnregistered] }
+
+// ShouldUnregisterEvent starts an unregister-event assertion on this node.
+func (a *Asserter) ShouldUnregisterEvent() *EventUnregisteredAssert {
+	return &EventUnregisteredAssert{For[EventUnregistered](a.t, a.rec)}
+}
+func (a *EventUnregisteredAssert) From(pid gen.PID) *EventUnregisteredAssert {
+	a.Where(func(r EventUnregistered) bool { return r.PID == pid })
+	return a
+}
+func (a *EventUnregisteredAssert) Name(name gen.Atom) *EventUnregisteredAssert {
+	a.Where(func(r EventUnregistered) bool { return r.Name == name })
+	return a
+}
+func (a *EventUnregisteredAssert) Error(target error) *EventUnregisteredAssert {
+	a.Where(func(r EventUnregistered) bool { return r.Error == target })
+	return a
+}
+func (a *EventUnregisteredAssert) ErrorIs(target error) *EventUnregisteredAssert {
+	a.Where(func(r EventUnregistered) bool { return errors.Is(r.Error, target) })
+	return a
+}
+
 // ForwardAssert asserts over messages forwarded by a process (egress).
 type ForwardAssert struct{ *Assertion[Forwarded] }
 
@@ -531,6 +687,28 @@ func (x *TerminateAssert) Reason(target error) *TerminateAssert {
 }
 func (x *TerminateAssert) ReasonIs(target error) *TerminateAssert {
 	x.Where(func(r Terminated) bool { return errors.Is(r.Reason, target) })
+	return x
+}
+
+// Normally asserts the actor terminated for an orderly reason: gen.TerminateReasonNormal
+// or gen.TerminateReasonShutdown (a supervisor-initiated stop). Use Reason/ReasonIs for an
+// exact reason match.
+func (x *TerminateAssert) Normally() *TerminateAssert {
+	x.Where(func(r Terminated) bool {
+		return errors.Is(r.Reason, gen.TerminateReasonNormal) ||
+			errors.Is(r.Reason, gen.TerminateReasonShutdown)
+	})
+	return x
+}
+
+// Abnormally asserts the actor terminated for any reason other than the orderly
+// gen.TerminateReasonNormal / gen.TerminateReasonShutdown (a crash, panic, kill, or
+// custom error reason).
+func (x *TerminateAssert) Abnormally() *TerminateAssert {
+	x.Where(func(r Terminated) bool {
+		return errors.Is(r.Reason, gen.TerminateReasonNormal) == false &&
+			errors.Is(r.Reason, gen.TerminateReasonShutdown) == false
+	})
 	return x
 }
 

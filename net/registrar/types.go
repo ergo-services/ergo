@@ -13,6 +13,12 @@ const (
 	defaultRegistrarPort uint16        = 4499
 	defaultKeepAlive     time.Duration = 3 * time.Second
 
+	// initial registration retries transient network errors (owner dying/promotion
+	// window) for this long before failing the node start. registration rejections
+	// (gen.ErrTaken and the like) are not retried.
+	registerRetryTimeout  time.Duration = 3 * time.Second
+	registerRetryInterval time.Duration = 50 * time.Millisecond
+
 	protoVersion       byte = 1
 	protoRegister      byte = 44
 	protoRegisterReply byte = 45

@@ -84,7 +84,7 @@ func newMockProcess(node *mockNode, register gen.Atom, o gen.ProcessOptions) *mo
 		parent:      parent,
 		leader:      leader,
 		name:        register,
-		state:       gen.ProcessStateRunning,
+		state:       gen.ProcessStateInit, // Init during ProcessInit; driver advances it
 		log:         newMockLog(node, pid, level),
 		env:         env,
 		mailbox:     *mailbox,
@@ -95,10 +95,20 @@ func newMockProcess(node *mockNode, register gen.Atom, o gen.ProcessOptions) *mo
 	}
 }
 
-// stateIR reports whether the process is in Init or Running state, the gate the real
-// process applies to its Set* and Send methods (ErrNotAllowed otherwise).
+// stateIR reports Init or Running, the gate the real process applies to Set*,
+// Spawn, Call, Link, Monitor, and the response/event/delayed sends (ErrNotAllowed
+// otherwise).
 func (p *mockProcess) stateIR() bool {
 	return p.state == gen.ProcessStateInit || p.state == gen.ProcessStateRunning
+}
+
+// stateIRT reports Init, Running, or Terminated, the gate the real process applies
+// to the immediate Send family and SendExit, since a terminating process may still
+// send (node/process.go SendPID/SendExit).
+func (p *mockProcess) stateIRT() bool {
+	return p.state == gen.ProcessStateInit ||
+		p.state == gen.ProcessStateRunning ||
+		p.state == gen.ProcessStateTerminated
 }
 
 // msgOptions builds the effective gen.MessageOptions from the current state, exactly
@@ -391,12 +401,24 @@ func (p *mockProcess) RegisterName(name gen.Atom) error {
 	if p.ov.registerName != nil {
 		return p.ov.registerName(name)
 	}
+	if p.stateIR() == false {
+		return gen.ErrNotAllowed
+	}
+	if err := p.node.RegisterName(name, p.pid); err != nil {
+		return err
+	}
 	p.name = name
 	return nil
 }
 func (p *mockProcess) UnregisterName() error {
 	if p.ov.unregisterName != nil {
 		return p.ov.unregisterName()
+	}
+	if p.stateIR() == false {
+		return gen.ErrNotAllowed
+	}
+	if _, err := p.node.UnregisterName(p.name); err != nil {
+		return err
 	}
 	p.name = ""
 	return nil
@@ -405,77 +427,123 @@ func (p *mockProcess) UnregisterName() error {
 // aliases / events (safe-synthetic / stub)
 
 func (p *mockProcess) CreateAlias() (gen.Alias, error) {
-	a, err := p.node.routeCreateAlias()
+	if p.stateIR() == false {
+		return gen.Alias{}, gen.ErrNotAllowed
+	}
+	a, err := p.node.routeCreateAlias(p.pid)
 	if err == nil {
 		p.aliases = append(p.aliases, a)
 	}
 	return a, err
 }
 func (p *mockProcess) DeleteAlias(alias gen.Alias) error {
-	if p.ov.deleteAlias != nil {
-		return p.ov.deleteAlias(alias)
+	if p.stateIR() == false {
+		return gen.ErrNotAllowed
 	}
-	return nil
+	var err error
+	if p.ov.deleteAlias != nil {
+		err = p.ov.deleteAlias(alias)
+	}
+	return p.node.routeDeleteAlias(p.pid, alias, err)
 }
 func (p *mockProcess) RegisterEvent(name gen.Atom, opts gen.EventOptions) (gen.Ref, error) {
-	ref, err := p.node.routeRegisterEvent(name)
+	if p.stateIR() == false {
+		return gen.Ref{}, gen.ErrNotAllowed
+	}
+	ref, err := p.node.routeRegisterEvent(p.pid, name)
 	if err == nil {
 		p.events = append(p.events, name)
 	}
 	return ref, err
 }
 func (p *mockProcess) UnregisterEvent(name gen.Atom) error {
-	if p.ov.unregisterEvent != nil {
-		return p.ov.unregisterEvent(name)
+	if p.stateIR() == false {
+		return gen.ErrNotAllowed
 	}
-	return nil
+	var err error
+	if p.ov.unregisterEvent != nil {
+		err = p.ov.unregisterEvent(name)
+	}
+	return p.node.routeUnregisterEvent(p.pid, name, err)
 }
 
 // send (egress + fail-stub)
 
 func (p *mockProcess) Send(to any, message any) error {
+	if p.stateIRT() == false {
+		return gen.ErrNotAllowed
+	}
 	return p.node.routeSend(p.pid, to, message, p.msgOptions())
 }
 func (p *mockProcess) SendPID(to gen.PID, message any) error {
+	if p.stateIRT() == false {
+		return gen.ErrNotAllowed
+	}
 	return p.node.routeSend(p.pid, to, message, p.msgOptions())
 }
 func (p *mockProcess) SendProcessID(to gen.ProcessID, message any) error {
+	if p.stateIRT() == false {
+		return gen.ErrNotAllowed
+	}
 	return p.node.routeSend(p.pid, to, message, p.msgOptions())
 }
 func (p *mockProcess) SendAlias(to gen.Alias, message any) error {
+	if p.stateIRT() == false {
+		return gen.ErrNotAllowed
+	}
 	return p.node.routeSend(p.pid, to, message, p.msgOptions())
 }
 
 // SendWithPriority overrides the priority for this one send via local options,
 // without mutating process state (see audit.md: the save/restore idiom races).
+// The real process routes this through Send, so it shares Send's IRT gate.
 func (p *mockProcess) SendWithPriority(to any, message any, priority gen.MessagePriority) error {
+	if p.stateIRT() == false {
+		return gen.ErrNotAllowed
+	}
 	opts := p.msgOptions()
 	opts.Priority = priority
 	return p.node.routeSend(p.pid, to, message, opts)
 }
 
 // SendImportant forces the important-delivery flag for this one send via local
-// options, without mutating process state.
+// options, without mutating process state. Important delivery needs a round-trip
+// confirmation, so the real process gates it on Init|Running only (not Terminated).
 func (p *mockProcess) SendImportant(to any, message any) error {
+	if p.stateIR() == false {
+		return gen.ErrNotAllowed
+	}
 	opts := p.msgOptions()
 	opts.ImportantDelivery = true
 	return p.node.routeSend(p.pid, to, message, opts)
 }
 func (p *mockProcess) SendEvent(name gen.Atom, token gen.Ref, message any) error {
+	if p.stateIR() == false {
+		return gen.ErrNotAllowed
+	}
 	return p.node.routeSendEvent(p.pid, name, message, p.msgOptions())
 }
 
 // delayed sends (timers)
 
 func (p *mockProcess) SendAfter(to any, message any, after time.Duration) (gen.CancelFunc, error) {
+	if p.stateIR() == false {
+		return nil, gen.ErrNotAllowed
+	}
 	return p.node.schedule(p.pid, to, message, after, p.msgOptions()), nil
 }
 func (p *mockProcess) SendWithPriorityAfter(to any, message any, priority gen.MessagePriority, after time.Duration) (gen.CancelFunc, error) {
+	if p.stateIR() == false {
+		return nil, gen.ErrNotAllowed
+	}
 	opts := p.msgOptions()
 	opts.Priority = priority
 	return p.node.schedule(p.pid, to, message, after, opts), nil
 }
 func (p *mockProcess) SendExitAfter(to gen.PID, reason error, after time.Duration) (gen.CancelFunc, error) {
+	if p.stateIR() == false {
+		return nil, gen.ErrNotAllowed
+	}
 	return p.node.schedule(p.pid, to, gen.MessageExitPID{PID: p.pid, Reason: reason}, after, p.msgOptions()), nil
 }
 func (p *mockProcess) SendExitMetaAfter(meta gen.Alias, reason error, after time.Duration) (gen.CancelFunc, error) {
@@ -484,23 +552,40 @@ func (p *mockProcess) SendExitMetaAfter(meta gen.Alias, reason error, after time
 
 // exit
 
-func (p *mockProcess) SendExit(to gen.PID, reason error) error         { return p.node.routeSendExit(p.pid, to, reason) }
+func (p *mockProcess) SendExit(to gen.PID, reason error) error {
+	if p.stateIRT() == false {
+		return gen.ErrNotAllowed
+	}
+	return p.node.routeSendExit(p.pid, to, reason)
+}
 func (p *mockProcess) SendExitMeta(meta gen.Alias, reason error) error { return nil }
 
 // responses
 
 func (p *mockProcess) SendResponse(to gen.PID, ref gen.Ref, message any) error {
+	if p.stateIR() == false {
+		return gen.ErrNotAllowed
+	}
 	return p.node.routeSendResponse(p.pid, to, ref, message, p.msgOptions())
 }
 func (p *mockProcess) SendResponseImportant(to gen.PID, ref gen.Ref, message any) error {
+	if p.stateIR() == false {
+		return gen.ErrNotAllowed
+	}
 	opts := p.msgOptions()
 	opts.ImportantDelivery = true
 	return p.node.routeSendResponse(p.pid, to, ref, message, opts)
 }
 func (p *mockProcess) SendResponseError(to gen.PID, ref gen.Ref, err error) error {
+	if p.stateIR() == false {
+		return gen.ErrNotAllowed
+	}
 	return p.node.routeSendResponse(p.pid, to, ref, err, p.msgOptions())
 }
 func (p *mockProcess) SendResponseErrorImportant(to gen.PID, ref gen.Ref, err error) error {
+	if p.stateIR() == false {
+		return gen.ErrNotAllowed
+	}
 	opts := p.msgOptions()
 	opts.ImportantDelivery = true
 	return p.node.routeSendResponse(p.pid, to, ref, err, opts)
@@ -508,75 +593,229 @@ func (p *mockProcess) SendResponseErrorImportant(to gen.PID, ref gen.Ref, err er
 
 // calls (tier 3: strict stub)
 
-func (p *mockProcess) Call(to any, message any) (any, error) { return p.node.routeCall(p.pid, to, message) }
+func (p *mockProcess) Call(to any, message any) (any, error) {
+	if p.stateIR() == false {
+		return nil, gen.ErrNotAllowed
+	}
+	return p.node.routeCall(p.pid, to, message)
+}
 func (p *mockProcess) CallWithTimeout(to any, message any, timeout int) (any, error) {
+	if p.stateIR() == false {
+		return nil, gen.ErrNotAllowed
+	}
 	return p.node.routeCall(p.pid, to, message)
 }
 func (p *mockProcess) CallWithPriority(to any, message any, priority gen.MessagePriority) (any, error) {
+	if p.stateIR() == false {
+		return nil, gen.ErrNotAllowed
+	}
 	return p.node.routeCall(p.pid, to, message)
 }
 func (p *mockProcess) CallImportant(to any, message any) (any, error) {
+	if p.stateIR() == false {
+		return nil, gen.ErrNotAllowed
+	}
 	return p.node.routeCall(p.pid, to, message)
 }
 func (p *mockProcess) CallPID(to gen.PID, message any, timeout int) (any, error) {
+	if p.stateIR() == false {
+		return nil, gen.ErrNotAllowed
+	}
 	return p.node.routeCall(p.pid, to, message)
 }
 func (p *mockProcess) CallProcessID(to gen.ProcessID, message any, timeout int) (any, error) {
+	if p.stateIR() == false {
+		return nil, gen.ErrNotAllowed
+	}
 	return p.node.routeCall(p.pid, to, message)
 }
 func (p *mockProcess) CallAlias(to gen.Alias, message any, timeout int) (any, error) {
+	if p.stateIR() == false {
+		return nil, gen.ErrNotAllowed
+	}
 	return p.node.routeCall(p.pid, to, message)
 }
 
 // spawn (safe-synthetic / stub)
 
 func (p *mockProcess) Spawn(factory gen.ProcessFactory, options gen.ProcessOptions, args ...any) (gen.PID, error) {
+	if p.stateIR() == false {
+		return gen.PID{}, gen.ErrNotAllowed
+	}
 	return p.node.routeSpawn(p.pid, "", factory, options)
 }
 func (p *mockProcess) SpawnRegister(register gen.Atom, factory gen.ProcessFactory, options gen.ProcessOptions, args ...any) (gen.PID, error) {
+	if p.stateIR() == false {
+		return gen.PID{}, gen.ErrNotAllowed
+	}
 	return p.node.routeSpawn(p.pid, register, factory, options)
 }
 func (p *mockProcess) SpawnMeta(behavior gen.MetaBehavior, options gen.MetaOptions) (gen.Alias, error) {
-	return p.node.routeSpawnMeta(behavior)
+	if p.stateIR() == false {
+		return gen.Alias{}, gen.ErrNotAllowed
+	}
+	return p.node.routeSpawnMeta(p.pid, behavior)
 }
 func (p *mockProcess) RemoteSpawn(node gen.Atom, name gen.Atom, options gen.ProcessOptions, args ...any) (gen.PID, error) {
-	return p.node.routeRemoteSpawn(node, name)
+	if p.stateIR() == false {
+		return gen.PID{}, gen.ErrNotAllowed
+	}
+	return p.node.routeRemoteSpawn(p.pid, node, name, "", options)
 }
 func (p *mockProcess) RemoteSpawnRegister(node gen.Atom, name gen.Atom, register gen.Atom, options gen.ProcessOptions, args ...any) (gen.PID, error) {
-	return p.node.routeRemoteSpawn(node, name)
+	if p.stateIR() == false {
+		return gen.PID{}, gen.ErrNotAllowed
+	}
+	return p.node.routeRemoteSpawn(p.pid, node, name, register, options)
 }
 
 // links / monitors (egress + fail-stub)
 
-func (p *mockProcess) Link(target any) error                      { return p.node.routeLink(p.pid, target) }
-func (p *mockProcess) Unlink(target any) error                    { return p.node.routeUnlink(p.pid, target) }
-func (p *mockProcess) LinkPID(target gen.PID) error               { return p.node.routeLink(p.pid, target) }
-func (p *mockProcess) UnlinkPID(target gen.PID) error             { return p.node.routeUnlink(p.pid, target) }
-func (p *mockProcess) LinkProcessID(target gen.ProcessID) error   { return p.node.routeLink(p.pid, target) }
-func (p *mockProcess) UnlinkProcessID(target gen.ProcessID) error { return p.node.routeUnlink(p.pid, target) }
-func (p *mockProcess) LinkAlias(target gen.Alias) error           { return p.node.routeLink(p.pid, target) }
-func (p *mockProcess) UnlinkAlias(target gen.Alias) error         { return p.node.routeUnlink(p.pid, target) }
+func (p *mockProcess) Link(target any) error {
+	if p.stateIR() == false {
+		return gen.ErrNotAllowed
+	}
+	return p.node.routeLink(p.pid, target)
+}
+func (p *mockProcess) Unlink(target any) error {
+	if p.stateIR() == false {
+		return gen.ErrNotAllowed
+	}
+	return p.node.routeUnlink(p.pid, target)
+}
+func (p *mockProcess) LinkPID(target gen.PID) error {
+	if p.stateIR() == false {
+		return gen.ErrNotAllowed
+	}
+	return p.node.routeLink(p.pid, target)
+}
+func (p *mockProcess) UnlinkPID(target gen.PID) error {
+	if p.stateIR() == false {
+		return gen.ErrNotAllowed
+	}
+	return p.node.routeUnlink(p.pid, target)
+}
+func (p *mockProcess) LinkProcessID(target gen.ProcessID) error {
+	if p.stateIR() == false {
+		return gen.ErrNotAllowed
+	}
+	return p.node.routeLink(p.pid, target)
+}
+func (p *mockProcess) UnlinkProcessID(target gen.ProcessID) error {
+	if p.stateIR() == false {
+		return gen.ErrNotAllowed
+	}
+	return p.node.routeUnlink(p.pid, target)
+}
+func (p *mockProcess) LinkAlias(target gen.Alias) error {
+	if p.stateIR() == false {
+		return gen.ErrNotAllowed
+	}
+	return p.node.routeLink(p.pid, target)
+}
+func (p *mockProcess) UnlinkAlias(target gen.Alias) error {
+	if p.stateIR() == false {
+		return gen.ErrNotAllowed
+	}
+	return p.node.routeUnlink(p.pid, target)
+}
 func (p *mockProcess) LinkEvent(target gen.Event) ([]gen.MessageEvent, error) {
+	if p.stateIR() == false {
+		return nil, gen.ErrNotAllowed
+	}
 	return nil, p.node.routeLink(p.pid, target)
 }
-func (p *mockProcess) UnlinkEvent(target gen.Event) error { return p.node.routeUnlink(p.pid, target) }
-func (p *mockProcess) LinkNode(target gen.Atom) error     { return p.node.routeLink(p.pid, target) }
-func (p *mockProcess) UnlinkNode(target gen.Atom) error   { return p.node.routeUnlink(p.pid, target) }
+func (p *mockProcess) UnlinkEvent(target gen.Event) error {
+	if p.stateIR() == false {
+		return gen.ErrNotAllowed
+	}
+	return p.node.routeUnlink(p.pid, target)
+}
+func (p *mockProcess) LinkNode(target gen.Atom) error {
+	if p.stateIR() == false {
+		return gen.ErrNotAllowed
+	}
+	return p.node.routeLink(p.pid, target)
+}
+func (p *mockProcess) UnlinkNode(target gen.Atom) error {
+	if p.stateIR() == false {
+		return gen.ErrNotAllowed
+	}
+	return p.node.routeUnlink(p.pid, target)
+}
 
-func (p *mockProcess) Monitor(target any) error                       { return p.node.routeMonitor(p.pid, target) }
-func (p *mockProcess) Demonitor(target any) error                     { return p.node.routeDemonitor(p.pid, target) }
-func (p *mockProcess) MonitorPID(pid gen.PID) error                   { return p.node.routeMonitor(p.pid, pid) }
-func (p *mockProcess) DemonitorPID(pid gen.PID) error                 { return p.node.routeDemonitor(p.pid, pid) }
-func (p *mockProcess) MonitorProcessID(process gen.ProcessID) error   { return p.node.routeMonitor(p.pid, process) }
-func (p *mockProcess) DemonitorProcessID(process gen.ProcessID) error { return p.node.routeDemonitor(p.pid, process) }
-func (p *mockProcess) MonitorAlias(alias gen.Alias) error             { return p.node.routeMonitor(p.pid, alias) }
-func (p *mockProcess) DemonitorAlias(alias gen.Alias) error           { return p.node.routeDemonitor(p.pid, alias) }
+func (p *mockProcess) Monitor(target any) error {
+	if p.stateIR() == false {
+		return gen.ErrNotAllowed
+	}
+	return p.node.routeMonitor(p.pid, target)
+}
+func (p *mockProcess) Demonitor(target any) error {
+	if p.stateIR() == false {
+		return gen.ErrNotAllowed
+	}
+	return p.node.routeDemonitor(p.pid, target)
+}
+func (p *mockProcess) MonitorPID(pid gen.PID) error {
+	if p.stateIR() == false {
+		return gen.ErrNotAllowed
+	}
+	return p.node.routeMonitor(p.pid, pid)
+}
+func (p *mockProcess) DemonitorPID(pid gen.PID) error {
+	if p.stateIR() == false {
+		return gen.ErrNotAllowed
+	}
+	return p.node.routeDemonitor(p.pid, pid)
+}
+func (p *mockProcess) MonitorProcessID(process gen.ProcessID) error {
+	if p.stateIR() == false {
+		return gen.ErrNotAllowed
+	}
+	return p.node.routeMonitor(p.pid, process)
+}
+func (p *mockProcess) DemonitorProcessID(process gen.ProcessID) error {
+	if p.stateIR() == false {
+		return gen.ErrNotAllowed
+	}
+	return p.node.routeDemonitor(p.pid, process)
+}
+func (p *mockProcess) MonitorAlias(alias gen.Alias) error {
+	if p.stateIR() == false {
+		return gen.ErrNotAllowed
+	}
+	return p.node.routeMonitor(p.pid, alias)
+}
+func (p *mockProcess) DemonitorAlias(alias gen.Alias) error {
+	if p.stateIR() == false {
+		return gen.ErrNotAllowed
+	}
+	return p.node.routeDemonitor(p.pid, alias)
+}
 func (p *mockProcess) MonitorEvent(event gen.Event) ([]gen.MessageEvent, error) {
+	if p.stateIR() == false {
+		return nil, gen.ErrNotAllowed
+	}
 	return nil, p.node.routeMonitor(p.pid, event)
 }
-func (p *mockProcess) DemonitorEvent(event gen.Event) error { return p.node.routeDemonitor(p.pid, event) }
-func (p *mockProcess) MonitorNode(node gen.Atom) error      { return p.node.routeMonitor(p.pid, node) }
-func (p *mockProcess) DemonitorNode(node gen.Atom) error    { return p.node.routeDemonitor(p.pid, node) }
+func (p *mockProcess) DemonitorEvent(event gen.Event) error {
+	if p.stateIR() == false {
+		return gen.ErrNotAllowed
+	}
+	return p.node.routeDemonitor(p.pid, event)
+}
+func (p *mockProcess) MonitorNode(node gen.Atom) error {
+	if p.stateIR() == false {
+		return gen.ErrNotAllowed
+	}
+	return p.node.routeMonitor(p.pid, node)
+}
+func (p *mockProcess) DemonitorNode(node gen.Atom) error {
+	if p.stateIR() == false {
+		return gen.ErrNotAllowed
+	}
+	return p.node.routeDemonitor(p.pid, node)
+}
 
 // inspect / info
 
