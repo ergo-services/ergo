@@ -37,8 +37,10 @@ type StageOptions struct {
 	// Registrar overrides the default in-memory registrar. When nil, the stage
 	// uses a private in-memory registry (no ports, isolated from other stages, so
 	// any number of stages run in parallel without contending for a registrar
-	// port). Supply a factory (e.g. etcd) for cluster scenarios; it is called once
-	// per node, so each node gets its own registrar instance.
+	// port). It enforces node-name uniqueness the same way the embedded registrar
+	// does (a duplicate name fails node start with gen.ErrTaken). Supply a factory
+	// (e.g. etcd) for cluster scenarios; it is called once per node, so each node
+	// gets its own instance.
 	Registrar func() (gen.Registrar, error)
 }
 

@@ -19,10 +19,20 @@ func newMemStore() *memStore {
 	return &memStore{routes: make(map[gen.Atom][]gen.Route)}
 }
 
-func (s *memStore) put(name gen.Atom, routes []gen.Route) {
+// put registers routes under name, rejecting a duplicate name (gen.ErrTaken) or
+// empty routes (gen.ErrIncorrect) exactly like the embedded registrar, so node-name
+// uniqueness is enforced. The name is freed by del on the owner's Terminate.
+func (s *memStore) put(name gen.Atom, routes []gen.Route) error {
 	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, taken := s.routes[name]; taken {
+		return gen.ErrTaken
+	}
+	if len(routes) == 0 {
+		return gen.ErrIncorrect
+	}
 	s.routes[name] = routes
-	s.mu.Unlock()
+	return nil
 }
 
 func (s *memStore) get(name gen.Atom) ([]gen.Route, bool) {
@@ -57,8 +67,12 @@ var _ gen.Registrar = (*memRegistrar)(nil)
 // gen.Registrar
 
 func (r *memRegistrar) Register(node gen.NodeRegistrar, routes gen.RegisterRoutes) (gen.StaticRoutes, error) {
+	if err := r.store.put(node.Name(), routes.Routes); err != nil {
+		return gen.StaticRoutes{}, err
+	}
+	// set node only on success: on a rejected register Terminate must not delete the
+	// entry that the existing owner of this name holds.
 	r.node = node
-	r.store.put(node.Name(), routes.Routes)
 	return gen.StaticRoutes{}, nil
 }
 

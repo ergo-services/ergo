@@ -230,6 +230,10 @@ func (a *EventRegisteredAssert) Name(name gen.Atom) *EventRegisteredAssert {
 	a.Where(func(r EventRegistered) bool { return r.Name == name })
 	return a
 }
+func (a *EventRegisteredAssert) Ref(ref gen.Ref) *EventRegisteredAssert {
+	a.Where(func(r EventRegistered) bool { return r.Ref == ref })
+	return a
+}
 func (a *EventRegisteredAssert) Error(target error) *EventRegisteredAssert {
 	a.Where(func(r EventRegistered) bool { return r.Error == target })
 	return a
@@ -272,6 +276,10 @@ func (a *Asserter) ShouldForward() *ForwardAssert {
 }
 func (a *ForwardAssert) By(pid gen.PID) *ForwardAssert {
 	a.Where(func(r Forwarded) bool { return r.By == pid })
+	return a
+}
+func (a *ForwardAssert) From(pid gen.PID) *ForwardAssert {
+	a.Where(func(r Forwarded) bool { return r.From == pid })
 	return a
 }
 func (a *ForwardAssert) To(pid gen.PID) *ForwardAssert {
@@ -355,6 +363,8 @@ func downReason(m any) (error, bool) {
 	case gen.MessageDownAlias:
 		return d.Reason, true
 	case gen.MessageDownEvent:
+		return d.Reason, true
+	case gen.MessageDownProxy:
 		return d.Reason, true
 	}
 	return nil, false
@@ -748,6 +758,10 @@ func (x *SendExitAssert) ReasonIs(target error) *SendExitAssert {
 type LogAssert struct{ *Assertion[Logged] }
 
 func (a *Asserter) ShouldLog() *LogAssert { return &LogAssert{For[Logged](a.t, a.rec)} }
+func (x *LogAssert) From(p gen.PID) *LogAssert {
+	x.Where(func(r Logged) bool { return r.From == p })
+	return x
+}
 func (x *LogAssert) Level(l gen.LogLevel) *LogAssert {
 	x.Where(func(r Logged) bool { return r.Level == l })
 	return x
