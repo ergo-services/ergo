@@ -73,9 +73,11 @@ p.ShouldSend().To("dead").Once().Assert()    // and it was still recorded
 
 The override runs first, because it is the behavior; the record is taken afterward. This mirrors stubbing in [unit](unit.md): setting a return value never hides the action from assertions.
 
-## Composed Mocks
+## Composing Mocks
 
-Some interfaces hand back others. A `gen.Node` exposes a `gen.Log`, a `gen.Network`, and a `gen.Cron`; a `gen.Network` exposes a `gen.Registrar`; a `gen.Registrar` exposes a `gen.Resolver`. A recording mock creates these sub-mocks sharing its own recorder, so everything the node and its logger do collates into one ordered journal you assert over as a whole:
+Some interfaces hand back others: a `gen.Node` exposes a `gen.Log`, a `gen.Network`, and a `gen.Cron`; a `gen.Network` exposes a `gen.Registrar`, which in turn exposes a `gen.Resolver`. You do two separate things with that, and keeping them apart is what keeps it simple.
+
+The first is reading them, and it comes for free. A recording mock wires the sub-mocks it owns to share its recorder, so whatever they do collates into one journal. You use them exactly as on a real node and assert through the parent - here the node's own logger lands in the node's journal:
 
 ```go
 n := mock.NewNodeT(t)
@@ -86,14 +88,20 @@ n.ShouldSend().To("peer").Message("ping").Once().Assert()
 n.ShouldLog().Containing("started 3 workers").Once().Assert()
 ```
 
-The sub-mocks are exported types, so when you need to shape a value deeper in the tree you reach it by type assertion and override its method - here, making the node's resolver fail:
+The second is steering them: making one of those returned interfaces behave a certain way - say, a resolver that fails. You do not reach down into the parent's sub-mock; you build your own from the bottom up and wire it in with the parent's `On*` override. Each mock is configured on the concrete value you hold, so every `On*` is right there, and nothing needs a type assertion:
 
 ```go
-net := mock.NewNetworkT(t)
-reg, _ := net.Registrar()
-reg.(*mock.Registrar).Resolver().(*mock.Resolver).
-    OnResolve(func(node gen.Atom) ([]gen.Route, error) { return nil, gen.ErrNoRoute })
+resolver := mock.NewResolver()
+resolver.OnResolve(func(node gen.Atom) ([]gen.Route, error) { return nil, gen.ErrNoRoute })
+
+reg := mock.NewRegistrar()
+reg.OnResolver(func() gen.Resolver { return resolver })
+
+net := mock.NewNetwork()
+net.OnRegistrar(func() (gen.Registrar, error) { return reg, nil })
 ```
+
+Now code that calls `net.Registrar()` receives `reg`, and `reg.Resolver()` receives the failing resolver - the same chain the code walks, assembled the way you would assemble the real one.
 
 ## The Mock Types
 
